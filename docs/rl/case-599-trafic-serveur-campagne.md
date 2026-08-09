@@ -112,16 +112,54 @@ neutre parce qu'il « revient sur la campagne ».
 retire au déploiement, la bataille ne démarre jamais. Confirmé depuis par la victoire, qui en
 émet un — l'absence était bien un fait sur le warmup, pas sur le `Start`.
 
-## Les nœuds 1..13 ne sont pas rejouables
+## `#599-r1` — voir qu'un nœud est INJOUABLE : à moitié résolu, et je dis quelle moitié
 
-Mesuré en cherchant une bataille facile : le bouton du nœud **2** rend `ok:true` à **cinq**
-clics d'affilée et **rien ne s'ouvre** ; le nœud **14**, cliqué juste après par le même code,
-ouvre l'aperçu du premier coup. Ce n'est donc pas un clic avalé (la parade « rejouer » ne
-change rien) mais un handler qui ne fait rien. Cohérent avec le fait que campaign1 oppose ses
-mannequins FTUE sur ses premiers nœuds.
+Le bouton du nœud **2** rend `ok:true` à **cinq** clics d'affilée sans rien ouvrir ; le nœud
+**14**, cliqué juste après par le même code, ouvre du premier coup. Pas un clic avalé — un
+handler inerte.
 
-⚠ Seul le nœud 2 a été mesuré. « 1..13 » est une INFÉRENCE depuis la borne FTUE connue, pas un
-balayage — ne pas la citer comme mesurée.
+⚠ **« mannequin FTUE » et « nœud de tutoriel » sont INDÉPENDANTS**, et les confondre a produit
+une borne inventée. La fiche a d'abord écrit « les nœuds 1..13 ne sont pas rejouables », déduit
+de « campaign1 oppose ses mannequins FTUE sur ses premiers nœuds ». Or le nœud **14** oppose
+lui aussi des `necroNpc1TutWarriorFTUEtest` et **se joue très bien**. Les nœuds de tutoriel
+d'Indomitus sont **1 à 5**.
+
+**Le grisé est invisible à notre outillage, structurellement.** Le jeu grise le bouton d'un
+nœud injouable ; `uiList` n'énumère que des `UnityEngine.UI.Button` et ne voit ni l'`Image`
+d'habillage ni l'icône de verrou qui vivent DANS le bouton. Et ce n'est pas l'état désactivé du
+`Selectable` : le nœud 2 rapporte `interactable: true`.
+
+**Lire la CAUSE plutôt que le teint** — RPC `campaignNodeState({locationIndex})` (0-basé), sur
+`IdunMetaLogic.UserProgress.CampaignProgression` (`_campaignProgression` du
+`CampaignGameModeSource`, offset résolu par NOM) :
+
+```
+IsLocationReached · HasTokensToPlayCampaignBattle · HasStaminaToPlayCampaignBattle · IsLocked
+HasWonLocation · GetTimesWon · GetTimesLost · GetStarsOfLocation · IsInCampaignTutorial
+```
+
+Contre-épreuve passée (un lecteur qui ne peut pas échouer ne vaut rien) :
+`locationIndex 999` → `reached=false, stars=0, timesWon=0` ; `-5` → `null` (PAS MESURÉ, pas 0) ;
+nœud 14 → **`timesWon=14, timesLost=2`**. Donc les valeurs sont réelles et varient.
+
+⚠ **ET IL NE RÉPOND PAS À LA QUESTION POSÉE.** Sur le nœud 2 — celui qui refuse — il rend
+`reached=true, tokens=true, stamina=true, locked=false, won=true, stars=3`, soit **tout vert**.
+Le refus d'un nœud de tutoriel ne vit donc PAS dans la couche progression ; il est au-dessus,
+dans l'écran ou le widget. `campaignNodeState` répond « la progression bloque-t-elle ? », pas
+« ce nœud est-il jouable ? » — s'en servir pour la seconde question donnerait un FAUX VERT.
+
+Piste non aboutie pour la moitié manquante : le jeu a bien la notion
+(`GetTotalAmountOfStarsClaimedExcludingTutorialLevels`, infobulle
+`IdunLocalization.Tooltips$$Campaign_TutorialLevel`, `CampaignProgression$$GetTutorialToTrigger`),
+mais l'infobulle n'a que des xrefs DATA et la classe du bouton de campagne standard n'apparaît
+pas dans les tables — ce qui, par la règle du dépôt, ne prouve rien.
+
+⚠ **Le plafond de 5 parties est JOURNALIER, pas cumulé** : `GetTimesWon` rend **14** sur le
+nœud 14. Le budget du jour est `HasTokensToPlayCampaignBattle` + `CampaignTokenProgression`
+(`RefillTokensIfResetDue`, `GetNextTokenResetTime`, `CanSpendDefaultAmount`). Au relevé, les 13
+nœuds échantillonnés ont **tous** leurs jetons — le warmup n'a donc pas épuisé le nœud 61.
+Reste NON MESURÉ : **si une retraite consomme un jeton**. C'est la question qui décide si notre
+warmup coûte quelque chose, et un booléen ne la tranche pas — il faudrait le COMPTE.
 
 ## Reproduire
 

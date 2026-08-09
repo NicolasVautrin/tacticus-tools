@@ -31,7 +31,7 @@
 
 import {
     class_get_methods, class_get_name,
-    findClass, findClassAnywhere, findMethod,
+    findClass, findClassAnywhere, findMethod, findMethodByParamCount,
     getFieldOffset, il2cppBase, IL2CPP_MODULE_NAME, MethodRef,
     methodEntry, method_get_name, method_get_param_count, s,
 } from "../il2cpp/helpers.js";
@@ -1220,5 +1220,86 @@ export function register(ctx: Ctx): void {
         hasInstance: campaignGameModeSourcePtr !== null,
         instance: campaignGameModeSourcePtr ? campaignGameModeSourcePtr.toString() : null,
         gameConfig: lastGameConfig ? lastGameConfig.toString() : null,
+    });
+
+    /** POURQUOI un nœud de campagne est INJOUABLE — la CAUSE, pas le symptôme (#599-r1).
+     *
+     *  Le jeu GRISE le bouton d'un nœud injouable. Notre outillage ne peut pas le voir :
+     *  `uiList` n'énumère que des `UnityEngine.UI.Button`, jamais l'`Image` d'habillage ni
+     *  l'icône de verrou qui vivent DANS le bouton — et le grisé n'est pas l'état désactivé du
+     *  `Selectable` (le nœud 2, injouable, rapporte `interactable: true`). Mesuré à la dure :
+     *  cinq clics sur ce nœud, cinq `ok:true`, rien ne s'ouvre.
+     *
+     *  On lit donc les prédicats que le jeu lui-même consulte, sur
+     *  `IdunMetaLogic.UserProgress.CampaignProgression` — l'instance vit à `_campaignProgression`
+     *  sur le `CampaignGameModeSource` capturé au warmup. Tri-état : `null` = PAS MESURÉ
+     *  (méthode irrésolue ou invoke en faute), jamais rabattu sur `false` — un `false` muet se
+     *  lirait « ce nœud est verrouillé » et ferait renoncer à une bataille jouable.
+     *
+     *  body: { locationIndex } — 0-BASÉ, comme `buildCampaignConfig` (nœud 14 => 13). */
+    ctx.rpc.campaignNodeState = (
+        body?: { locationIndex?: number },
+    ): Promise<unknown> => queueOnMainThread(() => {
+        const loc = body?.locationIndex;
+        if (typeof loc !== "number") return { ok: false, error: "passer locationIndex (0-base)" };
+        const src = campaignGameModeSourcePtr;
+        if (src === null) {
+            return { ok: false, error: "aucun CampaignGameModeSource capture — warmup requis" };
+        }
+        // Offset résolu PAR NOM sur la classe réelle : une constante en dur survivrait au
+        // changement de build et lirait un champ voisin comme si c'était la progression.
+        const srcKlass = src.readPointer();
+        const offProg = getFieldOffset(srcKlass, "_campaignProgression");
+        if (offProg < 0) {
+            return { ok: false, error: "_campaignProgression absent de la classe source" };
+        }
+        const prog = src.add(offProg).readPointer();
+        if (prog.isNull()) return { ok: false, error: "_campaignProgression nul" };
+        const klass = prog.readPointer();
+
+        const arg = Memory.alloc(4); arg.writeS32(loc);
+        const layout: Record<string, unknown> = { offCampaignProgression: offProg };
+        /** Invoque `nom(locationIndex)` ou `nom()`, et décode le retour BOXÉ (valeur @+0x10). */
+        const appel = (nom: string, avecArg: boolean): number | boolean | null => {
+            const mi = findMethodByParamCount(klass, nom, avecArg ? 1 : 0);
+            layout[nom] = !!mi;
+            if (!mi) return null;
+            try {
+                const r = invokeMethod(mi.info, prog, avecArg ? [arg] : []);
+                if (r.isNull()) return null;
+                return r.add(0x10).readS32();
+            } catch { return null; }
+        };
+        const bool = (v: number | boolean | null): boolean | null =>
+            v === null ? null : !!v;
+
+        const isLocationReached = bool(appel("IsLocationReached", true));
+        const hasTokens = bool(appel("HasTokensToPlayCampaignBattle", true));
+        const hasStamina = bool(appel("HasStaminaToPlayCampaignBattle", true));
+        const isLocked = bool(appel("IsLocked", false));
+        const isInCampaignTutorial = bool(appel("IsInCampaignTutorial", false));
+        const hasWon = bool(appel("HasWonLocation", true));
+        const timesWon = appel("GetTimesWon", true);
+        const timesLost = appel("GetTimesLost", true);
+        const stars = appel("GetStarsOfLocation", true);
+
+        // Le PREMIER motif qui bloque, dans l'ordre où le jeu les oppose. `null` (pas mesuré)
+        // n'est jamais compté comme un blocage : on ne refuse pas sur ce qu'on n'a pas lu.
+        let bloqueur: string | null = null;
+        if (isLocked === true) bloqueur = "IsLocked";
+        else if (isLocationReached === false) bloqueur = "!IsLocationReached";
+        else if (hasTokens === false) bloqueur = "!HasTokensToPlayCampaignBattle";
+        else if (hasStamina === false) bloqueur = "!HasStaminaToPlayCampaignBattle";
+
+        return {
+            ok: true, locationIndex: loc, noeud: loc + 1,
+            isLocked, isLocationReached, hasTokens, hasStamina, isInCampaignTutorial,
+            hasWon, timesWon, timesLost, stars,
+            bloqueur,
+            // `bloqueur === null` ne dit PAS « jouable » : il dit « aucun des quatre motifs
+            // LUS ne bloque ». Le nœud de tutoriel, lui, n'est refusé par aucun d'eux.
+            verdict: bloqueur === null ? "aucun des motifs lus ne bloque" : "BLOQUE : " + bloqueur,
+            layout,
+        };
     });
 }
