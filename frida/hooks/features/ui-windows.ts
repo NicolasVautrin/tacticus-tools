@@ -18,9 +18,40 @@
 //       _hideableMenus                           ce qui peut être masqué
 //       _blurredBackgroundManager                le fond flouté = signal MODAL
 //
-// `MenuSystems` porte un `Update()` : c'est un MonoBehaviour, donc `FindObjectsByType` le
-// trouve — aucune dépendance au FSM, aucune bataille requise. C'est ce qui rend ce module
-// petit là où la traversée `_actions._hud._menuSystems` aurait exigé une bataille en cours.
+// ⚠ ET POURTANT `MenuSystems` N'EST PAS LE POINT D'ENTRÉE. Première version de ce module :
+// « il porte un `Update()`, donc c'est un MonoBehaviour, donc `FindObjectsByType` le trouve ».
+// Mesure au premier appel live : `instances: 0`. La réfutation était déjà dans le relevé de
+// `classFields` — le dump de `MenuSystems` ne montre AUCUN `m_CachedPtr`, là où celui de
+// `ScreenVisibility` le montre. `MenuSystems` est une classe C# ORDINAIRE ; son `Update()` est
+// appelé à la main par un pilote. Un `Update()` ne prouve pas l'héritage : `m_CachedPtr`, si.
+//
+// LE POINT D'ENTRÉE EST DONC `idun.ui.ScreenVisibility`, qui EST un MonoBehaviour (mesuré :
+// il hérite `m_CachedPtr`) et qui porte tout ce qui compte — sa clé, son état, son statut de
+// rendu et son `Canvas`.
+//
+// ⚠ LE Z-ORDER UNITY NE DISCRIMINE RIEN ICI, ET LE STATUT DE RENDU SUFFIT. Ce module a
+// d'abord été écrit sur l'idée « `Canvas.sortingOrder` décide qui est peint par-dessus qui ».
+// Confronté le 2026-08-09 : `sortingOrder == 0` sur les SEPT écrans chargés, popups compris —
+// le tri est donc inopérant. Le vrai signal est `RenderStatus`, parce que le jeu applique
+// `ScreenVisibilityManager$$DisableRenderingOfEverythingBehind` : il n'y a JAMAIS deux écrans
+// `Rendering` en même temps. Mesure sur l'empilement Pause + confirmation de retraite — le
+// cas que `vue.py` ne sait pas départager : à l'ouverture de la confirmation, `PauseMenu`
+// passe `Rendering -> NotRendering` et `MessagePopup` devient le seul rendu. `devant` est donc
+// non ambigu par construction, pas par notre tri.
+// Le tri par `tri` est CONSERVÉ (il coûte deux appels et deviendrait le discriminant si un
+// build cessait de désactiver le rendu du dessous), mais il ne doit pas être présenté comme
+// ce qui fonde la réponse.
+//
+// ⚠ CE QUE ÇA NE COUVRE PAS, MESURÉ : en bataille, `visibles == 0` et `devant == null`. Le HUD
+// de combat n'est pas un écran rendu par cette couche. Ne pas lire ce `null` comme « rien à
+// l'écran » — c'est « aucune fenêtre GÉRÉE n'est devant ».
+//
+// Ce qui reste HORS de portée par cette voie, et qu'on ne prétend pas rendre :
+// `_lastScreenRendered` et `_hideableMenus` vivent sur les deux classes ORDINAIRES
+// (`MenuSystems`, `ScreenVisibilityManager`) — aucune n'est énumérable, et aucun
+// `ScreenVisibility` ne porte de lien retour vers son manager. Les atteindre demanderait un
+// détenteur MonoBehaviour (`IdunGameHud._menuSystems`, qui n'existe qu'en bataille). Non fait,
+// et dit plutôt que contourné.
 //
 // LA CLÉ EST UN ENUM, ET C'EST CE QUI REND LA SORTIE LISIBLE
 // -----------------------------------------------------------
@@ -49,8 +80,8 @@
 // slots et la nullité du pointeur ; ouvrir un menu reste un geste explicite de l'appelant.
 
 import {
-    class_get_fields, class_get_name, field_get_name, field_get_offset, field_get_type,
-    findClassAnywhere, getSystemType, readIl2cppString, s as cstr,
+    class_get_fields, field_get_name, field_get_offset, field_get_type,
+    findClassAnywhere, findMethod, findMethodByParamCount, getSystemType, s as cstr,
     type_get_class_or_element_class,
 } from "../il2cpp/helpers.js";
 import { dumpEnumClass } from "../il2cpp/enum-dump.js";
@@ -58,10 +89,6 @@ import { invokeMethod } from "../il2cpp/invoke.js";
 import { queueOnMainThread } from "../runtime/queue.js";
 import { ensureRefs } from "./ui-nav.js";
 import { Ctx } from "../controller.js";
-
-/** Garde-fou d'itération : une `List<T>` de taille aberrante signale un pointeur mal résolu,
- *  pas une pile géante. On REFUSE plutôt que de balayer la mémoire. */
-const PLAFOND_LISTE = 4096;
 
 interface Champ { nom: string; offset: number; typeKlass: NativePointer | null }
 
@@ -127,52 +154,6 @@ function membre(
     return { v, nom: t ? (t[v] ?? null) : null };
 }
 
-/** Les éléments d'une `List<T>` IL2CPP (`_items` @+0x10, `_size` @+0x18, données @+0x20).
- *  `null` = PAS LU (liste absente ou taille aberrante), jamais `[]` : un tableau vide se
- *  lirait comme « la pile est vide », ce qui est une mesure, pas une panne. */
-function elementsDeListe(liste: NativePointer | null): NativePointer[] | null {
-    if (liste === null) return null;
-    try {
-        const taille = liste.add(0x18).readS32();
-        if (taille < 0 || taille > PLAFOND_LISTE) return null;
-        const items = liste.add(0x10).readPointer();
-        if (items.isNull()) return taille === 0 ? [] : null;
-        const out: NativePointer[] = [];
-        for (let i = 0; i < taille; i++) {
-            out.push(items.add(0x20 + i * Process.pointerSize).readPointer());
-        }
-        return out;
-    } catch { return null; }
-}
-
-/** Les slots `IMenu<T>` de `MenuSystems`, par NOM. On ne lit que la nullité du pointeur —
- *  cf. l'avertissement GET-OR-CREATE de l'en-tête. */
-function slotsDeMenus(
-    klass: NativePointer, ms: NativePointer,
-): Array<{ nom: string; monte: boolean }> {
-    const out: Array<{ nom: string; monte: boolean }> = [];
-    const it = Memory.alloc(Process.pointerSize);
-    it.writePointer(ptr(0));
-    let f: NativePointer;
-    while (!(f = class_get_fields(klass, it) as NativePointer).isNull()) {
-        let tn = "";
-        try {
-            const tk = type_get_class_or_element_class(
-                field_get_type(f) as NativePointer) as NativePointer;
-            tn = tk.isNull() ? "" : cstr(class_get_name(tk) as NativePointer);
-        } catch { continue; }
-        // `IMenu\`1`, `IExternalMenu\`1`, `IAsyncMenu\`1`, `Menu\`1` — la marque est le
-        // suffixe generique, pas un prefixe : les quatre coexistent dans la meme classe.
-        if (!/^(I)?(External|Async)?Menu`1$/.test(tn)) continue;
-        const nom = cstr(field_get_name(f) as NativePointer);
-        const off = field_get_offset(f) as number;
-        let monte = false;
-        try { monte = !ms.add(off).readPointer().isNull(); } catch { /* */ }
-        out.push({ nom, monte });
-    }
-    return out;
-}
-
 export function register(ctx: Ctx): void {
     /** Le gestionnaire de fenêtres DU JEU, tel quel. Read-only, n'ouvre et ne clique rien.
      *
@@ -182,26 +163,45 @@ export function register(ctx: Ctx): void {
      *  jamais rabattu sur vide/0/faux. `champsAbsents` dit LESQUELS, pour qu'un `null` se
      *  lise comme une péremption et non comme un état du jeu.
      */
-    ctx.rpc.uiWindows = (body?: { menus?: boolean }): Promise<unknown> =>
+    ctx.rpc.uiWindows = (): Promise<unknown> =>
         queueOnMainThread(() => {
-            const klass = findClassAnywhere("thor.Menu", "MenuSystems");
-            if (!klass) {
-                return { ok: false, error: "classe thor.Menu.MenuSystems introuvable -- "
-                    + "gestionnaire de fenetres renomme, ou build change" };
+            const kSv = findClassAnywhere("idun.ui", "ScreenVisibility");
+            if (!kSv) {
+                return { ok: false, error: "classe idun.ui.ScreenVisibility introuvable -- "
+                    + "la couche UI a ete renommee, ou le build a change" };
             }
 
-            // MÊME service que `uiList` (`Object.FindObjectsByType`), résolu une seule fois
-            // dans `ui-nav.ensureRefs` — pas une seconde résolution qui pourrait diverger.
-            const r = ensureRefs();
+            // ⚠ IL FAUT LA SURCHARGE QUI INCLUT LES INACTIFS, ET C'EST UNE MESURE.
+            // `uiList` utilise `FindObjectsByType(Type, FindObjectsSortMode)` — cette
+            // surcharge-là EXCLUT les objets inactifs. Sur les `Button` ça tombe juste (on ne
+            // veut que le cliquable) ; ici ça a rendu **0 écran** alors que la classe résout
+            // et hérite bien de MonoBehaviour (chaîne mesurée :
+            // `ScreenVisibility <- MonoBehaviour <- Object`). Un écran MASQUÉ est exactement
+            // ce qu'on veut voir — c'est la moitié de la réponse à « qui est devant ».
+            // D'où la surcharge à 3 arguments, `FindObjectsInactive.Include = 1`.
+            const kObj = findClassAnywhere("UnityEngine", "Object");
+            const mi3 = kObj ? findMethodByParamCount(kObj, "FindObjectsByType", 3) : null;
             const sortMode = Memory.alloc(4).writeS32(0);
-            const arr = invokeMethod(
-                r.findObjectsByType.info, null, [getSystemType(klass), sortMode]);
+            const inclureInactifs = Memory.alloc(4).writeS32(1);
+            let arr: NativePointer;
+            let voieInactifs: boolean;
+            if (mi3 !== null) {
+                voieInactifs = true;
+                arr = invokeMethod(mi3.info, null,
+                                   [getSystemType(kSv), inclureInactifs, sortMode]);
+            } else {
+                // Repli sur la surcharge de `uiList`. On le DIT (`voieInactifs: false`) :
+                // sans ça, une liste amputée des écrans masqués se lirait comme complète.
+                voieInactifs = false;
+                arr = invokeMethod(ensureRefs().findObjectsByType.info, null,
+                                   [getSystemType(kSv), sortMode]);
+            }
             const n = arr.isNull() ? 0 : arr.add(0x18).readS32();
             if (n <= 0) {
-                return { ok: false, instances: 0, error: "aucun MenuSystems vivant -- "
-                    + "l'UI n'est pas montee (jeu en cours de chargement ?)" };
+                return { ok: false, ecrans: 0, voieInactifs,
+                    error: "aucun ScreenVisibility vivant -- l'UI n'est pas montee "
+                        + "(jeu en cours de chargement ?)" };
             }
-            const ms = arr.add(0x20).readPointer();
 
             const absents: string[] = [];
             const exige = (k: NativePointer, nom: string): Champ | null => {
@@ -209,76 +209,74 @@ export function register(ctx: Ctx): void {
                 if (c === null) absents.push(nom);
                 return c;
             };
+            const cGui = exige(kSv, "<GuiId>k__BackingField");
+            const cEtat = exige(kSv, "_state");
+            const cRendu = exige(kSv, "<RenderStatus>k__BackingField");
+            const cOverlay = exige(kSv, "OverlayType");
+            const cCanvas = exige(kSv, "Canvas");
+            const cRay = exige(kSv, "Raycaster");
 
-            const cVis = exige(klass, "<VisibilityManager>k__BackingField");
-            const cHide = exige(klass, "_hideableMenus");
-            const cFlou = exige(klass, "_blurredBackgroundManager");
+            const tGui = tableEnum(cGui?.typeKlass ?? null);
+            const tEtat = tableEnum(cEtat?.typeKlass ?? null);
+            const tRendu = tableEnum(cRendu?.typeKlass ?? null);
+            const tOverlay = tableEnum(cOverlay?.typeKlass ?? null);
 
-            const vis = lirePointeur(ms, cVis);
-            let devant: string | null = null;
-            let pile: unknown[] | null = null;
+            // Le z-order UNITY. `null` = non résolu (méthode absente) — jamais 0, qui est un
+            // ordre de tri parfaitement légitime.
+            const kCanvas = findClassAnywhere("UnityEngine", "Canvas");
+            const miTri = kCanvas ? findMethod(kCanvas, "get_sortingOrder") : null;
+            const miSurcharge = kCanvas ? findMethod(kCanvas, "get_overrideSorting") : null;
+            if (kCanvas === null) absents.push("UnityEngine.Canvas");
 
-            if (vis !== null) {
-                const kVis = vis.readPointer();
-                const cDernier = exige(kVis, "_lastScreenRendered");
-                const cPile = exige(kVis, "_screenVisibilities");
-                const sDernier = lirePointeur(vis, cDernier);
-                devant = sDernier === null ? null : readIl2cppString(sDernier);
+            const lireTri = (cv: NativePointer | null): number | null => {
+                if (cv === null || miTri === null) return null;
+                try { return invokeMethod(miTri.info, cv, []).add(0x10).readS32(); }
+                catch { return null; }
+            };
+            const lireSurcharge = (cv: NativePointer | null): boolean | null => {
+                if (cv === null || miSurcharge === null) return null;
+                try {
+                    return invokeMethod(
+                        miSurcharge.info, cv, []).add(0x10).readU8() !== 0;
+                } catch { return null; }
+            };
 
-                const els = elementsDeListe(lirePointeur(vis, cPile));
-                if (els === null) {
-                    pile = null;
-                } else if (els.length === 0) {
-                    pile = [];
-                } else {
-                    // Les champs se résolvent sur la classe du PREMIER élément, une fois —
-                    // pas par élément : ils sont tous du même type.
-                    const kSv = els[0].isNull()
-                        ? null : els[0].readPointer();
-                    const cGui = kSv ? champ(kSv, "<GuiId>k__BackingField") : null;
-                    const cEtat = kSv ? champ(kSv, "_state") : null;
-                    const cRendu = kSv ? champ(kSv, "<RenderStatus>k__BackingField") : null;
-                    const cOverlay = kSv ? champ(kSv, "OverlayType") : null;
-                    const cCanvas = kSv ? champ(kSv, "Canvas") : null;
-                    const cRay = kSv ? champ(kSv, "Raycaster") : null;
-                    for (const [nom, c] of [
-                        ["<GuiId>k__BackingField", cGui], ["_state", cEtat],
-                        ["<RenderStatus>k__BackingField", cRendu],
-                        ["OverlayType", cOverlay],
-                    ] as Array<[string, Champ | null]>) {
-                        if (c === null) absents.push(nom);
-                    }
-                    const tGui = tableEnum(cGui?.typeKlass ?? null);
-                    const tEtat = tableEnum(cEtat?.typeKlass ?? null);
-                    const tRendu = tableEnum(cRendu?.typeKlass ?? null);
-                    const tOverlay = tableEnum(cOverlay?.typeKlass ?? null);
-
-                    pile = els.map((e, i) => ({
-                        i,
-                        // L'ORDRE EST CELUI DU JEU (`_screenVisibilities`), pas un tri de
-                        // notre fait : `ScreenVisibilityManager$$CompareHideables` est SA
-                        // fonction de classement, et la reproduire ici serait un fork.
-                        gui: membre(lireInt(e, cGui), tGui),
-                        etat: membre(lireInt(e, cEtat), tEtat),
-                        rendu: membre(lireInt(e, cRendu), tRendu),
-                        overlay: membre(lireInt(e, cOverlay), tOverlay),
-                        aCanvas: cCanvas === null ? null : lirePointeur(e, cCanvas) !== null,
-                        aRaycaster: cRay === null ? null : lirePointeur(e, cRay) !== null,
-                    }));
-                }
+            const ecrans = [];
+            for (let i = 0; i < n; i++) {
+                const e = arr.add(0x20 + i * Process.pointerSize).readPointer();
+                if (e.isNull()) continue;
+                const cv = lirePointeur(e, cCanvas);
+                ecrans.push({
+                    gui: membre(lireInt(e, cGui), tGui),
+                    etat: membre(lireInt(e, cEtat), tEtat),
+                    rendu: membre(lireInt(e, cRendu), tRendu),
+                    overlay: membre(lireInt(e, cOverlay), tOverlay),
+                    tri: lireTri(cv),
+                    triSurcharge: lireSurcharge(cv),
+                    aRaycaster: cRay === null ? null : lirePointeur(e, cRay) !== null,
+                });
             }
 
-            const hide = elementsDeListe(lirePointeur(ms, cHide));
+            // Tri par z-order — SANS EFFET aujourd'hui (`tri == 0` partout, mesuré), gardé
+            // comme filet si un build cessait de désactiver le rendu du dessous. L'ordre
+            // d'énumération de `FindObjectsByType` n'est PAS une pile : le publier tel quel
+            // se lirait comme un ordre alors que c'est un ordre de tas.
+            ecrans.sort((a, b) => (b.tri ?? -1e9) - (a.tri ?? -1e9));
 
+            // « DEVANT » = celui QUI REND ENCORE, et c'est le vrai discriminant : le jeu
+            // n'en laisse qu'UN (`DisableRenderingOfEverythingBehind`). Confronté sur
+            // l'empilement Pause + confirmation — `PauseMenu` bascule en `NotRendering` dès
+            // que `MessagePopup` s'ouvre. Compter un `NotRendering` désignerait comme premier
+            // plan quelque chose que le joueur ne voit pas.
+            const visible = ecrans.filter((x) => x.rendu.nom === "Rendering");
             return {
                 ok: true,
-                instances: n,
-                devant,
-                pile,
-                hideables: hide === null ? null : hide.length,
-                fondFloute: cFlou === null ? null : lirePointeur(ms, cFlou) !== null,
+                ecrans: n,
+                voieInactifs,
+                devant: visible.length ? visible[0].gui.nom : null,
+                visibles: visible.length,
+                pile: ecrans,
                 champsAbsents: absents,
-                menus: body?.menus ? slotsDeMenus(klass, ms) : undefined,
             };
         });
 }
