@@ -888,3 +888,43 @@ comme rendant `null` (étape courante `+0x10` == étape cible `+0x14`).
 — il valait **9** avec 12 entités sur le plateau et 5 unités encore dans `toActivate`. Établir
 ce qu'il compte exactement est un préalable à toute conclusion bâtie dessus.
 
+
+## `decisionView.effects` N'EST PAS la liste d'effets que le joueur VOIT
+
+Confronté le 2026-08-09 (`Campaign1_06`, session 22), unité par unité : ce que le MOTEUR
+déclare (`decisionView.units[].effects`) contre ce que la VUE PERSONNAGE montre (les icônes
+`Idun_Unit_Info_Bar_UnitEffectIcon` de `Unit_Info_Bar_HUD`, relevées après sélection).
+
+| unité | effets déclarés | dont actifs | icônes affichées |
+|---|---|---|---|
+| `ultraApothecary` | 1 — `Narthecium_Revive` | 1 | **0** |
+| `ultraInceptorSgt` | 0 | 0 | 0 |
+| `ultraEliminatorSgt` | 2 — `HeavyWeapon_ExtraDmg`, `Infiltrate` | 2 | **0** |
+| `ultraTigurius` | 2 — `PsychicFortress_ExtraBlock`, `_DmgReduction` | 2 | **0** |
+| `ultraCalgar` | 3 — `RitesOfBattle_ExtraDmgBasic`, `_ExtraDmgImperial`, `CrushingStrike` | 3 | **1** |
+
+**8 effets déclarés, 1 icône.** Et le fait qui l'explique : **les 8 portent `source` == leur
+propre unité**. Ce sont les passifs du KIT, pas des effets reçus — la vue ne les rend pas
+comme icônes d'effet.
+
+⇒ **Les deux sources ne comptent pas la même chose, et l'écart n'est pas une erreur.**
+`decisionView.effects` inclut le kit intrinsèque ; les icônes montrent (au moins
+principalement) ce qui a été APPLIQUÉ. En déduire « la vue est en retard » ou « notre lecture
+est fausse » serait faux dans les deux sens.
+
+⚠ **Contrôle interne : le zéro est un VRAI zéro.** `uiList` n'énumère que des
+`UnityEngine.UI.Button` sur objets ACTIFS, donc un « 0 icône » pourrait n'être qu'un angle
+mort de l'outil. Il ne l'est pas ici : Calgar en rend **1** dans le même relevé, avec le même
+énumérateur — le lister VOIT ces widgets quand ils sont affichés.
+
+⚠ **CE QUI RESTE HORS D'ATTEINTE : QUEL effet est l'icône.** Elle ne porte ni libellé
+(`label: null`) ni sous-arbre lisible. « 1 icône pour 3 effets » est donc un COMPTE, jamais un
+appariement. Le nom vit dans les champs du widget, et le mur est le même que pour les
+abilities : `fsmStateInvoke` n'accepte pas de pointeur et ne sait pas indexer une liste.
+
+⚠ **Ne pas généraliser depuis ce relevé** : il est pris au tout début d'une bataille, avant
+que l'adversaire ait joué — donc AUCUN effet reçu n'existe encore. La confrontation qui
+compte vraiment (un buff/debuff appliqué apparaît-il des DEUX côtés ?) demande un tour d'IA,
+et elle n'est PAS faite. Écrire qu'elle l'est serait exactement le genre d'accord en régime
+dégénéré que le dépôt proscrit : deux sources qui s'accordent sur du vide ne prouvent rien.
+
