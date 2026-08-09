@@ -975,10 +975,42 @@ est fausse » serait faux dans les deux sens.
 mort de l'outil. Il ne l'est pas ici : Calgar en rend **1** dans le même relevé, avec le même
 énumérateur — le lister VOIT ces widgets quand ils sont affichés.
 
-⚠ **CE QUI RESTE HORS D'ATTEINTE : QUEL effet est l'icône.** Elle ne porte ni libellé
-(`label: null`) ni sous-arbre lisible. « 1 icône pour 3 effets » est donc un COMPTE, jamais un
-appariement. Le nom vit dans les champs du widget, et le mur est le même que pour les
-abilities : `fsmStateInvoke` n'accepte pas de pointeur et ne sait pas indexer une liste.
+⚠ ~~**CE QUI RESTE HORS D'ATTEINTE : QUEL effet est l'icône.**~~ **LEVÉ le 2026-08-10** — cf.
+la section suivante. L'icône n'a effectivement ni libellé ni sous-arbre lisible, mais ce
+n'était pas la bonne question : le jeu ne MET PAS le nom dans l'icône, il le montre dans une
+INFOBULLE quand on clique. « 1 icône pour 3 effets » n'est plus un compte, c'est apparié.
+
+
+## Les icônes se NOMMENT — il suffisait de cliquer et de lire l'infobulle
+
+Mesuré le 2026-08-10 (`Campaign1_06`, session 28), sur `ultraCalgar`. En cliquant chaque icône
+de `Unit_Info_Bar_HUD` puis en lisant `uiTexts` (cf. `case-599`), les **6** icônes se nomment,
+se décrivent et se typent :
+
+| widget | `_Info` | Titre | Description (extrait) |
+|---|---|---|---|
+| `Info_Bar_Ability` | *Active Ability · Ranged Attack* | **Gauntlets of Ultramar** | `1x` **2713-3488 Bolter Damage** à tous les ennemis à 2 hexes |
+| `Info_Bar_Ability` | *Passive Ability* | **Rites of Battle** | alliés adjacents **+898 Damage** ; Imperial … |
+| `UnitEffectIcon` | **Buffed** | **Crushing Strike** | attaques Melee normales **+50% Damage** |
+| `TraitIcon` | Trait | **Mk X Gravis** | les dégâts entrants retraversent l'Armour |
+| `TraitIcon` | Trait | **Crushing Strike** | **+50% Damage** en melee si l'unité n'a pas bougé |
+| `TraitIcon` | Trait | **Final Vengeance** | à la mort, attaque normale sur une cible éligible |
+
+⇒ **Et l'écart 3 effets / 1 icône s'explique enfin.** Le moteur déclare
+`RitesOfBattle_ExtraDmgBasic`, `RitesOfBattle_ExtraDmgImperial`, `CrushingStrike` ; la vue les
+répartit sur **trois familles de widgets distinctes** — les deux `RitesOfBattle` sont rendus
+comme l'**ability passive** « Rites of Battle », `CrushingStrike` comme **icône d'effet**, et
+le trait homonyme comme **trait**. Compter les `UnitEffectIcon` face à `decisionView.effects`
+comparait donc deux ensembles qui ne se recouvrent pas.
+
+⚠ **Les descriptions portent les valeurs RÉSOLUES** (`+898 Damage`, `2713-3488 Bolter Damage`)
+— per-unit, per-niveau, calculées par le jeu. C'est un oracle de contre-épreuve pour un port :
+la valeur que le joueur LIT, à confronter à celle que notre moteur calcule. On ne l'avait
+jamais eue.
+
+⚠ Le texte est balisé (`<style="Stat_Damage">…</style>`) : le dépouiller est trivial mais les
+balises NOMMENT la catégorie (`DMG_Bolter`, `Aliance_Imperial`, `Stat_Melee`) — les jeter
+perdrait de l'information.
 
 ⚠ **Ne pas généraliser depuis ce relevé** : il est pris au tout début d'une bataille, avant
 que l'adversaire ait joué — donc AUCUN effet reçu n'existe encore. La confrontation qui
