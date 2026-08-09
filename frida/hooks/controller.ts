@@ -35,6 +35,7 @@ import * as dumpPvpBoards from "./features/dump-pvp-boards.js";
 import * as normalizeBc from "./features/normalize-bc.js";
 import * as crashTrap from "./features/crash-trap.js";
 import * as netCapture from "./features/net-capture.js";
+import * as uiMutations from "./features/ui-mutations.js";
 import * as initTrace from "./features/init-trace.js";
 import * as winnerCapture from "./features/winner-capture.js";
 import * as messageTrace from "./features/message-trace.js";
@@ -384,8 +385,9 @@ export function wireRpc(ctx: Ctx): void {
      overwatchFix, bucketAudit, dumpComposed, dispatchObserve, whatifTrigger, autoBoot,
      uiNav, uiWindows, fsmInput, battleEvents, warmupSingletons, battleConfig, observe,
      dumpPvpBoards, normalizeBc, crashTrap, initTrace,
-     // net-capture : s'enregistre SANS rien installer (armé à la demande par netCaptureArm).
-     netCapture,
+     // net-capture / ui-mutations : s'enregistrent SANS rien installer. `ui-mutations` ancre un
+     // chemin CHAUD (GameObject.SetActive) — armé par `{start:true}`, jamais autrement.
+     netCapture, uiMutations,
      // messageTrace AVANT winnerCapture — il SET `state.scoringRunnerId` / `state.applySeq`,
      // que winnerCapture LIT pour estampiller son event. (Le troisieme lecteur, move-options,
      // est parti avec le nettoyage : sa surface RPC etait morte et son register inerte.)

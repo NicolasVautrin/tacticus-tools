@@ -182,9 +182,49 @@ boutons* : sans bouton, aucun chemin, donc « rien ne s'est passé ». Cohérent
 `IdunLocalization.Tooltips$$Campaign_TutorialLevel(title, description)` — une **infobulle**,
 donc du texte.
 
-⇒ Le remède n'est pas un meilleur filtre : c'est d'énumérer un **autre type** (`TMP_Text` pour
-le texte à l'écran, `Image` pour l'habillage), l'axe de cécité que le correctif « inactifs »
-n'a pas touché.
+⇒ Le remède n'est pas un meilleur filtre, et ce n'est pas non plus d'ajouter des types un par
+un (`TMP_Text`, puis `Image`, puis…) : c'est un **point d'interception unique**, en dessous.
+
+### `GameObject.SetActive` — le point unique, validé par ses DEUX témoins
+
+`frida/hooks/features/ui-mutations.ts`, RPC `uiMutations({start|stop|clear|depuis|max})`.
+Un seul ancrage, sur `UnityEngine.GameObject$$SetActive` — le goulot par lequel TOUT affichage
+passe, quel que soit le composant.
+
+Mesuré le 2026-08-10 (session 27), le couple témoin positif / cas en question :
+
+```
+noeud 6 (OUVRE)   +457 mutations   ButtonPortrait_..., Skull, RemoveButton, ...   (temoin positif)
+noeud 2 (REFUSE)   +31 mutations   ON DynamicTooltip(Clone)
+                                   ON DynamicTooltip_Title(Clone)
+                                   ON DynamicTooltip_Separator(Clone)
+                                   ON DynamicTooltip_Description(Clone)
+```
+
+⇒ **Une infobulle `DynamicTooltip` à Titre / Séparateur / Description** — exactement la forme
+de `IdunLocalization.Tooltips$$Campaign_TutorialLevel(title, description)` lu au décompilé. La
+prédiction offline est confirmée par la capture live.
+
+Récapitulatif des trois couches sur le MÊME clic (nœud 2) :
+
+| capteur | granularité | ce qu'il voit du refus |
+|---|---|---|
+| `uiListAll` (+ inactifs) | type `Button` | **0** — l'infobulle n'a aucun `Button` |
+| `uiWindowEvents` | ÉCRAN (`ScreenVisibilityManager`) | **0** — le refus est sous cette couche |
+| `uiMutations` | **objet** (`GameObject.SetActive`) | **31**, dont l'infobulle nommée |
+
+⚠ La séquence relevée est `ON, ON, off ×4, ON ×4` : le widget est **recyclé**, pas créé — ce
+qui confirme le `idun.ui.widgetPool.IWidgetPool` et explique que `SetActive` suffise ici. La
+réserve écrite dans l'en-tête du module (un widget INSTANCIÉ n'appellerait pas `SetActive`)
+n'est donc pas levée en général, seulement sur ce cas.
+
+⚠ Volume mesuré : 31 pour une infobulle, 457 pour un popup — loin du plafond de 800,
+`ecartes: 0`. Le plafond est donc dimensionné pour UNE action ; il ne l'est pas pour une
+session laissée armée, et le module n'est pas fait pour ça (armé à la demande, fenêtré).
+
+⚠ Ce que `uiMutations` ne donne PAS : le TEXTE de l'infobulle. On a le nom des objets, pas
+leur contenu — lire `DynamicTooltip_Description` demanderait d'énumérer/atteindre son
+`TMP_Text`. Le message exact affiché au joueur reste NON LU.
 
 Piste non aboutie pour la moitié manquante : le jeu a bien la notion
 (`GetTotalAmountOfStarsClaimedExcludingTutorialLevels`, infobulle
