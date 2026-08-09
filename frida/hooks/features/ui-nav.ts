@@ -559,6 +559,81 @@ export function register(ctx: Ctx): void {
         }
     });
 
+    /** LE TEXTE RÉELLEMENT AFFICHÉ — ce qu'un humain LIT, et que `uiList` ne peut pas rendre.
+     *
+     *  `uiList` n'énumère que des `UnityEngine.UI.Button` et n'expose du texte que le `label`
+     *  d'un bouton. Tout ce qui est écrit HORS d'un bouton — une infobulle, un titre, un
+     *  message d'erreur — lui est donc invisible. Mesuré le 2026-08-10 : le refus d'un nœud de
+     *  campagne tutoriel monte un `DynamicTooltip` (Titre / Séparateur / Description) que ni
+     *  `uiList` (+ inactifs), ni `uiWindowEvents` ne voient — seul `uiMutations` le nomme, et
+     *  encore : il donne le NOM de l'objet, jamais son CONTENU.
+     *
+     *  On énumère les mêmes `texteSystemTypes` que `lireLabel` (TMP d'abord, `UI.Text` en
+     *  repli) : viser `TMP_Text`, la BASE, attrape aussi `TextMeshProUGUI`.
+     *
+     *  body: { inclureInactifs?, nonVide?=true, contient?: string, max?=400 }
+     *  `types` DIT sur quoi la mesure a porté : une liste vide avec `types: []` est une panne
+     *  de résolution, pas un écran sans texte. */
+    ctx.rpc.uiTexts = (body?: {
+        inclureInactifs?: boolean; nonVide?: boolean; contient?: string; max?: number;
+    }) => queueOnMainThread(() => {
+        try {
+            const r = ensureRefs();
+            const veut = body?.inclureInactifs === true;
+            const peut = r.findObjectsByTypeInactifs !== null;
+            const nonVide = body?.nonVide !== false;
+            const max = typeof body?.max === "number" ? body.max : 400;
+            const filtre = typeof body?.contient === "string" && body.contient
+                ? body.contient.toLowerCase() : null;
+            const sortMode = Memory.alloc(4).writeS32(0);
+            const types: string[] = [];
+            const out: Array<Record<string, unknown>> = [];
+            let vus = 0;
+
+            for (let ti = 0; ti < r.texteSystemTypes.length; ti++) {
+                const t = r.texteSystemTypes[ti];
+                let arrayPtr: NativePointer;
+                if (veut && peut) {
+                    const inactifs = Memory.alloc(4).writeS32(1);
+                    arrayPtr = invokeMethod(r.findObjectsByTypeInactifs!.info, null,
+                                            [t.type, inactifs, sortMode]);
+                } else {
+                    arrayPtr = invokeMethod(r.findObjectsByType.info, null, [t.type, sortMode]);
+                }
+                if (arrayPtr.isNull()) continue;
+                const len = arrayPtr.add(0x18).readS32();
+                if (len < 0 || len > 100000) continue;
+                types.push("type" + ti + ":" + len);
+                for (let i = 0; i < len; i++) {
+                    const comp = arrayPtr.add(0x20 + i * Process.pointerSize).readPointer();
+                    if (comp.isNull()) continue;
+                    vus++;
+                    let texte: string | null = null;
+                    try {
+                        const sp = invokeMethod(t.getText.info, comp, []);
+                        if (!sp.isNull()) texte = readIl2cppString(sp);
+                    } catch { /* composant illisible : texte reste null */ }
+                    if (nonVide && (texte === null || !texte.trim())) continue;
+                    if (filtre && !(texte ?? "").toLowerCase().includes(filtre)) continue;
+                    if (out.length >= max) continue;
+                    let active = false;
+                    try {
+                        active = readBoxedBool(
+                            invokeMethod(r.behaviourGetActiveAndEnabled.info, comp, []));
+                    } catch { /* laisse faux */ }
+                    out.push({ path: getPath(r, comp), text: texte, active });
+                }
+            }
+            return {
+                ok: true,
+                inactifs: !veut ? "exclus" : (peut ? "inclus" : "NON MESURE"),
+                types, vus, rendus: out.length, max, textes: out,
+            };
+        } catch (e) {
+            return { ok: false, err: (e as Error).message };
+        }
+    });
+
     ctx.rpc.uiList = lister(false);
 
     /** Comme `uiList`, mais sans le filtre `isActiveAndEnabled` / `interactable`.

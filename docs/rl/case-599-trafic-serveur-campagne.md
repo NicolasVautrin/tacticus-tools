@@ -222,9 +222,30 @@ n'est donc pas levée en général, seulement sur ce cas.
 `ecartes: 0`. Le plafond est donc dimensionné pour UNE action ; il ne l'est pas pour une
 session laissée armée, et le module n'est pas fait pour ça (armé à la demande, fenêtré).
 
-⚠ Ce que `uiMutations` ne donne PAS : le TEXTE de l'infobulle. On a le nom des objets, pas
-leur contenu — lire `DynamicTooltip_Description` demanderait d'énumérer/atteindre son
-`TMP_Text`. Le message exact affiché au joueur reste NON LU.
+### `uiTexts` — et le jeu le disait depuis le début
+
+`uiMutations` donne le NOM des objets, pas leur CONTENU. D'où `uiTexts({inclureInactifs?,
+nonVide?, contient?, max?})` dans `ui-nav.ts` : il énumère les mêmes `texteSystemTypes` que
+`lireLabel` (`TMP_Text` d'abord — la BASE, donc `TextMeshProUGUI` compris —, `UI.Text` en
+repli) et rend `{path, text, active}`. C'est la première fois qu'on peut lire **ce qui est
+écrit à l'écran** plutôt que déduire d'un nom d'objet.
+
+Sur le clic du nœud 2 :
+
+```
+DynamicTooltip_Title(Clone)        "Tutorial Battle"
+DynamicTooltip_Description(Clone)  "You already finished this tutorial"
+```
+
+⇒ **Le jeu répondait explicitement, en toutes lettres, depuis le premier clic.** Il a fallu
+trois couches d'outillage pour l'entendre — et j'ai d'abord cliqué cinq fois de plus, puis
+inventé une borne « 1..13 », puis cherché un marqueur dans le `boardId`. La leçon n'est pas
+« il manquait un capteur » : c'est qu'un outil qui ne rend QUE des `Button` transforme un
+message clair en silence, et qu'un silence se raconte trop facilement.
+
+⚠ `types` DIT sur quoi la mesure a porté (`['type0:30','type1:0']` = 30 `TMP_Text`, 0
+`UI.Text`) : une liste vide avec `types: []` serait une panne de résolution, pas un écran sans
+texte.
 
 Piste non aboutie pour la moitié manquante : le jeu a bien la notion
 (`GetTotalAmountOfStarsClaimedExcludingTutorialLevels`, infobulle
