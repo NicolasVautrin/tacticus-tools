@@ -648,3 +648,72 @@ l'écran dans `WaitingForPlayerTurnToEndVisuallyState` (bouton masqué, plus de 
 `Pause -> Retreat`) — reproduit **deux fois**. Le clic sur `EndTurnButton` n'a fonctionné que
 dans le cas où il RESTAIT des unités à jouer : c'est un raccourci, pas la fin de tour normale.
 Et `fsmInput endTurn` n'est pas ce que fait le bouton.
+
+## LE TERRAIN — `Buttons/LevelN` est un SLOT D'ÉCRAN, pas un nœud de campagne
+
+Mesuré le 2026-08-09 (`rnca9r7q6c`). Question de départ : « on n'a pas choisi le bon niveau ? »
+Réponse mesurée : **on ne peut même pas le NOMMER par le chemin qu'on clique.**
+
+**Le chemin ne désigne aucun nœud stable.** L'écran monte **15** slots
+(`CampaignScreen_Part_1_5(Clone)/Buttons/Level1..Level15`) pour une campagne de **75** nœuds,
+et la bataille réellement montée était **`Campaign1_62`** — aucun slot ne s'appelle `Level62`.
+Le `LevelN` du chemin est donc une **position dans la fenêtre de carte affichée**, pas un
+identifiant de bataille.
+
+**Et personne ne choisit ce slot.** `warmup-singletons.ts::findButtonBySuffix` fait
+`enumerateButtons(r, false).find(b => b.path.endsWith(NODE_SUFFIX))` — le premier de l'ordre
+d'énumération Unity, qui n'est ni numérique ni la progression :
+
+```
+ordre mesure (uiList ET uiListAll, identiques) : 5, 14, 2, 13, 12, 11, 6, 3, 4, 8, 7, 1, 15, 9, 10
+                                                 ^ le warmup prend le slot Level5
+```
+
+Les scripts de pilotage, eux, écrivaient `Buttons/Level1/...` en dur. Deux voies, deux slots
+différents, et aucune des deux ne nomme sa bataille.
+
+**Le seul nommage non ambigu** — et il existe, donc il n'y a aucune raison de s'en priver :
+
+| voie | base | vérifié |
+|------|------|---------|
+| `inspectBattleConfig().id` | `Campaign1_<NN>`, **1-based** | `Campaign1_62`, board `C1_62` |
+| `buildCampaignConfig({campaignType, campaignId, locationIndex})` | **0-based** | `66` -> `Campaign1_67` |
+
+`buildCampaignConfig` construit la BC **sans entrer dans la bataille** : c'est de quoi choisir
+un terrain sur pièces plutôt qu'au hasard de l'énumération.
+
+⚠ **Le « node 61 » de la ligne #596-r1 est ce `locationIndex` 0-based** : le nœud est
+**`Campaign1_62`**. Écrire un index 0-based comme un numéro de niveau se relit faux.
+
+### Ce qu'il faut regarder pour choisir un nœud — et les deux champs qui ne discriminent rien
+
+`dumpCampaignCatalog` (1,2 Mo, 5 types de campagne). Sur `campaign1` :
+
+- **`tutorials` est présent sur 75/75 nœuds** et **`requiredUnits` sur 71/75** : filtrer sur
+  leur *présence* rend « aucun nœud libre », ce qui est faux. Il faut lire la **valeur**.
+- `tutorials` → seul un préfixe `tut_` est un script ; `dlg_` n'est qu'une bulle de dialogue.
+  Et la **clé** dit *quand* ça tire : `startUntilVictory` / `startFirstBattle` **pendant** la
+  bataille, `afterFirstVictory*` / `afterFirstDefeat*` **après** (sans effet sur le combat).
+  Mon premier critère ne testait que `startUntilVictory` et laissait passer Level15, qui porte
+  `startFirstBattle: "tut_btl15"`.
+- `requiredUnits` → le **trio de la campagne**, constant sur ses 75 niveaux
+  (`ultraTigurius/…`, `blackHaarken/…`, `orksBigMek/…`, `eldarRanger/…`). Il discrimine la
+  **campagne**, jamais le nœud.
+
+Scénarisés *pendant* la bataille, une fois la valeur lue : `campaign1` **17/75**,
+`campaign2` **1/75** (L4), `campaign3` **1/75** (L16), `campaign4` **0/75**.
+Les **13 premiers** nœuds de `campaign1` opposent des **mannequins FTUE**
+(`necroNpc1TutWarriorFTUEtest`) et non les unités du jeu ; aucune autre campagne n'en porte.
+Level1 y ajoute `AbilitiesToHide: "StormOfWrath,PsychicFortress"` et **1** point de
+déploiement. Premier nœud propre de `campaign1` (aucun script pendant la bataille, aucun
+mannequin, 5 déploiements) : **Level16** (`board=C1_51`).
+
+⚠ **HYPOTHÈSE RÉFUTÉE, ne pas la rouvrir** : « le script de tutoriel a fait lever les deux
+`Apply` » (#596-r1). La bataille était `Campaign1_62`, hors du bloc scénarisé, et les
+marqueurs `FTUEtest` / `tut_btl` sont **absents de toute la session** avant cette mesure
+(première occurrence en ligne 158374 du transcript, mes propres relevés) alors que
+`necroNpc1Warrior` / `necroNpc3Deathmark` y sont depuis la ligne 2311.
+
+Re-dériver ces comptes (`dumpCampaignCatalog`), ne jamais citer ce paragraphe.
+Résidu : **#596-r2**.
+
