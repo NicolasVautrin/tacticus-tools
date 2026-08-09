@@ -142,15 +142,31 @@ def depuis_boutons(boutons: list[dict]) -> Vue:
     return Vue(boutons=boutons, ecrans=frozenset(ecr), popups=frozenset(pop))
 
 
-def regarder(hote, tout: bool = False) -> Vue | None:
+def regarder(hote, tout: bool = False, inactifs: bool = False) -> Vue | None:
     """La vue courante, ou None = PAS MESURE. Jamais une `Vue` vide en guise de reponse.
 
     La distinction compte ici plus qu'ailleurs : un ecran TRANSITOIRE est legitimement
     presque vide, donc rendre une vue vide sur une panne de RPC serait indiscernable d'une
     mesure juste.
+
+    `inactifs` fait AUSSI rendre les widgets portes par un GameObject desactive. Il exige
+    `tout=True` pour servir : sans lui le filtre `isActiveAndEnabled` les re-supprime tous.
+    Mesure du 2026-08-09 sur l'ecran campagne -- 48 boutons par defaut, 48 avec `inactifs`
+    seul, 365 avec les deux.
+
+    Il reste FAUX par defaut, et ce n'est pas de la prudence -- c'est MESURE. Sur le meme
+    ecran campagne, `identifier` rend `Idun_CampaignScreen` par defaut et
+    `GenericMessagePopup+Idun_BattlePreviewPopup+ShopPopup` avec `inactifs` : les popups mis
+    en pool, desactives, entrent dans `Vue.popups` et se lisent comme MONTES. Or `popup()` est
+    exactement ce qu'on consulte avant de conclure qu'un bouton est cache derriere un popup.
+
+    => Avec `inactifs=True`, `identifier` et `popup` ne veulent plus rien dire. L'option sert a
+    TROUVER un widget (savoir qu'il existe, lire son chemin), jamais a caracteriser un ecran ni
+    a decider qu'un popup barre la route.
     """
     try:
-        r = hote.rpc("uiListAll" if tout else "uiList")
+        r = hote.rpc("uiListAll" if tout else "uiList",
+                     [{"inclureInactifs": True}] if inactifs else [{}])
     except Exception:                                                # noqa: BLE001
         return None
     if not r or not r.get("ok"):

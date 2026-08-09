@@ -30,6 +30,11 @@ interface UiRefs {
     unityEventK: NativePointer;
 
     findObjectsByType: MethodRef;
+    /** L'overload à TROIS paramètres `(Type, FindObjectsInactive, FindObjectsSortMode)`, seul
+     *  capable de rendre les widgets portés par un GameObject INACTIF. `null` = non résolue,
+     *  et alors l'option est refusée en le disant — jamais rabattue en silence sur l'overload
+     *  à deux paramètres, qui rendrait une liste amputée passant pour complète. */
+    findObjectsByTypeInactifs: MethodRef | null;
     objectGetName: MethodRef;
     componentGetGameObject: MethodRef;
     componentGetTransform: MethodRef;
@@ -111,6 +116,13 @@ export function ensureRefs(): UiRefs {
 
     const objectGetName = need(findMethod(objectK, "get_name"),
                                "Object.get_name");
+
+    // L'overload à 3 paramètres, en BEST EFFORT : son absence doit dégrader l'OPTION
+    // « inclure les inactifs », pas faire tomber `uiList` tout entier.
+    const findObjectsByTypeInactifs = (() => {
+        try { return findMethodByParamCount(objectK, "FindObjectsByType", 3); }
+        catch { return null; }
+    })();
     const componentGetGameObject = need(
         findMethod(componentK, "get_gameObject"), "Component.get_gameObject");
     const componentGetTransform = need(
@@ -179,6 +191,7 @@ export function ensureRefs(): UiRefs {
         objectK, componentK, transformK, behaviourK,
         selectableK, buttonK, unityEventK,
         findObjectsByType, objectGetName,
+        findObjectsByTypeInactifs,
         componentGetGameObject, componentGetTransform,
         transformGetParent, behaviourGetActiveAndEnabled,
         selectableGetInteractable, buttonGetOnClick, unityEventInvoke,
@@ -372,12 +385,34 @@ function lireLabel(r: UiRefs, btn: NativePointer): string | null {
     return null;
 }
 
-/** Enumerate every live Button. Filter applied per caller. */
-export function enumerateButtons(r: UiRefs, includeAll: boolean): ButtonRow[] {
-    // FindObjectsByType(Type, FindObjectsSortMode.None=0).
+/** Enumerate every live Button. Filter applied per caller.
+ *
+ *  ⚠ `includeAll` NE LÈVE PAS la cécité aux objets INACTIFS, et l'avoir cru a coûté :
+ *  l'overload à 2 paramètres de `UnityEngine.Object$$FindObjectsByType` vaut
+ *  `FindObjectsInactive.Exclude` — un widget dont le GameObject est désactivé n'entre JAMAIS
+ *  dans le tableau, donc aucun filtre en aval ne peut le rattraper. `includeAll` ne relâche
+ *  que le test `isActiveAndEnabled` / `interactable` sur ce qui a DÉJÀ été rendu. Même piège
+ *  que sur `ScreenVisibility`.
+ *
+ *  `inclureInactifs` bascule sur l'overload à 3 paramètres, qui les rend. Il est OPTIONNEL et
+ *  FAUX par défaut, à dessein : élargir l'énumération décalerait les rangs que `clickByPath`
+ *  attribue aux boutons partageant un chemin — un appelant qui vise `index: 1` frapperait
+ *  soudain un autre widget. On élargit là où on le demande, jamais partout d'un coup. */
+export function enumerateButtons(
+    r: UiRefs, includeAll: boolean, inclureInactifs = false,
+): ButtonRow[] {
     const sortMode = Memory.alloc(4).writeS32(0);
-    const arrayPtr = invokeMethod(
-        r.findObjectsByType.info, null, [r.buttonSystemType, sortMode]);
+    let arrayPtr: NativePointer;
+    if (inclureInactifs && r.findObjectsByTypeInactifs) {
+        // FindObjectsByType(Type, FindObjectsInactive.Include=1, FindObjectsSortMode.None=0)
+        const inactifs = Memory.alloc(4).writeS32(1);
+        arrayPtr = invokeMethod(r.findObjectsByTypeInactifs.info, null,
+                                [r.buttonSystemType, inactifs, sortMode]);
+    } else {
+        // FindObjectsByType(Type, FindObjectsSortMode.None=0) — EXCLUT les inactifs.
+        arrayPtr = invokeMethod(
+            r.findObjectsByType.info, null, [r.buttonSystemType, sortMode]);
+    }
     if (arrayPtr.isNull()) return [];
 
     // Il2CppArray layout: length at +0x18, elements at +0x20.
@@ -497,25 +532,53 @@ export function clickByPath(r: UiRefs, path: string, choix?: {
 }
 
 export function register(ctx: Ctx): void {
-    ctx.rpc.uiList = () => queueOnMainThread(() => {
+    /** `uiList()` ou `uiList({ inclureInactifs?: true })`.
+     *
+     *  `inactifs` DIT ce que la liste couvre — `"exclus"` (défaut), `"inclus"`, ou
+     *  `"NON MESURE"` quand l'option est demandée et l'overload à 3 paramètres irrésolu. Sans
+     *  ce champ, une liste amputée se lit comme une liste complète : c'est exactement ainsi
+     *  qu'un bouton présent à l'écran a été conclu absent. */
+    const lister = (includeAll: boolean) => (
+        body?: { inclureInactifs?: boolean },
+    ) => queueOnMainThread(() => {
         try {
             const r = ensureRefs();
-            return { ok: true, buttons: enumerateButtons(r, false) };
+            const veut = body?.inclureInactifs === true;
+            const peut = r.findObjectsByTypeInactifs !== null;
+            return {
+                ok: true,
+                inactifs: !veut ? "exclus" : (peut ? "inclus" : "NON MESURE"),
+                buttons: enumerateButtons(r, includeAll, veut && peut),
+                ...(veut && !peut
+                    ? { err: "FindObjectsByType(Type, FindObjectsInactive, FindObjectsSortMode)"
+                         + " non resolue -- les inactifs restent hors de la liste" }
+                    : {}),
+            };
         } catch (e) {
             return { ok: false, err: (e as Error).message };
         }
     });
 
-    /** Same as uiList but includes inactive/non-interactable buttons. Useful
-     * for debugging when a target button isn't appearing in uiList. */
-    ctx.rpc.uiListAll = () => queueOnMainThread(() => {
-        try {
-            const r = ensureRefs();
-            return { ok: true, buttons: enumerateButtons(r, true) };
-        } catch (e) {
-            return { ok: false, err: (e as Error).message };
-        }
-    });
+    ctx.rpc.uiList = lister(false);
+
+    /** Comme `uiList`, mais sans le filtre `isActiveAndEnabled` / `interactable`.
+     *  ⚠ Cela ne rend PAS les objets inactifs — cf. l'en-tête d'`enumerateButtons` : ils
+     *  n'entrent pas dans le tableau. Pour ceux-là, `{ inclureInactifs: true }`.
+     *
+     *  ⚠ ET L'OPTION NE PAIE QU'ICI. Mesuré le 2026-08-09 sur l'écran campagne (session 24) :
+     *
+     *      uiList                        48        uiListAll                        48
+     *      uiList    + inclureInactifs   48        uiListAll + inclureInactifs     365
+     *
+     *  `uiList({inclureInactifs:true})` rend 48 et NON 365 : un objet inactif n'est pas
+     *  `isActiveAndEnabled`, donc le filtre que `uiList` applique les re-supprime tous. Croire
+     *  l'option cassée sur cette lecture serait l'erreur naturelle — il faut les DEUX.
+     *
+     *  ⚠ Et l'axe `includeAll`, à lui seul, ne révélait **RIEN** (+0) : `uiListAll` était
+     *  STRICTEMENT ÉGAL à `uiList` tout en promettant dans sa docstring de couvrir les
+     *  inactifs. 317 des 365 boutons de l'écran — 87 % — étaient hors de portée de tout
+     *  l'outillage. */
+    ctx.rpc.uiListAll = lister(true);
 
     /** `uiClick(path)` ou `uiClick({ path, index?, ptr? })`.
      *
