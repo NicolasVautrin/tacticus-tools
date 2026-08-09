@@ -730,3 +730,64 @@ quelle que soit la bataille, et ne prouvait rien.
 Re-dériver ces comptes (`dumpCampaignCatalog`), ne jamais citer ce paragraphe.
 Résidu : **#596-r2**.
 
+
+## LANCER UN ACTIF PAR L'INTERFACE — la chaîne complète, mesurée
+
+Confronté le 2026-08-09 sur `Campaign1_06` (`rnca9r7q6c`, session 22). Aucun message vers le
+runner : on joue ce que le joueur joue.
+
+```
+1. reset        fsmInput back  jusqu'a NormalState
+2. selection    fsmInput down(TUILE) puis up(UNITE)      -> UnitNormallySelected
+3. armement     uiClick sur la barre d'abilities          -> Ability_Info_Bar_HUD
+4. designation  fsmInput up(CIBLE)                        -> le cast part
+```
+
+Résultat mesuré, un seul geste : **3 ennemis à 0 pv** (49, 53, 55 : 43 -> 0), `toActivate`
+`[63,65,67,69,71]` -> `[63,65,67,69]` — le tour du caster est consommé — et `battleEvents.pile`
+reste **vide** (aucun `Apply` n'a levé). Trois morts d'un coup : c'est bien l'AoE de l'actif,
+pas l'attaque normale.
+
+⚠ **LE RANG DU BOUTON NE DÉSIGNE PAS UNE ABILITY.** La barre monte DEUX boutons de chemin
+IDENTIQUE (`Ability_Selection_HUD/Loki_Ability_Selection_HUD_MoW(Clone)/Button` — même parent,
+même nom). Mesuré : le rang qui porte l'actif était **1** à un essai et **0** au suivant, sur
+la même unité dans la même bataille. Le rang sert à ATTEINDRE les deux exemplaires ; il ne dit
+pas lequel est lequel. **On essaie et on juge par l'EFFET** : quand un actif est armé, la barre
+d'info bascule de `Unit_Info_Bar_HUD` vers `Ability_Info_Bar_HUD`. Ce témoin-là est net.
+
+⚠ **ARMER NE CHANGE PAS L'ÉTAT DU FSM.** Il reste `UnitNormallySelected` avant comme après :
+la sélection d'ability est un fait de HUD, et c'est le `up(cible)` qui déclenche. Chercher un
+`AbilitySelectedState` est une impasse.
+
+⚠ **HORS DE PORTÉE, LE `up` PART EN DÉPLACEMENT — sans rien dire.** Au tour 1 les 7 ennemis
+sont à distance 5 pour un mouvement de 3 : `up(ennemi)` rendait `ok: true` et faisait
+`UnitNormallySelected -> MovementSuggestionState`, ce qui se lit comme « le cast n'a pas
+marché » alors que c'est « la cible n'est pas atteignable ». **Approcher d'abord** — et la
+destination ne se devine pas : `decisionView.attackPlans[].evals[].ranked` publie les
+positions DEPUIS LESQUELLES une cible est attaquable (ici `(2,2)` pour la cible `53`). Le
+déplacement se joue `down(tuileUnite)` `held(tuileDest)` `up(tuileDest)`, 1/1.
+
+⚠ **`uiClick` frappait TOUJOURS le premier bouton d'un chemin**, avec `ok: true` — donc
+toujours l'attaque normale, en silence. Corrigé (`d64b5fa1`) : `uiClick({path, index?, ptr?})`,
+et le retour porte désormais `matches`, ce qui rend l'ambiguïté VISIBLE. Un `matches: 2` dit à
+l'appelant qu'il vient d'en frapper un sur deux.
+
+⚠ **CE QUE `uiList` NE VOIT PAS.** Il énumère les `UnityEngine.UI.Button` par l'overload à
+2 args de `FindObjectsByType`, **qui exclut les objets inactifs** — même piège que celui trouvé
+sur `ScreenVisibility`. Un widget d'UI qui n'est pas un `Button`, ou qui est sur un objet
+inactif, lui est invisible ; c'est ce qui bloque la lecture des effets appliqués (les icônes
+`Idun_Unit_Info_Bar_UnitEffectIcon` sont énumérées mais sans libellé ni sous-arbre lisible).
+
+**La couche que le bouton APPELLE**, si l'on veut court-circuiter le pixel un jour :
+`_actions.OnAbilityTapped(IUnitAbility)`, `_actions.SelectAbilityInHud(IUnitAbility)`,
+`_actions._hud.OnAbilitySelected(IUnitAbility, AbilityState)`, et côté widget
+`idun.Ui.AbilitySelectionHudImage$$OnButtonClicked()` (sans paramètre). La chaîne d'objets est
+`_actions._hud._abilitySelectionHud._allAbilityViews` (`List<AbilitySelectionHudImage>`, chaque
+vue portant `_ability`). ⚠ Inatteignable en l'état : `fsmStateInvoke` n'accepte que
+`chaine/booleen/entier/{float}/{long}/{entityId}` — **pas de pointeur**, et pas d'indexation de
+liste dans un chemin de traversée.
+
+⚠ **UN DIFF D'ÉCRAN SE FAIT PAR MULTIPLICITÉ, PAS PAR ENSEMBLE.** Deux widgets partagent leur
+chemin : un `set` de chemins les écrase. J'ai lu « 17 -> 17 feuilles, rien n'a changé » alors
+qu'un bouton venait d'apparaître. Compter (`Counter`), jamais `set`.
+
