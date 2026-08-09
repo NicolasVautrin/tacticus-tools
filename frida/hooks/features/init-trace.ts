@@ -27,6 +27,7 @@ import {
     methodEntry, findMethod,
 } from "../il2cpp/helpers.js";
 import { gcRoot } from "../il2cpp/gc-root.js";
+import { insideApply } from "../game/apply-stack.js";
 import { listRunners } from "../game/runner-registry.js";
 import { Ctx } from "../controller.js";
 
@@ -133,11 +134,15 @@ function installExceptionCtorHook(): boolean {
     if (!ctor) return false;
     Interceptor.attach(ctor.ptr, {
         onEnter(args) {
-            // Only log if we are inside an Initialize call — keeps the
-            // trace bounded. The exception object's class lives at
-            // *obj (rcx → arg0 = `this`). The (string) ctor's message
-            // is arg1.
-            if (insideInitialize === 0) return;
+            // DEUX fenêtres, pas une. `Initialize` (cctor IL2CPP) était la seule, et c'est
+            // ce qui a rendu ce capteur INUTILE pour #596-r1 : une bataille dont la bascule
+            // de tour ne se faisait plus a laissé 2 frames orphelines dans `applyStack`
+            // (signature d'un `Apply` qui ne revient pas), l'armement de ce hook n'a RIEN
+            // rapporté, et le `Player.log` d'Unity ne portait aucune exception managée —
+            // trois silences qu'on a d'abord lus comme « rien ne s'est passé ». La fenêtre
+            // `Apply` (`game/recorder.ts`) est celle où le message est en vol.
+            // Il reste GATÉ : ce ctor est trop chaud pour tourner à nu.
+            if (insideInitialize === 0 && insideApply() === 0) return;
             exceptionCount++;
             try {
                 const objPtr = args[0];
@@ -155,6 +160,9 @@ function installExceptionCtorHook(): boolean {
                     className,
                     message,
                     insideInitialize,
+                    // LAQUELLE des deux fenêtres a laissé passer : sans ça, une exception
+                    // d'`Apply` se lirait comme une exception de cctor.
+                    insideApply: insideApply(),
                 });
             } catch { /* never throw */ }
         },

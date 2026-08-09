@@ -43,6 +43,27 @@ export function popApply(): void {
     applyStack.pop();
 }
 
+/** Une frame ORPHELINE désigne son module par son `role` — sans ça, une fuite ne se lit que
+ *  comme un nombre, et « qui a poussé » reste à deviner.
+ *
+ *  Mesuré le 2026-08-09 (#596-r1) : 2 frames survivantes après une bataille dont la bascule
+ *  de tour ne s'est jamais faite. Le compte est resté à **exactement 2** à travers deux
+ *  batailles saines et ~40 messages de plus (dont deux tours d'IA complets) — ce qui RÉFUTE
+ *  notre mode de fuite connu, le recursion guard de Frida qui supprime le `onLeave` des
+ *  sub-messages (cf. l'en-tête de `features/message-trace.ts`) : celui-là grossirait à chaque
+ *  imbrication. Restent deux événements ponctuels, non nommés. */
+export function applyStackRoles(): string[] {
+    return applyStack.map((f) => f.role);
+}
+
+/** Y a-t-il un `Apply` de message EN VOL ? Fenêtre d'armement pour les capteurs trop chauds
+ *  pour tourner en permanence (`System.Exception..ctor`). Compté à part de `applyStack.length`,
+ *  qui inclut les frames de capture posées hors apply (`features/battle-events.ts`). */
+let _applyDepth = 0;
+export function enterApply(): void { _applyDepth++; }
+export function leaveApply(): void { if (_applyDepth > 0) _applyDepth--; }
+export function insideApply(): number { return _applyDepth; }
+
 let streamHooksInstalled = false;
 let _actionFiresTotal = 0;
 let _actionFiresStackEmpty = 0;

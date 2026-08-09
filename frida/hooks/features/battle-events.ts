@@ -25,8 +25,8 @@
 // personne d'autre, SANS voler les events d'un `applyAction` en cours : le sien reste au
 // sommet le temps de son appel. Les deux canaux coexistent, aucun ne masque l'autre.
 
-import { applyStack, ensureStreamHooks, popApply, pushApply, streamHookStats }
-    from "../game/apply-stack.js";
+import { applyStack, applyStackRoles, ensureStreamHooks, popApply, pushApply,
+    streamHookStats } from "../game/apply-stack.js";
 import type { StreamEvent } from "../game/apply-stack.js";
 import { Ctx } from "../controller.js";
 
@@ -108,6 +108,12 @@ export function register(ctx: Ctx): void {
             ok: true,
             actif,
             frameEnPlace: frameEnPlace(),
+            // LA PILE, PAR RÔLE — pas seulement sa hauteur (#596-r1). Une frame ORPHELINE
+            // désigne ainsi le module qui l'a poussée (`live` = recorder ou nous, `built` =
+            // launch/message-trace, `mirror` = sim-engine). Sans ça, une fuite ne se lisait
+            // que dans la CHAÎNE D'ERREUR du refus d'armement ci-dessus — un message qui
+            // parle d'autre chose, et qu'il fallait interpréter.
+            pile: applyStackRoles(),
             // ⚠ TRI-ETAT : hooks non installes = on n'a RIEN MESURE, ce n'est pas
             // « aucun event ». Le distinguer est tout l'interet du champ.
             hooksInstalles: stats.installed === 1,

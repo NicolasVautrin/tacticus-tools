@@ -19,7 +19,7 @@ import { resolveMt, snapshotMt } from "../il2cpp/mt.js";
 import {
     applyAiMsgMi, applyHumanAiMsgMi, dumpAiRngProbe,
 } from "./ai-control.js";
-import { pushApply, popApply, StreamEvent } from "./apply-stack.js";
+import { pushApply, popApply, enterApply, leaveApply, StreamEvent } from "./apply-stack.js";
 import {
     getReplayMi, replayOff, runnerApplyMi, runnerOff,
 } from "./runner.js";
@@ -41,6 +41,9 @@ import { queueOnMainThread } from "../runtime/queue.js";
 type MarkerThis = InvocationContext & {
     _ours?: boolean;
     _mirrorCapture?: boolean;
+    /** Cette invocation a ouvert la fenêtre `insideApply` (#596-r1) — donc c'est elle qui la
+     *  referme. Distincte de `_recorderPushed`, qui ne vaut que pour `origin === "live"`. */
+    _appliqueEnVol?: true;
     /** Set in onEnter for AI hooks — "live" or build runnerId; lets
      * onLeave know if live-only side-effects should fire. */
     _origin?: "live" | number;
@@ -180,6 +183,12 @@ export function install(): boolean {
             }
             this._ours = true;
             this._origin = origin;
+            // Fenêtre « un Apply est EN VOL » (#596-r1) — lue par le capteur
+            // `System.Exception..ctor`, trop chaud pour tourner en permanence. Volontairement
+            // découplée de `_recorderPushed` : celle-ci ne s'ouvre que pour `origin === "live"`,
+            // alors qu'un message de BUILD peut lever tout autant.
+            enterApply();
+            this._appliqueEnVol = true;
             // Snapshot stage BEFORE the apply so onLeave can detect a
             // Running → not-Running transition (= match just ended).
             // Without this we'd fire on every apply whose stage isn't
@@ -224,6 +233,7 @@ export function install(): boolean {
                 return;
             }
             if (!this._ours) return;
+            if ((this as MarkerThis & { _appliqueEnVol?: true })._appliqueEnVol) leaveApply();
             // Clear the scoring tag (companion to the set in onEnter).
             // NOTE: we don't push/pop a stack here — re-entrant Apply on
             // a *different* runner during scoring is unexpected; if it

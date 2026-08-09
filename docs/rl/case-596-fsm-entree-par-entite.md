@@ -505,8 +505,64 @@ Ce n'était pas la cause. `bucketAudit` était `installed: false`, donc inerte.
 `act endturn` rend `currentPlayer` 3 -> 4 du premier coup, et `aiturn` joue 147 events. Le
 blocage était propre à cette bataille-là, pas au verbe.
 
-⚠ **Reste NON NOMMÉ** : ce qui a fait lever ces deux `Apply`. `armExceptionCtorHook` est le
-capteur à armer AVANT de rejouer le régime. Résidu **#596-r1**.
+⚠ **Reste NON NOMMÉ**, et les trois voies de mesure ont chacune rendu un silence :
+
+- `armExceptionCtorHook` **n'aurait rien vu** — son hook faisait `if (insideInitialize === 0)
+  return`, c'est une fenêtre de cctor IL2CPP, pas d'`Apply`. Je l'ai armé et présenté comme le
+  capteur du régime : c'était faux. **Corrigé** — il s'ouvre désormais aussi sur la fenêtre
+  `Apply` (`insideApply()`, tenue par `game/recorder.ts`), et l'event dit LAQUELLE des deux.
+- Le **`Player.log` d'Unity ne porte aucune exception managée** sur ce run. Donc si c'en est
+  une, elle est **ravalée par un appelant** (elle sort d'`Apply` — sinon `onLeave` aurait tiré
+  — et quelqu'un au-dessus la mange sans la journaliser).
+- La pile ne publiait que sa HAUTEUR. **Corrigé** : `battleEvents` rend `pile: [role, …]`, donc
+  une frame orpheline désigne son module.
+
+⚠ **Notre propre mode de fuite connu est RÉFUTÉ** : le recursion guard de Frida supprime le
+`onLeave` des sub-messages (cf. l'en-tête de `features/message-trace.ts`), mais il grossirait à
+chaque imbrication — or le compte est resté à **exactement 2** à travers deux batailles saines
+et ~40 messages de plus, dont deux tours d'IA complets. Deux événements ponctuels.
+
+Résidu **#596-r1**. Les deux capteurs sont livrés mais **NON ARMÉS** : ils exigent une fenêtre
+de reinject.
+
+### Le bouton End Turn demande DEUX taps, et le premier ment
+
+```
+idun.ui.EndTurnButton$$OnTap(this):
+    si  !(this+0x28).activeSelf              # panneau de confirmation pas encore affiche
+        this+0x39 = 1
+        return SetConfirmationMode(this, true)      # AFFICHE la confirmation, ET C'EST TOUT
+    return (this+0x40).Invoke()              # 2e tap seulement -> IdunGameHud$$OnEndTurnButtonTapped
+                                             #   -> slot 0x3b -> UnitSelectionFsm$$HandleOnEndTurnButtonTapped
+```
+
+`SetConfirmationMode(value)` ne fait qu'un `SetActive(value)` sur `this+0x28` et `this+0x30`.
+
+⇒ **`porte: True` d'un clic sur `EndTurnButton` ne distingue pas « j'ai ouvert la confirmation »
+de « j'ai terminé le tour ».** Le témoin est l'apparition d'un `EndTurnMessage` dans `dump`,
+jamais le retour du clic — application directe de « ne jamais conclure du retour d'un clic
+qu'il a porté ».
+
+⚠ Ceci **corrige** ce que le handoff attribuait à `UnitNormallySelected` (« cliqué en
+`UnitNormallySelected`, le bouton rend `porte: True` et ne fait rien »). Le gate décompilé est
+l'`activeSelf` du panneau de confirmation, pas l'état du FSM.
+
+⚠ Et ça **n'explique PAS** le blocage : dans les deux régimes — celui qui bascule et celui qui
+ne bascule pas — un seul tap de `clic.py` a produit un `EndTurnMessage`. À instruire dans
+#596-r1 : dans quel état était le panneau au moment de chaque tap.
+
+### La suite : se greffer sur l'AUTOMATE, pas sur ses entrées
+
+`fsmTrace` capte les **entrées** (`down`/`up` que le jeu passe au FSM) — pas les
+**transitions**. L'entonnoir existe et il est unique :
+`IdunBattle.View.FSM.UnitSelectionFsm$$ChangeState<T>`, appelé par
+`$$HandleOnEndTurnButtonTapped` comme par tout le reste. Le tracer donnerait la suite d'états
+avec son déclencheur — ce qui aurait tranché ce dossier en minutes.
+
+⚠ **Difficulté à mesurer, pas à contourner** : c'est une définition GÉNÉRIQUE
+(`ChangeStateu003C__Il2CppFullySharedGenericTypeu003E`). `findMethod` sur une définition
+générique rend le **thunk d'invocation**, pas le corps gshared — le piège de `bucket-audit`,
+qui se déclarait `enabled` avec **0 fire**. Passer par l'instance inflatée (cf. `case-259`).
 
 ### Ce que le décompilé dit du verbe, et où notre port diverge
 
