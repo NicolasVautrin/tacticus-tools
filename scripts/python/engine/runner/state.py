@@ -116,7 +116,10 @@ class State:
                  # #287-r11-r1-r1 -- `BC.Victory.VictoryConditions`, le dictionnaire que
                  # `IdunBattle.Core.Services.BattleQuery$$GetMaxRounds` interroge a la cle
                  # `VictoryConditionType.MainPlayerRoundLimitation`.
-                 "victory_conditions")
+                 "victory_conditions",
+                 # #550-r1 -- la RESERVATION de tuile, `TileContentComponent+0x34`
+                 # (`Nullable<int>`). Cf. le commentaire au point d'initialisation.
+                 "tile_reservations")
 
     def __init__(self):
         self.entities: dict[int, Entity] = {}
@@ -170,6 +173,17 @@ class State:
         # s'applique (`engine.services.victory_config`) ; `{}` = la BC a parle et ne pose AUCUNE
         # condition. Les deux ne se confondent pas -- seule la seconde est une MESURE.
         self.victory_conditions: Optional[dict] = None
+        # #550-r1 -- RESERVATION de tuile. Le natif la porte SUR LA TUILE
+        # (`TileContentComponent.<+0x34> : Nullable<int>` = l'id de l'unite qui a reserve) ; le port
+        # n'a pas d'entite-tuile, donc elle vit ici, en `dict[(col,row) -> unit_id]`. L'ABSENCE
+        # d'une cle EST le `Nullable` vide -- aucune valeur `None` n'est jamais stockee.
+        # Ce n'est PAS derivable de l'occupation : une tuile reservee est libre, et c'est justement
+        # ce qui la distingue. Ecrivains/lecteurs portes, tous mirrors nommes :
+        # `operations/tile_reservation.py` (les cinq `TileExtensions$$*` + l'agregateur
+        # `BattleQuery$$IsTileReservedForAnotherUnit`).
+        # `{}` = mesure (aucune reservation), jamais « pas su lire » : le natif part lui aussi d'un
+        # `Nullable` vide sur chaque tuile.
+        self.tile_reservations: dict = {}
         self.turn_counts: dict[int, int] = {}
         # #287-r11-r1-r1-r1 -- `TurnComponent.<Dictionary @+0x40>`, les tours **TERMINES** par
         # joueur, que rend `IdunBattle.Entities.Components.TurnComponent$$GetAmountOfTurnsEndedByPlayer`.
