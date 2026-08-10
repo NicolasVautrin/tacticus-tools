@@ -18,13 +18,16 @@ Ce que ce fichier GARDE, et pourquoi chaque garde existe :
     (`AdjacentEnemies(Caster@DSLSelectors+0x48, unique: 1, sel: 3)`), ancre sur le CASTER et non
     sur la cible du cast.
 
-⚠ LA MAGNITUDE N'EST GARDEE QUE SUR LA PREMIERE CIBLE FRAPPEE, ET C'EST DELIBERE. La mesure du
-2026-08-10 rend `u81 port 8761 == natif 8761` (BIT-EXACT) et `u83 port 12049 vs natif 10957`
-(ecart 1092) -- residu **#503-r4**, dont la decomposition complete vit dans le probe. Garder
-l'egalite sur TOUTES les cibles ferait rougir ce fichier pour un ecart DEJA nomme, et un test
-rouge en permanence cesse d'etre lu. Garder l'egalite sur AUCUNE le rendrait aveugle a une
-regression de magnitude. La garde porte donc sur la premiere cible **et** verrouille l'ecart total
-observe : si le residu est resolu, ou s'il s'AGGRAVE, ce fichier le dit.
+⚠ LA MAGNITUDE EST GARDEE SUR **TOUTES** LES CIBLES DEPUIS LA RESOLUTION DE #503-r4 (2026-08-10),
+ET LE CLIQUET D'ECART EST A **ZERO**. La garde ne portait que sur la PREMIERE cible tant que
+`u83` divergeait (port 12693 brut / 12049 applique contre natif 10957) ; l'etage manquant est
+nomme et porte -- `IdunBattle.Entities.Effects.Loki.SupaCyborkBody_CritDmgReductionEffect$$
+CreateCritDamageBonus` (`EffectType` 1468), qu'`orksRuntherd` porte et qu'`orksNob` ne porte pas,
+d'ou une divergence visible sur UNE seule des deux cibles. Le port rend desormais
+`u81 8761 == 8761` et `u83 10957 == 10957`, coup a coup `[5663, 5294]`.
+CE SCENARIO EST LE TEMOIN DE CET EFFET-LA autant que de la phase 2 : retirer 1468 du registre
+fait rougir `test_magnitude_bit_exacte_sur_toutes_les_cibles` de +1736 PV, dans le sens PERMISSIF
+(le port TUAIT une cible que le natif laisse a 1092 PV).
 
 Le montage et TOUTES les lectures vivent dans `scripts/python/probe_503r1_overwhelming_wrath_phase2.py`
 (mesure) : une seule implementation, aucune divergence possible entre ce qui est mesure et ce qui
@@ -55,9 +58,10 @@ DECLENCHEUR = {
               "d'avis sans qu'une ligne du port bouge.",
 }
 
-#: L'ECART TOTAL mesure le 2026-08-10, VERROUILLE (residu #503-r4). Ce n'est pas une tolerance :
-#: c'est un cliquet. Il ne doit ni AUGMENTER (regression) ni changer de cible.
-ECART_ATTENDU_MAX = 1092
+#: L'ECART TOTAL port-vs-natif. RESSERRE A **ZERO** le 2026-08-10 avec la resolution de #503-r4
+#: (il valait 1092). Ce n'est pas une tolerance : c'est un CLIQUET, et un cliquet a zero ne peut
+#: plus que rougir. Le remonter exigerait de nommer l'etage qui l'a rouvert.
+ECART_ATTENDU_MAX = 0
 
 
 @pytest.fixture(scope="module")
@@ -119,9 +123,21 @@ def test_cardinal_au_moins_deux_cibles(mesure):
         "probe doit etre revu, ce n'est pas un resultat")
 
 
+def test_magnitude_bit_exacte_sur_toutes_les_cibles(mesure):
+    """La MAGNITUDE, sur TOUTES les cibles (#503-r4 resolu). C'est aussi le TEMOIN LIVE de
+    `SupaCyborkBody_CritDmgReductionEffect$$CreateCritDamageBonus` : `orksRuntherd` le porte,
+    `orksNob` non, donc son absence ne fait diverger QU'UNE des deux cibles -- et dans le sens
+    permissif (+1736 PV, cible tuee au lieu de survivre a 1092)."""
+    dmg_off = {k: v[0] - v[1] for k, v in P._hp_delta(*mesure["off_hp"]).items()}
+    dmg_live = {k: v[0] - v[1] for k, v in P._hp_delta(*mesure["live_hp"]).items()}
+    assert dmg_live, "regime DEGENERE : aucun degat natif, l'accord ne prouverait rien"
+    assert dmg_off == dmg_live
+
+
 def test_premiere_cible_bit_exacte(mesure):
     """La MAGNITUDE, sur la premiere cible frappee (ordre = id, mirror de l'`OrderBy(b__5_0)`).
-    Cf. l'en-tete : la seconde releve du residu #503-r4."""
+    GARDE CONSERVEE malgre celle du dessus : elle nomme la cible et resiste a une reecriture qui
+    n'attaquerait que l'egalite globale."""
     dmg_off = {k: v[0] - v[1] for k, v in P._hp_delta(*mesure["off_hp"]).items()}
     dmg_live = {k: v[0] - v[1] for k, v in P._hp_delta(*mesure["live_hp"]).items()}
     assert dmg_live, "temoin NON NUL exige"

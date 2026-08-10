@@ -11,6 +11,7 @@ from collections.abc import Mapping
 from .base import BaseEffect
 from .loki.ability_modifications import ListenUpMaggotsEffect
 from .loki.amulet_of_the_voidwyrm import AmuletOfTheVoidwyrmCritDamageReductionEffect
+from .loki.supa_cybork_body import SupaCyborkBodyCritDmgReductionEffect
 from .loki.blood_chalice import BloodChaliceExtraPiercingEffect, BloodChaliceHealOnAttackEffect
 from .loki.champion_of_the_feast import ChampionOfTheFeastReduceArmorEffect
 from .loki.counter_attack import WireweaveNetCounterAttackEffect
@@ -1032,6 +1033,22 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # foyer `triggered_ability_state` de #357 : `ability_level` (le passif, 50 en runner normalise)
     # rendrait TOUJOURS le dernier palier.
     "AmuletOfTheVoidwyrm_CritDamageReduction": AmuletOfTheVoidwyrmCritDamageReductionEffect,
+    # 1468 SupaCyborkBody_CritDmgReduction (#503-r4) : owner-effect du passif `SupaCyborkBody`, JUMEAU
+    # DE FORME de 1460 juste au-dessus -- meme canal `CreateCritDamageBonus`, meme `ForSubtraction`,
+    # meme trigger `get_OwnerIsTarget` NU, meme cle `ConfigVar(0x97 = critDmgReduction)` :
+    #   `...SupaCyborkBody_CritDmgReductionEffect$$CreateCritDamageBonus`
+    #       = ForSubtraction(get_OwnerIsTarget,
+    #                        Multiply(ConfigVar(0x97), EffectLevel(Effect@+0x38)))
+    #   + `CreateActiveCondition` = HasAdjacentEnemies(Owner, Tiles(Owner))
+    #   + `GetCalculateLevel`     = Count(AdjacentEnemies(Owner, 1, 3))   <- CE niveau-la
+    # La SEULE difference de structure : le 2e facteur du `Multiply` est une LECTURE du niveau
+    # STOCKE (`EffectComponent+0x68`), que `RefreshEffectsOperation$$UpdateLevel` tient egal a
+    # `GetCalculateLevel` -- d'ou le compteur porte, cf. `adjacent_enemies_count`.
+    # ⚠ CONFIG = la TRIGGERED `0x5c3 = 1475 SupaCyborkBody`, litteral du `.ctor` relu A
+    # L'ASSEMBLEUR (`ba c3 05 00 00`), PAS l'`EffectType` 1468 -- meme piege que 1460/1464.
+    # SON ABSENCE ETAIT PERMISSIVE ET SILENCIEUSE : mesuree sur le tir differe `1237` (#503-r4),
+    # elle valait 1736 PV de trop sur une cible a 12049 PV (le port la TUAIT, le natif non).
+    "SupaCyborkBody_CritDmgReduction": SupaCyborkBodyCritDmgReductionEffect,
     # 1175 HatefulAssault_AlreadyAttacked (case-366-r1) : MARQUEUR pose par
     # `...HatefulAssaultAbility$$CreateBehaviour` sur l'ennemi qu'il vient de frapper, et LU par le
     # `CreateTrigger` de cette meme ability (`NOT HasEffect(Actor, 0x497, onlyActive=0, Both)`) -- ce
