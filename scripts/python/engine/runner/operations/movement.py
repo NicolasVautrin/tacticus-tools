@@ -39,6 +39,12 @@ from .refresh_effects import RefreshEffectTrigger, refresh_stat_modifier_effects
 from ...entities.effects.aura_selectors import hex_distance
 from ..components import save_previous_position
 from ..components import set_unit_feet
+# #448-r1-r1-r2-r2-r1 -- les substrats des SEPT gates amont : `UnitFlagsComponent.FLED` (le
+# `HasFlag(unit, 9)` d'`UnitExtensions$$HasFled`) et l'empreinte courante (`GetUnitFeet`).
+from ..components import UnitFlagsComponent
+from ..components import get_unit_feet
+# Branche `allowNullTargetPosition` (E8) : le slot 7 de l'`IOperationProcessor`.
+from .remove_unit_from_tiles import RemoveUnitFromTilesOperation
 
 
 def _blocking_positions(state: State, mover_id: int) -> set:
@@ -347,6 +353,266 @@ def _tiles_are_empty(state: State, mover_id: int, dest_tile) -> bool:
             continue                             # `HasSteppableUnit(tile, state)`
         return False
     return True
+
+
+# ================================================================================================ #
+# LES SEPT GATES AMONT d'`IdunBattle.Operations.MoveUnitOperation$$Execute` (#448-r1-r1-r2-r2-r1).
+#
+# Ils tombent AVANT tout : avant `IsLikeFlying`, avant `GetUnitPosition`, avant l'ecriture de la
+# destination demandee, avant `SetReservation`. Lus verbatim en tete du decompile, DANS CET ORDRE et
+# avec CES POLARITES (trois d'entre eux refusent quand ils rendent VRAI) :
+#
+#     if (!IsAllowedToMove(unit, options.<+0x13>))            return;   // G1
+#     if ( UnitIsOnTiles(unit, position))                     return;   // G2
+#     if (!TilesAreWalkable(unit, position))                  return;   // G3
+#     if (!TilesMatchUnitFeetCount(unit, position))           return;   // G4
+#     if ( IsDisallowedEmptyPosition(unit, position, options.<+0x15>))  return;   // G5
+#     if ( IsPositionReservedForOtherUnit(unit, position))    return;   // G6
+#     if ( IsPositionReservedForDrafting(unit, position))     return;   // G7
+#
+# AUCUN d'eux n'appelle `RemoveReservation` : ils sont AMONT de `SetReservation`, il n'y a rien a
+# retirer. C'est ce qui les distingue des deux gates d'abandon deja portes (`TilesAreEmpty`, `path`
+# vide), qui, eux, la retirent.
+#
+# `position` est la DESTINATION sous forme d'EMPREINTE (`UnitPosition` = une liste de tuiles) --
+# `[]` quand `to is None` (le lift-off, cf. la branche `allowNullTargetPosition`), sinon `[to]`,
+# le port ne materialisant que la main tile.
+# ================================================================================================ #
+
+
+def _is_allowed_to_move(state: State, mover_id: int, ignore_unit_movement_blockers: bool) -> bool:
+    """G1 -- `IdunBattle.Operations.MoveUnitOperation$$IsAllowedToMove(unit, ignoreUnitMovementBlockers)`,
+    MIRROR du decompile (il rend VRAI = « le mouvement est permis ») :
+
+        if (!ignoreUnitMovementBlockers && !UnitExtensions.CanMove(unit)) { log; return false; }
+        if (UnitExtensions.IsDead(unit, state))                          { log; return false; }
+        if (UnitExtensions.HasFled(unit))                                { log; return false; }
+        return true;
+
+    `ignoreUnitMovementBlockers` = l'octet `MoveUnitOptions+0x13`, `False` a tous les call-sites du
+    port (options nulles). Les trois etages sont portes :
+
+      * `UnitExtensions$$CanMove` -> le FOYER existant `turnflow._can_move` (mirror deja ecrit et
+        deja TRI-ETAT : son 4e etage, `MovementComponent$$IsAllowedToMove`, n'a aucun canal de seed
+        et est declare NON PORTE, direction PERMISSIVE). Un `None` (etage non lisible) est traite
+        comme « pas de refus » -- on n'ABANDONNE jamais un mouvement faute d'avoir su mesurer, meme
+        parti que le tri-etat de `_calculate_path` ;
+      * `UnitExtensions$$IsDead(unit, state)` -> `UnitComponent.alive`, le collapse habituel ;
+      * `UnitExtensions$$HasFled(unit)` = `HasFlag(unit, 9 = UnitFlag.Fled)`, LU au decompile (le
+        corps entier de `HasFled` est ce seul appel) -> `UnitFlagsComponent.FLED`, que
+        `FleeOperation` pose deja.
+    """
+    e = state.get_entity(int(mover_id))
+    if e is None:
+        return False
+    if not ignore_unit_movement_blockers:
+        # PORTEUR, et c'est MESURE : `import engine.runner.operations.turnflow` en process FRAIS
+        # fait atterrir `engine.runner.operations.movement` dans `sys.modules` (via
+        # `..abilities.handler`) -- hisser cet import fermerait donc un cycle. Forme MODULE (B) :
+        # l'attribut est relu a l'appel, donc une substitution posee sur `turnflow` mord.
+        from . import turnflow
+        if turnflow._can_move(state, int(mover_id)) is False:
+            return False                                  # `!UnitExtensions.CanMove(unit)`
+    uc = e.get_component(UnitComponent)
+    if uc is not None and not uc.alive:
+        return False                                      # `UnitExtensions.IsDead(unit, state)`
+    fl = e.get_component(UnitFlagsComponent)
+    if fl is not None and fl.has(UnitFlagsComponent.FLED):
+        return False                                      # `UnitExtensions.HasFled(unit)`
+    return True
+
+
+def _unit_is_on_tiles(state: State, mover_id: int, position: list) -> bool:
+    """G2 -- `IdunBattle.Operations.MoveUnitOperation$$UnitIsOnTiles(unit, feetTiles)`, MIRROR du
+    decompile (il rend VRAI = « l'unite y est DEJA », et `Execute` REFUSE alors le mouvement) :
+
+        var feet = UnitExtensions.GetUnitFeet(unit, state);              // les PIEDS de l'unite
+        if (feet.Count != feetTiles.Count)                  return false;
+        if (feet.Count == 0 && feetTiles.Count == 0)        return true;
+        foreach (var foot in feet) {
+            var tile = EntityExtensions.GetMainTile(foot, state);
+            if (tile == null)                               return false;
+            if (!feetTiles.Contains(tile))                  return false;
+        }
+        return true;
+
+    C'est le gate « mouvement NUL » : bouger vers l'empreinte qu'on occupe deja est un no-op, et le
+    natif le coupe AVANT d'emettre `On(0x1f = PreUnitMove)`. Le port, lui, jouait le vecteur pre-move,
+    posait `Moved`, rejouait le vecteur after-move et pouvait declencher un OVERWATCH sur un
+    deplacement de zero tuile.
+
+    ⚠ LE BRAS `feet.Count == 0 && feetTiles.Count == 0` EST LU, pas deduit : une unite HORS PLATEAU
+    a qui l'on demande une destination VIDE « y est deja ». C'est ce qui fait qu'un lift-off repete
+    ne rejoue pas le vecteur after-move."""
+    feet = get_unit_feet(state, int(mover_id))
+    if len(feet) != len(position):
+        return False
+    if not feet and not position:
+        return True                                       # les DEUX vides -> deja en place
+    dest = set(position)
+    for t in feet:
+        if t not in dest:
+            return False
+    return True
+
+
+def _tiles_are_walkable(state: State, position: list) -> bool:
+    """G3 -- `IdunBattle.Operations.MoveUnitOperation$$TilesAreWalkable(unit, feetTiles)` :
+
+        foreach (var tile in feetTiles) {
+            if (tile == null)                                     { log; return false; }
+            if (!BattleQuery.<slot 0xa1>(tile))                   { log; return false; }
+        }
+        return true;
+
+    Le slot `0xa1` d'`IBattleQuery` est `IdunBattle.Core.Services.BattleQuery$$IsWalkableTile`, dont
+    le corps est `tile != null && EntityExtensions.IsTile(tile) && tile.<TileComponent>.<+0x10> == 0`
+    -- le champ que le capteur `boardGraph` publie comme `walkable` et que porte
+    `Board.walkable(tileId)`.
+
+    ⚠ **CE GATE EST DEJA CE QUI REFUSE LES ILOTS.** Mesure #448-r1-r1-r2-r2 : les composantes
+    deconnectees des dumps `data/boards/` ressortent NON walkable dans le `boardGraph` live
+    (`C4_09` : 37 tuiles walkable live contre 62 offline). Un mouvement vers une telle tuile est donc
+    refuse ICI, en amont, et n'atteint jamais le gate `path` vide.
+
+    Pas de board -> `True` (PERMISSIF) : on ne refuse pas un mouvement faute de substrat, meme parti
+    que le tri-etat de `_calculate_path`."""
+    board = getattr(state, "board", None)
+    if board is None:
+        return True
+    for t in position:
+        if t is None:
+            return False
+        tid = board.id_at(int(t[0]), int(t[1]))
+        if tid is None:
+            return False                                  # hors board = pas une tuile (`IsTile`)
+        if not board.walkable(tid):
+            return False
+    return True
+
+
+def _tiles_match_unit_feet_count(state: State, mover_id: int, position: list) -> bool:
+    """G4 -- `IdunBattle.Operations.MoveUnitOperation$$TilesMatchUnitFeetCount(unit, tilesToMoveTo)` :
+
+        if (tilesToMoveTo.Count == 0)                        return true;   // le LIFT-OFF passe
+        var feet = UnitExtensions.GetUnitFeet(unit, state);
+        if (feet.Count == tilesToMoveTo.Count)               return true;
+        log;  return false;
+
+    ⚠ **LE BRAS `Count == 0` EST CE QUI LAISSE PASSER LE LIFT-OFF** : sans lui, une destination vide
+    serait refusee ici avant meme d'atteindre `IsDisallowedEmptyPosition`. Lu, pas deduit.
+
+    ⚠ **ET SOUS LE COLLAPSE MONO-HEX DU PORT, CE GATE NE PEUT PAS REFUSER — c'est un fait, pas une
+    commodite.** `MoveUnitOperation` prend UNE main tile, donc l'empreinte de destination qu'il
+    materialise a toujours exactement 1 element ; et `get_unit_feet` rend l'empreinte COURANTE, qui
+    vaut 1 pour toute unite mono-hex. Il ne refuserait donc que sur une unite MULTI-HEX, a qui le
+    port demande de bouger vers une seule tuile -- et le refuser la serait une regression INVENTEE
+    (le natif, lui, recevrait une empreinte de meme cardinalite). Le gate est donc porte au rang
+    natif et rendu INERTE sur le multi-hex, explicitement, plutot que tu, ou joue a tort.
+    Meme residu multi-pieds que `_tiles_are_empty` et `KillSteppableUnits`."""
+    if not position:
+        return True                                       # `tilesToMoveTo.Count == 0`
+    feet = get_unit_feet(state, int(mover_id))
+    if len(feet) == len(position):
+        return True
+    # COLLAPSE assume : le port ne materialise qu'une main tile de destination, donc une unite
+    # multi-hex tomberait ici alors que le natif recevrait `position.Count == feet.Count`.
+    return len(position) == 1
+
+
+def _is_disallowed_empty_position(position: list, allow_null_target_position: bool) -> bool:
+    """G5 -- `IdunBattle.Operations.MoveUnitOperation$$IsDisallowedEmptyPosition(unit, position,
+    allowNullTargetPosition)`, MIRROR du decompile (il rend VRAI = REFUS) :
+
+        if (position.Count != 0 || allowNullTargetPosition)  return false;
+        log;  return true;
+
+    `allowNullTargetPosition` = l'octet `MoveUnitOptions+0x15`. C'est le SEUL gardien de la branche
+    LIFT-OFF : une destination vide passe si et seulement si le call-site l'a demandee."""
+    return (not position) and (not allow_null_target_position)
+
+
+def _is_position_reserved_for_other_unit(state: State, mover_id: int, position: list) -> bool:
+    """G6 -- `IdunBattle.Operations.MoveUnitOperation$$IsPositionReservedForOtherUnit(unit, position)`
+    = `BattleQuery.<slot 0xa5>(position, unit)`, c'est-a-dire la surcharge LISTE d'
+    `IdunBattle.Core.Services.BattleQuery$$IsTileReservedForAnotherUnit` (le corps du gate est cet
+    appel, plus un log). Porte par `operations/tile_reservation.py` (#550-r1) :
+
+        foreach (tile in position)
+            if (IsTileReserved(tile) && !IsTileReservedForUnit(tile, unit)) return true;
+        return false;
+
+    ⚠ **NE PAS CONFONDRE avec `TileExtensions$$IsTileReservedForOtherUnit`**, l'homonyme que lit
+    `CanAddUnitFromAbility` : sur une tuile NON reservee, celui-la rend VRAI et celui-ci FAUX. Les
+    deux polarites sont opposees et les deux sont LUES (cf. l'en-tete de `tile_reservation.py`)."""
+    if not position:
+        return False
+    from . import tile_reservation
+    return tile_reservation.is_tile_reserved_for_another_unit(state, position, int(mover_id))
+
+
+def _is_position_reserved_for_drafting(state: State, position: list) -> bool:
+    """G7 -- `IdunBattle.Operations.MoveUnitOperation$$IsPositionReservedForDrafting(unit, position)` :
+
+        foreach (var tile in position)
+            if (TileExtensions.IsTilePendingDrafting(tile, state, null)) { log; return true; }
+        return false;
+
+    **NON PORTE, ET LA DIRECTION EST DITE.** `IdunBattle.Entities.TileExtensions$$IsTilePendingDrafting`
+    balaie les entites-JOUEUR de l'etat et lit, pour chacune,
+    `DraftingComponent.<+0x28>.<+0x2c>` (la tuile ou ce joueur est en train de POSER une unite),
+    en s'exemptant lui-meme par `playerComponent.<+0x10> != allowedDraftingPlayerId` (`null` ici,
+    donc aucune exemption). C'est l'etat de la phase de DRAFTING -- que le runner n'a pas : aucune
+    seed BC ne le publie, aucune Operation portee ne l'ecrit, et
+    `IdunBattle.Operations.StartTurnOperation$$Execute` (dont le port ne joue ni le
+    `DraftingComponent$$BlockDrafting` ni le `$$EnableDrafting`) en est le seul pilote.
+
+    Rend donc TOUJOURS `False` : le port est PERMISSIF sur cet axe (il laisse passer un mouvement
+    vers une tuile que le natif refuserait pendant qu'un adversaire y drafte). Fabriquer un substrat
+    depuis autre chose serait une hypothese deguisee en mirror. MEME residu, meme direction, que le
+    `IsTilePendingDrafting` deja nomme par `entities/selectors/tiles.py::CanAddUnit`."""
+    return False
+
+
+def _movement_start_position(state: State, mover_id: int) -> list:
+    """E1 -- le `movementStartPosition` d'`IdunBattle.Operations.MoveUnitOperation$$Execute`, LU :
+
+        currentPosition       = EntityExtensions.GetUnitPosition(unit, state);
+        previousThisTurn      = EntityExtensions.GetPreviousPositionThisTurn(unit, state);
+        movementStartPosition = currentPosition;
+        if (UnitPosition.IsEmpty(currentPosition) && previousThisTurn.HasValue
+            && !UnitPosition.IsEmpty(previousThisTurn.Value))
+            movementStartPosition = previousThisTurn.Value;
+
+    C'est l'entree de `CalculatePaths` (son `startTile` = `movementStartPosition[0]`), et c'est ce
+    qui distingue « unite hors plateau SANS passe » (branche degeneree `[endTile, endTile]`) de
+    « unite hors plateau QUI VIENT DE QUITTER une tuile ce tour » (vrai chemin depuis cette tuile,
+    avec `pathfinderType` force a `Fly` parce que `previousPosition` -- le 4e argument, la position
+    COURANTE -- est vide).
+
+    ⚠ **LE SECOND BRAS EST STRUCTURELLEMENT INATTEIGNABLE COTE PORT, et ce n'est pas un oubli.**
+    `IdunBattle.Entities.EntityExtensions$$GetPreviousPositionThisTurn` lit le slot `+0x98`, le
+    JUMEAU de `+0x88` (celui que porte `PositionComponent.previous`). Les deux sont ecrits ensemble
+    et avec la MEME valeur par `SetUnitPositionOperation$$SavePreviousPosition` et par
+    `RemoveUnitFromTilesOperation$$Execute`, mais ils ne sont PAS remis a zero ensemble :
+    `IdunBattle.Operations.StartTurnOperation$$Execute` efface `+0x98` (et lui seul) pour chaque
+    unite du pool, tandis que `+0x88` ne l'est que par
+    `IdunBattle.Entities.Behaviours.ResetPreviousPositionBehaviour$$Execute` (unique call-site :
+    `SwornProtector_ProtectAbility`). Le port n'a qu'UN champ, et de toute facon le retrait du
+    plateau (`set_unit_feet(uid, [])`) SUPPRIME la `PositionComponent` -- donc `previous` avec elle.
+    ⇒ le fallback ne peut pas etre alimente ici. Il est ecrit quand meme parce que c'est le
+    decompile, et le residu `#462-r4b-r1-r1-r1-r1-c-r3-r1-r5-r2` est CONFIRME par cette lecture (il
+    l'etait a titre d'hypothese) : fermer exige un second champ dans `runner/components.py` et son
+    effacement dans `StartTurnOperation`.
+
+    Rend l'empreinte (liste de `(col,row)`), `[]` si l'unite n'occupe aucune tuile."""
+    feet = get_unit_feet(state, int(mover_id))
+    if feet:
+        return feet
+    e = state.get_entity(int(mover_id))
+    pc = e.get_component(PositionComponent) if e is not None else None
+    prev = list(getattr(pc, "previous", None) or ()) if pc is not None else []
+    return prev
 
 
 def _movement_steps(state: State, mover_id: int, from_pos, to_pos,
@@ -736,15 +1002,30 @@ class MoveUnitOperation(Operation):
     __slots__ = ("unit_id", "to", "set_moved", "record_tiles", "skip_pre_move_triggers",
                  "last_movement_steps", "pathfinder_type_override", "is_interim_step",
                  "arrive_at_final_tile", "emit_after_move", "last_after_move",
-                 "last_crushed", "last_path", "last_abandoned", "enforce_native_gates")
+                 "last_crushed", "last_path", "last_abandoned", "enforce_native_gates",
+                 "ignore_unit_movement_blockers", "allow_null_target_position")
 
-    def __init__(self, unit_id: int, to: tuple[int, int], set_moved: bool = True,
+    def __init__(self, unit_id: int, to: "tuple[int, int] | None", set_moved: bool = True,
                  record_tiles: bool = True, skip_pre_move_triggers: bool = False,
                  pathfinder_type_override: int | None = None,
                  is_interim_step: bool = False, arrive_at_final_tile: bool = True,
-                 emit_after_move: bool = True, enforce_native_gates: bool = True):
+                 emit_after_move: bool = True, enforce_native_gates: bool = True,
+                 ignore_unit_movement_blockers: bool = False,
+                 allow_null_target_position: bool = False):
         self.unit_id = unit_id
+        # `to is None` = la `UnitPosition` VIDE du natif (`position.Count == 0`), c'est-a-dire le
+        # LIFT-OFF : l'unite QUITTE le plateau sans destination. Gardee par `allow_null_target_position`
+        # (`MoveUnitOptions+0x15`), sans quoi le gate G5 `IsDisallowedEmptyPosition` refuse.
         self.to = to
+        # `MoveUnitOptions+0x13` -- 3e argument d'`IdunBattle.Operations.MoveUnitOperation$$
+        # IsAllowedToMove`, qui court-circuite le seul `UnitExtensions$$CanMove` (PAS `IsDead`, PAS
+        # `HasFled`). `False` a tous les call-sites du port (options nulles).
+        self.ignore_unit_movement_blockers = bool(ignore_unit_movement_blockers)
+        # `MoveUnitOptions+0x15` -- lu DEUX FOIS par `Execute` : par le gate G5
+        # `IsDisallowedEmptyPosition` (qui refuse une destination vide sans lui) et par la branche
+        # `position.Count == 0`, qui RETIRE l'unite du plateau puis joue `EvaluateAfterMoveTriggers`
+        # avec `movementSteps = 0`. C'est le LIFT-OFF de `TheQuickening`.
+        self.allow_null_target_position = bool(allow_null_target_position)
         # Cf. le bloc « LES GATES D'ABANDON » du docstring de classe. `True` = cette instance
         # mirroite `MoveUnitOperation$$Execute` et joue donc ses DEUX gates d'abandon.
         self.enforce_native_gates = bool(enforce_native_gates)
@@ -783,10 +1064,57 @@ class MoveUnitOperation(Operation):
         # est la RELANCE d'`Execute` par elle-meme apres un override de destination.
         self.skip_pre_move_triggers = bool(skip_pre_move_triggers)
 
+    def _remove_reservation(self, state: State, position: list) -> None:
+        """`IdunBattle.Operations.MoveUnitOperation$$RemoveReservation(unit, position)` :
+
+            foreach (var tile in position) TileExtensions.RemoveReserveForUnit(tile, unit);
+
+        Le gate d'identite est DANS `RemoveReserveForUnit` (une unite ne libere que SA propre
+        reservation) -- cf. `operations/tile_reservation.py`. Quatre call-sites natifs, tous portes :
+        les trois abandons (`TilesAreEmpty` faux, override invalide/mort, `path` vide) et le chemin
+        nominal."""
+        from . import tile_reservation
+        for t in position:
+            tile_reservation.remove_reserve_for_unit(state, t, self.unit_id)
+
     def execute(self, state: State, bus: EventBus) -> None:
         e = state.get_entity(self.unit_id)
         if e is None:
             return
+        # `position` = la `UnitPosition` de DESTINATION (une EMPREINTE, pas une tuile). Le port ne
+        # materialise que la main tile ; `to is None` est la position VIDE du natif.
+        position = [] if self.to is None else [(int(self.to[0]), int(self.to[1]))]
+        # ── LES SEPT GATES AMONT (#448-r1-r1-r2-r2-r1) ────────────────────────────────────────────
+        # Rang natif EXACT : ils tombent AVANT `IsLikeFlying`, avant `GetUnitPosition`, avant
+        # l'ecriture de la destination demandee, avant `SetReservation` -- donc avant TOUTE mutation
+        # et avant le vecteur `On(0x1f)`. Trois d'entre eux refusent quand ils rendent VRAI ; les
+        # polarites sont celles du decompile (cf. le bloc de commentaire au-dessus des helpers).
+        # Aucun n'appelle `RemoveReservation` : il n'y a encore rien de reserve.
+        # Meme discriminant que les deux gates d'abandon : un call-site qui mirroite
+        # `SetUnitPositionOperation$$Execute` (push/pull/switch/fuite) n'a PAS ces gates cote natif,
+        # les lui appliquer inventerait un refus.
+        if self.enforce_native_gates:
+            if not _is_allowed_to_move(state, self.unit_id, self.ignore_unit_movement_blockers):
+                self.last_abandoned = "not-allowed-to-move"                          # G1
+                return
+            if _unit_is_on_tiles(state, self.unit_id, position):
+                self.last_abandoned = "unit-is-on-tiles"                             # G2
+                return
+            if not _tiles_are_walkable(state, position):
+                self.last_abandoned = "tiles-not-walkable"                           # G3
+                return
+            if not _tiles_match_unit_feet_count(state, self.unit_id, position):
+                self.last_abandoned = "feet-count-mismatch"                          # G4
+                return
+            if _is_disallowed_empty_position(position, self.allow_null_target_position):
+                self.last_abandoned = "disallowed-empty-position"                    # G5
+                return
+            if _is_position_reserved_for_other_unit(state, self.unit_id, position):
+                self.last_abandoned = "position-reserved"                            # G6
+                return
+            if _is_position_reserved_for_drafting(state, position):
+                self.last_abandoned = "position-reserved-drafting"                   # G7 (inerte)
+                return
         # `On(PreUnitMove = 0x1f = 31)` — EMIS EN TETE, avant TOUTE mutation. Place native lue au
         # decompile d'`IdunBattle.Operations.MoveUnitOperation$$Execute` : le corps
         # d'`EvaluatePreMoveTriggers` y est INLINE juste apres `SetReservation` et **avant**
@@ -811,14 +1139,30 @@ class MoveUnitOperation(Operation):
         #       l'appel recursif) -- ce qui borne la recursion a UN niveau par trigger deviant.
         # Le gate `if (!TilesAreEmpty(unit, position)) { RemoveReservation ; return }` que le natif
         # place entre (b) et (c) est PORTE depuis #448-r1-r2 (cf. `_tiles_are_empty`), sous
-        # `enforce_native_gates`. La RESERVATION elle-meme (`SetReservation`/`RemoveReservation`)
-        # ne l'est toujours pas : son unique lecteur natif est le gate AMONT
-        # `IsPositionReservedForOtherUnit`, qui ne mord que sur deux mouvements CONCURRENTS -- un
-        # regime que le port mono-thread n'atteint que si un trigger `PreUnitMove` lance lui-meme
-        # un mouvement vers la meme tuile. RESIDU NOMME ; sans lecteur, la porter serait un no-op.
+        # `enforce_native_gates`.
+        # LA RESERVATION EST PORTEE DEPUIS #550-r1 (`operations/tile_reservation.py`) :
+        # `IdunBattle.Operations.MoveUnitOperation$$SetReservation(unit, position)` pose la
+        # reservation de CHAQUE tuile de la destination sur le mover, et `$$RemoveReservation` la
+        # retire -- sur les TROIS chemins d'abandon du decompile (`TilesAreEmpty` faux, override
+        # consomme invalide/mort, `path` vide) ET sur le chemin nominal, ou le natif la retire APRES
+        # `SetMovedFlag` et AVANT le calcul de `movementSteps`. Ses lecteurs portes : le gate amont
+        # G6 (`IsPositionReservedForOtherUnit`, ci-dessus) -- qui mord des qu'un trigger
+        # `PreUnitMove` lance lui-meme un mouvement vers la meme tuile -- et les noeuds DSL
+        # `Reserve`/`RemoveReservation` (`abilities/behaviours/movement.py`).
+        # ⚠ `()` N'EST PAS `None` ICI, et la distinction est LUE. Le natif pose
+        # `Nullable(UnitPositionId(position))` : sur une position VIDE le `Nullable` a quand meme
+        # une VALEUR (un `UnitPositionId` d'empreinte vide), donc `ovr.HasValue` est VRAI et le gate
+        # (c) `if (!ovr.HasValue || IsDead) return` ne mord PAS. Le port code donc « override pose,
+        # empreinte vide » par le tuple VIDE et « aucun override » (le `Nullable` vide, que seule la
+        # consommation en (c) produit) par `None`. Les confondre ferait retomber tout LIFT-OFF sur le
+        # bras `ovr is None` -> `return`, c'est-a-dire un refus silencieux.
         uc0 = e.get_component(UnitComponent)
         if uc0 is not None:
-            uc0.movement_target_override = (int(self.to[0]), int(self.to[1]))      # (a)
+            uc0.movement_target_override = (() if self.to is None
+                                            else (int(self.to[0]), int(self.to[1])))   # (a)
+        from . import tile_reservation
+        for _t in position:                                                            # SetReservation
+            tile_reservation.reserve_for_unit(state, _t, self.unit_id)
         if not self.skip_pre_move_triggers:
             # PORTEUR (cycle `operations` <-> `triggers`) ET forme MODULE : l'attribut est relu
             # a l'appel, donc une substitution posee sur `move_death` mord quelle que soit la
@@ -826,14 +1170,18 @@ class MoveUnitOperation(Operation):
             # `from ... import pre_move_triggers` hisse deviendrait INERTE, en silence.
             from .triggers.dispatch import move_death
             move_death.pre_move_triggers(state, self.unit_id,
-                                         dest_tile=tuple(self.to))                # (b)
+                                         dest_tile=(None if self.to is None
+                                                    else tuple(self.to)))         # (b)
             # `if (!TilesAreEmpty(unit, position)) { RemoveReservation ; return }` -- RANG NATIF
             # EXACT : DANS le bloc `!skipPreMoveTriggers`, donc la RELANCE apres deviation ne le
             # rejoue PAS (le natif y pose `options+0x12 = 1`). C'est LU, pas choisi : le gate est
             # a l'interieur des accolades du `if`, comme `On(0x1f)`.
+            # Sur une position VIDE la boucle native ne tourne pas -> `true` (`_tiles_are_empty`
+            # rend `True` sur `dest_tile is None`, deja son comportement).
             if self.enforce_native_gates and not _tiles_are_empty(state, self.unit_id, self.to):
                 self.last_abandoned = "tiles-not-empty"
-                return                                                             # + RemoveReservation
+                self._remove_reservation(state, position)
+                return
         if uc0 is not None:                                                        # (c)
             ovr = uc0.movement_target_override
             uc0.movement_target_override = None                # CONSOMME (le natif remet a zero)
@@ -842,8 +1190,13 @@ class MoveUnitOperation(Operation):
             # peut TUER le mover (`...StormboyzStrike_MissAbility` -> `TriggerAbility(FullThrottle)`
             # -> `If(Maybe(chance), Kill(Caster))`), et le natif annule alors le mouvement.
             if ovr is None or not uc0.alive:
+                self._remove_reservation(state, position)
                 return
-            if tuple(ovr) != (int(self.to[0]), int(self.to[1])):
+            # `if (ToUnitPosition(ovr) != position)` -- comparaison d'EMPREINTES, pas de tuiles :
+            # `()` (le lift-off) egale `[]`, et un `(col,row)` egale `[(col,row)]`.
+            ovr_position = [] if len(ovr) == 0 else [(int(ovr[0]), int(ovr[1]))]
+            if ovr_position != position:
+                self._remove_reservation(state, position)
                 # Le natif RECOPIE la struct `options` telle quelle dans l'appel recursif (il n'y
                 # touche que pour poser `+0x12 = 1`), donc l'override de pathfinder SURVIT a la
                 # deviation -- comme `set_moved` et `record_tiles`.
@@ -854,7 +1207,9 @@ class MoveUnitOperation(Operation):
                                         is_interim_step=self.is_interim_step,
                                         arrive_at_final_tile=self.arrive_at_final_tile,
                                         emit_after_move=self.emit_after_move,
-                                        enforce_native_gates=self.enforce_native_gates)
+                                        enforce_native_gates=self.enforce_native_gates,
+                                        ignore_unit_movement_blockers=self.ignore_unit_movement_blockers,
+                                        allow_null_target_position=self.allow_null_target_position)
                 sub.execute(state, bus)
                 # Le natif RELANCE `Execute` sur la nouvelle destination et c'est CET appel-la qui
                 # calcule son `movementSteps` et joue le vecteur after-move : on remonte donc la
@@ -865,6 +1220,42 @@ class MoveUnitOperation(Operation):
                 self.last_path = sub.last_path
                 self.last_abandoned = sub.last_abandoned
                 return
+        # ── E8 : LA BRANCHE `allowNullTargetPosition` (#448-r1-r1-r2-r2-r1) ───────────────────────
+        # RANG NATIF EXACT : APRES le bloc override, AVANT `CalculatePaths`. Lu verbatim :
+        #
+        #     if (position.Count == 0) {
+        #         if (!options.<+0x15>) throw;                        // G5 l'a deja refuse
+        #         processor.<slot 7>(unit, removeTileFromUnit: true); // RemoveUnitFromTiles
+        #         EvaluateAfterMoveTriggers(unit, position, previousPosition, movementSteps: 0,
+        #                                   isInterimStep: options.<+0x14>, triggeringAbilityOrEffect);
+        #         return;
+        #     }
+        #
+        # Le slot **7** de l'`IOperationProcessor` est celui de `RemoveUnitFromTiles(unit, bool)` --
+        # LU par recoupement : `IdunBattle.Entities.Behaviours.RemoveUnitFromItsTilesBehaviour$$Execute`
+        # appelle le MEME slot avec la MEME signature `(unit, <bool>)`, et le port en a deja le mirror
+        # (`operations/remove_unit_from_tiles.py`).
+        #
+        # C'EST LE LIFT-OFF : l'unite quitte le plateau, sans mourir, sans `SetMovedFlag`, sans
+        # `KillSteppableUnits`, sans `UpdateCharging`, sans `RecordTilesMoved`, sans `RefreshEffects`
+        # -- rien de la sequence nominale, SAUF le vecteur after-move, joue avec `movementSteps = 0`.
+        # C'est la premiere moitie de `TheQuickening` (`MoveUnit(caster, <position vide>)` puis
+        # `MoveIn`), que le port COLLAPSE aujourd'hui en deux mouvements directs
+        # (`abilities/loki/quickening.py`, `enforce_native_gates=False`).
+        if not position:
+            self.last_abandoned = ""
+            self.last_path = None                    # aucun `CalculatePaths` sur cette branche
+            self.last_movement_steps = 0             # le litteral du call-site natif
+            RemoveUnitFromTilesOperation.execute(state, self.unit_id,
+                                                 remove_tile_from_unit=True)
+            if self.emit_after_move:
+                from .triggers.dispatch import move_death
+                self.last_after_move = move_death.after_move_triggers(
+                    state, self.unit_id, movement_steps=0,
+                    is_interim_step=self.is_interim_step,
+                    arrive_at_final_tile=self.arrive_at_final_tile)
+            # Pas de `RemoveReservation` ici : `position` est VIDE, `SetReservation` n'a rien pose.
+            return
         pc = e.get_component(PositionComponent)
         old_pos = (pc.col, pc.row) if pc is not None else None
         # `CalculatePaths(...)` puis le GATE D'ABANDON, au RANG NATIF : le natif les place APRES le
@@ -886,7 +1277,8 @@ class MoveUnitOperation(Operation):
                                          self.pathfinder_type_override)
         if self.enforce_native_gates and not self.last_path:
             self.last_abandoned = "path-empty"
-            return                                                  # + RemoveReservation
+            self._remove_reservation(state, position)
+            return
         self.last_abandoned = ""
         # `movementSteps` -- calcule AVANT la mutation de position (`old_pos` est son entree), comme
         # le natif qui derive `path` de `CalculatePaths(startTile = position.MainTile, ...)` avant
@@ -956,6 +1348,12 @@ class MoveUnitOperation(Operation):
         # le seul call-site qui le pose est `SwitchPositionOperation` (mesure live #287).
         if self.set_moved:
             set_moved_flag(state, self.unit_id)
+        # `RemoveReservation(unit, position)` du chemin NOMINAL -- RANG NATIF EXACT : le decompile
+        # l'appelle APRES `SetMovedFlag` / `Add(UnitFlag.ArrivedAtFinalTile)` / le bloc
+        # `Nullable<AbilityOrEffect>` et AVANT le calcul de `movementSteps` et `RecordTilesMoved`.
+        # Le rang compte : entre `SetReservation` et ici, tout trigger `PreUnitMove` qui tenterait de
+        # bouger une autre unite vers la MEME tuile est refuse par le gate G6.
+        self._remove_reservation(state, position)
         # case-322-r1 : `RecordTilesMoved(unit, GetNumTilesMoved(connectedPath), state)`. RANG NATIF
         # EXACT, lu au decompile d'`IdunBattle.Operations.MoveUnitOperation$$Execute` : le bloc
         # tombe APRES `SetMovedFlag` / `Add(ArrivedAtFinalTile)` / `RemoveReservation` et AVANT le

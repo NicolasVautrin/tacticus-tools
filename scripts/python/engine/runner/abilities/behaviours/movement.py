@@ -14,6 +14,9 @@ from ...operations.displace import SwitchPositionOperation
 from ...operations.displace import _occupied
 from ...operations.movement import MoveUnitOperation
 from ...operations.movement import OverrideMovementTargetOperation
+# #550-r1 -- forme MODULE (B) : l'attribut est relu a l'appel, donc une substitution posee sur
+# `tile_reservation` mord depuis ce site.
+from ...operations import tile_reservation
 from ....entities.pathfinding import pathfinders as _pf
 
 # `MoveUnitOptions+0x10` d'une feuille DSL de mouvement A OPTIONS NULLES (#448-r1-r1-r2-r1).
@@ -145,20 +148,33 @@ class Reserve(AbilityBehaviour):
     couple d'arguments, et ne different QUE par le 3e argument du ctor (`0` pour `Reserve`, `1` pour
     `RemoveReservation`) -- LU au decompile des deux corps, qui sont par ailleurs identiques.
 
-    **NO-OP PORTE, ET C'EST DECLARE.** Le port n'a AUCUN modele de reservation de tuile : la
-    docstring de `entities/selectors/tiles.py::CanAddUnit` le nomme deja comme residu
-    (`TileExtensions$$IsTileReservedForOtherUnit` et `$$IsTilePendingDrafting` sans equivalent).
-    La reservation native sert a EMPECHER qu'un autre etage du meme cast s'approprie une tuile
-    pendant qu'un premier etage compte dessus ; sans file d'operations differees ni drafting, le port
-    n'a pas de fenetre ou deux etages se disputeraient une tuile.
+    **N'EST PLUS UN NO-OP (#550-r1).** La classe de behaviour est
+    `IdunBattle.Entities.Behaviours.ReserveTileForUnitBehavior`, dont l'`Execute` est, LU :
 
-    Le noeud existe pour deux raisons, aucune decorative : (1) l'arbre d'`ItItchesAbility` en porte
-    QUATRE, dont deux dans le sous-behaviour on-appearance du `Spawn` -- les taire rendrait l'arbre
-    illisible face au decompile, et le prochain lecteur croirait a un port incomplet ; (2) le jour ou
-    la reservation sera portee, le point d'ancrage est deja au bon RANG dans la sequence.
+        remove = this.<+0x60>;                                   // le 3e arg du ctor
+        unit   = this.<+0x50>.SelectUnit(entities, remove == 0);  // slot 7
+        tiles  = this.<+0x58>.SelectTiles(entities);              // slot 10
+        if (unit == null || tiles == null || tiles.Count == 0) return;
+        foreach (var tile in tiles)
+            if (!remove) TileExtensions.ReserveForUnit(tile, unit);
+            else         TileExtensions.RemoveReserveForUnit(tile, unit);
 
-    Il journalise (`ectx.emit`), donc un test PEUT observer sa presence et son ordre. Il ne mute
-    RIEN. PUR (stop=False)."""
+    ⚠ **LE NOEUD EST LOAD-BEARING, pas decoratif -- et c'est ce qui a fait tomber le verdict
+    « no-op » de #550.** `IdunBattle.Entities.TileExtensions$$CanAddUnitFromAbility` fait
+    `if (IsTileReservedForOtherUnit(tile, parent)) return false;`, et
+    `$$IsTileReservedForOtherUnit(tile, allowedUnit)` calcule litteralement
+    `!(reserved.HasValue && reserved.Value == allowedUnit.Id)` -- donc **VRAI sur une tuile NON
+    reservee**. Avec un `parent` non nul (ce que rend le selecteur `+0x20` d'
+    `IdunBattle.Entities.Selectors.CanAddUnitTileSelector$$Select`), un `CanAddUnit` sans
+    reservation prealable rendrait un set VIDE. Le `Reserve(Owner, targetTiles)` que l'arbre de
+    `1121 ItItches` place AVANT son `Foreach(CanAddUnit(targetTiles, Owner, ...))` est exactement ce
+    qui fait passer ce `CanAddUnit`.
+    ⇒ tant que `entities/selectors/tiles.py::CanAddUnit` ne lit PAS la reservation, les deux
+    omissions se compensent et l'observable est inchange ; le jour ou elle la lira, elle DEVRA lire
+    ce modele-ci. Residu `#550-r4`.
+
+    Le noeud journalise toujours (`ectx.emit`), avec desormais le compte de tuiles reellement
+    mutees. PUR (stop=False)."""
     __slots__ = ("unit_sel", "tiles_sel", "remove")
 
     def __init__(self, unit_sel: TargetsSelector, tiles_sel: TargetsSelector, remove: bool = False):
@@ -170,8 +186,33 @@ class Reserve(AbilityBehaviour):
         u = resolve_unit(self.unit_sel, entities)
         tiles = self.tiles_sel.evaluate(entities)
         tiles = [] if tiles is None else (list(tiles) if isinstance(tiles, list) else [tiles])
+        state = getattr(ectx, "state", None)
+        uid = (u or {}).get("id")
+        applied = 0
+        # `if (unit == null || tiles == null || tiles.Count == 0) return;` -- les trois gates lus.
+        if state is not None and uid is not None and tiles:
+            board = getattr(state, "board", None)
+            for t in tiles:
+                pos = t
+                if not (isinstance(pos, tuple) and len(pos) == 2):
+                    # DOMAINE MIXTE du selecteur de tuiles (#406) : le port a DEUX
+                    # materialisations, la position `(col,row)` et l'ID d'entite-tuile. Meme
+                    # normalisation qu'au `MoveUnit` de ce module.
+                    if board is None:
+                        continue
+                    try:
+                        xy = board.coord(int(pos))
+                    except (TypeError, ValueError):
+                        continue
+                    if xy is None:
+                        continue
+                    pos = (int(xy[0]), int(xy[1]))
+                if self.remove:
+                    applied += 1 if tile_reservation.remove_reserve_for_unit(state, pos, uid) else 0
+                else:
+                    applied += 1 if tile_reservation.reserve_for_unit(state, pos, uid) else 0
         ectx.emit("RemoveReservation" if self.remove else "Reserve",
-                  unit=(u or {}).get("id"), tiles=tiles)
+                  unit=uid, tiles=tiles, applied=applied)
         return OperationResult.ok()
 
 
