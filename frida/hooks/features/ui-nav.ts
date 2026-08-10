@@ -265,7 +265,9 @@ function getName(r: UiRefs, obj: NativePointer): string {
 
 /** Build the full hierarchy path from a Button up to its scene root.
  * Example: "Canvas (Environment)/MenuRoot/Top/CampaignButton". */
-function getPath(r: UiRefs, button: NativePointer): string {
+/** Chemin de hierarchie complet d'un COMPOSANT quelconque -- pas seulement d'un `Button`.
+ *  Exporte pour `ui-scroll`, qui l'applique a des `ScrollRect`. */
+export function getPath(r: UiRefs, button: NativePointer): string {
     let t: NativePointer;
     try {
         t = invokeMethod(r.componentGetTransform.info, button, []);

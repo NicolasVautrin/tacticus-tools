@@ -25,6 +25,7 @@ import * as dispatchObserve from "./features/dispatch-observe.js";
 import * as whatifTrigger from "./features/whatif-trigger.js";
 import * as autoBoot from "./features/auto-boot.js";
 import * as uiNav from "./features/ui-nav.js";
+import * as uiScroll from "./features/ui-scroll.js";
 import * as uiWindows from "./features/ui-windows.js";
 import * as fsmInput from "./features/fsm-input.js";
 import * as battleEvents from "./features/battle-events.js";
@@ -386,7 +387,7 @@ export function wireRpc(ctx: Ctx): void {
      unitAssetMap, /* movementTrace, */ unitVisualResolve, introspect,
      campaignBuilder, mowBuilder, aiTrace, aiUtilityTrace, simEngine,
      overwatchFix, bucketAudit, dumpComposed, dispatchObserve, whatifTrigger, autoBoot,
-     uiNav, uiWindows, fsmInput, battleEvents, warmupSingletons, battleConfig, observe,
+     uiNav, uiScroll, uiWindows, fsmInput, battleEvents, warmupSingletons, battleConfig, observe,
      dumpPvpBoards, normalizeBc, crashTrap, initTrace,
      // net-capture / ws-capture / ui-mutations : s'enregistrent SANS rien installer.
      // `ui-mutations` ancre un chemin CHAUD (GameObject.SetActive) — armé par `{start:true}`,
