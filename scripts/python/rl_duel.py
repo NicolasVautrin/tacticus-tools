@@ -493,6 +493,53 @@ UNIT_MODIFIER_STATS: dict[str, str] = {
 }
 
 
+def _split_hors_json(s: str, sep: str) -> list[str]:
+    """Decoupe `s` sur `sep`, mais JAMAIS a l'interieur d'une valeur JSON composee.
+
+    Foyer du decoupage de `--unit-stat` ("VisualId:Champ=Valeur[,Champ=Valeur][;VisualId:...]").
+    Le `str.split` naif d'avant coupait `Traits=["Summon","Decoy"]` en `'["Summon"'` + `'"Decoy"]'`
+    et le premier morceau rendait `valeur non-JSON` -- ce qui rendait INJOUABLE tout montage a
+    valeur-liste de plus d'un element (mesure #419-r7, sur le bras UNION de
+    `#589-r1-r1-r2-r1-r2`, ecrit et decrit comme confrontable).
+
+    On suit la PROFONDEUR (`[]`/`{}`) et l'etat CHAINE (`"` avec echappement `\\`) : un separateur
+    n'est un separateur qu'a profondeur 0, hors chaine. Aucune autre forme n'est reconnue --
+    ce n'est pas un parseur JSON, c'est le decoupeur qui lui livre ses morceaux, et un JSON mal
+    forme reste rejete PLUS LOIN par `json.loads`, avec son message.
+    """
+    out: list[str] = []
+    buf: list[str] = []
+    depth = 0
+    in_str = False
+    esc = False
+    for ch in str(s):
+        if in_str:
+            buf.append(ch)
+            if esc:
+                esc = False
+            elif ch == "\\":
+                esc = True
+            elif ch == '"':
+                in_str = False
+            continue
+        if ch == '"':
+            in_str = True
+            buf.append(ch)
+        elif ch in "[{":
+            depth += 1
+            buf.append(ch)
+        elif ch in "]}":
+            depth -= 1
+            buf.append(ch)
+        elif ch == sep and depth <= 0:
+            out.append("".join(buf))
+            buf = []
+        else:
+            buf.append(ch)
+    out.append("".join(buf))
+    return out
+
+
 def _parse_unit_modifier_specs(specs) -> list[tuple[str, str, int]]:
     """'unitId:Id:Amount' -> (unitId, Id, Amount). Leve ValueError sur forme invalide
     ou sur un `Id` hors des huit que `ApplyModifiers` sait dispatcher."""
@@ -881,8 +928,12 @@ def cmd_build(sid: int, a) -> int:
         # régimes à écart NON nul — un levier global ne peut par construction pas les produire).
         # Forme : "VisualId:Champ=Valeur[,Champ=Valeur][;VisualId:…]" ; la valeur est du JSON
         # (`80000`, `[]`, `null`) et le champ est écrit VERBATIM dans l'entrée Units.
-        # Limite assumée : pas de virgule DANS une valeur (elle sépare les champs).
-        for part in spec.split(";"):
+        # La virgule sépare les champs SAUF à l'intérieur d'une valeur JSON composée
+        # (`_split_hors_json` ci-dessus) : `Traits=["Summon","Decoy"]` est UNE valeur, pas deux
+        # champs. Mesuré (#419-r7) : le `split(",")` naïf d'avant coupait cette valeur en
+        # `'["Summon"'` et rendait `valeur non-JSON` — ce qui rendait INJOUABLE le bras UNION de
+        # `#589-r1-r1-r2-r1-r2`, pourtant décrit comme « armé, confrontable sans rien de spécial ».
+        for part in _split_hors_json(spec, ";"):
             part = part.strip()
             if not part:
                 continue
@@ -893,7 +944,7 @@ def cmd_build(sid: int, a) -> int:
                 print(f"[error] --unit-stat: VisualId '{vis}' absent du catalogue BC.Units",
                       file=sys.stderr)
                 return 2
-            for kv in fields.split(","):
+            for kv in _split_hors_json(fields, ","):
                 key, _, val = kv.partition("=")
                 key = key.strip()
                 if not key:
@@ -925,7 +976,7 @@ def cmd_build(sid: int, a) -> int:
                           "docs/rl/case-342-shield-lever.md", file=sys.stderr)
             print(f"[build] --unit-stat {vis}: " + ", ".join(
                 f"{kv.partition('=')[0].strip()}={touched[0].get(kv.partition('=')[0].strip())}"
-                for kv in fields.split(",") if kv.partition("=")[0].strip()))
+                for kv in _split_hors_json(fields, ",") if kv.partition("=")[0].strip()))
     if getattr(a, "dmg_target", None):
         # Frappe ADVERSE écrasante : `Damage` des a-units (la normalisation rend un chiffre bas —
         # ~30 dmg/coup mesuré, insuffisant pour tuer une unité INVOQUÉE dont les PV viennent du kit
