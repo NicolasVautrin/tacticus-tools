@@ -82,9 +82,12 @@ ASCII only (cp1252).
 """
 from __future__ import annotations
 
+import hashlib
 import json
+import os
 import subprocess
 import time
+import uuid
 from pathlib import Path
 
 #: Chemin VERSIONNE, relatif a la racine du checkout. A cote de ses deux freres
@@ -96,6 +99,21 @@ CHEMIN = "scripts/ratchets-457-vert-offline.json"
 #: DISANT, donc tout rejoue. C'est le seul traitement sur -- lire un format inconnu avec les
 #: regles d'un autre produirait un faux vert, pas une sur-selection.
 FORMAT = 1
+
+#: PARTS DE LEDGER (#547-r7) -- l'ecriture MULTI-SHARD, qui etait REFUSEE.
+#:
+#: SOUS `logs/`, donc GITIGNORE et mortel avec le worktree, et c'est le point : une part est un
+#: INTERMEDIAIRE de run, jamais un fait a partager. Le seul artefact partage reste le ledger
+#: versionne, ecrit par UN SEUL processus -- celui qui consolide.
+CHEMIN_PARTS = "logs/ratchets/457-ledger-parts"
+
+#: Format des parts. Meme regle que `FORMAT` : un format inconnu est ECARTE en le disant, jamais
+#: interprete avec les regles d'un autre.
+FORMAT_PART = 1
+
+#: La variable qui porte le JETON DE RUN. C'est l'identite d'une passe multi-shard : le lanceur en
+#: tire un, l'exporte, et tous ses shards l'heritent. La consolidation n'accepte QUE ce jeton-la.
+VAR_JETON = "TACTICUS_457_RUN"
 
 #: Verdicts possibles. Repris de `probe_462` pour que les deux ledgers se lisent pareil.
 VERT = "VERT"
@@ -259,21 +277,38 @@ def a_rejouer(perimetre: list, racine, impactes_depuis) -> tuple[list, dict, lis
                 and e.get("_blob") and blobs.get(rel) == e.get("_blob"):
             par_ancre.setdefault(ancres[rel], []).append(rel)
 
-    impactes: set = set()
+    # ⚠ L'IMPACT SE JUGE PAR ANCRE, ET L'UNION ETAIT UN BUG (#547-r7). La version precedente
+    # UNIONNAIT les impacts de toutes les ancres, puis appliquait cet ensemble a TOUS les
+    # fichiers : un fichier atteste a une ancre RECENTE etait donc declare impacte parce qu'un
+    # AUTRE fichier, atteste a une ancre ANCIENNE, l'etait. La contamination est mesuree
+    # (2026-08-11, apres une passe `--jobs 8` qui venait d'attester 282 fichiers) :
+    #
+    #     ancre 15fc2a4c (282 entrees, fraiches) ->   9 impactes
+    #     ancre 0d6283b6 ( 24 entrees, vieilles) -> 282 impactes
+    #     union appliquee a tout               -> 282 rejoues, dont ~273 A TORT
+    #
+    # Autrement dit : 24 vieilles entrees suffisaient a peremer les 282 qu'on venait de gagner,
+    # donc ATTESTER NE SERVAIT A RIEN -- meme forme que le defaut ferme par #547-r5, a un autre
+    # etage. La correction RETRECIT la selection et ne peut pas produire de faux vert : elle
+    # applique LITTERALEMENT la cle de validite de l'en-tete (<< le fichier ne doit pas etre
+    # IMPACTE par le diff `_depuis..HEAD` >>) -- `_depuis` etant le SIEN, pas celui d'un voisin.
+    impactes_par_ancre: dict = {}
     for sha in par_ancre:
         try:
-            impactes |= set(impactes_depuis(sha))
+            impactes_par_ancre[sha] = set(impactes_depuis(sha))
         except Exception as exc:                          # noqa: BLE001
-            # PAS MESURE : on ne sait pas si ces fichiers sont impactes -> ils le sont TOUS.
-            # Le sens sur, et il est DIT -- jamais un vert par defaut d'information.
+            # PAS MESURE : on ne sait pas si ces fichiers sont impactes -> ils le sont TOUS,
+            # mais SEULEMENT ceux de CETTE ancre. Le sens sur, et il est DIT -- jamais un vert
+            # par defaut d'information.
             anomalies.append("impact depuis %s non mesurable (%s) -- ces fichiers rejouent"
                              % (sha[:8], exc))
-            impactes |= set(par_ancre[sha])
+            impactes_par_ancre[sha] = set(par_ancre[sha])
 
     rejeu, raisons = [], {}
     for rel in perimetre:
-        motif = raison_de_rejeu(rel, entrees.get(rel), blobs.get(rel),
-                                ancres.get(rel), rel in impactes)
+        ancre = ancres.get(rel)
+        impacte = rel in impactes_par_ancre.get(ancre, ())
+        motif = raison_de_rejeu(rel, entrees.get(rel), blobs.get(rel), ancre, impacte)
         if motif is not None:
             rejeu.append(rel)
             raisons[rel] = motif
@@ -410,6 +445,218 @@ def ecrire(racine, entrees: dict) -> Path:
     lignes.append('}')
     p.write_text("\n".join(lignes) + "\n", encoding="utf-8")
     return p
+
+
+# -------------------------------------------------------------- PARTS / MULTI-SHARD (#547-r7)
+
+def chemin_parts(racine) -> Path:
+    return Path(racine) / CHEMIN_PARTS
+
+
+def jeton_courant() -> str | None:
+    """Le jeton de run herite de l'environnement, ou `None`. Jamais fabrique ici.
+
+    Un jeton fabrique par le shard lui-meme ne servirait a RIEN : chaque shard en aurait un
+    different, donc la consolidation ne pourrait plus reconnaitre les siens. C'est le LANCEUR
+    qui en tire un et l'exporte -- lui seul sait ce qu'est << ce run >>.
+    """
+    v = (os.environ.get(VAR_JETON) or "").strip()
+    return v or None
+
+
+def nouveau_jeton() -> str:
+    """Un jeton de run. `uuid4` : deux lanceurs simultanes au MEME `HEAD` ne se confondent pas."""
+    return uuid.uuid4().hex
+
+
+def sha_perimetre(perimetre) -> str:
+    """Empreinte du PERIMETRE COMPLET tel que la passe l'a vu -- ordre COMPRIS.
+
+    Ce n'est pas un ornement : `fusionner(perimetre=...)` RESTREINT, donc consolider avec un
+    perimetre different de celui qu'ont vu les shards effacerait des attestations qu'aucun d'eux
+    n'a remises en cause. Deux shards d'un meme run derivent le meme `git ls-files` ; s'ils
+    divergent, l'arbre a bouge SOUS le run et la consolidation doit REFUSER, pas arbitrer.
+    """
+    h = hashlib.sha1()
+    for rel in perimetre:
+        h.update(rel.encode("utf-8"))
+        h.update(b"\n")
+    return h.hexdigest()
+
+
+def ecrire_part(racine, jeton: str, head: str, perimetre_sha: str, k: int, n: int,
+                entrees: dict, rc: int) -> Path:
+    """Depose la part du shard `k/n`. UN FICHIER PAR SHARD -- donc AUCUN read-modify-write.
+
+    C'est tout le mecanisme, et c'est pour cela qu'il est sur : le refus de `_ecrire_ledger`
+    portait sur la CONCURRENCE D'ECRITURE (8 processus sur un meme JSON versionne, dernier
+    arrive gagnant). Ecrire des fichiers DISJOINTS -- un nom par `(jeton, n, k)` -- supprime la
+    course au lieu de la serialiser : pas de verrou, donc rien a laisser orphelin si un shard
+    meurt.
+
+    `entrees` VIDE est ecrit quand meme, et c'est deliberement informatif : sans cela, la
+    consolidation ne saurait pas distinguer << ce shard a joue et n'a produit aucun report >> de
+    << ce shard n'a jamais rendu la main >>. Le tri-etat vaut aussi entre processus.
+    """
+    d = chemin_parts(racine)
+    d.mkdir(parents=True, exist_ok=True)
+    p = d / ("part-%s-%02dsur%02d.json" % (jeton, k, n))
+    charge = {
+        "_format": FORMAT_PART,
+        "_jeton": jeton,
+        "_head": head,
+        "_perimetre_sha": perimetre_sha,
+        "_k": int(k),
+        "_n": int(n),
+        "_rc": int(rc),
+        "_at": int(time.time()),
+        "fichiers": entrees,
+    }
+    p.write_text(json.dumps(charge, sort_keys=True, indent=1) + "\n", encoding="utf-8")
+    return p
+
+
+def lire_parts(racine) -> tuple[list, list]:
+    """`(parts, anomalies)`. Une part illisible est ECARTEE seule, jamais devinee.
+
+    Meme tolerance que `lire`, et pour la meme raison : une part abimee doit couter du MUR (ses
+    fichiers rejoueront) et jamais un faux vert.
+    """
+    d = chemin_parts(racine)
+    anomalies: list[str] = []
+    if not d.is_dir():
+        return [], []
+    parts = []
+    for p in sorted(d.glob("part-*.json")):
+        try:
+            brut = json.loads(p.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as exc:
+            anomalies.append("part ILLISIBLE %s (%s) -- ecartee" % (p.name, exc))
+            continue
+        if not isinstance(brut, dict) or brut.get("_format") != FORMAT_PART:
+            anomalies.append("part %s au format %r (attendu %d) -- ecartee"
+                             % (p.name, (brut or {}).get("_format")
+                                if isinstance(brut, dict) else None, FORMAT_PART))
+            continue
+        if not isinstance(brut.get("fichiers"), dict):
+            anomalies.append("part %s sans section `fichiers` -- ecartee" % p.name)
+            continue
+        brut["_chemin"] = str(p)
+        parts.append(brut)
+    return parts, anomalies
+
+
+def parts_retenues(parts: list, jeton: str, head: str, perimetre_sha: str) -> tuple[list, list]:
+    """FOYER UNIQUE DU REFUS. `(retenues, [(part, raison) ecartees])`.
+
+    ⚠ LE MODE DE DEFAILLANCE A INTERDIRE EST NOMME, et c'est un FAUX VERT : une part oubliee d'un
+    run PRECEDENT porte des verts observes sur un AUTRE arbre. Les fusionner inscrirait au ledger
+    versionne une attestation que personne n'a gagnee sur l'arbre courant -- exactement ce que
+    `#465` interdit, et ce que le refus historique de `_ecrire_ledger` protegeait.
+
+    TROIS CRITERES, ET AUCUN N'EST REDONDANT :
+
+      1. le JETON -- l'identite du run. Il est le seul a distinguer deux passes lancees au MEME
+         `HEAD` sur le MEME arbre (rejeu apres interruption, deux lanceurs simultanes).
+      2. le `HEAD` -- il attrape un jeton recycle a la main, et il dit ce que le jeton ne dit
+         pas : sur quel commit la part a ete gagnee.
+      3. le SHA DU PERIMETRE -- il attrape l'arbre qui BOUGE pendant le run (un fichier de test
+         ajoute ou supprime entre deux shards). Consolider avec un perimetre different de celui
+         qu'ont vu les shards ferait effacer par `fusionner` des attestations qu'aucun d'eux n'a
+         remises en cause.
+
+    Un critere manquant ne se remplace pas par la prudence de l'appelant : c'est ici, et nulle
+    part ailleurs, que la question << cette part porte-t-elle sur CET arbre ? >> se tranche.
+    """
+    gardees, ecartees = [], []
+    for part in parts:
+        if part.get("_jeton") != jeton:
+            ecartees.append((part, "jeton %s (run courant : %s) -- part d'un AUTRE run"
+                             % (str(part.get("_jeton"))[:8], str(jeton)[:8])))
+            continue
+        if part.get("_head") != head:
+            ecartees.append((part, "HEAD %s (courant : %s) -- gagnee sur un AUTRE commit"
+                             % (str(part.get("_head"))[:8], str(head)[:8])))
+            continue
+        if part.get("_perimetre_sha") != perimetre_sha:
+            ecartees.append((part, "perimetre %s (courant : %s) -- l'arbre a bouge pendant le run"
+                             % (str(part.get("_perimetre_sha"))[:8], str(perimetre_sha)[:8])))
+            continue
+        gardees.append(part)
+    return gardees, ecartees
+
+
+def consolider(racine, jeton: str, head: str, perimetre: list) -> dict:
+    """Fusionne les parts DU RUN COURANT dans le ledger versionne. Rend un compte-rendu.
+
+    DECIDE D'ABORD, ECRIT ENSUITE -- meme discipline que partout ailleurs dans cette machinerie :
+    tout est trie et compte avant qu'une seule ligne du fichier versionne ne bouge.
+
+    Le compte-rendu porte `manquants` : les shards dont AUCUNE part n'a ete retenue. Ce n'est pas
+    une erreur -- un shard peut avoir refuse d'attester (rc d'usage, aucun report) -- mais c'est
+    un fait a DIRE : ces fichiers-la n'ont pas d'attestation neuve, donc ils rejoueront. Le taire
+    ferait lire une consolidation partielle comme une passe complete.
+    """
+    perimetre_sha = sha_perimetre(perimetre)
+    parts, anomalies = lire_parts(racine)
+    gardees, ecartees = parts_retenues(parts, jeton, head, perimetre_sha)
+
+    neuves: dict = {}
+    doublons: list = []
+    n_declares = {int(p.get("_n") or 0) for p in gardees}
+    for part in sorted(gardees, key=lambda p: int(p.get("_k") or 0)):
+        for rel, entree in (part.get("fichiers") or {}).items():
+            if not isinstance(rel, str) or not isinstance(entree, dict):
+                anomalies.append("entree ECARTEE (forme invalide) dans %s : %r"
+                                 % (Path(part["_chemin"]).name, (rel,)))
+                continue
+            if rel in neuves:
+                # Deux shards ont atteste le MEME fichier : la partition est censee etre
+                # disjointe, donc c'est un fait anormal. On ECARTE les deux (l'entree ne
+                # survit pas), meme regle que `resoudre_conflit` -- le fichier rejouera.
+                doublons.append(rel)
+                continue
+            neuves[rel] = entree
+    for rel in set(doublons):
+        neuves.pop(rel, None)
+        anomalies.append("fichier atteste par PLUSIEURS shards, entree ABANDONNEE : %s" % rel)
+
+    couverts = {int(p.get("_k") or 0) for p in gardees}
+    total = max(n_declares) if n_declares else 0
+    manquants = sorted(set(range(total)) - couverts) if total else []
+
+    anciennes, anomalies_ledger = lire(racine)
+    fusion = fusionner(anciennes, neuves, perimetre=perimetre)
+    return {
+        "fusion": fusion,
+        "neuves": neuves,
+        "gardees": gardees,
+        "ecartees": ecartees,
+        "manquants": manquants,
+        "n_shards": total,
+        "anomalies": list(anomalies) + list(anomalies_ledger),
+        "perimetre_sha": perimetre_sha,
+    }
+
+
+def purger_parts(racine, parts: list) -> int:
+    """Supprime les parts nommees. Une part CONSOMMEE ne doit pas pouvoir l'etre deux fois.
+
+    C'est le second cran contre la part orpheline : le premier (`parts_retenues`) l'ECARTE a la
+    lecture, celui-ci l'empeche d'exister. Une suppression qui echoue n'est pas une panne du
+    mecanisme -- la part reste, et le jeton du run suivant la rejettera.
+    """
+    n = 0
+    for part in parts:
+        chemin_ = part.get("_chemin")
+        if not chemin_:
+            continue
+        try:
+            Path(chemin_).unlink()
+            n += 1
+        except OSError:
+            continue
+    return n
 
 
 # ------------------------------------------------------------------- CONCURRENCE / CONFLITS
