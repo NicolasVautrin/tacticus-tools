@@ -760,14 +760,24 @@ class AttackWithAbilityDamage(AbilityBehaviour):
     STRICTEMENT identique avec une cible NON-Resilient (astraBullgryn, 61362 PV) -> elle MEURT. La route
     `"direct"` tuait les deux."""
     __slots__ = ("target_sel", "profile", "amount", "is_melee", "hits", "source_ref",
-                 "multi", "native_operation", "is_outside_attack")
+                 "multi", "native_operation", "is_outside_attack", "ability_type")
 
     def __init__(self, target_sel: TargetsSelector, profile: str, amount, is_melee: bool = True,
                  hits: int = 1, source_ref=None, multi: bool = False,
-                 native_operation: str = "direct", is_outside_attack: bool = True):
+                 native_operation: str = "direct", is_outside_attack: bool = True,
+                 ability_type=None):
         self.target_sel, self.profile, self.amount = target_sel, profile, amount
         self.is_melee, self.hits, self.source_ref = is_melee, int(hits), source_ref
         self.multi, self.native_operation = multi, native_operation
+        # `ability_type` = l'`AbilityOrEffect` NUMERIQUE du coup -- le 7e argument de la surcharge
+        # RACINE `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage`
+        # (`IdunBattle.Core.AbilityOrEffect$$op_Implicit(*this+0x10)` au call-site). Le jumeau
+        # `AttackWithAttackDamage` le porte deja ; ici il manquait, donc TOUT coup de la famille
+        # ABILITY partait SANS son attributeur (`TriggerEvent.ability_type` des after-hit, cle
+        # `received_damage_this_turn`). `None` (defaut) = comportement historique STRICTEMENT
+        # inchange pour les trois appelants d'avant (DoT de tuile `EnvFireTile`, `PutridExplosion`,
+        # `Explodes`), dont aucun ne l'ecrivait.
+        self.ability_type = ability_type
         # #512-r2 -- cf. `AttackWithAttackDamage.__init__` : `isOutsideAttack` natif, gate de
         # l'emission d'`On(PreAttack = 5)`.
         self.is_outside_attack = bool(is_outside_attack)
@@ -797,6 +807,7 @@ class AttackWithAbilityDamage(AbilityBehaviour):
                 atk = AttackDamageOperation.execute_ability_attack(
                     state, src, tgt, base, base, pierce, max(1, self.hits),
                     damage_profile=self.profile, is_melee=self.is_melee,
+                    ability_type=self.ability_type,        # `AbilityOrEffect` du coup (7e arg natif)
                     is_attack_damage_op=False,             # famille ABILITY : pas de crit, pas de resolve
                     is_outside_attack=self.is_outside_attack,          # #512-r2 : gate d'`On(5)`
                     # etage MULTIPLICATEUR de CBDWAM IdunBattle.Core.Services.DamagePrediction$$CalculateBaseDamageWithAllModifiers (slot 0x10 = Round(dmg x mult,

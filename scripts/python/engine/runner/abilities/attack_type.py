@@ -251,6 +251,16 @@ ABILITY_ATTACK_TYPE: dict[int, int] = {
     # Le litteral est `0` bien que le behaviour commence par un `FlyUnit` : on transcrit le 3e argument
     # du ctor, jamais la forme de l'arbre. (#589-r1-r1-r1)
     ActiveAbilityType.EmpyricAmbush: AbilityAttackType.DirectTargetAttack,  # 1232
+    # MortarionsPlagueWind (1093) et ReapingScythe (1095), les deux actives de degat de
+    # `deathBossMortarion` (#892). Leurs ctors sont tous deux des STATIC-COPY (aucun appel a
+    # `TargetingOptions$$.ctor`) et finissent par `AActiveAbility$$.ctor(this, &opts, 0)` -- 3e
+    # argument = litteral `0`. TRANSCRIT, jamais deduit : ni de la forme de l'arbre (1093 est une AoE
+    # a trois bandes, pas une frappe mono-cible), ni du profil (`Psychic` / `Chain`). Les DEUX ctors
+    # copient des presets DIFFERENTS (`statics+0x180` pour 1093, `statics+0x40` pour 1095) et
+    # portent pourtant le MEME 3e argument : le preset ne predit pas ce litteral, on l'a relu.
+    # Le troisieme actif du boss, `1094 TheLantern`, porte `2` (`Others`) -- cf. plus bas.
+    ActiveAbilityType.MortarionsPlagueWind: AbilityAttackType.DirectTargetAttack,  # 1093
+    ActiveAbilityType.ReapingScythe: AbilityAttackType.DirectTargetAttack,  # 1095
     ActiveAbilityType.Fragstorm: AbilityAttackType.DirectTargetAttack,  # 1078
     # HellfyreMissileRack (1088, thousTerminator « Toth ») : `IdunBattleLogic.Entities.Abilities.
     # Active.Loki.HellfyreMissileRackAbility$$.ctor` -> `AActiveAbility..ctor(this, &opts, 0)`.
