@@ -157,6 +157,31 @@ que `HealthComponent$$IsAlive` porte **trois** branches et que le port n'en port
 unité à `0/0` PV est **vivante** pour le natif. Détail, correctif et gardes :
 `docs/rl/case-589-r1-r1-r2-r1-r8-unite-sans-sante.md`.
 
+### 6bis. Le bras est RÉPARÉ, et il mesure désormais la réfutation lui-même (#589-r1-r1-r2-r1-r9, 2026-08-11)
+
+Tant que `_stage_geo` ne figeait que les deux compagnons, il pouvait re-mesurer autre chose que ce
+qu'il annonce. Quatre changements, et le troisième est celui qui empêche le vert vide :
+
+1. **INVENTAIRE NATIF** des porteurs de `Summon`/`Decoy` (`combatSnapshot.units[].traits`, clé
+   `entityId`) puis **ÉLOIGNEMENT** de tous sauf le compagnon GEO. Le second compagnon n'a plus de
+   traitement spécial : c'est un porteur comme un autre.
+2. **`n` est DÉRIVÉ** de l'occupation mesurée de la liste **stockée**, plus jamais écrit. La ligne
+   `n = 1  # le natif COMPTE le voisin géométrique` a disparu.
+3. **TÉMOIN DIFFÉRENTIEL** sur le même runner, une seule unité bougeant : `S1` GEO → **inactif**,
+   `S2` voisin **stocké** → **actif** (contrôle POSITIF), `S3` retour GEO → **inactif**. Le régime
+   visé rend `n = 0` : LIVE == OFFLINE, `NOCHANNEL` no-op, `PASSIF` no-op — **le bras serait vert
+   même sans relique équipée**. `S2` est ce qui l'interdit, `S3` ce qui interdit un état collant.
+4. Le plan exige désormais **≥ 4** tuiles à hex ≥ 4 (il en exigeait UNE — c'est cette étroitesse
+   qui laissait l'intruse en place).
+
+Mesure (`--geo-only --n 1 --board C3_14 --level 6`) : porteurs natifs `genesMagus (5,3)` hex 1,
+`genesPrimus (0,0)` hex 6, `genesSmnDecoy (0,1)` hex 5 (**éloignée**) ; témoin `S1 False / S2 (4,4)
+True / S3 False` ; `n` dérivé **0**, `actif_natif` **False**, compteur port **0**, LIVE == OFFLINE.
+
+`inventaire_traits` / `pousser_loin` deviennent le **foyer unique** (ils vivent dans le probe
+amulette ; `probe_589r1r1r2r1r8_compteur_natif` y DÉLÈGUE et transpose le tri-état en refus) — deux
+lectures séparées d'`entityId` referaient exactement le fork qu'on évite.
+
 ## 7. Les gardes
 
 * `tests/engine/runner/test_amulet_voidwyrm_crit_reduction_live.py` — **9 passed**. Montage

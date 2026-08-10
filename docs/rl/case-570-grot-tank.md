@@ -156,10 +156,10 @@ mesuré avant l'ajout : **0** unité non-`lineup` du gameconfig y était touché
 publie 1090 sur le tank ; le tank du **port** le porte aussi ; et le **témoin négatif** (profil à
 perçage 60 > 30) rend **6862 == 6862**.
 
-**NON CONFRONTÉ — la MAGNITUDE, et le PLACEMENT avec elle.** Le port lit `dmgReduction[**1**] = 5`
-au lieu du palier réel. Tant que ce niveau est faux, aucune comparaison de magnitude n'est
-concluante : les écarts mesurés (5 sur `Physical`, 487 sur `Energy`) sont inexploitables, et le
-placement pré- vs post-perçage reste **présumé** par la famille Nightshroud/`PsychicFortress`.
+~~**NON CONFRONTÉ — la MAGNITUDE, et le PLACEMENT avec elle.**~~ — **CONFRONTÉS depuis #570-r5**
+(2026-08-11), cf. la section suivante. Les écarts que cette ligne déclarait inexploitables (5 sur
+`Physical`, 487 sur `Energy`) sont **tombés à 0** dès que l'instance d'effet a lu le niveau de son
+owner.
 
 ### #570-r3 (2026-08-10) — le blocage était en DEUX étages, le premier est levé
 
@@ -195,6 +195,67 @@ c'est sa **configuration** — et le blocage se ventile en deux étages **distin
 ⇒ **magnitude et placement restent NON CONFRONTÉS**, et le blocage change de nature : il n'est plus
 `seeding` (l'unité a son niveau) mais `etage` (l'instance d'effet ne le lit pas). Résidu **#570-r5**
 (`--suggere 570` : `r1..r4` sont pris).
+
+### #570-r5 (2026-08-11) — l'ÉTAGE 2 est levé : l'ordre de seeding, et le placement qu'il débloque
+
+**L'ordre était l'inverse de celui du natif.** `IdunBattle.Entities.Behaviours.AddEffectBehaviour$$
+DefaultEffectBuilder` **COPIE** l'`AbilityStateReference` du poseur dans le `EffectComponent` à la
+POSE (`+0x18`..`+0x38`), et `IdunBattle.Entities.Effects.BaseEffect$$GetAbilityStateReference` relit
+ce champ **et rien d'autre** : l'état doit donc EXISTER avant l'effet. Côté port, `load_state`
+matérialisait les effets (`_load_stats_and_effects`) **avant** de consommer `unitAbilityStates`
+(`_load_passive_abilities`) — l'effet naissait neutre et le gardait.
+
+**Le correctif n'est pas celui que `factory.py` annonçait.** Ce n'est pas « déplacer le seed
+d'owner-effects après `_load_passive_abilities` » : c'est hisser la **RÉSOLUTION** du canal (elle ne
+dépend d'aucun composant) au-dessus de `_load_stats_and_effects`, et y **combler** `abstate_by_id` —
+la table PURE DONNÉE que consulte `baked_ability_state` — par
+`snapshot._ability_state_with_channel`, avec **la même garde** que le seed d'aval (« on n'écrit que
+si le trou existe »). Les seeds restent en aval, inchangés.
+
+**RAYON DE SOUFFLE, mesuré.** L'état FINAL du `ctx` est **identique** (le seed d'aval l'écrivait
+déjà) : seule change la fenêtre entre la naissance des effets et la fin de `load_state`. La
+mutation qui vide le canal fait rougir l'étage 6 du garde, celle qui inverse la garde fait rougir
+l'étage 3b. Live re-joué : `test_grot_tank_live` 5, `test_363_ability_states_default_live` 10,
+`test_summon_trait_effects_live` 8, `test_357_relic_rail_live` 12,
+`test_fire_and_reposition_reduce_dmg_live` 8, `test_summon_consumers_live` 29,
+`test_summon_spawn_live` 3, `test_366_r1_stormboyz_strike_live` 8 — **tous verts**.
+
+| étage | avant | après | natif |
+|---|---|---|---|
+| instance `Ramshackle_DmgReduction` | `ability_level None`, `mult 100` | **`50` / `180`** | — |
+| `Physical` (perçage 1) | 18 | **13** | 13 |
+| `Energy` (perçage 30), par coup | — | **[568, 534]** | [568, 534] |
+| `Gauss` (perçage 60) | 6862 | 6862 | 6862 |
+
+**LE PLACEMENT EST TRANCHÉ : PRE-perçage.** Le probe rejoue chaque coup positif une SECONDE fois
+avec ce canal **rendu muet** (l'ancre `nu`) et construit les deux modèles concurrents —
+PRE (`for_subtraction` → `flat_reductions` → `mods.additive`, consommé avant
+`…StaticBattleRules.Damage$$GetDamageWithPiercing`, donc **dilué**) et POST (`max(0, nu − R)`).
+Sur `Physical` : `nu` = 18, PRE = 13, POST = **0**, natif **13**. Sur `Energy` : `nu` = [750, 841],
+PRE = [568, 534], POST = **[251, 342]**, natif **[568, 534]**.
+
+⚠ **Le régime est load-bearing, et le régime dégénéré est à côté.**
+`GetDamageWithPiercing = max(0, d − armure, d × perçage/100)` : dès que la branche SOUSTRACTIVE
+gagne (dégât brut > armure), l'étage perçage est l'**identité** sur l'axe additif et les deux
+placements rendent le MÊME nombre. La mesure tient parce que le tank a 3193 d'armure pour des dégâts
+bruts inférieurs. Garde exécutable : `test_570r5_ordre_de_seeding_offline.py` étages 7 et 7b.
+
+⚠ **Et la « divergence de famille » écrite dans `ramshackle.py` n'en était plus une.** Elle opposait
+`HolyDuel` (`for_addition(False, −v)`, dit POST) à `PsychicFortress` (`for_subtraction`, PRE).
+Depuis #462-r4b-r1, l'`Addition@+0x10` du DÉFENSEUR est versée dans le MÊME accumulateur pré-perçage
+que `flat_reductions` : les deux écritures rendent le même nombre, il n'y avait **aucune fourche
+côté port**. Ce que la mesure tranche est le placement NATIF, contre un modèle POST construit à la
+main. Garde : même fichier, étage 8.
+
+⚠ **Ce que #570-r5 n'a PAS débloqué** : le résidu `WireweaveNet` de `factory.py`. Ce qui a été hissé
+est l'`AbilityState` (niveau/multiplicateur), **pas la LISTE des passives** —
+`_seed_ability_owner_effects` lit toujours `gameconfig.units[vid].passiveAbilities` et
+`ctx.passive_abilities` (la MESURE) est toujours seedée en aval. Le rouvrir demande de changer la
+**SOURCE** du seed, pas sa **PLACE**.
+
+**Artefacts #570-r5** : `engine/runner/snapshot.py` (`_ability_state_with_channel`, ordre de
+`load_state`), sonde `probe_570r1_ramshackle.py` (étage PLACEMENT + dégâts natifs **par coup**),
+garde `tests/engine/runner/test_570r5_ordre_de_seeding_offline.py` (18 tests, 8 étages).
 
 ## Artefacts
 
