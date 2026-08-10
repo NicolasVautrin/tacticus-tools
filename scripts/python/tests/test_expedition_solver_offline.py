@@ -16,6 +16,13 @@ Ce que ce fichier protege, et pourquoi ces cas-la :
    plan faux d'apparence juste -- pire qu'une erreur.
 5. La DISJONCTION du plateau. Une unite envoyee est immobilisee ; deux operations
    ne peuvent pas se partager le meme pivot.
+6. L'ELIGIBILITE, mirror de `ExpeditionUnitEligibility$$IsEligibleFor`. POSSEDER
+   N'EST PAS POUVOIR PARTIR, et le confondre a produit un faux resultat MESURE :
+   sur la possession seule le plateau du 2026-08-10 rendait 7 bonus sur 7, alors
+   que l'operation Mythic est INFAISABLE -- ses 10 unites eligibles couvrent ZERO
+   de ses 6 objectifs. Le plan avait l'air juste et aurait ete refuse a l'envoi.
+   Le cas est fige ici, avec le tri-etat qui l'entoure : une donnee non mesuree
+   (seuil, rang) doit sortir en refus NOMME, jamais en `eligible` par defaut.
 
 Les kits sont SYNTHETIQUES : le solveur est teste sur sa logique, pas sur le
 gameconfig du jour, donc ce garde ne rougit pas au prochain changement de build.
@@ -33,6 +40,11 @@ DECLENCHEUR = {
         "scripts/python/unit_map.py",
         # Tire par `unit_map` au chargement, meme chaine de raisonnement.
         "scripts/python/gameconfig.py",
+        # Tire par `expedition_roster` au chargement (`from gamenav.transport import
+        # Hote`). AUCUN test ici n'ouvre de session -- seules les fonctions PURES du
+        # capteur sont exercees -- mais l'import, lui, a bien lieu, et une rupture
+        # d'API de `Hote` casserait le fichier avant le premier assert.
+        "scripts/python/gamenav/transport.py",
         "scripts/python/tests/test_expedition_solver_offline.py",
     ),
     # Aucun test ici ne lit le dump ni le gameconfig : les kits sont fabriques a la
@@ -365,3 +377,130 @@ def test_plateau_couvre_les_deux_operations_quand_le_roster_suffit():
     r = ES.resoudre_plateau(ops, kits, ["a", "b"])
     assert r["couvertes"] == 2
     assert r["unites_mobilisees"] == 2
+
+
+# ---------------------------------------------------------------------------
+# ELIGIBILITE -- mirror de `ExpeditionUnitEligibility$$IsEligibleFor`
+# ---------------------------------------------------------------------------
+
+#: Mesures du 2026-08-10, niveau d'expedition 16/20, RPC `expeditionRankRequirements`.
+SEUILS = {"Common": 0, "Uncommon": 3, "Rare": 6, "Epic": 9, "Legendary": 12, "Mythic": 17}
+
+
+def _prog(**unites):
+    """{id: (rang, rarete_ordinale)} -> la forme rendue par `rosterOwned {details:true}`."""
+    return {u: {"rank": r, "rarity": q,
+                "rarete": None if q is None else ES.RARETES[q]}
+            for u, (r, q) in unites.items()}
+
+
+def test_rarete_accepte_le_nom_et_l_ordinal():
+    # Le serialiseur emet l'un ou l'autre selon qu'un StringEnumConverter est pose :
+    # le plateau REEL du 2026-08-10 portait la chaine ("Legendary").
+    assert ES.rarete_en_ordinal("Legendary") == 4
+    assert ES.rarete_en_ordinal("legendary") == 4
+    assert ES.rarete_en_ordinal(4) == 4
+    assert ES.rarete_en_ordinal("4") == 4
+
+
+def test_rarete_inconnue_rend_None_et_pas_zero():
+    # Zero est `Common`, donc << aucune exigence >>. Le confondre avec << non lu >>
+    # rendrait TOUT le roster eligible sur une operation qu'on n'a pas su lire.
+    for v in ("Mythique", "", None, 99, -1, True, {}):
+        assert ES.rarete_en_ordinal(v) is None, v
+
+
+def test_refus_nomme_par_rarete_puis_par_rang():
+    kits = {"u": _kit("u", alliance="Imperial")}
+    entry = {"rarity": "Legendary", "grandAlliance": "Imperial"}
+    # Rarete trop basse : refuse AVANT meme de regarder le rang.
+    ok, motif = ES.est_eligible("u", kits, _prog(u=(50, 3)), entry, SEUILS)
+    assert ok is False and "rarete insuffisante" in motif
+    # Rarete suffisante mais rang sous le seuil de l'operation.
+    ok, motif = ES.est_eligible("u", kits, _prog(u=(11, 4)), entry, SEUILS)
+    assert ok is False and "rang insuffisant (11 < 12)" in motif
+    ok, motif = ES.est_eligible("u", kits, _prog(u=(12, 4)), entry, SEUILS)
+    assert (ok, motif) == (True, None)
+
+
+def test_le_seuil_de_rang_vient_de_la_rarete_de_L_OPERATION():
+    """Le piege central du decompile : `GetRequiredRankFor(entry.rarity)`, pas
+    `GetRequiredRankFor(unit.rarity)`. Une Mythic rang 12 passe sur une operation
+    Legendary (seuil 12) et ECHOUE sur une Mythic (seuil 17) -- meme unite, meme rang."""
+    kits = {"u": _kit("u", alliance="Imperial")}
+    prog = _prog(u=(12, 5))  # Mythic, rang 12
+    ok, _ = ES.est_eligible("u", kits, prog, {"rarity": "Legendary"}, SEUILS)
+    assert ok is True
+    ok, motif = ES.est_eligible("u", kits, prog, {"rarity": "Mythic"}, SEUILS)
+    assert ok is False and "rang insuffisant (12 < 17)" in motif
+
+
+def test_alliance_ne_contraint_que_si_l_operation_en_impose_une():
+    kits = {"x": _kit("x", alliance="Chaos")}
+    prog = _prog(x=(20, 5))
+    assert ES.est_eligible("x", kits, prog, {"rarity": "Common"}, SEUILS)[0] is True
+    assert ES.est_eligible("x", kits, prog,
+                           {"rarity": "Common", "grandAlliance": None}, SEUILS)[0] is True
+    ok, motif = ES.est_eligible("x", kits, prog,
+                                {"rarity": "Common", "grandAlliance": "Imperial"}, SEUILS)
+    assert ok is False and "alliance" in motif
+
+
+def test_une_donnee_NON_MESUREE_refuse_en_le_disant():
+    """Le sens du refus compte : on ne veut ni un `True` par defaut (plan faux), ni un
+    `False` muet (trou invisible). Le motif doit NOMMER ce qui manque."""
+    kits = {"u": _kit("u", alliance="Imperial")}
+    entry = {"rarity": "Rare"}
+    ok, motif = ES.est_eligible("u", kits, _prog(u=(None, 3)), entry, SEUILS)
+    assert ok is False and "rang NON MESURE" in motif
+    ok, motif = ES.est_eligible("u", kits, _prog(u=(10, None)), entry, SEUILS)
+    assert ok is False and "rarete NON MESUREE" in motif
+    ok, motif = ES.est_eligible("u", kits, _prog(u=(10, 3)), entry, dict(SEUILS, Rare=None))
+    assert ok is False and "seuil de rang NON MESURE" in motif
+    ok, motif = ES.est_eligible("absente", kits, _prog(u=(10, 3)), entry, SEUILS)
+    assert ok is False and "non possedee" in motif
+
+
+def test_sans_progression_le_pool_retombe_sur_l_alliance_SEULE():
+    """Repli assume, mais il doit rester DISCERNABLE : `resoudre_plateau` publie
+    `eligibilite`, et un plan bati dessus peut proposer une unite refusee."""
+    kits = {"a": _kit("a", alliance="Imperial"), "b": _kit("b", alliance="Chaos")}
+    pool, refus = ES.pool_eligible({"grandAlliance": "Imperial"}, kits, ["a", "b"],
+                                   None, None)
+    assert pool == ["a"] and refus == {"b": "alliance"}
+    ops = [{"id": "op", "expeditionId": "op", "participants": 1,
+            "grandAlliance": "Imperial", "_objs": []}]
+    assert ES.resoudre_plateau(ops, kits, ["a"])["eligibilite"] == "alliance seule"
+    r = ES.resoudre_plateau(ops, kits, ["a"], progression=_prog(a=(20, 5)), seuils=SEUILS)
+    assert r["eligibilite"] == "complete"
+
+
+def test_pool_eligible_NON_VIDE_mais_couvrant_ZERO_objectif():
+    """LE CAS MESURE, celui qui a produit le faux 7/7.
+
+    `all_knowledge_m_04_10` (Mythic, 4 places) a 10 unites eligibles et SIX objectifs,
+    dont AUCUN n'est porte par ces 10. Sur la possession seule, les porteurs existent
+    (5 Healer, 12 Psychic, ...) et le solveur couvrait l'operation -- un plan que le
+    jeu aurait refuse. Un pool non vide ne vaut donc pas couverture : il faut que le
+    filtre s'applique AVANT l'enumeration des ensembles."""
+    kits = {
+        # Eligibles (Mythic, rang eleve) mais sans le trait demande.
+        "gros1": _kit("gros1", alliance="Imperial", traits=["Parry"]),
+        "gros2": _kit("gros2", alliance="Imperial", traits=["Parry"]),
+        # Porteur du trait, mais rang trop bas pour une operation Mythic.
+        "soigneur": _kit("soigneur", alliance="Imperial", traits=["Healer"]),
+    }
+    prog = _prog(gros1=(17, 5), gros2=(17, 5), soigneur=(12, 5))
+    op = {"id": "myth", "expeditionId": "myth", "participants": 4, "rarity": "Mythic",
+          "grandAlliance": "Imperial", "_objs": [_obj("trait:Healer")]}
+    pool, refus = ES.pool_eligible(op, kits, list(prog), prog, SEUILS)
+    assert sorted(pool) == ["gros1", "gros2"]
+    assert "rang insuffisant (12 < 17)" in refus["soigneur"]
+
+    r = ES.resoudre_plateau([op], kits, list(prog), progression=prog, seuils=SEUILS)
+    assert r["couvertes"] == 0, "le bonus est HORS D'ATTEINTE : aucun eligible ne soigne"
+    assert r["pool_par_op"] == [2]
+    # Contre-epreuve : sans le filtre, le meme plateau se croit couvert. C'est
+    # exactement le faux positif qu'on fige ici.
+    naif = ES.resoudre_plateau([op], kits, list(prog))
+    assert naif["couvertes"] == 1

@@ -176,6 +176,112 @@ def satisfait(k: dict, o: Objectif) -> bool:
 
 
 # ---------------------------------------------------------------------------
+# ELIGIBILITE -- mirror 1:1 de
+#   Idun.Source.IdunMeta.Logic.Features.Expedition.Progression.UnitEligibility.
+#       ExpeditionUnitEligibility$$IsEligibleFor(unit, entry)
+#
+# Ce que le decompile fait, dans l'ordre, et ce qu'on reproduit :
+#
+#   1. rarete de l'unite ABSENTE                  -> non eligible (unite non debloquee)
+#   2. rarete de l'unite < entry.rarity           -> non eligible (`Expedition.UnitLowRarity`)
+#   3. rang < level.GetRequiredRankFor(rarity)    -> non eligible (`Expedition.UnitLowRank`)
+#   4. entry.grandAlliance non nul et different   -> non eligible
+#
+# Le seuil du point 3 est pris sur `entry.rarity` -- la rarete EXIGEE PAR L'OPERATION, pas
+# celle de l'unite. C'est ce qui fait qu'une operation Legendary demande a la fois une unite
+# Legendary ET un rang eleve.
+#
+# POURQUOI CE PORT EXISTE. Le solveur raisonnait sur la seule POSSESSION : il pouvait donc
+# proposer une unite que l'operation refuse, et le plan avait l'air valide. La possession est
+# lisible du gameconfig ; le rang et la rarete, NON -- c'est de la progression de compte, il
+# faut la capter (`rosterOwned {details:true}`).
+# ---------------------------------------------------------------------------
+
+#: `IdunMetaLogic.UserProgress.Model.UnitRarity` (data/symbols/<build>/frida/enums.tsv).
+RARETES = ("Common", "Uncommon", "Rare", "Epic", "Legendary", "Mythic")
+
+
+def rarete_en_ordinal(v) -> int | None:
+    """Accepte l'ordinal ET le nom : le serialiseur peut emettre l'un ou l'autre selon
+    qu'un `StringEnumConverter` est pose sur le DTO. Rendre `None` plutot que 0 -- un 0
+    signifie `Common`, donc << aucune exigence >>, l'inverse d'une valeur non lue."""
+    if isinstance(v, bool):
+        return None
+    if isinstance(v, int):
+        return v if 0 <= v < len(RARETES) else None
+    if isinstance(v, str):
+        s = v.strip()
+        if s.isdigit():
+            n = int(s)
+            return n if 0 <= n < len(RARETES) else None
+        for i, nom in enumerate(RARETES):
+            if nom.lower() == s.lower():
+                return i
+    return None
+
+
+def est_eligible(unite: str, kits: dict, progression: dict, entry: dict,
+                 seuils: dict) -> tuple[bool, str | None]:
+    """Rend (eligible, motif_de_refus). `motif` est None quand c'est eligible.
+
+    `progression` = {id: {"rank": int|None, "rarity": int|None}} (RPC `rosterOwned
+    {details:true}`). `seuils` = {nom_de_rarete: rang_minimum} (RPC
+    `expeditionRankRequirements`).
+
+    Toute donnee NON MESUREE rend un refus NOMME (`... NON MESURE`), jamais un faux
+    << eligible >> ni un faux << refuse >> silencieux : on veut voir le trou."""
+    p = progression.get(unite)
+    if p is None:
+        return False, "non possedee"
+    rar_u = p.get("rarity")
+    if rar_u is None:
+        return False, "rarete NON MESUREE"
+
+    rar_op = rarete_en_ordinal(entry.get("rarity"))
+    if rar_op is None:
+        return False, "rarete de l'operation NON LUE"
+    if rar_u < rar_op:
+        return False, "rarete insuffisante (%s < %s)" % (RARETES[rar_u], RARETES[rar_op])
+
+    seuil = seuils.get(RARETES[rar_op])
+    if seuil is None:
+        return False, "seuil de rang NON MESURE pour %s" % RARETES[rar_op]
+    rang = p.get("rank")
+    if rang is None:
+        return False, "rang NON MESURE"
+    if rang < seuil:
+        return False, "rang insuffisant (%d < %d)" % (rang, seuil)
+
+    alli = entry.get("grandAlliance")
+    if alli and (kits.get(unite) or {}).get("alliance") != alli:
+        return False, "alliance (%s != %s)" % (
+            (kits.get(unite) or {}).get("alliance"), alli)
+    return True, None
+
+
+def pool_eligible(entry: dict, kits: dict, roster: list[str], progression: dict | None,
+                  seuils: dict | None) -> tuple[list[str], dict[str, str]]:
+    """Le pool reellement dispatchable sur `entry`, et le motif de chaque ecarte.
+
+    `progression`/`seuils` a None = NON MESURES : on retombe sur le seul filtre derivable
+    hors ligne (l'alliance), et l'appelant DOIT le dire. Ne jamais faire passer ce repli
+    pour une eligibilite complete."""
+    if progression is None or seuils is None:
+        alli = entry.get("grandAlliance")
+        pool = [u for u in roster
+                if not alli or (kits.get(u) or {}).get("alliance") == alli]
+        return pool, {u: "alliance" for u in roster if u not in set(pool)}
+    ok, refuses = [], {}
+    for u in roster:
+        e, motif = est_eligible(u, kits, progression, entry, seuils)
+        if e:
+            ok.append(u)
+        else:
+            refuses[u] = motif or "?"
+    return ok, refuses
+
+
+# ---------------------------------------------------------------------------
 # Couverture exacte
 # ---------------------------------------------------------------------------
 
@@ -394,7 +500,9 @@ def _produit_borne(listes: list[list[str]], plafond: int):
 
 
 def resoudre_plateau(ops: list[dict], kits: dict[str, dict], roster: list[str],
-                     plafond_ens: int = PLAFOND_ENSEMBLES_PAR_OP) -> dict:
+                     plafond_ens: int = PLAFOND_ENSEMBLES_PAR_OP,
+                     progression: dict | None = None,
+                     seuils: dict | None = None) -> dict:
     """Affecte des unites DISJOINTES a un plateau d'operations.
 
     Pourquoi la disjonction est le vrai probleme : une unite envoyee est
@@ -407,10 +515,9 @@ def resoudre_plateau(ops: list[dict], kits: dict[str, dict], roster: list[str],
     """
     prepares = []
     for op in ops:
-        pool = [kits[u] for u in roster if u in kits]
-        alli = op.get("grandAlliance")
-        if alli:
-            pool = [k for k in pool if k.get("alliance") == alli]
+        dispo = [u for u in roster if u in kits]
+        ids, _ = pool_eligible(op, kits, dispo, progression, seuils)
+        pool = [kits[u] for u in ids]
         ens = _ensembles_par_op(pool, op["_objs"], int(op.get("participants") or 0),
                                 plafond_ens)
         prepares.append({"op": op, "ensembles": ens, "pool": len(pool)})
@@ -450,7 +557,12 @@ def resoudre_plateau(ops: list[dict], kits: dict[str, dict], roster: list[str],
         "unites_mobilisees": meilleur["unites"] or 0,
         "plan": meilleur["plan"] or [],
         "ensembles_par_op": [len(p["ensembles"]) for p in prepares],
+        "pool_par_op": [p["pool"] for p in prepares],
         "plafond_ensembles": plafond_ens,
+        # Ce que le plan a REELLEMENT filtre. `alliance` = repli : rang et rarete NON
+        # MESURES, donc le plan peut proposer une unite que l'operation refuse.
+        "eligibilite": "complete" if (progression is not None and seuils is not None)
+                       else "alliance seule",
     }
 
 
@@ -531,6 +643,45 @@ def _roster(arg: str | None, kits: dict[str, dict]) -> tuple[list[str], bool]:
         print("ATTENTION -- %d id(s) de roster inconnus, IGNORES : %s"
               % (len(inconnus), ", ".join(inconnus[:10])))
     return [i for i in ids if i in kits], False
+
+
+def _lire_json(chemin: str):
+    with open(chemin, "r", encoding="utf-8-sig") as fh:
+        return json.load(fh)
+
+
+def _charger_eligibilite(a) -> tuple[dict | None, dict | None]:
+    """Charge la progression (rang/rarete) et les seuils de rang.
+
+    On accepte la REPONSE RPC telle quelle (`{"ok":true,"details":{...}}`,
+    `{"ok":true,"seuils":{...}}`) autant que le dict nu : le JSON capte doit se rejouer
+    sans reformatage prealable.
+
+    Les deux vont ENSEMBLE. N'en fournir qu'un rend `(None, None)` avec un refus explicite
+    -- un filtre a moitie applique produirait un pool faux sans que rien ne le dise."""
+    prog = getattr(a, "progression", None)
+    seui = getattr(a, "seuils", None)
+    if not prog and not seui:
+        return None, None
+    if not prog or not seui:
+        print("REFUS d'eligibilite partielle : --progression et --seuils vont ensemble.")
+        print("   Le filtre retombe sur l'ALLIANCE SEULE.")
+        return None, None
+    p = _lire_json(prog)
+    if isinstance(p, dict) and isinstance(p.get("details"), dict):
+        p = p["details"]
+    s = _lire_json(seui)
+    if isinstance(s, dict) and isinstance(s.get("seuils"), dict):
+        s = s["seuils"]
+    if not isinstance(p, dict) or not isinstance(s, dict):
+        print("REFUS : --progression attend {id: {rank, rarity}}, --seuils {rarete: rang}.")
+        return None, None
+    manquants = [k for k in RARETES if s.get(k) is None]
+    if manquants:
+        print("ATTENTION -- seuil NON MESURE pour : %s. Les operations de ces raretes"
+              % ", ".join(manquants))
+        print("             rendront un pool VIDE, avec le motif ecrit.")
+    return p, s
 
 
 def _afficher_operation(r: dict) -> None:
@@ -618,10 +769,16 @@ def cmd_board(a) -> int:
     if suppose:
         print("ATTENTION -- aucun roster fourni : on suppose TOUT possede (%d)." % len(kits))
         print("")
-    r = resoudre_plateau(ops, kits, roster)
+    progression, seuils = _charger_eligibilite(a)
+    r = resoudre_plateau(ops, kits, roster, progression=progression, seuils=seuils)
     print("Operations   : %d" % r["operations"])
     print("Bonus obtenu : %d / %d" % (r["couvertes"], r["operations"]))
     print("Unites mobilisees : %d" % r["unites_mobilisees"])
+    print("Eligibilite appliquee : %s" % r["eligibilite"])
+    if r["eligibilite"] != "complete":
+        print("   ATTENTION -- rang et rarete NON MESURES : un plan peut proposer une unite")
+        print("   que l'operation refuse. Fournis --progression et --seuils.")
+    print("Pool par operation : %s" % r["pool_par_op"])
     print("Ensembles candidats retenus par operation : %s (plafond %d)"
           % (r["ensembles_par_op"], r["plafond_ensembles"]))
     print("")
@@ -633,6 +790,65 @@ def cmd_board(a) -> int:
         else:
             print("  [BONUS] %-32s <- %s" % (nom, ", ".join(p["ensemble"])))
     return 0
+
+
+def cmd_confronter(a) -> int:
+    """NOTRE compte d'eligibles CONTRE celui du jeu, operation par operation.
+
+    C'est le temoin du port : `ExpeditionUnitEligibility$$CountEligibleUnits(entry)` est
+    calcule par le jeu lui-meme au rendu du plateau, et `expedition-board` en lit le RETOUR.
+    Si notre mirror de `IsEligibleFor` est fidele, les deux comptes coincident sur les SEPT
+    operations -- des nombres non triviaux et distincts, donc une concordance qui ne peut
+    pas etre un hasard.
+
+    Un ecart n'est pas rattrape : il est affiche avec l'operation et les deux comptes."""
+    kits = _charger_kits()
+    ops = _extraire_board(_lire_json(a.fichier))
+    roster, _ = _roster(a.roster, kits)
+    progression, seuils = _charger_eligibilite(a)
+    if progression is None or seuils is None:
+        print("REFUS : la confrontation exige --progression ET --seuils.")
+        return 2
+
+    natif = _lire_json(a.natif)
+    entrees = natif.get("entries") if isinstance(natif, dict) else natif
+    if not isinstance(entrees, list):
+        print("REFUS : --natif attend la reponse de `expeditionEligibility` "
+              "({\"entries\": [...]}).")
+        return 2
+    # Le compte natif est indexe par `expeditionId` -- la seule cle que les deux sources
+    # partagent (le capteur ne lit pas `id`).
+    par_id = {e.get("expeditionId"): e.get("eligibles") for e in entrees
+              if isinstance(e, dict)}
+
+    print("Roster interroge : %d unites" % len(roster))
+    print("Seuils de rang   : %s" % seuils)
+    print("")
+    print("%-34s %8s %8s   %s" % ("OPERATION", "PORTE", "NATIF", "VERDICT"))
+    accords = ecarts = nonmesures = 0
+    for op in ops:
+        nom = op.get("expeditionId") or op.get("id") or "?"
+        pool, _refuses = pool_eligible(op, kits, roster, progression, seuils)
+        attendu = par_id.get(nom)
+        if attendu is None:
+            verdict = "NON MESURE par le jeu"
+            nonmesures += 1
+        elif attendu == len(pool):
+            verdict = "OK"
+            accords += 1
+        else:
+            verdict = "ECART de %+d" % (len(pool) - attendu)
+            ecarts += 1
+        print("%-34s %8d %8s   %s"
+              % (nom[:34], len(pool),
+                 "?" if attendu is None else str(attendu), verdict))
+    print("")
+    print("accords %d | ecarts %d | non mesurees %d" % (accords, ecarts, nonmesures))
+    if accords == 0:
+        # Un accord VIDE se lirait comme un succes. Il ne prouve rien.
+        print("AUCUN accord mesure -- ce resultat ne valide RIEN du port.")
+        return 1
+    return 0 if ecarts == 0 else 1
 
 
 def cmd_vocabulaire(a) -> int:
@@ -679,7 +895,21 @@ def main(argv: list[str]) -> int:
     b = sp.add_parser("board", help="plateau entier, unites disjointes")
     b.add_argument("--fichier", required=True, help="JSON du plateau")
     b.add_argument("--roster")
+    b.add_argument("--progression",
+                   help="JSON du RPC `rosterOwned {details:true}` (rang + rarete par unite)")
+    b.add_argument("--seuils",
+                   help="JSON du RPC `expeditionRankRequirements` (rarete -> rang minimum)")
     b.set_defaults(f=cmd_board)
+
+    c = sp.add_parser("confronter",
+                      help="notre eligibilite portee CONTRE le compte du jeu, par operation")
+    c.add_argument("--fichier", required=True, help="JSON du plateau")
+    c.add_argument("--roster", required=True)
+    c.add_argument("--progression", required=True)
+    c.add_argument("--seuils", required=True)
+    c.add_argument("--natif", required=True,
+                   help="JSON du RPC `expeditionEligibility` (comptes CountEligibleUnits)")
+    c.set_defaults(f=cmd_confronter)
 
     v = sp.add_parser("vocabulaire", help="lister les ids connus")
     v.set_defaults(f=cmd_vocabulaire)

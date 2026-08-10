@@ -32,6 +32,12 @@
 // donc un roster complet et FAUX. C'est exactement le genre de zero/un silencieux que le
 // recoupement ci-dessus est la pour attraper.
 //
+// POSSEDER N'EST PAS POUVOIR PARTIR, et `details: true` sert exactement cet ecart. Le
+// decompile de `ExpeditionUnitEligibility$$IsEligibleFor` consulte trois etats de l'unite :
+// sa RARETE (`GetRarity`), son RANG (`GetRank`) et sa grande alliance. Les deux premiers ne
+// se derivent PAS du gameconfig -- c'est de la progression de compte. On les demande donc au
+// meme foyer, a la meme instance, dans la meme passe.
+//
 // ARME A LA DEMANDE. LECTURE SEULE : aucune ecriture, aucun envoi.
 
 import { findClassAnywhere, findMethodByParamCount, MethodRef } from "../il2cpp/helpers.js";
@@ -47,8 +53,14 @@ const MAX_IDS = 2000;
 let instance: NativePointer | null = null;
 let miHasUnlocked: MethodRef | null = null;
 let miAmount: MethodRef | null = null;
+let miRank: MethodRef | null = null;
+let miRarity: MethodRef | null = null;
 const listeners: InvocationListener[] = [];
 const layout: Record<string, unknown> = {};
+
+/** `IdunMetaLogic.UserProgress.Model.UnitRarity` -- lu dans
+ *  `data/symbols/<build>/frida/enums.tsv`, jamais devine. */
+const RARETES = ["Common", "Uncommon", "Rare", "Epic", "Legendary", "Mythic"];
 
 /** Valeur d'un `System.Boolean` BOXE rendu par `runtime_invoke` (octet a +0x10). */
 function boolBoxe(p: NativePointer): boolean | null {
@@ -74,8 +86,13 @@ export function register(ctx: Ctx): void {
         }
         miHasUnlocked = findMethodByParamCount(klass, "HasUnitUnlocked", 1);
         miAmount = findMethodByParamCount(klass, "AmountOfUnlockedUnits", 0);
+        // Les deux etats que l'eligibilite d'une Operation consulte (cf. `details` plus bas).
+        miRank = findMethodByParamCount(klass, "GetRank", 1);
+        miRarity = findMethodByParamCount(klass, "GetRarity", 1);
         layout["HasUnitUnlocked"] = miHasUnlocked ? true : "NON RESOLUE";
         layout["AmountOfUnlockedUnits"] = miAmount ? true : "NON RESOLUE";
+        layout["GetRank"] = miRank ? true : "NON RESOLUE";
+        layout["GetRarity"] = miRarity ? true : "NON RESOLUE";
         if (!miHasUnlocked) {
             return { ok: false, error: "HasUnitUnlocked NON RESOLUE", layout };
         }
@@ -106,7 +123,7 @@ export function register(ctx: Ctx): void {
      *
      *  `ids` vient du catalogue gameconfig, cote appelant : ce module ne devine aucun
      *  identifiant, il repond OUI/NON sur ceux qu'on lui donne. */
-    ctx.rpc.rosterOwned = (body?: { ids?: string[] }): Promise<unknown> =>
+    ctx.rpc.rosterOwned = (body?: { ids?: string[]; details?: boolean }): Promise<unknown> =>
         queueOnMainThread(() => {
             const ids = body?.ids;
             if (!Array.isArray(ids) || ids.length === 0) {
@@ -145,12 +162,47 @@ export function register(ctx: Ctx): void {
                 try { compteJeu = intBoxe(invokeMethod(miAmount.info, instance, null)); }
                 catch { compteJeu = null; }
             }
+
+            // RANG ET RARETE, sur demande. Ce sont les deux etats que
+            // `ExpeditionUnitEligibility$$IsEligibleFor` consulte pour dire si une unite peut
+            // partir sur une Operation ; sans eux, un plan de dispatch raisonne sur la seule
+            // POSSESSION et peut proposer une unite que l'operation refuse.
+            // Tri-etat par unite : `null` = appel non revenu, jamais rabattu sur 0 -- un rang 0
+            // se lirait comme une unite au rang minimum, donc eligible a tort.
+            let details: Record<string, { rank: number | null; rarity: number | null;
+                                          rarete: string | null }> | null = null;
+            if (body?.details) {
+                details = {};
+                for (const id of possedes) {
+                    const s = createManagedString(id);
+                    let rank: number | null = null;
+                    let rarity: number | null = null;
+                    if (miRank) {
+                        try { rank = intBoxe(invokeMethod(miRank.info, instance, [s])); }
+                        catch { rank = null; }
+                    }
+                    if (miRarity) {
+                        // `UnitRarity` est un enum : type VALEUR, donc BOXE comme un entier.
+                        try { rarity = intBoxe(invokeMethod(miRarity.info, instance, [s])); }
+                        catch { rarity = null; }
+                    }
+                    details[id] = {
+                        rank, rarity,
+                        rarete: rarity === null ? null : (RARETES[rarity] ?? "?" + rarity),
+                    };
+                }
+            }
+
             return {
                 ok: true,
                 interroges: ids.length,
                 possedes, absents, illisibles,
                 nbPossedes: possedes.length,
                 compteJeu,
+                details,
+                detailsIndisponibles: body?.details
+                    ? [miRank ? null : "GetRank", miRarity ? null : "GetRarity"].filter(Boolean)
+                    : null,
                 // Un ecart ne prouve pas une erreur -- notre catalogue d'entree peut etre plus
                 // etroit que ce que le jeu compte (machines de guerre, unites non lineup).
                 // Mais il doit etre VU : une liste plausible qui diverge du compte natif est

@@ -43,6 +43,7 @@
 
 import { findClassAnywhere, findMethodByParamCount } from "../il2cpp/helpers.js";
 import { serializeToJson, isSerializerReady } from "../il2cpp/serializer.js";
+import { invokeMethod, createManagedString } from "../il2cpp/invoke.js";
 import { queueOnMainThread } from "../runtime/queue.js";
 import { Ctx } from "../controller.js";
 import { log } from "../runtime/diag.js";
@@ -153,6 +154,15 @@ const PORTES_INSTANCE: PorteInstance[] = [
         ns: "Idun.Source.IdunMeta.Logic.Features.Expedition.Progression",
         cls: "ExpeditionProgression",
         methodes: [["CanRefreshBoard", 0], ["IsCrusadeEventActive", 0]],
+    },
+    {
+        // Porteur du SEUIL DE RANG. `IsEligibleFor` compare le rang de l'unite a
+        // `GetRequiredRankFor(entry.rarity)` -- un seuil qui depend du NIVEAU d'expedition du
+        // joueur, donc introuvable dans le gameconfig. C'est la seule piece de la regle qui ne
+        // se derive ni du plateau ni du roster.
+        ns: "Idun.Source.IdunMeta.Logic.Features.Expedition.Progression.Level",
+        cls: "ExpeditionLevelProgression",
+        methodes: [["GetCurrentLevel", 0], ["GetRequiredRankFor", 1], ["GetMaxLevel", 0]],
     },
 ];
 
@@ -272,6 +282,11 @@ export function register(ctx: Ctx): void {
                     listeners.push(Interceptor.attach(mi.ptr, {
                         onEnter(args) {
                             try {
+                                // `this` = l'ExpeditionUnitEligibility. On le retient : c'est
+                                // lui qui porte `IsEligibleFor`, donc l'oracle unite-par-unite.
+                                if (!args[0].isNull()) {
+                                    instances["ExpeditionUnitEligibility"] = args[0];
+                                }
                                 const e: Eligibilite = {
                                     n: ++compteur, ts: Date.now(), expeditionId: null,
                                     grandAlliance: null, participants: null, eligibles: null,
@@ -342,16 +357,20 @@ export function register(ctx: Ctx): void {
     ctx.rpc.expeditionBoardRead = (body?: { classe?: string }): Promise<unknown> =>
         queueOnMainThread(() => {
             const vues = Object.keys(instances);
-            const cls = body?.classe
-                || (instances["ExpeditionProgressionData"] ? "ExpeditionProgressionData"
-                    : vues[0]);
-            if (!cls || !instances[cls]) {
+            // PAS DE REPLI SILENCIEUX SUR `vues[0]`. Mesure du 2026-08-10 : la porte du
+            // plateau n'avait pas tire, et le repli a rendu `ok: true` sur un
+            // `ExpeditionUnitEligibility` -- un objet sans rapport, serialise en `{}`, avec
+            // `entrees: null`. Ca se lit comme un succes. Le porteur du plateau est
+            // `ExpeditionProgressionData` et lui seul ; a defaut on REFUSE en le nommant.
+            const cls = body?.classe || "ExpeditionProgressionData";
+            if (!instances[cls]) {
                 return {
-                    ok: false, vues,
-                    err: vues.length
-                        ? "classe '" + String(body?.classe) + "' non captee"
-                        : "AUCUNE instance captee -- ouvre l'ecran Operations "
-                          + "(Crusade -> Operations) apres l'armement, puis relance",
+                    ok: false, vues, classe: cls,
+                    err: "classe '" + cls + "' NON CAPTEE"
+                       + (vues.length ? " (captees : " + vues.join(", ") + ")" : "")
+                       + " -- ouvre l'ecran Operations (Crusade -> Operations) APRES "
+                       + "l'armement. Un ecran deja affiche au moment de l'armement ne "
+                       + "rejoue pas ses portes : ressors et reviens.",
                 };
             }
             if (!isSerializerReady()) {
@@ -371,6 +390,141 @@ export function register(ctx: Ctx): void {
                 entrees: compterEntrees(json), ts: Date.now(),
                 json: json.length <= MAX_JSON ? json : null,
                 tronque: json.length > MAX_JSON ? json.slice(0, 4000) : undefined,
+            };
+        });
+
+    // -----------------------------------------------------------------------------------
+    // LE SEUIL DE RANG -- la seule piece de la regle d'eligibilite qui n'est ni dans le
+    // plateau ni dans le roster.
+    //
+    // `ExpeditionUnitEligibility$$IsEligibleFor` (decompile) tient en quatre gates :
+    //
+    //     rarete de l'unite PRESENTE           (sinon : non debloquee)
+    //     rarete de l'unite >= entry.rarity    (sinon : UnitLowRarity)
+    //     rang de l'unite   >= level.GetRequiredRankFor(entry.rarity)   (sinon : UnitLowRank)
+    //     entry.grandAlliance nul, ou egal a celui de l'unite
+    //
+    // Les trois premieres se calculent des qu'on tient le seuil ; la quatrieme sort du
+    // gameconfig. Ce seuil-la depend du NIVEAU d'expedition du joueur : il monte quand le
+    // joueur progresse, donc le figer serait le perimer.
+    // -----------------------------------------------------------------------------------
+
+    /** La table `rarete -> rang minimum` du niveau d'expedition COURANT.
+     *  body: {} -> { ok, niveau, niveauMax, seuils } */
+    ctx.rpc.expeditionRankRequirements = (): Promise<unknown> => queueOnMainThread(() => {
+        const inst = instances["ExpeditionLevelProgression"];
+        if (!inst) {
+            return {
+                ok: false, vues: Object.keys(instances),
+                err: "AUCUNE instance d'ExpeditionLevelProgression captee -- arme puis ouvre "
+                   + "l'ecran Operations (Crusade -> Operations), et relance",
+            };
+        }
+        const klass = findClassAnywhere(
+            "Idun.Source.IdunMeta.Logic.Features.Expedition.Progression.Level",
+            "ExpeditionLevelProgression");
+        if (!klass) return { ok: false, err: "ExpeditionLevelProgression introuvable" };
+        const miReq = findMethodByParamCount(klass, "GetRequiredRankFor", 1);
+        const miCur = findMethodByParamCount(klass, "GetCurrentLevel", 0);
+        const miMax = findMethodByParamCount(klass, "GetMaxLevel", 0);
+        if (!miReq) return { ok: false, err: "GetRequiredRankFor NON RESOLUE" };
+
+        /** `System.Int32` rendu par `runtime_invoke` : BOXE, valeur utile a +0x10. */
+        const entierBoxe = (p: NativePointer): number | null => {
+            if (p.isNull()) return null;
+            try { return p.add(0x10).readS32(); } catch { return null; }
+        };
+        const scalaire = (mi: typeof miCur): number | null => {
+            if (!mi) return null;
+            try { return entierBoxe(invokeMethod(mi.info, inst, null)); } catch { return null; }
+        };
+
+        // `UnitRarity` (enums.tsv) : 0=Common .. 5=Mythic.
+        const RARETES = ["Common", "Uncommon", "Rare", "Epic", "Legendary", "Mythic"];
+        const seuils: Record<string, number | null> = {};
+        for (let r = 0; r < RARETES.length; r++) {
+            // Argument de type VALEUR : `runtime_invoke` attend un pointeur vers la donnee
+            // NON boxee, pas un objet. (Le BOXAGE, lui, ne concerne que le RETOUR.)
+            const arg = Memory.alloc(4);
+            arg.writeS32(r);
+            let v: number | null = null;
+            try { v = entierBoxe(invokeMethod(miReq.info, inst, [arg])); } catch { v = null; }
+            seuils[RARETES[r]] = v;
+        }
+        return {
+            ok: true, ts: Date.now(),
+            niveau: scalaire(miCur), niveauMax: scalaire(miMax),
+            seuils,
+            // Tri-etat assume : une rarete a `null` n'est PAS un seuil de 0. Un zero se lirait
+            // << aucune exigence de rang >>, donc toute unite eligible -- l'inverse du vrai.
+            illisibles: Object.keys(seuils).filter((k) => seuils[k] === null),
+        };
+    });
+
+    /** Le compte d'eligibles pour des operations NOMMEES -- sans attendre que l'UI les rende.
+     *
+     *  `expeditionEligibility` (plus bas) est PASSIF : il lit ce que le jeu calcule au rendu,
+     *  donc il ne voit que les widgets rendus. Mesure du 2026-08-10 : 4 operations sur 7, la
+     *  virtualisation du plateau laissant les trois autres muettes. Ici on DEMANDE, sur les
+     *  identifiants qu'on veut :
+     *
+     *      ExpeditionProgressionData$$GetExpeditionEntry(expeditionId) -> entry
+     *      ExpeditionUnitEligibility$$CountEligibleUnits(entry)        -> Int32
+     *
+     *  body: { ids: string[] } -> { ok, comptes: {id: n|null}, absents } */
+    ctx.rpc.expeditionEligibilityFor = (body?: { ids?: string[] }): Promise<unknown> =>
+        queueOnMainThread(() => {
+            const ids = body?.ids;
+            if (!Array.isArray(ids) || ids.length === 0) {
+                return { ok: false, err: "expeditionEligibilityFor: `ids` (liste non vide) "
+                                       + "requis -- les `expeditionId` du plateau" };
+            }
+            const data = instances["ExpeditionProgressionData"];
+            const elig = instances["ExpeditionUnitEligibility"];
+            if (!data || !elig) {
+                return {
+                    ok: false, vues: Object.keys(instances),
+                    err: "instance manquante : "
+                       + (!data ? "ExpeditionProgressionData " : "")
+                       + (!elig ? "ExpeditionUnitEligibility" : "")
+                       + " -- ouvre l'ecran Operations apres l'armement, puis relance",
+                };
+            }
+            const kData = findClassAnywhere(
+                "Idun.Source.IdunMeta.Logic.Features.Expedition.ProgressionData",
+                "ExpeditionProgressionData");
+            const kElig = findClassAnywhere(
+                "Idun.Source.IdunMeta.Logic.Features.Expedition.Progression.UnitEligibility",
+                "ExpeditionUnitEligibility");
+            const miGet = kData ? findMethodByParamCount(kData, "GetExpeditionEntry", 1) : null;
+            const miCnt = kElig ? findMethodByParamCount(kElig, "CountEligibleUnits", 1) : null;
+            if (!miGet || !miCnt) {
+                return { ok: false, err: (miGet ? "" : "GetExpeditionEntry ")
+                                       + (miCnt ? "" : "CountEligibleUnits ") + "NON RESOLUE" };
+            }
+            const comptes: Record<string, number | null> = {};
+            const absents: string[] = [];
+            for (const id of ids) {
+                if (typeof id !== "string" || !id) continue;
+                let entry: NativePointer | null = null;
+                try {
+                    // Le DTO est un type REFERENCE : `runtime_invoke` rend le pointeur tel
+                    // quel. Seuls les types VALEUR reviennent boxes.
+                    entry = invokeMethod(miGet.info, data, [createManagedString(id)]);
+                } catch { entry = null; }
+                if (!entry || entry.isNull()) { absents.push(id); comptes[id] = null; continue; }
+                try {
+                    const r = invokeMethod(miCnt.info, elig, [entry]);
+                    comptes[id] = r.isNull() ? null : r.add(0x10).readS32();
+                } catch { comptes[id] = null; }
+            }
+            return {
+                ok: true, ts: Date.now(), comptes,
+                // `absents` = le plateau ne connait pas cet identifiant. Distinct d'un compte
+                // `null`, qui veut dire << l'appel n'est pas revenu >>.
+                absents,
+                illisibles: Object.keys(comptes).filter((k) => comptes[k] === null
+                                                              && absents.indexOf(k) < 0),
             };
         });
 
