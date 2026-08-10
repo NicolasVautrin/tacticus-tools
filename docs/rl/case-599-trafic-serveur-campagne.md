@@ -1,5 +1,20 @@
 # `#599` — ce que le client ENVOIE au serveur pour une bataille de campagne
 
+> **QUESTION D'ORIGINE, TRANCHÉE : on n'uprank PAS.** Cette fiche est née de « peut-on uprank
+> une unité sur le live ? ». Décision de l'utilisateur le 2026-08-10, sur les mesures
+> ci-dessous : **non**. Le roster est déclaré au serveur **deux fois par bataille** (`units` au
+> lancement, `heroDetails` à la fin) et le rejeu — qui porte l'état initial complet, la graine
+> et les événements de RNG — **part réellement** (mesuré sur le fil). Un rang local serait donc
+> annoncé en clair ET incohérent avec ce que le serveur peut re-simuler, sans le breadcrumb ni
+> le `SendPlayerPowerConcern` que la voie légitime produit.
+>
+> ⚠ Que le serveur **vérifie** n'est PAS établi — seulement qu'il **reçoit**. La décision ne
+> repose pas sur cette inférence mais sur l'asymétrie : gain marginal, perte = le compte.
+>
+> ⇒ **Le besoin réel (des unités à rang arbitraire pour valider le moteur) passe par le
+> harnais** — `catalog_inject`, `buildNormalizedBC`, `rl_duel build --unit-stat` — qui ne
+> touche NI le compte NI le serveur. Ne pas rouvrir la piste live.
+
 Mesuré le 2026-08-10 (session 25, build `rnca9r7q6c`), capteur `net-capture` armé à la demande.
 Ce n'est pas la forme lue au décompilé : c'est une charge **observée**.
 
