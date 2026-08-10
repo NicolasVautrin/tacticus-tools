@@ -1,0 +1,44 @@
+{
+  "_commentaire": [
+    "Exemple d'entree pour `expedition_solver.py board --fichier <ce fichier>`.",
+    "Les noms de champs MIRRORENT `ExpeditionBoardEntryDto` du build (participants,",
+    "duration, grandAlliance, bonusObjectives) -- ne pas les renommer.",
+    "",
+    "PROVENANCE, et elle n'est pas la meme pour les deux entrees :",
+    "  - 'Stand Against All Odds' est MESUREE en jeu le 2026-08-10 (plateau Mythic I,",
+    "    infobulles d'objectif lues une a une). Seul `participants` est SUPPOSE : le",
+    "    compte exact n'a pas ete releve. A corriger avant de s'y fier.",
+    "  - 'GABARIT -- a remplir' est un MODELE, pas une observation. Remplace-le par ce",
+    "    que ton plateau affiche, ou supprime-le.",
+    "",
+    "Objectifs acceptes : melee | ranged | faction:<id> | trait:<id> | alliance:<id>.",
+    "Les libelles de l'UI ('Adeptus Custodes', 'Mk X Gravis') sont resolus, et REFUSES",
+    "s'ils sont ambigus. `expedition_solver.py vocabulaire` liste les ids connus."
+  ],
+  "board": [
+    {
+      "id": "op-mesuree-20260810",
+      "expeditionId": "Stand Against All Odds",
+      "participants": 5,
+      "duration": 36000,
+      "grandAlliance": "Imperial",
+      "bonusObjectives": [
+        "melee",
+        "faction:Adeptus Custodes",
+        "trait:Healer",
+        "trait:Mk X Gravis"
+      ]
+    },
+    {
+      "id": "op-gabarit",
+      "expeditionId": "GABARIT -- a remplir",
+      "participants": 3,
+      "duration": 36000,
+      "grandAlliance": "Imperial",
+      "bonusObjectives": [
+        "trait:Psyker",
+        "faction:Ultramarines"
+      ]
+    }
+  ]
+}
