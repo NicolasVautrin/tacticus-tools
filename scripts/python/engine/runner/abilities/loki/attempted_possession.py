@@ -108,9 +108,10 @@ from ....entities.selectors.geometry import SelectIf
 from ....entities.selectors.tiles import Caster, ChildrenOf
 from ....entities.selectors.units import Alive, Union, UnitsWithoutTrait
 from ....entities.stats import StatPart, StatType
-from ....entities.traits import unit_trait as _unit_trait   # FORME B (#547-r2) : le module, pas
-# le symbole -- `_has_trait` lit `_unit_trait.entity_trait_names` a chaque appel, donc un
-# `monkeypatch.setattr("engine.entities.traits.unit_trait.<x>", ...)` mord encore.
+import engine.entities.traits.unit_trait as _unit_trait   # FORME B (#547-r2), et ABSOLUE pour la
+# meme raison que ci-dessous : le MODULE, pas le paquet parent, pas le symbole. `_has_trait` lit
+# `_unit_trait.entity_trait_names` a chaque appel, donc un `monkeypatch.setattr(
+# "engine.entities.traits.unit_trait.<x>", ...)` mord encore.
 from ....entities.traits.unit_trait import UnitTrait
 from ....entities.triggers import HasTrait
 from ..base import ActiveAbility
@@ -118,11 +119,15 @@ from ..behaviours.ai_control import PerformAIAbility
 from ..behaviours.context import entities_from_state
 from ..behaviours.effects import AddBondEffect, RemoveEffect
 from ..behaviours.stats import AddStatOverrideEffect
-from .. import targeting as _targeting       # FORME B (#547-r2) : `valid_normal_attack_targets`
-# est SUBSTITUE par `test_590_attempted_possession_offline.py` (3 sites) via le chemin PLEIN
-# `engine.runner.abilities.targeting.valid_normal_attack_targets`. Hisser en forme A
-# (`from ..targeting import valid_normal_attack_targets`) gelerait la liaison a l'import et
-# DESARMERAIT ces trois patchs -- mesure de `migrate_485r1_barils_reexport.py morsure`.
+import engine.runner.abilities.targeting as _targeting   # FORME B (#547-r2), et ABSOLUE
+# `valid_normal_attack_targets` est SUBSTITUE par `test_590_attempted_possession_offline.py`
+# (3 sites) via le chemin PLEIN. Hisser en forme A (`from ..targeting import
+# valid_normal_attack_targets`) gelerait la liaison a l'import et DESARMERAIT ces trois patchs --
+# mesure de `migrate_485r1_barils_reexport.py morsure` (couple classe HISSAGE_DESARMERAIT).
+# ⚠ ABSOLUE, PAS `from .. import targeting` : cette derniere DECLARE une arete vers le PAQUET
+# PARENT et referme un SCC (`engine.runner.abilities` / `.loki` / `.loki.attempted_possession`) --
+# MESURE, `test_270r4r2_cycles_imports_offline::test_etage1_aucun_cycle_module_level`. La forme
+# absolue nomme le MODULE, donc l'arete va au module et le cycle ne se ferme pas.
 from ..targeting import (RANGE_FROM_CONFIG, RANGED_BOOL_FALSE, TargetingOptions)
 from ..targeting_rule import TargetingRule as TR
 

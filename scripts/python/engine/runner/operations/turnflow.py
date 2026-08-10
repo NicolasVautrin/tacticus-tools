@@ -90,9 +90,12 @@ from ..abilities.targeting import (valid_normal_attack_targets, normal_attack_ty
 from ..abilities.handler import ABILITY_CLASSES
 from .repair import _is_boss
 from ...ai.state_bridge import _move_tiles
-from . import effects as _ops_effects        # FORME B (#547-r2) : le MODULE, pas le symbole -- un
-# `monkeypatch.setattr("engine.runner.operations.effects.<x>", ...)` mord encore. `.effects` est
-# deja au preambule (ligne suivante), donc l'arete existe : ni cycle, ni cout.
+import engine.runner.operations.effects as _ops_effects   # FORME B (#547-r2), et ABSOLUE : le
+# MODULE, pas le paquet parent (`from . import effects` declarerait une arete vers
+# `engine.runner.operations` et c'est ainsi qu'un SCC se referme -- mesure
+# `test_270r4r2_cycles_imports_offline`), pas le symbole (un `monkeypatch.setattr(
+# "engine.runner.operations.effects.<x>", ...)` doit mordre). `.effects` est deja au preambule
+# (ligne suivante), donc l'arete existe : ni cycle, ni cout.
 from .effects import revert_stat_mods_of_removed_effects
 from .traits import revert_traits_of_removed_effects
 from .refresh_effects import RefreshEffectTrigger, refresh_stat_modifier_effects

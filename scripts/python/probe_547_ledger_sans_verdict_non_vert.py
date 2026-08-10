@@ -105,7 +105,44 @@ EX_NON_MESURE = 99                                # convention `ratchets-bg.ps1`
 #:      justifiee ? >>). Sans lui, une ligne oubliee ici masquerait un rouge futur du meme fichier.
 #: Chaque ligne porte le numero du residu qui la ferme. Pas de numero => pas de ligne.
 NON_VERTS_DECLARES: dict[str, str] = {
-    # VIDE, et c'est un ETAT MESURE, pas un defaut de depart. Les TROIS lignes qui vivaient ici
+    # LES CINQ ROUGES QUE LA PASSE COMPLETE A MIS AU JOUR -- residu #547-r6. Ils ne sont PAS le
+    # fait de cette tranche : les CINQ ont ete rejoues dans un worktree TEMOIN a `origin/master`
+    # PUR (`ea55462c`) et y rendent `rc=1` a l'identique. Ils n'etaient pas VISIBLES avant parce
+    # que le ledger ne portait AUCUNE attestation a jour : c'est la passe `--measure` de cette
+    # tranche (290 fichiers, 4047 passed / 8 failed en 2220 s) qui les a inscrits. Chacun porte
+    # son assertion, pas une paraphrase.
+    "tests/engine/runner/test_ctx_traits_substrat_ventilation_offline.py":
+        "`test_la_table_ventile_exactement_l_inventaire` -- 1 failed / 13 passed. << 3 "
+        "lecture(s)/ecriture(s) de `traits` que la table ne ventile PAS : "
+        "[('runner/operations/resurrect.py', 'tiles_are_occupied', 'getattr(sc.ctx)', 'R'), "
+        "('runner/operations/traits.py', '_traits_of', 'getattr(ctx)', 'R'), "
+        "('runner/operations/traits.py', 'execute', 'ctx.traits', 'W')] >>. Meme FAMILLE que les "
+        "registres a cliquet : notre cadence de portage le rouvre. Residu #547-r6.",
+    "tests/engine/test_287r4r1_dynamic_target_rules_offline.py":
+        "`test_le_porteur_non_porte_consulte_bien_la_table` -- 1 failed / 15 passed. "
+        "`UnportedAbilityTargeting.get_dynamic_invalid_target_reason(state, CASTER, CIBLE)` rend "
+        "`0` la ou le test attend `int(TargetingRule.TargetMatchesDynamicRule) = 2` : le porteur "
+        "NON PORTE ne consulte plus la table dynamique. Residu #547-r6.",
+    "tests/test_366_r1_bcpatch_port_blindspot_offline.py":
+        "`test_seconde_source_le_grep_ne_voit_rien_que_l_AST_rate` -- 1 failed / 46 passed. La "
+        "seconde source (grep) voit `('BloodChalice', 'hpToHeal')`, le recensement AST ne le voit "
+        "PAS : FAUX NEGATIF, exactement ce que cette contre-epreuve existe pour montrer. Le site "
+        "est `_ability_var(\"BloodChalice\", \"hpToHeal\", ...)` dans "
+        "`operations/triggers/effect_triggers.py`, entre par `e6c66ed4` (#576, PR #860) -- donc "
+        "ANTERIEUR a cette tranche. Residu #547-r6.",
+    "tests/test_480r8_rpc_joignable_offline.py":
+        "`test_etage1_tout_rpc_porte_un_canal_nominatif` -- << 12 RPC dont le NOM n'est ecrit "
+        "nulle part hors de son fichier declarant >>, dont les quatre de "
+        "`frida/hooks/features/movement-trace.ts`. Le remede est ECRIT par le probe lui-meme "
+        "(`--catalogue` produit le bloc a coller dans `rpc-api.md`). FOYER `frida/hooks/**` : "
+        "hors du territoire de cette tranche. Residu #547-r6.",
+    "tests/test_host_inputs_offline.py":
+        "`test_probe_273_passe` -- `probe_273_gitignore_inputs.py` rend `rc=1` depuis un WORKTREE "
+        "d'agent. Sa sortie montre `OK -- aucune sortie de run dans data/` puis, a l'etage 3, "
+        "`frida/data/_absent_273 : INTROUVABLE (pas mesure)`. A trancher : cran legitime ou "
+        "artefact du regime worktree (les entrees gitignorees vivent dans l'ARBRE PRINCIPAL, "
+        "invariant 3 du CLAUDE.md). Residu #547-r6.",
+    # VIDE POUR LE RESTE, et c'est un ETAT MESURE. Les TROIS lignes qui vivaient ici
     # (#270-r4-r2-r2 seuil des differes, #448-r1 stormboyz, #462-r4b-r1-r1 producteurs d'additif)
     # ont ete FERMEES par #547-r2, chacune par sa cause propre -- pas retirees pour faire taire :
     #   * le seuil a ete RE-MESURE (partition exhaustive + debit par commit) apres remise a ZERO
