@@ -31,7 +31,7 @@ de `IdunBattleLogic.Entities.DSLSelectors$$GetDefaultUnitSelectionType(onlyAlive
 Le port lisait `distance <= 2` : il ACCEPTAIT des revives a 2 hex que le natif REFUSE (adjacence
 stricte). Corrige -- le terme passe desormais par le mirror `entities/triggers.py::IsAdjacent`.
   Narthecium.get_ReviveOnOverkill (0x738)      GameCamera$$ShouldBlurBackground = `return 0` (= la BASE, aucun override)
-                                                           -> `IdunBattleLogic.Entities.DSLFactory$$OnDeathEvent(1, 0, 0)` AJOUTE
+                                                           -> `IdunBattleLogic.Entities.DSLTriggers$$OnDeathEvent(1, 0, 0)` AJOUTE
                                                            `NOT(HasFlag(dying, 8=overkill))`
                                                            => « **unless** Overkilled » (lu LIVE par
                                                            `probe_79_revive_vtable.py`, PAS deduit).

@@ -20,7 +20,7 @@ additionnel**.
 | `LetTheGalaxyBurn_ResetAbility$$CreateBehaviour`    | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.LetTheGalaxyBurn_ResetAbility$$CreateBehaviour` |
 | `LetTheGalaxyBurnEffect$$.ctor`                     | `IdunBattle.Entities.Effects.Loki.LetTheGalaxyBurnEffect$$.ctor` |
 | `LetTheGalaxyBurnEffect$$CreateAdditionalHits`      | `IdunBattle.Entities.Effects.Loki.LetTheGalaxyBurnEffect$$CreateAdditionalHits` |
-| `DSLFactory$$IsPersistentData`                      | `IdunBattleLogic.Entities.DSLFactory$$IsPersistentData` |
+| `DSLTriggers$$IsPersistentData`                      | `IdunBattleLogic.Entities.DSLTriggers$$IsPersistentData` |
 | `DSLFactory$$HasTileStatusEffect`                   | `IdunBattleLogic.Entities.DSLFactory$$HasTileStatusEffect` |
 
 ### `IdunBattleLogic.Entities.Abilities.Triggered.Loki.LetTheGalaxyBurnAbility$$CreateTrigger` (conjonction `AbilityTrigger.op_BitwiseAnd`)

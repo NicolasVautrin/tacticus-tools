@@ -105,7 +105,7 @@ def sanctorum_missile_tree():
     **FACTORY NATIVE = `IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage` -> `native_factory="attack"`** : CLASSIFIE PAR LES
     XREFS de l'ExecuteBehaviour natif (tip #2 / piege rngcrit-1202 -- attaque MULTI-COUPS), PAS au nom du
     template. Les DEUX call-sites `IdunBattleLogic.Entities.Abilities.Active.Loki.SanctorumMissileAbility$$ExecuteBehaviour+0x15f` (main) et `IdunBattleLogic.Entities.Abilities.Active.Loki.SanctorumMissileAbility$$ExecuteBehaviour+0x1ff` (splash) referencent `IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage`
-    (verifie via `list_xrefs` ; SanctorumMissile ABSENT des xrefs de `IdunBattleLogic.Entities.DSLFactory$$AttackWithAbilityDamage`/`IdunBattleLogic.Entities.DSLFactory$$AttackWithAbilityDamage` = la famille
+    (verifie via `list_xrefs` ; SanctorumMissile ABSENT des xrefs de `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage`/`IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage` = la famille
     "ability"). `native_factory="attack"` => `AttackDamageOperation.ExecuteHit` = valeur brute + resolve
     slot-8 GASPILLE = **2 tirages/coup a cc=0** (defaut `is_attack_damage_op=True`). Un port copie a l'aveugle
     ("ability", 1 tirage/coup) desyncherait le RNG des le coup 2 -- confronte LIVE par le test.
@@ -142,7 +142,7 @@ class SanctorumMissileAbility(ActiveAbility):
     `IdunBattleLogic.Entities.Abilities.Active.Loki.SanctorumMissileAbility$$GetAdjacentDamageTargetsAll`). Le SPLASH est un SEUL `AttackWithAttackDamage(selecteur-multi)`
     (== le natif, PAS un `Foreach`) : `AttackBehaviour.Execute` resout la liste + `OrderBy` par id. FACTORY
     `native_factory="attack"` (IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage, PROUVE par XREFS des call-sites IdunBattleLogic.Entities.Abilities.Active.Loki.SanctorumMissileAbility$$ExecuteBehaviour+0x15f/IdunBattleLogic.Entities.Abilities.Active.Loki.SanctorumMissileAbility$$ExecuteBehaviour+0x1ff -- CONTRASTE
-    la famille "ability" IdunBattleLogic.Entities.DSLFactory$$AttackWithAbilityDamage/IdunBattleLogic.Entities.DSLFactory$$AttackWithAbilityDamage, piege rngcrit-1202/tip #2) => 2 tirages/coup a cc=0.
+    la famille "ability" IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage/IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage, piege rngcrit-1202/tip #2) => 2 tirages/coup a cc=0.
 
     GAP flagge : band TILE `EmptyOrHasSteppableUnit IdunBattle.Entities.Selectors.EmptyOrHasSteppableUnitTilesSelector$$Select` du selecteur natif (tuiles vides/steppables)
     NON porte -- INERTE pour le degat-unite en duel (0 degat sur tuile vide ; aucune scenery Steppable), et le
@@ -209,7 +209,7 @@ class SanctorumMissileAbility(ActiveAbility):
 #    -> IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage, ABSENT de IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage ; IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage == IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage SAUF que `nrOfHits` est un NODE
 #    `MeleeWeaponHits(caster)` passe direct a `AttackDamageBehaviour.ctor` au lieu d'une const int wrappee ->
 #    MEME `AttackDamageBehaviour`, famille "attack"). Node de degat = `Sum(NormalAttackDamage(caster)=StatAmount(
-#    Attack), Direct(GetVariableForLevel(8=extraDmg)))` -- `IdunBattleLogic.Entities.DSLFactory$$NormalAttackDamage`
+#    Attack), Direct(GetVariableForLevel(8=extraDmg)))` -- `IdunBattleLogic.Entities.DSLFormulas$$NormalAttackDamage`
 #    est LA MEME factory que celle de l'ATTAQUE NORMALE (`IdunBattleLogic.Entities.Abilities.Active.Loki.
 #    ALoki_NormalAttackAbility$$AttackAmount`, xrefs verifiees).
 #    Profil = `NormalMeleeAttackDamageProfile(caster)` = profil arme melee (Celestine = Power) ; coups =
@@ -269,7 +269,7 @@ def _sky_strike_dest_tile(state: "State", caster_id: int, target_id: int):
     VOLE. Pre-move (aucune mutation avant le MoveUnit). Renvoie (col,row) ou None.
 
     #165 — le collapse « la tuile la PLUS PROCHE du caster » est REFUTE : le `7` litteral passe a
-    `IdunBattleLogic.Entities.DSLFactory$$SortTilesByUtility` (surcharge int, qui construit
+    `IdunBattleLogic.Entities.DSLSelectors$$SortTilesByUtility` (surcharge int, qui construit
     `UtilityDefinition(7)` et delegue) est le MEME composite `Tile(7)` que celui mesure sur
     `HammerOfWrathAbility$$ExecuteBehaviour` (case-226 : le natif charge sur la tuile la plus ELEVEE,
     pas la plus proche). On appelle donc le FOYER UNIQUE
@@ -310,7 +310,7 @@ def sky_strike_damage_node(extra_dmg: int):
 
         Sum( NormalAttackDamage(caster@0x160), Direct(GetVariableForLevel(8 = extraDmg)) )
 
-    `IdunBattleLogic.Entities.DSLFactory$$NormalAttackDamage(unitSelector)` construit un
+    `IdunBattleLogic.Entities.DSLFormulas$$NormalAttackDamage(unitSelector)` construit un
     `IdunBattle.Entities.Formulas.StatAmountFormula(unitSelector, statType=0, statPart=0, ...)` -- LE MEME
     noeud que celui de l'ATTAQUE NORMALE (`IdunBattleLogic.Entities.Abilities.Active.Loki.
     ALoki_NormalAttackAbility$$AttackAmount` appelle la MEME factory ; xrefs de `NormalAttackDamage`
@@ -509,7 +509,7 @@ class SkyStrikeAbility(ActiveAbility):
 #   ConditionalAmount( HasTrait(u, 0x3fb = 1019 Daemon),
 #                      ConfigConst(0x32) /*si Daemon*/, ConfigConst(0x2f) /*sinon*/ )
 # -> l'argument passe est `target@0x178` : la CIBLE Daemon prend `nrOfHits_2` coups, sinon `nrOfHits`.
-# (Ordre des arguments de `IdunBattleLogic.Entities.DSLFactory$$ConditionalAmount(cond, ifTrue, ifFalse)`
+# (Ordre des arguments de `IdunBattleLogic.Entities.DSLFormulas$$ConditionalAmount(cond, ifTrue, ifFalse)`
 #  == celui du port, cf. `entities/formulas.py::ConditionalAmount`.)
 #
 # `IdunBattleLogic.Entities.Abilities.Active.Loki.BrazierOfHolyFireAbility$$GetEffectTargets` = le MEME
@@ -583,7 +583,7 @@ def brazier_of_holy_fire_tree(hits: int, range_2: int, profile: str):
       BrazierOfHolyFireAbility$$ExecuteBehaviour+0x187` appelle
       `IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage` (surcharge PARTAGEE avec
       SentinelDirectives/ScythingTalons/Executioner ; VERIFIE par `list_xrefs`, ABSENT des xrefs de
-      `IdunBattleLogic.Entities.DSLFactory$$AttackWithAbilityDamage`) -> `native_factory="attack"`
+      `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage`) -> `native_factory="attack"`
       = 2 tirages/coup a cc=0. MONO-cible (`target@0x178`), profil `Flame`, RANGED
       (`attackRangeType=Ranged`, range 2).
     - **FEU** : `AddEffect` surcharge **4-args** -> selecteur SOURCE natif NULL -> la source EST la CIBLE
@@ -908,7 +908,7 @@ def thrice_blessed_conflagration_tree(duration_turns: int, is_sisterhood_target:
       donc par son OCCUPANT. Le port materialise cette resolution avec `Units(...)` sur le volet tuiles
       (mirror explicite du `GetUnitOrMachine` interne). La cible ALLIEE est ecartee par `Enemies`, comme
       dans le natif.
-    - la feuille d'attaque route `IdunBattleLogic.Entities.DSLFactory$$AttackWithAbilityDamage` (famille
+    - la feuille d'attaque route `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage` (famille
       ABILITY : 1 tirage/coup, pas de crit) -> `native_factory="ability"`.
     - `duration_turns` = `TurnsFromRounds(nrOfRounds[level])` DEJA converti par la classe d'ability
       (`convert_rounds_to_turns`), passe tel quel a `AddEffect` (le natif met la valeur convertie dans

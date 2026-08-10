@@ -398,7 +398,7 @@ def hammer_of_wrath_tree(dest, damage_override):
     et adjacence lues post-move) ; le selecteur `GetAdjacentTargets` est evalue A L'ATTAQUE.
 
     `native_factory="ability"` pour les DEUX volets : `HammerOfWrathAbility$$ExecuteBehaviour` appelle
-    `IdunBattleLogic.Entities.DSLFactory$$AttackWithAbilityDamage` (famille ABILITY ->
+    `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage` (famille ABILITY ->
     `IdunBattle.Operations.AbilityDamageOperation$$ExecuteHits` : 1 tirage/coup, aucun crit, aucune
     feuille positionnelle) — classe PAR LE DECOMPILE, jamais au juge. La classe Python porte le nom
     `AttackWithAttackDamage` (mode BORNES) et c'est son flag `native_factory` qui designe l'Operation,
@@ -418,7 +418,7 @@ def hammer_of_wrath_tree(dest, damage_override):
     move = MoveUnit(Caster(), FixedTiles([dest] if dest is not None else []))
     main = AttackWithAttackDamage(Target(), "HammerOfWrath", "Power", is_melee=True,
                                   damage_override=damage_override,
-                                  native_factory="ability",   # -> `IdunBattleLogic.Entities.DSLFactory$$AttackWithAbilityDamage`
+                                  native_factory="ability",   # -> `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage`
                                   ability_type=int(ActiveAbilityType.HammerOfWrath))
     adjacent = AttackWithAttackDamage(hammer_of_wrath_get_adjacent_targets(), "HammerOfWrath",
                                       "Physical", is_melee=True, multi=True,

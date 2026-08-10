@@ -184,7 +184,7 @@ class SentinelDirectivesAbility(ActiveAbility):
 # `fromHere` = les voisines libres du caster).
 #
 # FAMILLE **ABILITY** : `...RadBombardmentAbility$$ExecuteBehaviour+0x132` appelle
-# `IdunBattleLogic.Entities.DSLFactory$$AttackWithAbilityDamage` (VERIFIE par `list_xrefs` ; ABSENT des
+# `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage` (VERIFIE par `list_xrefs` ; ABSENT des
 # xrefs des surcharges `AttackWithAttackDamage`) -> `native_factory="ability"` = 1 tirage/coup, pas de
 # crit/block.
 #
@@ -271,7 +271,7 @@ def rad_bombardment_tree(tiles_sel, profile: str):
     - `Units(tiles)` = les occupants DEBOUT des tuiles de la ligne, dans l'ORDRE DES TUILES (le natif
       itere le selecteur de tuiles et resout l'occupant de chacune) -- AUCUN filtre d'equipe : la ligne
       touche aussi les ALLIES (friendly-fire), le natif ne wrappe pas dans `Enemies`.
-    - l'ATTAQUE route `IdunBattleLogic.Entities.DSLFactory$$AttackWithAbilityDamage` (famille ABILITY,
+    - l'ATTAQUE route `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage` (famille ABILITY,
       1 tirage/coup, pas de crit) -> `native_factory="ability"` ; `Foreach` preserve l'ordre du
       selecteur (cf. le bloc de commentaire).
     - `Pinned` : options natives ZERO -> duree `DefaultAmountOfRounds(0x429)` convertie DANS

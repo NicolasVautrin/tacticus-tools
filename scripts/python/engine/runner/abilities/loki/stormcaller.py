@@ -20,7 +20,7 @@ ExecuteAtomic) :
       → attaque 3x Psychic CHAQUE ennemi debout sur une tuile GLACÉE — évalué APRÈS [1] (le
         behaviour-seq s'exécute dans l'ordre) donc la zone fraîche compte, ET toute AUTRE glace
         déjà posée (LordOfTempests, cast antérieur) : la cible n'est PAS le seul bénéficiaire.
-        Overload IdunBattleLogic.Entities.DSLFactory$$AttackWithAbilityDamage → core IdunBattleLogic.Entities.DSLFactory$$AttackWithAbilityDamage (xref call-site 18120cdfc) = LE MÊME nœud que
+        Overload IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage → core IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage (xref call-site 18120cdfc) = LE MÊME nœud que
         `IdunBattleLogic.Entities.Abilities.Active.Loki.SpiritLeechAbility$$ExecuteBehaviour+0x19f` → même pipeline porté
         `execute_ability_attack` (MinMax roll + crit + block[NoBlocking] + after-hit), bit-exact
         SpiritLeech-validé.
@@ -93,7 +93,7 @@ def stormcaller_tree():
       `Enemies(<dsl>+0x30 = Owner, <dsl>+0x20, 3)`, et `<dsl>+0x20` est le champ partage
       `AllAliveUnitsSelector` (pool `EntityPool.AliveUnits`), PAS `DSLSelectors$$AllUnits` (#514).
     - attaque = feuille `AttackWithAttackDamage` en mode `multi` (`IdunBattle.Entities.Behaviours.AttackBehaviour$$Execute` : sélecteur → N cibles, OrderBy = ordre de lecture == tri par id) — MÊME overload
-      natif (IdunBattleLogic.Entities.DSLFactory$$AttackWithAbilityDamage → IdunBattleLogic.Entities.DSLFactory$$AttackWithAbilityDamage) que SpiritLeech → `execute_ability_attack` (crit/block,
+      natif (IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage → IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage) que SpiritLeech → `execute_ability_attack` (crit/block,
       Psychic = NoBlocking + pierce 100). `ability_type=1113` = l'arg natif `AbilityOrEffect
       (this+0x10)`, threadé aux events after-hit (≠1013 → la branche smite LordOfTempests reste
       muette, fidèle).
@@ -103,7 +103,7 @@ def stormcaller_tree():
     cache = Cache(UnitsOnTilesWithEffect(Enemies(AllAliveUnits()), ICE_TILE))
     ice = AddEffect(ICE_TILE, "Ice", stormcaller_get_add_ice_tiles(), duration_rounds=None)
     attack = AttackWithAttackDamage(cache, "Stormcaller", "Psychic", is_melee=False, multi=True,
-                                    native_factory="ability",   # IdunBattleLogic.Entities.DSLFactory$$AttackWithAbilityDamage -> AbilityDamageOperation (1 tirage/coup, cf. combat.py)
+                                    native_factory="ability",   # IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage -> AbilityDamageOperation (1 tirage/coup, cf. combat.py)
                                     ability_type=int(ActiveAbilityType.Stormcaller))
     stun = AddEffect(STUNNED, "Stunned", UnitsWithTrait(cache, int(UnitTrait.Flying)),
                      duration_rounds=1)

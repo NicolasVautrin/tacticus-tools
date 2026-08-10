@@ -11,7 +11,7 @@ RANGED du porteur. RE RE-LUE sur le build `rnca9r7q6c` (#512-r1) :
   - `IdunBattleLogic.Entities.Abilities.Active.Loki.SuppressiveFireAbility$$CreateBehaviour` (feuille E UNIQUE) =
         AddEffect(0x429=Pinned, source=AbilityStateReference(=owner), cible=Units(target, kind=0),
                   dureeNode=struct ZERO -> DefaultAmountOfRounds)
-    `Units` = `UnitsOnTilesSelector` (IdunBattleLogic.Entities.DSLFactory$$Units) : les unites sur les tuiles de la cible
+    `Units` = `UnitsOnTilesSelector` (IdunBattleLogic.Entities.DSLSelectors$$Units) : les unites sur les tuiles de la cible
     (positions exclusives -> la cible elle-meme) -> pose Pinned sur l'UNITE cible.
   i2 : « An enemy hit by this unit's ranged attack becomes Suppressed. »
 

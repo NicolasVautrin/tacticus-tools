@@ -18,8 +18,8 @@ coups (`create_effect_hits_malus_for_defense`) mais un GROUPE du canal #179
 | `MasterAnnihilatorAbility$$CreateBehaviour` | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.MasterAnnihilatorAbility$$CreateBehaviour` |
 | `MasterAnnihilator_AdditionalHitEffect$$CreateAdditionalHits` | `IdunBattle.Entities.Effects.Loki.MasterAnnihilator_AdditionalHitEffect$$CreateAdditionalHits` |
 | `MasterAnnihilator_AdditionalHitEffect$$CreateRemoveEffectTrigger` | `IdunBattle.Entities.Effects.Loki.MasterAnnihilator_AdditionalHitEffect$$CreateRemoveEffectTrigger` |
-| `DSLFactory$$EffectsFromUnitSource` | `IdunBattleLogic.Entities.DSLFactory$$EffectsFromUnitSource` (-> `EffectWithTypeSelector`) |
-| `DSLFactory$$OwnerOfEffect`         | `IdunBattleLogic.Entities.DSLFactory$$OwnerOfEffect` |
+| `DSLSelectors$$EffectsFromUnitSource` | `IdunBattleLogic.Entities.DSLSelectors$$EffectsFromUnitSource` (-> `EffectWithTypeSelector`) |
+| `DSLSelectors$$OwnerOfEffect`         | `IdunBattleLogic.Entities.DSLSelectors$$OwnerOfEffect` |
 
 ### `IdunBattleLogic.Entities.Abilities.Triggered.Loki.MasterAnnihilatorAbility$$CreateTrigger` (conjonction `AbilityTrigger.op_BitwiseAnd`)
 ```

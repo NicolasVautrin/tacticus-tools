@@ -138,7 +138,7 @@ _HAS_TRAIT_MECHANICAL = HasTrait(Target(), int(UnitTrait.Mechanical))   # NOT Ha
 
 
 class UnitMainTileIds(TargetsSelector):
-    """`IdunBattleLogic.Entities.DSLFactory$$Tiles(units)` -> `IdunBattle.Entities.Selectors.
+    """`IdunBattleLogic.Entities.DSLSelectors$$Tiles(units)` -> `IdunBattle.Entities.Selectors.
     UnitsMainTilesSelector$$Select`, **DOMAINE ID**.
 
     Jumeau id-domain du noeud `Tiles` d'`entities/selectors/units.py`, qui rend des POSITIONS

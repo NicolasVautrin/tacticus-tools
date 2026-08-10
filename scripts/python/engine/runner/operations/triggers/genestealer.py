@@ -24,8 +24,8 @@ UnitAfterMove, overwatch) puis On(0x1d=UnitPositionChanged_2) ; le decoy est cru
 units`, G1) AVANT -> `GetValidDeadDecoys` le lit deja mort. `dispatch.after_move_triggers` emet On(4) PUIS
 On(0x1d) (le path resurrect On(0x2e = UnitResurrected) viendra avec G3-Ambush).
 
-FEUILLE Blast (decompile IdunBattleLogic.Entities.Abilities.Triggered.Loki.DecoysAndMisdirection_DamageEnemiesAbility$$CreateBehaviour VERIFIE) : `DSLFactory$$IdunBattleLogic.Entities.DSLFactory$$AttackWithAbilityDamage` -> base
-IdunBattleLogic.Entities.DSLFactory$$AttackWithAbilityDamage = `AttackBehaviour(AbilityDamageBehaviour(MinMaxDamage, Blast, source))` = pipeline crit/block
+FEUILLE Blast (decompile IdunBattleLogic.Entities.Abilities.Triggered.Loki.DecoysAndMisdirection_DamageEnemiesAbility$$CreateBehaviour VERIFIE) : `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage` -> base
+IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage = `AttackBehaviour(AbilityDamageBehaviour(MinMaxDamage, Blast, source))` = pipeline crit/block
 COMPLET (PAS le direct pierce-only). Portee par le leaf `AttackWithAttackDamage` (`execute_ability_attack`,
 config MinMaxDamage) -> meme pipeline que les autres Blast d'ability (Stikkbomb/Fragstorm/Plasma). Le profil
 Blast porte `HitsMultipleMembers` (splash) -> le leaf attaque le stepper SEUL ; le splash multi-membres n'est
@@ -238,7 +238,7 @@ class DecoysAndMisdirectionDamageEnemiesAbility(TriggeredAbility):
         for _ in range(n):                            # Repeat( ... , Count(GetValidDeadDecoys) )
             ectx = ExecutionContext(state=state, rng=state.rng)
             AttackWithAttackDamage(Target(), ABILITY_ID, BLAST_PROFILE, is_melee=False,
-                                   native_factory="ability").execute(   # IdunBattleLogic.Entities.Abilities.Triggered.Loki.DecoysAndMisdirection_DamageEnemiesAbility$$CreateBehaviour+0x11f -> IdunBattleLogic.Entities.DSLFactory$$AttackWithAbilityDamage = AbilityDamageOperation
+                                   native_factory="ability").execute(   # IdunBattleLogic.Entities.Abilities.Triggered.Loki.DecoysAndMisdirection_DamageEnemiesAbility$$CreateBehaviour+0x11f -> IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage = AbilityDamageOperation
                 entities_from_state(state, self.owner_id, stepper), ectx)
             atk = next((p for nm, p in ectx.emitted if nm == "AttackWithAttackDamage"), None)
             blasts.append(atk)

@@ -295,7 +295,7 @@ def boltstorm_additional_targets(weapon_range: int):
     la meme raison qu'il l'est sur une TRIGGERED : ce n'est pas un repli de confort, c'est ce que
     le natif ECRIT.
 
-    ⚠ L'ORDRE DES ARGUMENTS DU PORT EST L'INVERSE DE CELUI DU NATIF : `DSLFactory$$Unobscured(from,
+    ⚠ L'ORDRE DES ARGUMENTS DU PORT EST L'INVERSE DE CELUI DU NATIF : `DSLSelectors$$Unobscured(from,
     source)` mais `Unobscured(source, from_ref=...)` cote port. Ecrit dans l'ordre natif, le noeud
     rend le CASTER au lieu des cibles -- donc une intersection VIDE, donc « zero cible
     additionnelle ». Cet accord-la avec un natif qu'on croyait a zero ne prouvait RIEN : c'est le

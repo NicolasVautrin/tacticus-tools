@@ -5,7 +5,7 @@ Contenu = les `*Behaviour` CONCRETS qui MUTENT l'etat en emettant une runner Ope
 `Spawn` (`SpawnUnitBehaviour` IdunBattle.Entities.Behaviours.SpawnUnitBehaviour$$.ctor -> `_spawn_config_grot`), `AttackWithAttackDamage`
 (`IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage -> `AttackDamageOperation.execute_ability_attack`/
 `execute_normal_like` : attaque d'ability crit/block), `AttackWithAbilityDamage`
-(`IdunBattleLogic.Entities.DSLFactory$$AttackWithAbilityDamage -> `AbilityDamageBehaviour` + `AttackBehaviour`
+(`IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage -> `AbilityDamageBehaviour` + `AttackBehaviour`
 -> `AttackDamageOperation.execute_ability_attack(is_attack_damage_op=False)` : famille ABILITY, sans crit —
 DoT de tuile `EnvFireTile`, nova `PutridExplosion`), `AddEffect` (`AddEffectBehaviour` IdunBattle.Entities.Behaviours.AddEffectBehaviour$$.ctor ->
 `AddEffectOperation`), `AddBondEffect`
@@ -62,7 +62,7 @@ from .effects import (AddBondEffect, AddEffect, IncreaseEffectLevel, add_effect_
 from .turnflow import ResetTurn, FinishTurn
 from .ability_state import ResetActiveAbility
 # `AddStatOverrideEffect` vit dans `stats.py` et NULLE PART AILLEURS : #112 et #114 avaient porte
-# le meme noeud natif (`DSLFactory$$AddStatOverrideEffect`) chacun de son cote, en parallele. Les deux
+# le meme noeud natif (`DSLBehaviors$$AddStatOverrideEffect`) chacun de son cote, en parallele. Les deux
 # consommateurs importent depuis CE paquet -> deux definitions homonymes auraient fait que le dernier
 # import MASQUE l'autre, silencieusement. Fusionne a l'integration (cf. la docstring de la classe).
 from .stats import (Heal, Repair, ChangeStat, SetHealth, SubtractHealthPercent, is_mechanical,

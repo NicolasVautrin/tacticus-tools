@@ -177,7 +177,7 @@ def flail_swing_tree() -> "op_and":
       `is_melee=True`.
     - **native_factory = "attack"** (defaut, 2 tirages/coup a cc=0) : le decompile appelle litteralement
       `IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage` (famille attack, VERIFIE par la CALLEE de IdunBattleLogic.Entities.Abilities.Active.Loki.FlailSwingAbility$$ExecuteBehaviour =
-      symbole `DSLFactory$$AttackWithAttackDamage`, JAMAIS `IdunBattleLogic.Entities.DSLFactory$$AttackWithAbilityDamage` ; tip #2 /
+      symbole `DSLFactory$$AttackWithAttackDamage`, JAMAIS `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage` ; tip #2 /
       rngcrit-1202). Attaque MULTI-COUPS (3x) -> classification par XREF OBLIGATOIRE, faite ici.
     - `InformWeapon` = `op_BitwiseAnd` volet GAUCHE (execute EN PREMIER) : canal weapon-inform (TAGS DE
       FLUX, `InformBehaviour`) COMBAT-INERTE (0 RNG, 0 mutation PV/stat) -> n'altere PAS l'ordre `state.rng`
@@ -476,10 +476,10 @@ def poxwalkers_count(state: "State", caster_id: int, nb_tiles: int) -> int:
 # CIBLAGE (face DECISION/eligibilite, HORS `ExecuteBehaviour`) — `EntropyCannonsAbility.
 # IdunBattleLogic.Entities.Abilities.Active.EntropyCannonsAbility$$GetDynamicInvalidTargetReason`, MIRROR du decompile :
 #     if !EntityExtensions.IsUnit(target) -> reason 0 (pas d'objection)
-#     aura = IdunBattleLogic.Entities.DSLFactory$$IsInTeamContagionsOfNurgleAura(target@0x178, caster@0x160)
+#     aura = IdunBattleLogic.Entities.DSLTriggers$$IsInTeamContagionsOfNurgleAura(target@0x178, caster@0x160)
 #            -> `IsInAuraRangeTrigger(effectType=0x42f=1071 ContagionsOfNurgle_ArmorReduction1,
 #                                     unit=target, teamReference=caster)`
-#     armor = IdunBattleLogic.Entities.DSLFactory$$HasNegativeModifier(target@0x178, 0x10=FixedArmor)
+#     armor = IdunBattleLogic.Entities.DSLTriggers$$HasNegativeModifier(target@0x178, 0x10=FixedArmor)
 #            -> `IdunBattle.Entities.Triggers.HasNegativeModifier$$ShouldTrigger` = il existe une modification
 #               PER-SOURCE < 0 sur le StatType du filtre (array a 1 element = {16 FixedArmor})
 #     comp = <StatComponent de la cible>            # lu par dispatch d'interface, gate `comp+0x48 > 0`
@@ -507,7 +507,7 @@ def entropy_cannons_tree() -> AttackWithAttackDamage:
                                           AbilityOrEffect(this+0x10 = 0x490 = 1168) ) )
 
     - **native_factory = "ability"** : le decompile appelle litteralement `DSLFactory.
-      IdunBattleLogic.Entities.DSLFactory$$AttackWithAbilityDamage` (overload core IdunBattleLogic.Entities.DSLFactory$$AttackWithAbilityDamage), PAS `IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage` -> `AbilityDamageBehaviour` -> `IdunBattle.Operations.AbilityDamageOperation$$ExecuteHits` :
+      IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage` (overload core IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage), PAS `IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage` -> `AbilityDamageBehaviour` -> `IdunBattle.Operations.AbilityDamageOperation$$ExecuteHits` :
       1 tirage/coup, AUCUN crit, AUCUNE feuille positionnelle (elevation/trench) — MEME route que
       Stormcaller/SpiritLeech (classification par XREF, jamais au juge).
     - `MinMaxDamage` = bornes `minDmg`(0xc)/`maxDmg`(0xd)[activeAbilityLevel] scalees par
@@ -520,7 +520,7 @@ def entropy_cannons_tree() -> AttackWithAttackDamage:
     - AUCUN effet pose, AUCUN spawn, AUCUNE 2e phase : l'ability EST cette seule attaque (le volet
       « armure reduite / Contagion » de l'i2 est le PREDICAT DE CIBLAGE ci-dessus, pas un volet degat)."""
     return AttackWithAttackDamage(Target(), ENTROPY_CANNONS_ID, "Energy", is_melee=None,
-                                  native_factory="ability",          # IdunBattleLogic.Entities.DSLFactory$$AttackWithAbilityDamage (XREF), 1 tirage/coup
+                                  native_factory="ability",          # IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage (XREF), 1 tirage/coup
                                   ability_type=int(ActiveAbilityType.EntropyCannons))
 
 
@@ -659,7 +659,7 @@ class EntropyCannonsAbility(ActiveAbility):
 def spawn_poxwalkers_tree(tiles: list) -> Spawn:
     """Arbre de `IdunBattleLogic.Entities.Abilities.Active.Loki.SpawnPoxwalkersAbility$$ExecuteBehaviour` : UN noeud `Spawn` dont les options
     portent le sous-behaviour ON-APPEARANCE `PerformAIAttackFromCurrentPosition(activeTarget@0x180)`
-    (`IdunBattleLogic.Entities.DSLFactory$$PerformAIAttackFromCurrentPosition` -> `IdunBattle.Entities.Behaviours.PerformAIAbilityUnitBehaviour$$Execute`) = chaque Poxwalker fraichement pose attaque DEPUIS SA POSITION (sans bouger). La feuille
+    (`IdunBattleLogic.Entities.DSLBehaviors$$PerformAIAttackFromCurrentPosition` -> `IdunBattle.Entities.Behaviours.PerformAIAbilityUnitBehaviour$$Execute`) = chaque Poxwalker fraichement pose attaque DEPUIS SA POSITION (sans bouger). La feuille
     portee `PerformAIAttack` accepte le domaine UNITE (l'`ActiveTarget` lie par le `Spawn`) aussi bien que
     le domaine TUILE (le `Cache` de GetEmRuntz)."""
     return Spawn(FixedTileIds(tiles), "Poxwalkers", on_appearance=PerformAIAttack(ActiveTarget()))
@@ -907,7 +907,7 @@ def plagueburst_mortar_tree(target_sel, picked_tiles: list):
                                       AddEffect(Pinned -> <les MEMES cibles>) ),
                        AddEffect(Contaminated -> cible + <tuiles tirees>) )
 
-    - l'attaque route `IdunBattleLogic.Entities.DSLFactory$$AttackWithAbilityDamage` (famille ABILITY :
+    - l'attaque route `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage` (famille ABILITY :
       1 tirage/coup, pas de crit) -> `native_factory="ability"` ; profil `Toxic`, `nrOfHits`=3.
     - `Pinned` : options natives ZERO -> duree = `DefaultAmountOfRounds(0x429)=1` convertie DANS
       `AddEffectOperation` (`duration_rounds=None` cote port).
@@ -1036,7 +1036,7 @@ class PlagueburstMortarAbility(ActiveAbility):
 # avec SA PROPRE plage de degat et le MEME nombre de coups. Aucun effet pose, aucun spawn : l'ability
 # EST ces trois attaques.
 #
-# ⚠ FAMILLE = `IdunBattleLogic.Entities.DSLFactory$$AttackWithAbilityDamage` (et NON
+# ⚠ FAMILLE = `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage` (et NON
 # `...$$AttackWithAttackDamage`) — classification par la CALLEE du decompile, jamais au juge
 # (rngcrit-1202) : `AbilityDamageBehaviour` -> `IdunBattle.Operations.AbilityDamageOperation$$
 # ExecuteHits`, 1 tirage par coup, AUCUN crit, AUCUNE feuille positionnelle (elevation/trench), et
@@ -1096,7 +1096,7 @@ def plague_wind_tree(selectors: Optional[tuple] = None) -> AtomicGroup:
     aucun n'a d'effet observable sur l'etat ni sur `state.rng`."""
     t1, t2, t3 = selectors if selectors is not None else plague_wind_target_selectors()
     band1 = AttackWithAttackDamage(t1, PLAGUE_WIND_ID, "Psychic", is_melee=False, multi=True,
-                                   native_factory="ability",              # IdunBattleLogic.Entities.DSLFactory$$AttackWithAbilityDamage
+                                   native_factory="ability",              # IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage
                                    ability_type=int(ActiveAbilityType.PlagueWind))
     band2 = AttackWithAttackDamage(t2, PLAGUE_WIND_ID, "Psychic", is_melee=False, multi=True,
                                    min_key="minDmg_2", max_key="maxDmg_2",   # MinMaxDamage2 (0x36/0x37)

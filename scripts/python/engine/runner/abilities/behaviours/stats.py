@@ -23,7 +23,7 @@ from ...operations.stat_ops import apply_stat_override
 
 class RefreshDynamicStatModifierValue(AbilityBehaviour):
     """`Idun.Source.IdunBattle.Logic.Entities.Behaviours.RefreshDynamicStatModifierValueBehaviour` — 2e volet
-    (`op_BitwiseAnd`) de la factory `IdunBattleLogic.Entities.DSLFactory$$AbilityAreaDamage` :
+    (`op_BitwiseAnd`) de la factory `IdunBattleLogic.Entities.DSLBehaviors$$AbilityAreaDamage` :
         `AttackWithAbilityDamage(caster, Units(area), amount, profile, src)
          & RefreshDynamicStatModifierValueBehaviour(AllAliveMachinesSelector(area))`
     Le natif RE-EVALUE la valeur des stat-modifiers DYNAMIQUES (aura/adjacence) des unites VIVANTES de la
@@ -237,7 +237,7 @@ class Repair(AbilityBehaviour):
 
 
 class ChangeStat(AbilityBehaviour):
-    """`IdunBattleLogic.Entities.DSLFactory$$ChangeStat` -> `IdunBattle.Entities.Behaviours.ChangeStatBehaviour$$Execute` : applique une
+    """`IdunBattleLogic.Entities.DSLBehaviors$$ChangeStat` -> `IdunBattle.Entities.Behaviours.ChangeStatBehaviour$$Execute` : applique une
     MODIFICATION DE STAT (`ModifyStatMessage` -> `UnitStats.Transform`) sur le(s) sujet(s) de `target_sel`,
     stat `stat_type` (natif `Position(statType,0,0)`), selon `mode` (lu au decompile IdunBattle.Entities.Behaviours.ChangeStatBehaviour$$Execute, champ
     +0x68) :
@@ -306,13 +306,13 @@ class ChangeStat(AbilityBehaviour):
 class SubtractHealthPercent(AbilityBehaviour):
     """`IdunBattleLogic.Entities.Abilities.Active.Loki.JakhalStimmsAbility$$ExecuteBehaviour` volet SELF-LOSS -> `ChangeStat(Self@0x160,
     Position(Health=5, current), mode 3 = Subtract, PercentageOf(StatAmount(Self, Health, current),
-    ConfigConst(hpPct)))` (`IdunBattleLogic.Entities.DSLFactory$$ChangeStat` -> `IdunBattle.Entities.Behaviours.ChangeStatBehaviour$$Execute`
+    ConfigConst(hpPct)))` (`IdunBattleLogic.Entities.DSLBehaviors$$ChangeStat` -> `IdunBattle.Entities.Behaviours.ChangeStatBehaviour$$Execute`
     case 3 : `new = Max(GetStat(Health) - delta, 0)`). Health = stat FILL-UP (`HealthComponent`, PAS un
     `StatComponent`, cf. `SetHealth` + `ChangeStatBehaviour.Execute` GetStat/StatModifier) -> le modifier
     Subtract sur le fill-up = SET du current HP a `Max(hp - delta, 0)` (`HealthComponent.hp`).
 
     `delta = PercentageOf(current_hp, pct)` = `round_half_even(hp * pct / 100)` (`PercentageOf` mode 0 : le
-    4e arg du `IdunBattleLogic.Entities.DSLFactory$$PercentageOf` est 0 au decompile de `ExecuteBehaviour` -> `_round_fix64`
+    4e arg du `IdunBattleLogic.Entities.DSLFormulas$$PercentageOf` est 0 au decompile de `ExecuteBehaviour` -> `_round_fix64`
     mode 0 = arrondi banquier ; MEME primitive/mode que `SetHealth` valide bit-exact BlackRage). `pct` lu via
     `ability_var(is_constant=True)` = `GetNumberConstant`/`ConfigConst` (config 1131 : hpPct=25 constante).
 
@@ -322,7 +322,7 @@ class SubtractHealthPercent(AbilityBehaviour):
     ne peut jamais atteindre `hp` (pct<100) -> le sujet ne meurt PAS de son self-loss (pas de death-trigger).
     Emet 'ChangeStat' (mode="subtract"). PUR (stop=False).
 
-    `stat_part` = le 3e argument du `IdunBattleLogic.Entities.DSLFactory$$StatAmount` NATIF, c.-a-d. la
+    `stat_part` = le 3e argument du `IdunBattleLogic.Entities.DSLFormulas$$StatAmount` NATIF, c.-a-d. la
     PART de la stat Health dont le pourcentage est pris — `StatPart.CURRENT` (0) ou `StatPart.MAXIMUM`
     (2). Il est LU ability par ability, jamais uniformise :
       * JakhalStimms (1131) : `StatAmount(Self@0x160, 5=Health, 0)` -> CURRENT (i2 « 25% of his
@@ -375,7 +375,7 @@ class SubtractHealthPercent(AbilityBehaviour):
 
 
 class AddStatOverrideEffect(AbilityBehaviour):
-    """`IdunBattleLogic.Entities.DSLFactory$$AddStatOverrideEffect(unitSel, effectType, statType,
+    """`IdunBattleLogic.Entities.DSLBehaviors$$AddStatOverrideEffect(unitSel, effectType, statType,
     amountNode, duration, flag)` -> `IdunBattle.Entities.Behaviours.AddStatOverrideEffectBehaviour$$Execute`
     — MIRROR du DECOMPILE.
 
@@ -483,7 +483,7 @@ class SetHealth(AbilityBehaviour):
     mode 0 = SetAbsolute, <noeud montant>)` : `IdunBattleLogic.Entities.Abilities.Active.Loki.
     DrachnyenAbility$$GetSetHealthBehaviour` a EXACTEMENT la meme forme d'appel que
     `IdunBattleLogic.Entities.Abilities.Active.Loki.BlackRageAbility$$GetSetHealthBehaviour` (meme overload
-    `DSLFactory$$ChangeStat`, meme `Position(5,0,0)`, meme mode 0), seul le noeud montant differe :
+    `DSLBehaviors$$ChangeStat`, meme `Position(5,0,0)`, meme mode 0), seul le noeud montant differe :
     `Min(StatAmount(Owner@0x148, Health=5, MAXIMUM=2), Direct(ConfigVar(0x1d = hp)))`. Fourni ->
     `new_hp = int(amount.evaluate(entities))` (clampe >= 0) et `ability_id`/`pct_var` ne sont pas lus.
 

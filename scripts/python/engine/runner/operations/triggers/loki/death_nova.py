@@ -21,14 +21,14 @@ ARTEFACTS NATIFS (VA build gqfc5mff6c ; decompile = verite)
 `ExplodesAbility$$IdunBattleLogic.Entities.Abilities.Active.Loki.ExplodesAbility$$CreateBehaviour
 `PutridExplosion_Ability$$IdunBattleLogic.Entities.Abilities.Active.Loki.PutridExplosion_Ability$$CreateTrigger
 `PutridExplosion_Ability$$IdunBattleLogic.Entities.Abilities.Active.Loki.PutridExplosion_Ability$$CreateBehaviour
-`DSLFactory$$IdunBattleLogic.Entities.DSLFactory$$OnPreDeath2  -> `IdunBattleLogic.Entities.DSLFactory$$OnDeathEvent(2, a, b)
-`DSLFactory$$IdunBattleLogic.Entities.DSLFactory$$AbilityAreaDamage
-`DSLFactory$$IdunBattleLogic.Entities.DSLFactory$$AttackWithAbilityDamage (7 args) -> core IdunBattleLogic.Entities.DSLFactory$$AttackWithAbilityDamage
-`DSLFactory$$IdunBattleLogic.Entities.DSLFactory$$AdjacentUnits
-`DSLFactory$$IdunBattleLogic.Entities.DSLFactory$$UnitsFromFaction
-`DSLFactory$$IdunBattleLogic.Entities.DSLFactory$$ConditionalAmount
+`IdunBattleLogic.Entities.DSLTriggers$$OnPreDeath2  -> `IdunBattleLogic.Entities.DSLTriggers$$OnDeathEvent(2, a, b)
+`IdunBattleLogic.Entities.DSLBehaviors$$AbilityAreaDamage
+`IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage (7 args) -> core IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage
+`IdunBattleLogic.Entities.DSLSelectors$$AdjacentUnits
+`IdunBattleLogic.Entities.DSLSelectors$$UnitsFromFaction
+`IdunBattleLogic.Entities.DSLFormulas$$ConditionalAmount
 
-TRIGGERS (lus au decompile) — `IdunBattleLogic.Entities.DSLFactory$$OnDeathEvent(factory, eventId, a, b) :
+TRIGGERS (lus au decompile) — `IdunBattleLogic.Entities.DSLTriggers$$OnDeathEvent(factory, eventId, a, b) :
     `On(eventId)` & (a==0 ? `NOT HasFlag(dying@0x178, UnitFlag.Overkilled=8)` : TRUE)
                   & (b==0 ? `NOT HasTrait(dying@0x178, UnitTrait.Steppable=0x1b=27)` : TRUE)
   - Explodes         : `OnPreDeath2(1,1) & OwnerIsTarget` -> **event 2**, AUCUN gate.
@@ -56,7 +56,7 @@ BEHAVIOURS (lus au decompile) :
     AbilityAreaDamage( Self@0x148, AdjacentTiles(Self@0x148), amount,
                        profile = Direct(Nullable(15 = DamageProfileType.DirectDamage)),
                        src     = AbilityOrEffect(this.Id) )
-    `IdunBattleLogic.Entities.DSLFactory$$AbilityAreaDamage` se deplie en :
+    `IdunBattleLogic.Entities.DSLBehaviors$$AbilityAreaDamage` se deplie en :
         AttackWithAbilityDamage( caster, Units(area, 0, 3), amount, profile, src )
       & RefreshDynamicStatModifierValueBehaviour( AllAliveMachinesSelector(area) )
     => **maxPV(mourant) x (25% + 50% si effet 1098)** en profil **DirectDamage**, **1 coup**, sur **TOUTES**
@@ -92,7 +92,7 @@ RESIDUS DOCUMENTES :
     `tests/engine/test_353_ramming_speed_prediction_offline.py` (elle ROUGIT si une unite l'acquiert).
     Detail : `docs/rl/case-353-ramming-speed-prediction.md`.
   - `Units(AdjacentTiles(x), 0, 3)` (Explodes) est porte par le noeud `AdjacentUnits(CasterTile(), 1)` :
-    l'equivalence est LUE au decompile (`IdunBattleLogic.Entities.DSLFactory$$AdjacentUnits` = `Units(AdjacentTiles(x),
+    l'equivalence est LUE au decompile (`IdunBattleLogic.Entities.DSLSelectors$$AdjacentUnits` = `Units(AdjacentTiles(x),
     occ, mask) - x`, et `x` n'est jamais sur ses propres tuiles adjacentes) — pas une approximation.
   - `RefreshDynamicStatModifierValueBehaviour` = STRUCTURAL NO-OP cote port (cf. la feuille).
 """
@@ -144,7 +144,7 @@ STEPPABLE = int(UnitTrait.Steppable)                   # 0x1b = 27 (gate `b=0` d
 # --- Arbres DSL (mirror 1:1 des `CreateBehaviour`) --------------------------------------------------------
 def explodes_tree(base_pct: int, ramming_extra_pct: Optional[int]):
     """Arbre de `IdunBattleLogic.Entities.Abilities.Active.Loki.ExplodesAbility$$CreateBehaviour` (MIRROR 1:1 du DECOMPILE), via la factory
-    `IdunBattleLogic.Entities.DSLFactory$$AbilityAreaDamage` DEPLIEE (le natif n'a pas de noeud « AbilityAreaDamage » :
+    `IdunBattleLogic.Entities.DSLBehaviors$$AbilityAreaDamage` DEPLIEE (le natif n'a pas de noeud « AbilityAreaDamage » :
     c'est un helper qui construit `AttackWithAbilityDamage(...) & RefreshDynamicStatModifierValue(...)`) :
 
         op_BitwiseAnd(
@@ -162,7 +162,7 @@ def explodes_tree(base_pct: int, ramming_extra_pct: Optional[int]):
 
     Port :
       - `Units(AdjacentTiles(Self),0,3)` -> `AdjacentUnits(CasterTile(), 1)` (equivalence LUE au decompile
-        IdunBattleLogic.Entities.DSLFactory$$AdjacentUnits, cf. en-tete) : TOUS les adjacents VIVANTS, aucun filtre d'equipe -> FRIENDLY-FIRE.
+        IdunBattleLogic.Entities.DSLSelectors$$AdjacentUnits, cf. en-tete) : TOUS les adjacents VIVANTS, aucun filtre d'equipe -> FRIENDLY-FIRE.
       - `PercentageOf(pct, base)` cote port (multiplication commutative ; `_round_fix64` mode 0 = mirror
         `PercentageOf.Calculate IdunBattle.Entities.Formulas.PercentageOf$$CalculateInternal`).
       - la feuille route `native_operation="ability"` = `AbilityDamageOperation` (percage 100 du profil
@@ -215,7 +215,7 @@ def putrid_explosion_tree(pct: int, faction: str, profile: str):
 class _DeathNovaAbility(TriggeredAbility):
     """Base PARTAGEE des deux novas : `On(PreUnitDeath_2=2) & OwnerIsTarget`, `fire_on_death` (l'owner EST
     le mourant, deja `alive=False` au dispatch -> bypass du gate vivant de `CanGetAbilityTrigger`).
-    **AUCUN gate overkill** : les deux `OnPreDeath2` passent `a=1` -> `IdunBattleLogic.Entities.DSLFactory$$OnDeathEvent n'ajoute PAS
+    **AUCUN gate overkill** : les deux `OnPreDeath2` passent `a=1` -> `IdunBattleLogic.Entities.DSLTriggers$$OnDeathEvent n'ajoute PAS
     le `NOT HasFlag(dying, Overkilled=8)`. La sous-classe fournit le gate `b` (Steppable) et le behaviour."""
     event_id = EventTriggerType.PreUnitDeath_2
     fire_on_death = True

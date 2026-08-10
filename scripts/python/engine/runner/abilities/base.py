@@ -184,7 +184,7 @@ def convert_rounds_to_turns(state: "State", rounds: int) -> int:
 
 
 def turns_until_end_of_current_players_next_turn(state: "State") -> int:
-    """`IdunBattleLogic.Entities.DSLFactory$$TurnsUntilEndOfCurrentPlayersNextTurn` (mirror STRUCTUREL) =
+    """`IdunBattleLogic.Entities.DSLFormulas$$TurnsUntilEndOfCurrentPlayersNextTurn` (mirror STRUCTUREL) =
     `Sum( TurnsFromRounds(1), Direct(1) )` -- le decompile alloue un `TurnsFromRoundsFormula(ctx, query, 1)`
     ET un noeud constant `1`, puis les combine. SEUL le terme `TurnsFromRounds` passe par
     `IdunBattle.Core.Services.BattleQuery$$ConvertRoundsToTurns` (#98) ; le `Direct(1)` est deja en TOURS.
@@ -200,7 +200,7 @@ def turns_until_end_of_current_players_next_turn(state: "State") -> int:
 
 
 def turns_until_unit_owner_turn(state: "State", unit_id: int) -> int:
-    """`IdunBattleLogic.Entities.DSLFactory$$TurnsUntilUnitOwnerTurn(unit)` ->
+    """`IdunBattleLogic.Entities.DSLFormulas$$TurnsUntilUnitOwnerTurn(unit)` ->
     `IdunBattle.Entities.Formulas.TurnsUntilUnitOwnerTurnFormula$$GetTurnsUntilUnitOwnerTurn` (MIRROR
     du decompile) :
 

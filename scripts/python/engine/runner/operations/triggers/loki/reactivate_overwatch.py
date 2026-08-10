@@ -162,7 +162,7 @@ def _hit_reduction_value(ability_id: str = EARLY_WARNING_OVERRIDE_ABILITY) -> in
 
 
 def _attack_hits(state: State, unit_id: int, is_melee: bool) -> int:
-    """`DSLFactory$$RangedAttackHits(unit)` / `$$MeleeAttackHits(unit)` -- MEME classe de formule
+    """`DSLFormulas$$RangedAttackHits(unit)` / `$$MeleeAttackHits(unit)` -- MEME classe de formule
     (`IdunBattle.Entities.Formulas.AttackHitsFormula`), seul le flag ranged/melee du ctor change (la
     STRUCTURE des arguments le montre ; le nom de ctor rendu par Ghidra est mislabele).
 

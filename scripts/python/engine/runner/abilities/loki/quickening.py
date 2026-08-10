@@ -128,7 +128,7 @@ def _unit_faction(state: "State", unit_id: int) -> Optional[str]:
 
 
 def _quickening_override(state: "State", attacker_id: int, level, mult: int) -> Optional[int]:
-    """Valeur d'override Attack de la free-attack = `IdunBattleLogic.Entities.DSLFactory$$PercentageOfAttackCappedAtMax` :
+    """Valeur d'override Attack de la free-attack = `IdunBattleLogic.Entities.DSLFormulas$$PercentageOfAttackCappedAtMax` :
     `min(maxDmg[level]xmult, round(unit.Attack x dmgPct[level]/100))`. `level`/`mult` = ceux de
     l'ability de MEPH (config lue via `ability+0x60`) ; `Attack` = celui de l'unite qui attaque
     (`StatAmount(unit, Attack)`). maxDmg est rarity-scale (`variablesAffectedByRarityBonus`), dmgPct non."""

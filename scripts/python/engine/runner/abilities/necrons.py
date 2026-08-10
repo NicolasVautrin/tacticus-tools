@@ -382,7 +382,7 @@ def harbinger_pool_selector(range_val: int):
         |> Unobscured(caster@0x160, .)                             # ligne de vue depuis le caster (terrain)
         |> Damageable(.)                                           # vivants ciblables (PV>0)
 
-    Le triplet `Enemies(Units(SurroundingTiles(tile, incl=0, range)))` == `IdunBattleLogic.Entities.DSLFactory$$SurroundingEnemies(tile,
+    Le triplet `Enemies(Units(SurroundingTiles(tile, incl=0, range)))` == `IdunBattleLogic.Entities.DSLSelectors$$SurroundingEnemies(tile,
     range)` (DECOMPILE : `SurroundingEnemies` = `Enemies(Units(SurroundingTiles(tile, incl=1,
     range) - Tiles(tile)))`, et `SurroundingTiles(incl=0)` == `SurroundingTiles(incl=1) - Tiles(tile)` par
     definition -> IDENTITE prouvee). D'ou le port `SurroundingEnemies(CasterTile(), Const(range))` (disque
@@ -419,7 +419,7 @@ def harbinger_of_destruction_tree(additional_units: list,
       0x2f)` = nrOfHits = 1. `attackRangeType=Ranged` -> `is_melee=False`.
     - **native_factory = "attack"** (defaut, 2 tirages/coup a cc=0) : l'ExecuteBehaviour appelle
       `IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage` (VERIFIE par les CALLEES de IdunBattleLogic.Entities.Abilities.Active.Loki.HarbingerOfDestructionAbility$$ExecuteBehaviour, PAS
-      `IdunBattleLogic.Entities.DSLFactory$$AttackWithAbilityDamage` -- cf. rngcrit-1202/tip #2). "DirectDamage" est le NOM DU PROFIL,
+      `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage` -- cf. rngcrit-1202/tip #2). "DirectDamage" est le NOM DU PROFIL,
       PAS l'effet direct-damage (montant fixe) -> la feuille route par `execute_ability_attack` (crit/block)."""
     add_sel = UnitSet(additional_units)
     target_sel = Union(Target(), add_sel) if include_main else add_sel
@@ -759,7 +759,7 @@ def chronometron_affected_enemies(range_val: int):
 
         SurroundingEnemies(caster@0x160, GetNumberConstant(0x16)=range, 1, 3)
 
-    surcharge 5-args de `IdunBattleLogic.Entities.DSLFactory$$SurroundingEnemies` : le MEME noeud sert de
+    surcharge 5-args de `IdunBattleLogic.Entities.DSLSelectors$$SurroundingEnemies` : le MEME noeud sert de
     CENTRE **et** de reference d'equipe (`Enemies(param_2, Units(SurroundingTiles(param_2, incl=1, range) -
     Tiles(param_2)))`) -> ennemis DU CASTER dans le DISQUE rayon `range` autour de SA tuile, caster exclu.
     Le port l'exprime avec le centre `CasterTile()` (le noeud porte prend une POSITION en centre) et la

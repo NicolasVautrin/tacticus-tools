@@ -14,7 +14,7 @@ from ...components import UnitFlagsComponent
 
 
 class ResetTurn(AbilityBehaviour):
-    """`IdunBattleLogic.Entities.DSLFactory$$ResetTurn(unitSel, newActivation)` ->
+    """`IdunBattleLogic.Entities.DSLBehaviors$$ResetTurn(unitSel, newActivation)` ->
     `IdunBattle.Entities.Behaviours.ResetUnitTurnBehaviour$$Execute` -- MIRROR du DECOMPILE :
 
         foreach unit in (this+0x58).Select(entities) :
@@ -56,7 +56,7 @@ class ResetTurn(AbilityBehaviour):
 
 
 class FinishTurn(AbilityBehaviour):
-    """`IdunBattleLogic.Entities.DSLFactory$$FinishTurn(unitSel)` ->
+    """`IdunBattleLogic.Entities.DSLBehaviors$$FinishTurn(unitSel)` ->
     `IdunBattle.Entities.Behaviours.FinishUnitTurnBehaviour$$Execute` -- MIRROR du DECOMPILE :
 
         foreach unit in (this+0x50).Select(entities) :

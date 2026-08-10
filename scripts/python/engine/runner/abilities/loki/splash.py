@@ -125,8 +125,8 @@ def plasma_grenade_tree():
     BY CONSTRUCTION vs l'ancien imperatif (memes bornes/hits/profil, splash `sorted` par
     id, meme `state.rng`). L'imperatif `PlasmaGrenadeAbility.execute_behaviour` est REMPLACE par cet arbre."""
     tgt = Target()
-    # rngcrit-1202 : la factory native de PlasmaGrenade est `IdunBattleLogic.Entities.DSLFactory$$AttackWithAbilityDamage`
-    # (XREFS IdunBattleLogic.Entities.Abilities.Active.Loki.PlasmaGrenadeAbility$$ExecuteBehaviour+0x1ba/IdunBattleLogic.Entities.Abilities.Active.Loki.PlasmaGrenadeAbility$$ExecuteBehaviour+0x22e -> IdunBattleLogic.Entities.DSLFactory$$AttackWithAbilityDamage -> core IdunBattleLogic.Entities.DSLFactory$$AttackWithAbilityDamage = AbilityDamageBehaviour), PAS
+    # rngcrit-1202 : la factory native de PlasmaGrenade est `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage`
+    # (XREFS IdunBattleLogic.Entities.Abilities.Active.Loki.PlasmaGrenadeAbility$$ExecuteBehaviour+0x1ba/IdunBattleLogic.Entities.Abilities.Active.Loki.PlasmaGrenadeAbility$$ExecuteBehaviour+0x22e -> IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage -> core IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage = AbilityDamageBehaviour), PAS
     # AttackWithAttackDamage comme l'ancien commentaire le disait -> AbilityDamageOperation = 1 tirage/
     # coup (AUCUN resolve slot-8 gaspille) -> native_factory="ability".
     main = AttackWithAttackDamage(tgt, "PlasmaGrenade", "Plasma", is_melee=False,
@@ -387,7 +387,7 @@ def _adjacent_enemies_of(state: "State", caster_id: int, target_id: int) -> list
 
 def _pick_randomly_n(state: "State", items: list, n: int,
                      allow_repeat: bool = False, max_repeats: int = 0x7fffffff) -> list:
-    """`IdunBattleLogic.Entities.DSLFactory$$PickRandomly(source, amount, allowRepeat, maxRepeats)` ->
+    """`IdunBattleLogic.Entities.DSLSelectors$$PickRandomly(source, amount, allowRepeat, maxRepeats)` ->
     `IdunBattle.Entities.Selectors.PickRandomAmountSelector$$Select` — MIRROR 1:1 de la boucle native
     (#130 / GAP #215 CLOS).
 
@@ -438,12 +438,12 @@ def _pick_randomly_n(state: "State", items: list, n: int,
 
     `AddForcedTargetsAndUpdateCandidates` (R28-3) — **NON PORTÉ, et c'est un verdict, pas un trou**.
     `PickRandomAmountSelector$$Select` appelle bien `IdunBattle.DSL.APickSelector$$AddForcedTargetsAndUpdateCandidates`
-    avant sa boucle (le champ `+0x38` qui la gate vaut `false` à tous les call-sites : `DSLFactory$$PickRandomly`
+    avant sa boucle (le champ `+0x38` qui la gate vaut `false` à tous les call-sites : `DSLSelectors$$PickRandomly`
     propage le 5e argument, et les `ExecuteBehaviour` lus passent `(…, 0, 0x7fffffff, false)`). Mais elle
     PRÉ-REMPLIT `result` depuis `IdunBattle.Entities.UnitExtensions$$GetOnlyTargets(entities.Caster)` — la
     liste de cibles FORCÉES du CASTER — et cette liste n'a **qu'un seul écrivain natif** :
     `IdunBattleLogic.Entities.Abilities.Active.Loki.InstinctiveBehaviour_UpdateTargetAbility$$CreateBehaviour`
-    (unique XREF de `DSLFactory$$AddForcedAttackTarget`). Ses 23 porteurs = le trait `InstinctiveBehaviour`
+    (unique XREF de `DSLBehaviors$$AddForcedAttackTarget`). Ses 23 porteurs = le trait `InstinctiveBehaviour`
     (2021), tous des npc/summons Tyranides SANS active ability — donc aucun d'eux n'atteint jamais un
     `PickRandomly`. Sur tout porteur confrontable la liste est VIDE, la fonction retourne immédiatement,
     `i = result.Count = 0` et **aucun tirage n'est consommé** : porter la branche serait un no-op

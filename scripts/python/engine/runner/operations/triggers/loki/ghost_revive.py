@@ -178,7 +178,7 @@ def _tile_of(state: State, unit_id: int) -> Optional[int]:
 
 
 def _has_been_revived_by_ability(state: State, unit_id: int, source: int) -> bool:
-    """`IdunBattleLogic.Entities.DSLFactory$$HasBeenRevivedByAbility(unit, source)` ->
+    """`IdunBattleLogic.Entities.DSLTriggers$$HasBeenRevivedByAbility(unit, source)` ->
     `Idun.Source.IdunBattle.Logic.Entities.Triggers.HasBeenRevivedAbilityTrigger$$ShouldTrigger` :
     resout son selecteur, prend l'`ActorStatisticsComponent` de l'entite et rend
     `component@+0xe0 .Contains(source)`. Le set est alimente par
@@ -192,7 +192,7 @@ def _has_been_revived_by_ability(state: State, unit_id: int, source: int) -> boo
 
 
 def _tile_has_triggered_ability(state: State, tile_id: Optional[int], ability: int) -> bool:
-    """`IdunBattleLogic.Entities.DSLFactory$$TileHasTriggeredAbility(tile, ability)` ->
+    """`IdunBattleLogic.Entities.DSLTriggers$$TileHasTriggeredAbility(tile, ability)` ->
     `IdunBattle.Entities.Triggers.TileHasTriggeredAbilityTrigger$$ShouldTrigger` : resout le
     selecteur de tuile (slot 0xc = une entite) puis
     `IdunBattle.Entities.UnitExtensions$$HasTriggeredAbility(tile, abilityType)`.
@@ -575,7 +575,7 @@ class GhostRemoveOnSourceDeathInactive(_GhostRemoval):
     """Retrait n°4 : `OnDeath(1) & AreEqual(EffectSource, target@0x178)
     & NOT IsEffectActive(self@0x150)` -- le poseur meurt ALORS QUE l'effet est INACTIF.
 
-    `IdunBattleLogic.Entities.DSLFactory$$IsEffectActive` lit le champ `Active` de l'`EffectComponent`
+    `IdunBattleLogic.Entities.DSLTriggers$$IsEffectActive` lit le champ `Active` de l'`EffectComponent`
     (@+0x5c), que `ActivateEffectBehaviour` bascule. Le port materialise cet etat par
     `BaseEffect.active` ; un ghost fraichement pose est ACTIF -> ce retrait ne fire pas, et c'est
     `GhostEffectRevive` (le MEME event `On(1)`) qui prend la main. Le retrait n°4 est donc le

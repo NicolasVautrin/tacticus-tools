@@ -55,7 +55,7 @@ DECLENCHANTE), et l'overload a 2 arguments batit une DISJONCTION :
   `REGULAR_ATTACK_ABILITY_TYPES` ci-dessous (les attaques normales PER-UNIT, cf. la memoire
   « normal attack = concrete ability id »).
 * branche 2 -- MEME noeud (meme classe, meme selecteur 1013) que la 2e branche de
-  `IdunBattleLogic.Entities.DSLFactory$$OnNormalAttackOrSmite`, deja porte par LordOfTempests
+  `IdunBattleLogic.Entities.DSLTriggers$$OnNormalAttackOrSmite`, deja porte par LordOfTempests
   (`triggers/loki/lord_of_tempests.py`, `SMITE_KIND = 0x3f5`) : « l'ability courante porte le KIND
   attaque-normale ». C'est le marqueur que la voie normale du port thread deja
   (`damage_ops.execute` -> `pre_unit_ability_triggers(..., ability_type=1013)`).
@@ -583,7 +583,7 @@ ABILITY_ATTACK_TYPE: dict[int, int] = {
 
 
 def ability_has_attack_type(ability_type: Optional[int], attack_type: int) -> bool:
-    """`IdunBattleLogic.Entities.DSLFactory$$AbilityHasAttackType(df, sel, attackType)` ->
+    """`IdunBattleLogic.Entities.DSLTriggers$$AbilityHasAttackType(df, sel, attackType)` ->
     `IdunBattle.Entities.Triggers.AbilityHasAttackTypeTrigger$$ShouldTrigger`, qui resout le
     selecteur d'ability puis delegue a `IdunBattle.Entities.Abilities.AActiveAbility$$HasAttackType`
     = `attackType == this+0x68` (trigger constant VRAI/FAUX).
@@ -606,7 +606,7 @@ def ability_is_attack(ability_type: Optional[int]) -> bool:
 
 
 def ability_is_direct_target_attack(ability_type: Optional[int]) -> bool:
-    """`IdunBattleLogic.Entities.DSLFactory$$IsDirectTargetAttack(df, sel)` -- MIRROR du decompile :
+    """`IdunBattleLogic.Entities.DSLTriggers$$IsDirectTargetAttack(df, sel)` -- MIRROR du decompile :
 
         AbilityHasAttackTypeTrigger(sel, 0 = DirectTargetAttack, df@0x50, df@0x40)
         | IsNormalAttack(df, sel)

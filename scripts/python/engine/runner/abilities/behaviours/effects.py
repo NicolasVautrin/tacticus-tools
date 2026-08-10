@@ -81,7 +81,7 @@ class AddBondEffect(AbilityBehaviour):
     `_add_effect_targets` / `_add_effect_target_id` (les call-sites MONO-unite historiques — `Target()`,
     `LastUnitAttackedBy(child)` — rendent 1 element -> chemin identique).
 
-    `bonded_ref` = le **5e argument natif** d'`IdunBattleLogic.Entities.DSLFactory$$AddBondEffect`
+    `bonded_ref` = le **5e argument natif** d'`IdunBattleLogic.Entities.DSLBehaviors$$AddBondEffect`
     (`bondedEntity`, un `ITargetsSelector` que la factory range dans les `AddEffectBehaviourOptions`).
     `IdunBattle.Entities.Behaviours.AddEffectBehaviour$$GetEffectBuilder` le resout A L'EXECUTION
     (`this+0x70` -> `SelectSingle` -> `EntityId`) et bascule sur
@@ -368,7 +368,7 @@ class IncreaseEffectLevel(AbilityBehaviour):
 def add_effect_or_increase_level(effect_type: int, name: str, target_sel: TargetsSelector,
                                  amount, max_level=None, duration_rounds=0,
                                  scale_from_source: bool = True):
-    """`IdunBattleLogic.Entities.DSLFactory$$AddEffectOrIncreaseLevel(effectType, stateRef, subject, selector, amount, max)` — factory COMPOSITE : le natif alloue un `ForeachBehaviour(selector, Func<entity,
+    """`IdunBattleLogic.Entities.DSLBehaviors$$AddEffectOrIncreaseLevel(effectType, stateRef, subject, selector, amount, max)` — factory COMPOSITE : le natif alloue un `ForeachBehaviour(selector, Func<entity,
     behaviour>)` dont le lambda `b__0 IdunBattleLogic.Entities.DSLFactory.u003Cu003Ec__DisplayClass569_0$$u003CAddEffectOrIncreaseLevelu003Eb__0` construit, PAR ELEMENT :
 
         If( HasEffect(elem, effectType),
@@ -570,7 +570,7 @@ class ChangeEffectTurns(AbilityBehaviour):
 
 
 class AddStaticStatModifierEffect(AbilityBehaviour):
-    """`IdunBattleLogic.Entities.DSLFactory$$AddStaticStatModifierEffect(unit, effectType, statType, amountNode,
+    """`IdunBattleLogic.Entities.DSLBehaviors$$AddStaticStatModifierEffect(unit, effectType, statType, amountNode,
     turnsNode, flag)` : pose sur `unit` un effet `effectType` porteur d'une modification de stat STATIQUE
     (montant fige a la pose, != un modifier dynamique re-calcule). Wrapper MINCE au-dessus des DEUX
     operations deja portees : `AddEffectOperation` (materialisation de l'entite-effet) puis
@@ -632,9 +632,9 @@ class AddStaticStatModifierEffect(AbilityBehaviour):
 
 
 class AddDynamicStatModifierEffect(AbilityBehaviour):
-    """`IdunBattleLogic.Entities.DSLFactory$$AddDynamicStatModifierEffect(targets, source, effectType,
+    """`IdunBattleLogic.Entities.DSLBehaviors$$AddDynamicStatModifierEffect(targets, source, effectType,
     statType, abilityStateRef, durationNode, …)` — et son jumeau
-    `IdunBattleLogic.Entities.DSLFactory$$AddDynamicStatModifierEffectToOwner(effectType, statType,
+    `IdunBattleLogic.Entities.DSLBehaviors$$AddDynamicStatModifierEffectToOwner(effectType, statType,
     durationNode, …)` qui n'est que le MEME appel avec `self@0x148` dans les DEUX slots.
 
     Les deux allouent un `IdunBattle.Entities.Behaviours.AddStatModifierEffectBehaviour` dont le ctor
@@ -696,7 +696,7 @@ class AddDynamicStatModifierEffect(AbilityBehaviour):
         return OperationResult.ok()
 # `AddStatOverrideEffect` a VECU ICI jusqu'a l'integration de #112 : deux agents en parallele
 # (#112 DarkAngels et #114 Tau) avaient porte le MEME noeud natif
-# `IdunBattleLogic.Entities.DSLFactory$$AddStatOverrideEffect` chacun de son cote, dans deux modules
+# `IdunBattleLogic.Entities.DSLBehaviors$$AddStatOverrideEffect` chacun de son cote, dans deux modules
 # differents. Les DEUX consommateurs important depuis le paquet `behaviours`, le second import
 # aurait MASQUE le premier -- silencieusement, et le test de chaque lot serait passe par chance
 # selon l'ordre des imports. Les deux implementations ont donc ete FUSIONNEES dans
@@ -706,7 +706,7 @@ class AddDynamicStatModifierEffect(AbilityBehaviour):
 
 def add_or_update_static_stat_modifier_effect(unit_sel: TargetsSelector, effect_type: int,
                                               stat_type: int, amount, name: str | None = None):
-    """`IdunBattleLogic.Entities.DSLFactory$$AddOrUpdateStaticStatModifierEffect(unit, effectType, statType,
+    """`IdunBattleLogic.Entities.DSLBehaviors$$AddOrUpdateStaticStatModifierEffect(unit, effectType, statType,
     amountNode, ...)` — FACTORY COMPOSITE, mirror 1:1 du decompile (elle n'alloue PAS de behaviour dedie) :
 
         cur  = CurrentStatModifierAmountFormula(dslFactory+0x38, unit, effectType, statType)

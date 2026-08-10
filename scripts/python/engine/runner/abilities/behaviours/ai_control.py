@@ -29,7 +29,7 @@ from ...operations.summon_ai import ComputerActionOperation
 
 
 class PerformAIAction(AbilityBehaviour):
-    """`IdunBattleLogic.Entities.DSLFactory$$PerformAIAction(selector, asGroup, resetTurnFlags)` ->
+    """`IdunBattleLogic.Entities.DSLBehaviors$$PerformAIAction(selector, asGroup, resetTurnFlags)` ->
     `PerformAIActionBehaviour` (IdunBattle.Entities.Behaviours.PerformAIActionBehaviour$$.ctor : selector@+0x50, asGroup@+0x58, resetTurnFlags@+0x59)
     -> `IdunBattle.Entities.Behaviours.PerformAIActionBehaviour$$Execute` (MIRROR 1:1) :
 
@@ -50,7 +50,7 @@ class PerformAIAction(AbilityBehaviour):
         tour, ET **l'action supplementaire ne consomme pas son tour**. C'est la semantique
         d'ordonnancement du mecanisme (cf. `ComputerActionOperation`).
 
-    Appels natifs recenses (xrefs IdunBattleLogic.Entities.DSLFactory$$PerformAIAction) : `IdunBattleLogic.Entities.Abilities.Active.Loki.SupremeCommanderAbility$$ExecuteBehaviour`
+    Appels natifs recenses (xrefs IdunBattleLogic.Entities.DSLBehaviors$$PerformAIAction) : `IdunBattleLogic.Entities.Abilities.Active.Loki.SupremeCommanderAbility$$ExecuteBehaviour`
     (`asGroup=1, reset=1`), `IdunBattleLogic.Entities.Abilities.Active.Loki.CultDemagogueAbility$$ExecuteBehaviour` (`0, 1`),
     `IdunBattleLogic.Entities.Abilities.Active.Loki.WaaaghAbility$$ExecuteBehaviour` + `GetTriggerSummonsBehaviour`,
     `IdunBattleLogic.Entities.Abilities.Active.Loki.ReanimationBeamAbility$$GetSummonsTakeActionBehaviour`,

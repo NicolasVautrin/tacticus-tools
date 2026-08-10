@@ -89,7 +89,7 @@ class Spawn(AbilityBehaviour):
     l'ordre du tile-selecteur (le `Cache` partage) -> `children` en ordre de TUILE (== l'ordre que
     `PerformAIAttack` reparcourt). Effet PUR (`stop=False`) ; journalise chaque spawn.
 
-    `pick_n` = FOLD du `IdunBattleLogic.Entities.DSLFactory$$PickRandomly(tileSelector, n)` (`PickRandomAmountSelector`) quand le
+    `pick_n` = FOLD du `IdunBattleLogic.Entities.DSLSelectors$$PickRandomly(tileSelector, n)` (`PickRandomAmountSelector`) quand le
     natif ENVELOPPE le tile-selecteur du Spawn -- meme convention que le `pick_n` des feuilles d'attaque
     (`AttackWithAttackDamage`) : le tirage vit dans la feuille, qui seule voit `ectx.state.rng`.
     Consommateur : `IdunBattleLogic.Entities.Abilities.Active.Loki.SupremeCommanderAbility$$ExecuteBehaviour` =
@@ -200,7 +200,7 @@ class Spawn(AbilityBehaviour):
         # SILENCIEUSEMENT absent (mode de panne mesure au premier passage de `probe_567`).
         if isinstance(tiles, dict):
             tiles = [tiles]
-        if self.pick_n is not None:                       # fold `IdunBattleLogic.Entities.DSLFactory$$PickRandomly(tiles, n)
+        if self.pick_n is not None:                       # fold `IdunBattleLogic.Entities.DSLSelectors$$PickRandomly(tiles, n)
             from ..loki.splash import _pick_randomly_n
             tiles = _pick_randomly_n(state, tiles, int(self.pick_n))
         # `SpawnUnitBehaviour$$Execute` ne consomme JAMAIS l'element du selecteur tel quel : sur
@@ -274,7 +274,7 @@ class PerformAIAttack(AbilityBehaviour):
     `../loki/summon.py::perform_ai_ability_unit_behaviour`) :
       * `PerformAIAttack(<sel>)`                        -> `...FromCurrentPosition` (`0` / `Direct(0)`) :
         GetEmRuntz 1045, SpawnPoxwalkers 1040, drones Tau ;
-      * `PerformAIAttack(<sel>, True, None)`            -> `DSLFactory$$PerformAIAttack` (`1` / `null`) :
+      * `PerformAIAttack(<sel>, True, None)`            -> `DSLBehaviors$$PerformAIAttack` (`1` / `null`) :
         `ForwardSpotterAbility$$ExecuteBehaviour` (`PerformAIAttack(ActiveTarget@0x180, 1, 0, 0, 0)`),
         i2 « The Cadian Guardsman immediately **takes a turn** ».
     Depuis #348 les deux branches produisent des observables DIFFERENTS : `moveAmount = null` ouvre
@@ -282,7 +282,7 @@ class PerformAIAttack(AbilityBehaviour):
     ajoute le `MovementActionGenerator` -> l'acteur APPROCHE (et le `MoveUnitMessage` est applique
     avant l'attaque). Les champs sont threades pour que le call-site dise QUEL noeud natif il mirrore.
 
-    `IdunBattleLogic.Entities.DSLFactory$$PerformAIAttackFromCurrentPosition(Cache(GetSpawnTileSelector))` ->
+    `IdunBattleLogic.Entities.DSLBehaviors$$PerformAIAttackFromCurrentPosition(Cache(GetSpawnTileSelector))` ->
     `IdunBattle.Entities.Behaviours.PerformAIAbilityUnitBehaviour$$Execute` : chaque unite SUR les tuiles du SELECTEUR (le natif
     reutilise le MEME `Cache(GetSpawnTileSelector)` que le `Spawn` -> les grots tout juste spawnes) execute
     une attaque AI depuis SA position COURANTE (sans bouger). Port : `tile_selector` = le `Cache` PARTAGE

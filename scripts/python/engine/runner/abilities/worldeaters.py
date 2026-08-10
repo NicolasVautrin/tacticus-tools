@@ -75,7 +75,7 @@ i2 : « Deals 1x [dmg] Piercing Damage to all adjacent enemies. If only one enem
 `extraDmg` per-niveau (les trois sont dans `variablesAffectedByRarityBonus`).
 
 - **`AmountIsGreater` est STRICT** et le decompile le dit de facon PIEGEUSE : la factory
-  `IdunBattleLogic.Entities.DSLFactory$$AmountIsGreater` appelle un ctor que ghidra etiquette
+  `IdunBattleLogic.Entities.DSLTriggers$$AmountIsGreater` appelle un ctor que ghidra etiquette
   `IdunBattle.Entities.Conditions.AmountIsEqualOrGreaterAbilityTrigger$$.ctor` -- **corps TRIVIAL
   DEDUPLIQUE** (les deux classes ont le meme ctor a 2 champs). La classe REELLE se lit sur le
   `ShouldTrigger` : `IdunBattle.Entities.Conditions.AmountIsGreaterAbilityTrigger$$ShouldTrigger`

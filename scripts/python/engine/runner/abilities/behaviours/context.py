@@ -371,7 +371,7 @@ def entities_from_state(state, caster_id: int, target_id: int | None = None,
             return None
         return getattr(sc.ctx, "active_ability_level" if slot == "active" else "passive_ability_level", None)
 
-    # `ctx.tile_has_effect` (predicat tuile de `IdunBattleLogic.Entities.DSLFactory$$UnitsOnTilesWithEffect`, #217) : la TUILE
+    # `ctx.tile_has_effect` (predicat tuile de `IdunBattleLogic.Entities.DSLSelectors$$UnitsOnTilesWithEffect`, #217) : la TUILE
     # (entite ECS tile-id) porte-t-elle un effet ACTIF (non consomme) du type ? Meme cle tile-id de
     # `state.effects` que la pose `AddEffectOperation` (case-35 : la glace vit dans by_unit[tile_id]).
     def _tile_has_effect(tile_id, effect_type):
@@ -411,7 +411,7 @@ def entities_from_state(state, caster_id: int, target_id: int | None = None,
             return True
         return False
 
-    # `ctx.effects_from_source` (`IdunBattleLogic.Entities.DSLFactory$$EffectsFromUnitSource`, #MasterAnnihilator) : les INSTANCES
+    # `ctx.effects_from_source` (`IdunBattleLogic.Entities.DSLSelectors$$EffectsFromUnitSource`, #MasterAnnihilator) : les INSTANCES
     # d'effet du type dont le `EffectComponent.SourceUnit` == `source_unit`. Balaye `state.effects.by_unit`
     # (cle = le PORTEUR) et ne garde que les instances ACTIVES (non consommees) de la bonne source.
     def _effects_from_source(source_unit, effect_type):

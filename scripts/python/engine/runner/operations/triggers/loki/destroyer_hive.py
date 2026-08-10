@@ -25,14 +25,14 @@ methodes triggered, comme FireOfAbsolution/ControlEdict/CursedPlagueBell). TROIS
     (base.py : ennemis vivants adjacents ; Damageable ~ vivant pour un ennemi standard).
 - `IdunBattleLogic.Entities.Abilities.Active.Loki.DestroyerHiveAbility$$CreateBehaviour` =
       AttackWithAttackDamage( source = caster@0x160,
-                              target = IdunBattleLogic.Entities.DSLFactory$$PickRandomly(GetValidTargets, count=1),
+                              target = IdunBattleLogic.Entities.DSLSelectors$$PickRandomly(GetValidTargets, count=1),
                               damage = MinMaxDamage(minDmg=var0xc, maxDmg=var0xd)[level] IdunBattle.Entities.Abilities.BaseTriggeredAbility$$MinMaxDamage,
                               profile = GetDamageProfile(config, 0) = "DirectDamage",
                               nrOfHits = GetNumberConstant(config, 0x2f) = 1,
                               source = AbilityOrEffect(DestroyerHive),
                               alwaysOverkilled = Nullable<bool>(HasValue=0) )
   * `IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage` = famille "attack" (2 tirages/coup a cc=0) -- VERIFIE par XREF du
-    CALL-SITE de CreateBehaviour (IdunBattleLogic.Entities.Abilities.Active.Loki.DestroyerHiveAbility$$CreateBehaviour+0x15e -> IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage, PAS IdunBattleLogic.Entities.DSLFactory$$AttackWithAbilityDamage ability ; tip #2 / rngcrit-1202).
+    CALL-SITE de CreateBehaviour (IdunBattleLogic.Entities.Abilities.Active.Loki.DestroyerHiveAbility$$CreateBehaviour+0x15e -> IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage, PAS IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage ability ; tip #2 / rngcrit-1202).
     Mono-coup (nrOfHits=1) mais la famille reste "attack" (defaut) -> `is_attack_damage_op=True`.
   * 8e arg Nullable<bool> alwaysOverkilled = HasValue=0 (`local_68..local_48 = 0` dans le decompile) ->
     PAS de `force_overkill` (contraste FlailSwing `local_198=0x100000000` HasValue=1).
@@ -71,7 +71,7 @@ DAMAGE_PROFILE = "DirectDamage"          # constants.damageProfile ; profil Pier
 
 
 def _pick_target(state: State, candidates: list) -> Optional[int]:
-    """`IdunBattleLogic.Entities.DSLFactory$$PickRandomly(GetValidTargets, count=1)` -> `IdunBattle.Entities.Selectors.PickRandomAmountSelector$$Select` :
+    """`IdunBattleLogic.Entities.DSLSelectors$$PickRandomly(GetValidTargets, count=1)` -> `IdunBattle.Entities.Selectors.PickRandomAmountSelector$$Select` :
     la boucle tire `NextInternal(0, candidates.Count)` UNE fois pour count=1. `IdunBattle.Utils.PRNG.IntBasedMersenneTwister$$NextInternal` a
     rng==1 prend la branche puissance-de-2 qui CONSOMME un genrand (retourne 0) -> **la pick consomme 1 tirage
     MEME a n==1** (le decompile ne skippe pas le tirage quand le set tient -- meme loi que

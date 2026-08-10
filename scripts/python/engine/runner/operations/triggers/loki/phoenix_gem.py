@@ -27,7 +27,7 @@ Artefact natif (RE ghidra gqfc5mff6c, VA citees) :
       revive faute de vecteur `On(0x2d = UnitRevived)` dispatche — la structure DSL est retablie.
   IdunBattleLogic.Entities.Abilities.Triggered.Loki.PhoenixGem_ReviveAbility$$CreateTrigger
       `OnPreDeath(ignoreOverkill=TRUE) & OwnerIsTarget & HasEffect(self@0x148, 0x5ab=1451, 0, 6)`
-      -> `ignoreOverkill=1` : `IdunBattleLogic.Entities.DSLFactory$$OnDeathEvent` n'ajoute AUCUN gate overkill
+      -> `ignoreOverkill=1` : `IdunBattleLogic.Entities.DSLTriggers$$OnDeathEvent` n'ajoute AUCUN gate overkill
          => « **even if Overkilled** » (contraste Narthecium/RitesOfMorkai) ; lu DIRECTEMENT dans le
          decompile (constante litterale du call, pas un virtuel) -- rien a deviner ici.
   IdunBattleLogic.Entities.Abilities.Triggered.Loki.PhoenixGem_ReviveAbility$$CreateBehaviour

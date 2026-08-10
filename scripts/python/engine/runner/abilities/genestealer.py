@@ -230,10 +230,10 @@ def cult_demagogue_ai_tree(ability_id: str = "CultDemagogue") -> PerformAIAction
                                        GetStringConstant(config, 4)=unitId_2, 3 ),
                           asGroup=0, resetTurnFlags=1 )`
 
-    - `SurroundingEnemies` en surcharge **4-args** (`IdunBattleLogic.Entities.DSLFactory$$SurroundingEnemies` : `Enemies(param_2 = X, Units(...))` ou
+    - `SurroundingEnemies` en surcharge **4-args** (`IdunBattleLogic.Entities.DSLSelectors$$SurroundingEnemies` : `Enemies(param_2 = X, Units(...))` ou
       `X` est A LA FOIS le centre ET la reference) -> « unites entourant la CIBLE et ennemies DE LA CIBLE »
       = les ALLIES du caster ; d'ou `reference=Target()` (cf. `selectors.SurroundingEnemies`).
-    - `UnitsWithId(..., unitId_2)` (`IdunBattleLogic.Entities.DSLFactory$$UnitsWithId`) restreint aux Neophytes.
+    - `UnitsWithId(..., unitId_2)` (`IdunBattleLogic.Entities.DSLSelectors$$UnitsWithId`) restreint aux Neophytes.
     - `asGroup=0` -> `ComputerActionOperation.execute` (mono) = `IdunBattle.Core.Services.AiControl$$ExecuteFor(unit)`
       UNE passe de decision PAR unite, sequentielle et independante (PAS le group operator a boucle).
     - `resetTurnFlags=1` -> les flags de tour de chaque Neophyte sont SAUVEGARDES, EFFACES puis RESTAURES
@@ -542,7 +542,7 @@ def _hf_move_dest_tile(state: "State", caster_id: int, target_id: int,
         First( SortTilesByUtility( <pool de charge>, self@0x148, 7 ), 1 )
 
     Le `7` litteral part dans la surcharge int de
-    `IdunBattleLogic.Entities.DSLFactory$$SortTilesByUtility`, qui construit
+    `IdunBattleLogic.Entities.DSLSelectors$$SortTilesByUtility`, qui construit
     `IdunBattleLogic.AI.Utilities.UtilityDefinition$$.ctor(7 = Tile)` et delegue a la surcharge objet
     -> MEME composite `Tile(7)` que `HammerOfWrathAbility$$ExecuteBehaviour` / `SkyStrikeAbility`.
 
@@ -592,7 +592,7 @@ def heroic_fusillade_tree(state: "State", caster_id: int, target_id: int,
       #4 + ThunderousAssault ; le verdict re-expert « declenche crush/overwatch » etait imprecis, corrige au
       decompile).
     - SPLASH : natif `Unobscured(Enemies(SurroundingUnits(target, radius, includeCenter=1)))`. Le
-      `includeCenter=1` (IdunBattleLogic.Entities.DSLFactory$$SurroundingUnits -> `IdunBattleLogic.Entities.DSLFactory$$SurroundingTiles(target, includeCenter=1, radius) = disk INCLUANT la tuile cible -- contraste MOVE `includeCenter=0` = ring exclu-centre) ->
+      `includeCenter=1` (IdunBattleLogic.Entities.DSLSelectors$$SurroundingUnits -> `IdunBattleLogic.Entities.DSLSelectors$$SurroundingTiles(target, includeCenter=1, radius) = disk INCLUANT la tuile cible -- contraste MOVE `includeCenter=0` = ring exclu-centre) ->
       la CIBLE est dans l'ensemble (i2 « 6x ... to the target AND all other enemies surrounding it »). Porte
       = `Union(Target(), Alive(SurroundingEnemies(TargetTile(), radius)))` (cible + ennemis-du-caster VIVANTS
       `radius`-adjacents ; `SurroundingEnemies` exclut le centre -> `Union(Target())` reinjecte la cible ;
@@ -793,7 +793,7 @@ class HeroicFusilladeAbility(ActiveAbility):
 #    40%) ; nrOfHits = `GetNumberConstant(0x2f)` = 3 ; bornes = `MinMaxDamage` = minDmg/maxDmg[level].
 #  - Composition top-level = `op_BitwiseAnd` (CombinedBehaviour, == `op_add` : Seq court-circuit ; les deux
 #    branches sont pures -> les deux s'executent).
-# `IdunBattleLogic.Entities.Abilities.Active.Loki.VigilanceEternalAbility$$GetPossibleMovementTiles` = `IdunBattleLogic.Entities.DSLFactory$$TilesUnitCanMoveToChargeTarget(caster@0x160, tile@0x168,
+# `IdunBattleLogic.Entities.Abilities.Active.Loki.VigilanceEternalAbility$$GetPossibleMovementTiles` = `IdunBattleLogic.Entities.DSLSelectors$$TilesUnitCanMoveToChargeTarget(caster@0x160, tile@0x168,
 # target@0x190, Direct(GetNumberConstant(0x16)=range=2), canReachOnly=1)
 #   = `CanAddUnit(AdjacentTiles(target)) op_And MovableTilesInRange(caster, tile, Direct(range), reachOnly=1)`
 #   == EXACTEMENT le pool `_charge_candidate_tiles` de HeroicFusillade avec surround_radius=1

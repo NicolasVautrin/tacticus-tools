@@ -106,7 +106,7 @@ def bringer_of_despair_tree() -> AtomicGroup:
       -> l'ordre de conso `state.rng` (8 tirages main a cc=0, puis le pick, puis 8 tirages bonus) mirror le natif.
     - **native_factory = "attack"** (defaut, 2 tirages/coup a cc=0) : les DEUX volets appellent
       `IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage` (VERIFIE par les CALLEES de IdunBattleLogic.Entities.Abilities.Active.Loki.BringerOfDespairAbility$$ExecuteBehaviour, PAS au nom du
-      commentaire — cf. rngcrit-1202/tip #2), famille attack, JAMAIS `IdunBattleLogic.Entities.DSLFactory$$AttackWithAbilityDamage`.
+      commentaire — cf. rngcrit-1202/tip #2), famille attack, JAMAIS `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage`.
 
     `op_BitwiseAnd` = `CombinedBehaviour` (effets PURS -> les deux volets s'executent) ; `ExecuteAtomic` ->
     `AtomicGroup` (inline #201 ; tag 0x45 = id du groupe atomique, aucun `EvaluateAbilities` implicite, cf.
@@ -275,7 +275,7 @@ def hades_autocannons_get_all_targets(range_: int):
         return If( AreEqual(CurrentPlayer, Player(1)), asc, desc )                        # == IdunBattleLogic.Entities.Abilities.Active.Loki.HadesAutocannonsAbility$$IsTopPlayer
 
     = les SUMMONS (trait 2) allies de la CIBLE, dans un disque de rayon `range` autour d'elle,
-    **CIBLE INCLUSE** (`IdunBattleLogic.Entities.DSLFactory$$SurroundingTiles(..., includeCenter=1) : param!=0 -> selecteur direct,
+    **CIBLE INCLUSE** (`IdunBattleLogic.Entities.DSLSelectors$$SurroundingTiles(..., includeCenter=1) : param!=0 -> selecteur direct,
     param==0 -> `- Tiles(center)`). i2 : « a targeted enemy summon AND all other enemy summons within 2
     hexes of the target ». Le referent de `Friends` est la **CIBLE** (1er arg natif), pas le caster : ce
     sont donc les summons du camp de la cible = les summons ENNEMIS du caster (d'ou le `Friends(reference=

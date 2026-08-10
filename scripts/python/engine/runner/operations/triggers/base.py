@@ -533,7 +533,7 @@ def _in_attack_range(state: State, attacker_id: int, target_id: int, from_pos=No
 
 def _is_ranged_position(state: State, attacker_id: int, target_id: int) -> bool:
     """Mirror `IdunBattleLogic.Entities.DSLFactory$$IsRangedAttack` (= `IsRangedAttackAbilityTrigger` IdunBattle.Entities.Triggers.IsRangedAttackAbilityTrigger$$ShouldTrigger, qui
-    calcule les POSITIONS caster/cible via `IdunBattleLogic.Entities.DSLFactory$$IsRangedPosition`) : une attaque est RANGED ssi le
+    calcule les POSITIONS caster/cible via `IdunBattleLogic.Entities.DSLTriggers$$IsRangedPosition`) : une attaque est RANGED ssi le
     caster N'EST PAS adjacent (mêlée) à la cible — **POSITION-based, PAS le type d'arme/profil**. Donc un
     splash psychique porté sur un ennemi ADJACENT au caster est MÊLÉE → ne re-déclenche PAS Smite (pas de
     chain). Non-adjacent (dist > 1) = ranged. Fallback False (mêlée = conservateur, pas de re-trigger) si
@@ -610,7 +610,7 @@ def _faction_id(state: State, unit_id: int) -> Optional[str]:
 
 
 def _pick_randomly(state: State, candidates: list[int]) -> Optional[int]:
-    """`IdunBattleLogic.Entities.DSLFactory$$PickRandomly(source, 1)` ->
+    """`IdunBattleLogic.Entities.DSLSelectors$$PickRandomly(source, 1)` ->
     `IdunBattle.Entities.Selectors.PickRandomAmountSelector$$Select` avec `amount = 1` — choisit UN
     candidat et **consomme UN tirage dès que le pool est non vide**, y compris quand il ne contient
     qu'un seul élément (case-130 SS4 ; loi établie et mesurée par #130).

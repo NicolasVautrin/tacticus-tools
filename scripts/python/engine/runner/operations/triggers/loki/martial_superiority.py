@@ -24,7 +24,7 @@ Slots `AbilityEntities` de `IdunBattleLogic.Entities.DSLFactory$$InitializeShare
     & IsMeleeAttack                         # attaque de MELEE (predicat POSITIONNEL, cf. plus bas)
     & ctx@0x90                              # conjoint de contexte NON QUALIFIE (cf. RESIDUS)
 
-`IdunBattleLogic.Entities.DSLFactory$$IsDirectTargetAttack(df, sel)` =
+`IdunBattleLogic.Entities.DSLTriggers$$IsDirectTargetAttack(df, sel)` =
 `AbilityHasAttackTypeTrigger(sel, 0 = DirectTargetAttack) | IsNormalAttack(df, sel)` -- porte par
 `abilities/attack_type.ability_is_direct_target_attack`. Les DEUX seuls call-sites natifs de ce
 predicat (`list_xrefs`) sont ce `CreateTrigger` et
