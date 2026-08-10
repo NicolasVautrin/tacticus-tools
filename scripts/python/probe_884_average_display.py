@@ -142,14 +142,85 @@ def patch_variant(variant: str):
 
 # ---------------------------------------------------------------- montage
 
-def build(seed: int, state_file: Path) -> int:
+def separating_multiplier(cfg: str, kmin: str, kmax: str, lvl: int = 50):
+    """Le multiplicateur de rarete qui SEPARE `Fix64.Round` de `Fix64.Floor` sur ce descripteur.
+
+    `Average` rend `Round((mn + mx) / 2)` demi-vers-le-PAIR. `round != floor` exige que la moyenne
+    soit `k + 0.5` avec `k` IMPAIR -- c'est-a-dire `mn + mx == 3 (mod 4)`. Un `k` PAIR fait
+    COINCIDER les deux (`floor(1346.5) = 1346 = round(1346.5)`), et c'est le cas du regime servi
+    par le seed BC sur trois des quatre porteurs.
+
+    Le mult est DERIVE de la table `units.heroProgressionSteps` du gameconfig, jamais saisi."""
+    import gameconfig as _G
+    mults = sorted({s["abilityStatMultiplierPct"]
+                    for s in _G._cfg()["units"]["heroProgressionSteps"]})
+    for m in mults:
+        mn = ability_var(cfg, kmin, lvl, multiplier_pct=m)
+        mx = ability_var(cfg, kmax, lvl, multiplier_pct=m)
+        if mn is None or mx is None:
+            continue
+        if (int(mn) + int(mx)) % 4 == 3:
+            return m
+    return None
+
+
+def seed_bc_multipliers() -> dict:
+    """`AbilityVariablesMultiplierPercentage` que le seed BC porte pour chaque porteur.
+
+    ⚠ Ce champ n'est PAS recalcule par `buildNormalizedBC` : le `--rank 17` de `rl_duel build` ne
+    le touche pas. Le regime servi n'est donc PAS deductible du rank -- mesure : `orksRuntherd` et
+    `admecRuststalker` sont a **200**, `thousTzaangor` et `tyranDeathleaper` a **180**. Un probe
+    qui suppose 180 partout imprime un regime FAUX et conclut de travers sur la discriminance."""
+    src = Path(__file__).resolve().parents[2] / "data" / "seed-bc.json"
+    bc = json.loads(src.read_text(encoding="utf-8"))
+    out = {}
+    for u in (bc.get("Units") or []):
+        vis = u.get("VisualId") or u.get("UnitId") or u.get("Id")
+        if vis:
+            out[vis] = u.get("AbilityVariablesMultiplierPercentage")
+    return out
+
+
+def write_patched_seed_bc(out: Path, mult_by_vis: dict) -> Path:
+    """Copie `data/seed-bc.json` en forcant `AbilityVariablesMultiplierPercentage` par porteur.
+
+    ⚠ Ce n'est PAS un patch INVISIBLE DU PORT (motif `#366-r1-bcpatch-invisible`) : le
+    multiplicateur est LU par le port depuis l'etat du runner (`ability_variables_multiplier`),
+    donc les deux cotes voient le meme regime. Ce qu'il change, c'est la COURBE servie -- et c'est
+    exactement l'objet de la manoeuvre. `buildNormalizedBC` ne recalcule PAS ce champ."""
+    src = Path(__file__).resolve().parents[2] / "data" / "seed-bc.json"
+    bc = json.loads(src.read_text(encoding="utf-8"))
+    touched = {}
+    for u in (bc.get("Units") or []):
+        vis = u.get("VisualId") or u.get("UnitId") or u.get("Id")
+        if vis in mult_by_vis and mult_by_vis[vis] is not None:
+            touched[vis] = (u.get("AbilityVariablesMultiplierPercentage"), mult_by_vis[vis])
+            u["AbilityVariablesMultiplierPercentage"] = int(mult_by_vis[vis])
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps(bc), encoding="utf-8")
+    for vis, (was, now) in sorted(touched.items()):
+        print("  [seed-bc] %-20s AbilityVariablesMultiplierPercentage %s -> %s"
+              % (vis, was, now))
+    return out
+
+
+def build(seed: int, state_file: Path, armor: "int | None" = None,
+          seed_bc: "Path | None" = None) -> int:
+    """⚠ `--armor-target` est LE levier de discrimination de l'ARRONDI : la reduction d'armure
+    COMPRIME l'ecart. Un `amount` a +/-1 (port 2992 / floor 2991) rend la MEME prediction finale
+    des que l'armure est haute -- c'est ce qui a fait rendre << float et floor non separes >> au
+    premier run. Armure BASSE = passthrough, l'ecart d'entree survit en sortie."""
     state_file.parent.mkdir(parents=True, exist_ok=True)
     state_file.unlink(missing_ok=True)
-    proc = subprocess.run(
-        [sys.executable, "rl_duel.py", "build", "--seed", str(seed),
-         "--state-file", str(state_file), "--board", BOARD,
-         "--p-units", P_UNITS, "--a-units", A_UNITS,
-         "--hp-target", "400000", "--hp-player", "400000"],
+    cmd = [sys.executable, "rl_duel.py", "build", "--seed", str(seed),
+           "--state-file", str(state_file), "--board", BOARD,
+           "--p-units", P_UNITS, "--a-units", A_UNITS,
+           "--hp-target", "400000", "--hp-player", "400000"]
+    if armor is not None:
+        cmd += ["--armor-target", str(armor)]
+    if seed_bc is not None:
+        cmd += ["--seed-bc", str(seed_bc)]
+    proc = subprocess.run(cmd,
         cwd=str(PYDIR), capture_output=True, text=True, encoding="utf-8", errors="replace")
     if not state_file.exists():
         print("[884] build KO: %s" % ((proc.stderr or proc.stdout or "")[-500:]), file=sys.stderr)
@@ -200,21 +271,79 @@ def _effect_names(dec, uid):
     return []
 
 
-def _cast(rpc, rid, dec, caster_id, ability_id):
-    """Caste `ability_id` depuis `caster_id` sur la 1re cible que le NATIF declare valide."""
-    tg = rpc("abilityTargets", {"runnerId": rid, "unitId": caster_id,
-                                "abilityType": ability_id}, 90)
-    tids = [t.get("unitId") for t in ((tg or {}).get("targets") or []) if t.get("unitId")]
-    if not tids:
-        # abilities self-only : le natif ne rend aucune cible -> caster sur soi
-        tids = [caster_id]
-    for tid in tids:
+def _ability_targets(rpc, rid, caster_id, ability_id):
+    """(`targets`, `fromHere`) du NATIF pour (caster, ability).
+
+    ⚠ Le RPC `abilityTargets` est GLOBAL (`{runnerId, allAbilities}`) et rend un arbre
+    `units[].abilities[]` -- il n'accepte NI `casterId` NI `abilityType`. Appele avec ces cles,
+    il repond `ok: true` et une liste VIDE : un refus qui se lit comme une mesure."""
+    a = rpc("abilityTargets", {"runnerId": rid, "allAbilities": True}, 120)
+    for u in ((a or {}).get("units") or []):
+        if u.get("unitId") != caster_id:
+            continue
+        for ab in (u.get("abilities") or []):
+            if ab.get("abilityId") == ability_id:
+                return (ab.get("targets") or []), (ab.get("fromHere") or []), ab
+    return [], [], None
+
+
+def _cast(rpc, rid, caster_id, ability_id, target_id):
+    """L'action de `rl_duel act ability` : `{kind, casterId, targetId, abilityType}` -- la cle
+    est `casterId`, PAS `unitId` (un `unitId` est ignore EN SILENCE, `ok: true` inclus)."""
+    r = rpc("applyAction", {"runnerId": rid, "action": {
+        "kind": "ability", "casterId": caster_id, "abilityType": ability_id,
+        "targetId": target_id}}, 180)
+    return bool(isinstance(r, dict) and r.get("ok") and not r.get("error"))
+
+
+def _step_toward(rpc, rid, dec, u, goal):
+    """Un pas greedy vers `goal` (disque 4, tuiles libres). Rend True si un move a mordu."""
+    upos = _pos(u)
+    free = _free_tiles(dec)
+    cands = [t for t in hexgeo.disk(upos[0], upos[1], 4) if t in free and t != tuple(upos)]
+    cands.sort(key=lambda t: hexgeo.distance(t, tuple(goal)))
+    for t in cands[:8]:
         r = rpc("applyAction", {"runnerId": rid, "action": {
-            "kind": "ability", "unitId": caster_id, "abilityType": ability_id,
-            "targetId": tid}}, 150)
-        if isinstance(r, dict) and r.get("ok"):
-            return tid
-    return None
+            "kind": "move", "unitId": u["id"], "to": {"col": t[0], "row": t[1]}}}, 90)
+        if isinstance(r, dict) and r.get("ok") and not r.get("error"):
+            return True
+    return False
+
+
+def _free_tiles(dec, w=9, h=11):
+    occ = {tuple(_pos(u)) for u in (dec.get("units") or []) if u.get("alive")}
+    return {(c, r) for c in range(w) for r in range(h)} - occ
+
+
+def _approach(rpc, rid, dec, u, enemies):
+    """Rapproche `u` de l'ennemi le plus proche (greedy, disque 4). Rend True si un move a mordu.
+
+    DOCTRINE : on DEPLACE les unites pour forcer la configuration -- << bloque par la geometrie
+    de spawn >> n'est pas un resultat."""
+    upos = _pos(u)
+    if not enemies:
+        return False
+    goal = min((_pos(e) for e in enemies), key=lambda p: hexgeo.distance(upos, p))
+    free = _free_tiles(dec)
+    cands = [t for t in hexgeo.disk(upos[0], upos[1], 4) if t in free and t != tuple(upos)]
+    cands.sort(key=lambda t: hexgeo.distance(t, goal))
+    for t in cands[:8]:
+        r = rpc("applyAction", {"runnerId": rid, "action": {
+            "kind": "move", "unitId": u["id"], "to": {"col": t[0], "row": t[1]}}}, 90)
+        if isinstance(r, dict) and r.get("ok") and not r.get("error"):
+            return True
+    return False
+
+
+def _has_plan(dec, uid) -> bool:
+    """VRAI seulement si au moins une tuile CLASSEE existe.
+
+    ⚠ Un `attackPlan` existe pour toute unite et toute cible, meme hors de portee : ses `evals`
+    sont alors presents avec `rankCount = 0` et `ranked = []`. Tester `evals` non vide rendait
+    donc VRAI au spawn -- et le probe castait a 8 hexes de l'ennemi, en pure perte."""
+    return any(p.get("unitId") == uid and any((e.get("ranked") or [])
+                                              for e in (p.get("evals") or []))
+               for p in (dec.get("attackPlans") or []))
 
 
 # ---------------------------------------------------------------- mesure
@@ -267,110 +396,166 @@ def main(argv):
     ap.add_argument("--seed", type=int, default=88401)
     ap.add_argument("--state-file", default=str(ROOT / "logs" / "runners" / "_884avg_state.json"))
     ap.add_argument("--keep", action="store_true")
+    ap.add_argument("--max-rounds", type=int, default=6)
+    ap.add_argument("--armor-target", type=int, default=None,
+                    help="armure des cibles ; BASSE = l'ecart d'arrondi survit a la reduction")
+    ap.add_argument("--separating-mult", action="store_true",
+                    help="force, par porteur, le multiplicateur qui SEPARE Fix64.Round de Floor")
     ap.add_argument("--runner", type=int, default=None)
     args = ap.parse_args(argv)
 
     sid = _resolve_session()
     rpc = lambda m, b, t=90: (_rpc(sid, m, [b], timeout=t).get("result") or {})   # noqa: E731
 
-    # 0. le REGIME SERVI, offline : bornes, somme, ratio -- c'est ce qui dit si le montage
-    #    discrimine AVANT toute mesure live.
-    print("[884] regime offline (ability_level 50, multiplier 180 = rank 17)")
+    # 0. le REGIME que ce montage va SERVIR, offline -- c'est ce qui dit si le montage discrimine
+    #    AVANT toute mesure live. Sans `--separating-mult`, le multiplicateur est celui du seed BC.
+    seed_bc_path = None
+    mult_by_vis = {}
+    if args.separating_mult:
+        for vis, _ab, _fx, kmin, kmax, cfg in CARRIERS:
+            mult_by_vis[vis] = separating_multiplier(cfg, kmin, kmax)
+        seed_bc_path = write_patched_seed_bc(
+            Path(args.state_file).with_name("_884avg_seedbc.json"), mult_by_vis)
+    else:
+        mult_by_vis = seed_bc_multipliers()
+    print("[884] regime servi (ability_level 50) :")
     for _vis, _ab, _fx, kmin, kmax, cfg in CARRIERS:
-        mn = ability_var(cfg, kmin, 50, multiplier_pct=180)
-        mx = ability_var(cfg, kmax, 50, multiplier_pct=180)
+        m = mult_by_vis.get(_vis)
+        if m is None:
+            print("  %-20s multiplicateur INCONNU (porteur absent du seed BC)" % cfg)
+            continue
+        mn = ability_var(cfg, kmin, 50, multiplier_pct=m)
+        mx = ability_var(cfg, kmax, 50, multiplier_pct=m)
         if mn is None or mx is None:
             print("  %-20s BORNES ABSENTES au gameconfig" % cfg)
             continue
         s = int(mn) + int(mx)
         vals = {v: display_value(mn, mx, v) for v in VARIANTS}
-        print("  %-20s [%5d,%5d] somme=%6d %s ratio=%.4f  port=%s float=%s floor=%s"
-              % (cfg, mn, mx, s, "IMPAIRE" if s % 2 else "paire", float(mx) / float(mn),
-                 vals["port"], vals["float"], vals["floor"]))
+        print("  %-20s mult=%3d [%5d,%5d] somme=%6d (mod4=%d) ratio=%.4f  port=%s float=%s "
+              "floor=%s  -> arrondi %s"
+              % (cfg, m, mn, mx, s, s % 4, float(mx) / float(mn),
+                 vals["port"], vals["float"], vals["floor"],
+                 "SEPARABLE" if vals["port"] != vals["floor"] else "NON separable (round==floor)"))
 
-    rid = args.runner if args.runner is not None else build(args.seed, Path(args.state_file))
-    print("[884] seed=%d runner=%s board=%s" % (args.seed, rid, BOARD))
-    verdicts = []
+    rid = args.runner if args.runner is not None \
+        else build(args.seed, Path(args.state_file), args.armor_target, seed_bc_path)
+    print("[884] seed=%d runner=%s board=%s armor_target=%s seed_bc=%s"
+          % (args.seed, rid, BOARD, args.armor_target, seed_bc_path))
+    verdicts = {}
     try:
         dec = _rich(rpc, rid)
         if not (isinstance(dec, dict) and dec.get("ok")):
             print("[884] decisionView KO", file=sys.stderr)
             return 2
-        byvis = _by_vis(dec)
-        owner = (byvis.get(CARRIERS[0][0]) or {}).get("owner")
+        owner = (_by_vis(dec).get(CARRIERS[0][0]) or {}).get("owner")
         dec = _advance_to_my_turn(rpc, rid, owner) or dec
-        byvis = _by_vis(dec)
 
-        # 1. TEMOIN -- avant tout cast, aucun des 4 effets n'est pose : natif == offline.
-        print("[884] --- TEMOIN (aucun effet pose) ---")
-        for vis, _ab, fx, *_ in CARRIERS:
-            u = byvis.get(vis)
-            if u is None:
-                print("  %-20s ABSENT du montage" % vis)
-                continue
-            rows = capture_rows(rpc, rid, dec, u["id"])
-            if not rows:
-                print("  %-20s aucune ligne `ranked` (pas de plan d'attaque ce tour)" % vis)
-                continue
-            off = replay_offline(rpc, rid, dec, u["id"], rows, "port")
-            ok = sum(1 for r, o in zip(rows, off or []) if o == r["nat"])
-            print("  %-20s %d/%d lignes en accord (effets: %s)"
-                  % (vis, ok, len(rows), _effect_names(dec, u["id"])))
-
-        # 2. CAST des 4 abilities poseuses
-        print("[884] --- CAST des abilities poseuses ---")
-        for vis, ab, fx, *_ in CARRIERS:
-            u = _by_vis(_rich(rpc, rid)).get(vis)
-            if u is None:
-                continue
-            tid = _cast(rpc, rid, dec, u["id"], ab)
-            print("  %-20s cast %d -> cible %s" % (vis, ab, tid))
-
-        # 3. round complet puis MESURE
-        _end_round(rpc, rid, owner)
-        dec = _advance_to_my_turn(rpc, rid, owner)
-        if dec is None:
-            print("[884] impossible de revenir a mon tour", file=sys.stderr)
-            return 2
-        byvis = _by_vis(dec)
-
-        print("[884] --- MESURE (effets poses) ---")
-        for vis, _ab, fx, *_ in CARRIERS:
-            u = byvis.get(vis)
-            if u is None:
-                print("  %-20s ABSENT (mort ?)" % vis)
-                verdicts.append((vis, "ABSENT", None))
-                continue
-            names = _effect_names(dec, u["id"])
-            if fx not in names:
-                print("  %-20s effet %s NON POSE (effets: %s) -- NON CONFRONTE" % (vis, fx, names))
-                verdicts.append((vis, "EFFET ABSENT", names))
-                continue
-            rows = capture_rows(rpc, rid, dec, u["id"])
-            if not rows:
-                print("  %-20s effet POSE mais aucune ligne `ranked` -- NON CONFRONTE" % vis)
-                verdicts.append((vis, "PAS DE PLAN", names))
-                continue
-            res = {}
-            for v in VARIANTS:
-                off = replay_offline(rpc, rid, dec, u["id"], rows, v)
-                if off is None:
+        casted, measured = {}, set()
+        for rnd in range(args.max_rounds):
+            byvis = _by_vis(dec)
+            enemies = [u for u in (dec.get("units") or [])
+                       if u.get("alive") and u.get("owner") != owner]
+            print("[884] round %d" % rnd)
+            for vis, ab, fx, *_ in CARRIERS:
+                if vis in measured:
                     continue
-                ok = sum(1 for r, o in zip(rows, off) if o == r["nat"])
-                worst = max((max(abs((o or (0, 0))[0] - r["nat"][0]),
-                                 abs((o or (0, 0))[1] - r["nat"][1]))
-                             for r, o in zip(rows, off)), default=None)
-                res[v] = (ok, len(rows), worst, tuple(off))
-            print("  %-20s effet POSE, %d lignes" % (vis, len(rows)))
-            for v in VARIANTS:
-                if v in res:
-                    ok, n, worst, _ = res[v]
-                    print("      %-11s %2d/%2d en accord, |ecart| max %s" % (v, ok, n, worst))
-            distinct = {v: res[v][3] for v in res}
-            same_as_port = [v for v in res if v != "port" and distinct[v] == distinct.get("port")]
-            print("      variantes NON separees par ce montage : %s"
-                  % (same_as_port if same_as_port else "aucune -- les 4 modeles divergent"))
-            verdicts.append((vis, res, same_as_port))
+                u = byvis.get(vis)
+                if u is None:
+                    print("  %-20s ABSENT (mort ?)" % vis)
+                    continue
+                names = _effect_names(dec, u["id"])
+                has_fx, has_rows = fx in names, _has_plan(dec, u["id"])
+
+                # (a) l'effet est POSE et le porteur a des tuiles classees -> MESURE
+                if has_fx and has_rows:
+                    rows = capture_rows(rpc, rid, dec, u["id"])
+                    res = {}
+                    for v in VARIANTS:
+                        off = replay_offline(rpc, rid, dec, u["id"], rows, v)
+                        if off is None:
+                            continue
+                        ok = sum(1 for r, o in zip(rows, off) if o == r["nat"])
+                        worst = max((max(abs((o or (0, 0))[0] - r["nat"][0]),
+                                         abs((o or (0, 0))[1] - r["nat"][1]))
+                                     for r, o in zip(rows, off)), default=None)
+                        res[v] = (ok, len(rows), worst, tuple(off))
+                    print("  [MESURE] %-20s effet POSE, %d lignes" % (vis, len(rows)))
+                    for v in VARIANTS:
+                        if v in res:
+                            ok, n, worst, _ = res[v]
+                            print("      %-11s %2d/%2d en accord, |ecart| max %s"
+                                  % (v, ok, n, worst))
+                    same = [v for v in res if v != "port"
+                            and res[v][3] == res.get("port", (0, 0, 0, None))[3]]
+                    print("      variantes NON separees ici : %s"
+                          % (same if same else "aucune -- les 4 modeles divergent"))
+                    verdicts[vis] = (res, same)
+                    measured.add(vis)
+                    continue
+
+                # (b) pas encore caste, et une tuile classee existe -> TEMOIN puis CAST
+                #     ⚠ On ne caste QUE si le porteur a deja un plan : sinon il pose un effet a
+                #     DUREE COURTE ("this turn and the next") a huit hexes de l'ennemi, et l'effet
+                #     a expire quand il arrive enfin a portee -- mesure du run precedent, ou
+                #     `tyranDeathleaper` a bien pose 1239 puis n'a JAMAIS eu de tuile classee.
+                if not has_fx and vis not in casted and has_rows:
+                    rows = capture_rows(rpc, rid, dec, u["id"])
+                    off = replay_offline(rpc, rid, dec, u["id"], rows, "port")
+                    ok = sum(1 for r, o in zip(rows, off or []) if o == r["nat"])
+                    print("  [temoin] %-20s %d/%d lignes en accord SANS l'effet" % (vis, ok, len(rows)))
+                    verdicts.setdefault("temoin:" + vis, (ok, len(rows)))
+                    tgts, fh, meta = _ability_targets(rpc, rid, u["id"], ab)
+                    if not fh and tgts:
+                        gp = tgts[0].get("pos") or {}
+                        if gp.get("col") is not None:
+                            _step_toward(rpc, rid, dec, u, (gp["col"], gp["row"]))
+                        dec = _rich(rpc, rid)
+                        byvis = _by_vis(dec)
+                        u = byvis.get(vis) or u
+                        tgts, fh, meta = _ability_targets(rpc, rid, u["id"], ab)
+                    pool = [t.get("targetId") for t in (fh or tgts)
+                            if t.get("targetId") is not None]
+                    pool.append(u["id"])       # abilities self-only : le natif ne rend aucune cible
+                    hit = next((t for t in pool if _cast(rpc, rid, u["id"], ab, t)), None)
+                    dec = _rich(rpc, rid)
+                    byvis = _by_vis(dec)
+                    after = _effect_names(dec, u["id"])
+                    if fx in after:
+                        casted[vis] = hit           # marque SEULEMENT si l'effet est LA
+                    print("  [cast]   %-20s ability %d -> %s ; effet %s %s (natif targets=%s "
+                          "fromHere=%s usable=%s)"
+                          % (vis, ab, hit, fx, "POSE" if fx in after else "ABSENT",
+                             [t.get("targetId") for t in tgts],
+                             [t.get("targetId") for t in fh], (meta or {}).get("usable")))
+                    if fx in after:
+                        continue
+
+                # (c) pas de tuile classee (ou cast refuse faute de cible) -> SE RAPPROCHER.
+                #     Vaut AUSSI quand l'effet est deja pose : un porteur qui le porte sans plan
+                #     ne confronte rien.
+                _approach(rpc, rid, dec, u, enemies)
+                dec = _rich(rpc, rid)
+                byvis = _by_vis(dec)
+
+            if len(measured) == len(CARRIERS):
+                break
+            _end_round(rpc, rid, owner)
+            dec = _advance_to_my_turn(rpc, rid, owner)
+            if dec is None:
+                print("[884] impossible de revenir a mon tour", file=sys.stderr)
+                break
+
+        print("[884] --- BILAN ---")
+        for vis, _ab, fx, *_ in CARRIERS:
+            if vis in verdicts:
+                res, same = verdicts[vis]
+                print("  %-20s CONFRONTE : port %d/%d, predefined %d/%d (|ecart| max %s) ; "
+                      "arrondi %s"
+                      % (vis, res["port"][0], res["port"][1],
+                         res["predefined"][0], res["predefined"][1], res["predefined"][2],
+                         "SEPARE" if "floor" not in same else "NON separe"))
+            else:
+                print("  %-20s NON CONFRONTE (effet jamais pose ou aucune tuile classee)" % vis)
     finally:
         if not args.keep and args.runner is None:
             subprocess.run([sys.executable, "rl_duel.py", "dispose", "--runner", str(rid)],
