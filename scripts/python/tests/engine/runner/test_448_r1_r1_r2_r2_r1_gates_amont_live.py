@@ -32,6 +32,11 @@ DECLENCHEUR = {
         "scripts/python/probe_448r1r1r2r2r1_gates_amont.py",
         "scripts/python/probe_448r1r1r2r2_gates_abandon.py",
         "scripts/python/rl_duel.py",
+        # `scripts/python/board.py` (le choix de board du runner) est importe par ce
+        # fichier ; son absence rendait le declencheur TROP ETROIT --
+        # `probe_486r15_declencheurs_tests.py` le disait, sur `master`, depuis #869.
+        # Ne pas le confondre avec `engine/entities/pathfinding/board.py`, homonyme.
+        "scripts/python/board.py",
     ),
     "build": True,
     "toujours": False,

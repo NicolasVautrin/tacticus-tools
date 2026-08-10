@@ -35,6 +35,11 @@ DECLENCHEUR = {
         "scripts/python/engine/runner/state.py",
         "scripts/python/engine/runner/components.py",
         "scripts/python/engine/entities/pathfinding/board.py",
+        # HOMONYME, et c'est le piege : `scripts/python/board.py` (le choix de board du
+        # runner) n'est PAS `engine/entities/pathfinding/board.py` ci-dessus. Il est bien
+        # importe par ce fichier, et son absence rendait le declencheur TROP ETROIT --
+        # `probe_486r15_declencheurs_tests.py` le disait, sur `master`, depuis #869.
+        "scripts/python/board.py",
         "scripts/python/probe_448r1r1r2r2r1_gates_amont.py",
         "scripts/python/probe_448r1r1r2r2_gates_abandon.py",
         "data/boards/pvp/C4_09.json",
