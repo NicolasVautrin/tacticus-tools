@@ -154,6 +154,21 @@ def main() -> int:
                     "bras %s : `lambdaFires == 0` alors que la resolution est complete -- le "
                     "montage n'a PAS traverse `SortUnitsByDamageUtilitySelector$$Select`. Ce "
                     "n'est PAS un verdict : c'est un montage a refaire." % tag)
+            # ⚠ Le cliquet du hook (`#419-r7`). `keysAtInt64Max > 0` veut dire que la lecture de
+            # RAX a SATURE : une cle de tri `-utilite` ne vaut pas 2^63-1. Comparer des cles
+            # saturees rendrait << identiques >> deux regimes qui different -- le verdict
+            # EXACTEMENT INVERSE. Sur un bundle anterieur au correctif, le champ est ABSENT : on
+            # retombe alors sur la detection directe, qui ne depend d'aucun champ neuf.
+            sat = diag.get("keysAtInt64Max")
+            brutes = [p.get("keyRaw") for p in (lu.get("pairs") or [])]
+            sat_vu = sum(1 for b in brutes if str(b) == "9223372036854775807")
+            cles_valides = ((sat or 0) == 0 and sat_vu == 0)
+            if not cles_valides:
+                print("  ⚠ LECTURE SATUREE : %d cle(s) a Int64.MaxValue (diag=%r). Le bundle"
+                      % (sat_vu, sat))
+                print("    charge est anterieur au correctif `#419-r7` (`raxToInt64` dans")
+                print("    `sort-utility-trace.ts`) : le volet CLE est NON MESURE. L'ORDRE natif")
+                print("    (`sessions[].ordered`), lui, ne passe par aucune conversion -- il TIENT.")
             res = _resume(lu)
             for seq in sorted(res):
                 print("  session %s : ordered=%s" % (seq, res[seq]["ordered"]))
@@ -161,7 +176,11 @@ def main() -> int:
                     print("     u%-4s type=%s utility=%s keyRaw=%s"
                           % (p["unitId"], p["entityType"], p["utility"], p["keyRaw"]))
             bras[tag] = {"res": res, "might_crit": r.get("might_crit_owner"),
-                         "oracle": r.get("oracle_natif"), "ordre_port": r.get("ordre_production")}
+                         "oracle": r.get("oracle_natif"), "cles_valides": cles_valides,
+                         "ordre_port": r.get("ordre_production"),
+                         "exact_production": r.get("exact_production"),
+                         "exact_contrefactuel": r.get("exact_contrefactuel"),
+                         "discriminant": r.get("montage_discriminant")}
 
         print("")
         print("=== etape 3 -- VERDICT BINAIRE ===")
@@ -174,29 +193,49 @@ def main() -> int:
         print("  cles AVEC   : %s" % a_cles)
         print("  cles TEMOIN : %s" % t_cles)
         communs = sorted(set(a_cles) & set(t_cles))
+        ordre_a = bras["AVEC_CRIT"]["res"][max(bras["AVEC_CRIT"]["res"])]["ordered"]
+        ordre_t = (bras["TEMOIN_no_bis_items"]["res"]
+                   [max(bras["TEMOIN_no_bis_items"]["res"])]["ordered"])
+        cles_lisibles = all(bras[t]["cles_valides"] for t in bras)
+        print("  ordre natif AVEC=%s TEMOIN=%s" % (ordre_a, ordre_t))
+        print("  bit-exact vs live -- AVEC : production=%s contrefactuel=%s (discriminant=%s)"
+              % (bras["AVEC_CRIT"]["exact_production"],
+                 bras["AVEC_CRIT"]["exact_contrefactuel"], bras["AVEC_CRIT"]["discriminant"]))
+
+        # --- VOLET 1 : l'ORDRE natif. Il ne passe par AUCUNE conversion, donc il tient meme
+        #     quand les cles saturent. C'est lui qui repond a la question du residu.
+        if ordre_a != ordre_t:
+            print("VOLET ORDRE : l'ordre natif CHANGE entre les deux regimes (%s -> %s) alors que")
+            print("  seul le canal crit du caster a bouge (CouldCrit %s -> %s)."
+                  % (bras["AVEC_CRIT"]["might_crit"], bras["TEMOIN_no_bis_items"]["might_crit"]))
+            print("  ⇒ il n'y a AUCUN etage neutralisant a trouver : le flag EST classant, et la")
+            print("  premisse du residu (`MightCrit` n'entre pas dans ce classement) est REFUTEE.")
+            rc = 1
+        else:
+            print("VOLET ORDRE : l'ordre natif ne bouge PAS entre les deux regimes.")
+            rc = 0
+
+        # --- VOLET 2 : les CLES. Il ne dit quelque chose que si la lecture n'a pas sature.
+        if not cles_lisibles:
+            print("VOLET CLE : NON MESURE (lecture saturee -- cf. l'avertissement ci-dessus).")
+            print("  Ce n'est pas un resultat negatif : c'est l'absence de mesure. Il se rejoue")
+            print("  tel quel une fois le bundle corrige recharge.")
+            return rc
         if not communs:
             raise MontageError("les deux bras n'ont AUCUNE unite en commun dans leur derniere "
                                "session -- les cles ne sont pas comparables")
         identiques = all(a_cles[u] == t_cles[u] for u in communs)
-        ordre_a = bras["AVEC_CRIT"]["res"][max(bras["AVEC_CRIT"]["res"])]["ordered"]
-        ordre_t = (bras["TEMOIN_no_bis_items"]["res"]
-                   [max(bras["TEMOIN_no_bis_items"]["res"])]["ordered"])
-        print("  %d unite(s) comparable(s) ; cles IDENTIQUES : %s" % (len(communs), identiques))
-        print("  ordre natif AVEC=%s TEMOIN=%s" % (ordre_a, ordre_t))
-        if identiques:
-            print("VERDICT : les utilites sont IDENTIQUES quand le flag change ⇒ l'etage")
-            print("  neutralisant est EN AVAL de la prediction (le decideur, ou l'utilite).")
-            print("  `UtilityDecider$$CalculateUtility` rend la MEME valeur des deux cotes : le")
-            print("  flag n'a donc pas atteint le dictionnaire que la lambda lit.")
-            return 0
-        print("VERDICT : les utilites DIFFERENT entre les deux regimes.")
-        if ordre_a == ordre_t:
-            print("  ... et l'ORDRE natif ne bouge pas ⇒ la neutralisation est dans le TRI")
+        print("VOLET CLE : %d unite(s) comparable(s) ; cles IDENTIQUES : %s"
+              % (len(communs), identiques))
+        if identiques and ordre_a == ordre_t:
+            print("  ⇒ utilites IDENTIQUES quand le flag change : l'etage neutralisant est EN AVAL")
+            print("  de la prediction (le decideur, ou l'utilite elle-meme).")
+        elif not identiques and ordre_a == ordre_t:
+            print("  ⇒ utilites DIFFERENTES a ORDRE CONSTANT : la neutralisation est dans le TRI")
             print("  (egalites, arrondi de la cle).")
         else:
-            print("  ... et l'ORDRE natif bouge AUSSI ⇒ le flag EST classant sur ce montage,")
-            print("  ce qui CONTREDIT la mesure de `#419-r6-r1` et doit etre instruit.")
-        return 1
+            print("  ⇒ utilites ET ordre bougent : cf. le VOLET ORDRE ci-dessus.")
+        return rc
     finally:
         if armed_by_us:
             d = rpc("sortUtilityTrace", {"action": "disarm"}, 30)
