@@ -75,6 +75,25 @@ def _cascade(r):
     return out
 
 
+def _flat_hits(obj, out=None):
+    """Sequence PLATE des coups OFFLINE, dans l'ordre de parcours du retour du handler : toute liste
+    sous une cle `per_hit` (les dicts Python conservent l'ordre d'insertion, donc l'ordre de
+    composition des sous-attaques). Les coups du canal #179 y sont deja concatenes par
+    `execute_additional_hits` (cf. case-bl-1029 §5.4)."""
+    if out is None:
+        out = []
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            if k == "per_hit" and isinstance(v, list):
+                out += [int(x) for x in v if isinstance(x, (int, float))]
+            else:
+                _flat_hits(v, out)
+    elif isinstance(obj, list):
+        for v in obj:
+            _flat_hits(v, out)
+    return out
+
+
 def main(argv):
     ap = argparse.ArgumentParser()
     ap.add_argument("--seed", type=int, default=777)
@@ -167,8 +186,13 @@ def main(argv):
         e = state.get_entity(tgt)
         hc = e.get_component(HealthComponent) if e is not None else None
         off_dpv = (pre_hp.get(tgt) - hc.hp) if (hc is not None and pre_hp.get(tgt) is not None) else None
+        off_hits = _flat_hits(last)
         print("[dg] OFFLINE dPV cible = %s" % off_dpv)
-        print("[dg] OFFLINE last = %s" % json.dumps(last, default=str)[:2500])
+        print("[dg] OFFLINE coups (%d) = %s" % (len(off_hits), off_hits))
+        from engine.runner.damage_model import tile_status_effects_by_pos
+        print("[dg] OFFLINE tile status-effects sur %s = %s"
+              % (T, (tile_status_effects_by_pos(state, [T]) or {}).get(tuple(T))))
+        print("[dg] OFFLINE last = %s" % json.dumps(last, default=str)[:1600])
 
         # --- LIVE ---
         r = rpc("applyAction", {"runnerId": rid, "action": {
@@ -179,6 +203,13 @@ def main(argv):
             print("[dg] cast LIVE KO %s" % str(r)[:400])
             return 2
         casc = _cascade(r)
+        # Coups LIVE portes sur la cible par le CAST : on ecarte les evenements qui portent un
+        # `Effect_Type` (le tick de tuile `EnvDespoiledGroundTileDamage`, `Effect_Type: 1476`).
+        live_hits = [int(t["Amount"]) for t in (_tags(ev) for ev in casc)
+                     if t.get("Amount") is not None and t.get("Target_Id") == tgt
+                     and t.get("Effect_Type") is None]
+        print("[dg] LIVE coups (%d) = %s" % (len(live_hits), live_hits))
+        print("[dg] ACCORD coups offline == live : %s" % (off_hits == live_hits))
         print("[dg] LIVE cascade (%d events) --- ordre ---" % len(casc))
         for i, ev in enumerate(casc):
             t = _tags(ev)

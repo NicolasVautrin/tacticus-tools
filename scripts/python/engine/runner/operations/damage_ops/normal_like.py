@@ -234,7 +234,12 @@ class _NormalLike:
                                              profile=damage_profile, ability_type=ability_type,
                                              did_block=r["did_block"],
                                              health_damage=int(r["total"] or 0),
-                                             profiles={damage_profile} - {None})
+                                             profiles={damage_profile} - {None},
+                                             # `AttackUsedAttackDamage` (`AbilityEntities+0xf9`) =
+                                             # `currentAttack@+0x2c` : pose par la seule
+                                             # `AttackDamageOperation$$Execute` -> la famille de
+                                             # factory, comme dans `damage_ops/ability.py`.
+                                             attack_used_attack_damage=bool(is_attack_damage_op))
         return {"hits": hits, "total": r["total"], "base": base, "pierce": profile_pierce,
                 "armor": armor, "after_hit": after_hit,
                 "clean_min": hit_nc.min * hits, "clean_max": hit_nc.max * hits,

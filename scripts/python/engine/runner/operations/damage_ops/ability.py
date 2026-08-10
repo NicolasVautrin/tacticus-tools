@@ -672,7 +672,12 @@ class _AbilityAttack:
                                              profile=damage_profile, ability_type=ability_type,
                                              did_block=r["did_block"],
                                              health_damage=int(r["total"] or 0),
-                                             profiles=_profs432)
+                                             profiles=_profs432,
+                                             # `AttackUsedAttackDamage` (`AbilityEntities+0xf9`) =
+                                             # `currentAttack@+0x2c`, pose par la SEULE
+                                             # `AttackDamageOperation$$Execute` -> cote port c'est
+                                             # exactement la famille de factory.
+                                             attack_used_attack_damage=bool(is_attack_damage_op))
         # `On(FinalDamage = 0x42 = 66)` — 2e (et DERNIER) call-site natif de `IdunBattle.Operations.
         # ADamageOperation$$RegisterFinalDamage` : `IdunBattle.Operations.AbilityDamageOperation$$
         # Execute`. Emis pour les DEUX familles (`is_attack_damage_op` ou non) : la fonction est sur la
