@@ -345,7 +345,7 @@ class UnitContext:
             # indexe les variables[level] des ABILITIES (minDmg/maxDmg par niveau). Fallback stats/0.
             active_ability_level=int(_uc.get("activeAbilityLevel")
                                      or s.get("activeAbilityLevel") or 0),
-            # #60 : nrOfMembers de BASE (GroupUnitComponent+0x10, = part Initial du stat 20) — le stat
+            # #60 : nrOfMembers de BASE (NumberOfMembersComponent+0x10, = part Initial du stat 20) — le stat
             # capté `numberOfMembers` est GetStat(20, Current) = membres RESTANTS (5→3 sur un swarm
             # blessé, case-52) ; base = Current − delta. Aligné sur spawn.py (gameconfig nrOfMembers).
             number_of_members=max(1, g("numberOfMembers")

@@ -111,14 +111,37 @@ def build_summon_context(entity_id: int, visual_id: str, summon_ability: str,
     # n'avaient que 5 tuiles d'action (l'anneau a 1 hex) et finissaient a dist <= 1 du caster, la ou
     # le natif les envoie a dist 3.
     stats.ensure_seeded(StatType.MOVEMENT, int(gu.get("Movement") or 0))
-    # `passive_ability_level` : le niveau sous lequel l'unite POSEE monte ses PROPRES passives --
-    # c'est-a-dire l'`AbilityState` que `IdunBattle.Entities.Behaviours.SpawnUnitOptions$$
-    # WithStatsFromConfig(config, abilityState, 0, 0)` recoit du summoner. Il n'est renseigne que
-    # quand l'appelant le CONNAIT (la feuille `Spawn` avec son `ability_state`) : `None` laisse le
-    # defaut d'`UnitContext`, donc le comportement anterieur strictement inchange pour les six
-    # call-sites historiques. Sans lui, une passive de summon per-niveau lit l'index 0 (mode de
-    # panne #174, mesure a un facteur ~55 sur la mine Haywire).
-    kw = {} if passive_level is None else {"passive_ability_level": int(passive_level)}
+    # `passive_ability_level` : le niveau sous lequel l'unite POSEE monte ses PROPRES abilities.
+    #
+    # ⚠ **LE DEFAUT EST `caster_level`, ET C'EST LU (#570-r3) -- pas `0`.**
+    # `IdunBattle.Entities.Behaviours.SpawnUnitOptions$$WithStatsFromConfig(config, abilityState,
+    # ordinal, abilitiesLevel, variableMultiplierPercentage)` ecrit :
+    #
+    #     opts.<+0x58> = Nullable<int>(abilityState.level)
+    #     if (abilitiesLevel == null)                abilitiesLevel = <box>(abilityState.level)
+    #     opts.<+0x30> = abilitiesLevel
+    #     if (variableMultiplierPercentage == null)  variableMultiplierPercentage
+    #                                                    = <box>(abilityState.mult)
+    #     opts.<+0x38> = variableMultiplierPercentage
+    #
+    # Autrement dit : **aucune branche native ne laisse ce niveau a zero** -- quand l'appelant ne
+    # le precise pas, le natif retombe sur le niveau de l'`AbilityState` du SUMMONER, qui est
+    # exactement ce que le port appelle `caster_level`. Et le natif n'a QU'UN niveau pour toutes
+    # les abilities de l'unite posee : `SpawnUnitOptions` ne distingue pas actif et passif.
+    # La surcharge a 4 parametres (celle qu'appelle `GrotTankAbility$$ExecuteBehaviour`) delegue a
+    # celle-ci avec `ordinal = 1`, donc la meme regle vaut.
+    # Confirmation par une SECONDE voie : `IdunBattle.Operations.AddUnitOperation$$
+    # InherentAbilitiesLevelFromParent(parent, unit)` prend le MAX des `AbilityState` des abilities
+    # du PARENT et le pose sur celles de l'unite -- la aussi, jamais zero.
+    #
+    # `passive_level` explicite reste prioritaire : il exprime un `AbilityState` ETRANGER (la mine
+    # Haywire posee par un passif), cas ou `abilitiesLevel` N'EST PAS celui du caster.
+    # Sans ce defaut, une passive de summon per-niveau lit l'index 0 (= niveau 1) : mode de panne
+    # #174, mesure a un facteur ~55 sur la mine Haywire, et cause du residu #570-r3 (le
+    # `Ramshackle_DmgReduction` du Grot Tank lisait `dmgReduction[1] = 5`).
+    _niveau_abilities = caster_level if passive_level is None else passive_level
+    kw = ({} if _niveau_abilities is None
+          else {"passive_ability_level": int(_niveau_abilities)})
     return UnitContext(
         entity_id=entity_id, visual_id=visual_id,
         active_ability_level=int(caster_level or 0),   # niveau du caster -> propage aux self-summons (PileIn 2e gen)
@@ -602,7 +625,12 @@ def _spawn_config_grot(state: State, visual_id: str, tile, summon_ability: str,
     # non-`lineup` avait une ability inscrite dans `ABILITY_INIT_OWNER_EFFECTS` /
     # `ABILITY_OWNER_EFFECTS` -- ce call-site ne change donc RIEN d'autre que ce que la meme
     # tranche y inscrit, et toute entree future sera vue par ce chemin.
-    _seed_ability_owner_effects(state, e.id, visual_id, mult, ability_level=passive_level)
+    # ⚠ #570-r3 : MEME defaut que `build_summon_context` (`abilitiesLevel ?? abilityState.level`
+    # de `SpawnUnitOptions$$WithStatsFromConfig`) -- l'owner-effect d'une ability de l'unite posee
+    # s'indexe sous le MEME niveau que le reste de ses abilities. Un `None` ici faisait lire
+    # `variables[1]` (`Ramshackle_DmgReduction` = 5 au lieu du palier du summoner).
+    _seed_ability_owner_effects(state, e.id, visual_id, mult,
+                                ability_level=(level if passive_level is None else passive_level))
     _maybe_seed_ignore_battle_fatigue(state, e.id, team, mult)   # aura SquigHound -> grots amis immunisés
     e.add_component(PositionComponent(col=tinfo["col"], row=tinfo["row"]))
     if feet_tiles and board is not None:

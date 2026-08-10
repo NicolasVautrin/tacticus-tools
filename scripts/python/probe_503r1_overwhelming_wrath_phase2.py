@@ -115,6 +115,18 @@ def bind_transport(sid: int):
 
 
 def load(sid, rid):
+    """L'etat PORT reconstruit depuis les canaux live. Foyer PARTAGE (5 consommateurs).
+
+    ⚠ `ability_states` (#570-r3) : le canal `unitAbilityStates` etait le SEUL des six que ce
+    harnais ne collectait pas, et c'est celui qui porte l'`AbilityState` PAR INSTANCE d'ability
+    montee. Sans lui, `snapshot._load_passive_abilities` n'a rien a seeder et toute unite SANS
+    `UnitConfiguration` -- c'est-a-dire toute unite INVOQUEE, dont `combatSnapshot.unitConfig`
+    rend litteralement `{"error": "config null"}` -- garde `passive_ability_level = 0` /
+    `ability_variables_multiplier = 100`. Consequence MESUREE (#570-r3) : le
+    `Ramshackle_DmgReduction` du Grot Tank lisait `dmgReduction[1] = 5` au lieu du palier du
+    summoner, ce qui rendait toute comparaison de magnitude inexploitable.
+    TRI-ETAT conserve : le seed n'ecrit que si le canal parle ET que le trou existe (le garde
+    `not getattr(ctx, "passive_ability_level", None)` de `_load_passive_abilities`)."""
     from engine.entities.pathfinding.board import Board
     from engine.runner.snapshot import load_state
     bg = rpc(sid, "boardGraph", {"runnerId": rid}, 60)
@@ -123,7 +135,8 @@ def load(sid, rid):
     ob = rpc(sid, "observeBattle", {"runnerId": rid}, 40)
     snap = rpc(sid, "combatSnapshot", {"runnerId": rid}, 60)
     tiles = rpc(sid, "tileMeta", {"runnerId": rid}, 60)
-    return load_state(dec, ob, snap, board=board, tiles=tiles), dec
+    abst = rpc(sid, "unitAbilityStates", {"runnerId": rid}, 60)
+    return load_state(dec, ob, snap, board=board, tiles=tiles, ability_states=abst), dec
 
 
 def decision(sid, rid):

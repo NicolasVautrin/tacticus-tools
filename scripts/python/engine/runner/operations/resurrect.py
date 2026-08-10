@@ -66,10 +66,19 @@ def update_flags_on_resurrect(fl: UnitFlagsComponent) -> None:
     Fonction de MODULE, sans etat, pour la meme raison que `damage_hits.overkill_hit_emits` :
     c'est le point de MUTATION des contre-epreuves.
 
-    ⚠ `Add(2 = UnitFlag.ActiveAbilityUsed)` du natif reste NON PORTE : aucune mesure ne l'exerce ici
-    (il gouverne la face DECISION -- `HasOwnersActiveAbilityBeenUsed` --, pas la cardinalite d'une
-    attaque), et le poser sans confrontation contredirait le tour immediat que `immediate_turn`
-    vient d'ouvrir. Residu nomme dans `docs/rl/case-462-r4e-o-amount-borne-aux-pv.md` SS 8.
+    ⚠ **`Add(2 = UnitFlag.ActiveAbilityUsed)` EST PORTE depuis #564-r4, et le decompile TRANCHE la
+    question que le residu laissait ouverte.** Le doute etait « le poser inconditionnellement
+    contredirait le tour immediat » : il ne le contredit pas, parce que le natif le pose AVANT le
+    bras `options` et que le bras `options != 0` (`takesImmediateTurn`) appelle ENSUITE
+    `IdunBattle.Entities.Components.UnitFlagsComponent$$RemoveTurnFlags`, qui retire TOUJOURS
+    `{ActiveAbilityUsed(2), TurnFinished(3), TurnTerminated(27)}` (les trois `Remove` places hors
+    de ses deux gates). L'inconditionnel du natif est donc DEJA la forme correcte pour les deux
+    bras -- c'est le retrait qui est conditionnel, pas la pose.
+    MESURE live (#564-r1-r2, `probe_564r1r2_soin_et_no_action.py`, cast de `1039` sur un tour non
+    cloture) : flags natifs du ressuscite = `[ActiveAbilityUsed, ArrivedAtFinalTile, Moved,
+    NoActionAvailable, Resurrected, TurnFinished, TurnTerminated]`, port = les memes MOINS
+    `ActiveAbilityUsed` et `TurnTerminated`.
+
     `Add(0xe)` reste chez l'appelant : c'est lui qui porte le sens « one-shot »."""
     for f in (UnitFlagsComponent.DEAD,          # Remove(6)    -- UnitFlag.Dead
               UnitFlag.Downed,                  # Remove(0xf)  -- UnitFlag.Downed (aucun poseur porte)
@@ -77,6 +86,7 @@ def update_flags_on_resurrect(fl: UnitFlagsComponent) -> None:
               UnitFlagsComponent.REMOVED,       # Remove(0x1a) -- UnitFlag.Removed
               UnitFlagsComponent.FLED):         # Remove(9)    -- UnitFlag.Fled (pose par `behaviour.py`)
         fl.remove(f)
+    fl.add(UnitFlagsComponent.ACTIVE_ABILITY_USED)   # Add(2) -- UnitFlag.ActiveAbilityUsed
 
 
 def tiles_are_occupied(state: State, feet_tiles: list) -> bool:
@@ -277,23 +287,40 @@ class ResurrectUnitOperation:
         # (foyer/point de mutation : `update_flags_on_resurrect`, cf. sa docstring).
         update_flags_on_resurrect(fl)
         fl.add(UnitFlagsComponent.AMBUSH_CONSUMED)      # Add(0xe) — one-shot
-        # tour immédiat : RemoveTurnFlags(1,1) -> l'unité redevient actionnable (retire NoAction + turn-flags)
+        # tour immédiat : RemoveTurnFlags(1,1) -> l'unité redevient actionnable (retire NoAction +
+        # turn-flags, dont l'`ActiveAbilityUsed` que `update_flags_on_resurrect` vient de poser).
         no_action = None
+        finish_turn = None
         if immediate_turn:
             fl.remove_turn_flags(include_no_action=True, new_activation=True)
-        else:
-            # `if (!options) processor.<slot 0x23>(unit, 1)` -- l'AUTRE bras du meme `if`, place par
-            # le natif APRES l'emission d'`On(UnitResurrected)`. Le port l'appelle ici, avant le
-            # dispatch : `MarkUnitAsNoActionAvailableOperation` ne pose qu'un flag et n'emet aucun
-            # evenement, donc l'ordre est inobservable -- et le faire AVANT garantit qu'un trigger
-            # aval voit deja l'unite hors-jeu pour ce tour.
-            from .turnflow import MarkUnitAsNoActionAvailableOperation
-            no_action = MarkUnitAsNoActionAvailableOperation.execute(state, int(unit_id))
         # émet On(UnitResurrected=46) -> G2 BuffFriends (+582 + decoy si GS Cult) + G5 ré-arme HeroicFusillade
         downstream = unit_resurrected_triggers(state, unit_id)
+        if not immediate_turn:
+            # #564-r4 -- L'AUTRE BRAS DU MEME `if`, ET LE SLOT AVAIT ETE MAL RESOLU.
+            # `if (!options) processor.<slot 0x23>(unit, 1)` : le slot `0x23` vaut **35 =
+            # `FinishUnitTurn`** (2 parametres : unit, isTerminated), LU dans
+            # `data/symbols/<build>/metadata/ioperationprocessor_slots.tsv` -- et NON
+            # `MarkUnitAsNoActionAvailable`, qui est le slot **118 = 0x76**. C'est cette confusion
+            # qui laissait `UnitFlag.TurnTerminated` (27) sans poseur identifie.
+            #
+            # `IdunBattle.Operations.FinishUnitTurnOperation$$Execute(unit, isTerminated: true)`
+            # pose, dans cet ordre : `Add(27 TurnTerminated)` (sous le gate `isTerminated`),
+            # `Add(1 ArrivedAtFinalTile)`, `Add(3 TurnFinished)`, puis -- DERNIERE instruction,
+            # inconditionnelle -- le slot 0x76 `MarkUnitAsNoActionAvailable`. Le
+            # `UnitFlag.NoActionAvailable` mesure par #564-r1-r2 arrive donc bien par ce chemin :
+            # le verdict live etait juste, seul son ETAGE etait mal nomme.
+            #
+            # ⚠ L'ORDRE N'EST PLUS INOBSERVABLE, et c'est pourquoi l'appel a DESCENDU sous
+            # `unit_resurrected_triggers`. L'ancien appel ne posait qu'un flag muet ; celui-ci
+            # PUBLIE (`On(0x28 = UnitFinishedTurn)`, et le step `Events`). Le natif l'emet APRES
+            # `On(0x2e = UnitResurrected)` -- ordre du decompile, desormais reproduit.
+            from .turnflow import FinishUnitTurnOperation
+            finish_turn = FinishUnitTurnOperation.execute(state, int(unit_id), forced=True)
+            no_action = finish_turn.get("no_action")
         return {"resurrected": int(unit_id), "tile": (int(dest_coord[0]), int(dest_coord[1])) if dest_coord else None,
                 "hp": int(hp) if hp is not None else None, "crushed_decoy": crushed,
                 "immediate_turn": bool(immediate_turn), "no_action": no_action,
+                "finish_turn": finish_turn,
                 "heal_type": int(heal_type), "downstream": downstream,
                 # #564-r3 : les gates de tuile evalues (None = `dest_coord is None`, regime propre
                 # au port ou ils sont NON APPLICABLES) et le compte d'entrees persistantes purgees.

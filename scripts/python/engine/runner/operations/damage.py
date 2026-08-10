@@ -1170,7 +1170,7 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
         (2026-07-30) : `necroOverlord` porte `Resilient` au gameconfig et NE le porte PAS en
         bataille ; ce lecteur capait donc son degat a `HP-1` et le rendait IMPOSSIBLE A TUER
         offline, alors que le natif le tue. `nrOfMembers` reste gameconfig : ce n'est pas un trait
-        (c'est `GroupUnitComponent`, autre canal, hors #264)."""
+        (c'est `NumberOfMembersComponent`, autre canal, hors #264)."""
         tuc = tgt.get_component(UnitComponent) if tgt is not None else None
         if tuc is None or thc is None or not thc.hp_max:
             return None
@@ -1189,7 +1189,7 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
             "target_has_resilient": has_res,
             "target_has_impervious": "Impervious" in utraits,
             "impervious_stat_current": None,   # charge Impervious non captee offline -> no-op (comme la prediction)
-            "member_count": n,                 # GroupUnitComponent (IdunBattle.Core.Services.DamagePrediction$$ApplyGroupUnitDamageLimit lit le composant cible)
+            "member_count": n,                 # NumberOfMembersComponent (IdunBattle.Core.Services.DamagePrediction$$ApplyGroupUnitDamageLimit lit le composant cible)
             "member_total_hp": int(thc.hp_max),
             "profile_has_hits_multiple_members": DamageTrait.HitsMultipleMembers.name in _dp_traits,
             # `max_health` = param_11 du core : pour l'EXECUTION c'est le HP AU DEBUT DE L'ATTAQUE

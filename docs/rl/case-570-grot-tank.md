@@ -157,12 +157,44 @@ publie 1090 sur le tank ; le tank du **port** le porte aussi ; et le **témoin n
 perçage 60 > 30) rend **6862 == 6862**.
 
 **NON CONFRONTÉ — la MAGNITUDE, et le PLACEMENT avec elle.** Le port lit `dmgReduction[**1**] = 5`
-au lieu du palier réel, parce que l'entité NPC fraîchement spawnée arrive côté port avec
-`passive_ability_level = 0` et `ability_variables_multiplier = 100` (mesuré) — **le même trou de
-substrat que l'étage E3 ci-dessus**. Tant que ce niveau est faux, aucune comparaison de magnitude
-n'est concluante : les écarts mesurés (5 sur `Physical`, 487 sur `Energy`) sont inexploitables, et
-le placement pré- vs post-perçage reste **présumé** par la famille Nightshroud/`PsychicFortress`.
-Résidu **#570-r3**.
+au lieu du palier réel. Tant que ce niveau est faux, aucune comparaison de magnitude n'est
+concluante : les écarts mesurés (5 sur `Physical`, 487 sur `Energy`) sont inexploitables, et le
+placement pré- vs post-perçage reste **présumé** par la famille Nightshroud/`PsychicFortress`.
+
+### #570-r3 (2026-08-10) — le blocage était en DEUX étages, le premier est levé
+
+⚠ **La cause écrite ici était FAUSSE sur un point** : `combatSnapshot` **publie bien** l'entité NPC
+fraîchement spawnée (le probe la lit et en imprime les stats). Ce qui manque n'est pas l'entité,
+c'est sa **configuration** — et le blocage se ventile en deux étages **distincts** :
+
+* **ÉTAGE 1 — L'UNITÉ. LEVÉ, mesuré.** Une unité INVOQUÉE n'a aucune `UnitConfiguration` (le natif
+  la fabrique par `SpawnUnitOptions$$WithStatsFromConfig`, pas depuis une config), donc
+  `combatSnapshot.unitConfig` rend `{"error": "config null"}` et le port gardait
+  `passive_ability_level = 0` / `mult = 100`. Le canal qui porte l'information est
+  **`unitAbilityStates`**, que `snapshot._load_passive_abilities` sait consommer **depuis
+  #462-r4b-…-r3** — mais que le harnais des probes (`probe_503r1_overwhelming_wrath_phase2.load`,
+  5 consommateurs) **ne collectait pas**. Après correction : le CTX du tank passe de
+  `(passive_ability_level 0, mult 100)` à **`(50, 180)`**.
+  S'y ajoute, côté spawn **PORTÉ**, un défaut faux : `build_summon_context` laissait
+  `passive_ability_level` à `0` quand l'appelant ne le précisait pas, alors que
+  `IdunBattle.Entities.Behaviours.SpawnUnitOptions$$WithStatsFromConfig` écrit
+  `if (abilitiesLevel == null) abilitiesLevel = abilityState.level` (et de même pour le
+  multiplicateur) — **aucune branche native ne laisse ce niveau à zéro**, et le natif n'a qu'UN
+  niveau pour toutes les abilities de l'unité posée. Seconde voie qui le confirme :
+  `IdunBattle.Operations.AddUnitOperation$$InherentAbilitiesLevelFromParent` prend le MAX des
+  `AbilityState` du parent et le pose sur celles de l'unité.
+* **ÉTAGE 2 — L'INSTANCE D'EFFET. NON LEVÉ.** L'effet porte toujours `ability_level = None` /
+  `mult = 100`, donc `lvl` retombe sur `self.level` (= `1`, le niveau de l'EFFET publié par
+  `decisionView.effects`) et la magnitude reste `dmgReduction[1] = 5`. Cause **déjà nommée dans le
+  code** (`engine/entities/effects/factory.py`) : `load_state` matérialise les effets **AVANT**
+  `_load_passive_abilities`, donc à la naissance de l'effet le CTX de son owner porte encore
+  `0`/`100`. Le remède y est écrit — déplacer le seed d'owner-effects après
+  `_load_passive_abilities` — mais c'est un changement d'**ORDRE** dans `load_state` dont le rayon
+  de souffle n'est pas mesuré.
+
+⇒ **magnitude et placement restent NON CONFRONTÉS**, et le blocage change de nature : il n'est plus
+`seeding` (l'unité a son niveau) mais `etage` (l'instance d'effet ne le lit pas). Résidu **#570-r5**
+(`--suggere 570` : `r1..r4` sont pris).
 
 ## Artefacts
 

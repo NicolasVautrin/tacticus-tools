@@ -246,6 +246,46 @@ def test_le_port_pose_le_meme_no_action(banc):
         % m["port_flags"][int(m["bait"])])
 
 
+def test_les_flags_du_ressuscite_sont_EGAUX_des_deux_cotes(banc):
+    """[#564-r4] LE CRAN DE LA TRANCHE : l'ENSEMBLE des flags, pas deux d'entre eux.
+
+    #564-r1-r2 mesurait ici un ecart de DEUX flags -- `UnitFlag.ActiveAbilityUsed` (2) et
+    `UnitFlag.TurnTerminated` (27) -- que le port ne posait pas. Les deux poseurs sont maintenant
+    LUS :
+
+      * `Add(2)` est **inconditionnel** dans `IdunBattle.Operations.ResurrectUnitOperation$$Execute`,
+        AVANT le bras `takesImmediateTurn` ; c'est
+        `IdunBattle.Entities.Components.UnitFlagsComponent$$RemoveTurnFlags` (appele par le bras
+        `takesImmediateTurn`) qui le RETIRE -- ses trois `Remove` hors gate sont
+        `{ActiveAbilityUsed(2), TurnFinished(3), TurnTerminated(27)}`. La pose inconditionnelle est
+        donc la forme correcte pour les DEUX bras.
+      * `Add(27)` vient du bras `!takesImmediateTurn` : `processor.<slot 35 = FinishUnitTurn>(unit,
+        isTerminated: true)` -> `IdunBattle.Operations.FinishUnitTurnOperation$$Execute`, qui pose
+        `TurnTerminated` sous ce gate puis, en derniere instruction, le slot 118
+        `MarkUnitAsNoActionAvailable`. Le slot avait ete lu comme `MarkUnitAsNoActionAvailable`
+        (118), d'ou un flag sans poseur identifie.
+
+    ⚠ COMPARAISON PAR ENSEMBLE, ET AVEC SON ANTI-DEGENERESCENCE : un test qui ne verifierait que
+    la PRESENCE des deux flags neufs passerait aussi si le port en posait dix de trop. On exige
+    donc l'EGALITE, et on exige que l'ensemble contienne les deux flags de #564-r4 (sans quoi
+    l'egalite pourrait tenir sur deux ensembles egalement amputes)."""
+    from engine.entities.unit_flag import UnitFlag
+    m = banc
+    _montage_ok(m)
+    bait = int(m["bait"])
+    noms_natifs = m["flags_after"].get(bait)
+    assert noms_natifs, "flags natifs non publies pour le ressuscite -- pas une mesure"
+    # Le canal natif publie des NOMS (`probe._flags` les resout via `unitFlagTypes`), le port des
+    # ordinaux : on compare sur les noms, seul canal ou une confusion d'enum serait visible.
+    noms_port = sorted(UnitFlag(int(f)).name for f in m["port_flags"][bait])
+    assert noms_port == sorted(noms_natifs), (
+        "flags du ressuscite : port %s != natif %s" % (noms_port, sorted(noms_natifs)))
+    for attendu in ("ActiveAbilityUsed", "TurnTerminated", "NoActionAvailable"):
+        assert attendu in noms_port, (
+            "l'egalite tient sur un ensemble AMPUTE : `%s` manque des DEUX cotes (%s)"
+            % (attendu, noms_port))
+
+
 def test_le_ressuscite_revient_a_la_MEME_tuile_des_deux_cotes(banc):
     """[NOACT/4] Cran de non-regression du volet deja acquis par #564 : la tuile PREDITE par le
     port et celle POSEE par le natif restent egales sur ce montage-ci, qui n'est pas celui de

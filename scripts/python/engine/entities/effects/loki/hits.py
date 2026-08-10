@@ -1923,7 +1923,7 @@ class Swarm_HitReductionEffect(BaseEffect):
         Negative(Min(Difference(StatAmount(Self, 20, part 3=INITIAL), Const1@+0xc0),
                      StatAmount(Self, 20, part 4=MISSING))))`
     = **−min(nrOfMembers − 1, membres MORTS)** (plancher structurel 1 hit). Stat 20 = NUMBER_OF_MEMBERS,
-    résolue par le handler jumptable 0x14 de `IdunBattle.Entities.UnitExtensions$$GetStat` (IdunBattle.Entities.UnitExtensions$$GetStat+0x859) → GroupUnitComponent
+    résolue par le handler jumptable 0x14 de `IdunBattle.Entities.UnitExtensions$$GetStat` (IdunBattle.Entities.UnitExtensions$$GetStat+0x859) → NumberOfMembersComponent
     fill-up {+0x10=nrOfMembers, +0x18=membres restants} via `IdunBattle.Entities.Components.FillUpStatComponent$$GetStatPart`.
     Triggers `IdunBattleLogic.Entities.Abilities.Active.Loki.SwarmAbility$$CreateTrigger` : (On(UnitRepaired=48)|On(UnitHealed=43)|On(UnitMemberDeath=47)|
     On(UnitRevived=45)) & OwnerIsTarget | OnOwnerSpecificAbilityInit(1023) — tous les événements qui

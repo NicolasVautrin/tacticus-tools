@@ -27,7 +27,7 @@ if TYPE_CHECKING:
 
 
 def group_unit_members(state: "State", unit_id) -> int:
-    """`GetComponent<GroupUnitComponent>(target)+0x10` = `nrOfMembers`, le champ que
+    """`GetComponent<NumberOfMembersComponent>(target)+0x10` = `nrOfMembers`, le champ que
     `IdunBattle.Core.Services.DamagePrediction$$GetGroupUnitHealLimit` lit en TOUT PREMIER
     (`if (nrOfMembers < 2) return int.MaxValue`).
 

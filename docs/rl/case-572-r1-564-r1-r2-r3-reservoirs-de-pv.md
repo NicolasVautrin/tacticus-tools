@@ -177,15 +177,92 @@ chiffrée **nulle** sur les deux call-sites portés, tous deux mono-hex.
 
 ---
 
-## 5. Résidus ouverts
+## 5. Résidus — les DEUX sont fermés (2026-08-10)
 
-* **#572-r3** — `Armor` (4) et `NumberOfMembers` (20) sont les deux autres cases fill-up du switch
-  natif ; côté port elles vivent encore dans `UnitStats` sous un `StatComponent`, dont
-  `StatPart.Current` et `StatPart.Maximum` rendent **la même valeur** là où le natif les sépare.
-  Le capteur existe pourtant des deux côtés (`combatSnapshot.armorMax` / `.numberOfMembersMax`,
-  #477-r15-r5/r7).
-* **#564-r4** — `ActiveAbilityUsed` et `TurnTerminated`, posés par le natif sur le ressuscité,
-  ne le sont pas par le port.
+### #572-r3 — `NumberOfMembers` était un fill-up déguisé ; `Armor` est un régime VIDE
+
+Le résidu posait les deux stats sur le même plan. **La mesure les sépare**
+(`probe_572r3_membres_et_armure.py`, `MC1_67`/777, deux swarms à 5 membres, 14 tours) :
+
+| grandeur | entités vues | non nulles | obs. où le natif SÉPARE Current/Maximum | écarts du port |
+|---|---|---|---|---|
+| **membres** | 13 | 13 | **14** | **14**, tous sur `maximum` (natif `5`, port `1..4`) |
+| **armure** | 13 | **0** | 0 | — (**régime vide**) |
+
+* **`NumberOfMembers` (20) — PORTÉ.** Sous `StatComponent`, `GetStatPart` rend `get_CurrentValue()`
+  pour les parts 0 **et** 2 : `StatPart.Maximum` rendait donc les membres **restants**. Le natif les
+  sépare **sans aucune stat-modification**, parce que son champ courant est ENTRETENU —
+  `IdunBattle.Operations.UpdateUnitMembersOperation$$Execute` pose
+  `NumberOfMembersComponent+0x18 = IBattleQuery.<slot 184 GetGroupUnitRemainingMemberCount>(unit, null)`,
+  appelé après chaque dégât par `IdunBattle.Operations.ApplyDamageOperation$$UpdateNumberOfMembersStat`
+  (qui en rend `avant − après` = les membres morts). `seed_unit_stats` pose maintenant un
+  `FillUpStatComponent`, et `group_unit_stat_part` sépare les parts 2 et 3 — **le piège de #873, à
+  l'identique** (`if p in (2, 3): return n`).
+* **`Armor` (4) — NON PORTÉ, et c'est un VERDICT.** `observeBattle.armor` et
+  `combatSnapshot.armorMax` valent **0** sur les 13 entités × 14 tours, et **aucune** des
+  configurations `lineup`/`npc`/`summons` du gameconfig ne porte de stat `Armor` (elles ne portent
+  que `FixedArmor`). Le canal existe, le régime est vide : router l'écriture serait un port
+  **spéculatif**, invalidable par construction. Corollaire lu en passant : la clé `armor` n'est pas
+  dans `COMBAT_STAT_IDS` mais dans `STAT_IDS_MAX_SEUL`, donc `combatSnapshot` ne publie **aucun**
+  `stats.armor` — un probe qui l'attendrait écarterait toutes les unités en silence (mesuré : 0
+  entité vue au premier jet).
+
+⚠ **Le nom natif du composant était FAUX.** `GroupUnitComponent` **n'existe pas** dans le build
+(0 ligne dans `classes.tsv`) : le composant du case 20 est
+`IdunBattle.Entities.Components.NumberOfMembersComponent`, et les trois fill-up
+(`ArmorComponent`, `HealthComponent`, `NumberOfMembersComponent`) héritent bien de
+`FillUpStatComponent`. Seul le **préfixe** `GroupUnit` existe, sur des fonctions de
+`DamageCalculations`/`BattleQuery`. Corrigé sur les 12 sites.
+
+⚠ **Le cliquet de #572-r1 serait resté VERT.** `test_le_dispatch_fillup_declare_ce_qu_il_ne_couvre_PAS`
+n'assertionnait qu'`_FILLUP_STAT_COMPONENTS` ; #572-r3 couvre `NumberOfMembers` par une **seconde
+voie** (`_FILLUP_DANS_UNIT_STATS`, le composant vivant dans `UnitStats`), donc le garde aurait
+continué à déclarer la stat non couverte. Il **dérive** maintenant sa couverture des deux tables.
+
+### #564-r4 — le poseur de `TurnTerminated` était un SLOT MAL RÉSOLU
+
+La fiche annonçait « le poseur n'est nommé nulle part ». Il l'était : c'est le slot que §2 citait
+déjà, mais sous le **mauvais nom**.
+
+* `processor.<slot 0x23>` = **35 = `FinishUnitTurn`** (2 paramètres : `unit`, `isTerminated`), lu
+  dans `data/symbols/<build>/metadata/ioperationprocessor_slots.tsv` — **et non**
+  `MarkUnitAsNoActionAvailable`, qui est le slot **118 = 0x76**.
+* `IdunBattle.Operations.FinishUnitTurnOperation$$Execute(unit, isTerminated: true)` pose
+  `Add(27 TurnTerminated)` sous le gate `isTerminated`, puis `Add(1)`, `Add(3)`, puis — **dernière
+  instruction, inconditionnelle** — le slot 118 `MarkUnitAsNoActionAvailable`. Le
+  `NoActionAvailable` mesuré par §2 arrive donc bien par ce chemin : **le verdict live était juste,
+  seul son étage était mal nommé.**
+
+⚠ **La question « à trancher avant de poser » est tranchée PAR LE DÉCOMPILÉ, et dans l'autre sens.**
+Le doute était « poser `ActiveAbilityUsed` inconditionnellement contredirait le tour immédiat ».
+Il ne le contredit pas : le natif pose `Add(2)` **avant** le bras `takesImmediateTurn`, et ce bras
+appelle ensuite `IdunBattle.Entities.Components.UnitFlagsComponent$$RemoveTurnFlags`, dont les trois
+`Remove` **hors gate** sont exactement `{ActiveAbilityUsed(2), TurnFinished(3), TurnTerminated(27)}`.
+C'est le **retrait** qui est conditionnel, pas la pose.
+
+⚠ **L'ORDRE a cessé d'être inobservable.** Le port appelait `MarkUnitAsNoActionAvailable` *avant*
+`On(UnitResurrected)`, en argumentant qu'un flag muet ne s'observe pas. `FinishUnitTurn`, lui,
+PUBLIE (`On(0x28)`, le step `Events`) — l'appel est donc descendu sous `unit_resurrected_triggers`,
+à sa place native.
+
+**CONFRONTÉ** (`probe_564r1r2_soin_et_no_action.py`, même banc) : port `[0, 1, 2, 3, 4, 14, 27]`
+== natif `[ActiveAbilityUsed, ArrivedAtFinalTile, Moved, NoActionAvailable, Resurrected,
+TurnFinished, TurnTerminated]` — **7 flags sur 7**, contre 5 sur 7 avant.
 
 Non traité et **nommé**, hors résidu : l'empreinte multi-hex de la résurrection (§3), dont le foyer
 est chez un autre porteur.
+
+## 6. Mutations — dix posées, dix rouges
+
+| # | mutation | ce qu'elle simule |
+|---|---|---|
+| M1..M7 | cf. §4 | #572-r1 |
+| **#572-r3 M1** | stat 20 re-seedé en `StatComponent` | l'état d'AVANT la tranche |
+| **#572-r3 M2** | `group_unit_stat_part` confond 2 et 3 | le piège de #873 |
+| **#572-r3 M3** | `get_CurrentMaximumValue` ignore `+0x28` | un maximum figé |
+| **#572-r3 M4** | `compare_unit_stats` réclame `modification` sur un fill-up | la confusion de grandeurs |
+| **#572-r3 M5/M6** | `_FILLUP_STATS` amputé / `ARMOR` routée | le cliquet de couverture |
+| **#572-r3 M7** | part `OVERRIDE` rendue à `0` | le repli `override ?? +0x14` |
+| **#564-r4 N1** | `Add(2)` retiré | l'état d'AVANT la tranche |
+| **#564-r4 N2** | bras `!immediate` re-branché sur le slot 118 | l'erreur de lecture du slot |
+| **#564-r4 N3** | `FinishUnitTurn(isTerminated: false)` | le gate du flag 27 |

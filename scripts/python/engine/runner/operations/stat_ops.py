@@ -17,7 +17,8 @@ from __future__ import annotations
 
 from typing import Optional
 
-from ...entities.stats import StatComponent, StatPart, StatType, STAT_CLAMP_MAX
+from ...entities.stats import (FillUpStatComponent, StatComponent, StatPart, StatType,
+                               STAT_CLAMP_MAX)
 from ..components import HealthComponent, StatsComponent
 
 
@@ -37,7 +38,7 @@ def _ctx(state, unit_id: int):
 #
 #     case 4  = StatType.Armor              -> FillUpStatComponent (`ArmorComponent`)
 #     case 5  = StatType.Health             -> FillUpStatComponent (`HealthComponent`)
-#     case 20 = StatType.NumberOfMembers    -> FillUpStatComponent (`GroupUnitComponent`)
+#     case 20 = StatType.NumberOfMembers    -> FillUpStatComponent (`NumberOfMembersComponent`)
 #
 # ⚠ Pour ces trois-la, le natif n'a **AUCUN** `StatComponent` : la modification vit dans le
 # `ValueModification` du composant fill-up, et elle releve le MAXIMUM
@@ -45,25 +46,45 @@ def _ctx(state, unit_id: int):
 # `UnitStats.components[<stat>]`, **que rien ne relit pour les PV** -- le no-op silencieux de
 # #572-r1 (natif `+9970` de max, port `+0`).
 #
-# Le port ne porte de composant fill-up DEDIE que pour HEALTH. ARMOR et NUMBER_OF_MEMBERS restent
-# dans `UnitStats` sous un `StatComponent` generique, dont `StatPart.CURRENT` et
-# `StatPart.MAXIMUM` rendent la MEME valeur la ou le natif les separe -> residu **#572-r3**.
+# #572-r3 -- LES DEUX AUTRES CASES, ET POURQUOI ELLES SE TRAITENT DIFFEREMMENT.
+#
+# * `StatType.HEALTH` a un composant ECS DEDIE (`HealthComponent`, #572-r1) : c'est LUI le
+#   reservoir, et `UnitStats.components[5]` n'est qu'un doublon que `GetStat` court-circuite.
+# * `StatType.NUMBER_OF_MEMBERS` vit dans `UnitStats.components[20]`, seede en
+#   `FillUpStatComponent` depuis #572-r3 -- c'est le MEME layout natif
+#   (`NumberOfMembersComponent : FillUpStatComponent`), donc la meme famille d'ecritures
+#   (`ModifyMax` / `ReverseMaxModification` / `OverrideMax` / `RemoveMaxOverride`).
+# * `StatType.ARMOR` n'est PAS route : MESURE live (#572-r3, `probe_572r3_membres_et_armure.py`,
+#   13 entites x 14 tours) -- `observeBattle.armor` et `combatSnapshot.armorMax` valent **0** sur
+#   TOUTES, et le gameconfig ne porte QUE `FixedArmor` (aucune des 683 configurations `lineup`/
+#   `npc`/`summons` n'a de stat `Armor`). Le canal existe, le regime est VIDE : router l'ecriture
+#   serait un port SPECULATIF, invalidable par construction. Verdict et temoins : la case-doc.
 _FILLUP_STAT_COMPONENTS = {
     StatType.HEALTH: HealthComponent,      # case 5 -- `IdunBattle.Entities.Components.HealthComponent`
 }
 
+#: Les stats fill-up dont le composant vit dans `UnitStats` (et non en composant ECS dedie).
+#: case 20 -- `IdunBattle.Entities.Components.NumberOfMembersComponent`.
+_FILLUP_DANS_UNIT_STATS = (StatType.NUMBER_OF_MEMBERS,)
+
 
 def _fillup_component(state, unit_id: int, stat_type: int):
-    """Le composant fill-up DEDIE qui porte `stat_type`, ou `None` si le port n'en a pas (stat non
-    fill-up, ou fill-up encore heberge par `UnitStats`, ou unite sans le composant).
+    """Le composant fill-up qui porte `stat_type`, ou `None` si le port n'en a pas (stat non
+    fill-up, ou unite sans le composant).
 
     C'est le mirror du dispatch ci-dessus : quand il rend un composant, l'ecriture DOIT y aller et
-    NON dans `UnitStats` -- sinon deux reservoirs pour une meme grandeur, et un seul bouge."""
-    cls = _FILLUP_STAT_COMPONENTS.get(int(stat_type))
-    if cls is None:
-        return None
-    ent = state.get_entity(int(unit_id))
-    return None if ent is None else ent.get_component(cls)
+    NON dans le `StatComponent` de `UnitStats` -- sinon deux reservoirs pour une meme grandeur, et
+    un seul bouge."""
+    idx = int(stat_type)
+    cls = _FILLUP_STAT_COMPONENTS.get(idx)
+    if cls is not None:
+        ent = state.get_entity(int(unit_id))
+        return None if ent is None else ent.get_component(cls)
+    if idx in _FILLUP_DANS_UNIT_STATS:
+        ctx = _ctx(state, unit_id)
+        comp = ctx.stats.components.get(idx) if ctx is not None else None
+        return comp if isinstance(comp, FillUpStatComponent) else None
+    return None
 
 
 def _ensure_component(ctx, stat_type: int) -> StatComponent:

@@ -18,8 +18,8 @@
   On(UnitMemberDeath=48,0) | On(UnitRevived=46,1)) & OwnerIsTarget |
   OnOwnerSpecificAbilityInit(1023)` — exactement les événements qui changent le compte de membres.
 - **Stat 20 (NUMBER_OF_MEMBERS)** : branche DÉDIÉE de `GetStat @180ed30d0` — la jumptable
-  (@180ed3c40, entrée 0x14 → handler @180ed3929) fait `GetComponent<GroupUnitComponent>` puis
-  **`FillUpStatComponent.GetStatPart @180f9b3a0`** direct. Layout fill-up du GroupUnitComponent :
+  (@180ed3c40, entrée 0x14 → handler @180ed3929) fait `GetComponent<NumberOfMembersComponent>` puis
+  **`FillUpStatComponent.GetStatPart @180f9b3a0`** direct. Layout fill-up du NumberOfMembersComponent :
   `+0x10` = nrOfMembers (base), `+0x18` = membres **restants** (champ MAINTENU par le jeu).
   `GetStatComponent @180ed20c0` n'a **pas** de case 0x14 (stat 20 ≠ StatComponent).
 - **Parts de `GetStatPart @180f9b3a0`** (re-décompilé) : 0→current(+0x18), 1→pct,
@@ -80,7 +80,7 @@ Faces heal-limit (pures, `DamageCalculations` déjà portées #57d) :
   `operations/resurrect.py` (On(UnitRevived=46)) ; init = l'attribution d'hydratation
   (OnOwnerSpecificAbilityInit(1023)).
 - `runner/abilities/behaviours.py` : branche stat 20 dans le `_get_stat` du DslContext (mirror du
-  handler jumptable — GroupUnitComponent, PAS UnitStats).
+  handler jumptable — NumberOfMembersComponent, PAS UnitStats).
 - `ai/action_generators.py` : `_group_heal_limit` + wiring `group_limit` aux 3 call-sites
   heal/repair, **gaté OFF** par les flags mesurés.
 

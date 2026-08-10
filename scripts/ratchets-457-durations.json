@@ -233,6 +233,7 @@
  "tests/engine/test_566r1_sure_kill_gate_offline.py": 0.076,
  "tests/engine/test_572_unbreakable_duty_offline.py": 0.029,
  "tests/engine/test_572r1_hpmax_fillup_offline.py": 0.026,
+ "tests/engine/test_572r3_membres_fillup_offline.py": 0.015,
  "tests/engine/test_589r1r1r2r1r2_union_non_dedupliquee_offline.py": 0.491,
  "tests/engine/test_590_attempted_possession_offline.py": 0.063,
  "tests/engine/test_590r4_utility_entity_offline.py": 0.015,
