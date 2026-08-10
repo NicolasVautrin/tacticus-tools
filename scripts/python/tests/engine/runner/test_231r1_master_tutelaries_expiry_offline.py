@@ -30,10 +30,33 @@ pour trancher, et c'est un montage live, pas un test offline.
 """
 from __future__ import annotations
 
-from engine.entities.effect_type import EffectType
-from engine.entities.effects.factory import EffectFactory
-from engine.entities.effects_state import EffectsState
-from engine.runner.operations.triggers.loki import master_of_the_tutelaries as MOT
+DECLENCHEUR = {
+    "chemins": (
+        "scripts/python/conftest.py", "scripts/python/tests/conftest.py",
+        "scripts/python/tests/engine/conftest.py",
+        "scripts/python/tests/engine/runner/conftest.py",
+        "scripts/python/engine/entities/effects_state.py",
+        "scripts/python/engine/entities/effects/factory.py",
+        "scripts/python/engine/entities/effect_type.py",
+        "scripts/python/engine/runner/operations/triggers/loki/master_of_the_tutelaries.py",
+        # La DUREE que ces etages supposent (`Direct(1)` = 1 TOUR) est ecrite par l'arbre de
+        # `1096`, dans ce module-la : la changer perimerait le montage sans toucher aux foyers
+        # ci-dessus.
+        "scripts/python/engine/runner/abilities/loki/summon.py",
+    ),
+    "build": False,
+    "toujours": False,
+    "raison": "Purement offline : aucun runner, aucun RPC. Les quatre etages n'exercent que le "
+              "tick d'`EffectsState.on_turn_end` et le gate `_master_effect_is_carried_and_active`, "
+              "sur une `EffectsState` construite a la main. Le perimetre couvre les deux foyers "
+              "plus le poseur de la duree.",
+}
+
+from engine.entities.effect_type import EffectType                       # noqa: E402
+from engine.entities.effects.factory import EffectFactory                # noqa: E402
+from engine.entities.effects_state import EffectsState                   # noqa: E402
+from engine.runner.operations.triggers.loki import (                     # noqa: E402
+    master_of_the_tutelaries as MOT)
 
 OWNER = 81
 MASTER = int(EffectType.MasterOfTheTutelaries)          # 1197 (0x4ad)

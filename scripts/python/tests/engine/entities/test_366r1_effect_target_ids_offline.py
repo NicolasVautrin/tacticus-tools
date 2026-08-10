@@ -17,8 +17,26 @@ la faute exacte que `host_inputs.py` et le capteur lui-meme sont ecrits pour int
 """
 from __future__ import annotations
 
-from engine.entities.effects.base import BaseEffect
-from engine.entities.effects.factory import EffectFactory
+DECLENCHEUR = {
+    "chemins": (
+        "scripts/python/conftest.py", "scripts/python/tests/conftest.py",
+        "scripts/python/tests/engine/conftest.py",
+        "scripts/python/engine/entities/effects/base.py",
+        "scripts/python/engine/entities/effects/factory.py",
+        # Le CONTRAT que ces etages figent est celui du capteur : si le hook cesse d'etre
+        # tri-etat, le port l'aplatirait sans que rien ici ne bouge.
+        "frida/hooks/game/effects.ts",
+    ),
+    "build": False,
+    "toujours": False,
+    "raison": "Purement offline : aucun runner, aucun RPC, aucune lecture du binaire. Les cinq "
+              "etages n'exercent que `EffectFactory.create` et l'attribut `BaseEffect.target_ids`, "
+              "d'ou un perimetre reduit au couple base/factory plus le capteur dont ils gardent "
+              "le contrat tri-etat.",
+}
+
+from engine.entities.effects.base import BaseEffect                      # noqa: E402
+from engine.entities.effects.factory import EffectFactory                # noqa: E402
 
 
 def _create(**extra):
