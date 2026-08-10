@@ -58,12 +58,22 @@ rien a en faire. La case-doc de `#448-r1-r1-r1` le nommait « maxRange a porter 
 
 RESIDUS, tous nommes
 --------------------
-  * DEPARTAGE entre deux chemins de MEME cout et de longueurs differentes : non lu au decompile
-    (il depend de l'ordre interne de la `PriorityQueue` native, et la mise a jour y est
-    conditionnee par un `<` STRICT, donc le natif garde le PREMIER trouve). Ici, a cout egal,
-    MOINS DE NOEUDS gagne -- meme arbitrage que `walk_pathfinder.get_path_node_counts_by_pos`.
-    Sans relief (cout uniforme, ce qui est EXACTEMENT le cas du vol), l'ambiguite n'existe pas :
-    tous les chemins de cout egal ont la meme longueur.
+  * DEPARTAGE entre deux chemins de MEME cout et de longueurs differentes (#448-r1-r1-r1-r1-r1).
+    ⚠ **LA REGLE, ELLE, EST LUE** -- la fiche disait le contraire : la mise a jour native est
+    `if (!costs.ContainsKey(n) || newCost < costs[n].cost)`, un `<` **STRICT** sur le **COUT
+    SEUL**, sans aucun terme de longueur ; a cout egal le natif GARDE le parent deja inscrit,
+    c'est-a-dire le PREMIER trouve. Ce qui reste illisible n'est PAS la regle mais l'ordre de
+    sortie de la `idun.shared.collections.PriorityQueue` entre priorites egales, qui decide QUI
+    est « premier » -- et qu'aucun port ne peut reproduire sans la file elle-meme.
+    Ici, a cout egal, MOINS DE NOEUDS gagne : une regle que le natif n'a pas, et qui est donc une
+    FABRICATION assumee -- meme arbitrage que `walk_pathfinder._dijkstra_by_pos`.
+    **MESUREE INERTE** (`probe_448r1r1r1r1r1_departage_cout_egal.py`, 2026-08-10) : sur 60 boards
+    et 18 200 paires (src, dst) joignables, avec le COUT REEL du `WalkPathfinder` (le seul regime
+    non uniforme que le port atteigne), les deux regles rendent **0 divergence**, ni de cout ni de
+    nombre de noeuds. Elle n'est donc pas corrigee : la corriger ne changerait rien de mesurable
+    et ferait reposer `movementSteps` -- valeur CONFRONTEE LIVE (#448-r1-r1-r1) -- sur un etage
+    neuf. Sans relief (cout uniforme, EXACTEMENT le cas du vol), l'ambiguite n'existe meme pas.
+    Re-deriver le chiffre, ne pas citer cette ligne.
   * `AddTeleportationTiles` / `AddShadewalkerTiles` : les deux autres sources de voisins de
     `GetValidNeighbours`. Le `boardGraph` ne publie ni la jumelle de teleportation
     (`ConnectivityComponent+0x18`) ni l'effet `0x3a`. Degradation RESTRICTIVE, identique a celle
