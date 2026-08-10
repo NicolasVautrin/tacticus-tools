@@ -259,7 +259,13 @@ def volet_live(board_id: str, seed: int) -> int:
 
     bad = 0
     sid, rpc = P._rpc_factory()
-    logs = Path(__file__).resolve().parent / "logs"
+    # `logs/` DE LA RACINE, jamais `scripts/python/logs` (#455, #547-r6). La banque de cliquets
+    # ENUMERE `scripts/python/**` en parallele : y creer un fichier le fait apparaitre puis
+    # disparaitre sous les pieds d'un voisin -- `probe_440` a deja rougi la-dessus, a raison. Et
+    # `probe_273` etape 0 le voyait : `scripts/python/logs` y sortait en `[FAIL]`, ce qui rendait
+    # `tests/test_host_inputs_offline.py::test_probe_273_passe` ROUGE sur `master`. La convention
+    # du depot est `parents[2] / "logs" / "runners"` (12 probes la portent deja).
+    logs = Path(__file__).resolve().parents[2] / "logs" / "runners"
     logs.mkdir(parents=True, exist_ok=True)
     state_file = logs / "p448r1r1r2r2r1_state.json"
     state_file.unlink(missing_ok=True)

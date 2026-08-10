@@ -706,6 +706,21 @@ class _FilesPerTest:
       * `globales`  -- lectures faites hors de tout test (collecte, import de module, conftest).
         Elles ne sont attribuables a personne, donc tout changement les touchant impacte TOUS les
         fichiers. Conservateur par construction -- jamais l'inverse.
+
+    ⚠ L'INSTRUMENT NE SE MESURE PAS LUI-MEME (#547-r5). Le seau `globales` se FERME a
+    `pytest_sessionfinish`. Sans ce cran, tout ce que le probe ouvre dans son EPILOGUE -- au
+    premier chef l'ECRITURE de `scripts/ratchets-457-durations.json`, qui est un `open`, donc un
+    evenement d'audit -- entrait dans l'empreinte comme une << lecture globale >>, c'est-a-dire
+    comme une dependance de TOUS les tests.
+
+    MESURE QUI L'ETABLIT (2026-08-10, `d6ec1ac1..HEAD`) : `scripts/ratchets-457-durations.json`
+    figurait dans `_globales`, son repertoire `scripts` entrait donc dans `dirs_glob`, et les
+    QUATRE artefacts de la machinerie a cliquets qui y vivent -- durations, empreinte, ledger
+    du vert offline, numeros attestes -- rendaient chacun `TOUT rejoue`. Consequence mesuree :
+    `--depuis-ledger` selectionnait **298/298** fichiers des que l'ancre remontait a plus d'un
+    merge, et **le geste meme d'attester invalidait toutes les attestations**. Le seau ferme au
+    bon moment supprime la CAUSE ; il ne retranche RIEN de ce qu'une collecte, un import de
+    module ou un `conftest` a ouvert -- tout cela precede `pytest_sessionfinish`.
     """
 
     def __init__(self, root) -> None:
@@ -715,6 +730,9 @@ class _FilesPerTest:
         self.par_test: dict = {}
         self.globales: set = set()
         self.courant = None
+        #: Le seau GLOBAL est-il ferme ? Voir la docstring : apres la fin de session, ce que ce
+        #: process ouvre est le fait de l'INSTRUMENT, pas du depot.
+        self.clos = False
         sys.addaudithook(self._hook)
 
     def _hook(self, event, args):
@@ -729,6 +747,8 @@ class _FilesPerTest:
             return
         rel = q[self._n:]
         if self.courant is None:
+            if self.clos:
+                return
             self.globales.add(rel)
         else:
             self.par_test.setdefault(self.courant, set()).add(rel)
@@ -738,6 +758,13 @@ class _FilesPerTest:
 
     def pytest_runtest_logfinish(self, nodeid, location):              # noqa: D102
         self.courant = None
+
+    def pytest_sessionfinish(self, session, exitstatus):               # noqa: D102
+        # L'audit hook est GLOBAL et IRREVERSIBLE (`sys.addaudithook`) : on ne peut pas le retirer,
+        # seulement cesser d'en CROIRE le seau global. C'est ici, et pas au moment de l'ecriture,
+        # que la frontiere est juste -- une exclusion par LISTE DE CHEMINS a l'ecriture serait une
+        # table a maintenir, et elle ne verrait pas le prochain artefact ecrit dans l'epilogue.
+        self.clos = True
 
 
 def _temoins(chemins, versionnable) -> list:
@@ -772,7 +799,7 @@ def _temoins(chemins, versionnable) -> list:
 
 
 def _empreinte_fusionnee(mesures: list, lus_par_test: dict, dossiers, temoins, globales: list,
-                         commit, complete: bool, mods: dict) -> dict:
+                         commit, complete: bool, mods: dict, perimetre=None) -> dict:
     """L'empreinte a ECRIRE : les entrees de CETTE passe, fusionnees dans celle du disque (#486-r15).
 
     LA REGLE, ET ELLE TIENT EN UNE LIGNE : cette passe n'ecrit QUE ce qu'elle a mesure, et ne
@@ -791,11 +818,22 @@ def _empreinte_fusionnee(mesures: list, lus_par_test: dict, dossiers, temoins, g
     `_commit` et `_at` sont du CONTEXTE : ils disent OU et QUAND, jamais si l'entree est valide.
     Le sha inscrit peut etre mort-ne (branche d'agent squash-mergee, cf. l'en-tete) sans que cela
     invalide quoi que ce soit -- c'est tout l'objet de #486-r15.
+
+    ⚠ RESTRICTION AU PERIMETRE, MEME EN FUSION (#547-r6). Une entree dont le fichier a quitte le
+    perimetre -- supprime, ou RENOMME en `*_live.py` -- restait sinon a demeure : `probe_463r1`
+    la nomme FANTOME et rougit dessus, et sa propre doc constatait que << `--measure-missing` ne
+    le purge pas (seul `--measure` le fait) >>. Autrement dit un renommage a 1 s creait un rouge
+    qu'on ne pouvait eteindre qu'en payant la passe complete (2 220 s de MAINTENANCE) -- ce qui
+    est exactement la forme d'incitation qui fait desarmer un cliquet. La restriction est SANS
+    RISQUE et de meme forme que `ledger_vert_offline.fusionner` : elle ne peut qu'OTER l'entree
+    d'un fichier que la selection ne jouera de toute facon jamais. `perimetre=None` (appelant qui
+    ne le connait pas) laisse le comportement d'avant, plutot que de deviner.
     """
     ancien = _footprints()
     ancien_pt = ancien.get("par_test") if ancien.get("_format") == FORMAT_EMPREINTE else {}
     garde = {} if complete else {r: e for r, e in (ancien_pt or {}).items()
-                                 if isinstance(e, dict) and r not in mesures}
+                                 if isinstance(e, dict) and r not in mesures
+                                 and (perimetre is None or r in set(perimetre))}
 
     maintenant = int(time.time())
     neuves = {}
@@ -1035,7 +1073,8 @@ def _ecrire_mesure(perimetre: list, joues: list, horloge, empreinte, rc: int,
                 globales=sorted(brutes),
                 commit=(tete.stdout or "").strip() or None,
                 complete=complete,
-                mods=modules)
+                mods=modules,
+                perimetre=perimetre)
             emp_path.write_text(json.dumps(emp, indent=1, sort_keys=True) + "\n",
                                 encoding="utf-8")
 
@@ -1622,6 +1661,21 @@ def _changed(ref: str) -> list:
     return sorted({l.strip() for l in r.stdout.splitlines() if l.strip()})
 
 
+def _ajoutes(ref: str):
+    """Les fichiers AJOUTES entre `ref` et HEAD, ou `None` si git n'a pas su repondre.
+
+    TRI-ETAT, et le `None` n'est PAS un ensemble vide : il veut dire << je n'ai pas mesure >>, et
+    `impacted_files` le traduit alors par << tout voisin d'une globale est traite comme NEUF >>,
+    c'est-a-dire le comportement conservateur d'avant #547-r5. Rabattre `None` sur `set()`
+    supprimerait l'elargissement au repertoire chaque fois que git est muet -- exactement le sens
+    dangereux."""
+    r = _git(["diff", "--name-only", "--diff-filter=A", ref, "HEAD"],
+             "fichiers AJOUTES depuis la ref", tolere_rc=True)
+    if r.returncode != 0:
+        return None
+    return {l.strip() for l in r.stdout.splitlines() if l.strip()}
+
+
 #: Marqueur cherche en SOUS-CHAINE avant tout `ast.parse` : un fichier qui ne l'ecrit pas ne
 #: declare rien, et n'est donc jamais parse. C'est ce qui rend l'evaluation bon marche.
 _MARQUEUR_DECL = declencheur_cliquet.NOM
@@ -1731,12 +1785,50 @@ def impacted_files(perimetre: list, ref: str) -> tuple:
     # l'information existe encore. Une empreinte ANCIENNE, mesuree avant ce correctif, garde donc
     # ses `.py` : elle SUR-selectionne -- le sens sur, et elle se regenere.
     globales = {g for g in emp.get("_globales", ()) if not g.endswith(".pyc")}
+    # L'ELARGISSEMENT AU REPERTOIRE D'UNE GLOBALE, ET LES DEUX SEULS MOTIFS QUI LE PORTENT
+    # (#547-r5). Il etait inconditionnel ; il est desormais l'UNION de ses deux raisons d'etre,
+    # chacune ecrite ailleurs dans ce depot :
+    #
+    #   (a) #464-r2 -- un MODULE DU DOMAINE laisse en globale par une empreinte ancienne signe un
+    #       bytecode froid : l'empreinte y decrit le `__pycache__` de la machine, donc elle est
+    #       douteuse EN ENTIER pour ce repertoire, et le sens sur est de SUR-selectionner.
+    #       C'est le cas que `test_457_r8::test_AUCUNE_lecture_globale_n_est_retiree_a_la_lecture`
+    #       garde, et il reste couvert TEL QUEL ;
+    #   (b) le fichier NEUF -- << un fichier NEUF dans ce repertoire est couvert sans que rien ne
+    #       bouge >>, la justification que le code donnait deja pour la granularite repertoire.
+    #
+    # CE QUE L'INCONDITIONNEL COUTAIT, MESURE (2026-08-10). `scripts/` heberge a la fois une
+    # globale legitime -- `ratchets-486r15-dette-declencheurs.txt`, lue par le plugin
+    # `declencheur_guard` a la COLLECTE, donc hors test -- et les QUATRE artefacts VERSIONNES de
+    # la machinerie a cliquets (poids, empreinte, ledger du vert offline, numeros attestes). Tout
+    # voisin suffisait, donc **le geste meme d'attester invalidait toutes les attestations** :
+    # `--depuis-ledger` rendait 298/298 des que l'ancre remontait a plus d'un merge, pour 1780 s.
+    # Un `.txt` de dette n'a pas de bytecode et son lecteur ouvre un fichier NOMME : le motif (a)
+    # ne le concerne pas. Il garde tout son effet par son chemin EXACT, teste avant tout
+    # elargissement.
+    #
+    # ⚠ CE QUE (b) NE COUVRE PAS, et il faut le dire : un voisin apparu ENTRE la mesure de
+    # l'empreinte et l'ancre. Il n'est ni dans `_globales` (il n'existait pas a la mesure) ni dans
+    # les AJOUTS depuis l'ancre (il existait deja a l'ancre). La parade est le rafraichissement de
+    # l'empreinte -- ce qui la garde vraie -- pas un elargissement qui coute le perimetre entier.
     dirs_glob = {g.rsplit("/", 1)[0] for g in globales if "/" in g}
+    dirs_domaine = {g.rsplit("/", 1)[0] for g in globales
+                    if "/" in g and _est_module_du_domaine(g, mods)}
     hors_py = [c for c in changes if c not in mods]
+    neufs = _ajoutes(ref)
     for c in hors_py:
         d = c.rsplit("/", 1)[0] if "/" in c else ""
-        if c in globales or d in dirs_glob:
-            return perimetre, "changement dans une lecture GLOBALE (%s) -- TOUT rejoue" % c
+        # `neufs is None` = git muet : PAS MESURE, donc on ne retranche rien (comportement
+        # inconditionnel d'avant). Un capteur muet ne fabrique pas de selection plus etroite.
+        neuf = True if neufs is None else (c in neufs)
+        if c in globales or (d in dirs_glob and (d in dirs_domaine or neuf)):
+            return perimetre, ("changement dans une lecture GLOBALE (%s%s) -- TOUT rejoue"
+                               % (c, "" if c in globales else
+                                  ", repertoire d'un module du domaine lu en global (#464-r2)"
+                                  if d in dirs_domaine else
+                                  ", fichier NEUF dans le repertoire d'une globale"
+                                  if neufs is not None else
+                                  ", voisin d'une globale ; ajouts NON MESURES par git"))
 
     # Un fichier hors-.py impacte les tests dont l'empreinte lit son REPERTOIRE (granularite
     # repertoire : un test qui lit `docs/rl/x.md` doit rejouer si `docs/rl/y.md` change).

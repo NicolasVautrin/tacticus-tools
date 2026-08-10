@@ -4,26 +4,25 @@
   "data/seed-bc.json",
   "data/symbols/CURRENT",
   "scripts/python/pytest.ini",
-  "scripts/ratchets-457-durations.json",
   "scripts/ratchets-486r15-dette-declencheurs.txt"
  ],
  "_regime": "bytecode PRECHAUFFE avant la mesure -- aucune lecture GLOBALE ne provient d'un import (garde de regime #464-r2)",
  "par_test": {
   "tests/engine/entities/pathfinding/test_381r3_neighbour_source_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/engine/entities/pathfinding/test_448r1r1r1r1r2_connectivity_channel_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/engine/entities/pathfinding/test_589r1_tiles_moved_consumers_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [
     "scripts/python/engine/runner/operations/triggers",
     "scripts/python/engine/runner/operations/triggers/dispatch",
@@ -39,44 +38,44 @@
    ]
   },
   "tests/engine/entities/test_366_r1_turnof_all_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/engine/entities/test_366r1_effect_target_ids_offline.py": {
-   "_at": 1786382540,
-   "_commit": "cb92ace54ebb87e18f817f95995a33eb5b3dd198",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/engine/entities/test_attack_nature_gates_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/engine/entities/test_beam_best_line_direction_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/engine/entities/test_surrounding_tiles_ring_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/engine/entities/test_units_directly_behind_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/engine/runner/test_120bis_spawn_tile_offline.py": {
-   "_at": 1786150777,
-   "_commit": "027cb48531fc84677e2b6621495d19115c524ff1",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [
     "data",
     "scripts/python/engine/runner/operations/triggers/loki",
@@ -89,14 +88,14 @@
    ]
   },
   "tests/engine/runner/test_231r1_master_tutelaries_expiry_offline.py": {
-   "_at": 1786382540,
-   "_commit": "cb92ace54ebb87e18f817f95995a33eb5b3dd198",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/engine/runner/test_287r11r1r1r2_is_turn_of_unit_offline.py": {
-   "_at": 1786136379,
-   "_commit": "7bb569cfcad34de6ae0fa08107d5bcfe94e16cc5",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [
     "data/symbols/rnca9r7q6c/metadata"
    ],
@@ -105,8 +104,8 @@
    ]
   },
   "tests/engine/runner/test_287r12_role_target_tuile_offline.py": {
-   "_at": 1786124986,
-   "_commit": "8abc8415411d82009ca99fcbc045ccd437c7cfb2",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [
     "data",
     "frida/hooks/data",
@@ -195,8 +194,8 @@
    ]
   },
   "tests/engine/runner/test_287r14_get_actual_target_offline.py": {
-   "_at": 1786124986,
-   "_commit": "8abc8415411d82009ca99fcbc045ccd437c7cfb2",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [
     "data",
     "scripts/python/engine/runner/abilities",
@@ -211,8 +210,8 @@
    ]
   },
   "tests/engine/runner/test_287r14r1_resolution_tile_target_offline.py": {
-   "_at": 1786157719,
-   "_commit": "d9b62a2b28ae64131a8b9805ceab4b55d067d8ba",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [
     "lib",
     "scripts/python",
@@ -242,6 +241,7 @@
     "scripts/python/engine/services",
     "scripts/python/engine/streams",
     "scripts/python/engine/utilities",
+    "scripts/python/gamenav",
     "scripts/python/tests",
     "scripts/python/tests/engine",
     "scripts/python/tests/engine/entities",
@@ -305,6 +305,8 @@
     "scripts/python/engine/utilities/__init__.py",
     "scripts/python/engine/utilities/wireweave_net.py",
     "scripts/python/engine/weights.py",
+    "scripts/python/gamenav/__init__.py",
+    "scripts/python/gamenav/vue.py",
     "scripts/python/tests/conftest.py",
     "scripts/python/tests/engine/_move_tile_sweep_order.py",
     "scripts/python/tests/engine/entities/pathfinding/test_381r3_neighbour_source_live.py",
@@ -320,50 +322,32 @@
    ]
   },
   "tests/engine/runner/test_287r1_no_action_available_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/engine/runner/test_287r1r1_verify_turn_ended_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/engine/runner/test_344r2_sort_attackers_prediction_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/engine/runner/test_347_tiles_moved_call_sites_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/engine/runner/test_353r1_ramming_speed_charge_tile_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
-   "dirs": [
-    "data",
-    "frida/hooks/data"
-   ],
-   "temoins": [
-    "data/seed-bc.json",
-    "frida/hooks/data/ability-names.ts"
-   ]
-  },
-  "tests/engine/runner/test_366_r1_burrowers_cast_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
-   "dirs": [],
-   "temoins": []
-  },
-  "tests/engine/runner/test_366_r1_grapnel_launcher_cast_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [
     "data"
    ],
@@ -371,45 +355,57 @@
     "data/seed-bc.json"
    ]
   },
+  "tests/engine/runner/test_366_r1_burrowers_cast_offline.py": {
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
+   "dirs": [],
+   "temoins": []
+  },
+  "tests/engine/runner/test_366_r1_grapnel_launcher_cast_offline.py": {
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
+   "dirs": [],
+   "temoins": []
+  },
   "tests/engine/runner/test_366_r1_stormboyz_strike_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/engine/runner/test_366_r1_tunneling_horror_cast_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/engine/runner/test_372_cannot_be_guaranteed_killed_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/engine/runner/test_381r1_movable_tiles_pool_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/engine/runner/test_381r4_imperative_collapses_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/engine/runner/test_389_ramming_speed_combat_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/engine/runner/test_389r2_kill_unit_remove_effects_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [
     "scripts/python/engine/runner/abilities/behaviours"
    ],
@@ -418,8 +414,8 @@
    ]
   },
   "tests/engine/runner/test_419r1tr14r4r2_inform_weapon_tags_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [
     "data/symbols",
     "data/symbols/rnca9r7q6c/frida"
@@ -430,8 +426,8 @@
    ]
   },
   "tests/engine/runner/test_419r1tr14r4r2r1_normal_attack_inform_weapon_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [
     "scripts/python/engine/runner/abilities/behaviours"
    ],
@@ -440,8 +436,8 @@
    ]
   },
   "tests/engine/runner/test_419r1tr14r4r2r1r1_normal_attack_special_branches_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [
     "scripts/python/engine/runner/operations/damage_ops"
    ],
@@ -450,54 +446,52 @@
    ]
   },
   "tests/engine/runner/test_421_effect_active_gate_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [
     "scripts/python/engine/runner/operations/triggers",
-    "scripts/python/engine/runner/operations/triggers/loki",
-    "scripts/python/tests/engine/runner"
+    "scripts/python/engine/runner/operations/triggers/loki"
    ],
    "temoins": [
     "scripts/python/engine/runner/operations/triggers/bond_removal.py",
     "scripts/python/engine/runner/operations/triggers/loki/anvil_shield.py",
     "scripts/python/engine/runner/operations/triggers/loki/wireweave_net.py",
-    "scripts/python/engine/runner/operations/triggers/pending_attack.py",
-    "scripts/python/tests/engine/runner/test_421_effect_active_gate_offline.py"
+    "scripts/python/engine/runner/operations/triggers/pending_attack.py"
    ]
   },
   "tests/engine/runner/test_433_r1_identity_shortcircuit_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/engine/runner/test_433_r3_isadjacent_node_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/engine/runner/test_433_r3_r1_dsl_footprint_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/engine/runner/test_433_r3_r1a_occupancy_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/engine/runner/test_433r4r1r4r2r1r1r1_ramming_speed_adjacence_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/engine/runner/test_437_r1_face_lists_cells_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [
     "scripts/python/engine",
     "scripts/python/engine/ai",
@@ -582,26 +576,26 @@
    ]
   },
   "tests/engine/runner/test_448_r1_r1_full_throttle_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/engine/runner/test_448_r1_r1_r1_flying_movement_steps_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/engine/runner/test_448_r1_r1_r1_r1_flying_tiles_moved_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/engine/runner/test_448_r1_r1_r2_fly_override_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [
     "scripts/python/engine/runner/abilities/behaviours",
     "scripts/python/engine/runner/operations"
@@ -612,29 +606,25 @@
    ]
   },
   "tests/engine/runner/test_448_r1_r1_r2_r1_dsl_after_move_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [
     "scripts/python/engine/runner/abilities/behaviours",
-    "scripts/python/engine/runner/abilities/loki",
     "scripts/python/engine/runner/operations",
     "scripts/python/engine/runner/operations/triggers",
-    "scripts/python/engine/runner/operations/triggers/loki",
-    "scripts/python/tests/engine/runner"
+    "scripts/python/engine/runner/operations/triggers/loki"
    ],
    "temoins": [
     "scripts/python/engine/runner/abilities/behaviours/movement.py",
-    "scripts/python/engine/runner/abilities/loki/quickening.py",
     "scripts/python/engine/runner/operations/behaviour.py",
     "scripts/python/engine/runner/operations/displace.py",
     "scripts/python/engine/runner/operations/triggers/genestealer.py",
-    "scripts/python/engine/runner/operations/triggers/loki/betrayer.py",
-    "scripts/python/tests/engine/runner/test_448_r1_r1_r2_r1_dsl_after_move_offline.py"
+    "scripts/python/engine/runner/operations/triggers/loki/betrayer.py"
    ]
   },
   "tests/engine/runner/test_448_r1_r1_r2_r2_gates_abandon_offline.py": {
-   "_at": 1786136379,
-   "_commit": "7bb569cfcad34de6ae0fa08107d5bcfe94e16cc5",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [
     "data/boards/pvp",
     "scripts/python/engine",
@@ -721,8 +711,8 @@
    ]
   },
   "tests/engine/runner/test_448_r1_r1_r2_r2_r1_gates_amont_offline.py": {
-   "_at": 1786382540,
-   "_commit": "cb92ace54ebb87e18f817f95995a33eb5b3dd198",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [
     "data/boards/pvp",
     "scripts/python/engine/runner/operations"
@@ -734,38 +724,118 @@
    ]
   },
   "tests/engine/runner/test_448_r2_teleporting_in_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/engine/runner/test_448_r2b_stormboyz_teleporting_in_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
-   "dirs": [],
-   "temoins": []
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
+   "dirs": [
+    "scripts/python/engine",
+    "scripts/python/engine/ai",
+    "scripts/python/engine/dsl",
+    "scripts/python/engine/entities",
+    "scripts/python/engine/entities/abilities",
+    "scripts/python/engine/entities/effects",
+    "scripts/python/engine/entities/effects/loki",
+    "scripts/python/engine/entities/pathfinding",
+    "scripts/python/engine/entities/selectors",
+    "scripts/python/engine/entities/traits",
+    "scripts/python/engine/playbook",
+    "scripts/python/engine/playbook/noncomparable",
+    "scripts/python/engine/playbook/prediction",
+    "scripts/python/engine/runner",
+    "scripts/python/engine/runner/abilities",
+    "scripts/python/engine/runner/abilities/behaviours",
+    "scripts/python/engine/runner/abilities/loki",
+    "scripts/python/engine/runner/caches",
+    "scripts/python/engine/runner/operations",
+    "scripts/python/engine/runner/operations/damage_ops",
+    "scripts/python/engine/runner/operations/triggers",
+    "scripts/python/engine/runner/operations/triggers/dispatch",
+    "scripts/python/engine/runner/operations/triggers/loki",
+    "scripts/python/engine/services",
+    "scripts/python/engine/streams",
+    "scripts/python/engine/utilities"
+   ],
+   "temoins": [
+    "scripts/python/engine/__init__.py",
+    "scripts/python/engine/ai/__init__.py",
+    "scripts/python/engine/ai/utilities.py",
+    "scripts/python/engine/dsl/__init__.py",
+    "scripts/python/engine/dsl/nodes.py",
+    "scripts/python/engine/entities/__init__.py",
+    "scripts/python/engine/entities/abilities/__init__.py",
+    "scripts/python/engine/entities/abilities/triggered_ability.py",
+    "scripts/python/engine/entities/effects/__init__.py",
+    "scripts/python/engine/entities/effects/loki/__init__.py",
+    "scripts/python/engine/entities/effects/loki/war_howl.py",
+    "scripts/python/engine/entities/effects/magnitude.py",
+    "scripts/python/engine/entities/pathfinding/__init__.py",
+    "scripts/python/engine/entities/pathfinding/walk_pathfinder.py",
+    "scripts/python/engine/entities/selectors/__init__.py",
+    "scripts/python/engine/entities/selectors/units.py",
+    "scripts/python/engine/entities/traits/__init__.py",
+    "scripts/python/engine/entities/traits/unit_trait.py",
+    "scripts/python/engine/entities/victory_condition_type.py",
+    "scripts/python/engine/playbook/__init__.py",
+    "scripts/python/engine/playbook/noncomparable/__init__.py",
+    "scripts/python/engine/playbook/noncomparable/vigilance_eternal.py",
+    "scripts/python/engine/playbook/prediction/__init__.py",
+    "scripts/python/engine/playbook/prediction/ramming_speed.py",
+    "scripts/python/engine/playbook/tile_targets.py",
+    "scripts/python/engine/runner/__init__.py",
+    "scripts/python/engine/runner/abilities/__init__.py",
+    "scripts/python/engine/runner/abilities/behaviours/__init__.py",
+    "scripts/python/engine/runner/abilities/behaviours/turnflow.py",
+    "scripts/python/engine/runner/abilities/loki/__init__.py",
+    "scripts/python/engine/runner/abilities/loki/wall_of_mirrors.py",
+    "scripts/python/engine/runner/abilities/worldeaters.py",
+    "scripts/python/engine/runner/caches/__init__.py",
+    "scripts/python/engine/runner/caches/ability_and_effect_cache.py",
+    "scripts/python/engine/runner/operations/__init__.py",
+    "scripts/python/engine/runner/operations/damage_ops/__init__.py",
+    "scripts/python/engine/runner/operations/damage_ops/normal_like.py",
+    "scripts/python/engine/runner/operations/triggers/__init__.py",
+    "scripts/python/engine/runner/operations/triggers/dispatch/__init__.py",
+    "scripts/python/engine/runner/operations/triggers/dispatch/turn.py",
+    "scripts/python/engine/runner/operations/triggers/loki/__init__.py",
+    "scripts/python/engine/runner/operations/triggers/loki/wireweave_net.py",
+    "scripts/python/engine/runner/operations/triggers/tiles.py",
+    "scripts/python/engine/runner/operations/turnflow.py",
+    "scripts/python/engine/runner/state.py",
+    "scripts/python/engine/services/__init__.py",
+    "scripts/python/engine/services/victory_config.py",
+    "scripts/python/engine/streams/__init__.py",
+    "scripts/python/engine/streams/verify_turn_finished.py",
+    "scripts/python/engine/utilities/__init__.py",
+    "scripts/python/engine/utilities/wireweave_net.py",
+    "scripts/python/engine/weights.py"
+   ]
   },
   "tests/engine/runner/test_448_r2c_fear_of_the_unseen_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/engine/runner/test_448_r2d_titanhammer_squad_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/engine/runner/test_459_tile_accessors_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/engine/runner/test_462_r4b_substrat_mort_appelants_offline.py": {
-   "_at": 1786144268,
-   "_commit": "7bfd95a63ba6ac2d83535662e5cc333ab510c5e9",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [
     "scripts/python/engine",
     "scripts/python/engine/ai",
@@ -850,20 +920,20 @@
    ]
   },
   "tests/engine/runner/test_462_r4d_nightshroud_cells_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/engine/runner/test_462_r4d_r3_two_channels_defender_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/engine/runner/test_462r4eor2r1r1r1_cycle_de_tour_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [
     "scripts/python/engine/runner/operations"
    ],
@@ -872,14 +942,14 @@
    ]
   },
   "tests/engine/runner/test_489_fragstorm_grenade_launcher_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/engine/runner/test_494r1_ordre_cibles_offline.py": {
-   "_at": 1786124986,
-   "_commit": "8abc8415411d82009ca99fcbc045ccd437c7cfb2",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [
     "scripts/python/engine",
     "scripts/python/engine/ai",
@@ -964,8 +1034,8 @@
    ]
   },
   "tests/engine/runner/test_498r3_is_displaceable_offline.py": {
-   "_at": 1786124986,
-   "_commit": "8abc8415411d82009ca99fcbc045ccd437c7cfb2",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [
     "data/symbols",
     "data/symbols/rnca9r7q6c/frida",
@@ -1054,8 +1124,8 @@
    ]
   },
   "tests/engine/runner/test_501_might_from_below_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [
     "scripts/python/engine/runner/operations"
    ],
@@ -1064,32 +1134,32 @@
    ]
   },
   "tests/engine/runner/test_503r3_registre_trigger_peuple_offline.py": {
-   "_at": 1786382540,
-   "_commit": "cb92ace54ebb87e18f817f95995a33eb5b3dd198",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/engine/runner/test_505_bloody_fury_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/engine/runner/test_508_leading_the_charge_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/engine/runner/test_512_excruciating_frequencies_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/engine/runner/test_514_allunits_pool8_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [
     "scripts/python/.",
     "scripts/python/engine",
@@ -1192,8 +1262,8 @@
    ]
   },
   "tests/engine/runner/test_515_adjacence_elevation_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [
     "data/boards/global"
    ],
@@ -1203,8 +1273,8 @@
    ]
   },
   "tests/engine/runner/test_521r7_attack_in_atomic_group_offline.py": {
-   "_at": 1786156542,
-   "_commit": "9c9166c21d6725d57717de3fd92c295c84e820a7",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [
     "data",
     "scripts/python/engine",
@@ -1291,60 +1361,50 @@
    ]
   },
   "tests/engine/runner/test_523_heavy_warp_flamer_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/engine/runner/test_523r1_heavy_warp_flamer_tracking_offline.py": {
-   "_at": 1786124986,
-   "_commit": "8abc8415411d82009ca99fcbc045ccd437c7cfb2",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/engine/runner/test_523r2r4_521r5_persistent_data_attacker_substrat_offline.py": {
-   "_at": 1786140384,
-   "_commit": "3468a30e4cbe6b29b3f6802f3b05db7905e293f7",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/engine/runner/test_525_mass_driver_accelerator_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
-   "dirs": [
-    "scripts/python/engine/runner/abilities"
-   ],
-   "temoins": [
-    "scripts/python/engine/runner/abilities/votann.py"
-   ]
-  },
-  "tests/engine/runner/test_545_unit_flags_component_vide_offline.py": {
-   "_at": 1786141304,
-   "_commit": "ad6b02ff48510cd68ff9c4aae12df510b4aa68ef",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
-  "tests/engine/runner/test_576_war_howl_pose_offline.py": {
-   "_at": 1786177419,
-   "_commit": "10b867598b90c619360a2165c78a9bbb834eed77",
+  "tests/engine/runner/test_545_unit_flags_component_vide_offline.py": {
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/engine/runner/test_576r1_blood_chalice_inactive_offline.py": {
-   "_at": 1786382540,
-   "_commit": "cb92ace54ebb87e18f817f95995a33eb5b3dd198",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/engine/runner/test_585_war_howl_pose_offline.py": {
-   "_at": 1786179462,
-   "_commit": "6d8bdc7904faf2ac1565910715ab1587eb2546fc",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/engine/runner/test_585r1_selection_type_releve_offline.py": {
-   "_at": 1786386573,
-   "_commit": "40a9e670f5c9d52323341c2761c5d8f25e26fd36",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [
     "scripts/python/engine/runner/abilities"
    ],
@@ -1354,8 +1414,8 @@
    ]
   },
   "tests/engine/runner/test_ability_registry_ratchet.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [
     "data/symbols",
     "data/symbols/rnca9r7q6c/frida",
@@ -1386,6 +1446,7 @@
     "scripts/python/engine/services",
     "scripts/python/engine/streams",
     "scripts/python/engine/utilities",
+    "scripts/python/gamenav",
     "scripts/python/tests",
     "scripts/python/tests/engine",
     "scripts/python/tests/engine/entities",
@@ -1449,6 +1510,8 @@
     "scripts/python/engine/utilities/__init__.py",
     "scripts/python/engine/utilities/wireweave_net.py",
     "scripts/python/engine/weights.py",
+    "scripts/python/gamenav/__init__.py",
+    "scripts/python/gamenav/vue.py",
     "scripts/python/tests/conftest.py",
     "scripts/python/tests/engine/_move_tile_sweep_order.py",
     "scripts/python/tests/engine/entities/pathfinding/test_381r3_neighbour_source_live.py",
@@ -1464,14 +1527,14 @@
    ]
   },
   "tests/engine/runner/test_active_ability_counted_as_used_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/engine/runner/test_barbed_ovipositor_object_or_steppable_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [
     "scripts/python/engine/runner/operations/triggers/loki"
    ],
@@ -1480,36 +1543,32 @@
    ]
   },
   "tests/engine/runner/test_battle_fatigue_object_or_steppable_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/engine/runner/test_bl_1020r_herald_extra_damage_offline.py": {
-   "_at": 1786150777,
-   "_commit": "027cb48531fc84677e2b6621495d19115c524ff1",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/engine/runner/test_bl_1029r_drachnyen_extra_attack_offline.py": {
-   "_at": 1786150777,
-   "_commit": "027cb48531fc84677e2b6621495d19115c524ff1",
-   "dirs": [
-    "data"
-   ],
-   "temoins": [
-    "data/seed-bc.json"
-   ]
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
+   "dirs": [],
+   "temoins": []
   },
   "tests/engine/runner/test_block_chances_order_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/engine/runner/test_camo_seed_inventory_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [
     "scripts/python/engine/runner/operations"
    ],
@@ -1518,8 +1577,8 @@
    ]
   },
   "tests/engine/runner/test_catalog_inject_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [
     "data",
     "data/symbols",
@@ -1534,14 +1593,14 @@
    ]
   },
   "tests/engine/runner/test_config_oracle_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/engine/runner/test_ctx_traits_substrat_ventilation_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [
     "scripts/python/engine",
     "scripts/python/engine/ai",
@@ -1628,8 +1687,8 @@
    ]
   },
   "tests/engine/runner/test_dawn_blade_repair.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [
     "data/boards/global",
     "scripts/python/engine/runner/operations/triggers/dispatch",
@@ -1642,14 +1701,14 @@
    ]
   },
   "tests/engine/runner/test_effect_trigger_channels.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/engine/runner/test_evasion_order_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [
     "scripts/python/engine",
     "scripts/python/engine/ai",
@@ -1734,92 +1793,96 @@
    ]
   },
   "tests/engine/runner/test_failed_block_attack_scope_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/engine/runner/test_kill_unit_trigger_channels.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/engine/runner/test_lascannon_pierce_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/engine/runner/test_load_state_board_elevation.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/engine/runner/test_master_tutelaries_object_or_steppable_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/engine/runner/test_multihex_substrate.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/engine/runner/test_overwatch_activation_condition.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/engine/runner/test_overwatch_single_shot_per_activation.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/engine/runner/test_prng.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/engine/runner/test_refresh_active_flag_discriminant_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
-   "dirs": [],
-   "temoins": []
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
+   "dirs": [
+    "scripts/python/tests/engine/runner"
+   ],
+   "temoins": [
+    "scripts/python/tests/engine/runner/test_refresh_active_flag_discriminant_offline.py"
+   ]
   },
   "tests/engine/runner/test_seeded_eager_statmod_expiry.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/engine/runner/test_shock_assault_buff_expiry.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/engine/runner/test_stat_override_refresh_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/engine/runner/test_static_statmod_g1_expiry.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/engine/runner/test_statmod_captured_channel_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [
     "scripts/python/engine/entities/effects/loki"
    ],
@@ -1829,14 +1892,14 @@
    ]
   },
   "tests/engine/runner/test_targeting_options_sources.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/engine/runner/test_targeting_rule_inventory.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [
     "data/symbols",
     "data/symbols/rnca9r7q6c/frida",
@@ -1856,32 +1919,32 @@
    ]
   },
   "tests/engine/runner/test_trigger_ability_channels.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/engine/runner/test_triggered_ability_component.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/engine/runner/test_turnflow_endturn_flags.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/engine/test_116e_chronometron_gates_offline.py": {
-   "_at": 1786147848,
-   "_commit": "56eec333c0f57fbe346220d50b0199c69f19ab4e",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/engine/test_218_amulet_custom_utility_vtable.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [
     "data/symbols",
     "data/symbols/rnca9r7q6c/frida"
@@ -1892,8 +1955,8 @@
    ]
   },
   "tests/engine/test_270d_catalog_traits_enum.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [
     "data"
    ],
@@ -1902,14 +1965,14 @@
    ]
   },
   "tests/engine/test_270r1_dict_keys_enum_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/engine/test_270r1_volet2_dict_keys_enum_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [
     "scripts/python",
     "scripts/python/engine",
@@ -1938,6 +2001,7 @@
     "scripts/python/engine/services",
     "scripts/python/engine/streams",
     "scripts/python/engine/utilities",
+    "scripts/python/gamenav",
     "scripts/python/tests",
     "scripts/python/tests/engine",
     "scripts/python/tests/engine/entities",
@@ -1999,6 +2063,8 @@
     "scripts/python/engine/utilities/__init__.py",
     "scripts/python/engine/utilities/wireweave_net.py",
     "scripts/python/engine/weights.py",
+    "scripts/python/gamenav/__init__.py",
+    "scripts/python/gamenav/vue.py",
     "scripts/python/tests/conftest.py",
     "scripts/python/tests/engine/_move_tile_sweep_order.py",
     "scripts/python/tests/engine/entities/pathfinding/test_381r3_neighbour_source_live.py",
@@ -2014,8 +2080,8 @@
    ]
   },
   "tests/engine/test_270r1r1_container_enum_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [
     "scripts/python",
     "scripts/python/engine",
@@ -2044,6 +2110,7 @@
     "scripts/python/engine/services",
     "scripts/python/engine/streams",
     "scripts/python/engine/utilities",
+    "scripts/python/gamenav",
     "scripts/python/tests",
     "scripts/python/tests/engine",
     "scripts/python/tests/engine/entities",
@@ -2105,6 +2172,8 @@
     "scripts/python/engine/utilities/__init__.py",
     "scripts/python/engine/utilities/wireweave_net.py",
     "scripts/python/engine/weights.py",
+    "scripts/python/gamenav/__init__.py",
+    "scripts/python/gamenav/vue.py",
     "scripts/python/tests/conftest.py",
     "scripts/python/tests/engine/_move_tile_sweep_order.py",
     "scripts/python/tests/engine/entities/pathfinding/test_381r3_neighbour_source_live.py",
@@ -2120,8 +2189,8 @@
    ]
   },
   "tests/engine/test_270r1r1r3_role_enum_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [
     "data/symbols",
     "data/symbols/rnca9r7q6c/frida",
@@ -2150,8 +2219,7 @@
     "scripts/python/engine/runner/operations/triggers/loki",
     "scripts/python/engine/services",
     "scripts/python/engine/streams",
-    "scripts/python/engine/utilities",
-    "scripts/python/tests/engine"
+    "scripts/python/engine/utilities"
    ],
    "temoins": [
     "data/symbols/CURRENT",
@@ -2207,13 +2275,12 @@
     "scripts/python/engine/streams/verify_turn_finished.py",
     "scripts/python/engine/utilities/__init__.py",
     "scripts/python/engine/utilities/wireweave_net.py",
-    "scripts/python/engine/weights.py",
-    "scripts/python/tests/engine/test_270r1r1r3_role_enum_offline.py"
+    "scripts/python/engine/weights.py"
    ]
   },
   "tests/engine/test_270r2_partition_foyers_offline.py": {
-   "_at": 1786157155,
-   "_commit": "b275578b0783b68205fc6f5066b9652dc01bb81c",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [
     "scripts/python/engine/entities/effects",
     "scripts/python/engine/runner/operations/triggers/dispatch"
@@ -2224,8 +2291,8 @@
    ]
   },
   "tests/engine/test_270r4_role_enum_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [
     "data/symbols",
     "data/symbols/rnca9r7q6c/frida",
@@ -2236,6 +2303,7 @@
     "scripts/python/engine/entities/selectors",
     "scripts/python/engine/playbook/noncomparable",
     "scripts/python/engine/playbook/prediction",
+    "scripts/python/engine/runner",
     "scripts/python/engine/runner/abilities",
     "scripts/python/engine/runner/abilities/behaviours",
     "scripts/python/engine/runner/operations",
@@ -2259,6 +2327,7 @@
     "scripts/python/engine/runner/abilities/behaviours/context.py",
     "scripts/python/engine/runner/abilities/blacklegion.py",
     "scripts/python/engine/runner/abilities/ultramarines.py",
+    "scripts/python/engine/runner/components.py",
     "scripts/python/engine/runner/operations/spawn.py",
     "scripts/python/engine/runner/operations/triggers/loki/betrayer.py",
     "scripts/python/engine/runner/operations/triggers/loki/stormboyz_strike.py",
@@ -2268,8 +2337,8 @@
    ]
   },
   "tests/engine/test_270r4r2_cycles_imports_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [
     "scripts/cliquets-cache",
     "scripts/python",
@@ -2359,10 +2428,9 @@
    ]
   },
   "tests/engine/test_270r4r2r2_differes_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [
-    "scripts/cliquets-cache",
     "scripts/python/engine",
     "scripts/python/engine/ai",
     "scripts/python/engine/dsl",
@@ -2388,11 +2456,9 @@
     "scripts/python/engine/runner/operations/triggers/loki",
     "scripts/python/engine/services",
     "scripts/python/engine/streams",
-    "scripts/python/engine/utilities",
-    "scripts/python/tests/engine"
+    "scripts/python/engine/utilities"
    ],
    "temoins": [
-    "scripts/cliquets-cache/probe_270r4r2_import_en_premier.tsv",
     "scripts/python/engine/__init__.py",
     "scripts/python/engine/ai/__init__.py",
     "scripts/python/engine/ai/utilities.py",
@@ -2444,13 +2510,12 @@
     "scripts/python/engine/streams/verify_turn_finished.py",
     "scripts/python/engine/utilities/__init__.py",
     "scripts/python/engine/utilities/wireweave_net.py",
-    "scripts/python/engine/weights.py",
-    "scripts/python/tests/engine/test_270r4r2r2_differes_offline.py"
+    "scripts/python/engine/weights.py"
    ]
   },
   "tests/engine/test_270r4r2r2r3_gardes_du_hissage_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [
     "scripts/python",
     "scripts/python/engine",
@@ -2479,6 +2544,7 @@
     "scripts/python/engine/services",
     "scripts/python/engine/streams",
     "scripts/python/engine/utilities",
+    "scripts/python/gamenav",
     "scripts/python/tests",
     "scripts/python/tests/engine",
     "scripts/python/tests/engine/entities",
@@ -2540,6 +2606,8 @@
     "scripts/python/engine/utilities/__init__.py",
     "scripts/python/engine/utilities/wireweave_net.py",
     "scripts/python/engine/weights.py",
+    "scripts/python/gamenav/__init__.py",
+    "scripts/python/gamenav/vue.py",
     "scripts/python/tests/conftest.py",
     "scripts/python/tests/engine/_move_tile_sweep_order.py",
     "scripts/python/tests/engine/entities/pathfinding/test_381r3_neighbour_source_live.py",
@@ -2555,32 +2623,30 @@
    ]
   },
   "tests/engine/test_271r3_spawn_non_owner_offline.py": {
-   "_at": 1786136379,
-   "_commit": "7bb569cfcad34de6ae0fa08107d5bcfe94e16cc5",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [
-    "data",
-    "frida/hooks/data"
+    "data"
    ],
    "temoins": [
-    "data/seed-bc.json",
-    "frida/hooks/data/ability-names.ts"
+    "data/seed-bc.json"
    ]
   },
   "tests/engine/test_287r11_regles_triggers_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/engine/test_287r11r1_regles_ciblage_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/engine/test_287r11r1r1_caster_has_2_turns_left_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [
     "data",
     "data/symbols/rnca9r7q6c/metadata"
@@ -2591,14 +2657,14 @@
    ]
   },
   "tests/engine/test_287r11r1r1r1_turns_ended_par_joueur_offline.py": {
-   "_at": 1786136379,
-   "_commit": "7bb569cfcad34de6ae0fa08107d5bcfe94e16cc5",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/engine/test_287r11r1r1r1r1_placement_du_compteur_offline.py": {
-   "_at": 1786136379,
-   "_commit": "7bb569cfcad34de6ae0fa08107d5bcfe94e16cc5",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [
     "scripts/python",
     "scripts/python/engine",
@@ -2686,8 +2752,8 @@
    ]
   },
   "tests/engine/test_287r11r2_mv71_gate_offline.py": {
-   "_at": 1786124986,
-   "_commit": "8abc8415411d82009ca99fcbc045ccd437c7cfb2",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [
     "scripts/python/engine/runner/abilities/loki"
    ],
@@ -2696,44 +2762,50 @@
    ]
   },
   "tests/engine/test_287r11r2r1_los_summon_offline.py": {
-   "_at": 1786124986,
-   "_commit": "8abc8415411d82009ca99fcbc045ccd437c7cfb2",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [
+    "data/symbols/rnca9r7q6c/frida",
     "data/symbols/rnca9r7q6c/metadata",
     "scripts/python/engine/runner/abilities/loki"
    ],
    "temoins": [
+    "data/symbols/rnca9r7q6c/frida/enums.tsv",
     "data/symbols/rnca9r7q6c/metadata/interface_slots.tsv",
     "scripts/python/engine/runner/abilities/loki/mv71.py"
    ]
   },
   "tests/engine/test_287r11r2r1r1_portee_nulle_offline.py": {
-   "_at": 1786136379,
-   "_commit": "7bb569cfcad34de6ae0fa08107d5bcfe94e16cc5",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/engine/test_287r13_roster_monte_offline.py": {
-   "_at": 1786136379,
-   "_commit": "7bb569cfcad34de6ae0fa08107d5bcfe94e16cc5",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/engine/test_287r4_targeting_needs_instance_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/engine/test_287r4r1_dynamic_target_rules_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
-   "dirs": [],
-   "temoins": []
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
+   "dirs": [
+    "scripts/python/tests/engine"
+   ],
+   "temoins": [
+    "scripts/python/tests/engine/test_287r4r1_dynamic_target_rules_offline.py"
+   ]
   },
   "tests/engine/test_287r5_dynamic_target_rules_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [
     "data/symbols",
     "data/symbols/rnca9r7q6c/ghidra"
@@ -2744,60 +2816,56 @@
    ]
   },
   "tests/engine/test_287r5r1_charge_tiles_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
-   "dirs": [
-    "scripts/python/tests/engine"
-   ],
-   "temoins": [
-    "scripts/python/tests/engine/test_287r5r1_charge_tiles_offline.py"
-   ]
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
+   "dirs": [],
+   "temoins": []
   },
   "tests/engine/test_287r6_oracle_amont_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/engine/test_287r8_regles_battlequery_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/engine/test_302_5_mow_position_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/engine/test_333_minmax_avg_rounding_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/engine/test_339_moyennes_residuelles_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/engine/test_344_ability_damage_average_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/engine/test_350_prediction_average_forms_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/engine/test_350r3a_r4_cast_positions_offline.py": {
-   "_at": 1786157155,
-   "_commit": "b275578b0783b68205fc6f5066b9652dc01bb81c",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [
     "frida/hooks/features/ai-step",
     "scripts/python/engine/ai",
@@ -2813,8 +2881,8 @@
    ]
   },
   "tests/engine/test_350r3b_triggered_average_forms_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [
     "scripts/python/engine/playbook"
    ],
@@ -2823,38 +2891,38 @@
    ]
   },
   "tests/engine/test_353_ramming_speed_prediction_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/engine/test_359r2_hades_sort_by_row_offline.py": {
-   "_at": 1786147848,
-   "_commit": "56eec333c0f57fbe346220d50b0199c69f19ab4e",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/engine/test_359r5_selector_only_event_order_offline.py": {
-   "_at": 1786153353,
-   "_commit": "d2fd0ea354f01e3e502f7eaf4a048e63f8ced684",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/engine/test_361_gate_probe_tristate_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/engine/test_365_selector_montage_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/engine/test_366_effects_registry_partition_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [
     "data/symbols",
     "data/symbols/rnca9r7q6c/frida",
@@ -2867,8 +2935,8 @@
    ]
   },
   "tests/engine/test_366_r1_tunneling_horror_pending_summon_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [
     "data/symbols",
     "data/symbols/rnca9r7q6c/frida"
@@ -2880,20 +2948,20 @@
    ]
   },
   "tests/engine/test_366r1_carrier_active_level_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/engine/test_370_tile_probe_tristate_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/engine/test_378_parent_link_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [
     "scripts/python/engine/playbook/prediction"
    ],
@@ -2902,20 +2970,20 @@
    ]
   },
   "tests/engine/test_381_query_gate_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/engine/test_383_ramming_speed_explosion_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/engine/test_411_transfer_hit_wiring_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [
     "data",
     "data/symbols",
@@ -2928,20 +2996,20 @@
    ]
   },
   "tests/engine/test_411r1_transfer_port_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/engine/test_418_primarch_transfer_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/engine/test_419r1tr12r2_stats_npc_summon_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [
     "data"
    ],
@@ -2950,8 +3018,8 @@
    ]
   },
   "tests/engine/test_419r1tr14r5r2r1r1r1r3_should_execute_gates_offline.py": {
-   "_at": 1786147939,
-   "_commit": "bfa97ce8118cdab9e87ae98e6d7510ba75775b77",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [
     "scripts/python/engine/ai"
    ],
@@ -2960,50 +3028,50 @@
    ]
   },
   "tests/engine/test_419r1tr14r5r2r1r2r1r1r3_tiles_in_range_order.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/engine/test_433_r4_r1_filter_tiles_can_attack_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/engine/test_433_r4_r1_r1_wall_of_mirrors_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/engine/test_433_r4_r2_adjacency_foyer_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/engine/test_433_r4_r2_r1_r1_a_whole_board_gates_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/engine/test_433_r4_r2_r1_r1_c_caster_gates_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/engine/test_433_r4_r2_r1_r1_dynamic_target_gate_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/engine/test_433_r4_r2_r1_r2_ability_range_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [
     "data"
    ],
@@ -3012,50 +3080,48 @@
    ]
   },
   "tests/engine/test_433_r4_r2_r1_r2_line_of_sight_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/engine/test_433_r4_r2_r1_r2_r2_friend_gates_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/engine/test_433_r4_r2_r1_r2_r2_r1_r1_r1_r4_caster_reason_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/engine/test_433_r4_r2_r1_r2_r2_r1_r1_r1_source_tile_zone_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/engine/test_433_r4_r2_r1_r2_r2_r1_walkability_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [
-    "scripts/python/engine/ai",
     "scripts/python/engine/playbook/noncomparable"
    ],
    "temoins": [
-    "scripts/python/engine/ai/action_generators.py",
     "scripts/python/engine/playbook/noncomparable/early_warning_override.py"
    ]
   },
   "tests/engine/test_433r3r2_untargetable_offline.py": {
-   "_at": 1786386573,
-   "_commit": "40a9e670f5c9d52323341c2761c5d8f25e26fd36",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/engine/test_433r4r1r4_elevation_gate_dsl_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [
     "data/boards/global"
    ],
@@ -3064,26 +3130,26 @@
    ]
   },
   "tests/engine/test_433r4r1r4r1_unobscured_canal_offline.py": {
-   "_at": 1786382540,
-   "_commit": "cb92ace54ebb87e18f817f95995a33eb5b3dd198",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/engine/test_433r4r1r4r2_is_adjacent_substrat_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/engine/test_433r4r1r4r2r1_foyers_voisins_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/engine/test_433r4r1r4r2r1r1_derivation_morte_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [
     "scripts/python/engine",
     "scripts/python/engine/ai",
@@ -3168,14 +3234,14 @@
    ]
   },
   "tests/engine/test_433r4r1r4r2r1r1r1_selecteur_spawn_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/engine/test_436r1_bond_channel_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [
     "scripts/python/engine/runner"
    ],
@@ -3184,14 +3250,14 @@
    ]
   },
   "tests/engine/test_443r1a_triggered_move_anchor_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/engine/test_443r2b1_decision_inactive_seed.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [
     "scripts/python",
     "scripts/python/engine",
@@ -3279,14 +3345,14 @@
    ]
   },
   "tests/engine/test_446_r2_inter_face_rounding_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/engine/test_448_r1_already_used_tile_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [
     "data",
     "data/symbols/gqfc5mff6c/frida",
@@ -3299,14 +3365,14 @@
    ]
   },
   "tests/engine/test_448_r1_stormboyz_port_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/engine/test_448_r3_r1_noms_non_resolvables_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [
     "scripts/python/engine",
     "scripts/python/engine/ai",
@@ -3391,8 +3457,8 @@
    ]
   },
   "tests/engine/test_448_r3_r1_r1_greffe_sans_canal_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [
     "scripts/python",
     "scripts/python/engine",
@@ -3421,6 +3487,7 @@
     "scripts/python/engine/services",
     "scripts/python/engine/streams",
     "scripts/python/engine/utilities",
+    "scripts/python/gamenav",
     "scripts/python/tests",
     "scripts/python/tests/engine",
     "scripts/python/tests/engine/entities",
@@ -3482,6 +3549,8 @@
     "scripts/python/engine/utilities/__init__.py",
     "scripts/python/engine/utilities/wireweave_net.py",
     "scripts/python/engine/weights.py",
+    "scripts/python/gamenav/__init__.py",
+    "scripts/python/gamenav/vue.py",
     "scripts/python/tests/conftest.py",
     "scripts/python/tests/engine/_move_tile_sweep_order.py",
     "scripts/python/tests/engine/entities/pathfinding/test_381r3_neighbour_source_live.py",
@@ -3497,20 +3566,20 @@
    ]
   },
   "tests/engine/test_456r1_serene_unifier_and_kit_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/engine/test_462_r4b_r1_defender_additive_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/engine/test_462_r4b_r1_r1_defender_additive_carriers_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [
     "scripts/python/engine",
     "scripts/python/engine/ai",
@@ -3595,38 +3664,38 @@
    ]
   },
   "tests/engine/test_462_r4b_r1_r1_r1_neuroparasite_pose_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/engine/test_462_r4b_r1_r1_r1_r1_bond_removal_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/engine/test_462_r4e_o_r1_r1_discard_cardinality_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/engine/test_462r4eo_amount_applied_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/engine/test_462r4eor1_overkill_cardinality_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/engine/test_462r4eor2_over_reduce_purge_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [
     "scripts/python/engine/runner/operations"
    ],
@@ -3636,8 +3705,8 @@
    ]
   },
   "tests/engine/test_462r4eor2r1_purge_au_retour_a_la_vie_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [
     "scripts/python/engine/runner/operations"
    ],
@@ -3646,20 +3715,20 @@
    ]
   },
   "tests/engine/test_462r4eor2r1r1_cycle_de_tour_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/engine/test_477r15_stream_emitter_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/engine/test_477r15r1_string_literals_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [
     "data/symbols",
     "data/symbols/rnca9r7q6c/ghidra",
@@ -3672,8 +3741,8 @@
    ]
   },
   "tests/engine/test_477r16r1r1_dedup_env_abilities_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [
     "data",
     "data/symbols",
@@ -3686,68 +3755,68 @@
    ]
   },
   "tests/engine/test_477r18r5_place_unit_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/engine/test_477r19_process_removals_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/engine/test_477r20_start_match_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/engine/test_477r21_activation_tree_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/engine/test_477r21r1_formes_changestats_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/engine/test_477r21r2a_refresh_guards_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/engine/test_477r21r2b_activation_cache_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/engine/test_477r21r3_entity_allocator_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/engine/test_477r22_turn_phase_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/engine/test_477r22r1_verify_turn_finished_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/engine/test_477r24_phase_attribution_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [
     "data/symbols",
     "data/symbols/rnca9r7q6c/frida",
@@ -3781,6 +3850,7 @@
     "scripts/python/engine/services",
     "scripts/python/engine/streams",
     "scripts/python/engine/utilities",
+    "scripts/python/gamenav",
     "scripts/python/tests",
     "scripts/python/tests/engine",
     "scripts/python/tests/engine/entities",
@@ -3851,6 +3921,8 @@
     "scripts/python/engine/utilities/__init__.py",
     "scripts/python/engine/utilities/wireweave_net.py",
     "scripts/python/engine/weights.py",
+    "scripts/python/gamenav/__init__.py",
+    "scripts/python/gamenav/vue.py",
     "scripts/python/tests/conftest.py",
     "scripts/python/tests/engine/_move_tile_sweep_order.py",
     "scripts/python/tests/engine/entities/pathfinding/test_381r3_neighbour_source_live.py",
@@ -3866,8 +3938,8 @@
    ]
   },
   "tests/engine/test_477r24r1_slots_interface_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [
     "data/symbols",
     "data/symbols/rnca9r7q6c/frida",
@@ -3918,6 +3990,7 @@
     "scripts/python/engine/services",
     "scripts/python/engine/streams",
     "scripts/python/engine/utilities",
+    "scripts/python/gamenav",
     "scripts/python/tests",
     "scripts/python/tests/engine",
     "scripts/python/tests/engine/entities",
@@ -3956,13 +4029,13 @@
     "frida/hooks/features/overwatch-fix/track.ts",
     "frida/hooks/features/rl/bridge.ts",
     "frida/hooks/features/rl/tensorizer.ts",
-    "frida/hooks/features/winner-capture.ts",
+    "frida/hooks/features/ws-capture.ts",
     "frida/hooks/game/ai-control.ts",
     "frida/hooks/game/trace-origin.ts",
     "frida/hooks/il2cpp/build-pin.ts",
     "frida/hooks/il2cpp/serializer.ts",
     "frida/hooks/probes/check-invoker.ts",
-    "frida/hooks/probes/try-to-campaign.ts",
+    "frida/hooks/probes/test-static.ts",
     "frida/hooks/runtime/crash-logger.ts",
     "frida/hooks/runtime/queue.ts",
     "scripts/cliquets-cache/probe_477r24r1_slots_interface.tsv",
@@ -4019,6 +4092,8 @@
     "scripts/python/engine/utilities/__init__.py",
     "scripts/python/engine/utilities/wireweave_net.py",
     "scripts/python/engine/weights.py",
+    "scripts/python/gamenav/__init__.py",
+    "scripts/python/gamenav/vue.py",
     "scripts/python/tests/conftest.py",
     "scripts/python/tests/engine/_move_tile_sweep_order.py",
     "scripts/python/tests/engine/entities/pathfinding/test_381r3_neighbour_source_live.py",
@@ -4034,8 +4109,8 @@
    ]
   },
   "tests/engine/test_477r25_slots_autres_interfaces_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [
     "data/symbols",
     "data/symbols/rnca9r7q6c/frida",
@@ -4086,6 +4161,7 @@
     "scripts/python/engine/services",
     "scripts/python/engine/streams",
     "scripts/python/engine/utilities",
+    "scripts/python/gamenav",
     "scripts/python/tests",
     "scripts/python/tests/engine",
     "scripts/python/tests/engine/entities",
@@ -4124,13 +4200,13 @@
     "frida/hooks/features/overwatch-fix/track.ts",
     "frida/hooks/features/rl/bridge.ts",
     "frida/hooks/features/rl/tensorizer.ts",
-    "frida/hooks/features/winner-capture.ts",
+    "frida/hooks/features/ws-capture.ts",
     "frida/hooks/game/ai-control.ts",
     "frida/hooks/game/trace-origin.ts",
     "frida/hooks/il2cpp/build-pin.ts",
     "frida/hooks/il2cpp/serializer.ts",
     "frida/hooks/probes/check-invoker.ts",
-    "frida/hooks/probes/try-to-campaign.ts",
+    "frida/hooks/probes/test-static.ts",
     "frida/hooks/runtime/crash-logger.ts",
     "frida/hooks/runtime/queue.ts",
     "scripts/cliquets-cache/probe_477r25_slots_autres_interfaces.tsv",
@@ -4187,6 +4263,8 @@
     "scripts/python/engine/utilities/__init__.py",
     "scripts/python/engine/utilities/wireweave_net.py",
     "scripts/python/engine/weights.py",
+    "scripts/python/gamenav/__init__.py",
+    "scripts/python/gamenav/vue.py",
     "scripts/python/tests/conftest.py",
     "scripts/python/tests/engine/_move_tile_sweep_order.py",
     "scripts/python/tests/engine/entities/pathfinding/test_381r3_neighbour_source_live.py",
@@ -4202,8 +4280,8 @@
    ]
   },
   "tests/engine/test_477r30_empreinte_ast_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [
     "scripts/python"
    ],
@@ -4212,20 +4290,20 @@
    ]
   },
   "tests/engine/test_477r34_apply_damage_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/engine/test_477r39_heal_unit_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/engine/test_487r1_hellfyre_playbook_offline.py": {
-   "_at": 1786155674,
-   "_commit": "f6927a5216665ad59d81ff880bbaccb1f14fbb8a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [
     "data/symbols/rnca9r7q6c/frida"
    ],
@@ -4234,14 +4312,14 @@
    ]
   },
   "tests/engine/test_498r1_unstoppable_momentum_playbook_offline.py": {
-   "_at": 1786157018,
-   "_commit": "4e27666e750cc5c84629a2fa0a7a6ec444c49125",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/engine/test_498r4_face_decision_is_displaceable_offline.py": {
-   "_at": 1786136379,
-   "_commit": "7bb569cfcad34de6ae0fa08107d5bcfe94e16cc5",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [
     "scripts/python/engine",
     "scripts/python/engine/ai",
@@ -4326,14 +4404,14 @@
    ]
   },
   "tests/engine/test_498r4r1_fuite_flag_undisplaceable_offline.py": {
-   "_at": 1786136379,
-   "_commit": "7bb569cfcad34de6ae0fa08107d5bcfe94e16cc5",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/engine/test_510r2_tiles_behind_clamp_offline.py": {
-   "_at": 1786382540,
-   "_commit": "cb92ace54ebb87e18f817f95995a33eb5b3dd198",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [
     "scripts/python/engine"
    ],
@@ -4342,8 +4420,8 @@
    ]
   },
   "tests/engine/test_519_comptes_derives_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [
     "data/symbols",
     "data/symbols/gqfc5mff6c/frida",
@@ -4375,6 +4453,7 @@
     "scripts/python/engine/services",
     "scripts/python/engine/streams",
     "scripts/python/engine/utilities",
+    "scripts/python/gamenav",
     "scripts/python/tests",
     "scripts/python/tests/engine",
     "scripts/python/tests/engine/entities",
@@ -4439,6 +4518,8 @@
     "scripts/python/engine/utilities/__init__.py",
     "scripts/python/engine/utilities/wireweave_net.py",
     "scripts/python/engine/weights.py",
+    "scripts/python/gamenav/__init__.py",
+    "scripts/python/gamenav/vue.py",
     "scripts/python/tests/conftest.py",
     "scripts/python/tests/engine/_move_tile_sweep_order.py",
     "scripts/python/tests/engine/entities/pathfinding/test_381r3_neighbour_source_live.py",
@@ -4454,8 +4535,8 @@
    ]
   },
   "tests/engine/test_520_heal_pipeline_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [
     "scripts/python/engine/runner/abilities",
     "scripts/python/engine/runner/operations/triggers/loki"
@@ -4466,26 +4547,26 @@
    ]
   },
   "tests/engine/test_524r1_bond_sous_effets_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/engine/test_564_resurrect_pipeline_offline.py": {
-   "_at": 1786165356,
-   "_commit": "12afcb339f470fff3b6d554274969cce7d46ed66",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/engine/test_564r3_gates_resurrect_offline.py": {
-   "_at": 1786386573,
-   "_commit": "40a9e670f5c9d52323341c2761c5d8f25e26fd36",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/engine/test_566r1_sure_kill_gate_offline.py": {
-   "_at": 1786386573,
-   "_commit": "40a9e670f5c9d52323341c2761c5d8f25e26fd36",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [
     "scripts/python/engine/playbook/noncomparable"
    ],
@@ -4495,20 +4576,20 @@
    ]
   },
   "tests/engine/test_572_unbreakable_duty_offline.py": {
-   "_at": 1786178763,
-   "_commit": "7e5046c7ade22cc16048ad5dacf8501a55cdd06c",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/engine/test_572r1_hpmax_fillup_offline.py": {
-   "_at": 1786386573,
-   "_commit": "40a9e670f5c9d52323341c2761c5d8f25e26fd36",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/engine/test_589r1r1r2r1r2_union_non_dedupliquee_offline.py": {
-   "_at": 1786382540,
-   "_commit": "cb92ace54ebb87e18f817f95995a33eb5b3dd198",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [
     "data/symbols",
     "data/symbols/rnca9r7q6c"
@@ -4519,20 +4600,20 @@
    ]
   },
   "tests/engine/test_590_attempted_possession_offline.py": {
-   "_at": 1786180063,
-   "_commit": "33dbd52312aa780120cb1e5cd901df68375c4915",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/engine/test_590r4_utility_entity_offline.py": {
-   "_at": 1786386573,
-   "_commit": "40a9e670f5c9d52323341c2761c5d8f25e26fd36",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/engine/test_603_index_foyers_offline.py": {
-   "_at": 1786386573,
-   "_commit": "40a9e670f5c9d52323341c2761c5d8f25e26fd36",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [
     "docs/rl",
     "scripts/python/tests/engine"
@@ -4544,8 +4625,8 @@
    ]
   },
   "tests/engine/test_effect_1582_inertia_binary.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [
     "data/symbols",
     "data/symbols/rnca9r7q6c/frida",
@@ -4558,8 +4639,8 @@
    ]
   },
   "tests/engine/test_fabricator_claw_cap_binary.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [
     "data/symbols",
     "data/symbols/rnca9r7q6c/ghidra"
@@ -4570,26 +4651,26 @@
    ]
   },
   "tests/engine/test_lions_wrath_custom_utility.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/engine/test_nc_priority_tiers_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/engine/test_two_man_team_group_cap.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/test_237_relic_equip_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [
     "data"
    ],
@@ -4598,8 +4679,8 @@
    ]
   },
   "tests/test_287r13r1_refus_roster_offline.py": {
-   "_at": 1786157719,
-   "_commit": "d9b62a2b28ae64131a8b9805ceab4b55d067d8ba",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [
     "lib",
     "scripts/python",
@@ -4629,6 +4710,7 @@
     "scripts/python/engine/services",
     "scripts/python/engine/streams",
     "scripts/python/engine/utilities",
+    "scripts/python/gamenav",
     "scripts/python/tests",
     "scripts/python/tests/engine",
     "scripts/python/tests/engine/entities",
@@ -4692,6 +4774,8 @@
     "scripts/python/engine/utilities/__init__.py",
     "scripts/python/engine/utilities/wireweave_net.py",
     "scripts/python/engine/weights.py",
+    "scripts/python/gamenav/__init__.py",
+    "scripts/python/gamenav/vue.py",
     "scripts/python/tests/conftest.py",
     "scripts/python/tests/engine/_move_tile_sweep_order.py",
     "scripts/python/tests/engine/entities/pathfinding/test_381r3_neighbour_source_live.py",
@@ -4707,8 +4791,8 @@
    ]
   },
   "tests/test_314_absolute_repo_path_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [
     "scripts/python",
     "scripts/python/engine",
@@ -4737,6 +4821,7 @@
     "scripts/python/engine/services",
     "scripts/python/engine/streams",
     "scripts/python/engine/utilities",
+    "scripts/python/gamenav",
     "scripts/python/tests",
     "scripts/python/tests/engine",
     "scripts/python/tests/engine/entities",
@@ -4798,6 +4883,8 @@
     "scripts/python/engine/utilities/__init__.py",
     "scripts/python/engine/utilities/wireweave_net.py",
     "scripts/python/engine/weights.py",
+    "scripts/python/gamenav/__init__.py",
+    "scripts/python/gamenav/vue.py",
     "scripts/python/tests/conftest.py",
     "scripts/python/tests/engine/_move_tile_sweep_order.py",
     "scripts/python/tests/engine/entities/pathfinding/test_381r3_neighbour_source_live.py",
@@ -4813,8 +4900,8 @@
    ]
   },
   "tests/test_323_unit_map_voies_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [
     "data"
    ],
@@ -4824,8 +4911,8 @@
    ]
   },
   "tests/test_326_dsl_join_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [
     "data/symbols",
     "data/symbols/rnca9r7q6c/frida",
@@ -4841,8 +4928,8 @@
    ]
   },
   "tests/test_337_dsl_triggers_attestation_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [
     "data/symbols",
     "data/symbols/rnca9r7q6c/frida",
@@ -4873,8 +4960,7 @@
     "scripts/python/engine/runner/operations/triggers/loki",
     "scripts/python/engine/services",
     "scripts/python/engine/streams",
-    "scripts/python/engine/utilities",
-    "scripts/python/tests"
+    "scripts/python/engine/utilities"
    ],
    "temoins": [
     "data/symbols/CURRENT",
@@ -4932,19 +5018,18 @@
     "scripts/python/engine/streams/verify_turn_finished.py",
     "scripts/python/engine/utilities/__init__.py",
     "scripts/python/engine/utilities/wireweave_net.py",
-    "scripts/python/engine/weights.py",
-    "scripts/python/tests/test_337_dsl_triggers_attestation_offline.py"
+    "scripts/python/engine/weights.py"
    ]
   },
   "tests/test_341_kit_coverage_voies_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/test_366_r1_bcpatch_port_blindspot_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [
     "data",
     "scripts/python",
@@ -4974,6 +5059,7 @@
     "scripts/python/engine/services",
     "scripts/python/engine/streams",
     "scripts/python/engine/utilities",
+    "scripts/python/gamenav",
     "scripts/python/tests",
     "scripts/python/tests/engine",
     "scripts/python/tests/engine/entities",
@@ -5036,6 +5122,8 @@
     "scripts/python/engine/utilities/__init__.py",
     "scripts/python/engine/utilities/wireweave_net.py",
     "scripts/python/engine/weights.py",
+    "scripts/python/gamenav/__init__.py",
+    "scripts/python/gamenav/vue.py",
     "scripts/python/tests/conftest.py",
     "scripts/python/tests/engine/_move_tile_sweep_order.py",
     "scripts/python/tests/engine/entities/pathfinding/test_381r3_neighbour_source_live.py",
@@ -5051,8 +5139,8 @@
    ]
   },
   "tests/test_369_playbook_keyspace_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [
     "data",
     "data/symbols",
@@ -5068,8 +5156,8 @@
    ]
   },
   "tests/test_377_runnerid_monotone_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [
     "frida/hooks/game"
    ],
@@ -5078,8 +5166,8 @@
    ]
   },
   "tests/test_379_state_file_session_stamp_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [
     "scripts/python"
    ],
@@ -5089,8 +5177,8 @@
    ]
   },
   "tests/test_380_seed_bc_patch_survival_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [
     "data",
     "scripts/python",
@@ -5120,6 +5208,7 @@
     "scripts/python/engine/services",
     "scripts/python/engine/streams",
     "scripts/python/engine/utilities",
+    "scripts/python/gamenav",
     "scripts/python/tests",
     "scripts/python/tests/engine",
     "scripts/python/tests/engine/entities",
@@ -5182,6 +5271,8 @@
     "scripts/python/engine/utilities/__init__.py",
     "scripts/python/engine/utilities/wireweave_net.py",
     "scripts/python/engine/weights.py",
+    "scripts/python/gamenav/__init__.py",
+    "scripts/python/gamenav/vue.py",
     "scripts/python/tests/conftest.py",
     "scripts/python/tests/engine/_move_tile_sweep_order.py",
     "scripts/python/tests/engine/entities/pathfinding/test_381r3_neighbour_source_live.py",
@@ -5197,14 +5288,14 @@
    ]
   },
   "tests/test_391_conftest_dir_identity_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/test_409r1_garde_hors_banque_offline.py": {
-   "_at": 1786150447,
-   "_commit": "b7db8b08693969d8c1f71faf2522486d26fab93e",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [
     "scripts"
    ],
@@ -5213,8 +5304,8 @@
    ]
   },
   "tests/test_419_playbook_wiring_ratchet_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [
     "data/symbols",
     "data/symbols/rnca9r7q6c/ghidra"
@@ -5225,8 +5316,8 @@
    ]
   },
   "tests/test_431_build_pin_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [
     "data/symbols",
     "frida/hooks",
@@ -5243,8 +5334,8 @@
    ]
   },
   "tests/test_431r1_globs_non_recursifs_offline.py": {
-   "_at": 1786157719,
-   "_commit": "d9b62a2b28ae64131a8b9805ceab4b55d067d8ba",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [
     "lib",
     "scripts/python",
@@ -5274,6 +5365,7 @@
     "scripts/python/engine/services",
     "scripts/python/engine/streams",
     "scripts/python/engine/utilities",
+    "scripts/python/gamenav",
     "scripts/python/tests",
     "scripts/python/tests/engine",
     "scripts/python/tests/engine/entities",
@@ -5337,6 +5429,8 @@
     "scripts/python/engine/utilities/__init__.py",
     "scripts/python/engine/utilities/wireweave_net.py",
     "scripts/python/engine/weights.py",
+    "scripts/python/gamenav/__init__.py",
+    "scripts/python/gamenav/vue.py",
     "scripts/python/tests/conftest.py",
     "scripts/python/tests/engine/_move_tile_sweep_order.py",
     "scripts/python/tests/engine/entities/pathfinding/test_381r3_neighbour_source_live.py",
@@ -5352,14 +5446,14 @@
    ]
   },
   "tests/test_433r4r2r4r1_channel_counterproof_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/test_449_r2_spread_face_combat_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [
     "scripts/python/engine",
     "scripts/python/engine/ai",
@@ -5444,14 +5538,18 @@
    ]
   },
   "tests/test_457_r5_perimetre_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
-   "dirs": [],
-   "temoins": []
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
+   "dirs": [
+    "scripts"
+   ],
+   "temoins": [
+    "scripts/ratchets-457-durations.json"
+   ]
   },
   "tests/test_457_r6_banque_sans_doublon_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [
     "scripts"
    ],
@@ -5460,8 +5558,8 @@
    ]
   },
   "tests/test_457_r8_selection_par_diff_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [
     "scripts",
     "scripts/python",
@@ -5491,6 +5589,7 @@
     "scripts/python/engine/services",
     "scripts/python/engine/streams",
     "scripts/python/engine/utilities",
+    "scripts/python/gamenav",
     "scripts/python/tests",
     "scripts/python/tests/engine",
     "scripts/python/tests/engine/entities",
@@ -5552,6 +5651,8 @@
     "scripts/python/engine/utilities/__init__.py",
     "scripts/python/engine/utilities/wireweave_net.py",
     "scripts/python/engine/weights.py",
+    "scripts/python/gamenav/__init__.py",
+    "scripts/python/gamenav/vue.py",
     "scripts/python/tests/conftest.py",
     "scripts/python/tests/engine/_move_tile_sweep_order.py",
     "scripts/python/tests/engine/entities/pathfinding/test_381r3_neighbour_source_live.py",
@@ -5568,24 +5669,26 @@
    ]
   },
   "tests/test_457_r9_refus_d_ecrire_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [
+    "scripts",
     "scripts/python"
    ],
    "temoins": [
-    "scripts/python/probe_457_offline_tests_green.py"
+    "scripts/python/probe_457_offline_tests_green.py",
+    "scripts/ratchets-457-durations.json"
    ]
   },
   "tests/test_462_gate_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/test_462r6_counterproof_marker_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [
     "scripts/python",
     "scripts/python/engine",
@@ -5614,6 +5717,7 @@
     "scripts/python/engine/services",
     "scripts/python/engine/streams",
     "scripts/python/engine/utilities",
+    "scripts/python/gamenav",
     "scripts/python/tests",
     "scripts/python/tests/engine",
     "scripts/python/tests/engine/entities",
@@ -5675,6 +5779,8 @@
     "scripts/python/engine/utilities/__init__.py",
     "scripts/python/engine/utilities/wireweave_net.py",
     "scripts/python/engine/weights.py",
+    "scripts/python/gamenav/__init__.py",
+    "scripts/python/gamenav/vue.py",
     "scripts/python/tests/conftest.py",
     "scripts/python/tests/engine/_move_tile_sweep_order.py",
     "scripts/python/tests/engine/entities/pathfinding/test_381r3_neighbour_source_live.py",
@@ -5690,8 +5796,8 @@
    ]
   },
   "tests/test_463r1_ecart_empreinte_offline.py": {
-   "_at": 1786124986,
-   "_commit": "8abc8415411d82009ca99fcbc045ccd437c7cfb2",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [
     "scripts",
     "scripts/python",
@@ -5705,8 +5811,8 @@
    ]
   },
   "tests/test_464_sibling_script_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [
     "scripts/python",
     "scripts/python/engine",
@@ -5735,6 +5841,7 @@
     "scripts/python/engine/services",
     "scripts/python/engine/streams",
     "scripts/python/engine/utilities",
+    "scripts/python/gamenav",
     "scripts/python/tests",
     "scripts/python/tests/engine",
     "scripts/python/tests/engine/entities",
@@ -5796,6 +5903,8 @@
     "scripts/python/engine/utilities/__init__.py",
     "scripts/python/engine/utilities/wireweave_net.py",
     "scripts/python/engine/weights.py",
+    "scripts/python/gamenav/__init__.py",
+    "scripts/python/gamenav/vue.py",
     "scripts/python/tests/conftest.py",
     "scripts/python/tests/engine/_move_tile_sweep_order.py",
     "scripts/python/tests/engine/entities/pathfinding/test_381r3_neighbour_source_live.py",
@@ -5811,8 +5920,8 @@
    ]
   },
   "tests/test_465_ledger_validite_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [
     "scripts"
    ],
@@ -5821,8 +5930,8 @@
    ]
   },
   "tests/test_468_collision_numeros_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [
     "docs/rl",
     "docs/rl/case-220",
@@ -5836,12 +5945,13 @@
     "docs/rl/playbook/README.md",
     "docs/rl/playbook/status.md",
     "docs/rl/wiki.md",
-    "scripts/ratchets-468-numeros-attestes.json"
+    "scripts/ratchets-468-numeros-attestes.json",
+    "scripts/ratchets-468-sujets-de-commit.txt"
    ]
   },
   "tests/test_469_priorite_banque_de_fond_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [
     "scripts"
    ],
@@ -5850,32 +5960,32 @@
    ]
   },
   "tests/test_474_forensics_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/test_474_optional_locks_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/test_475_pinned_addresses_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/test_477r18r4_canaux_tags_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/test_480r8_rpc_joignable_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [
     ".claude/agents",
     ".claude/commands",
@@ -5950,6 +6060,7 @@
     "scripts/python/engine/services",
     "scripts/python/engine/streams",
     "scripts/python/engine/utilities",
+    "scripts/python/gamenav",
     "scripts/python/tests",
     "scripts/python/tests/engine",
     "scripts/python/tests/engine/entities",
@@ -6001,7 +6112,7 @@
     "frida/hooks/features/overwatch-fix/track.ts",
     "frida/hooks/features/rl/bridge.ts",
     "frida/hooks/features/rl/tensorizer.ts",
-    "frida/hooks/features/winner-capture.ts",
+    "frida/hooks/features/ws-capture.ts",
     "frida/hooks/game/ai-control.ts",
     "frida/hooks/game/trace-origin.ts",
     "frida/hooks/il2cpp/build-pin.ts",
@@ -6009,7 +6120,7 @@
     "frida/hooks/main.ts",
     "frida/hooks/probes/README.md",
     "frida/hooks/probes/check-invoker.ts",
-    "frida/hooks/probes/try-to-campaign.ts",
+    "frida/hooks/probes/test-static.ts",
     "frida/hooks/runtime/crash-logger.ts",
     "frida/hooks/runtime/queue.ts",
     "frida/host/admin.ts",
@@ -6096,6 +6207,8 @@
     "scripts/python/engine/utilities/__init__.py",
     "scripts/python/engine/utilities/wireweave_net.py",
     "scripts/python/engine/weights.py",
+    "scripts/python/gamenav/__init__.py",
+    "scripts/python/gamenav/vue.py",
     "scripts/python/tests/conftest.py",
     "scripts/python/tests/engine/_move_tile_sweep_order.py",
     "scripts/python/tests/engine/entities/pathfinding/test_381r3_neighbour_source_live.py",
@@ -6111,9 +6224,120 @@
     "scripts/tacticus-screen-prefs.ps1"
    ]
   },
+  "tests/test_485r2_portee_des_noms_offline.py": {
+   "_at": 1786392447,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
+   "dirs": [
+    "data",
+    "scripts/python",
+    "scripts/python/engine",
+    "scripts/python/engine/ai",
+    "scripts/python/engine/dsl",
+    "scripts/python/engine/entities",
+    "scripts/python/engine/entities/abilities",
+    "scripts/python/engine/entities/effects",
+    "scripts/python/engine/entities/effects/loki",
+    "scripts/python/engine/entities/pathfinding",
+    "scripts/python/engine/entities/selectors",
+    "scripts/python/engine/entities/traits",
+    "scripts/python/engine/playbook",
+    "scripts/python/engine/playbook/noncomparable",
+    "scripts/python/engine/playbook/prediction",
+    "scripts/python/engine/runner",
+    "scripts/python/engine/runner/abilities",
+    "scripts/python/engine/runner/abilities/behaviours",
+    "scripts/python/engine/runner/abilities/loki",
+    "scripts/python/engine/runner/caches",
+    "scripts/python/engine/runner/operations",
+    "scripts/python/engine/runner/operations/damage_ops",
+    "scripts/python/engine/runner/operations/triggers",
+    "scripts/python/engine/runner/operations/triggers/dispatch",
+    "scripts/python/engine/runner/operations/triggers/loki",
+    "scripts/python/engine/services",
+    "scripts/python/engine/streams",
+    "scripts/python/engine/utilities",
+    "scripts/python/gamenav",
+    "scripts/python/tests",
+    "scripts/python/tests/engine",
+    "scripts/python/tests/engine/entities",
+    "scripts/python/tests/engine/entities/pathfinding",
+    "scripts/python/tests/engine/runner",
+    "scripts/python/tools"
+   ],
+   "temoins": [
+    "data/seed-bc.json",
+    "scripts/python/_analyze_errors.py",
+    "scripts/python/engine/__init__.py",
+    "scripts/python/engine/ai/__init__.py",
+    "scripts/python/engine/ai/utilities.py",
+    "scripts/python/engine/dsl/__init__.py",
+    "scripts/python/engine/dsl/nodes.py",
+    "scripts/python/engine/entities/__init__.py",
+    "scripts/python/engine/entities/abilities/__init__.py",
+    "scripts/python/engine/entities/abilities/triggered_ability.py",
+    "scripts/python/engine/entities/effects/__init__.py",
+    "scripts/python/engine/entities/effects/loki/__init__.py",
+    "scripts/python/engine/entities/effects/loki/war_howl.py",
+    "scripts/python/engine/entities/effects/magnitude.py",
+    "scripts/python/engine/entities/pathfinding/__init__.py",
+    "scripts/python/engine/entities/pathfinding/walk_pathfinder.py",
+    "scripts/python/engine/entities/selectors/__init__.py",
+    "scripts/python/engine/entities/selectors/units.py",
+    "scripts/python/engine/entities/traits/__init__.py",
+    "scripts/python/engine/entities/traits/unit_trait.py",
+    "scripts/python/engine/entities/victory_condition_type.py",
+    "scripts/python/engine/playbook/__init__.py",
+    "scripts/python/engine/playbook/noncomparable/__init__.py",
+    "scripts/python/engine/playbook/noncomparable/vigilance_eternal.py",
+    "scripts/python/engine/playbook/prediction/__init__.py",
+    "scripts/python/engine/playbook/prediction/ramming_speed.py",
+    "scripts/python/engine/playbook/tile_targets.py",
+    "scripts/python/engine/runner/__init__.py",
+    "scripts/python/engine/runner/abilities/__init__.py",
+    "scripts/python/engine/runner/abilities/behaviours/__init__.py",
+    "scripts/python/engine/runner/abilities/behaviours/turnflow.py",
+    "scripts/python/engine/runner/abilities/loki/__init__.py",
+    "scripts/python/engine/runner/abilities/loki/wall_of_mirrors.py",
+    "scripts/python/engine/runner/abilities/worldeaters.py",
+    "scripts/python/engine/runner/caches/__init__.py",
+    "scripts/python/engine/runner/caches/ability_and_effect_cache.py",
+    "scripts/python/engine/runner/operations/__init__.py",
+    "scripts/python/engine/runner/operations/damage_ops/__init__.py",
+    "scripts/python/engine/runner/operations/damage_ops/normal_like.py",
+    "scripts/python/engine/runner/operations/triggers/__init__.py",
+    "scripts/python/engine/runner/operations/triggers/dispatch/__init__.py",
+    "scripts/python/engine/runner/operations/triggers/dispatch/turn.py",
+    "scripts/python/engine/runner/operations/triggers/loki/__init__.py",
+    "scripts/python/engine/runner/operations/triggers/loki/wireweave_net.py",
+    "scripts/python/engine/runner/operations/triggers/tiles.py",
+    "scripts/python/engine/runner/operations/turnflow.py",
+    "scripts/python/engine/runner/state.py",
+    "scripts/python/engine/services/__init__.py",
+    "scripts/python/engine/services/victory_config.py",
+    "scripts/python/engine/streams/__init__.py",
+    "scripts/python/engine/streams/verify_turn_finished.py",
+    "scripts/python/engine/utilities/__init__.py",
+    "scripts/python/engine/utilities/wireweave_net.py",
+    "scripts/python/engine/weights.py",
+    "scripts/python/gamenav/__init__.py",
+    "scripts/python/gamenav/vue.py",
+    "scripts/python/tests/conftest.py",
+    "scripts/python/tests/engine/_move_tile_sweep_order.py",
+    "scripts/python/tests/engine/entities/pathfinding/test_381r3_neighbour_source_live.py",
+    "scripts/python/tests/engine/entities/pathfinding/test_pathfinding_live.py",
+    "scripts/python/tests/engine/entities/test_366_r1_turnof_all_offline.py",
+    "scripts/python/tests/engine/entities/test_units_directly_behind_offline.py",
+    "scripts/python/tests/engine/runner/_ability_after_hit_regime.py",
+    "scripts/python/tests/engine/runner/test_wireweave_net_counter_live.py",
+    "scripts/python/tests/engine/test_votan_prediction_gap_live.py",
+    "scripts/python/tests/test_symbols_coverage_guard_offline.py",
+    "scripts/python/tools/damage_decomp.py",
+    "scripts/python/verdict_cache.py"
+   ]
+  },
   "tests/test_486_r1_cache_verdict_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [
     "scripts/cliquets-cache",
     "scripts/python"
@@ -6126,8 +6350,8 @@
    ]
   },
   "tests/test_486r11_cle_sous_graphe_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [
     "scripts/python/engine",
     "scripts/python/engine/ai",
@@ -6212,8 +6436,8 @@
    ]
   },
   "tests/test_486r12_declencheurs_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [
     "scripts/python"
    ],
@@ -6223,60 +6447,8 @@
    ]
   },
   "tests/test_486r15_empreinte_par_entree_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
-   "dirs": [
-    "scripts",
-    "scripts/python",
-    "scripts/python/engine/runner",
-    "scripts/python/tests",
-    "scripts/python/tests/engine",
-    "scripts/python/tests/engine/entities",
-    "scripts/python/tests/engine/entities/pathfinding",
-    "scripts/python/tests/engine/runner"
-   ],
-   "temoins": [
-    "scripts/python/catalog_inject.py",
-    "scripts/python/engine/runner/snapshot.py",
-    "scripts/python/tests/conftest.py",
-    "scripts/python/tests/engine/entities/pathfinding/test_381r3_neighbour_source_live.py",
-    "scripts/python/tests/engine/entities/pathfinding/test_pathfinding_live.py",
-    "scripts/python/tests/engine/entities/test_366_r1_turnof_all_offline.py",
-    "scripts/python/tests/engine/entities/test_units_directly_behind_offline.py",
-    "scripts/python/tests/engine/runner/test_270d_lysander_deploy_live.py",
-    "scripts/python/tests/engine/runner/test_wireweave_net_counter_live.py",
-    "scripts/python/tests/engine/test_218_amulet_custom_utility_vtable.py",
-    "scripts/python/tests/engine/test_votan_prediction_gap_live.py",
-    "scripts/python/tests/test_symbols_coverage_guard_offline.py",
-    "scripts/python/verdict_cache.py",
-    "scripts/ratchets-457-footprints.json",
-    "scripts/ratchets-486r15-dette-declencheurs.txt"
-   ]
-  },
-  "tests/test_486r19_declencheur_par_entree_offline.py": {
-   "_at": 1786136379,
-   "_commit": "7bb569cfcad34de6ae0fa08107d5bcfe94e16cc5",
-   "dirs": [
-    "data/symbols",
-    "scripts",
-    "scripts/python"
-   ],
-   "temoins": [
-    "data/symbols/CURRENT",
-    "scripts/python/probe_120_pre_unit_ability_fork.py",
-    "scripts/python/probe_486r2_usage_des_probes.py",
-    "scripts/ratchets.ps1"
-   ]
-  },
-  "tests/test_486r23_ledger_vert_offline.py": {
-   "_at": 1786124986,
-   "_commit": "8abc8415411d82009ca99fcbc045ccd437c7cfb2",
-   "dirs": [],
-   "temoins": []
-  },
-  "tests/test_486r24_bypass_confrontation_offline.py": {
-   "_at": 1786136379,
-   "_commit": "7bb569cfcad34de6ae0fa08107d5bcfe94e16cc5",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [
     "scripts",
     "scripts/python",
@@ -6312,7 +6484,131 @@
     "scripts/python/tests/engine/runner"
    ],
    "temoins": [
-    "scripts/python/board.py",
+    "scripts/python/catalog_inject.py",
+    "scripts/python/engine/__init__.py",
+    "scripts/python/engine/ai/__init__.py",
+    "scripts/python/engine/ai/utilities.py",
+    "scripts/python/engine/dsl/__init__.py",
+    "scripts/python/engine/dsl/nodes.py",
+    "scripts/python/engine/entities/abilities/ability_configuration.py",
+    "scripts/python/engine/entities/abilities/triggered_ability.py",
+    "scripts/python/engine/entities/ability_constant_type.py",
+    "scripts/python/engine/entities/effects/__init__.py",
+    "scripts/python/engine/entities/effects/loki/ability_modifications.py",
+    "scripts/python/engine/entities/effects/loki/war_howl.py",
+    "scripts/python/engine/entities/effects/magnitude.py",
+    "scripts/python/engine/entities/pathfinding/__init__.py",
+    "scripts/python/engine/entities/pathfinding/walk_pathfinder.py",
+    "scripts/python/engine/entities/selectors/__init__.py",
+    "scripts/python/engine/entities/selectors/units.py",
+    "scripts/python/engine/entities/traits/__init__.py",
+    "scripts/python/engine/entities/traits/unit_trait.py",
+    "scripts/python/engine/entities/victory_condition_type.py",
+    "scripts/python/engine/playbook/__init__.py",
+    "scripts/python/engine/playbook/noncomparable/__init__.py",
+    "scripts/python/engine/playbook/noncomparable/vigilance_eternal.py",
+    "scripts/python/engine/playbook/prediction/__init__.py",
+    "scripts/python/engine/playbook/prediction/ramming_speed.py",
+    "scripts/python/engine/playbook/tile_targets.py",
+    "scripts/python/engine/runner/__init__.py",
+    "scripts/python/engine/runner/abilities/__init__.py",
+    "scripts/python/engine/runner/abilities/behaviours/ability_state.py",
+    "scripts/python/engine/runner/abilities/behaviours/turnflow.py",
+    "scripts/python/engine/runner/abilities/loki/__init__.py",
+    "scripts/python/engine/runner/abilities/loki/wall_of_mirrors.py",
+    "scripts/python/engine/runner/abilities/worldeaters.py",
+    "scripts/python/engine/runner/operations/__init__.py",
+    "scripts/python/engine/runner/operations/damage_ops/__init__.py",
+    "scripts/python/engine/runner/operations/damage_ops/normal_like.py",
+    "scripts/python/engine/runner/operations/triggers/__init__.py",
+    "scripts/python/engine/runner/operations/triggers/dispatch/__init__.py",
+    "scripts/python/engine/runner/operations/triggers/dispatch/turn.py",
+    "scripts/python/engine/runner/operations/triggers/loki/__init__.py",
+    "scripts/python/engine/runner/operations/triggers/loki/wireweave_net.py",
+    "scripts/python/engine/runner/operations/triggers/tiles.py",
+    "scripts/python/engine/runner/operations/turnflow.py",
+    "scripts/python/engine/runner/state.py",
+    "scripts/python/engine/services/__init__.py",
+    "scripts/python/engine/services/victory_config.py",
+    "scripts/python/engine/streams/dispatcher.py",
+    "scripts/python/engine/streams/tag_key.py",
+    "scripts/python/engine/utilities/__init__.py",
+    "scripts/python/engine/utilities/wireweave_net.py",
+    "scripts/python/engine/weights.py",
+    "scripts/python/tests/conftest.py",
+    "scripts/python/tests/engine/conftest.py",
+    "scripts/python/tests/engine/entities/pathfinding/test_381r3_neighbour_source_live.py",
+    "scripts/python/tests/engine/entities/pathfinding/test_pathfinding_live.py",
+    "scripts/python/tests/engine/entities/test_366_r1_turnof_all_offline.py",
+    "scripts/python/tests/engine/entities/test_units_directly_behind_offline.py",
+    "scripts/python/tests/engine/runner/conftest.py",
+    "scripts/python/tests/engine/runner/test_wireweave_net_counter_live.py",
+    "scripts/python/tests/engine/test_votan_prediction_gap_live.py",
+    "scripts/python/tests/test_symbols_coverage_guard_offline.py",
+    "scripts/python/verdict_cache.py",
+    "scripts/ratchets-457-footprints.json",
+    "scripts/ratchets-486r15-dette-declencheurs.txt"
+   ]
+  },
+  "tests/test_486r19_declencheur_par_entree_offline.py": {
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
+   "dirs": [
+    "scripts",
+    "scripts/python"
+   ],
+   "temoins": [
+    "scripts/python/probe_120_pre_unit_ability_fork.py",
+    "scripts/python/probe_486r2_usage_des_probes.py",
+    "scripts/ratchets.ps1"
+   ]
+  },
+  "tests/test_486r23_ledger_vert_offline.py": {
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
+   "dirs": [],
+   "temoins": []
+  },
+  "tests/test_486r24_bypass_confrontation_offline.py": {
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
+   "dirs": [
+    "scripts",
+    "scripts/python",
+    "scripts/python/engine",
+    "scripts/python/engine/ai",
+    "scripts/python/engine/dsl",
+    "scripts/python/engine/entities",
+    "scripts/python/engine/entities/abilities",
+    "scripts/python/engine/entities/effects",
+    "scripts/python/engine/entities/effects/loki",
+    "scripts/python/engine/entities/pathfinding",
+    "scripts/python/engine/entities/selectors",
+    "scripts/python/engine/entities/traits",
+    "scripts/python/engine/playbook",
+    "scripts/python/engine/playbook/noncomparable",
+    "scripts/python/engine/playbook/prediction",
+    "scripts/python/engine/runner",
+    "scripts/python/engine/runner/abilities",
+    "scripts/python/engine/runner/abilities/behaviours",
+    "scripts/python/engine/runner/abilities/loki",
+    "scripts/python/engine/runner/operations",
+    "scripts/python/engine/runner/operations/damage_ops",
+    "scripts/python/engine/runner/operations/triggers",
+    "scripts/python/engine/runner/operations/triggers/dispatch",
+    "scripts/python/engine/runner/operations/triggers/loki",
+    "scripts/python/engine/services",
+    "scripts/python/engine/streams",
+    "scripts/python/engine/utilities",
+    "scripts/python/gamenav",
+    "scripts/python/tests",
+    "scripts/python/tests/engine",
+    "scripts/python/tests/engine/entities",
+    "scripts/python/tests/engine/entities/pathfinding",
+    "scripts/python/tests/engine/runner"
+   ],
+   "temoins": [
+    "scripts/python/backlog_entries.py",
     "scripts/python/engine/__init__.py",
     "scripts/python/engine/ai/__init__.py",
     "scripts/python/engine/ai/utilities.py",
@@ -6363,6 +6659,7 @@
     "scripts/python/engine/utilities/__init__.py",
     "scripts/python/engine/utilities/wireweave_net.py",
     "scripts/python/engine/weights.py",
+    "scripts/python/gamenav/transport.py",
     "scripts/python/tests/conftest.py",
     "scripts/python/tests/engine/conftest.py",
     "scripts/python/tests/engine/entities/pathfinding/test_381r3_neighbour_source_live.py",
@@ -6379,108 +6676,26 @@
    ]
   },
   "tests/test_486r27_forme_au_hook_offline.py": {
-   "_at": 1786150447,
-   "_commit": "b7db8b08693969d8c1f71faf2522486d26fab93e",
-   "dirs": [
-    "scripts/python",
-    "scripts/python/engine",
-    "scripts/python/engine/ai",
-    "scripts/python/engine/dsl",
-    "scripts/python/engine/entities",
-    "scripts/python/engine/entities/abilities",
-    "scripts/python/engine/entities/effects",
-    "scripts/python/engine/entities/effects/loki",
-    "scripts/python/engine/entities/pathfinding",
-    "scripts/python/engine/entities/selectors",
-    "scripts/python/engine/entities/traits",
-    "scripts/python/engine/playbook",
-    "scripts/python/engine/playbook/noncomparable",
-    "scripts/python/engine/playbook/prediction",
-    "scripts/python/engine/runner",
-    "scripts/python/engine/runner/abilities",
-    "scripts/python/engine/runner/abilities/behaviours",
-    "scripts/python/engine/runner/abilities/loki",
-    "scripts/python/engine/runner/operations",
-    "scripts/python/engine/runner/operations/damage_ops",
-    "scripts/python/engine/runner/operations/triggers",
-    "scripts/python/engine/runner/operations/triggers/dispatch",
-    "scripts/python/engine/runner/operations/triggers/loki",
-    "scripts/python/engine/services",
-    "scripts/python/engine/streams",
-    "scripts/python/engine/utilities",
-    "scripts/python/tests"
-   ],
-   "temoins": [
-    "scripts/python/catalog_inject.py",
-    "scripts/python/engine/__init__.py",
-    "scripts/python/engine/ai/action_generators.py",
-    "scripts/python/engine/ai/utilities.py",
-    "scripts/python/engine/dsl/__init__.py",
-    "scripts/python/engine/dsl/nodes.py",
-    "scripts/python/engine/entities/abilities/ability_configuration.py",
-    "scripts/python/engine/entities/abilities/triggered_ability.py",
-    "scripts/python/engine/entities/ability_constant_type.py",
-    "scripts/python/engine/entities/effects/__init__.py",
-    "scripts/python/engine/entities/effects/loki/ability_modifications.py",
-    "scripts/python/engine/entities/effects/loki/war_howl.py",
-    "scripts/python/engine/entities/effects/magnitude.py",
-    "scripts/python/engine/entities/pathfinding/__init__.py",
-    "scripts/python/engine/entities/pathfinding/walk_pathfinder.py",
-    "scripts/python/engine/entities/selectors/__init__.py",
-    "scripts/python/engine/entities/selectors/units.py",
-    "scripts/python/engine/entities/traits/__init__.py",
-    "scripts/python/engine/entities/traits/unit_trait.py",
-    "scripts/python/engine/entities/victory_condition_type.py",
-    "scripts/python/engine/playbook/__init__.py",
-    "scripts/python/engine/playbook/noncomparable/__init__.py",
-    "scripts/python/engine/playbook/noncomparable/vigilance_eternal.py",
-    "scripts/python/engine/playbook/prediction/__init__.py",
-    "scripts/python/engine/playbook/prediction/ramming_speed.py",
-    "scripts/python/engine/playbook/tile_targets.py",
-    "scripts/python/engine/runner/__init__.py",
-    "scripts/python/engine/runner/abilities/__init__.py",
-    "scripts/python/engine/runner/abilities/behaviours/ability_state.py",
-    "scripts/python/engine/runner/abilities/behaviours/turnflow.py",
-    "scripts/python/engine/runner/abilities/loki/__init__.py",
-    "scripts/python/engine/runner/abilities/loki/wall_of_mirrors.py",
-    "scripts/python/engine/runner/abilities/worldeaters.py",
-    "scripts/python/engine/runner/operations/__init__.py",
-    "scripts/python/engine/runner/operations/damage_ops/__init__.py",
-    "scripts/python/engine/runner/operations/damage_ops/normal_like.py",
-    "scripts/python/engine/runner/operations/triggers/__init__.py",
-    "scripts/python/engine/runner/operations/triggers/dispatch/__init__.py",
-    "scripts/python/engine/runner/operations/triggers/dispatch/turn.py",
-    "scripts/python/engine/runner/operations/triggers/loki/__init__.py",
-    "scripts/python/engine/runner/operations/triggers/loki/wireweave_net.py",
-    "scripts/python/engine/runner/operations/triggers/tiles.py",
-    "scripts/python/engine/runner/operations/turnflow.py",
-    "scripts/python/engine/runner/state.py",
-    "scripts/python/engine/services/__init__.py",
-    "scripts/python/engine/services/victory_config.py",
-    "scripts/python/engine/streams/dispatcher.py",
-    "scripts/python/engine/streams/tag_key.py",
-    "scripts/python/engine/utilities/__init__.py",
-    "scripts/python/engine/utilities/wireweave_net.py",
-    "scripts/python/engine/weights.py",
-    "scripts/python/symbols_layout.py",
-    "scripts/python/tests/conftest.py"
-   ]
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
+   "dirs": [],
+   "temoins": []
   },
   "tests/test_486r29_ordre_de_confrontation_offline.py": {
-   "_at": 1786150447,
-   "_commit": "b7db8b08693969d8c1f71faf2522486d26fab93e",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/test_486r5_balayages_memoises_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/test_546_capteurs_fenetre_offline.py": {
-   "_at": 1786146645,
-   "_commit": "d3c8c8997db3243c158e0ce0bf2edadb1b930cf9",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [
     "data/symbols",
     "data/symbols/rnca9r7q6c/frida",
@@ -6492,21 +6707,21 @@
     "data/symbols/CURRENT",
     "data/symbols/rnca9r7q6c/frida/classes.tsv",
     "data/symbols/rnca9r7q6c/frida/methods.tsv",
-    "frida/hooks/features/ai-step/rpc-board.ts",
+    "frida/hooks/features/ai-step/internals.ts",
     "frida/hooks/features/ai-step/rpc-targeting.ts",
     "frida/hooks/game/effects.ts",
     "scripts/python/targeting_reason.py"
    ]
   },
   "tests/test_547_ledger_sans_verdict_non_vert_offline.py": {
-   "_at": 1786157060,
-   "_commit": "c5502f993beaf058568cdaad85334ae4548ed6ce",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/test_547r1_mesure_missing_non_verdict_offline.py": {
-   "_at": 1786164627,
-   "_commit": "4cf4ba5eddff5c1d75bdebdcb997492318af9851",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [
     "scripts",
     "scripts/python"
@@ -6517,8 +6732,8 @@
    ]
   },
   "tests/test_579r1_nullable_layout_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [
     "frida/hooks/features/ai-step"
    ],
@@ -6527,8 +6742,8 @@
    ]
   },
   "tests/test_additional_hits_variant_signatures_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [
     "scripts/python",
     "scripts/python/engine",
@@ -6557,6 +6772,7 @@
     "scripts/python/engine/services",
     "scripts/python/engine/streams",
     "scripts/python/engine/utilities",
+    "scripts/python/gamenav",
     "scripts/python/tests",
     "scripts/python/tests/engine",
     "scripts/python/tests/engine/entities",
@@ -6618,6 +6834,8 @@
     "scripts/python/engine/utilities/__init__.py",
     "scripts/python/engine/utilities/wireweave_net.py",
     "scripts/python/engine/weights.py",
+    "scripts/python/gamenav/__init__.py",
+    "scripts/python/gamenav/vue.py",
     "scripts/python/tests/conftest.py",
     "scripts/python/tests/engine/_move_tile_sweep_order.py",
     "scripts/python/tests/engine/entities/pathfinding/test_381r3_neighbour_source_live.py",
@@ -6633,8 +6851,8 @@
    ]
   },
   "tests/test_enum_maps_ratchet_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [
     "data/symbols",
     "data/symbols/rnca9r7q6c/frida",
@@ -6647,8 +6865,8 @@
    ]
   },
   "tests/test_enum_mirror_ratchet_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [
     "data/symbols",
     "data/symbols/rnca9r7q6c/frida",
@@ -6681,6 +6899,7 @@
     "scripts/python/engine/services",
     "scripts/python/engine/streams",
     "scripts/python/engine/utilities",
+    "scripts/python/gamenav",
     "scripts/python/tests",
     "scripts/python/tests/engine",
     "scripts/python/tests/engine/entities",
@@ -6747,6 +6966,8 @@
     "scripts/python/engine/utilities/__init__.py",
     "scripts/python/engine/utilities/wireweave_net.py",
     "scripts/python/engine/weights.py",
+    "scripts/python/gamenav/__init__.py",
+    "scripts/python/gamenav/vue.py",
     "scripts/python/tests/conftest.py",
     "scripts/python/tests/engine/_move_tile_sweep_order.py",
     "scripts/python/tests/engine/entities/pathfinding/test_381r3_neighbour_source_live.py",
@@ -6762,8 +6983,8 @@
    ]
   },
   "tests/test_enum_ordinal_ratchet_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [
     ".claude/workflows",
     "data/symbols",
@@ -6797,6 +7018,7 @@
     "scripts/frida",
     "scripts/node",
     "scripts/python",
+    "scripts/python/.pytest_cache",
     "scripts/python/engine",
     "scripts/python/engine/ai",
     "scripts/python/engine/dsl",
@@ -6823,6 +7045,7 @@
     "scripts/python/engine/services",
     "scripts/python/engine/streams",
     "scripts/python/engine/utilities",
+    "scripts/python/gamenav",
     "scripts/python/tests",
     "scripts/python/tests/engine",
     "scripts/python/tests/engine/entities",
@@ -6854,14 +7077,14 @@
     "frida/hooks/features/overwatch-fix/track.ts",
     "frida/hooks/features/rl/bridge.ts",
     "frida/hooks/features/rl/tensorizer.ts",
-    "frida/hooks/features/winner-capture.ts",
+    "frida/hooks/features/ws-capture.ts",
     "frida/hooks/game/ai-control.ts",
     "frida/hooks/game/trace-origin.ts",
     "frida/hooks/il2cpp/build-pin.ts",
     "frida/hooks/il2cpp/serializer.ts",
     "frida/hooks/main.ts",
     "frida/hooks/probes/check-invoker.ts",
-    "frida/hooks/probes/try-to-campaign.ts",
+    "frida/hooks/probes/test-static.ts",
     "frida/hooks/runtime/crash-logger.ts",
     "frida/hooks/runtime/queue.ts",
     "frida/host/admin.ts",
@@ -6888,6 +7111,7 @@
     "scripts/frida/dump-all-configs.js",
     "scripts/frida/test-param-hook.js",
     "scripts/node/count_proxy.js",
+    "scripts/python/.pytest_cache/README.md",
     "scripts/python/_analyze_errors.py",
     "scripts/python/engine/__init__.py",
     "scripts/python/engine/ai/__init__.py",
@@ -6941,6 +7165,8 @@
     "scripts/python/engine/utilities/__init__.py",
     "scripts/python/engine/utilities/wireweave_net.py",
     "scripts/python/engine/weights.py",
+    "scripts/python/gamenav/__init__.py",
+    "scripts/python/gamenav/vue.py",
     "scripts/python/tests/conftest.py",
     "scripts/python/tests/engine/_move_tile_sweep_order.py",
     "scripts/python/tests/engine/entities/pathfinding/test_381r3_neighbour_source_live.py",
@@ -6956,20 +7182,20 @@
    ]
   },
   "tests/test_expedition_solver_offline.py": {
-   "_at": 1786382540,
-   "_commit": "cb92ace54ebb87e18f817f95995a33eb5b3dd198",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/test_host_inputs_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   },
   "tests/test_step_ordinal_ratchet_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [
     "data/symbols",
     "data/symbols/gqfc5mff6c/frida",
@@ -7003,6 +7229,7 @@
     "scripts/python/engine/services",
     "scripts/python/engine/streams",
     "scripts/python/engine/utilities",
+    "scripts/python/gamenav",
     "scripts/python/tests",
     "scripts/python/tests/engine",
     "scripts/python/tests/engine/entities",
@@ -7070,6 +7297,8 @@
     "scripts/python/engine/utilities/__init__.py",
     "scripts/python/engine/utilities/wireweave_net.py",
     "scripts/python/engine/weights.py",
+    "scripts/python/gamenav/__init__.py",
+    "scripts/python/gamenav/vue.py",
     "scripts/python/tests/conftest.py",
     "scripts/python/tests/engine/_move_tile_sweep_order.py",
     "scripts/python/tests/engine/entities/pathfinding/test_381r3_neighbour_source_live.py",
@@ -7085,8 +7314,8 @@
    ]
   },
   "tests/test_stream_events_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [
     "data/symbols",
     "data/symbols/rnca9r7q6c/frida"
@@ -7097,8 +7326,8 @@
    ]
   },
   "tests/test_symbols_coverage_guard_offline.py": {
-   "_at": 1786110307,
-   "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
+   "_at": 1786392144,
+   "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
    "dirs": [],
    "temoins": []
   }
