@@ -304,6 +304,9 @@ def perform_ai_ability_unit_behaviour(state: "State", unit_id: int, allow_move_a
     # Mirror utilise : `IdunBattle.Entities.Selectors.ValidNormalAttackTargetsSelector$$Select`
     # (`valid_normal_attack_targets`), qui applique la cascade avec les `TargetingOptions` du TYPE
     # d'attaque normale du caster -- exactement l'`abilityType` que passe le natif.
+    # DIFFERE **PORTEUR** (classe mecaniquement : charger `engine.runner.abilities.targeting` seul
+    # dans un process FRAIS fait atterrir ce module dans `sys.modules` -> le hisser fermerait le
+    # cycle). Meme classe que le `_in_attack_range` juste au-dessus.
     from ..targeting import valid_normal_attack_targets
     _e0 = state.get_entity(int(unit_id))
     _pc0 = _e0.get_component(_PC) if _e0 is not None else None
