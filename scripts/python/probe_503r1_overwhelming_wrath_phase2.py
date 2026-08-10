@@ -204,7 +204,7 @@ def _hp_delta(avant: dict, apres: dict) -> dict:
 
 def measure(sid: int, seed: str = "777", board: str = BOARD,
             state_name: str = "probe_503r1_overwhelming_wrath_phase2",
-            hooks: dict | None = None):
+            hooks: dict | None = None, extra_args: list | None = None):
     """Monte le scenario, joue le cast PUIS les deux passages de tour des DEUX cotes, rend
     `(mesures, dispose)`. Le TEST de garde appelle CETTE fonction -- une seule implementation du
     montage et des lectures.
@@ -225,7 +225,12 @@ def measure(sid: int, seed: str = "777", board: str = BOARD,
         "--p-units", "worldEightbound,worldJakhal",
         "--a-units", "orksNob,orksRuntherd",
         "--place", "worldEightbound:2,3", "--place", "worldJakhal:1,1",
-        "--a-place", "orksNob:2,4", "--a-place", "orksRuntherd:3,3"])
+        "--a-place", "orksNob:2,4", "--a-place", "orksRuntherd:3,3"]
+        # `extra_args` (#503-r5) : la VARIANTE du montage, pas un autre montage. Elle sert a
+        # injecter un `--seed-bc` greffe (un trait pose sur une cible) SANS dupliquer board, seed,
+        # unites et placements -- une divergence de montage rendrait les deux mesures
+        # incomparables, et c'est la comparaison qui est tout l'objet.
+        + list(extra_args or []))
 
     def dispose():
         rpc(sid, "disposeRunner", {"runnerId": rid}, 20)   # MES runners, jamais ceux des autres
