@@ -463,7 +463,11 @@ def _make_mv71_drone_predictions(scene, att_id, tgt_id, attack_pos, *, meta=Fals
     _ah_ctx = {"is_melee": False,
                "tgt_traits": _entity_traits(scene, tgt_id),
                "tgt_effect_names": frozenset(
-                   n for n in (getattr(_e, "name", None) for _e in (scene.effects(tgt_id) or [])) if n)}
+                   n for n in (getattr(_e, "name", None) for _e in (scene.effects(tgt_id) or [])) if n),
+               # #419-r1-tr11-r3 : idem la facade normale, mais la tuile d'attaque est celle du
+               # DRONE (`tile_pos`) -- c'est elle que ce chemin thread deja partout ailleurs
+               # (`_add_positional_and_defender_mods`, selection d'arme, distance `_d`).
+               "att_pos": tuple(tile_pos), "t_pos": t_pos}
     _aura_hits = aura_additional_hits_from_allies(
         carriers, {"att_id": att_id, "att_pos": _ap, "att_team": scene.team(att_id),
                    "att_faction": att_faction, "att_grand_alliance": att_grand,
@@ -780,7 +784,14 @@ def make_normal_attack_predictions(scene, att_id, tgt_id, attack_pos, *, meta=Fa
     _ah_ctx = {"is_melee": is_melee,
                "tgt_traits": _entity_traits(scene, tgt_id),
                "tgt_effect_names": frozenset(
-                   n for n in (getattr(_e, "name", None) for _e in (scene.effects(tgt_id) or [])) if n)}
+                   n for n in (getattr(_e, "name", None) for _e in (scene.effects(tgt_id) or [])) if n),
+               # #419-r1-tr11-r3 : les DEUX positions, sans lesquelles un gate `IsAtRange` du canal
+               # #179 est inevaluable (`SpecialIssueCombiMelta_AdditionalHits` 1563, d == 2).
+               # `att_pos` = la tuile CANDIDATE evaluee (`attack_pos`), MEME substrat que
+               # `_att_ctx["att_pos"]` juste au-dessus : le `Caster@DSLSelectors+0x48` d'une
+               # prediction est resolu contre la `UnitPosition` candidate threadee par la chaine
+               # display, pas contre la position courante. Pas de fork entre les deux ctx.
+               "att_pos": _att_ctx["att_pos"], "t_pos": t_pos}
     _aura_hits = aura_additional_hits_from_allies(
         carriers, {"att_id": att_id, "att_pos": _ap, "att_team": scene.team(att_id),
                    "att_faction": att_faction, "att_grand_alliance": att_grand,

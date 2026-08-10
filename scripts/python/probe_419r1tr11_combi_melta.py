@@ -415,7 +415,22 @@ def main() -> int:
     ap.add_argument("--stage", action="store_true",
                     help="publier l'etage PREDICTION (DIAGNOSTIC : cf. residu #419-r1-tr11-r2)")
     ap.add_argument("--mutants", action="store_true", help="jouer les contre-epreuves")
+    ap.add_argument("--sans-face-combat", action="store_true",
+                    help="CONTRE-EPREUVE #419-r1-tr11-r3 : desinscrire les DEUX effets de la face "
+                         "COMBAT (1563 / 1564) du registre, pour re-mesurer l'etat d'AVANT leur "
+                         "port sur le MEME runner et la MEME geometrie")
     args = ap.parse_args()
+
+    if args.sans_face_combat:
+        # Le registre est lu A LA DEMANDE par `EffectFactory.effect_def` (cle = le NOM capte de
+        # l'effet), donc le retrait ici suffit : la Scene materialisera un `BaseEffect` nu, sans
+        # `additional_hit_groups` ni `create_effect_damage_bonus_for_attack`. C'est EXACTEMENT
+        # l'etat d'avant le port -- pas une approximation.
+        from engine.entities.effects.factory import EFFECT_CLASSES
+        for _k in ("SpecialIssueCombiMelta_AdditionalHits", "SpecialIssueCombiMelta_ExtraDmg"):
+            if EFFECT_CLASSES.pop(_k, None) is None:
+                raise MontageError("%s n'est PAS au registre -- rien a desinscrire" % _k)
+        print("[contre-epreuve] face COMBAT DESINSCRITE (1563 + 1564)")
 
     import json
     from rl_collect_batch import _resolve_session, _rpc

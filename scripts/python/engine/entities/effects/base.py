@@ -121,6 +121,39 @@ def owner_is_caster(att_ctx) -> bool:
     return oid is not None and aid is not None and oid == aid
 
 
+def is_at_range(att_pos, t_pos, expected: int) -> bool:
+    """Noeud DSL `IdunBattleLogic.Entities.DSLTriggers$$IsAtRange(sel1, sel2, formule)` -- foyer
+    UNIQUE du gate de DISTANCE des effets, partage par les deux faces de
+    `SpecialIssueCombiMelta` (1563 / 1564).
+
+    ⚠ C'EST UNE EGALITE, PAS UN `<=`, et ca ne se devine pas. Corps ENTIER de
+    `IdunBattle.Entities.Triggers.IsAtRangeAbilityTrigger$$ShouldTrigger` (LU sur `rnca9r7q6c`) :
+
+        attendu = <formule this+0x28>.Calculate(entities)                 # slot 1
+        a       = <this+0x18>.Select(entities)                            # slot 10
+        b       = <this+0x20>.Select(entities)
+        d       = query.<slot 0x6f = GetDistance>(a, b)
+        return d == attendu                                               # `(int)uVar15 == iVar13`
+
+    et la formule des call-sites de 1563/1564 n'est PAS un `Get(n)` construit sur place : c'est un
+    CHAMP PRE-CONSTRUIT de l'instance `DSLFormulas`, pose par
+    `IdunBattleLogic.Entities.DSLFormulas$$.ctor` -- `+0x18 = Const(0)`, `+0x20 = Const(1)`,
+    `+0x28 = Const(2)`, `+0x30 = Const(100)`, `+0x38 = Const(-1)`. Lire `+0x20`/`+0x28` comme des
+    offsets opaques aurait fait rater les portees 1 et 2.
+
+    La distance est la distance HEXAGONALE (`IdunBattle.Core.Services.MovementQuery$$GetDistance` =
+    MIN sur les paires de pieds, `IdunBattle.Utils.Hex.CubeCoordinate$$Distance`, aucun
+    pathfinding). Cote port, `hexgeo.distance` sur les MAIN TILES -- meme approximation MULTI-HEX
+    que la face DECISION (residu `#419-r1-tr11-r1`, non confronte : aucune MoW au montage).
+
+    POSITION MANQUANTE -> **FAUX**, jamais permissif : un gate de distance inevaluable ne peut pas
+    etre suppose vrai (meme convention que `is_charging_attack` / `owner_is_caster`)."""
+    if att_pos is None or t_pos is None:
+        return False
+    import hexgeo
+    return hexgeo.distance(tuple(att_pos), tuple(t_pos)) == int(expected)
+
+
 def tiles_moved_this_turn(att_ctx) -> "int | None":
     """Nœud DSL `IdunBattleLogic.Entities.DSLFormulas$$TilesMovedThisTurn(Self)` — foyer UNIQUE du
     canal `att_ctx["tiles_moved_this_turn"]` (case-322).

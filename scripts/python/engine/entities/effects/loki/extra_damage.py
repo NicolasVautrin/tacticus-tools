@@ -17,8 +17,8 @@ from ....services.effect_bonus import (EffectBonus, for_addition, for_percent_de
 from ...active_ability_type import ActiveAbilityType
 from ...damage_trait import DamageTrait
 from ...traits.unit_trait import UnitTrait
-from ..base import (BaseEffect, is_melee_attack, is_not_charging, is_ranged_attack,
-                    tiles_moved_this_turn)
+from ..base import (BaseEffect, is_at_range as _is_at_range, is_melee_attack, is_not_charging,
+                    is_ranged_attack, tiles_moved_this_turn)
 from ..magnitude import ability_var, global_value, trait_var
 
 
@@ -1022,6 +1022,59 @@ class ModifiedExoarmourExtraDmgEffect(BaseEffect):
         # `MultiplyAmount$$Calculate` = produit d'ENTIERS : `v` est DEJA l'entier arrondi rendu par
         # `TryGetVariableArrayForLevel` (round(mult/100 x brut)), jamais un flottant a re-arrondir.
         return for_addition(True, int(v) * int(n))
+
+
+class SpecialIssueCombiMeltaExtraDmgEffect(BaseEffect):
+    """`SpecialIssueCombiMelta_ExtraDmg` (`EffectType` 0x61c = **1564**) -- classe native
+    `Idun.Source.IdunBattle.Logic.Entities.Effects.Loki.SpecialIssueCombiMelta_ExtraDmgEffect`.
+    Jumeau de `SpecialIssueCombiMelta_AdditionalHits` (1563, `effects/loki/hits.py`) : meme porteur
+    (`darkaSternguard` « Ramus », npc `darkaBossSternguardLHE`), meme poseur
+    (`SpecialIssueCombiMelta_InitAbility$$CreateBehaviour` = `AddEffect(0x61b) & AddEffect(0x61c)`
+    sur `Owner@DSLSelectors+0x30`), PORTEE DIFFERENTE.
+
+    ## Corps natif, lu VERBATIM (`...$$CreateEffectDamageBonusForAttack`)
+    ```
+    EffectBonus.ForAddition(
+        get_OwnerIsCaster
+          & IsAtRange( Caster@DSLSelectors+0x48, Target@DSLSelectors+0x60, DSLFormulas+0x20 )
+          & IsNormalAttack,
+        ConfigAmount( query, config@this+0x60, GetAbilityState(this), 8 ) )
+    ```
+    `DSLFormulas+0x20 = Const(1)` (champ PRE-CONSTRUIT du `.ctor`, cf. `effects/base.py::is_at_range`)
+    et `IsAtRange` compare par **EGALITE** -> ce bonus mord a la **distance 1 EXACTEMENT**, pas
+    « a portee 1 ». `AbilityVariableType(8) = extraDmg`, dans `variablesAffectedByRarityBonus` du kit
+    -> x multiplier de rarete.
+
+    ## LA PREDICTION L'APPLIQUE -- mesure, pas hypothese
+    Contrairement a `SmashaEadEffect` (dont le port neutralise l'additif en display parce que le noeud
+    `IsNormalAttack` y evalue FAUX), l'empreinte NATIVE du §3 de
+    `docs/rl/case-419-r1-tr11-special-issue-combi-melta.md` montre le montant plat DANS la prediction :
+    a d = 1 le natif annonce `3457-4661` la ou le port sans 1545 annonce `2409-3614`, soit un ECART
+    PLAT (+1048 / +1047) -- exactement la signature d'un `ForAddition`. Ce canal n'est donc PAS gate
+    par `is_prediction` ; il l'est par `is_normal_attack`, que la facade de prediction d'attaque
+    NORMALE passe a VRAI.
+
+    ## CONTEXTE
+    `att_ctx` porte deja `att_pos` ET `t_pos` (les deux faces les threadent) -- c'est le canal 1563
+    qui exigeait l'enrichissement. Position manquante -> gate FAUX (cf. `is_at_range`)."""
+
+    def create_effect_damage_bonus_for_attack(self, is_ranged: bool | None = None,
+                                              has_moved: bool | None = None,
+                                              target_traits: "frozenset[str] | None" = None,
+                                              is_prediction: bool = False,
+                                              is_normal_attack: bool | None = True,
+                                              target_armor_reduced: bool | None = None,
+                                              att_ctx=None) -> EffectBonus | None:
+        if is_normal_attack is False:                 # IsNormalAttack (3e conjoint, LU)
+            return None
+        c = att_ctx or {}
+        if not _is_at_range(c.get("att_pos"), c.get("t_pos"), 1):   # DSLFormulas+0x20 = Const(1)
+            return None
+        lvl = (self.active_ability_level if self.active_ability_level is not None
+               else (self.ability_level if self.ability_level is not None else self.level))
+        amt = ability_var("SpecialIssueCombiMelta", "extraDmg", lvl,
+                          multiplier_pct=self.ability_variables_multiplier)
+        return for_addition(True, int(amt)) if amt else None
 
 
 # Traits CIBLE qualifiant `IdunBattle.Entities.Effects.Loki.HeavyGravCannonEffect$$DamageCondition` :

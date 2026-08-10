@@ -14,7 +14,7 @@ from ....services.effect_bonus import (EffectBonus, for_addition, for_subtractio
                                        for_percent_subtraction_capped)
 from ....services.damage_combat import BlockSource
 from ....services.static_battle_rules import TILE_STATUS_EFFECT_NAMES
-from ..base import BaseEffect, is_charging_attack, owner_is_caster
+from ..base import BaseEffect, is_at_range as _is_at_range, is_charging_attack, owner_is_caster
 from ..magnitude import ability_var, global_value, trait_var
 # #270-r1-r1 : les cles composites `LET_THE_GALAXY_BURN_PERSISTENT_KEY` / `SWARM_HIT_REDUCTION_SOURCE`
 # portent des membres d'enum, et le meme ordinal 1482 nomme AUTRE CHOSE dans l'autre.
@@ -305,6 +305,86 @@ class ExemplarOfTheKauyonAdditionalHitsEffect(BaseEffect):
         # sont le MEME noeud scalaire `ConfigVar(0xb = dmg)`. Cf. docstring (R6-c).
         return [{"count": int(count), "amount": int(amt),
                  "min": int(amt), "max": int(amt), "profile": profile}]
+
+
+class SpecialIssueCombiMeltaAdditionalHitsEffect(BaseEffect):
+    """`SpecialIssueCombiMelta_AdditionalHits` (`EffectType` 0x61b = **1563**) -- classe native
+    `Idun.Source.IdunBattle.Logic.Entities.Effects.Loki.SpecialIssueCombiMelta_AdditionalHitsEffect`.
+    Porteurs de l'ability 1545 (`TriggeredAbilityType`) : `darkaSternguard` (HERO « Ramus ») et le npc
+    `darkaBossSternguardLHE`. C'est la face COMBAT du terme de PORTEE EXACTE dont
+    `docs/rl/case-419-r1-tr11-special-issue-combi-melta.md` porte la face DECISION.
+
+    ## Appel natif, lu VERBATIM (`...$$CreateAdditionalHits`)
+    ```
+    trigger = get_OwnerIsCaster
+            & IsAtRange( Caster@DSLSelectors+0x48, Target@DSLSelectors+0x60, DSLFormulas+0x28 )
+    EffectAdditionalHits.Create( trigger,
+                                 GetMinMaxDamage(this, 0),                     # noeud ROLL
+                                 additionalHitsType = 1,
+                                 profile = AbilityConfiguration.GetDamageProfile(config@+0x60),
+                                 hits    = Get( GetNumberConstant(config, 0x2f = nrOfHits) ),
+                                 forceOverkill = 0,
+                                 GetMinMaxDamage(this, 1) )                    # noeud DISPLAY
+    ```
+
+    ## LE POINT QUI NE SE DEVINE PAS -- `IsAtRange` compare par EGALITE, et la formule est un CHAMP
+    `IdunBattle.Entities.Triggers.IsAtRangeAbilityTrigger$$ShouldTrigger` (corps LU) :
+    ```
+    attendu = <formule this+0x28>.Calculate(entities)
+    d       = query.<slot 0x6f = GetDistance>( <this+0x18>.Select(entities), <this+0x20>.Select(...) )
+    return d == attendu                       # EGALITE EXACTE -- ce n'est PAS un `<=`
+    ```
+    et la formule n'est PAS un `Get(n)` au call-site : c'est un champ PRE-CONSTRUIT de l'instance
+    `DSLFormulas`, pose par `IdunBattleLogic.Entities.DSLFormulas$$.ctor` (lu a l'octet) :
+    ```
+    +0x18 = Const(0)   +0x20 = Const(1)   +0x28 = Const(2)   +0x30 = Const(100)   +0x38 = Const(-1)
+    ```
+    => ce groupe mord **a la distance 2 EXACTEMENT**. Son jumeau `SpecialIssueCombiMelta_ExtraDmg`
+    (1564, `+0x20`) mord a **1**, et le `Pinned` de `SpecialIssueCombiMelta_AddEffectAbility`
+    (`DSLFormulas.Get(3)`) a **3**. Les trois valeurs CORROBORENT l'empreinte de prediction native
+    deja mesuree au §3 de la case-doc (d=1 montant plat, d=2 coup ENTIER, d=3 rien) au lieu de la
+    fitter : elles sont lues, l'empreinte les confirme.
+
+    ## `.ctor` et magnitude
+    `...AdditionalHitsEffect$$.ctor` = `BaseEffect(AbilityOrEffect(<1545>), hasAutomaticActivation = 1)`
+    -- meme patron auto-porteur qu'`InfernalPacts_AdditionalHitsEffect` : aucune classe `Ability` ne le
+    pose en jeu, `SpecialIssueCombiMelta_InitAbility$$CreateBehaviour` le materialise a l'init
+    (`AddEffect(0x61b, stateRef, Owner@+0x30) & AddEffect(0x61c, ...)`). Les `ConfigVar` sont donc lues
+    sur la config de l'ability 1545, indexees par l'`AbilityStateFromEffect` (= `ability_level`).
+    Kit LU : `{damageProfile: Bolter, nrOfHits: 1}`, `variablesAffectedByRarityBonus =
+    [minDmg, maxDmg, extraDmg]` -> min/max x multiplier, `nrOfHits` NI leveled NI rarity-scale.
+
+    ## CONTEXTE REQUIS -- et c'est ce qui bloquait le port (#419-r1-tr11-r3)
+    Le gate a besoin des DEUX positions. Le `ctx` du canal #179 portait deja `t_pos` cote COMBAT mais
+    PAS `att_pos` ; cote PREDICTION il ne portait NI l'un NI l'autre. Les deux `ctx` sont enrichis
+    dans le meme commit (`runner/operations/additional_hits.py::collect_additional_hit_groups` et
+    `playbook/prediction/normal_attack.py`). Contexte ABSENT -> aucune contribution : un gate de
+    DISTANCE inevaluable ne peut pas etre suppose VRAI (degradation fidele, meme convention que
+    `LetTheGalaxyBurnEffect`).
+
+    ⚠ `att_pos` est la tuile d'ATTAQUE (candidate en prediction, reelle en combat), pas la position
+    courante du caster -- c'est le meme substrat que `LordOfTempests_ExtraDamageEffect`, et c'est ce
+    que le natif lit : le `Caster@DSLSelectors+0x48` d'une prediction est resolu contre la
+    `UnitPosition` CANDIDATE threadee par la chaine display."""
+
+    def additional_hit_groups(self, ctx: "Mapping | None" = None) -> "list[dict] | None":
+        c = ctx or {}
+        if not _is_at_range(c.get("att_pos"), c.get("t_pos"), 2):   # DSLFormulas+0x28 = Const(2)
+            return None
+        lvl = self.ability_level if self.ability_level is not None else self.level
+        mn = ability_var("SpecialIssueCombiMelta", "minDmg", lvl,
+                         multiplier_pct=self.ability_variables_multiplier)
+        mx = ability_var("SpecialIssueCombiMelta", "maxDmg", lvl,
+                         multiplier_pct=self.ability_variables_multiplier)
+        count = ability_var("SpecialIssueCombiMelta", "nrOfHits", is_constant=True)   # 0x2f
+        if mn is None or mx is None or not count or count <= 0:
+            return None
+        import gameconfig as _GC
+        profile = ((_GC.ability("SpecialIssueCombiMelta") or {}).get("constants") or {}) \
+            .get("damageProfile") or "Bolter"
+        # `GetMinMaxDamage(this, 0)` / `(this, 1)` = les DEUX noeuds (ROLL et DISPLAY), tous deux
+        # `RandomAmount(ConfigVar(minDmg), ConfigVar(maxDmg))` -> forme PREDEFINED, comme SquigHound.
+        return [{"count": int(count), "min": int(mn), "max": int(mx), "profile": profile}]
 
 
 class CyclicIonBlasterAdditionalHitsEffect(BaseEffect):
