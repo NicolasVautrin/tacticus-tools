@@ -396,9 +396,14 @@ def harbinger_pool_selector(range_val: int):
     definition -> IDENTITE prouvee). D'ou le port `SurroundingEnemies(CasterTile(), Const(range))` (disque
     dist<=range, centre=caster exclu, team!=caster ; memes flags Units 1,3 inertes offline). Puis `Sub(.,
     Target())`, `Unobscured(., Caster())`, `Damageable(.)` — mirror 1:1 de l'ordre natif."""
+    # #585-r1 : `...HarbingerOfDestructionAbility$$GetEnemiesInRange` n'appelle PAS `SurroundingEnemies` --
+    # il ecrit `Units(gs, SurroundingTiles(gs@0x50, incl: 0, range), unique: 1, 3)` puis
+    # `Enemies(gs, gs@0x48, ., 3)`. Les DEUX etages portent `3` ; le collapse du port en un seul
+    # `SurroundingEnemies` applique le meme predicat une fois (il est PUR, donc idempotent).
     return Damageable(
         Unobscured(
-            Sub(SurroundingEnemies(CasterTile(), Const(range_val)), Target()),
+            Sub(SurroundingEnemies(CasterTile(), Const(range_val), selection_type=SELECTION),
+                Target()),
             Caster()))
 
 
@@ -779,7 +784,10 @@ def chronometron_affected_enemies(range_val: int):
     Le port l'exprime avec le centre `CasterTile()` (le noeud porte prend une POSITION en centre) et la
     reference d'equipe implicite = le caster — identique par construction (`Caster` et `CasterTile`
     designent la meme tuile), meme forme que `harbinger_pool_selector`."""
-    return SurroundingEnemies(CasterTile(), Const(range_val))
+    # #585-r1 : `SurroundingEnemies(gs, gs@0x48, range, unique: 1, 3)` -- littéral LU dans
+    # `...ChronometronAbility$$GetAffectedEnemies`. Les QUATRE surcharges natives portent le
+    # `unitSelectionType` en DERNIERE position : aucune ambiguite de lecture ici.
+    return SurroundingEnemies(CasterTile(), Const(range_val), selection_type=SELECTION)
 
 
 def chronometron_tree(range_val: int, rounds: int):
@@ -939,12 +947,12 @@ def multi_threat_next_target_selector(range_val: int):
     peut differer. Deterministe et identique des que l'intersection a <= 1 element."""
     # #585-r1 : `Enemies(gs@0x48, SurroundingUnits(gs@0x50, n, unique: 1, includeCenter: 0, 3), 3)`
     # puis `AdjacentUnits(gs, Last(...), unique: 1, 3)` -- littéraux LUS.
-    # ETAGE MANQUANT (documente) : les mirrors `SurroundingUnits` et `AdjacentUnits` de
-    # `entities/selectors/` ne portent pas encore le parametre. Sans consequence ici : l'`Enemies`
-    # qui enveloppe le premier filtre sa sortie, et le second est intersecte (`And`) avec elle.
-    return And(Unobscured(Enemies(SurroundingUnits(CasterTile(), Const(range_val)),
+    # L'ETAGE EXISTE depuis #585-r3 : `SurroundingUnits` et `AdjacentUnits` portent le parametre, et
+    # les deux litteraux ci-dessus sont desormais poses la ou le natif les ecrit.
+    return And(Unobscured(Enemies(SurroundingUnits(CasterTile(), Const(range_val),
+                                                   selection_type=SELECTION),
                                   selection_type=SELECTION), Caster()),
-               AdjacentUnits(ActiveTarget(), Const(1)))
+               AdjacentUnits(ActiveTarget(), Const(1), selection_type=SELECTION))
 
 
 def multi_threat_eliminator_tree(range_val: int, extra_hit: int) -> ChainLeftOverHitsAttackDamage:

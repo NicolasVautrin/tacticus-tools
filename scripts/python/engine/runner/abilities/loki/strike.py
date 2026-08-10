@@ -31,6 +31,13 @@ from ..behaviours.effects import AddBondEffect, AddEffect
 from ..behaviours.lifecycle import KillDeadUnits
 from ..behaviours.movement import MoveUnit, PushUnit
 from ..behaviours.stats import Heal, SetHealth
+from ....entities.unit_selection_type import UnitSelectionType
+
+#: `UnitSelectionType` LU au dernier argument des `DSLSelectors$$*` de ce fichier -- releve
+#: #585-r1, build `rnca9r7q6c`, littéral par littéral (JAMAIS par symetrie : deux call-sites
+#: du releve passent `Any` parce que leur source est un ensemble de MORTS).
+SELECTION = int(UnitSelectionType.OnlyAliveAndTargetable)     # 3
+
 
 if TYPE_CHECKING:
     from ...state import State
@@ -174,8 +181,13 @@ def spirit_leech_heal_targets() -> Union:
     adjacents, self exclu via `_within` d>0) ; `Alive` mirror le filtre `Units`(=sur tuile, vivant) natif ;
     `UnitsFromFaction` filtre `FactionId=="Tyranids"` (0xc, `Enum.ToString(UnitFaction)`). `CasterTile` =
     tuile reelle du caster (runner : `caster_pos` None -> position courante = owner)."""
+    # #585-r1 : `AdjacentUnits(gs, gs@0x50, unique: 1, 3)`, `Friends(gs, gs@0x48, ., 3)` et
+    # `UnitsFromFaction(gs, ., ToString(UnitFaction 0xc) = "Tyranids", 3)` -- littéraux LUS dans
+    # `...SpiritLeechAbility$$GetHealTargets`. Le port collapse les deux premiers en
+    # `AdjacentFriends` ; le predicat etant PUR, un seul passage suffit.
     return Union(Caster(),
-                 UnitsFromFaction(Alive(AdjacentFriends(CasterTile())), "Tyranids"))
+                 UnitsFromFaction(Alive(AdjacentFriends(CasterTile(), selection_type=SELECTION)),
+                                  "Tyranids", selection_type=SELECTION))
 
 
 def spirit_leech_tree():

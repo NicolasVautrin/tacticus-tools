@@ -557,8 +557,11 @@ def brazier_effect_targets(range_2: int):
     `IdunBattleLogic.Entities.Abilities.Active.Loki.HadesAutocannonsAbility$$GetAllTargets`. AUCUN filtre
     d'equipe (le natif ne wrappe pas dans `Enemies`) -> les Daemons ALLIES sont marques aussi, ce que
     l'i2 dit mot pour mot (« ALL Daemons within {[range_2]} hexes of the target »)."""
-    return UnitsWithTrait(SurroundingUnits(Target(), _AmountConst(int(range_2)), include_center=True),
-                          TRAIT_DAEMON)
+    # #585-r1 -- les DEUX litteraux LUS dans `...BrazierOfHolyFireAbility$$GetEffectTargets` :
+    #   SurroundingUnits(gs, gs@0x60, range, unique: 1, includeCenter: 1, 3) ; UnitsWithTrait(gs, ., 0x3fb, 3)
+    return UnitsWithTrait(SurroundingUnits(Target(), _AmountConst(int(range_2)), include_center=True,
+                                           selection_type=SELECTION),
+                          TRAIT_DAEMON, selection_type=SELECTION)
 
 
 def brazier_number_of_hits(nr_of_hits: int, nr_of_hits_2: int):

@@ -32,6 +32,13 @@ from ..behaviours.combat import AttackWithAttackDamage
 from ..behaviours.context import entities_from_state
 from ..behaviours.effects import AddBondEffect, AddEffect
 from ..behaviours.movement import PushUnit
+from ....entities.unit_selection_type import UnitSelectionType
+
+#: `UnitSelectionType` LU au dernier argument des `DSLSelectors$$*` de ce fichier -- releve
+#: #585-r1, build `rnca9r7q6c`, littéral par littéral (JAMAIS par symetrie : deux call-sites
+#: du releve passent `Any` parce que leur source est un ensemble de MORTS).
+SELECTION = int(UnitSelectionType.OnlyAliveAndTargetable)     # 3
+
 
 if TYPE_CHECKING:
     from ...state import State
@@ -96,9 +103,16 @@ def crushing_claws_tree() -> AtomicGroup:
                           bonded_ref=Caster())
     pin = AddEffect(PINNED, "Pinned", tgt, None)                                       # AddEffect(0x429), duree DEFAUT
     main = AttackWithAttackDamage(tgt, "CrushingClaws", "Piercing", is_melee=True)    # MinMaxDamage/Piercing/0x2f=2
+    # #585-r1 -- ⚠ MOITIE IMPLICITE : `...CrushingClawsAbility$$ExecuteBehaviour` ecrit
+    # `AdjacentEnemies(gs, gs@0x48, unique: 1, 3)` (VARIANTE A, explicite) puis
+    # `AdjacentFriends(gs, gs@0x60, gs@0x78, unique: 1)` -- VARIANTE B, qui code `3` EN DUR et dont
+    # le port fait le second `AdjacentEnemies` (allies de la CIBLE = ennemis du caster). Le `3` du
+    # second terme ne s'ecrit donc NULLE PART dans le corps natif ; il se lit a la XREF ENTRANTE.
+    # Puis `UnitsWithoutTrait(gs, ., 0xd, 3)`, explicite.
     splash = UnitsWithoutTrait(
-        And(AdjacentEnemies(CasterTile(), Const(1)), AdjacentEnemies(TargetTile(), Const(1))),
-        int(UnitTrait.Object))                                                          # UnitsWithoutTrait(0xd)
+        And(AdjacentEnemies(CasterTile(), Const(1), selection_type=SELECTION),
+            AdjacentEnemies(TargetTile(), Const(1), selection_type=SELECTION)),
+        int(UnitTrait.Object), selection_type=SELECTION)                                # UnitsWithoutTrait(0xd)
     return AtomicGroup(op_add(
         op_add(op_add(taunt, pin), main),                                             # ((taunt+pin)+main)
         Foreach(splash, crushing_claws_splash_tree())))                               # + foreach(splash)
@@ -169,8 +183,13 @@ def scything_talons_tree() -> AtomicGroup:
     de BASE portes ici (== l'imperatif, jamais de sur-compte) ; le doublement = tranche behaviour-changing separee."""
     tgt = Target()
     main = AttackWithAttackDamage(tgt, "ScythingTalons", "Bio", is_melee=True)                 # MinMaxDamage/Bio/0x2f=3
+    # #585-r1 : `...ScythingTalonsAbility$$ExecuteBehaviour` ecrit `AdjacentUnits(gs, gs@0x50,
+    # unique: 1, 3)` ET `AdjacentUnits(gs, gs@0x60, unique: 1, 3)`, puis `Enemies(gs, gs@0x48, ., 3)`
+    # -- les trois EXPLICITES (aucune variante B ici, contrairement a CrushingClaws ci-dessus).
+    # Le port collapse `Enemies(A n B)` en deux `AdjacentEnemies` ; predicat PUR, donc idempotent.
     splash = AttackWithAttackDamage(
-        Alive(And(AdjacentEnemies(CasterTile(), Const(1)), AdjacentEnemies(TargetTile(), Const(1)))),
+        Alive(And(AdjacentEnemies(CasterTile(), Const(1), selection_type=SELECTION),
+                  AdjacentEnemies(TargetTile(), Const(1), selection_type=SELECTION))),
         "ScythingTalons", "Bio", is_melee=True, hits_key="nrOfHits_2", multi=True)              # MEME plage, 0x32=2
     return AtomicGroup(op_and(main, splash))
 
@@ -255,7 +274,13 @@ def fragstorm_tree() -> AtomicGroup:
     tgt = Target()
     main = AttackWithAttackDamage(tgt, "Fragstorm", "Blast", is_melee=False)                        # RandomAmount/Blast/0x2f=4
     adj = AdjacentTiles(TargetTile())                                                                # AdjacentTiles(target@0x178)
-    friend_tiles = Tiles(Friends(Units(AdjacentTiles(TargetTile()))), as_ids=True)                   # Tiles(Friends(caster, adjTiles, 3))
+    # #585-r1 : `Friends(gs, gs@0x48, AdjacentTiles(gs@0x60), 3)` -- littéral LU dans
+    # `...FragstormAbility$$ExecuteBehaviour`. ⚠ Le `Units(...)` ci-dessous ne recoit RIEN : le natif
+    # passe les TUILES directement a `Friends`, dont `UnitsFromFactionSelector$$Select` resout
+    # l'occupant PAR `SelectUniqueUnits` -- ce `Units` est la materialisation de cette resolution,
+    # pas un noeud natif. Lui poser un selectionType serait inventer.
+    friend_tiles = Tiles(Friends(Units(AdjacentTiles(TargetTile())), selection_type=SELECTION),
+                         as_ids=True)                                                            # Tiles(Friends(caster, adjTiles, 3))
     splash_sel = Sub(adj, friend_tiles)                                                              # op_Subtraction -> HEXES (vides inclus)
     splash = AttackWithAttackDamage(splash_sel, "Fragstorm", "Blast", is_melee=False,
                                      hits_key="nrOfHits_2", multi=True, pick_n=n_targets,

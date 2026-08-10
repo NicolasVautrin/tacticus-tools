@@ -207,6 +207,13 @@ from ....services.custom_normal_attack import substitutes_normal_attack
 from ...components import PositionComponent
 from ...damage_model import select_weapon
 from ..attack_type import NORMAL_ATTACK_KIND
+from ....entities.unit_selection_type import UnitSelectionType
+
+#: `UnitSelectionType` LU au dernier argument des `DSLSelectors$$*` de ce fichier -- releve
+#: #585-r1, build `rnca9r7q6c`, littéral par littéral (JAMAIS par symetrie : deux call-sites
+#: du releve passent `Any` parce que leur source est un ensemble de MORTS).
+SELECTION = int(UnitSelectionType.OnlyAliveAndTargetable)     # 3
+
 
 if TYPE_CHECKING:
     from ...state import State
@@ -225,8 +232,14 @@ def fealty_additional_targets():
     ancre sur l'empreinte de la cible et `_within` exclut deja son centre) ; il ne mord que si la
     cible occupe une tuile ADJACENTE a sa propre main tile. On le porte quand meme : c'est ce que le
     natif ECRIT, et c'est la SEULE difference d'arbre avec `TalonOfHorus`."""
-    return Sub(And(AdjacentEnemies(CasterTile(), Const(1)),
-                   AdjacentFriends(TargetTile(), Const(1), reference=Target())),
+    # #585-r1 -- ⚠ LES DEUX LITTERAUX SONT IMPLICITES : `$$GetAdditionalTargets` emprunte la
+    # VARIANTE B des DEUX primitives -- `AdjacentEnemies(gs, gs@0x48, gs@0x58, unique: 1)` et
+    # `AdjacentFriends(gs, gs@0x60, gs@0x78, unique: 1)` -- et c'est cette variante-la qui code `3`
+    # EN DUR. Aucun `3` n'apparait dans le corps ; il se lit a la XREF ENTRANTE. Lire le 4e argument
+    # comme un selectionType donnerait `1` = `OnlyAlive`, qui n'ecarte PAS `Untargetable`.
+    return Sub(And(AdjacentEnemies(CasterTile(), Const(1), selection_type=SELECTION),
+                   AdjacentFriends(TargetTile(), Const(1), reference=Target(),
+                                   selection_type=SELECTION)),
                Target())
 
 
@@ -239,8 +252,13 @@ def talon_of_horus_additional_targets():
 
     AUCUN `op_Subtraction` final -- et le texte i2 dit la meme chose : « he also deals [...] to all
     enemies adjacent to both the target of the attack and to Abaddon », sans clause sur la cible."""
-    return And(AdjacentEnemies(CasterTile(), Const(1)),
-               AdjacentFriends(TargetTile(), Const(1), reference=Target()))
+    # #585-r1 -- ⚠ LES DEUX LITTERAUX SONT IMPLICITES, comme pour `Fealty` : VARIANTE B des deux
+    # primitives (`AdjacentEnemies(gs, gs@0x48, gs@0x50, unique: 1)`,
+    # `AdjacentFriends(gs, gs@0x60, gs@0x78, unique: 1)`), donc `3` code EN DUR, lisible seulement
+    # a la XREF ENTRANTE.
+    return And(AdjacentEnemies(CasterTile(), Const(1), selection_type=SELECTION),
+               AdjacentFriends(TargetTile(), Const(1), reference=Target(),
+                               selection_type=SELECTION))
 
 
 def righteous_repugnance_additional_targets():
@@ -253,7 +271,12 @@ def righteous_repugnance_additional_targets():
     MEME arbre que celui deja porte cote DECISION par
     `engine/playbook/righteous_repugnance.py::count_additional_targets` -- un seul artefact natif,
     deux faces, et c'est ce qui rend le terme d'utilite exactement egal a ce que le combat frappe."""
-    return And(AdjacentEnemies(Caster(), Const(1)), AdjacentUnits(Target(), Const(1)))
+    # #585-r1 : ici les DEUX litteraux sont EXPLICITES (`AdjacentEnemies(gs, gs@0x48, unique: 1, 3)`
+    # = VARIANTE A, `AdjacentUnits(gs, gs@0x60, unique: 1, 3)`) -- c'est le contraste exact avec
+    # `Fealty`/`TalonOfHorus` ci-dessus, qui empruntent la variante a `3` implicite. Deux fonctions
+    # voisines, deux surcharges differentes : c'est pourquoi le tri se fait call-site par call-site.
+    return And(AdjacentEnemies(Caster(), Const(1), selection_type=SELECTION),
+               AdjacentUnits(Target(), Const(1), selection_type=SELECTION))
 
 
 def boltstorm_additional_targets(weapon_range: int):
@@ -300,8 +323,13 @@ def boltstorm_additional_targets(weapon_range: int):
     rend le CASTER au lieu des cibles -- donc une intersection VIDE, donc « zero cible
     additionnelle ». Cet accord-la avec un natif qu'on croyait a zero ne prouvait RIEN : c'est le
     regime degenere par excellence, et c'est exactement ce qui avait fige le residu."""
-    return And(SurroundingEnemies(Owner(), Const(int(weapon_range)), reference=Owner()),
-               Unobscured(Enemies(AdjacentUnits(Target(), Const(1))), Owner()))
+    # #585-r1 : `AdjacentUnits(gs, gs@0x60, unique: 1, 3)`, `Enemies(gs, gs@0x48, ., 3)` puis
+    # `SurroundingEnemies(gs, gs@0x30, range, unique: 1, 3)` -- les TROIS explicites, LUS dans
+    # `...BoltstormAbility$$GetAdditionalTargets`.
+    return And(SurroundingEnemies(Owner(), Const(int(weapon_range)), reference=Owner(),
+                                  selection_type=SELECTION),
+               Unobscured(Enemies(AdjacentUnits(Target(), Const(1), selection_type=SELECTION),
+                                  selection_type=SELECTION), Owner()))
 
 
 # ---------------------------------------------------------------- la table de dispatch

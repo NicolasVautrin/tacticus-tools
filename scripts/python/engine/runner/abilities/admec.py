@@ -39,6 +39,13 @@ from ..components import PositionComponent
 from .targeting import units_are_enemies, valid_normal_attack_targets
 from .attack_query import entity_can_be_repaired, is_affected_by_heal_type
 from .repair import galvanic_field_attack_behavior
+from ...entities.unit_selection_type import UnitSelectionType
+
+#: `UnitSelectionType` LU au dernier argument des `DSLSelectors$$*` de ce fichier -- releve
+#: #585-r1, build `rnca9r7q6c`, littéral par littéral (JAMAIS par symetrie : deux call-sites
+#: du releve passent `Any` parce que leur source est un ensemble de MORTS).
+SELECTION = int(UnitSelectionType.OnlyAliveAndTargetable)     # 3
+
 
 if TYPE_CHECKING:
     from ..state import State
@@ -223,7 +230,10 @@ def rad_bombardment_affected_tile_amount():
     `TotalRepairActionsAmount` rend 0 offline (compteur non capte,
     RESIDU documente sur le noeud) -> la longueur vaut `1 + turnsStarted(caster)`, exactement l'i2 tant
     qu'aucun Mechanic ami n'a soigne."""
-    mechanic_friends = UnitsWithTrait(Friends(AllAliveUnits(), Caster()), TRAIT_MECHANIC)
+    # #585-r1 : `Friends(gs, gs@0x48, gs@0x20, 3)` puis `UnitsWithTrait(gs, ., 0xc, 3)` -- littéraux
+    # LUS dans `...RadBombardmentAbility$$AffectedTileAmount`.
+    mechanic_friends = UnitsWithTrait(Friends(AllAliveUnits(), Caster(), selection_type=SELECTION),
+                                      TRAIT_MECHANIC, selection_type=SELECTION)
     return Sum(Sum(_AmountConst(1), RoundsStarted(Caster())),
                TotalRepairActionsAmount(mechanic_friends))
 
@@ -500,7 +510,10 @@ def defend_the_divine_work_adjacent_friends():
     laisse pas un collapse implicite porter un argument LU).
 
     C'est aussi, mot pour mot, l'`actingUnits` de l'etage 2 -- d'ou la fonction partagee."""
-    return Friends(AdjacentUnits(CasterTile(), Const(1)), Caster())
+    # #585-r1 : `AdjacentUnits(gs, gs@0x50, unique: 1, 3)` puis `Friends(gs, gs@0x48, ., 3)` --
+    # littéraux LUS dans `...DefendTheDivineWorkAbility$$GetAdjacentFriends`.
+    return Friends(AdjacentUnits(CasterTile(), Const(1), selection_type=SELECTION), Caster(),
+                   selection_type=SELECTION)
 
 
 def defend_the_divine_work_heal_targets():

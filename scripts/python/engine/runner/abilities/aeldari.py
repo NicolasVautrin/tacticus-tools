@@ -281,6 +281,13 @@ from .targeting import (RANGE_ADJACENT, RANGE_ADJACENT_IF_MELEE_CASTER, RANGE_FR
                         RANGED_BOOL_TRUE, TargetingOptions)
 from .targeting_rule import TargetingRule as TR
 from ...entities.effects.magnitude import ability_var, ability_var_array
+from ...entities.unit_selection_type import UnitSelectionType
+
+#: `UnitSelectionType` LU au dernier argument des `DSLSelectors$$*` de ce fichier -- releve
+#: #585-r1, build `rnca9r7q6c`, littéral par littéral (JAMAIS par symetrie : deux call-sites
+#: du releve passent `Any` parce que leur source est un ensemble de MORTS).
+SELECTION = int(UnitSelectionType.OnlyAliveAndTargetable)     # 3
+
 
 if TYPE_CHECKING:
     from ..state import State
@@ -347,7 +354,10 @@ def executioner_tree(n_hits: int):
     ability_type = int(ActiveAbilityType.Executioner)               # AbilityOrEffect(this+0x10) threade after-hit
     main = AttackWithAttackDamage(Target(), "Executioner", "Psychic", is_melee=False,
                                   hits=n_hits, native_factory="attack", ability_type=ability_type)
-    pool = Alive(Damageable(Enemies(AdjacentUnits(TargetTile()))))  # ennemis vivants adjacents a la cible
+    # #585-r1 : `AdjacentUnits(gs, gs@0x78, unique: 1, 3)` puis `Enemies(gs, gs@0x48, ., 3)` --
+    # littéraux LUS dans `...ExecutionerAbility$$ExecuteBehaviour`.
+    pool = Alive(Damageable(Enemies(AdjacentUnits(TargetTile(), selection_type=SELECTION),
+                                    selection_type=SELECTION)))  # ennemis vivants adjacents a la cible
     secondary = AttackWithAttackDamage(pool, "Executioner", "Psychic", is_melee=False,
                                        multi=True, pick_n=1, hits=n_hits, native_factory="attack",
                                        ability_type=ability_type)
@@ -686,12 +696,14 @@ def silent_death_tree(n_targets: int) -> Group:
 
     L'ARBRE EST RECONSTRUIT PAR CAST (les `Cache` sont a etat) -- appeler cette fonction une fois par
     `execute_behaviour`, jamais la memoiser au niveau module."""
-    ennemis = Cache(Enemies(AllAliveUnits()))               # DSLSelectors$$Cache(Enemies(...), 1)
+    # #585-r1 : `Enemies(gs, gs@0x48, gs@0x20, 3)` puis `AdjacentUnits(gs, prev, unique: 1, 3)` --
+    # littéraux LUS dans `...SilentDeathAbility$$ExecuteBehaviour`.
+    ennemis = Cache(Enemies(AllAliveUnits(), selection_type=SELECTION))   # DSLSelectors$$Cache(Enemies(...), 1)
     prev = Target()                                         # <DSLSelectors+0x60>
     vus = [prev]                                            # List<TargetsSelector>, primaire en tete
     node = _silent_death_attack(prev)                       # Nothing() + b__0(Target) -> la 1re attaque
     for _ in range(max(0, int(n_targets))):
-        pool = And(AdjacentUnits(prev), ennemis)            # & <cache ennemis> (fige AVANT le 1er coup)
+        pool = And(AdjacentUnits(prev, selection_type=SELECTION), ennemis)   # & <cache ennemis> (fige AVANT le 1er coup)
         for seen in vus:                                    # foreach s in vus : pool = pool - s
             pool = Sub(pool, seen)
         pris = Cache(PickRandomly(pool, 1))                 # 1 tirage rng des que le pool est non vide

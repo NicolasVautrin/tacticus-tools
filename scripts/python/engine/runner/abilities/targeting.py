@@ -308,6 +308,13 @@ from ..components import get_unit_feet
 from ..components import has_effect_of_type
 from ..components import is_turn_of_unit   # `BattleQuery$$IsTurnOfUnit` (#287-r11-r1-r1-r2)
 from ..components import unit_has_moved
+from ...entities.unit_selection_type import UnitSelectionType
+
+#: `UnitSelectionType` LU au dernier argument des `DSLSelectors$$*` de ce fichier -- releve
+#: #585-r1, build `rnca9r7q6c`, littéral par littéral (JAMAIS par symetrie : deux call-sites
+#: du releve passent `Any` parce que leur source est un ensemble de MORTS).
+SELECTION = int(UnitSelectionType.OnlyAliveAndTargetable)     # 3
+
 
 if TYPE_CHECKING:
     from ..state import State
@@ -1948,7 +1955,11 @@ def _dynamic_rule_excruciating_frequencies(state: "State", caster_id: int, targe
     ents = entities_from_state(state, int(caster_id), int(target_id))
     if ents.target is None:
         return 0                                    # ni unite ni tuile du board -> non mesure
-    sel = Enemies(Units(excruciating_frequencies_affected_tiles(int(raw))))
+    # #585-r1 : les litteraux ne sont PAS dans `$$GetDynamicInvalidTargetReason` -- celui-ci ne fait
+    # que DELEGUER a `...ExcruciatingFrequenciesAbility$$GetAttackTargets`, qui ecrit
+    # `Units(gs, GetAffectedTiles(), unique: 1, 3)` puis `Enemies(gs, gs@0x48, ., 3)`. LUS la-bas.
+    sel = Enemies(Units(excruciating_frequencies_affected_tiles(int(raw)), selection_type=SELECTION),
+                  selection_type=SELECTION)
     return 0 if len(sel.evaluate(ents)) > 0 else int(TR.TargetMatchesDynamicRule)
 
 
