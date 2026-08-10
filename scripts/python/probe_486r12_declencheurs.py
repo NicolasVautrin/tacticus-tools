@@ -375,6 +375,30 @@ def est_perimee(e, cle: tuple) -> bool:
     return (e.get("sha") or "") != cle[0] or (e.get("ferm") or "") != cle[1]
 
 
+def a_remesurer(ids, bq: dict, emp) -> tuple[list, list]:
+    """(a remesurer, servies par l'empreinte) -- LE MEME critere que l'etage 2, pas un second.
+
+    Une entree est SERVIE si et seulement si l'etage 2 accepterait son empreinte : presente,
+    fraiche (`est_perimee`), et non VIDE de mesure (`nproc == 0` = un run qui n'a rien trace,
+    que l'etage 2 compte deja comme ABSENTE -- le servir ici fabriquerait un vert que le garde
+    refuse par ailleurs). Tout le reste est remesure.
+
+    ⚠ C'EST LA SEULE FORME QUI NE PEUT PAS CHANGER UN VERDICT. Un mode rapide qui deciderait par
+    un critere a lui -- un age, un diff, une liste -- pourrait servir ce que l'etage 2 aurait
+    rejete : le rc passerait de 99 a 0 par le fait d'avoir saute des entrees, ce que le tri-etat
+    interdit explicitement.
+    """
+    servies, reste = [], []
+    for i in ids:
+        s = script_de(bq[i]) or ""
+        e = emp.par_id.get(i)
+        if e is not None and not est_perimee(e, cle_fraicheur(s)) and e.get("nproc"):
+            servies.append(i)
+        else:
+            reste.append(i)
+    return reste, servies
+
+
 # ============================================================== mesure
 def mesurer(ids: list, bq: dict, verbose: bool, parallelisme: int = 1) -> tuple[Empreinte, dict]:
     """Joue les cliquets demandes sous audit hook. Rend (empreinte, durees par entree).
@@ -753,14 +777,9 @@ def main() -> int:
             print("[486r12] rc=99 -- `--only %s` ne selectionne aucune entree." % a.only)
             return 99
         if a.incremental:
-            avant = Empreinte.charger()
-            garde = [i for i in ids
-                     if not est_perimee(avant.par_id.get(i),
-                                        cle_fraicheur(script_de(bq[i]) or ""))
-                     and (avant.par_id.get(i) or {}).get("nproc")]
-            ids = [i for i in ids if i not in set(garde)]
+            ids, servies = a_remesurer(ids, bq, Empreinte.charger())
             print("[486r12] INCREMENTAL : %d entree(s) SERVIES par l'empreinte (fraiches, et "
-                  "toujours CONFRONTEES a l'etage 2), %d a remesurer." % (len(garde), len(ids)))
+                  "toujours CONFRONTEES a l'etage 2), %d a remesurer." % (len(servies), len(ids)))
             if not ids:
                 print("[486r12] rien a remesurer -- l'empreinte est a jour pour cette selection.")
         print("[486r12] MESURE de %d entree(s) ..." % len(ids))
