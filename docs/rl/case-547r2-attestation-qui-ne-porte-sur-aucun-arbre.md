@@ -51,6 +51,33 @@ affine de pente 1 : les deux placements coïncident et un accord n'y prouve rien
 `_apply_defender_flat_reductions` ; bornes `round((4016+1795) x 0.65 x 1.25) = 4721`, et de même
 `6024 -> 6353`, `6614 -> 6832`, `9922 -> 9520`.
 
+## Il n'y en avait pas six, il y en avait onze
+
+La passe complète (`probe_457 --measure`, 290 fichiers, **4047 passed / 8 failed** en 2220 s) a
+montré **cinq rouges de plus**, tous rejoués dans un worktree témoin à `origin/master` **pur**
+(`ea55462c`) où ils rendent `rc=1` à l'identique — donc **préexistants**. Ils étaient invisibles
+pour la raison mesurée ci-dessus : le ledger ne portait aucune attestation à jour. Ils sont
+déclarés avec leur assertion verbatim (résidu **#547-r6**).
+
+Le sixième échec de cette passe (`test_463r1_ecart_empreinte_offline`) est **réparé par la passe
+elle-même** : elle mesure les 11 fichiers sans empreinte et **purge le fantôme**
+(`test_576_war_howl_pose_offline.py`).
+
+⚠ **Et `--measure` n'écrit PAS le ledger** — seulement l'empreinte et les poids. C'est la passe
+**ORDINAIRE** qui l'inscrit (`probe_457_offline_tests_green.py` sans argument), et c'est écrit
+verbatim dans son source : « un ledger qui ne se remplirait qu'à la maintenance serait vide en
+pratique ». Les deux passes sont donc nécessaires, dans cet ordre.
+
+## Une leçon payée dans la tranche même : la FORME B doit être ABSOLUE
+
+Le premier hissage a été écrit `from .. import targeting`. Cette écriture **déclare une arête vers
+le PAQUET PARENT** et referme un SCC :
+`test_270r4r2_cycles_imports_offline::test_etage1_aucun_cycle_module_level` a rendu
+`SCC de 3 : engine.runner.abilities, .loki, .loki.attempted_possession`. La forme qui tient est
+`import engine.runner.abilities.targeting as _targeting` — elle nomme le **module**. Les trois
+hissages sont en forme absolue, et les trois `monkeypatch.setattr` du chemin plein mordent
+toujours (23 passed).
+
 ## Ce qui reste ouvert
 
 - **#547-r5** — le ledger *sait* quels fichiers rejouer (`probe_457 --depuis-ledger`), et rien ne le
