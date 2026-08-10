@@ -14,7 +14,7 @@ Natif (DSL, mirror noeud a noeud) :
         & OwnerIsTarget  |  OnOwnerSpecificAbilityInit(0x3ff=1023)
     — exactement les evenements qui changent le compte de membres du porteur.
   * Stat 20 (NUMBER_OF_MEMBERS) : handler jumptable 0x14 de `IdunBattle.Entities.UnitExtensions$$GetStat` (bloc IdunBattle.Entities.UnitExtensions$$GetStat+0x859) →
-    `GetComponent<GroupUnitComponent>` (fill-up {+0x10=nrOfMembers, +0x18=membres restants}) puis
+    `GetComponent<NumberOfMembersComponent>` (fill-up {+0x10=nrOfMembers, +0x18=membres restants}) puis
     `IdunBattle.Entities.Components.FillUpStatComponent$$GetStatPart`. Offline le champ « courant » est DERIVE de l'etat PV
     (`group_unit_stat_part`, services/trait_damage_limits.py) — meme invariant, les mainteneurs natifs
     etant exactement les evenements PV ci-dessus.

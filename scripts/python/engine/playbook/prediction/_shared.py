@@ -632,7 +632,7 @@ def _target_damage_limits(scene, tgt_id, damage_profile: str | None = None):
     pas -- les deux blocs different, cf. `snapshot._load_unit_traits`) : les deux faces le capaient a
     `HP-1`, c.-a-d. annoncaient
     et executaient un kill IMPOSSIBLE la ou le natif tue. `nrOfMembers` reste gameconfig (c'est
-    `GroupUnitComponent`, pas un trait)."""
+    `NumberOfMembersComponent`, pas un trait)."""
     gu = GC.unit(scene.vis_by_id.get(tgt_id)) or {}
     utraits = _entity_traits(scene, tgt_id)      # #267-r1 : FOYER unique du substrat de traits
     hpmax = scene.hpmax(tgt_id) or 0
@@ -641,7 +641,7 @@ def _target_damage_limits(scene, tgt_id, damage_profile: str | None = None):
         "target_has_resilient": "Resilient" in utraits,
         "target_has_impervious": "Impervious" in utraits,
         "impervious_stat_current": None,             # charge Impervious non captee offline -> no-op (TODO)
-        "member_count": int(gu.get("nrOfMembers") or 1),   # GroupUnitComponent (IdunBattle.Core.Services.DamagePrediction$$ApplyGroupUnitDamageLimit lit le composant)
+        "member_count": int(gu.get("nrOfMembers") or 1),   # NumberOfMembersComponent (IdunBattle.Core.Services.DamagePrediction$$ApplyGroupUnitDamageLimit lit le composant)
         "member_total_hp": hpmax,
         "profile_has_hits_multiple_members": DamageTrait.HitsMultipleMembers.name in _dp_traits,
         "max_health": hpmax,

@@ -22,6 +22,10 @@ from ....entities.triggered_ability_type import entity_triggered_ability_ids
 # n'a plus aucun lecteur dans ce module, et l'import de `_ST` etait DOUBLE (deux lignes
 # consecutives, la seconde re-liant le meme nom).
 from ....entities.stats import StatType as _ST
+# #572-r3 : le composant fill-up des MEMBRES (`IdunBattle.Entities.Components.
+# NumberOfMembersComponent`) et l'enum des parts, LUS ici pour separer `Maximum` et `Initial`.
+from ....entities.stats import FillUpStatComponent as _FillUp
+from ....entities.stats import StatPart
 from ....utilities.tile import sort_tiles_by_utility as _stbu, runner_tile_leaf_ctx
 from ...components import UnitComponent as _UC
 from ...components import UnitFlagsComponent
@@ -323,7 +327,7 @@ def entities_from_state(state, caster_id: int, target_id: int | None = None,
         sc = e.get_component(StatsComponent) if e is not None else None
         us = getattr(sc.ctx, "stats", None) if sc is not None else None
         # #60 : stat 20 (NUMBER_OF_MEMBERS) = branche DEDIEE du GetStat natif (handler jumptable 0x14
-        # IdunBattle.Entities.UnitExtensions$$GetStat+0x859 : GroupUnitComponent fill-up {+0x10=nrOfMembers, +0x18=restants}, PAS un
+        # IdunBattle.Entities.UnitExtensions$$GetStat+0x859 : NumberOfMembersComponent fill-up {+0x10=nrOfMembers, +0x18=restants}, PAS un
         # StatComponent — `IdunBattle.Entities.UnitExtensions$$GetStatComponent` n'a pas de case 0x14). Offline : parts derivees
         # de l'etat PV via `group_unit_stat_part` (lu par `SwarmAbility` StatAmount(Self,20,3/4)).
         # HEALTH = l'AUTRE stat « fill-up » du natif (comme NUMBER_OF_MEMBERS ci-dessous) :
@@ -353,10 +357,21 @@ def entities_from_state(state, caster_id: int, target_id: int | None = None,
             return us.get_stat(int(stat_type), int(variant)) if us is not None else 0
         if int(stat_type) == int(_ST.NUMBER_OF_MEMBERS):
             n = int(getattr(sc.ctx, "number_of_members", 1)) if sc is not None else 1
+            # #572-r3 : le MAXIMUM (part 2) est `get_CurrentMaximumValue()` du
+            # `IdunBattle.Entities.Components.NumberOfMembersComponent`, PAS le champ `+0x10`.
+            # Depuis #572-r3 ce composant existe cote port (`UnitStats.components[20]` seede en
+            # `FillUpStatComponent`) : on le LIT au lieu de re-deriver, sinon une modification de
+            # maximum posee par `stat_ops` resterait invisible de ce chemin-ci -- exactement le
+            # « deux reservoirs, un seul bouge » que #572-r1 a corrige pour la sante.
+            _c = us.components.get(int(_ST.NUMBER_OF_MEMBERS)) if us is not None else None
+            mx = _c.get_current_maximum_value() if isinstance(_c, _FillUp) else None
             hc = e.get_component(HealthComponent) if e is not None else None
             if hc is None or hc.hp is None or hc.hp_max is None:
+                if int(variant) == int(StatPart.MAXIMUM) and mx is not None:
+                    return int(mx)
                 return n if int(variant) in (0, 2, 3) else 0
-            return group_unit_stat_part(int(variant), int(hc.hp_max), n, int(hc.hp))
+            return group_unit_stat_part(int(variant), int(hc.hp_max), n, int(hc.hp),
+                                        member_maximum=mx)
         return us.get_stat(int(stat_type), int(variant)) if us is not None else 0
 
     # `ctx.player_turns_started` (mirror `IdunBattle.Entities.Formulas.UnitsPlayerTurnsStartedFormula

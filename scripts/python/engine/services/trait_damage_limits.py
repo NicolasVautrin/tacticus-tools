@@ -39,6 +39,7 @@ du pool) ⇒ non confrontable live de toute façon.
 from __future__ import annotations
 
 import math
+from typing import Optional
 
 from ..entities.stats import StatPart
 from .damage_config import resolve_damage_field
@@ -121,31 +122,57 @@ def is_at_group_unit_heal_limit(member_total_hp: int, member_count: int, current
 
 
 def group_unit_stat_part(part: int, member_total_hp: int, member_count: int,
-                         current_hp: int) -> int:
+                         current_hp: int, member_maximum: "Optional[int]" = None) -> int:
     """Résolution OFFLINE de `GetStat(unit, NUMBER_OF_MEMBERS=20, part)` (#60).
 
-    Natif : `IdunBattle.Entities.UnitExtensions$$GetStat` case 0x14 (jumptable, handler IdunBattle.Entities.UnitExtensions$$GetStat+0x859) =
-    `GetComponent<GroupUnitComponent>` puis **`IdunBattle.Entities.Components.FillUpStatComponent$$GetStatPart`** direct sur
-    ce composant — layout fill-up : `+0x10` = nrOfMembers (base), `+0x18` = membres RESTANTS (champ
-    MAINTENU par le jeu au fil des événements PV). Offline le champ « courant » est DÉRIVÉ de l'état
-    PV — même invariant, les mainteneurs natifs étant exactement les événements de mutation PV :
-    `current = GetGroupUnitRemainingMemberCount(hpMax, n, hp)` (IdunBattle.Core.Services.DamageCalculations$$GetGroupUnitRemainingMemberCount).
+    Natif : `IdunBattle.Entities.UnitExtensions$$GetStat` case 0x14 (jumptable, handler
+    IdunBattle.Entities.UnitExtensions$$GetStat+0x859) = `GetComponent<`
+    `IdunBattle.Entities.Components.NumberOfMembersComponent``>` puis
+    **`IdunBattle.Entities.Components.FillUpStatComponent$$GetStatPart`** direct sur ce composant —
+    layout fill-up : `+0x10` = nrOfMembers (Initial), `+0x14` = base, `+0x18` = membres RESTANTS
+    (champ MAINTENU par le jeu au fil des événements PV).
 
-    Parts (mirror IdunBattle.Entities.Components.FillUpStatComponent$$GetStatPart) : 0=Current → membres restants ; 2=Maximum (`IdunBattle.Entities.Components.FillUpStatComponent$$get_CurrentMaximumValue` = base + mod clampé ; aucun mod de membres offline → n) ; 3=Initial → champ base
-    `+0x10` = n ; 4=Missing → max − current = membres MORTS ; 1=CurrentPct → round(max(0, cur/max)·100).
-    C'est la source des deux `StatAmount(Self, 20, part 3/4)` de `IdunBattleLogic.Entities.Abilities.Active.Loki.SwarmAbility$$CreateBehaviour`."""
+    ⚠ **Le composant s'appelle `NumberOfMembersComponent`, pas `GroupUnitComponent`** : ce dernier
+    n'existe PAS dans le build (0 ligne dans `data/symbols/<build>/frida/classes.tsv`) — seul le
+    PRÉFIXE `GroupUnit` existe, et uniquement sur des fonctions de `DamageCalculations` /
+    `BattleQuery`. Nom corrigé par #572-r3.
+
+    Le mainteneur natif du champ courant est NOMMÉ, et c'est ce qui autorise la dérivation offline :
+    `IdunBattle.Operations.UpdateUnitMembersOperation$$Execute` pose
+    `+0x18 = IBattleQuery.<slot 184 GetGroupUnitRemainingMemberCount>(unit, null)`, et
+    `IdunBattle.Operations.ApplyDamageOperation$$UpdateNumberOfMembersStat` l'appelle après chaque
+    dégât (il en rend `avant − après` = les membres morts). La surcharge d'`IBattleQuery` lit le
+    `HealthComponent` (`get_CurrentMaximumValue()` + `+0x18`) et le **`+0x10`** du
+    `NumberOfMembersComponent` — donc `totalMembers` est bien l'**Initial**, PAS le maximum.
+
+    Parts (mirror `FillUpStatComponent$$GetStatPart`) : 0=Current → membres restants ;
+    **2=Maximum → `get_CurrentMaximumValue()`** ; **3=Initial → champ `+0x10` = n** ;
+    4=Missing → max − current = membres MORTS ; 1=CurrentPct → round(max(0, cur/max)·100).
+    C'est la source des deux `StatAmount(Self, 20, part 3/4)` de
+    `IdunBattleLogic.Entities.Abilities.Active.Loki.SwarmAbility$$CreateBehaviour`.
+
+    ⚠ **`member_maximum` (#572-r3) SÉPARE les parts 2 et 3**, que ce mirror confondait (`if p in
+    (2, 3): return n`) — le piège exact de #873, transposé du `HealthComponent` : elles coïncident
+    tant qu'aucune modification `+0x28` ni override `+0x38` n'existe, et divergent ensuite. `None`
+    = le maximum n'est pas capté ⇒ on retombe sur `n`, ce qui EST l'état posé par
+    `FillUpStatComponent$$Initialize` (`+0x10 = +0x14 = +0x18`)."""
     n = max(1, int(member_count))
+    mx = n if member_maximum is None else int(member_maximum)
     p = int(part)
-    if p in (2, 3):
+    if p == StatPart.MAXIMUM:                     # 2 -> get_CurrentMaximumValue()
+        return mx
+    if p == StatPart.INITIAL:                     # 3 -> champ `+0x10`
         return n
     remaining = get_group_unit_remaining_member_count(int(member_total_hp), n, int(current_hp))
-    if p == 0:
+    if p == StatPart.CURRENT:                     # 0
         return remaining
-    if p == StatPart.MISSING:                     # 4 -> membres MORTS
-        return n - remaining
-    if p == 1:
-        return round(max(0.0, remaining / n) * 100)
-    raise ValueError(f"StatPart {p} non implemente (GroupUnitComponent stat 20)")
+    if p == StatPart.MISSING:                     # 4 -> membres MORTS (max - current)
+        return mx - remaining
+    if p == StatPart.CURRENT_PCT:                 # 1
+        if mx <= 0:
+            return 0
+        return round(max(0.0, remaining / mx) * 100)
+    raise ValueError(f"StatPart {p} non implemente (NumberOfMembersComponent, stat 20)")
 
 
 def apply_group_unit_damage_limit(dmg: int, profile_has_hits_multiple_members: bool,

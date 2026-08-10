@@ -218,55 +218,131 @@ class StatComponent:
 
 
 class FillUpStatComponent:
-    """`IdunBattle.Entities.Components.FillUpStatComponent` — stat « qui se remplit » (Health=5,
-    et l'index 4), layout distinct de `StatComponent` : `current`(+0x18), base max (+0x10), `maximum`
-    via `IdunBattle.Entities.Components.FillUpStatComponent$$get_CurrentMaximumValue` (= base + mod clampé). `IdunBattle.Entities.Components.FillUpStatComponent$$GetStatPart` :
-    0→current, 1→pourcentage (`round(max(0, current/max) * 100)`), 2→max courant, **3→champ base
-    +0x10** (le max de BASE — PAS le modTotal), 4→max−current, **5/9→modTotal** (+0x28 ; avec `source`
-    → `ValueModification.GetModificationFromEntity`), 7→override. (#60 : l'ancien mapping du port
-    3→modTotal était une transcription erronée — re-décompilé, part 3 lit `*(comp+0x10)` ; c'est ce
-    part 3 que `SwarmAbility IdunBattleLogic.Entities.Abilities.Active.Loki.SwarmAbility$$CreateBehaviour` lit sur le GroupUnitComponent = nrOfMembers.)
+    """`IdunBattle.Entities.Components.FillUpStatComponent` — stat « qui se remplit », layout
+    distinct de `StatComponent`. **TROIS** composants natifs en héritent, et ce sont exactement les
+    trois cases du switch d'`IdunBattle.Entities.UnitExtensions$$ApplyStatModifier` (xref UNIQUE
+    d'`ApplyModifier`) qui vont à `IdunBattle.Entities.Components.FillUpStatComponent$$ApplyModifier` —
+    hiérarchie LUE dans `data/symbols/<build>/frida/classes.tsv`, pas déduite :
 
-    Pour la reproduction de la valeur Current (part 0), un `StatComponent` générique suffirait ;
-    cette classe est fournie pour la fidélité des parts spécifiques (pourcentage, max)."""
-    __slots__ = ("current", "maximum", "modification", "override")
+        case 4  `StatType.Armor`           -> `IdunBattle.Entities.Components.ArmorComponent`
+        case 5  `StatType.Health`          -> `IdunBattle.Entities.Components.HealthComponent`
+        case 20 `StatType.NumberOfMembers` -> `IdunBattle.Entities.Components.NumberOfMembersComponent`
 
-    def __init__(self, current: int = 0, maximum: int = 0,
+    ⚠ **`GroupUnitComponent` N'EXISTE PAS** dans le build `rnca9r7q6c` (0 ligne dans `classes.tsv`) :
+    le nom porté par le port jusqu'à #572-r3 était FAUX. Seules des FONCTIONS portent ce préfixe
+    (`IdunBattle.Core.Services.DamageCalculations$$GetGroupUnitRemainingMemberCount`, …).
+
+    Layout natif (offsets LUS dans `FillUpStatComponent$$GetStatPart` / `$$ApplyModifier`) :
+    `initial`(+0x10), `base`(+0x14), `current`(+0x18), `modification`(+0x28, `ValueModification`),
+    `override`(+0x38, `ValueOverride`). `IdunBattle.Entities.Components.FillUpStatComponent$$Initialize`
+    pose `+0x10 = +0x14 = +0x18`.
+
+    `IdunBattle.Entities.Components.FillUpStatComponent$$GetStatPart` — mirror 1:1 :
+    0→`+0x18` ; 1→`round(max(0, current/CurrentMaximumValue) * 100)` ; **2→`get_CurrentMaximumValue()`** ;
+    **3→`+0x10`** ; 4→`CurrentMaximumValue − current` ; 5/9→`+0x28` (avec `source` →
+    `ValueModification.GetModificationFromEntity`) ; **7→`override ?? +0x14`**.
+
+    ⚠ **Les parts 2 et 3 NE COÏNCIDENT PAS**, et les confondre est le piège de #873 transposé :
+    elles sont égales au déploiement (`Initialize` les égalise) et divergent dès qu'une
+    modification ou un override existe. (#60 : l'ancien mapping du port 3→modTotal était une
+    transcription erronée ; part 3 lit `*(comp+0x10)` — c'est ce part 3 que
+    `IdunBattleLogic.Entities.Abilities.Active.Loki.SwarmAbility$$CreateBehaviour` lit sur le
+    `NumberOfMembersComponent` = nrOfMembers.)"""
+    __slots__ = ("current", "initial", "base", "modification", "override")
+
+    #: `Math.Min(0x7fffffff - initial, ...)` de `get_CurrentMaximumValue` — borne `int.MaxValue`
+    #: du natif, un vrai scalaire (elle ne désigne rien).
+    _INT32_MAX = 0x7fffffff
+
+    def __init__(self, current: int = 0, maximum: int = 0, initial: Optional[int] = None,
                  modification: Optional[ValueModification] = None,
                  override: Optional[ValueOverride] = None):
         self.current = int(current)
-        self.maximum = int(maximum)
+        # `maximum` = le champ BASE `+0x14`. `initial` (`+0x10`) le suit par défaut, ce qui est
+        # exactement l'état que pose `FillUpStatComponent$$Initialize` (`+0x10 = +0x14 = +0x18`) ;
+        # le séparer n'a de sens qu'après un `ApplyModifier` case 2 (qui écrit les deux) ou un
+        # seeding qui capte les deux canaux.
+        self.base = int(maximum)
+        self.initial = int(maximum) if initial is None else int(initial)
         self.modification = modification if modification is not None else ValueModification()
         self.override = override if override is not None else ValueOverride()
 
     def get_current_value(self) -> int:
         return self.current
 
+    def get_current_maximum_value(self) -> int:
+        """`IdunBattle.Entities.Components.FillUpStatComponent$$get_CurrentMaximumValue` — MIRROR 1:1
+        (même transcription que `runner.components.HealthComponent.current_maximum_value`) :
+
+            var o = override.GetOverrideValueWithModification(modification);   // +0x38, +0x28
+            if (o.HasValue) return o.Value;
+            return Math.Min(int.MaxValue - initial, Math.Max(-initial, modTotal)) + base;
+        """
+        ovr = self.override.get_override_value_with_modification(self.modification.total)
+        if ovr is not None:
+            return int(ovr)
+        initial = int(self.initial)
+        m = max(-initial, int(self.modification.total))       # Math.Max(-initial, modTotal)
+        m = min(self._INT32_MAX - initial, m)                 # Math.Min(int.MaxValue - initial, .)
+        return m + int(self.base)
+
+    #: `maximum` reste LISIBLE (et assignable) pour les appelants historiques : c'est le champ
+    #: BASE `+0x14`, celui qu'écrit `ApplyModifier` case 2 (`+0x14 = +0x10 = value`).
+    @property
+    def maximum(self) -> int:
+        return self.base
+
+    @maximum.setter
+    def maximum(self, value: int) -> None:
+        self.base = int(value)
+        self.initial = int(value)
+
     def get_stat_part(self, part: int, source: object = None) -> int:
-        """`IdunBattle.Entities.Components.FillUpStatComponent$$GetStatPart`. Offline `self.maximum` tient lieu de champ
-        base +0x10 ET de max courant (aucun max-mod modélisé) → parts 2 et 3 coïncident (fidèle tant
-        qu'aucune modification de maximum n'est portée)."""
+        """`IdunBattle.Entities.Components.FillUpStatComponent$$GetStatPart` — mirror 1:1 (cf. la
+        table de la docstring de classe)."""
         p = int(part)
-        if p == 0:
+        mx = self.get_current_maximum_value()
+        if p == StatPart.CURRENT:                  # 0
             return self.current
-        if p == 1:
-            if self.maximum <= 0:
+        if p == StatPart.CURRENT_PCT:              # 1
+            if mx <= 0:
                 return 0
-            return round(max(0.0, self.current / self.maximum) * 100)
-        if p == 2:
-            return self.maximum                     # get_CurrentMaximumValue (base + mod clampé)
-        if p == 3:
-            return self.maximum                     # champ base +0x10 (#60 : ex-mapping modTotal erroné)
+            return round(max(0.0, self.current / mx) * 100)
+        if p == StatPart.MAXIMUM:                  # 2 -> get_CurrentMaximumValue()
+            return mx
+        if p == StatPart.INITIAL:                  # 3 -> champ `+0x10`
+            return int(self.initial)
         if p == StatPart.MISSING:                  # 4
-            return self.maximum - self.current
+            return mx - self.current
         # #270-r1-r1 : meme tuple de `StatPart` que `StatComponent.get_stat_part`.
         if p in (StatPart.MODIFICATION, StatPart.MULTIPLIER_MODIFICATION):
             if source is not None:
                 return self.modification.get_modification_from_entity(source)
             return self.modification.total
-        if p == StatPart.OVERRIDE:                 # 7
-            return int(self.override.override or 0)
+        if p == StatPart.OVERRIDE:                 # 7 -> `override ?? +0x14` (PAS 0)
+            ovr = self.override.override
+            return int(ovr) if ovr is not None else int(self.base)
         raise ValueError(f"StatPart {p} non implemente (FillUpStatComponent)")
+
+    def modify_max(self, source: object, amount: int) -> None:
+        """`ApplyModifier` part `StatPart.MODIFICATION` -> `IdunBattle.Entities.Components.
+        FillUpStatComponent$$ModifyMax` = `ValueModification.Modify(+0x28, entityId, modification,
+        isMultiplier, initialValue = +0x10)`. C'est le MAXIMUM qui bouge, jamais `+0x18`."""
+        self.modification.modify(source, int(amount))
+
+    def reverse_max_modification(self, source: object) -> None:
+        """`ApplyModifier` part `StatPart.RESET_MODIFICATION` -> `ValueModification.
+        ReverseModification(+0x28, entityId)`."""
+        self.modification.reverse_modification(source)
+
+    def override_max(self, value: int, is_modifiable: bool = True) -> None:
+        """`ApplyModifier` part `StatPart.OVERRIDE` -> `ValueOverride.SetOverride(+0x38, ...)`."""
+        self.override.override = int(value)
+        self.override.is_modifiable = bool(is_modifiable)
+
+    def remove_max_override(self) -> None:
+        """`ApplyModifier` part `StatPart.REMOVE_OVERRIDE` -> `ValueOverride.RemoveOverride(+0x38)`."""
+        self.override.override = None
 
 
 class UnitStats:
@@ -402,9 +478,14 @@ CAPTURED_SOURCE = "captured"
 # `KillUnitStep` (#427) — a un rayon de souffle MESURÉ : 553 références `StatType.<MEMBRE>` dans
 # 169 fichiers Python suivis. Hors périmètre de cette tranche -> résidu #270-r1-r1-r2.
 
-# StatTypes « fill-up » (résolus par FillUpStatComponent côté natif).
-_FILLUP_STATS = frozenset({StatType.ARMOR,      # 4
-                           StatType.HEALTH})    # 5
+# StatTypes « fill-up » : les TROIS cases du switch d'`IdunBattle.Entities.UnitExtensions$$
+# ApplyStatModifier` qui appellent `IdunBattle.Entities.Components.FillUpStatComponent$$ApplyModifier`
+# (toutes les autres vont à `StatComponent$$ApplyModifier`). Table LUE au décompilé, #572-r3 :
+# ARMOR -> `ArmorComponent`, HEALTH -> `HealthComponent`, NUMBER_OF_MEMBERS ->
+# `NumberOfMembersComponent` — les trois héritent de `FillUpStatComponent` (`classes.tsv`).
+_FILLUP_STATS = frozenset({StatType.ARMOR,               # 4
+                           StatType.HEALTH,              # 5
+                           StatType.NUMBER_OF_MEMBERS})  # 20
 
 # Plafonds par-stat (virtuel GetMaxValue) : les pourcentages BlockChance/CritChance sont clampés à 100
 # par `IdunBattle.Entities.Components.StatComponent$$GetClampedValue` (le reste = pas de plafond). Sert au clamp de `get_current_value`.
@@ -468,9 +549,28 @@ def seed_unit_stats(stats: Dict[str, Optional[int]],
     driver (`refresh_stat_modifier_effects`) exécute le `RemoveOverride` (part 8). Le résidu se
     mesure ici sur ce que le modèle ne reproduit PAS de `Current`, jamais sur `d`.
 
-    Les stats « fill-up » (Health/4) sont seedées en `StatComponent` générique (part Current
-    identique) ; le `FillUpStatComponent` spécifique (max/pourcentage) est posé au besoin (HP courant
-    vit déjà dans `HealthComponent`)."""
+    `StatType.HEALTH` reste seedée en `StatComponent` générique : son réservoir RÉEL est le
+    `HealthComponent` du runner (#572-r1), que `UnitExtensions$$GetStat` court-circuite déjà côté
+    port. `StatType.ARMOR` n'est jamais seedée ici (la clé `armor` n'est PAS dans `COMBAT_STAT_IDS`,
+    seulement dans `STAT_IDS_MAX_SEUL`) — mesuré nulle sur tout le corpus confronté (#572-r3).
+
+    ⚠ **`StatType.NUMBER_OF_MEMBERS` est seedée en `FillUpStatComponent`, et c'est une CORRECTION
+    (#572-r3), pas un raffinement.** Sous `StatComponent`, `GetStatPart` rend `get_CurrentValue()`
+    pour les parts 0 ET 2 — donc `StatPart.Maximum` rendait les membres RESTANTS là où le natif rend
+    `nrOfMembers`. MESURE live (`probe_572r3_membres_et_armure.py`, MC1_67/777, deux swarms à 5
+    membres) : **14 observations discriminantes, 14 écarts**, jusqu'à `natif=5 / port=1`. Le natif
+    SÉPARE les deux sans qu'aucune stat-modification n'existe, parce que son champ courant est
+    ENTRETENU — `IdunBattle.Operations.UpdateUnitMembersOperation$$Execute` pose
+    `NumberOfMembersComponent+0x18 = IBattleQuery.<slot 184 GetGroupUnitRemainingMemberCount>(unit,
+    null)`, appelé après chaque dégât par `IdunBattle.Operations.ApplyDamageOperation$$
+    UpdateNumberOfMembersStat`.
+
+    ⚠ Le `statDelta` d'un fill-up N'EST PAS une `ValueModification` : le hook publie
+    `GetStat(Current) − GetStat(Initial)` = `+0x18 − +0x10`, sans rapport avec `+0x28`. Il ne part
+    donc PAS dans la modification (ce qui rendrait `Maximum` faux à nouveau) : il sert seulement à
+    reconstruire `Initial = Current − delta`. Faute de canal pour `+0x14`, `base` suit `initial` —
+    reconstruction VÉRIFIÉE exacte sur le corpus (0 divergence `Initial` reconstruit vs `Maximum`
+    natif, ce que le probe compte explicitement)."""
     delta = stat_delta or {}
     attributed = attributed or {}
     overrides = overrides or {}
@@ -481,6 +581,9 @@ def seed_unit_stats(stats: Dict[str, Optional[int]],
             continue
         idx = int(idx)
         d = int(delta.get(name, 0) or 0)
+        if idx == int(StatType.NUMBER_OF_MEMBERS):
+            us.set_component(idx, FillUpStatComponent(current=int(cur), maximum=int(cur) - d))
+            continue
         comp = StatComponent(initial=int(cur) - d, min_value=_stat_min(idx), max_value=STAT_CLAMP_MAX.get(idx))
         for src, amt in (attributed.get(idx) or {}).items():
             comp.modification.modify(src, int(amt))
@@ -537,12 +640,23 @@ def compare_unit_stats(unit_stats: "UnitStats", stats: Dict[str, Optional[int]],
     native = native_stat_parts(stats, stat_delta, stat_ids)
     out = []
     for idx, exp in native.items():
-        got = {
-            "current": unit_stats.get_stat(idx, StatPart.CURRENT),
-            "initial": unit_stats.get_stat(idx, StatPart.INITIAL),
-            "modification": unit_stats.get_stat(idx, StatPart.MODIFICATION),
-        }
-        for part in ("current", "initial", "modification"):
+        parts = ["current", "initial"]
+        # ⚠ `modification` n'est comparable QUE sur un `StatComponent`, et le critère est DÉRIVÉ du
+        # composant, pas d'une liste de StatTypes. `native_stat_parts` appelle « modification » le
+        # `statDelta` du hook, c'est-à-dire `GetStat(Current) − GetStat(Initial)` — or l'identité
+        # « delta == modTotal » est une propriété de `IdunBattle.Entities.Components.StatComponent$$
+        # get_CurrentValue` (`Current = override ?? Initial + modTotal`), et d'ELLE SEULE. Sur un
+        # `FillUpStatComponent`, `+0x18` (Current) et `+0x10` (Initial) sont deux champs INDÉPENDANTS
+        # de `+0x28` : leur écart mesure les membres morts / les PV manquants, pas une
+        # `ValueModification`. Comparer les deux y confondrait deux grandeurs (#572-r3).
+        comp = unit_stats.components.get(int(idx))
+        if isinstance(comp, StatComponent):
+            parts.append("modification")
+        got = {p: unit_stats.get_stat(idx, {"current": StatPart.CURRENT,
+                                            "initial": StatPart.INITIAL,
+                                            "modification": StatPart.MODIFICATION}[p])
+               for p in parts}
+        for part in parts:
             if got[part] != exp[part]:
                 out.append(f"{exp['name']}(idx {idx}).{part}: offline {got[part]} "
                            f"!= native {exp[part]}")

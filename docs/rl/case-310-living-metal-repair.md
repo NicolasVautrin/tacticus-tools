@@ -92,7 +92,7 @@ if int(scope) == 1:
     amt = min(amt, get_group_unit_heal_limit(mx, _group_unit_members(state, target_id), cur))
 ```
 
-`_group_unit_members` mirror `GetComponent<GroupUnitComponent>(target)+0x10` (`nrOfMembers`) sur le
+`_group_unit_members` mirror `GetComponent<NumberOfMembersComponent>(target)+0x10` (`nrOfMembers`) sur le
 substrat runner (`StatsComponent.ctx.number_of_members`) — la même source que le `n` que le trigger
 lisait.
 

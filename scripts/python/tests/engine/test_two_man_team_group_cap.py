@@ -6,7 +6,7 @@ gqfc5mff6c) — les 7 occurrences de `,0x3fa,` sont ValkyrieStrike/ActOfFaith (A
 homonyme d'id) et un pass Unity. Aucune fonction native ne LIT ce trait. Ce que le tooltip i2 decrit
 (<< Takes a maximum of 50% of its max Health in Damage from a single hit. Does not apply to Blast
 Damage. Once below 50% of its max Health, cannot be healed above 50% of its max Health again. >>) est
-EXACTEMENT le comportement du GroupUnitComponent pour `nrOfMembers == 2`, keye sur le NOMBRE DE
+EXACTEMENT le comportement du NumberOfMembersComponent pour `nrOfMembers == 2`, keye sur le NOMBRE DE
 MEMBRES, pas sur le trait :
 
   - cap par-coup     = `IdunBattle.Core.Services.DamagePrediction$$ApplyGroupUnitDamageLimit

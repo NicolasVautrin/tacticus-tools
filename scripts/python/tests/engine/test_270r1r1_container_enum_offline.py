@@ -132,7 +132,10 @@ SNAP_SETS = {
         SB.REPAIR_ABILITY_IDS, ActiveAbilityType, (28, 1119)),
     "entities/pathfinding/tile_blocking.TILE_MOVEMENT_BLOCKING_EFFECT_TYPES": (
         TB.TILE_MOVEMENT_BLOCKING_EFFECT_TYPES, EffectType, (0, 5, 17, 58, 94)),
-    "entities/stats._FILLUP_STATS": (ST._FILLUP_STATS, StatType, (4, 5)),
+    # #572-r3 : `20 NumberOfMembers` est la TROISIEME case du switch d'
+    # `IdunBattle.Entities.UnitExtensions$$ApplyStatModifier` qui va a
+    # `IdunBattle.Entities.Components.FillUpStatComponent$$ApplyModifier` -- elle manquait.
+    "entities/stats._FILLUP_STATS": (ST._FILLUP_STATS, StatType, (4, 5, 20)),
     "triggers/loki/fuelled_by_fury.ABILITY_COUNTED_ONCE_PER_BATTLE": (
         FBF.ABILITY_COUNTED_ONCE_PER_BATTLE, ActiveAbilityType, (1118, 1189)),
     "ai/action_generators._COMPARABLE_REPAIR_IDS": (
@@ -291,9 +294,10 @@ def test_etage2b_cardinalites():
         + sum(len(s) for _v, _e, s in SNAP_TUPLES.values()) \
         + sum(len(s) for _v, _e, s in SNAP_DICTS.values())
     # 157 -> 158 : `UNTARGETABLE_EFFECT_TYPES` gagne `1238 FearOfTheUnseen_TeleportingIn`
-    # (#448-r2b-r1). Le compte MONTE quand une inscription est confrontee ; il ne doit jamais
-    # baisser en silence.
-    assert total == 158, "le perimetre de la tranche a change de taille : %d" % total
+    # (#448-r2b-r1). 158 -> 159 : `_FILLUP_STATS` gagne `20 NumberOfMembers` (#572-r3, case LUE
+    # dans le switch d'`ApplyStatModifier`). Le compte MONTE quand une inscription est
+    # confrontee ; il ne doit jamais baisser en silence.
+    assert total == 159, "le perimetre de la tranche a change de taille : %d" % total
     for nom, (vivant, _e, snap) in {**SNAP_SETS, **SNAP_TUPLES}.items():
         assert len(vivant) >= len(snap), (
             "%s a PERDU des entrees : %d vivantes pour %d au snapshot"

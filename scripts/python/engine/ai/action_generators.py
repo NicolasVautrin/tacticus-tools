@@ -123,7 +123,7 @@ _REPAIR_GROUP_CAP = False
 def _group_heal_limit(visual_id, hp_max: int, hp_cur: int) -> int | None:
     """`IdunBattle.Core.Services.DamagePrediction$$GetGroupUnitHealLimit` pour une cible identifiée par son visualId : None pour un
     héros (nrOfMembers<2 -> int.MaxValue natif = pas de cap ; on omet le min). nrOfMembers de BASE =
-    gameconfig (GroupUnitComponent+0x10), hpMax = HealthComponent max (observeBattle.hpMax)."""
+    gameconfig (NumberOfMembersComponent+0x10), hpMax = HealthComponent max (observeBattle.hpMax)."""
     if not visual_id:
         return None
     try:

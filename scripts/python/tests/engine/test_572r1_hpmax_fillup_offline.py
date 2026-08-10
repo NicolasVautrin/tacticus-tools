@@ -245,19 +245,32 @@ def test_le_lecteur_DSL_voit_le_maximum_effectif():
 
 def test_le_dispatch_fillup_declare_ce_qu_il_ne_couvre_PAS():
     """`UnitExtensions$$ApplyStatModifier` a TROIS cases qui vont a
-    `FillUpStatComponent$$ApplyModifier` : Armor(4), Health(5), NumberOfMembers(20). Le port ne
-    porte de composant fill-up DEDIE que pour HEALTH ; les deux autres vivent encore dans
-    `UnitStats` sous un `StatComponent`, dont `Current` et `Maximum` rendent la MEME valeur la ou
-    le natif les separe -> **#572-r3**.
+    `FillUpStatComponent$$ApplyModifier` : Armor(4), Health(5), NumberOfMembers(20).
 
-    Ce cran ne demande pas de fermer l'ecart -- il demande qu'il reste DENOMBRABLE. Il rougit
-    aussi bien si l'on couvre une stat de plus (mettre a jour le compte) que si l'on en perd une."""
-    from engine.runner.operations.stat_ops import _FILLUP_STAT_COMPONENTS
-    assert set(_FILLUP_STAT_COMPONENTS) == {int(StatType.HEALTH)}, (
-        "la table de routage fill-up a change : %s -- si une stat a ete ajoutee, mettre a jour "
-        "#572-r3" % sorted(_FILLUP_STAT_COMPONENTS))
-    non_couvertes = {int(StatType.ARMOR), int(StatType.NUMBER_OF_MEMBERS)}
-    assert non_couvertes.isdisjoint(_FILLUP_STAT_COMPONENTS)
+    Etat depuis #572-r3 : HEALTH (composant ECS dedie) et NUMBER_OF_MEMBERS (`FillUpStatComponent`
+    dans `UnitStats`) sont couvertes ; **ARMOR ne l'est pas, et c'est un VERDICT** -- mesure live
+    (`probe_572r3_membres_et_armure.py`, 13 entites x 14 tours) : `observeBattle.armor` et
+    `combatSnapshot.armorMax` valent 0 sur TOUTES, et aucune des configurations `lineup`/`npc`/
+    `summons` du gameconfig ne porte de stat `Armor` (seulement `FixedArmor`). Router une stat dont
+    le regime est vide serait un port SPECULATIF.
+
+    ⚠ CE CRAN A DEJA ETE AVEUGLE UNE FOIS, et c'est pourquoi il derive desormais sa couverture au
+    lieu de lire UNE table : #572-r3 a couvert NUMBER_OF_MEMBERS par une SECONDE voie
+    (`_FILLUP_DANS_UNIT_STATS`), et la version precedente -- qui n'assertionnait que
+    `_FILLUP_STAT_COMPONENTS` -- serait restee VERTE en le declarant toujours non couvert."""
+    from engine.runner.operations.stat_ops import (_FILLUP_DANS_UNIT_STATS,
+                                                   _FILLUP_STAT_COMPONENTS)
+    from engine.entities.stats import _FILLUP_STATS
+    assert {int(x) for x in _FILLUP_STATS} == {int(StatType.ARMOR), int(StatType.HEALTH),
+                                               int(StatType.NUMBER_OF_MEMBERS)}, (
+        "les TROIS cases fill-up du switch natif ont change : %s" % sorted(_FILLUP_STATS))
+    couvertes = {int(x) for x in _FILLUP_STAT_COMPONENTS} | {int(x) for x in _FILLUP_DANS_UNIT_STATS}
+    assert couvertes == {int(StatType.HEALTH), int(StatType.NUMBER_OF_MEMBERS)}, (
+        "la couverture fill-up a change : %s -- si une stat a ete ajoutee ou perdue, mettre a "
+        "jour #572-r3 et sa case-doc" % sorted(couvertes))
+    assert int(StatType.ARMOR) not in couvertes, (
+        "ARMOR est desormais routee : le verdict `regime vide` de #572-r3 doit etre re-mesure "
+        "(un porteur a-t-il ete trouve ?) avant de porter quoi que ce soit")
 
 
 def test_la_ValueModification_est_bien_attribuee_par_SOURCE():
