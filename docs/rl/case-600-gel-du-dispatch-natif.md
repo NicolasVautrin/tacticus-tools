@@ -237,6 +237,31 @@ partage, champs relus) mais jamais sur un ENVOI. Je l'avais ecrit — « non con
 en bout » — puis j'ai dispatche avec. Une reserve ecrite n'est pas une precaution ; le cran
 manquant est de refuser d'utiliser un chemin qu'on vient soi-meme de declarer non confronte.
 
+**Verifie apres relance : l'envoi #7 AVAIT abouti.** Le plateau rend `all_knowledge_m_04_10`
+en `status: 1` avec les quatre unites envoyees — **7/7 operations en cours**. La mort du
+process etait donc bien posterieure a l'enregistrement serveur. Avoir lu le plateau avant de
+retenter a evite un second dispatch de quatre unites.
+
+## Bilan du chantier
+
+**7 operations dispatchees sur 7**, dont 6 par la voie natif validee et 1 par la voie
+regressee (qui a abouti quand meme). Cinq relances du jeu, sept explications dont trois
+fausses, et **quatre causes distinctes** finalement identifiees :
+
+| # | cause | symptome |
+|---|---|---|
+| 1 | `callback` nul -> `raise_null_reference_exception` a la reception | process mort, DIFFERE |
+| 2 | GC force sous Frida -> stop-the-world | gel, main thread a un safepoint |
+| 3 | re-entrance dans notre propre hook | gel, cadres `frida-agent` sous le verrou |
+| 4 | page de code du stub non retenue -> liberee | process mort, DIFFERE |
+
+Les deux morts (1 et 4) partagent une signature — `ok: true` puis mort quelques secondes
+apres — et des causes sans rapport. Les deux gels (2 et 3) aussi. **Le symptome ne designe
+jamais la cause sur ce chantier** ; seule la pile, ou l'isolement d'etage, l'a fait.
+
+⚠ **Le correctif de (4) n'est PAS confronte** : le plateau est plein, il n'y a plus d'envoi
+disponible avant la fin de la premiere operation. A confronter au prochain creneau.
+
 ## Un piege de lecture rencontre en chemin
 
 `ExpeditionGameEvents$$DispatchExpedition` se decompile avec **trois** arguments (plus `this`),
