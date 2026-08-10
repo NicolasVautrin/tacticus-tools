@@ -56,13 +56,35 @@ Le premier ecart (5) est compatible avec les DEUX hypotheses -- `499` dilue a 1 
 reduction de `5` posee en post-percage vaut 5. C'est un regime ou l'accord ne prouve rien, et c'est
 ce qui a d'abord fait ecrire ici une conclusion que la 2e ligne a refutee.
 
-Le VRAI blocage est en amont : le port lit `dmgReduction[**1**] = 5` au lieu du palier reel, parce
-que l'entite NPC fraichement spawnee arrive cote port avec `passive_ability_level = 0` et
-`ability_variables_multiplier = 100` (MESURE). C'est le MEME trou de substrat que #570 avait deja
-nomme pour son etage E3 (« `combatSnapshot` ne publie pas l'entite NPC fraichement spawnee »).
+Le VRAI blocage est en amont : le port lit `dmgReduction[**1**] = 5` au lieu du palier reel.
 Tant que ce niveau est faux, AUCUNE comparaison de magnitude n'est concluante -- et forcer un
 placement sur un ecart mesure avec la mauvaise magnitude serait exactement le fit que la doctrine
-interdit. Residu ouvert, `BLOCAGE: seeding`.
+interdit.
+
+⚠ **#570-r3 A LEVE LE PREMIER DES DEUX ETAGES, ET MESURE LE SECOND -- ILS SONT DISTINCTS.**
+La cause n'etait PAS « `combatSnapshot` ne publie pas l'entite NPC fraichement spawnee » (elle la
+publie : le probe la lit) :
+
+  ETAGE 1 -- L'UNITE. `combatSnapshot.unitConfig` rend `{"error": "config null"}` pour toute
+  unite INVOQUEE (elle n'a aucune `UnitConfiguration`), donc son `passive_ability_level` restait
+  `0` / son multiplicateur `100`. Le canal qui porte l'information est `unitAbilityStates`, que
+  `snapshot._load_passive_abilities` sait deja consommer -- mais que le HARNAIS des probes ne
+  collectait pas. **LEVE** (`probe_503r1_overwhelming_wrath_phase2.load` le passe desormais a
+  `load_state`) : MESURE, le CTX du tank passe de `(passive_ability_level 0, mult 100)` a
+  `(50, 180)`. S'y ajoute, cote spawn PORTE, le defaut de `build_summon_context` remis a
+  `abilitiesLevel ?? abilityState.level` (LU dans `SpawnUnitOptions$$WithStatsFromConfig`).
+
+  ETAGE 2 -- L'INSTANCE D'EFFET. Elle porte TOUJOURS `ability_level = None` / `mult = 100`, donc
+  `lvl` retombe sur `self.level` (= 1, le niveau de l'EFFET publie par `decisionView.effects`) et
+  la magnitude reste `dmgReduction[1] = 5`. Cause LUE dans `engine/entities/effects/factory.py` :
+  `load_state` materialise les effets AVANT `_load_passive_abilities`, donc au moment ou l'effet
+  naît, le CTX de son owner porte encore `0`/`100`. Le meme fichier nomme deja le remede
+  (« deplacer le seed d'owner-effects APRES `_load_passive_abilities` dans `load_state` »).
+  **NON LEVE** : c'est un changement d'ORDRE dans `load_state`, hors du perimetre de cette
+  tranche, et son rayon de souffle n'est pas mesure.
+
+Donc : magnitude et placement restent **NON CONFRONTES**, et le blocage a change de nature --
+il n'est plus `seeding` (l'unite a son niveau) mais `etage` (l'instance d'effet ne le lit pas).
 
 CE QUI EST CONFRONTE, ET CE QUI NE L'EST PAS :
   * le GATE, face NEGATIVE : `Gauss` (60 % > 30) rend **6862 == 6862** -- un port qui appliquerait
