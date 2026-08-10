@@ -16,14 +16,14 @@ la surface T/S entière le devient **cas-par-cas** ».
 
 | étage | mesure |
 |---|---|
-| rayon de souffle de `engine/dsl/base.py` | **100** fichiers importateurs, **22** symboles distincts |
+| rayon de souffle de `engine/dsl/base.py` | **102** fichiers importateurs, **22** symboles distincts |
 | dont `DslContext` lui-même | **5** lecteurs directs |
 | dont `Const` / `TargetsSelector` | **73** / **29** lecteurs |
 | voie A — `LiveUnit` | **1** définition (`runner/abilities/behaviours/context.py`), **4** constructions |
 | producteurs de contexte | **12** constructions `DslContext(...)` (**10** avec `board`), **20** dérivations `replace(...)` |
 | `Cache` (fige l'IDENTITÉ, pas la position) | **1** définition (`entities/selectors/geometry.py`), **26** usages |
 
-**Le chiffre qui débloque tout** : le socle est importé par 100 fichiers, mais le **contrat de
+**Le chiffre qui débloque tout** : le socle est importé par 102 fichiers, mais le **contrat de
 contexte** n'a que **5 lecteurs directs**. Ajouter un champ à `DslContext` (défaut `None`) est donc
 une opération à 5 sites, pas à 100 — les 95 autres consomment `Const`, `TargetsSelector`, `_pos`,
 `_feet`, etc., qui ne bougent pas. C'est exactement ce que la tranche #433-r3-r2 de ce même agent a

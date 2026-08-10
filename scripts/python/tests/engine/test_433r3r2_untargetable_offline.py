@@ -28,6 +28,27 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
+#: Ce qui doit changer pour que ce FICHIER de test puisse changer de verdict (#486-r15).
+#: La CASCADE D'IMPORTS (476 modules) est DERIVEE par le foyer depuis #531 -- elle couvre a elle
+#: seule les huit chemins que ce fichier lit vraiment (`unit_selection_type`, `triggers`,
+#: `selectors/units`, `effects/aura_selectors`, `unit_flag`, `dsl/base`, `operations/behaviour`,
+#: `pathfinding/board`). Les recopier ici serait du bruit, et surtout une liste a maintenir a la
+#: main a cote d'une derivation exacte.
+DECLENCHEUR = {
+    "chemins": (
+        # Le SEUL chemin hors cascade, rendu par `probe_486r15 --proposer` : l'`__init__` du
+        # paquet, que l'import differe du domaine d'effets traverse a la premiere evaluation.
+        "scripts/python/engine/entities/__init__.py",
+    ),
+    "build": False,
+    "toujours": False,
+    "raison": "les gardes portent sur le PREDICAT `MatchesUnitSelectionType` et ses DEUX canaux "
+              "(`has_unit_flag`, `has_effect` sur `UNTARGETABLE_EFFECT_TYPES`) ; tout ce qu'elles "
+              "lisent est dans la cascade d'imports DERIVEE, sauf l'`__init__` du paquet que "
+              "l'import differe traverse. Aucun canal hors-import (ni `data/`, ni binaire, ni "
+              "runner) n'intervient : le montage construit son board a la main.",
+}
+
 COLS, ROWS = 6, 6
 
 

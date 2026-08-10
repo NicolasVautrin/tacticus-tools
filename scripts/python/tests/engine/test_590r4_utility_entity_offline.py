@@ -27,6 +27,25 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
+#: Ce qui doit changer pour que ce FICHIER de test puisse changer de verdict (#486-r15).
+#: La CASCADE D'IMPORTS (476 modules) est DERIVEE par le foyer depuis #531 : elle couvre le foyer
+#: (`behaviours/ai_control.py`), le corps substitue (`loki/summon.py`), le call-site fige par
+#: l'etage 4 (`loki/attempted_possession.py`), `dsl/base.py` et `selectors/accessors.py`. Les
+#: recopier ici serait une liste a maintenir a la main a cote d'une derivation exacte.
+DECLENCHEUR = {
+    "chemins": (
+        # Le SEUL chemin hors cascade, rendu par `probe_486r15 --proposer` : l'`__init__` du
+        # paquet `behaviours`, que la fixture traverse pour substituer le corps.
+        "scripts/python/engine/runner/abilities/behaviours/__init__.py",
+    ),
+    "build": False,
+    "toujours": False,
+    "raison": "les gardes portent sur le CABLAGE de `PerformAIAbility` -- resolution UNIQUE du "
+              "selecteur `+0x80`, arite du delegue `+0x90`, contenu de la trace. Tout cela est "
+              "dans la cascade d'imports DERIVEE, sauf l'`__init__` du paquet. Aucun canal "
+              "hors-import : le corps du tour d'IA est SUBSTITUE, donc ni runner ni RPC.",
+}
+
 
 class _Ctx:
     """`DslContext` minimal -- la feuille ne lit que ce que son selecteur d'acteurs consomme."""

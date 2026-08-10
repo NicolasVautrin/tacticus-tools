@@ -19,7 +19,7 @@ au 2026-08-10 :
 ## 2. Ce qui restait : un ANGLE MORT que le balayage nomme lui-même
 
 `probe_477r25.RE_SLOT` est **sensible à la casse**. Son propre recenseur le dit et le chiffre
-(`_RE_SLOT_AUTRE_CASSE`, section « PORTEE DE LA MESURE ») : **188 lignes** écrivent `Slot`/`SLOT` et
+(`_RE_SLOT_AUTRE_CASSE`, section « PORTEE DE LA MESURE ») : **197 lignes** écrivent `Slot`/`SLOT` et
 n'entrent dans **aucune** de ses causes — elles sont *invisibles*, pas *écartées*. Chiffrer un angle
 mort ne le referme pas : une partition exacte d'un ensemble incomplet se lit comme exhaustive.
 
@@ -38,9 +38,11 @@ fichier du dépôt.
 ## 3. Résultat : 8 citations rendues visibles, dont UNE fausse — et c'était bien un glissement de build
 
 `docs/rl/playbook/playbooks.md` (section « MAJ #116 — HammerOfWrath ») attribuait le slot `0x4e` = 78
-d'`IBattleQuery` à `BattleQuery.GetAdjacentTiles`. La fiche **déclare son build** (`gqfc5mff6c`) : la
-citation y était juste. Sur `rnca9r7q6c` elle a **glissé d'un cran** — exactement la forme de décalage
-que #433-r3-r3 décrivait pour `targeting.py`.
+d'`IBattleQuery` à `BattleQuery.GetAdjacentTiles` <!-- [slot-attribution:refute] : la phrase DÉCRIT
+la faute corrigée, elle ne l'affirme pas — sans ce marqueur, `probe_477r25` apparie le couple et
+rougit sur la fiche qui répare, ce qui rendrait `master` rouge au merge -->. La fiche **déclare son
+build** (`gqfc5mff6c`) : la citation y était juste. Sur `rnca9r7q6c` elle a **glissé d'un cran** —
+exactement la forme de décalage que #433-r3-r3 décrivait pour `targeting.py`.
 
 | slot | `rnca9r7q6c` (metadata) | lambda du décorateur |
 |---|---|---|
