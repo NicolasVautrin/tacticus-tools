@@ -158,6 +158,42 @@ la phase 2 de ...SeekerMissileFrequencyLockTargetEffect (1127) est definie
 dans engine.runner.abilities.tau
 ```
 
+### 4ter. `#503-r4` RÉSOLU (2026-08-10) — l'étage était un EFFET ABSENT, pas un montant
+
+`SupaCyborkBody_CritDmgReduction` (`EffectType` **1468**) n'avait **aucun mirror**. `u83`
+(`orksRuntherd`) le porte, `u81` (`orksNob`) **non** — et le port fait criter les **deux** coups
+sur `u83` contre **un seul** sur `u81`. Une réduction du dégât de **CRIT** ne pouvait donc
+diverger que là, ce qui explique pourquoi une seule des deux cibles était bit-exacte.
+
+Ce qui l'a nommé n'est pas une nouvelle décomposition arithmétique mais la comparaison des
+**effets portés** par les deux cibles au moment du tir : `u83` en porte trois que `u81` n'a pas
+(`1078 SquigHound_IgnoreBattleFatigue`, `1292 SquigHound_AdditionalHits`, **`1468`**).
+
+Mirror : `engine/entities/effects/loki/supa_cybork_body.py` (les quatre méthodes natives, dont
+`$$GetCalculateLevel = Count(AdjacentEnemies(Owner, 1, 3))`, que
+`IdunBattle.Operations.RefreshEffectsOperation$$UpdateLevel` tient égal au champ que
+`DSLFormulas.EffectLevel` relit). Config = la TRIGGERED `0x5c3 = 1475 SupaCyborkBody`, littéral du
+`.ctor` relu **à l'assembleur** (`ba c3 05 00 00`).
+
+| | avant | après |
+|---|---|---|
+| `u81` | 8761 == 8761 | 8761 == 8761 |
+| `u83` | port 12693 brut / 12049 appliqué vs natif **10957** | **10957 == 10957**, coup à coup `[5663, 5294]`, survit à 1092 |
+
+Aucun scalaire fitté : la valeur écrite est `critDmgReduction[50] × niveau 1` = **579** ; les
+868 PV par coup sont ce que le pipeline en fait, mesurés et non choisis. Le cliquet
+`ECART_ATTENDU_MAX` du garde passe de **1092 à 0**, et la magnitude est désormais gardée sur
+**toutes** les cibles.
+
+⚠ **Le capteur `initialHealth` NE DONNE PAS le montant par coup, et c'est LU.**
+`IdunBattle.Operations.AttackDamageOperation$$ExecuteHits` passe `*(int*)(hitGroup + 0x50)` à
+**chaque** `ExecuteHit` et **ne le réécrit jamais** dans la boucle : ce sont les PV avant le
+**GROUPE** de coups. Mesure : `10040/10040` et `12049/12049`. Ce que ce capteur tranche reste le
+**CARDINAL** et l'**ORDRE** — ce qu'il avait déjà tranché.
+⚠ Piège de lecture du décompilé : les noms de paramètres ghidra d'`ExecuteHit` sont **décalés d'un
+cran** (buffer de retour caché en slot 0), donc le paramètre que ghidra nomme `deniedDamage` est
+en réalité `initialHealth`. C'est le call-site de `ExecuteHits` qui tranche, pas la signature.
+
 ### 4bis. `#503-r4` — le capteur EXISTAIT, et la 4ᵉ cause est éliminée (2026-08-10)
 
 La §4 ci-dessus déclare `BLOCAGE: capteur` et nomme
@@ -215,20 +251,44 @@ E        +  where 0 = len([])
 Le garde générique de #513 (`test_la_phase2_de_1069_est_inscrite`) itère `PENDING_ATTACK_EFFECTS` :
 il couvre donc **automatiquement** toute entrée neuve, y compris celle-ci.
 
-## 7. Ce qui n'est PAS couvert
+### 4quater. `#503-r5` RÉSOLU (2026-08-10) — `is_melee=None` RÉFUTÉ, le natif dit MÊLÉE
 
-* **L'écart de magnitude sur la 2ᵉ cible** (`#503-r4`) — décomposé ci-dessus, non localisé.
-* **`is_melee`** (`#503-r5`) — le mirror est `None` par lecture ; aucune cible du montage ne porte
-  de réducteur gaté `IsRangedAttack`, donc le choix n'est pas discriminé.
+Le point 4 de la §3 concluait `None` de l'**absence de bit melee/ranged dans le nœud**. Le constat
+structurel tient ; la conclusion était un raccourci : ce n'est pas le nœud qui décide, c'est
+`IdunBattle.Core.Services.BattleQuery$$IsMeleeAttack`, qui part de
+`GetAbilityAttackRangeType(<l'ability du coup>)` — donc de la **config**. L'absence dans le nœud ne
+prouve rien sur la valeur que le gate lira.
+
+Le montage annoncé (« une cible portant un réducteur gaté RANGED », puis « greffer `HeavyWeapon`
+sur l'**attaquant** ») visait le mauvais axe **deux fois** : le gate `IsRangedAttack` n'a **0**
+implémenteur posable sur ce scénario, et un trait de l'attaquant ne change pas la nature du coup.
+Ce qui tranche est un gate **défensif** sur une **cible** — trait `Terrifying` greffé sur
+`orksNob`, qui dérive `TerrifyingAbility` → `78 Terrifying_ExtraDefense`, dont l'**unique** gate
+est `IsMeleeAttack`.
+
+| | `u81` GREFFÉE | `u83` TÉMOIN (non greffé) |
+|---|---|---|
+| port `is_melee=None` | 8761 vs natif **6132** (écart 2629) | 10957 == 10957 |
+| port `is_melee=True` | **6132 == 6132** | 10957 == 10957 |
+
+`8761 × 0,7 = 6132,7` — exactement `globalValues.terrifyingBonus` = 30 %. Le témoin est aussi
+important que le positif : la greffe réécrit le seed BC, donc sans lui un écart sur `u81` ne se
+distinguerait pas d'un montage qui aurait déplacé autre chose. Sans greffe, `is_melee=True` laisse
+les deux cibles bit-exactes — la correction ne bouge rien là où aucun gate de nature n'est armé.
+
+Sonde `probe_503r5_is_melee.py` (son verdict se lit contre la valeur **réellement écrite** dans
+l'arbre, jamais contre une valeur en dur), garde `tests/engine/runner/test_503r5_is_melee_live.py`.
+
+## 7. Ce qui n'est PAS couvert
 * **`GetAttackingUnitSelector`** — ce porteur ne peut pas le trancher : `1300` est posé **sur** le
   caster et bondé **au** caster (les deux slots coïncident). La lecture reste attestée par la mesure
   de #513, où les deux candidats appartiennent à deux **joueurs** différents.
 * **La face DÉCISION** (`IdunBattle.AI.Playbook.Loki.OverwhelmingWrathPlaybook`) — hors périmètre,
   inchangée.
 
-## 8. Résidus ouverts par cette tranche
+## 8. Résidus ouverts par cette tranche — **les trois sont fermés**
 
-* `#503-r5` — `is_melee` non confronté (contre-épreuve : une cible portant un réducteur gaté RANGED).
-* `#503-r3` — `TRIGGERED_ABILITY_BEHAVIOURS` peuplé par une dépendance implicite (vaut aussi pour
-  `1127`).
-* `#503-r4` — l'écart de magnitude de la 2ᵉ cible.
+* `#503-r3` — RÉSOLU par DÉPLACEMENT (§5bis).
+* `#503-r4` — RÉSOLU : l'étage était `SupaCyborkBody_CritDmgReduction` (1468), absent du port
+  (§4ter).
+* `#503-r5` — RÉSOLU : `is_melee=None` réfuté, le natif tient le coup pour MÊLÉE (§4quater).

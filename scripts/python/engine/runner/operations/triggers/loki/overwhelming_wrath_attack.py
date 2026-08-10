@@ -57,20 +57,31 @@ CINQ POINTS DE FIDELITE, tous LUS :
    `damageProfile = Eviscerate`, donc le defaut `0x14` n'est JAMAIS atteint -- l'ecrire en dur
    serait un fit. Le port lit le profil du kit et ne modelise pas le defaut (meme residu #513-r2).
 
-4. `is_melee=None` -- ET C'EST LU, PAS CHOISI. Les CINQ surcharges de
-   `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAttackDamage` ont ete decompilees : toutes
+4. `is_melee=True` -- MESURE (#503-r5), apres avoir ete `None` PAR LECTURE DU NOEUD.
+   Le constat structurel reste vrai et il faut le garder : les CINQ surcharges de
+   `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAttackDamage` ont ete decompilees, toutes
    construisent le meme couple `IdunBattle.Entities.Behaviours.AttackDamageBehaviour` +
    `IdunBattle.Entities.Behaviours.AttackBehaviour` a partir de
    `(caster, target, amount, damageProfile, hits, abilityOrEffect, options, selectionType)`, et
-   **aucune ne porte de bit melee/ranged** -- exactement le constat deja ecrit pour
-   `AttackWithAbilityDamage`. Le noeud ne transporte AUCUNE nature de coup, donc
-   `None` = `IsMeleeAttack` ET `IsRangedAttack` tous deux FAUX.
-   ⚠ Ecrire `is_melee=True` -- ce que le porteur (Azkor, melee) et le selecteur `AdjacentEnemies`
-   invitent a faire -- serait une DEDUCTION, pas une lecture. Sur ce profil precis l'axe PERCAGE
-   est INERTE (`GC.damage_profile("Eviscerate")` = `{PiercingRatio: 50}` SEUL, aucun
-   `ExtraPierceMelee`/`ExtraPierceRanged`), donc le choix ne se distingue QUE par les gates
-   defensifs `IsRangedAttack` des cibles. Residu `#503-r5` : la contre-epreuve exige une cible
-   portant un reducteur gate RANGED.
+   **aucune ne porte de bit melee/ranged**. Le NOEUD ne transporte donc AUCUNE nature -- mais ce
+   n'est pas lui qui la decide : `IdunBattle.Core.Services.BattleQuery$$IsMeleeAttack` part de
+   `GetAbilityAttackRangeType(<l'ability du coup>)`, c'est-a-dire de la CONFIG de l'ability, pas
+   du behaviour. Conclure « le noeud ne la porte pas donc elle est indeterminee » etait un
+   raccourci : l'absence dans le noeud ne prouve rien sur la valeur que le gate lira.
+   ⚠ CONTRE-EPREUVE, `probe_503r5_is_melee.py` (greffe du trait `Terrifying` sur `orksNob`, dont
+   l'effet derive `78 Terrifying_ExtraDefense` a pour UNIQUE gate `IsMeleeAttack`) :
+
+       u81 GREFFEE : port 8761 -> natif **6132**   (8761 x 0,7 = 6132,7 ; `terrifyingBonus` = 30 %)
+       u83 TEMOIN  : port 10957 == natif 10957     BIT-EXACT (la greffe n'a rien deplace d'autre)
+
+   Le natif applique donc un reducteur gate `IsMeleeAttack` sur ce coup : il le tient pour
+   **MELEE**. `None` etait PERMISSIF (il faisait taire les gates defensifs de melee des cibles).
+   La fiche annoncait « une cible portant un reducteur gate RANGED » : ce montage-la n'a AUCUN
+   porteur porte (balayage des `create_effect_damage_malus_for_defense` gates `IsRangedAttack` =
+   0 implementeur posable ici) ; c'est l'AUTRE face du meme axe qui tranche.
+   (L'axe PERCAGE reste inerte sur ce profil -- `GC.damage_profile("Eviscerate")` =
+   `{PiercingRatio: 50}` SEUL, aucun `ExtraPierceMelee`/`ExtraPierceRanged` -- donc la mesure
+   ci-dessus est bien le SEUL canal ou le choix se voit.)
 
 5. `multi=True` -- et c'est la DIFFERENCE STRUCTURELLE avec le cleave de #478. Ici le natif passe
    le selecteur MULTI-cibles DIRECTEMENT a `AttackWithAttackDamage`, donc **UN SEUL**
@@ -135,7 +146,7 @@ def overwhelming_wrath_attack_tree():
         AdjacentEnemies(Caster(), Const(1)),                  # `AdjacentEnemies(Caster@+0x48, 1, 3)`
         OW_ACTIVE_ID,                                         # cf. point 2 : la config de l'ACTIVE
         str(consts.get("damageProfile") or ""),               # `GetDamageProfileOrDefault(0x14)`
-        is_melee=None,                                        # cf. point 4 : le noeud ne la porte pas
+        is_melee=True,                                        # cf. point 4 : MESURE (#503-r5)
         # `MinMaxDamage` = `RandomAmount(GetVariableForLevel(0xc), GetVariableForLevel(0xd))` et
         # `hits` = `GetNumberConstant(0x2f)` : les cles PAR DEFAUT du mode bornes.
         level_slot="active",
