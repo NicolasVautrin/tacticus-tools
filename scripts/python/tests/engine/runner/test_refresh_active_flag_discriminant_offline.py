@@ -111,6 +111,14 @@ CONDITIONS_PORTEES_ATTESTEES = {
     "ReinforcedHiveNode_ExtraArmor",
     "ReinforcedHiveNode_ExtraBlock",
     "StructuralAnalyser_Visual",
+    # #547-r6 -- ARRIVEE SANS SA LIGNE, et le cliquet l'a vue : `SupaCyborkBodyCritDmgReduction
+    # Effect.is_active` est entree par la PR qui porte `supa_cybork_body.py`, sans inscription ici,
+    # d'ou `master` ROUGE. La condition est REELLE et LUE : `CreateActiveCondition` =
+    # `HasAdjacentEnemies(Owner, Tiles(Owner))`, exprimee par le MEME compteur que
+    # `GetCalculateLevel` -- donc condition et magnitude ne peuvent pas diverger. Meme famille
+    # geometrique qu'`AmuletOfTheVoidwyrm`, et meme degradation : cle ABSENTE = non mesure, on NE
+    # FERME PAS.
+    "SupaCyborkBody_CritDmgReduction",
     "VisionsOfHeresy_ExtraPierceMelee",
     "VisionsOfHeresy_ExtraPierceRanged",
 }
