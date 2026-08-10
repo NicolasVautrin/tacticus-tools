@@ -55,6 +55,30 @@ from engine.entities.abilities.ability_configuration import AbilityConfiguration
 from engine.entities.abilities.active_ability import DakkaDakkaDakkaAbility  # noqa: E402
 from engine.entities.active_ability_type import ActiveAbilityType            # noqa: E402
 
+#: Ce qui doit changer pour que ce cliquet puisse changer d'avis.
+DECLENCHEUR = {
+    "chemins": (),
+    "build": True,
+    "toujours": True,
+    "raison": (
+        "`chemins` VIDE, et c'est MESURE : `probe_486r15 --proposer` rend RIEN A DECLARER hors "
+        "de la cascade -- la fermeture d'imports de ce fichier (479 modules, dont le site "
+        "`entities/abilities/active_ability.py`, le foyer `dsl/base.py::_round_fix64` et le mirror "
+        "`entities/ability_constant_type.py`) tient entierement dans la cascade DERIVEE du foyer, "
+        "qu'on ne redeclare pas (#531). D'ou `toujours: True` : un perimetre vide avec "
+        "`toujours: False` ne serait JAMAIS rejoue, et ce fichier est offline et court (13 tests, "
+        "~3 s, aucun runner, aucun RPC). "
+        "`build: True` parce qu'il FIGE un ordinal du binaire au site -- `ConfigConst(0x4f)` = "
+        "`AbilityConstantType.healthPct`, le litteral que passe "
+        "`DakkaDakkaDakkaAbility$$GetHealthToLose`. `probe_313` compare le mirror au build et "
+        "redeviendrait vert apres un renumerotage ; ce cliquet-ci garde la valeur ECRITE, donc il "
+        "doit se rejouer au changement de build. "
+        "Ce qu'il prouve, et que rien d'autre ne voit : le 4e argument `roundingRule` du call-site "
+        "natif vaut `0`, donc `Fix64.Round` (demi-vers-le-PAIR) et NON le `// 100` que le port "
+        "ecrivait -- avec un jeu de temoins dont la DISCRIMINANCE est elle-meme assertionnee, "
+        "contre floor ET contre half-up."),
+}
+
 #: Le call-site natif passe `0` -- le bras `Fix64.Round` de `AAmountFormula$$RoundFix64Result`.
 ROUNDING_RULE_LU = 0
 
