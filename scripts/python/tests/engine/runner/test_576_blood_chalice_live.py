@@ -169,10 +169,25 @@ def test_les_deux_effets_sont_enregistres_et_portent_la_bonne_face():
     # Le SEUL gate natif est MELEE -- aucun `damageProfile` (contraste Supercharge).
     assert eff.create_piercing_bonus_for_attack(damage_profile=None, is_melee=False) is None
     assert eff.create_piercing_bonus_for_attack(damage_profile=None, is_melee=None) is None
-    # 1369 n'expose PAS sa `CreateActiveCondition` (residu #576-r1 assume, cf. sa docstring) :
-    # `active_condition_ported` DOIT rester False, sinon le defaut `is_active -> True`
-    # transformerait un inerte capte en contributeur.
-    assert BloodChaliceExtraPiercingEffect.active_condition_ported is False
+    # 1369 EXPOSE sa `CreateActiveCondition` depuis #576-r1 (c00ced69), qui a ferme le residu que
+    # cette assertion gardait ouvert : elle exigeait `active_condition_ported is False` et rougissait
+    # donc sur la fermeture. Le verrou est desormais sur le CONTENU du port, plus fort que sur son
+    # absence -- la condition rend FAUX de facon CONSTANTE, et c'est une LECTURE (ghidra rnca9r7q6c,
+    # re-verifiee ici) :
+    #   `IdunBattle.Operations.RefreshEffectsOperation$$ShouldBeActive` memset son `AbilityEntities`
+    #   de 0x128 octets a zero puis n'ecrit QUE owner@+0x08, owner@+0x18, activePlayer@+0x50,
+    #   effectEntity@+0x58 -> `IdunBattle.Entities.Selectors.TargetSelector$$Select` lit `ctx+0x10`
+    #   (ZERO) et rend une `List` VIDE -> `IdunBattle.DSL.TargetsSelector$$SelectUnit` rend 0 ->
+    #   `IdunBattle.Entities.Triggers.IsChargingTrigger$$ShouldTrigger` court-circuite
+    #   (`if (SelectUnit(caster) == 0 || SelectUnit(target) == 0) return false;`) sans jamais
+    #   appeler `IdunBattle.Core.Services.BattleQuery$$IsCharging`.
+    # `active_condition_ported is False` laisserait le defaut `is_active -> True` : l'inerte
+    # redeviendrait contributeur. C'est l'ancienne assertion qui portait ce risque.
+    assert BloodChaliceExtraPiercingEffect.active_condition_ported is True
+    inerte = BloodChaliceExtraPiercingEffect(name=EffectType.BloodChalice_ExtraPiercing.name)
+    assert inerte.is_active() is False
+    assert inerte.is_active({"hp": 1, "hpMax": 10}) is False, (
+        "la condition doit etre CONSTANTE : le natif n'a pas de Target a lire dans ce contexte")
 
 
 def test_l_arbre_porte_les_trois_mecaniques_dans_l_ordre_natif():
@@ -264,14 +279,43 @@ def test_le_trigger_de_soin_passe_par_l_operation_qui_porte_le_gate():
 
     # `IsMeleeAttack` : le trigger doit se TAIRE sur une attaque a distance et sur un `ranged` non
     # threade (tri-etat), et ne mordre que si l'ACTEUR est le porteur.
+    #
+    # ⚠ `matches` CONSULTE l'ETAT depuis #547-r2 (0c30d55d) : il commence par recharger l'entite-effet
+    # du porteur pour lire le gate `EffectComponent.IsActive @+0x5c` -- celui que
+    # `IdunBattle.Operations.EvaluateTriggerOperation$$EvaluateEffectTriggerTargets` applique AVANT
+    # `ShouldTrigger`. Un `state = None` levait donc un `AttributeError` avant d'evaluer quoi que ce
+    # soit : ce n'est pas le tri-etat qui repondait, c'etait le harnais qui cassait. On monte un etat
+    # MINIMAL, et on en fait une contre-epreuve : le MEME evenement, effet ACTIF vs DESACTIVE.
+    from engine.entities.effects_state import EffectsState
+    from engine.entities.effects.loki.blood_chalice import BloodChaliceHealOnAttackEffect
+
     class _Ev:
         def __init__(self, actor, ranged):
             self.actor_id, self.ranged = actor, ranged
+
+    class _St:
+        def __init__(self, effects):
+            self.effects = effects
+
+    def _state(active: bool, owner: int = 7):
+        inst = BloodChaliceHealOnAttackEffect(name=EffectType.BloodChalice_HealOnAttack.name,
+                                              effect_type=ef)
+        inst.active = active
+        return _St(EffectsState(by_unit={owner: [inst]}))
+
+    st = _state(True)
     t = BloodChaliceHealOnMeleeAttack(owner_id=7)
-    assert t.matches(None, _Ev(7, False)) is True
-    assert t.matches(None, _Ev(7, True)) is False
-    assert t.matches(None, _Ev(7, None)) is False
-    assert t.matches(None, _Ev(9, False)) is False
+    assert t.matches(st, _Ev(7, False)) is True
+    assert t.matches(st, _Ev(7, True)) is False
+    assert t.matches(st, _Ev(7, None)) is False
+    assert t.matches(st, _Ev(9, False)) is False
+    # Le gate `IsActive` lui-meme : effet DESACTIVE -> aucun soin, sur l'evenement qui mordait.
+    assert t.matches(_state(False), _Ev(7, False)) is False, (
+        "gate `EffectComponent.IsActive @+0x5c` absent : le calice soignerait encore alors que son "
+        "effet est DESACTIVE -- ni erreur ni crash, juste un soin de trop")
+    # Et l'ABSENCE d'entite-effet (porteur sans 1368) se lit FAUX, jamais vrai par defaut.
+    assert t.matches(_St(EffectsState(by_unit={})), _Ev(7, False)) is False
+    assert t.matches(_St(None), _Ev(7, False)) is False
 
 
 # ---------------------------------------------------------------- 1..6. le live

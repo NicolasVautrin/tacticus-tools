@@ -144,6 +144,62 @@ def _drive_away(rpc, rid, board, live, sq_mover, anchor_tile, min_dist=FAR_MIN_D
     return False
 
 
+def _drive_contact_and_shelter(rpc, rid, board, live, sq_contact, sq_shelter, enemy_tiles,
+                               min_dist=2):
+    """CONDUIT le couple (unite au CONTACT d'un ennemi, unite ABRITEE adjacente a elle) en cherchant
+    la CONFIGURATION d'abord, au lieu de placer l'une puis d'esperer que l'autre trouve une place.
+
+    ⚠ POURQUOI CETTE FONCTION EXISTE (mesure du 2026-08-11). L'enchainement precedent -- `_drive_
+    adjacent(contact, ennemi)` PUIS `_drive_adjacent(abri, contact, far_from=enemy_tiles)` -- SUBIT
+    la geometrie a la seconde etape : les tuiles bannies sont les voisines de TOUS les ennemis, et
+    `--advance 4` fait arriver les RENFORTS du board `MC1_67` (mesure : 2 ennemis a `--advance 0`,
+    **4** a `--advance 4`, les deux ajoutes etant des `orksNpc2OrkBoy`). Avec quatre ennemis groupes,
+    aucune voisine de la tuile de contact ne survit au bannissement, et les regimes `attack`/`caster`
+    rendaient « NON INSTALLE » -- un echec de MONTAGE, jamais un fait sur le port.
+
+    On enumere donc (tuile ennemie, tuile de CONTACT, tuile d'ABRI) et on ne DEPLACE que sur un
+    triplet complet : c'est « conduire les positions », pas les subir. Rend True si le couple est en
+    place et VERIFIE par relecture live."""
+    import hexgeo
+    U = live()
+    occ_of = lambda: {board.id_at(u["col"], u["row"]) for u in live().values()}
+    eps = [board.coord(t) for t in enemy_tiles]
+
+    def _far_enough(tile):
+        p = board.coord(tile)
+        return all(hexgeo.distance(p, ep) >= min_dist for ep in eps)
+
+    here_c = board.id_at(U[sq_contact]["col"], U[sq_contact]["row"])
+    here_s = board.id_at(U[sq_shelter]["col"], U[sq_shelter]["row"])
+    for et in enemy_tiles:
+        occ = occ_of()
+        contacts = [n for n in board.neighbours(et)
+                    if n in board.by_id and board.walkable(n) and (n not in occ or n == here_c)]
+        contacts.sort(key=lambda n: abs(board.coord(n)[0] - U[sq_contact]["col"])
+                      + abs(board.coord(n)[1] - U[sq_contact]["row"]))
+        for at in contacts[:10]:
+            shelters = [n for n in board.neighbours(at)
+                        if n in board.by_id and board.walkable(n) and _far_enough(n)]
+            if not shelters:
+                continue
+            if at != here_c:
+                _move_to(rpc, rid, sq_contact, at, board)
+                U2 = live()
+                if board.id_at(U2[sq_contact]["col"], U2[sq_contact]["row"]) != at:
+                    continue
+            occ2 = occ_of()
+            here_s = board.id_at(live()[sq_shelter]["col"], live()[sq_shelter]["row"])
+            for ct in shelters:
+                if ct in occ2 and ct != here_s:
+                    continue
+                if ct != here_s:
+                    _move_to(rpc, rid, sq_shelter, ct, board)
+                U3 = live()
+                if board.id_at(U3[sq_shelter]["col"], U3[sq_shelter]["row"]) == ct:
+                    return True
+    return False
+
+
 def _drive_two_adjacent_attackers(rpc, rid, board, live, sq, enemy_tiles):
     """Regime de GENERALISATION `two` : les DEUX allies mecaniques adjacents au caster ET au CONTACT
     d'un ennemi -- donc DEUX attaques gratuites dans le meme cast.
@@ -202,7 +258,7 @@ def run_scenario(rpc, scenario: str = "repair", advance: int | None = None,
     from engine.entities.effects.magnitude import ability_var
     from engine.runner.abilities.admec import DEFEND_THE_DIVINE_WORK_ID
     from engine.runner.abilities.targeting import valid_normal_attack_targets
-    from engine.runner.components import HealthComponent, StatsComponent
+    from engine.runner.components import HealthComponent, OwnerComponent, StatsComponent
     from engine.runner.messages import ActiveAbilityMessage
     from engine.runner.prng import IntBasedMersenneTwister
     from engine.runner.runner import Runner
@@ -241,21 +297,17 @@ def run_scenario(rpc, scenario: str = "repair", advance: int | None = None,
         return out
 
     if scenario == "attack":
-        if not _drive_adjacent(rpc, rid, board, live, sq[ADJ_VIS], enemy_tiles[0]):
-            out["why"] = "%s ne peut pas atteindre le contact d'un ennemi" % ADJ_VIS
-            return out
-        U = live()
-        at = board.id_at(U[sq[ADJ_VIS]]["col"], U[sq[ADJ_VIS]]["row"])
-        if not _drive_adjacent(rpc, rid, board, live, sq[CASTER_VIS], at, far_from=enemy_tiles):
+        # CONTACT = l'allie mecanique, ABRI = le caster. Le triplet est cherche d'un bloc (cf.
+        # `_drive_contact_and_shelter`) : le placer en deux temps echouait des que `--advance` faisait
+        # arriver les renforts du board.
+        if not _drive_contact_and_shelter(rpc, rid, board, live,
+                                          sq[ADJ_VIS], sq[CASTER_VIS], enemy_tiles):
             out["why"] = "le caster ne peut pas se poser adjacent a l'allie et LOIN des ennemis"
             return out
     elif scenario == "caster":
-        if not _drive_adjacent(rpc, rid, board, live, sq[CASTER_VIS], enemy_tiles[0]):
-            out["why"] = "le caster ne peut pas atteindre le contact d'un ennemi"
-            return out
-        U = live()
-        ct = board.id_at(U[sq[CASTER_VIS]]["col"], U[sq[CASTER_VIS]]["row"])
-        if not _drive_adjacent(rpc, rid, board, live, sq[ADJ_VIS], ct, far_from=enemy_tiles):
+        # MIROIR exact du precedent : CONTACT = le caster, ABRI = l'allie.
+        if not _drive_contact_and_shelter(rpc, rid, board, live,
+                                          sq[CASTER_VIS], sq[ADJ_VIS], enemy_tiles):
             out["why"] = "l'allie ne peut pas se poser adjacent au caster et LOIN des ennemis"
             return out
     elif scenario == "two":
@@ -326,14 +378,28 @@ def run_scenario(rpc, scenario: str = "repair", advance: int | None = None,
     out["hp_to_repair"] = ability_var(DEFEND_THE_DIVINE_WORK_ID, "hpToRepair", lvl,
                                       multiplier_pct=mult)
 
+    # ⚠ L'EQUIPE, pas le `visualId` : le cote LIVE somme la perte ennemie par `teamId == 2`, donc le
+    # cote PORT doit le faire par la MEME cle. Les deux nomenclatures ne coincident pas -- le board
+    # `MC1_67` amene des RENFORTS `orksNpc2OrkBoy` (2 ennemis a `--advance 0`, 4 a `--advance 4`), et
+    # ils sont DEUX a porter le meme `visualId` : la table `off` (keyee par visualId) en perd un par
+    # ecrasement, et une frappe sur un renfort ne comptait dans AUCUN des deux noms d'`ENEMY_VIS`.
+    # Un port qui frappe un renfort rendait donc `off_enemy_loss = 0` -- un ZERO fabrique par la
+    # cle de comptage, qui accusait le port en silence (mesure du 2026-08-11 : port 5532 sur un
+    # `orksNpc2OrkBoy`, compte rendu `0`).
+    caster_team = getattr(state.get_entity(cid).get_component(OwnerComponent), "team", None)
     vis_of = {}
     off_pre = {}
+    off_enemy_pre = {}
     for uid, e in state.entities.items():
         hc = e.get_component(HealthComponent)
         scc = e.get_component(StatsComponent)
+        occ = e.get_component(OwnerComponent)
         if hc is not None and hc.hp is not None:
             off_pre[uid] = int(hc.hp)
             vis_of[uid] = getattr(scc.ctx, "visual_id", None) if scc is not None else None
+            if (occ is not None and caster_team is not None
+                    and getattr(occ, "team", None) != caster_team):
+                off_enemy_pre[uid] = int(hc.hp)
     out["missing_before"] = {vis_of[u]: int(state.get_entity(u)
                                             .get_component(HealthComponent).hp_max) - pre
                              for u, pre in off_pre.items() if vis_of.get(u)}
@@ -359,7 +425,12 @@ def run_scenario(rpc, scenario: str = "repair", advance: int | None = None,
     out["live"] = {u.get("visualId"): u["hp"] - pre.get(s, u["hp"]) for s, u in post.items()}
     out["live_enemy_loss"] = -sum(min(0, u["hp"] - pre.get(s, u["hp"]))
                                   for s, u in post.items() if u.get("teamId") == 2)
-    out["off_enemy_loss"] = -sum(min(0, d) for v, d in out["off"].items() if v in ENEMY_VIS)
+    out["off_enemy_loss"] = -sum(
+        min(0, int(state.get_entity(uid).get_component(HealthComponent).hp) - pre)
+        for uid, pre in off_enemy_pre.items())
+    out["off_enemy_by_uid"] = {
+        uid: int(state.get_entity(uid).get_component(HealthComponent).hp) - pre
+        for uid, pre in off_enemy_pre.items()}
     out["ok"] = True
 
     if not keep:
@@ -401,6 +472,8 @@ def main() -> int:
     print("[PORT] deltas HP : %s" % ({k: v for k, v in r["off"].items() if v},))
     print("[LIVE] deltas HP : %s" % ({k: v for k, v in r["live"].items() if v},))
     print("perte ENNEMIE totale : live=%s port=%s" % (r["live_enemy_loss"], r["off_enemy_loss"]))
+    print("perte ENNEMIE par entite [PORT] : %s"
+          % ({u: d for u, d in (r.get("off_enemy_by_uid") or {}).items() if d},))
     return 0
 
 
