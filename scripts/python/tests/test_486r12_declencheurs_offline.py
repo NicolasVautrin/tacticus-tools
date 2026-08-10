@@ -637,16 +637,26 @@ def test_le_rc_qui_DIT_ne_rien_avoir_mesure_est_distingue_du_rouge(rc, refusee):
     assert G.mesure_refusee({"rc": rc}) is refusee
 
 
-def test_les_DUREES_se_relisent_avec_leur_REGIME(tmp_path):
-    """Une duree sans son regime est incomparable : `para-16` porte la contention des voisines,
-    `serie` est le seul cout ISOLE. Le fichier est versionne, donc il doit se relire."""
+def test_une_passe_PARALLELE_n_ECRASE_pas_la_distribution_SERIE(tmp_path):
+    """FAUTE PAYEE SUR CE PROPRE ARTEFACT (#486-r36), et le fichier est le livrable.
+
+    La premiere version ecrivait UNE mesure par entree : la passe `para-16` a donc efface la
+    distribution `serie` -- la seule interpretable. Ecrire le regime A COTE ne suffit pas : il
+    dit quelle mesure on a, pas celle qu'on a perdue. La cle porte donc le regime."""
     p = tmp_path / "durees.json"
-    G.ecrire_durees({"probe_b": {"s": 2.0, "rc": 0, "regime": "para-8", "commit": "abc"},
-                     "probe_a": {"s": 1.5, "rc": 1, "regime": "serie", "commit": "abc"}}, p)
+    serie = {"probe_a": {"s": 1.5, "rc": 0, "commit": "abc"},
+             "probe_b": {"s": 2.0, "rc": 0, "commit": "abc"}}
+    G.ecrire_durees(G.fusionner_durees({}, serie, "serie"), p)
+
+    para = {"probe_a": {"s": 9.9, "rc": 0, "commit": "def"}}
+    G.ecrire_durees(G.fusionner_durees(G.charger_durees(p), para, "para-16"), p)
+
     relu = G.charger_durees(p)
-    assert relu["probe_a"]["regime"] == "serie" and relu["probe_b"]["regime"] == "para-8"
+    assert relu["probe_a"]["serie"]["s"] == 1.5        # PRESERVEE
+    assert relu["probe_a"]["para-16"]["s"] == 9.9      # et la nouvelle est la
+    assert set(relu["probe_b"]) == {"serie"}           # intacte, pas rejouee
     # trie a l'ecriture : le fichier est versionne, un ordre instable ferait un diff de bruit.
-    assert list(relu) == ["probe_a", "probe_b"]
+    assert list(relu) == ["probe_a", "probe_b"] and list(relu["probe_a"]) == ["para-16", "serie"]
     assert G.charger_durees(tmp_path / "absent.json") == {}
     (tmp_path / "casse.json").write_text("{pas du json", encoding="utf-8")
     assert G.charger_durees(tmp_path / "casse.json") == {}          # jamais fatal
@@ -655,12 +665,22 @@ def test_les_DUREES_se_relisent_avec_leur_REGIME(tmp_path):
 def test_la_DISTRIBUTION_dit_la_part_CUMULEE_des_plus_lourdes(capsys):
     """C'est elle qui TRANCHE entre les deux accelerations, donc elle est imprimee, pas laissee
     a deriver : concentree => seul l'incremental paye ; plate => seul le parallelisme paye."""
-    durees = {"a": {"s": 100.0, "regime": "serie"}, "b": {"s": 10.0, "regime": "serie"},
-              "c": {"s": 5.0, "regime": "serie"}}
+    durees = {"a": {"serie": {"s": 100.0}}, "b": {"serie": {"s": 10.0}},
+              "c": {"serie": {"s": 5.0}}}
     G.publier_distribution(durees, ["a", "b", "c"])
     sortie = capsys.readouterr().out
     assert "total 115.0 s" in sortie and "mediane 10.0 s" in sortie
     assert "cumul 87.0 %" in sortie                    # 100/115
     sortie.encode("ascii")                             # console cp1252
-    G.publier_distribution(durees, ["inconnue"])       # rien a dire, rien n'est imprime
-    assert capsys.readouterr().out == ""
+
+
+def test_une_distribution_SANS_mesure_isolee_le_DIT_au_lieu_de_se_taire(capsys):
+    """Un silence se lit comme << rien a signaler >>. Ici il signifierait << la seule mesure
+    interpretable manque >>, ce qui est l'inverse."""
+    G.publier_distribution({"a": {"para-16": {"s": 1.0}}}, ["a"])
+    sortie = capsys.readouterr().out
+    assert "rien en regime `serie`" in sortie and "SANS `--jobs`" in sortie
+    # et une distribution PARTIELLE dit combien d'entrees lui manquent
+    G.publier_distribution({"a": {"serie": {"s": 1.0}}, "b": {"para-16": {"s": 2.0}}},
+                           ["a", "b"])
+    assert "1 SANS mesure dans ce regime" in capsys.readouterr().out

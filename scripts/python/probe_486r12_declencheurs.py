@@ -503,7 +503,7 @@ def mesurer(ids: list, bq: dict, verbose: bool, parallelisme: int = 1) -> tuple[
     e = Empreinte()
     e.commit = _tete()
     durees: dict = {}
-    regime = "serie" if parallelisme <= 1 else "para-%d" % parallelisme
+    regime = REGIME_ISOLE if parallelisme <= 1 else "para-%d" % parallelisme
     base = Path(tempfile.mkdtemp(prefix="declencheur-mesure-"))
     site = base / "site"
     # UNE seule preparation : `preparer` ecrit le `sitecustomize.py` partage et rend
@@ -545,8 +545,7 @@ def mesurer(ids: list, bq: dict, verbose: bool, parallelisme: int = 1) -> tuple[
             e.par_id[ident] = {"sha": cle[0], "ferm": cle[1], "inst": cle[2], "rc": rc,
                                "lu": grouper(lectures),
                                "proc": sorted(programmes & set(DT.OPAQUES)), "nproc": nproc}
-            durees[ident] = {"s": round(dt, 2), "rc": rc, "regime": regime,
-                             "commit": e.commit[:12]}
+            durees[ident] = {"s": round(dt, 2), "rc": rc, "commit": e.commit[:12]}
             print("  [mesure] %-22s rc=%-4s %5.1f s  %5d lecture(s)  %d process%s"
                   % (ident, rc, dt, len(lectures), nproc,
                      ("  opaques: " + ",".join(DT.opaques(programmes))) if DT.opaques(programmes)
@@ -560,8 +559,19 @@ def mesurer(ids: list, bq: dict, verbose: bool, parallelisme: int = 1) -> tuple[
 
 
 # ============================================================== durees : lecture / ecriture
+#: Le regime dont la duree est un COUT ISOLE. Les autres portent la contention de leurs voisines.
+REGIME_ISOLE = "serie"
+
+
 def charger_durees(chemin=None) -> dict:
-    """`{ident: {"s": float, "rc": int, "regime": str, "commit": str}}`, ou `{}`.
+    """`{ident: {regime: {"s": float, "rc": int, "commit": str}}}`, ou `{}`.
+
+    ⚠ KEYE PAR REGIME, ET C'EST UNE FAUTE PAYEE SUR CE PROPRE ARTEFACT (#486-r36). La premiere
+    version ecrivait une seule mesure par entree : la passe `para-16` a donc ECRASE la
+    distribution `serie` -- c'est-a-dire la SEULE interpretable, et le livrable meme de la
+    tranche. Un fichier qui ne garde qu'une valeur par entree ne peut pas porter deux regimes,
+    et le regime ecrit a cote ne suffit pas : il DIT quelle mesure on a, pas celle qu'on a
+    perdue.
 
     JAMAIS fatal : une mesure de COUT ne doit pas pouvoir faire echouer un garde de FIDELITE.
     Un fichier illisible rend `{}` -- la passe suivante le reecrira."""
@@ -572,32 +582,49 @@ def charger_durees(chemin=None) -> dict:
         d = json.loads(p.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return {}
-    return d.get("durees") or {} if isinstance(d, dict) else {}
+    return (d.get("durees") or {}) if isinstance(d, dict) else {}
+
+
+def fusionner_durees(anciennes: dict, neuves: dict, regime: str) -> dict:
+    """Pose `neuves` SOUS `regime`, sans toucher aux autres regimes de la meme entree."""
+    out = {i: dict(r) for i, r in anciennes.items()}
+    for ident, mesure in neuves.items():
+        out.setdefault(ident, {})[regime] = mesure
+    return out
 
 
 def ecrire_durees(durees: dict, chemin=None) -> None:
     p = Path(chemin or DUREES)
-    p.write_text(json.dumps({"format": FORMAT_DUREES, "durees":
-                             {k: durees[k] for k in sorted(durees)}},
-                            indent=1, sort_keys=False) + "\n", encoding="utf-8")
+    ordonne = {i: {r: durees[i][r] for r in sorted(durees[i])} for i in sorted(durees)}
+    p.write_text(json.dumps({"format": FORMAT_DUREES, "regime_isole": REGIME_ISOLE,
+                             "durees": ordonne}, indent=1, sort_keys=False) + "\n",
+                 encoding="utf-8")
 
 
-def publier_distribution(durees: dict, joues: list) -> None:
+def publier_distribution(durees: dict, joues: list, regime: str | None = None) -> None:
     """Total, mediane, les 5 plus lourdes et leur part CUMULEE -- sur les entrees JOUEES.
 
     ⚠ La part cumulee est ce qui TRANCHE entre les deux accelerations, et c'est pour ca qu'elle
     est imprimee plutot que laissee a deriver : concentree, seul l'incremental paye ; plate, seul
     le parallelisme paye. Un total sans sa forme ne decide rien.
+
+    Le regime par defaut est `serie` -- le seul cout ISOLE. Une distribution derivee d'une passe
+    parallele melangerait le cout d'une entree et la contention de ses voisines.
     """
-    vus = [(i, durees[i]["s"]) for i in joues if i in durees]
+    reg = regime or REGIME_ISOLE
+    vus = [(i, durees[i][reg]["s"]) for i in joues
+           if i in durees and reg in durees[i]]
     if not vus:
+        print("\n  -- DISTRIBUTION : rien en regime `%s` pour cette selection. Jouer "
+              "`--mesurer` SANS `--jobs` pour un cout isole. --" % reg)
         return
     total = sum(s for _, s in vus)
     vals = sorted(s for _, s in vus)
     lourdes = sorted(vus, key=lambda t: -t[1])
-    regimes = sorted({durees[i].get("regime", "?") for i, _ in vus})
-    print("\n  -- DISTRIBUTION DU COUT (%d entree(s), regime %s) --"
-          % (len(vus), "/".join(regimes)))
+    manquantes = [i for i in joues if i not in durees or reg not in durees[i]]
+    print("\n  -- DISTRIBUTION DU COUT (%d entree(s), regime %s%s) --"
+          % (len(vus), reg,
+             ", %d SANS mesure dans ce regime" % len(manquantes) if manquantes else ""))
     print("     total %.1f s | mediane %.1f s | min %.1f s | max %.1f s"
           % (total, statistics.median(vals), vals[0], vals[-1]))
     cumul = 0.0
@@ -896,12 +923,14 @@ def main() -> int:
         ancien.ecrire()
         print("[486r12] empreinte ecrite : %s (%d entree(s))"
               % (EMPREINTE.relative_to(ROOT).as_posix(), len(ancien.par_id)))
-        toutes = charger_durees()
-        toutes.update(durees_neuves)
+        regime = REGIME_ISOLE if max(1, a.jobs) <= 1 else "para-%d" % max(1, a.jobs)
+        toutes = fusionner_durees(charger_durees(), durees_neuves, regime)
         ecrire_durees(toutes)
-        print("[486r12] durees ecrites   : %s (%d entree(s))"
-              % (DUREES.relative_to(ROOT).as_posix(), len(toutes)))
+        print("[486r12] durees ecrites   : %s (%d entree(s), regime %s)"
+              % (DUREES.relative_to(ROOT).as_posix(), len(toutes), regime))
         publier_distribution(toutes, ids)
+        if regime != REGIME_ISOLE:
+            publier_distribution(toutes, ids, regime)
 
     ko1, decl, fins = etage_declaration(scripts)
     ko2, non_mesure = etage_mesure(scripts, decl, fins, Empreinte.charger(), a.verbose)
