@@ -326,50 +326,50 @@ export function register(ctx: Ctx): void {
         expeditionId?: string; unitIds?: string[]; bonusFulfilled?: boolean;
         participants?: number; confirmer?: boolean;
     }): Promise<unknown> => queueOnMainThread(() => {
-        // ⛔ VOIE FERMEE. `runtime_invoke` SUR CETTE CHAINE TUE LE JEU, CAUSE INCONNUE.
+        // ⛔ VOIE FERMEE -- L'ENVOI PART, ET LE PROCESS MEURT APRES.
         //
-        // BILAN MESURE du 2026-08-10 -- trois tentatives, trois echecs, zero succes :
+        // BILAN MESURE du 2026-08-10, verifie CONTRE L'ETAT DU COMPTE apres relance :
         //
-        //   #1  2 unites / 3 places, classe correcte           -> PROCESS MORT
-        //   #2  4 unites / 4 places, classe FAUSSE (bug ici)   -> exception capturee
-        //   #3  4 unites / 4 places, classe VERIFIEE True,
-        //       `participants` verifie, callback innocente     -> PROCESS MORT
+        //   #1  2 unites / 3 places, classe correcte     -> PROCESS MORT, rien enregistre
+        //   #2  4 / 4, classe FAUSSE (bug du stash)      -> exception capturee, rien envoye
+        //   #3  4 / 4, classe VERIFIEE, participants
+        //       verifie, callback innocente              -> ENREGISTRE PAR LE SERVEUR,
+        //                                                   PUIS process mort
         //
-        // Le seul envoi qui ait JAMAIS abouti est celui fait A LA MAIN, par l'ecran.
+        // ⚠ #3 A REUSSI. Le plateau porte l'operation en `status: 1` avec exactement les
+        // quatre unites envoyees. L'appel natif FONCTIONNE : ce qui tue le process est en
+        // AVAL de l'envoi -- traitement de la reponse, closure, ou rafraichissement d'un
+        // ecran qu'on n'a pas ouvert. Ce n'est donc PAS un probleme d'arguments ni de
+        // cible, et toutes les gardes du monde a l'entree n'y changeront rien.
         //
-        // CE QUE J'AI CRU, ET QUI EST FAUX. Apres #1 et #2 j'avais conclu a deux causes
-        // distinctes -- equipe incomplete d'un cote, mauvaise classe de l'autre -- et pose
-        // une garde pour chacune. #3 les avait TOUTES LES DEUX vertes et a tue le jeu
-        // pareil. Le raisonnement etait plausible et il etait faux : deux echecs suffisent
-        // toujours a fabriquer deux causes, ca ne les rend pas vraies.
+        // CE QUE J'AVAIS CONCLU, ET QUI ETAIT FAUX -- DEUX FOIS. D'abord << deux causes
+        // distinctes >> (equipe incomplete / mauvaise classe), refute par #3 qui avait les
+        // deux gardes vertes. Puis << 3 echecs, 0 succes, la voie ne marche pas >>, refute
+        // par l'etat du compte : #3 etait un SUCCES cote serveur. Les deux fois, j'ai
+        // conclu depuis les seuls symptomes que j'avais sous les yeux, sans aller LIRE
+        // l'etat reel -- alors qu'il suffisait d'un `expeditionBoardRead` apres relance.
         //
-        // CE QUI RESTE ETABLI, ET QUI N'EST PAS RIEN :
-        //   - les ARGUMENTS sont bons (journal d'un envoi reel : GUID + ids internes +
-        //     `bonusFulfilled` -- identiques a ce qu'on construit) ;
-        //   - le callback nul est TOLERE (`<Execute>b__0` teste `!= 0` dans les deux
-        //     branches) ;
-        //   - l'objet du champ `<GameEvents>` est de la BONNE classe.
-        // Rien de tout ca n'explique la mort du process. La cause est en aval, dans
-        // `DispatchExpeditionCommand$$Execute` ou plus loin (client web, closure), et elle
-        // n'a pas ete isolee.
+        // ETABLI : arguments bons (journal d'un envoi manuel), callback nul tolere
+        // (`<Execute>b__0` teste `!= 0` dans les deux branches), classe correcte
+        // (`classeOk: True`), et l'envoi ABOUTIT.
+        // NON ETABLI : ce qui tue le process ensuite.
         //
-        // POUR ROUVRIR, il faut une EXPLICATION, pas une garde de plus : instrumenter
-        // `Execute` pas a pas (ancrer ses appels sortants et voir lequel ne revient pas),
-        // ou comparer octet a octet la pile d'un appel UI et du notre. Tant que ce n'est
-        // pas fait, toute nouvelle garde ne fera que deplacer le point de rupture -- c'est
-        // exactement ce qu'ont fait les deux precedentes.
+        // POUR ROUVRIR : ancrer ce qui suit l'envoi (`DispatchExpeditionLocally`, le
+        // callback de reponse, les commandes de vue) et voir laquelle ne revient pas. Une
+        // piste concrete : l'UI n'etant pas sur l'ecran de dispatch, un rafraichissement
+        // post-reponse peut viser un widget detruit.
         //
-        // La voie SURE existe et coute peu : piloter l'ECRAN (`uiScroll` + `uiClick`), qui
-        // passe par le chemin que le jeu supporte.
+        // ⚠ CONSEQUENCE PRATIQUE : un envoi PART meme si le jeu meurt. Ne PAS retenter en
+        // croyant que << ca n'a pas marche >> -- on dispatcherait deux fois.
         if (!AUTORISER_ENVOI_NATIF) {
             return {
                 ok: false, refus: "voie fermee",
-                err: "expeditionDispatch est FERME : 3 tentatives par runtime_invoke, "
-                   + "2 process morts, 0 succes, cause NON IDENTIFIEE. Les gardes posees "
-                   + "(classe, completude) etaient vertes au dernier crash. Passe par "
-                   + "l'ecran, ou isole la cause dans `DispatchExpeditionCommand$$Execute` "
-                   + "avant de rouvrir.",
-                bilan: {tentatives: 3, processMorts: 2, succes: 0},
+                err: "expeditionDispatch est FERME : l'envoi ABOUTIT mais le process meurt "
+                   + "apres (1 succes serveur sur 3 tentatives, 2 process morts). La cause "
+                   + "est EN AVAL de l'envoi et n'est pas isolee. ⚠ Un envoi part quand "
+                   + "meme : verifie `expeditionBoardRead` AVANT de retenter quoi que ce "
+                   + "soit, sinon tu dispatches deux fois.",
+                bilan: {tentatives: 3, processMorts: 2, enregistresParLeServeur: 1},
             };
         }
         if (body?.confirmer !== true) {
