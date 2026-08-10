@@ -605,9 +605,35 @@ class DakkaDakkaDakkaAbility(AActiveAbility):
         return self._HITS.evaluate(_hits_ctx(self))
 
     def get_health_to_lose(self, max_hp: int) -> int | None:
+        """`DakkaDakkaDakkaAbility$$GetHealthToLose` (decompile `rnca9r7q6c`), MIRROR :
+
+            amount     = DSLFormulas.StatAmount(owner@+0x48, 5 = Health, 2)
+            percentage = DSLFormulas.ConfigConst(0x4f = AbilityConstantType.healthPct, this+0x60)
+            return DSLFormulas.PercentageOf(amount, percentage, roundingRule: 0)
+
+        ⚠ `roundingRule` VAUT **0**, ET C'EST LE 4e ARGUMENT DU CALL-SITE QUI LE DIT -- lu aux
+        octets, pas deduit. `IdunBattle.DSL.AAmountFormula$$RoundFix64Result` ventile `1` =
+        `Fix64.Ceiling`, `2` = `Fix64.Floor`, **tout le reste** = `Fix64.Round`, dont le corps
+        (`FixMath.NET.Fix64$$Round`, `midpointRounding == 0`) rend la partie entiere quand la
+        fraction est `< 0.5`, `+1` quand elle est `> 0.5`, et **arrondit vers le PAIR** sur
+        `0x80000000` exact (demi-vers-le-pair). Le port ecrivait `(max_hp * pct) // 100`, un FLOOR :
+        faux d'exactement 1 sur toute fraction `>= 0.5`. Sur `healthPct = 15` (constante du
+        gameconfig de `DakkaDakkaDakka`), la divergence tombe des que `3 * max_hp mod 20 >= 10` --
+        `max_hp = 1237` -> natif 186, ancien port 185. C'est le residu #883-r1 : le foyer DSL
+        `entities/formulas.py::PercentageOf` etait deja juste, ce site IMPERATIF le contournait.
+
+        Les deux arrondis intermediaires de `PercentageOf$$CalculateInternal` (le motif
+        `x / 100 * 100 -> Round -> / 100`, deux fois) sont NEUTRES pour des operandes entieres :
+        `Fraction` les represente exactement, ce que la docstring de `formulas.PercentageOf` etablit
+        deja. Seul l'arrondi FINAL, celui de `RoundFix64Result`, est observable.
+
+        `get_variable_for_level` lit la VARIABLE puis, a defaut, la CONSTANTE : `healthPct` vit dans
+        `constants` pour cette ability, et c'est cette retombee qui le rend -- le natif, lui, appelle
+        `ConfigConst` d'emblee. Meme valeur, chemin different, verifie au gameconfig."""
         pct = self.config.get_variable_for_level("healthPct", self.level, 0) \
             if self.config else 0
-        return (int(max_hp) * int(pct)) // 100 if pct else None
+        # `roundingRule = 0` -> `Fix64.Round` (demi-vers-le-PAIR), surtout PAS `// 100`.
+        return _round_fix64(Fraction(int(max_hp) * int(pct), 100), 0) if pct else None
 
 
 class MurderousSwingAbility(AActiveAbility):

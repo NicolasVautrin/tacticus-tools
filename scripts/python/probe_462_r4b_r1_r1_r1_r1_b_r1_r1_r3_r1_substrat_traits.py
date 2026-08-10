@@ -167,8 +167,21 @@ VENTILATION = {
         ("WRITE", "#264 : seed de la MESURE `combatSnapshot.units[].traits`"),
     ("runner/snapshot.py", "_load_unit_traits", "sc.ctx.traits", "W"):
         ("WRITE", "#264 : seed de la MESURE, face runner"),
-    ("runner/abilities/behaviours/grants.py", "execute", "ctx.traits", "W"):
-        ("WRITE", "leaf `AddTrait` -> `AddTraitOperation$$AddTrait` (collection +0x48)"),
+    # #585 (PR #863, `1106 WarHowl`) -- les DEUX entrees `behaviours/grants.py::execute` (`ctx.traits`
+    # W et `getattr(ctx)` R) ont DISPARU de la table : la feuille DSL `AddTrait` n'ecrit plus rien
+    # elle-meme, elle DELEGUE a `operations/traits.py::AddTraitOperation.execute` -- le foyer que le
+    # natif atteint AUSSI par `<Effect>.ApplyInternal`. Retirer ces entrees N'EST PAS un abandon de
+    # verdict : le site a change d'ETAGE (meme forme que les deplacements #498-r3 et #448-...-r2-r2
+    # notes plus bas), et les deux entrees ci-dessous portent desormais les memes verdicts.
+    #
+    # Site NEUF de la meme tranche : les deux Operations `AddTrait` / `RemoveTrait` partagent la cle
+    # -- leur methode s'appelle `execute` dans les deux classes, et la cle de ventilation est
+    # `(fichier, fonction, expr, role)`.
+    ("runner/operations/traits.py", "execute", "ctx.traits", "W"):
+        ("WRITE", "`AddTraitOperation$$Execute` / `RemoveTraitOperation$$Execute` : l'ECRITURE de "
+                  "la resultante `BaseUnitComponent$$HasTrait` (le port fusionne +0x40/+0x48). "
+                  "Elle n'est atteinte que si `_traits_of` a rendu un ctx -- cf. son entree "
+                  "ci-dessous"),
 
     # ---- le `.traits` ne designe pas un ctx d'entite ECS ---------------------------------------
     ("entities/unit_context.py", "trait_objects", "self.traits", "R"):
@@ -191,8 +204,18 @@ VENTILATION = {
     ("runner/operations/triggers/genestealer.py", "matches", "getattr(sc.ctx)", "R"):
         ("INERTE-AMONT", "`AmbushSummonAbility` n'est INSCRITE que par `collect_triggered_abilities`, "
                          "qui exige deja un `StatsComponent`"),
-    ("runner/abilities/behaviours/grants.py", "execute", "getattr(ctx)", "R"):
-        ("INERTE-AMONT", "`if ctx is None: continue` juste au-dessus"),
+    # Site NEUF, arrive avec #585 (PR #863) -- le pendant LECTURE des deux Operations ci-dessus, et
+    # l'HERITIER du verdict `INERTE-AMONT` que portait `behaviours/grants.py::execute` (`if ctx is
+    # None: continue` juste au-dessus) avant sa delegation.
+    ("runner/operations/traits.py", "_traits_of", "getattr(ctx)", "R"):
+        ("INERTE-AMONT", "`UnitExtensions$$GetBaseUnitComponent(target)` cote port : la fonction "
+                         "sort par `return None, None` des que `sc` (donc `ctx`) est absent, DEUX "
+                         "lignes avant la lecture -- un cadavre-au-chargement n'atteint jamais "
+                         "`getattr(ctx, 'traits')`. Le natif LEVE sur ce meme cas (composant nul) ; "
+                         "le port DEGRADE en no-op, ce qui est du cote PERMISSIF et documente au "
+                         "site. Convertir au foyer serait ici une REGRESSION : le foyer rendrait "
+                         "le kit gameconfig d'un cadavre, alors que ces deux Operations MUTENT "
+                         "l'ensemble -- elles ecriraient sur un substrat fabrique"),
     ("runner/operations/triggers/loki/cosmic_horror.py", "_traits_of", "getattr(sc.ctx)", "R"):
         ("INERTE-AMONT", "3 appels : victime d'un `UnitDefeated` (morte PENDANT le run), ennemi "
                          "vivant, et le crushe d'un `On(PostUnitKill)`. Le motif de ce 3e appel a "
@@ -281,6 +304,14 @@ VENTILATION = {
     ("runner/operations/movement.py", "_kill_steppable_units", "getattr(sc.ctx)", "R"):
         ("INERTE-VIVANT", "candidat au crush : gate `not uc.alive -> continue` (on ne re-tue pas "
                           "un mort)"),
+    # Site NEUF, arrive avec #564 (PR #857, `1039 RitesOfRestoration`). MEME lecture et MEME gate
+    # que `_kill_steppable_units` ci-dessus -- le site le dit lui-meme en commentaire.
+    ("runner/operations/resurrect.py", "tiles_are_occupied", "getattr(sc.ctx)", "R"):
+        ("INERTE-VIVANT", "branche `allowAnyUnit == 0` de `TileExtensions$$IsFreeTile` : occupant "
+                          "candidat, gate `uc is None or not uc.alive -> continue` en tete de "
+                          "boucle. Un CADAVRE n'occupe rien (`KillUnitOperation` -> "
+                          "`RemoveUnitFromTiles` vide le `TileContentComponent`), donc le natif ne "
+                          "le voit pas non plus"),
     ("runner/operations/summon_ai.py", "is_automatic", "getattr(sc.ctx)", "R"):
         ("INERTE-VIVANT", "`collect_ai_controlled` evalue `not uc.alive or not is_automatic(...)` "
                           "-- le court-circuit Python garantit un sujet vivant"),
