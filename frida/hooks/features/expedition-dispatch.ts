@@ -71,6 +71,20 @@ let instanceEvents: NativePointer | null = null;
 /** `ExpeditionProgression`, le porteur qui donne acces a tous les sous-objets. */
 let instanceProgression: NativePointer | null = null;
 let offGameEvents = -1;
+/** La classe CONCRETE attendue pour `this`. Sert de garde, pas de decor. */
+let klassEvents: NativePointer | null = null;
+
+/** Le `Il2CppClass*` d'un objet managé : c'est son PREMIER champ.
+ *
+ *  ⚠ CETTE GARDE EXISTE PARCE QUE SON ABSENCE A COUTE DEUX INCIDENTS. Un pointeur
+ *  d'objet ne porte pas son type dans notre code TypeScript : `NativePointer` est
+ *  `NativePointer`. Appliquer le `MethodInfo` d'une classe a l'instance d'une AUTRE fait
+ *  lire ses champs a des offsets qui ne veulent rien dire -- sans erreur, jusqu'au
+ *  dereferencement fatal. Comparer la classe est le seul controle qui le voie AVANT. */
+function estDeClasse(obj: NativePointer, klass: NativePointer | null): boolean | null {
+    if (!klass) return null;
+    try { return obj.readPointer().equals(klass); } catch { return null; }
+}
 
 /** Offset d'un champ, resolu PAR SON NOM. Rend -1 si le nom n'existe pas -- on refuse
  *  alors de lire, plutot que de dereferencer un offset supposé. */
@@ -177,13 +191,18 @@ export function register(ctx: Ctx): void {
     /** Arme l'OBSERVATION. N'envoie rien. body: {} -> { ok, armes, layout } */
     ctx.rpc.expeditionDispatchArm = (): Promise<unknown> => queueOnMainThread(() => {
         if (listeners.length > 0) {
+            const e = evenements();
             return { ok: true, deja: true, armes: listeners.length, layout,
-                     instanceVue: evenements() !== null };
+                     instanceVue: e !== null,
+                     source: instanceEvents ? "captee au vol"
+                         : (instanceProgression ? "champ <GameEvents>" : null),
+                     classeOk: e ? estDeClasse(e, klassEvents) : null };
         }
         const kEvents = findClassAnywhere(
             "Idun.Source.IdunMeta.Logic.Features.Expedition.Progression",
             "ExpeditionGameEvents");
         if (!kEvents) return { ok: false, error: "ExpeditionGameEvents introuvable" };
+        klassEvents = kEvents;
         miDispatch = findMethodByParamCount(kEvents, "DispatchExpedition", 4);
         layout["ExpeditionGameEvents.DispatchExpedition"] = miDispatch ? true : "NON RESOLUE";
         if (!miDispatch) return { ok: false, error: "DispatchExpedition NON RESOLUE", layout };
@@ -236,11 +255,24 @@ export function register(ctx: Ctx): void {
             const mi = findMethodByParamCount(klass, nom, arite);
             if (!mi || mi.ptr.isNull()) { layout[cle] = "NON RESOLUE"; continue; }
             try {
+                // ⚠ `this` NE SE STASHE QUE DEPUIS SA PROPRE PORTE.
+                //
+                // Le premier jet ecrivait `instanceEvents = args[0]` pour LES DEUX portes.
+                // Or `DispatchExpeditionLocally` est portee par `ExpeditionProgressionData`,
+                // et elle tire APRES : `instanceEvents` finissait donc par contenir un
+                // `ExpeditionProgressionData`. Invoquer `DispatchExpedition` dessus lit
+                // `this+0x10` comme `_dispatchCommand` alors que c'est tout autre chose --
+                // erreur native, MESUREE le 2026-08-10.
+                //
+                // Le piege est fourbe : le hook `observe` tire quand meme (un `Interceptor`
+                // se declenche sur l'ADRESSE de la fonction, quel que soit `this`), donc le
+                // journal montrait un appel << reussi >> jusqu'a l'erreur.
+                const estPorteur = klass === kEvents;
                 listeners.push(Interceptor.attach(mi.ptr, {
                     onEnter(args) {
                         // Un capteur ne jette JAMAIS : on est sur le chemin d'un envoi reel.
                         try {
-                            if (!args[0].isNull()) instanceEvents = args[0];
+                            if (estPorteur && !args[0].isNull()) instanceEvents = args[0];
                             noter(cle, "observe", args[1], args[2], args[3]);
                         } catch { /* avale */ }
                     },
@@ -249,8 +281,15 @@ export function register(ctx: Ctx): void {
             } catch { layout[cle] = "ANCRAGE EN ECHEC"; }
         }
         Interceptor.flush();
+        // DIAGNOSTIC EN LECTURE : l'objet joignable est-il de la bonne classe ? On le dit
+        // ICI, sans rien envoyer -- c'est la question qu'il fallait pouvoir poser avant
+        // d'invoquer, et qu'aucun RPC ne permettait de poser.
+        const evt = evenements();
         return { ok: true, armes: listeners.length, layout,
-                 instanceVue: evenements() !== null,
+                 instanceVue: evt !== null,
+                 source: instanceEvents ? "captee au vol"
+                     : (instanceProgression ? "champ <GameEvents>" : null),
+                 classeOk: evt ? estDeClasse(evt, klassEvents) : null,
                  note: "OBSERVATION seule. L'instance se capte au PREMIER envoi -- fais-en "
                      + "un par l'ecran avant d'esperer envoyer par RPC." };
     });
@@ -258,8 +297,12 @@ export function register(ctx: Ctx): void {
     /** Le journal des envois VUS et EMIS. body: { reset?: true } */
     ctx.rpc.expeditionDispatchJournal = (body?: { reset?: boolean }): Promise<unknown> =>
         queueOnMainThread(() => {
+            const e = evenements();
             const out = { ok: true, arme: listeners.length > 0, count: journal.length,
-                          instanceVue: evenements() !== null,
+                          instanceVue: e !== null,
+                          source: instanceEvents ? "captee au vol"
+                              : (instanceProgression ? "champ <GameEvents>" : null),
+                          classeOk: e ? estDeClasse(e, klassEvents) : null,
                           dispoListe: dispoListe
                               ? { _items: dispoListe.offItems, _size: dispoListe.offSize }
                               : null,
@@ -274,7 +317,7 @@ export function register(ctx: Ctx): void {
      *          confirmer: true } */
     ctx.rpc.expeditionDispatch = (body?: {
         expeditionId?: string; unitIds?: string[]; bonusFulfilled?: boolean;
-        confirmer?: boolean;
+        participants?: number; confirmer?: boolean;
     }): Promise<unknown> => queueOnMainThread(() => {
         // ⚠ VERROU DUR -- POSE APRES UN CRASH DU JEU, MESURE.
         //
@@ -325,6 +368,31 @@ export function register(ctx: Ctx): void {
         if (unites.some((u) => typeof u !== "string" || !u)) {
             return { ok: false, err: "`unitIds` contient une entree non-chaine" };
         }
+        // ⚠ L'EQUIPE DOIT ETRE COMPLETE, ET C'EST LA GARDE QUI MANQUAIT AU CRASH DUR.
+        //
+        // Recoupement des deux envois du 2026-08-10 :
+        //     2 unites pour 3 places, classe CORRECTE  -> le jeu MEURT
+        //     4 unites pour 4 places, classe fausse    -> erreur capturee, jeu vivant
+        //
+        // La couche logique ne verifie PAS le compte : c'est l'ECRAN qui le fait
+        // (`ExpeditionDispatchScreen$$HandleOnDispatchTapped` retourne sans envoyer si
+        // `SelectedCount() < ParticipantsRequired`). En appelant la logique directement on
+        // court-circuite ce controle, et `Execute` deref au-dela de ce qu'on lui a donne.
+        //
+        // `participants` est donc EXIGE de l'appelant : le deduire serait le deviner, et
+        // c'est precisement ce qu'on ne veut plus faire ici.
+        const places = body?.participants;
+        if (typeof places !== "number" || !Number.isInteger(places) || places < 1) {
+            return { ok: false, err: "`participants` (entier >= 1) REQUIS -- le nombre de "
+                                   + "places de l'operation. La couche logique ne le "
+                                   + "verifie pas ; une equipe incomplete a TUE le jeu." };
+        }
+        if (unites.length !== places) {
+            return { ok: false, refus: "equipe incomplete",
+                     err: "l'operation a " + places + " place(s) et l'equipe en compte "
+                        + unites.length + " -- ENVOI ANNULE. L'ecran refuserait aussi, "
+                        + "mais la couche logique, elle, DEREFERENCE au-dela." };
+        }
         const ev = evenements();
         if (!ev || !miDispatch) {
             return {
@@ -339,6 +407,25 @@ export function register(ctx: Ctx): void {
         if (!dispoListe || !dispoListe.ctor || !dispoListe.add) {
             return { ok: false, err: "List<String> : disposition ou .ctor/Add NON RESOLUS",
                      layout: layout["List<String>"] };
+        }
+        // LA GARDE DE TYPE, avant tout le reste. Un `this` de la mauvaise classe fait lire
+        // `this+0x10` comme `_dispatchCommand` alors que c'est autre chose : erreur native
+        // en aval, loin d'ici, et le hook d'observation tire quand meme (il se declenche
+        // sur l'ADRESSE de la fonction) -- donc le journal a l'air normal jusqu'au bout.
+        const bonneClasse = estDeClasse(ev, klassEvents);
+        if (bonneClasse !== true) {
+            return {
+                ok: false, refus: "classe",
+                err: "l'objet vise n'est PAS un ExpeditionGameEvents ("
+                   + (bonneClasse === null ? "classe ILLISIBLE" : "classe differente")
+                   + ") -- ENVOI ANNULE. C'est exactement la faute qui a tue le jeu le "
+                   + "2026-08-10 : le MethodInfo d'une classe applique a l'instance d'une "
+                   + "autre.",
+                classeObjet: (() => {
+                    try { return ev.readPointer().toString(); } catch { return null; }
+                })(),
+                classeAttendue: klassEvents ? klassEvents.toString() : null,
+            };
         }
         // Construction de la `List<System.String>` : classe prise dans la signature.
         let liste: NativePointer;
