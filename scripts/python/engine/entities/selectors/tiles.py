@@ -838,15 +838,17 @@ class MovableTilesInRange(TargetsSelector):
         # `WalkPathfinder$$UnitIsBlockedByEnemyUnit` lit `TileExtensions$$GetTileContent`, que TOUS
         # les pieds d'une unite peuplent -> occupation par EMPREINTE (#91, meme lecture que
         # `CanAddUnit`), pas par la seule main tile.
+        # ⚠ PAR LE FOYER `_feet`, jamais par une recopie locale : ce site recopiait la regle
+        # (`feet` sinon `[_pos]`) SANS normaliser la forme des tuiles, donc il levait `KeyError: 0`
+        # des que la scene venait de la face DECISION -- `decisionView.units[].feet` porte des
+        # dicts `{"col","row"}` depuis le capteur `#419-r1-tr10-r2`. Meme faute, meme jour, que
+        # `dsl/base.py::_feet` ; elle est fermee AU FOYER pour que le prochain canal n'ait qu'un
+        # seul site a satisfaire.
         occ: dict = {}
         for other in ctx.units:
             if not _is_alive(other):
                 continue
-            feet = (other or {}).get("feet")
-            if not feet:
-                p = _pos(other)
-                feet = [] if p is None else [p]
-            for f in feet:
+            for f in _feet(other):
                 t = board.id_at(f[0], f[1])
                 if t is not None:
                     occ[t] = other.get("team")

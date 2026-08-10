@@ -251,16 +251,43 @@ def _cas_squig_mine_effet():
     return refuse, passe
 
 
-class _EffetMine:
-    """Porteur minimal d'un effet `SquigMine_Tile` sur une entite, pour l'`EffectsState`."""
+def _cas_forward_observers():
+    """1185 -- `ForwardObserversAbility$$GetDynamicInvalidTargetReason` : `HasEffect(target, 0x462 =
+    EffectType.Markerlight, onlyActive: false)` -> on ne RE-marque pas une cible deja marquee.
+
+    ⚠ C'EST LE SEUL BRAS QUI EXERCE LE CANAL `TABLE`. Les cinq autres sont tous en SURCHARGE de
+    classe depuis les migrations #488/#500/#508/#510/#512/#576/#577 : sans ce bras, les etages
+    BASCULE et MUTANTS ne mesuraient plus qu'UN des deux canaux, et `DYNAMIC_TARGET_RULE_UNPORTED`
+    -- pourtant la voie de tous les ids NON portes -- pouvait se vider sans qu'aucune bascule ne
+    tombe."""
+    from engine.entities.effects_state import EffectsState
+    refuse = substrat([(CASTER, "tauNpc5StealthSuit", 1, 0, 0, []),
+                       (CIBLE, "tauCrisis", 2, 1, 0, [])])
+    if refuse.effects is None:
+        refuse.effects = EffectsState()
+    refuse.effects.add_effect(CIBLE, _EffetPorte(CIBLE, EffectType.Markerlight))
+    passe = substrat([(CASTER, "tauNpc5StealthSuit", 1, 0, 0, []),
+                      (CIBLE, "tauCrisis", 2, 1, 0, [])])
+    if passe.effects is None:
+        passe.effects = EffectsState()
+    return refuse, passe
+
+
+class _EffetPorte:
+    """Porteur minimal d'un effet d'un `EffectType` donne sur une entite, pour l'`EffectsState`."""
     __slots__ = ("unit_id", "effect_type", "consumed", "source", "remaining_turns")
 
-    def __init__(self, unit_id: int):
+    def __init__(self, unit_id: int, effect_type):
         self.unit_id = int(unit_id)
-        self.effect_type = int(EffectType.SquigMine_Tile)
+        self.effect_type = int(effect_type)
         self.consumed = False
         self.source = None
         self.remaining_turns = 0
+
+
+def _EffetMine(unit_id: int):
+    """Porteur d'un `SquigMine_Tile` -- conserve comme nom d'appel du bras 1201."""
+    return _EffetPorte(unit_id, EffectType.SquigMine_Tile)
 
 
 CAS = [
@@ -270,6 +297,8 @@ CAS = [
     (int(ActiveAbilityType.SquigMine), "effet SquigMine_Tile deja pose", _cas_squig_mine_effet),
     (int(ActiveAbilityType.SporeMineLauncher), "Steppable ENNEMI (vs allie)",
      _cas_spore_mine_launcher),
+    (int(ActiveAbilityType.ForwardObservers), "effet Markerlight deja pose (canal TABLE)",
+     _cas_forward_observers),
 ]
 
 

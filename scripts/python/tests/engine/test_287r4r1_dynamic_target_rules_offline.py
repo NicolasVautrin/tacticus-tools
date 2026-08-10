@@ -230,13 +230,64 @@ def test_has_valid_targets_redevient_permissif_quand_on_desarme_la_regle():
 def test_le_porteur_non_porte_consulte_bien_la_table():
     """Le cablage, teste pour lui-meme : `UnportedAbilityTargeting` doit LIRE
     `DYNAMIC_TARGET_RULE_UNPORTED` par son `ABILITY_TYPE`. Un porteur construit pour un AUTRE id ne
-    doit pas heriter de la regle du voisin -- faute classique d'une table consultee par defaut."""
+    doit pas heriter de la regle du voisin -- faute classique d'une table consultee par defaut.
+
+    ⚠ L'ID TESTE EST **DERIVE DE LA TABLE**, JAMAIS ECRIT EN DUR, ET C'EST LA LECON DU ROUGE.
+    Ce test citait `1005 AdaptiveStrategy` (ecrit le 2026-08-06) ; #577 (`4c5e4c88`, 2026-08-08) a
+    RETIRE son entree parce que `necrons.AdaptiveStrategyAbility` SURCHARGE desormais la methode --
+    donc `UnportedAbilityTargeting(1005)` rend `0`, ce qui est la BONNE reponse du port. Le test
+    accusait un regime qui n'existait plus. Un id ecrit en dur peut migrer d'un canal a l'autre ;
+    la QUESTION (« le porteur non porte consulte-t-il la table ? »), elle, ne migre pas."""
     from engine.runner.abilities.targeting import targeting_options_for
-    st_refuse, _ = P._cas_adaptive_strategy()
-    aid = int(ActiveAbilityType.AdaptiveStrategy)
+    en_table = sorted(set(DYNAMIC_TARGET_RULE_UNPORTED))
+    assert en_table, (
+        "`DYNAMIC_TARGET_RULE_UNPORTED` est VIDE : ce test n'a plus de sujet. Ce n'est pas un vert "
+        "-- soit toutes les regles ont migre en surcharge (alors ce cablage est DEAD CODE et doit "
+        "etre retire), soit la table a ete perdue.")
+    bras = {aid: fab for aid, _l, fab in P.CAS}
+    testables = [a for a in en_table if a in bras]
+    assert testables, (
+        "aucun bras de `P.CAS` ne porte un id de la table (%r) : les etages BASCULE et MUTANTS ne "
+        "mesurent plus que le canal SURCHARGE, et la table pourrait se vider sans rougir." % en_table)
     autre = int(ActiveAbilityType.PsychicMaelstrom)          # pose le bit, AUCUNE regle portee
-    bon = UnportedAbilityTargeting(aid, targeting_options_for(aid))
-    faux = UnportedAbilityTargeting(autre, targeting_options_for(autre))
-    assert int(bon.get_dynamic_invalid_target_reason(st_refuse, P.CASTER, P.CIBLE) or 0) == int(
-        TR.TargetMatchesDynamicRule)
-    assert int(faux.get_dynamic_invalid_target_reason(st_refuse, P.CASTER, P.CIBLE) or 0) == 0
+    assert P.evaluabilite(autre) == "aucune", (
+        "%d n'est plus un id SANS regle portee : le bras negatif de ce test ne discrimine plus rien "
+        "(il faut lui choisir un autre voisin)." % autre)
+    for aid in testables:
+        st_refuse, st_passe = bras[aid]()
+        bon = UnportedAbilityTargeting(aid, targeting_options_for(aid))
+        faux = UnportedAbilityTargeting(autre, targeting_options_for(autre))
+        assert int(bon.get_dynamic_invalid_target_reason(st_refuse, P.CASTER, P.CIBLE) or 0) == int(
+            TR.TargetMatchesDynamicRule), (
+            "%d est dans la table et le porteur non porte ne la consulte pas" % aid)
+        assert int(bon.get_dynamic_invalid_target_reason(st_passe, P.CASTER, P.CIBLE) or 0) == 0, (
+            "%d : le porteur refuse le substrat ACCEPTANT -- la regle lue ne discrimine pas" % aid)
+        assert int(faux.get_dynamic_invalid_target_reason(st_refuse, P.CASTER, P.CIBLE) or 0) == 0, (
+            "un porteur construit pour %d herite de la regle de %d" % (autre, aid))
+
+
+def test_un_id_MIGRE_en_surcharge_sort_de_la_table_sans_perdre_sa_regle():
+    """LE CRAN QUE LE ROUGE A REVELE : quand une regle passe du canal TABLE au canal SURCHARGE, les
+    DEUX faces doivent bouger ENSEMBLE. Le porteur non porte cesse de la rendre (l'entree a disparu)
+    ET la classe portee la rend. Si l'une des deux manque, l'id devient PERMISSIF en silence.
+
+    `1005 AdaptiveStrategy` est le temoin (#577) : `necrons.AdaptiveStrategyAbility` SURCHARGE
+    `get_dynamic_invalid_target_reason` et appelle `_dynamic_rule_adaptive_strategy`, l'UNIQUE mirror
+    de `AdaptiveStrategyAbility$$GetDynamicInvalidTargetReason`. Ce test rougirait si l'on retirait
+    la surcharge sans remettre l'entree -- exactement la degradation permissive de #287-r4-r1."""
+    from engine.runner.abilities.targeting import targeting_options_for
+    aid = int(ActiveAbilityType.AdaptiveStrategy)
+    st_refuse, _ = P._cas_adaptive_strategy()
+    assert aid not in DYNAMIC_TARGET_RULE_UNPORTED, (
+        "1005 est REVENU dans la table alors que sa classe surcharge : deux mirrors du meme corps "
+        "natif, dont un seul serait consulte.")
+    assert P.evaluabilite(aid) == "surcharge"
+    orphelin = UnportedAbilityTargeting(aid, targeting_options_for(aid))
+    assert int(orphelin.get_dynamic_invalid_target_reason(
+        st_refuse, P.CASTER, P.CIBLE) or 0) == 0, (
+        "le porteur NON PORTE rend encore une regle pour 1005 : l'entree de table n'a pas ete "
+        "retiree a la migration.")
+    assert int(P._porteur(aid).get_dynamic_invalid_target_reason(
+        st_refuse, P.CASTER, P.CIBLE) or 0) == int(TR.TargetMatchesDynamicRule), (
+        "la CLASSE portee ne rend plus la regle de 1005, et la table ne l'a plus : l'id est devenu "
+        "PERMISSIF -- le natif, lui, refuse (`HasTrait(target, Hero)`).")

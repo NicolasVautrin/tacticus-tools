@@ -344,16 +344,44 @@ def _strings(node, env: _Env, depth: int = 0) -> "set | None":
     return None
 
 
-def _call_name(node: ast.AST) -> "str | None":
-    """Dernier segment du nom appele (`CI.patch_ability_variables` -> `patch_ability_variables`)."""
+def _call_name(node: ast.AST, aliases: "dict | None" = None) -> "str | None":
+    """Dernier segment du nom appele (`CI.patch_ability_variables` -> `patch_ability_variables`).
+
+    `aliases` = la table `nom local -> nom importe` du module (cf. `_import_aliases`) : sans elle,
+    un `from ... import ability_var as _ability_var` rend le site INVISIBLE, puisque le nom ecrit
+    au call-site (`_ability_var`) n'est plus celui du lecteur. Un acces ATTRIBUTAIRE
+    (`magnitude.ability_var(...)`) porte deja le nom canonique et n'a pas besoin de la table."""
     if not isinstance(node, ast.Call):
         return None
     f = node.func
     if isinstance(f, ast.Attribute):
         return f.attr
     if isinstance(f, ast.Name):
-        return f.id
+        return (aliases or {}).get(f.id, f.id)
     return None
+
+
+def _import_aliases(tree: ast.AST) -> dict:
+    """`nom local -> nom importe`, pour tout `from <mod> import <nom> as <local>` du module.
+
+    MESURE (#883-r1, 2026-08-10) : c'est la lacune qui rendait `master` ROUGE. `engine/runner/
+    operations/triggers/effect_triggers.py` importe `ability_var as _ability_var` (l'UNIQUE alias du
+    corpus, sur 82 imports du lecteur) et lit `("BloodChalice", "hpToHeal")` ; le recensement AST ne
+    le voyait pas, et SEULE la contre-epreuve au grep l'a montre -- exactement le role qu'on lui a
+    donne. La lacune etait dangereuse dans le bon sens (faux NEGATIF : un patch aurait pu
+    desynchroniser sans rougir).
+
+    LIMITE ASSUMEE, et elle est la meme pour le grep : un alias pose par AFFECTATION
+    (`av = ability_var` puis `av("X", "Y")`) n'est vu par aucune des deux sources. Le corpus n'en
+    porte aucun (mesure du meme jour) ; s'il en apparaissait un, il sortirait en INDETERMINE cote
+    patch et en site MANQUANT cote lecture, sans que rien ne le nomme."""
+    out: dict = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom):
+            for a in node.names:
+                if a.asname:
+                    out[a.asname] = a.name
+    return out
 
 
 def _arg(call: ast.Call, index: int, name: str):
@@ -486,8 +514,9 @@ def _relay_args(call: ast.Call, defs: list, want: str) -> "tuple[list, bool, boo
 class _ReadSweep(ast.NodeVisitor):
     """Une passe sur un module : appels a `<reader>` + appels aux relais connus."""
 
-    def __init__(self, env: _Env, relays: dict, reader: str) -> None:
+    def __init__(self, env: _Env, relays: dict, reader: str, aliases: "dict | None" = None) -> None:
         self.env, self.relays, self.reader = env, relays, reader
+        self.aliases = aliases or {}
         self.stack: list = []        # pile (nom, params) des fonctions/classes englobantes
         self.sites: list = []        # {"ability": axe, "var": axe, "where": ...}
         self.calls: list = []        # appels aux relais : (relay, {param: noeud})
@@ -546,7 +575,7 @@ class _ReadSweep(ast.NodeVisitor):
 
     # -- visite ------------------------------------------------------------ #
     def visit_Call(self, node: ast.Call) -> None:
-        name = _call_name(node)
+        name = _call_name(node, self.aliases)
         if name == self.reader:
             self.sites.append({
                 "ability": self._axis(_arg(node, 0, "ability_id")),
@@ -593,6 +622,7 @@ def scan_reads(root: Path = ENGINE_ROOT, reader: str = READER, extra_roots=()) -
         except (SyntaxError, UnicodeDecodeError):
             continue
     envs = {p: _build_env(t) for p, t in trees.items()}
+    aliases = {p: _import_aliases(t) for p, t in trees.items()}
     import re as _re
     sources_words = {p: set(_re.findall(r"[A-Za-z_][A-Za-z_0-9]*",
                                         p.read_text(encoding="utf-8", errors="replace")))
@@ -652,7 +682,7 @@ def scan_reads(root: Path = ENGINE_ROOT, reader: str = READER, extra_roots=()) -
 
     # --- passe 1 : les appels directs au lecteur ------------------------- #
     for p, t in trees.items():
-        sw = _ReadSweep(envs[p], relays, reader)
+        sw = _ReadSweep(envs[p], relays, reader, aliases[p])
         sw.visit(t)
         for s in sw.sites:
             where = "%s:%d" % (p.relative_to(ROOT).as_posix(), s["line"])
@@ -684,7 +714,7 @@ def scan_reads(root: Path = ENGINE_ROOT, reader: str = READER, extra_roots=()) -
         for p, t in trees.items():
             if not (wanted_names & sources_words[p]):
                 continue
-            sw = _ReadSweep(envs[p], relays, reader)
+            sw = _ReadSweep(envs[p], relays, reader, aliases[p])
             sw.visit(t)
             abstained += ["%s %s" % (p.relative_to(ROOT).as_posix(), a) for a in sw.abstained]
             for (rname, binding, lineno) in sw.calls:
@@ -886,6 +916,11 @@ def scan_patches(root: Path = PY_ROOT, files=None) -> dict:
         except (SyntaxError, UnicodeDecodeError):
             continue
         env = _build_env(tree)
+        # MEME lacune que cote LECTURE, et elle serait PLUS dangereuse ici : un
+        # `from catalog_inject import patch_ability_variables as _pav` rendrait le patch INVISIBLE,
+        # donc jamais confronte a ce que le port lit. Aucun module du corpus ne l'ecrit aujourd'hui
+        # (mesure du 2026-08-10) -- c'est justement pourquoi il faut le couvrir avant qu'il arrive.
+        al = _import_aliases(tree)
         rel = p.relative_to(ROOT).as_posix() if str(p).startswith(str(ROOT)) else p.as_posix()
         # Le module qui DEFINIT un helper l'appelle pour l'IMPLEMENTER (`write_variable_patched_
         # seed_bc` -> `patch_ability_variables(bc, name, lvl, vals)`), avec des variables de boucle
@@ -909,7 +944,7 @@ def scan_patches(root: Path = PY_ROOT, files=None) -> dict:
         found = []
         for node in ast.walk(tree):
             # --- voie A/B : les helpers NOMMES ------------------------------------ #
-            name = _call_name(node)
+            name = _call_name(node, al)
             if name in PATCH_CALLS and (name in defined_here or _in_raises(node.lineno)):
                 continue                     # implementation interne, ou bras negatif qui LEVE
             if name == "patch_ability_variables":
@@ -1271,8 +1306,18 @@ def build(bc):
 '''
 
 
+_SELF_TEST_READ_ALIAS = '''"""Fixture FABRIQUEE (auto-test) -- ne pas importer."""
+from engine.entities.effects.magnitude import ability_var as _av
+
+
+def lire(lvl):
+    """Le call-site n'ecrit PAS le nom du lecteur : sans resolution d'alias, il est INVISIBLE."""
+    return _av("AbilityDeLAutoTest", "varDeLAutoTest", lvl)
+'''
+
+
 def self_test(out_dir: Path, reads: "dict | None" = None) -> int:
-    """Cinq fixtures fabriquees. Un recenseur qui les rate est REJETE (rc 2), pas « vert »."""
+    """Six fixtures fabriquees. Un recenseur qui les rate est REJETE (rc 2), pas « vert »."""
     out_dir.mkdir(parents=True, exist_ok=True)
     reads = scan_reads() if reads is None else reads
     rc = 0
@@ -1315,6 +1360,19 @@ def self_test(out_dir: Path, reads: "dict | None" = None) -> int:
               % ("OK " if seen else "KO ", ab, vk, why, "VU" if seen else "ABSENT"))
         if not seen:
             rc = 2
+
+    # 6bis. LECTURE PAR ALIAS D'IMPORT -- le bras qui fige la reparation de #883-r1. Le point 7
+    #    ci-dessous l'aurait attrape AUJOURD'HUI, mais seulement parce qu'un site du corpus ecrit
+    #    l'alias (`effect_triggers.py`) : si ce site disparaissait, la lacune pourrait revenir sans
+    #    que rien ne rougisse. Ici le site est FABRIQUE, donc la morsure ne depend de personne.
+    alias_dir = out_dir / "read_alias"
+    alias_dir.mkdir(parents=True, exist_ok=True)
+    (alias_dir / "lecture_par_alias.py").write_text(_SELF_TEST_READ_ALIAS, encoding="utf-8")
+    vu = ("AbilityDeLAutoTest", "varDeLAutoTest") in scan_reads(root=alias_dir)["pairs"]
+    print("  [%s] %-34s attendu=VU, obtenu=%s"
+          % ("OK " if vu else "KO ", "lecture par alias d'import", "VU" if vu else "ABSENT"))
+    if not vu:
+        rc = 2
 
     # 7. SECONDE SOURCE : tout couple litteral repere au GREP doit etre dans le recensement AST.
     #    Un resolveur qui regresse rend un couple de MOINS, donc un patch de plus qui passe vert.

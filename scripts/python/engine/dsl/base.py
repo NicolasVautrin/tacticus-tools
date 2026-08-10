@@ -478,21 +478,46 @@ def _feet(u) -> list:
 
     -- a ne pas confondre avec `$$SelectTile` (SINGULIER), qui rend `GetMainTile(entity)`.
 
-    SUBSTRAT : le dict d'unite porte `feet` (liste de `(col,row)`) des qu'il vient du runner
-    (`runner/abilities/behaviours/context.py::_unit_dict`, alimente par `get_unit_feet`, #R30/#91).
-    Un dict SANS `feet` -- face DECISION (scene de playbook/prediction), contexte de test -- retombe
-    sur `[_pos(u)]` : c'est la MAIN TILE seule, donc une DEGRADATION documentee et non un mirror.
-    Elle est EXACTE pour toute unite mono-tuile (le natif rend alors lui aussi un seul pied) et ne
-    peut diverger que sur une unite multi-hex, ou elle refuse ce que le natif accorde par un autre
-    pied. Entite sans position du tout -> `[]` (le natif rend une liste vide, et ses consommateurs
+    SUBSTRAT -- DEUX CANAUX, DEUX FORMES DE TUILE, et c'est LU au producteur, pas suppose :
+
+      * face COMBAT : `runner/abilities/behaviours/context.py::_unit_dict`, alimente par
+        `runner.components.get_unit_feet` (#R30/#91) -> des COUPLES `(col, row)` ;
+      * face DECISION : `decisionView.units[].feet`, publie par le capteur `#419-r1-tr10-r2`
+        (`projection.ts::readEntityFeet` = `EntityExtensions$$GetTiles`) -> des DICTS
+        `{"col", "row"}`, la forme de `readTileCoord`.
+
+    ⚠ LA SECONDE FORME A FAIT LEVER CE FOYER (`KeyError: 0`), et le repli documente ci-dessous en
+    est la cause : jusqu'au 2026-08-10 la face DECISION n'avait AUCUN canal d'empreinte, donc ce
+    `feet` etait toujours absent et la branche COUPLE etait la seule exercee. Le capteur a ouvert le
+    canal sans que ce lecteur-ci soit adapte -- `entities/selectors/tiles.py` et
+    `playbook/adjacency.py::_as_pos` sont les deux autres lecteurs, et seul le troisieme normalisait.
+    On normalise donc ICI, au foyer que les selecteurs DSL consomment.
+
+    Un dict SANS `feet` -- canal MUET (tri-etat `null`), contexte de test -- retombe sur `[_pos(u)]` :
+    c'est la MAIN TILE seule, donc une DEGRADATION documentee et non un mirror. Elle est EXACTE pour
+    toute unite mono-tuile (le natif rend alors lui aussi un seul pied) et ne peut diverger que sur
+    une unite multi-hex, ou elle refuse ce que le natif accorde par un autre pied -- et cote
+    DECISION elle etait meme FAUSSE d'un a deux hexes sur une multi-hex, `decisionView.units[].pos`
+    etant le DERNIER pied projete et non la main tile (cf. `runner/snapshot.py::_load_feet`).
+    Entite sans position du tout -> `[]` (le natif rend une liste vide, et ses consommateurs
     -- `AreTilesAdjacent(IList,IList)`, `GetMinDistance` -- ne bouclent alors sur rien)."""
     if not u:
         return []
     feet = u.get("feet")
     if feet:
-        return [(int(f[0]), int(f[1])) for f in feet]
+        return [_as_tile(f) for f in feet]
     p = _pos(u)
     return [] if p is None else [p]
+
+
+def _as_tile(f) -> tuple:
+    """Normalise UNE tuile venue de l'un ou l'autre canal -> `(col, row)`.
+
+    Pendant exact de `playbook/adjacency.py::_as_pos`, qui porte la meme normalisation pour le
+    mirror d'adjacence. Aucune supposition sur le canal appelant."""
+    if isinstance(f, dict):
+        return (int(f["col"]), int(f["row"]))
+    return (int(f[0]), int(f[1]))
 
 
 def _origin_tiles(origin, board=None) -> list:
