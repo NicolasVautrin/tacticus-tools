@@ -65,32 +65,42 @@ nommes, cf. la fiche. `OverwhelmingWrath_PendingAttack` 1300 en est SORTI : sa p
 (#503-r1, `runner/abilities/worldeaters.py`).
 
 ================================================================================================
-3. CE QUI PEUPLE `TRIGGERED_ABILITY_BEHAVIOURS` -- une dependance IMPLICITE, MESUREE (#503-r3)
+3. CE QUI PEUPLE `TRIGGERED_ABILITY_BEHAVIOURS` -- REPARE PAR DEPLACEMENT (#503-r3)
 ================================================================================================
 Le `TriggerAbility` de `pending_attack_tree` fait son lookup dans `TRIGGERED_ABILITY_BEHAVIOURS`,
-que chaque module de phase 2 alimente A SON IMPORT. Or **aucun module de ce paquet ne les importe** :
-la garantie vient de `runner/abilities/handler.py`, que le runner charge pour `ABILITY_CLASSES`.
-Mesure du 2026-08-10, en process FRAIS, en n'important que la chaine trigger
+que chaque module de phase 2 alimente A SON IMPORT. La garantie venait de
+`runner/abilities/handler.py`, que le runner charge pour `ABILITY_CLASSES` -- une dependance
+IMPLICITE. Mesure du 2026-08-10, en process FRAIS, en n'important que la chaine trigger
 (`dispatch/registry.py`) :
 
     1134 FullThrottle           present   (import pour EFFET DE BORD explicite dans `registry.py`)
-    1127 SeekerMissile_Attack   ABSENT    (depend de `abilities/tau.py`, jamais importe ici)
-    1237 OverwhelmingWrath_Attack ABSENT  (depend de `abilities/worldeaters.py`, idem)
+    1127 SeekerMissile_Attack   ABSENT    (dependait de `abilities/tau.py`, jamais importe ici)
+    1237 OverwhelmingWrath_Attack ABSENT  (dependait de `abilities/worldeaters.py`, idem)
 
-Ce n'est pas theorique : sans le module de phase 2, le `Triggered()` rend `dispatched: False`
+Ce n'etait pas theorique : sans le module de phase 2, le `Triggered()` rend `dispatched: False`
 **et retire l'effet quand meme** (le `RemoveEffect` du meme arbre) -- un marqueur qui disparait
 sans que rien ne frappe, exactement le regime que la Sec.2 declare PIRE que le statu quo.
 
-CE N'EST PAS CORRIGE ICI, et la raison est une MESURE, pas un choix de perimetre. Les deux aretes
-candidates ne sont pas de la meme classe (protocole du CLAUDE.md : charger la cible SEULE dans un
-process frais et regarder si le module de depart y atterrit) :
+LA REPARATION EST UN DEPLACEMENT, ET LA MESURE DIT POURQUOI. Les deux aretes candidates n'etaient
+pas de la meme classe (protocole du CLAUDE.md : charger la cible SEULE dans un process frais et
+regarder si le module de depart y atterrit) :
 
-    `pending_attack -> abilities.worldeaters`  : worldeaters seul NE tire PAS pending_attack -> GRATUITE
-    `pending_attack -> abilities.tau`          : tau seul TIRE pending_attack           -> PORTEUSE
+    `registry -> abilities.worldeaters`  : worldeaters seul NE tire PAS registry -> GRATUITE
+    `registry -> abilities.tau`          : tau seul TIRE registry                -> PORTEUSE
+      chaine mesuree : tau -> attack_query -> revive_effect -> dispatch.ability
+                           -> dispatch.core -> dispatch.registry
 
-Hisser l'une et differer l'autre inscrirait une asymetrie que rien dans le natif ne justifie ; les
-hisser toutes deux fermerait un cycle. Residu `#503-r3` : le foyer a choisir est probablement
-`dispatch/registry.py` (qui porte deja le patron pour `1134`), a mesurer de la meme facon.
+Hisser l'une et differer l'autre aurait inscrit une asymetrie que rien dans le natif ne justifie ;
+les hisser toutes deux aurait ferme un cycle. Le point (1) de la doctrine -- DEPLACER le code vers
+un module que la cascade ne re-entre pas -- SUPPRIME l'arete : les deux phases 2 sont des abilities
+TRIGGERED et vivent desormais sous `operations/triggers/loki/`
+(`seeker_missile_attack.py`, `overwhelming_wrath_attack.py`), ou `full_throttle.py` (1134) portait
+deja ce patron ; `registry.py` les importe pour effet de bord, comme lui.
+
+CLIQUET : `tests/engine/runner/test_503r3_registre_trigger_peuple_offline.py`, dont le PERIMETRE
+EST DERIVE de `PENDING_ATTACK_EFFECTS`. Une entree ajoutee a la table ci-dessous dont la phase 2
+n'est pas atteignable depuis la chaine trigger le fait ROUGIR -- c'est le cran qui manquait, et
+c'est le seul gisement que notre propre cadence de portage alimente.
 """
 from __future__ import annotations
 
