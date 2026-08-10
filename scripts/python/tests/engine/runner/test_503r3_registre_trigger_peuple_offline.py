@@ -37,6 +37,29 @@ ASCII only.
 """
 from __future__ import annotations
 
+#: Ce fichier lance un SOUS-PROCESS qui importe `dispatch/registry.py` (301 modules `engine.*` a la
+#: mesure) et, dans le process pytest, `abilities/handler.py` (donc `ABILITY_CLASSES` en entier).
+#: Le perimetre est donc `engine/**` INTEGRAL, plus `scripts/python/*.py` (`gameconfig`) et les deux
+#: entrees versionnees HORS `scripts/python/` que la cascade du registre va chercher -- aucun glob
+#: Python ne les couvre, et c'est exactement l'omission que `probe_486r15` a deja mesuree ailleurs.
+DECLENCHEUR = {
+    "chemins": (
+        "scripts/python/conftest.py", "scripts/python/tests/conftest.py",
+        "scripts/python/tests/engine/conftest.py",
+        "scripts/python/tests/engine/runner/conftest.py",
+        "scripts/python/engine/**/*.py", "scripts/python/*.py",
+        "frida/hooks/data/ability-names.ts", "data/seed-bc.json",
+    ),
+    "build": False,
+    "toujours": False,
+    "raison": "Le cran garde une propriete de CHARGEMENT du paquet, pas une valeur : quel module "
+              "peuple `TRIGGERED_ABILITY_BEHAVIOURS` et par quelle arete. N'importe quel import "
+              "ajoute ou deplace dans `engine/**` peut le rouvrir -- c'est precisement le gisement "
+              "que notre propre cadence de portage alimente. `build: False` : rien n'est fige ici "
+              "depuis le binaire ; le perimetre est DERIVE de `PENDING_ATTACK_EFFECTS`, et les "
+              "ordinaux d'ability sont deja gardes par `probe_313`.",
+}
+
 import json
 import subprocess
 import sys
