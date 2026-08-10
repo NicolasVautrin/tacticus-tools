@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import argparse
 import ast
+import re
 import os
 import sys
 
@@ -64,6 +65,35 @@ def _nom_appele(node):
     return None
 
 
+_SYMBOLE = re.compile(r"(IdunBattle[\w.]*\$\$\w+)")
+
+
+def _symboles_par_ligne(src, arbre):
+    """`ligne -> symbole natif cite dans la docstring du def/class ENGLOBANT le plus proche`.
+
+    L'appariement port <-> natif n'est PAS devine : le port cite deja son artefact natif dans la
+    docstring de la classe/fonction qui le porte. On remonte la chaine des noeuds englobants et on
+    prend le PREMIER symbole cite. Un site sans symbole englobant sort a `?` -- c'est un resultat,
+    pas un defaut : il faudra l'identifier a la main."""
+    portee = {}                                   # (debut, fin) -> [symboles]
+    for n in ast.walk(arbre):
+        if not isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            continue
+        doc = ast.get_docstring(n) or ""
+        syms = _SYMBOLE.findall(doc)
+        fin = getattr(n, "end_lineno", None) or n.lineno
+        portee[(n.lineno, fin)] = syms
+    def pour(ligne):
+        candidats = [(deb, fin, s) for (deb, fin), s in portee.items()
+                     if deb <= ligne <= fin and s]
+        if not candidats:
+            return "?"
+        # le plus INTERIEUR (portee la plus etroite)
+        deb, fin, s = min(candidats, key=lambda c: c[1] - c[0])
+        return s[0]
+    return pour
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--racine", default=os.path.join(ENGINE, "runner", "abilities"))
@@ -86,6 +116,7 @@ def main():
         except SyntaxError as exc:
             print("SYNTAXE KO %s : %s" % (chemin, exc))
             continue
+        sym = _symboles_par_ligne(src, arbre)
         for n in ast.walk(arbre):
             if not isinstance(n, ast.Call):
                 continue
@@ -98,7 +129,7 @@ def main():
                 renseigne = True
             rel = os.path.relpath(chemin, ENGINE).replace("\\", "/")
             lignes.append((rel, n.lineno, nom, "RENSEIGNE" if renseigne else "MUET",
-                           len(n.args)))
+                           sym(n.lineno)))
 
     lignes.sort()
     muets = [l for l in lignes if l[3] == "MUET"]
@@ -115,14 +146,25 @@ def main():
     for k in sorted(par_fac, key=lambda x: -par_fac[x][0]):
         print("%-32s %8d %8d" % (k, par_fac[k][0], par_fac[k][1]))
     print("")
+    # Regroupement PAR SYMBOLE NATIF : c'est l'unite de travail du releve (un decompile = tous les
+    # call-sites du port qui le mirrorent).
+    par_sym = {}
     for l in lignes:
-        print("%-58s:%-5d %-30s %s" % (l[0], l[1], l[2], l[3]))
+        if l[3] != "MUET":
+            continue
+        par_sym.setdefault(l[4], []).append("%s:%d %s" % (l[0], l[1], l[2]))
+    print("SYMBOLES NATIFS A DECOMPILER : %d (dont `?` = non cite en docstring englobante)"
+          % len(par_sym))
+    for s in sorted(par_sym, key=lambda x: (-len(par_sym[x]), x)):
+        print("  %-3d  %s" % (len(par_sym[s]), s))
+        for e in par_sym[s]:
+            print("        %s" % e)
 
     if args.csv:
         with open(args.csv, "w", encoding="utf-8") as fh:
-            fh.write("fichier;ligne;factory;etat;nargs\n")
+            fh.write("fichier;ligne;factory;etat;symbole\n")
             for l in lignes:
-                fh.write("%s;%d;%s;%s;%d\n" % l)
+                fh.write("%s;%d;%s;%s;%s\n" % l)
         print("\nCSV -> %s" % args.csv)
     return 0
 

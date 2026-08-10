@@ -39,6 +39,11 @@ from ...entities.selectors.units import (
     UnitSet, UnitsFromFaction, Unobscured, non_steppable_or_object_units
 )
 from ...entities.stats import StatType
+from ...entities.unit_selection_type import UnitSelectionType
+
+#: `UnitSelectionType` LU au dernier argument des `DSLSelectors$$*` de ce fichier -- releve #585-r1,
+#: build `rnca9r7q6c`, littéral par littéral (jamais par symetrie).
+SELECTION = int(UnitSelectionType.OnlyAliveAndTargetable)     # 3
 from ...entities.triggers import (AmountIsEqualOrGreater, CacheTrigger, IsAdjacent, Not,
                                   OwnerIsAlive, TriggerOr)
 from ...utilities.decider import UtilityBucket, UtilityDefinition, WeightedUtility
@@ -112,8 +117,15 @@ def waaagh_buffed_units_selector():
     `AdjacentFriends` porte prend un CENTRE-POSITION (convention des selecteurs d'anneau du port) ->
     `CasterTile()` designe la MEME ancre que le `caster@0x160` natif (self exclu par `_within`, puis
     reinjecte par l'union `Caster()` — exactement l'`op_Addition(caster, adjacentFriends)` natif)."""
+    # #585-r1 -- littéraux LUS dans `...WaaaghAbility$$GetBuffedUnitsSelector` :
+    #   AdjacentFriends(gs, gs@0x48, unique: 1, 3)   <- surcharge `(this, unit, unique, selectionType)`
+    #   Friends(gs, gs@0x48, gs@0x20, 3) ; UnitsFromFaction(gs, ., 5, 3)
+    # ETAGE MANQUANT (documente) : les mirrors `AdjacentFriends` et `UnitsFromFaction` du port ne
+    # portent pas encore le parametre -- le `Friends` interne, lui, le porte, et c'est lui qui
+    # filtre la sortie du second terme.
     return Unique(Union(Union(Caster(), AdjacentFriends(CasterTile(), Const(1))),
-                        UnitsFromFaction(Friends(AllAliveUnits()), WAAAGH_FACTION)))
+                        UnitsFromFaction(Friends(AllAliveUnits(), selection_type=SELECTION),
+                                         WAAAGH_FACTION)))
 
 
 def waaagh_buff_tree():

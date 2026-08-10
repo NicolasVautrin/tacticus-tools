@@ -42,6 +42,14 @@ from ...entities.selectors.units import (
 )
 from ...entities.stats import StatType
 from ...entities.traits.unit_trait import UnitTrait
+from ...entities.unit_selection_type import UnitSelectionType
+
+#: `UnitSelectionType` LU au dernier argument des `DSLSelectors$$*` de ce fichier -- releve #585-r1,
+#: build `rnca9r7q6c`, littéral par littéral. ⚠ CE FICHIER PORTE LE CONTRE-EXEMPLE : le `Friends`
+#: de `...ResurrectionOrbAbility$$GetPossibleResurrectTargets` recoit **0** (`Any`), pas 3 -- il
+#: selectionne des unites MORTES, qu'`OnlyAlive*` ecarterait TOUTES. Ne jamais recopier `SELECTION`
+#: sans avoir relu le littéral du call-site.
+SELECTION = int(UnitSelectionType.OnlyAliveAndTargetable)     # 3
 from ...entities.triggers import ActorHasTriggeredAbility, HasTrait
 from ...entities.active_ability_type import ActiveAbilityType
 from ...entities.ability_variable_type import AbilityVariableType
@@ -581,7 +589,13 @@ def resurrection_orb_possible_resurrect_targets():
     L'ensemble alimente DEUX consommateurs (xrefs relues) : `$$GetResurrectBehaviour` (la resurrection
     proprement dite, cote COMBAT) et `$$GetNumSummonsFormula` (cote DECISION). Un seul artefact natif,
     un seul port."""
-    return Filter(Friends(AllDeadUnits(), Caster()),
+    # #585-r1 -- LE LITTERAL EST `0`, ET C'EST LE CONTRE-EXEMPLE DU RELEVE.
+    # `Friends(gs, gs@0x48, AllDeadUnits(gs), 0)` : `UnitSelectionType.Any`. Le reste du corpus
+    # releve vaut 3 (`OnlyAliveAndTargetable`) ; ici un 3 recopie aurait vide l'ensemble -- les
+    # cibles SONT mortes, et `MatchesUnitSelectionType` teste `IsAlive` pour 1 comme pour 3.
+    # C'est un masque FAUX qui a l'air renseigne : la faute exacte que la fiche annoncait.
+    return Filter(Friends(AllDeadUnits(), Caster(),
+                          selection_type=int(UnitSelectionType.Any)),
                   TriggerAnd(HasTrait(Subject(), int(UnitTrait.Hero)), is_mechanical(Subject())))
 
 
@@ -923,7 +937,13 @@ def multi_threat_next_target_selector(range_val: int):
     SON ordre d'enumeration (tuiles via `UnitsOnTilesSelector`) ; le port prend le premier dans l'ordre de
     `ctx.units` (ordre d'entite ECS). Quand PLUSIEURS candidats satisfont l'intersection, la cible suivante
     peut differer. Deterministe et identique des que l'intersection a <= 1 element."""
-    return And(Unobscured(Enemies(SurroundingUnits(CasterTile(), Const(range_val))), Caster()),
+    # #585-r1 : `Enemies(gs@0x48, SurroundingUnits(gs@0x50, n, unique: 1, includeCenter: 0, 3), 3)`
+    # puis `AdjacentUnits(gs, Last(...), unique: 1, 3)` -- littéraux LUS.
+    # ETAGE MANQUANT (documente) : les mirrors `SurroundingUnits` et `AdjacentUnits` de
+    # `entities/selectors/` ne portent pas encore le parametre. Sans consequence ici : l'`Enemies`
+    # qui enveloppe le premier filtre sa sortie, et le second est intersecte (`And`) avec elle.
+    return And(Unobscured(Enemies(SurroundingUnits(CasterTile(), Const(range_val)),
+                                  selection_type=SELECTION), Caster()),
                AdjacentUnits(ActiveTarget(), Const(1)))
 
 
