@@ -124,10 +124,40 @@ function heapSize(): number | null {
     try { return (_gcHeapSize() as Int64).toNumber(); } catch { return null; }
 }
 
-/** Force un GC managé. AUCUN hook n'en appelait jamais (0 occurrence) — d'où la
- * dérive mesurée 2026-07-26 : 6,9 Go résidents après ~1900 batailles en 16 h.
- * `maxGenerations` = 2 (tout). À n'appeler QUE sur demande explicite. */
-function collect(maxGenerations = 2): boolean {
+/** ⛔ FORCER UN GC GÈLE LE JEU. Mesuré, pas redouté — et ce refus remplace une prose qui
+ *  disait « à n'appeler QUE sur demande explicite », laquelle n'a arrêté personne.
+ *
+ *  MESURE DU 2026-08-10 (#600, build `rnca9r7q6c`) : un `il2cpp_gc_collect(2)` appelé depuis
+ *  le thread RPC de Frida — **sans** aucun envoi, delegate, ni `runtime_invoke` — a figé le
+ *  process. Lecture du process figé (`OpenThread` + `GetThreadContext`) : **145 threads dans
+ *  `ntdll.dll`** + 1 dans `win32u`, aucun dans `GameAssembly.dll`, main thread parqué avec
+ *  ZÉRO cadre `GameAssembly` (suspendu à un safepoint). Le RPC n'est jamais revenu (60 s),
+ *  et `Get-Process().Responding` est passé à `False`.
+ *
+ *  C'est le stop-the-world du GC qui ne repart pas : il attend qu'un thread atteigne un
+ *  safepoint, et sous instrumentation Frida ce thread n'y arrive pas. Même famille que
+ *  l'avertissement déjà porté par `CLAUDE.md` sur les scans de tas.
+ *
+ *  ⚠ CE GEL EST CELUI QUI A ÉTÉ ATTRIBUÉ À TORT au callback du dispatch d'Operation (#600,
+ *  tentatives #4 et #5). Deux pannes distinctes étaient traitées comme une seule.
+ *
+ *  ⚠ ET IL NE SE SIGNALE PAS : process vivant, session Frida `running`, `/api/admin/status`
+ *  serein. Seul un RPC qui ne revient pas le révèle.
+ *
+ *  La dérive mémoire mesurée le 2026-07-26 (6,9 Go après ~1900 batailles en 16 h) reste
+ *  réelle — mais forcer une collecte n'est PAS le remède disponible : le remède coûterait
+ *  une relance du jeu à chaque appel. Cette voie est fermée, pas oubliée (résidu #132).
+ *
+ *  `autoriserLeGel` est l'échappatoire consciente, pour qui veut REMESURER ce gel (c'est ce
+ *  que fait `probes/gc-rendezvous.ts`). Rend `false` sans rien tenter dans tous les autres
+ *  cas — et `false` veut dire « RIEN N'A ÉTÉ TENTÉ », jamais « la collecte a échoué ». */
+function collect(maxGenerations = 2, autoriserLeGel = false): boolean {
+    if (!autoriserLeGel) {
+        log("[gcRoot] collect() REFUSE : forcer un GC gele le jeu (145 threads parques "
+            + "dans ntdll, cf. docs/rl/case-600-gel-du-dispatch-natif.md). Passe "
+            + "`autoriserLeGel` si tu veux justement remesurer ce gel.");
+        return false;
+    }
     if (!_gcCollect) return false;
     try { _gcCollect(maxGenerations); return true; } catch { return false; }
 }

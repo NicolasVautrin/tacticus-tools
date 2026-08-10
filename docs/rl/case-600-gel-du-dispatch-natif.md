@@ -83,11 +83,43 @@ Ce que ca expliquerait, y compris ce qui semblait incoherent :
   pannes distinctes que je traitais comme une seule — le callback nul qui LEVE a la reception
   (#1, #3, etabli par le decompile), et un rendez-vous GC au moment de l'envoi (#4, #5).
 
-⚠ **Ce n'est pas etabli.** Prediction falsifiable : si c'est un GC, l'echec est **flaky**, pas
-deterministe, et forcer une collecte depuis le pump (`gcRoot.collect()`) doit geler le jeu
-**sans aucun envoi**. C'est le prochain test, et il ne coute pas un dispatch.
+## VERDICT — la prediction s'est realisee, et plus fort que prevu
 
-Tant que cette question n'a pas de reponse mesuree, `AUTORISER_ENVOI_NATIF = false`.
+`probes/gc-rendezvous.ts`, regime **TEMOIN** (`contexte: "frida"`, donc meme pas depuis le
+pump), **sans aucun envoi, sans delegate, sans `runtime_invoke`** :
+
+- le RPC **n'est jamais revenu** (60 s) ;
+- `Get-Process().Responding` -> **False** ;
+- lecture du process fige : **145 threads dans `ntdll.dll`** + 1 dans `win32u`, **aucun** dans
+  `GameAssembly.dll`, main thread parque avec **ZERO** cadre `GameAssembly` — suspendu a un
+  safepoint, pas bloque dans du code a nous.
+
+Le regime `pump` n'a jamais eu besoin d'etre joue : **le couple GC x Frida suffit**.
+
+### Il y avait DEUX pannes, pas une
+
+| | cause | symptome | etabli par |
+|---|---|---|---|
+| (a) | `callback` NUL -> `raise_null_reference_exception` a la RECEPTION | process **MORT** | le decompile de `<Execute>b__0` |
+| (b) | une collecte GC pendant l'envoi -> stop-the-world qui ne repart pas | process **FIGE** | `gc-rendezvous`, temoin |
+
+Elles n'ont **rien a voir**, et je les ai traitees comme une seule pendant cinq tentatives.
+Le callback est un **faux coupable pour le gel** — il reste le vrai coupable de (a).
+
+Corollaire : le chemin d'envoi natif **avec un callback valide** n'a jamais ete montre
+fautif. #4 et #5 ont eu la malchance de declencher une collecte ; l'allocation supplementaire
+du delegate a vraisemblablement pousse le seuil. « Vraisemblablement » : non mesure.
+
+### Ce que ca ferme
+
+`gcRoot.collect()` **REFUSE desormais par defaut** (`autoriserLeGel` pour l'echappatoire
+consciente). La prose disait deja « a n'appeler QUE sur demande explicite » — elle n'a arrete
+personne, parce qu'une prose n'arrete pas un comportement. La derive memoire de #132 (6,9 Go
+apres ~1900 batailles) reste reelle, mais **forcer une collecte n'en est pas le remede
+disponible** : il couterait une relance du jeu a chaque appel.
+
+`AUTORISER_ENVOI_NATIF` reste a `false` : la cause du gel est nommee, mais le chemin d'envoi
+n'a pas ete rejoue depuis. On rouvre sur un envoi qui aboutit, pas sur une explication.
 
 ## Un piege de lecture rencontre en chemin
 
