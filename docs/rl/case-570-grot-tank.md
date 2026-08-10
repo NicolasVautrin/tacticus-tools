@@ -212,9 +212,24 @@ la table PURE DONNÉE que consulte `baked_ability_state` — par
 `snapshot._ability_state_with_channel`, avec **la même garde** que le seed d'aval (« on n'écrit que
 si le trou existe »). Les seeds restent en aval, inchangés.
 
-**RAYON DE SOUFFLE, mesuré.** L'état FINAL du `ctx` est **identique** (le seed d'aval l'écrivait
-déjà) : seule change la fenêtre entre la naissance des effets et la fin de `load_state`. La
-mutation qui vide le canal fait rougir l'étage 6 du garde, celle qui inverse la garde fait rougir
+**RAYON DE SOUFFLE, mesuré — pas estimé** (`probe_570r5_rayon_de_souffle.py`). Le MÊME état live
+est chargé **deux fois** depuis les **mêmes payloads** (capturés une seule fois), la seconde avec
+`_ability_state_with_channel` désarmé (l'état d'AVANT), puis tout est diffé :
+
+| axe | attendu | mesuré |
+|---|---|---|
+| `StatsComponent.ctx` | IDENTIQUE (le seed d'aval l'écrivait déjà) | **0 différent sur 4** |
+| instances d'effet | DIFFÉRENT, et seulement sur une unité sans `unitConfig` | **1 sur 15**, `u96 Ramshackle_DmgReduction` `(None, 100)` → `(50, 180)` |
+
+L'unique entité sans `unitConfig` de ce montage est `[96]` — le tank. Le probe REFUSE de conclure
+si aucune instance ne bouge (montage vide) et rougit si une unité **configurée** est touchée
+(débordement de fenêtre). Non couvert : un montage à plusieurs invoquées. Borne analytique du volet
+OWNER-EFFECT, lue du gameconfig : **2** summons seulement portent une ability inscrite à
+`ABILITY_INIT_OWNER_EFFECTS` (`orksGrotTank`/`Ramshackle`, `ultraSmnEliminator`/`CamoCloak`) ; le
+volet CAPTURE, lui, n'a pas de borne. Les MoW sont hors fenêtre par construction (passe 1 les
+saute ; leur `AbilityState` vient de `_machine_ability_state`).
+
+La mutation qui vide le canal fait rougir l'étage 6 du garde, celle qui inverse la garde fait rougir
 l'étage 3b. Live re-joué : `test_grot_tank_live` 5, `test_363_ability_states_default_live` 10,
 `test_summon_trait_effects_live` 8, `test_357_relic_rail_live` 12,
 `test_fire_and_reposition_reduce_dmg_live` 8, `test_summon_consumers_live` 29,
@@ -254,8 +269,9 @@ est l'`AbilityState` (niveau/multiplicateur), **pas la LISTE des passives** —
 **SOURCE** du seed, pas sa **PLACE**.
 
 **Artefacts #570-r5** : `engine/runner/snapshot.py` (`_ability_state_with_channel`, ordre de
-`load_state`), sonde `probe_570r1_ramshackle.py` (étage PLACEMENT + dégâts natifs **par coup**),
-garde `tests/engine/runner/test_570r5_ordre_de_seeding_offline.py` (18 tests, 8 étages).
+`load_state`), sondes `probe_570r1_ramshackle.py` (étage PLACEMENT + dégâts natifs **par coup**) et
+`probe_570r5_rayon_de_souffle.py` (le double chargement), garde
+`tests/engine/runner/test_570r5_ordre_de_seeding_offline.py` (18 tests, 8 étages).
 
 ## Artefacts
 
