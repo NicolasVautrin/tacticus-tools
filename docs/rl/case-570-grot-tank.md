@@ -130,13 +130,39 @@ mêlée, hors de sa portée 3 → on-appearance inerte des deux côtés) et `--w
 1 coup en mêlée ; `Blast` 3 coups, **Range 3**), traits `Summon` / `Mechanical` / `BattleFatigue` /
 `Vehicle`, `activeAbilities: []`, **`passiveAbilities: ["Ramshackle"]`**.
 
-**`Ramshackle` (`TriggeredAbilityType` 1093) et son effet `Ramshackle_DmgReduction` (`EffectType`
-1090) NE SONT PAS PORTÉS** — aucun mirror de
-`IdunBattle.Entities.Effects.Loki.Ramshackle_DmgReductionEffect$$CreateDamageModifier` dans
-`engine/entities/effects/`. i2 : « Takes -`dmgReduction` damage from attacks with damage types that
-have `pierceRatio` % pierce ratio or lower » (constante `pierceRatio = 30`). Le Grot Tank porté
-encaisse donc **plus** qu'il ne devrait : écart **nommé**, dans le sens permissif pour l'adversaire.
-Résidu **#570-r1**.
+**`Ramshackle_DmgReduction` (`EffectType` 1090) est PORTÉ depuis #570-r1 (2026-08-10)** —
+`engine/entities/effects/loki/ramshackle.py`, inscrit à `EFFECT_CLASSES` et à
+`ABILITY_INIT_OWNER_EFFECTS["Ramshackle"]`. i2 : « Takes -`dmgReduction` damage from attacks with
+damage types that have `pierceRatio` % pierce ratio or lower ».
+
+    $$CreateDamageModifier = ForAddition(
+        get_OwnerIsTarget & AmountIsEqualOrGreater(ConfigConst(0x49 = pierceRatio),
+                                                   AttackPiercingRatio()),
+        Multiply(ConfigVar(0x12 = dmgReduction), Direct(-1)@DSLFormulas+0x38) )
+
+Trois lectures qui ne se devinent pas : le **sens** du gate (`AmountIsEqualOrGreaterAbilityTrigger$$
+ShouldTrigger` finit par `return <+0x20> <= <+0x18>` ⇒ `pierceRatio >= perçage du profil`, donc
+« les profils à perçage FAIBLE ») ; `AttackPiercingRatioFormula$$Calculate` rend **0** sur un
+`Nullable<DamageProfileType>` vide, sinon le `PiercingRatio` **nominal** du profil ; et le littéral
+du `.ctor` (`ba 45 04 00 00` = `0x445` = `TriggeredAbilityType.Ramshackle` — **`EffectType` 1093
+est `HolyDuel_DmgReduction`**, autre chose).
+
+**La POSE au spawn manquait aussi** : `spawn_unit` n'appelait pas la 3ᵉ source de la boucle
+ABILITIES d'`InitializeActorAbilitiesOperation$$Execute` (les owner-effects des abilities de
+l'unité), donc une invocation était privée des passifs de son **propre** kit. Rayon de souffle
+mesuré avant l'ajout : **0** unité non-`lineup` du gameconfig y était touchée.
+
+**CONFRONTÉ** (`probe_570r1_ramshackle.py`, `MC1_67`/777, trois profils autour des 30 %) : le natif
+publie 1090 sur le tank ; le tank du **port** le porte aussi ; et le **témoin négatif** (profil à
+perçage 60 > 30) rend **6862 == 6862**.
+
+**NON CONFRONTÉ — la MAGNITUDE, et le PLACEMENT avec elle.** Le port lit `dmgReduction[**1**] = 5`
+au lieu du palier réel, parce que l'entité NPC fraîchement spawnée arrive côté port avec
+`passive_ability_level = 0` et `ability_variables_multiplier = 100` (mesuré) — **le même trou de
+substrat que l'étage E3 ci-dessus**. Tant que ce niveau est faux, aucune comparaison de magnitude
+n'est concluante : les écarts mesurés (5 sur `Physical`, 487 sur `Energy`) sont inexploitables, et
+le placement pré- vs post-perçage reste **présumé** par la famille Nightshroud/`PsychicFortress`.
+Résidu **#570-r3**.
 
 ## Artefacts
 
@@ -149,3 +175,7 @@ Résidu **#570-r1**.
   `scripts/python/probe_570_grot_tank_nc.py` (DÉCISION, `ncEvaluate --sweep`).
 - Gardes : `scripts/python/tests/engine/runner/test_grot_tank_live.py` (5 tests, chacun vu ROUGE
   par mutation adversariale).
+- #570-r1 : `scripts/python/engine/entities/effects/loki/ramshackle.py`,
+  `engine/entities/effects/factory.py` (`EFFECT_CLASSES` + `ABILITY_INIT_OWNER_EFFECTS`),
+  `engine/runner/operations/spawn.py` (`_seed_ability_owner_effects` au spawn),
+  sonde `scripts/python/probe_570r1_ramshackle.py`.

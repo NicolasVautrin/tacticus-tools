@@ -100,6 +100,7 @@ from .damage_ops import _DamageOpsMixin
 from ...entities.effects import board_effect_carriers
 from ...entities.traits.unit_trait import entity_trait_names
 from ..components import (OwnerComponent, StatsComponent, UnitComponent,
+                                  adjacent_enemies_count,
                                   adjacent_friendly_summons_and_decoys_count)
 from ..components import UnitComponent, unit_state_for_effects
 from ..components import is_alive_and_not_fled
@@ -1108,6 +1109,14 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
                 "att_traits": att_traits,
                 "adjacent_friendly_summons_and_decoys_of":
                     lambda oid: adjacent_friendly_summons_and_decoys_count(state, int(oid)),
+                # `...SupaCyborkBody_CritDmgReductionEffect$$GetCalculateLevel` (#503-r4) -- le
+                # niveau que `RefreshEffectsOperation$$UpdateLevel` ECRIT dans
+                # `EffectComponent+0x68`, donc celui que `DSLFormulas.EffectLevel` relit dans
+                # `$$GetCritDamageReduction`. MEME forme paresseuse et MEME raison que le compteur
+                # d'`AmuletOfTheVoidwyrm` : la grandeur depend de l'INSTANCE d'effet qui interroge
+                # (la boucle native ECRASE `AbilityEntities+0x18` a chaque iteration).
+                "adjacent_enemies_of":
+                    lambda oid: adjacent_enemies_count(state, int(oid)),
                 "tertiary_ability_state_of":
                     lambda oid, ability: triggered_ability_state(state, int(oid), ability)}
 

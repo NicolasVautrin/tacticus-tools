@@ -19,6 +19,7 @@ from ..battle_query import is_adjacent
 from ..entities.effect_targets import is_effect_target as _iet
 from ..entities.effects.loki.amulet_of_the_voidwyrm import (
         adjacent_friendly_summons_and_decoys_selector)
+from ..entities.effects.loki.supa_cybork_body import adjacent_enemies_selector
 from ..entities.pathfinding.board import adjacent_neigh_by_pos, elevations_by_pos
 from ..entities.stats import StatType
 from ..entities.stats import StatPart   # #572-r1 : `FillUpStatComponent$$GetStatPart`
@@ -2895,6 +2896,35 @@ def adjacent_friendly_summons_and_decoys_count(state, unit_id: int) -> Optional[
                .calculate(entities_from_state(state, int(unit_id))))
 
 
+def adjacent_enemies_count(state, unit_id: int) -> Optional[int]:
+    """`Count( AdjacentEnemies(Owner, unique: 1, selectionType: 3) )` -- le cardinal que
+    `IdunBattle.Entities.Effects.Loki.SupaCyborkBody_CritDmgReductionEffect$$GetCalculateLevel`
+    calcule pour le PORTEUR de l'effet.
+
+    DEUX consommateurs natifs, un seul foyer ici -- et c'est le meme fait geometrique des deux
+    cotes, donc la CONDITION et la MAGNITUDE ne peuvent pas diverger :
+      * `...$$CreateActiveCondition` = `HasAdjacentEnemies(Owner, Tiles(Owner))` ;
+      * `...$$GetCalculateLevel`     = `Count(<ce selecteur>)`, et c'est cette valeur que
+        `RefreshEffectsOperation$$UpdateLevel` ECRIT dans `EffectComponent+0x68`, donc celle que
+        `DSLFormulas.EffectLevel` relit dans `$$GetCritDamageReduction`.
+
+    L'ARBRE est celui de la classe d'effet (`entities/effects/loki/supa_cybork_body.py::
+    adjacent_enemies_selector`, doctrine #149) ; ce qu'on fait ICI, c'est lui donner son
+    `AbilityEntities` -- `entities_from_state(state, unit_id)` pose `caster = owner = le porteur`,
+    `board = state.board` et `has_trait`.
+
+    `None` si le porteur n'a ni equipe ni tuile (le selecteur est GEOMETRIQUE **et** par equipe) --
+    jamais un 0 invente, qui annulerait le produit et ferait passer une reduction reelle pour une
+    absence de reduction (meme tri-etat que le compteur d'`AmuletOfTheVoidwyrm` ci-dessus)."""
+    ent = state.get_entity(unit_id)
+    oc = ent.get_component(OwnerComponent) if ent is not None else None
+    pc = ent.get_component(PositionComponent) if ent is not None else None
+    if oc is None or oc.team is None or pc is None:
+        return None
+    from .abilities.behaviours.context import entities_from_state
+    return int(adjacent_enemies_selector().calculate(entities_from_state(state, int(unit_id))))
+
+
 class UnitEffectStateView(Mapping):
     """Le `unit_state` d'une unité — vue MAPPING PARESSEUSE sur l'ECS (`unit_state_for_effects`).
 
@@ -2985,7 +3015,7 @@ class UnitEffectStateView(Mapping):
     par-porteur des chemins de dégât (auras), donc un cardinal EAGER y serait quadratique."""
 
     __slots__ = ("_state", "_uid", "_eager", "_has_psy", "_psy", "_has_pos",
-                 "_has_effstate", "_lc", "_bta", "_has_sa", "_sa", "_asd")
+                 "_has_effstate", "_lc", "_bta", "_has_sa", "_sa", "_asd", "_ae")
 
     def __init__(self, state, unit_id: int) -> None:
         self._state = state
@@ -3057,6 +3087,8 @@ class UnitEffectStateView(Mapping):
         # `AdjacentFriends(Owner) filtre Summon/Decoy` : MEME gate que ci-dessus (selecteur
         # geometrique ET par equipe) -> la cle n'existe que si le porteur a une tuile ET une equipe.
         self._asd: Optional[int] = None
+        # `AdjacentEnemies(Owner)` : MEME gate (selecteur geometrique ET par equipe).
+        self._ae: Optional[int] = None
 
     def __getitem__(self, key):
         if key in self._eager:
@@ -3097,6 +3129,13 @@ class UnitEffectStateView(Mapping):
             if self._asd is None:
                 self._asd = adjacent_friendly_summons_and_decoys_count(self._state, self._uid)
             return self._asd
+        # `SupaCyborkBody_CritDmgReductionEffect$$CreateActiveCondition` = `HasAdjacentEnemies(
+        # Owner, Tiles(Owner))` : MEME gate de presence que les deux cles ci-dessus (selecteur
+        # geometrique ET par equipe) -> la cle n'existe que si le porteur a une tuile ET une equipe.
+        if key == "adjacent_enemies" and self._has_sa:
+            if self._ae is None:
+                self._ae = adjacent_enemies_count(self._state, self._uid)
+            return self._ae
         raise KeyError(key)
 
     def __iter__(self) -> Iterator[str]:
@@ -3113,10 +3152,11 @@ class UnitEffectStateView(Mapping):
         if self._has_sa:
             yield "structural_analyser_friends"
             yield "adjacent_friendly_summons_and_decoys"
+            yield "adjacent_enemies"
 
     def __len__(self) -> int:
         return (len(self._eager) + (1 if self._has_psy else 0) + (2 if self._has_pos else 0)
-                + (3 if self._has_effstate else 0) + (2 if self._has_sa else 0))
+                + (3 if self._has_effstate else 0) + (3 if self._has_sa else 0))
 
     def __repr__(self) -> str:                    # diagnostic (ASCII)
         return "UnitEffectStateView(u%d, %s)" % (self._uid, sorted(self))

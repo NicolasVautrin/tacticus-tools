@@ -44,6 +44,12 @@
    "dirs": [],
    "temoins": []
   },
+  "tests/engine/entities/test_366r1_effect_target_ids_offline.py": {
+   "_at": 1786382540,
+   "_commit": "cb92ace54ebb87e18f817f95995a33eb5b3dd198",
+   "dirs": [],
+   "temoins": []
+  },
   "tests/engine/entities/test_attack_nature_gates_offline.py": {
    "_at": 1786110307,
    "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
@@ -81,6 +87,12 @@
     "scripts/python/engine/runner/operations/triggers/loki/sworn_protector.py",
     "scripts/python/engine/utilities/sworn_protector.py"
    ]
+  },
+  "tests/engine/runner/test_231r1_master_tutelaries_expiry_offline.py": {
+   "_at": 1786382540,
+   "_commit": "cb92ace54ebb87e18f817f95995a33eb5b3dd198",
+   "dirs": [],
+   "temoins": []
   },
   "tests/engine/runner/test_287r11r1r1r2_is_turn_of_unit_offline.py": {
    "_at": 1786136379,
@@ -708,6 +720,19 @@
     "scripts/python/engine/weights.py"
    ]
   },
+  "tests/engine/runner/test_448_r1_r1_r2_r2_r1_gates_amont_offline.py": {
+   "_at": 1786382540,
+   "_commit": "cb92ace54ebb87e18f817f95995a33eb5b3dd198",
+   "dirs": [
+    "data/boards/pvp",
+    "scripts/python/engine/runner/operations"
+   ],
+   "temoins": [
+    "data/boards/pvp/C3_23.json",
+    "data/boards/pvp/C4_09.json",
+    "scripts/python/engine/runner/operations/movement.py"
+   ]
+  },
   "tests/engine/runner/test_448_r2_teleporting_in_offline.py": {
    "_at": 1786110307,
    "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
@@ -1038,6 +1063,12 @@
     "scripts/python/engine/runner/operations/spawn.py"
    ]
   },
+  "tests/engine/runner/test_503r3_registre_trigger_peuple_offline.py": {
+   "_at": 1786382540,
+   "_commit": "cb92ace54ebb87e18f817f95995a33eb5b3dd198",
+   "dirs": [],
+   "temoins": []
+  },
   "tests/engine/runner/test_505_bloody_fury_offline.py": {
    "_at": 1786110307,
    "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
@@ -1296,6 +1327,12 @@
   "tests/engine/runner/test_576_war_howl_pose_offline.py": {
    "_at": 1786177419,
    "_commit": "10b867598b90c619360a2165c78a9bbb834eed77",
+   "dirs": [],
+   "temoins": []
+  },
+  "tests/engine/runner/test_576r1_blood_chalice_inactive_offline.py": {
+   "_at": 1786382540,
+   "_commit": "cb92ace54ebb87e18f817f95995a33eb5b3dd198",
    "dirs": [],
    "temoins": []
   },
@@ -3009,6 +3046,12 @@
     "data/boards/global/MC1_67.json"
    ]
   },
+  "tests/engine/test_433r4r1r4r1_unobscured_canal_offline.py": {
+   "_at": 1786382540,
+   "_commit": "cb92ace54ebb87e18f817f95995a33eb5b3dd198",
+   "dirs": [],
+   "temoins": []
+  },
   "tests/engine/test_433r4r1r4r2_is_adjacent_substrat_offline.py": {
    "_at": 1786110307,
    "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
@@ -4271,6 +4314,16 @@
    "dirs": [],
    "temoins": []
   },
+  "tests/engine/test_510r2_tiles_behind_clamp_offline.py": {
+   "_at": 1786382540,
+   "_commit": "cb92ace54ebb87e18f817f95995a33eb5b3dd198",
+   "dirs": [
+    "scripts/python/engine"
+   ],
+   "temoins": [
+    "scripts/python/engine/battle_query.py"
+   ]
+  },
   "tests/engine/test_519_comptes_derives_offline.py": {
    "_at": 1786110307,
    "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
@@ -4412,6 +4465,18 @@
    "_commit": "7e5046c7ade22cc16048ad5dacf8501a55cdd06c",
    "dirs": [],
    "temoins": []
+  },
+  "tests/engine/test_589r1r1r2r1r2_union_non_dedupliquee_offline.py": {
+   "_at": 1786382540,
+   "_commit": "cb92ace54ebb87e18f817f95995a33eb5b3dd198",
+   "dirs": [
+    "data/symbols",
+    "data/symbols/rnca9r7q6c"
+   ],
+   "temoins": [
+    "data/symbols/CURRENT",
+    "data/symbols/rnca9r7q6c/gameconfig.json"
+   ]
   },
   "tests/engine/test_590_attempted_possession_offline.py": {
    "_at": 1786180063,
@@ -6830,6 +6895,12 @@
     "scripts/python/tools/damage_decomp.py",
     "scripts/python/verdict_cache.py"
    ]
+  },
+  "tests/test_expedition_solver_offline.py": {
+   "_at": 1786382540,
+   "_commit": "cb92ace54ebb87e18f817f95995a33eb5b3dd198",
+   "dirs": [],
+   "temoins": []
   },
   "tests/test_host_inputs_offline.py": {
    "_at": 1786110307,

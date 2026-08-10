@@ -203,7 +203,8 @@ def _hp_delta(avant: dict, apres: dict) -> dict:
 
 
 def measure(sid: int, seed: str = "777", board: str = BOARD,
-            state_name: str = "probe_503r1_overwhelming_wrath_phase2"):
+            state_name: str = "probe_503r1_overwhelming_wrath_phase2",
+            hooks: dict | None = None, extra_args: list | None = None):
     """Monte le scenario, joue le cast PUIS les deux passages de tour des DEUX cotes, rend
     `(mesures, dispose)`. Le TEST de garde appelle CETTE fonction -- une seule implementation du
     montage et des lectures.
@@ -211,26 +212,37 @@ def measure(sid: int, seed: str = "777", board: str = BOARD,
     LE PLACEMENT EST CHOISI POUR L'ETAGE [6] : DEUX ennemis colles a Azkor. Le selecteur de la
     phase 2 est `AdjacentEnemies(Caster@+0x48, unique: 1, sel: 3)` -- il ne depend PAS de la cible
     du cast, donc c'est la geometrie AUTOUR DU CASTER qui fixe le cardinal, et c'est elle qu'on
-    force."""
+    force.
+
+    `hooks` (#503-r4) : `{"avant_tir": f(sid, rid), "apres_tir": f(sid, rid) -> obj}`. Le SEUL
+    point d'extension, et il est place autour du pas natif qui declenche le tir -- c'est ce qui
+    permet a `probe_503r4_ventilation_par_coup.py` d'armer `hit-trace` sur CE pas et rien d'autre
+    SANS re-ecrire le montage. Dupliquer le montage rendrait les deux mesures incomparables, et
+    c'est la comparaison qui est tout l'objet."""
     state_path = LOGS / ("%s.json" % state_name)
     rid = build(state_path, [
         "--seed", seed, "--board", board,
         "--p-units", "worldEightbound,worldJakhal",
         "--a-units", "orksNob,orksRuntherd",
         "--place", "worldEightbound:2,3", "--place", "worldJakhal:1,1",
-        "--a-place", "orksNob:2,4", "--a-place", "orksRuntherd:3,3"])
+        "--a-place", "orksNob:2,4", "--a-place", "orksRuntherd:3,3"]
+        # `extra_args` (#503-r5) : la VARIANTE du montage, pas un autre montage. Elle sert a
+        # injecter un `--seed-bc` greffe (un trait pose sur une cible) SANS dupliquer board, seed,
+        # unites et placements -- une divergence de montage rendrait les deux mesures
+        # incomparables, et c'est la comparaison qui est tout l'objet.
+        + list(extra_args or []))
 
     def dispose():
         rpc(sid, "disposeRunner", {"runnerId": rid}, 20)   # MES runners, jamais ceux des autres
 
     try:
-        return _measure_on(sid, rid), dispose
+        return _measure_on(sid, rid, hooks=hooks), dispose
     except Exception:
         dispose()
         raise
 
 
-def _measure_on(sid: int, rid: int) -> dict:
+def _measure_on(sid: int, rid: int, hooks: dict | None = None) -> dict:
     from engine.runner.operations.summon_ai import _apply_active_ability
     from engine.runner.operations.triggers.dispatch.turn import delayed_attack_triggers
 
@@ -302,13 +314,17 @@ def _measure_on(sid: int, rid: int) -> dict:
     # ventilation par coup dit COMMENT -- et c'est elle, sur #478, qui a distingue « le port se
     # trompe de montant » de « il manque un volet ». Sans elle une divergence de total ne se
     # decompose pas et on en serait reduit a fitter le scalaire.
+    if hooks and hooks.get("avant_tir"):
+        hooks["avant_tir"](sid, rid)
     act3 = rpc(sid, "applyAction",
                {"runnerId": rid, "captureEvents": True, "action": {"kind": "endturn"}}, 90) or {}
+    extra = hooks["apres_tir"](sid, rid) if (hooks and hooks.get("apres_tir")) else None
     dec3 = decision(sid, rid)
     live_hp_apres = hp_live(sid, rid)
     rng_apres = rng_dump(sid, rid)
 
     return {
+        "extra": extra,
         "rid": rid, "caster": caster_id, "target": target_id, "from_here": from_here,
         "mon_joueur": mon_joueur, "joueur_adverse": joueur_adverse,
         "routed": res.get("routed"), "ported": (res.get("diag") or {}).get("ported"),
