@@ -37,9 +37,15 @@ class SquigHoundAdditionalHitsEffect(BaseEffect):
     a l'attaque du porteur : `nrOfHits` coups a degat PROPRE [minDmg,maxDmg] (vars 0xc/0xd de l'ability
     SquigHound, ctor AbilityOrEffect 0x43a=1082) et profil PROPRE (`damageProfile`). Gate = OwnerIsCaster.
 
-    Natif : `IdunBattle.Entities.Effects.Loki.SquigHound_AdditionalHitsEffect$$CreateAdditionalHits` -> `IdunBattle.Entities.Effects.EffectAdditionalHits$$Create` {condition=OwnerIsCaster, minDmg=GetMinMaxDamage(effect,idx0)=RandomAmount(ConfigVar(0xc),
-    ConfigVar(0xd)), count=GetNumberConstant(0x2f=nrOfHits), damageProfile=GetDamageProfile(config).Value,
-    maxDmg=GetMinMaxDamage(effect,idx1)}. `IdunBattle.Entities.Effects.BaseEffect$$GetMinMaxDamage` (overload 2-arg IdunBattle.Entities.Effects.BaseEffect$$GetMinMaxDamage) indexe
+    Natif : `IdunBattle.Entities.Effects.Loki.SquigHound_AdditionalHitsEffect$$CreateAdditionalHits` -> `IdunBattle.Entities.Effects.EffectAdditionalHits$$Create` {condition=OwnerIsCaster,
+    param_3 = `GetMinMaxDamage(this, 0)` (noeud ROLL), count=GetNumberConstant(0x2f=nrOfHits),
+    damageProfile=GetDamageProfile(config).Value, param_8 = `GetMinMaxDamage(this, 1)` (noeud DISPLAY)}.
+    ⚠ La ligne qui vivait ici disait « minDmg=...(idx0) / maxDmg=...(idx1) » : c'etait FAUX (#884). Le
+    2e argument d'`IdunBattle.Entities.Effects.BaseEffect$$GetMinMaxDamage` n'est pas un INDICE de
+    variable, c'est le drapeau `isPrediction` -- corps LU (overload 4-arg, `0xc`/`0xd`) :
+    `isPrediction == 0` -> `DSLFormulas.RandomAmount(minNode, maxNode)` ; `!= 0` -> `DSLFormulas.Average
+    (minNode, maxNode)`. Cf. la note de mecanique sur `SpecialIssueCombiMeltaAdditionalHitsEffect`.
+    `GetMinMaxDamage` (overload 2-arg) indexe
     les vars sur l'`AbilityStateFromEffect` (= le niveau de l'ability source sur l'unite, `ability_level`).
     minDmg/maxDmg in `variablesAffectedByRarityBonus` -> x multiplier. Les coups squig ont leur perce/profil
     propres et sont prev-threades APRES les coups d'arme (overkill continu) -> chemin `extra_groups` de
@@ -59,7 +65,13 @@ class SquigHoundAdditionalHitsEffect(BaseEffect):
                 or "Physical"
         except Exception:
             profile = "Physical"
-        return [{"count": int(count), "min": int(mn), "max": int(mx), "profile": profile}]
+        # BI-CANAL ROLL / DISPLAY (#884) : `param_8` du `Create` natif vaut `GetMinMaxDamage(this, 1)`
+        # = `Average(minNode, maxNode)`, PAS 0 -> la cellule de PREDICTION est DEGENEREE a la moyenne
+        # (etalee +/-20 % par le pipeline), alors que la face COMBAT lit `min`/`max` du noeud ROLL.
+        # Mecanique complete : `SpecialIssueCombiMeltaAdditionalHitsEffect.additional_hit_groups`.
+        return [{"count": int(count),
+                 "amount": _round_fix64(_Fraction(int(mn) + int(mx), 2), 0),
+                 "min": int(mn), "max": int(mx), "profile": profile}]
 
 
 class CordClawAdditionalHitsEffect(BaseEffect):
@@ -69,11 +81,18 @@ class CordClawAdditionalHitsEffect(BaseEffect):
     Exitor-Rho's further attacks ... deal an additional 2x 582-873 Direct Damage »).
 
     Natif : `IdunBattle.Entities.Effects.Loki.CordClaw_AdditionalHitsEffect$$CreateAdditionalHits` -> EffectAdditionalHits
-    {condition=OwnerIsActor, minmax=GetMinMaxDamage2(effect, idx0/idx1) = vars `minDmg_2`/`maxDmg_2`
-    de l'ability CordClaw (indexées AbilityStateFromEffect = ablvl du cast, rarity-scalées ×mult),
+    (INLINÉ dans ce corps-ci — le repli `if (param_8 == 0) param_8 = param_3` s'y lit verbatim)
+    {condition=OwnerIsActor, param_3 = `GetMinMaxDamage2(this, 0)` (noeud ROLL),
+    param_8 = `GetMinMaxDamage2(this, 1)` (noeud DISPLAY),
     count=GetNumberConstant(0x32)=`nrOfHits_2` (=2), profile=GetDamageProfile(config)=DirectDamage
     (fallback natif 0xf si absent)}. Même canal #179 que SquigHound (prev-threadés après les coups
     d'arme, overkill continu).
+
+    ⚠ La ligne qui vivait ici disait « minmax=GetMinMaxDamage2(effect, idx0/idx1) » : c'était FAUX
+    (#884). `IdunBattle.Entities.Effects.BaseEffect$$GetMinMaxDamage2(this, isPrediction)` =
+    `GetMinMaxDamage(this, isPrediction, 0x36 = minDmg_2, 0x37 = maxDmg_2)` — le 2ᵉ argument est le
+    drapeau `isPrediction`, PAS un indice de variable : `0` -> `RandomAmount(min, max)` (ROLL),
+    `1` -> `Average(min, max)` (DISPLAY). Cf. `SpecialIssueCombiMeltaAdditionalHitsEffect`.
 
     VALIDÉ arithmétique live (probe_57c_flathits.py D, 2468 s15 u83 lvl50 mult200, ability 1123 vs
     t162 deathPoxwalker) : per-hit [886,1330] = [minDmg_2,maxDmg_2][50]=[443,665]×2.0, ×2 coups ->
@@ -92,7 +111,11 @@ class CordClawAdditionalHitsEffect(BaseEffect):
                 or "Physical"
         except Exception:
             profile = "Physical"
-        return [{"count": int(count), "min": int(mn), "max": int(mx), "profile": profile}]
+        # BI-CANAL ROLL / DISPLAY (#884) : `param_8` = `GetMinMaxDamage2(this, 1)` = `Average(...)`.
+        # Cf. `SpecialIssueCombiMeltaAdditionalHitsEffect.additional_hit_groups` pour la mecanique.
+        return [{"count": int(count),
+                 "amount": _round_fix64(_Fraction(int(mn) + int(mx), 2), 0),
+                 "min": int(mn), "max": int(mx), "profile": profile}]
 
 
 class SorcerousFacadeAdditionalHitsEffect(BaseEffect):
@@ -112,7 +135,9 @@ class SorcerousFacadeAdditionalHitsEffect(BaseEffect):
         additionalHitsType = 1,
         profile  = `GetDamageProfile(config).Value` = `constants.damageProfile` = Psychic,
         hits     = `Get(GetNumberConstant(config, 0x2f = nrOfHits))` (= 1),
-        predictionDamage = `GetMinMaxDamage(this, 1)` }
+        forceOverkill = 0,
+        param_8  = `GetMinMaxDamage(this, 1)` = `Average(ConfigVar(0xc), ConfigVar(0xd))` (noeud
+                   DISPLAY -- #884 : ce n'est PAS un second `RandomAmount`) }
 
     ⚠ Le corps natif est **IDENTIQUE INSTRUCTION POUR INSTRUCTION** a
     `IdunBattle.Entities.Effects.Loki.SquigHound_AdditionalHitsEffect$$CreateAdditionalHits` (memes
@@ -138,7 +163,11 @@ class SorcerousFacadeAdditionalHitsEffect(BaseEffect):
                 .get("damageProfile") or "Psychic"
         except Exception:
             profile = "Psychic"
-        return [{"count": int(count), "min": int(mn), "max": int(mx), "profile": profile}]
+        # BI-CANAL ROLL / DISPLAY (#884) : `param_8` = `GetMinMaxDamage(this, 1)` = `Average(...)`.
+        # Cf. `SpecialIssueCombiMeltaAdditionalHitsEffect.additional_hit_groups` pour la mecanique.
+        return [{"count": int(count),
+                 "amount": _round_fix64(_Fraction(int(mn) + int(mx), 2), 0),
+                 "min": int(mn), "max": int(mx), "profile": profile}]
 
 
 class FearOfTheUnseenExtraDamageEffect(BaseEffect):
@@ -163,8 +192,9 @@ class FearOfTheUnseenExtraDamageEffect(BaseEffect):
     sur la config de l'ABILITY 1115, indexees par l'`AbilityStateFromEffect` (= le niveau d'ability de la
     SOURCE, donc `ability_level` cote port, propage par `scale_from_source` a la pose).
 
-    Canal #179 STANDARD du PORTEUR, forme PREDEFINED [min,max] (== SquigHound/CordClaw : la face COMBAT
-    resout le noeud `RandomAmount`). `minDmg`/`maxDmg` sont dans `variablesAffectedByRarityBonus` ->
+    Canal #179 STANDARD du PORTEUR, BI-CANAL (== SquigHound/CordClaw/SorcerousFacade) : la face COMBAT
+    resout le noeud `RandomAmount` (`min`/`max`), la face PREDICTION la cellule DEGENEREE `Average`
+    (`amount`) -- #884. `minDmg`/`maxDmg` sont dans `variablesAffectedByRarityBonus` ->
     x multiplier de rarete. Gate `ctx["is_melee"]` requis (noeud `IsMeleeAttack` du trigger) ;
     `OwnerIsCaster` = le porteur EST l'attaquant, ce que le canal porteur garantit deja.
 
@@ -190,7 +220,11 @@ class FearOfTheUnseenExtraDamageEffect(BaseEffect):
                 .get("damageProfile") or "DirectDamage"
         except Exception:
             profile = "DirectDamage"
-        return [{"count": int(count), "min": int(mn), "max": int(mx), "profile": profile}]
+        # BI-CANAL ROLL / DISPLAY (#884) : `param_8` = `GetMinMaxDamage(this, 1)` = `Average(...)`.
+        # Cf. `SpecialIssueCombiMeltaAdditionalHitsEffect.additional_hit_groups` pour la mecanique.
+        return [{"count": int(count),
+                 "amount": _round_fix64(_Fraction(int(mn) + int(mx), 2), 0),
+                 "min": int(mn), "max": int(mx), "profile": profile}]
 
 
 class FoulInfusionExtraHitsEffect(BaseEffect):
