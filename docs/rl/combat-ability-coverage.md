@@ -9,9 +9,9 @@ Le runner combat route chaque ability choisie via `ActiveAbilityMessage` -> `Abi
 ## Bilan
 
 - ActiveAbilityType castables par les unites : **175** distinct
-- **PORTED** (dans `ABILITY_CLASSES`) : **137**
-- **NO-OP silencieux** (a porter) : **38**
-- Ventilation NO-OP : **DAMAGE**=20, **EFFECT/BUFF**=11, **SUMMON**=4, **REPAIR**=2, **HEAL**=1
+- **PORTED** (dans `ABILITY_CLASSES`) : **139**
+- **NO-OP silencieux** (a porter) : **36**
+- Ventilation NO-OP : **DAMAGE**=18, **EFFECT/BUFF**=11, **SUMMON**=4, **REPAIR**=2, **HEAL**=1
 
 ## Priorisation & templates de port
 
@@ -30,13 +30,11 @@ Le runner combat route chaque ability choisie via `ActiveAbilityMessage` -> `Abi
 
 Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 
-## NO-OP SILENCIEUX en combat (a porter, tries categorie puis frequence) (38)
+## NO-OP SILENCIEUX en combat (a porter, tries categorie puis frequence) (36)
 
 | id | ability | categorie | #units | kinds |
 |---|---|---|---|---|
-| 1080 | HellfireShells | DAMAGE(Piercing) | 3 | NS |
 | 1044 | IncendiaryShells | DAMAGE(Flame) | 2 | NS |
-| 1209 | InfernalCannon | DAMAGE(Flame) | 2 | LN |
 | 1108 | KissOfDeath | DAMAGE(DirectDamage) | 2 | NS |
 | 1015 | PrecisionShot | DAMAGE(Energy) | 2 | NS |
 | 1173 | ArcScourge | DAMAGE(Particle) | 1 | N |
@@ -73,7 +71,7 @@ Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 | 1052 | CallRipperSwarms | SUMMON | 1 | N |
 | 1172 | InvocationOfMachineVengeance | SUMMON | 1 | N |
 
-## PORTED (registry) (137)
+## PORTED (registry) (139)
 
 | id | ability | categorie | #units | kinds |
 |---|---|---|---|---|
@@ -119,6 +117,7 @@ Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 | 1043 | ThunderousAssault | DAMAGE(Power) | 4 | LN |
 | 1189 | CalibaniteGreatsword | DAMAGE(Power) | 3 | LN |
 | 1092 | DarkTalonStrike | DAMAGE(DirectDamage) | 3 | LN |
+| 1080 | HellfireShells | DAMAGE(Piercing) | 3 | NS |
 | 1150 | PlasmaCannon | DAMAGE(Plasma) | 3 | LN |
 | 1091 | SlashingDive | DAMAGE(Power) | 3 | NS |
 | 1103 | Supercharge | DAMAGE(Plasma) | 3 | LN |
@@ -131,6 +130,7 @@ Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 | 1147 | HadesAutocannons | DAMAGE(Flame) | 2 | LN |
 | 1214 | Hailstrike | DAMAGE(Projectile) | 2 | LN |
 | 1160 | HeavyRailRifle | DAMAGE(Piercing) | 2 | LN |
+| 1209 | InfernalCannon | DAMAGE(Flame) | 2 | LN |
 | 1131 | JakhalStimms | DAMAGE(Physical) | 2 | LN |
 | 1132 | KillMaimBurn | DAMAGE(Piercing) | 2 | LN |
 | 1204 | LeadingTheCharge | DAMAGE(Power) | 2 | LN |
