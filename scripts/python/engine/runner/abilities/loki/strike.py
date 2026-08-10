@@ -197,7 +197,7 @@ def spirit_leech_tree():
     tgt = Target()
     attack = AttackWithAttackDamage(tgt, "SpiritLeech", "Psychic", is_melee=False,   # ranged (range 3), nrOfHits=0x2f=1
                                      damage_override=spirit_leech_get_attack_damage,  # GetAttackDamage (+extraDmg si Pinned)
-                                     native_factory="ability")  # IdunBattleLogic.Entities.Abilities.Active.Loki.SpiritLeechAbility$$ExecuteBehaviour+0x19f appelle IdunBattleLogic.Entities.DSLFactory$$AttackWithAbilityDamage -> AbilityDamageOperation
+                                     native_factory="ability")  # IdunBattleLogic.Entities.Abilities.Active.Loki.SpiritLeechAbility$$ExecuteBehaviour+0x19f appelle IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage -> AbilityDamageOperation
     pin = AddEffect(PINNED, "Pinned", tgt, None)                                      # AddEffect(0x429), duree DEFAUT
     heal = Heal(spirit_leech_heal_targets(), spirit_leech_heal_amount)                # lifesteal (Self + Tyranids adj)
     return op_add(op_add(attack, pin), heal)                                          # ((A + Pin) + Heal)
@@ -660,7 +660,7 @@ class CordClawAbility(ActiveAbility):
 
 
 def _black_rage_move_range(state, caster_id: int) -> int:
-    """`IdunBattleLogic.Entities.DSLFactory$$UnitMovementRangeWithBonus(caster@0x160, 0x53e=1342,
+    """`IdunBattleLogic.Entities.DSLFormulas$$UnitMovementRangeWithBonus(caster@0x160, 0x53e=1342,
     ConfigConst(0xe = extraMovement))`, lu par
     `IdunBattleLogic.Entities.Abilities.Active.Loki.BlackRageAbility$$GetPossibleMovementTiles` —
     MIRROR 1:1 (MÊME nœud, MÊME forme que `orks.py::waaagh_move_range`, seul l'EffectType diffère) :
@@ -728,7 +728,7 @@ def _black_rage_charge_tile(state, caster_id, target_id, move_range: int):
 
     Le littéral d'utilité est **0x20 = 32 = `UtilityType.MovementSuggestion`** (relu au décompilé :
     `SortTilesByUtility(factory, pool, caster@0x160, 0x20)` = la surcharge int de
-    `IdunBattleLogic.Entities.DSLFactory$$SortTilesByUtility`, qui construit `UtilityDefinition..ctor(0x20)`
+    `IdunBattleLogic.Entities.DSLSelectors$$SortTilesByUtility`, qui construit `UtilityDefinition..ctor(0x20)`
     et délègue à la surcharge objet avec `ownerSel` NUL), PAS le `7 = Tile` des ports frères.
     `IdunBattle.Core.Services.UtilitiesDatabase$$InitializeUtilities` compose la clé `0x20` en
     `[Tile(7), TileDistance(34)]` — les DEUX enfants sont portés (#201, `engine/utilities/tile.py`).

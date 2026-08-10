@@ -29,7 +29,7 @@ couple voisin `FleshMetalGuns_TileEffectAbility` (`0x1830f97d8` = son IdunBattle
 On(0x16 = TurnStart_Actions = 22) & df@0xa0
 ```
 `df@0xa0` est construit par `IdunBattleLogic.Entities.DSLFactory$$InitializeShared` :
-`new <DAT_18320cc68>(df@0x148, df@0x10)` -- MEME classe et MEMES arguments que `IdunBattleLogic.Entities.DSLFactory$$IsTurnOf` applique a `Self@0x148` => **`IsTurnOf(Self)`**. Donc : la rotation fire au debut du tour du
+`new <DAT_18320cc68>(df@0x148, df@0x10)` -- MEME classe et MEMES arguments que `IdunBattleLogic.Entities.DSLTriggers$$IsTurnOf` applique a `Self@0x148` => **`IsTurnOf(Self)`**. Donc : la rotation fire au debut du tour du
 PROPRIETAIRE (et non a chaque debut de tour).
 
 ### `IdunBattleLogic.Entities.Abilities.Active.Loki.FleshMetalGunsAbility$$CreateBehaviour` (chaine d'`AbilityBehaviour.op_Addition`)
@@ -44,7 +44,7 @@ Nothing()
 ```
 - `Modulo(a,b,c)` (`IdunBattleLogic.Entities.DSLFactory$$Modulo` -> `IdunBattle.Entities.Conditions.ModuloAbilityTrigger$$ShouldTrigger`)
   est un **PREDICAT** : `(a mod b) == c`. `Get(n)` = noeud VALEUR constant.
-- `UnitTurnsStarted(Self)` (`IdunBattleLogic.Entities.DSLFactory$$UnitTurnsStarted` -> `IdunBattle.Entities.Formulas.UnitTurnsStartedFormula$$Calculate`) =
+- `UnitTurnsStarted(Self)` (`IdunBattleLogic.Entities.DSLFormulas$$UnitTurnsStarted` -> `IdunBattle.Entities.Formulas.UnitTurnsStartedFormula$$Calculate`) =
   `GetStat(unit, 0xc)`. Le compteur est incremente par `StartTurnOperation` **AVANT** l'emission de
   `On(0x16)` (mirror porte : `_bump_turns_started` puis `start_turn_triggers`) -> au 1er tour de Volk le
   compteur vaut deja **1**.

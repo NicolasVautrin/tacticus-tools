@@ -62,7 +62,7 @@ en (2,3) et Kell en (3,4)... les deux ont echange, et les coups sont alles sur K
     & IsAdjacent(owner@0x148, parent, 3)                          # « if they are adjacent »
     & CanSwitchPosition(parent) & CanSwitchPosition(owner@0x148)
 
-`IdunBattleLogic.Entities.DSLFactory$$CanSwitchPosition(u)` = `NOT HasEffect(u, 0x1b, 0, 6)`
+`IdunBattleLogic.Entities.DSLTriggers$$CanSwitchPosition(u)` = `NOT HasEffect(u, 0x1b, 0, 6)`
 (0x1b = 27 = `Taunted_OnlySpecificTargets` — une unite tauntee ne peut pas etre deplacee par le switch).
 
 ## `IdunBattleLogic.Entities.Abilities.Active.Loki.SwornProtector_ProtectAbility$$CreateBehaviour`
@@ -153,7 +153,7 @@ from ..base import TriggeredAbility, TriggerEvent
 SWORN_PROTECTOR_ABILITY = "SwornProtector"
 SWORN_PROTECTOR_CONST_UNIT_ID = 0x00      # GetStringConstant(cfg, 0) -> "unitId" = astraSmnKell
 _ON_PRE_UNIT_ABILITY = int(EventTriggerType.PreUnitAbility)     # 0x2b = 43
-# `IdunBattleLogic.Entities.DSLFactory$$CanSwitchPosition(u)` = `NOT HasEffect(u, 0x1b, 0, 6)`.
+# `IdunBattleLogic.Entities.DSLTriggers$$CanSwitchPosition(u)` = `NOT HasEffect(u, 0x1b, 0, 6)`.
 TAUNTED_EFFECT = int(EffectType.Taunted_OnlySpecificTargets)    # 0x1b = 27
 
 
@@ -166,7 +166,7 @@ def _has_effect(state: State, unit_id: int, effect_type: int) -> bool:
 
 
 def can_switch_position(state: State, unit_id: Optional[int]) -> bool:
-    """`IdunBattleLogic.Entities.DSLFactory$$CanSwitchPosition(u)` = `NOT HasEffect(u, 27=Taunted, 0, 6)`."""
+    """`IdunBattleLogic.Entities.DSLTriggers$$CanSwitchPosition(u)` = `NOT HasEffect(u, 27=Taunted, 0, 6)`."""
     if unit_id is None:
         return False
     return not _has_effect(state, unit_id, TAUNTED_EFFECT)

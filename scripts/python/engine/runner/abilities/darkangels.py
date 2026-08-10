@@ -101,7 +101,7 @@ if TYPE_CHECKING:
 
 
 def _ability_profile(ability_id: str, key: str) -> str:
-    """`IdunBattleLogic.Entities.DSLFactory$$DamageProfileFromConfig(config@0x60, <AbilityConstantType>)` :
+    """`IdunBattleLogic.Entities.DSLSelectors$$DamageProfileFromConfig(config@0x60, <AbilityConstantType>)` :
     le NOM du profil de degat lu dans les CONSTANTES de l'ability (`damageProfile` = 0x2e = 46,
     `damageProfile_2` = 0x3f = 63 — enum `IdunBattle.Configuration.AbilityConstantType`, table de symboles
     du build). Oracle = la CONFIG (valeur BRUTE lue telle quelle par le natif). LEVE si la cle manque :
@@ -166,10 +166,10 @@ def plasma_cannon_tree():
     JAMAIS copiees du commentaire du template :
 
     1. **SELECTEUR splash = `PickRandomly(UnitsDirectlyBehind(target), 2)`** (PlasmaGrenade = `Enemies(caster,
-       AdjacentUnits(target,1))`). `IdunBattleLogic.Entities.DSLFactory$$UnitsDirectlyBehind` (DEJA porte, selectors.py:157, cite
+       AdjacentUnits(target,1))`). `IdunBattleLogic.Entities.DSLSelectors$$UnitsDirectlyBehind` (DEJA porte, selectors.py:157, cite
        PlasmaCannon) = ennemis-du-caster VIVANTS sur l'anneau R1 de la cible, du COTE OPPOSE au caster
        (`MinDistance(caster,cand) > MinDistance(caster,target)`, STRICT = AmountIsGreater, case #48 : la
-       laterale a distance EGALE est EXCLUE), meme elevation (tolerance +-1). Le `IdunBattleLogic.Entities.DSLFactory$$PickRandomly(.,2)` (2 = nrOfTargets, lu au decompile) est FOLDE dans la feuille via `pick_n=2` (comme Fragstorm
+       laterale a distance EGALE est EXCLUE), meme elevation (tolerance +-1). Le `IdunBattleLogic.Entities.DSLSelectors$$PickRandomly(.,2)` (2 = nrOfTargets, lu au decompile) est FOLDE dans la feuille via `pick_n=2` (comme Fragstorm
        IdunBattleLogic.Entities.Abilities.Active.Loki.FragstormAbility$$ExecuteBehaviour : tire 2 cibles DANS la resolution du selecteur d'attaque via `state.rng`). len<=2 -> les deux
        unites, MAIS le natif TIRE QUAND MEME (`min(len(pool),2)` tirages, bornes decroissantes) -- #130,
        cf. `_pick_randomly_n`. La feuille re-trie par id apres le pick (`OrderBy` de `AttackBehaviour$$Execute`).
@@ -181,9 +181,9 @@ def plasma_cannon_tree():
        nrOfHits=3, range=3, damageProfile=Plasma.
 
     3. **FACTORY NATIVE = `IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage` -> `native_factory="attack"`** (PlasmaGrenade =
-       `IdunBattleLogic.Entities.DSLFactory$$AttackWithAbilityDamage` -> "ability"). CLASSIFIE PAR XREFS de l'ExecuteBehaviour natif (piege
+       `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage` -> "ability"). CLASSIFIE PAR XREFS de l'ExecuteBehaviour natif (piege
        rngcrit-1202 / tip #2), PAS au nom du template : les deux call-sites `IdunBattleLogic.Entities.Abilities.Active.Loki.PlasmaCannonAbility$$ExecuteBehaviour+0x1eb`/`IdunBattleLogic.Entities.Abilities.Active.Loki.PlasmaCannonAbility$$ExecuteBehaviour+0x2a6` referencent
-       IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage (verifie via `list_xrefs` -- PlasmaCannon ABSENT des xrefs de IdunBattleLogic.Entities.DSLFactory$$AttackWithAbilityDamage). `native_factory=
+       IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage (verifie via `list_xrefs` -- PlasmaCannon ABSENT des xrefs de IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage). `native_factory=
        "attack"` => `AttackDamageOperation.ExecuteHit` = valeur brute + resolve slot-8 GASPILLE = **2 tirages/
        coup a cc=0** (le DEFAUT `is_attack_damage_op=True`). Un port copie a l'aveugle du template (native_factory=
        "ability", 1 tirage/coup) desyncherait le RNG des le coup 2 -- confronte LIVE par le test.
@@ -224,7 +224,7 @@ class PlasmaCannonAbility(ActiveAbility):
     `execute_behaviour` DELEGUE a `plasma_cannon_tree()` (mirror 1:1 du decompile). Le SPLASH est un SEUL
     `AttackWithAttackDamage(selecteur-multi, pick_n=2)` (== le natif, PAS un `Foreach`) : `AttackBehaviour.Execute`
     resout la liste + `OrderBy` par id + `PickRandomly(2)`. FACTORY `native_factory="attack"` (IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage, prouve
-    par XREFS -- CONTRASTE le template PlasmaGrenade "ability" IdunBattleLogic.Entities.DSLFactory$$AttackWithAbilityDamage, piege rngcrit-1202/tip #2) => 2 tirages/
+    par XREFS -- CONTRASTE le template PlasmaGrenade "ability" IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage, piege rngcrit-1202/tip #2) => 2 tirages/
     coup a cc=0. Passif porteur `Deathwing` [fable] non porte (no-op ; se declenche on-block, hors path degat)."""
     __slots__ = ()
     ABILITY_TYPE = int(ActiveAbilityType.PlasmaCannon)  # 1150
@@ -355,7 +355,7 @@ def dark_talon_strike_tree(target_ref):
       PAR ELEMENT du `Foreach` -> constant pour l'element. On les factorise en UN `If` de BEHAVIOUR
       autour de deux feuilles `AttackWithAttackDamage(native_factory="ability")` qui ne different que
       par leurs cles de config : evaluation strictement identique au natif.
-    - `native_factory="ability"` = `IdunBattleLogic.Entities.DSLFactory$$AttackWithAbilityDamage` (lu au
+    - `native_factory="ability"` = `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage` (lu au
       decompile de `DamageUnit`) -> `AbilityDamageOperation.ExecuteHits` = 1 tirage/coup, pas de crit."""
     main_sel = Cache(Units(target_ref))                       # Cache(Units(target@0x178))
     is_main = AreEqual(Subject(), main_sel)
@@ -528,7 +528,7 @@ def death_on_the_wind_tree(target_ref, nr_of_tiles: int, profile: str):
       APRES les attaques, sur le meme `Cache` d'unites).
     - duree = `dsl+0xc0` = le noeud constant `Direct(1)` (#98) : deja en TOURS, PAS un `TurnsFromRounds`.
     - `native_factory="ability"` : le natif compose `AbilityDamage` + `Attack` = exactement ce que
-      `IdunBattleLogic.Entities.DSLFactory$$AttackWithAbilityDamage` construit."""
+      `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage` construit."""
     tiles = Cache(death_on_the_wind_machine_attack_tiles(target_ref, nr_of_tiles))
     enemies = Cache(Enemies(Units(tiles)))
     attack = Foreach(enemies, AttackWithAttackDamage(

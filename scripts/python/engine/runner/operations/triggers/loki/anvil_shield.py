@@ -220,7 +220,7 @@ def anvil_shield_apply_stun_tree(state: State, attacker_id: int):
     convention que `AddBondEffect`) :
       * `IsTurnOf(caster)` VRAI (cas nominal : l'attaquant frappe pendant SON tour) ->
         `TurnsUntilEndOfCurrentPlayersNextTurn` = `ConvertRoundsToTurns(1) + 1`
-        (`IdunBattleLogic.Entities.DSLFactory$$TurnsUntilEndOfCurrentPlayersNextTurn` bat son noeud sur
+        (`IdunBattleLogic.Entities.DSLFormulas$$TurnsUntilEndOfCurrentPlayersNextTurn` bat son noeud sur
         `TurnsFromRoundsFormula(df, .., 1)` + un noeud constant `1` ; GROUND TRUTH LIVE : `remaining = 3`
         pour 2 joueurs, soit 2 + 1). Duree deja en TOURS -> `duration_turns` (NON reconvertie).
       * sinon (attaque hors du tour de l'attaquant : overwatch, contre-attaque) -> `TurnsFromRounds(1)`

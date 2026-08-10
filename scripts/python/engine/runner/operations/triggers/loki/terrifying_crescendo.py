@@ -14,7 +14,7 @@ JAMAIS -> l'effet etait present-mais-inerte (case-204 §<< Accumulation : NON re
 |---|---|
 | `TerrifyingCrescendoAbility$$CreateTrigger`   | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.TerrifyingCrescendoAbility$$CreateTrigger` |
 | `TerrifyingCrescendoAbility$$CreateBehaviour` | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.TerrifyingCrescendoAbility$$CreateBehaviour` |
-| `DSLFactory$$AddEffectOrIncreaseLevel`        | `IdunBattleLogic.Entities.DSLFactory$$AddEffectOrIncreaseLevel` (lambda `b__0 IdunBattleLogic.Entities.DSLFactory.u003Cu003Ec__DisplayClass569_0$$u003CAddEffectOrIncreaseLevelu003Eb__0`) |
+| `DSLBehaviors$$AddEffectOrIncreaseLevel`        | `IdunBattleLogic.Entities.DSLBehaviors$$AddEffectOrIncreaseLevel` (lambda `b__0 IdunBattleLogic.Entities.DSLFactory.u003Cu003Ec__DisplayClass569_0$$u003CAddEffectOrIncreaseLevelu003Eb__0`) |
 | `IncreaseEffectLevelOperation$$Execute`       | `IdunBattle.Operations.IncreaseEffectLevelOperation$$Execute` (le clamp) |
 | `TerrifyingCrescendo_ExtraDmgEffect$$CreateEffectDamageBonusForAttack` | `IdunBattle.Entities.Effects.Loki.TerrifyingCrescendo_ExtraDmgEffect$$CreateEffectDamageBonusForAttack` |
 

@@ -20,7 +20,7 @@ compteur MORT -- les deux se degradent en silence.
 |---|
 | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.FuelledByFury_ExtraDamageAbility$$CreateTrigger` |
 | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.FuelledByFury_ExtraDamageAbility$$CreateBehaviour` |
-| `IdunBattleLogic.Entities.DSLFactory$$IsActiveAbilityCountedAsUsed` |
+| `IdunBattleLogic.Entities.DSLTriggers$$IsActiveAbilityCountedAsUsed` |
 | `IdunBattleLogic.Entities.DSLFactory$$IsNormalAttack` (= `IsNormalAttackOrHealOrRepair`) |
 | `IdunBattle.Entities.Triggers.AbilityIsCountedOnceTrigger$$ShouldTrigger` |
 | `idun.Idun.Source.Shared.Battle.StaticBattleRules.StaticBattleRules.ActiveAbility$$ShouldAbilityOnlyBeCountedOncePerBattleAbility` |
@@ -45,7 +45,7 @@ On(0xe = UnitPostAbility)
   Hero et son propre allie) -- aucun noeud `!AreEqual(Owner, caster)` dans la conjonction.
 
 ### `IdunBattleLogic.Entities.DSLTriggers$$IsActiveAbilityCountedAsUsed(df, isPreAbilityTrigger)`
-(nom du build `rnca9r7q6c` ; `IdunBattleLogic.Entities.DSLFactory$$IsActiveAbilityCountedAsUsed` sur
+(nom du build `rnca9r7q6c` ; `IdunBattleLogic.Entities.DSLTriggers$$IsActiveAbilityCountedAsUsed` sur
 `gqfc5mff6c` -- MEME fonction, la classe DSL a ete scindee entre les deux builds.)
 ```
 seuil = DSLFormulas@(isPreAbilityTrigger ? 0x18 : 0x20)   # +0x18 = Direct(0) | +0x20 = Direct(1)
@@ -112,7 +112,7 @@ If( HasEffect(Owner@0x148, 0x52b, 0, 6),
 
 ## Frontiere DSL/imperatif (#149)
 Le behaviour est un ARBRE (`If(HasEffect, IncreaseEffectLevel, AddEffect)`) -- exactement la forme que
-`IdunBattleLogic.Entities.DSLFactory$$AddEffectOrIncreaseLevel` alloue, d'ou la reutilisation du
+`IdunBattleLogic.Entities.DSLBehaviors$$AddEffectOrIncreaseLevel` alloue, d'ou la reutilisation du
 helper d'arbre `add_effect_or_increase_level` (Foreach + If/else + les 2 feuilles) plutot qu'un
 helper imperatif fusionne. Les feuilles restent imperatives (`IncreaseEffectLevelOperation`,
 `AddEffectOperation`). Les predicats du `CreateTrigger` sont collapses dans `matches` (doctrine des

@@ -57,7 +57,7 @@ def psyker_smite_tree(pct: int, profile: str):
     amount = PercentageOf(Const(pct), StatAmount(Caster(), int(StatType.ATTACK)))   # Direct(pct) x StatAmount(Attack)
     # `ability_type=0x3f5` (1013) : le smite porte l'AbilityOrEffect « kind attaque-normale » (case-34
     # ProbableDamageEvent AbilityOrEffect(1013)) -> threade au payload d'event On(9) after-hit — c'est le
-    # gate de la branche 2 d'`IdunBattleLogic.Entities.DSLFactory$$OnNormalAttackOrSmite` (LordOfTempests AddIce #35).
+    # gate de la branche 2 d'`IdunBattleLogic.Entities.DSLTriggers$$OnNormalAttackOrSmite` (LordOfTempests AddIce #35).
     return AttackWithAttackDamage(Target(), "Psyker", profile, is_melee=False, amount=amount, hits=1,
                                   ability_type=0x3f5)
 

@@ -327,7 +327,7 @@ def displace_triggers(state: State, pusher_id: int, pushed_id: int) -> list[dict
 
 def after_death_triggers(state: State, dying_id: int, killer_id: Optional[int],
                          overkill: bool = False) -> list[dict]:
-    """Vecteur MORT (mirror `IdunBattleLogic.Entities.DSLFactory$$OnDeathEvent → dispatch). Construit l'événement `On(1)`
+    """Vecteur MORT (mirror `IdunBattleLogic.Entities.DSLTriggers$$OnDeathEvent → dispatch). Construit l'événement `On(1)`
     {killer=0x158, dying=0x178, overkill} et lance `evaluate_trigger_operation`. Déclenche les accumulations
     ActOfFaith (allié Imperial qui meurt ou tue) + FinalJustice (l'unité mourante riposte, sauf overkill).
     `actor_id`/`target_id` reflètent killer/dying pour le dispatch générique. No-op si aucun trigger ne
@@ -400,8 +400,8 @@ def pre_unit_death_2_triggers(state: State, dying_id: int, killer_id: Optional[i
     (`ApplyDamageOperation$$IdunBattle.Operations.ApplyDamageOperation$$Execute` n'emet AUCUN des trois ; `InputMessageProcessor$$
     IdunBattle.Messages.InputMessageProcessor$$VerifyDeaths` non plus — il ne fait qu'appeler `OperationProcessor$$Core.Services.OperationProcessor$$KillUnit.)
 
-    Consommateurs portes : la famille DEATH-NOVA (`IdunBattleLogic.Entities.DSLFactory$$OnPreDeath2` ->
-    `IdunBattleLogic.Entities.DSLFactory$$OnDeathEvent(2, a, b)) — `ExplodesAbility` (trait Explodes) et `PutridExplosion_Ability`
+    Consommateurs portes : la famille DEATH-NOVA (`IdunBattleLogic.Entities.DSLTriggers$$OnPreDeath2` ->
+    `IdunBattleLogic.Entities.DSLTriggers$$OnDeathEvent(2, a, b)) — `ExplodesAbility` (trait Explodes) et `PutridExplosion_Ability`
     (trait PutridExplosion). Les DEUX passent `a=1` -> AUCUN gate `NOT HasFlag(dying, Overkilled=8)` :
     la nova part MEME EN OVERKILL (le flag `overkill` est thread pour fidelite du payload, aucun
     consommateur de CE vecteur ne le lit aujourd'hui). L'unite est deja `alive=False` au dispatch

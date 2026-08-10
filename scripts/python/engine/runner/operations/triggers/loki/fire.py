@@ -61,7 +61,7 @@ def env_fire_tile_tree(pct: int, profile: str):
                      amount  = PercentageOf( StatAmount(@0x180, Health=5, Max=2), ConfigConst(0x12=fireDmgPct) ),
                      Direct(Nullable(3)),
                      source  = AbilityOrEffect(Fire=5) ) )
-    `IdunBattleLogic.Entities.DSLFactory$$AttackWithAbilityDamage` construit `IdunBattle.Entities.Behaviours.
+    `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage` construit `IdunBattle.Entities.Behaviours.
     AbilityDamageBehaviour$$.ctor` + `IdunBattle.Entities.Behaviours.AttackBehaviour$$.ctor` (LU) : c'est la
     famille ABILITY (`IdunBattle.Operations.AbilityDamageOperation` -> `IdunBattle.Core.Services.
     DamagePrediction$$CalculateAbilityDamage`), DISTINCTE de `IdunBattleLogic.Entities.DSLFactory$$
@@ -102,7 +102,7 @@ class FireTileDoT(TileEffectTrigger):
     Health, variant=2=Maximum), fireDmgPct=20)` = 20% de sa PV MAX, porte en degat DIRECT.
 
     behaviour = arbre DSL `env_fire_tile_tree()` (mirror 1:1 de la feuille de IdunBattleLogic.Entities.Abilities.Active.Loki.EnvFireTileAbility$$CreateBehaviour ;
-    factory `IdunBattleLogic.Entities.DSLFactory$$AttackWithAbilityDamage` = DIRECT, DISTINCTE de `IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage` =
+    factory `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage` = DIRECT, DISTINCTE de `IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage` =
     Psyker/ThunderousAssault). i2 `Keywords/EffectFire` : « Units starting their turn on a Fire hex take 20%
     of their initial Health » = la BASE (20% PV max), PAS le net. Le natif route la base par le PERCAGE/ARMURE
     (CONFIRME LIVE 2026-07-12 : blackHaarken net 477 = base 1908 x PiercingRatio(Flame) 25%, l'armure absorbant
@@ -156,7 +156,7 @@ def on_fire_damage_tree(fire_effect_type: int):
         AddEffect( effectType = 5 (FireEffect),
                    source     = AbilityStateReference (caster),
                    target     = Tiles(target@0x178) )                                     # TILE-domain
-    = un noeud DSL UNIQUE `AddEffect` avec selecteur TILE-DOMAIN `Tiles(Target())` (mirror `IdunBattleLogic.Entities.DSLFactory$$Tiles -> `UnitsMainTilesSelector` = la MainTile occupee de la cible). La feuille `AddEffect`
+    = un noeud DSL UNIQUE `AddEffect` avec selecteur TILE-DOMAIN `Tiles(Target())` (mirror `IdunBattleLogic.Entities.DSLSelectors$$Tiles -> `UnitsMainTilesSelector` = la MainTile occupee de la cible). La feuille `AddEffect`
     (generalisee tile-domain) convertit la position en id de tuile et route vers `AddEffectOperation.execute(
     target=tile_id, FIRE_TILE, "Fire")` -- MEME Operation/args que l'ancien imperatif -> bit-exact BY
     CONSTRUCTION (meme mutation, meme gate `already-present` d'AddEffect). Le gate de DECLENCHEMENT

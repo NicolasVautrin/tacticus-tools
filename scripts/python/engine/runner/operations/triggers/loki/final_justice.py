@@ -50,7 +50,7 @@ def _normal_attack_damage_node(state: State, owner_id: int):
 
 
 def _finaljustice_target(state: State, owner_id: int) -> Optional[int]:
-    """`IdunBattleLogic.Entities.DSLFactory$$ValidNormalAttackTargets → `IdunBattleLogic.Entities.DSLFactory$$SortUnitsByDamageUtility → MEILLEURE cible.
+    """`IdunBattleLogic.Entities.DSLSelectors$$ValidNormalAttackTargets → `IdunBattleLogic.Entities.DSLSelectors$$SortUnitsByDamageUtility → MEILLEURE cible.
 
     Tri natif RE LECTURE INTÉGRALE (`IdunBattle.Entities.Selectors.SortUnitsByDamageUtilitySelector$$Select +
     `IdunBattleLogic.Entities.Abilities.Active.Loki.FinalJusticeAbility$$CreateBehaviour) : pour chaque cible normal-attaquable, bâtit une

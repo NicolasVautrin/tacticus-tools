@@ -408,7 +408,7 @@ class AlphaWarriorAbility(ActiveAbility):
         L'ETAGE ETAIT DEJA PORTE, et c'est ce qu'il fallait verifier avant d'ecrire quoi que ce soit.
         `DSLTriggers$$IsInTeamSynapseRange(target, team)` n'est PAS un trigger dedie : son corps
         alloue `IdunBattle.Entities.Triggers.IsInAuraRangeTrigger$$.ctor(state, query, 0x41c, target,
-        team)` -- le MEME trigger que `DSLFactory$$IsInTeamContagionsOfNurgleAura`, fige sur un autre
+        team)` -- le MEME trigger que `DSLTriggers$$IsInTeamContagionsOfNurgleAura`, fige sur un autre
         `EffectType`. Le mirror generique `entities/triggers.py::IsInTeamAura` le porte deja, avec
         son etage de portee (`battle_query.get_in_range_aura_amount`, `entities/effects/aura.py`).
         Seul le CALL-SITE manquait. `0x41c` = `EffectType.Synapse_Effect`.

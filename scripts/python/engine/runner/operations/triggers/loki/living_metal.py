@@ -12,7 +12,7 @@ par le trait LivingMetal ; DEUX arbres DSLFactory (mirror STRUCTURE, pas les nom
   * `@0xa0` (`IdunBattleLogic.Entities.DSLFactory$$InitializeShared`, ctor gshared) = scoping "le proprietaire est
     le joueur ENTRANT" -- PROUVE live (probe_203) : la regen ne fire QU'AU tour du proprietaire
     (delta 0 au tour adverse). Porte ici = `ev.player_id == OwnerComponent.player`.
-  * `IsDamaged(self)` (`IdunBattleLogic.Entities.DSLFactory$$IsDamaged`) = `Not(UnitsWithStatEqualToTrigger(self,
+  * `IsDamaged(self)` (`IdunBattleLogic.Entities.DSLTriggers$$IsDamaged`) = `Not(UnitsWithStatEqualToTrigger(self,
     HEALTH=5, part MISSING=4, Direct(0)@factory+0xb8))` = missing HP > 0 = HP courant < HP max.
     (Le dispatch gate deja owner VIVANT -> une unite MORTE ne regen pas : pas d'auto-resurrection,
     conforme au decompile -- LivingMetalRepairAbility n'est PAS fire_on_death.)

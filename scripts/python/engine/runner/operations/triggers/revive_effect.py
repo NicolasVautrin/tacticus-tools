@@ -19,7 +19,7 @@ Artefacts natifs (build gqfc5mff6c, VA citees ; RVA = VA - 0x180000000 calculee 
                                                                     GetHealType@0x748,
                                                                     AbilityOrEffect(effect.Id)) ;
                                                              DeactivateEffect }
-    IdunBattleLogic.Entities.DSLFactory$$Revive -> IdunBattle.Entities.Behaviours.ReviveBehaviour$$Execute (POSE la `ReviveData`
+    IdunBattleLogic.Entities.DSLBehaviors$$Revive -> IdunBattle.Entities.Behaviours.ReviveBehaviour$$Execute (POSE la `ReviveData`
                                sur `UnitComponent+0xa8` -- AUCUNE mutation) ; le mutateur
                                `IdunBattle.Operations.ReviveUnitOperation$$Execute` la DRAINE plus tard
                                (`Core.Services.OperationProcessor$$ReviveUnit`). Cf. `operations/revive.py`.
@@ -72,7 +72,7 @@ DEUX chemins de lecture, croises :
     `IdunBattle.Configuration.AbilityConfiguration$$GetStringConstant` LEVE une `System.Exception` sur cle absente : ils DEVAIENT overrider).
     => `default_chance = 100` n'est plus une hypothese, c'est une LECTURE.
 
-`get_ReviveOnOverkill` EST le byte `param_3` de `IdunBattleLogic.Entities.DSLFactory$$OnDeathEvent` :
+`get_ReviveOnOverkill` EST le byte `param_3` de `IdunBattleLogic.Entities.DSLTriggers$$OnDeathEvent` :
   * `param_3 == 0` -> le trigger AJOUTE `NOT(HasFlag(dying, 8=overkill))`  => « unless Overkilled »
   * `param_3 != 0` -> AUCUN gate overkill                                  => « even if Overkilled »
 (`param_4 == 0` -> AJOUTE `NOT(CurrentShieldAmountFormula(dying, 0x1b))` = shield==0, present pour TOUS,
@@ -102,7 +102,7 @@ AFFECTED_BY_HEAL = int(UnitTrait.AffectedByHealAndRepair)  # 0x421=1057 (IsAffec
 
 
 class Revive(AbilityBehaviour):
-    """Feuille DSL `Revive` (`IdunBattleLogic.Entities.DSLFactory$$Revive` -> `IdunBattle.Entities.Behaviours.ReviveBehaviour$$Execute`).
+    """Feuille DSL `Revive` (`IdunBattleLogic.Entities.DSLBehaviors$$Revive` -> `IdunBattle.Entities.Behaviours.ReviveBehaviour$$Execute`).
 
     ⚠ CETTE FEUILLE NE MUTE RIEN (RE case-89 volet C) : le natif se contente de POSER une `ReviveData`
     (`amount`, `healType`, `sourceId`, `priority`) sur le `Nullable<ReviveData>` @`UnitComponent+0xa8`
@@ -131,7 +131,7 @@ class Revive(AbilityBehaviour):
                  source_id=None, priority: int = 0, tiles_sel=None, amount_node=None):
         self.target_sel, self.ability_id, self.hp_var = target_sel, ability_id, hp_var
         self.amount_node = amount_node
-        # 7e argument de `IdunBattleLogic.Entities.DSLFactory$$Revive` (`targetsTile`) -- NUL chez tous
+        # 7e argument de `IdunBattleLogic.Entities.DSLBehaviors$$Revive` (`targetsTile`) -- NUL chez tous
         # les consommateurs SAUF `IdunBattle.Entities.Effects.Loki.GhostEffect$$
         # CreateTargetTriggerBehaviour`, qui y passe `Owner@0x148` = la TUILE porteuse du ghost.
         # `ReviveBehaviour$$Execute` ne renseigne le `Nullable<UnitPosition>` de la `ReviveData` que si
@@ -366,7 +366,7 @@ class _ReviveEffectCore:
             return False
         if state.get_entity(dying) is None:
             return False
-        # IdunBattleLogic.Entities.DSLFactory$$OnPreDeath(target, ignoreOverkill=get_ReviveOnOverkill) -> IdunBattleLogic.Entities.DSLFactory$$OnDeathEvent :
+        # IdunBattleLogic.Entities.DSLTriggers$$OnPreDeath(target, ignoreOverkill=get_ReviveOnOverkill) -> IdunBattleLogic.Entities.DSLTriggers$$OnDeathEvent :
         # byte==0 -> AJOUTE `NOT(HasFlag(dying, 8=overkill))` ; byte!=0 -> AUCUN gate overkill.
         if (not self.revive_on_overkill) and ev.overkill:
             return False

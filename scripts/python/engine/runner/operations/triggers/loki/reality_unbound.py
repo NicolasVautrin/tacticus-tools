@@ -139,7 +139,7 @@ def reality_unbound_extra_max_damage(state: State, owner_id: int) -> int:
 
 
 def _are_enemies(state: State, a_id: Optional[int], b_id: Optional[int]) -> bool:
-    """`IdunBattleLogic.Entities.DSLFactory$$AreEnemies(a, b)` sur deux selecteurs MONO-unite :
+    """`IdunBattleLogic.Entities.DSLTriggers$$AreEnemies(a, b)` sur deux selecteurs MONO-unite :
     equipes DIFFERENTES. Une entite sans `OwnerComponent` (ou absente) -> False."""
     if a_id is None or b_id is None:
         return False

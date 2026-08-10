@@ -137,7 +137,7 @@ def great_frost_axe_tree():
     (AttackDamageBehaviour -> `AttackDamageOperation.ExecuteHit`) = 2 tirages/coup a cc=0 (valeur brute +
     resolve slot-8 GASPILLE, cf. cas fable rngcrit-1202 / tip #2). CLASSE PAR LES XREFS : `GreatFrostAxe
     Ability$$ExecuteBehaviour` appelle IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage (from_address 1811e367f, UNCONDITIONAL_CALL) -- l'ATTACK
-    family, PAS l'ability family (IdunBattleLogic.Entities.DSLFactory$$AttackWithAbilityDamage->IdunBattleLogic.Entities.DSLFactory$$AttackWithAbilityDamage) qu'utilise Stormcaller. Multi-coups (4 hits) ->
+    family, PAS l'ability family (IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage->IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage) qu'utilise Stormcaller. Multi-coups (4 hits) ->
     per-hit desync des le coup 2 si mal classe : ici c'est bien "attack" (verifie XREF).
 
     `ability_type=1089` = l'arg natif `AbilityOrEffect(this+0x10)` (= ActiveAbilityType.GreatFrostAxe),
@@ -219,7 +219,7 @@ def foehammer_get_dead_heroes() -> UnitsWithTrait:
 
         UnitsWithTrait( AllDeadOrResurrectedUnits(), 0x10 = UnitTrait.Hero )
 
-    (le natif appelle `IdunBattleLogic.Entities.DSLFactory$$UnitsWithTrait(source, 0x10, mask)` DIRECTEMENT,
+    (le natif appelle `IdunBattleLogic.Entities.DSLSelectors$$UnitsWithTrait(source, 0x10, mask)` DIRECTEMENT,
     pas la factory composite `HeroUnits` -- on mirror donc le noeud appele.) AUCUN filtre d'equipe : le
     « For each Character that has been defeated in this battle » de l'i2 compte les heros des DEUX camps.
     `AllDeadOrResurrectedUnits` = les MORTS de `ctx.units` (le state runner garde les cadavres,

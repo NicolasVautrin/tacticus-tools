@@ -40,14 +40,14 @@ resolu) : le tirage est donc paye a CHAQUE declenchement du trigger, avant tout 
 Chaines lues, verbatim :
   * `IdunBattleLogic.Entities.DSLFactory$$AdjacentEnemies(X, p3, p4)` (surcharge 4-args) =
     `Enemies(reference = X, Units(AdjacentTiles(X), p3, p4) op_Subtraction X, p4)` ;
-  * `IdunBattleLogic.Entities.DSLFactory$$AdjacentFriends(X, p3, p4)` = idem avec `Friends`.
+  * `IdunBattleLogic.Entities.DSLSelectors$$AdjacentFriends(X, p3, p4)` = idem avec `Friends`.
     **La reference d'equipe est X lui-meme** -> `AdjacentFriends(Target)` = les allies DE LA CIBLE,
     c'est-a-dire les ENNEMIS du caster ici. Cf. le meme collapse deja documente sur
     `IdunBattleLogic.Entities.Abilities.Active.Loki.HarvesterOfSoulsAbility$$GetSurroundingUnits` ;
   * `IdunBattle.DSL.TargetsSelector$$op_BitwiseAnd` = INTERSECTION (le champ mode `+0x28` vaut 0 ;
     `op_Addition` construit la MEME classe avec 1) ;
-  * `IdunBattleLogic.Entities.DSLFactory$$Damageable(x)` = `UnitsWithoutTrait(x, 0x40e, 3)` ;
-  * `IdunBattleLogic.Entities.DSLFactory$$PickRandomly(source, amount, allowRepeat, maxRepeat,
+  * `IdunBattleLogic.Entities.DSLSelectors$$Damageable(x)` = `UnitsWithoutTrait(x, 0x40e, 3)` ;
+  * `IdunBattleLogic.Entities.DSLSelectors$$PickRandomly(source, amount, allowRepeat, maxRepeat,
     ignoreForcedTargets)` -> `IdunBattle.Entities.Selectors.PickRandomAmountSelector` : `min(len(pool),
     amount)` tirages, bornes decroissantes, **meme quand le pool tient dans `amount`** (loi case-130).
 
@@ -183,7 +183,7 @@ HAZE_OF_CORRUPTION_ABILITY = "HazeOfCorruption"
 HAZE_DAMAGE_TRANSFER = int(EffectType.HazeOfCorruption_DamageTransfer)
 HAZE_DAMAGE_TRANSFER_NAME = EffectType.HazeOfCorruption_DamageTransfer.name
 _ON_PRE_UNIT_ABILITY = int(EventTriggerType.PreUnitAbility)     # 0x2b = 43
-# `IdunBattleLogic.Entities.DSLFactory$$OnDeathEvent(eventId, allowOverkill, allowShield)` -- RELU
+# `IdunBattleLogic.Entities.DSLTriggers$$OnDeathEvent(eventId, allowOverkill, allowShield)` -- RELU
 # VERBATIM (case-haze-bonded) ; les deux enveloppes ne visent PAS le meme evenement :
 #   `OnPreDeath(a, b)` -> `OnDeathEvent(**1** = PreUnitDeath, a, b)`   [HazeCorruption_BonusHitAbility]
 #   `OnDeath(a, b)`    -> `OnDeathEvent(**0** = UnitDeath,    a, b)`   [le report 1077]
@@ -208,8 +208,8 @@ HAZE_BOND_TURNS = 1
 
 def _triggering_ability_or_effect(state: State, ev: TriggerEvent):
     """Le champ `TriggeringAbility` (`AbilityEntities+0x98`) -- l'`AbilityOrEffect` DECLENCHEUR, celui
-    que comparent `IdunBattleLogic.Entities.DSLFactory$$TriggeringAbilityIs` **et**
-    `IdunBattleLogic.Entities.DSLFactory$$TriggeringEffectIs`. Les deux factories sont le MEME code
+    que comparent `IdunBattleLogic.Entities.DSLTriggers$$TriggeringAbilityIs` **et**
+    `IdunBattleLogic.Entities.DSLTriggers$$TriggeringEffectIs`. Les deux factories sont le MEME code
     (decompile lu : meme slot `DSLSelectors+0x90` + `DirectAbilitySelector(AbilityOrEffect(x))` + le
     meme ctor de trigger) et le lecteur unique en est
     `IdunBattleLogic.Entities.AbilityTypeSelector.TriggeringAbilitySelector$$Select`, qui lit

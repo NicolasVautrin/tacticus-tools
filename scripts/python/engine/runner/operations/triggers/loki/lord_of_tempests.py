@@ -3,7 +3,7 @@
 RE (decompile ghidra, build gqfc5mff6c) :
 
   - `IdunBattleLogic.Entities.Abilities.Triggered.Loki.LordOfTempests_AddIceAbility$$CreateTrigger` = `OnNormalAttackOrSmite() & get_OwnerIsCaster` :
-      * `IdunBattleLogic.Entities.DSLFactory$$OnNormalAttackOrSmite` = `On(0x26=38 NormalAttack) | (On(9=Attack) &
+      * `IdunBattleLogic.Entities.DSLTriggers$$OnNormalAttackOrSmite` = `On(0x26=38 NormalAttack) | (On(9=Attack) &
         <trigger DAT_18322f680>(DirectAbilitySelector(AbilityOrEffect 0x3f5=1013)))`. Le 2e terme
         est LE MÊME nœud que la 2e branche d'`IdunBattleLogic.Entities.DSLFactory$$IsNormalAttack` (même classe DAT_18322f680,
         même ctor gshared MISLABELÉ `HasUsedActiveAbilityThisTurnTrigger`, même sélecteur 1013 —

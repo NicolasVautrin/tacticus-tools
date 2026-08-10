@@ -58,10 +58,39 @@ le noeud le DIRAIT (`dispatched: False`), mais l'effet serait tout de meme RETIR
 frappe. C'est PIRE que le statu quo (un marqueur inerte qui reste), et c'est la raison pour laquelle
 l'inscription est conditionnee a la phase 2, pas au seul fait que l'effet soit de la famille.
 
-Les CINQ autres effets de la famille que le port pose (`ValkyrieStrike_Effect` 1022,
-`MalleusRocketLauncher` 1308, `DevastatingRefrain_Target` 1402, `HeavyRailRifle_PendingAttack` 1333,
-`OverwhelmingWrath_PendingAttack` 1300) restent donc HORS table tant que leur `CreateBehaviour` de
-phase 2 n'est pas porte -- residus nommes, cf. la fiche.
+Les QUATRE autres effets de la famille que le port pose (`ValkyrieStrike_Effect` 1022,
+`MalleusRocketLauncher` 1308, `DevastatingRefrain_Target` 1402, `HeavyRailRifle_PendingAttack` 1333)
+restent donc HORS table tant que leur `CreateBehaviour` de phase 2 n'est pas porte -- residus
+nommes, cf. la fiche. `OverwhelmingWrath_PendingAttack` 1300 en est SORTI : sa phase 2 est portee
+(#503-r1, `runner/abilities/worldeaters.py`).
+
+================================================================================================
+3. CE QUI PEUPLE `TRIGGERED_ABILITY_BEHAVIOURS` -- une dependance IMPLICITE, MESUREE (#503-r3)
+================================================================================================
+Le `TriggerAbility` de `pending_attack_tree` fait son lookup dans `TRIGGERED_ABILITY_BEHAVIOURS`,
+que chaque module de phase 2 alimente A SON IMPORT. Or **aucun module de ce paquet ne les importe** :
+la garantie vient de `runner/abilities/handler.py`, que le runner charge pour `ABILITY_CLASSES`.
+Mesure du 2026-08-10, en process FRAIS, en n'important que la chaine trigger
+(`dispatch/registry.py`) :
+
+    1134 FullThrottle           present   (import pour EFFET DE BORD explicite dans `registry.py`)
+    1127 SeekerMissile_Attack   ABSENT    (depend de `abilities/tau.py`, jamais importe ici)
+    1237 OverwhelmingWrath_Attack ABSENT  (depend de `abilities/worldeaters.py`, idem)
+
+Ce n'est pas theorique : sans le module de phase 2, le `Triggered()` rend `dispatched: False`
+**et retire l'effet quand meme** (le `RemoveEffect` du meme arbre) -- un marqueur qui disparait
+sans que rien ne frappe, exactement le regime que la Sec.2 declare PIRE que le statu quo.
+
+CE N'EST PAS CORRIGE ICI, et la raison est une MESURE, pas un choix de perimetre. Les deux aretes
+candidates ne sont pas de la meme classe (protocole du CLAUDE.md : charger la cible SEULE dans un
+process frais et regarder si le module de depart y atterrit) :
+
+    `pending_attack -> abilities.worldeaters`  : worldeaters seul NE tire PAS pending_attack -> GRATUITE
+    `pending_attack -> abilities.tau`          : tau seul TIRE pending_attack           -> PORTEUSE
+
+Hisser l'une et differer l'autre inscrirait une asymetrie que rien dans le natif ne justifie ; les
+hisser toutes deux fermerait un cycle. Residu `#503-r3` : le foyer a choisir est probablement
+`dispatch/registry.py` (qui porte deja le patron pour `1134`), a mesurer de la meme facon.
 """
 from __future__ import annotations
 
@@ -103,6 +132,22 @@ PENDING_ATTACK_EFFECTS: dict[int, PendingAttackSpec] = {
     int(EffectType.SeekerMissileFrequencyLock_Target): PendingAttackSpec(
         "IdunBattle.Entities.Effects.Loki.SeekerMissileFrequencyLockTargetEffect",
         int(TriggeredAbilityType.SeekerMissileFrequencyLock_Attack)),
+    # Pose par `IdunBattleLogic.Entities.Abilities.Active.Loki.OverwhelmingWrathAbility$$
+    # ExecuteBehaviour` (1141, #503) : `AddBondEffect(0x514, AbilityStateReference, source = Caster
+    # @DSLSelectors+0x48, targets = Caster@+0x48, bondedEntity = Caster@+0x48, options = <Nullable
+    # ZERO>)`. La derivation d'`APendingAttackEffect` est LUE et non deduite du nom :
+    # `...OverwhelmingWrath_PendingAttackEffect$$.ctor` a pour corps entier
+    # `APendingAttackEffect..ctor(this, Nullable(AbilityOrEffect(...)))` -- il n'appelle AUCUN autre
+    # ctor de base. Le `0x4d5` de son `$$GetTriggeredAbilityType` (corps entier : `return 0x4d5`)
+    # est la valeur que le slot `<klass+0x768>` rend au `TriggerAbility` du `Triggered()`.
+    #
+    # ⚠ ICI LE PORTEUR ET LE BONDE SONT LA MEME UNITE (Azkor), les deux etant `Caster@+0x48` au
+    # call-site. Le `IsTurnOf(GetAttackingUnitSelector())` du `Triggered()` reste donc lu sur le
+    # BONDE -- on ne collapse pas sur le porteur, meme la ou les deux coincident : c'est ce collapse
+    # que la mesure de 1069 refute (cf. Sec.1).
+    int(EffectType.OverwhelmingWrath_PendingAttack): PendingAttackSpec(
+        "IdunBattle.Entities.Effects.Loki.OverwhelmingWrath_PendingAttackEffect",
+        int(TriggeredAbilityType.OverwhelmingWrath_Attack)),
 }
 
 

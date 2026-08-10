@@ -23,9 +23,9 @@ from ....dsl.event_trigger_type import EventTriggerType
 
 
 class KillDeadUnits(AbilityBehaviour):
-    """`IdunBattleLogic.Entities.DSLFactory$$KillDeadUnits` = `IdunBattleLogic.Entities.DSLFactory$$Kill(subject, DownedUnits(units_sel), options)`
+    """`IdunBattleLogic.Entities.DSLBehaviors$$KillDeadUnits` = `IdunBattleLogic.Entities.DSLFactory$$Kill(subject, DownedUnits(units_sel), options)`
     -> `IdunBattle.Entities.Behaviours.KillUnitBehaviour$$Execute` : pour chaque unite DOWNED (flag 0xf, via
-    `DownedUnits`=`UnitsWithFlagSelector(units_sel, 0xf, want=1) IdunBattleLogic.Entities.DSLFactory$$DownedUnits`) NON exemptee (le natif skippe
+    `DownedUnits`=`UnitsWithFlagSelector(units_sel, 0xf, want=1) IdunBattleLogic.Entities.DSLSelectors$$DownedUnits`) NON exemptee (le natif skippe
     `HasFlag(9|6|0x1a)`), emet une Operation de KILL (finalise la mort : retrait + on-death). Args natifs
     (ThunderousAssault) : `subject_sel` = Caster() (+0x160), `units_sel` = Target() (+0x178), options =
     `ForClearDeadUnitsBlockReviveOverkill`.

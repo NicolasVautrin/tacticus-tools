@@ -6,7 +6,7 @@
 `IdunBattleLogic.Entities.Abilities.Active.ChainLightningAbility$$CreateBehaviour`.
 
 ⚠ NE PAS CONFONDRE avec `engine.entities.behaviours.ChainBehaviour` : ce dernier mirrore
-`IdunBattleLogic.Entities.DSLFactory$$ChainBehaviour` (la boucle bornee d'Incursion, qui RE-EVALUE un
+`IdunBattleLogic.Entities.DSLBehaviors$$ChainBehaviour` (la boucle bornee d'Incursion, qui RE-EVALUE un
 `Func` de selecteur et lie `ActiveTarget`), pas la chaine A CIBLES ACCUMULEES de cette famille-ci.
 Les deux allouent des classes natives DISTINCTES (`ChainSpawnBehaviour` vs
 `ChainAbilityDamageBehaviour`), toutes deux derivees de `ChainBehaviourBehaviour`.

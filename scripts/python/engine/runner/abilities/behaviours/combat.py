@@ -53,7 +53,7 @@ class AttackWithAttackDamage(AbilityBehaviour):
     `Units(Cache(First(Nearest(...))))` -> la cible du message) : chemin INCHANGE pour ThunderousAssault/
     CrushingClaws/SpiritLeech.
 
-    `pick_n` = FOLD du `IdunBattleLogic.Entities.DSLFactory$$PickRandomly(selecteur, n)` natif quand il ENVELOPPE le selecteur de cibles
+    `pick_n` = FOLD du `IdunBattleLogic.Entities.DSLSelectors$$PickRandomly(selecteur, n)` natif quand il ENVELOPPE le selecteur de cibles
     d'une attaque (SPLASH de Fragstorm IdunBattleLogic.Entities.Abilities.Active.Loki.FragstormAbility$$ExecuteBehaviour : `PickRandomly(AdjacentTiles(target) − Tiles(Friends), 4)`).
     Comme `multi=True` folde l'`OrderBy`, `pick_n` folde le PickRandomly DANS la resolution du selecteur
     d'attaque. ORDRE DES TROIS ETAGES, MIRROR STRICT (R28-1, decompile) :
@@ -96,7 +96,7 @@ class AttackWithAttackDamage(AbilityBehaviour):
     `hits` = nb de coups EXPLICITE du degat-node (defaut 1 en mode `amount` ; en mode bornes, None → `hits`
     de la config via `ability_attack_params`, sinon OVERRIDE la config `nrOfHits` — cas d'une ability dont le
     natif passe un nb de coups CALCULE a `AttackWithAttackDamage` en lieu de `GetNumberConstant(0x2f)` : ex.
-    Executioner `hits = IdunBattleLogic.Entities.DSLFactory$$RoundsStarted` = valeur DYNAMIQUE lue au cast, PAS une constante config)."""
+    Executioner `hits = IdunBattleLogic.Entities.DSLFormulas$$RoundsStarted` = valeur DYNAMIQUE lue au cast, PAS une constante config)."""
     __slots__ = ("target_sel", "ability_id", "profile", "is_melee", "min_key", "max_key", "hits_key",
                  "damage_override", "multi", "pick_n", "amount", "hits", "ability_type", "hits_add_key",
                  "native_factory", "force_overkill", "hits_override", "level_slot", "tile_domain",
@@ -157,7 +157,7 @@ class AttackWithAttackDamage(AbilityBehaviour):
         #             350/520/6b0) -> AttackDamageBehaviour -> `AttackDamageOperation.ExecuteHit
         #             IdunBattle.Operations.AttackDamageOperation$$ExecuteHit` : valeur BRUTE (GetDamage-top) + resolve slot-8 GASPILLE = 2 tirages/
         #             coup a cc=0 (mesure bit-exact VigilanceEternal, 5 seeds x 2 cibles).
-        #   "ability" = `IdunBattleLogic.Entities.DSLFactory$$AttackWithAbilityDamage/IdunBattleLogic.Entities.DSLFactory$$AttackWithAbilityDamage -> core IdunBattleLogic.Entities.DSLFactory$$AttackWithAbilityDamage`
+        #   "ability" = `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage/IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage -> core IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage`
         #             -> AbilityDamageBehaviour -> `IdunBattle.Operations.AbilityDamageOperation$$ExecuteHits` :
         #             GetDamage par coup SEUL (IdunBattle.Core.Services.DamagePrediction$$CalculateAbilityDamage = 0 RNG) = 1 tirage/
         #             coup (mesure bit-exact Stormcaller 3-hit, probe_217). Classifier par les XREFS de
@@ -324,7 +324,7 @@ class AttackWithAttackDamage(AbilityBehaviour):
 
 
 class SortedAttackSeries(AbilityBehaviour):
-    """`IdunBattleLogic.Entities.DSLFactory$$SortedAttackSeries(actor, sel1, atk1, sel2, atk2, source)` ->
+    """`IdunBattleLogic.Entities.DSLBehaviors$$SortedAttackSeries(actor, sel1, atk1, sel2, atk2, source)` ->
     `IdunBattle.Entities.Behaviours.SortedAttackSeriesBehaviour$$Execute` -- MIRROR du decompile.
 
     CHAMPS (mapping factory -> `.ctor` LU) : `+0x50` selecteur d'ACTEUR · `+0x58` tableau de 2 paires
@@ -440,7 +440,7 @@ class SortedAttackSeries(AbilityBehaviour):
 
 
 class ChainLeftOverHitsAttackDamage(AbilityBehaviour):
-    """`IdunBattleLogic.Entities.DSLFactory$$ChainLeftOverHitsAttackDamage` ->
+    """`IdunBattleLogic.Entities.DSLBehaviors$$ChainLeftOverHitsAttackDamage` ->
     `IdunBattle.Entities.Behaviours.ChainLeftOverHitsAttackDamageBehaviour$$Execute` — MIRROR du decompile.
 
     CHAMPS (mapping factory -> `..ctor` LU, pas devine) : `+0x58` caster · `+0x60` cible INITIALE ·
@@ -692,7 +692,7 @@ class ChainLeftOverHitsAttackDamage(AbilityBehaviour):
 
 
 class AttackWithAbilityDamage(AbilityBehaviour):
-    """`IdunBattleLogic.Entities.DSLFactory$$AttackWithAbilityDamage` (LU) -> `IdunBattle.Entities.Behaviours.
+    """`IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage` (LU) -> `IdunBattle.Entities.Behaviours.
     AbilityDamageBehaviour$$.ctor` + `IdunBattle.Entities.Behaviours.AttackBehaviour$$.ctor` : famille ABILITY
     (`IdunBattle.Operations.AbilityDamageOperation`), factory NATIVE DISTINCTE de
     `IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage` (l'attaque d'ability crit/block ci-dessus). #149
@@ -727,7 +727,7 @@ class AttackWithAbilityDamage(AbilityBehaviour):
     nombre porte n'en depend).
 
     `multi` (case death-nova) = mode MULTI-CIBLE, mirror du `IdunBattle.Entities.Behaviours.AttackBehaviour$$Execute` que la
-    factory native enveloppe TOUJOURS (`IdunBattleLogic.Entities.DSLFactory$$AttackWithAbilityDamage` = `AbilityDamageBehaviour` +
+    factory native enveloppe TOUJOURS (`IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage` = `AbilityDamageBehaviour` +
     `AttackBehaviour(caster, targetsSelector, dmgBehaviour, profile)` ; `Execute` resout +0x50 = le CASTER en
     UNE entite — `SelectOne` — et +0x58 = la LISTE des cibles) : quand le selecteur resout N unites
     (Explodes/PutridExplosion : tous les adjacents), le behaviour resout la LISTE, l'`OrderBy` (b__5_0,
@@ -945,7 +945,7 @@ class EvaluateAbilities(AbilityBehaviour):
 
 
 class UseActiveAbility(AbilityBehaviour):
-    """`IdunBattleLogic.Entities.DSLFactory$$UseActiveAbility` -> `IdunBattle.Entities.Behaviours.UseActiveAbilityBehaviour$$Execute` : pour
+    """`IdunBattleLogic.Entities.DSLBehaviors$$UseActiveAbility` -> `IdunBattle.Entities.Behaviours.UseActiveAbilityBehaviour$$Execute` : pour
     CHAQUE cible du selecteur `targets_sel` (+0x58), le SUJET (`subject_sel`, +0x50) UTILISE son ability
     active `ability_type` (+0x60) -- dispatch RECURSIF de l'ability sur la cible (le natif emet 1 Operation
     <<use-ability>> par cible via le collecteur `proc`, en fixant `subject`=cible courante dans le ctx).

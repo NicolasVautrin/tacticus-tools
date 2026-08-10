@@ -162,7 +162,7 @@ def end_turn_summon_triggers(state: State, player_id: int) -> list[dict]:
        Snapshot AVANT la boucle (« acts on its NEXT turn »).
 
        GATE `OwnerHasFinishedMinTurns(2)` — PER-UNITE, et sur `turnsFinished`. Chaine native :
-       `IdunBattleLogic.Entities.DSLFactory$$OwnerHasFinishedMinTurns(2)` construit un
+       `IdunBattleLogic.Entities.DSLTriggers$$OwnerHasFinishedMinTurns(2)` construit un
        `IdunBattle.Entities.Triggers.UnitHasFinishedMinTurnsAbilityTrigger` (selecteur = `factory+0x148`
        = Self/Owner, amount = 2 @+0x18, unitSelectionType = 3 @+0x28) dont le
        `UnitHasFinishedMinTurnsAbilityTrigger$$ShouldTrigger` fait

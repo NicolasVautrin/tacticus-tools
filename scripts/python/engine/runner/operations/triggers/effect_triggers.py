@@ -125,7 +125,7 @@ def _ranged_auto_attack_is_active(state: State, owner_id: int) -> bool:
     ow = state.get_entity(owner_id)
     fl = ow.get_component(UnitFlagsComponent) if ow is not None else None
     #   `HasFlagAbilityTrigger$$ShouldTrigger` = `UnitFlagsComponent.Has(flag)` (XOR 1 quand `expected`
-    #   est faux, ce qui est le cas de `DSLFactory$$DoesNotHaveFlag`). Composant absent = aucun flag.
+    #   est faux, ce qui est le cas de `DSLTriggers$$DoesNotHaveFlag`). Composant absent = aucun flag.
     return fl is None or not fl.has(UnitFlagsComponent.ACTIVE_ABILITY_USED)
 
 
@@ -325,7 +325,7 @@ class RangedAutoAttackDeactivateOnAttack(EffectTrigger):
     OwnerIsActor -> DeactivateEffect(effect@0x150)`. Des que le PORTEUR de l'effet est l'ACTEUR d'une
     attaque-a-degats, son overwatch est consomme.
 
-    `OwnerIsActor` = `IdunBattleLogic.Entities.DSLFactory$$get_OwnerIsActor`, qui construit son trigger
+    `OwnerIsActor` = `IdunBattleLogic.Entities.DSLTriggers$$get_OwnerIsActor`, qui construit son trigger
     avec le couple (owner@0x148, actor@0x158) — donc « l'acteur de l'evenement est le porteur ».
 
     GROUND TRUTH LIVE (case-127 §6.1) : au 1er deplacement ennemi entrant dans la portee, les DEUX

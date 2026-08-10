@@ -66,7 +66,7 @@ def rad_saturation_tree():
         AddEffect( effectType = 0x4dc=Contaminated (TILE),
                    source     = AbilityStateReference (le caster),
                    target     = <selecteur tile-domain @0x170 = tuile du caster> )
-    = un noeud DSL UNIQUE `AddEffect` avec selecteur TILE-DOMAIN `Tiles(Caster())` (== `IdunBattleLogic.Entities.DSLFactory$$Tiles -> MainTile de l'unite ; ici l'unite = le CASTER -> sa propre tuile). La feuille `AddEffect`
+    = un noeud DSL UNIQUE `AddEffect` avec selecteur TILE-DOMAIN `Tiles(Caster())` (== `IdunBattleLogic.Entities.DSLSelectors$$Tiles -> MainTile de l'unite ; ici l'unite = le CASTER -> sa propre tuile). La feuille `AddEffect`
     (tile-domain) convertit la position en id de tuile (`_add_effect_target_id`) et route vers
     `AddEffectOperation.execute(target=tile_id, 1244, "Contaminated")`. `duration_rounds=None` = pas de
     TurnsFromRounds (mirror du 5e arg natif `0`) -> `DefaultAmountOfRounds(1244)=2`. RNG-free."""

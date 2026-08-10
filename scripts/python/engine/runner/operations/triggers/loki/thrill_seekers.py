@@ -46,7 +46,7 @@ RE (decompile ghidra, build gqfc5mff6c) — MIRROR 1:1 :
   - `IdunBattle.Entities.Triggers.HasEffectTrigger$$ShouldTrigger` ->
     `IdunBattle.Entities.EntityExtensions$$HasOneOfEffects(unit, query, [type], activeOnly, flags)` ;
     ThrillSeekers passe **activeOnly = 0** (byte) et flags = 6 (owned|incoming).
-  - `IdunBattleLogic.Entities.DSLFactory$$AddStaticStatModifierEffect` ->
+  - `IdunBattleLogic.Entities.DSLBehaviors$$AddStaticStatModifierEffect` ->
     `IdunBattle.Entities.Behaviours.AddStatModifierEffectBehaviour$$.ctor` : `param_9 -> +0x78` =
     le noeud de DUREE (evalue en `Nullable<int>` par `...$$Execute` et passe a l'`EffectBuilder`).
 

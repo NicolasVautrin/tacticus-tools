@@ -127,7 +127,7 @@ def waaagh_buff_tree():
     Les TROIS effets partagent le MEME selecteur (`waaagh_buffed_units_selector`) et la MEME duree
     (`dsl+0xc0` = `Direct(1)` pose par `DSLFactory..IdunBattleLogic.Entities.DSLFactory$$.ctor` -> 1 round).
 
-    `AddStaticStatModifierEffect` (IdunBattleLogic.Entities.DSLFactory$$AddStaticStatModifierEffect) n'a PAS de feuille dediee dans le port : le mapping etabli
+    `AddStaticStatModifierEffect` (IdunBattleLogic.Entities.DSLBehaviors$$AddStaticStatModifierEffect) n'a PAS de feuille dediee dans le port : le mapping etabli
     du projet (valide live sur `BlackRage_ExtraMove` 1342) est `AddEffect(<type>)` + une classe d'effet
     portant `applied_stat_mods` (canal EAGER `AddEffectOperation._apply_stat_mods`) -> ici
     `WaaaghExtraMovementEffect` (+MOVEMENT = extraMovement).
@@ -156,7 +156,7 @@ def waaagh_buff_tree():
 
 
 def waaagh_move_range(state: "State", caster_id: int, extra_movement: int) -> int:
-    """`IdunBattleLogic.Entities.DSLFactory$$UnitMovementRangeWithBonus(caster@0x160, 1099, Direct(extraMovement))`
+    """`IdunBattleLogic.Entities.DSLFormulas$$UnitMovementRangeWithBonus(caster@0x160, 1099, Direct(extraMovement))`
     (lu par `IdunBattleLogic.Entities.Abilities.Active.Loki.WaaaghAbility$$GetPossibleMovementTiles`) = MIRROR 1:1 :
         `If( HasEffect(caster, 1099), StatAmount(caster, MOVEMENT(1), Current), Sum(<idem>, bonus) )`
     -> ANTI-DOUBLE-COMPTE : si l'effet 1099 est DEJA pose (c'est le cas ici, le Group buff @0x25 s'execute
@@ -218,7 +218,7 @@ def waaagh_charge_tile(state: "State", caster_id: int, target_id: int, move_rang
     L'operande `GetPossibleMovementTiles` est l'ARBRE DSL `waaagh_possible_movement_tiles_selector`
     (mirror 1:1). Le litteral d'utilite est **0x20 = 32 = `UtilityType.MovementSuggestion`** (relu au
     decompile : `SortTilesByUtility(factory, pool, caster@0x160, 0x20)` -- la surcharge int de
-    `IdunBattleLogic.Entities.DSLFactory$$SortTilesByUtility`, qui construit
+    `IdunBattleLogic.Entities.DSLSelectors$$SortTilesByUtility`, qui construit
     `UtilityDefinition..ctor(0x20)` et delegue a la surcharge objet avec `ownerSel` NUL), PAS le
     `7 = Tile` des ports freres. `UtilitiesDatabase$$InitializeUtilities` compose la cle `0x20` en
     `[Tile(7), TileDistance(34)]` -- les DEUX enfants sont portes (#201, `engine/utilities/tile.py`).
@@ -787,7 +787,7 @@ def squig_launchas_has_minimum_adjacent_orks(amount: int):
                               5 = Orks ),
             amount )
 
-    `IdunBattleLogic.Entities.DSLFactory$$UnitsFromFaction` compare `System.Enum.ToString(UnitFaction)` = le NOM de faction
+    `IdunBattleLogic.Entities.DSLSelectors$$UnitsFromFaction` compare `System.Enum.ToString(UnitFaction)` = le NOM de faction
     (« Orks ») au `FactionId` gameconfig de l'unite -> `ctx.faction_of` cote port."""
     return AmountIsEqualOrGreater(
         Count(UnitsFromFaction(
@@ -829,7 +829,7 @@ def squig_launchas_tree(orks_min: int, friends_min: int):
       summon est FIGE sur l'etat **PRE-attaque**, puis `If(cond, spawn)` relit le CACHE. Consequence
       mecanique : meme si les 3 coups TUENT la cible, le Squig est invoque des lors que le critere etait
       rempli avant l'attaque.
-    - **native_factory = "ability"** : le decompile appelle `IdunBattleLogic.Entities.DSLFactory$$AttackWithAbilityDamage` (PAS `IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage`) -> `IdunBattle.Operations.AbilityDamageOperation$$ExecuteHits` : 1 tirage/coup, AUCUN crit, AUCUNE feuille positionnelle. Profil `Physical`
+    - **native_factory = "ability"** : le decompile appelle `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage` (PAS `IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage`) -> `IdunBattle.Operations.AbilityDamageOperation$$ExecuteHits` : 1 tirage/coup, AUCUN crit, AUCUNE feuille positionnelle. Profil `Physical`
       (PiercingRatio 1), `nrOfHits`=3, `attackRangeType=Ranged` -> `is_melee=False`.
     - **SPAWN** : `AdjacentTiles(Cache(TargetTiles@0x190))` = tuiles hex-adjacentes a la tuile de la
       CIBLE ; `CanAddUnit` = libres+marchables ; `PickRandomly(..., 1)` FOLDE dans la feuille `Spawn`
@@ -841,7 +841,7 @@ def squig_launchas_tree(orks_min: int, friends_min: int):
       decompile) : le Squig (trait `Summon`) joue au debut de SON tour, pas a l'apparition."""
     cond = CacheTrigger(squig_launchas_fulfills_summon_criteria(orks_min, friends_min))
     attack = AttackWithAttackDamage(Target(), SQUIG_LAUNCHAS_ID, "Physical", is_melee=False,
-                                    native_factory="ability",     # IdunBattleLogic.Entities.DSLFactory$$AttackWithAbilityDamage (XREF), 1 tirage/coup
+                                    native_factory="ability",     # IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage (XREF), 1 tirage/coup
                                     ability_type=int(ActiveAbilityType.SquigLaunchas))
     spawn = Spawn(CanAddUnit(AdjacentTiles(Target())), SQUIG_LAUNCHAS_ID, pick_n=1)
     return op_add(op_add(SetCache(cond), attack), If(cond, spawn))

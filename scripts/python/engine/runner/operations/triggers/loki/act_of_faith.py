@@ -206,7 +206,7 @@ class ActOfFaithResetAbility(TriggeredAbility):
     NORMALE ET ability (`DSLFactory.On` BRUT ; verdict RE re-expert G6b). Le reset n'a AUCUN gate normal/ability :
     `WasCrit` est le SEUL filtre de type → **le porteur reset ses stacks sur un crit d'attaque NORMALE COMME
     d'ability**. ⚠ CORRECTION de #151 (via G6b) : #151 confondait `On(9)` BRUT avec le helper
-    `IdunBattleLogic.Entities.DSLFactory$$OnNormalAttackOrSmite` (= `On(38)|(On(9)&Smite)`, NON utilisé par ce trigger) et croyait `On(9)`
+    `IdunBattleLogic.Entities.DSLTriggers$$OnNormalAttackOrSmite` (= `On(38)|(On(9)&Smite)`, NON utilisé par ce trigger) et croyait `On(9)`
     ability-only → il n'émettait `On(9)` qu'en voie ability, d'où un reset MANQUANT sur crit normal (bug). Depuis
     G6b, `On(9)` est émis EN PLUS par `after_hit_normal_attack` (FinishAttack générique), gaté `is_crit` — le
     reset fire donc désormais sur les DEUX voies. Il N'écoute PAS le vecteur after-hit `On(8)` (per-coup).

@@ -77,7 +77,7 @@ def supreme_commander_ai_tree(radius: int, affected_ids) -> PerformAIAction:
                                                  GetStringArrayConstant(0x3e) ),
                                    asGroup=1, resetTurnFlags=1 ),
                   entities )`
-    `IdunBattleLogic.Entities.DSLFactory$$SurroundingFriends se deplie en `Friends(caster, Units(SurroundingTiles(casterTile, 1,
+    `IdunBattleLogic.Entities.DSLSelectors$$SurroundingFriends se deplie en `Friends(caster, Units(SurroundingTiles(casterTile, 1,
     radius) - Tiles(casterTile)))` = allies VIVANTS a distance hex <= radius du caster, caster EXCLU —
     exactement le noeud `SurroundingFriends(center, radius)` deja porte.
     `radius` = `GetNumberConstant(0x16)`, **OVERRIDE** par `GetAbilityStatModification(caster, 0x16)`
@@ -272,7 +272,7 @@ def send_in_the_next_wave_spawn_tiles(state: "State", caster_id: int, target_id:
 
     COLLAPSE (le selecteur est un arbre S avec DEUX `PickRandomly` imbriques -> le tirage vit dans le
     collapse, qui seul voit `state.rng` ; meme doctrine que le `pick_n` de `Spawn`). `AttackTilesForTarget`
-    (`AttackTilesForTargetSelector IdunBattleLogic.Entities.DSLFactory$$AttackTilesForTarget`, qui consulte la config d'arme + la geometrie de tir) est
+    (`AttackTilesForTargetSelector IdunBattleLogic.Entities.DSLSelectors$$AttackTilesForTarget`, qui consulte la config d'arme + la geometrie de tir) est
     l'IDENTITE offline : `possible` est deja le disque de rayon = portee d'arme du summon autour de la
     cible, et aucun modele de cover/ligne de vue n'existe cote port (residu documente) -> `preferred ==
     possible` -> k = min(n, |possible|), rest = n - k.
@@ -312,7 +312,7 @@ def send_in_the_next_wave_spawn_tiles(state: "State", caster_id: int, target_id:
 def send_in_the_next_wave_tree(tiles: list) -> Spawn:
     """Arbre de `IdunBattleLogic.Entities.Abilities.Active.Loki.SendInTheNextWaveAbility$$ExecuteBehaviour` : UN noeud `Spawn` dont les options
     portent le sous-behaviour ON-APPEARANCE `UseNormalAttackIfAble(activeTarget@0x180, target@0x178)`
-    (`IdunBattleLogic.Entities.DSLFactory$$UseNormalAttackIfAble` -> `UseActiveAbilityBehaviour(actor=@0x180,
+    (`IdunBattleLogic.Entities.DSLBehaviors$$UseNormalAttackIfAble` -> `UseActiveAbilityBehaviour(actor=@0x180,
     targets=@0x178, TestUnitProvider(@0x180), ...)`) = chaque Cadian fraichement pose TIRE immediatement
     sur la cible du cast. Les tuiles sont le collapse de `GetSpawnTilesSelector` (cf. ci-dessus)."""
     return Spawn(FixedTileIds(tiles), "SendInTheNextWave",
@@ -579,9 +579,9 @@ class MalleusRocketLauncherAbility(ActiveAbility):
 #    Les deux lectures CONVERGENT sur le meme ensemble -> l'ambiguite ne change AUCUN observable.
 #
 # TRI PORTE (#165) : `SortTilesByUtilityForSummon(sel, 7, owner@0x148)` -> surcharge
-# `IdunBattleLogic.Entities.DSLFactory$$SortTilesByUtilityForSummon(dsl, tiles, int, parent)` qui
+# `IdunBattleLogic.Entities.DSLSelectors$$SortTilesByUtilityForSummon(dsl, tiles, int, parent)` qui
 # construit `AllAliveMachinesSelector` + `UtilityDefinition(7 = Tile)` et delegue a
-# `IdunBattleLogic.Entities.DSLFactory$$SortTilesByUtility` ->
+# `IdunBattleLogic.Entities.DSLSelectors$$SortTilesByUtility` ->
 # `IdunBattle.Entities.Selectors.SortTilesByUtilitySelector$$Select` = tri DECROISSANT **stable** par
 # `IdunBattleLogic.AI.Utilities.UtilityDecider$$CalculateUtility` sur le composite `Tile(7)`. C'est
 # EXACTEMENT le sortilege deja porte et LIVE-VALIDE pour le placement des summons
@@ -652,7 +652,7 @@ def forward_spotter_tree(tiles: list) -> Spawn:
     sous-behaviour ON-APPEARANCE `PerformAIAttack(ActiveTarget@0x180)` -- le Cadian fraichement pose
     execute immediatement une attaque IA. Les tuiles sont le collapse de `PickTiles` (cf. ci-dessus).
 
-    ⚠ Le on-appearance est un `IdunBattleLogic.Entities.DSLFactory$$PerformAIAttack` (routine IA = un TOUR
+    ⚠ Le on-appearance est un `IdunBattleLogic.Entities.DSLBehaviors$$PerformAIAttack` (routine IA = un TOUR
     complet du summon), PAS un `PerformAIAttackFromCurrentPosition` ni un `UseNormalAttackIfAble(target)`
     dirige (contraste SendInTheNextWave) : le natif ne lui passe QUE l'acteur (`@0x180`), aucune cible.
     Le decompile donne `PerformAIAttack(ActiveTarget@0x180, 1, 0, 0, 0)` -> `+0x70 allowMoveAction = 1`,
@@ -772,7 +772,7 @@ def frag_bomb_tree() -> AtomicGroup:
         h1      = GetNumberConstant(config, 0x2f)                                # nrOfHits   = 6
         h2      = GetNumberConstant(config, 0x32)                                # nrOfHits_2 = 3
         splash  = AdjacentUnits(Target@0x178, 0, 3) - Caster@0x160
-                  # = Units(AdjacentTiles(target), 0, 3) - target - caster   [IdunBattleLogic.Entities.DSLFactory$$AdjacentUnits]
+                  # = Units(AdjacentTiles(target), 0, 3) - target - caster   [IdunBattleLogic.Entities.DSLSelectors$$AdjacentUnits]
         dmg     = MinMaxDamage(this, entities)                                   # minDmg/maxDmg[level]
         main    = AttackDamage(Caster@0x160, ActiveTarget@0x180, dmg, profile, Get(h1), <AbilityOrEffect>)
         splashA = AttackDamage(Caster@0x160, ActiveTarget@0x180, dmg, profile, Get(h2), <AbilityOrEffect>)
@@ -929,7 +929,7 @@ def basilisk_num_shells(state: "State", caster_id: int) -> tuple:
 
 
 def basilisk_tiles_at_distance(state: "State", pos: tuple, distance: int) -> list:
-    """`IdunBattleLogic.Entities.DSLFactory$$TilesAtDistance(source, d)` ->
+    """`IdunBattleLogic.Entities.DSLSelectors$$TilesAtDistance(source, d)` ->
     `IdunBattle.Entities.Selectors.TilesAtDistanceSelector$$Select` -> slot 0x63 =
     `IdunBattle.Core.Services.BattleQuery$$GetTilesAtDistance(tile, d, false)` :
 

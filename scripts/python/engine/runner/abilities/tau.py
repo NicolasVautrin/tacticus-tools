@@ -213,7 +213,7 @@ class HeavyRailRifleAbility(ActiveAbility):
 #  - `ChangeType` = `IdunBattle.Entities.Enum.ChangeType` : **0 = Add**, 1 = Set (`IdunBattle.Core.Services.BattleQuery$$GetAmount`
 #    lu au decompile). Le call-site passe 0 -> la duree est AJOUTEE a la duree restante (pas un SET).
 #  - `TurnsFromRounds(2)` est evalue UNE fois et sert AUX DEUX branches (meme noeud `uVar12`).
-#  - l'attaque route la factory `IdunBattleLogic.Entities.DSLFactory$$AttackWithAbilityDamage`
+#  - l'attaque route la factory `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage`
 #    -> `AbilityDamageOperation.ExecuteHits` (1 tirage/coup, pas de crit) == Stormcaller/EntropyCannons
 #    -> `native_factory="ability"` cote port (classification par XREF, jamais au juge).
 #  - `ExecuteAtomic(..., 0x2a)` = groupe atomique de presentation (meme flag que JakhalStimms) : aucun
@@ -345,7 +345,7 @@ class TwinSmartMissileSystemAbility(ActiveAbility):
 #
 # NOTES DE FIDELITE :
 #  - `NonSteppableOrObjectUnits(sel, 3)` = `(sel & UnitsWithoutTrait(sel, 0x1b=Steppable)) &
-#    UnitsWithoutTrait(sel, 0xd=Object)` (`IdunBattleLogic.Entities.DSLFactory$$NonSteppableOrObjectUnits`,
+#    UnitsWithoutTrait(sel, 0xd=Object)` (`IdunBattleLogic.Entities.DSLSelectors$$NonSteppableOrObjectUnits`,
 #    decompile) -> un decoy/objet adjacent n'est NI debuffe NI marque. Helper deja porte (partage avec
 #    les predicats de ciblage de SquigLaunchas).
 #  - `TurnsUntilEndOfCurrentPlayersNextTurn` = `Sum(TurnsFromRounds(1), Direct(1))` (cf.
@@ -585,7 +585,7 @@ class FightingRetreatAbility(ActiveAbility):
 #       entities )
 #
 # NOTES DE FIDELITE :
-#  - `Nothing()` (`IdunBattleLogic.Entities.DSLFactory$$Nothing`) = feuille NEUTRE en tete du `op_Addition` :
+#  - `Nothing()` (`IdunBattleLogic.Entities.DSLBehaviors$$Nothing`) = feuille NEUTRE en tete du `op_Addition` :
 #    aucun etat, aucun tirage -> NON materialisee (l'arbre porte demarre au 1er `AddEffect`).
 #  - ORDRE natif : les 4 effets AVANT le spawn. Le spawn ne consomme aucun rng ; l'attaque on-appearance
 #    des drones, SI. Conserver l'ordre garde la sequence rng fidele.
@@ -776,7 +776,7 @@ def _itg_heal_amounts(state: "State", caster_id: int) -> tuple[int, int]:
 
 
 def _ability_level_amount(state: "State", unit_id, ability_type: int):
-    """`IdunBattleLogic.Entities.DSLFactory$$AbilityLevelAmount(unit, abilityType)` (formule V,
+    """`IdunBattleLogic.Entities.DSLFormulas$$AbilityLevelAmount(unit, abilityType)` (formule V,
     COLLAPSEE) : le niveau de CETTE ability sur CETTE unite = `ActiveAbility.AbilityState.Level`
     (canal `readAbilityState` #100). Repli sur `UnitContext.active_ability_level` (canal global) si
     l'entree n'est pas seedee. None si rien de lisible."""
@@ -792,7 +792,7 @@ def _ability_level_amount(state: "State", unit_id, ability_type: int):
 
 
 def _primary_active_ability_level_amount(state: "State", unit_id):
-    """`IdunBattleLogic.Entities.DSLFactory$$PrimaryActiveAbilityLevelAmount(unit)` (formule V,
+    """`IdunBattleLogic.Entities.DSLFormulas$$PrimaryActiveAbilityLevelAmount(unit)` (formule V,
     COLLAPSEE) : le niveau de l'ability active PRIMAIRE de l'unite (`ActiveAbilityComponent.GetActive`
     = la 1re entree active/granted, cf. le meme accesseur cote playbook `InspiredToGreatnessPlaybook.
     _active_ability`). Repli `UnitContext.active_ability_level`."""
@@ -963,7 +963,7 @@ class InspiredToGreatnessAbility(ActiveAbility):
 # `IdunBattleLogic.Entities.Abilities.Active.Loki.SeekerMissileFrequencyLockAbility$$ExecuteBehaviour`
 # (MIRROR 1:1 du DECOMPILE, build `rnca9r7q6c`) :
 #
-#   turns = Sum( TurnsFromRounds(1), Direct(1) )        # == DSLFactory$$TurnsUntilEndOfCurrentPlayersNextTurn
+#   turns = Sum( TurnsFromRounds(1), Direct(1) )        # == DSLFormulas$$TurnsUntilEndOfCurrentPlayersNextTurn
 #   AActiveAbility.Execute(
 #         AddEffect(     0x462 = 1122 Markerlight,                        AbilityStateReference,
 #                        source = Caster@DSLSelectors+0x48,
@@ -1032,7 +1032,7 @@ def seeker_missile_frequency_lock_tree(state: "State"):
 
     `turns` est CALCULE ici parce que le natif compose deux noeuds de formule dont un SEUL passe par
     `IdunBattle.Core.Services.BattleQuery$$ConvertRoundsToTurns` : `Sum(TurnsFromRounds(1),
-    Direct(1))` == `IdunBattleLogic.Entities.DSLFactory$$TurnsUntilEndOfCurrentPlayersNextTurn`, deja
+    Direct(1))` == `IdunBattleLogic.Entities.DSLFormulas$$TurnsUntilEndOfCurrentPlayersNextTurn`, deja
     porte (`turns_until_end_of_current_players_next_turn`). Il s'applique au SEUL `Markerlight` : les
     deux `AddBondEffect` recoivent une struct d'options ZERO-INITIALISEE (`local_188..uStack_170 = 0`,
     surcharge `IdunBattleLogic.Entities.DSLBehaviors$$AddBondEffect(..., options)` et non

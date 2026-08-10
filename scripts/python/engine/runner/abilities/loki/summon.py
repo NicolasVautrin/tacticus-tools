@@ -79,7 +79,7 @@ def scarab_summon_tree() -> SpawnReplica:
     a SOI) et `CopyOwner` (clone owner+stats du parent) vivent DANS `IdunBattle.Entities.Behaviours.SpawnUnitBehaviour$$Execute`,
     HORS des DSL-selecteurs.
 
-    L'on-appearance est le noeud `IdunBattleLogic.Entities.DSLFactory$$PerformAIAttack` — le MEME
+    L'on-appearance est le noeud `IdunBattleLogic.Entities.DSLBehaviors$$PerformAIAttack` — le MEME
     `PerformAIAbilityUnitBehaviour` que `...FromCurrentPosition`, a `+0x70` (`allowMoveAction = 1`) et `+0x78`
     (budget de deplacement = **null**, la ou `...FromCurrentPosition` pose `factory+0xb8 = Direct(0)`) pres.
     D'ou l'i2 « which then immediately **takes a turn** » : le double PEUT se DEPLACER avant d'agir, contrairement
@@ -185,7 +185,7 @@ def perform_ai_ability_unit_behaviour(state: "State", unit_id: int, allow_move_a
         `+0x50` = `unit`            (le selecteur d'ACTEURS, itere par `Execute`) ;
         `+0x68` = le `Func<IEntity,int>` CACHE du `<>c` de `DSLFactory` (= resolveur de l'ability
                   d'ATTAQUE de l'acteur ; c'est le point qui distingue ces noeuds de
-                  `IdunBattleLogic.Entities.DSLFactory$$PerformAIAbility`, ou le Func est fourni) ;
+                  `IdunBattleLogic.Entities.DSLBehaviors$$PerformAIAbility`, ou le Func est fourni) ;
         `+0x70` = **`allowMoveAction`** (bool) ; `+0x71` = `skipAtomicCheck` ;
         `+0x78` = **le noeud d'AMOUNT du budget de deplacement** (`IAmount`, evalue par `Execute` en un
                   `Nullable<int>` : noeud absent => `null`) ;
@@ -358,7 +358,7 @@ def _apply_move_message(state: "State", unit_id: int, to, origin) -> Optional[tu
 
 
 def perform_ai_attack_from_current_position(state: "State", unit_id: int) -> Optional[dict]:
-    """`IdunBattleLogic.Entities.DSLFactory$$PerformAIAttackFromCurrentPosition(unit, utilityEntity,
+    """`IdunBattleLogic.Entities.DSLBehaviors$$PerformAIAttackFromCurrentPosition(unit, utilityEntity,
     customUtility, skipAtomicCheck)` — CONSTRUCTEUR : il pose `+0x70 = 0` (pas de deplacement pur) et
     `+0x78 = factory+0xb8`, le singleton **`Direct(0)`** alloue par
     `IdunBattleLogic.Entities.DSLFactory$$.ctor` (meme famille que `+0xc0 = Direct(1)`). Budget de
@@ -370,7 +370,7 @@ def perform_ai_attack_from_current_position(state: "State", unit_id: int) -> Opt
 
 def perform_ai_attack(state: "State", unit_id: int, allow_move_action: bool,
                       move_amount: Optional[int]) -> Optional[dict]:
-    """`IdunBattleLogic.Entities.DSLFactory$$PerformAIAttack(unit, allowMoveAction, moveAmount,
+    """`IdunBattleLogic.Entities.DSLBehaviors$$PerformAIAttack(unit, allowMoveAction, moveAmount,
     utilityEntity, customUtility)` — CONSTRUCTEUR du noeud COUSIN : MEME
     `PerformAIAbilityUnitBehaviour` que `...FromCurrentPosition`, mais `+0x70` et `+0x78` viennent de
     L'APPELANT (et `+0x71 skipAtomicCheck` retombe a 0).
