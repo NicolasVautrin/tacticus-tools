@@ -309,7 +309,17 @@ def _dijkstra_by_pos(origin, neigh_by_pos=None, walkable_by_pos=None, elev_by_po
 
     Cette factorisation est VALUE-PRESERVING pour `get_path_node_counts_by_pos` : meme file, meme
     ordre de visite, meme condition de mise a jour. Le seul ajout est l'ecriture de `came_from` au
-    MEME endroit que celle de `best`."""
+    MEME endroit que celle de `best`.
+
+    ⚠ **LA CLE `(cout, noeuds)` EST UNE FABRICATION, et elle est MESUREE INERTE** (#448-r1-r1-r1-r1-r1).
+    Le natif compare `newCost < costs[n].cost` -- `<` STRICT sur le COUT SEUL, aucun terme de
+    longueur : a cout egal il garde le PREMIER trouve, et « premier » depend de l'ordre de sortie de
+    la `PriorityQueue` native entre priorites egales, seule moitie reellement illisible.
+    `probe_448r1r1r1r1r1_departage_cout_egal.py` compare les DEUX regles sur 60 boards et
+    18 200 paires joignables, avec CE cout d'elevation : **0 divergence** de cout ET de noeuds.
+    La regle n'est donc pas alignee sur le natif -- le gain serait nul et le risque non : le nombre
+    de noeuds est l'entree de `movementSteps`, CONFRONTE LIVE (#448-r1-r1-r1). Re-deriver, ne pas
+    citer."""
     import hexgeo
     ok = (origin[0], origin[1])
     blocked_cost = {(p[0], p[1]) for p in (block_entering_positions or ())}
