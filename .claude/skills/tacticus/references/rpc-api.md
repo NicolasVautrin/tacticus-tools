@@ -271,6 +271,41 @@ Outils de RE / observabilité — aucun hook live ne les APPELLE, mais leur code
     des `register`) : ces deux RPC ne sont **pas exposés** par la session tant qu'il est commenté.
   - **`features/hit-trace.ts`** (2) : `hitTraceDisarm`, `hitTraceSetEnabled`
   - **`features/ai-trace.ts`** : `aiTraceGetProjections`
+
+- **Capteurs META — hors bataille (#599 / #600, 2026-08-10)** : ils observent le client de
+  méta-jeu (réseau, roster, Expeditions), pas le combat. Armement/désarmement/lecture à la main,
+  donc **sans appelant statique par construction** — d'où leur nom ici. Modules entiers nommés,
+  pas seulement les orphelins : un patron `*Status` ne rend aucun nom découvrable.
+  - **`features/net-capture.ts`** (4) : `netCaptureArm`, `netCaptureDisarm`, `netCaptureDump`,
+    `netCaptureStatus` — tout ce que le client POSTe, capté au point de fil
+    (`Snowprint.ClientSdk.Web.WwwWebHelper$$PostString/PostBytes/PostData`, les trois portes
+    ancrées, `via` publié). **HTTP seulement.**
+  - **`features/ws-capture.ts`** (4) : `wsCaptureArm`, `wsCaptureDisarm`, `wsCaptureDump`,
+    `wsCaptureStatus` — le PvP **synchrone** parle WebSocket
+    (`thor.Logic.Client.Web.WebsocketController$$Send/OnMessage`), que `net-capture` ne voit pas :
+    l'armer sur une partie SyncPvp rendrait un journal VIDE. Capté **aux deux sens**.
+  - **`features/roster-owned.ts`** (4) : `rosterOwned`, `rosterOwnedArm`, `rosterOwnedDisarm`,
+    `rosterOwnedStatus` — possession réelle demandée au jeu
+    (`IdunMetaLogic.UserProgress.UnitProgression$$HasUnitUnlocked`), recoupée par
+    `$$AmountOfUnlockedUnits`. Remplace le grattage de l'écran de dispatch, qui mesurait
+    l'ÉLIGIBILITÉ (possession × alliance × rareté × niveau), pas le roster.
+  - **`features/expedition-board.ts`** (8) : `expeditionBoardArm`, `expeditionBoardDisarm`,
+    `expeditionBoardDump`, `expeditionBoardRead`, `expeditionBoardStatus`,
+    `expeditionEligibility`, `expeditionEligibilityFor`, `expeditionRankRequirements` — le
+    plateau d'Operations complet, capté là où la réponse est APPLIQUÉE
+    (`thor.Client.ResponseProcessing.GameStateSynchronizerLogic$$ApplyExpeditionProgress` et
+    deux autres portes, `via` publié). L'UI est virtualisée (4 lignes visibles sur 7) et
+    `net-capture` ne voit que le sortant : les deux voies naïves mentent.
+  - **`features/expedition-dispatch.ts`** (5) : `expeditionCallbackForge`, `expeditionDispatch`,
+    `expeditionDispatchArm`, `expeditionDispatchDisarm`, `expeditionDispatchJournal` —
+    ⚠ **seul module de la famille qui ÉCRIT** : `expeditionDispatch` engage le compte (unités
+    immobilisées pour la durée de l'opération). Les `*Arm`/`*Journal` observent la chaîne réelle
+    (`ExpeditionGameEvents$$DispatchExpedition`) sans rien envoyer.
+  - **`probes/gc-rendezvous.ts`** : `gcRendezvous` — sonde de MESURE, pas d'outil : elle
+    établit qu'un GC forcé sous Frida FIGE le jeu (145 threads dans `ntdll`, `.Responding` à
+    `False`). C'est pourquoi `gcRoot.collect()` refuse par défaut. **Ne la lancer que pour
+    remesurer au changement de build** — elle gèle le process.
+
 - **`aiTrace*`** (`ai-trace.ts` + `ai-trace/`) : capture playbook/prédictions/
   utilités → JSONL (`data/ai-traces/`). `aiTraceEnable(level)`/`aiTraceStatus()`
   pilotés par les scripts RL.
