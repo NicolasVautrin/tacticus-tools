@@ -22,8 +22,10 @@ from ..unit_flag import UnitFlag
 # #585 : le 3e/4e argument `selectionType` des factories `DSLSelectors`, LU par
 # `IdunBattle.DSL.TargetsSelector$$SelectUnit` -> `UnitExtensions$$MatchesUnitSelectionType`.
 # Le FOYER du predicat existe depuis #524 (face DECISION, `playbook/adjacency.py`) : on l'appelle,
-# on n'en ecrit pas un second.
-from ..unit_selection_type import UnitSelectionType, matches_unit_selection_type
+# on n'en ecrit pas un second. `selection_ok_from_ctx` est le DERIVATEUR runner, hisse la par
+# #433-r3-r2 pour que `entities/triggers.py` puisse le partager sans arete (cf. `_selection_ok`).
+from ..unit_selection_type import (UnitSelectionType, matches_unit_selection_type,   # noqa: F401
+                                   selection_ok_from_ctx)
 from ...battle_query import is_target_tile_obscured
 
 
@@ -38,11 +40,14 @@ def _selection_ok(u, selection_type, ctx) -> bool:
 
     TRI-ETAT preserve : `ctx.has_unit_flag` absent -> `targetable = None` = **PAS MESURE**, et le
     foyer degrade alors la clause en VRAI. Un `False` invente ecarterait une unite que le natif
-    compte."""
-    hf = getattr(ctx, "has_unit_flag", None)
-    targetable = None if hf is None else (not bool(hf(u, int(UnitFlag.Untargetable))))
-    alive = bool(u.get("alive", True)) and (u.get("hp") or 0) > 0
-    return matches_unit_selection_type(selection_type, alive=alive, targetable=targetable)
+    compte.
+
+    ⚠ LE CORPS A ETE HISSE (#433-r3-r2) dans `entities/unit_selection_type.py::selection_ok_from_ctx`
+    -- feuille pure, donc importable des DEUX cotes sans arete. Ce n'etait pas de la cosmetique :
+    `entities/triggers.py::IsAdjacent` avait ecrit un TROISIEME port du predicat, a la main et
+    aveugle au volet `Untargetable`, exactement le fork que la phrase ci-dessus disait vouloir
+    eviter. Cet alias reste pour ses lecteurs."""
+    return selection_ok_from_ctx(u, selection_type, ctx)
 
 
 class SurroundingUnits(TargetsSelector):

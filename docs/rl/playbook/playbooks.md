@@ -534,29 +534,46 @@ step-9) ; (c) le moteur ne score AUCUNE attaque du Neuro dans certains runners (
 `Σ CalcUtilFromDamageEvent(primary+secondary)` + `100·HasTrait(Overwatch)`, un terme
 **`+5 · Σ_{n ∈ GetAdjacentTiles(cible)} CanAddUnit(n)`** — OMIS en v1 (#114). Porté ici.
 
-**RE — résolution du sélecteur (re-expert, décompilé = vérité, build gqfc5mff6c).** Le bloc de queue fait
-`tiles = FUN_18000d7d0(0x4e=78, DAT_18327ff80, query=playbook+0x28, target=local_508, …)` = **slot 78 de
-l'interface `IBattleQuery`** (invocateur d'interface générique). Slot 78 = **`BattleQuery.GetAdjacentTiles
-(unit, b,b,b) @18105b660`** (ring-1 hex, voisins `boardGraph.neighbours` via `IterateAdjacentTiles` — la
+**RE — résolution du sélecteur (re-expert, décompilé = vérité).** ⚠ **Les numéros de slot ci-dessous ont
+été RE-DÉRIVÉS sur `rnca9r7q6c` le 2026-08-10 (#433-r3-r3) : ils avaient GLISSÉ D'UN CRAN depuis
+`gqfc5mff6c`, où cette section les avait écrits (`0x4e`).** Le bloc de queue fait
+`tiles = <invocateur d'interface>(0x4f, <IBattleQuery>, query = playbook+0x28, target = local_508, 1, 1, 1)`
+= **slot `0x4f` = 79 de l'interface `IBattleQuery`** = **`IdunBattle.Core.Services.BattleQuery$$GetAdjacentTiles`**
+(surcharge à 4 paramètres — ring-1 hex, voisins `boardGraph.neighbours` via `IterateAdjacentTiles` — la
 MÊME famille dont #45 a porté la porte `|Δelev|<2`).
-- **Preuve du slot 78** (PAS de devinette) : `MovementQuery.IsAdjacent @18109c470` appelle
-  `FUN_18000d7d0(0x4e, DAT_18327ff80, this._query, unit, 0, 1, 1)` puis `Contains(ring1, tile)` — i.e.
-  « les tuiles adjacentes de `unit`, `tile` en fait-il partie ? ». Corroboré par le slot-map explicite du
-  décorateur `RecordedSimulationRequestsBattleQuery` (0x50=GetAdjacentTiles-b__0, 0x53=GetTilesBehind…).
-- **`GetTilesBehind @18106a150` RÉFUTÉ** comme slot-78 : il prend DEUX unités (`param_2,param_3` →
+- **DEUX sources concordantes, aucune devinette.** (1) L'entrée VERSIONNÉE
+  `data/symbols/rnca9r7q6c/metadata/interface_slots.tsv` (champ `slot` d'`Il2CppMethodDefinition`) :
+  `IBattleQuery 78 GetMinimumTiles180BehindFromTile/2 · 79 GetAdjacentTiles/4 · 80 IterateAdjacentTiles/4 ·
+  81 GetAdjacentTiles/4 · 82-83 GetFreeAdjacentTiles/1 · 84 GetTilesBehind/5`. (2) Les lambdas du décorateur
+  `IdunBattle.Core.Services.RecordedSimulationRequestsBattleQuery` — `u003Cu003Ec__DisplayClass98_0$$u003CGetMinimumTiles180BehindFromTileu003Eb__0`,
+  `…DisplayClass99_0$$u003CGetAdjacentTilesu003Eb__0`, `…DisplayClass100_0$$u003CIterateAdjacentTilesu003Eb__0`,
+  `…DisplayClass101_0$$u003CGetAdjacentTilesu003Eb__0`, `…DisplayClass104_0$$u003CGetTilesBehindu003Eb__0` :
+  même ORDRE, décalage uniforme (DisplayClass N ↔ slot N−20 sur cette plage). Le NUMÉRO du DisplayClass
+  n'est PAS le slot — c'est l'ordre qui apparie.
+- **Corroboration au call-site** : `IdunBattle.Core.Services.MovementQuery$$IsAdjacent`, relu sur
+  `rnca9r7q6c`, appelle `<invocateur>(0x4f, <IBattleQuery>, this+0x30, unitTile1, 0, 1, 1)` puis
+  `Contains(ring1, unitTile2)` — i.e. « les tuiles adjacentes de `unit`, `tile` en fait-il partie ? ».
+- **`GetTilesBehind` RÉFUTÉ** comme slot de ce call-site : il prend **5** paramètres (deux unités →
   `CubeCoordinate.DirectionTo(A,B)`), or l'appel Hammer ne passe qu'UNE unité (`local_508`) + bools. C'est
-  le slot 0x53, pas 0x4e.
+  le slot **`0x54` = 84**, pas `0x4f`.
 
-**RE — prédicat `TileExtensions.CanAddUnit @180ec4c60`** (args du call : `arg3=1, arg4=0, arg5=false`) se
+**RE — prédicat de tuile libre.** ⚠ Le nom a lui aussi GLISSÉ : sur `rnca9r7q6c` le call-site invoque
+`IdunBattle.Entities.TileExtensions$$IsFreeTile(tile, playbook+0x20, 1, 0, false)` — il n'existe AUCUN
+`IdunBattle.Entities.TileExtensions$$CanAddUnit` dans ce build (le nom `CanAddUnit` n'y vit plus que côté
+DSL : `IdunBattleLogic.Entities.DSLSelectors$$CanAddUnit`, `IdunBattle.Entities.Selectors.CanAddUnitTileSelector$$Select`,
+`IdunBattleLogic.Entities.DSLTriggers$$IsCanAddUnit`, plus `TileExtensions$$CanAddUnitFromAbility`).
+Le prédicat (args du call : `arg3=1, arg4=0, arg5=false`) se
 réduit à : tuile de board réelle **placeable** (walkable, non-wall) ET **VIDE** (`TileContentComponent
 .IsEmpty @180fa9ed0`). `arg2 = playbook+0x20` = l'aiPlayer (qui place). Sens du terme : **biais du natif
 vers les cibles entourées d'ESPACE LIBRE** (place pour le knock-back de la charge). Le terme dépend de la
 CIBLE (pas de la tuile de charge) → il influe l'**argmax de cible** (pas cosmétique).
 
 **Port** (homonymes natifs + VA citées) :
-- `engine/battle_query.py` : `can_add_unit(pos, walkable_by_pos, occupied)` (= `CanAddUnit @180ec4c60`) +
+- `engine/battle_query.py` : `can_add_unit(pos, walkable_by_pos, occupied)` (=
+  `IdunBattle.Entities.TileExtensions$$IsFreeTile`) +
   `adjacent_addable_count(tile, neigh_by_pos, walkable_by_pos, occupied, elev)` (= `GetAdjacentTiles`
-  slot 0x4e filtré, porte `|Δelev|<2` réutilisée de #45).
+  slot **`0x4f`** filtré — `0x4e` sur `gqfc5mff6c`, cf. l'avertissement ci-dessus —, porte `|Δelev|<2`
+  réutilisée de #45).
 - `engine/playbook/noncomparable/hammer_of_wrath.py` : `HammerOfWrathPlaybook._displacement_bonus` = `5 ·
   adjacent_addable_count(cible.tile)`, wiré dans `evaluate_non_comparable`. Occupation LIVE = `epos ∪ fpos
   ∪ origine` (FRAÎCHE — PAS le `occupantUnitId` du boardGraph caché = périmé).

@@ -26,6 +26,11 @@ from __future__ import annotations
 
 from enum import IntEnum
 
+# Feuille pure (`enum` seul) : l'importer ici n'allonge la cascade d'AUCUN module `engine.*` --
+# mesure : `import engine.entities.unit_selection_type` en charge 3 avec, 3 sans. C'est ce qui
+# permet au DERIVATEUR ci-dessous de vivre au meme endroit que l'enum qu'il sert (#433-r3-r2).
+from .unit_flag import UnitFlag
+
 
 class UnitSelectionType(IntEnum):
     """`IdunBattle.Entities.Enum.UnitSelectionType` -- VERBATIM du build (4 valeurs).
@@ -104,4 +109,73 @@ def selection_type_from_only_alive(only_alive) -> UnitSelectionType:
             else UnitSelectionType.OnlyTargetable)
 
 
-__all__ = ["UnitSelectionType", "matches_unit_selection_type", "selection_type_from_only_alive"]
+def _untargetable_effect_types():
+    """Le domaine `UNTARGETABLE_EFFECT_TYPES`, importe DIFFERE et memoise.
+
+    ⚠ DIFFERE **PORTEUR**, et le classement est MESURE (protocole du CLAUDE.md : charger la cible
+    seule dans un process frais et regarder si le module courant y atterrit) : charger
+    `engine.entities.effects.aura_selectors` charge `engine.entities.unit_selection_type` --
+    hisser l'import fermerait donc un cycle. S'y ajoute le COUT : `aura_selectors` tire **108**
+    modules `engine.*`, la ou cette feuille en tire **3**. L'y hisser detruirait exactement ce qui
+    permet aux deux consommateurs (`selectors/units.py` et `entities/triggers.py`) de partager ce
+    foyer sans arete.
+    """
+    global _UNTARGETABLE
+    if _UNTARGETABLE is None:
+        from .effects.aura_selectors import UNTARGETABLE_EFFECT_TYPES
+        _UNTARGETABLE = tuple(UNTARGETABLE_EFFECT_TYPES)
+    return _UNTARGETABLE
+
+
+_UNTARGETABLE = None
+
+
+def selection_ok_from_ctx(unit, selection_type, ctx) -> bool:
+    """DERIVATEUR unique des deux predicats de `matches_unit_selection_type` depuis un `DslContext`.
+
+    Mirror de `IdunBattle.DSL.TargetsSelector$$SelectUnit(entity, selectionType)` cote RUNNER : le
+    substrat y est l'ECS -- `alive`/`hp` du dict d'unite pour `IsAlive`, et DEUX canaux pour
+    `UnitFlag.Untargetable` (`0x11`).
+
+    ⚠ CE FOYER EST HISSE ICI (#433-r3-r2), et ce n'est pas une commodite. Il vivait dans
+    `selectors/units.py::_selection_ok`, qui declarait deja << un SECOND port du predicat aurait ete
+    un fork >> ; le noeud `entities/triggers.py::IsAdjacent` en avait pourtant ecrit un TROISIEME --
+    un filtre `IsAlive` a la main, aveugle au volet `Untargetable`.
+
+    ⚠ **`ctx.has_unit_flag` SEUL EST INERTE, et c'est mesure.** Le canal existe et repond, mais
+    **aucun chemin du port n'inscrit `0x11` dans `UnitFlagsComponent`** : le flag natif est pose par
+    `IdunBattle.Entities.Effects.Common.UntargetableEffect$$ApplyInternal` et retire par
+    `$$RevertInternal`, et le port modelise cette base par le DOMAINE de ses `EffectType` derives
+    (`UNTARGETABLE_EFFECT_TYPES`, foyer unique) plutot que par le flag. Un dérivateur qui n'aurait
+    lu que `has_unit_flag` aurait donc rendu `targetable = True` **partout**, c'est-a-dire une
+    MESURE AFFIRMEE A TORT -- pire qu'une non-mesure, puisqu'elle ferme le tri-etat. Les deux canaux
+    sont donc lus, dans cet ordre :
+
+      1. `ctx.has_unit_flag(unit, Untargetable)` -- le canal DIRECT. Il fait autorite s'il rend
+         VRAI (le jour ou le port posera le flag, rien ne changera ici) ;
+      2. `ctx.has_effect(unit, <type>)` sur `UNTARGETABLE_EFFECT_TYPES` -- le canal PORTE
+         aujourd'hui, le MEME que lit `playbook/adjacency.py::is_targetable` cote DECISION.
+
+    TRI-ETAT preserve : AUCUN des deux canaux branche -> `targetable = None` = **PAS MESURE**, et
+    `matches_unit_selection_type` degrade alors la clause en VRAI. Un `False` invente ecarterait une
+    unite que le natif compte -- degradation RESTRICTIVE silencieuse.
+    """
+    if not isinstance(unit, dict):
+        return False                                  # `!EntityExtensions.IsUnit(unit)`
+    hf = getattr(ctx, "has_unit_flag", None)
+    he = getattr(ctx, "has_effect", None)
+    untargetable = None
+    if hf is not None:
+        untargetable = True if bool(hf(unit, int(UnitFlag.Untargetable))) else False
+    if not untargetable and he is not None:
+        # OU logique : le flag et le domaine d'effets decrivent la MEME chose cote natif (l'un est
+        # pose PAR l'autre), donc un seul canal qui l'affirme suffit.
+        if any(bool(he(unit, int(t))) for t in _untargetable_effect_types()):
+            untargetable = True
+    targetable = None if untargetable is None else (not untargetable)
+    alive = bool(unit.get("alive", True)) and (unit.get("hp") or 0) > 0
+    return matches_unit_selection_type(selection_type, alive=alive, targetable=targetable)
+
+
+__all__ = ["UnitSelectionType", "matches_unit_selection_type", "selection_type_from_only_alive",
+           "selection_ok_from_ctx"]
