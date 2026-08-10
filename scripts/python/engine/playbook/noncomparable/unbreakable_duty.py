@@ -90,7 +90,7 @@ from engine.entities.active_ability_type import ActiveAbilityType
 from engine.entities.traits.unit_trait import UnitTrait
 from engine.services.ability_caster_gates import try_get_number_constant
 
-from ._base import NCContext, _PlanTargetPlaybook, _traits
+from ._base import NCContext, NonComparablePlaybook, _traits
 
 #: `AbilityConfiguration$$GetNumberConstant(config, 0x16)` -- la cle gameconfig est le NOM du membre
 #: `AbilityConstantType.range` (le natif indexe par ordinal, le kit par nom : meme table).
@@ -108,7 +108,7 @@ _PCT_DEAD_HEROES_AND_ADJACENT_ENEMY = 70   # `iVar13 + 0x46`
 _MIN_DEAD_IMPERIAL_HEROES = 2
 
 
-class UnbreakableDutyPlaybook(_PlanTargetPlaybook):
+class UnbreakableDutyPlaybook(NonComparablePlaybook):
     """`IdunBattle.AI.Playbook.Loki.UnbreakableDutyPlaybook$$EvaluateNonComparable` (0x425 = 1061).
 
     Base `NonComparablePlaybook`1` -- LUE dans `data/symbols/<build>/frida/classes.tsv`, jamais
@@ -181,3 +181,47 @@ class UnbreakableDutyPlaybook(_PlanTargetPlaybook):
         MEME `Fix64(1)` que `MIN_UTILITY`, pour TOUTE cible eligible. Aucune lecture de la cible,
         aucune lecture de la position : c'est ce que dit le corps, terme pour terme."""
         return self.MIN_UTILITY
+
+    def generate_candidates(self, ctx: NCContext) -> list[dict]:
+        """`ActiveAbilityActionGenerator` + `Bucket$$ChooseAction`, pour une ability **ALLY-TARGETED**.
+
+        ⚠ LE GENERATEUR DE `_PlanTargetPlaybook` NE CONVIENT PAS, ET C'EST MESURE : il enumere
+        `ctx.plan["evals"]`, or `computeAttackPlans` (`frida/hooks/features/ai-step/projection.ts`)
+        boucle `for (const tgt of enemies)` -- le plan ne porte AUCUNE cible ALLIEE. Le masque de
+        1061 est `0x8400` = `TargetIsFriendly | CasterIsPossibleTarget` (LU au
+        `UnbreakableDutyAbility$$.ctor`, surcharge a 7 arguments ou le litteral EST le masque), donc
+        le plan rend `rankCount = 0` pour toute paire (1061, ennemi) -- confirme live : le natif
+        propose `1061 -> u79`, un ALLIE, pendant que le plan annonce `(1061, u87, rankCount 0)`.
+        Un port branche sur le plan serait donc MUET, sans erreur.
+
+        Voie employee, la MEME que `ThriceBlessedConflagrationPlaybook` (ally-targeted lui aussi) :
+        `abilityTargets(uid, 1061).fromHere` = le mirror de
+        `BasePlaybook$$GetEligibleTargetsSelectable(caster, casterPosition.MainTile)`.
+
+        L'utilite etant CONSTANTE, `Bucket$$AddAction` (remplacement STRICT `>`) garde le PREMIER
+        ajoute : la premiere position de `reach_nc` -- l'ORIGINE -- et la premiere cible de
+        l'enumeration native. D'ou `to = None` (cast en place) et l'arret a la premiere cible.
+
+        ECART NOMME, identique a celui de `ThriceBlessedConflagration` : `fromHere` n'enumere que
+        depuis l'ORIGINE, alors que le natif balaie aussi les tuiles de MOVE. Ici l'ecart est
+        BORNE INF et sans effet sur l'argmax tant qu'une cible existe depuis l'origine, l'utilite
+        etant position-independante ; il ne mordrait que sur un caster dont AUCUN allie n'est a
+        portee sans bouger."""
+        if ctx.ability_targets is None:
+            return []
+        at = ctx.ability_targets(ctx.uid, self.ABILITY_ID) or {}
+        for u in (at.get("units") or []):
+            if u.get("unitId") != ctx.uid:
+                continue
+            for a in (u.get("abilities") or []):
+                if a.get("abilityId") != self.ABILITY_ID:
+                    continue
+                for t in (a.get("fromHere") or []):
+                    tid = t.get("targetId")
+                    if tid is None:
+                        continue
+                    util = self.evaluate_non_comparable(ctx.origin, tid, ctx)
+                    if util is None or util < self.MIN_UTILITY:
+                        continue
+                    return [{"target": tid, "ability": self.ABILITY_ID, "to": None, "pred": util}]
+        return []
