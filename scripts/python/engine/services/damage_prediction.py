@@ -801,9 +801,14 @@ def get_multi_hit_attack_prediction(
     # les ajoute au meme DamagePredictionResult). Mirror IdunBattle.Entities.Effects.EffectAdditionalHits$$Create.
     for _grp in (extra_groups or []):
         # deux formes de degat de groupe : `predefined` [min,max] (RandomAmount natif, pas de spread)
-        # OU `amount` seul -> spread ±20% standard du per-coup. L'amount peut etre un ConfigVar entier
-        # (FoulInfusion #57c-C) ou le MIDPOINT x.5 du noeud Average natif (FleshmetalGuns #65) ->
-        # pas de troncature int (le spread Fix64 from_number est exact sur les .5).
+        # OU `amount` seul -> spread ±20% standard du per-coup. L'amount est un ConfigVar entier
+        # (FoulInfusion #57c-C) ou la valeur du noeud `Average` natif — ENTIER lui aussi
+        # (`IdunBattle.DSL.AAmountFormula$$RoundFix64Result(., 0)` = `Fix64.Round` demi-vers-le-PAIR
+        # puis `Fix64.op_Explicit`). ⚠ La ligne qui vivait ici annoncait « le MIDPOINT x.5 du noeud
+        # Average » et « pas de troncature int » : c'etait FAUX, et c'est ce qui a fait ecrire deux
+        # producteurs `.5` dans `effects/loki/hits.py` (#884). Un `.5` publie ici se comporte
+        # d'ailleurs en aval comme un FLOOR : `get_base_damage_fix64(2991.5)` rend `[2393, 3589]`,
+        # soit exactement `get_base_damage_fix64(2991)`.
         _pre = _grp.get("predefined")
         _amt = _grp.get("amount") or 0
 

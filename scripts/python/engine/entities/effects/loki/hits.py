@@ -598,8 +598,20 @@ class _BaseFleshmetalGunsEffect(BaseEffect):
         # (largeur 399 vs 359) et 2 sur Melta (500 vs 499 : un ecart d'UNE cellule suffit a
         # decorreler les tirages, donc un fix ajuste au scalaire s'y serait trahi).
         # Cf. `docs/rl/case-159-rng-canal179-et-maybe-ltgb.md`.
+        # #884 -- `Average` rend un ENTIER, jamais un `.5`. La ligne qui vivait ici ecrivait
+        # `(mn + mx) / 2` (division FLOTTANTE Python) et sa docstring revendiquait le `.5` :
+        # c'etait un SECOND modele du MEME noeud natif, contradictoire avec celui de
+        # `SpecialIssueCombiMeltaAdditionalHitsEffect`. `DSLFormulas$$Average` ->
+        # `DivideAmount$$Calculate` -> `AAmountFormula$$RoundFix64Result(., 0)` = `Fix64.Round`
+        # demi-vers-le-PAIR, puis `Fix64.op_Explicit` vers un int.
+        # VALUE-PRESERVING au regime SERVI (lvl 50, mult 180 de `blackObliterator`) : Melta
+        # 1246 = round(1246.5) et floor(1246.5) ; Flame et WarpHail sont a somme PAIRE. Le
+        # correctif MORD ailleurs -- 14/50, 14/50 et 15/50 niveaux du gameconfig, et au lvl 50
+        # des mult 140 (Melta 970 contre 969.5 ; Flame 776 contre 775.5) et 160 (WarpHail 798
+        # contre 797.5). Un `.5` publie ici se comporte en aval comme un `floor` :
+        # `get_base_damage_fix64(2991.5)` rend `[2393, 3589]`, soit exactement `(2991)`.
         return [{"count": int(count), "min": int(mn), "max": int(mx),
-                 "amount": (int(mn) + int(mx)) / 2, "profile": profile}]
+                 "amount": _round_fix64(_Fraction(int(mn) + int(mx), 2), 0), "profile": profile}]
 
 
 class FleshmetalGunsFocusedMaliceEffect(_BaseFleshmetalGunsEffect):
@@ -733,9 +745,11 @@ class InfernalPactsAdditionalHitsEffect(BaseEffect):
     Average(min,max) (canal PREDICTION/display, param_8 de Create). La prediction native de
     l'attaque bonus = Average ± 20% (paire sum-preserving (3248,4871) vs plage brute (2948,5172) —
     la courbe InfernalPacts max=2x min DISCRIMINE, contrairement a SquigHound max=1.5x min ou les
-    deux modeles coincident). Le groupe expose donc `amount` (Average EXACT, .5 possible —
-    precedent FleshmetalGuns #65) consomme par la PREDICTION, ET `min`/`max` (plage RandomAmount)
-    consommes par la face COMBAT (`_execute_additional_hits`, qui prefere min/max)."""
+    deux modeles coincident PRESQUE — #884 les a separes live, ecart 4 points). Le groupe expose
+    donc `amount` (le noeud `Average`, ENTIER : `Fix64.Round` demi-vers-le-PAIR — la mention
+    « .5 possible » qui vivait ici etait FAUSSE, cf. #884) consomme par la PREDICTION, ET
+    `min`/`max` (plage RandomAmount) consommes par la face COMBAT (`_execute_additional_hits`,
+    qui prefere min/max)."""
 
     def create_aura_additional_hits_for_ally(self, ctx: "Mapping") -> "dict | None":
         att_pos, owner_pos = ctx.get("att_pos"), ctx.get("owner_pos")
@@ -762,9 +776,15 @@ class InfernalPactsAdditionalHitsEffect(BaseEffect):
                 .get("affectedDamageProfile") or "Psychic"      # GetAffectedDamageProfile
         except Exception:
             profile = "Psychic"
-        # bi-canal : `amount` = noeud Average (PREDICTION, exact — pas de troncature du .5) ;
-        # `min`/`max` = noeud RandomAmount (COMBAT). Cf. docstring (mesure 202b).
-        return {"count": int(count), "amount": (int(mn) + int(mx)) / 2,
+        # bi-canal : `amount` = noeud `Average` (PREDICTION) ; `min`/`max` = noeud `RandomAmount`
+        # (COMBAT). Cf. docstring (mesure 202b).
+        # #884 -- la ligne qui vivait ici ecrivait `(mn + mx) / 2` (division FLOTTANTE) et son
+        # commentaire revendiquait « pas de troncature du .5 ». C'est FAUX : `DSLFormulas$$Average`
+        # -> `DivideAmount$$Calculate` -> `AAmountFormula$$RoundFix64Result(., 0)` = `Fix64.Round`
+        # demi-vers-le-PAIR puis `Fix64.op_Explicit` -> un ENTIER. VALUE-PRESERVING au regime SERVI
+        # (lvl 50, mult 180 de `thousInfernalMaster` : 1496 des deux facons), MORDANT ailleurs --
+        # 12/50 niveaux, et au lvl 50 du mult 100 (832 contre 831.5).
+        return {"count": int(count), "amount": _round_fix64(_Fraction(int(mn) + int(mx), 2), 0),
                 "min": int(mn), "max": int(mx), "profile": profile}
 
 

@@ -84,7 +84,8 @@ CARRIERS = [
     ("orksRuntherd",     1082, "SquigHound_AdditionalHits",      "minDmg",   "maxDmg",   "SquigHound"),
     ("admecRuststalker", 1122, "CordClaw_AdditionHits",          "minDmg_2", "maxDmg_2", "CordClaw"),
 ]
-P_UNITS = ",".join(c[0] for c in CARRIERS) + ",thousSorcerer"   # + l'allie Psyker de 1100
+ALLY_VIS = "thousSorcerer"          # l'ALLIE PSYKER : seule cible que 1100 accepte
+P_UNITS = ",".join(c[0] for c in CARRIERS) + "," + ALLY_VIS
 A_UNITS = "necroWarden,necroWarden,necroWarden"
 
 VARIANTS = ("port", "predefined", "float", "floor")
@@ -299,7 +300,7 @@ def _cast(rpc, rid, caster_id, ability_id, target_id):
 def _step_toward(rpc, rid, dec, u, goal):
     """Un pas greedy vers `goal` (disque 4, tuiles libres). Rend True si un move a mordu."""
     upos = _pos(u)
-    free = _free_tiles(dec)
+    free = _free_tiles(dec, rpc, rid)
     cands = [t for t in hexgeo.disk(upos[0], upos[1], 4) if t in free and t != tuple(upos)]
     cands.sort(key=lambda t: hexgeo.distance(t, tuple(goal)))
     for t in cands[:8]:
@@ -310,9 +311,27 @@ def _step_toward(rpc, rid, dec, u, goal):
     return False
 
 
-def _free_tiles(dec, w=9, h=11):
+_BOARD_TILES = None
+
+
+def _board_tiles(rpc, rid):
+    """Les tuiles REELLES du board, lues une fois.
+
+    ⚠ Un rectangle DEVINE (`range(9) x range(11)`) produit des destinations HORS BOARD : tous les
+    moves candidats sont refuses et l'unite ne bouge plus -- c'est ce qui a laisse `thousTzaangor`
+    fige a 3 hexes de l'ennemi pendant huit rounds, et fait rendre << NON CONFRONTE >> a un montage
+    qui n'avait simplement pas avance."""
+    global _BOARD_TILES
+    if _BOARD_TILES is None:
+        b = SC.build_board(rpc, rid)
+        _BOARD_TILES = {(t["col"], t["row"]) for t in (b.by_id.values() if b else ())}
+    return _BOARD_TILES
+
+
+def _free_tiles(dec, rpc=None, rid=None):
     occ = {tuple(_pos(u)) for u in (dec.get("units") or []) if u.get("alive")}
-    return {(c, r) for c in range(w) for r in range(h)} - occ
+    tiles = _board_tiles(rpc, rid) if rpc is not None else (_BOARD_TILES or set())
+    return tiles - occ
 
 
 def _approach(rpc, rid, dec, u, enemies):
@@ -324,7 +343,7 @@ def _approach(rpc, rid, dec, u, enemies):
     if not enemies:
         return False
     goal = min((_pos(e) for e in enemies), key=lambda p: hexgeo.distance(upos, p))
-    free = _free_tiles(dec)
+    free = _free_tiles(dec, rpc, rid)
     cands = [t for t in hexgeo.disk(upos[0], upos[1], 4) if t in free and t != tuple(upos)]
     cands.sort(key=lambda t: hexgeo.distance(t, goal))
     for t in cands[:8]:
@@ -391,7 +410,61 @@ def replay_offline(rpc, rid, dec, att_id, rows, variant):
         restore()
 
 
-def main(argv):
+def find_bearer(dec, owner, fx):
+    """La 1re unite ALLIEE qui porte `fx` ET a une tuile classee.
+
+    ⚠ Ce n'est pas forcement le CASTER : `SorcerousFacadeAbility$$ExecuteBehaviour` pose 1204 sur
+    le caster ET sur l'allie Psyker vise, PUIS fait attaquer le caster et ECHANGE leurs positions
+    -- apres le cast, le caster a agi et se retrouve au spawn de l'allie. Le porteur confrontable
+    est l'ALLIE, et dans le MEME TOUR : la duree est `TurnsFromRounds(1)`.
+
+    ⚠ Et on PREFERE un porteur qui n'a PAS encore agi (`toActivate`). Mesure : sur le CASTER, dans
+    le tour meme du cast, `SorcerousFacadeAbility$$ExecuteBehaviour` a AUSSI pose
+    `RealityUnbound_ExtraMaxDamage` (1207, stat `EXTRA_MAX_DAMAGE`) -- et le port ne propage pas
+    `extra_max` aux groupes du canal #179 (`get_multi_hit_attack_prediction` ne passe PAS
+    `extra_max=` a `predict_attack_raw` dans sa boucle `extra_groups`). Le caster rendait donc
+    natif `(4601, 7233)` contre port `(4601, 6901)` -- borne MIN exacte, borne MAX a `998` au lieu
+    de `1330 = 998 + 332`. C'est un AUTRE gisement, pas le canal DISPLAY : sur l'allie, qui ne
+    porte pas 1207, le port est EXACT sur les cinq lignes."""
+    cands = [x for x in (dec.get("units") or [])
+             if x.get("alive") and x.get("owner") == owner
+             and fx in _effect_names(dec, x.get("id"))
+             and _has_plan(dec, x.get("id"))]
+    active = set(dec.get("toActivate") or ())
+    cands.sort(key=lambda x: (x.get("id") not in active, len(_effect_names(dec, x.get("id")))))
+    return cands[0] if cands else None
+
+
+def do_measure(rpc, rid, dec, u, vis, verdicts, measured):
+    """Confronte les QUATRE variantes au natif sur les lignes `ranked` de `u`. Rend True si mesure."""
+    rows = capture_rows(rpc, rid, dec, u["id"])
+    if not rows:
+        return False
+    res = {}
+    for v in VARIANTS:
+        off = replay_offline(rpc, rid, dec, u["id"], rows, v)
+        if off is None:
+            continue
+        ok = sum(1 for r, o in zip(rows, off) if o == r["nat"])
+        worst = max((max(abs((o or (0, 0))[0] - r["nat"][0]), abs((o or (0, 0))[1] - r["nat"][1]))
+                     for r, o in zip(rows, off)), default=None)
+        res[v] = (ok, len(rows), worst, tuple(off))
+    print("  [MESURE] %-20s sur %s, %d lignes" % (vis, u.get("visualId"), len(rows)))
+    for v in VARIANTS:
+        if v in res:
+            ok, n, worst, _ = res[v]
+            print("      %-11s %2d/%2d en accord, |ecart| max %s" % (v, ok, n, worst))
+    same = [v for v in res if v != "port" and res[v][3] == res.get("port", (0, 0, 0, None))[3]]
+    print("      variantes NON separees ici : %s"
+          % (same if same else "aucune -- les 4 modeles divergent"))
+    verdicts[vis] = (res, same)
+    measured.add(vis)
+    return True
+
+
+def main(argv, return_verdicts: bool = False):
+    """`return_verdicts` : rend le dict `{visualId: (res, variantes_non_separees)}` au lieu du rc,
+    pour que le test live assertionne sur les MEMES mesures que celles imprimees ici."""
     ap = argparse.ArgumentParser()
     ap.add_argument("--seed", type=int, default=88401)
     ap.add_argument("--state-file", default=str(ROOT / "logs" / "runners" / "_884avg_state.json"))
@@ -466,32 +539,14 @@ def main(argv):
                 names = _effect_names(dec, u["id"])
                 has_fx, has_rows = fx in names, _has_plan(dec, u["id"])
 
-                # (a) l'effet est POSE et le porteur a des tuiles classees -> MESURE
-                if has_fx and has_rows:
-                    rows = capture_rows(rpc, rid, dec, u["id"])
-                    res = {}
-                    for v in VARIANTS:
-                        off = replay_offline(rpc, rid, dec, u["id"], rows, v)
-                        if off is None:
-                            continue
-                        ok = sum(1 for r, o in zip(rows, off) if o == r["nat"])
-                        worst = max((max(abs((o or (0, 0))[0] - r["nat"][0]),
-                                         abs((o or (0, 0))[1] - r["nat"][1]))
-                                     for r, o in zip(rows, off)), default=None)
-                        res[v] = (ok, len(rows), worst, tuple(off))
-                    print("  [MESURE] %-20s effet POSE, %d lignes" % (vis, len(rows)))
-                    for v in VARIANTS:
-                        if v in res:
-                            ok, n, worst, _ = res[v]
-                            print("      %-11s %2d/%2d en accord, |ecart| max %s"
-                                  % (v, ok, n, worst))
-                    same = [v for v in res if v != "port"
-                            and res[v][3] == res.get("port", (0, 0, 0, None))[3]]
-                    print("      variantes NON separees ici : %s"
-                          % (same if same else "aucune -- les 4 modeles divergent"))
-                    verdicts[vis] = (res, same)
-                    measured.add(vis)
-                    continue
+                # (a) l'effet est POSE et une unite alliee qui le porte a des tuiles classees
+                bearer = find_bearer(dec, owner, fx)
+                if bearer is not None:
+                    if bearer.get("visualId") != vis:
+                        print("  [porteur] %-20s effet %s confronte sur %s"
+                              % (vis, fx, bearer.get("visualId")))
+                    if do_measure(rpc, rid, dec, bearer, vis, verdicts, measured):
+                        continue
 
                 # (b) pas encore caste, et une tuile classee existe -> TEMOIN puis CAST
                 #     ⚠ On ne caste QUE si le porteur a deja un plan : sinon il pose un effet a
@@ -527,7 +582,15 @@ def main(argv):
                           % (vis, ab, hit, fx, "POSE" if fx in after else "ABSENT",
                              [t.get("targetId") for t in tgts],
                              [t.get("targetId") for t in fh], (meta or {}).get("usable")))
-                    if fx in after:
+                    if fx in after or find_bearer(dec, owner, fx) is not None:
+                        # MESURER DANS LE MEME TOUR : les durees sont courtes
+                        # (`TurnsFromRounds(1)`), et 1204 expire avant mon tour suivant.
+                        b2 = find_bearer(dec, owner, fx)
+                        if b2 is not None:
+                            if b2.get("visualId") != vis:
+                                print("  [porteur] %-20s effet %s confronte sur %s"
+                                      % (vis, fx, b2.get("visualId")))
+                            do_measure(rpc, rid, dec, b2, vis, verdicts, measured)
                         continue
 
                 # (c) pas de tuile classee (ou cast refuse faute de cible) -> SE RAPPROCHER.
@@ -536,6 +599,15 @@ def main(argv):
                 _approach(rpc, rid, dec, u, enemies)
                 dec = _rich(rpc, rid)
                 byvis = _by_vis(dec)
+
+            # L'ALLIE PSYKER (cible unique du cast 1100) doit lui aussi arriver a portee : il n'est
+            # pas dans CARRIERS, donc rien ne le fait avancer -- et un `thousSorcerer` laisse au
+            # spawn rend `targets = []` a `SorcerousFacade` pour toute la partie.
+            ally = _by_vis(dec).get(ALLY_VIS)
+            tza = _by_vis(dec).get(CARRIERS[0][0])
+            if ally is not None and tza is not None and CARRIERS[0][0] not in measured:
+                _step_toward(rpc, rid, dec, ally, _pos(tza))
+                dec = _rich(rpc, rid)
 
             if len(measured) == len(CARRIERS):
                 break
@@ -561,7 +633,7 @@ def main(argv):
             subprocess.run([sys.executable, "rl_duel.py", "dispose", "--runner", str(rid)],
                            cwd=str(PYDIR), stdout=subprocess.DEVNULL,
                            stderr=subprocess.DEVNULL, check=False)
-    return 0
+    return verdicts if return_verdicts else 0
 
 
 if __name__ == "__main__":
