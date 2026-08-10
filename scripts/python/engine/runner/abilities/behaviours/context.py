@@ -325,18 +325,19 @@ def entities_from_state(state, caster_id: int, target_id: int | None = None,
         # (= 20 % de 473240) contre 100000 attendu (= 20 % de 500000), tick natif 25000.
         # Parts (mirror `FillUpStatComponent$$GetStatPart`) : 0=Current, 1=CurrentPct, 2=Maximum,
         # 3=Initial, 4=Missing.
+        #
+        # #572-r1 -- LA VENTILATION DES PARTS EST DELEGUEE, ELLE N'EST PLUS REECRITE ICI.
+        # `HealthComponent.get_stat_part` EST le mirror de `FillUpStatComponent$$GetStatPart`, et
+        # depuis que le composant porte sa `ValueModification` de maximum (+0x28), les parts
+        # `Maximum` (2) et `Initial` (3) **ne coincident plus** : le natif rend
+        # `get_CurrentMaximumValue()` pour la premiere et le champ brut `+0x10` pour la seconde.
+        # Les confondre -- ce que faisait le `if p in (2, 3): return mx` d'ici -- rendait donc
+        # FAUSSE l'une des deux des qu'un stat-mod HEALTH est pose, et LAQUELLE dependait de ce que
+        # `hp_max` designait. Une seule ventilation, dans le composant.
         if int(stat_type) == int(_ST.HEALTH):
             hc = e.get_component(HealthComponent) if e is not None else None
             if hc is not None and hc.hp is not None and hc.hp_max is not None:
-                cur, mx, p = int(hc.hp), int(hc.hp_max), int(variant)
-                if p in (2, 3):
-                    return mx
-                if p == 0:
-                    return cur
-                if p == _SP.MISSING:                # 4
-                    return max(0, mx - cur)
-                if p == 1:
-                    return round(max(0.0, cur / mx) * 100) if mx else 0
+                return hc.get_stat_part(int(variant))
             return us.get_stat(int(stat_type), int(variant)) if us is not None else 0
         if int(stat_type) == int(_ST.NUMBER_OF_MEMBERS):
             n = int(getattr(sc.ctx, "number_of_members", 1)) if sc is not None else 1
