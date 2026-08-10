@@ -118,6 +118,22 @@ def _master_effect_is_carried_and_active(state: State, owner_id: int) -> bool:
        => effet 1197 INACTIF <=> triggered 1173 absente de l'unite <=> aucun Screamer.
        C'est ce couplage que mirroire `any(e.active ...)`, PAS un `onlyActive` (qui vaut 0).
 
+    ⚠ #231-r1 -- << LE PORT PERSISTE 1173 TOUR APRES TOUR >> EST REFUTE, ET C'EST LE DECOMPILE QUI
+    LE REFUTE. Le residu opposait le releve live de `case-546` Sec.6.2 (`initial=1 remaining=0
+    removed=True`, annonce POST-CAST) au comportement du port. Or ce couple ne peut PAS venir du
+    retrait : `IdunBattle.Operations.RemoveEffectOperation$$Execute` ecrit `<+0x5e> = 1`
+    (beingRemoved), retire l'id des listes, puis `<+0x5c> = 0` et `<+0x5f> = 1` -- il **n'ecrit
+    JAMAIS `Duration@+0x64`**. Le SEUL ecrivain decroissant est
+    `IdunBattle.Entities.Components.EffectComponent$$RemoveOneTurn` (`if (0 < Duration) Duration -=
+    1`), enfile par `IdunBattle.Operations.EndTurnOperation$$RefreshEffects`. Donc `remaining = 0`
+    atteste qu'un END-TURN a eu lieu avant le releve -- et cote port le MEME end-turn consomme
+    l'instance (`EffectsState.on_turn_end` : `1 -> 0` puis `consumed`), ce qui ferme ce gate.
+    MESURE offline, avec son contre-bras et sa contre-epreuve :
+    `tests/engine/runner/test_231r1_master_tutelaries_expiry_offline.py`.
+    RESTE NON OBSERVE (et `case-546` Sec.8 le dit deja de son cote) : la fenetre INTRA-TOUR, entre
+    la pose et le premier end-turn. Il faudrait un `effectsAll --effectType 1197` pris AVANT tout
+    end-turn pour la trancher.
+
     ⚠ Ce gate est propre au rail APPLY_REVERT : il ne remonte PAS dans `collect_effect_triggers`,
     qui doit continuer a ne filtrer que `consumed`. Gater la COLLECTE eteindrait les `Triggered()`
     d'activation du rail ArraySet (evalues par
