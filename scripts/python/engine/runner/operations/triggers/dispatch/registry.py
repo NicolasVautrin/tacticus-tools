@@ -69,6 +69,8 @@ from ..loki.phoenix_gem import (PhoenixGemReviveAbility,              # #79 (rel
 from ..loki.legendary_commander import (                             # #419-r1-tr9-r4-r1-r2-r1
     LegendaryCommanderExtraHitsMarkCaster, LEGENDARY_COMMANDER_EXTRA_HITS)
 from ..loki.suppressive_fire import SuppressiveFireAddEffectAbility  # #74 (trait SuppressiveFire 1010)
+from ..loki.special_issue_combi_melta import (                       # #419-r1-tr11-r4 (passif 1545)
+    SpecialIssueCombiMeltaAddEffectAbility, SPECIAL_ISSUE_COMBI_MELTA)
 from ..loki.death_nova import ExplodesAbility, PutridExplosionAbility  # death-nova (traits 1008 / 2028)
 from ..loki.master_annihilator import MasterAnnihilatorMarkAbility   # lot POSE (passif admecDominus)
 from ..loki.fleshmetal_guns import (FleshmetalGunsRotationAbility,   # lot POSE (passif blackObliterator)
@@ -260,6 +262,19 @@ TRAIT_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
 # --- Registre : passiveAbility → ability-trigger(s) accordée(s) ------------------------------------
 # Certains triggers viennent d'une PASSIVE ABILITY (≠ trait), ex. worldKharn.passiveAbilities=['TheBetrayer'].
 ABILITY_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
+    # SpecialIssueCombiMelta (passif de `darkaSternguard` << Ramus >> HERO + du npc
+    # `darkaBossSternguardLHE`) = la 3e portee du kit, la seule qui vive sur une ABILITY :
+    # `On(0x26 = NormalAttack) & OwnerIsCaster & IsAtRange(Caster@+0x48, Target@+0x60, Get(3))`
+    # -> `AddEffect(0x429 = 1065 Pinned, targets = Target@+0x60, source NULLE = la cible)`.
+    # ⚠ CE N'EST PAS un montage `GetDerivedTriggeredAbilities` : les DEUX dicts natifs ont ete lus
+    # (`StaticBattleRules.ActiveAbility$$.cctor` est indexe par `ActiveAbilityType` -- l'active du
+    # porteur est `SternguardFocus` ; `StaticBattleRules.TriggeredAbility$$.cctor` ne peuple son
+    # `<statics>+0x88` que de `0x3ef -> [0x3fc]` et `0x48e -> [0x491]`, jamais `0x609`). C'est le
+    # chemin ORDINAIRE d'une passiveAbility, forme `LetTheGalaxyBurn` : DEUX classes natives pour UN
+    # nom de kit. La soeur `SpecialIssueCombiMelta_InitAbility` n'est pas portee (le port ne rejoue
+    # aucun spawn ; ses effets 1563/1564 arrivent poses par `load_state`). Cf.
+    # loki/special_issue_combi_melta.py. #419-r1-tr11-r4.
+    SPECIAL_ISSUE_COMBI_MELTA: [SpecialIssueCombiMeltaAddEffectAbility],
     # TheBetrayer = gain-rage-au-kill (mort) + auto-tour (début de tour). Cf. les 2 classes dans loki.py.
     "TheBetrayer": [TheBetrayerAddEffectAbility, TheBetrayerTakeTurnAbility],
     # ArcaneShield (Thaumachus) = bouclier à la FIN DE L'ACTIVATION du porteur : `On(0x1c=
