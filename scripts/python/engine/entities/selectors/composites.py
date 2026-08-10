@@ -11,7 +11,7 @@ from .tiles import AdjacentTiles, AllAliveUnits, CanAddUnit, Caster, TileInterse
 from ..traits.unit_trait import UnitTrait
 
 
-def adjacent_units(source: TargetsSelector) -> TargetsSelector:
+def adjacent_units(source: TargetsSelector, selection_type=None) -> TargetsSelector:
     """`IdunBattleLogic.Entities.DSLFactory$$AdjacentUnits(source, mode, mask)` — MIRROR TEXTUEL du
     decompile (la factory native n'alloue AUCUN selecteur dedie, elle COMPOSE) :
 
@@ -32,8 +32,14 @@ def adjacent_units(source: TargetsSelector) -> TargetsSelector:
     par-centre l'aurait gardee.
 
     board absent -> `AdjacentTiles` rend [] -> ensemble vide (degradation deja documentee du domaine
-    tuile)."""
-    return Sub(Units(AdjacentTiles(source)), source)
+    tuile).
+
+    `selection_type` = le 3e argument NATIF (`mask` ci-dessus), que la factory passe a son `Units`
+    interne -- relu sur `rnca9r7q6c` : `AdjacentUnits(this, origin, unique, selectionType)` =
+    `op_Subtraction(Units(this, AdjacentTiles(this, origin), unique, selectionType), origin)`. Le
+    port l'AVALAIT (#585-r1), alors que le call-site cite ci-dessus passe justement `3`. `None` =
+    comportement HISTORIQUE. Le flag `unique`, lui, reste hors parametre : residu `#433-r3-r1a-r1`."""
+    return Sub(Units(AdjacentTiles(source), selection_type), source)
 
 
 def get_spawn_tile_selector() -> TargetsSelector:
