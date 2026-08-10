@@ -130,6 +130,67 @@ classe (protocole du CLAUDE.md — charger la cible seule dans un process frais)
 `pending_attack -> worldeaters` est **GRATUITE**, `pending_attack -> tau` est **PORTEUSE**. Hisser
 l'une et différer l'autre inscrirait une asymétrie que rien dans le natif ne justifie.
 
+### 5bis. RÉSOLU le 2026-08-10 — par DÉPLACEMENT, pas par import
+
+Le constat ci-dessus tenait ; la conclusion « il faut choisir entre hisser et différer » était le
+faux dilemme. Le point **(1)** de la doctrine — *déplacer le code vers un module que la cascade ne
+ré-entre pas* — **supprime** l'arête au lieu de la fermer. Une ability TRIGGERED n'a rien à faire
+dans le module des ACTIVES : les deux phases 2 vivent désormais sous
+`operations/triggers/loki/` (`seeker_missile_attack.py`, `overwhelming_wrath_attack.py`), là où
+`full_throttle.py` (1134) portait **déjà exactement ce patron**. `registry.py` les importe pour
+effet de bord, comme lui ; les modules d'abilities gardent leur phase 1.
+
+La chaîne porteuse a été **tracée**, pas supposée :
+
+```
+tau -> attack_query -> revive_effect -> dispatch.ability -> dispatch.core -> dispatch.registry
+```
+
+Après déplacement, `registry.py` seul peuple **les deux** entrées, et ne charge **ni** `tau` **ni**
+`worldeaters` (cran gardé). Cliquet : `tests/engine/runner/test_503r3_registre_trigger_peuple_offline.py`,
+dont le **périmètre est DÉRIVÉ de `PENDING_ATTACK_EFFECTS`** — une entrée future ajoutée à la table
+sans phase 2 atteignable depuis la chaîne trigger le fait rougir. Rouge avant fix, verbatim :
+
+```
+phases 2 ABSENTES du registre en process frais : [1127, 1237]
+(exigees [1127, 1237], registre 1 entrees)
+la phase 2 de ...SeekerMissileFrequencyLockTargetEffect (1127) est definie
+dans engine.runner.abilities.tau
+```
+
+### 4bis. `#503-r4` — le capteur EXISTAIT, et la 4ᵉ cause est éliminée (2026-08-10)
+
+La §4 ci-dessus déclare `BLOCAGE: capteur` et nomme
+`IdunBattle.Entities.Behaviours.AttackDamageBehaviour$$ExecuteTarget` comme point d'ancrage « à
+hooker ». **C'était faux.** Le capteur existe et répond : `frida/hooks/features/hit-trace.ts` hooke
+`IdunBattle.Operations.AttackDamageOperation$$ExecuteHit` — l'étage **en dessous** — et son en-tête
+nomme littéralement ce blocage (« déclenchement au début de tour → `applyAction endturn` +
+`captureEvents` = 1 action / **0 event** »). Il s'arme par RPC (`hitTraceArm` →
+`{ok: true, installed: true, on: true}`), donc **sans reinject**. Le résidu n'était pas bloqué par
+un capteur manquant, mais par le fait que ce capteur-là n'avait pas été essayé.
+
+Mesure jouée (`probe_503r4_ventilation_par_coup.py`, même montage `MC1_67`/777, layout calibré
+`attackerSlot=3`, 4 fires) :
+
+| | natif | port |
+|---|---|---|
+| cardinal par cible | `{81: 2, 83: 2}` | `{81: 2, 83: 2}` |
+| ordre des cibles | `[81, 81, 83, 83]` | idem |
+| delta PV | `81: 8761` · `83: 10957` | `81: 8761` · `83: 12049` |
+
+⇒ **4ᵉ cause éliminée** : ni le CARDINAL ni l'ORDRE ne diffèrent. L'écart de 1092 PV (1736 bruts)
+est bien un étage d'**APPLICATION du montant**, ce que la §4 posait en hypothèse sans pouvoir le
+trancher.
+
+**Ce qui reste, et ce qu'il faut jouer.** `ExecuteHit(hitIndex, attacker, defender,
+damageProfileType, abilityOrEffect, attackDamageOptions, initialHealth, deniedDamage)` porte les PV
+**avant** chaque coup en 7ᵉ argument — donc le montant par différence — mais le hook ne calibrait
+que trois slots. L'extension qui les publie est **livrée** (`initialHealthSlot = attackerSlot + 5`,
+**dérivé** de la calibration et non figé ; hors plage → `null`, jamais un entier non validé) et
+attend une **fenêtre de reinject**. Une fois chargée : rejouer
+`probe_503r4_ventilation_par_coup.py` et confronter `initialHealth` coup à coup aux `rolls` du port
+(`u83` port `[6531, 6162]`, armure 2460, crits `[true, true]`).
+
 ## 6. Ce qui est livré
 
 | Fichier | Contenu |
