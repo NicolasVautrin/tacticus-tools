@@ -306,7 +306,14 @@ def finish_attack_triggers(state: State, attacker_id: int, target_id: int,
     ev = TriggerEvent(EventTriggerType.Attack, attacker_id, target_id,
                       ranged=ranged, profile=profile, is_crit=is_crit, profiles=profiles,
                       health_damage=health_damage, was_block=bool(was_block),
-                      ability_type=ability_type)
+                      ability_type=ability_type,
+                      # `AttackUsedAttackDamage` (`AbilityEntities+0xf9`) = le MEME fait que le gate
+                      # `currentAttack@+0x2c` d'`On(10)`. CE site EST la sortie d'
+                      # `IdunBattle.Operations.AttackDamageOperation$$Execute`, c'est-a-dire le foyer
+                      # NATIF qui pose ce flag -> il vaut VRAI par construction ici (le call-site
+                      # jumeau `attack_damage_attack_triggers` est d'ailleurs appele juste apres,
+                      # inconditionnellement, par les memes appelants).
+                      attack_used_attack_damage=True)
     return evaluate_trigger_operation(state, ev)
 
 
@@ -400,7 +407,8 @@ def after_hit_ability_attack(state: State, attacker_id: int, target_id: int,
                              ability_type: Optional[int] = None,
                              did_block: bool = False,
                              health_damage: Optional[int] = None,
-                             profiles=None) -> list[dict]:
+                             profiles=None,
+                             attack_used_attack_damage: Optional[bool] = None) -> list[dict]:
     """Vecteur after-hit d'une attaque d'ABILITY ou de SPLASH. Mirror `IdunBattle.Operations.ADamageOperation$$EvaluateAfterHitTriggers`,
     porté par `ADamageOperation` donc PARTAGÉ par l'attaque normale ET les attaques d'ability : dispatche le
     message **after-hit `On(8)`** (branche crit `param_6!=0` = `On(0x3c = UnitBlocked)`, non écouté ici). ⚠ Ce vecteur
@@ -423,7 +431,12 @@ def after_hit_ability_attack(state: State, attacker_id: int, target_id: int,
     ev_aa = TriggerEvent(EventTriggerType.Attack, attacker_id, target_id,
                          ranged=ranged, profile=profile, is_crit=is_crit, ability_type=ability_type,
                          profiles=profiles, health_damage=health_damage,
-                         was_block=bool(did_block))
+                         was_block=bool(did_block),
+                         # `AttackUsedAttackDamage` (`AbilityEntities+0xf9`) : ICI la voie est
+                         # BI-FAMILLE (`AttackWithAttackDamage` -> `AttackDamageOperation` VS
+                         # `AttackWithAbilityDamage` -> `AbilityDamageOperation`, qui ne pose PAS
+                         # `currentAttack@+0x2c`). L'appelant thread donc son `is_attack_damage_op`.
+                         attack_used_attack_damage=attack_used_attack_damage)
     out = evaluate_trigger_operation(state, ev_aa)
     if did_block:                                     # `EvaluateAfterHitTriggers` : 0x3d AVANT 8
         out = out + unit_blocked_triggers(state, attacker_id, target_id, ranged, profile)

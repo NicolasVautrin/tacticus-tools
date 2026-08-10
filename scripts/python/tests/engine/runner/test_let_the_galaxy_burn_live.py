@@ -46,6 +46,7 @@ import pytest
 
 import hexgeo
 from engine.entities.pathfinding.board import Board
+from engine.entities.effect_type import EffectType
 from engine.entities.effects.base import BaseEffect
 from engine.entities.effects.loki.hits import LET_THE_GALAXY_BURN_PERSISTENT_KEY
 from engine.runner.snapshot import load_state
@@ -254,7 +255,7 @@ def _melee_setup(st, board, aid, tid):
     return st.entities[tid].get_component(HealthComponent)
 
 
-def _replay(st, board, aid, tid, n):
+def _replay(st, board, aid, tid, n, despoil_decay=True):
     """Rejoue n attaques normales via le Runner (= le chemin qui emet PreAttack(5) puis Attack(9)).
 
     Rend `(evenements_de_degat, valeurs_du_groupe_#179, flags_non_effaces)`. #227 : le coup
@@ -262,8 +263,25 @@ def _replay(st, board, aid, tid, n):
     `IdunBattle.Entities.Effects.EffectAdditionalHits`, execute par `IdunBattle.Operations.
     AttackDamageOperation$$ExecuteAdditionalHitsWithoutDamageProfileType` APRES la boucle d'arme).
     L'observable comparable au LIVE est donc la SOMME des deux canaux : coups d'arme + coups de
-    groupe, dans cet ordre."""
+    groupe, dans cet ordre.
+
+    `despoil_decay` (#BL-1029r-r1) -- CE MONTAGE REJOUE N ATTAQUES DANS LE MEME TOUR, et c'est ce
+    qui rend le parametre necessaire. Depuis que le **volet 2** du reset est porte
+    (`IdunBattleLogic.Entities.Abilities.Triggered.Loki.LetTheGalaxyBurn_ResetAbility$$CreateBehaviour`
+    -> `AddEffect(0x5c4 = 1476 DespoiledGround)` sur la tuile de la cible), une attaque a succes
+    DESPOILE la tuile ; l'attaque suivante y trouve alors un status-effect et prend la branche
+    GAUCHE du gate (`TargetHasTileEffect`), qui rend le coup CERTAIN. La chaine s'auto-alimente
+    donc, et un rejeu SANS decroissance mesure 98,7 % de `base+1` au lieu du 33 % du `Maybe` --
+    ce qui est le comportement NATIF, pas un bug (i2 : « If the attacked unit is already on a hex
+    with a hex effect, the attack automatically scores an additional hit »).
+    Le natif fait expirer l'effet (`StaticBattleRules.Effect$$DefaultAmountOfRounds(0x5c4)` = 2
+    rounds) ; ce montage ne fait passer AUCUN tour. `despoil_decay=True` retire donc le
+    `DespoiledGround` de la tuile de la cible entre deux attaques -- c'est le mirror de cette
+    expiration, et c'est ce qui laisse le regime BRANCHE A (le `Maybe`) observable.
+    `despoil_decay=False` mesure l'autre regime, celui de l'auto-alimentation."""
     thc = _melee_setup(st, board, aid, tid)
+    tp = st.entities[tid].get_component(PositionComponent)
+    ttile = board.id_at(tp.col, tp.row)
     runner = Runner(st).install_default_handlers(20)
     hits, grp, leaked = [], [], 0
     for _ in range(n):
@@ -278,6 +296,10 @@ def _replay(st, board, aid, tid, n):
         pdc = st.entities[aid].get_component(PersistentDataComponent)
         if pdc is not None and pdc.data:
             leaked += 1
+        if despoil_decay and ttile is not None:
+            st.effects.by_unit[int(ttile)] = [
+                e for e in st.effects.by_unit.get(int(ttile), [])
+                if e.name != EffectType.DespoiledGround.name]
     return hits, grp, leaked
 
 
@@ -344,6 +366,29 @@ def test_ltgb_offline_arm_read_and_clear(ltgb_state):
     assert len(set(grp3)) == 1, \
         (f"le coup de groupe LetTheGalaxyBurn VARIE offline ({sorted(set(grp3))}) -> le port tire "
          f"la ou le natif rend une constante (HitDamage degenere)")
+
+    # COUNTERFACTUEL 3 (#BL-1029r-r1) : SANS decroissance, la chaine S'AUTO-ALIMENTE. Le volet 2 du
+    # reset despoile la tuile de la cible des la premiere attaque a succes ; toutes les suivantes
+    # prennent alors la branche GAUCHE du gate (`TargetHasTileEffect`), donc `base+1` CERTAIN et
+    # AUCUNE nouvelle pose de flag (`!HasTileStatusEffect` du trigger est faux). C'est le meme fait
+    # que le counterfactuel 2, mais atteint par le port LUI-MEME au lieu d'un effet stub -- c'est ce
+    # qui manquait, et c'est precisement ce qui privait le cast de Drachnyen de son 10e coup.
+    st4 = ltgb_state["build_state"]()
+    hits4, _g4, leaked4 = _replay(st4, board, aid, tid, 40, despoil_decay=False)
+    pct4 = 100.0 * sum(1 for h in hits4 if h > base) / max(1, len(hits4))
+    tp4 = st4.entities[tid].get_component(PositionComponent)
+    fx4 = [e.name for e in st4.effects.by_unit.get(int(board.id_at(tp4.col, tp4.row)) or -1, [])
+           if not e.consumed]
+    print(f"[LTGB offline] sans decroissance : n={len(hits4)} base+1={pct4:.1f}% "
+          f"tuile={fx4} flags_non_effaces={leaked4}")
+    assert EffectType.DespoiledGround.name in fx4, \
+        f"le volet 2 n'a pas despoile la tuile de la cible : {fx4}"
+    # La 1re attaque peut echouer son `Maybe` (donc rester a `base`) ; a partir de la 1re reussite
+    # tout est `base+1`. Sur 40 attaques a 33 %, la probabilite d'ouvrir sur >= 8 echecs est ~4e-4.
+    assert pct4 >= 80.0, \
+        (f"la branche TargetHasTileEffect ne s'auto-alimente pas ({pct4:.1f}%) -> le volet 2 pose "
+         f"un effet que le gate du coup ne voit pas (tuile={fx4})")
+    assert leaked4 == 0, "le flag reste pose alors que la cible est sur une tuile despoilee"
 
 
 # ------------------------------------------------------------------ (3) FACE PREDICTION (threading)

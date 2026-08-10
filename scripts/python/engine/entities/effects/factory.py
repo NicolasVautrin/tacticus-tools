@@ -50,7 +50,8 @@ from .loki.extra_damage import (
     MeltaExtraDmgEffect,
     ModifiedExoarmourExtraDmgEffect, PrimarchOfTheFirstLegionExtraDamageEffect,
     PrioritisedEfficiencyExtraDmgEffect, RangedSpecialistEffect, RapidAssaultExtraDamageEffect,
-    SmashaEadExtraDamageEffect, TerrifyingCrescendoExtraDmgEffect
+    SmashaEadExtraDamageEffect, SpecialIssueCombiMeltaExtraDmgEffect,
+    TerrifyingCrescendoExtraDmgEffect
 )
 from .loki.extra_damage_aura import (
     BeaconOfRageFriendlyExtraDamageEffect, DaughterOfTheAbyssExtraDamagePctEffect,
@@ -74,7 +75,8 @@ from .loki.hits import (
     KanOpenerEffect, LegendaryCommanderExtraHitsEffect, LetTheGalaxyBurnEffect, LightCoverEffect,
     MasterAnnihilatorAdditionalHitEffect, ParryEffect, PowerTripFullHealthEffect,
     PowerTripIgnoreArmorEffect, PsychicFortressExtraBlockEffect, SagaOfTheWarriorBornOwnerEffect,
-    ShroudPsalmEffect, SorcerousFacadeAdditionalHitsEffect, SquigHoundAdditionalHitsEffect,
+    ShroudPsalmEffect, SorcerousFacadeAdditionalHitsEffect,
+    SpecialIssueCombiMeltaAdditionalHitsEffect, SquigHoundAdditionalHitsEffect,
     Swarm_HitReductionEffect, UnstoppableFerocityOwnerEffect, VoltagheistFieldExtraHitEffect
 )
 from .loki.imperative import ConquerorImperativeEffect, ProtectorImperativeEffect
@@ -151,6 +153,18 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     "Melta_ExtraDmg": MeltaExtraDmgEffect,
     "RapidAssault_ExtraDamage": RapidAssaultExtraDamageEffect,
     "SquigHound_AdditionalHits": SquigHoundAdditionalHitsEffect,   # #179 : 2 coups hetero [minDmg,maxDmg] Physical
+    # SpecialIssueCombiMelta (`darkaSternguard` « Ramus », npc `darkaBossSternguardLHE` ; ability
+    # TriggeredAbilityType 1545) -- FACE COMBAT, #419-r1-tr11-r3. Les DEUX effets sont poses ensemble
+    # par `SpecialIssueCombiMelta_InitAbility$$CreateBehaviour` (`AddEffect(0x61b) & AddEffect(0x61c)`
+    # sur `Owner@DSLSelectors+0x30`) et se distinguent par leur PORTEE EXACTE, lue au `.ctor` de
+    # `DSLFormulas` (`+0x20 = Const(1)`, `+0x28 = Const(2)`) et non au call-site :
+    #   1563 = un GROUPE du canal #179 (`nrOfHits` coups [minDmg,maxDmg] Bolter) a d == **2** ;
+    #   1564 = un ForAddition `extraDmg` sur les attaques NORMALES a d == **1**.
+    # `IsAtRange` compare par EGALITE (cf. `effects/base.py::is_at_range`) : ce ne sont PAS des
+    # portees « jusqu'a ». La 3e portee du kit (`Pinned` a d == 3) vit sur l'ability
+    # `SpecialIssueCombiMelta_AddEffectAbility`, pas sur un effet -- residu `#419-r1-tr11-r4`.
+    "SpecialIssueCombiMelta_AdditionalHits": SpecialIssueCombiMeltaAdditionalHitsEffect,
+    "SpecialIssueCombiMelta_ExtraDmg": SpecialIssueCombiMeltaExtraDmgEffect,
     # SorcerousFacade (Yazaghor thousTzaangor, effet 0x4b4=1204 pose par le cast de 1100 sur le CASTER
     # ET l'allie Psyker vise, TurnsFromRounds(1)) : +nrOfHits=1 coup hetero [minDmg,maxDmg] Psychic a
     # TOUTES leurs attaques (trigger = `get_OwnerIsCaster` SEUL). Corps natif IDENTIQUE instruction

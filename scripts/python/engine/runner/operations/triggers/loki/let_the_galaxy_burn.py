@@ -42,16 +42,35 @@ SetPersistentData( AbilityOrEffect(0x5ca=1482), Self@0x148,
 = arme un FLAG intra-attaque sur le porteur, lu par `IsPersistentData` dans le gate du coup.
 
 ### `IdunBattleLogic.Entities.Abilities.Triggered.Loki.LetTheGalaxyBurn_ResetAbility$$CreateBehaviour` (`AbilityBehaviour.op_Addition`)
+RELU sur `rnca9r7q6c` (#BL-1029r-r1) -- les offsets de `DSLSelectors` ont bouge de `-0x118` entre
+`gqfc5mff6c` et ce build (`Owner` 0x148->0x30, `Caster` 0x160->0x48, `Target` 0x178->0x60,
+`Current` 0x180->0x68, `TargetTiles` 0x190->0x78) :
 ```
-  If( IsPersistentData(0x5ca, Self@0x148, Get(<statique>)) & AttackUsedAttackDamage,
-      Foreach( Targets@0x190,
-               If( !HasTileStatusEffect(Current@0x180),
+  If( IsPersistentData(0x5ca, Owner@DSLSelectors+0x30, DSLFormulas.Get(<statique>))
+      & AttackUsedAttackDamage,
+      Foreach( TargetTiles@DSLSelectors+0x78,
+               If( !HasTileStatusEffect(Current@DSLSelectors+0x68),
                    AddEffect(0x5c4=1476 DespoiledGround, AbilityStateReference,
-                             source=Self@0x148, cible=Current@0x180, options ZERO) ) ) )
-+ ClearPersistentData( AbilityOrEffect(0x5ca), Self@0x148, Get(<statique>) )
+                             source=Owner@+0x30, cibles=Current@+0x68, options ZERO) ) ) )
++ ClearPersistentData( AbilityOrEffect(0x5ca), Owner@+0x30, DSLFormulas.Get(<statique>) )
 ```
-Le `ClearPersistentData` est **hors du If** -> INCONDITIONNEL. Le volet `AddEffect(1476)` = le
-**volet 2** (pose de Despoiled Ground) -- **NON porte ici** (residu explicite, cf. bas de docstring).
+Le `ClearPersistentData` est **hors du If** -> INCONDITIONNEL, et il vient APRES le volet 2 dans
+l'`op_Addition` : le flag doit donc etre LU avant d'etre efface.
+
+⚠ **Le selecteur du `Foreach` est `TargetTiles`, PAS `Targets`** -- cette docstring ecrivait
+`Targets@0x190`, et c'etait FAUX. Trois lectures concordantes le tranchent :
+(a) `IdunBattle.Operations.AddEffectOperation$$Execute` ne route RIEN : il pose l'effet sur son
+    parametre `owner` tel quel (il teste meme `EntityExtensions$$IsUnit(owner)` -- le domaine est
+    MIXTE unite/tuile) ; un `Foreach` sur des unites poserait donc l'effet sur l'UNITE ;
+(b) le meme slot `+0x190` (gqfc) est deja lu `TargetTiles` par un port valide --
+    `IdunBattleLogic.Entities.Abilities.Active.Loki.BrazierOfHolyFireAbility$$ExecuteBehaviour`
+    = `AddEffect(5 Fire, stateRef, TargetTiles@0x190)` ;
+(c) MESURE LIVE (`probe_bl1029r_r1_despoiled_ground.py`, seed 777, `MC1_67`) : apres le cast, la
+    TUILE de la cible porte `['Melta_ExtraDmg', 'DespoiledGround']` et l'UNITE cible porte
+    `['RelentlessMarch_DangerZone']` -- l'effet est sur la tuile, pas sur l'unite.
+L'i2 du trait le dit aussi : « add Despoiled Ground **to the hex** of the attacked unit ».
+
+Le volet `AddEffect(1476)` = le **volet 2**, PORTE depuis #BL-1029r-r1 (cf. `_despoil_target_tile`).
 
 ## Gate `HasTileStatusEffect` : GENERIQUE et EXCLUSIF
 `IdunBattleLogic.Entities.Abilities.Triggered.Loki.LetTheGalaxyBurnAbility$$TargetHasTileEffect` = `HasTileStatusEffect(Targets@0x190)` : n'importe quel status-effect
@@ -77,11 +96,33 @@ branche B n=23 -> **23/23** a 5 coups. Le +1 est exactement correle a l'appariti
   (normale + ability) du port, et le behaviour teste `AttackUsedAttackDamage` (= post-degat), ce qui
   le contraint a cette famille. Flagge comme tel.
 
+## VOLET 2 -- PORTE (#BL-1029r-r1), et il n'etait pas cosmetique
+`AddEffect(0x5c4=1476 DespoiledGround)` sur la TUILE de chaque cible. Tant qu'il manquait, la
+branche B du gate du coup (`TargetHasTileEffect`) ne s'auto-alimentait JAMAIS offline : la 2e
+attaque d'une meme chaine repassait par le `Maybe(33 %)` la ou le natif avait deja rendu le coup
+CERTAIN. MESURE qui l'etablit (`probe_bl1029r_r1_despoiled_ground.py`, seed 777, `MC1_67`, cast de
+`Drachnyen` sur `blackAbaddon`) -- la cascade LIVE, dans l'ordre :
+```
+  [29] coup 1507   (coup additionnel LetTheGalaxyBurn de l'attaque NORMALE, flag arme)
+  [31] group src=LetTheGalaxyBurn
+  [32] group src=DespoiledGround        <-- POSE, a la CLOTURE de l'attaque normale
+  [38] group src=Drachnyen_ExtraAttack  <-- l'extra attack demarre APRES
+  [40][43][46] coups 4092 / 1265 / 1303
+  [49] coup 1297 + [51] group src=LetTheGalaxyBurn   <-- le 10e coup, par la branche B
+```
+L'ordre natif qui rend cela possible est LU, pas suppose :
+`IdunBattleLogic.Entities.Abilities.Active.Loki.ALoki_NormalAttackAbility$$ExecuteBehaviour` appelle
+`$$ExecuteNormalAttack` (qui contient le `FinishAttack` -> `On(9)` -> CE reset) **puis**
+`$$ExecuteTriggerAbilities` (`EvaluateAbilities(0x26 = NormalAttack)` -> la triggered 1485). Le port
+respecte deja cet ordre (`abilities/behaviours/combat.py::UseActiveAbility`).
+
 ## RESIDUS (honnetes)
-- **Volet 2 non porte** : `AddEffect(0x5c4=1476 DespoiledGround)` sur les tuiles des cibles (avec son
-  effet 1478 `DespoiledGround_ExtraDamagePct`). Consequence OFFLINE : la branche B du gate ne
-  s'auto-alimente pas (aucun DespoiledGround n'apparait offline) -- elle reste atteignable par tout
-  AUTRE tile-effect (Fire/Ice/Contaminated...) et par le contexte LIVE threade.
+- **Effet 1478 `DespoiledGround_ExtraDamagePct` non porte** (le bonus de degat que la tuile despoilee
+  confere), ni le DoT de tuile `EnvDespoiledGroundTileDamage` -- LIVE, le tick de fin de tour inflige
+  a l'occupant `Effect_Type: 1476` (mesure : 35188 sur une cible a 500000 PV forces). Poser l'effet ne
+  les active PAS cote port (aucun `TileEffectTrigger` n'est enregistre pour 1476) : c'est une
+  divergence PREEXISTANTE, ni creee ni aggravee ici, mais desormais ATTEIGNABLE offline puisque la
+  tuile porte l'effet.
 - **Ordre de conso RNG : RESOLU (O4a)**. Le natif place `Maybe` AVANT `!HasTileStatusEffect` dans la
   conjonction (`MultipleAbilityTrigger$$ShouldTrigger` = gauche puis droite) ; le port l'evalue
   desormais DANS CET ORDRE, avec la primitive du natif (`MaybeTrigger` -> `NextBool(chance)`, borne
@@ -97,6 +138,7 @@ from typing import Optional
 from ....state import State
 from ....components import PositionComponent, PersistentDataComponent
 from ....abilities.behaviours.context import entities_from_state
+from .....entities.effect_type import EffectType
 from .....entities.effects.loki.hits import LET_THE_GALAXY_BURN_PERSISTENT_KEY
 from .....entities.effects.magnitude import trait_var
 from .....entities.triggers import MaybeTrigger
@@ -104,6 +146,11 @@ from .....dsl.base import Const
 from .....dsl.event_trigger_type import EventTriggerType
 from ..base import TriggeredAbility, TriggerEvent
 from ....damage_model import tile_status_effects_by_pos
+# FORME B (`import <module>` puis `<module>.<nom>`) : un binding de module n'est jamais gele, donc un
+# `monkeypatch.setattr("engine.runner.operations.effects.AddEffectOperation", ...)` mord. Import EN
+# TETE et non differe : classe GRATUIT (mesure -- charger `engine.runner.operations.effects` seul en
+# process frais ne tire PAS ce module-ci), donc aucun cycle a fermer.
+from ... import effects as _ops_effects
 
 _ON_PRE_ATTACK = int(EventTriggerType.PreAttack)   # 5  — vecteur de POSE (avant le calcul des coups)
 _ON_ATTACK = int(EventTriggerType.Attack)          # 9  — vecteur fin-d'attaque (CLEAR)
@@ -172,11 +219,61 @@ class LetTheGalaxyBurnArmAbility(TriggeredAbility):
                 "armed": True, "target": int(ev.target_id)}
 
 
+def _despoil_target_tile(state: State, owner_id: int, target_id: Optional[int]) -> Optional[int]:
+    """Corps du `Foreach` du volet 2 :
+    `If(!HasTileStatusEffect(Current@DSLSelectors+0x68), AddEffect(0x5c4 = 1476 DespoiledGround,
+    AbilityStateReference, source = Owner@+0x30, cibles = Current@+0x68, options ZERO))`.
+
+    L'element courant est une TUILE (le selecteur du `Foreach` est `TargetTiles@+0x78`, cf. l'entete
+    du module) -> le gate lit la tuile de la cible et l'effet est POSE sur l'entite-tuile, exactement
+    comme les autres poses tile-domain du port (`AddEffect(Tiles(Target()))` d'`OnFireDamageAbility`).
+
+    `source` = `Owner@+0x30` (le porteur du trait), et c'est LU : la surcharge appelee ici est celle a
+    SIX parametres (`DSLBehaviors$$AddEffect(dsl, type, stateRef, source, targets, options)`), donc le
+    selecteur SOURCE est EXPLICITE -- contrairement a la surcharge a CINQ parametres d'
+    `OnFireDamageAbility`, dont le selecteur source NUL fait retomber
+    `IdunBattle.Entities.Behaviours.AddEffectBehaviour$$Execute` sur la cible (`source_from_target`).
+
+    Duree : `options ZERO` -> AUCUN override -> `DefaultAmountOfRounds(0x5c4) = 2 rounds`, converti
+    dans `AddEffectOperation` (la table du port porte deja cette entree). Rend l'id de tuile
+    REELLEMENT despoilee, ou None (pas de board, tuile deja sous status-effect, re-pose no-op)."""
+    board = getattr(state, "board", None)
+    if target_id is None or board is None or state.effects is None:
+        return None
+    e = state.get_entity(int(target_id))
+    pc = e.get_component(PositionComponent) if e is not None else None
+    if pc is None:
+        return None
+    # `!HasTileStatusEffect(Current)` — MEME lecture que le trigger de POSE et que le gate du coup
+    # (filtre `IsTileStatusEffect`, cf. `_target_tile_effects`).
+    if _target_tile_effects(state, int(target_id)):
+        return None
+    tile_id = board.id_at(pc.col, pc.row)
+    if tile_id is None:
+        return None
+    eff = _ops_effects.AddEffectOperation.execute(
+        state, source=int(owner_id), target=int(tile_id),
+        effect_type=int(EffectType.DespoiledGround),
+        name=EffectType.DespoiledGround.name,
+        duration_override=None)
+    return int(tile_id) if eff is not None else None
+
+
 class LetTheGalaxyBurnResetAbility(TriggeredAbility):
-    """`LetTheGalaxyBurn_ResetAbility` (IdunBattleLogic.Entities.Abilities.Triggered.Loki.LetTheGalaxyBurn_ResetAbility$$CreateBehaviour) — la moitie PORTEE du reset :
-    `ClearPersistentData(0x5ca, Self@0x148, Get(<statique>))`, INCONDITIONNEL (hors du `If`), a la fin
-    de l'attaque du porteur. Le volet `AddEffect(0x5c4=1476 DespoiledGround)` du meme behaviour est le
-    VOLET 2 -- non porte (residu explicite, cf. entete du module)."""
+    """`LetTheGalaxyBurn_ResetAbility` (IdunBattleLogic.Entities.Abilities.Triggered.Loki.LetTheGalaxyBurn_ResetAbility$$CreateBehaviour) — les DEUX volets :
+
+        If( IsPersistentData(0x5ca, Owner, Get(<statique>)) & AttackUsedAttackDamage,
+            Foreach( TargetTiles, If(!HasTileStatusEffect(Current), AddEffect(1476)) ) )
+      + ClearPersistentData( 0x5ca, Owner, Get(<statique>) )                    # INCONDITIONNEL
+
+    ORDRE : l'`op_Addition` evalue le `If` AVANT le `ClearPersistentData` -> le flag est LU d'abord,
+    efface ensuite. Un port qui effacerait en tete rendrait le volet 2 mort a tous les coups.
+
+    `Foreach(TargetTiles)` : cote port, `On(9)` part **PAR CIBLE** (mirror
+    `IdunBattle.Entities.Behaviours.AttackBehaviour$$Execute`, qui appelle `FinishAttack` apres chaque
+    cible -- cf. `dispatch/attack.py::finish_attack_triggers`), donc l'ensemble a iterer ici est le
+    singleton `{ev.target_id}` : le natif et le port posent le meme nombre d'effets, chacun sur la
+    tuile de SA cible."""
     event_id = _ON_ATTACK
 
     def matches(self, state: State, ev: TriggerEvent) -> bool:
@@ -187,5 +284,10 @@ class LetTheGalaxyBurnResetAbility(TriggeredAbility):
         if c is None:
             return None
         had = LET_THE_GALAXY_BURN_PERSISTENT_KEY in c.data
+        # VOLET 2, AVANT le clear (ordre de l'`op_Addition`). `AttackUsedAttackDamage` =
+        # `AbilityEntities+0xf9`, threade sur l'event (`byte` brut natif : non renseigne = 0 = FAUX).
+        despoiled = (_despoil_target_tile(state, self.owner_id, ev.target_id)
+                     if (had and bool(ev.attack_used_attack_damage)) else None)
         c.clear_persistent_data(LET_THE_GALAXY_BURN_PERSISTENT_KEY)
-        return {"trait": "LetTheGalaxyBurn", "unit": int(self.owner_id), "cleared": bool(had)}
+        return {"trait": "LetTheGalaxyBurn", "unit": int(self.owner_id), "cleared": bool(had),
+                "despoiled_tile": despoiled}

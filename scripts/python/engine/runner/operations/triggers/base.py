@@ -38,7 +38,8 @@ class TriggerEvent:
     __slots__ = ("event_id", "actor_id", "target_id", "ranged", "profile", "is_crit",
                  "killer_id", "dying_id", "player_id", "overkill", "ability_type", "profiles",
                  "triggering_effect", "is_first_hit", "triggering_ability", "dest_tile",
-                 "health_damage", "was_block", "is_normal_attack", "movement_steps")
+                 "health_damage", "was_block", "is_normal_attack", "movement_steps",
+                 "attack_used_attack_damage")
 
     def __init__(self, event_id: int, actor_id: int, target_id: int, *,
                  ranged: bool, profile: Optional[str], is_crit: bool = False,
@@ -51,7 +52,8 @@ class TriggerEvent:
                  dest_tile=None,
                  health_damage: Optional[int] = None, was_block: Optional[bool] = None,
                  is_normal_attack: Optional[bool] = None,
-                 movement_steps: Optional[int] = None):
+                 movement_steps: Optional[int] = None,
+                 attack_used_attack_damage: Optional[bool] = None):
         self.event_id = event_id
         self.actor_id = actor_id
         self.target_id = target_id
@@ -190,6 +192,19 @@ class TriggerEvent:
         # `TerminatorArmour_ReduceDmg_Effect$$CreateTargetTrigger` en a besoin : un coup ENTIEREMENT
         # bloque (0 PV perdu) consomme quand meme l'armure. None = non threade -> FAUX.
         self.was_block = was_block
+        # `IdunBattleLogic.Entities.DSLTriggers$$AttackUsedAttackDamage` — corps ENTIER de son trigger :
+        #     `IdunBattle.Entities.Triggers.AttackUsedAttackDamageTrigger$$ShouldTrigger`
+        #         = `return *(byte *)(entities + 0xf9);`
+        # C'est le MEME fait que le gate de `On(10)` (`currentAttack@+0x2c`, pose par
+        # `IdunBattle.Operations.AttackDamageOperation$$Execute`) : « cette attaque a comporte une
+        # ATTAQUE-A-DEGATS » (famille ATTACK), par opposition a une attaque resolue par
+        # `IdunBattle.Operations.AbilityDamageOperation`. Cote port, ce fait EST `is_attack_damage_op`,
+        # threade par les emetteurs d'`On(9)`.
+        # ⚠ PAS DE TRI-ETAT ICI, et c'est LU : le natif lit un `byte` BRUT d'un `AbilityEntities`
+        # `memset` a 0 -> un evenement qui ne le renseigne pas vaut FAUX cote natif aussi. `None` se
+        # lit donc `False`, ce n'est pas une degradation. Consommateur : le volet DespoiledGround de
+        # `IdunBattleLogic.Entities.Abilities.Triggered.Loki.LetTheGalaxyBurn_ResetAbility$$CreateBehaviour`.
+        self.attack_used_attack_damage = attack_used_attack_damage
 
 
 class TriggeredAbility:

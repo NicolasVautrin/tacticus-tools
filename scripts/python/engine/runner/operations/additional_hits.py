@@ -126,6 +126,13 @@ def collect_additional_hit_groups(state: State, attacker_id: int, target_id: int
               # #227 : etat lu par `LetTheGalaxyBurnEffect` (gate + degat), cf. docstring.
               "attack_hit_damage": attack_hit_damage,
               "t_pos": t_pos,
+              # #419-r1-tr11-r3 : la tuile d'ATTAQUE. Le `ctx` portait deja `t_pos` mais PAS
+              # `att_pos`, donc tout gate de DISTANCE y etait inevaluable -- c'est ce qui bloquait
+              # le port de `SpecialIssueCombiMelta_AdditionalHits` (1563, `IsAtRange(Caster@+0x48,
+              # Target@+0x60, DSLFormulas+0x28 = Const(2))`). Lue sur l'ECS comme `t_pos` : cote
+              # COMBAT la tuile d'attaque EST la position reelle de l'attaquant (le pendant
+              # PREDICTION thread, lui, la tuile CANDIDATE). Absente -> le gate rend FAUX.
+              "att_pos": (ap.col, ap.row),
               "tile_effects_by_pos": tile_effects_by_pos,
               "persistent_data": persistent_data}
     groups = list(additional_hit_groups(att_active, ah_ctx))
