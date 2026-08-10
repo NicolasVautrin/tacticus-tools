@@ -640,6 +640,10 @@ def _report(tag, m, degenerate=False):
         print("  [def_mods] u%s melee=%s profil=%s att=%s  active=%s"
               % (c["unit"], c["is_melee"], c["profile"], c["attacker"], c["active"]))
         print("             mods=%s" % (c["mods"],))
+    if m.get("port_detail"):
+        print("  [detail port]    %s" % json.dumps(m["port_detail"], default=str)[:400])
+    if m.get("variant_detail"):
+        print("  [detail variant] %s" % json.dumps(m["variant_detail"], default=str)[:400])
     print("  PORT    per_hit = %s (total %s)" % (m["port_per_hit"], m.get("port_total")))
     print("  VARIANT per_hit = %s   (contre-modele POST-%%list)" % (m["variant_per_hit"],))
     print("  LIVE    per_hit = %s (delta PV %s)" % (m["live_per_hit"], m["live_delta"]))

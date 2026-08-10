@@ -33,7 +33,8 @@ if _PY not in sys.path:
     sys.path.insert(0, _PY)
 
 from engine.entities.effects.loki.damage_reduction import (                 # noqa: E402
-    ChronometronExtraDamageEffect, ExemplarOfHateTargetEffect, NeuroparasiteEffect)
+    ChronometronExtraDamageEffect, ExemplarOfHateTargetEffect,
+    HeraldOfTheApocalypseExtraDamageEffect, NeuroparasiteEffect)
 from engine.entities.effects.loki.holy_duel import HolyDuelDmgReductionEffect  # noqa: E402
 from engine.runner.operations.damage import AttackDamageOperation           # noqa: E402
 from engine.services.damage_modifiers import (                              # noqa: E402
@@ -55,6 +56,13 @@ PRODUCTEURS_ATTESTES = {
         "#549 -- `probe_549_holy_duel.py --step defense` : le champion encaisse le coup de son "
         "duelliste (il y est CONTRAINT, `ForcedAttackTargetsComponent`), port 1196 == natif 1196, "
         "contre-modele ECRIT (instance 1093 consommee) 2027",
+    _DR + "HeraldOfTheApocalypseExtraDamageEffect":
+        "#547-r2 -- bras `herald` (entre par la PR #836 SANS confrontation, c'est ce cliquet qui "
+        "l'a vu) : blackHaarken caste l'active 1020 a portee 2, l'effet 1027 est LU sur ses "
+        "porteurs dans `decisionView`, puis darkaHellblaster frappe l'un d'eux (armure forcee "
+        "50000 -> branche PERCAGE, pierce 65, %-list attaquant 1.25). additif = 1795 "
+        "(`extraDmg[50] = 997 x mult 180`), port 3151 == natif 3151 (delta PV), contre-modele "
+        "ECRIT (placement POST-%-list) 3265",
 }
 
 # --- Bras `chrono` : `Chronometron_ExtraDamage` (1550), profil `Physical` (PiercingRatio = 1). ---
@@ -163,6 +171,11 @@ def test_les_magnitudes_des_producteurs_sont_INTEGRALES():
         # (`AreEqual(Actor@DSLSelectors+0x40, BondedEntityFromEffect(Effect@0x38))`), donc l'attaquant
         # du ctx DOIT etre le bonde de l'instance, sans quoi le garde ne mesurerait rien.
         (HolyDuelDmgReductionEffect, {"is_melee": True}, {"id": 9}),
+        # #547-r2 -- `HeraldOfTheApocalypse_ExtraDamage` (1027). Son trigger n'a que DEUX conjoints
+        # (`get_OwnerIsTarget & IsUnit(caster@DSLSelectors+0x48)`) : ni `IsMeleeAttack`, ni
+        # `DamageProfileIs`, ni `AreFriends` -- d'ou un `kw` VIDE. Le seul gate a ouvrir est
+        # `is_unit` sur l'attaquant, sans quoi le port rend `None` et le garde ne mesurerait rien.
+        (HeraldOfTheApocalypseExtraDamageEffect, {}, {"id": 9, "is_unit": True}),
     ]
     vus = 0
     for cls, kw, att in cas:
