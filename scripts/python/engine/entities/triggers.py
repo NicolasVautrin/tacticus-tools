@@ -26,7 +26,7 @@ from .unit_faction import UNIT_FACTION_NAMES        # noqa: F401 (re-export)
 from .effect_target_type import EffectTargetType
 # #524 : le 3e argument d'`IdunBattleLogic.Entities.DSLTriggers$$IsAdjacent`. Type DECLARE du
 # parametre `selectionType`, LU dans `frida/methods.tsv` -- jamais deduit de l'ordinal.
-from .unit_selection_type import UnitSelectionType
+from .unit_selection_type import UnitSelectionType, selection_ok_from_ctx  # noqa: F401
 # #270-r4-r2 : les DEUX lectures de `UnitTrait` etaient DIFFEREES, avec pour motif ecrit une
 # « garde anti-circulaire ». MESURE : la garde etait VIDE -- le hissage passe depuis 8 ordres
 # d'entree distincts (`probe_270r4r2_import_en_premier.py`), et il passait DEJA avant la coupe
@@ -1315,7 +1315,7 @@ class IsAdjacent(AbilityTrigger):
       champ `+0x18`) n'est lu QUE comme 2e argument du `Select` des deux selecteurs ; il n'entre pas
       dans la comparaison par paire.
 
-      **VOLET `IsAlive` PORTE (#524), volet `Untargetable` encore RESIDUEL (`#433-r3-r2`).** Le
+      **LES DEUX VOLETS SONT PORTES (`IsAlive` par #524, `Untargetable` par #433-r3-r2).** Le
       foyer natif est `IdunBattle.Entities.UnitExtensions$$MatchesUnitSelectionType(unit,
       selectionType, state)`, MIRROR de son decompile :
 
@@ -1325,13 +1325,21 @@ class IsAdjacent(AbilityTrigger):
           if (selectionType == 3)  return IsAlive(unit, state) && !HasFlag(unit, 0x11);
           return true;                                          // 0 = Any
 
-      Ce noeud applique donc `IsAlive` pour `OnlyAlive`/`OnlyAliveAndTargetable` -- et seulement
-      ceux-la : `OnlyTargetable` (2) N'APPELLE PAS `IsAlive` au decompile, donc les trois call-sites
-      portes qui passent `2` (`runner/operations/behaviour.py`, `.../loki/narthecium.py`,
-      `.../loki/tainted_narthecium.py`) sont INCHANGES, comme les call-sites qui ne passent RIEN.
-      Le volet `HasFlag(Untargetable)` reste hors de portee ici : `DslContext` ne porte ni `state`
-      ni la table d'effets, et le signal offline du port vit dans `ai/state_bridge.py`
-      (`UNTARGETABLE_EFFECT_TYPES`) -- l'amener jusqu'au contexte DSL est une tranche a part.
+      ⚠ **CE NOEUD EN AVAIT ECRIT UN TROISIEME PORT, A LA MAIN** -- un filtre `IsAlive` local,
+      structurellement aveugle au volet `Untargetable`. Consequence MESUREE au decompile : pour
+      `selectionType == 2` (`OnlyTargetable`), qui n'appelle PAS `IsAlive`, ce noeud ne filtrait
+      **RIEN DU TOUT**. C'est exactement le regime de `runner/operations/behaviour.py`
+      (`BattleFatigueAbility$$CreateTrigger` -> `IsAdjacent(self@+0x30, dying@+0x60, 2)`) : le seul
+      filtre que le natif y applique etait le seul que le port n'avait pas. La docstring d'avant
+      lisait ce trou comme un no-op benin (<< les trois call-sites qui passent `2` sont INCHANGES >>)
+      -- ils l'etaient, et c'etait le defaut.
+
+      Le noeud DELEGUE desormais au foyer `entities/unit_selection_type.py::selection_ok_from_ctx`,
+      le MEME que `entities/selectors/units.py::_selection_ok`. Le canal du flag est
+      `ctx.has_unit_flag` (`UnitFlagsComponent$$Has`), deja porte par `DslContext` et alimente par
+      `entities_from_state` ; TRI-ETAT : canal absent -> `targetable = None` = **PAS MESURE** -> la
+      clause degrade en VRAI, jamais en refus invente. Un contexte sans `has_unit_flag` (face
+      DECISION, arbre de test) se comporte donc exactement comme avant, bit pour bit.
 
       **CE QUE LE VOLET `IsAlive` FERME, MESURE** (#524, `probe_524_lash_of_torment.py --step
       taunt-dead --dmin 1 --dmax 1`) : `LashOfTorment` (1196) fait `If(IsAdjacent(Caster, Target,
@@ -1364,15 +1372,18 @@ class IsAdjacent(AbilityTrigger):
 
     def _select(self, node, ctx) -> list:
         """`<sel>.Select(entities, selectionType)` -- le `_units_of` du port, SUIVI du filtre
-        `IdunBattle.Entities.UnitExtensions$$MatchesUnitSelectionType` (volet `IsAlive` seul, cf.
-        docstring). `IsAlive` n'est appele par le natif QUE pour `OnlyAlive` et
-        `OnlyAliveAndTargetable` : tout autre `selection_type` (y compris `None`) laisse passer."""
+        `IdunBattle.Entities.UnitExtensions$$MatchesUnitSelectionType`, DELEGUE au foyer
+        `selection_ok_from_ctx` (#433-r3-r2 ; les DEUX volets, `IsAlive` et `Untargetable`).
+
+        `selection_type is None` = call-site qui ne l'a pas encore releve -> AUCUN filtre,
+        comportement d'avant #524 bit pour bit. C'est une IGNORANCE declaree, pas un `Any` : le
+        natif n'a pas de troisieme etat, mais nous si, et le rabattre sur `0` ferait passer pour
+        une lecture ce qui n'en est pas une."""
         units = _units_of(node, ctx)
         st = self.selection_type
-        if st is not None and int(st) in (int(UnitSelectionType.OnlyAlive),
-                                          int(UnitSelectionType.OnlyAliveAndTargetable)):
-            return [u for u in units if _is_alive(u)]
-        return units
+        if st is None:
+            return units
+        return [u for u in units if selection_ok_from_ctx(u, st, ctx)]
 
     def should_trigger(self, ctx):
         ua = self._select(self.a, ctx)
