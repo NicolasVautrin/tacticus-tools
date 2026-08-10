@@ -277,21 +277,38 @@ def a_rejouer(perimetre: list, racine, impactes_depuis) -> tuple[list, dict, lis
                 and e.get("_blob") and blobs.get(rel) == e.get("_blob"):
             par_ancre.setdefault(ancres[rel], []).append(rel)
 
-    impactes: set = set()
+    # ⚠ L'IMPACT SE JUGE PAR ANCRE, ET L'UNION ETAIT UN BUG (#547-r7). La version precedente
+    # UNIONNAIT les impacts de toutes les ancres, puis appliquait cet ensemble a TOUS les
+    # fichiers : un fichier atteste a une ancre RECENTE etait donc declare impacte parce qu'un
+    # AUTRE fichier, atteste a une ancre ANCIENNE, l'etait. La contamination est mesuree
+    # (2026-08-11, apres une passe `--jobs 8` qui venait d'attester 282 fichiers) :
+    #
+    #     ancre 15fc2a4c (282 entrees, fraiches) ->   9 impactes
+    #     ancre 0d6283b6 ( 24 entrees, vieilles) -> 282 impactes
+    #     union appliquee a tout               -> 282 rejoues, dont ~273 A TORT
+    #
+    # Autrement dit : 24 vieilles entrees suffisaient a peremer les 282 qu'on venait de gagner,
+    # donc ATTESTER NE SERVAIT A RIEN -- meme forme que le defaut ferme par #547-r5, a un autre
+    # etage. La correction RETRECIT la selection et ne peut pas produire de faux vert : elle
+    # applique LITTERALEMENT la cle de validite de l'en-tete (<< le fichier ne doit pas etre
+    # IMPACTE par le diff `_depuis..HEAD` >>) -- `_depuis` etant le SIEN, pas celui d'un voisin.
+    impactes_par_ancre: dict = {}
     for sha in par_ancre:
         try:
-            impactes |= set(impactes_depuis(sha))
+            impactes_par_ancre[sha] = set(impactes_depuis(sha))
         except Exception as exc:                          # noqa: BLE001
-            # PAS MESURE : on ne sait pas si ces fichiers sont impactes -> ils le sont TOUS.
-            # Le sens sur, et il est DIT -- jamais un vert par defaut d'information.
+            # PAS MESURE : on ne sait pas si ces fichiers sont impactes -> ils le sont TOUS,
+            # mais SEULEMENT ceux de CETTE ancre. Le sens sur, et il est DIT -- jamais un vert
+            # par defaut d'information.
             anomalies.append("impact depuis %s non mesurable (%s) -- ces fichiers rejouent"
                              % (sha[:8], exc))
-            impactes |= set(par_ancre[sha])
+            impactes_par_ancre[sha] = set(par_ancre[sha])
 
     rejeu, raisons = [], {}
     for rel in perimetre:
-        motif = raison_de_rejeu(rel, entrees.get(rel), blobs.get(rel),
-                                ancres.get(rel), rel in impactes)
+        ancre = ancres.get(rel)
+        impacte = rel in impactes_par_ancre.get(ancre, ())
+        motif = raison_de_rejeu(rel, entrees.get(rel), blobs.get(rel), ancre, impacte)
         if motif is not None:
             rejeu.append(rel)
             raisons[rel] = motif

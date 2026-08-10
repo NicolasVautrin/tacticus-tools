@@ -9,6 +9,23 @@ serie. Le geste courant, quand on veut s'en servir, est une SELECTION -- `--sinc
 `--depuis-ledger` (cf. plus bas). Sans diff impactant, il ne joue rien et rend la main tout de
 suite.
 
+LE GESTE QUI ATTESTE, ET LE SEUL : `--jobs N` (#547-r7)
+--------------------------------------------------------
+    cd scripts/python ; $env:TACTICUS_ALLOW_RATCHETS=1
+    python probe_457_offline_tests_green.py --jobs 8 --depuis-ledger
+
+Il lance N shards en sous-processus, puis CONSOLIDE leurs attestations dans le ledger versionne.
+C'est le seul mode qui atteste en multi-shard : chaque shard depose une PART sous `logs/` (un
+fichier par `(jeton, n, k)`, donc DISJOINT -- pas de course, pas de verrou), et un SEUL processus
+ecrit le fichier versionne. Un `--shard k/N` lance a la main SANS jeton de run ne depose rien, et
+le dit : une part sans identite ne se distingue pas d'une part OUBLIEE d'un run precedent, qui
+porterait des verts gagnes sur un AUTRE arbre.
+
+Mur mesure (poids reels, `bins_of`) : **1903 / 476 / 238 / 139 s** a 1 / 4 / 8 / 16 shards. Au-dela
+de 16, c'est le PLANCHER qui decide (le fichier le plus lourd, insecable) et sharder n'achete plus
+rien -- cf. `probe_547r8_concentration_du_mur.py`. Sous CHARGE (plusieurs agents), compter le
+DOUBLE : un mur ne se simule pas, il se mesure isole.
+
 ⚠ LE `0,21 %` QUI L'AVAIT DE-OBLIGE NE DIT PAS CE QU'ON LUI A FAIT DIRE (#486-r23). L'argument du
 2026-08-05 (`d82ec527`) etait : sur 67 runs de `logs/ratchets-bg`, 2 437 lignes de cliquet, **5
 non nulles**, donc << des prises de FONDATION, pas de GARDE >>. C'est un **biais du survivant

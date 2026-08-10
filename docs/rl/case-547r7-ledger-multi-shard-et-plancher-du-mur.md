@@ -73,6 +73,47 @@ cartesien des trois criteres (**36 combinaisons, 1 seule retenue**, anti-vacuite
 disjonction des ecritures, la restriction au perimetre et l'abandon d'un fichier atteste par deux
 shards.
 
+## 2bis. Le bug que le multi-shard a REVELE : l'impact etait juge par l'UNION des ancres
+
+Le mecanisme livre ci-dessus ne rendait presque RIEN, et ce n'etait pas sa faute. Mesure prise
+juste apres la premiere passe `--jobs 8` qui venait d'attester 282 fichiers :
+
+    --depuis-ledger : 282/306 fichier(s) SANS vert atteste valable  [~1474 s]
+
+Attester ne servait donc a rien -- **la meme phrase que #547-r5**, a un autre etage. La cause est
+dans `ledger_vert_offline.a_rejouer` : il calculait l'impact **par ancre**, puis en prenait
+**l'UNION**, et appliquait cet ensemble a **TOUS** les fichiers :
+
+| ancre | entrees qui la portent | fichiers impactes depuis elle |
+| --- | --- | --- |
+| `15fc2a4c` (fraiche, la passe qui vient de finir) | 282 | **9** |
+| `0d6283b6` (ancienne) | 24 | **282** |
+
+⇒ **24 vieilles entrees peremaient les 282 qu'on venait de gagner**, dont ~273 a tort. Un fichier
+atteste a une ancre RECENTE etait declare impacte parce qu'un AUTRE fichier, atteste a une ancre
+ANCIENNE, l'etait.
+
+Le correctif juge l'impact **par ancre** : un fichier est impacte si **SON** `_depuis..HEAD` le
+dit. Ce n'est pas un assouplissement -- c'est l'application LITTERALE de la cle de validite ecrite
+en tete du module (« le fichier ne doit pas etre IMPACTE par le diff `_depuis..HEAD` »), `_depuis`
+etant le sien et non celui d'un voisin. Une panne de mesure sur une ancre ne fait rejouer que
+**ses** fichiers, et le dit.
+
+**AVANT / APRES, sur le meme arbre, a la seconde pres :**
+
+| | fichiers a rejouer | cout annonce | attestations valables |
+| --- | --- | --- | --- |
+| union des ancres | 282 / 306 | 1474 s | **24 / 306** |
+| par ancre | **11 / 306** | **135 s** | **295 / 306** |
+
+La contre-epreuve est EXERCEE, pas supposee : la mutation qui remet l'union fait tomber
+`test_l_impact_d_une_VIEILLE_ancre_ne_CONTAMINE_pas_une_attestation_FRAICHE` (1 failed / 15
+passed), et le retrait de la mutation le fait remonter (16 passed).
+
+⚠ **Ce bug preexistait a #486-r23 ; ce qui l'a rendu VISIBLE, c'est d'avoir enfin une passe qui
+atteste en masse.** Tant que le ledger n'etait rafraichi que par bribes, toutes les entrees
+partageaient a peu pres la meme ancre et l'union ne se distinguait pas du par-ancre.
+
 ## 3. #547-r8 -- la piste du residu, MESUREE puis REFUTEE
 
 Le residu proposait : « un balayage d'arbre peut-il etre MEMOISE entre fichiers de test d'une meme

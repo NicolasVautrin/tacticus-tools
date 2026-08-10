@@ -111,25 +111,22 @@ NON_VERTS_DECLARES: dict[str, str] = {
     # que le ledger ne portait AUCUNE attestation a jour : c'est la passe `--measure` de cette
     # tranche (290 fichiers, 4047 passed / 8 failed en 2220 s) qui les a inscrits. Chacun porte
     # son assertion, pas une paraphrase.
-    "tests/engine/runner/test_ctx_traits_substrat_ventilation_offline.py":
-        "`test_la_table_ventile_exactement_l_inventaire` -- 1 failed / 13 passed. << 3 "
-        "lecture(s)/ecriture(s) de `traits` que la table ne ventile PAS : "
-        "[('runner/operations/resurrect.py', 'tiles_are_occupied', 'getattr(sc.ctx)', 'R'), "
-        "('runner/operations/traits.py', '_traits_of', 'getattr(ctx)', 'R'), "
-        "('runner/operations/traits.py', 'execute', 'ctx.traits', 'W')] >>. Meme FAMILLE que les "
-        "registres a cliquet : notre cadence de portage le rouvre. Residu #547-r6.",
-    "tests/engine/test_287r4r1_dynamic_target_rules_offline.py":
-        "`test_le_porteur_non_porte_consulte_bien_la_table` -- 1 failed / 15 passed. "
-        "`UnportedAbilityTargeting.get_dynamic_invalid_target_reason(state, CASTER, CIBLE)` rend "
-        "`0` la ou le test attend `int(TargetingRule.TargetMatchesDynamicRule) = 2` : le porteur "
-        "NON PORTE ne consulte plus la table dynamique. Residu #547-r6.",
-    "tests/test_366_r1_bcpatch_port_blindspot_offline.py":
-        "`test_seconde_source_le_grep_ne_voit_rien_que_l_AST_rate` -- 1 failed / 46 passed. La "
-        "seconde source (grep) voit `('BloodChalice', 'hpToHeal')`, le recensement AST ne le voit "
-        "PAS : FAUX NEGATIF, exactement ce que cette contre-epreuve existe pour montrer. Le site "
-        "est `_ability_var(\"BloodChalice\", \"hpToHeal\", ...)` dans "
-        "`operations/triggers/effect_triggers.py`, entre par `e6c66ed4` (#576, PR #860) -- donc "
-        "ANTERIEUR a cette tranche. Residu #547-r6.",
+    # DEUX ROUGES DE `master` MIS AU JOUR PAR LE REJEU DE #547-r7 -- residu #547-r10. Ils ne sont
+    # PAS le fait de cette tranche, et leur provenance est MESUREE (`git log -S`), pas supposee :
+    # l'un date d'avant son lancement, l'autre est arrive PAR LE REBASE. Ils n'etaient pas
+    # visibles parce que le ledger ne portait aucune attestation a jour sur ces fichiers.
+    "tests/test_337_dsl_triggers_attestation_offline.py":
+        "`test_la_famille_DSLTriggers_est_INTEGRALEMENT_TRANCHEE` -- 1 failed / 10 passed. "
+        "<< primitives DSLTriggers encore non tranchees : ['AttackUsedAttackDamage'] >>. La "
+        "primitive entre par `efccc665` (merge #879), soit AVANT le lancement de la tranche "
+        "#547-r7. FOYER : l'attestation DSLTriggers, hors du territoire de cette tranche. "
+        "Residu #547-r10.",
+    "tests/engine/test_477r24r1_slots_interface_offline.py":
+        "`test_etage3_aucune_citation_fausse` -- 1 failed / 58 passed. << citation(s) au NOM "
+        "faux : `engine/runner/components.py:1128` slot 0x23 : le site nomme Execute, le metadata "
+        "dit FinishUnitTurn >>. Entre par `53d9766b` (merge #886), donc PENDANT cette tranche et "
+        "arrive par son REBASE. FOYER `engine/runner/components.py` : hors du territoire de cette "
+        "tranche. Residu #547-r10.",
     "tests/test_480r8_rpc_joignable_offline.py":
         "`test_etage1_tout_rpc_porte_un_canal_nominatif` -- << 12 RPC dont le NOM n'est ecrit "
         "nulle part hors de son fichier declarant >>, dont les quatre de "

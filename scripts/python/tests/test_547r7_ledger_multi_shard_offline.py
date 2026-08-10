@@ -247,6 +247,66 @@ def test_lire_parts_sur_repertoire_ABSENT_ne_leve_pas(tmp_path):
     assert parts == [] and anomalies == []
 
 
+# ------------------------------------------- L'IMPACT SE JUGE PAR ANCRE (la CONTAMINATION)
+
+def _ledger_a_deux_ancres(tmp_path, monkeypatch):
+    """Deux fichiers VERT, deux ancres. `blobs_courants`/`commits_connus` sont SUBSTITUES.
+
+    Forme B (`monkeypatch.setattr(L, ...)`) : `a_rejouer` les appelle par leur nom de module, donc
+    la substitution MORD -- une liaison `from ... import` au niveau module ne mordrait pas.
+    """
+    L.ecrire(tmp_path, {
+        "tests/frais_offline.py": dict(_entree(), _depuis="RECENT", _base="RECENT"),
+        "tests/vieux_offline.py": dict(_entree(), _depuis="VIEILLE", _base="VIEILLE"),
+    })
+    monkeypatch.setattr(L, "blobs_courants",
+                        lambda racine, rels, **kw: {r: "c" * 40 for r in rels})
+    monkeypatch.setattr(L, "commits_connus",
+                        lambda racine, shas: {s: True for s in shas if s})
+
+
+def test_l_impact_d_une_VIEILLE_ancre_ne_CONTAMINE_pas_une_attestation_FRAICHE(tmp_path,
+                                                                               monkeypatch):
+    """LE BUG MESURE (#547-r7). L'union des impacts rendait toute attestation fraiche inutile.
+
+    Mesure du 2026-08-11, juste apres une passe `--jobs 8` : ancre fraiche -> 9 impactes, ancre
+    ancienne (24 entrees restantes) -> 282 impactes ; l'union appliquee a tout faisait rejouer
+    **282 fichiers dont ~273 A TORT**. Autrement dit **24 vieilles entrees peremaient les 282
+    qu'on venait de gagner** -- attester ne servait a rien.
+    """
+    _ledger_a_deux_ancres(tmp_path, monkeypatch)
+    perimetre = ["tests/frais_offline.py", "tests/vieux_offline.py"]
+
+    vus = []
+
+    def impactes_depuis(sha):
+        vus.append(sha)
+        # La VIEILLE ancre voit TOUT changer ; la FRAICHE ne voit rien.
+        return list(perimetre) if sha == "VIEILLE" else []
+
+    rejeu, raisons, anomalies = L.a_rejouer(perimetre, tmp_path, impactes_depuis)
+    assert sorted(vus) == ["RECENT", "VIEILLE"], "un appel par ANCRE, pas par fichier"
+    assert rejeu == ["tests/vieux_offline.py"], (
+        "l'attestation FRAICHE a ete peremee par l'impact d'une AUTRE ancre : %s" % rejeu)
+    assert "une dependance MESUREE a change" in raisons["tests/vieux_offline.py"]
+    assert not anomalies
+
+
+def test_une_PANNE_de_mesure_sur_une_ancre_ne_touche_que_SES_fichiers(tmp_path, monkeypatch):
+    """Le sens SUR reste par ancre : PAS MESURE fait rejouer les siens, pas ceux du voisin."""
+    _ledger_a_deux_ancres(tmp_path, monkeypatch)
+    perimetre = ["tests/frais_offline.py", "tests/vieux_offline.py"]
+
+    def impactes_depuis(sha):
+        if sha == "VIEILLE":
+            raise RuntimeError("git muet")
+        return []
+
+    rejeu, raisons, anomalies = L.a_rejouer(perimetre, tmp_path, impactes_depuis)
+    assert rejeu == ["tests/vieux_offline.py"], rejeu
+    assert any("non mesurable" in a for a in anomalies), anomalies
+
+
 # ------------------------------------------------------------------ LE JETON
 
 def test_jeton_courant_LIT_l_environnement_et_ne_FABRIQUE_rien(monkeypatch):
