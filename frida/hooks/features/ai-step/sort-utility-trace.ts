@@ -100,6 +100,15 @@ const trace = {
     diag: {
         selectFires: 0, lambdaFires: 0,
         unitReadFailed: 0, orderedReadFailed: 0, dropped: 0,
+        /** ⚠ CLIQUET de la faute de lecture reparee en `#419-r7` : le nombre de cles rendues
+         *  EXACTEMENT egales a `Int64.MaxValue`. C'est la signature d'une SATURATION, pas une
+         *  valeur du domaine — une cle de tri `-utilite` ne vaut pas 2^63-1. Tant qu'il est a
+         *  zero, la lecture signee tient ; s'il remonte, quelqu'un a re-introduit
+         *  `new Int64(retval.toString())` et TOUTES les comparaisons de cle sont fausses,
+         *  silencieusement et dans le sens le plus trompeur : deux regimes differents se lisent
+         *  IDENTIQUES. Un lecteur qui trouve `keysAtInt64Max == pairCount` ne tient PAS un
+         *  verdict — il tient une panne. */
+        keysAtInt64Max: 0,
     },
 };
 
@@ -123,6 +132,25 @@ function readEntityIdList(listPtr: NativePointer): number[] | null {
 /** Fix64 (Q32.32) brut -> nombre. Meme conversion que `bucket-audit` / `scorer-damage-trace`. */
 function fix64ToNumber(raw: Int64): number {
     try { return Number(BigInt(raw.toString())) / 4294967296; } catch { return NaN; }
+}
+
+/** RAX (un `NativePointer`) -> `Int64` SIGNE.
+ *
+ *  ⚠ **`new Int64(retval.toString())` SATURE, et il l'a fait sur 100 % des paires mesurees.**
+ *  `NativePointer.toString()` rend l'hexa NON SIGNE (`0xffffff1000000000`), que `Int64` parse
+ *  comme un entier de 1,8e19 — au-dela de `Int64.MaxValue`, donc rabattu SUR `Int64.MaxValue`.
+ *  Or la cle de tri est `-utilite` : toute utilite POSITIVE donne une cle NEGATIVE, donc un hexa
+ *  a bit de signe pose. Mesure (`#419-r7`, montage Doombolt) : les **4** paires des **2** regimes
+ *  rendaient `9223372036854775807`, une valeur qui n'existe pas — et deux regimes qui different
+ *  reellement se lisaient IDENTIQUES, c'est-a-dire le verdict EXACTEMENT INVERSE.
+ *
+ *  Le detour par la memoire est ce qui reinterprete les 64 bits en COMPLEMENT A DEUX :
+ *  `writePointer` pose les octets, `readS64` les relit signes. Aucune arithmetique, aucune
+ *  chaine — donc rien qui puisse re-saturer. */
+const rawBuf = Memory.alloc(8);
+function raxToInt64(retval: NativePointer): Int64 {
+    rawBuf.writePointer(retval);
+    return rawBuf.readS64();
 }
 
 /** La lambda `<Select>b__0` de `<>c__DisplayClass9_0`, resolue PAR SON DECLARANT.
@@ -226,7 +254,10 @@ export function registerSortUtilityTrace(ctx: Ctx): void {
                     // brute. On la garde AUSSI en base 10 : la conversion Q32.32 perd des bits de
                     // poids faible sur un `double`, et une comparaison « identique / different »
                     // doit pouvoir se faire sur l'entier exact.
-                    const raw = new Int64(retval.toString());
+                    // ⚠ `raxToInt64`, JAMAIS `new Int64(retval.toString())` — cf. son commentaire :
+                    // la seconde forme saturait 100 % des cles a `Int64.MaxValue`.
+                    const raw = raxToInt64(retval as NativePointer);
+                    if (raw.toString() === "9223372036854775807") trace.diag.keysAtInt64Max++;
                     const key = fix64ToNumber(raw);
                     trace.pairs.push({
                         unitId, entityType,
@@ -255,7 +286,7 @@ export function registerSortUtilityTrace(ctx: Ctx): void {
         if (body?.clear) {
             trace.pairs = []; trace.sessions = [];
             trace.diag = { selectFires: 0, lambdaFires: 0, unitReadFailed: 0,
-                orderedReadFailed: 0, dropped: 0 };
+                orderedReadFailed: 0, dropped: 0, keysAtInt64Max: 0 };
         }
         return out;
     });

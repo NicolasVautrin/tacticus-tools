@@ -501,10 +501,27 @@ export interface FullMow {
      *  tout le reste. Une `EntityType.Machine` n'est aucune des trois — c'est un FAIT natif, pas
      *  une panne, d'où `platformTiles` juste en dessous. */
     feet: Array<{ col: number; row: number }> | null;
-    /** L'empreinte RÉELLE d'une MoW sur la grille : les positions de TOUTES les
-     *  `MachinePlatform` du même `machineId`. Elle était déjà publiée — éclatée en une LIGNE
-     *  `mows[]` par plateforme — donc jamais lisible comme un ensemble. Elle l'est ici, à
-     *  l'identique sur chaque ligne de la même machine. */
+    /** Les positions des `MachinePlatform` du même `machineId`, agrégées.
+     *
+     *  ⚠ **MESURÉ (`#419-r7`) : ce champ ne peut PAS dépasser UNE tuile, et la prémisse qui le
+     *  justifiait est fausse.** Elle disait « l'empreinte était déjà publiée, éclatée en une ligne
+     *  `mows[]` par plateforme ». `projectMatchState` n'en émet plus qu'**une par MACHINE**
+     *  (`for (const [machineId, m] of machines)`, avec `platformByMachine` qui garde la PREMIÈRE
+     *  plateforme comme ancre) — un correctif antérieur, dont le commentaire dit lui-même
+     *  « emit ONE row PER MACHINE ». Agréger `proj.mows` par `machineId` regroupe donc des lignes
+     *  DÉJÀ uniques. Mesure live : `adeptExorcist` et `ultraDreadnought` rendent chacun
+     *  **1 ligne** `mows`, `feet = []` et `platformTiles = []`, avec `pos = null`.
+     *
+     *  Ce n'est pas mordant, et c'est pourquoi le champ reste : une MoW est **hors plateau**
+     *  (`decisionView.mows[].pos is null`, déjà mesuré par `#287-r4-r1`), donc elle n'a pas
+     *  d'empreinte à publier. Le porteur multi-tuiles RÉEL de la face DÉCISION est un **summon**
+     *  (`ultraSmnDreadnought`, 3 hexes) — une `EntityType.Unit`, donc couverte par
+     *  `units[].feet`, qui, lui, est confronté et rend bien ses 3 tuiles.
+     *
+     *  Le remplir vraiment demanderait de balayer les `EntityType.MachinePlatform` ici même
+     *  (`forEachEntity` + `readMachinePlatformLink` + `readTilePosition`) plutôt que de dériver de
+     *  `proj.mows`. À ne faire que si une MoW acquiert une empreinte sur la grille : aujourd'hui
+     *  ce serait du code sans observable. */
     platformTiles: Array<{ col: number; row: number }>;
     abilities: AbilityInfo[];
 }

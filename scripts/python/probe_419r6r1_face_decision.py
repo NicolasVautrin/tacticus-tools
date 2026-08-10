@@ -624,9 +624,23 @@ def etage_live(regime: dict, a_units: str, regime_items: str, seed: str, board: 
                   % (res["exact_production"], res["exact_contrefactuel"]))
             print("  montage DISCRIMINANT (les deux ordres different) : %s"
                   % res["montage_discriminant"])
+            # ⚠ CE MESSAGE A ETE INVERSE PENDANT PLUSIEURS TRANCHES (#419-r7). Le contrefactuel a
+            # CHANGE DE SENS en #494-r1-r1 : il jouait << le port s'il LISAIT le flag >>, il joue
+            # desormais << le port s'il ne le lisait PAS >> (cf. le bloc de commentaire du
+            # substitut, ~80 lignes plus haut). La conclusion imprimee, elle, est restee celle
+            # d'avant -- donc la MEME mesure se lisait a l'envers.
+            # La lecture JUSTE : la PRODUCTION lit le flag. Si c'est ELLE qui est bit-exacte et le
+            # contrefactuel qui ne l'est pas, alors le live se comporte comme le port QUI LIT le
+            # flag -- donc le natif LE LIT.
             if res["montage_discriminant"] and res["exact_production"] \
                     and not res["exact_contrefactuel"]:
-                print("  => le NATIF ne fait PAS entrer `MightCrit` dans ce classement.")
+                print("  => le NATIF FAIT entrer `MightCrit` dans ce classement : la PRODUCTION"
+                      " (qui lit le flag) est bit-exacte, le CONTREFACTUEL (qui ne le lit pas)"
+                      " ne l'est pas.")
+            elif res["montage_discriminant"] and res["exact_contrefactuel"] \
+                    and not res["exact_production"]:
+                print("  => le NATIF ne fait PAS entrer `MightCrit` dans ce classement : c'est le"
+                      " CONTREFACTUEL (sans le flag) qui est bit-exact.")
         return res
     finally:
         try:
