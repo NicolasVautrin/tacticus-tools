@@ -53,7 +53,17 @@ import unit_map
 
 #: Formes acceptees. `melee` mirroir de "without a normal ranged attack".
 FORMES_SIMPLES = ("melee", "ranged")
-PREFIXES = ("faction", "trait", "alliance")
+PREFIXES = ("faction", "trait", "alliance", "damagetype")
+
+#: Noms NATIFS d'`objectiveType`, releves sur le plateau reel (capteur `expedition-board`,
+#: 2026-08-10). On les accepte VERBATIM pour que le JSON capte se rejoue sans traduction.
+#: `HasNoRangedAttack` porte `objectiveTarget: "None"` -- la cible est ignoree.
+ALIAS_NATIFS = {
+    "faction": "faction",
+    "trait": "trait",
+    "damagetype": "damagetype",
+    "hasnorangedattack": "melee",
+}
 
 #: Plafond du nombre de solutions minimales enumerees pour UNE operation. Il est
 #: publie dans la sortie des qu'il mord : un plafond silencieux se lirait comme
@@ -104,11 +114,16 @@ def _apparier(brut: str, connus: set[str], quoi: str) -> str:
 
 
 def resoudre_objectif(txt: str, factions: set[str], traits: set[str],
-                      alliances: set[str]) -> Objectif:
+                      alliances: set[str], degats: set[str] | None = None) -> Objectif:
     t = (txt or "").strip()
     if not t:
         raise ObjectifIrresoluble("objectif VIDE")
     bas = t.lower()
+    # `HasNoRangedAttack` porte une cible bidon ("None") : on la jette AVANT de chercher un
+    # separateur, sinon on partirait resoudre une faction nommee "None".
+    if bas.split(":", 1)[0].strip() == "hasnorangedattack":
+        return Objectif(brut=t, kind="melee", valeur=None,
+                        libelle="HasNoRangedAttack (sans attaque a distance normale)")
     if bas in FORMES_SIMPLES:
         libelle = ("Melee (sans attaque a distance normale)" if bas == "melee"
                    else "Ranged (avec attaque a distance normale)")
@@ -118,8 +133,11 @@ def resoudre_objectif(txt: str, factions: set[str], traits: set[str],
             "objectif NON RECONNU : '%s'. Formes acceptees : %s, ou %s"
             % (t, "/".join(FORMES_SIMPLES), "/".join(p + ":<id>" for p in PREFIXES)))
     pref, _, reste = t.partition(":")
-    pref = pref.strip().lower()
+    pref = ALIAS_NATIFS.get(pref.strip().lower(), pref.strip().lower())
     reste = reste.strip()
+    if pref == "damagetype":
+        vid = _apparier(reste, degats or set(), "TYPE DE DEGAT")
+        return Objectif(t, "damagetype", vid, "DamageType %s" % vid)
     if pref == "faction":
         vid = _apparier(reste, factions, "FACTION")
         return Objectif(t, "faction", vid, "Faction %s" % vid)
@@ -149,6 +167,11 @@ def satisfait(k: dict, o: Objectif) -> bool:
         return k.get("alliance") == o.valeur
     if o.kind == "trait":
         return o.valeur in (k.get("traits") or [])
+    if o.kind == "damagetype":
+        # Les cibles `DamageType` du plateau sont des noms de `DamageProfile` EXACTS -- verifie
+        # le 2026-08-10 : les 7 rencontrees (Power, Physical, Energy, Psychic, Piercing, Blast,
+        # Flame) apparient toutes a l'identique. On ne normalise donc pas, on compare.
+        return any(w.get("profile") == o.valeur for w in (k.get("weapons") or []))
     raise ObjectifIrresoluble("kind non gere : %s" % o.kind)
 
 
@@ -164,44 +187,69 @@ def masque(k: dict, objs: list[Objectif]) -> int:
     return m
 
 
-def _enumerer(masques: list[int], plein: int, limite: int,
-              plafond: int) -> tuple[list[tuple[int, ...]], bool]:
-    """Enumere les combinaisons de masques de taille <= `limite` couvrant `plein`.
+def _enumerer(dispo: dict[int, int], besoins: tuple[int, ...], limite: int,
+              plafond: int) -> tuple[list[tuple[tuple[int, int], ...]], bool]:
+    """Enumere les selections de <= `limite` personnages satisfaisant les MULTIPLICITES.
 
-    Technique d'exact cover : a chaque etage on prend le PLUS BAS objectif encore
-    non couvert et on n'essaie que les masques qui le couvrent. Ca elimine d'office
-    les permutations et borne la profondeur a `limite`.
+    LE MODELE, ET IL A ETE MESURE, PAS SUPPOSE. Les objectifs d'une operation forment un
+    MULTI-ENSEMBLE : le plateau reel porte `DamageType:Physical` deux fois, `Trait:Healer`
+    deux fois, `Faction:AdeptusMechanicus` deux fois. Deux lectures etaient possibles :
 
-    Rend (solutions, plafond_atteint).
+      (a) un doublon n'exige qu'un porteur (un personnage couvre les deux entrees)
+          -> le doublon serait SANS EFFET, ce qui n'a pas de sens ;
+      (b) chaque instance exige un personnage DISTINCT, et un personnage ne compte que
+          pour une instance -> il faudrait au moins autant de places que d'objectifs.
+
+    (b) est REFUTEE par la mesure : 6 operations sur 7 ont PLUS d'objectifs que de places
+    (op 3 : 6 objectifs pour 4 places). Le bonus serait inatteignable. Le modele retenu est
+    donc le seul qui survive aux deux faits : pour chaque objectif DISTINCT de multiplicite
+    m, il faut au moins m personnages distincts qui le remplissent, et un personnage compte
+    simultanement pour tous les objectifs DIFFERENTS qu'il remplit.
+
+    `dispo` : masque de couverture -> nombre de candidats portant ce masque.
+    `besoins` : multiplicite requise par objectif distinct.
+    Rend (solutions, plafond_atteint) ; une solution = tuple trie de (masque, quantite).
     """
-    sols: list[tuple[int, ...]] = []
-    vues: set[tuple[int, ...]] = set()
+    sols: list[tuple[tuple[int, int], ...]] = []
+    vues: set[tuple[tuple[int, int], ...]] = set()
     deborde = [False]
+    masques = sorted(dispo)
 
-    def rec(restant: int, courant: list[int]) -> None:
+    def rec(restants: tuple[int, ...], pris: dict[int, int], profondeur: int) -> None:
         if deborde[0]:
             return
-        if restant == plein:
-            cle = tuple(sorted(courant))
+        if not any(restants):
+            cle = tuple(sorted(pris.items()))
             if cle not in vues:
                 vues.add(cle)
                 sols.append(cle)
                 if len(sols) >= plafond:
                     deborde[0] = True
             return
-        if len(courant) >= limite:
+        places = limite - profondeur
+        # Un personnage ajoute AU PLUS 1 au compte d'un objectif donne : si un deficit
+        # depasse le nombre de places restantes, la branche est morte.
+        if max(restants) > places:
             return
-        libres = (~restant) & plein
-        bit = libres & (-libres)
+        # On vise le PREMIER objectif encore deficitaire : ca elimine les permutations.
+        j = next(i for i, r in enumerate(restants) if r > 0)
+        bit_j = 1 << j
         for mk in masques:
-            if mk & bit:
-                courant.append(mk)
-                rec(restant | mk, courant)
-                courant.pop()
-                if deborde[0]:
-                    return
+            if not (mk & bit_j):
+                continue
+            if pris.get(mk, 0) >= dispo[mk]:
+                continue          # plus de candidat portant ce masque
+            suivants = tuple(max(0, r - (1 if mk & (1 << i) else 0))
+                             for i, r in enumerate(restants))
+            pris[mk] = pris.get(mk, 0) + 1
+            rec(suivants, pris, profondeur + 1)
+            pris[mk] -= 1
+            if pris[mk] == 0:
+                del pris[mk]
+            if deborde[0]:
+                return
 
-    rec(0, [])
+    rec(tuple(besoins), {}, 0)
     return sols, deborde[0]
 
 
@@ -211,22 +259,43 @@ def resoudre_operation(candidats: list[dict], objs: list[Objectif],
     """Resout UNE operation. Rend un dict AUDITABLE : par objectif, combien de
     candidats le remplissent (un 0 est ainsi VISIBLE et nomme), la taille minimale
     trouvee, et les solutions en identifiants d'unites."""
-    plein = (1 << len(objs)) - 1
+    # Les objectifs arrivent en MULTI-ENSEMBLE : on les replie sur leurs valeurs DISTINCTES
+    # en gardant la multiplicite, qui devient le nombre de porteurs exiges.
+    distincts: list[Objectif] = []
+    besoins: list[int] = []
+    for o in objs:
+        cle = (o.kind, o.valeur)
+        trouve = next((i for i, d in enumerate(distincts)
+                       if (d.kind, d.valeur) == cle), None)
+        if trouve is None:
+            distincts.append(o)
+            besoins.append(1)
+        else:
+            besoins[trouve] += 1
+
     par_masque: dict[int, list[dict]] = {}
     for k in candidats:
-        m = masque(k, objs)
+        m = masque(k, distincts)
         if m:
             par_masque.setdefault(m, []).append(k)
 
     couverture = [
-        {"objectif": o.libelle,
-         "candidats": sum(1 for k in candidats if satisfait(k, o))}
-        for o in objs
+        {"objectif": d.libelle, "requis": besoins[i],
+         "candidats": sum(1 for k in candidats if satisfait(k, d))}
+        for i, d in enumerate(distincts)
     ]
-    impossibles = [c["objectif"] for c in couverture if c["candidats"] == 0]
+    # Un objectif est infaisable des que le vivier est plus petit que la MULTIPLICITE : avec
+    # un seul Healer possede, `Trait:Healer` demande deux fois ne peut pas tomber. Comparer a
+    # zero seulement aurait laisse passer ce cas et rendu un << impossible >> sans cause.
+    impossibles = [
+        "%s (requis %d, disponibles %d)" % (c["objectif"], c["requis"], c["candidats"])
+        for c in couverture if c["candidats"] < c["requis"]
+    ]
 
     base = {
         "objectifs": [o.libelle for o in objs],
+        "distincts": [d.libelle for d in distincts],
+        "besoins": besoins,
         "participants": participants,
         "candidats": len(candidats),
         "couverture": couverture,
@@ -234,29 +303,30 @@ def resoudre_operation(candidats: list[dict], objs: list[Objectif],
         "plafond_atteint": False,
     }
     if impossibles:
-        base.update({"ok": False, "raison": "objectif(s) sans AUCUN candidat",
+        base.update({"ok": False, "raison": "objectif(s) sans assez de porteurs",
                      "taille": None, "solutions": []})
         return base
-    if not objs:
+    if not distincts:
         base.update({"ok": True, "taille": 0, "solutions": [], "raison": None})
         return base
 
-    masques = sorted(par_masque)
-    borne = min(participants, len(objs))
+    dispo = {mk: len(us) for mk, us in par_masque.items()}
+    # Borne haute : jamais plus que les places, et jamais plus que la somme des besoins.
+    borne = min(participants, sum(besoins))
     for taille in range(1, borne + 1):
-        sols, deborde = _enumerer(masques, plein, taille, plafond)
-        sols = [s for s in sols if len(s) == taille]
+        sols, deborde = _enumerer(dispo, tuple(besoins), taille, plafond)
+        sols = [s for s in sols if sum(q for _, q in s) == taille]
         if sols:
             rendu = []
             for combo in sols:
                 rendu.append([
-                    {"masque": mk,
-                     "objectifs": [objs[i].libelle for i in range(len(objs))
+                    {"masque": mk, "quantite": q,
+                     "objectifs": [distincts[i].libelle for i in range(len(distincts))
                                    if mk & (1 << i)],
                      "unites": [{"id": u["id"], "name": u.get("name"),
                                  "faction": u.get("faction")}
                                 for u in par_masque[mk]]}
-                    for mk in combo
+                    for mk, q in combo
                 ])
             base.update({"ok": True, "taille": taille, "solutions": rendu,
                          "raison": None, "plafond_atteint": deborde})
@@ -281,8 +351,15 @@ def _ensembles_par_op(candidats: list[dict], objs: list[Objectif], participants:
     out: list[frozenset[str]] = []
     vus: set[frozenset[str]] = set()
     for combo in r["solutions"]:
-        # produit cartesien borne : un representant par groupe de masque
-        listes = [[u["id"] for u in grp["unites"]] for grp in combo]
+        # Produit cartesien borne. Un groupe de masque peut exiger PLUSIEURS porteurs
+        # (multiplicite) : on lui ouvre alors autant d'emplacements, et le controle
+        # `len(fs) == len(choix)` plus bas rejette les tirages qui reprendraient deux fois
+        # le meme personnage -- ce qui est exactement la contrainte << porteurs distincts >>.
+        listes: list[list[str]] = []
+        for grp in combo:
+            ids = [u["id"] for u in grp["unites"]]
+            for _ in range(grp.get("quantite", 1)):
+                listes.append(ids)
         for choix in _produit_borne(listes, plafond):
             fs = frozenset(choix)
             if len(fs) == len(choix) and fs not in vus:
@@ -389,7 +466,43 @@ def _vocabulaire(kits: dict[str, dict]):
     factions = {k["faction"] for k in kits.values() if k.get("faction")}
     alliances = {k["alliance"] for k in kits.values() if k.get("alliance")}
     traits = {t for k in kits.values() for t in (k.get("traits") or [])}
-    return factions, traits, alliances
+    degats = {w.get("profile") for k in kits.values()
+              for w in (k.get("weapons") or []) if w.get("profile")}
+    return factions, traits, alliances, degats
+
+
+def normaliser_objectif_brut(x) -> str:
+    """Accepte les DEUX formes : la chaine ecrite a la main (`trait:Healer`) et la forme
+    NATIVE captee par `expedition-board`
+    (`{"objectiveType": "Trait", "objectiveTarget": "Healer"}`).
+
+    Le serialiseur emet la cle dans les deux casses (`objectiveType` ET `ObjectiveType`) --
+    champ ET propriete sont serialises ; on lit l'une ou l'autre."""
+    if isinstance(x, str):
+        return x
+    if isinstance(x, dict):
+        t = x.get("objectiveType") or x.get("ObjectiveType")
+        v = x.get("objectiveTarget") or x.get("ObjectiveTarget")
+        if t:
+            return "%s:%s" % (t, v)
+    raise ObjectifIrresoluble("objectif de forme inconnue : %r" % (x,))
+
+
+def _extraire_board(donnees) -> list[dict]:
+    """Deroule les enveloppes connues. Le capteur `expedition-board` rend
+    `{"expeditionState": {"board": [...]}}` ; un fichier ecrit a la main peut etre une liste
+    nue ou `{"board": [...]}`. On accepte les trois plutot que d'imposer un reformatage --
+    le JSON capte doit se rejouer TEL QUEL."""
+    if isinstance(donnees, list):
+        return donnees
+    if isinstance(donnees, dict):
+        if isinstance(donnees.get("expeditionState"), dict):
+            donnees = donnees["expeditionState"]
+        for cle in ("board", "operations"):
+            if isinstance(donnees.get(cle), list):
+                return donnees[cle]
+    raise ValueError("plateau introuvable : attendu une liste, `board`, `operations` "
+                     "ou `expeditionState.board`")
 
 
 def _roster(arg: str | None, kits: dict[str, dict]) -> tuple[list[str], bool]:
@@ -425,10 +538,11 @@ def _afficher_operation(r: dict) -> None:
     print("Participants max : %d" % r["participants"])
     print("Candidats        : %d" % r["candidats"])
     print("")
-    print("Couverture par objectif :")
+    print("Couverture par objectif DISTINCT (requis = multiplicite sur le plateau) :")
     for c in r["couverture"]:
-        marque = "  ZERO CANDIDAT" if c["candidats"] == 0 else ""
-        print("   %-46s %4d%s" % (c["objectif"], c["candidats"], marque))
+        marque = "  PAS ASSEZ DE PORTEURS" if c["candidats"] < c["requis"] else ""
+        print("   %-42s requis %d   porteurs %4d%s"
+              % (c["objectif"], c["requis"], c["candidats"], marque))
     print("")
     if not r["ok"]:
         print("RESULTAT : IMPOSSIBLE -- %s" % r["raison"])
@@ -447,17 +561,19 @@ def _afficher_operation(r: dict) -> None:
             reste = len(grp["unites"]) - 6
             if reste > 0:
                 noms += " (+%d autres)" % reste
-            print("     couvre [%s]" % " + ".join(grp["objectifs"]))
-            print("        -> %s" % noms)
+            q = grp.get("quantite", 1)
+            print("     %dx couvre [%s]" % (q, " + ".join(grp["objectifs"])))
+            print("        -> choisir %d parmi : %s" % (q, noms))
     if len(r["solutions"]) > 10:
         print("  ... %d autres solutions de meme taille" % (len(r["solutions"]) - 10))
 
 
 def cmd_solve(a) -> int:
     kits = _charger_kits()
-    factions, traits, alliances = _vocabulaire(kits)
+    factions, traits, alliances, degats = _vocabulaire(kits)
     try:
-        objs = [resoudre_objectif(t, factions, traits, alliances) for t in a.objectif]
+        objs = [resoudre_objectif(normaliser_objectif_brut(t), factions, traits,
+                                  alliances, degats) for t in a.objectif]
     except ObjectifIrresoluble as e:
         print("REFUS : %s" % e)
         return 2
@@ -486,15 +602,15 @@ def cmd_solve(a) -> int:
 
 def cmd_board(a) -> int:
     kits = _charger_kits()
-    factions, traits, alliances = _vocabulaire(kits)
-    with open(a.fichier, "r", encoding="utf-8") as fh:
-        ops = json.load(fh)
-    if isinstance(ops, dict):
-        ops = ops.get("board") or ops.get("operations") or []
+    factions, traits, alliances, degats = _vocabulaire(kits)
+    with open(a.fichier, "r", encoding="utf-8-sig") as fh:
+        ops = _extraire_board(json.load(fh))
     try:
         for op in ops:
-            op["_objs"] = [resoudre_objectif(t, factions, traits, alliances)
-                           for t in (op.get("bonusObjectives") or [])]
+            op["_objs"] = [
+                resoudre_objectif(normaliser_objectif_brut(t), factions, traits,
+                                  alliances, degats)
+                for t in (op.get("bonusObjectives") or [])]
     except ObjectifIrresoluble as e:
         print("REFUS : %s" % e)
         return 2
@@ -521,8 +637,14 @@ def cmd_board(a) -> int:
 
 def cmd_vocabulaire(a) -> int:
     kits = _charger_kits()
-    factions, traits, alliances = _vocabulaire(kits)
+    factions, traits, alliances, degats = _vocabulaire(kits)
     print("ALLIANCES (%d) : %s" % (len(alliances), ", ".join(sorted(alliances))))
+    print("")
+    print("TYPES DE DEGAT (%d) -- cibles de `DamageType:` :" % len(degats))
+    for d in sorted(degats):
+        print("   %-24s %d arme(s)"
+              % (d, sum(1 for k in kits.values()
+                        for w in (k.get("weapons") or []) if w.get("profile") == d)))
     print("")
     print("FACTIONS (%d) :" % len(factions))
     for f in sorted(factions):

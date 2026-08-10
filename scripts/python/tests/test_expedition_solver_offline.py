@@ -60,13 +60,15 @@ if _PY not in sys.path:
 import expedition_solver as ES  # noqa: E402
 
 
-def _kit(uid, faction="Custodes", alliance="Imperial", traits=(), ranged_hits=0):
+def _kit(uid, faction="Custodes", alliance="Imperial", traits=(), ranged_hits=0,
+         profils=()):
     return {"id": uid, "name": uid, "kind": "lineup", "faction": faction,
-            "alliance": alliance, "traits": list(traits), "ranged_hits": ranged_hits}
+            "alliance": alliance, "traits": list(traits), "ranged_hits": ranged_hits,
+            "weapons": [{"profile": p} for p in profils]}
 
 
 VOCAB = ({"Custodes", "Ultramarines", "AdeptusAstartes"},
-         {"Healer", "MkXGravis", "Parry"},
+         {"Healer", "MkXGravis", "Parry", "Mechanical"},
          {"Imperial", "Chaos"})
 
 
@@ -209,6 +211,98 @@ def test_les_commentaires_du_roster_se_coupent_PAR_LIGNE(tmp_path):
     assert suppose is False
     assert ids == ["custoTrajann"], (
         "un identifiant cite dans un COMMENTAIRE est entre dans le roster : %r" % (ids,))
+
+
+# --- 6bis. DamageType, multiplicites, formes natives -------------------------
+
+DEGATS = {"Power", "Physical", "Psychic", "Piercing"}
+
+
+def _objd(txt):
+    return ES.resoudre_objectif(txt, VOCAB[0], VOCAB[1], VOCAB[2], DEGATS)
+
+
+def test_damagetype_lit_le_profil_des_armes():
+    o = _objd("DamageType:Psychic")
+    assert ES.satisfait(_kit("psy", profils=["Flame", "Psychic"]), o) is True
+    assert ES.satisfait(_kit("nope", profils=["Power"]), o) is False
+    assert ES.satisfait(_kit("sansarme"), o) is False
+
+
+def test_hasnorangedattack_est_accepte_avec_sa_cible_bidon():
+    """Le plateau ecrit `HasNoRangedAttack:None`. Resoudre << None >> comme une faction
+    donnerait un refus absurde ; la cible doit etre jetee AVANT l'appariement."""
+    o = _objd("HasNoRangedAttack:None")
+    assert o.kind == "melee"
+    assert ES.satisfait(_kit("m", ranged_hits=0), o) is True
+
+
+def test_forme_native_objet_est_normalisee():
+    assert ES.normaliser_objectif_brut(
+        {"objectiveType": "Trait", "objectiveTarget": "Healer"}) == "Trait:Healer"
+    # Le serialiseur emet AUSSI la variante PascalCase : les deux doivent passer.
+    assert ES.normaliser_objectif_brut(
+        {"ObjectiveType": "Faction", "ObjectiveTarget": "Custodes"}) == "Faction:Custodes"
+    assert ES.normaliser_objectif_brut("trait:Healer") == "trait:Healer"
+    with pytest.raises(ES.ObjectifIrresoluble):
+        ES.normaliser_objectif_brut(42)
+
+
+def test_extraire_board_deroule_l_enveloppe_du_capteur():
+    b = [{"id": "x"}]
+    assert ES._extraire_board({"expeditionState": {"board": b}}) == b
+    assert ES._extraire_board({"board": b}) == b
+    assert ES._extraire_board(b) == b
+    with pytest.raises(ValueError):
+        ES._extraire_board({"rien": 1})
+
+
+def test_un_objectif_REPETE_exige_DEUX_porteurs_distincts():
+    """`Trait:Healer` deux fois sur le plateau reel. Avec UN seul soigneur, c'est
+    infaisable ; avec deux, il faut les DEUX -- pas un seul compte double."""
+    objs = [_objd("trait:Healer"), _objd("trait:Healer")]
+    un = [_kit("h1", traits=["Healer"])]
+    r = ES.resoudre_operation(un, objs, participants=5)
+    assert r["ok"] is False
+    assert any("requis 2" in o and "disponibles 1" in o for o in r["impossibles"]), (
+        "le refus doit dire la MULTIPLICITE et le vivier : %r" % (r["impossibles"],))
+
+    deux = un + [_kit("h2", traits=["Healer"])]
+    r2 = ES.resoudre_operation(deux, objs, participants=5)
+    assert r2["ok"] is True and r2["taille"] == 2
+
+
+def test_plus_d_objectifs_que_de_places_reste_soluble():
+    """C'EST LA MESURE QUI A REFUTE LA LECTURE STRICTE. Sur le plateau reel, 6 operations
+    sur 7 ont PLUS d'objectifs que de places (op 3 : 6 objectifs, 4 places). Si chaque
+    objectif exigeait un porteur qui lui soit propre, ces bonus seraient inatteignables.
+    Un personnage DOIT donc compter pour plusieurs objectifs DIFFERENTS."""
+    objs = [_objd("faction:Custodes"), _objd("trait:Parry"),
+            _objd("DamageType:Power"), _objd("melee")]
+    assert len(objs) == 4
+    cands = [_kit("polyvalent", faction="Custodes", traits=["Parry"],
+                  ranged_hits=0, profils=["Power"])]
+    r = ES.resoudre_operation(cands, objs, participants=1)
+    assert r["ok"] is True, "4 objectifs pour 1 place doivent tenir : %r" % (r["raison"],)
+    assert r["taille"] == 1
+
+
+def test_multiplicite_et_recouvrement_se_combinent():
+    """Deux `Physical` + un `Mechanical` en 2 places : il faut deux porteurs Physical,
+    dont au moins un Mechanical."""
+    objs = [_objd("DamageType:Physical"), _objd("DamageType:Physical"),
+            _objd("trait:Mechanical")]
+    cands = [
+        _kit("a", traits=["Mechanical"], profils=["Physical"]),
+        _kit("b", profils=["Physical"]),
+        _kit("c", traits=["Mechanical"]),          # pas de Physical
+    ]
+    r = ES.resoudre_operation(cands, objs, participants=2)
+    assert r["ok"] is True and r["taille"] == 2
+    # `c` ne peut pas figurer : il ne porte pas Physical, et les deux places sont prises
+    # par les porteurs Physical.
+    ids = {u["id"] for combo in r["solutions"] for grp in combo for u in grp["unites"]}
+    assert "c" not in ids
 
 
 # --- 7. capteur de pool : les fonctions PURES --------------------------------
