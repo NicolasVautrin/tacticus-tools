@@ -884,17 +884,32 @@ def test_les_deux_constantes_mortes_de_damage_combat_ne_sont_pas_revenues():
     l'un ou l'autre sens, la faute serait a nouveau invisible faute de lecteur.
 
     ⚠ Ce test remplace `..._restent_sans_lecteur` : le cliquet a change de SENS (il gardait une
-    contradiction inerte, il garde desormais une suppression). Le mutant `M12` de
-    `probe_270r1r1r3_mutants.py` (« un lecteur apparait ») mord toujours -- il ecrit le nom dans un
-    module d'`engine/`, que ce balayage-ci visite AUSSI."""
-    revenants = []
+    contradiction inerte, il garde desormais une suppression). Il a DEUX volets, et le second est
+    exactement l'ancien -- c'est lui qui fait mordre le mutant `M12` de
+    `probe_270r1r1r3_mutants.py` (« un lecteur apparait »), qui ecrit le nom dans un AUTRE module
+    d'`engine/`. Un volet unique et purement textuel ne marcherait pas : le commentaire de
+    `damage_combat.py` qui EXPLIQUE le retrait cite forcement les deux noms."""
+    # Volet A -- la DECLARATION a disparu (AST, donc insensible au commentaire qui l'explique).
+    arbre = ast.parse((ENGINE / "services" / "damage_combat.py").read_text(encoding="utf-8"))
+    declares = {c.id for n in arbre.body if isinstance(n, ast.Assign)
+                for c in n.targets if isinstance(c, ast.Name)}
+    revenus = sorted({"STAT_HEALTH", "STAT_ARMOR"} & declares)
+    assert not revenus, (
+        "`services/damage_combat.py` redeclare %s -- le decompile "
+        "(`IdunBattle.Core.Services.DamageCalculations$$ApplyCritDamage`) dit `4 = Armor, "
+        "5 = Health`, et l'enum `entities.stats.StatType` le porte deja. Utiliser l'enum, pas une "
+        "constante locale (#270-r1-r1-r3-r1)." % revenus)
+
+    # Volet B -- et AUCUN autre module d'`engine/` ne les cite (c'est l'ancien cliquet, conserve
+    # tel quel : sa portee TEXTUELLE est ce qui attrape un lecteur, meme en commentaire).
+    lecteurs = []
     for f in sorted(ENGINE.rglob("*.py")):
+        if f.name == "damage_combat.py":
+            continue
         texte = f.read_text(encoding="utf-8")
         for nom in ("STAT_HEALTH", "STAT_ARMOR"):
             if nom in texte:
-                revenants.append("%s cite %s" % (f.relative_to(ENGINE).as_posix(), nom))
-    assert not revenants, (
-        "`STAT_HEALTH` / `STAT_ARMOR` sont revenus dans `engine/` -- le decompile "
-        "(`IdunBattle.Core.Services.DamageCalculations$$ApplyCritDamage`) dit `4 = Armor, "
-        "5 = Health`, et l'enum `entities.stats.StatType` le porte deja. Utiliser l'enum, pas une "
-        "constante locale (#270-r1-r1-r3-r1) :\n  " + "\n  ".join(revenants))
+                lecteurs.append("%s cite %s" % (f.relative_to(ENGINE).as_posix(), nom))
+    assert not lecteurs, (
+        "`STAT_HEALTH` / `STAT_ARMOR` sont revenus dans `engine/` alors qu'ils ont ete SUPPRIMES "
+        "(#270-r1-r1-r3-r1) : utiliser `entities.stats.StatType`.\n  " + "\n  ".join(lecteurs))
