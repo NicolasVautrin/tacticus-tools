@@ -12,7 +12,7 @@ import {
 } from "../../game/match-state.js";
 import { abilityName } from "../../data/ability-names.js";
 import {
-    extractTilePtrs, extractTiles, getMovableTilesMi, getUnitMainTile, invokeBool,
+    extractTilePtrs, extractTiles, getMovableTilesMi, getTilesMi, getUnitMainTile, invokeBool,
     isAliveMi, isCtrlByCurMi, hasActionLeftMi, isRangedMi,
     mowAbilityTypes, readTileCoord, unitAbilityTypes,
 } from "./internals.js";
@@ -337,6 +337,10 @@ export interface FullUnit {
      *  veut PAS dire « pas de parent ». `true` = mesure faite ; `parentId: null`
      *  y signifie « cette unité n'est l'enfant de personne ». cf. `readParentLink`. */
     parentMeasured: boolean;
+    /** #419-r1-tr10-r2 — l'EMPREINTE : toutes les tuiles de l'entité, dans l'ordre des pieds
+     *  (`feet[0]` est la MainTile). Mirror d'`IdunBattle.Entities.EntityExtensions$$GetTiles`.
+     *  TRI-ÉTAT : `null` = capteur MUET, `[]` = mesuré et vide (entité sans tuile). */
+    feet: Array<{ col: number; row: number }> | null;
     abilities: AbilityInfo[];
 }
 
@@ -388,6 +392,42 @@ export interface FullUnit {
  *  qu'un capteur qui SUPPOSE la présence d'un composant rend du garbage le jour où elle change. */
 export interface ParentLink { parentId: number | null; parentMeasured: boolean }
 
+// ─── #419-r1-tr10-r2 — l'EMPREINTE d'une entité, côté DÉCISION ────────────────────────────────
+// MIRROR : `IdunBattle.Entities.EntityExtensions$$GetTiles(entity, state)`, dont le corps est
+// LITTÉRALEMENT `new List<IEntity>(IdunBattle.Entities.EntityExtensions$$IterateTiles(entity,
+// state))` — la MATÉRIALISATION de l'itérateur que consomme
+// `IdunBattle.Entities.Selectors.AdjacentTilesSelector$$Select` (`inner = origin.Select(entities)`,
+// puis le ring-1 de CHAQUE tuile de `inner`). C'est donc l'artefact EXACT, pas un substitut.
+//
+// ⚠ POURQUOI PAS `IdunBattle.Entities.UnitExtensions$$GetUnitFeet`, que le résidu nommait.
+// Son corps, relu : `GetComponent<UnitComponent>(GetUnit(unit,state))` ->
+// `UnitComponent$$GetFeetEnumerator()` -> pour chaque pied, `state.GetEntity(<footId>)`. Il rend
+// donc les entités **UnitFoot**, PAS les TUILES — le port a besoin des coordonnées de tuile, et
+// `IterateTiles` fait justement la résolution `UnitFoot -> Tile` (`foot.<+0x20>.<+0x14>`) que
+// `GetUnitFeet` ne fait pas. Le point d'ancrage du backlog est corrigé ici.
+//
+// ⚠ POURQUOI PAS `combatSnapshot`, que le FOYER du backlog désignait. Ce capteur est COLD
+// (« one-shot, à appeler une fois au chargement de la BattleConfig ») alors qu'une empreinte est
+// DYNAMIQUE : elle suit chaque déplacement. Publiée là, elle serait PÉRIMÉE dès le premier move —
+// une valeur fausse plutôt qu'une valeur absente. Elle vit donc sur `decisionView`, refrappé à
+// chaque pas.
+//
+// TRI-ÉTAT, comme `unitFlags` / `traits` / `parentId` : `null` = capteur MUET (méthode non
+// résolue, ou invocation en erreur) — surtout PAS `[]`, qui se lirait « cette entité n'occupe
+// aucune tuile », ce qui est une valeur LÉGITIME du domaine (une MoW hors plateau). Le
+// consommateur (`engine/playbook/adjacency.py::iterate_tiles`) retombe alors sur la MainTile,
+// c'est-à-dire le comportement d'avant ce capteur, EXACTEMENT.
+export function readEntityFeet(
+    entityPtr: NativePointer, statePtr: NativePointer,
+): Array<{ col: number; row: number }> | null {
+    if (!getTilesMi) return null;
+    try {
+        const list = invokeMethod(getTilesMi.info, null, [entityPtr, statePtr]);
+        if (list.isNull()) return null;
+        return extractTiles(list);
+    } catch { return null; }
+}
+
 // `ParentId` (BEntityId) résolu par NOM au runtime ; repli sur +0x10 (offset mesuré, cf. le
 // commentaire ci-dessus) si la table de champs n'est pas énumérable.
 const childComponentClass = findClassAnywhere(
@@ -434,6 +474,7 @@ export function projectUnitsFull(statePtr: NativePointer, allAbilities: boolean)
             hasAction: invokeBool(hasActionLeftMi, [e]),
             ranged: invokeBool(isRangedMi, [e]),
             defeatedByMelee: death.defeatedByMelee, killerId: death.killerId,
+            feet: readEntityFeet(e, statePtr),
             abilities: unitAbilityTypes(e, allAbilities),
         });
     });
@@ -454,6 +495,17 @@ export interface FullMow {
     /** Slot de déploiement (MachineOfWarPosition : 1=Top, 2=Bottom) — les MoW
      *  n'ont pas de (col,row) propre, juste un slot mappé aux tiles du board. */
     slot: number | null;
+    /** #419-r1-tr10-r2 — `GetTiles(<entité Machine>, state)`, tri-état (cf. `readEntityFeet`).
+     *  ⚠ Il peut valoir `[]` : `EntityExtensions.<IterateTiles>d__17$$MoveNext` teste TROIS types
+     *  d'entité (pied -> sa tuile ; tuile -> elle-même ; unité -> ses pieds) et sort FAUX pour
+     *  tout le reste. Une `EntityType.Machine` n'est aucune des trois — c'est un FAIT natif, pas
+     *  une panne, d'où `platformTiles` juste en dessous. */
+    feet: Array<{ col: number; row: number }> | null;
+    /** L'empreinte RÉELLE d'une MoW sur la grille : les positions de TOUTES les
+     *  `MachinePlatform` du même `machineId`. Elle était déjà publiée — éclatée en une LIGNE
+     *  `mows[]` par plateforme — donc jamais lisible comme un ensemble. Elle l'est ici, à
+     *  l'identique sur chaque ligne de la même machine. */
+    platformTiles: Array<{ col: number; row: number }>;
     abilities: AbilityInfo[];
 }
 
@@ -471,6 +523,14 @@ export function projectMowsFull(
     forEachEntity(statePtr, (e, id, ty) => {
         if (ty === EntityType.Machine) machinePtr.set(id, e);
     });
+    // #419-r1-tr10-r2 — regroupement des plateformes par machine : c'est l'empreinte.
+    const platformsByMachine = new Map<number, Array<{ col: number; row: number }>>();
+    for (const m of mows) {
+        if (!m.pos) continue;
+        const l = platformsByMachine.get(m.machineId) ?? [];
+        l.push(m.pos);
+        platformsByMachine.set(m.machineId, l);
+    }
     const out: FullMow[] = [];
     for (const m of mows) {
         const e = machinePtr.get(m.machineId);
@@ -482,6 +542,8 @@ export function projectMowsFull(
             ctrl: e ? invokeBool(isCtrlByCurMi, [e, statePtr]) : false,
             hasAction: e ? invokeBool(hasActionLeftMi, [e]) : false,
             slot: m.initialSlot,
+            feet: e ? readEntityFeet(e, statePtr) : null,
+            platformTiles: platformsByMachine.get(m.machineId) ?? [],
             abilities: e ? mowAbilityTypes(e) : [],
         });
     }
