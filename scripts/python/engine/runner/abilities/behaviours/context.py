@@ -102,6 +102,12 @@ def _unit_dict(state, eid: int, entity=None) -> dict | None:
         "feet": get_unit_feet(state, eid),
         "alive": alive,
         "hp": hc.hp if hc is not None else (1 if alive else 0),
+        # MAXIMUM de PV -- publie parce que `HealthComponent$$IsAlive` le LIT
+        # (`get_CurrentMaximumValue() > 0` decide entre CADAVRE et unite SANS SANTE), et que
+        # `dsl/base.py::_is_alive` ne voit que ce dict. Sans lui, un DECOY a `0/0` (mesure
+        # #589-r1-r1-r2-r1-r8 : `genesSmnDecoy`) sortait de tout selecteur d'occupation alors que
+        # le natif le compte. `None` = non capte -> `_is_alive` garde son verdict d'avant.
+        "hpMax": hc.hp_max if hc is not None else None,
         "visualId": uc.visual_id if uc is not None else None,
         # Lien PARENT (`ParentComponent` id @+0x10, live `Unit_Parent_Id`) : lu par le selecteur
         # `Parent` (`IdunBattle.Entities.Selectors.ParentSelector$$Select` ->
@@ -123,7 +129,10 @@ def _unit_dict(state, eid: int, entity=None) -> dict | None:
 
 # Champs MUTABLES d'une unite (re-lus du state a chaque acces par LiveUnit). Les autres (id/team/player/
 # visualId/_traits) sont quasi-statiques -> servis depuis le snapshot seed.
-_LIVE_KEYS = frozenset({"pos", "hp", "alive", "feet"})
+#: `hpMax` en est parce qu'il MUTE (bumps de maximum, cf. `healthMax` du capteur) et qu'il decide
+#: desormais d'une LIVENESS (`_is_alive`) : le figer au seed rejouerait le vice que `LiveUnit` existe
+#: pour eteindre -- un predicat re-evalue apres mutation lirait un maximum perime.
+_LIVE_KEYS = frozenset({"pos", "hp", "hpMax", "alive", "feet"})
 
 
 class LiveUnit(dict):

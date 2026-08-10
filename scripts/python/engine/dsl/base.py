@@ -900,7 +900,33 @@ def _effect_field(e, field, default):
 
 
 def _is_alive(u) -> bool:
-    return bool(u.get("alive", True)) and (u.get("hp") or 0) > 0
+    """LIVENESS d'un dict d'unite pour les selecteurs -- `bool(alive)` (le pool `AliveUnits` de
+    `IdunBattle.Entities.UnitExtensions$$IsAlive`) ET
+    `IdunBattle.Entities.Components.HealthComponent$$IsAlive`, dont les branches sont :
+
+        if (RemainingValue@+0x18 >= 1)         return true;    // PV > 0 -> VIVANT
+        if (get_CurrentMaximumValue() > 0)     return false;   // PV <= 0 mais un MAX -> MORT
+        if (<+0x1c> HasValue)                  return Value != -1;
+        return true;                                           // PV <= 0 ET max <= 0 -> VIVANT
+
+    ⚠ La 3e branche EST exercee : mesure #589-r1-r1-r2-r1-r8, `genesSmnDecoy` (`C3_14`, seed 777)
+    porte `hp = 0` ET `hpMax = 0` avec `alive = true`, et le natif la COMPTE (compteur
+    d'`AmuletOfTheVoidwyrm_CritDamageReduction` lu du DEGAT = 1). Le `hp > 0` seul la retirait de
+    `_within`, donc de TOUT selecteur d'occupation -- sans erreur.
+
+    DEUX degradations NOMMEES, toutes deux conservatrices (elles gardent le verdict d'avant) :
+      * `hpMax` ABSENT du dict (face DECISION, dicts de test, entite-TUILE de `_tile_entity`) ->
+        MORT, comme avant. Etendre << sans sante >> a tout ce qui ne publie pas son maximum ferait
+        entrer les TUILES dans les selecteurs d'occupation ;
+      * le plancher `+0x1c` n'est pas dans le dict -> la branche `Value != -1` n'est pas portee.
+        Elle ne mord que sur une unite a `hp <= 0`, `max <= 0` ET plancher pose : regime non
+        mesure. Le foyer ENTITE, lui, la porte (`runner/components.py::unit_is_alive`)."""
+    if not bool(u.get("alive", True)):
+        return False
+    if (u.get("hp") or 0) > 0:
+        return True
+    hp_max = u.get("hpMax")
+    return hp_max is not None and int(hp_max) <= 0
 
 
 # ── #270-r4-r2 : cet import est MODULE-LEVEL, et sa PLACE EN FIN DE FICHIER est fonctionnelle ──

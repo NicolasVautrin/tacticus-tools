@@ -1768,16 +1768,43 @@ def children_of(state, unit_id, alive_only: bool = True) -> list:
 # abilities/handler.py::visit_ActiveAbilityMessage).
 
 def unit_is_alive(entity) -> bool:
-    """`IdunBattle.Entities.Components.HealthComponent$$IsAlive` — vivant SSI `hp >= 1` (le natif teste FillUpStat.CurrentValue
-    @+0x18 >= 1). hp INCONNU (None, ex. replay charge sans observeBattle) -> vivant (retro-compat : on ne
-    gate jamais sur un etat de PV non capte). La branche exotique du natif (hp<1 && max<1 && nullable
-    revive @+0x1c == -1 -> vivant) n'est pas portee : non exercee (une unite a plancher de PV a hp>=1)."""
+    """`IdunBattle.Entities.Components.HealthComponent$$IsAlive` — MIRROR du decompile, TROIS branches
+    et non une :
+
+        if (RemainingValue@+0x18 >= 1)          return true;    // PV courants > 0 -> VIVANT
+        if (get_CurrentMaximumValue() > 0)      return false;   // PV <= 0 mais un MAX -> MORT
+        if (<+0x1c> is Nullable<int> HasValue)  return Value != -1;
+        return true;                                            // PV <= 0 ET max <= 0 -> VIVANT
+
+    Le champ `+0x1c` EST `minimal_health` (le plancher de PV du HP-floor, cf. la docstring de
+    `HealthComponent`) : le port a donc de quoi ecrire ce mirror EXACTEMENT, pas par approximation.
+
+    ⚠ **LA BRANCHE `hp <= 0 && max <= 0` EST EXERCEE, et la version precedente de cette docstring
+    ecrivait le contraire** (<< non exercee : une unite a plancher de PV a hp>=1 >>). MESURE
+    (#589-r1-r1-r2-r1-r8, `C3_14` seed 777) : `genesSmnDecoy`, un DECOY spawne au deploiement, porte
+    `combatSnapshot.stats.health = 0` **et** `healthMax = 0`, avec `decisionView.alive = true`. Le
+    natif la compte comme unite presente (elle allume
+    `AmuletOfTheVoidwyrm_CritDamageReduction` sur un porteur adjacent, compteur natif LU DU DEGAT =
+    1) ; le port, avec `hp >= 1` seul, la declarait MORTE et la retirait de tout selecteur
+    d'occupation. Une unite SANS SANTE n'est pas un cadavre.
+
+    hp INCONNU (None, ex. replay charge sans observeBattle) -> vivant (retro-compat : on ne gate
+    jamais sur un etat de PV non capte). **MAXIMUM inconnu -> on garde MORT** : c'est le
+    comportement d'avant ce mirror, conserve deliberement plutot que d'etendre la branche
+    << sans sante >> a tout ce qui n'a pas publie son maximum. Degradation NOMMEE, pas un mirror."""
     if entity is None:
         return True
     hc = entity.get_component(HealthComponent)
     if hc is None or hc.hp is None:
         return True
-    return hc.hp >= 1
+    if hc.hp >= 1:
+        return True                          # `RemainingValue >= 1`
+    if hc.hp_max is None or hc.hp_max > 0:
+        return False                         # `get_CurrentMaximumValue() > 0` (ou non capte)
+    mh = getattr(hc, "minimal_health", None)
+    if mh is not None:
+        return int(mh) != -1                 # `Nullable<int>@+0x1c` : `Value != -1`
+    return True                              # PV <= 0 ET maximum <= 0 : unite SANS SANTE
 
 
 def unit_extensions_is_alive(entity) -> bool:
@@ -2869,19 +2896,24 @@ def adjacent_friendly_summons_and_decoys_count(state, unit_id: int) -> Optional[
     SELECTEUR) ; ce qu'on fait ICI, c'est lui donner son `AbilityEntities` -- `entities_from_state(
     state, unit_id)` pose `caster = owner = le porteur`, `board = state.board` et `has_trait`.
 
-    ⚠ SUBSTRAT D'ADJACENCE, **MESURE** et non suppose (#589-r1-r1-r2-r1). Le foyer DSL partage
-    (`dsl/base.py::_within`, `order='adjacent'`) filtre l'ENSEMBLE par `hexgeo.distance <= radius`
-    et ne se sert de `board.neighbours_native` que pour l'ORDRE d'enumeration. C'est le
-    comportement du NATIF sur ce chemin : sur `C3_14`, porteur en `(5,4)` et compagnon en `(5,3)`
-    -- meme elevation 4, arete absente de `boardGraph.neighbours` ET de `connectivity`, DANS LES
-    DEUX SENS -- le natif ACTIVE l'effet et retranche `critDmgReduction x 1`. Le probe de cette
-    tranche avait ecrit sa garde a l'envers et la mesure l'a retourne. C'est le meme fait que
-    `runner/operations/triggers/base.py::_adjacent_damageable_enemies` avait deja mesure sur
-    l'AUTRE consommateur du meme sous-arbre (`Units(AdjacentTiles(...))` du splash de FragBomb),
-    ici recoupe par un canal INDEPENDANT (l'activite d'un effet).
-    ⇒ `AdjacentTilesSelector` (le chemin DSL) et `BattleQuery$$IterateAdjacentTiles` (celui
-    d'`IsCharging` / des comptages `GetAdjacent*`, mirror `battle_query.is_adjacent`) NE LISENT PAS
-    le meme substrat, et le port suit chacun a sa place.
+    ⚠ SUBSTRAT D'ADJACENCE : la LISTE STOCKEE -- et **le paragraphe qui vivait ici disait
+    l'inverse** (#589-r1-r1-r2-r1-r8). Il affirmait, sur la foi de `case-589-r1-r1-r2-r1` sec.6,
+    que le natif comptait un voisin a `hexgeo.distance == 1` ABSENT de la liste stockee, donc que
+    `AdjacentTilesSelector` et `BattleQuery$$IterateAdjacentTiles` ne lisaient pas le meme
+    substrat. Les DEUX affirmations sont REFUTEES :
+
+      * le chemin est UNIQUE -- `AdjacentTiles` -> `AdjacentTilesSelector$$Select` -> `IBattleQuery`
+        **slot 80** = `IterateAdjacentTiles` (slot LU dans `metadata/interface_slots.tsv`), et
+        `IdunBattle.Core.Services.TileQuery.u003CIterateAdjacentTilesu003Ed__8$$MoveNext` enumere
+        une LISTE STOCKEE (`tile.<+0x30>.<+0x10>`), sans aucune geometrie ;
+      * le natif ne comptait PAS ce voisin. L'activite mesuree venait de `genesSmnDecoy` -- unite
+        AMIE a trait `Decoy`, presente AU DEPLOIEMENT sur un voisin STOCKE du porteur, que le
+        montage n'avait jamais inventoriee. Mesure differentielle (une seule unite bouge) et
+        compteur lu du DEGAT : intrus seul = 1, intrus + compagnon hex-1 hors liste stockee =
+        **1** aussi -- il n'ajoute rien.
+
+    Le port suit donc la liste stockee (`dsl/base.py::_within`, `order='adjacent'`, #515), et c'est
+    exact. Detail : `docs/rl/case-589-r1-r1-r2-r1-r8-unite-sans-sante.md`.
 
     `None` si le porteur n'a ni equipe ni tuile (cle alors ABSENTE du `unit_state` => la
     `CreateActiveCondition` degrade en VRAI, et le canal crit ne contribue RIEN) -- jamais un 0
