@@ -21,7 +21,11 @@ critent, aucun tirage sur le crit ; `2000` laisse la marge qui empêche `Math.Ma
 | `MC1_67` | 1 | 3 | **`Summon`** | 432 | `[2579, 2398, 2441, 2598]` | == | mord | mord |
 | `MC1_67` | 2 | 3 | **`Summon`** | 864 | `[1817, 2092, 2099, 2688]` | == | mord | mord |
 | `C1_74` | 0 / 1 / 2 | 6 | `Decoy` | 0 / **495** / **990** | 3 salves | == | conforme | conforme |
-| `C3_14` | 1 (géo) | 6 | `Decoy` | **495** | `[2713, 2198, 2962, 2787]` | == | mord | mord |
+| `C3_14` | 1 (géo) | 6 | `Decoy` | **495** | `[2713, 2198, 2962, 2787]` | == ⛔ | mord | mord |
+
+⛔ **La dernière ligne est un accord par COMPENSATION, pas un accord** (#589-r1-r1-r2-r1-r8) : le
+`1` du natif venait de `genesSmnDecoy` (allié, `Decoy`, présent au déploiement sur un voisin
+**stocké**), celui du port d'une couronne géométrique. Le dégât coïncide, la mécanique non. Cf. §6.
 
 **Recoupement croisé, non cherché** : la salve du bras `PASSIF` à `n=1` (`[2256, 2717, 2818, 2066]`)
 est **exactement** le LIVE du bras `niveau = 10`. Le repli passif lit donc bien le dernier palier
@@ -120,27 +124,38 @@ Deux conséquences, et la seconde est ce qui a coûté le plus :
   (**579**) au lieu de celui du niveau demandé (**432**). Le tri-état du port a fait son travail —
   c'est le harnais qui ne fournissait pas le canal.
 
-## 6. Le bras SUBSTRAT — écrit à l'ENVERS, retourné par la mesure
+## 6. Le bras SUBSTRAT — ⛔ RÉFUTÉ (#589-r1-r1-r2-r1-r8, 2026-08-10)
 
-Le probe portait un bras « le compagnon est à distance hex 1 du porteur mais **absent** de sa liste
-d'adjacence capturée → le natif ne doit PAS le compter ». **Il est faux, et la mesure l'a dit.**
+**Ce que cette section affirmait est FAUX, et la version qui suit est la mesure qui l'a établi.**
 
-Sur `C3_14`, porteur en `(5,4)`, compagnon en `(5,3)` — **même élévation 4** (donc la porte
-`|Δelev| < 2` ne joue pas) et l'arête absente de `boardGraph.neighbours` **et** de `connectivity`,
-**dans les deux sens** (mesuré tuile par tuile) — le natif **ACTIVE** l'effet et retranche
-`495 × 1`. Le port aussi (`_within` filtre l'ENSEMBLE par `hexgeo.distance <= radius` et ne se sert
-de `board.neighbours_native` que pour l'ORDRE) : **accord**.
+Elle disait : sur `C3_14`, porteur en `(5,4)` et compagnon en `(5,3)` (arête absente du substrat
+stocké dans les deux sens), « le natif **ACTIVE** l'effet et retranche `495 × 1` », donc
+« `AdjacentTilesSelector` et `BattleQuery$$IterateAdjacentTiles` ne lisent pas le même substrat ».
 
-C'est le même fait que le dépôt avait déjà mesuré sur l'**autre** consommateur du même sous-arbre
-(`Units(AdjacentTiles(...))` du splash de FragBomb, cf.
-`runner/operations/triggers/base.py::_adjacent_damageable_enemies`), ici **recoupé par un canal
-indépendant** — l'activité d'un effet, pas un splash. ⇒ `AdjacentTilesSelector` (le chemin DSL) et
-`BattleQuery$$IterateAdjacentTiles` (celui d'`IsCharging` et des comptages `GetAdjacent*`, mirror
-`battle_query.is_adjacent`) **ne lisent pas le même substrat**, et le port suit chacun à sa place.
+**Les deux conclusions sont réfutées** :
 
-⚠ **Ce que cette mesure NE tranche PAS** : *pourquoi*. Deux lectures restent ouvertes — le sélecteur
-est réellement géométrique, ou la capture `boardGraph` est incomplète et le `ConnectivityComponent`
-en jeu porte l'arête. Résidu **`#589-r1-r1-r2-r1-r4`**.
+* **le chemin est UNIQUE** — `AdjacentTiles` → `AdjacentTilesSelector$$Select` → `IBattleQuery`
+  **slot 80** = `IterateAdjacentTiles` (slot LU dans `metadata/interface_slots.tsv`), qui énumère
+  une **liste STOCKÉE** (`TileQuery.<IterateAdjacentTiles>d__8$$MoveNext`). Aucune géométrie ;
+* **le natif ne comptait PAS ce compagnon.** L'activité de l'effet venait de **`genesSmnDecoy`**,
+  une unité **amie** portant `Decoy`, présente **au déploiement** en `(6,4)` — c'est-à-dire sur un
+  voisin **stocké** du porteur. Le bras `--geo-only` ne figeait que les **deux compagnons** et n'a
+  jamais fait l'inventaire des porteurs de trait.
+
+Mesure différentielle (une seule unité bouge, tout le reste figé, tous les porteurs poussés à
+hex ≥ 4) : compagnon LOIN → **inactif** ; compagnon en `(5,3)` → **inactif** ; compagnon sur un
+voisin stocké → **actif** ; retour LOIN → **inactif**. Et compteur lu du **DÉGÂT** : intrus seul
+= **1**, intrus + compagnon en `(5,3)` = **1** — le compagnon n'ajoute rien.
+
+⚠ **L'accord annoncé ici, et celui de la ligne `C3_14` du §1, étaient une COMPENSATION** : le port
+comptait 1 par géométrie, le natif comptait 1 par `genesSmnDecoy`. Deux causes différentes, le même
+`1`, donc le même dégât — d'où un accord parfait sur une mécanique que ni l'un ni l'autre ne
+décrivait correctement.
+
+Le vrai écart, lui, était ailleurs et bien réel : le port ne comptait pas `genesSmnDecoy`, parce
+que `HealthComponent$$IsAlive` porte **trois** branches et que le port n'en portait qu'une — une
+unité à `0/0` PV est **vivante** pour le natif. Détail, correctif et gardes :
+`docs/rl/case-589-r1-r1-r2-r1-r8-unite-sans-sante.md`.
 
 ## 7. Les gardes
 
