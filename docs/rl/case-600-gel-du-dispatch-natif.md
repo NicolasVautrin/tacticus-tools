@@ -164,6 +164,49 @@ plus tot aurait economise deux relances : je l'ai fait au troisieme gel, pas au 
 ⚠ Le GC reste un vrai gel — `gcRoot.collect()` refuse toujours. Il n'etait simplement pas
 celui-la.
 
+## RESOLU — trois envois, trois reussites, jeu vivant
+
+Avec le detachement prealable, le 2026-08-10 :
+
+| operation | places | RPC | resultat |
+|---|---|---|---|
+| `chaos_tzeench_r_01_10` | 3 | **0,62 s** | `status: 1`, les 3 unites |
+| `imp_machinery_u_01_10` | 3 | **0,31 s** | `status: 1`, les 3 unites |
+| `imp_duty_r_01_10` | 5 | **0,39 s** | `status: 1`, les 5 unites |
+
+Jeu `Responding: True` tout du long. Le plateau confirme les trois, et l'ardoise du stub
+compte **3 appels** — un callback par envoi, chaque chaine allee au bout **sans tuer le
+process**. C'est la preuve que le delegate fabrique est valide : c'est exactement ce chemin
+qui levait quand il etait nul.
+
+### Ce que l'ardoise tranche, et que le decompile ne disait pas
+
+    appels: 3   rcx: 0x0   rdx: 0x3faacee4b0   r8: 0x0
+
+`rcx` (`method_code`) et `r8` (`method`) sont les nuls qu'on a ecrits. **`rdx` est une adresse
+de pile** — donc le `bool` est passe **PAR ADRESSE**, pas par valeur. C'est l'ambiguite que
+`local_res18` laissait ouverte dans le decompile de `<Execute>b__0`, et qu'on avait refuse de
+deviner : garder les trois registres bruts au lieu d'en interpreter un a l'aveugle est ce qui
+permet de la lire apres coup.
+
+### Le bilan honnete de ce chantier
+
+Six tentatives, quatre relances du jeu, **trois explications successives dont deux fausses** :
+
+1. « le callback nul est tolere » — lecture PARTIELLE du decompile (le null-check LEVE) ;
+2. « deadlock QuickJS depuis le thread reseau » — refutee par son propre remede (le stub
+   natif, zero JS, a gele pareil) ;
+3. « malchance d'une collecte GC » — refutee par 3 gels sur 3 (une coincidence trois fois
+   n'est pas une coincidence).
+
+La bonne cause etait **lisible dans la pile du main thread des le premier gel**. Je l'ai lue
+au troisieme. Le cout de ce retard : deux relances et deux commits d'explication fausse.
+
+**Regle qui en sort** : devant un GEL, lire la PILE avant d'ecrire une cause. Les formes se
+distinguent — un rendez-vous GC laisse le main thread parque a un safepoint avec **0** cadre
+`GameAssembly` ; une re-entrance Frida laisse des cadres `frida-agent` **SOUS** le code du
+jeu. Deux images, deux diagnostics, aucune deduction necessaire.
+
 ## Un piege de lecture rencontre en chemin
 
 `ExpeditionGameEvents$$DispatchExpedition` se decompile avec **trois** arguments (plus `this`),
