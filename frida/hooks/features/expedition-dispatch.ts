@@ -34,10 +34,11 @@
 
 import {
     findClassAnywhere, findMethodByParamCount, methodParamClass, IL2CPP_MODULE_NAME,
-    class_get_fields, field_get_name, field_get_offset, class_get_parent,
+    class_get_fields, field_get_name, field_get_offset, getFieldOffset,
     s as cstr, readIl2cppString, MethodRef,
 } from "../il2cpp/helpers.js";
-import { invokeMethod, createManagedString, createObject, il2cpp_object_new } from "../il2cpp/invoke.js";
+import { invokeMethod, createManagedString, createObject } from "../il2cpp/invoke.js";
+import { delegateInerte, ardoiseDelegate } from "../il2cpp/delegate.js";
 import { gcRoot } from "../il2cpp/gc-root.js";
 import { queueOnMainThread } from "../runtime/queue.js";
 import { Ctx } from "../controller.js";
@@ -176,34 +177,29 @@ function estDeClasse(obj: NativePointer, klass: NativePointer | null): boolean |
     try { return obj.readPointer().equals(klass); } catch { return null; }
 }
 
-/** Offset d'un champ, resolu PAR SON NOM, EN REMONTANT LES CLASSES DE BASE.
- *
- *  ⚠ La remontee n'est pas un raffinement, c'est la condition pour que ca marche sur un
- *  delegate : `class_get_fields` n'enumere que les champs DECLARES par la classe, et
- *  `Action<System.Boolean>` n'en declare AUCUN -- `method_ptr`, `invoke_impl`, `m_target`,
- *  `method`, `method_code` vivent tous sur `System.Delegate`. Sans remontee, la recherche
- *  rend un ensemble VIDE qui se lit comme << classe inconnue >> alors que la classe est
- *  bonne. Mesure du 2026-08-10 : `{"INCOMPLET": {}}`, 0 champ sur 5.
- *
- *  Rend -1 si le nom n'existe nulle part -- on refuse alors de lire, plutot que de
- *  dereferencer un offset suppose. */
-function offsetChamp(klass: NativePointer, nom: string): number {
-    let k: NativePointer = klass;
-    let profondeur = 0;
-    while (!k.isNull() && profondeur < 8) {
-        const it = Memory.alloc(Process.pointerSize);
-        it.writePointer(ptr(0));
-        let f: NativePointer;
-        while (!(f = class_get_fields(k, it) as NativePointer).isNull()) {
-            if (cstr(field_get_name(f) as NativePointer) === nom) {
-                return field_get_offset(f) as number;
-            }
-        }
-        try { k = class_get_parent(k) as NativePointer; } catch { break; }
-        profondeur++;
-    }
-    return -1;
-}
+// ⚠ `offsetChamp` VIVAIT ICI, ET C'ETAIT UNE REIMPLEMENTATION DE `getFieldOffset`.
+//
+// Ce module avait sa propre resolution de champ par nom. Ecrite d'abord SANS remonter les
+// classes de base, elle rendait `{"INCOMPLET": {}}` -- 0 champ sur 5 -- sur
+// `Action<System.Boolean>`, qui n'en DECLARE aucun : `invoke_impl`, `method_ptr`,
+// `m_target`, `method`, `method_code` vivent tous sur `System.Delegate`. Un ensemble vide
+// se lit comme << classe inconnue >> alors que la classe etait bonne, et ca a coute un
+// aller-retour entier.
+//
+// Or `il2cpp/helpers.ts` expose `getFieldOffset` DEPUIS TOUJOURS, et elle remonte deja la
+// chaine d'heritage -- en plus d'etre MEMOISEE, ce que la version locale n'etait pas. Le
+// bug << decouvert >> ici etait deja corrige dans la lib partagee ; seule la duplication
+// l'avait rouvert.
+//
+// Mesure du gisement (2026-08-10) : **53 fichiers** de `frida/hooks/**` cherchent un champ
+// par son nom (`field_get_name`), **17** seulement remontent les parents
+// (`class_get_parent`). L'ecart n'est pas toujours un bug -- un probe de dump veut souvent
+// n'enumerer QUE les champs declares -- mais chaque resolution par nom ecrite a la main
+// rouvre le meme angle mort. Passer par `getFieldOffset` le ferme d'office.
+//
+// `getFieldOffset` rend **-1** sur un nom absent. ⚠ `-1` est *truthy* en JS : ne jamais
+// ecrire `getFieldOffset(k, "X") || <repli>` -- utiliser `fieldOffsetOr`, qui existe pour
+// ca et dont le piege est documente dans `helpers.ts`.
 
 /** L'`ExpeditionGameEvents` vivant.
  *
@@ -262,167 +258,44 @@ function evenements(): NativePointer | null {
 // son invocation fait `Screen.Hide()`. Il sert de reference, pas de piece de rechange.
 // ---------------------------------------------------------------------------------------
 
-/** Pas de `NativeCallback` ici : du code natif PUR, un `ret`.
- *
- *  ⚠ ET LA RAISON N'EST PAS CELLE QUE J'AI ECRITE D'ABORD. Le premier jet mettait un
- *  `NativeCallback` JS dans `invoke_impl` ; le jeu a gele, et j'ai conclu << Frida doit
- *  entrer dans QuickJS depuis le thread de reponse reseau, runtime mono-thread deja occupe,
- *  DEADLOCK >>. Le stub natif ci-dessous a ete ecrit contre CETTE explication -- et le gel
- *  s'est reproduit a l'identique, avec ZERO JavaScript dans le chemin. L'explication est
- *  donc REFUTEE : elle n'a pas survecu a la suppression de sa cause supposee.
- *
- *  Ce qui reste vrai et mesure : le gel ne se SIGNALE PAS. Process vivant, session Frida
- *  `running`, `/api/admin/status` serein -- et plus aucun RPC ne repond, parce que le main
- *  thread garde le verrou QuickJS pendant qu'il attend. Ne jamais lire le status comme une
- *  preuve de sante ; le seul temoin est un RPC qui revient.
- *
- *  Le `ret` reste le bon choix (signature `void`, ABI x64 Windows : nettoyage a l'appelant),
- *  simplement il n'est pas le remede qu'on croyait -- il n'y a pas encore de remede.
- *
- *  ⚠ REFERENCE FORTE OBLIGATOIRE : la page allouee est liberee avec l'objet JS qui la
- *  detient. La perdre laisserait un pointeur pendant dans un delegate encore vivant.
- */
-let pageRet: NativePointer | null = null;
-/** L'ardoise ou le stub DEPOSE ce qu'il a recu. Lue par le pump, jamais par le stub. */
-let ardoise: NativePointer | null = null;
+// ⚠ LA FABRIQUE DE DELEGATE VIVAIT ICI. Elle est partie dans `il2cpp/delegate.ts`.
+//
+// Elle n'avait rien d'Expedition : « fabriquer un `Action<T>` inerte pour un natif qui exige
+// un callback » est un besoin de TOUTE la couche IL2CPP, et les quatre pieges qu'elle porte
+// (ctor a ne pas invoquer, enracinement GC, zero JS dans le corps, une seule instance
+// partagee) ont chacun coute un aller-retour ici. Les laisser dans un module metier, c'etait
+// garantir qu'on les repaye ailleurs -- exactement ce qui venait d'arriver avec
+// `offsetChamp`, reimplementation d'un `getFieldOffset` deja correct.
+//
+// Ce qui RESTE ici, parce que c'est propre a cette porte : QUELLE classe de delegate
+// (`methodParamClass(miDispatch, 3)`), et le fait qu'on refuse d'envoyer sans.
+//
+// POURQUOI PAS UNE METHODE DU JEU comme callback. Le dump n'offre aucune `static void(bool)`
+// inoffensive : toutes activent ou desactivent quelque chose (`SetEnabled`,
+// `set_runInBackground`, `Consent`...). Emprunter l'une d'elles echangerait un crash contre
+// un effet de bord silencieux.
+//
+// POURQUOI PAS LE DELEGATE TEMOIN. Celui du presenter porte la closure d'un ecran precis ;
+// son invocation fait `Screen.Hide()`. Il sert de reference, pas de piece de rechange.
+// ---------------------------------------------------------------------------------------
 
-/** Le stub natif : il ENREGISTRE ses arguments, puis rend la main. Zero JS.
- *
- *  ⚠ POURQUOI PAS UN `ret` NU. Un `ret` ne coute rien, mais il jette la seule chose que le
- *  serveur nous dit : le booleen de reussite. On le remplace donc par un enregistreur --
- *  et l'enregistrement doit rester du CODE NATIF, parce que le delegate est invoque depuis
- *  le thread qui traite la reponse. Y mettre du JS ferait entrer Frida dans QuickJS depuis
- *  ce thread-la ; c'est le PUMP qui vient lire l'ardoise, a son rythme, sur le main thread.
- *  << Le natif depose, le pump ramasse >> -- jamais l'inverse.
- *
- *  `<Execute>b__0` invoque ainsi : `(*(d+0x18))( *(d+0x40), <valeur>, *(d+0x28) )`, donc
- *  en ABI Win64 : rcx = method_code, rdx = la valeur, r8 = method. On garde les TROIS
- *  registres sans les interpreter : le decompile rend `local_res18` de facon ambigue (par
- *  valeur dans `dl`, ou adresse d'un tampon de pile), et trancher a l'aveugle ecrirait une
- *  lecture fausse. Le lecteur affiche les trois et laisse la lecture au constat.
- *
- *  Ardoise (allouee a part -- W^X : la page de code est r-x, l'ardoise est rw) :
- *      +0x00  uint32  nombre d'appels
- *      +0x08  rcx     (method_code)
- *      +0x10  rdx     (la valeur -- le booleen, ou son adresse)
- *      +0x18  r8      (method)
- *
- *  ⚠ REFERENCE FORTE OBLIGATOIRE sur les deux : page et ardoise meurent avec l'objet JS qui
- *  les detient, et le delegate, lui, survit. */
-function stubRet(): NativePointer | null {
-    if (pageRet) return pageRet;
-    try {
-        const slot = Memory.alloc(64);
-        const p = Memory.alloc(Process.pageSize);
-        Memory.patchCode(p, 32, (code) => {
-            code.writeByteArray([0x48, 0xb8]);                     // movabs rax, imm64
-            code.add(2).writePointer(slot);
-            code.add(10).writeByteArray([
-                0xff, 0x00,                                        // inc dword ptr [rax]
-                0x48, 0x89, 0x48, 0x08,                            // mov [rax+0x08], rcx
-                0x48, 0x89, 0x50, 0x10,                            // mov [rax+0x10], rdx
-                0x4c, 0x89, 0x40, 0x18,                            // mov [rax+0x18], r8
-                0xc3,                                              // ret
-            ]);
-        });
-        Memory.protect(p, Process.pageSize, "r-x");
-        ardoise = slot;
-        pageRet = p;
-        return p;
-    } catch { return null; }
-}
+/** La classe du callback, prise dans la SIGNATURE NATIVE (parametre 3) a l'armement. */
+let klassCallback: NativePointer | null = null;
 
-/** Ce que le stub a depose. `null` = stub jamais alloue, donc RIEN N'A ETE MESURE -- a ne
- *  surtout pas lire comme << le callback n'a pas ete appele >>. */
-function lireArdoise(): { appels: number; rcx: string; rdx: string; r8: string } | null {
-    if (!ardoise) return null;
-    try {
-        return {
-            appels: ardoise.readU32(),
-            rcx: ardoise.add(8).readPointer().toString(),
-            rdx: ardoise.add(16).readPointer().toString(),
-            r8: ardoise.add(24).readPointer().toString(),
-        };
-    } catch { return null; }
-}
-let dispoDelegate: { klass: NativePointer; offsets: Record<string, number> } | null = null;
-
-/** Le delegate inerte, alloue UNE FOIS et reutilise. Meme raison que `pageRet`. */
-let callbackPartage: NativePointer | null = null;
-
-/** Fabrique un `Action<System.Boolean>` inerte -- ou rend celui qu'on a deja.
- *
- *  ⚠ UN SEUL SUFFIT, ET EN CREER UN PAR ENVOI EST UNE FUITE. Ce delegate ne porte AUCUN
- *  etat : `invoke_impl` pointe sur une page `ret` partagee, `m_target` / `method` /
- *  `method_code` sont nuls, et le natif ne fait que le RANGER dans son display class -- il
- *  ne le mute jamais. Deux reponses serveur qui l'invoquent en meme temps executent le meme
- *  `ret`, ce qui est sans consequence.
- *
- *  A l'inverse, en fabriquer un par appel laisserait un `il2cpp_gchandle_new` EPINGLE par
- *  envoi, jamais libere -- mesure : six appels a `expeditionCallbackForge` ont fait monter
- *  `gcRoot.count()` de 0 a 6. Un objet epingle ne bouge plus et ne meurt plus ; c'est
- *  exactement le genre de fuite qui ne se voit qu'apres des heures.
- *
- *  `neuf` force une allocation fraiche : reserve a la MESURE (isoler l'allocation du reste),
- *  jamais au chemin d'envoi.
- *
- *  Rend `{ptr}` ou `{err}` -- JAMAIS un `null` muet. Un `catch { return null; }` a deja
- *  fait lire << impossible de fabriquer >> alors que les cinq offsets etaient resolus et
- *  affiches juste a cote : le refus etait juste, son motif introuvable. */
+/** Fabrique (ou reutilise) le callback inerte. Mince enveloppe sur `il2cpp/delegate.ts` :
+ *  tout le savoir-faire est la-bas, seule la CLASSE est locale. */
 function fabriquerCallback(neuf?: boolean): { ptr?: NativePointer; err?: string;
                                               reutilise?: boolean } {
-    if (callbackPartage && !neuf) return { ptr: callbackPartage, reutilise: true };
-    if (!dispoDelegate) return { err: "classe du callback NON RESOLUE" };
-    const { klass, offsets } = dispoDelegate;
-    const manquants = ["invoke_impl", "method_ptr", "method_code", "method", "m_target"]
-        .filter((n) => offsets[n] === undefined);
-    if (manquants.length) {
-        return { err: "champs manquants : " + manquants.join(", ") };
-    }
-    const ret = stubRet();
-    if (!ret) return { err: "stub `ret` natif NON ALLOUE" };
-    // ⚠ `il2cpp_object_new` NU, PAS `createObject`. Ce dernier enchaine sur
-    // `findMethod(klass, ".ctor")` et l'invoque avec `args = null` -- or le ctor d'un
-    // delegate en prend DEUX (`object target, IntPtr method`). `runtime_invoke` lit alors
-    // `params[0]` a 0x0 et `params[1]` a 0x8, d'ou le tres litteral
-    // << access violation accessing 0x8 >> mesure le 2026-08-10.
-    //
-    // Un delegate ne se construit PAS par son ctor ici : on alloue, et on ecrit nous-memes
-    // les champs (c'est tout ce que le ctor managé ferait, sans le detour par un
-    // `MethodInfo*` qu'on n'a pas).
-    let d: NativePointer;
-    try {
-        d = il2cpp_object_new(klass) as NativePointer;
-    } catch (e) {
-        return { err: "il2cpp_object_new : "
-                    + String((e as Error).message || e).slice(0, 140) };
-    }
-    if (d.isNull()) return { err: "il2cpp_object_new a rendu NULL" };
-    // ⚠ ENRACINER, ET LE FAIRE TOUT DE SUITE. `il2cpp_object_new` rend un objet que RIEN de
-    // managé ne reference : notre seule prise est un `NativePointer` dans le tas de Frida,
-    // que le GC IL2CPP ne scanne pas. Entre cette ligne et le moment ou le natif range le
-    // delegate dans son display class, une collecte peut donc le liberer -- et le natif
-    // invoquerait alors `invoke_impl` sur de la memoire recyclee, a la RECEPTION de la
-    // reponse, loin d'ici. `gcRoot.add` pose un `il2cpp_gchandle_new(obj, pinned)`, la
-    // seule prise que le GC honore.
-    //
-    // On ne le relache PAS : le delegate doit survivre jusqu'a l'appel du callback, dont
-    // l'instant ne nous est pas connu (il vient de la reponse serveur). Comme il est
-    // PARTAGE (cf. `callbackPartage`), ca fait UN handle pour toute la session, pas un par
-    // envoi -- `gcRoot.count()` le rend verifiable.
-    gcRoot.add(d);
-    try {
-        d.add(offsets["invoke_impl"]).writePointer(ret);
-        d.add(offsets["method_ptr"]).writePointer(ret);
-        d.add(offsets["method_code"]).writePointer(ptr(0));
-        d.add(offsets["method"]).writePointer(ptr(0));
-        d.add(offsets["m_target"]).writePointer(ptr(0));
-    } catch (e) {
-        return { err: "ecriture des champs : "
-                    + String((e as Error).message || e).slice(0, 140) };
-    }
-    if (!neuf) callbackPartage = d;
-    return { ptr: d, reutilise: false };
+    const r = delegateInerte(klassCallback, { neuf });
+    if (!r.d) return { err: r.err };
+    return { ptr: r.d.ptr, reutilise: r.d.reutilise };
+}
+
+/** Ce que le stub natif a depose, lu DEPUIS LE PUMP. `null` = aucun delegate fabrique, donc
+ *  RIEN N'A ETE MESURE -- a ne pas lire comme << le callback n'a pas ete appele >>, qui se
+ *  dit `appels: 0`. */
+function lireArdoise(): ReturnType<typeof ardoiseDelegate> {
+    return ardoiseDelegate(klassCallback);
 }
 
 /** Disposition de `List<System.String>`, MESUREE sur la classe reelle (jamais supposee). */
@@ -515,22 +388,13 @@ export function register(ctx: Ctx): void {
         // La classe de la liste vient de la SIGNATURE NATIVE, pas d'une recherche par nom :
         // `List<System.String>` est un generique INFLATE, absent de `classes.tsv`, et le
         // chercher par nom rendrait au mieux la definition ouverte.
-        // La classe du CALLBACK vient elle aussi de la signature native (parametre 3),
-        // et ses offsets de champ sont resolus PAR NOM -- meme discipline que la liste.
-        const kCb = methodParamClass(miDispatch.info, 3);
-        if (kCb) {
-            const offs: Record<string, number> = {};
-            for (const nom of ["invoke_impl", "method_ptr", "method_code", "method",
-                               "m_target"]) {
-                const o = offsetChamp(kCb, nom);
-                if (o >= 0) offs[nom] = o;
-            }
-            dispoDelegate = { klass: kCb, offsets: offs };
-            layout["Action<Boolean>"] = Object.keys(offs).length === 5
-                ? offs : { INCOMPLET: offs };
-        } else {
-            layout["Action<Boolean>"] = "CLASSE NON RESOLUE (parametre 3)";
-        }
+        // La classe du CALLBACK vient elle aussi de la signature native (parametre 3). C'est
+        // la SEULE chose propre a cette porte : la fabrique, elle, vit dans
+        // `il2cpp/delegate.ts` et resout ses offsets elle-meme.
+        klassCallback = methodParamClass(miDispatch.info, 3);
+        layout["Action<Boolean>"] = klassCallback
+            ? klassCallback.toString()
+            : "CLASSE NON RESOLUE (parametre 3)";
 
         const kListe = methodParamClass(miDispatch.info, 1);
         dispoListe = kListe ? mesurerListe(kListe) : null;
@@ -545,7 +409,9 @@ export function register(ctx: Ctx): void {
         const kProg = findClassAnywhere(
             "Idun.Source.IdunMeta.Logic.Features.Expedition.Progression",
             "ExpeditionProgression");
-        offGameEvents = kProg ? offsetChamp(kProg, "<GameEvents>k__BackingField") : -1;
+        offGameEvents = kProg
+            ? getFieldOffset(kProg, "<GameEvents>k__BackingField")   // -1 si absent
+            : -1;
         layout["ExpeditionProgression.<GameEvents>"] = offGameEvents >= 0
             ? "+0x" + offGameEvents.toString(16)
             : "CHAMP INTROUVABLE";
@@ -689,30 +555,28 @@ export function register(ctx: Ctx): void {
         queueOnMainThread(() => {
             const avant = gcRoot.count();
             const t0 = Date.now();
-            const r = fabriquerCallback(body?.neuf);
+            const r = delegateInerte(klassCallback, { neuf: body?.neuf });
             const ms = Date.now() - t0;
-            if (!r.ptr) {
+            if (!r.d) {
                 return { ok: false, err: r.err, ms,
                          layout: layout["Action<Boolean>"] };
             }
             // Relire ce qu'on vient d'ecrire : si les champs ne se relisent pas, l'objet
             // n'est pas ce qu'on croit, et l'envoi partirait sur une base fausse.
-            const { offsets } = dispoDelegate as { offsets: Record<string, number> };
             const relu: Record<string, string | null> = {};
-            for (const n of ["invoke_impl", "method_ptr", "method_code", "method",
-                             "m_target"]) {
-                try { relu[n] = r.ptr.add(offsets[n]).readPointer().toString(); }
+            for (const [n, off] of Object.entries(r.d.offsets)) {
+                try { relu[n] = r.d.ptr.add(off).readPointer().toString(); }
                 catch { relu[n] = null; }
             }
             return {
-                ok: true, ms, delegate: r.ptr.toString(), reutilise: !!r.reutilise,
+                ok: true, ms, delegate: r.d.ptr.toString(), reutilise: r.d.reutilise,
                 classe: (() => {
-                    try { return r.ptr.readPointer().toString(); } catch { return null; }
+                    try { return r.d.ptr.readPointer().toString(); } catch { return null; }
                 })(),
-                classeAttendue: dispoDelegate
-                    ? dispoDelegate.klass.toString() : null,
-                stubRet: pageRet ? pageRet.toString() : null,
+                classeAttendue: klassCallback ? klassCallback.toString() : null,
+                offsets: r.d.offsets,
                 relu,
+                ardoise: lireArdoise(),
                 gcHandles: { avant, apres: gcRoot.count() },
                 note: "AUCUN envoi. Si ce RPC revient, l'allocation du delegate est hors "
                     + "de cause dans le gel -- le blocage est dans l'appel natif.",
