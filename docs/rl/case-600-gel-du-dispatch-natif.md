@@ -207,6 +207,36 @@ distinguent — un rendez-vous GC laisse le main thread parque a un safepoint av
 `GameAssembly` ; une re-entrance Frida laisse des cadres `frida-agent` **SOUS** le code du
 jeu. Deux images, deux diagnostics, aucune deduction necessaire.
 
+## TENTATIVE #7 — le refactor a tue le jeu, et l'avertissement etait de ma main
+
+Apres extraction de la fabrique vers `il2cpp/delegate.ts`, le 7ᵉ envoi
+(`all_knowledge_m_04_10`) rend **`ok: true` en 0,39 s**, jeu `Responding: True` — puis le
+process **MEURT** quelques secondes plus tard.
+
+**Cause** : `forgerStub()` allouait DEUX zones (`slot` pour l'ardoise, `page` pour le code) et
+le `DelegateInerte` rendu n'en retenait **qu'une**. Frida rend la memoire d'un `Memory.alloc`
+des que sa derniere reference JS disparait ; la page de code a donc ete liberee, et la reponse
+serveur a saute dedans. La version d'avant gardait `pageRet` en variable de module.
+
+⚠ **L'avertissement etait deja ecrit, dans le commentaire que j'ai deplace** : « REFERENCE
+FORTE OBLIGATOIRE sur les DEUX : page et ardoise meurent avec l'objet JS qui les detient ».
+J'en ai conserve une sur deux en refactorant — c'est-a-dire que j'ai transporte la prose et
+perdu ce qu'elle protegeait.
+
+**Correctif** : `DelegateInerte.code` retient la page. Le champ n'est lu par personne, et
+c'est justement son role — un commentaire le dit, pour qu'un futur nettoyage ne le supprime
+pas comme « mort ».
+
+**Ce que ce cas ajoute a la liste des formes** : une mort **DIFFEREE** apres un `ok: true`.
+Elle se lit comme un echec de l'envoi alors que l'envoi a abouti — meme signature que le
+callback nul de #1/#3, cause differente. ⚠ Toujours lire `expeditionBoardRead` avant de
+retenter, sous peine de dispatcher deux fois.
+
+**Et la lecon de methode** : le refactor avait ete valide au niveau de la FABRIQUE (offsets,
+partage, champs relus) mais jamais sur un ENVOI. Je l'avais ecrit — « non confronte de bout
+en bout » — puis j'ai dispatche avec. Une reserve ecrite n'est pas une precaution ; le cran
+manquant est de refuser d'utiliser un chemin qu'on vient soi-meme de declarer non confronte.
+
 ## Un piege de lecture rencontre en chemin
 
 `ExpeditionGameEvents$$DispatchExpedition` se decompile avec **trois** arguments (plus `this`),

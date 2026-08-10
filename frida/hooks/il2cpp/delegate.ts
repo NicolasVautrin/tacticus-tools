@@ -61,6 +61,19 @@ export interface DelegateInerte {
     offsets: Record<string, number>;
     /** L'ardoise ou le stub depose ses arguments. Lire par `ardoiseDelegate`. */
     ardoise: NativePointer;
+    /** ⚠ LA PAGE DE CODE, GARDEE ICI POUR QU'ELLE NE SOIT PAS LIBEREE. Ce champ n'est pas
+     *  de la documentation : c'est la REFERENCE FORTE. Frida rend la memoire d'un
+     *  `Memory.alloc` des que sa derniere reference JS disparait, et le delegate, lui,
+     *  survit -- son `invoke_impl` pointerait alors sur une page rendue au systeme.
+     *
+     *  MESURE (2026-08-10) : la premiere version de ce module gardait `ardoise` et PAS
+     *  `code`. Le RPC d'envoi a rendu `ok: true` en 0,39 s, jeu `Responding: True` -- puis
+     *  le process est MORT quelques secondes plus tard, quand la reponse serveur a saute
+     *  dans la page liberee. La mort est DIFFEREE, donc elle ne designe pas son site : elle
+     *  se lit comme un echec de l'envoi alors que l'envoi avait abouti.
+     *
+     *  Ne jamais retirer ce champ sous pretexte que personne ne le lit. */
+    code: NativePointer;
 }
 
 export interface Ardoise {
@@ -162,8 +175,14 @@ export function delegateInerte(
     }
 
     const inerte: DelegateInerte = {
-        ptr: d, reutilise: false, offsets, ardoise: stub.ardoise,
+        ptr: d, reutilise: false, offsets,
+        // Les DEUX allocations sont retenues ici. `ardoise` parce qu'on la relit ; `code`
+        // UNIQUEMENT pour la garder en vie. Cf. le champ `code` de l'interface.
+        ardoise: stub.ardoise, code: stub.code,
     };
+    // ⚠ `neuf` N'ECHAPPE PAS A LA REGLE : un delegate hors registre n'est retenu que par
+    // l'objet rendu a l'appelant. S'il le jette, la page meurt avec lui -- et le delegate,
+    // lui, peut encore etre invoque. `neuf` est reserve a la MESURE pour cette raison.
     if (!opts?.neuf) parClasse.set(cle, { d: inerte });
     return { d: inerte };
 }
