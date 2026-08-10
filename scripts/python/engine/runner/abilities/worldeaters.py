@@ -905,7 +905,11 @@ def _overwhelming_wrath_attack_behaviour(state: "State", unit_id: int, entities,
     dmg = [{"target": p.get("target"), "total": (p.get("attack") or {}).get("total"),
             "etages": {k: (p.get("attack") or {}).get(k) for k in
                        ("base_min", "base_max", "pierce", "armor", "did_block", "did_crit",
-                        "rolls", "per_hit")}}
+                        # `crits` = le verdict PAR COUP (`did_crit` n'est que leur OU) et
+                        # `per_hit_health` la part de PV reellement retiree : sans ces deux-la,
+                        # un ecart de total ne se rattache a aucun coup nomme.
+                        "crits", "rolls", "per_hit", "per_hit_health",
+                        "clean_min", "clean_max", "hp_before", "hp_after")}}
            for n, p in ectx.emitted if n == "AttackWithAttackDamage"]
     return {"ability": "OverwhelmingWrath_Attack", "phase": 2, "attacker": int(unit_id),
             "damage": dmg}
