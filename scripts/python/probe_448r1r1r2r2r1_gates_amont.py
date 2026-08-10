@@ -216,13 +216,135 @@ def volet_mutants(board_id: str) -> int:
     return len(verts)
 
 
+def _flags(rpc, sid, rid, entity_id):
+    """`unitFlags` de l'unite, depuis `combatSnapshot.units[]` (cle `entityId`, canal #210).
+    `None` = NON MESURE (capteur muet) -- jamais rabattu sur une liste vide."""
+    if entity_id is None:
+        return None
+    cs = rpc(sid, "combatSnapshot", {"runnerId": rid}, 90)
+    us = cs.get("units") or []
+    for u in us:
+        if u.get("entityId") is not None and int(u["entityId"]) == int(entity_id):
+            fl = u.get("unitFlags")
+            return None if fl is None else sorted(int(f) for f in fl)
+    # Le capteur a repondu mais l'entite n'y est pas : le DIRE, plutot que rendre un `None` muet
+    # qu'on lirait comme « capteur mort » (tri-etat, meme regle que `host_inputs`).
+    print("[LIVE] combatSnapshot : entityId %r absent (cles top=%s, %d units, ids=%s)"
+          % (entity_id, sorted(cs.keys())[:8], len(us),
+             [u.get("entityId") for u in us][:12]))
+    return None
+
+
 def volet_live(board_id: str, seed: int) -> int:
-    """CONTROLE de non-regression : un mouvement legitime aboutit toujours sur un runner reel."""
-    import rl_duel                                                    # import LOURD, differe
+    """LE SEUL des sept gates qui soit DRIVABLE de l'exterieur : **G2 `UnitIsOnTiles`**.
+
+    Les six autres ne le sont pas -- `applyAction {kind:"move"}` traverse la validation d'entree
+    native avant d'atteindre `MoveUnitOperation$$Execute`, et une destination non walkable / reservee
+    / vide n'est dans aucun canal d'action (mesure #448-r1-r1-r2-r2 §7.2). G2, lui, se demande : la
+    tuile COURANTE de l'unite est une coordonnee parfaitement legale.
+
+    DISCRIMINANT, et il est OBSERVABLE : un mouvement vers SA PROPRE tuile ne doit poser AUCUN
+    `UnitFlag.Moved`. Le port d'AVANT le posait (il jouait toute la sequence : vecteur pre-move,
+    ecriture de position, `SetMovedFlag`, `RecordTilesMoved`, vecteur after-move) -- et `Moved` ferme
+    la regle de ciblage `CasterHasNotMoved` de tout cast ulterieur du MEME tour. La degradation etait
+    donc silencieuse ET consequente.
+
+    Trois bras : le CONTROLE POSITIF (un vrai pas pose `Moved`), le bras G2 en LIVE, et le meme
+    bras rejoue COTE PORT sur un etat construit depuis le `boardGraph` du runner, gates ON puis OFF.
+    """
+    import json
+    import subprocess
+    import sys as _sys
+    from pathlib import Path
+
     bad = 0
-    print("[LIVE] volet non exerce par ce probe -- cf. docstring : le REFUS d'un gate amont n'est "
-          "pas isolable par applyAction, et la face PERMISSIVE est deja gardee par les tests live "
-          "de mouvement (test_runner_move_live, test_448_r1_r1_full_throttle_live).")
+    sid, rpc = P._rpc_factory()
+    logs = Path(__file__).resolve().parent / "logs"
+    logs.mkdir(parents=True, exist_ok=True)
+    state_file = logs / "p448r1r1r2r2r1_state.json"
+    state_file.unlink(missing_ok=True)
+    cmd = [_sys.executable, "rl_duel.py", "build", "--seed", str(seed), "--rank", "17",
+           "--board", board_id, "--no-ai", "--state-file", str(state_file)]
+    pr = subprocess.run(cmd, cwd=str(Path(__file__).resolve().parent), capture_output=True,
+                        text=True, encoding="utf-8", errors="replace")
+    if not state_file.exists():
+        _sys.stdout.write((pr.stdout or "")[-1500:])
+        _sys.stdout.write((pr.stderr or "")[-1500:])
+        print("[LIVE] build KO -- NON CONFRONTE")
+        return 1
+    rid = int(json.loads(state_file.read_text(encoding="utf-8"))["runnerId"])
+    print("[LIVE] runner %d sur %s (seed %d)" % (rid, board_id, seed))
+    try:
+        board = P._board_from_graph(rpc, sid, rid)
+        neigh, walk, _elev = board.walk_maps_by_pos()
+        dv = rpc(sid, "decisionView", {"runnerId": rid, "maxRank": 1}, 90)
+        pos0 = P._pos_by_squad(rpc, sid, rid)
+        mine = [int(x) for x in (dv.get("toActivate") or []) if pos0.get(int(x)) is not None]
+        if not mine:
+            print("[LIVE] aucune unite jouable -- NON CONFRONTE")
+            return 1
+        uid = mine[0]
+        p0 = pos0[uid]
+        # ⚠ TROIS identifiants circulent, et DEUX portent le meme nom. MESURE sur ce runner :
+        # `decisionView.toActivate` et `observeBattle.units[].squadId` valent 77,79,...,95 ;
+        # `combatSnapshot.units[].entityId` vaut EXACTEMENT ces memes 77..95 ; mais
+        # `observeBattle.units[].entityId` vaut 78,80,...,96 (decale de 1) et n'indexe RIEN dans
+        # `combatSnapshot`. La cle des flags est donc le `squadId`, malgre le nom du champ. Passer
+        # par `observeBattle.entityId` rendait « capteur muet » sur un capteur vivant.
+        eid = uid
+        f0 = _flags(rpc, sid, rid, eid)
+        if f0 is None:
+            print("[LIVE] unitFlags NON MESURE (capteur muet) -- aucun verdict")
+            return 1
+        # --- BRAS G2 : move vers SA PROPRE tuile.
+        r = rpc(sid, "applyAction", {"runnerId": rid,
+                                     "action": {"kind": "move", "unitId": uid,
+                                                "to": {"col": p0[0], "row": p0[1]}}}, 60)
+        p1 = P._pos_by_squad(rpc, sid, rid).get(uid)
+        f1 = _flags(rpc, sid, rid, eid)
+        ok_g2 = (p1 == p0 and f1 == f0)
+        print("[LIVE] G2 move %s -> %s (SA tuile) : pos %s->%s, unitFlags %s->%s (mutated=%s) => %s"
+              % (p0, p0, p0, p1, f0, f1, r.get("mutated"),
+                 "natif NE BOUGE NI NE MARQUE" if ok_g2 else "*** le natif a mute ***"))
+        bad += 0 if ok_g2 else 1
+        # --- CONTROLE POSITIF : un vrai pas, lui, pose `Moved`.
+        occ = {p for p in P._pos_by_squad(rpc, sid, rid).values() if p is not None}
+        libre = next((q for q in sorted(neigh.get(p0) or ()) if walk.get(q) and q not in occ), None)
+        if libre is None:
+            print("[LIVE] pas de voisine libre -- CONTROLE POSITIF IMPOSSIBLE, aucun verdict")
+            return bad + 1
+        rpc(sid, "applyAction", {"runnerId": rid,
+                                 "action": {"kind": "move", "unitId": uid,
+                                            "to": {"col": libre[0], "row": libre[1]}}}, 60)
+        p2 = P._pos_by_squad(rpc, sid, rid).get(uid)
+        f2 = _flags(rpc, sid, rid, eid)
+        ok_ctrl = (p2 == libre and f2 != f1)
+        print("[LIVE] CONTROLE POSITIF move %s -> %s : pos %s, unitFlags %s => %s"
+              % (p0, libre, p2, f2, "MORD" if ok_ctrl else "*** MONTAGE INERTE ***"))
+        bad += 0 if ok_ctrl else 1
+        # --- LE MEME BRAS COTE PORT, sur le boardGraph du MEME runner.
+        st = P._state(board, [(uid, p0, 0, [])])
+        op_on = _mv(st, uid, p0)
+        fl_on = st.get_entity(uid).get_component(UnitFlagsComponent)
+        st2 = P._state(board, [(uid, p0, 0, [])])
+        _mv(st2, uid, p0, enforce_native_gates=False)
+        fl_off = st2.get_entity(uid).get_component(UnitFlagsComponent)
+        ok_port = (not fl_on.has(UnitFlagsComponent.MOVED)
+                   and fl_off.has(UnitFlagsComponent.MOVED)
+                   and op_on.last_abandoned == "unit-is-on-tiles")
+        print("[LIVE] PORT sur le MEME graphe : gates ON -> Moved=%s (abandon=%r) | gates OFF -> "
+              "Moved=%s => %s"
+              % (fl_on.has(UnitFlagsComponent.MOVED), op_on.last_abandoned,
+                 fl_off.has(UnitFlagsComponent.MOVED),
+                 "ACCORD avec le natif" if ok_port else "*** DESACCORD ***"))
+        bad += 0 if ok_port else 1
+    finally:
+        try:
+            rpc(sid, "disposeRunner", {"runnerId": rid}, 30)
+            print("[LIVE] runner %d dispose" % rid)
+        except Exception as exc:                                  # noqa: BLE001
+            print("[LIVE] dispose KO : %s" % exc)
+    print("[LIVE] BILAN : %d bras KO" % bad)
     return bad
 
 
