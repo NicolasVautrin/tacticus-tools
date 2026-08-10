@@ -53,6 +53,13 @@ from .behaviours.effects import AddEffect, AddStaticStatModifierEffect
 from .behaviours.movement import FlyUnit, MoveUnit
 from .behaviours.stats import Heal, SetHealth
 from ...utilities.tile import first_tile_by_utility
+from ...entities.unit_selection_type import UnitSelectionType
+
+#: `UnitSelectionType` LU au dernier argument des `DSLSelectors$$*` de ce fichier -- releve
+#: #585-r1, build `rnca9r7q6c`, littéral par littéral (JAMAIS par symetrie : deux call-sites
+#: du releve passent `Any` parce que leur source est un ensemble de MORTS).
+SELECTION = int(UnitSelectionType.OnlyAliveAndTargetable)     # 3
+
 
 if TYPE_CHECKING:
     from ..state import State
@@ -828,8 +835,13 @@ def blood_chalice_targets():
     Il DOUBLE le gate non-mecanique de la regle dynamique (`_dynamic_rule_blood_chalice`, qui teste
     `IsAffectedByHealType(target, 0)`) : le premier borne l'ENSEMBLE EFFECTIVEMENT AFFECTE, le second
     borne les cibles LEGALES du message. Les deux existent, on porte les deux."""
-    adj = AdjacentFriends(Caster())
-    return UnitsWithoutTrait(Sub(adj, MechanicalUnits(adj)), int(UnitTrait.Immune))
+    # #585-r1 -- les TROIS litteraux LUS dans `...BloodChaliceAbility$$GetTargets` :
+    #   AdjacentFriends(gs, gs@0x48, unique: 1, 3) ; MechanicalUnits(gs, ., 3) ; UnitsWithoutTrait(gs, ., 0x19, 3)
+    # La surcharge d'`AdjacentFriends` est la VARIANTE A (le 3e argument est le booleen `unique`),
+    # tranchee par XREF ENTRANTE : `$$GetTargets` n'appelle pas la variante a `3` implicite.
+    adj = AdjacentFriends(Caster(), selection_type=SELECTION)
+    return UnitsWithoutTrait(Sub(adj, MechanicalUnits(adj, selection_type=SELECTION)),
+                             int(UnitTrait.Immune), selection_type=SELECTION)
 
 
 def blood_chalice_tree(extra_pierce_ratio: int):

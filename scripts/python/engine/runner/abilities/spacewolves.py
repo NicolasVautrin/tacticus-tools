@@ -224,7 +224,11 @@ def foehammer_get_dead_heroes() -> UnitsWithTrait:
     « For each Character that has been defeated in this battle » de l'i2 compte les heros des DEUX camps.
     `AllDeadOrResurrectedUnits` = les MORTS de `ctx.units` (le state runner garde les cadavres,
     `alive=False`) UNION les RESSUSCITES (`UnitFlag 0xe`)."""
-    return UnitsWithTrait(AllDeadOrResurrectedUnits(), HERO_TRAIT)
+    # #585-r1 -- ⚠ CONTRE-EXEMPLE : `UnitsWithTrait(gs, AllDeadOrResurrectedUnits(), 0x10, **0**)`
+    # dans `...FoehammerAbility$$GetDeadHeroes`. `Any`, pas `SELECTION` -- la source est un ensemble
+    # de MORTS, et `OnlyAlive*` les ecarterait TOUS (le `Count` retomberait a 0 en permanence).
+    return UnitsWithTrait(AllDeadOrResurrectedUnits(), HERO_TRAIT,
+                          selection_type=int(UnitSelectionType.Any))
 
 
 def foehammer_tree(damage_override):

@@ -112,6 +112,13 @@ from .loki.dive_attack import DiveAttackAbility, dive_attack_profile
 from .targeting import (RANGE_ADJACENT, RANGE_FROM_CONFIG, RANGED_BOOL_FALSE, RANGED_BOOL_TRUE,
                         TargetingOptions)
 from .targeting_rule import TargetingRule as TR
+from ...entities.unit_selection_type import UnitSelectionType
+
+#: `UnitSelectionType` LU au dernier argument des `DSLSelectors$$*` de ce fichier -- releve
+#: #585-r1, build `rnca9r7q6c`, littéral par littéral (JAMAIS par symetrie : deux call-sites
+#: du releve passent `Any` parce que leur source est un ensemble de MORTS).
+SELECTION = int(UnitSelectionType.OnlyAliveAndTargetable)     # 3
+
 
 if TYPE_CHECKING:
     from ..state import State
@@ -641,8 +648,12 @@ def heavy_warp_flamer_other_targets(range_val: int) -> And:
 
     ⚠ Le meme ensemble est RECOPIE INLINE par `$$ExecuteBehaviour` (le natif ne rappelle pas
     `$$GetOtherTargets`) -> un seul foyer cote port, comme pour 1048."""
-    return And(Damageable(AdjacentFriends(Target(), reference=Target())),
-               SurroundingEnemies(Caster(), Const(range_val), reference=Caster()))
+    # #585-r1 : `AdjacentFriends(gs, gs@0x60, unique: 1, 3)` -- surcharge VARIANTE A, tranchee par
+    # XREF ENTRANTE (`$$GetOtherTargets` n'appelle pas la variante a `3` implicite) -- puis
+    # `SurroundingEnemies(gs, gs@0x48, range, unique: 1, 3)`. Littéraux LUS.
+    return And(Damageable(AdjacentFriends(Target(), reference=Target(), selection_type=SELECTION)),
+               SurroundingEnemies(Caster(), Const(range_val), reference=Caster(),
+                                  selection_type=SELECTION))
 
 
 def heavy_warp_flamer_num_extra_hits(nr_of_hits: int, max_nr_of_hits: int) -> Min:

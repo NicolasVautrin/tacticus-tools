@@ -123,6 +123,13 @@ from ..behaviours.combat import AttackWithAttackDamage
 from ..behaviours.context import entities_from_state
 from ..behaviours.lifecycle import KillDeadUnits
 from ..behaviours.summon import PerformAIAttack, Spawn
+from ....entities.unit_selection_type import UnitSelectionType
+
+#: `UnitSelectionType` LU au dernier argument des `DSLSelectors$$*` de ce fichier -- releve
+#: #585-r1, build `rnca9r7q6c`, littéral par littéral (JAMAIS par symetrie : deux call-sites
+#: du releve passent `Any` parce que leur source est un ensemble de MORTS).
+SELECTION = int(UnitSelectionType.OnlyAliveAndTargetable)     # 3
+
 
 if TYPE_CHECKING:
     from ...state import State
@@ -155,8 +162,15 @@ def might_from_below_spawn_tiles():
     defaut des positions `(col, row)`. Sans lui, chaque spawn tomberait sur un `tile` non resolvable
     -> `_spawn_config_grot` rend `None` -> **no-op silencieux**, la signature de panne exacte que ce
     port ferme."""
-    adjacent_friends = AdjacentFriends(Caster())
-    return Tiles(UnitsWithTrait(adjacent_friends, int(DECOY_TRAIT)), as_ids=True)
+    # #585-r1 -- ⚠ LITTERAL IMPLICITE : `$$GetPossibleSpawnTiles` appelle la VARIANTE B
+    # d'`IdunBattleLogic.Entities.DSLSelectors$$AdjacentFriends` -- `(this, unit = gs@0x48,
+    # unitTile = gs@0x50, unique: 1)` -- qui code `3` EN DUR aux deux etages. Le `3` n'est donc
+    # ECRIT NULLE PART dans le corps de cette fonction ; il se lit a la XREF ENTRANTE. Lire son 4e
+    # argument comme un selectionType donnerait `1` = `OnlyAlive`, le filtre qui n'ecarte PAS
+    # `Untargetable`. Puis `UnitsWithTrait(gs, ., 0x41d, 3)`, celui-la explicite.
+    adjacent_friends = AdjacentFriends(Caster(), selection_type=SELECTION)
+    return Tiles(UnitsWithTrait(adjacent_friends, int(DECOY_TRAIT), selection_type=SELECTION),
+                 as_ids=True)
 
 
 def might_from_below_attack_tree(profile: str):

@@ -44,6 +44,19 @@ DECLENCHEUR = {
         "scripts/python/engine/runner/abilities/necrons.py",
         "scripts/python/engine/runner/abilities/orks.py",
         "scripts/python/engine/runner/abilities/sisterhood.py",
+        # + les onze modules entres au releve par la seconde passe (#585-r3/#585-r1, 58 sites)
+        "scripts/python/engine/runner/abilities/admec.py",
+        "scripts/python/engine/runner/abilities/aeldari.py",
+        "scripts/python/engine/runner/abilities/blacktemplars.py",
+        "scripts/python/engine/runner/abilities/bloodangels.py",
+        "scripts/python/engine/runner/abilities/spacewolves.py",
+        "scripts/python/engine/runner/abilities/targeting.py",
+        "scripts/python/engine/runner/abilities/thousandsons.py",
+        "scripts/python/engine/runner/abilities/ultramarines.py",
+        "scripts/python/engine/runner/abilities/loki/additional_targets.py",
+        "scripts/python/engine/runner/abilities/loki/might_from_below.py",
+        "scripts/python/engine/runner/abilities/loki/splash.py",
+        "scripts/python/engine/runner/abilities/loki/strike.py",
         "scripts/python/engine/entities/selectors/units.py",
         "scripts/python/engine/entities/selectors/composites.py",
         "scripts/python/engine/entities/unit_selection_type.py",
@@ -102,6 +115,58 @@ def _rites_heal():
     return rites_of_restoration_heal_targets()
 
 
+# ---- seconde passe (#585-r3 a pose l'etage amont, cette passe a releve 58 sites de plus)
+
+def _unbreakable_dead():
+    from engine.runner.abilities.blacktemplars import unbreakable_duty_dead_imperial_heroes
+    return unbreakable_duty_dead_imperial_heroes()
+
+
+def _foehammer_dead():
+    from engine.runner.abilities.spacewolves import foehammer_get_dead_heroes
+    return foehammer_get_dead_heroes()
+
+
+def _might_from_below_tiles():
+    from engine.runner.abilities.loki.might_from_below import might_from_below_spawn_tiles
+    return might_from_below_spawn_tiles()
+
+
+def _fealty():
+    from engine.runner.abilities.loki.additional_targets import fealty_additional_targets
+    return fealty_additional_targets()
+
+
+def _talon_of_horus():
+    from engine.runner.abilities.loki.additional_targets import talon_of_horus_additional_targets
+    return talon_of_horus_additional_targets()
+
+
+def _righteous_repugnance():
+    from engine.runner.abilities.loki.additional_targets import righteous_repugnance_additional_targets
+    return righteous_repugnance_additional_targets()
+
+
+def _spirit_leech_heal():
+    from engine.runner.abilities.loki.strike import spirit_leech_heal_targets
+    return spirit_leech_heal_targets()
+
+
+def _waaagh_buffed():
+    from engine.runner.abilities.orks import waaagh_buffed_units_selector
+    return waaagh_buffed_units_selector()
+
+
+def _brazier_effect():
+    from engine.runner.abilities.sisterhood import brazier_effect_targets
+    return brazier_effect_targets(2)
+
+
+def _defend_divine_work():
+    from engine.runner.abilities.admec import defend_the_divine_work_adjacent_friends
+    return defend_the_divine_work_adjacent_friends()
+
+
 #: (libelle, fabricant, chemin d'attributs depuis la racine, littéral MESURE au decompile).
 #: Le chemin est explicite : c'est ce qui rend le test lisible sans deplier l'arbre a la main.
 RELEVE = (
@@ -121,6 +186,43 @@ RELEVE = (
     # LE LITTERAL IMPLICITE (surcharge `(this, unit, unitTile, unique)`, selectionType EN DUR).
     ("RitesOfRestorationAbility$$GetHealTargets / Friends",
      _rites_heal, ("source", "b", "selection_type"), _AAT),
+
+    # ─── seconde passe. DEUX CONTRE-EXEMPLES DE PLUS, et ils ont la MEME cause mecanique que
+    # `ResurrectionOrb` : la source est un ensemble de MORTS (`AllDeadOrResurrectedUnits`), donc
+    # `OnlyAlive*` la viderait. Le rapport monte a 3 contre-exemples pour 84 sites a `3` -- c'est
+    # ce rapport qui rend la recopie par symetrie tentante, et c'est pourquoi ils sont figes ICI.
+    ("UnbreakableDutyAbility$$GetAmountOfDeadImperialUnits / Friends",
+     _unbreakable_dead, ("a", "a", "selection_type"), _ANY),
+    ("UnbreakableDutyAbility$$GetAmountOfDeadImperialUnits / UnitsWithTraits",
+     _unbreakable_dead, ("b", "selection_type"), _ANY),
+    ("FoehammerAbility$$GetDeadHeroes / UnitsWithTrait",
+     _foehammer_dead, ("selection_type",), _ANY),
+
+    # ─── TROIS littéraux IMPLICITES de plus : ces call-sites empruntent la VARIANTE B
+    # d'`AdjacentFriends`/`AdjacentEnemies`, qui code `3` en dur. Le `3` n'est ecrit NULLE PART
+    # dans leur corps -- il se lit a la XREF ENTRANTE, jamais au pseudo-C.
+    ("MightFromBelowAbility$$GetPossibleSpawnTiles / AdjacentFriends (variante B)",
+     _might_from_below_tiles, ("units", "source", "selection_type"), _AAT),
+    ("FealtyAbility$$GetAdditionalTargets / AdjacentEnemies (variante B)",
+     _fealty, ("a", "a", "selection_type"), _AAT),
+    ("TalonOfHorusAbility$$GetAdditionalTargets / AdjacentFriends (variante B)",
+     _talon_of_horus, ("b", "selection_type"), _AAT),
+
+    # ─── et le CONTRASTE qui prouve que le tri est fait site par site : `RighteousRepugnance`
+    # est la fonction VOISINE de `Fealty`/`TalonOfHorus` dans le meme module natif, et elle
+    # emprunte la variante A -- ses deux littéraux, eux, sont ECRITS.
+    ("RighteousRepugnanceAbility$$GetAdditionalTargets / AdjacentEnemies (variante A)",
+     _righteous_repugnance, ("a", "selection_type"), _AAT),
+
+    # ─── les trois factories entrees au releve par #585-r3, chacune sur un call-site LU
+    ("SpiritLeechAbility$$GetHealTargets / UnitsFromFaction",
+     _spirit_leech_heal, ("b", "selection_type"), _AAT),
+    ("WaaaghAbility$$GetBuffedUnitsSelector / UnitsFromFaction",
+     _waaagh_buffed, ("source", "b", "selection_type"), _AAT),
+    ("BrazierOfHolyFireAbility$$GetEffectTargets / SurroundingUnits",
+     _brazier_effect, ("source", "selection_type"), _AAT),
+    ("DefendTheDivineWorkAbility$$GetAdjacentFriends / AdjacentUnits",
+     _defend_divine_work, ("inner", "selection_type"), _AAT),
 )
 
 
@@ -301,12 +403,25 @@ def test_etage3_chaque_litteral_cable_MORD_et_les_deux_valeurs_DIVERGENT():
 #: BAISSE = des littéraux retires. Un compte qui MONTE est licite (la tranche suivante en releve
 #: d'autres) -- c'est pourquoi la comparaison est `>=` et non `==`.
 COMPTES = {
-    "runner/abilities/darkangels.py": 8,
+    "runner/abilities/darkangels.py": 9,
     "runner/abilities/deathguard.py": 7,
-    "runner/abilities/blacklegion.py": 5,
-    "runner/abilities/necrons.py": 2,
-    "runner/abilities/orks.py": 1,
-    "runner/abilities/sisterhood.py": 2,
+    "runner/abilities/blacklegion.py": 6,
+    "runner/abilities/necrons.py": 6,
+    "runner/abilities/orks.py": 10,
+    "runner/abilities/sisterhood.py": 4,
+    # + les onze modules de la seconde passe
+    "runner/abilities/admec.py": 4,
+    "runner/abilities/aeldari.py": 4,
+    "runner/abilities/blacktemplars.py": 2,
+    "runner/abilities/bloodangels.py": 3,
+    "runner/abilities/spacewolves.py": 3,
+    "runner/abilities/targeting.py": 2,
+    "runner/abilities/thousandsons.py": 2,
+    "runner/abilities/ultramarines.py": 5,
+    "runner/abilities/loki/additional_targets.py": 9,
+    "runner/abilities/loki/might_from_below.py": 2,
+    "runner/abilities/loki/splash.py": 6,
+    "runner/abilities/loki/strike.py": 2,
 }
 
 

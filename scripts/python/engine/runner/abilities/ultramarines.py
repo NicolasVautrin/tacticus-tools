@@ -87,6 +87,13 @@ from ...entities.triggers import IsCharging
 from ..operations.spawn import _free_tiles_adjacent
 from ..operations.spawn import _spawn_config_grot
 from .behaviours.stats import ChangeStat
+from ...entities.unit_selection_type import UnitSelectionType
+
+#: `UnitSelectionType` LU au dernier argument des `DSLSelectors$$*` de ce fichier -- releve
+#: #585-r1, build `rnca9r7q6c`, littéral par littéral (JAMAIS par symetrie : deux call-sites
+#: du releve passent `Any` parce que leur source est un ensemble de MORTS).
+SELECTION = int(UnitSelectionType.OnlyAliveAndTargetable)     # 3
+
 from .loki import _summon_on_appearance_attack
 
 if TYPE_CHECKING:
@@ -122,8 +129,12 @@ def combat_restoratives_tree(imperial_amount: int, sans_amount: int) -> AtomicGr
     `sans = op_Subtraction(base, withImperial)` = membres non-Imperial de base. `AtomicGroup` (`ExecuteAtomic`,
     id 0x1f). Ordre callback natif : Heal(withImperial) PUIS Heal(sans) ; feuilles pures (aucun rng) + sets
     DISJOINTS -> ordre sans effet observable (fidelite conservee)."""
-    base = Union(Friends(AdjacentUnits(CasterTile(), Const(1))), Caster())    # op_Addition(Friends(AdjacentUnits(casterTile,1)), caster)
-    with_imperial = Unique(UnitsWithTrait(base, int(UnitTrait.Imperial)))     # SelectUniqueUnits(UnitsWithTrait(base, 0x1a))
+    # #585-r1 -- les TROIS litteraux LUS dans `...CombatRestorativesAbility$$ExecuteBehaviour` :
+    #   AdjacentUnits(gs, gs@0x50, unique: 1, 3) ; Friends(gs, gs@0x48, ., 3) ; UnitsWithTrait(gs, ., 0x1a, 3)
+    base = Union(Friends(AdjacentUnits(CasterTile(), Const(1), selection_type=SELECTION),
+                         selection_type=SELECTION), Caster())                 # op_Addition(Friends(AdjacentUnits(casterTile,1)), caster)
+    with_imperial = Unique(UnitsWithTrait(base, int(UnitTrait.Imperial),
+                                          selection_type=SELECTION))          # SelectUniqueUnits(UnitsWithTrait(base, 0x1a))
     sans = Unique(Sub(base, with_imperial))                                   # SelectUniqueUnits(op_Subtraction(base, withImperial))
     heal_imperial = Heal(with_imperial, lambda entities, ectx: imperial_amount,
                          guard=healable_heal_type_0)                          # Get(var0x22) = hpToHeal_2
@@ -846,7 +857,9 @@ def storm_of_wrath_jump_targets(picked_sel):
     proprietaire arbitraire (cf. `engine/runner/abilities/deathguard.py`,
     `plague_wind_wave_selectors`). Le mirror de la face DECISION vit deja la-bas ; ceci est le
     call-site COMBAT."""
-    return Enemies(adjacent_units(picked_sel))
+    # #585-r1 : `AdjacentUnits(gs, lastTargets, unique: 1, 3)` puis `Enemies(gs, gs@0x48, ., 3)` --
+    # littéraux LUS dans `...StormOfWrathAbility$$u003CExecuteBehaviouru003Eb__1_0`.
+    return Enemies(adjacent_units(picked_sel, selection_type=SELECTION), selection_type=SELECTION)
 
 
 def storm_of_wrath_tree(state: "State", caster_id: int) -> AtomicGroup:

@@ -120,12 +120,14 @@ def waaagh_buffed_units_selector():
     # #585-r1 -- littéraux LUS dans `...WaaaghAbility$$GetBuffedUnitsSelector` :
     #   AdjacentFriends(gs, gs@0x48, unique: 1, 3)   <- surcharge `(this, unit, unique, selectionType)`
     #   Friends(gs, gs@0x48, gs@0x20, 3) ; UnitsFromFaction(gs, ., 5, 3)
-    # ETAGE MANQUANT (documente) : les mirrors `AdjacentFriends` et `UnitsFromFaction` du port ne
-    # portent pas encore le parametre -- le `Friends` interne, lui, le porte, et c'est lui qui
-    # filtre la sortie du second terme.
-    return Unique(Union(Union(Caster(), AdjacentFriends(CasterTile(), Const(1))),
+    # L'ETAGE EXISTE depuis #585-r3 : `AdjacentFriends` et `UnitsFromFaction` portent le parametre.
+    # La surcharge d'`AdjacentFriends` est la VARIANTE A (`(this, unit, unique, selectionType)`) --
+    # tranche par XREF ENTRANTE : `WaaaghAbility$$GetBuffedUnitsSelector` n'appelle pas la variante B
+    # (celle qui code `3` en dur et prend une ancre geometrique en 3e argument).
+    return Unique(Union(Union(Caster(), AdjacentFriends(CasterTile(), Const(1),
+                                                        selection_type=SELECTION)),
                         UnitsFromFaction(Friends(AllAliveUnits(), selection_type=SELECTION),
-                                         WAAAGH_FACTION)))
+                                         WAAAGH_FACTION, selection_type=SELECTION)))
 
 
 def waaagh_buff_tree():
@@ -784,8 +786,13 @@ def squig_launchas_has_minimum_adjacent_friendly_units(amount: int):
     pas du camp de la cible (confirme live case-mow §5 : deplacer 2 de MES unites au contact de
     l'ennemi ouvre le ciblage). `AmountIsEqualOrGreater(selecteur, n)` = `Count(sel) >= n`
     (`IdunBattle.Entities.Conditions.AmountIsEqualOrGreaterAbilityTrigger$$ShouldTrigger` : slot +0x10 = selecteur COMPTE, +0x20 = seuil, `return seuil <= gauche`)."""
+    # #585-r1 -- les TROIS litteraux LUS dans `...SquigLaunchasAbility$$HasMinimumAdjacentFriendlyUnits` :
+    #   AdjacentUnits(gs, gs@0x60, unique: 1, 3) ; NonSteppableOrObjectUnits(gs, ., 3) ; Friends(gs, gs@0x30, ., 3)
     return AmountIsEqualOrGreater(
-        Count(Friends(non_steppable_or_object_units(AdjacentUnits(TargetTile(), Const(1))))),
+        Count(Friends(non_steppable_or_object_units(AdjacentUnits(TargetTile(), Const(1),
+                                                                  selection_type=SELECTION),
+                                                    selection_type=SELECTION),
+                      selection_type=SELECTION)),
         Const(int(amount)))
 
 
@@ -801,10 +808,16 @@ def squig_launchas_has_minimum_adjacent_orks(amount: int):
 
     `IdunBattleLogic.Entities.DSLSelectors$$UnitsFromFaction` compare `System.Enum.ToString(UnitFaction)` = le NOM de faction
     (« Orks ») au `FactionId` gameconfig de l'unite -> `ctx.faction_of` cote port."""
+    # #585-r1 -- les QUATRE litteraux LUS dans `...SquigLaunchasAbility$$HasMinimumAdjacentOrks` :
+    #   AdjacentUnits(gs, gs@0x60, unique: 1, 3) ; NonSteppableOrObjectUnits(gs, ., 3) ;
+    #   Friends(gs, gs@0x30, ., 3) ; UnitsFromFaction(gs, ., 5, 3)
     return AmountIsEqualOrGreater(
         Count(UnitsFromFaction(
-            Friends(non_steppable_or_object_units(AdjacentUnits(TargetTile(), Const(1)))),
-            SQUIG_FACTION)),
+            Friends(non_steppable_or_object_units(AdjacentUnits(TargetTile(), Const(1),
+                                                                selection_type=SELECTION),
+                                                  selection_type=SELECTION),
+                    selection_type=SELECTION),
+            SQUIG_FACTION, selection_type=SELECTION)),
         Const(int(amount)))
 
 

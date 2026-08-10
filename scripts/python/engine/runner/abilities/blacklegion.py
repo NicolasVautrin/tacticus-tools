@@ -299,7 +299,9 @@ def hades_autocannons_get_all_targets(range_: int):
     les autres multi-cibles valides bit-exact) et NE porte PAS les noeuds de tri — HYPOTHESE explicite
     (la cle +0x158 n'est pas relue ici) : discriminable live avec >= 2 summons dont l'ordre de `row`
     contredit l'ordre d'`id`."""
-    ring = SurroundingUnits(TargetTile(), Const(int(range_)), include_center=True)   # includeCenter=1
+    # #585-r1 : `SurroundingUnits(gs, gs@0x60, range, unique: 1, includeCenter: 1, 3)` -- littéral LU.
+    ring = SurroundingUnits(TargetTile(), Const(int(range_)), include_center=True,
+                            selection_type=SELECTION)                                # includeCenter=1
     # #585-r1 : `Friends(gs, gs@0x60 = Target, SurroundingUnits(..., 3), 3)` puis
     # `UnitsWithTrait(gs, ., 0x2 Summon, 3)` -- littéraux LUS au decompile de `$$GetAllTargets`.
     summons = UnitsWithTrait(Friends(ring, reference=Target(), selection_type=SELECTION),

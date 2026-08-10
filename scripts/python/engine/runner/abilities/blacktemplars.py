@@ -38,6 +38,13 @@ from .behaviours.effects import AddBondEffect, AddEffect, AddStaticStatModifierE
 from .behaviours.stats import ChangeStat
 from .targeting import (RANGE_ADJACENT, RANGE_FROM_CONFIG, RANGED_BOOL_FALSE, TargetingOptions)
 from .targeting_rule import TargetingRule as TR
+from ...entities.unit_selection_type import UnitSelectionType
+
+#: `UnitSelectionType` LU au dernier argument des `DSLSelectors$$*` de ce fichier -- releve
+#: #585-r1, build `rnca9r7q6c`, littéral par littéral (JAMAIS par symetrie : deux call-sites
+#: du releve passent `Any` parce que leur source est un ensemble de MORTS).
+SELECTION = int(UnitSelectionType.OnlyAliveAndTargetable)     # 3
+
 
 if TYPE_CHECKING:                       # pragma: no cover
     from ..state import State
@@ -474,8 +481,15 @@ def unbreakable_duty_dead_imperial_heroes():
     les DEUX traits -- « Imperial Characters » de l'i2, `Character` etant le trait `Hero` (0x10).
     `AllDeadOrResurrectedUnits` = les morts du state PLUS les ressuscites, pas seulement les morts.
     `Friends(of = Owner)` = de l'equipe du porteur."""
-    dead = Friends(AllDeadOrResurrectedUnits(), reference=Owner())
-    return units_with_traits(dead, (UnitTrait.Imperial, UnitTrait.Hero))   # 0x1a, 0x10
+    # #585-r1 -- ⚠ CONTRE-EXEMPLE : les DEUX litteraux LUS ici valent **0** (`Any`), pas 3, et la
+    # cause est mecanique : la source est `AllDeadOrResurrectedUnits`. `MatchesUnitSelectionType`
+    # teste `IsAlive` pour `OnlyAlive` COMME pour `OnlyAliveAndTargetable` -> un `3` recopie par
+    # symetrie aurait VIDE l'ensemble, donc rendu le compte toujours nul, sans erreur ni crash.
+    # `Any` est pose EXPLICITEMENT (et non laisse a `None`) pour que le littéral soit LU au site.
+    dead = Friends(AllDeadOrResurrectedUnits(), reference=Owner(),
+                   selection_type=int(UnitSelectionType.Any))
+    return units_with_traits(dead, (UnitTrait.Imperial, UnitTrait.Hero),
+                             selection_type=int(UnitSelectionType.Any))   # 0x1a, 0x10
 
 
 def unbreakable_duty_free_attack_targets():

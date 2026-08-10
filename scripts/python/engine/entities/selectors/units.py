@@ -59,30 +59,64 @@ class SurroundingUnits(TargetsSelector):
     Tiles(center)` (centre EXCLU) ; `param_3 != 0` -> `SurroundingTilesSelector` DIRECT (centre **INCLUS**).
     Défaut `False` = centre exclu (tous les call-sites portés jusqu'ici). `IdunBattleLogic.Entities.Abilities.Active.Loki.HadesAutocannonsAbility$$GetAllTargets` passe `SurroundingUnits(target@0x178, range, 1, 1, 3)` -> `SurroundingTiles(..., param_5=1, ...)`
     = **centre inclus** (la cible elle-même est un des summons frappés, cf. i2 « a targeted enemy summon AND all
-    other enemy summons within 2 hexes »)."""
-    def __init__(self, center: TargetsSelector, radius: TargetsSelector, include_center: bool = False):
+    other enemy summons within 2 hexes »).
+
+    `selection_type` = le DERNIER argument NATIF (#585-r3). Les DEUX surcharges de
+    `IdunBattleLogic.Entities.DSLSelectors$$SurroundingUnits` ont la MEME signature
+    `(this, origin, range, unique, includeCenter, unitSelectionType)` et le PROPAGENT toutes deux a
+    leur `Units` interne (`Units(this, SurroundingTiles(...), unique, unitSelectionType)`) : aucune
+    n'en code un EN DUR -- contrairement a `AdjacentFriends`/`AdjacentEnemies`, ou la variante B pose
+    `3` invisible. `None` (defaut) = aucun filtre = comportement HISTORIQUE."""
+    def __init__(self, center: TargetsSelector, radius: TargetsSelector, include_center: bool = False,
+                 selection_type=None):
         self.center, self.radius = center, radius
         self.include_center = bool(include_center)
+        self.selection_type = selection_type
 
     def select(self, ctx):
         # ordre = `SurroundingTiles` (triple boucle CUBE d'`IterateSurroundingTiles`), cf. `_tile_enum_rank`
-        return _within(ctx.units, self.center.evaluate(ctx), self.radius.evaluate(ctx),
-                       include_center=self.include_center,
-                       board=getattr(ctx, "board", None), order="surrounding")
+        out = _within(ctx.units, self.center.evaluate(ctx), self.radius.evaluate(ctx),
+                      include_center=self.include_center,
+                      board=getattr(ctx, "board", None), order="surrounding")
+        st = self.selection_type
+        # le natif filtre DANS son `Units` interne : PAR ELEMENT, apres resolution de l'occupant
+        return out if st is None else [u for u in out if _selection_ok(u, st, ctx)]
 
 
 class AdjacentEnemies(TargetsSelector):
     """`IdunBattleLogic.Entities.DSLFactory$$AdjacentEnemies(caster)` = `Enemies(Units(AdjacentTiles(caster)) - {caster})`
-    = ennemis (team != caster) à dist <= radius du caster, self exclu."""
-    def __init__(self, center: TargetsSelector, radius: TargetsSelector | None = None):
+    = ennemis (team != caster) à dist <= radius du caster, self exclu.
+
+    ⚠ DEUX SURCHARGES d'ARITE 4, meme nom affiche, INDISCERNABLES dans le pseudo-C (#585-r3) --
+    c'est le piege central de ce parametre :
+
+      * variante A `IdunBattleLogic.Entities.DSLSelectors$$AdjacentEnemies(this, unit, unique,
+        selectionType)` = `Enemies(unit, Units(AdjacentTiles(unit), unique, selectionType) - unit,
+        selectionType)` -> PROPAGE le litteral aux DEUX etages ;
+      * variante B `IdunBattleLogic.Entities.DSLSelectors$$AdjacentEnemies(this, unit, unitTile,
+        unique)` = `Enemies(unit, Units(AdjacentTiles(unitTile), unique, 3) - unitTile, 3)` -> `3`
+        EN DUR aux deux etages, et son 3e argument est une ENTITE (l'ancre geometrique), pas un
+        booleen.
+
+    Lire le 4e argument de la variante B comme un `selectionType` donnerait `1` = `OnlyAlive`, soit
+    le filtre qui n'ecarte PAS `Untargetable` -- l'INVERSE de ce que ce parametre repare. Le
+    discriminant est la cible du `call`, donc les XREFS ENTRANTES, jamais le pseudo-C seul.
+    `None` (defaut) = aucun filtre = comportement HISTORIQUE."""
+    def __init__(self, center: TargetsSelector, radius: TargetsSelector | None = None,
+                 selection_type=None):
         self.center, self.radius = center, radius or Const(1)
+        self.selection_type = selection_type
 
     def select(self, ctx):
         # ordre = `AdjacentTiles` (liste d'adjacence STOCKEE, `boardGraph.neighbours` brut) -- R28-1
         ring = _within(ctx.units, self.center.evaluate(ctx), self.radius.evaluate(ctx),
                        board=getattr(ctx, "board", None), order="adjacent")
         ct = (ctx.caster or {}).get("team")
-        return [u for u in ring if u.get("team") != ct]
+        st = self.selection_type
+        # le natif applique le meme predicat DEUX fois (au `Units` interne puis au `Enemies`) ; il est
+        # PUR en (unite, selectionType), donc idempotent -> un seul passage ici.
+        return [u for u in ring if u.get("team") != ct
+                and (st is None or _selection_ok(u, st, ctx))]
 
 
 class AdjacentUnits(TargetsSelector):
@@ -93,14 +127,27 @@ class AdjacentUnits(TargetsSelector):
     cible = FRIENDLY-FIRE. Le volet SPLASH de Stikkbomb (IdunBattleLogic.Entities.Abilities.Active.Loki.StikkbombAbility$$ExecuteBehaviour) passe ce sélecteur BRUT (sans wrapper
     `Enemies(...)`, contraste PlasmaGrenade/ScythingTalons) — corroboré par l'i2 (« units in hexes adjacent »
     vs « enemy units » des autres). `_within` exclut déjà le centre (target, dist 0). Mirror de `AdjacentEnemies`
-    SANS le filtre team."""
-    def __init__(self, center: TargetsSelector, radius: TargetsSelector | None = None):
+    SANS le filtre team.
+
+    `selection_type` = le 4e argument NATIF (#585-r3). `IdunBattleLogic.Entities.DSLSelectors$$AdjacentUnits`
+    n'a **qu'UNE** surcharge -- `(this, origin, unique, selectionType)` =
+    `op_Subtraction(Units(AdjacentTiles(origin), unique, selectionType), origin)` -- donc AUCUNE
+    ambiguite de lecture ici, a la difference d'`AdjacentEnemies`/`AdjacentFriends`.
+
+    ⚠ Et c'est le selecteur ou ce parametre PESE LE PLUS : sans wrapper `Enemies`/`Friends`, le
+    `selectionType` du `Units` interne est le SEUL filtre de l'ensemble rendu. `None` (defaut) =
+    aucun filtre = comportement HISTORIQUE."""
+    def __init__(self, center: TargetsSelector, radius: TargetsSelector | None = None,
+                 selection_type=None):
         self.center, self.radius = center, radius or Const(1)
+        self.selection_type = selection_type
 
     def select(self, ctx):
         # ordre = `AdjacentTiles` (liste d'adjacence STOCKEE, `boardGraph.neighbours` brut) -- R28-1
-        return _within(ctx.units, self.center.evaluate(ctx), self.radius.evaluate(ctx),
-                       board=getattr(ctx, "board", None), order="adjacent")
+        out = _within(ctx.units, self.center.evaluate(ctx), self.radius.evaluate(ctx),
+                      board=getattr(ctx, "board", None), order="adjacent")
+        st = self.selection_type
+        return out if st is None else [u for u in out if _selection_ok(u, st, ctx)]
 
 
 class Enemies(TargetsSelector):
@@ -200,15 +247,31 @@ class UnitsFromFaction(TargetsSelector):
     faction gameconfig (`FactionId`) == `faction`. Le natif passe `System.Enum.ToString(UnitFaction)` = le
     NOM de la faction (ex. `0xc`=12 → `"Tyranids"`). Résolution via `ctx.faction_of` (callback par-unité,
     même pattern que `has_trait`/`get_stat`, fourni par la couche runner) ; None → faction inconnue → unité
-    écartée. Utilisé par `SpiritLeech.GetHealTargets` (allies Tyranids adjacents)."""
-    def __init__(self, source: TargetsSelector, faction):
+    écartée. Utilisé par `SpiritLeech.GetHealTargets` (allies Tyranids adjacents).
+
+    `selection_type` = le DERNIER argument NATIF (#585-r3). Les DEUX surcharges de
+    `IdunBattleLogic.Entities.DSLSelectors$$UnitsFromFaction` ont la meme arite et le meme role du
+    dernier argument -- elles ne different que par le TYPE du 3e (l'une recoit l'enum `UnitFaction`
+    et le convertit par `System.Enum.ToString`, l'autre recoit deja le `factionId` string) -- et
+    toutes deux le transmettent a `IdunBattle.Entities.Selectors.UnitsFromFactionSelector$$.ctor`
+    (champ `+0x2c`), avec `shouldBelong = 1` EN DUR dans les deux cas.
+
+    ORDRE natif lu dans `IdunBattle.Entities.Selectors.UnitsFromFactionSelector$$Select` : le
+    `selectionType` est consomme D'ABORD, par le `SelectUniqueUnits` qui enumere `entities` ; le test
+    `IdunBattle.Entities.UnitExtensions$$HasFaction(unit, factionId) == shouldBelong` ne vient
+    QU'APRES. Les deux predicats sont independants et l'ordre de la liste est preserve -> une seule
+    comprehension est fidele. `None` (defaut) = aucun filtre = comportement HISTORIQUE."""
+    def __init__(self, source: TargetsSelector, faction, selection_type=None):
         self.source, self.faction = source, faction
+        self.selection_type = selection_type
 
     def select(self, ctx):
         fo = ctx.faction_of
         if fo is None:
             return []
-        return [u for u in self.source.evaluate(ctx) if fo(u) == self.faction]
+        st = self.selection_type
+        return [u for u in self.source.evaluate(ctx)
+                if (st is None or _selection_ok(u, st, ctx)) and fo(u) == self.faction]
 
 
 class UnitSet(TargetsSelector):
@@ -964,11 +1027,27 @@ class AdjacentFriends(TargetsSelector):
     `IdunBattleLogic.Entities.Abilities.Active.Loki.HazeOfCorruption_TargetFinderAbility$$CreateBehaviour`
     = les alliés DE LA CIBLE, c'est-à-dire les ENNEMIS du caster quand les deux camps s'opposent — le
     collapse caster y rendrait exactement le camp INVERSE. (Même paramètre, même rôle et même défaut que
-    `SurroundingEnemies.reference`.)"""
+    `SurroundingEnemies.reference`.)
+
+    ⚠ DEUX SURCHARGES d'ARITE 4, meme nom affiche, INDISCERNABLES dans le pseudo-C (#585-r3) :
+
+      * variante A `IdunBattleLogic.Entities.DSLSelectors$$AdjacentFriends(this, unit, unique,
+        selectionType)` = `Friends(unit, Units(AdjacentTiles(unit), unique, selectionType) - unit,
+        selectionType)` -> PROPAGE le litteral aux DEUX etages ;
+      * variante B `IdunBattleLogic.Entities.DSLSelectors$$AdjacentFriends(this, unit, unitTile,
+        unique)` = `Friends(unit, Units(AdjacentTiles(unitTile), unique, 3) - unitTile, 3)` -> `3`
+        EN DUR aux deux etages ; son 3e argument est l'ANCRE GEOMETRIQUE (donc `center` ici, quand
+        `reference` = `unit`), pas un booleen.
+
+    Lire le 4e argument de la variante B comme un `selectionType` donnerait `1` = `OnlyAlive` : le
+    filtre qui n'ecarte PAS `Untargetable`, soit l'inverse exact de ce que ce parametre repare.
+    Trancher par les XREFS ENTRANTES, jamais par le pseudo-C seul.
+    `None` (defaut) = aucun filtre = comportement HISTORIQUE."""
     def __init__(self, center: TargetsSelector, radius: TargetsSelector | None = None,
-                 reference: TargetsSelector | None = None):
+                 reference: TargetsSelector | None = None, selection_type=None):
         self.center, self.radius = center, radius or Const(1)
         self.reference = reference
+        self.selection_type = selection_type
 
     def select(self, ctx):
         # ordre = `AdjacentTiles` (liste d'adjacence STOCKEE, `boardGraph.neighbours` brut) -- R28-1
@@ -976,7 +1055,10 @@ class AdjacentFriends(TargetsSelector):
                        board=getattr(ctx, "board", None), order="adjacent")
         ref = resolve_unit(self.reference, ctx) if self.reference is not None else ctx.caster
         ct = (ref or {}).get("team")
-        return [u for u in ring if u.get("team") == ct]
+        st = self.selection_type
+        # predicat PUR en (unite, selectionType) : les deux passages natifs sont idempotents
+        return [u for u in ring if u.get("team") == ct
+                and (st is None or _selection_ok(u, st, ctx))]
 
 
 class SurroundingEnemies(TargetsSelector):
@@ -997,10 +1079,18 @@ class SurroundingEnemies(TargetsSelector):
 
     `reference` = None (defaut) -> forme 6-args, reference = `ctx.caster` (comportement historique,
     inchange pour HeroicFusillade/Stormcaller/...). Explicite -> forme 4-args (passer le MEME noeud que
-    `center`)."""
+    `center`).
+
+    `selection_type` = le DERNIER argument NATIF (#585-r3). Les QUATRE surcharges de
+    `IdunBattleLogic.Entities.DSLSelectors$$SurroundingEnemies` le portent en DERNIERE position et le
+    propagent aux deux etages (`Units(..., unique, st)` puis `Enemies(unit, ..., st)`) : AUCUNE n'en
+    code un en dur, donc **pas** de piege de litteral implicite ici -- les surcharges ne different
+    que par la separation `unit`/`unitTile` et par le typage du `range`. `None` (defaut) = aucun
+    filtre = comportement HISTORIQUE."""
     def __init__(self, center: TargetsSelector, radius: TargetsSelector,
-                 reference: TargetsSelector | None = None):
+                 reference: TargetsSelector | None = None, selection_type=None):
         self.center, self.radius, self.reference = center, radius, reference
+        self.selection_type = selection_type
 
     def select(self, ctx):
         # ordre = `SurroundingTiles` (triple boucle CUBE d'`IterateSurroundingTiles`) -- R28-1
@@ -1008,21 +1098,31 @@ class SurroundingEnemies(TargetsSelector):
                        board=getattr(ctx, "board", None), order="surrounding")
         ref = resolve_unit(self.reference, ctx) if self.reference is not None else ctx.caster
         ct = (ref or {}).get("team")
-        return [u for u in ring if u.get("team") != ct]
+        st = self.selection_type
+        return [u for u in ring if u.get("team") != ct
+                and (st is None or _selection_ok(u, st, ctx))]
 
 
 class SurroundingFriends(TargetsSelector):
     """`IdunBattleLogic.Entities.DSLFactory$$SurroundingFriends(center, radius)` = `Friends(SurroundingUnits(center,
     radius))` : alliés (team == caster) à dist <= radius du centre, centre exclu."""
-    def __init__(self, center: TargetsSelector, radius: TargetsSelector):
+    def __init__(self, center: TargetsSelector, radius: TargetsSelector, selection_type=None):
         self.center, self.radius = center, radius
+        self.selection_type = selection_type
 
     def select(self, ctx):
         # ordre = `SurroundingTiles` (triple boucle CUBE d'`IterateSurroundingTiles`) -- R28-1
         ring = _within(ctx.units, self.center.evaluate(ctx), self.radius.evaluate(ctx),
                        board=getattr(ctx, "board", None), order="surrounding")
         ct = (ctx.caster or {}).get("team")
-        return [u for u in ring if u.get("team") == ct]
+        st = self.selection_type
+        # `selection_type` = le DERNIER argument NATIF (#585-r3). Comme pour `SurroundingEnemies`, les
+        # QUATRE surcharges de `IdunBattleLogic.Entities.DSLSelectors$$SurroundingFriends` le portent en
+        # derniere position et le propagent aux deux etages (`Units(..., unique, st)` puis
+        # `Friends(unit, ..., st)`) -- aucune n'en code un EN DUR, donc pas de piege de litteral
+        # implicite ici. `None` (defaut) = aucun filtre = comportement HISTORIQUE.
+        return [u for u in ring if u.get("team") == ct
+                and (st is None or _selection_ok(u, st, ctx))]
 
 
 class SortByFormula(TargetsSelector):
