@@ -23,7 +23,9 @@ from __future__ import annotations
 
 from typing import Optional
 
-from ....dsl.base import AAmountFormula, TargetsSelector
+import inspect
+
+from ....dsl.base import AAmountFormula, TargetsSelector, resolve_unit
 from ....dsl.effects import AbilityBehaviour, OperationResult
 from ...operations.summon_ai import ComputerActionOperation
 
@@ -114,16 +116,33 @@ class PerformAIAbility(AbilityBehaviour):
         move before attacking >> de l'i2 de 1101.
       * `allow_only_move` (`+0x70`) -- ajoute le `MovementActionGenerator` : l'IA peut choisir un
         deplacement PUR si aucune attaque n'est bonne. `False` chez 1101 (litteral `0`).
-      * `custom_utility` (`+0x90`) -- un `Func<AbilityEntities, UtilityDefinition>` evalue PAR
-        ACTEUR. Cote port : un callable `(state, actor_id) -> set[int] | None` qui rend l'ensemble
-        des ids de cible AUTORISES (`None` = aucune contrainte). Cf. l'ecart nomme ci-dessous.
-      * `utility_entity` (`+0x80`) -- **NON CONSOMME** (residu `#590-r4`). C'est un selecteur
-        resolu par `SelectFirst` et passe a la couche d'utilite comme entite de reference du
-        scoring ; le moteur d'utilite porte (`engine/ai/tactic.py`) n'expose pas ce point
-        d'ancrage. 1101 y passe `Owner@sel+0x30` -- c'est-a-dire le CASTER, ce qui est aussi le
-        proprietaire courant de l'acteur au moment ou il agit (l'owner-swap a deja eu lieu) : le
-        defaut du port coincide donc sur ce call-site. Le champ est PORTE (conserve, journalise)
-        pour qu'un futur consommateur n'ait pas a re-lire le decompile.
+      * `custom_utility` (`+0x90`) -- un delegue evalue PAR ACTEUR. ⚠ Sa signature native n'est
+        PAS `Func<AbilityEntities, ...>` : le behaviour lui passe un **`ValueTuple`** dont
+        `Item1` = l'ACTEUR courant et `Item2` = l'`utilityEntity` resolu (LU dans
+        `PerformAIAbilityUnitBehaviour$$Execute` :
+        `ValueTuple..ctor(&tuple, <acteur>, <utilityEntity>)` puis invocation du delegue `+0x90`
+        sur ce tuple). Cote port : un callable `(state, actor_id) -> set[int] | None` qui rend
+        l'ensemble des ids de cible AUTORISES (`None` = aucune contrainte) ; s'il declare un
+        TROISIEME parametre, il recoit en plus l'id de l'`utility_entity` (cf. ci-dessous).
+        Cf. l'ecart nomme plus bas (score -> exclusion).
+      * `utility_entity` (`+0x80`) -- **CONSOMME, et le residu `#590-r4` le decrivait a tort comme
+        inerte** (RE refaite le 2026-08-10 sur `rnca9r7q6c`). Deux points de sa fiche sont
+        REFUTES : il n'est pas << passe a la couche d'utilite comme entite de reference du
+        scoring >> -- il n'a AUCUN autre lecteur que le `ValueTuple` du `customUtility` ci-dessus,
+        donc quand `+0x90` est nul il est effectivement mort ; et sa resolution est le **slot 1
+        d'`ITargetsSelector` = `SelectFirst`** (LU : `<invocateur>(1, <ITargetsSelector>, sel,
+        entities)`), faite **UNE SEULE FOIS AVANT la boucle** sur les acteurs, pas par acteur.
+        Chez `1101` il devient le parametre **`caster`** de
+        `IdunBattleLogic.Entities.Abilities.Active.Loki.AttemptedPossessionAbility$$GetPreferredAttackTarget(caster,
+        possessedUnit)` -- son `$$GetAttackCustomUtility` fait
+        `GetPreferredAttackTarget(this, input+8, input+0)`, donc `Item2` (= `utility_entity`) va
+        en `caster` et `Item1` (= l'acteur) en `possessedUnit`.
+        Le port THREADE desormais ce canal, en COMPATIBILITE : un `custom_utility` a deux
+        parametres garde EXACTEMENT son comportement d'avant (value-preserving), un
+        `custom_utility` a trois recoit l'id resolu. La valeur COINCIDAIT deja pour `1101` (le
+        consommateur capturait `caster_id` par fermeture au call-site, et `Owner()` y resout au
+        caster) -- mais c'etait un COURT-CIRCUIT : la valeur ne venait pas du selecteur `+0x80`,
+        donc un call-site qui y passerait autre chose que l'owner serait rendu FAUX en silence.
 
     ⚠ **`get_ability_type` (`+0x68`) N'EST PAS UN PARAMETRE DU PORT, ET C'EST UNE LECTURE.** Le
     natif y passe un `Func<IEntity,int>` -- pour 1101, le lambda sans capture mis en cache dans le
@@ -175,6 +194,25 @@ class PerformAIAbility(AbilityBehaviour):
         self.utility_entity = utility_entity
         self.custom_utility = custom_utility
 
+    @staticmethod
+    def _accepte_utility_entity(fn) -> bool:
+        """Le `custom_utility` declare-t-il un TROISIEME parametre positionnel ?
+
+        C'est ce qui rend le threading du canal `+0x80` VALUE-PRESERVANT : les consommateurs
+        ecrits avant (contrat `(state, actor_id)`) ne voient AUCUN changement, et un consommateur
+        qui veut la donnee la declare. Une signature illisible (builtin, C-extension) est traitee
+        comme un refus -- on ne tente pas un appel a trois arguments pour voir.
+        """
+        try:
+            sig = inspect.signature(fn)
+        except (TypeError, ValueError):
+            return False
+        positionnels = [p for p in sig.parameters.values()
+                        if p.kind in (p.POSITIONAL_ONLY, p.POSITIONAL_OR_KEYWORD)]
+        if any(p.kind is p.VAR_POSITIONAL for p in sig.parameters.values()):
+            return True
+        return len(positionnels) >= 3
+
     def execute(self, entities, ectx):
         from ..loki.summon import perform_ai_ability_unit_behaviour
         state = ectx.state
@@ -182,6 +220,12 @@ class PerformAIAbility(AbilityBehaviour):
             return OperationResult.ok()
         units = self.selector.evaluate(entities) or []
         uids = [u.get("id") for u in units if isinstance(u, dict) and u.get("id") is not None]
+        # `+0x80` est resolu UNE SEULE FOIS, AVANT la boucle sur les acteurs -- LU : dans
+        # `PerformAIAbilityUnitBehaviour$$Execute` le `SelectFirst` du champ precede le `foreach`,
+        # et son resultat (`local_460`) est reutilise tel quel a chaque tour de boucle. Le resoudre
+        # PAR ACTEUR serait une infidelite invisible tant que le selecteur est constant.
+        ue = resolve_unit(self.utility_entity, entities) if self.utility_entity is not None else None
+        ue_id = ue.get("id") if isinstance(ue, dict) else None
         acted = []
         for uid in uids:
             # `+0x78` evalue PAR ACTEUR : le natif re-ecrit l'ACTEUR dans l'`AbilityEntities` avant
@@ -200,13 +244,22 @@ class PerformAIAbility(AbilityBehaviour):
                     entities.actor = prev
             allowed = None
             if self.custom_utility is not None:
-                allowed = self.custom_utility(state, int(uid))
+                # Mirror du `ValueTuple(Item1 = acteur, Item2 = utilityEntity)` que le natif passe
+                # au delegue `+0x90`. Le 3e argument n'est fourni qu'aux consommateurs qui le
+                # declarent (cf. `_accepte_utility_entity`) : c'est ce qui garde la migration
+                # value-preservante pour ceux qui capturaient deja la valeur par fermeture.
+                if self._accepte_utility_entity(self.custom_utility):
+                    allowed = self.custom_utility(state, int(uid), ue_id)
+                else:
+                    allowed = self.custom_utility(state, int(uid))
             res = perform_ai_ability_unit_behaviour(
                 state, int(uid), self.allow_only_move, move_amount,
                 allowed_targets=allowed)
             acted.append({"unit": int(uid), "move_amount": move_amount,
                           "allowed_targets": (sorted(allowed) if allowed is not None else None),
                           "result": res})
+        # `utility_entity` est JOURNALISE : le residu #590-r4 l'annoncait deja comme tel, mais
+        # l'`emit` ne le portait pas -- le seul canal d'observation du champ etait donc muet.
         ectx.emit("PerformAIAbility", units=uids, allow_only_move=self.allow_only_move,
-                  acted=acted)
+                  utility_entity=ue_id, acted=acted)
         return OperationResult.ok()
