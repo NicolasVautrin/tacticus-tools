@@ -34,10 +34,10 @@
 
 import {
     findClassAnywhere, findMethodByParamCount, methodParamClass, IL2CPP_MODULE_NAME,
-    class_get_fields, field_get_name, field_get_offset,
+    class_get_fields, field_get_name, field_get_offset, class_get_parent,
     s as cstr, readIl2cppString, MethodRef,
 } from "../il2cpp/helpers.js";
-import { invokeMethod, createManagedString, createObject } from "../il2cpp/invoke.js";
+import { invokeMethod, createManagedString, createObject, il2cpp_object_new } from "../il2cpp/invoke.js";
 import { queueOnMainThread } from "../runtime/queue.js";
 import { Ctx } from "../controller.js";
 import { log } from "../runtime/diag.js";
@@ -52,7 +52,11 @@ const MAX_UNITES = 12;
  *  pourquoi `runtime_invoke` sur cette chaine tue le process -- ce qu'aucune des trois
  *  tentatives n'a etabli. Une constante, pas un RPC : un interrupteur accessible serait
  *  actionne. */
-const AUTORISER_ENVOI_NATIF = false;
+// ROUVERT le 2026-08-10, apres identification ET correction de la cause : le `callback`
+// etait nul, et `<Execute>b__0` leve dessus a la reception de la reponse. Le module en
+// FABRIQUE un desormais (`fabriquerCallback`), et REFUSE de partir s'il n'y arrive pas.
+// Ce n'est plus un pari : la cause est nommee, le remede est dans le chemin d'appel.
+const AUTORISER_ENVOI_NATIF = true;
 
 interface Envoi {
     n: number;
@@ -128,16 +132,31 @@ function estDeClasse(obj: NativePointer, klass: NativePointer | null): boolean |
     try { return obj.readPointer().equals(klass); } catch { return null; }
 }
 
-/** Offset d'un champ, resolu PAR SON NOM. Rend -1 si le nom n'existe pas -- on refuse
- *  alors de lire, plutot que de dereferencer un offset supposé. */
+/** Offset d'un champ, resolu PAR SON NOM, EN REMONTANT LES CLASSES DE BASE.
+ *
+ *  ⚠ La remontee n'est pas un raffinement, c'est la condition pour que ca marche sur un
+ *  delegate : `class_get_fields` n'enumere que les champs DECLARES par la classe, et
+ *  `Action<System.Boolean>` n'en declare AUCUN -- `method_ptr`, `invoke_impl`, `m_target`,
+ *  `method`, `method_code` vivent tous sur `System.Delegate`. Sans remontee, la recherche
+ *  rend un ensemble VIDE qui se lit comme << classe inconnue >> alors que la classe est
+ *  bonne. Mesure du 2026-08-10 : `{"INCOMPLET": {}}`, 0 champ sur 5.
+ *
+ *  Rend -1 si le nom n'existe nulle part -- on refuse alors de lire, plutot que de
+ *  dereferencer un offset suppose. */
 function offsetChamp(klass: NativePointer, nom: string): number {
-    const it = Memory.alloc(Process.pointerSize);
-    it.writePointer(ptr(0));
-    let f: NativePointer;
-    while (!(f = class_get_fields(klass, it) as NativePointer).isNull()) {
-        if (cstr(field_get_name(f) as NativePointer) === nom) {
-            return field_get_offset(f) as number;
+    let k: NativePointer = klass;
+    let profondeur = 0;
+    while (!k.isNull() && profondeur < 8) {
+        const it = Memory.alloc(Process.pointerSize);
+        it.writePointer(ptr(0));
+        let f: NativePointer;
+        while (!(f = class_get_fields(k, it) as NativePointer).isNull()) {
+            if (cstr(field_get_name(f) as NativePointer) === nom) {
+                return field_get_offset(f) as number;
+            }
         }
+        try { k = class_get_parent(k) as NativePointer; } catch { break; }
+        profondeur++;
     }
     return -1;
 }
@@ -161,6 +180,104 @@ function evenements(): NativePointer | null {
         } catch { /* rend null */ }
     }
     return null;
+}
+
+// ---------------------------------------------------------------------------------------
+// LE CALLBACK FABRIQUE -- la piece sans laquelle la reponse serveur tue le process.
+//
+// `<Execute>b__0` invoque le delegate ainsi (decompile, offsets confirmes par
+// `classFields('System','Delegate')`) :
+//
+//     (*(code**)(d + 0x18))( *(d + 0x40), <valeur>, *(d + 0x28) )
+//          invoke_impl          method_code               method
+//
+// On fabrique donc un delegate MINIMAL : `invoke_impl` pointe sur un `NativeCallback` qui
+// NE FAIT RIEN, et les deux autres champs sont nuls. Un callback qui ignore ses arguments
+// ne peut pas les mal interpreter -- c'est ce qui rend cette construction sure malgre
+// l'incertitude sur la convention exacte de passage du `bool`.
+//
+// POURQUOI PAS UNE METHODE DU JEU. Le dump n'offre aucune `static void(bool)` inoffensive :
+// toutes activent ou desactivent quelque chose (`SetEnabled`, `set_runInBackground`,
+// `Consent`...). Emprunter l'une d'elles echangerait un crash contre un effet de bord
+// silencieux.
+//
+// POURQUOI PAS LE DELEGATE TEMOIN. Celui du presenter porte la closure d'un ecran precis ;
+// son invocation fait `Screen.Hide()`. Il sert de reference, pas de piece de rechange.
+// ---------------------------------------------------------------------------------------
+
+/** ⛔ PAS DE `NativeCallback` ICI -- MESURE : IL GELE LE JEU.
+ *
+ *  Premier jet : `invoke_impl` pointait sur un `NativeCallback` JS. Le delegate a bien ete
+ *  invoque (le `NullReferenceException` etait donc corrige), mais l'invocation vient du
+ *  THREAD DE REPONSE RESEAU. Frida doit alors entrer dans le runtime QuickJS, qui est
+ *  mono-thread et deja occupe -> DEADLOCK. Symptome mesure le 2026-08-10 : process VIVANT,
+ *  session `running`, et plus AUCUN RPC ne repond (le pump `IdunGameViews.Update` ne draine
+ *  plus). Le jeu est fige, pas mort -- et c'est un etat pire, parce qu'il ne se signale pas.
+ *
+ *  Le callback doit donc etre du CODE NATIF PUR. Un `ret` suffit : la signature rend `void`,
+ *  et l'ABI x64 Windows laisse le nettoyage a l'appelant.
+ *
+ *  ⚠ REFERENCE FORTE OBLIGATOIRE quand meme : la page allouee est liberee avec l'objet JS
+ *  qui la detient. La perdre laisserait un pointeur pendant dans un delegate encore vivant.
+ */
+let pageRet: NativePointer | null = null;
+
+/** Un `ret` natif, alloue une fois. Zero JS dans le chemin d'appel. */
+function stubRet(): NativePointer | null {
+    if (pageRet) return pageRet;
+    try {
+        const p = Memory.alloc(Process.pageSize);
+        Memory.patchCode(p, 1, (code) => { code.writeU8(0xc3); });   // ret
+        Memory.protect(p, Process.pageSize, "r-x");
+        pageRet = p;
+        return p;
+    } catch { return null; }
+}
+let dispoDelegate: { klass: NativePointer; offsets: Record<string, number> } | null = null;
+
+/** Fabrique un `Action<System.Boolean>` inerte.
+ *
+ *  Rend `{ptr}` ou `{err}` -- JAMAIS un `null` muet. Un `catch { return null; }` a deja
+ *  fait lire << impossible de fabriquer >> alors que les cinq offsets etaient resolus et
+ *  affiches juste a cote : le refus etait juste, son motif introuvable. */
+function fabriquerCallback(): { ptr?: NativePointer; err?: string } {
+    if (!dispoDelegate) return { err: "classe du callback NON RESOLUE" };
+    const { klass, offsets } = dispoDelegate;
+    const manquants = ["invoke_impl", "method_ptr", "method_code", "method", "m_target"]
+        .filter((n) => offsets[n] === undefined);
+    if (manquants.length) {
+        return { err: "champs manquants : " + manquants.join(", ") };
+    }
+    const ret = stubRet();
+    if (!ret) return { err: "stub `ret` natif NON ALLOUE" };
+    // ⚠ `il2cpp_object_new` NU, PAS `createObject`. Ce dernier enchaine sur
+    // `findMethod(klass, ".ctor")` et l'invoque avec `args = null` -- or le ctor d'un
+    // delegate en prend DEUX (`object target, IntPtr method`). `runtime_invoke` lit alors
+    // `params[0]` a 0x0 et `params[1]` a 0x8, d'ou le tres litteral
+    // << access violation accessing 0x8 >> mesure le 2026-08-10.
+    //
+    // Un delegate ne se construit PAS par son ctor ici : on alloue, et on ecrit nous-memes
+    // les champs (c'est tout ce que le ctor managé ferait, sans le detour par un
+    // `MethodInfo*` qu'on n'a pas).
+    let d: NativePointer;
+    try {
+        d = il2cpp_object_new(klass) as NativePointer;
+    } catch (e) {
+        return { err: "il2cpp_object_new : "
+                    + String((e as Error).message || e).slice(0, 140) };
+    }
+    if (d.isNull()) return { err: "il2cpp_object_new a rendu NULL" };
+    try {
+        d.add(offsets["invoke_impl"]).writePointer(ret);
+        d.add(offsets["method_ptr"]).writePointer(ret);
+        d.add(offsets["method_code"]).writePointer(ptr(0));
+        d.add(offsets["method"]).writePointer(ptr(0));
+        d.add(offsets["m_target"]).writePointer(ptr(0));
+    } catch (e) {
+        return { err: "ecriture des champs : "
+                    + String((e as Error).message || e).slice(0, 140) };
+    }
+    return { ptr: d };
 }
 
 /** Disposition de `List<System.String>`, MESUREE sur la classe reelle (jamais supposee). */
@@ -253,6 +370,23 @@ export function register(ctx: Ctx): void {
         // La classe de la liste vient de la SIGNATURE NATIVE, pas d'une recherche par nom :
         // `List<System.String>` est un generique INFLATE, absent de `classes.tsv`, et le
         // chercher par nom rendrait au mieux la definition ouverte.
+        // La classe du CALLBACK vient elle aussi de la signature native (parametre 3),
+        // et ses offsets de champ sont resolus PAR NOM -- meme discipline que la liste.
+        const kCb = methodParamClass(miDispatch.info, 3);
+        if (kCb) {
+            const offs: Record<string, number> = {};
+            for (const nom of ["invoke_impl", "method_ptr", "method_code", "method",
+                               "m_target"]) {
+                const o = offsetChamp(kCb, nom);
+                if (o >= 0) offs[nom] = o;
+            }
+            dispoDelegate = { klass: kCb, offsets: offs };
+            layout["Action<Boolean>"] = Object.keys(offs).length === 5
+                ? offs : { INCOMPLET: offs };
+        } else {
+            layout["Action<Boolean>"] = "CLASSE NON RESOLUE (parametre 3)";
+        }
+
         const kListe = methodParamClass(miDispatch.info, 1);
         dispoListe = kListe ? mesurerListe(kListe) : null;
         layout["List<String>"] = dispoListe
@@ -583,11 +717,21 @@ export function register(ctx: Ctx): void {
             via: "expeditionDispatch", expeditionId: id, unitIds: unites.slice(),
             bonusFulfilled: !!body?.bonusFulfilled,
         };
+        // LE CALLBACK, ET IL EST OBLIGATOIRE. `null` faisait lever `<Execute>b__0` a la
+        // RECEPTION de la reponse -- envoi enregistre, puis process mort. On refuse de
+        // partir sans, plutot que de repeter l'incident.
+        const rappel = fabriquerCallback();
+        if (!rappel.ptr) {
+            return { ok: false, refus: "callback",
+                     err: "impossible de fabriquer l'`Action<System.Boolean>` -- ENVOI "
+                        + "ANNULE. Sans lui, la reponse serveur leve une "
+                        + "NullReferenceException et tue le process.",
+                     cause: rappel.err,
+                     layout: layout["Action<Boolean>"] };
+        }
         try {
-            // `callback` a null : le jeu s'en sert pour rafraichir SON ecran, qu'on n'a pas
-            // ouvert. Le hook d'observation nous dira si l'appel est bien parti.
             invokeMethod(miDispatch.info, ev,
-                         [createManagedString(id), liste, bonus, ptr(0)]);
+                         [createManagedString(id), liste, bonus, rappel.ptr]);
         } catch (ex) {
             e.err = String((ex as Error).message || ex).slice(0, 200);
         }
