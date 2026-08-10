@@ -6,9 +6,14 @@ citée). Cf. `loki/__init__.py`."""
 from __future__ import annotations
 
 from collections.abc import Mapping
+from fractions import Fraction as _Fraction
 
 import hexgeo
 
+# `IdunBattle.DSL.AAmountFormula$$RoundFix64Result` -- foyer PARTAGE de l'arrondi Fix64 (#344).
+# Consomme ici par le canal DISPLAY de `SpecialIssueCombiMelta_AdditionalHits` (#419-r1-tr11-r5) :
+# `DSLFormulas$$Average` -> `DivideAmount$$Calculate` -> `RoundFix64Result(., 0)` demi-vers-le-PAIR.
+from ....dsl.base import _round_fix64
 from ....services.effect_bonus import (EffectBonus, for_addition, for_subtraction,
                                        for_percent_decrease, for_percent_increase,
                                        for_percent_subtraction_capped)
@@ -382,9 +387,30 @@ class SpecialIssueCombiMeltaAdditionalHitsEffect(BaseEffect):
         import gameconfig as _GC
         profile = ((_GC.ability("SpecialIssueCombiMelta") or {}).get("constants") or {}) \
             .get("damageProfile") or "Bolter"
-        # `GetMinMaxDamage(this, 0)` / `(this, 1)` = les DEUX noeuds (ROLL et DISPLAY), tous deux
-        # `RandomAmount(ConfigVar(minDmg), ConfigVar(maxDmg))` -> forme PREDEFINED, comme SquigHound.
-        return [{"count": int(count), "min": int(mn), "max": int(mx), "profile": profile}]
+        # BI-CANAL ROLL / DISPLAY (#419-r1-tr11-r5) -- et la ligne qui vivait ici etait FAUSSE :
+        # elle disait << les DEUX noeuds sont des RandomAmount >>. Corps LU de
+        # `IdunBattle.Entities.Effects.BaseEffect$$GetMinMaxDamage(this, isPrediction, 0xc, 0xd)` :
+        #     minNode = ConfigVar(0xc = minDmg, AbilityStateFromEffect, config)
+        #     maxNode = ConfigVar(0xd = maxDmg, AbilityStateFromEffect, config)
+        #     isPrediction == 0 -> DSLFormulas.RandomAmount(minNode, maxNode)      # noeud ROLL
+        #     isPrediction != 0 -> DSLFormulas.Average(minNode, maxNode)           # noeud DISPLAY
+        # Le noeud DISPLAY est donc une MOYENNE, pas un tirage -- et c'est ce qui rend la cellule de
+        # PREDICTION degeneree : `IdunBattle.Entities.Effects.BaseEffect$$AdditionalHits(this,
+        # entities, useDisplay)` pose `min = max = <+0x10 = noeud DISPLAY>.Calculate()` quand
+        # `useDisplay`, et `min = <+0x08 = noeud ROLL>.CalculateMin()` / `max = ...CalculateMax()`
+        # sinon (face COMBAT, ou `ExecuteAdditionalHitsWithoutDamageProfileType` passe l'octet a 0).
+        # `DSLFormulas$$Average(a, b)` = `DivideAmount(SumAmount(a, b), Direct(2), rule = null)` ->
+        # `IdunBattle.Entities.Formulas.DivideAmount$$Calculate` ->
+        # `IdunBattle.DSL.AAmountFormula$$RoundFix64Result(., 0)` = `Fix64.Round` demi-vers-le-PAIR
+        # (MEME foyer et MEME arrondi que la famille (a) de #344) -- donc un ENTIER, jamais un `.5`.
+        # D'ou la cle `amount` : le consommateur PREDICTION la prefere et etale +/- 20 %
+        # (`GetBaseDamageFix64`), ce qui EST l'etalement natif de la cellule degeneree ; le
+        # consommateur COMBAT (`operations/additional_hits.py`) prefere `min`/`max` des qu'ils
+        # existent -- ajouter `amount` ne peut donc PAS toucher la face COMBAT.
+        # Patron identique a `InfernalPactsAdditionalHitsEffect` / `_BaseFleshmetalGunsEffect`.
+        return [{"count": int(count),
+                 "amount": _round_fix64(_Fraction(int(mn) + int(mx), 2), 0),
+                 "min": int(mn), "max": int(mx), "profile": profile}]
 
 
 class CyclicIonBlasterAdditionalHitsEffect(BaseEffect):

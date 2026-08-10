@@ -23,9 +23,10 @@ maintenant au natif aux TROIS distances. Les trois entrees `SpecialIssueCombiMel
 
 CE QUE CE FICHIER GARDE :
 
-  1. **CONFORMITE, aux TROIS distances, SANS AUCUN PATCH** -- l'utilite de paire du port egale celle
-     du natif, tuile par tuile et cible par cible, a 1e-4 pres, sur toutes les lignes SAUF le regime
-     residuel du (5).
+  1. **CONFORMITE, aux TROIS distances, SANS AUCUN PATCH ET SANS AUCUNE EXEMPTION** -- l'utilite de
+     paire du port egale celle du natif, tuile par tuile et cible par cible, a 1e-4 pres, sur
+     TOUTES les lignes. Le predicat d'exemption `_is_residual` a DISPARU : le regime residuel
+     `#419-r1-tr11-r5` est FERME (cf. (5)).
   2. **DISCRIMINANCE** -- le meme moteur, playbook 1545 RETIRE du registre, DOIT diverger du natif
      d'EXACTEMENT le poids BC sur les tuiles a distance 3, et de RIEN aux distances 1 et 2. Sans
      cette seconde assertion, un port qui ignore le terme passerait.
@@ -33,11 +34,14 @@ CE QUE CE FICHIER GARDE :
      adjacentes) sont a des distances differentes, et une seule recoit le poids.
   4. **LA FACE COMBAT EST AU REGISTRE** -- garde derive, pendant EXACT de l'ancien garde de
      condition de validite : si elle en sortait, ce fichier redeviendrait un montage a deux bras.
-  5. **LE REGIME RESIDUEL EST EXACTEMENT CELUI QU'ON DIT** (`#419-r1-tr11-r5`) -- les seules lignes
-     qui divergent encore sont a **distance 2**, l'ecart y est **inferieur a 1 point**, et il en
-     existe AU MOINS UNE. Les trois conditions sont gardees : la derniere fait rougir le jour ou
-     l'etage DISPLAY du canal #179 sera porte, pour qu'on RESSERRE ce garde au lieu de le laisser
-     tolerer un ecart devenu impossible.
+  5. **LE BI-CANAL ROLL/DISPLAY EST MODELISE, ET LE MONTAGE LE DISCRIMINE** (`#419-r1-tr11-r5`,
+     FERME). Le garde precedent exigeait qu'AU MOINS UNE ligne diverge, et il a rougi comme il
+     etait ecrit pour le faire : il prescrivait alors de retirer l'exemption de (1), de le
+     supprimer et de fermer le residu -- c'est fait. A sa place, un garde OFFLINE qui empeche le
+     vert de (1) d'etre VIDE : le descripteur 1563 doit publier les DEUX canaux (`amount` =
+     `Fix64.Round((min+max)/2)` demi-vers-le-PAIR pour la PREDICTION, `min`/`max` pour le COMBAT)
+     ET les deux modeles doivent etre SEPARABLES sur ce montage (`max != 1.5 x min`, la seule
+     configuration ou `avg +/- 20 %` et `[min, max]` coincident).
   6. **CHAQUE LECTURE A UN REGIME OU SON MUTANT MORD** -- six contre-epreuves, chacune avec sa
      RECIPROQUE (au moins une ligne ou elle ne mord pas).
 
@@ -68,12 +72,9 @@ EPS = P.EPS
 _COMBAT_EFFECTS = (int(EffectType.SpecialIssueCombiMelta_AdditionalHits),      # 1563
                    int(EffectType.SpecialIssueCombiMelta_ExtraDmg))            # 1564
 
-# Borne du regime residuel `#419-r1-tr11-r5` (cf. (5) de l'en-tete). MESUREE, pas choisie : sur ce
-# montage l'ecart residuel vaut 0.960412 sur 4 lignes `necroWarden` a d = 2, contre un ecart de
-# **8.35 a 78.01 sur 15 lignes** avant le port de la face COMBAT (contre-epreuve
-# `probe_419r1tr11_combi_melta.py --sans-face-combat`, meme runner, meme geometrie).
-_RESIDUAL_MAX = 1.0
-_RESIDUAL_DIST = 2
+#: Distance a laquelle mord le descripteur 1563 (`DSLFormulas+0x28 = Const(2)`) -- c'est la seule
+#: ou le bi-canal ROLL/DISPLAY peut se voir sur ce montage.
+_AH_DIST = 2
 
 
 def _arm(build_runner, live_session, rpc, writer):
@@ -99,12 +100,6 @@ def raw_rows(raw, rpc):
     return P.measure(rpc, raw)
 
 
-def _is_residual(r) -> bool:
-    """La ligne appartient-elle au regime residuel `#419-r1-tr11-r5` ? (cf. (5) de l'en-tete)"""
-    return (r["dist"] == _RESIDUAL_DIST
-            and EPS <= abs(r["native"] - r["port"]) < _RESIDUAL_MAX)
-
-
 def test_combat_face_is_registered():
     """(4) OFFLINE -- la face COMBAT de 1545 EST au registre.
 
@@ -127,65 +122,89 @@ def test_combat_face_is_registered():
 
 
 def test_pair_utility_matches_native_on_all_distances(raw_rows):
-    """(1) CONFORMITE : port == natif sur chaque (tuile, cible), aux trois distances, SANS PATCH.
+    """(1) CONFORMITE : port == natif sur chaque (tuile, cible), aux trois distances, SANS PATCH
+    et **SANS AUCUNE EXEMPTION** (`#419-r1-tr11-r5` ferme : le bi-canal ROLL/DISPLAY est modelise).
 
-    Seules les lignes du regime residuel (5) sont exemptees, et elles le sont par un predicat
-    ETROIT (distance 2 ET ecart < 1 point), pas par une tolerance globale."""
+    MESURE au moment de la fermeture (26 lignes) : 22/26 en accord et |ecart| max **0.960412**
+    avant, **26/26 et 0.000000** apres."""
     assert raw_rows, "aucune mesure produite -- le montage n'a rien confronte"
     seen = {r["dist"] for r in raw_rows}
     assert {1, 2, 3} <= seen, ("les trois distances ne sont pas mesurees (vues : %s) -- le gate "
                                "`== 3` ne serait pas pris dans les deux sens" % sorted(seen))
     for r in raw_rows:
-        if _is_residual(r):
-            continue
         assert abs(r["native"] - r["port"]) < EPS, (
             "pairUtility != natif sur %s (d=%d) depuis %s : natif=%r port=%r ecart=%r"
             % (r["target"], r["dist"], r["tile"], r["native"], r["port"],
                r["port"] - r["native"]))
 
 
-def test_residual_regime_is_exactly_what_we_claim(raw_rows):
-    """(5) `#419-r1-tr11-r5` -- le regime residuel, garde dans les TROIS sens.
+def test_bi_channel_display_is_modelled_and_discriminant():
+    """(5) `#419-r1-tr11-r5` FERME -- et ce test EMPECHE le vert de (1) d'etre VIDE.
 
-    Ce qui reste : sur ce montage, 4 lignes `necroWarden` a d = 2 ou le port SOUS-estime de
-    ~0.96 point. CAUSE LOCALISEE (et hors de cette tranche) : le bi-canal ROLL/DISPLAY du canal
-    #179. `IdunBattle.Entities.Effects.BaseEffect$$AdditionalHits(this, entities, useDisplay)` pose
-    `min = max = <noeud DISPLAY>.Calculate()` quand `useDisplay` -- une cellule DEGENEREE que le
-    pipeline de prediction etale ensuite -- alors que le port publie `predefined = [min, max]` pour
-    tout descripteur a forme PREDEFINED. Le TOTAL ne bouge pas (la moyenne est la meme), seule la
-    LARGEUR de la plage change, donc l'ecart n'apparait que sur une cible ou un terme NON LINEAIRE
-    de l'utilite (KillUnit / OverkillUnit) est sensible aux bornes -- ce que `necroWarden` est et
-    `astraBullgryn` n'est pas. L'etage est PARTAGE par tous les descripteurs #179 a forme
-    PREDEFINED (SquigHound, CordClaw, SorcerousFacade, FearOfTheUnseen, FleshmetalGuns, 1563) : le
-    corriger ici changerait le comportement de six autres effets.
+    Ce qui a ete corrige : le descripteur 1563 ne publiait QUE `min`/`max`, donc la face
+    PREDICTION du port lisait `predefined = [min, max]` la ou le natif lit une cellule
+    DEGENEREE. Corps LU de `IdunBattle.Entities.Effects.BaseEffect$$GetMinMaxDamage(this,
+    isPrediction, 0xc = minDmg, 0xd = maxDmg)` :
+        isPrediction == 0 -> `DSLFormulas.RandomAmount(ConfigVar(min), ConfigVar(max))`  # ROLL
+        isPrediction != 0 -> `DSLFormulas.Average(ConfigVar(min), ConfigVar(max))`       # DISPLAY
+    et `IdunBattle.Entities.Effects.BaseEffect$$AdditionalHits(this, entities, useDisplay)` pose
+    `min = max = <+0x10 = noeud DISPLAY>.Calculate()` quand `useDisplay`, sinon
+    `CalculateMin`/`CalculateMax` du noeud ROLL. `DSLFormulas$$Average` =
+    `DivideAmount(Sum(a, b), Direct(2))` -> `AAmountFormula$$RoundFix64Result(., 0)` =
+    `Fix64.Round` demi-vers-le-PAIR -- un ENTIER, jamais un `.5`.
 
-    Les trois assertions, et la 3e est la plus importante : elle fait ROUGIR ce fichier le jour ou
-    l'etage sera porte, pour qu'on RESSERRE le garde au lieu de tolerer un ecart devenu impossible."""
-    off = [r for r in raw_rows if abs(r["native"] - r["port"]) >= EPS]
-    assert all(r["dist"] == _RESIDUAL_DIST for r in off), (
-        "des lignes divergent HORS du regime residuel (distance %d) : %r -- le port a une seconde "
-        "cause d'ecart, non documentee"
-        % (_RESIDUAL_DIST,
-           [(r["target"], r["dist"], r["tile"], r["port"] - r["native"])
-            for r in off if r["dist"] != _RESIDUAL_DIST]))
-    assert all(abs(r["native"] - r["port"]) < _RESIDUAL_MAX for r in off), (
-        "l'ecart residuel depasse %r point(s) : %r -- ce n'est plus le bi-canal ROLL/DISPLAY, "
-        "c'est autre chose"
-        % (_RESIDUAL_MAX, [(r["target"], r["tile"], r["port"] - r["native"]) for r in off]))
-    assert off, (
-        "AUCUNE ligne ne diverge : le regime residuel `#419-r1-tr11-r5` (bi-canal ROLL/DISPLAY du "
-        "canal #179) est FERME. A refaire : retirer `_is_residual` de (1), supprimer ce test, et "
-        "fermer le residu au backlog.")
+    ⚠ CE QUE CE MONTAGE NE DISCRIMINE PAS, ET IL FAUT LE DIRE : au niveau servi
+    (`ability_level = 50`, `multiplier = 180`) les bornes valent `[3589, 4387]`, de somme PAIRE ->
+    `Fix64.Round` et la moyenne exacte `.5` rendent LE MEME entier. La contre-epreuve a ete JOUEE
+    (mutant `amount = (min + max) / 2` sans arrondi) : elle rend **26/26 a 0.000000**, comme le
+    port non mute. L'arrondi demi-vers-le-PAIR n'est donc etabli QUE par le decompile, et le
+    montage ne peut pas le separer -- il faudrait un couple (niveau, multiplicateur) de somme
+    IMPAIRE (195 des 450 balayes le sont, ex. `mult = 180, lvl = 21` -> `[360, 441]`).
+
+    Ce qui EST discriminant ici, et que ce test garde : le rapport `max / min`. Les deux modeles
+    (`[min, max]` du port et `avg +/- 20 %` du natif) coincident EXACTEMENT ssi `max == 1.5 x min`
+    -- c'est pourquoi le bug etait invisible sur `SquigHound` / `CordClaw` (ratio ~1.503). Ici le
+    ratio vaut ~1.222, donc le vert de (1) mesure vraiment quelque chose."""
+    from engine.entities.effects.factory import EFFECT_CLASSES
+    from engine.entities.effects.magnitude import ability_var
+    from engine.dsl.base import _round_fix64
+    from fractions import Fraction
+
+    name = EffectType.SpecialIssueCombiMelta_AdditionalHits.name
+    assert name in EFFECT_CLASSES, (
+        "%s n'est plus au registre `EFFECT_CLASSES` : le bi-canal ne peut plus etre garde" % name)
+
+    lvl, mult = 50, 180                      # le regime SERVI par `buildNormalizedBC` sur ce montage
+    mn = ability_var("SpecialIssueCombiMelta", "minDmg", lvl, multiplier_pct=mult)
+    mx = ability_var("SpecialIssueCombiMelta", "maxDmg", lvl, multiplier_pct=mult)
+    assert mn and mx, "bornes minDmg/maxDmg introuvables au gameconfig (L%d, mult %d)" % (lvl, mult)
+    ratio = float(mx) / float(mn)
+    assert abs(ratio - 1.5) > 1e-3, (
+        "max / min == %.4f : a ce rapport, `[min, max]` et `avg +/- 20 %%` COINCIDENT -- le vert de "
+        "(1) ne separerait plus les deux modeles, et ce montage cesserait de garder le bi-canal. "
+        "Choisir un porteur/niveau au rapport different." % ratio)
+
+    eff = EFFECT_CLASSES[name](name=name, level=1, ability_level=lvl,
+                               ability_variables_multiplier=mult)
+    grp = (eff.additional_hit_groups({"att_pos": (0, 0), "t_pos": (2, 0)}) or [None])[0]
+    assert grp, "le descripteur 1563 ne rend rien a d == %d -- le gate IsAtRange a change" % _AH_DIST
+    assert grp.get("min") == int(mn) and grp.get("max") == int(mx), (
+        "canal COMBAT (noeud ROLL) altere : attendu [%d, %d], lu %r"
+        % (int(mn), int(mx), (grp.get("min"), grp.get("max"))))
+    expected_avg = _round_fix64(Fraction(int(mn) + int(mx), 2), 0)
+    assert grp.get("amount") == expected_avg, (
+        "canal PREDICTION (noeud DISPLAY) : attendu `Fix64.Round((%d + %d) / 2)` = %r, lu %r -- "
+        "sans lui la prediction du port publie `predefined = [min, max]` et diverge du natif "
+        "(mesure a la fermeture : 4 lignes a -0.960412)"
+        % (int(mn), int(mx), expected_avg, grp.get("amount")))
 
 
 def test_term_is_exactly_the_weight_at_range_3(raw, raw_rows):
     """(2) DISCRIMINANCE : playbook 1545 RETIRE -> le port perd EXACTEMENT le poids BC aux tuiles a
-    distance 3, et RIEN aux distances 1 et 2 (hors regime residuel)."""
+    distance 3, et RIEN aux distances 1 et 2. Plus aucune exemption (`#419-r1-tr11-r5` ferme)."""
     weight = raw["weight"]
     assert weight != 0, ("le BC servi porte %s = 0 : le regime ne discrimine rien" % P.WEIGHT_KEY)
     for r in raw_rows:
-        if _is_residual(r):
-            continue
         expected = weight if r["dist"] == P.RANGE else 0.0
         got = r["native"] - r["port_muted"]
         assert abs(got - expected) < EPS, (
@@ -214,8 +233,6 @@ def test_target_read_is_the_case_target(raw, raw_rows):
         terms = {vis: x["native"] - x["port_muted"] for vis, x in m.items()}
         dists = {vis: x["dist"] for vis, x in m.items()}
         for vis, term in terms.items():
-            if _is_residual(m[vis]):
-                continue
             expected = weight if dists[vis] == P.RANGE else 0.0
             assert abs(term - expected) < EPS, (
                 "depuis %s, la cible %s est a distance %d : le terme natif devrait valoir %r, "
