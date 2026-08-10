@@ -136,6 +136,21 @@ NON_VERTS_DECLARES: dict[str, str] = {
         "`frida/hooks/features/movement-trace.ts`. Le remede est ECRIT par le probe lui-meme "
         "(`--catalogue` produit le bloc a coller dans `rpc-api.md`). FOYER `frida/hooks/**` : "
         "hors du territoire de cette tranche. Residu #547-r6.",
+    # DEUX DE PLUS, arrives avec les merges que le rebase de cette tranche a integres. Ils ne sont
+    # pas davantage le fait de cette PR : les deux fichiers ACCUSES ne sont pas dans son diff.
+    "tests/engine/test_270r4_role_enum_offline.py":
+        "`test_etage2_aucun_site_n_est_revenu_a_l_ordinal_nu` + `test_etage2b_le_cliquet_resout_"
+        "bien_les_alias` -- 2 failed / 15 passed. << `runner/abilities/behaviours/context.py` : "
+        "`StatPart.MISSING` vu 0 fois, la tranche en avait mis 1 >>. Le site a disparu ou s'est "
+        "deplace hors du fichier ; `context.py` n'est PAS touche par cette PR. Residu #547-r6.",
+    "tests/test_463r1_ecart_empreinte_offline.py":
+        "`test_l_ecart_est_NUL_sur_ce_checkout` -- << 0 NON MESURE(S), 1 FANTOME(S) >> : "
+        "`tests/engine/runner/test_576_war_howl_pose_offline.py` est dans l'empreinte et plus dans "
+        "le perimetre. Le geste qui le PURGE est `--measure` (2220 s, de la MAINTENANCE), pas "
+        "`--measure-missing` qui FUSIONNE -- le probe le dit lui-meme. Cette tranche l'avait purge "
+        "par sa propre passe complete, puis a repris la version AMONT du fichier DERIVE au rebase "
+        "(regle : on prend un COTE ENTIER, on n'arbitre jamais un artefact genere) -- le fantome "
+        "est donc celui de `master`. Residu #547-r6.",
     "tests/test_host_inputs_offline.py":
         "`test_probe_273_passe` -- `probe_273_gitignore_inputs.py` rend `rc=1` depuis un WORKTREE "
         "d'agent. Sa sortie montre `OK -- aucune sortie de run dans data/` puis, a l'etage 3, "
