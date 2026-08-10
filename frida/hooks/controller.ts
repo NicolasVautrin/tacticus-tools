@@ -36,6 +36,7 @@ import * as normalizeBc from "./features/normalize-bc.js";
 import * as crashTrap from "./features/crash-trap.js";
 import * as netCapture from "./features/net-capture.js";
 import * as wsCapture from "./features/ws-capture.js";
+import * as expeditionBoard from "./features/expedition-board.js";
 import * as uiMutations from "./features/ui-mutations.js";
 import * as initTrace from "./features/init-trace.js";
 import * as winnerCapture from "./features/winner-capture.js";
@@ -391,7 +392,9 @@ export function wireRpc(ctx: Ctx): void {
      // jamais autrement. `ws-capture` couvre le transport que `net-capture` ne PEUT pas voir :
      // le SyncPvp parle WebSocket, pas HTTP — armer `net-capture` dessus rendrait un journal
      // vide, qui se lirait « rien n'est parti ».
-     netCapture, wsCapture, uiMutations,
+     // `expedition-board` lit le plateau d'Operations LA OU LA REPONSE EST APPLIQUEE : l'UI
+     // est virtualisee (4 lignes visibles sur 7) et `net-capture` ne voit que le sortant.
+     netCapture, wsCapture, expeditionBoard, uiMutations,
      // messageTrace AVANT winnerCapture — il SET `state.scoringRunnerId` / `state.applySeq`,
      // que winnerCapture LIT pour estampiller son event. (Le troisieme lecteur, move-options,
      // est parti avec le nettoyage : sa surface RPC etait morte et son register inerte.)
