@@ -25,6 +25,10 @@ from ..unit_flag import UnitFlag
 # on n'en ecrit pas un second.
 from ..unit_selection_type import UnitSelectionType, matches_unit_selection_type
 from ...battle_query import is_target_tile_obscured
+# #433-r4-r1-r4-r1 : FOYER du canal d'elevation (tri-etat, l'inconnu est OMIS et non rabattu sur 0).
+# Import de NIVEAU MODULE, aucun cycle : `dsl.base` -- que ce module importe deja ci-dessus -- tire
+# lui-meme `entities.pathfinding.board` au niveau module.
+from ..pathfinding.board import elevations_by_pos
 
 
 def _selection_ok(u, selection_type, ctx) -> bool:
@@ -1120,8 +1124,22 @@ class Unobscured(TargetsSelector):
     - **dist 1 : jamais obscurcie** (la ligne n'a aucune tuile intermediaire testable, cf. case-49x §3) -> gardee.
     - **dist 2 : `bq.is_target_tile_obscured(from, unit, elev)`** (elevation, cube-line ±eps) -- geometrie
       DEJA validee live cote PREDICTION (`bq.surrounding_enemies`, craft-O/O2 probe_49x : crete elev 4 ->
-      ennemi dist-2 EXCLU / deplace visible -> compte). `elev` construit depuis `ctx.board`
-      (`by_coord[(col,row)]['elevation']`).
+      ennemi dist-2 EXCLU / deplace visible -> compte).
+
+    `elev` vient du FOYER `entities/pathfinding/board.elevations_by_pos` (#433-r4-r1-r4-r1). Il
+    lisait auparavant `ctx.board.by_coord` a la main avec `t.get("elevation", 0)` : ce defaut
+    FABRIQUAIT une elevation `0` pour toute tuile dont le canal ne porte pas la donnee, alors que le
+    foyer OMET l'inconnu (tri-etat : `None` = pas de canal, une carte = les tuiles CAPTEES). Le `0`
+    invente n'etait pas neutre, et il deviait dans les DEUX sens selon la position de la tuile
+    inconnue sur la ligne, contre le contrat que `battle_query.is_target_tile_obscured` tient deja :
+      * inconnue en `from`/`to` -- le contrat rend `False` (jamais obscurci) ; le `0` invente faisait
+        au contraire passer le seuil des qu'un mid valait `>= 2` (obscurcissement FABRIQUE) ;
+      * inconnue en MID -- le contrat la RETIRE (`GetTileAt null -> pas bloquant`), ce qui bascule le
+        cas diagonal sur la branche `len(mids) == 1` (plus bloquante) ; le `0` invente la gardait
+        dans le `all(...)` de la fat-line et ETEIGNAIT le blocage.
+    Passer par le foyer aligne aussi le CANAL : `elevations_by_pos` accepte un `Board` (cache
+    `elev_by_pos()`) et un board duck-type `by_id`, la ou `by_coord` seul rendait `None`
+    (passe-tout) sur ces deux formes.
 
     v1 FLAGS (IDENTIQUES a la face prediction, cf. `battle_query.is_target_tile_obscured`) : murs (bit 4)
     non modelises (aucun board d'agreement n'a de mur en zone jouable) ; mask 4 IndirectFire non gate
@@ -1140,9 +1158,9 @@ class Unobscured(TargetsSelector):
         units = _units_of(self.source, ctx)
         if frm is None:
             return list(units)
-        board = getattr(ctx, "board", None)
-        bc = getattr(board, "by_coord", None) if board is not None else None
-        elev = ({k: t.get("elevation", 0) for k, t in bc.items()} if bc else None)
+        # FOYER unique du canal d'elevation (#433-r4-r1-r4-r1) : tri-etat `None` = pas de canal,
+        # et l'inconnu est OMIS -- jamais rabattu sur `0`. Cf. la docstring ci-dessus.
+        elev = elevations_by_pos(getattr(ctx, "board", None))
         out = []
         for u in units:
             feet = _feet(u)
