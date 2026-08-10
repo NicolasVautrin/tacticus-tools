@@ -291,6 +291,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 from pathlib import Path
 
@@ -1052,23 +1053,37 @@ def _lancer_jobs(n: int, args) -> int:
     if args.depuis_ledger:
         commun += ["--depuis-ledger"]
 
-    dossier = repo_root() / "logs" / "ratchets" / "457-jobs" / jeton
-    dossier.mkdir(parents=True, exist_ok=True)
-    print("[457] --jobs %d : jeton %s, journaux -> %s" % (n, jeton[:8], dossier))
+    print("[457] --jobs %d : jeton %s -- %d shard(s) en sous-processus." % (n, jeton[:8], n))
 
+    # ⚠ AUCUN FICHIER DE JOURNAL, ET C'EST LE GARDE `#457-r9` QUI L'A IMPOSE. La premiere version
+    # ecrivait `logs/ratchets/457-jobs/<jeton>/shard-XX.log` ; `test_457_r9_refus_d_ecrire_offline`
+    # a ROUGI dessus (`ecriture(s) de fichier HORS du foyer unique `_ecrire_mesure` :
+    # ['_ecrire_mesure', '_lancer_jobs']`), et il avait RAISON de le faire : sa propriete est
+    # STRUCTURELLE -- une ecriture ajoutee ailleurs dans ce fichier echappe a la decision.
+    # Relacher ce garde pour faire passer un journal aurait ete le desarmer pour du confort ;
+    # les sorties sont donc gardees EN MEMOIRE. Un thread draine chaque flux au fil de l'eau :
+    # sans lui, un shard verbeux remplirait le tampon du tube (~64 Ko) et se bloquerait -- le
+    # deadlock classique de `Popen(stdout=PIPE)` sans lecture concurrente.
     procs = []
     for k in range(n):
-        argv = [sys.executable, str(Path(__file__).resolve()),
+        # `-u` : sans lui, la sortie d'un shard n'arrive qu'a sa MORT (tampon de bloc), donc un
+        # run de plusieurs minutes ne montre aucun signe de vie.
+        argv = [sys.executable, "-u", str(Path(__file__).resolve()),
                 "--shard", "%d/%d" % (k, n), *commun]
-        sortie = open(dossier / ("shard-%02d.log" % k), "w", encoding="utf-8", errors="replace")
-        procs.append((k, subprocess.Popen(argv, cwd=str(_PYDIR), env=env,
-                                          stdout=sortie, stderr=subprocess.STDOUT), sortie))
+        proc = subprocess.Popen(argv, cwd=str(_PYDIR), env=env, stdout=subprocess.PIPE,
+                                stderr=subprocess.STDOUT, text=True,
+                                encoding="utf-8", errors="replace")
+        seau: list = []
+        fil = threading.Thread(target=_drainer, args=(proc.stdout, seau), daemon=True)
+        fil.start()
+        procs.append((k, proc, fil, seau))
 
     started = time.time()
-    rcs = {}
-    for k, proc, sortie in procs:
+    rcs, sorties = {}, {}
+    for k, proc, fil, seau in procs:
         rcs[k] = proc.wait()
-        sortie.close()
+        fil.join(timeout=30.0)
+        sorties[k] = seau
     mur = time.time() - started
 
     rouges, non_mesures = [], []
@@ -1081,12 +1096,12 @@ def _lancer_jobs(n: int, args) -> int:
             non_mesures.append(k)
         print("[457]   shard %d/%d : %s" % (k, n, etat))
         if rc != 0:
-            # Les lignes qui NOMMENT la cause, tirees du journal du shard. Sans elles, un rouge
-            # multi-shard obligerait a ouvrir 8 fichiers pour savoir ce qui a casse.
-            for ligne in _lignes_saillantes(dossier / ("shard-%02d.log" % k)):
+            # Les lignes qui NOMMENT la cause. Sans elles, un rouge multi-shard n'aurait AUCUNE
+            # trace exploitable -- les sorties ne survivent pas au processus.
+            for ligne in _lignes_saillantes(sorties[k]):
                 print("[457]       %s" % ligne)
 
-    print("[457] mur %.1f s pour %d shard(s) ; journaux : %s" % (mur, n, dossier))
+    print("[457] mur %.1f s pour %d shard(s)." % (mur, n))
     rc_consolidation = _consolider_ledger(candidate_files(), jeton=jeton)
 
     if rouges:
@@ -1106,15 +1121,33 @@ def _lancer_jobs(n: int, args) -> int:
     return 0
 
 
-def _lignes_saillantes(journal: Path, maxi: int = 6) -> list:
-    """Les lignes d'un journal de shard qui NOMMENT une cause. Aucune interpretation."""
+def _drainer(flux, seau: list) -> None:
+    """Vide un tube au fil de l'eau. Un shard bloque sur un tube plein ne rend jamais la main."""
     try:
-        texte = journal.read_text(encoding="utf-8", errors="replace")
-    except OSError:
-        return ["(journal illisible : %s)" % journal.name]
-    marques = ("FAILED", "ERROR ", "VERDICT:", "MONTAGE EN ECHEC", "REFUS")
-    lignes = [l.strip() for l in texte.splitlines()
-              if any(m in l for m in marques) and l.strip()]
+        for ligne in flux:
+            seau.append(ligne.rstrip("\r\n"))
+    except (OSError, ValueError):
+        # Le flux a ete ferme sous nos pieds : ce qui est deja draine reste exploitable, et le
+        # `rc` du processus reste la source du verdict. On ne fabrique pas d'echec ici.
+        pass
+    finally:
+        try:
+            flux.close()
+        except OSError:
+            pass
+
+
+def _lignes_saillantes(seau: list, maxi: int = 8) -> list:
+    """Les lignes d'un shard qui NOMMENT une cause. Aucune interpretation.
+
+    Repli sur la QUEUE quand aucune marque n'est reconnue : rendre une liste vide ferait lire un
+    shard non nul comme un shard muet -- un rc sans cause n'est pas actionnable (#467-r6).
+    """
+    marques = ("FAILED", "ERROR ", "VERDICT:", "MONTAGE EN ECHEC", "REFUS", "rc=")
+    lignes = [l.strip() for l in seau if l.strip() and any(m in l for m in marques)]
+    if not lignes:
+        lignes = [l.strip() for l in seau if l.strip()][-maxi:]
+        return lignes or ["(le shard n'a rien ecrit)"]
     return lignes[:maxi]
 
 
