@@ -36,17 +36,18 @@ DECLENCHEUR = {
         "scripts/python/engine/runner/components.py",
         "scripts/python/engine/entities/pathfinding/board.py",
         # HOMONYME, et c'est le piege : `scripts/python/board.py` (le choix de board du
-        # runner) n'est PAS `engine/entities/pathfinding/board.py` ci-dessus. Il est bien
-        # importe par ce fichier, et son absence rendait le declencheur TROP ETROIT --
-        # `probe_486r15_declencheurs_tests.py` le disait, sur `master`, depuis #869.
+        # runner) n'est PAS `engine/entities/pathfinding/board.py` ci-dessus. Il est LU a
+        # l'execution (chargement du board), pas importe, et son absence rendait le
+        # declencheur TROP ETROIT.
+        # ⚠ DEUX gardes INDEPENDANTS l'ont trouve, chacun aveugle a l'autre :
+        # `probe_486r15_declencheurs_tests.py` le disait sur `master` depuis #869, et #547-r2
+        # l'a retrouve en REECRIVANT l'empreinte en entier (l'ancienne le cachait). Les deux
+        # correctifs ont atterri dans le meme tuple au merge, d'ou le doublon -- retire ici.
         "scripts/python/board.py",
         "scripts/python/probe_448r1r1r2r2r1_gates_amont.py",
         "scripts/python/probe_448r1r1r2r2_gates_abandon.py",
         "data/boards/pvp/C4_09.json",
         "data/boards/pvp/C3_23.json",
-        # #547-r2 : LU a l'execution (chargement du board), pas importe -- l'empreinte REECRITE
-        # en entier l'a montre, l'ancienne le cachait.
-        "scripts/python/board.py",
     ),
     "build": False,
     "toujours": False,
