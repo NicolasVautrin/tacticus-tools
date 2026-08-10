@@ -85,6 +85,10 @@ UNPORTED = "WireweaveNet_CounterAttack"    # ne la surcharge PAS ; son flag n'es
 CONDITIONS_PORTEES_ATTESTEES = {
     "AmuletOfTheVoidwyrm_CritDamageReduction",
     "AnvilShield_BlockChanceBelowHealthCap",
+    # #576-r1 -- `IsCharging(Owner@sel+0x30, Target@sel+0x60)`, CONSTANTE FAUSSE : le contexte de
+    # `RefreshEffectsOperation$$ShouldBeActive` ne renseigne pas `ctx+0x10`, que lit
+    # `Selectors.TargetSelector$$Select`. Rendre une constante EST une lecture du natif.
+    "BloodChalice_ExtraPiercing",
     "CamoCloak_DmgReduction",
     "ContagionsOfNurgle_ArmorReduction1",
     "ContagionsOfNurgle_ArmorReduction2",
@@ -95,6 +99,11 @@ CONDITIONS_PORTEES_ATTESTEES = {
     "InescapableAccuracy_extraCritDmg",
     "InescapableAccuracy_overrideHits",
     "MartialSuperiority_Visual",
+    # #552-r1 -- `HasEffect(bonded, 27, null, 6) & AreEqual(BondedEntityFromEffect(EffectFromOwner(
+    # bonded, 27)), Owner@sel+0x30)`. Evaluable parce que ses DEUX selecteurs lisent des champs
+    # RENSEIGNES du contexte (`EffectSelector$$Select` -> `ctx+0x58`, `OwnerSelector$$Select` ->
+    # `ctx+0x18`), contrairement a celui de `BloodChalice_ExtraPiercing` ci-dessus.
+    "MindControl_Taunter",
     "ModifiedExoarmour_ExtraDmg",
     "Pinned",
     "PowerTrip_FullHealth",
