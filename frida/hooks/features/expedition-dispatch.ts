@@ -279,12 +279,31 @@ function stubRet(): NativePointer | null {
 }
 let dispoDelegate: { klass: NativePointer; offsets: Record<string, number> } | null = null;
 
-/** Fabrique un `Action<System.Boolean>` inerte.
+/** Le delegate inerte, alloue UNE FOIS et reutilise. Meme raison que `pageRet`. */
+let callbackPartage: NativePointer | null = null;
+
+/** Fabrique un `Action<System.Boolean>` inerte -- ou rend celui qu'on a deja.
+ *
+ *  ⚠ UN SEUL SUFFIT, ET EN CREER UN PAR ENVOI EST UNE FUITE. Ce delegate ne porte AUCUN
+ *  etat : `invoke_impl` pointe sur une page `ret` partagee, `m_target` / `method` /
+ *  `method_code` sont nuls, et le natif ne fait que le RANGER dans son display class -- il
+ *  ne le mute jamais. Deux reponses serveur qui l'invoquent en meme temps executent le meme
+ *  `ret`, ce qui est sans consequence.
+ *
+ *  A l'inverse, en fabriquer un par appel laisserait un `il2cpp_gchandle_new` EPINGLE par
+ *  envoi, jamais libere -- mesure : six appels a `expeditionCallbackForge` ont fait monter
+ *  `gcRoot.count()` de 0 a 6. Un objet epingle ne bouge plus et ne meurt plus ; c'est
+ *  exactement le genre de fuite qui ne se voit qu'apres des heures.
+ *
+ *  `neuf` force une allocation fraiche : reserve a la MESURE (isoler l'allocation du reste),
+ *  jamais au chemin d'envoi.
  *
  *  Rend `{ptr}` ou `{err}` -- JAMAIS un `null` muet. Un `catch { return null; }` a deja
  *  fait lire << impossible de fabriquer >> alors que les cinq offsets etaient resolus et
  *  affiches juste a cote : le refus etait juste, son motif introuvable. */
-function fabriquerCallback(): { ptr?: NativePointer; err?: string } {
+function fabriquerCallback(neuf?: boolean): { ptr?: NativePointer; err?: string;
+                                              reutilise?: boolean } {
+    if (callbackPartage && !neuf) return { ptr: callbackPartage, reutilise: true };
     if (!dispoDelegate) return { err: "classe du callback NON RESOLUE" };
     const { klass, offsets } = dispoDelegate;
     const manquants = ["invoke_impl", "method_ptr", "method_code", "method", "m_target"]
@@ -320,8 +339,9 @@ function fabriquerCallback(): { ptr?: NativePointer; err?: string } {
     // seule prise que le GC honore.
     //
     // On ne le relache PAS : le delegate doit survivre jusqu'a l'appel du callback, dont
-    // l'instant ne nous est pas connu (il vient de la reponse serveur). Un handle par
-    // envoi, quelques octets -- `gcRoot.count()` les rend visibles.
+    // l'instant ne nous est pas connu (il vient de la reponse serveur). Comme il est
+    // PARTAGE (cf. `callbackPartage`), ca fait UN handle pour toute la session, pas un par
+    // envoi -- `gcRoot.count()` le rend verifiable.
     gcRoot.add(d);
     try {
         d.add(offsets["invoke_impl"]).writePointer(ret);
@@ -333,7 +353,8 @@ function fabriquerCallback(): { ptr?: NativePointer; err?: string } {
         return { err: "ecriture des champs : "
                     + String((e as Error).message || e).slice(0, 140) };
     }
-    return { ptr: d };
+    if (!neuf) callbackPartage = d;
+    return { ptr: d, reutilise: false };
 }
 
 /** Disposition de `List<System.String>`, MESUREE sur la classe reelle (jamais supposee). */
@@ -586,12 +607,17 @@ export function register(ctx: Ctx): void {
      *  innocente et le blocage est dans l'appel natif -- et l'on saura alors que le
      *  verrou vu sous `il2cpp_runtime_invoke` appartient a `DispatchExpedition`.
      *
-     *  Il n'immobilise aucune unite et ne touche pas au compte. body: {} */
-    ctx.rpc.expeditionCallbackForge = (): Promise<unknown> =>
+     *  Il n'immobilise aucune unite et ne touche pas au compte.
+     *
+     *  body: { neuf?: true } -- `neuf` FORCE une allocation fraiche au lieu de rendre le
+     *  delegate partage. C'est ce qui permet de mesurer l'allocation elle-meme ; en
+     *  contrepartie chaque appel laisse un objet EPINGLE de plus. A n'utiliser que pour
+     *  mesurer, et a lire dans `gcHandles`. */
+    ctx.rpc.expeditionCallbackForge = (body?: { neuf?: boolean }): Promise<unknown> =>
         queueOnMainThread(() => {
             const avant = gcRoot.count();
             const t0 = Date.now();
-            const r = fabriquerCallback();
+            const r = fabriquerCallback(body?.neuf);
             const ms = Date.now() - t0;
             if (!r.ptr) {
                 return { ok: false, err: r.err, ms,
@@ -607,7 +633,7 @@ export function register(ctx: Ctx): void {
                 catch { relu[n] = null; }
             }
             return {
-                ok: true, ms, delegate: r.ptr.toString(),
+                ok: true, ms, delegate: r.ptr.toString(), reutilise: !!r.reutilise,
                 classe: (() => {
                     try { return r.ptr.readPointer().toString(); } catch { return null; }
                 })(),

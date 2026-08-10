@@ -57,7 +57,46 @@ seule mesure.
 - il **gele** -> la cause est l'allocation (init de classe, GC, ou l'un des deux sous Frida) ;
 - il **rend la main** -> l'allocation est innocente, le verrou appartient a l'appel natif.
 
+## VERDICT DE L'ISOLATEUR (session 58, jeu relance)
+
+**L'allocation est INNOCENTE.** Six fabrications consecutives : `ok: true`, **0 ms** chacune,
+jeu `Responding: True` apres. Classe obtenue == classe attendue (`0x21fa115a4d0`), les cinq
+champs se relisent identiques a ce qu'on a ecrit, et le compteur de gchandles monte 0 -> 6.
+
+Donc le blocage est **dans l'appel natif** `DispatchExpedition`, pas dans la preparation.
+
+## L'hypothese qui reste, et pourquoi elle change le coupable
+
+Le cadre le plus interne (`FUN_1801eb760+0xd5`) est un **rendez-vous** : compteur de
+recursion en TLS, `LOCK`/`UNLOCK`, puis une boucle « tant qu'il reste des attendeurs :
+signaler, puis attendre ». Avec **142 threads sur 142 dans ntdll**, la lecture la plus
+economique est un **stop-the-world qui ne repart pas** — typiquement un GC, ou un
+rendez-vous de suspension de threads.
+
+Ce que ca expliquerait, y compris ce qui semblait incoherent :
+
+- le forge alloue **un** petit objet et ne declenche presque jamais de collecte ;
+  `Execute` alloue plusieurs objets **et** part sur le reseau — beaucoup plus d'occasions ;
+- `CLAUDE.md` porte deja l'avertissement jumeau : Frida suspend les threads pendant un scan
+  de tas IL2CPP, et le detecteur de freeze d'Unity tue alors le process. Meme couple.
+- surtout : ca ferait du callback un **faux coupable pour le gel**. Il y aurait alors DEUX
+  pannes distinctes que je traitais comme une seule — le callback nul qui LEVE a la reception
+  (#1, #3, etabli par le decompile), et un rendez-vous GC au moment de l'envoi (#4, #5).
+
+⚠ **Ce n'est pas etabli.** Prediction falsifiable : si c'est un GC, l'echec est **flaky**, pas
+deterministe, et forcer une collecte depuis le pump (`gcRoot.collect()`) doit geler le jeu
+**sans aucun envoi**. C'est le prochain test, et il ne coute pas un dispatch.
+
 Tant que cette question n'a pas de reponse mesuree, `AUTORISER_ENVOI_NATIF = false`.
+
+## Un piege de lecture rencontre en chemin
+
+`ExpeditionGameEvents$$DispatchExpedition` se decompile avec **trois** arguments (plus `this`),
+et relaie `(commande, id, units, bonus)` — pas de callback en vue. Ne PAS en conclure que le
+callback n'existe pas : Win64 passe les quatre premiers en registre et **le cinquieme sur la
+pile**, que Ghidra ne modelise pas ici. La metadonnee IL2CPP, elle, donne bien **4** parametres
+(`findMethodByParamCount(..., "DispatchExpedition", 4)` resout). La table prime sur le
+decompile pour compter des parametres.
 
 ## Le defaut reel trouve en chemin (merci a l'utilisateur)
 
