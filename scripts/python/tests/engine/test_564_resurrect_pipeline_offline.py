@@ -206,13 +206,26 @@ def test_avec_tour_immediat_les_flags_de_tour_sont_RETIRES():
 # --------------------------------------------------------------------------------------------
 
 class _Board:
-    """Le minimum de `Board` que la feuille lit : `coord(tile_id)`. Les ids de tuile sont ici les
-    entiers 10, 11, 12 -- ce que rendent `AdjacentTiles`/`CanAddUnit` en domaine ID."""
+    """Le minimum de `Board` que la feuille ET l'Operation lisent. Les ids de tuile sont ici les
+    entiers 10, 11, 12 -- ce que rendent `AdjacentTiles`/`CanAddUnit` en domaine ID.
+
+    ⚠ `id_at` / `walkable` ont ete AJOUTES par #564-r3 : l'Operation evalue desormais le gate
+    `TilesAreWalkable` (`BattleQuery` slot 0xa1), qui les appelle. Un board de test qui ne les
+    porte pas fait LEVER `AttributeError` -- ce qui est le bon signal (le gate est bien joue), pas
+    une raison de rendre le gate permissif. Toutes les tuiles du mapping sont marchables : ce
+    fichier mesure le ZIP et le PRE-FILTRE, pas le substrat de tuile."""
     def __init__(self, mapping):
         self._m = dict(mapping)
+        self._rev = {(int(c), int(r)): int(t) for t, (c, r) in self._m.items()}
 
     def coord(self, tid):
         return self._m[int(tid)]
+
+    def id_at(self, col, row):
+        return self._rev.get((int(col), int(row)))
+
+    def walkable(self, tid):
+        return int(tid) in self._m
 
 
 def _live(st, uid):

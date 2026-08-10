@@ -21,6 +21,8 @@ from ..entities.effects.loki.amulet_of_the_voidwyrm import (
         adjacent_friendly_summons_and_decoys_selector)
 from ..entities.pathfinding.board import adjacent_neigh_by_pos, elevations_by_pos
 from ..entities.stats import StatType
+from ..entities.stats import StatPart   # #572-r1 : `FillUpStatComponent$$GetStatPart`
+from ..entities.stats import ValueModification, ValueOverride   # #572-r1 : le max de `HealthComponent`
 from ..entities.traits.unit_trait import UnitTrait as _UT, has_trait as _has_trait
 from ..entities.traits.unit_trait import UnitTrait, has_trait
 from ..entities.traits.unit_trait import entity_trait_names, has_any_trait   # #498-r2
@@ -605,15 +607,163 @@ class HealthComponent(Component):
     natif `[3583, 417, 0]`, port `[3583, 417, 0, 0]`.
 
     ⚠ `Reduce` **saute** l'accumulation quand le plancher `Minimum` est pose ET `> 0` (branche
-    `if (0 < minimum) goto LAB_18107e699`) -- le meme gate qui rend `IsOverkill` faux sous plancher."""
-    __slots__ = ("hp", "hp_max", "minimal_health", "over_reduce")
+    `if (0 < minimum) goto LAB_18107e699`) -- le meme gate qui rend `IsOverkill` faux sous plancher.
+
+    ⚠ **`hp_max` N'EST PAS UN CHAMP — c'est `get_CurrentMaximumValue()` (#572-r1).** Le natif
+    n'a AUCUN `StatComponent` pour la sante : `IdunBattle.Entities.UnitExtensions$$ApplyStatModifier`
+    dispatche `StatType.Health` (case 5) vers `IdunBattle.Entities.Components.FillUpStatComponent$$ApplyModifier`,
+    donc une stat-modification sur HEALTH atterrit dans le `ValueModification` (+0x28) **de ce
+    composant-ci**, et le maximum observable est recalcule a chaque lecture :
+
+        get_CurrentMaximumValue() = override ?? ( Math.Min(int.MaxValue - initial,
+                                                  Math.Max(-initial, modTotal)) + base )
+
+    Les deux champs BRUTS du natif sont distincts et le port les porte tous les deux :
+    `max_initial` (+0x10, part `StatPart.Initial`) et `max_base` (+0x14, ce que
+    `IdunBattle.Entities.Components.FillUpStatComponent$$Initialize` pose = `+0x10 = +0x14 = +0x18`).
+    Le port en portait UN SEUL, figE : le canal de seed `observeBattle.hpMax` lit le champ brut
+    `+0x14` (`game/match-state.ts::COMP_FIELD.hpMax`), PAS `GetStat(Health, StatPart.Maximum)` --
+    donc `hp_max` ratait AUSSI les modifications deja posees au chargement, pas seulement celles
+    posees en cours de simulation.
+
+    `hp_max` reste donc lisible et assignable (setter = `ApplyModifier case 2`, qui pose
+    `+0x14 = +0x10 = value`), mais sa LECTURE traverse desormais les modifications."""
+
+    __slots__ = ("hp", "max_initial", "max_base", "max_modification", "max_override",
+                 "minimal_health", "over_reduce")
+
+    #: `Math.Min(0x7fffffff - initial, ...)` de `get_CurrentMaximumValue` -- borne `int.MaxValue`
+    #: du natif, un vrai scalaire (elle ne designe rien).
+    _INT32_MAX = 0x7fffffff
 
     def __init__(self, hp: Optional[int], hp_max: Optional[int], minimal_health: Optional[int] = None,
-                 over_reduce: int = 0):
+                 over_reduce: int = 0, max_initial: Optional[int] = None,
+                 max_modification: Optional[ValueModification] = None,
+                 max_override: Optional[ValueOverride] = None):
         self.hp = hp
-        self.hp_max = hp_max
+        # `Initialize(v)` pose `+0x10 = +0x14 = v` : sans capture separee du `+0x10`, le seed les
+        # egalise -- c'est l'etat de deploiement du natif, et le seul que le canal publie.
+        self.max_base = hp_max
+        self.max_initial = hp_max if max_initial is None else max_initial
+        self.max_modification = (max_modification if max_modification is not None
+                                 else ValueModification())
+        self.max_override = max_override if max_override is not None else ValueOverride()
         self.minimal_health = minimal_health
         self.over_reduce = int(over_reduce or 0)
+
+    def current_maximum_value(self) -> Optional[int]:
+        """`IdunBattle.Entities.Components.FillUpStatComponent$$get_CurrentMaximumValue` -- MIRROR 1:1 :
+
+            var o = override.GetOverrideValueWithModification(modification);   // +0x38, +0x28
+            if (o.HasValue) return o.Value;
+            return Math.Min(int.MaxValue - initial, Math.Max(-initial, modTotal)) + base;
+
+        `None` si le max n'est pas capte (le port tolere l'absence de composant natif : c'est le
+        meme tri-etat que `hp`)."""
+        if self.max_base is None:
+            return None
+        ovr = self.max_override.get_override_value_with_modification(self.max_modification.total)
+        if ovr is not None:
+            return int(ovr)
+        initial = int(self.max_initial or 0)
+        m = max(-initial, int(self.max_modification.total))          # Math.Max(-initial, modTotal)
+        m = min(self._INT32_MAX - initial, m)                        # Math.Min(int.MaxValue - initial, .)
+        return m + int(self.max_base)
+
+    @property
+    def hp_max(self) -> Optional[int]:
+        """Le maximum EFFECTIF = `get_CurrentMaximumValue()`. C'est ce que lisent tous les natifs
+        mirroires par ce composant (`FillUp`, `MaxFillUp`, `Missing`, `RemainingPercentage`) et ce
+        que publie `combatSnapshot.healthMax` (= `GetStat(unit, StatType.Health, StatPart.Maximum)`),
+        par opposition a `observeBattle.hpMax` qui est le champ brut `max_base`."""
+        return self.current_maximum_value()
+
+    @hp_max.setter
+    def hp_max(self, value: Optional[int]) -> None:
+        """`IdunBattle.Entities.Components.FillUpStatComponent$$ApplyModifier` **case 2** :
+        `+0x14 = +0x10 = value`. Les modifications par-source ne sont PAS purgees (le natif ne les
+        touche pas dans cette branche) ; seule la base bouge."""
+        self.max_base = value
+        self.max_initial = value
+
+    def modify_max(self, source: object, amount: int) -> None:
+        """`IdunBattle.Entities.Components.FillUpStatComponent$$ModifyMax` =
+        `ValueModification.Modify(+0x28, entityId, modification, isMultiplier, initialValue = +0x10)`.
+        C'est ici qu'atterrit un stat-mod `StatType.Health` (`ApplyModifier` part
+        `StatPart.Modification`), PAS dans `UnitStats`."""
+        self.max_modification.modify(source, int(amount))
+
+    def reverse_max_modification(self, source: object) -> None:
+        """`IdunBattle.Entities.Components.FillUpStatComponent$$ReverseMaxModification` =
+        `ValueModification.ReverseModification(+0x28, entityId)` (part `StatPart.RESET_MODIFICATION`)."""
+        self.max_modification.reverse_modification(source)
+
+    def override_max(self, value: int, is_modifiable: bool = True) -> None:
+        """`IdunBattle.Entities.Components.FillUpStatComponent$$OverrideMax` =
+        `ValueOverride.SetOverride(+0x38, entityId, value, isModifiable)` (part `StatPart.OVERRIDE`)."""
+        self.max_override.override = int(value)
+        self.max_override.is_modifiable = bool(is_modifiable)
+
+    def remove_max_override(self) -> None:
+        """`IdunBattle.Entities.Components.FillUpStatComponent$$RemoveMaxOverride` =
+        `ValueOverride.RemoveOverride(+0x38, entityId)` (part `StatPart.REMOVE_OVERRIDE`)."""
+        self.max_override.override = None
+
+    def missing(self) -> int:
+        """`IdunBattle.Entities.Components.FillUpStatComponent$$Missing` = `CurrentMaximumValue - Current`.
+        0 si `hp`/max non captes."""
+        mx = self.current_maximum_value()
+        if mx is None or self.hp is None:
+            return 0
+        return int(mx) - int(self.hp)
+
+    def max_fill_up(self, amount: int) -> int:
+        """`IdunBattle.Entities.Components.FillUpStatComponent$$MaxFillUp` =
+        `Math.Min(amount, CurrentMaximumValue - Current)` -- `fill_up` PRIVE de sa mutation, exactement
+        comme `max_reduce` l'est de `reduce`. 0 si `hp`/max non captes."""
+        mx = self.current_maximum_value()
+        if mx is None or self.hp is None:
+            return 0
+        return min(int(amount), int(mx) - int(self.hp))
+
+    def get_stat_part(self, part: int, source: object = None) -> int:
+        """`IdunBattle.Entities.Components.FillUpStatComponent$$GetStatPart` -- MIRROR 1:1, sur le
+        composant qui porte REELLEMENT la sante (le natif ne consulte aucun `StatComponent` pour
+        `StatType.Health`) :
+
+            CURRENT(0)                -> +0x18                       (le PV courant)
+            CURRENT_PCT(1)            -> round(Max(0, cur / CurrentMaximumValue) * 100)
+            MAXIMUM(2)                -> get_CurrentMaximumValue()
+            INITIAL(3)                -> +0x10
+            MISSING(4)                -> CurrentMaximumValue - Current
+            MODIFICATION/MULTIPLIER(5/9) -> modTotal (ou la contribution d'UNE source)
+            OVERRIDE(7)               -> override ?? +0x14
+
+        ⚠ La branche `OVERRIDE` retombe sur le champ BRUT `+0x14` quand aucun override n'est pose --
+        c'est bien `max_base`, pas le maximum effectif."""
+        p = int(part)
+        cur = int(self.hp or 0)
+        if p == StatPart.CURRENT:                                    # 0
+            return cur
+        if p == StatPart.CURRENT_PCT:                                # 1
+            mx = self.current_maximum_value()
+            if not mx:
+                return 0
+            return round(max(0.0, cur / int(mx)) * 100)
+        if p == StatPart.MAXIMUM:                                    # 2
+            return int(self.current_maximum_value() or 0)
+        if p == StatPart.INITIAL:                                    # 3
+            return int(self.max_initial or 0)
+        if p == StatPart.MISSING:                                    # 4
+            return self.missing()
+        if p in (StatPart.MODIFICATION, StatPart.MULTIPLIER_MODIFICATION):   # 5 / 9
+            if source is not None:
+                return self.max_modification.get_modification_from_entity(source)
+            return self.max_modification.total
+        if p == StatPart.OVERRIDE:                                   # 7
+            ovr = self.max_override.override
+            return int(ovr) if ovr is not None else int(self.max_base or 0)
+        raise ValueError(f"StatPart {p} non implemente (HealthComponent)")
 
     def reduce(self, amount: int, *, ignore_minimal: bool = False) -> int:
         """`IdunBattle.Entities.Components.FillUpStatComponent$$Reduce` — retire `amount` PV, borné : jamais > PV courant (pas de
