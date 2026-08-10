@@ -173,34 +173,32 @@ def ring_natif(h, carrier_id, regime="selector"):
     return None
 
 
+def _amulette():
+    """Le probe AMULETTE, ou vit le FOYER de l'inventaire et de l'eloignement.
+
+    Import DIFFERE, et c'est structurel : ce module est deja importe PAR lui dans l'autre sens au
+    niveau de `main` (`AM.build`, `AM.strike`, `AM.etages` arrivent par parametre), donc un import
+    de tete fermerait la boucle."""
+    import probe_589r1r1r2r1_amulet_crit_reduction_live as AM
+    return AM
+
+
 def inventaire_traits(h, traits_comptes, dv=None):
     """Les porteurs REELS de `Summon`/`Decoy`, cote NATIF (`combatSnapshot.units[].traits`, #233).
 
-    La cle d'unite de `combatSnapshot` est `entityId`, pas `id` : la lire de travers rend un
-    inventaire d'anonymes, exactement le genre de zero qui se lit << rien a signaler >>.
+    FOYER UNIQUE depuis `#589-r1-r1-r2-r1-r9` : le parsing vit dans
+    `probe_589r1r1r2r1_amulet_crit_reduction_live.inventaire_traits`, parce que le bras
+    `--geo-only` de ce meme probe en a besoin -- deux lectures distinctes de `entityId` (la cle
+    qu'on avait deja failli lire de travers) feraient exactement le fork qu'on cherche a eviter.
 
-    Tri-etat respecte : `traits == None` = capteur MUET -> on le DIT, on ne rend pas une liste
-    vide qui se lirait << personne ne porte le trait >>."""
-    snap = h.rpc("combatSnapshot", {"runnerId": h.rid}, 60)
-    units = (snap.get("units") if isinstance(snap, dict) else None) or []
-    dv = dv if dv is not None else h.dview()
-    par_id = {u.get("id"): u for u in (dv.get("units") or [])}
-    out, muets = [], []
-    for u in units:
-        eid, tr = u.get("entityId"), u.get("traits")
-        if tr is None:
-            muets.append(eid)
-            continue
-        porte = sorted(set(int(t) for t in tr) & set(traits_comptes))
-        if porte:
-            d = par_id.get(eid) or {}
-            out.append({"id": eid, "visualId": d.get("visualId") or u.get("visualId"),
-                        "owner": d.get("owner"), "pos": _pos(d), "alive": d.get("alive"),
-                        "traits_comptes": porte})
+    Ce que la delegation AJOUTE ici : la transposition du tri-etat en REFUS. Le foyer rend
+    `(porteurs, muets)` ; ce probe-ci, dont chaque bras conclut, LEVE plutot que de conclure sur un
+    inventaire partiel."""
+    porteurs, muets = _amulette().inventaire_traits(h, traits_comptes, dv)
     if muets:
         raise MontageError("combatSnapshot rend traits=null pour %s -- capteur MUET, "
                            "l'inventaire ne peut pas etre rendu" % (muets,))
-    return out
+    return porteurs
 
 
 def rejeu_force(h, rec, n):
@@ -382,12 +380,12 @@ def monter(a, AM, Board, Harness, rpc, tag):
 
 def pousser_loin(h, ids, loins, quoi):
     """DEPLACE les unites vers des tuiles a hex >= 4 du porteur -- on force la configuration, on
-    ne subit pas la geometrie de spawn."""
-    for uid in ids:
-        occ = {_pos(u) for u in h.alive()}
-        dest = next((c for c in loins if c not in occ and h.place(uid, c)), None)
-        if dest is None:
-            raise MontageError("impossible d'eloigner u%s (%s)" % (uid, quoi))
+    ne subit pas la geometrie de spawn. MEME foyer que l'inventaire (cf. `inventaire_traits`)."""
+    AM = _amulette()
+    try:
+        return AM.pousser_loin(h, ids, loins, quoi)
+    except AM.MontageError as e:                 # meme refus, exprime dans l'exception de CE probe
+        raise MontageError(str(e)) from e
 
 
 def main() -> int:

@@ -367,3 +367,28 @@ def test_etage7b_le_regime_armure_est_degenere_et_c_est_une_LIMITE():
     nu, pre, post = _pre_et_post(9000, 30, ARMURE, REDUCTION)
     assert nu == 9000 - ARMURE, "le montage ne place pas la branche soustractive en tete"
     assert pre == post, "ce regime DOIT etre degenere -- s'il ne l'est plus, la limite a bouge"
+
+
+# ---------------------------------------------------------------------------------------------
+# [8] DEUX ECRITURES, UN SEUL BAC -- la « divergence de famille » n'en est plus une
+# ---------------------------------------------------------------------------------------------
+def test_etage8_for_subtraction_et_for_addition_negatif_atterrissent_au_MEME_endroit():
+    """CE QUE CE TEST EMPECHE DE RECROIRE. La docstring de `ramshackle.py` presentait un CHOIX de
+    famille entre deux jumeaux : `HolyDuel_DmgReduction` (`for_addition(False, -v)`, cru
+    POST-percage) et `PsychicFortress_DmgReduction` (`for_subtraction(False, v)`, PRE-percage).
+    Depuis #462-r4b-r1, l'`Addition@+0x10` du DEFENSEUR est versee dans le MEME accumulateur
+    PRE-percage que `flat_reductions` (`AttackDamageOperation._apply_defender_flat_reductions`) --
+    les deux ecritures rendent donc EXACTEMENT le meme nombre. Il n'y avait plus de fourche a
+    trancher cote port ; ce que la mesure live tranche est le placement NATIF, contre le modele
+    POST-percage construit a la main."""
+    from engine.runner.operations.damage import AttackDamageOperation
+    from engine.services.damage_modifiers import DamageModifiers, add_modifier
+    from engine.services.effect_bonus import for_addition, for_subtraction
+    sorties = []
+    for eb in (for_subtraction(False, REDUCTION), for_addition(False, -REDUCTION)):
+        mods, def_mods = DamageModifiers(), DamageModifiers()
+        add_modifier(def_mods, eb)
+        AttackDamageOperation._apply_defender_flat_reductions(mods, def_mods)
+        sorties.append((mods.additive, def_mods.additive))
+    assert sorties[0] == sorties[1] == (-float(REDUCTION), 0.0), (
+        "les deux ecritures ne tombent plus dans le meme bac : %r" % (sorties,))

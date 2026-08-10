@@ -180,23 +180,98 @@ def build(a, tag, level):
     return json.loads(Path(sf).read_text())["runnerId"], sf
 
 
+class MontageError(RuntimeError):
+    """On REFUSE de rendre un verdict plutot que d'en fabriquer un depuis un montage muet."""
+
+
+def _pos_de(u) -> tuple:
+    p = (u or {}).get("pos") or {}
+    return (p.get("col"), p.get("row"))
+
+
+def inventaire_traits(h, traits_comptes, dv=None) -> tuple:
+    """FOYER UNIQUE de l'inventaire des porteurs de trait, cote NATIF
+    (`combatSnapshot.units[].traits`, #233 : les traits REELLEMENT portes en bataille, veto
+    compris). Rend `(porteurs, muets)`.
+
+    POURQUOI IL EXISTE. `#589-r1-r1-r2-r1-r8` a mesure que le compteur natif
+    (`AmuletOfTheVoidwyrm_CritDamageReductionEffect$$GetAdjacentFriendlySummonsAndDecoysCount`)
+    comptait `genesSmnDecoy`, une unite presente au DEPLOIEMENT sur un voisin stocke du porteur --
+    jamais le compagnon que le montage croyait mesurer. Un bras qui ne fige que les unites qu'il
+    a lui-meme posees peut donc re-mesurer autre chose que ce qu'il annonce, et rendre un accord
+    par COMPENSATION.
+
+    La cle d'unite de `combatSnapshot` est `entityId`, PAS `id` : la lire de travers rend un
+    inventaire d'anonymes -- exactement le genre de zero qui se lit << rien a signaler >>.
+
+    TRI-ETAT : `traits == None` = capteur MUET pour cette unite -> elle sort dans `muets`, jamais
+    dans une liste vide qui se lirait << personne ne porte le trait >>."""
+    snap = h.rpc("combatSnapshot", {"runnerId": h.rid}, 60)
+    units = (snap.get("units") if isinstance(snap, dict) else None) or []
+    dv = dv if dv is not None else h.dview()
+    par_id = {u.get("id"): u for u in (dv.get("units") or [])}
+    porteurs, muets = [], []
+    for u in units:
+        eid, tr = u.get("entityId"), u.get("traits")
+        if tr is None:
+            muets.append(eid)
+            continue
+        portes = sorted(set(int(t) for t in tr) & set(traits_comptes))
+        if portes:
+            d = par_id.get(eid) or {}
+            porteurs.append({"id": eid, "visualId": d.get("visualId") or u.get("visualId"),
+                             "owner": d.get("owner"), "team": d.get("team"),
+                             "pos": _pos_de(d), "alive": d.get("alive"),
+                             "traits_comptes": portes})
+    return porteurs, muets
+
+
+def pousser_loin(h, ids, loins, quoi):
+    """DEPLACE des unites vers des tuiles a hex >= 4 du porteur -- on FORCE la configuration, on ne
+    subit pas la geometrie de spawn. Leve `MontageError` si une unite ne peut pas etre eloignee :
+    un intrus laisse en place ferait mesurer autre chose que ce que le bras annonce."""
+    for uid in ids:
+        occ = {_pos_de(u) for u in h.alive()}
+        if next((c for c in loins if c not in occ and h.place(uid, c)), None) is None:
+            raise MontageError("impossible d'eloigner u%s (%s)" % (uid, quoi))
+
+
+def _activite(h, carrier_id: int):
+    """TRI-ETAT de la `CreateActiveCondition` native, LU sur `decisionView` (`includeInactive`) :
+    `True`/`False` = mesure, `None` = l'effet est ABSENT du canal, donc NON MESURE -- jamais rabattu
+    sur `False`, ce qui ferait passer un porteur SANS relique pour un compteur nul."""
+    dvi = h.rpc("decisionView", {"runnerId": h.rid, "maxRank": 1, "allAbilities": True,
+                                 "includeInactive": True}, 90)
+    cu = next((u for u in (dvi.get("units") or []) if u.get("id") == carrier_id), None)
+    for e in ((cu or {}).get("effects") or []):
+        if e.get("name") == EFFECT_NAME:
+            return bool(e.get("active"))
+    return None
+
+
 def _stage_geo(h, board, marchables, occupe, carrier, att, comps, verbose):
     """Le bras SUBSTRAT : un compagnon a distance hex 1 du porteur mais ABSENT de sa liste
     d'adjacence CAPTUREE (`boardGraph.neighbours` == `connectivity`, dans les DEUX sens).
 
-    ⚠ CE BRAS A ETE ECRIT A L'ENVERS, et la mesure l'a retourne. Il attendait d'abord que le natif
-    ne compte PAS ce voisin (substrat `IterateAdjacentTiles`, celui de `BattleQuery$$GetAdjacentUnits`
-    et d'`IsCharging`). MESURE sur `C3_14`, porteur en `(5,4)`, compagnon en `(5,3)` -- meme
-    elevation 4, donc la porte `|dElev| < 2` ne joue pas, et l'arete manque des deux cotes de la
-    capture : le natif COMPTE ce voisin. C'est le meme fait que le depot avait deja mesure sur
-    l'AUTRE consommateur du meme sous-arbre (`Units(AdjacentTiles(...))` du splash de FragBomb,
-    cf. `runner/operations/triggers/base.py::_adjacent_damageable_enemies`), et il est ici recoupe
-    par un canal INDEPENDANT (l'activite d'un effet, pas un splash).
+    ⚠ CE BRAS A ETE ECRIT A L'ENVERS **DEUX FOIS**, et la seconde correction est celle-ci.
+    Sa premiere version attendait que le natif ne compte PAS ce voisin ; une mesure sur `C3_14`
+    (porteur `(5,4)`, compagnon `(5,3)`) l'a fait ecrire l'inverse -- « le natif COMPTE ce voisin »
+    -- par INFERENCE depuis l'activite de l'effet. `#589-r1-r1-r2-r1-r8` a REFUTE cette inference :
+    l'effet etait actif a cause de `genesSmnDecoy`, presente depuis le DEPLOIEMENT sur un voisin
+    STOCKE, et le compagnon en `(5,3)` n'a jamais rien ajoute (compteur natif 1 -> 1 quand on le
+    pose). C'etait un accord par COMPENSATION -- le port comptait 1 par geometrie, le natif 1 par
+    l'intruse.
 
-    Le bras mesure donc « le natif compte un voisin GEOMETRIQUE que la capture ne liste pas, et le
-    port aussi » -- `_within` filtre par `hexgeo.distance <= radius` et ne se sert de
-    `board.neighbours_native` que pour l'ORDRE. Il REFUSE si le board n'offre aucune paire
-    divergente : il ne rend jamais un vert qui ne mesure rien."""
+    LA CHAINE NATIVE NE LAISSE AUCUNE PORTE (relue de bout en bout dans `case-589-r1-r1-r2-r1-r8`
+    sec.3) : `AdjacentTilesSelector$$Select` -> `IBattleQuery` slot 80 `IterateAdjacentTiles` ->
+    `TileQuery.u003CIterateAdjacentTilesu003Ed__8$$MoveNext` = `foreach id in tile.<+0x30>.<+0x10>`,
+    une LISTE STOCKEE, aucune geometrie. **ATTENDU : INACTIF.**
+
+    CE QUE CE BRAS FIGE MAINTENANT, et qui manquait : l'INVENTAIRE des porteurs de trait
+    (`inventaire_traits`, cote NATIF) puis leur ELOIGNEMENT, avant toute lecture. `n` n'est plus
+    ECRIT, il est DERIVE de l'occupation MESUREE de la liste stockee. Trois refus, aucun n'est un
+    accord : capteur de traits muet, aucune paire divergente sur ce board, ou un porteur qu'on ne
+    peut pas eloigner."""
     import hexgeo
     plan = None
     for tid in sorted(marchables, key=lambda t: (-len(board.neighbours_native(t)), t)):
@@ -214,13 +289,18 @@ def _stage_geo(h, board, marchables, occupe, carrier, att, comps, verbose):
         loin = [board.coord(t) for t in marchables
                 if board.coord(t) not in occupe
                 and hexgeo.distance(board.coord(t), anchor) >= 4]
-        if not loin:
+        # >= 4 tuiles LOIN : il faut de quoi eloigner le SECOND compagnon **et** tous les porteurs
+        # de trait que l'inventaire va reveler (il y en avait UN qu'aucune version anterieure ne
+        # voyait). Une seule tuile suffisait a l'ancien bras -- c'est cette etroitesse qui laissait
+        # l'intruse en place.
+        if len(loin) < 4:
             continue
         plan = (anchor, geo, libres_nat, loin)
         break
     if plan is None:
-        return None, ("aucune paire (hex-adjacente, NON voisine stockee) libre sur ce board -- "
-                      "le bras GEOMETRIQUE ne discriminerait RIEN ici")
+        return None, ("aucune paire (hex-adjacente, NON voisine stockee) libre sur ce board, avec "
+                      "au moins 4 tuiles a hex >= 4 pour eloigner les porteurs de trait -- le bras "
+                      "GEOMETRIQUE ne discriminerait RIEN ici")
     anchor, geos, contacts, loins = plan
 
     def _pose(uid, cands, quoi):
@@ -249,53 +329,119 @@ def _stage_geo(h, board, marchables, occupe, carrier, att, comps, verbose):
     geo_pos = _pose(comps[0]["id"], [c for c in geos if c not in o], "GEO")
     if geo_pos is None:
         return None, "placement du compagnon GEOMETRIQUE refuse"
-    o = _occ()
-    if _pose(comps[1]["id"], [c for c in loins if c not in o], "LOIN") is None:
-        return None, "placement du second compagnon refuse"
+
+    # === INVENTAIRE NATIF DES PORTEURS DE TRAIT, puis ELOIGNEMENT ============================
+    # C'est l'etape que ce bras n'avait JAMAIS faite (#589-r1-r1-r2-r1-r8) : il ne figeait que les
+    # deux compagnons qu'il avait poses, et une unite du DEPLOIEMENT portant `Decoy` allumait
+    # l'effet a leur place. On enumere donc les porteurs REELS, cote natif, et on pousse TOUT le
+    # monde sauf le compagnon GEO -- y compris le second compagnon, qui n'a plus de traitement
+    # special : il est un porteur comme un autre.
+    from engine.entities.traits.unit_trait import UnitTrait
+    traits_comptes = (int(UnitTrait.Summon), int(UnitTrait.Decoy))
+    porteurs, muets = inventaire_traits(h, traits_comptes)
+    if muets:
+        return None, ("capteur `combatSnapshot.units[].traits` MUET pour %s -- l'inventaire ne "
+                      "peut PAS etre rendu, et un inventaire partiel se lirait comme complet"
+                      % (muets,))
+    if not any(p["id"] == comps[0]["id"] for p in porteurs):
+        return None, ("le compagnon GEO n'est pas dans l'inventaire NATIF des porteurs de %s -- "
+                      "le montage `--unit-stat Traits=[...]` n'a pas mordu, le bras serait vide"
+                      % (list(TRAITS_COMPTES),))
+    a_eloigner = [p["id"] for p in porteurs if p["id"] != comps[0]["id"]]
+    try:
+        pousser_loin(h, a_eloigner, loins, "porteur de trait etranger au bras GEO")
+    except MontageError as e:
+        return None, str(e)
 
     dv = h.dview()
     carrier = h.by_visual(CARRIER, dv)
     att = h.by_visual(ATTACKER, dv)
     cp = carrier.get("pos") or {}
+    ancre = (cp.get("col"), cp.get("row"))
     ctile = board.id_at(cp.get("col"), cp.get("row"))
     nat = {board.coord(v) for v in board.neighbours_native(ctile)}
-    u0 = h.by_visual(COMPANIONS[0], dv)
-    p0 = (u0 or {}).get("pos") or {}
-    pos0 = (p0.get("col"), p0.get("row"))
-    if hexgeo.distance(pos0, (cp["col"], cp["row"])) != 1 or pos0 in nat:
-        return None, ("le compagnon n'est pas dans le regime voulu (hex-adjacent ET non stocke) : "
-                      "pos=%s nat=%s" % (pos0, sorted(nat)))
-    # GARDE DE MONTAGE : le SECOND compagnon doit etre HORS de tout voisinage du porteur, sinon
-    # c'est LUI qui allumerait l'effet et le bras n'accuserait pas ce qu'il croit.
-    u1 = h.by_visual(COMPANIONS[1], dv)
-    p1 = (u1 or {}).get("pos") or {}
-    pos1 = (p1.get("col"), p1.get("row"))
-    if hexgeo.distance(pos1, (cp["col"], cp["row"])) <= 1 or pos1 in nat:
-        return None, ("le SECOND compagnon est proche du porteur (%s) -- le bras ne discrimine "
-                      "rien" % (pos1,))
+    # === LE REGIME, RE-MESURE APRES DEPLACEMENT (jamais suppose) =============================
+    porteurs, muets = inventaire_traits(h, traits_comptes, dv)
+    if muets:
+        return None, "capteur de traits MUET a la RE-mesure pour %s" % (muets,)
+    amis = [p for p in porteurs if p.get("alive") and p.get("team") == carrier.get("team")]
+    geo_amis = [p for p in amis
+                if p["pos"] not in nat and hexgeo.distance(p["pos"], ancre) == 1]
+    # `n` est DERIVE de la liste STOCKEE, pas ecrit : c'est la seule grandeur que le decompile
+    # designe (`IterateAdjacentTiles` enumere `tile.<+0x30>.<+0x10>`).
+    n_stockes = [p for p in amis if p["pos"] in nat]
+    if len(geo_amis) != 1 or geo_amis[0]["id"] != comps[0]["id"]:
+        return None, ("regime non atteint : il faut EXACTEMENT un porteur ami a hex 1 HORS liste "
+                      "stockee, et que ce soit le compagnon GEO. porteurs amis = %s ; ancre = %s ; "
+                      "voisins stockes = %s"
+                      % ([(p["visualId"], p["pos"]) for p in amis], ancre, sorted(nat)))
+    if n_stockes:
+        return None, ("regime non atteint : %s porteur(s) ami(s) sur un voisin STOCKE (%s) -- le "
+                      "bras mesurerait leur contribution et non celle du voisin GEOMETRIQUE"
+                      % (len(n_stockes), [(p["visualId"], p["pos"]) for p in n_stockes]))
+    pos0 = geo_amis[0]["pos"]
     if verbose:
-        print("    porteur=%s | GEO=%s (hex %d, stocke=%s) | LOIN=%s (hex %d) | voisins stockes=%s"
-              % ((cp["col"], cp["row"]), pos0,
-                 hexgeo.distance(pos0, (cp["col"], cp["row"])), pos0 in nat, pos1,
-                 hexgeo.distance(pos1, (cp["col"], cp["row"])), sorted(nat)))
-    dvi = h.rpc("decisionView", {"runnerId": h.rid, "maxRank": 1, "allAbilities": True,
-                                 "includeInactive": True}, 90)
-    cu = next((u for u in (dvi.get("units") or []) if u.get("id") == carrier["id"]), None)
-    effs = {e.get("name"): e.get("active") for e in ((cu or {}).get("effects") or [])}
-    actif = bool(effs.get(EFFECT_NAME))
-    if not actif:
-        return None, ("REFUTATION : le natif ne compte PAS ce voisin hex non capture -- le "
-                      "substrat d'`AdjacentTilesSelector` serait la liste STOCKEE, ce qui "
-                      "contredirait la mesure de `_adjacent_damageable_enemies`. A instruire.")
+        print("    porteur=%s | GEO=%s (hex 1, stocke=False) | voisins stockes=%s" %
+              (ancre, pos0, sorted(nat)))
+        print("    porteurs de trait NATIFS : %s"
+              % ([(p["visualId"], p["pos"], p["team"],
+                   hexgeo.distance(p["pos"], ancre)) for p in porteurs],))
+    # === TEMOIN DIFFERENTIEL, et il est INDISPENSABLE ========================================
+    # Le regime vise rend `n = 0` : LIVE et OFFLINE s'accordent, les deux contre-epreuves ne
+    # mordent pas, et NOCHANNEL est un no-op. Un tel bras serait VERT meme si la relique n'etait
+    # pas equipee, si le trait n'etait pas monte, ou si le porteur n'etait pas le bon. On mesure
+    # donc TROIS etats sur le MEME runner, en ne deplacant qu'UNE unite :
+    #   S1 GEO    (hex 1, HORS liste stockee) -> attendu INACTIF  <- LA question
+    #   S2 STOCKE (un voisin de la liste)     -> attendu ACTIF    <- le controle POSITIF
+    #   S3 RETOUR (le meme GEO)               -> attendu INACTIF  <- rien ne s'est fige
+    # Sans S2, « inactif » ne prouverait rien ; sans S3, « actif en S2 » pourrait etre un etat
+    # collant. C'est la forme mesuree par `probe_589r1r1r2r1r8_compteur_natif --bras sequence`.
+    s1 = _activite(h, carrier["id"])
+    if s1 is None:
+        return None, ("l'effet %s est ABSENT du canal (meme `includeInactive`) -- non mesure, "
+                      "jamais rabattu sur INACTIF" % EFFECT_NAME)
+    occ = {_pos_de(u) for u in h.alive()}
+    stocke = next((c for c in nat if c not in occ and board.walkable(board.id_at(c[0], c[1]))
+                   and h.place(comps[0]["id"], c)), None)
+    if stocke is None:
+        return None, ("aucun voisin STOCKE libre pour le CONTROLE POSITIF -- sans lui, un "
+                      "« inactif » en position GEO ne prouverait rien")
+    s2 = _activite(h, carrier["id"])
+    if not h.place(comps[0]["id"], pos0):
+        return None, "retour du compagnon GEO en %s refuse -- S3 non mesurable" % (pos0,)
+    s3 = _activite(h, carrier["id"])
+    if verbose:
+        print("    temoin differentiel : S1 GEO=%s  S2 STOCKE %s=%s  S3 RETOUR=%s"
+              % (s1, stocke, s2, s3))
+    if s2 is not True:
+        return None, ("CONTROLE POSITIF MUET : sur un voisin STOCKE (%s) l'effet rend %r au lieu "
+                      "d'ACTIF -- le montage est mort (relique, trait, ou porteur), et le bras "
+                      "mesurerait un zero qui ne dit rien" % (stocke, s2))
+    if s3 is not s1:
+        return None, ("l'etat n'est pas REVERSIBLE (S1=%r, S3=%r) -- une lecture s'est figee, on "
+                      "ne peut pas attribuer S1 a la position" % (s1, s3))
+    actif = bool(s1)
+    # ATTENDU : INACTIF. La `CreateActiveCondition` est `AmountIsGreaterThanZero(<le compteur>)`,
+    # et le compteur n'enumere que la liste STOCKEE -- que plus aucun porteur ami n'occupe.
+    if actif:
+        return None, ("REFUTATION : le natif compte un voisin hex-1 ABSENT de la liste stockee, "
+                      "alors que l'inventaire montre qu'aucun autre porteur ami n'est adjacent. "
+                      "Cela contredirait la chaine relue en sec.3 de case-589-r1-r1-r2-r1-r8 "
+                      "(`IterateAdjacentTiles` = `tile.<+0x30>.<+0x10>`). A instruire.")
+    dv = h.dview()
+    att = h.by_visual(ATTACKER, dv)
     atk_type = h.normal_attack_type(att["id"], dv)
     rec = {"caster": att["id"], "target": carrier["id"], "ability_type": int(atk_type),
-           "n": 1, "anchor": anchor, "contact": contact, "step_to": None,
-           "actif_natif": actif, "geo": pos0}
+           "n": len(n_stockes), "anchor": anchor, "contact": contact, "step_to": None,
+           "actif_natif": actif, "geo": pos0, "temoin": {"S1_geo": s1, "S2_stocke": s2,
+                                                         "S3_retour": s3, "stocke": stocke},
+           "porteurs": [(p["visualId"], p["pos"], hexgeo.distance(p["pos"], ancre))
+                        for p in porteurs]}
     rec["snapshot"] = h.snapshot()
     rec["rng_after_step"] = h.rpc("dumpRng", {"runnerId": h.rid}, 30)
     if verbose:
-        print("    ancre=%s compagnon GEO=%s (hex 1, NON stocke) contact=%s | effet actif = %s"
-              % (anchor, pos0, contact, actif))
+        print("    ancre=%s compagnon GEO=%s (hex 1, NON stocke) contact=%s | n derive = %d | "
+              "effet actif = %s" % (anchor, pos0, contact, rec["n"], actif))
     return rec, None
 
 
@@ -519,7 +665,11 @@ def run_case(a, rpc, Board, Harness, n, level, paliers) -> int:
             print("[n=%d lvl=%d] REFUS : %s" % (n, level, why))
             return 2
         if a.geo_only:
-            n = 1                       # MESURE : le natif COMPTE le voisin geometrique (cf. _stage_geo)
+            # `n` est DERIVE par `_stage_geo` de l'occupation MESUREE de la liste STOCKEE, jamais
+            # ecrit. L'ancienne ligne posait `n = 1` sur l'inference « le natif COMPTE le voisin
+            # geometrique » que `#589-r1-r1-r2-r1-r8` a REFUTEE : ce 1 venait d'une intruse
+            # (`genesSmnDecoy`) que le bras n'inventoriait pas.
+            n = int(rec["n"])
         live, why = strike(h, rec)
         if live is None:
             print("[n=%d lvl=%d] REFUS : %s" % (n, level, why))
@@ -549,6 +699,12 @@ def run_case(a, rpc, Board, Harness, n, level, paliers) -> int:
         v = paliers[level - 1]
         print("[n=%d lvl=%d] reduction attendue = %d x %d = %d | actif_natif=%s"
               % (n, level, v, n, v * n, rec["actif_natif"]))
+        if a.geo_only:
+            # Ce que le bras a REELLEMENT fige : l'inventaire natif des porteurs et le temoin
+            # differentiel. Sans ces deux lignes a l'ecran, un `n = 0` se relirait comme
+            # « le montage n'a rien fait ».
+            print("        PORTEURS  %s" % (rec.get("porteurs"),))
+            print("        TEMOIN    %s" % (rec.get("temoin"),))
         if a.verbose:
             print("        ETAGES port %s" % (etages(h, rec),))
         print("        LIVE      %s" % (live[:6],))
@@ -589,10 +745,15 @@ def main() -> int:
                          "`HasFlag(unit, trait)`, donc `BC.Units[].Traits`, que `--unit-stat` "
                          "ecrit.")
     ap.add_argument("--geo-only", action="store_true",
-                    help="BRAS GEOMETRIQUE : le compagnon est a distance hex 1 du porteur mais "
-                         "ABSENT de sa liste d'adjacence STOCKEE. Le natif ne doit PAS le compter "
-                         "(`AdjacentTilesSelector` enumere `IterateAdjacentTiles`). Un board sans "
-                         "paire divergente fait REFUSER le bras, jamais passer.")
+                    help="BRAS SUBSTRAT : le compagnon est a distance hex 1 du porteur mais ABSENT "
+                         "de sa liste d'adjacence STOCKEE. Le natif ne doit PAS le compter "
+                         "(`AdjacentTilesSelector` -> `IterateAdjacentTiles` = `tile.<+0x30>."
+                         "<+0x10>`, une liste STOCKEE). Le bras INVENTORIE d'abord les porteurs de "
+                         "trait cote natif (`combatSnapshot.units[].traits`) et les ELOIGNE tous "
+                         "sauf le compagnon GEO : sans cet inventaire il re-mesurait une intruse "
+                         "(#589-r1-r1-r2-r1-r8). Un board sans paire divergente, un capteur de "
+                         "traits muet ou un porteur qu'on ne peut pas eloigner font REFUSER le "
+                         "bras, jamais passer.")
     ap.add_argument("--verbose", action="store_true")
     a = ap.parse_args()
 
