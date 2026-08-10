@@ -254,6 +254,48 @@ class AdjacentTiles(TargetsSelector):
         return out
 
 
+class TrenchTiles(TargetsSelector):
+    """`IdunBattleLogic.Entities.DSLSelectors$$Trench(source)` ->
+    `IdunBattle.Entities.Selectors.TrenchTilesSelector$$Select` -- MIRROR du decompile :
+
+        result = new List<TileEntity>()
+        foreach (t in this.<+0x18 source>.SelectTiles(entities))     # vslot 10 = SelectTiles
+            if (IdunBattle.Entities.TileExtensions$$IsTrench(t)) result.Add(t)
+        return result
+
+    Deux points LUS, pas deduits :
+
+    1. Le natif consomme la source par **`SelectTiles`** (le slot virtuel 10, pas `Select`) -- donc
+       une ENTITE-unite y est depliee en son EMPREINTE, exactement comme pour `AdjacentTiles`. Le
+       port passe par `_tile_positions` (domaine MIXTE unite / id de tuile / position), meme
+       normalisation.
+    2. `IdunBattle.Entities.TileExtensions$$IsTrench(tile)` = `IdunBattle.Entities.TileExtensions
+       $$IsTileWithId(tile, <TileId Trench>)` : c'est le TERRAIN STATIQUE de la tuile (`tileDefId`
+       de la BC), **pas** l'effet de tuile `EffectType.Trench` (1059) que pose
+       `IdunBattleLogic.Entities.Abilities.Tiles.Loki.TrenchAbility$$CreateBehaviour` sur les
+       UNITES. Le port lit donc `Board.terrain_at` -- le MEME canal que la sous-branche
+       `IsTrench(attackerTile)` de `IdunBattle.Core.Services.DamageCalculations$$
+       CalculateTrenchReduction` (`services/damage_modifiers.py`), pas un second.
+
+    AUCUN dedoublonnage natif (`List.Add` nu, pas un `OrderedSet`) -> le port n'en fait pas non
+    plus ; l'ordre est celui de la source. board None -> []."""
+    def __init__(self, source: TargetsSelector):
+        self.source = source
+
+    def select(self, ctx):
+        board = getattr(ctx, "board", None)
+        if board is None:
+            return []
+        out: list = []
+        for p in _tile_positions(self.source, ctx, board):
+            if board.terrain_at(p[0], p[1]) != "Trench":     # TileExtensions.IsTrench(t)
+                continue
+            tid = board.id_at(p[0], p[1])
+            if tid is not None:
+                out.append(tid)
+        return out
+
+
 class PreviousTile(TargetsSelector):
     """`IdunBattleLogic.Entities.DSLSelectors$$PreviousTile(unit)` ->
     `IdunBattle.Entities.Selectors.PreviousTileSelector$$Select` -- MIRROR du decompile :

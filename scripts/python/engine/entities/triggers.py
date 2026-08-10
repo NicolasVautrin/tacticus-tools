@@ -40,6 +40,7 @@ from .formulas import Count
 from .selectors.units import MechanicalUnits
 from .selectors._shared import _entity_pos
 from .selectors.tiles import CanAddUnit
+from .selectors.tiles import TrenchTiles          # `DSLSelectors$$Trench` (cf. `IsTrenchTile`)
 
 
 class TriggerAnd(AbilityTrigger):
@@ -309,6 +310,30 @@ class IsCanAddUnit(AbilityTrigger):
 
     def should_trigger(self, ctx):
         return len(CanAddUnit(self.selector).evaluate(ctx) or []) >= 1
+
+
+class IsTrenchTile(AbilityTrigger):
+    """`IdunBattleLogic.Entities.DSLTriggers$$IsTrenchTile(selector)` -- MIRROR du decompile :
+
+        return <trigger DAT_1833d73e0>( DSLSelectors.Trench(selector), DSLFormulas+0x20 )
+
+    **Meme couple exact qu'`IsCanAddUnit` ci-dessus** (meme `Il2CppClass*` alloue, meme champ de
+    formule), donc la lecture etablie la s'applique telle quelle et n'est pas re-devinee ici :
+
+    * la classe reellement allouee est `AmountIsEqualOrGreaterAbilityTrigger` (`>=`), pas
+      l'`AmountIsGreaterAbilityTrigger` que ghidra affiche -- corps de ctor DEDUPLIQUE ;
+    * `DSLFormulas+0x20` = **`Direct(1)`** (`IdunBattleLogic.Entities.DSLFormulas$$.ctor` :
+      `+0x18 = Direct(0)`, `+0x20 = Direct(1)`, `+0x28 = Direct(2)`...).
+
+    => `IsTrenchTile(sel)` = `Count(Trench(sel)) >= 1` = « AU MOINS UNE tuile de `sel` porte le
+    terrain `Trench` ». Les trois consommateurs portes l'utilisent sous un `NOT` a l'interieur d'un
+    `Filter`, ou `sel` est `ActiveTarget@DSLSelectors+0x68` = l'element COURANT lie par le `Filter`
+    -- soit, sur une source mono-tuile, « ecarter les tuiles Trench »."""
+    def __init__(self, selector):
+        self.selector = selector
+
+    def should_trigger(self, ctx):
+        return len(TrenchTiles(self.selector).evaluate(ctx) or []) >= 1
 
 
 class AmountIsZero(AbilityTrigger):

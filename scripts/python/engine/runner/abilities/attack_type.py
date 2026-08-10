@@ -623,6 +623,14 @@ ABILITY_ATTACK_TYPE: dict[int, int] = {
     # appartient a la TRIGGERED 1237 `OverwhelmingWrath_Attack`, pas au cast. Meme configuration que
     # 1069 SeekerMissileFrequencyLock et 1184 MomentShackle (2-phases).
     ActiveAbilityType.OverwhelmingWrath: AbilityAttackType.Others,  # 1141
+    # Lot BOSS RIPTIDE (#888) -- les DEUX ctors du boss `tauBossRiptide` finissent litteralement par
+    # `AActiveAbility..ctor(this, &opts, 2)` (relu au decompile, 3e argument = le litteral
+    # `AbilityAttackType`). MEME configuration que 1069/1141 ci-dessus : l'audit les classe
+    # `DAMAGE(Particle)` d'apres le `damageProfile` du KIT, et le ctor dit quand meme `2` -- parce
+    # que le degat appartient aux TRIGGERED de phase 2 (`NovaShield_Attack`, `NovaBoost_Attack`),
+    # pas au cast. On transcrit le 3e argument du ctor, jamais le profil de degat du kit.
+    ActiveAbilityType.NovaBoost: AbilityAttackType.Others,  # 1192
+    ActiveAbilityType.NovaShield: AbilityAttackType.Others,  # 1194
 }
 # COUVERTURE : la table couvre l'INTEGRALITE du registre `ABILITY_CLASSES` (garde-fou :
 # `probe_120_pre_unit_ability_fork.py` etape 0). Une ability AJOUTEE au registre sans son litteral de

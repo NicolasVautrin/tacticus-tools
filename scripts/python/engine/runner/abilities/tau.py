@@ -23,7 +23,8 @@ from .base import (ActiveAbility, convert_rounds_to_turns,
 from .behaviours.ability_state import ResetActiveAbility
 from .behaviours.combat import AttackWithAttackDamage
 from .behaviours.context import entities_from_state
-from .behaviours.effects import (ActivateEffect, AddBondEffect, AddEffect, ChangeEffectTurns,
+from .behaviours.effects import (ActivateEffect, AddBondEffect, AddEffect,
+                                 AddStaticStatModifierEffect, ChangeEffectTurns, CreateShield,
                                  RemoveEffect)
 from .behaviours.grants import AddTrait
 from .behaviours.movement import Teleport
@@ -41,17 +42,18 @@ from ...dsl.effects import ExecutionContext
 from ...entities.active_ability_type import ActiveAbilityType
 from ...entities.behaviours import Foreach, op_add, op_and, If as IfBehaviour
 from ...entities.effect_type import EffectType
-from ...entities.selectors.accessors import (ActiveTarget, CasterTile, FixedTileIds, OwnerTile,
-                                             Subject, Target)
+from ...entities.selectors.accessors import (ActiveTarget, CasterTile, FixedTileIds, Owner,
+                                             OwnerTile, Subject, Target)
 from ...entities.selectors.geometry import EntitiesWithAnyEffect, Randomize
 from ...entities.selectors.tiles import AllAliveUnits, AllTiles, Caster
 from ...entities.selectors.units import (
-    AdjacentEnemies, AdjacentFriends, Enemies, SortByDistance, Sub, Union,
+    AdjacentEnemies, AdjacentFriends, Enemies, Filter, SortByDistance, Sub, Union,
     UnitsThatCanHaveActiveAbilityReset, non_steppable_or_object_units
 )
 from ...entities.stats import StatType
 from ...entities.traits.unit_trait import UnitTrait
-from ...entities.triggers import AmountIsGreater, HasEffect, HasTrait, IsRepairable, OwnerIsAlive
+from ...entities.triggers import (AmountIsGreater, HasEffect, HasTrait, IsRepairable, IsTrenchTile,
+                                  Not, OwnerIsAlive)
 from ...entities.effects.magnitude import ability_var
 from ...entities.selectors.geometry import PickFirstN
 from ...entities.selectors.tiles import AdjacentTiles, CanAddUnit
@@ -1328,4 +1330,289 @@ class ExemplarOfTheKauyonAbility(ActiveAbility):
                 "attacks": [p for n, p in ectx.emitted if n == "PerformAIAttack"],
                 "removed": [p for n, p in ectx.emitted if n == "RemoveEffect"],
                 "spawned": [p["unit"] for n, p in ectx.emitted if n == "SpawnUnit"],
+                "dsl": True}
+
+
+# ============ LOT BOSS RIPTIDE (`tauBossRiptide`, NPC) -- NovaShield 1194 / NovaBoost 1192 ===========
+#
+# LES TROIS `Nova*` SONT DES ABILITIES **2-PHASES**, PAS DES ATTAQUES. L'audit
+# `combat-ability-coverage.md` les classe `DAMAGE(Particle)` -- cette colonne derive du
+# `damageProfile` du KIT (l'arme du porteur), pas du behaviour. Les trois `ExecuteBehaviour` LUS
+# ne portent AUCUN noeud d'attaque (`AttackWith*`), AUCUN `Spawn`, AUCUN `ChangeStat` : ils POSENT
+# des effets `*_PendingAttack` / `*_PendingTarget` -- exactement le patron de `HeavyRailRifle`
+# (1160) en tete de ce module. `minDmg`/`maxDmg`/`nrOfHits`/`damageProfile` du gameconfig
+# appartiennent aux TRIGGERED de phase 2 (`Abilities.Triggered.Loki.NovaShield_AttackAbility`,
+# `NovaBoost_AttackAbility`, `NovaCharge_AttackAbility`), HORS de ce port.
+#
+# `IdunBattleLogic.Entities.Abilities.Active.Loki.NovaShieldAbility$$ExecuteBehaviour` -- MIRROR 1:1
+# du DECOMPILE (les quatre feuilles, dans l'ordre des trois `AbilityBehaviour.op_BitwiseAnd`) :
+#
+#   turns   = DSLFormulas.TurnsFromRounds( GetNumberConstant(config@0x60, 0x45 = nrOfRounds) )
+#   shield  = DSLBehaviors.CreateShield( unitSelector = Caster@DSLSelectors+0x48,
+#                                        amount       = DSLFormulas.Direct(
+#                                                         GetVariableForLevel(0x27 = shieldHp)),
+#                                        source       = AbilityOrEffect.op_Implicit(this),
+#                                        turns        = turns,
+#                                        createdByEffect = null,  stackable = TRUE )
+#   block   = DSLBehaviors.AddStaticStatModifierEffect( targets  = Owner@DSLSelectors+0x30,
+#                                        effectType = 0x588 = 1416 NovaShield_ExtraBlockChance,
+#                                        statType   = 0x7 = StatType.BLOCK_CHANCE,
+#                                        amount     = Direct(GetVariableForLevel(0x15=blockChance)),
+#                                        turns      = turns,   isHidden = false )
+#   marked  = DSLSelectors.Filter( Target@+0x60 op_Addition AdjacentTiles(Target@+0x60),
+#                                  op_LogicalNot( DSLTriggers.IsTrenchTile(ActiveTarget@+0x68) ) )
+#             (== `NovaShieldAbility$$GetMarkedTiles`, fonction NOMMEE dont le corps est REPRIS
+#              INLINE par `ExecuteBehaviour` -- meme motif que `TwinSmartMissileSystem`)
+#   mark    = DSLBehaviors.AddEffect( 0x587 = 1415 NovaShield_PendingTarget, AbilityStateReference,
+#                                     targets = marked, turns = NULL )        # surcharge **5-args**
+#   pending = DSLBehaviors.AddBondEffect( 0x586 = 1414 NovaShield_PendingAttack,
+#                                     AbilityStateReference, source = Owner@+0x30,
+#                                     targets = Owner@+0x30, bondedEntity = Owner@+0x30,
+#                                     options = <struct 0x20 octets ZERO> )
+#   Execute( ((shield & block) & mark) & pending )
+#
+# ⚠ LA SURCHARGE D'`AddEffect` EST LA 5-ARGS (SANS selecteur SOURCE), et ca change la SOURCE de
+# l'effet pose. Le build porte quatre corps : `(this, effectType, abilityState, source, targets,
+# options)`, `(..., source, targets, turns)` et DEUX `(this, effectType, abilityState, targets,
+# turns)`. Le site de 1194 passe CINQ arguments (`AddEffect(behaviors, 0x587, absRef, marked, 0)`)
+# -> pas de selecteur source, donc `AddEffectBehaviour$$Execute` prend sa branche
+# « `if (<selecteur source> != 0) src = <ce resultat>` sinon `src = <cible courante>` » : **chaque
+# TUILE marquee est sa propre source** (`source_from_target=True` cote port). NovaBoost et
+# NovaCharge, eux, passent SIX arguments avec `Caster@+0x48` en source -- la difference est
+# INVISIBLE au nom de la fonction et se lit uniquement a l'arite.
+
+NOVA_SHIELD_ID = "NovaShield"
+NOVA_SHIELD_PENDING_ATTACK = int(EffectType.NovaShield_PendingAttack)          # 0x586 = 1414
+NOVA_SHIELD_PENDING_TARGET = int(EffectType.NovaShield_PendingTarget)          # 0x587 = 1415
+NOVA_SHIELD_EXTRA_BLOCK_CHANCE = int(EffectType.NovaShield_ExtraBlockChance)   # 0x588 = 1416
+
+
+def _nova_ability_scaling(state: "State", caster_id: int) -> tuple:
+    """`(level, multiplier_pct)` du CASTER pour `GetVariableForLevel` -- MEME lecture que
+    `_itg_heal_amounts` ci-dessus (`StatsComponent.ctx.active_ability_level` +
+    `ability_variables_multiplier`). Le natif indexe `AbilityConfiguration$$GetVariableForLevel`
+    par l'`AbilityState` du caster ; hors seed, `level=0` -> `ability_var` clampe sur l'entree 0."""
+    e = state.get_entity(caster_id) if caster_id is not None else None
+    sc = e.get_component(StatsComponent) if e is not None else None
+    ctx = sc.ctx if sc is not None else None
+    level = getattr(ctx, "active_ability_level", 0) if ctx is not None else 0
+    mult = int(getattr(ctx, "ability_variables_multiplier", 100) or 100) if ctx is not None else 100
+    return (level, mult)
+
+
+def nova_shield_marked_tiles():
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.NovaShieldAbility$$GetMarkedTiles` (MIRROR) :
+
+        Filter( Target@+0x60 op_Addition AdjacentTiles(Target@+0x60),
+                NOT IsTrenchTile(ActiveTarget@+0x68) )
+
+    Le cast est TILE-TARGET (`TargetIsTile`, cf. `TARGETING_OPTIONS`), donc `Target@+0x60` est
+    l'ENTITE-TUILE visee (`entities_from_state` la materialise, #287-r12) -- la zone marquee est
+    « la tuile ciblee + sa couronne », TRENCHES EXCLUES. `AdjacentTiles` exclut deja l'origine
+    (`AdjacentTilesSelector$$Select` : `if (!tiles.Contains(a))`), donc l'`op_Addition` ne fait
+    aucun doublon. Le predicat lit `ActiveTarget@+0x68`, le slot que `Filter`
+    (`FromTriggerSelector$$Select`) ecrase a chaque element."""
+    return Filter(Union(Target(), AdjacentTiles(Target())),
+                  Not(IsTrenchTile(ActiveTarget())))
+
+
+def nova_shield_tree(state: "State", caster_id: int):
+    """Arbre de `...NovaShieldAbility$$ExecuteBehaviour` (MIRROR 1:1, cf. le bloc ci-dessus).
+
+    `shieldHp` (0x27) et `blockChance` (0x15) sont des `GetVariableForLevel` -> COLLAPSE V en
+    scalaire (doctrine slice-18/19), lus par `ability_var` avec le niveau + le multiplier de
+    rarete du caster. `nrOfRounds` (0x45) est un `GetNumberConstant` -> `constants` du kit.
+    `TurnsFromRounds` = `convert_rounds_to_turns` pour les DEUX consommateurs (le bouclier et
+    l'effet de blockChance partagent le MEME noeud natif `pvVar6`)."""
+    level, mult = _nova_ability_scaling(state, caster_id)
+    shield_hp = int(ability_var(NOVA_SHIELD_ID, "shieldHp", level, multiplier_pct=mult) or 0)
+    block_chance = int(ability_var(NOVA_SHIELD_ID, "blockChance", level, multiplier_pct=mult) or 0)
+    rounds = int(ability_var(NOVA_SHIELD_ID, "nrOfRounds", is_constant=True) or 0)
+    turns = convert_rounds_to_turns(state, rounds)             # noeud `TurnsFromRounds(nrOfRounds)`
+    # `stackable = true` (7e arg natif) == le comportement de `ShieldComponent.add_or_update_shield`
+    # (cumul meme-source/meme-duree) ; `source` = `AbilityOrEffect(this)` -> l'id d'ability sert
+    # d'etiquette de source, c'est ce que le natif utilise pour decider du cumul.
+    shield = CreateShield(Caster(), shield_hp, duration=turns, source=NOVA_SHIELD_ID)
+    block = AddStaticStatModifierEffect(Owner(), NOVA_SHIELD_EXTRA_BLOCK_CHANCE,
+                                        int(StatType.BLOCK_CHANCE), block_chance,
+                                        name=EffectType.NovaShield_ExtraBlockChance.name,
+                                        duration_turns=turns)
+    mark = AddEffect(NOVA_SHIELD_PENDING_TARGET, EffectType.NovaShield_PendingTarget.name,
+                     nova_shield_marked_tiles(), duration_rounds=None, source_from_target=True)
+    pending = AddBondEffect(NOVA_SHIELD_PENDING_ATTACK, EffectType.NovaShield_PendingAttack.name,
+                            Owner(), Owner(), duration_rounds=None, bonded_ref=Owner())
+    return op_and(op_and(op_and(shield, block), mark), pending)
+
+
+class NovaShieldAbility(ActiveAbility):
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.NovaShieldAbility$$ExecuteBehaviour` (id 1194,
+    `tauBossRiptide` -- Tau, **NPC boss de guilde**). Cast TILE-TARGET.
+
+    Kit gameconfig 1194 : `shieldHp[level]`, `blockChance[level]`, `nrOfRounds=1`,
+    `damageProfile=Particle`, `nrOfHits=6`, `cooldownTurns=2` -- les trois dernieres constantes et
+    `minDmg`/`maxDmg` appartiennent a la PHASE 2 (triggered), pas au cast.
+
+    OBSERVABLE DU CAST : (1) un BOUCLIER `shieldHp` sur le caster, duree `TurnsFromRounds(1)` ;
+    (2) l'effet 1416 `NovaShield_ExtraBlockChance` sur le caster, porteur d'un stat-mod STATIQUE
+    `+blockChance` sur `StatType.BLOCK_CHANCE`, meme duree ; (3) l'effet 1415
+    `NovaShield_PendingTarget` sur la tuile ciblee ET sa couronne (trenches exclues), duree
+    DEFAUT ; (4) l'effet-BOND 1414 `NovaShield_PendingAttack` sur le caster, bonde a lui-meme,
+    duree DEFAUT. Le degat vient de la phase 2, armee par (4) et dirigee par (3).
+
+    Flags de tour : defauts base (1194 absent des tables d'override `NO_END_TURN_ABILITY_TYPES` /
+    `NO_ABILITY_USED_FLAG_ABILITY_TYPES`) -> l'ability termine le tour + pose ActiveAbilityUsed."""
+    __slots__ = ()
+    ABILITY_TYPE = int(ActiveAbilityType.NovaShield)   # 1194
+    ABILITY_ID = NOVA_SHIELD_ID
+
+    # GATE DE CIBLE (#115) + PORTEE (#241) -- forme de ctor = **PRESET STATIQUE COPIE** (la 3e des
+    # trois formes) : `...NovaShieldAbility$$.ctor` n'appelle AUCUN
+    # `IdunBattle.Core.Services.TargetingOptions$$.ctor`. Il recopie les 0x40 octets du champ
+    # STATIQUE de `TargetingOptions` a l'offset **`+0x1c0`** du bloc `<class>+0xb8`, puis :
+    #     AActiveAbility..ctor(this, &opts, 2)   # 3e arg = 2 = AbilityAttackType.Others
+    # Le masque EFFECTIF est la constante ecrite par
+    # `IdunBattle.Core.Services.TargetingOptions$$.cctor` a `<preset>+0x28` = `*(statics+0x1e8)`.
+    #
+    # Le preset lu EN ENTIER (bloc `statics+0x1c0` du `cctor`) :
+    #     <preset>+0x00 = *(statics+0x1c0) = 0                -> isSelfCasting = false
+    #     <preset>+0x08 = copie de `TargetingRange statics+0x48` -> **RANGE_WHOLE_BOARD**
+    #                     (`+0x48` onlyAdjacent = 1 = `RangedBool.False`, `+0x4c` = 0x100 ->
+    #                     `useWholeBoard = true`, overrideRange VIDE, func null) -- MEME bloc que
+    #                     `HeavyRailRifle` 1160 en tete de module.
+    #     <preset>+0x20 = *(statics+0x1e0) = 1                -> forceMeleeTarget = RangedBool.False
+    #     <preset>+0x28 = *(statics+0x1e8) = **0x6000040**    -> le masque
+    #     <preset>+0x30/+0x38 = 0                             -> ecrases par `AActiveAbility$$.ctor`
+    #
+    # Decomposition EXHAUSTIVE -- 0x40 + 0x2000000 + 0x4000000 = 0x6000040, aucun bit residuel :
+    #     0x40        (bit  6) TargetIsTile                  -> regle de DOMAINE : la cible EST une
+    #                 tuile (branche `GetActualTarget` -> `GetMainTile`). PORTEE
+    #                 (`TargetingOptions.is_tile_targeting`).
+    #     0x2000000   (bit 25) AllowObscuredTargetByElevation -> ASSOUPLISSEMENT du gate d'obstruction.
+    #     0x4000000   (bit 26) AllowObscuredTargetByWalls     -> idem, volet murs.
+    # AUCUNE regle de CAMP (`TargetIsEnemy`/`TargetIsFriendly` absentes) : 1194 vise n'importe
+    # quelle TUILE, amie ou ennemie -> `refuses_all_enemy_targets` = False.
+    TARGETING_OPTIONS = TargetingOptions(
+        rules=TR.TargetIsTile | TR.AllowObscuredTargetByElevation | TR.AllowObscuredTargetByWalls,
+        self_cast=False, range=RANGE_WHOLE_BOARD, force_melee_target=RANGED_BOOL_FALSE)
+
+    def execute_behaviour(self, state: "State", caster_id: int,
+                          target_id: Optional[int]) -> Optional[dict]:
+        entities = entities_from_state(state, caster_id, target_id)
+        ectx = ExecutionContext(state=state, rng=state.rng)
+        nova_shield_tree(state, caster_id).execute(entities, ectx)
+        return {"ability": NOVA_SHIELD_ID, "caster": caster_id, "target": target_id,
+                "shield": [p for n, p in ectx.emitted if n == "CreateShield"],
+                "stat_mods": [p for n, p in ectx.emitted if n == "AddStaticStatModifierEffect"],
+                "posed": [{"target": p.get("target"), "effect": p.get("effect_type")}
+                          for n, p in ectx.emitted if n in ("AddEffect", "AddBondEffect")],
+                "dsl": True}
+
+
+# ---------------- NovaBoost (`tauBossRiptide`, NPC, actif 1192) ----------------
+#
+# `IdunBattleLogic.Entities.Abilities.Active.Loki.NovaBoostAbility$$ExecuteBehaviour` -- MIRROR 1:1 :
+#
+#   marked  = NovaBoostAbility$$GetMarkedTilesSelector()
+#           = DSLSelectors.Filter( AdjacentTiles(Caster@DSLSelectors+0x48),
+#                                  op_LogicalNot( DSLTriggers.IsTrenchTile(ActiveTarget@+0x68) ) )
+#   pending = DSLBehaviors.AddBondEffect( 0x581 = 1409 NovaBoost_PendingAttack,
+#                                  AbilityStateReference, source = Caster@+0x48,
+#                                  targets = Caster@+0x48, bondedEntity = Owner@+0x30,
+#                                  options = <struct 0x20 octets ZERO> )
+#   mark    = DSLBehaviors.AddEffect( 0x582 = 1410 NovaBoost_PendingTarget, AbilityStateReference,
+#                                  source = Caster@+0x48, targets = marked,
+#                                  options = <struct 0x20 octets ZERO> )      # surcharge **6-args**
+#   Execute( pending & mark )
+#
+# La zone marquee est la COURONNE DU CASTER (pas d'une cible) -- l'ability est SELF-CAST
+# (`isSelfCasting = 1` dans son preset). AUCUN degat, AUCUN deplacement dans le cast : le « boost »
+# (le SAUT visible dans `NovaBoost_AttackVisuals$$Flight` / `NovaBoost_AttackAbility$$
+# GetLandPosition`) appartient a la TRIGGERED de phase 2, hors de ce port.
+
+NOVA_BOOST_ID = "NovaBoost"
+NOVA_BOOST_PENDING_ATTACK = int(EffectType.NovaBoost_PendingAttack)      # 0x581 = 1409
+NOVA_BOOST_PENDING_TARGET = int(EffectType.NovaBoost_PendingTarget)      # 0x582 = 1410
+
+
+def nova_boost_marked_tiles():
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.NovaBoostAbility$$GetMarkedTilesSelector`
+    (MIRROR) : `Filter( AdjacentTiles(Caster@+0x48), NOT IsTrenchTile(ActiveTarget@+0x68) )`.
+
+    ⚠ CONTRASTE avec `nova_shield_marked_tiles` : PAS d'`op_Addition` avec l'origine -- la tuile du
+    caster elle-meme n'est PAS marquee, seulement sa couronne."""
+    return Filter(AdjacentTiles(Caster()), Not(IsTrenchTile(ActiveTarget())))
+
+
+def nova_boost_tree():
+    """Arbre de `...NovaBoostAbility$$ExecuteBehaviour` (MIRROR 1:1, cf. le bloc ci-dessus).
+    Les DEUX options-structs sont ZERO-initialisees -> aucune duree d'override : les effets
+    1409/1410 prennent leur `DefaultAmountOfRounds` (meme lecture que 1333/1334 de HeavyRailRifle,
+    ou l'effet est CONSOMME par la phase 2, pas expire par un timer)."""
+    pending = AddBondEffect(NOVA_BOOST_PENDING_ATTACK, EffectType.NovaBoost_PendingAttack.name,
+                            Caster(), Caster(), duration_rounds=None, bonded_ref=Owner())
+    mark = AddEffect(NOVA_BOOST_PENDING_TARGET, EffectType.NovaBoost_PendingTarget.name,
+                     nova_boost_marked_tiles(), duration_rounds=None, source_ref=Caster())
+    return op_and(pending, mark)
+
+
+class NovaBoostAbility(ActiveAbility):
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.NovaBoostAbility$$ExecuteBehaviour` (id 1192,
+    `tauBossRiptide` -- Tau, **NPC boss de guilde**). Cast SELF.
+
+    Kit gameconfig 1192 : `minDmg`/`maxDmg` + `damageProfile=Particle`, `nrOfHits=6`,
+    `cooldownTurns=2` -- TOUS de phase 2. Le cast n'a AUCUNE variable propre.
+
+    OBSERVABLE DU CAST : l'effet-BOND 1409 `NovaBoost_PendingAttack` sur le caster (bonde a
+    lui-meme) + l'effet 1410 `NovaBoost_PendingTarget` sur les tuiles ADJACENTES au caster
+    (trenches exclues), les deux a duree DEFAUT.
+
+    GATE DYNAMIQUE NON PORTE (residu, cf. le rapport de tranche) :
+    `NovaBoostAbility$$GetDynamicInvalidCasterReason` construit un `AbilityEntities` local avec le
+    caster candidat, evalue `Enemies(Caster@+0x48, GetMarkedTilesSelector(), 3)` et rend
+    `broken(4)` si le compte est `<= 1` -- « il faut AU MOINS DEUX ennemis dans la couronne ».
+    C'est une regle de CASTER, appelee via `CasterMatchesDynamicRule` (bit 2 du masque, non porte
+    par `get_invalid_caster_reason`) : le port est donc PERMISSIF sur ce point, jamais restrictif."""
+    __slots__ = ()
+    ABILITY_TYPE = int(ActiveAbilityType.NovaBoost)   # 1192
+    ABILITY_ID = NOVA_BOOST_ID
+
+    # GATE DE CIBLE (#115) + PORTEE (#241) -- forme de ctor = **PRESET + FLAGS** (la 2e des trois,
+    # celle ou le litteral visible n'est PAS le masque effectif). `...NovaBoostAbility$$.ctor`
+    # recopie les 0x40 octets du preset `<TargetingOptions statics>+0x280` puis appelle
+    #     TargetingOptions..ctor(&opts, &preset, 0x10)
+    #     AActiveAbility..ctor(this, &opts, 2)   # 3e arg = 2 = AbilityAttackType.Others
+    # Le masque EFFECTIF = `<preset>+0x28` OR le litteral de flags. MEME couple que
+    # `PrecisionShot` 1015 / `MartialExemplar` 1216 plus bas dans `targeting.py`.
+    #
+    # Le preset lu EN ENTIER (bloc `statics+0x280` du `cctor`) :
+    #     <preset>+0x00 = *(statics+0x280) = 1                -> **isSelfCasting = true**
+    #     <preset>+0x08 = copie de `TargetingRange statics+0x60` -> **RANGE_SELF** (`+0x60`
+    #                     onlyAdjacent = 1 = `RangedBool.False`, `+0x68` overrideRange =
+    #                     `Nullable(0)`, `+0x70` func null) -- MEME bloc qu'`EarlyWarningOverride`.
+    #     <preset>+0x20 = *(statics+0x2a0) = 1                -> forceMeleeTarget = RangedBool.False
+    #     <preset>+0x28 = *(statics+0x2a8) = **0x8004**       -> le masque du preset
+    #     flags OR-es par le ctor                             = **0x10**
+    #  => masque EFFECTIF = 0x8014.
+    #
+    # Decomposition EXHAUSTIVE -- 0x4 + 0x10 + 0x8000 = 0x8014, aucun bit residuel :
+    #     0x10    (bit  4) CasterHasNotMoved         -> volet CASTER, PORTE
+    #             (`get_invalid_caster_reason`) : le cast est REFUSE si le caster a deja bouge.
+    #             ⚠ Coherent avec le fait que la phase 2 fait SAUTER le caster.
+    #     0x4     (bit  2) CasterMatchesDynamicRule  -> `GetInvalidCasterReason` invoque la delegue
+    #             `options[+0x30]` = `NovaBoostAbility$$GetDynamicInvalidCasterReason` (>= 2 ennemis
+    #             dans la couronne). NON PORTEE -> degradation PERMISSIVE (cf. la docstring).
+    #     0x8000  (bit 15) CasterIsPossibleTarget    -> flag DECLARATIF (preview / IA), deja mirrore
+    #             (`TargetingOptions.can_target_caster`).
+    TARGETING_OPTIONS = TargetingOptions(
+        rules=TR.CasterMatchesDynamicRule | TR.CasterHasNotMoved | TR.CasterIsPossibleTarget,
+        self_cast=True, range=RANGE_SELF, force_melee_target=RANGED_BOOL_FALSE)
+
+    def execute_behaviour(self, state: "State", caster_id: int,
+                          target_id: Optional[int]) -> Optional[dict]:
+        entities = entities_from_state(state, caster_id, target_id)
+        ectx = ExecutionContext(state=state, rng=state.rng)
+        nova_boost_tree().execute(entities, ectx)
+        return {"ability": NOVA_BOOST_ID, "caster": caster_id, "target": target_id,
+                "posed": [{"target": p.get("target"), "effect": p.get("effect_type")}
+                          for n, p in ectx.emitted if n in ("AddEffect", "AddBondEffect")],
                 "dsl": True}
