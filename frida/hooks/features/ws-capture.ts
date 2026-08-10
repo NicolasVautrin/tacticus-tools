@@ -44,11 +44,33 @@
 // signifie « PAS MESURÉ », jamais « pas d'URI ». Le nom du champ retenu est publié dans
 // `layout.champUri` pour que l'échec soit visible plutôt que silencieux.
 //
+// DEUX ÉTAGES, ET LE SECOND EST CELUI QUI NOMME. Le socket brut ne transporte que du JSON
+// anonyme : l'exploiter voudrait dire rétro-ingénierer un format. Or l'étage au-dessus,
+// `IdunBattleLogic.Synchronous.SynchronousNetwork`, est le SEUL consommateur SyncPvp de ce
+// socket (`HandleOnMessageFromConnectionReceived`) et il expose le protocole DÉJÀ nommé —
+// `HandleGameActionTransient` vs `HandleGameActionPersisted`, `HandleStartGame`,
+// `HandleGameEnded`, `GameDiscrepancyDetected`. On ancre les DEUX : le brut garantit qu'on ne
+// rate rien (y compris ce que la couche sémantique ignore), le sémantique donne le sens sans
+// parser. Les deux se recoupent, et ce recoupement est une MESURE de couverture.
+//
+// L'ARCHITECTURE SE LIT DANS LES SIGNATURES, avant toute capture :
+//   SendAction(clientActionIndex, clientSequenceIndex, message:IInputMessage,
+//              metaMessage:IGameActionMetaData, turn, stateHash:System.String, skipGameAction)
+//   HandleGameActionTransient(payload, matchId)                  <- coup adverse PROVISOIRE
+//   HandleGameActionPersisted(payload, userId, matchId, eventId) <- CONFIRME par le serveur
+//   GetGameActions(fromActionIndex)  ·  GameDiscrepancyDetected()
+// => lockstep indexé, avec `stateHash` par action et détection de divergence : le serveur
+// ARBITRE. C'est une lecture de symboles, pas une capture — à confirmer sur trame réelle.
+//
+// L'AUTRE CONSOMMATEUR DU MÊME SOCKET est `thor.Logic.Client.Web.ChannelManager`
+// (`HandleOnMessageFromConnectionReceived` lui aussi). Donc le socket n'est PAS réservé au
+// SyncPvp : c'est par là qu'un témoin est possible hors saison.
+//
 // ARMÉ À LA DEMANDE, jamais auto-armé. OBSERVATION SEULE : ce module n'écrit rien, n'injecte
 // aucun message et ne modifie aucun retour.
 
 import {
-    findClassAnywhere, findMethod, findMethodByParamCount, getFieldOffset,
+    findClassAnywhere, findMethod, findMethodByParamCount, getFieldOffset, readMsgClass,
 } from "../il2cpp/helpers.js";
 import { queueOnMainThread } from "../runtime/queue.js";
 import { Ctx } from "../controller.js";
@@ -93,6 +115,10 @@ interface Trame {
     corps: string | null;
     /** Retour de `Send` : `false` = NON transmis. `null` tant que l'appel n'est pas revenu. */
     ok?: boolean | null;
+    /** Champs nommés de l'étage sémantique (index d'action, tour, `stateHash`, type du message
+     *  d'entrée…). Clés = noms de paramètres natifs VERBATIM, pour que le grep code <-> table
+     *  reste immédiat. `null` = argument présent mais illisible, jamais « absent ». */
+    champs?: Record<string, string | number | null>;
     corpsOmis?: true;
 }
 
@@ -138,6 +164,7 @@ function noter(
     sens: Sens, via: string, inst: NativePointer | null,
     charge: { len: number; lire: (n: number) => string | null } | null,
     attendUnRetour: boolean,
+    champs?: Record<string, string | number | null>,
 ): number {
     if (tampon.length >= CAP) return -1;
     const trame: Trame = {
@@ -161,6 +188,7 @@ function noter(
         }
     }
     if (attendUnRetour) trame.ok = null;
+    if (champs) trame.champs = champs;
     tampon.push(trame);
     return tampon.length - 1;
 }
@@ -209,6 +237,190 @@ function ancrerEtat(
                     noter("etat", cle, args[0],
                           iTexte >= 0 ? chaine(args[iTexte]) : null, false);
                 } catch { /* un capteur ne jette jamais */ }
+            },
+        }));
+        layout[cle] = true;
+    } catch { layout[cle] = "ANCRAGE EN ECHEC"; }
+}
+
+/** Une porte de l'étage SÉMANTIQUE. `args[0]` est `this` (toutes ces méthodes sont des méthodes
+ *  d'instance), donc les indices ci-dessous coïncident avec le rang du paramètre natif. */
+interface PorteSem {
+    ns: string;
+    cls: string;
+    methode: string;
+    /** Arité NATIVE, hors `this`. L'ancrage passe par elle et jamais par le nom seul :
+     *  `Send` existe en DEUX surcharges (1 et 3 paramètres) et les confondre lirait
+     *  silencieusement le mauvais argument. */
+    arite: number;
+    sens: Sens;
+    /** Argument portant la charge principale (va dans `corps`). */
+    corpsDe?: number;
+    /** Arguments relevés comme chaînes : [indice, nom du paramètre natif VERBATIM]. */
+    chaines?: Array<[number, string]>;
+    /** Arguments relevés comme entiers (int, enum, bool). */
+    entiers?: Array<[number, string]>;
+    /** Argument objet dont on relève le NOM DE CLASSE : c'est le TYPE de l'action jouée —
+     *  l'information la plus dense de tout `SendAction`, et elle n'est nulle part ailleurs. */
+    classeDe?: [number, string];
+    /** Relever le retour, qui est une `System.String` (`SendAction` rend l'eventId — celui-là
+     *  même que `HandleGameActionPersisted` renverra : c'est ce qui apparie aller et retour). */
+    retourChaine?: boolean;
+}
+
+const NS_SYNC = "IdunBattleLogic.Synchronous";
+const NS_WEB = "thor.Logic.Client.Web";
+
+const PORTES_SEM: PorteSem[] = [
+    // ---- SORTANT : ce que NOUS envoyons -----------------------------------------------------
+    {
+        ns: NS_SYNC, cls: "SynchronousNetwork", methode: "SendAction", arite: 7, sens: "out",
+        classeDe: [3, "message"], chaines: [[6, "stateHash"]], retourChaine: true,
+        entiers: [[1, "clientActionIndex"], [2, "clientSequenceIndex"], [5, "turn"]],
+    },
+    {
+        ns: NS_SYNC, cls: "SynchronousNetwork", methode: "ResendAction", arite: 8, sens: "out",
+        classeDe: [3, "message"], chaines: [[6, "stateHash"], [8, "eventId"]],
+        entiers: [[1, "clientActionIndex"], [2, "clientSequenceIndex"], [5, "turn"]],
+    },
+    {
+        ns: NS_SYNC, cls: "SynchronousNetwork", methode: "Send", arite: 3, sens: "out",
+        corpsDe: 2, chaines: [[3, "eventId"]], entiers: [[1, "type"]], retourChaine: true,
+    },
+    {
+        ns: NS_SYNC, cls: "SynchronousNetwork", methode: "Send", arite: 1, sens: "out",
+        entiers: [[1, "type"]], retourChaine: true,
+    },
+    {
+        ns: NS_SYNC, cls: "SynchronousNetwork", methode: "SendMessage", arite: 1, sens: "out",
+        corpsDe: 1,
+    },
+    {
+        ns: NS_SYNC, cls: "SynchronousNetwork", methode: "PlayGame", arite: 5, sens: "out",
+        chaines: [[1, "name"], [4, "machineOfWar"]],
+    },
+    {
+        ns: NS_SYNC, cls: "SynchronousNetwork", methode: "GetGameActions", arite: 1, sens: "out",
+        entiers: [[1, "fromActionIndex"]],
+    },
+    {
+        ns: NS_SYNC, cls: "SynchronousNetwork", methode: "Surrender", arite: 1, sens: "out",
+        entiers: [[1, "surrenderType"]],
+    },
+    {
+        ns: NS_SYNC, cls: "SynchronousNetwork", methode: "EndGame", arite: 1, sens: "out",
+        chaines: [[1, "winnerUserId"]],
+    },
+    { ns: NS_SYNC, cls: "SynchronousNetwork", methode: "PlayerReady", arite: 0, sens: "out" },
+    { ns: NS_SYNC, cls: "SynchronousNetwork", methode: "CancelGame", arite: 0, sens: "out" },
+    {
+        ns: NS_SYNC, cls: "SynchronousNetwork", methode: "GameDiscrepancyDetected",
+        arite: 0, sens: "out",
+    },
+
+    // ---- ENTRANT : ce que le serveur (et donc l'ADVERSAIRE) nous envoie ----------------------
+    // La racine attrape TOUT l'entrant SyncPvp ; les portes typées qui suivent le NOMMENT. Les
+    // deux tirent sur la même trame : ce doublon est voulu, c'est lui qui mesure la couverture.
+    {
+        ns: NS_SYNC, cls: "SynchronousNetwork",
+        methode: "HandleOnMessageFromConnectionReceived", arite: 1, sens: "in", corpsDe: 1,
+    },
+    {
+        ns: NS_SYNC, cls: "SynchronousNetwork", methode: "HandleCreateGame", arite: 1,
+        sens: "in", corpsDe: 1,
+    },
+    {
+        ns: NS_SYNC, cls: "SynchronousNetwork", methode: "HandleStartGame", arite: 2,
+        sens: "in", corpsDe: 1, chaines: [[2, "matchId"]],
+    },
+    {
+        ns: NS_SYNC, cls: "SynchronousNetwork", methode: "HandleGameActionTransient", arite: 2,
+        sens: "in", corpsDe: 1, chaines: [[2, "matchId"]],
+    },
+    {
+        ns: NS_SYNC, cls: "SynchronousNetwork", methode: "HandleGameActionPersisted", arite: 4,
+        sens: "in", corpsDe: 1,
+        chaines: [[2, "userId"], [3, "matchId"], [4, "eventId"]],
+    },
+    {
+        ns: NS_SYNC, cls: "SynchronousNetwork", methode: "HandleGetGameActions", arite: 2,
+        sens: "in", corpsDe: 1, chaines: [[2, "matchId"]],
+    },
+    {
+        ns: NS_SYNC, cls: "SynchronousNetwork", methode: "HandleGameEnded", arite: 2,
+        sens: "in", corpsDe: 1, chaines: [[2, "matchId"]],
+    },
+    {
+        ns: NS_SYNC, cls: "SynchronousNetwork", methode: "HandlePlayGameError", arite: 1,
+        sens: "in", corpsDe: 1,
+    },
+
+    // ---- ÉTAT ------------------------------------------------------------------------------
+    {
+        ns: NS_SYNC, cls: "SynchronousNetwork", methode: "HandleGameDiscrepancy", arite: 0,
+        sens: "etat",
+    },
+    {
+        ns: NS_SYNC, cls: "SynchronousNetwork", methode: "HandleOnConnectionStatusChanged",
+        arite: 1, sens: "etat", entiers: [[1, "status"]],
+    },
+    {
+        ns: NS_SYNC, cls: "SynchronousNetwork", methode: "Connect", arite: 1, sens: "etat",
+        chaines: [[1, "userId"]],
+    },
+
+    // ---- L'AUTRE CONSOMMATEUR DU MÊME SOCKET -------------------------------------------------
+    // `ChannelManager` n'est pas du SyncPvp : c'est la couche canaux générique. On l'ancre parce
+    // qu'elle prouve que le socket vit HORS saison — c'est par elle qu'un témoin est atteignable
+    // quand le PvP synchrone est fermé.
+    {
+        ns: NS_WEB, cls: "ChannelManager", methode: "HandleOnMessageFromConnectionReceived",
+        arite: 1, sens: "in", corpsDe: 1,
+    },
+];
+
+/** Ancre une porte sémantique. Les classes absentes du build sont RAPPORTÉES, jamais tues. */
+function ancrerSem(porte: PorteSem): void {
+    const cle = porte.cls + "." + porte.methode + "/" + porte.arite;
+    const klass = findClassAnywhere(porte.ns, porte.cls);
+    if (!klass) { layout[cle] = "CLASSE INTROUVABLE"; return; }
+    const mi = findMethodByParamCount(klass, porte.methode, porte.arite);
+    if (!mi || mi.ptr.isNull()) { layout[cle] = "NON RESOLUE"; return; }
+    try {
+        listeners.push(Interceptor.attach(mi.ptr, {
+            onEnter(args) {
+                try {
+                    const champs: Record<string, string | number | null> = {};
+                    for (const [i, nom] of porte.chaines ?? []) {
+                        const s = chaine(args[i]);
+                        champs[nom] = s ? s.lire(400) : null;
+                    }
+                    for (const [i, nom] of porte.entiers ?? []) {
+                        try { champs[nom] = args[i].toInt32(); } catch { champs[nom] = null; }
+                    }
+                    if (porte.classeDe) {
+                        const [i, nom] = porte.classeDe;
+                        try { champs[nom] = readMsgClass(args[i]) ?? null; }
+                        catch { champs[nom] = null; }
+                    }
+                    const idx = noter(
+                        porte.sens, cle, null,
+                        porte.corpsDe !== undefined ? chaine(args[porte.corpsDe]) : null,
+                        false, champs,
+                    );
+                    if (porte.retourChaine) (this as unknown as CtxInvoc)._idx = idx;
+                } catch { /* un capteur ne jette jamais */ }
+            },
+            onLeave(ret) {
+                if (!porte.retourChaine) return;
+                try {
+                    const idx = (this as unknown as CtxInvoc)._idx;
+                    if (typeof idx !== "number" || idx < 0 || idx >= tampon.length) return;
+                    const s = chaine(ret);
+                    const t = tampon[idx];
+                    t.champs = t.champs ?? {};
+                    t.champs["<retour>"] = s ? s.lire(200) : null;
+                } catch { /* idem */ }
             },
         }));
         layout[cle] = true;
@@ -265,9 +477,24 @@ export function register(ctx: Ctx): void {
             layout["NativeWebSocketWrapper"] = "CLASSE INTROUVABLE";
         }
 
+        // Étage sémantique. Une porte absente n'interrompt RIEN : elle est rapportée dans
+        // `layout` et les autres s'arment. Un capteur qui refuse de s'armer en entier parce
+        // qu'un symbole a bougé ne mesurerait plus rien du tout.
+        const brutes = listeners.length;
+        for (const porte of PORTES_SEM) ancrerSem(porte);
+
         Interceptor.flush();
-        log("[ws-capture] arme : " + listeners.length + " porte(s)");
-        return { ok: true, armes: listeners.length, layout };
+        // On publie la ventilation brut / sémantique : `armes` seul ne dirait pas QUEL étage a
+        // échoué, or ils échouent pour des raisons différentes (le brut suit le SDK client, le
+        // sémantique suit la logique de bataille).
+        const resume = {
+            ok: true, armes: listeners.length,
+            armesBrutes: brutes, armesSemantiques: listeners.length - brutes,
+            attenduesSemantiques: PORTES_SEM.length, layout,
+        };
+        log("[ws-capture] arme : " + resume.armesBrutes + " brute(s) + "
+            + resume.armesSemantiques + "/" + PORTES_SEM.length + " semantique(s)");
+        return resume;
     });
 
     /** body: { reset?, depuis?: number, sansCorps?: true, contient?: string, sens?: Sens }
