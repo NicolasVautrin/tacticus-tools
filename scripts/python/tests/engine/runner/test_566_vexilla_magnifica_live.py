@@ -467,3 +467,49 @@ def test_la_contre_epreuve_sans_filtre_MORD(decision):
     assert rec["sans_filtre"].get("target") != rec["port"].get("target"), (
         "contre-epreuve NON discriminante : le filtre n'est pas ce qui decide")
     assert rec["sans_filtre"].get("target") == decision["sans_stun"]["natif"]["target"]
+
+
+def test_le_gate_amont_MORD_quand_l_attaque_normale_sure_kill(decision):
+    """`VexillaMagnificaPlaybook$$ShouldEvaluate` = `!EnemyWillBeKilledWithNormalAttack`, VU rendre
+    FAUX. Le bras `sure_kill` neutralise les scenarios de blocage (`--block-target 0,0`), donc
+    `get_WillBeKill` retombe sur `DefaultScenario.Damage.HealthDamage.Min` : les DEUX cotes
+    s'abstiennent de 1183 et jouent l'attaque normale.
+
+    Sans ce bras, le gate serait porte et JAMAIS observe rendre FAUX -- et son pendant ci-dessous
+    ne dirait rien, faute de regime ou il MORD."""
+    rec = decision["sure_kill"]
+    assert rec["natif"]["ability"] != VEXILLA_MAGNIFICA, (
+        "le natif caste 1183 alors que l'attaque normale sure-kill : montage sterile %r"
+        % (rec["natif"],))
+    assert rec["port"].get("ability") != VEXILLA_MAGNIFICA
+
+
+def test_566r1_une_cible_BLOQUEUSE_n_est_PAS_un_sure_kill(decision):
+    """#566-r1 -- LE MEME montage que ci-dessus, `--block-target` RETIRE : seule difference.
+
+    `IdunBattle.Core.Services.DamagePredictionResult$$get_WillBeKill` prefere
+    `BlockScenarios[0].Damage.HealthDamage.Min` (le degat SI LE COUP EST BLOQUE) au
+    `DefaultScenario...Min` des que `Count >= 1` -- une cible a `blockChance > 0` n'est donc JAMAIS
+    un sure-kill, quel que soit le degat. Le natif CASTE ici, sur la cible aux PV les plus hauts.
+
+    C'est la divergence de #566-r1 : le port re-derivait `dmgMin >= hp` et s'abstenait. Il lit
+    desormais `ranked[].killSure`, que `projection.ts::applyDmg` pose depuis `computeWillBeKill`."""
+    rec = decision["sure_kill_bloque"]
+    assert rec["natif"]["ability"] == VEXILLA_MAGNIFICA, (
+        "le natif ne caste pas 1183 : le montage n'a plus de scenario de blocage, il ne mesure "
+        "PAS #566-r1 (%r)" % (rec["natif"],))
+    assert rec["port"].get("ability") == VEXILLA_MAGNIFICA
+    assert rec["port"].get("target") == rec["natif"]["target"] == rec["attendu"]
+
+
+def test_566r1_la_contre_epreuve_de_la_REGLE_re_derivee_MORD(decision):
+    """La regle d'AVANT (`dmgMin >= hp`, rejouee a la place du foyer tri-etat) doit DIVERGER sur ce
+    bras. Sans cette morsure, l'accord ci-dessus pourrait venir de n'importe quoi d'autre --
+    typiquement d'un montage ou la cible n'a en fait aucun scenario de blocage."""
+    rec = decision["sure_kill_bloque"]
+    assert "sans_r1" in rec, "la contre-epreuve pre-#566-r1 n'a pas ete jouee"
+    assert rec["sans_r1"].get("ability") != rec["port"].get("ability"), (
+        "contre-epreuve NON discriminante : la re-derivation `dmgMin >= hp` rend le MEME verdict, "
+        "donc ce banc ne mesure pas #566-r1 (%r)" % (rec["sans_r1"],))
+    assert rec["sans_r1"].get("ability") != VEXILLA_MAGNIFICA, (
+        "l'ancienne regle devrait faire S'ABSTENIR le port")
