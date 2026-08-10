@@ -1342,6 +1342,17 @@
    "dirs": [],
    "temoins": []
   },
+  "tests/engine/runner/test_585r1_selection_type_releve_offline.py": {
+   "_at": 1786386573,
+   "_commit": "40a9e670f5c9d52323341c2761c5d8f25e26fd36",
+   "dirs": [
+    "scripts/python/engine/runner/abilities"
+   ],
+   "temoins": [
+    "scripts/python/engine/runner/abilities/blacklegion.py",
+    "scripts/python/engine/runner/abilities/sisterhood.py"
+   ]
+  },
   "tests/engine/runner/test_ability_registry_ratchet.py": {
    "_at": 1786110307,
    "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
@@ -3036,6 +3047,12 @@
     "scripts/python/engine/playbook/noncomparable/early_warning_override.py"
    ]
   },
+  "tests/engine/test_433r3r2_untargetable_offline.py": {
+   "_at": 1786386573,
+   "_commit": "40a9e670f5c9d52323341c2761c5d8f25e26fd36",
+   "dirs": [],
+   "temoins": []
+  },
   "tests/engine/test_433r4r1r4_elevation_gate_dsl_offline.py": {
    "_at": 1786110307,
    "_commit": "2e1d707487f8b99047b785f8c78f0730ea1dc73a",
@@ -4460,9 +4477,32 @@
    "dirs": [],
    "temoins": []
   },
+  "tests/engine/test_564r3_gates_resurrect_offline.py": {
+   "_at": 1786386573,
+   "_commit": "40a9e670f5c9d52323341c2761c5d8f25e26fd36",
+   "dirs": [],
+   "temoins": []
+  },
+  "tests/engine/test_566r1_sure_kill_gate_offline.py": {
+   "_at": 1786386573,
+   "_commit": "40a9e670f5c9d52323341c2761c5d8f25e26fd36",
+   "dirs": [
+    "scripts/python/engine/playbook/noncomparable"
+   ],
+   "temoins": [
+    "scripts/python/engine/playbook/noncomparable/__init__.py",
+    "scripts/python/engine/playbook/noncomparable/vigilance_eternal.py"
+   ]
+  },
   "tests/engine/test_572_unbreakable_duty_offline.py": {
    "_at": 1786178763,
    "_commit": "7e5046c7ade22cc16048ad5dacf8501a55cdd06c",
+   "dirs": [],
+   "temoins": []
+  },
+  "tests/engine/test_572r1_hpmax_fillup_offline.py": {
+   "_at": 1786386573,
+   "_commit": "40a9e670f5c9d52323341c2761c5d8f25e26fd36",
    "dirs": [],
    "temoins": []
   },
@@ -4483,6 +4523,25 @@
    "_commit": "33dbd52312aa780120cb1e5cd901df68375c4915",
    "dirs": [],
    "temoins": []
+  },
+  "tests/engine/test_590r4_utility_entity_offline.py": {
+   "_at": 1786386573,
+   "_commit": "40a9e670f5c9d52323341c2761c5d8f25e26fd36",
+   "dirs": [],
+   "temoins": []
+  },
+  "tests/engine/test_603_index_foyers_offline.py": {
+   "_at": 1786386573,
+   "_commit": "40a9e670f5c9d52323341c2761c5d8f25e26fd36",
+   "dirs": [
+    "docs/rl",
+    "scripts/python/tests/engine"
+   ],
+   "temoins": [
+    "docs/rl/backlog.md",
+    "docs/rl/index-foyers.md",
+    "scripts/python/tests/engine/test_603_index_foyers_offline.py"
+   ]
   },
   "tests/engine/test_effect_1582_inertia_binary.py": {
    "_at": 1786110307,
