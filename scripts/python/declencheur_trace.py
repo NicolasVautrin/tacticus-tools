@@ -47,6 +47,23 @@ ENV_TRACE = "TACTICUS_DECLENCHEUR_TRACE"
 #: Ce qu'on ne compte JAMAIS comme une entree : nos propres sorties et la plomberie git.
 _EXCLUS = ("logs/", ".git/", "scripts/python/logs/", "frida/dist/", "node_modules/")
 
+#: LES MEMES, mais reconnus A N'IMPORTE QUEL NIVEAU -- `_EXCLUS` teste un PREFIXE, donc il ne
+#: voit ni `frida/node_modules/` ni un cache pose ailleurs qu'a la racine.
+#:
+#: ⚠ MESURE DU 2026-08-10, ET C'EST UN ECART DE REPRODUCTIBILITE, PAS UN DETAIL (#486-r36). Deux
+#: passes du MEME arbre ont diverge sur une seule chose : `probe_283:on` et `probe_283:prose`
+#: portaient le groupe `scripts/python/.pytest_cache/*.md` dans l'une et pas dans l'autre. Ce
+#: fichier est ECRIT PAR PYTEST et GITIGNORE (par le `.gitignore` que pytest depose lui-meme) :
+#: il n'existe que si quelqu'un a joue une passe dans ce repertoire. Une empreinte VERSIONNEE
+#: qui en depend varie d'une machine a l'autre -- et si le declencheur ne couvrait pas `.md`,
+#: elle produirait un FAUX ROUGE que personne ne pourrait reproduire. C'est exactement le vice
+#: que `source_de` corrige deja pour `__pycache__` (#464-r2), sur un autre repertoire de cache.
+#:
+#: ⚠ `__pycache__` N'Y EST PAS, ET NE DOIT PAS Y ETRE : il est RAMENE A SA SOURCE par
+#: `source_de`, donc l'exclure ferait disparaitre du perimetre tout module importe -- c'est-a-dire
+#: precisement ce que la fermeture d'imports doit voir.
+_SEGMENTS_EXCLUS = frozenset({".pytest_cache", "node_modules", ".git"})
+
 #: `mod` est NON GREEDY et le suffixe accepte des POINTS : le nom d'un bytecode optimise est
 #: `mod.cpython-311.opt-1.pyc`, donc un suffixe sans point (`[^./]+`) ne le reconnaissait pas --
 #: et le fichier serait alors compte comme une entree `.pyc` que nul glob ne couvre.
@@ -111,7 +128,7 @@ class _Trace:
             if _est_ecriture(args):
                 return
             rel = source_de(p.replace("\\", "/")[self._n:])
-            if rel.startswith(_EXCLUS):
+            if rel.startswith(_EXCLUS) or _SEGMENTS_EXCLUS.intersection(rel.split("/")[:-1]):
                 return
             self.lectures.add(rel)
         elif event == "subprocess.Popen":

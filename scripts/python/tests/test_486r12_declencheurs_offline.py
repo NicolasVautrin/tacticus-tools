@@ -329,11 +329,19 @@ CLIQUET_JETABLE = """DECLENCHEUR = {
 """
 
 
-def _montage(tmp_path, monkeypatch, chemins, lu, toujours="False", sha_juste=True):
-    """Un depot JETABLE : une banque d'UNE entree, un cliquet, une empreinte fabriquee."""
+def _montage(tmp_path, monkeypatch, chemins, lu, toujours="False", sha_juste=True,
+             ferm_juste=True, importe=None):
+    """Un depot JETABLE : une banque d'UNE entree, un cliquet, une empreinte fabriquee.
+
+    `importe` = le nom d'un module JETABLE que le cliquet importe -- c'est ce qui rend la
+    seconde moitie du critere de fraicheur (#486-r36) observable : on peut alors faire changer
+    ce que le cliquet LIT sans toucher a une ligne de son propre fichier."""
     pydir = tmp_path / "scripts" / "python"
     pydir.mkdir(parents=True)
     src = CLIQUET_JETABLE % (chemins, toujours)
+    if importe:
+        (pydir / (importe + ".py")).write_text("VALEUR = 1\n", encoding="utf-8")
+        src = "import %s\n" % importe + src
     (pydir / "probe_zz.py").write_text(src, encoding="utf-8")
     banque = tmp_path / "scripts" / "ratchets.ps1"
     banque.write_text(BANQUE_JETABLE, encoding="utf-8")
@@ -343,10 +351,17 @@ def _montage(tmp_path, monkeypatch, chemins, lu, toujours="False", sha_juste=Tru
     monkeypatch.setattr(G, "PYDIR", pydir)
     monkeypatch.setattr(G, "ROOT", tmp_path)
     monkeypatch.setattr(G, "EMPREINTE", emp)
+    # Les deux caches de `sha_fermeture` sont keyes par racine, mais `tmp_path` change a chaque
+    # test : on les vide quand meme, pour qu'un test ne puisse pas heriter d'une lecture faite
+    # avant qu'il ne modifie l'arbre jetable sous ses pieds.
+    G._FERM.clear()
+    G._SHA_FERM.clear()
 
     e = G.Empreinte()
     sha = G.sha_source("probe_zz.py") if sha_juste else "sha-perime"
-    e.par_id["probe_zz"] = {"sha": sha, "lu": G.grouper(lu), "proc": [], "nproc": 1}
+    ferm = G.sha_fermeture("probe_zz.py") if ferm_juste else "ferm-perimee"
+    e.par_id["probe_zz"] = {"sha": sha, "ferm": ferm, "inst": G.sha_instrument(),
+                            "rc": 0, "lu": G.grouper(lu), "proc": [], "nproc": 1}
     e.ecrire(emp)
     return emp
 
@@ -453,3 +468,219 @@ def test_les_shards_d_un_meme_script_partagent_UNE_declaration():
     scripts = G.par_script({"a:s0": ["p.py", "--shard", "0/2"],
                             "a:s1": ["p.py", "--shard", "1/2"]})
     assert scripts == {"p.py": ["a:s0", "a:s1"]}
+
+
+# ============================== #486-r36 : FRAICHEUR, SELECTION INCREMENTALE, COUT
+#
+# Ce que ces cas figent, et pourquoi :
+#
+#   FERMETURE   le sha du SEUL fichier du cliquet laissait servir une empreinte qu'un helper
+#               PARTAGE avait perimee. Le cas ci-dessous ne touche pas une ligne de
+#               `probe_zz.py` : il modifie le module qu'il importe, et exige le 99.
+#   FOYER       la selection de `--incremental` et la peremption de l'etage 2 doivent etre LE
+#               MEME critere. Deux criteres ouvriraient l'ecart que #486 combat : un mode
+#               rapide qui sert ce que le garde aurait rejete est un faux vert.
+#   TRI-ETAT    sauter des entrees ne doit JAMAIS transformer un 99 en 0 -- une entree non
+#               remesuree reste attestee par SON empreinte, donc confrontee.
+#   COUT        les durees se persistent AVEC leur regime : une duree `para-N` porte la
+#               contention de ses voisines et ne se compare pas a une duree `serie`.
+
+def test_la_FERMETURE_d_imports_perime_l_empreinte_sans_toucher_au_cliquet(
+        tmp_path, monkeypatch, capsys):
+    """LE trou que #486-r36 ferme : un helper partage change, le cliquet non.
+
+    Avant, `sha_source` ne hachait que `probe_zz.py` : l'empreinte restait SERVIE alors que ce
+    que le cliquet OUVRE avait pu changer. Ici `helper_zz.py` est reecrit APRES la mesure --
+    aucune ligne de `probe_zz.py` ne bouge -- et l'entree doit tomber en NON MESUREE."""
+    _montage(tmp_path, monkeypatch, chemins='"scripts/python/**/*.py",',
+             lu=["scripts/python/a.py"], importe="helper_zz")
+    assert _rc(monkeypatch) == 0, capsys.readouterr().out          # temoin : vert AVANT
+
+    (tmp_path / "scripts" / "python" / "helper_zz.py").write_text(
+        "VALEUR = 2\nimport json  # une lecture de plus, en puissance\n", encoding="utf-8")
+    G._SHA_FERM.clear()
+    rc = _rc(monkeypatch)
+    sortie = capsys.readouterr().out
+    assert rc == 99, sortie
+    assert "PERIMEE" in sortie and "fermeture d'imports" in sortie
+
+
+def test_l_INSTRUMENT_de_mesure_perime_TOUTES_les_empreintes(tmp_path, monkeypatch, capsys):
+    """MESURE du 2026-08-10 : ajouter `.pytest_cache` aux exclusions de `declencheur_trace` a
+    change deux groupes de l'empreinte SANS perimer une seule entree -- ni le source d'un
+    cliquet ni sa fermeture ne bougeaient, et `--incremental` les aurait servies telles quelles.
+
+    L'instrument n'est importe par AUCUN cliquet : aucune fermeture ne le porte. C'est pourquoi
+    il est une composante A PART, et non une ligne de plus dans `sha_fermeture`."""
+    emp = _montage(tmp_path, monkeypatch, chemins='"scripts/python/**/*.py",',
+                   lu=["scripts/python/a.py"])
+    assert _rc(monkeypatch) == 0, capsys.readouterr().out
+    txt = emp.read_text(encoding="utf-8")
+    ligne = [x for x in txt.splitlines() if "\tinst\t" in x][0]
+    emp.write_text(txt.replace(ligne, "probe_zz\tinst\tautre-instrument"), encoding="utf-8")
+    rc = _rc(monkeypatch)
+    sortie = capsys.readouterr().out
+    assert rc == 99, sortie
+    assert "instrument de mesure" in sortie
+
+
+def test_la_fermeture_VIDE_ne_fabrique_pas_de_sha(tmp_path, monkeypatch):
+    """Un cliquet qui n'importe RIEN du depot n'a pas de seconde composante. Lui donner
+    `sha_texte("")` ferait mentir la difference entre << pas de dependance >> et << dependance
+    dont le contenu est vide >>, et perimerait toute empreinte ecrite avant #486-r36 pour une
+    raison fausse."""
+    _montage(tmp_path, monkeypatch, chemins='"scripts/python/**/*.py",', lu=[])
+    assert G.sha_fermeture("probe_zz.py") == ""
+    assert G.sha_fermeture("probe_absent.py") == ""
+
+
+def test_la_SELECTION_incrementale_est_LE_MEME_critere_que_la_peremption(tmp_path, monkeypatch):
+    """`a_remesurer` ne decide RIEN par elle-meme : elle demande `est_perimee`, comme l'etage 2.
+
+    C'est la seule forme qui ne peut pas changer un verdict. On le verifie sur les TROIS etats
+    que l'etage 2 distingue -- fraiche, perimee, absente -- plus le quatrieme qu'il traite comme
+    absent (`nproc == 0`, un run qui n'a rien trace)."""
+    _montage(tmp_path, monkeypatch, chemins='"scripts/python/**/*.py",',
+             lu=["scripts/python/a.py"])
+    bq = G.banque()
+    emp = G.Empreinte.charger()
+
+    reste, servies = G.a_remesurer(["probe_zz"], bq, emp)
+    assert (reste, servies) == ([], ["probe_zz"])                  # fraiche -> SERVIE
+
+    emp.par_id["probe_zz"]["sha"] = "autre"
+    assert G.a_remesurer(["probe_zz"], bq, emp) == (["probe_zz"], [])
+
+    emp = G.Empreinte.charger()
+    emp.par_id["probe_zz"]["ferm"] = "autre"
+    assert G.a_remesurer(["probe_zz"], bq, emp) == (["probe_zz"], [])
+
+    emp = G.Empreinte.charger()
+    emp.par_id["probe_zz"]["inst"] = "autre"        # l'INSTRUMENT de mesure a change
+    assert G.a_remesurer(["probe_zz"], bq, emp) == (["probe_zz"], [])
+
+    emp = G.Empreinte.charger()
+    emp.par_id["probe_zz"]["nproc"] = 0
+    assert G.a_remesurer(["probe_zz"], bq, emp) == (["probe_zz"], [])
+
+    assert G.a_remesurer(["probe_zz"], bq, G.Empreinte()) == (["probe_zz"], [])
+
+
+def test_une_entree_SAUTEE_reste_CONFRONTEE_donc_un_99_ne_devient_pas_un_0(
+        tmp_path, monkeypatch, capsys):
+    """L'interdit du brief, rendu executable : accelerer ne doit pas fabriquer un vert.
+
+    L'empreinte servie porte une lecture HORS perimetre. `a_remesurer` la declare SERVIE (elle
+    est fraiche), et l'etage 2 doit malgre tout la confronter et ROUGIR. Une entree sautee est
+    attestee par son empreinte, jamais supposee verte."""
+    _montage(tmp_path, monkeypatch, chemins='"scripts/python/**/*.py",',
+             lu=["scripts/python/a.py", "data/symbols/zz/frida/enums.tsv"])
+    reste, servies = G.a_remesurer(["probe_zz"], G.banque(), G.Empreinte.charger())
+    assert (reste, servies) == ([], ["probe_zz"])
+    rc = _rc(monkeypatch)
+    sortie = capsys.readouterr().out
+    assert rc == 1, sortie
+    assert "hors de leur perimetre DECLARE" in sortie
+
+
+@pytest.mark.parametrize("rel,compte", [
+    ("scripts/x.py", True),
+    # ECRITS PAR L'OUTILLAGE, donc dependants de l'etat LOCAL de la machine. Mesure du
+    # 2026-08-10 : deux passes du meme arbre divergeaient sur le SEUL groupe
+    # `scripts/python/.pytest_cache/*.md` -- gitignore, et present uniquement si quelqu'un a
+    # joue pytest la. Une empreinte VERSIONNEE ne peut pas en dependre.
+    ("scripts/python/.pytest_cache/README.md", False),
+    ("frida/node_modules/x/y.js", False),          # `_EXCLUS` ne voyait que la RACINE
+    ("node_modules/x/y.js", False),
+    (".git/config", False),
+    # `__pycache__` reste COMPTE : `source_de` l'a deja ramene a `engine/x.py`, et l'exclure
+    # ferait disparaitre du perimetre tout module importe.
+    ("scripts/python/engine/x.py", True),
+])
+def test_les_repertoires_de_CACHE_ne_sont_comptes_a_AUCUN_niveau(tmp_path, rel, compte):
+    t = DT._Trace.__new__(DT._Trace)                # sans `addaudithook` : on teste le FILTRE
+    t.racine = str(tmp_path).replace("\\", "/").rstrip("/") + "/"
+    t._prefixe, t._n = t.racine.lower(), len(t.racine)
+    t.lectures, t.programmes, t._ecrit = set(), set(), False
+    t._hook("open", (t.racine + rel, "r", 0))
+    assert (t.lectures == {rel}) is compte, t.lectures
+
+
+def test_une_mesure_REFUSEE_par_le_cliquet_ne_vaut_pas_une_CONFRONTATION(
+        tmp_path, monkeypatch, capsys):
+    """MESURE du 2026-08-10 : les 8 shards `probe_457:s*` rendaient `rc=99` en ~1,2 s.
+
+    `probe_457` REFUSE de courir sans `TACTICUS_ALLOW_RATCHETS=1` (garde anti-reflexe, un run
+    complet coute ~1 425 s). Leur empreinte portait alors 5 lectures -- son propre source et ses
+    imports immediats -- que n'importe quel glob couvre : 8 des 49 entrees se comptaient
+    CONFRONTEES sans avoir rien confronte. Le garde `nproc == 0` est structurellement aveugle a
+    ca : le process a bel et bien tourne et trace. Il a trace son REFUS."""
+    emp = _montage(tmp_path, monkeypatch, chemins='"scripts/python/**/*.py",',
+                   lu=["scripts/python/a.py"])
+    txt = emp.read_text(encoding="utf-8").replace("probe_zz\trc\t0", "probe_zz\trc\t99")
+    emp.write_text(txt, encoding="utf-8")
+
+    rc = _rc(monkeypatch)
+    sortie = capsys.readouterr().out
+    assert rc == 99, sortie                       # NON MESUREE, jamais un vert
+    assert "MESURE REFUSEE" in sortie and "rc=99" in sortie
+    # et la selection incrementale la reprend, au lieu de la servir comme fraiche
+    assert G.a_remesurer(["probe_zz"], G.banque(), G.Empreinte.charger()) == (["probe_zz"], [])
+
+
+@pytest.mark.parametrize("rc,refusee", [(0, False), (1, False), (6, False),
+                                        (64, True), (99, True), (-1, True)])
+def test_le_rc_qui_DIT_ne_rien_avoir_mesure_est_distingue_du_rouge(rc, refusee):
+    """Un cliquet ROUGE (`rc=1`, `rc=6`) a parfaitement mesure : sa trace vaut un perimetre.
+    Seuls les rc qui DISENT n'avoir rien mesure -- 64 usage, 99 indisponible, -1 timeout --
+    invalident la trace. Confondre les deux ferait taire de vrais rouges."""
+    assert G.mesure_refusee({"rc": rc}) is refusee
+
+
+def test_une_passe_PARALLELE_n_ECRASE_pas_la_distribution_SERIE(tmp_path):
+    """FAUTE PAYEE SUR CE PROPRE ARTEFACT (#486-r36), et le fichier est le livrable.
+
+    La premiere version ecrivait UNE mesure par entree : la passe `para-16` a donc efface la
+    distribution `serie` -- la seule interpretable. Ecrire le regime A COTE ne suffit pas : il
+    dit quelle mesure on a, pas celle qu'on a perdue. La cle porte donc le regime."""
+    p = tmp_path / "durees.json"
+    serie = {"probe_a": {"s": 1.5, "rc": 0, "commit": "abc"},
+             "probe_b": {"s": 2.0, "rc": 0, "commit": "abc"}}
+    G.ecrire_durees(G.fusionner_durees({}, serie, "serie"), p)
+
+    para = {"probe_a": {"s": 9.9, "rc": 0, "commit": "def"}}
+    G.ecrire_durees(G.fusionner_durees(G.charger_durees(p), para, "para-16"), p)
+
+    relu = G.charger_durees(p)
+    assert relu["probe_a"]["serie"]["s"] == 1.5        # PRESERVEE
+    assert relu["probe_a"]["para-16"]["s"] == 9.9      # et la nouvelle est la
+    assert set(relu["probe_b"]) == {"serie"}           # intacte, pas rejouee
+    # trie a l'ecriture : le fichier est versionne, un ordre instable ferait un diff de bruit.
+    assert list(relu) == ["probe_a", "probe_b"] and list(relu["probe_a"]) == ["para-16", "serie"]
+    assert G.charger_durees(tmp_path / "absent.json") == {}
+    (tmp_path / "casse.json").write_text("{pas du json", encoding="utf-8")
+    assert G.charger_durees(tmp_path / "casse.json") == {}          # jamais fatal
+
+
+def test_la_DISTRIBUTION_dit_la_part_CUMULEE_des_plus_lourdes(capsys):
+    """C'est elle qui TRANCHE entre les deux accelerations, donc elle est imprimee, pas laissee
+    a deriver : concentree => seul l'incremental paye ; plate => seul le parallelisme paye."""
+    durees = {"a": {"serie": {"s": 100.0}}, "b": {"serie": {"s": 10.0}},
+              "c": {"serie": {"s": 5.0}}}
+    G.publier_distribution(durees, ["a", "b", "c"])
+    sortie = capsys.readouterr().out
+    assert "total 115.0 s" in sortie and "mediane 10.0 s" in sortie
+    assert "cumul 87.0 %" in sortie                    # 100/115
+    sortie.encode("ascii")                             # console cp1252
+
+
+def test_une_distribution_SANS_mesure_isolee_le_DIT_au_lieu_de_se_taire(capsys):
+    """Un silence se lit comme << rien a signaler >>. Ici il signifierait << la seule mesure
+    interpretable manque >>, ce qui est l'inverse."""
+    G.publier_distribution({"a": {"para-16": {"s": 1.0}}}, ["a"])
+    sortie = capsys.readouterr().out
+    assert "rien en regime `serie`" in sortie and "SANS `--jobs`" in sortie
+    # et une distribution PARTIELLE dit combien d'entrees lui manquent
+    G.publier_distribution({"a": {"serie": {"s": 1.0}}, "b": {"para-16": {"s": 2.0}}},
+                           ["a", "b"])
+    assert "1 SANS mesure dans ce regime" in capsys.readouterr().out
