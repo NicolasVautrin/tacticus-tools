@@ -42,6 +42,10 @@ from ..magnitude import ability_var
 # `variables` (jamais sous `constants`). L'`AbilityConstantType` homonyme vaut 15 / 114 -- les
 # confondre lirait la mauvaise cle SANS lever.
 from ...ability_variable_type import AbilityVariableType
+# `HasEffect(..., 0x1b, ...)` : `0x1b = 27 = EffectType.Taunted_OnlySpecificTargets` -- le membre
+# NOMME, jamais l'ordinal du decompile (CLAUDE.md, << un ENTIER qui DESIGNE quelque chose passe par
+# un ENUM >>).
+from ...effect_type import EffectType
 
 #: La cle gameconfig de l'ability 1164 (les deux `ConfigVar` s'indexent dessus).
 MIND_CONTROL_ID = "MindControl"
@@ -152,12 +156,63 @@ class MindControlTaunterEffect(BaseEffect):
     bondedEntity=cache)` d'un cote, `AddBondEffect(1367, targets=cache, bondedEntity=Target)` de
     l'autre).
 
-    NON PORTE, ET NOMME (residu `#552-r1`) : `is_active` reste le defaut `True`. La condition
-    interroge les EFFETS d'une AUTRE unite que le porteur (la cible bondee) et le `bondedEntity`
-    de l'un de ces effets -- or `unit_state_for_effects` (le foyer unique du contexte de
-    `CreateActiveCondition`, #208) est une vue du SEUL porteur et n'expose ni les effets d'autrui
-    ni leur lien de bond. La porter demanderait d'elargir ce foyer, ce qui deborde cette tranche.
-    CONSEQUENCE BORNEE : le marqueur reste affiche apres la disparition du taunt ; il ne CONTRIBUE
-    a rien, donc aucun degat, aucune stat et aucun ciblage n'en depend -- l'ecart est confine a la
-    LISTE d'effets."""
-    # Aucun canal surcharge : c'est le mirror fidele d'une classe native qui n'en implemente aucun.
+    ⚠ POURQUOI CETTE CONDITION-LA EST EVALUABLE, ALORS QUE CELLE DE `1369` NE L'EST PAS (#576-r1).
+    Le contexte d'une `CreateActiveCondition` est l'`AbilityEntities` que
+    `IdunBattle.Operations.RefreshEffectsOperation$$ShouldBeActive` `memset` a ZERO avant d'ecrire
+    QUATRE champs : `<+0x08>` = owner, `<+0x18>` = owner, `<+0x50>` = activePlayer,
+    `<+0x58>` = effectEntity. Or les selecteurs employes ICI lisent tous un champ RENSEIGNE --
+    `IdunBattle.Entities.Selectors.EffectSelector$$Select` -> `ctx+0x58`,
+    `IdunBattle.Entities.Selectors.OwnerSelector$$Select` -> `ctx+0x18` -- la ou
+    `...TargetSelector$$Select` lit `ctx+0x10`, qui reste nul. Les deux conjoints sont donc de
+    vraies lectures d'etat, pas des constantes.
+
+    PORTEE ICI (`#552-r1`, tranche du 2026-08-10) -- les trois briques natives sont exposees par
+    `runner/components.py::unit_state_for_effects`, le foyer UNIQUE du contexte (#208) :
+    `owner_id` (= `Owner@+0x30`), le callable `has_effect_on` (= `HasEffect(sel, type,
+    onlyActive: null, 6)`) et le callable `owned_effect_bonded_entity`
+    (= `BondedEntityFromEffect(EffectFromOwner(sel, type))`). `Effect@+0x38` n'a PAS besoin d'etre
+    threade : le selecteur designe l'entite-effet COURANTE, donc `BondedEntityFromEffect` de cette
+    entite-la est exactement `self.bonded`, que l'instance porte deja.
+
+    CONSEQUENCE, inchangee : `1367` ne CONTRIBUE a rien (ses deux seuls corps propres sont
+    `get_Range` et `CreateActiveCondition`), donc l'ecart etait -- et l'apport est -- confine a la
+    LISTE d'effets publiee et aux gates `HasEffect(1367)`."""
+
+    # La `CreateActiveCondition` est REELLEMENT portee -> le flag capte ne fait plus foi pour
+    # cette classe (`case-322`) : `EffectsState.active_effects` s'en remet a `is_active` seul.
+    active_condition_ported = True
+
+    def is_active(self, unit_state: Mapping | None = None) -> bool:
+        """MIRROR terme a terme de `...MindControl_TaunterEffect$$CreateActiveCondition` (cf. la
+        docstring de classe) :
+
+            bonded = BondedEntityFromEffect( Effect@DSLSelectors+0x38 )   # == `self.bonded`
+            return   HasEffect( bonded, 27 Taunted_OnlySpecificTargets, onlyActive: null, 6 )
+                   & AreEqual( BondedEntityFromEffect(EffectFromOwner(bonded, 27)),
+                               Owner@DSLSelectors+0x30 )
+
+        DEGRADATIONS, toutes dans le sens << on ne masque pas a tort >> (VRAI), et chacune nommee :
+          * `unit_state` absent ou prive de l'une des trois cles (face DECISION, `Scene`, appelant
+            qui n'a pas de `EffectsState`) -> VRAI, comme toutes les autres conditions portees ;
+          * `self.bonded is None` -> VRAI. Ce n'est PAS le verdict natif (`BondedEntityFromEffect`
+            rendrait la liste vide, donc `SelectUnit` null, donc `HasEffect` faux) : c'est le
+            refus de trancher sur une instance dont le canal de bond n'a pas ete seede. Le canal
+            EXISTE (`decisionView` publie `bondedId`, et `AddEffectOperation` l'ecrit a la pose
+            offline), mais une capture anterieure a ce champ rendrait `None` sur une instance
+            parfaitement liee -- et fermer l'effet dans ce cas serait un faux negatif SILENCIEUX.
+        """
+        if not unit_state:
+            return True
+        bonded = self.bonded
+        if bonded is None:
+            return True                     # bond non seede -> on ne tranche pas (cf. docstring)
+        has_effect_on = unit_state.get("has_effect_on")
+        bonded_of = unit_state.get("owned_effect_bonded_entity")
+        owner = unit_state.get("owner_id")
+        if has_effect_on is None or bonded_of is None or owner is None:
+            return True                     # contexte non threade -> degradation VRAIE
+        taunt = int(EffectType.Taunted_OnlySpecificTargets)
+        if not has_effect_on(int(bonded), taunt):          # 1er conjoint : HasEffect(bonded, 27)
+            return False
+        back = bonded_of(int(bonded), taunt)               # 2d conjoint : AreEqual(..., Owner)
+        return back is not None and int(back) == int(owner)

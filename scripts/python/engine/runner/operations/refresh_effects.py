@@ -614,7 +614,37 @@ def refresh_stat_modifier_effects(state: State, unit_id: Optional[int] = None,
             if e.consumed or e.expired:
                 continue
             if e.stat_mod_source is not None:
-                continue                      # pose EAGER offline sous SA cle : hors driver (cf. en-tete)
+                # POSE EAGER OFFLINE sous SA cle -> hors driver pour l'APPLICATION (cf. en-tete :
+                # une 2e cle compterait la contribution DEUX fois). Mais le RETRAIT, lui, reste du
+                # ressort du refresh natif (#576-r1) : `IdunBattle.Operations.
+                # RefreshEffectsOperation$$RefreshEffect` ne connait pas la facon dont la
+                # `ValueModification` a ete posee -- des que `ShouldBeActive` rend faux, il joue
+                # `DeactivateEffect` -> `UpdateEffectTargets([])` -> `RevertEffectsForTargets` ->
+                # le slot `IEffect+0xf`. La distinction << pose offline / pose par le driver >> est
+                # un artefact du PORT, et elle n'a de sens que sur l'axe APPLICATION.
+                #
+                # ⚠ ON NE RE-APPLIQUE JAMAIS ICI : le seul geste ouvert a ces instances est le
+                # RETRAIT, et seulement quand la `CreateActiveCondition` est REELLEMENT portee
+                # (meme discriminant que plus bas -- `BaseEffect.is_active` rend `True` par DEFAUT,
+                # ce qui est un placeholder ; reverter sur un placeholder retirerait des
+                # contributions justes).
+                # PREMIER PORTEUR : `1369 BloodChalice_ExtraPiercing`, dont la condition est
+                # STRUCTURELLEMENT fausse (son `Target@ctx+0x10` n'est jamais renseigne dans le
+                # contexte de `ShouldBeActive`) -- le natif ne compte donc JAMAIS son
+                # `+extraPierceRatio`, la ou le port l'appliquait pour toute la duree.
+                if not _active_condition_is_ported(e):
+                    continue
+                _comp = EffectComponentView.from_effect(e)
+                if bool(should_be_active(refresh_trigger, refresh_type, e, _comp, ustate)):
+                    continue                  # active : la valeur posee par le poseur est la bonne
+                e.active = False              # mirror `DeactivateEffect` (`IsActive @+0x5c = 0`)
+                # `reverted_stats()` est la liste que le POSEUR a declaree sur l'instance (la
+                # feuille `AddStaticStatModifierEffect` l'installe en callable) ou, a defaut, celle
+                # de la classe. C'est le seul endroit qui sache QUEL stat cette instance a modifie.
+                for _st in (e.reverted_stats() or []):
+                    us.revert_stat(int(_st), e.stat_mod_source)
+                    out.append((int(uid), int(_st), None))
+                continue
             # ORDRE : le FLAG d'abord (mirror `ActivateEffect`/`DeactivateEffect`, qui ecrivent
             # `EffectComponent.IsActive @+0x5c` AVANT que `UpdateEffectTargets` ne joue les
             # `Apply`/`RevertModification`). Les magnitudes contextuelles peuvent LIRE ce flag.

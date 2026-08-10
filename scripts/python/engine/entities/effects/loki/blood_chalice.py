@@ -17,10 +17,17 @@ non-mecaniques et non-`Immune`), pour `TurnsFromRounds(1)`. Elle vit dans
 ⚠ LES DEUX EFFETS PORTENT DU PERCAGE, ET C'EST LE DECOMPILE QUI LE DIT -- pas une erreur de port.
 Les canaux sont DISTINCTS (un `EffectBonus` de lecture d'attaque vs un `StatModifier` sur la stat),
 et le port les additionne comme le natif (`runner/abilities/base.py` : `pierce_eff = clamp(profil +
-extra + dir_pierce + effect_bonus, 0, 100)`). Ce qui reste OUVERT est le regime ou les deux
-contribuent EN MEME TEMPS -- residu #576-r1, cf. `is_active` ci-dessous.
+extra + dir_pierce + effect_bonus, 0, 100)`).
+
+⚠ MAIS UN SEUL DES DEUX CONTRIBUE REELLEMENT (#576-r1, tranche du 2026-08-10). La
+`CreateActiveCondition` de `1369` lit `Target@DSLSelectors+0x60`, un slot que le contexte
+d'evaluation des conditions d'activite (`RefreshEffectsOperation$$ShouldBeActive`) laisse a ZERO :
+l'effet est POSE et INERTE A VIE. Le regime « les deux ensemble » qu'on croyait non confronte
+N'EXISTE PAS cote natif. Detail et chaine LUE : `BloodChaliceExtraPiercingEffect` ci-dessous.
 """
 from __future__ import annotations
+
+from typing import Mapping
 
 from ....services.effect_bonus import EffectBonus, for_piercing
 from ..base import BaseEffect
@@ -95,22 +102,61 @@ class BloodChaliceExtraPiercingEffect(BaseEffect):
     +{extraPierceRatio}% pierce ratio with melee attacks », sans condition de charge. La condition
     n'existe QUE dans le decompile. Elle est transcrite telle que lue.
 
-    ⚠ `is_active` N'EST PAS PORTEE ICI, ET C'EST DELIBERE -- `active_condition_ported` reste `False`
-    (le defaut). Deux raisons MESUREES, pas supposees :
-      1. `CreateActiveCondition` prend `Target@+0x60` -- l'ACTIVE TARGET du contexte d'evaluation.
-         `is_active(unit_state)` du port ne recoit que l'etat du PORTEUR : la cible de l'attaque en
-         cours n'y est pas threadee. Rendre `True`/`False` sans elle serait deviner.
-      2. La consommation du flag differe : le natif reevalue par
-         `IdunBattle.Operations.RefreshEffectsOperation$$RefreshEffect`, qui REVERSE le
-         `StatModifier` quand l'effet devient inactif ; le port, lui, applique le modifier UNE FOIS
-         a la pose (`AddStaticStatModifierEffect` -> `apply_change_stat`) et le reverse au retrait.
-         Poser `is_active` sans brancher ce revert conditionnel ne changerait RIEN a la stat -- un
-         faux-semblant de fidelite.
-    CONSEQUENCE CHIFFREE, ecrite plutot que tue : le port applique `+extraPierceRatio` a la stat
-    `ExtraPierceMelee` pour TOUTE la duree, la ou le natif ne la compte qu'en situation de CHARGE.
-    Le port SUR-ACCORDE donc sur ce terme, exactement comme le proxy `has_moved` que #r32 a corrige
-    ailleurs -- residu **#576-r1** (`docs/rl/backlog.md`), qui porte les deux volets ensemble
-    (threader l'ActiveTarget jusqu'a `is_active`, et brancher le revert conditionnel).
+    ⚠ CETTE CONDITION EST STRUCTURELLEMENT FAUSSE, ET C'EST UNE MESURE, PAS UNE INTERPRETATION
+    (#576-r1). Elle lit `Target@DSLSelectors+0x60` -- or ce slot n'est PAS renseigne dans le
+    contexte ou le natif evalue une `CreateActiveCondition`. Chaine LUE de bout en bout :
 
-    Aucune methode : la classe existe pour que l'effet soit NOMME dans `EFFECT_CLASSES` (sans quoi il
-    retombe sur `BaseEffect` anonyme) et pour porter cette RE."""
+      1. `IdunBattle.Operations.RefreshEffectsOperation$$ShouldBeActive` `memset` son
+         `AbilityEntities` de 0x128 octets a ZERO, puis n'ecrit QUE quatre champs :
+         `<+0x08>` = owner, `<+0x18>` = owner, `<+0x50>` = activePlayer, `<+0x58>` = effectEntity
+         (meme quadruplet dans `...$$RefreshEffect` pour le selecteur de cibles) ;
+      2. les trois selecteurs qui nous interessent lisent chacun UN champ de ce contexte, et le
+         corps entier de leur `Select` le dit :
+             `IdunBattle.Entities.Selectors.OwnerSelector$$Select`   -> `ctx+0x18`  (RENSEIGNE)
+             `IdunBattle.Entities.Selectors.EffectSelector$$Select`  -> `ctx+0x58`  (RENSEIGNE)
+             `IdunBattle.Entities.Selectors.TargetSelector$$Select`  -> `ctx+0x10`  (**ZERO**)
+         chacun rendant une `List` VIDE quand son champ est nul ;
+      3. `IdunBattle.DSL.TargetsSelector$$SelectUnit` rend `0` sur liste vide ;
+      4. `IdunBattle.Entities.Triggers.IsChargingTrigger$$ShouldTrigger` court-circuite :
+         `if (SelectUnit(caster) == 0 || SelectUnit(target) == 0) return false;` -- il n'appelle
+         meme pas `IdunBattle.Core.Services.BattleQuery$$IsCharging`.
+
+    Donc `1369` est POSE puis **INERTE A VIE** : `ShouldBeActive` rend faux au tout premier
+    refresh, `IdunBattle.Operations.RefreshEffectsOperation$$DeactivateEffect` ecrit
+    `EffectComponent.IsActive @+0x5c = 0` et vide les cibles, et `...$$ApplyEffectsForTargets`
+    (le SEUL appelant du slot `IEffect+0xe` = `ApplyModification`) n'est jamais atteint pour lui.
+    La MESURE live #576 concorde exactement : apres le cast, `decisionView` publie `1368` sur la
+    cible et **RIEN pour 1369** (`readEffectsByUnit` droppe `IsActive == 0`).
+
+    ⚠ `Target@+0x60` EST renseigne AILLEURS, et c'est ce qui rend le quirk lisible plutot que
+    suspect : les canaux de DEGAT batissent leur `AbilityEntities` en `(attacker, attacker,
+    defender)` -- c'est ce contexte-la que lit `get_OwnerIsTarget` d'
+    `AmuletOfTheVoidwyrm_CritDamageReductionEffect` (cf. `amulet_of_the_voidwyrm.py`). Le natif a
+    donc mis dans un canal SANS Target une condition qui en exige un. Le `+percage` que le tooltip
+    annonce vient bien du jeu -- mais de l'AUTRE effet (`1368 CreatePiercingBonusForAttack`, porte
+    ci-dessus), pas de celui-ci.
+
+    ⚠ CE QUE `is_active -> False` NE FERME PAS ENCORE, et il faut le lire : le port applique le
+    `StatModifier` A LA POSE (feuille `AddStaticStatModifierEffect` -> `apply_change_stat`), la ou
+    le natif ne l'applique que par `ApplyEffectsForTargets`. Le driver
+    `runner/operations/refresh_effects.py::refresh_stat_modifier_effects` RETIRE desormais cette
+    contribution des que la condition PORTEE est fausse (#576-r1), mais il ne tourne qu'aux
+    declencheurs natifs (`TurnChanged`, `UnitPositionChanged`, degat sur la cible) : entre le cast
+    et le premier de ces declencheurs, la stat reste sur-accordee. Le cran restant est le gate de
+    la POSE elle-meme."""
+
+    # La `CreateActiveCondition` est PORTEE (elle rend une CONSTANTE, ce qui reste une lecture du
+    # natif) -> le flag capte/pose ne fait plus foi pour cette classe. Cf. `case-322` et la
+    # docstring ci-dessus.
+    active_condition_ported = True
+
+    def is_active(self, unit_state: Mapping | None = None) -> bool:
+        """`...BloodChalice_ExtraPiercingEffect$$CreateActiveCondition` evaluee dans le SEUL
+        contexte qui l'evalue -- celui d'`IdunBattle.Operations.RefreshEffectsOperation$$
+        ShouldBeActive`, ou `Target@ctx+0x10` est ZERO. `IsChargingTrigger$$ShouldTrigger` y rend
+        donc `false` INCONDITIONNELLEMENT (cf. la chaine en 4 etages de la docstring de classe).
+
+        `unit_state` est ignore A DESSEIN : la constante ne depend d'AUCUN etat du porteur. Ce
+        n'est pas une degradation (« on ne sait pas, on ne ferme pas ») -- c'est le verdict natif,
+        lu au decompile."""
+        return False

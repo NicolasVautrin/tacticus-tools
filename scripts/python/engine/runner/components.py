@@ -2478,6 +2478,41 @@ def has_effect_of_type(state, unit_id: int, effect_type: int) -> bool:
     return bool(eff.has_effect(int(unit_id), int(effect_type)))
 
 
+def owned_effect_bonded_entity(state, unit_id: int, effect_type: int) -> Optional[int]:
+    """`BondedEntityFromEffect( EffectFromOwner(<unit>, <effectType>) )` -- la COMPOSITION des deux
+    selecteurs natifs, lue chacun au decompile :
+
+      * `IdunBattleLogic.Entities.DSLSelectors$$EffectFromOwner(effectTarget, effectType)` construit
+        un `IdunBattle.Entities.Selectors.EffectWithTypeSelector`, dont le `$$Select` appelle
+        `IdunBattle.Entities.EntityExtensions$$GetOwnedEffect(entity, state, effectType)` par
+        element du selecteur source. `GetOwnedEffect` itere `EffectsOwnedComponent.<+0x10>` (les ids
+        possedes), resout chaque id en entite et rend la PREMIERE dont `EffectComponent.Type
+        @+0x58` egale le type -- **AUCUN filtre sur `IsActive @+0x5c` ni sur `Removed @+0x5f`** ;
+      * `IdunBattle.Entities.Selectors.SelectBondedEntityFromEffectSelector$$Select` prend le
+        `Enumerable.First` du selecteur source, lit le composant de bond de cette entite-effet et
+        rend `state.<slot 0x29 Get>(comp.<+0x10>)` -- c'est-a-dire l'entite BONDEE. Selecteur source
+        VIDE, ou entite-effet SANS composant de bond => liste VIDE.
+
+    Port : la liste possedee est `EffectsState.by_unit[unit_id]` (meme index, meme ordre d'insertion)
+    et le champ `<+0x10>` du composant de bond est `BaseEffect.bonded` (ecrit par
+    `AddEffectOperation` en mirror de `AddEffectBehaviour$$DefaultBondEffectBuilder`).
+
+    `None` = aucun effet de ce type sur `unit_id`, OU cette instance n'a pas de bond (les deux sont
+    la liste VIDE cote natif, donc le meme `null` en aval d'`AreEqual`). `None` aussi quand l'etat
+    n'a pas d'`EffectsState` -- le lecteur ne fabrique pas d'entite."""
+    st = getattr(state, "effects", None)
+    if st is None:
+        return None
+    for e in st.by_unit.get(int(unit_id), []):
+        if e.consumed:
+            continue                       # retire de `EffectsOwnedComponent` -> plus dans la liste
+        if int(e.effect_type) != int(effect_type):
+            continue
+        b = getattr(e, "bonded", None)
+        return None if b is None else int(b)
+    return None
+
+
 class _RunnerEffectTargetWorld:
     """Substrat ECS de `entities.effect_targets.EffectTargetWorld` (le pendant DECISION est
     `playbook/scene.py::_SceneEffectTargetWorld`). Un noeud natif, deux substrats."""
@@ -2769,6 +2804,23 @@ class UnitEffectStateView(Mapping):
         `IdunBattle.Entities.Effects.Loki.AmuletOfTheVoidwyrm_CritDamageReductionEffect$$
         CreateActiveCondition` (#589-r1-r1-r2-r1). MÊME gate de présence que la clé ci-dessus
         (sélecteur géométrique ET par équipe) : présente dès que le porteur a une équipe ET une tuile.
+      * `owner_id` — l'id du PORTEUR, mirror du noeud `Owner@DSLSelectors+0x30`. Ce n'est pas une
+        commodite : `IdunBattle.Entities.Selectors.OwnerSelector$$Select` lit litteralement
+        `ctx+0x18`, et `IdunBattle.Operations.RefreshEffectsOperation$$ShouldBeActive` y ECRIT
+        l'owner -- c'est donc l'un des QUATRE champs que le contexte natif d'une
+        `CreateActiveCondition` renseigne. Lu par les conditions qui COMPARENT une entite au
+        porteur (`MindControl_TaunterEffect$$CreateActiveCondition` = `AreEqual(...,
+        Owner@+0x30)`). EAGER, present des que l'entite existe.
+      * `owned_effect_bonded_entity` — **un CALLABLE** `(unit_id, effect_type) -> int | None`
+        (mirror `BondedEntityFromEffect(EffectFromOwner(...))`, cf. la fonction homonyme
+        ci-dessus). Callable et non valeur pour la MEME raison que
+        `contagions_of_nurgle_amount` : le noeud natif prend une ENTITE en entree, et cette entite
+        vient de l'INSTANCE d'effet qui interroge (son `bonded`), pas du porteur. Present des que
+        le state porte une `EffectsState`.
+      * `has_effect_on` — **un CALLABLE** `(unit_id, effect_type) -> bool`, mirror de
+        `HasEffect(sel, effectType, onlyActive: null, effectTargetType: 6)` porte sur une entite
+        AUTRE que le porteur (la cle `has_effect_light_cover` ci-dessus est le meme noeud figé sur
+        le porteur lui-meme). Meme gate de presence que la cle precedente.
       * `turns_started` — `RoundsStarted(Owner@DSLSelectors+0x30)` =
         `IdunBattle.Entities.Formulas.RoundsStartedFormula$$Calculate` (somme de
         `UnitComponent.turnsStarted@+0x58` sur le sélecteur, ici mono-unité = le porteur), MÊME
@@ -2790,6 +2842,11 @@ class UnitEffectStateView(Mapping):
         self._uid = int(unit_id)
         ent = state.get_entity(self._uid) if state is not None else None
         eager: Dict[str, object] = {}
+        # `Owner@DSLSelectors+0x30` -> `OwnerSelector$$Select` -> `ctx+0x18`, l'un des QUATRE champs
+        # que `RefreshEffectsOperation$$ShouldBeActive` renseigne. EAGER : c'est l'id qu'on tient
+        # deja. Cle ABSENTE si l'entite n'existe pas (la condition degrade alors en VRAI).
+        if ent is not None:
+            eager["owner_id"] = self._uid
         hc = ent.get_component(HealthComponent) if ent is not None else None
         if hc is not None:
             eager["hp"], eager["max_hp"] = hc.hp, hc.hp_max
@@ -2867,6 +2924,16 @@ class UnitEffectStateView(Mapping):
             if self._lc is None:
                 self._lc = has_effect_of_type(self._state, self._uid, int(EffectType.LightCover))
             return self._lc
+        # `BondedEntityFromEffect(EffectFromOwner(<unit>, <type>))` et `HasEffect(<unit>, <type>,
+        # onlyActive: null, 6)` sur une entite AUTRE que le porteur : CALLABLES, parce que l'entite
+        # interrogee vient de l'INSTANCE d'effet (son `bonded`), pas du porteur (meme motif que
+        # `contagions_of_nurgle_amount` ci-dessus).
+        if key == "owned_effect_bonded_entity" and self._has_effstate:
+            state = self._state
+            return lambda uid, etype: owned_effect_bonded_entity(state, int(uid), int(etype))
+        if key == "has_effect_on" and self._has_effstate:
+            state = self._state
+            return lambda uid, etype: has_effect_of_type(state, int(uid), int(etype))
         if key == "is_target_of_big_target_adjacent" and self._has_pos:
             if self._bta is None:
                 self._bta = is_target_of_adjacent_friend_aura(
@@ -2891,13 +2958,15 @@ class UnitEffectStateView(Mapping):
             yield "is_target_of_big_target_adjacent"
         if self._has_effstate:
             yield "has_effect_light_cover"
+            yield "owned_effect_bonded_entity"
+            yield "has_effect_on"
         if self._has_sa:
             yield "structural_analyser_friends"
             yield "adjacent_friendly_summons_and_decoys"
 
     def __len__(self) -> int:
         return (len(self._eager) + (1 if self._has_psy else 0) + (2 if self._has_pos else 0)
-                + (1 if self._has_effstate else 0) + (2 if self._has_sa else 0))
+                + (3 if self._has_effstate else 0) + (2 if self._has_sa else 0))
 
     def __repr__(self) -> str:                    # diagnostic (ASCII)
         return "UnitEffectStateView(u%d, %s)" % (self._uid, sorted(self))
