@@ -1,5 +1,5 @@
 # format=2  declencheurs-empreinte (#486-r12) -- GENERE, jamais fusionne a la main : REGENERER (`--mesurer`) en cas de conflit.
-# commit=0f628199105221edd5409107c35dc937a67572a5
+# commit=144adf5a48e513edf1a984f51350ca0b87bde07c
 # Une ligne `lu` = un groupe (dossier, extension) reellement OUVERT en lecture,
 # avec son compte et DEUX temoins (le plus petit et le plus grand chemin du
 # groupe). Les temoins sont ce que le cliquet confronte aux globs declares :
@@ -7,7 +7,7 @@
 # -- un glob discriminant sur le NOM de base pourrait couvrir les deux temoins
 # sans couvrir un troisieme fichier du meme groupe.
 probe_120	sha	80bc5373182f80a8c5b82c944c7d34835e02c0f16e4c3fbd064ce733c44b9461
-probe_120	ferm	597a3e054cc82198263409513ba322c10c0d1450fe280fd1061d5cdec98eec3c
+probe_120	ferm	7d2e485eca734df8fb1c798ba80dba9336c0f718f5c085c2411f5b42fa0a3ca3
 probe_120	inst	c8197ce3874b31e34fd89b98c3eede0ce2418a1cd04a42a742772e666a591dde
 probe_120	rc	0
 probe_120	nproc	1
@@ -41,7 +41,7 @@ probe_120	lu	scripts/python/engine/services	.py	22	scripts/python/engine/service
 probe_120	lu	scripts/python/engine/streams	.py	8	scripts/python/engine/streams/__init__.py	scripts/python/engine/streams/tag_key.py
 probe_120	lu	scripts/python/engine/utilities	.py	14	scripts/python/engine/utilities/__init__.py	scripts/python/engine/utilities/wireweave_net.py
 probe_181	sha	5b7fc56882044cdab1071c6442cd8473078ce4772fc8834ed2f0738a6f586622
-probe_181	ferm	99d5d5d6696b2b3ca8f183832a05b99efe762a7b02065b05fbde3ed3df234c2e
+probe_181	ferm	a33b2f7b85a2400b406703d8572cca6bc79ed6e87ee91697b60a65a14ac0d065
 probe_181	inst	c8197ce3874b31e34fd89b98c3eede0ce2418a1cd04a42a742772e666a591dde
 probe_181	rc	0
 probe_181	nproc	1
@@ -72,10 +72,10 @@ probe_181	lu	scripts/python/engine/runner/operations/triggers/loki	.py	75	script
 probe_181	lu	scripts/python/engine/services	.py	21	scripts/python/engine/services/__init__.py	scripts/python/engine/services/victory_config.py
 probe_181	lu	scripts/python/engine/streams	.py	8	scripts/python/engine/streams/__init__.py	scripts/python/engine/streams/tag_key.py
 probe_181	lu	scripts/python/engine/utilities	.py	14	scripts/python/engine/utilities/__init__.py	scripts/python/engine/utilities/wireweave_net.py
-probe_229	sha	ebae63532d0570a37e60d7ae49c301a8064249a054156fca886eb4119c53976f
-probe_229	ferm	99d5d5d6696b2b3ca8f183832a05b99efe762a7b02065b05fbde3ed3df234c2e
+probe_229	sha	6658283b20d37e17a6f5437e6b68cd77cec9591416e5d5edffcb57db64b49b1a
+probe_229	ferm	a33b2f7b85a2400b406703d8572cca6bc79ed6e87ee91697b60a65a14ac0d065
 probe_229	inst	c8197ce3874b31e34fd89b98c3eede0ce2418a1cd04a42a742772e666a591dde
-probe_229	rc	1
+probe_229	rc	0
 probe_229	nproc	1
 probe_229	lu	data	.json	1	data/seed-bc.json	data/seed-bc.json
 probe_229	lu	scripts/python	.py	3	scripts/python/gameconfig.py	scripts/python/probe_229_effect_triggers_active.py
@@ -184,7 +184,7 @@ probe_274	lu	scripts/python/tests/engine/entities/pathfinding	.py	9	scripts/pyth
 probe_274	lu	scripts/python/tests/engine/runner	.py	505	scripts/python/tests/engine/runner/_ability_after_hit_regime.py	scripts/python/tests/engine/runner/test_wireweave_net_counter_live.py
 probe_274	lu	scripts/python/tools	.py	1	scripts/python/tools/damage_decomp.py	scripts/python/tools/damage_decomp.py
 probe_283:diff	sha	817e690320afaecf692c7aad5d8a8213e59a63f7111f34f474dd1f4fd2f0559a
-probe_283:diff	ferm	2dd011000c31eef895376387dbed0206f1567d7f88c670583b845a41c6e2ff45
+probe_283:diff	ferm	228bd3c83e0e25da5b656cb0f896810834ad1938ab19d8ce01ef9005e7167ee5
 probe_283:diff	inst	c8197ce3874b31e34fd89b98c3eede0ce2418a1cd04a42a742772e666a591dde
 probe_283:diff	rc	0
 probe_283:diff	nproc	1
@@ -193,14 +193,14 @@ probe_283:diff	lu	data/symbols/gqfc5mff6c/frida	.tsv	1	data/symbols/gqfc5mff6c/f
 probe_283:diff	lu	data/symbols/rnca9r7q6c/frida	.tsv	1	data/symbols/rnca9r7q6c/frida/enums.tsv	data/symbols/rnca9r7q6c/frida/enums.tsv
 probe_283:diff	lu	scripts/python	.py	3	scripts/python/probe_283_enum_ordinal_sweep.py	scripts/python/symbols_layout.py
 probe_283:exec	sha	817e690320afaecf692c7aad5d8a8213e59a63f7111f34f474dd1f4fd2f0559a
-probe_283:exec	ferm	2dd011000c31eef895376387dbed0206f1567d7f88c670583b845a41c6e2ff45
+probe_283:exec	ferm	228bd3c83e0e25da5b656cb0f896810834ad1938ab19d8ce01ef9005e7167ee5
 probe_283:exec	inst	c8197ce3874b31e34fd89b98c3eede0ce2418a1cd04a42a742772e666a591dde
 probe_283:exec	rc	0
 probe_283:exec	nproc	1
 probe_283:exec	lu	data/symbols		1	data/symbols/CURRENT	data/symbols/CURRENT
 probe_283:exec	lu	data/symbols/gqfc5mff6c/frida	.tsv	1	data/symbols/gqfc5mff6c/frida/enums.tsv	data/symbols/gqfc5mff6c/frida/enums.tsv
 probe_283:exec	lu	data/symbols/rnca9r7q6c/frida	.tsv	1	data/symbols/rnca9r7q6c/frida/enums.tsv	data/symbols/rnca9r7q6c/frida/enums.tsv
-probe_283:exec	lu	scripts/python	.py	1059	scripts/python/_analyze_errors.py	scripts/python/verdict_cache.py
+probe_283:exec	lu	scripts/python	.py	1065	scripts/python/_analyze_errors.py	scripts/python/verdict_cache.py
 probe_283:exec	lu	scripts/python/engine	.py	7	scripts/python/engine/__init__.py	scripts/python/engine/weights.py
 probe_283:exec	lu	scripts/python/engine/ai	.py	8	scripts/python/engine/ai/__init__.py	scripts/python/engine/ai/utilities.py
 probe_283:exec	lu	scripts/python/engine/dsl	.py	5	scripts/python/engine/dsl/__init__.py	scripts/python/engine/dsl/nodes.py
@@ -229,20 +229,20 @@ probe_283:exec	lu	scripts/python/engine/streams	.py	25	scripts/python/engine/str
 probe_283:exec	lu	scripts/python/engine/utilities	.py	14	scripts/python/engine/utilities/__init__.py	scripts/python/engine/utilities/wireweave_net.py
 probe_283:exec	lu	scripts/python/gamenav	.py	11	scripts/python/gamenav/__init__.py	scripts/python/gamenav/vue.py
 probe_283:exec	lu	scripts/python/tests	.py	59	scripts/python/tests/conftest.py	scripts/python/tests/test_symbols_coverage_guard_offline.py
-probe_283:exec	lu	scripts/python/tests/engine	.py	278	scripts/python/tests/engine/_move_tile_sweep_order.py	scripts/python/tests/engine/test_votan_prediction_gap_live.py
+probe_283:exec	lu	scripts/python/tests/engine	.py	279	scripts/python/tests/engine/_move_tile_sweep_order.py	scripts/python/tests/engine/test_votan_prediction_gap_live.py
 probe_283:exec	lu	scripts/python/tests/engine/entities	.py	6	scripts/python/tests/engine/entities/test_366_r1_turnof_all_offline.py	scripts/python/tests/engine/entities/test_units_directly_behind_offline.py
 probe_283:exec	lu	scripts/python/tests/engine/entities/pathfinding	.py	9	scripts/python/tests/engine/entities/pathfinding/test_381r3_neighbour_source_live.py	scripts/python/tests/engine/entities/pathfinding/test_pathfinding_live.py
-probe_283:exec	lu	scripts/python/tests/engine/runner	.py	505	scripts/python/tests/engine/runner/_ability_after_hit_regime.py	scripts/python/tests/engine/runner/test_wireweave_net_counter_live.py
+probe_283:exec	lu	scripts/python/tests/engine/runner	.py	506	scripts/python/tests/engine/runner/_ability_after_hit_regime.py	scripts/python/tests/engine/runner/test_wireweave_net_counter_live.py
 probe_283:exec	lu	scripts/python/tools	.py	1	scripts/python/tools/damage_decomp.py	scripts/python/tools/damage_decomp.py
 probe_283:mirror	sha	817e690320afaecf692c7aad5d8a8213e59a63f7111f34f474dd1f4fd2f0559a
-probe_283:mirror	ferm	2dd011000c31eef895376387dbed0206f1567d7f88c670583b845a41c6e2ff45
+probe_283:mirror	ferm	228bd3c83e0e25da5b656cb0f896810834ad1938ab19d8ce01ef9005e7167ee5
 probe_283:mirror	inst	c8197ce3874b31e34fd89b98c3eede0ce2418a1cd04a42a742772e666a591dde
 probe_283:mirror	rc	0
 probe_283:mirror	nproc	1
 probe_283:mirror	lu	data/symbols		1	data/symbols/CURRENT	data/symbols/CURRENT
 probe_283:mirror	lu	data/symbols/rnca9r7q6c/frida	.tsv	1	data/symbols/rnca9r7q6c/frida/enums.tsv	data/symbols/rnca9r7q6c/frida/enums.tsv
 probe_283:mirror	lu	lib	.py	3	lib/hex.py	lib/state.py
-probe_283:mirror	lu	scripts/python	.py	1059	scripts/python/_analyze_errors.py	scripts/python/verdict_cache.py
+probe_283:mirror	lu	scripts/python	.py	1065	scripts/python/_analyze_errors.py	scripts/python/verdict_cache.py
 probe_283:mirror	lu	scripts/python/engine	.py	7	scripts/python/engine/__init__.py	scripts/python/engine/weights.py
 probe_283:mirror	lu	scripts/python/engine/ai	.py	8	scripts/python/engine/ai/__init__.py	scripts/python/engine/ai/utilities.py
 probe_283:mirror	lu	scripts/python/engine/dsl	.py	5	scripts/python/engine/dsl/__init__.py	scripts/python/engine/dsl/nodes.py
@@ -271,20 +271,20 @@ probe_283:mirror	lu	scripts/python/engine/streams	.py	25	scripts/python/engine/s
 probe_283:mirror	lu	scripts/python/engine/utilities	.py	14	scripts/python/engine/utilities/__init__.py	scripts/python/engine/utilities/wireweave_net.py
 probe_283:mirror	lu	scripts/python/gamenav	.py	11	scripts/python/gamenav/__init__.py	scripts/python/gamenav/vue.py
 probe_283:mirror	lu	scripts/python/tests	.py	59	scripts/python/tests/conftest.py	scripts/python/tests/test_symbols_coverage_guard_offline.py
-probe_283:mirror	lu	scripts/python/tests/engine	.py	278	scripts/python/tests/engine/_move_tile_sweep_order.py	scripts/python/tests/engine/test_votan_prediction_gap_live.py
+probe_283:mirror	lu	scripts/python/tests/engine	.py	279	scripts/python/tests/engine/_move_tile_sweep_order.py	scripts/python/tests/engine/test_votan_prediction_gap_live.py
 probe_283:mirror	lu	scripts/python/tests/engine/entities	.py	6	scripts/python/tests/engine/entities/test_366_r1_turnof_all_offline.py	scripts/python/tests/engine/entities/test_units_directly_behind_offline.py
 probe_283:mirror	lu	scripts/python/tests/engine/entities/pathfinding	.py	9	scripts/python/tests/engine/entities/pathfinding/test_381r3_neighbour_source_live.py	scripts/python/tests/engine/entities/pathfinding/test_pathfinding_live.py
-probe_283:mirror	lu	scripts/python/tests/engine/runner	.py	505	scripts/python/tests/engine/runner/_ability_after_hit_regime.py	scripts/python/tests/engine/runner/test_wireweave_net_counter_live.py
+probe_283:mirror	lu	scripts/python/tests/engine/runner	.py	506	scripts/python/tests/engine/runner/_ability_after_hit_regime.py	scripts/python/tests/engine/runner/test_wireweave_net_counter_live.py
 probe_283:mirror	lu	scripts/python/tools	.py	1	scripts/python/tools/damage_decomp.py	scripts/python/tools/damage_decomp.py
 probe_283:on	sha	817e690320afaecf692c7aad5d8a8213e59a63f7111f34f474dd1f4fd2f0559a
-probe_283:on	ferm	2dd011000c31eef895376387dbed0206f1567d7f88c670583b845a41c6e2ff45
+probe_283:on	ferm	228bd3c83e0e25da5b656cb0f896810834ad1938ab19d8ce01ef9005e7167ee5
 probe_283:on	inst	c8197ce3874b31e34fd89b98c3eede0ce2418a1cd04a42a742772e666a591dde
 probe_283:on	rc	0
 probe_283:on	nproc	1
 probe_283:on	lu	data/symbols		1	data/symbols/CURRENT	data/symbols/CURRENT
 probe_283:on	lu	data/symbols/gqfc5mff6c/frida	.tsv	1	data/symbols/gqfc5mff6c/frida/enums.tsv	data/symbols/gqfc5mff6c/frida/enums.tsv
 probe_283:on	lu	data/symbols/rnca9r7q6c/frida	.tsv	1	data/symbols/rnca9r7q6c/frida/enums.tsv	data/symbols/rnca9r7q6c/frida/enums.tsv
-probe_283:on	lu	scripts/python	.py	1057	scripts/python/_analyze_errors.py	scripts/python/verdict_cache.py
+probe_283:on	lu	scripts/python	.py	1063	scripts/python/_analyze_errors.py	scripts/python/verdict_cache.py
 probe_283:on	lu	scripts/python/engine	.py	7	scripts/python/engine/__init__.py	scripts/python/engine/weights.py
 probe_283:on	lu	scripts/python/engine/ai	.py	8	scripts/python/engine/ai/__init__.py	scripts/python/engine/ai/utilities.py
 probe_283:on	lu	scripts/python/engine/dsl	.py	4	scripts/python/engine/dsl/__init__.py	scripts/python/engine/dsl/nodes.py
@@ -313,20 +313,20 @@ probe_283:on	lu	scripts/python/engine/streams	.py	25	scripts/python/engine/strea
 probe_283:on	lu	scripts/python/engine/utilities	.py	13	scripts/python/engine/utilities/__init__.py	scripts/python/engine/utilities/wireweave_net.py
 probe_283:on	lu	scripts/python/gamenav	.py	11	scripts/python/gamenav/__init__.py	scripts/python/gamenav/vue.py
 probe_283:on	lu	scripts/python/tests	.py	58	scripts/python/tests/conftest.py	scripts/python/tests/test_symbols_coverage_guard_offline.py
-probe_283:on	lu	scripts/python/tests/engine	.py	278	scripts/python/tests/engine/_move_tile_sweep_order.py	scripts/python/tests/engine/test_votan_prediction_gap_live.py
+probe_283:on	lu	scripts/python/tests/engine	.py	279	scripts/python/tests/engine/_move_tile_sweep_order.py	scripts/python/tests/engine/test_votan_prediction_gap_live.py
 probe_283:on	lu	scripts/python/tests/engine/entities	.py	6	scripts/python/tests/engine/entities/test_366_r1_turnof_all_offline.py	scripts/python/tests/engine/entities/test_units_directly_behind_offline.py
 probe_283:on	lu	scripts/python/tests/engine/entities/pathfinding	.py	9	scripts/python/tests/engine/entities/pathfinding/test_381r3_neighbour_source_live.py	scripts/python/tests/engine/entities/pathfinding/test_pathfinding_live.py
-probe_283:on	lu	scripts/python/tests/engine/runner	.py	505	scripts/python/tests/engine/runner/_ability_after_hit_regime.py	scripts/python/tests/engine/runner/test_wireweave_net_counter_live.py
+probe_283:on	lu	scripts/python/tests/engine/runner	.py	506	scripts/python/tests/engine/runner/_ability_after_hit_regime.py	scripts/python/tests/engine/runner/test_wireweave_net_counter_live.py
 probe_283:on	lu	scripts/python/tools	.py	1	scripts/python/tools/damage_decomp.py	scripts/python/tools/damage_decomp.py
 probe_283:prose	sha	817e690320afaecf692c7aad5d8a8213e59a63f7111f34f474dd1f4fd2f0559a
-probe_283:prose	ferm	2dd011000c31eef895376387dbed0206f1567d7f88c670583b845a41c6e2ff45
+probe_283:prose	ferm	228bd3c83e0e25da5b656cb0f896810834ad1938ab19d8ce01ef9005e7167ee5
 probe_283:prose	inst	c8197ce3874b31e34fd89b98c3eede0ce2418a1cd04a42a742772e666a591dde
 probe_283:prose	rc	0
 probe_283:prose	nproc	1
 probe_283:prose	lu	data/symbols		1	data/symbols/CURRENT	data/symbols/CURRENT
 probe_283:prose	lu	data/symbols/gqfc5mff6c/frida	.tsv	1	data/symbols/gqfc5mff6c/frida/enums.tsv	data/symbols/gqfc5mff6c/frida/enums.tsv
 probe_283:prose	lu	data/symbols/rnca9r7q6c/frida	.tsv	1	data/symbols/rnca9r7q6c/frida/enums.tsv	data/symbols/rnca9r7q6c/frida/enums.tsv
-probe_283:prose	lu	scripts/python	.py	1057	scripts/python/_analyze_errors.py	scripts/python/verdict_cache.py
+probe_283:prose	lu	scripts/python	.py	1063	scripts/python/_analyze_errors.py	scripts/python/verdict_cache.py
 probe_283:prose	lu	scripts/python/engine	.py	7	scripts/python/engine/__init__.py	scripts/python/engine/weights.py
 probe_283:prose	lu	scripts/python/engine/ai	.py	8	scripts/python/engine/ai/__init__.py	scripts/python/engine/ai/utilities.py
 probe_283:prose	lu	scripts/python/engine/dsl	.py	4	scripts/python/engine/dsl/__init__.py	scripts/python/engine/dsl/nodes.py
@@ -355,13 +355,13 @@ probe_283:prose	lu	scripts/python/engine/streams	.py	25	scripts/python/engine/st
 probe_283:prose	lu	scripts/python/engine/utilities	.py	13	scripts/python/engine/utilities/__init__.py	scripts/python/engine/utilities/wireweave_net.py
 probe_283:prose	lu	scripts/python/gamenav	.py	11	scripts/python/gamenav/__init__.py	scripts/python/gamenav/vue.py
 probe_283:prose	lu	scripts/python/tests	.py	58	scripts/python/tests/conftest.py	scripts/python/tests/test_symbols_coverage_guard_offline.py
-probe_283:prose	lu	scripts/python/tests/engine	.py	278	scripts/python/tests/engine/_move_tile_sweep_order.py	scripts/python/tests/engine/test_votan_prediction_gap_live.py
+probe_283:prose	lu	scripts/python/tests/engine	.py	279	scripts/python/tests/engine/_move_tile_sweep_order.py	scripts/python/tests/engine/test_votan_prediction_gap_live.py
 probe_283:prose	lu	scripts/python/tests/engine/entities	.py	6	scripts/python/tests/engine/entities/test_366_r1_turnof_all_offline.py	scripts/python/tests/engine/entities/test_units_directly_behind_offline.py
 probe_283:prose	lu	scripts/python/tests/engine/entities/pathfinding	.py	9	scripts/python/tests/engine/entities/pathfinding/test_381r3_neighbour_source_live.py	scripts/python/tests/engine/entities/pathfinding/test_pathfinding_live.py
-probe_283:prose	lu	scripts/python/tests/engine/runner	.py	505	scripts/python/tests/engine/runner/_ability_after_hit_regime.py	scripts/python/tests/engine/runner/test_wireweave_net_counter_live.py
+probe_283:prose	lu	scripts/python/tests/engine/runner	.py	506	scripts/python/tests/engine/runner/_ability_after_hit_regime.py	scripts/python/tests/engine/runner/test_wireweave_net_counter_live.py
 probe_283:prose	lu	scripts/python/tools	.py	1	scripts/python/tools/damage_decomp.py	scripts/python/tools/damage_decomp.py
 probe_283:tables	sha	817e690320afaecf692c7aad5d8a8213e59a63f7111f34f474dd1f4fd2f0559a
-probe_283:tables	ferm	2dd011000c31eef895376387dbed0206f1567d7f88c670583b845a41c6e2ff45
+probe_283:tables	ferm	228bd3c83e0e25da5b656cb0f896810834ad1938ab19d8ce01ef9005e7167ee5
 probe_283:tables	inst	c8197ce3874b31e34fd89b98c3eede0ce2418a1cd04a42a742772e666a591dde
 probe_283:tables	rc	0
 probe_283:tables	nproc	1
@@ -395,7 +395,7 @@ probe_283:tables	lu	hooks-legacy/battle	.js	3	hooks-legacy/battle/all-actions.js
 probe_283:tables	lu	lib	.py	3	lib/hex.py	lib/state.py
 probe_283:tables	lu	scripts/frida	.js	7	scripts/frida/dump-all-configs.js	scripts/frida/test-param-hook.js
 probe_283:tables	lu	scripts/node	.js	1	scripts/node/count_proxy.js	scripts/node/count_proxy.js
-probe_283:tables	lu	scripts/python	.py	1059	scripts/python/_analyze_errors.py	scripts/python/verdict_cache.py
+probe_283:tables	lu	scripts/python	.py	1065	scripts/python/_analyze_errors.py	scripts/python/verdict_cache.py
 probe_283:tables	lu	scripts/python/engine	.py	7	scripts/python/engine/__init__.py	scripts/python/engine/weights.py
 probe_283:tables	lu	scripts/python/engine/ai	.py	8	scripts/python/engine/ai/__init__.py	scripts/python/engine/ai/utilities.py
 probe_283:tables	lu	scripts/python/engine/dsl	.py	5	scripts/python/engine/dsl/__init__.py	scripts/python/engine/dsl/nodes.py
@@ -424,10 +424,10 @@ probe_283:tables	lu	scripts/python/engine/streams	.py	25	scripts/python/engine/s
 probe_283:tables	lu	scripts/python/engine/utilities	.py	14	scripts/python/engine/utilities/__init__.py	scripts/python/engine/utilities/wireweave_net.py
 probe_283:tables	lu	scripts/python/gamenav	.py	11	scripts/python/gamenav/__init__.py	scripts/python/gamenav/vue.py
 probe_283:tables	lu	scripts/python/tests	.py	59	scripts/python/tests/conftest.py	scripts/python/tests/test_symbols_coverage_guard_offline.py
-probe_283:tables	lu	scripts/python/tests/engine	.py	278	scripts/python/tests/engine/_move_tile_sweep_order.py	scripts/python/tests/engine/test_votan_prediction_gap_live.py
+probe_283:tables	lu	scripts/python/tests/engine	.py	279	scripts/python/tests/engine/_move_tile_sweep_order.py	scripts/python/tests/engine/test_votan_prediction_gap_live.py
 probe_283:tables	lu	scripts/python/tests/engine/entities	.py	6	scripts/python/tests/engine/entities/test_366_r1_turnof_all_offline.py	scripts/python/tests/engine/entities/test_units_directly_behind_offline.py
 probe_283:tables	lu	scripts/python/tests/engine/entities/pathfinding	.py	9	scripts/python/tests/engine/entities/pathfinding/test_381r3_neighbour_source_live.py	scripts/python/tests/engine/entities/pathfinding/test_pathfinding_live.py
-probe_283:tables	lu	scripts/python/tests/engine/runner	.py	505	scripts/python/tests/engine/runner/_ability_after_hit_regime.py	scripts/python/tests/engine/runner/test_wireweave_net_counter_live.py
+probe_283:tables	lu	scripts/python/tests/engine/runner	.py	506	scripts/python/tests/engine/runner/_ability_after_hit_regime.py	scripts/python/tests/engine/runner/test_wireweave_net_counter_live.py
 probe_283:tables	lu	scripts/python/tools	.py	1	scripts/python/tools/damage_decomp.py	scripts/python/tools/damage_decomp.py
 probe_313	sha	dd423b4aef8db1ea224b0109ff295350f1bccc66bf5d01f89fbf9fc4757b28a4
 probe_313	ferm	46f65dc6a937c21b4c5579f0f1847ee57d36f2ca4e7cfe4285a516d13847795c
@@ -577,10 +577,10 @@ probe_366bcp	lu	scripts/python/tests/engine/entities	.py	6	scripts/python/tests/
 probe_366bcp	lu	scripts/python/tests/engine/entities/pathfinding	.py	9	scripts/python/tests/engine/entities/pathfinding/test_381r3_neighbour_source_live.py	scripts/python/tests/engine/entities/pathfinding/test_pathfinding_live.py
 probe_366bcp	lu	scripts/python/tests/engine/runner	.py	505	scripts/python/tests/engine/runner/_ability_after_hit_regime.py	scripts/python/tests/engine/runner/test_wireweave_net_counter_live.py
 probe_366bcp	lu	scripts/python/tools	.py	1	scripts/python/tools/damage_decomp.py	scripts/python/tools/damage_decomp.py
-probe_366camo	sha	4e10297751af529df37d2de82f87fb3027435752216b51fb437524f6cf6b22ca
-probe_366camo	ferm	99d5d5d6696b2b3ca8f183832a05b99efe762a7b02065b05fbde3ed3df234c2e
+probe_366camo	sha	8bfc53903b47e29184a6aa580ecbaf90980647f39f75c1e9d08f5e4b24650031
+probe_366camo	ferm	a33b2f7b85a2400b406703d8572cca6bc79ed6e87ee91697b60a65a14ac0d065
 probe_366camo	inst	c8197ce3874b31e34fd89b98c3eede0ce2418a1cd04a42a742772e666a591dde
-probe_366camo	rc	1
+probe_366camo	rc	0
 probe_366camo	nproc	1
 probe_366camo	lu	data	.json	1	data/seed-bc.json	data/seed-bc.json
 probe_366camo	lu	scripts/python	.py	3	scripts/python/gameconfig.py	scripts/python/probe_366_camo_seed_inventory.py
@@ -664,9 +664,9 @@ probe_391	lu	scripts/python/tests	.py	2	scripts/python/tests/conftest.py	scripts
 probe_391	lu	scripts/python/tests/engine	.py	276	scripts/python/tests/engine/conftest.py	scripts/python/tests/engine/test_votan_prediction_gap_live.py
 probe_391	lu	scripts/python/tests/engine/runner	.py	485	scripts/python/tests/engine/runner/conftest.py	scripts/python/tests/engine/runner/test_wireweave_net_counter_live.py
 probe_421	sha	84d439d3210e84cb6e15c0e2cef244c026203a96bfc3ea30b566d78edb737393
-probe_421	ferm	1126afc605c76f3614a3d0bedecab601a630dc6ce6b91e86c142722187f5fe35
+probe_421	ferm	eb305f1f256cc60c98517573235b3cf1bb3b6c4cf6db952a21b628a8f295e6e5
 probe_421	inst	c8197ce3874b31e34fd89b98c3eede0ce2418a1cd04a42a742772e666a591dde
-probe_421	rc	1
+probe_421	rc	0
 probe_421	nproc	1
 probe_421	lu	data	.json	1	data/seed-bc.json	data/seed-bc.json
 probe_421	lu	scripts/python	.py	4	scripts/python/gameconfig.py	scripts/python/probe_421_rail_covers_registry.py
@@ -834,7 +834,7 @@ probe_433r4r1r4r2	lu	scripts/python/engine/services	.py	22	scripts/python/engine
 probe_433r4r1r4r2	lu	scripts/python/engine/streams	.py	25	scripts/python/engine/streams/__init__.py	scripts/python/engine/streams/verify_turn_finished.py
 probe_433r4r1r4r2	lu	scripts/python/engine/utilities	.py	14	scripts/python/engine/utilities/__init__.py	scripts/python/engine/utilities/wireweave_net.py
 probe_437r1r1r1	sha	c462b77e9c1c3948c50c79f639d361c1c8ec24c9bdbf9aaa84010a3ec3e5fbb4
-probe_437r1r1r1	ferm	99d5d5d6696b2b3ca8f183832a05b99efe762a7b02065b05fbde3ed3df234c2e
+probe_437r1r1r1	ferm	a33b2f7b85a2400b406703d8572cca6bc79ed6e87ee91697b60a65a14ac0d065
 probe_437r1r1r1	inst	c8197ce3874b31e34fd89b98c3eede0ce2418a1cd04a42a742772e666a591dde
 probe_437r1r1r1	rc	1
 probe_437r1r1r1	nproc	1
@@ -900,14 +900,14 @@ probe_440	lu	scripts/python/tests/engine/entities/pathfinding	.py	9	scripts/pyth
 probe_440	lu	scripts/python/tests/engine/runner	.py	505	scripts/python/tests/engine/runner/_ability_after_hit_regime.py	scripts/python/tests/engine/runner/test_wireweave_net_counter_live.py
 probe_440	lu	scripts/python/tools	.py	1	scripts/python/tools/damage_decomp.py	scripts/python/tools/damage_decomp.py
 probe_443r1c	sha	9064a01def7ae07e8dd57dd1aa10e7aa743185bc27cc78d0fb76eda922b61e97
-probe_443r1c	ferm	1278a556b161a793b39dc0eed69369a8f82625305197db0b18ddf0c899b71bba
+probe_443r1c	ferm	3b3dc6c0774ec89aa918639c3c32e3329e6cc4609d073a10c33ac3ff314c9f84
 probe_443r1c	inst	c8197ce3874b31e34fd89b98c3eede0ce2418a1cd04a42a742772e666a591dde
 probe_443r1c	rc	0
 probe_443r1c	nproc	1
 probe_443r1c	lu	data/symbols		1	data/symbols/CURRENT	data/symbols/CURRENT
 probe_443r1c	lu	data/symbols/gqfc5mff6c/frida	.tsv	1	data/symbols/gqfc5mff6c/frida/enums.tsv	data/symbols/gqfc5mff6c/frida/enums.tsv
 probe_443r1c	lu	data/symbols/rnca9r7q6c/frida	.tsv	1	data/symbols/rnca9r7q6c/frida/enums.tsv	data/symbols/rnca9r7q6c/frida/enums.tsv
-probe_443r1c	lu	scripts/python	.py	1059	scripts/python/_analyze_errors.py	scripts/python/verdict_cache.py
+probe_443r1c	lu	scripts/python	.py	1065	scripts/python/_analyze_errors.py	scripts/python/verdict_cache.py
 probe_443r1c	lu	scripts/python/engine	.py	7	scripts/python/engine/__init__.py	scripts/python/engine/weights.py
 probe_443r1c	lu	scripts/python/engine/ai	.py	8	scripts/python/engine/ai/__init__.py	scripts/python/engine/ai/utilities.py
 probe_443r1c	lu	scripts/python/engine/dsl	.py	5	scripts/python/engine/dsl/__init__.py	scripts/python/engine/dsl/nodes.py
@@ -936,10 +936,10 @@ probe_443r1c	lu	scripts/python/engine/streams	.py	25	scripts/python/engine/strea
 probe_443r1c	lu	scripts/python/engine/utilities	.py	14	scripts/python/engine/utilities/__init__.py	scripts/python/engine/utilities/wireweave_net.py
 probe_443r1c	lu	scripts/python/gamenav	.py	11	scripts/python/gamenav/__init__.py	scripts/python/gamenav/vue.py
 probe_443r1c	lu	scripts/python/tests	.py	59	scripts/python/tests/conftest.py	scripts/python/tests/test_symbols_coverage_guard_offline.py
-probe_443r1c	lu	scripts/python/tests/engine	.py	278	scripts/python/tests/engine/_move_tile_sweep_order.py	scripts/python/tests/engine/test_votan_prediction_gap_live.py
+probe_443r1c	lu	scripts/python/tests/engine	.py	279	scripts/python/tests/engine/_move_tile_sweep_order.py	scripts/python/tests/engine/test_votan_prediction_gap_live.py
 probe_443r1c	lu	scripts/python/tests/engine/entities	.py	6	scripts/python/tests/engine/entities/test_366_r1_turnof_all_offline.py	scripts/python/tests/engine/entities/test_units_directly_behind_offline.py
 probe_443r1c	lu	scripts/python/tests/engine/entities/pathfinding	.py	9	scripts/python/tests/engine/entities/pathfinding/test_381r3_neighbour_source_live.py	scripts/python/tests/engine/entities/pathfinding/test_pathfinding_live.py
-probe_443r1c	lu	scripts/python/tests/engine/runner	.py	505	scripts/python/tests/engine/runner/_ability_after_hit_regime.py	scripts/python/tests/engine/runner/test_wireweave_net_counter_live.py
+probe_443r1c	lu	scripts/python/tests/engine/runner	.py	506	scripts/python/tests/engine/runner/_ability_after_hit_regime.py	scripts/python/tests/engine/runner/test_wireweave_net_counter_live.py
 probe_443r1c	lu	scripts/python/tools	.py	1	scripts/python/tools/damage_decomp.py	scripts/python/tools/damage_decomp.py
 probe_443r2	sha	6d20dc2ddb34d7cfdcf5fec19efc322ad4b720029897e540c5a7e71dc5f95307
 probe_443r2	ferm	9caa6b6e61454599fd9cff3a189f5d8daaa24faa9ee79c5124acf61fa9f22799
@@ -974,12 +974,12 @@ probe_443r2	lu	scripts/python/engine/services	.py	22	scripts/python/engine/servi
 probe_443r2	lu	scripts/python/engine/streams	.py	25	scripts/python/engine/streams/__init__.py	scripts/python/engine/streams/verify_turn_finished.py
 probe_443r2	lu	scripts/python/engine/utilities	.py	14	scripts/python/engine/utilities/__init__.py	scripts/python/engine/utilities/wireweave_net.py
 probe_443r2b1	sha	e7e7f1059f00a52bd5f3539955a60d16def280e1e18dc339ae2ff096341d1de9
-probe_443r2b1	ferm	99d5d5d6696b2b3ca8f183832a05b99efe762a7b02065b05fbde3ed3df234c2e
+probe_443r2b1	ferm	a33b2f7b85a2400b406703d8572cca6bc79ed6e87ee91697b60a65a14ac0d065
 probe_443r2b1	inst	c8197ce3874b31e34fd89b98c3eede0ce2418a1cd04a42a742772e666a591dde
 probe_443r2b1	rc	0
 probe_443r2b1	nproc	1
 probe_443r2b1	lu	data	.json	1	data/seed-bc.json	data/seed-bc.json
-probe_443r2b1	lu	scripts/python	.py	108	scripts/python/_analyze_errors.py	scripts/python/verdict_cache.py
+probe_443r2b1	lu	scripts/python	.py	111	scripts/python/_analyze_errors.py	scripts/python/verdict_cache.py
 probe_443r2b1	lu	scripts/python/engine	.py	7	scripts/python/engine/__init__.py	scripts/python/engine/weights.py
 probe_443r2b1	lu	scripts/python/engine/ai	.py	8	scripts/python/engine/ai/__init__.py	scripts/python/engine/ai/utilities.py
 probe_443r2b1	lu	scripts/python/engine/dsl	.py	5	scripts/python/engine/dsl/__init__.py	scripts/python/engine/dsl/nodes.py
@@ -1188,7 +1188,7 @@ probe_464	lu	scripts/python/tests/engine/entities/pathfinding	.py	9	scripts/pyth
 probe_464	lu	scripts/python/tests/engine/runner	.py	505	scripts/python/tests/engine/runner/_ability_after_hit_regime.py	scripts/python/tests/engine/runner/test_wireweave_net_counter_live.py
 probe_464	lu	scripts/python/tools	.py	1	scripts/python/tools/damage_decomp.py	scripts/python/tools/damage_decomp.py
 probe_467	sha	0ff472b3d517983e5bec58f6dd5fc9531cf3ac9129e91f46c1cf5bddba69e791
-probe_467	ferm	b6d298bae5285020386f3e31aaf271543e21c690ccbe61d4c3beaf6c4cd8c1b7
+probe_467	ferm	5166cced314f02ee196e118da6e2b046b98c02de48b0daea197f8338fabc3837
 probe_467	inst	c8197ce3874b31e34fd89b98c3eede0ce2418a1cd04a42a742772e666a591dde
 probe_467	rc	0
 probe_467	nproc	1
@@ -1196,7 +1196,7 @@ probe_467	proc	git
 probe_467	lu	scripts	.json	1	scripts/ratchets-457-footprints.json	scripts/ratchets-457-footprints.json
 probe_467	lu	scripts/python	.py	6	scripts/python/fleet_board.py	scripts/python/probe_467_loop_status_fidelity.py
 probe_467r4	sha	e22d32193f643c5473a6119fd91c285c565d0871210a298e466ad28342cf78af
-probe_467r4	ferm	b6d298bae5285020386f3e31aaf271543e21c690ccbe61d4c3beaf6c4cd8c1b7
+probe_467r4	ferm	5166cced314f02ee196e118da6e2b046b98c02de48b0daea197f8338fabc3837
 probe_467r4	inst	c8197ce3874b31e34fd89b98c3eede0ce2418a1cd04a42a742772e666a591dde
 probe_467r4	rc	0
 probe_467r4	nproc	1
@@ -1222,14 +1222,14 @@ probe_471	proc	pwsh.exe
 probe_471	lu	scripts	.ps1	1	scripts/ratchets.ps1	scripts/ratchets.ps1
 probe_471	lu	scripts/python	.py	53	scripts/python/board.py	scripts/python/verdict_cache.py
 probe_474	sha	f9de0525132643e39753a5a3988039065ea57341cbf97139ef825236a6b0ffda
-probe_474	ferm	b6d298bae5285020386f3e31aaf271543e21c690ccbe61d4c3beaf6c4cd8c1b7
+probe_474	ferm	5166cced314f02ee196e118da6e2b046b98c02de48b0daea197f8338fabc3837
 probe_474	inst	c8197ce3874b31e34fd89b98c3eede0ce2418a1cd04a42a742772e666a591dde
 probe_474	rc	0
 probe_474	nproc	1
 probe_474	proc	git
 probe_474	lu	scripts	.ps1	6	scripts/fleet-count.ps1	scripts/tacticus-screen-prefs.ps1
 probe_474	lu	scripts/hooks	.ps1	2	scripts/hooks/loop-status.ps1	scripts/hooks/session-start.ps1
-probe_474	lu	scripts/python	.py	1059	scripts/python/_analyze_errors.py	scripts/python/verdict_cache.py
+probe_474	lu	scripts/python	.py	1065	scripts/python/_analyze_errors.py	scripts/python/verdict_cache.py
 probe_474	lu	scripts/python/engine	.py	7	scripts/python/engine/__init__.py	scripts/python/engine/weights.py
 probe_474	lu	scripts/python/engine/ai	.py	8	scripts/python/engine/ai/__init__.py	scripts/python/engine/ai/utilities.py
 probe_474	lu	scripts/python/engine/dsl	.py	5	scripts/python/engine/dsl/__init__.py	scripts/python/engine/dsl/nodes.py
@@ -1258,10 +1258,10 @@ probe_474	lu	scripts/python/engine/streams	.py	25	scripts/python/engine/streams/
 probe_474	lu	scripts/python/engine/utilities	.py	14	scripts/python/engine/utilities/__init__.py	scripts/python/engine/utilities/wireweave_net.py
 probe_474	lu	scripts/python/gamenav	.py	11	scripts/python/gamenav/__init__.py	scripts/python/gamenav/vue.py
 probe_474	lu	scripts/python/tests	.py	59	scripts/python/tests/conftest.py	scripts/python/tests/test_symbols_coverage_guard_offline.py
-probe_474	lu	scripts/python/tests/engine	.py	278	scripts/python/tests/engine/_move_tile_sweep_order.py	scripts/python/tests/engine/test_votan_prediction_gap_live.py
+probe_474	lu	scripts/python/tests/engine	.py	279	scripts/python/tests/engine/_move_tile_sweep_order.py	scripts/python/tests/engine/test_votan_prediction_gap_live.py
 probe_474	lu	scripts/python/tests/engine/entities	.py	6	scripts/python/tests/engine/entities/test_366_r1_turnof_all_offline.py	scripts/python/tests/engine/entities/test_units_directly_behind_offline.py
 probe_474	lu	scripts/python/tests/engine/entities/pathfinding	.py	9	scripts/python/tests/engine/entities/pathfinding/test_381r3_neighbour_source_live.py	scripts/python/tests/engine/entities/pathfinding/test_pathfinding_live.py
-probe_474	lu	scripts/python/tests/engine/runner	.py	505	scripts/python/tests/engine/runner/_ability_after_hit_regime.py	scripts/python/tests/engine/runner/test_wireweave_net_counter_live.py
+probe_474	lu	scripts/python/tests/engine/runner	.py	506	scripts/python/tests/engine/runner/_ability_after_hit_regime.py	scripts/python/tests/engine/runner/test_wireweave_net_counter_live.py
 probe_474	lu	scripts/python/tools	.py	1	scripts/python/tools/damage_decomp.py	scripts/python/tools/damage_decomp.py
 probe_475	sha	77f986828bc9fe78be4d2f11152a65ca60f934b7db177f9d67151d0bd68ff08f
 probe_475	ferm	9caa6b6e61454599fd9cff3a189f5d8daaa24faa9ee79c5124acf61fa9f22799
@@ -1287,7 +1287,7 @@ probe_475	lu	frida/hooks/probes	.ts	62	frida/hooks/probes/check-invoker.ts	frida
 probe_475	lu	frida/hooks/runtime	.ts	6	frida/hooks/runtime/crash-logger.ts	frida/hooks/runtime/queue.ts
 probe_475	lu	scripts/python	.py	1	scripts/python/probe_475_pinned_addresses.py	scripts/python/probe_475_pinned_addresses.py
 probe_480r11	sha	d7cda3daf9281c7e33d2d7664393841d3e3367c64f8178a539c03e62b07a9825
-probe_480r11	ferm	08e589cc80f2b8750cffd92974f3a087605b706af2b7e602f678cbe67d569894
+probe_480r11	ferm	bc6e77a827751e7ed405c821b4ca07749a020cae870b345480364f2f15a27854
 probe_480r11	inst	c8197ce3874b31e34fd89b98c3eede0ce2418a1cd04a42a742772e666a591dde
 probe_480r11	rc	0
 probe_480r11	nproc	1
