@@ -24,6 +24,22 @@ from engine.entities.stats import (FillUpStatComponent, StatComponent, StatPart,
                                    UnitStats, compare_unit_stats, seed_unit_stats)
 from engine.services.trait_damage_limits import group_unit_stat_part
 
+#: Ce qui doit changer pour que ce FICHIER puisse changer de verdict (#486-r15).
+DECLENCHEUR = {
+    # Ses DEUX foyers -- `engine/entities/stats.py` (le mirror `FillUpStatComponent`, le seed du
+    # stat 20, l'agrement `compare_unit_stats`) et `engine/services/trait_damage_limits.py` (la
+    # resolution DSL des parts) -- sont DEJA dans la cascade derivee par le foyer (#531), donc
+    # les redeclarer serait du bruit.
+    "chemins": (),
+    "build": False,     # aucun acces au binaire ni a `data/symbols/**`
+    "toujours": False,
+    "raison": ("le fichier est purement OFFLINE et n'exerce que ces deux modules : il seede un "
+               "`UnitStats` a partir des VALEURS mesurees en live (swarm 5 membres tombe a 1) "
+               "puis lit ses parts. Il ne monte aucun runner, ne touche aucun etat ECS et ne lit "
+               "aucune entree de `data/` -- sa fermeture d'imports tient entierement dans la "
+               "cascade, ce que la proposition de `probe_486r15` confirme."),
+}
+
 #: La table `nom -> StatType` que publie `combatSnapshot.statTypes` (extrait utile).
 STAT_IDS = {"numberOfMembers": int(StatType.NUMBER_OF_MEMBERS), "health": int(StatType.HEALTH)}
 

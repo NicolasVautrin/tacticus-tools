@@ -1118,8 +1118,16 @@ class UnitFlagsComponent(Component):
         retrait, et elle est load-bearing : `RemoveTurnFlags(includeNoAction: 0)` CONSERVE ce flag
         au changement de tour.
       • `FLED (9)` : « a fui » (FleeOperation ; re-testé NOT HasFlag(self,9) par BattleFatigue).
-      • `TURN_FINISHED_FORCED (27 = 0x1b)` : posé par FinishUnitTurnOperation quand `forced` (hors enum du
-        dump — ajout post-dump ; nom descriptif, structure lue IdunBattle.Operations.FinishUnitTurnOperation$$Execute/IdunBattle.Entities.Components.UnitFlagsComponent$$RemoveTurnFlags)."""
+      • `TURN_FINISHED_FORCED (27 = 0x1b)` : posé par `IdunBattle.Operations.FinishUnitTurnOperation
+        $$Execute` sous le gate `isTerminated`. ⚠ Le nom natif est **`UnitFlag.TurnTerminated`** et
+        il EST dans l'enum du build (`data/symbols/<build>/frida/enums.tsv` : `27=TurnTerminated`) —
+        la mention « hors enum du dump » qui vivait ici était PÉRIMÉE. Le port garde l'alias
+        descriptif (renommage = résidu déjà nommé, cf. `entities/unit_flag.py`), mais l'attribut
+        pointe le membre : `TURN_FINISHED_FORCED = UnitFlag.TurnTerminated`.
+        **DEUXIÈME poseur, identifié par #564-r4** : `IdunBattle.Operations.ResurrectUnitOperation
+        $$Execute` y arrive par `processor.<slot 35 = FinishUnitTurn>(unit, isTerminated: true)`
+        dans son bras `!takesImmediateTurn` — le slot avait été lu comme
+        `MarkUnitAsNoActionAvailable` (qui est le slot 118), d'où un flag « sans poseur »."""
     __slots__ = ("flags",)
     MOVED = UnitFlag.Moved                   # UnitFlag.Moved (posé par IdunBattle.Entities.UnitExtensions$$SetMovedFlag)
     ARRIVED_AT_FINAL_TILE = UnitFlag.ArrivedAtFinalTile   # UnitFlag.ArrivedAtFinalTile
@@ -1169,7 +1177,9 @@ class UnitFlagsComponent(Component):
                                 # pas ce flag) -- il est porte pour que l'etat de flags du port
                                 # egale celui du natif, mesure a l'appui (live `[0, 1, 20]` contre
                                 # port `[0, 1]` avant #462-r4e-o-r2-r1).
-    TURN_FINISHED_FORCED = UnitFlag.TurnTerminated   # flag 0x1b (FinishUnitTurnOperation forced=True ; hors enum dump)
+    TURN_FINISHED_FORCED = UnitFlag.TurnTerminated   # flag 0x1b = `UnitFlag.TurnTerminated`
+                                # (`FinishUnitTurnOperation` sous `isTerminated`) — nom du PORT,
+                                # membre du BUILD ; cf. la docstring de classe.
 
     def __init__(self, flags=None):
         self.flags = set(int(f) for f in flags) if flags else set()
