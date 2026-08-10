@@ -39,10 +39,25 @@ pouvait pas rougir), et la declaration est INEXPLOITABLE par une future selectio
 
 L'EMPREINTE EST VERSIONNEE, ET UNE ENTREE PERIMEE NE PEUT QUE MANQUER
 ----------------------------------------------------------------------
-`scripts/declencheurs-empreinte.tsv` porte, par entree de banque, le SHA du source du cliquet au
-moment de la mesure. Si le source a bouge depuis, l'entree n'est pas SERVIE -- elle est declaree
-PERIMEE, donc NON MESUREE. C'est la regle de `verdict_cache` (#486-r1) : une attestation qui ne
-peut que manquer ne peut pas mentir. Le mode `--mesurer` la reconstruit.
+`scripts/declencheurs-empreinte.tsv` porte, par entree de banque, DEUX shas pris au moment de la
+mesure : le source du cliquet, et la fermeture de ses imports (#486-r36). Si l'un des deux a
+bouge depuis, l'entree n'est pas SERVIE -- elle est declaree PERIMEE, donc NON MESUREE. C'est la
+regle de `verdict_cache` (#486-r1) : une attestation qui ne peut que manquer ne peut pas mentir.
+Le mode `--mesurer` la reconstruit.
+
+⚠ LE SECOND SHA N'EST PAS UN CONFORT (#486-r36). Le premier seul laissait servir une empreinte
+qu'un helper partage avait perimee : `declencheur_trace` qui se met a lire un TSV, un
+`engine/x.py` qui ajoute un import -- rien de tout cela ne touche le fichier du cliquet, donc
+rien ne perimait, et la confrontation jugeait un perimetre PERIME. Le foyer est `cle_fraicheur`,
+et il sert AUSSI `--incremental` : le mode rapide remesure exactement ce que l'etage 2 aurait
+refuse de servir, donc il ne peut pas changer un verdict.
+
+LE COUT EST MESURE ET VERSIONNE
+--------------------------------
+`scripts/declencheurs-durees.json` porte la duree de chaque entree, avec son REGIME (`serie` =
+cout isole ; `para-N` = duree portant la contention). Sans lui, personne ne pouvait dire ou
+passaient les ~20 min de `--mesurer`, et les deux accelerations possibles repondent a des
+distributions OPPOSEES : concentree, seul l'incremental paye ; plate, seul le parallelisme paye.
 
 TRI-ETAT (#471) -- une panne d'outil ne rougit pas
 ---------------------------------------------------
@@ -60,6 +75,7 @@ ouvert. C'est pourquoi un declencheur se prend LARGE : la mesure borne par le BA
 Usage :
     python probe_486r12_declencheurs.py                 # les deux etages
     python probe_486r12_declencheurs.py --mesurer       # (re)mesure TOUTE la banque, puis ecrit
+    python probe_486r12_declencheurs.py --mesurer --incremental --jobs 8   # le geste QUOTIDIEN
     python probe_486r12_declencheurs.py --mesurer --only probe_181,probe_313
     python probe_486r12_declencheurs.py --verbose
 
@@ -90,9 +106,13 @@ import verdict_cache                                                   # noqa: E
 
 ROOT = PYDIR.parents[1]
 EMPREINTE = ROOT / "scripts" / "declencheurs-empreinte.tsv"
-FORMAT = "1"
+#: `2` depuis #486-r36 : chaque entree porte une seconde ligne `ferm` (sha de la fermeture
+#: d'imports). Une empreinte de format 1 se relit sans erreur -- `ferm` y vaut la chaine vide,
+#: donc TOUTES ses entrees sont PERIMEES, ce qui est le comportement voulu : on ne sert pas une
+#: attestation dont on ne peut pas etablir la fraicheur.
+FORMAT = "2"
 
-#: Le COUT de chaque entree, par entree de banque -- versionne (#486-r35).
+#: Le COUT de chaque entree, par entree de banque -- versionne (#486-r36).
 #:
 #: POURQUOI IL FALLAIT L'ECRIRE. Le chrono existait depuis le premier jour (`t0 = time.time()`
 #: autour du `subprocess.run`) et n'atterrissait nulle part : la ligne `[mesure]` defile puis
@@ -173,7 +193,7 @@ def par_script(bq: dict) -> dict:
 
 # ============================================================== empreinte : lecture/ecriture
 class Empreinte:
-    """`{id: {"sha": str, "lu": [(dossier, ext, n, t_min, t_max)], "proc": [..], "nproc": int}}`.
+    """`{id: {"sha", "ferm", "lu": [(dossier, ext, n, t_min, t_max)], "proc": [..], "nproc"}}`.
 
     ⚠ `commit` est INFORMATIF -- aucun verdict n'en depend, contrairement a `probe_457` qui
     invalide son empreinte par l'AGE. Ici la peremption se joue entierement sur le `sha` du
@@ -207,9 +227,12 @@ class Empreinte:
             if len(ch) < 3:
                 continue
             ident, kind = ch[0], ch[1]
-            d = e.par_id.setdefault(ident, {"sha": "", "lu": [], "proc": [], "nproc": 0})
+            d = e.par_id.setdefault(ident, {"sha": "", "ferm": "", "lu": [], "proc": [],
+                                            "nproc": 0})
             if kind == "sha":
                 d["sha"] = ch[2]
+            elif kind == "ferm":
+                d["ferm"] = ch[2]
             elif kind == "proc":
                 d["proc"].append(ch[2])
             elif kind == "nproc":
@@ -232,6 +255,7 @@ class Empreinte:
         for ident in sorted(self.par_id):
             d = self.par_id[ident]
             lignes.append("%s\tsha\t%s" % (ident, d["sha"]))
+            lignes.append("%s\tferm\t%s" % (ident, d.get("ferm") or ""))
             lignes.append("%s\tnproc\t%d" % (ident, d["nproc"]))
             for prog in sorted(set(d["proc"])):
                 lignes.append("%s\tproc\t%s" % (ident, prog))
@@ -268,11 +292,94 @@ def sha_source(script: str) -> str:
     return verdict_cache.sha_texte(p.read_text(encoding="utf-8", errors="replace"))
 
 
+#: Memoisation de la fermeture d'imports -- une instance PAR RACINE, donc chaque module du depot
+#: n'est parse et lu qu'UNE fois quels que soient les cliquets qui l'atteignent.
+#: ⚠ MEMOISE PAR RACINE, JAMAIS UNE INSTANCE UNIQUE POSEE A L'IMPORT : `ROOT` est SUBSTITUE par
+#: les tests offline (`monkeypatch.setattr(G, "ROOT", tmp_path)`), et une instance figee a
+#: l'import lirait l'arbre REEL pendant que le reste du garde lit l'arbre jetable. C'est la
+#: forme A du `CLAUDE.md` (<< ne mord pas >>), transposee d'un import a un cache.
+_FERM: dict = {}
+_SHA_FERM: dict = {}
+
+
+def _fermeture():
+    cle = str(ROOT)
+    f = _FERM.get(cle)
+    if f is None:
+        f = DC.Fermeture(cle)
+        _FERM[cle] = f
+    return f
+
+
+def sha_fermeture(script: str) -> str:
+    """Sha de TOUT ce que le cliquet importe, transitivement -- pas de son seul fichier.
+
+    ⚠ C'EST LE TROU QUE `sha_source` LAISSAIT OUVERT, ET IL EST EXACTEMENT DU TYPE QUE CE
+    CLIQUET EXISTE POUR ATTRAPER. L'empreinte atteste << voici ce que cette entree OUVRE >>. Ce
+    qu'elle ouvre depend de son fichier, mais AUSSI de chaque module qu'il tire : un
+    `declencheur_trace` qui se met a lire un TSV, un `engine/x.py` qui ajoute un `import
+    engine.y`, un helper partage qui change de table -- rien de tout cela ne touche le fichier du
+    cliquet. Le `sha` ne bougeait donc pas, l'empreinte restait SERVIE, et la confrontation
+    jugeait un perimetre PERIME. Permissif, silencieux, et alimente par notre propre cadence :
+    la signature meme de `TARGETING_OPTIONS`.
+
+    LA FERMETURE EST DEJA DERIVEE ICI, on ne l'invente pas : `declencheur_cliquet.Fermeture` la
+    calcule pour la cascade de harnais (#531). Elle prend TOUS les imports, y compris ceux
+    ECRITS DANS UN CORPS DE FONCTION -- une sous-approximation dans un critere de fraicheur
+    serait un faux vert, exactement comme dans un critere de couverture.
+
+    CE QUE CE SHA NE COUVRE PAS, ET QUI EST DIT PLUTOT QUE TU :
+      * un fichier de DONNEES dont le CONTENU dirige les lectures (une table qui liste des
+        chemins a ouvrir) ; il change sans que ni le source ni la fermeture ne bougent ;
+      * un fichier AJOUTE a l'arbre qu'un cliquet BALAYEUR (`probe_283`, `probe_431`) lirait
+        alors qu'aucun glob declare ne le couvre.
+    Les deux sont des trous de la PEREMPTION, pas de la mesure : `--mesurer` sans
+    `--incremental` les dissout, et c'est pourquoi il reste la reference.
+    """
+    memo = (str(ROOT), script)
+    if memo in _SHA_FERM:
+        return _SHA_FERM[memo]
+    rel = "scripts/python/" + script
+    morceaux = []
+    if (ROOT / rel).is_file():
+        for m in sorted(_fermeture().de(rel)):
+            q = ROOT / m
+            try:
+                morceaux.append(m + "\0" + q.read_text(encoding="utf-8", errors="replace"))
+            except OSError:
+                morceaux.append(m + "\0<illisible>")
+    # Une fermeture VIDE rend la chaine VIDE, jamais `sha_texte("")` : un cliquet qui n'importe
+    # rien du depot n'a pas de seconde composante, et lui en fabriquer une ferait mentir la
+    # difference entre << pas de dependance >> et << dependance dont le contenu est vide >>.
+    _SHA_FERM[memo] = (verdict_cache.sha_texte("\n\0\0\n".join(morceaux)) if morceaux else "")
+    return _SHA_FERM[memo]
+
+
+def cle_fraicheur(script: str) -> tuple:
+    """FOYER UNIQUE de << cette empreinte est-elle encore valable ? >>.
+
+    Il sert DEUX lecteurs, et c'est le point : l'etage 2, qui refuse de SERVIR une empreinte
+    perimee, et `--incremental`, qui decide laquelle REMESURER. Deriver ces deux decisions du
+    meme critere est ce qui rend l'accelaration incapable de changer un verdict -- le mode
+    rapide remesure EXACTEMENT ce que l'etage 2 aurait de toute facon refuse de servir. Deux
+    criteres ouvriraient l'ecart que #486 combat : un mode rapide qui sert ce que le garde
+    aurait rejete est un faux vert.
+    """
+    return (sha_source(script), sha_fermeture(script))
+
+
+def est_perimee(e, cle: tuple) -> bool:
+    """`e` = l'entree d'empreinte chargee, `cle` = `cle_fraicheur` du script courant."""
+    if e is None:
+        return True
+    return (e.get("sha") or "") != cle[0] or (e.get("ferm") or "") != cle[1]
+
+
 # ============================================================== mesure
 def mesurer(ids: list, bq: dict, verbose: bool, parallelisme: int = 1) -> tuple[Empreinte, dict]:
     """Joue les cliquets demandes sous audit hook. Rend (empreinte, durees par entree).
 
-    LE PARALLELISME N'EST PAS UN PARI (#486-r35). `scripts/ratchets.ps1` joue DEJA cette meme
+    LE PARALLELISME N'EST PAS UN PARI (#486-r36). `scripts/ratchets.ps1` joue DEJA cette meme
     banque en parallele -- `-ThrottleLimit 0` vaut `min(nb de cliquets, nb de coeurs)` -- et sa
     documentation en donne la raison : les cliquets sont 100 % OFFLINE (aucun runner, aucun RPC,
     aucune session Frida), donc le plafond de 4 du `CLAUDE.md`, qui borne ce qui MONTE UN RUNNER,
@@ -320,7 +427,8 @@ def mesurer(ids: list, bq: dict, verbose: bool, parallelisme: int = 1) -> tuple[
                 resultats = list(pool.map(_une, ids))
         for ident, rc, dt, (lectures, programmes, nproc) in resultats:
             script = script_de(bq[ident])
-            e.par_id[ident] = {"sha": sha_source(script), "lu": grouper(lectures),
+            cle = cle_fraicheur(script)
+            e.par_id[ident] = {"sha": cle[0], "ferm": cle[1], "lu": grouper(lectures),
                                "proc": sorted(programmes & set(DT.OPAQUES)), "nproc": nproc}
             durees[ident] = {"s": round(dt, 2), "rc": rc, "regime": regime,
                              "commit": e.commit[:12]}
@@ -507,7 +615,7 @@ def etage_mesure(scripts: dict, decl: dict, fins: dict, emp: Empreinte,
         d = decl.get(script)
         if d is None:
             continue                              # deja rouge a l'etage 1, ne pas compter deux fois
-        sha = sha_source(script)
+        cle = cle_fraicheur(script)
         fin = fins.get(script) or {}
         for ident in sorted(scripts[script]):
             d_eff = DC.resoudre(d, fin, ident)
@@ -517,8 +625,11 @@ def etage_mesure(scripts: dict, decl: dict, fins: dict, emp: Empreinte,
                 absentes.append(ident)
                 non_mesure += 1
                 continue
-            if e["sha"] != sha:
-                perimees.append(ident)
+            if est_perimee(e, cle):
+                # `sha` OU `ferm` : la seconde moitie du critere est ce que #486-r36 ajoute --
+                # un helper partage qui change perime l'empreinte de tous ses lecteurs.
+                perimees.append("%s (%s)" % (ident, "source" if (e.get("sha") or "") != cle[0]
+                                             else "fermeture d'imports"))
                 non_mesure += 1
                 continue
             if e["nproc"] == 0:
@@ -566,7 +677,7 @@ def etage_mesure(scripts: dict, decl: dict, fins: dict, emp: Empreinte,
             print("      ABSENTE de l'empreinte : %s" % a)
     if verbose or perimees:
         for p in perimees:
-            print("      PERIMEE (le source du cliquet a change depuis la mesure) : %s" % p)
+            print("      PERIMEE (ce que le cliquet LIT a pu changer depuis la mesure) : %s" % p)
 
     if bypass:
         print("  HORS CONFRONTATION (bypass declare et motive, #486-r24) : %d" % len(bypass))
@@ -611,6 +722,12 @@ def main() -> int:
                          "concerne pas. ATTENTION : sous N > 1 les DUREES portent la contention, "
                          "sont ecrites avec leur regime, et une distribution ne se derive que "
                          "d'une passe `serie`.")
+    ap.add_argument("--incremental", action="store_true",
+                    help="ne (re)mesure que les entrees que l'etage 2 REFUSERAIT de servir "
+                         "(absentes ou PERIMEES au sens de `cle_fraicheur` : source du cliquet "
+                         "OU fermeture de ses imports). Les autres restent attestees par leur "
+                         "empreinte -- jamais supposees vertes. Ne dispense PAS d'une passe "
+                         "complete : cf. `sha_fermeture` pour les deux trous qu'il laisse.")
     ap.add_argument("--verbose", action="store_true")
     a = ap.parse_args()
 
@@ -635,6 +752,17 @@ def main() -> int:
         if not ids:
             print("[486r12] rc=99 -- `--only %s` ne selectionne aucune entree." % a.only)
             return 99
+        if a.incremental:
+            avant = Empreinte.charger()
+            garde = [i for i in ids
+                     if not est_perimee(avant.par_id.get(i),
+                                        cle_fraicheur(script_de(bq[i]) or ""))
+                     and (avant.par_id.get(i) or {}).get("nproc")]
+            ids = [i for i in ids if i not in set(garde)]
+            print("[486r12] INCREMENTAL : %d entree(s) SERVIES par l'empreinte (fraiches, et "
+                  "toujours CONFRONTEES a l'etage 2), %d a remesurer." % (len(garde), len(ids)))
+            if not ids:
+                print("[486r12] rien a remesurer -- l'empreinte est a jour pour cette selection.")
         print("[486r12] MESURE de %d entree(s) ..." % len(ids))
         neuf, durees_neuves = mesurer(ids, bq, a.verbose, parallelisme=max(1, a.jobs))
         # Mesure INCREMENTALE : on ne perd jamais ce qu'on n'a pas rejoue.
