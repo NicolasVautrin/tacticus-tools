@@ -1382,6 +1382,18 @@ class EffectFactory:
             bonded = captured.get("bondedEntityId")
             if bonded is not None:
                 eff.bonded = int(bonded)
+        # `EffectComponent+0x48` -- les CIBLES materialisees sur l'entite-effet
+        # (`EffectComponent$$AddTargetId`, ecrit par `RefreshEffectsOperation$$AddTargetsToEffect`).
+        # C'est la SORTIE native de tout `CreateTargetSelector` d'effet, celle que lit
+        # `IdunBattle.Entities.EntityExtensions$$IsTargetOfEffectOfType` (#366-r1-effect-targets).
+        #
+        # TRI-ETAT, et il est porte par le CAPTEUR lui-meme : `readEffectTargetIds` rend `null`
+        # quand le champ n'a pas pu etre resolu et `[]` quand il est mesure vide. On ne recopie donc
+        # QUE ce qui est une LISTE -- un `None` laisse l'attribut de classe intact (`None` = pas
+        # mesure), sans jamais fabriquer un `[]` qui se lirait << aucune cible >>.
+        tids = captured.get("targetIds")
+        if isinstance(tids, (list, tuple)):
+            eff.target_ids = [int(t) for t in tids]
         return eff
 
     @classmethod

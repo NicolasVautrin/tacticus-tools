@@ -442,6 +442,24 @@ class BaseEffect:
     # garde son comportement d'avant. ⚠ Le capteur exige une fenetre de reinject pour etre CHARGE :
     # tant qu'elle n'a pas eu lieu, tout etat hydrate reste `bonded = None`.
     bonded = None
+    # `EffectComponent+0x48` -- les ids d'entite CIBLE materialises SUR L'ENTITE-EFFET, ecrits par
+    # `IdunBattle.Entities.Components.EffectComponent$$AddTargetId` depuis
+    # `IdunBattle.Operations.RefreshEffectsOperation$$AddTargetsToEffect` (elle-meme enfilee par
+    # `...$$UpdateEffectTargets`, qui joue le `CreateTargetSelector` de l'effet). C'est le champ que
+    # LIT `IdunBattle.Entities.EntityExtensions$$IsTargetOfEffectOfType` -- donc la SORTIE native de
+    # tout `CreateTargetSelector`, la seule qui permette de confronter ces noeuds autrement que sur
+    # leurs ENTREES (#366-r1-effect-targets).
+    #
+    # TRI-ETAT, meme discipline que `bonded` : `None` = **PAS MESURE** (capture anterieure au
+    # capteur, ou pose OFFLINE, qui ne materialise pas cette liste) ; `[]` = mesure faite et VIDE ;
+    # liste non vide = les cibles. Le capteur EXISTE et est verifie live depuis le 2026-08-01
+    # (`frida/hooks/game/effects.ts::readEffectTargetIds`, publie sous
+    # `decisionView.units[].effects[].targetIds`, lui-meme tri-etat) -- ce champ-ci est le bout
+    # PORT du meme canal, jusqu'ici absent.
+    # ⚠ INERTE tant qu'aucun consommateur ne le lit : il est POSE, pas encore CONSOMME. Le port
+    # continue de RE-DERIVER les cibles a la lecture (chaque `CreateTargetSelector` est evalue par
+    # son consommateur) ; ce champ est la mesure native en regard, pas un remplacant.
+    target_ids = None
 
     def applied_stat_mods(self, stats_ctx) -> "list":
         """`<Effect>.ApplyModification` (part DATA côté `entities/`) — liste des `(StatType, montant)` posés
