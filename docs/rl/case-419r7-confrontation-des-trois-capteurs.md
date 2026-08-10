@@ -152,6 +152,28 @@ clés exactement égales à `Int64.MaxValue` — une valeur qui n'existe pas dan
 le lit **et** détecte la saturation directement sur `keyRaw`, pour rester valable sur un bundle
 antérieur : il déclare alors le volet CLÉ **NON MESURÉ** au lieu d'en tirer un verdict.
 
+### 4ter. Le volet CLÉ, MESURÉ une fois le correctif chargé (2026-08-10, session 67)
+
+Le correctif ci-dessus est passé par une fenêtre de reinject, et le probe a été rejoué **tel
+quel**. `keysAtInt64Max: 0` — la saturation est éteinte — et les clés deviennent lisibles :
+
+| unité | clé `--crit 100,700` | clé témoin | utilité native (crit / témoin) |
+|---|---|---|---|
+| `u79` | `-47516000` | `-47516000` | `0,0111` / `0,0111` |
+| `u81` | `-636688580340` | `-572264070900` | **`148,241`** / **`133,241`** |
+| `u83` | `-1028116158940` | `-1028116158940` | `239,377` / `239,377` |
+| `u85` | `-604459561900` | `-604459561900` | `140,737` / `140,737` |
+
+`cles IDENTIQUES : False`. **La divergence naît donc dès l'UTILITÉ native**, une seule unité
+étant touchée (`u81`, +15 exactement) — ce n'est pas un départage à utilités égales. La prémisse
+du résidu est réfutée sur les **deux** volets, plus seulement sur l'ordre.
+
+⚠ **C'est le seul verdict que la panne de clé rendait inaccessible, et elle le rendait
+inaccessible dans le sens FAVORABLE à la conclusion fausse** : les quatre clés saturées se
+lisaient identiques, donc « utilités identiques » aurait été rendu vrai — et avec lui « l'étage
+neutralisant est en aval ». Mesurer a exigé de réparer le capteur d'abord ; la valeur affichée,
+elle, n'avait rien d'anormal.
+
 ### 4bis. Ce que l'ORDRE, lui, a mesuré — et il RÉFUTE la prémisse du résidu
 
 `sessions[].ordered` ne passe par aucune conversion : il tient. Mesure :
