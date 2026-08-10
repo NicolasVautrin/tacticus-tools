@@ -178,6 +178,41 @@ const PORTES: Porte[] = [
     },
 ];
 
+// ---------------------------------------------------------------------------------------
+// ELIGIBILITE PAR OPERATION -- combien d'unites POSSEDEES peuvent partir, operation par
+// operation, SANS ouvrir le moindre ecran de dispatch.
+//
+// Pourquoi c'est necessaire : l'ecran de dispatch n'est atteignable que pour UNE operation
+// (les autres boutons levent), donc le pool des operations Chaos / sans restriction reste
+// hors de portee par l'UI. Or le jeu CALCULE deja ce compte pour afficher ses widgets :
+// `ExpeditionUnitEligibility$$CountEligibleUnits(entry)` tire une fois par operation au
+// rendu du plateau. On lit son RETOUR.
+//
+// Un compte a zero est un RESULTAT, pas une panne : il dit qu'aucune unite possedee ne
+// convient a cette operation -- et donc que son bonus est hors d'atteinte, ce qu'aucune
+// autre voie ne nous disait.
+// ---------------------------------------------------------------------------------------
+
+interface Eligibilite {
+    n: number; ts: number;
+    expeditionId: string | null;
+    grandAlliance: string | null;
+    participants: number | null;
+    /** Retour de `CountEligibleUnits`. `null` = appel non revenu / illisible. */
+    eligibles: number | null;
+}
+
+const eligibilites: Eligibilite[] = [];
+
+/** Extrait un champ scalaire d'un JSON sans le parser entierement (QuickJS, appels chauds). */
+function champ(json: string, nom: string): string | null {
+    const m = new RegExp("\"" + nom + "\"\\s*:\\s*(\"([^\"]*)\"|null|(-?\\d+))").exec(json);
+    if (!m) return null;
+    if (m[2] !== undefined) return m[2];
+    if (m[3] !== undefined) return m[3];
+    return null;
+}
+
 export function register(ctx: Ctx): void {
     /** Arme les portes. Idempotent. body: {} -> { ok, armes, layout } */
     ctx.rpc.expeditionBoardArm = (): Promise<unknown> => queueOnMainThread(() => {
@@ -222,6 +257,52 @@ export function register(ctx: Ctx): void {
                 } catch { /* porte suivante */ }
             }
             layout["inst:" + p.cls] = armees.length ? armees.join(",") : "AUCUNE RESOLUE";
+        }
+        // Eligibilite par operation : une porte, un retour entier, sept tirs au rendu.
+        {
+            const cle = "ExpeditionUnitEligibility.CountEligibleUnits";
+            const klass = findClassAnywhere(
+                "Idun.Source.IdunMeta.Logic.Features.Expedition.Progression.UnitEligibility",
+                "ExpeditionUnitEligibility");
+            const mi = klass ? findMethodByParamCount(klass, "CountEligibleUnits", 1) : null;
+            if (!klass) { layout[cle] = "CLASSE INTROUVABLE"; }
+            else if (!mi || mi.ptr.isNull()) { layout[cle] = "NON RESOLUE"; }
+            else {
+                try {
+                    listeners.push(Interceptor.attach(mi.ptr, {
+                        onEnter(args) {
+                            try {
+                                const e: Eligibilite = {
+                                    n: ++compteur, ts: Date.now(), expeditionId: null,
+                                    grandAlliance: null, participants: null, eligibles: null,
+                                };
+                                // L'entree est petite (~1 Ko) et le tir est rare (7 par
+                                // rendu) : la serialiser est moins fragile que de deviner
+                                // des offsets de champ.
+                                if (isSerializerReady() && !args[1].isNull()) {
+                                    const j = serializeToJson(args[1]);
+                                    if (j) {
+                                        e.expeditionId = champ(j, "expeditionId");
+                                        e.grandAlliance = champ(j, "grandAlliance");
+                                        const p = champ(j, "participants");
+                                        e.participants = p === null ? null : parseInt(p, 10);
+                                    }
+                                }
+                                if (eligibilites.length >= CAP * 4) eligibilites.shift();
+                                eligibilites.push(e);
+                                (this as unknown as { _e?: Eligibilite })._e = e;
+                            } catch { /* avale */ }
+                        },
+                        onLeave(ret) {
+                            try {
+                                const e = (this as unknown as { _e?: Eligibilite })._e;
+                                if (e) e.eligibles = ret.toInt32();
+                            } catch { /* avale */ }
+                        },
+                    }));
+                    layout[cle] = true;
+                } catch { layout[cle] = "ANCRAGE EN ECHEC"; }
+            }
         }
         layout["serialiseur"] = isSerializerReady() ? true : "NON RESOLU";
         Interceptor.flush();
@@ -291,6 +372,28 @@ export function register(ctx: Ctx): void {
                 json: json.length <= MAX_JSON ? json : null,
                 tronque: json.length > MAX_JSON ? json.slice(0, 4000) : undefined,
             };
+        });
+
+    /** Combien d'unites POSSEDEES sont eligibles, operation par operation.
+     *  body: { reset?: true } -> { ok, count, entries } */
+    ctx.rpc.expeditionEligibility = (body?: { reset?: boolean }): Promise<unknown> =>
+        queueOnMainThread(() => {
+            // On replie sur la DERNIERE mesure par operation : le plateau se re-rend a
+            // chaque visite, et empiler les repetitions ferait lire sept operations comme
+            // vingt et une.
+            const dernier: Record<string, Eligibilite> = {};
+            for (const e of eligibilites) {
+                dernier[e.expeditionId || ("?" + e.n)] = e;
+            }
+            const out = {
+                ok: true, arme: listeners.length > 0,
+                brut: eligibilites.length, count: Object.keys(dernier).length,
+                entries: Object.values(dernier),
+                note: "un compte a 0 est un RESULTAT : aucune unite possedee ne convient a "
+                    + "cette operation, donc son bonus est hors d'atteinte",
+            };
+            if (body?.reset) eligibilites.length = 0;
+            return out;
         });
 
     ctx.rpc.expeditionBoardDisarm = (): Promise<unknown> => queueOnMainThread(() => {
