@@ -36,6 +36,14 @@ DECLENCHEUR = {
         # ne le revele -- il est ouvert par chemin, et son CONTENU est le gisement. C'est
         # exactement la classe de dependance que `--proposer` declare NON MESUREE.
         "scripts/ratchets-457-vert-offline.json",
+        # #547-r2 -- LA FERMETURE S'EST ELARGIE, ET C'EST VOULU. `probe_547.validite()` compose
+        # desormais `ledger.a_rejouer` avec la fonction d'IMPACT de `probe_457` (le FOYER, pas une
+        # seconde derivation), qui tire a son tour `probe_463r1` et `repo_read`. Ces trois-la
+        # entrent donc au perimetre : un changement de la selection de `probe_457` change le
+        # verdict de ce cliquet.
+        "scripts/python/probe_457_offline_tests_green.py",
+        "scripts/python/probe_463r1_ecart_empreinte_offline.py",
+        "scripts/python/repo_read.py",
     ),
     "build": False,          # ne lit ni le binaire ni `data/symbols/**`
     "toujours": False,
