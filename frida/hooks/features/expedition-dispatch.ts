@@ -33,7 +33,7 @@
 // la meme console.
 
 import {
-    findClassAnywhere, findMethodByParamCount, methodParamClass,
+    findClassAnywhere, findMethodByParamCount, methodParamClass, IL2CPP_MODULE_NAME,
     class_get_fields, field_get_name, field_get_offset,
     s as cstr, readIl2cppString, MethodRef,
 } from "../il2cpp/helpers.js";
@@ -65,6 +65,41 @@ interface Envoi {
     bonusFulfilled: boolean | null;
     /** Renseigne seulement pour `emis`. */
     err?: string;
+    /** D'OU L'ON VIENT. RVA (adresse - base du module), pas VA : une VA est fausse au
+     *  prochain build, une RVA se resout contre `data/symbols/<build>/`. Cote appelant :
+     *  `python scripts/python/ghidra_symbols.py whereis <VA>`. */
+    pile?: string[];
+    /** Le thread appelant. Une chaine UI et un `runtime_invoke` peuvent ne pas etre sur le
+     *  meme, et c'est un candidat serieux pour la mort du process. */
+    thread?: number;
+    /** Le `callback` etait-il nul ? Un appel LEGITIME ne l'est jamais -- et c'est
+     *  precisement ce qui manquait aux notres. */
+    callbackNul?: boolean;
+    /** `Il2CppClass*` du delegate observe, pour savoir quoi fabriquer. */
+    callbackClasse?: string;
+}
+
+/** Le dernier `Action<Boolean>` vu passer sur un appel LEGITIME. Temoin, pas piece de
+ *  rechange : il porte la closure d'un ecran precis (son invocation fait `Screen.Hide()`).
+ *  Sert a valider le delegate qu'on fabriquera, pas a le remplacer. */
+let dernierCallback: NativePointer | null = null;
+
+/** Les N premieres frames, en RVA. `null` si la pile n'est pas lisible. */
+function pileRva(ctx: CpuContext | null): string[] | null {
+    try {
+        const base = Process.getModuleByName(IL2CPP_MODULE_NAME).base;
+        return Thread.backtrace(ctx ?? undefined, Backtracer.ACCURATE)
+            .slice(0, 24)
+            .map((a) => {
+                try {
+                    const d = a.sub(base);
+                    // Hors module : on le DIT plutot que de rendre un offset absurde.
+                    return (d.compare(0) >= 0 && d.compare(0x8000000) < 0)
+                        ? "+0x" + d.toString(16)
+                        : "hors-module:" + a.toString();
+                } catch { return a.toString(); }
+            });
+    } catch { return null; }
 }
 
 const journal: Envoi[] = [];
@@ -178,7 +213,7 @@ function lireListe(p: NativePointer, d: DispoListe): string[] | null {
 }
 
 function noter(via: string, origine: Envoi["origine"], id: NativePointer,
-               liste: NativePointer, bonus: NativePointer | number): void {
+               liste: NativePointer, bonus: NativePointer | number): Envoi | null {
     const e: Envoi = {
         n: ++compteur, ts: Date.now(), origine, via,
         expeditionId: id.isNull() ? null : readIl2cppString(id),
@@ -192,6 +227,7 @@ function noter(via: string, origine: Envoi["origine"], id: NativePointer,
     log("[expedition-dispatch] " + origine + " " + via + " : "
         + String(e.expeditionId) + " <- " + JSON.stringify(e.unitIds)
         + " bonus=" + String(e.bonusFulfilled));
+    return e;
 }
 
 export function register(ctx: Ctx): void {
@@ -256,6 +292,14 @@ export function register(ctx: Ctx): void {
              findClassAnywhere(
                  "Idun.Source.IdunMeta.Logic.Features.Expedition.ProgressionData",
                  "ExpeditionProgressionData"), "DispatchExpeditionLocally", 3],
+            // LE CORPS REEL, celui qui parle au reseau. `DispatchExpedition` ne fait que
+            // relayer ; c'est ICI que la closure de reponse est construite et que l'appel
+            // web part. Sa PILE dit d'ou vient la chaine -- c'est la mesure qui manque pour
+            // comprendre pourquoi notre `runtime_invoke` aboutit ET tue le process.
+            ["DispatchExpeditionCommand.Execute",
+             findClassAnywhere(
+                 "Idun.Source.IdunMeta.Logic.Features.Expedition.Progression.Commands"
+                 + ".DispatchExpedition", "DispatchExpeditionCommand"), "Execute", 4],
         ];
         for (const [cle, klass, nom, arite] of portes) {
             if (!klass) { layout[cle] = "CLASSE INTROUVABLE"; continue; }
@@ -280,7 +324,25 @@ export function register(ctx: Ctx): void {
                         // Un capteur ne jette JAMAIS : on est sur le chemin d'un envoi reel.
                         try {
                             if (estPorteur && !args[0].isNull()) instanceEvents = args[0];
-                            noter(cle, "observe", args[1], args[2], args[3]);
+                            const e = noter(cle, "observe", args[1], args[2], args[3]);
+                            if (e) {
+                                e.pile = pileRva(this.context) ?? undefined;
+                                e.thread = this.threadId;
+                                // LE CALLBACK. C'est la piece qui manquait a nos envois :
+                                // `b__0` LEVE quand il est nul (cf. le bloc de refus). On
+                                // retient celui d'un appel legitime -- il sert de temoin
+                                // pour valider le delegate qu'on fabriquera.
+                                if (estPorteur) {
+                                    try {
+                                        const cb = args[4];
+                                        e.callbackNul = cb.isNull();
+                                        if (!cb.isNull()) {
+                                            dernierCallback = cb;
+                                            e.callbackClasse = cb.readPointer().toString();
+                                        }
+                                    } catch { /* avale */ }
+                                }
+                            }
                         } catch { /* avale */ }
                     },
                 }));
@@ -310,6 +372,8 @@ export function register(ctx: Ctx): void {
                           source: instanceEvents ? "captee au vol"
                               : (instanceProgression ? "champ <GameEvents>" : null),
                           classeOk: e ? estDeClasse(e, klassEvents) : null,
+                          callbackTemoin: dernierCallback
+                              ? dernierCallback.toString() : null,
                           dispoListe: dispoListe
                               ? { _items: dispoListe.offItems, _size: dispoListe.offSize }
                               : null,
@@ -326,7 +390,48 @@ export function register(ctx: Ctx): void {
         expeditionId?: string; unitIds?: string[]; bonusFulfilled?: boolean;
         participants?: number; confirmer?: boolean;
     }): Promise<unknown> => queueOnMainThread(() => {
-        // ⛔ VOIE FERMEE -- L'ENVOI PART, ET LE PROCESS MEURT APRES.
+        // ⛔ VOIE FERMEE -- CAUSE IDENTIFIEE : LE `callback` N'EST PAS OPTIONNEL.
+        //
+        // TROUVE PAR LA PILE D'UN DISPATCH MANUEL (2026-08-10). La chaine legitime est :
+        //
+        //   EventSystem$$Update -> InputSystemUIInputModule$$ProcessPointerButton
+        //     -> ExecuteEvents$$Execute -> OptimisedButton$$OnPointerClick
+        //       -> UnityEvent$$Invoke -> ExpeditionDispatchScreen$$HandleOnDispatchTapped
+        //         -> ExpeditionDispatchScreenPresenter$$...ICallbacks.OnDispatch
+        //           -> ExpeditionGameEvents$$DispatchExpedition
+        //             -> DispatchExpeditionCommand$$Execute
+        //
+        // Le chainon que nous court-circuitons est le PRESENTER, et c'est lui qui
+        // CONSTRUIT LE CALLBACK (un delegate bati sur sa closure) avant d'appeler
+        // `DispatchExpedition`. Nous passions `null`.
+        //
+        // ⚠ J'AVAIS ECRIT L'INVERSE, ET C'ETAIT FAUX. Le commentaire precedent affirmait
+        // << le callback nul est TOLERE : `<Execute>b__0` teste `!= 0` dans les deux
+        // branches >>. Relecture complete de `b__0` :
+        //
+        //     if (succes) { ... if (callback != 0) { ...; goto INVOKE; } }
+        //     else        {      if (callback != 0) { ...; goto INVOKE; } }
+        //     FUN_1801f51f0();     <-- raise_null_reference_exception + swi(3) / INT 3
+        //
+        // Ce `if (callback != 0)` n'est PAS une tolerance : c'est le null-check que le
+        // compilateur IL2CPP insere AVANT l'appel du delegate, et sa branche << faux >>
+        // LEVE. J'ai vu le test et lu << optionnel >>.
+        //
+        // CA EXPLIQUE TOUT CE QU'ON A MESURE :
+        //   - l'envoi PART et le serveur l'enregistre (le reseau est atteint) ;
+        //   - le process meurt APRES, a la RECEPTION de la reponse, quand `b__0` court ;
+        //   - #2 n'a pas tue le jeu parce qu'il a echoue AVANT le reseau (mauvaise classe,
+        //     exception native rattrapee par Frida) -- donc `b__0` n'a jamais tourne.
+        //
+        // POUR ROUVRIR il faut FOURNIR un `Action<System.Boolean>` non nul. Deux voies :
+        //   (a) capturer `args[4]` d'un dispatch MANUEL et le reutiliser -- simple, mais le
+        //       delegate porte la closure d'un ECRAN precis (il fait `Screen.Hide()`) ;
+        //   (b) fabriquer le delegate (NativeCallback + champs `method_ptr`/`invoke_impl`/
+        //       `m_target`) -- propre, et sans effet de bord sur l'UI.
+        // (b) est la bonne, (a) sert a la valider.
+        //
+        // ANCIENNE ANALYSE (conservee pour ce qu'elle a coute) : l'envoi part, le process
+        // meurt apres.
         //
         // BILAN MESURE du 2026-08-10, verifie CONTRE L'ETAT DU COMPTE apres relance :
         //
