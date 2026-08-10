@@ -126,6 +126,24 @@ def _hits_of(res, caster, target) -> tuple:
     return bool(a0.get("ok")), out
 
 
+#: les deux seuls traits que le compteur natif lit -- toute autre valeur serait un bras MUET
+#: (le compagnon ne compterait pas, et le probe rendrait un zero qui accuserait le port).
+TRAITS_COMPTES = ("Decoy", "Summon")
+
+
+def _traits_json(spec: str) -> str:
+    """`"Summon,Decoy"` -> `"Summon","Decoy"`. REFUSE tout trait hors des deux comptes : un trait
+    inerte ferait tomber `n` a zero sans qu'aucune assertion ne designe la cause."""
+    noms = [t.strip() for t in str(spec).split(",") if t.strip()]
+    if not noms:
+        raise SystemExit("--trait : liste vide")
+    inconnus = [t for t in noms if t not in TRAITS_COMPTES]
+    if inconnus:
+        raise SystemExit("--trait : %s hors des traits COMPTES par le natif %s"
+                         % (inconnus, list(TRAITS_COMPTES)))
+    return ",".join('"%s"' % t for t in noms)
+
+
 def build(a, tag, level):
     fd, sf = tempfile.mkstemp(prefix="probe_589r1r1r2r1_%s_" % tag, suffix=".json")
     os.close(fd)
@@ -135,8 +153,13 @@ def build(a, tag, level):
             "--p-units", ATTACKER,
             "--a-units", "%s,%s,%s" % (CARRIER, COMPANIONS[0], COMPANIONS[1]),
             "--equip-relic", "%s:%s:%d" % (CARRIER, ABILITY_ID, level),
-            "--unit-stat", '%s:Traits=["%s"]' % (COMPANIONS[0], a.trait),
-            "--unit-stat", '%s:Traits=["%s"]' % (COMPANIONS[1], a.trait),
+            # `Traits=[...]` REMPLACE la liste d'entite. Une liste a DEUX traits arme le bras
+            # UNION de `#589-r1-r1-r2-r1-r2` : le compteur natif est
+            # `Count(UnitsWithTrait(.., Summon) op_Addition UnitsWithTrait(.., Decoy))`, et
+            # `CombinedSelector$$SelectUnion` est `AddRange(left); AddRange(right)` -- le meme
+            # compagnon y figure DEUX FOIS.
+            "--unit-stat", '%s:Traits=[%s]' % (COMPANIONS[0], _traits_json(a.trait)),
+            "--unit-stat", '%s:Traits=[%s]' % (COMPANIONS[1], _traits_json(a.trait)),
             # ⚠ `Ambush` (UnitTrait 1052) RETIRE du porteur : les TROIS porteurs autorises
             # d'`AmuletOfTheVoidwyrm` le portent, et une unite en embuscade n'est pas CIBLABLE --
             # l'attaque part alors sans erreur et ne mute RIEN (mesure : `mutated: false`,
@@ -552,8 +575,19 @@ def main() -> int:
                          "CalculateCriticalDamage ne sature pas (sinon regime DEGENERE).")
     ap.add_argument("--n", default="0,1,2", help="nombre de compagnons ADJACENTS (un runner par n)")
     ap.add_argument("--level", type=int, default=3, help="niveau de la RELIQUE (1..10)")
-    ap.add_argument("--trait", default="Decoy", choices=("Decoy", "Summon"),
-                    help="le trait pose sur les compagnons : les DEUX `UnitsWithTrait` natifs")
+    ap.add_argument("--trait", default="Decoy",
+                    help="le(s) trait(s) pose(s) sur les compagnons, separes par une virgule, "
+                         "parmi Decoy / Summon (les DEUX `UnitsWithTrait` natifs). "
+                         "`--trait Summon,Decoy` arme le bras UNION (#589-r1-r1-r2-r1-r2) : "
+                         "`TargetsSelector$$op_Addition` -> `CombinedSelector` mode 1 -> "
+                         "`SelectUnion` = `AddRange; AddRange`, AUCUN dedoublonnage, donc un "
+                         "compagnon portant les DEUX compte DEUX FOIS. Attendu : la reduction "
+                         "d'un bras `--n 1 --trait Summon,Decoy` doit egaler celle d'un bras "
+                         "`--n 2 --trait Decoy`. Le regime n'est pas atteignable par le "
+                         "gameconfig (0 unite sur 683 porte les deux traits, re-mesure sur "
+                         "`rnca9r7q6c`) mais il l'est PAR LE MONTAGE : le natif ne lit que "
+                         "`HasFlag(unit, trait)`, donc `BC.Units[].Traits`, que `--unit-stat` "
+                         "ecrit.")
     ap.add_argument("--geo-only", action="store_true",
                     help="BRAS GEOMETRIQUE : le compagnon est a distance hex 1 du porteur mais "
                          "ABSENT de sa liste d'adjacence STOCKEE. Le natif ne doit PAS le compter "

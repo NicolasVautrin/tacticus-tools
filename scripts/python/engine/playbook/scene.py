@@ -53,6 +53,16 @@ class Scene:
     team_by_id: dict           # {id: team}
     eff_state: object          # EffectsState (effets matérialisés seed)
     hpmax_by_id: dict = field(default_factory=dict)   # {squadId: hpMax} (observeBattle)
+    # #419-r1-tr10-r2 -- EMPREINTE par entite : {id: [(col,row), ...]}, mirror de
+    # `IdunBattle.Entities.EntityExtensions$$GetTiles` (= la materialisation de l'`IterateTiles`
+    # que consomme `IdunBattle.Entities.Selectors.AdjacentTilesSelector$$Select`). Canal :
+    # `decisionView.units[].feet` et `decisionView.mows[].{feet,platformTiles}`.
+    # Une entree ABSENTE ou VIDE = canal MUET -> `adjacency.iterate_tiles` retombe sur la MainTile,
+    # c.-a-d. le comportement d'avant le capteur, EXACTEMENT. Elle n'est JAMAIS devinee : la seule
+    # facon d'y entrer est que le hook l'ait mesuree.
+    # ⚠ Les MoW ne sont PAS dans `units` (canal `.mows` separe) : sans cette table, leurs pieds
+    # seraient publies et jamais lus.
+    feet_by_id: dict = field(default_factory=dict)
     elev_by_pos: dict | None = None                    # {(col,row): elevation} (tileMeta)
     tile_effects_by_pos: dict | None = None            # {(col,row): [noms d'effets de tuile]} — DYNAMIQUE
     #                                                    # (la glace LordOfTempests s'ACCUMULE en bataille) ->
@@ -452,6 +462,7 @@ class Scene:
             units=sctx.get("units") or [], hp_by_id=sctx.get("hp_by_id") or {},
             pos_by_id=sctx.get("pos_by_id") or {}, team_by_id=sctx.get("team_by_id") or {},
             eff_state=sctx.get("eff_state"), hpmax_by_id=sctx.get("hpmax_by_id") or {},
+            feet_by_id=sctx.get("feet_by_id") or {},
             elev_by_pos=elev_by_pos if elev_by_pos is not None else predictor.get("elev_by_pos"),
             tile_effects_by_pos=tile_effects_by_pos,
             machine_of_war_position=machine_of_war_position,
@@ -1489,4 +1500,39 @@ def step_context(predictor, dv):
         "pos_by_id": pos_by_id,
         "team_by_id": team_by_id,
         "eff_state": eff_state,
+        "feet_by_id": _feet_by_id(units, mows),
     }
+
+
+def _feet_by_id(units, mows) -> dict:
+    """{id: [(col,row), ...]} depuis `decisionView` -- capteur `#419-r1-tr10-r2`.
+
+    UNITES : la cle `feet`, mirror d'`IdunBattle.Entities.EntityExtensions$$GetTiles(entity,
+    state)`. TRI-ETAT cote hook (`null` = capteur muet, `[]` = mesure vide) ; ici les deux mènent
+    au MEME repli (aucune entree posee), donc `iterate_tiles` retombe sur la MainTile.
+
+    MACHINES OF WAR : `EntityExtensions.<IterateTiles>d__17$$MoveNext` teste TROIS types d'entite
+    (pied -> sa tuile ; tuile -> elle-meme ; unite -> ses pieds) et sort FAUX pour tout le reste --
+    une `EntityType.Machine` n'est aucun des trois, donc `feet` peut valoir `[]` sans que rien
+    n'ait echoue. L'empreinte reelle d'une MoW est l'ensemble des `MachinePlatform` qui la portent,
+    que le hook publie sous `platformTiles`. On prend `feet` s'il est non vide, `platformTiles`
+    sinon -- jamais l'inverse : la mesure native prime sur la derivation.
+
+    La cle est `casterId` (== `machineId`, l'`EntityType.Machine`), la MEME que `pos_by_id` et que
+    tous les RPC de prediction -- pas `id`, qui est la PLATEFORME d'ancrage."""
+    out: dict = {}
+    for u in (units or []):
+        uid = u.get("id")
+        feet = u.get("feet")
+        if uid is None or not feet:
+            continue
+        out[int(uid)] = [(int(f["col"]), int(f["row"])) for f in feet if isinstance(f, dict)]
+    for m in (mows or []):
+        mid = m.get("casterId")
+        if mid is None:
+            continue
+        tiles = m.get("feet") or m.get("platformTiles")
+        if not tiles:
+            continue
+        out[int(mid)] = [(int(t["col"]), int(t["row"])) for t in tiles if isinstance(t, dict)]
+    return {k: v for k, v in out.items() if v}

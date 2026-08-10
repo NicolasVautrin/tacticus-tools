@@ -11,6 +11,8 @@ import { registerViewTargeting } from "./rpc-targeting.js";
 import { registerViewDecision } from "./rpc-decision.js";
 import { registerViewPredict } from "./rpc-predict.js";
 import { registerViewNcPredict } from "./rpc-nc-predict.js";
+import { registerViewAdjacency } from "./rpc-adjacency.js";
+import { registerSortUtilityTrace } from "./sort-utility-trace.js";
 
 export function registerView(ctx: Ctx): void {
     registerViewBoard(ctx);
@@ -19,4 +21,8 @@ export function registerView(ctx: Ctx): void {
     registerViewDecision(ctx);
     registerViewPredict(ctx);
     registerViewNcPredict(ctx);
+    // Capteurs de la face DECISION (#589-r1-r1-r2-r1-r4, #419-r6-r1-r1). Le second n'INSTALLE
+    // rien au chargement : il expose un RPC qui arme/desarme ses deux Interceptor a la demande.
+    registerViewAdjacency(ctx);
+    registerSortUtilityTrace(ctx);
 }

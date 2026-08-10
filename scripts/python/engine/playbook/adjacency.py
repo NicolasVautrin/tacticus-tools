@@ -58,8 +58,13 @@ def iterate_tiles(scene, uid) -> list:
     pieds de l'entite, dans l'ordre des pieds (`feet[0]` EST la MainTile).
 
     Canal du port, dans l'ordre :
+      * `scene.feet_by_id` -- le capteur DECISION `#419-r1-tr10-r2`
+        (`decisionView.units[].feet` / `.mows[].{feet,platformTiles}`, mirror de
+        `IdunBattle.Entities.EntityExtensions$$GetTiles`). C'est le SEUL canal qui couvre les
+        MACHINES OF WAR, absentes de `scene.units` par construction (canal `.mows` separe) ;
       * la cle `feet` du dict d'unite -- ce que `runner.components.get_unit_feet` materialise
-        (`UnitComponent._feet`), present des que la scene vient d'un etat runner ;
+        (`UnitComponent._feet`), present des que la scene vient d'un etat runner. Elle porte des
+        COUPLES (`(col,row)`), la table ci-dessus aussi : les deux formes sont normalisees ici ;
       * a defaut, `[scene.pos(uid)]` -- la MainTile SEULE, c.-a-d. la degradation d'avant
         `#419-r1-tr10-r2`. Elle est EXACTE pour toute unite a un pied (le cas nominal) et
         SOUS-ESTIME le voisinage d'une MACHINE OF WAR.
@@ -68,12 +73,23 @@ def iterate_tiles(scene, uid) -> list:
     tuile (`GetUnitFeetIds` sur une non-unite, une MoW hors plateau)."""
     if uid is None:
         return []
-    u = next((x for x in (scene.units or ()) if x.get("id") == uid), None)
-    feet = (u or {}).get("feet")
+    tbl = getattr(scene, "feet_by_id", None) or {}
+    feet = tbl.get(int(uid))
+    if not feet:
+        u = next((x for x in (scene.units or ()) if x.get("id") == uid), None)
+        feet = (u or {}).get("feet")
     if feet:
-        return [(int(f[0]), int(f[1])) for f in feet]
+        return [_as_pos(f) for f in feet]
     p = scene.pos(uid)
     return [] if p is None else [(p[0], p[1])]
+
+
+def _as_pos(f) -> tuple:
+    """Normalise une tuile venue de l'un ou l'autre canal : couple `(col,row)` cote COMBAT,
+    dict `{"col","row"}` cote hook (`readTileCoord`). Aucune supposition sur le canal appelant."""
+    if isinstance(f, dict):
+        return (int(f["col"]), int(f["row"]))
+    return (int(f[0]), int(f[1]))
 
 
 def is_targetable(scene, uid) -> bool | None:

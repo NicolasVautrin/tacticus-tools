@@ -632,8 +632,24 @@ def get_tiles_behind(frm: tuple, to: tuple, max_count: int | None = None,
             cur = next
 
     La ligne S'ARRETE au 1er echec (`return list`) : c'est un PREFIXE, pas un filtre. Geometrie CUBE
-    droite (parite-INDEPENDANTE) : `tile_k = cube(to) + k*dir`, `dir = cube(to) - cube(from)`,
-    `k = 0..` -- la 1re tuile rendue EST `to`, la reference initiale est `from`.
+    droite (parite-INDEPENDANTE) : `tile_k = cube(from) + (k+1)*step`, ou
+    `step = -DirectionTo(cube(from), cube(to))` -- le PAS UNITAIRE de `from` vers `to`. La 1re tuile
+    rendue est `from + step` et la reference initiale est `from`.
+
+    ⚠ **Le pas est UNITAIRE, et il ne l'etait pas (`#510-r2`).** Le mirror posait
+    `dir = cube(to) - cube(from)` SANS clamp, la ou `IdunBattle.Utils.Hex.CubeCoordinate$$DirectionTo`
+    fait `Max(Min(delta, 1), -1)` **par composante** (le mirror `direction_to` ci-dessous, lui, etait
+    exact -- l'ecart etait ICI, au site qui ne l'appelait pas). Les deux coincident exactement quand
+    `to` est ADJACENT a `from` -- le regime de TROIS des quatre call-sites recenses ci-dessous et de
+    tous les montages joues jusqu'ici -- et divergent des que la cible est plus loin : la ligne
+    avancait alors par bonds de `d(from, to)`, sautant `d - 1` tuiles a chaque pas. Dans ce regime
+    les gates `tile_exists` / `IsTileValidForList` n'etaient meme pas evalues sur les tuiles sautees,
+    donc la ligne pouvait TRAVERSER un mur sans s'arreter -- degradation PERMISSIVE, silencieuse.
+    Trouve en portant `#498-r1` (`UnstoppableMomentumReworked` est la 1re ability portee dont la
+    cible n'est pas adjacente). Son playbook contourne en passant le PAS UNITAIRE comme `to`
+    (`unstoppable_momentum._first_step`) : ce contournement devient un NO-OP exact une fois le clamp
+    pose (`clamp(from - (from + step)) == -step`), il n'a donc pas besoin d'etre retire, et le
+    retirer ne changerait rien.
 
     `check_walkable` / `update_reference` = les DEUX bools de la struct `settings` que chaque
     call-site alloue et passe a `IdunBattleLogic.Entities.DSLFactory$$TilesBehindInLine` (champs
@@ -648,13 +664,17 @@ def get_tiles_behind(frm: tuple, to: tuple, max_count: int | None = None,
     plateau). Absent -> pas de borne de plateau ; `max_count is None` retombe alors sur le
     garde-fou `k > 64`."""
     ox, _oy, oz = hexgeo.to_cube(frm[0], frm[1])
-    ax, _ay, az = hexgeo.to_cube(to[0], to[1])
-    dx, dz = ax - ox, az - oz
+    # `dir = CubeCoordinate$$DirectionTo(cube(from), cube(to))` = `clamp(from - to, -1, +1)`, puis
+    # `next = cur - dir`. Le pas d'avance est donc `-dir`, UNITAIRE par composante (#510-r2). On
+    # passe par le foyer `direction_to` plutot que de re-transcrire le clamp : deux transcriptions
+    # du meme natif, c'est deux endroits ou il peut devenir faux.
+    ddx, _ddy, ddz = direction_to(frm, to)
+    dx, dz = -ddx, -ddz
     if dx == 0 and dz == 0:
         return []
     out, ref, k = [], (frm[0], frm[1]), 0
     while max_count is None or len(out) < max_count:
-        p = hexgeo.from_cube(ax + dx * k, az + dz * k)
+        p = hexgeo.from_cube(ox + dx * (k + 1), oz + dz * (k + 1))
         if tile_exists is not None and not tile_exists(p):
             break                          # `GetTileEntityAt == null` -> fin de ligne
         if not is_tile_valid_for_list(p, ref, check_walkable, walkable_at, elevation_at):
