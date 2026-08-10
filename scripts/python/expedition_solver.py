@@ -499,6 +499,44 @@ def _produit_borne(listes: list[list[str]], plafond: int):
             return
 
 
+def deja_parties(ops: list[dict]) -> tuple[list[dict], list[str]]:
+    """Separe les operations DISPONIBLES de celles deja lancees, et rend les unites
+    immobilisees.
+
+    `status` != 0 = deja dispatchee (mesure : 0 avant envoi, 1 apres). Ses `units` sont
+    IMMOBILISEES pour la duree -- les laisser dans le roster ferait proposer des unites
+    qui ne peuvent pas partir, exactement le defaut que l'eligibilite vient de corriger
+    sur un autre axe."""
+    libres, prises = [], []
+    for op in ops:
+        if op.get("status"):
+            prises.extend(op.get("units") or [])
+        else:
+            libres.append(op)
+    return libres, sorted(set(prises))
+
+
+def completer(ensemble: set[str], besoin: int, pool: list[str],
+              indisponibles: set[str]) -> tuple[set[str], int] | None:
+    """Complete `ensemble` jusqu'a `besoin` unites, avec des eligibles libres.
+
+    POURQUOI C'EST OBLIGATOIRE, et mesure au decompile :
+    `ExpeditionDispatchScreen$$HandleOnDispatchTapped` compare `SelectedCount()` a
+    `ParticipantsRequired` et RETOURNE SANS RIEN ENVOYER si c'est inferieur ;
+    `UpdateDispatchButton` garde le bouton grise dans le meme cas. Une place vide ne
+    reste donc pas vide : elle EMPECHE le depart.
+
+    Consequence sur le plan : une operation consomme `participants` unites, pas la taille
+    de son ensemble couvrant. Rend `None` si le pool libre n'y suffit pas."""
+    manque = besoin - len(ensemble)
+    if manque <= 0:
+        return set(ensemble), 0
+    libres = [u for u in pool if u not in ensemble and u not in indisponibles]
+    if len(libres) < manque:
+        return None
+    return set(ensemble) | set(libres[:manque]), manque
+
+
 def resoudre_plateau(ops: list[dict], kits: dict[str, dict], roster: list[str],
                      plafond_ens: int = PLAFOND_ENSEMBLES_PAR_OP,
                      progression: dict | None = None,
@@ -520,7 +558,7 @@ def resoudre_plateau(ops: list[dict], kits: dict[str, dict], roster: list[str],
         pool = [kits[u] for u in ids]
         ens = _ensembles_par_op(pool, op["_objs"], int(op.get("participants") or 0),
                                 plafond_ens)
-        prepares.append({"op": op, "ensembles": ens, "pool": len(pool)})
+        prepares.append({"op": op, "ensembles": ens, "pool": len(pool), "ids": ids})
 
     meilleur = {"couvertes": -1, "unites": None, "plan": None}
 
@@ -551,11 +589,50 @@ def resoudre_plateau(ops: list[dict], kits: dict[str, dict], roster: list[str],
         plan.pop()
 
     rec(0, frozenset(), [])
+
+    # REMPLISSAGE OBLIGATOIRE. La recherche ci-dessus raisonne sur les ensembles COUVRANTS
+    # (minimaux) ; le jeu, lui, exige `participants` unites (cf. `completer`). On complete
+    # donc apres coup, en traitant les operations du POOL LE PLUS ETROIT au plus large --
+    # une operation a 15 eligibles doit servir avant une a 76, sinon la seconde lui prend
+    # ses rares candidats.
+    #
+    # Ce n'est PAS optimal : le remplissage n'est pas re-injecte dans la recherche, donc un
+    # plan peut perdre une operation ici alors qu'un autre choix d'ensembles l'aurait
+    # gardee. Une operation qu'on ne peut pas completer est RETIREE du plan et NOMMEE --
+    # jamais laissee incomplete, ce qui la ferait paraitre partante.
+    par_id = {id(p["op"]): p for p in prepares}
+    plan = meilleur["plan"] or []
+    ordre = sorted([p for p in plan if p["ensemble"] is not None],
+                   key=lambda p: len(par_id[id(p["op"])]["ids"]))
+    utilisees: set[str] = set()
+    incompletes: list[dict] = []
+    for p in ordre:
+        prep = par_id[id(p["op"])]
+        besoin = int(p["op"].get("participants") or 0)
+        r = completer(set(p["ensemble"]), besoin, prep["ids"], utilisees)
+        if r is None:
+            incompletes.append({"op": p["op"].get("expeditionId") or p["op"].get("id"),
+                                "besoin": besoin, "couvrant": len(p["ensemble"]),
+                                "pool_libre": len([u for u in prep["ids"]
+                                                   if u not in utilisees])})
+            p["ensemble"] = None
+            p["equipe"] = None
+            continue
+        equipe, ajoutes = r
+        p["equipe"] = sorted(equipe)
+        p["remplissage"] = ajoutes
+        utilisees |= equipe
+
+    couvertes = sum(1 for p in plan if p["ensemble"] is not None)
     return {
         "operations": len(prepares),
-        "couvertes": max(meilleur["couvertes"], 0),
-        "unites_mobilisees": meilleur["unites"] or 0,
-        "plan": meilleur["plan"] or [],
+        "couvertes": couvertes,
+        # Ce que le plan consomme REELLEMENT : la somme des `participants`, pas la taille
+        # des ensembles couvrants.
+        "unites_mobilisees": len(utilisees),
+        "unites_utiles": meilleur["unites"] or 0,
+        "incompletes": incompletes,
+        "plan": plan,
         "ensembles_par_op": [len(p["ensembles"]) for p in prepares],
         "pool_par_op": [p["pool"] for p in prepares],
         "plafond_ensembles": plafond_ens,
@@ -770,10 +847,20 @@ def cmd_board(a) -> int:
         print("ATTENTION -- aucun roster fourni : on suppose TOUT possede (%d)." % len(kits))
         print("")
     progression, seuils = _charger_eligibilite(a)
+    ops, immobilisees = deja_parties(ops)
+    if immobilisees:
+        print("DEJA PARTIES : %d unite(s) immobilisee(s), retirees du roster : %s"
+              % (len(immobilisees), ", ".join(immobilisees)))
+        roster = [u for u in roster if u not in set(immobilisees)]
+        print("")
     r = resoudre_plateau(ops, kits, roster, progression=progression, seuils=seuils)
-    print("Operations   : %d" % r["operations"])
+    print("Operations disponibles : %d" % r["operations"])
     print("Bonus obtenu : %d / %d" % (r["couvertes"], r["operations"]))
-    print("Unites mobilisees : %d" % r["unites_mobilisees"])
+    print("Unites mobilisees : %d (dont %d utiles au bonus, le reste = remplissage "
+          "OBLIGATOIRE)" % (r["unites_mobilisees"], r["unites_utiles"]))
+    for i in r.get("incompletes") or []:
+        print("   ECARTEE faute de remplissage : %s -- besoin %d, couvrant %d, "
+              "pool libre %d" % (i["op"], i["besoin"], i["couvrant"], i["pool_libre"]))
     print("Eligibilite appliquee : %s" % r["eligibilite"])
     if r["eligibilite"] != "complete":
         print("   ATTENTION -- rang et rarete NON MESURES : un plan peut proposer une unite")
@@ -788,7 +875,13 @@ def cmd_board(a) -> int:
         if p["ensemble"] is None:
             print("  [BONUS NON OBTENU] %s" % nom)
         else:
-            print("  [BONUS] %-32s <- %s" % (nom, ", ".join(p["ensemble"])))
+            eq = p.get("equipe") or p["ensemble"]
+            utiles = set(p["ensemble"])
+            # Le remplissage est marque : ces unites ne servent AUCUN objectif, elles
+            # occupent une place que le jeu exige de remplir.
+            print("  [BONUS] %-38s %d place(s)" % (nom, len(eq)))
+            for u in eq:
+                print("             %-24s %s" % (u, "" if u in utiles else "(remplissage)"))
     return 0
 
 

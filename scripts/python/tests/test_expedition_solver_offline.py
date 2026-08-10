@@ -491,7 +491,10 @@ def test_pool_eligible_NON_VIDE_mais_couvrant_ZERO_objectif():
         "soigneur": _kit("soigneur", alliance="Imperial", traits=["Healer"]),
     }
     prog = _prog(gros1=(17, 5), gros2=(17, 5), soigneur=(12, 5))
-    op = {"id": "myth", "expeditionId": "myth", "participants": 4, "rarity": "Mythic",
+    # 2 places, pas 4 : la contre-epreuve doit isoler l'effet de l'ELIGIBILITE. Avec 4
+    # places et 3 unites au roster, c'est le REMPLISSAGE qui echouerait (cf.
+    # `test_remplissage_obligatoire_*`), et le test passerait pour la mauvaise raison.
+    op = {"id": "myth", "expeditionId": "myth", "participants": 2, "rarity": "Mythic",
           "grandAlliance": "Imperial", "_objs": [_obj("trait:Healer")]}
     pool, refus = ES.pool_eligible(op, kits, list(prog), prog, SEUILS)
     assert sorted(pool) == ["gros1", "gros2"]
@@ -504,3 +507,81 @@ def test_pool_eligible_NON_VIDE_mais_couvrant_ZERO_objectif():
     # exactement le faux positif qu'on fige ici.
     naif = ES.resoudre_plateau([op], kits, list(prog))
     assert naif["couvertes"] == 1
+
+
+# ---------------------------------------------------------------------------
+# REMPLISSAGE OBLIGATOIRE -- mesure au decompile de
+#   ExpeditionDispatchScreen$$HandleOnDispatchTapped :
+#       si SelectedCount() < ParticipantsRequired -> flyout, et RETOUR SANS ENVOI.
+#   ExpeditionDispatchScreen$$UpdateDispatchButton garde le bouton grise dans le
+#   meme cas.
+#
+# Le solveur minimisait les unites mobilisees, ce qui n'a de sens que si une place
+# vide reste vide. Elle ne reste pas vide : elle EMPECHE le depart. Une operation
+# consomme donc `participants` unites, et la disjonction se calcule la-dessus.
+# ---------------------------------------------------------------------------
+
+def test_remplissage_obligatoire_complete_jusqu_aux_places():
+    kits = {u: _kit(u, faction="Custodes") for u in ("a", "b", "c", "d")}
+    prog = _prog(a=(20, 5), b=(20, 5), c=(20, 5), d=(20, 5))
+    op = {"id": "op", "expeditionId": "op", "participants": 3, "rarity": "Common",
+          "grandAlliance": "Imperial", "_objs": [_obj("faction:Custodes")]}
+    r = ES.resoudre_plateau([op], kits, list(prog), progression=prog, seuils=SEUILS)
+    assert r["couvertes"] == 1
+    p = r["plan"][0]
+    # UN seul Custodes suffit au bonus, mais l'equipe DOIT compter 3 unites.
+    assert len(p["ensemble"]) == 1
+    assert len(p["equipe"]) == 3
+    assert p["remplissage"] == 2
+    assert r["unites_utiles"] == 1 and r["unites_mobilisees"] == 3
+
+
+def test_operation_ECARTEE_si_le_pool_ne_remplit_pas():
+    """Un pool trop etroit ne rend pas une equipe incomplete : il retire l'operation
+    du plan, en la NOMMANT. Une equipe incomplete paraitrait partante et ne partirait
+    pas -- exactement le silence qu'on refuse."""
+    kits = {u: _kit(u, faction="Custodes") for u in ("a", "b")}
+    prog = _prog(a=(20, 5), b=(20, 5))
+    op = {"id": "trop-grande", "expeditionId": "trop-grande", "participants": 5,
+          "rarity": "Common", "grandAlliance": "Imperial",
+          "_objs": [_obj("faction:Custodes")]}
+    r = ES.resoudre_plateau([op], kits, list(prog), progression=prog, seuils=SEUILS)
+    assert r["couvertes"] == 0
+    assert len(r["incompletes"]) == 1
+    i = r["incompletes"][0]
+    assert i["op"] == "trop-grande" and i["besoin"] == 5 and i["pool_libre"] == 2
+    assert r["plan"][0]["ensemble"] is None
+
+
+def test_le_remplissage_sert_les_pools_ETROITS_en_premier():
+    """Deux operations, un pool commun etroit. Si la large sert d'abord, elle rafle
+    les candidats et l'etroite tombe. L'ordre par taille de pool l'evite."""
+    kits = {}
+    kits.update({u: _kit(u, faction="Custodes", alliance="Chaos") for u in ("x", "y")})
+    kits.update({u: _kit(u, faction="Custodes", alliance="Imperial")
+                 for u in ("i1", "i2", "i3", "i4")})
+    prog = _prog(**{u: (20, 5) for u in list(kits)})
+    etroite = {"id": "etroite", "expeditionId": "etroite", "participants": 2,
+               "rarity": "Common", "grandAlliance": "Chaos",
+               "_objs": [_obj("faction:Custodes")]}
+    large = {"id": "large", "expeditionId": "large", "participants": 3,
+             "rarity": "Common", "grandAlliance": "Imperial",
+             "_objs": [_obj("faction:Custodes")]}
+    r = ES.resoudre_plateau([large, etroite], kits, list(prog),
+                            progression=prog, seuils=SEUILS)
+    assert r["couvertes"] == 2, r.get("incompletes")
+    assert r["unites_mobilisees"] == 5
+
+
+def test_deja_parties_retire_operations_et_unites():
+    ops = [
+        {"id": "partie", "expeditionId": "p", "status": 1,
+         "units": ["custoTrajann", "ultraCalgar"]},
+        {"id": "libre", "expeditionId": "l", "status": 0, "units": None},
+    ]
+    libres, prises = ES.deja_parties(ops)
+    assert [o["id"] for o in libres] == ["libre"]
+    assert prises == ["custoTrajann", "ultraCalgar"]
+    # `status` absent se lit comme DISPONIBLE (un plateau ecrit a la main n'en porte pas).
+    libres, prises = ES.deja_parties([{"id": "sans-status", "expeditionId": "s"}])
+    assert len(libres) == 1 and prises == []
