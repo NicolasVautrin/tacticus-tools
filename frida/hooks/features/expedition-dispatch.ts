@@ -76,13 +76,31 @@ const MAX_UNITES = 12;
 //   Donc : notre `invokeMethod` entre dans le natif, et le natif se bloque sur un verrou
 //   d'ou personne ne le relache. Un stop-the-world qui ne repart pas.
 //
-// L'ETAGE N'EST PAS ISOLE, et c'est exactement ce qu'il faut faire avant de rouvrir : deux
-// gestes NOUVEAUX sont apparus en meme temps dans #4/#5 -- l'ALLOCATION du delegate
-// (`il2cpp_object_new`) et l'APPEL avec un 4e argument non nul. #3 faisait le second sans
-// le premier et ne gelait pas. `expeditionCallbackForge` separe les deux : il fabrique le
-// delegate et N'ENVOIE RIEN. S'il gele, la cause est l'allocation ; s'il rend la main, elle
-// est dans l'appel. Tant que cette question n'a pas de reponse MESUREE, on n'envoie plus.
-const AUTORISER_ENVOI_NATIF = false;
+// ═══ ROUVERT, ET CETTE FOIS SUR UNE MESURE QUI DISCULPE LE CHEMIN ═══
+//
+// L'etage a ete isole, en deux temps, et le resultat retourne le diagnostic :
+//
+//   1. `expeditionCallbackForge` fabrique le delegate SANS envoyer. Six appels, 0 ms
+//      chacun, jeu vivant -> l'ALLOCATION est innocente.
+//   2. `probes/gc-rendezvous.ts` force une collecte depuis le thread RPC de Frida, SANS
+//      envoi ni delegate ni `runtime_invoke` -> LE JEU GELE. 145 threads dans `ntdll`,
+//      aucun dans `GameAssembly`, main thread parque a un safepoint.
+//
+// Le gel est donc un STOP-THE-WORLD DU GC sous instrumentation Frida. Il n'a RIEN a voir
+// avec le callback, ni avec cette chaine d'envoi : il se declenche sur du code qui ne fait
+// rien d'autre que collecter. Les tentatives #4 et #5 ont eu la malchance de tomber sur une
+// collecte pendant l'envoi.
+//
+// ⚠ CE QUI RESTE, ET QUI N'EST PAS SUPPRIMABLE : la malchance. Une collecte peut survenir
+// pendant n'importe quel appel natif qui alloue. Ce qu'on a fait pour la rendre moins
+// probable, c'est baisser NOTRE part d'allocations -- le delegate est desormais alloue UNE
+// FOIS et partage (`callbackPartage`), la ou #4/#5 en creaient un par envoi. Le reste (la
+// `List<String>`, trois chaines) est ce que faisait deja #3, qui n'a pas gele.
+//
+// ⚠ ET SI CA REGELE : c'est un TROISIEME TIRAGE SUR LE MEME DE, pas une nouvelle enigme.
+// Ne pas repartir en quete d'une cause -- lire `tasAvant`/`tasApres` ci-dessous, et surtout
+// VERIFIER `expeditionBoardRead` avant de retenter : un envoi part meme si le jeu gele.
+const AUTORISER_ENVOI_NATIF = true;
 
 interface Envoi {
     n: number;
@@ -265,16 +283,66 @@ function evenements(): NativePointer | null {
  *  detient. La perdre laisserait un pointeur pendant dans un delegate encore vivant.
  */
 let pageRet: NativePointer | null = null;
+/** L'ardoise ou le stub DEPOSE ce qu'il a recu. Lue par le pump, jamais par le stub. */
+let ardoise: NativePointer | null = null;
 
-/** Un `ret` natif, alloue une fois. Zero JS dans le chemin d'appel. */
+/** Le stub natif : il ENREGISTRE ses arguments, puis rend la main. Zero JS.
+ *
+ *  ⚠ POURQUOI PAS UN `ret` NU. Un `ret` ne coute rien, mais il jette la seule chose que le
+ *  serveur nous dit : le booleen de reussite. On le remplace donc par un enregistreur --
+ *  et l'enregistrement doit rester du CODE NATIF, parce que le delegate est invoque depuis
+ *  le thread qui traite la reponse. Y mettre du JS ferait entrer Frida dans QuickJS depuis
+ *  ce thread-la ; c'est le PUMP qui vient lire l'ardoise, a son rythme, sur le main thread.
+ *  << Le natif depose, le pump ramasse >> -- jamais l'inverse.
+ *
+ *  `<Execute>b__0` invoque ainsi : `(*(d+0x18))( *(d+0x40), <valeur>, *(d+0x28) )`, donc
+ *  en ABI Win64 : rcx = method_code, rdx = la valeur, r8 = method. On garde les TROIS
+ *  registres sans les interpreter : le decompile rend `local_res18` de facon ambigue (par
+ *  valeur dans `dl`, ou adresse d'un tampon de pile), et trancher a l'aveugle ecrirait une
+ *  lecture fausse. Le lecteur affiche les trois et laisse la lecture au constat.
+ *
+ *  Ardoise (allouee a part -- W^X : la page de code est r-x, l'ardoise est rw) :
+ *      +0x00  uint32  nombre d'appels
+ *      +0x08  rcx     (method_code)
+ *      +0x10  rdx     (la valeur -- le booleen, ou son adresse)
+ *      +0x18  r8      (method)
+ *
+ *  ⚠ REFERENCE FORTE OBLIGATOIRE sur les deux : page et ardoise meurent avec l'objet JS qui
+ *  les detient, et le delegate, lui, survit. */
 function stubRet(): NativePointer | null {
     if (pageRet) return pageRet;
     try {
+        const slot = Memory.alloc(64);
         const p = Memory.alloc(Process.pageSize);
-        Memory.patchCode(p, 1, (code) => { code.writeU8(0xc3); });   // ret
+        Memory.patchCode(p, 32, (code) => {
+            code.writeByteArray([0x48, 0xb8]);                     // movabs rax, imm64
+            code.add(2).writePointer(slot);
+            code.add(10).writeByteArray([
+                0xff, 0x00,                                        // inc dword ptr [rax]
+                0x48, 0x89, 0x48, 0x08,                            // mov [rax+0x08], rcx
+                0x48, 0x89, 0x50, 0x10,                            // mov [rax+0x10], rdx
+                0x4c, 0x89, 0x40, 0x18,                            // mov [rax+0x18], r8
+                0xc3,                                              // ret
+            ]);
+        });
         Memory.protect(p, Process.pageSize, "r-x");
+        ardoise = slot;
         pageRet = p;
         return p;
+    } catch { return null; }
+}
+
+/** Ce que le stub a depose. `null` = stub jamais alloue, donc RIEN N'A ETE MESURE -- a ne
+ *  surtout pas lire comme << le callback n'a pas ete appele >>. */
+function lireArdoise(): { appels: number; rcx: string; rdx: string; r8: string } | null {
+    if (!ardoise) return null;
+    try {
+        return {
+            appels: ardoise.readU32(),
+            rcx: ardoise.add(8).readPointer().toString(),
+            rdx: ardoise.add(16).readPointer().toString(),
+            r8: ardoise.add(24).readPointer().toString(),
+        };
     } catch { return null; }
 }
 let dispoDelegate: { klass: NativePointer; offsets: Record<string, number> } | null = null;
@@ -585,6 +653,10 @@ export function register(ctx: Ctx): void {
                           classeOk: e ? estDeClasse(e, klassEvents) : null,
                           callbackTemoin: dernierCallback
                               ? dernierCallback.toString() : null,
+                          // C'est ICI qu'on ramasse ce que le stub natif a depose. Le
+                          // journal tourne sur le pump : la lecture se fait donc sur le
+                          // main thread, jamais sur le thread de la reponse.
+                          ardoise: lireArdoise(),
                           dispoListe: dispoListe
                               ? { _items: dispoListe.offItems, _size: dispoListe.offSize }
                               : null,
@@ -867,6 +939,47 @@ export function register(ctx: Ctx): void {
                      cause: rappel.err,
                      layout: layout["Action<Boolean>"] };
         }
+        // ═══ DETACHER NOS PROPRES SONDES AVANT D'APPELER. C'EST LA CAUSE DU GEL. ═══
+        //
+        // `expeditionDispatchArm` ancre `ExpeditionGameEvents$$DispatchExpedition` -- la
+        // methode que ce RPC INVOQUE. Notre closure tourne deja en JS sur le main thread
+        // (via `queueOnMainThread`, donc a l'interieur du handler du pump) ; l'appel natif
+        // retombe aussitot dans notre propre trampoline, Frida veut y executer un handler
+        // JS, et le runtime est deja tenu PAR CE MEME THREAD. Personne ne le rendra.
+        //
+        // MESURE (2026-08-10, 3 gels sur 3, pile du main thread lue par GetThreadContext,
+        // du plus PROFOND au plus externe) :
+        //
+        //     [ 1- 2]  ntdll.dll                     <- l'attente
+        //     [ 3-29]  frida-agent.dll               <- 27 cadres DANS Frida
+        //     [30   ]  GameAssembly FUN_1801eb760+0xd5   <- le verrou du jeu
+        //     [31-42]  frida-agent.dll
+        //     [43   ]  GameAssembly FUN_1801f7b30+0x59   <- il2cpp_runtime_invoke, NOTRE appel
+        //     [44-79]  UnityPlayer / USER32              <- la boucle de messages
+        //
+        // Le verrou du jeu APPELLE DANS frida-agent, et c'est la que tout s'arrete. Ce
+        // n'est pas un GC : le gel du GC, lui, laisse le main thread parque a un safepoint
+        // avec ZERO cadre `GameAssembly` (cf. `probes/gc-rendezvous.ts`). Deux gels de
+        // formes differentes -- encore deux pannes que j'ai prises pour une.
+        //
+        // ⚠ ON NE REARME PAS TOUT SEUL APRES. La reponse serveur arrive plus tard, sur un
+        // AUTRE thread : rearmer `DispatchExpeditionLocally` avant qu'elle arrive ferait
+        // tourner un handler JS depuis ce thread-la. L'appelant rearme quand il a lu son
+        // resultat -- explicitement.
+        const detachees = listeners.length;
+        for (const l of listeners) { try { l.detach(); } catch { /* deja parti */ } }
+        listeners.length = 0;
+        Interceptor.flush();
+
+        // Telemetrie du tas, de part et d'autre de l'appel. Elle ne PREVIENT rien -- on ne
+        // sait pas ou est le seuil de declenchement du GC -- mais si le jeu regele, la
+        // derniere valeur connue de `tasAvant` est la seule chose qu'on aura pour dire si
+        // on etait pres d'une collecte. Tri-etat : `null` = export absent, pas zero.
+        const tasAvant = gcRoot.heapSize();
+        const utiliseAvant = gcRoot.usedSize();
+        log("[expedition-dispatch] envoi " + id + " (" + unites.length + " unites), tas="
+            + utiliseAvant + "/" + tasAvant + " -- si le jeu gele, cette ligne est la"
+            + " derniere sortie du process");
         try {
             invokeMethod(miDispatch.info, ev,
                          [createManagedString(id), liste, bonus, rappel.ptr]);
@@ -877,6 +990,14 @@ export function register(ctx: Ctx): void {
         journal.push(e);
         return {
             ok: !e.err, envoi: e,
+            callbackReutilise: !!rappel.reutilise,
+            observationDetachee: detachees,
+            tas: { utiliseAvant, tasAvant,
+                   utiliseApres: gcRoot.usedSize(), tasApres: gcRoot.heapSize() },
+            rearmer: "L'observation est DETACHEE (" + detachees + " porte(s)) : ce module "
+                + "ancrait la methode qu'on invoque, et s'auto-bloquait dessus. Rearme par "
+                + "`expeditionDispatchArm` APRES avoir lu le resultat -- pas avant, la "
+                + "reponse serveur arrive sur un autre thread.",
             note: "Verifie par `expeditionDispatchJournal` qu'une entree `observe` de "
                 + "`DispatchExpeditionLocally` a suivi : c'est elle qui atteste que la "
                 + "chaine du jeu a bien traite l'envoi, pas notre propre appel.",

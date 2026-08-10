@@ -118,8 +118,51 @@ personne, parce qu'une prose n'arrete pas un comportement. La derive memoire de 
 apres ~1900 batailles) reste reelle, mais **forcer une collecte n'en est pas le remede
 disponible** : il couterait une relance du jeu a chaque appel.
 
-`AUTORISER_ENVOI_NATIF` reste a `false` : la cause du gel est nommee, mais le chemin d'envoi
-n'a pas ete rejoue depuis. On rouvre sur un envoi qui aboutit, pas sur une explication.
+## TENTATIVE #6 — le GC n'etait PAS la cause du gel du dispatch non plus
+
+Rouvert apres l'identification du GC, avec le delegate partage (donc MOINS d'allocations que
+#4/#5) : **gele une troisieme fois**. Trois sur trois, sur un process frais. Une collecte
+fortuite trois fois de suite n'est pas credible — **le « tirage de de » etait faux**.
+
+Pile du main thread, du plus PROFOND au plus externe :
+
+```
+[ 1- 2]  ntdll.dll                          <- l'attente
+[ 3-29]  frida-agent.dll                    <- 27 cadres DANS Frida
+[30   ]  GameAssembly FUN_1801eb760+0xd5    <- le verrou du jeu
+[31-42]  frida-agent.dll
+[43   ]  GameAssembly FUN_1801f7b30+0x59    <- il2cpp_runtime_invoke, NOTRE appel
+[44-79]  UnityPlayer / USER32               <- la boucle de messages
+```
+
+Le verrou du jeu **appelle dans frida-agent**, et c'est la que tout s'arrete.
+
+### La cause : on ancrait la methode qu'on appelle
+
+`expeditionDispatchArm` ancre `ExpeditionGameEvents$$DispatchExpedition` — **exactement la
+methode que `expeditionDispatch` invoque**. Notre closure tourne en JS sur le main thread (via
+`queueOnMainThread`, donc dans le handler du pump) ; l'appel natif retombe aussitot dans notre
+propre trampoline, Frida veut y executer un handler JS, et le runtime est deja tenu **par ce
+meme thread**. Personne ne le rendra. C'est deterministe — d'ou 3/3.
+
+**Remede** : le RPC d'envoi **detache ses propres sondes** juste avant l'invoke
+(`Interceptor.flush()` compris), et **ne rearme pas tout seul** : la reponse serveur arrive
+plus tard sur un autre thread, et rearmer avant elle ferait tourner un handler JS depuis ce
+thread-la. L'appelant rearme quand il a lu son resultat.
+
+### TROIS gels, TROIS causes — et je les ai prises pour une, chaque fois
+
+| gel | cause | signature du main thread |
+|---|---|---|
+| #4 | attribue au `NativeCallback` JS | (non lue a l'epoque) |
+| GC force | stop-the-world sous Frida | parque a un safepoint, **0** cadre `GameAssembly` |
+| #4/#5/#6 | **re-entrance** dans notre propre hook | cadres `frida-agent` **sous** le verrou du jeu |
+
+Les deux gels ont des **formes de pile differentes**, et c'est ce qui les separe. Lire la pile
+plus tot aurait economise deux relances : je l'ai fait au troisieme gel, pas au premier.
+
+⚠ Le GC reste un vrai gel — `gcRoot.collect()` refuse toujours. Il n'etait simplement pas
+celui-la.
 
 ## Un piege de lecture rencontre en chemin
 
