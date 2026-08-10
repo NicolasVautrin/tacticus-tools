@@ -28,6 +28,11 @@ let lastNavigationInstance: NativePointer | null = null;
 let lastLevelMapWidgetContainerInstance: NativePointer | null = null;
 let autoBootExecuted = false;
 
+/** La navigation automatique vers la campagne. DESACTIVEE par defaut — cf. le bloc de
+ *  commentaire dans `extractDependenciesAndNavigate`. L'extraction de pointeurs, elle,
+ *  reste toujours active : elle est passive et ne deplace rien. */
+let navigationAutoActive = false;
+
 export async function extractDependenciesAndNavigate(navInstance: NativePointer): Promise<void> {
     if (autoBootExecuted) return;
 
@@ -70,6 +75,27 @@ export async function extractDependenciesAndNavigate(navInstance: NativePointer)
         if (discovered && getCampaignGameModeSourcePtr() !== null) {
             log("[auto-boot] SUCCESS! CampaignGameModeSource and GameConfigDto already captured naturally, skipping auto-navigation.");
             autoBootExecuted = true;
+            return;
+        }
+
+        // ⚠ LA NAVIGATION AUTOMATIQUE EST DESACTIVEE PAR DEFAUT (2026-08-10).
+        //
+        // L'EXTRACTION ci-dessus reste faite a chaque boot : elle est passive, elle ne
+        // deplace rien, et ses pointeurs servent au campaign-builder. Ce qui suit, en
+        // revanche, PILOTE L'UI (`ToCampaign` + taps) -- et le faisait a CHAQUE injection.
+        //
+        // Mesure du 2026-08-10 : quatre reinjects successifs pendant un travail sur
+        // l'ecran Operations ont ramene le jeu sur la campagne Indomitus a chaque fois.
+        // `{ warmup: false }` n'y changeait rien -- ce n'est pas le warmup qui navigue,
+        // c'est ce module, par un chemin independant. Le symptome se lit comme un caprice
+        // du jeu alors qu'il vient de nous.
+        //
+        // Le declenchement reste disponible A LA DEMANDE : RPC `triggerAutoBoot`, ou
+        // `setAutoBootNavigation({ actif: true })`. On ne supprime pas la capacite, on lui
+        // retire son automatisme.
+        if (!navigationAutoActive) {
+            log("[auto-boot] navigation auto DESACTIVEE (defaut) — pointeurs extraits, UI "
+                + "NON deplacee. `triggerAutoBoot` pour la lancer explicitement.");
             return;
         }
 
@@ -524,10 +550,28 @@ export function register(ctx: Ctx): void {
                 throw new Error("Aucune instance d'IdunNavigation n'a encore été capturée. Veuillez naviguer en jeu pour la capturer.");
             }
             autoBootExecuted = false; // Reset to allow force-trigger
+            // Appel EXPLICITE : on leve la desactivation par defaut, puisque c'est
+            // precisement ce que l'appelant demande.
+            navigationAutoActive = true;
             extractDependenciesAndNavigate(nav);
-            return { ok: true, instance: nav.toString() };
+            return { ok: true, instance: nav.toString(), navigationAuto: true };
         });
     };
+
+    /** Rallume (ou reeteint) la navigation AUTOMATIQUE au boot.
+     *
+     *  Elle est eteinte par defaut depuis le 2026-08-10 : elle ramenait le jeu sur la
+     *  campagne a chaque injection, y compris avec `{ warmup: false }`, en plein travail
+     *  sur un autre ecran. body: { actif: boolean } */
+    ctx.rpc.setAutoBootNavigation = (body?: { actif?: boolean }) =>
+        queueOnMainThread(() => {
+            if (typeof body?.actif !== "boolean") {
+                return { ok: false, err: "setAutoBootNavigation: `actif` (booleen) requis",
+                         actuel: navigationAutoActive };
+            }
+            navigationAutoActive = body.actif;
+            return { ok: true, navigationAuto: navigationAutoActive };
+        });
 
     ctx.rpc.diagnoseCampaign = () => {
         return queueOnMainThread(() => {
@@ -574,5 +618,8 @@ export function register(ctx: Ctx): void {
         containerInstance: lastLevelMapWidgetContainerInstance ? lastLevelMapWidgetContainerInstance.toString() : null,
         executed: autoBootExecuted,
         hasSource: getCampaignGameModeSourcePtr() !== null,
+        // Publie, parce qu'un module qui ne bouge plus l'UI doit pouvoir le DIRE : sinon
+        // << la campagne ne revient plus >> se lit comme une panne au lieu d'un reglage.
+        navigationAuto: navigationAutoActive,
     });
 }
