@@ -205,7 +205,8 @@ def main() -> int:
         # --- VOLET 1 : l'ORDRE natif. Il ne passe par AUCUNE conversion, donc il tient meme
         #     quand les cles saturent. C'est lui qui repond a la question du residu.
         if ordre_a != ordre_t:
-            print("VOLET ORDRE : l'ordre natif CHANGE entre les deux regimes (%s -> %s) alors que")
+            print("VOLET ORDRE : l'ordre natif CHANGE entre les deux regimes (%s -> %s) alors que"
+                  % (ordre_a, ordre_t))
             print("  seul le canal crit du caster a bouge (CouldCrit %s -> %s)."
                   % (bras["AVEC_CRIT"]["might_crit"], bras["TEMOIN_no_bis_items"]["might_crit"]))
             print("  ⇒ il n'y a AUCUN etage neutralisant a trouver : le flag EST classant, et la")
