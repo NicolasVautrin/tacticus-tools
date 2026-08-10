@@ -65,6 +65,9 @@ from __future__ import annotations
 from typing import Optional
 
 from ...entities.active_ability_type import ActiveAbilityType
+# Feuille pure (`enum` seul) : `import engine.entities.triggered_ability_type` charge 2 modules
+# `engine.*` (le paquet + lui-meme). L'ajouter ici n'allonge la cascade d'AUCUN module.
+from ...entities.triggered_ability_type import TriggeredAbilityType
 
 
 class AbilityAttackType:
@@ -102,9 +105,26 @@ REGULAR_ATTACK_ABILITY_TYPES = frozenset({
 })
 
 # `AbilityOrEffect(0x3f5)` du `DirectAbilitySelector` de la 2e branche d'`IsNormalAttack` -- le
-# marqueur « kind attaque-normale » que la voie normale du port thread deja (damage_ops.execute,
-# psyker.py, lord_of_tempests.py). MEME constante que `lord_of_tempests.SMITE_KIND`.
-NORMAL_ATTACK_KIND = 0x3f5      # 1013
+# marqueur de KIND que la voie normale du port thread deja (damage_ops.execute, psyker.py,
+# lord_of_tempests.py). MEME constante que `lord_of_tempests.SMITE_KIND`.
+#
+# ⚠ L'ENUM EST TRANCHE, ET CE N'EST PAS `ActiveAbilityType` (#270-r1-r1-r3-r1, build `rnca9r7q6c`).
+# `1013` est un membre valide de QUATRE enums (`ActiveAbilityType.PrecisionShot_Attack`,
+# `TriggeredAbilityType.PsykerExtraAttack`, `EffectType.LightCover`, `UnitTrait.MkXGravis`), donc
+# l'ordinal ne discrimine RIEN. Le discriminant est la SURCHARGE d'`IdunBattle.Core.AbilityOrEffect$$op_Implicit`
+# empruntee par le call-site natif -- lue par le rel32 du `call` qui suit `mov edx, 0x3f5`, jamais
+# par le pseudo-C (les trois surcharges portent le meme nom affiche) :
+#
+#     IdunBattleLogic.Entities.DSLTriggers$$IsNormalAttack+0x6f     -> op_Implicit(triggeredAbility)
+#     IdunBattleLogic.Entities.DSLTriggers$$OnNormalAttackOrSmite+0x4d -> op_Implicit(triggeredAbility)
+#
+# La surcharge ainsi designee est celle dont le parametre se nomme `triggeredAbility` et qui appelle
+# `IdunBattle.Core.AbilityOrEffect$$set_TriggeredAbility` (les deux autres appellent
+# `$$set_ActiveAbility` / `$$set_Effect`). => `TriggeredAbilityType.PsykerExtraAttack`.
+# Le NOM NATIF corrobore : la branche 1 d'`OnNormalAttackOrSmite` est l'attaque normale, la
+# branche 2 -- celle qui porte ce litteral -- est le SMITE (splash du trait `Psyker`), et
+# `entities/triggered_ability_type.py` inscrit deja `"Psyker": (PsykerExtraAttack,)`.
+NORMAL_ATTACK_KIND = int(TriggeredAbilityType.PsykerExtraAttack)      # 0x3f5 = 1013
 
 # --- 3e argument d'`AActiveAbility$$.ctor` (= `AActiveAbility+0x68`), ability par ability. ---------
 # Cle = `ActiveAbilityType` (celle du registre `ABILITY_CLASSES`) ; valeur = `AbilityAttackType`.

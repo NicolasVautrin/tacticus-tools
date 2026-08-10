@@ -46,6 +46,13 @@ from ...entities.effect_type import EffectType
 from ...entities.stats import StatPart, StatType
 from ...entities.active_ability_type import ActiveAbilityType
 from ...entities.triggered_ability_type import TriggeredAbilityType
+from ...entities.unit_selection_type import UnitSelectionType
+
+#: `UnitSelectionType` LU au dernier argument des `DSLSelectors$$*` de ce fichier -- releve #585-r1,
+#: build `rnca9r7q6c`, littéral par littéral (jamais par symetrie).
+#: `OnlyAliveAndTargetable` = `IsAlive && !HasFlag(UnitFlag.Untargetable)`, applique PAR ELEMENT par
+#: `IdunBattle.DSL.TargetsSelector$$SelectUnit` -> `IdunBattle.Entities.UnitExtensions$$MatchesUnitSelectionType`.
+SELECTION = int(UnitSelectionType.OnlyAliveAndTargetable)     # 3
 from .base import ActiveAbility
 from .behaviours.combat import AttackWithAttackDamage, UseActiveAbility
 from .behaviours.context import entities_from_state
@@ -123,7 +130,11 @@ def bringer_of_despair_tree() -> AtomicGroup:
     pool (non id-trie) decide QUI est pique -> l'ennemi touche peut differer (la CONSO, elle, est exacte)."""
     tgt = Target()
     main = AttackWithAttackDamage(tgt, "BringerOfDespair", "Power", is_melee=True)      # MinMaxDamage/Power/0x2f=4
-    bonus_sel = Sub(Damageable(Enemies(AdjacentUnits(CasterTile(), Const(1)))), Target())  # adjacents-caster (ennemis, PV>0) − cible
+    # #585-r1 : `AdjacentUnits(gs, gs@0x50, unique: 1, 3)` puis `Enemies(gs, gs@0x30, ., 3)` --
+    # littéraux LUS. (Le `AdjacentUnits` du port ne porte pas encore le parametre : etage manquant,
+    # sans consequence ici puisque l'`Enemies` enveloppant filtre la sortie.)
+    bonus_sel = Sub(Damageable(Enemies(AdjacentUnits(CasterTile(), Const(1)),
+                                       selection_type=SELECTION)), Target())  # adjacents-caster (ennemis, PV>0) − cible
     bonus = AttackWithAttackDamage(bonus_sel, "BringerOfDespair", "Power", is_melee=True,
                                    hits_key="nrOfHits_2", multi=True, pick_n=1)          # MEME plage, PickRandomly(1), 0x32=4
     return AtomicGroup(op_and(main, bonus))
@@ -289,7 +300,15 @@ def hades_autocannons_get_all_targets(range_: int):
     (la cle +0x158 n'est pas relue ici) : discriminable live avec >= 2 summons dont l'ordre de `row`
     contredit l'ordre d'`id`."""
     ring = SurroundingUnits(TargetTile(), Const(int(range_)), include_center=True)   # includeCenter=1
-    summons = UnitsWithTrait(Friends(ring, reference=Target()), int(UnitTrait.Summon))
+    # #585-r1 : `Friends(gs, gs@0x60 = Target, SurroundingUnits(..., 3), 3)` puis
+    # `UnitsWithTrait(gs, ., 0x2 Summon, 3)` -- littéraux LUS au decompile de `$$GetAllTargets`.
+    summons = UnitsWithTrait(Friends(ring, reference=Target(), selection_type=SELECTION),
+                             int(UnitTrait.Summon), selection_type=SELECTION)
+    # ⚠ Le `Units(...)` ci-dessous ne recoit RIEN : `$$GetAllTargets` enchaine `Tiles(sel)` ->
+    # `SortByRow`/`SortReverse`/`If`, il n'y a AUCUN `Units(...)` natif a cet etage -- c'est la
+    # materialisation du retour tuile -> occupant. Inventer un `selectionType` sur un noeud absent
+    # du natif serait pire que l'absence ; et le filtre est deja arme en amont, sur les deux
+    # selecteurs qui existent, eux.
     return Units(Tiles(summons))     # aller-retour unites -> Tiles(sel) -> Units(...) du natif (mirror)
 
 
@@ -541,7 +560,9 @@ def daemonic_ordnance_all_damageable_targets(target_sel):
     (`HasEffect` domaine mixte, cf. `entities/triggers.py`)."""
     area = daemonic_ordnance_target_area_tiles(target_sel)
     burning = Filter(area, HasEffect(Subject(), DO_FIRE))
-    return Enemies(Units(burning))
+    # #585-r1 : `Units(gs, Filter(...), unique: 1, 3)` puis `Enemies(gs, gs@0x48, ., 3)` -- les DEUX
+    # littéraux LUS au decompile de `$$GetAllDamageableTargets`.
+    return Enemies(Units(burning, selection_type=SELECTION), selection_type=SELECTION)
 
 
 def daemonic_ordnance_tree(target_sel, extra_crit_dmg: int, extra_crit_chance: int):

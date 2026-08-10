@@ -17,7 +17,10 @@ from ....entities.effects import effect_stat_mod_key
 # #577 : substrat de `ctx.has_triggered_ability` -- foyer UNIQUE du kit declenche d'une ENTITE
 # (tri-etat mesure/repli documente sur la fonction). Feuille enum, aucun cycle.
 from ....entities.triggered_ability_type import entity_triggered_ability_ids
-from ....entities.stats import StatPart as _SP, StatType as _ST
+# #270-r1-r1-r3-r1 : la ligne d'import qui vivait ici (`StatPart as _SP, StatType as _ST`) est
+# retiree -- #873 a DELEGUE la ventilation des parts a `HealthComponent.get_stat_part`, donc `_SP`
+# n'a plus aucun lecteur dans ce module, et l'import de `_ST` etait DOUBLE (deux lignes
+# consecutives, la seconde re-liant le meme nom).
 from ....entities.stats import StatType as _ST
 from ....utilities.tile import sort_tiles_by_utility as _stbu, runner_tile_leaf_ctx
 from ...components import UnitComponent as _UC

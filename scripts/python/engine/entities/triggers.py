@@ -1263,8 +1263,7 @@ class IsRangedAttack(AbilityTrigger):
 class IsNormalAttack(AbilityTrigger):
     """`IdunBattleLogic.Entities.DSLFactory$$IsNormalAttack` → `IdunBattleLogic.Entities.DSLFactory$$IsNormalAttack` : l'ability courante == ActiveAbilityType
     normal (0x3f5 = 1013, `op_Implicit` lu). `ctx.attack_ability_type == NORMAL_ATTACK_KIND`
-    (nouveau slot ; défaut None → False). ⚠ le "OR ..." résiduel + la valeur 1013-vs-id-concret =
-    à confirmer à l'agreement.
+    (nouveau slot ; défaut None → False).
 
     #270-r4 -- POURQUOI `NORMAL_ATTACK_KIND` ET NON `ActiveAbilityType.PrecisionShot_Attack`.
     L'ordinal 1013 est bien un membre valide d'`ActiveAbilityType` (`PrecisionShot_Attack`), et
@@ -1273,7 +1272,18 @@ class IsNormalAttack(AbilityTrigger):
     d'`IdunBattleLogic.Entities.DSLFactory$$IsNormalAttack` -- un marqueur de KIND, pas l'ability
     de PrecisionShot. Le build ne publie aucun enum `AbilityOrEffect` ; le foyer nomme du depot est
     `runner/abilities/attack_type.NORMAL_ATTACK_KIND` (= `lord_of_tempests.SMITE_KIND`). Import
-    LOCAL : `entities/` ne doit pas dependre de `runner/` au chargement."""
+    LOCAL : `entities/` ne doit pas dependre de `runner/` au chargement.
+
+    #270-r1-r1-r3-r1 -- LE « 1013-vs-id-concret » EST TRANCHE, et l'`AbilityOrEffect` porte un
+    `TriggeredAbilityType`. Le discriminant n'est ni l'ordinal (membre valide de QUATRE enums) ni
+    le pseudo-C (les trois surcharges d'`IdunBattle.Core.AbilityOrEffect$$op_Implicit` portent le
+    meme nom affiche) : c'est le rel32 du `call` qui suit `mov edx, 0x3f5`. Les DEUX sites
+    (`IdunBattleLogic.Entities.DSLTriggers$$IsNormalAttack+0x6f` et
+    `IdunBattleLogic.Entities.DSLTriggers$$OnNormalAttackOrSmite+0x4d`) visent la surcharge dont le
+    parametre se nomme `triggeredAbility` et qui appelle
+    `IdunBattle.Core.AbilityOrEffect$$set_TriggeredAbility` => `TriggeredAbilityType.PsykerExtraAttack`
+    (le splash Smite du trait `Psyker`, deja inscrit dans `entities/triggered_ability_type.py`).
+    Le foyer nomme reste `NORMAL_ATTACK_KIND` : c'est LUI qui porte desormais le membre."""
     def should_trigger(self, ctx):
         from ..runner.abilities.attack_type import NORMAL_ATTACK_KIND
         return ctx.attack_ability_type == NORMAL_ATTACK_KIND

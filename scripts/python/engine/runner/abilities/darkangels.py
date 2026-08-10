@@ -37,6 +37,13 @@ from ...entities.selectors.units import (
 )
 from ...entities.active_ability_type import ActiveAbilityType
 from ...entities.stats import StatPart, StatType
+from ...entities.unit_selection_type import UnitSelectionType
+
+#: `UnitSelectionType` LU au 4e argument (3e pour les factories a 3 params) des `DSLSelectors$$*` de
+#: ce fichier -- releve #585-r1, build `rnca9r7q6c`, littéral par littéral, jamais par symetrie.
+#: `OnlyAliveAndTargetable` = `IsAlive && !HasFlag(UnitFlag.Untargetable)`, applique PAR ELEMENT par
+#: `IdunBattle.DSL.TargetsSelector$$SelectUnit` -> `IdunBattle.Entities.UnitExtensions$$MatchesUnitSelectionType`.
+SELECTION = int(UnitSelectionType.OnlyAliveAndTargetable)     # 3
 from ...entities.triggers import (AreEnemies, AreEqual, HasEffect, HasGrandAlliance, HasUnit,
                                   TriggerAnd)
 # `IdunBattle.Core.Services.MinMaxDamage$$Avg` (demi-vers-le-PAIR) : la cle de tri de
@@ -315,8 +322,11 @@ def dark_talon_get_tiles_in_line(target_ref, from_sel):
     """`IdunBattleLogic.Entities.Abilities.Active.Loki.DarkTalonStrikeAbility$$GetTilesInLine` (MIRROR 1:1).
 
     `AreEnemies(owner@0x148, Units(subject))` : `Caster()` tient lieu d'`Owner@0x148` (Owner == Caster pour
-    un cast d'active, convention deja en place dans tout le port)."""
-    pred = TriggerAnd(HasUnit(Subject()), AreEnemies(Caster(), Units(Subject())))
+    un cast d'active, convention deja en place dans tout le port).
+
+    `selection_type` = le 4e argument NATIF, LU (#585-r1) : `Units(gs, gs@0x68, unique: 1, 3)`."""
+    pred = TriggerAnd(HasUnit(Subject()),
+                      AreEnemies(Caster(), Units(Subject(), selection_type=SELECTION)))
     return FilterContinuous(
         TilesBehindInLine(target_ref, from_sel, check_walkable=True, update_reference=True), pred)
 
@@ -330,7 +340,9 @@ def dark_talon_get_tiles_in_best_line(target_ref):
     ring = AdjacentTiles(target_ref)
     nearest = PickFirstN(SortByDistance(AdjacentTiles(Caster()), target_ref), 1)
     angle = AngleBetweenLines(Caster(), nearest, target_ref, Subject())
-    count = Count(Units(dark_talon_get_tiles_in_line(target_ref, Subject())))
+    # `Units(gs, GetTilesInLine(this, gs@0x68), unique: 1, 3)` -- 4e argument NATIF LU (#585-r1).
+    count = Count(Units(dark_talon_get_tiles_in_line(target_ref, Subject()),
+                        selection_type=SELECTION))
     best = PickFirstN(SortByFormula(SortByFormula(ring, angle, ascending=True),
                                     count, ascending=False), 1)
     return Union(target_ref, dark_talon_get_tiles_in_line(target_ref, best))
@@ -357,7 +369,8 @@ def dark_talon_strike_tree(target_ref):
       par leurs cles de config : evaluation strictement identique au natif.
     - `native_factory="ability"` = `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage` (lu au
       decompile de `DamageUnit`) -> `AbilityDamageOperation.ExecuteHits` = 1 tirage/coup, pas de crit."""
-    main_sel = Cache(Units(target_ref))                       # Cache(Units(target@0x178))
+    # `Cache(Units(gs@0x60 = target, unique: 1, 3))` -- 4e argument NATIF LU (#585-r1).
+    main_sel = Cache(Units(target_ref, selection_type=SELECTION))
     is_main = AreEqual(Subject(), main_sel)
     main_hit = AttackWithAttackDamage(
         Subject(), DARK_TALON_STRIKE_ID, _ability_profile(DARK_TALON_STRIKE_ID, "damageProfile"),
@@ -370,7 +383,10 @@ def dark_talon_strike_tree(target_ref):
         ability_type=int(ActiveAbilityType.DarkTalonStrike))
     body = op_and(AddEffect(DTS_PINNED, EffectType.Pinned.name, Subject(), duration_rounds=None),
                   If(is_main, main_hit, line_hit))
-    return Foreach(Enemies(Units(dark_talon_get_tiles_in_best_line(target_ref))), body)
+    # `Enemies(gs@0x30, Units(GetTilesInBestLine(), unique: 1, 3), 3)` -- les DEUX littéraux NATIFS
+    # LUS (#585-r1).
+    return Foreach(Enemies(Units(dark_talon_get_tiles_in_best_line(target_ref),
+                                 selection_type=SELECTION), selection_type=SELECTION), body)
 
 
 class DarkTalonStrikeAbility(ActiveAbility):
@@ -506,7 +522,9 @@ def death_on_the_wind_machine_attack_tiles(target_ref, nr_of_tiles: int):
     tile-domain (la cible du message est une entite-TUILE, cf. `abilityTargets` live `kind=tile`), donc
     le `Tiles(target@0x178)` du natif est lui aussi l'identite."""
     ring = SurroundingTiles(target_ref, Const(1), include_center=False)
-    cnt = Count(Enemies(Units(death_on_the_wind_get_tiles_in_line(target_ref, Subject(), nr_of_tiles))))
+    # `Enemies(gs@0x48, Units(GetTilesInLine(), unique: 1, 3), 3)` -- littéraux NATIFS LUS (#585-r1).
+    cnt = Count(Enemies(Units(death_on_the_wind_get_tiles_in_line(target_ref, Subject(), nr_of_tiles),
+                              selection_type=SELECTION), selection_type=SELECTION))
     best = PickFirstN(SortByFormula(ring, cnt, ascending=False), 1)
     line = death_on_the_wind_get_tiles_in_line(target_ref, best, nr_of_tiles)
     return Union(target_ref, line)
@@ -530,7 +548,8 @@ def death_on_the_wind_tree(target_ref, nr_of_tiles: int, profile: str):
     - `native_factory="ability"` : le natif compose `AbilityDamage` + `Attack` = exactement ce que
       `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage` construit."""
     tiles = Cache(death_on_the_wind_machine_attack_tiles(target_ref, nr_of_tiles))
-    enemies = Cache(Enemies(Units(tiles)))
+    # `Enemies(gs@0x48, Units(Cache(GetMachineAttackTiles()), unique: 1, 3), 3)` -- NATIFS LUS (#585-r1).
+    enemies = Cache(Enemies(Units(tiles, selection_type=SELECTION), selection_type=SELECTION))
     attack = Foreach(enemies, AttackWithAttackDamage(
         Subject(), DEATH_ON_THE_WIND_ID, profile, is_melee=False, native_factory="ability",
         ability_type=int(ActiveAbilityType.DeathOnTheWind)))

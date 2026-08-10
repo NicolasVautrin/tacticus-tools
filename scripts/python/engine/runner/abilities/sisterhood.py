@@ -35,6 +35,11 @@ from ...entities.triggers import (Not, AreEnemies, HasFaction, HasTrait, HasUnit
 from ...entities.active_ability_type import ActiveAbilityType
 from ...entities.effect_type import EffectType
 from ...entities.stats import StatType
+from ...entities.unit_selection_type import UnitSelectionType
+
+#: `UnitSelectionType` LU au dernier argument des `DSLSelectors$$*` de ce fichier -- releve #585-r1,
+#: build `rnca9r7q6c`, littéral par littéral (jamais par symetrie).
+SELECTION = int(UnitSelectionType.OnlyAliveAndTargetable)     # 3
 from ...hex_edge import Edge   # `IdunBattle.Utils.Hex.Edge` -- directions de `GetShape` (#270-r1-r1)
 from ...entities.traits.unit_trait import UnitTrait
 from ...entities.effects.magnitude import ability_var
@@ -871,7 +876,9 @@ def thrice_blessed_get_tiles_in_line(from_sel):
 
     `AreEnemies(owner@0x148, Units(subject))` : `Caster()` tient lieu d'`Owner@0x148` (Owner == Caster
     pour un cast d'active, convention deja en place dans tout le port)."""
-    pred = TriggerAnd(HasUnit(Subject()), AreEnemies(Caster(), Units(Subject())))
+    # #585-r1 : `Units(gs, gs@0x68, unique: 1, 3)` -- littéral LU au decompile de `$$GetTilesInLine`.
+    pred = TriggerAnd(HasUnit(Subject()),
+                      AreEnemies(Caster(), Units(Subject(), selection_type=SELECTION)))
     return FilterContinuous(TilesBehindInLine(Tiles(Target()), from_sel), pred)
 
 
@@ -1014,8 +1021,16 @@ def rites_of_restoration_heal_targets():
     `Healable` = le noeud DSL (`entities/selectors/units.py`), mirror d'
     `IdunBattle.Entities.Selectors.HealableUnitsSelector$$Select` = `EntityCanBeHealed(caster, u,
     scope 0, removeEffects 1)`. i2 : « Heals herself and all adjacent friendly units »."""
+    # #585-r1 -- LITTERAL IMPLICITE, tranche par les XREFS ENTRANTES et pas par le pseudo-C.
+    # `...RitesOfRestorationAbility$$GetHealTargets` appelle `DSLSelectors$$AdjacentFriends` avec
+    # QUATRE arguments `(this, unit, unitTile, unique: 1)` -- c'est la SECONDE surcharge de meme
+    # arite, celle qui separe le referent d'equipe de l'ancre geometrique et qui **code le
+    # selectionType EN DUR a 3** dans son `Units` ET dans son `Friends`. La surcharge
+    # `(this, unit, unique, selectionType)` porterait le littéral au 4e rang : les deux sont
+    # indiscernables au pseudo-C, seule la cible du `call` les separe.
     caster = Caster()
-    return Healable(Union(caster, Friends(AdjacentUnits(CasterTile(), Const(1)))),
+    return Healable(Union(caster, Friends(AdjacentUnits(CasterTile(), Const(1)),
+                                          selection_type=SELECTION)),
                     caster=caster, scope=0)
 
 

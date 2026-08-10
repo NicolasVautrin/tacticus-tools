@@ -44,6 +44,13 @@ from ...entities.formulas import StatAmount
 from ...entities.effect_type import EffectType
 from ...entities.stats import StatType, StatPart
 from ...entities.traits.unit_trait import UnitTrait
+from ...entities.unit_selection_type import UnitSelectionType
+
+#: `UnitSelectionType` LU au dernier argument des `DSLSelectors$$*` de ce fichier -- releve #585-r1,
+#: build `rnca9r7q6c`, littéral par littéral (jamais par symetrie).
+#: `OnlyAliveAndTargetable` = `IsAlive && !HasFlag(UnitFlag.Untargetable)`, applique PAR ELEMENT par
+#: `IdunBattle.DSL.TargetsSelector$$SelectUnit` -> `IdunBattle.Entities.UnitExtensions$$MatchesUnitSelectionType`.
+SELECTION = int(UnitSelectionType.OnlyAliveAndTargetable)     # 3
 from ...entities.active_ability_type import ActiveAbilityType
 from ...entities.effects.magnitude import ability_var
 from ..components import PositionComponent, StatsComponent, UnitComponent
@@ -93,11 +100,23 @@ def revitalizing_malignancy_tree(regular_amount: int, chaos_amount: int) -> Atom
     non-Chaos = `regular_amount` (var0x20), Chaos = `chaos_amount` (var0x20+var0x22). `AtomicGroup`
     (`ExecuteAtomic`, id 0x1f) inline (RE #201). Ordre callback natif : Heal(regular) PUIS Heal(chaos) ;
     les deux feuilles sont pures (aucun rng) et les sets DISJOINTS -> ordre sans effet observable."""
+    # #585-r1 -- les littéraux `selectionType` sont LUS, un par un, sur DEUX fonctions natives :
+    #   `...RevitalizingMalignancyAbility$$GetAllHealTargets` :
+    #       AdjacentUnits(gs, gs@0x58, unique: 1, 3) ; Friends(gs, gs@0x30, ., 3) ;
+    #       UnitsWithoutTrait(gs, ., 0x1a Imperial, 3)
+    #   `...RevitalizingMalignancyAbility$$ExecuteBehaviour` :
+    #       UnitsWithoutTrait(gs, ., 0x7ea Chaos, 3) ; UnitsWithTrait(gs, ., 0x7ea, 3)
+    # ⚠ Le `AdjacentUnits` du port (classe de `entities/selectors/units.py`, mirror de
+    # `DSLFactory$$AdjacentUnits(target, radius, mask)`) ne porte PAS encore le parametre -- son
+    # `mask` natif vaut ici 3 aussi, mais l'ETAGE MANQUE. Sans consequence sur CE site : le
+    # `Friends` qui l'enveloppe filtre la sortie. Residu note dans `case-585r1-releve-des-litteraux.md`.
     all_heal = UnitsWithoutTrait(
-        Union(Friends(AdjacentUnits(CasterTile(), Const(1))), Caster()),
-        int(UnitTrait.Imperial))                              # WithoutTrait(0x1a, Union(Friends(AdjacentUnits(self,1)), self))
-    regular_sel = UnitsWithoutTrait(all_heal, int(UnitTrait.Chaos))   # regular = WithoutTrait(0x7ea)
-    chaos_sel = UnitsWithTrait(all_heal, int(UnitTrait.Chaos))        # chaos   = WithTrait(0x7ea)
+        Union(Friends(AdjacentUnits(CasterTile(), Const(1)), selection_type=SELECTION), Caster()),
+        int(UnitTrait.Imperial), selection_type=SELECTION)     # WithoutTrait(0x1a, Union(Friends(AdjacentUnits(self,1)), self))
+    regular_sel = UnitsWithoutTrait(all_heal, int(UnitTrait.Chaos),
+                                    selection_type=SELECTION)  # regular = WithoutTrait(0x7ea)
+    chaos_sel = UnitsWithTrait(all_heal, int(UnitTrait.Chaos),
+                               selection_type=SELECTION)       # chaos   = WithTrait(0x7ea)
     regular = Heal(regular_sel, lambda entities, ectx: regular_amount, guard=healable_heal_type_0)  # Direct(var0x20)
     chaos = Heal(chaos_sel, lambda entities, ectx: chaos_amount, guard=healable_heal_type_0)        # Direct(var0x22+var0x20)
     return AtomicGroup(op_add(regular, chaos))                # ExecuteAtomic( regular + chaos )
@@ -812,7 +831,12 @@ def plagueburst_main_damage_target(target_sel) -> Filter:
     MESURE (probe #302-2) : le natif rend la MEME utilite de paire qu'on lui passe la TUILE (entite
     de type `Tile`) ou l'UNITE qui l'occupe -- 1.1779941 dans les deux cas sur `orksWarboss` --,
     donc la resolution materialisee est value-identique sur ce chemin."""
-    return Filter(Enemies(Units(target_sel)), plagueburst_is_valid_adjacent_enemy_trigger())
+    # #585-r1 : `Enemies(gs@0x48, gs@0x60, 3)` -- littéral LU. Le `Units(...)` interne, lui, est la
+    # MATERIALISATION documentee ci-dessus : il n'a AUCUN equivalent natif dans cette fonction, donc
+    # il ne recoit RIEN (inventer un `selectionType` sur un noeud absent du natif serait pire que
+    # l'absence). Le filtre est arme au bon etage -- `Enemies` filtre sa SORTIE.
+    return Filter(Enemies(Units(target_sel), selection_type=SELECTION),
+                  plagueburst_is_valid_adjacent_enemy_trigger())
 
 
 def plagueburst_adjacent_damage_targets(target_sel) -> Filter:
@@ -855,7 +879,10 @@ def plagueburst_adjacent_enemies(target_sel) -> Enemies:
     Le natif appelle `TargetsSelector.Count(sel, AbilityEntities(owner: caster, caster: caster,
     target: target))` -- l'`AbilityEntities` construit ne porte PAS `casterPosition`, donc ce compte
     est INDEPENDANT de la tuile depuis laquelle le caster tire."""
-    return Enemies(Units(AdjacentTiles(target_sel)))
+    # #585-r1 : `Units(gs, AdjacentTiles(target), unique: 1, 3)` puis `Enemies(gs, gs@0x48, ., 3)`
+    # -- les DEUX littéraux LUS au decompile de `$$GetAdjacentEnemies`.
+    return Enemies(Units(AdjacentTiles(target_sel), selection_type=SELECTION),
+                   selection_type=SELECTION)
 
 
 def plagueburst_nr_of_tiles(state: "State", caster_id: int) -> int:

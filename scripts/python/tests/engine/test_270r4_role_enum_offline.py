@@ -153,8 +153,15 @@ SITES = {
     "playbook/prediction/abilities.py": {
         "ActiveAbilityType.HammerOfWrath": 4,
     },
-    "runner/abilities/behaviours/context.py": {
-        # ALIAS `StatPart as _SP` -- invisible pour un cliquet qui ne resout pas les alias.
+    "runner/components.py": {
+        # SITE MIGRE (#873, commit `ea55462c`) : il vivait dans
+        # `runner/abilities/behaviours/context.py`, ecrit `_SP.MISSING` par alias. #873 a DELEGUE
+        # toute la ventilation des parts a `HealthComponent.get_stat_part` -- le membre nomme a
+        # suivi, en nom BRUT cette fois. Le gisement n'a PAS regresse (aucun ordinal nu n'est
+        # revenu) ; c'est le TEMOIN qui pointait un fichier, et le fichier a change. `total`
+        # (75), `ORDINAUX` (48) et `len(SITES)` (26) sont INCHANGES : un site deplace, pas un site
+        # perdu. C'est ce cas exact que le message de l'etage 2 nomme (« site deplace hors du
+        # fichier ») -- il l'a d'ailleurs attrape, et `master` en est reste ROUGE.
         "StatPart.MISSING": 1,
     },
     "runner/abilities/blacklegion.py": {
@@ -364,14 +371,22 @@ def test_etage2_aucun_site_n_est_revenu_a_l_ordinal_nu():
 def test_etage2b_le_cliquet_resout_bien_les_alias():
     """Anti-degenerescence de l'etage 2 : sans resolution d'alias il se tairait sur `context.py`.
 
-    Le site converti y est ecrit `_SP.MISSING` -- un cliquet qui compare le nom BRUT rendrait 0 et
-    passerait pour vert. Le test mesure que la resolution mord VRAIMENT sur ce fichier."""
+    Un cliquet qui compare le nom BRUT rendrait 0 sur ce fichier et passerait pour vert. Le test
+    mesure que la resolution mord VRAIMENT.
+
+    ⚠ TEMOIN CHANGE (#270-r1-r1-r3-r1). Il visait `_SP.MISSING`, que #873 a fait migrer vers
+    `runner/components.py` en nom BRUT -- l'anti-degenerescence tombait donc alors meme que la
+    resolution d'alias marchait toujours. Le nouveau temoin est `_ST.HEALTH` du MEME fichier
+    (l'import `StatType as _ST` y est toujours, et le nom brut `StatType.` n'y apparait nulle
+    part), donc l'etage garde exactement le meme pouvoir : il rougit si `_occurrences` cesse de
+    resoudre les alias. Le CHOIX du membre est arbitraire ; ce qui compte est qu'il soit ecrit
+    par alias et seulement par alias."""
     rel = "runner/abilities/behaviours/context.py"
-    assert _occurrences(rel).get("StatPart.MISSING", 0) >= 1, (
-        "l'alias `StatPart as _SP` de %s n'est plus resolu -- le cliquet est redevenu aveugle" % rel)
+    assert _occurrences(rel).get("StatType.HEALTH", 0) >= 1, (
+        "l'alias `StatType as _ST` de %s n'est plus resolu -- le cliquet est redevenu aveugle" % rel)
     # ... et le nom BRUT n'apparait PAS dans ce fichier : c'est ce qui prouve que seul l'alias
     # le rend visible.
-    assert "StatPart.MISSING" not in (ENGINE / rel).read_text(encoding="utf-8"), (
+    assert "StatType.HEALTH" not in (ENGINE / rel).read_text(encoding="utf-8"), (
         "le site de %s n'est plus ecrit par alias : cet etage ne mesure plus rien, le reecrire "
         "sur un autre porteur d'alias ou le supprimer" % rel)
 

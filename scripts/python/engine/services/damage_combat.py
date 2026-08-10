@@ -22,11 +22,22 @@ from typing import TYPE_CHECKING, List, Optional
 if TYPE_CHECKING:                       # type-hint seul (évite l'import circulaire via engine.runner)
     from ..runner.prng import IntBasedMersenneTwister
 
-# StatType (UnitExtensions.GetStat) — confirmés au décompilé des feuilles :
-STAT_HEALTH = 4            # GetStat(.,4) — santé (utilisé par ApplyCritDamage trait exécution)
-STAT_ARMOR = 5             # GetStat(.,5) — armure (pool / exécution)
 # StatType/GetStat ids : utiliser l'enum `entities.stats.StatType` (complet #157). Les constantes STAT_* hex
 # mortes (crit/evasion/block : ces valeurs sont passees en params) ont ete retirees.
+#
+# ⚠ `STAT_HEALTH = 4` / `STAT_ARMOR = 5` ONT ETE RETIREES A LEUR TOUR (#270-r1-r1-r3-r1) : elles
+# etaient MORTES (aucun lecteur dans tout `engine/`) et leurs deux noms etaient INVERSES. Mesure au
+# decompile de la feuille que leur commentaire citait,
+# `IdunBattle.Core.Services.DamageCalculations$$ApplyCritDamage` (build `rnca9r7q6c`) :
+#
+#     if (!HasTrait(defender, 0x1c)) return critDamage + currentDamage;
+#     h = GetStat(defender, 0x5, 0, 0);            // <- 5 = StatType.Health
+#     a = GetStat(defender, 0x4, 0, 0);            // <- 4 = StatType.Armor
+#     return ShieldComponent.GetTotalShield(...) + a + h;
+#
+# soit exactement `StatType` (`4=Armor, 5=Health`) -- l'enum, lui, etait juste. Deux constantes
+# mortes qui DUPLIQUENT un enum deja complet et sous cliquet (`probe_313`) en le contredisant : les
+# corriger n'aurait fait que reconduire le doublon, le geste est de les supprimer.
 # #157 : TRAIT_CRIT_EXECUTE=0x1c (mort) retiré — `apply_crit_damage` gate par le bool `has_execute_trait`
 # (le natif `HasTrait(target, 28=UnitTrait.Impervious)` est calculé par l'appelant).
 
