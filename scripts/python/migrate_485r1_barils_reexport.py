@@ -682,6 +682,164 @@ def _table_modules(arbre: ast.Module, mod: str, racine: Path) -> dict[str, str]:
     return t
 
 
+#: Les noeuds qui OUVRENT une portee de noms Python. `ClassDef` en fait partie, mais sa portee
+#: n'est PAS visible des fonctions imbriquees -- `_ResolveurDeModules` la saute, ce qui est la
+#: regle du langage, pas une approximation.
+_OUVRE_PORTEE = (ast.Module, ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda, ast.ClassDef)
+
+
+def _noeuds_de_portee(portee):
+    """Les noeuds qui appartiennent au CODE de cette portee -- sans descendre dans les portees
+    imbriquees, mais en rendant le noeud qui les ouvre (un `def f` LIE le nom `f` ici)."""
+    corps = [portee.body] if isinstance(portee, ast.Lambda) else list(getattr(portee, "body", []))
+    pile = list(corps)
+    while pile:
+        n = pile.pop()
+        yield n
+        if isinstance(n, _OUVRE_PORTEE):
+            continue
+        pile.extend(ast.iter_child_nodes(n))
+
+
+def _hors_corps(ouvreur):
+    """Les sous-noeuds d'un ouvreur de portee EVALUES dans la portee ENGLOBANTE."""
+    args = getattr(ouvreur, "args", None)
+    if isinstance(args, ast.arguments):
+        for d in list(args.defaults) + [x for x in args.kw_defaults if x is not None]:
+            yield d
+        for a in (list(args.posonlyargs) + list(args.args) + list(args.kwonlyargs)
+                  + [args.vararg, args.kwarg]):
+            if a is not None and a.annotation is not None:
+                yield a.annotation
+    for d in getattr(ouvreur, "decorator_list", ()):
+        yield d
+    if getattr(ouvreur, "returns", None) is not None:
+        yield ouvreur.returns
+    for b in list(getattr(ouvreur, "bases", ())):
+        yield b
+    for k in getattr(ouvreur, "keywords", ()):
+        yield k.value
+
+
+def _liaisons_de_portee(portee, mod: str, racine: Path) -> dict[str, str | None]:
+    """`{nom: module absolu}` pour ce que cette portee lie, `None` quand le nom est CONNU pour
+    designer autre chose qu'un module.
+
+    ⚠ TRI-ETAT, ET LA TROISIEME VALEUR EST L'ABSENCE (#485-r2). Trois classes, pas deux :
+
+      * **module**            -- `import x.y as M`, `from x import y` quand `x.y` EST un module ;
+      * **connu NON-module**  -- `from x import OBJET as M`, `def M`, `class M`, `except E as M`.
+        La valeur est `None`, et elle est PLEINE : c'est elle qui MASQUE une liaison de module
+        d'une portee englobante ;
+      * **INCONNU**           -- un parametre, une affectation, une cible de boucle. Il n'entre
+        PAS dans la table : le nom continue de se resoudre dans la portee englobante.
+
+    Pourquoi l'inconnu est TRANSPARENT, et c'est une MESURE, pas un principe : le rendre opaque
+    (`None`) retirait 8 acces VRAIS du recensement (2026-08-10) -- tous du meme patron, un module
+    importe au niveau fichier puis passe en PARAMETRE HOMONYME
+    (`from engine.playbook import adjacency as adj` puis `def _non_regression(units, sc, adj)`,
+    idem `EF` dans `probe_124_line_elevation_decision` et `ar` dans
+    `probe_433_r4_r2_r1_r1_dynamic_target_gate`). L'appelant y passe bien le module ; l'acces est
+    reel. Le tri-etat ne retranche donc QUE le cas ou l'on SAIT que ce n'est pas un module.
+
+    CE QUE LA CLASSE << connu NON-module >> REPARE. `_table_modules` ne retient que les liaisons
+    de MODULE : un nom rebinde a un OBJET n'y laisse aucune trace, donc une liaison de module
+    d'une autre portee lui survit. Mesure du 2026-08-10 sur
+    `tests/engine/runner/test_120bis_spawn_tile_offline.py` : `import engine.utilities.
+    sworn_protector as F` (ligne 108, dans une fonction) etait attribue au `F` des lignes 182-208,
+    ou `from engine.utilities.sworn_protector import SWORN_PROTECTOR_AVOID_ADJACENT_ENEMIES as F`
+    lie une FEUILLE. `probe_485r1r1` accusait `engine.utilities.sworn_protector.evaluate` --
+    5 acces, un rouge de `master`, FAUX.
+
+    `global` / `nonlocal` retirent la liaison locale : le nom se resout alors dans une portee
+    englobante, ce que la remontee de `ResolveurDeModules` fait deja.
+    """
+    t: dict[str, str | None] = {}
+    externes: set[str] = set()
+    for n in _noeuds_de_portee(portee):
+        if isinstance(n, (ast.Global, ast.Nonlocal)):
+            externes.update(n.names)
+        elif isinstance(n, ast.Import):
+            for a in n.names:
+                t[a.asname or a.name.split(".")[0]] = a.name if a.asname else a.name.split(".")[0]
+                if a.asname is None and "." in a.name:
+                    t[a.name] = a.name
+        elif isinstance(n, ast.ImportFrom):
+            cible = cible_absolue(mod, n, racine)
+            for a in n.names:
+                nom = a.asname or a.name
+                if cible and existe_module("%s.%s" % (cible, a.name), racine):
+                    t[nom] = "%s.%s" % (cible, a.name)
+                else:
+                    t[nom] = None            # un OBJET, pas un module -- il MASQUE
+        elif isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            t[n.name] = None
+        elif isinstance(n, ast.ExceptHandler) and n.name:
+            t[n.name] = None
+    for nom in externes:
+        t.pop(nom, None)
+    return t
+
+
+class ResolveurDeModules:
+    """Resout `<nom>.<attr>` DANS SA PORTEE -- foyer unique de cette question (#485-r2).
+
+    `_table_modules` reste ce qu'il est (une table PLATE du fichier) pour ses appelants
+    historiques ; ce resolveur est ce qu'il faut des qu'on juge un SITE, parce qu'un site vit
+    dans une portee et que Python y resout les noms par portee. Ecrit ICI et pas dans le probe :
+    deux implementations jumelles d'un meme predicat divergent (lecon #332), et c'est ce fichier
+    qui porte deja `_table_modules`, `cible_absolue` et `existe_module`.
+    """
+
+    def __init__(self, arbre: ast.Module, mod: str, racine: Path) -> None:
+        self._tables: dict = {}
+        self._portee_de: dict = {}
+        self._parent_portee: dict = {}
+        #: DERNIER RECOURS -- la table PLATE du fichier. Elle n'est consultee que si AUCUNE portee
+        #: de la chaine ne dit quoi que ce soit du nom, c'est-a-dire dans le seul cas que le
+        #: langage ne tranche pas : un nom recu en PARAMETRE. Mesure du 2026-08-10 : sans ce
+        #: recours, 7 acces VRAIS disparaissaient du recensement -- un module importe dans une
+        #: fonction puis passe a une AUTRE fonction sous le meme nom (`EF` dans
+        #: `probe_124_line_elevation_decision`, `ar` dans
+        #: `probe_433_r4_r2_r1_r1_dynamic_target_gate`). Le recours ne peut pas ressusciter le
+        #: faux positif repare : une liaison CONNUE non-module masque AVANT lui.
+        self._plat = _table_modules(arbre, mod, racine)
+        self._indexer(arbre, mod, racine, chaine=[])
+
+    def _indexer(self, portee, mod, racine, chaine) -> None:
+        self._tables[id(portee)] = _liaisons_de_portee(portee, mod, racine)
+        self._parent_portee[id(portee)] = list(chaine)
+        for n in _noeuds_de_portee(portee):
+            self._portee_de[id(n)] = portee
+            if not isinstance(n, _OUVRE_PORTEE):
+                continue
+            # Decorateurs, valeurs par defaut, annotations et bases sont EVALUES dans la portee
+            # ENGLOBANTE, pas dans celle qu'ouvre ce noeud. Les y rattacher est la regle du
+            # langage -- et sans cela un `def f(x=M.y)` n'aurait aucune portee, donc serait
+            # silencieusement ecarte du recensement.
+            for depart in _hors_corps(n):
+                for sous in ast.walk(depart):
+                    self._portee_de.setdefault(id(sous), portee)
+            self._indexer(n, mod, racine, chaine + [portee])
+
+    def resoudre(self, nom: str, noeud) -> str | None:
+        """Le module absolu que `nom` designe A CET ENDROIT, ou `None`.
+
+        Remontee de la portee du site vers le module. Une `ClassDef` ENGLOBANTE est sautee : ses
+        noms ne sont pas visibles des fonctions qu'elle contient (regle du langage)."""
+        portee = self._portee_de.get(id(noeud))
+        if portee is None:
+            return None
+        chaine = self._parent_portee.get(id(portee), [])
+        for i, p in enumerate([portee] + list(reversed(chaine))):
+            if i and isinstance(p, ast.ClassDef):
+                continue
+            table = self._tables.get(id(p), {})
+            if nom in table:
+                return table[nom]
+        return self._plat.get(nom)
+
+
 def collecter_substitutions(racine: Path) -> dict[Path, list[tuple[int, str, str]]]:
     """FOYER UNIQUE de la lecture des substitutions : fichier -> [(ligne, module vise, attribut)].
 

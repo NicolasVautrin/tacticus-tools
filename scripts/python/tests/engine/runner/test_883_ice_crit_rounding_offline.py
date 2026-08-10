@@ -39,6 +39,13 @@ DECLENCHEUR = {
     "chemins": (
         "scripts/python/engine/runner/damage_model.py",
         "scripts/python/engine/dsl/base.py",
+        # #547-r6 -- AJOUTE APRES MESURE. La confrontation de `probe_486r15` a nomme ce chemin des
+        # que l'empreinte de ce fichier a ete GRAVEE (`--measure-missing`) : `damage_model` tire la
+        # cascade qui lit la seed au CHARGEMENT, donc le verdict en depend, meme si aucun cas ne
+        # l'ouvre lui-meme. C'est le regime #486-r29 -- le manque n'apparait pas chez l'auteur, il
+        # apparait au merge, quand l'empreinte existe. Meme correctif que celui applique a
+        # `probe_485r1r1_acces_attributaires` par #880, pour la meme raison.
+        "data/seed-bc.json",
     ),
     "build": False,
     "toujours": False,

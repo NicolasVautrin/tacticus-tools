@@ -117,7 +117,16 @@ def recenser(racine: Path = ICI) -> tuple[list[tuple[str, str, str]],
     `_kill_steppable_remove_effects`, qui n'existe plus dans `movement.py` -- sa contre-epreuve
     `--mutate sans-retrait` est morte, en silence. Signale, non bloquant (dette anterieure).
 
-    Un acces garde par `hasattr` / `getattr(..., defaut)` est ecarte : l'absence y est PREVUE."""
+    Un acces garde par `hasattr` / `getattr(..., defaut)` est ecarte : l'absence y est PREVUE.
+
+    ⚠ LA RESOLUTION EST PAR PORTEE, ET ELLE DOIT L'ETRE (#485-r2). Une table PLATE du fichier
+    (`MIG._table_modules`) attribue a un nom la DERNIERE liaison de module rencontree n'importe ou
+    dans le fichier, alors qu'un nom rebinde dans une fonction y designe autre chose. Mesure du
+    2026-08-10 : `tests/engine/runner/test_120bis_spawn_tile_offline.py` lie `F` DEUX fois -- au
+    module `engine.utilities.sworn_protector` ligne 108, a la FEUILLE
+    `SWORN_PROTECTOR_AVOID_ADJACENT_ENEMIES` lignes 182/199/205 -- et le probe accusait
+    `engine.utilities.sworn_protector.evaluate`, 5 acces, rouge de `master`, FAUX. Un cliquet qui
+    accuse a tort se fait desarmer, et il masquerait alors les vrais."""
     lectures: list[tuple[str, str, str]] = []
     ecritures: list[tuple[str, str, str]] = []
     for p in _fichiers(racine):
@@ -127,14 +136,16 @@ def recenser(racine: Path = ICI) -> tuple[list[tuple[str, str, str]],
         except (OSError, SyntaxError, UnicodeDecodeError):
             continue
         mod = MIG.nom_module(p, racine)
-        table = MIG._table_modules(arbre, mod, racine)
-        if not table:
+        # PRE-FILTRE bon marche : la table PLATE dit s'il y a le moindre module a resoudre dans ce
+        # fichier. Elle ne tranche RIEN -- c'est le resolveur par portee qui decide site par site.
+        if not MIG._table_modules(arbre, mod, racine):
             continue
+        resolveur = MIG.ResolveurDeModules(arbre, mod, racine)
         gardes = _gardes_hasattr(arbre)
         for n in ast.walk(arbre):
             if not isinstance(n, ast.Attribute) or not isinstance(n.value, ast.Name):
                 continue
-            cible = table.get(n.value.id)
+            cible = resolveur.resoudre(n.value.id, n.value)
             if not cible or cible.split(".")[0] != "engine":
                 continue
             if n.attr in _DUNDER or (n.value.id, n.attr) in gardes:

@@ -136,33 +136,21 @@ NON_VERTS_DECLARES: dict[str, str] = {
         "`frida/hooks/features/movement-trace.ts`. Le remede est ECRIT par le probe lui-meme "
         "(`--catalogue` produit le bloc a coller dans `rpc-api.md`). FOYER `frida/hooks/**` : "
         "hors du territoire de cette tranche. Residu #547-r6.",
-    # DEUX DE PLUS, arrives avec les merges que le rebase de cette tranche a integres. Ils ne sont
-    # pas davantage le fait de cette PR : les deux fichiers ACCUSES ne sont pas dans son diff.
-    "tests/engine/test_270r4_role_enum_offline.py":
-        "`test_etage2_aucun_site_n_est_revenu_a_l_ordinal_nu` + `test_etage2b_le_cliquet_resout_"
-        "bien_les_alias` -- 2 failed / 15 passed. << `runner/abilities/behaviours/context.py` : "
-        "`StatPart.MISSING` vu 0 fois, la tranche en avait mis 1 >>. Le site a disparu ou s'est "
-        "deplace hors du fichier ; `context.py` n'est PAS touche par cette PR. "
-        "⚠ RE-MESURE au dernier rebase : le fichier rend desormais **17 passed** -- il a ete "
-        "REPARE sur `master`. La ligne RESTE parce que l'ENTREE du ledger, elle, dit encore ROUGE "
-        "(elle a ete inscrite sur un arbre anterieur) : la retirer ferait rougir le CRAN 1 sur une "
-        "reparation reussie. C'est exactement le residu #547-r5 -- rien ne rejoue le ledger apres "
-        "un merge -- et cette ligne en est l'illustration vivante. Elle sortira a la prochaine "
-        "passe ordinaire. Residu #547-r6.",
-    "tests/test_463r1_ecart_empreinte_offline.py":
-        "`test_l_ecart_est_NUL_sur_ce_checkout` -- << 0 NON MESURE(S), 1 FANTOME(S) >> : "
-        "`tests/engine/runner/test_576_war_howl_pose_offline.py` est dans l'empreinte et plus dans "
-        "le perimetre. Le geste qui le PURGE est `--measure` (2220 s, de la MAINTENANCE), pas "
-        "`--measure-missing` qui FUSIONNE -- le probe le dit lui-meme. Cette tranche l'avait purge "
-        "par sa propre passe complete, puis a repris la version AMONT du fichier DERIVE au rebase "
-        "(regle : on prend un COTE ENTIER, on n'arbitre jamais un artefact genere) -- le fantome "
-        "est donc celui de `master`. Residu #547-r6.",
-    "tests/test_host_inputs_offline.py":
-        "`test_probe_273_passe` -- `probe_273_gitignore_inputs.py` rend `rc=1` depuis un WORKTREE "
-        "d'agent. Sa sortie montre `OK -- aucune sortie de run dans data/` puis, a l'etage 3, "
-        "`frida/data/_absent_273 : INTROUVABLE (pas mesure)`. A trancher : cran legitime ou "
-        "artefact du regime worktree (les entrees gitignorees vivent dans l'ARBRE PRINCIPAL, "
-        "invariant 3 du CLAUDE.md). Residu #547-r6.",
+    # ⚠ TROIS LIGNES SONT SORTIES D'ICI PAR LE CRAN 2, ET C'EST LA PREMIERE FOIS QU'ELLES SORTENT
+    # SUR UNE MESURE FRAICHE (#547-r5). Elles y etaient toutes les trois parce que le ledger ne se
+    # rejouait pas -- l'une le DISAIT explicitement (<< elle sortira a la prochaine passe
+    # ordinaire >>). La passe ordinaire a eu lieu : 299 entrees, 295 VERT, 4 non-VERT.
+    #   * `test_270r4_role_enum_offline.py` -- REPARE sur `master`, l'entree ROUGE etait un
+    #     RESIDU D'ARBRE ANTERIEUR ;
+    #   * `test_463r1_ecart_empreinte_offline.py` -- le FANTOME est PURGE, et sa cause
+    #     structurelle est fermee : `_empreinte_fusionnee` restreint desormais au perimetre, donc
+    #     `--measure-missing` purge un fichier supprime ou renomme (avant, seul `--measure` le
+    #     faisait -- 2 220 s pour effacer la trace d'un renommage a 1 s) ;
+    #   * `test_host_inputs_offline.py` -- REPARE, et son DIAGNOSTIC ETAIT FAUX. La ligne accusait
+    #     le regime worktree (<< etage 3, `frida/data/_absent_273 : INTROUVABLE (pas mesure)` >>),
+    #     qui est la sortie ATTENDUE d'un controle qui PASSE. La cause reelle etait a l'ETAPE 0 :
+    #     `probe_448r1r1r2r2r1_gates_amont.py` ecrivait son state-file sous `scripts/python/logs/`,
+    #     ce que #455 interdit et que `probe_273` sort en `[FAIL]`.
     # VIDE POUR LE RESTE, et c'est un ETAT MESURE. Les TROIS lignes qui vivaient ici
     # (#270-r4-r2-r2 seuil des differes, #448-r1 stormboyz, #462-r4b-r1-r1 producteurs d'additif)
     # ont ete FERMEES par #547-r2, chacune par sa cause propre -- pas retirees pour faire taire :
