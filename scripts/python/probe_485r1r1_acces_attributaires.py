@@ -57,13 +57,16 @@ import migrate_485r1_barils_reexport as MIG
 #: build ou de `data/` ne peut pas retourner ce verdict -- au pire il rend un module non
 #: importable, ce qui sort en `rc 2 PAS MESURE`, jamais en vert.
 DECLENCHEUR = {
-    "chemins": ("scripts/python/*.py", "scripts/python/**/*.py"),
+    "chemins": ("scripts/python/*.py", "scripts/python/**/*.py", "data/seed-bc.json"),
     "build": False,
     "toujours": False,
     "raison": "Le recensement visite TOUT `.py` de `scripts/python/**` et resout chaque acces "
               "attributaire contre le module reellement importe ; la table des noms locaux est "
               "importee de `migrate_485r1_barils_reexport`, au meme endroit. Tout fichier ajoute, "
-              "retire ou modifie sous cette racine change le verdict.",
+              "retire ou modifie sous cette racine change le verdict. Il IMPORTE REELLEMENT les "
+              "modules qu'il resout (`importlib.import_module`), donc il herite de ce qu'ils "
+              "lisent AU CHARGEMENT : la mesure du 2026-08-10 a nomme `data/seed-bc.json`, hors "
+              "perimetre jusque-la.",
 }
 
 ICI = Path(__file__).resolve().parent
