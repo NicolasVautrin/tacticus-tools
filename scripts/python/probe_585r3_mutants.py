@@ -82,11 +82,11 @@ def main():
             inertes.append(libelle + " [motif absent -- le mutant ne teste RIEN]")
             continue
         try:
-            with open(chemin, "w", encoding="utf-8", newline="") as fh:
+            with open(chemin, "w", encoding="utf-8") as fh:
                 fh.write(src.replace(avant, apres, 1))
             rc = _jouer()
         finally:
-            with open(chemin, "w", encoding="utf-8", newline="") as fh:
+            with open(chemin, "w", encoding="utf-8") as fh:
                 fh.write(src)
         print("%-58s rc=%d  %s" % (libelle, rc, "MORD" if rc != 0 else "INERTE"))
         if rc == 0:
