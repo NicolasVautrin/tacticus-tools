@@ -25,10 +25,6 @@ from ..unit_flag import UnitFlag
 # on n'en ecrit pas un second.
 from ..unit_selection_type import UnitSelectionType, matches_unit_selection_type
 from ...battle_query import is_target_tile_obscured
-# #433-r4-r1-r4-r1 : FOYER du canal d'elevation (tri-etat, l'inconnu est OMIS et non rabattu sur 0).
-# Import de NIVEAU MODULE, aucun cycle : `dsl.base` -- que ce module importe deja ci-dessus -- tire
-# lui-meme `entities.pathfinding.board` au niveau module.
-from ..pathfinding.board import elevations_by_pos
 
 
 def _selection_ok(u, selection_type, ctx) -> bool:
@@ -1126,20 +1122,22 @@ class Unobscured(TargetsSelector):
       DEJA validee live cote PREDICTION (`bq.surrounding_enemies`, craft-O/O2 probe_49x : crete elev 4 ->
       ennemi dist-2 EXCLU / deplace visible -> compte).
 
-    `elev` vient du FOYER `entities/pathfinding/board.elevations_by_pos` (#433-r4-r1-r4-r1). Il
-    lisait auparavant `ctx.board.by_coord` a la main avec `t.get("elevation", 0)` : ce defaut
-    FABRIQUAIT une elevation `0` pour toute tuile dont le canal ne porte pas la donnee, alors que le
-    foyer OMET l'inconnu (tri-etat : `None` = pas de canal, une carte = les tuiles CAPTEES). Le `0`
-    invente n'etait pas neutre, et il deviait dans les DEUX sens selon la position de la tuile
-    inconnue sur la ligne, contre le contrat que `battle_query.is_target_tile_obscured` tient deja :
-      * inconnue en `from`/`to` -- le contrat rend `False` (jamais obscurci) ; le `0` invente faisait
-        au contraire passer le seuil des qu'un mid valait `>= 2` (obscurcissement FABRIQUE) ;
-      * inconnue en MID -- le contrat la RETIRE (`GetTileAt null -> pas bloquant`), ce qui bascule le
-        cas diagonal sur la branche `len(mids) == 1` (plus bloquante) ; le `0` invente la gardait
-        dans le `all(...)` de la fat-line et ETEIGNAIT le blocage.
-    Passer par le foyer aligne aussi le CANAL : `elevations_by_pos` accepte un `Board` (cache
-    `elev_by_pos()`) et un board duck-type `by_id`, la ou `by_coord` seul rendait `None`
-    (passe-tout) sur ces deux formes.
+    `elev` = **`ctx.elev_by_pos`** (#433-r4-r1-r4-r1), le canal du contexte -- celui que
+    `DslContext.__post_init__` derive du board par `entities/pathfinding/board.elevations_by_pos`, et
+    que `UnitsDirectlyBehind` ci-dessus consomme deja. Ce noeud-ci re-derivait AU LIEU DE LE LIRE :
+    `{k: t.get("elevation", 0) for k, t in ctx.board.by_coord.items()}`. Deux ecarts, tous deux reels :
+
+      * le defaut `0` FABRIQUAIT une elevation pour toute tuile dont le canal ne porte pas la donnee,
+        alors que le foyer OMET l'inconnu (tri-etat : `None` = pas de canal, une carte = les tuiles
+        CAPTEES). Le `0` invente n'est pas neutre et devie dans les DEUX SENS, contre le contrat que
+        `battle_query.is_target_tile_obscured` tient deja -- inconnue en `from`/`to` : le contrat rend
+        `False` (jamais obscurci), le `0` faisait au contraire passer le seuil des qu'un mid valait
+        `>= 2` (obscurcissement FABRIQUE) ; inconnue en MID : le contrat la RETIRE (`GetTileAt null ->
+        pas bloquant`), ce qui bascule le cas diagonal sur la branche `len(mids) == 1`, PLUS
+        bloquante, la ou le `0` la gardait dans le `all(...)` de la fat-line et ETEIGNAIT le blocage ;
+      * la FORME du board : `by_coord` seul rendait `None` (passe-tout) sur un `Board` sans cette
+        vue et sur tout board duck-type `by_id`, que le foyer, lui, sait lire. Et une injection
+        EXPLICITE de `elev_by_pos` dans le contexte etait purement ignoree.
 
     v1 FLAGS (IDENTIQUES a la face prediction, cf. `battle_query.is_target_tile_obscured`) : murs (bit 4)
     non modelises (aucun board d'agreement n'a de mur en zone jouable) ; mask 4 IndirectFire non gate
@@ -1158,9 +1156,10 @@ class Unobscured(TargetsSelector):
         units = _units_of(self.source, ctx)
         if frm is None:
             return list(units)
-        # FOYER unique du canal d'elevation (#433-r4-r1-r4-r1) : tri-etat `None` = pas de canal,
-        # et l'inconnu est OMIS -- jamais rabattu sur `0`. Cf. la docstring ci-dessus.
-        elev = elevations_by_pos(getattr(ctx, "board", None))
+        # CANAL du contexte (#433-r4-r1-r4-r1) -- le MEME que consomme `UnitsDirectlyBehind`
+        # ci-dessus : tri-etat `None` = pas de canal, et l'inconnu est OMIS, jamais rabattu sur `0`.
+        # Cf. la docstring.
+        elev = ctx.elev_by_pos
         out = []
         for u in units:
             feet = _feet(u)
