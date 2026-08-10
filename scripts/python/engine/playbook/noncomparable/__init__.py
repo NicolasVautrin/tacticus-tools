@@ -66,6 +66,7 @@ from ._base import NCContext, NonComparablePlaybook, NATIVE_PRIORITY, native_pri
 from .bloody_fury import BloodyFuryPlaybook
 from .vexilla_magnifica import VexillaMagnificaPlaybook
 from .fighting_retreat import FightingRetreatPlaybook
+from .fire_and_reposition import FireAndRepositionPlaybook
 from .aberrant_hypermorph import AberrantHypermorphPlaybook
 from .nova_boost import NovaBoostPlaybook
 from .nova_shield import NovaShieldPlaybook
@@ -102,6 +103,7 @@ from .supreme_commander import SupremeCommanderPlaybook
 from .hellfyre_missile_rack import HellfyreMissileRackPlaybook
 from .unstoppable_momentum import UnstoppableMomentumReworkedPlaybook
 from .mind_control import MindControlPlaybook
+from .unbreakable_duty import UnbreakableDutyPlaybook
 from .attempted_possession import AttemptedPossessionPlaybook
 
 
@@ -111,6 +113,9 @@ PLAYBOOKS: dict[int, NonComparablePlaybook] = {
         BloodyFuryPlaybook(),
         VexillaMagnificaPlaybook(),
         FightingRetreatPlaybook(),
+        FireAndRepositionPlaybook(),    # 1063 (#567-r1) — util = 1.5 + 20*(distance MOYENNE aux
+        #                                 ennemis, division ENTIERE) + Tile(7). Terme
+        #                                 position-dependant SEUL : la cible n'y entre pas.
         AberrantHypermorphPlaybook(),
         NovaBoostPlaybook(),
         NovaShieldPlaybook(),
@@ -214,6 +219,13 @@ PLAYBOOKS: dict[int, NonComparablePlaybook] = {
         # substrats absents de `NCContext` (`parentId` d'une unite ennemie, cibles d'attaque par
         # unite) -- residu `#590-r7`. Base `NonComparablePlaybook` LUE dans `classes.tsv`.
         AttemptedPossessionPlaybook(),  # 1101 -- util = PLANCHER Fix64(1) (increments non portes)
+        # #572-r2 -- face DECISION de `1061 UnbreakableDuty`, dont la face COMBAT etait portee et
+        # confrontee (#572). Utilite CONSTANTE = `Fix64(1)` = `MIN_UTILITY` (le MEME statique) :
+        # tout le discriminant est dans `GetUseProbability`, dont le ZERO (aucun allie a portee ET
+        # moins de deux heros imperiaux morts) fait S'ABSTENIR le natif. Base
+        # `NonComparablePlaybook` LUE dans `classes.tsv` ; slots `0x75`/`0x7d` resolus dans
+        # `metadata/interface_slots.tsv` (l'`etage manquant` que la fiche annoncait).
+        UnbreakableDutyPlaybook(),      # 1061
     )
 }
 
@@ -272,6 +284,7 @@ __all__ = [
     "_has_valid_targets",
     "PLAYBOOKS", "playbook_for", "is_noncomp", "is_summon",
     "choose_action", "BloodyFuryPlaybook", "VexillaMagnificaPlaybook", "FightingRetreatPlaybook",
+    "FireAndRepositionPlaybook", "UnbreakableDutyPlaybook",
     "AberrantHypermorphPlaybook", "NovaBoostPlaybook", "NovaShieldPlaybook",
     "RitesOfRestorationPlaybook", "CombatRestorativesPlaybook", "DefendTheDivineWorkPlaybook",
     "RevitalizingMalignancyPlaybook", "InspiredToGreatnessPlaybook", "ScarabSummonPlaybook",
