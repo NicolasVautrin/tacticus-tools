@@ -1,0 +1,299 @@
+{
+ "format": "1",
+ "durees": {
+  "probe_120": {
+   "s": 13.16,
+   "rc": 0,
+   "regime": "para-16",
+   "commit": "bec53574787f"
+  },
+  "probe_181": {
+   "s": 4.38,
+   "rc": 0,
+   "regime": "para-16",
+   "commit": "bec53574787f"
+  },
+  "probe_229": {
+   "s": 10.71,
+   "rc": 1,
+   "regime": "para-16",
+   "commit": "bec53574787f"
+  },
+  "probe_273": {
+   "s": 125.65,
+   "rc": 1,
+   "regime": "para-16",
+   "commit": "bec53574787f"
+  },
+  "probe_274": {
+   "s": 95.07,
+   "rc": 0,
+   "regime": "para-16",
+   "commit": "bec53574787f"
+  },
+  "probe_283:diff": {
+   "s": 3.53,
+   "rc": 0,
+   "regime": "para-16",
+   "commit": "bec53574787f"
+  },
+  "probe_283:exec": {
+   "s": 110.49,
+   "rc": 0,
+   "regime": "para-16",
+   "commit": "bec53574787f"
+  },
+  "probe_283:mirror": {
+   "s": 50.31,
+   "rc": 0,
+   "regime": "para-16",
+   "commit": "bec53574787f"
+  },
+  "probe_283:on": {
+   "s": 37.16,
+   "rc": 0,
+   "regime": "para-16",
+   "commit": "bec53574787f"
+  },
+  "probe_283:prose": {
+   "s": 115.48,
+   "rc": 0,
+   "regime": "para-16",
+   "commit": "bec53574787f"
+  },
+  "probe_283:tables": {
+   "s": 25.01,
+   "rc": 0,
+   "regime": "para-16",
+   "commit": "bec53574787f"
+  },
+  "probe_313": {
+   "s": 30.47,
+   "rc": 6,
+   "regime": "para-16",
+   "commit": "bec53574787f"
+  },
+  "probe_319": {
+   "s": 181.13,
+   "rc": 0,
+   "regime": "para-16",
+   "commit": "bec53574787f"
+  },
+  "probe_365": {
+   "s": 39.62,
+   "rc": 0,
+   "regime": "para-16",
+   "commit": "bec53574787f"
+  },
+  "probe_366bcp": {
+   "s": 72.38,
+   "rc": 2,
+   "regime": "para-16",
+   "commit": "bec53574787f"
+  },
+  "probe_366camo": {
+   "s": 5.58,
+   "rc": 1,
+   "regime": "para-16",
+   "commit": "bec53574787f"
+  },
+  "probe_366pos": {
+   "s": 8.02,
+   "rc": 0,
+   "regime": "para-16",
+   "commit": "bec53574787f"
+  },
+  "probe_391": {
+   "s": 98.98,
+   "rc": 0,
+   "regime": "para-16",
+   "commit": "bec53574787f"
+  },
+  "probe_421": {
+   "s": 6.61,
+   "rc": 1,
+   "regime": "para-16",
+   "commit": "bec53574787f"
+  },
+  "probe_431": {
+   "s": 31.53,
+   "rc": 0,
+   "regime": "para-16",
+   "commit": "bec53574787f"
+  },
+  "probe_433r4r1r4r2": {
+   "s": 41.45,
+   "rc": 0,
+   "regime": "para-16",
+   "commit": "bec53574787f"
+  },
+  "probe_437r1r1r1": {
+   "s": 9.68,
+   "rc": 1,
+   "regime": "para-16",
+   "commit": "bec53574787f"
+  },
+  "probe_439": {
+   "s": 16.27,
+   "rc": 0,
+   "regime": "para-16",
+   "commit": "bec53574787f"
+  },
+  "probe_440": {
+   "s": 45.59,
+   "rc": 0,
+   "regime": "para-16",
+   "commit": "bec53574787f"
+  },
+  "probe_443r1c": {
+   "s": 56.7,
+   "rc": 0,
+   "regime": "para-16",
+   "commit": "bec53574787f"
+  },
+  "probe_443r2": {
+   "s": 28.7,
+   "rc": 0,
+   "regime": "para-16",
+   "commit": "bec53574787f"
+  },
+  "probe_443r2b1": {
+   "s": 31.05,
+   "rc": 0,
+   "regime": "para-16",
+   "commit": "bec53574787f"
+  },
+  "probe_449r2": {
+   "s": 22.77,
+   "rc": 0,
+   "regime": "para-16",
+   "commit": "bec53574787f"
+  },
+  "probe_455": {
+   "s": 153.81,
+   "rc": 0,
+   "regime": "para-16",
+   "commit": "bec53574787f"
+  },
+  "probe_457:s0": {
+   "s": 3.06,
+   "rc": 99,
+   "regime": "para-16",
+   "commit": "bec53574787f"
+  },
+  "probe_457:s1": {
+   "s": 3.51,
+   "rc": 99,
+   "regime": "para-16",
+   "commit": "bec53574787f"
+  },
+  "probe_457:s2": {
+   "s": 3.2,
+   "rc": 99,
+   "regime": "para-16",
+   "commit": "bec53574787f"
+  },
+  "probe_457:s3": {
+   "s": 3.26,
+   "rc": 99,
+   "regime": "para-16",
+   "commit": "bec53574787f"
+  },
+  "probe_457:s4": {
+   "s": 2.98,
+   "rc": 99,
+   "regime": "para-16",
+   "commit": "bec53574787f"
+  },
+  "probe_457:s5": {
+   "s": 3.36,
+   "rc": 99,
+   "regime": "para-16",
+   "commit": "bec53574787f"
+  },
+  "probe_457:s6": {
+   "s": 3.01,
+   "rc": 99,
+   "regime": "para-16",
+   "commit": "bec53574787f"
+  },
+  "probe_457:s7": {
+   "s": 3.39,
+   "rc": 99,
+   "regime": "para-16",
+   "commit": "bec53574787f"
+  },
+  "probe_462": {
+   "s": 4.91,
+   "rc": 0,
+   "regime": "para-16",
+   "commit": "bec53574787f"
+  },
+  "probe_462r5": {
+   "s": 62.86,
+   "rc": 0,
+   "regime": "para-16",
+   "commit": "bec53574787f"
+  },
+  "probe_464": {
+   "s": 49.22,
+   "rc": 0,
+   "regime": "para-16",
+   "commit": "bec53574787f"
+  },
+  "probe_467": {
+   "s": 35.69,
+   "rc": 0,
+   "regime": "para-16",
+   "commit": "bec53574787f"
+  },
+  "probe_467r4": {
+   "s": 3.83,
+   "rc": 0,
+   "regime": "para-16",
+   "commit": "bec53574787f"
+  },
+  "probe_468": {
+   "s": 6.57,
+   "rc": 1,
+   "regime": "para-16",
+   "commit": "bec53574787f"
+  },
+  "probe_471": {
+   "s": 48.38,
+   "rc": 0,
+   "regime": "para-16",
+   "commit": "bec53574787f"
+  },
+  "probe_474": {
+   "s": 86.24,
+   "rc": 0,
+   "regime": "para-16",
+   "commit": "bec53574787f"
+  },
+  "probe_475": {
+   "s": 11.57,
+   "rc": 0,
+   "regime": "para-16",
+   "commit": "bec53574787f"
+  },
+  "probe_480r11": {
+   "s": 49.03,
+   "rc": 0,
+   "regime": "para-16",
+   "commit": "bec53574787f"
+  },
+  "probe_485r1r1_acces": {
+   "s": 105.5,
+   "rc": 1,
+   "regime": "para-16",
+   "commit": "bec53574787f"
+  },
+  "probe_486r2": {
+   "s": 136.16,
+   "rc": 0,
+   "regime": "para-16",
+   "commit": "bec53574787f"
+  }
+ }
+}
