@@ -38,6 +38,23 @@ heberge les quatre artefacts versionnes de la machinerie a cliquets :
 * le cas le plus net : `5ec7bab8` (`fix(#468)`, **1 seul fichier change** -- un ledger de numeros)
   passait de **9 fichiers / 131 s** a **299 / 1902 s**. Facteur **14,5**, entierement artefactuel.
 
+**RE-MESURE APRES REBASE** sur `a9073ac5` (6 merges de plus, perimetre 303, 1903 s) -- c'est le
+chiffre a citer, il porte sur l'arbre LIVRE :
+
+* **APRES : 868 s de moyenne** ; **AVANT : 1312 s**. Facteur **1,5** ;
+* **les merges qui rendaient le perimetre ENTIER passent de 5 sur 12 a 1 sur 12** ;
+* le merge de CETTE PR (`a45f5068`, qui ecrit les TROIS artefacts a cliquet) : **303 / 1903 s**
+  avant, **54 / 793 s** apres -- l'auto-invalidation de l'attestation a disparu ;
+* **`--since origin/master` rend 54/303 pour 793 s** : c'est ce que coute le ledger a qui mergera
+  cette PR.
+
+⚠ **LE `1 SUR 12` QUI RESTE EST LE CRAN (b), ET IL EST VOULU.** `449880e8` (merge #880) AJOUTE
+`scripts/declencheurs-durees.json` et `scripts/declencheurs-empreinte.tsv` -- deux fichiers NEUFS
+dans le repertoire d'une globale. Le sens sur est alors de tout rejouer : un nouveau voisin PEUT
+etre lu par le lecteur global (pytest, par exemple, choisit son fichier d'ini en le CHERCHANT --
+un `pyproject.toml` neuf a cote de `pytest.ini` changerait la configuration de toute la passe).
+Narrower serait un pari, pas une mesure.
+
 ## 3. Le correctif, deux crans
 
 1. **`_FilesPerTest` ferme son seau GLOBAL a `pytest_sessionfinish`.** Ce que le probe ouvre dans
@@ -81,6 +98,15 @@ c'est la forme du depot.
 `_ecrire_ledger` **REFUSE d'ecrire des que `n_shards > 1`** (« chacun n'a joue que sa part et
 ecraserait celle des autres »). Le mode qui rendrait le geste parallelisable existe donc a un
 verrou pres : c'est le residu **#547-r7**.
+
+⚠ **ET LE COMPTE DE `probe_547` NE RESTE PAS A 295/299 -- il n'est PAS un cliquet de fraicheur.**
+Juste apres la passe : **295 / 299 VALABLES, 0 PAS MESURE**, la ou #877 mesurait **0 / 290** le
+meme jour. Apres le rebase sur 6 merges : **0 / 303**, cause `une dependance MESUREE a change` --
+ce qui est VRAI (ces 6 merges touchent `engine/runner/components.py`, `damage_model.py`,
+`effects/base.py`). La staleness ne rougit pas, par choix DIT (#547-r2) : ce qui est exigible,
+c'est que le chiffre soit LU. Ce que #547-r5 change, c'est qu'il est desormais **ATTEIGNABLE** --
+avant, ecrire le ledger le remettait a 0 par construction, donc le 295/299 n'existait a aucun
+instant.
 
 **Second levier chiffre, non traite** : **12 fichiers pesent 50,6 % du perimetre** (962 s sur
 1902 s), et **6 des 12 sont des META-CLIQUETS** qui rebalaient l'arbre a chaque appel
