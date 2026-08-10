@@ -186,7 +186,10 @@ nomme déjà (« nos livraisons périment nos citations »).
 
 ## 9. Résidus ouverts
 
-* **#572-r1** — un stat-mod HEALTH ne relève pas `HealthComponent.hp_max`.
+* ~~**#572-r1**~~ — **FERMÉ le 2026-08-10** par `ea55462c` : `docs/rl/case-572-r1-564-r1-r2-r3-reservoirs-de-pv.md`.
+  Son successeur ouvert est **#572-r3** (`Armor` et `NumberOfMembers`, les deux autres stats
+  fill-up). Ligne rectifiée au rebase : la laisser « ouverte » ici aurait été exactement le vice
+  que la doctrine nomme — nos livraisons périment nos citations.
 * ~~**#572-r2**~~ — **FERMÉ le 2026-08-10** : `engine/playbook/noncomparable/unbreakable_duty.py`.
 
 ### #572-r2, fermé — et le `BLOCAGE: etage` était résoluble OFFLINE
