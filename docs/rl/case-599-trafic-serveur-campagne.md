@@ -322,9 +322,14 @@ pas dans les tables — ce qui, par la règle du dépôt, ne prouve rien.
 ⚠ **Le plafond de 5 parties est JOURNALIER, pas cumulé** : `GetTimesWon` rend **14** sur le
 nœud 14. Le budget du jour est `HasTokensToPlayCampaignBattle` + `CampaignTokenProgression`
 (`RefillTokensIfResetDue`, `GetNextTokenResetTime`, `CanSpendDefaultAmount`). Au relevé, les 13
-nœuds échantillonnés ont **tous** leurs jetons — le warmup n'a donc pas épuisé le nœud 61.
-Reste NON MESURÉ : **si une retraite consomme un jeton**. C'est la question qui décide si notre
-warmup coûte quelque chose, et un booléen ne la tranche pas — il faudrait le COMPTE.
+nœuds échantillonnés ont **tous** leurs jetons.
+
+⇒ **Une retraite ne consomme PAS de jeton** — connaissance de l'utilisateur (2026-08-10), pas
+une mesure de notre part ; question CLOSE, ne pas aller la re-mesurer. Le coût du warmup est
+donc une **ligne de défaite dans les statistiques** du nœud, pas une ressource : cosmétique,
+mais poussée au serveur avec son rejeu à chaque exécution. L'interdiction du warmup
+([[feedback-no-warmup-until-asked]]) tient indépendamment — c'est une décision de
+l'utilisateur, pas une conséquence de ce coût.
 
 ## Reproduire
 
