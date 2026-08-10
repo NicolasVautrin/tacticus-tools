@@ -45,7 +45,14 @@ SCENARIOS (les DEUX premiers sur le MEME etat, a UNE difference pres : le stun)
                    `VexillaMagnificaPlaybook$$ShouldEvaluate` = `!EnemyWillBeKilledWithNormalAttack`
                    rend FAUX. Le natif S'ABSTIENT de 1183 -- et le port avec lui. Sans ce scenario
                    le gate est porte et JAMAIS vu rendre FAUX : une garde qui ne le voit pas ne dit
-                   rien de lui.
+                   rien de lui. ⚠ Il passe `--block-target 0,0` : sans ca, ce n'est PAS un sure-kill.
+  * `sure_kill_bloque` (#566-r1) -- LE MEME montage, `--block-target` RETIRE. C'est l'UNIQUE
+                   difference, et elle INVERSE le verdict : `get_WillBeKill` prefere
+                   `BlockScenarios[0].Damage.HealthDamage.Min` au `DefaultScenario...Min` des que
+                   `Count >= 1`, donc une cible a `blockChance > 0` n'est jamais un sure-kill. Le
+                   natif CASTE (sur A, l'utilite etant `GetStat(Health)`) ; le port d'AVANT #566-r1,
+                   qui re-derivait `dmgMin >= hp`, S'ABSTENAIT. La contre-epreuve `sans_r1` rejoue
+                   cette ancienne regle et doit DIVERGER.
 
 CONTRE-EPREUVE (port, meme etat) : `_target_is_stunned` neutralise -> le port doit REDEVENIR **A**
 au scenario `avec_stun`. Sans elle, un accord sur `C` pourrait venir de n'importe quoi d'autre.
@@ -175,6 +182,42 @@ def _port_sans_filtre(sid, rid, uid):
         VM._target_is_stunned = ancien
 
 
+def _port_avec_regle_pre_r1(sid, rid, uid):
+    """CONTRE-EPREUVE de #566-r1 : la MEME decision, avec le gate `EnemyCouldBeKilledWithNormalAttack`
+    ramene a la regle d'AVANT (`dmgMin >= hp`, re-derivee au lieu de lire `ranked[].killSure`).
+
+    Elle doit DIVERGER sur `sure_kill_bloque` : la cible y a des scenarios de blocage, donc
+    `get_WillBeKill` rend FAUX cote natif alors que `dmgMin >= hp` rend VRAI. Substitution du FOYER
+    tri-etat (`_normal_attack_sure_kill_state`) et non du booleen : c'est lui qui porte la lecture."""
+    from engine.playbook.noncomparable import hammer_of_wrath as HW
+
+    def _pre_r1(ctx):
+        me = next((u for u in (ctx.units or []) if u.get("id") == ctx.uid), None)
+        if me is None:
+            return False
+        nids = {a.get("id") for a in (me.get("abilities") or []) if a.get("kind") == "normal"}
+        if not nids:
+            return False
+        for ev in (ctx.plan.get("evals") or []):
+            if ev.get("abilityId") not in nids:
+                continue
+            hp = ctx.hp_cur_by_id.get(ev.get("targetId"))
+            if hp is None:
+                continue
+            for rk in (ev.get("ranked") or []):
+                dmin = rk.get("dmgMin")
+                if dmin is not None and dmin >= hp:
+                    return True
+        return False
+
+    ancien = HW._normal_attack_sure_kill_state
+    HW._normal_attack_sure_kill_state = _pre_r1
+    try:
+        return port_proposal(sid, rid, uid)
+    finally:
+        HW._normal_attack_sure_kill_state = ancien
+
+
 def _stunnes(sid, rid):
     """Les unites qui portent `Stunned` (1162), LU du `decisionView` -- l'entree du filtre.
 
@@ -273,15 +316,58 @@ def campagne(sid, sf, seed, board, garder=False):
     finally:
         if not garder:
             _duel(["dispose", "--state-file", sf2, "--runner", str(rid2)], timeout=120)
+
+    # --- 4e scenario (#566-r1) : LE MEME MONTAGE, `--block-target` RETIRE. C'est la seule
+    # difference, et elle inverse le verdict du gate. `get_WillBeKill` prefere
+    # `BlockScenarios[0].Damage.HealthDamage.Min` (le degat SI LE COUP EST BLOQUE) au
+    # `DefaultScenario...Min` des que `Count >= 1` : une cible a `blockChance > 0` n'est donc
+    # JAMAIS un sure-kill, quel que soit le degat. Le natif CASTE ici, sur A (l'utilite est
+    # `GetStat(Health)`, et A est increvable) -- alors que `sure_kill` juste au-dessus le fait
+    # s'abstenir avec les MEMES PV sur C.
+    #
+    # Le port d'AVANT #566-r1 re-derivait `dmgMin >= hp` : il s'abstenait ici. La contre-epreuve
+    # `sans_r1` REJOUE cette ancienne regle et doit DIVERGER -- sans elle, un accord ne dirait pas
+    # que c'est la lecture de `killSure` qui l'a produit.
+    sf3 = sf.replace(".json", "_surekill_bloque.json")
+    rid3 = build(sf3, seed, board, hp_bas=HP_SURE_KILL, sans_block=False)
+    if rid3 is None:
+        print("[566d] BUILD KO (scenario sure_kill_bloque)")
+        return recs
+    try:
+        par_pos, _dv = _par_position(sid, rid3)
+        assert_montage(par_pos, hp_ecart=False)
+        a2 = par_pos[POS_A2]
+        ida = par_pos[POS_A]["id"]
+        rec = confronte("sure_kill_bloque", sid, rid3, a2["id"], ida)
+        rec["sans_r1"] = _port_avec_regle_pre_r1(sid, rid3, a2["id"])
+        print("       CONTRE-EPREUVE pre-#566-r1 (`dmgMin >= hp`) : %s ab=%s tgt=u%s"
+              % (rec["sans_r1"].get("kind"), rec["sans_r1"].get("ability"),
+                 rec["sans_r1"].get("target")))
+        recs.append(rec)
+    finally:
+        if not garder:
+            _duel(["dispose", "--state-file", sf3, "--runner", str(rid3)], timeout=120)
     return recs
 
 
 def verdict(recs) -> bool:
-    """`True` ssi les TROIS scenarios concordent ET la contre-epreuve MORD."""
-    if len(recs) < 3:
-        print("[566d] montage sterile : %d scenario(s) sur 3" % len(recs))
+    """`True` ssi les QUATRE scenarios concordent ET les DEUX contre-epreuves MORDENT."""
+    if len(recs) < 4:
+        print("[566d] montage sterile : %d scenario(s) sur 4" % len(recs))
         return False
     ok = all(rec["ok"] for rec in recs)
+    # #566-r1 : la contre-epreuve `pre-r1` DOIT diverger sur `sure_kill_bloque`, sinon le montage
+    # ne dit rien de la lecture de `killSure` (il pourrait etre d'accord pour une autre raison).
+    sb = next((rec for rec in recs if rec["tag"] == "sure_kill_bloque"), None)
+    if sb is not None and "sans_r1" in sb:
+        mord_r1 = (sb["sans_r1"].get("ability") != sb["port"].get("ability")
+                   or sb["sans_r1"].get("target") != sb["port"].get("target"))
+        print("[566d] contre-epreuve `pre-#566-r1` : %s"
+              % ("MORD (ab=%s tgt=u%s au lieu de ab=%s tgt=u%s)"
+                 % (sb["sans_r1"].get("ability"), sb["sans_r1"].get("target"),
+                    sb["port"].get("ability"), sb["port"].get("target")) if mord_r1
+                 else "NON DISCRIMINANTE -- le montage ne mesure PAS le gate"))
+        ok = ok and mord_r1
     # La contre-epreuve DOIT mordre au scenario `avec_stun` : sinon le filtre n'est pas ce qui
     # produit l'accord, et le port pourrait etre juste par hasard.
     av = next((rec for rec in recs if rec["tag"] == "avec_stun"), None)

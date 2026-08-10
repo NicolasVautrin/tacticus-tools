@@ -132,10 +132,43 @@ couples `(board, seed)` : `MC1_67/31337` et `C4_09/4242`).
 **NON confronté** : la face **DÉCISION**. `IdunBattle.AI.Playbook.Loki.FireAndRepositionPlaybook`
 n'a aucun équivalent dans `engine/playbook/` — résidu **#567-r1** (§7).
 
-## 7. Résidu #567-r1 — la face DÉCISION
+## 7. #567-r1 — la face DÉCISION, **PORTÉE ET CONFRONTÉE** (2026-08-10)
 
-`IdunBattle.AI.Playbook.Loki.FireAndRepositionPlaybook$$.ctor` appelle
-`ComparablePlaybook<T>$$.ctor(this, 0x427)`. Structure de son évaluation, lue :
+> ⚠ **La phrase qui suivait ce titre était FAUSSE, et la mesure la réfute.** Elle concluait
+> « `.ctor` appelle `ComparablePlaybook<T>$$.ctor(this, 0x427)` **donc COMPARABLE** ». Ce ctor est
+> un corps TRIVIAL (`base(id)`) que IL2CPP **DÉDUPLIQUE** : `VexillaMagnificaPlaybook$$.ctor`
+> (0x49f), `HammerOfWrathPlaybook$$.ctor` (0x481), `StormcallerPlaybook$$.ctor` (0x459) et
+> `UnbreakableDutyPlaybook$$.ctor` (0x425) appellent **exactement le même corps**, et les quatre
+> sont des NonComparable avérés. La hiérarchie se lit dans
+> `data/symbols/<build>/frida/classes.tsv` :
+> `IdunBattle.AI.Playbook.Loki.FireAndRepositionPlaybook  112  IdunBattle.AI.Playbook.NonComparablePlaybook`1`.
+> C'est la **MÊME** correction que #487-r1 avait dû apporter à `case-487` §7, pour la même raison.
+> Second discriminant, indépendant : la signature de `EvaluateNonComparable` dans
+> `frida/methods.tsv` est identique à celle d'`UnbreakableDutyPlaybook`.
+>
+> **Port** : `engine/playbook/noncomparable/fire_and_reposition.py`, `_PlanTargetPlaybook`
+> (1063 cible un ENNEMI — `rules = 0x4002`). **Confrontation** :
+> `probe_567r1_fire_and_reposition_decision.py`, DEUX bras.
+>
+> | bras | NATIF | PORT | contre-épreuve `-20` | contre-épreuve `0` |
+> |---|---|---|---|---|
+> | `recul` (ennemi au contact) | `1063 → u79`, `move=(2,3)` (d 1 → 2) | identique | `to=None` **MORD** | `(2,3)` — NON discriminante |
+> | `attribution` (ennemi en (1,4)) | `1063 → u79`, `move=(4,2)` | identique | `(2,3)` **MORD** | `(2,3)` **MORD** |
+>
+> Le bras `recul` **n'attribue rien**, et c'est une MESURE : la décomposition y montre **cinq**
+> positions éligibles à la MÊME utilité `91.5` — `20·d` et `Tile(7)` se compensent exactement —
+> donc c'est le keep-first du `Bucket` qui tranche. Le bras `attribution` place l'ennemi d'après la
+> table `Tile(7)` **mesurée** du board pour rendre l'argmax **STRICT** (111.5 contre 91.5, marge
+> 30) sur une tuile que `Tile(7)` seul ne désignerait pas en premier. Sans ce second bras, l'accord
+> serait compatible avec le port sans en établir un seul terme.
+>
+> **`entities@+0x40` est la tuile du CASTER, pas celle de la cible** — offsets lus dans
+> `BasePlaybook$$GetEligibleTargetsSelectable` (`+0x08`/`+0x18` = caster, `+0x10` = cible, `+0x30`
+> = `GetMainTile(cible)`, `+0x40` = `possibleCasterTile`). Le paramètre natif s'appelle pourtant
+> `targetTile` : le nom ne dit pas ce que l'appelant y met. Conséquence de fond — le terme de
+> distance ne dépend **pas** de la cible.
+
+Structure de son évaluation, lue :
 
 ```
 bucket = new Bucket<...>(0, Nullable(<statics+0x00>))          # cctor : Fix64.op_Implicit(1)
@@ -154,8 +187,16 @@ foreach (entry in BasePlaybook$$GetEligibleTargetsSelectable(this, caster, caste
 `GetTileUtility(targetEntities)` passe par `UnitExtensions$$GetNormalAttackType` puis
 `IdunBattle.AI.Utilities.UtilityAttackCase$$Base` et un slot d'interface `+5`.
 
-Ce n'est pas un résidu de blocage : c'est une tranche de port à part entière, dont la RE ci-dessus
-est le point d'entrée.
+`GetAverageDistance` rend un `System.Int32` (type de RETOUR lu dans `frida/methods.tsv`) et son
+corps fait `(longlong)sum / (longlong)count` : la division est **ENTIÈRE**. Le slot `0x6c` = **108**
+= `IBattleQuery.GetDistance` (arité 2), résolu dans
+`data/symbols/<build>/metadata/interface_slots.tsv` — 108/109/110 sont trois surcharges homonymes,
+c'est le TYPE des arguments qui fixe celle-ci.
+
+`GetTileUtility` lit `utilitiesDatabase<this+0x40>.Get(7 = UtilityType.Tile)` puis invoque le slot
+`+5` sur un `UtilityAttackCase$$Base(caster, casterTile, cible, Nullable(AbilityOrEffect(
+GetNormalAttackType(...))))` : c'est le composite **Tile(7)** évalué sur la tuile de CAST, dont le
+port a déjà le foyer unique (`engine.playbook.base.tile_utility`).
 
 ## 8. Réparé au passage — un rouge de `master`
 

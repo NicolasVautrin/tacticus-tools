@@ -7,34 +7,89 @@ from engine.entities.active_ability_type import ActiveAbilityType
 from ._base import NCContext, _PlanTargetPlaybook, _traits
 
 
-def _enemy_killed_by_normal_attack(ctx: NCContext) -> bool:
-    """`IdunBattle.AI.Playbook.BasePlaybook$$EnemyCouldBeKilledWithNormalAttack(killSure=1)` : l'attaque NORMALE du
-    caster WillBeKill (dmgMin >= PV) un ennemi atteignable ? (`GetAllNormalAttackTargets` -> PredictAttack
-    (0x21) -> get_WillBeKill). Porté via le plan : evals de l'attaque NORMALE, une cible rankée sure-kill
-    (`dmgMin >= hp_cur`). Sert le gate IdunBattle.AI.Playbook.Loki.HammerOfWrathPlaybook$$ShouldEvaluate de Hammer (`!EnemyCouldBeKilled...`)."""
+def _normal_attack_sure_kill_state(ctx: NCContext) -> bool | None:
+    """`IdunBattle.AI.Playbook.BasePlaybook$$EnemyCouldBeKilledWithNormalAttack(onlyCertainKills = 1)`,
+    LU VERBATIM (`rnca9r7q6c`) :
+
+        d = BasePlaybook.GetAllNormalAttackTargets(this, attacker)   # dict a `+0x18`
+        foreach (tile, targets) in d:
+            foreach target in targets:
+                p = battleQuery<this+0x28>.<slot 0x22>(attacker, target, tile)
+                if (onlyCertainKills ? p.get_WillBeKill() : p.get_MightBeKill()) return true
+        return false
+
+    Les deux slots sont RESOLUS, pas devines (`data/symbols/rnca9r7q6c/metadata/interface_slots.tsv`) :
+    `GetAllNormalAttackTargets` = `IBattleQuery` slot `0x45` =
+    `GetAllValidTargetsFromAllPossibleMovementTiles(unit, GetNormalAttackType(unit), 0)` -- donc le
+    natif balaye TOUTES les positions de mouvement, ce que le sweep sur `ranked` mirrore ; et le
+    slot `0x22` = `GetNormalAttackPrediction(unit, target, tile)`, celui qui passe par
+    `IDamagePrediction` slot 9 = `IdunBattle.Core.Services.DamagePrediction$$PredictNormalAttack` --
+    l'UNIQUE ecrivain de `CannotBeGuaranteedKilled@0x89`. Ce gate est donc VIVANT sur ce chemin.
+
+    #566-r1 -- CE FOYER RE-ASSEMBLAIT `get_WillBeKill` A LA MAIN (`dmgMin >= hp`), quatrieme lieu
+    apres les trois que #372 a fermes, et il ratait les MEMES deux crans que `projection.ts` :
+    le gate `CannotBeGuaranteedKilled@0x89` (sortie anticipee, `false` quelles que soient les
+    bornes) et la preference pour `BlockScenarios[0].Damage.HealthDamage.Min` sur
+    `DefaultScenario...Min`. Consequence MESUREE (case-566 §6) : `tauCrisis` a 50 PV sous un plan
+    `dmgMin = dmgMax = 50` -> natif `killSure = False` (block > 0) donc il CASTE, port `50 >= 50`
+    donc il s'abstient. Le plan PUBLIE le verdict decode (`ranked[].killSure`, pose par
+    `projection.ts::applyDmg` depuis `computeWillBeKill` de `game/damage-prediction.ts`) : on le
+    LIT, on ne le re-derive plus.
+
+    TRI-ETAT, et c'est le point qui separe une mesure d'une invention. `killSure` est ABSENT du
+    `ranked` quand `willBeKill === null`, c'est-a-dire quand le decodeur natif n'a PAS pu conclure
+    (chaine `DamagePredictionScenario` non resolue, `BlockScenarios` illisible) -- ou quand le plan
+    vient d'un bundle anterieur a #372. Ce n'est PAS un `false`. On rend donc :
+
+      * `True`  -- au moins une paire (tuile, cible) porte `killSure = True` : existence ETABLIE,
+                   et elle court-circuite comme le `return true` natif ;
+      * `False` -- toutes les paires lisibles portent `killSure = False` : absence ETABLIE ;
+      * `None`  -- aucune `True`, et au moins une paire porte une PREDICTION (`dmgMin` present)
+                   SANS `killSure` : le canal ne dit rien, on ne fabrique pas de verdict.
+
+    Une entree sans AUCUN champ de degat (`dmgMin` absent) n'est pas << non mesuree sur killSure >> :
+    c'est une tuile pour laquelle le hook n'a pas obtenu de prediction du tout. Elle est ignoree,
+    comme avant, sans salir le tri-etat.
+
+    ⚠ EXPOSE A LA TRONCATURE DU PLAN, et le foyer #350-r3a-r4 NE PEUT PAS le reparer : ce gate lit
+    un champ de DEGAT, qui ne vit QUE dans `ranked` -- `castFromTiles` rend des positions, pas des
+    degats. Face DECISION : une tuile sure-kill ecartee par `maxRank` fait rendre FAUX a tort, donc
+    Hammer est evaluee la ou le natif s'abstient. Seul le harnais peut servir ce cas --
+    `case-350r3a-r4-troncature-du-plan.md` §5. Face COMBAT : `ranked` complet, RAS."""
     me = next((u for u in (ctx.units or []) if u.get("id") == ctx.uid), None)
     if me is None:
         return False
     normal_ids = {a.get("id") for a in (me.get("abilities") or []) if a.get("kind") == "normal"}
     if not normal_ids:
         return False
-    # ⚠ EXPOSE A LA TRONCATURE DU PLAN, et le foyer #350-r3a-r4 NE PEUT PAS le reparer : ce gate
-    # lit `dmgMin`, champ de DEGAT qui ne vit QUE dans `ranked` -- `castFromTiles` rend des
-    # positions, pas des degats. Face DECISION : une tuile sure-kill ecartee par `maxRank` fait
-    # rendre FAUX a tort, donc Hammer est evaluee la ou le natif s'abstient
-    # (`ShouldEvaluate` = `!EnemyCouldBeKilledWithNormalAttack`). Seul le harnais peut servir ce
-    # cas -- `case-350r3a-r4-troncature-du-plan.md` §5. Face COMBAT : `ranked` complet, RAS.
+    indecidable = False
     for ev in (ctx.plan.get("evals") or []):
         if ev.get("abilityId") not in normal_ids:
             continue
-        hp = ctx.hp_cur_by_id.get(ev.get("targetId"))
-        if hp is None:
-            continue
+        if ctx.hp_cur_by_id.get(ev.get("targetId")) is None:
+            continue           # cible hors de l'etat suivi : le natif ne la verrait pas non plus
         for rk in (ev.get("ranked") or []):
-            dmin = rk.get("dmgMin")
-            if dmin is not None and dmin >= hp:      # WillBeKill (sure-kill : dmgMin >= PV courants)
-                return True
-    return False
+            sure = rk.get("killSure")          # `get_WillBeKill` DECODE (gate + choix de borne)
+            if sure is True:
+                return True                    # `return true` natif : court-circuit
+            if sure is None and rk.get("dmgMin") is not None:
+                indecidable = True             # prediction lue, verdict NON publie -> tri-etat
+    return None if indecidable else False
+
+
+def _enemy_killed_by_normal_attack(ctx: NCContext) -> bool:
+    """Le gate BOOLEEN que consomment les trois `ShouldEvaluate` portes (`HammerOfWrath` 1153,
+    `VexillaMagnifica` 1183, `SupremeCommander` 1160 -- ce dernier via
+    `BasePlaybook$$EnemyWillBeKilledWithNormalAttack`, qui n'est qu'un relais passant
+    `onlyCertainKills = 1`).
+
+    BORNE DE PORT, unique et nommee : le tri-etat `None` de `_normal_attack_sure_kill_state`
+    (canal `killSure` non publie) rend `False` = << le gate ne MORD PAS >>. Meme sens et meme
+    direction que les deux bornes de `engine.playbook.base.will_normal_attack_kill` (predicteur
+    absent, tuile absente), et meme comportement que le port d'avant #566-r1 -- un plan sans
+    verdict n'abstient personne. Ce n'est pas une mesure : il est DISCERNABLE d'un `False` mesure
+    par `_normal_attack_sure_kill_state`, que tout appelant qui veut la nuance peut interroger."""
+    return _normal_attack_sure_kill_state(ctx) is True
 
 
 class HammerOfWrathPlaybook(_PlanTargetPlaybook):

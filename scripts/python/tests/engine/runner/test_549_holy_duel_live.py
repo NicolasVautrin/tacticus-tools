@@ -182,3 +182,55 @@ def test_l_additif_ne_mord_QUE_sur_le_duelliste(cast):
     adds = [d for d in cast["port_att_details_tierce"] if d.kind == "Addition"]
     assert not adds, ("le +extraDmg du duel mord sur une TIERCE unite : le gate `AreEqual` est "
                       "inerte (%s)" % (adds,))
+
+
+# ------------------------------------------------------------ face PREDICTION (#549-r1)
+# Le `tgt_id` que #549 a threade cote PREDICTION n'avait PAS ete confronte a `aiPlaybookPredict`.
+# FOYER UNIQUE du montage et des criteres : `probe_549r1_holy_duel_prediction.campagne`.
+
+@pytest.fixture(scope="module")
+def prediction549():
+    import probe_549r1_holy_duel_prediction as P549
+    try:
+        sid = P549._resolve_session()
+    except Exception as e:
+        pytest.skip("host indisponible (%s)" % (e,))
+    recs = P549.campagne(sid)
+    if not recs:
+        pytest.skip("build KO -- session/host indisponible")
+    return {rec["tag"]: rec for rec in recs}
+
+
+def test_549r1_la_prediction_du_duel_est_bit_exacte(prediction549):
+    """Oracle = `aiPlaybookPredict` (= `<Ability>Playbook$$MakeDamagePredictions`, ce que le scorer
+    de DECISION consomme), PAS le preview `aiPredict`. Le champion porte 1092 bonde a sa victime :
+    le gate `AreEqual(Target@0x60, BondedEntityFromEffect(Effect@0x38))` se ferme et le `+extraDmg`
+    entre dans l'accumulateur ATTAQUANT de la PREDICTION."""
+    rec = prediction549["duel"]
+    assert rec["natif"] and "min" in rec["natif"], (
+        "l'oracle n'a rendu aucun event de degat : %r" % (rec["natif"],))
+    assert (rec["port"]["min"], rec["port"]["max"]) == (rec["natif"]["min"], rec["natif"]["max"])
+
+
+def test_549r1_le_CONTROLE_hors_duel_concorde_aussi(prediction549):
+    """MEME paire, AVANT le cast : aucun duel, le gate est ferme des deux cotes. Sans ce bras, une
+    concordance sur `duel` ne dirait pas si elle vient du duel ou du reste du chemin."""
+    rec = prediction549["avant"]
+    assert (rec["port"]["min"], rec["port"]["max"]) == (rec["natif"]["min"], rec["natif"]["max"])
+
+
+def test_549r1_retirer_tgt_id_de_l_att_ctx_MORD_et_SEULEMENT_dans_le_duel(prediction549):
+    """La contre-epreuve rejoue le port d'AVANT #549 (cle `tgt_id` retiree de l'`att_ctx`), et rien
+    d'autre. Elle doit etre INERTE hors duel et MORDRE dans le duel -- c'est ce couple qui ATTRIBUE
+    la concordance au threading, et pas a une compensation.
+
+    ⚠ Le patch vise le binding LOCAL de `prediction/normal_attack.py` : ce module importe par
+    `from ._shared import *`, donc substituer le module qui DEFINIT la fonction ne mordrait pas."""
+    av, du = prediction549["avant"], prediction549["duel"]
+    assert av["sans_tgt_id"] == av["port"], (
+        "la contre-epreuve change quelque chose HORS duel (%r vs %r) : elle ne mesure pas le gate"
+        % (av["sans_tgt_id"], av["port"]))
+    assert du["sans_tgt_id"] != du["port"], (
+        "retirer `tgt_id` ne change RIEN dans le duel : le `+extraDmg` n'entre pas par cette cle")
+    assert du["sans_tgt_id"]["max"] < du["port"]["max"], (
+        "la degradation d'avant #549 doit etre RESTRICTIVE (sous-estimation), pas l'inverse")

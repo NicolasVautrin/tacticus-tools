@@ -73,6 +73,8 @@ DECLENCHEUR = {
               "port bouge.",
 }
 
+import os
+
 import pytest
 
 import hexgeo
@@ -600,3 +602,62 @@ def test_gate_de_cible_live(cast):
     for g in amis:
         assert g["reason"] == int(TR.TargetIsEnemy), (
             "ami %r refuse par %s au lieu de `TargetIsEnemy`" % (g["visualId"], hex(g["reason"])))
+
+
+# ------------------------------------------------------------ face DECISION (#567-r1)
+# `FireAndRepositionPlaybook` -- portee par #567-r1, alors que #567 l'avait laissee NON confrontee.
+# FOYER UNIQUE du montage et des criteres : `probe_567r1_fire_and_reposition_decision.campagne`.
+
+@pytest.fixture(scope="module")
+def decision567():
+    import probe_567r1_fire_and_reposition_decision as D567
+    try:
+        sid = D567._resolve_session()
+    except Exception as e:
+        pytest.skip("host indisponible (%s)" % (e,))
+    sf = os.path.join(os.environ.get("TEMP", "."), "t567d_%s.json" % os.getpid())
+    recs = D567.campagne(sid, sf, 56701, D567.BOARD)
+    if not recs:
+        pytest.skip("build KO -- session/host indisponible")
+    return {rec["tag"]: rec for rec in recs}
+
+
+def test_567r1_le_natif_RECULE_et_le_port_avec_lui(decision567):
+    """`u(position) = 3/2 + 20 * distanceMoyenneAuxEnnemis + Tile(7)` : l'ability REND son
+    deplacement a Calandis, donc le natif tire depuis la position la plus RECULEE encore legale.
+    Le port doit proposer la MEME ability, la MEME cible et la MEME tuile."""
+    rec = decision567["recul"]
+    assert rec["natif"]["ability"] == 1063, (
+        "le natif ne caste pas 1063 -- montage sterile : %r" % (rec["natif"],))
+    assert rec["port"].get("ability") == 1063
+    assert rec["port"].get("target") == rec["natif"]["target"]
+    assert rec["port"].get("to") == rec["natif"].get("move")
+    assert rec["d_natif"] > rec["d_origine"], (
+        "la tuile choisie n'est pas un RECUL (d=%s vs origine d=%s) : le terme de distance ne "
+        "serait pas exerce" % (rec["d_natif"], rec["d_origine"]))
+
+
+def test_567r1_l_argmax_STRICT_est_reproduit_et_ATTRIBUABLE(decision567):
+    """Le bras `recul` ne suffit PAS : la decomposition y montre CINQ positions eligibles a la MEME
+    utilite 91.5 (`20*d` et `Tile(7)` se compensent), donc le keep-first tranche et l'accord
+    n'attribue rien. Le bras `attribution` place l'ennemi d'apres la table `Tile(7)` MESUREE pour
+    que l'argmax soit STRICT (marge 30) sur une tuile que `Tile(7)` seul ne designerait pas."""
+    rec = decision567["attribution"]
+    assert rec["natif"]["ability"] == 1063
+    assert rec["natif"].get("move") == rec["port"].get("to")
+    elig = [x for x in rec["decomposition"] if x[1] and x[5] is not None]
+    assert elig, "aucune position eligible dans la decomposition -- rien a departager"
+    us = sorted((x[5] for x in elig), reverse=True)
+    assert len(us) > 1 and us[0] > us[1], (
+        "l'argmax n'est PAS strict (%r) : ce bras ne mesure pas ce qu'il annonce" % (us[:3],))
+
+
+def test_567r1_les_DEUX_contre_epreuves_MORDENT_sur_le_bras_attribuant(decision567):
+    """`poids -20` (signe inverse) ET `poids 0` (terme neutralise) doivent tous deux DEPLACER le
+    choix du port. Sans la seconde, `Tile(7)` seul pourrait produire le meme accord -- c'est
+    exactement ce qui se passe sur `recul`, ou elle est NON discriminante et n'est donc pas exigee."""
+    rec = decision567["attribution"]
+    assert rec["signe"].get("to") != rec["port"].get("to"), (
+        "poids -20 rend la MEME tuile : le terme de distance n'est pas ce qui choisit")
+    assert rec["sans_terme"].get("to") != rec["port"].get("to"), (
+        "poids 0 rend la MEME tuile : `Tile(7)` seul suffirait, ce banc n'ATTRIBUE rien")

@@ -219,3 +219,72 @@ def test_hors_de_portee_l_aura_ne_mord_PAS(aura):
     assert int(c["port_sans"]) == int(c["port_dmg"]), (
         "l'aura mord a %d hexes alors que `range` vaut %d (sans=%s avec=%s)"
         % (c["d_ally"], c["expected"]["range"], c["port_sans"], c["port_dmg"]))
+
+
+# ------------------------------------------------------------ face DECISION (#572-r2)
+# `UnbreakableDutyPlaybook` -- portee par #572-r2, que ce fichier declarait NON portee.
+# FOYER UNIQUE du montage et des criteres : `probe_572r2_unbreakable_duty_decision.campagne`.
+
+@pytest.fixture(scope="module")
+def decision572():
+    import os as _os
+    import probe_572r2_unbreakable_duty_decision as D572
+    try:
+        sid = D572._resolve_session()
+    except Exception as e:
+        pytest.skip("host indisponible (%s)" % (e,))
+    sf = _os.path.join(_os.environ.get("TEMP", "."), "t572d_%s.json" % _os.getpid())
+    recs = D572.campagne(sid, sf, 57202, D572.BOARD)
+    if not recs:
+        pytest.skip("build KO -- session/host indisponible")
+    return {rec["tag"]: rec for rec in recs}
+
+
+def test_572r2_le_gate_BLOQUE_quand_GetUseProbability_vaut_zero(decision572):
+    """`UnbreakableDutyPlaybook$$GetUseProbability` rend `10 * |allies dans le disque range=2|`, et
+    `BasePlaybook$$ShouldEvaluate` refuse sur `prob <= 0`. Caster ISOLE, aucun mort : le natif
+    n'evalue PAS 1061 sur AUCUN des tirages -- alors qu'un ennemi est a portee."""
+    rec = decision572["isole"]
+    assert rec["pct"] == 0, "le port mesure %d%% : le montage n'isole pas le caster" % rec["pct"]
+    assert rec["casts"] == 0, (
+        "le natif a caste 1061 %d fois sur %d alors que la probabilite est NULLE"
+        % (rec["casts"], rec["tirages"]))
+    assert rec["port"].get("ability") != 1061
+
+
+def test_572r2_le_gate_LAISSE_PASSER_des_qu_un_allie_est_a_portee(decision572):
+    """QUATRE allies dans le disque -> `p = 40`, donc `0 < prob < 1` : le natif TIRE. Le critere est
+    donc l'EXISTENCE (>= 1 cast sur N), pas la frequence -- le regime `prob >= 1` exigerait DIX
+    allies, et le maximum de spawns cote joueur sur les boards du depot est SEPT.
+
+    Cote port le moteur est deterministe : il propose des que `p > 0` (ecart de FREQUENCE assume,
+    meme statut que `BlackRage`/`ItItches`). Ce qui doit concorder, c'est la CIBLE."""
+    rec = decision572["entoure"]
+    assert rec["pct"] == 40, "le port mesure %d%% au lieu de 40 : montage different" % rec["pct"]
+    assert rec["casts"] >= 1, (
+        "le natif n'a JAMAIS caste 1061 sur %d tirages : le gate n'est pas vu laisser passer"
+        % rec["tirages"])
+    assert rec["port"].get("ability") == 1061
+    assert rec["port"].get("target") == rec["natif_target"], (
+        "cible divergente : natif u%s, port u%s" % (rec["natif_target"], rec["port"].get("target")))
+
+
+def test_572r2_la_cible_est_un_ALLIE_et_le_plan_natif_ne_la_porte_PAS(decision572):
+    """Le masque de 1061 est `0x8400` = `TargetIsFriendly | CasterIsPossibleTarget` : la cible est
+    ALLIEE. Or `computeAttackPlans` n'enumere QUE des ennemis -- un port branche sur
+    `ctx.plan["evals"]` serait donc MUET, sans erreur. Ce test fige la voie employee
+    (`abilityTargets.fromHere`) en exigeant qu'un candidat SORTE du playbook."""
+    rec = decision572["entoure"]
+    assert rec["candidats"], (
+        "le playbook ne rend AUCUN candidat alors que le natif caste : la voie d'enumeration est "
+        "muette")
+    assert rec["candidats"][0] == rec["natif_target"]
+
+
+def test_572r2_la_contre_epreuve_sans_playbook_MORD(decision572):
+    """Le port d'AVANT #572-r2 (registre ampute de 1061, donc fallback Comparable) doit DIVERGER
+    sur `entoure`. Sur `isole` les deux s'abstiennent : l'accord y est REEL mais non attribuable,
+    et c'est pourquoi la morsure se lit ici."""
+    rec = decision572["entoure"]
+    assert rec["sans_playbook"].get("ability") != 1061, (
+        "le fallback Comparable proposait DEJA 1061 : ce banc n'attribue rien au playbook")
