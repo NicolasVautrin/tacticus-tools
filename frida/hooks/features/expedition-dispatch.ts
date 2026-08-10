@@ -47,6 +47,13 @@ import { log } from "../runtime/diag.js";
  *  parte pas avec le roster entier. */
 const MAX_UNITES = 12;
 
+/** ⛔ L'envoi natif est FERME (cf. le bloc de refus dans `expeditionDispatch`). Ce n'est
+ *  PAS un reglage a basculer parce qu'on est presse : le rouvrir demande d'avoir ISOLE
+ *  pourquoi `runtime_invoke` sur cette chaine tue le process -- ce qu'aucune des trois
+ *  tentatives n'a etabli. Une constante, pas un RPC : un interrupteur accessible serait
+ *  actionne. */
+const AUTORISER_ENVOI_NATIF = false;
+
 interface Envoi {
     n: number;
     ts: number;
@@ -319,34 +326,50 @@ export function register(ctx: Ctx): void {
         expeditionId?: string; unitIds?: string[]; bonusFulfilled?: boolean;
         participants?: number; confirmer?: boolean;
     }): Promise<unknown> => queueOnMainThread(() => {
-        // ⚠ VERROU DUR -- POSE APRES UN CRASH DU JEU, MESURE.
+        // ⛔ VOIE FERMEE. `runtime_invoke` SUR CETTE CHAINE TUE LE JEU, CAUSE INCONNUE.
         //
-        // Le 2026-08-10, cet appel a rendu `ok: true` puis Tacticus est mort dans la
-        // seconde. Deux causes possibles, AUCUNE ECARTEE a ce jour :
+        // BILAN MESURE du 2026-08-10 -- trois tentatives, trois echecs, zero succes :
         //
-        //   1. L'objet invoque vient de `ExpeditionProgression.<GameEvents>`, un champ
-        //      type `IExpeditionGameEvents`. On y applique le `MethodInfo` de la classe
-        //      CONCRETE `ExpeditionGameEvents` sans avoir jamais verifie que l'objet en
-        //      est une. Un `Il2CppClass*` different = appel sur la mauvaise vtable.
-        //   2. `callback` etait `null`. Rien n'etablit que le natif le tolere ; le
-        //      decompile montre que `DispatchExpedition` ne fait que RELAYER vers un slot
-        //      d'interface, donc le vrai corps -- celui qui deref le callback -- n'a jamais
-        //      ete lu.
+        //   #1  2 unites / 3 places, classe correcte           -> PROCESS MORT
+        //   #2  4 unites / 4 places, classe FAUSSE (bug ici)   -> exception capturee
+        //   #3  4 unites / 4 places, classe VERIFIEE True,
+        //       `participants` verifie, callback innocente     -> PROCESS MORT
         //
-        // Ce module dit lui-meme, plus haut, que << le journal est ce qui autorise a
-        // reproduire, pas la lecture du decompile seule >>. Il a ete appele sans une seule
-        // entree `observe`. Le verrou tient jusqu'a ce que cette entree existe.
+        // Le seul envoi qui ait JAMAIS abouti est celui fait A LA MAIN, par l'ecran.
         //
-        // POUR LEVER : armer, faire UN dispatch PAR L'ECRAN, lire le journal, et confronter
-        // le type reel de l'objet passe en `this` a `ExpeditionGameEvents`. Alors seulement
-        // remplacer ce refus par la garde `confirmer`.
-        if (journal.every((e) => e.origine !== "observe")) {
+        // CE QUE J'AI CRU, ET QUI EST FAUX. Apres #1 et #2 j'avais conclu a deux causes
+        // distinctes -- equipe incomplete d'un cote, mauvaise classe de l'autre -- et pose
+        // une garde pour chacune. #3 les avait TOUTES LES DEUX vertes et a tue le jeu
+        // pareil. Le raisonnement etait plausible et il etait faux : deux echecs suffisent
+        // toujours a fabriquer deux causes, ca ne les rend pas vraies.
+        //
+        // CE QUI RESTE ETABLI, ET QUI N'EST PAS RIEN :
+        //   - les ARGUMENTS sont bons (journal d'un envoi reel : GUID + ids internes +
+        //     `bonusFulfilled` -- identiques a ce qu'on construit) ;
+        //   - le callback nul est TOLERE (`<Execute>b__0` teste `!= 0` dans les deux
+        //     branches) ;
+        //   - l'objet du champ `<GameEvents>` est de la BONNE classe.
+        // Rien de tout ca n'explique la mort du process. La cause est en aval, dans
+        // `DispatchExpeditionCommand$$Execute` ou plus loin (client web, closure), et elle
+        // n'a pas ete isolee.
+        //
+        // POUR ROUVRIR, il faut une EXPLICATION, pas une garde de plus : instrumenter
+        // `Execute` pas a pas (ancrer ses appels sortants et voir lequel ne revient pas),
+        // ou comparer octet a octet la pile d'un appel UI et du notre. Tant que ce n'est
+        // pas fait, toute nouvelle garde ne fera que deplacer le point de rupture -- c'est
+        // exactement ce qu'ont fait les deux precedentes.
+        //
+        // La voie SURE existe et coute peu : piloter l'ECRAN (`uiScroll` + `uiClick`), qui
+        // passe par le chemin que le jeu supporte.
+        if (!AUTORISER_ENVOI_NATIF) {
             return {
-                ok: false, refus: "aucun envoi OBSERVE",
-                err: "expeditionDispatch est VERROUILLE : aucun envoi reel n'a encore ete "
-                   + "observe, donc ni le type concret de `GameEvents` ni la tolerance au "
-                   + "`callback` nul ne sont etablis. Un envoi a l'aveugle a deja TUE le "
-                   + "jeu le 2026-08-10. Fais UN dispatch par l'ecran, puis relance.",
+                ok: false, refus: "voie fermee",
+                err: "expeditionDispatch est FERME : 3 tentatives par runtime_invoke, "
+                   + "2 process morts, 0 succes, cause NON IDENTIFIEE. Les gardes posees "
+                   + "(classe, completude) etaient vertes au dernier crash. Passe par "
+                   + "l'ecran, ou isole la cause dans `DispatchExpeditionCommand$$Execute` "
+                   + "avant de rouvrir.",
+                bilan: {tentatives: 3, processMorts: 2, succes: 0},
             };
         }
         if (body?.confirmer !== true) {
