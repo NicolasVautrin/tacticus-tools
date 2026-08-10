@@ -39,10 +39,50 @@ ASCII only. Probe jumeau : `scripts/python/probe_bl1029r_r2_despoiled_dot.py`.
 """
 from __future__ import annotations
 
-import pytest
+#: Ce qui doit changer pour que ce FICHIER de test puisse changer de verdict (#486-r15).
+DECLENCHEUR = {
+    "chemins": (
+        # SOCLE COMMUN a tout fichier de test live : la cascade des `conftest.py` et sa fermeture.
+        "scripts/python/conftest.py", "scripts/python/tests/conftest.py",
+        "scripts/python/tests/engine/conftest.py",
+        "scripts/python/tests/engine/runner/conftest.py",
+        "scripts/python/green_skip_guard.py", "scripts/python/declencheur_guard.py",
+        "scripts/python/catalog_inject.py",
+        "scripts/python/gameconfig.py", "scripts/python/enum_maps.py",
+        "scripts/python/host_inputs.py", "scripts/python/rl_collect_batch.py",
+        "scripts/python/stream_events.py", "scripts/python/symbols_layout.py",
+        "scripts/python/rl_duel.py", "scripts/python/hexgeo.py",
+        "scripts/python/probe_bl1029r_r2_despoiled_dot.py",   # le montage PARTAGE (`measure`)
+        "scripts/python/engine/runner/snapshot.py",
+        # PERIMETRE PRIS LARGE, et il DOIT l'etre : ce fichier compare une FIN DE TOUR ENTIERE
+        # (cast 1029 -> despoil de la tuile -> flip -> tick `On(0x14)` -> DoT + buff), donc
+        # quasiment tout `engine/**` peut en changer le verdict. Foyers load-bearing :
+        # `runner/operations/triggers/loki/despoiled_ground.py` (les deux volets du tick),
+        # `runner/operations/triggers/dispatch/registry.py` (`EFFECT_TRIGGERS[1476]`),
+        # `runner/operations/turnflow.py` (la sequence EndTurn -> ChangeTurn -> StartTurn qui
+        # rend `IsTurnOf` vrai), `entities/effects/loki/status.py` (les deux classes d'effet),
+        # `entities/effects/magnitude.py` (`bc_effect_config`), `entities/formulas.py`
+        # (`RandomAmount` / `PercentageOf` / `StatAmount`).
+        # ⚠ Les DEUX formes de glob sont necessaires : dans ce matcher `**/` exige un segment.
+        "scripts/python/engine/*.py",
+        "scripts/python/engine/**/*.py",
+        # Les bornes du DoT viennent de la section `Effect` de la BattleConfiguration et les
+        # ordinaux d'effet du build : un re-dump les change sans toucher a `engine/**`.
+        "data/symbols/**/frida/enums.tsv",
+        "data/seed-bc.json",
+    ),
+    "build": True,
+    "toujours": False,
+    "raison": "Confront LIVE d'une fin de tour complete (despoil de la tuile par le cast 1029, "
+              "puis tick `On(0x14 = TurnStart_EnvironmentEffects)` : DoT bit-exact + pose du buff "
+              "1478 sur une cible CHAOS). Il monte un runner et compare PV et effets, donc tout "
+              "`engine/**` peut le faire changer de verdict.",
+}
 
-import probe_bl1029r_r2_despoiled_dot as P
-from engine.entities.effect_type import EffectType
+import pytest                                                            # noqa: E402
+
+import probe_bl1029r_r2_despoiled_dot as P                               # noqa: E402
+from engine.entities.effect_type import EffectType                       # noqa: E402
 
 
 @pytest.fixture(scope="module")

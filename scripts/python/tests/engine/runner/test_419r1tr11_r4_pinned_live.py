@@ -31,12 +31,51 @@ ASCII only. Probe jumeau : `scripts/python/probe_419r1tr11_r4_pinned.py`.
 """
 from __future__ import annotations
 
-import uuid
+#: Ce qui doit changer pour que ce FICHIER de test puisse changer de verdict (#486-r15).
+DECLENCHEUR = {
+    "chemins": (
+        # SOCLE COMMUN a tout fichier de test live : la cascade des `conftest.py` et sa fermeture.
+        "scripts/python/conftest.py", "scripts/python/tests/conftest.py",
+        "scripts/python/tests/engine/conftest.py",
+        "scripts/python/tests/engine/runner/conftest.py",
+        "scripts/python/green_skip_guard.py", "scripts/python/declencheur_guard.py",
+        "scripts/python/catalog_inject.py",
+        "scripts/python/gameconfig.py", "scripts/python/enum_maps.py",
+        "scripts/python/host_inputs.py", "scripts/python/rl_collect_batch.py",
+        "scripts/python/stream_events.py", "scripts/python/symbols_layout.py",
+        "scripts/python/rl_duel.py", "scripts/python/hexgeo.py",
+        "scripts/python/probe_419r1tr11_r4_pinned.py",       # le montage PARTAGE (`_measure`)
+        "scripts/python/engine/runner/snapshot.py",
+        # PERIMETRE PRIS LARGE, et il DOIT l'etre : le bras `d == 3` fait porter une ATTAQUE
+        # NORMALE COMPLETE par le port, donc tout `engine/**` peut en changer le verdict. Foyers
+        # load-bearing pour la relecture :
+        # `runner/operations/triggers/loki/special_issue_combi_melta.py` (la classe portee),
+        # `runner/operations/triggers/dispatch/registry.py` (`ABILITY_TRIGGERS`),
+        # `runner/operations/triggers/dispatch/attack.py` (l'emetteur d'`On(0x26)`),
+        # `entities/effects/base.py::is_at_range` (le gate d'EGALITE, foyer partage avec 1563/1564),
+        # `runner/abilities/behaviours/effects.py` (le noeud `AddEffect` + `source_from_target`),
+        # `entities/effects/loki/status.py` (l'effet Pinned lui-meme).
+        # ⚠ Les DEUX formes de glob sont necessaires : dans ce matcher `**/` exige un segment.
+        "scripts/python/engine/*.py",
+        "scripts/python/engine/**/*.py",
+        # Le kit du porteur (passiveAbilities) et les ordinaux d'effet viennent du build : un
+        # re-dump les change sans toucher a une ligne de `engine/**`.
+        "data/symbols/**/frida/enums.tsv",
+    ),
+    "build": True,
+    "toujours": False,
+    "raison": "Confront LIVE d'une attaque normale complete portee a une distance CHOISIE : le "
+              "port doit poser `Pinned` a d == 3 et RIEN a d == 2, comme le natif. Il monte deux "
+              "runners (un par bras) et compare les effets de la cible, donc tout `engine/**` peut "
+              "le faire changer de verdict.",
+}
 
-import pytest
+import uuid                                                              # noqa: E402
 
-import probe_419r1tr11_r4_pinned as P
-from engine.entities.effect_type import EffectType
+import pytest                                                            # noqa: E402
+
+import probe_419r1tr11_r4_pinned as P                                    # noqa: E402
+from engine.entities.effect_type import EffectType                       # noqa: E402
 
 
 def _arm(build_runner, rpc, dist):
