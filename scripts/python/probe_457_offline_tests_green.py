@@ -859,7 +859,8 @@ def _empreinte_fusionnee(mesures: list, lus_par_test: dict, dossiers, temoins, g
     }
 
 
-def _ecrire_ledger(perimetre: list, joues: list, bilan, horloge, rc: int, n_shards: int) -> None:
+def _ecrire_ledger(perimetre: list, joues: list, bilan, horloge, rc: int, n_shards: int,
+                   k_shard: int = 0) -> None:
     """Inscrit au LEDGER VERSIONNE le verdict de CHAQUE fichier que CETTE passe a joue (#486-r23).
 
     DECIDE D'ABORD, ECRIT ENSUITE -- meme discipline que `_ecrire_mesure`, et pour la meme raison :
@@ -869,25 +870,44 @@ def _ecrire_ledger(perimetre: list, joues: list, bilan, horloge, rc: int, n_shar
 
       1. `rc` d'USAGE / d'interruption (2, 3, 4, 5) -- rien n'a ete joue, donc rien n'est atteste.
          C'est le patron << un echec RENDU se lit comme une mesure >>, deja paye deux fois ici.
-      2. `n_shards > 1` -- LA CONCURRENCE INTRA-RUN. Les 8 shards sont 8 PROCESSUS : ils
-         ecriraient le meme fichier en meme temps, et le dernier ecraserait les autres (chaque
-         shard ne connait QUE ses fichiers, donc il ecrirait un ledger ampute des 7/8 restants).
-         Refuser et le DIRE ; consolider entre processus est un residu, pas une devinette.
+      2. `n_shards > 1` SANS JETON DE RUN -- cf. ci-dessous.
       3. AUCUNE base de fraicheur (`git` muet) -- une attestation sans `_depuis` n'est pas
          verifiable, donc `raison_de_rejeu` la rejetterait de toute facon. Autant ne pas l'ecrire.
 
     Ce qui n'est PAS un refus : des tests ROUGES. Un rouge est un FAIT sur cet arbre et il
     s'inscrit -- c'est meme la seule facon qu'un rouge cesse d'etre invisible entre deux passes.
+
+    LE REFUS MULTI-SHARD, ET CE QUI LE LEVE (#547-r7)
+    -------------------------------------------------
+    Le refus historique disait : << %d shards = autant de processus concurrents sur un fichier
+    VERSIONNE ; chacun n'a joue que sa part et ecraserait celle des autres >>. La lecture du risque
+    etait JUSTE et reste vraie -- 8 read-modify-write sur un meme JSON perdent des ecritures, et
+    chaque shard ne connait que ses fichiers.
+
+    Ce que ce refus protegeait, ce n'est donc pas << l'ecriture multi-shard >>, c'est
+    **l'ecriture CONCURRENTE du fichier versionne**. La levee garde la propriete et supprime la
+    course, au lieu de la serialiser : chaque shard depose une PART sous `logs/` -- un fichier par
+    `(jeton, n, k)`, donc DISJOINT, donc aucune course -- et un seul processus, `--consolider-
+    ledger`, ecrit le fichier versionne. Pas de verrou : rien a laisser orphelin si un shard meurt.
+
+    ⚠ ET LE JETON EST OBLIGATOIRE, pas une commodite. Une part qui traine sans identite de run
+    porte des verts gagnes sur un AUTRE arbre : les consolider serait le faux vert exact de `#465`.
+    Sans `TACTICUS_457_RUN` dans l'environnement, ce shard n'a AUCUN moyen de dire de quel run il
+    est -- il ne depose donc rien, et le DIT. Le lanceur (`--jobs`) tire le jeton et l'exporte.
     """
     if rc in RC_PYTEST_SANS_MESURE:
         print("[457] ledger NON ECRIT : pytest rc=%d -- rien n'a ete joue, rien n'est atteste."
               % rc)
         return
-    if n_shards > 1:
-        print("[457] ledger NON ECRIT : %d shards = autant de processus concurrents sur un "
-              "fichier VERSIONNE ; chacun n'a joue que sa part et ecraserait celle des autres."
+    jeton = ledger.jeton_courant()
+    if n_shards > 1 and not jeton:
+        print("[457] part de ledger NON ECRITE : %d shards, et AUCUN jeton de run (`%s`)."
+              % (n_shards, ledger.VAR_JETON))
+        print("[457] Une part sans identite de run ne peut pas etre distinguee d'une part OUBLIEE")
+        print("[457] par une passe precedente -- la consolider inscrirait un vert gagne sur un")
+        print("[457] AUTRE arbre. Le geste qui atteste en multi-shard : `--jobs %d` -- il tire le"
               % n_shards)
-        print("[457] Rejouer en MONO-SHARD pour attester (residu : consolidation inter-shards).")
+        print("[457] jeton, lance les shards et consolide.")
         return
     base, comment = ledger.base_de_fraicheur(repo_root())
     tete = _git(["rev-parse", "HEAD"], "horodatage du ledger", tolere_rc=True)
@@ -912,6 +932,23 @@ def _ecrire_ledger(perimetre: list, joues: list, bilan, horloge, rc: int, n_shar
         neuves[rel] = ledger.entree_neuve(
             b, horloge.sec.get(rel, 0.0), blobs.get(rel), depuis, head, base=base)
 
+    if n_shards > 1:
+        # PART, pas ledger. `head` est le critere de consolidation : sans lui, la part ne pourrait
+        # etre rattachee a AUCUN arbre, et `parts_retenues` la rejetterait de toute facon.
+        if not head:
+            print("[457] part de ledger NON ECRITE : `git rev-parse HEAD` muet (%s) -- une part "
+                  "sans HEAD ne peut pas etre rattachee a un arbre." % comment)
+            return
+        p = ledger.ecrire_part(repo_root(), jeton, head, ledger.sha_perimetre(perimetre),
+                               k_shard, n_shards, neuves, int(rc))
+        verts = sum(1 for e in neuves.values() if e["verdict"] == ledger.VERT)
+        print("[457] part %d/%d -> %s : %d entree(s) (%d VERT, %d non-VERT), jeton %s, HEAD %s."
+              % (k_shard, n_shards, p, len(neuves), verts, len(neuves) - verts,
+                 jeton[:8], head[:8]))
+        print("[457] Le ledger VERSIONNE n'est pas touche ici -- `--consolider-ledger` le fait, "
+              "une fois, apres tous les shards.")
+        return
+
     if not neuves:
         print("[457] ledger NON ECRIT : aucun des %d fichier(s) joue(s) n'a produit de report."
               % len(joues))
@@ -926,6 +963,153 @@ def _ecrire_ledger(perimetre: list, joues: list, bilan, horloge, rc: int, n_shar
           "ancres _depuis=%s (precise) / _base=%s [%s]"
           % (p, len(neuves), verts, len(neuves) - verts, len(fusion),
              (depuis or "(aucune)")[:8], (base or "(aucune)")[:8], comment))
+
+
+def _consolider_ledger(perimetre: list) -> int:
+    """#547-r7 -- LE SEUL processus qui ecrit le ledger versionne dans une passe multi-shard.
+
+    Il ne joue AUCUN test : il fusionne des faits deja gagnes. Son rc suit donc la convention du
+    fichier, et pas celle d'un verdict de verdeur -- `0` = la consolidation a abouti, `99` = elle
+    n'a rien pu etablir (pas de jeton, git muet, aucune part du run). Il ne rend JAMAIS `1` : un
+    rouge est un fait porte par les ENTREES qu'il inscrit, pas par lui.
+
+    ⚠ IL NE RABAT AUCUN MANQUE SUR UN SILENCE. Un shard sans part est IMPRIME, avec son numero :
+    ses fichiers n'ont pas d'attestation neuve, donc ils rejoueront. Taire cela ferait lire une
+    consolidation amputee comme une passe complete -- la faute que ce fichier ferme partout
+    ailleurs par un tri-etat.
+    """
+    jeton = ledger.jeton_courant()
+    if not jeton:
+        print("[457] CONSOLIDATION IMPOSSIBLE : aucun jeton de run dans `%s`."
+              % ledger.VAR_JETON)
+        print("[457] Sans lui, rien ne distingue les parts de CE run de celles d'un run oublie.")
+        print("[457] rc=%d -- RIEN n'a ete ecrit, ce n'est PAS un verdict sur le depot."
+              % EX_NON_MESURE)
+        return EX_NON_MESURE
+    tete = _git(["rev-parse", "HEAD"], "HEAD pour la consolidation", tolere_rc=True)
+    head = (tete.stdout or "").strip() or None
+    if not head:
+        print("[457] CONSOLIDATION IMPOSSIBLE : `git rev-parse HEAD` muet -- une part ne peut "
+              "etre rattachee a aucun arbre.")
+        print("[457] rc=%d -- RIEN n'a ete ecrit." % EX_NON_MESURE)
+        return EX_NON_MESURE
+
+    cr = ledger.consolider(repo_root(), jeton, head, perimetre)
+    for a in cr["anomalies"]:
+        print("[457] ledger : %s" % a)
+    for part, raison in cr["ecartees"]:
+        print("[457] part ECARTEE %s : %s" % (Path(part["_chemin"]).name, raison))
+    if not cr["gardees"]:
+        print("[457] CONSOLIDATION VIDE : aucune part du run %s (HEAD %s) -- rien a fusionner."
+              % (jeton[:8], head[:8]))
+        print("[457] rc=%d -- le ledger versionne est INCHANGE." % EX_NON_MESURE)
+        return EX_NON_MESURE
+
+    neuves = cr["neuves"]
+    verts = sum(1 for e in neuves.values() if e.get("verdict") == ledger.VERT)
+    p = ledger.ecrire(repo_root(), cr["fusion"])
+    purgees = ledger.purger_parts(repo_root(), cr["gardees"])
+    print("[457] ledger CONSOLIDE -> %s : %d part(s) sur %d, %d entree(s) inscrite(s) "
+          "(%d VERT, %d non-VERT), %d au total ; %d part(s) purgee(s)."
+          % (p, len(cr["gardees"]), cr["n_shards"], len(neuves), verts,
+             len(neuves) - verts, len(cr["fusion"]), purgees))
+    if cr["manquants"]:
+        print("[457] SHARD(S) SANS PART : %s -- leurs fichiers n'ont AUCUNE attestation neuve "
+              "et rejoueront." % ", ".join(str(k) for k in cr["manquants"]))
+    return 0
+
+
+def _lancer_jobs(n: int, args) -> int:
+    """#547-r7 -- lance `n` shards en sous-processus, puis consolide. LE geste multi-shard.
+
+    POURQUOI CE MODE EXISTE, plutot que de laisser l'appelant orchestrer : le jeton de run doit
+    etre tire UNE fois et partage par tous les shards, et la consolidation doit venir APRES tous.
+    Un appelant qui compose ces trois gestes a la main peut se tromper sur chacun -- et la seule
+    erreur qui compte (recycler un jeton, consolider trop tot) produit un ledger, donc un artefact
+    VERSIONNE. Le mecanisme le fait, on ne le prescrit pas.
+
+    LE MUR, MESURE (#547-r5, poids reels) : le merge median coute 1098 s en serie, 275 s a 4
+    shards, 139 s a 8. C'est la difference entre << geste de boucle >> et << maintenance >>.
+
+    RC AGREGE, et l'ordre n'est pas arbitraire : `1` domine `99`, qui domine `0`. Un rouge est un
+    FAIT etabli par un shard qui a joue -- il ne s'efface pas parce qu'un autre n'a rien pu
+    mesurer. Et un `99` ne se rabat JAMAIS sur `0` : un shard qui n'a rien mesure laisse ses
+    fichiers sans verdict, ce qui n'est pas un vert.
+    """
+    jeton = ledger.nouveau_jeton()
+    env = dict(os.environ)
+    env[ledger.VAR_JETON] = jeton
+
+    commun = []
+    if args.since:
+        commun += ["--since", args.since]
+    if args.depuis_ledger:
+        commun += ["--depuis-ledger"]
+
+    dossier = repo_root() / "logs" / "ratchets" / "457-jobs" / jeton
+    dossier.mkdir(parents=True, exist_ok=True)
+    print("[457] --jobs %d : jeton %s, journaux -> %s" % (n, jeton[:8], dossier))
+
+    procs = []
+    for k in range(n):
+        argv = [sys.executable, str(Path(__file__).resolve()),
+                "--shard", "%d/%d" % (k, n), *commun]
+        sortie = open(dossier / ("shard-%02d.log" % k), "w", encoding="utf-8", errors="replace")
+        procs.append((k, subprocess.Popen(argv, cwd=str(_PYDIR), env=env,
+                                          stdout=sortie, stderr=subprocess.STDOUT), sortie))
+
+    started = time.time()
+    rcs = {}
+    for k, proc, sortie in procs:
+        rcs[k] = proc.wait()
+        sortie.close()
+    mur = time.time() - started
+
+    rouges, non_mesures = [], []
+    for k in sorted(rcs):
+        rc = rcs[k]
+        etat = {0: "PASS", 1: "FAIL", EX_NON_MESURE: "NON MESURE"}.get(rc, "rc=%d" % rc)
+        if rc == 1:
+            rouges.append(k)
+        elif rc != 0:
+            non_mesures.append(k)
+        print("[457]   shard %d/%d : %s" % (k, n, etat))
+        if rc != 0:
+            # Les lignes qui NOMMENT la cause, tirees du journal du shard. Sans elles, un rouge
+            # multi-shard obligerait a ouvrir 8 fichiers pour savoir ce qui a casse.
+            for ligne in _lignes_saillantes(dossier / ("shard-%02d.log" % k)):
+                print("[457]       %s" % ligne)
+
+    print("[457] mur %.1f s pour %d shard(s) ; journaux : %s" % (mur, n, dossier))
+    rc_consolidation = _consolider_ledger(candidate_files())
+
+    if rouges:
+        print("[457] VERDICT: FAIL -- shard(s) ROUGE(S) : %s"
+              % ", ".join(str(k) for k in rouges))
+        return 1
+    if non_mesures:
+        print("[457] %d shard(s) N'ONT RIEN MESURE : %s -- leurs fichiers sont SANS verdict."
+              % (len(non_mesures), ", ".join(str(k) for k in non_mesures)))
+        print("[457] rc=%d : ce n'est ni un rouge de gisement, ni un vert." % EX_NON_MESURE)
+        return EX_NON_MESURE
+    if rc_consolidation != 0:
+        print("[457] tous les shards sont VERTS, mais la consolidation n'a rien inscrit "
+              "(rc=%d) -- le vert est ETABLI, il n'est pas ATTESTE." % rc_consolidation)
+        return 0
+    print("[457] VERDICT: PASS -- tous les tests offline des %d shards sont verts" % n)
+    return 0
+
+
+def _lignes_saillantes(journal: Path, maxi: int = 6) -> list:
+    """Les lignes d'un journal de shard qui NOMMENT une cause. Aucune interpretation."""
+    try:
+        texte = journal.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return ["(journal illisible : %s)" % journal.name]
+    marques = ("FAILED", "ERROR ", "VERDICT:", "MONTAGE EN ECHEC", "REFUS")
+    lignes = [l.strip() for l in texte.splitlines()
+              if any(m in l for m in marques) and l.strip()]
+    return lignes[:maxi]
 
 
 def _non_verdict_de_verdeur(constat: str) -> int:
@@ -1941,6 +2125,17 @@ def _run(argv=None) -> int:
                          "l'empreinte. Se cumule avec `--since` : l'intersection est jouee.")
     ap.add_argument("--shard", default="0/1",
                     help="k/N -- ne joue que le shard k parmi N (defaut 0/1 = tout).")
+    ap.add_argument("--jobs", type=int, default=0,
+                    help="Lance N shards EN PARALLELE (sous-processus), puis CONSOLIDE leurs "
+                         "attestations dans le ledger versionne (#547-r7). C'est le seul geste "
+                         "qui atteste en multi-shard : il tire le jeton de run, le partage, et "
+                         "n'ecrit le fichier versionne qu'une fois, depuis un seul processus. "
+                         "Se cumule avec `--since` / `--depuis-ledger`, qu'il transmet.")
+    ap.add_argument("--consolider-ledger", action="store_true", dest="consolider_ledger",
+                    help="Fusionne dans le ledger versionne les PARTS deposees sous "
+                         "`logs/ratchets/457-ledger-parts` par les shards du run courant "
+                         "(identifie par `TACTICUS_457_RUN`). Ne joue aucun test. Utile seulement "
+                         "si l'on orchestre les shards soi-meme -- `--jobs` le fait deja.")
     ap.add_argument("--list", action="store_true",
                     help="Imprime les fichiers du shard et sort, sans rien jouer.")
     ap.add_argument("--measure", action="store_true",
@@ -1959,6 +2154,18 @@ def _run(argv=None) -> int:
     if args.measure and args.measure_missing:
         print("[457] --measure et --measure-missing s'excluent : le premier rejoue TOUT, le "
               "second complete.")
+        return 2
+    if args.jobs and args.shard != "0/1":
+        print("[457] --jobs et --shard s'excluent : `--jobs N` EST le partitionnement (il lance "
+              "les N shards lui-meme).")
+        return 2
+    if args.jobs and args.jobs < 1:
+        print("[457] --jobs attend un entier >= 1 (recu %d)." % args.jobs)
+        return 2
+    if args.jobs and (args.measure or args.measure_missing or args.list
+                      or args.consolider_ledger):
+        print("[457] --jobs ne se combine qu'avec `--since` / `--depuis-ledger` : les modes de "
+              "MESURE et de LISTE sont mono-process par construction.")
         return 2
 
     # ======================================================================================
@@ -2027,6 +2234,14 @@ def _run(argv=None) -> int:
 
     if args.measure or args.measure_missing:
         return _measure(candidate_files(), seulement_manquants=args.measure_missing)
+
+    if args.consolider_ledger:
+        # LE PERIMETRE COMPLET, comme en mono-shard : c'est lui que `fusionner` prend pour
+        # RESTREINDRE. Passer une selection ici effacerait les attestations de tout le reste.
+        return _consolider_ledger(candidate_files())
+
+    if args.jobs:
+        return _lancer_jobs(args.jobs, args)
 
     try:
         k_txt, n_txt = args.shard.split("/", 1)
@@ -2135,7 +2350,7 @@ def _run(argv=None) -> int:
     # `--measure`, qui rejoue TOUT (976,9 s). Un ledger qui ne se remplirait qu'a la maintenance
     # serait vide en pratique -- c'est la passe ORDINAIRE qui prouve le vert, donc c'est elle qui
     # doit l'inscrire.
-    _ecrire_ledger(perimetre_complet, mine, bilan, horloge, int(rc), n)
+    _ecrire_ledger(perimetre_complet, mine, bilan, horloge, int(rc), n, k)
 
     print("[457] %d test(s) joue(s) en %.1f s -- pytest rc=%d" % (plugin.kept, elapsed, int(rc)))
     if plugin.dropped_items:
