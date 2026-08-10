@@ -287,13 +287,47 @@ def perform_ai_ability_unit_behaviour(state: "State", unit_id: int, allow_move_a
     # cibles, et le port l'exprime en BORNANT l'enumeration plutot qu'en scorant (ecart NOMME dans
     # `behaviours/ai_control.py::PerformAIAbility`). `None` = aucune contrainte : le gate se reduit
     # exactement au `range_gate` d'avant, donc les huit appelants existants sont INCHANGES.
+    # ⚠ LE DOMAINE NATIF EST LA CASCADE DE CIBLAGE COMPLETE, PAS LE SEUL VOLET PORTEE (#334-r2).
+    # `IdunBattle.AI.Playbook.BasePlaybook$$GetEligibleTargetsForNormalAttack(caster, casterPosition)`
+    # tient en une ligne : `battleQuery.<slot 0x42>(caster, casterPosition,
+    # UnitExtensions$$GetNormalAttackType(caster))` -- et cette surcharge,
+    # `IdunBattle.Core.Services.BattleQuery$$GetValidTargets(unit, from, abilityType)`, delegue au
+    # slot 6 de son `ITargetingQuery` : la MEME cascade que `get_invalid_target_reason`, pas une
+    # comparaison de distance. Le port ne bornait que par `_in_attack_range`
+    # (`TargetingQuery$$GetRange` + clamp `ForcedInMelee`), donc il soumettait a l'utilite des cibles
+    # que la cascade REFUSE -- et l'argmax en elisait.
+    # MESURE (`probe_334_defend_the_divine_work.py --scenario two`, board MC1_67, 2026-08-11) :
+    # `admecDestroyer` avait `max_range = 3`, donc `_in_attack_range` acceptait l'ennemi `110` a
+    # distance 2 ; la cascade le refuse par `TargetingRule.TargetIsInRange` (`only_adjacent` de ses
+    # `TargetingOptions` d'attaque normale), et `valid_normal_attack_targets` ne rendait que `[79]`.
+    # Le port faisait frapper `110`, le natif `79`.
+    # Mirror utilise : `IdunBattle.Entities.Selectors.ValidNormalAttackTargetsSelector$$Select`
+    # (`valid_normal_attack_targets`), qui applique la cascade avec les `TargetingOptions` du TYPE
+    # d'attaque normale du caster -- exactement l'`abilityType` que passe le natif.
+    from ..targeting import valid_normal_attack_targets
+    _e0 = state.get_entity(int(unit_id))
+    _pc0 = _e0.get_component(_PC) if _e0 is not None else None
+    _here = (_pc0.col, _pc0.row) if _pc0 is not None else None
+    # ⚠ ECART NOMME, et il est BORNE au regime d'APPROCHE : la cascade du port mesure la portee
+    # depuis la position REELLE (`get_invalid_target_reason` n'a pas de variante « depuis une tuile
+    # hypothetique », cf. la docstring de `valid_normal_attack_targets`), la ou le natif re-evalue
+    # `GetEligibleTargetsForNormalAttack` POUR CHAQUE position candidate. On applique donc la cascade
+    # sur la tuile COURANTE -- le seul domaine de `...FromCurrentPosition` (`move_amount == 0`) --
+    # et on retombe sur le seul volet PORTEE pour les tuiles d'approche de `PerformAIAttack`.
+    _eligible_here = set(int(x) for x in (valid_normal_attack_targets(state, int(unit_id)) or ()))
+
     def _gate(t, tile):
         if t is None or not _in_attack_range(state, unit_id, t, from_pos=tile):
             return False
+        tid = t.get("id") if isinstance(t, dict) else t
+        if tid is None:
+            return False
+        if (_here is not None and tile is not None and tuple(tile) == _here
+                and int(tid) not in _eligible_here):
+            return False
         if allowed_targets is None:
             return True
-        tid = t.get("id") if isinstance(t, dict) else t
-        return tid is not None and int(tid) in allowed_targets
+        return int(tid) in allowed_targets
 
     action = ai_control_execute_ability_action_for(
         state, unit_id, NORMAL_ATTACK_ID, allow_only_move=bool(allow_move_action),

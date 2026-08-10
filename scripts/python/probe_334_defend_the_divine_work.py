@@ -366,10 +366,46 @@ def run_scenario(rpc, scenario: str = "repair", advance: int | None = None,
     if cid is None:
         out["why"] = "caster absent offline"
         return out
-    out["normal_targets"] = {
-        CASTER_VIS: len(valid_normal_attack_targets(state, cid) or []),
-        ADJ_VIS: len(valid_normal_attack_targets(state, by_vis(ADJ_VIS)) or []),
-        FAR_VIS: len(valid_normal_attack_targets(state, by_vis(FAR_VIS)) or [])}
+    # Les IDS, pas seulement le COMPTE : un compte ne dit pas SUR QUI le moteur d'utilite pouvait
+    # tomber, donc il ne permet pas d'attribuer une divergence de cible a l'ENUMERATION (le domaine)
+    # ou au SCORING (le choix dans le domaine). C'est le premier etage a separer quand le port et le
+    # natif ne frappent pas le meme ennemi.
+    def _tids(vis):
+        uid = by_vis(vis)
+        return sorted(int(t) for t in (valid_normal_attack_targets(state, uid) or []))
+
+    out["normal_target_ids"] = {v: _tids(v) for v in (CASTER_VIS, ADJ_VIS, FAR_VIS)}
+    out["normal_targets"] = {v: len(t) for v, t in out["normal_target_ids"].items()}
+    out["offline_uid_by_vis"] = {v: by_vis(v) for v in (CASTER_VIS, ADJ_VIS, FAR_VIS)}
+
+    # --- ETAGE `PORTEE` : les DEUX mirrors, cote a cote -------------------------------------------
+    # Le moteur d'utilite (`perform_ai_ability_unit_behaviour`) borne son enumeration par
+    # `_in_attack_range` (mirror `TargetingQuery$$GetRange`) ; la contre-epreuve du probe lit
+    # `valid_normal_attack_targets` (mirror `ValidNormalAttackTargetsSelector$$Select`, cascade
+    # `get_invalid_target_reason` complete). Ce sont DEUX mirrors du MEME fait -- s'ils divergent,
+    # l'un des deux est faux, et une divergence de cible avec le natif se localise ICI plutot que
+    # dans le scoring. On publie la raison NOMMEE du refus, pas un booleen.
+    from engine.runner.abilities.targeting import (_NormalAttackTargeting, get_invalid_target_reason,
+                                                   normal_attack_targeting_options)
+    from engine.runner.operations.triggers.base import _in_attack_range, _max_attack_range
+    caster_team = getattr(state.get_entity(cid).get_component(OwnerComponent), "team", None)
+    enemy_uids = [int(u) for u, e in state.entities.items()
+                  if (e.get_component(OwnerComponent) is not None
+                      and getattr(e.get_component(OwnerComponent), "team", None) != caster_team
+                      and e.get_component(HealthComponent) is not None)]
+    diag = {}
+    for vis in (CASTER_VIS, ADJ_VIS, FAR_VIS):
+        auid = by_vis(vis)
+        if auid is None:
+            continue
+        asc = state.get_entity(auid).get_component(StatsComponent)
+        probe_opts = _NormalAttackTargeting(normal_attack_targeting_options(state, int(auid)))
+        diag[vis] = {"max_range": _max_attack_range(asc.ctx) if asc is not None else None,
+                     "per_target": {
+                         euid: (bool(_in_attack_range(state, int(auid), euid)),
+                                int(get_invalid_target_reason(state, int(auid), euid, probe_opts)))
+                         for euid in enemy_uids}}
+    out["range_diag"] = diag
 
     sc = state.get_entity(cid).get_component(StatsComponent)
     lvl = getattr(sc.ctx, "active_ability_level", None)
@@ -386,7 +422,6 @@ def run_scenario(rpc, scenario: str = "repair", advance: int | None = None,
     # Un port qui frappe un renfort rendait donc `off_enemy_loss = 0` -- un ZERO fabrique par la
     # cle de comptage, qui accusait le port en silence (mesure du 2026-08-11 : port 5532 sur un
     # `orksNpc2OrkBoy`, compte rendu `0`).
-    caster_team = getattr(state.get_entity(cid).get_component(OwnerComponent), "team", None)
     vis_of = {}
     off_pre = {}
     off_enemy_pre = {}
@@ -403,8 +438,28 @@ def run_scenario(rpc, scenario: str = "repair", advance: int | None = None,
     out["missing_before"] = {vis_of[u]: int(state.get_entity(u)
                                             .get_component(HealthComponent).hp_max) - pre
                              for u, pre in off_pre.items() if vis_of.get(u)}
+    # POSITIONS OFFLINE, avant et apres le cast. `PerformAIAttackFromCurrentPosition` pose
+    # `move_amount = 0` -- « can immediately attack, but CANNOT move this turn » (i2) : aucun acteur
+    # ne doit avoir change de tuile. Un DEPLACEMENT offline expliquerait a lui seul qu'une cible hors
+    # du domaine pre-cast (`normal_target_ids`) soit elue, et il est INVISIBLE de toute mesure de
+    # degat -- d'ou cette capture.
+    from engine.runner.components import PositionComponent as _PosC
+
+    def _pos_by_vis():
+        out_p = {}
+        for uid, e in state.entities.items():
+            scc = e.get_component(StatsComponent)
+            pc = e.get_component(_PosC)
+            v = getattr(scc.ctx, "visual_id", None) if scc is not None else None
+            if v in (CASTER_VIS, ADJ_VIS, FAR_VIS) and pc is not None:
+                out_p[v] = (pc.col, pc.row)
+        return out_p
+
+    pos_pre = _pos_by_vis()
     runner = Runner(state).install_default_handlers(20)
     runner.apply(ActiveAbilityMessage(caster_id=cid, target_id=cid, ability_type=ABILITY))
+    out["offline_moves"] = {v: (pos_pre.get(v), p) for v, p in _pos_by_vis().items()
+                            if pos_pre.get(v) != p}
     last = runner.ability_handler.last or {}
     out["ported"] = last.get("ported")
     out["amount"] = last.get("amount")
@@ -425,6 +480,11 @@ def run_scenario(rpc, scenario: str = "repair", advance: int | None = None,
     out["live"] = {u.get("visualId"): u["hp"] - pre.get(s, u["hp"]) for s, u in post.items()}
     out["live_enemy_loss"] = -sum(min(0, u["hp"] - pre.get(s, u["hp"]))
                                   for s, u in post.items() if u.get("teamId") == 2)
+    # VENTILATION live par ENTITE -- le pendant exact d'`off_enemy_by_uid`. Sans elle, deux totaux
+    # egaux ne disent PAS que les memes ennemis ont ete frappes (deux renforts partagent un
+    # `visualId`, donc la table `live` keyee par visualId ne peut pas les separer).
+    out["live_enemy_by_squad"] = {s: u["hp"] - pre.get(s, u["hp"])
+                                  for s, u in post.items() if u.get("teamId") == 2}
     out["off_enemy_loss"] = -sum(
         min(0, int(state.get_entity(uid).get_component(HealthComponent).hp) - pre)
         for uid, pre in off_enemy_pre.items())
@@ -466,14 +526,23 @@ def main() -> int:
         print("   ennemi u%-4s %-14s %s d(caster)=%d d(allie-adj)=%d"
               % (e["squadId"], e["visualId"], e["pos"], e["d_caster"], e["d_adj"]))
     print("cibles d'attaque normale depuis la tuile COURANTE : %s" % (r["normal_targets"],))
+    print("   -> ids : %s   (uid offline par visualId : %s)"
+          % (r.get("normal_target_ids"), r.get("offline_uid_by_vis")))
+    for vis, d in (r.get("range_diag") or {}).items():
+        print("   [%s] max_range=%s  par ennemi (in_attack_range, invalid_reason) : %s"
+              % (vis, d.get("max_range"), d.get("per_target")))
     print("hpToRepair(lvl=%s mult=%s) = %s" % (r["level"], r["multiplier"], r["hp_to_repair"]))
     print("[PORT] ported=%s amount=%s repairs=%s attacks=%s"
           % (r["ported"], r["amount"], r["repairs"], r["attacks"]))
+    print("[PORT] deplacements OFFLINE pendant le cast (doit etre vide) : %s"
+          % (r.get("offline_moves"),))
     print("[PORT] deltas HP : %s" % ({k: v for k, v in r["off"].items() if v},))
     print("[LIVE] deltas HP : %s" % ({k: v for k, v in r["live"].items() if v},))
     print("perte ENNEMIE totale : live=%s port=%s" % (r["live_enemy_loss"], r["off_enemy_loss"]))
     print("perte ENNEMIE par entite [PORT] : %s"
           % ({u: d for u, d in (r.get("off_enemy_by_uid") or {}).items() if d},))
+    print("perte ENNEMIE par entite [LIVE] : %s"
+          % ({s: d for s, d in (r.get("live_enemy_by_squad") or {}).items() if d},))
     return 0
 
 
