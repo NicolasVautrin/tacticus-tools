@@ -200,6 +200,13 @@ ABILITY_ATTACK_TYPE: dict[int, int] = {
     # decompile, jamais deduit (l'arbre attaque bien en direct, mais c'est une coincidence : le lot
     # #499/#505 porte les deux contre-exemples). (#524)
     ActiveAbilityType.LashOfTorment: AbilityAttackType.DirectTargetAttack,  # 1196
+    # InfernalCannon (1209) : `...Active.Loki.InfernalCannonAbility$$.ctor` appelle la surcharge a
+    # SEPT arguments de `TargetingOptions$$.ctor` puis `AActiveAbility..ctor(this, &opts, 2)` -- le
+    # 3e argument est le litteral `2`. TRANSCRIT, jamais deduit : l'arbre attaque bel et bien en
+    # direct (une volee `AttackWithAbilityDamage` multi-cible), et le litteral vaut quand meme
+    # `Others`. C'est le contre-exemple SYMETRIQUE de 1019 `StormOfWrath` (chaine qui n'attaque pas
+    # en direct et porte `DirectTargetAttack`). (#605)
+    ActiveAbilityType.InfernalCannon: AbilityAttackType.Others,  # 1209
     # HellfireShells (1080) : `...Active.Loki.HellfireShellsAbility$$.ctor` recopie les 0x40 octets
     # du MEME preset statique `<TargetingOptions statics>+0x140` que 1225/1196 puis appelle
     # `AActiveAbility..ctor(this, &opts, 0)` -- le 3e argument est le litteral `0`. TRANSCRIT au

@@ -87,12 +87,13 @@ from ...dsl.base import Const
 from ...dsl.effects import ExecutionContext
 from ...entities.behaviours import op_add, AtomicGroup
 from ...entities.damage_profile_type import DamageProfileType
-from ...entities.selectors.accessors import ActiveTarget, CasterTile, Owner, Target
+from ...entities.selectors.accessors import (ActiveTarget, CasterTile, FixedTileIds, Owner,
+                                             Target)
 from ...entities.selectors.geometry import EntitiesWithAnyEffect
 from ...entities.selectors.tiles import AllAliveUnits, AllTiles, Caster
 from ...entities.selectors.units import (AdjacentFriends, And, Damageable, Enemies, Filter,
-                                         SurroundingEnemies, UnitSet, Unobscured,
-                                         non_steppable_or_object_units)
+                                         SurroundingEnemies, Union, Unique, UnitSet, Unobscured,
+                                         UnitsOnTilesWithEffect, non_steppable_or_object_units)
 from ...entities.formulas import Count, Difference, GetPersistentData, Min, Sum
 from ...entities.effect_type import EffectType
 from ...entities.active_ability_type import ActiveAbilityType
@@ -106,11 +107,12 @@ from .base import ActiveAbility, ability_attack_params
 from .behaviours.combat import (AttackWithAttackDamage, ChainLeftOverHitsAttackDamage,
                                 SortedAttackSeries)
 from .behaviours.context import entities_from_state
+from .behaviours.effects import AddEffect
 # `DiveAttackAbilityBase` vit dans le namespace natif `...Active.Loki` : le mirror y reste, et les
 # deux heritieres (1091 ici, 1064 sur `aeldari.py`) l'importent -- jamais l'une l'autre.
 from .loki.dive_attack import DiveAttackAbility, dive_attack_profile
-from .targeting import (RANGE_ADJACENT, RANGE_FROM_CONFIG, RANGED_BOOL_FALSE, RANGED_BOOL_TRUE,
-                        TargetingOptions)
+from .targeting import (RANGE_ADJACENT, RANGE_FROM_CONFIG, RANGE_WHOLE_BOARD, RANGED_BOOL_FALSE,
+                        RANGED_BOOL_TRUE, TargetingOptions)
 from .targeting_rule import TargetingRule as TR
 from ...entities.unit_selection_type import UnitSelectionType
 
@@ -863,3 +865,208 @@ class HeavyWarpFlamerAbility(ActiveAbility):
 # passe par un ENUM ») : `GetNumberConstant(0x16)`, `(0x2f)` et `(0x48)`.
 assert (int(AbilityConstantType.range) == 0x16 and int(AbilityConstantType.nrOfHits) == 0x2F
         and int(AbilityConstantType.maxNrOfHits) == 0x48)
+
+
+# ================== InfernalCannon (thousDaemonPrince « Z'Kar », actif 1209) -- #605 ==============
+#
+# `IdunBattleLogic.Entities.Abilities.Active.Loki.InfernalCannonAbility$$ExecuteBehaviour` -- arbre
+# `DSLFactory` PUR, MIRROR du DECOMPILE, remis en C# :
+#
+#     enemies = DSLSelectors$$Enemies( of       = Owner@DSLSelectors+0x30,
+#                                      entities = AllAliveUnits@DSLSelectors+0x20,
+#                                      selectionType = 3 )
+#     onFire  = DSLSelectors$$UnitsOnTilesWithEffect( enemies, 5 = EffectType.Fire )
+#     hitThis = DSLSelectors$$FromTrigger(
+#                   enemies,
+#                   DSLTriggers$$HasTakenDamageOfDamageProfileThisTurn(
+#                       ActiveTarget@DSLSelectors+0x68,
+#                       AActiveAbility$$GetDamageProfile2(this) ),
+#                   requireContinuous = 0 )
+#     sel     = DSLSelectors$$Unique( TargetsSelector$$op_Addition(onFire, hitThis) )
+#     atk     = DSLBehaviors$$AttackWithAbilityDamage(
+#                   caster          = Owner@DSLSelectors+0x30,
+#                   target          = sel,
+#                   amount          = AActiveAbility$$MinMaxDamage(this, abilityState, null),
+#                   damageProfile   = Nullable( AActiveAbility$$GetDamageProfile(this) ),
+#                   hits            = AActiveAbility$$GetHits(this),
+#                   abilityOrEffect = AbilityOrEffect$$op_Implicit(this),
+#                   selectionType   = 2 )
+#     addEff  = DSLBehaviors$$AddEffect( 5 = EffectType.Fire,
+#                                        AActiveAbility$$get_AbilityStateReference(this),
+#                                        targets = Target@DSLSelectors+0x60,
+#                                        turns   = null )        # surcharge a CINQ arguments
+#     return AActiveAbility$$Execute(entities, this, AbilityBehaviour$$op_Addition(atk, addEff))
+#
+# QUALIFICATION DES ORDINAUX (le piege de cette ability, comme pour sa voisine 1088) :
+#   * `5` apparait DEUX FOIS et designe le MEME `EffectType.Fire` aux deux endroits -- une fois comme
+#     effet CHERCHE sur les tuiles (`UnitsOnTilesWithEffect`), une fois comme effet POSE (`AddEffect`).
+#     C'est une coincidence de LECTURE, pas de sens : le natif teste le feu puis en ajoute.
+#   * le profil TESTE est `GetDamageProfile2` = `constants.damageProfile_2` = **Psychic** ; le profil
+#     INFLIGE est `GetDamageProfile` = `constants.damageProfile` = **Flame**. Ne PAS deduire l'un de
+#     l'autre -- meme discipline que 1088, ou le teste est Psychic et l'inflige HeavyRound.
+#   * `AActiveAbility$$GetHits` est, au decompile, EXACTEMENT
+#     `AbilityConfiguration$$GetNumberConstant(cfg, 0x2f = nrOfHits)` -- aucun `ExtraHits` de stat
+#     n'y entre. `nrOfHits` = 3.
+#
+# LA SURCHARGE D'`AddEffect` EST CELLE A CINQ ARGUMENTS, et c'est ce qui met `source` a NULL. Les
+# XREFS entrantes la separent des trois autres de meme nom : c'est celle dont le corps appelle
+# `AddEffectBehaviour..ctor(logger, effectType, abilityState, source = 0, targets, options)` apres
+# avoir converti son `Nullable<int> turns` en `ConstantFormula` -- ici `turns` est VIDE, donc AUCUN
+# noeud de duree (la duree vient de `DefaultAmountOfRounds`). La voisine 1113 `Stormcaller` appelle,
+# elle, la surcharge a SIX arguments et passe `source = Owner@0x30`.
+#
+# FAMILLE = `DSLBehaviors$$AttackWithAbilityDamage` -> `AbilityDamageBehaviour` (famille ABILITY :
+# 1 tirage par coup, PAS de crit) -> `native_factory="ability"`, comme 1113 et 1088.
+# ==================================================================================================
+
+INFERNAL_CANNON_ID = "InfernalCannon"
+#: `EffectType.Fire` (5) -- l'effet de TUILE cherche par `UnitsOnTilesWithEffect` ET pose par
+#: `AddEffect`. Le MEME membre aux deux sites, lu au decompile.
+INFERNAL_CANNON_FIRE = int(EffectType.Fire)
+
+
+def infernal_cannon_targets_selector(tested_profile: int) -> Unique:
+    """Sous-arbre de ciblage de `...InfernalCannonAbility$$ExecuteBehaviour` -- MIRROR 1:1 :
+
+        Unique( op_Addition( UnitsOnTilesWithEffect(enemies, Fire),
+                             FromTrigger(enemies, HasTakenDamageOfDamageProfileThisTurn(
+                                                      ActiveTarget@+0x68, damageProfile_2), 0) ) )
+
+    * `enemies` = `Enemies(of = Owner@+0x30, entities = AllAliveUnits@+0x20, 3)`. Le port
+      `Enemies(inner)` prend sa reference dans `ctx.caster` : a ce call-site le natif passe `Owner`,
+      et `Owner` et `Caster` designent la meme entite pour un cast direct (ils divergent sur un cast
+      DELEGUE, ce que 1209 n'est pas -- son masque n'a ni `CasterMatchesDynamicRule` ni
+      `CasterIsPossibleTarget`). Meme lecture que la voisine 1113 `Stormcaller`, dont le decompile
+      passe AUSSI `Owner@+0x30` et dont le port ecrit `Enemies(AllAliveUnits())`.
+    * `AllAliveUnits` porte le filtre VIVANTES parce que le slot partage `DSLSelectors+0x20` EST
+      `IdunBattle.Entities.Selectors.AllAliveUnitsSelector` (pool `EntityPool.AliveUnits`, #514).
+    * `FromTrigger` = `Filter` cote port : il LIE chaque candidat au slot `ActiveTarget`, exactement
+      le slot que le predicat lit. `requireContinuous = 0` -> aucun court-circuit.
+    * Le predicat est `HasTakenDamageOfDamageProfileThisTurn` **SANS** `AmountOfTimes` : une PRESENCE
+      de cle dans `receivedDamageThisTurn` (`ContainsKey`, corps relu), donc un ennemi ayant encaisse
+      DEUX coups du profil compte toujours -- contraste `RealityUnboundExtraMaxDamageAbility`.
+    * `Unique` = LINQ `Distinct` : un ennemi qui est A LA FOIS sur une tuile en feu et touche par le
+      profil teste n'est frappe QU'UNE fois. Sans lui il prendrait la volee deux fois -- c'est le
+      seul noeud qui rend l'union non-redondante, et il est bien present au decompile.
+
+    ⚠ AUCUN `NonSteppableOrObjectUnits` ici, contrairement a 1088 : le natif ne l'ecrit pas. On ne
+    l'ajoute pas par symetrie."""
+    enemies = Enemies(AllAliveUnits())
+    on_fire = UnitsOnTilesWithEffect(enemies, INFERNAL_CANNON_FIRE)
+    hit_this_turn = Filter(enemies,
+                           HasTakenDamageOfDamageProfileThisTurn(ActiveTarget(), tested_profile))
+    return Unique(Union(on_fire, hit_this_turn))
+
+
+def infernal_cannon_tree(tested_profile: int, inflicted_profile: str, tile_id):
+    """Arbre COMPLET de `...InfernalCannonAbility$$ExecuteBehaviour` -- MIRROR 1:1.
+
+    `op_Addition(atk, addEff)` : la VOLEE part D'ABORD, le feu est pose ENSUITE sur la tuile visee.
+    L'ordre est LU (les deux `op_Addition` du decompile s'emboitent `atk + addEff`), et il est
+    OBSERVABLE : une unite qui se tient sur la tuile visee SANS y avoir de feu et sans avoir pris de
+    Psychic n'est PAS frappee par ce cast -- le feu n'arrive qu'apres la resolution des cibles.
+
+    `tile_id` = le COLLAPSE de `Target@DSLSelectors+0x60`. Le cast est TILE-TARGET (masque
+    `TargetIsTile`), et le port ne materialise AUCUNE entite-tuile dans `state.entities` : on
+    presente l'id deja resolu en `FixedTileIds`, meme vehicule que `ExemplarOfTheKauyon` /
+    `DutyEternal` / `SendInTheNextWave`. `None` -> le selecteur est VIDE et aucun feu n'est pose.
+
+    `duration_rounds=None` : le natif passe un `Nullable<int> turns` VIDE a la surcharge a cinq
+    arguments, donc AUCUN noeud de duree -- la duree vient de `DefaultAmountOfRounds`. On n'invente
+    pas une duree que le natif n'ecrit pas. `source_ref` laisse a `None` : c'est le `source = 0` que
+    cette surcharge passe a `AddEffectBehaviour..ctor`."""
+    volee = AttackWithAttackDamage(
+        infernal_cannon_targets_selector(tested_profile), INFERNAL_CANNON_ID, inflicted_profile,
+        # `attackRangeType = Ranged` (gameconfig) -> le percage lit `ExtraPierceRanged`.
+        is_melee=False,
+        # Le selecteur rend N cibles et le natif les passe a UN SEUL `AbilityDamageBehaviour`
+        # (`AttackBehaviour$$Execute` : selecteur -> N cibles, OrderBy = tri par id).
+        multi=True,
+        # `DSLBehaviors$$AttackWithAbilityDamage` -> `AbilityDamageOperation` (1 tirage/coup, pas de
+        # crit) -- classification par la CALLEE, jamais au juge.
+        native_factory="ability",
+        ability_type=int(ActiveAbilityType.InfernalCannon))
+    feu = AddEffect(INFERNAL_CANNON_FIRE, EffectType.Fire.name,
+                    FixedTileIds([tile_id] if tile_id is not None else []),
+                    duration_rounds=None)
+    return op_add(volee, feu)
+
+
+class InfernalCannonAbility(ActiveAbility):
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.InfernalCannonAbility` (id 1209,
+    `thousDaemonPrince` « Z'Kar », Thousand Sons/Chaos). Face COMBAT = l'arbre DSL
+    `infernal_cannon_tree` (mirror 1:1). Cast TILE-TARGET.
+
+    AVANT CE PORT : 1209 etait un **NO-OP SILENCIEUX** -- absente d'`ABILITY_CLASSES`, donc
+    l'`AbilityHandler` routait l'`ActiveAbilityMessage` et l'execution ne faisait RIEN : zero degat,
+    aucun feu pose, aucune erreur, `ported=False`.
+
+    KIT (gameconfig, ZERO hardcode) : `attackRangeType = Ranged`, `damageProfile = Flame`,
+    `damageProfile_2 = Psychic`, `nrOfHits = 3`, `initialCooldownTurns = 1` ; degat `minDmg`/`maxDmg`
+    per-niveau (tous deux dans `variablesAffectedByRarityBonus`).
+
+    i2 : << Targets a hex on the battlefield. Deals 3x [minDmg]-[maxDmg] Flame Damage to all enemies
+    that are on Fire hexes or have taken Psychic Damage this turn. Then adds Fire to the targeted
+    hex. Initial cooldown: 1 round. >>
+
+    PORTEURS : `thousDaemonPrince` (lineup) et `thousNpcMowDaemonPrince` (npc). Le premier est HORS
+    du pool `rl_duel build --list-pool` du rank courant -> la confrontation passe par
+    `catalog_inject.write_augmented_seed_bc` puis `rl_duel build --seed-bc`
+    (cf. `docs/rl/case-92-catalog-injection.md` §6). Aucun `data/unspawnable_rank<N>.json` n'existe,
+    donc AUCUN refus n'est declare sur ce porteur.
+
+    TARGETING (#241) -- forme **SEPT ARGUMENTS EXPLICITES** (ni preset copie, ni surcharge
+    PRESET+FLAGS) : `...InfernalCannonAbility$$.ctor` fait
+        TargetingOptions..ctor(&opts, isSelfCasting = 0,
+                               range = &<TargetingRange statics+0x48>,
+                               forceMeleeTarget = 1, rules = 0x46000040, null, null)
+        AActiveAbility..ctor(this, &opts, 2)          # 3e arg = 2 = AbilityAttackType.Others
+    Le masque est donc le LITTERAL, sans template a fusionner. Decomposition EXHAUSTIVE de
+    `0x46000040` = 0x40 + 0x2000000 + 0x4000000 + 0x40000000, aucun bit residuel :
+        0x40        TargetIsTile                  -> domaine TUILE (d'ou le collapse `FixedTileIds`).
+        0x2000000   AllowObscuredTargetByElevation
+        0x4000000   AllowObscuredTargetByWalls    -> un obus tombe n'importe ou : la ligne de vue ne
+                                                     contraint pas la tuile visee.
+        0x40000000  AllowNullCasterTile           -> le cast reste legal si le caster n'occupe aucune
+                                                     tuile (porteur en DEEP STRIKE / hors plateau).
+    AUCUN `TargetMatchesDynamicRule` -> aucun delegue dynamique a porter, et c'est coherent : les
+    seuls symboles `InfernalCannonAbility$$*` du build sont `$$.ctor` et `$$ExecuteBehaviour`.
+    `range` = `<TargetingRange statics+0x48>` = **RANGE_WHOLE_BOARD** (`useWholeBoard = 1`), ce qui
+    mirror l'i2 << a hex on the battlefield >> ; `forceMeleeTarget = 1` = `RangedBool.False`.
+
+    Diag : {ability, caster, target_tile, tested_profile, targets, attacks, fire_placed, dsl}."""
+    __slots__ = ()
+    ABILITY_TYPE = int(ActiveAbilityType.InfernalCannon)   # 1209
+    ABILITY_ID = INFERNAL_CANNON_ID
+    TARGETING_OPTIONS = TargetingOptions(
+        rules=int(TR.TargetIsTile | TR.AllowObscuredTargetByElevation
+                  | TR.AllowObscuredTargetByWalls | TR.AllowNullCasterTile),   # 0x46000040
+        self_cast=False, range=RANGE_WHOLE_BOARD, force_melee_target=RANGED_BOOL_FALSE)
+
+    def execute_behaviour(self, state: "State", caster_id: int,
+                          target_id: Optional[int]) -> Optional[dict]:
+        cfg = GC.ability(INFERNAL_CANNON_ID) or {}
+        consts = (cfg.get("constants") or {})
+        # `AActiveAbility$$GetDamageProfile` / `$$GetDamageProfile2` = les deux `GetEnumConstant` du
+        # kit. Le TESTE et l'INFLIGE sont DEUX cles distinctes -- ne jamais deduire l'un de l'autre.
+        inflige = consts.get("damageProfile")
+        teste = consts.get("damageProfile_2")
+        teste_id = int(getattr(DamageProfileType, teste)) if teste else None
+        if teste_id is None or inflige is None:
+            return None
+        board = getattr(state, "board", None)
+        # COLLAPSE de `Target@+0x60` : le cast est TILE-TARGET, donc `target_id` est un id du
+        # `board`, pas une entite de `state.entities` (meme lecture que `DutyEternalAbility`).
+        tile_id = (int(target_id) if (board is not None and target_id is not None
+                                      and int(target_id) in board.by_id) else None)
+        ectx = ExecutionContext(state=state, rng=state.rng)
+        entities = entities_from_state(state, caster_id, target_id)
+        infernal_cannon_tree(teste_id, inflige, tile_id).execute(entities, ectx)
+        attacks = [{"target": p.get("target"), "total": p.get("total")}
+                   for n, p in ectx.emitted if n == "AttackWithAttackDamage"]
+        feu = next((p for n, p in ectx.emitted
+                    if n == "AddEffect" and p.get("effect_type") == INFERNAL_CANNON_FIRE), None)
+        return {"ability": self.ABILITY_ID, "caster": caster_id, "target_tile": tile_id,
+                "tested_profile": teste, "inflicted_profile": inflige,
+                "targets": [a["target"] for a in attacks], "attacks": attacks,
+                "fire_placed": bool((feu or {}).get("placed")), "dsl": True}
