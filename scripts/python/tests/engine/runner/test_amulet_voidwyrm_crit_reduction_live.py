@@ -133,20 +133,46 @@ def test_le_trait_summon_compte_comme_le_trait_decoy(charge_regime):
     assert mut != off, "le canal doit mordre"
 
 
-def test_le_substrat_d_adjacence_du_selecteur_est_geometrique(charge_regime):
+def test_le_substrat_d_adjacence_du_selecteur_est_la_liste_STOCKEE(charge_regime):
     """BRAS SUBSTRAT, sur un board a aretes manquantes (`C3_14`).
 
-    Un compagnon a distance hex 1 du porteur mais ABSENT de sa liste d'adjacence CAPTUREE
-    (`boardGraph.neighbours` == `connectivity`, DANS LES DEUX SENS, elevations egales) est COMPTE
-    par le natif. `AdjacentTilesSelector` (le chemin DSL) et `BattleQuery$$IterateAdjacentTiles`
-    (celui d'`IsCharging`, mirror `battle_query.is_adjacent`) ne lisent donc pas le meme substrat --
-    fait deja mesure sur l'AUTRE consommateur du sous-arbre (`_adjacent_damageable_enemies`), ici
-    recoupe par un canal INDEPENDANT. Le bras REFUSE si le board n'offre aucune paire divergente."""
-    rec, live, off, mut, _, et = _mesure(charge_regime, 1, 6, board="C3_14", geo_only=True)
-    assert rec["actif_natif"] is True
+    ⚠ CE TEST AFFIRMAIT L'INVERSE, ET C'ETAIT FAUX. Il gardait « un compagnon a distance hex 1 mais
+    ABSENT de la liste d'adjacence capturee est COMPTE par le natif » -- une INFERENCE tiree de
+    l'activite de l'effet, dans un montage ou cette activite venait d'AILLEURS : `genesSmnDecoy`,
+    presente depuis le DEPLOIEMENT sur un voisin STOCKE (`#589-r1-r1-r2-r1-r8`). C'etait un accord
+    par COMPENSATION -- le port comptait 1 par geometrie, le natif 1 par l'intruse.
+
+    LA CHAINE NATIVE NE LAISSE AUCUNE PORTE (relue en sec.3 de `case-589-r1-r1-r2-r1-r8`) :
+    `AdjacentTilesSelector$$Select` -> `IBattleQuery` slot 80 `IterateAdjacentTiles` ->
+    `TileQuery.u003CIterateAdjacentTilesu003Ed__8$$MoveNext` = `foreach id in tile.<+0x30>.<+0x10>`,
+    une LISTE STOCKEE, AUCUNE geometrie. Attendu : **INACTIF**, compteur **0**.
+
+    CE QUI INTERDIT LE VERT VIDE. Le regime rend `n = 0` : LIVE == OFFLINE, `NOCHANNEL` no-op --
+    ce bras serait vert meme sans relique equipee. Le TEMOIN DIFFERENTIEL du montage (une seule
+    unite bouge : `S1` GEO -> `S2` voisin STOCKE -> `S3` retour GEO) est le controle POSITIF, et il
+    est assertionne AVANT le reste. `n` est DERIVE par le montage, jamais ecrit ; l'argument `n` de
+    `_mesure` est inerte sous `geo_only` (cf. `stage`)."""
+    rec, live, off, mut, _, et = _mesure(charge_regime, 0, 6, board="C3_14", geo_only=True)
+    t = rec["temoin"]
+    assert t["S2_stocke"] is True, (
+        "CONTROLE POSITIF MUET : sur un voisin STOCKE %s l'effet rend %r -- le montage est mort, "
+        "et un « inactif » en position GEO ne prouverait rien" % (t["stocke"], t["S2_stocke"]))
+    assert t["S1_geo"] is False and t["S3_retour"] is False, (
+        "l'etat n'est pas REVERSIBLE (%r) -- une lecture s'est figee" % (t,))
+    # L'INVENTAIRE a bien eu lieu : le montage n'aurait rien prouve s'il n'avait figé que les deux
+    # compagnons qu'il pose (c'est exactement la faute que ce test gardait).
+    a_hex_1 = [p for p in rec["porteurs"] if p[2] == 1]
+    assert len(rec["porteurs"]) >= 3, (
+        "inventaire natif trop court (%s) -- l'intruse `genesSmnDecoy` doit y figurer" % (
+            rec["porteurs"],))
+    assert len(a_hex_1) == 1, "un SEUL porteur doit rester a hex 1 : %s" % (rec["porteurs"],)
+    assert rec["n"] == 0 and rec["actif_natif"] is False, (
+        "le natif compterait un voisin ABSENT de la liste stockee (n=%s actif=%s)"
+        % (rec["n"], rec["actif_natif"]))
     assert off == live, "port %s != natif %s (etages %s)" % (off, live, et)
-    assert et["compteur"] == 1, "le port doit compter le voisin geometrique (%s)" % et["compteur"]
-    assert mut != off, "le canal doit mordre"
+    assert et["compteur"] == 0, "le port ne doit PAS compter le voisin geometrique (%s)" % (
+        et["compteur"],)
+    assert mut == off, "a n = 0 le canal ne doit RIEN retrancher (mut=%s off=%s)" % (mut, off)
 
 
 def test_l_effet_est_au_registre_avec_son_identite_de_config(charge_regime):

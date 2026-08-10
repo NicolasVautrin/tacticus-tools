@@ -189,6 +189,13 @@ lectures séparées d'`entityId` referaient exactement le fork qu'on évite.
   `CreateActiveCondition` à `n = 0`), le PRODUIT (`n=1` vs `n=2`, second cas discriminant), les deux
   niveaux (1 et 10, dont le bras `PASSIF` qui prouve le canal tertiaire), le trait `Summon`, le bras
   SUBSTRAT, et la garde de registre offline sur les trois enums.
+  ⚠ **Le test du bras SUBSTRAT gardait la claim RÉFUTÉE** (`…_est_geometrique`, `actif_natif is
+  True`, `compteur == 1`) : c'était le dernier porteur de l'inférence, et il est **renommé et
+  inversé** par #589-r1-r1-r2-r1-r9 (`…_est_la_liste_STOCKEE` : `actif_natif is False`,
+  `compteur == 0`, `mut == off`). Il assertionne le **témoin différentiel AVANT le reste** —
+  à `n = 0` tout s'accorde trivialement, donc `S2` (voisin stocké → **ACTIF**) est ce qui interdit le
+  vert vide — et exige que l'**inventaire** contienne bien l'intruse (≥ 3 porteurs, **un seul** à
+  hex 1).
 * `scripts/python/probe_589r1r1r2r1_amulet_crit_reduction_live.py` — la mesure, avec ses gardes de
   régime jouées **avant** tout montage : niveau hors paliers (le clamp haut rendrait le bras NIVEAU
   non discriminant), **saturation** de `Math.Max(0, …)` (deux modèles algébriquement confondus =

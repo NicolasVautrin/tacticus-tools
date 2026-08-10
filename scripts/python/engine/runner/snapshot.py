@@ -328,7 +328,14 @@ def load_state(decision: dict, observe: dict, snapshot: Optional[dict] = None,
 
     Sans transport lié (`State` reconstruit hors harnais live, rejeu d'une capture sur disque), AUTO
     ne pose RIEN et le comportement est strictement celui d'avant. Le pourquoi de cette asymétrie
-    avec `tiles=` / `actor_stats=` est au bloc « CANAL AMBIANT » plus bas (§ `bind_live_rpc`)."""
+    avec `tiles=` / `actor_stats=` est au bloc « CANAL AMBIANT » plus bas (§ `bind_live_rpc`).
+
+    ⚠ **La RÉSOLUTION de ce tri-état est jouée AVANT `_load_stats_and_effects` (#570-r5), ses SEEDS
+    après.** Les deux ne consomment pas la même chose : les seeds écrivent dans les
+    `StatsComponent.ctx` que `_load_stats_and_effects` pose (donc ils suivent), tandis que
+    l'`AbilityState` par instance est une ENTRÉE de la MATÉRIALISATION des effets — le natif BAKE
+    l'`AbilityStateReference` du poseur dans l'entité-effet, donc l'état doit exister AVANT l'effet.
+    Un effet né trop tôt lisait `dmgReduction[1]` au lieu du palier réel, et le gardait."""
     state = State()
     state.current_player_id = decision.get("currentPlayer")
     if isinstance(targeting_config, dict) and "EnableObscuringTerrain" in targeting_config:
