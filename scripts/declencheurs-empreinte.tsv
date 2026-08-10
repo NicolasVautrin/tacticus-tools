@@ -1,5 +1,5 @@
 # format=2  declencheurs-empreinte (#486-r12) -- GENERE, jamais fusionne a la main : REGENERER (`--mesurer`) en cas de conflit.
-# commit=bec53574787f7593c928585ea6a0a839655c80dd
+# commit=0f628199105221edd5409107c35dc937a67572a5
 # Une ligne `lu` = un groupe (dossier, extension) reellement OUVERT en lecture,
 # avec son compte et DEUX temoins (le plus petit et le plus grand chemin du
 # groupe). Les temoins sont ce que le cliquet confronte aux globs declares :
@@ -753,7 +753,7 @@ probe_431	lu	hooks-legacy/ai	.js	3	hooks-legacy/ai/ai-decisions.js	hooks-legacy/
 probe_431	lu	hooks-legacy/autoplay	.js	13	hooks-legacy/autoplay/action-queue.js	hooks-legacy/autoplay/turn-observer.js
 probe_431	lu	hooks-legacy/battle	.js	3	hooks-legacy/battle/all-actions.js	hooks-legacy/battle/player-input.js
 probe_431	lu	lib	.py	3	lib/hex.py	lib/state.py
-probe_431	lu	scripts	.json	6	scripts/ratchets-457-durations.json	scripts/ratchets-485-differes-attestes.json
+probe_431	lu	scripts	.json	7	scripts/declencheurs-durees.json	scripts/ratchets-485-differes-attestes.json
 probe_431	lu	scripts	.ps1	6	scripts/fleet-count.ps1	scripts/tacticus-screen-prefs.ps1
 probe_431	lu	scripts	.tsv	1	scripts/declencheurs-empreinte.tsv	scripts/declencheurs-empreinte.tsv
 probe_431	lu	scripts	.txt	3	scripts/ratchets-468-sujets-de-commit.txt	scripts/ratchets-486r24-bypass-confrontation.txt
@@ -1418,7 +1418,7 @@ probe_486r2	lu	hooks-legacy/ai	.js	3	hooks-legacy/ai/ai-decisions.js	hooks-legac
 probe_486r2	lu	hooks-legacy/autoplay	.js	13	hooks-legacy/autoplay/action-queue.js	hooks-legacy/autoplay/turn-observer.js
 probe_486r2	lu	hooks-legacy/battle	.js	3	hooks-legacy/battle/all-actions.js	hooks-legacy/battle/player-input.js
 probe_486r2	lu	lib	.py	3	lib/hex.py	lib/state.py
-probe_486r2	lu	scripts	.json	6	scripts/ratchets-457-durations.json	scripts/ratchets-485-differes-attestes.json
+probe_486r2	lu	scripts	.json	7	scripts/declencheurs-durees.json	scripts/ratchets-485-differes-attestes.json
 probe_486r2	lu	scripts	.ps1	6	scripts/fleet-count.ps1	scripts/tacticus-screen-prefs.ps1
 probe_486r2	lu	scripts	.tsv	1	scripts/declencheurs-empreinte.tsv	scripts/declencheurs-empreinte.tsv
 probe_486r2	lu	scripts	.txt	3	scripts/ratchets-468-sujets-de-commit.txt	scripts/ratchets-486r24-bypass-confrontation.txt

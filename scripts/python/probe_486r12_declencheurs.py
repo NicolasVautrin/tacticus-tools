@@ -72,6 +72,12 @@ marque MESURE INCOMPLETE : sa confrontation garde son sens dans UN sens (ce qui 
 couvert), jamais dans l'autre. De meme, un fichier dont seule l'EXISTENCE decide n'est jamais
 ouvert. C'est pourquoi un declencheur se prend LARGE : la mesure borne par le BAS.
 
+⚠ ET UNE MESURE PEUT ETRE UN REFUS (#486-r36). Un cliquet qui rend un rc DISANT n'avoir rien
+mesure (cf. `RC_SANS_MESURE`) laisse une trace : celle de son refus, quelques lectures que tout
+glob couvre. Mesure du 2026-08-10 : les 8 shards `probe_457:s*` etaient dans ce cas -- 8 des 49
+entrees se comptaient CONFRONTEES sans rien confronter. Elles tombent desormais en NON MESUREE,
+pas en rouge : ce n'est pas un verdict sur leur declaration.
+
 Usage :
     python probe_486r12_declencheurs.py                 # les deux etages
     python probe_486r12_declencheurs.py --mesurer       # (re)mesure TOUTE la banque, puis ecrit
@@ -393,7 +399,7 @@ def cle_fraicheur(script: str) -> tuple:
 
     Il sert DEUX lecteurs, et c'est le point : l'etage 2, qui refuse de SERVIR une empreinte
     perimee, et `--incremental`, qui decide laquelle REMESURER. Deriver ces deux decisions du
-    meme critere est ce qui rend l'accelaration incapable de changer un verdict -- le mode
+    meme critere est ce qui rend l'acceleration incapable de changer un verdict -- le mode
     rapide remesure EXACTEMENT ce que l'etage 2 aurait de toute facon refuse de servir. Deux
     criteres ouvriraient l'ecart que #486 combat : un mode rapide qui sert ce que le garde
     aurait rejete est un faux vert.
@@ -879,9 +885,10 @@ def main() -> int:
                          "sont ecrites avec leur regime, et une distribution ne se derive que "
                          "d'une passe `serie`.")
     ap.add_argument("--incremental", action="store_true",
-                    help="ne (re)mesure que les entrees que l'etage 2 REFUSERAIT de servir "
-                         "(absentes ou PERIMEES au sens de `cle_fraicheur` : source du cliquet "
-                         "OU fermeture de ses imports). Les autres restent attestees par leur "
+                    help="ne (re)mesure que les entrees que l'etage 2 REFUSERAIT de servir : "
+                         "absentes, PERIMEES au sens de `cle_fraicheur` (source du cliquet, "
+                         "fermeture de ses imports, ou instrument de mesure), ou dont le run "
+                         "avait DIT n'avoir rien mesure. Les autres restent attestees par leur "
                          "empreinte -- jamais supposees vertes. Ne dispense PAS d'une passe "
                          "complete : cf. `sha_fermeture` pour les deux trous qu'il laisse.")
     ap.add_argument("--verbose", action="store_true")
@@ -908,6 +915,10 @@ def main() -> int:
         if not ids:
             print("[486r12] rc=99 -- `--only %s` ne selectionne aucune entree." % a.only)
             return 99
+        # La SELECTION demandee, avant toute reduction incrementale : la distribution porte sur
+        # elle, pas sur ce qui a ete rejoue. Un `--incremental` qui ne publierait que ses 1 ou 2
+        # entrees rendrait une << distribution >> qui ne decrit rien.
+        selection = list(ids)
         if a.incremental:
             ids, servies = a_remesurer(ids, bq, Empreinte.charger())
             print("[486r12] INCREMENTAL : %d entree(s) SERVIES par l'empreinte (fraiches, et "
@@ -928,9 +939,9 @@ def main() -> int:
         ecrire_durees(toutes)
         print("[486r12] durees ecrites   : %s (%d entree(s), regime %s)"
               % (DUREES.relative_to(ROOT).as_posix(), len(toutes), regime))
-        publier_distribution(toutes, ids)
+        publier_distribution(toutes, selection)
         if regime != REGIME_ISOLE:
-            publier_distribution(toutes, ids, regime)
+            publier_distribution(toutes, selection, regime)
 
     ko1, decl, fins = etage_declaration(scripts)
     ko2, non_mesure = etage_mesure(scripts, decl, fins, Empreinte.charger(), a.verbose)
