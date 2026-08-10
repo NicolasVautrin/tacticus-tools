@@ -24,6 +24,9 @@ gameconfig du jour, donc ce garde ne rougit pas au prochain changement de build.
 DECLENCHEUR = {
     "chemins": (
         "scripts/python/expedition_solver.py",
+        # Le capteur de pool : ses fonctions PURES sont gardees ici (l'I/O ne l'est
+        # pas -- elle exige une session vivante).
+        "scripts/python/expedition_roster.py",
         # Importe AU CHARGEMENT du solveur : un changement de son API casse l'import
         # de ce fichier avant meme le premier assert. Declare bien qu'aucun test
         # ci-dessous ne LISE le gameconfig -- les kits sont synthetiques.
@@ -206,6 +209,55 @@ def test_les_commentaires_du_roster_se_coupent_PAR_LIGNE(tmp_path):
     assert suppose is False
     assert ids == ["custoTrajann"], (
         "un identifiant cite dans un COMMENTAIRE est entre dans le roster : %r" % (ids,))
+
+
+# --- 7. capteur de pool : les fonctions PURES --------------------------------
+
+def test_extraire_deduplique_et_ignore_ce_qui_n_est_pas_un_portrait():
+    import expedition_roster as ER
+    boutons = [
+        {"name": "ButtonPortrait_custoTrajann"},
+        {"name": "ButtonPortrait_custoTrajann"},   # widget poole en double
+        {"name": "ButtonPortrait_ultraCalgar"},
+        {"name": "button_dispatch"},
+        {"name": ""},
+        {},
+    ]
+    assert ER.extraire(boutons) == ["custoTrajann", "ultraCalgar"]
+
+
+def test_qualifier_signale_le_VIDE_au_lieu_de_le_taire():
+    """Le vide doit etre un DRAPEAU, pas une liste vide qui se lit
+    << tu ne possedes rien >>."""
+    import expedition_roster as ER
+    v = ER.qualifier([], {})
+    assert v["vide"] is True and v["n"] == 0
+
+
+def test_qualifier_sans_gameconfig_rend_NON_MESURE_et_pas_un_zero():
+    """Tri-etat : `qualification` a None = PAS MESURE. Le rabattre sur False ou sur
+    des compteurs a zero ferait passer une absence de mesure pour un resultat."""
+    import expedition_roster as ER
+    v = ER.qualifier(["custoTrajann"], None)
+    assert v["qualification"] is None
+    assert "alliances" not in v, "un compteur a zero a ete fabrique sans mesure"
+
+
+def test_qualifier_croise_alliances_et_MoW():
+    import expedition_roster as ER
+    kits = {
+        "custoTrajann": _kit("custoTrajann", alliance="Imperial"),
+        "ultraDreadnought": _kit("ultraDreadnought", alliance="Imperial",
+                                 traits=["MachineOfWar"]),
+        "orksWarboss": _kit("orksWarboss", alliance="Xenos"),
+    }
+    v = ER.qualifier(["custoTrajann", "ultraDreadnought"], kits)
+    assert v["alliances"] == {"Imperial": 2}
+    assert v["mow_captees"] == ["ultraDreadnought"]
+    # `orksWarboss` est Xenos : hors PORTEE de la capture, il ne doit PAS etre
+    # compte comme un absent -- sinon toute capture mono-alliance se lirait
+    # comme un roster troue.
+    assert v["absents_de_la_capture"] == []
 
 
 def test_plateau_couvre_les_deux_operations_quand_le_roster_suffit():
