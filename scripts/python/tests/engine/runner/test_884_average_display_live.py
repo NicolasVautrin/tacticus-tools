@@ -53,11 +53,51 @@ Montage et mesure : `scripts/python/probe_884_average_display.py`. ASCII only.
 """
 from __future__ import annotations
 
-import sys
-from fractions import Fraction
-from pathlib import Path
+#: Ce qui doit changer pour que ce FICHIER de test puisse changer de verdict (#486-r15).
+DECLENCHEUR = {
+    "chemins": (
+        # SOCLE COMMUN a TOUT fichier de test : la cascade des `conftest.py` et sa fermeture.
+        "scripts/python/conftest.py", "scripts/python/tests/conftest.py",
+        "scripts/python/tests/engine/conftest.py",
+        "scripts/python/tests/engine/runner/conftest.py",
+        "scripts/python/green_skip_guard.py", "scripts/python/declencheur_guard.py",
+        "scripts/python/catalog_inject.py",
+        "scripts/python/gameconfig.py", "scripts/python/enum_maps.py",
+        "scripts/python/host_inputs.py", "scripts/python/rl_collect_batch.py",
+        "scripts/python/stream_events.py", "scripts/python/symbols_layout.py",
+        "scripts/python/board.py", "scripts/python/hexgeo.py",
+        "scripts/python/rl_duel.py",
+        # PROPRE A CE FICHIER, perimetre pris LARGE. Le montage MONTE un runner et confronte la
+        # chaine de PREDICTION complete : `entities/effects/loki/hits.py` (les quatre
+        # descripteurs), `entities/effects/magnitude.py` (`ability_var` et le multiplicateur de
+        # rarete), `dsl/base.py` (`_round_fix64`), `playbook/prediction/normal_attack.py` (le
+        # choix `amount` vs `predefined`), `services/damage_prediction.py` et
+        # `services/damage_calculations.py` (le spread +/-20 %), `playbook/scene.py`.
+        # ⚠ Les DEUX formes de glob sont necessaires : dans ce matcher `**/` exige un segment.
+        "scripts/python/engine/*.py",
+        "scripts/python/engine/**/*.py",
+        "scripts/python/probe_884_average_display.py",
+        # Le regime SERVI est une DONNEE du seed BC (`AbilityVariablesMultiplierPercentage`), la
+        # courbe vient du gameconfig, et les ordinaux d'`EffectType` du dump du build.
+        "data/seed-bc.json",
+        "data/boards/**",
+        "data/symbols/**",
+    ),
+    "build": True,
+    "toujours": False,
+    "raison": "Verdicts figes : les QUATRE descripteurs publient le bi-canal ROLL/DISPLAY, "
+              "`amount` vaut `Fix64.Round((min + max) / 2)` demi-vers-le-PAIR, l'ORDINAL mesure a "
+              "la conversion (mult separant DERIVE de `heroProgressionSteps`, bornes, moyenne), "
+              "la condition `min + max == 3 (mod 4)` qui rend l'arrondi separable, et -- LIVE -- "
+              "l'egalite port/natif ligne a ligne plus la MORSURE des trois mutants "
+              "(`predefined`, `float`, `floor`) sur chacun des quatre porteurs.",
+}
 
-import pytest
+import sys                                                    # noqa: E402
+from fractions import Fraction                                # noqa: E402
+from pathlib import Path                                      # noqa: E402
+
+import pytest                                                 # noqa: E402
 
 PYDIR = Path(__file__).resolve().parents[3]                 # scripts/python
 sys.path.insert(0, str(PYDIR))
