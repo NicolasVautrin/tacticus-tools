@@ -142,7 +142,13 @@ NON_VERTS_DECLARES: dict[str, str] = {
         "`test_etage2_aucun_site_n_est_revenu_a_l_ordinal_nu` + `test_etage2b_le_cliquet_resout_"
         "bien_les_alias` -- 2 failed / 15 passed. << `runner/abilities/behaviours/context.py` : "
         "`StatPart.MISSING` vu 0 fois, la tranche en avait mis 1 >>. Le site a disparu ou s'est "
-        "deplace hors du fichier ; `context.py` n'est PAS touche par cette PR. Residu #547-r6.",
+        "deplace hors du fichier ; `context.py` n'est PAS touche par cette PR. "
+        "⚠ RE-MESURE au dernier rebase : le fichier rend desormais **17 passed** -- il a ete "
+        "REPARE sur `master`. La ligne RESTE parce que l'ENTREE du ledger, elle, dit encore ROUGE "
+        "(elle a ete inscrite sur un arbre anterieur) : la retirer ferait rougir le CRAN 1 sur une "
+        "reparation reussie. C'est exactement le residu #547-r5 -- rien ne rejoue le ledger apres "
+        "un merge -- et cette ligne en est l'illustration vivante. Elle sortira a la prochaine "
+        "passe ordinaire. Residu #547-r6.",
     "tests/test_463r1_ecart_empreinte_offline.py":
         "`test_l_ecart_est_NUL_sur_ce_checkout` -- << 0 NON MESURE(S), 1 FANTOME(S) >> : "
         "`tests/engine/runner/test_576_war_howl_pose_offline.py` est dans l'empreinte et plus dans "
