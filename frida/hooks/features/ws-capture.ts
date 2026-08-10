@@ -30,8 +30,27 @@
 // LE CYCLE DE VIE AUSSI (`OnOpen`, `OnClosed`, `Reconnect`). Sans lui un silence est AMBIGU :
 // socket fermée, ou socket ouverte et rien à dire ? Les deux rendent « 0 message ».
 //
-// HORODATAGE RELATIF (`t`, ms depuis l'armement). Un protocole temps réel ne se lit pas sans
-// les délais : `t` sépare une réponse en 10 ms d'une en 3 s, et rend les pings visibles.
+// HORODATAGE ABSOLU (`ts`, epoch ms), ET `t` DÉRIVÉ AU DUMP. Un protocole temps réel ne se lit
+// pas sans les délais. La première version ne stockait QUE `t = Date.now() - t0`, et c'était
+// faux sur deux plans :
+//
+//   1. NON AUDITABLE — et ça a coûté une fausse accusation, contre ce module même. Le premier
+//      relevé réel a rendu des `t` allant jusqu'à 6 h 14 ; ils ont été signalés comme un défaut
+//      parce qu'ils ne cadraient pas avec l'âge SUPPOSÉ de la session. Vérification faite,
+//      l'horloge de l'agent est juste (`Date.now()` colle à celle de l'hôte à 84 ms près) et
+//      l'armement datait bel et bien de 6 h 32 plus tôt : les `t` étaient CORRECTS. Le défaut
+//      n'était pas dans la valeur, il était dans l'IMPOSSIBILITÉ DE LA CONFRONTER — rien dans
+//      la sortie ne permettait de trancher entre « l'origine dérive » et « la session est
+//      vieille », alors on a tranché de mémoire, et mal.
+//      `ts` absolu + `t0` / `maintenant` / `ageArmementMs` publiés à chaque dump ferment cette
+//      porte : l'âge de l'armement se LIT au lieu de se supposer.
+//   2. INCOMPARABLE AU SERVEUR. Les charges portent un horodatage serveur en epoch ms
+//      (`"timestamp":1786345297886` dans la trame `LiveEventsUpdated` capturée le 2026-08-10).
+//      Un `t` relatif à NOTRE armement ne peut pas s'y comparer — or l'écart entre l'émission
+//      serveur et la réception client est exactement ce qu'on veut sur du lockstep.
+//
+// `t` reste rendu, mais DÉRIVÉ à la lecture : le stocker figerait les trames sur une origine
+// qu'un `reset` ultérieur ferait disparaître.
 //
 // ⚠ LE SENS ENTRANT PEUT ARRIVER HORS DU THREAD PRINCIPAL (réception socket). Les callbacks ne
 // font donc que des LECTURES MÉMOIRE et un push — aucun appel runtime IL2CPP, aucun
@@ -102,8 +121,10 @@ type Sens = "out" | "in" | "etat";
 
 interface Trame {
     n: number;
-    /** ms depuis l'armement — l'axe qui rend un protocole temps réel lisible. */
-    t: number;
+    /** Horodatage ABSOLU de la capture (epoch ms, `Date.now()`). C'est la seule date STOCKÉE :
+     *  elle est confrontable à l'horodatage serveur que portent les charges, et elle survit à
+     *  un `reset`. Le `t` relatif est dérivé au dump. */
+    ts: number;
     sens: Sens;
     via: string;
     /** Pointeur d'instance : discriminant SÛR entre plusieurs sockets. */
@@ -169,7 +190,7 @@ function noter(
     if (tampon.length >= CAP) return -1;
     const trame: Trame = {
         n: ++compteur,
-        t: Date.now() - t0,
+        ts: Date.now(),
         sens, via,
         ctrl: inst && !inst.isNull() ? inst.toString() : null,
         uri: inst ? lireUri(inst) : null,
@@ -508,21 +529,35 @@ export function register(ctx: Ctx): void {
         const depuis = typeof body?.depuis === "number" ? body.depuis : 0;
         const filtre = typeof body?.contient === "string" && body.contient
             ? body.contient.toLowerCase() : null;
-        let entries = tampon.filter((e) => e.n > depuis);
-        if (body?.sens) entries = entries.filter((e) => e.sens === body.sens);
+        let choisies = tampon.filter((e) => e.n > depuis);
+        if (body?.sens) choisies = choisies.filter((e) => e.sens === body.sens);
         if (filtre) {
-            entries = entries.filter((e) =>
+            choisies = choisies.filter((e) =>
                 ((e.corps ?? e.prefixe ?? "") + " " + (e.uri ?? ""))
                     .toLowerCase().includes(filtre));
         }
-        if (body?.sansCorps) entries = entries.map((e) => ({ ...e, corps: null }));
+        // `t` est DÉRIVÉ ici, jamais stocké. Le figer à la capture daterait les trames sur une
+        // origine qu'un `reset` ultérieur ferait disparaître — le journal deviendrait alors un
+        // mélange de deux axes, sans que rien ne le signale.
+        const maintenant = Date.now();
+        const entries = choisies.map((e) => ({
+            ...e,
+            t: e.ts - t0,
+            ...(body?.sansCorps ? { corps: null } : {}),
+        }));
         // Ventilation par sens : un total seul ne dirait pas qu'un des deux sens est resté MUET,
         // ce qui est précisément le symptôme d'une porte mal ancrée.
         const parSens = { out: 0, in: 0, etat: 0 };
         for (const e of tampon) parSens[e.sens]++;
         const out = {
             ok: true, arme: listeners.length > 0, count: tampon.length, plafond: CAP,
-            parSens, corpsOmis, budgetRestant, entries, layout,
+            parSens, corpsOmis, budgetRestant,
+            // L'AXE EST PUBLIÉ AVEC LES DONNÉES. Sans `t0` et `maintenant`, un `t` aberrant ne
+            // peut pas être attribué : origine fausse, ou écarts faux ? Les deux se lisent
+            // pareil. Avec eux, `maintenant - t0` donne l'âge de l'armement, et tout `ts` se
+            // confronte à l'horodatage serveur porté par les charges.
+            t0, maintenant, ageArmementMs: maintenant - t0,
+            entries, layout,
         };
         if (body?.reset) {
             tampon.length = 0; corpsOmis = 0; budgetRestant = BUDGET_CORPS; t0 = Date.now();
@@ -539,9 +574,17 @@ export function register(ctx: Ctx): void {
     ctx.rpc.wsCaptureStatus = (): Promise<unknown> => queueOnMainThread(() => {
         const parSens = { out: 0, in: 0, etat: 0 };
         for (const e of tampon) parSens[e.sens]++;
+        const maintenant = Date.now();
         return {
             ok: true, arme: listeners.length > 0, portes: listeners.length,
-            count: tampon.length, parSens, corpsOmis, budgetRestant, layout,
+            count: tampon.length, parSens, corpsOmis, budgetRestant,
+            // Appelé juste après l'armement, `ageArmementMs` doit valoir quelques millisecondes.
+            // S'il rend autre chose, c'est l'horloge de l'agent qu'il faut regarder, pas les
+            // trames — et cette question-là se tranche SANS attendre qu'une trame arrive.
+            t0, maintenant, ageArmementMs: maintenant - t0,
+            premierTs: tampon.length > 0 ? tampon[0].ts : null,
+            dernierTs: tampon.length > 0 ? tampon[tampon.length - 1].ts : null,
+            layout,
         };
     });
 }
