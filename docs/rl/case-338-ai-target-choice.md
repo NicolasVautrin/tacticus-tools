@@ -68,6 +68,24 @@ c'est ce que fait `BasePlaybook$$GetEligibleTargetsForNormalAttack`. Sans elle, 
 élire une cible que l'acteur ne peut pas frapper (les plans offline sont bornés par
 `_max_attack_range` gameconfig, qui ignore le clamp), et l'appelant n'avait plus qu'à ne rien faire.
 
+⚠ **Et « borner par la PORTÉE » ne suffisait pas — le domaine natif est la CASCADE entière**
+(#334-r2, 2026-08-11). `GetEligibleTargetsForNormalAttack(caster, casterPosition)` tient en une
+ligne : `battleQuery.<slot 0x42>(caster, casterPosition, UnitExtensions$$GetNormalAttackType(caster))`,
+et cette surcharge — `IdunBattle.Core.Services.BattleQuery$$GetValidTargets(unit, from, abilityType)`
+— délègue au **slot 6 de `ITargetingQuery`**, c'est-à-dire au même filtre que
+`get_invalid_target_reason`, pas à une comparaison de distance. Mesuré sur le montage `two` :
+`admecDestroyer` porte `max_range = 3`, donc `_in_attack_range` acceptait l'ennemi `110` (distance 2)
+que la cascade **refuse** par `TargetingRule.TargetIsInRange` (`only_adjacent` de ses
+`TargetingOptions` d'attaque normale) — `valid_normal_attack_targets` ne rendait que `[79]`, et le
+natif frappait `79`. Le gate porte donc désormais **les deux** : portée depuis la tuile candidate,
+puis cascade complète **sur la tuile courante** (la cascade du port n'a pas de variante « depuis une
+tuile hypothétique » — écart nommé, borné au régime d'approche de `PerformAIAttack`).
+
+Ce que ça n'a PAS fermé : avec **deux** acteurs enchaînés, le 2ᵉ diverge encore — même domaine des
+deux côtés, choix différent (résidu **#334-r3**). Discriminant mesuré : le **même** acteur, **seul**
+(régime `attack`), est **bit-exact** avec le natif (`4670` sur l'entité `110`, ventilation confrontée
+par ENTITÉ des deux côtés).
+
 ## 4. Validation
 
 * **Oracle direct** — `test_defend_the_divine_work_live.py` verrouille désormais le delta HP **par
