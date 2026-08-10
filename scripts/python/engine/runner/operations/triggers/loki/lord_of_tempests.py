@@ -51,13 +51,20 @@ from ....abilities.behaviours.effects import AddEffect
 from .....entities.selectors.accessors import Target
 from .....entities.selectors.units import Tiles
 from .....entities.effect_type import EffectType
+# Feuille pure (`enum` seul) -- 2 modules `engine.*` charges, aucune arete ajoutee.
+from .....entities.triggered_ability_type import TriggeredAbilityType
 from .....dsl.effects import ExecutionContext
 from .....dsl.event_trigger_type import EventTriggerType
 from ..base import TriggeredAbility, TriggerEvent
 
 ICE_TILE = int(EffectType.Ice)          # 17 (0x11) — effet de TUILE Ice (durée défaut 2 rounds)
-SMITE_KIND = 0x3f5                      # 1013 — AbilityOrEffect « kind attaque-normale » du
-                                        # DirectAbilitySelector natif (= le splash Smite Psyker)
+# ⚠ L'ENUM EST TRANCHE (#270-r1-r1-r3-r1, build `rnca9r7q6c`) : `1013` est un membre valide de
+# QUATRE enums, donc l'ordinal ne discrimine rien. Le discriminant est la SURCHARGE
+# d'`IdunBattle.Core.AbilityOrEffect$$op_Implicit` empruntee par
+# `IdunBattleLogic.Entities.DSLTriggers$$OnNormalAttackOrSmite+0x4d` -- celle dont le parametre se
+# nomme `triggeredAbility` et qui appelle `IdunBattle.Core.AbilityOrEffect$$set_TriggeredAbility`.
+# Le nom natif le corrobore : c'est la branche « OrSmite ». Detail : `abilities/attack_type.py`.
+SMITE_KIND = int(TriggeredAbilityType.PsykerExtraAttack)   # 0x3f5 = 1013 — le splash Smite Psyker
 
 _ON_NORMAL = int(EventTriggerType.NormalAttack)   # 38 (0x26) — branche 1
 _ON_ATTACK = int(EventTriggerType.Attack)         # 9 — branche 2 (gate kind==1013)

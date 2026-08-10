@@ -850,11 +850,8 @@ SCALAIRES_ASSUMES = (
     ("engine.services.ability_range", "WHOLE_BOARD_REACH", 1_000_000),
     # La VALEUR d'une constante gameconfig (30 %), PAS son index -- l'index est 42 (`chance`).
     ("engine.runner.operations.triggers.loki.fire", "FIRE_OF_ABSOLUTION_IGNITE_CHANCE", 30),
-    # Deux constantes MORTES (aucun lecteur) dont les NOMS CONTREDISENT `StatType` (4 = ARMOR,
-    # 5 = HEALTH). La tranche ne les convertit pas : figer l'un des deux sens serait choisir au
-    # jugement. Residu #270-r1-r1-r3-r1.
-    ("engine.services.damage_combat", "STAT_HEALTH", 4),
-    ("engine.services.damage_combat", "STAT_ARMOR", 5),
+    # (`damage_combat.STAT_HEALTH` / `STAT_ARMOR` vivaient ici : RETIREES par #270-r1-r1-r3-r1
+    #  apres lecture du decompile -- leurs noms etaient INVERSES. Cf. le test ci-dessous.)
 )
 
 
@@ -874,22 +871,30 @@ def test_les_scalaires_assumes_sont_restes_des_entiers_purs():
     assert not fautes, "\n  ".join(fautes)
 
 
-def test_les_deux_constantes_mortes_de_damage_combat_restent_sans_lecteur():
-    """Le residu #270-r1-r1-r3-r1, sous cliquet : si un lecteur apparait, il faut TRANCHER.
+def test_les_deux_constantes_mortes_de_damage_combat_ne_sont_pas_revenues():
+    """#270-r1-r1-r3-r1 : le residu est TRANCHE, et le geste a ete la SUPPRESSION.
 
-    `STAT_HEALTH = 4` / `STAT_ARMOR = 5` contredisent `StatType` (4 = ARMOR, 5 = HEALTH). Tant que
-    RIEN ne les lit, la contradiction est inerte et les laisser est le geste sur -- en figer un
-    sens serait choisir au jugement. Le jour ou un site les lit, elle devient un BUG de valeur, et
-    ce test le dit AVANT."""
-    lecteurs = []
+    `STAT_HEALTH = 4` / `STAT_ARMOR = 5` contredisaient `StatType` (4 = ARMOR, 5 = HEALTH), et le
+    decompile a donne raison a l'enum :
+    `IdunBattle.Core.Services.DamageCalculations$$ApplyCritDamage` lit `GetStat(defender, 0x5)`
+    pour la SANTE et `GetStat(defender, 0x4)` pour l'ARMURE, puis rend
+    `GetTotalShield + armure + sante`. Les deux constantes etaient donc INVERSEES **et** mortes
+    (aucun lecteur) : les corriger aurait reconduit un doublon d'un enum deja complet et sous
+    cliquet (`probe_313`). Elles sont supprimees ; ce test garde qu'elles ne reviennent pas -- sous
+    l'un ou l'autre sens, la faute serait a nouveau invisible faute de lecteur.
+
+    ⚠ Ce test remplace `..._restent_sans_lecteur` : le cliquet a change de SENS (il gardait une
+    contradiction inerte, il garde desormais une suppression). Le mutant `M12` de
+    `probe_270r1r1r3_mutants.py` (« un lecteur apparait ») mord toujours -- il ecrit le nom dans un
+    module d'`engine/`, que ce balayage-ci visite AUSSI."""
+    revenants = []
     for f in sorted(ENGINE.rglob("*.py")):
-        if f.name == "damage_combat.py":
-            continue
         texte = f.read_text(encoding="utf-8")
         for nom in ("STAT_HEALTH", "STAT_ARMOR"):
             if nom in texte:
-                lecteurs.append("%s cite %s" % (f.relative_to(ENGINE).as_posix(), nom))
-    assert not lecteurs, (
-        "les constantes MORTES de `services/damage_combat.py` ont trouve un lecteur -- leur "
-        "contradiction avec `StatType` (4 = ARMOR, 5 = HEALTH) n'est plus inerte, il faut la "
-        "trancher au decompile (#270-r1-r1-r3-r1) :\n  " + "\n  ".join(lecteurs))
+                revenants.append("%s cite %s" % (f.relative_to(ENGINE).as_posix(), nom))
+    assert not revenants, (
+        "`STAT_HEALTH` / `STAT_ARMOR` sont revenus dans `engine/` -- le decompile "
+        "(`IdunBattle.Core.Services.DamageCalculations$$ApplyCritDamage`) dit `4 = Armor, "
+        "5 = Health`, et l'enum `entities.stats.StatType` le porte deja. Utiliser l'enum, pas une "
+        "constante locale (#270-r1-r1-r3-r1) :\n  " + "\n  ".join(revenants))
