@@ -126,10 +126,66 @@ d'`extraPierceRatio` compte un cadavre allié.
   (phase 2 **non portée**, et `selectionType 1` y re-filtre de toute façon),
   `DevastatingRefrain_Attack$$CreateBehaviour` (**non porté**, `selectionType 3`),
   `TheQuickening$$ExecuteBehaviour` (porté, mais son `Cache(AllUnits())` est l'argument
-  d'**utilité** de `PerformAIAttackFromCurrentPosition`, que le port ne matérialise pas). Les 18
-  autres restent à trancher. Résidu **#514-r2**.
-* **`UnitSelectionType` reste non porté** (#433-r3-r2) : le port ne peut pas exprimer
-  `Enemies(source, 3)` sur une source pool-8. Aucun site porté n'en a besoin aujourd'hui.
+  d'**utilité** de `PerformAIAttackFromCurrentPosition`, que le port ne matérialise pas).
+  ~~Les 18 autres restent à trancher. Résidu **#514-r2**.~~ — **FERMÉ (`#514-r2`)**, cf. §9.
+* ~~**`UnitSelectionType` reste non porté** (#433-r3-r2) : le port ne peut pas exprimer
+  `Enemies(source, 3)` sur une source pool-8. Aucun site porté n'en a besoin aujourd'hui.~~ —
+  **PÉRIMÉ** : le mirror et son prédicat existent depuis #524
+  (`engine/entities/unit_selection_type.py`, foyer de
+  `IdunBattle.Entities.UnitExtensions$$MatchesUnitSelectionType`), et le paramètre est câblé sur
+  neuf factories depuis #585-r1. `Enemies(source, 3)` s'exprime.
+
+## 9. `#514-r2` — les 18 derniers call-sites pool-8, TRANCHÉS
+
+Les 24 call-sites de `IdunBattleLogic.Entities.DSLSelectors$$AllUnits` re-dérivés par
+`list_xrefs` ; les 18 non encore lus décompilés un par un, en remontant la chaîne des sélecteurs
+consommateurs jusqu'au premier littéral `selectionType`. **Aucun n'est porté** (les trois seuls
+sites portés — `Waaagh`, `LeadingTheCharge`, `WeaverOfFate$$GetTrigger` — étaient déjà vérifiés au
+§7). Ce volet est donc un **triage pur** : il ne change aucune ligne de code, il dit ce qu'un port
+futur devra écrire.
+
+Rappel du critère : **le pool ne suffit pas**. Une source pool-8 (morts inclus) redevient vivante
+sous un consommateur à `selectionType` `1` ou `3`.
+
+| # | call-site natif | `selectionType` effectif | morts |
+|---|---|---|---|
+| 1 | `ATemptingTrapAbility$$CreateBehaviour` | `3` (via `NormalUnits(…,3)` puis `Enemies(Owner,…,3)`) | EXCLUS |
+| 2 | `ShroudPsalmAbility$$ExecuteBehaviour` | `3` (`Friends(Caster, AllUnits() − Caster, 3)`) | EXCLUS |
+| 3 | `BlessingsOfKhorne_ModifiersEffect$$GetMultiplierBasedOnDefeatedInMelee` | **`0`** (`NormalUnits(…,0)`) | **INCLUS** |
+| 4 | `EnhancementSummonAbility$$CreateBehaviour` | `3` (`UnitsFromTeam(…,1,3)`) | EXCLUS |
+| 5 | `EnvFactionSummonsAbility$$CreateBehaviour` | `3` (`UnitsFromPlayer(…,3)`) | EXCLUS |
+| 6 | `FieldsOfFire_AttackedAbility$$GetInstantBehaviour` | **ABSENT** | **INCLUS** |
+| 7 | `BlightedLandEffect$$CreateTargetSelector` | `3` | EXCLUS |
+| 8 | `ContemptuousDisregard_DamageReductionEffect$$CreateTargetSelector` | `3` | EXCLUS |
+| 9 | `GuardianConstruct_ExtraDamagePctEffect$$CreateTargetSelector` | `3` | EXCLUS |
+| 10 | `Test_MachineAdditionModifierForUnitsEffect$$CreateTargetSelector` | `3` | EXCLUS |
+| 11 | `IllusionsOfTzeentchAbility$$CreateBehaviour` | **`1`** (`UnitsWithTrait(…,0x10,1)` → `Enemies(…,1)`) | EXCLUS |
+| 12 | `APowerup_SpawnAbility$$GetSpawnTile` | `3` | EXCLUS |
+| 13 | `PreCalibratedPurgeSolutionAbility$$CreateBehaviour` | `3` | EXCLUS |
+| 14 | `SabreOfSacrificeAbility$$GetCurrentExtraArmor` | **ABSENT** | **INCLUS** |
+| 15 | `SabreOfSacrificeAbility$$GetNumDefeatedFriendlyUnits` | **ABSENT** | **INCLUS** |
+| 16 | `InvocationOfMachineVengeanceAbility$$ExecuteBehaviour` | `3` (`Friends(…,3)` → `MechanicalUnits(…,3)`) | EXCLUS |
+| 17 | `SolarAtomizerAbility$$ExecuteBehaviour` | `3` | EXCLUS |
+| 18 | `WeaverOfFateAbility$$CreateTrigger` | **`0`** | **INCLUS** |
+
+**Bilan : 5 chaînes sur 18 laissent passer les morts** — quatre par absence totale de
+`selectionType` en aval, une (`WeaverOfFate$$CreateTrigger`) par un `0` explicite. Les 13 autres
+sont re-filtrées, à `3` sauf `IllusionsOfTzeentch` à `1` (donc `IsAlive` sans test `Untargetable`).
+
+Trois cohérences qui valent contrôle, et qu'aucune n'était supposée d'avance :
+
+* `#18 WeaverOfFate$$CreateTrigger` rend `0`, **comme** `$$GetTrigger` déjà porté et confronté live
+  au §8 — les deux corps de la même ability concordent ;
+* `#14`/`#15 SabreOfSacrifice` comptent des `HasBeenDefeated` : exclure les morts y **viderait** le
+  compte, l'absence de `selectionType` est la seule lecture cohérente ;
+* `#3 BlessingsOfKhorne` compte des `UnitsDefeatedByMeleeAttack` — même forme.
+
+⚠ **Le piège de lecture, et il est structurel** : `DSLSelectors$$Enemies` et `DSLSelectors$$Units`
+ont **deux surcharges de même arité**, affichées sous le même identifiant dans le pseudo-C, et la
+seconde mappe `onlyAlive → selectionType = onlyAlive + 2`. Lire `Enemies(…, 0)` ne dit donc **pas**
+`Any` tant que la surcharge n'est pas tranchée **par ses xrefs entrantes** — si c'est celle à
+`onlyAlive`, `0` vaut `2`. Les sites `#7`–`#13` et `#18` ci-dessus ont tous été tranchés ainsi.
+Détail : `case-585r1-etage-amont-du-selectiontype.md` §3.
 
 ## 8. `#514-r1` — le régime discriminant, MONTÉ
 

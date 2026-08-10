@@ -176,6 +176,18 @@ NATIFS_LISTE_STOCKEE_SUSPENDUS = {
     "AdjacentTiles": "#433-r4-r1-r4-r2-r1-r1-r1-r1",
     "AdjacentUnits": "#433-r4-r1-r4-r2-r1-r1-r1-r1",
 }
+
+# Les foyers qui rougiraient, PAR natif suspendu, remplis par `etape5` a chaque passe et imprimes
+# par `main`. Ils ne pesent sur AUCUN verdict -- c'est du CONTEXTE.
+#
+# ⚠ Pourquoi ils existent (#433-r4-r1-r4-r2-r1-r1-r1-r1, 2026-08-10). L'etape 5 mesurait bien << la
+# suspension est-elle encore justifiee ? >> et elle repondait JUSTE. Mais elle ne disait pas DE QUI
+# la suspension est faite. Resultat : la prose qui, elle, nommait les foyers
+# (`aberrant_hypermorph.py`, `master_of_the_tutelaries.py`) a SURVECU a leur reparation -- les deux
+# consomment `bq.is_adjacent(...)` depuis longtemps, et la ligne de backlog envoyait quand meme
+# corriger un vice inexistant, pendant que les TROIS vrais foyers n'etaient nulle part. Un cliquet
+# qui rend un COMPTE juste peut donc laisser perimer la seule chose qu'un lecteur va lire.
+_FOYERS_SUSPENDUS: dict = {}
 # Formes d'ACCES au canal reconnues : parametre, ou derivation nommee depuis un board.
 ACCES_CANAL = ("neigh_by_pos", "neigh_map", "adjacent_neigh_by_pos", "neighbours_native",
                "neighbours_connectivity", "connectivity_neighbours")
@@ -703,11 +715,12 @@ def etape5(arbres) -> tuple[list, int]:
     for nat, residu in sorted(NATIFS_LISTE_STOCKEE_SUSPENDUS.items()):
         try:
             NATIFS_LISTE_STOCKEE = base + (nat,)
-            n = len(etape2(arbres)[0]) + len(etape4(arbres)[0])
+            foyers = etape2(arbres)[0] + etape4(arbres)[0]
         finally:
             NATIFS_LISTE_STOCKEE = base
-        if not n:
+        if not foyers:
             manquants.append((nat, residu))
+        _FOYERS_SUSPENDUS[nat] = foyers
     return manquants, len(NATIFS_LISTE_STOCKEE_SUSPENDUS)
 
 
@@ -781,6 +794,14 @@ def main() -> int:
     print("   dont la suspension est PERIMEE : %d (attendu 0)" % len(m5))
     for (nat, residu) in m5:
         print("      %s -- l'armer ne fait plus rougir personne (%s) : ARME-LE" % (nat, residu))
+    # HORS VERDICT -- les foyers QUI justifient chaque suspension, derives a chaque passe. Sans eux,
+    # seul un COMPTE etait publie, et la prose des fiches a perime en silence (cf.
+    # `_FOYERS_SUSPENDUS`). Un lecteur doit pouvoir aller voir, pas croire.
+    for nat in sorted(_FOYERS_SUSPENDUS):
+        foyers = _FOYERS_SUSPENDUS[nat]
+        print("      %s : %d foyer(s) le justifient encore" % (nat, len(foyers)))
+        for (rel, ln, name) in foyers:
+            print("         %s:%d  %s" % (rel, ln, name))
     if "--inventaire" in sys.argv:
         inv = inventaire(arbres)
         print("-- inventaire HORS VERDICT : geometrie nue + canal, natif NON declare")

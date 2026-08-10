@@ -106,13 +106,28 @@ class Enemies(TargetsSelector):
 
     `_units_of` normalise l'operande (mirror du contrat natif : `source` peut etre un REF-ENTITE seul --
     `Enemies(caster, target@0x178, 3)` de `PlagueburstMortarAbility$$GetMainDamageTarget` -- ou une liste ;
-    None -> vide). Sans ca, iterer un dict nu rendrait ses CLES (meme piege que `Tiles`/`Sub`)."""
-    def __init__(self, inner: TargetsSelector):
+    None -> vide). Sans ca, iterer un dict nu rendrait ses CLES (meme piege que `Tiles`/`Sub`).
+
+    `selection_type` = le 4e argument NATIF (`DSLSelectors$$Enemies(this, of, entities,
+    selectionType)`), que le ctor d'`UnitsFromFactionSelector` recoit et que `$$Select` transmet a
+    `SelectUniqueUnits` -- donc a `MatchesUnitSelectionType` PAR ELEMENT. Symetrique exact de
+    `Friends` ci-dessous. `None` (defaut) = aucun filtre = comportement HISTORIQUE (#585-r1).
+
+    ⚠ DEUX SURCHARGES portent ce nom et cette arite, et la seconde est un SUCRE :
+    `DSLSelectors$$Enemies(this, of, entities, onlyAlive)` se re-appelle avec
+    `(onlyAlive & 0xff) + 2`, donc `false -> OnlyTargetable`, `true -> OnlyAliveAndTargetable`
+    (cf. `entities/unit_selection_type.selection_type_from_only_alive`). Un call-site qui emprunte
+    la surcharge booleenne ne vaut donc JAMAIS `Any` -- ne pas y lire << pas de filtre >>."""
+    def __init__(self, inner: TargetsSelector, selection_type=None):
         self.inner = inner
+        self.selection_type = selection_type
 
     def select(self, ctx):
         ct = (ctx.caster or {}).get("team")
-        return [u for u in _units_of(self.inner, ctx) if isinstance(u, dict) and u.get("team") != ct]
+        st = self.selection_type
+        return [u for u in _units_of(self.inner, ctx)
+                if isinstance(u, dict) and u.get("team") != ct
+                and (st is None or _selection_ok(u, st, ctx))]
 
 
 class Damageable(TargetsSelector):
@@ -368,9 +383,17 @@ class Units(TargetsSelector):
     qu'ont les deux call-sites natifs LUS (les deux `Units(..., 1, 3)` de
     `IdunBattleLogic.Entities.DSLSelectors$$UnitsDirectlyBehind`). Relever le flag aux ~100 call-sites
     portes est une tranche a part ; le regime `unique = 0` n'etait de toute facon PAS atteignable avant
-    ce commit (l'index par main tile rendait au plus une tuile par unite)."""
-    def __init__(self, tiles: TargetsSelector):
+    ce commit (l'index par main tile rendait au plus une tuile par unite).
+
+    `selection_type` = le 4e argument NATIF, que `UnitsOnTilesSelector$$.ctor` recoit a cote d'`unique`
+    et que `$$Select` transmet a `SelectUniqueUnits`/`SelectAllUnits` -- donc a
+    `MatchesUnitSelectionType` PAR ELEMENT. `None` (defaut) = aucun filtre = comportement HISTORIQUE
+    (#585-r1). ⚠ Meme piege de SURCHARGE que `Enemies` : `DSLSelectors$$Units(this, entities, unique,
+    onlyAlive)` alloue le meme selecteur avec `(onlyAlive & 0xff) + 2` -- `false -> OnlyTargetable`,
+    `true -> OnlyAliveAndTargetable`, JAMAIS `Any`."""
+    def __init__(self, tiles: TargetsSelector, selection_type=None):
         self.tiles = tiles
+        self.selection_type = selection_type
 
     def select(self, ctx):
         board = getattr(ctx, "board", None)
@@ -402,6 +425,10 @@ class Units(TargetsSelector):
                 continue
             u = occupant.get((int(p[0]), int(p[1])))
             if u is None or u.get("id") in seen:
+                continue
+            # `SelectUniqueUnits(source, entities, selectionType)` : le filtre est PAR ELEMENT, et il
+            # tombe APRES la resolution de l'occupant (`SelectUnit` -> `MatchesUnitSelectionType`).
+            if self.selection_type is not None and not _selection_ok(u, self.selection_type, ctx):
                 continue
             seen.add(u.get("id"))
             out.append(u)
@@ -540,13 +567,21 @@ class UnitsWithIds(TargetsSelector):
 class UnitsWithTrait(TargetsSelector):
     """`IdunBattleLogic.Entities.DSLFactory$$UnitsWithTrait(source, traitId)` → `UnitsWithFlagSelector` flag=1 : garde
     les unités où `HasFlag(unit, traitId)` (même primitive que HasFlag). `ctx.has_trait` teste le trait ;
-    défaut None → trait ABSENT (convention HasFlag) → set vide."""
-    def __init__(self, source: TargetsSelector, trait):
+    défaut None → trait ABSENT (convention HasFlag) → set vide.
+
+    `selection_type` = le 4e argument NATIF -- `DSLSelectors$$UnitsWithTrait(this, entities, trait,
+    selectionType)` alloue `UnitsWithTraitSelector..ctor(this, state, entities, trait, 1,
+    selectionType)`, le `1` etant le flag << avec >> (`UnitsWithoutTrait` pose `0` au meme rang, meme
+    ctor). `None` (defaut) = aucun filtre = comportement HISTORIQUE (#585-r1)."""
+    def __init__(self, source: TargetsSelector, trait, selection_type=None):
         self.source, self.trait = source, trait
+        self.selection_type = selection_type
 
     def select(self, ctx):
         ht = ctx.has_trait or (lambda u, t: False)
-        return [u for u in self.source.evaluate(ctx) if ht(u, self.trait)]
+        st = self.selection_type
+        return [u for u in self.source.evaluate(ctx)
+                if ht(u, self.trait) and (st is None or _selection_ok(u, st, ctx))]
 
 
 class UnitsWithoutTrait(TargetsSelector):
@@ -621,7 +656,7 @@ class UnitsWithoutRangedWeapons(TargetsSelector):
         return [u for u in units if not hrw(u)]
 
 
-def non_steppable_or_object_units(source: TargetsSelector) -> TargetsSelector:
+def non_steppable_or_object_units(source: TargetsSelector, selection_type=None) -> TargetsSelector:
     """`IdunBattleLogic.Entities.DSLSelectors$$NonSteppableOrObjectUnits(source, selectionType)` --
     MIRROR de la FACTORY : le natif N'ALLOUE AUCUN selecteur dedie, il COMPOSE textuellement
 
@@ -639,12 +674,28 @@ def non_steppable_or_object_units(source: TargetsSelector) -> TargetsSelector:
     la meme expression (`NonSteppableOrObjectUnits(...)` avec le trait, `HasTakenDamage...(..., 0xd)`
     avec `DamageProfileType.Psychic`). C'est exactement le regime ou l'ordinal nu ment en silence.
 
-    Consommateurs natifs lus : `HellfyreMissileRackAbility$$ExecuteBehaviour` / `$$GetAffectedUnits`."""
-    return And(And(source, UnitsWithoutTrait(source, int(UnitTrait.Steppable))),   # 0x1b
-               UnitsWithoutTrait(source, int(UnitTrait.Object)))                   # 0xd
+    Consommateurs natifs lus : `HellfyreMissileRackAbility$$ExecuteBehaviour` / `$$GetAffectedUnits`,
+    et les deux predicats de ciblage de `SquigLaunchasAbility`
+    (`IdunBattleLogic.Entities.Abilities.Active.Loki.SquigLaunchasAbility$$HasMinimumAdjacentOrks` /
+    `$$HasMinimumAdjacentFriendlyUnits`) -- un decoy ou un objet adjacent a la cible NE COMPTE PAS
+    comme << unite amie adjacente >>.
+
+    ⚠ Ce module portait DEUX definitions homonymes de cette factory (#585-r1) : celle-ci et une
+    seconde, plus bas, au corps IDENTIQUE mais a la docstring differente. La seconde ECRASAIT
+    celle-ci a l'import, donc l'avertissement `0xd` ci-dessus et les consommateurs
+    `HellfyreMissileRack` etaient dans du code MORT -- personne ne pouvait le voir en lisant le
+    fichier de haut en bas. Les deux sont fusionnees ici.
+
+    `selection_type` est PROPAGE aux deux `UnitsWithoutTrait`, comme le fait la factory native (le
+    pseudo-code ci-dessus le montre au 3e argument des deux appels). Le port l'AVALAIT : un appelant
+    qui connaissait son litteral ne pouvait pas le faire descendre (#585-r1). `None` = comportement
+    HISTORIQUE."""
+    return And(And(source, UnitsWithoutTrait(source, int(UnitTrait.Steppable),     # 0x1b
+                                             selection_type)),
+               UnitsWithoutTrait(source, int(UnitTrait.Object), selection_type))   # 0xd
 
 
-def units_with_traits(source: TargetsSelector, traits) -> TargetsSelector:
+def units_with_traits(source: TargetsSelector, traits, selection_type=None) -> TargetsSelector:
     """`IdunBattleLogic.Entities.DSLSelectors$$UnitsWithTraits(entities, traits, selectionType)` --
     MIRROR de la FACTORY, qui n'alloue AUCUN selecteur dedie et FOLDE la collection de traits :
 
@@ -660,14 +711,17 @@ def units_with_traits(source: TargetsSelector, traits) -> TargetsSelector:
     `source` traverse. Liste VIDE -> `source` inchange (c'est ce que rend la boucle native).
 
     Consommateur porte : `...Loki.UnbreakableDutyAbility$$ExecuteBehaviour` / `$$GetAmountOfDead
-    ImperialUnits` (`[0x1a = Imperial, 0x10 = Hero]` = les « Imperial Characters » de l'i2)."""
+    ImperialUnits` (`[0x1a = Imperial, 0x10 = Hero]` = les « Imperial Characters » de l'i2).
+
+    `selection_type` est PROPAGE a chaque `UnitsWithTrait`, comme le fait la boucle native (3e
+    argument, cf. le pseudo-code). Le port l'AVALAIT (#585-r1) ; `None` = comportement HISTORIQUE."""
     left = source
     for t in traits:
-        left = And(left, UnitsWithTrait(source, int(t)))
+        left = And(left, UnitsWithTrait(source, int(t), selection_type))
     return left
 
 
-def non_steppable_units(source: TargetsSelector) -> TargetsSelector:
+def non_steppable_units(source: TargetsSelector, selection_type=None) -> TargetsSelector:
     """`IdunBattleLogic.Entities.DSLSelectors$$NonSteppableUnits(source, selectionType)` -- MIRROR de
     la FACTORY, qui n'alloue AUCUN selecteur dedie et COMPOSE textuellement :
 
@@ -682,8 +736,12 @@ def non_steppable_units(source: TargetsSelector) -> TargetsSelector:
     cible VALIDE de l'extra attack.
 
     Consommateurs natifs lus : `Drachnyen_ExtraAttackAbility$$CreateTrigger` / `$$CreateBehaviour` /
-    `$$ValidTargets`."""
-    return And(source, UnitsWithoutTrait(source, int(UnitTrait.Steppable)))       # 0x1b
+    `$$ValidTargets`.
+
+    `selection_type` est PROPAGE a l'`UnitsWithoutTrait`, comme le fait la factory native (3e
+    argument, cf. le pseudo-code). Le port l'AVALAIT (#585-r1) ; `None` = comportement HISTORIQUE."""
+    return And(source, UnitsWithoutTrait(source, int(UnitTrait.Steppable),        # 0x1b
+                                         selection_type))
 
 
 class NormalUnits(TargetsSelector):
@@ -718,25 +776,35 @@ class NormalUnits(TargetsSelector):
 
     Consommateur porte : `IdunBattleLogic.Entities.Abilities.Active.Loki.OverwhelmingWrathAbility$$ExecuteBehaviour`
     (`NormalUnits(AdjacentEnemies(Owner@0x30, unique: 1, selectionType: 3), selectionType: 3)` = les
-    ennemis adjacents TAUNTES -- un decoy `Steppable` ou un `Object` de plateau n'est pas taunte)."""
-    def __init__(self, entities: TargetsSelector):
+    ennemis adjacents TAUNTES -- un decoy `Steppable` ou un `Object` de plateau n'est pas taunte).
+
+    `selection_type` = le 2e argument NATIF, que la factory PROPAGE a son `Units` interne (le
+    pseudo-code ci-dessus le montre : `Units(entities, unique: true, selectionType)`), pas au
+    `FromTrigger`. Le port l'AVALAIT (#585-r1) -- et le call-site cite juste au-dessus passe
+    justement `3`. `None` = comportement HISTORIQUE."""
+    def __init__(self, entities: TargetsSelector, selection_type=None):
         self.entities = entities
+        self.selection_type = selection_type
 
     def select(self, ctx):
         ht = ctx.has_trait or (lambda u, t: False)
-        return [u for u in Units(self.entities).evaluate(ctx)
+        return [u for u in Units(self.entities, self.selection_type).evaluate(ctx)
                 if not ht(u, int(UnitTrait.Object))          # 0xd
                 and not ht(u, int(UnitTrait.Steppable))]     # 0x1b
 
 
-def hero_units(source: TargetsSelector) -> TargetsSelector:
+def hero_units(source: TargetsSelector, selection_type=None) -> TargetsSelector:
     """`IdunBattleLogic.Entities.DSLFactory$$HeroUnits(source, mask)` — MIRROR du decompile : la factory
     native N'ALLOUE PAS de selecteur dedie, elle DELEGUE textuellement a
     `IdunBattleLogic.Entities.DSLFactory$$UnitsWithTrait(source, 0x10, mask)`. On mirror donc la FACTORY
     (fonction de composition), pas une classe inventee — `0x10` = `UnitTrait.Hero` (16). Consommateur porte :
     `IdunBattleLogic.Entities.Abilities.Active.Loki.AdaptiveStrategyAbility$$GetNonCharacterFriendsSelector`
-    (`Friends(...) op_Subtraction HeroUnits(...)` = les amis NON-Character)."""
-    return UnitsWithTrait(source, int(UnitTrait.Hero))          # 0x10
+    (`Friends(...) op_Subtraction HeroUnits(...)` = les amis NON-Character).
+
+    Le 2e argument natif (`mask` dans la signature ci-dessus) EST le `selectionType` : la factory le
+    passe tel quel a `UnitsWithTrait(source, 0x10, mask)`. Le port l'AVALAIT (#585-r1) ; `None` =
+    comportement HISTORIQUE."""
+    return UnitsWithTrait(source, int(UnitTrait.Hero), selection_type)          # 0x10
 
 
 class AllDeadUnits(TargetsSelector):
@@ -875,21 +943,6 @@ class UnitsDamagedThisPhase(TargetsSelector):
                     seen.add(uid)
                     out.append(u)
         return out
-
-
-def non_steppable_or_object_units(source: TargetsSelector) -> TargetsSelector:
-    """`IdunBattleLogic.Entities.DSLFactory$$NonSteppableOrObjectUnits(source)` — MIRROR du décompilé (composition PURE
-    de primitives déjà portées, comme `get_spawn_tile_selector`) :
-        `(source op_BitwiseAnd UnitsWithoutTrait(source, 0x1b=Steppable))
-                op_BitwiseAnd UnitsWithoutTrait(source, 0xd=Object)`
-    = les unités de `source` qui ne sont NI `Steppable` (27, decoys/mines traversables) NI `Object` (13,
-    murs/objets de plateau). Le nom natif dit « non (steppable ou object) ».
-
-    Consommateur porté : les deux prédicats de ciblage de `SquigLaunchasAbility`
-    (`IdunBattleLogic.Entities.Abilities.Active.Loki.SquigLaunchasAbility$$HasMinimumAdjacentOrks` / `IdunBattleLogic.Entities.Abilities.Active.Loki.SquigLaunchasAbility$$HasMinimumAdjacentFriendlyUnits`) — un decoy ou un
-    objet adjacent à la cible NE COMPTE PAS comme « unité amie adjacente »."""
-    return And(And(source, UnitsWithoutTrait(source, int(UnitTrait.Steppable))),
-               UnitsWithoutTrait(source, int(UnitTrait.Object)))
 
 
 class AdjacentFriends(TargetsSelector):
@@ -1120,8 +1173,24 @@ class Unobscured(TargetsSelector):
     - **dist 1 : jamais obscurcie** (la ligne n'a aucune tuile intermediaire testable, cf. case-49x §3) -> gardee.
     - **dist 2 : `bq.is_target_tile_obscured(from, unit, elev)`** (elevation, cube-line ±eps) -- geometrie
       DEJA validee live cote PREDICTION (`bq.surrounding_enemies`, craft-O/O2 probe_49x : crete elev 4 ->
-      ennemi dist-2 EXCLU / deplace visible -> compte). `elev` construit depuis `ctx.board`
-      (`by_coord[(col,row)]['elevation']`).
+      ennemi dist-2 EXCLU / deplace visible -> compte).
+
+    `elev` = **`ctx.elev_by_pos`** (#433-r4-r1-r4-r1), le canal du contexte -- celui que
+    `DslContext.__post_init__` derive du board par `entities/pathfinding/board.elevations_by_pos`, et
+    que `UnitsDirectlyBehind` ci-dessus consomme deja. Ce noeud-ci re-derivait AU LIEU DE LE LIRE :
+    `{k: t.get("elevation", 0) for k, t in ctx.board.by_coord.items()}`. Deux ecarts, tous deux reels :
+
+      * le defaut `0` FABRIQUAIT une elevation pour toute tuile dont le canal ne porte pas la donnee,
+        alors que le foyer OMET l'inconnu (tri-etat : `None` = pas de canal, une carte = les tuiles
+        CAPTEES). Le `0` invente n'est pas neutre et devie dans les DEUX SENS, contre le contrat que
+        `battle_query.is_target_tile_obscured` tient deja -- inconnue en `from`/`to` : le contrat rend
+        `False` (jamais obscurci), le `0` faisait au contraire passer le seuil des qu'un mid valait
+        `>= 2` (obscurcissement FABRIQUE) ; inconnue en MID : le contrat la RETIRE (`GetTileAt null ->
+        pas bloquant`), ce qui bascule le cas diagonal sur la branche `len(mids) == 1`, PLUS
+        bloquante, la ou le `0` la gardait dans le `all(...)` de la fat-line et ETEIGNAIT le blocage ;
+      * la FORME du board : `by_coord` seul rendait `None` (passe-tout) sur un `Board` sans cette
+        vue et sur tout board duck-type `by_id`, que le foyer, lui, sait lire. Et une injection
+        EXPLICITE de `elev_by_pos` dans le contexte etait purement ignoree.
 
     v1 FLAGS (IDENTIQUES a la face prediction, cf. `battle_query.is_target_tile_obscured`) : murs (bit 4)
     non modelises (aucun board d'agreement n'a de mur en zone jouable) ; mask 4 IndirectFire non gate
@@ -1140,9 +1209,10 @@ class Unobscured(TargetsSelector):
         units = _units_of(self.source, ctx)
         if frm is None:
             return list(units)
-        board = getattr(ctx, "board", None)
-        bc = getattr(board, "by_coord", None) if board is not None else None
-        elev = ({k: t.get("elevation", 0) for k, t in bc.items()} if bc else None)
+        # CANAL du contexte (#433-r4-r1-r4-r1) -- le MEME que consomme `UnitsDirectlyBehind`
+        # ci-dessus : tri-etat `None` = pas de canal, et l'inconnu est OMIS, jamais rabattu sur `0`.
+        # Cf. la docstring.
+        elev = ctx.elev_by_pos
         out = []
         for u in units:
             feet = _feet(u)

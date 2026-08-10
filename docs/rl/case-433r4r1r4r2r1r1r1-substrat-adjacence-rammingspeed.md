@@ -134,12 +134,32 @@ la suspension est alors PÉRIMÉE, et c'est elle le vice.
 ## 6. Résidus NOMMÉS
 
 * **`#433-r4-r1-r4-r2-r1-r1-r1-r1`** — `AdjacentTiles` / `AdjacentUnits` sont au registre
-  **SUSPENDU**. Les armer ferait rougir `playbook/noncomparable/aberrant_hypermorph.py` et
+  **SUSPENDU**. ~~Les armer ferait rougir `playbook/noncomparable/aberrant_hypermorph.py` et
   `master_of_the_tutelaries.py`, qui reconstruisent « spawn adjacent à la position T » par
-  `hexgeo.distance(T, ST) != 1` alors que le canal est deux lignes plus bas. Trancher demande de
-  lire le sélecteur DSL de chaque ability : `AberrantHypermorphPlaybook$$EvaluateNonComparable` ne
-  filtre pas par distance, la contrainte vient du sélecteur. L'étape 5 re-mesure à chaque passe que
-  cette suspension est encore justifiée.
+  `hexgeo.distance(T, ST) != 1` alors que le canal est deux lignes plus bas.~~ — **CES DEUX
+  BLOQUEURS SONT PÉRIMÉS, ET ILS L'ÉTAIENT DÉJÀ.** Re-mesuré le 2026-08-10 en armant chaque natif
+  suspendu pour de faux et en lisant *qui* rougit (étapes 2 et 4 du probe, sortie détaillée) : les
+  deux modules cités passent — ils filtrent par
+  `bq.is_adjacent(T, ST, ctx.elev_by_pos, neigh)`, le canal, pas par une distance nue. La
+  **suspension reste JUSTIFIÉE**, mais pour **trois autres** foyers, qu'aucune ligne ne nommait :
+
+  | foyer | natif déclaré | armé par |
+  |---|---|---|
+  | `entities/effects/loki/extra_damage_aura.py:46 create_aura_attack_bonus` | `AdjacentUnits` | `AdjacentUnits` |
+  | `playbook/prediction/abilities.py:1308 make_hammer_wrath_events` | `AdjacentTiles`, `AdjacentUnits` | les deux |
+  | `playbook/psyker.py:139 possible_targets` | `AdjacentUnits` | `AdjacentUnits` |
+
+  Les trois comparent une distance à 1 **sans accès au canal** — `psyker.py` l'écrit même en toutes
+  lettres (« Adjacence GÉOMÉTRIQUE hex (evenq) ») alors que son natif est
+  `Damageable(Enemies(caster, AdjacentUnits(CIBLE, 1)))`, donc
+  `AdjacentTilesSelector$$Select` → slot `0x50` `GetAdjacentTiles` → `IterateAdjacentTiles` =
+  **liste stockée + porte `|dElev| < 2`**. La couronne hex SUR-ATTEINT cette liste.
+
+  ⚠ **La leçon porte sur la FORME de la ligne, pas sur son contenu** : un blocage écrit en prose se
+  périme sans que rien ne le dise. L'étape 5 mesurait bien « la suspension est-elle justifiée ? »
+  (et elle rendait juste), mais elle **ne nommait pas** les foyers — donc la prose qui, elle, les
+  nommait, a survécu à leur réparation. Le correctif est dans le probe : l'étape 5 **imprime
+  désormais les foyers qui rougiraient**, dérivés à chaque passe.
 * **`#381-r1`** (déjà ouvert) — le test de CHEMIN (slot `0x14`) reste SUBSUMÉ côté port :
   `ramming_speed_tile_to_move_to` n'émet que des tuiles de `MovableTilesInRange`, qui est le
   `visited` d'un BFS **qui traverse**, là où le natif fait un pathfinding. Écart d'ACCEPTATION sur

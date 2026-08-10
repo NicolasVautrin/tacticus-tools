@@ -79,4 +79,29 @@ def matches_unit_selection_type(selection_type, *, is_unit: bool | None = True,
     return True                                       # `Any`, et toute valeur hors enum
 
 
-__all__ = ["UnitSelectionType", "matches_unit_selection_type"]
+def selection_type_from_only_alive(only_alive) -> UnitSelectionType:
+    """La SURCHARGE BOOLEENNE des factories `DSLSelectors` n'est pas un autre axe -- c'est un SUCRE
+    sur `selectionType`, et le corps le dit litteralement (#585-r1, build `rnca9r7q6c`) :
+
+        IdunBattleLogic.Entities.DSLSelectors$$Enemies(this, of, entities, onlyAlive)
+            -> Enemies(this, of, entities, (onlyAlive & 0xff) + 2)
+        IdunBattleLogic.Entities.DSLSelectors$$Units(this, entities, unique, onlyAlive)
+            -> UnitsOnTilesSelector..ctor(..., unique, (onlyAlive & 0xff) + 2)
+
+    Soit `false -> 2` (`OnlyTargetable`) et `true -> 3` (`OnlyAliveAndTargetable`).
+
+    ⚠ CONSEQUENCE, et c'est elle qui compte : **la surcharge booleenne ne peut JAMAIS produire
+    `Any` (0) ni `OnlyAlive` (1)**. Tout call-site natif qui l'emprunte filtre donc au MINIMUM
+    `UnitFlag.Untargetable`. Un port qui n'arme aucun filtre y est strictement plus permissif que
+    le plancher natif -- exactement l'ecart mesure par #585 (une unite en deep strike retenue a
+    tort). Et pour le releve des ~100 call-sites, un `bool` litteral au natif se DERIVE ici sans
+    ambiguite, au lieu d'exiger un arbitrage entre quatre valeurs.
+
+    ⚠ Ne PAS s'en servir pour deviner : il faut avoir LU que le call-site emprunte bien la surcharge
+    booleenne. Les deux surcharges portent le meme nom et la meme arite -- seul le corps les separe
+    (celle a `selectionType` alloue le selecteur, celle a `onlyAlive` se re-appelle avec `+2`)."""
+    return (UnitSelectionType.OnlyAliveAndTargetable if bool(only_alive)
+            else UnitSelectionType.OnlyTargetable)
+
+
+__all__ = ["UnitSelectionType", "matches_unit_selection_type", "selection_type_from_only_alive"]
