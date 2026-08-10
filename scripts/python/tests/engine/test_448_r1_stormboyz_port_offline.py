@@ -121,10 +121,36 @@ def test_O2_le_noeud_SortTilesByUtility_se_RE_EVALUE():
     # `_is_alive` = `alive and hp > 0` -- le `hp` n'est pas decoratif : sans lui l'unite est MORTE
     # pour le DSL et n'occupe donc rien (le contre-test aurait ete vert pour la mauvaise raison).
     caster = {"id": 1, "pos": None, "alive": True, "hp": 100}
+
+    vus: dict = {}
+
+    def _tri_identite(tiles, unit_id, utility_type, parent_id=None, utility_definition=None):
+        """MEME signature, parametre pour parametre, que le fournisseur de PRODUCTION
+        `engine/runner/abilities/behaviours/context.py::_sort_tiles_by_utility` -- et ce n'est pas
+        de la coquetterie : `SortTilesByUtility.select` passe ses cinq arguments POSITIONNELLEMENT,
+        donc un stub plus etroit leve `TypeError` au lieu de mesurer quoi que ce soit.
+
+        Le 5e (`utility_definition`) n'est pas un ajout de confort : les deux surcharges natives
+        `IdunBattleLogic.Entities.DSLSelectors$$SortTilesByUtility` prennent l'une
+        `utilityType:IdunBattle.Configuration.UtilityType`, l'autre
+        `utilityDefinition:IdunBattleLogic.AI.Utilities.UtilityDefinition`, et le
+        `IdunBattle.Entities.Selectors.SortTilesByUtilitySelector$$.ctor` ne garde QUE la seconde
+        forme. Le couple `(utility_type, utility_definition)` du port encode ces deux voies."""
+        vus["utility_type"] = utility_type
+        vus["utility_definition"] = utility_definition
+        return list(tiles)
+
     ctx = DslContext(units=[caster], caster=caster, owner=caster, actor=caster, board=board,
-                     sort_tiles_by_utility=lambda tiles, uid, ut, pid=None: list(tiles))
+                     sort_tiles_by_utility=_tri_identite)
     first = list(sel.evaluate(ctx))
     assert first, "pool vide : le scenario n'exerce rien"
+    # TEMOIN du contrat : le noeud a bien FORWARDE le litteral du call-site, et la definition
+    # batie a la main est nulle ici (ce call-site emprunte la surcharge `int`).
+    assert vus.get("utility_type") == int(UtilityType.UnitMovement), (
+        "le noeud ne transmet plus le litteral d'utilite du call-site : %r" % (vus,))
+    assert vus.get("utility_definition") is None, (
+        "ce call-site emprunte la surcharge `utilityType`, pas la surcharge `utilityDefinition` "
+        ": %r" % (vus,))
     # le caster occupe desormais la tuile choisie -> `CanAddUnit` l'exclut a la RE-EVALUATION
     caster["pos"] = {"col": board.by_id[first[0]]["col"], "row": board.by_id[first[0]]["row"]}
     second = list(sel.evaluate(ctx))

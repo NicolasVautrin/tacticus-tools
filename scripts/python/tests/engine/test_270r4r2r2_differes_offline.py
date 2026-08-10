@@ -56,14 +56,28 @@ import probe_270r4r2r2_tri_differes as TR       # noqa: E402
 # EXHAUSTIVE des 224 : 54 TYPE_CHECKING, 95 brise-cycle, 31 conditionnel, 16 placement -- et
 # 28 HISSABLES.
 #
-# ⚠⚠ CE SONT CES 28 QUI SONT LE GISEMENT, PAS LE TOTAL, et l'etage 1 ne peut pas les voir : son
+# ⚠ RE-MESURES le 2026-08-10 (224 -> 265, 139 -> 170, #547-r2), MEME critere et meme obligation de
+# motif. Ce qui a ete VERIFIE avant de relever, plutot que suppose :
+#   * la DISPERSION. Diff site-a-site contre l'arbre de `22014f1c` (le commit qui a pose 224) :
+#     +44 instructions reparties sur 23 modules, la plus grosse contribution etant les +9 d'un
+#     module NEUF (`engine.runner.abilities.loki.attempted_possession`, #590). Aucun module ne
+#     remonte le plafond a lui seul -> ce n'est pas la reprise de MASSE que ce seuil surveille.
+#   * le DEBIT. 193 commits entre `22014f1c` et la mesure, soit ~0,23 differe par commit --
+#     MOITIE du debit qui avait justifie le passage de 211 a 224. La derive ne s'accelere pas.
+#   * la PARTITION EXHAUSTIVE des 265 (meme commande) : 57 TYPE_CHECKING, 105 brise-cycle,
+#     38 conditionnel, 19 placement -- et 46 HISSABLES.
+# Trois GRATUITS ont ete hisses dans la meme tranche (etage 1 remis a zero), en FORME B : le total
+# passe de 268 a 265 AVANT la re-mesure du plafond, jamais l'inverse.
+#
+# ⚠⚠ CE SONT CES 46 QUI SONT LE GISEMENT, PAS LE TOTAL, et l'etage 1 ne peut pas les voir : son
 # critere `gratuits()` est SYNTAXIQUE (« la cible est deja au preambule du MEME fichier ») et n'en
-# retient qu'UN. Le critere doctrinal, lui, est une MESURE (charger la cible seule en process
-# frais). Le sweep des 28 est ouvert en RESIDU #270-r4-r2-r2-r4 : il touche 28 fichiers partages
-# et chaque site doit passer par `migrate_485r1_barils_reexport.py morsure` puis etre hisse en
-# FORME B -- ce n'est pas un geste a glisser dans une tranche de reparation de cliquets.
-PLAFOND_DIFFERES = 224
-PLAFOND_INCONDITIONNELS = 139
+# retient AUCUN une fois la tranche passee. Le critere doctrinal, lui, est une MESURE (charger la
+# cible seule en process frais). Le sweep des 46 (28 a l'epoque) est ouvert en RESIDU
+# #270-r4-r2-r2-r4 : il touche autant de fichiers partages, et chaque site doit passer par
+# `migrate_485r1_barils_reexport.py morsure` puis etre hisse en FORME B -- ce n'est pas un geste a
+# glisser dans une tranche de reparation de cliquets.
+PLAFOND_DIFFERES = 265
+PLAFOND_INCONDITIONNELS = 170
 
 
 @pytest.fixture(scope="module")

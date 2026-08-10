@@ -90,6 +90,9 @@ from ..abilities.targeting import (valid_normal_attack_targets, normal_attack_ty
 from ..abilities.handler import ABILITY_CLASSES
 from .repair import _is_boss
 from ...ai.state_bridge import _move_tiles
+from . import effects as _ops_effects        # FORME B (#547-r2) : le MODULE, pas le symbole -- un
+# `monkeypatch.setattr("engine.runner.operations.effects.<x>", ...)` mord encore. `.effects` est
+# deja au preambule (ligne suivante), donc l'arete existe : ni cycle, ni cout.
 from .effects import revert_stat_mods_of_removed_effects
 from .traits import revert_traits_of_removed_effects
 from .refresh_effects import RefreshEffectTrigger, refresh_stat_modifier_effects
@@ -859,8 +862,7 @@ class EndTurnOperation:
         # ⚠ Les TROIS clefs voyagent ENSEMBLE dans le dict de retour (#585 x #590, resolu au
         # rebase) : en garder une seule ETEINDRAIT le canal de l'autre en silence -- son appelant
         # lirait `None` et le lirait comme << rien a reverser >>.
-        from .effects import revert_owner_overrides_of_removed_effects
-        owners_reverted = revert_owner_overrides_of_removed_effects(state)
+        owners_reverted = _ops_effects.revert_owner_overrides_of_removed_effects(state)
         if not advance:
             return {"ticked": ticked, "shields_ticked": shields_ticked, "landed": landed,
                     "pilein": pilein, "next_player": None, "start": None,
