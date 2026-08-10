@@ -73,6 +73,7 @@
  "tests/engine/runner/test_576r1_blood_chalice_inactive_offline.py": 0.01,
  "tests/engine/runner/test_585_war_howl_pose_offline.py": 0.006,
  "tests/engine/runner/test_585r1_selection_type_releve_offline.py": 0.133,
+ "tests/engine/runner/test_585r3_etage_amont_selection_type_offline.py": 0.029,
  "tests/engine/runner/test_589r1r1r2r1r8_unite_sans_sante_offline.py": 0.058,
  "tests/engine/runner/test_883_ice_crit_rounding_offline.py": 0.054,
  "tests/engine/runner/test_ability_registry_ratchet.py": 26.198,
