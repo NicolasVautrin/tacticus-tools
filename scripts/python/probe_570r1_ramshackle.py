@@ -30,12 +30,20 @@ ETAGES :
                     `_seed_ability_owner_effects` au spawn, que rien d'autre ne couvre (mesure :
                     **0** unite non-`lineup` du gameconfig etait touchee par ce chemin avant).
   [3] PERCAGE BAS : degat NATIF == degat PORT sur `adeptRetributor` (profil a percage 1).
+  [3b] PERCAGE MOYEN + [3] : ETAGE **PLACEMENT** (#570-r5). On ne lit pas un scalaire : chaque coup
+                    positif est rejoue une SECONDE fois avec ce canal RENDU MUET (l'ancre `nu`),
+                    ce qui permet de construire les DEUX modeles concurrents --
+                    PRE-percage (la reduction entre AVANT `GetDamageWithPiercing`, donc DILUEE) et
+                    POST-percage (`max(0, nu - R)`) -- et de dire lequel egale le natif PAR COUP.
+                    Le probe REFUSE de conclure si la substitution est inerte, si les deux modeles
+                    coincident (regime DEGENERE), ou si aucun ne colle.
   [4] PERCAGE HAUT: degat NATIF == degat PORT sur `admecDominus` (profil a percage 40), TEMOIN
                     NEGATIF -- si le port appliquait la reduction ici, l'etage [3] seul ne le
                     dirait pas.
 
 Le MT offline est CALE sur le MT live juste avant chaque coup natif (`dumpRng`), donc les deux
-degats sont comparables A L'UNITE PRES.
+degats sont comparables A L'UNITE PRES. Les degats NATIFS sont lus PAR COUP (`tags.Amount` des
+events d'`applyAction`) : un total HP peut s'accorder par compensation entre deux coups.
 
     python probe_570r1_ramshackle.py [--state-file <chemin ABSOLU>] [--board MC1_67] [--seed 777]
 
@@ -141,12 +149,62 @@ def _cablage(state, cible_id: int, profil: "str | None") -> list:
         out.append({"classe": type(e).__name__, "type": e.effect_type,
                     "ability_level": e.ability_level, "level": e.level,
                     "mult": e.ability_variables_multiplier,
+                    # `bonus_valeur` = la MAGNITUDE, exploitable ; `bonus` reste la forme lisible.
+                    # L'etage PLACEMENT en a besoin sous forme de nombre (cf. `_placement`).
+                    "bonus_valeur": (getattr(b, "value", None) if not isinstance(b, str) else None),
                     "bonus": (None if b is None else str(b))})
     return out
 
 
+def _hits_natifs(res, caster: int, target: int) -> list:
+    """Degats NATIFS **PAR COUP** : les `tags` des events d'`applyAction`, cle `Amount`, filtres sur
+    la paire. Le total HP suffit a dire « ecart » ; il ne suffit PAS a dire OU l'ecart naît -- une
+    salve de 2 coups peut compenser. C'est le meme canal que `probe_589r1r1r2r1._hits_of`."""
+    a0 = (res.get("actions") or [{}])[0] if isinstance(res, dict) else {}
+    out = []
+    for e in (a0.get("events") or []):
+        td = e.get("tags")
+        if not td:
+            continue
+        td = json.loads(td) if isinstance(td, str) else td
+        if "Amount" in td and td.get("Attacker_Id") == caster and td.get("Target_Id") == target:
+            out.append(int(td["Amount"]))
+    return out
+
+
+def _rejeu_sans_reduction(sid, rid, att_id: int, cible_id: int) -> dict:
+    """LE MEME coup, rejoue offline avec `Ramshackle_DmgReduction` RENDU MUET -- l'ancre `nu`.
+
+    POURQUOI ELLE EST NECESSAIRE. Le placement ne se lit pas d'un seul nombre : il faut le degat
+    SANS reduction pour construire les DEUX modeles concurrents et montrer qu'ils different. Sans
+    `nu`, « port == natif » ne dit pas si le placement a ete confronte ou s'il est simplement
+    inobservable sur ce regime.
+
+    La substitution est VERIFIEE non inerte par l'appelant (`nu > port` des que le gate passe)."""
+    from engine.entities.effects.loki.ramshackle import RamshackleDmgReductionEffect
+    from engine.runner.operations.damage import AttackDamageOperation
+    state, _ = P.load(sid, rid)
+    P.seed_offline_rng(state, P.rng_dump(sid, rid))
+    orig = RamshackleDmgReductionEffect.create_effect_damage_malus_for_defense
+    try:
+        # *args/**kw : le forwarder appelle ce slot en POSITIONNEL selon les chemins -- une
+        # signature trop etroite ferait lever, et la levee se lirait comme une mesure.
+        RamshackleDmgReductionEffect.create_effect_damage_malus_for_defense = (
+            lambda self, *a, **kw: None)
+        avant = P.hp_off(state)
+        r = AttackDamageOperation.execute(state, int(att_id), int(cible_id)) or {}
+        apres = P.hp_off(state)
+    finally:
+        RamshackleDmgReductionEffect.create_effect_damage_malus_for_defense = orig
+    return {"total": int(avant.get(cible_id, 0)) - int(apres.get(cible_id, 0)),
+            "per_hit": list(r.get("per_hit") or [])}
+
+
 def _coup(sid, rid, att_id: int, cible_id: int, profil: "str | None") -> dict:
-    """UN coup de `att_id` sur `cible_id`, joue par le PORT (sur MT cale) PUIS par le NATIF."""
+    """UN coup de `att_id` sur `cible_id`, joue par le PORT (sur MT cale) PUIS par le NATIF.
+
+    TROIS bras, pas deux : le port AVEC sa reduction, le port SANS (l'ancre `nu`), puis le natif.
+    Les deux premiers partent du MEME etat live et du MEME MT -- le coup natif n'est joue qu'apres."""
     from engine.runner.operations.damage import AttackDamageOperation
 
     dec = P.decision(sid, rid)
@@ -167,6 +225,8 @@ def _coup(sid, rid, att_id: int, cible_id: int, profil: "str | None") -> dict:
     r = AttackDamageOperation.execute(state, int(att_id), int(cible_id)) or {}
     hp_off_apres = P.hp_off(state)
     port = int(hp_off_avant.get(cible_id, 0)) - int(hp_off_apres.get(cible_id, 0))
+    # ANCRE : le MEME coup sans la reduction (l'etat live n'a pas encore bouge).
+    nu = _rejeu_sans_reduction(sid, rid, int(att_id), int(cible_id))
 
     # NATIF : le MEME coup.
     hp_live_avant = P.hp_live(sid, rid)
@@ -175,7 +235,8 @@ def _coup(sid, rid, att_id: int, cible_id: int, profil: "str | None") -> dict:
         "targetId": int(cible_id)}}, 90) or {}
     hp_live_apres = P.hp_live(sid, rid)
     natif = int(hp_live_avant.get(cible_id, 0)) - int(hp_live_apres.get(cible_id, 0))
-    return {"port": port, "natif": natif, "nat": nat, "cablage": inst,
+    return {"port": port, "natif": natif, "nat": nat, "cablage": inst, "nu": nu,
+            "natif_par_coup": _hits_natifs(act, int(att_id), int(cible_id)),
             "erreur_cast": (act.get("actions") or [{}])[0].get("error"),
             "etages": {k: r.get(k) for k in ("total", "rolls", "crits", "armor", "pierce",
                                              "profile", "did_block", "per_hit")}}
@@ -344,19 +405,74 @@ def main() -> int:
             elif d["port"] != d["natif"]:
                 rc = 1
         else:
-            # ETAGES POSITIFS : le CABLAGE est verifiable, la MAGNITUDE non (cf. l'en-tete du
-            # mirror). On ne rend donc PAS un ECHEC sur l'ecart -- on le NOMME.
+            # ETAGES POSITIFS : CABLAGE, MAGNITUDE, puis PLACEMENT. Les trois sont separes -- un
+            # ecart doit pouvoir designer SON etage.
             if ram is None or ram.get("bonus") is None:
                 print("    ECHEC : le canal du port ne rend RIEN sur un profil qui PASSE le gate")
                 rc = 1
             elif d["port"] != d["natif"]:
-                print("    NON CONFRONTE (magnitude) : ecart %d. Le port lit `dmgReduction` au "
-                      "niveau %s / mult %s -- l'entite NPC fraichement spawnee arrive avec "
-                      "`passive_ability_level = 0`. Trou de SUBSTRAT (le meme que l'etage E3 de "
-                      "#570), pas de RE." % (d["port"] - d["natif"],
-                                             ram.get("ability_level"), ram.get("mult")))
+                print("    ECART DE MAGNITUDE %d -- le port lit `dmgReduction` au niveau %s / "
+                      "mult %s." % (d["port"] - d["natif"],
+                                    ram.get("ability_level"), ram.get("mult")))
+                rc = 1
+            else:
+                rc = _placement(d, ram) or rc
     print("\nVERDICT : %s" % ("OK" if rc == 0 else "ECHEC"))
     return rc
+
+
+def _placement(d: dict, ram: dict) -> int:
+    """L'ETAGE PLACEMENT : `ForAddition(Multiply(v, Direct(-1)))` entre-t-il AVANT ou APRES
+    `...StaticBattleRules.Damage$$GetDamageWithPiercing` ?
+
+    On ne lit PAS un scalaire : on construit les DEUX modeles depuis la MEME ancre `nu` (le coup
+    rejoue avec la reduction rendue muette) et on regarde lequel egale le natif.
+
+      * PRE-percage  = ce que le port fait (`for_subtraction` -> `flat_reductions` ->
+        `mods.additive`, consomme avant le percage) : la reduction sort DILUEE ;
+      * POST-percage = `max(0, <degat final sans reduction> - R)`.
+
+    TROIS refus, et aucun n'est un accord :
+      * la substitution est INERTE (`nu == port`) -> on n'a rien mesure ;
+      * les deux modeles COINCIDENT -> regime DEGENERE, l'accord ne tranche pas (c'est le cas des
+        cibles a faible armure : `GetDamageWithPiercing` y retient la branche SOUSTRACTIVE, sur
+        laquelle l'etage percage est l'IDENTITE pour l'axe additif) ;
+      * aucun des deux ne colle -> un etage manque en amont, on le DIT."""
+    nu = d.get("nu") or {}
+    reduction = int(ram.get("bonus_valeur") or 0)
+    nu_hits = [int(x) for x in (nu.get("per_hit") or [])]
+    pre_hits = [int(x) for x in ((d.get("etages") or {}).get("per_hit") or [])]
+    natif_hits = [int(x) for x in (d.get("natif_par_coup") or [])]
+    post_hits = [max(0, x - reduction) for x in nu_hits]
+    print("    ancre `nu` (reduction MUETTE) : total %s  par coup %s"
+          % (nu.get("total"), nu_hits))
+    print("    R = %d  |  modele PRE-percage %s (total %d)  |  modele POST-percage %s (total %d)"
+          % (reduction, pre_hits, sum(pre_hits), post_hits, sum(post_hits)))
+    print("    natif par coup : %s (total %d)" % (natif_hits, sum(natif_hits)))
+    if int(nu.get("total") or 0) <= d["port"]:
+        print("    PLACEMENT NON CONFRONTE : la substitution est INERTE (nu %s <= port %s) -- "
+              "rien n'a ete mesure" % (nu.get("total"), d["port"]))
+        return 1
+    if sum(pre_hits) == sum(post_hits):
+        print("    PLACEMENT NON CONFRONTE : REGIME DEGENERE -- les deux modeles rendent le MEME "
+              "nombre ici, l'accord ne tranche rien. (Recette : une cible dont l'ARMURE depasse "
+              "le degat brut, pour que `GetDamageWithPiercing` retienne la branche PERCAGE.)")
+        return 0
+    if not natif_hits:
+        print("    PLACEMENT NON CONFRONTE : aucun `Amount` natif par coup dans les events")
+        return 1
+    ok_pre = natif_hits == pre_hits
+    ok_post = natif_hits == post_hits
+    if ok_pre and not ok_post:
+        print("    PLACEMENT CONFRONTE : **PRE-percage**. Le modele POST rendrait %s." % post_hits)
+        return 0
+    if ok_post and not ok_pre:
+        print("    PLACEMENT : le natif suit le modele **POST-percage** -- le port est en "
+              "PRE-percage, c'est un BUG DE PLACEMENT.")
+        return 1
+    print("    PLACEMENT NON CONFRONTE : le natif %s ne suit NI PRE %s NI POST %s -- un etage "
+          "manque en amont." % (natif_hits, pre_hits, post_hits))
+    return 1
 
 
 if __name__ == "__main__":

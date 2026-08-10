@@ -37,54 +37,62 @@ noeud par noeud :
 `PsychicFortress_DmgReductionEffect` (meme parent, meme unique canal, meme
 `Multiply(ConfigVar(0x12), MinusOne)`).
 
-LE PLACEMENT -- PRESUME PAR LA FAMILLE, **PAS ENCORE TRANCHE PAR LA MESURE**
-=============================================================================
-Les deux jumeaux ci-dessus DIVERGENT sur ce point (`HolyDuel` -> `for_addition(-v)` = POST-percage ;
-`PsychicFortress` -> `for_subtraction(v)` = PRE-percage, place que sa propre docstring qualifie
-deja de « presumee par la famille Nightshroud »). Ce module suit `PsychicFortress`
-(`for_subtraction` -> `flat_reductions`, mirror `Nightshroud` #120), et c'est un CHOIX DE FAMILLE,
-pas une mesure.
+LE PLACEMENT -- **MESURE (#570-r5), PRE-PERCAGE**
+=================================================
+Le mirror place la reduction en PRE-percage (`for_subtraction` -> `flat_reductions` ->
+`mods.additive`, consomme AVANT
+`idun.Idun.Source.Shared.Battle.StaticBattleRules.StaticBattleRules.Damage$$GetDamageWithPiercing`,
+famille `Nightshroud` #120 / `PsychicFortress`). Ce n'est plus un choix de famille : c'est ce que
+le natif fait, mesure **par coup** contre le modele concurrent.
 
-POURQUOI LA MESURE NE TRANCHE PAS ENCORE, et ou elle s'arrete exactement
-(`probe_570r1_ramshackle.py`, board `MC1_67`, tank a 3193 d'armure) :
+    (`probe_570r1_ramshackle.py`, board `MC1_67`/777, tank a 3193 d'armure, niveau 50 x 180 %
+     => `R = dmgReduction[50] x 1,8 = 499`)
 
-    profil `Physical` (1 %)  : port 18   natif 13    -> ecart 5    <- REGIME DEGENERE
-    profil `Energy`   (30 %) : port 1589 natif 1102  -> ecart 487
-    profil `Gauss`    (60 %) : port 6862 natif 6862  -> **OK**, temoin NEGATIF bit-exact
+    profil            ancre `nu`      modele PRE      modele POST     NATIF (par coup)
+    `Physical` (1 %)  [18]            [13]            [0]             [13]   -> PRE
+    `Energy`  (30 %)  [750, 841]      [568, 534]      [251, 342]      [568, 534] -> PRE
+    `Gauss`   (60 %)  --              --              --              6862 == 6862 (temoin NEG.)
 
-Le premier ecart (5) est compatible avec les DEUX hypotheses -- `499` dilue a 1 % vaut 4,99, et une
-reduction de `5` posee en post-percage vaut 5. C'est un regime ou l'accord ne prouve rien, et c'est
-ce qui a d'abord fait ecrire ici une conclusion que la 2e ligne a refutee.
+L'ancre `nu` est le MEME coup rejoue avec ce canal RENDU MUET : sans elle, « port == natif » ne
+dirait pas si le placement a ete confronte ou s'il est inobservable. Le modele POST est
+`max(0, nu - R)`. Les deux modeles DIFFERENT sur ce regime, et c'est ce qui autorise a conclure.
 
-Le VRAI blocage est en amont : le port lit `dmgReduction[**1**] = 5` au lieu du palier reel.
-Tant que ce niveau est faux, AUCUNE comparaison de magnitude n'est concluante -- et forcer un
-placement sur un ecart mesure avec la mauvaise magnitude serait exactement le fit que la doctrine
-interdit.
+⚠ **LE REGIME EST LOAD-BEARING, ET IL Y A UN REGIME DEGENERE JUSTE A COTE.**
+`GetDamageWithPiercing` = `max(0, d - armure, d x percage/100)`. Des que la branche SOUSTRACTIVE
+gagne (degat brut > armure), l'etage percage est l'IDENTITE sur l'axe additif : PRE et POST rendent
+alors EXACTEMENT le meme nombre et l'accord ne prouve RIEN. La mesure ci-dessus tient parce que le
+tank a 3193 d'armure pour des degats bruts inferieurs, donc la branche PERCAGE l'emporte. Garde
+executable : `test_570r5_ordre_de_seeding_offline.py` etages 7 et 7b.
 
-⚠ **#570-r3 A LEVE LE PREMIER DES DEUX ETAGES, ET MESURE LE SECOND -- ILS SONT DISTINCTS.**
+⚠ **ET LA « DIVERGENCE DE FAMILLE » ECRITE ICI AVANT #570-r5 N'EN ETAIT PLUS UNE.** Elle opposait
+`HolyDuel` (`for_addition(False, -v)`, dit POST-percage) a `PsychicFortress` (`for_subtraction`,
+PRE-percage). Depuis #462-r4b-r1, l'`Addition@+0x10` du DEFENSEUR est versee dans le MEME
+accumulateur pre-percage que `flat_reductions`
+(`AttackDamageOperation._apply_defender_flat_reductions`) : les deux ecritures rendent le meme
+nombre, il n'y avait donc aucune fourche cote port. Ce que la mesure tranche est le placement
+NATIF, contre un modele POST construit a la main. Garde : meme fichier, etage 8.
+
+LES DEUX ETAGES DE SUBSTRAT, ET ILS SONT LEVES
+===============================================
 La cause n'etait PAS « `combatSnapshot` ne publie pas l'entite NPC fraichement spawnee » (elle la
 publie : le probe la lit) :
 
-  ETAGE 1 -- L'UNITE. `combatSnapshot.unitConfig` rend `{"error": "config null"}` pour toute
-  unite INVOQUEE (elle n'a aucune `UnitConfiguration`), donc son `passive_ability_level` restait
-  `0` / son multiplicateur `100`. Le canal qui porte l'information est `unitAbilityStates`, que
-  `snapshot._load_passive_abilities` sait deja consommer -- mais que le HARNAIS des probes ne
-  collectait pas. **LEVE** (`probe_503r1_overwhelming_wrath_phase2.load` le passe desormais a
-  `load_state`) : MESURE, le CTX du tank passe de `(passive_ability_level 0, mult 100)` a
-  `(50, 180)`. S'y ajoute, cote spawn PORTE, le defaut de `build_summon_context` remis a
-  `abilitiesLevel ?? abilityState.level` (LU dans `SpawnUnitOptions$$WithStatsFromConfig`).
+  ETAGE 1 -- L'UNITE (#570-r3). `combatSnapshot.unitConfig` rend `{"error": "config null"}` pour
+  toute unite INVOQUEE (elle n'a aucune `UnitConfiguration`), donc son `passive_ability_level`
+  restait `0` / son multiplicateur `100`. Le canal qui porte l'information est `unitAbilityStates`,
+  que `snapshot._load_passive_abilities` sait consommer -- mais que le HARNAIS des probes ne
+  collectait pas. **LEVE** : le CTX du tank passe de `(0, 100)` a `(50, 180)`. S'y ajoute, cote
+  spawn PORTE, le defaut de `build_summon_context` remis a `abilitiesLevel ?? abilityState.level`
+  (LU dans `SpawnUnitOptions$$WithStatsFromConfig`).
 
-  ETAGE 2 -- L'INSTANCE D'EFFET. Elle porte TOUJOURS `ability_level = None` / `mult = 100`, donc
-  `lvl` retombe sur `self.level` (= 1, le niveau de l'EFFET publie par `decisionView.effects`) et
-  la magnitude reste `dmgReduction[1] = 5`. Cause LUE dans `engine/entities/effects/factory.py` :
-  `load_state` materialise les effets AVANT `_load_passive_abilities`, donc au moment ou l'effet
-  naît, le CTX de son owner porte encore `0`/`100`. Le meme fichier nomme deja le remede
-  (« deplacer le seed d'owner-effects APRES `_load_passive_abilities` dans `load_state` »).
-  **NON LEVE** : c'est un changement d'ORDRE dans `load_state`, hors du perimetre de cette
-  tranche, et son rayon de souffle n'est pas mesure.
-
-Donc : magnitude et placement restent **NON CONFRONTES**, et le blocage a change de nature --
-il n'est plus `seeding` (l'unite a son niveau) mais `etage` (l'instance d'effet ne le lit pas).
+  ETAGE 2 -- L'INSTANCE D'EFFET (#570-r5). Elle portait `ability_level = None` / `mult = 100` :
+  `load_state` materialisait les effets AVANT de consommer le canal, donc a la naissance de l'effet
+  le CTX de son owner portait encore `0`/`100`. Or le natif BAKE l'`AbilityStateReference` du
+  poseur dans l'entite-effet (`AddEffectBehaviour$$DefaultEffectBuilder`) : l'etat doit EXISTER
+  avant l'effet. **LEVE** -- la resolution du canal est hissee avant `_load_stats_and_effects` et
+  comble `abstate_by_id` (`snapshot._ability_state_with_channel`, meme garde que le seed d'aval).
+  MESURE : l'instance passe de `(None, 100)` a `(50, 180)`, soit `dmgReduction[1] = 5` ->
+  `dmgReduction[50] x 180 % = 499`.
 
 CE QUI EST CONFRONTE, ET CE QUI NE L'EST PAS :
   * le GATE, face NEGATIVE : `Gauss` (60 % > 30) rend **6862 == 6862** -- un port qui appliquerait
@@ -92,7 +100,10 @@ CE QUI EST CONFRONTE, ET CE QUI NE L'EST PAS :
   * le CABLAGE : l'instance d'effet du port existe sur la cible et son canal repond (le probe
     l'imprime), donc « le port ne reduit rien » est elimine ;
   * la POSE au spawn : le tank du PORT porte 1090 (etage [2]) ;
-  * la MAGNITUDE et le PLACEMENT : **NON CONFRONTES**, cause ci-dessus.
+  * la MAGNITUDE : **CONFRONTEE** par coup sur deux profils (13 et [568, 534]) ;
+  * le PLACEMENT : **CONFRONTE**, PRE-percage.
+  * NON couvert : un porteur de `Ramshackle` autre que `orksGrotTank` (il n'y en a pas), et le
+    regime `damage_profile` INCONNU du gameconfig (tri-etat `None`, jamais rencontre live).
 
 LE SENS DE LA COMPARAISON, ET IL EST LU
 ========================================
@@ -212,6 +223,7 @@ class RamshackleDmgReductionEffect(BaseEffect):
             return None
         # `Multiply(v, <DSLFormulas+0x38> = Direct(-1))` sous `ForAddition` -> place en PRE-percage
         # (`for_subtraction` -> `flat_reductions`, famille Nightshroud #120), comme
-        # `PsychicFortress`. ⚠ PRESUME PAR LA FAMILLE, PAS MESURE -- cf. l'en-tete, section
-        # « LE PLACEMENT » : la mesure ne peut pas trancher tant que le niveau seede est faux.
+        # `PsychicFortress`. ⚠ MESURE (#570-r5), par coup, contre le modele POST-percage construit
+        # depuis une ancre `nu` -- cf. l'en-tete, section « LE PLACEMENT », et le regime DEGENERE
+        # qu'elle nomme (cible a faible armure).
         return for_subtraction(False, abs(int(v)))                      # 5

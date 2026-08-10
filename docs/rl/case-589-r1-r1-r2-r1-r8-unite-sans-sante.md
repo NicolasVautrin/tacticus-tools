@@ -156,6 +156,10 @@ d'occupation.
 * **Le rayon de `unit_is_alive` déborde l'adjacence** : il alimente `unit_extensions_is_alive`,
   donc les gates de message et de cast. Les tests joués (§ validation de la PR) ne couvrent pas
   toutes ses branches d'appel.
-* **`--geo-only` reste un bras à revoir** : `_stage_geo` ne fige toujours que les deux compagnons.
-  Tant qu'il ne fait pas l'inventaire des porteurs de trait, il peut re-mesurer autre chose que ce
-  qu'il annonce. Résidu à ouvrir si le bras est réutilisé.
+* ~~**`--geo-only` reste un bras à revoir**~~ — **FAIT (#589-r1-r1-r2-r1-r9, 2026-08-11)**.
+  `_stage_geo` INVENTORIE désormais les porteurs de trait côté natif et les ÉLOIGNE tous sauf le
+  compagnon GEO ; `n` est DÉRIVÉ de l'occupation mesurée de la liste stockée ; et un TÉMOIN
+  DIFFÉRENTIEL (`S1` GEO inactif → `S2` voisin stocké **actif** → `S3` retour inactif) tient lieu de
+  contrôle positif — sans lui le bras serait vert même sans relique équipée, puisque le régime visé
+  rend `n = 0`. `inventaire_traits`/`pousser_loin` sont **remontés** dans le probe amulette (foyer
+  unique) et ce probe-ci y délègue. Détail : `case-589-r1-r1-r2-r1-amulet-crit-reduction.md` §6bis.

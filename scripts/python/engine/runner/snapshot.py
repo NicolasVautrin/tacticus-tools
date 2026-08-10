@@ -328,7 +328,14 @@ def load_state(decision: dict, observe: dict, snapshot: Optional[dict] = None,
 
     Sans transport lié (`State` reconstruit hors harnais live, rejeu d'une capture sur disque), AUTO
     ne pose RIEN et le comportement est strictement celui d'avant. Le pourquoi de cette asymétrie
-    avec `tiles=` / `actor_stats=` est au bloc « CANAL AMBIANT » plus bas (§ `bind_live_rpc`)."""
+    avec `tiles=` / `actor_stats=` est au bloc « CANAL AMBIANT » plus bas (§ `bind_live_rpc`).
+
+    ⚠ **La RÉSOLUTION de ce tri-état est jouée AVANT `_load_stats_and_effects` (#570-r5), ses SEEDS
+    après.** Les deux ne consomment pas la même chose : les seeds écrivent dans les
+    `StatsComponent.ctx` que `_load_stats_and_effects` pose (donc ils suivent), tandis que
+    l'`AbilityState` par instance est une ENTRÉE de la MATÉRIALISATION des effets — le natif BAKE
+    l'`AbilityStateReference` du poseur dans l'entité-effet, donc l'état doit exister AVANT l'effet.
+    Un effet né trop tôt lisait `dmgReduction[1]` au lieu du palier réel, et le gardait."""
     state = State()
     state.current_player_id = decision.get("currentPlayer")
     if isinstance(targeting_config, dict) and "EnableObscuringTerrain" in targeting_config:
@@ -389,6 +396,21 @@ def load_state(decision: dict, observe: dict, snapshot: Optional[dict] = None,
             e.add_component(ActiveAbilitiesComponent(abilities=actives))
     _load_machines(state, decision)
     _load_feet(state, observe)
+    # Ability TERTIAIRE / kits / `AbilityState` par instance (canal `unitAbilityStates`) : la
+    # RESOLUTION du tri-etat est hissee ICI, AVANT `_load_stats_and_effects` (#570-r5). Elle ne
+    # depend d'AUCUN composant -- `_auto_ability_states` ne lit que `decision`/`observe`/`snapshot`
+    # -- alors que ce qu'elle rapporte, l'`AbilityState` par instance d'ability montee, est une
+    # ENTREE de la materialisation des effets : le natif BAKE l'`AbilityStateReference` du poseur
+    # dans l'entite-effet (`IdunBattle.Entities.Behaviours.AddEffectBehaviour$$DefaultEffectBuilder`,
+    # cf. `engine.entities.effects_state.baked_ability_state`), donc l'etat doit exister AVANT
+    # l'effet. Les SEEDS, eux (`_load_tertiary_abilities` & co), restent en aval : ils ecrivent dans
+    # les `StatsComponent.ctx` que `_load_stats_and_effects` pose.
+    payload, source = _auto_ability_states(ability_states, decision, observe, snapshot)
+    # #448-r3-r1-r1 : un montage qui a GREFFE ne peut PAS se contenter d'un canal muet -- il
+    # mesurerait un port ampute et rendrait VERT. Le choke point REFUSE au lieu de se degrader.
+    # Le refus vise CET ETAT (les greffes dont le porteur y est), pas le PROCESSUS : cf.
+    # `_grafts_concerning`, ou la mesure qui l'impose est ecrite.
+    _refuse_if_grafted(source, snapshot, decision)
     if snapshot is not None:
         # AVANT les stats : `UnitFlag.Moved`/`Teleported` sont des entrees de GATE lues par le calcul
         # de degat (`attacker_modifiers` -> `unit_has_moved`), pas des sorties -- cf. `_load_unit_flags`.
@@ -400,7 +422,7 @@ def load_state(decision: dict, observe: dict, snapshot: Optional[dict] = None,
         # MEME nature encore : le lien enfant -> summoner (`ChildComponent.ParentId`) est une
         # ENTREE que seule la simulation posait (au spawn) -- cf. `_load_unit_parent`.
         _load_unit_parent(state, snapshot)
-        _load_stats_and_effects(state, decision, snapshot)
+        _load_stats_and_effects(state, decision, snapshot, ability_states=payload)
         # APRES `_load_stats_and_effects` : cette passe LIT `state.effects`, que la precedente vient
         # de remplacer par un `EffectsState.seed` frais. MEME nature que `_load_unit_parent` -- une
         # ENTREE de gate que seule la simulation posait, cf. `_load_forced_attack_targets`.
@@ -430,12 +452,8 @@ def load_state(decision: dict, observe: dict, snapshot: Optional[dict] = None,
     # lesquels ce seed ecrit. #363 : `None` ne veut plus dire « ne rien poser » mais « AUTO » --
     # `_auto_ability_states` va chercher le payload lui-meme quand un transport est lie. `False` est
     # le refus EXPLICITE (contre-epreuve), et lui seul.
-    payload, source = _auto_ability_states(ability_states, decision, observe, snapshot)
-    # #448-r3-r1-r1 : un montage qui a GREFFE ne peut PAS se contenter d'un canal muet -- il
-    # mesurerait un port ampute et rendrait VERT. Le choke point REFUSE au lieu de se degrader.
-    # Le refus vise CET ETAT (les greffes dont le porteur y est), pas le PROCESSUS : cf.
-    # `_grafts_concerning`, ou la mesure qui l'impose est ecrite.
-    _refuse_if_grafted(source, snapshot, decision)
+    # (#570-r5 : `payload`/`source` sont RESOLUS plus haut -- cf. le bloc hisse avant
+    # `_load_stats_and_effects`. Le seed, lui, reste ICI.)
     if payload is not None:
         seeded = _load_tertiary_abilities(state, payload)
         # MEME payload, MEME composant, hierarchie 2 : les passiveAbilities REELLEMENT montees
@@ -1981,7 +1999,34 @@ def _ability_state_from_config(uc) -> tuple:
             int(uc["activeAbilityLevel"]) if uc.get("activeAbilityLevel") else None)
 
 
-def _load_stats_and_effects(state: State, decision: dict, snapshot: dict) -> None:
+def _ability_state_with_channel(from_config: tuple, from_channel) -> tuple:
+    """`(multiplier, passiveAbilityLevel, activeAbilityLevel)` du `unitConfig`, COMBLE par
+    l'`AbilityState` PAR INSTANCE du canal `unitAbilityStates` quand le `unitConfig` n'en a pas.
+
+    MEME REGLE ET MEME GARDE que `_load_passive_abilities` (« on n'ecrit QUE si le trou existe,
+    donc jamais par-dessus une valeur mesuree ») -- c'est litteralement le meme comblement, joue
+    ICI parce que ce triple est une ENTREE de la MATERIALISATION des effets, pas une sortie.
+
+    POURQUOI LE TROU EXISTE. Une unite INVOQUEE n'a AUCUNE `UnitConfiguration` cote natif
+    (`IdunBattle.Operations.SpawnUnitOperation` fabrique ses stats par
+    `IdunBattle.Entities.Behaviours.SpawnUnitOptions$$WithStatsFromConfig`, pas depuis une config),
+    donc `combatSnapshot.unitConfig` rend litteralement `{"error": "config null"}` pour elle et
+    `_ability_state_from_config` rend le neutre `(100, None, None)`. Le canal qui porte
+    l'information est `unitAbilityStates` : l'`AbilityState` y est dumpe PAR INSTANCE d'ability
+    montee (`level` @+0x20, `mult` @+0x24), et c'est celui que
+    `IdunBattle.Configuration.AbilityConfiguration$$GetVariableForLevel` consomme reellement.
+
+    L'`activeAbilityLevel` n'est PAS invente : le canal des entrees de hierarchie 2 ne porte que le
+    niveau des PASSIFS. `None` = non mesure, jamais un niveau devine."""
+    mult, passive_level, active_level = from_config
+    if passive_level or from_channel is None:
+        return from_config
+    lvl, chan_mult = from_channel
+    return (int(chan_mult) if chan_mult is not None else mult, int(lvl), active_level)
+
+
+def _load_stats_and_effects(state: State, decision: dict, snapshot: dict,
+                            ability_states=None) -> None:
     """Peuple `StatsComponent` (par unité) + `State.effects` (EffectsState matérialisé)
     depuis `combatSnapshot` + `decisionView`. Jointure : `combatSnapshot.entityId` ==
     `decisionView.id` (== id d'unité ECS, cf. en-tête). Mirror de la chaîne validée
@@ -1990,7 +2035,15 @@ def _load_stats_and_effects(state: State, decision: dict, snapshot: dict) -> Non
     ⚠ `combatSnapshot.units[]` porte DEUX `entityType` (`d9d0008`/#128) : les `Unit` (jointes à
     `decisionView.units[].id`) et les `Machine` (jointes à `decisionView.mows[].casterId`). La boucle
     ci-dessous ne traite QUE les premières ; les MoW sont déléguées à `_load_machine_stats` — elles
-    n'ont ni `unitConfig` ni VisualId sur cette ligne, et leur niveau vit ailleurs (#174)."""
+    n'ont ni `unitConfig` ni VisualId sur cette ligne, et leur niveau vit ailleurs (#174).
+
+    `ability_states` (#570-r5) : le payload DEJA RESOLU du canal `unitAbilityStates`, passé par
+    `load_state`. Il ne sert ICI qu'à une chose — COMBLER l'`AbilityState` des unités que
+    `combatSnapshot.unitConfig` ne décrit pas (les INVOQUÉES), **avant** que leurs effets ne soient
+    matérialisés. Le natif BAKE l'`AbilityStateReference` du poseur dans l'entité-effet, donc un
+    effet né avant l'état de son owner lit un niveau faux et le garde. `None` = canal non fourni →
+    comportement STRICTEMENT antérieur. Les SEEDS de ce canal (noms d'abilities, relique) restent
+    dans `load_state`, en aval : eux écrivent dans les ctx que cette fonction pose."""
     import gameconfig as GC                      # données offline (traits/arme/profil)
 
     vis_by_id = {u.get("id"): u.get("visualId") for u in (decision.get("units") or [])}
@@ -2009,10 +2062,17 @@ def _load_stats_and_effects(state: State, decision: dict, snapshot: dict) -> Non
     # table est PURE DONNÉE (`unitConfig` / `AbilityState` per-ability des MoW) : elle ne dépend
     # d'aucun `StatsComponent`, donc elle peut être construite avant la boucle qui les pose.
     abstate_by_id: Dict[int, tuple] = {}
+    # #570-r5 -- l'`AbilityState` PAR INSTANCE (canal `unitAbilityStates`), lu ICI et pas plus tard.
+    # `passive_ability_state_by_unit` est du PARSING PUR (il ne lit que le payload), donc il a sa
+    # place dans cette passe « PURE DONNEE » ; ce qu'il comble est ce dont la materialisation des
+    # effets a besoin. Sans canal -> `{}` -> comportement strictement anterieur.
+    chan_abstate = passive_ability_state_by_unit(ability_states) if ability_states else {}
     for su in (snapshot.get("units") or []):
         if su.get("entityId") is None or su.get("entityType") == _ENTITY_TYPE_MACHINE:
             continue
-        abstate_by_id[int(su["entityId"])] = _ability_state_from_config(su.get("unitConfig"))
+        _eid = int(su["entityId"])
+        abstate_by_id[_eid] = _ability_state_with_channel(
+            _ability_state_from_config(su.get("unitConfig")), chan_abstate.get(_eid))
     for _m in _machine_rows(decision):
         # MoW : `unitConfig` est en erreur sur une ligne Machine — le SEUL canal est l'`AbilityState`
         # per-ability (cf. `_machine_ability_state`). Une MoW POSE des effets sur des unités
@@ -2049,7 +2109,10 @@ def _load_stats_and_effects(state: State, decision: dict, snapshot: dict) -> Non
         # publié par le capteur), pas sur le porteur : le natif BAKE l'`AbilityStateReference` du
         # caster dans l'entité-effet à la pose. Repli = le porteur (source absente/non chargée).
         # cf. `engine.entities.effects_state.baked_ability_state` pour la chaîne native complète.
-        _carrier = _ability_state_from_config(uc)
+        # #570-r5 : le triple du PORTEUR est celui de la PASSE 1, pas un second calcul -- il porte
+        # donc le comblement `unitAbilityStates`. Les deux lectures DOIVENT etre la meme (c'est deja
+        # la raison d'etre de `_ability_state_from_config`), et desormais le comblement aussi.
+        _carrier = abstate_by_id.get(eid) or _ability_state_from_config(uc)
         _emult, _eablvl, _eactive = _carrier
         _effs = [EffectFactory.create(c, *baked_ability_state(c, eid, _carrier, abstate_by_id))
                  for c in (effects_by_id.get(eid) or [])
@@ -2068,6 +2131,23 @@ def _load_stats_and_effects(state: State, decision: dict, snapshot: dict) -> Non
             # niveau des PASSIVES (indexe leurs variables, ex. ArcaneShield.shieldHp[level]).
             if uc.get("passiveAbilityLevel"):
                 ctx.passive_ability_level = int(uc["passiveAbilityLevel"])
+        # #570-r5 -- LE MEME COMBLEMENT, SUR LE CTX, ET **AVANT** `_seed_ability_owner_effects`.
+        # `_load_passive_abilities` fait deja cette ecriture, mais en AVAL de la materialisation :
+        # l'owner-effect pose plus bas (boucle ABILITIES d'`IdunBattle.Operations.
+        # InitializeActorAbilitiesOperation$$Execute`) naissait alors avec le niveau/multiplicateur
+        # d'AVANT. MESURE (#570-r5, `orksGrotTank` invoque par `orksBigMek` rank 17) : le ctx du
+        # tank portait bien `(50, 180)` a la fin de `load_state`, et son instance
+        # `Ramshackle_DmgReduction` `ability_level = None` / `mult = 100` -> `dmgReduction[1] = 5`
+        # au lieu de `dmgReduction[50] x 180 %`.
+        # Le seed d'aval reste en place et devient un NO-OP sur cet axe (sa garde est la meme :
+        # « seulement si `passive_ability_level` est absent/0 ») -- pas une double ecriture.
+        # ⚠ ON RELIT `_carrier`, PAS LE CANAL : le ctx et `abstate_by_id` sont DEUX tables, et une
+        # garde posee sur une seule laisserait l'autre diverger -- c'est `abstate_by_id` qui bake
+        # l'`AbilityState` dans les effets, donc l'ecart y serait SILENCIEUX. Partir du meme triple
+        # rend la divergence structurellement impossible.
+        if _eablvl and not getattr(ctx, "passive_ability_level", None):
+            ctx.passive_ability_level = int(_eablvl)
+            ctx.ability_variables_multiplier = int(_emult)
         ent = state.get_entity(eid)
         if ent is not None:
             ent.add_component(StatsComponent(ctx=ctx))

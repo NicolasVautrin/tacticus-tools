@@ -70,6 +70,7 @@
  "tests/engine/runner/test_523r2r4_521r5_persistent_data_attacker_substrat_offline.py": 0.023,
  "tests/engine/runner/test_525_mass_driver_accelerator_offline.py": 0.028,
  "tests/engine/runner/test_545_unit_flags_component_vide_offline.py": 0.022,
+ "tests/engine/runner/test_570r5_ordre_de_seeding_offline.py": 0.551,
  "tests/engine/runner/test_576r1_blood_chalice_inactive_offline.py": 0.01,
  "tests/engine/runner/test_585_war_howl_pose_offline.py": 0.006,
  "tests/engine/runner/test_585r1_selection_type_releve_offline.py": 0.133,

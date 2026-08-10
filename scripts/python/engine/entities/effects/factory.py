@@ -1317,9 +1317,13 @@ ABILITY_INIT_OWNER_EFFECTS: dict[str, list[str]] = {
     #      que #264 (traits) et que le `seed_witness_effect` du pendant DECISION
     #      (`playbook/scene.py::_seed_condition_gated_owner_effects`).
     # RESIDU NOMME : une continuation offline qui CAPTURE pendant le tour de Calandis puis franchit
-    # la frontiere de tour n'a aucune instance a armer -> pas de riposte. Le rouvrir demande d'abord
-    # que le seed d'owner-effects lise le substrat MESURE, ce qui suppose de le deplacer APRES
-    # `_load_passive_abilities` dans `load_state`.
+    # la frontiere de tour n'a aucune instance a armer -> pas de riposte.
+    # ⚠ #570-r5 A DEPLACE UNE AUTRE CHOSE, ET CE BLOCAGE-CI EST INTACT. Ce que la tranche a hisse
+    # avant la materialisation, c'est l'`AbilityState` (niveau/multiplicateur) du canal, pas la
+    # LISTE des passives : `_seed_ability_owner_effects` lit toujours `GC.unit(vid).passiveAbilities`
+    # et `ctx.passive_abilities` (la MESURE) est toujours seede en aval. Rouvrir ce residu demande
+    # donc encore de faire lire au seed le substrat MESURE -- une modification de sa SOURCE, pas de
+    # sa PLACE.
     # PAS d'entree `"StructuralAnalyser"` non plus, MEME arbitrage (case-366-r1, 1174) :
     # `...StructuralAnalyser_AddDamageBuffAbility$$CreateBehaviour` pose bien DEUX owner-effects d'un
     # bloc sur son porteur (`AddEffect(0x484 = 1156) + AddEffect(0x496 = 1174)`, `turns` VIDE donc
