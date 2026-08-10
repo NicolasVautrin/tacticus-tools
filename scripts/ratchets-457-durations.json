@@ -294,6 +294,7 @@
  "tests/test_546_capteurs_fenetre_offline.py": 1.106,
  "tests/test_547_ledger_sans_verdict_non_vert_offline.py": 0.177,
  "tests/test_547r1_mesure_missing_non_verdict_offline.py": 139.061,
+ "tests/test_547r7_ledger_multi_shard_offline.py": 0.173,
  "tests/test_579r1_nullable_layout_offline.py": 0.009,
  "tests/test_additional_hits_variant_signatures_offline.py": 23.606,
  "tests/test_enum_maps_ratchet_offline.py": 0.036,

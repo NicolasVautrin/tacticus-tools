@@ -965,7 +965,7 @@ def _ecrire_ledger(perimetre: list, joues: list, bilan, horloge, rc: int, n_shar
              (depuis or "(aucune)")[:8], (base or "(aucune)")[:8], comment))
 
 
-def _consolider_ledger(perimetre: list) -> int:
+def _consolider_ledger(perimetre: list, jeton: str | None = None) -> int:
     """#547-r7 -- LE SEUL processus qui ecrit le ledger versionne dans une passe multi-shard.
 
     Il ne joue AUCUN test : il fusionne des faits deja gagnes. Son rc suit donc la convention du
@@ -977,8 +977,14 @@ def _consolider_ledger(perimetre: list) -> int:
     ses fichiers n'ont pas d'attestation neuve, donc ils rejoueront. Taire cela ferait lire une
     consolidation amputee comme une passe complete -- la faute que ce fichier ferme partout
     ailleurs par un tri-etat.
+
+    ⚠ `jeton` EXPLICITE, et ce n'est pas un ornement : `--jobs` pose le jeton dans l'environnement
+    de ses ENFANTS, pas dans le sien. Le lire depuis `os.environ` du parent rendait `CONSOLIDATION
+    IMPOSSIBLE` a la fin de CHAQUE passe `--jobs` -- les 4 shards attestaient et personne ne
+    fusionnait. Trouve par `probe_547r7` (ecarts : 8 entrees en mono, 0 en multi), pas a la
+    relecture. `None` = mode autonome `--consolider-ledger`, ou le jeton vient bien de l'appelant.
     """
-    jeton = ledger.jeton_courant()
+    jeton = jeton or ledger.jeton_courant()
     if not jeton:
         print("[457] CONSOLIDATION IMPOSSIBLE : aucun jeton de run dans `%s`."
               % ledger.VAR_JETON)
@@ -1081,7 +1087,7 @@ def _lancer_jobs(n: int, args) -> int:
                 print("[457]       %s" % ligne)
 
     print("[457] mur %.1f s pour %d shard(s) ; journaux : %s" % (mur, n, dossier))
-    rc_consolidation = _consolider_ledger(candidate_files())
+    rc_consolidation = _consolider_ledger(candidate_files(), jeton=jeton)
 
     if rouges:
         print("[457] VERDICT: FAIL -- shard(s) ROUGE(S) : %s"
