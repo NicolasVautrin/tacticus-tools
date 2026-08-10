@@ -191,6 +191,23 @@ def test_plateau_ne_reutilise_pas_la_meme_unite_sur_deux_operations():
     assert affectees == [["pivot"]]
 
 
+def test_les_commentaires_du_roster_se_coupent_PAR_LIGNE(tmp_path):
+    """Regression : le filtre etait par JETON, donc `# Pool ELIGIBLE ...` faisait
+    entrer `Pool`, `ELIGIBLE`, ... dans le roster (18 faux ids mesures sur un
+    en-tete de deux lignes). Benin tant qu'ils sont inconnus -- mais un commentaire
+    qui NOMME une unite l'ajouterait au roster sans que rien ne le dise. C'est ce
+    cas-la que le test fabrique, pas le cas benin."""
+    kits = {"custoTrajann": _kit("custoTrajann"), "ultraCalgar": _kit("ultraCalgar")}
+    f = tmp_path / "roster.txt"
+    # Le commentaire NOMME une unite reelle : si la coupe est par jeton, elle entre.
+    f.write_text("# roster de secours, sans ultraCalgar pour l'instant\n"
+                 "custoTrajann\n", encoding="utf-8")
+    ids, suppose = ES._roster(str(f), kits)
+    assert suppose is False
+    assert ids == ["custoTrajann"], (
+        "un identifiant cite dans un COMMENTAIRE est entre dans le roster : %r" % (ids,))
+
+
 def test_plateau_couvre_les_deux_operations_quand_le_roster_suffit():
     kits = {
         "a": _kit("a", faction="Custodes", ranged_hits=0),

@@ -402,10 +402,17 @@ def _roster(arg: str | None, kits: dict[str, dict]) -> tuple[list[str], bool]:
             brut = fh.read()
     except OSError:
         brut = arg
-    for tok in re.split(r"[\s,;]+", brut):
-        tok = tok.strip()
-        if tok and not tok.startswith("#"):
-            ids.append(tok)
+    # Les commentaires se coupent PAR LIGNE, pas par jeton. Un filtre par jeton
+    # (`not tok.startswith("#")`) ne retire que le `#` lui-meme et laisse entrer tous
+    # les MOTS du commentaire : mesure faite, un en-tete de deux lignes injectait
+    # 18 faux ids. Benin tant qu'ils sont inconnus et signales -- mais un commentaire
+    # contenant un vrai identifiant l'ajouterait au roster SANS que rien ne le dise.
+    for ligne in brut.splitlines():
+        ligne = ligne.split("#", 1)[0]
+        for tok in re.split(r"[\s,;]+", ligne):
+            tok = tok.strip()
+            if tok:
+                ids.append(tok)
     inconnus = [i for i in ids if i not in kits]
     if inconnus:
         print("ATTENTION -- %d id(s) de roster inconnus, IGNORES : %s"
