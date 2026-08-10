@@ -38,6 +38,7 @@ import {
     s as cstr, readIl2cppString, MethodRef,
 } from "../il2cpp/helpers.js";
 import { invokeMethod, createManagedString, createObject, il2cpp_object_new } from "../il2cpp/invoke.js";
+import { gcRoot } from "../il2cpp/gc-root.js";
 import { queueOnMainThread } from "../runtime/queue.js";
 import { Ctx } from "../controller.js";
 import { log } from "../runtime/diag.js";
@@ -52,11 +53,36 @@ const MAX_UNITES = 12;
  *  pourquoi `runtime_invoke` sur cette chaine tue le process -- ce qu'aucune des trois
  *  tentatives n'a etabli. Une constante, pas un RPC : un interrupteur accessible serait
  *  actionne. */
-// ROUVERT le 2026-08-10, apres identification ET correction de la cause : le `callback`
-// etait nul, et `<Execute>b__0` leve dessus a la reception de la reponse. Le module en
-// FABRIQUE un desormais (`fabriquerCallback`), et REFUSE de partir s'il n'y arrive pas.
-// Ce n'est plus un pari : la cause est nommee, le remede est dans le chemin d'appel.
-const AUTORISER_ENVOI_NATIF = true;
+// ROUVERT le 2026-08-10 sur l'identification du callback obligatoire -- puis REFERME LE
+// MEME JOUR, parce que le delegate fabrique GELE LE JEU (2 tentatives sur 2).
+//
+// ⚠ ET LE GEL N'EST PAS CELUI QUE J'AVAIS DIAGNOSTIQUE. La premiere version mettait un
+// `NativeCallback` JS dans `invoke_impl` ; j'en avais conclu << deadlock QuickJS depuis le
+// thread reseau >> et remplace le callback par un stub natif `ret`, ZERO JavaScript. Le
+// gel s'est reproduit A L'IDENTIQUE. Une explication qui survit a la suppression de sa
+// cause supposee n'explique rien : elle est REFUTEE, pas affinee.
+//
+// CE QUE LA MESURE DIT (2026-08-10, PID fige lu par GetThreadContext, cf.
+// `docs/rl/case-600-gel-du-dispatch-natif.md`) :
+//
+//   - 142 threads sur 142 ont leur RIP dans `ntdll.dll`. AUCUN dans `GameAssembly.dll`.
+//     Personne ne boucle : tout le monde ATTEND. CPU du process plat (+0,05 s en 3 s).
+//   - Le main thread porte exactement trois cadres `GameAssembly` :
+//         FUN_1801f7b30+0x59   -- `il2cpp_runtime_invoke` (pose `exc = 0` puis appelle)
+//         FUN_1801f8090+0x49   -- `Runtime::Invoke`, retour d'`invoker_method(...)`
+//         FUN_1801eb760+0xd5   -- primitive de VERROU (compteur de recursion en TLS,
+//                                 LOCK/UNLOCK, puis attente) <- le plus interne
+//
+//   Donc : notre `invokeMethod` entre dans le natif, et le natif se bloque sur un verrou
+//   d'ou personne ne le relache. Un stop-the-world qui ne repart pas.
+//
+// L'ETAGE N'EST PAS ISOLE, et c'est exactement ce qu'il faut faire avant de rouvrir : deux
+// gestes NOUVEAUX sont apparus en meme temps dans #4/#5 -- l'ALLOCATION du delegate
+// (`il2cpp_object_new`) et l'APPEL avec un 4e argument non nul. #3 faisait le second sans
+// le premier et ne gelait pas. `expeditionCallbackForge` separe les deux : il fabrique le
+// delegate et N'ENVOIE RIEN. S'il gele, la cause est l'allocation ; s'il rend la main, elle
+// est dans l'appel. Tant que cette question n'a pas de reponse MESUREE, on n'envoie plus.
+const AUTORISER_ENVOI_NATIF = false;
 
 interface Envoi {
     n: number;
@@ -191,10 +217,23 @@ function evenements(): NativePointer | null {
 //     (*(code**)(d + 0x18))( *(d + 0x40), <valeur>, *(d + 0x28) )
 //          invoke_impl          method_code               method
 //
-// On fabrique donc un delegate MINIMAL : `invoke_impl` pointe sur un `NativeCallback` qui
-// NE FAIT RIEN, et les deux autres champs sont nuls. Un callback qui ignore ses arguments
-// ne peut pas les mal interpreter -- c'est ce qui rend cette construction sure malgre
+// On fabrique donc un delegate MINIMAL : `invoke_impl` pointe sur une page NATIVE contenant
+// un seul `ret`, et les autres champs sont nuls. Un callback qui ignore ses arguments ne
+// peut pas les mal interpreter -- c'est ce qui rend cette construction sure malgre
 // l'incertitude sur la convention exacte de passage du `bool`.
+//
+// ET CE QUE LE DECOMPILE DIT DE SON ROLE JUSTIFIE LE `ret`. Le callback que construit le
+// presenter (`ExpeditionDispatchScreenPresenter$$<OnDispatch>b__0`) fait, en entier :
+//
+//     if (succes != 0) return;                       // SUCCES -> RIEN
+//     msg = String.Concat(<prefixe>, expeditionId, <suffixe>);
+//     <affiche l'erreur a l'ecran>                   // ECHEC -> un message, c'est tout
+//
+// C'est un RAPPORTEUR D'ERREUR d'UI, pas un maillon fonctionnel. La mutation, elle, precede
+// l'appel : dans `DispatchExpeditionCommand$$<Execute>b__0`, la reponse est appliquee au
+// modele local PUIS le callback est notifie. C'est pourquoi la tentative #3 (callback nul)
+// avait ete ENREGISTREE avant de lever. Un `ret` reproduit donc fidelement la branche
+// succes ; il ne sacrifie que le message d'erreur, qu'on remplace par `expeditionBoardRead`.
 //
 // POURQUOI PAS UNE METHODE DU JEU. Le dump n'offre aucune `static void(bool)` inoffensive :
 // toutes activent ou desactivent quelque chose (`SetEnabled`, `set_runInBackground`,
@@ -205,20 +244,25 @@ function evenements(): NativePointer | null {
 // son invocation fait `Screen.Hide()`. Il sert de reference, pas de piece de rechange.
 // ---------------------------------------------------------------------------------------
 
-/** ⛔ PAS DE `NativeCallback` ICI -- MESURE : IL GELE LE JEU.
+/** Pas de `NativeCallback` ici : du code natif PUR, un `ret`.
  *
- *  Premier jet : `invoke_impl` pointait sur un `NativeCallback` JS. Le delegate a bien ete
- *  invoque (le `NullReferenceException` etait donc corrige), mais l'invocation vient du
- *  THREAD DE REPONSE RESEAU. Frida doit alors entrer dans le runtime QuickJS, qui est
- *  mono-thread et deja occupe -> DEADLOCK. Symptome mesure le 2026-08-10 : process VIVANT,
- *  session `running`, et plus AUCUN RPC ne repond (le pump `IdunGameViews.Update` ne draine
- *  plus). Le jeu est fige, pas mort -- et c'est un etat pire, parce qu'il ne se signale pas.
+ *  ⚠ ET LA RAISON N'EST PAS CELLE QUE J'AI ECRITE D'ABORD. Le premier jet mettait un
+ *  `NativeCallback` JS dans `invoke_impl` ; le jeu a gele, et j'ai conclu << Frida doit
+ *  entrer dans QuickJS depuis le thread de reponse reseau, runtime mono-thread deja occupe,
+ *  DEADLOCK >>. Le stub natif ci-dessous a ete ecrit contre CETTE explication -- et le gel
+ *  s'est reproduit a l'identique, avec ZERO JavaScript dans le chemin. L'explication est
+ *  donc REFUTEE : elle n'a pas survecu a la suppression de sa cause supposee.
  *
- *  Le callback doit donc etre du CODE NATIF PUR. Un `ret` suffit : la signature rend `void`,
- *  et l'ABI x64 Windows laisse le nettoyage a l'appelant.
+ *  Ce qui reste vrai et mesure : le gel ne se SIGNALE PAS. Process vivant, session Frida
+ *  `running`, `/api/admin/status` serein -- et plus aucun RPC ne repond, parce que le main
+ *  thread garde le verrou QuickJS pendant qu'il attend. Ne jamais lire le status comme une
+ *  preuve de sante ; le seul temoin est un RPC qui revient.
  *
- *  ⚠ REFERENCE FORTE OBLIGATOIRE quand meme : la page allouee est liberee avec l'objet JS
- *  qui la detient. La perdre laisserait un pointeur pendant dans un delegate encore vivant.
+ *  Le `ret` reste le bon choix (signature `void`, ABI x64 Windows : nettoyage a l'appelant),
+ *  simplement il n'est pas le remede qu'on croyait -- il n'y a pas encore de remede.
+ *
+ *  ⚠ REFERENCE FORTE OBLIGATOIRE : la page allouee est liberee avec l'objet JS qui la
+ *  detient. La perdre laisserait un pointeur pendant dans un delegate encore vivant.
  */
 let pageRet: NativePointer | null = null;
 
@@ -267,6 +311,18 @@ function fabriquerCallback(): { ptr?: NativePointer; err?: string } {
                     + String((e as Error).message || e).slice(0, 140) };
     }
     if (d.isNull()) return { err: "il2cpp_object_new a rendu NULL" };
+    // ⚠ ENRACINER, ET LE FAIRE TOUT DE SUITE. `il2cpp_object_new` rend un objet que RIEN de
+    // managé ne reference : notre seule prise est un `NativePointer` dans le tas de Frida,
+    // que le GC IL2CPP ne scanne pas. Entre cette ligne et le moment ou le natif range le
+    // delegate dans son display class, une collecte peut donc le liberer -- et le natif
+    // invoquerait alors `invoke_impl` sur de la memoire recyclee, a la RECEPTION de la
+    // reponse, loin d'ici. `gcRoot.add` pose un `il2cpp_gchandle_new(obj, pinned)`, la
+    // seule prise que le GC honore.
+    //
+    // On ne le relache PAS : le delegate doit survivre jusqu'a l'appel du callback, dont
+    // l'instant ne nous est pas connu (il vient de la reponse serveur). Un handle par
+    // envoi, quelques octets -- `gcRoot.count()` les rend visibles.
+    gcRoot.add(d);
     try {
         d.add(offsets["invoke_impl"]).writePointer(ret);
         d.add(offsets["method_ptr"]).writePointer(ret);
@@ -516,6 +572,55 @@ export function register(ctx: Ctx): void {
             return out;
         });
 
+    /** L'ISOLATEUR D'ETAGE. Fabrique le delegate et N'ENVOIE RIEN.
+     *
+     *  ⚠ IL EXISTE PARCE QUE DEUX GESTES NOUVEAUX SONT ARRIVES ENSEMBLE. Les tentatives
+     *  #4 et #5 ont ajoute, dans le meme appel, une ALLOCATION managee
+     *  (`il2cpp_object_new` d'un `Action<System.Boolean>`) et un APPEL natif avec un 4e
+     *  argument non nul. Les deux ont gele le jeu ; la #3 faisait le second SANS le
+     *  premier et n'a pas gele. Deux causes candidates, une seule mesure : c'est
+     *  exactement la situation ou l'on n'a le droit de conclure ni l'une ni l'autre.
+     *
+     *  Ce RPC coupe le paquet en deux. S'il GELE, la cause est l'allocation (init de
+     *  classe, GC, ou l'un des deux sous Frida). S'il REND LA MAIN, l'allocation est
+     *  innocente et le blocage est dans l'appel natif -- et l'on saura alors que le
+     *  verrou vu sous `il2cpp_runtime_invoke` appartient a `DispatchExpedition`.
+     *
+     *  Il n'immobilise aucune unite et ne touche pas au compte. body: {} */
+    ctx.rpc.expeditionCallbackForge = (): Promise<unknown> =>
+        queueOnMainThread(() => {
+            const avant = gcRoot.count();
+            const t0 = Date.now();
+            const r = fabriquerCallback();
+            const ms = Date.now() - t0;
+            if (!r.ptr) {
+                return { ok: false, err: r.err, ms,
+                         layout: layout["Action<Boolean>"] };
+            }
+            // Relire ce qu'on vient d'ecrire : si les champs ne se relisent pas, l'objet
+            // n'est pas ce qu'on croit, et l'envoi partirait sur une base fausse.
+            const { offsets } = dispoDelegate as { offsets: Record<string, number> };
+            const relu: Record<string, string | null> = {};
+            for (const n of ["invoke_impl", "method_ptr", "method_code", "method",
+                             "m_target"]) {
+                try { relu[n] = r.ptr.add(offsets[n]).readPointer().toString(); }
+                catch { relu[n] = null; }
+            }
+            return {
+                ok: true, ms, delegate: r.ptr.toString(),
+                classe: (() => {
+                    try { return r.ptr.readPointer().toString(); } catch { return null; }
+                })(),
+                classeAttendue: dispoDelegate
+                    ? dispoDelegate.klass.toString() : null,
+                stubRet: pageRet ? pageRet.toString() : null,
+                relu,
+                gcHandles: { avant, apres: gcRoot.count() },
+                note: "AUCUN envoi. Si ce RPC revient, l'allocation du delegate est hors "
+                    + "de cause dans le gel -- le blocage est dans l'appel natif.",
+            };
+        });
+
     /** ⚠ ENVOIE. Immobilise les unites pour la duree de l'operation.
      *
      *  body: { expeditionId, unitIds: string[], bonusFulfilled?: boolean,
@@ -603,12 +708,19 @@ export function register(ctx: Ctx): void {
         if (!AUTORISER_ENVOI_NATIF) {
             return {
                 ok: false, refus: "voie fermee",
-                err: "expeditionDispatch est FERME : l'envoi ABOUTIT mais le process meurt "
-                   + "apres (1 succes serveur sur 3 tentatives, 2 process morts). La cause "
-                   + "est EN AVAL de l'envoi et n'est pas isolee. ⚠ Un envoi part quand "
-                   + "meme : verifie `expeditionBoardRead` AVANT de retenter quoi que ce "
-                   + "soit, sinon tu dispatches deux fois.",
-                bilan: {tentatives: 3, processMorts: 2, enregistresParLeServeur: 1},
+                err: "expeditionDispatch est FERME : avec un callback NUL l'envoi aboutit "
+                   + "mais le process meurt a la reception ; avec un callback FABRIQUE le "
+                   + "jeu GELE (2/2), main thread bloque sur un verrou sous "
+                   + "`il2cpp_runtime_invoke`, 142 threads sur 142 parques dans ntdll. "
+                   + "L'etage n'est pas isole : joue d'abord `expeditionCallbackForge`, "
+                   + "qui fabrique le delegate SANS envoyer. ⚠ Un envoi part meme si le "
+                   + "jeu meurt ou gele : lis `expeditionBoardRead` AVANT de retenter, "
+                   + "sinon tu dispatches deux fois.",
+                bilan: {
+                    tentatives: 5, processMorts: 2, gels: 2,
+                    enregistresParLeServeur: 1,
+                    isolant: "expeditionCallbackForge",
+                },
             };
         }
         if (body?.confirmer !== true) {
