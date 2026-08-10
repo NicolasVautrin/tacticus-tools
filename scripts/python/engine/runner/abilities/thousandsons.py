@@ -1062,7 +1062,12 @@ class InfernalCannonAbility(ActiveAbility):
         ectx = ExecutionContext(state=state, rng=state.rng)
         entities = entities_from_state(state, caster_id, target_id)
         infernal_cannon_tree(teste_id, inflige, tile_id).execute(entities, ectx)
-        attacks = [{"target": p.get("target"), "total": p.get("total")}
+        # `attack` (la struct COMPLETE rendue par `execute_ability_attack`) est remontee telle
+        # quelle : c'est elle qui porte `per_hit`, donc la SEQUENCE coup par coup. Un diag qui ne
+        # rendrait que le TOTAL ne permettrait pas de confronter le NOMBRE de coups au natif -- et
+        # un total juste avec un mauvais nombre de coups est exactement le genre de compensation
+        # qu'on veut pouvoir voir.
+        attacks = [{"target": p.get("target"), "total": p.get("total"), "attack": p.get("attack")}
                    for n, p in ectx.emitted if n == "AttackWithAttackDamage"]
         feu = next((p for n, p in ectx.emitted
                     if n == "AddEffect" and p.get("effect_type") == INFERNAL_CANNON_FIRE), None)
