@@ -187,7 +187,54 @@ nomme déjà (« nos livraisons périment nos citations »).
 ## 9. Résidus ouverts
 
 * **#572-r1** — un stat-mod HEALTH ne relève pas `HealthComponent.hp_max`.
-* **#572-r2** — la face DÉCISION (`UnbreakableDutyPlaybook`) n'est pas portée.
+* ~~**#572-r2**~~ — **FERMÉ le 2026-08-10** : `engine/playbook/noncomparable/unbreakable_duty.py`.
+
+### #572-r2, fermé — et le `BLOCAGE: etage` était résoluble OFFLINE
+
+Les deux slots que la fiche déclarait non résolus se lisent dans
+`data/symbols/<build>/metadata/interface_slots.tsv`, et l'**ARITÉ** tranche la surcharge (les deux
+noms sont homonymes plusieurs fois) — signatures dans `frida/methods.tsv` :
+
+| slot | méthode | signature retenue |
+|---|---|---|
+| `0x75` = 117 | `IBattleQuery.GetSurroundingUnits` (4 params) | `(from: IEntity, range: Int32, **friendsOf: IEntity**, includeCenter: Boolean)` |
+| `0x7d` = 125 | `IBattleQuery.GetAdjacentEnemies` (3 params) | `(from: IEntity, playerEntityId: BEntityId, ignoreSteppables: Boolean)` |
+
+⚠ **Le `friendsOf` était OMIS par la fiche**, et il est load-bearing : le premier terme ne compte
+pas « des unités » autour du caster, il compte ses **ALLIÉS**, centre EXCLU.
+
+`GetUseProbability`, relu terme à terme, rend un **POURCENTAGE** : le helper terminal fait
+`Round(Fix64(p) / 100 * 100, 0) / 100`. Sans cette lecture, `p` valant 10/40/70 serait toujours
+`>= 1` et le gate ne pourrait **jamais** rendre faux — la lecture change le comportement, elle ne
+le décore pas. Et `GetAmountOfDeadImperialUnits` rend un `IdunBattle.DSL.IAmountFormula` (signature
+lue), invoqué au slot **1 = `Calculate`** : c'est un COMPTE, le MÊME sous-arbre que le gate de la
+face COMBAT.
+
+**`EvaluateNonComparable` rend une utilité CONSTANTE** — `<statics+0x00>` = `Fix64(1)`, le MÊME
+statique que `MIN_UTILITY`. Le playbook ne départage rien ; tout le discriminant est le gate.
+
+⚠ **`_PlanTargetPlaybook` est le MAUVAIS générateur, et c'est mesuré.** Le masque de 1061 est
+`0x8400` = `TargetIsFriendly | CasterIsPossibleTarget` ⇒ la cible est **ALLIÉE**, or
+`computeAttackPlans` (`frida/hooks/features/ai-step/projection.ts`) boucle `for (const tgt of
+enemies)` : le plan rend `(1061, u87, rankCount 0)` pendant que le natif propose `1061 → u79`, un
+allié. Un port branché sur le plan serait **MUET, sans erreur**. Voie employée :
+`abilityTargets.fromHere`, la même que `ThriceBlessedConflagrationPlaybook`.
+
+**Confrontation** (`probe_572r2_unbreakable_duty_decision.py`, deux bras, oracle
+`aiDryRunAllUnits`) :
+
+| bras | `p` (port) | NATIF | PORT | contre-épreuve (registre sans 1061) |
+|---|---|---|---|---|
+| `isole` (0 allié à portée, 0 mort) | **0 %** | **0 cast sur 12** tirages | attaque normale | attaque normale — non discriminante, et le probe le DIT |
+| `entoure` (4 alliés) | **40 %** | `1061 → u79` (1 cast sur 5) | `1061 → u79` | attaque normale — **MORD** |
+
+⚠ **Le régime `prob >= 1` n'est PAS atteignable sur ce harnais**, et c'est une mesure : il faudrait
+dix alliés dans le disque, or le maximum de spawns côté JOUEUR sur les 400+ boards de
+`data/boards/global` est **7** (`C1_75`, `MC1_64`, `MC1_75`, `EMC4_05`, `survival_01`) — MC1_67 en
+a **5**, et un build à 11 unités est refusé en amont du placement. Le critère du bras `entoure` est
+donc l'**EXISTENCE** (≥ 1 cast sur N), pas la fréquence. Côté port le moteur est déterministe : il
+propose dès que `p > 0` — écart de FRÉQUENCE assumé, même statut que `BlackRage` / `ItItches` /
+`ScarabSummon`.
 
 Non traité et NOMMÉ, hors des deux résidus :
 

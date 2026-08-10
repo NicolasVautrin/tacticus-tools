@@ -166,6 +166,26 @@ sans y poser sa donnee.
 
 ## Residus
 
-* **#549-r1** — confronter la face DECISION du duel : `aiPlaybookPredict` sur le champion pendant un
-  duel actif doit porter le `+extraDmg` (1092) et le `-dmgReduction` (1093). Le volet COMBAT de 1093
-  est FERME (§6, `--step defense`).
+* ~~**#549-r1**~~ — **FERME le 2026-08-10** (`probe_549r1_holy_duel_prediction.py`, gardes dans
+  `tests/engine/runner/test_549_holy_duel_live.py`). Oracle = `aiPlaybookPredict` (=
+  `<Ability>Playbook$$MakeDamagePredictions`, ce que le scorer de DECISION consomme), port =
+  `engine.playbook.prediction.make_normal_attack_predictions`, MEME Scene, MEME tuile :
+
+  | bras | NATIF | PORT | PORT sans `tgt_id` |
+  |---|---|---|---|
+  | `avant` (aucun duel) | `(3012, 4524)` | `(3012, 4524)` | `(3012, 4524)` — **INERTE** |
+  | `duel` (1092 pose, bonde) | `(4341, 7845)` | `(4341, 7845)` | `(3012, 4524)` — **MORD** |
+
+  La contre-epreuve retire la SEULE cle `tgt_id` de l'`att_ctx` : elle est inerte hors duel et mord
+  dans le duel, donc la concordance est ATTRIBUABLE au threading et pas a une compensation. La
+  degradation d'avant #549 valait **-30,7 %** sur la borne min et **-42,3 %** sur la max --
+  RESTRICTIVE, comme annonce.
+
+  ⚠ Le patch de la contre-epreuve vise le binding LOCAL de `prediction/normal_attack.py` : ce
+  module importe par `from ._shared import *` (forme A), donc substituer le module qui DEFINIT
+  `calculate_attacker_modifiers_for_prediction` ne mordrait pas -- la faute mesuree de #484 /
+  #429-r1.
+
+  Reste hors perimetre et NOMME : le `-dmgReduction` (1093) cote PREDICTION n'a pas de banc propre
+  ici. Son volet COMBAT est ferme (§6, `--step defense`), et le canal qu'il emprunte
+  (`defender_modifiers`) est distinct de l'`att_ctx` que ce residu confronte.

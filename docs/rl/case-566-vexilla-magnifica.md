@@ -215,7 +215,25 @@ cible que le natif écarte.
 * Le `ShouldEvaluate` de la face DÉCISION est confronté **dans les deux sens** (§4.2), mais son
   substrat porté diverge du natif sur un régime précis — c'est `#566-r1` ci-dessous.
 
-## 6. `#566-r1` — `_enemy_killed_by_normal_attack` est un QUATRIÈME lieu où `get_WillBeKill` est ré-assemblé à la main
+## 6. `#566-r1` — **RÉSOLU** : `_enemy_killed_by_normal_attack` était un QUATRIÈME lieu où `get_WillBeKill` était ré-assemblé à la main
+
+> **Fermé le 2026-08-10.** Le foyer LIT désormais `ranked[].killSure`. Confrontation live :
+> scénario **`sure_kill_bloque`** (le montage `sure_kill` **sans** `--block-target 0,0`) — natif
+> `1183 → u81`, port `1183 → u81`, et la contre-épreuve qui rejoue `dmgMin >= hp` **s'abstient**
+> (attaque normale `69 → u85`). Garde offline : `tests/engine/test_566r1_sure_kill_gate_offline.py`
+> (10 bras : les trois états du tri-état, le court-circuit, le bruit, le recensement des lecteurs).
+>
+> ⚠ **La liste des consommateurs, ci-dessous, était FAUSSE — mesure du 2026-08-10.** Les xrefs
+> entrantes de `IdunBattle.AI.Playbook.BasePlaybook$$EnemyWillBeKilledWithNormalAttack` en donnent
+> **TROIS** : `GravitonRiflePlaybook$$ShouldEvaluate`, `VexillaMagnificaPlaybook$$ShouldEvaluate`
+> (le corps COMDAT que `HammerOfWrathPlaybook$$ShouldEvaluate` partage) et
+> `SupremeCommanderPlaybook$$ShouldEvaluate` — ce dernier **omis** par la fiche. Les quatre autres
+> qu'elle nommait ne portent pas ce gate : `VigilanceEternalPlaybook$$ShouldEvaluate` teste
+> `GetStat(unit, 0xc) > 1`, `BloodyFuryPlaybook` et `BlackRagePlaybook` n'ont qu'un
+> `GetUseProbability`, `StormcallerPlaybook` n'a ni l'un ni l'autre (il lit l'AUTRE corps natif,
+> `WillNormalAttackKill`, par CIBLE, dont le foyer porte déjà les deux crans #372). Le rayon de
+> souffle était donc **deux fois plus large** que la réalité — et c'est ce qui avait fait DIFFÉRER
+> ce fix. Côté port, `GravitonRiflePlaybook` n'a pas d'équivalent (face DÉCISION non portée).
 
 **DIVERGENCE MESURÉE** (premier montage `sure_kill`, avant que le probe ne neutralise le block) :
 `tauCrisis` à **50 PV** sous un coup dont le plan publie `dmgMin = dmgMax = 50` —
@@ -244,14 +262,22 @@ crans. Le port devrait le LIRE au lieu de le re-dériver. ⚠ `killSure` est **T
 == null` ⇒ le champ n'est pas posé) : la tranche doit décider ce que « non mesuré » vaut, sans
 fabriquer un `False` indiscernable d'un « pas de kill garanti ».
 
-**Pourquoi ce n'est PAS fermé ici** : le foyer est partagé par **six** playbooks NonComparable
-(`HammerOfWrath`, `BloodyFury`, `VexillaMagnifica`, `Stormcaller`, `VigilanceEternal`, `BlackRage`),
-et `engine/playbook/noncomparable/` est un foyer d'agents en vol au moment de cette tranche. Le
-changement déplace des décisions que #566 ne peut pas valider.
+**Pourquoi ce n'était PAS fermé ici** (raison d'époque, conservée pour la traçabilité) : la fiche
+croyait le foyer partagé par **six** playbooks NonComparable, et `engine/playbook/noncomparable/`
+était un foyer d'agents en vol. Le compte réel est **trois** (encadré ci-dessus).
 
-**Contournement dans le probe, et il est DOCUMENTÉ** : le scénario `sure_kill` passe
-`--block-target 0,0`, ce qui vide `BlockScenarios` et fait coïncider les deux lectures. Sans ce
-flag, le scénario mesure `#566-r1`, pas `ShouldEvaluate`.
+**Le contournement du probe est LEVÉ** : le scénario `sure_kill` garde son `--block-target 0,0`
+(il mesure `ShouldEvaluate` en régime sure-kill), et le scénario **`sure_kill_bloque`** qui le
+suit retire ce flag — c'est lui qui mesure `#566-r1`. Les deux montages ne diffèrent que par ce
+seul argument, et leurs verdicts sont **opposés** : abstention d'un côté, cast de l'autre.
+
+**Le tri-état, tranché.** `killSure` est ABSENT du `ranked` quand `computeWillBeKill`
+(`frida/hooks/game/damage-prediction.ts`) rend `null` — décodeur en échec sur `BlockScenarios`, ou
+plan d'un bundle antérieur à #372. Le foyer `_normal_attack_sure_kill_state` rend donc `True` /
+`False` / `None`, et le booléen public `_enemy_killed_by_normal_attack` rabat `None` sur `False`
+= « le gate ne MORD PAS » — même direction que les deux bornes de
+`engine.playbook.base.will_normal_attack_kill`, même comportement que le port d'avant, et
+**DISCERNABLE** puisque le tri-état reste interrogeable.
 
 ## 7. Instruments, rejouables
 
