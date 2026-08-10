@@ -62,13 +62,17 @@ import loop_status as LS                                               # noqa: E
 DECLENCHEUR = {
     "chemins": ("scripts/python/loop_status.py",
                 "scripts/python/fleet_board.py",
-                "scripts/python/host_inputs.py"),
+                "scripts/python/host_inputs.py",
+                "scripts/ratchets-457-footprints.json"),
     "build": False,
     "toujours": False,
     "raison": "Il n'importe que `loop_status` et `fleet_board` (et `host_inputs`, que "
-              "`loop_status` tire), joue des scenarios ECRITS contre une facade `Sources` "
-              "substituee, et n'ecrit que dans un tmpdir SYSTEME -- aucun autre fichier de "
-              "l'arbre n'est lu.",
+              "`loop_status` tire), et joue des scenarios ECRITS contre une facade `Sources` "
+              "substituee. La phrase << aucun autre fichier de l'arbre n'est lu >> qui tenait "
+              "ici etait FAUSSE, et la mesure du 2026-08-10 l'a nommee : `loop_status` LIT "
+              "`scripts/ratchets-457-footprints.json` (l'empreinte offline dont il derive "
+              "l'etat du harnais), donc un changement de cette empreinte peut changer son "
+              "verdict.",
 }
 
 ECHECS: list[str] = []

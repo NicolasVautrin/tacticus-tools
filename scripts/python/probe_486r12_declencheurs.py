@@ -92,7 +92,7 @@ import subprocess
 import sys
 import tempfile
 import time
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 PYDIR = Path(__file__).resolve().parent
@@ -227,12 +227,16 @@ class Empreinte:
             if len(ch) < 3:
                 continue
             ident, kind = ch[0], ch[1]
-            d = e.par_id.setdefault(ident, {"sha": "", "ferm": "", "lu": [], "proc": [],
-                                            "nproc": 0})
+            d = e.par_id.setdefault(ident, {"sha": "", "ferm": "", "inst": "", "lu": [],
+                                            "proc": [], "nproc": 0, "rc": 0})
             if kind == "sha":
                 d["sha"] = ch[2]
             elif kind == "ferm":
                 d["ferm"] = ch[2]
+            elif kind == "inst":
+                d["inst"] = ch[2]
+            elif kind == "rc":
+                d["rc"] = int(ch[2] or 0)
             elif kind == "proc":
                 d["proc"].append(ch[2])
             elif kind == "nproc":
@@ -256,6 +260,8 @@ class Empreinte:
             d = self.par_id[ident]
             lignes.append("%s\tsha\t%s" % (ident, d["sha"]))
             lignes.append("%s\tferm\t%s" % (ident, d.get("ferm") or ""))
+            lignes.append("%s\tinst\t%s" % (ident, d.get("inst") or ""))
+            lignes.append("%s\trc\t%d" % (ident, d.get("rc") or 0))
             lignes.append("%s\tnproc\t%d" % (ident, d["nproc"]))
             for prog in sorted(set(d["proc"])):
                 lignes.append("%s\tproc\t%s" % (ident, prog))
@@ -355,6 +361,33 @@ def sha_fermeture(script: str) -> str:
     return _SHA_FERM[memo]
 
 
+#: L'INSTRUMENT : les modules dont depend ce que la mesure VOIT (hook `open`, normalisation du
+#: `__pycache__`, repertoires exclus, fusion des traces). Ils ne sont importes par AUCUN cliquet,
+#: donc aucune fermeture ne les porte -- et pourtant une empreinte prise avec un autre instrument
+#: n'est pas comparable.
+#:
+#: ⚠ MESURE DU 2026-08-10 : ajouter `.pytest_cache` aux exclusions de `declencheur_trace` a
+#: change deux groupes de l'empreinte SANS perimer une seule entree (ni le source d'un cliquet ni
+#: sa fermeture ne bougeaient), et `--incremental` les aurait servies telles quelles. Un
+#: instrument qui change en silence est la meme faute qu'un helper partage qui change en silence
+#: -- un cran plus haut.
+INSTRUMENT = ("declencheur_trace.py",)
+
+
+def sha_instrument() -> str:
+    parts = []
+    for s in INSTRUMENT:
+        c = cle_source_et_fermeture(s)
+        parts.append("%s\0%s\0%s" % (s, c[0], c[1]))
+    return verdict_cache.sha_texte("\n".join(parts))
+
+
+def cle_source_et_fermeture(script: str) -> tuple:
+    """Les DEUX composantes propres a un script. Separee de `cle_fraicheur` pour que
+    `sha_instrument` puisse l'appeler sans recursion."""
+    return (sha_source(script), sha_fermeture(script))
+
+
 def cle_fraicheur(script: str) -> tuple:
     """FOYER UNIQUE de << cette empreinte est-elle encore valable ? >>.
 
@@ -364,15 +397,63 @@ def cle_fraicheur(script: str) -> tuple:
     rapide remesure EXACTEMENT ce que l'etage 2 aurait de toute facon refuse de servir. Deux
     criteres ouvriraient l'ecart que #486 combat : un mode rapide qui sert ce que le garde
     aurait rejete est un faux vert.
+
+    TROIS composantes, et chacune ferme un trou MESURE :
+      * le SOURCE du cliquet (d'origine) ;
+      * sa FERMETURE d'imports -- un helper partage qui change (#486-r36) ;
+      * l'INSTRUMENT -- ce que la mesure VOIT (#486-r36, meme tranche).
     """
-    return (sha_source(script), sha_fermeture(script))
+    c = cle_source_et_fermeture(script)
+    return (c[0], c[1], sha_instrument())
+
+
+#: Le libelle de CHAQUE composante, dans l'ordre du tuple. Rendre la cause plutot qu'un booleen,
+#: pour la meme raison que `DC.couvre` rend le glob : un garde qui ne dit pas POURQUOI il refuse
+#: se degrade en bruit qu'on finit par ignorer.
+CAUSES = ("source du cliquet", "fermeture d'imports", "instrument de mesure")
+CHAMPS = ("sha", "ferm", "inst")
 
 
 def est_perimee(e, cle: tuple) -> bool:
     """`e` = l'entree d'empreinte chargee, `cle` = `cle_fraicheur` du script courant."""
+    return cause_de_peremption(e, cle) is not None
+
+
+def cause_de_peremption(e, cle: tuple):
+    """Le LIBELLE de la premiere composante qui ne correspond plus, ou `None`."""
     if e is None:
-        return True
-    return (e.get("sha") or "") != cle[0] or (e.get("ferm") or "") != cle[1]
+        return "absente"
+    for champ, attendu, libelle in zip(CHAMPS, cle, CAUSES):
+        if (e.get(champ) or "") != attendu:
+            return libelle
+    return None
+
+
+#: Les rc sous lesquels le cliquet DIT lui-meme n'avoir rien mesure -- meme table que la banque
+#: (`scripts/ratchets-verdict.ps1`) : 99 = INDISPONIBLE, 64 = erreur d'USAGE. `-1` est notre
+#: propre sentinelle de TIMEOUT.
+#:
+#: ⚠ CE CRAN EXISTE PARCE QU'UNE MESURE PEUT ETRE UN REFUS, ET LE REFUS AVAIT L'AIR D'UNE MESURE
+#: (#486-r36). Mesure du 2026-08-10 : les HUIT shards `probe_457:s*` rendent `rc=99` en ~1,2 s --
+#: `probe_457` REFUSE de courir sans `TACTICUS_ALLOW_RATCHETS=1` (garde anti-reflexe posee le
+#: 2026-08-06, parce qu'un run complet coute ~1 425 s). Leur empreinte portait donc **5
+#: lectures** (son propre source et ses imports immediats), trivialement couvertes par n'importe
+#: quel glob : 8 des 49 entrees se declaraient CONFRONTEES en n'ayant rien confronte. Le garde
+#: `nproc == 0` ne pouvait pas les voir -- le process a bel et bien tourne et trace : il a trace
+#: son refus.
+#:
+#: LA SORTIE EST DANS L'ENVIRONNEMENT DE L'APPELANT, et c'est deliberement a lui de la prendre :
+#: `mesurer` herite de `os.environ`, donc
+#:     $env:TACTICUS_ALLOW_RATCHETS=1 ; python probe_486r12_declencheurs.py --mesurer --only probe_457
+#: les mesure pour de vrai. On ne pose PAS la variable ici : ce serait decider a la place de
+#: l'appelant de jouer ~1 425 s de tests, exactement ce que le refus de `probe_457` empeche.
+RC_SANS_MESURE = (64, 99)
+
+
+def mesure_refusee(e) -> bool:
+    """Le run a-t-il DIT n'avoir rien mesure ? Alors sa trace ne vaut pas un perimetre."""
+    rc = (e or {}).get("rc") or 0
+    return rc in RC_SANS_MESURE or rc < 0
 
 
 def a_remesurer(ids, bq: dict, emp) -> tuple[list, list]:
@@ -392,7 +473,8 @@ def a_remesurer(ids, bq: dict, emp) -> tuple[list, list]:
     for i in ids:
         s = script_de(bq[i]) or ""
         e = emp.par_id.get(i)
-        if e is not None and not est_perimee(e, cle_fraicheur(s)) and e.get("nproc"):
+        if (e is not None and not est_perimee(e, cle_fraicheur(s)) and e.get("nproc")
+                and not mesure_refusee(e)):
             servies.append(i)
         else:
             reste.append(i)
@@ -443,16 +525,25 @@ def mesurer(ids: list, bq: dict, verbose: bool, parallelisme: int = 1) -> tuple[
             rc = -1
         return ident, rc, time.time() - t0, DT.fusionner(dossier)
 
-    try:
+    def _flux():
+        """Les resultats AU FIL DE L'EAU. `as_completed` et non `pool.map` : `map` ne rend rien
+        avant que TOUT soit fini, donc une passe de plusieurs minutes n'affichait pas une ligne.
+        L'ordre de sortie devient celui des completions -- sans consequence, l'empreinte etant
+        triee a l'ecriture."""
         if parallelisme <= 1:
-            resultats = [_une(i) for i in ids]
-        else:
-            with ThreadPoolExecutor(max_workers=parallelisme) as pool:
-                resultats = list(pool.map(_une, ids))
-        for ident, rc, dt, (lectures, programmes, nproc) in resultats:
+            for i in ids:
+                yield _une(i)
+            return
+        with ThreadPoolExecutor(max_workers=parallelisme) as pool:
+            for f in as_completed([pool.submit(_une, i) for i in ids]):
+                yield f.result()
+
+    try:
+        for ident, rc, dt, (lectures, programmes, nproc) in _flux():
             script = script_de(bq[ident])
             cle = cle_fraicheur(script)
-            e.par_id[ident] = {"sha": cle[0], "ferm": cle[1], "lu": grouper(lectures),
+            e.par_id[ident] = {"sha": cle[0], "ferm": cle[1], "inst": cle[2], "rc": rc,
+                               "lu": grouper(lectures),
                                "proc": sorted(programmes & set(DT.OPAQUES)), "nproc": nproc}
             durees[ident] = {"s": round(dt, 2), "rc": rc, "regime": regime,
                              "commit": e.commit[:12]}
@@ -631,6 +722,7 @@ def etage_mesure(scripts: dict, decl: dict, fins: dict, emp: Empreinte,
     incompletes: list = []
     perimees: list = []
     absentes: list = []
+    refusees: list = []
     bypass: list = []
     morts: list = []
     confrontes = 0
@@ -649,17 +741,21 @@ def etage_mesure(scripts: dict, decl: dict, fins: dict, emp: Empreinte,
                 absentes.append(ident)
                 non_mesure += 1
                 continue
-            if est_perimee(e, cle):
-                # `sha` OU `ferm` : la seconde moitie du critere est ce que #486-r36 ajoute --
-                # un helper partage qui change perime l'empreinte de tous ses lecteurs.
-                perimees.append("%s (%s)" % (ident, "source" if (e.get("sha") or "") != cle[0]
-                                             else "fermeture d'imports"))
+            cause = cause_de_peremption(e, cle)
+            if cause is not None:
+                perimees.append("%s (%s)" % (ident, cause))
                 non_mesure += 1
                 continue
             if e["nproc"] == 0:
                 # Un run qui n'a trace AUCUN process n'a rien mesure : le compter comme une
                 # confrontation reussie serait un vert fabrique.
                 absentes.append(ident + " (0 process trace)")
+                non_mesure += 1
+                continue
+            if mesure_refusee(e):
+                # Le cliquet a DIT n'avoir rien mesure (cf. `RC_SANS_MESURE`). Sa trace est
+                # alors celle de son REFUS -- quelques lectures que n'importe quel glob couvre.
+                refusees.append((ident, e.get("rc")))
                 non_mesure += 1
                 continue
             if e["proc"]:
@@ -689,8 +785,17 @@ def etage_mesure(scripts: dict, decl: dict, fins: dict, emp: Empreinte,
                 fautes.append((ident, script, globs, sorted(set(hors))))
 
     print("  entrees de banque confrontees : %d" % confrontes)
-    print("  NON MESUREES                  : %d (absente %d, perimee %d)"
-          % (non_mesure, len(absentes), len(perimees)))
+    print("  NON MESUREES                  : %d (absente %d, perimee %d, mesure REFUSEE %d)"
+          % (non_mesure, len(absentes), len(perimees), len(refusees)))
+    if refusees:
+        print("  MESURE REFUSEE PAR LE CLIQUET LUI-MEME (rc dans %s) : %d -- sa trace est celle "
+              "de son REFUS," % (RC_SANS_MESURE, len(refusees)))
+        print("  donc trivialement couverte. Ce n'est PAS un verdict sur sa declaration.")
+        for ident, rc in refusees:
+            print("      %-22s rc=%s" % (ident, rc))
+        print("      => si tu veux les mesurer, pose la variable que LE CLIQUET exige, puis")
+        print("         `--mesurer --only <id>`. On ne la pose pas d'office : elle engage un")
+        print("         cout que seul l'appelant peut arbitrer.")
     if incompletes:
         print("  MESURE INCOMPLETE (sous-process opaque, hors de portee du hook) : %d"
               % len(incompletes))

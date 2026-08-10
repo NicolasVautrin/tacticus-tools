@@ -77,7 +77,8 @@ from engine.runner.state import State
 #: MESURE : 382 fichiers -- la cascade `engine/**`, `board.py`/`gameconfig.py`,
 #: `data/boards/pvp/MC1_67.json` et `data/seed-bc.json`.
 DECLENCHEUR = {
-    "chemins": ("scripts/python/**/*.py", "data/boards/**", "data/seed-bc.json"),
+    "chemins": ("scripts/python/**/*.py", "data/boards/**", "data/seed-bc.json",
+                "frida/hooks/data/**"),
     "build": True,
     "toujours": False,
     "raison": "Il MONTE un `State` et joue quatre scenarios : sa fermeture est celle de "
@@ -85,7 +86,11 @@ DECLENCHEUR = {
               "charge. `build: True` parce que les TRAITS des unites viennent de "
               "`GC.unit(vid)`, donc du gameconfig du JEU INSTALLE (hors arbre) : un changement "
               "de build peut renverser l'etape 1 sans qu'un fichier du depot bouge. Son etape "
-              "0 (`ABILITY_ATTACK_TYPE`), elle, ne lit que le port.",
+              "0 (`ABILITY_ATTACK_TYPE`), elle, ne lit que le port. `frida/hooks/data/**` "
+              "parce que `gameconfig.py` parse `ability-names.ts` pour resoudre les ids "
+              "d'ActiveAbilityType -- MESURE du 2026-08-10, ce fichier etait LU et hors "
+              "perimetre ; le dossier entier est pris parce que ses six maps sont GENEREES "
+              "ensemble par le meme dump, donc l'une ne bouge pas sans les autres.",
 }
 
 BOARD_ID = "MC1_67"

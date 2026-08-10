@@ -360,8 +360,8 @@ def _montage(tmp_path, monkeypatch, chemins, lu, toujours="False", sha_juste=Tru
     e = G.Empreinte()
     sha = G.sha_source("probe_zz.py") if sha_juste else "sha-perime"
     ferm = G.sha_fermeture("probe_zz.py") if ferm_juste else "ferm-perimee"
-    e.par_id["probe_zz"] = {"sha": sha, "ferm": ferm, "lu": G.grouper(lu), "proc": [],
-                            "nproc": 1}
+    e.par_id["probe_zz"] = {"sha": sha, "ferm": ferm, "inst": G.sha_instrument(),
+                            "rc": 0, "lu": G.grouper(lu), "proc": [], "nproc": 1}
     e.ecrire(emp)
     return emp
 
@@ -505,6 +505,25 @@ def test_la_FERMETURE_d_imports_perime_l_empreinte_sans_toucher_au_cliquet(
     assert "PERIMEE" in sortie and "fermeture d'imports" in sortie
 
 
+def test_l_INSTRUMENT_de_mesure_perime_TOUTES_les_empreintes(tmp_path, monkeypatch, capsys):
+    """MESURE du 2026-08-10 : ajouter `.pytest_cache` aux exclusions de `declencheur_trace` a
+    change deux groupes de l'empreinte SANS perimer une seule entree -- ni le source d'un
+    cliquet ni sa fermeture ne bougeaient, et `--incremental` les aurait servies telles quelles.
+
+    L'instrument n'est importe par AUCUN cliquet : aucune fermeture ne le porte. C'est pourquoi
+    il est une composante A PART, et non une ligne de plus dans `sha_fermeture`."""
+    emp = _montage(tmp_path, monkeypatch, chemins='"scripts/python/**/*.py",',
+                   lu=["scripts/python/a.py"])
+    assert _rc(monkeypatch) == 0, capsys.readouterr().out
+    txt = emp.read_text(encoding="utf-8")
+    ligne = [x for x in txt.splitlines() if "\tinst\t" in x][0]
+    emp.write_text(txt.replace(ligne, "probe_zz\tinst\tautre-instrument"), encoding="utf-8")
+    rc = _rc(monkeypatch)
+    sortie = capsys.readouterr().out
+    assert rc == 99, sortie
+    assert "instrument de mesure" in sortie
+
+
 def test_la_fermeture_VIDE_ne_fabrique_pas_de_sha(tmp_path, monkeypatch):
     """Un cliquet qui n'importe RIEN du depot n'a pas de seconde composante. Lui donner
     `sha_texte("")` ferait mentir la difference entre << pas de dependance >> et << dependance
@@ -537,6 +556,10 @@ def test_la_SELECTION_incrementale_est_LE_MEME_critere_que_la_peremption(tmp_pat
     assert G.a_remesurer(["probe_zz"], bq, emp) == (["probe_zz"], [])
 
     emp = G.Empreinte.charger()
+    emp.par_id["probe_zz"]["inst"] = "autre"        # l'INSTRUMENT de mesure a change
+    assert G.a_remesurer(["probe_zz"], bq, emp) == (["probe_zz"], [])
+
+    emp = G.Empreinte.charger()
     emp.par_id["probe_zz"]["nproc"] = 0
     assert G.a_remesurer(["probe_zz"], bq, emp) == (["probe_zz"], [])
 
@@ -558,6 +581,60 @@ def test_une_entree_SAUTEE_reste_CONFRONTEE_donc_un_99_ne_devient_pas_un_0(
     sortie = capsys.readouterr().out
     assert rc == 1, sortie
     assert "hors de leur perimetre DECLARE" in sortie
+
+
+@pytest.mark.parametrize("rel,compte", [
+    ("scripts/x.py", True),
+    # ECRITS PAR L'OUTILLAGE, donc dependants de l'etat LOCAL de la machine. Mesure du
+    # 2026-08-10 : deux passes du meme arbre divergeaient sur le SEUL groupe
+    # `scripts/python/.pytest_cache/*.md` -- gitignore, et present uniquement si quelqu'un a
+    # joue pytest la. Une empreinte VERSIONNEE ne peut pas en dependre.
+    ("scripts/python/.pytest_cache/README.md", False),
+    ("frida/node_modules/x/y.js", False),          # `_EXCLUS` ne voyait que la RACINE
+    ("node_modules/x/y.js", False),
+    (".git/config", False),
+    # `__pycache__` reste COMPTE : `source_de` l'a deja ramene a `engine/x.py`, et l'exclure
+    # ferait disparaitre du perimetre tout module importe.
+    ("scripts/python/engine/x.py", True),
+])
+def test_les_repertoires_de_CACHE_ne_sont_comptes_a_AUCUN_niveau(tmp_path, rel, compte):
+    t = DT._Trace.__new__(DT._Trace)                # sans `addaudithook` : on teste le FILTRE
+    t.racine = str(tmp_path).replace("\\", "/").rstrip("/") + "/"
+    t._prefixe, t._n = t.racine.lower(), len(t.racine)
+    t.lectures, t.programmes, t._ecrit = set(), set(), False
+    t._hook("open", (t.racine + rel, "r", 0))
+    assert (t.lectures == {rel}) is compte, t.lectures
+
+
+def test_une_mesure_REFUSEE_par_le_cliquet_ne_vaut_pas_une_CONFRONTATION(
+        tmp_path, monkeypatch, capsys):
+    """MESURE du 2026-08-10 : les 8 shards `probe_457:s*` rendaient `rc=99` en ~1,2 s.
+
+    `probe_457` REFUSE de courir sans `TACTICUS_ALLOW_RATCHETS=1` (garde anti-reflexe, un run
+    complet coute ~1 425 s). Leur empreinte portait alors 5 lectures -- son propre source et ses
+    imports immediats -- que n'importe quel glob couvre : 8 des 49 entrees se comptaient
+    CONFRONTEES sans avoir rien confronte. Le garde `nproc == 0` est structurellement aveugle a
+    ca : le process a bel et bien tourne et trace. Il a trace son REFUS."""
+    emp = _montage(tmp_path, monkeypatch, chemins='"scripts/python/**/*.py",',
+                   lu=["scripts/python/a.py"])
+    txt = emp.read_text(encoding="utf-8").replace("probe_zz\trc\t0", "probe_zz\trc\t99")
+    emp.write_text(txt, encoding="utf-8")
+
+    rc = _rc(monkeypatch)
+    sortie = capsys.readouterr().out
+    assert rc == 99, sortie                       # NON MESUREE, jamais un vert
+    assert "MESURE REFUSEE" in sortie and "rc=99" in sortie
+    # et la selection incrementale la reprend, au lieu de la servir comme fraiche
+    assert G.a_remesurer(["probe_zz"], G.banque(), G.Empreinte.charger()) == (["probe_zz"], [])
+
+
+@pytest.mark.parametrize("rc,refusee", [(0, False), (1, False), (6, False),
+                                        (64, True), (99, True), (-1, True)])
+def test_le_rc_qui_DIT_ne_rien_avoir_mesure_est_distingue_du_rouge(rc, refusee):
+    """Un cliquet ROUGE (`rc=1`, `rc=6`) a parfaitement mesure : sa trace vaut un perimetre.
+    Seuls les rc qui DISENT n'avoir rien mesure -- 64 usage, 99 indisponible, -1 timeout --
+    invalident la trace. Confondre les deux ferait taire de vrais rouges."""
+    assert G.mesure_refusee({"rc": rc}) is refusee
 
 
 def test_les_DUREES_se_relisent_avec_leur_REGIME(tmp_path):
