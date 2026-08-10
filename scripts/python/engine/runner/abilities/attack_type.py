@@ -428,6 +428,13 @@ ABILITY_ATTACK_TYPE: dict[int, int] = {
     # (`&opts` = PRESET statique `TargetingOptions statics+0x180` ; son masque EFFECTIF a bien ete lu
     #  dans le `cctor` (`statics+0x1a8` = 0x4002) -> ses `TARGETING_OPTIONS` sont renseignes.)
     ActiveAbilityType.PlagueWind: AbilityAttackType.DirectTargetAttack,  # 1035
+    # StranglethornCannon (1056, `tyranBossHiveTyrantLeviathan` « Hive Tyrant »). Litteral LU :
+    # `IdunBattleLogic.Entities.Abilities.Active.Loki.StranglethornCannonAbility$$.ctor` finit par
+    # `AActiveAbility..ctor(this, &opts, 0)` -> 3e argument = 0 = DirectTargetAttack. TRANSCRIT.
+    # (`&opts` = PRESET `TargetingOptions statics+0x140` PLUS le flag `0x100000000` via la surcharge
+    #  PRESET+FLAGS -- masque EFFECTIF `0x100004002` ; ses `TARGETING_OPTIONS` vivent sur la classe du
+    #  registre `abilities/tyranids.py::StranglethornCannonAbility`.) (#697)
+    ActiveAbilityType.StranglethornCannon: AbilityAttackType.DirectTargetAttack,  # 1056
     # --- 1 : SummonAndAttackTarget (le summon pose attaque la cible du cast) --------------------
     ActiveAbilityType.DeathFromAbove: AbilityAttackType.SummonAndAttackTarget,  # 1003
     ActiveAbilityType.ScarabHive: AbilityAttackType.SummonAndAttackTarget,  # 1007
@@ -447,6 +454,12 @@ ABILITY_ATTACK_TYPE: dict[int, int] = {
     # a `AActiveAbility$$.ctor` (il ne fait que recopier les 0x40 octets des `TargetingOptions`) -> 2.
     # `IdunBattleLogic.Entities.Abilities.Active.Loki.Repair_GalvanicFieldAbility$$.ctor` = `return
     # RepairAbility..ctor(this)` -> MEME litteral, herite et non recopie a l'aveugle.
+    # Catalyst (1032, `tyranBossHiveTyrantLeviathan` « Hive Tyrant »). Litteral LU :
+    # `IdunBattleLogic.Entities.Abilities.Active.Loki.CatalystAbility$$.ctor` finit par
+    # `AActiveAbility..ctor(this, &opts, 2)` -> 3e argument = 2 = Others. TRANSCRIT.
+    # (`&opts` = recopie des 0x40 octets du PRESET `TargetingOptions statics+0x280`, forme
+    #  STATIC-COPY, masque `0x8004` ; `TARGETING_OPTIONS` sur la classe du registre.) (#697)
+    ActiveAbilityType.Catalyst: AbilityAttackType.Others,  # 1032
     ActiveAbilityType.Repair: AbilityAttackType.Others,  # 28 RepairAbility (derivee du trait Mechanic)
     ActiveAbilityType.Repair_GalvanicField: AbilityAttackType.Others,  # 1119 (passif GalvanicField)
     # `DefendTheDivineWorkAbility$$.ctor` -> `AActiveAbility..ctor(this, &opts, 2)` : le litteral EST

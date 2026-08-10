@@ -33,38 +33,47 @@ from typing import Optional, TYPE_CHECKING
 import gameconfig as GC
 
 from .base import ActiveAbility, convert_rounds_to_turns
+from .behaviours.combat import AttackWithAttackDamage
 from .behaviours.context import entities_from_state
-from .behaviours.effects import AddEffect
+from .behaviours.effects import AddEffect, AddStaticStatModifierEffect
 from .behaviours.lifecycle import (
     Kill, RemoveAllForcedAttackTargets, RemoveUnitFromItsTiles, TriggerAbility
 )
 from .behaviours.movement import (DisplaceUnitInAdjacentDirection, RemoveReservation, Reserve,
                                   ResetMovement)
 from .behaviours.summon import PerformAIAttack, Spawn
-from .targeting import (RANGE_ADJACENT, RANGE_SELF, RANGE_WHOLE_BOARD, RANGED_BOOL_FALSE,
-                        RANGED_BOOL_TRUE, TargetingOptions,
+from .targeting import (RANGE_ADJACENT, RANGE_FROM_CONFIG, RANGE_SELF, RANGE_WHOLE_BOARD,
+                        RANGED_BOOL_FALSE, RANGED_BOOL_TRUE, TargetingOptions,
                         has_steppable_unit, unit_of_entity, units_are_enemies)
 from .targeting_rule import TargetingRule as TR
 from ..components import OwnerComponent, StatsComponent, get_unit_feet, is_teleporting
 from ..operations.displace import _dir_index      # foyer de `IBattleQuery` slot 113 `GetVector`
 from ...dsl.base import Const
 from ...entities.active_ability_type import ActiveAbilityType
-from ...entities.behaviours import Group, If as IfBehaviour, op_add, op_and
+from ...entities.behaviours import AtomicGroup, Group, If as IfBehaviour, op_add, op_and
 from ...entities.effect_type import EffectType
 from ...entities.effects.magnitude import ability_var
 from ...entities.selectors.accessors import (ActiveTarget, CasterTile, FixedTileIds, Owner, Target)
 from ...entities.selectors.geometry import Cache, Entity
-from ...entities.selectors.tiles import (AdjacentTiles, CanAddUnit, Caster, TileIntersect,
-                                         TileUnion)
-from ...entities.selectors.units import (DeadUnits, Enemies, SurroundingUnits, Tiles, Units,
+from ...entities.selectors.tiles import (AdjacentTiles, AllAliveUnits, CanAddUnit, Caster,
+                                         TileIntersect, TileUnion)
+from ...entities.selectors.units import (AdjacentUnits, DeadUnits, Enemies, Friends, Sub,
+                                         SurroundingUnits, Tiles, Units, UnitsFromFaction,
                                          non_steppable_or_object_units)
+from ...entities.stats import StatType
 from ...entities.triggers import HasUnitFlag, IsInTeamAura, Not
 from ...entities.triggered_ability_type import TriggeredAbilityType
+from ...entities.unit_selection_type import UnitSelectionType
 from ...dsl.effects import ExecutionContext, AbilityBehaviour, OperationResult
 from ...entities.ability_constant_type import AbilityConstantType   # #270-r1-r1-r3
 from ...streams.group_type import GroupType
 from ..operations.spawn import _spawn_config_grot
 from .loki import perform_ai_attack_from_current_position
+
+#: `UnitSelectionType` LU au DERNIER argument des `IdunBattleLogic.Entities.DSLSelectors$$*` du lot
+#: Hive Tyrant (`Catalyst` : `UnitsFromFaction`/`Friends` ; `StranglethornCannon` : `AdjacentUnits`)
+#: -- le litteral natif est `3` aux SIX call-sites.
+SELECTION = int(UnitSelectionType.OnlyAliveAndTargetable)     # 3
 
 if TYPE_CHECKING:
     from ..state import State
@@ -1130,4 +1139,324 @@ class ItItchesAbility(ActiveAbility):
                 "direction": vector_dir, "summon": "tyranSmnRipperSwarm",
                 "pinned": pinned, "pushed": pushed, "spawned": spawned, "attacks": attacks,
                 "movement_reset": reopened, "dsl": True}
+
+
+# ============ Catalyst (Hive Tyrant `tyranBossHiveTyrantLeviathan`, actif 1032) ================= #
+#
+# ⚠ LA FICHE D'AUDIT DISAIT « EFFECT/BUFF », ET C'EST EXACT ICI (#697) -- verifie au decompile, pas
+# herite : `...CatalystAbility$$ExecuteBehaviour` ne contient AUCUN noeud d'attaque, seulement TROIS
+# `AddStaticStatModifierEffect`. La colonne d'audit derive du `damageProfile` de l'ARME du porteur ;
+# elle se trouve concorder, ce qui ne la rend pas fiable pour autant.
+#
+# `IdunBattleLogic.Entities.Abilities.Active.Loki.CatalystAbility$$ExecuteBehaviour` (MIRROR du
+# DECOMPILE, build `rnca9r7q6c`) :
+#
+#     armor       = GetVariableForLevel(config@0x60, 0x1b = 27 extraArmor,  abilityState, 0)
+#     blockDmg    = GetVariableForLevel(config@0x60, 0x14 = 20 blockDmg,    abilityState, 0)
+#     blockChance = GetNumberConstant   (config@0x60, 0x2d = 45 blockChance)
+#     factionId   = GetStringConstant   (config@0x60, 0x3d = 61 factionId)          # "Tyranids"
+#     targets = Cache( op_Subtraction( Friends( gs@0x48 = Caster,
+#                                               UnitsFromFaction(gs@0x20 = AllAliveUnits,
+#                                                                factionId, 3), 3 ),
+#                                      gs@0x48 = Caster ),
+#                      unique = 1 )
+#     Execute( op_Addition( op_Addition(
+#         AddStaticStatModifierEffect(targets, 0x420 Catalyst_ExtraArmor_Effect,
+#                                     0x10 FixedArmor,  Direct(armor),       Nullable(2), isHidden=0),
+#         AddStaticStatModifierEffect(targets, 0x422 Catalyst_ExtraBlockChance_Effect,
+#                                     0x07 BlockChance, Direct(blockChance), Nullable(2), isHidden=0) ),
+#         AddStaticStatModifierEffect(targets, 0x421 Catalyst_ExtraBlockDamage_Effect,
+#                                     0x08 BlockDamage, Direct(blockDmg),    Nullable(2), isHidden=0) ) )
+#
+# i2 : « All friendly Tyranid units get +<extraArmor> Armour and a <blockChance>% chance to Block
+# <blockDmg> Damage for the rest of this turn and the coming enemy turn. »
+#
+# TROIS points LUS, aucun devine :
+#  * L'ORDRE des trois volets est armure -> chance de blocage -> montant de blocage (les trois
+#    `AddStaticStatModifierEffect` sont composes `op_Addition(op_Addition(armor, chance), damage)`).
+#    Il est SANS EFFET observable ici (trois stats disjointes, aucune ne lit les autres), mais on le
+#    mirror : c'est l'ordre d'emission des events, donc l'ordre de la cascade live.
+#  * `turns` = un `System.Nullable<int>(2)` LITTERAL -- PAS un `TurnsFromRounds`. La surcharge
+#    appelee (`IdunBattleLogic.Entities.DSLBehaviors$$AddStaticStatModifierEffect`, tranchee par ses
+#    XREFS ENTRANTES : les TROIS call-sites de `CatalystAbility$$ExecuteBehaviour` pointent la MEME,
+#    celle qui prend un `Nullable<int>` et le convertit elle-meme en noeud `Direct`) => la duree est
+#    DEJA EN TOURS => `duration_turns=2`, jamais `duration_rounds`.
+#  * Le CASTER est EXCLU (`op_Subtraction(..., Caster)`), alors que le masque de ciblage le declare
+#    `CasterIsPossibleTarget` : les deux ne se contredisent pas -- le masque gouverne la LEGALITE du
+#    cast (self-cast), le selecteur gouverne QUI recoit l'effet.
+CATALYST_ID = "Catalyst"
+CATALYST_EXTRA_ARMOR = int(EffectType.Catalyst_ExtraArmor_Effect)              # 0x420 = 1056
+CATALYST_EXTRA_BLOCK_DAMAGE = int(EffectType.Catalyst_ExtraBlockDamage_Effect)  # 0x421 = 1057
+CATALYST_EXTRA_BLOCK_CHANCE = int(EffectType.Catalyst_ExtraBlockChance_Effect)  # 0x422 = 1058
+#: `System.Nullable<int>(2)` litteral des TROIS `AddStaticStatModifierEffect` du decompile -- deja en
+#: TOURS (cf. le bloc ci-dessus). i2 : « the rest of this turn and the coming enemy turn ».
+CATALYST_TURNS = 2
+
+
+def catalyst_targets_selector():
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.CatalystAbility$$GetEffectTargetsSelector`
+    (MIRROR 1:1) -- le MEME sous-arbre que celui reconstruit inline par `$$ExecuteBehaviour` :
+
+        op_Subtraction( Friends( gs@0x48 = Caster,
+                                 UnitsFromFaction(gs@0x20 = AllAliveUnits, factionId, 3), 3 ),
+                        gs@0x48 = Caster )
+
+    `factionId` = `GetStringConstant(config, 0x3d)` -- LU au gameconfig, pas code en dur : le natif
+    lit la config d'ability, donc un rework de la config change la faction buffee sans toucher au
+    code. (`Catalyst.constants.factionId` = `"Tyranids"` sur `rnca9r7q6c`.)
+
+    `Friends` (et non `UnitsFromFaction` seul) est ce qui restreint a l'EQUIPE du caster : sans lui,
+    un Tyranide ENNEMI serait buffe. Les deux filtres sont bien presents au decompile, dans cet
+    ordre : la faction D'ABORD (le pool `AllAliveUnits`), l'equipe ENSUITE.
+
+    ⚠ `GetEffectTargetsSelector` est le point d'ancrage de la face PREDICTION (la surbrillance des
+    cibles) ; `ExecuteBehaviour` reconstruit le MEME arbre et l'enveloppe d'un `Cache`. Le port
+    partage donc la fonction, et seul l'arbre d'execution ajoute le `Cache`."""
+    faction = ((GC.ability(CATALYST_ID) or {}).get("constants") or {}).get("factionId")
+    return Sub(Friends(UnitsFromFaction(AllAliveUnits(), faction, selection_type=SELECTION),
+                       Caster(), selection_type=SELECTION),
+               Caster())
+
+
+def catalyst_tree(extra_armor: int, block_chance: int, block_dmg: int):
+    """Arbre COMPLET de `...CatalystAbility$$ExecuteBehaviour` (MIRROR ; cf. le bloc en tete).
+
+    `Cache(targets)` = `IdunBattleLogic.Entities.DSLSelectors$$Cache(sel, unique: 1)` : les TROIS
+    feuilles partagent LA MEME liste resolue une seule fois. Ce n'est pas cosmetique -- si une des
+    trois modifications tuait/reveillait une unite, les deux suivantes verraient quand meme
+    l'ensemble d'origine. (Aucune des trois ne le fait ici : trois stats defensives.)
+
+    `Const(x)` = `IdunBattleLogic.Entities.DSLFormulas$$Direct(x)` : le montant est FIGE a la pose
+    (stat-mod STATIQUE), pas re-evalue -- c'est exactement le contrat d'
+    `AddStaticStatModifierEffect`."""
+    targets = Cache(catalyst_targets_selector())
+    armor = AddStaticStatModifierEffect(targets, CATALYST_EXTRA_ARMOR, int(StatType.FIXED_ARMOR),
+                                        Const(int(extra_armor)),
+                                        name="Catalyst_ExtraArmor_Effect",
+                                        duration_turns=CATALYST_TURNS)
+    chance = AddStaticStatModifierEffect(targets, CATALYST_EXTRA_BLOCK_CHANCE,
+                                         int(StatType.BLOCK_CHANCE), Const(int(block_chance)),
+                                         name="Catalyst_ExtraBlockChance_Effect",
+                                         duration_turns=CATALYST_TURNS)
+    damage = AddStaticStatModifierEffect(targets, CATALYST_EXTRA_BLOCK_DAMAGE,
+                                         int(StatType.BLOCK_DAMAGE), Const(int(block_dmg)),
+                                         name="Catalyst_ExtraBlockDamage_Effect",
+                                         duration_turns=CATALYST_TURNS)
+    return op_add(op_add(armor, chance), damage)
+
+
+class CatalystAbility(ActiveAbility):
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.CatalystAbility$$ExecuteBehaviour` (id 1032,
+    `tyranBossHiveTyrantLeviathan` « Hive Tyrant », Tyranids -- SEUL porteur). SELF-CAST : le buff
+    d'equipe des Tyranides ALLIES du caster, caster EXCLU.
+
+    Trois effets STATIQUES de 2 tours, poses sur le MEME ensemble de cibles :
+      * `0x420 Catalyst_ExtraArmor_Effect`       -> `StatType.FIXED_ARMOR`  = `extraArmor[level]`
+      * `0x422 Catalyst_ExtraBlockChance_Effect` -> `StatType.BLOCK_CHANCE` = `blockChance` (constante)
+      * `0x421 Catalyst_ExtraBlockDamage_Effect` -> `StatType.BLOCK_DAMAGE` = `blockDmg[level]`
+
+    ⚠ L'appariement effet <-> stat n'est PAS devinable du nom : `0x421` s'appelle
+    `Catalyst_ExtraBlockDamage_Effect` et porte bien `BLOCK_DAMAGE`, mais il est le TROISIEME volet
+    du decompile alors que `0x422` (`...BlockChance`) est le DEUXIEME -- les ids ne suivent pas
+    l'ordre d'emission. Les trois couples sont LUS au call-site, jamais tries par ordinal.
+
+    `extraArmor` et `blockDmg` sont TOUS DEUX dans `variablesAffectedByRarityBonus` -> scales par
+    `AbilityVariablesMultiplierPercentage` de l'unite (200 % au palier haut du boss). `blockChance`
+    est une CONSTANTE -> jamais scalee (`ability_var(..., is_constant=True)`)."""
+    __slots__ = ()
+    ABILITY_TYPE = int(ActiveAbilityType.Catalyst)          # 1032
+    ABILITY_ID = CATALYST_ID
+
+    # GATE DE CIBLE (#115) -- forme de ctor = **PRESET STATIQUE COPIE** (la 3e des six formes), MEME
+    # preset que `BurrowersAbility` ci-dessus. `...CatalystAbility$$.ctor` n'appelle AUCUN
+    # `IdunBattle.Core.Services.TargetingOptions$$.ctor` : il recopie les 0x40 octets du champ
+    # STATIQUE de `TargetingOptions` a l'offset RELATIF +0x280 du bloc `<TargetingOptions class>+0xb8`,
+    # puis `AActiveAbility..ctor(this, &opts, 2)` (3e argument = 2 = `AbilityAttackType.Others`).
+    # Contenu RELU champ par champ dans `IdunBattle.Core.Services.TargetingOptions$$.cctor` :
+    #     <preset>+0x00 isSelfCasting    = 1
+    #     <preset>+0x08 range            <- `TargetingRange` statics+0x60 = RANGE_SELF
+    #     <preset>+0x20 forceMeleeTarget = 1 = RangedBool.False
+    #     <preset>+0x28 rules            = 0x8004
+    # Decomposition EXHAUSTIVE de 0x8004 (0x4 + 0x8000, aucun bit residuel) :
+    #     0x4     (bit 2)  CasterMatchesDynamicRule -> arme la regle-delegue `options+0x30` ; 1032 ne
+    #             surcharge PAS `GetDynamicInvalidCasterReason` (aucun symbole
+    #             `CatalystAbility$$GetDynamic*` dans le build) -> defaut 0, mirror exact.
+    #     0x8000  (bit 15) CasterIsPossibleTarget   -> DECLARATIF (lu par
+    #             `IdunBattle.Core.Services.TargetingOptions$$get_CanTargetCaster`), jamais un refus.
+    # PORTEE : `TargetingRange` statics+0x60 = `RANGE_SELF` -> portee 0, toute cible autre que le
+    # caster est refusee sur `TargetIsInRange`. `isSelfCasting = 1` -> cible == caster.
+    TARGETING_OPTIONS = TargetingOptions(
+        rules=TR.CasterMatchesDynamicRule | TR.CasterIsPossibleTarget,
+        self_cast=True, range=RANGE_SELF, force_melee_target=RANGED_BOOL_FALSE)
+
+    def _params(self, state: "State", caster_id: int) -> tuple:
+        """`(extraArmor, blockChance, blockDmg)` = les trois amounts collapses.
+
+        Niveau = `active_ability_level` (1032 est une ability ACTIVE), multiplier =
+        `AbilityVariablesMultiplierPercentage` de l'unite. Les DEUX variables sont dans
+        `variablesAffectedByRarityBonus` (`['extraArmor', 'blockDmg']`) donc scalees ; `blockChance`
+        est une constante (`GetNumberConstant`), jamais scalee."""
+        e = state.get_entity(caster_id)
+        sc = e.get_component(StatsComponent) if e is not None else None
+        ctx = sc.ctx if sc is not None else None
+        level = ctx.active_ability_level if ctx is not None else 0
+        mult = ctx.ability_variables_multiplier if ctx is not None else 100
+        armor = ability_var(CATALYST_ID, "extraArmor", level, multiplier_pct=mult) or 0
+        block_dmg = ability_var(CATALYST_ID, "blockDmg", level, multiplier_pct=mult) or 0
+        chance = ability_var(CATALYST_ID, "blockChance", is_constant=True) or 0
+        return int(armor), int(chance), int(block_dmg)
+
+    def execute_behaviour(self, state: "State", caster_id: int,
+                          target_id: Optional[int]) -> Optional[dict]:
+        if state.get_entity(caster_id) is None:
+            return None
+        armor, chance, block_dmg = self._params(state, caster_id)
+        ectx = ExecutionContext(state=state, rng=state.rng)
+        catalyst_tree(armor, chance, block_dmg).execute(
+            entities_from_state(state, caster_id, target_id), ectx)
+        buffs = [{"unit": p["unit"], "effect": p["effect_type"], "stat": p["stat"],
+                  "amount": p["amount"]}
+                 for n, p in ectx.emitted if n == "AddStaticStatModifierEffect"]
+        return {"ability": CATALYST_ID, "caster": caster_id, "target": target_id,
+                "extra_armor": armor, "block_chance": chance, "block_damage": block_dmg,
+                "buffs": buffs, "buffed": sorted({b["unit"] for b in buffs}), "dsl": True}
+
+
+# ====== StranglethornCannon (Hive Tyrant `tyranBossHiveTyrantLeviathan`, actif 1056) ============= #
+#
+# `IdunBattleLogic.Entities.Abilities.Active.Loki.StranglethornCannonAbility$$ExecuteBehaviour`
+# (MIRROR du DECOMPILE, build `rnca9r7q6c`) :
+#
+#     profile   = GetDamageProfile(config@0x60).Value                         # Blast
+#     mainDmg   = AActiveAbility.MinMaxDamage (this, abilityState)            # minDmg  / maxDmg
+#     adjDmg    = AActiveAbility.MinMaxDamage2(this, abilityState)            # minDmg_2/ maxDmg_2
+#     hits      = GetNumberConstant(config@0x60, 0x2f = 47 nrOfHits)          # 3
+#     hits2     = GetNumberConstant(config@0x60, 0x32 = 50 nrOfHits_2)        # 1
+#     adj       = DSLSelectors.AdjacentUnits(gs@0x60 = Target, unique = 1, 3)
+#     ExecuteAtomic( op_BitwiseAnd( op_BitwiseAnd(
+#           DSLBehaviors.InformWeapon(Nullable<DamageProfileType>(), null, null),
+#           DSLBehaviors.AttackWithAttackDamage(gs@0x48 = Caster, gs@0x60 = Target, mainDmg,
+#                                               Nullable(profile), hits, AbilityOrEffect(this), ., 2) ),
+#           DSLBehaviors.AttackWithAttackDamage(gs@0x48 = Caster, adj,            adjDmg,
+#                                               Nullable(profile), hits2, AbilityOrEffect(this), ., 2) ),
+#        entities, 0x55 = GroupType.StranglethornCannon_AtomicGroup )
+#
+# i2 : « The Hive Tyrant attacks using its Stranglethorn Cannon, dealing 3x <minDmg-maxDmg> Blast
+# Damage to an initial target within 3 hexes. Any units adjacent to the target suffer
+# 1x <minDmg_2-maxDmg_2> Blast Damage. »
+#
+# QUATRE points LUS :
+#  * `AdjacentUnits` est passe **BRUT**, sans wrapper `Enemies(...)` -- contraste avec PlasmaGrenade /
+#    ScythingTalons / HarvesterOfSouls, qui enveloppent tous leur ring-1. Consequence PORTEE :
+#    FRIENDLY-FIRE, les allies du caster adjacents a la cible prennent le volet splash. C'est ce que
+#    dit l'i2 (« Any units adjacent »), et c'est ce que le decompile ecrit -- pas une deduction.
+#    Le CASTER lui-meme ne peut pas etre du lot : son masque porte `TargetIsNotAdjacent`, donc la
+#    cible n'est jamais dans son ring-1, donc lui n'est jamais dans le ring-1 de la cible.
+#  * `AdjacentUnits` EXCLUT son origine (`op_Subtraction(Units(AdjacentTiles(origin), ...), origin)`)
+#    -> la cible principale ne prend PAS le coup splash en plus : 3 coups, pas 3+1.
+#  * Le `selectionType = 3` (`OnlyAliveAndTargetable`) est porte PAR le selecteur -- c'est le SEUL
+#    filtre de l'ensemble splash, faute de wrapper. On ne rajoute donc PAS d'`Alive(...)` : le natif
+#    le fait deja, ici, a l'interieur du noeud.
+#  * `InformWeapon` (1er terme du `op_BitwiseAnd`) N'EST PAS materialise en feuille : c'est le noeud
+#    qui pousse les TAGS d'arme dans le stream (`engine/streams/inform_ops.py`), aval deja porte et
+#    consomme par `AttackWithAttackDamage` (`get_inform_weapon_tags`). Aucune Operation d'etat.
+#    RESIDU NOMME `#697-r1` : le port n'emet pas l'event `InformWeapon` propre, donc une cascade
+#    live comparee event-a-event portera un groupe de moins.
+STRANGLETHORN_ID = "StranglethornCannon"
+#: `GetDamageProfile(config@0x60)` -> `StranglethornCannon.constants.damageProfile` = `Blast`.
+STRANGLETHORN_PROFILE = "Blast"
+#: L'ability est RANGED (`constants.range` = 3, preset `+0x140` = `useRangeFromConfig`) -> le volet
+#: percage lit l'arme RANGED du caster, pas la melee.
+STRANGLETHORN_IS_MELEE = False
+
+
+def stranglethorn_cannon_tree() -> AtomicGroup:
+    """Arbre de `...StranglethornCannonAbility$$ExecuteBehaviour` (MIRROR ; cf. le bloc en tete) :
+
+        AtomicGroup( op_and(
+            AttackWithAttackDamage(Target(),                    minDmg  /maxDmg  , nrOfHits  ),   # MAIN
+            AttackWithAttackDamage(AdjacentUnits(Target(), 3),  minDmg_2/maxDmg_2, nrOfHits_2) ) ) # SPLASH
+
+    ORDRE : main PUIS splash -- c'est l'ordre du `op_BitwiseAnd` natif, donc l'ordre de consommation
+    de `state.rng`. Un splash joue avant le coup principal desynchroniserait tous les tirages.
+
+    `multi=True` sur le splash folde l'`OrderBy` de
+    `IdunBattle.Entities.Behaviours.AttackBehaviour$$Execute` (tri par id = ordre de lecture natif).
+    `native_factory="attack"` : le decompile appelle bien
+    `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAttackDamage` aux DEUX volets (XREF), donc
+    2 tirages/coup a cc=0 -- pas la variante `AbilityDamage` a 1 tirage.
+
+    `hits_key="nrOfHits_2"` sur le splash : le natif lit `GetNumberConstant(0x32)`, PAS le meme
+    `nrOfHits` que le main (3 contre 1). Le confondre multiplierait le splash par 3."""
+    ability_type = int(ActiveAbilityType.StranglethornCannon)   # AbilityOrEffect(this+0x10)
+    main = AttackWithAttackDamage(Target(), STRANGLETHORN_ID, STRANGLETHORN_PROFILE,
+                                  is_melee=STRANGLETHORN_IS_MELEE, native_factory="attack",
+                                  ability_type=ability_type)
+    splash = AttackWithAttackDamage(AdjacentUnits(Target(), selection_type=SELECTION),
+                                    STRANGLETHORN_ID, STRANGLETHORN_PROFILE,
+                                    is_melee=STRANGLETHORN_IS_MELEE,
+                                    min_key="minDmg_2", max_key="maxDmg_2", hits_key="nrOfHits_2",
+                                    multi=True, native_factory="attack", ability_type=ability_type)
+    return AtomicGroup(op_and(main, splash))
+
+
+class StranglethornCannonAbility(ActiveAbility):
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.StranglethornCannonAbility$$ExecuteBehaviour`
+    (id 1056, `tyranBossHiveTyrantLeviathan` « Hive Tyrant », Tyranids -- SEUL porteur). Cast RANGED
+    (`constants.range` = 3) : `nrOfHits`(3) coups Blast sur la cible, puis `nrOfHits_2`(1) coup Blast
+    (bornes `MinMaxDamage2`) sur CHAQUE unite adjacente a la cible, ALLIES DU CASTER COMPRIS.
+
+    Profil `Blast` (`PiercingRatio` 15, trait de profil `HitsMultipleMembers`).
+
+    Face DECISION : `...$$GetDamageAmountMain` = `AActiveAbility$$MinMaxDamageAverage`,
+    `...$$GetDamageAmountAdjacent` = `AActiveAbility$$MinMaxDamage2Average`,
+    `...$$GetAdjacentDamageTargets` = le MEME `AdjacentUnits(Target, unique: 1, 3)` que le volet
+    splash de `$$ExecuteBehaviour` -- les deux faces partagent donc leur selecteur, et le port
+    l'ecrit une seule fois (`stranglethorn_cannon_tree`)."""
+    __slots__ = ()
+    ABILITY_TYPE = int(ActiveAbilityType.StranglethornCannon)   # 1056
+    ABILITY_ID = STRANGLETHORN_ID
+
+    # GATE DE CIBLE (#115) -- forme de ctor = **PRESET + FLAGS** (la 2e des six formes).
+    # `...StranglethornCannonAbility$$.ctor` recopie les 0x40 octets du preset statique
+    # `<TargetingOptions statics>+0x140`, puis appelle
+    # `IdunBattle.Core.Services.TargetingOptions$$.ctor(&opts, &preset, 0x100000000)`.
+    # SURCHARGE TRANCHEE PAR SES XREFS ENTRANTES (methode obligatoire -- les trois surcharges
+    # decompilent sous le MEME nom) : le call-site de `StranglethornCannonAbility$$.ctor` figure dans
+    # les xrefs de la surcharge `(this, template, additionalRules)`, celle-la meme qu'appellent
+    # `ThunderousAssaultAbility` et `TheQuickeningAbility`. Son corps, LU :
+    #     this+0x28 = (ulonglong)additionalRules | template+0x28      <- OU, pas remplacement
+    # Le preset `+0x140`, RELU dans `IdunBattle.Core.Services.TargetingOptions$$.cctor` :
+    #     <preset>+0x00 isSelfCasting    = 0
+    #     <preset>+0x08 range            <- `TargetingRange` statics+0x18 = RANGE_FROM_CONFIG
+    #     <preset>+0x20 forceMeleeTarget = 0 = RangedBool.True
+    #     <preset>+0x28 rules            = 0x4002
+    # => masque EFFECTIF = 0x4002 | 0x100000000 = **0x100004002**, decompose EXHAUSTIVEMENT :
+    #     0x2         (bit 1)  TargetMatchesDynamicRule -> arme la regle-delegue `options+0x38` ; 1056
+    #                 ne surcharge PAS `GetDynamicInvalidTargetReason` (aucun symbole
+    #                 `StranglethornCannonAbility$$GetDynamic*` dans le build) -> defaut 0.
+    #     0x4000      (bit 14) TargetIsEnemy            -> refus sur soi-meme / un allie.
+    #     0x100000000 (bit 32) TargetIsNotAdjacent      -> refus si la cible est ADJACENTE au caster.
+    #                 C'est le flag AJOUTE par le ctor (le preset ne le porte pas) : sans lui, le port
+    #                 laisserait le boss tirer au contact, ce que le natif REFUSE.
+    # PORTEE : `useRangeFromConfig` (`StranglethornCannon.constants.range` = 3) +
+    # `forceMeleeTarget = True` (le preset `+0x140`, celui de PlasmaCannon/Supercharge/Harvester --
+    # a NE PAS confondre avec `+0x180`, qui porte le MEME masque 0x4002 et `forceMeleeTarget = 1`).
+    TARGETING_OPTIONS = TargetingOptions(
+        rules=TR.TargetMatchesDynamicRule | TR.TargetIsEnemy | TR.TargetIsNotAdjacent,
+        self_cast=False, range=RANGE_FROM_CONFIG, force_melee_target=RANGED_BOOL_TRUE)
+
+    def execute_behaviour(self, state: "State", caster_id: int,
+                          target_id: Optional[int]) -> Optional[dict]:
+        if target_id is None:
+            return None
+        ectx = ExecutionContext(state=state, rng=state.rng)
+        stranglethorn_cannon_tree().execute(
+            entities_from_state(state, caster_id, target_id), ectx)
+        atks = [p for n, p in ectx.emitted if n == "AttackWithAttackDamage"]
+        main = next((p["attack"] for p in atks if p.get("target") == target_id), None)
+        splash = [{"target": p["target"], "attack": p["attack"]}
+                  for p in atks if p.get("target") != target_id]
+        return {"ability": STRANGLETHORN_ID, "caster": caster_id, "target": target_id,
+                "main_attack": main, "splash": splash, "dsl": True}
 
