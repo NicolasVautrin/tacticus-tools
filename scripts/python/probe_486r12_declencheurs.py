@@ -68,12 +68,15 @@ ASCII only (console Windows cp1252).
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import shutil
+import statistics
 import subprocess
 import sys
 import tempfile
 import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 PYDIR = Path(__file__).resolve().parent
@@ -88,6 +91,23 @@ import verdict_cache                                                   # noqa: E
 ROOT = PYDIR.parents[1]
 EMPREINTE = ROOT / "scripts" / "declencheurs-empreinte.tsv"
 FORMAT = "1"
+
+#: Le COUT de chaque entree, par entree de banque -- versionne (#486-r35).
+#:
+#: POURQUOI IL FALLAIT L'ECRIRE. Le chrono existait depuis le premier jour (`t0 = time.time()`
+#: autour du `subprocess.run`) et n'atterrissait nulle part : la ligne `[mesure]` defile puis
+#: disparait. Personne ne pouvait donc dire OU passaient les ~20 min de `--mesurer`, et toute
+#: decision d'acceleration (incremental ? parallelisme ?) se prenait a l'intuition -- alors que
+#: les deux repondent a des distributions OPPOSEES (concentree => seul l'incremental paye ;
+#: plate => seul le parallelisme paye). `scripts/ratchets-457-durations.json` ne couvre PAS ce
+#: gisement : il porte des FICHIERS DE TEST, et son intersection avec les ids de banque est VIDE.
+#:
+#: ⚠ LE REGIME EST ECRIT AVEC LA DUREE, et ce n'est pas decoratif : une entree mesuree sous
+#: parallelisme 16 sur une machine a 8 coeurs porte la contention de ses voisines, pas son cout.
+#: Comparer deux passes sans lire leur regime ferait conclure a une regression la ou seul le
+#: throttle a change. `serie` est le seul regime dont la duree est un COUT ISOLE.
+DUREES = ROOT / "scripts" / "declencheurs-durees.json"
+FORMAT_DUREES = "1"
 
 #: Ce qui doit changer pour que ce cliquet puisse changer d'avis (#486-r12).
 #: Il est SOUMIS A SON PROPRE CRITERE -- exiger des autres une declaration sans en porter une
@@ -249,30 +269,63 @@ def sha_source(script: str) -> str:
 
 
 # ============================================================== mesure
-def mesurer(ids: list, bq: dict, verbose: bool) -> Empreinte:
-    """Joue les cliquets demandes sous audit hook et rend l'empreinte correspondante."""
+def mesurer(ids: list, bq: dict, verbose: bool, parallelisme: int = 1) -> tuple[Empreinte, dict]:
+    """Joue les cliquets demandes sous audit hook. Rend (empreinte, durees par entree).
+
+    LE PARALLELISME N'EST PAS UN PARI (#486-r35). `scripts/ratchets.ps1` joue DEJA cette meme
+    banque en parallele -- `-ThrottleLimit 0` vaut `min(nb de cliquets, nb de coeurs)` -- et sa
+    documentation en donne la raison : les cliquets sont 100 % OFFLINE (aucun runner, aucun RPC,
+    aucune session Frida), donc le plafond de 4 du `CLAUDE.md`, qui borne ce qui MONTE UN RUNNER,
+    ne les concerne pas. Ce qui est neuf ici, c'est seulement que la MESURE emprunte la meme voie
+    que la banque qu'elle mesure.
+
+    Ce que le parallelisme ne doit PAS perturber, et ne perturbe pas :
+      * la TRACE -- chaque entree a son propre dossier (`base / ident`) passe par
+        `TACTICUS_DECLENCHEUR_TRACE`, et chaque process y ecrit un fichier a SON pid. Deux
+        entrees ne peuvent donc pas melanger leurs lectures ;
+      * le `sitecustomize.py` -- ecrit UNE fois, avant le pool, et lu seulement ;
+      * la DUREE -- elle porte alors la contention des voisines, ce que le regime ecrit DIT.
+        Une distribution ne se derive que d'une passe `serie`.
+    """
     e = Empreinte()
     e.commit = _tete()
+    durees: dict = {}
+    regime = "serie" if parallelisme <= 1 else "para-%d" % parallelisme
     base = Path(tempfile.mkdtemp(prefix="declencheur-mesure-"))
     site = base / "site"
+    # UNE seule preparation : `preparer` ecrit le `sitecustomize.py` partage et rend
+    # l'environnement. L'appeler par entree depuis N threads ferait N ecritures concurrentes du
+    # meme fichier -- inutile, et sous Windows une ecriture peut alors echouer sur un verrou.
+    env_base = DT.preparer(base / "_ignore", site, str(ROOT))
+
+    def _une(ident: str) -> tuple:
+        argv = bq[ident]
+        dossier = base / ident.replace(":", "_")
+        env = dict(env_base)
+        env[DT.ENV_TRACE] = str(dossier)
+        t0 = time.time()
+        try:
+            r = subprocess.run([sys.executable] + list(argv), cwd=str(PYDIR), env=env,
+                               capture_output=True, text=True, timeout=TIMEOUT)
+            rc = r.returncode
+        except subprocess.TimeoutExpired:
+            rc = -1
+        return ident, rc, time.time() - t0, DT.fusionner(dossier)
+
     try:
-        for ident in ids:
-            argv = bq[ident]
-            script = script_de(argv)
-            dossier = base / ident.replace(":", "_")
-            env = DT.preparer(dossier, site, str(ROOT))
-            t0 = time.time()
-            try:
-                r = subprocess.run([sys.executable] + list(argv), cwd=str(PYDIR), env=env,
-                                   capture_output=True, text=True, timeout=TIMEOUT)
-                rc = r.returncode
-            except subprocess.TimeoutExpired:
-                rc = -1
-            lectures, programmes, nproc = DT.fusionner(dossier)
+        if parallelisme <= 1:
+            resultats = [_une(i) for i in ids]
+        else:
+            with ThreadPoolExecutor(max_workers=parallelisme) as pool:
+                resultats = list(pool.map(_une, ids))
+        for ident, rc, dt, (lectures, programmes, nproc) in resultats:
+            script = script_de(bq[ident])
             e.par_id[ident] = {"sha": sha_source(script), "lu": grouper(lectures),
                                "proc": sorted(programmes & set(DT.OPAQUES)), "nproc": nproc}
+            durees[ident] = {"s": round(dt, 2), "rc": rc, "regime": regime,
+                             "commit": e.commit[:12]}
             print("  [mesure] %-22s rc=%-4s %5.1f s  %5d lecture(s)  %d process%s"
-                  % (ident, rc, time.time() - t0, len(lectures), nproc,
+                  % (ident, rc, dt, len(lectures), nproc,
                      ("  opaques: " + ",".join(DT.opaques(programmes))) if DT.opaques(programmes)
                      else ""))
             if verbose:
@@ -280,7 +333,57 @@ def mesurer(ids: list, bq: dict, verbose: bool) -> Empreinte:
                     print("            %s/*%s  x%d" % (g[0] or ".", g[1], g[2]))
     finally:
         shutil.rmtree(base, ignore_errors=True)
-    return e
+    return e, durees
+
+
+# ============================================================== durees : lecture / ecriture
+def charger_durees(chemin=None) -> dict:
+    """`{ident: {"s": float, "rc": int, "regime": str, "commit": str}}`, ou `{}`.
+
+    JAMAIS fatal : une mesure de COUT ne doit pas pouvoir faire echouer un garde de FIDELITE.
+    Un fichier illisible rend `{}` -- la passe suivante le reecrira."""
+    p = Path(chemin or DUREES)
+    if not p.is_file():
+        return {}
+    try:
+        d = json.loads(p.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return d.get("durees") or {} if isinstance(d, dict) else {}
+
+
+def ecrire_durees(durees: dict, chemin=None) -> None:
+    p = Path(chemin or DUREES)
+    p.write_text(json.dumps({"format": FORMAT_DUREES, "durees":
+                             {k: durees[k] for k in sorted(durees)}},
+                            indent=1, sort_keys=False) + "\n", encoding="utf-8")
+
+
+def publier_distribution(durees: dict, joues: list) -> None:
+    """Total, mediane, les 5 plus lourdes et leur part CUMULEE -- sur les entrees JOUEES.
+
+    ⚠ La part cumulee est ce qui TRANCHE entre les deux accelerations, et c'est pour ca qu'elle
+    est imprimee plutot que laissee a deriver : concentree, seul l'incremental paye ; plate, seul
+    le parallelisme paye. Un total sans sa forme ne decide rien.
+    """
+    vus = [(i, durees[i]["s"]) for i in joues if i in durees]
+    if not vus:
+        return
+    total = sum(s for _, s in vus)
+    vals = sorted(s for _, s in vus)
+    lourdes = sorted(vus, key=lambda t: -t[1])
+    regimes = sorted({durees[i].get("regime", "?") for i, _ in vus})
+    print("\n  -- DISTRIBUTION DU COUT (%d entree(s), regime %s) --"
+          % (len(vus), "/".join(regimes)))
+    print("     total %.1f s | mediane %.1f s | min %.1f s | max %.1f s"
+          % (total, statistics.median(vals), vals[0], vals[-1]))
+    cumul = 0.0
+    for rang, (ident, s) in enumerate(lourdes[:5], 1):
+        cumul += s
+        print("     %d. %-24s %6.1f s  (%4.1f %% ; cumul %4.1f %%)"
+              % (rang, ident, s, 100.0 * s / total if total else 0.0,
+                 100.0 * cumul / total if total else 0.0))
+    print("     les 5 plus lourdes pesent %.1f s sur %.1f s" % (cumul, total))
 
 
 def _tete() -> str:
@@ -501,6 +604,13 @@ def main() -> int:
                     help="(re)joue les cliquets sous audit hook et REECRIT l'empreinte")
     ap.add_argument("--only", default="",
                     help="CSV d'ids de banque (prefixe accepte) -- borne la MESURE")
+    ap.add_argument("--jobs", type=int, default=1, metavar="N",
+                    help="entrees mesurees EN PARALLELE (defaut 1 = serie). Les cliquets sont "
+                         "100 pourcent offline (cf. ratchets.ps1 -ThrottleLimit), donc le "
+                         "plafond de 4 du CLAUDE.md, qui borne ce qui MONTE UN RUNNER, ne les "
+                         "concerne pas. ATTENTION : sous N > 1 les DUREES portent la contention, "
+                         "sont ecrites avec leur regime, et une distribution ne se derive que "
+                         "d'une passe `serie`.")
     ap.add_argument("--verbose", action="store_true")
     a = ap.parse_args()
 
@@ -526,7 +636,7 @@ def main() -> int:
             print("[486r12] rc=99 -- `--only %s` ne selectionne aucune entree." % a.only)
             return 99
         print("[486r12] MESURE de %d entree(s) ..." % len(ids))
-        neuf = mesurer(ids, bq, a.verbose)
+        neuf, durees_neuves = mesurer(ids, bq, a.verbose, parallelisme=max(1, a.jobs))
         # Mesure INCREMENTALE : on ne perd jamais ce qu'on n'a pas rejoue.
         ancien = Empreinte.charger()
         ancien.par_id.update(neuf.par_id)
@@ -534,6 +644,12 @@ def main() -> int:
         ancien.ecrire()
         print("[486r12] empreinte ecrite : %s (%d entree(s))"
               % (EMPREINTE.relative_to(ROOT).as_posix(), len(ancien.par_id)))
+        toutes = charger_durees()
+        toutes.update(durees_neuves)
+        ecrire_durees(toutes)
+        print("[486r12] durees ecrites   : %s (%d entree(s))"
+              % (DUREES.relative_to(ROOT).as_posix(), len(toutes)))
+        publier_distribution(toutes, ids)
 
     ko1, decl, fins = etage_declaration(scripts)
     ko2, non_mesure = etage_mesure(scripts, decl, fins, Empreinte.charger(), a.verbose)
