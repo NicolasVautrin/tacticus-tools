@@ -114,7 +114,17 @@ PORT_CHANNELS = {
 #: LONGUE -- donc la plus susceptible d'etre coupee -- est precisement celle qu'on rate, et
 #: l'effet retombe en « NATIF NON RESOLU » alors que son symbole est ecrit noir sur blanc.
 #: Le faux positif est impossible : tout candidat est CONFRONTE a `classes.tsv`.
-_SYM = re.compile(r"IdunBattle\.\s*Entities\.\s*Effects\.\s*(?:Loki\.\s*)?(\w+)\s*\$\$\s*Create"
+#:
+#: ⚠ LE NAMESPACE N'EST PAS `IdunBattle.Entities.Effects[.Loki]` -- il l'est a 171/179, et c'est
+#: exactement ce qui rendait le reste INVISIBLE. Compte DERIVE de `methods.tsv` (`rnca9r7q6c`,
+#: declarations d'un des quatre slots) : `IdunBattle.Entities.Effects.Loki` 166,
+#: `IdunBattle.Entities.Effects` 5, `IdunBattleLogic.Entities.Abilities.Triggered.Loki` 5,
+#: `Idun.Source.IdunBattle.Logic.Entities.Effects.Loki` 1,
+#: `IdunBattleLogic.Entities.Abilities.Active.Loki` 1 (c'est celui d'`UnbreakableDuty`),
+#: `IdunBattle.Entities.Effects.Idun` 1. Un prefixe FERME rate donc 8 declarations sur 179, et
+#: la classe ratee ne sort pas en erreur : elle retombe sur une AUTRE voie de resolution.
+#: => le prefixe est LIBRE, et c'est `classes.tsv` qui tranche, comme le dit la ligne au-dessus.
+_SYM = re.compile(r"(?:[A-Za-z_]\w*\.\s*)+(\w+)\s*\$\$\s*Create"
                   r"(?:EffectDamage(?:BonusForAttack|MalusForDefense)|Damage(?:Defense)?Modifier)")
 
 
@@ -175,19 +185,36 @@ def native_face_index(build: Path):
     return parent, by_chain, by_method
 
 
-def resolve_native_class(port_cls, parent) -> tuple[str | None, str]:
+def resolve_native_class(port_cls, parent, base=None) -> tuple[str | None, str]:
     """Classe NATIVE d'une classe d'effet du port, et par quelle voie elle a ete etablie.
 
     Voie 1 (la seule qui n'invente rien) : le SYMBOLE cite verbatim dans le source de la classe
     du port -- convention du depot (« on cite un SYMBOLE, jamais une adresse »).
     Voie 2 : le nom, `<EffetX>Effect` / `<EffetX>_Effect`, CONFRONTE a `classes.tsv` (une classe
     qui n'y existe pas n'est pas retenue).
+
+    ⚠ LA REMONTEE S'ARRETE AVANT `BaseEffect`, ET C'EST LE CRAN QUI MANQUAIT. `BaseEffect` n'est
+    le mirror d'AUCUNE classe native : les symboles de sa docstring y sont des EXEMPLES. Or elle
+    en cite NEUF, et le depart `max(count, -index)` en elisait toujours le meme --
+    `ConquerorImperativeEffect`, face `attacker`. Toute classe du port ne citant pas elle-meme un
+    symbole se voyait donc attribuer CETTE classe native. MESURE sur `rnca9r7q6c` : 9 des 69
+    classes a face de degat resolvaient par remontee, dont **8 jusqu'a `BaseEffect`** ; 7 d'entre
+    elles etaient d'accord PAR COINCIDENCE (leur face de port est `attacker`, celle de
+    `ConquerorImperativeEffect` aussi) et la 8e -- `UnbreakableDuty_DamageReduction`, face
+    `defender` -- sortait en DIVERGENCE alors que le port a RAISON
+    (`IdunBattleLogic.Entities.Abilities.Active.Loki.UnbreakableDuty_DamageReductionEffect`
+    n'implemente que `$$CreateEffectDamageMalusForDefense`, slot 0x1a). Le cliquet accusait le
+    PORT d'une faute qui etait la sienne, et ses 7 verts ne prouvaient rien.
+
+    La remontee elle-meme RESTE : une sous-classe de PORT (`...DroneEffect(...Effect)`) mirroire
+    la MEME classe NATIVE que son parent -- `isDrone` est un champ d'instance, pas une autre
+    classe -- et ne re-cite pas le symbole. Sans elle, `DefenderOfTheGreaterGood_ExtraDmgDrone`
+    sort « NATIF NON RESOLU » a tort (son nom ne resout pas non plus).
     """
     short_names = {c.rsplit(".", 1)[-1] for c in parent}
-    # ⚠ On remonte la MRO du port : une sous-classe de PORT (`...DroneEffect(...Effect)`) mirroire la
-    # MEME classe NATIVE que son parent -- `isDrone` est un champ d'instance, pas une autre classe --
-    # et ne re-cite pas le symbole. Sans cette remontee elle sort « NATIF NON RESOLU » a tort.
     for cls in port_cls.__mro__:
+        if base is not None and cls is base:
+            break
         try:
             src = inspect.getsource(cls)
         except (OSError, TypeError):
@@ -244,12 +271,21 @@ def main() -> int:
         for c, a, b in desacc:
             print("  %-56s chaine=%s  methodes=%s" % (c, a, b))
 
-    rows, unresolved, divergent = [], [], []
+    rows, unresolved, divergent, conflits = [], [], [], []
     for name, cls in sorted(EFFECT_CLASSES.items()):
         pf = port_faces(cls, BaseEffect)
         if not pf:
             continue
-        nc, how = resolve_native_class(cls, parent)
+        nc, how = resolve_native_class(cls, parent, base=BaseEffect)
+        # ⚠ CRAN sur la remontee de MRO : elle est LEGITIME (un `...DroneEffect` herite du symbole
+        # de son parent de port) mais elle est aussi la voie par laquelle un symbole cite en
+        # EXEMPLE peut usurper une identite. Quand le NOM resout AUSSI et designe une AUTRE classe
+        # native, l'appariement est faux -- on le compte au lieu de le taire. Sans ce cran, la
+        # panne se traduisait en fausse divergence de FACE, donc en accusation du port.
+        if how == "symbole cite (parent port)":
+            byname = resolve_by_name(name, parent)
+            if byname is not None and byname != nc:
+                conflits.append((name, nc, byname))
         if nc is None:
             nc, how = resolve_by_name(name, parent), "nom"
         nf = set()
@@ -282,7 +318,10 @@ def main() -> int:
     print("DIVERGENCES                     : %d" % len(divergent))
     for name, pf, nf in divergent:
         print("  %-44s port=%-18s natif=%s" % (name, "+".join(pf), "+".join(nf)))
-    rc = len(divergent) + len(unresolved)
+    print("APPARIEMENTS EN CONFLIT         : %d  (parent de MRO vs nom)" % len(conflits))
+    for name, par, byname in conflits:
+        print("  %-44s parent-MRO=%-34s nom=%s" % (name, par, byname))
+    rc = len(divergent) + len(unresolved) + len(conflits)
     print("VERDICT: %s (rc=%d)" % ("PASS" if rc == 0 else "FAIL", rc))
     return rc
 
