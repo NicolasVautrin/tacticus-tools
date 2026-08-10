@@ -633,29 +633,18 @@ TARGETING_OPTIONS_UNPORTED: "dict[int, TargetingOptions]" = {
     ActiveAbilityType.MartialExemplar: TargetingOptions(rules=TR.CasterIsPossibleTarget | TR.CasterHasNotMoved  # 1216
                                  | TR.CasterMatchesDynamicRule,
                            self_cast=True, range=None, force_melee_target=RANGED_BOOL_FALSE),
-    # @FORME STATIC-COPY   (couvre aussi 1093 et 1215 ci-dessous : les deux recopient les 0x40
-    #                       octets d'un preset et n'appellent AUCUN `TargetingOptions$$.ctor`)
+    # @FORME STATIC-COPY   (couvre aussi 1215 ci-dessous : il recopie les 0x40 octets d'un preset et
+    #                       n'appelle AUCUN `TargetingOptions$$.ctor`)
+    # ⚠ DEUX RETRAITS SE SONT CROISES ICI, et la resolution est leur UNION -- pas un arbitrage.
     # ⚠ 1217 `TheLionsWrath` A QUITTE CETTE TABLE (#889) : sa face COMBAT est desormais portee, et le
     # CONTRAT DE DISJONCTION ci-dessus exige alors le retrait de la ligne. Son masque -- les MEMES
     # quatre valeurs, RE-LUES au decompile avant migration -- vit sur la classe,
     # `runner/abilities/darkangels.py::TheLionsWrathAbility.TARGETING_OPTIONS`, avec la lecture
     # complete du preset `<TargetingOptions statics>+0x40`.
-    # 1093 MortarionsPlagueWind (#27-r5) -- face DECISION portee (playbook), face COMBAT NON portee.
-    # `IdunBattleLogic.Entities.Abilities.Active.Loki.MortarionsPlagueWindAbility$$.ctor` n'appelle
-    # AUCUN `TargetingOptions$$.ctor` : il RECOPIE les 0x40 octets du champ statique
-    # `<TargetingOptions statics>+0x180` puis fait `AActiveAbility$$.ctor(this, &opts, 0)`. Le masque
-    # EFFECTIF est donc la constante ecrite par `IdunBattle.Core.Services.TargetingOptions$$.cctor` a
-    # `<preset>+0x28` (= `statics+0x1a8`) : **0x4002** (LU dans le cctor, pas deduit).
-    #     0x4000  TargetIsEnemy            -> gate porte (`units_can_attack_each_other`)
-    #     0x0002  TargetMatchesDynamicRule -> consulte `GetDynamicInvalidTargetReason`, qu'aucun
-    #             symbole `MortarionsPlagueWindAbility$$GetDynamicInvalidTargetReason` ne surcharge.
-    # Le PRESET est LE MEME (`statics+0x180`) que celui de son jumeau `PlagueWindAbility$$.ctor`
-    # (1035), dont `TARGETING_OPTIONS` porte deja ces valeurs -- les deux ctors sont identiques au
-    # nom pres. `isSelfCasting` = `<preset>+0x180` = 0 ; `forceMeleeTarget` = `<preset>+0x1a0` = 1
-    # = RANGED_BOOL_FALSE (l'enum natif est INVERSE : True=0, False=1) ; `range` = le bloc
-    # `<preset>+0x188..0x19f`, recopie de `TargetingRange statics+0x18` = RANGE_FROM_CONFIG.
-    ActiveAbilityType.MortarionsPlagueWind: TargetingOptions(rules=TR.TargetIsEnemy | TR.TargetMatchesDynamicRule,  # 1093
-                           range=RANGE_FROM_CONFIG, force_melee_target=RANGED_BOOL_FALSE),
+    # ⚠ 1093 `MortarionsPlagueWind` A QUITTE CETTE TABLE (#888), pour la MEME raison : sa face COMBAT
+    # est portee (`runner/abilities/deathguard.py::MortarionsPlagueWindAbility`), donc son masque
+    # (STATIC-COPY `<TargetingOptions statics>+0x180`, `<preset>+0x28` = 0x4002, le MEME preset que
+    # son jumeau 1035) vit desormais sur la classe, avec la lecture complete du preset.
     # 1215 InstrumentsOfVengeance (#27-r6) -- meme statut que 1216 : face DECISION portee (playbook),
     # face COMBAT NON portee (`...InstrumentsOfVengeanceAbility$$ExecuteBehaviour` est un arbre DSL
     # substantiel : `If(HasTarget)` sur deux paires de `GetEffectBehavior`, `AddBondEffect(0x5ef)`,
