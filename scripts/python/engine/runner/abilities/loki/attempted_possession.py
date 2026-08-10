@@ -108,6 +108,9 @@ from ....entities.selectors.geometry import SelectIf
 from ....entities.selectors.tiles import Caster, ChildrenOf
 from ....entities.selectors.units import Alive, Union, UnitsWithoutTrait
 from ....entities.stats import StatPart, StatType
+from ....entities.traits import unit_trait as _unit_trait   # FORME B (#547-r2) : le module, pas
+# le symbole -- `_has_trait` lit `_unit_trait.entity_trait_names` a chaque appel, donc un
+# `monkeypatch.setattr("engine.entities.traits.unit_trait.<x>", ...)` mord encore.
 from ....entities.traits.unit_trait import UnitTrait
 from ....entities.triggers import HasTrait
 from ..base import ActiveAbility
@@ -115,6 +118,11 @@ from ..behaviours.ai_control import PerformAIAbility
 from ..behaviours.context import entities_from_state
 from ..behaviours.effects import AddBondEffect, RemoveEffect
 from ..behaviours.stats import AddStatOverrideEffect
+from .. import targeting as _targeting       # FORME B (#547-r2) : `valid_normal_attack_targets`
+# est SUBSTITUE par `test_590_attempted_possession_offline.py` (3 sites) via le chemin PLEIN
+# `engine.runner.abilities.targeting.valid_normal_attack_targets`. Hisser en forme A
+# (`from ..targeting import valid_normal_attack_targets`) gelerait la liaison a l'import et
+# DESARMERAIT ces trois patchs -- mesure de `migrate_485r1_barils_reexport.py morsure`.
 from ..targeting import (RANGE_FROM_CONFIG, RANGED_BOOL_FALSE, TargetingOptions)
 from ..targeting_rule import TargetingRule as TR
 
@@ -363,7 +371,6 @@ def attempted_possession_preferred_target(state: "State", caster_id: int,
 
     Rend l'id de la cible preferee, ou `None` (aucun candidat)."""
     from ...operations.change_unit_owner import (ChangeUnitOwnerOperation, ResetUnitOwnerOperation)
-    from ..targeting import valid_normal_attack_targets
     ent = state.get_entity(int(possessed_id))
     if ent is None:
         return None
@@ -371,7 +378,8 @@ def attempted_possession_preferred_target(state: "State", caster_id: int,
     simule = ChangeUnitOwnerOperation.execute(state, int(possessed_id), int(caster_id))
     try:
         # `res.<+0x10>` -- les cibles legales de l'attaque normale de l'ACTEUR (pas du caster).
-        cands = [int(t) for t in (valid_normal_attack_targets(state, int(possessed_id)) or [])]
+        cands = [int(t)
+                 for t in (_targeting.valid_normal_attack_targets(state, int(possessed_id)) or [])]
         if not cands:
             return None
         # `b__5_1` : `HasTrait(u, 0xd = Object) ^ 1`
@@ -414,16 +422,16 @@ def _has_trait(state: "State", unit_id: int, trait: int) -> bool:
     Le substrat de traits du port est `entity_trait_names` (le FOYER : kit gameconfig + traits
     ACCORDES en bataille + pseudo-trait d'alliance) -- pas `sc.ctx.traits` brut, qui rate les
     traits accordes."""
-    from ....entities.traits.unit_trait import entity_trait_names, has_trait
     from ...components import StatsComponent, UnitComponent
     ent = state.get_entity(int(unit_id))
     if ent is None:
         return False
     sc = ent.get_component(StatsComponent)
     uc = ent.get_component(UnitComponent)
-    traits = entity_trait_names(sc.ctx if sc is not None else None,
-                                getattr(uc, "visual_id", None) if uc is not None else None)
-    return has_trait(traits, int(trait))
+    traits = _unit_trait.entity_trait_names(
+        sc.ctx if sc is not None else None,
+        getattr(uc, "visual_id", None) if uc is not None else None)
+    return _unit_trait.has_trait(traits, int(trait))
 
 
 def _has_effect(state: "State", unit_id: int, effect_type: int) -> bool:
