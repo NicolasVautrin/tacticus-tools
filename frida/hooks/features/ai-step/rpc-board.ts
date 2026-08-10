@@ -223,7 +223,7 @@ function getConnectivityLayout(): ConnectivityLayout | null {
  *  Tri-état assumé : `null` = le composant n'est pas porté par cette entité (ou la classe n'est pas
  *  résolue) — à ne PAS confondre avec `[]`, qui est une liste réellement vide. Les confondre est
  *  exactement la faute que `#381-r3` a déjà payée sur le champ `neighbours`. */
-function readConnectivity(entityPtr: NativePointer):
+export function readConnectivity(entityPtr: NativePointer):
 { neighbours: number[]; teleportTwinTileId: number; rawSize: number } | null {
     const lay = getConnectivityLayout();
     if (!lay || !connectivityComponentClass) return null;
@@ -862,7 +862,7 @@ export function registerViewBoard(ctx: Ctx): void {
 
         const bTrue = Memory.alloc(1); bTrue.writeU8(1);
         const bFalse = Memory.alloc(1); bFalse.writeU8(0);
-        let adjCalls = 0; let adjFails = 0; let walkFails = 0;
+        let adjCalls = 0; let adjFails = 0; let walkFails = 0; let adjUnmapped = 0;
         // #448-r1-r1-r1-r1-r2 — compteurs du canal BRUT, pour que son absence se DISE au lieu de
         // se lire comme « le natif n'a aucune arête » : `connMissing` = tuiles sans composant.
         let connFound = 0; let connMissing = 0; let connEdges = 0; let connTeleports = 0;
@@ -898,6 +898,14 @@ export function registerViewBoard(ctx: Ctx): void {
                     for (const n of extractTilePtrs(os)) {
                         const nid = idByCoord.get(n.col + "," + n.row);
                         if (typeof nid === "number" && nid !== t.id) neighbours.push(nid);
+                        // #589-r1-r1-r2-r1-r4 — un voisin que le natif REND et que la table
+                        // (col,row) ne sait pas remapper etait JETE EN SILENCE : l'arete
+                        // disparaissait du graphe sans qu'aucun compteur ne bouge, et se lisait
+                        // ensuite « le natif n'a pas cette arete ». On le COMPTE. Le remapping
+                        // reste par coordonnee (les consommateurs du port indexent ainsi), mais
+                        // sa perte n'est plus muette. `adjacentTilesNative` publie, lui, la
+                        // liste NON remappee.
+                        else if (typeof nid !== "number") adjUnmapped++;
                     }
                 } catch { adjFails++; }
                 if (isWalkMi) {
@@ -983,7 +991,7 @@ export function registerViewBoard(ctx: Ctx): void {
         return {
             ok: true, runner: label, tileCount: tiles.length,
             occupiedTiles: occByTile.size,
-            adjCalls, adjFails, walkFails, tiles,
+            adjCalls, adjFails, walkFails, adjUnmapped, tiles,
             mowPositions,
             // #448-r1-r1-r1-r1-r2 — le canal BRUT se DÉCRIT lui-même. Sans ce bloc, un
             // `connectivity: null` partout serait indiscernable d'un plateau sans arêtes ;
