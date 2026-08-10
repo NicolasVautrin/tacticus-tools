@@ -1225,7 +1225,9 @@ class MoveUnitOperation(Operation):
         #
         #     if (position.Count == 0) {
         #         if (!options.<+0x15>) throw;                        // G5 l'a deja refuse
-        #         processor.<slot 7>(unit, removeTileFromUnit: true); // RemoveUnitFromTiles
+        #         processor.<slot 7>(unit, removeTileFromUnit: true); // = RemoveUnitFromTiles
+        #         // ⚠ ce qui suit N'EST PAS la resolution du slot 7 : `EvaluateAfterMoveTriggers`
+        #         // est une methode de `MoveUnitOperation` LUI-MEME, pas un slot du processor.
         #         EvaluateAfterMoveTriggers(unit, position, previousPosition, movementSteps: 0,
         #                                   isInterimStep: options.<+0x14>, triggeringAbilityOrEffect);
         #         return;

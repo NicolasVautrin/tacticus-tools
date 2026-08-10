@@ -13,6 +13,11 @@ Addition(0xe)` a `CalculateBaseDamageWithAllModifiers` aux DEUX call-sites.
   * `Chronometron_ExtraDamage` (1550)   -- CE PROBE, bras `chrono` / `chrono-flat`.
   * `Neuroparasite` (1183/1218)         -- CE PROBE, bras `neuro`.
 
+Un QUATRIEME est entre depuis (PR #836, `HeraldOfTheApocalypse_ExtraDamage` 1027), et il est entre
+SANS confrontation -- c'est exactement le regime que le cliquet de
+`test_462_r4b_r1_r1_defender_additive_carriers_offline.py` surveille, et qui l'a fait rougir sur
+`master`. Bras `herald` (#547-r2).
+
 ## Le regime DEGENERE, et pourquoi ce probe force l'armure
 
 Le plancher de `idun.Idun.Source.Shared.Battle.StaticBattleRules.StaticBattleRules.Damage$$
@@ -34,8 +39,16 @@ subies.
 la cible d'une attaque PSYCHIQUE (`On(9) & OwnerIsCaster & !HasEffect(target,0x4c2) & ... &
 CurrentAttackDamageProfilesContain(0xd)`), et l'additif ne joue qu'a la frappe SUIVANTE.
 
+`blackHaarken` << Haarken Worldclaimer >> est AU POOL (verifie sur `rl_duel build --list-pool`,
+pas sur `kind == lineup`) : son ACTIVE 1020 `HeraldOfTheApocalypse` est elle-meme une attaque
+(`constants` = `damageProfile Piercing, nrOfHits 2, range 2`) et pose l'effet 1027 sur la cible ET
+sur l'ennemi DIRECTEMENT DERRIERE. L'effet est une CHARGE A USAGE UNIQUE (`On(9 = Attack) &
+get_OwnerIsTarget & IsUnit(caster)` -> `RemoveEffect`), donc le bras `herald` LIT quels ennemis la
+portent apres le cast au lieu de le supposer -- la charge de la cible primaire peut avoir ete
+consommee par l'attaque du cast lui-meme, celle de l'unite DERRIERE ne le peut pas.
+
 Usage (depuis scripts/python, session Frida chaude) :
-    python probe_462_r4b_r1_r1_defender_additive_carriers.py [chrono|chrono-flat|neuro|all]
+    python probe_462_r4b_r1_r1_defender_additive_carriers.py [chrono|chrono-flat|neuro|herald|all]
 
 ASCII only (cp1252). Dispose SES runners (jamais ceux des autres).
 """
@@ -59,6 +72,15 @@ NEUROPARASITE_EFFECT = 1218         # EffectType 0x4c2
 CHRONO_CARRIER = "necroChronomancer"
 CHRONO_ALLY = "darkaHellblaster"
 CHRONO_VICTIM = "blackPossession"
+
+HERALD_OF_THE_APOCALYPSE = 1020     # ActiveAbilityType
+HERALD_EXTRA_DAMAGE = 1027          # EffectType 0x403
+
+HERALD_CARRIER = "blackHaarken"
+HERALD_ALLY = "darkaHellblaster"
+HERALD_VICTIMS = ("blackPossession", "blackTerminator")
+# `range` de l'active 1020, LU dans `gameconfig.ability("HeraldOfTheApocalypse").constants`.
+HERALD_RANGE = 2
 
 NEURO_CARRIER = "tyranNeurothrope"
 NEURO_VICTIM = "blackPossession"
@@ -340,6 +362,145 @@ def measure_chronometron(sid, armor: int) -> dict:
         PR.dispose(sid, rid)
 
 
+def _carriers_of(dv, effect_type: int) -> list:
+    """Ids des unites qui portent CET effectType, LUS de `decisionView` -- jamais supposes."""
+    return [u["id"] for u in (dv.get("units") or [])
+            if any(int(e.get("effectType") or -1) == int(effect_type)
+                   for e in (u.get("effects") or []))]
+
+
+def measure_herald(sid, armor: int = ARMOR_PIERCE) -> dict:
+    """BRAS `herald` -- `HeraldOfTheApocalypse_ExtraDamage` (1027) sur le vecteur COMBAT.
+
+    QUATRIEME producteur d'additif DEFENSEUR, entre par la PR #836 sans confrontation (#547-r2).
+
+    Sequence : Haarken est amene a portee 2, caste l'ACTIVE 1020 cote NATIF (elle FRAPPE et pose
+    1027 sur la cible + l'ennemi derriere), on LIT qui porte 1027, puis l'attaque normale d'un ALLIE
+    sur ce porteur est rejouee cote PORT (arbre courant + contre-modele ECRIT) avant d'etre jouee
+    cote NATIF.
+
+    ⚠ La charge est A USAGE UNIQUE et son retrait est declenche par `On(9 = Attack)` : on ne
+    presume pas qu'elle survive a l'attaque du cast lui-meme -- on relit `decisionView` et on
+    choisit un porteur EFFECTIF. C'est aussi pourquoi le roster adverse compte DEUX unites : celle
+    qui est DERRIERE ne peut pas avoir consomme sa charge.
+
+    `armor` HAUTE -> branche PERCAGE (discriminante) ; la lecon du bras `chrono-flat` vaut ici mot
+    pour mot -- sur la branche ARMURE le plancher est affine de pente 1 et les deux placements
+    COINCIDENT, donc un accord n'y prouverait rien.
+
+    L'effet n'a NI `IsMeleeAttack` NI `DamageProfileIs` NI `AreFriends` (deux conjoints seulement :
+    `get_OwnerIsTarget & IsUnit(caster)`), donc aucun gate a ouvrir cote attaquant -- contrairement
+    au bras `neuro`, ou l'arme PSYCHIQUE devait etre selectionnee."""
+    from engine.runner.components import unit_state_for_effects
+    p_units = [HERALD_CARRIER, HERALD_ALLY]
+    a_units = list(HERALD_VICTIMS)
+    layout = _enemy_layout(sid, p_units, a_units)
+    anchor_vis = next((v for v in HERALD_VICTIMS if v in layout), None)
+    if anchor_vis is None:
+        return {"skip": "aucune victime dans le layout adverse: %s" % sorted(layout)}
+    # Les deux victimes doivent SURVIVRE au cast (1020 = 2 hits) puis a l'attaque de l'allie : sans
+    # PV hors de portee d'un kill, le porteur mesure disparait avant la mesure. Aucun de ces champs
+    # n'entre dans le degat mesure (attaque de l'ALLIE vers le porteur).
+    patch = {v: {"Health": 300000, "RemainingHealth": 300000} for v in HERALD_VICTIMS}
+    rid = _build(sid, p_units, a_units, armor=armor, unit_patch=patch,
+                 anchor=layout[anchor_vis], occupied=layout.values())
+    try:
+        dv = PR.rpc(sid, "decisionView", {"runnerId": rid, "maxRank": 1, "allAbilities": True}, 90)
+        bv = PR.units_by_visual(dv)
+        for need in (HERALD_CARRIER, HERALD_ALLY, anchor_vis):
+            if need not in bv:
+                return {"skip": "roster incomplet: %s" % sorted(bv)}
+        haarken, ally = bv[HERALD_CARRIER]["id"], bv[HERALD_ALLY]["id"]
+        prim = bv[anchor_vis]["id"]
+        pos = PR.positions(dv)
+
+        # (1) Haarken a portee de son active (`constants.range = 2`).
+        ok, dv = _move_within(sid, rid, dv, haarken, pos[prim], HERALD_RANGE)
+        if not ok:
+            return {"skip": "aucune tuile legale a d<=%d de la victime pour Haarken"
+                            % HERALD_RANGE}
+        if prim not in PR.legal_from_here(sid, rid, haarken, HERALD_OF_THE_APOCALYPSE):
+            return {"skip": "cible non legale pour 1020 depuis la tuile atteinte"}
+
+        # (2) cast NATIF de 1020 : il FRAPPE et pose 1027 sur la cible + l'ennemi derriere.
+        res_cast = PR.act(sid, rid, {"kind": "ability", "casterId": haarken, "targetId": prim,
+                                     "abilityType": HERALD_OF_THE_APOCALYPSE})
+        if not res_cast.get("ok"):
+            return {"skip": "cast HeraldOfTheApocalypse KO: %s" % str(res_cast)[:200]}
+        dv = PR.rpc(sid, "decisionView", {"runnerId": rid, "maxRank": 1, "allAbilities": True}, 90)
+        porteurs = _carriers_of(dv, HERALD_EXTRA_DAMAGE)
+        if not porteurs:
+            types_post = sorted(int(e.get("effectType") or -1) for u in (dv.get("units") or [])
+                                for e in (u.get("effects") or []))
+            return {"skip": "1027 porte par AUCUNE unite apres le cast (effets vus=%s) -- la "
+                            "charge a-t-elle ete consommee par l'attaque du cast ?" % (types_post,)}
+        pos = PR.positions(dv)
+        vivants = [t for t in porteurs if t in pos]
+        if not vivants:
+            return {"skip": "les porteurs de 1027 ne sont plus sur le plateau: %s" % (porteurs,)}
+
+        # (3) l'allie a portee de SON attaque normale sur UN porteur de 1027.
+        normal_id = _normal_attack_id(dv, ally)
+        if normal_id is None:
+            return {"skip": "attaque normale de l'allie introuvable"}
+        tgt = None
+        legal = PR.legal_from_here(sid, rid, ally, normal_id)
+        for cand in vivants:
+            if cand in legal:
+                tgt = cand
+                break
+        if tgt is None:
+            for cand in vivants:
+                ok, dv = _move_within(sid, rid, dv, ally, pos[cand], 1)
+                if not ok:
+                    continue
+                if cand in PR.legal_from_here(sid, rid, ally, normal_id):
+                    tgt = cand
+                    break
+        if tgt is None:
+            return {"skip": "aucun porteur de 1027 atteignable par l'attaque normale de l'allie "
+                            "(porteurs=%s)" % (vivants,)}
+
+        board, dv, ob, cs = R1._snapshot(sid, rid)
+        st_probe = R1._seeded_state(sid, rid, board, dv, ob, cs)
+        us = unit_state_for_effects(st_probe, tgt)
+        pre_active = sorted(e.effect_type for e in st_probe.effects.active_effects(tgt, us))
+
+        calls, restore = R1.instrument_defender_modifiers()
+        rows, restore_b = R1.instrument_bounds()
+        try:
+            last, _st = _replay_attack(sid, rid, board, dv, ob, cs, ally, tgt)
+        finally:
+            restore_b()
+            restore()
+        variant, _ = _replay_attack(sid, rid, board, dv, ob, cs, ally, tgt, R1._no_merge_variant)
+
+        hp0 = PR.hp_of(sid, rid)
+        res = PR.act(sid, rid, {"kind": "ability", "casterId": ally, "targetId": tgt,
+                                "abilityType": normal_id})
+        if not res.get("ok"):
+            return {"skip": "attaque normale live KO: %s" % str(res)[:200]}
+        hp1 = PR.hp_of(sid, rid)
+        return {"armor": armor, "haarken": haarken, "ally": ally, "target": tgt,
+                "porteurs_1027": porteurs, "primaire": prim,
+                "pre_active": pre_active,
+                # `port_detail` = le reste du ledger par coup du handler (roll, crit, block, arme).
+                # Sans lui, un `per_hit` HORS des bornes imprimees ci-dessus reste inexplique -- et
+                # un scalaire qu'on ne sait pas decomposer ne vaut pas confirmation.
+                "port_detail": {k: v for k, v in (last or {}).items() if k != "per_hit"},
+                "variant_detail": {k: v for k, v in (variant or {}).items() if k != "per_hit"},
+                "port_per_hit": list(last.get("per_hit") or []),
+                "port_total": last.get("total"), "port_profile": last.get("profile"),
+                "variant_per_hit": list(variant.get("per_hit") or []),
+                "variant_total": variant.get("total"),
+                "live_per_hit": R1._live_hits(res, tgt),
+                "live_hp": (hp0.get(tgt), hp1.get(tgt)),
+                "live_delta": (hp0.get(tgt) or (0,))[0] - (hp1.get(tgt) or (0,))[0],
+                "def_mods_calls": calls, "bounds_rows": rows}
+    finally:
+        PR.dispose(sid, rid)
+
+
 def measure_neuroparasite(sid, armor: int = ARMOR_PIERCE) -> dict:
     """BRAS `neuro` -- `Neuroparasite` (effet 1218) sur le vecteur COMBAT.
 
@@ -479,6 +640,10 @@ def _report(tag, m, degenerate=False):
         print("  [def_mods] u%s melee=%s profil=%s att=%s  active=%s"
               % (c["unit"], c["is_melee"], c["profile"], c["attacker"], c["active"]))
         print("             mods=%s" % (c["mods"],))
+    if m.get("port_detail"):
+        print("  [detail port]    %s" % json.dumps(m["port_detail"], default=str)[:400])
+    if m.get("variant_detail"):
+        print("  [detail variant] %s" % json.dumps(m["variant_detail"], default=str)[:400])
     print("  PORT    per_hit = %s (total %s)" % (m["port_per_hit"], m.get("port_total")))
     print("  VARIANT per_hit = %s   (contre-modele POST-%%list)" % (m["variant_per_hit"],))
     print("  LIVE    per_hit = %s (delta PV %s)" % (m["live_per_hit"], m["live_delta"]))
@@ -497,6 +662,8 @@ def main():
             _report("chrono/ARMURE", measure_chronometron(sid, ARMOR_FLAT), degenerate=True)
         if only in ("neuro", "all"):
             _report("neuro/PERCAGE", measure_neuroparasite(sid))
+        if only in ("herald", "all"):
+            _report("herald/PERCAGE", measure_herald(sid))
     finally:
         for rid in list(PR._rids):
             PR.dispose(sid, rid)

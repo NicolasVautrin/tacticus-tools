@@ -95,6 +95,40 @@ POSE_VECTOR: dict[str, tuple[str, str, str, str]] = {
         "IdunBattle.Entities.Abilities.AOwnerEffectTriggeredAbility$$CreateBehaviour"
         " (AmuletOfTheVoidwyrmAbility)",
         "AmountIsGreaterThanZero(summons/decoys allies ADJACENTS -- geometrique)"),
+    # #547-r2 -- les DEUX classes entrees par la PR #867 sans verdict de pose. Toutes deux sont
+    # posees par le `ExecuteBehaviour` d'une ability ACTIVE (un CAST), jamais par un trigger d'init
+    # : leur absence a la capture est donc FIDELE, et le rail de seed n'a rien a couvrir.
+    "BloodChalice_ExtraPiercing": (
+        "runtime", "static",
+        "IdunBattleLogic.Entities.Abilities.Active.BloodChaliceAbility$$ExecuteBehaviour"
+        " (AddStaticStatModifierEffect(GetTargets(), 0x559, 0x15 = ExtraPierceMelee, ...))",
+        "IsCharging(Owner@0x30, Target@0x60) -- et `Target@ctx+0x10` est ZERO dans le contexte de "
+        "`RefreshEffectsOperation$$ShouldBeActive`, donc la condition y est CONSTANTE FAUSSE : "
+        "elle ne bascule pas"),
+    "MindControl_Taunter": (
+        "runtime", "one-way",
+        "IdunBattleLogic.Entities.Abilities.Active.Loki.MindControlAbility$$ExecuteBehaviour"
+        " (AddBondEffect(0x557 = 1367, targets = cache, bondedEntity = Target))",
+        "HasEffect(bonded, 0x1b = 27 Taunted_OnlySpecificTargets, selectionType 6) & "
+        "AreEqual(BondedEntityFromEffect(EffectFromOwner(bonded, 0x1b)), Owner@0x30) -- le taunt "
+        "n'est pose QU'UNE fois par le cast : une fois perdu il ne revient pas"),
+    # #547-r2 -- arrivee avec la PR #874, sans verdict de pose. MEME FORME EXACTE que
+    # `AmuletOfTheVoidwyrm_CritDamageReduction` ci-dessus, et ce n'est pas une ressemblance de nom :
+    # `classes.tsv` (build `rnca9r7q6c`) donne
+    # `IdunBattleLogic.Entities.Abilities.Triggered.Loki.SupaCyborkBodyAbility` comme derivant de
+    # `IdunBattle.Entities.Abilities.AOwnerEffectTriggeredAbility`, et `methods.tsv` ne lui connait
+    # QU'UN corps propre -- `GetEffectType`. Son `CreateBehaviour` est donc celui de la BASE :
+    # `If(<CreateCondition>, AddEffect(<GetEffectType>, source = Owner, targets = Owner))` sur
+    # `OnOwnerSpecificAbilityInit`, avec une `CreateCondition` de base qui rend le noeud toujours
+    # vrai -> pose INCONDITIONNELLE a l'init. Le `.ctor` de l'effet cite `AbilityOrEffect(0x5c3 =
+    # 1475 SupaCyborkBody)`, ce qui referme la chaine.
+    # `flip: sim` -- `CreateActiveCondition = HasAdjacentEnemies(Owner, Tiles(Owner))` est
+    # GEOMETRIQUE : elle rebascule des qu'une unite bouge (le port le dit deja, mot pour mot).
+    "SupaCyborkBody_CritDmgReduction": (
+        "init", "sim",
+        "IdunBattle.Entities.Abilities.AOwnerEffectTriggeredAbility$$CreateBehaviour"
+        " (SupaCyborkBodyAbility)",
+        "HasAdjacentEnemies(Owner@0x30, Tiles(Owner)) -- geometrique"),
     "AnvilShield_BlockChanceBelowHealthCap": (
         "init", "sim",
         "IdunBattleLogic.Entities.Abilities.Triggered.Loki.AnvilShieldAbility_"

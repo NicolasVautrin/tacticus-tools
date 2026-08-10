@@ -400,6 +400,17 @@ class BloodChaliceHealOnMeleeAttack(EffectTrigger):
         return None
 
     def matches(self, state: State, ev: "TriggerEvent") -> bool:
+        # Gate `EffectComponent.IsActive @+0x5c` (#231, pose ici par #547-r2) -- ce trigger vient de
+        # `$$CreateTargetTrigger`, donc du rail que
+        # `IdunBattle.Operations.EvaluateTriggerOperation$$EvaluateEffectTriggerTargets` gate AVANT
+        # d'appeler `ShouldTrigger` (slot 0x13) : sa boucle PAR CIBLE recharge l'`EffectComponent`
+        # depuis l'entite-effet et n'evalue rien `if (*(char *)(<component> + 0x5c) == '\0')`.
+        # C'est le gate du rail TARGETS SEUL -- `EvaluateEffectTriggerEffectAbilities`, l'autre
+        # rail, n'accede JAMAIS a `+0x5c` (case-229). Sans lui, le calice soignait encore alors que
+        # son effet etait DESACTIVE : ni erreur, ni crash, juste un soin de trop.
+        inst = self._instance(state)
+        if inst is None or not inst.active:
+            return False
         if ev.ranged is None:                                # IsMeleeAttack -- tri-etat : on se tait
             return False
         return int(ev.actor_id) == int(self.owner_id) and not bool(ev.ranged)

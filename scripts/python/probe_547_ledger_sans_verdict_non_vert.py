@@ -20,6 +20,35 @@ passe a eu lieu, a rendu le bon verdict, l'a inscrit dans un fichier VERSIONNE, 
 regarde. Aucun cliquet ne lisait le ledger ; `probe_457` l'ECRIT et le consomme pour SELECTIONNER,
 jamais pour JUGER.
 
+⚠ UNE ATTESTATION N'EST PAS UN ETAT : ELLE PORTE SUR UN ARBRE, ET IL FAUT LE DIRE (#547-r2)
+--------------------------------------------------------------------------------------------
+Ce cliquet a d'abord lu le VERDICT ECRIT et rien d'autre. C'etait un compte FAUX PAR
+CONSTRUCTION, et le foyer savait deja pourquoi : `ledger_vert_offline.raison_de_rejeu` -- LA
+fonction dont `probe_457` derive ses rejeux -- refuse un vert des que le blob du test a change, que
+son ancre est inconnue, ou qu'**une dependance MESUREE a change depuis**. C'est ce dernier chemin
+qui compte ici, et il est le seul que le blob ne voit pas.
+
+MESURE qui l'etablit (2026-08-10, sur le perimetre de 290 fichiers) : **0 attestation sur 290 etait
+VALABLE sur l'arbre courant** -- 272 invalidees par un changement de dependance depuis leur ancre,
+11 sans attestation, 4 au blob change, 3 non-VERT. Le cliquet, lui, imprimait
+`entrees NON-VERT : 0, dont 0 NON DECLAREES` et concluait `PASS`. Les TROIS rouges de `master`
+trouves le meme jour (`test_477r24r1_slots_interface_offline`,
+`test_421_effect_active_gate_offline`, `test_camo_seed_inventory_offline`) sont exactement de ce
+type : des tests dont le PERIMETRE est l'ARBRE (couverture d'un registre), donc qui rougissent sans
+que leur propre blob ait bouge. Leur attestation restait verte, et rien ne demandait si elle valait
+encore.
+
+⇒ CE CLIQUET NE RABAT PLUS UN VERT PERIME SUR UN VERT. Il classe chaque fichier du perimetre en
+TROIS etats -- VALABLE ICI / non-VERT / **PAS MESURE ICI** -- et le compte de tete porte desormais
+son denominateur. C'est le tri-etat de `host_inputs` (`null` = pas mesure, jamais un zero),
+transpose au ledger.
+⚠ La staleness ne fait PAS rougir, et c'est un choix DIT : toute PR change une dependance de
+presque tous les tests, donc un rouge sur ce critere serait permanent et donc muet. Ce qui est
+exigible, c'est que le chiffre soit LU -- pas qu'il soit nul.
+⚠ Et le marquage des tests << a perimetre ARBRE >> a ete ECARTE PAR LA MESURE : il aurait ete
+redondant. Le foyer voyait deja ces trois fichiers comme invalides (`une dependance MESUREE a
+change depuis a55d7539`, verbatim). Ce qui manquait n'etait pas un capteur, c'etait un LECTEUR.
+
 CE QU'IL NE VOIT PAS -- et il l'IMPRIME, parce qu'un vert muet se lirait << tout l'offline est
 vert >> :
   * un fichier du perimetre offline SANS AUCUNE entree -- jamais joue, donc jamais atteste ;
@@ -75,33 +104,75 @@ EX_NON_MESURE = 99                                # convention `ratchets-bg.ps1`
 #:      `probe_433r4r1r4r2_neigh_channel_wired` (<< la SUSPENSION d'un natif lu est-elle encore
 #:      justifiee ? >>). Sans lui, une ligne oubliee ici masquerait un rouge futur du meme fichier.
 #: Chaque ligne porte le numero du residu qui la ferme. Pas de numero => pas de ligne.
-NON_VERTS_DECLARES = {
-    "tests/engine/test_270r4r2r2_differes_offline.py":
-        "SEUIL de masse des imports differes : 239 instructions pour un plafond de 224. "
-        "Residu #270-r4-r2-r2-r4, DEJA nomme dans le test lui-meme -- le sweep touche 28 fichiers "
-        "PARTAGES et chaque site doit passer par `migrate_485r1_barils_reexport.py morsure` avant "
-        "d'etre hisse en FORME B. Remonter le plafond serait faire taire ; le hisser a la va-vite "
-        "desarmerait des patchs deja poses (CLAUDE.md, forme A vs B).",
-    # LES AUTRES ROUGES OFFLINE DE `master`, MESURES et NON DIAGNOSTIQUES -- residu #547-r2.
-    # Ils ne sont PAS le fait de cette tranche : chacun a ete rejoue dans un worktree TEMOIN a
-    # `origin/master` PUR (`4c3601ac`), et rend `rc=1` la aussi. Ils sont declares ici parce que
-    # les NOMMER est precisement ce que ce cliquet existe pour faire -- les taire aurait ete
-    # reproduire la faute qu'il garde. Chacun porte son assertion, pas une paraphrase.
-    "tests/engine/test_448_r1_stormboyz_port_offline.py":
-        "`test_O2_le_noeud_SortTilesByUtility_se_RE_EVALUE` -- 1 failed / 13 passed sur `master` "
-        "PUR. Voisin THEMATIQUE du port de `SwornProtectorAbility$$GetSpawnTile` (#836), qui a "
-        "donne une `utility_definition` au noeud `SortTilesByUtility` -- lien NON ETABLI, a "
-        "verifier. Residu #547-r2.",
-    "tests/engine/test_462_r4b_r1_r1_defender_additive_carriers_offline.py":
-        "`test_le_registre_des_producteurs_d_additif_defenseur_est_COMPLET` -- 1 failed / 6 passed "
-        "sur `master` PUR. Meme FAMILLE que les registres a cliquet (`TARGETING_OPTIONS`, "
-        "`ABILITY_ATTACK_TYPE`) : un registre que notre propre cadence de portage rouvre. "
-        "Residu #547-r2. ⚠ CAUSE RESTANTE NOMMEE depuis #549 : le SEUL producteur non atteste est "
-        "`HeraldOfTheApocalypseExtraDamageEffect` (inscrit au canal par #BL-1020r sans mesure de "
-        "COMBAT). #549 a traverse ce garde en confrontant SON propre producteur "
-        "(`HolyDuelDmgReductionEffect`, `probe_549_holy_duel.py --step defense` : port 1196 == "
-        "natif 1196, contre-modele 2027) : la cadence de portage n'aggrave donc plus ce rouge, "
-        "elle l'a REDUIT a son cas d'origine.",
+NON_VERTS_DECLARES: dict[str, str] = {
+    # LES CINQ ROUGES QUE LA PASSE COMPLETE A MIS AU JOUR -- residu #547-r6. Ils ne sont PAS le
+    # fait de cette tranche : les CINQ ont ete rejoues dans un worktree TEMOIN a `origin/master`
+    # PUR (`ea55462c`) et y rendent `rc=1` a l'identique. Ils n'etaient pas VISIBLES avant parce
+    # que le ledger ne portait AUCUNE attestation a jour : c'est la passe `--measure` de cette
+    # tranche (290 fichiers, 4047 passed / 8 failed en 2220 s) qui les a inscrits. Chacun porte
+    # son assertion, pas une paraphrase.
+    "tests/engine/runner/test_ctx_traits_substrat_ventilation_offline.py":
+        "`test_la_table_ventile_exactement_l_inventaire` -- 1 failed / 13 passed. << 3 "
+        "lecture(s)/ecriture(s) de `traits` que la table ne ventile PAS : "
+        "[('runner/operations/resurrect.py', 'tiles_are_occupied', 'getattr(sc.ctx)', 'R'), "
+        "('runner/operations/traits.py', '_traits_of', 'getattr(ctx)', 'R'), "
+        "('runner/operations/traits.py', 'execute', 'ctx.traits', 'W')] >>. Meme FAMILLE que les "
+        "registres a cliquet : notre cadence de portage le rouvre. Residu #547-r6.",
+    "tests/engine/test_287r4r1_dynamic_target_rules_offline.py":
+        "`test_le_porteur_non_porte_consulte_bien_la_table` -- 1 failed / 15 passed. "
+        "`UnportedAbilityTargeting.get_dynamic_invalid_target_reason(state, CASTER, CIBLE)` rend "
+        "`0` la ou le test attend `int(TargetingRule.TargetMatchesDynamicRule) = 2` : le porteur "
+        "NON PORTE ne consulte plus la table dynamique. Residu #547-r6.",
+    "tests/test_366_r1_bcpatch_port_blindspot_offline.py":
+        "`test_seconde_source_le_grep_ne_voit_rien_que_l_AST_rate` -- 1 failed / 46 passed. La "
+        "seconde source (grep) voit `('BloodChalice', 'hpToHeal')`, le recensement AST ne le voit "
+        "PAS : FAUX NEGATIF, exactement ce que cette contre-epreuve existe pour montrer. Le site "
+        "est `_ability_var(\"BloodChalice\", \"hpToHeal\", ...)` dans "
+        "`operations/triggers/effect_triggers.py`, entre par `e6c66ed4` (#576, PR #860) -- donc "
+        "ANTERIEUR a cette tranche. Residu #547-r6.",
+    "tests/test_480r8_rpc_joignable_offline.py":
+        "`test_etage1_tout_rpc_porte_un_canal_nominatif` -- << 12 RPC dont le NOM n'est ecrit "
+        "nulle part hors de son fichier declarant >>, dont les quatre de "
+        "`frida/hooks/features/movement-trace.ts`. Le remede est ECRIT par le probe lui-meme "
+        "(`--catalogue` produit le bloc a coller dans `rpc-api.md`). FOYER `frida/hooks/**` : "
+        "hors du territoire de cette tranche. Residu #547-r6.",
+    # DEUX DE PLUS, arrives avec les merges que le rebase de cette tranche a integres. Ils ne sont
+    # pas davantage le fait de cette PR : les deux fichiers ACCUSES ne sont pas dans son diff.
+    "tests/engine/test_270r4_role_enum_offline.py":
+        "`test_etage2_aucun_site_n_est_revenu_a_l_ordinal_nu` + `test_etage2b_le_cliquet_resout_"
+        "bien_les_alias` -- 2 failed / 15 passed. << `runner/abilities/behaviours/context.py` : "
+        "`StatPart.MISSING` vu 0 fois, la tranche en avait mis 1 >>. Le site a disparu ou s'est "
+        "deplace hors du fichier ; `context.py` n'est PAS touche par cette PR. "
+        "⚠ RE-MESURE au dernier rebase : le fichier rend desormais **17 passed** -- il a ete "
+        "REPARE sur `master`. La ligne RESTE parce que l'ENTREE du ledger, elle, dit encore ROUGE "
+        "(elle a ete inscrite sur un arbre anterieur) : la retirer ferait rougir le CRAN 1 sur une "
+        "reparation reussie. C'est exactement le residu #547-r5 -- rien ne rejoue le ledger apres "
+        "un merge -- et cette ligne en est l'illustration vivante. Elle sortira a la prochaine "
+        "passe ordinaire. Residu #547-r6.",
+    "tests/test_463r1_ecart_empreinte_offline.py":
+        "`test_l_ecart_est_NUL_sur_ce_checkout` -- << 0 NON MESURE(S), 1 FANTOME(S) >> : "
+        "`tests/engine/runner/test_576_war_howl_pose_offline.py` est dans l'empreinte et plus dans "
+        "le perimetre. Le geste qui le PURGE est `--measure` (2220 s, de la MAINTENANCE), pas "
+        "`--measure-missing` qui FUSIONNE -- le probe le dit lui-meme. Cette tranche l'avait purge "
+        "par sa propre passe complete, puis a repris la version AMONT du fichier DERIVE au rebase "
+        "(regle : on prend un COTE ENTIER, on n'arbitre jamais un artefact genere) -- le fantome "
+        "est donc celui de `master`. Residu #547-r6.",
+    "tests/test_host_inputs_offline.py":
+        "`test_probe_273_passe` -- `probe_273_gitignore_inputs.py` rend `rc=1` depuis un WORKTREE "
+        "d'agent. Sa sortie montre `OK -- aucune sortie de run dans data/` puis, a l'etage 3, "
+        "`frida/data/_absent_273 : INTROUVABLE (pas mesure)`. A trancher : cran legitime ou "
+        "artefact du regime worktree (les entrees gitignorees vivent dans l'ARBRE PRINCIPAL, "
+        "invariant 3 du CLAUDE.md). Residu #547-r6.",
+    # VIDE POUR LE RESTE, et c'est un ETAT MESURE. Les TROIS lignes qui vivaient ici
+    # (#270-r4-r2-r2 seuil des differes, #448-r1 stormboyz, #462-r4b-r1-r1 producteurs d'additif)
+    # ont ete FERMEES par #547-r2, chacune par sa cause propre -- pas retirees pour faire taire :
+    #   * le seuil a ete RE-MESURE (partition exhaustive + debit par commit) apres remise a ZERO
+    #     des differes GRATUITS, en FORME B ;
+    #   * le stub de tri de stormboyz etait en retard d'un argument sur une signature CONFIRMEE au
+    #     decompile (deux surcharges de `IdunBattleLogic.Entities.DSLSelectors$$SortTilesByUtility`) ;
+    #   * le 4e producteur d'additif defenseur a ete CONFRONTE en combat (bras `herald`).
+    # Le CRAN 2 exige qu'une ligne sorte des que son fichier redevient vert : ce dict a donc
+    # vocation a etre vide la plupart du temps.
 }
 
 # ⚠ CE QUI A DEJA ETE RETIRE D'ICI, ET CE QUE CA MESURE. `test_486r15_empreinte_par_entree_offline
@@ -200,6 +271,48 @@ def crans(mauvais: list, declares: dict) -> tuple[list, list]:
     return non_declares, perimees
 
 
+def validite(rels: list) -> tuple[dict, list]:
+    """`({rel: raison|None}, anomalies)` -- L'ATTESTATION DE CHAQUE FICHIER PORTE-T-ELLE SUR CET
+    ARBRE ? `None` = oui. Toute autre valeur est la raison, LUE DU FOYER.
+
+    ⚠ LE FOYER EST CELUI DE `probe_457`, PAS UNE SECONDE DERIVATION. `ledger.a_rejouer` compose
+    `raison_de_rejeu` (les six chemins de validite) avec la fonction d'impact de
+    `probe_457.impacted_files` -- celle-la meme qui decide un rejeu. Redonner ici un critere a nous
+    aurait fabrique le vice que ce depot a deja paye sur `host_inputs` : deux lecteurs d'une meme
+    verite qui divergent. Le prix est le graphe d'imports (~1 min) ; il est paye, parce que le
+    chemin << une dependance MESUREE a change >> est le SEUL qui voie un test dont le PERIMETRE est
+    l'arbre, et c'est precisement le type des rouges que ce cliquet a laisse passer.
+
+    Une panne de la mesure d'impact n'est JAMAIS un vert : `a_rejouer` range alors les fichiers
+    concernes en rejeu et le DIT par une anomalie (contrat du foyer)."""
+    import probe_457_offline_tests_green as p457     # forme B -- module, pas symbole (CLAUDE.md)
+    garde = set(rels)
+    try:
+        _rejeu, raisons, anomalies = ledger.a_rejouer(
+            rels, ROOT,
+            lambda sha: [r for r in p457.impacted_files(p457.candidate_files(), sha)[0]
+                         if r in garde])
+    except Exception as exc:                     # noqa: BLE001 -- panne d'OUTIL, pas un gisement
+        raise MontageImpossible("validite des attestations non mesurable : %s: %s"
+                                % (type(exc).__name__, exc))
+    return {r: raisons.get(r) for r in rels}, anomalies
+
+
+def classer(rels: list, raisons: dict, non_vert_rels: set) -> tuple[list, list, dict]:
+    """`(VALABLES ICI, PAS MESURE ICI, causes)` -- la partition du perimetre sur l'axe VALIDITE.
+
+    Fonction PURE : la contre-epreuve l'exerce sans git ni ledger. Un fichier deja compte comme
+    non-VERT n'entre pas dans `PAS MESURE` -- il a un verdict, et c'est lui qui prime ; sans quoi
+    un rouge disparaitrait dans le tas des perimes."""
+    valables = [r for r in rels if raisons.get(r) is None]
+    pas_mesure = [r for r in rels if raisons.get(r) is not None and r not in non_vert_rels]
+    causes: dict = {}
+    for r in pas_mesure:
+        cle = str(raisons[r]).split(" (")[0].split(" --")[0]
+        causes[cle] = causes.get(cle, 0) + 1
+    return valables, pas_mesure, causes
+
+
 def portee(entrees: dict, rels: list) -> dict:
     """CE QUE LE VERT DE CE CLIQUET NE COUVRE PAS. Mesure, jamais rougi -- mais IMPRIME."""
     sans = [r for r in rels if r not in entrees]
@@ -223,12 +336,18 @@ def mesurer() -> tuple[int, dict]:
         return EX_NON_MESURE, {"anomalies": anomalies, "entrees": 0, "perimetre": len(rels)}
     mauvais = non_verts(entrees)
     p = portee(entrees, rels)
+    # TRI-ETAT (#547-r2) : l'attestation de chaque fichier porte-t-elle sur CET arbre ? Un vert qui
+    # n'y porte pas est `PAS MESURE ICI`, jamais un vert.
+    raisons, anomalies_v = validite(rels)
+    anomalies = list(anomalies) + list(anomalies_v)
+    valables, pas_mesure, causes = classer(rels, raisons, {m[0] for m in mauvais})
     # CRAN 1 : non-VERT hors declaration. CRAN 2 : declaration PERIMEE (le fichier est redevenu
     # vert, ou a disparu du ledger) -- elle doit sortir, sinon elle masquerait un rouge futur.
     non_declares, perimees = crans(mauvais, NON_VERTS_DECLARES)
     return (1 if (non_declares or perimees) else 0), {
         "anomalies": anomalies, "entrees": len(entrees), "perimetre": len(rels),
         "non_verts": mauvais, "non_declares": non_declares, "declarations_perimees": perimees,
+        "valables": valables, "pas_mesure_ici": pas_mesure, "causes_pas_mesure": causes,
         "portee": p}
 
 
@@ -271,6 +390,24 @@ def mutants_crans() -> list:
     ]
 
 
+#: Mutants de l'axe VALIDITE (#547-r2). `(nom, rels, raisons, non_vert, valables, pas_mesure)`.
+#: Ils exercent la SEULE chose qui manquait au cliquet : un vert qui ne porte pas sur cet arbre
+#: doit sortir en `PAS MESURE`, jamais grossir le tas des attestations.
+def mutants_validite() -> list:
+    rels = ["tests/a.py", "tests/b.py", "tests/c.py"]
+    return [
+        ("V1 vert VALABLE -- compte comme atteste",
+         rels[:1], {"tests/a.py": None}, set(), 1, 0),
+        ("V2 vert INVALIDE par une dependance changee -- PAS MESURE, pas un vert",
+         rels[:1], {"tests/a.py": "une dependance MESUREE a change depuis abcd1234"}, set(), 0, 1),
+        ("V3 non-VERT invalide -- reste un ROUGE, ne disparait pas dans les perimes",
+         rels[:1], {"tests/a.py": "derniere attestation : ROUGE"}, {"tests/a.py"}, 0, 0),
+        ("V4 melange -- un valable, un perime, un rouge",
+         rels, {"tests/a.py": None, "tests/b.py": "blob change", "tests/c.py": "ROUGE"},
+         {"tests/c.py"}, 1, 1),
+    ]
+
+
 def jouer_mutants() -> int:
     rate = []
     for nom, entrees, sain in mutants():
@@ -289,7 +426,15 @@ def jouer_mutants() -> int:
         else:
             print("   [*** RATE ***] %s -- %s" % (nom, "non detecte" if doit else "faux rouge"))
             rate.append(nom)
-    total = len(mutants()) + len(mutants_crans())
+    for nom, rels, raisons, non_vert, n_val, n_pas in mutants_validite():
+        val, pas, _c = classer(rels, raisons, non_vert)
+        if (len(val), len(pas)) == (n_val, n_pas):
+            print("   [OK] %s" % nom)
+        else:
+            print("   [*** RATE ***] %s -- valables %d (attendu %d), pas-mesure %d (attendu %d)"
+                  % (nom, len(val), n_val, len(pas), n_pas))
+            rate.append(nom)
+    total = len(mutants()) + len(mutants_crans()) + len(mutants_validite())
     print("   mutants : %d/%d conformes" % (total - len(rate), total))
     return 1 if rate else 0
 
@@ -323,6 +468,14 @@ def main(argv=None) -> int:
     print("-- etat du ledger")
     print("   entrees attestees : %d | perimetre offline derive : %d"
           % (info["entrees"], info["perimetre"]))
+    # LE DENOMINATEUR D'ABORD (#547-r2) : sans lui, `entrees NON-VERT : 0` se lit << tout est vert >>
+    # alors qu'il peut ne porter sur RIEN. Mesure du 2026-08-10 : 0 attestation VALABLE sur 290.
+    print("   attestations VALABLES sur CET arbre : %d / %d   (foyer `ledger.raison_de_rejeu`)"
+          % (len(info["valables"]), info["perimetre"]))
+    print("   PAS MESURE ICI (vert d'un AUTRE arbre) : %d -- ni vert ni rouge, un TROU"
+          % len(info["pas_mesure_ici"]))
+    for cle, n in sorted(info["causes_pas_mesure"].items(), key=lambda kv: -kv[1]):
+        print("      %-72s %d" % (cle[:72], n))
     mauvais = info["non_verts"]
     print("   entrees NON-VERT  : %d, dont %d NON DECLAREES (attendu 0)"
           % (len(mauvais), len(info["non_declares"])))

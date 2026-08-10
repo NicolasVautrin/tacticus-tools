@@ -58,6 +58,9 @@ DECLENCHEUR = {
         "scripts/python/probe_463r1_ecart_empreinte_offline.py",
         "scripts/python/repo_read.py", "scripts/python/declencheur_cliquet.py",
         "scripts/python/tests/**/*.py", "scripts/ratchets.ps1",
+        # #547-r2 : LU par `probe_457` (les poids du sharding LPT), jamais importe. L'empreinte
+        # REECRITE en entier l'a montre ; l'ancienne, partielle, le cachait.
+        "scripts/ratchets-457-durations.json",
     ),
     "build": False,
     "toujours": False,

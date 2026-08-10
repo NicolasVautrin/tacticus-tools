@@ -50,6 +50,9 @@ DECLENCHEUR = {
         "frida/hooks/features/ai-step/rpc-targeting.ts",
         "frida/hooks/features/ai-step/rpc-board.ts",
         "frida/hooks/features/ai-step/rpc-snapshot.ts",
+        # #547-r2 : LU par la confrontation des noms cites (l'etape 5 balaie ce module aussi).
+        # L'empreinte REECRITE en entier l'a montre ; l'ancienne, partielle, le cachait.
+        "frida/hooks/features/ai-step/internals.ts",
         "frida/hooks/game/effects.ts",
         # ⚠ HORS de `scripts/python/` : l'etape 5 confronte les noms CITES aux tables du build.
         # Une regeneration de ces tables (changement de build) doit rejouer ce cliquet -- c'est

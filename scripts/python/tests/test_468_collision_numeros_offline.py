@@ -45,6 +45,9 @@ DECLENCHEUR = {
         # font tourner le detecteur sur le corpus REEL (`docs/rl`, 7 chemins vus par la
         # confrontation) et lisent le ledger de numeros versionne.
         "docs/rl/**", "scripts/ratchets-468-numeros-attestes.json",
+        # #547-r2 : le CACHE des sujets de commit, LU par le probe pour son corpus `git log`.
+        # L'empreinte REECRITE en entier l'a montre ; l'ancienne, partielle, le cachait.
+        "scripts/ratchets-468-sujets-de-commit.txt",
     ),
     "build": False,
     "toujours": False,

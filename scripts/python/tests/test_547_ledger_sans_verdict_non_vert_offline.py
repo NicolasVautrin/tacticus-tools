@@ -36,6 +36,14 @@ DECLENCHEUR = {
         # ne le revele -- il est ouvert par chemin, et son CONTENU est le gisement. C'est
         # exactement la classe de dependance que `--proposer` declare NON MESUREE.
         "scripts/ratchets-457-vert-offline.json",
+        # #547-r2 -- LA FERMETURE S'EST ELARGIE, ET C'EST VOULU. `probe_547.validite()` compose
+        # desormais `ledger.a_rejouer` avec la fonction d'IMPACT de `probe_457` (le FOYER, pas une
+        # seconde derivation), qui tire a son tour `probe_463r1` et `repo_read`. Ces trois-la
+        # entrent donc au perimetre : un changement de la selection de `probe_457` change le
+        # verdict de ce cliquet.
+        "scripts/python/probe_457_offline_tests_green.py",
+        "scripts/python/probe_463r1_ecart_empreinte_offline.py",
+        "scripts/python/repo_read.py",
     ),
     "build": False,          # ne lit ni le binaire ni `data/symbols/**`
     "toujours": False,
@@ -127,17 +135,40 @@ def test_chaque_ligne_declaree_porte_un_NUMERO_de_residu():
 
 def test_le_cliquet_est_CABLE_a_son_verdict(monkeypatch):
     """Un cliquet qui MESURE sans RENDRE son verdict est un inventaire deguise (#430)."""
+    # ⚠ Le dict rendu par `mesurer` est un CONTRAT, et ce test en est le lecteur : les trois cles
+    # de l'axe VALIDITE (#547-r2) y figurent parce que `main` les IMPRIME. Une cle ajoutee au
+    # probe et oubliee ici fait tomber ce test en `KeyError` -- c'est voulu : un stub plus
+    # tolerant que la production laisserait passer une sortie qui plante en vrai.
     monkeypatch.setattr(G, "mesurer", lambda: (1, {
         "anomalies": [], "entrees": 1, "perimetre": 1,
         "non_verts": [("tests/x.py", L.ROUGE, L.ROUGE, {})],
         "non_declares": [("tests/x.py", L.ROUGE, L.ROUGE, {})], "declarations_perimees": [],
+        "valables": [], "pas_mesure_ici": [], "causes_pas_mesure": {},
         "portee": {"sans_entree": [], "attestation_perimee": [], "hors_perimetre_live": 0}}))
     assert G.main([]) == 1
     monkeypatch.setattr(G, "mesurer", lambda: (0, {
         "anomalies": [], "entrees": 1, "perimetre": 1, "non_verts": [], "non_declares": [],
         "declarations_perimees": [],
+        "valables": ["tests/x.py"], "pas_mesure_ici": [], "causes_pas_mesure": {},
         "portee": {"sans_entree": [], "attestation_perimee": [], "hors_perimetre_live": 0}}))
     assert G.main([]) == 0
+
+
+def test_un_vert_PERIME_ne_compte_PAS_comme_une_attestation(monkeypatch, capsys):
+    """#547-r2 -- LE cran de cette tranche, vu du LECTEUR. Le cliquet peut rendre `PASS` avec ZERO
+    attestation valable ; ce qui est interdit, c'est qu'il le TAISE. On exige donc que la sortie
+    porte le DENOMINATEUR et le mot `PAS MESURE`, pas seulement le `0` des non-VERT."""
+    monkeypatch.setattr(G, "mesurer", lambda: (0, {
+        "anomalies": [], "entrees": 290, "perimetre": 290, "non_verts": [], "non_declares": [],
+        "declarations_perimees": [],
+        "valables": [], "pas_mesure_ici": ["tests/x%d.py" % i for i in range(290)],
+        "causes_pas_mesure": {"une dependance MESUREE a change depuis abcd1234": 290},
+        "portee": {"sans_entree": [], "attestation_perimee": [], "hors_perimetre_live": 0}}))
+    assert G.main([]) == 0
+    sortie = capsys.readouterr().out
+    assert "attestations VALABLES sur CET arbre : 0 / 290" in sortie, sortie[-600:]
+    assert "PAS MESURE ICI" in sortie, sortie[-600:]
+    assert "une dependance MESUREE a change depuis" in sortie, sortie[-600:]
 
 
 def test_une_panne_d_OUTIL_ne_rend_PAS_un_rouge_de_gisement(monkeypatch):

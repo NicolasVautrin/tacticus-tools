@@ -44,6 +44,9 @@ DECLENCHEUR = {
         "scripts/python/probe_448r1r1r2r2_gates_abandon.py",
         "data/boards/pvp/C4_09.json",
         "data/boards/pvp/C3_23.json",
+        # #547-r2 : LU a l'execution (chargement du board), pas importe -- l'empreinte REECRITE
+        # en entier l'a montre, l'ancienne le cachait.
+        "scripts/python/board.py",
     ),
     "build": False,
     "toujours": False,

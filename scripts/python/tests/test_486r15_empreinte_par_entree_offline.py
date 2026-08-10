@@ -53,6 +53,10 @@ DECLENCHEUR = {
         "scripts/ratchets-486r15-dette-declencheurs.txt",
         # Le capteur de visibilite (#467) et sa dependance de flotte.
         "scripts/python/loop_status.py", "scripts/python/fleet_board.py",
+        # #547-r2 : la confrontation ECHANTILLONNE des entrees de l'empreinte et OUVRE les
+        # fichiers qu'elles nomment -- ce module `engine` y entre par cette voie, jamais par un
+        # import. L'empreinte REECRITE en entier l'a montre.
+        "scripts/python/engine/runner/operations/triggers/__init__.py",
     ),
     "build": False,
     "toujours": False,
