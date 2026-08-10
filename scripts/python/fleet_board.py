@@ -30,6 +30,7 @@ import argparse
 import html
 import json
 import os
+import re
 import subprocess
 import sys
 import time
@@ -163,6 +164,96 @@ def scan(path: Path) -> dict:
 # ou moins, les morts TOUS a 30 min ou plus, aucun entre les deux. 15 min tombe dans ce trou et
 # laisse passer un test live long (le plus lent mesure : ~12 min).
 SILENCE_MORT_MIN = 15.0
+
+# ⚠ LE TROU S'EST REFERME, ET C'EST MESURE (2026-08-10, verite terrain donnee par le harnais
+# lui-meme -- la liste des agents qu'il dit EN COURS, pas une inference). Sur 8 agents :
+#     en vol   : 0,0 · 0,1 · 0,3 · 8,2 min
+#     TERMINES : 12,1 · 21,2 · 40,3 · 40,3 min
+# Un agent TERMINE a 12,1 min tombe donc SOUS le seuil de 15 : il est compte « vif » alors qu'il
+# a rendu. La mesure de juillet n'est pas fausse, elle est PERIMEE -- a l'epoque un agent fini
+# restait longtemps avant d'etre observe ; aujourd'hui la boucle merge et nettoie en quelques
+# minutes, donc on l'observe TOT apres sa fin, et il atterrit dans la zone basse.
+#
+# CE QU'IL FAUT EN FAIRE : ne PAS deplacer le seuil (il n'existe aucune valeur qui separe -- 8,2
+# vivant contre 12,1 fini, et un test live long touche deja 12 min). Le defaut n'est pas le
+# CALIBRAGE, c'est de rendre une BORNE comme une MESURE.
+#
+# ⚠ Et le biais est ASYMETRIQUE, toujours dans le mauvais sens : ce critere ne peut que
+# SUR-compter (un fini passe pour vif ; l'inverse est impossible, un agent qui ecrit est vivant).
+# Donc `libres = plafond - en_vol` est une borne INFERIEURE -- il annonce « 0 libre » quand il en
+# reste, et BLOQUE un refill. Deux occurrences le 2026-08-10, toutes deux corrigees par
+# l'utilisateur (« y'a 4 agents en vol », « non la flotte est a 4/5 »).
+#
+# AUCUN MARQUEUR STRUCTUREL NE SEPARE LES DEUX, mesure aussi : sur la DERNIERE ligne du
+# transcript, `stop_reason` vaut `end_turn` sur 2 termines mais `None` sur les 2 autres, les jeux
+# de cles sont identiques, et `type` aussi. Lire le transcript « mieux » ne resout donc rien --
+# seul le harnais sait, et un script Python n'y a pas acces.
+#
+# Sous ce silence, l'etat est INCERTAIN et doit etre dit tel quel (cf. `loop_status.mesurer_flotte`,
+# qui rend un INTERVALLE de slots libres au lieu d'un chiffre faux).
+SILENCE_INCERTAIN_MIN = 2.0
+
+#: Budget de lecture du transcript de l'ORCHESTRATEUR, par la fin. Mesure du 2026-08-10 sur un
+#: transcript de 831 Mo : 8 Mo -> 0,42 s, 30 Mo -> 0,45 s, 126 Mo -> 1,27 s, et les agents EN VOL
+#: sont les MEMES dans les trois cas (un agent qui travaille a forcement ecrit recemment). On
+#: prend large-mais-borne : le hook `Stop` a ~3 s.
+BUDGET_TRANSCRIPT_MO = 32
+
+
+def etat_par_le_transcript(connus=None):
+    """QUI TRAVAILLE, lu dans le transcript de l'orchestrateur -- SANS AUCUN SEUIL.
+
+    Le CLI y ecrit les DEUX evenements dont on a besoin :
+      * LANCEMENT / reprise -- le resultat de l'outil `Agent` porte `agentId: <id>` ;
+      * FIN                 -- un bloc `<task-notification>` porte `<task-id>` + `<status>`.
+    Un agent repris par `SendMessage` re-travaille, et sa reprise est POSTERIEURE a sa
+    notification : le critere `derniere activation > derniere notification` le suit tout seul.
+
+    POURQUOI CECI PLUTOT QUE LE SILENCE (`est_vif`) : le silence est une BORNE, pas un etat, et
+    son biais est ASYMETRIQUE (il ne peut que sur-compter, donc il annonce << 0 libre >> quand un
+    slot est libre -- deux fois le 2026-08-10, corrige par l'utilisateur les deux fois). Mesure de
+    validation, contre la verite terrain donnee par le harnais lui-meme : **5/5 en vol et 9/9
+    finis, 0 faux dans les deux sens**. Aucun marqueur STRUCTUREL ne separe les deux etats dans le
+    transcript de l'AGENT (mesure : `stop_reason` vaut `end_turn` sur 2 finis mais `None` sur 2
+    autres) -- c'est bien le transcript de l'ORCHESTRATEUR qu'il faut lire, pas celui de l'agent.
+
+    Rend `(en_vol:set, non_resolus:set)`, ou `(None, None)` si le transcript est introuvable.
+    `non_resolus` = les `connus` dont ni lancement ni notification n'apparait dans la fenetre lue :
+    ils ne sont PAS supposes finis. Sans ce cran le biais s'inverserait -- on sous-compterait, donc
+    on SUR-dispatcherait, ce qui est au moins aussi mauvais.
+    """
+    d = project_dir()
+    if d is None:
+        return None, None
+    cands = [p for p in d.glob("*.jsonl") if p.is_file()]
+    if not cands:
+        return None, None
+    tr = max(cands, key=lambda p: p.stat().st_mtime)
+    taille = tr.stat().st_size
+    depart = max(0, taille - BUDGET_TRANSCRIPT_MO * 1024 * 1024)
+    re_lance = re.compile(r"agentId: (a[0-9a-f]{16})")
+    re_notif = re.compile(r"<task-id>(a[0-9a-f]{16})</task-id>")
+    lance, notif = {}, {}
+    rang = 0
+    try:
+        with open(tr, "r", encoding="utf-8", errors="replace") as f:
+            f.seek(depart)
+            if depart:
+                f.readline()                     # la 1re ligne lue est tronquee
+            for ligne in f:
+                rang += 1
+                if "agentId: a" in ligne:
+                    for m in re_lance.finditer(ligne):
+                        lance[m.group(1)] = rang
+                if "<task-id>" in ligne:
+                    for m in re_notif.finditer(ligne):
+                        notif[m.group(1)] = rang
+    except OSError:
+        return None, None
+    vus = set(lance) | set(notif)
+    en_vol = {a for a in vus if lance.get(a, -1) > notif.get(a, -1)}
+    non_resolus = set(connus or ()) - vus
+    return en_vol, non_resolus
 
 # Ordre d'affichage des trois etats. « attente » passe AVANT « fini » parce que c'est le seul des
 # deux sur lequel il reste une decision a prendre : reprendre l'agent, ou recuperer sa branche.

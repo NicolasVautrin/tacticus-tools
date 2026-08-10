@@ -376,8 +376,40 @@ class Sources:
 
     # -- flotte
     def flotte(self) -> list[dict]:
-        """Agents qui TRAVAILLENT. `only_alive` : cf. la preuve dans `fleet_board`."""
-        return fleet_board.collect(include_done=False, only_alive=True)
+        """Agents qui TRAVAILLENT -- FILTRES par l'etat EXACT quand il est lisible.
+
+        `fleet_board.collect(only_alive=True)` juge par le SILENCE du transcript de l'agent :
+        c'est une BORNE SUPERIEURE a biais asymetrique (un agent qui vient de rendre reste compte
+        « vif » jusqu'a `SILENCE_MORT_MIN`), donc `plafond - en_vol` annonce << 0 libre >> quand un
+        slot l'est -- et BLOQUE le refill. Deux fois le 2026-08-10, corrige par l'utilisateur.
+
+        On le CROISE donc avec `fleet_board.etat_par_le_transcript()`, qui lit le transcript de
+        l'ORCHESTRATEUR (lancement `agentId:` contre `<task-id>` d'une `task-notification`) et rend
+        l'etat SANS AUCUN SEUIL. Valide contre la verite terrain du harnais : 5/5 en vol, 9/9
+        finis, 0 faux dans les deux sens, ~1 s.
+
+        LE FILTRE VIT ICI, DANS LA SOURCE, ET PAS DANS `mesurer_flotte` -- ce n'est pas cosmetique :
+        `probe_467` substitue les sources pour jouer des scenes fabriquees, et une seconde lecture
+        disque cablee dans le calcul y ECHAPPERAIT. Mesure : la placer dans `mesurer_flotte` a fait
+        rougir **10 epreuves** d'un coup, parce que le probe herite de cette classe et se retrouvait
+        a lire la VRAIE flotte au lieu de la sienne. Le probe avait raison contre moi.
+
+        Tri-etat : si l'etat exact n'est pas lisible, on rend `collect` tel quel -- degrade, jamais
+        une certitude fabriquee.
+        """
+        rows = fleet_board.collect(include_done=False, only_alive=True)
+        try:
+            connus = {r.get("agent_id") or r.get("id") for r in rows}
+            exact, _ = fleet_board.etat_par_le_transcript({c for c in connus if c})
+        except Exception:                                    # noqa: BLE001
+            exact = None
+        if exact is None:
+            return rows
+        # Un agent ABSENT du transcript lu n'est PAS suppose fini : on le garde (sur-compter est
+        # le defaut d'aujourd'hui, mais sous-compter ferait SUR-dispatcher, ce qui est pire).
+        return [r for r in rows
+                if (r.get("agent_id") or r.get("id")) in exact
+                or (r.get("agent_id") or r.get("id")) is None]
 
     def maintenant(self) -> float:
         return time.time()
@@ -404,8 +436,10 @@ def mesurer_flotte(src: Sources, plafond: int) -> dict:
     tranches = [r for r in rows if int(r.get("depth") or 1) <= 1]
     enfants = [r for r in rows if int(r.get("depth") or 1) > 1]
     n = len(tranches)
+    # `src.flotte()` a DEJA croise le silence avec l'etat exact lu dans le transcript de
+    # l'orchestrateur (cf. `Sources.flotte`) : ce qui arrive ici travaille vraiment.
     return {
-        "en_vol": _ok(n, "fleet_board.collect(only_alive), spawnDepth <= 1"),
+        "en_vol": _ok(n, "fleet_board.collect(only_alive) x etat exact, spawnDepth <= 1"),
         "noms": _ok([r["name"] for r in tranches], "fleet_board"),
         "libres": _ok(max(0, plafond - n), "plafond - en_vol"),
         "plafond": plafond,
