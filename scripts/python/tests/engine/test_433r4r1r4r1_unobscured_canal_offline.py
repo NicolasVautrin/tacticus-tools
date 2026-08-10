@@ -27,7 +27,32 @@ sur le code d'avant comme sur celui d'apres.
 """
 from __future__ import annotations
 
-import sys
+#: Ce qui doit changer pour que ce FICHIER de test puisse changer de verdict (#486-r15).
+DECLENCHEUR = {
+    "chemins": (
+        # Le noeud sous garde, et le seul dont le comportement est mesure ici.
+        "scripts/python/engine/entities/selectors/units.py",
+        # Le CANAL : le foyer tri-etat, et le constructeur de contexte qui le pose.
+        "scripts/python/engine/entities/pathfinding/board.py",
+        "scripts/python/engine/dsl/base.py",
+        # Le PREDICAT dont les etages exercent le contrat sur les cles absentes.
+        "scripts/python/engine/battle_query.py",
+        # La geometrie hex dont le plateau DERIVE ses deux formes de ligne (droite / fat-line) :
+        # un changement de voisinage change QUELLES paires sont mesurees.
+        "scripts/python/hexgeo.py",
+        # La source du selecteur employe par les etages 3 et 4.
+        "scripts/python/engine/entities/selectors/tiles.py",
+    ),
+    "build": False,
+    "toujours": False,
+    "raison": "Purement offline et sans lecture de `data/` : les seules entrees sont le noeud, le "
+              "canal d'elevation (foyer + pose dans le contexte), le predicat "
+              "`is_target_tile_obscured` dont le contrat sur les cles absentes EST l'objet de la "
+              "garde, la geometrie hex qui derive le plateau, et le selecteur source. Le build du "
+              "jeu n'entre pas : aucun symbole n'est resolu ici, ils ne sont que CITES.",
+}
+
+import sys                                                                       # noqa: E402
 from pathlib import Path
 
 PYDIR = Path(__file__).resolve().parents[2]
