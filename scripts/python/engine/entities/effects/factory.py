@@ -11,6 +11,7 @@ from collections.abc import Mapping
 from .base import BaseEffect
 from .loki.ability_modifications import ListenUpMaggotsEffect
 from .loki.amulet_of_the_voidwyrm import AmuletOfTheVoidwyrmCritDamageReductionEffect
+from .loki.ramshackle import RamshackleDmgReductionEffect
 from .loki.supa_cybork_body import SupaCyborkBodyCritDmgReductionEffect
 from .loki.blood_chalice import BloodChaliceExtraPiercingEffect, BloodChaliceHealOnAttackEffect
 from .loki.champion_of_the_feast import ChampionOfTheFeastReduceArmorEffect
@@ -1049,6 +1050,21 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # SON ABSENCE ETAIT PERMISSIVE ET SILENCIEUSE : mesuree sur le tir differe `1237` (#503-r4),
     # elle valait 1736 PV de trop sur une cible a 12049 PV (le port la TUAIT, le natif non).
     "SupaCyborkBody_CritDmgReduction": SupaCyborkBodyCritDmgReductionEffect,
+    # 1090 Ramshackle_DmgReduction (#570-r1) : owner-effect PERMANENT du passif `Ramshackle`, seul
+    # passif du summon `orksGrotTank`. #570 avait NOMME ce trou -- le tank arrivait avec ses stats,
+    # ses traits et ses armes, et SANS sa reduction de degat : ecart PERMISSIF (il encaisse plus
+    # qu'il ne devrait) et SILENCIEUX (aucun test ne peut distinguer « le tank meurt » de « le tank
+    # meurt trop vite »).
+    #   `...Ramshackle_DmgReductionEffect$$CreateDamageModifier`
+    #       = ForAddition(get_OwnerIsTarget
+    #                       & AmountIsEqualOrGreater(ConfigConst(0x49 = pierceRatio),
+    #                                                AttackPiercingRatio()),
+    #                     Multiply(ConfigVar(0x12 = dmgReduction), Direct(-1)@DSLFormulas+0x38))
+    # SENS DU GATE, LU dans `AmountIsEqualOrGreaterAbilityTrigger$$ShouldTrigger` (`return <+0x20>
+    # <= <+0x18>`) : `pierceRatio >= percage du profil` = « les profils a percage FAIBLE ».
+    # ⚠ CONFIG = la TRIGGERED `0x445 = 1093 Ramshackle`, litteral du `.ctor` relu A L'ASSEMBLEUR
+    # (`ba 45 04 00 00`) -- et `EffectType` 1093 est `HolyDuel_DmgReduction`, une AUTRE chose.
+    "Ramshackle_DmgReduction": RamshackleDmgReductionEffect,
     # 1175 HatefulAssault_AlreadyAttacked (case-366-r1) : MARQUEUR pose par
     # `...HatefulAssaultAbility$$CreateBehaviour` sur l'ennemi qu'il vient de frapper, et LU par le
     # `CreateTrigger` de cette meme ability (`NOT HasEffect(Actor, 0x497, onlyActive=0, Both)`) -- ce
@@ -1160,6 +1176,12 @@ TRAIT_DERIVED_ABILITIES: dict[str, list[str]] = {
 # Étape 2 — owner-effects posés par `<Ability>.CreateBehaviour` À L'INIT de l'ability (DSL `AddEffect(owner)`).
 # Table par NOM d'ability (chaque entrée = VA du CreateBehaviour source).
 ABILITY_INIT_OWNER_EFFECTS: dict[str, list[str]] = {
+    # `RamshackleAbility` (TriggeredAbilityType 0x445 = 1093, parent `IdunBattle.Entities.Abilities.
+    # AOwnerEffectTriggeredAbility` d'apres `classes.tsv`) : la base pose l'owner-effect a l'init du
+    # porteur, `turns = <zeroe>` -> PERMANENT. `$$GetEffectType` a pour corps ENTIER `return 0x442`
+    # (= 1090), donc l'appariement ability -> effet est LU, pas devine. Seul porteur du kit : le
+    # summon `orksGrotTank` / npc `orksNpc3GrotTank` (#570-r1).
+    "Ramshackle": ["Ramshackle_DmgReduction"],
     "BigTarget": ["BigTarget_AdjacentEffect"],   # `IdunBattleLogic.Entities.Abilities.Active.Loki.BigTargetAbility$$CreateBehaviour : AddEffect(0x402)
     # `ShadowInTheWarp_AddEffectAbility` (base `AddEffectAbility.CreateBehaviour`) : AddEffect(0x41d=1053).
     "ShadowInTheWarp": ["ShadowInTheWarp_LessDmg_Effect"],

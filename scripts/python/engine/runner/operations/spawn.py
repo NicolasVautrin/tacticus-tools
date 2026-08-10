@@ -592,6 +592,17 @@ def _spawn_config_grot(state: State, visual_id: str, tile, summon_ability: str,
     e.add_component(HealthComponent(hp=ctx.health, hp_max=ctx.health))
     _seed_trait_owner_effects(state, e.id, ctx.traits, mult)
     _seed_derived_ability_owner_effects(state, e.id, ctx.traits, mult)
+    # La TROISIEME source de la boucle ABILITIES d'`IdunBattle.Operations.
+    # InitializeActorAbilitiesOperation$$Execute` : les owner-effects que les ABILITIES de l'unite
+    # posent a son init. Le natif n'a qu'UNE Operation d'initialisation et elle vaut pour TOUT
+    # acteur cree, summon compris -- l'omettre ici privait chaque invocation des passifs de son
+    # propre kit (#570-r1 : le Grot Tank arrivait sans `Ramshackle_DmgReduction`, ecart PERMISSIF
+    # et SILENCIEUX). `passive_level` indexe les variables per-niveau de l'owner-effect pose.
+    # RAYON DE SOUFFLE MESURE avant l'ajout : sur les 669 kits du gameconfig, **0** unite
+    # non-`lineup` avait une ability inscrite dans `ABILITY_INIT_OWNER_EFFECTS` /
+    # `ABILITY_OWNER_EFFECTS` -- ce call-site ne change donc RIEN d'autre que ce que la meme
+    # tranche y inscrit, et toute entree future sera vue par ce chemin.
+    _seed_ability_owner_effects(state, e.id, visual_id, mult, ability_level=passive_level)
     _maybe_seed_ignore_battle_fatigue(state, e.id, team, mult)   # aura SquigHound -> grots amis immunisés
     e.add_component(PositionComponent(col=tinfo["col"], row=tinfo["row"]))
     if feet_tiles and board is not None:
