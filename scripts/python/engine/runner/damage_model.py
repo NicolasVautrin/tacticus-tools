@@ -19,8 +19,15 @@ Validé par agrément : plage runner == plage `aiPredict` (pré-armure) PAR COUP
 """
 from __future__ import annotations
 
+from fractions import Fraction
 from typing import Optional, Tuple
 
+# Foyer d'arrondi PARTAGE (`IdunBattle.DSL.AAmountFormula$$RoundFix64Result`), pas un round local.
+# Import de NIVEAU MODULE : classe GRATUITE, mesuree -- `engine.dsl.base` charge seul dans un
+# process frais SANS tirer `engine.runner.damage_model`, donc hisser ne ferme aucun cycle. Meme
+# forme que les trois sites qui le consomment deja (`ai/action_generators.py`,
+# `playbook/prediction/_shared.py`, `playbook/spirit_leech.py`) ; aucun patcheur ne le vise.
+from ..dsl.base import _round_fix64
 from .state import State
 from .components import (StatsComponent, HealthComponent, OwnerComponent, PositionComponent,
                          UnitComponent, unit_has_moved, unit_has_teleported,
@@ -848,7 +855,7 @@ def ice_crit_damage_addition(state: State, attacker_id: int, target_id: int, ctx
     porte isCritical) -> l'appelant n'ajoute ce flat qu'aux coups CRITIQUES, meme position pipeline
     que le crit flat (PRE-reduce / post-spread pre-percage, #75). MESURE live (probe_45f_gfa_elevation
     --case crit : cc=100/cd=700 forces, cible gelee par GreatFrostAxe, board plat) : delta natif =
-    +175 = floor(700 x 25 / 100) sur CHAQUE coup crit — 4/4 bit-exact apres port. Rend 0 si : pas de
+    +175 sur CHAQUE coup crit — 4/4 bit-exact apres port. Rend 0 si : pas de
     board/effets, cible pas sur une tuile Ice ACTIVE, cible Immune, ou CRIT_DAMAGE attaquant = 0
     (le cas spaceWulfen cc=0/cd=0 — d'ou la « contradiction » historique du case-220 : cette formule
     n'a JAMAIS ete la source du residu x1.5, qui etait le bonus d'ELEVATION manquant du vecteur
@@ -874,7 +881,27 @@ def ice_crit_damage_addition(state: State, attacker_id: int, target_id: int, ctx
     if cd <= 0:
         return 0
     pct = bc_effect_config("IceCritDmgBonusPct", 25) or 0   # EffectConfig(5)
-    return (cd * pct) // 100                                # PercentageOf -> Fix64 -> floor int (+175 mesure)
+    # `PercentageOf(..., roundingRule = 0)` -- le 4e argument est ECRIT `0` par
+    # `IdunBattle.Entities.Effects.IceEffect$$CreateEffectDamageBonusForAttack`, et
+    # `IdunBattle.DSL.AAmountFormula$$RoundFix64Result` le lit ainsi (decompile `rnca9r7q6c`) :
+    # `1` = `Fix64.Ceiling`, `2` = `Fix64.Floor`, **tout le reste** = `Fix64.Round`. La regle 0
+    # est donc ROUND (demi-vers-le-PAIR), PAS floor.
+    #
+    # ⚠ POURQUOI LE FLOOR A TENU SI LONGTEMPS -- la mesure qui l'attestait ne pouvait pas le
+    # departager : `probe_45f --case crit` force `cd = 700`, et `700 x 25 / 100 = 175.0` n'a
+    # AUCUNE partie fractionnaire ; floor et round y rendent le MEME 175, sur 4 coups sur 4. Un
+    # accord en regime degenere. Le temoin discriminant est venu du snowball `LordOfTempests`
+    # (#883) : `cd = 2727` -> `681.75`, ou floor rend 681 et le natif 682 -- l'ecart se propage
+    # en +1 sur les DEUX bornes crit (`3530 x 0.8` et `x 1.2` sont tous deux entiers), donc +1
+    # par coup CRITIQUE et 0 sur les autres. C'est exactement la signature mesuree live :
+    # port `[5197, 4128, 1200]` contre natif `[5198, 4129, 1200]`, crits `[True, True, False]`.
+    #
+    # `CalculateInternal` normalise d'abord le pourcentage puis arrondit le produit a 2 decimales
+    # (`Round(v x 100, 0) / 100`) avant `RoundFix64Result` : sur des entrees ENTIERES `cd` et
+    # `pct`, `cd x pct / 100` a au plus 2 decimales, donc ces deux etages sont des no-op et la
+    # chaine se reduit a l'arrondi final. Le `Fraction` le modelise EXACTEMENT.
+    # Foyer d'arrondi PARTAGE (`engine/dsl/base.py`), jamais un round local.
+    return _round_fix64(Fraction(cd * pct, 100), 0)
 
 
 def build_hits_board(state: State, att_id: int, tgt_id: int,

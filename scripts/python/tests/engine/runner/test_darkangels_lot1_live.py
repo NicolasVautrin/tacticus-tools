@@ -147,6 +147,27 @@ def da_fresh(live_session):
         PR.dispose(sid, rid)
 
 
+@pytest.fixture
+def da_fresh_far(live_session):
+    """Runner FRAIS **HORS CONTACT** (`near=False` : deploiement sur les spawns joueur par defaut).
+
+    Le contact (`near=True`) est un choix du montage, pas une propriete du jeu : il existe pour que
+    le SPLASH de Supercharge et la branche Chaos d'ExemplarOfHate soient atteignables. Un test qui
+    ne fait AUCUN degat n'en a pas besoin -- et il en paie le prix fort, parce que le contact rend
+    le porteur atteignable par l'IA adverse. MESURE du 2026-08-10 sur `test_calibanite_toggle_live_
+    both_directions` : entre les deux casts, le tour de l'IA TUE Forcas (`darkaCompanion`, u91) --
+    `alive: False`, `hp: 0`, tous ses effets purges -- et le 2e cast devient un no-op ACCEPTE
+    (`ok: True`, `mutated: False`, `events: []`). Le test assertionnait donc sur un cadavre, et son
+    echec (`live post2 []`) n'accusait PAS le port. Hors contact, meme seed : Forcas survit intacte
+    (`hp` inchange) et le toggle repond dans les deux sens."""
+    sid = live_session
+    rid = PR.build(sid, near=False)
+    try:
+        yield sid, rid
+    finally:
+        PR.dispose(sid, rid)
+
+
 def _snapshot(sid, rid):
     bg = PR.rpc(sid, "boardGraph", {"runnerId": rid}, 60)
     if not (isinstance(bg, dict) and bg.get("tiles")):
@@ -290,8 +311,28 @@ def test_supercharge_pierce_effect_boosts_its_own_hits(da_runner):
     with_eff, without = run(True), run(False)
     print(f"\n[SC pierce A/B] u{caster}->u{tgt} avec={with_eff} sans={without}")
     assert set(with_eff) == set(without) and with_eff, "A/B : cibles differentes (test invalide)"
-    assert all(with_eff[t] > without[t] for t in with_eff), \
-        f"le +percage ne bonifie pas ses propres coups : avec={with_eff} sans={without}"
+    # ⚠ TEMOIN NON NUL EXIGE. Le `>` strict ne DISCRIMINE que sur une cible qui encaisse quelque
+    # chose : une cible a 0 des DEUX cotes rend `0 > 0` faux, et fait echouer le test pour une
+    # raison ORTHOGONALE a ce qu'il prouve. Ce n'est pas un cas theorique -- mesure du 2026-08-10
+    # sur ce montage meme : `blackAbaddon` (trait `TerminatorArmour`) porte
+    # `TerminatorArmour_ReduceDmg` (-75 %), son coup tombe a 936 sous une armure effective de 2510
+    # et sort a 0 dans les deux bras. Aucune quantite de percage ne peut le remonter -- c'est le
+    # natif, pas le port. Le test a ete ECRIT (2026-07-26) avant que cette absorption soit portee
+    # (#432, 2026-08-01) : le regime a change SOUS lui.
+    #
+    # La garde est RENFORCEE, pas relachee : on exige toujours le `>` STRICT sur chaque cible
+    # confrontable, ET on exige qu'il en reste au moins une -- sans quoi un montage entierement
+    # degenere passerait pour un succes (le vice « accord en regime degenere »). Les cibles
+    # ecartees sont NOMMEES dans le message.
+    confrontables = [t for t in with_eff if with_eff[t] > 0 or without[t] > 0]
+    ecartees = {t: (without[t], with_eff[t]) for t in with_eff if t not in confrontables}
+    assert confrontables, (
+        f"A/B DEGENERE : aucune cible n'encaisse quoi que ce soit (avec={with_eff} "
+        f"sans={without}) -- ce montage ne peut RIEN prouver, il faut le reparer")
+    assert all(with_eff[t] > without[t] for t in confrontables), \
+        (f"le +percage ne bonifie pas ses propres coups : avec={with_eff} sans={without} "
+         f"(confrontables={confrontables}, ecartees a degat nul des DEUX cotes "
+         f"sans/avec={ecartees})")
 
 
 def test_supercharge_pierce_effect_persists_and_is_plasma_gated(da_runner):
@@ -504,11 +545,14 @@ def test_exemplar_attacker_selection_is_dark_angels_in_range_best_first(da_runne
 
 # ------------------------------------------------------------------ (6) CalibaniteGreatsword
 
-def test_calibanite_toggle_live_both_directions(da_fresh):
+def test_calibanite_toggle_live_both_directions(da_fresh_far):
     """TOGGLE de POSTURE : port == live dans les DEUX sens. Forcas demarre en STRIKE (1404, pose par la
     triggered `CalibaniteGreatsword_SetStartAbility`) -> cast 1 : +1405 / -1404 ; tour suivant, cast 2 :
-    +1404 / -1405. Aucun degat, aucune fin de tour."""
-    sid, rid = da_fresh
+    +1404 / -1405. Aucun degat, aucune fin de tour.
+
+    Monte HORS CONTACT (`da_fresh_far`) : ce test ne fait aucun degat, mais il doit passer la main a
+    l'IA entre les deux casts -- au contact, elle TUE le porteur. Cf. la docstring de la fixture."""
+    sid, rid = da_fresh_far
     board, dv, ob, cs, rng = _snapshot(sid, rid)
     bv = PR.units_by_visual(dv)
     if "darkaCompanion" not in bv:
@@ -531,6 +575,17 @@ def test_calibanite_toggle_live_both_directions(da_fresh):
     PR.act(sid, rid, {"kind": "endturn"})
     PR.rpc(sid, "aiPlayByUnit",
            {"runnerId": rid, "maxTurns": 1, "maxActivations": 9999, "maxPump": 400}, 300)
+    # ⚠ LE PORTEUR DOIT AVOIR SURVECU AU TOUR ADVERSE, et c'est une ASSERTION, pas une precaution.
+    # Un cast sur une unite morte revient `ok: True, mutated: False, events: []` : le no-op est
+    # ACCEPTE, donc `post2` sort VIDE et l'assertion de posture ci-dessous echoue en accusant le
+    # port. C'est exactement ce qui se passait au contact (mesure 2026-08-10, Forcas tuee entre les
+    # deux casts). Rendre la mort VISIBLE ici est ce qui distingue « le port se trompe » de
+    # « le montage ne pose plus la question ».
+    dvm = PR.rpc(sid, "decisionView", {"runnerId": rid, "maxRank": 1, "allAbilities": True}, 90)
+    vivant = next((u for u in (dvm.get("units") or []) if u.get("id") == uid), None)
+    assert vivant is not None and vivant.get("alive"), (
+        f"MONTAGE : Forcas (u{uid}) n'a pas survecu au tour de l'IA ({vivant}) -- le 2e cast serait "
+        f"un no-op accepte et le test n'evaluerait plus rien")
     r2 = PR.cast(sid, rid, uid, uid, CALIBANITE)
     dv2 = PR.rpc(sid, "decisionView", {"runnerId": rid, "maxRank": 1, "allAbilities": True}, 90)
     post2 = {e[0] for e in PR.eff_names(dv2, uid)}
