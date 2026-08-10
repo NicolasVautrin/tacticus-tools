@@ -39,6 +39,7 @@ import * as netCapture from "./features/net-capture.js";
 import * as wsCapture from "./features/ws-capture.js";
 import * as expeditionBoard from "./features/expedition-board.js";
 import * as rosterOwned from "./features/roster-owned.js";
+import * as expeditionDispatch from "./features/expedition-dispatch.js";
 import * as uiMutations from "./features/ui-mutations.js";
 import * as initTrace from "./features/init-trace.js";
 import * as winnerCapture from "./features/winner-capture.js";
@@ -398,7 +399,9 @@ export function wireRpc(ctx: Ctx): void {
      // est virtualisee (4 lignes visibles sur 7) et `net-capture` ne voit que le sortant.
      // `roster-owned` DEMANDE la possession au jeu (`UnitProgression$$HasUnitUnlocked`) au
      // lieu de la deduire d'un ecran : toutes alliances, sans navigation ni defilement.
-     netCapture, wsCapture, expeditionBoard, rosterOwned, uiMutations,
+     // `expedition-dispatch` est le SEUL de la famille qui ECRIVE : son RPC d'envoi refuse
+     // sans `confirmer: true`, et l'armement n'installe que de l'OBSERVATION.
+     netCapture, wsCapture, expeditionBoard, rosterOwned, expeditionDispatch, uiMutations,
      // messageTrace AVANT winnerCapture — il SET `state.scoringRunnerId` / `state.applySeq`,
      // que winnerCapture LIT pour estampiller son event. (Le troisieme lecteur, move-options,
      // est parti avec le nettoyage : sa surface RPC etait morte et son register inerte.)

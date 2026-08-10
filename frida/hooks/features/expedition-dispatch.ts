@@ -1,0 +1,394 @@
+// expedition-dispatch — ENVOYER une Operation sans passer par l'ecran.
+//
+// ⚠ CE MODULE ECRIT. C'est le seul de la famille Expedition qui ne soit pas en lecture
+// seule, et il vit dans son propre fichier pour cette raison : un envoi immobilise des
+// personnages pour la duree de l'operation (10 h sur le plateau du 2026-08-10). Le
+// melanger aux capteurs rendrait un `expeditionBoard*` innocent indistinguable d'un geste
+// qui engage le compte.
+//
+// LA PORTE, ET POURQUOI CELLE-LA
+//
+//     Idun.Source.IdunMeta.Logic.Features.Expedition.Progression.ExpeditionGameEvents$$
+//         DispatchExpedition(expeditionId:System.String,
+//                            unitIds:System.Collections.Generic.List<System.String>,
+//                            bonusFulfilled:System.Boolean,
+//                            callback:System.Action<System.Boolean>)
+//
+// C'est l'etage LOGIQUE, et il prend exactement ce qu'un plan produit : un identifiant
+// d'operation et une liste d'unites.
+//
+// ⚠ NE PAS CONFONDRE AVEC `ExpeditionProgressionData$$DispatchExpeditionLocally`, qui
+// porte les memes trois premiers arguments. Celle-la n'est que l'ECHO LOCAL : l'appeler
+// seule avancerait l'etat client sans rien envoyer au serveur -- un mensonge d'affichage
+// qui se corrigerait au prochain sync, apres avoir fait croire au depart. On l'ancre pour
+// l'OBSERVER, jamais pour l'appeler.
+//
+// ON OBSERVE AVANT D'ECRIRE, ET LES DEUX PORTES SONT ANCREES POUR CA. Un envoi fait par
+// l'ecran fait tirer la chaine reelle : on lit alors les arguments VRAIS (ordre, valeur de
+// `bonusFulfilled`, forme des identifiants) au lieu de les deduire d'une signature. Le
+// journal est ce qui autorise a reproduire -- pas la lecture du decompile seule.
+//
+// GARDE : `expeditionDispatch` REFUSE sans `confirmer: true`. Ce n'est pas de la ceremonie :
+// le RPC est a un caractere de distance d'un `expeditionBoardRead`, et les deux vivent dans
+// la meme console.
+
+import {
+    findClassAnywhere, findMethodByParamCount, methodParamClass,
+    class_get_fields, field_get_name, field_get_offset,
+    s as cstr, readIl2cppString, MethodRef,
+} from "../il2cpp/helpers.js";
+import { invokeMethod, createManagedString, createObject } from "../il2cpp/invoke.js";
+import { queueOnMainThread } from "../runtime/queue.js";
+import { Ctx } from "../controller.js";
+import { log } from "../runtime/diag.js";
+
+/** Borne de securite sur la taille d'un envoi. Le plateau du 2026-08-10 plafonne a 5
+ *  participants ; la borne est large mais elle existe pour qu'un appelant fautif ne
+ *  parte pas avec le roster entier. */
+const MAX_UNITES = 12;
+
+interface Envoi {
+    n: number;
+    ts: number;
+    /** `observe` = vu passer (l'ecran, ou nous) ; `emis` = c'est NOUS qui l'avons appele. */
+    origine: "observe" | "emis";
+    via: string;
+    expeditionId: string | null;
+    unitIds: string[] | null;
+    bonusFulfilled: boolean | null;
+    /** Renseigne seulement pour `emis`. */
+    err?: string;
+}
+
+const journal: Envoi[] = [];
+let compteur = 0;
+
+const listeners: InvocationListener[] = [];
+const layout: Record<string, unknown> = {};
+
+let miDispatch: MethodRef | null = null;
+let instanceEvents: NativePointer | null = null;
+/** `ExpeditionProgression`, le porteur qui donne acces a tous les sous-objets. */
+let instanceProgression: NativePointer | null = null;
+let offGameEvents = -1;
+
+/** Offset d'un champ, resolu PAR SON NOM. Rend -1 si le nom n'existe pas -- on refuse
+ *  alors de lire, plutot que de dereferencer un offset supposé. */
+function offsetChamp(klass: NativePointer, nom: string): number {
+    const it = Memory.alloc(Process.pointerSize);
+    it.writePointer(ptr(0));
+    let f: NativePointer;
+    while (!(f = class_get_fields(klass, it) as NativePointer).isNull()) {
+        if (cstr(field_get_name(f) as NativePointer) === nom) {
+            return field_get_offset(f) as number;
+        }
+    }
+    return -1;
+}
+
+/** L'`ExpeditionGameEvents` vivant.
+ *
+ *  DEUX VOIES, et la seconde existe parce que la premiere est CIRCULAIRE : l'instance ne
+ *  se capte au vol qu'a un envoi, or il faut l'instance POUR envoyer. `ExpeditionProgression`
+ *  la porte en champ (`<GameEvents>k__BackingField`), et ce porteur-la, lui, se capte des
+ *  qu'un ecran d'Operations s'affiche.
+ *
+ *  Le champ est lu par un offset RESOLU PAR NOM a l'armement. Ses accesseurs
+ *  (`get_GameEvents`) n'existent pas dans la table : corps trivial, donc DEDUPLIQUE par
+ *  IL2CPP -- l'absence n'y prouve rien, et il n'y a rien a invoquer. */
+function evenements(): NativePointer | null {
+    if (instanceEvents) return instanceEvents;
+    if (instanceProgression && offGameEvents >= 0) {
+        try {
+            const p = instanceProgression.add(offGameEvents).readPointer();
+            if (!p.isNull()) return p;
+        } catch { /* rend null */ }
+    }
+    return null;
+}
+
+/** Disposition de `List<System.String>`, MESUREE sur la classe reelle (jamais supposee). */
+interface DispoListe {
+    klass: NativePointer;
+    offItems: number;
+    offSize: number;
+    ctor: MethodRef | null;
+    add: MethodRef | null;
+}
+let dispoListe: DispoListe | null = null;
+
+function mesurerListe(klass: NativePointer): DispoListe | null {
+    // Les offsets de `_items` / `_size` sont stables sur IL2CPP x64, mais les SUPPOSER
+    // ferait lire n'importe quoi en silence si la disposition changeait. On les prend
+    // dans la table des champs, et on refuse si l'un des deux manque.
+    const it = Memory.alloc(Process.pointerSize);
+    it.writePointer(ptr(0));
+    let f: NativePointer;
+    let offItems = -1;
+    let offSize = -1;
+    while (!(f = class_get_fields(klass, it) as NativePointer).isNull()) {
+        const nom = cstr(field_get_name(f) as NativePointer);
+        if (nom === "_items") offItems = field_get_offset(f) as number;
+        else if (nom === "_size") offSize = field_get_offset(f) as number;
+    }
+    if (offItems < 0 || offSize < 0) return null;
+    return {
+        klass, offItems, offSize,
+        ctor: findMethodByParamCount(klass, ".ctor", 0),
+        add: findMethodByParamCount(klass, "Add", 1),
+    };
+}
+
+/** Lit une `List<System.String>` par sa memoire -- pas d'invocation dans un hook. */
+function lireListe(p: NativePointer, d: DispoListe): string[] | null {
+    if (p.isNull()) return null;
+    try {
+        const size = p.add(d.offSize).readS32();
+        if (size < 0 || size > 512) return null;
+        const items = p.add(d.offItems).readPointer();
+        if (items.isNull()) return size === 0 ? [] : null;
+        const out: string[] = [];
+        for (let i = 0; i < size; i++) {
+            const e = items.add(0x20 + i * Process.pointerSize).readPointer();
+            out.push(e.isNull() ? "<null>" : (readIl2cppString(e) ?? "<illisible>"));
+        }
+        return out;
+    } catch { return null; }
+}
+
+function noter(via: string, origine: Envoi["origine"], id: NativePointer,
+               liste: NativePointer, bonus: NativePointer | number): void {
+    const e: Envoi = {
+        n: ++compteur, ts: Date.now(), origine, via,
+        expeditionId: id.isNull() ? null : readIl2cppString(id),
+        unitIds: dispoListe ? lireListe(liste, dispoListe) : null,
+        bonusFulfilled: typeof bonus === "number"
+            ? bonus !== 0
+            : (bonus.isNull() ? null : (bonus.toInt32() & 1) !== 0),
+    };
+    if (journal.length >= 64) journal.shift();
+    journal.push(e);
+    log("[expedition-dispatch] " + origine + " " + via + " : "
+        + String(e.expeditionId) + " <- " + JSON.stringify(e.unitIds)
+        + " bonus=" + String(e.bonusFulfilled));
+}
+
+export function register(ctx: Ctx): void {
+    /** Arme l'OBSERVATION. N'envoie rien. body: {} -> { ok, armes, layout } */
+    ctx.rpc.expeditionDispatchArm = (): Promise<unknown> => queueOnMainThread(() => {
+        if (listeners.length > 0) {
+            return { ok: true, deja: true, armes: listeners.length, layout,
+                     instanceVue: evenements() !== null };
+        }
+        const kEvents = findClassAnywhere(
+            "Idun.Source.IdunMeta.Logic.Features.Expedition.Progression",
+            "ExpeditionGameEvents");
+        if (!kEvents) return { ok: false, error: "ExpeditionGameEvents introuvable" };
+        miDispatch = findMethodByParamCount(kEvents, "DispatchExpedition", 4);
+        layout["ExpeditionGameEvents.DispatchExpedition"] = miDispatch ? true : "NON RESOLUE";
+        if (!miDispatch) return { ok: false, error: "DispatchExpedition NON RESOLUE", layout };
+
+        // La classe de la liste vient de la SIGNATURE NATIVE, pas d'une recherche par nom :
+        // `List<System.String>` est un generique INFLATE, absent de `classes.tsv`, et le
+        // chercher par nom rendrait au mieux la definition ouverte.
+        const kListe = methodParamClass(miDispatch.info, 1);
+        dispoListe = kListe ? mesurerListe(kListe) : null;
+        layout["List<String>"] = dispoListe
+            ? { _items: dispoListe.offItems, _size: dispoListe.offSize,
+                ctor: !!dispoListe.ctor, Add: !!dispoListe.add }
+            : "DISPOSITION NON MESUREE";
+
+        // Le porteur : `ExpeditionProgression` detient `GameEvents` en champ. On ancre deux
+        // de ses methodes pour retenir `this` -- l'une des deux tire des que l'ecran
+        // d'Operations s'affiche.
+        const kProg = findClassAnywhere(
+            "Idun.Source.IdunMeta.Logic.Features.Expedition.Progression",
+            "ExpeditionProgression");
+        offGameEvents = kProg ? offsetChamp(kProg, "<GameEvents>k__BackingField") : -1;
+        layout["ExpeditionProgression.<GameEvents>"] = offGameEvents >= 0
+            ? "+0x" + offGameEvents.toString(16)
+            : "CHAMP INTROUVABLE";
+        if (kProg && offGameEvents >= 0) {
+            for (const [nom, arite] of [["CanRefreshBoard", 0],
+                                        ["IsCrusadeEventActive", 0]] as Array<[string, number]>) {
+                const mi = findMethodByParamCount(kProg, nom, arite);
+                if (!mi || mi.ptr.isNull()) continue;
+                try {
+                    listeners.push(Interceptor.attach(mi.ptr, {
+                        onEnter(args) {
+                            try { if (!args[0].isNull()) instanceProgression = args[0]; }
+                            catch { /* avale */ }
+                        },
+                    }));
+                } catch { /* porte suivante */ }
+            }
+        }
+
+        const portes: Array<[string, NativePointer | null, string, number]> = [
+            ["ExpeditionGameEvents.DispatchExpedition", kEvents, "DispatchExpedition", 4],
+            ["ExpeditionProgressionData.DispatchExpeditionLocally",
+             findClassAnywhere(
+                 "Idun.Source.IdunMeta.Logic.Features.Expedition.ProgressionData",
+                 "ExpeditionProgressionData"), "DispatchExpeditionLocally", 3],
+        ];
+        for (const [cle, klass, nom, arite] of portes) {
+            if (!klass) { layout[cle] = "CLASSE INTROUVABLE"; continue; }
+            const mi = findMethodByParamCount(klass, nom, arite);
+            if (!mi || mi.ptr.isNull()) { layout[cle] = "NON RESOLUE"; continue; }
+            try {
+                listeners.push(Interceptor.attach(mi.ptr, {
+                    onEnter(args) {
+                        // Un capteur ne jette JAMAIS : on est sur le chemin d'un envoi reel.
+                        try {
+                            if (!args[0].isNull()) instanceEvents = args[0];
+                            noter(cle, "observe", args[1], args[2], args[3]);
+                        } catch { /* avale */ }
+                    },
+                }));
+                layout[cle] = true;
+            } catch { layout[cle] = "ANCRAGE EN ECHEC"; }
+        }
+        Interceptor.flush();
+        return { ok: true, armes: listeners.length, layout,
+                 instanceVue: evenements() !== null,
+                 note: "OBSERVATION seule. L'instance se capte au PREMIER envoi -- fais-en "
+                     + "un par l'ecran avant d'esperer envoyer par RPC." };
+    });
+
+    /** Le journal des envois VUS et EMIS. body: { reset?: true } */
+    ctx.rpc.expeditionDispatchJournal = (body?: { reset?: boolean }): Promise<unknown> =>
+        queueOnMainThread(() => {
+            const out = { ok: true, arme: listeners.length > 0, count: journal.length,
+                          instanceVue: evenements() !== null,
+                          dispoListe: dispoListe
+                              ? { _items: dispoListe.offItems, _size: dispoListe.offSize }
+                              : null,
+                          envois: journal.slice() };
+            if (body?.reset) journal.length = 0;
+            return out;
+        });
+
+    /** ⚠ ENVOIE. Immobilise les unites pour la duree de l'operation.
+     *
+     *  body: { expeditionId, unitIds: string[], bonusFulfilled?: boolean,
+     *          confirmer: true } */
+    ctx.rpc.expeditionDispatch = (body?: {
+        expeditionId?: string; unitIds?: string[]; bonusFulfilled?: boolean;
+        confirmer?: boolean;
+    }): Promise<unknown> => queueOnMainThread(() => {
+        // ⚠ VERROU DUR -- POSE APRES UN CRASH DU JEU, MESURE.
+        //
+        // Le 2026-08-10, cet appel a rendu `ok: true` puis Tacticus est mort dans la
+        // seconde. Deux causes possibles, AUCUNE ECARTEE a ce jour :
+        //
+        //   1. L'objet invoque vient de `ExpeditionProgression.<GameEvents>`, un champ
+        //      type `IExpeditionGameEvents`. On y applique le `MethodInfo` de la classe
+        //      CONCRETE `ExpeditionGameEvents` sans avoir jamais verifie que l'objet en
+        //      est une. Un `Il2CppClass*` different = appel sur la mauvaise vtable.
+        //   2. `callback` etait `null`. Rien n'etablit que le natif le tolere ; le
+        //      decompile montre que `DispatchExpedition` ne fait que RELAYER vers un slot
+        //      d'interface, donc le vrai corps -- celui qui deref le callback -- n'a jamais
+        //      ete lu.
+        //
+        // Ce module dit lui-meme, plus haut, que << le journal est ce qui autorise a
+        // reproduire, pas la lecture du decompile seule >>. Il a ete appele sans une seule
+        // entree `observe`. Le verrou tient jusqu'a ce que cette entree existe.
+        //
+        // POUR LEVER : armer, faire UN dispatch PAR L'ECRAN, lire le journal, et confronter
+        // le type reel de l'objet passe en `this` a `ExpeditionGameEvents`. Alors seulement
+        // remplacer ce refus par la garde `confirmer`.
+        if (journal.every((e) => e.origine !== "observe")) {
+            return {
+                ok: false, refus: "aucun envoi OBSERVE",
+                err: "expeditionDispatch est VERROUILLE : aucun envoi reel n'a encore ete "
+                   + "observe, donc ni le type concret de `GameEvents` ni la tolerance au "
+                   + "`callback` nul ne sont etablis. Un envoi a l'aveugle a deja TUE le "
+                   + "jeu le 2026-08-10. Fais UN dispatch par l'ecran, puis relance.",
+            };
+        }
+        if (body?.confirmer !== true) {
+            return { ok: false, refus: "confirmation",
+                     err: "expeditionDispatch ENVOIE et immobilise les unites. Repasse "
+                        + "avec `confirmer: true` si c'est bien ce que tu veux." };
+        }
+        const id = body?.expeditionId;
+        const unites = body?.unitIds;
+        if (typeof id !== "string" || !id) {
+            return { ok: false, err: "`expeditionId` (chaine non vide) requis" };
+        }
+        if (!Array.isArray(unites) || unites.length === 0) {
+            return { ok: false, err: "`unitIds` (liste non vide) requis" };
+        }
+        if (unites.length > MAX_UNITES) {
+            return { ok: false, err: unites.length + " unites > borne " + MAX_UNITES };
+        }
+        if (unites.some((u) => typeof u !== "string" || !u)) {
+            return { ok: false, err: "`unitIds` contient une entree non-chaine" };
+        }
+        const ev = evenements();
+        if (!ev || !miDispatch) {
+            return {
+                ok: false,
+                err: ev
+                    ? "DispatchExpedition NON RESOLUE"
+                    : "AUCUN ExpeditionGameEvents joignable -- ni capte au vol, ni lisible "
+                      + "dans `ExpeditionProgression.<GameEvents>`. Arme, puis ouvre l'ecran "
+                      + "Operations (Crusade -> Operations) pour que le porteur passe.",
+            };
+        }
+        if (!dispoListe || !dispoListe.ctor || !dispoListe.add) {
+            return { ok: false, err: "List<String> : disposition ou .ctor/Add NON RESOLUS",
+                     layout: layout["List<String>"] };
+        }
+        // Construction de la `List<System.String>` : classe prise dans la signature.
+        let liste: NativePointer;
+        try {
+            liste = createObject(dispoListe.klass);
+            invokeMethod(dispoListe.ctor.info, liste, null);
+            for (const u of unites) {
+                invokeMethod(dispoListe.add.info, liste, [createManagedString(u)]);
+            }
+        } catch (e) {
+            return { ok: false,
+                     err: "construction de la liste : "
+                        + String((e as Error).message || e).slice(0, 160) };
+        }
+        // Relecture AVANT envoi : si la liste construite ne contient pas ce qu'on croit,
+        // on ne part pas. Un envoi est irreversible a l'echelle de l'operation.
+        const relu = lireListe(liste, dispoListe);
+        if (!relu || relu.length !== unites.length
+            || relu.some((v, i) => v !== unites[i])) {
+            return { ok: false, err: "la liste construite ne se relit pas identique -- "
+                                   + "ENVOI ANNULE", attendu: unites, relu };
+        }
+        const bonus = Memory.alloc(4);
+        bonus.writeS32(body?.bonusFulfilled ? 1 : 0);
+        const e: Envoi = {
+            n: ++compteur, ts: Date.now(), origine: "emis",
+            via: "expeditionDispatch", expeditionId: id, unitIds: unites.slice(),
+            bonusFulfilled: !!body?.bonusFulfilled,
+        };
+        try {
+            // `callback` a null : le jeu s'en sert pour rafraichir SON ecran, qu'on n'a pas
+            // ouvert. Le hook d'observation nous dira si l'appel est bien parti.
+            invokeMethod(miDispatch.info, ev,
+                         [createManagedString(id), liste, bonus, ptr(0)]);
+        } catch (ex) {
+            e.err = String((ex as Error).message || ex).slice(0, 200);
+        }
+        if (journal.length >= 64) journal.shift();
+        journal.push(e);
+        return {
+            ok: !e.err, envoi: e,
+            note: "Verifie par `expeditionDispatchJournal` qu'une entree `observe` de "
+                + "`DispatchExpeditionLocally` a suivi : c'est elle qui atteste que la "
+                + "chaine du jeu a bien traite l'envoi, pas notre propre appel.",
+        };
+    });
+
+    ctx.rpc.expeditionDispatchDisarm = (): Promise<unknown> => queueOnMainThread(() => {
+        for (const l of listeners) { try { l.detach(); } catch { /* deja parti */ } }
+        listeners.length = 0;
+        return { ok: true, instanceConservee: evenements() !== null };
+    });
+}
