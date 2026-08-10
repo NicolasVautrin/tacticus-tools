@@ -1,4 +1,21 @@
-"""Capte le pool de personnages DISPATCHABLES depuis l'ecran de dispatch d'une Operation.
+"""Capte le pool ELIGIBLE a UNE operation, depuis son ecran de dispatch.
+
+⚠ CE N'EST PAS UN ROSTER, ET LA MESURE L'A TRANCHE. Cet outil a d'abord ete presente
+comme un capteur de roster : c'etait faux. L'ecran annonce 51 Imperial eligibles la ou
+`UnitProgression$$HasUnitUnlocked` en compte 49 possedes -- les deux ne mesurent pas la
+meme chose. L'eligibilite melange possession, alliance, rarete et niveau, et elle est
+PROPRE A L'OPERATION : deux operations Imperial du meme plateau rendent 32 et 34
+eligibles la ou une troisieme en montrait 51.
+
+  - Pour le ROSTER POSSEDE (toutes alliances, sans ecran ni defilement) : RPC
+    `rosterOwned` du module `frida/hooks/features/roster-owned.ts`, qui pose la question
+    au jeu unite par unite et se recoupe avec `AmountOfUnlockedUnits()`.
+  - Pour l'ELIGIBILITE d'une operation precise : cet outil, ou le RPC
+    `expeditionEligibility` (qui en rend le COMPTE pour toutes les operations rendues).
+
+Ce qui suit reste vrai, et l'outil garde son usage -- il repond a << qui peut partir sur
+CETTE operation >>, pas a << que possede le joueur >>.
+
 
 POURQUOI CE N'EST PAS UN FICHIER, ET POURQUOI C'EST UN OUTIL SEPARE.
 
