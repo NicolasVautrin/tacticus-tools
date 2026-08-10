@@ -200,6 +200,12 @@ ABILITY_ATTACK_TYPE: dict[int, int] = {
     # decompile, jamais deduit (l'arbre attaque bien en direct, mais c'est une coincidence : le lot
     # #499/#505 porte les deux contre-exemples). (#524)
     ActiveAbilityType.LashOfTorment: AbilityAttackType.DirectTargetAttack,  # 1196
+    # HellfireShells (1080) : `...Active.Loki.HellfireShellsAbility$$.ctor` recopie les 0x40 octets
+    # du MEME preset statique `<TargetingOptions statics>+0x140` que 1225/1196 puis appelle
+    # `AActiveAbility..ctor(this, &opts, 0)` -- le 3e argument est le litteral `0`. TRANSCRIT au
+    # decompile ; le preset ne dit RIEN de l'attack-type (le 3e argument en est independant, et le
+    # lot #499/#511 en porte les contre-exemples dans les deux sens). (#605)
+    ActiveAbilityType.HellfireShells: AbilityAttackType.DirectTargetAttack,  # 1080
     ActiveAbilityType.ThunderousAssault: AbilityAttackType.DirectTargetAttack,  # 1043
     # FragstormGrenadeLauncher (1048) : `FragstormGrenadeLauncherAbility$$.ctor` copie le preset
     # `TargetingOptions` statics `+0x180`, appelle la surcharge PRESET+FLAGS puis

@@ -62,11 +62,12 @@ from ...entities.active_ability_type import ActiveAbilityType
 from ...entities.effect_type import EffectType
 from ...entities.effects.magnitude import ability_var
 from ...entities.stats import StatType
-from ...entities.triggers import IsPositionMachineForCurrentPlayer
+from ...entities.triggers import HasTrait, IsPositionMachineForCurrentPlayer
 from ..components import StatsComponent, OwnerComponent, PositionComponent, get_unit_feet
 from .base import ActiveAbility, ability_attack_params, convert_rounds_to_turns
-from .targeting import (RANGE_ADJACENT, RANGE_ADJACENT_IF_MELEE_CASTER, RANGE_WHOLE_BOARD,
-                        RANGED_BOOL_FALSE, RANGED_BOOL_IF_RANGED_CASTER, TargetingOptions)
+from .targeting import (RANGE_ADJACENT, RANGE_ADJACENT_IF_MELEE_CASTER, RANGE_FROM_CONFIG,
+                        RANGE_WHOLE_BOARD, RANGED_BOOL_FALSE, RANGED_BOOL_IF_RANGED_CASTER,
+                        RANGED_BOOL_TRUE, TargetingOptions)
 from .targeting_rule import TargetingRule as TR
 from .behaviours.chain import ChainAbilityDamage
 from .behaviours.combat import AttackWithAttackDamage
@@ -989,4 +990,159 @@ class StormOfWrathAbility(ActiveAbility):
         return {"ability": STORM_OF_WRATH_ID, "caster": caster_id, "target": target_id,
                 "main_attack": main, "chain": chain,
                 "attacks": [{"target": p.get("target"), "total": p.get("total")} for p in hits],
+                "dsl": True}
+
+
+# ============ HellfireShells (1080, ultraSmnHeavyIntercessor + npc) -- #605 ======================
+
+HELLFIRE_SHELLS_ID = "HellfireShells"
+
+
+def hellfire_shells_hits(cfg: dict) -> tuple:
+    """Les DEUX comptes de coups de `...HellfireShellsAbility$$ExecuteBehaviour`, LUS du gameconfig.
+
+        iVar_base  = AbilityConfiguration$$GetNumberConstant( config@0x60, 0x2f )   # nrOfHits
+        iVar_extra = AbilityConfiguration$$GetNumberConstant( config@0x60, 0x2b )   # extraHit
+
+    Le natif lit ces deux CONSTANTES en TETE d'`ExecuteBehaviour`, avant tout le reste, et n'en somme
+    QUE la branche `BigTarget` (`(int)uVar6 + (int)uVar7`). Ce sont des `constants` du gameconfig
+    (`nrOfHits: "2"`, `extraHit: "2"`), PAS des variables per-niveau : aucun passage par
+    `GetVariableForLevel`, donc aucun scaling de rarete. Retour `(base, base + extra)`.
+
+    MEME LECTURE que la face DECISION (`playbook/prediction/abilities.py::_hellfire_shells_inputs`,
+    #173) -- un seul kit, deux consommateurs, et c'est ce qui garantit que la prediction et
+    l'execution ne divergent pas sur le compte de coups."""
+    consts = (cfg or {}).get("constants") or {}
+    base = int(consts.get("nrOfHits") or 0)          # `GetNumberConstant(0x2f = nrOfHits)`
+    extra = int(consts.get("extraHit") or 0)         # `GetNumberConstant(0x2b = extraHit)`
+    return base, base + extra
+
+
+def hellfire_shells_tree(hits_base: int, hits_big: int, profile: str):
+    """Arbre de `IdunBattleLogic.Entities.Abilities.Active.Loki.HellfireShellsAbility$$ExecuteBehaviour`
+    -- MIRROR 1:1 du DECOMPILE, remis en C# :
+
+        base  = DSLBehaviors$$AttackWithAttackDamage(
+                    caster          = Caster@DSLSelectors+0x48,
+                    target          = Target@DSLSelectors+0x60,
+                    amount          = AActiveAbility$$MinMaxDamage(this, abilityState, null),
+                    damageProfile   = AbilityConfiguration$$GetDamageProfile( config@0x60 ),
+                    hits            = GetNumberConstant(0x2f = nrOfHits),
+                    abilityOrEffect = AbilityOrEffect$$op_Implicit(this),
+                    options         = <struct AttackOptions ZERO>,
+                    selectionType   = 2 )
+        big   = <IDEM>  mais  hits = GetNumberConstant(0x2f) + GetNumberConstant(0x2b = extraHit)
+        cond  = DSLTriggers$$HasTrait( Target@DSLSelectors+0x60, 0x3f9 = UnitTrait.BigTarget )
+        return AActiveAbility$$Execute(entities, this, DSLBehaviors$$If(cond, big, base))
+
+    L'ORDRE DES BRANCHES EST LU, PAS DEDUIT : le decompile alloue d'abord la branche `nrOfHits`
+    (`local_238`), PUIS la branche `nrOfHits + extraHit` (`pvVar8`), et appelle
+    `If(triggers, cond, pvVar8, local_238)` -- donc `then` = la branche AUGMENTEE, `else` = la branche
+    de base. Une inversion donnerait exactement le comportement contraire sur un `BigTarget`, sans
+    aucune erreur.
+
+    ⚠ LES DEUX BRANCHES SONT DES BEHAVIOURS DISTINCTS, PAS UN COMPTE DE COUPS CONDITIONNEL. Le port
+    aurait pu fusionner en un seul noeud a `hits_add_key`, ce qui aurait rendu les MEMES nombres ; il
+    ne le fait pas, parce que la structure native est un `If` sur deux `AttackDamageBehaviour`
+    distincts et que c'est cette structure que le mirror doit rendre visible. `If` est LAZY
+    (`entities/behaviours.py`) : une seule des deux branches s'execute, donc un seul jeu de tirages
+    RNG -- meme consommation que le natif.
+
+    FAMILLE = **ATTACK** (`AttackWithAttackDamage` -> `AttackDamageBehaviour`, XREFS entrantes ->
+    la surcharge a NEUF arguments) : crit ET block mordent, contrairement a la famille ABILITY.
+
+    ⚠ `Rapid Fire` (le passif 1536 du porteur) ne s'applique PAS a cette ability -- c'est l'i2 qui le
+    dit, et le natif le realise en n'ecrivant AUCUN noeud de coups additionnels ici. Rien a porter :
+    l'absence EST le comportement."""
+    def _shot(hits: int):
+        return AttackWithAttackDamage(
+            Target(), HELLFIRE_SHELLS_ID, profile,
+            # `attackRangeType: Ranged` (gameconfig) -> le percage lit `ExtraPierceRanged`.
+            is_melee=False,
+            # `hits` du 6e argument natif : un ENTIER deja resolu (`GetNumberConstant`), pas un noeud.
+            hits_override=int(hits),
+            ability_type=int(ActiveAbilityType.HellfireShells))
+    # `If(cond, then = branche AUGMENTEE, else = branche de base)` -- ordre du decompile.
+    return IfBehaviour(HasTrait(Target(), int(UnitTrait.BigTarget)), _shot(hits_big),
+                       _shot(hits_base))
+
+
+class HellfireShellsAbility(ActiveAbility):
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.HellfireShellsAbility` (id 1080). Face COMBAT
+    = l'arbre DSL `hellfire_shells_tree` (mirror 1:1). La face DECISION est portee depuis #173
+    (`playbook/prediction/abilities.py::_hellfire_shells_inputs`).
+
+    AVANT CE PORT : 1080 etait un **NO-OP SILENCIEUX** -- absente d'`ABILITY_CLASSES`, donc
+    l'`AbilityHandler` routait l'`ActiveAbilityMessage` et l'execution ne faisait RIEN : zero degat,
+    aucune erreur, `ported=False`. La decision, elle, predisait le degat -- fork DECISION/EXECUTION.
+
+    KIT (gameconfig, ZERO hardcode) : `attackRangeType = Ranged`, `damageProfile = Piercing`,
+    `nrOfHits = 2`, `extraHit = 2`, `range = 3` ; degat `minDmg`/`maxDmg` per-niveau (tous deux dans
+    `variablesAffectedByRarityBonus`).
+
+    i2 : << Fires a burst of Hellfire shells at a target within 3 hexes. The shells deal 2x 582-873
+    Piercing Damage and +2x hits against Big Targets. Rapid Fire does not apply to this ability. >>
+
+    PORTEURS -- les trois sont hors lineup : `ultraNpc4HeavyIntercessor` et
+    `ultraNpc4HeavyIntercessorSurv` (npc), et le SUMMON `ultraSmnHeavyIntercessor`, invoque par le
+    passif d'ENVIRONNEMENT `PowerUp_SummonSpawn_ultraSmnHeavyIntercessor` (1536) -- donc SANS
+    invocateur du pool. La confrontation passe par la GREFFE de l'ability sur une unite du pool
+    (`docs/rl/case-92-catalog-injection.md` §5bis), legitime ici parce que
+    `HellfireShellsAbility$$ExecuteBehaviour` ne lit NI stat NI trait DU CASTER : ses seules entrees
+    sont les deux `GetNumberConstant` de la config, `MinMaxDamage(this, abilityState)`,
+    `GetDamageProfile(config)` et le trait de la **CIBLE**. Le caster n'apparait qu'en tant que
+    `Caster@DSLSelectors+0x48`, role structurel.
+
+    TARGETING (#241, forme **STATIC-COPY**) : `...HellfireShellsAbility$$.ctor` n'appelle AUCUN
+    `IdunBattle.Core.Services.TargetingOptions$$.ctor` -- il recopie les 0x40 octets du PRESET
+    statique `<TargetingOptions statics>+0x140` (qwords `+0x140..+0x178`) puis
+    `AActiveAbility..ctor(this, &opts, 0)`. Valeurs LUES dans le bloc de
+    `IdunBattle.Core.Services.TargetingOptions$$.cctor` qui ecrit ce preset :
+        statics+0x140 (= preset+0x00) = 0                             -> `isSelfCasting` = False
+        statics+0x148 (= preset+0x08) = <TargetingRange statics+0x18> -> `RANGE_FROM_CONFIG`
+        statics+0x160 (= preset+0x20) = 0                             -> `forceMeleeTarget`
+                                                                         = RangedBool.True
+        statics+0x168 (= preset+0x28) = 0x4002                        -> `Rules`
+    C'est le MEME preset que `astartes.py::StrikeFromTheShadowsAbility` (1225) et
+    `emperorschildren.py::LashOfTormentAbility` (1196) -- RELU ici, pas herite. Decomposition
+    EXHAUSTIVE de `0x4002` (0x2 + 0x4000, aucun bit residuel) :
+        0x2     TargetMatchesDynamicRule -> consulte `get_dynamic_invalid_target_reason`. La classe
+                n'a AUCUN corps `GetDynamicInvalidTargetReason` (ses deux SEULS symboles du build
+                sont `$$.ctor` et `$$ExecuteBehaviour`) -> le virtuel retombe sur la base, qui rend
+                0 : aucun refus dynamique.
+        0x4000  TargetIsEnemy            -> refus sur soi-meme / un allie.
+    PORTEE : `RANGE_FROM_CONFIG` -> `AActiveAbility$$SetConfigValuesInTargetingOptions` pose
+    `OverrideRange = GetNumberConstant(0x16 = range)` = **3** (== l'i2 << within 3 hexes >>).
+    `AbilityAttackType` = 3e argument d'`AActiveAbility$$.ctor(this, &opts, 0)` = **0**
+    (`DirectTargetAttack`, cf. `attack_type.py`).
+
+    Diag : {ability, caster, target, big_target, hits, main_attack, total, dsl}."""
+    __slots__ = ()
+    ABILITY_TYPE = int(ActiveAbilityType.HellfireShells)   # 1080
+    ABILITY_ID = HELLFIRE_SHELLS_ID
+    TARGETING_OPTIONS = TargetingOptions(
+        rules=int(TR.TargetMatchesDynamicRule | TR.TargetIsEnemy),   # `<preset +0x140>+0x28` = 0x4002
+        self_cast=False, range=RANGE_FROM_CONFIG,
+        force_melee_target=RANGED_BOOL_TRUE)                          # `<preset +0x140>+0x20` = 0
+
+    def execute_behaviour(self, state: "State", caster_id: int,
+                          target_id: Optional[int]) -> Optional[dict]:
+        if target_id is None:
+            return None
+        cfg = GC.ability(HELLFIRE_SHELLS_ID) or {}
+        # `AActiveAbility$$GetDamageProfile` = `GetEnumConstant(constants.damageProfile)`.
+        profile = (cfg.get("constants") or {}).get("damageProfile")
+        hits_base, hits_big = hellfire_shells_hits(cfg)
+        ectx = ExecutionContext(state=state, rng=state.rng)
+        entities = entities_from_state(state, caster_id, target_id)
+        hellfire_shells_tree(hits_base, hits_big, profile).execute(entities, ectx)
+        atk = next((p for n, p in ectx.emitted if n == "AttackWithAttackDamage"), None)
+        # Quelle branche du `If` a tourne : c'est le nb de coups EMIS qui le dit, pas une relecture
+        # du trait (le trigger a deja tranche contre le substrat du behaviour). `attack["hits"]` est
+        # le compte ENTIER rendu par `execute_ability_attack`.
+        emitted_hits = ((atk or {}).get("attack") or {}).get("hits")
+        return {"ability": self.ABILITY_ID, "caster": caster_id, "target": target_id,
+                "big_target": (emitted_hits == hits_big and hits_big != hits_base),
+                "hits": emitted_hits, "hits_base": hits_base, "hits_big": hits_big,
+                "main_attack": (atk or {}).get("attack"), "total": (atk or {}).get("total"),
                 "dsl": True}

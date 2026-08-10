@@ -1144,13 +1144,13 @@ TARGETING_OPTIONS_UNPORTED: "dict[int, TargetingOptions]" = {
     #     la struct telle quelle a `AActiveAbility$$.ctor`. Masque = `<preset>+0x28` du `.cctor`.
     # --------------------------------------------------------------------------------------------
     # 1044 IncendiaryShells -- `...Active.Loki.IncendiaryShellsAbility$$.ctor`, preset `+0x140`.
-    # 1080 HellfireShells   -- `...Active.Loki.HellfireShellsAbility$$.ctor`, preset `+0x140` AUSSI.
     #   `*(statics+0x168)` = 0x4002 ; `+0x160` = `forceMeleeTarget` = **0** = `RangedBool.True` ;
     #   range = `<TargetingRange statics+0x18>` = RANGE_FROM_CONFIG. C'est le preset de 1088
     #   HellfyreMissileRack -- meme masque que 1027/1069 mais `forceMeleeTarget` DIFFERENT.
+    # 1080 HellfireShells -- MIGRE (#605) sur `runner/abilities/ultramarines.py::
+    #   HellfireShellsAbility.TARGETING_OPTIONS` avec sa face COMBAT. Le masque y est RELU au
+    #   decompile (meme preset `+0x140`) et il CONCORDE avec celui qui vivait ici.
     ActiveAbilityType.IncendiaryShells: TargetingOptions(rules=TR.TargetMatchesDynamicRule | TR.TargetIsEnemy, self_cast=False,  # 1044
-                           range=RANGE_FROM_CONFIG, force_melee_target=RANGED_BOOL_TRUE),
-    ActiveAbilityType.HellfireShells: TargetingOptions(rules=TR.TargetMatchesDynamicRule | TR.TargetIsEnemy, self_cast=False,  # 1080
                            range=RANGE_FROM_CONFIG, force_melee_target=RANGED_BOOL_TRUE),
     # 1053 DevoutPush  -- `...Active.Loki.DevoutPushAbility$$.ctor`, preset `+0x40`.
     # 1108 KissOfDeath -- `...Active.Loki.KissOfDeathAbility$$.ctor`, preset `+0x40`.

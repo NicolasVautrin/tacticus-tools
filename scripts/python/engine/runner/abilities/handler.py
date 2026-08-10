@@ -70,7 +70,7 @@ from .darkangels import (PlasmaCannonAbility, DarkTalonStrikeAbility, DeathOnThe
                          CalibaniteGreatswordAbility)
 from .ultramarines import (CombatRestorativesAbility, MortisRoundAbility, DeathFromAboveAbility,
                            MacroPlasmaIncineratorAbility, TacticalPrecisionAbility,
-                           DutyEternalAbility, StormOfWrathAbility)
+                           DutyEternalAbility, StormOfWrathAbility, HellfireShellsAbility)
 from .custodes import (MartialInspirationAbility, MomentShackleAbility,
                        TalonsOfTheEmperorAbility, VexillaMagnificaAbility)
 from .bloodangels import (SavageEchoesAbility, HammerOfWrathAbility, LightOfSanguiniusAbility,
@@ -155,6 +155,7 @@ ABILITY_CLASSES: dict[int, type[ActiveAbility]] = {
     PlasmaCannonAbility.ABILITY_TYPE: PlasmaCannonAbility,             # 1150 (darkaTerminator DarkAngels : 3x Plasma cible + 3x sur <=2 unites tirees directly-behind, native_factory attack, case-220)
     CombatRestorativesAbility.ABILITY_TYPE: CombatRestorativesAbility,  # 1002 (ultraApothecary : heal self+allies adj, split trait Imperial hpToHeal_2 / non-Imperial hpToHeal, PAS de cumul, case-220 P0-HEAL)
     MortisRoundAbility.ABILITY_TYPE: MortisRoundAbility,               # 1004 (ultraEliminatorSgt : AtomicGroup(Attack HeavyRound 1x + PushUnit cible 1 hex) ; wiring valide ; quirk HeavyWeapon double = residu cross-cutting non porte, case-220 UM)
+    HellfireShellsAbility.ABILITY_TYPE: HellfireShellsAbility,         # 1080 (`ultraSmnHeavyIntercessor` SUMMON d'ENVIRONNEMENT + 2 npc `ultra*HeavyIntercessor*` : `If( HasTrait(Target@0x60, 0x3f9 BigTarget), AttackWithAttackDamage(hits = nrOfHits + extraHit), AttackWithAttackDamage(hits = nrOfHits) )` -- deux `AttackDamageBehaviour` DISTINCTS, famille ATTACK, profil `Piercing`, `MinMaxDamage(minDmg/maxDmg)` ; masque 0x4002 MIGRE depuis `TARGETING_OPTIONS_UNPORTED` ; face DECISION deja portee par #173 ; #605)
     StormOfWrathAbility.ABILITY_TYPE: StormOfWrathAbility,             # 1019 (ultraTigurius : ExecuteAtomic(ChainAbilityDamage) -- 1 coup Psychic famille ABILITY sur la cible puis <= maxAdjacentTargets sauts vers un ennemi TIRE AU SORT adjacent a un maillon deja frappe ; coup DIFFERE d'un cran, cf. case-499)
     DeathFromAboveAbility.ABILITY_TYPE: DeathFromAboveAbility,         # 1003 (ultraInceptorSgt : spawn ultraSmnInceptor x StatAmount(TURNS_STARTED) tuiles adjacentes-cible SortByDistance(caster) cap-tuiles + on-appearance attaque normale Bolter cible, template SpawnSummon, case-220 UM)
     SavageEchoesAbility.ABILITY_TYPE: SavageEchoesAbility,             # 1230 (Cezare bloodTerminator : 4x Eviscerate melee + extraDmg x free-tiles + self-heal si HP<=50%, case-220 template ArmoriumCherub)
