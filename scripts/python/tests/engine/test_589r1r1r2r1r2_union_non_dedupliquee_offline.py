@@ -42,6 +42,26 @@ if _PY not in sys.path:
 
 _DATA = Path(_PY).parent.parent / "data" / "symbols"
 
+#: Ce qui doit changer pour que ce FICHIER puisse changer de verdict (#486-r15).
+#: L'etage 1 lit le GAMECONFIG VERSIONNE du build courant : il change a chaque re-dump, et c'est
+#: precisement l'evenement que ce cliquet garde (un build qui ajouterait un porteur des deux
+#: traits). D'ou `toujours: True` -- une liste de chemins ne peut pas exprimer << le dump du
+#: build a change >>, et une liste TROP ETROITE serait un faux vert.
+DECLENCHEUR = {
+    "chemins": (
+        "scripts/python/engine/entities/selectors/units.py",
+        "scripts/python/probe_589r1r1r2r1_amulet_crit_reduction_live.py",
+    ),
+    "build": True,    # etage 1 : `data/symbols/CURRENT` puis `data/symbols/<build>/gameconfig.json`
+    "toujours": True,
+    "raison": "l'etage 1 mesure le GAMECONFIG VERSIONNE du build courant, qu'aucun chemin SOURCE "
+              "ne represente -- et c'est precisement l'evenement que ce cliquet garde (un build "
+              "qui ajouterait une unite portant a la fois `Summon` et `Decoy` rendrait le quirk "
+              "de `CombinedSelector$$SelectUnion` observable SANS montage). Une liste de chemins "
+              "seule serait donc un FAUX VERT. Les deux chemins declares sont les foyers des "
+              "etages 2 et 3 (le mirror `Union`, et le montage qui arme le bras).",
+}
+
 
 def _gameconfig_units() -> dict:
     """Les trois voies du catalogue (`lineup` / `npc` / `summons`), depuis le gameconfig VERSIONNE

@@ -29,6 +29,26 @@ if _PY not in sys.path:
 
 from engine import battle_query as bq          # noqa: E402
 
+#: Ce qui doit changer pour que ce FICHIER puisse changer de verdict (#486-r15).
+#: Le foyer mesure est `battle_query` ; `hexgeo` porte la conversion cube/odd-q dont depend
+#: chaque coordonnee assertionnee ici, et l'etage 5 lit le SOURCE de `get_tiles_behind`.
+DECLENCHEUR = {
+    "chemins": (
+        # `--proposer` dit que la fermeture d'imports tient ENTIEREMENT dans la cascade derivee
+        # par le foyer (473 chemins) : une liste vide serait donc juste. On declare quand meme
+        # les DEUX foyers que ce fichier juge, parce qu'un lecteur doit les voir sans relancer
+        # l'outil -- c'est du sur-declaratif, et le garde dit que trop LARGE est sain.
+        "scripts/python/engine/battle_query.py",
+        "scripts/python/hexgeo.py",
+    ),
+    "build": False,   # aucune lecture de `data/symbols/**` ni du binaire : tout est calcule
+    "toujours": False,
+    "raison": "le foyer mesure est `battle_query.get_tiles_behind` (et `direction_to`, dont "
+              "l'etage 5 verifie qu'il est bien APPELE et pas re-transcrit) ; `hexgeo` porte la "
+              "conversion cube/odd-q dont depend CHAQUE coordonnee assertionnee ici. Rien "
+              "d'autre : le fichier n'ouvre aucun dump et ne monte aucun runner.",
+}
+
 
 # `from` et `to` sur la MEME colonne, a TROIS hex d'ecart : le regime que trois des quatre
 # call-sites natifs n'atteignent jamais, et que `UnstoppableMomentumReworked` atteint.
