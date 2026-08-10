@@ -21,8 +21,7 @@ from typing import Optional, TYPE_CHECKING
 from .base import (ActiveAbility, convert_rounds_to_turns,
                    turns_until_end_of_current_players_next_turn)
 from .behaviours.ability_state import ResetActiveAbility
-from .behaviours.combat import AttackWithAbilityDamage, AttackWithAttackDamage
-from .behaviours.lifecycle import TRIGGERED_ABILITY_BEHAVIOURS
+from .behaviours.combat import AttackWithAttackDamage
 from .behaviours.context import entities_from_state
 from .behaviours.effects import (ActivateEffect, AddBondEffect, AddEffect, ChangeEffectTurns,
                                  RemoveEffect)
@@ -42,8 +41,6 @@ from ...dsl.effects import ExecutionContext
 from ...entities.active_ability_type import ActiveAbilityType
 from ...entities.behaviours import Foreach, op_add, op_and, If as IfBehaviour
 from ...entities.effect_type import EffectType
-from ...entities.formulas import RandomAmount
-from ...entities.triggered_ability_type import TriggeredAbilityType
 from ...entities.selectors.accessors import (ActiveTarget, CasterTile, FixedTileIds, OwnerTile,
                                              Subject, Target)
 from ...entities.selectors.geometry import EntitiesWithAnyEffect, Randomize
@@ -1019,10 +1016,14 @@ class InspiredToGreatnessAbility(ActiveAbility):
 # (tout a 50), et divergeraient des qu'un niveau bougerait entre le cast et le tir. 1122 et 1136
 # gardent le defaut : aucune magnitude `ConfigVar` portee ne les lit.
 
-SEEKER_MISSILE_FREQUENCY_LOCK_ID = "SeekerMissileFrequencyLock"
-SEEKER_LOCK_TARGET = int(EffectType.SeekerMissileFrequencyLock_Target)   # 0x463 = 1123
-SEEKER_LOCK_AIMING = int(EffectType.SeekerMissileFrequencyLock_Aiming)   # 0x470 = 1136
-SEEKER_MISSILE_ATTACK = int(TriggeredAbilityType.SeekerMissileFrequencyLock_Attack)   # 0x467 = 1127
+# Les identifiants du kit vivent avec la PHASE 2 (`operations/triggers/loki/seeker_missile_attack.py`)
+# depuis #503-r3 : c'est ce module-la que `dispatch/registry.py` doit pouvoir charger SEUL pour que
+# `TRIGGERED_ABILITY_BEHAVIOURS[1127]` soit peuple des que la chaine trigger l'est. Le sens de
+# l'arete est donc `abilities.tau -> triggers.loki.seeker_missile_attack`, jamais l'inverse : la
+# reciproque est PORTEUSE (mesuree -- `tau` tire `registry` par `attack_query -> revive_effect`).
+from ..operations.triggers.loki.seeker_missile_attack import (SEEKER_LOCK_AIMING,
+                                                              SEEKER_LOCK_TARGET,
+                                                              SEEKER_MISSILE_FREQUENCY_LOCK_ID)
 
 
 def seeker_missile_frequency_lock_tree(state: "State"):
@@ -1127,141 +1128,12 @@ class SeekerMissileFrequencyLockAbility(ActiveAbility):
 
 # ---- PHASE 2 : `SeekerMissileFrequencyLock_Attack` (TriggeredAbilityType 0x467 = 1127), #513 ------
 #
-# `IdunBattleLogic.Entities.Abilities.Triggered.Loki.SeekerMissileFrequencyLock_AttackAbility$$
-# CreateBehaviour(abilityState, triggerType)` -- MIRROR 1:1 du decompile :
-#
-#   hits      = AbilityConfiguration.GetNumberConstant( config@+0x20, 0x2f = nrOfHits )
-#   <BaseTriggeredAbility.MinMaxDamage(this, abilityState)>        # appelee, RESULTAT NON UTILISE
-#   effectSel = DSLSelectors.EffectFromOwner( Target@DSLSelectors+0x60, 0x463 = 1123 )
-#   stateSel  = DSLSelectors.AbilityStateFromEffect( effectSel )
-#   amount    = DSLFormulas.RandomAmount( ConfigVar(0xc = minDmg, stateSel, config@+0x20),
-#                                         ConfigVar(0xd = maxDmg, stateSel, config@+0x20) )
-#   profile   = BaseTriggeredAbility.GetDamageProfileOrDefault( this, 0x13 )
-#   attack    = DSLBehaviors.AttackWithAbilityDamage( caster = Caster@+0x48, target = Target@+0x60,
-#                                                     amount, Nullable(profile), hits,
-#                                                     AbilityOrEffect(this), selectionType = 2 )
-#   remove    = DSLBehaviors.RemoveEffect( Caster@+0x48, (int?)0x470 = 1136, null )
-#   return      AbilityBehaviour.op_BitwiseAnd( remove, attack )
-#
-# TROIS POINTS DE FIDELITE, tous LUS :
-#
-# 1. `MinMaxDamage` EST APPELEE ET SON RESULTAT N'EST PAS CONSOMME (aucun registre ne le porte au
-#    site d'appel). Elle construirait `RandomAmount(GetVariableForLevel(0xc), GetVariableForLevel(0xd))`
-#    sur l'`abilityState` de l'ability DECLENCHEE ; le montant reellement passe a
-#    `AttackWithAbilityDamage` est l'autre, bati sur l'etat FIGE dans l'effet 1123. Elle ne consomme
-#    AUCUN tirage (les deux constructeurs rendent un NOEUD, le tirage a lieu au `Calculate`), donc
-#    l'ignorer est bit-exact. Ne pas la porter est le mirror ; la porter tirerait deux fois.
-#
-# 2. `GetDamageProfileOrDefault(0x13)` = `config.GetDamageProfile() ?? 0x13` (corps LU :
-#    `Nullable<DamageProfileType>.GetValueOrDefault(defaultValue)`). Le kit `SeekerMissileFrequencyLock`
-#    porte `damageProfile = HeavyRound`, donc le defaut `0x13` n'est JAMAIS atteint -- l'ecrire en dur
-#    serait un fit. Le port lit le profil du kit et ne modelise pas le defaut (residu #513-r2).
-#
-# 3. LE KIT EST PARTAGE PAR LES DEUX PHASES. `SeekerMissileFrequencyLock_Attack` n'a AUCUNE entree
-#    gameconfig propre (grep du gameconfig : une seule cle `SeekerMissileFrequencyLock`), et pourtant
-#    `this@+0x20` est non nul au runtime -- c'est la MEME `AbilityConfiguration` que l'active. Le site
-#    natif de cette attribution n'est pas RE'd (residu #513-r3) ; ce que la mesure etablit, c'est que
-#    `nrOfHits`, `damageProfile`, `minDmg` et `maxDmg` du kit sont consommes ICI, pas au cast.
-#
-# ORDRE DU `op_BitwiseAnd` : le decompile EVALUE l'attaque d'abord et le retrait ensuite, mais passe
-# le retrait en PREMIER argument. Le port place l'attaque d'abord -- l'ordre est SANS CONSEQUENCE
-# MESURABLE ici (1136 est un `BaseEffect` inerte : aucune stat-mod, aucun tirage), et c'est ce que
-# `probe_513_seeker_phase2.py` verifie en jouant les deux ordres. Residu #513-r4.
-
-
-def seeker_missile_frequency_lock_attack_tree(state: "State", level: Optional[int],
-                                              multiplier_pct: int):
-    """Arbre de `...Triggered.Loki.SeekerMissileFrequencyLock_AttackAbility$$CreateBehaviour`.
-
-    `level`/`multiplier_pct` = l'`AbilityState` que le natif va chercher par
-    `AbilityStateFromEffect(EffectFromOwner(Target, 1123))`, c'est-a-dire l'etat FIGE dans l'effet au
-    moment du cast -- resolu par l'appelant (`_seeker_missile_attack_behaviour`) sur l'INSTANCE
-    d'effet, jamais sur l'etat courant du caster.
-
-    `is_melee=None` -- ET C'EST LU, PAS CHOISI. Les QUATRE surcharges de
-    `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage` prennent
-    `(caster, target, amount, damageProfile, hits, abilityOrEffect, [options,] selectionType)` :
-    **aucune ne porte de bit melee/ranged**, et la chaine de delegation ne fabrique qu'un couple
-    `(damageProfile, hits)`. Le noeud ne transporte donc AUCUNE nature de coup, ce que le port note
-    deja pour le DoT de tuile -- `None` = `IsMeleeAttack` ET `IsRangedAttack` tous deux FAUX.
-    ⚠ LE DISCRIMINANT EST DANS LE MONTAGE MEME, et il vaut exactement 15 % : la cible porte
-    `1122 Markerlight` (pose par le MEME cast), dont le bonus `MarkerlightDmgBonusPct` est gate
-    `IsRangedAttack`. Ecrire `is_melee=False` -- ce que le kit `attackRangeType = "Ranged"` invite a
-    faire -- l'ARME cote defenseur : mesure, `6767` de degat avant block la ou le natif en fait
-    `5884`, soit `x1.15` tout rond, et `4307` contre `3424` en PV. Le kit declare la portee de
-    l'ABILITY (elle sert au ciblage) ; il ne declare pas la nature du COUP sur ce vecteur.
-    `native_operation="ability"` : la factory native est `AttackWithAbilityDamage`, donc
-    `IdunBattle.Operations.AbilityDamageOperation` (pas de crit, pas de resolve d'attaque)."""
-    import gameconfig as GC
-    consts = (GC.ability(SEEKER_MISSILE_FREQUENCY_LOCK_ID) or {}).get("constants") or {}
-    hits = int(consts.get("nrOfHits") or 1)                   # `GetNumberConstant(0x2f)`
-    profile = str(consts.get("damageProfile") or "")          # `GetDamageProfileOrDefault(0x13)`
-    mn = ability_var(SEEKER_MISSILE_FREQUENCY_LOCK_ID, "minDmg", level,
-                     multiplier_pct=multiplier_pct) or 0      # `ConfigVar(0xc, stateSel)`
-    mx = ability_var(SEEKER_MISSILE_FREQUENCY_LOCK_ID, "maxDmg", level,
-                     multiplier_pct=multiplier_pct) or 0      # `ConfigVar(0xd, stateSel)`
-    amount = RandomAmount(Const(int(mn)), Const(int(mx)), rng=state.rng)
-    attack = AttackWithAbilityDamage(Target(), profile, amount, is_melee=None, hits=hits,
-                                     source_ref=Caster(), native_operation="ability")
-    remove = RemoveEffect(SEEKER_LOCK_AIMING, Caster())
-    return op_and(attack, remove)
-
-
-def _seeker_missile_attack_behaviour(state: "State", unit_id: int, entities, ectx):
-    """Entree de `TRIGGERED_ABILITY_BEHAVIOURS[1127]` -- la phase 2, declenchee par le noeud
-    `TriggerAbility` du `Triggered()` d'`APendingAttackEffect` (`triggers/pending_attack.py`).
-
-    `unit_id` = l'unite declenchee (l'ATTAQUANT) ; `entities` = l'`AbilityEntities` reconstitue par
-    le noeud, ou `Caster()` est l'attaquant et `Target()` le porteur de l'effet 1123. Le tirage du
-    `RandomAmount` et l'attaque se font DANS `ectx`, donc sur le MEME `state.rng` que le reste du
-    tour -- c'est ce qui rend le flux MT comparable au natif."""
-    target = getattr(entities, "target", None)
-    tid = target.get("id") if isinstance(target, dict) or hasattr(target, "get") else None
-    level, mult = _seeker_snapshot_state(state, tid, unit_id)
-    seeker_missile_frequency_lock_attack_tree(state, level, mult).execute(entities, ectx)
-    # LES ETAGES du coup, pas seulement son total : sans eux une divergence de degat ne se
-    # decompose pas et on en serait reduit a fitter le scalaire. C'est exactement ce qui a rendu
-    # visible le `x1.15` du `Markerlight` (`per_hit` avant block vs `total` apres).
-    dmg = [{"target": p.get("target"), "total": p.get("total"),
-            "etages": {k: (a or {}).get(k) for k in
-                       ("base_min", "base_max", "pierce", "armor", "did_block", "rolls", "per_hit")}}
-           for n, p in ectx.emitted if n == "AttackWithAbilityDamage"
-           for a in [p.get("attack")]]
-    return {"ability": SEEKER_MISSILE_FREQUENCY_LOCK_ID, "phase": 2, "attacker": int(unit_id),
-            "carrier": tid, "level": level, "multiplier": mult, "damage": dmg}
-
-
-def _seeker_snapshot_state(state: "State", carrier_id, attacker_id) -> tuple:
-    """`AbilityStateFromEffect( EffectFromOwner(Target@0x60, 0x463) )` -- l'etat d'ability FIGE dans
-    l'instance de 1123 portee par `carrier_id`.
-
-    Repli sur l'etat COURANT de l'attaquant quand l'instance ne porte pas de niveau bake (effet
-    hydrate d'une capture, ou pose par un chemin qui n'a pas passe `scale_from_source`). Le repli est
-    DIT ici plutot que silencieux : c'est le meme arbitrage que `_source_scaling`, et dans un runner
-    normalise les deux valent 50 -- la difference n'est observable que si un niveau bouge entre le
-    cast et le tir."""
-    if carrier_id is not None and getattr(state, "effects", None) is not None:
-        for e in state.effects.by_unit.get(int(carrier_id), []):
-            if e.consumed or int(e.effect_type) != SEEKER_LOCK_TARGET:
-                continue
-            # `abilityState` du cast : une ACTIVE, donc le slot ACTIF de l'etat bake.
-            lvl = getattr(e, "active_ability_level", None)
-            if lvl is None:
-                lvl = getattr(e, "ability_level", None)
-            if lvl is not None:
-                return int(lvl), int(getattr(e, "ability_variables_multiplier", 100) or 100)
-            break
-    e = state.get_entity(int(attacker_id)) if attacker_id is not None else None
-    sc = e.get_component(StatsComponent) if e is not None else None
-    ctx = getattr(sc, "ctx", None) if sc is not None else None
-    if ctx is None:
-        return None, 100
-    return (ctx.active_ability_level,
-            int(getattr(ctx, "ability_variables_multiplier", 100) or 100))
-
-
-TRIGGERED_ABILITY_BEHAVIOURS[SEEKER_MISSILE_ATTACK] = _seeker_missile_attack_behaviour
-
+# DEPLACEE vers `runner/operations/triggers/loki/seeker_missile_attack.py` par #503-r3 -- avec sa RE
+# integrale (les trois points de fidelite, l'ordre du `op_BitwiseAnd`, le kit partage). Une ability
+# TRIGGERED vit avec les triggers : c'est la SEULE facon pour que `dispatch/registry.py` puisse
+# peupler `TRIGGERED_ABILITY_BEHAVIOURS[1127]` sans importer ce module-ci, dont l'arete retour est
+# PORTEUSE (`tau -> attack_query -> revive_effect -> dispatch.ability -> dispatch.core ->
+# dispatch.registry`, chaine MESUREE). Ce module garde la PHASE 1, l'active `1069` ci-dessus.
 
 # ============ ExemplarOfTheKauyon (tauShadowsun, HERO, actif 1087) -- lot #488 ============
 #

@@ -224,6 +224,64 @@ Chiffres à RE-DÉRIVER, pas à citer.
 * **`#419-r1-tr11-r3`** — **la face COMBAT de 1545 n'est pas portée** (effets 1563/1564, et le
   `Pinned` 1065 posé sur la cible). Empreinte mesurée sur la prédiction native au §3. C'est le seul
   écart natif/port restant du montage, et il est entièrement hors du périmètre de la face DÉCISION.
+  **RE COMPLÉTÉE le 2026-08-10 — les trois portées sont LUES, plus déduites de l'empreinte** (cf.
+  §6bis) ; le port reste bloqué par un foyer PARTAGÉ, nommé là-bas.
+
+## 6bis. La face COMBAT, LUE (2026-08-10) — trois portées, trois constantes, un `==`
+
+`SpecialIssueCombiMelta_InitAbility$$CreateBehaviour` (corps entier) :
+
+```
+AddEffect(0x61b = 1563, AbilityStateReference, targets = Owner@DSLSelectors+0x30, options = null)
+  op_BitwiseAnd
+AddEffect(0x61c = 1564, AbilityStateReference, targets = Owner@DSLSelectors+0x30, options = null)
+```
+
+Les deux effets gatent par `IsAtRange`, et **le prédicat est une ÉGALITÉ, pas un `<=`** :
+`IdunBattle.Entities.Triggers.IsAtRangeAbilityTrigger$$ShouldTrigger` évalue la formule (slot
+`+0x28`), résout les deux sélecteurs (`+0x18`, `+0x20`), demande la distance à la query
+(slot `0x6f`) et rend `distance == formule.Calculate()`.
+
+**Le point qui manquait, et il ne se devine pas** : les formules ne sont pas des `Get(n)` au
+call-site mais des **champs pré-construits de l'instance `DSLFormulas`**, posés par son `.ctor` :
+
+```
+DSLFormulas..ctor :  +0x18 = Const(0)   +0x20 = Const(1)   +0x28 = Const(2)
+                     +0x30 = Const(100) +0x38 = Const(-1)
+```
+
+D'où les trois portées, chacune sur son propre artefact :
+
+| artefact natif | gate complet | portée |
+|---|---|---|
+| `..._ExtraDmgEffect$$CreateEffectDamageBonusForAttack` (**1564**) | `OwnerIsCaster & IsAtRange(Caster@+0x48, Target@+0x60, DSLFormulas+0x20) & IsNormalAttack` | **d == 1** |
+| `..._AdditionalHitsEffect$$CreateAdditionalHits` (**1563**) | `OwnerIsCaster & IsAtRange(Caster@+0x48, Target@+0x60, DSLFormulas+0x28)` | **d == 2** |
+| `..._AddEffectAbility$$CreateTrigger` (`Pinned` **1065**) | `On(0x26 = NormalAttack) & OwnerIsCaster & IsAtRange(..., DSLFormulas.Get(3))` | **d == 3** |
+
+Ces trois valeurs **corroborent** l'empreinte du §3 (d=1 montant plat, d=2 coup entier, d=3 rien)
+au lieu de la fitter : elles sont lues au décompilé, l'empreinte les confirme.
+
+Charges utiles, lues aussi : 1564 = `EffectBonus.ForAddition(ConfigAmount(query, config,
+abilityState, 8))` — et `AbilityVariableType(8) = extraDmg` ; 1563 = `EffectAdditionalHits.Create`
+avec `hits = GetNumberConstant(config, 0x2f = nrOfHits)`, `profile = GetDamageProfile(config)`,
+`MinMax = GetMinMaxDamage(this, 0)` / `(this, 1)` (les deux nœuds ROLL et DISPLAY) ;
+`_AddEffectAbility$$CreateBehaviour` = `AddEffect(0x429 = 1065 Pinned, AbilityStateReference,
+targets = Target@DSLSelectors+0x60)`. Enums vérifiés sur `rnca9r7q6c` : 1563
+`SpecialIssueCombiMelta_AdditionalHits`, 1564 `SpecialIssueCombiMelta_ExtraDmg`, 1065 `Pinned` ;
+kit = `{damageProfile: Bolter, nrOfHits: 1}`, variables `minDmg` / `maxDmg` / `extraDmg`.
+
+### Pourquoi le port n'est pas livré ici — un foyer PARTAGÉ, pas une lacune de RE
+
+**1564 est portable tel quel** : son canal (`create_effect_damage_bonus_for_attack`) reçoit déjà
+`att_pos` **et** `t_pos` dans son `att_ctx`, donc le gate de distance s'y évalue.
+
+**1563 ne l'est pas** : le `ctx` du canal #179 ne porte **ni** `att_pos` **ni**, côté prédiction,
+`t_pos` — le gate `d == 2` y est donc inévaluable. Les deux `ctx` à enrichir sont `ah_ctx` de
+`engine/runner/operations/additional_hits.py::collect_additional_hit_groups` et `_ah_ctx` de
+`engine/playbook/prediction/normal_attack.py`, tous deux **hors du territoire de la tranche DSL
+COMBAT** (deux autres agents en vol). Porter 1564 seul et laisser 1563 inerte donnerait un port
+dont la face COMBAT resterait fausse à d == 2 — un port partiel non confronté, ce que la doctrine
+refuse. Le résidu reste donc ouvert, mais il est désormais **mécanique** : `BLOCAGE: etage`.
 
 ## 7. Ce que ce cas n'établit PAS
 

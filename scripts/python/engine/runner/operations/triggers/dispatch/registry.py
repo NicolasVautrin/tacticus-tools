@@ -103,10 +103,22 @@ from ..loki.listen_up_maggots import ListenUpMaggotsAddEffectAbility  # #95-REST
 from ..loki.stormboyz_strike import (StormboyzStrikeTeleportAbility,   # #366-r1 3/3 (passif orksNpc6Stormboy)
                                      StormboyzStrikeFallbackAbility,   # #448-r1 -- On(0x28)
                                      StormboyzStrikeMissAbility)       # #448-r1 -- On(0x1f)
-# Import pour EFFET DE BORD : `loki/full_throttle.py` inscrit `TRIGGERED_ABILITY_BEHAVIOURS[1134]`
-# a l'import (#448-r1). Sans lui, le `TriggerAbility(Caster, 0x46e)` du Miss rendrait
-# `dispatched: False` -- un gap VISIBLE, mais un gap.
-from ..loki import full_throttle as _full_throttle    # noqa: F401
+# Imports pour EFFET DE BORD : ces modules inscrivent leur entree de `TRIGGERED_ABILITY_BEHAVIOURS`
+# A L'IMPORT. Sans eux, le noeud `TriggerAbility` qui les vise rend `dispatched: False` -- un gap
+# VISIBLE, mais un gap, et sur les deux phases 2 d'`APendingAttackEffect` il est PIRE que ca :
+# le `RemoveEffect` du MEME `Triggered()` consomme le marqueur quand meme, donc l'effet disparait
+# sans que rien ne frappe (`triggers/pending_attack.py` Sec.2).
+#   1134 FullThrottle              -- #448-r1 (`TriggerAbility(Caster, 0x46e)` du Miss)
+#   1127 SeekerMissile_Attack      -- #513, phase 2 de l'active 1069, DEPLACEE ici par #503-r3
+#   1237 OverwhelmingWrath_Attack  -- #503-r1, phase 2 de l'active 1141, DEPLACEE ici par #503-r3
+# ⚠ Les deux dernieres vivaient dans `abilities/tau.py` et `abilities/worldeaters.py`, donc hors de
+# portee de ce module : mesure du 2026-08-10 en process FRAIS, le registre n'avait qu'UNE entree
+# ici contre QUATRE via `abilities/handler.py`. Les hisser d'ou elles etaient n'etait pas possible
+# (`registry -> abilities.tau` est une arete PORTEUSE, mesuree) -- c'est le DEPLACEMENT qui a
+# supprime l'arete. Cliquet : `tests/engine/runner/test_503r3_registre_trigger_peuple_offline.py`.
+from ..loki import full_throttle as _full_throttle                  # noqa: F401
+from ..loki import seeker_missile_attack as _seeker_missile_attack  # noqa: F401
+from ..loki import overwhelming_wrath_attack as _overwhelming_wrath_attack  # noqa: F401
 from ..loki.thrill_seekers import (ThrillSeekersFullHealthTargetAbility,   # trait ThrillSeekers 1056
                                   ThrillSeekersDamageTakenAbility)        # (x5 Emperor's Children)
 from ..loki.hailstrike import HailstrikeAttackAbility                 # case-117 ph.2 (1214 -> 1507)

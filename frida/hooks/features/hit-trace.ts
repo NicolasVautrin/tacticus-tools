@@ -57,6 +57,11 @@ interface Hit {
     defenderId: number | null;
     /** DamageProfileType (enum brut) — non décodé ici, corrélable tel quel. */
     profile: number | null;
+    /** `initialHealth` — PV de la cible AVANT ce coup. `null` = hors plage de plausibilité
+     *  (cf. `readHealthSlot`), jamais un nombre qu'on n'a pas su valider. */
+    initialHealth: number | null;
+    /** `deniedDamage` — part refusée (bouclier/immunités) telle que l'Operation la reçoit. */
+    deniedDamage: number | null;
     originRunnerId: number | null;
     ts: number;
     /** Slots natifs bruts — présents seulement sur les RAW_SAMPLES premiers. */
@@ -68,7 +73,31 @@ interface Layout {
     attackerSlot: number;
     hitIndexSlot: number;
     profileSlot: number;
+    /** `initialHealth` ; `deniedDamage` = initialHealthSlot+1. Cf. le bloc ci-dessous. */
+    initialHealthSlot: number;
 }
+
+// ── `initialHealth` / `deniedDamage` — le MONTANT par coup (#503-r4) ────────────────────────────
+// POURQUOI. La ventilation par coup manquait à `#503-r4` (tir différé `1237` : `u83` port 12049 vs
+// natif 10957, `u81` bit-exact). Ce hook rendait déjà le CARDINAL et l'ORDRE — mesuré le
+// 2026-08-10, natif `{81: 2, 83: 2}`, ordre `[81,81,83,83]`, identiques au port : la cause « pas le
+// même nombre de coups » est éliminée. Reste l'étage d'APPLICATION du montant, et c'est
+// `initialHealth` qui le donne : les PV AVANT chaque coup, donc le montant par différence.
+//
+// LE DÉCALAGE EST DÉRIVÉ DE LA CALIBRATION, PAS ÉCRIT EN DUR. La signature managée est
+// `ExecuteHit(hitIndex:0, attacker:1, defender:2, damageProfileType:3, abilityOrEffect:4,
+//  attackDamageOptions:5, initialHealth:6, deniedDamage:7)`. La calibration résout `attacker` par
+// sa FORME (deux slots adjacents qui sont des entités) ; tous les autres s'en déduisent par leur
+// position managée — `initialHealth` est 5 crans après `attacker` (les deux structs intermédiaires
+// passent par pointeur, donc un slot chacun). Le layout mesuré le 2026-08-10 le confirme :
+// `attackerSlot=3` ⇒ `hitIndex=2`, `profile=5`, donc `initialHealth=8`. On ne fige pas `8` : on
+// écrit `attackerSlot + 5`, qui suit la calibration si elle bouge.
+//
+// ET ON NE REND JAMAIS UN ENTIER QU'ON N'A PAS VALIDÉ. Un slot mal deviné rendrait un nombre
+// plausible et faux — exactement le vice contre lequel l'en-tête de ce fichier a été écrit. D'où
+// `readHealthSlot` : hors plage → `null`. Un `null` DIT que la lecture a échoué ; un `0` mentirait.
+/** Borne haute de plausibilité des PV (le roster rank 17 plafonne très en-dessous). */
+const HEALTH_MAX_PLAUSIBLE = 10_000_000;
 
 const buffers = new OriginBuffers<Hit>(CAP_PER_ORIGIN, "ring");
 
@@ -108,13 +137,25 @@ function calibrate(args: InvocationArguments): Layout | null {
     for (let i = 1; i + 1 < PROBE_SLOTS; i++) {
         if (looksLikeEntity(args[i]) === null) continue;
         if (looksLikeEntity(args[i + 1]) === null) continue;
-        return { attackerSlot: i, hitIndexSlot: i - 1, profileSlot: i + 2 };
+        return {
+            attackerSlot: i, hitIndexSlot: i - 1, profileSlot: i + 2,
+            initialHealthSlot: i + 5,        // cf. le bloc `initialHealth` ci-dessus
+        };
     }
     return null;
 }
 
 function readS32Slot(args: InvocationArguments, slot: number): number | null {
     try { return args[slot].toInt32(); } catch { return null; }
+}
+
+/** `initialHealth` / `deniedDamage` : un entier NON NÉGATIF et plausible, sinon `null`.
+ *  Rendre `null` plutôt qu'un nombre non validé est ce qui empêche une lecture fausse de passer
+ *  pour une mesure (cf. le bloc ci-dessus). */
+function readHealthSlot(args: InvocationArguments, slot: number): number | null {
+    const v = readS32Slot(args, slot);
+    if (v === null || v < 0 || v > HEALTH_MAX_PLAUSIBLE) return null;
+    return v;
 }
 
 function ensureInstalled(): boolean {
@@ -144,6 +185,8 @@ function ensureInstalled(): boolean {
                     attackerId: looksLikeEntity(args[L.attackerSlot]),
                     defenderId: looksLikeEntity(args[L.attackerSlot + 1]),
                     profile: readS32Slot(args, L.profileSlot),
+                    initialHealth: readHealthSlot(args, L.initialHealthSlot),
+                    deniedDamage: readHealthSlot(args, L.initialHealthSlot + 1),
                     originRunnerId: getTraceOrigin(),
                     ts: Date.now(),
                 };
