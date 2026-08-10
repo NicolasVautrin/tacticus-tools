@@ -173,26 +173,18 @@ _UNRESOLVED_PATCHES = {
         "en runner."),
 }
 
-_COMBIMELTA_WHY = (
-    "montage #419-r1-tr11, bras `neutered` (`probe_419r1tr11_combi_melta.write_neutered_seed_bc`). "
-    "La MEME ability porte une face COMBAT NON PORTEE -- les effets "
-    "`SpecialIssueCombiMelta_AdditionalHits` (1563) et `_ExtraDmg` (1564) modifient la PREDICTION "
-    "de degat native (mesure : un montant PLAT a distance 1, un COUP ENTIER a distance 2, RIEN a "
-    "distance 3). Mettre ces trois variables a 0 fait donc CONVERGER natif et port au lieu de les "
-    "desynchroniser : le port ne modelise pas ces effets, le natif cesse de les appliquer. "
-    "CONDITION DE VALIDITE, mecaniquement gardee : tant que la face COMBAT n'est pas portee "
-    "(`SpecialIssueCombiMelta_AdditionalHits` / `_ExtraDmg` absents d'`EFFECT_CLASSES`), aucun "
-    "site du moteur ne lit ces variables. Le jour ou elle le sera, le montage devra changer -- et "
-    "il le DIRA de deux facons, jamais en silence : "
-    "`tests/engine/test_419r1tr11_combi_melta_live.py::test_neutered_arm_condition_of_validity` "
-    "rougit OFFLINE en nommant l'effet qui vient d'entrer au registre, et "
-    "`::test_pair_utility_matches_native_on_all_distances` rougit LIVE (le port appliquerait alors "
-    "les coups supplementaires du gameconfig la ou le natif en applique zero).")
+# ⚠ LES TROIS ENTREES `SpecialIssueCombiMelta` (`minDmg` / `maxDmg` / `extraDmg`) ONT ETE RETIREES
+# LE 2026-08-10 (#419-r1-tr11-r3), ET C'EST LEUR PROPRE CONDITION DE VALIDITE QUI L'A EXIGE.
+# Elles couvraient le bras `neutered` de `probe_419r1tr11_combi_melta`, qui forcait ces variables a
+# 0 dans le seed BC pour faire CONVERGER natif et port -- licite tant que le port ne modelisait pas
+# les effets `SpecialIssueCombiMelta_AdditionalHits` (1563) et `_ExtraDmg` (1564). Ces deux effets
+# sont desormais au registre `EFFECT_CLASSES`, le meme geste serait donc une DESYNCHRONISATION
+# ARMEE -- exactement ce que ce probe recense. Le bras `neutered` a ete SUPPRIME (le montage ne
+# garde que le bras `raw`, sans aucun patch), donc l'exception n'a plus d'objet : il n'y a plus de
+# fixture qui ecrive ces variables. La garde qui l'avait annonce vit maintenant a l'envers dans
+# `tests/engine/test_419r1tr11_combi_melta_live.py::test_combat_face_is_registered`.
 
 _EXCEPTIONS = {
-    ("SpecialIssueCombiMelta", "minDmg"): _COMBIMELTA_WHY,
-    ("SpecialIssueCombiMelta", "maxDmg"): _COMBIMELTA_WHY,
-    ("SpecialIssueCombiMelta", "extraDmg"): _COMBIMELTA_WHY,
     ("InescapableAccuracy", "extraCritDmg"): (
         "probe_366_r1_inescapable_accuracy_crit_chance.neutralized_seed_bc(zero_crit_dmg=True), "
         "expose par `--zero-crit-dmg`, DEFAUT False. Desynchronisation de DIAGNOSTIC assumee et "

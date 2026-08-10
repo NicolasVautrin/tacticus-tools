@@ -15,27 +15,27 @@ figure aux 21 unites que `catalog_inject.py --missing` recense. Il entre donc pa
 `catalog_inject.write_augmented_seed_bc` + `rl_duel build --seed-bc` (case-92 §6), pas par une
 greffe : le playbook est confronte SUR SON PORTEUR REEL.
 
-## DEUX BRAS, parce que la MEME ability porte une face COMBAT non portee
+## UN SEUL BRAS depuis que la face COMBAT est portee (#419-r1-tr11-r3)
 
 `SpecialIssueCombiMelta_InitAbility$$CreateBehaviour` monte sur le porteur les effets
-`SpecialIssueCombiMelta_AdditionalHits` (1563) et `_ExtraDmg` (1564), qui modifient la PREDICTION de
-degat -- donc l'utilite de paire, par un canal qui n'est PAS ce playbook. Mesure de ce montage :
-a distance 1 le natif ajoute un montant PLAT, a distance 2 un COUP ENTIER, et **a distance 3 RIEN**.
+`SpecialIssueCombiMelta_AdditionalHits` (1563, `d == 2`) et `_ExtraDmg` (1564, `d == 1`), qui
+modifient la PREDICTION de degat -- donc l'utilite de paire, par un canal qui n'est PAS ce playbook.
+Mesure de ce montage : a distance 1 le natif ajoute un montant PLAT, a distance 2 un COUP ENTIER, et
+**a distance 3 RIEN**.
 
-  * bras **`raw`** -- seed BC augmente, rien d'autre. Le terme y est confrontable A LA DISTANCE 3
-    exactement, parce que c'est la seule ou les deux predictions coincident nativement. C'est le
-    bras qui vaut dans la CONFIGURATION REELLE DU JEU : aucun patch n'y entre.
-  * bras **`neutered`** -- les variables de degat de l'ability (`minDmg`/`maxDmg`/`extraDmg`) sont
-    forcees a 0 dans `BC.Abilities` (`catalog_inject.write_variable_patched_seed_bc` + sidecar
-    d'epinglage `#375`, sans quoi `refresh_ability_configs` les ecraserait EN SILENCE). La face
-    COMBAT devient alors sans effet sur les BORNES de degat (le coup supplementaire subsiste mais
-    frappe pour 0, et le composite Damage ne lit pas `appliedHits`), donc les deux predictions
-    coincident aux TROIS distances et le port est confrontable partout. Le poids d'IA, lui, vit
-    dans `BC.Utilities` : le patch ne le touche pas.
+Tant que ces deux effets n'etaient pas portes, le montage avait DEUX bras : `raw` (aucun patch,
+confrontable a la seule distance 3) et `neutered` (variables de degat forcees a 0 dans le seed BC,
+pour faire converger les deux moteurs aux trois distances). **`neutered` a ete SUPPRIME** : le port
+modelise maintenant les deux effets, donc le patch desynchroniserait au lieu de converger -- et il
+n'a plus d'objet, le bras `raw` collant desormais au natif aux TROIS distances.
 
-Le patch est verifie par une mesure NATIVE, jamais suppose : `test_combat_face_perturbs_only_below_range_3`
-compare `pairUtility` des DEUX bras et exige qu'ils different aux distances 1 et 2 et coincident a
-la distance 3. Un patch qui n'aurait pas mordu rendrait deux bras identiques -> rouge.
+  * bras **`raw`** -- seed BC augmente du porteur hors catalogue, rien d'autre. C'est la
+    CONFIGURATION REELLE DU JEU : aucun patch n'y entre, donc aucun angle mort `#366-r1`.
+
+CONTRE-EPREUVE VERSIONNEE (`--sans-face-combat`) : desinscrit 1563/1564 d'`EFFECT_CLASSES` et
+re-mesure sur le MEME runner. Elle chiffre ce que le port a ferme -- **15 lignes divergentes sur 26,
+de 8.35 a 78.01 points** sans la face COMBAT, contre **4 lignes a 0.960412** avec (le residu
+`#419-r1-tr11-r5`, bi-canal ROLL/DISPLAY du canal #179).
 
 ## Deux cibles, et ce que la seconde est SEULE a trancher
 
@@ -60,7 +60,6 @@ Runners (un par bras) :
     python rl_duel.py build --seed 41545 --board MC1_67 --seed-bc <abs>_raw.json \
         --p-units darkaSternguard --a-units astraBullgryn,necroWarden --no-ai \
         --state-file <abs unique>.json
-(le bras `neutered` s'ecrit par `write_neutered_seed_bc`, cf. ci-dessous)
 
 ASCII only. Garde jumelle : `scripts/python/tests/engine/test_419r1tr11_combi_melta_live.py`.
 """
@@ -116,22 +115,14 @@ def write_raw_seed_bc(path) -> str:
     return str(path)
 
 
-def write_neutered_seed_bc(path) -> str:
-    """Bras `neutered` : idem, PLUS les variables de degat de 1545 forcees a 0.
-
-    `write_variable_patched_seed_bc` ecrit AUSSI le sidecar `<path>.pins.json` -- sans lui
-    `refresh_ability_configs` (#254) reecrirait la config depuis le gameconfig vivant au chargement,
-    en silence, et le bras serait identique au `raw` sans qu'on le sache (#375).
-
-    Ce patch est INVISIBLE DU PORT (#366-r1) : le moteur Python lit `gameconfig`, pas le BC. C'est
-    ici SANS DANGER et meme l'objet du bras -- la face COMBAT de 1545 n'est PAS portee, donc mettre
-    ses variables a 0 rapproche le NATIF du port au lieu de les desynchroniser."""
-    p, _reports = catalog_inject.write_variable_patched_seed_bc(
-        str(path), [(CASTER_ABILITY_NAME, ABILITY_LEVEL,
-                     {"minDmg": 0, "maxDmg": 0, "extraDmg": 0})],
-        unit_ids=[CASTER], ability_level=ABILITY_LEVEL)
-    return str(p)
-
+# ⚠ `write_neutered_seed_bc` A ETE SUPPRIMEE (#419-r1-tr11-r3). Elle ecrivait un seed BC dont les
+# variables de degat de 1545 etaient forcees a 0, pour que la face COMBAT non portee cesse de
+# perturber la prediction : un patch INVISIBLE DU PORT (#366-r1), licite UNIQUEMENT tant que le port
+# ne modelisait pas les effets 1563 / 1564. Ils sont maintenant au registre `EFFECT_CLASSES`, donc
+# le meme geste desynchroniserait les deux moteurs au lieu de les faire converger -- et il n'y a
+# plus rien a neutraliser : le port colle au natif aux TROIS distances sur le bras `raw`, sans
+# aucun patch. Les trois entrees correspondantes de
+# `probe_366_r1_bcpatch_port_blindspot._EXCEPTIONS` sont retirees dans le meme commit.
 
 CASTER_ABILITY_NAME = "SpecialIssueCombiMelta"
 
@@ -379,7 +370,8 @@ def run_mutant(rpc, case: dict, name: str) -> list[dict]:
     """Rejoue `measure` avec la face ATTACK du playbook REMPLACEE par le mutant.
 
     Le critere est le DEPLACEMENT du port par rapport au NATIF (`port - native`) : sur le bras
-    `neutered` le port NON MUTE colle au natif au bit pres, donc tout ecart non nul EST le mutant.
+    `raw` le port NON MUTE colle au natif au bit pres hors du regime residuel
+    `#419-r1-tr11-r5`, donc tout ecart >= 1 point EST le mutant.
     ⚠ Sur le bras `raw` ce critere ne vaut qu'aux tuiles a distance 3 (ailleurs la face COMBAT non
     portee ecarte deja les deux cotes)."""
     from engine.playbook.special_issue_combi_melta import SpecialIssueCombiMeltaPlaybook as PB

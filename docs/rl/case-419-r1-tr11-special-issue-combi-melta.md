@@ -221,11 +221,9 @@ Chiffres à RE-DÉRIVER, pas à citer.
   un oracle** — il n'entre dans AUCUNE assertion de la tranche (mode `--stage` seulement). Point
   d'ancrage à instrumenter pour trancher : le chemin `GetAllPredictions` du RPC contre le
   `ComparablePlaybook$$MakeDamagePredictions` qu'emprunte `pairUtility`.
-* **`#419-r1-tr11-r3`** — **la face COMBAT de 1545 n'est pas portée** (effets 1563/1564, et le
-  `Pinned` 1065 posé sur la cible). Empreinte mesurée sur la prédiction native au §3. C'est le seul
-  écart natif/port restant du montage, et il est entièrement hors du périmètre de la face DÉCISION.
-  **RE COMPLÉTÉE le 2026-08-10 — les trois portées sont LUES, plus déduites de l'empreinte** (cf.
-  §6bis) ; le port reste bloqué par un foyer PARTAGÉ, nommé là-bas.
+* ~~**`#419-r1-tr11-r3`**~~ — **la face COMBAT de 1545 n'est pas portée**. **FERMÉ le 2026-08-10**
+  (cf. §7). Les effets **1563** (`d == 2`) et **1564** (`d == 1`) sont portés ; le `Pinned` 1065
+  reste ouvert sous `#419-r1-tr11-r4`, et un écart résiduel de 0,96 point sous `#419-r1-tr11-r5`.
 
 ## 6bis. La face COMBAT, LUE (2026-08-10) — trois portées, trois constantes, un `==`
 
@@ -270,20 +268,65 @@ targets = Target@DSLSelectors+0x60)`. Enums vérifiés sur `rnca9r7q6c` : 1563
 `SpecialIssueCombiMelta_AdditionalHits`, 1564 `SpecialIssueCombiMelta_ExtraDmg`, 1065 `Pinned` ;
 kit = `{damageProfile: Bolter, nrOfHits: 1}`, variables `minDmg` / `maxDmg` / `extraDmg`.
 
-### Pourquoi le port n'est pas livré ici — un foyer PARTAGÉ, pas une lacune de RE
+## 7. La face COMBAT, PORTÉE (2026-08-10, `#419-r1-tr11-r3` fermé)
 
-**1564 est portable tel quel** : son canal (`create_effect_damage_bonus_for_attack`) reçoit déjà
-`att_pos` **et** `t_pos` dans son `att_ctx`, donc le gate de distance s'y évalue.
+Ce qui bloquait n'était pas la RE mais **un `ctx` incomplet** : le canal #179 portait `t_pos` côté
+COMBAT et **ni l'une ni l'autre** position côté PRÉDICTION, donc tout gate `IsAtRange` y était
+inévaluable. Les deux `ctx` sont enrichis d'`att_pos` (et de `t_pos` côté prédiction) —
+`collect_additional_hit_groups` (`runner/operations/additional_hits.py`) et les deux `_ah_ctx` de
+`playbook/prediction/normal_attack.py`. Le gate lui-même a un **foyer unique**,
+`entities/effects/base.py::is_at_range`, partagé par les deux effets.
 
-**1563 ne l'est pas** : le `ctx` du canal #179 ne porte **ni** `att_pos` **ni**, côté prédiction,
-`t_pos` — le gate `d == 2` y est donc inévaluable. Les deux `ctx` à enrichir sont `ah_ctx` de
-`engine/runner/operations/additional_hits.py::collect_additional_hit_groups` et `_ah_ctx` de
-`engine/playbook/prediction/normal_attack.py`, tous deux **hors du territoire de la tranche DSL
-COMBAT** (deux autres agents en vol). Porter 1564 seul et laisser 1563 inerte donnerait un port
-dont la face COMBAT resterait fausse à d == 2 — un port partiel non confronté, ce que la doctrine
-refuse. Le résidu reste donc ouvert, mais il est désormais **mécanique** : `BLOCAGE: etage`.
+Port : `SpecialIssueCombiMeltaAdditionalHitsEffect` (`effects/loki/hits.py`) et
+`SpecialIssueCombiMeltaExtraDmgEffect` (`effects/loki/extra_damage.py`), au registre
+`EFFECT_CLASSES` dans le même commit.
 
-## 7. Ce que ce cas n'établit PAS
+**MESURE (bras `raw`, aucun patch — seed 41545, `MC1_67`, 26 lignes), et sa CONTRE-ÉPREUVE**
+(`probe_419r1tr11_combi_melta.py [--sans-face-combat]`, MÊME runner, MÊME géométrie) :
+
+| | lignes en accord | |écart| max | régime |
+|---|---|---|---|
+| sans la face COMBAT (état d'avant) | 11 / 26 | **78,007022** | 15 lignes fausses à d = 1 et d = 2 |
+| avec la face COMBAT | **22 / 26** | **0,960412** | 4 lignes, toutes `necroWarden` à d = 2 |
+
+À d = 1 la prédiction native `3457-4661` / `5185-6992` / `5185-6331` est reproduite **au bit près** —
+c'est exactement l'empreinte du §3, désormais expliquée au lieu d'être subie.
+
+### 7bis. Le bras `neutered` est MORT, et c'est son propre garde qui l'a tué
+`test_neutered_arm_condition_of_validity` disait : *« dès que la face COMBAT entre au registre, le
+même geste devient une DÉSYNCHRONISATION »*. Il a rougi au premier passage, comme écrit. La réponse
+prescrite est appliquée : **bras `neutered` supprimé** (`write_neutered_seed_bc` retirée), tout
+bascule sur `raw`, et les **trois** entrées `SpecialIssueCombiMelta` de
+`probe_366_r1_bcpatch_port_blindspot._EXCEPTIONS` sont retirées — vérifié mécaniquement, le couple
+n'apparaît plus au recensement. Le garde vit maintenant **à l'envers**
+(`test_combat_face_is_registered`) : il rougit si un des deux effets QUITTE le registre.
+
+## 8. Résidus OUVERTS par cette tranche
+
+* **`#419-r1-tr11-r4`** — le **`Pinned` (1065) à d == 3** n'est pas porté.
+  `SpecialIssueCombiMelta_AddEffectAbility$$CreateTrigger` = `On(0x26 = NormalAttack, 1) &
+  OwnerIsCaster & IsAtRange(Caster@+0x48, Target@+0x60, DSLFormulas.Get(3))` ;
+  `$$CreateBehaviour` = `AddEffect(0x429 = 1065 Pinned, AbilityStateReference,
+  targets = Target@DSLSelectors+0x60)`. **RE COMPLÈTE** (les deux corps sont lus). Ce qui manque est
+  le **montage de la triggered dérivée** : par quelle voie 1545 accorde-t-elle cette ability au
+  porteur (`StaticBattleRules.ActiveAbility$$.cctor` / `GetDerivedTriggeredAbilities`, patron
+  `Hailstrike` de `#BL-1029r`) — non lu ici. **FOYER:** `scripts/python/engine/runner/operations/triggers/loki/`,
+  `scripts/python/engine/services/static_battle_rules.py` — **BLOCAGE:** `etage`.
+* **`#419-r1-tr11-r5`** — **4 lignes à −0,960412**, toutes `necroWarden` à d = 2, sur le bras `raw`.
+  CAUSE LOCALISÉE : le **bi-canal ROLL/DISPLAY** du canal #179.
+  `IdunBattle.Entities.Effects.BaseEffect$$AdditionalHits(this, entities, useDisplay)` pose
+  `min = max = <nœud DISPLAY>.Calculate()` quand `useDisplay` — une cellule **DÉGÉNÉRÉE** que le
+  pipeline de prédiction étale ensuite — alors que le port publie `predefined = [min, max]` pour
+  tout descripteur à forme PREDEFINED. Le TOTAL ne bouge pas (même moyenne), seule la LARGEUR de la
+  plage change : l'écart n'apparaît donc que sur une cible où un terme NON LINÉAIRE de l'utilité
+  (`KillUnit` / `OverkillUnit`) est sensible aux bornes. L'étage est **PARTAGÉ** par tous les
+  descripteurs #179 à forme PREDEFINED (SquigHound, CordClaw, SorcerousFacade, FearOfTheUnseen,
+  FleshmetalGuns, 1563) — le corriger depuis cette tranche changerait six autres effets. Gardé
+  dans les TROIS sens par `test_residual_regime_is_exactly_what_we_claim`.
+  **FOYER:** `scripts/python/engine/playbook/prediction/normal_attack.py`,
+  `scripts/python/engine/entities/effects/loki/hits.py` — **BLOCAGE:** `etage`.
+
+## 9. Ce que ce cas n'établit PAS
 
 * Le comportement sur le porteur **npc** `darkaBossSternguardLHE` : le montage ne joue que
   `darkaSternguard`. Ce qui est confronté, c'est le CORPS du playbook, dont la RE établit qu'il ne
