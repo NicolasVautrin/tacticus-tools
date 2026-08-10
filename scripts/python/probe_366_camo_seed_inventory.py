@@ -95,6 +95,23 @@ POSE_VECTOR: dict[str, tuple[str, str, str, str]] = {
         "IdunBattle.Entities.Abilities.AOwnerEffectTriggeredAbility$$CreateBehaviour"
         " (AmuletOfTheVoidwyrmAbility)",
         "AmountIsGreaterThanZero(summons/decoys allies ADJACENTS -- geometrique)"),
+    # #547-r2 -- les DEUX classes entrees par la PR #867 sans verdict de pose. Toutes deux sont
+    # posees par le `ExecuteBehaviour` d'une ability ACTIVE (un CAST), jamais par un trigger d'init
+    # : leur absence a la capture est donc FIDELE, et le rail de seed n'a rien a couvrir.
+    "BloodChalice_ExtraPiercing": (
+        "runtime", "static",
+        "IdunBattleLogic.Entities.Abilities.Active.BloodChaliceAbility$$ExecuteBehaviour"
+        " (AddStaticStatModifierEffect(GetTargets(), 0x559, 0x15 = ExtraPierceMelee, ...))",
+        "IsCharging(Owner@0x30, Target@0x60) -- et `Target@ctx+0x10` est ZERO dans le contexte de "
+        "`RefreshEffectsOperation$$ShouldBeActive`, donc la condition y est CONSTANTE FAUSSE : "
+        "elle ne bascule pas"),
+    "MindControl_Taunter": (
+        "runtime", "one-way",
+        "IdunBattleLogic.Entities.Abilities.Active.Loki.MindControlAbility$$ExecuteBehaviour"
+        " (AddBondEffect(0x557 = 1367, targets = cache, bondedEntity = Target))",
+        "HasEffect(bonded, 0x1b = 27 Taunted_OnlySpecificTargets, selectionType 6) & "
+        "AreEqual(BondedEntityFromEffect(EffectFromOwner(bonded, 0x1b)), Owner@0x30) -- le taunt "
+        "n'est pose QU'UNE fois par le cast : une fois perdu il ne revient pas"),
     "AnvilShield_BlockChanceBelowHealthCap": (
         "init", "sim",
         "IdunBattleLogic.Entities.Abilities.Triggered.Loki.AnvilShieldAbility_"

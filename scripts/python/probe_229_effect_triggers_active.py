@@ -87,6 +87,12 @@ RAIL: dict[str, tuple[str, str]] = {
         (ARRAYSET, "IdunBattle.Entities.Effects.RangedAutoAttackEffect$$CreateHandleTriggerAbilitiesInternal"),
     "HazeOfCorruptionDamageTransferTrigger":
         (TARGETS, "IdunBattle.Entities.Effects.Loki.HazeOfCorruption_DamageTransferEffect$$CreateTargetTrigger"),
+    # #547-r2 -- inscrite APRES coup : la classe est entree au registre par #576 sans rail declare,
+    # et le gate `IsActive` du rail TARGETS lui MANQUAIT (pose dans le meme commit). C'est
+    # exactement le gisement que ce cliquet surveille : le probe ne pouvait rien dire d'une classe
+    # absente de cette table.
+    "BloodChaliceHealOnMeleeAttack":
+        (TARGETS, "IdunBattle.Entities.Effects.Loki.BloodChalice_HealOnAttackEffect$$CreateTargetTrigger"),
     "ContaminatedTileEffect":
         (ARRAYSET, "IdunBattle.Entities.Effects.Loki.ContaminatedEffect$$CreateHandleTriggerAbilitiesInternal"),
     "FireTileDoT":
