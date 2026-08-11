@@ -78,10 +78,24 @@ def _unite(alive: bool, hp: int = 0, over_reduce: int = OVER_REDUCE):
 
 
 class _EffetsCursed:
-    """Double de test : la seule surface de `state.effects` que lit `HealUnitOperation.execute`."""
+    """Double de test : la surface de `state.effects` que lit `HealUnitOperation.execute`.
+
+    ⚠ ELLE A GRANDI, ET C'EST CE QUI RENDAIT `master` ROUGE (#943). Ce double ne portait que
+    `has_effect`, et sa docstring disait « la SEULE surface » -- premisse VRAIE a l'ecriture, PERIMEE
+    depuis que #927 a porte `IdunBattle.Core.Services.AttackQuery$$HasHealBlockers` : le chemin de
+    soin lit desormais AUSSI la liste BRUTE du porteur (`EffectsState.by_unit`, sans filtre
+    `IsActive`), d'ou `AttributeError: '_EffetsCursed' object has no attribute 'by_unit'`. Le rouge
+    accusait le MONTAGE, pas le port.
+
+    `by_unit` vide = « ce porteur n'a AUCUN bloqueur de soin », ce qui est exactement le regime que
+    ces tests montent : le seul effet simule ici est `EffectType.Cursed`, dont la face `has_effect`
+    est ci-dessous. Un double qui rendrait un bloqueur ferait sortir `entity_can_be_healed` AVANT le
+    `FillUp`, et le test ne mesurerait plus la purge qu'il existe pour mesurer."""
 
     def __init__(self, cursed: bool):
         self._cursed = cursed
+        #: `EffectsState.by_unit` -- lu par `AttackQuery$$HasHealBlockers` (#927).
+        self.by_unit: dict = {}
 
     def has_effect(self, _unit_id, effect_type=None):        # noqa: D102
         return self._cursed

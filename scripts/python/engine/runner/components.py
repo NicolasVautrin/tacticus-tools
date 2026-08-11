@@ -1149,9 +1149,13 @@ class UnitFlagsComponent(Component):
         descriptif (renommage = résidu déjà nommé, cf. `entities/unit_flag.py`), mais l'attribut
         pointe le membre : `TURN_FINISHED_FORCED = UnitFlag.TurnTerminated`.
         **DEUXIÈME poseur, identifié par #564-r4** : `IdunBattle.Operations.ResurrectUnitOperation
-        $$Execute` y arrive par `processor.<slot 35 = FinishUnitTurn>(unit, isTerminated: true)`
-        dans son bras `!takesImmediateTurn` — le slot avait été lu comme
-        `MarkUnitAsNoActionAvailable` (qui est le slot 118), d'où un flag « sans poseur »."""
+        $$Execute` y arrive, dans son bras `!takesImmediateTurn`, en appelant
+        `processor.<slot 35 = FinishUnitTurn>(unit, isTerminated: true)` — le slot avait été lu
+        comme `MarkUnitAsNoActionAvailable` (qui est le slot 118), d'où un flag « sans poseur ».
+        (#943 — l'incise `dans son bras ...` a été DÉPLACÉE devant l'appel : collé à lui,
+        `$$Execute` se retrouvait à moins de 40 caractères de `slot 35`, et `probe_477r24r1`
+        appariait `(slot 35, Execute)` — le nom de l'OPÉRATION, pas celui du slot. Le couple juste,
+        `slot 35 = FinishUnitTurn`, est écrit au même endroit et n'a pas bougé.)"""
     __slots__ = ("flags",)
     MOVED = UnitFlag.Moved                   # UnitFlag.Moved (posé par IdunBattle.Entities.UnitExtensions$$SetMovedFlag)
     ARRIVED_AT_FINAL_TILE = UnitFlag.ArrivedAtFinalTile   # UnitFlag.ArrivedAtFinalTile

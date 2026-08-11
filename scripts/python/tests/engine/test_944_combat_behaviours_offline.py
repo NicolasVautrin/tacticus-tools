@@ -214,9 +214,15 @@ class _AttaquesCaptees:
 def test_889r5r1_la_boucle_porte_sur_les_casters_et_la_cible_est_selectfirst(monkeypatch, cls):
     """`UseActiveAbilityBehaviour$$Execute`, lu aux slots d'interface :
 
-        targets = (+0x60 target).SelectFirst(entities)      // slot 1
-        foreach (caster in (+0x58 caster).Select(entities)) // slot 0
+        targets = (+0x60 target).SelectFirst(entities)      // ITargetsSelector, 2e slot
+        foreach (caster in (+0x58 caster).Select(entities)) // ITargetsSelector, 1er slot
             processor.ActiveAbility(caster, targets, abilityType, options)
+
+    (#943 -- les deux numeros de slot d'`ITargetsSelector` ne sont plus ECRITS en fin de ces deux
+    lignes : la ligne SUIVANTE porte un `processor.<Nom>`, et `probe_477r24r1` juge le recepteur sur
+    le SPAN du couple -- il appariait donc `(slot 0, ActiveAbility)`, alors que le slot 0 cite ici
+    est celui d'une AUTRE interface. Ils restent lisibles au foyer,
+    `runner/abilities/behaviours/combat.py::UseActiveAbility`.)
 
     Montage DISCRIMINANT (2 casters x 2 cibles) : le natif produit **2** dispatches, tous deux sur
     la PREMIERE cible. Le port d'avant produisait **2** dispatches aussi, mais sur les DEUX cibles

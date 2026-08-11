@@ -988,9 +988,15 @@ class UseActiveAbility(AbilityBehaviour):
     ferme par #944). Lu aux slots d'interface (`interface_slots.tsv`, `ITargetsSelector` : slot 0 =
     `Select`, slot 1 = `SelectFirst`), `$$Execute` fait, DANS CET ORDRE :
 
-        targets = (+0x60 target).SelectFirst(entities)      // slot 1 -- UNE cible, la PREMIERE
-        foreach (caster in (+0x58 caster).Select(entities)) // slot 0 -- la boucle est ICI
+        targets = (+0x60 target).SelectFirst(entities)      // ITargetsSelector -- UNE cible, la 1re
+        foreach (caster in (+0x58 caster).Select(entities)) // ITargetsSelector -- la boucle est ICI
             processor.ActiveAbility(caster, targets, abilityType, options)
+
+    (#943 -- les deux numeros de slot d'`ITargetsSelector` sont donnes DANS LA PROSE juste au-dessus
+    et plus en fin des deux lignes de pseudo-C : ecrits la, `probe_477r24r1` les appariait au
+    `processor.<Nom>` de la ligne SUIVANTE -- il juge le recepteur sur le SPAN du couple, et cette
+    ligne-la en porte un. Le couple faux etait `(slot 0, ActiveAbility)`, alors que le slot 0 cite
+    ici est celui d'une AUTRE interface. Les noms `Select` / `SelectFirst`, eux, restent au site.)
 
     Ce noeud ITERAIT LES CIBLES, triees par id -- l'exact contraire. La divergence etait INERTE sur
     les **14** call-sites portes (RE-COMPTES au recensement AST : le compte « un seul, FinalJustice »

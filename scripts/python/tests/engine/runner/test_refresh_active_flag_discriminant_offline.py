@@ -92,24 +92,46 @@ CONDITIONS_PORTEES_ATTESTEES = {
     "CamoCloak_DmgReduction",
     "ContagionsOfNurgle_ArmorReduction1",
     "ContagionsOfNurgle_ArmorReduction2",
+    # #943 -- SIX classes arrivees entre le 2026-08-10 et le 2026-08-11 sans leur ligne, ce qui
+    # rendait `master` ROUGE ici ET sur `test_camo_seed_inventory_offline`. Conditions toutes LUES
+    # (verdicts de pose inscrits dans `probe_366_camo_seed_inventory.POSE_VECTOR` par le meme
+    # commit) :
+    #   * les DEUX de 1203 `DaemonicPatrons` (#911) --
+    #     `ADaemonicPatronsEffect$$CreateActiveCondition` = `AmountIsGreaterThanZero(Count(Filter(
+    #     AdjacentEnemies(Owner), HasEffect(It, 0x1b Taunted_OnlySpecificTargets, onlyActive: 0))))`,
+    #     le MEME compteur que la magnitude : condition et magnitude ne peuvent pas diverger ;
+    #   * 1459 `IntoxicatingElixir` (#919) -- `AmountIsGreaterThanZero(GetLevelFormula(...))`,
+    #     geometrique (unites debuffees dans le rayon) ;
+    #   * 1461 `MawClawsOfThyrax_ExtraCritDmg` (#917) -- `AmountIsGreaterThanZero(Count(Unique(
+    #     UnitsWithTrait(AdjacentUnits(Owner), Summon))))`, geometrique ;
+    #   * 1455 `NetherRealmCasket_CritDamageReduction` (#909) -- `AmountIsGreaterThanZero(
+    #     AdjacentMechanicalUnits())`, geometrique ;
+    #   * 1529 `RitesOfMorkai_ExtraDamage` (#904/#906) -- `HasTrait(Owner, 0x3f6 FinalJustice)
+    #     op_BitwiseOr HasEffect(Owner, 0x5ae FinalVengeance_UnitEffect, onlyActive: 0, Both)`.
+    "DaemonicPatrons_DmgReduction",
+    "DaemonicPatrons_ExtraDamage",
     "DestroyTheWitch_ExtraDamage",
     "DestroyTheWitch_ExtraMove",
     "HammerOfWrath_ConditionalDamage",
     "InescapableAccuracy_extraCritChance",
     "InescapableAccuracy_extraCritDmg",
     "InescapableAccuracy_overrideHits",
+    "IntoxicatingElixir",                    # #943, cf. le bloc ci-dessus
     "MartialSuperiority_Visual",
+    "MawClawsOfThyrax_ExtraCritDmg",         # #943, cf. le bloc ci-dessus
     # #552-r1 -- `HasEffect(bonded, 27, null, 6) & AreEqual(BondedEntityFromEffect(EffectFromOwner(
     # bonded, 27)), Owner@sel+0x30)`. Evaluable parce que ses DEUX selecteurs lisent des champs
     # RENSEIGNES du contexte (`EffectSelector$$Select` -> `ctx+0x58`, `OwnerSelector$$Select` ->
     # `ctx+0x18`), contrairement a celui de `BloodChalice_ExtraPiercing` ci-dessus.
     "MindControl_Taunter",
     "ModifiedExoarmour_ExtraDmg",
+    "NetherRealmCasket_CritDamageReduction",  # #943, cf. le bloc ci-dessus
     "Pinned",
     "PowerTrip_FullHealth",
     "PsychicStalk_VisualEffect",
     "ReinforcedHiveNode_ExtraArmor",
     "ReinforcedHiveNode_ExtraBlock",
+    "RitesOfMorkai_ExtraDamage",              # #943, cf. le bloc ci-dessus
     "StructuralAnalyser_Visual",
     # #547-r6 -- ARRIVEE SANS SA LIGNE, et le cliquet l'a vue : `SupaCyborkBodyCritDmgReduction
     # Effect.is_active` est entree par la PR qui porte `supa_cybork_body.py`, sans inscription ici,

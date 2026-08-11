@@ -1,10 +1,13 @@
 """BioMinefieldPlaybook -- la face DECISION de `1144 BioMinefield` (`tyranBiovore`). (#939)"""
 from __future__ import annotations
 
-import hexgeo
 from engine.entities.active_ability_type import ActiveAbilityType
 
 from ._base import NCContext, NonComparablePlaybook
+# FORME A assumee : `bq` est un MODULE (pas un nom), donc un `monkeypatch.setattr` sur
+# `engine.battle_query.is_adjacent` mord quand meme. MEME import que le jumeau
+# `doctrina_imperatives`, qui mirrore le MEME natif `BattleQuery$$GetFreeAdjacentTiles`.
+from engine import battle_query as bq
 
 
 class BioMinefieldPlaybook(NonComparablePlaybook):
@@ -62,13 +65,26 @@ class BioMinefieldPlaybook(NonComparablePlaybook):
         Meme substrat que `GetEmRuntzPlaybook._spawn_tile_count` (dont c'est le sur-ensemble : lui y
         ajoute le filtre << adjacent a un ennemi >>, que `GetFreeAdjacentTiles` n'a pas). Canal
         `walkable_by_pos` VIDE -> volet inerte, degradation PERMISSIVE deja documentee sur `NCContext`
-        (la zone ne peut qu'ELARGIR), jamais un zero fabrique."""
+        (la zone ne peut qu'ELARGIR), jamais un zero fabrique.
+
+        ⚠ L'ADJACENCE PASSE PAR LE FOYER (#943), pas par `hexgeo.distance == 1`. Le natif descend
+        `GetFreeAdjacentTiles` -> `GetAdjacentTiles(from, 1, 1, 1)` ->
+        `IdunBattle.Core.Services.TileQuery.u003CIterateAdjacentTilesu003Ed__8$$MoveNext`,
+        c'est-a-dire la LISTE D'ADJACENCE STOCKEE du board PLUS la porte d'elevation
+        `|elev(a) - elev(b)| < 2` -- deux etages qu'une distance hex nue ignore, donc un
+        SUR-COMPTE (l'utilite vaut `100 x free`, un voisin de trop deplace le choix de cible).
+        `engine.battle_query.is_adjacent` EST ce foyer et il DEGRADE seul : sans `neigh_by_pos` ni
+        `elev_by_pos` il rend exactement `hexgeo.distance == 1`, donc ce cablage est un NO-OP
+        DEMONTRABLE la ou les canaux sont vides -- c'est le meme geste que #433-r4-r1-r4-r2-r1 sur
+        `battle_query.adjacent_addable_count`, dont le jumeau de ce module
+        (`doctrina_imperatives._free_adjacent_tiles`, MEME natif) se sert deja."""
         valides = set(ctx.elev_by_pos.keys()) if ctx.elev_by_pos else set()
         occupees = set(ctx.epos or ()) | set(ctx.fpos or ()) | {ctx.origin}
         walk = ctx.walkable_by_pos or {}
+        neigh_by_pos = getattr(ctx, "neigh_by_pos", None)
         n = 0
         for t in valides:
-            if t in occupees or hexgeo.distance(pos, t) != 1:
+            if t in occupees or not bq.is_adjacent(pos, t, ctx.elev_by_pos, neigh_by_pos):
                 continue
             if walk and not walk.get(t, True):
                 continue

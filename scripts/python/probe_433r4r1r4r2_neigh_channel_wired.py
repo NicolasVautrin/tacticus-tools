@@ -708,16 +708,35 @@ def etape5(arbres) -> tuple[list, int]:
     partie de ce cliquet qui soit derivee du contenu plutot qu'ecrite a la main.
 
     Registre VIDE = rien a garder ici (tout est arme), pas un perimetre casse : aucune garde de
-    perimetre n'est posee dessus, contrairement aux etapes 1 et 3."""
+    perimetre n'est posee dessus, contrairement aux etapes 1 et 3.
+
+    ⚠ LE CRITERE EST UN DELTA, ET IL NE L'ETAIT PAS (#943). L'etape mesurait la rougeur ABSOLUE du
+    tour d'essai (`etape2 + etape4` avec le natif arme), pas ce qui rougit A CAUSE DE LUI. Tant que
+    les deux autres etapes sont vertes les deux quantites coincident -- mais des qu'un vice OUVERT
+    existe ailleurs (ce qui est le regime NORMAL de ce cliquet : il EXISTE pour trouver des vices),
+    toute suspension devient << justifiee >>, y compris celle d'un natif qui n'apparait dans AUCUNE
+    docstring. MESURE : sur l'arbre du 2026-08-11, `etape2` porte deux foyers ouverts
+    (`aura_selectors.adjacent_friends_including_owner`, `icon_of_obstinacy.
+    create_aura_attack_damage_bonus_for_ally`, residu #943-r3), et la contre-epreuve
+    `test_etape5_ROUGIT_sur_une_suspension_perimee` -- qui suspend `NatifQuiNexistePas` -- rendait
+    un ensemble VIDE au lieu de le denoncer. Un garde-fou qui devient inerte precisement quand il y
+    a quelque chose a garder est pire qu'absent : il DIT que tout va bien.
+
+    Le delta est aussi ce que `_FOYERS_SUSPENDUS` doit porter -- ce registre existe pour dire DE QUI
+    la suspension est faite (#433-r4-r1-r4-r2-r1-r1-r1-r1), et une liste absolue y melangeait des
+    foyers qui n'ont rien a voir avec le natif suspendu."""
     global NATIFS_LISTE_STOCKEE
     manquants = []
     base = NATIFS_LISTE_STOCKEE
+    #: La rougeur SANS aucun natif suspendu arme -- la reference a soustraire.
+    reference = set(etape2(arbres)[0]) | {tuple(f) for f in etape4(arbres)[0]}
     for nat, residu in sorted(NATIFS_LISTE_STOCKEE_SUSPENDUS.items()):
         try:
             NATIFS_LISTE_STOCKEE = base + (nat,)
-            foyers = etape2(arbres)[0] + etape4(arbres)[0]
+            arme = etape2(arbres)[0] + etape4(arbres)[0]
         finally:
             NATIFS_LISTE_STOCKEE = base
+        foyers = [f for f in arme if tuple(f) not in reference]
         if not foyers:
             manquants.append((nat, residu))
         _FOYERS_SUSPENDUS[nat] = foyers

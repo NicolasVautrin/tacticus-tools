@@ -420,7 +420,9 @@ class RadBombardmentAbility(ActiveAbility):
             aim = board.id_at(tpc.col, tpc.row) if tpc is not None else None
         if aim is None:
             return None
-        import gameconfig as GC
+        # (#943) le differe `import gameconfig as GC` qui vivait ici est RETIRE : #894 a hisse le
+        # meme import en tete de module (forme B), donc il n'etait plus que REDONDANT -- et un
+        # `import` dans un corps de fonction rend le nom LOCAL A TOUTE LA FONCTION.
         profile = ((GC.ability(RAD_BOMBARDMENT_ID) or {}).get("constants") or {}).get(
             "damageProfile") or "Toxic"
         entities = entities_from_state(state, caster_id)
