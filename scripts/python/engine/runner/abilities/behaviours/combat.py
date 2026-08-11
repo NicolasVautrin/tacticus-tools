@@ -8,6 +8,7 @@ from typing import Optional
 
 from ....dsl.base import TargetsSelector, resolve_unit, _units_of, _pos, _is_alive
 from ....entities.damage_profile_type import DamageProfileType, PROFILE_NAME_BY_INDEX
+from ....entities.invalid_target_policy import InvalidTargetPolicy
 from ....services.battle_query import weapon_is_melee
 from ....services.damage_config import resolve_spread_pct
 from ....streams.inform_ops import get_inform_weapon_tags
@@ -290,7 +291,12 @@ class AttackWithAttackDamage(AbilityBehaviour):
                     # meme classification que le mode bornes (cf. `native_factory`) : elle pilote
                     # l'ordre bouclier x limites (`CalculateAbilityDamage` cape le RESTE post-bouclier).
                     is_attack_damage_op=(self.native_factory != "ability"),
-                    is_first_hit=self.is_first_hit)
+                    is_first_hit=self.is_first_hit,
+                    # #925-r2 : le drapeau ne pilotait QUE la voie BORNES. Ce vecteur-ci n'exprimait
+                    # pas `isOutsideAttack`, donc il n'emettait JAMAIS `On(PreAttack = 5)` -- alors
+                    # que trois de ses quatre call-sites portent une feuille EMBALLEE. Cf.
+                    # `execute_normal_like` pour les quatre factories natives, lues une par une.
+                    is_outside_attack=self.is_outside_attack)
             else:
                 # `BaseEffect$$PiercingBonusForAttack` : les effets ACTIFS du caster peuvent ajouter au
                 # ratio de perçage du coup (gates `OwnerIsCaster` / `CurrentAbilityIs` / `HasTrait(target)`
@@ -965,64 +971,113 @@ class EvaluateAbilities(AbilityBehaviour):
 
 
 class UseActiveAbility(AbilityBehaviour):
-    """`IdunBattleLogic.Entities.DSLBehaviors$$UseActiveAbility` -> `IdunBattle.Entities.Behaviours.UseActiveAbilityBehaviour$$Execute` : pour
-    CHAQUE cible du selecteur `targets_sel` (+0x58), le SUJET (`subject_sel`, +0x50) UTILISE son ability
-    active `ability_type` (+0x60) -- dispatch RECURSIF de l'ability sur la cible (le natif emet 1 Operation
-    <<use-ability>> par cible via le collecteur `proc`, en fixant `subject`=cible courante dans le ctx).
+    """`IdunBattleLogic.Entities.DSLBehaviors$$UseActiveAbility` ->
+    `IdunBattle.Entities.Behaviours.UseActiveAbilityBehaviour$$Execute` : le CASTER (`caster_sel`)
+    utilise son ability active (`activeAbilityType`) sur la cible (`target_sel`) -- dispatch
+    RECURSIF via le slot **2** d'`IOperationProcessor` (`ActiveAbility(caster, target, abilityType,
+    options)`, arite 4, LU dans `data/symbols/<build>/metadata/ioperationprocessor_slots.tsv`).
 
-    Seul usage porte (Groupe 3) : FinalJustice `UseActiveAbility(Self@0x148, SortUnitsByDamageUtility(
-    ValidNormalAttackTargets(...)), UnitNormalAttackType(self))` = en MOURANT, Kharn porte UNE attaque
-    NORMALE sur la meilleure cible. `UnitNormalAttackType` = l'attaque normale du sujet ; chez nous, la
-    dispatcher = `AttackDamageOperation.execute` (resolveur d'attaque normale ECS : selection d'arme par
-    distance, spread, reduce/armure -- DEJA bit-exact). ⇒ la feuille SPECIALISE le dispatch a l'attaque
-    normale (== le corps imperatif `_finaljustice_attack` valide) : `subject`=Caster(), `target`=la cible.
+    MAPPING DES CHAMPS -- lu dans `UseActiveAbilityBehaviour$$.ctor`, dont la signature est NOMMEE
+    (`(this, caster, target, activeAbilityType, parentAbility, triggerAbilityOrEffect, options)`) :
 
-    COLLAPSE du selecteur AI-target (doctrine slice-18/19) : `SortUnitsByDamageUtility(ValidNormalAttack
-    Targets)` = un selecteur AI LOURD (kind S, chevauche le playbook), reste IMPERATIF (`_finaljustice
-    _target`) et resolu AVANT le cast -> passe comme `Target()` (meme collapse que ThunderousAssault
-    `Units(Cache(First(Nearest(...))))` -> la cible du message). DSL-ification du selecteur = tache S-family.
+        +0x50  activeAbilityType        +0x68..+0x80  parentAbility (28 o)
+        +0x58  caster                   +0x84..+0x9c  triggerAbilityOrEffect (28 o)
+        +0x60  target                   +0xa0..+0xb3  options (20 o)
 
-    NON porte / flagge : (1) dispatch d'une ability NON-normale -- aucun usage Groupe 3 ; si un jour une
-    ability `UseActiveAbility(<active non-normale>)` apparait, il faudra re-entrer le pipeline d'ability via
-    le handler (`visit_ActiveAbilityMessage`), pas `AttackDamageOperation.execute` ; (2) les OPTIONS
-    +0x68..+0xac (source AbilityOrEffect, flags) inertes pour une attaque normale. `spread_pct` = variance
-    d'arme du dispatch normal ; `None` (le cas normal) = LU de `BattleConfiguration.Damage.
-    DamageSpreadPercentage` a l'EXECUTION, quand l'etat de bataille est connu (#449-r2-r4 -- le
-    natif lit lui aussi la config au moment du calcul, jamais a la construction du behaviour).
-    Itere les cibles triees par id (ordre de lecture natif). Emet 'UseActiveAbility' par cible.
-    PUR (non court-circuitant)."""
-    __slots__ = ("subject_sel", "targets_sel", "spread_pct")
+    ⚠ **LA BOUCLE DU NATIF PORTE SUR LES CASTERS, ET LA CIBLE EST `SelectFirst`** (#889-r5-r1,
+    ferme par #944). Lu aux slots d'interface (`interface_slots.tsv`, `ITargetsSelector` : slot 0 =
+    `Select`, slot 1 = `SelectFirst`), `$$Execute` fait, DANS CET ORDRE :
 
-    def __init__(self, subject_sel: TargetsSelector, targets_sel: TargetsSelector,
+        targets = (+0x60 target).SelectFirst(entities)      // slot 1 -- UNE cible, la PREMIERE
+        foreach (caster in (+0x58 caster).Select(entities)) // slot 0 -- la boucle est ICI
+            processor.ActiveAbility(caster, targets, abilityType, options)
+
+    Ce noeud ITERAIT LES CIBLES, triees par id -- l'exact contraire. La divergence etait INERTE sur
+    les **14** call-sites portes (RE-COMPTES au recensement AST : le compte « un seul, FinalJustice »
+    de cette docstring etait perime de treize), tous ayant un selecteur de cible collapse a UNE
+    unite (`Target()` 9 fois, `First(...)` / `PickRandomly(..., 1)` 5 fois) ET un selecteur de
+    caster mono. Elle aurait mordu au PREMIER call-site dont le selecteur de cibles rend N :
+    `MartialExemplarAbility$$ExecuteBehaviour` passe `SortUnitsByDamageUtility(<attaquables
+    adjacents>)` **SANS `First`**, et iterer les cibles y frapperait N unites la ou le natif n'en
+    frappe qu'UNE, la mieux classee. **Aucun tri** : le natif n'appelle pas `OrderBy` ici (contraste
+    `AttackBehaviour$$Execute`, qui trie quand `Count > 1`) -- l'ordre des casters est celui du
+    selecteur.
+
+    `UseNormalAttack` / `UseNormalAttackIfAble` (ci-dessous) sont le MEME behaviour natif avec
+    `activeAbilityType = DSLSelectors$$UnitNormalAttackType(caster)` : ils HERITENT donc de ce
+    corps, au lieu de le dupliquer. C'etait le second volet de #889-r5-r1 (« les trois devraient
+    partager un seul corps »).
+
+    DISPATCH PORTE : la specialisation a l'ATTAQUE NORMALE (`AttackDamageOperation.execute` --
+    resolveur ECS : selection d'arme par distance, spread, reduce/armure, DEJA bit-exact). C'est
+    l'`activeAbilityType` de TOUS les call-sites portes. NON porte / flagge : le dispatch d'une
+    ability NON-normale (il faudrait re-entrer le pipeline par `visit_ActiveAbilityMessage`, pas
+    `AttackDamageOperation.execute`).
+
+    `spread_pct` = variance d'arme du dispatch normal ; `None` (le cas normal) = LU de
+    `BattleConfiguration.Damage.DamageSpreadPercentage` a l'EXECUTION, quand l'etat de bataille est
+    connu (#449-r2-r4 -- le natif lit lui aussi la config au moment du calcul, jamais a la
+    construction du behaviour).
+
+    Emet `type(self).__name__` par caster. PUR (non court-circuitant)."""
+    __slots__ = ("caster_sel", "target_sel", "spread_pct")
+
+    #: Le champ `+0x00` des `UseActiveAbilityBehaviourOptions` : un
+    #: `System.Nullable<IdunBattle.Operations.ActiveAbilityOperation.InvalidTargetPolicy>`.
+    #: `None` = le `Nullable` VIDE que `$$UseActiveAbility` et `$$UseNormalAttack` laissent, et dont
+    #: `ActiveAbilityOperation$$ExecuteInternal` prend le `GetValueOrDefault` = `Error`.
+    #: `UseNormalAttackIfAble` le pose a `Skip` (#889-r5-r2, ferme par #944 -- cf. le mirror
+    #: `engine/entities/invalid_target_policy.py` pour la chaine LUE et la semantique).
+    INVALID_TARGET_POLICY: Optional[int] = None
+
+    def __init__(self, caster_sel: TargetsSelector, target_sel: TargetsSelector,
                  spread_pct: Optional[int] = None):
-        self.subject_sel = subject_sel
-        self.targets_sel = targets_sel
+        self.caster_sel, self.target_sel = caster_sel, target_sel
         # NON resolu ici : l'arbre DSL est construit AVANT toute bataille (aucun `State`). La
         # resolution vit dans `execute`, ou `ectx.state` porte la BC.
         self.spread_pct = None if spread_pct is None else int(spread_pct)
 
     def execute(self, entities, ectx):
         state = ectx.state
-        subject = resolve_unit(self.subject_sel, entities)
-        if state is None or subject is None:
+        if state is None:
             return OperationResult.ok()
-        sid = subject.get("id")
-        targets = [u for u in _units_of(self.targets_sel, entities)
-                   if isinstance(u, dict) and u.get("id") is not None]
-        for tu in sorted(targets, key=lambda x: x["id"]):    # ordre de lecture = id (mirror OrderBy natif)
-            tid = tu["id"]
-            # DEFENSIF (mirror `execute_ability_attack` IdunBattle.Entities.Behaviours.ChangeStatBehaviour$$Execute+0x360 : rng non cale -> None au lieu de lever) :
-            # le wiring d'ability reste utilisable pour un replay EFFET-SEUL (load_state sans dumpRng), la
-            # SEQUENCE (setHealth/buffs/move) restant fidele ; le dispatch normal `AttackDamageOperation.
-            # execute` leverait sinon (ValueError rng non cale). Un replay de DEGAT cale rng (dumpRng) avant.
-            # `allow_dead_caster=True` = le LITTERAL `1` que `IdunBattle.Entities.Behaviours.
-            # UseActiveAbilityBehaviour$$Execute` force dans les `AbilityOptions` qu'il assemble
-            # (`uStack_210._0_2_ = CONCAT11(*(behaviour + 0xa8), 1)` -- le SEUL octet en dur d'une
-            # struct autrement recopiee champ par champ) : cette voie autorise un caster MORT, et
-            # c'est indispensable au death-rattle FinalJustice (mesure live #88 : Titus a hp=0
-            # porte sa riposte pour 10502 et tue). Sans lui, le gate acteur-mort de
-            # `damage_ops/normal.py` (#133 MartialSuperiority) avalait toute la riposte.
-            res = None if state.rng is None else AttackDamageOperation.execute(
+        # `targets = (+0x60).SelectFirst(entities)` -- slot 1, UNE cible, la PREMIERE de l'ordre du
+        # selecteur, et EVALUEE AVANT la boucle (le natif lit `+0x60` puis `+0x58`).
+        target = None
+        for t in _units_of(self.target_sel, entities):
+            if isinstance(t, dict) and t.get("id") is not None:
+                target = t
+                break
+        if target is None:
+            return OperationResult.ok()
+        tid = target["id"]
+        for cu in _units_of(self.caster_sel, entities):       # `(+0x58).Select(entities)`, slot 0
+            if not isinstance(cu, dict) or cu.get("id") is None:
+                continue
+            sid = cu["id"]
+            # TRI-ETAT sur l'absence d'attaque, et il est NECESSAIRE : un `attack=None` nu ne dit
+            # pas SI l'operation a ete refusee (gate cible-morte / stats absentes) ou si le RNG
+            # n'etait pas cale -- deux causes opposees, l'une fidele au natif, l'autre un trou de
+            # harnais. Sans ce champ, une confrontation live lit « le port ne frappe pas » sans
+            # pouvoir dire pourquoi. Meme discipline de nommage que `host_inputs` (#889-r5).
+            if state.rng is None:
+                # DEFENSIF (mirror `execute_ability_attack` : rng non cale -> None au lieu de
+                # lever) : le wiring d'ability reste utilisable pour un replay EFFET-SEUL
+                # (`load_state` sans `dumpRng`), la SEQUENCE (setHealth/buffs/move) restant fidele ;
+                # le dispatch normal `AttackDamageOperation.execute` leverait sinon (ValueError rng
+                # non cale). Un replay de DEGAT cale rng (dumpRng) avant.
+                ectx.emit(type(self).__name__, subject=sid, target=tid, attack=None, after_hit=[],
+                          skipped="rng_non_cale",
+                          invalid_target_policy=type(self).INVALID_TARGET_POLICY)
+                continue
+            # `allow_dead_caster=True` = le LITTERAL `1` que `UseActiveAbilityBehaviour$$Execute`
+            # force dans les `AbilityOptions` qu'il assemble (`uStack_210._0_2_ =
+            # CONCAT11(*(behaviour + 0xa8), 1)` -- le SEUL octet en dur d'une struct autrement
+            # recopiee champ par champ) : cette voie autorise un caster MORT, et c'est
+            # indispensable au death-rattle FinalJustice (mesure live #88 : Titus a hp=0 porte sa
+            # riposte pour 10502 et tue). Sans lui, le gate acteur-mort de `damage_ops/normal.py`
+            # (#133 MartialSuperiority) avalait toute la riposte.
+            res = AttackDamageOperation.execute(
                 state, sid, tid, resolve_spread_pct(self.spread_pct, state),
                 allow_dead_caster=True)
             # VECTEUR `On(0x26 = NormalAttack)` -- #BL-1029r, volet du residu `#478-r3`.
@@ -1046,126 +1101,61 @@ class UseActiveAbility(AbilityBehaviour):
                     state, sid, res.get("target", tid), bool(res.get("ranged")),
                     res.get("profile"), is_crit=bool(res.get("did_crit")),
                     did_block=bool(res.get("did_block")))
-            ectx.emit("UseActiveAbility", subject=sid, target=tid, attack=res, after_hit=after)
-        return OperationResult.ok()
-
-
-class UseNormalAttack(AbilityBehaviour):
-    """`IdunBattleLogic.Entities.DSLBehaviors$$UseNormalAttack(caster, target, parentAbility,
-    triggerAbilityOrEffect, options)` -> `IdunBattle.Entities.Behaviours.UseActiveAbilityBehaviour`
-    avec `activeAbilityType = DSLSelectors$$UnitNormalAttackType(caster)` : le CASTER porte son
-    ATTAQUE NORMALE sur la cible.
-
-    Le corps natif de `UseNormalAttack` tient en deux lignes -- il alloue
-    `UnitNormalAttackType(caster)` puis `new UseActiveAbilityBehaviour(caster, target, <ce type>,
-    parentAbility, triggerAbilityOrEffect, options)`. C'est donc bien le MEME behaviour que
-    `UseActiveAbility` ci-dessus ; ce qui suit n'est PAS une seconde implementation de l'attaque
-    (elle reste `AttackDamageOperation.execute`), mais le mirror de la BOUCLE de son `$$Execute`.
-
-    ⚠ **LA BOUCLE DU NATIF PORTE SUR LES CASTERS, ET LA CIBLE EST `SelectFirst`.** Lu aux slots
-    d'interface (`data/symbols/<build>/metadata/interface_slots.tsv`, `ITargetsSelector` : slot 0 =
-    `Select`, slot 1 = `SelectFirst`), `UseActiveAbilityBehaviour$$Execute` fait :
-
-        targets = (+0x60 target).SelectFirst(entities)      // slot 1 -- UNE cible, la PREMIERE
-        foreach (caster in (+0x58 caster).Select(entities)) // slot 0 -- la boucle est ICI
-            processor.ActiveAbility(caster, targets, abilityType, options)
-
-    `UseActiveAbility` (ci-dessus) itere au contraire les CIBLES, triees par id. Les deux
-    coincident sur son unique call-site (`FinalJustice` : un caster, une cible deja reduite par un
-    `First`), donc rien n'y bouge -- mais `MartialExemplarAbility$$ExecuteBehaviour` passe
-    `SortUnitsByDamageUtility(<attaquables adjacents>, ...)` **SANS `First`** : itérer les cibles y
-    frapperait N unites la ou le natif n'en frappe qu'UNE, la mieux classee. C'est pour cela que ce
-    noeud-ci ne reutilise pas la boucle de son voisin. Divergence relevee sur `UseActiveAbility`
-    (inerte a ce jour) : residu **#889-r5-r1**.
-
-    `parent_ability` / `trigger_ability_or_effect` / les options sont ZEROES aux call-sites lus, et
-    le port ne leur prete aucun effet -- meme statut que les options d'`UseActiveAbility`.
-    `allow_dead_caster=True` mirrore le LITTERAL `1` que `$$Execute` force dans les `AbilityOptions`
-    qu'il assemble (`uStack_210._0_2_ = CONCAT11(*(behaviour + 0xa8), 1)`).
-
-    Emet 'UseNormalAttack' (subject/target/attack/after_hit). PUR (non court-circuitant)."""
-    __slots__ = ("caster_sel", "target_sel", "spread_pct")
-
-    #: `IdunBattleLogic.Entities.DSLBehaviors$$UseNormalAttackIfAble` ecrit `options.<champ 0> =
-    #: System.Nullable<enum4>(2)` AVANT de construire le behaviour ; `UseNormalAttack` laisse le
-    #: champ a `null`. C'est la SEULE difference entre les deux corps natifs (verifiee ligne a
-    #: ligne : meme allocation d'`UnitNormalAttackType`, meme ctor, memes six arguments).
-    #: SEMANTIQUE NON LUE -- le champ est recopie en tete d'`ActiveAbilityOptions` (104 octets) puis
-    #: consomme par `ActiveAbilityOperation` ; le port ne lui prete AUCUN effet. Residu **#889-r5-r2**.
-    IF_ABLE_OPTION = None
-
-    def __init__(self, caster_sel: TargetsSelector, target_sel: TargetsSelector,
-                 spread_pct: Optional[int] = None):
-        self.caster_sel, self.target_sel = caster_sel, target_sel
-        self.spread_pct = None if spread_pct is None else int(spread_pct)
-
-    def execute(self, entities, ectx):
-        state = ectx.state
-        if state is None:
-            return OperationResult.ok()
-        # `(+0x60).SelectFirst(entities)` -- UNE cible, la PREMIERE de l'ordre du selecteur.
-        target = None
-        for t in _units_of(self.target_sel, entities):
-            if isinstance(t, dict) and t.get("id") is not None:
-                target = t
-                break
-        if target is None:
-            return OperationResult.ok()
-        tid = target["id"]
-        for cu in _units_of(self.caster_sel, entities):       # `(+0x58).Select(entities)`
-            if not isinstance(cu, dict) or cu.get("id") is None:
-                continue
-            sid = cu["id"]
-            # TRI-ETAT sur l'absence d'attaque, et il est NECESSAIRE : un `attack=None` nu ne dit
-            # pas SI l'operation a ete refusee (gate cible-morte / stats absentes) ou si le RNG
-            # n'etait pas cale -- deux causes opposees, l'une fidele au natif, l'autre un trou de
-            # harnais. Sans ce champ, une confrontation live lit « le port ne frappe pas » sans
-            # pouvoir dire pourquoi. Meme discipline de nommage que `host_inputs` (#889-r5).
-            if state.rng is None:
-                # DEFENSIF (meme mirror que `UseActiveAbility` juste au-dessus) : le wiring reste
-                # utilisable pour un replay EFFET-SEUL ; un replay de DEGAT cale `rng` avant.
-                ectx.emit(type(self).__name__, subject=sid, target=tid, attack=None, after_hit=[],
-                          skipped="rng_non_cale", if_able_option=type(self).IF_ABLE_OPTION)
-                continue
-            res = AttackDamageOperation.execute(
-                state, sid, tid, resolve_spread_pct(self.spread_pct, state),
-                allow_dead_caster=True)
-            after = []
-            if res is not None:
-                from ...operations.triggers.dispatch.attack import after_hit_normal_attack
-                after = (res.get("finish_attack") or []) + after_hit_normal_attack(
-                    state, sid, res.get("target", tid), bool(res.get("ranged")),
-                    res.get("profile"), is_crit=bool(res.get("did_crit")),
-                    did_block=bool(res.get("did_block")))
             ectx.emit(type(self).__name__, subject=sid, target=tid, attack=res, after_hit=after,
                       skipped=None if res is not None else "operation_refusee",
-                      if_able_option=type(self).IF_ABLE_OPTION)
+                      invalid_target_policy=type(self).INVALID_TARGET_POLICY)
         return OperationResult.ok()
+
+
+class UseNormalAttack(UseActiveAbility):
+    """`IdunBattleLogic.Entities.DSLBehaviors$$UseNormalAttack(caster, target, parentAbility,
+    triggerAbilityOrEffect, options)`.
+
+    Le corps natif tient en deux lignes -- il alloue `DSLSelectors$$UnitNormalAttackType(caster)`
+    puis `new UseActiveAbilityBehaviour(caster, target, <ce type>, parentAbility,
+    triggerAbilityOrEffect, options)`, en recopiant `options` TEL QUEL. C'est donc EXACTEMENT le
+    behaviour de `UseActiveAbility` ci-dessus, dont cette classe herite le corps entier : la
+    distinction existe pour que l'arbre CITE la factory que le natif cite.
+
+    `parent_ability` / `trigger_ability_or_effect` sont ZEROES aux call-sites lus, et le port ne
+    leur prete aucun effet.
+
+    Emet 'UseNormalAttack' (subject/target/attack/after_hit/skipped/invalid_target_policy)."""
+    __slots__ = ()
 
 
 class UseNormalAttackIfAble(UseNormalAttack):
     """`IdunBattleLogic.Entities.DSLBehaviors$$UseNormalAttackIfAble(caster, target, parentAbility,
     triggerAbilityOrEffect, options)`.
 
-    Corps natif IDENTIQUE a `UseNormalAttack` (meme `UnitNormalAttackType(caster)`, meme
-    `UseActiveAbilityBehaviour..ctor`, memes six arguments) A UNE ECRITURE PRES, faite AVANT le
-    ctor :
+    Corps natif IDENTIQUE a `UseNormalAttack` (meme allocation d'`UnitNormalAttackType`, meme
+    `UseActiveAbilityBehaviour..ctor`, memes six arguments -- verifie ligne a ligne) A UNE ECRITURE
+    PRES, faite AVANT le ctor :
 
-        Nullable<enum4>.ctor(&tmp, 2) ; *(long*)options = tmp ;
+        Nullable<InvalidTargetPolicy>.ctor(&tmp, 2) ; *(long*)options = tmp ;
 
-    -- le champ `+0x00` des `UseActiveAbilityBehaviourOptions` (`System.ValueType`, 36 octets, dont
-    20 utiles : `+0x00` 8o, `+0x08` 8o, `+0x10` 4o). Ce qualificatif suit la chaine jusqu'a
-    `IOperationProcessor.ActiveAbility(caster, target, abilityType, options)` (slot 2), ou il occupe
-    le premier champ d'`ActiveAbilityOptions`. Le MEME champ est renseigne par la voie JOUEUR
-    (`InputMessageProcessor.<>c__DisplayClass13_0$$<Visit>b__0`, depuis `message+0x20`) et par
-    `AutoCounterAttackAbility$$CreateBehaviour` -- donc il n'est PAS specifique a << IfAble >>.
+    ⚠ **SA SEMANTIQUE EST DESORMAIS LUE** (#889-r5-r2, ferme par #944) -- et elle dit que ce champ
+    n'a AUCUN effet sur l'etat de bataille. Chaine suivie de bout en bout : le champ `+0x00` des
+    `UseActiveAbilityBehaviourOptions` arrive en tete des `ActiveAbilityOptions` du slot 2, et
+    `IdunBattle.Operations.ActiveAbilityOperation$$ExecuteInternal` le passe en **6e argument**
+    d'`$$IsInvalidTarget`, dont la signature le NOMME `invalidTargetPolicy`. Son corps :
 
-    ⚠ **SA SEMANTIQUE N'EST PAS LUE**, et le port ne lui prete aucun effet : residu **#889-r5-r2**.
-    Le nom suggere un gate << seulement si l'unite PEUT attaquer >> ; le port n'invente pas ce gate,
-    parce qu'un gate DEVINE serait pire que son absence (il supprimerait des attaques que le natif
-    porte). Ce qui EST porte, c'est la valeur, transcrite et transportee jusqu'au diagnostic.
+        if (invalidTargetPolicy == Allow) return false;      # gate court-circuite
+        ...
+        if (!IBrokenTargetingRuleExtensions.IsInvalid(rule)) return false;
+        if (invalidTargetPolicy != Error) return true;       # invalide, SANS log
+        <LogError(...)>;                                     # invalide, AVEC log
+        return true;
 
-    Les DEUX noeuds sont donc, cote etat, le meme behaviour ; la distinction existe pour que
-    l'arbre CITE ce que le natif cite, et pour que la levee du residu ait un seul site a toucher."""
+    -> `Skip` et `Error` (le defaut du `Nullable` vide) rendent le **MEME verdict** : seul le
+    `LogError` les separe. C'est bien le sens de << IfAble >> -- un cast opportuniste dont le refus
+    n'est pas un bug -- mais ce n'est PAS un gate supplementaire. Le port a donc raison de ne pas en
+    inventer un ; il NOMME desormais la valeur au lieu de la transporter en entier nu. La seule
+    valeur qui changerait quelque chose est `Allow`, qu'**aucun** call-site lu ne pose.
+
+    Le MEME champ est renseigne, a `Skip` lui aussi, par
+    `IdunBattleLogic.Entities.Abilities.Triggered.Loki.AutoCounterAttackAbility$$CreateBehaviour` --
+    il n'est donc pas specifique a << IfAble >>. La voie JOUEUR
+    (`InputMessageProcessor.<>c__DisplayClass13_0$$<Visit>b__0`) le prend de `message+0x20`."""
     __slots__ = ()
-    IF_ABLE_OPTION = 2
+    INVALID_TARGET_POLICY = int(InvalidTargetPolicy.Skip)   # le litteral `2` du corps natif
