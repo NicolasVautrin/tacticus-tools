@@ -182,10 +182,18 @@ def _port_seq_1319(last):
     return seq
 
 
-def mesure_live(sid, state_file, seed, board, a_units, a_places, tours=6, big_target=False):
-    """Un cast de `1191 MartialInspiration` par tour ; a chaque cast on capture l'etat, on REJOUE
-    hors-ligne par le chemin COMPLET (`Runner.apply`, donc le vecteur `On(0xb)` et le trigger 1319),
-    puis on joue le cast NATIF et on confronte les deux sequences de `1319`."""
+def mesure_live(sid, state_file, seed, board, a_units, a_places, tours=6, big_target=False,
+                voie="ability"):
+    """Un cast par tour ; a chaque cast on capture l'etat, on REJOUE hors-ligne par le chemin
+    COMPLET (`Runner.apply`, donc le vecteur `On(0xb)` et le trigger 1319), puis on joue le cast
+    NATIF et on confronte les deux.
+
+    `voie` = **quelle porte d'operation** est exercee -- et c'est un axe A PART ENTIERE, pas une
+    variante de confort : le natif n'a qu'UN site d'emission de `On(0xb)`
+    (`ActiveAbilityOperation$$ExecuteInternal`), le port en a DEUX (#120). La voie `"normale"`
+    exerce `after_hit_normal_attack` (`DamageHandler.visit_AttackUnitMessage`), la voie
+    `"ability"` exerce `AbilityHandler.visit_ActiveAbilityMessage`. Une emission DOUBLEE ou
+    MANQUANTE d'un cote ne se verrait sur AUCUN montage de l'autre."""
     import probe_509_martial_inspiration as P
     argv = ["build", "--seed", str(seed), "--board", board, "--rank", str(P.RANK),
             "--p-units", "%s,%s" % (P.CASTER, P.P_FILLER),
@@ -219,19 +227,23 @@ def mesure_live(sid, state_file, seed, board, a_units, a_places, tours=6, big_ta
             if dv.get("currentPlayer") != me:
                 P._rendre_la_main(sid, rid, me)
                 u, dv = P.unites(sid, rid)
-            ent = P._ability_entry(u[P.CASTER], P.MARTIAL_INSPIRATION)
-            dispo = bool(ent and ent.get("usable") and not ent.get("disabled")
-                         and not ent.get("cooldown"))
-            if not dispo:
-                P._cast(state_file, rid, cid, tid, nid)
-                P._rendre_la_main(sid, rid, me)
-                continue
+            if voie == "normale":
+                aid = nid                       # id CONCRET de l'attaque normale (per-unite)
+            else:
+                ent = P._ability_entry(u[P.CASTER], P.MARTIAL_INSPIRATION)
+                dispo = bool(ent and ent.get("usable") and not ent.get("disabled")
+                             and not ent.get("cooldown"))
+                if not dispo:
+                    P._cast(state_file, rid, cid, tid, nid)
+                    P._rendre_la_main(sid, rid, me)
+                    continue
+                aid = P.MARTIAL_INSPIRATION
             hp_avant = {v: u[v]["hp"] for v in adj}
             cnt = (P._counters(sid, rid) or {}).get(cid)
             cap = P.capture(sid, rid)
-            port = _rejeu(cap, cid, tid, adj)
-            mut = contre_epreuves(cap, cid, tid, adj, big_target)
-            proc = P._cast(state_file, rid, cid, tid, P.MARTIAL_INSPIRATION)
+            port = _rejeu(cap, cid, tid, adj, ability_type=aid)
+            mut = contre_epreuves(cap, cid, tid, adj, big_target, ability_type=aid)
+            proc = P._cast(state_file, rid, cid, tid, aid)
             par_ab = _seq_par_ability(proc.stdout or "", cid)
             u2, _dv2 = P.unites(sid, rid)
             hp_apres = {v: u2[v]["hp"] for v in adj if v in u2}
@@ -255,17 +267,23 @@ def mesure_live(sid, state_file, seed, board, a_units, a_places, tours=6, big_ta
         P._duel(["dispose", "--state-file", state_file, "--runner", str(rid)], timeout=120)
 
 
-def _rejeu(cap, caster_id, target_id, adj):
-    """`Runner.apply(ActiveAbilityMessage(1191))` -- chemin COMPLET, donc `On(0xb)` puis 1319.
+def _rejeu(cap, caster_id, target_id, adj, ability_type=None):
+    """`Runner.apply(ActiveAbilityMessage(<ability>))` -- chemin COMPLET, donc `On(0xb)` puis 1319.
 
-    Rend AUSSI le delta de PV par cible : c'est l'observable de bout en bout, celui qui ne depend
-    d'aucun canal de diagnostic (les `UnitDamaged` natifs, eux, ne portent pas tous une
-    `Active_Ability_Type`)."""
+    ⚠ L'attaque NORMALE emprunte la MEME porte cote port quand on la joue par son id CONCRET
+    (`NormalAttackType` per-unite) : c'est bien la voie `after_hit_normal_attack` qui emet alors
+    `On(0xb)`, pas `AbilityHandler` -- le diag du trigger n'est donc PAS publie dans `last`, et
+    seul le DELTA DE PV (et les tirages) confronte cette voie. C'est voulu : l'observable de bout
+    en bout ne depend d'aucun canal de diagnostic.
+
+    Rend AUSSI le delta de PV par cible : les `UnitDamaged` natifs, eux, ne portent pas tous une
+    `Active_Ability_Type`."""
     import probe_509_martial_inspiration as P
     from engine.runner.components import HealthComponent
-    from engine.runner.messages import ActiveAbilityMessage
+    from engine.runner.messages import ActiveAbilityMessage, AttackUnitMessage
     from engine.runner.runner import Runner
     st = P.etat_porte(cap)
+    aid = int(ability_type if ability_type is not None else P.MARTIAL_INSPIRATION)
 
     def _hp(uid):
         e = st.get_entity(int(uid))
@@ -274,8 +292,16 @@ def _rejeu(cap, caster_id, target_id, adj):
 
     avant = {v: _hp(uid) for v, uid in (adj or {}).items()}
     runner = Runner(st).install_default_handlers(20)
-    runner.apply(ActiveAbilityMessage(caster_id=int(caster_id), target_id=int(target_id),
-                                      ability_type=P.MARTIAL_INSPIRATION))
+    if aid == P.MARTIAL_INSPIRATION:
+        runner.apply(ActiveAbilityMessage(caster_id=int(caster_id), target_id=int(target_id),
+                                          ability_type=aid))
+    else:
+        # ⚠ VOIE NORMALE : cote PORT, l'attaque normale passe par `AttackUnitMessage` ->
+        # `DamageHandler.visit_AttackUnitMessage`, PAS par `ActiveAbilityMessage` (qui n'a pas
+        # d'entree de registre pour un `NormalAttackType` et rendrait un NO-OP silencieux -- 0
+        # degat, 0 tirage, mesure faite). Le natif, lui, n'a qu'un seul message : les DEUX
+        # visiteurs du port modelisent UN SEUL site natif (cf. `messages.py`).
+        runner.apply(AttackUnitMessage(attacker_id=int(caster_id), target_id=int(target_id)))
     last = getattr(runner.ability_handler, "last", None) or {}
     seq_1191 = [(int(a.get("target")), int(m)) for a in (last.get("attacks") or [])
                 for m in ((a.get("attack") or {}).get("per_hit_health") or [])]
@@ -286,7 +312,7 @@ def _rejeu(cap, caster_id, target_id, adj):
             "mt": (list(st.rng.mt), st.rng.mti)}
 
 
-def contre_epreuves(cap, caster_id, target_id, adj, big_target: bool):
+def contre_epreuves(cap, caster_id, target_id, adj, big_target: bool, ability_type=None):
     """MUTANTS. Chacun ne change QU'UNE lecture du mirror, sur la MEME capture (donc le MEME MT).
     Si l'un rendait le MEME couple (delta de PV, tirages) que la reference, la lecture
     correspondante ne serait PAS mesuree par ce montage -- et l'accord port/natif serait un accord
@@ -402,7 +428,7 @@ def contre_epreuves(cap, caster_id, target_id, adj, big_target: bool):
                 LOC.big_target_selector = bigsel
             if reg is not None:
                 REG.ABILITY_TRIGGERS["LegacyOfCombat"] = reg
-            out[nom] = _rejeu(cap, caster_id, target_id, adj)
+            out[nom] = _rejeu(cap, caster_id, target_id, adj, ability_type=ability_type)
         finally:
             LOC.legacy_of_combat_tree = ref_tree
             LOC.big_target_selector = ref_big
@@ -411,7 +437,7 @@ def contre_epreuves(cap, caster_id, target_id, adj, big_target: bool):
     return out
 
 
-def etape5(seed, board, tours, big_target: bool):
+def etape5(seed, board, tours, big_target: bool, voie: str = "ability"):
     import probe_509_martial_inspiration as P
     try:
         sid = P._sid()
@@ -425,18 +451,19 @@ def etape5(seed, board, tours, big_target: bool):
         a_places = P.A_PLACES
     a_units = [v for v, _t in a_places]
     sf = os.path.join(os.environ.get("TEMP", "."),
-                      "p928_%s_%d.json" % ("bt" if big_target else "adj", os.getpid()))
-    m = mesure_live(sid, sf, seed, board, a_units, a_places, tours=tours, big_target=big_target)
+                      "p928_%s_%s_%d.json" % (voie, "bt" if big_target else "adj", os.getpid()))
+    m = mesure_live(sid, sf, seed, board, a_units, a_places, tours=tours, big_target=big_target,
+                    voie=voie)
     try:
         os.remove(sf)
     except OSError:
         pass
     if m is None:
         return False
-    return rapport5(m, big_target)
+    return rapport5(m, big_target, voie)
 
 
-def rapport5(m, big_target: bool) -> bool:
+def rapport5(m, big_target: bool, voie: str = "ability") -> bool:
     ok = True
     vus = 0
     for c in m["casts"]:
@@ -482,9 +509,20 @@ def rapport5(m, big_target: bool) -> bool:
             # ne deplace aucun montant a pool de 1, mais il change le nombre de tirages -- et c'est
             # exactement l'etage qu'il est cense mesurer.
             mord = (r.get("hp"), r.get("tirages")) != ref_cle
+            # UN SEUL mutant a une cause d'inertie MESUREE, et il faut la NOMMER plutot que de la
+            # compter en echec : `*_sans_ability_type` retire le 7e argument `abilityOrEffect`, qui
+            # n'a d'observable qu'a travers le gate `CurrentAbilityIs(1319)` de l'effet
+            # `1408 MartialInspiration_ExtraDamage`. Sur la voie NORMALE cet effet n'est jamais pose
+            # (il l'est par le cast de 1191), et sur la voie ABILITY il vaut 0 a compteur nul : dans
+            # ces deux regimes la lecture n'a RIEN a montrer. Elle est mesuree ailleurs -- voie
+            # ability, compteur > 0, ou le mutant MORD.
+            degenere = (nom.endswith("sans_ability_type")
+                        and (voie == "normale" or not c.get("compteur_live")))
+            etat = "MORD" if mord else ("== REF (regime DEGENERE, cf. code)" if degenere
+                                        else "== REF !!")
             print("        %-24s hp=%-40s tirages=%-4s %s"
-                  % (nom, r["hp"], r.get("tirages"), "MORD" if mord else "== REF !!"))
-            if not mord:
+                  % (nom, r["hp"], r.get("tirages"), etat))
+            if not mord and not degenere:
                 ok = False
         if ref.get("hp") != c["port"]["hp"]:
             print("     !! le mutant `ref` ne reproduit pas le rejeu de reference")
@@ -492,6 +530,27 @@ def rapport5(m, big_target: bool) -> bool:
         touchees = {v for v, d in c["hp_natif"].items() if d and v not in ("__na__",)}
         # Retire la contribution de 1191, qui ne frappe QUE la cible du cast.
         cible_1191 = {t for (t, _a, _p) in nat.get(1191, ())}
+        if voie == "normale":
+            # VOIE NORMALE : le trigger est joue par `after_hit_normal_attack`, pas par
+            # `AbilityHandler` -- `last['unit_ability_triggers']` est donc VIDE et seul le delta de
+            # PV confronte. Ce qu'on exige ICI : que la 2e cible (jamais visee par l'attaque
+            # normale, mono-cible) prenne du degat des DEUX cotes -- sinon le vecteur n'est pas
+            # emis sur cette voie, ou l'est DEUX FOIS.
+            sans = (mut.get("sans_trigger") or {}).get("hp") or {}
+            supp = {v: (c["hp_natif"].get(v, 0) - sans.get(v, 0)) for v in c["hp_natif"]}
+            print("     voie NORMALE : degat SUPPLEMENTAIRE (ref - sans_trigger) = %s" % (supp,))
+            if not any(v > 0 for v in supp.values()):
+                print("     !! le vecteur `On(0xb)` n'est pas exerce par la voie NORMALE")
+                ok = False
+            # NON-DUPLICATION : le natif n'a qu'UN site d'emission ; le port en a deux. Si les DEUX
+            # emettaient sur cette voie, le passif jouerait DEUX fois -- le supplement vaudrait le
+            # DOUBLE de ce que le natif porte, or ils sont bit-egaux (assertion de delta PV
+            # ci-dessus). L'exiger explicitement nomme le risque au lieu de le laisser implicite.
+            if len([v for v in supp.values() if v > 0]) < 2:
+                print("     !! une seule cible supplementaire : le << each adjacent >> n'est pas "
+                      "discrimine sur cette voie")
+                ok = False
+            continue
         if big_target:
             # branche `then` : UN SEUL coup (nrOfHits_2 = 1) sur UNE SEULE cible.
             if len(p1319) != 1:
@@ -579,7 +638,7 @@ def etape7(seed, board, mutant: bool):
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--step", type=int, action="append", default=None, help="etape(s) 1..8")
+    ap.add_argument("--step", type=int, action="append", default=None, help="etape(s) 1..9")
     ap.add_argument("--seed", type=int, default=50901)
     ap.add_argument("--board", default="MC1_67")
     ap.add_argument("--tours", type=int, default=6)
@@ -605,13 +664,16 @@ def main() -> int:
     if 6 in steps:
         print("[928] etape 6 -- CONFRONTATION LIVE, branche << adjacent Big Target >>")
         rc |= 0 if etape5(a.seed, a.board, a.tours, big_target=True) else 1
+    if 9 in steps:
+        print("[928] etape 9 -- CONFRONTATION LIVE, voie ATTAQUE NORMALE (l'autre porte de `0xb`)")
+        rc |= 0 if etape5(a.seed, a.board, a.tours, big_target=False, voie="normale") else 1
     if 7 in steps:
         print("[928] etape 7 -- FACE DECISION MOVE : terme de tuile, port contre natif")
         rc |= 0 if etape7(777, a.board, mutant=False) else 1
     if 8 in steps:
         print("[928] etape 8 -- CONTRE-EPREUVE : registre NEUTRALISE, le desaccord doit APPARAITRE")
         rc |= 0 if etape7(777, a.board, mutant=True) else 1
-    if steps & {5, 6, 7, 8}:
+    if steps & {5, 6, 7, 8, 9}:
         print("[928] VERDICT : %s" % ("OK" if rc == 0 else "DIVERGENCE"))
     return rc
 

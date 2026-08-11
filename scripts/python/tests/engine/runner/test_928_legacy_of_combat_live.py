@@ -97,7 +97,7 @@ SEED = 50901
 TOURS = 4
 
 
-def _mesure(big_target: bool):
+def _mesure(big_target: bool, voie: str = "ability"):
     """Monte le runner, joue les casts, DISPOSE. Rend `None` si le host est injoignable."""
     try:
         sid = P509._sid()
@@ -108,10 +108,10 @@ def _mesure(big_target: bool):
     else:
         a_places = P509.A_PLACES
     sf = os.path.join(os.environ.get("TEMP", "."),
-                      "t928_%s_%d.json" % ("bt" if big_target else "adj", os.getpid()))
+                      "t928_%s_%s_%d.json" % (voie, "bt" if big_target else "adj", os.getpid()))
     try:
         m = P.mesure_live(sid, sf, SEED, P509.BOARD, [v for v, _t in a_places], a_places,
-                          tours=TOURS, big_target=big_target)
+                          tours=TOURS, big_target=big_target, voie=voie)
     finally:
         try:
             os.remove(sf)
@@ -130,6 +130,11 @@ def mesure_adjacents():
 @pytest.fixture(scope="module")
 def mesure_big_target():
     return _mesure(big_target=True)
+
+
+@pytest.fixture(scope="module")
+def mesure_voie_normale():
+    return _mesure(big_target=False, voie="normale")
 
 
 def _casts(m):
@@ -213,6 +218,43 @@ def test_branche_big_target_les_SIX_mutants_MORDENT(mesure_big_target):
                    if n != "ref" and (r["hp"], r["tirages"]) == ref]
         assert not inertes, "mutants NON discriminants : %r" % (inertes,)
         assert "sans_randomize" in mut and "then_hits_volet1" in mut, sorted(mut)
+
+
+# --------------------------------------------------------------------- voie ATTAQUE NORMALE
+
+def test_voie_normale_le_delta_de_PV_est_BIT_EXACT_par_cible(mesure_voie_normale):
+    """L'AUTRE porte d'operation. Le natif n'a qu'UN site d'emission de `On(0xb)` ; le port en a
+    DEUX (#120), et une emission MANQUANTE ou DOUBLEE d'un cote ne se verrait sur AUCUN montage de
+    l'autre. Ici Kariyan joue son ATTAQUE NORMALE (`NormalAttackType` per-unite), qui passe par
+    `DamageHandler.visit_AttackUnitMessage` -> `after_hit_normal_attack`."""
+    for c in _casts(mesure_voie_normale):
+        assert c["port"]["hp"] == c["hp_natif"], c
+        assert c["tirages_port"] == c["tirages_natif"], c
+
+
+def test_voie_normale_le_passif_joue_UNE_SEULE_FOIS(mesure_voie_normale):
+    """NON-DUPLICATION. Le supplement (`ref - sans_trigger`) doit toucher AU MOINS DEUX cibles --
+    l'attaque normale, elle, est mono-cible -- et le total doit rester bit-egal au natif : si les
+    DEUX portes emettaient, le passif jouerait deux fois et le supplement vaudrait le double."""
+    for c in _casts(mesure_voie_normale):
+        sans = (c["mutants"]["sans_trigger"] or {}).get("hp") or {}
+        supp = {v: c["hp_natif"].get(v, 0) - sans.get(v, 0) for v in c["hp_natif"]}
+        assert len([v for v in supp.values() if v > 0]) >= 2, supp
+        assert c["port"]["hp"] == c["hp_natif"], (supp, c["hp_natif"])
+
+
+def test_voie_normale_les_mutants_MORDENT_sauf_celui_dont_la_cause_est_MESUREE(mesure_voie_normale):
+    """`else_sans_ability_type` est INERTE sur cette voie, et c'est une cause MESUREE, pas une
+    excuse : le 7e argument `abilityOrEffect` n'a d'observable qu'a travers le gate
+    `CurrentAbilityIs(1319)` de l'effet `1408 MartialInspiration_ExtraDamage`, que SEUL un cast de
+    1191 pose. Il est mesure sur l'AUTRE voie, a compteur > 0, ou il mord. Tous les autres doivent
+    mordre ici."""
+    for c in _casts(mesure_voie_normale):
+        mut = c["mutants"]
+        ref = (mut["ref"]["hp"], mut["ref"]["tirages"])
+        inertes = [n for n, r in mut.items()
+                   if n != "ref" and (r["hp"], r["tirages"]) == ref]
+        assert inertes == ["else_sans_ability_type"], inertes
 
 
 def test_les_DEUX_regimes_du_compteur_sont_atteints(mesure_adjacents):
