@@ -68,7 +68,7 @@ def ability_attack_params(state: "State", caster_id: int, ability_id: str,
 
 
 def active_ability_state(state: "State", caster_id: int, ability_type: int) -> tuple:
-    """`(level, mult)` de l'`AbilityState` de CETTE ability ACTIVE sur CE caster (#889).
+    """`(level, mult)` de l'`AbilityState` de CETTE ability ACTIVE sur CE caster (#890).
 
     Le natif resout chaque `IdunBattle.Configuration.AbilityConfiguration$$GetVariableForLevel`
     contre l'`abilityState` que `AActiveAbility` lui passe -- celui de l'ability CASTEE, pas un

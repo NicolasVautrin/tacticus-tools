@@ -470,7 +470,7 @@ def load_state(decision: dict, observe: dict, snapshot: Optional[dict] = None,
         # ne soit pas tautologique. Cf. `_load_config_active_abilities`.
         seeded_cfg = _load_config_active_abilities(state, payload)
         # MEME payload, MEME composant : le NIVEAU et le MULTIPLICATEUR de chaque active montee
-        # (#889). Cf. `_load_active_ability_levels` -- c'est le SEUL canal qui les porte pour une
+        # (#890). Cf. `_load_active_ability_levels` -- c'est le SEUL canal qui les porte pour une
         # unite dont le `combatSnapshot.unitConfig` est en erreur (un BOSS).
         seeded_lvl = _load_active_ability_levels(state, payload)
         state.ability_states_seed = {"source": source, "seeded": seeded,
@@ -1739,7 +1739,7 @@ def _load_active_abilities(state: State, ability_states: dict) -> int:
 
 def _load_active_ability_levels(state: State, ability_states: dict) -> int:
     """Seede le NIVEAU et le MULTIPLICATEUR des abilities ACTIVES depuis `unitAbilityStates`
-    (#889). Rend le nombre d'unites COMBLEES (pas le nombre d'unites visitees).
+    (#890). Rend le nombre d'unites COMBLEES (pas le nombre d'unites visitees).
 
     DEUX ecritures, et la seconde est un COMBLEMENT au sens strict :
 
@@ -1763,7 +1763,7 @@ def _load_active_ability_levels(state: State, ability_states: dict) -> int:
     DEJA leur scalaire, cette regle le REPRODUIT -- `ultraCalgar` porte `1000@50` et `69@1`
     (l'attaque normale a son propre niveau 1) et son `unitConfig.activeAbilityLevel` vaut `50` ;
     `tyranTyrantGuard` porte `1105@50` et `69@1` pour un scalaire `50`. C'est ce que
-    `test_889_hive_tyrant_live.py` assertionne : la regle est confrontee la ou la verite est connue,
+    `test_890_hive_tyrant_live.py` assertionne : la regle est confrontee la ou la verite est connue,
     puis appliquee la ou elle manque.
 
     TRI-ETAT, meme discipline que les seeds voisins : sans canal, rien n'est pose."""

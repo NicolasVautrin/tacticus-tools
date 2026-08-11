@@ -119,7 +119,7 @@ class UnitContext:
     # `playbook.scene._seed_measured_config_actives` (DECISION), tous deux sur le parsing PARTAGE
     # `snapshot.config_active_ability_names_by_unit`.
     config_active_abilities: list[str] | None = None
-    # --- l'`AbilityState` PAR ABILITY ACTIVE (#889) --------------------------------------------------
+    # --- l'`AbilityState` PAR ABILITY ACTIVE (#890) --------------------------------------------------
     # `{ActiveAbilityType: (level, mult)}`. Le champ scalaire `active_ability_level` ci-dessus est une
     # REDUCTION : le natif resout chaque `GetVariableForLevel` contre l'`AbilityState` de l'ability
     # CASTEE, et deux actives d'une meme unite peuvent etre a des niveaux differents -- mesure sur

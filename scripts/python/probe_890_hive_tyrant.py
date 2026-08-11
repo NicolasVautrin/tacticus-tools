@@ -1,9 +1,9 @@
 #!/usr/bin/env python
-"""probe_889_hive_tyrant -- CONFRONTATION LIVE des deux actives du Hive Tyrant Leviathan.
+"""probe_890_hive_tyrant -- CONFRONTATION LIVE des deux actives du Hive Tyrant Leviathan.
 
-    python probe_889_hive_tyrant.py --case catalyst
-    python probe_889_hive_tyrant.py --case cannon
-    python probe_889_hive_tyrant.py --case feet
+    python probe_890_hive_tyrant.py --case catalyst
+    python probe_890_hive_tyrant.py --case cannon
+    python probe_890_hive_tyrant.py --case feet
 
 `1032 Catalyst` et `1056 StranglethornCannon`, portees par `tyranBossHiveTyrantLeviathan` (SEUL
 porteur des deux). Le boss n'est PAS dans `rl_duel build --list-pool` : il entre par
@@ -350,7 +350,7 @@ def case_cannon():
         res = PR.cast(sid, rid, boss, target, STRANGLETHORN)
         hits = live_hits(res.get("events"), STRANGLETHORN)
         # Le noeud `InformWeapon` : le natif emet un event `Info` porteur du profil et du regime
-        # d'arme AVANT le premier coup. Le port ne le materialise pas -- residu #889-r1.
+        # d'arme AVANT le premier coup. Le port ne le materialise pas -- residu #890-r1.
         inform = [tags(e) for e in (res.get("events") or [])
                   if "Attack_Weapon_DamageProfile" in tags(e)]
         return {"roles": roles, "pos": pos, "dist_to_target": dist, "hits": hits,
