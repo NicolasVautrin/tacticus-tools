@@ -101,13 +101,26 @@ _MOTS_PAR_STAT = {
 # COMPTES (`ecartes_mot_court`) : un filtre qui ne dit pas ce qu'il jette se lit comme un zero.
 _MOTS_COURTS = {m for ms in _MOTS_PAR_STAT.values() for m in ms if len(m) <= 4}
 
-# Le montage qui NEUTRALISE la base d'une stat sensible. `--unit-stat …:<Stat>=0` est le remede
-# etabli (#912, #914, #923) ; `--crit`/`--block-*` epinglent le TIRAGE, ce qui neutralise le
-# BRUIT mais PAS la base -- ils comptent donc pour le canal (A) de #419-r6, pas pour celui-ci.
+# Le montage qui NEUTRALISE la base d'une stat sensible, sous ses DEUX formes ecrites :
+#   * `--unit-stat <u>:<Stat>=0`  -- per-unit, le remede etabli (#912, #914, #923) ;
+#   * `--crit 0,0` / `--crit-target 0,0` / `--block-player 0,0` / `--block-target 0,0` -- par
+#     CAMP. `_patch_combat_stat` de `rl_duel.py` ECRIT `CritChance`/`CritDamage` (resp.
+#     `BlockChance`/`BlockDamage`) du BC : a `0,0` c'est bien la BASE qui tombe a zero, pas
+#     seulement le tirage.
+# ⚠ LES QUATRE FACES, et c'est mesure (#419-r6 §3.1) : `--crit` n'epingle que les p-units et
+# `--crit-target` que les a-units. Une seule des deux laisse l'autre camp au regime courant --
+# « deux faces sur quatre suffisaient PAR ACCIDENT » y a deja coute deux montages. On n'inscrit
+# donc la paire crit (resp. block) comme neutralisee que si LES DEUX faces sont posees.
 _RE_NEUTRALISE = re.compile(
     r"(?:--unit-stat|unit_stat|explicit-stats|explicit_stats)", re.I)
 _RE_NEUTRALISE_STAT = re.compile(
     r"(CritChance|CritDamage|BlockChance|BlockDamage|FixedArmor|Health|Armor)\s*=\s*0\b")
+_RE_FACE = {
+    "crit_p": re.compile(r"--crit[\"'\s,]+[\"']?0\s*,\s*0"),
+    "crit_a": re.compile(r"--crit-target[\"'\s,]+[\"']?0\s*,\s*0"),
+    "block_p": re.compile(r"--block-player[\"'\s,]+[\"']?0\s*,\s*0"),
+    "block_a": re.compile(r"--block-target[\"'\s,]+[\"']?0\s*,\s*0"),
+}
 # `--hp-target`/`--hp-player`/`--armor-target` ecrivent eux aussi `Armor`/`FixedArmor`/`Health`
 # du BC : ce sont des neutralisations de base a part entiere, sur ces stats-la.
 _RE_NEUTRALISE_LEVIER = re.compile(r"--(?:hp-target|hp-player|armor-target|dmg-target)")
@@ -237,19 +250,78 @@ _LECTURES_ZERO_OUVERT = (
 )
 
 
+# (B) LA PREMISSE ECRITE EN PROSE -- le gisement que #914 §4.1 a nomme sans l'outiller.
+# « Ces deux phrases etaient VRAIES le jour ou elles ont ete ecrites. Rien ne les a confrontees
+# au harnais depuis, parce qu'une premisse en commentaire n'est PAS executable. » Un recenseur
+# qui ne lit que les `assert` ne peut par construction pas les voir : elles ne sont dans AUCUNE
+# comparaison. On les cherche donc dans le TEXTE, et le remede est le meme -- neutraliser au
+# montage, ce qui rend la phrase vraie A NOUVEAU au lieu de la reecrire.
+_RE_PROSE = re.compile(
+    r"(?:"
+    r"(?:crit|block)\s*(?:chance|damage|dmg)?\s*(?:=|==)\s*0\b"
+    r"|sans\s+crit\b|sans\s+block\b"
+    r"|aucun(?:e)?\s+(?:source\s+de\s+)?(?:crit|block)"
+    r"|aucune\s+unite\s+n'a\s+de\s+(?:crit|block)"
+    r"|ne\s+peu(?:t|vent)\s+pas\s+(?:crit|bloqu)"
+    r"|jamais\s+de\s+crit|crit\s+(?:structurellement\s+)?impossible"
+    r"|nocrit|no_crit|no-crit"
+    r")", re.I)
+
+
+def _prose(src: str) -> list[dict]:
+    out = []
+    for i, ligne in enumerate(src.splitlines(), 1):
+        if _RE_PROSE.search(ligne):
+            out.append({"ligne": i, "role": "premisse-en-prose", "nomme": [],
+                        "src": ligne.strip()[:118]})
+    return out
+
+
 def _lit_stats(src: str) -> list[str]:
     bas = src.lower()
     return sorted({m for m in _LECTURES_ZERO_OUVERT if m.lower() in bas})
 
 
-def _classe_fichier(src: str) -> dict:
+def _stats_concernees(lectures: list[str]) -> set[str]:
+    """De QUELLES stats la lecture depend-elle ? -- ce qu'il faut neutraliser, et rien de plus.
+
+    Un fichier qui ne lit que le BLOCK n'a aucune raison d'epingler le CRIT : exiger les quatre
+    ferait du bruit et pousserait a des montages plus larges que la premisse. Les predicats
+    derives (`could_crit`, `did_block`) sont rattaches a leur paire.
+    """
+    out: set[str] = set()
+    for m in lectures:
+        b = m.lower()
+        if "crit" in b:
+            out |= {"CritChance", "CritDamage"}
+        if "block" in b:
+            out |= {"BlockChance", "BlockDamage"}
+    return out
+
+
+def _classe_fichier(src: str, nom: str = "") -> dict:
+    """LIVE = marqueur de harnais OU suffixe `_live.py`.
+
+    Le suffixe n'est pas une commodite : mesure du 2026-08-11, se fier aux SEULS marqueurs de
+    #419-r6 classait OFFLINE des fichiers qui montent bel et bien un runner -- ils prennent leur
+    fixture dans un module PARTAGE (`_pierce_floor_regime.py`, `_summon_montage.py`) ou par la
+    fixture `rpc`, et le mot `build_runner` n'apparait alors nulle part chez eux.
+    `test_448r2dr2_titanhammer_active_live.py`, dont l'en-tete DECLARE pourtant
+    « `BlockChance = 0` sur un terminator », en faisait partie. Un recenseur qui rate la moitie
+    de sa population ne peut pas rendre zero sur elle.
+    """
     neutralise_stats = set()
     if _RE_NEUTRALISE.search(src):
         neutralise_stats |= {m for m in _RE_NEUTRALISE_STAT.findall(src)}
     if _RE_NEUTRALISE_LEVIER.search(src):
         neutralise_stats |= {"Health", "FixedArmor", "Armor"}
+    faces = {k: bool(r.search(src)) for k, r in _RE_FACE.items()}
+    if faces["crit_p"] and faces["crit_a"]:
+        neutralise_stats |= {"CritChance", "CritDamage"}
+    if faces["block_p"] and faces["block_a"]:
+        neutralise_stats |= {"BlockChance", "BlockDamage"}
     return {
-        "live": any(m in src for m in _MARQUEURS_LIVE),
+        "live": any(m in src for m in _MARQUEURS_LIVE) or nom.endswith("_live.py"),
         "neutralise": sorted(neutralise_stats),
     }
 
@@ -264,7 +336,7 @@ def recenser(racine: "Path | None" = None) -> dict:
         src = p.read_text(encoding="utf-8", errors="replace")
         rel = str(p.relative_to(racine)).replace("\\", "/")
         vus["fichiers"] += 1
-        c = _classe_fichier(src)
+        c = _classe_fichier(src, p.name)
         if not c["live"]:
             vus["offline"] += 1
             continue
@@ -274,7 +346,7 @@ def recenser(racine: "Path | None" = None) -> dict:
             vus["live_sans_lecture"] += 1
             continue
         vus["live_lecteur"] += 1
-        prem = _premisses(p, src)
+        prem = _premisses(p, src) + _prose(src)
         for e in prem:
             roles[e["role"]] += 1
         if prem:
@@ -283,7 +355,8 @@ def recenser(racine: "Path | None" = None) -> dict:
     return {"vus": vus, "roles": roles, "par_fichier": par_fichier}
 
 
-_ROLES_PERIMABLES = ("premisse-zero", "attendu-positif", "attendu-non-nul", "valeur-en-dur")
+_ROLES_PERIMABLES = ("premisse-zero", "attendu-positif", "attendu-non-nul", "valeur-en-dur",
+                     "premisse-en-prose")
 
 
 def _suspects(rec: dict) -> dict[str, list[dict]]:
@@ -293,10 +366,10 @@ def _suspects(rec: dict) -> dict[str, list[dict]]:
     Un fichier qui neutralise deja les 4 stats a zero ouvert est ecarte -- c'est le remede, et
     le compter comme suspect ferait du bruit qui noie les vrais.
     """
-    zo = set(_STATS_ZERO_OUVERT)
     out: dict[str, list[dict]] = {}
     for rel, info in rec["par_fichier"].items():
-        if zo <= set(info["neutralise"]):
+        besoin = _stats_concernees(info["lectures"])
+        if besoin and besoin <= set(info["neutralise"]):
             continue
         gardes = [e for e in info["premisses"] if e["role"] in _ROLES_PERIMABLES]
         if gardes:
@@ -307,6 +380,45 @@ def _suspects(rec: dict) -> dict[str, list[dict]]:
 # ---------------------------------------------------------------------------
 # 3. ETAGE LIVE -- re-deriver les stats sensibles (le jeu par defaut ci-dessus)
 # ---------------------------------------------------------------------------
+def mesurer_unites(rank: int, visual_ids: list[str]) -> None:
+    """Les 4 stats a zero ouvert d'unites NOMMEES, dans les DEUX regimes.
+
+    C'est le geste qui remplace « ce porteur ne peut pas critiquer / bloquer » par une mesure.
+    """
+    sys.path.insert(0, str(_HERE))
+    import rl_collect_batch as R                                   # noqa: E402
+
+    sid = R._resolve_session()
+    seed = R._load_seed_bc()
+    tpl_t, _, _ = R._normalize_and_extract_pool(sid, seed, rank, equip_items=False)
+    tpl_c, _, _ = R._normalize_and_extract_pool(sid, seed, rank, equip_items=True)
+    t_by = {u["Id"]: u for u in tpl_t["Units"]}
+    c_by = {u["Id"]: u for u in tpl_c["Units"]}
+    if visual_ids == ["block"] or visual_ids == ["crit"]:
+        # Le mot-cle rend la POPULATION, pas une unite : « qui a une base non nulle
+        # aujourd'hui ? » est la question qu'on se pose pour CHOISIR un temoin non
+        # tautologique -- un temoin dont la base serait nulle sans le levier ne peut pas
+        # montrer que le levier mord.
+        cle = "BlockChance" if visual_ids == ["block"] else "CritChance"
+        vus = [(uid, u.get(cle) or 0) for uid, u in sorted(c_by.items())
+               if (u.get(cle) or 0) > 0]
+        print("=== #933 -- unites a %s > 0 en regime COURANT : %d ===" % (cle, len(vus)))
+        for uid, v in vus:
+            print("  %-26s %s=%s" % (uid, cle, v))
+        return
+    print("=== #933 -- stats a ZERO OUVERT par unite (rank %d) ===" % rank)
+    print("  %-26s %-30s %s" % ("unite", "TEMOIN (sans items)", "COURANT (BiS)"))
+    for vid in visual_ids:
+        a, b = t_by.get(vid), c_by.get(vid)
+        if a is None or b is None:
+            print("  %-26s ABSENTE du template normalise (npc / hors pool ?)" % vid)
+            continue
+        f = lambda u: "cc %-5s cd %-6s bc %-5s bd %-6s" % (          # noqa: E731
+            u.get("CritChance"), u.get("CritDamage"),
+            u.get("BlockChance"), u.get("BlockDamage"))
+        print("  %-26s %-30s %s" % (vid, f(a), f(b)))
+
+
 def mesurer_stats(rank: int) -> dict:
     sys.path.insert(0, str(_HERE))
     import rl_collect_batch as R                                   # noqa: E402
@@ -410,6 +522,10 @@ def main(argv=None) -> int:
     ap.add_argument("--recenser", action="store_true",
                     help="balayage STATIQUE exhaustif des tests (offline)")
     ap.add_argument("--lister", choices=["suspects", "tout"], default=None)
+    ap.add_argument("--attester", action="store_true",
+                    help="imprime le bloc Python `_ATTESTES` du cliquet "
+                         "(tests/engine/test_933_premisse_regime_offline.py) -- il se REGENERE, "
+                         "il ne se tient pas a la main")
     ap.add_argument("--arbre", default=None,
                     help="racine de tests a recenser (defaut : scripts/python/tests). Sert a "
                          "recenser un arbre TEMOIN -- p. ex. l'etat d'avant une reparation, "
@@ -417,6 +533,10 @@ def main(argv=None) -> int:
     ap.add_argument("--stats", action="store_true",
                     help="LIVE : re-derive les stats sensibles au regime (diff des templates)")
     ap.add_argument("--rank", type=int, default=17)
+    ap.add_argument("--unites", default=None,
+                    help="LIVE : imprime les 4 stats a zero ouvert de ces VisualId (virgules), "
+                         "dans les DEUX regimes -- remplace « ce porteur ne peut pas bloquer » "
+                         "par une mesure")
     ap.add_argument("--jouer", default=None,
                     help="LIVE : joue une liste explicite (rel. a tests/, virgules) ; "
                          "`suspects` joue les fichiers suspects du recensement")
@@ -427,7 +547,9 @@ def main(argv=None) -> int:
     ap.add_argument("--jusqu-a", type=int, default=0)
     a = ap.parse_args(argv)
 
-    if not any((a.recenser, a.stats, a.jouer)):
+    if not any((a.recenser, a.stats, a.jouer, a.unites, a.attester)):
+        a.recenser = True
+    if a.attester:
         a.recenser = True
 
     rec = None
@@ -468,6 +590,12 @@ def main(argv=None) -> int:
         print("   * ce qu'un test atteint via la fixture d'un AUTRE paquet ;")
         print("   * les stats sensibles AUTRES que les %d listees -- `--stats` les re-derive."
               % len(_STATS_SENSIBLES))
+        if a.attester:
+            print("=== bloc `_ATTESTES` a recopier dans le cliquet (%d) ===" % len(susp))
+            print("_ATTESTES = (")
+            for rel in sorted(susp):
+                print("    \"%s\"," % rel)
+            print(")")
         if a.lister:
             cible = susp if a.lister == "suspects" else {
                 k: v2["premisses"] for k, v2 in rec["par_fichier"].items()}
@@ -479,6 +607,9 @@ def main(argv=None) -> int:
                 for e in cible[rel]:
                     print("      L%-5d %-18s %-24s %s"
                           % (e["ligne"], e["role"], ",".join(e["nomme"]) or "-", e["src"]))
+
+    if a.unites:
+        mesurer_unites(a.rank, [s.strip() for s in a.unites.split(",") if s.strip()])
 
     if a.stats:
         m = mesurer_stats(a.rank)

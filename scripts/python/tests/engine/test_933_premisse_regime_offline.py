@@ -1,0 +1,157 @@
+"""#933 -- CLIQUET : une premisse de REGIME se DECLARE au montage, elle ne se suppose pas.
+
+CE QUE CE FICHIER GARDE, ET POURQUOI IL EXISTE
+-----------------------------------------------
+La bascule #419-r5/-r6 (items Best-In-Slot equipes par defaut) a peri des dizaines de premisses
+de test SANS qu'une ligne de moteur bouge : `could_crit` est passe de 0/106 a 98/106, et 46 des
+106 unites ont gagne une base de block. Cinq victimes ont ete trouvees, dont TROIS PAR HASARD en
+jouant une regression sans rapport, et une (`test_lion_helm_block_aura_live`) est restee ROUGE
+sur `master` pendant cinq jours en accusant le SELECTEUR au lieu du regime.
+
+Le mode de defaillance n'est pas « un test casse » -- c'est **une prose qui cesse d'etre vraie
+sans que rien ne l'evalue**. #914 §4.1 l'avait nomme sans l'outiller : « une premisse en
+commentaire n'est PAS executable ; la seule chose qui l'a signalee, c'est un test qui rougit des
+mois plus tard en accusant le port ». Ce fichier est cette chose executable.
+
+L'INVARIANT, en un mot : un test LIVE qui LIT une stat a zero ouvert (`CritChance`, `CritDamage`,
+`BlockChance`, `BlockDamage` -- les quatre dont une unite passe de 0 a non-0 sous la bascule) et
+qui COMPARE a zero / a un positif doit NEUTRALISER cette base au montage
+(`--unit-stat <u>:<Stat>=0`, ou les DEUX faces de `--crit`/`--crit-target`, resp.
+`--block-player`/`--block-target`). Les fichiers qui ne le font pas sont ENUMERES ci-dessous,
+mesures un par un ; le cliquet interdit que la liste GRANDISSE.
+
+Ce n'est pas une allowlist de complaisance : un fichier REPARE en SORT, donc perdre son montage
+le fait revenir dans `nouveaux` et ROUGIR. C'est le cran qui manquait -- `probe_419r6` ne voyait
+que les fichiers exigeant un coup propre ou portant une valeur en dur, et `test_lion_helm...`
+n'etait ni l'un ni l'autre.
+
+⚠ `TACTICUS_BIS_ITEMS=0` est un instrument de DIAGNOSTIC, jamais un remede : il deshabille tout
+le roster et restitue le regime DEGENERE que #419-r6 a supprime (cf. #914 §3.3).
+
+REGENERER la liste : `python scripts/python/probe_933_premisses_regime.py --attester`.
+"""
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+import pytest
+
+_PY = Path(__file__).resolve().parents[2]
+if str(_PY) not in sys.path:
+    sys.path.insert(0, str(_PY))
+
+import probe_933_premisses_regime as P                               # noqa: E402
+
+
+# --- BLOC GENERE (`probe_933_premisses_regime.py --attester`) -- ne pas tenir a la main -------
+_ATTESTES = (
+)
+# --- FIN DU BLOC GENERE -----------------------------------------------------------------------
+
+
+def _suspects_courants() -> set[str]:
+    return set(P._suspects(P.recenser()))
+
+
+def test_le_jeu_de_stats_est_coherent_et_non_vide():
+    """Les 4 stats a ZERO OUVERT sont un SOUS-ENSEMBLE des sensibles, et chacune est NOMMABLE.
+
+    Un jeu vide, ou une stat sans mot de correspondance, rendrait le recenseur muet SANS que rien
+    ne le dise -- exactement le vice « un recenseur ne peut pas rendre zero sur ce qu'il ne visite
+    pas ». On assertionne donc son propre non-vide.
+    """
+    assert P._STATS_ZERO_OUVERT, "jeu de stats a zero ouvert VIDE : le recenseur ne voit rien"
+    assert set(P._STATS_ZERO_OUVERT) <= set(P._STATS_SENSIBLES)
+    for stat in P._STATS_ZERO_OUVERT:
+        assert P._MOTS_PAR_STAT.get(stat), \
+            "%s n'a aucun mot de correspondance : elle ne sera nommee nulle part" % stat
+    assert P._LECTURES_ZERO_OUVERT, "aucun nom de LECTURE : aucun fichier ne sera classe lecteur"
+
+
+def test_le_recenseur_voit_la_victime_connue(tmp_path):
+    """ANTI-TAUTOLOGIE : sur un arbre TEMOIN, le recenseur DOIT classer suspect le patron exact de
+    `test_lion_helm_block_aura_live.py` d'avant reparation -- une comparaison a `(0, 0)` dont
+    AUCUN mot de l'expression ne nomme la stat (elle n'est nommee que par la fonction qui a
+    produit la valeur). La premiere ecriture du recenseur exigeait que l'expression nomme la stat
+    et ratait donc son propre cas d'entree ; un recenseur qui ne voit pas la victime CONNUE ne
+    peut rien dire des inconnues.
+
+    Second bras, indispensable : la MEME source, une fois NEUTRALISEE au montage, ne doit PLUS
+    etre suspecte. Sans lui, un recenseur qui rendrait « suspect » pour tout passerait ce test.
+    """
+    nu = (
+        'BUILD = ["--p-units", "darkaAzrael"]\n'
+        'def _live_blocks(rpc, rid):\n'
+        '    return {u["entityId"]: (u["stats"]["blockChance"], u["stats"]["blockDamage"])\n'
+        '            for u in rpc("combatSnapshot")["units"]}\n'
+        'def test_x(build_runner):\n'
+        '    seed = _live_blocks(None, 0)\n'
+        '    assert seed[az] == (0, 0), "le PORTEUR se self-buffe"\n'
+    )
+    neutre = nu.replace(
+        'BUILD = ["--p-units", "darkaAzrael"]',
+        'BUILD = ["--p-units", "darkaAzrael",\n'
+        '         "--unit-stat", "darkaAzrael:BlockChance=0,BlockDamage=0"]')
+
+    (tmp_path / "test_temoin_nu_live.py").write_text(nu, encoding="utf-8")
+    rec = P.recenser(tmp_path)
+    susp = P._suspects(rec)
+    assert "test_temoin_nu_live.py" in susp, (
+        "le recenseur NE VOIT PAS le patron de la victime connue -- il ne garde rien : %r" % (rec,))
+    roles = {e["role"] for e in susp["test_temoin_nu_live.py"]}
+    assert "premisse-zero" in roles, roles
+
+    (tmp_path / "test_temoin_nu_live.py").unlink()
+    (tmp_path / "test_temoin_neutre_live.py").write_text(neutre, encoding="utf-8")
+    susp2 = P._suspects(P.recenser(tmp_path))
+    assert "test_temoin_neutre_live.py" not in susp2, (
+        "le recenseur classe suspect un montage DEJA neutralise -- il rendrait tout suspect, "
+        "donc rien : %r" % (susp2,))
+
+
+def test_la_liste_attestee_ne_pourrit_pas():
+    """Chaque chemin atteste EXISTE. Une liste qui garde des fantomes se relit comme une mesure."""
+    manquants = [rel for rel in _ATTESTES if not (P._TESTS / rel).exists()]
+    assert not manquants, (
+        "chemins attestes DISPARUS (renommes ? supprimes ?) -- regenerer le bloc par "
+        "`python scripts/python/probe_933_premisses_regime.py --attester` : %r" % (manquants,))
+
+
+def test_aucun_NOUVEAU_fichier_a_premisse_de_regime_non_declaree():
+    """LE CLIQUET. La liste des fichiers a premisse de regime non neutralisee ne GRANDIT pas.
+
+    Ce gisement est le seul que notre propre cadence alimente : chaque test live neuf qui ecrit
+    `assert <stat de crit/block> == 0` sans poser son levier le rouvre, et il ne rougira que le
+    jour ou quelqu'un rebasculera un defaut de harnais -- des mois plus tard, en accusant le port.
+    """
+    nouveaux = sorted(_suspects_courants() - set(_ATTESTES))
+    assert not nouveaux, (
+        "PREMISSE DE REGIME NON DECLAREE dans %d fichier(s) : %s\n"
+        "Ces fichiers LISENT une stat a zero ouvert (%s) et COMPARENT a 0 / a un positif, sans "
+        "neutraliser la base au montage. Depuis la bascule #419-r5/-r6 (items Best-In-Slot par "
+        "defaut), cette base n'est plus nulle : la comparaison est soit ROUGE, soit -- pire -- "
+        "VERTE en ne mesurant plus rien.\n"
+        "REMEDE (dans le MONTAGE, jamais dans l'assertion) : `--unit-stat <unite>:<Stat>=0`, ou "
+        "les DEUX faces de `--crit`/`--crit-target` (resp. `--block-player`/`--block-target`). "
+        "PAS `TACTICUS_BIS_ITEMS=0`, qui deshabille tout le roster.\n"
+        "Si la premisse tient VRAIMENT sans levier, MESURE-le "
+        "(`probe_933_premisses_regime.py --unites <VisualId>`) puis inscris le fichier au bloc "
+        "genere via `--attester`."
+        % (len(nouveaux), nouveaux, ", ".join(P._STATS_ZERO_OUVERT)))
+
+
+def test_la_liste_attestee_ne_couvre_pas_ce_qui_a_ete_repare():
+    """Un fichier REPARE par #933 doit avoir QUITTE la liste -- sinon le cliquet ne le garde plus.
+
+    C'est ce qui transforme l'allowlist en cliquet : perdre le montage d'un fichier repare le fait
+    revenir dans `nouveaux`, donc ROUGIR. Si l'un d'eux etait reste atteste, sa regression
+    passerait inapercue.
+    """
+    repares = ("engine/runner/test_lion_helm_block_aura_live.py",)
+    restes = [rel for rel in repares if rel in _ATTESTES]
+    assert not restes, (
+        "fichier(s) REPARE(S) encore attestes -- le cliquet ne verrait pas la perte de leur "
+        "montage : %r" % (restes,))
+    for rel in repares:
+        assert (P._TESTS / rel).exists(), rel
