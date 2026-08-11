@@ -118,6 +118,23 @@ def _placement_at_distance(bc, dist: int, n_units: int):
     return out
 
 
+def ensure_seed_bc(path=None) -> str:
+    """Seed BC AUGMENTE de `darkaSternguard` (injection catalogue). Ecrit dans `logs/` du checkout
+    (JAMAIS sous `data/`, qui ne porte que des ENTREES versionnees) si `path` n'est pas donne.
+    Idempotent : re-genere a chaque appel (~1 s) plutot que de faire confiance a un fichier
+    heritee dont on ne saurait pas de quel build il vient."""
+    import catalog_inject
+    from pathlib import Path
+    if path is None:
+        root = Path(__file__).resolve().parents[2]
+        out = root / "logs" / "seedbc_905_sternguard.json"
+    else:
+        out = Path(path)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    catalog_inject.write_augmented_seed_bc(str(out), [CASTER_ID])
+    return str(out)
+
+
 def _apply_unit_stats(bc: dict, specs) -> None:
     """Meme semantique que `rl_duel build --unit-stat` : patch PER-UNIT des champs de `BC.Units`
     sur le BC **deja normalise**. Forme `"VisualId:Champ=<json>[,Champ=<json>]"`, repetable.
@@ -306,9 +323,11 @@ def case_confront(sid, seedbc, dist, unit_stats=None):
             st.rng = r
             cap, pct = _sternguard_capped_attack_vars(st, caster)
             off = SternguardFocusAbility().execute_behaviour(st, caster, tgt)
-            print("[905] PORT   cap=%s pct=%s override=%s total=%s skipped=%s"
+            print("[905] PORT   cap=%s pct=%s override=%s total=%s (+add %s) damage_total=%s "
+                  "skipped=%s"
                   % (cap, pct, (off or {}).get("override"), (off or {}).get("total"),
-                     (off or {}).get("skipped")))
+                     ((off or {}).get("additional_hits") or {}).get("total"),
+                     (off or {}).get("damage_total"), (off or {}).get("skipped")))
             print("[905] PORT   etages=%s" % json.dumps((off or {}).get("etages")))
         else:
             print("[905] etat offline INDISPONIBLE (boardGraph/dumpRng) -- pas de rejeu du port")
@@ -336,6 +355,40 @@ def case_confront(sid, seedbc, dist, unit_stats=None):
         follow = cast(sid, rid, caster, tgt, 69)
         print("[905] FLAGS  attaque normale APRES le cast : ok=%s mutated=%s"
               % (follow.get("ok"), follow.get("mutated")))
+    finally:
+        dispose(sid, rid)
+
+
+def case_normal(sid, seedbc, dist, unit_stats=None):
+    """DECOMPOSITION PAR ETAGE. 1228 n'est qu'un override d'`Attack` autour d'une ATTAQUE NORMALE :
+    si le port et le natif divergent sur le cast, il faut savoir si l'ecart vient de l'override
+    (etage 1228) ou de l'attaque normale elle-meme (etage passif `SpecialIssueCombiMelta`, qui
+    mord differemment a d = 1 / 2 / 3). Ce cas rejoue l'ATTAQUE NORMALE NUE, meme etat, meme
+    `dumpRng` -- sans jamais caster 1228."""
+    from engine.runner.snapshot import load_state
+    from engine.runner.prng import IntBasedMersenneTwister
+    from engine.runner.operations.damage import AttackDamageOperation
+    rid = build(sid, seedbc, dist, unit_stats=unit_stats)
+    try:
+        board, dv, ob, cs, rng = snapshot(sid, rid)
+        bv = units_by_visual(dv)
+        caster = bv[CASTER_ID]["id"]
+        foes = [u["id"] for u in (dv.get("units") or []) if not u.get("ctrl")]
+        tgt = foes[0]
+        st = load_state(dv, ob, cs, board=board)
+        r = IntBasedMersenneTwister()
+        r.mt = list(rng["mt"]); r.mti = rng["mti"]
+        st.rng = r
+        res_off = AttackDamageOperation.execute(st, caster, tgt, None, allow_dead_caster=True)
+        print("[905normal] PORT total=%s per_hit=%s hits=%s"
+              % ((res_off or {}).get("total"), (res_off or {}).get("per_hit"),
+                 len((res_off or {}).get("per_hit") or [])))
+        print("[905normal] PORT cles=%s" % sorted((res_off or {}).keys()))
+        for k in ("additional_hits", "hits", "effects", "finish_attack"):
+            if res_off and k in res_off:
+                print("[905normal] PORT %s=%s" % (k, repr(res_off[k])[:500]))
+        res = cast(sid, rid, caster, tgt, 69)
+        print("[905normal] LIVE Amount=%s" % dmg_by_target(res))
     finally:
         dispose(sid, rid)
 
@@ -479,14 +532,17 @@ def case_scan(sid, seedbc, dist):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--session", type=int, default=None)
-    ap.add_argument("--seedbc", required=True, help="seed BC AUGMENTE (catalog_inject --out)")
+    ap.add_argument("--seedbc", default=None,
+                    help="seed BC AUGMENTE ; absent -> genere par `ensure_seed_bc()`")
     ap.add_argument("--dist", type=int, default=1)
     ap.add_argument("--case", default="confront")
     ap.add_argument("--unit-stat", action="append", default=None,
                     help="'VisualId:Champ=<json>' -- patch du BC NORMALISE, repetable")
     a = ap.parse_args()
     sid = a.session if a.session is not None else R._resolve_session()
-    print("[905] session %s" % sid)
+    if a.seedbc is None:
+        a.seedbc = ensure_seed_bc()
+    print("[905] session %s ; seedbc %s" % (sid, a.seedbc))
     try:
         if a.case in ("confront", "all"):
             case_confront(sid, a.seedbc, a.dist, a.unit_stat)
@@ -496,6 +552,8 @@ def main():
             case_control(sid, a.seedbc, a.dist)
         if a.case in ("flags", "all"):
             case_flags(sid, a.seedbc, a.dist)
+        if a.case in ("normal", "all"):
+            case_normal(sid, a.seedbc, a.dist, a.unit_stat)
     finally:
         for rid in list(_rids):
             dispose(sid, rid)

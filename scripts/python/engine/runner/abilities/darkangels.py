@@ -1916,10 +1916,28 @@ class SternguardFocusAbility(ActiveAbility):
         a = (atk or {}).get("attack") or {}
         # LES ETAGES, comme pour 1216 : un `total` absent ne dit ni SI l'attaque a ete refusee ni
         # POURQUOI (`skipped` = tri-etat de la feuille). C'est le seul volet observable de 1228.
+        #
+        # ⚠ `total` de l'`AttackDamageOperation` N'INCLUT PAS les COUPS ADDITIONNELS
+        # (`additional_hits`, canal `EffectAdditionalHits`). Sur CE porteur ce n'est pas un detail :
+        # le passif `SpecialIssueCombiMelta_AdditionalHits` (1563) ajoute un coup `Bolter` ENTIER a
+        # la distance **2 EXACTEMENT**, et ce coup-la n'est PAS soumis a l'override d'`Attack`
+        # (mesure #905, d=2 override 1200 : live `Amount = [279, 2358]`, port `total = 279` +
+        # `additional_hits.total = 2358` -- somme 2637 = le delta de PV live, BIT-EXACT). Lire le
+        # seul `total` faisait donc croire a une divergence de 1228 alors que le port etait juste :
+        # le diagnostic expose les DEUX volets, et `damage_total` en porte la somme.
+        add = a.get("additional_hits") or {}
+        add_total = int(add.get("total") or 0)
+        base_total = a.get("total")
         return {"ability": STERNGUARD_FOCUS_ID, "caster": caster_id, "target": target_id,
                 "cap": cap, "pct": pct,
                 "override": (ov or {}).get("amount"),
-                "total": a.get("total"), "skipped": (atk or {}).get("skipped"),
+                # L'UNITE qui recoit l'override : `targets = Caster@+0x48`, jamais la cible. Elle
+                # est dans le diagnostic parce qu'aucun chiffre de degat ne la revelerait (la
+                # cible n'attaque pas dans ce cast).
+                "override_unit": (ov or {}).get("unit"),
+                "total": base_total, "additional_hits": add or None,
+                "damage_total": (None if base_total is None else int(base_total) + add_total),
+                "skipped": (atk or {}).get("skipped"),
                 "etages": {k: a.get(k) for k in
                            ("base_min", "base_max", "pierce", "armor", "did_block", "did_crit",
                             "crits", "rolls", "per_hit", "per_hit_health",
