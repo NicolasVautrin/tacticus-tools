@@ -358,9 +358,10 @@ def couple(board_id: str, seed_value: str, mutate: int, fails: list) -> None:
 
         # -- face DECISION : le pool de tuiles du NATIF, confronte au gate du PORT ----------------
         ab = rpc("abilityTargets", {"runnerId": rid, "unitId": caster, "abilityType": ABILITY}, 180)
-        tiles = [(int(t["col"]), int(t["row"]))
-                 for t in (ab.get("tiles") or ab.get("targets") or [])
-                 if isinstance(t, dict) and "col" in t and "row" in t]
+        row = next((u for u in (ab.get("units") or []) if int(u.get("unitId", -1)) == caster), None)
+        tgts = ((row.get("abilities") or [{}])[0].get("targets") or []) if row else []
+        tiles = sorted({(int(t["tile"]["col"]), int(t["tile"]["row"]))
+                        for t in tgts if t.get("kind") == "tile" and t.get("tile")})
         if not tiles:
             raise SystemExit("MONTAGE : abilityTargets ne rend AUCUNE tuile pour %d : %s"
                              % (ABILITY, json.dumps(ab)[:400]))

@@ -313,6 +313,23 @@ NO_END_TURN_ABILITY_TYPES = frozenset({
     ActiveAbilityType.EuphoricStrikes,       # 1198
     ActiveAbilityType.VigilanceEternal,      # 1202
     ActiveAbilityType.ExemplarOfTheMontka,   # 1210
+    # 1231 TitanhammerSquad (astarLysander) -- ETABLI PAR MESURE LIVE, pas par la table de symboles
+    # (#448-r2d-r2). `TitanhammerSquadAbility` n'expose que QUATRE methodes dans
+    # `frida/methods.tsv` / `ghidra/functions.tsv` (`.ctor`, `ExecuteBehaviour`,
+    # `GetCurrentlyAffectedFriends`, `GetDynamicInvalidTargetReason`) -- et c'est precisement le
+    # faux negatif documente : les corps de `SetsEndTurnFlags` / `SetsActiveAbilityUsedFlag` sont
+    # des RETOURS CONSTANTS (`return <DSLTriggers+0x40/+0x48>`), donc FOLDES par IL2CPP, donc
+    # invisibles sous le nom de leur classe.
+    # MESURE (board MC1_67 seed 777, `probe_448r2dr2_titanhammer_active.py`) : apres le cast natif
+    # de 1231, le caster porte **zero** flag et reste dans `decisionView.toActivate` ; le TEMOIN de
+    # la meme passe (un allie qui joue `finish` dans le MEME runner) recoit bien
+    # `ArrivedAtFinalTile, TurnFinished, NoActionAvailable` -- le canal est donc AUDIBLE, et le
+    # `[]` du caster est un fait, pas un capteur muet.
+    # CONSEQUENCE, et c'est ce qui rend l'entree LOAD-BEARING : sans elle le port publie
+    # `UnitFinishedTurn`, ce qui declenche `TitanhammerSquadTeleportingInRemoveOnUnitFinishedTurn`
+    # et RETIRE aussitot le `1573` du caster -- l'ability perd sa raison d'etre (la teleportation
+    # vers la tuile marquee) alors qu'aucun test ne rougit.
+    ActiveAbilityType.TitanhammerSquad,      # 1231
 })
 
 # Classes overridant `SetsActiveAbilityUsedFlag` (pas de flag ActiveAbilityUsed=2) — 13 classes
@@ -331,6 +348,11 @@ NO_ABILITY_USED_FLAG_ABILITY_TYPES = frozenset({
     ActiveAbilityType.EuphoricStrikes,        # 1198
     ActiveAbilityType.VigilanceEternal,       # 1202
     ActiveAbilityType.ExemplarOfTheMontka,    # 1210
+    # 1231 TitanhammerSquad -- MEME MESURE, MEME PASSE que dans `NO_END_TURN_ABILITY_TYPES`
+    # ci-dessus : le caster ne porte AUCUN flag apres le cast natif, donc pas davantage
+    # `ActiveAbilityUsed` que les trois autres. Les deux virtuals sont surcharges, et aucun des
+    # deux n'est lisible sous le nom de sa classe (corps constants FOLDES). #448-r2d-r2.
+    ActiveAbilityType.TitanhammerSquad,       # 1231
 })
 
 # Ability 1081 FightingRetreat (Darkstrider) = SEUL override CONDITIONNEL lu dans le build courant :
