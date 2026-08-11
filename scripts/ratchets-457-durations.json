@@ -253,6 +253,7 @@
  "tests/engine/test_925_boltstorm_faces_offline.py": 0.012,
  "tests/engine/test_926_first_among_traitors_offline.py": 0.044,
  "tests/engine/test_930_kustom_force_field_reworked_offline.py": 0.153,
+ "tests/engine/test_933_premisse_regime_offline.py": 12.224,
  "tests/engine/test_effect_1582_inertia_binary.py": 1.156,
  "tests/engine/test_fabricator_claw_cap_binary.py": 0.446,
  "tests/engine/test_lions_wrath_custom_utility.py": 0.013,
