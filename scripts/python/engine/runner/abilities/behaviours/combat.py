@@ -112,7 +112,7 @@ class AttackWithAttackDamage(AbilityBehaviour):
                  is_first_hit: bool = True, amount_spread_pct: int = 0,
                  attack_state0: Optional[dict] = None, is_outside_attack: bool = True,
                  skip_hits_modifiers: bool = False):
-        # #419-r1-tr5-r4 : l'OCTET **+3** du `Nullable<AttackDamageBehaviourOptions>` -- le nombre
+        # #419-r1-tr5-r7 : l'OCTET **+3** du `Nullable<AttackDamageBehaviourOptions>` -- le nombre
         # de coups passe est DEJA FINAL, `AttackDamageOperation$$GetAttackHits` rend la base sans
         # traverser le slot 0xb6 (`AttackHitsWithModifiersFormula`). Mode BORNES uniquement (le mode
         # `amount` route par `execute_normal_like`, qui n'a pas ce canal). Cf. la docstring de
@@ -325,7 +325,7 @@ class AttackWithAttackDamage(AbilityBehaviour):
                     hit_index0=int(_as0.get("next_hit_index", 0)),
                     crit_allowed0=bool(_as0.get("crit_allowed", True)),
                     failed_block0=_as0.get("failed_block"),
-                    # #419-r1-tr5-r4 : octet +3 des options natives (coups DEJA finaux).
+                    # #419-r1-tr5-r7 : octet +3 des options natives (coups DEJA finaux).
                     skip_hits_modifiers=self.skip_hits_modifiers)
             ectx.emit("AttackWithAttackDamage", caster=caster, target=tgt,
                       total=(atk or {}).get("total"), attack=atk)

@@ -123,12 +123,12 @@ Termine par `IdunBattle.DSL.AbilityBehaviour$$op_BitwiseAnd(volet1, volet2)` -- 
 ================================================================================================
 RESIDUS NOMMES
 ================================================================================================
- * **`#419-r1-tr5-r5`** -- `_left_over_hits` (foyer PARTAGE avec `ChainLeftOverHitsAttackDamage`)
-   porte le residu OUVERT **#505** : la loi `max(0, H - k - 1)` SOUS-ESTIME le report d'exactement
-   1 quand le coup fatal ECRASE la cible (`DamagePrediction$$IsOverkill` est un SEUIL, pas un
-   index). `LightImUp` HERITE de cet ecart -- on ne le re-porte pas ici (une 2e loi serait une
-   divergence garantie), on le NOMME.
- * **`#419-r1-tr5-r6`** -- les entrees `LeftOverDamages` sont derivees du RETOUR de l'attaque du
+ * **HERITAGE du residu OUVERT `#505`** (pas un numero neuf : c'est le MEME foyer, pas un second
+   defaut). `_left_over_hits`, partage avec `ChainLeftOverHitsAttackDamage`, porte la loi
+   `max(0, H - k - 1)` qui SOUS-ESTIME le report d'exactement 1 quand le coup fatal ECRASE la cible
+   (`DamagePrediction$$IsOverkill` est un SEUIL, pas un index). `LightImUp` en herite -- on ne le
+   re-porte pas ici (une 2e loi serait une divergence garantie), on le NOMME.
+ * **`#419-r1-tr5-r8`** -- les entrees `LeftOverDamages` sont derivees du RETOUR de l'attaque du
    volet 1 (`per_hit_health` / `hp_before`), pas d'une liste materialisee sur la cible. Le filtre
    natif `AbilityOrEffect == 1103` est donc porte par CONSTRUCTION (on ne lit que notre propre
    attaque) et non par un predicat : une entree laissee par une AUTRE source sur la meme cible
@@ -214,7 +214,7 @@ class _NumLeftOverHits:
     l'attaque qui les a produites (`per_hit_health` / `hp_before`), via le foyer PARTAGE
     `ChainLeftOverHitsAttackDamage._left_over_hits` -- qui porte le residu #505 (cf. en-tete).
     La source est l'`ExecutionContext` de CE cast : `ectx.emitted` porte le payload de l'attaque du
-    volet 1, et lui seul (residu `#419-r1-tr5-r6`). Le noeud est evalue par
+    volet 1, et lui seul (residu `#419-r1-tr5-r8`). Le noeud est evalue par
     `AttackDamageBehaviour$$ExecuteTarget` du volet 2, donc APRES le volet 1 -- l'ordre est celui du
     `Seq`, pas une commodite."""
     __slots__ = ("ectx",)

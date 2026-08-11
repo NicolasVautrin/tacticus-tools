@@ -104,7 +104,7 @@ class _AbilityAttack:
         le port n'a pas (encore) de canal pour propager l'`OngoingAttack` a travers un
         `SortedAttackSeries`.
 
-        `skip_hits_modifiers` (#419-r1-tr5-r4, face COMBAT de `LightImUp`) = l'OCTET **+3** du
+        `skip_hits_modifiers` (#419-r1-tr5-r7, face COMBAT de `LightImUp`) = l'OCTET **+3** du
         `Nullable<AttackDamageBehaviourOptions>` (8e argument de `DSLBehaviors$$AttackDamage` /
         `$$AttackWithAttackDamage`), a cote de `+4 alwaysOverkilled`, `+5 alwaysCrit`, `+6 spread`
         et `+0 isOutsideAttack`. Le champ n'a **aucun nom lisible** (`AttackDamageBehaviourOptions`
