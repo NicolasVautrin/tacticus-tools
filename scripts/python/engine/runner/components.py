@@ -20,6 +20,7 @@ from ..entities.effect_targets import is_effect_target as _iet
 from ..entities.effects.loki.amulet_of_the_voidwyrm import (
         adjacent_friendly_summons_and_decoys_selector)
 from ..entities.effects.loki.kardiocore_galvanus import adjacent_mechanical_friends_selector
+from ..entities.effects.loki.maw_claws_of_thyrax import adjacent_summons_selector
 from ..entities.effects.loki.nether_realm_casket import adjacent_mechanical_units_selector
 from ..entities.effects.loki.supa_cybork_body import adjacent_enemies_selector
 from ..entities.pathfinding.board import adjacent_neigh_by_pos, elevations_by_pos
@@ -2999,6 +3000,42 @@ def adjacent_mechanical_friends_count(state, unit_id: int) -> Optional[int]:
                .calculate(entities_from_state(state, int(unit_id))))
 
 
+def adjacent_summons_count(state, unit_id: int) -> Optional[int]:
+    """`Count( Unique( UnitsWithTrait(AdjacentUnits(Owner, unique: 1, selectionType: 3),
+    0x2 = Summon, selectionType: 3) ) )` -- le cardinal que
+    `IdunBattle.Entities.Effects.Loki.MawClawsOfThyrax_ExtraCritDmgEffect$$GetCalculateLevel`
+    calcule pour le PORTEUR de l'effet (#920).
+
+    DEUX consommateurs natifs, un seul foyer ici (le natif appelle LE MEME slot virtuel `+0x5f8`
+    des deux cotes, donc la CONDITION et la MAGNITUDE ne peuvent pas diverger) :
+      * `...$$CreateActiveCondition` = `AmountIsGreaterThanZero(<vslot +0x5f8>)` ;
+      * `...$$GetExtraCritAmount`    = `Multiply(ConfigVar(0x42), EffectLevel(Effect@+0x38))`, et
+        c'est cette valeur que `RefreshEffectsOperation$$UpdateLevel` ECRIT dans
+        `EffectComponent+0x68`, donc celle que `DSLFormulas.EffectLevel` relit.
+
+    L'ARBRE est celui de la classe d'effet (`entities/effects/loki/maw_claws_of_thyrax.py::
+    adjacent_summons_selector`, doctrine #149) ; ce qu'on fait ICI, c'est lui donner son
+    `AbilityEntities` -- `entities_from_state(state, unit_id)` pose `caster = owner = le porteur`,
+    `board = state.board` et `has_trait`.
+
+    ⚠ GATE DE PRESENCE : la POSITION SEULE, pas l'equipe -- et c'est ce qui le distingue des trois
+    compteurs ci-dessus. Le selecteur natif est `AdjacentUnits`, dont le corps est
+    `op_Subtraction(Units(AdjacentTiles(origin), unique, sel), origin)` : aucun `Friends`, aucun
+    `Enemies`, donc rien n'y depend de l'`OwnerComponent`. Exiger une equipe rendrait `None` la ou
+    le natif compte, sur un porteur sans proprietaire connu.
+
+    `None` si le porteur n'a pas de tuile (le selecteur est GEOMETRIQUE) -- jamais un 0 invente,
+    qui annulerait le produit et ferait passer un bonus reel pour une absence de bonus (meme
+    tri-etat que les autres compteurs de ce foyer)."""
+    ent = state.get_entity(unit_id)
+    pc = ent.get_component(PositionComponent) if ent is not None else None
+    if pc is None:
+        return None
+    from .abilities.behaviours.context import entities_from_state
+    return int(adjacent_summons_selector()
+               .calculate(entities_from_state(state, int(unit_id))))
+
+
 def adjacent_taunted_enemies_count(state, unit_id: int) -> Optional[int]:
     """`Count( Filter( AdjacentEnemies(Owner, unique: 1, selectionType: 3),
                        HasEffect(It, 27 Taunted_OnlySpecificTargets, onlyActive: 0) ) )` -- le
@@ -3132,6 +3169,13 @@ class UnitEffectStateView(Mapping):
         3))` de `NetherRealmCasket_CritDamageReductionEffect$$CreateActiveCondition`, avec le MEME
         gate de presence. MÊME gate de présence que la clé ci-dessus
         (sélecteur géométrique ET par équipe) : présente dès que le porteur a une équipe ET une tuile.
+      * `adjacent_summons` — cardinal PARESSEUX (O(entités), cf. `adjacent_summons_count`) :
+        l'arbre `Count(Unique(UnitsWithTrait(AdjacentUnits(Owner, 1, 3), Summon, 3)))` que
+        `AmountIsGreaterThanZero` compare à 0 dans
+        `IdunBattle.Entities.Effects.Loki.MawClawsOfThyrax_ExtraCritDmgEffect$$CreateActiveCondition`
+        (#920). ⚠ Son gate de présence est la **POSITION SEULE**, pas l'équipe : `AdjacentUnits` ne
+        filtre AUCUN camp (cf. `adjacent_summons_count`), donc exiger une équipe rendrait la clé
+        absente là où le natif compte.
       * `owner_id` — l'id du PORTEUR, mirror du noeud `Owner@DSLSelectors+0x30`. Ce n'est pas une
         commodite : `IdunBattle.Entities.Selectors.OwnerSelector$$Select` lit litteralement
         `ctx+0x18`, et `IdunBattle.Operations.RefreshEffectsOperation$$ShouldBeActive` y ECRIT
@@ -3163,7 +3207,8 @@ class UnitEffectStateView(Mapping):
     par-porteur des chemins de dégât (auras), donc un cardinal EAGER y serait quadratique."""
 
     __slots__ = ("_state", "_uid", "_eager", "_has_psy", "_psy", "_has_pos",
-                 "_has_effstate", "_lc", "_bta", "_has_sa", "_sa", "_asd", "_ae", "_adt", "_afm")
+                 "_has_effstate", "_lc", "_bta", "_has_sa", "_sa", "_asd", "_ae", "_adt", "_afm",
+                 "_asu")
 
     def __init__(self, state, unit_id: int) -> None:
         self._state = state
@@ -3245,6 +3290,11 @@ class UnitEffectStateView(Mapping):
         # `MechanicalUnits(NormalUnits(AdjacentFriends(Owner)))` : MEME gate (selecteur geometrique
         # ET par equipe) -> la cle n'existe que si le porteur a une tuile ET une equipe. #908.
         self._afm: Optional[int] = None
+        # `Unique(UnitsWithTrait(AdjacentUnits(Owner), Summon))` : gate GEOMETRIQUE SEUL (#920).
+        # `AdjacentUnits` ne filtre AUCUN camp -> la cle existe des que le porteur a une tuile,
+        # meme sans `OwnerComponent`. C'est la SEULE cle de cette vue dont le gate differe des
+        # quatre `_has_sa`, et l'aligner sur elles rendrait la cle absente la ou le natif compte.
+        self._asu: Optional[int] = None
 
     def __getitem__(self, key):
         if key in self._eager:
@@ -3306,6 +3356,14 @@ class UnitEffectStateView(Mapping):
             if self._afm is None:
                 self._afm = adjacent_friendly_mechanical_units_count(self._state, self._uid)
             return self._afm
+        # `MawClawsOfThyrax_ExtraCritDmgEffect$$CreateActiveCondition` =
+        # `AmountIsGreaterThanZero(<vslot +0x5f8> = Count(Unique(UnitsWithTrait(AdjacentUnits(
+        # Owner, 1, 3), Summon, 3))))` : gate de presence GEOMETRIQUE SEUL (`_has_pos`), pas
+        # `_has_sa` -- `AdjacentUnits` ne filtre aucun camp. #920.
+        if key == "adjacent_summons" and self._has_pos:
+            if self._asu is None:
+                self._asu = adjacent_summons_count(self._state, self._uid)
+            return self._asu
         raise KeyError(key)
 
     def __iter__(self) -> Iterator[str]:
@@ -3315,6 +3373,7 @@ class UnitEffectStateView(Mapping):
         if self._has_pos:
             yield "contagions_of_nurgle_amount"
             yield "is_target_of_big_target_adjacent"
+            yield "adjacent_summons"                     # #920 : gate GEOMETRIQUE seul
         if self._has_effstate:
             yield "has_effect_light_cover"
             yield "owned_effect_bonded_entity"
@@ -3327,7 +3386,7 @@ class UnitEffectStateView(Mapping):
             yield "adjacent_friendly_mechanical_units"
 
     def __len__(self) -> int:
-        return (len(self._eager) + (1 if self._has_psy else 0) + (2 if self._has_pos else 0)
+        return (len(self._eager) + (1 if self._has_psy else 0) + (3 if self._has_pos else 0)
                 + (3 if self._has_effstate else 0) + (5 if self._has_sa else 0))
 
     def __repr__(self) -> str:                    # diagnostic (ASCII)
