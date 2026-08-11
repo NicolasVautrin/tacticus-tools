@@ -42,6 +42,11 @@ DECLENCHEUR = {
         "scripts/python/engine/entities/effects/base.py",
         # Le confront LIVE dont ces gardes figent le resultat.
         "scripts/python/probe_932_deathwing.py",
+        # L'etage 1bis LIT le `global-metadata.dat` du build INSTALLE : il passe par le pin de build
+        # et par le lecteur de metadata, dont un changement le rendrait muet (ou faux).
+        "scripts/python/build_pin.py",
+        "scripts/python/il2cpp_metadata.py",
+        "scripts/python/il2cpp_provenance.py",
     ),
     "build": True,
     "toujours": False,
