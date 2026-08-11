@@ -22,6 +22,51 @@ import inspect
 
 import pytest
 
+# `DECLENCHEUR` (#486-r15) -- ce qui doit changer pour que ce fichier puisse changer de verdict.
+DECLENCHEUR = {
+    "chemins": (
+        # SOCLE COMMUN a tout fichier de test : la cascade des deux `conftest.py` et sa fermeture.
+        "scripts/python/conftest.py", "scripts/python/tests/conftest.py",
+        "scripts/python/green_skip_guard.py", "scripts/python/declencheur_guard.py",
+        # LE MODULE D'EFFET et son registre : l'arbre du compteur, les gates, la magnitude.
+        "scripts/python/engine/entities/effects/loki/nether_realm_casket.py",
+        "scripts/python/engine/entities/effects/factory.py",
+        "scripts/python/engine/entities/effects/base.py",
+        # LES TROIS ENUMS dont ce fichier fige les ordinaux (et la collision 1457).
+        "scripts/python/engine/entities/effect_type.py",
+        "scripts/python/engine/entities/triggered_ability_type.py",
+        "scripts/python/engine/entities/ability_variable_type.py",
+        # LES NOEUDS DSL du compteur : un etage retire ou une signature changee doit rougir ici.
+        "scripts/python/engine/entities/selectors/units.py",
+        "scripts/python/engine/entities/selectors/accessors.py",
+        "scripts/python/engine/entities/formulas.py",
+        # `IsMechanical` -- le predicat a TROIS traits, load-bearing sur le camp necron.
+        "scripts/python/engine/runner/abilities/behaviours/stats.py",
+        "scripts/python/engine/entities/traits/unit_trait.py",
+        # LE CANAL REPAIR de bout en bout : foyer de la regle, les trois etages du rail COMBAT,
+        # et le SEUL call-site qui arme la cause.
+        "scripts/python/engine/predict.py",
+        "scripts/python/engine/runner/operations/repair.py",
+        "scripts/python/engine/runner/operations/triggers/loki/living_metal.py",
+        "scripts/python/engine/runner/operations/triggers/base.py",
+        # LE SUBSTRAT D'ETAT du compteur (cle du `unit_state`) et le canal CRIT (callable par
+        # porteur) : les deux points ou la cle peut disparaitre EN SILENCE.
+        "scripts/python/engine/runner/components.py",
+        "scripts/python/engine/runner/operations/damage.py",
+    ),
+    # `build: True` -- les ordinaux figes (etape 1) et les paliers `critDmgReduction`/`hpToHeal`
+    # (etapes 3 et 4) sont RELUS du gameconfig VIVANT et des mirrors d'enum : un changement de
+    # build peut les deplacer, et c'est precisement ce que ce fichier doit rougir.
+    "build": True,
+    "toujours": False,
+    "raison": (
+        "Ce fichier garde le port de `NetherRealmCasket` (1462) et de ses DEUX effets -- 1455 sur "
+        "le canal crit-DEGAT (classe d'effet), 1456 sur le canal `BaseEffect$$RepairBonus` (foyer "
+        "`engine.predict`). Les chemins listes sont ceux dont une modification peut faire changer "
+        "un verdict de ce fichier : le mirror lui-meme, les trois enums qu'il fige, les noeuds DSL "
+        "du compteur, le predicat `IsMechanical`, et les quatre etages du canal de cause."),
+}
+
 
 # ---------------------------------------------------------------------------------------------
 # 1. LES ORDINAUX, figes a la valeur MESUREE -- et la collision qui rend le nom obligatoire
