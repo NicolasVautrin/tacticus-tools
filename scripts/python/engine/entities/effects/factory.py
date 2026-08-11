@@ -38,6 +38,7 @@ from .loki.dark_angels_passives import (
 )
 from .loki.darkangels import HailstrikeExtraPierceEffect
 from .loki.lions_wrath import TheLionsWrathExtraCritChanceEffect
+from .loki.martial_exemplar import MartialExemplarExtraCritChanceEffect
 from .loki.destroy_the_witch import (
     DestroyTheWitchExtraDamageEffect, DestroyTheWitchExtraMoveEffect
 )
@@ -1046,6 +1047,20 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # Le RETRAIT n'est pas un `EFFECT_TRIGGERS` : la PHASE 2 (`TheLionsWrath_PendingAttackAbility$$
     # CreateBehaviour`) finit par `RemoveEffect(Owner@+0x30, Nullable(0x5f2))`, HORS de son `If`.
     "TheLionsWrath_ExtraCritChance": TheLionsWrathExtraCritChanceEffect,
+    # 1520 MartialExemplar_ExtraCritChance (#889-r5) : le buff que `darkaBossLion` pose sur LUI-MEME
+    # au cast de son AUTRE active, 1216 -- `AddEffect(0x5f0, <abilityStateRef>, targets =
+    # Owner@DSLSelectors+0x30, turns = <DSLFormulas+0x20> = Direct(1))`, meme surcharge a CINQ
+    # arguments que 1522 ci-dessus mais duree **1 TOUR** au lieu de `null`. UN SEUL canal (le build
+    # ne porte que `$$CreateCritChanceBonus` et `$$.ctor` -- ni CritDamage, ni RemoveEffectTrigger) :
+    #   `MartialExemplar_ExtraCritChanceEffect$$CreateCritChanceBonus`
+    #       = ForAddition(get_OwnerIsCaster & HasTrait(Target@DSLSelectors+0x60, 0x2 = Summon),
+    #                     ConfigVar(0x41 = extraCritChance))
+    # ⚠ DEUX pieges d'ordinal sur cette seule ligne : (a) `0x41 = extraCritChance` et NON `0x3a =
+    # chance`, la variable de 1217 -- deux actives du MEME boss, deux variables voisines, et
+    # l'ordinal seul ne les separe pas ; (b) `1520` est AUSSI `TriggeredAbilityType.
+    # TheLionsWrath_PendingAttack` -- c'est l'`AddEffect` (2e argument = `EffectType`) qui fixe
+    # l'enum ici. Le predicat porte sur le trait du DEFENSEUR (`tgt_traits`), unique dans le depot.
+    "MartialExemplar_ExtraCritChance": MartialExemplarExtraCritChanceEffect,
     # 1460 AmuletOfTheVoidwyrm_CritDamageReduction (#589-r1-r1-r2-r1) : owner-effect PERMANENT de la
     # RELIQUE `AmuletOfTheVoidwyrm`, pose a l'init par la base `IdunBattle.Entities.Abilities.
     # AOwnerEffectTriggeredAbility$$CreateBehaviour` (`If(<trig>, AddEffect(GetEffectType() = 0x5b4,

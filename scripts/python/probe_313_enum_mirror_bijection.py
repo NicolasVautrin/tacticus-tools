@@ -232,6 +232,14 @@ REGISTRE: list[Mirror] = [
     # LUE dans `enums.tsv` : `IdunBattle.Operations`, pas `IdunBattle.Entities.Enum`.
     Mirror("DamageReason", "engine/entities/damage_reason.py",
            "IdunBattle.Operations.DamageReason"),
+    # `DistanceType` (#889-r5) -- mirror NEUF, inscrit DANS LE COMMIT QUI LE CREE. Cle LUE dans
+    # `enums.tsv`, et c'est aussi le type DECLARE du 4e parametre de
+    # `IdunBattleLogic.Entities.DSLSelectors.Nearest(… distanceType : IdunBattle.Entities.Enum.
+    # DistanceType …)` dans `frida/methods.tsv`. Deux valeurs seulement, mais elles commandent DEUX
+    # metriques sans rapport (hex vs pathfinding) : ecrire `1` au site aurait choisi le pathfinding
+    # en silence.
+    Mirror("DistanceType", "engine/entities/distance_type.py",
+           "IdunBattle.Entities.Enum.DistanceType"),
     # #270-r1-r1-r3 : QUATRE mirrors NEUFS, inscrits DANS LE COMMIT QUI LES CREE. Chacun est le
     # type DECLARE d'un parametre natif, LU dans `frida/methods.tsv` -- jamais deduit du nom
     # court, qui a deja apparie faux deux fois (`Corner`, `Edge`) :

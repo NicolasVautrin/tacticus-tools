@@ -9,9 +9,9 @@ Le runner combat route chaque ability choisie via `ActiveAbilityMessage` -> `Abi
 ## Bilan
 
 - ActiveAbilityType castables par les unites : **175** distinct
-- **PORTED** (dans `ABILITY_CLASSES`) : **147**
-- **NO-OP silencieux** (a porter) : **28**
-- Ventilation NO-OP : **DAMAGE**=12, **EFFECT/BUFF**=9, **SUMMON**=4, **REPAIR**=2, **HEAL**=1
+- **PORTED** (dans `ABILITY_CLASSES`) : **149**
+- **NO-OP silencieux** (a porter) : **26**
+- Ventilation NO-OP : **DAMAGE**=10, **EFFECT/BUFF**=9, **SUMMON**=4, **REPAIR**=2, **HEAL**=1
 
 ## Priorisation & templates de port
 
@@ -30,18 +30,16 @@ Le runner combat route chaque ability choisie via `ActiveAbilityMessage` -> `Abi
 
 Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 
-## NO-OP SILENCIEUX en combat (a porter, tries categorie puis frequence) (28)
+## NO-OP SILENCIEUX en combat (a porter, tries categorie puis frequence) (26)
 
 | id | ability | categorie | #units | kinds |
 |---|---|---|---|---|
 | 1044 | IncendiaryShells | DAMAGE(Flame) | 2 | NS |
 | 1108 | KissOfDeath | DAMAGE(DirectDamage) | 2 | NS |
 | 1015 | PrecisionShot | DAMAGE(Energy) | 2 | NS |
-| 1173 | ArcScourge | DAMAGE(Particle) | 1 | N |
 | 1176 | BlightGrenades | DAMAGE(Toxic) | 1 | N |
 | 1170 | ExplosivePresents | DAMAGE(Blast) | 1 | N |
 | 1215 | InstrumentsOfVengeance | DAMAGE(HeavyRound) | 1 | N |
-| 1216 | MartialExemplar | DAMAGE(Power) | 1 | N |
 | ? | Maugetar | DAMAGE(DirectDamage) | 1 | N |
 | 1193 | NovaCharge | DAMAGE(Particle) | 1 | N |
 | 1174 | SolarAtomizer | DAMAGE(Melta) | 1 | N |
@@ -63,7 +61,7 @@ Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 | 1052 | CallRipperSwarms | SUMMON | 1 | N |
 | 1172 | InvocationOfMachineVengeance | SUMMON | 1 | N |
 
-## PORTED (registry) (147)
+## PORTED (registry) (149)
 
 | id | ability | categorie | #units | kinds |
 |---|---|---|---|---|
@@ -141,6 +139,7 @@ Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 | 1161 | TwinSmartMissileSystem | DAMAGE(Blast) | 2 | LN |
 | 1018 | ValkyrieStrike | DAMAGE(Blast) | 2 | NS |
 | 1207 | AncestralFortune | DAMAGE(Plasma) | 1 | L |
+| 1173 | ArcScourge | DAMAGE(Particle) | 1 | N |
 | 1221 | AugmentedAssault | DAMAGE(Eviscerate) | 1 | L |
 | 1199 | DoomSiren | DAMAGE(DirectDamage) | 1 | L |
 | 1232 | EmpyricAmbush | DAMAGE(Eviscerate) | 1 | L |
@@ -154,6 +153,7 @@ Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 | 1227 | HeavyWarpFlamer | DAMAGE(Flame) | 1 | L |
 | 1196 | LashOfTorment | DAMAGE(Eviscerate) | 1 | L |
 | 1177 | LightOfSanguinius | DAMAGE(Melta) | 1 | L |
+| 1216 | MartialExemplar | DAMAGE(Power) | 1 | N |
 | 1191 | MartialInspiration | DAMAGE(Eviscerate) | 1 | L |
 | 1222 | MassDriverAccelerator | DAMAGE(DirectDamage) | 1 | L |
 | 1184 | MomentShackle | DAMAGE(Bolter) | 1 | L |

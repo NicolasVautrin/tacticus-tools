@@ -35,7 +35,7 @@ from .units import (  # noqa: F401
     non_steppable_or_object_units, units_with_traits, NormalUnits,
     AdjacentFriends, SurroundingEnemies, SurroundingFriends, SortByFormula, SortByDistance,
     Alive, UnitsThatCanHaveActiveAbilityReset, Unobscured, UnitsDamagedThisPhase,
-    ValidNormalAttackTargets,
+    ValidNormalAttackTargets, SortUnitsByDamageUtility,
     UnitsAffectedByHealType, Healable, Repairable, UnitsWithEffectsOfType, UnitsWithNegativeEffects,
 )
 
@@ -63,8 +63,12 @@ from .geometry import (  # noqa: F401
     EffectSource, EffectFromOwner, EffectsFromUnitSource, OwnerOfEffect,
 )
 
+from .pathing import (  # noqa: F401
+    Nearest, ClosestPositionToTarget,
+)
+
 from .composites import (  # noqa: F401
-    get_spawn_tile_selector, adjacent_units,
+    get_spawn_tile_selector, adjacent_units, attackable_enemies,
 )
 
 __all__ = [
@@ -77,7 +81,7 @@ __all__ = [
     "non_steppable_or_object_units", "NormalUnits", "AdjacentFriends",
     "SurroundingEnemies", "SurroundingFriends", "SortByFormula", "SortByDistance", "Alive",
     "UnitsThatCanHaveActiveAbilityReset", "Unobscured", "UnitsDamagedThisPhase",
-    "ValidNormalAttackTargets",
+    "ValidNormalAttackTargets", "SortUnitsByDamageUtility",
     "UnitsAffectedByHealType", "Healable", "Repairable", "UnitsWithEffectsOfType",
     "UnitsWithNegativeEffects",
     "Owner", "PickRandomly", "Randomize",
@@ -96,6 +100,7 @@ __all__ = [
     "Entity", "Nothing", "Null", "SelectIf", "AtIndex", "ConditionalSelector",
     "TileBehindTargetFromSourceDirection", "EffectSource", "EffectFromOwner",
     "EffectsFromUnitSource",
-    "OwnerOfEffect", "get_spawn_tile_selector", "adjacent_units",
+    "OwnerOfEffect", "get_spawn_tile_selector", "adjacent_units", "attackable_enemies",
     "SortTilesByUtility", "PreviousTile",
+    "Nearest", "ClosestPositionToTarget",
 ]

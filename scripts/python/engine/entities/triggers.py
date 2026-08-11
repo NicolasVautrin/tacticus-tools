@@ -270,12 +270,47 @@ class CacheTrigger(AbilityTrigger):
 
 
 class AmountIsGreaterThanZero(AbilityTrigger):
-    """`IdunBattleLogic.Entities.DSLFactory$$AmountIsGreaterThanZero(a)` = `AmountIsGreater(a, 0)` : `a > 0`."""
+    """`IdunBattleLogic.Entities.DSLTriggers$$AmountIsGreaterThanZero(amount)` ->
+    `IdunBattle.Entities.Conditions.AmountIsGreaterAbilityTrigger`, dont le `$$ShouldTrigger` est,
+    LU integralement :
+
+        amount = 0
+        if (this.<+0x10 : ITargetsSelector> != null)  amount = (+0x10).Count(entities)      // slot 2
+        if (this.<+0x18 : IAmountFormula>   != null)  amount = (+0x18).Calculate(entities)  // slot 1
+        min = this.<+0x20 : IAmountFormula>.Calculate(entities)                             // slot 1
+        return min < amount
+
+    `min` = `<DSLFormulas+0x18>` = `Direct(0)` aux deux surcharges -> le predicat est bien `> 0`.
+
+    ⚠ **DEUX SURCHARGES HOMONYMES, ET LE PORT N'EN CONNAISSAIT QU'UNE** (#889-r5). Elles ont le
+    MEME corps a l'octet pres et ne different QUE par le TYPE DECLARE de leur unique parametre,
+    LU dans `frida/methods.tsv` :
+
+        DSLTriggers.AmountIsGreaterThanZero(amount : IdunBattle.DSL.IAmountFormula)      -> +0x18
+        DSLTriggers.AmountIsGreaterThanZero(amount : IdunBattle.DSL.ITargetsSelector)    -> +0x10
+
+    Le port ne portait que la premiere (`a.evaluate(ctx) > 0`), donc un call-site de la SECONDE
+    levait `TypeError: '>' not supported between 'list' and 'int'` -- bruyant ici, mais c'est un
+    coup de chance : sur un noeud dont l'`evaluate` aurait rendu un int, la meme confusion aurait
+    ete SILENCIEUSE. La surcharge est tranchee par les XREFS ENTRANTES, jamais par le nom :
+    `MartialExemplarAbility$$ExecuteBehaviour` appelle la variante SELECTEUR (`Count(<attaquables
+    adjacents>) > 0`), la ou `TitanhammerSquadAbility`/`UnbreakableDutyAbility`/`MomentShackle`
+    appellent la variante FORMULE.
+
+    Le port DISCRIMINE au moment de l'evaluation, pas a la construction : un noeud VALEUR rend un
+    int (branche `+0x18`), un noeud SELECTEUR rend une liste, dont on prend le `Count` (branche
+    `+0x10`). C'est le MEME arbitrage que le natif, seulement deplace du compilateur C# au
+    runtime Python -- et il ne peut pas se tromper, les deux domaines etant disjoints."""
     def __init__(self, a: AbilityTrigger):
         self.a = a
 
     def should_trigger(self, ctx):
-        return self.a.evaluate(ctx) > 0
+        v = self.a.evaluate(ctx)
+        if isinstance(v, dict):                    # selecteur MONO-entite -> `Count` == 1
+            return True
+        if isinstance(v, (list, tuple, set)):      # branche `+0x10` : `ITargetsSelector.Count`
+            return len(v) > 0
+        return (0 if v is None else v) > 0         # branche `+0x18` : `IAmountFormula.Calculate`
 
 
 class IsCanAddUnit(AbilityTrigger):

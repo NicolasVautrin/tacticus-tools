@@ -225,6 +225,13 @@ class DslContext:
     # `EffectComponent.SourceUnit` == `source_unit`). Défaut None -> sélecteur dégradé [] (documenté par
     # nœud). Fourni par la couche runner (`entities_from_state`, lit `state.effects`).
     effects_from_source: object | None = None
+    # `SortUnitsByDamageUtilitySelector$$Select` PAR APPEL -- `sort_units_by_damage_utility(
+    # candidate_ids, dmin, dmax, owner_id, hits, ability_type) -> list[id]` (les candidats TRIES par
+    # utilite Damage DECROISSANTE). Le `$$Select` complet vit dans `runner/operations/damage_utility`
+    # (porte et confronte live) ; l'accesseur est ce qui permet au NOEUD DSL de l'appeler sans que
+    # `entities/` importe `runner/`. Defaut None -> le noeud rend sa source INTACTE (degradation
+    # nommee : sans `State` la prediction native n'est pas evaluable). #889-r5.
+    sort_units_by_damage_utility: object | None = None
     # Faction (`FactionId` gameconfig) PAR UNITÉ (mirror `DSLFactory.UnitsFromFaction`, qui compare vs
     # `Enum.ToString(UnitFaction)` = le NOM de faction) — hors state standard, comme `has_trait`/`get_stat`.
     # `faction_of(unit)->str|None` défaut None → faction inconnue (UnitsFromFaction rend vide). Fourni par la

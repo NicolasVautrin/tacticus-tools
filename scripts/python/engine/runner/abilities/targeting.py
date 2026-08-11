@@ -614,28 +614,19 @@ def refuses_all_enemy_targets(options: "TargetingOptions") -> bool:
 # verifie que `targeting_options_for` consulte toujours cette table).
 TARGETING_OPTIONS_UNPORTED: "dict[int, TargetingOptions]" = {
     # @FORME PRESET+FLAGS
-    # 1216 MartialExemplar (#27-r4) -- face DECISION portee (playbook), face COMBAT NON portee :
-    # d'ou cette table plutot qu'`ABILITY_CLASSES`. Le masque est EFFECTIF, pas le litteral visible :
-    # `IdunBattleLogic.Entities.Abilities.Active.Loki.MartialExemplarAbility$$.ctor` recopie le preset
-    # `<TargetingOptions statics>+0x280` et appelle la surcharge PRESET+FLAGS
-    # `TargetingOptions$$.ctor(this, template, additionalRules)` avec `additionalRules = 0x10` ; ce
-    # corps fait `this.rules = additionalRules | template.rules`. Le preset porte `rules = 0x8004`
-    # (ecrit par `IdunBattle.Core.Services.TargetingOptions$$.cctor` en `<preset>+0x28`), donc
-    #     0x8004 | 0x10 = 0x8014
-    #   = CasterIsPossibleTarget(0x8000) | CasterHasNotMoved(0x10) | CasterMatchesDynamicRule(0x4)
-    # Recopier `0x10` seul aurait produit un masque FAUX -- pire que l'absence.
-    # `isSelfCasting` = `<preset>+0x00` = 1 ; `forceMeleeTarget` = `<preset>+0x20` = 1 = RangedBool.False.
-    # `range` = `None` DELIBERE : le bloc de 24 octets `<preset>+0x08..0x1f` est recopie d'un champ
-    # statique de `TargetingRange` et n'a PAS ete resolu -> aucun gate de portee invente.
-    # MESURE (probe_27_r4_martial_exemplar.py) : les deux bits portants sont observables --
-    # `abilityTargets(1216)` rend UNE cible, le caster lui-meme (CasterIsPossibleTarget), et tombe a
-    # ZERO cible des que le caster a bouge (CasterHasNotMoved).
-    ActiveAbilityType.MartialExemplar: TargetingOptions(rules=TR.CasterIsPossibleTarget | TR.CasterHasNotMoved  # 1216
-                                 | TR.CasterMatchesDynamicRule,
-                           self_cast=True, range=None, force_melee_target=RANGED_BOOL_FALSE),
+    # ⚠ 1216 `MartialExemplar` A QUITTE CETTE TABLE (#889-r5), pour la meme raison et par le meme
+    # geste que 1217 et 1093 ci-dessous : sa face COMBAT est desormais portee, et le CONTRAT DE
+    # DISJONCTION exige alors le retrait de la ligne. Son masque -- les MEMES quatre valeurs,
+    # RE-LUES au decompile de `rnca9r7q6c` avant migration (preset `<TargetingOptions statics>+0x280`
+    # = `0x8004` OR `additionalRules = 0x10` -> `0x8014`) -- vit sur la classe,
+    # `runner/abilities/darkangels.py::MartialExemplarAbility.TARGETING_OPTIONS`, avec la lecture
+    # complete du preset. Elle etait la SEULE entree `@FORME PRESET+FLAGS` de cette table ;
+    # l'etiquette reste pour le prochain masque de cette forme.
     # @FORME STATIC-COPY   (couvre aussi 1215 ci-dessous : il recopie les 0x40 octets d'un preset et
     #                       n'appelle AUCUN `TargetingOptions$$.ctor`)
-    # ⚠ DEUX RETRAITS SE SONT CROISES ICI, et la resolution est leur UNION -- pas un arbitrage.
+    # ⚠ TROIS RETRAITS SE SONT CROISES ICI (1217/#889, 1093/#888, 1216/#889-r5), et la resolution
+    # est leur UNION -- pas un arbitrage. Aucun des trois ne contredit les deux autres : chacun
+    # constate qu'UNE ability differente a migre son masque sur sa classe.
     # ⚠ 1217 `TheLionsWrath` A QUITTE CETTE TABLE (#889) : sa face COMBAT est desormais portee, et le
     # CONTRAT DE DISJONCTION ci-dessus exige alors le retrait de la ligne. Son masque -- les MEMES
     # quatre valeurs, RE-LUES au decompile avant migration -- vit sur la classe,
@@ -746,16 +737,16 @@ TARGETING_OPTIONS_UNPORTED: "dict[int, TargetingOptions]" = {
     #     PAS des faits de RE -- ils bougent a chaque face COMBAT portee, et c'est pour ca
     #     qu'aucun d'eux n'est ecrit a la main.
     #
-    #     len(TARGETING_OPTIONS_UNPORTED) ......... 9
-    #       dont hors-bloc (tete de table) ..... 2
+    #     len(TARGETING_OPTIONS_UNPORTED) ......... 8
+    #       dont hors-bloc (tete de table) ..... 1
     #       dont bloc du pool (#433-r4) ........ 7
     #
     #     VENTILATION PAR FORME DE CTOR (dict ENTIER, hors-bloc compris) :
     #       FLAGS-DIRECTS  ..................... 3
-    #       PRESET+FLAGS   ..................... 2
+    #       PRESET+FLAGS   ..................... 1
     #       PRESET-SEUL    ..................... 0
     #       STATIC-COPY    ..................... 4
-    #       (somme = 9)
+    #       (somme = 8)
     # <<< FIN COMPTES DERIVES
     #
     # LES 16 PRESETS, RELUS A LA SOURCE dans `IdunBattle.Core.Services.TargetingOptions$$.cctor`

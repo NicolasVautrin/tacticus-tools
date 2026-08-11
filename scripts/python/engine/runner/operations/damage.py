@@ -1107,17 +1107,29 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
             oc = e.get_component(OwnerComponent)
             if oc is not None:
                 team_by_id[uid] = oc.team
-        att_traits = None
-        if att_id is not None:
-            ae = state.entities.get(int(att_id))
-            auc = ae.get_component(UnitComponent) if ae is not None else None
-            asc = ae.get_component(StatsComponent) if ae is not None else None
-            if auc is not None:
-                att_traits = entity_trait_names(asc.ctx if asc is not None else None, auc.visual_id)
+        def _traits_of(eid):
+            if eid is None:
+                return None
+            e = state.entities.get(int(eid))
+            uc = e.get_component(UnitComponent) if e is not None else None
+            sc = e.get_component(StatsComponent) if e is not None else None
+            if uc is None:
+                return None
+            return entity_trait_names(sc.ctx if sc is not None else None, uc.visual_id)
+
+        att_traits = _traits_of(att_id)
+        # `tgt_traits` -- le PENDANT de `att_traits` sur le slot `Target@DSLSelectors+0x60`, meme
+        # substrat d'ENTITE (`entity_trait_names`, jamais le kit gameconfig -- #264). Demandeur :
+        # `IdunBattle.Entities.Effects.Loki.MartialExemplar_ExtraCritChanceEffect$$
+        # CreateCritChanceBonus` = `ForAddition(get_OwnerIsCaster & HasTrait(Target@+0x60,
+        # 0x2 = UnitTrait.Summon), ConfigVar(0x41 = extraCritChance))` -- le SEUL noeud CRIT du
+        # depot dont le predicat porte sur un trait du DEFENSEUR. Tri-etat : `None` = NON MESURE,
+        # et le porteur rend alors FAUX (jamais permissif). #889-r5.
+        tgt_traits = _traits_of(tgt_id)
         return {"team_by_id": team_by_id,
                 "att_team": team_by_id.get(att_id), "tgt_team": team_by_id.get(tgt_id),
                 "att_faction": (_unit_gameconfig(state, att_id) or {}).get("FactionId"),
-                "att_traits": att_traits,
+                "att_traits": att_traits, "tgt_traits": tgt_traits,
                 "adjacent_friendly_summons_and_decoys_of":
                     lambda oid: adjacent_friendly_summons_and_decoys_count(state, int(oid)),
                 # `...SupaCyborkBody_CritDmgReductionEffect$$GetCalculateLevel` (#503-r4) -- le

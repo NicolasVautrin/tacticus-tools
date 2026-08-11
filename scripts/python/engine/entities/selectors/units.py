@@ -1137,6 +1137,68 @@ class SortByFormula(TargetsSelector):
                       reverse=not self.ascending)
 
 
+class SortUnitsByDamageUtility(TargetsSelector):
+    """`IdunBattleLogic.Entities.DSLSelectors$$SortUnitsByDamageUtility(targets, caster, ability,
+    utilityDefinition, damage, unitSelectionType, hits)` -- le NOEUD ; le `$$Select` du selecteur
+    (`IdunBattle.Entities.Selectors.SortUnitsByDamageUtilitySelector`) est deja porte, integralement
+    et confronte live, dans `runner/operations/damage_utility.py`. Ce noeud ne le REECRIT PAS : il
+    l'appelle par l'accesseur `ctx.sort_units_by_damage_utility`, comme `PickRandomly` appelle
+    `ctx.pick_randomly`. Une seconde implementation du tri serait une divergence garantie.
+
+    ⚠ **QUATRE SURCHARGES portent ce nom**, et le port doit en designer UNE. Tranche par les XREFS
+    ENTRANTES, pas par la proximite : `MartialExemplarAbility$$ExecuteBehaviour` appelle celle a
+    SEPT arguments dont l'`ability` est un `IAbilityTypeSelector` (partagee avec
+    `RitesOfMorkai`/`FinalJustice`/`Doombolt`/`WyrdmakersHelm`) ; les trois autres sont
+    `(targets, caster, ability:ActiveAbilityType, …)`, `(targets, caster, damage, …)` et
+    `(targets, damage, …)`, et les DEUX dernieres DELEGUENT a celle-ci apres avoir bati leurs
+    defauts. C'est le foyer, et c'est lui que ce noeud mirrore.
+
+    `damage` = noeud VALEUR (`IAmountFormula`). Le selecteur natif l'evalue UNE fois
+    (`(+0x40).Calculate(entities)`) et s'en sert comme borne de prediction ; `NormalAttackDamage(
+    Owner)` = `StatAmountFormula(unit, StatType.Attack)`, donc un SCALAIRE -> `dmin == dmax`. Un
+    noeud a plage (`MinMaxDamage`) exposerait deux bornes ; aucun call-site porte ne le fait ici.
+
+    `ability` = noeud `IAbilityTypeSelector` ; `UnitNormalAttackType(Owner)` rend exactement le
+    defaut natif (`AbilityOrEffect(GetNormalAttackType(owner))`), donc `None` cote port -- ce n'est
+    pas une omission, c'est la MEME valeur par les deux chemins. `utility_definition` reste
+    IMPLICITE : le port impératif code `UtilityDefinition(0x23 = UtilityType.Damage)`, la seule que
+    les quatre surcharges construisent (`UtilityDefinition$$.ctor(this, 0x23)`).
+
+    `selection_type` = le 6e argument (`UnitSelectionType`), applique a la SOURCE
+    (`(+0x20).SelectUnits(entities, unitSelectionType)`) ; `hits` = le 7e (`null` -> 1).
+
+    `ctx.sort_units_by_damage_utility` absent (contexte hors runner : prediction, test de noeud) ->
+    la source est rendue TELLE QUELLE, ordre intact. DEGRADATION nommee : sans `State` la prediction
+    native n'est pas evaluable, et rendre `[]` ferait disparaitre des cibles. #889-r5."""
+    def __init__(self, targets: TargetsSelector, caster: TargetsSelector,
+                 damage, ability: TargetsSelector = None, selection_type=None, hits=None):
+        self.targets, self.caster, self.damage = targets, caster, damage
+        self.ability, self.selection_type, self.hits = ability, selection_type, hits
+
+    def select(self, ctx):
+        src = [u for u in _units_of(self.targets, ctx) if isinstance(u, dict)]
+        st = self.selection_type
+        if st is not None:                          # `SelectUnits(entities, unitSelectionType)`
+            src = [u for u in src if _selection_ok(u, st, ctx)]
+        fn = getattr(ctx, "sort_units_by_damage_utility", None)
+        if fn is None or not src:
+            return src                              # degradation nommee (cf. docstring)
+        owner = resolve_unit(self.caster, ctx)
+        dmg = (self.damage.evaluate(ctx) if hasattr(self.damage, "evaluate") else self.damage)
+        n = 1 if self.hits is None else int(
+            self.hits.evaluate(ctx) if hasattr(self.hits, "evaluate") else self.hits)
+        # `AbilityOrEffect(GetNormalAttackType(owner))` quand le slot `+0x28` est nul OU quand il
+        # rend precisement l'attaque normale : dans les deux cas le port passe `None`, que
+        # `damage_utility` resout par `GetNormalAttackType(owner)` -- le MEME natif.
+        aid = None
+        if self.ability is not None:
+            aid = self.ability.evaluate(ctx)
+        ordered = fn([u.get("id") for u in src], int(dmg or 0), int(dmg or 0),
+                     None if owner is None else owner.get("id"), n, aid)
+        by_id = {u.get("id"): u for u in src}
+        return [by_id[i] for i in ordered if i in by_id]
+
+
 class ValidNormalAttackTargets(TargetsSelector):
     """`IdunBattleLogic.Entities.DSLSelectors$$ValidNormalAttackTargets(unit, unitTile, range,
     ignoreRule, additionalRule)` -> `IdunBattle.Entities.Selectors.
