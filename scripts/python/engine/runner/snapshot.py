@@ -1999,6 +1999,63 @@ def _ability_state_from_config(uc) -> tuple:
             int(uc["activeAbilityLevel"]) if uc.get("activeAbilityLevel") else None)
 
 
+def _ability_state_from_rows(su) -> tuple:
+    """`(multiplier, passiveAbilityLevel, activeAbilityLevel)` lus dans `combatSnapshot.units[]
+    .abilityStates` -- l'`AbilityState` PER-ABILITY (`ActiveAbility._abilityState` @0x4c : `Level`@+0,
+    `VariableMultiplierPercentage`@+4), le canal que la face DECISION consomme deja
+    (`playbook/scene.py`) et que le COMBAT ignorait.
+
+    POURQUOI CE TROISIEME CANAL (#888). Un **GUILD BOSS** (`gameconfig.units[].kind == "npc"`, ex.
+    `deathBossMortarion`) n'a AUCUNE `UnitConfiguration` cote natif : `combatSnapshot.unitConfig`
+    rend litteralement `{"error": "config null"}` -- MESURE, pas suppose. `_ability_state_from_config`
+    y rend donc le neutre `(100, None, None)` et le ctx sortait avec `active_ability_level = None`,
+    c.-a-d. l'INDEX 0 de chaque tableau de variables : le niveau **1** a la place du **55** que
+    l'entite porte. C'est le gisement de #174 (MoW) et de #570-r5 (unites invoquees), sur un
+    TROISIEME porteur ; les trois partagent la meme cause -- un canal `unitConfig` absent -- et la
+    meme parade : lire l'`AbilityState`, qui est de toute facon ce que
+    `IdunBattle.Configuration.AbilityConfiguration$$GetVariableForLevel(config, var, abilityState, 0)`
+    consomme REELLEMENT.
+    MESURE (`deathBossMortarion` palier 4, board `GB_Mortarion_05`) : les trois vagues de
+    `1093 MortarionsPlagueWind` sortaient a **45 / 65 / 120** contre **3080 / 4448 / 8211** live --
+    l'ecart EST cet index.
+
+    ⚠ **RIEN N'EST DEVINE, et le desaccord rend `None`.** Le port ne dispose que d'UN
+    `active_ability_level` par unite, la ou le natif porte un `AbilityState` par ABILITY : cette
+    fonction ne peut donc rendre un scalaire que si toutes les entrees concernees s'ACCORDENT. Si
+    deux actives de la meme unite portaient des niveaux differents, on rend `None` (non mesure) --
+    jamais l'une des deux. Meme regle pour le multiplicateur, et meme regle sur l'axe PASSIF.
+    Sur le porteur mesure, les trois actives portent `(55, 200)` a l'identique."""
+    rows = [a for a in ((su or {}).get("abilityStates") or []) if isinstance(a, dict)]
+    if not rows:
+        return (None, None, None)
+
+    def _uniq(vals):
+        """La valeur COMMUNE d'un axe, ou `None` des qu'il y a desaccord ou aucune mesure."""
+        s = {int(v) for v in vals if v is not None}
+        return s.pop() if len(s) == 1 else None
+
+    actives = [a for a in rows if a.get("kind") == "active"]
+    passives = [a for a in rows if a.get("kind") in ("passive", "triggered")]
+    return (_uniq(a.get("multiplier") for a in rows),
+            _uniq(a.get("level") for a in passives),
+            _uniq(a.get("level") for a in actives))
+
+
+def _ability_state_with_rows(from_config: tuple, su) -> tuple:
+    """`from_config` COMBLE, champ par champ, par `_ability_state_from_rows` -- et **seulement la ou
+    le trou existe**, exactement la garde de `_ability_state_with_channel` ci-dessous (« on n'ecrit
+    QUE si le trou existe, donc jamais par-dessus une valeur mesuree »).
+
+    Le multiplicateur est comble sur son NEUTRE (`100`), qui est ce que rend
+    `_ability_state_from_config` faute de `unitConfig` -- donc un `100` mesure sur une unite normale
+    n'est jamais ecrase par le canal (elle a un `unitConfig`, et son propre 100 y est deja)."""
+    mult, passive_level, active_level = from_config
+    r_mult, r_passive, r_active = _ability_state_from_rows(su)
+    return ((r_mult if (mult is None or mult == 100) and r_mult is not None else mult),
+            passive_level if passive_level else r_passive,
+            active_level if active_level else r_active)
+
+
 def _ability_state_with_channel(from_config: tuple, from_channel) -> tuple:
     """`(multiplier, passiveAbilityLevel, activeAbilityLevel)` du `unitConfig`, COMBLE par
     l'`AbilityState` PAR INSTANCE du canal `unitAbilityStates` quand le `unitConfig` n'en a pas.
@@ -2071,8 +2128,13 @@ def _load_stats_and_effects(state: State, decision: dict, snapshot: dict,
         if su.get("entityId") is None or su.get("entityType") == _ENTITY_TYPE_MACHINE:
             continue
         _eid = int(su["entityId"])
+        # #888 : `_ability_state_with_rows` d'ABORD (l'`AbilityState` per-ability de CETTE ligne de
+        # snapshot, seul canal d'un GUILD BOSS), puis le comblement `unitAbilityStates` qui, lui, ne
+        # porte que l'axe PASSIF. Les deux ne s'ecrivent que dans un TROU -- l'ordre n'est donc pas
+        # un arbitrage, mais il place la source la plus SPECIFIQUE (per-ability) en premier.
         abstate_by_id[_eid] = _ability_state_with_channel(
-            _ability_state_from_config(su.get("unitConfig")), chan_abstate.get(_eid))
+            _ability_state_with_rows(_ability_state_from_config(su.get("unitConfig")), su),
+            chan_abstate.get(_eid))
     for _m in _machine_rows(decision):
         # MoW : `unitConfig` est en erreur sur une ligne Machine — le SEUL canal est l'`AbilityState`
         # per-ability (cf. `_machine_ability_state`). Une MoW POSE des effets sur des unités
@@ -2147,6 +2209,18 @@ def _load_stats_and_effects(state: State, decision: dict, snapshot: dict,
         # rend la divergence structurellement impossible.
         if _eablvl and not getattr(ctx, "passive_ability_level", None):
             ctx.passive_ability_level = int(_eablvl)
+            ctx.ability_variables_multiplier = int(_emult)
+        # #888 -- LE MEME COMBLEMENT, SUR L'AXE **ACTIF**. Le bloc `unitConfig` ci-dessus ne s'ouvre
+        # que si `abilityVariablesMultiplier` existe ; un GUILD BOSS n'a AUCUN `unitConfig`
+        # (`{"error": "config null"}`, mesure) et repartait donc avec `active_ability_level = None`
+        # = index 0 = niveau 1. `_carrier` porte desormais l'`AbilityState` per-ability de la ligne
+        # de snapshot (`_ability_state_with_rows`) : on le pose ICI, sous la MEME garde que ses deux
+        # jumeaux -- « seulement si le trou existe », donc jamais par-dessus une valeur mesuree.
+        # ⚠ On relit `_carrier`, PAS le canal (meme raison que le bloc ci-dessus : `abstate_by_id`
+        # bake l'`AbilityState` dans les effets, un ecart entre les deux serait SILENCIEUX).
+        if _eactive and not getattr(ctx, "active_ability_level", None):
+            ctx.active_ability_level = int(_eactive)
+        if _emult and int(getattr(ctx, "ability_variables_multiplier", 100) or 100) == 100:
             ctx.ability_variables_multiplier = int(_emult)
         ent = state.get_entity(eid)
         if ent is not None:
