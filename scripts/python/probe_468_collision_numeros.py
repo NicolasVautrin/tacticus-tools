@@ -1004,11 +1004,12 @@ RE_PARENT_SUR = re.compile(r"^[0-9a-z]+$")
 def _chemin_git_commun() -> Path:
     """Le `.git` PARTAGE par tous les worktrees de ce depot.
 
-    MESURE (2026-08-11) : `git rev-parse --git-common-dir` rend le meme chemin absolu
-    (`C:/Users/nicolasv/tacticus-tools/.git`) depuis l'arbre principal ET depuis chacun des 32
-    worktrees d'agents. C'est ce que garantit un worktree LIE -- le `.git` d'un worktree est un
-    fichier qui pointe vers le repertoire commun -- donc ce n'est pas une propriete de notre
-    installation, c'est la definition.
+    MESURE (2026-08-11) : `git rev-parse --git-common-dir` rend le meme chemin absolu -- le `.git`
+    de l'arbre PRINCIPAL -- depuis l'arbre principal ET depuis chacun des 32 worktrees d'agents.
+    C'est ce que garantit un worktree LIE -- le `.git` d'un worktree est un fichier qui pointe vers
+    le repertoire commun -- donc ce n'est pas une propriete de notre installation, c'est la
+    definition. (La VALEUR de ce chemin ne s'ecrit pas ici : `probe_273` etape 0b balaie le TEXTE,
+    docstrings comprises, et un chemin absolu ecrit en prose est une invitation a le recopier.)
 
     La forme RELATIVE (`.git`, rendue depuis l'arbre principal par les git anciens) est resolue
     contre `REPO` : on n'exige pas `--path-format=absolute`, qui daterait la compatibilite a

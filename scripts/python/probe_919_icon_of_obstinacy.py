@@ -37,6 +37,11 @@ import uuid
 from pathlib import Path
 
 PYDIR = Path(__file__).resolve().parent
+#: Les sorties de run vont sous le `logs/` de la RACINE du depot, pas sous `scripts/python/logs/`
+#: (#935) : `probe_273` ne reconnait comme SORTIE que les racines de premier niveau
+#: (`_OUTPUT_ROOTS = {"logs", "app"}`), donc un `PYDIR / "logs"` y est compte comme une ENTREE
+#: gitignoree lue depuis la racine -- etape 1 ROUGE.
+LOGS = Path(__file__).resolve().parents[2] / "logs"
 sys.path.insert(0, str(PYDIR))
 
 import catalog_inject                                            # noqa: E402
@@ -361,7 +366,7 @@ def main() -> int:
     a = ap.parse_args()
 
     global STATE
-    STATE = Path(a.state_file) if a.state_file else (PYDIR / "logs" / "st-919.json")
+    STATE = Path(a.state_file) if a.state_file else (LOGS / "st-919.json")
 
     etage0()
     etage1()
