@@ -638,6 +638,13 @@ ABILITY_ATTACK_TYPE: dict[int, int] = {
     # `PerformAIAction`, donc par LEUR propre ability), et aucune n'a de `damageProfile` au gameconfig.
     ActiveAbilityType.ReanimationBeam: AbilityAttackType.Others,  # 1223
     ActiveAbilityType.NanoscarabRepairProtocols: AbilityAttackType.Others,  # 1224
+    # Heal_TwistedScience (1167, `genesBiophagus` "Hollan") -- l'active que le passif
+    # `TwistedScience` SUBSTITUE au `18 Heal` du trait `Healer` (#931). Litteral RELU sur son ctor :
+    # `IdunBattleLogic.Entities.Abilities.Active.Loki.TwistedScience_HealAbility$$.ctor` finit par
+    # `AActiveAbility..ctor(this, &opts, 2)` -> 3e argument = 2 = Others. Coherent : l'arbre de son
+    # `$$ExecuteBehaviour` ne contient AUCUN noeud d'attaque (`Heal` + `AddDynamicStatModifierEffect`
+    # + `ChangeStat` + `AddEffect`), et 1167 n'a AUCUNE entree gameconfig, donc aucun `damageProfile`.
+    ActiveAbilityType.Heal_TwistedScience: AbilityAttackType.Others,  # 1167
     # Doombolt (1102, Ahriman thousAhriman), case-psychic-aoe. Litteral RELU :
     # `IdunBattleLogic.Entities.Abilities.Active.Loki.DoomboltAbility$$.ctor` =
     # `AActiveAbility..ctor(this, &opts, 2, 0)` -> 3e argument = 2 = Others. Coherent avec la nature

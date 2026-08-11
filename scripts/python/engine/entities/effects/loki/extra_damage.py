@@ -132,6 +132,59 @@ class PrioritisedEfficiencyExtraDmgEffect(BaseEffect):
         return for_percent_increase(True, pct) if pct else None
 
 
+class TwistedScienceExtraDmgEffect(BaseEffect):
+    """`IdunBattle.Entities.Effects.Loki.TwistedScience_ExtraDmgEffect$$CreateEffectDamageBonusForAttack`
+    (effet `EffectType.TwistedScience_ExtraDmg` = 0x54c = 1356) -- MIRROR du decompile :
+
+        return EffectBonus.ForAddition( DSLTriggers.get_OwnerIsCaster,
+                                        DSLFormulas.ConfigVar(8 = extraDmg,
+                                                              BaseEffect.GetAbilityState(this),
+                                                              <config @effet+0x60>) )
+
+    Le porteur (`genesBiophagus` "Hollan", passif `TwistedScience` 1278) pose cet effet sur la cible
+    de son soin QUAND elle est de faction `Genestealers` -- cf.
+    `IdunBattleLogic.Entities.Abilities.Active.Loki.TwistedScience_HealAbility$$ExecuteBehaviour`,
+    dont le volet `If(HasFaction(Target@+0x60, 15 Genestealers, 3), AddEffect(0x54c, ...))` en est
+    le SEUL poseur du build.
+
+    GATE = `get_OwnerIsCaster` **SEUL** -- lu, jamais deduit d'un voisin. Ni `IsNormalAttack`
+    (contraste `SmashaEad` / `FeederTendrils`, dont le `if is_prediction: return None` vient de la),
+    ni `IsMeleeAttack` / `IsRangedAttack`, ni `CreateTargetSelector`, ni `CreateActiveCondition` :
+    aucun de ces symboles n'existe pour cette classe (methods.tsv ne lui declare que
+    `CreateEffectDamageBonusForAttack` et `.ctor`), et l'i2 le corrobore --
+    `UnitEffects/TwistedScience_ExtraDmg_Description` = "Deals +{[extraDmg]} Damage **with all
+    attacks**". Le bonus vaut donc pour TOUTE attaque du porteur, y compris en PREDICTION :
+    recopier le gate `is_prediction` de ses voisins de module serait la faute inverse. JUMEAU
+    EXACT, corps pour corps, de `PrimarchOfTheFirstLegionExtraDamageEffect` ci-dessous.
+
+    MAGNITUDE = `ConfigVar` var index **8 = `extraDmg`** (`AbilityVariableType.extraDmg`), lue dans
+    la config de **`TwistedScience`** -- l'entree gameconfig du PASSIF 1278 ; l'active 1167
+    `Heal_TwistedScience` n'a AUCUNE entree gameconfig. `variablesAffectedByRarityBonus = ["hp",
+    "extraDmg"]` -> le multiplicateur de rarete s'applique. `ForAddition` -> canal `additive @+0x10`
+    de `IdunBattle.Core.Services.DamageModifiers$$Add`, applique APRES percage/armure.
+
+    RESIDU HERITE (meme forme que `PrimarchOfTheFirstLegion`, bug #68) : le natif resout son
+    `ConfigVar` contre l'`AbilityState` que l'effet PORTE -- celui que
+    `AddEffect(0x54c, abilityState = AActiveAbility.AbilityStateReference, ...)` lui a passe, donc
+    l'etat d'ability du CASTER (Hollan). Cote port, `AddEffect(scale_from_source=True)` propage bien
+    niveau + multiplicateur de la SOURCE au moment de la pose ; un effet arrive par `load_state`
+    (canal live) retombe en revanche sur les champs de l'unite PORTEUSE. Sur le regime confronte
+    (rank uniforme) les deux coincident."""
+
+    def create_effect_damage_bonus_for_attack(self, is_ranged: bool | None = None,
+                                              has_moved: bool | None = None,
+                                              target_traits: "frozenset[str] | None" = None,
+                                              is_prediction: bool = False,
+                                              is_normal_attack: bool | None = True,
+                                              target_armor_reduced: bool | None = None,
+                                              att_ctx=None) -> EffectBonus | None:
+        lvl = (self.active_ability_level if self.active_ability_level is not None
+               else (self.ability_level if self.ability_level is not None else self.level))
+        amt = ability_var("TwistedScience", "extraDmg", lvl,
+                          multiplier_pct=self.ability_variables_multiplier)
+        return for_addition(True, amt) if amt is not None else None
+
+
 class PrimarchOfTheFirstLegionExtraDamageEffect(BaseEffect):
     """`IdunBattle.Entities.Effects.Loki.PrimarchOfTheFirstLegion_ExtraDmgEffect$$
     CreateEffectDamageBonusForAttack` (effet `EffectType` 0x5f3 = 1523) -- MIRROR du decompile :

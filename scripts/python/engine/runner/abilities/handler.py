@@ -55,7 +55,8 @@ from .loki import (ThunderousAssaultAbility, ScarabHiveAbility,
                    UnstoppableMomentumReworkedAbility, FoulInfusionAbility,
                    MightFromBelowAbility, LeadingTheChargeAbility, MindControlAbility,
                    AttemptedPossessionAbility)
-from .genestealer import CultDemagogueAbility, HeroicFusilladeAbility, VigilanceEternalAbility
+from .genestealer import (CultDemagogueAbility, HeroicFusilladeAbility, VigilanceEternalAbility,
+                          TwistedScience_HealAbility)
 from .deathguard import (RevitalizingMalignancyAbility, FlailSwingAbility, SpawnPoxwalkersAbility,
                          EntropyCannonsAbility, PlagueburstMortarAbility, PlagueWindAbility,
                          MortarionsPlagueWindAbility, ReapingScytheAbility)
@@ -150,6 +151,7 @@ ABILITY_CLASSES: dict[int, type[ActiveAbility]] = {
     GauntletsOfUltramarAbility.ABILITY_TYPE: GauntletsOfUltramarAbility,  # 1000 (ultraCalgar : AoE 2 bandes adjacent 2 coups + surrounding r=2 Unobscured 1 coup, case-220 P0-DAMAGE)
     AberrantHypermorphAbility.ABILITY_TYPE: AberrantHypermorphAbility,  # 1166 (Biophagus genesBiophagus : summon genesSmnAberrant tile-target hex libre adjacent + attaque a l'apparition, case-220 P0)
     VigilanceEternalAbility.ABILITY_TYPE: VigilanceEternalAbility,     # 1202 (Tyrith custoKyrus : charge gap-close + attaque melee Power mono-cible 3 hits, #220)
+    TwistedScience_HealAbility.ABILITY_TYPE: TwistedScience_HealAbility,  # 1167 (`genesBiophagus` "Hollan" GenestealerCults HERO -- l'active que le PASSIF `TwistedScience` (1278) SUBSTITUE au `18 Heal` du trait `Healer` (`...TwistedScienceAbility$$CreateBehaviour` = `RemoveActiveAbility(Owner, 18) & AddActiveAbility(Owner, 1167, abilityState)`, sur `On(AbilityInit) & OwnerIsActor`). `Execute( If( NOT HasEffect(Target, 1355 TwistedScience_ExtraHp, onlyActive=false, Both) AND NOT OwnerIsTarget, AddDynamicStatModifierEffect(Target, source=Owner, 1355, StatType.Health, AbilityStateReference, turns=null) + ChangeStat(Target, Health, Add, ConfigVar(TwistedScience, Owner, hp)) + If( HasFaction(Target, Genestealers, OnlyAliveAndTargetable), AddEffect(1356 TwistedScience_ExtraDmg, AbilityStateReference, source=Owner, Target, PERMANENT) ) ) + Heal(Caster, Target, HealAbility.HealAmount(dsl), ForHeal()) )` -- le SOIN est hors du `If`, donc inconditionnel ; masque 0x8402 = TargetMatchesDynamicRule|TargetIsFriendly|CasterIsPossibleTarget, range `TargetingRange` statics+0x00 = RANGE_ADJACENT_IF_MELEE_CASTER ; regle dynamique NEUVE (une cible alliee NON marquee est valide MEME a PV pleins) ; #931)
     CordClawAbility.ABILITY_TYPE: CordClawAbility,                     # 1122 (Exitor-Rho admecRuststalker : 4x DirectDamage melee + self-buff coups additionnels 2 tours, case-220)
     RevitalizingMalignancyAbility.ABILITY_TYPE: RevitalizingMalignancyAbility,  # 1037 (deathRotbone : heal self+allies adj non-Imperial, split trait Chaos regular/chaos-cumul, case-220)
     FlailSwingAbility.ABILITY_TYPE: FlailSwingAbility,                 # 1042 (deathBlightlord DeathGuard : 3x Power melee mono-cible + InformWeapon no-op ; residu overkill flag, case-220)

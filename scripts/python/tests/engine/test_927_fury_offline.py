@@ -34,7 +34,15 @@ from engine.entities.triggered_ability_type import TriggeredAbilityType   # noqa
 from engine.runner.operations.triggers.dispatch.registry import ABILITY_TRIGGERS   # noqa: E402
 from engine.runner.operations.triggers.loki import fury_of_the_ancients as F       # noqa: E402
 
-BUILD_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "..", "..", "data", "symbols")
+#: ⚠ `normpath` N'EST PAS COSMETIQUE (#931) : le capteur d'empreinte de `probe_457` enregistre le
+#: chemin TEL QU'OUVERT, et `probe_486r15` le confronte au `DECLENCHEUR` sous forme RELATIVE A LA
+#: RACINE. Sans lui, le temoin s'inscrit
+#: `scripts/python/tests/engine/../../../../data/symbols/<build>/frida/methods.tsv`, que le
+#: `data/symbols/**` ajoute par `build: True` ne peut pas apparier -> `DECLARE TROP ETROIT`.
+#: Le defaut est INVISIBLE tant que l'empreinte de ce fichier n'est pas mesuree, et c'est en la
+#: mesurant (ordre #486-r29) qu'il est apparu.
+BUILD_DIR = os.path.normpath(
+    os.path.join(os.path.dirname(__file__), "..", "..", "..", "..", "data", "symbols"))
 
 #: Ce qui doit changer pour que ce FICHIER de test puisse changer de verdict (#486-r15).
 DECLENCHEUR = {

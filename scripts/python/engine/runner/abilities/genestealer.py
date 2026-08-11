@@ -23,14 +23,18 @@ import gameconfig as GC
 from ...dsl.base import resolve_unit, Const
 from ...dsl.effects import AbilityBehaviour, OperationResult, ExecutionContext
 from ...entities.behaviours import op_add, op_and, If
-from ...entities.selectors.accessors import FixedTiles, Target, TargetTile
+from ...entities.selectors.accessors import FixedTiles, Owner, Target, TargetTile
 from ...entities.selectors.geometry import UnitsWithId
 from ...entities.selectors.tiles import Caster
 from ...entities.selectors.units import Alive, SurroundingEnemies, Union
-from ...entities.triggers import Not, IsAlive, IsSurrounding, IsAdjacent, TriggerAnd
+from ...entities.triggers import (Not, IsAlive, IsSurrounding, IsAdjacent, TriggerAnd,
+                                  HasEffect, HasFaction, OwnerIsTarget)
 from ...entities.traits.unit_trait import UnitTrait, has_trait
 from ...entities.ability_constant_type import AbilityConstantType   # #270-r1-r1-r3
+from ...entities.ability_variable_type import AbilityVariableType   # #931
 from ...entities.active_ability_type import ActiveAbilityType
+from ...entities.effect_type import EffectType
+from ...entities.unit_faction import UnitFaction
 from ...entities.stats import StatType
 from ...entities.effects.magnitude import ability_var
 from ...services.movement_query import get_movable_tiles_for, get_min_distance
@@ -39,16 +43,22 @@ from ...utilities.tile import first_tile_by_utility
 from ...utilities.utility_type import UtilityType
 from ..components import (OwnerComponent, PositionComponent, UnitComponent, StatsComponent,
                           get_unit_feet)   # `EntityExtensions$$GetTiles` (#287-r11-r1)
+from ..components import has_effect_of_type                          # #931
 from ..operations.spawn import spawn_decoy, _spawn_config_grot
+from ...predict import heal_amount_weapon                            # #931 (`HealAbility$$HealAmount`)
 from .base import ActiveAbility
-from .targeting import (RANGE_FROM_CONFIG, RANGE_WHOLE_BOARD, RANGED_BOOL_FALSE, TargetingOptions,
-                        are_entities_adjacent, charge_tiles_count, entity_tiles)
+from .attack_query import entity_can_be_healed, is_affected_by_heal_type   # #931
+from .targeting import (RANGE_ADJACENT_IF_MELEE_CASTER, RANGE_FROM_CONFIG, RANGE_WHOLE_BOARD,
+                        RANGED_BOOL_FALSE, RANGED_BOOL_IF_RANGED_CASTER, TargetingOptions,
+                        are_entities_adjacent, charge_tiles_count, entity_tiles,
+                        units_are_enemies)
 from .targeting_rule import TargetingRule as TR
 from .behaviours.ai_control import PerformAIAction
 from .behaviours.combat import AttackWithAttackDamage
 from .behaviours.context import LiveUnit, entities_from_state
+from .behaviours.effects import AddDynamicStatModifierEffect, AddEffect   # #931
 from .behaviours.movement import MoveUnit
-from .behaviours.stats import ChangeStat
+from .behaviours.stats import ChangeStat, Heal
 
 from .loki import _pick_randomly_n
 
@@ -963,3 +973,317 @@ class VigilanceEternalAbility(ActiveAbility):
         atk = next((p for n, p in ectx.emitted if n == "AttackWithAttackDamage"), None)
         return {"ability": "VigilanceEternal", "caster": caster_id, "target": target_id,
                 "move": moved, "attack": atk, "dsl": True}
+
+
+# ===================================================================================================
+# genesBiophagus "Hollan" -- le passif `TwistedScience` (1278) et l'active qu'il SUBSTITUE      #931 #
+# ===================================================================================================
+#
+# CINQ FACES natives, etablies au decompile (jamais deduites d'une colonne d'audit) :
+#
+#  [F1] `IdunBattleLogic.Entities.Abilities.Triggered.Loki.TwistedScienceAbility` -- le PASSIF
+#       (`TriggeredAbilityType.TwistedScience` = 0x4fe = 1278) :
+#         `$$CreateTrigger`   = corps PARTAGE (ICF), voir plus bas -- `DSLTriggers@+0x30` =
+#                               `On(0x21 = AbilityInit) & <trigger @DSLTriggers+0x70> & OwnerIsActor` ;
+#         `$$CreateBehaviour` = `RemoveActiveAbility(Owner@DSLSelectors+0x30, 0x12 = ActiveAbilityType.Heal)
+#                                op_BitwiseAnd
+#                                AddActiveAbility(Owner@+0x30, 0x48f = ActiveAbilityType.Heal_TwistedScience,
+#                                                 abilityState)`
+#       -> a l'init, le soin GENERIQUE que le trait `Healer` accorde est REMPLACE par 1167, et
+#       l'`AbilityState` transmis est celui du PASSIF (c'est ce qui fait que 1167 s'indexe sur le
+#       niveau de `TwistedScience`, jamais sur une entree gameconfig `Heal_TwistedScience` -- il n'y
+#       en a AUCUNE). NON PORTE, et le verdict est mesure : cf. `docs/rl/case-931-twisted-science.md`
+#       -- le runner ne rejoue pas `AbilityInit`, il charge un etat ou le natif a DEJA fait le swap.
+#
+#  [F2] `IdunBattleLogic.Entities.Abilities.Active.Loki.TwistedScience_HealAbility` (1167) --
+#       PORTEE ICI (`$$.ctor`, `$$GetDynamicInvalidTargetReason`, `$$ExecuteBehaviour`).
+#
+#  [F3] `IdunBattle.Entities.Effects.Loki.TwistedScience_ExtraDmgEffect` (1356) -- PORTEE dans
+#       `entities/effects/loki/extra_damage.py` (`TwistedScienceExtraDmgEffect`).
+#
+#  [F4] `EffectType.TwistedScience_ExtraHp` (1355) -- AUCUNE classe native dediee : c'est le
+#       `DynamicStatModifierEffect` GENERIQUE qu'`AddDynamicStatModifierEffect` materialise sur
+#       `StatType.Health`. Sa POSE est portee (elle est le gate de non-repose, cf. [F2] et la face
+#       DECISION) ; son +maxHP ne l'est pas -- residu #572-r1, meme arbitrage que 1546 de #902.
+#
+#  [F5] `IdunBattle.AI.Playbook.Loki.TwistedScience_HealPlaybook` -- face DECISION, DEJA PORTEE
+#       (`engine/playbook/common.py::TwistedScience_HealPlaybook` ; utilite +100 / +100 Genestealers,
+#       `ShouldExecute = utility > 0` sans la clause boss du 18 generique).
+#
+# AUCUNE face DEAD dans le moteur. La seule morte du kit est le VISUEL du passif
+# (`IdunBattle.View.AbilityConfigs.Loki.TwistedScienceVisuals$$ExecuteInternal` alloue son itérateur
+# `<ExecuteInternal>d__3` et le rend ; le `MoveNext` de cet itérateur n'a AUCUNE entree propre dans
+# les deux tables = corps fondu par l'ICF avec un `MoveNext` trivial -> aucune etape visuelle), et
+# elle vit cote VIEW, hors moteur.
+#
+# ⚠ COMMENT `$$CreateTrigger` A ETE LU, alors qu'il n'apparait dans AUCUNE table. Les deux tables
+# (`frida/methods.tsv`, `ghidra/functions.tsv`) sont DEDUPLIQUEES par adresse : elles n'attribuent un
+# corps partage qu'a UN proprietaire. La table `methodPointers` du PE, elle, porte UNE ENTREE PAR
+# PROPRIETAIRE et les range par classe : les xrefs DATA de `TwistedScienceAbility$$CreateBehaviour`
+# donnent sa position, et ses voisins immediats sont les autres methodes de la MEME classe --
+# `[.., SummaryExecutionAddBaseEffectAbility$$CreateTrigger, TwistedScienceAbility$$CreateBehaviour,
+# RequiredByNativeCodeAttribute$$.ctor, UnbridledCarnageReworkedAbility$$CreateTrigger, ..]`. Le
+# premier voisin EST le `CreateTrigger` de `TwistedScienceAbility` (corps ICF, **58 xrefs DATA**,
+# donc 58 abilities sans rapport partagent cet accesseur), le troisieme son `.ctor` trivial. Son
+# corps : `return this@+0x28 /* dsl */ -> +0x88 /* DSLTriggers */ -> +0x30`, et
+# `IdunBattleLogic.Entities.DSLTriggers$$InitializeShared` ECRIT ce champ `+0x30` =
+# `On(0x21) & <+0x70> & get_OwnerIsActor`. Conclure "pas de CreateTrigger" de l'absence en table
+# aurait ete un faux negatif.
+
+#: Cle gameconfig du PASSIF, et le SEUL endroit ou vivent `hp` et `extraDmg` de cette mecanique.
+#: `Heal_TwistedScience` (1167) n'a AUCUNE entree dans `units.abilities` -> `ABILITY_ID = None` sur
+#: la classe (cf. `RepairAbility`, meme situation d'ability DERIVEE).
+TWISTED_SCIENCE_ID = "TwistedScience"
+#: `EffectType.TwistedScience_ExtraHp` -- le stat-mod HEALTH pose sur la cible, et le MARQUEUR que
+#: `$$ExecuteBehaviour` et `$$GetDynamicInvalidTargetReason` testent tous deux ("Affected units
+#: cannot gain the effects of Twisted Science again").
+TWISTED_SCIENCE_EXTRA_HP = int(EffectType.TwistedScience_ExtraHp)      # 0x54b = 1355
+#: `EffectType.TwistedScience_ExtraDmg` -- le +extraDmg additif, pose seulement si la cible est de
+#: faction `Genestealers`.
+TWISTED_SCIENCE_EXTRA_DMG = int(EffectType.TwistedScience_ExtraDmg)    # 0x54c = 1356
+#: Cle de source du `ChangeStat` de PV COURANTS. La branche HEALTH de la feuille mute
+#: `HealthComponent.hp` directement (stat FILL-UP) et ne la relit pas ; elle reste NOMMEE pour la
+#: tracabilite -- meme convention que `_NRP_HEAL_SOURCE` (#902, MEME patron statmod + ChangeStat).
+_TS_HEAL_SOURCE = "TwistedScience:hpFill"
+
+
+def twisted_science_extra_hp(state: "State", caster_id: int) -> int:
+    """`DSLFormulas.ConfigVar(0x4fe = TriggeredAbilityType.TwistedScience, Owner@DSLSelectors+0x30,
+    0x1d = AbilityVariableType.hp)` -- la surcharge TROIS arguments
+    `ConfigVar(abilityType:TriggeredAbilityType, unit:ITargetsSelector, variableType)`, qui construit
+    un `IdunBattle.Entities.Formulas.ConfigAmount(abilityType, abilitiesDatabase, unit, variableType)`.
+
+    ⚠ LA SURCHARGE EST CE QUI TRANCHE LA SOURCE DU NIVEAU. Celle-ci resout la config du PASSIF
+    (`TriggeredAbilityType` 1278) sur l'UNITE designee -> niveau PASSIF du porteur, pas l'`AbilityState`
+    de l'active castee. Les deux autres surcharges de `ConfigVar` prennent un `AbilityState` ou un
+    `IAbilityStateSelector` et donneraient le niveau de l'ACTIVE -- ici 1167, qui n'a aucune config.
+    D'ou `ctx.passive_ability_level`, exactement comme `galvanic_override_amount`
+    (`abilities/repair.py`) le fait pour `GalvanicField`.
+
+    COLLAPSE V assume : le noeud est resolu en scalaire ici, la feuille l'accepte tel quel.
+    `hp` est dans `variablesAffectedByRarityBonus` -> le multiplicateur s'applique. Pas de `ctx` /
+    config illisible -> `0` (aucune valeur inventee)."""
+    e = state.get_entity(int(caster_id)) if caster_id is not None else None
+    sc = e.get_component(StatsComponent) if e is not None else None
+    ctx = getattr(sc, "ctx", None)
+    if ctx is None:
+        return 0
+    lvl = getattr(ctx, "passive_ability_level", None)
+    if lvl is None:
+        lvl = getattr(ctx, "active_ability_level", None)
+    mult = int(getattr(ctx, "ability_variables_multiplier", 100) or 100)
+    return int(ability_var(TWISTED_SCIENCE_ID, AbilityVariableType.hp.name, lvl,
+                           multiplier_pct=mult) or 0)
+
+
+def twisted_science_heal_amount(state: "State", caster_id: int) -> int:
+    """`IdunBattleLogic.Entities.Abilities.Active.Common.HealAbility$$HealAmount(dsl)` =
+
+        Multiply( StatAmount(Caster@DSLSelectors+0x48, 0 = ATTACK, 0 = Current),
+                  Max( WeaponHighestHits(Caster@+0x48), Get(1) ) )
+
+    -- l'arbre IDENTIQUE, feuille pour feuille, a `RepairAbility$$RepairAmount` (`abilities/repair.py`).
+    `TwistedScience_HealAbility$$ExecuteBehaviour` l'appelle en PREMIER et passe son resultat au
+    `DSLBehaviors$$Heal` final : le soin de 1167 est donc le soin GENERIQUE, l'ability n'ajoutant
+    que le bloc de buffs.
+
+    COLLAPSE V assume (doctrine slice-23) : les trois feuilles se resolvent en deux lectures du
+    `UnitContext` du caster, et le produit vit deja dans `engine.predict.heal_amount_weapon` -- LA
+    seule lecture de cette formule dans le moteur, deja confrontee live cote DECISION (#45c). On
+    l'appelle, on ne la duplique pas. Sans `ctx` -> `0`."""
+    e = state.get_entity(int(caster_id)) if caster_id is not None else None
+    sc = e.get_component(StatsComponent) if e is not None else None
+    ctx = getattr(sc, "ctx", None)
+    if ctx is None:
+        return 0
+    return int(heal_amount_weapon(int(ctx.stat(StatType.ATTACK)),
+                                  int(getattr(ctx, "normal_weapon_hits", 1) or 1)))
+
+
+def twisted_science_heal_tree(state: "State", caster_id: int) -> AbilityBehaviour:
+    """L'arbre de `IdunBattleLogic.Entities.Abilities.Active.Loki.TwistedScience_HealAbility$$ExecuteBehaviour`
+    -- MIRROR du decompile, feuille par feuille et dans SON ordre :
+
+        healAmount = HealAbility.HealAmount(dsl)
+        hasExtraHp = DSLTriggers.HasEffect(Target@+0x60, 0x54b = TwistedScience_ExtraHp,
+                                           onlyActive = false, targetType = 6 = Both)
+        hpVar      = DSLFormulas.ConfigVar(0x4fe = TwistedScience, Owner@+0x30, 0x1d = hp)
+        statMod    = DSLBehaviors.AddDynamicStatModifierEffect(targets = Target@+0x60,
+                        source = Owner@+0x30, effectType = 0x54b, statType = 5 = Health,
+                        abilityStateSelector = AActiveAbility.AbilityStateReference,
+                        turns = null, isHidden = false)
+        addDmg     = DSLBehaviors.AddEffect(0x54c = TwistedScience_ExtraDmg,
+                        abilityState = AbilityStateReference, source = Owner@+0x30,
+                        targets = Target@+0x60, options = default(0) -> PERMANENT)
+        isGS       = DSLTriggers.HasFaction(Target@+0x60, 0xf = UnitFaction.Genestealers,
+                                            selectionType = 3 = OnlyAliveAndTargetable)
+        addHp      = DSLBehaviors.ChangeStat(targets = Target@+0x60, stat = Stat(5 = Health),
+                        mode = 2 = Add, amount = hpVar, modificationEntity = null,
+                        selectionType = 3, isModifiable / isHiddenModification = false)
+        cond       = NOT(hasExtraHp) op_BitwiseAnd NOT(DSLTriggers.get_OwnerIsTarget)
+        heal       = DSLBehaviors.Heal(healer = Caster@+0x48, selector = Target@+0x60, healAmount,
+                        HealBehaviourOptions.ForHeal())
+        Execute( If(cond, (statMod op_Addition addHp) op_Addition If(isGS, addDmg)) op_Addition heal )
+
+    ## Ce que la STRUCTURE dit, et que l'i2 seul ne dirait pas
+
+    * le SOIN est INCONDITIONNEL -- il est le second terme du `op_Addition` FINAL, hors du `If`.
+      Une cible deja marquee, ou le caster lui-meme, est soignee sans recevoir aucun buff ;
+    * le bloc de buffs est gate par DEUX termes, tous deux nies : `!HasEffect(1355)` ("Affected
+      units cannot gain the effects of Twisted Science again") et `!OwnerIsTarget` ("Units healed
+      by Hollan, **other than himself**") ;
+    * `AddDynamicStatModifierEffect` (max HP) precede `ChangeStat` (PV courants) : le natif releve
+      le plafond AVANT de remplir, ce qui rend son clamp inerte. Cote port `HealthComponent.hp_max`
+      est un champ FIGE que les stat-mods HEALTH ne relevent pas (#572-r1) -> la branche HEALTH de
+      `ChangeStat` ne clampe pas non plus, meme arbitrage qu'`UnbreakableDuty` (#572) et
+      `NanoscarabRepairProtocols` (#902), qui portent le MEME couple [statmod] + [ChangeStat] ;
+    * seul `AddEffect(1356)` est sous le gate de FACTION -- pas le +hp, qui va a n'importe quel
+      allie ("If they are a Genestealer Cults unit, they **also** deal +extraDmg").
+
+    ## Ecarts de forme ASSUMES (nommes, pas subis)
+
+    * `HasEffect` natif porte `targetType = 6 = Both` ; le trigger porte du port passe deja
+      `EffectTargetType.Both` en dur a `ctx.has_effect` -- meme valeur, non parametrable ;
+    * `onlyActive = false` est THREADE (`active_only=False`) : c'est ce qui fait que le gate voit
+      aussi une instance INACTIVE, comme le natif ;
+    * le `selectionType = 3` de `HasFaction` et de `ChangeStat` n'a pas de substrat cote port (le
+      trigger `HasFaction` prend la PREMIERE entite du selecteur, mirror de `SelectSingle`) ; sur un
+      cast MONO-CIBLE dont la cible est vivante et ciblable par construction (le gate de cible l'a
+      deja tranchee), les trois valeurs 0/1/3 coincident ;
+    * `isHidden` / `isModifiable` / `isHiddenModification` sont tous FAUX au natif -> rien a porter."""
+    extra_hp = twisted_science_extra_hp(state, caster_id)
+    heal_amt = twisted_science_heal_amount(state, caster_id)
+    # `turns = null` -> `duration_rounds=None` = aucun override de duree (`DefaultAmountOfRounds`).
+    stat_mod = AddDynamicStatModifierEffect(Target(), Owner(), TWISTED_SCIENCE_EXTRA_HP,
+                                            int(StatType.HEALTH),
+                                            name=EffectType.TwistedScience_ExtraHp.name,
+                                            duration_rounds=None)
+    add_hp = ChangeStat(Target(), int(StatType.HEALTH), "add", _TS_HEAL_SOURCE, extra_hp)
+    # `options = default(0)` -> aucun override de duree : l'effet de degat est PERMANENT ("until they
+    # are defeated"). `scale_from_source=True` = l'`AbilityStateReference` natif : la magnitude se lit
+    # au niveau/multiplicateur du CASTER, pas du buffe.
+    add_dmg = AddEffect(TWISTED_SCIENCE_EXTRA_DMG, EffectType.TwistedScience_ExtraDmg.name,
+                        Target(), duration_rounds=None, scale_from_source=True)
+    is_gs = HasFaction(Target(), int(UnitFaction.Genestealers))
+    cond = TriggerAnd(Not(HasEffect(Target(), TWISTED_SCIENCE_EXTRA_HP, active_only=False)),
+                      Not(OwnerIsTarget()))
+    buffs = op_add(op_add(stat_mod, add_hp), If(is_gs, add_dmg))
+    heal = Heal(Target(), heal_amt, guard=None, scope=0, remove_effects=True)   # `ForHeal()`
+    return op_add(If(cond, buffs), heal)
+
+
+class TwistedScience_HealAbility(ActiveAbility):
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.TwistedScience_HealAbility`
+    (`ActiveAbilityType.Heal_TwistedScience` = 0x48f = 1167) -- le soin de `genesBiophagus` "Hollan".
+
+    ⚠ LE NOM DE L'ENUM ET CELUI DE LA CLASSE SONT INVERSES dans le build (`Heal_TwistedScience` vs
+    `TwistedScience_HealAbility`) : chercher `TwistedScience_Heal` dans `ActiveAbilityType` ne rend
+    rien. Meme piege deja documente pour le playbook (`case-419-r1-tr14-r5-r2-r1-r1-r1-r3`).
+
+    Cette ability n'est PAS dans le kit gameconfig de l'unite : le passif `TwistedScience` la
+    SUBSTITUE au `18 Heal` que le trait `Healer` accorde ([F1] ci-dessus). Elle n'a donc AUCUNE
+    entree `units.abilities` -> `ABILITY_ID = None`, comme `RepairAbility` (28) et pour la meme
+    raison ; ses deux variables (`hp`, `extraDmg`) vivent dans la config du PASSIF.
+
+    ⚠ CE QUE CETTE ENTREE AU REGISTRE NE FAIT PAS : porter le `18 Heal` GENERIQUE. Il reste absent
+    d'`ABILITY_CLASSES` (comme `1212 HealingBalms_Heal`), donc un cast de 18 reste un no-op --
+    residu #931-r1. Le couple est l'exact symetrique de `28 Repair` / `1119 Repair_GalvanicField`
+    (#299), a ceci pres que la voie de specialisation est un SWAP DSL et non un heritage de classe :
+    `TwistedScience_HealAbility` derive de `AActiveAbility`, pas de `Common.HealAbility`."""
+    __slots__ = ()
+    ABILITY_TYPE = int(ActiveAbilityType.Heal_TwistedScience)   # 0x48f = 1167
+    ABILITY_ID = None
+
+    # `...TwistedScience_HealAbility$$.ctor` -- FORME 1 "FLAGS DIRECTS" (surcharge SEPT arguments
+    # `TargetingOptions..ctor(this, isSelfCasting, range, forceMeleeTarget, rules,
+    # getDynamicInvalidCasterReason, getDynamicInvalidTargetReason)`, celle qui ECRIT `rules` TEL
+    # QUEL a `options+0x28` -- ni preset combine, ni copie statique) :
+    #
+    #   TargetingOptions..ctor(&opts, 0, &<TargetingRange statics>+0x00, 2, 0x8402, 0, 0)
+    #     isSelfCasting    = 0
+    #     range            = `TargetingRange` statics+0x00 = RANGE_ADJACENT_IF_MELEE_CASTER
+    #                        (`onlyAdjacent = 3 = IfNotRangedCaster`, rien d'autre) -- LU dans
+    #                        `IdunBattle.Core.Services.TargetingRange$$.cctor`, ou le premier
+    #                        `TargetingRange` statique s'ecrit `*puVar1 = 3` puis deux qwords nuls.
+    #                        ⚠ CE N'EST PAS `RANGE_ADJACENT` (statics+0x30), celui de `RepairAbility` :
+    #                        Hollan porte une arme de melee, donc les deux coincident SUR LUI, mais
+    #                        les deux constantes sont distinctes et se lisent, pas se recopient.
+    #     forceMeleeTarget = 2 = RangedBool.IfRangedCaster
+    #     rules            = 0x8402
+    #   puis `AActiveAbility..ctor(this, &opts, 2)` -> `AbilityAttackType.Others`.
+    #
+    # Decomposition du masque (`IdunBattle.Core.Services.TargetingRule`, bit a bit, RESTE = 0) :
+    #     0x0002  TargetMatchesDynamicRule  -> tout le refus reel vit dans la regle DYNAMIQUE
+    #     0x0400  TargetIsFriendly          -> une cible ENNEMIE est refusee
+    #     0x8000  CasterIsPossibleTarget    -> Hollan PEUT se cibler lui-meme (et le natif le soigne
+    #                                          alors sans le buffer : c'est le `!OwnerIsTarget` de
+    #                                          l'arbre, pas un refus de ciblage)
+    TARGETING_OPTIONS = TargetingOptions(
+        rules=(TR.TargetMatchesDynamicRule | TR.TargetIsFriendly | TR.CasterIsPossibleTarget),
+        self_cast=False, range=RANGE_ADJACENT_IF_MELEE_CASTER,
+        force_melee_target=RANGED_BOOL_IF_RANGED_CASTER)
+
+    def execute_behaviour(self, state: "State", caster_id: int,
+                          target_id: Optional[int]) -> Optional[dict]:
+        if target_id is None:
+            return None
+        ents = entities_from_state(state, caster_id, int(target_id))
+        ectx = ExecutionContext(state=state, rng=state.rng)
+        twisted_science_heal_tree(state, caster_id).execute(ents, ectx)
+        posed = [{"target": p["target"], "effect_type": p["effect_type"], "placed": p["placed"]}
+                 for n, p in ectx.emitted if n in ("AddEffect", "AddDynamicStatModifierEffect")]
+        filled = next((p for n, p in ectx.emitted if n == "ChangeStat"), None)
+        healed = next((p for n, p in ectx.emitted if n == "Heal"), None)
+        return {"ability": "Heal_TwistedScience", "caster": caster_id, "target": target_id,
+                "extra_hp": twisted_science_extra_hp(state, caster_id),
+                "effects": posed, "hp_fill": filled, "heal": healed, "dsl": True}
+
+    def get_dynamic_invalid_target_reason(self, state: "State", caster_id: int,
+                                          target_id: Optional[int]) -> int:
+        """`...TwistedScience_HealAbility$$GetDynamicInvalidTargetReason` -- MIRROR verbatim :
+
+            if (!UnitExtensions.IsAffectedByHealType(target, 0 = NonMechanical))  return 0x100;
+            if (caster == target) {
+                ok = attackQuery.<slot 0x11>(caster, target, 0, true);
+            } else {
+                if (UnitExtensions.IsEnemy(target, caster, state))                return 0x400;
+                if (!EntityExtensions.HasEffect(target, state, 0x54b, onlyActive: null)) return 0;
+                ok = attackQuery.<slot 0x11>(caster, target, 0, true);
+            }
+            return ok ? 0 : 0x100;
+
+        Le slot `0x11` est `IdunBattle.Core.Services.AttackQuery$$EntityCanBeHealed(caster, target,
+        scope, removeEffects)` -- LU dans `metadata/interface_slots.tsv` (`IAttackQuery` 17, 4
+        arguments), et non deduit de son voisin `0x12 EntityCanBeRepaired` qu'utilise
+        `RepairAbility`. `0x100` = `TargetingRule.TargetIsHealable`, `0x400` = `TargetIsFriendly`.
+
+        ## LA CLAUSE QUI FAIT TOUT L'INTERET DE CE GATE
+
+        `if (!HasEffect(target, 1355)) return 0;` -- une cible ALLIEE **non encore marquee** est
+        VALIDE sans passer par `EntityCanBeHealed`, donc **meme a PV pleins**. C'est exactement
+        l'i2 : "Hollan can heal other unaffected units even if they are at full Health". Une cible
+        deja marquee, elle, retombe sur le gate de soin ordinaire (il faut qu'elle soit blessee, ou
+        qu'elle porte un effet negatif que `removeEffects = true` justifierait de purger).
+
+        Le premier test (`IsAffectedByHealType(target, 0)`) precede TOUT, y compris le test de camp :
+        un ennemi MECANIQUE est refuse en `0x100`, pas en `0x400`. L'ordre est conserve.
+
+        `onlyActive = null` -> le natif ne consulte PAS `EffectComponent.IsActive @+0x5c` : le
+        mirror est `components.has_effect_of_type` (qui ne filtre que `consumed`), surtout PAS
+        `ctx.has_effect`, dont le defaut `active_only=True` appellerait `BaseEffect.is_active`.
+        Meme arbitrage que `NanoscarabRepairProtocolsAbility` (#902).
+
+        `target == null` -> le natif deref `target` des la premiere ligne ; le port rend `0`
+        (le gate generique a deja ecarte ce cas)."""
+        if target_id is None:
+            return 0
+        tid, cid = int(target_id), int(caster_id)
+        if not is_affected_by_heal_type(state, tid, 0):        # HealType.NonMechanical
+            return int(TR.TargetIsHealable)
+        if tid != cid:
+            if units_are_enemies(state, tid, cid):
+                return int(TR.TargetIsFriendly)
+            if not has_effect_of_type(state, tid, TWISTED_SCIENCE_EXTRA_HP):
+                return 0                                       # non marquee -> valide MEME a PV pleins
+        ok = entity_can_be_healed(state, cid, tid, scope=0, remove_effects=True)
+        return 0 if ok else int(TR.TargetIsHealable)
