@@ -71,6 +71,39 @@ DECLENCHEUR = {
 
 # --- BLOC GENERE (`probe_933_premisses_regime.py --attester`) -- ne pas tenir a la main -------
 _ATTESTES = (
+    "engine/runner/test_448r2dr2_titanhammer_active_live.py",
+    "engine/runner/test_499_storm_of_wrath_live.py",
+    "engine/runner/test_503r1_overwhelming_wrath_phase2_live.py",
+    "engine/runner/test_566_vexilla_magnifica_live.py",
+    "engine/runner/test_895_nova_boss_riptide_live.py",
+    "engine/runner/test_919_icon_of_obstinacy_live.py",
+    "engine/runner/test_920_maw_claws_of_thyrax_live.py",
+    "engine/runner/test_922_intoxicating_elixir_crit_live.py",
+    "engine/runner/test_additional_hits_roll_order_live.py",
+    "engine/runner/test_beast_slayer_block_live.py",
+    "engine/runner/test_beast_slayer_extradmg_live.py",
+    "engine/runner/test_case231_charge_forcecrit_live.py",
+    "engine/runner/test_daemon_extra_block_live.py",
+    "engine/runner/test_heroic_fusillade_migration_live.py",
+    "engine/runner/test_lion_helm_overwatch_aura_live.py",
+    "engine/runner/test_mow_caster_load_live.py",
+    "engine/runner/test_mow_groups_bcd_live.py",
+    "engine/runner/test_overkill_decision_live.py",
+    "engine/runner/test_overkill_gate_live.py",
+    "engine/runner/test_path_of_command_crit_aura_live.py",
+    "engine/runner/test_prevent_overkill_decision_live.py",
+    "engine/runner/test_rad_bombardment_live.py",
+    "engine/runner/test_reinforced_hive_node_live.py",
+    "engine/runner/test_shield_ability_limits_live.py",
+    "engine/runner/test_spirit_leech_combat_live.py",
+    "engine/runner/test_summon_spawn_live.py",
+    "engine/runner/test_thrill_seekers_live.py",
+    "engine/test_345_shield_prediction_formula_live.py",
+    "engine/test_419r5_canal_crit_ouvert_live.py",
+    "engine/test_419r6r1_face_decision_live.py",
+    "engine/test_890_hive_tyrant_live.py",
+    "engine/test_healing_balms_heal_decision_live.py",
+    "engine/test_min_distance_move_leaf_live.py",
 )
 # --- FIN DU BLOC GENERE -----------------------------------------------------------------------
 
@@ -173,7 +206,16 @@ def test_la_liste_attestee_ne_couvre_pas_ce_qui_a_ete_repare():
     revenir dans `nouveaux`, donc ROUGIR. Si l'un d'eux etait reste atteste, sa regression
     passerait inapercue.
     """
-    repares = ("engine/runner/test_lion_helm_block_aura_live.py",)
+    repares = (
+        "engine/runner/test_lion_helm_block_aura_live.py",     # ROUGE : `seed[az] == (0, 0)`
+        "engine/runner/test_savage_echoes_live.py",            # garde `if cc == 0:` MORTE
+        "engine/runner/test_executioner_live.py",              # skip `cc != 0` SYSTEMATIQUE
+        "engine/runner/test_harvester_live.py",                # skip `cc != 0` SYSTEMATIQUE
+        "engine/runner/test_brazier_of_holy_fire_live.py",     # skip « coup non propre »
+        "engine/runner/test_sentinel_directives_live.py",      # skip « coup non propre »
+        "engine/runner/test_heavy_grav_cannon_live.py",        # PREVENTIF (ecart non mesure)
+        "engine/runner/test_damage_block_live.py",             # premisse en PROSE perimee
+    )
     restes = [rel for rel in repares if rel in _ATTESTES]
     assert not restes, (
         "fichier(s) REPARE(S) encore attestes -- le cliquet ne verrait pas la perte de leur "

@@ -116,11 +116,15 @@ def _build(seed):
          "--board", "MC1_67", "--roster", "1", "--p-units", CASTER_VIS,
          "--a-units", f"{TARGET_VIS},{FILLER_VIS}",
          # #933 -- LE COUP PROPRE SE CONSTRUIT (cf. le skip « coup non propre (crit/block/evade) »
-         # plus bas). Depuis la bascule #419-r5/-r6 le tirage crit/block est ouvert des deux cotes
-         # et ce skip est devenu frequent : 1 passed / 1 skipped au 2026-08-11, rc 0. Les QUATRE
-         # faces (#419-r6 §3.1). Ces leviers n'ecrivent QUE `CritChance`/`CritDamage` (resp.
-         # `BlockChance`/`BlockDamage`) : le `FixedArmor` dont depend la branche PERCAGE, et que
-         # la docstring ci-dessus protege de `--hp-target`, n'est PAS touche.
+         # plus bas), au lieu d'etre trouve par chance : depuis la bascule #419-r5/-r6 le tirage
+         # crit/block est ouvert des DEUX cotes. Les QUATRE faces (#419-r6 §3.1).
+         # ⚠ PREVENTIF ICI, et c'est MESURE : ce fichier rend 1 passed / 1 skipped AVANT comme
+         # APRES, et son skip restant est celui du tirage a partie fractionnaire < .5 (L401) --
+         # identique sous `TACTICUS_BIS_ITEMS=0`. Ce montage ne repare donc AUCUN ecart observe ;
+         # il ferme un skip PROBABILISTE qui, lui, depend du tirage du jour.
+         # Ces leviers n'ecrivent QUE `CritChance`/`CritDamage` (resp. `BlockChance`/
+         # `BlockDamage`) : le `FixedArmor` dont depend la branche PERCAGE, et que la docstring
+         # ci-dessus protege de `--hp-target`, n'est PAS touche.
          "--crit", "0,0", "--crit-target", "0,0",
          "--block-player", "0,0", "--block-target", "0,0"],
         cwd=str(PYDIR), capture_output=True, text=True, encoding="utf-8", errors="replace")

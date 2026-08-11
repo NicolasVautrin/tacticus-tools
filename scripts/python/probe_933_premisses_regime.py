@@ -109,17 +109,34 @@ _MOTS_COURTS = {m for ms in _MOTS_PAR_STAT.values() for m in ms if len(m) <= 4}
 #     seulement le tirage.
 # ⚠ LES QUATRE FACES, et c'est mesure (#419-r6 §3.1) : `--crit` n'epingle que les p-units et
 # `--crit-target` que les a-units. Une seule des deux laisse l'autre camp au regime courant --
-# « deux faces sur quatre suffisaient PAR ACCIDENT » y a deja coute deux montages. On n'inscrit
-# donc la paire crit (resp. block) comme neutralisee que si LES DEUX faces sont posees.
+# « deux faces sur quatre suffisaient PAR ACCIDENT » y a deja coute deux montages.
+# CE QUE CE PROBE EN FAIT, et pourquoi il ne l'ERIGE PAS en condition : ce cliquet garde la
+# DECLARATION du regime, pas l'exactitude du montage -- laquelle depend de QUEL camp porte la
+# mecanique, indecidable statiquement. Exiger les deux faces pousserait a des montages plus
+# larges que la premisse (le contraire de `_stats_concernees`) et, surtout, laisserait les
+# fichiers REPARES par une seule face DANS la liste attestee : perdre leur levier ne rougirait
+# alors PLUS. Une face suffit donc a declarer ; les neutralisations PARTIELLES sont COMPTEES et
+# IMPRIMEES, jamais tues.
 _RE_NEUTRALISE = re.compile(
     r"(?:--unit-stat|unit_stat|explicit-stats|explicit_stats)", re.I)
 _RE_NEUTRALISE_STAT = re.compile(
     r"(CritChance|CritDamage|BlockChance|BlockDamage|FixedArmor|Health|Armor)\s*=\s*0\b")
+# ⚠ La face compte des qu'elle est POSEE, quelle que soit sa VALEUR -- pas seulement a `0,0`.
+# `_patch_combat_stat` de `rl_duel.py` ECRIT `u[field] = valeur` : `--block-target "100,300"`
+# ECRASE la base autant que `0,0`. Ce qui perime une premisse, c'est une base SUBIE ; une base
+# ECRITE par le montage est declaree, quelle que soit sa valeur. Exiger `0,0` faisait sortir
+# `test_damage_block_live.py` en faux positif, alors que son `--block-target "100,300"` est
+# precisement le montage qui maitrise le canal.
+# ⚠ LE DRAPEAU DOIT ETRE UN ARGUMENT, PAS UNE MENTION -- et ce cran a ete trouve par la
+# CONTRE-EPREUVE, pas par la relecture : un premier detecteur cherchait `--crit` n'importe ou dans
+# la source. Retirer pour de vrai le `"--crit", "0,0"` du montage de `test_savage_echoes_live.py`
+# laissait alors le cliquet VERT, parce que le COMMENTAIRE qui explique le levier contient le mot.
+# Un cliquet qui se contente d'une mention garde une INTENTION, pas un montage.
 _RE_FACE = {
-    "crit_p": re.compile(r"--crit[\"'\s,]+[\"']?0\s*,\s*0"),
-    "crit_a": re.compile(r"--crit-target[\"'\s,]+[\"']?0\s*,\s*0"),
-    "block_p": re.compile(r"--block-player[\"'\s,]+[\"']?0\s*,\s*0"),
-    "block_a": re.compile(r"--block-target[\"'\s,]+[\"']?0\s*,\s*0"),
+    "crit_p": re.compile(r"""["']--crit["']"""),
+    "crit_a": re.compile(r"""["']--crit-target["']"""),
+    "block_p": re.compile(r"""["']--block-player["']"""),
+    "block_a": re.compile(r"""["']--block-target["']"""),
 }
 # `--hp-target`/`--hp-player`/`--armor-target` ecrivent eux aussi `Armor`/`FixedArmor`/`Health`
 # du BC : ce sont des neutralisations de base a part entiere, sur ces stats-la.
@@ -339,10 +356,15 @@ def _classe_fichier(src: str, nom: str = "") -> dict:
     if _RE_NEUTRALISE_LEVIER.search(src):
         neutralise_stats |= {"Health", "FixedArmor", "Armor"}
     faces = {k: bool(r.search(src)) for k, r in _RE_FACE.items()}
-    if faces["crit_p"] and faces["crit_a"]:
+    partielles = []
+    if faces["crit_p"] or faces["crit_a"]:
         neutralise_stats |= {"CritChance", "CritDamage"}
-    if faces["block_p"] and faces["block_a"]:
+        if not (faces["crit_p"] and faces["crit_a"]):
+            partielles.append("crit:" + ("p" if faces["crit_p"] else "a"))
+    if faces["block_p"] or faces["block_a"]:
         neutralise_stats |= {"BlockChance", "BlockDamage"}
+        if not (faces["block_p"] and faces["block_a"]):
+            partielles.append("block:" + ("p" if faces["block_p"] else "a"))
     # `_offline.py` PREVAUT sur les marqueurs : un cliquet offline qui CITE `build_runner` dans un
     # temoin synthetique (c'est le cas de `test_933_premisse_regime_offline.py` lui-meme) serait
     # sinon classe LIVE et se recenserait -- un recenseur qui se compte lui-meme derive.
@@ -351,6 +373,7 @@ def _classe_fichier(src: str, nom: str = "") -> dict:
     return {
         "live": live,
         "neutralise": sorted(neutralise_stats),
+        "partielles": partielles,
     }
 
 
@@ -379,7 +402,7 @@ def recenser(racine: "Path | None" = None) -> dict:
             roles[e["role"]] += 1
         if prem:
             par_fichier[rel] = {"premisses": prem, "neutralise": c["neutralise"],
-                                "lectures": lectures}
+                                "lectures": lectures, "partielles": c.get("partielles") or []}
     return {"vus": vus, "roles": roles, "par_fichier": par_fichier}
 
 
@@ -610,6 +633,11 @@ def main(argv=None) -> int:
               % len(rec["par_fichier"]))
         print("  fichiers SUSPECTS -- lecteur, comparaison perimable, base NON neutralisee : %d"
               % len(susp))
+        part = {r: v2["partielles"] for r, v2 in rec["par_fichier"].items() if v2["partielles"]}
+        print("  neutralisations PARTIELLES (une face sur deux) : %d fichier(s)%s"
+              % (len(part), (" -- " + ", ".join("%s [%s]" % (r.rsplit("/", 1)[-1], ",".join(v))
+                                                for r, v in sorted(part.items())))
+                 if part else ""))
         print("  --- CE QUE CE BALAYAGE NE COUVRE PAS ---")
         print("   * une stat lue SANS que son nom soit ecrit (helper opaque, index numerique,")
         print("     deballage `*u`) : le rapprochement est une HEURISTIQUE DE NOM ;")
