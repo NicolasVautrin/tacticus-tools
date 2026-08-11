@@ -1188,7 +1188,7 @@ scripts/python/probe_895_nova_boss_riptide.py	refs	56d15341bdbad515322ec0288abfb
 scripts/python/probe_902_reanimator.py	refs	565c1197b917a3814073c3a829cb30c3bea6017e9e97524ba87c51c43a31c5c2	[["scripts/python/probe_902_reanimator.py",66,"EffectType","NanoscarabRepairProtocols"],["scripts/python/probe_902_reanimator.py",67,"EffectType","NanoscarabRepairProtocols_ExtraHp"],["scripts/python/probe_902_reanimator.py",68,"EffectType","ReanimationBeam_Revive"]]
 scripts/python/probe_906_rites_of_morkai_live.py	refs	c91dbd9aec3217d3a63c08e0c8bd51f6b5caefbe7e5e85073f1de50c5a1e82f0	[["scripts/python/probe_906_rites_of_morkai_live.py",64,"ActiveAbilityType","RitesOfMorkai"],["scripts/python/probe_906_rites_of_morkai_live.py",65,"EffectType","RitesOfMorkai"],["scripts/python/probe_906_rites_of_morkai_live.py",66,"EffectType","RitesOfMorkai_ExtraDamage"]]
 scripts/python/probe_907_incendiary_shells.py	refs	dca5870b59f402cf31d9c2cc1301477e81bb2a1caec75648b4609cd20ebfa293	[["scripts/python/probe_907_incendiary_shells.py",59,"ActiveAbilityType","IncendiaryShells"]]
-scripts/python/probe_908_nether_realm_casket_crit_live.py	refs	f279e63e7398a3c0b1825f2366d2fb8ca904355aa0c57c82903ee12d5e715ce9	[]
+scripts/python/probe_908_nether_realm_casket_crit_live.py	refs	16d2b57888edc80fc89a9cb00a237a4389a814f4b2b1308bb3a0bb8faeb07493	[]
 scripts/python/probe_908_nether_realm_casket_repair_live.py	refs	552a9948e6599d6c7d752e26f2b20570b2f98d9df53d35296d18a713e72c9010	[]
 scripts/python/probe_909_decision_actives_kit.py	refs	c8ad8aff391252b52fdc50a5bddbb5007534e285923d672dd5c3e2de427d9031	[]
 scripts/python/probe_911_daemonic_patrons.py	refs	971598a3be63f31d99c0e0f046539087f4ab29a00e13af3b70df5ed7f2379093	[]
