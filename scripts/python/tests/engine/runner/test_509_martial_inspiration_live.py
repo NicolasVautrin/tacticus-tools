@@ -276,10 +276,19 @@ def _assert_cast(c):
         "le compteur seede hors-ligne (%s) differe du LIVE (%s)"
         % (c["port"]["compteur_avant"], c["compteur_live"]))
     # ATTRIBUTION EXACTE DES TIRAGES (2 par coup a cc = 0, famille ATTACK).
-    assert c["tirages_port"] == P.TIRAGES_PAR_COUP * len(sp)
+    # ⚠ CRITERE RECALIBRE PAR #928 -- sa premisse d'avant est PERIMEE. Tant que `1319
+    # LegacyOfCombat` n'etait pas portee, le port ne jouait QUE les coups de 1191 et l'on gardait
+    # `tirages_port == 2 x len(sp)` ; l'ecart avec le natif ETAIT le port manquant. Depuis #928 le
+    # port emet `On(0xb = UnitAbility)` et joue 1319 : les deux comptes se REJOIGNENT. Mesure
+    # (`MC1_67`/50901, regime nominal, compteurs 0 et 3) : AVANT port 6 / natif 18, APRES 18 / 18.
+    assert c["tirages_port"] == c["tirages_natif"], (
+        "le port et le natif ne consomment plus le MEME nombre de tirages : %s vs %s -- depuis "
+        "#928 les DEUX jouent 1191 PUIS 1319" % (c["tirages_port"], c["tirages_natif"]))
     assert c["tirages_natif"] == P.TIRAGES_PAR_COUP * c["natif"]["coups_tous"], (
         "les tirages natifs ne bouclent pas : %s pour %d coups"
         % (c["tirages_natif"], c["natif"]["coups_tous"]))
+    assert len(sp) < c["natif"]["coups_tous"], (
+        "1319 ne joue plus aucun coup dans ce montage : le TEMOIN du port de #928 a disparu")
 
 
 def _assert_contre_epreuves(c):

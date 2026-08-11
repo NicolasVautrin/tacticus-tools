@@ -28,10 +28,17 @@ DECLENCHEUR = {
         "scripts/python/conftest.py", "scripts/python/tests/conftest.py",
         "scripts/python/green_skip_guard.py", "scripts/python/declencheur_guard.py",
         "scripts/python/gameconfig.py",
-        # LE PROBE qui RE-DERIVE la RE du binaire (etage 6 : le verdict DEAD).
+        # LE PROBE qui RE-DERIVE la RE du binaire (etage 6 : le verdict DEAD), et sa fermeture
+        # d'imports MESUREE -- `probe_928` importe `probe_509` (le montage live), qui tire lui-meme
+        # `Runner` et le dispatch de phase ; `probe_366` tire `probe_364` et `probe_358`.
         "scripts/python/probe_928_legacy_of_combat.py",
         "scripts/python/probe_364_effect_1582_registration.py",
         "scripts/python/probe_366_inventaire_effets_forme_b.py",
+        "scripts/python/probe_358_effects_database_registry.py",
+        "scripts/python/probe_212_bc_key_literals.py",
+        "scripts/python/probe_509_martial_inspiration.py",
+        "scripts/python/engine/runner/runner.py",
+        "scripts/python/engine/runner/operations/triggers/dispatch/phase.py",
         # LES DEUX MIRRORS du cas et leurs registres.
         "scripts/python/engine/runner/operations/triggers/loki/legacy_of_combat.py",
         "scripts/python/engine/runner/operations/triggers/dispatch/registry.py",
