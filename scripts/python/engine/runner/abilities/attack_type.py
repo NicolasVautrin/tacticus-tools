@@ -633,6 +633,12 @@ ABILITY_ATTACK_TYPE: dict[int, int] = {
     # `AbilityHasAttackType(0|1)` de SwornProtector, contrairement aux deux autres.
     ActiveAbilityType.ExemplarOfHate: AbilityAttackType.Others,  # 1140
     ActiveAbilityType.CalibaniteGreatsword: AbilityAttackType.Others,  # 1189
+    # ArcScourge (1173, `admecBossBelisarius`), #894 : `IdunBattleLogic.Entities.Abilities.Active.
+    # ArcScourgeAbility$$.ctor` = `AActiveAbility..ctor(this, &opts, 2)` -- le 3e argument est le
+    # litteral `2`. TRANSCRIT, jamais deduit : l'arbre de 1173 FRAPPE bel et bien (une
+    # `AttackWithAttackDamage` par maillon ennemi), ce qui aurait pu faire pencher pour
+    # `DirectTargetAttack` -- et le litteral vaut quand meme `Others`.
+    ActiveAbilityType.ArcScourge: AbilityAttackType.Others,  # 1173
     # RadBombardment (1116), lot #128 : `IdunBattleLogic.Entities.Abilities.Active.Loki.
     # RadBombardmentAbility$$.ctor` = `AActiveAbility..ctor(this, &opts, 2, 0)` -> 2 = Others.
     # (Ici le `&opts` EST un litteral inline : `TargetingOptions..ctor(&opts, 0, CustomRange(1), 1,

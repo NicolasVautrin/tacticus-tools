@@ -221,3 +221,101 @@ class ChainAbilityDamage(AbilityBehaviour):
         if self.deferred_hit and not executed[0]:
             perform_on_last()
         return res
+
+
+class ChainBehaviourGeneric(AbilityBehaviour):
+    """`IdunBattleLogic.Entities.DSLBehaviors$$ChainBehaviour(preselectedTargets, jumpTargetSelector,
+    maxTargets, behaviour, options)` -- la variante GENERIQUE de la meme famille (#894).
+
+    LU : la factory n'alloue PAS de sous-classe, elle construit
+    `IdunBattle.Entities.Behaviours.ChainBehaviourBehaviour$$.ctor(this_00, dsl, maxTargets,
+    preselectedTargets, jumpTargetSelector, behaviour, options, 0)` -- c'est la classe de BASE
+    elle-meme. La boucle est donc EXACTEMENT celle transcrite dans `ChainAbilityDamage` ci-dessus
+    (meme `Execute`, memes lambdas `assignAndExecuteTarget` / `performBehaviourOnLastTarget`,
+    meme delta `picked.Count - pres.Count`, meme invocation du `Func` sur `Entities(picked)` --
+    la liste COMPLETE, pas la derniere cible). Seule difference : `this+0x88` n'est pas un
+    `AbilityDamageBehaviour` construit par le ctor mais le `behaviour` PASSE par l'appelant.
+
+    ⚠ POURQUOI CETTE CLASSE ET PAS `engine.entities.behaviours.ChainBehaviour` : ce dernier est un
+    mirror SIMPLIFIE, ecrit pour `IncursionAbility` -- il ignore `preselectedTargets` (`init`,
+    stocke mais jamais lu par son `execute`), invoque son `Func` sur `entities` au lieu de
+    `Entities(picked)`, et ne connait pas le cran DIFFERE de `chainOptions+0x12`. Pour Incursion,
+    `preselectedTargets` vaut `Null()` et l'ecart est invisible ; pour `ArcScourge` il vaut
+    `Target@<DSLSelectors+0x60>` -- la premiere victime EST la cible designee -- et `+0x12` vaut 1.
+    Un port sur la classe simplifiee raterait donc la premiere cible ET l'ordre des coups.
+    L'ecart de `entities.behaviours.ChainBehaviour` est un RESIDU NOMME, pas repare ici (son seul
+    consommateur, Incursion, n'est pas affecte).
+
+    `body` = le `behaviour` natif ; il est execute avec `ActiveTarget` lie a la cible du maillon
+    (`entities.ActiveTarget@+0x20 = last`), comme le fait `performBehaviourOnLastTarget`.
+    """
+    __slots__ = ("preselected_sel", "jump_target_selector", "max_targets", "body",
+                 "allow_repeat_targets", "allow_immediate_repeat", "deferred_hit")
+
+    def __init__(self, preselected_sel, jump_target_selector, max_targets,
+                 body: AbilityBehaviour, allow_repeat_targets: bool = False,
+                 allow_immediate_repeat: bool = False, deferred_hit: bool = True):
+        self.preselected_sel = preselected_sel
+        self.jump_target_selector = jump_target_selector
+        self.max_targets = max_targets
+        self.body = body
+        self.allow_repeat_targets = bool(allow_repeat_targets)
+        self.allow_immediate_repeat = bool(allow_immediate_repeat)
+        self.deferred_hit = bool(deferred_hit)
+
+    def execute(self, entities, ectx):
+        state = ectx.state
+        if state is None:
+            return OperationResult.ok()
+
+        picked: list = []
+        last = None
+        prev_exec = None
+        executed = [True]
+        res = OperationResult.ok()
+
+        def perform_on_last():
+            """`ChainBehaviourBehaviour$$u003CExecuteu003Eg__performBehaviourOnLastTarget|12_3`."""
+            nonlocal prev_exec, res
+            if last is None:
+                executed[0] = True
+                prev_exec = last
+                return
+            sub = replace(entities, active_target=last)
+            res = res.combine(self.body.execute(sub, ectx))
+            prev_exec = last
+            executed[0] = True
+
+        def assign_and_execute(t):
+            """`ChainBehaviourBehaviour$$u003CExecuteu003Eg__assignAndExecuteTarget|12_2`."""
+            nonlocal last
+            if self.deferred_hit and not executed[0]:
+                perform_on_last()
+            last = t
+            picked.append(t)
+            executed[0] = False
+            if not self.deferred_hit:
+                perform_on_last()
+
+        pres = [u for u in _units_of(self.preselected_sel, entities)
+                if isinstance(u, dict) and u.get("id") is not None]
+        for t in pres:
+            assign_and_execute(t)
+
+        while len(picked) - len(pres) < int(self.max_targets.evaluate(entities)):
+            picked_sel = UnitSet(list(picked))
+            cand_sel = self.jump_target_selector(picked_sel)
+            if not self.allow_repeat_targets:
+                cand_sel = Sub(cand_sel, picked_sel)
+            if not self.allow_immediate_repeat and last is not None:
+                cand_sel = Sub(cand_sel, UnitSet([last]))
+            hit = PickRandomly(cand_sel, 1, allow_duplicates=False,
+                               max_duplicates=0x7FFFFFFF).evaluate(entities)
+            hit = [u for u in hit if isinstance(u, dict) and u.get("id") is not None]
+            if not hit:
+                break
+            assign_and_execute(hit[0])
+
+        if self.deferred_hit and not executed[0]:
+            perform_on_last()
+        return res
