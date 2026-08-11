@@ -199,6 +199,7 @@ from ..loki.cosmic_horror import (CosmicHorrorOnKillAbility,           # passif 
                                  CosmicHorrorOnMoveAbility)
 from ..loki.spiritual_leader import SpiritualLeaderAbility             # passif genesMagus (GS Cults)
 from ..loki.barbed_ovipositor import BarbedOvipositorSummonAbility     # passif tyranParasite (Tyranids)
+from ..loki.synaptic_linchpin import SynapticLinchpinAbility           # passif tyranWingedPrime (Tyranids)
 from ..loki.fabricator_claw_array import FabricatorClawArrayAbility    # #303 (passif necroSpyder, N20)
 from ..loki.champion_of_the_feast import ChampionOfTheFeastAbility    # #419-r6-r2 (passif templSwordBrother)
 from ..loki.fury_of_the_ancients import FuryOfTheAncientsAbility      # #927 (passif bloodMephiston)
@@ -602,6 +603,22 @@ ABILITY_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
     # Cf. loki/barbed_ovipositor.py (IdunBattleLogic.Entities.Abilities.Triggered.Loki.BarbedOvipositorAbility$$CreateTrigger /
     # ...$$CreateBehaviour).
     "BarbedOvipositor": [BarbedOvipositorSummonAbility],
+    # SynapticLinchpin (passif `tyranWingedPrime` << Winged Prime >>, triggered 1192) =
+    # `On(38=NormalAttack, ownerNeedsToBeAlive: NOT(OwnerIsActor & TriggeringAbilityIs(
+    # TriggeredAbilityType.FinalJustice=1024))) & HasTrait(actor@+0x40, UnitTrait.Synapse=2024)
+    # & AreFriends(owner@+0x30, actor@+0x40) & IsAlive(target@+0x60)` ->
+    # `Repeat(If(NOT AmountIsEqualOrGreater(UnitsWithId(Children(owner), "tyranSmnHormagaunt",
+    # OnlyAliveAndTargetable), Direct(maxSummons)), Spawn(owner, First(SortTilesByUtilityForSummon(
+    # CanAddUnit(AdjacentTiles(target)), UtilityType.Tile=7, parent: caster@+0x48), 1), unitId,
+    # opts{+0x18 = UseNormalAttackIfAble(activeTarget@+0x68, target@+0x60)})), Direct(nrOfSummons))` :
+    # toute attaque NORMALE d'un AMI porteur de `Synapse` (le Winged Prime compris) sur un ennemi qui
+    # SURVIT pose un Hormagaunt adjacent a la cible, lequel l'attaque immediatement -- sous un cap de
+    # summons VIVANTS. Le 2e argument d'`On` n'est PAS une condition d'evenement : `DSLTriggers$$On`
+    # rend `Event(t) & (OwnerIsAlive | !X)`, donc le passif survit a la mort de son porteur quand
+    # c'est LUI qui frappe via `FinalJustice`. Cf. loki/synaptic_linchpin.py
+    # (IdunBattleLogic.Entities.Abilities.Triggered.Loki.SynapticLinchpinAbility$$CreateTrigger /
+    # ...$$CreateBehaviour).
+    "SynapticLinchpin": [SynapticLinchpinAbility],
     # FabricatorClawArray (passif `necroSpyder` << Canoptek Spyder >>, triggered 0x3ee = 1006) =
     # `On(0x1c=ArrivedAtFinalTile) & OwnerIsActor & !AmountIsZero(GetTargetSelector())` ->
     # `Repair(Owner, GetTargetSelector(), Direct(ConfigVar(0x24 = hpToRepair)), ForRepair)`, ou

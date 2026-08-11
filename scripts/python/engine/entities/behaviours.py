@@ -128,6 +128,47 @@ class If(AbilityBehaviour):
         return OperationResult.ok()
 
 
+class Repeat(AbilityBehaviour):
+    """`IdunBattleLogic.Entities.DSLBehaviors$$Repeat(behaviour, times)` ->
+    `IdunBattle.Entities.Behaviours.RepeatBehaviour$$Execute`, dont le corps est LU en entier
+    (build `rnca9r7q6c`, ghidra nomme le ctor `IdunBattle.DSL.CombinedBehaviour$$.ctor` -- fold
+    ICF, la STRUCTURE est lue, jamais le nom) :
+
+        result = default(OperationResult)                 // memset 0x40 en tete
+        n = this.<+0x58 times>.Calculate(entities)         // slot 1 d'`IAmountFormula`
+        for (i = 0; i < n; i++)
+            result.Combine( this.<+0x50 behaviour>.Execute(entities, processor) )   // slot 0
+        return result
+
+    TROIS points LUS, et chacun compte :
+      * **AUCUN court-circuit** -- la boucle ne teste PAS `OperationResult.<+0x20>` (contraste
+        `Seq`, qui le teste). Un corps qui rend `stop` n'arrete pas les iterations suivantes ;
+        `Combine` se contente d'OU-propager le flag vers le resultat agrege.
+      * **`times` est evalue UNE SEULE FOIS**, AVANT la boucle (le `Calculate` precede le
+        `for`). Un corps qui ferait bouger la grandeur que la formule lit ne change pas le
+        nombre d'iterations.
+      * **le MEME `entities` est passe a chaque iteration** : le noeud ne LIE rien (ni `subject`,
+        ni `active_target`, ni un index d'iteration) -- c'est ce qui le distingue de `Foreach`
+        et de `ChainBehaviour`. Toute progression entre deux iterations passe donc par l'ETAT
+        (le `DslContext` du port partage ses listes par reference), pas par le contexte.
+
+    `n <= 0` -> zero iteration, resultat vide (le `if (0 < iVar15)` du decompile).
+    Premier consommateur porte : `IdunBattleLogic.Entities.Abilities.Triggered.Loki.SynapticLinchpinAbility$$CreateBehaviour`
+    (`Repeat(If(<cap non atteint>, Spawn(...)), Direct(nrOfSummons))`)."""
+    __slots__ = ("body", "times")
+
+    def __init__(self, body: AbilityBehaviour, times):
+        self.body, self.times = body, times
+
+    def execute(self, entities, ectx):
+        # `times.Calculate(entities)` -- UNE fois, avant la boucle (cf. docstring).
+        n = self.times.evaluate(entities) if isinstance(self.times, AAmountFormula) else int(self.times)
+        res = OperationResult.ok()
+        for _ in range(max(0, int(n))):
+            res = res.combine(self.body.execute(entities, ectx))   # PAS de court-circuit (natif)
+        return res
+
+
 class SetCache(AbilityBehaviour):
     """`IdunBattleLogic.Entities.DSLFactory$$SetCache(node)` (3 overloads -> MEME classe `SetCacheBehaviour`,
     DAT_18320e858 ; les ctors affiches `RefreshDynamicStatModifierValueBehaviour`/`ActivateEffectBehaviour`
