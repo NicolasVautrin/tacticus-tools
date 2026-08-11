@@ -325,6 +325,11 @@ ABILITY_ATTACK_TYPE: dict[int, int] = {
     # 3e argument est le litteral `0`. Il vaut `DirectTargetAttack` MEME si l'arbre summone en
     # troisieme phase : on transcrit le litteral du ctor, jamais ce que fait le behaviour
     # (`1 = SummonAndAttackTarget` est ce que porte `IncursionAbility`, pas celle-ci). (#501)
+    # BioMinefield (1144) : `BioMinefieldAbility$$.ctor` -> `AActiveAbility$$.ctor(this, &opts, 2)`.
+    # Le 3e argument du ctor de base EST l'`AbilityAttackType`, et il vaut 2 = `Others` -- LU au
+    # ctor, pas deduit : l'ability n'inflige AUCUN degat direct (elle marque, deplace, tue ses
+    # propres mines, ou en pose). #939
+    ActiveAbilityType.BioMinefield: AbilityAttackType.Others,  # 1144
     ActiveAbilityType.MightFromBelow: AbilityAttackType.DirectTargetAttack,  # 1165
     ActiveAbilityType.EntropyCannons: AbilityAttackType.DirectTargetAttack,  # 1168
     ActiveAbilityType.PlagueburstMortar: AbilityAttackType.DirectTargetAttack,  # 1169

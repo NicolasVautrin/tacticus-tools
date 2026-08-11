@@ -907,7 +907,62 @@ class MovementActionGenerator(ActionGenerator):
         return {"kind": "move", "to": move_to, "util": move_util}
 
 
+def movement_action_with_override(ctx, utility_types) -> dict:
+    """`IdunBattle.AI.ActionGenerators.MovementActionGenerator$$GenerateActions(unit, startPosition,
+    positions, overrideUtility)` -- la branche ou le 4e argument est NON NUL.
+
+    Le generateur ci-dessus (`MovementActionGenerator.generate`) porte la branche `overrideUtility ==
+    null` : le scoring y est celui du playbook de mouvement PAR DEFAUT (`move.best_move_faithful`).
+    Quand un appelant fournit un `UtilityDefinition`, c'est LUI qui score, et lui SEUL -- il ne
+    s'ajoute pas au defaut, il le REMPLACE (le natif construit son `UtilityMovementCase` avec
+    l'utilite passee). Unique producteur porte : le behaviour DSL `PerformAIMovement`, dont le
+    troisieme argument est le `UtilityDefinition` que l'ability construit dans son `.ctor` --
+    p.ex. `BioMinefieldAbility$$.ctor`, qui alloue un tableau d'UN `UtilityBucket` de type
+    `UtilityType.BioMinefield_MoveTowardsTarget`.
+
+    `utility_types` = les `UtilityType` des buckets de ce `UtilityDefinition`. Le score d'une
+    position est leur SOMME, evaluee par `engine.ai.utilities.get_movement_utility` = le mirror de
+    `Playbook<T>$$GetMovementUtility` (`ComposedUtility.EvaluateMovement(UtilitiesDatabase.
+    GetUtility(type), caster@pos)`) -- on ne re-implemente aucune feuille ici.
+
+    ⚠ **ARGMAX STRICT, DONC KEEP-FIRST -- et c'est ce qui rend << rester sur place >> representable.**
+    L'argmax natif vit dans `IdunBattleLogic.AI.Utilities.UtilityDecider.<CalculateUtilitiesForCases
+    Enumerated>d__7<object>$$MoveNext` et remplace le meilleur case sur `FixMath.NET.Fix64$$
+    op_GreaterThan`. Comme `movement_candidate_positions` enumere la position COURANTE EN TETE (cf.
+    sa docstring), une egalite laisse l'unite ou elle est. C'est la MEME loi que le chemin par
+    defaut, et elle est load-bearing ici : si toutes les positions scorent identiquement, le natif
+    n'emet AUCUN `MoveUnitMessage`.
+
+    ⚠ **ETAGE MANQUANT NOMME (residu #175-r), et il rend ce chemin INERTE pour BioMinefield.**
+    `BioMinefield_MoveTowardsTargetUtility` derive de `MoveTowardsUnitUtility`, dont le port lit
+    `meta["movetowards_hexdist"][<ability/effet>]`. **AUCUN producteur de `meta` du depot ne remplit
+    cette cle** (mesure : 0 site d'ecriture) -- la feuille rend donc `0.0` sur TOUTE position, la
+    somme est plate, et le keep-first garde la position courante. Le port ne se degrade pas
+    silencieusement pour autant : `to` reste la position COURANTE et `apply_action` n'emet aucun
+    move (`to == origin`), ce qui est EXACTEMENT le comportement natif a utilite plate. Ce qui
+    manque au natif, ce sont les deux etages qu'`IdunBattle.AI.Utilities.MoveTowardsUnitUtility$$
+    GetMinDistanceToTarget` ajoute (resolution de la cible par balayage `GetAllAliveUnits` +
+    distance de CHEMIN par tuile de la cible), et ils appartiennent au foyer de #175-r. (#939)"""
+    positions = movement_candidate_positions(ctx)
+    if not positions:
+        return {"kind": "move", "to": None}
+    types = [int(t) for t in (utility_types or ())]
+    best, best_u = None, None
+    for p in positions:
+        pos = (p["col"], p["row"])
+        u = 0.0
+        for t in types:
+            u += float(_ai_utilities.get_movement_utility(ctx, pos, t) or 0.0)
+        if best_u is None or u > best_u:          # `Fix64$$op_GreaterThan` STRICT -> keep-first
+            best, best_u = pos, u
+    return {"kind": "move", "to": best, "util": best_u}
+
+
 # tile_leaf_ctx : DÉPLACÉ dans engine/utilities/tile.py (case-49 : consommé par les DEUX chemins
 # de la Composed Tile(7) — move ET attaque). Ré-exporté ici pour les importeurs existants
 # (engine_agreement_stages).
 from engine.utilities.tile import tile_leaf_ctx  # noqa: E402,F401
+# Forme B (module, pas symbole) : un binding de module n'est jamais gele, donc un probe qui
+# substitue `engine.ai.utilities.get_movement_utility` MORD ici. `engine.ai.utilities` n'importe pas
+# ce module -- mesure : ses imports ne citent que `engine.utilities.*`, donc AUCUN cycle a fermer.
+import engine.ai.utilities as _ai_utilities  # noqa: E402

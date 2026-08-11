@@ -68,7 +68,7 @@ from .pathing import (  # noqa: F401
 )
 
 from .composites import (  # noqa: F401
-    get_spawn_tile_selector, adjacent_units, attackable_enemies,
+    get_spawn_tile_selector, adjacent_units, attackable_enemies, random_adjacent_free_tile,
 )
 
 __all__ = [
@@ -101,6 +101,7 @@ __all__ = [
     "TileBehindTargetFromSourceDirection", "EffectSource", "EffectFromOwner",
     "EffectsFromUnitSource",
     "OwnerOfEffect", "get_spawn_tile_selector", "adjacent_units", "attackable_enemies",
+    "random_adjacent_free_tile",
     "SortTilesByUtility", "PreviousTile",
     "Nearest", "ClosestPositionToTarget",
 ]

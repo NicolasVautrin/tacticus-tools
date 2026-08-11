@@ -37,7 +37,7 @@ from ..services.battle_query import are_entities_adjacent
 from ..services.movement_query import get_min_distance
 from .formulas import AuraEffectRange, MinDistance
 from .formulas import Count
-from .selectors.units import MechanicalUnits
+from .selectors.units import AdjacentUnits, Enemies, MechanicalUnits, UnitsWithoutTrait
 from .selectors._shared import _entity_pos
 from .selectors.tiles import CanAddUnit
 from .selectors.tiles import TrenchTiles          # `DSLSelectors$$Trench` (cf. `IsTrenchTile`)
@@ -242,6 +242,55 @@ class AmountIsEqualOrGreater(AbilityTrigger):
 
     def should_trigger(self, ctx):
         return self.a.evaluate(ctx) >= self.b.evaluate(ctx)
+
+
+def has_adjacent_enemies(unit: TargetsSelector, unit_tile: TargetsSelector,
+                         include_objects: bool = False,
+                         include_steppables: bool = False) -> AbilityTrigger:
+    """`IdunBattleLogic.Entities.DSLTriggers$$HasAdjacentEnemies(unit, unitTile, includeObjects,
+    includeSteppables)` -- le corps natif ENTIER, transcrit. Ce n'est PAS une classe : la factory
+    COMPOSE quatre noeuds deja portes, et l'ecrire ainsi est ce qui garantit qu'il n'existe pas une
+    seconde definition de << ennemi adjacent >> dans le depot (meme raison que
+    `selectors.composites.attackable_enemies`) :
+
+        var ents = DSLSelectors$$AdjacentUnits(unitTile, unique: true, selectionType: 3);
+        ents      = DSLSelectors$$Enemies(unit, ents, selectionType: 3);
+        if (!includeObjects)    ents = DSLSelectors$$UnitsWithoutTrait(ents, UnitTrait.Object, 3);
+        if (!includeSteppables) ents = DSLSelectors$$UnitsWithoutTrait(ents, UnitTrait.Steppable, 3);
+        return new Entities.Conditions.AmountIsGreaterAbilityTrigger(ents, DSLFormulas$$Direct(1));
+
+    ⚠ **LE SEUIL EST `>= 1`, PAS `> 1`, ET C'EST UNE LECTURE -- pas une deduction du nom.** La
+    classe allouee ici est le MEME singleton (`DAT_1833d73e0` sur `rnca9r7q6c`) que celui des DEUX
+    surcharges de `DSLTriggers$$AmountIsEqualOrGreater` -- celle a `(amount, minAmount)` et celle a
+    `(selector, minAmount)`. Le nom de ctor `AmountIsGreaterAbilityTrigger` affiche par ghidra est
+    un mislabel ICF : `AmountIsGreater` (STRICT) est une classe DISTINCTE (cf. les deux classes
+    ci-dessus). Lire `>` ici rendrait le predicat faux pour exactement UN ennemi adjacent -- le cas
+    NORMAL de son unique consommateur.
+
+    ⚠ `Count(...)` est EXPLICITE au port alors que le natif passe le selecteur BRUT : les deux
+    surcharges natives allouent la meme classe avec les memes deux arguments, donc le comptage vit
+    dans `ShouldTrigger` (polymorphe formule/selecteur). Cote port, `AmountIsEqualOrGreater` appelle
+    `a.evaluate(ctx)`, et `evaluate` d'un selecteur rend une LISTE : sans `Count`, la comparaison
+    porterait sur une liste. Le `Count` EST le comptage natif, remonte d'un etage.
+
+    `unit` = le referent d'alliance. ⚠ Le noeud `Enemies` du port lit ce referent dans `ctx.caster`,
+    PAS dans un argument (meme ecart que `attackable_enemies`, et il est ici SANS effet : l'unique
+    consommateur passe `Subject@DSLSelectors+0x68` = une MINE du caster, donc de SON equipe --
+    << ennemi de la mine >> et << ennemi du caster >> designent le meme ensemble). Le parametre est
+    conserve pour le mirror structurel et pour rendre le site grepable.
+
+    Unique appelant PORTE : `IdunBattleLogic.Entities.Abilities.Active.Loki.BioMinefieldAbility$$
+    ExecuteBehaviour` (et son helper inline `$$AttackWithChildren`), avec les DEUX booleens a
+    `false` -- donc les deux `UnitsWithoutTrait` sont POSES. (#939)"""
+    st = int(UnitSelectionType.OnlyAliveAndTargetable)                       # 3
+    ents = AdjacentUnits(unit_tile, selection_type=st)
+    ents = Enemies(ents, selection_type=st)
+    if not include_objects:
+        ents = UnitsWithoutTrait(ents, int(UnitTrait.Object), selection_type=st)        # 13
+    if not include_steppables:
+        ents = UnitsWithoutTrait(ents, int(UnitTrait.Steppable), selection_type=st)     # 27
+    _ = unit                                     # cf. docstring : l'alliance vient de `ctx.caster`
+    return AmountIsEqualOrGreater(Count(ents), Const(1))
 
 
 class CacheTrigger(AbilityTrigger):

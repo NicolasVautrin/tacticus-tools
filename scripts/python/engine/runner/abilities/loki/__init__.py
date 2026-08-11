@@ -58,6 +58,10 @@ from .wall_of_mirrors import (WallOfMirrorsAbility, wall_of_mirrors_possible_til
 from .stormcaller import (StormcallerAbility, stormcaller_tree, stormcaller_get_add_ice_tiles)
 from .psychic_maelstrom import (PsychicMaelstromAbility, psychic_maelstrom_tree,
                                 psychic_maelstrom_hits)
+from .bio_minefield import (BioMinefieldAbility, BIO_MINEFIELD_MOVE_UTILITY,
+                            bio_minefield_alive_children, bio_minefield_attack_with_children,
+                            bio_minefield_move_children, bio_minefield_spawn_units,
+                            bio_minefield_tree)
 from .might_from_below import (MightFromBelowAbility, might_from_below_attack_tree,
                                might_from_below_kill_tree, might_from_below_spawn_tiles,
                                might_from_below_summon_tree)
@@ -115,6 +119,10 @@ __all__ = [
     "StormcallerAbility", "stormcaller_tree", "stormcaller_get_add_ice_tiles",
     # psychic_maelstrom (PsychicMaelstrom 1027, #490)
     "PsychicMaelstromAbility", "psychic_maelstrom_tree", "psychic_maelstrom_hits",
+    # bio_minefield (BioMinefield 1144, #939)
+    "BioMinefieldAbility", "BIO_MINEFIELD_MOVE_UTILITY", "bio_minefield_alive_children",
+    "bio_minefield_attack_with_children", "bio_minefield_move_children",
+    "bio_minefield_spawn_units", "bio_minefield_tree",
     # might_from_below (MightFromBelow 1165, #501)
     "MightFromBelowAbility", "might_from_below_attack_tree", "might_from_below_kill_tree",
     "might_from_below_spawn_tiles", "might_from_below_summon_tree",

@@ -1061,16 +1061,18 @@ TARGETING_OPTIONS_UNPORTED: "dict[int, TargetingOptions]" = {
     #   RANGE_ADJACENT (`.cctor` : `+0x30 = 0` -> onlyAdjacent = True, `+0x38 = Nullable(1)`).
     ActiveAbilityType.StormOfFlensingBlades: TargetingOptions(rules=TR.CasterHasNotMoved | TR.TargetIsEnemy, self_cast=False,  # 1010
                            range=RANGE_ADJACENT, force_melee_target=RANGED_BOOL_FALSE),
-    # 1144 BioMinefield -- `...Active.Loki.BioMinefieldAbility$$.ctor` :
-    #   `.ctor(&opts, 0, &<TargetingRange statics+0x48>, 1, 0x40004020, 0, 0)` -> 0x40004020 =
+    # `1144 BioMinefield` N'EST PLUS ICI (#939) -- MEME migration que 1204 et 1195 : sa face COMBAT
+    #   est desormais portee (`engine/runner/abilities/loki/bio_minefield.py::BioMinefieldAbility`),
+    #   donc son masque vit sur SA classe et le laisser ici romprait le contrat de disjonction.
+    #   Le ctor a ete RELU par la tranche de portage -- `.ctor(&opts, 0,
+    #   &<TargetingRange statics+0x48>, 1, 0x40004020, 0, 0)`, forme FLAGS-DIRECTS -- et il CONCORDE
+    #   champ pour champ avec ce que le registre porte : `rules = 0x40004020` =
     #   `TargetHasFreeAdjacentTile` (0x20) | `TargetIsEnemy` (0x4000) | `AllowNullCasterTile`
-    #   (0x40000000). Ce dernier bit est la SIGNATURE d'une MoW (une machine n'a aucune tuile, cf.
-    #   `get_invalid_caster_reason` clause 4a) -- et son porteur `tyranBiovore` EST une MoW du pool.
-    #   `statics+0x48` = RANGE_WHOLE_BOARD (`.cctor` : `+0x4c = 0x100` -> useWholeBoard = 1).
-    ActiveAbilityType.BioMinefield: TargetingOptions(rules=TR.TargetHasFreeAdjacentTile | TR.TargetIsEnemy  # 1144
-                                 | TR.AllowNullCasterTile,
-                           self_cast=False, range=RANGE_WHOLE_BOARD,
-                           force_melee_target=RANGED_BOOL_FALSE),
+    #   (0x40000000), `isSelfCasting = 0`, `range = <statics+0x48>` = RANGE_WHOLE_BOARD,
+    #   `forceMeleeTarget = 1` = RangedBool.False. Deux lectures independantes, meme resultat.
+    #   Le bit `AllowNullCasterTile` reste la SIGNATURE d'une MoW (une machine n'a aucune tuile, cf.
+    #   `get_invalid_caster_reason` clause 4a) -- son porteur `tyranBiovore` EST une MoW du pool.
+    #   `targeting_options_for(1144)` continue de rendre ce masque : elle lit les DEUX sources.
     # 1185 ForwardObservers -- `...Active.Loki.ForwardObserversAbility$$.ctor` :
     #   `.ctor(&opts, 0, &<TargetingRange statics+0x18>, 0, 0x200004002, 0, 0)` -> 0x200004002 =
     #   `TargetMatchesDynamicRule` (0x2) | `TargetIsEnemy` (0x4000) | `TargetIsNotAnObject`

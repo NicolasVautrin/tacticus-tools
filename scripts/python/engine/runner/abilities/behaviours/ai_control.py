@@ -83,6 +83,78 @@ class PerformAIAction(AbilityBehaviour):
         return OperationResult.ok()
 
 
+class PerformAIMovement(AbilityBehaviour):
+    """`IdunBattleLogic.Entities.DSLBehaviors$$PerformAIMovement(unit, range, overrideUtility)` ->
+    `IdunBattle.Entities.Behaviours.PerformAIMovementBehaviour` (`$$.ctor` : `unit@+0x50`,
+    `range@+0x58`, `overrideUtility@+0x60` -- signature LUE dans `frida/methods.tsv` :
+    `unit:ITargetsSelector, range:IAmountFormula, overrideUtility:UtilityDefinition`).
+
+    `IdunBattle.Entities.Behaviours.PerformAIMovementBehaviour$$Execute` :
+
+        var range = this.range.Calculate(entities);                          // iface IAmountFormula
+        var units = this.unit.Select(entities, UnitSelectionType(3));        // iface slot 4
+        foreach (var u in units)
+            processor.ComputerMovementAction(u.Id, (int?)range, this.overrideUtility);  // slot 54
+
+    -> `Core.Services.OperationProcessor$$ComputerMovementAction` ->
+    `IdunBattle.Operations.ComputerActionOperation$$ExecuteMovementFor` ->
+    `IdunBattle.Core.Services.AiControl$$ExecuteMovementFor`, dont le port est
+    `operations/summon_ai.py::ComputerMovementActionOperation` (les trois etages y sont transcrits).
+
+    ⚠ **CE N'EST PAS `PerformAIAction`** : celui-ci fait jouer un TOUR d'IA complet (l'ability est
+    choisie par l'IA) ; celui-la ne demande qu'un DEPLACEMENT, avec un budget (`range`) et un
+    scoring de tuile IMPOSE (`overrideUtility`). Le confondre ferait attaquer des unites que le
+    natif se contente de faire avancer.
+
+    `override_utility` = les `UtilityType` des buckets du `UtilityDefinition` que l'ability construit
+    dans son `.ctor`. Pour `1144 BioMinefield`, `BioMinefieldAbility$$.ctor` alloue un tableau d'UN
+    `IdunBattleLogic.AI.Utilities.UtilityBucket` construit avec `0x3e` =
+    `UtilityType.BioMinefield_MoveTowardsTarget` (62), puis le range a `<ability>+0xf0`. `None` =
+    aucun override -> le scoring du playbook de mouvement par DEFAUT (branche
+    `overrideUtility == null` du generateur natif).
+
+    ⚠ **INERTE AUJOURD'HUI POUR SON UNIQUE CONSOMMATEUR, ET C'EST NOMME** : la feuille 62 lit
+    `meta["movetowards_hexdist"]`, une cle qu'AUCUN producteur de `meta` du depot ne remplit
+    (residu **#175-r**). Score plat -> argmax keep-first -> position courante -> aucun
+    `MoveUnitOperation`. La degradation est celle du natif a utilite plate, pas une invention ; ce
+    qui manque est l'etage `MoveTowardsUnitUtility$$GetMinDistanceToTarget`. Detail et mesure :
+    `movement_action_with_override` (`engine/ai/action_generators.py`).
+
+    Effet PUR (`stop=False`). Journalise `PerformAIMovement` (diag replay-diff). (#939)"""
+    __slots__ = ("selector", "range", "override_utility")
+
+    def __init__(self, selector: TargetsSelector, range_formula: Optional[AAmountFormula] = None,
+                 override_utility=None):
+        self.selector = selector
+        self.range = range_formula
+        self.override_utility = override_utility
+
+    def execute(self, entities, ectx):
+        from ...operations.summon_ai import ComputerMovementActionOperation
+        state = ectx.state
+        if state is None:
+            return OperationResult.ok()
+        # `range.Calculate(entities)` est evalue UNE FOIS, AVANT la boucle sur les unites -- LU :
+        # le natif le calcule en tete d'`Execute` et reutilise le meme `Nullable<int>` a chaque
+        # `ComputerMovementAction`. L'evaluer par unite serait une infidelite invisible tant que la
+        # formule est constante (elle l'est chez 1144 : `Direct(1)`).
+        rng = None
+        if self.range is not None:
+            rng = int(self.range.evaluate(entities))
+        units = self.selector.evaluate(entities) or []
+        uids = [u.get("id") for u in units if isinstance(u, dict) and u.get("id") is not None]
+        moved = []
+        for uid in uids:
+            moved.append(ComputerMovementActionOperation.execute(
+                state, int(uid), override_range=rng,
+                override_tile_utility=self.override_utility))
+        ectx.emit("PerformAIMovement", units=uids, range=rng,
+                  override_utility=([int(t) for t in (self.override_utility or ())]
+                                    if self.override_utility is not None else None),
+                  moved=moved)
+        return OperationResult.ok()
+
+
 class PerformAIAbility(AbilityBehaviour):
     """`IdunBattleLogic.Entities.DSLBehaviors$$PerformAIAbility(unit, getAbilityType, allowOnlyMove,
     overrideMovement, utilityEntity, customUtility)` -- la surcharge a SIX arguments (l'autre, a

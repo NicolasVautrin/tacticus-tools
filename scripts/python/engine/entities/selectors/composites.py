@@ -5,9 +5,10 @@ les laisser dans une tranche y aurait cree un cycle d'import. Ce module est une
 FEUILLE du graphe -- personne n'importe depuis lui a l'interieur du package."""
 from __future__ import annotations
 
-from ...dsl.base import TargetsSelector
+from ...dsl.base import AAmountFormula, TargetsSelector
 from .units import Enemies, Sub, Units, UnitsWithoutTrait
 from .tiles import AdjacentTiles, AllAliveUnits, CanAddUnit, Caster, TileIntersect, TileUnique
+from .geometry import PickRandomly
 from ..traits.unit_trait import UnitTrait
 from ..unit_selection_type import UnitSelectionType
 
@@ -74,6 +75,33 @@ def adjacent_units(source: TargetsSelector, selection_type=None) -> TargetsSelec
     port l'AVALAIT (#585-r1), alors que le call-site cite ci-dessus passe justement `3`. `None` =
     comportement HISTORIQUE. Le flag `unique`, lui, reste hors parametre : residu `#433-r3-r1a-r1`."""
     return Sub(Units(AdjacentTiles(source), selection_type), source)
+
+
+def random_adjacent_free_tile(origin: TargetsSelector, amount: AAmountFormula) -> TargetsSelector:
+    """`IdunBattleLogic.Entities.DSLSelectors$$RandomAdjacentFreeTile(origin, amount)` -- le corps
+    natif ENTIER, transcrit (la factory n'alloue AUCUN selecteur dedie, elle COMPOSE) :
+
+        var tiles = DSLSelectors$$AdjacentTiles(origin);
+        tiles     = DSLSelectors$$CanAddUnit(tiles);                 // surcharge a UN argument
+        return new Entities.Selectors.PickRandomAmountSelector(state, tiles, amount, random,
+                                                               false, 0x7fffffff, false);
+
+    soit : tirage aleatoire de `amount` tuiles parmi les tuiles hex-adjacentes a `origin` ou une
+    unite PEUT etre posee. Les trois derniers arguments du `PickRandomAmountSelector` sont des
+    CONSTANTES du site (`allowDuplicates = false`, `maxDuplicates = 0x7fffffff`,
+    `ignoreForcedTargets = false`) : ce sont exactement les defauts de `geometry.PickRandomly`, donc
+    le composite ne les repose pas -- les ecrire serait dupliquer une valeur au lieu de la lire.
+
+    ⚠ `CanAddUnit` est appele ici par sa surcharge a **UN** argument (`tiles`), pas par celle a deux
+    (`tiles, isSteppable`) ni celle a trois (`tiles, parent, isSteppable`) -- LU au call-site
+    (`DSLSelectors$$RandomAdjacentFreeTile` appelle `CanAddUnit(this, pvVar1)`). Le port laisse donc
+    `allow_steppable` a son defaut ; passer `True` autoriserait la pose sur un `Steppable` occupe.
+
+    Unique appelant PORTE : `IdunBattleLogic.Entities.Abilities.Active.Loki.BioMinefieldAbility$$
+    ExecuteBehaviour` (branche `else` du `If` : `RandomAdjacentFreeTile(Target@+0x60,
+    Direct(GetNumberConstant(nrOfSummons_2)))`). L'autre appelant du build est
+    `AutoSummonOnDamageAbility`, non porte. (#939)"""
+    return PickRandomly(CanAddUnit(AdjacentTiles(origin)), amount)
 
 
 def get_spawn_tile_selector() -> TargetsSelector:

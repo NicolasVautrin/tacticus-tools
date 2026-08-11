@@ -54,7 +54,7 @@ from .loki import (ThunderousAssaultAbility, ScarabHiveAbility,
                    SorcerousFacadeAbility, WallOfMirrorsAbility, PsychicMaelstromAbility,
                    UnstoppableMomentumReworkedAbility, FoulInfusionAbility,
                    MightFromBelowAbility, LeadingTheChargeAbility, MindControlAbility,
-                   AttemptedPossessionAbility)
+                   AttemptedPossessionAbility, BioMinefieldAbility)
 from .genestealer import (CultDemagogueAbility, HeroicFusilladeAbility, VigilanceEternalAbility,
                           TwistedScience_HealAbility)
 from .deathguard import (RevitalizingMalignancyAbility, FlailSwingAbility, SpawnPoxwalkersAbility,
@@ -145,6 +145,7 @@ ABILITY_CLASSES: dict[int, type[ActiveAbility]] = {
     MasterOfTheTutelariesAbility.ABILITY_TYPE: MasterOfTheTutelariesAbility,  # 1096 (Abraxas : effet 1197 + summon Pink Horror tile-target + Screamer sur Psychic, #202-C)
     StormcallerAbility.ABILITY_TYPE: StormcallerAbility,               # 1113 (Njal : glace zone cible+ring1 + 3x Psychic ennemis-sur-glace + stun Flying, #217)
     PsychicMaelstromAbility.ABILITY_TYPE: PsychicMaelstromAbility,     # 1027 (Sibyll astraPrimarisPsy : 1 coup garanti + 4 jets 75/50/25/10 -> 1..5 coups Psychic mono-cible, #490)
+    BioMinefieldAbility.ABILITY_TYPE: BioMinefieldAbility,             # 1144 (Bio-minefield tyranBiovore : UN Execute = AddEffect(BioMinefield_Target 1315 sur la cible, source=Owner, 1 tour) & If(Count(Alive(ChildrenOf(Owner))) >= nrOfSummons, then = PerformAIMovement(les mines non-Taunted_BlockMovement, 1 tuile, utilite 62 IMPOSEE) & Kill(les mines adjacentes a un ennemi, sur ELLES-MEMES = l'explosion), else = Spawn(nrOfSummons_2 mines tyranSmnSporeMine sur des tuiles libres adjacentes a la CIBLE)). L'audit la classait SUMMON : le summon n'est que la branche `else`. #939)
     MightFromBelowAbility.ABILITY_TYPE: MightFromBelowAbility,         # 1165 (The Patermine genesPatriarch : TROIS Execute -- Group(5x Psychic Pierce100 NoBlocking sur la cible adjacente, Ability_Attack) puis KillDeadUnits(UnitsDamagedThisPhase) puis IfAlive(Group(Spawn genesSmnGenestealer sur CHAQUE decoy ami adjacent + attaque IA immediate sans move, Ability_Summon)) -- les tuiles sont evaluees APRES l'attaque, donc le decoy pose par CosmicHorror sur un kill compte, #501)
     TheQuickeningAbility.ABILITY_TYPE: TheQuickeningAbility,  # 1151 (Mephiston : teleport-echange tile-target + free melee attack faction-BloodAngels, #217)
     BlackRageAbility.ABILITY_TYPE: BlackRageAbility,                   # 1163 (Lucien bloodDeathCompany : setHealth 30% + 3 self-buffs + charge + attaque normale, #217)
