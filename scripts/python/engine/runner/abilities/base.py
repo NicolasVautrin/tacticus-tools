@@ -11,6 +11,7 @@ from typing import Optional, TYPE_CHECKING
 from ...entities.active_ability_type import ActiveAbilityType
 from ...entities.effects import piercing_bonus_from_effects
 from ...entities.effects.magnitude import ability_var
+from ...entities.traits.unit_trait import entity_trait_names
 from ..components import OwnerComponent
 from ..components import OwnerComponent, PositionComponent, UnitComponent
 from ..components import StatsComponent
@@ -149,11 +150,21 @@ def ability_pierce_effect_bonus(state: "State", caster_id: int, target_id, abili
         return 0
     traits = None
     if target_id is not None:
-        import gameconfig as GC
+        # #910 -- substrat d'ENTITE (`entity_trait_names`), PAS le kit gameconfig. Le nœud natif est
+        # `IdunBattleLogic.Entities.DSLTriggers$$HasTrait(Target@DSLSelectors+0x60, …)`, qui résout par
+        # `IdunBattle.Entities.Components.BaseUnitComponent$$HasTrait` : la liste EFFECTIVE de
+        # l'entité, traits ACCORDÉS EN BATAILLE et pseudo-trait de GRANDE-ALLIANCE compris (#264).
+        # Le canal DÉGÂT (`_target_traits`) et le canal CRIT (`_crit_board::tgt_traits`) lisent déjà
+        # ce substrat ; le canal PERÇAGE relisait `gameconfig.unit().traits`, où `Xenos`/`Chaos`
+        # n'existent POUR AUCUNE unité (mesure : 0 sur les trois groupes) — le gate de
+        # `RelicBoltPistol_ExtraPierce` y aurait été MORT, en silence. Les trois traits du seul autre
+        # demandeur (`GravitonRifle_ExtraPierce` : TerminatorArmour/MkXGravis/Mechanical) sont, eux,
+        # dans le kit : le trou était invisible tant qu'aucun consommateur ne lisait l'alliance.
         te = state.get_entity(target_id)
         tuc = te.get_component(UnitComponent) if te is not None else None
+        tsc = te.get_component(StatsComponent) if te is not None else None
         if tuc is not None:
-            traits = frozenset((GC.unit(tuc.visual_id) or {}).get("traits") or ())
+            traits = entity_trait_names(tsc.ctx if tsc is not None else None, tuc.visual_id)
     def _unit_ctx_of(uid):
         """`BaseEffect$$GetAbilityState` — `UnitContext` de l'unité `uid` (la SOURCE d'un effet), ou None."""
         if uid is None:
@@ -162,12 +173,23 @@ def ability_pierce_effect_bonus(state: "State", caster_id: int, target_id, abili
         sc = e.get_component(StatsComponent) if e is not None else None
         return getattr(sc, "ctx", None) if sc is not None else None
 
+    def _tertiary_ability_state_of(owner_id, ability_name):
+        """`GetAbilityState(effect)` pour un owner-effect de RELIQUE — délégué au foyer UNIQUE
+        `operations/triggers/base.py::triggered_ability_state` (#357), le MÊME que le canal CRIT
+        (`_crit_board`). État TERTIAIRE pour une relique ÉQUIPÉE, état PASSIF pour un kit npc.
+
+        Sans lui, `RelicBoltPistol_ExtraPierce` de niveau 3 lirait le niveau des PASSIFS du porteur
+        (50 en runner normalisé) donc le dernier palier — un écart SILENCIEUX de magnitude."""
+        from ..operations.triggers.base import triggered_ability_state
+        return triggered_ability_state(state, int(owner_id), ability_name)
+
     return piercing_bonus_from_effects(
         effects, {"owner_id": int(caster_id), "att_id": int(caster_id),
                   "ability_type": (int(ability_type) if ability_type is not None else None),
                   "target_traits": traits,
                   "owner_ctx": csc.ctx, "is_ranged": is_ranged,
-                  "is_overwatch": bool(is_overwatch), "unit_ctx_of": _unit_ctx_of})
+                  "is_overwatch": bool(is_overwatch), "unit_ctx_of": _unit_ctx_of,
+                  "tertiary_ability_state_of": _tertiary_ability_state_of})
 
 
 def turns_from_rounds(rounds: int) -> int:

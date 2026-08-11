@@ -108,6 +108,9 @@ from .loki.reinforced_hive_node import (
     ReinforcedHiveNodeExtraArmorEffect, ReinforcedHiveNodeExtraBlockEffect
 )
 from .loki.relentless_march import RelentlessMarchExtraMoveEffect
+from .loki.relic_bolt_pistol import (
+    RelicBoltPistolExtraCritDamageEffect, RelicBoltPistolExtraPierceEffect
+)
 from .loki.rites_of_morkai import RitesOfMorkaiExtraDamageEffect
 from .loki.serene_unifier import SereneUnifierStormOfFireEffect
 from .loki.shock_assault import ShockAssaultBuffEffect
@@ -1143,6 +1146,27 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # SON ABSENCE ETAIT PERMISSIVE ET SILENCIEUSE : mesuree sur le tir differe `1237` (#503-r4),
     # elle valait 1736 PV de trop sur une cible a 12049 PV (le port la TUAIT, le natif non).
     "SupaCyborkBody_CritDmgReduction": SupaCyborkBodyCritDmgReductionEffect,
+    # 1457/1458 RelicBoltPistol_{ExtraPierce,ExtraCritDamage} (#910) : les DEUX owner-effects
+    # PERMANENTS de la relique `RelicBoltPistol` (`R_Crit_RelicBoltPistol`, 7 porteurs `lineup`),
+    # poses d'un bloc et INCONDITIONNELLEMENT par `IdunBattleLogic.Entities.Abilities.Triggered.
+    # Loki.RelicBoltPistolAbility$$CreateBehaviour` = `AddEffect(0x5b1, .., source = targets =
+    # Owner@+0x30, options = <zeroe>) & AddEffect(0x5b2, .., idem)`.
+    #   `...RelicBoltPistol_ExtraPierceEffect$$CreatePiercingBonusForAttack`
+    #       = ForAddition(get_OwnerIsCaster & IsMeleeAttack,
+    #                     If(HasTrait(Target@+0x60, 0x3ee = 1006 Xenos)
+    #                        | HasTrait(Target@+0x60, 0x7ea = 2026 Chaos),
+    #                        Multiply(ConfigVar(0x3f = extraPierceRatio), <DSLFormulas+0x28>),
+    #                        ConfigVar(0x3f = extraPierceRatio)))
+    #   `...RelicBoltPistol_ExtraCritDamageEffect$$CreateCritDamageBonus`
+    #       = le MEME corps avec `IsRangedAttack` et `ConfigVar(0x42 = extraCritDmg)`
+    # ⚠ TROIS enums, DEUX collisions : `TriggeredAbilityType` 1457 = `KardiocoreGalvanus` et
+    # 1458 = `PhoenixGem` (deux AUTRES reliques), `EffectType` 1467 = `SelfRepairMechanism`. La
+    # CONFIG des deux effets est la TRIGGERED `0x5bb = 1467 RelicBoltPistol`, litteral du `.ctor`
+    # PARTAGE relu a l'assembleur (`ba bb 05 00 00`) -- meme piege que 1460/1464 et 1468/1475.
+    # ⚠ `<DSLFormulas+0x28>` = `Direct(2)` est une MAGNITUDE (branche d'un `If`), PAS un gate :
+    # sans le trait d'alliance le bonus vaut `cv`, il ne disparait pas.
+    "RelicBoltPistol_ExtraPierce": RelicBoltPistolExtraPierceEffect,
+    "RelicBoltPistol_ExtraCritDamage": RelicBoltPistolExtraCritDamageEffect,
     # 1090 Ramshackle_DmgReduction (#570-r1) : owner-effect PERMANENT du passif `Ramshackle`, seul
     # passif du summon `orksGrotTank`. #570 avait NOMME ce trou -- le tank arrivait avec ses stats,
     # ses traits et ses armes, et SANS sa reduction de degat : ecart PERMISSIF (il encaisse plus
