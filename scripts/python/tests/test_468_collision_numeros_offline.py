@@ -74,6 +74,39 @@ import probe_468_collision_numeros as p468  # noqa: E402
 
 PROBE = PYDIR / "probe_468_collision_numeros.py"
 
+
+@pytest.fixture(autouse=True)
+def le_registre_du_depot_REEL_ne_bouge_pas():
+    """AUCUN test de ce fichier ne doit ALLOUER dans le registre PARTAGE du depot reel.
+
+    CE GARDE EXISTE PARCE QUE CE FICHIER A COMMIS LA FAUTE (2026-08-11). Depuis #468-r14,
+    `suggerer` ALLOUE : deux cas d'ici l'appellent EN PROCESS apres `viser(<depot jetable>)`, et
+    la premiere version de `_vider_reservations` remettait `REPO` en dur au lieu de restaurer la
+    cible precedente. Resultat MESURE : deux entrees parasites dans
+    `<principal>/.git/tacticus-468-reservations` -- `#917` et `#900-r8`, reconnaissables a leur
+    metadonnee (meme pid, `pour` vide) -- soit deux entiers brules pour tout le monde, et
+    indistinguables d'une allocation legitime une fois posees.
+
+    Le registre est PARTAGE et SURVIT a tout : c'est ce qui fait la valeur du remede, et c'est
+    ce qui le rend polluable. INVARIANT, pas seuil : population identique avant et apres chaque
+    test. Il verifie aussi que la cible de `viser` a ete rendue -- c'est par la que la faute est
+    arrivee, et un test qui la laisse ailleurs fait tourner le SUIVANT ou il ne croit pas."""
+    p468.viser(REPO)
+    dossier = p468._dossier_reservations()
+    avant = set(p468._identifiants_des_reservations(dossier))
+    yield
+    cible = p468.REPO
+    p468.viser(REPO)
+    apres = set(p468._identifiants_des_reservations(dossier))
+    neuves = sorted(apres - avant)
+    assert not neuves, (
+        "ce test a ALLOUE dans le registre PARTAGE du depot reel : %s -- ces numeros sont "
+        "desormais brules pour tout le monde" % ", ".join("#" + k for k in neuves))
+    assert apres == avant, "le registre du depot reel a change : %s" % sorted(apres ^ avant)
+    assert cible == REPO, (
+        "ce test a laisse `viser` pointe sur %s : le test SUIVANT tournerait ailleurs qu'il ne "
+        "croit" % cible)
+
 #: Ce qui doit changer pour que cette contre-epreuve puisse changer d'avis.
 #:
 #: Une contre-epreuve est normalement de PORTEE 4 -- son verdict ne depend que de {la source du
@@ -457,6 +490,43 @@ def _suggere(racine, *args):
     return out.returncode, out.stdout + out.stderr
 
 
+def _vider_reservations(racine):
+    """Efface les RESERVATIONS du depot jetable, entre les deux bras d'une meme contre-epreuve.
+
+    POURQUOI C'EST OBLIGATOIRE DEPUIS #468-r14, ET LA MESURE QUI L'ETABLIT. `--suggere` n'OBSERVE
+    plus, elle ALLOUE : le premier appel d'un test RESERVE son numero, donc le second l'ecarterait
+    DE TOUTE FACON -- quelle que soit la source du corpus qu'on est en train de mettre a l'epreuve.
+    Les cinq tests ci-dessous auraient continue de passer en accusant la mauvaise cause.
+
+    MESURE (2026-08-11), en coupant chaque source hors-arbre dans le probe et en rejouant les
+    tests qui la gardent :
+
+        source coupee dans `probe_468`   | AVANT #468-r14 | APRES, sans ce vidage
+        ---------------------------------|----------------|----------------------
+        `_identifiants_des_pr`           |    2 ROUGES    |      2 VERTS
+        `_identifiants_des_worktrees`    |    2 ROUGES    |      2 VERTS
+        `_identifiants_des_refs_hors_head`|    1 ROUGE    |      1 VERT
+
+    Vider entre les deux bras ISOLE l'axe mesure ici -- les sources du CORPUS. La reservation,
+    elle, n'est pas laissee sans garde : elle a son propre cliquet, et il porte la contre-epreuve
+    de concurrence (`tests/test_468r14_reservation_offline.py`).
+
+    ⚠ IL RESTAURE LA CIBLE PRECEDENTE, PAS `REPO`. Deux des cinq tests appellent `p468.suggerer`
+    EN PROCESS, apres avoir vise le depot jetable : un helper qui remettrait `REPO` en dur ferait
+    repartir le bras suivant sur le depot REEL, qui rend evidemment un autre numero -- le test
+    passerait pour la mauvaise raison. Faute commise a la premiere ecriture de ce helper, vue
+    parce que la contre-epreuve du desarmement rendait << 1 failed, 1 passed >> la ou les deux
+    devaient rougir.
+    """
+    precedent = p468.REPO
+    p468.viser(racine)
+    try:
+        dossier = p468._dossier_reservations()
+    finally:
+        p468.viser(precedent)
+    shutil.rmtree(dossier, ignore_errors=True)
+
+
 def test_suggere_ne_rend_RIEN_quand_le_corpus_est_AMPUTE():
     """Le point de conception : une mesure incomplete ne rend JAMAIS de numero.
 
@@ -584,13 +654,19 @@ def _ajouter_worktree(racine, nom, branche):
     return wt
 
 
-def test_deux_suggere_concurrents_depuis_deux_worktrees_SIGNALENT_leur_angle_mort():
-    """LA condition de retournement de #468-r10, telle qu'elle est formulee.
+def test_deux_suggere_depuis_deux_worktrees_ne_rendent_PLUS_le_meme_numero():
+    """CE TEST A CHANGE D'EXIGENCE, ET C'EST LA TRANCHE #468-r14 QUI L'A RETOURNE.
 
-    Deux agents dispatches ensemble ont pris `#479` du meme `--suggere` -- collision DOUBLE
-    (la racine ET le residu `r1`). Aucune lecture de l'arbre ne peut les departager : a cet
-    instant, NI L'UN NI L'AUTRE n'a rien ecrit. Ce qui est exigible n'est donc pas qu'ils
-    rendent des numeros differents, c'est qu'ils DISENT ne pas pouvoir se voir."""
+    Il exigeait l'inverse -- que les deux worktrees rendent le MEME numero (`n1 == n2 ==
+    PREMIER_AU_DESSUS`), et qu'ils se contentent de DIRE qu'ils ne pouvaient pas se voir.
+    C'etait la formulation honnete de #468-r10 : le corpus ne pouvait structurellement pas
+    departager deux agents dont aucun n'a encore rien ecrit, donc on ne pouvait exiger que
+    l'aveu. Ce qui a change n'est pas le corpus, c'est la NATURE de `--suggere` : elle ALLOUE
+    (creation exclusive sous le `.git` commun) au lieu d'observer. Ce que ce test exigeait est
+    devenu faux ; ce qu'il n'osait pas exiger est devenu vrai.
+
+    Le montage est le meme -- deux worktrees du meme depot, aucune ecriture entre les deux
+    appels -- pour que la comparaison avec l'ancienne exigence soit directe."""
     racine = _depot_git(BASE_SAINE)
     wt2 = None
     try:
@@ -599,16 +675,20 @@ def test_deux_suggere_concurrents_depuis_deux_worktrees_SIGNALENT_leur_angle_mor
         rc2, txt2 = _suggere(wt2)
         assert rc1 == 0 and rc2 == 0, "%s\n---\n%s" % (txt1, txt2)
         n1, n2 = _numero_propose(txt1), _numero_propose(txt2)
-        # Le regime DOIT etre degenere, sinon ce test ne prouve rien sur l'avertissement :
-        # un montage ou les deux se departagent tout seuls le rendrait vert sans le lire.
-        assert n1 == n2 == PREMIER_AU_DESSUS, (
-            "montage NON DISCRIMINANT (n1=%s n2=%s) : les deux worktrees se sont departages "
-            "seuls, donc l'avertissement n'est pas mis a l'epreuve ici." % (n1, n2))
+        assert n1 == PREMIER_AU_DESSUS, (
+            "bras de reference : le premier appel doit rendre #%s, sinon la comparaison ne dit "
+            "rien :\n%s" % (PREMIER_AU_DESSUS, txt1))
+        assert n1 != n2, (
+            "deux worktrees, aucune ecriture entre les deux appels, MEME numero (%s) : "
+            "l'allocation n'est pas exclusive entre worktrees.\n%s\n---\n%s" % (n1, txt1, txt2))
+        # La portee reste imprimee dans les deux : ce qui est desormais garanti, et ce qui ne
+        # l'est pas (un numero pris hors outil, un autre clone du depot).
         manque = [nom for nom, t in (("worktree 1", txt1), ("worktree 2", txt2))
                   if p468.MARQUEUR_ANGLE_MORT not in t]
-        assert not manque, (
-            "%s rend le MEME numero que son concurrent SANS le signaler (%s absent) :\n%s"
-            % (" et ".join(manque), p468.MARQUEUR_ANGLE_MORT, txt1))
+        assert not manque, ("%s n'imprime plus sa portee (%s absent) :\n%s"
+                            % (" et ".join(manque), p468.MARQUEUR_ANGLE_MORT, txt1))
+        assert "RESERVE :" in txt1 and "RESERVE :" in txt2, (
+            "le numero est rendu sans dire qu'il a ete PRIS :\n%s" % txt1)
         # Et la concurrence est CHIFFREE, pas seulement evoquee.
         assert "concurrence : 1 autre(s) worktree(s)" in txt1, txt1
     finally:
@@ -632,6 +712,7 @@ def test_N2_un_numero_ecrit_dans_un_AUTRE_worktree_n_est_plus_propose():
         # L'agent d'a cote ouvre son dossier -- sans commiter, comme au premier geste.
         (wt2 / "docs" / "rl" / ("case-%s-pris-par-le-voisin.md" % PREMIER_AU_DESSUS)).write_text(
             "# pris\n", encoding="utf-8")
+        _vider_reservations(racine)      # ISOLE l'axe mesure ici : la source WORKTREE VOISIN
         rc, txt2 = _suggere(racine)
         assert rc == 0, txt2
         assert _numero_propose(txt2) != PREMIER_AU_DESSUS, (
@@ -659,6 +740,7 @@ def test_N2_generalisation_un_PROBE_du_voisin_bloque_le_mode_RESIDU():
         (wt2 / "scripts" / "python").mkdir(parents=True, exist_ok=True)
         (wt2 / "scripts" / "python" / "probe_900r2_pris_par_le_voisin.py").write_text(
             "# pris\n", encoding="utf-8")
+        _vider_reservations(racine)      # ISOLE l'axe mesure ici : la source WORKTREE VOISIN
         rc, txt2 = _suggere(racine, "900")
         assert rc == 0, txt2
         assert "LIBRE : #900-r2" not in txt2, (
@@ -695,6 +777,7 @@ def test_N1_un_numero_commite_sur_une_ref_HORS_HEAD_n_est_plus_propose():
         git("commit", "-q", "-m", "feat(#%s): le voisin a deja ouvert ce dossier"
             % PREMIER_AU_DESSUS)
         git("checkout", "-q", depart)
+        _vider_reservations(racine)      # ISOLE l'axe mesure ici : la source REF HORS HEAD
         rc, txt2 = _suggere(racine)
         assert rc == 0, txt2
         assert _numero_propose(txt2) != PREMIER_AU_DESSUS, (
@@ -839,6 +922,7 @@ def test_un_numero_ouvert_SEULEMENT_dans_le_CORPS_d_une_PR_n_est_pas_propose(mon
         assert _numero_propose(capsys.readouterr().out) == PREMIER_AU_DESSUS
 
         # Bras MUTE : une PR OUVRE ce numero dans son corps, et nulle part ailleurs.
+        _vider_reservations(racine)      # ISOLE l'axe mesure ici : la source CORPS DE PR
         monkeypatch.setattr(p468, "_pull_requests", lambda: (
             [{"number": 999, "title": "un titre sans numero",
               "body": "son verdict ne pese pas `manquants` => #%s." % PREMIER_AU_DESSUS}], None))
@@ -862,6 +946,7 @@ def test_le_mode_RESIDU_ecarte_lui_aussi_un_numero_venu_d_une_PR(monkeypatch, ca
         p468.suggerer("900")
         assert "LIBRE : #900-r2" in capsys.readouterr().out
 
+        _vider_reservations(racine)      # ISOLE l'axe mesure ici : la source CORPS DE PR
         monkeypatch.setattr(p468, "_pull_requests", lambda: (
             [{"number": 999, "title": "#900-r2 : deja ouvert par cette PR", "body": ""}], None))
         p468.suggerer("900")

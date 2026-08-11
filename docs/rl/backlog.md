@@ -1079,14 +1079,31 @@ Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement 
   Contre-épreuve : **9 mutations, 9 rouges**, dont **deux** ont d'abord rendu VERT et fait corriger
   le code **et un chiffre faux** (le bruit du nom de branche avait été mesuré dans une forme que le
   code n'emploie pas).
-- **`#468-r12` — N3 reste IRRÉDUCTIBLE : il ne reste plus que la parade (b).** Deux `--suggere`
-  lancés **au même instant** rendent toujours le même numéro — `gh` couvre les PR **écrites**, pas
-  les numéros **alloués et pas encore écrits**. La seule parade restante est un **registre de
-  réservation versionné**, qui **sérialise** l'allocation (commit + push par numéro) : c'est
-  exactement ce que `case-468` §9.1 avait écarté sur le coût de merge. L'arbitrage n'a pas bougé ;
-  ce qui a bougé, c'est qu'il ne reste plus **que** lui. Second volet, mineur : les PR au-delà des
-  **200** plus récentes ne sont pas lues (mesuré **0 changement** à 670, chiffre à re-dériver — la
-  sortie le dit). Détail : `case-468-r11-monotonie-des-deux-modes-et-corps-des-pr.md` §5.
+- ~~**`#468-r12` — N3 reste IRRÉDUCTIBLE : il ne reste plus que la parade (b).**~~ — **N3 FERMÉ
+  (2026-08-11)** par `#468-r14`, `case-468-r14-de-l-observation-a-l-allocation.md`. L'énoncé
+  contenait une **prémisse fausse** : « la seule parade restante est un registre **versionné**,
+  qui sérialise l'allocation ». Une réservation n'a pas à être versionnée pour être **partagée** —
+  `git rev-parse --git-common-dir` rend le **même** chemin absolu depuis l'arbre principal et
+  depuis chacun des **32** worktrees, et ce `.git` survit à `git worktree remove` comme à
+  `git clean`. `--suggere` y **prend** son numéro par `os.open(..., O_CREAT|O_EXCL)` : l'allocation
+  **est** l'appel système, donc deux appels simultanés ne peuvent pas rendre le même numéro —
+  ni commit, ni push, ni verrou (donc pas de verrou orphelin à expirer par un délai). Mesure à
+  N = 8 processus au même instant : le régime d'AVANT rend **8 fois `#911`**, l'allocation rend
+  **8 numéros distincts** avec **28 = N(N-1)/2** candidats pris sous les pieds. Second volet
+  (les PR au-delà des **200** plus récentes) **toujours ouvert**, mineur et mesuré à 0 changement.
+- **`#468-r15` — `--reservations` LISTE, mais ne CONFRONTE pas : une allocation honorée est
+  indistinguable d'une allocation en vol.** Le registre de `#468-r14` n'est jamais purgé (à
+  dessein : recycler un numéro coûte une réécriture d'historique, le sauter coûte un entier), donc
+  il **accumule**. Rien ne distingue aujourd'hui une réservation dont le numéro a **depuis été
+  écrit** (case-doc, probe, message de commit — donc honorée, l'entrée n'est plus qu'un
+  historique) d'une réservation **encore en vol** (un agent parti avec son numéro et rien livré).
+  Or c'est exactement ce qu'un orchestrateur a besoin de voir pour juger la flotte, et c'est
+  gratuit : les six sources du corpus sont déjà mesurées par `employes()` au même endroit.
+  *Retournement* : `--reservations` ventile `HONOREE` / `EN VOL` / `ILLISIBLE` (tri-état, jamais
+  un zéro fabriqué) et l'accumulation cesse de se lire comme un tas indifférencié.
+  **FOYER:** `scripts/python/probe_468_collision_numeros.py`,
+  `scripts/python/tests/test_468r14_reservation_offline.py` — **BLOCAGE:** `aucun` | `[opus]` |
+  `docs/rl/case-468-r14-de-l-observation-a-l-allocation.md` §6 ; `probe_468::lister` |
 - **`#480-r2` — `probe_252` ne pèse qu'un SENS de la bijection.** Son verdict est
   `faux or absents` (table -> enum) ; `manquants` (enum -> table) est calculé, **affiché, et ignoré**.
   Les 6 tables étant aujourd'hui en bijection exacte, le faire peser ne produirait **aucun faux

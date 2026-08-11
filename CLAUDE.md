@@ -484,21 +484,35 @@ dossiers) que le cliquet a trouvée à son premier passage.
   déjà pris**. Mesuré : 13 racines `< 500` n'existent QUE dans `git log`.
 - **Une mesure incomplète ne rend JAMAIS de numéro** (git muet → 99, rien suggéré), et on ne
   recycle pas un trou — une PR peut être en vol.
-- ⚠ **`--suggere` DIT désormais ce qu'il ne voit pas — LIS sa section `PORTEE DE LA MESURE`, et si
-  d'autres agents travaillent, ANNONCE le numéro que tu prends.** Il rendait un `PASS` rassurant
-  dans le SEUL régime où nos collisions se produisent : son corpus était ce qui est écrit **et
-  fusionné**, quand une allocation se fait au DÉBUT d'une tranche. Deux agents ont ainsi pris `#479`
-  (collision **double**, racine ET `r1`). Depuis #468-r10 il lit aussi les **refs hors `HEAD`** et
-  les **noms écrits dans les autres worktrees** — ce qui, le jour de la mesure, a évité **deux**
-  collisions imminentes (`#425-r3`, `#448-r3`, tous deux déjà portés) — et depuis #468-r11 le
-  **corps des PULL REQUESTS**, qui n'entre JAMAIS dans l'arbre (le squash-merge ne le recopie pas) :
-  `git grep` et `git log --all` rendaient **0** sur `#479-r2`, que la PR #663 ouvre explicitement.
-  Reste **irréductible** : un numéro pris et **pas encore écrit** — deux `--suggere` au même instant
-  rendent le même numéro, et c'est ce que la portée nomme. Détail et parades chiffrées (dont
-  **deux refusées** : balayer les 94 branches non fusionnées apporte **0** changement de numéro ;
-  et **une retenue** sur le même critère : le corps des PR en change **2**) :
-  `docs/rl/case-468-r10-angle-mort-des-agents-en-vol.md` et
-  `docs/rl/case-468-r11-monotonie-des-deux-modes-et-corps-des-pr.md`.
+- ⚠ **`--suggere` n'OBSERVE plus, elle ALLOUE — le numéro qu'elle rend est RÉSERVÉ (#468-r14).**
+  Elle le prend par `os.open(<git-common-dir>/tacticus-468-reservations/<clé>.json,
+  O_CREAT|O_EXCL)` : l'allocation **EST** l'appel système, donc il n'existe aucune fenêtre entre
+  « c'est libre » et « je le prends », et deux appels simultanés ne peuvent **pas** rendre le même
+  numéro. Ce n'est pas improbable, c'est impossible. Mesuré à 8 processus au même instant : le
+  régime d'avant rend **8 fois `#911`**, l'allocation rend **8 numéros distincts**. Le `.git`
+  commun est le seul emplacement qui tienne les trois contraintes — **même chemin absolu depuis
+  les 32 worktrees**, **survit** à `git worktree remove`, et **hors de tout arbre de travail**
+  (donc `git status` inchangé, et pas un conflit de merge par allocation).
+  ⚠ **Une réservation impossible sort en `99` sans rendre de numéro** : l'allocation ne se dégrade
+  JAMAIS en observation. Et il n'y a **pas de `--liberer`** — il rouvrirait une course pour
+  économiser un entier.
+  ⚠ **Ce que ça ne couvre PAS, et la portée le DIT à chaque appel** : un numéro choisi **sans
+  passer par l'outil**, et un numéro pris depuis un **autre clone / une autre machine** (l'espace
+  de noms est per-dépôt, comme le `.git` qui le porte). **ANNONCE quand même le numéro que tu
+  prends** si d'autres agents travaillent.
+- **Le corpus, lui, répond à « où est-ce déjà ÉCRIT ? » — six sources.** Il rendait un `PASS`
+  rassurant dans le SEUL régime où nos collisions se produisent : ce qui est écrit **et fusionné**,
+  quand une allocation se fait au DÉBUT d'une tranche. Deux agents ont ainsi pris `#479` (collision
+  **double**, racine ET `r1`). Depuis #468-r10 il lit les **refs hors `HEAD`** et les **noms écrits
+  dans les autres worktrees** — ce qui a évité **deux** collisions imminentes (`#425-r3`,
+  `#448-r3`) — depuis #468-r11 le **corps des PULL REQUESTS**, qui n'entre JAMAIS dans l'arbre (le
+  squash-merge ne le recopie pas : `git grep` et `git log --all` rendaient **0** sur `#479-r2`, que
+  la PR #663 ouvre explicitement) — et depuis #468-r14 les **réservations**. Détail et parades
+  chiffrées (dont **deux refusées** : balayer les 94 branches non fusionnées apporte **0**
+  changement de numéro ; et **une retenue** : le corps des PR en change **2**) :
+  `docs/rl/case-468-r10-angle-mort-des-agents-en-vol.md`,
+  `docs/rl/case-468-r11-monotonie-des-deux-modes-et-corps-des-pr.md` et
+  `docs/rl/case-468-r14-de-l-observation-a-l-allocation.md`.
 - ⚠ **La suggestion est MONOTONE dans les DEUX modes — elle ne l'était que dans un.** Le mode
   RÉSIDU s'arrêtait au **premier trou** et le proposait (`--suggere 477` → `#477-r14` alors que
   `-r15/-r16/-r17` existent), en n'affichant comme « pris » que le **préfixe contigu** : les
