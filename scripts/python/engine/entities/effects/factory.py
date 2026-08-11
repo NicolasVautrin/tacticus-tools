@@ -20,7 +20,9 @@ from .loki.supa_cybork_body import SupaCyborkBodyCritDmgReductionEffect
 from .loki.blood_chalice import BloodChaliceExtraPiercingEffect, BloodChaliceHealOnAttackEffect
 from .loki.champion_of_the_feast import ChampionOfTheFeastReduceArmorEffect
 from .loki.heal_blocking import FuryOfTheAncientsEffect
-from .loki.counter_attack import WireweaveNetCounterAttackEffect
+from .loki.counter_attack import (GrimRetributionCounterAttackEffect,
+                                  UnwaveringSentinelCounterAttackEffect,
+                                  WireweaveNetCounterAttackEffect)
 from .loki.crit_aura import PathOfCommandExtraCritEffect
 from .loki.cursed_plague_bell import CursedPlagueBellExtraMoveEffect
 from .loki.custodes import MomentShackleExtraBlockChanceEffect, MomentShackleExtraBlockDamageEffect
@@ -873,6 +875,17 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # nommer la classe NATIVE au lieu de router sur `BaseEffect`, et porter les litteraux du `.ctor`
     # (`turnsEnabled=1` -> tour ENNEMI, `activationFrequency=2`, `hasAutomaticActivation=False`).
     "WireweaveNet_CounterAttack": WireweaveNetCounterAttackEffect,
+    # GrimRetribution (PASSIF 1177 de Sarquael `darkaHellblaster`) : effet-RIPOSTE 1213, MEME famille
+    # et MEME motif d'inscription que 1111 ci-dessus -- nommer la classe NATIVE et porter les
+    # litteraux du `.ctor`. ⚠ Ceux-ci DIFFERENT : `activationFrequency = 1` (et non 2), ce qui INVERSE
+    # la paire de `Triggered()` d'armement. Tout l'observable vit dans `EFFECT_TRIGGERS[1213]`
+    # (`runner/operations/triggers/loki/grim_retribution.py`). (#946)
+    "GrimRetribution_CounterAttack": GrimRetributionCounterAttackEffect,
+    # UnwaveringSentinel (PASSIF 1449 de Tyrith `custoKyrus`) : effet-RIPOSTE 1439, meme motif. Son
+    # `GetCounterAttackBehaviour` n'attaque PAS : il enfile un re-declenchement de l'ability 1449
+    # (`EFFECT_TRIGGERS[1439]` + `CUSTOM_TRIGGERED_ABILITIES[1449]`,
+    # `runner/operations/triggers/loki/unwavering_sentinel.py`). (#946)
+    "UnwaveringSentinel_CounterAttack": UnwaveringSentinelCounterAttackEffect,
     # 1255 MartialSuperiority_Visual (case-366-r1) : MARQUEUR « riposte armee » du passif
     # `MartialSuperiority` (1092) de `templChampion`, pose a l'init par
     # `MartialSuperiorityAddEffectAbility` (`AOwnerEffectTriggeredAbility`, corps de BASE). Sa SEULE
@@ -1773,6 +1786,14 @@ ABILITY_INIT_OWNER_EFFECTS: dict[str, list[str]] = {
     # et `ctx.passive_abilities` (la MESURE) est toujours seede en aval. Rouvrir ce residu demande
     # donc encore de faire lire au seed le substrat MESURE -- une modification de sa SOURCE, pas de
     # sa PLACE.
+    # PAS d'entree `"GrimRetribution"` ni `"UnwaveringSentinel"` non plus (#946), MEME arbitrage que
+    # `"WireweaveNet"` ci-dessus et pour les MEMES deux raisons. Leur `activationFrequency = 1` ne
+    # change rien a l'arbitrage : leur instance est armee pendant TOUT tour ennemi (elle l'est meme
+    # PLUS souvent que celle de 1111, re-armee a chaque `On(0x12)` adverse), donc « armee => captee »
+    # tient a l'identique, et le point 2 (le seed lit le KIT gameconfig, pas la MESURE) vaut mot pour
+    # mot. RESIDU NOMME, le MEME que pour 1111 : une continuation offline qui CAPTURE pendant le tour
+    # du PORTEUR n'a aucune instance a armer -> pas de riposte. Les montages live de #946 capturent
+    # donc au tour ADVERSE, comme celui de #366-r1b.
     # PAS d'entree `"StructuralAnalyser"` non plus, MEME arbitrage (case-366-r1, 1174) :
     # `...StructuralAnalyser_AddDamageBuffAbility$$CreateBehaviour` pose bien DEUX owner-effects d'un
     # bloc sur son porteur (`AddEffect(0x484 = 1156) + AddEffect(0x496 = 1174)`, `turns` VIDE donc

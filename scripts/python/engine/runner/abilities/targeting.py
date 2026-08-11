@@ -2025,7 +2025,7 @@ class UnportedAbilityTargeting:
         return 0
 
 
-def valid_normal_attack_targets(state: "State", caster_id: int) -> list:
+def valid_normal_attack_targets(state: "State", caster_id: int, range_override=None) -> list:
     """`IdunBattle.Entities.Selectors.ValidNormalAttackTargetsSelector$$Select` (MIRROR du decompile) :
 
         unit  = SelectSingle(unitSel@+0x18)                 # le caster
@@ -2037,10 +2037,28 @@ def valid_normal_attack_targets(state: "State", caster_id: int) -> list:
         if (additionalRule@+0x40.HasValue) opts.rules |= additionalRule
         return targetingQuery.<slot 2>(unit, tiles, opts, false).Targets
 
-    Cette fonction porte le cas des call-sites SANS override (`range = null`, les deux `Nullable`
-    VIDES) -- le seul lu a ce jour (`SorcerousFacadeAbility$$GetTarget` / `$$ExecuteBehaviour`,
-    `FearedInterrogator_TargetEffect$$CreateTargetSelector`). Les trois overrides sont donc
-    volontairement ABSENTS de la signature : les ajouter sans call-site serait du code speculatif.
+    Les DEUX `Nullable<TargetingRule>` (`ignoreRule` / `additionalRule`) restent volontairement
+    ABSENTS de la signature : aucun call-site LU ne les pose (ils sont VIDES sur les quatre lus).
+
+    `range_override` PORTE le premier bloc, et il l'est parce qu'un call-site le POSE (#946) :
+    `IdunBattle.Entities.Effects.Loki.UnwaveringSentinel_CounterAttackEffect$$GetCounterAttackCondition`
+    passe `range = DSLFormulas$$Direct(AbilityConfiguration$$GetNumberConstant(cfg,
+    AbilityConstantType.range))`. Le bloc natif fait DEUX choses, et le port fait les deux :
+
+      * `opts.range = CustomRange(range)` -- `TargetingRange{only_adjacent = RangedBool.False,
+        override_range = range}`, donc la portee de l'ARME est REMPLACEE. ⚠ `RangedBool.False` n'est
+        PAS `IfNotRangedCaster` : l'override efface aussi le « un caster de melee ne touche que
+        l'adjacence » du preset d'attaque normale. Le clamp melee subsiste par l'AUTRE voie, celle
+        qui ne depend pas du preset (`get_range` force `only_adjacent` sur
+        `HasEffect(ForcedInMelee)` et sur `IsTrue(ForceMeleeTarget) && ShouldApplyRangedInMelee`) --
+        c'est CE second forcage qui porte le « If there is an enemy adjacent to Tyrith, the range of
+        this ability is reduced to 1 » de l'i2.
+      * `opts.rules &= ~TargetMatchesDynamicRule` -- la regle-delegue est DESARMEE. Cote port cela
+        se lit `_NormalAttackTargeting.get_dynamic_invalid_target_reason` jamais consultee, la
+        cascade testant `options.has(TR.TargetMatchesDynamicRule)` avant de l'appeler.
+
+    `None` = pas d'override -> le comportement d'avant #946, octet pour octet (les call-sites sans
+    range continuent d'appeler la meme cascade avec les memes options).
 
     `GetValidTargets` = enumeration du domaine puis filtre par la MEME cascade que le gate de cible
     (`get_invalid_target_reason`) -> on la reutilise TELLE QUELLE avec le masque de l'attaque
@@ -2056,7 +2074,15 @@ def valid_normal_attack_targets(state: "State", caster_id: int) -> list:
     #419-r1-tr14-r5-r2-r1-r2 : les options sont celles du TYPE d'attaque normale DE CE CASTER
     (`normal_attack_targeting_options`), mirror du `battleQuery.<slot 0x3e>(GetNormalAttackType(unit))`
     que le selecteur natif fait a cette place exacte -- et non plus une constante de module."""
-    probe = _NormalAttackTargeting(normal_attack_targeting_options(state, int(caster_id)))
+    opts = normal_attack_targeting_options(state, int(caster_id))
+    if range_override is not None:
+        # `opts.rules &= ~TargetMatchesDynamicRule ; opts.range = CustomRange(range)` -- les DEUX
+        # ecritures du bloc natif, dans le meme ordre. `dataclasses.replace` parce que
+        # `TargetingOptions` est `frozen` : on ne MUTE pas le preset partage du module.
+        opts = replace(opts,
+                       rules=int(opts.rules) & ~int(TR.TargetMatchesDynamicRule),
+                       range=custom_range(int(range_override)))
+    probe = _NormalAttackTargeting(opts)
     out = []
     for uid in list(state.entities.keys()):
         if int(uid) == int(caster_id):
