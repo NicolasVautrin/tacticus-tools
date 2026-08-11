@@ -142,7 +142,13 @@ def _build(seed, a_units):
     sf.parent.mkdir(parents=True, exist_ok=True)
     proc = subprocess.run(
         [sys.executable, "rl_duel.py", "build", "--seed", str(seed), "--state-file", str(sf),
-         "--board", "MC1_67", "--roster", "1", "--p-units", CASTER_VIS, "--a-units", a_units],
+         "--board", "MC1_67", "--roster", "1", "--p-units", CASTER_VIS, "--a-units", a_units,
+         # #933 -- LE COUP PROPRE SE CONSTRUIT (cf. le skip « coup non propre (crit/block/evade) »
+         # plus bas). Depuis la bascule #419-r5/-r6 le tirage crit/block est ouvert des deux cotes
+         # et ce skip est devenu frequent : 1 passed / 1 skipped au 2026-08-11, rc 0, sans qu'aucun
+         # garde ne le signale. Les QUATRE faces (#419-r6 §3.1).
+         "--crit", "0,0", "--crit-target", "0,0",
+         "--block-player", "0,0", "--block-target", "0,0"],
         cwd=str(PYDIR), capture_output=True, text=True, encoding="utf-8", errors="replace")
     if not sf.exists():
         return None, None, (proc.stderr or proc.stdout or "")[-300:]

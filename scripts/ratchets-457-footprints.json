@@ -4790,6 +4790,29 @@
    "dirs": [],
    "temoins": []
   },
+  "tests/engine/test_933_premisse_regime_offline.py": {
+   "_at": 1786461176,
+   "_commit": "75158e74ec5bfcfbd61e531be8a6f1ff63ddf546",
+   "dirs": [
+    "scripts/python/tests",
+    "scripts/python/tests/engine",
+    "scripts/python/tests/engine/entities",
+    "scripts/python/tests/engine/entities/pathfinding",
+    "scripts/python/tests/engine/runner"
+   ],
+   "temoins": [
+    "scripts/python/tests/engine/entities/pathfinding/test_381r3_neighbour_source_live.py",
+    "scripts/python/tests/engine/entities/pathfinding/test_pathfinding_live.py",
+    "scripts/python/tests/engine/entities/test_366_r1_turnof_all_offline.py",
+    "scripts/python/tests/engine/entities/test_units_directly_behind_offline.py",
+    "scripts/python/tests/engine/runner/test_120bis_spawn_tile_offline.py",
+    "scripts/python/tests/engine/runner/test_wireweave_net_counter_live.py",
+    "scripts/python/tests/engine/test_116e_chronometron_gates_offline.py",
+    "scripts/python/tests/engine/test_votan_prediction_gap_live.py",
+    "scripts/python/tests/test_237_relic_equip_offline.py",
+    "scripts/python/tests/test_symbols_coverage_guard_offline.py"
+   ]
+  },
   "tests/engine/test_effect_1582_inertia_binary.py": {
    "_at": 1786392144,
    "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",

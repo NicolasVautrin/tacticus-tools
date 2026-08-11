@@ -1,9 +1,13 @@
 """Tranche DAMAGE block — REPLAY-DIFF BIT-EXACT d'une attaque BLOQUÉE (offline vs live).
 
-Le **block** est une mécanique DÉFENSEUR. Comme le crit, **aucune unité n'a de block de base** :
-il vient UNIQUEMENT des items équipés (I_Block_* → BlockChance/BlockDamage résolus, exposés en
-`MultiValueStat(7)`). On le force donc via le levier BC `rl_duel --block-target "chance,amount"`
-(= restaure le stat résolu, équivalent à un item I_Block équipé — même analogue que `--crit`).
+Le **block** est une mécanique DÉFENSEUR : il vient UNIQUEMENT des items équipés (I_Block_* →
+BlockChance/BlockDamage résolus, exposés en `MultiValueStat(7)`). On le force ici via le levier BC
+`rl_duel --block-target "chance,amount"`, qui ÉCRASE `BlockChance`/`BlockDamage` de la cible (même
+analogue que `--crit`), donc quelle que soit sa base.
+⚠ (#933) La phrase « aucune unité n'a de block de base » a été RETIRÉE : elle était vraie tant que
+le harnais n'équipait rien, et la bascule #419-r5/-r6 l'a périmée — **46 des 106** unités du seed
+portent désormais un `BlockChance` de base (`eldarFarseer`, la cible de ce fichier, en fait
+partie). Le montage ne s'y appuie pas — il écrase — mais un lecteur, si.
 
 Par coup, APRÈS le spread : `IdunBattle.Core.Services.DamageCalculations$$ApplyRandomBlockDamage = chaîne `NextBool(chance)` par
 source de block triée jusqu'à la 1ʳᵉ réussite → `ApplyBlockDamage`=`max(0, dmg − BlockDamage)`,
@@ -56,8 +60,14 @@ def _bfs(board, src):
 def block_attack(live_session, rpc, build_runner):
     """Build 1v1 block, positionne l'attaquant au contact hex de la cible, rejoue l'attaque
     live+offline. Renvoie {hp_before, live_after, off_after, live_ph, off_ph, blocks, rr}."""
+    # `--crit 0,0` (#933) : LA PREMISSE ECRITE EN TETE (« sans crit -> isole le block ») SE
+    # CONSTRUIT desormais. Elle etait vraie par accident tant que le canal crit etait MUET ;
+    # depuis la bascule #419-r5/-r6, `necroDestroyer` porte CritChance=41 (mesure
+    # `probe_933_premisses_regime.py --unites`) et chaque coup peut critiquer -- le scenario
+    # n'isolait plus le block qu'il annonce isoler.
     b = build_runner("777", extra=["--roster", "1", "--p-units", ATTACKER,
-                                   "--a-units", TARGET, "--block-target", BLOCK])
+                                   "--a-units", TARGET, "--block-target", BLOCK,
+                                   "--crit", "0,0"])
     rid, my_player = b["rid"], None
     if not _ok(rpc("dumpRng", {"runnerId": rid}, 30)):
         pytest.skip("dumpRng indispo (rebuild+reinject hooks ?)")

@@ -169,7 +169,13 @@ def _build(tag: str):
     proc = subprocess.run(
         [sys.executable, "rl_duel.py", "build", "--seed", "777", "--state-file", str(state_file),
          "--seed-bc", str(bc_file), "--board", "MC1_67", "--roster", "1",
-         "--p-units", CASTER_VIS, "--a-units", A_UNITS, "--hp-target", "300000"],
+         "--p-units", CASTER_VIS, "--a-units", A_UNITS, "--hp-target", "300000",
+         # #933 -- LE REGIME « SANS CRIT » SE CONSTRUIT, IL NE SE SUPPOSE PLUS. L'assertion
+         # bit-exact port/live du volet (E) etait gardee par `if cc == 0:` ; depuis la bascule
+         # #419-r5/-r6, `bloodTerminator` porte CritChance=20 (MESURE) et la garde SAUTAIT --
+         # l'assertion la plus forte du fichier n'etait plus jamais evaluee, sans aucun rouge.
+         # `--crit 0,0` epingle les p-units, dont le caster est la seule.
+         "--crit", "0,0"],
         cwd=str(PYDIR), capture_output=True, text=True, encoding="utf-8", errors="replace")
     if not state_file.exists():
         return -2, state_file, bc_file
@@ -354,8 +360,20 @@ def test_savage_echoes_wiring_and_free_tile_bonus(live_session, rpc):
         live_hits = _live_hits_from_events(cast, tid, _hp_ob(ob0, tid))
         assert len(live_hits) == want_hits, \
             f"cast LIVE : {len(live_hits)} coups {live_hits} != oracle config nrOfHits={want_hits}"
-        if int(getattr(csc.ctx, "crit_chance", 0) or 0) == 0:
-            assert port_ph == live_hits, f"PORT {port_ph} != LIVE {live_hits} (bit-exact cc=0)"
+        # PREMISSE DE REGIME, RENDUE EXPLICITE (#933). Le bit-exact port/live n'a de sens que si le
+        # caster ne peut pas critiquer -- sinon un crit-roll cote natif ecarte legitimement les deux
+        # per-hit. C'etait une GARDE (`if cc == 0:`), et depuis la bascule #419-r5/-r6 (items BiS
+        # equipes par defaut) le caster porte du crit : la garde SAUTAIT, l'assertion la plus forte
+        # du fichier n'etait PLUS JAMAIS evaluee, et le test restait VERT en ne mesurant rien.
+        # Le regime « sans crit » se CONSTRUIT desormais (`--crit 0,0` au build, cf. `_build`) et la
+        # premisse est ASSERTIONNEE : si le levier cesse de mordre, ce test rougit en NOMMANT le
+        # levier au lieu d'accuser le port.
+        cc_caster = int(getattr(csc.ctx, "crit_chance", 0) or 0)
+        assert cc_caster == 0, (
+            f"caster a CritChance={cc_caster} : le bit-exact port/live n'est pas concluant "
+            f"(un crit-roll natif l'ecarte legitimement). Le levier `--crit 0,0` du build "
+            f"ne mord plus.")
+        assert port_ph == live_hits, f"PORT {port_ph} != LIVE {live_hits} (bit-exact cc=0)"
         print(f"[savage] cast LIVE OK per-hit={live_hits} (port={port_ph})")
     finally:
         _cleanup(rpc, rid, state_file, bc_file)

@@ -120,7 +120,16 @@ def _build(seed, a_units):
     sf.parent.mkdir(parents=True, exist_ok=True)
     proc = subprocess.run(
         [sys.executable, "rl_duel.py", "build", "--seed", str(seed), "--state-file", str(sf),
-         "--board", "MC1_67", "--roster", "1", "--p-units", CASTER_VIS, "--a-units", a_units],
+         "--board", "MC1_67", "--roster", "1", "--p-units", CASTER_VIS, "--a-units", a_units,
+         # #933 -- LE COUP PROPRE SE CONSTRUIT. Ce fichier SKIPPE sur « coup non propre
+         # (crit/block/evade) » : il trouvait son coup propre SANS RIEN DEMANDER tant que le canal
+         # crit/block etait MUET. Depuis la bascule #419-r5/-r6 (items BiS par defaut) le tirage
+         # est ouvert des DEUX cotes, et le skip est devenu FREQUENT -- mesure du 2026-08-11 :
+         # 1 passed / 2 skipped, rc 0, sans que rien ne le signale (le fichier n'est pas
+         # INTEGRALEMENT skippe, donc la garde #455 ne le voit pas). Les QUATRE faces, parce que
+         # `--crit` n'epingle que les p-units et `--crit-target` que les a-units (#419-r6 §3.1).
+         "--crit", "0,0", "--crit-target", "0,0",
+         "--block-player", "0,0", "--block-target", "0,0"],
         cwd=str(PYDIR), capture_output=True, text=True, encoding="utf-8", errors="replace")
     if not sf.exists():
         return None, None, (proc.stderr or proc.stdout or "")[-300:]
