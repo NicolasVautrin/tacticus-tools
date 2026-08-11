@@ -100,6 +100,7 @@ from ..state import State
 from ...entities.effects import effect_stat_mod_key
 from .effects import unregister_name, AddEffectOperation
 from .stat_ops import revert_change_stat
+from .traits import revert_traits_of_effect
 
 
 class KillUnitStep(IntEnum):
@@ -140,7 +141,6 @@ def remove_effect_instance(state: State, unit_id: int, eff) -> bool:
       5. `On(EffectRemoved = 0x40)` APRES tout ce qui precede.
     """
     from .ability_modifications import revert_ability_modifications
-    from .traits import revert_traits_of_effect
     from .triggers.dispatch.move_death import effect_removed_triggers, pre_effect_removed_triggers
 
     if eff is None or eff.consumed:

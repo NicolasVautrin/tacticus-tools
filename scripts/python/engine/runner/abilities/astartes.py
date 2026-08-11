@@ -42,6 +42,8 @@ from .behaviours.stats import Heal
 from .targeting import (RANGE_FROM_CONFIG, RANGE_WHOLE_BOARD, RANGED_BOOL_FALSE, RANGED_BOOL_TRUE,
                         TargetingOptions)
 from .targeting_rule import TargetingRule as TR
+from ...dsl.base import _feet
+from ...services.battle_query import are_entities_adjacent
 
 if TYPE_CHECKING:                       # pragma: no cover
     from ..state import State
@@ -444,8 +446,6 @@ class TitanhammerSquadAbility(ActiveAbility):
         `target_id` absent / non resolu en tuile -> 0 : mirror de la branche `IsNullOrEmpty` (le natif
         appelle alors `GetAdjacentEnemies(null, ...)`, dont le `IterateAdjacentTiles(null)` rend un
         ensemble vide, donc `count = 0`)."""
-        from ...services.battle_query import are_entities_adjacent        # noqa: PLC0415
-        from ...dsl.base import _feet                                     # noqa: PLC0415
         # Imports DIFFERES, classe PORTEUR : `engine.services.battle_query` et `engine.dsl.base`
         # ramenent tous deux `engine.runner.abilities.base` dans `sys.modules` quand on les charge
         # seuls en process frais -- hisser fermerait un cycle. Meme classe que les differes voisins.

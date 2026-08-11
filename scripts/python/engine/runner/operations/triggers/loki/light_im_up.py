@@ -163,6 +163,7 @@ from ....abilities.behaviours.combat import AttackWithAttackDamage, ChainLeftOve
 from ....abilities.behaviours.context import entities_from_state
 from ....state import State
 from ..base import TriggeredAbility, TriggerEvent, _in_attack_range
+from .....entities.triggers import IsDead
 
 # Cle gameconfig de l'ability : le membre d'enum EST le nom de config. `GC.ability_name(1103)`
 # rendrait `"Supercharge"` (l'index est celui d'`ActiveAbilityType` -- 1103 nomme TROIS artefacts :
@@ -310,7 +311,6 @@ def light_im_up_tree(state: State, ectx: ExecutionContext):
                                  # octet +3 des options : le reste est deja final (cf. docstring)
                                  skip_hits_modifiers=True)
     # `IsDead(main)` -- `DSLTriggers$$IsDead(unit)` = `op_LogicalNot(IsAlive(unit))` (LU).
-    from .....entities.triggers import IsDead
     return Seq(If(_IsInAttackRange(state, Caster(), Target()), main),
                If(IsDead(Target()), sec))
 

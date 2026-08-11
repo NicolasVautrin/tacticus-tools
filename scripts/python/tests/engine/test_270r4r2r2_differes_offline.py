@@ -88,9 +88,26 @@ import probe_270r4r2r2_tri_differes as TR       # noqa: E402
 # #270-r4-r2-r2-r4 : il touche autant de fichiers partages, et chaque site doit passer par
 # `migrate_485r1_barils_reexport.py morsure` puis etre hisse en FORME B -- ce n'est pas un geste a
 # glisser dans une tranche de reparation de cliquets.
-#: MESURE le 2026-08-10 : 270 instructions, dont 173 inconditionnelles. Les plafonds portent la
-#: marge de 20 justifiee ci-dessus -- ils ne SONT pas la mesure, ils la bornent.
-MESURE_DIFFERES, MESURE_INCONDITIONNELS = 270, 173
+#
+# ⚠⚠ 2026-08-11 (#923) -- LE SEUIL N'A PAS ETE RELEVE, LE COMPTE A ETE ABAISSE. `master` etait
+# ROUGE a 305 pour un plafond de 290. Ce qui a ete MESURE avant de decider :
+#   * l'ATTRIBUTION. 128 commits entre `0c30d55d` (le commit qui a pose 270/173, 2026-08-10 21:03)
+#     et `4f3b7bb3`, pour +35 instructions -- soit 0,27 par commit, l'ORDRE EXACT du debit
+#     historique (0,23) qui avait justifie la marge. Ce n'est donc PAS la reprise de MASSE que ce
+#     seuil surveille : la marge de 20 a simplement ete consommee, comme prevu, en une journee.
+#   * la REPONSE. Relever le plafond aurait ete la 4e fois -- et un seuil qu'on releve a chaque
+#     rouge ne mesure plus rien. Le gisement REEL (les HISSABLES, cf. le paragraphe ci-dessous)
+#     valait 65 sites : 36 ont ete hisses, dont 34 par `migrate_270r4r2r2_hisser_differes` sous son
+#     filtre acyclique (SCC du graphe projete = 0) et 2 a la main en FORME B ABSOLUE.
+#   * ce qui RESTE, et c'est une mesure, pas un renoncement : 31 sites restent refuses
+#     `fermerait-une-boucle`. Hisser ceux-la ne se fait pas par deplacement d'import -- il faut
+#     DEPLACER le code partage (doctrine (1)), ce que le residu #270-r4-r2-r2-r4 porte deja.
+#   * les DEUX mesures descendent SOUS celles du 2026-08-10 (270 -> 269, 173 -> 167), donc les deux
+#     plafonds descendent avec elles (290 -> 289, 193 -> 187) : le ratchet joue dans le bon sens.
+#     Un plafond ne remonte jamais ; celui-ci a BAISSE.
+#: MESURE le 2026-08-11 (#923) : 269 instructions, dont 167 inconditionnelles. Les plafonds portent
+#: la marge de 20 justifiee ci-dessus -- ils ne SONT pas la mesure, ils la bornent.
+MESURE_DIFFERES, MESURE_INCONDITIONNELS = 269, 167
 PLAFOND_DIFFERES = MESURE_DIFFERES + 20
 PLAFOND_INCONDITIONNELS = MESURE_INCONDITIONNELS + 20
 

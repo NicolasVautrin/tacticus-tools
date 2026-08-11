@@ -51,6 +51,7 @@ from ...components import unit_extensions_is_alive
 # est un outil a CYCLE »). Forme B et non A : une liaison de module n'est jamais gelee, donc un
 # `monkeypatch.setattr` sur le foyer MORD toujours.
 from ...operations import active_ability as _aa
+from ...operations.damage_utility import sort_units_by_damage_utility as _subdu
 
 
 # Trait d'ALLIANCE derive de la GrandAlliance : la resolution CANONIQUE vit desormais dans
@@ -680,7 +681,6 @@ def entities_from_state(state, caster_id: int, target_id: int | None = None,
         porte (`runner/operations/damage_utility.sort_units_by_damage_utility`), jamais une seconde
         implementation. `is_melee=None` : le foyer le derive lui-meme du couple (attaquant, cible)
         par `GetAttackWeaponForDefaultNormalAttack`, comme le natif. #889-r5."""
-        from ...operations.damage_utility import sort_units_by_damage_utility as _subdu
         return _subdu(state, [int(c) for c in candidate_ids], int(dmin), int(dmax),
                       owner_id=None if owner_id is None else int(owner_id), hits=int(hits or 1),
                       ability_type=None if ability_type is None else int(ability_type))

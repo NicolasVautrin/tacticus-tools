@@ -28,6 +28,7 @@ from ..utilities.tile import (terrain_tile_effects, tile_leaf_ctx,   # lazy : é
 from ..utilities.tile import (triggered_abilities_attack_utility,
                               triggered_abilities_non_owner_attack_utility)
 from ..utilities.wireweave_net import wireweave_net_first_attack_utility
+from ..predict import heal_action_utility
 
 
 class _NoActionUtility:
@@ -322,7 +323,6 @@ class ComparablePlaybook(BasePlaybook):
         # `1104 SpiritLeech` (#419-r1-tr14-r5-r2-r1-r1-r3) : il est sommé DANS
         # `CalculateUtilityFromPredictions`, donc DANS l'argument que `CalculateActionUtility` passe
         # à `ShouldExecute` — le port l'ajoutait au RETOUR de `calculate_action_utility`.
-        from ..predict import heal_action_utility
         heals = self.make_heal_predictions(ctx, caster_tile, target, ability_id, events)
         if heals:
             u += heal_action_utility(heals)

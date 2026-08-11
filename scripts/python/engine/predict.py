@@ -44,6 +44,8 @@ from .utilities.heal import HEAL_UTILITY
 from .utilities.repair import REPAIR_UTILITY
 from .utilities.effect import ADDED_EFFECT_UTILITY, EFFECT_UTILITY_PREFIX  # noqa: F401 (re-export)
 from engine.entities.effects.magnitude import ability_var
+from .entities.effects.loki import nether_realm_casket as _NRC
+from .entities.triggered_ability_type import TriggeredAbilityType
 
 # #158 : ex-`DAMAGE_PROFILE_BY_INDEX` (copie MORTE, 0 usage, de la table DamageProfileType) retiree.
 # La table index->nom vit desormais dans `entities.damage_profile_type.PROFILE_NAME_BY_INDEX` (derivee de l'enum).
@@ -443,8 +445,6 @@ def calculate_repair_modifier_for_prediction(target_effects, heal_config=None,
     repli sur le `level` de l'effet, comme les deux autres implémenteurs.
 
     Retourne `(mod_add, mod_mul)` à passer à `repair_amount` (troncature unique là-bas)."""
-    from .entities.effects.loki import nether_realm_casket as _NRC   # feuille, aucun cycle
-    from .entities.triggered_ability_type import TriggeredAbilityType
     mod_add, mod_mul = 0, 1.0
     for e in (target_effects or []):
         name = str(e.get("name") or "")

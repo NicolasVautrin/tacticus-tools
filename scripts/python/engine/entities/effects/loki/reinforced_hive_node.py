@@ -156,6 +156,15 @@ from ..base import BaseEffect
 from ....dsl.base import _round_fix64
 from ...stats import StatPart, StatType
 from ...stats import StatType
+import engine.entities.effects.magnitude as _magnitude   # FORME B (#923), et ABSOLUE
+# Les deux `from ..magnitude import ability_var` qui vivaient dans `apply_modification` /
+# `reverse_modification` etaient classes HISSABLES par `probe_270r4r2r2_tri_differes --mesurer`
+# (hissage simule + import du module en process frais : OK), mais REFUSES par le filtre acyclique
+# de `migrate_270r4r2r2_hisser_differes` -- car la forme RELATIVE declare une arete vers le PAQUET
+# PARENT (`engine.entities.effects`), qui referme un SCC. La forme ABSOLUE nomme le MODULE : c'est
+# la meme lecture que celle ecrite dans `runner/abilities/loki/attempted_possession.py` (#547-r2).
+# ⚠ Ce n'est PAS une deduction de graphe : l'etage 5 de `test_270r4r2r2_differes_offline`
+# (import REEL de tout `engine/`, 437 modules) est le juge, et il passe avec cette forme.
 
 REINFORCED_HIVE_NODE = "ReinforcedHiveNode"
 
@@ -202,10 +211,9 @@ class ReinforcedHiveNodeExtraArmorEffect(BaseEffect):
         devinee (degradation fidele, cf. `effect_stat_modifications`)."""
         from fractions import Fraction
 
-        from ..magnitude import ability_var
         if stats_ctx is None:
             return []
-        pct = ability_var(REINFORCED_HIVE_NODE, "extraArmorPct", is_constant=True)
+        pct = _magnitude.ability_var(REINFORCED_HIVE_NODE, "extraArmorPct", is_constant=True)
         if not pct:
             return []
         # `StatAmount(Owner, 0x10, 3 = Initial)` -> `UnitExtensions.GetStat(owner, FixedArmor, Initial)`
@@ -268,8 +276,7 @@ class ReinforcedHiveNodeExtraBlockEffect(BaseEffect):
 
         Constante illisible -> `[]` (rien n'est devine ; l'effet est alors INERTE, jamais approche
         par une valeur inventee)."""
-        from ..magnitude import ability_var
-        val = ability_var(REINFORCED_HIVE_NODE, "blockChance", is_constant=True)
+        val = _magnitude.ability_var(REINFORCED_HIVE_NODE, "blockChance", is_constant=True)
         if val is None:
             return []
         return [(int(StatType.BLOCK_CHANCE), int(val), False)]
