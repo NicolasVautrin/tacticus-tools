@@ -9,9 +9,9 @@ Le runner combat route chaque ability choisie via `ActiveAbilityMessage` -> `Abi
 ## Bilan
 
 - ActiveAbilityType castables par les unites : **175** distinct
-- **PORTED** (dans `ABILITY_CLASSES`) : **140**
-- **NO-OP silencieux** (a porter) : **35**
-- Ventilation NO-OP : **DAMAGE**=18, **EFFECT/BUFF**=10, **SUMMON**=4, **REPAIR**=2, **HEAL**=1
+- **PORTED** (dans `ABILITY_CLASSES`) : **143**
+- **NO-OP silencieux** (a porter) : **32**
+- Ventilation NO-OP : **DAMAGE**=16, **EFFECT/BUFF**=9, **SUMMON**=4, **REPAIR**=2, **HEAL**=1
 
 ## Priorisation & templates de port
 
@@ -30,7 +30,7 @@ Le runner combat route chaque ability choisie via `ActiveAbilityMessage` -> `Abi
 
 Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 
-## NO-OP SILENCIEUX en combat (a porter, tries categorie puis frequence) (35)
+## NO-OP SILENCIEUX en combat (a porter, tries categorie puis frequence) (32)
 
 | id | ability | categorie | #units | kinds |
 |---|---|---|---|---|
@@ -49,16 +49,13 @@ Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 | 1194 | NovaShield | DAMAGE(Particle) | 1 | N |
 | 1095 | ReapingScythe | DAMAGE(Chain) | 1 | N |
 | 1174 | SolarAtomizer | DAMAGE(Melta) | 1 | N |
-| 1056 | StranglethornCannon | DAMAGE(Blast) | 1 | N |
 | 1094 | TheLantern | DAMAGE(Energy) | 1 | N |
-| 1217 | TheLionsWrath | DAMAGE(Power) | 1 | N |
 | 1210 | ExemplarOfTheMontka | EFFECT/BUFF | 6 | LN |
 | 1010 | StormOfFlensingBlades | EFFECT/BUFF | 3 | N |
 | 1053 | DevoutPush | EFFECT/BUFF | 2 | NS |
 | 1185 | ForwardObservers | EFFECT/BUFF | 2 | NS |
 | 1228 | SternguardFocus | EFFECT/BUFF | 2 | LN |
 | 1133 | WarConstruct | EFFECT/BUFF | 2 | N |
-| 1032 | Catalyst | EFFECT/BUFF | 1 | N |
 | 1203 | DaemonicPatrons | EFFECT/BUFF | 1 | L |
 | 1107 | Reveal | EFFECT/BUFF | 1 | N |
 | 1211 | RitesOfMorkai | EFFECT/BUFF | 1 | L |
@@ -70,7 +67,7 @@ Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 | 1052 | CallRipperSwarms | SUMMON | 1 | N |
 | 1172 | InvocationOfMachineVengeance | SUMMON | 1 | N |
 
-## PORTED (registry) (140)
+## PORTED (registry) (143)
 
 | id | ability | categorie | #units | kinds |
 |---|---|---|---|---|
@@ -164,7 +161,9 @@ Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 | 1191 | MartialInspiration | DAMAGE(Eviscerate) | 1 | L |
 | 1222 | MassDriverAccelerator | DAMAGE(DirectDamage) | 1 | L |
 | 1184 | MomentShackle | DAMAGE(Bolter) | 1 | L |
+| 1056 | StranglethornCannon | DAMAGE(Blast) | 1 | N |
 | 1195 | TalonsOfTheEmperor | DAMAGE(Power) | 1 | L |
+| 1217 | TheLionsWrath | DAMAGE(Power) | 1 | N |
 | 1183 | VexillaMagnifica | DAMAGE(Physical) | 1 | L |
 | 1202 | VigilanceEternal | DAMAGE(Power) | 1 | L |
 | 1005 | AdaptiveStrategy | EFFECT/BUFF | 6 | LN |
@@ -186,6 +185,7 @@ Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 | 1140 | ExemplarOfHate | EFFECT/BUFF | 3 | LN |
 | 1186 | WallOfMirrors | EFFECT/BUFF | 2 | NS |
 | 1163 | BlackRage | EFFECT/BUFF | 1 | L |
+| 1032 | Catalyst | EFFECT/BUFF | 1 | N |
 | 1151 | TheQuickening | EFFECT/BUFF | 1 | L |
 | 1106 | WarHowl | EFFECT/BUFF | 1 | L |
 | 1082 | InspiredToGreatness | HEAL | 5 | LN |
