@@ -188,6 +188,24 @@ Mortarion n'a aucun allié, donc un port collapsé ne frapperait que la cible da
 * `AttackWithAbilityDamage` ne thread pas le `pierce_effect_bonus` des effets du caster (son jumeau
   `AttackWithAttackDamage` le fait) — inerte sur ce porteur, résidu nommé dans `#888-r1`.
 
+### CONTRE-ÉPREUVE — les trois mutants MORDENT
+
+`probe_888_mutants_live.py` : chaque mutation est écrite, le test ciblé est joué, le fichier est
+restauré. Un mutant qui laisserait le test vert désignerait une assertion **inerte**.
+
+| mutation | test ciblé | rc |
+|---|---|---|
+| `1095` : `reference=Target()` retiré (collapse sur le caster, le défaut du nœud) | bras « cible + 2 voisins » | **1 — MORD** |
+| `1093` : le `Multiply(avg, Direct(2))` du gate `Summon` retiré | `…_summon_gate_doubles_offline` | **1 — MORD** |
+| `snapshot` : le comblement `AbilityState` per-ability désactivé | bras « 3 anneaux » | **1 — MORD** |
+| *(restauration)* | les 4 tests | **0 — 4 passed** |
+
+⚠ Ce que le confront LIVE **ne peut pas** garder, et qui est donc gardé OFFLINE
+(`test_888_ability_state_rows_offline.py`, 4 étages) : le **désaccord** entre entrées
+d'`abilityStates` doit rendre `None` (jamais l'une des valeurs), et une valeur **mesurée** ne doit
+jamais être écrasée — y compris le contre-cas dur d'un `abilityVariablesMultiplier` mesuré à `100`
+face à un canal à `200`. Ces deux régimes n'existent pas sur le porteur du confront live.
+
 ### Deux vices de MONTAGE que ce cas a rencontrés, et leur parade
 
 1. **`reach_my_turn()` APRÈS les placements rend la main à l'IA adverse**, qui joue entre le
