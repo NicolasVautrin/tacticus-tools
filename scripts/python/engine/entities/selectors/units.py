@@ -1126,14 +1126,35 @@ class SurroundingFriends(TargetsSelector):
 
 
 class SortByFormula(TargetsSelector):
-    """`IdunBattleLogic.Entities.DSLFactory$$SortByFormula(source, formula[, ascending])` → `IdunBattle.Entities.Selectors.SortByFormulaSelector$$Select` : trie la source par `formula` évaluée PAR ÉLÉMENT (binding `subject`, comme Filter).
-    ⚠ flag natif : 0 (défaut) → DESCENDANT, 1 → ASCENDANT. Tri STABLE (mergesort .NET ≡ `sorted`)."""
+    """`IdunBattleLogic.Entities.DSLFactory$$SortByFormula(source, formula[, ascending])` → `IdunBattle.Entities.Selectors.SortByFormulaSelector$$Select` : trie la source par `formula` évaluée PAR ÉLÉMENT.
+    ⚠ flag natif : 0 (défaut) → DESCENDANT, 1 → ASCENDANT. Tri STABLE (mergesort .NET ≡ `sorted`).
+
+    ⚠ **LE SLOT LIE EST `AbilityEntities.ActiveTarget@+0x20`, ET IL EST LU, PAS DEDUIT (#927).**
+    `SortByFormulaSelector$$Select` copie l'`AbilityEntities` recue dans sa closure
+    (`<>c__DisplayClass4_0+0x10 .. +0x138`) puis passe `OrderBy`/`OrderByDescending` un `Func<IEntity,
+    int>` dont le corps
+    (`SortByFormulaSelector.u003Cu003Ec__DisplayClass4_0$$u003CSelectu003Eb__0`) fait EXACTEMENT
+    deux choses : `closure+0x30 = s` -- c.-a-d. `<la copie d'entities>+0x20` -- puis
+    `(<le selecteur>+0x20 = formula).Calculate(<la copie>)`. `+0x20` de l'`AbilityEntities` est le
+    slot `ActiveTarget` (le MEME que `ChainBehaviourBehaviour$$Execute` ecrit avant chaque coup, cf.
+    `runner/abilities/behaviours/chain.py`), donc une formule qui lit `ActiveTarget()` voit bien
+    l'element courant du tri. La docstring precedente annoncait « binding `subject`, comme Filter » :
+    c'etait une DEDUCTION par analogie, jamais une lecture.
+
+    Le port lie **les deux** roles (`subject` ET `active_target`) : cote natif il n'y a qu'UN slot,
+    et les deux noeuds du port (`Subject`, `ActiveTarget`) sont deux lectures du meme
+    `+0x20`/`factory+0x180`. Ecrire `active_target` seul casserait les consommateurs deja portes qui
+    ecrivent `Subject()`/`It()` dans leur formule (`MindControl` 1164, `DarkTalonStrike`,
+    `ThriceBlessedConflagration`, `LeadingTheCharge`, `ArcaneShield`) sans rien corriger -- ils
+    designent le meme element. Ce qui CHANGE, c'est qu'une formule ecrite avec `ActiveTarget()` --
+    le nom que le decompile cite -- est desormais evaluable ici."""
     def __init__(self, source: TargetsSelector, formula: TargetsSelector, ascending: bool = False):
         self.source, self.formula, self.ascending = source, formula, ascending
 
     def select(self, ctx):
         lst = list(self.source.evaluate(ctx))
-        return sorted(lst, key=lambda u: self.formula.evaluate(replace(ctx, subject=u)),
+        return sorted(lst,
+                      key=lambda u: self.formula.evaluate(replace(ctx, subject=u, active_target=u)),
                       reverse=not self.ascending)
 
 

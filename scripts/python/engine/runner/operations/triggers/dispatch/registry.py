@@ -198,6 +198,7 @@ from ..loki.spiritual_leader import SpiritualLeaderAbility             # passif 
 from ..loki.barbed_ovipositor import BarbedOvipositorSummonAbility     # passif tyranParasite (Tyranids)
 from ..loki.fabricator_claw_array import FabricatorClawArrayAbility    # #303 (passif necroSpyder, N20)
 from ..loki.champion_of_the_feast import ChampionOfTheFeastAbility    # #419-r6-r2 (passif templSwordBrother)
+from ..loki.fury_of_the_ancients import FuryOfTheAncientsAbility      # #927 (passif bloodMephiston)
 from ..loki.sanguinary_priest import SanguinaryPriestAbility          # #921 (passif bloodSanguinary)
 from ..loki.dawn_blade import DawnBladeHealAbility                     # #317 (relique tauFarsight)
 from ..loki.daemonflesh_plate import (DaemonfleshPlateAbility,        # #916 (relique 1493)
@@ -609,6 +610,30 @@ ABILITY_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
     # Cf. loki/champion_of_the_feast.py (IdunBattleLogic.Entities.Abilities.Triggered.Loki.ChampionOfTheFeastAbility$$CreateTrigger /
     # ...$$CreateBehaviour / ...$$GetTarget / ...$$GetPossibleTargets).
     "ChampionOfTheFeast": [ChampionOfTheFeastAbility],
+    # FuryOfTheAncients (passif `bloodMephiston` << Mephiston >>, `TriggeredAbilityType` 0x4df = 1247
+    # -- #927) = QUATRIEME consommateur d'`On(0x1c = ArrivedAtFinalTile)`, MEME gate que
+    # `ChampionOfTheFeast` ci-dessus :
+    #   `On(0x1c) & get_OwnerIsActor & !AmountIsZero(Damageable(AdjacentEnemies(Caster@+0x48,1,3)))`
+    #   -> `ChainAttackDamage(preselected = GetTarget(), jump = GetSecondTargetSelector,
+    #        maxTargets = <DSLFormulas+0x20 = Direct(1)>, MinMaxDamage, profil Psychic,
+    #        hits = ConfigConst(0x2f nrOfHits), extraBehaviour = AddEffect(0x528 = 1320
+    #        FuryOfTheAncients -> ActiveTarget, source Owner@+0x30,
+    #        TurnsFromRounds(ConfigConst(0x69 effectTurns))), chainOptions +0x12 = 1)`
+    # ⚠ ET LA RESSEMBLANCE S'ARRETE LA. `ChampionOfTheFeast` pique sa cible par `PickRandomly` (avec
+    # preference non-Immune) ; celui-ci la choisit par `First(SortByFormula(pool, Sum(
+    # DamagePredictionFormula(ActiveTarget), DamagePredictionFormula(GetSecondTargetSelector(
+    # ActiveTarget))), DESC), 1)` -- un TRI sur l'esperance de degat des DEUX maillons, `prioritizeKills
+    # = false`, AUCUN tirage de cible. Et le tri, lui, consomme 2 tirages PAR CANDIDAT (son
+    # `MinMaxDamage` est evalue par le slot 1 = `RandomAmount$$Calculate`), y compris quand la seconde
+    # cible n'existe pas. Ne pas recopier le voisin de forme.
+    # L'effet 1320 est un `IdunBattle.Entities.Effects.HealBlockingEffect` (hierarchie lue dans
+    # `frida/classes.tsv`, PAS dans le pseudo-C qui designe `DeathwingEffect` par ICF) : il inscrit sa
+    # cible au registre `HealthComponent+0x78` que lit `UnitExtensions$$HasHealBlockers` -> gates SOIN
+    # / REPARATION / RESURRECTION. `has_heal_blockers` (attack_query.py) le lit desormais pour de vrai.
+    # Cf. loki/fury_of_the_ancients.py (IdunBattleLogic.Entities.Abilities.Triggered.Loki.FuryOfTheAncientsAbility$$CreateTrigger /
+    # ...$$CreateBehaviour / ...$$GetTarget / ...$$GetSecondTargetSelector /
+    # ...$$GetDamagePredictionFormula / ...$$GetPossibleTargets).
+    "FuryOfTheAncients": [FuryOfTheAncientsAbility],
     # SanguinaryPriest (passif de kit `bloodSanguinary` << Nicodemus >>, `TriggeredAbilityType`
     # 0x510 = 1296 -- #921) = TROISIEME consommateur d'`On(0x1c = ArrivedAtFinalTile)`, mais son
     # `CreateTrigger` porte UN TERME DE PLUS que celui de `SpiritualLeader` :

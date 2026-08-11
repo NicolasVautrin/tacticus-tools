@@ -13,6 +13,7 @@ import hexgeo
 from .. import battle_query as _bq
 from ..dsl.base import (AAmountFormula, TargetsSelector, Const, _round_fix64, _effect_field,
                         _default_get_stat, resolve_unit, _units_of, _pos, _feet)
+from ..services.min_max_damage import min_max_avg
 from ..services.movement_query import get_distance
 from .active_ability_type import ActiveAbilityType
 from .effects.aura import aura_trait, aura_current_range, aura_next_turn_range
@@ -875,3 +876,105 @@ class AuraEffectRange(AAmountFormula):
         r = (aura_next_turn_range(self.effect_type, turns) if self.is_next_turn
              else aura_current_range(self.effect_type, turns))
         return int(r or 0)
+
+
+class DamagePredictionFormula(AAmountFormula):
+    """`IdunBattleLogic.Entities.DSLFormulas$$DamagePredictionFormula(attacker, attackerPosition,
+    defender, ability, damage, hits, damageProfileType, prioritizeKills)` ->
+    `IdunBattle.Entities.Formulas.DamagePredictionFormula$$Calculate` -- MIRROR 1:1 du decompile.
+
+    LE CORPS NATIF, transcrit dans son ORDRE (`$$Calculate`) :
+
+        attackerEntity = (+0x20).SelectUnit(entities)             # slot 7
+        defenderEntity = (+0x30).SelectUnit(entities)             # slot 7
+        damageValue    = (+0x40).Calculate(entities, out MinMaxDamage)   # <-- slot 1
+        if (defenderEntity == null || attackerEntity == null
+            || UnitExtensions.GetUnit(defenderEntity, state) == null)  return 0
+        position = AbilityEntities.get_CasterPosition(entities)
+        if ((+0x28) != null) position = (+0x28).SelectTile(entities)     # slot 10
+        hits     = (+0x48) != null ? (+0x48).Calculate(entities) : <defaut>
+        ability  = AbilityOrEffect(UnitExtensions.GetNormalAttackType(attackerEntity))
+        if ((+0x38) != null) ability = (+0x38).Select(entities)          # slot 0
+        pred = query.<slot 0x28>(attackerEntity, defenderUnit, position, ability,
+                                 damageValue, Nullable(+0x50 = damageProfileType), hits)
+        minmax = (+0x54 prioritizeKills) ? <bornes optimistes> : pred.AccurateHealthDamage@+0x40
+        avg = MinMaxDamage$$Avg(minmax)
+        if (query.<slot 0x92 = AreFriends>(attackerEntity, defenderUnit, 0))  return -avg
+        if (!prioritizeKills)                        return avg
+        if (pred.WillBeKill)                         return avg * 3
+        if (pred.MightBeKill)                        return avg * 2
+        return avg
+
+    Les DEUX slots d'interface sont LUS dans `data/symbols/<build>/metadata/interface_slots.tsv`,
+    jamais devines : `IBattleQuery 40 GetMultiHitAttackPrediction 7` et `IBattleQuery 146
+    AreFriends 3`. Le premier est le MEME foyer que `SortUnitsByDamageUtilitySelector`
+    (`runner/operations/attack_prediction.multi_hit_attack_prediction`), le second est le test
+    d'equipe -- une prediction sur un ALLIE est comptee NEGATIVEMENT.
+
+    ⚠ **LE TIRAGE EST INCONDITIONNEL, ET IL PRECEDE LES TROIS NULL-GUARDS.** `(+0x40).Calculate`
+    est le slot **1** (`IAmountFormula.Calculate`), pas le slot 4 (`CalculateAverage`) : quand la
+    formule de degat est un `RandomAmount` -- ce qui est le cas de `BaseTriggeredAbility$$
+    MinMaxDamage` -- CHAQUE evaluation CONSOMME le PRNG (`IdunBattle.Entities.Formulas.
+    RandomAmount$$Calculate` -> `IntBasedMersenneTwister$$NextInternal(min, max + 1)`). Et le natif
+    tire AVANT de tester que le defenseur existe : une formule evaluee sur un candidat dont le
+    sous-selecteur ne rend RIEN consomme quand meme son tirage. Rendre 0 sans tirer desalignerait
+    tout le flux aval (loi #215). C'est pourquoi ce mirror appelle `damage.evaluate(ctx)` en TETE.
+
+    `prioritize_kills` = le 9e argument de la factory. Les DEUX call-sites portes le passent a
+    **faux** (`SpiritLeechAbility$$GetHealAmountForPrediction`, et le `GetDamagePredictionFormula`
+    de `FuryOfTheAncientsAbility` -- ou le pseudo-C l'ecrit `(void *)((ulonglong)<pile> << 8)`,
+    c.-a-d. octet de poids faible NUL, l'idiome inverse du `CONCAT71(<pile>, 1)` des arguments
+    booleens VRAIS). La branche `x3`/`x2` est donc portee mais SANS appelant : elle est ecrite pour
+    que le lecteur voie la formule complete, comme la branche `IsAtGroupUnitHealLimit` d'`attack_query`.
+
+    `ctx.attack_prediction` absent (contexte hors runner : prediction, test de noeud) -> 0 APRES le
+    tirage. DEGRADATION nommee : sans `State` la prediction native n'est pas evaluable, et rendre
+    une valeur inventee ferait un tri FAUX -- un tri sur des cles toutes nulles rend l'ordre SOURCE,
+    ce que la stabilite de l'`OrderBy` natif produit aussi a egalite parfaite."""
+    __slots__ = ("attacker", "attacker_position", "defender", "ability", "damage", "hits",
+                 "damage_profile", "prioritize_kills", "is_melee")
+
+    def __init__(self, attacker: TargetsSelector, attacker_position, defender: TargetsSelector,
+                 ability, damage, hits=None, damage_profile: str | None = None,
+                 prioritize_kills: bool = False, is_melee: bool = False):
+        self.attacker, self.attacker_position = attacker, attacker_position
+        self.defender, self.ability = defender, ability
+        self.damage, self.hits = damage, hits
+        self.damage_profile = damage_profile
+        self.prioritize_kills = bool(prioritize_kills)
+        # Nature du coup predit -- l'`attackRangeType` de la config d'ability, resolu par l'appelant.
+        # Le natif ne la passe pas : elle est deduite de l'`abilityOrEffect` (`+0x38`) par la chaine
+        # de prediction elle-meme (`BattleQuery$$GetAttackRangeType`). Cote port, `multi_hit_attack_
+        # prediction` la prend en argument -- meme donnee, resolue un etage plus haut.
+        self.is_melee = bool(is_melee)
+
+    def calculate(self, ctx):
+        att = resolve_unit(self.attacker, ctx)
+        dfn = resolve_unit(self.defender, ctx)
+        # ORDRE NATIF : le tirage est consomme AVANT les null-guards (cf. la docstring).
+        amount = int(self.damage.evaluate(ctx) if hasattr(self.damage, "evaluate")
+                     else (self.damage or 0))
+        if att is None or dfn is None:
+            return 0
+        n = 1 if self.hits is None else int(
+            self.hits.evaluate(ctx) if hasattr(self.hits, "evaluate") else self.hits)
+        fn = getattr(ctx, "attack_prediction", None)
+        if fn is None:
+            return 0                                   # degradation nommee (cf. docstring)
+        pred = fn(att.get("id"), dfn.get("id"), amount, max(1, n), self.damage_profile,
+                  self.is_melee)
+        if pred is None:
+            return 0
+        avg = int(min_max_avg(int(pred.get("healthDmgMin") or 0),
+                              int(pred.get("healthDmgMax") or 0)))
+        # `IBattleQuery` slot 146 `AreFriends(attacker, defender, 0)` -- meme predicat d'equipe que
+        # les selecteurs `Friends`/`Enemies` (`u.get("team")`).
+        if att.get("team") is not None and att.get("team") == dfn.get("team"):
+            return -avg
+        if not self.prioritize_kills:
+            return avg
+        if pred.get("killSure"):                       # `DamagePredictionResult$$get_WillBeKill`
+            return avg * 3
+        if pred.get("kill"):                           # `...$$get_MightBeKill`
+            return avg * 2
+        return avg

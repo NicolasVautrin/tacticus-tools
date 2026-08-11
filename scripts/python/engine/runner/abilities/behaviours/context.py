@@ -685,6 +685,40 @@ def entities_from_state(state, caster_id: int, target_id: int | None = None,
                       owner_id=None if owner_id is None else int(owner_id), hits=int(hits or 1),
                       ability_type=None if ability_type is None else int(ability_type))
 
+    def _attack_prediction(attacker_id, defender_id, amount, hits, damage_profile=None,
+                           is_melee=False):
+        """`IBattleQuery` slot **40** `GetMultiHitAttackPrediction(attacker, defender,
+        attackerPosition, ability, damage, damageProfile, hits)` -- l'accesseur que lit le noeud
+        VALEUR `entities.formulas.DamagePredictionFormula`. DELEGUE au foyer deja porte
+        (`runner/operations/attack_prediction.multi_hit_attack_prediction`), jamais une seconde
+        implementation : c'est le MEME que consomme `SortUnitsByDamageUtilitySelector` (#927).
+
+        ⚠ Ici `damageProfile` n'est PAS nul (contraste `SortUnitsByDamageUtility`, dont TOUS les
+        call-sites passent `null`) : `DamagePredictionFormula$$Calculate` transmet
+        `Nullable<DamageProfileType>(this+0x50)`, que ses appelants remplissent avec
+        `GetDamageProfileOrDefault(...)`. Le PERCAGE suit donc le profil, au lieu d'etre force a 0
+        (`DamagePrediction$$GetAttackPiercingDamageRatio` : `if (damageProfile == null) return 0`).
+
+        `is_melee` est derive de l'`attackRangeType` de la config d'ability par l'APPELANT du noeud ;
+        `is_normal_attack = False` (le noeud `+0x38 ability` est non nul sur les deux call-sites
+        portes, donc le natif ne retombe PAS sur `GetNormalAttackType`).
+        Rend le dict de composite (`healthDmgMin/Max`, `kill`, `killSure`) ou `None`."""
+        from ...operations.attack_prediction import multi_hit_attack_prediction as _mhap
+        from ....utilities.damage import composite_fields_from_prediction
+        if attacker_id is None or defender_id is None:
+            return None
+        prof = None if damage_profile is None else str(damage_profile)
+        pierce = 0
+        if prof is not None:
+            import gameconfig as _GC
+            pierce = int(((_GC.damage_profile(prof) or {}).get("PiercingRatio")) or 0)
+        dp = _mhap(state, int(attacker_id), int(defender_id), int(amount), max(1, int(hits)),
+                   prof, pierce, is_melee=bool(is_melee), ability_type=None,
+                   is_normal_attack=False)
+        if dp is None:
+            return None
+        return composite_fields_from_prediction(dp)
+
     # `ctx.charged_units` (`UnitComponent + 0x190`, cf. `update_charging`) : ids que l'unite a CHARGES
     # pendant son activation courante. Moitie runtime du predicat
     # `IdunBattle.Core.Services.BattleQuery$$IsCharging` (l'autre moitie = l'adjacence). Vide si le
@@ -755,6 +789,7 @@ def entities_from_state(state, caster_id: int, target_id: int | None = None,
                       pick_randomly=_pick_randomly,
                       sort_tiles_by_utility=_sort_tiles_by_utility,
                       sort_units_by_damage_utility=_sort_units_by_damage_utility,
+                      attack_prediction=_attack_prediction,
                       # `has_effect_of_type` reste NON BRANCHE : la CATEGORIE d'un effet
                       # (`EffectsDatabase` def+0x58) n'est pas dans le canal de seed. Cf. le noeud
                       # `UnitsWithEffectsOfType` -- residu NOMME, pas un oubli.

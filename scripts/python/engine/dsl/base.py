@@ -232,6 +232,15 @@ class DslContext:
     # `entities/` importe `runner/`. Defaut None -> le noeud rend sa source INTACTE (degradation
     # nommee : sans `State` la prediction native n'est pas evaluable). #889-r5.
     sort_units_by_damage_utility: object | None = None
+    # `IBattleQuery` slot **40** `GetMultiHitAttackPrediction` PAR APPEL -- `attack_prediction(
+    # attacker_id, defender_id, amount, hits, damage_profile, is_melee) -> dict|None` (les champs de
+    # composite : `healthDmgMin/Max`, `kill`, `killSure`). Lu par le noeud VALEUR
+    # `entities.formulas.DamagePredictionFormula`, MEME foyer que `sort_units_by_damage_utility`
+    # ci-dessus (`runner/operations/attack_prediction`). Defaut None -> le noeud rend 0 APRES avoir
+    # consomme son tirage (degradation nommee : sans `State` la prediction native n'est pas
+    # evaluable, et l'ordre du tri retombe sur l'ordre SOURCE, ce que la stabilite de l'`OrderBy`
+    # natif produit aussi a egalite parfaite). #927.
+    attack_prediction: object | None = None
     # Faction (`FactionId` gameconfig) PAR UNITÉ (mirror `DSLFactory.UnitsFromFaction`, qui compare vs
     # `Enum.ToString(UnitFaction)` = le NOM de faction) — hors state standard, comme `has_trait`/`get_stat`.
     # `faction_of(unit)->str|None` défaut None → faction inconnue (UnitsFromFaction rend vide). Fourni par la
