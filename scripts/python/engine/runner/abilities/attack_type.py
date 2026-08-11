@@ -530,7 +530,7 @@ ABILITY_ATTACK_TYPE: dict[int, int] = {
     # une attaque). (`&opts` = la forme PRESET + FLAGS, dont le masque EFFECTIF `0x8014` vit sur
     # `spacewolves.WarHowlAbility.TARGETING_OPTIONS`.)
     ActiveAbilityType.WarHowl: AbilityAttackType.Others,  # 1106
-    # 1211 RitesOfMorkai (`spaceWolfPriest` « Baldr »), #904 -- LITTERAL RELU AU DESASSEMBLAGE :
+    # 1211 RitesOfMorkai (`spaceWolfPriest` « Baldr »), #906 -- LITTERAL RELU AU DESASSEMBLAGE :
     # `IdunBattleLogic.Entities.Abilities.Active.Loki.RitesOfMorkaiAbility$$.ctor` se termine par
     # `mov r8d, 2 ; call <AActiveAbility..ctor>` -> 3e argument = **2 = Others**. TRANSCRIT, et le
     # contre-sens etait ici particulierement facile : l'arbre ENCHAINE UNE ATTAQUE NORMALE, donc

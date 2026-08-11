@@ -961,7 +961,7 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # Unstoppable`, isTemporary) est LU par le substrat d'entite (`combatSnapshot.units[].traits`,
     # MESURE : u81 gagne 1042 au cast) ; sa POSE offline attend le port de l'ability 1106.
     "WarHowl_ExtraDamage_Unstoppable": WarHowlExtraDamageUnstoppableEffect,
-    # 1529 RitesOfMorkai_ExtraDamage (#904) : SECOND effet de l'ACTIVE `RitesOfMorkai` (0x4bb = 1211)
+    # 1529 RitesOfMorkai_ExtraDamage (#906) : SECOND effet de l'ACTIVE `RitesOfMorkai` (0x4bb = 1211)
     # de `spaceWolfPriest` <<Baldr>>, pose sur le sous-ensemble de sa zone qui porte deja une forme de
     # Final Vengeance (`RitesOfMorkaiAbility$$ExecuteBehaviour` : `AddEffect(0x5f9,
     #  AbilityStateReference, Filter(<la zone cachee>, HasTrait(ActiveTarget, 0x3f6 FinalJustice)

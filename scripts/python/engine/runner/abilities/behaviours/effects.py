@@ -297,7 +297,7 @@ class AddEffect(AbilityBehaviour):
                else self.level)
         # `scale_from_source` porte le 3e argument natif d'`AddEffectBehaviour..ctor`
         # (`abilityState`), qui est un objet **DISTINCT** du 4e (`source`) que `src` porte -- et
-        # les deux ne coincident pas toujours. Sur tous les call-sites d'avant #904 ils
+        # les deux ne coincident pas toujours. Sur tous les call-sites d'avant #906 ils
         # coincidaient (`source_ref = Caster()`, ou le defaut `src = caster`), donc lire le scaling
         # sur `src` etait exact. La surcharge 4-args
         # `IdunBattleLogic.Entities.DSLBehaviors$$AddEffect(effectType, abilityState, targets,

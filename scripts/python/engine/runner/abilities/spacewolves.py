@@ -21,7 +21,7 @@ POSE, residu 6.3 de la meme fiche).
 classe qu'une : pose du REVIVE `RitesOfMorkai` (0x5de = 1502) sur le caster + ses amis
 non-mecaniques a portee, pose de `RitesOfMorkai_ExtraDamage` (0x5f9 = 1529) sur le SOUS-ENSEMBLE
 de cette zone qui a deja une forme de Final Vengeance, puis **ATTAQUE NORMALE** sur le meilleur
-ennemi adjacent. Cf. `rites_of_morkai_tree()`. #904.
+ennemi adjacent. Cf. `rites_of_morkai_tree()`. #906.
 """
 from __future__ import annotations
 

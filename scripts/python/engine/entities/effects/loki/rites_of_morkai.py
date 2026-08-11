@@ -1,6 +1,6 @@
 """`RitesOfMorkai_ExtraDamage` (EffectType 0x5f9 = 1529) -- le SECOND effet que l'active
 `1211 RitesOfMorkai` de `spaceWolfPriest` << Baldr >> (Space Wolves) pose, sur le sous-ensemble
-de sa zone qui porte DEJA une forme de Final Vengeance. #904.
+de sa zone qui porte DEJA une forme de Final Vengeance. #906.
 
 i2 `Abilities/RitesOfMorkai_CurrentLevelDescription` : « Baldr and all surrounding friendly
 non-mechanical units become <i>Inspired</i> for {[nrOfRounds]} round or until they are revived.
