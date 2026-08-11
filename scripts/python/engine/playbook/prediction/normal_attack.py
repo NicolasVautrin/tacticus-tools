@@ -661,7 +661,14 @@ def make_normal_attack_predictions(scene, att_id, tgt_id, attack_pos, *, meta=Fa
                 # deja ce meme noeud sous trois autres lectures (`t_pos`, `tgt_team`, `tgt_hp`) ; il
                 # lui manquait l'id. MEME cle et MEME semantique que la face COMBAT
                 # (`damage_model.attacker_modifiers`) et que le canal AURA -- pas de fork.
-                "tgt_id": tgt_id}
+                "tgt_id": tgt_id,
+                # #919 -- `StatAmount(Owner@DSLSelectors+0x30, BlockDamage, Current)` de
+                # `IconOfObstinacy_ExtraDamageEffect$$GetCurrentExtraDamage`, PATTE SELF : sur ce
+                # canal l'OWNER de chaque effet parcouru EST l'attaquant (la boucle n'itere que SES
+                # effets), exactement comme `tiles_moved_this_turn` / `adjacent_taunted_enemies`
+                # au-dessus. MEME cle et MEME semantique que la face COMBAT
+                # (`damage_model.attacker_modifiers`) et que le canal AURA -- pas de fork.
+                "owner_block_damage": prediction_block_damage(scene, att_id)}
     mods = calculate_attacker_modifiers_for_prediction(att_effects, is_ranged=_ranged, has_moved=_hm,
                                                        target_traits=_tgt_traits,
                                                        target_armor_reduced=_tgt_armor_reduced,

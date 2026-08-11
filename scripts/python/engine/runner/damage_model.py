@@ -273,6 +273,14 @@ def _apply_ally_attack_damage_auras(state: State, att_id: int, mods, is_ranged: 
         effs = state.effects.active_effects(uid, unit_state_for_effects(state, uid))
         if effs:
             carriers.append((uid, (pc.col, pc.row), oc.team, effs))
+    # #919 -- `IconOfObstinacy_ExtraDmg` est la PREMIERE aura dont la magnitude lit une STAT DU
+    # PORTEUR (`StatAmount(Owner@DSLSelectors+0x30, 0x8 = BlockDamage, 0x0 = Current)`), et non une
+    # variable de config seule. Le ctx d'aura ne publiait que `owner_{id,pos,team}` : sans cette
+    # cle, la patte `%` serait NON LISIBLE, donc omise (degradation nommee, cf. la classe d'effet).
+    # MAP par porteur (l'agregateur re-cle par `owner_id`) et ADDITIVE : aucune classe existante ne
+    # la lit, aucun comportement existant ne bouge.
+    owner_block_damage = {uid: _unit_stat(state, uid, int(StatType.BLOCK_DAMAGE))
+                          for (uid, _p, _t, _e) in carriers}
     if not carriers:
         return
     is_melee = (not is_ranged) if is_ranged is not None else None
@@ -300,7 +308,10 @@ def _apply_ally_attack_damage_auras(state: State, att_id: int, mods, is_ranged: 
            "tgt_id": target_id,
            "tgt_traits": target_traits,
            "t_pos": _unit_pos(state, target_id),
-           "tgt_team": _unit_team(state, target_id)}
+           "tgt_team": _unit_team(state, target_id),
+           # #919 -- cf. la construction de la map ci-dessus. Cle par PORTEUR ; l'effet la resout
+           # avec le `owner_id` que l'agregateur pose dans son ctx par-carrier.
+           "owner_stat_block_damage": owner_block_damage}
     # `PsychicStalk_FriendlyChaosExtraDamage` (#366-r1, effet 1435) -- PATTE AURA : son conjoint
     # `GetTargetIsOnFireTileCondition` lit `EntitiesWithAnyEffect(Tiles(Target@0x60), Fire)`, donc
     # les effets de la MAIN TILE de la cible. MEME canal / MEME forme `{(col,row): [noms]}` que
@@ -343,6 +354,21 @@ def _unit_team(state: State, unit_id: Optional[int]):
     e = state.get_entity(int(unit_id))
     oc = e.get_component(OwnerComponent) if e is not None else None
     return oc.team if oc is not None else None
+
+
+def _unit_stat(state: State, unit_id: Optional[int], stat_type: int) -> Optional[int]:
+    """`IdunBattle.Entities.UnitExtensions$$GetStat(unit, statType, Current, null)` -- lecture de la
+    stat COURANTE (effet-inclusif) via le `UnitContext` du porteur. `None` = pas de contexte de
+    stats : le lecteur DIT qu'il n'a pas mesure au lieu de rendre 0 (un 0 rabattu ferait disparaitre
+    silencieusement un terme `%`). #919."""
+    if unit_id is None:
+        return None
+    e = state.get_entity(int(unit_id))
+    sc = e.get_component(StatsComponent) if e is not None else None
+    ctx = getattr(sc, "ctx", None) if sc is not None else None
+    if ctx is None:
+        return None
+    return int(ctx.get_stat(int(stat_type), 0) or 0)      # `StatPart.Current`
 
 
 def _owner_turn_flag(state: State, unit_id: Optional[int]) -> Optional[bool]:
@@ -527,6 +553,13 @@ def attacker_modifiers(state: State, unit_id: int, hp: Optional[int], is_ranged:
     # c'est la meme equivalence que celle qui rend `get_OwnerIsCaster` implicitement vrai ici.
     # Consommateur porte : `MartialInspiration_ExtraDamageEffect` (magnitude `extraDmgPct x n`).
     att_ctx["turns_with_attacks_made"] = unit_turns_with_attacks_made(state, unit_id)
+    # #919 : `StatAmount(Owner@DSLSelectors+0x30, 0x8 = BlockDamage, 0x0 = Current)` de
+    # `IconOfObstinacy_ExtraDamageEffect$$GetCurrentExtraDamage`. MEME convention que les trois cles
+    # ci-dessus : sur CE canal l'OWNER de chaque effet parcouru EST l'attaquant (l'agregateur
+    # n'itere que SES effets), donc la valeur du porteur est celle de `unit_id`. Tri-etat conserve
+    # (`None` = pas de contexte de stats), jamais un 0 rabattu -- un 0 ferait disparaitre le terme
+    # `%` en silence au lieu de le declarer non mesure.
+    att_ctx["owner_block_damage"] = _unit_stat(state, unit_id, int(StatType.BLOCK_DAMAGE))
     # #509 : `CurrentAbilityIs(<AbilityOrEffect>)` — l'ability COURANTE du coup
     # (`AbilityEntities+0x60`, lu par `AbilityTypeSelector.CurrentAbilitySelector$$Select`), a NE PAS
     # confondre avec `trigger_ability_type` ci-dessous, qui mirror `TriggeringAbilityIs`
