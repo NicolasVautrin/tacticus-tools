@@ -19,7 +19,43 @@ Tests OFFLINE (aucun runner) -- ils tournent en quelques dixiemes de seconde.
 """
 from __future__ import annotations
 
-import pytest
+DECLENCHEUR = {
+    "chemins": (
+        # Le port lui-meme : les trois classes d'aura et leurs trois colonnes mesurees.
+        "scripts/python/engine/entities/effects/loki/prophetic_sentinel.py",
+        # Les DEUX registres qui les font exister cote combat.
+        "scripts/python/engine/entities/effects/factory.py",
+        "scripts/python/engine/runner/operations/triggers/dispatch/registry.py",
+        # Le trigger d'overwatch (litteraux figes par `test_trigger_overwatch_litteraux`).
+        "scripts/python/engine/runner/operations/triggers/loki/prophetic_sentinel.py",
+        # Les DEUX faces DECISION -- celle-ci fige qu'elles ne partagent AUCUNE cle.
+        "scripts/python/engine/playbook/prophetic_sentinel.py",
+        "scripts/python/engine/playbook/non_owner.py",
+        "scripts/python/engine/playbook/adjacent_unit_preference.py",
+        # Les mirrors d'enum dont les ordinaux sont assertionnes ici.
+        "scripts/python/engine/entities/effect_type.py",
+        "scripts/python/engine/entities/triggered_ability_type.py",
+        "scripts/python/engine/entities/traits/unit_trait.py",
+        "scripts/python/engine/entities/stats.py",
+        "scripts/python/engine/dsl/event_trigger_type.py",
+        # Le confront LIVE dont ces gardes figent le resultat.
+        "scripts/python/probe_915_prophetic_sentinel.py",
+        # Le paquet qui expose le module d'effets (sa cascade decide de ce qui est importable).
+        "scripts/python/engine/entities/effects/loki/__init__.py",
+    ),
+    "build": True,
+    "toujours": False,
+    "raison": (
+        "Ces gardes figent des APPARIEMENTS mesures live (effectType -> stat, variable, trait de "
+        "selecteur) que rien d'autre ne tient : le premier port les avait tous les trois faux sans "
+        "qu'aucun test ne bouge. Toucher un des foyers ci-dessus peut les invalider en silence. "
+        "`build: True` : les cinq ordinaux assertionnes (1558/1559/1560, 1543, 1009) et les deux "
+        "traits (0x3ea/0x7ea) sont LUS dans les tables du hash courant -- un renumerotage au "
+        "changement de build les rend faux, et c'est precisement ce que ce fichier doit voir."
+    ),
+}
+
+import pytest        # noqa: E402  (le DECLENCHEUR doit rester en tete, cf. `probe_486r15`)
 
 from engine.entities.effect_type import EffectType
 from engine.entities.effects.factory import ABILITY_INIT_OWNER_EFFECTS, EFFECT_CLASSES
