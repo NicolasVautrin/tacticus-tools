@@ -9,9 +9,9 @@ Le runner combat route chaque ability choisie via `ActiveAbilityMessage` -> `Abi
 ## Bilan
 
 - ActiveAbilityType castables par les unites : **175** distinct
-- **PORTED** (dans `ABILITY_CLASSES`) : **154**
-- **NO-OP silencieux** (a porter) : **21**
-- Ventilation NO-OP : **DAMAGE**=10, **EFFECT/BUFF**=7, **SUMMON**=4
+- **PORTED** (dans `ABILITY_CLASSES`) : **155**
+- **NO-OP silencieux** (a porter) : **20**
+- Ventilation NO-OP : **DAMAGE**=10, **EFFECT/BUFF**=6, **SUMMON**=4
 
 ## Priorisation & templates de port
 
@@ -30,7 +30,7 @@ Le runner combat route chaque ability choisie via `ActiveAbilityMessage` -> `Abi
 
 Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 
-## NO-OP SILENCIEUX en combat (a porter, tries categorie puis frequence) (21)
+## NO-OP SILENCIEUX en combat (a porter, tries categorie puis frequence) (20)
 
 | id | ability | categorie | #units | kinds |
 |---|---|---|---|---|
@@ -49,14 +49,13 @@ Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 | 1053 | DevoutPush | EFFECT/BUFF | 2 | NS |
 | 1185 | ForwardObservers | EFFECT/BUFF | 2 | NS |
 | 1133 | WarConstruct | EFFECT/BUFF | 2 | N |
-| 1203 | DaemonicPatrons | EFFECT/BUFF | 1 | L |
 | 1107 | Reveal | EFFECT/BUFF | 1 | N |
 | 1208 | AetherStride | SUMMON | 2 | LN |
 | 1144 | BioMinefield | SUMMON | 2 | LN |
 | 1052 | CallRipperSwarms | SUMMON | 1 | N |
 | 1172 | InvocationOfMachineVengeance | SUMMON | 1 | N |
 
-## PORTED (registry) (154)
+## PORTED (registry) (155)
 
 | id | ability | categorie | #units | kinds |
 |---|---|---|---|---|
@@ -182,6 +181,7 @@ Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 | 1186 | WallOfMirrors | EFFECT/BUFF | 2 | NS |
 | 1163 | BlackRage | EFFECT/BUFF | 1 | L |
 | 1032 | Catalyst | EFFECT/BUFF | 1 | N |
+| 1203 | DaemonicPatrons | EFFECT/BUFF | 1 | L |
 | 1211 | RitesOfMorkai | EFFECT/BUFF | 1 | L |
 | 1151 | TheQuickening | EFFECT/BUFF | 1 | L |
 | 1106 | WarHowl | EFFECT/BUFF | 1 | L |

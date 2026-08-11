@@ -33,7 +33,7 @@ from .components import (StatsComponent, HealthComponent, OwnerComponent, Positi
                          UnitComponent, unit_has_moved, unit_has_teleported,
                          unit_has_used_active_ability,
                          unit_tiles_moved_this_turn, unit_state_for_effects,
-                         unit_turns_with_attacks_made)
+                         unit_turns_with_attacks_made, adjacent_taunted_enemies_count)
 from ..entities.stats import StatType, ARMOR_STAT_TYPES
 from ..services.damage_prediction import get_attack_prediction, apply_pierce_and_modifiers
 from ..services.battle_query import (
@@ -512,6 +512,13 @@ def attacker_modifiers(state: State, unit_id: int, hp: Optional[int], is_ranged:
     # comme l'`AbilityEntities` natif que `BaseEffect$$DamageBonusForAttack` recoit.
     att_ctx = dict(att_ctx or {})
     att_ctx["tiles_moved_this_turn"] = unit_tiles_moved_this_turn(state, unit_id)
+    # #911 : `GetNumAdjacentTauntedEnemies()` de la base native `ADaemonicPatronsEffect`. MEME
+    # regime que `tiles_moved_this_turn` ci-dessus -- sur ce canal l'OWNER de chaque effet parcouru
+    # EST l'attaquant (l'agregateur n'itere que ses effets), donc la cle porte bien le compte DU
+    # PORTEUR, ce qu'exige le gate `get_OwnerIsCaster` de `DaemonicPatrons_ExtraDamage` (1464).
+    # Foyer unique `components.adjacent_taunted_enemies_count` ; tri-etat conserve (`None` = le
+    # porteur n'a ni equipe ni tuile), jamais un 0 invente.
+    att_ctx["adjacent_taunted_enemies"] = adjacent_taunted_enemies_count(state, unit_id)
     # #509 : `TotalTurnsWithAttacksMade(Owner)` — `IdunBattle.Entities.Formulas.
     # TotalTurnsWithAttacksMadeFormula$$Calculate` = `ActorStatisticsComponent+0x30`. MEME regime que
     # `tiles_moved_this_turn` juste au-dessus : la valeur est MESUREE cote COMBAT, donc la cle est
@@ -643,6 +650,14 @@ def defender_modifiers(state: State, unit_id: int, hp: Optional[int],
     _toc = _owner_turn_flag(state, unit_id)
     if _toc is not None:
         att_ctx = {"is_turn_of_owner": _toc}
+    # #911 : `GetNumAdjacentTauntedEnemies()` -- MEME convention que `is_turn_of_owner` juste
+    # au-dessus : sur ce canal `Owner` est le PORTEUR de l'effet, donc `unit_id` (la CIBLE du coup).
+    # C'est ce qu'exige le gate `get_OwnerIsTarget` de `DaemonicPatrons_DmgReduction` (1465).
+    # Cle POSEE seulement si le compte est mesure -- absente = « non mesure », jamais un 0 invente.
+    _adt = adjacent_taunted_enemies_count(state, unit_id)
+    if _adt is not None:
+        att_ctx = dict(att_ctx or {})
+        att_ctx["adjacent_taunted_enemies"] = _adt
     if attacker_id is not None or is_normal_attack is not None:
         att_ctx = dict(att_ctx or {})
         att_ctx.update({"id": attacker_id, "is_normal_attack": is_normal_attack})

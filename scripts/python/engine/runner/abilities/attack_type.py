@@ -214,6 +214,14 @@ ABILITY_ATTACK_TYPE: dict[int, int] = {
     # `Others`. C'est le contre-exemple SYMETRIQUE de 1019 `StormOfWrath` (chaine qui n'attaque pas
     # en direct et porte `DirectTargetAttack`). (#605)
     ActiveAbilityType.InfernalCannon: AbilityAttackType.Others,  # 1209
+    # DaemonicPatrons (1203) : `...Active.Loki.DaemonicPatronsAbility$$.ctor` recopie les 0x40 octets
+    # du preset statique `<TargetingOptions statics>+0x40`, appelle la surcharge PRESET+FLAGS
+    # (`0x200000000`, surcharge tranchee par ses XREFS ENTRANTES -- la MEME que 1183/1050) puis
+    # `AActiveAbility..ctor(this, &opts, 0)` -- le 3e argument est le litteral `0`. TRANSCRIT, jamais
+    # deduit : l'arbre de 1203 NE FRAPPE PAS (un `AddBondEffect` + deux `AddEffect`, rien d'autre),
+    # et le litteral vaut quand meme `DirectTargetAttack`. Meme contre-exemple que StormOfWrath
+    # (1019), BloodyFury (1129), MindControl (1164) et AttemptedPossession (1101). (#911)
+    ActiveAbilityType.DaemonicPatrons: AbilityAttackType.DirectTargetAttack,  # 1203
     # HellfireShells (1080) : `...Active.Loki.HellfireShellsAbility$$.ctor` recopie les 0x40 octets
     # du MEME preset statique `<TargetingOptions statics>+0x140` que 1225/1196 puis appelle
     # `AActiveAbility..ctor(this, &opts, 0)` -- le 3e argument est le litteral `0`. TRANSCRIT au

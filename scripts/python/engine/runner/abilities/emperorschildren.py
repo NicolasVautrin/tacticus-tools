@@ -32,7 +32,7 @@ from ...entities.ability_constant_type import AbilityConstantType
 from ...entities.ability_variable_type import AbilityVariableType
 from ...entities.behaviours import Foreach, If as IfBehaviour, AtomicGroup, op_add, op_and
 from ...entities.formulas import Count, Multiply
-from ...entities.selectors.accessors import ActiveTarget, Target, TargetTile
+from ...entities.selectors.accessors import ActiveTarget, Owner, Target, TargetTile
 from ...entities.selectors.geometry import Cache
 from ...entities.selectors.tiles import Caster
 from ...entities.selectors.units import (
@@ -44,7 +44,7 @@ from ...entities.active_ability_type import ActiveAbilityType
 from ...entities.effect_type import EffectType
 from ...entities.effects.magnitude import ability_var
 from ..components import StatsComponent
-from .base import ActiveAbility
+from .base import ActiveAbility, convert_rounds_to_turns
 from .behaviours.combat import AttackWithAttackDamage
 from .behaviours.context import entities_from_state
 from .behaviours.effects import (AddBondEffect, AddEffect, AddStaticStatModifierEffect,
@@ -820,3 +820,213 @@ class EuphoricStrikesAbility(ActiveAbility):
         return {"ability": EUPHORIC_STRIKES_ID, "caster": caster_id, "target": target_id,
                 "attack": (atk or {}).get("attack"), "mark": mark, "dsl": True,
                 "emitted": [n for n, _ in ectx.emitted]}
+
+
+# ================== DaemonicPatrons (emperFlawlessBlade « Hascule », actif 1203) -- #911 ==========
+#
+# `IdunBattleLogic.Entities.Abilities.Active.Loki.DaemonicPatronsAbility$$ExecuteBehaviour` --
+# MIRROR du DECOMPILE (build `rnca9r7q6c`). Slots relus sur CE build :
+# `factory+0x78 = DSLBehaviors`, `+0x80 = DSLFormulas`, `+0x88 = DSLTriggers`, `+0x90 = DSLSelectors`
+# (champs de la factory decales de `0x118`) ; `sel+0x30 = Owner` (`factory+0x148`),
+# `sel+0x48 = Caster` (`factory+0x160`), `sel+0x60 = Target` (`factory+0x178`) ;
+# `IdunBattleLogic.Entities.DSLFormulas$$.ctor` pose `formulas+0x20 = Const(1)` (et `+0x18 = 0`,
+# `+0x28 = 2`, `+0x30 = 100`, `+0x38 = -1`) -- LU dans le ctor, jamais devine d'un offset opaque.
+#
+#     turns   = Sum( TurnsFromRounds( GetNumberConstant(0x45 = nrOfRounds) ), Const(1)@0x20 )
+#     bond    = AddBondEffect( 0x1b = 27 Taunted_OnlySpecificTargets, AbilityStateReference,
+#                              source = caster@0x48, targets = target@0x60,
+#                              bondedEntity = caster@0x48, turns )
+#     extra   = AddEffect( 0x5b8 = 1464 DaemonicPatrons_ExtraDamage, AbilityStateReference,
+#                          source = owner@0x30, targets = owner@0x30, turns )
+#     reduc   = AddEffect( 0x5b9 = 1465 DaemonicPatrons_DmgReduction, AbilityStateReference,
+#                          source = owner@0x30, targets = owner@0x30, turns )
+#     AActiveAbility.Execute( bond & (extra & reduc) )
+#
+# ⚠ **LA PREMISSE « EFFECT/BUFF » DE L'AUDIT NE DECRIT QU'UNE MECANIQUE SUR DEUX.** L'arbre POSE UN
+# TAUNT (le bond 27, sur la CIBLE) avant les deux buffs -- 1203 n'est donc pas un self-buff, c'est
+# un taunt dont les deux buffs sont la contrepartie, et le compte d'ennemis TAUNTES est justement ce
+# qui module leur magnitude. L'i2 le dit en premier : « Taunts an adjacent enemy, **and** Hascule
+# gets *watched* ... ».
+#
+# ⚠ **TROIS SURCHARGES TRANCHEES PAR L'ADRESSE APPELEE** (xrefs entrantes du call-site, jamais le
+# nombre d'arguments du pseudo-C) :
+#   * `AddBondEffect` -> l'entree que `LashOfTormentAbility$$ExecuteBehaviour` et
+#     `CrushingClawsAbility$$ExecuteBehaviour` appellent aussi (7 arguments) -- meme surcharge, donc
+#     meme forme portee que `lash_of_torment_tree` ci-dessus ;
+#   * `AddEffect` -> la surcharge a 6 arguments `(effectType, abilityState, source, targets, turns)`,
+#     dont le corps construit `Nullable<duree>{0, turns}` puis
+#     `IdunBattle.Entities.Behaviours.AddEffectBehaviour$$.ctor` (les 3 autres surcharges ne sont pas
+#     appelees ici) ;
+#   * `Sum` -> la surcharge a DEUX operandes (les quatre existent : 2, 3, 4 et 5 operandes).
+#
+# ⚠ **LA DUREE EST EN TOURS, ET LE `+1` EST DANS L'ARBRE** -- `Sum(TurnsFromRounds(n), Const(1))`,
+# le patron « jusqu'a la FIN DU PROCHAIN TOUR du caster » deja porte par `FightingRetreat`
+# (1157/1158) et `SeekerMissileFrequencyLock` (1069). Le port passe donc `duration_turns=`, JAMAIS
+# `duration_rounds=` : ce dernier RE-convertirait et perdrait le `+1`. MESURE LIVE (`MC1_67`, seed
+# 777, 2 joueurs) : les TROIS effets sortent du cast et sont decrementes a `RemainingTurns=2` par le
+# `Effect_Refresh` de fin de tour -- soit `convert_rounds_to_turns(1) + 1 = 3` a la pose.
+# ⚠ Le nombre de rounds n'est PAS code en dur : `nrOfRounds` est une CONSTANTE de config
+# (`GetNumberConstant`, pas `GetVariableForLevel` -- l'accesseur tranche l'enum), et vaut `1`
+# aujourd'hui. On la LIT.
+#
+# ⚠ **`AbilityStateReference` EST bake sur les deux `AddEffect` (`scale_from_source=True`) et PAS sur
+# le bond** : les deux effets 1464/1465 resolvent leur magnitude par
+# `IdunBattleLogic.Entities.DSLFormulas$$ConfigVar(<var>, GetAbilityState(effect), config)` -- ils
+# LISENT donc l'`AbilityState` que le natif leur passe. `Taunted_OnlySpecificTargets`, lui, est
+# COMPOSITE (enfants 25/26/1237) et ne lit AUCUN `ConfigVar` : meme lecture que le bond de
+# `lash_of_torment_tree` et que les deux bonds de `worldeaters.py::overwhelming_wrath_tree`.
+#
+# ⚠ **CE QUE L'ARBRE NE FAIT PAS** : aucune attaque (contraste avec les trois autres actives de ce
+# module), aucun `If`, aucun `IfAlive`, aucun `AtomicGroup` -- la callee finale est
+# `IdunBattle.Entities.Abilities.AActiveAbility$$Execute(behaviour, entities)` a DEUX arguments.
+#
+# HORS PERIMETRE, NOMME (residu **#911-r1**) : la triggered `1473 DaemonicPatrons_Finale`, dont l'i2
+# porte les deux moities restantes (« If he defeats an adjacent Taunted enemy while being *watched*,
+# he can use this ability again. If he does not, he loses 30% of his current Health. »). Elle N'EST
+# PAS dans le kit de l'unite (`activeAbilities` = [DaemonicPatrons], `passiveAbilities` =
+# [EcstaticSlaughter]) : le canal par lequel le natif l'inscrit n'est pas etabli, et c'est ce que le
+# residu doit trancher. RE deja LUE, a ne pas refaire :
+#   `...Triggered.Loki.DaemonicPatrons_FinaleSuccessAbility$$CreateTrigger` =
+#       On(0x36 = EventTriggerType.UnitDefeated) & get_OwnerIsActor
+#       & HasEffect(target@0x60, 0x1b = 27, onlyActive: 0, targetType: 6)
+#       & HasEffect(actor@0x40, 0x5b8 = 1464, onlyActive: 0, targetType: 6)
+#   `...Triggered.Loki.DaemonicPatrons_FinaleFailAbility$$CreateTrigger` =
+#       On(0x40 = EventTriggerType.EffectRemoved) & get_OwnerIsTarget
+#       & CurrentAbilityIs(<AbilityOrEffect(this)>)
+#       & NOT CanUseAbility(owner@0x30, 0x4b3 = 1203)
+#   `...Triggered.Loki.DaemonicPatrons_FinaleFailAbility$$CreateBehaviour` =
+#       DirectDamage( caster = owner@0x30, targets = owner@0x30,
+#                     PercentageOf( StatAmount(owner@0x30, 5 = StatType.HEALTH),
+#                                   GetVariableForLevel(0x26 = hpPct) ),
+#                     <AbilityOrEffect(this)>, 3, <options ZERO> )
+# Le `CreateBehaviour` de la face SUCCESS n'a AUCUN symbole propre dans les deux tables (corps
+# deduplique) : il reste a lire par le slot de vtable, pas a deviner.
+
+DAEMONIC_PATRONS_ID = "DaemonicPatrons"
+#: `AddBondEffect(0x1b, ...)` -- l'effet BOND `TauntedEffect`, COMPOSITE (enfants 25/26/1237), le
+#: MEME que posent `LashOfTorment` / `CrushingClaws` / `GetEmRuntz` / `OverwhelmingWrath`.
+DP_TAUNTED = int(EffectType.Taunted_OnlySpecificTargets)             # 0x1b = 27
+#: `AddEffect(0x5b8, ...)` -- le buff OFFENSIF pose sur le caster (`+extraDmg` par ennemi adjacent
+#: TAUNTE). Porte dans `engine/entities/effects/loki/daemonic_patrons.py`.
+DP_EXTRA_DAMAGE = int(EffectType.DaemonicPatrons_ExtraDamage)        # 0x5b8 = 1464
+#: `AddEffect(0x5b9, ...)` -- le buff DEFENSIF pose sur le caster (`-dmgReductionPct %` par ennemi
+#: adjacent TAUNTE, CAPPE par `Min(Const(100)@formulas+0x30, ...)`).
+DP_DMG_REDUCTION = int(EffectType.DaemonicPatrons_DmgReduction)      # 0x5b9 = 1465
+#: `IdunBattle.Configuration.AbilityConfiguration$$GetNumberConstant(config, 0x45)` ->
+#: `constants.nrOfRounds` = 1.
+#: ⚠ QUALIFICATION D'ENUM : `0x45` est un `AbilityConstantType` parce que l'ACCESSEUR appele est
+#: `GetNumberConstant` (type DECLARE de son 1er parametre, LU dans `frida/methods.tsv`) ;
+#: `AbilityVariableType(69)` nomme `summonArmor_2`, une cle sans rapport -- et 1203 n'a AUCUNE
+#: variable `nrOfRounds` au gameconfig (ses trois variables sont `extraDmg`, `dmgReductionPct`,
+#: `hpPct`), donc la confusion aurait lu une cle INEXISTANTE sans lever la moindre erreur.
+DP_CONST_NR_OF_ROUNDS = AbilityConstantType.nrOfRounds               # 0x45 = 69
+
+
+def daemonic_patrons_duration_turns(state: "State") -> Optional[int]:
+    """`Sum( TurnsFromRounds(GetNumberConstant(0x45 = nrOfRounds)), Const(1)@formulas+0x20 )` -- la
+    duree, deja EN TOURS, des TROIS effets de l'arbre (le bond et les deux buffs la partagent : le
+    decompile passe la MEME instance de formule aux trois feuilles).
+
+    `TurnsFromRounds` = `IdunBattle.Core.Services.BattleQuery$$ConvertRoundsToTurns` (porte par
+    `convert_rounds_to_turns`) ; le `+1` vient du champ `Const(1)` de l'instance `DSLFormulas`, pas
+    d'une regle de cycle de vie inventee. Constante absente de la config -> `None`, ce qui laisse
+    `AddEffect`/`AddBondEffect` retomber sur `DefaultAmountOfRounds` au lieu d'inventer une duree."""
+    consts = (GC.ability(DAEMONIC_PATRONS_ID) or {}).get("constants") or {}
+    raw = consts.get(DP_CONST_NR_OF_ROUNDS.name)
+    if raw is None:
+        return None
+    return convert_rounds_to_turns(state, int(raw)) + 1
+
+
+def daemonic_patrons_tree(duration_turns: Optional[int]):
+    """Arbre COMPLET de `...DaemonicPatronsAbility$$ExecuteBehaviour` :
+
+        bond & (extra & reduc)
+
+    L'associativite est celle du decompile (`op_BitwiseAnd(extra, reduc)` PUIS
+    `op_BitwiseAnd(bond, .)`), et `IdunBattle.DSL.CombinedBehaviour$$Execute` execute gauche PUIS
+    droite : le TAUNT est pose AVANT les deux buffs. Ca COMPTE -- les deux effets comptent les
+    ennemis adjacents DEJA taunted, donc la cible de ce cast est incluse des sa pose."""
+    bond = AddBondEffect(DP_TAUNTED, EffectType.Taunted_OnlySpecificTargets.name,
+                         Caster(), Target(), duration_rounds=None,
+                         duration_turns=duration_turns, bonded_ref=Caster())
+    extra = AddEffect(DP_EXTRA_DAMAGE, EffectType.DaemonicPatrons_ExtraDamage.name, Owner(),
+                      duration_rounds=None, duration_turns=duration_turns,
+                      source_ref=Owner(), scale_from_source=True)
+    reduc = AddEffect(DP_DMG_REDUCTION, EffectType.DaemonicPatrons_DmgReduction.name, Owner(),
+                      duration_rounds=None, duration_turns=duration_turns,
+                      source_ref=Owner(), scale_from_source=True)
+    return op_and(bond, op_and(extra, reduc))
+
+
+class DaemonicPatronsAbility(ActiveAbility):
+    """`...Active.Loki.DaemonicPatronsAbility$$ExecuteBehaviour` (id **1203**,
+    `emperFlawlessBlade` « Hascule », HERO EmperorsChildren). Arbre DSL `daemonic_patrons_tree`.
+
+    i2 : « Taunts an adjacent enemy, and Hascule gets *watched* until the end of his next turn.
+    While being *watched*, Hascule deals +{extraDmg} Damage and takes -{dmgReductionPct}% Damage for
+    each adjacent Taunted enemy. If he defeats an adjacent Taunted enemy while being *watched*, he
+    can use this ability again. If he does not, he loses {hpPct}% of his current Health. »
+    (les DEUX dernieres phrases = la triggered `1473`, residu **#911-r1** -- cf. l'en-tete.)
+
+    ROUGE MESURE AVANT CE PORT : 1203 etait ABSENTE d'`ABILITY_CLASSES` -> le cast etait accepte par
+    la DECISION et IGNORE par l'EXECUTION (0 taunt, 0 buff, AUCUNE erreur).
+
+    `emperFlawlessBlade` est HORS du pool `--list-pool` du rank courant (les seules EmperorsChildren
+    du pool sont `emperKakophonist` et `emperNoiseMarine`) ET hors du catalogue capture : la
+    confrontation live passe par `catalog_inject.write_augmented_seed_bc` puis
+    `rl_duel build --seed-bc` (cf. `docs/rl/case-92-catalog-injection.md` §6, qui le nomme
+    explicitement parmi les 7 unites hors catalogue). Aucun `data/unspawnable_rank<N>.json`
+    n'existe, donc AUCUN refus n'est declare sur ce porteur -- et le montage est MESURE, pas
+    suppose : `u77 [emperFlawlessBlade] DaemonicPatrons(1203) [pret]`.
+
+    Diag : {ability, caster, target, taunt, extra, reduction, duration_turns, dsl, emitted}."""
+    __slots__ = ()
+    ABILITY_TYPE = int(ActiveAbilityType.DaemonicPatrons)   # 1203 = 0x4b3
+    ABILITY_ID = DAEMONIC_PATRONS_ID
+
+    # GATE DE CIBLE (#115) + PORTEE (#241). `...DaemonicPatronsAbility$$.ctor` -- forme
+    # **PRESET + FLAGS** : il recopie les 0x40 octets du preset `<TargetingOptions statics>+0x40`
+    # (bloc `<class>+0xb8`) puis appelle la surcharge `TargetingOptions..ctor(&opts, &preset,
+    # 0x200000000)`, puis `AActiveAbility..ctor(this, &opts, 0)`.
+    # CRITERE DE SURCHARGE REELLEMENT EMPLOYE = **les XREFS ENTRANTES du call-site**, pas l'arite du
+    # pseudo-C : l'appel de `$$.ctor` vise l'entree que `VexillaMagnificaAbility$$.ctor` (1183) et
+    # `HolyDuelAbility$$.ctor` (1050) visent aussi, et dont le corps -- RELU sur ce build -- est
+    #     `rules = additionalRules | template.rules`, tous les autres champs COPIES du template.
+    # `IdunBattle.Core.Services.TargetingOptions$$.cctor` ecrit ce preset (bloc RELU sur
+    # `rnca9r7q6c`, pas herite d'une voisine) :
+    #     statics+0x40 (= preset+0x00) = 0                             -> `isSelfCasting` = False
+    #     statics+0x48 (= preset+0x08) = copie de `<TargetingRange statics>+0x30` -> RANGE_ADJACENT
+    #     statics+0x60 (= preset+0x20) = 1                             -> `forceMeleeTarget`
+    #                                                                     = RangedBool.False
+    #     statics+0x68 (= preset+0x28) = 0x4000                        -> `rules`
+    # => masque EFFECTIF = `0x4000 | 0x200000000`. Decomposition EXHAUSTIVE (aucun bit residuel) :
+    #     0x4000       (bit 14) TargetIsEnemy       -> PORTE (refus sur soi-meme / un allie).
+    #     0x200000000  (bit 33) TargetIsNotAnObject -> PORTE au registre ; le gate `HasTrait(cible,
+    #                           Object)` reste le residu PARTAGE de tous les porteurs de ce bit.
+    # AUCUN `TargetMatchesDynamicRule` (0x2) ni `CasterMatchesDynamicRule` (0x4) : la classe n'a que
+    # `$$.ctor` et `$$ExecuteBehaviour` dans les DEUX tables, donc les deux virtuels
+    # `GetDynamicInvalid*Reason` retombent sur la base (0) -- le defaut du port est le mirror EXACT,
+    # pas une degradation.
+    # PORTEE : `RANGE_ADJACENT` recoupe `attackRangeType = Melee` du gameconfig par une voie
+    # INDEPENDANTE, et c'est l'« adjacent enemy » de l'i2.
+    TARGETING_OPTIONS = TargetingOptions(
+        rules=int(TR.TargetIsEnemy) | int(TR.TargetIsNotAnObject),   # `<preset +0x40>+0x28` | flags
+        self_cast=False, range=RANGE_ADJACENT,
+        force_melee_target=RANGED_BOOL_FALSE)                        # `<preset +0x40>+0x20` = 1
+
+    def execute_behaviour(self, state: "State", caster_id: int,
+                          target_id: Optional[int]) -> Optional[dict]:
+        if target_id is None:
+            return None
+        turns = daemonic_patrons_duration_turns(state)
+        entities = entities_from_state(state, caster_id, target_id)
+        ectx = ExecutionContext(state=state, rng=state.rng)
+        daemonic_patrons_tree(turns).execute(entities, ectx)
+        bond = next((p for n, p in ectx.emitted if n == "AddBondEffect"), None)
+        posed = [p for n, p in ectx.emitted if n == "AddEffect"]
+        extra = next((p for p in posed if p.get("effect_type") == DP_EXTRA_DAMAGE), None)
+        reduc = next((p for p in posed if p.get("effect_type") == DP_DMG_REDUCTION), None)
+        return {"ability": DAEMONIC_PATRONS_ID, "caster": caster_id, "target": target_id,
+                "taunt": bond, "extra": extra, "reduction": reduc, "duration_turns": turns,
+                "dsl": True, "emitted": [n for n, _ in ectx.emitted]}

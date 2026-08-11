@@ -628,6 +628,14 @@ def make_normal_attack_predictions(scene, att_id, tgt_id, attack_pos, *, meta=Fa
                 # PREDICAT DISTINCT de `_hm` (`HasFlag(Moved)`) : un teleport pose `Moved` sans
                 # enregistrer la moindre tuile, un `DisplaceUnitOperation` fait l'inverse.
                 "tiles_moved_this_turn": prediction_tiles_moved_this_turn(scene, att_id, attack_pos),
+                # `GetNumAdjacentTauntedEnemies()` (#911) evalue pour l'ATTAQUANT, qui EST le
+                # porteur de `DaemonicPatrons_ExtraDamage` (1464, gate `get_OwnerIsCaster`).
+                # ⚠ EVALUE A LA POSITION COURANTE, pas a la TUILE CANDIDATE -- contraste ASSUME avec
+                # `tiles_moved_this_turn` juste au-dessus : `Scene.adjacent_taunted_enemies` lit
+                # `pos_by_id`, donc un plan qui DEPLACE Hascule hors du contact predit encore le
+                # bonus. Residu NOMME dans `docs/rl/case-911-daemonic-patrons.md` ; la face COMBAT,
+                # elle, mesure la position REELLE au moment du coup.
+                "adjacent_taunted_enemies": scene.adjacent_taunted_enemies(att_id),
                 # `PsychicStalk_FriendlyChaosExtraDamage` (#366-r1, effet 1435) -- PATTE SELF du
                 # slot `CreateEffectDamageBonusForAttack` : gates `HasTrait(Caster@0x48, Chaos)`,
                 # `EntitiesWithAnyEffect(Tiles(Target@0x60), Fire)` (la MAIN TILE de la cible,
