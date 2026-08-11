@@ -80,6 +80,7 @@
  "tests/engine/runner/test_894_arc_scourge_offline.py": 0.62,
  "tests/engine/runner/test_906_rites_of_morkai_offline.py": 0.328,
  "tests/engine/runner/test_929_savage_killer_offline.py": 2.732,
+ "tests/engine/runner/test_936_wrathful_devotion_offline.py": 2.715,
  "tests/engine/runner/test_ability_registry_ratchet.py": 26.198,
  "tests/engine/runner/test_active_ability_counted_as_used_offline.py": 0.013,
  "tests/engine/runner/test_barbed_ovipositor_object_or_steppable_offline.py": 0.085,

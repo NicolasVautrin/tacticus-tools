@@ -41,8 +41,14 @@ from engine.runner.operations.triggers.loki import fury_of_the_ancients as F    
 #: `data/symbols/**` ajoute par `build: True` ne peut pas apparier -> `DECLARE TROP ETROIT`.
 #: Le defaut est INVISIBLE tant que l'empreinte de ce fichier n'est pas mesuree, et c'est en la
 #: mesurant (ordre #486-r29) qu'il est apparu.
-#: ⚠ #931 et #937 ont trouve ce meme defaut INDEPENDAMMENT, en gravant l'empreinte chacun de son
-#: cote -- deux mesures concordantes, une seule correction.
+#: ⚠ #931, #937 ET #936 ont trouve ce meme defaut INDEPENDAMMENT, en gravant l'empreinte chacun de
+#: son cote -- TROIS mesures concordantes, une seule correction. Ce n'est plus une coincidence :
+#: c'est la signature d'un defaut LATENT DE FORME, arme par tout test qui construit un chemin de
+#: `data/` a coups de `".."` et qui obtient ensuite une empreinte. Les trois tranches l'ont trouve
+#: dans la meme journee, aucune ne pouvait voir les deux autres.
+#: `normpath` et non `realpath` (la 3e tranche proposait `realpath`) : la resolution doit rester
+#: LEXICALE. `realpath` suivrait un point de reparse, or un worktree ne doit jamais en porter vers
+#: l'arbre principal -- resoudre physiquement y ferait pointer le temoin hors du checkout courant.
 BUILD_DIR = os.path.normpath(
     os.path.join(os.path.dirname(__file__), "..", "..", "..", "..", "data", "symbols"))
 

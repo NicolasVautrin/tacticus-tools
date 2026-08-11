@@ -98,6 +98,10 @@ from typing import Optional
 
 from ..state import State
 from ...entities.effects import effect_stat_mod_key
+# Gate de TYPE du 3e event de `RemoveEffectOperation$$Execute` (`is UntargetableEffect`) : le
+# domaine vit dans son foyer UNIQUE, il n'est pas re-liste ici. Import de MODULE (forme B) pour que
+# le domaine reste substituable par un `monkeypatch.setattr` sur le foyer.
+from ...entities.effects import aura_selectors as _aura
 from .effects import unregister_name, AddEffectOperation
 from .stat_ops import revert_change_stat
 from .traits import revert_traits_of_effect
@@ -141,7 +145,7 @@ def remove_effect_instance(state: State, unit_id: int, eff) -> bool:
       5. `On(EffectRemoved = 0x40)` APRES tout ce qui precede.
     """
     from .ability_modifications import revert_ability_modifications
-    from .triggers.dispatch.move_death import effect_removed_triggers, pre_effect_removed_triggers
+    from .triggers.dispatch import move_death as _md      # forme B : le foyer reste substituable
 
     if eff is None or eff.consumed:
         return False                       # gates `+0x5f` / `+0x5e`
@@ -149,7 +153,7 @@ def remove_effect_instance(state: State, unit_id: int, eff) -> bool:
     # `On(PreEffectRemoved = 0x3f = 63)` — publie tout en haut, apres les deux gates d'idempotence
     # et AVANT toute revocation. Ses DEUX canaux d'ability sont asymetriques (#306) :
     # `CurrentAbility` (+0x60) porte l'effet retire, `TriggeringAbility` (+0x98) reste VIDE.
-    pre_effect_removed_triggers(state, tgt, eff.effect_type)
+    _md.pre_effect_removed_triggers(state, tgt, eff.effect_type)
     # revert par SOURCE (`ReverseModification`) : la valeur se re-clampe au read, sans delta stocke.
     src = None if eff.stat_mod_reverted else effect_stat_mod_key(eff)
     if src is not None:
@@ -185,7 +189,16 @@ def remove_effect_instance(state: State, unit_id: int, eff) -> bool:
     # liste du porteur, AVANT `On(0x40)`.
     _remove_sub_effects(state, tgt, eff)
     # `On(EffectRemoved = 0x40 = 64)` — MEME `AbilityEntities` que `On(63 = PreEffectRemoved)`.
-    effect_removed_triggers(state, tgt, eff.effect_type)
+    _md.effect_removed_triggers(state, tgt, eff.effect_type)
+    # `if (EffectsDatabase.GetEffect(type) is UntargetableEffect) { On(0x3b = UnitBecameTargetable) ;
+    # Inform(5) }` — la QUEUE du corps natif, apres `On(0x40)` et son `Inform(4)`. Le gate est un
+    # test de TYPE sur l'objet-effet ; cote port le domaine equivalent est le foyer UNIQUE
+    # `UNTARGETABLE_EFFECT_TYPES` (les feuilles d'`ATeleportingEffect` portees), le meme que lit
+    # `aura_selectors.is_targetable`. AJOUTE par #936 : jusque-la le port n'emettait ce vecteur
+    # NULLE PART, ce qui rendait inerte tout consommateur d'`On(0x3b)` — cf. la docstring d'
+    # `unit_became_targetable_triggers`. `Inform(5)` n'a pas de pendant porte (canal de PRESENTATION).
+    if int(eff.effect_type) in {int(t) for t in _aura.UNTARGETABLE_EFFECT_TYPES}:
+        _md.unit_became_targetable_triggers(state, tgt, eff.effect_type)
     return True
 
 
