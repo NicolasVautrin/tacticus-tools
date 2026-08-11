@@ -292,7 +292,16 @@ def port_subscribers() -> list[dict]:
             ev = getattr(obj, "event_id", None)
             # `event_id` peut etre un slot non lie (`member_descriptor`) sur une base abstraite :
             # seule une valeur CONCRETE de classe compte comme abonnement.
-            if not isinstance(ev, int) or ev != ordinal:
+            # ⚠ `event_ids` (PLURIEL) est la SECONDE voie d'abonnement, et `dispatch/core.py` la
+            # lit au meme titre (`entry.event_id != ev.event_id AND ev.event_id not in
+            # event_ids`). Ne lire que le singulier rendait ce recenseur AVEUGLE a toute classe
+            # qui ecoute N evenements -- `SavageKillerAbility` (#929) en ecoute QUATRE, dont
+            # `PreUnitAbility`. Un recenseur qui ne visite pas une voie ne peut pas rendre zero
+            # dessus : il rend un compte FAUX, en silence.
+            evs = getattr(obj, "event_ids", ()) or ()
+            abonnes = ({ev} if isinstance(ev, int) else set()) | {
+                int(e) for e in evs if isinstance(e, int)}
+            if ordinal not in abonnes:
                 continue
             out.append({"module": m.name, "cls": nm, "ordinal": ordinal})
     return out
@@ -326,7 +335,11 @@ NATIVE_CONSUMERS = {
 #   SwornProtector*    : `... & (AbilityHasAttackType(0)|AbilityHasAttackType(1)) & ...`
 #   MartialSuperiority : `... & IsDirectTargetAttack(@0x130) & OwnerOrOwnerTileIsTarget
 #                          & NOT IsTurnOf(Owner) & IsMeleeAttack`
-#   SavageKiller / StandVigil : non portes (aucun consommateur cote Python)
+#   SavageKiller       : `... & IsActiveAbilityCountedAsUsed(**true**)
+#                          & !TriggeringAbilityIs((ActiveAbilityType)1127 ArmouredMight_Move)
+#                          & !IsOverwatchAttack & IsAdjacent(Owner, Caster@+0x48)
+#                          & AreEnemies(Owner, Caster@+0x48)`  -- PORTE depuis #929
+#   StandVigil : non porte (aucun consommateur cote Python)
 #
 # `role` = QUI doit porter la famille pour que le trigger parte : le caster, la cible, ou un ennemi.
 FAMILY_GATE = {
@@ -337,7 +350,16 @@ FAMILY_GATE = {
                                                            " + tour adverse", "ported": True},
     "AnvilShield": {"role": "cible", "attack_gate": "IsNormalAttack", "ported": True},
     "FuryFromTheDelve": {"role": "acteur", "attack_gate": "IsNormalAttack", "ported": False},
-    "SavageKiller": {"role": "cible (ConditionalSelector)", "attack_gate": None, "ported": False},
+    # #929 -- le `role` etait FAUX ici : la face `On(PreUnitAbility)` de `SavageKiller` ne lit PAS
+    # la cible mais `Caster@DSLSelectors+0x48`, donc le PORTEUR (Ulf) doit etre un ENNEMI ADJACENT
+    # du caster, exactement comme `SwornProtector`. Le `ConditionalSelector` que l'ancienne fiche
+    # citait est celui de `$$GetInitialTarget`, qui choisit la CIBLE de la riposte -- pas le role.
+    # `attack_gate` non plus n'etait pas None : `IsActiveAbilityCountedAsUsed(true)` porte
+    # `!IsNormalAttackOrHealOrRepair`, donc la famille ne part JAMAIS sur une attaque normale
+    # (mesure live #929 : 0 coup 1159 sur un attaquant normal adjacent).
+    "SavageKiller": {"role": "ennemi du caster",
+                     "attack_gate": "IsActiveAbilityCountedAsUsed(pre) = pas d'attaque normale",
+                     "ported": True},
     "StandVigil": {"role": "porteur d'effet", "attack_gate": None, "ported": False},
 }
 
