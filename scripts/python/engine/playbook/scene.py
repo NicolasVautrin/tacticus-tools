@@ -590,6 +590,44 @@ class Scene:
         self._psykers_by_team[team] = n
         return n
 
+    def adjacent_taunted_enemies(self, uid) -> "int | None":
+        """`Count( Filter( AdjacentEnemies(Owner, unique: 1, selectionType: 3),
+                           HasEffect(It, 27 Taunted_OnlySpecificTargets, onlyActive: 0, 6) ) )` --
+        face PREDICTION du MEME selecteur que `runner.components.adjacent_taunted_enemies_count`
+        (un noeud natif, deux substrats : l'ECS cote runner, les tables de `Scene` ici, #911).
+
+        C'est `IdunBattle.Entities.Effects.Loki.ADaemonicPatronsEffect$$GetNumAdjacentTauntedEnemies`,
+        la base commune des deux effets de `1203 DaemonicPatrons` : il sert la
+        `CreateActiveCondition` ET les deux magnitudes, donc la face DECISION doit le voir sous peine
+        de sous-predire le degat d'Hascule de `extraDmg x n`.
+
+        ⚠ Le substrat impose de recomposer le selecteur ici (`Scene` n'a pas d'`AbilityEntities`
+        pour executer l'arbre) -- MEME regime que `_enemy_psykers_alive` et `_camo_cloak_cover_keys`
+        ci-dessus, qui sont les deux precedents de cette forme.
+        `HasEffect(..., onlyActive: 0)` -> `EffectsState.has_effect`, PAS `active_effects` (le natif
+        ne filtre pas sur `IsActive`, et `active_effects` reboucle sur `is_active`).
+
+        `None` (equipe ou position du porteur inconnue) => cle ABSENTE => condition degradee en VRAI
+        et magnitude inerte -- jamais un 0 invente."""
+        import hexgeo
+        team = self.team_by_id.get(uid)
+        here = self.pos(uid)
+        if team is None or here is None:
+            return None
+        eff = getattr(self, "eff_state", None)
+        n = 0
+        for u in (self.units or ()):
+            oid = u.get("id")
+            if oid == uid or u.get("team") == team or not u.get("alive"):   # AdjacentEnemies(Owner)
+                continue
+            p = self.pos(oid)
+            if p is None or hexgeo.distance(tuple(here), tuple(p)) != 1:
+                continue
+            if eff is not None and eff.has_effect(
+                    int(oid), int(EffectType.Taunted_OnlySpecificTargets)):   # 0x1b = 27
+                n += 1
+        return n
+
     def _camo_cloak_cover_keys(self, uid, out: dict) -> None:
         """Les DEUX membres du `op_BitwiseOr` de `IdunBattle.Entities.Effects.Loki.
         CamoCloak_DmgReductionEffect$$HasValidEffectTrigger` — face PRÉDICTION des mêmes nœuds que
@@ -669,6 +707,13 @@ class Scene:
         ts = (self.turns_started_by_id or {}).get(uid)
         if ts is not None:
             out["turns_started"] = int(ts)
+        # `GetNumAdjacentTauntedEnemies()` (#911) — lue par
+        # `IdunBattle.Entities.Effects.Loki.ADaemonicPatronsEffect$$CreateActiveCondition`
+        # (`AmountIsGreaterThanZero(.)`), la base des deux effets de `1203 DaemonicPatrons`. `None` =
+        # non mesure -> cle OMISE, la condition degrade en VRAI (jamais une valeur devinee).
+        adt = self.adjacent_taunted_enemies(uid)
+        if adt is not None:
+            out["adjacent_taunted_enemies"] = int(adt)
         return out
 
     def effects(self, uid) -> list:

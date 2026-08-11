@@ -32,6 +32,9 @@ from .loki.damage_reduction import (
     ShadowInTheWarpLessDmgEffect, SuperchargeExtraPiercingEffect, TerminatorArmourReduceDmgEffect,
     TerrifyingExtraDefenseEffect, VexillaMagnificaDmgReductionEffect
 )
+from .loki.daemonic_patrons import (
+    DaemonicPatronsDmgReductionEffect, DaemonicPatronsExtraDamageEffect
+)
 from .loki.dark_angels_passives import (
     FearedInterrogatorOwnerEffect, FearedInterrogatorTargetEffect, LionHelmExtraBlockChanceEffect,
     LionHelmExtraBlockDamageEffect, LionHelmExtraDmgEffect
@@ -1060,6 +1063,21 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # EffectSource`) vit dans `EFFECT_TRIGGERS[1429]` : sans lui le +crit ne serait pas une CHARGE A
     # USAGE UNIQUE mais un buff de tout le tour -- regression PERMISSIVE (forme de 1550/1000).
     "EuphoricStrikes_ExtraCrit": EuphoricStrikesExtraCritEffect,
+    # 1464 / 1465 DaemonicPatrons_* (#911) : les DEUX buffs que `DaemonicPatronsAbility$$
+    # ExecuteBehaviour` pose sur le CASTER (`emperFlawlessBlade` « Hascule »), pour
+    # `Sum(TurnsFromRounds(nrOfRounds), Const(1))` tours. Leur BASE native commune
+    # `ADaemonicPatronsEffect` porte le seul etage qui les rend dynamiques :
+    #     n = Count(Filter(AdjacentEnemies(Owner@0x30, unique: 1, selectionType: 3),
+    #                      HasEffect(It@0x68, 27 Taunted_OnlySpecificTargets, onlyActive: 0, 6)))
+    # -- les ennemis adjacents TAUNTES, pas les ennemis adjacents. La meme grandeur sert la
+    # `CreateActiveCondition` (`AmountIsGreaterThanZero(n)`) et les deux magnitudes, donc elles ne
+    # peuvent pas diverger ; foyer unique `runner/components.py::adjacent_taunted_enemies_count`,
+    # publie sous la cle `adjacent_taunted_enemies` du `unit_state` ET des ctx de degat.
+    # 1464 = `ForAddition(+extraDmg x n)` face ATTAQUANT (`get_OwnerIsCaster`, slot +0x10) ;
+    # 1465 = `ForPercentIncrease(-Min(100, dmgReductionPct x n))` face DEFENSEUR
+    # (`get_OwnerIsTarget`, slot +0x08 a montant NEGATIF -- le natif n'appelle PAS ForPercentDecrease).
+    "DaemonicPatrons_ExtraDamage": DaemonicPatronsExtraDamageEffect,      # 1464, #911
+    "DaemonicPatrons_DmgReduction": DaemonicPatronsDmgReductionEffect,    # 1465, #911
     # 1522 TheLionsWrath_ExtraCritChance (#889) : le buff que `darkaBossLion` pose sur LUI-MEME au
     # cast de son active 1217 -- `AddEffect(0x5f2, <abilityStateRef>, targets = Owner@DSLSelectors
     # +0x30, turns = null)`, surcharge a CINQ arguments (pas de `source`). UN SEUL canal (le build ne

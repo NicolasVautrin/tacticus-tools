@@ -2967,6 +2967,42 @@ def adjacent_enemies_count(state, unit_id: int) -> Optional[int]:
     return int(adjacent_enemies_selector().calculate(entities_from_state(state, int(unit_id))))
 
 
+def adjacent_taunted_enemies_count(state, unit_id: int) -> Optional[int]:
+    """`Count( Filter( AdjacentEnemies(Owner, unique: 1, selectionType: 3),
+                       HasEffect(It, 27 Taunted_OnlySpecificTargets, onlyActive: 0) ) )` -- le
+    cardinal que `IdunBattle.Entities.Effects.Loki.ADaemonicPatronsEffect$$
+    GetNumAdjacentTauntedEnemies` calcule pour le PORTEUR de l'effet (#911).
+
+    DEUX consommateurs natifs, un seul foyer ici -- donc CONDITION et MAGNITUDE ne peuvent pas
+    diverger, exactement comme pour `adjacent_enemies_count` ci-dessus :
+      * `ADaemonicPatronsEffect$$CreateActiveCondition` = `AmountIsGreaterThanZero(<ce compte>)` ;
+      * `DaemonicPatrons_ExtraDamageEffect$$GetCurrentExtraDamage` = `ConfigVar(extraDmg) x <ce
+        compte>`, et `DaemonicPatrons_DmgReductionEffect$$GetCurrentDamageReduction` =
+        `Min(100, ConfigVar(dmgReductionPct) x <ce compte>)`.
+
+    L'ARBRE est celui de la classe d'effet (`entities/effects/loki/daemonic_patrons.py::
+    adjacent_taunted_enemies_selector`, doctrine #149) ; ce qu'on fait ICI, c'est lui donner son
+    `AbilityEntities` -- `entities_from_state(state, unit_id)` pose `caster = owner = le porteur`.
+
+    ⚠ Le predicat `HasEffect` du filtre passe par `ctx.has_effect`, qui retombe sur
+    `EffectsState.has_effect` (filtre `consumed` seulement) et NON sur `active_effects` : c'est
+    voulu et documente sur `has_effect_of_type` -- ce lecteur alimente justement le `unit_state` des
+    `is_active`, donc l'appeler bouclerait. Ca colle par ailleurs au `onlyActive: 0` du natif.
+
+    `None` si le porteur n'a ni equipe ni tuile (le selecteur est GEOMETRIQUE **et** par equipe) --
+    jamais un 0 invente, qui annulerait les deux produits et ferait passer un buff reel pour une
+    absence de buff."""
+    ent = state.get_entity(unit_id)
+    oc = ent.get_component(OwnerComponent) if ent is not None else None
+    pc = ent.get_component(PositionComponent) if ent is not None else None
+    if oc is None or oc.team is None or pc is None:
+        return None
+    from ..entities.effects.loki.daemonic_patrons import adjacent_taunted_enemies_selector
+    from .abilities.behaviours.context import entities_from_state
+    return int(adjacent_taunted_enemies_selector()
+               .calculate(entities_from_state(state, int(unit_id))))
+
+
 class UnitEffectStateView(Mapping):
     """Le `unit_state` d'une unité — vue MAPPING PARESSEUSE sur l'ECS (`unit_state_for_effects`).
 
@@ -3057,7 +3093,7 @@ class UnitEffectStateView(Mapping):
     par-porteur des chemins de dégât (auras), donc un cardinal EAGER y serait quadratique."""
 
     __slots__ = ("_state", "_uid", "_eager", "_has_psy", "_psy", "_has_pos",
-                 "_has_effstate", "_lc", "_bta", "_has_sa", "_sa", "_asd", "_ae")
+                 "_has_effstate", "_lc", "_bta", "_has_sa", "_sa", "_asd", "_ae", "_adt")
 
     def __init__(self, state, unit_id: int) -> None:
         self._state = state
@@ -3131,6 +3167,11 @@ class UnitEffectStateView(Mapping):
         self._asd: Optional[int] = None
         # `AdjacentEnemies(Owner)` : MEME gate (selecteur geometrique ET par equipe).
         self._ae: Optional[int] = None
+        # `Filter(AdjacentEnemies(Owner), HasEffect(It, 27))` : MEME gate GEOMETRIQUE + EQUIPE que
+        # ci-dessus. Le conjoint `EffectsState` n'est PAS ajoute au gate : le selecteur reste
+        # calculable sans elle (le filtre rend alors l'ensemble VIDE, donc 0), et le natif ne
+        # distingue pas les deux -- une absence d'effet EST un compte nul de tauntes.
+        self._adt: Optional[int] = None
 
     def __getitem__(self, key):
         if key in self._eager:
@@ -3178,6 +3219,13 @@ class UnitEffectStateView(Mapping):
             if self._ae is None:
                 self._ae = adjacent_enemies_count(self._state, self._uid)
             return self._ae
+        # `ADaemonicPatronsEffect$$CreateActiveCondition` = `AmountIsGreaterThanZero(Count(Filter(
+        # AdjacentEnemies(Owner), HasEffect(It, 27 Taunted_OnlySpecificTargets, onlyActive: 0))))`
+        # : MEME gate de presence que les trois cles ci-dessus (#911).
+        if key == "adjacent_taunted_enemies" and self._has_sa:
+            if self._adt is None:
+                self._adt = adjacent_taunted_enemies_count(self._state, self._uid)
+            return self._adt
         raise KeyError(key)
 
     def __iter__(self) -> Iterator[str]:
@@ -3195,10 +3243,11 @@ class UnitEffectStateView(Mapping):
             yield "structural_analyser_friends"
             yield "adjacent_friendly_summons_and_decoys"
             yield "adjacent_enemies"
+            yield "adjacent_taunted_enemies"
 
     def __len__(self) -> int:
         return (len(self._eager) + (1 if self._has_psy else 0) + (2 if self._has_pos else 0)
-                + (3 if self._has_effstate else 0) + (3 if self._has_sa else 0))
+                + (3 if self._has_effstate else 0) + (4 if self._has_sa else 0))
 
     def __repr__(self) -> str:                    # diagnostic (ASCII)
         return "UnitEffectStateView(u%d, %s)" % (self._uid, sorted(self))

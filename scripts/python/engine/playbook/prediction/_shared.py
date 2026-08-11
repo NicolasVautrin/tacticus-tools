@@ -504,6 +504,13 @@ def _add_positional_and_defender_mods(mods, scene, att_id, tgt_id, is_melee, att
     _toc = scene.is_turn_of(tgt_id)
     if _toc is not None:
         att_ctx["is_turn_of_owner"] = _toc
+    # `GetNumAdjacentTauntedEnemies()` (#911) : DEUXIEME cle de ce contexte portee sur l'OWNER de
+    # l'effet (= la CIBLE `tgt_id`), pour la MEME raison qu'`is_turn_of_owner` juste au-dessus -- le
+    # gate de `DaemonicPatrons_DmgReduction` (1465) est `get_OwnerIsTarget`, donc son compte est
+    # celui du DEFENSEUR. Face COMBAT : la meme cle, posee depuis l'ECS par `damage_model`.
+    _adt = scene.adjacent_taunted_enemies(tgt_id)
+    if _adt is not None:
+        att_ctx["adjacent_taunted_enemies"] = int(_adt)
     # STAT-MODS DEFENSE de la CIBLE (#194/#197) : moitie DEFENSE de `CalculateDefenderModifiersForPrediction
     # IdunBattle.Core.Services.DamageCalculations$$CalculateDefenderModifiersForPrediction` (DefenseComponent stat 3 IdunBattle.Core.Services.DamageCalculations$$CalculateDefenderModifiersForPrediction+0x436 → `IdunBattle.Core.Services.DamageCalculations$$CalculateModifiersFromStatModifications`
     # negate=1 → `1±v/100`). Ex. tuile Thorns −50 → +50 → ×1.5 (GROUND TRUTH C2_19). PORTEE DANS la fonction
