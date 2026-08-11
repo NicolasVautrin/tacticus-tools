@@ -169,7 +169,18 @@ def generate_multi_hit_attack_prediction(scene, uid, tgt, ability_id, ability_na
                                                                 # AUSSI sur ce vecteur. MEME cle
                                                                 # que la normale et que la face
                                                                 # COMBAT -- pas de fork.
-                                                                "tgt_id": tgt})
+                                                                "tgt_id": tgt,
+                                                                # #919 -- `StatAmount(Owner@0x30,
+                                                                # BlockDamage, Current)` de
+                                                                # `IconOfObstinacy_ExtraDamage
+                                                                # Effect`, PATTE SELF. AUCUN gate
+                                                                # `IsNormalAttack` au decompile ->
+                                                                # il entre AUSSI sur ce vecteur.
+                                                                # MEME cle que la normale et que la
+                                                                # face COMBAT -- pas de fork.
+                                                                "owner_block_damage":
+                                                                    prediction_block_damage(scene,
+                                                                                            uid)})
     t_pos = scene.pos(tgt)
     _add_positional_and_defender_mods(mods, scene, uid, tgt, is_melee, attack_pos, t_pos,
                                       damage_profile=profile_name, is_normal_attack=False)

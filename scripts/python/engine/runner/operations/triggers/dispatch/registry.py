@@ -198,6 +198,7 @@ from ..loki.dawn_blade import DawnBladeHealAbility                     # #317 (r
 from ..loki.relentless_march import RelentlessMarchAbility             # #328 (passif necroWarden)
 from ..loki.my_will_be_done_overlord import (MyWillBeDoneOverlordAttackAbility,   # #354 (necroOverlord)
                                              MyWillBeDoneOverlordClearAbility)
+from ..loki.icon_of_obstinacy import IconOfObstinacyAddArmourBuffAbility   # #919 (astarLysander)
 from ..loki.serene_unifier import SereneUnifierRotationAbility        # #462-r4e-o-r2-r1-r1 (tauAunShi)
 from ..loki.neuroparasite import (NeuroparasiteAddBondEffectAbility,     # #462-r4b-r1-r1-r1
                                   NeuroparasiteIncreaseLevelOnPsychicHit,
@@ -626,6 +627,23 @@ ABILITY_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
     # Cf. loki/my_will_be_done_overlord.py (`...MyWillBeDoneOverlordAbility$$CreateTrigger` /
     # `$$CreateBehaviour` / `$$GetTargetFriend`).
     "MyWillBeDoneOverlord": [MyWillBeDoneOverlordAttackAbility, MyWillBeDoneOverlordClearAbility],
+    # IconOfObstinacy (passif `astarLysander`, `TriggeredAbilityType` 0x610 = 1552 -- #919). Le
+    # gameconfig n'a QU'UNE entree, mais le natif porte DEUX classes d'ability derivees d'une meme
+    # base `AIconOfObstinacyAbility` : seule celle-ci est un TRIGGER.
+    #   `...IconOfObstinacy_AddArmourBuffAbility$$CreateTrigger` =
+    #     On(0x28 = UnitFinishedTurn, ownerNeedsToBeAlive = 1)
+    #     & Contains( Owner + UnitsWithTrait(AdjacentFriends(Owner), 0x40f = TerminatorArmour),
+    #                 Actor@DSLSelectors+0x40 )
+    #     & AmountIsZero( TimesAttackMadeThisTurn(Actor@0x40, rangeType = null) )
+    #   `$$CreateBehaviour` = AddDynamicStatModifierEffect(targets = Actor, source = Owner,
+    #     0x628 = IconOfObstinacy_ExtraArmor, statType 0x10 = FixedArmor, AbilityStateReference,
+    #     TurnsFromRounds(1)).
+    # ⚠ AUCUN `get_OwnerIsActor` : l'ability ecoute la fin de tour de TOUTE unite et filtre par le
+    # `Contains`. ⚠ `On(0x28)` et non `On(0x29)` -> une terminaison FORCEE declenche aussi le buff.
+    # L'AUTRE volet (`IconOfObstinacy_AddDamageBuffAbility`) n'est PAS ici : son `CreateTrigger` est
+    # `OnOwnerSpecificAbilityInit` -> owner-effect, registre `effects.factory.
+    # ABILITY_INIT_OWNER_EFFECTS`. Cf. loki/icon_of_obstinacy.py.
+    "IconOfObstinacy": [IconOfObstinacyAddArmourBuffAbility],
     # SereneUnifier (passif `tauAunShi`, `TriggeredAbilityType` 0x479 = 1145 -- #462-r4e-o-r2-r1-r1) :
     # `On(TurnStart_Other=0x13, ownerNeedsToBeAlive=1) & <DSLTriggers+0x28 = IsTurnOf(Owner)> &
     #  get_OwnerIsCaster` -> les SIX `If(Modulo(PlayerTurnsStarted(Self), 3, k))` qui posent, sur

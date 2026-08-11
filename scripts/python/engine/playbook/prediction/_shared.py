@@ -657,6 +657,23 @@ def _target_damage_limits(scene, tgt_id, damage_profile: str | None = None):
     }
 
 
+def prediction_block_damage(scene, uid) -> "int | None":
+    """`StatAmount(<unit>, 0x8 = StatType.BlockDamage, 0x0 = StatPart.Current)` cote PREDICTION --
+    pendant EXACT de `runner/damage_model.py::_unit_stat` (#919).
+
+    Consommateur porte : `IconOfObstinacy_ExtraDamageEffect`, dont la magnitude est
+    `ConfigVar(extraDmg) + PercentageOf(StatAmount(Owner@DSLSelectors+0x30, BlockDamage), chance)` --
+    la PREMIERE aura de degat dont le montant lit une STAT DU PORTEUR.
+
+    TRI-ETAT : `None` = pas de contexte de stats pour cette unite -> le consommateur OMET le terme
+    `%` et le dit, il ne le remplace pas par 0 (un 0 rabattu ferait disparaitre le terme en
+    silence)."""
+    c = scene.ctx(uid) if uid is not None else None
+    if c is None:
+        return None
+    return int(c.get_stat(int(StatType.BLOCK_DAMAGE), int(StatPart.CURRENT)) or 0)
+
+
 def _apply_ally_attack_dmg_bonus(mods, scene, att_id, att_pos, is_melee, tgt_armor_reduced, carriers=None,
                                  tgt_id=None, is_normal_attack=None, damage_profile=None):
     """AURA ALLIEE +degat FLAT projetee sur l'ATTAQUANT par les effets `create_aura_attack_damage_bonus_for_ally`
@@ -706,7 +723,13 @@ def _apply_ally_attack_dmg_bonus(mods, scene, att_id, att_pos, is_melee, tgt_arm
            # `GetTargetIsOnFireTileCondition` lit `EntitiesWithAnyEffect(Tiles(Target@0x60), Fire)`.
            # MEME cle / MEME forme `{(col,row): [noms]}` que celle deja threadee a l'agregateur
            # DEFENSE ci-dessus et que la face COMBAT (`_apply_ally_attack_damage_auras`).
-           "tile_effects_by_pos": scene.tile_effects_by_pos}
+           "tile_effects_by_pos": scene.tile_effects_by_pos,
+           # #919 -- `StatAmount(Owner@DSLSelectors+0x30, BlockDamage, Current)` de
+           # `IconOfObstinacy_ExtraDamageEffect$$GetCurrentExtraDamage`. MAP par PORTEUR : c'est
+           # `aura_attack_damage_bonus_from_allies` qui pose `owner_id` dans son ctx par-carrier, et
+           # l'effet re-cle avec. MEME cle et MEME semantique que la face COMBAT
+           # (`damage_model._apply_ally_attack_damage_auras`) -- pas de fork.
+           "owner_stat_block_damage": {c[0]: prediction_block_damage(scene, c[0]) for c in carriers}}
     for eb in aura_attack_damage_bonus_from_allies(carriers, ctx):
         add_modifier(mods, eb)
 

@@ -100,6 +100,9 @@ from .loki.mind_control import (
     MindControlIncomingDamageBonusEffect, MindControlOutgoingDamageReductionEffect,
     MindControlTaunterEffect
 )
+from .loki.icon_of_obstinacy import (      # #919 (passif astarLysander)
+    IconOfObstinacyExtraArmorEffect, IconOfObstinacyExtraDmgEffect
+)
 from .loki.my_will_be_done_overlord import MyWillBeDoneOverlordExtraDamageEffect
 from .loki.titanhammer_squad import TitanhammerSquadExtraBlockDamageEffect
 from .loki.possession import AttemptedPossessionPossessedEffect
@@ -342,6 +345,19 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # AURA +Attack (rayon 2) du SOURCE Loki (PathOfCommandAbility IdunBattleLogic.Entities.Abilities.Triggered.Loki.PathOfCommandAbility$$CreateBehaviour) : friends dist<=2,
     # +extraDmg (+extraDmg_2 si même grande-alliance que Loki). Nom capté = "PathOfCommand_ExtraDmg".
     "PathOfCommand_ExtraDmg": PathOfCommandExtraDmgEffect,
+    # #919 -- les DEUX effets du passif `IconOfObstinacy` (1552, `astarLysander`). RE complete en
+    # tete de `loki/icon_of_obstinacy.py`.
+    #  * 0x627 = 1575 `IconOfObstinacy_ExtraDmg` : AURA cote SOURCE posee A L'INIT (cf.
+    #    `ABILITY_INIT_OWNER_EFFECTS` plus bas), selecteur `Owner + AdjacentFriends(Owner).WithTrait(
+    #    0x40f = TerminatorArmour)` -- le porteur EST dans le set (`op_Addition`, sans filtre), d'ou
+    #    les DEUX pattes disjointes `create_effect_damage_bonus_for_attack` (self) et
+    #    `create_aura_attack_damage_bonus_for_ally` (allies).
+    #  * 0x628 = 1576 `IconOfObstinacy_ExtraArmor` : `ADynamicStatModifierEffect` a magnitude
+    #    CONTEXTUELLE (`applied_stat_mods`), pose sur l'unite qui clot son tour SANS avoir attaque
+    #    (trigger `runner/operations/triggers/loki/icon_of_obstinacy.py`), stat 0x10 = FixedArmor,
+    #    `TurnsFromRounds(1)`.
+    "IconOfObstinacy_ExtraDmg": IconOfObstinacyExtraDmgEffect,
+    "IconOfObstinacy_ExtraArmor": IconOfObstinacyExtraArmorEffect,
     # Volet CRIT du MEME behaviour (#373) : `AddDynamicStatModifierEffectToOwner(0x453 = 1107,
     # statType 0x9 = CritChance)`. Selecteur = SurroundingFriends(range 2) INTERSECTE
     # `UnitsWithStatBiggerThan(CritChance, Current, > 0, excludingEffect)` -> un allie a portee dont
@@ -1220,7 +1236,7 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # `engine.predict.calculate_repair_modifier_for_prediction`, comme pour ses DEUX co-implementeurs
     # `NanoscarabRepairProtocols` (1545) et `VoltagheistField_RepairReduction` (1382), qui n'ont pas
     # de classe non plus. Cf. `loki/nether_realm_casket.py::LIVING_METAL_BONUS_EFFECT_NAME`.
-    # 1450 KardiocoreGalvanus_ExtraCritDmg (#913) : owner-effect PERMANENT de la RELIQUE
+    # 1450 KardiocoreGalvanus_ExtraCritDmg (#919) : owner-effect PERMANENT de la RELIQUE
     # `KardiocoreGalvanus`, sur l'axe ADDITION du canal crit-DEGAT (les deux `NetherRealmCasket` /
     # `SupaCyborkBody` ci-dessus sont des `ForSubtraction` sur la CIBLE ; `RelicBoltPistol_
     # ExtraCritDamage` est l'autre `ForAddition` du lot) :
@@ -1388,6 +1404,16 @@ ABILITY_INIT_OWNER_EFFECTS: dict[str, list[str]] = {
     # ground truth live ds_landing : absents au teleport-in, apparaissent au landing -- l'event stream de
     # l'atterrissage porte les DEUX `Effect_Refresh`, dans cet ordre : 1107 puis 1112).
     "PathOfCommand": ["PathOfCommand_ExtraCrit", "PathOfCommand_ExtraDmg"],
+    # #919 -- `IdunBattleLogic.Entities.Abilities.Triggered.Loki.IconOfObstinacy_AddDamageBuffAbility`.
+    # Son `CreateTrigger` est un corps FONDU par l'ICF (donc SANS symbole propre : il partage son
+    # adresse avec `...WayOfTheShortBlade_InitAbility$$CreateTrigger`) -- il est LU par le bloc
+    # `methodPointers` du PE, ancre sur le `.ctor` et indexe par l'ordre du `global-metadata.dat`,
+    # qui declare bien `CreateTrigger` (slot 26) pour cette classe. Corps :
+    # `OnOwnerSpecificAbilityInit(this.AbilityType)` = `On(0x31 = SpecificAbilityInit) &
+    # get_OwnerIsActor & TriggeringAbilityIs(<type>)` -> INIT, pas un vecteur de combat.
+    # `$$CreateBehaviour` = `AddEffect(0x627, AbilityStateReference, source = Owner, targets = Owner)`
+    # -> l'effet-AURA vit sur le porteur, exactement le patron `PathOfCommand`.
+    "IconOfObstinacy": ["IconOfObstinacy_ExtraDmg"],
     # `IdunBattleLogic.Entities.Abilities.Triggered.Loki.HypersensoryAbilitiesAbility$$CreateBehaviour : `AddEffect(0x564=1380, owner, owner)` -> le
     # HP-floor est posé sur le PORTEUR à l'init de l'ability passive (owner-effect self, aucun sélecteur). G6a.
     "HypersensoryAbilities": ["HypersensoryAbilities_MinimalHealth"],

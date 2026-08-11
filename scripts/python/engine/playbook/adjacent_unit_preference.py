@@ -46,6 +46,7 @@ from .. import battle_query as bq
 # `WeaponsComponent$$HasRangedWeapon`, partage avec le selecteur DSL `UnitsWithoutRangedWeapons`.
 from ..services import battle_query as _sbq
 
+from ..entities.traits.unit_trait import UnitTrait
 from ..entities.triggered_ability_type import TriggeredAbilityType
 from ..runner.abilities.deathguard import cursed_plague_bell_damage_profile
 
@@ -525,6 +526,54 @@ class KustomForceFieldReworkedPlaybook(AdjacentToOwnerNonOwnerPlaybook):
         return v
 
 
+class IconOfObstinacyPlaybook(AdjacentToOwnerNonOwnerPlaybook):
+    """`IconOfObstinacyPlaybook` (`IdunBattle.AI.Playbook.Loki.IconOfObstinacyPlaybook$$.ctor` :
+    littéral `0x610` = 1552 `IconOfObstinacy` — passif d'`astarLysander`, HERO hors pool par défaut).
+
+    `IdunBattle.AI.Playbook.Loki.IconOfObstinacyPlaybook$$GetAdjacentFriendUtility` :
+
+        if (!UnitExtensions.HasTrait(friend, 0x40f)) return 0;   // UnitTrait.TerminatorArmour
+        return GetUtilityValue("IconOfObstinacy_LikesAdjacentTerminatorFriends");
+
+    Le gate est DANS l'accesseur de poids (forme `FearedInterrogatorPlaybook`), pas dans un
+    `FilterAdjacentFriends` : **le metadata dit que la classe n'en déclare aucun**.
+
+    ⚠ `0x40f` = 1039 = `UnitTrait`.TerminatorArmour — enum QUALIFIÉ, jamais déduit du nom de la clé.
+    Homonymes à écarter : `EffectType` 1039 et `ActiveAbilityType` 1039 n'ont rien à voir.
+
+    ⚠ CE QUE LA CLASSE DÉCLARE, LU DANS `global-metadata.dat` (`il2cpp_metadata.type_methods`,
+    la même voie que `metadata/non_owner_slot4.tsv`) — et NON déduit de la présence d'un symbole
+    ghidra, qui est structurellement aveugle aux corps fondus par l'ICF :
+
+        [.ctor (65535), GetAdjacentFriendUtility (slot 13), GetAdjacentEnemyUtility (slot 14)]
+
+    Le bloc `methodPointers` du PE, ancré sur le `.ctor`, donne dans CE MÊME ORDRE
+    `[.ctor, GetAdjacentFriendUtility, <ret 0>]` : le `<ret 0>` est donc
+    `GetAdjacentEnemyUtility`, un override EXPLICITE qui rend 0 — sémantiquement identique au
+    défaut de la base, d'où l'absence de surcharge ici. **NI cap** (`GetMaxAdjacentFriendsToCount`
+    absent du metadata, contrairement à `FabricatorClawArrayPlaybook`/`SpiritualLeaderPlaybook`)
+    **NI filtre** (`FilterAdjacentFriends` absent).
+
+    Terme = 20 (gameconfig vivant) x #amis à distance 1 de la tuile candidate PORTANT
+    `TerminatorArmour`. Face NON-OWNER de la MÊME ability : `playbook/non_owner.py`
+    (`IconOfObstinacyNonOwnerPlaybook`, clé `IconOfObstinacy_TerminatorFriendLikesToBeAdjacent`) —
+    les deux faces sont indépendantes et se cumulent sur une même décision de mouvement.
+
+    ⚠ Le paramètre générique du natif est `AdjacentUnitPreferenceTriggeredAbilityPlaybook<
+    IconOfObstinacy_AddDamageBuffAbility>` (`frida/classes.tsv`) : c'est la sous-ability du BUFF DE
+    DÉGÂT que ce playbook sert, pas celle du buff d'armure (servie, elle, par la face non-owner
+    `AdjacentToOwnerNonOwnerPlaybook<IconOfObstinacy_AddArmourBuffAbility>`). Ghidra MISLABELLE le
+    `.ctor` gshared en `AdjacentToOwnerNonOwnerPlaybook<...>..ctor` — les deux bases partagent le
+    même corps ; c'est `classes.tsv` qui tranche la parenté, jamais le nom du callee."""
+
+    KEY = "IconOfObstinacy_LikesAdjacentTerminatorFriends"          # gameconfig vivant = 20
+
+    def get_adjacent_friend_utility(self, unit: dict, wt) -> float:
+        if not _has_trait(unit, UnitTrait.TerminatorArmour.name):   # HasTrait(friend, 0x40f)
+            return 0.0
+        return float(wt.sub("TriggeredAbilities", self.KEY))
+
+
 from .fury_of_the_ancients import FuryOfTheAncientsPlaybook   # noqa: E402  (après les bases)
 from .friends_in_range import (AstartesBannerPlaybook,       # noqa: E402  (N13 : corps propres)
                                KardiocoreGalvanusPlaybook)
@@ -596,6 +645,12 @@ TRIGGERED_MOVE_PLAYBOOKS: dict = {
     # ont des predicats DIFFERENTS -- non-owner CUMULE Psyker+Chaos, owner ne connait que Psyker.
     # Porteur : `thousSekhetar` (HERO hors pool -> injection catalogue, case-92 §6).
     int(TriggeredAbilityType.PropheticSentinel): PropheticSentinelPlaybook(),    # 1543 (20 / Psyker adjacent)
+    # #919 -- face OWNER du passif `IconOfObstinacy`, dont seule la face NON-OWNER etait portee
+    # (#433-r4-r3-r1). Les deux cles sont NEUVES a ce build (`refresh_ai_utilities` les ajoute) et
+    # les deux faces se cumulent sur une meme decision. Porteur : `astarLysander`, HERO HORS du pool
+    # -> injection catalogue (`catalog_inject`, cf. `case-270d`). Gate `TerminatorArmour` DANS
+    # l'accesseur ; ni cap ni filtre (metadata : la classe ne declare que les deux accesseurs).
+    int(TriggeredAbilityType.IconOfObstinacy): IconOfObstinacyPlaybook(),        # 1552 (20 / ami Terminator)
 }
 
 
