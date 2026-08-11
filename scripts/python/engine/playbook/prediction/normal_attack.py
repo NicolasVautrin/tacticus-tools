@@ -668,7 +668,20 @@ def make_normal_attack_predictions(scene, att_id, tgt_id, attack_pos, *, meta=Fa
                 # effets), exactement comme `tiles_moved_this_turn` / `adjacent_taunted_enemies`
                 # au-dessus. MEME cle et MEME semantique que la face COMBAT
                 # (`damage_model.attacker_modifiers`) et que le canal AURA -- pas de fork.
-                "owner_block_damage": prediction_block_damage(scene, att_id)}
+                "owner_block_damage": prediction_block_damage(scene, att_id),
+                # #932 -- les TROIS noeuds de `IdunBattle.Entities.Effects.Loki.DeathwingEffect$$
+                # GetDoubleEffectCondition` sur la face ATTAQUE (`isDefense: false`), ou l'entite
+                # comparee est la CIBLE et l'Owner est l'ATTAQUANT :
+                #   `HasTrait(Target@+0x60, 0x7ea = Chaos)`   -> `tgt_grand_alliance` ;
+                #   `AreEnemies(Target@+0x60, Owner@+0x30)`   -> `tgt_team` (deja pose) + `att_team` ;
+                #   `AmountIsGreaterThanZero(UnitsFromFaction(AdjacentFriends(Owner), DarkAngels))`
+                #                                             -> `adjacent_dark_angels_friends`.
+                # MEMES cles et MEME semantique que la face COMBAT (`damage_model.attacker_
+                # modifiers`) -- elargir un seul cote recreerait le fork prediction/combat.
+                # `att_gu` = le KIT (`GrandAllianceId` est une donnee de CONFIGURATION).
+                "tgt_grand_alliance": (GC.unit(scene.vis_by_id.get(tgt_id)) or {}).get("GrandAllianceId"),
+                "att_team": scene.team(att_id),
+                "adjacent_dark_angels_friends": scene.adjacent_dark_angels_friends(att_id)}
     mods = calculate_attacker_modifiers_for_prediction(att_effects, is_ranged=_ranged, has_moved=_hm,
                                                        target_traits=_tgt_traits,
                                                        target_armor_reduced=_tgt_armor_reduced,

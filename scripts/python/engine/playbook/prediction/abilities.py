@@ -180,7 +180,25 @@ def generate_multi_hit_attack_prediction(scene, uid, tgt, ability_id, ability_na
                                                                 # face COMBAT -- pas de fork.
                                                                 "owner_block_damage":
                                                                     prediction_block_damage(scene,
-                                                                                            uid)})
+                                                                                            uid),
+                                                                # #932 -- les TROIS noeuds de
+                                                                # `DeathwingEffect$$GetDouble
+                                                                # EffectCondition` sur la face
+                                                                # ATTAQUE. Le trigger de
+                                                                # `CreateEffectDamageBonusForAttack`
+                                                                # est `IsMeleeAttack | NOT
+                                                                # IsNormalAttack` : ce vecteur
+                                                                # ABILITY y entre TOUJOURS (c'est
+                                                                # exactement le << ou Plasma Cannon >>
+                                                                # de l'i2). MEMES cles que la
+                                                                # normale et que la face COMBAT.
+                                                                "tgt_grand_alliance":
+                                                                    (GC.unit(scene.vis_by_id.get(tgt))
+                                                                     or {}).get("GrandAllianceId"),
+                                                                "att_team": scene.team(uid),
+                                                                "adjacent_dark_angels_friends":
+                                                                    scene.adjacent_dark_angels_friends(
+                                                                        uid)})
     t_pos = scene.pos(tgt)
     _add_positional_and_defender_mods(mods, scene, uid, tgt, is_melee, attack_pos, t_pos,
                                       damage_profile=profile_name, is_normal_attack=False)

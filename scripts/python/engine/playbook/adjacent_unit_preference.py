@@ -48,6 +48,7 @@ from ..services import battle_query as _sbq
 
 from ..entities.traits.unit_trait import UnitTrait
 from ..entities.triggered_ability_type import TriggeredAbilityType
+from ..entities.unit_faction import UnitFaction
 from ..runner.abilities.deathguard import cursed_plague_bell_damage_profile
 
 
@@ -574,6 +575,55 @@ class IconOfObstinacyPlaybook(AdjacentToOwnerNonOwnerPlaybook):
         return float(wt.sub("TriggeredAbilities", self.KEY))
 
 
+class DeathwingPlaybook(AdjacentUnitPreferenceTriggeredAbilityPlaybook):
+    """`DeathwingPlaybook` (`IdunBattle.AI.Playbook.Loki.DeathwingPlaybook$$.ctor` : litteral
+    `0x4dd` = 1245 `TriggeredAbilityType.Deathwing` -- passif de `darkaTerminator` << Baraqiel >>,
+    HERO **DU POOL** au rank courant, aucune injection ni greffe).
+
+    `IdunBattle.AI.Playbook.Loki.DeathwingPlaybook$$GetAdjacentFriendUtility` :
+
+        if (!UnitExtensions.HasFaction(friend, 0xa)) return 0;    // UnitFaction.DarkAngels
+        return GetUtilityValue("DEATHWING_AdjacentDAFriend");     // 10
+
+    Corps STRICTEMENT identique a celui de `FearedInterrogatorPlaybook` a la CLE de chaine pres
+    (meme `HasFaction(u, 0xa)`, meme forme). La cle est LUE au slot de string literal
+    (`0x33fa868` dans `data/symbols/<build>/metadata/string_literals.tsv`), pas devinee par
+    prefixe -- c'est la lecon de `SPIRITUALLDEADER_` (#212).
+
+    ⚠ PARENTE : `frida/classes.tsv` donne `DeathwingPlaybook ->
+    AdjacentUnitPreferenceTriggeredAbilityPlaybook`1` -- **PAS** `AdjacentToOwnerNonOwnerPlaybook`,
+    que le pseudo-C du `.ctor` designe pourtant (les deux bases partagent le meme corps gshared,
+    ghidra le MISLABELLE : meme piege que `IconOfObstinacyPlaybook`). Le port herite donc de la base
+    DIRECTE. Consequence LUE, pas deduite : il n'existe **aucune** `DeathwingNonOwnerPlaybook` dans
+    ce build, et **aucune** cle `DEATHWING*` dans `Utilities.Default.TriggeredAbilitiesNonOwner`
+    (25 cles) -- la face NON-OWNER n'existe pas pour ce passif.
+
+    ⚠ CE QUE LA CLASSE DECLARE, lu dans `global-metadata.dat` (`il2cpp_metadata.type_methods`) :
+
+        [.ctor (65535), GetAdjacentFriendUtility (slot 13), GetAdjacentEnemyUtility (slot 14)]
+
+    Le bloc `methodPointers` du PE, ancre sur le `.ctor`, donne dans CE MEME ORDRE
+    `[.ctor, GetAdjacentFriendUtility, <ret 0>]` : `GetAdjacentEnemyUtility` est un override
+    EXPLICITE qui rend 0 -- semantiquement identique au defaut de la base, d'ou l'absence de
+    surcharge ici (meme forme qu'`IconOfObstinacyPlaybook`). **NI cap** (`GetMaxAdjacentFriendsToCount`
+    absent du metadata) **NI filtre** (`FilterAdjacentFriends` absent) : le gate est DANS l'accesseur.
+
+    Terme = 10 x #amis a distance 1 de la tuile candidate dont le `FactionId` est `DarkAngels`.
+    Il departage donc deux tuiles a MEME nombre d'amis adjacents des que leurs factions different.
+
+    ⚠ `DeathwingKnightPlaybook` (ability `DeathwingKnight` 1510, porteurs `darkaNpc3Terminator` npc
+    et `darkaSmnTerminator` SUMMON) porte le MEME corps a la cle pres
+    (`DEATHWINGKNIGHT_AdjacentDAFriend`, elle aussi = 10) : elle n'est PAS portee ici -- une ability
+    par tranche."""
+
+    KEY = "DEATHWING_AdjacentDAFriend"                            # slot literal 0x33fa868
+
+    def get_adjacent_friend_utility(self, unit: dict, wt) -> float:
+        if _unit_faction(unit) != UnitFaction.DarkAngels.name:    # HasFaction(friend, 0xa)
+            return 0.0
+        return float(wt.sub("TriggeredAbilities", self.KEY))
+
+
 from .adjacent_summons import MawClawsOfThyraxPlaybook       # noqa: E402  (#920 : corps propre)
 from .fury_of_the_ancients import FuryOfTheAncientsPlaybook   # noqa: E402  (après les bases)
 from .friends_in_range import (AstartesBannerPlaybook,       # noqa: E402  (N13 : corps propres)
@@ -685,6 +735,12 @@ TRIGGERED_MOVE_PLAYBOOKS: dict = {
     # `friends_in_range`. Aucun filtre, aucun cap : `10 x |ennemis adjacents a la tuile candidate|`.
     # Porteur POOL-HERO : `custoBladeChampion`. Cf. `playbook/legacy_of_combat.py`.
     int(TriggeredAbilityType.LegacyOfCombat): LegacyOfCombatPlaybook(),          # 1319 (10 / ennemi adjacent)
+    # #932 -- face DECISION OWNER du passif `Deathwing` de `darkaTerminator` << Baraqiel >>, HERO
+    # **DU POOL** (confrontable sans montage). MEME corps que `FearedInterrogatorPlaybook` a la CLE
+    # pres. Ce passif n'a PAS de face non-owner (aucune `DeathwingNonOwnerPlaybook` dans le build,
+    # aucune cle `DEATHWING*` dans `TriggeredAbilitiesNonOwner`), et ses faces ATTACK / REPAIR sont
+    # DEAD (corps herite `yield return Fix64.op_Implicit(0)` de `TriggeredAbilityPlaybook<T>`).
+    int(TriggeredAbilityType.Deathwing): DeathwingPlaybook(),                    # 1245 (10 / ami DarkAngels)
 }
 
 
