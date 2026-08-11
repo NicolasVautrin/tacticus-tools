@@ -23,21 +23,21 @@
 
 ## Bilan
 
-- Unites lineup : **127** ; kits COMPLETS (aucun manque detecte) : **79** ; kits avec du travail : **48**
-- Volume total : **49** items manquants (actives no-op + passifs/traits non registres)
+- Unites lineup : **127** ; kits COMPLETS (aucun manque detecte) : **80** ; kits avec du travail : **47**
+- Volume total : **48** items manquants (actives no-op + passifs/traits non registres)
 - HORS total — voies conditionnelles : **37** abilities non portees (11 mythiques, 26 reliques equipables)
 
 ### Priorite par faction (volume decroissant)
 
 | faction | kits | items |
 |---|---:|---:|
-| BloodAngels | 4 | 4 |
 | EmperorsChildren | 4 | 4 |
 | LeaguesOfVotann | 4 | 4 |
 | Sisterhood | 4 | 4 |
 | AdeptusMechanicus | 3 | 3 |
 | AstraMilitarum | 3 | 3 |
 | BlackLegion | 3 | 3 |
+| BloodAngels | 3 | 3 |
 | DarkAngels | 3 | 3 |
 | Necrons | 3 | 3 |
 | SpaceWolves | 3 | 3 |
@@ -90,13 +90,12 @@
 |---|---|---|---|---|
 | templAggressor | 1 | FragstormGrenadeLauncher(1048) [CD] OK | Boltstorm | - |
 
-### BloodAngels — 4 kits, 4 items
+### BloodAngels — 3 kits, 3 items
 
 | unite | manque | actives | passifs manquants | traits de kit manquants |
 |---|---|---|---|---|
 | bloodIntercessor | 1 | HammerOfWrath(1153) [CD] OK | AggressiveOnslaught | - |
 | bloodMephiston | 1 | TheQuickening(1151) [CD] OK | FuryOfTheAncients | - |
-| bloodSanguinary | 1 | BloodChalice(1175) [C-] OK | SanguinaryPriest | - |
 | bloodTerminator | 1 | SavageEchoes(1230) [CD] OK | RedRampage | - |
 
 ### Custodes — 2 kits, 2 items
@@ -196,9 +195,9 @@
 | worldJakhal | 1 | JakhalStimms(1131) [C-] OK | Skullsmasher | - |
 | worldTerminator | 1 | BloodyFury(1129) [CD] OK | WrathfulDevotion | - |
 
-## Kits lineup COMPLETS (79)
+## Kits lineup COMPLETS (80)
 
-adeptCanoness, adeptExorcist, admecDominus, admecMarshall, astarCyrus, astarLysander, astraBullgryn, astraCreed, astraOrdnanceBattery, astraPrimarisPsy, blackForgefiend, blackObliterator, blackTerminator, bloodDante, bloodDeathCompany, custoAtlacoya, custoTrajann, custoVexilusPraetor, darkaAsmodai, darkaAzrael, darkaSternguard, darkaStormSpeeder, deathBlightbringer, deathBlightlord, deathCrawler, deathPutrifier, deathRotbone, deathTyphus, eldarAutarch, eldarFarseer, eldarMauganRa, eldarRanger, emperNoiseMarine, genesKelermorph, genesMagus, genesPatriarch, genesPrimus, necroOverlord, necroReanimator, necroSpyder, necroWarden, orksKillaKan, orksNob, orksRukkatrukk, orksRuntherd, orksWarboss, spaceBlackmane, spaceRockfist, spaceStormcaller, tauAunShi, tauBroadside, tauCrisis, tauDarkstrider, tauMarksman, tauShadowsun, templAncient, templChampion, templHelbrecht, templSwordBrother, thousAhriman, thousInfernalMaster, thousSekhetar, thousSorcerer, thousTerminator, thousTzaangor, tyranDeathleaper, tyranNeurothrope, tyranParasite, tyranTyrantGuard, ultraApothecary, ultraCalgar, ultraDreadnought, ultraEliminatorSgt, ultraInceptorSgt, ultraTigurius, ultraTitus, votanChampion, worldEightbound, worldKharn
+adeptCanoness, adeptExorcist, admecDominus, admecMarshall, astarCyrus, astarLysander, astraBullgryn, astraCreed, astraOrdnanceBattery, astraPrimarisPsy, blackForgefiend, blackObliterator, blackTerminator, bloodDante, bloodDeathCompany, bloodSanguinary, custoAtlacoya, custoTrajann, custoVexilusPraetor, darkaAsmodai, darkaAzrael, darkaSternguard, darkaStormSpeeder, deathBlightbringer, deathBlightlord, deathCrawler, deathPutrifier, deathRotbone, deathTyphus, eldarAutarch, eldarFarseer, eldarMauganRa, eldarRanger, emperNoiseMarine, genesKelermorph, genesMagus, genesPatriarch, genesPrimus, necroOverlord, necroReanimator, necroSpyder, necroWarden, orksKillaKan, orksNob, orksRukkatrukk, orksRuntherd, orksWarboss, spaceBlackmane, spaceRockfist, spaceStormcaller, tauAunShi, tauBroadside, tauCrisis, tauDarkstrider, tauMarksman, tauShadowsun, templAncient, templChampion, templHelbrecht, templSwordBrother, thousAhriman, thousInfernalMaster, thousSekhetar, thousSorcerer, thousTerminator, thousTzaangor, tyranDeathleaper, tyranNeurothrope, tyranParasite, tyranTyrantGuard, ultraApothecary, ultraCalgar, ultraDreadnought, ultraEliminatorSgt, ultraInceptorSgt, ultraTigurius, ultraTitus, votanChampion, worldEightbound, worldKharn
 
 ## HORS total — voies conditionnelles (37 abilities non portees)
 
