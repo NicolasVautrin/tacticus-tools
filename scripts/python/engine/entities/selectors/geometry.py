@@ -401,6 +401,47 @@ class PickFirstN(TargetsSelector):
         return list(self.source.evaluate(ctx))[:n]
 
 
+class PickLastN(TargetsSelector):
+    """`IdunBattleLogic.Entities.DSLSelectors$$Last(entities, amount, ignoreForcedTargets)` ->
+    `IdunBattle.Entities.Selectors.PickLastNSelector$$Select` (`IdunBattle.DSL.APickSelector`,
+    taille 0x30) : les `amount` DERNIERS elements de la source, ordre PRESERVE (#940).
+
+    LU, terme a terme -- c'est le PENDANT EXACT de `PickFirstN` ci-dessus, et le decompile le dit
+    par sa seule ligne qui differe, l'indice de depart de la copie :
+
+        candidates = <source>.Select(entities).ToList()
+        n          = <amount>.Calculate(entities)
+        picked     = candidates
+        if (n < candidates.Count) :
+            picked = new List<IEntity>()
+            if (!<this+0x28 ignoreForcedTargets>) AddForcedTargetsAndUpdateCandidates(...)
+            for (i = picked.Count + candidates.Count - n ; i < candidates.Count ; i++)
+                picked.Add(candidates.ElementAt(i))
+        return picked
+
+    ⚠ `n >= Count` rend la source ENTIERE, et `n <= 0` rend donc... la source entiere AUSSI si
+    elle est vide, mais une liste VIDE des qu'elle ne l'est pas (`0 < Count` -> boucle de
+    `Count - 0` a `Count`, zero iteration). Le port reproduit les deux, sans clamp maison.
+
+    RESIDU NOMME (le MEME que `PickFirstN`, qui ne le porte pas davantage) :
+    `IdunBattle.DSL.APickSelector$$AddForcedTargetsAndUpdateCandidates` -- les cibles FORCEES
+    (`ForcedAttackTarget`) sont pre-inserees dans `picked` et retirees des candidats avant la
+    copie. Le port ne modelise pas le forcage de cible ; `ignore_forced_targets` est donc porte
+    comme un champ TRANSCRIT (le litteral du call-site) mais sans effet, exactement comme pour
+    `PickFirstN`. Le seul call-site porte passe `0` (`KissOfDeathAbility$$ExecuteBehaviour`)."""
+    def __init__(self, source: TargetsSelector, amount, ignore_forced_targets: bool = False):
+        self.source, self.amount = source, amount
+        self.ignore_forced_targets = bool(ignore_forced_targets)
+
+    def select(self, ctx):
+        n = self.amount.evaluate(ctx) if hasattr(self.amount, "evaluate") else self.amount
+        n = int(n or 0)
+        cands = list(self.source.evaluate(ctx))
+        if n >= len(cands):                       # `n < candidates.Count` FAUX -> la source telle quelle
+            return cands
+        return cands[len(cands) - n:] if n > 0 else []
+
+
 class AtIndex(TargetsSelector):
     """`IdunBattleLogic.Entities.DSLSelectors$$AtIndex(entities, index)` ->
     `IdunBattle.Entities.Selectors.PickAtIndexSelector$$Select` : l'element a `index` de la source

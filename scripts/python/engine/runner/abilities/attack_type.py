@@ -273,6 +273,13 @@ ABILITY_ATTACK_TYPE: dict[int, int] = {
     # Le litteral est `0` bien que le behaviour commence par un `FlyUnit` : on transcrit le 3e argument
     # du ctor, jamais la forme de l'arbre. (#589-r1-r1-r1)
     ActiveAbilityType.EmpyricAmbush: AbilityAttackType.DirectTargetAttack,  # 1232
+    # KissOfDeath (1108) : `...Active.Loki.KissOfDeathAbility$$.ctor` ne construit AUCUN
+    # `TargetingOptions` -- il RECOPIE les 0x40 octets du preset statique
+    # `<TargetingOptions statics>+0x40` puis appelle `AActiveAbility..ctor(this, &opts, 0)`. Le 3e
+    # argument est le litteral `0`. TRANSCRIT, jamais deduit de l'arbre : celui-ci commence par un
+    # `AddEffect` et finit par un `RemoveEffect`, et son degat passe par une CHAINE
+    # (`ChainAttackDamage`), pas par une attaque directe -- la forme ne dit rien du litteral. (#940)
+    ActiveAbilityType.KissOfDeath: AbilityAttackType.DirectTargetAttack,  # 1108
     # MortarionsPlagueWind (1093) et ReapingScythe (1095), les deux actives de degat de
     # `deathBossMortarion` (#888). Leurs ctors sont tous deux des STATIC-COPY (aucun appel a
     # `TargetingOptions$$.ctor`) et finissent par `AActiveAbility$$.ctor(this, &opts, 0)` -- 3e

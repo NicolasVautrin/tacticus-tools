@@ -409,7 +409,17 @@ class UnitComponent(Component):
         # (MEME residu structurel : le foyer natif est l'`ActorStatisticsComponent`, case-202 SS6).
         # 0 / vide a la creation, comme un composant natif frais.
         self.turns_with_attacks_made = 0
-        self.units_attacked_this_turn: set = set()
+        # #940 : un `dict` et NON un `set` -- le champ natif `ActorStatisticsComponent+0x40` est un
+        # `idun.shared.collections.OrderedSet`, et son ORDRE D'INSERTION est LU, pas seulement son
+        # contenu : `IdunBattle.Entities.Selectors.UnitsAttackedThisTurnSelector$$Select` l'itere tel
+        # quel, et `KissOfDeathAbility$$ExecuteBehaviour` en prend `Last(..., 1)` (la DERNIERE unite
+        # frappee -- « reappears in a hex adjacent to the last target hit ») puis `AtIndex(..., 1)`.
+        # Un `set` Python itere dans l'ordre du HASH : la « derniere » y aurait ete arbitraire, et
+        # l'ecart aurait ete SILENCIEUX (une tuile d'atterrissage plausible, mais pas la bonne).
+        # `dict` garde l'ordre d'insertion (garanti depuis 3.7) et sert `in`/`len`/verite/`clear`
+        # exactement comme un `set` -- seul `.add(x)` devient `[x] = None` (un seul site : ci-dessous
+        # dans `register_attack_made`).
+        self.units_attacked_this_turn: dict = {}
         # `ActorStatisticsComponent+0x24` = ATTAQUES EMISES CE TOUR (#508-r1). ⚠ Ce n'est PAS
         # `times_attacked_this_turn` (+0x38, attaques RECUES) ni `turns_with_attacks_made` (+0x30,
         # compte de TOURS). Ecrit par `register_attack_made`, remis a 0 par
@@ -2265,7 +2275,10 @@ def register_attack_made(state, attacker_id: int, target_id: int) -> None:
         return                                           # attaquant NON-UNITE (tuile en feu) : pas de composant
     if not uc.units_attacked_this_turn:                   # `Count(this[0x40]) == 0`
         uc.turns_with_attacks_made = int(uc.turns_with_attacks_made or 0) + 1
-    uc.units_attacked_this_turn.add(int(target_id))
+    # `OrderedSet$$Add` : insertion en QUEUE, sans doublon (un re-hit de la meme cible NE la
+    # remonte PAS en fin d'ordre -- `dict[k] = v` sur une cle deja presente laisse sa position).
+    # C'est le contrat que lit `Last(UnitsAttackedThisTurn(caster), 1)` (#940).
+    uc.units_attacked_this_turn[int(target_id)] = None
     uc.total_attacks_made = int(uc.total_attacks_made or 0) + 1           # `this[0x20] += 1`
     uc.attacks_made_this_turn = int(uc.attacks_made_this_turn or 0) + 1   # `this[0x24] += 1`
 

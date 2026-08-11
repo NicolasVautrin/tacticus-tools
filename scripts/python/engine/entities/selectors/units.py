@@ -1680,3 +1680,52 @@ class EntitiesFromPersistentDataList(TargetsSelector):
             if e is not None:
                 out.append(e)
         return out
+
+
+class UnitsAttackedThisTurn(TargetsSelector):
+    """`IdunBattleLogic.Entities.DSLSelectors$$UnitsAttackedThisTurn(attacker)` ->
+    `IdunBattle.Entities.Selectors.UnitsAttackedThisTurnSelector$$Select` (#940).
+
+    LU, terme a terme :
+
+        result = new OrderedSet<IEntity>()
+        holder = <attacker>.Select(entities).First()               // SelectSingle : le PREMIER
+        foreach (id in holder.<ActorStatisticsComponent+0x40>) :    // l'OrderedSet d'ids
+            e = state.GetEntity(id)
+            if (e != null && EntityExtensions$$IsUnit(e)) result.Add(e)
+        return result
+
+    Autrement dit : les unites que le PORTEUR a frappees depuis le debut de son tour, **dans
+    l'ordre des coups**. Le natif ne filtre NI la mort NI la ciblabilite -- seulement `IsUnit`
+    (une entite-TUILE enregistree la serait ecartee) ; une cible tuee par le premier maillon
+    d'une chaine reste donc dans la liste, et c'est exactement ce dont `KissOfDeath` a besoin
+    pour atterrir a cote de sa derniere victime.
+
+    Le substrat est `UnitComponent.units_attacked_this_turn` (mirror de `+0x40`, ecrit par
+    `components.register_attack_made` au chokepoint post-resolution, remis a zero par
+    `reset_units_attacked_this_turn` / `StartTurnOperation`). Il transite par la cle
+    `unitsAttackedThisTurn` du dict d'unite, qui est dans `_LIVE_KEYS` : le champ MUTE pendant
+    l'arbre qui le relit.
+
+    `attacker` rend 0 unite (contexte sans caster) -> `[]`. `ctx.entity_by_id` absent (contexte
+    hors runner : prediction, test unitaire) -> `[]` : le port DIT qu'il ne resout pas, il
+    n'invente pas d'entite. Meme polarite que le natif quand `GetEntity` rend null."""
+    def __init__(self, attacker: TargetsSelector):
+        self.attacker = attacker
+
+    def select(self, ctx):
+        holders = _units_of(self.attacker, ctx)
+        if not holders:                                  # `First()` sur une source VIDE
+            return []
+        holder = holders[0]
+        ids = (holder or {}).get("unitsAttackedThisTurn") or ()
+        by_id = getattr(ctx, "entity_by_id", None)
+        out = []
+        for eid in ids:
+            u = by_id(eid) if by_id is not None else None
+            if u is None:                                # repli : l'unite du pool `ctx.units`
+                u = next((x for x in (ctx.units or ())
+                          if isinstance(x, dict) and x.get("id") == eid), None)
+            if isinstance(u, dict) and u.get("id") is not None:
+                out.append(u)                            # `EntityExtensions$$IsUnit`
+        return out

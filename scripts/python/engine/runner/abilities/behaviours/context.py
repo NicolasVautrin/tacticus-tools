@@ -128,6 +128,16 @@ def _unit_dict(state, eid: int, entity=None) -> dict | None:
         # per-tour `@+0x38`. 0 par defaut. Consommateur porte : `BloodyFuryAbility$$GetNumExtraHits`.
         "totalTimesAttacked": (int(getattr(uc, "total_times_attacked", 0) or 0)
                                if uc is not None else 0),
+        # `ActorStatisticsComponent @+0x40` (`unitsAttackedThisTurn`) -- l'`OrderedSet` d'IDS des
+        # unites que CETTE unite a frappees depuis le debut de son tour, DANS L'ORDRE des coups.
+        # Lu par le selecteur `IdunBattle.Entities.Selectors.UnitsAttackedThisTurnSelector$$Select`
+        # (qui resout chaque id en entite et ne garde que les UNITES, `EntityExtensions$$IsUnit`).
+        # ⚠ Ce champ MUTE PENDANT l'arbre (chaque maillon d'une chaine d'attaque l'allonge) -> il est
+        # dans `_LIVE_KEYS`, faute de quoi `KissOfDeath` lirait la liste d'AVANT sa propre chaine,
+        # donc une liste VIDE, donc aucune tuile d'atterrissage (#940). Liste, jamais un set : c'est
+        # l'ORDRE que `Last(...)`/`AtIndex(..., 1)` consomment.
+        "unitsAttackedThisTurn": ([int(i) for i in uc.units_attacked_this_turn]
+                                  if uc is not None else []),
         "_traits": traits,
     }
 
@@ -137,7 +147,10 @@ def _unit_dict(state, eid: int, entity=None) -> dict | None:
 #: `hpMax` en est parce qu'il MUTE (bumps de maximum, cf. `healthMax` du capteur) et qu'il decide
 #: desormais d'une LIVENESS (`_is_alive`) : le figer au seed rejouerait le vice que `LiveUnit` existe
 #: pour eteindre -- un predicat re-evalue apres mutation lirait un maximum perime.
-_LIVE_KEYS = frozenset({"pos", "hp", "hpMax", "alive", "feet"})
+#: `unitsAttackedThisTurn` en est pour la MEME raison, et c'est la plus aigue : il est allonge par
+#: CHAQUE maillon de la chaine d'attaque du MEME arbre qui le relit ensuite (`KissOfDeath` #940).
+#: Fige au seed, il rendrait toujours la liste d'AVANT le premier coup.
+_LIVE_KEYS = frozenset({"pos", "hp", "hpMax", "alive", "feet", "unitsAttackedThisTurn"})
 
 
 class LiveUnit(dict):
