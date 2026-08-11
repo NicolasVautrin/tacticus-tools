@@ -148,6 +148,7 @@ from ..loki.euphoric_strikes import (EuphoricStrikesExtraCritRemove,            
 from ..loki.shock_assault import (ShockAssaultBuffRemove,                          # case-366-r1 (1000)
                                   SHOCK_ASSAULT_BUFF)
 from ..loki.hateful_assault import HatefulAssaultAttackAbility            # case-366-r1 (1038 + 1175)
+from ..loki.legacy_of_combat import LegacyOfCombatAdditionalAttackAbility  # #928 (1319, custoBladeChampion)
 from ..loki.full_throttle import FullThrottlePassiveAbility               # #448-r1-r1 (1134, gate)
 from ..loki.harlequins_panoply import (HarlequinsPanoplyIgnoreHitsRemove,  # case-366-r1 (1227)
                                        HarlequinsPanoplyCustomAbility,     # case-366-r1 move (#406)
@@ -303,6 +304,14 @@ ABILITY_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
     # Le marqueur 1175 est ce qui borne l'attaque a UNE fois par ennemi et par tour ; son retrait vit
     # dans `EFFECT_TRIGGERS[1175]` (`On(TurnEnd)`). Cf. loki/hateful_assault.py.
     "HatefulAssault": [HatefulAssaultAttackAbility],
+    # LegacyOfCombat (passif Kariyan `custoBladeChampion`, #928) = l'attaque SUPPLEMENTAIRE qui suit
+    # la PREMIERE attaque du tour : `On(0xb = UnitAbility) & OwnerIsActor & !CurrentAbilityIs(1319)
+    # & AmountIsEqual(TimesAttackMadeThisTurn(Owner, null), Direct(1))` ->
+    # `If(AmountIsGreaterThanZero(First(SortByDamagePrediction(Randomize(BigTargets adjacents)))),
+    #     1x Piercing sur ce Big Target, 3x Power sur CHAQUE ennemi adjacent)`.
+    # `On(0xb)` n'avait AUCUN consommateur porte et n'etait donc pas emis : #928 l'ajoute sur les
+    # DEUX voies (`dispatch/ability.py::unit_ability_triggers`). Cf. loki/legacy_of_combat.py.
+    "LegacyOfCombat": [LegacyOfCombatAdditionalAttackAbility],
     # FullThrottle (passif orksNpc6Stormboy, #448-r1-r1) = le jetpack qui lache quand on pousse les
     # gaz : `On(0x24=UnitPositionChanged_1) & OwnerIsActor & AmountIsEqualOrGreater(MovementSteps(),
     # movement=3)` -> `If(Maybe(chance=30), Kill(Caster, Caster, ForDirectKill))`.

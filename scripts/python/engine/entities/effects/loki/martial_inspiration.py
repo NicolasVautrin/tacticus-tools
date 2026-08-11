@@ -73,11 +73,13 @@ Port : `runner/components.py::unit_turns_with_attacks_made`, threade dans `att_c
 ================================================================================================
 RESIDUS EXPLICITES (nommes, jamais lisses)
 ================================================================================================
- * **Branche `CurrentAbilityIs(TriggeredAbilityType.LegacyOfCombat)` INATTEIGNABLE cote port** :
-   la triggered `1319 LegacyOfCombat` n'est pas portee (aucune entree de registre), et le canal
-   `att_ctx["ability_type"]` n'est renseigne que par la voie ACTIVE
-   (`damage_ops/ability.py`). Le gate se referme donc, ce qui est la degradation RESTRICTIVE
-   attendue : le port ne fabrique pas de bonus sur une attaque qu'il ne joue pas.
+ * **Branche `CurrentAbilityIs(TriggeredAbilityType.LegacyOfCombat)` : ATTEIGNABLE depuis #928**
+   (elle etait INATTEIGNABLE tant que `1319` n'etait pas portee -- aucune entree de registre, donc
+   aucune attaque ne renseignait `att_ctx["ability_type"] = 1319`). Le trigger vit desormais dans
+   `runner/operations/triggers/loki/legacy_of_combat.py` et ses DEUX feuilles
+   `AttackWithAttackDamage` passent `ability_type = 1319` : l'attaque supplementaire de Kariyan
+   beneficie donc du buff pose au meme tour, comme le natif. MESURE : le mutant `sans_ability_type`
+   de `probe_928_legacy_of_combat.py` mord dans les deux branches et les deux regimes de compteur.
  * `get_OwnerIsCaster` : ce canal (`build_attacker_modifiers_from_effects`) n'itere QUE les effets
    de l'ATTAQUANT -> le predicat est VRAI par construction, exactement comme pour
    `HeavyGravCannonEffect` / `PrioritisedEfficiency_ExtraDmg` (meme note, meme foyer).

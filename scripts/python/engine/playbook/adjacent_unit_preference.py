@@ -581,6 +581,7 @@ from .friends_in_range import (AstartesBannerPlaybook,       # noqa: E402  (N13 
                                KardiocoreGalvanusPlaybook)
 from .geminae_superia import GeminaeSuperiaPlaybook          # noqa: E402  (case-165b : corps propre)
 from .intoxicating_elixir import IntoxicatingElixirPlaybook  # noqa: E402  (#922 : corps propre, PAR EFFET)
+from .legacy_of_combat import LegacyOfCombatPlaybook         # noqa: E402  (#928 : corps propre, ENNEMIS)
 from .modified_exoarmour import ModifiedExoarmourPlaybook    # noqa: E402  (#304 : corps propre, PAR TUILE)
 from .savior_protocols import SaviorProtocolsPlaybook        # noqa: E402  (#443-r1 : face MOVE, cf. module)
 from .serene_unifier import SereneUnifierPlaybook            # noqa: E402  (#456-r1 : corps propre, 101/ami)
@@ -678,6 +679,12 @@ TRIGGERED_MOVE_PLAYBOOKS: dict = {
     # cumulent sur une meme decision. Porteur : `blackAbaddon`, HERO **DU POOL** -- confrontable
     # sans aucun montage.
     int(TriggeredAbilityType.FirstAmongTraitors): FirstAmongTraitorsPlaybook(),  # 1064 (10 / ami Chaos)
+    # #928 -- meme famille « corps propre », mais la query est un `GetAdjacentEnemies` (slot 127,
+    # arite 3, ancre TUILE + argument UNITE) : c'est la PREMIERE feuille du registre qui compte des
+    # ENNEMIS a partir d'un corps propre, donc SANS l'inclusion de self qui fait la signature de
+    # `friends_in_range`. Aucun filtre, aucun cap : `10 x |ennemis adjacents a la tuile candidate|`.
+    # Porteur POOL-HERO : `custoBladeChampion`. Cf. `playbook/legacy_of_combat.py`.
+    int(TriggeredAbilityType.LegacyOfCombat): LegacyOfCombatPlaybook(),          # 1319 (10 / ennemi adjacent)
 }
 
 

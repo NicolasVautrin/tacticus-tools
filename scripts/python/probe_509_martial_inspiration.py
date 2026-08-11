@@ -449,18 +449,27 @@ def rapport(m, extra_pct) -> bool:
               % (c["port"]["total"], c["natif"]["total"], c["port"]["ported"],
                  c["port"]["compteur_avant"], c["port"]["compteur_apres"], c["natif"]["rc"]))
         # ATTRIBUTION EXACTE DES TIRAGES. Le natif joue, APRES le cast, la triggered
-        # `1319 LegacyOfCombat` (passif de Kariyan, NON PORTEE) : ses coups sont dans le MEME appel
-        # `act`, donc dans le MEME delta MT. La famille ATTACK consomme 2 tirages par coup a
-        # cc = 0, d'ou l'identite `tirages_natif == 2 x <tous les coups>` -- verifiee ici plutot
-        # que supposee. Le port, lui, ne joue que les coups de 1191.
+        # `1319 LegacyOfCombat` (passif de Kariyan) : ses coups sont dans le MEME appel `act`, donc
+        # dans le MEME delta MT. La famille ATTACK consomme 2 tirages par coup a cc = 0, d'ou
+        # l'identite `tirages_natif == 2 x <tous les coups>` -- verifiee ici plutot que supposee.
+        #
+        # ⚠ CE CRITERE A CHANGE AVEC #928, et sa PREMISSE d'avant est PERIMEE. Tant que 1319
+        # n'etait pas portee, le port ne jouait QUE les coups de 1191 : on gardait
+        # `tirages_port == 2 x len(sp)`, et l'ecart avec le natif etait le port MANQUANT. Depuis
+        # #928 le port emet `On(0xb = UnitAbility)` et joue 1319 : les deux comptes se REJOIGNENT.
+        # Mesure (`MC1_67`/50901, regime nominal, compteur 0 puis 3) : AVANT port 6 / natif 18,
+        # APRES port 18 / natif 18. Le critere est donc desormais l'EGALITE.
+        #   ⚠ `tirages_natif == 2 x coups_tous` n'est vrai que si AUCUN selecteur du cast ne tire :
+        # la branche BigTarget de 1319 ajoute 2 tirages de `Randomize` (evalue DEUX fois), et le
+        # montage de ce probe (aucun ennemi `BigTarget`) ne prend jamais cette branche.
         coups_hors = c["natif"]["coups_tous"] - len(sn)
         att = TIRAGES_PAR_COUP * c["natif"]["coups_tous"]
-        print("     E2 TIRAGES genrand_int32 : PORT=%s (= 2 x %d coups 1191)  NATIF=%s"
-              % (c["tirages_port"], len(sp), c["tirages_natif"]))
+        print("     E2 TIRAGES genrand_int32 : PORT=%s  NATIF=%s   (egalite attendue depuis #928)"
+              % (c["tirages_port"], c["tirages_natif"]))
         print("        coups natifs TOUS = %d sur les cibles %s -> 2 x %d = %d attendu ; "
-              "hors 1191 = %d (triggered 1319 LegacyOfCombat, NON PORTEE)"
+              "dont 1191 = %d et 1319 LegacyOfCombat = %d (PORTEE depuis #928)"
               % (c["natif"]["coups_tous"], c["natif"]["cibles_tous"],
-                 c["natif"]["coups_tous"], att, coups_hors))
+                 c["natif"]["coups_tous"], att, len(sn), coups_hors))
         print("     effet pose  : %s" % (c["port"]["posed"],))
         print("     -- contre-epreuves (hors-ligne, MEME capture, MEME MT) --")
         for nom, r in (c.get("ab") or {}).items():
@@ -472,8 +481,10 @@ def rapport(m, extra_pct) -> bool:
             ok = False
         if sp != sn or not sn:
             ok = False
-        if c["tirages_port"] != TIRAGES_PAR_COUP * len(sp):
-            print("     !! le port ne consomme pas 2 tirages par coup")
+        if c["tirages_port"] != c["tirages_natif"]:
+            print("     !! le port et le natif ne consomment pas le MEME nombre de tirages "
+                  "(%s vs %s) -- depuis #928 les DEUX jouent 1191 puis 1319"
+                  % (c["tirages_port"], c["tirages_natif"]))
             ok = False
         if c["tirages_natif"] != att:
             print("     !! l'attribution des tirages natifs ne boucle pas (%s != %s)"

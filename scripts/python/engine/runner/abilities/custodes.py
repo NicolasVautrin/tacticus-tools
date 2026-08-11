@@ -58,9 +58,11 @@ RESIDUS NOMMES :
    de `UnitSelectionType` sur cette feuille (residu PARTAGE par tous ses call-sites).
  * `options` (8e argument) : struct ZEROEE au call-site -> aucun `isForceOverkill`, aucun
    `forceCrit` ; le defaut de la feuille portee est exactement cela.
- * la triggered `1319 LegacyOfCombat` (le passif homonyme de Kariyan) n'est pas portee : la 2e
-   branche du gate de l'effet est donc INATTEIGNABLE cote port (cf. l'en-tete de
-   `entities/effects/loki/martial_inspiration.py`).
+ * ~~la triggered `1319 LegacyOfCombat` n'est pas portee~~ -- PORTEE depuis #928
+   (`runner/operations/triggers/loki/legacy_of_combat.py`, vecteur `On(0xb = UnitAbility)`). La 2e
+   branche du gate de l'effet 1408 est donc ATTEIGNABLE, et le cast de 1191 declenche desormais
+   l'attaque supplementaire de Kariyan dans le MEME appel, comme le natif (mesure : 18 tirages
+   `genrand_int32` des deux cotes, contre 6/18 avant).
 
 `IdunBattleLogic.Entities.Abilities.Active.Loki.MomentShackleAbility$$ExecuteBehaviour` (id 1184,
 `custoTrajann` « Trajann ») — MIRROR du DECOMPILE :
