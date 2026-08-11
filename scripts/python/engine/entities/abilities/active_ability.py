@@ -1093,8 +1093,68 @@ class DaemonicOrdnanceAbility(AActiveAbility):
         return self._AOE.evaluate(ctx)
 
 
+class BrazierOfHolyFireAbility(AActiveAbility):
+    """`BrazierOfHolyFire` (1041, `adeptCanoness`) — le nombre de coups de la PRÉDICTION est
+    CONDITIONNEL au trait de la cible (#945).
+
+    `IdunBattle.AI.Playbook.Loki.BrazierOfHolyFirePlaybook$$MakeDamagePredictions` n'appelle PAS
+    `AActiveAbility$$GetHits` : il construit une FORMULE et l'évalue sur la cible —
+
+        damage = <BrazierOfHolyFireAbility>$$GetDamageAmountMain(abilityState)   # corps dédupliqué
+                                                                # `StranglethornCannonAbility$$...`
+                                                                # -> `AActiveAbility$$MinMaxDamageAverage`
+        sel    = DSLSelectors.Entity(target)
+        hits   = BrazierOfHolyFireAbility.GetNumberOfHits(sel)
+        n      = hits.Calculate(AbilityEntities(caster: caster, actor: caster, target: target,
+                                                owner: caster, ...))            # IAmountFormula slot 1
+        prof   = <BrazierOfHolyFireAbility>$$GetDamageProfileType()             # corps dédupliqué
+                                                                # `BaseFleshmetalGunsEffect$$...`
+        return GenerateMultiHitAttackPredictions(caster, casterPosition, target, Target@+0x60,
+                                                 damage, n, prof, Nullable(null), 0)
+
+    et `IdunBattleLogic.Entities.Abilities.Active.Loki.BrazierOfHolyFireAbility$$GetNumberOfHits` :
+
+        nrOfHits   = AbilityConfiguration.GetNumberConstant(config, 0x2f)
+        nrOfHits_2 = AbilityConfiguration.GetNumberConstant(config, 0x32)
+        return DSLFormulas.ConditionalAmount(DSLTriggers.HasTrait(target, 0x3fb = UnitTrait.Daemon),
+                                             nrOfHits_2, nrOfHits)
+
+    `ConditionalAmount(cond, ifTrue, ifFalse)` — ordre LU (même forme que
+    `...IncursionAbility$$GetNextSpawnTile`, `ConditionalAmount(<cond>, 1, 0)`). Config `rnca9r7q6c` :
+    `nrOfHits = 2`, `nrOfHits_2 = 4` → **4 coups contre un Daemon, 2 sinon**.
+
+    ⚠ DEUX écarts avec le chemin générique, et ils vont dans le même sens :
+      * le générique (`AActiveAbility.get_special_hits`) lit `nrOfHits` puis passe par
+        `GetDefaultAttackHits(base, ExtraHits, ExtraHitsMelee, is_melee)` — le playbook natif, lui,
+        passe le résultat BRUT de la formule : **aucun `ExtraHits`** ne s'y ajoute ;
+      * il ignorait la branche `Daemon` : contre un démon le port prédisait **la moitié** des coups.
+
+    La base, elle, est déjà juste : 1041 figure dans `_A_VIA_GET_DAMAGE_AMOUNT_MAIN` (#344), donc
+    `get_damage()` rend déjà la moyenne demi-vers-le-pair.
+
+    Le trait est lu sur l'ENTITÉ cible (`_entity_traits`), jamais sur le kit par visualId — même
+    substrat et même raison que `HellfireShells` (#267-r1)."""
+    #: `GetNumberConstant(config, 0x2f)` / `(config, 0x32)` — les clés gameconfig homonymes.
+    _CONST_HITS = "nrOfHits"          # AbilityConstantType 0x2f = 47
+    _CONST_HITS_2 = "nrOfHits_2"      # AbilityConstantType 0x32 = 50
+    #: `DSLTriggers.HasTrait(target, 0x3fb)` — nom LU dans `frida/enums.tsv` (`1019=Daemon`).
+    _TRAIT = UnitTrait.Daemon.name    # 0x3fb = 1019
+
+    def get_number_of_hits(self, target_traits) -> int:
+        """`BrazierOfHolyFireAbility$$GetNumberOfHits(Entity(target)).Calculate(entities)`.
+
+        `target_traits` = les traits de l'ENTITÉ cible. Constante absente de la config -> 0, ce que
+        l'appelant traite comme « pas d'override » (le natif, lui, lèverait)."""
+        c = (self.config.constants or {}) if self.config is not None else {}
+        hits = int(c.get(self._CONST_HITS) or 0)
+        if self._TRAIT in (target_traits or ()):
+            hits = int(c.get(self._CONST_HITS_2) or 0) or hits
+        return hits
+
+
 _SPECIAL_ABILITY_CLASSES: dict[str, type[AActiveAbility]] = {
     "DaemonicOrdnance": DaemonicOrdnanceAbility,
+    "BrazierOfHolyFire": BrazierOfHolyFireAbility,   # #945 — hits conditionnels au trait Daemon
     "HadesAutocannons": HadesAutocannonsAbility,
     "HarvesterOfSouls": HarvesterOfSoulsAbility,
     "BloodyFury": BloodyFuryAbility,
@@ -1166,6 +1226,17 @@ _NONCOMPARABLE_ABILITIES: "frozenset[str]" = frozenset({
     # --- #56 (tranche 3b) : 2 summons NonComparable (EvaluateNonComparable, PAS de Make*Predictions).
     "SendInTheNextWave",  # SendInTheNextWavePlaybook IdunBattle.AI.Playbook.Loki.SendInTheNextWavePlaybook$$EvaluateNonComparable ; util=Attack(cible), MIN=max Attack ennemis
     "Incursion",          # IncursionPlaybook IdunBattle.AI.Playbook.Loki.IncursionPlaybook$$EvaluateNonComparable ; util=PV(cible), MIN=max PV, gate adj>=2 tuiles
+    # --- #945 : les QUATRE playbooks `NonComparable` du lot Loki. Base LUE dans
+    # `data/symbols/<build>/frida/classes.tsv` (`NonComparablePlaybook`1` pour les quatre), et
+    # AUCUN `Make*Predictions` -- `frida/methods.tsv` ne leur declare que `..ctor` (+ `.cctor` pour
+    # AlphaWarrior) et `EvaluateNonComparable`. Le natif n'emet donc AUCUN `ProbableDamageEvent`
+    # pour elles, la ou le port fabriquait un degat depuis leur `minDmg`/`maxDmg` gameconfig.
+    "AdaptiveStrategy",   # 1005 IdunBattle.AI.Playbook.Loki.AdaptiveStrategyPlaybook$$EvaluateNonComparable ; util = #allies non-heros adjacents a la cible
+    "StormOfWrath",       # 1019 IdunBattle.AI.Playbook.Loki.StormOfWrathPlaybook$$EvaluateNonComparable ; util = |GetChainedUnits(cible, onlyFriends)|
+    "CalibaniteGreatsword",  # 1189 IdunBattle.AI.Playbook.Loki.CalibaniteGreatswordPlaybook$$EvaluateNonComparable ; TOGGLE, util constante Fix64(int.MaxValue)
+    "AlphaWarrior",       # 1112 IdunBattle.AI.Playbook.Loki.AlphaWarriorPlaybook$$EvaluateNonComparable ; util booleenne (le gameconfig de 1112
+                          # n'a d'ailleurs ni `minDmg` ni `maxDmg` : l'entree est ici pour que le
+                          # DISPATCH soit juste, pas pour corriger un chiffre -- comme MindControl)
 })
 
 
