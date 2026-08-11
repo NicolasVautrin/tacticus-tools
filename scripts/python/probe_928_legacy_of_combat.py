@@ -513,9 +513,73 @@ def rapport5(m, big_target: bool) -> bool:
     return ok
 
 
+# --------------------------------------------------------- etape 7 : la face DECISION MOVE, live
+
+def etape7(seed, board, mutant: bool):
+    """Confrontation PAR TUILE du terme de mouvement, contre le `Tile(7)` natif.
+
+    DELEGUE a `probe_193c_move_playbook_terms.run` -- foyer UNIQUE de cette mesure (`X_nat =
+    Tile(7) - Elevation - TileEffects` sur les hooks EXISTANTS de `scorer-damage-trace`, armes pour
+    UN SEUL `aiStepDryRun` puis desarmes ; aucune reinjection). Le probe CHERCHE lui-meme un pas ou
+    le terme prend au moins DEUX valeurs distinctes sur les tuiles HOOKEES : un pas ou il est plat
+    ne pourrait rien contredire.
+
+    `mutant = True` remplace l'entree de registre par un playbook NUL (et non par son retrait, qui
+    ferait planter le pilotage sur `pb0 = None`) : le terme disparait de `X_port` et TOUTES les
+    tuiles hookees doivent alors passer en desaccord. Sans ce bras, un `X_nat` qui vaudrait zero
+    partout rendrait l'accord trivial."""
+    import probe_193c_move_playbook_terms as P193
+    from build_pin import BuildPinRefused
+    from engine.entities.triggered_ability_type import TriggeredAbilityType
+    from engine.playbook.adjacent_unit_preference import TRIGGERED_MOVE_PLAYBOOKS
+    from rl_collect_batch import _resolve_session
+
+    class _Nul:
+        def calculate_movement_utility_in_steps(self, tile, ctx, wt):
+            return 0.0
+
+    aid = int(TriggeredAbilityType.LegacyOfCombat)
+    ref = TRIGGERED_MOVE_PLAYBOOKS.get(aid)
+    try:
+        P193._exiger_build_des_rva()
+    except BuildPinRefused as exc:
+        print("[928] hooks de terme de tuile NON armables sur ce build : %s" % (exc,))
+        return False
+    sid = _resolve_session()
+    extra = ["--rank", "17", "--p-units", "custoBladeChampion,deathRotbone",
+             "--a-units", "necroWarden,necroOverlord,astraCreed"]
+    rid, state = P193._build(seed, board, extra)
+    if rid is None:
+        return False
+    try:
+        if mutant:
+            TRIGGERED_MOVE_PLAYBOOKS[aid] = _Nul()
+        rc = P193.run(sid, rid, "custoBladeChampion", aid, 30)
+    finally:
+        if ref is not None:
+            TRIGGERED_MOVE_PLAYBOOKS[aid] = ref
+        P193._r(sid, "disposeRunner", {"runnerId": rid}, 30)
+        try:
+            state.unlink()
+        except Exception:
+            pass
+    # `run` rend 0 quand TOUTES les tuiles s'accordent, non nul sinon.
+    if not mutant:
+        return rc == 0
+    # BRAS MUTANT : le terme du port devient PLAT A ZERO sur toutes les tuiles candidates, donc le
+    # pilotage ne trouve meme plus un pas discriminant (`rc != 0`, message << aucun pas
+    # DISCRIMINANT >>). C'EST le verdict : le natif, lui, met 10/20/30 dans son `Tile(7)` sur les
+    # memes tuiles (bras de reference ci-dessus), donc un port sans cette entree de registre serait
+    # en desaccord sur 7 tuiles sur 7. La contre-epreuve MORD -- elle ne peut simplement pas
+    # s'exprimer en << desaccord >> puisque, sans terme variable, le probe n'arme plus les hooks.
+    print("[928] contre-epreuve : sans l'entree de registre, le terme du port est PLAT A ZERO "
+          "(rc=%s) -- le natif, lui, vaut 10/20/30 sur ces memes tuiles" % rc)
+    return rc != 0
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--step", type=int, action="append", default=None, help="etape(s) 1..6")
+    ap.add_argument("--step", type=int, action="append", default=None, help="etape(s) 1..8")
     ap.add_argument("--seed", type=int, default=50901)
     ap.add_argument("--board", default="MC1_67")
     ap.add_argument("--tours", type=int, default=6)
@@ -541,7 +605,13 @@ def main() -> int:
     if 6 in steps:
         print("[928] etape 6 -- CONFRONTATION LIVE, branche << adjacent Big Target >>")
         rc |= 0 if etape5(a.seed, a.board, a.tours, big_target=True) else 1
-    if steps & {5, 6}:
+    if 7 in steps:
+        print("[928] etape 7 -- FACE DECISION MOVE : terme de tuile, port contre natif")
+        rc |= 0 if etape7(777, a.board, mutant=False) else 1
+    if 8 in steps:
+        print("[928] etape 8 -- CONTRE-EPREUVE : registre NEUTRALISE, le desaccord doit APPARAITRE")
+        rc |= 0 if etape7(777, a.board, mutant=True) else 1
+    if steps & {5, 6, 7, 8}:
         print("[928] VERDICT : %s" % ("OK" if rc == 0 else "DIVERGENCE"))
     return rc
 
