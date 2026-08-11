@@ -559,6 +559,45 @@ def effect_removed_triggers(state: State, target_id: Optional[int],
                                    None, target_id, effect_type, removing=True)
 
 
+def unit_became_targetable_triggers(state: State, target_id: Optional[int],
+                                    effect_type: int) -> list[dict]:
+    """Vecteur `On(UnitBecameTargetable = 0x3b = 59)` — TROISIEME et DERNIER event d'
+    `IdunBattle.Operations.RemoveEffectOperation$$Execute`, publie APRES `On(0x40 = EffectRemoved)`
+    et son `Inform(4)`, sous un gate de TYPE que le natif ecrit ainsi (queue du corps) :
+
+        if (EffectsDatabase.GetEffect(effectComponent.Type@+0x58) is
+            IdunBattle.Entities.Effects.Common.UntargetableEffect)  { On(0x3b) ; Inform(5) }
+
+    ⚠ LE NOM DE LA CLASSE TESTEE EST LU, PAS DEDUIT. Le pseudo-C ne rend qu'un
+    `DAT_<slot>` (un `Il2CppClass**` a zero sur disque). Le MEME slot est lu par TROIS fonctions --
+    `AddEffectOperation$$Execute` (gate symetrique d'`On(0x46 = UnitBecameUntargetable)`),
+    `RemoveEffectOperation$$Execute` (ici), et
+    `IdunBattle.Core.Services.EffectsDatabase.<>c$$<InitializeEffects>b__14_576`, qui **alloue** ce
+    type et appelle `IdunBattle.Entities.Effects.Common.UntargetableEffect$$.ctor`. C'est cette
+    troisieme xref qui NOMME la classe.
+
+    Cote port, le domaine de ce predicat existe deja et est le FOYER UNIQUE de la non-ciblabilite :
+    `entities/effects/aura_selectors.py::UNTARGETABLE_EFFECT_TYPES` (les feuilles d'
+    `ATeleportingEffect` REELLEMENT portees ET confrontees sur ce canal ; sa docstring dit pourquoi
+    on n'y inscrit rien de speculatif). Le gate vit chez l'APPELANT
+    (`operations/remove_effects.py::remove_effect_instance`), pas ici : ce module ne construit que
+    des vecteurs.
+
+    MEME `AbilityEntities` que les deux events precedents -- la struct est batie UNE fois en tete de
+    l'Operation et publiee telle quelle. Donc, exactement comme eux : `actor`/`caster` VIDES,
+    `target == owner ==` le PORTEUR de l'effet (d'ou `get_OwnerIsTarget` VRAI sur ce vecteur), et
+    c'est `CurrentAbilityIs` -- jamais `TriggeringEffectIs` -- qui porte l'effet retire (#306).
+
+    CONSOMMATEUR (#936) : `WrathfulDevotionAbility` face B
+    (`On(0x3b) & get_OwnerIsTarget & CurrentAbilityIs((EffectType)0x40b
+    TeleportStrike_TeleportingIn)`) = Wrask qui sort du Deep Strike. AVANT #936 le port n'emettait
+    ce vecteur NULLE PART, ce qui rendait inerte tout consommateur -- c'est la raison EXACTE pour
+    laquelle `SavageKillerAbility` n'abonne pas sa 4e disjonction (residu #929-r1, desormais
+    DEBLOQUE : son `NOT moved` reste a porter, mais le canal existe). No-op si rien ne matche."""
+    return _effect_vector_triggers(state, int(EventTriggerType.UnitBecameTargetable),
+                                   None, target_id, effect_type, removing=True)
+
+
 def unit_defeated_triggers(state: State, dying_id: int, killer_id: Optional[int] = None) -> list[dict]:
     """Vecteur `On(UnitDefeated=54=0x36)` (G3) — event NATIF DISTINCT de `PreUnitDeath(1)` : le natif
     `Ambush_SummonAbility` IdunBattleLogic.Entities.Abilities.Triggered.Loki.Ambush_SummonAbility$$CreateTrigger ecoute `On(0x36 = UnitDefeated) & OwnerIsTarget & Not(HasFlag 0xe)`, PAS On(1). Emis

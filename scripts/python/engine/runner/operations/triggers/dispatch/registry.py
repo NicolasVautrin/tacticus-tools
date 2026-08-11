@@ -151,6 +151,7 @@ from ..loki.shock_assault import (ShockAssaultBuffRemove,                       
 from ..loki.hateful_assault import HatefulAssaultAttackAbility            # case-366-r1 (1038 + 1175)
 from ..loki.legacy_of_combat import LegacyOfCombatAdditionalAttackAbility  # #928 (1319, custoBladeChampion)
 from ..loki.savage_killer import SavageKillerAbility                      # #929 (1159, passif spaceWulfen)
+from ..loki.wrathful_devotion import WrathfulDevotionAbility              # #936 (1214, passif worldTerminator)
 from ..loki.full_throttle import FullThrottlePassiveAbility               # #448-r1-r1 (1134, gate)
 from ..loki.harlequins_panoply import (HarlequinsPanoplyIgnoreHitsRemove,  # case-366-r1 (1227)
                                        HarlequinsPanoplyCustomAbility,     # case-366-r1 move (#406)
@@ -774,6 +775,23 @@ ABILITY_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
     # dans le binaire) -- verdict grave par `test_929_savage_killer_offline.py`.
     # Cf. loki/savage_killer.py + `docs/rl/case-929-savage-killer.md`.
     "SavageKiller": [SavageKillerAbility],
+    # WrathfulDevotion (passif `worldTerminator` << Wrask >>, triggered 0x4be = 1214, #936) = UNE
+    # ability native, DEUX faces, un seul `CreateShield` :
+    #   * `On(0x36 = UnitDefeated) & OwnerIsActor & IsDefeatedByMeleeAttack(Target@+0x60, 0, 1)`
+    #     -> vecteur EXISTANT `unit_defeated_triggers` ;
+    #   * `On(0x3b = UnitBecameTargetable) & OwnerIsTarget
+    #     & CurrentAbilityIs(AbilityOrEffect((**EffectType**)0x40b = TeleportStrike_TeleportingIn))`
+    #     -> vecteur `unit_became_targetable_triggers`, **AJOUTE par cette tranche** dans
+    #     `remove_effects.py` (le port ne l'emettait nulle part -- cf. le residu #929-r1 ci-dessus,
+    #     qui en etait la victime).
+    # Behaviour : `CreateShield(Owner + UnitsWithTrait(AdjacentFriends(Owner, 1, 3), Chaos, 3),
+    # Direct(shieldHp), AbilityOrEffect((TriggeredAbilityType)1214), TurnsFromRounds(1), null, true)`,
+    # plus -- sur la SEULE face B -- le marqueur `0x518 WrathfulDevotionTeleported_Visual`.
+    # ⚠ La 3e branche du `switch (triggerType)` natif (`UnitDeath` -> `0x517 ...Killed_Visual`) est
+    # du DEAD CODE : `CreateTrigger` n'abonne QUE {0x36, 0x3b}, et c'est `GetEventTriggers` qui
+    # decide de l'abonnement. Verdict grave par `test_936_wrathful_devotion_offline.py`.
+    # Cf. loki/wrathful_devotion.py + `docs/rl/case-936-wrathful-devotion.md`.
+    "WrathfulDevotion": [WrathfulDevotionAbility],
 }
 
 # --- Registre : ability ACTIVE → triggered-ability(s) DERIVEE(s) ----------------------------------
