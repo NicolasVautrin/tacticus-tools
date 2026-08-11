@@ -79,6 +79,8 @@ from ..loki.fleshmetal_guns import (FleshmetalGunsRotationAbility,   # lot POSE 
                                    FleshmetalGunsTileEffectAbility)  # #85 volet DespoiledGround
 from ..loki.despoiled_ground import (DespoiledGroundTileDoT,         # #85 (EnvDespoiledGroundTileAbility)
                                     DESPOILED_GROUND_TILE)
+from ..loki.head_claimer import (HeadClaimerOnDeathAbility,          # lot POSE (passif blackHaarken,
+                                 HeadClaimerOnFledAbility)           # #947)
 from ..loki.terrifying_crescendo import (TerrifyingCrescendoOverkillAbility,   # lot POSE (passif
                                         TerrifyingCrescendoSuppressAbility)   # emperNoiseMarine, #204)
 from ..loki.deathwing import DeathwingAbility                          # #932 (passif darkaTerminator)
@@ -414,6 +416,17 @@ ABILITY_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
     # | `On(0x3d=PreEffectAdded) & OwnerIsActor & TriggeringEffectIs(1065=Pinned)` -> `AddEffectOrIncreaseLevel(
     # 1424, +1, max=buffMaxLevel=6)`. Cf. loki/terrifying_crescendo.py (IdunBattleLogic.Entities.Abilities.Triggered.Loki.TerrifyingCrescendoAbility$$CreateTrigger/IdunBattleLogic.Entities.Abilities.Triggered.Loki.TerrifyingCrescendoAbility$$CreateBehaviour).
     "TerrifyingCrescendo": [TerrifyingCrescendoOverkillAbility, TerrifyingCrescendoSuppressAbility],
+    # HeadClaimer (passif `blackHaarken` << Haarken >>, TriggeredAbilityType 0x407 = 1031, #947) =
+    # ACCUMULATION des DEUX compteurs de tetes (effets 1028/1029, portes par
+    # `entities/effects/loki/head_claimer.py`, magnitude x level) : disjonction
+    # `OnPreDeath2(overkill: true, steppable: false)` = `On(2 = PreUnitDeath_2) &
+    # NOT TargetHasTrait(Steppable)` | `On(0x34 = UnitFled)`, puis `& get_OwnerIsActor &
+    # NOT AreFriends(Owner, Target) & NOT TriggeringAbilityIs(1080 = ItsGonnaBlow)` ->
+    # `AddEffectOrIncreaseLevel(1028, +1, SANS cap) & If(IsHero(Target),
+    # AddEffectOrIncreaseLevel(1029, +1, SANS cap))`. DEUX classes pour la disjonction, MEME patron
+    # que TerrifyingCrescendo juste au-dessus. ⚠ La branche `UnitFled` est INERTE offline (aucun
+    # vecteur de fuite n'est emis) -- residu #947-r1, declare dans loki/head_claimer.py.
+    "HeadClaimer": [HeadClaimerOnDeathAbility, HeadClaimerOnFledAbility],
     # FuelledByFury (passif ultraTitus << Titus >>) = ACCUMULATION du stack de l'effet 1323 (magnitude
     # x level portee en meme temps, `entities/effects/loki/extra_damage.py`) : `On(0xe=UnitPostAbility)
     # & AreFriends(Owner, caster) & HasTrait(caster, 0x10=Hero) & !HasTrait(caster, 0x419=MachineOfWar)

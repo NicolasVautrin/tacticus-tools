@@ -35,7 +35,13 @@ from .components import (StatsComponent, HealthComponent, OwnerComponent, Positi
                          unit_tiles_moved_this_turn, unit_state_for_effects,
                          unit_turns_with_attacks_made, unit_total_attacks_made,
                          adjacent_taunted_enemies_count,
-                         adjacent_dark_angels_friends_count)
+                         adjacent_dark_angels_friends_count,
+                         enmity_adjacent_units_count,
+                         enmity_adjacent_dark_angels_friends_count)
+# #948 : les cles du contexte per-coup d'`EnmityForTheUnworthy` viennent de la classe d'effet --
+# un seul foyer de nommage pour les DEUX faces (COMBAT ici, PREDICTION dans `playbook/`).
+from ..entities.effects.loki.enmity_for_the_unworthy import (
+    CTX_ADJACENT_UNITS as _ENMITY_CTX_UNITS, CTX_ADJACENT_DA as _ENMITY_CTX_DA)
 from ..entities.stats import StatType, ARMOR_STAT_TYPES
 from ..services.damage_prediction import get_attack_prediction, apply_pierce_and_modifiers
 from ..services.battle_query import (
@@ -566,6 +572,18 @@ def attacker_modifiers(state: State, unit_id: int, hp: Optional[int], is_ranged:
     # `components.adjacent_dark_angels_friends_count` ; tri-etat conserve (`None` = le porteur n'a
     # ni equipe ni tuile), jamais un 0 invente -- il fermerait le disjoint en silence.
     att_ctx["adjacent_dark_angels_friends"] = adjacent_dark_angels_friends_count(state, unit_id)
+    # #948 : les DEUX compteurs de `EnmityForTheUnworthy` (`darkaCompanion` << Forcas >>) --
+    # `AdjacentUnitsAmount` (TOUTES les unites adjacentes, amies ET ennemies) et
+    # `AdjacentFriendlyDarkaUnitsAmount` (les amis DARK ANGELS), tous deux passes par
+    # `NonSteppableOrObjectUnits`. MEME regime que les trois cles ci-dessus : sur ce canal l'OWNER de
+    # chaque effet parcouru EST l'attaquant (l'agregateur n'itere que SES effets), ce qu'exige le
+    # `get_OwnerIsCaster` des deux `CreateEffectDamageBonusForAttack`. Foyers uniques
+    # `components.enmity_adjacent_units_count` / `..._dark_angels_friends_count` ; tri-etat conserve
+    # (`None` = le porteur n'a ni equipe ni tuile), jamais un 0 invente -- il eteindrait le bonus en
+    # silence. ⚠ DISTINCTS d'`adjacent_dark_angels_friends` juste au-dessus (#932) : l'arbre
+    # d'Enmity porte en plus l'etage `NonSteppableOrObjectUnits`.
+    att_ctx[_ENMITY_CTX_UNITS] = enmity_adjacent_units_count(state, unit_id)
+    att_ctx[_ENMITY_CTX_DA] = enmity_adjacent_dark_angels_friends_count(state, unit_id)
     # #932 : `AreEnemies(Target@+0x60, Owner@+0x30, 0)` a besoin des DEUX equipes. `tgt_team` est
     # deja posee plus bas (branche `target_id`), il manquait celle du PORTEUR -- qui, sur ce canal,
     # EST l'attaquant. MEME cle et MEME semantique que le ctx du canal AURA

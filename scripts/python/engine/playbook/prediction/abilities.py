@@ -17,6 +17,9 @@ from .normal_attack import make_normal_attack_predictions
 from ...entities.active_ability_type import ActiveAbilityType
 # `EffectType.Fire` (5) : effet de TUILE lu par le gate de selecteur de 1148 (`_MAKE_DMG_TARGET_GATE`).
 from ...entities.effect_type import EffectType as _EffectType
+# #948 : cles du contexte per-coup d'`EnmityForTheUnworthy` -- un seul foyer de nommage.
+from ...entities.effects.loki.enmity_for_the_unworthy import (
+    CTX_ADJACENT_UNITS as _ENMITY_CTX_UNITS, CTX_ADJACENT_DA as _ENMITY_CTX_DA)
 # `UnitTrait.Summon` (2) : trait lu par le selecteur de 1147 (`UnitsWithTrait(..., 2)`), cote gate ET
 # cote noeud DSL (`ctx.has_trait`, cable dans `make_damage_predictions`).
 from ...entities.traits.unit_trait import (UnitTrait as _UnitTrait, has_trait as _has_trait,
@@ -198,6 +201,19 @@ def generate_multi_hit_attack_prediction(scene, uid, tgt, ability_id, ability_na
                                                                 "att_team": scene.team(uid),
                                                                 "adjacent_dark_angels_friends":
                                                                     scene.adjacent_dark_angels_friends(
+                                                                        uid),
+                                                                # #948 -- les DEUX compteurs
+                                                                # d'`EnmityForTheUnworthy`. Ses deux
+                                                                # `CreateEffectDamageBonusForAttack`
+                                                                # n'ont AUCUN gate de nature de coup
+                                                                # (`get_OwnerIsCaster` seul) : ce
+                                                                # vecteur ABILITY y entre comme la
+                                                                # normale. MEMES cles que la face
+                                                                # COMBAT -- pas de fork.
+                                                                _ENMITY_CTX_UNITS:
+                                                                    scene.enmity_adjacent_units(uid),
+                                                                _ENMITY_CTX_DA:
+                                                                    scene.enmity_adjacent_dark_angels_friends(
                                                                         uid)})
     t_pos = scene.pos(tgt)
     _add_positional_and_defender_mods(mods, scene, uid, tgt, is_melee, attack_pos, t_pos,
