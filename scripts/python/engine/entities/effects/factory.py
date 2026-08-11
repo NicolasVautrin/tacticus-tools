@@ -11,6 +11,7 @@ from collections.abc import Mapping
 from .base import BaseEffect
 from .loki.ability_modifications import ListenUpMaggotsEffect
 from .loki.amulet_of_the_voidwyrm import AmuletOfTheVoidwyrmCritDamageReductionEffect
+from .loki.intoxicating_elixir import IntoxicatingElixirEffect
 from .loki.kardiocore_galvanus import KardiocoreGalvanusExtraCritDmgEffect
 from .loki.maw_claws_of_thyrax import MawClawsOfThyraxExtraCritDmgEffect
 from .loki.nether_realm_casket import NetherRealmCasketCritDamageReductionEffect
@@ -1300,6 +1301,46 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # (#357). PAS d'entree `ABILITY_INIT_OWNER_EFFECTS` : `_seed_ability_owner_effects` lit le KIT
     # gameconfig, ou la relique ne figure PAS (cf. l'en-tete du module).
     "MawClawsOfThyrax_ExtraCritDmg": MawClawsOfThyraxExtraCritDmgEffect,
+    # 1459 IntoxicatingElixir (#922) : owner-effect PERMANENT de la RELIQUE `IntoxicatingElixir`
+    # (`R_Booster_Crit_IntoxicatingElixir`, 4 porteurs `lineup` Emperor's Children), pose a l'init
+    # par la base `AOwnerEffectTriggeredAbility$$CreateBehaviour`. TROISIEME `ForAddition` de l'axe
+    # crit-DEGAT cote relique, et le PREMIER dont la magnitude porte un facteur CONDITIONNEL :
+    #   `...IntoxicatingElixir_ExtraCritDmgEffect$$CreateCritDamageBonus`
+    #       = ForAddition(get_OwnerIsCaster,          <- trigger NU, aucun op_BitwiseAnd
+    #                     Multiply(Multiply(ConfigVar(0x42 = extraCritDmg),
+    #                                       EffectLevel(Effect@+0x38)),
+    #                              ConditionalAmount(HealthPctIsBelowOrEqual(Owner,
+    #                                                    Get(ConfigConst(0x4f = healthPct))),
+    #                                                <DSLFormulas+0x28> = Direct(2),
+    #                                                <DSLFormulas+0x20> = Direct(1))))
+    #   + `GetCalculateLevel`     = GetLevelFormula(Tiles(Owner@+0x30))
+    #   + `CreateActiveCondition` = AmountIsGreaterThanZero(<le MEME GetLevelFormula>)
+    #   + `GetLevelFormula(tiles)` = Min(Count(EntitiesWithAnyEffect(
+    #         SurroundingUnits(tiles, ConfigConst(0x16 = range), unique: 1, includeCenter: 1,
+    #                          selectionType: 3),
+    #         EffectType[4] {Pinned, Stunned, Taunted_OnlySpecificTargets, ThrillSeekers})),
+    #         Get(ConfigConst(0x78 = nrOfUnits)))
+    # ⚠ SON COMPTEUR N'EST CELUI D'AUCUN de ses CINQ voisins de forme, et les QUATRE differences
+    # se lisent au decompile : disque CUBE de rayon 2 (pas le ring-1 STOCKE d'`AdjacentFriends`
+    # ni celui d'`AdjacentUnits` de 1461), `includeCenter = 1` donc le PORTEUR SE COMPTE LUI-MEME,
+    # AUCUN filtre d'equipe (comme 1461, contre 1450/1455/1460), et un PLAFOND `Min(..., 6)`. D'ou
+    # un compteur distinct dans `components.py`, et un gate de presence `position SEULE` (que seul
+    # 1461 partage -- les trois autres exigent aussi une equipe).
+    # ⚠ Le bloc de 4 `EffectType` vient d'un `RuntimeHelpers.InitializeArray` : AUCUN immediat au
+    # decompile. Il a ete LU dans `global-metadata.dat` -- l'UNIQUE fenetre de 4 int32 alignes du
+    # fichier contenant a la fois 1065 et 1162 vaut `[1065, 1162, 27, 1434]`, exactement l'ordre de
+    # l'i2. `Taunted` y est le COMPOSITE 27, PAS ses sous-effets 25/26/1237 (les confondre
+    # compterait une cible tauntee jusqu'a QUATRE fois).
+    # ⚠ TROIS enums, et DEUX valent 1463 : `EffectType` 0x5b3 = 1459 est CET effet, sa CONFIG est la
+    # TRIGGERED 0x5b7 = **1463** `IntoxicatingElixir` (`.ctor` relu octet a octet : `mov edx,0x5b7`
+    # + la SURCHARGE `op_Implicit(triggeredAbility)`, tranchee par l'ADRESSE du `call`) -- tandis
+    # que `EffectType` 1463 est `OrbsOfDecay_AdditionalHits`.
+    # ⚠ Le niveau lu est celui de l'`AbilityState` TERTIAIRE du porteur, via le foyer
+    # `triggered_ability_state` (#357) ; `ability_level` (le passif, 50 en runner normalise)
+    # rendrait TOUJOURS le dernier palier (438 au lieu de 295 au niveau 1).
+    # PAS d'entree `ABILITY_INIT_OWNER_EFFECTS` : `_seed_ability_owner_effects` lit le KIT
+    # gameconfig, ou la relique ne figure PAS (cf. l'en-tete du module).
+    "IntoxicatingElixir": IntoxicatingElixirEffect,
     # 1090 Ramshackle_DmgReduction (#570-r1) : owner-effect PERMANENT du passif `Ramshackle`, seul
     # passif du summon `orksGrotTank`. #570 avait NOMME ce trou -- le tank arrivait avec ses stats,
     # ses traits et ses armes, et SANS sa reduction de degat : ecart PERMISSIF (il encaisse plus

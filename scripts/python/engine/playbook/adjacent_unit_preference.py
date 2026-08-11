@@ -579,6 +579,7 @@ from .fury_of_the_ancients import FuryOfTheAncientsPlaybook   # noqa: E402  (apr
 from .friends_in_range import (AstartesBannerPlaybook,       # noqa: E402  (N13 : corps propres)
                                KardiocoreGalvanusPlaybook)
 from .geminae_superia import GeminaeSuperiaPlaybook          # noqa: E402  (case-165b : corps propre)
+from .intoxicating_elixir import IntoxicatingElixirPlaybook  # noqa: E402  (#922 : corps propre, PAR EFFET)
 from .modified_exoarmour import ModifiedExoarmourPlaybook    # noqa: E402  (#304 : corps propre, PAR TUILE)
 from .savior_protocols import SaviorProtocolsPlaybook        # noqa: E402  (#443-r1 : face MOVE, cf. module)
 from .serene_unifier import SereneUnifierPlaybook            # noqa: E402  (#456-r1 : corps propre, 101/ami)
@@ -657,6 +658,16 @@ TRIGGERED_MOVE_PLAYBOOKS: dict = {
     # -> injection catalogue (`catalog_inject`, cf. `case-270d`). Gate `TerminatorArmour` DANS
     # l'accesseur ; ni cap ni filtre (metadata : la classe ne declare que les deux accesseurs).
     int(TriggeredAbilityType.IconOfObstinacy): IconOfObstinacyPlaybook(),        # 1552 (20 / ami Terminator)
+    # #922 -- la PREMIERE feuille du registre dont le predicat porte sur les EFFETS du voisin (les
+    # autres lisent un trait, une faction ou un kit), la premiere SANS filtre d'equipe (amis ET
+    # ennemis), la premiere sur un DISQUE CUBE de rayon 2 (`IterateSurroundingTiles`, sans porte
+    # d'elevation -- pas le ring-1 STOCKE d'`IterateAdjacentTiles`) et la premiere PLAFONNEE
+    # (`Min(..., nrOfUnits = 6)`). Elle appelle LITTERALEMENT la `$$GetLevelFormula` de l'effet de
+    # COMBAT `1459 IntoxicatingElixir`, seule l'ancre changeant (`Get(<tuile candidate>)` au lieu de
+    # `Tiles(Owner)`) -- d'ou l'arbre PARTAGE avec `entities/effects/loki/intoxicating_elixir.py`.
+    # Porteurs : 4 heroes Emperor's Children par RELIQUE (`emperKakophonist` et `emperNoiseMarine`
+    # au pool, `emperExultant` et `emperFlawlessBlade` par injection catalogue).
+    int(TriggeredAbilityType.IntoxicatingElixir): IntoxicatingElixirPlaybook(),  # 1463 (RELIQUE, 5 / debuffe)
 }
 
 
