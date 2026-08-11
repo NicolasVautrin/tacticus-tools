@@ -41,9 +41,17 @@ DECOMPOSITION par source cote port. Aucune esperance, aucun echantillonnage.
 
 COMMENT LE GATE EST FORCE (jamais subi)
 ---------------------------------------
-La normalisation `buildNormalizedBC` remet `CritChance` a 0 sur TOUTES les unites du roster. On
-remonte donc la chance de crit d'UN SEUL allie (`--unit-stat <ally>:CritChance=20`) et on laisse
-l'autre a 0 : les deux sont a la MEME distance du porteur, seule la chance de crit les separe.
+Les deux allies sont a la MEME distance du porteur ; seule la chance de crit les separe. On la
+FORCE des DEUX cotes : `--unit-stat <ALLY_CRIT>:CritChance=20` et `--unit-stat <ALLY_NOCRIT>:
+CritChance=0`.
+
+⚠ LE ZERO SE CONSTRUIT, IL NE SE SUPPOSE PAS (#914/#912). Ce bloc affirmait que « la normalisation
+`buildNormalizedBC` remet `CritChance` a 0 sur TOUTES les unites du roster » -- vrai a l'ecriture,
+FAUX depuis #419-r5 : `_normalize_and_extract_pool` EQUIPE les items Best-In-Slot par defaut, et les
+quatre stats crit/block ne vivent QUE dans les items (`could_crit` 0/106 -> 98/106). MESURE
+(`probe_912_crit_zero_porteur.py`) : `eldarFarseer` arrive a `critChance = 35`. Le gate CRIT avait
+donc RAISON de le selectionner, et c'est le montage qui ne produisait plus le porteur qu'il croyait
+-- ce qui a rendu `test_path_of_command_crit_aura_live` ROUGE en accusant le port.
 
 TROIS VOLETS
 ------------
@@ -102,7 +110,7 @@ _seq = itertools.count()
 
 CARRIER = "eldarAutarch"      # HERO du pool (`rl_duel.py build --list-pool`), porteur de PathOfCommand
 ALLY_CRIT = "eldarRanger"     # allie a chance de crit > 0 -> CIBLE du selecteur
-ALLY_NOCRIT = "eldarFarseer"  # allie a chance de crit == 0 -> NON cible (le gate mord)
+ALLY_NOCRIT = "eldarFarseer"  # chance de crit FORCEE a 0 (cf. `_build`) -> NON cible (le gate mord)
 FOE = "necroWarden"
 A_UNITS = ",".join([FOE] * 3)
 SEED = "31337"
@@ -132,7 +140,12 @@ def _build(sid, seed: str, board: str) -> int:
             # ENNEMI a chance de crit > 0 : sans lui le noeud `Friends` ne serait exerce par RIEN
             # (les ennemis normalises sont a crit 0, donc exclus par le gate CRIT, pas par le gate
             # d'equipe). Volet D.
-            "--unit-stat", "%s:CritChance=%d" % (FOE, CRIT_SEED)]
+            "--unit-stat", "%s:CritChance=%d" % (FOE, CRIT_SEED),
+            # Le porteur « sans crit » se CONSTRUIT (#914/#912) : depuis #419-r5 les items BiS sont
+            # equipes par defaut et `eldarFarseer` arrive a 35. Cf. le bloc « COMMENT LE GATE EST
+            # FORCE » en tete. Regime COURANT preserve (`critDamage` reste a 1561), contrairement a
+            # `TACTICUS_BIS_ITEMS=0` qui deshabillerait tout le roster.
+            "--unit-stat", "%s:CritChance=0" % (ALLY_NOCRIT,)]
     deadline = time.time() + 300
     while True:
         state.unlink(missing_ok=True)

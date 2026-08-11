@@ -2840,7 +2840,11 @@ def main(argv: list[str]) -> int:
                          "son bloc Unit dans une copie du seed BC. N'ecrit jamais le seed BC partage.")
     ap.add_argument("--crit", default=None,
                     help="build: force CritChance,CritDamage sur les p-units (ex. '100,700'). "
-                         "Restaure le crit que la normalisation strippe (crit héros = item I_Crit).")
+                         "Sert dans les DEUX sens (#914) : monter le crit pour l'exercer, et le "
+                         "poser a '0,0' pour construire un porteur qui n'en a PAS -- depuis "
+                         "#419-r5 les items BiS sont equipes par defaut et le crit n'est PLUS "
+                         "strippe par la normalisation (could_crit 0/106 -> 98/106), donc un "
+                         "montage qui SUPPOSE un zero mesure autre chose que ce qu'il croit.")
     ap.add_argument("--crit-target", default=None, help="build: idem --crit pour les a-units")
     ap.add_argument("--block-target", default=None,
                     help="build: force BlockChance,BlockDamage sur les a-units (ex. '100,500')")
