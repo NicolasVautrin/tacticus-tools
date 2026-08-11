@@ -32,7 +32,7 @@ import pytest
 
 CARRIER = "eldarAutarch"       # deep-strike + PathOfCommand
 ALLY_CRIT = "eldarRanger"      # chance de crit forcee > 0 -> CIBLE du selecteur
-ALLY_NOCRIT = "eldarFarseer"   # chance de crit 0 (la normalisation la met a 0) -> NON cible
+ALLY_NOCRIT = "eldarFarseer"   # chance de crit forcee a 0 (cf. `BUILD`) -> NON cible
 FOE = "necroWarden"
 CRIT_SEED = 20
 BUILD = ["--p-units", f"{CARRIER},{ALLY_CRIT},{ALLY_NOCRIT}", "--a-units", f"{FOE},{FOE},{FOE}",
@@ -41,7 +41,19 @@ BUILD = ["--p-units", f"{CARRIER},{ALLY_CRIT},{ALLY_NOCRIT}", "--a-units", f"{FO
          # ENNEMI a chance de crit > 0 : sans lui le noeud `Friends` du selecteur ne serait exerce
          # par RIEN (un ennemi normalise est a crit 0, donc exclu par le gate CRIT et non par le
          # gate d'EQUIPE — un vert qui ne prouverait rien).
-         "--unit-stat", f"{FOE}:CritChance={CRIT_SEED}"]
+         "--unit-stat", f"{FOE}:CritChance={CRIT_SEED}",
+         # #912 -- LE PORTEUR « SANS CRIT » SE CONSTRUIT, IL NE SE SUPPOSE PLUS. Ce montage tenait
+         # sur une premisse ECRITE (« la normalisation la met a 0 ») qui est une propriete du
+         # HARNAIS, pas du jeu : depuis #419-r5 `_normalize_and_extract_pool` EQUIPE les items
+         # Best-In-Slot par defaut, et les quatre stats crit/block ne vivent QUE dans les items
+         # (`could_crit` 0/106 -> 98/106). MESURE (`probe_912_crit_zero_porteur.py`) :
+         # `eldarFarseer` arrive a `critChance = 35`. Le natif avait donc RAISON de lui accorder
+         # les +20 -- et le port aussi (35 + 20 = 55) : le rouge comparait un DELTA live (20) a une
+         # valeur ABSOLUE offline (55), deux grandeurs distinctes, sur un allie qui n'etait plus
+         # celui que le test croyait. On le reconstruit dans le regime COURANT (items equipes,
+         # `critDamage` intact a 1561) plutot que de deshabiller le roster par
+         # `TACTICUS_BIS_ITEMS=0`, qui est le TEMOIN de la bascule et « pas un mode de travail ».
+         "--unit-stat", f"{ALLY_NOCRIT}:CritChance=0"]
 EXTRA_CRIT = "PathOfCommand_ExtraCrit"
 
 
@@ -114,6 +126,11 @@ def poc_crit(rpc, build_runner):
     if any(x is None or x > 2 for x in d.values()):
         pytest.skip(f"allies hors du rayon 2 au spawn ({d}) — montage non exercant")
 
+    # PREMISSE du montage, LUE avant toute pose d'aura (l'Autarch est encore en teleport-in, ses
+    # passives sont deferrees) : c'est la chance de crit de BASE des trois allies. #912 -- sans cette
+    # lecture, un allie devenu crit > 0 par le harnais fait rougir le gate en accusant le port.
+    pre = _live(rpc, rid)
+
     # --- ATTERRISSAGE : live `endturn` vs `EndTurnOperation` offline ---------------------
     rpc("applyAction", {"runnerId": rid, "action": {"kind": "endturn"}}, 30)
     land_live = _live(rpc, rid)
@@ -175,7 +192,7 @@ def poc_crit(rpc, build_runner):
             break
         if friends is not None:
             break
-    return {"ids": ids, "carrier": carrier, "a_crit": a_crit, "a_flat": a_flat,
+    return {"ids": ids, "carrier": carrier, "a_crit": a_crit, "a_flat": a_flat, "pre": pre,
             "land": (land_live, land_off), "steps": steps, "out_tile": out_tile, "d": d,
             "friends": friends}
 
@@ -197,16 +214,40 @@ def test_crit_gate_bites_and_is_not_distance(poc_crit):
     l'allie a crit 0 est a la MEME portee et recoit, lui, le +Attack du jumeau 1112."""
     live, off = poc_crit["land"]
     flat, crit, carrier = poc_crit["a_flat"], poc_crit["a_crit"], poc_crit["carrier"]
+    # LA PREMISSE D'ABORD (#912) : sans un allie a crit de BASE nulle, ce test ne mesure RIEN, et
+    # son rouge accuserait le port pour une derive du HARNAIS. Le montage la construit
+    # (`--unit-stat <ALLY_NOCRIT>:CritChance=0`) ; ici on exige que le natif la confirme.
+    assert poc_crit["pre"][flat]["cc"] == 0, (
+        f"l'allie temoin arrive avec {poc_crit['pre'][flat]['cc']} de chance de crit AVANT toute "
+        "aura -> il n'est PAS le porteur « sans crit » que ce test suppose, et le gate a RAISON de "
+        "le selectionner. Le levier `--unit-stat <ALLY_NOCRIT>:CritChance=0` du montage ne mord "
+        "plus (cf. probe_912_crit_zero_porteur.py, qui LIT la stat des trois allies)")
     assert poc_crit["d"][flat] <= 2, "l'allie CRIT=0 doit etre dans le rayon pour que le gate soit seul en cause"
     assert live[flat]["d_att"] > 0, (
         f"l'allie CRIT=0 ne recoit meme pas le +Attack de 1112 ({live[flat]['d_att']}) -> il est "
         "hors de l'aura, le gate CRIT n'est pas ce qui le distingue")
-    assert live[flat]["d_cc"] == 0 and off[flat]["cc"] == 0, (
-        f"allie a portee SANS chance de crit qui recoit du crit (live {live[flat]['d_cc']}, "
-        f"port {off[flat]['cc']}) -> le noeud UnitsWithStatBiggerThan ne mord pas")
+    # DEUX grandeurs distinctes, et il faut les comparer a LEUR pendant : le DELTA live (`d_cc`) a
+    # la part ATTRIBUEE a l'entite-effet cote port (`_attr`), et les deux ABSOLUS entre eux. La
+    # version d'avant #912 opposait `d_cc` live a l'absolu offline, ce qui rendait un message
+    # illisible (« live 20, port 55 ») pour deux chiffres qui ne mesuraient pas la meme chose.
+    assert live[flat]["d_cc"] == 0 and _attr(off[flat]["per"]) == 0, (
+        f"allie a portee SANS chance de crit qui recoit du crit (delta live {live[flat]['d_cc']}, "
+        f"part attribuee offline {_attr(off[flat]['per'])}) -> le noeud UnitsWithStatBiggerThan ne "
+        f"mord pas")
+    assert off[flat]["cc"] == live[flat]["cc"] == 0, (
+        f"critChance absolue de l'allie temoin : offline {off[flat]['cc']} / live "
+        f"{live[flat]['cc']} -- attendue nulle des DEUX cotes")
     assert live[crit]["d_cc"] > 0, "allie a portee AVEC chance de crit sans bonus -> selecteur trop strict"
-    assert live[carrier]["d_cc"] == 0 and off[carrier]["cc"] == 0, (
-        "le PORTEUR se self-buffe -> `SurroundingFriends` devrait l'exclure")
+    # MEME correction de grandeur que ci-dessus (#912). L'Autarch porte 35 de crit de BASE depuis
+    # l'equipement BiS par defaut : exiger `off[carrier]["cc"] == 0` accusait `SurroundingFriends`
+    # pour une stat que l'aura n'a jamais touchee. Ce qui atteste l'auto-exclusion, c'est que RIEN
+    # ne lui est ajoute : delta live nul, et aucune part attribuee a l'entite-effet cote port.
+    assert live[carrier]["d_cc"] == 0 and _attr(off[carrier]["per"]) == 0, (
+        f"le PORTEUR se self-buffe (delta live {live[carrier]['d_cc']}, part attribuee offline "
+        f"{_attr(off[carrier]['per'])}) -> `SurroundingFriends` devrait l'exclure")
+    assert off[carrier]["cc"] == live[carrier]["cc"], (
+        f"critChance absolue du porteur : offline {off[carrier]['cc']} != live "
+        f"{live[carrier]['cc']}")
 
 
 def test_crit_contribution_is_attributed_not_opaque(poc_crit):

@@ -20,13 +20,26 @@ STRATEGIE DE CONFRONTATION (decomposition par etage — on ne fitte aucun scalai
     fois le maillon (b) ET que le buff n'ajoute AUCUN degat (c'est bien un canal percage).
     Garde anti-faux-positif : sans le registre `ACTIVE_ABILITY_TRIGGERS`, l'offline perd exactement les
     coups de la MoW -> l'assertion serait aveugle si le trigger etait un no-op.
-  * `test_hailstrike_pierce_envelope_live` — cible a **armure INTACTE** (3513) et PV enormes (patch du
-    seed BC : `--hp-target` mettrait l'armure a 0). N tirs sous buff ; on encadre les degats live par les
-    bornes que le port calcule AVEC le bonus, et on exige qu'au moins un tir SORTE des bornes SANS le
-    bonus. C'est l'identification de la magnitude par ENVELOPPE : le bonus est PORTANT et vaut ce que
-    la config dit. (La bit-exactitude du coup buffe sous armure est un RESIDU documente, case-117 §5ter :
-    aucune combinaison percage x decalage RNG ne la reproduit, y compris SANS le bonus -> l'etage
-    divergent est le modele de tirage de l'attaque normale, pas Hailstrike.)
+  * `test_hailstrike_pierce_envelope_live` — cible a **armure INTACTE** et PV enormes (`--unit-stat`,
+    qui patche le BC **deja normalise** ; `--hp-target` mettrait l'armure a 0). N tirs sous buff ; on
+    encadre les degats live par les bornes que le port calcule AVEC le bonus, et on exige qu'au moins
+    un tir SORTE des bornes SANS le bonus. C'est l'identification de la magnitude par ENVELOPPE : le
+    bonus est PORTANT et vaut ce que la config dit.
+
+    ⚠ **CE CRITERE N'A DE SENS QUE DANS UN REGIME, ET LE MONTAGE DOIT L'ETABLIR (#914).** Les bornes
+    que rend le port (`clean_min`/`clean_max`, `damage_ops/normal.py`) sont explicitement la plage
+    **NON-CRIT** (`hit_nc.min/max x hits`), et le montant que le natif reporte (`Amount`) est le degat
+    **APPLIQUE**, donc TRONQUE aux PV restants sur un `Attack_WasOverkill`. Deux derives du harnais
+    avaient fait sortir un tir de l'enveloppe sur `master`, **sans qu'aucune magnitude ne soit
+    fausse** : (i) le patch de `BC.Units[].Health` du SEED BC est INOPERANT -- `buildNormalizedBC`
+    RECALCULE `Health` au rank cible, la cible arrivait a ~9539 PV au lieu des 900000 annonces et
+    mourait en cours de serie ; (ii) depuis **#419-r6** les items BiS sont EQUIPES par defaut, donc
+    `IdunBattle.Core.Services.DamageCalculations$$CouldCrit` (`GetStat(9) > 0 && GetStat(10) > 0`) est
+    VRAI -- alors qu'il etait FAUX pour toute unite quand ce test a ete ecrit (#123 : could_crit
+    0/106 -> 98/106). Le montage eteint donc les DEUX canaux orthogonaux (`--crit 0,0` cote attaquant,
+    `--block-target 0,0` cote defenseur) et le test EXIGE des tags natifs qu'ils le confirment,
+    tir par tir. Mesure du regime restaure : les six montants live sont a nouveau `1921, 2422, 2700,
+    2015, 2445, 2153` -- la serie de #123 a l'unite pres -- et le port les reproduit **bit-exact 6/6**.
   * `test_hailstrike_pierce_gates_offline` — les gates de l'effet, sans runner (OwnerIsCaster,
     disjonction ranged|overwatch, tri-etat #106, scaling resolu contre la SOURCE et non le porteur).
 
@@ -69,6 +82,13 @@ FOE = "astraBullgryn"         # armure elevee (le percage y est observable)
 BOARD = "MC1_67"
 ABILITY = 1214
 HAILSTRIKE_ATTACK = int(TriggeredAbilityType.Hailstrike_Attack)   # 1507
+#: PV forces a la cible du bras ARMURE, par `--unit-stat` (BC deja normalise) -- cf. `_build`.
+TANKY_HP = 900000
+#: Les quatre drapeaux que le natif pose sur l'evenement de degat et qui SORTENT le montant de la
+#: plage NON-CRIT rendue par le port (`clean_min`/`clean_max`). `Attack_WasOverkill` est le plus
+#: perfide : il ne change pas le calcul, il TRONQUE le montant reporte aux PV restants.
+FLAGS_HORS_ENVELOPPE = ("Attack_DidCrit", "Attack_DidBlock", "Attack_DidEvade",
+                        "Attack_WasOverkill")
 
 
 # --------------------------------------------------------------------------------------------- #
@@ -93,7 +113,8 @@ def _ok(r):
 
 def _build(rpc, tag: str, no_armor: bool):
     """Runner avec la MoW deployee. `no_armor` -> `--hp-target` (met FixedArmor a 0 : le percage devient
-    inerte) ; sinon on patche les PV de l'ennemi DANS le seed BC pour garder son armure."""
+    inerte) ; sinon on force les PV de l'ennemi par `--unit-stat`, qui patche le BC **deja normalise**
+    et garde donc son armure."""
     bc = ROOT / "logs" / "runners" / f"bc-hailstrike-{tag}-{uuid.uuid4().hex[:8]}.json"
     bc.parent.mkdir(parents=True, exist_ok=True)
     inj = subprocess.run([sys.executable, "catalog_inject.py", "--units", MOW, "--out", str(bc)],
@@ -105,15 +126,17 @@ def _build(rpc, tag: str, no_armor: bool):
     for _pid, _p in ((_bc.get("Player") or {}).get("Players") or {}).items():
         if isinstance(_p, dict) and _p.get("PlayerType") != 2:
             _p["MachineOfWarAmmo"] = 5              # meme levier que test_storm_speeder_live (#117)
-    if not no_armor:
-        units = _bc.get("Units")
-        for u in (units.values() if isinstance(units, dict) else (units or [])):
-            if isinstance(u, dict) and u.get("VisualId") == FOE:
-                u["Health"] = 900000                # PV enormes SANS toucher FixedArmor
-                u["RemainingHealth"] = 900000
     bc.write_text(json.dumps(_bc), encoding="utf-8")
     state_file = ROOT / "logs" / "runners" / f"hailstrike-{tag}-{uuid.uuid4().hex[:8]}.json"
-    extra = ["--hp-target", "900000", "--hp-player", "900000"] if no_armor else []
+    # #914 -- les PV passent par `--unit-stat` et NON par un patch de `BC.Units[].Health` du seed BC :
+    # `buildNormalizedBC` RECALCULE `Health` au rank cible, donc le patch amont etait INOPERANT (~9539
+    # PV mesures pour 900000 demandes) et la cible mourait en cours de serie -- le dernier montant live
+    # devenait un OVERKILL, c.-a-d. les PV RESTANTS. `--crit`/`--block-target` eteignent les deux
+    # canaux ORTHOGONAUX au percage (cf. le §REGIME de la docstring de module) ; ce n'est PAS
+    # `--no-bis-items`, qui deshabillerait le heros entier.
+    extra = (["--hp-target", "900000", "--hp-player", "900000"] if no_armor else
+             ["--unit-stat", f"{FOE}:Health={TANKY_HP},RemainingHealth={TANKY_HP}",
+              "--crit", "0,0", "--block-target", "0,0"])
     proc = subprocess.run(
         [sys.executable, "rl_duel.py", "build", "--seed", "31337", "--seed-bc", str(bc),
          "--state-file", str(state_file), "--board", BOARD,
@@ -227,14 +250,24 @@ def _offline(dv, ob, snap, rng0, board):
 def _damage_events(cast):
     """[(attacker, target, amount, profileType, activeAbility, passiveAbility)] dans l'ORDRE live."""
     out = []
+    for td in _damage_tags(cast):
+        out.append((td.get("Attacker_Id"), td.get("Target_Id"), td.get("Amount"),
+                    td.get("DamageProfileType"), td.get("Active_Ability_Type"),
+                    td.get("Passive_Ability_Type")))
+    return out
+
+
+def _damage_tags(cast):
+    """Les tags DECODES et COMPLETS de chaque evenement de degat, dans l'ORDRE live. `_damage_events`
+    n'en garde que six champs ; le REGIME du coup (crit / block / evade / overkill) vit dans les
+    autres, et c'est lui qui dit si le montant appartient a la plage que le port encadre."""
+    out = []
     for act in (cast.get("actions") or []):
         for e in (act.get("events") or []):
             td = e.get("tags")
             td = json.loads(td) if isinstance(td, str) else td
             if td and "Amount" in td:
-                out.append((td.get("Attacker_Id"), td.get("Target_Id"), td.get("Amount"),
-                            td.get("DamageProfileType"), td.get("Active_Ability_Type"),
-                            td.get("Passive_Ability_Type")))
+                out.append(td)
     return out
 
 
@@ -407,7 +440,7 @@ def test_hailstrike_pierce_envelope_live(rpc, hailstrike_armor):
         cast = rpc("applyAction", {"runnerId": rid, "action": {
             "kind": "ability", "casterId": ally_id, "targetId": tgt, "abilityType": nid},
             "captureEvents": True}, 150)
-        live = [e for e in _damage_events(cast) if e[0] == ally_id]
+        live = [t for t in _damage_tags(cast) if t.get("Attacker_Id") == ally_id]
         rpc("applyAction", {"runnerId": rid, "action": {"kind": "endturn"}}, 90)
         if not live:
             continue
@@ -415,17 +448,29 @@ def test_hailstrike_pierce_envelope_live(rpc, hailstrike_armor):
         without = _bounds(dv, ob, snap, rng0, board, ally_id, tgt, mute=True)
         if with_bonus is None or without is None:
             continue
-        shots.append((live[0][2], with_bonus, without))
+        shots.append((live[0].get("Amount"), live[0], with_bonus, without))
     if len(shots) < 3:
         pytest.skip(f"seulement {len(shots)} tir(s) buffe(s) exploitable(s) -- NON COUVERT, pas un succes")
 
+    # (0) LE REGIME, avant toute comparaison de magnitude (#914). Le montage l'ETABLIT (`--crit 0,0`,
+    #     `--block-target 0,0`, PV forces) ; ici on exige que le NATIF le confirme, coup par coup.
+    #     Sans ce cran, un crit ou un overkill fait rougir (1) en accusant « la magnitude portee est
+    #     fausse » -- c'est exactement le faux diagnostic qu'un tir a produit sur `master`.
+    for amt, tg, _w, _s in shots:
+        arme = [k for k in FLAGS_HORS_ENVELOPPE if tg.get(k)]
+        assert not arme, (
+            f"tir HORS du regime encadre ({', '.join(arme)}) : le montant live {amt} n'est PAS "
+            f"comparable a [clean_min, clean_max], qui est la plage NON-CRIT du port -- et sur un "
+            f"`Attack_WasOverkill` c'est meme les PV RESTANTS, pas le degat calcule. Le montage "
+            f"eteint ces canaux : si ce rouge apparait, c'est le LEVIER qui ne mord plus "
+            f"(`--crit 0,0` / `--block-target 0,0` / `--unit-stat Health`), pas le port du percage.")
     # (1) le port encadre TOUS les degats live avec le bonus.
-    for amt, (lo, hi), _ in shots:
+    for amt, _tg, (lo, hi), _ in shots:
         assert lo <= amt <= hi, (
             f"degat live {amt} hors des bornes du port AVEC le bonus [{lo}, {hi}] "
             f"-- la magnitude du percage portee est fausse")
     # (2) le bonus est PORTANT : sans lui, au moins un tir live sort des bornes.
-    out = [amt for amt, _w, (lo, hi) in shots if not (lo <= amt <= hi)]
+    out = [amt for amt, _tg, _w, (lo, hi) in shots if not (lo <= amt <= hi)]
     assert out, (f"aucun des {len(shots)} tirs live ne sort des bornes SANS le bonus "
                  f"({[s[2] for s in shots]}) -- le scenario ne DISCRIMINE pas, la garde serait aveugle")
     # (3) l'oracle de magnitude est la CONFIG, pas un chiffre en dur.
