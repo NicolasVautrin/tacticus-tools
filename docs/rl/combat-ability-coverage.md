@@ -9,9 +9,9 @@ Le runner combat route chaque ability choisie via `ActiveAbilityMessage` -> `Abi
 ## Bilan
 
 - ActiveAbilityType castables par les unites : **175** distinct
-- **PORTED** (dans `ABILITY_CLASSES`) : **152**
-- **NO-OP silencieux** (a porter) : **23**
-- Ventilation NO-OP : **DAMAGE**=10, **EFFECT/BUFF**=8, **SUMMON**=4, **HEAL**=1
+- **PORTED** (dans `ABILITY_CLASSES`) : **153**
+- **NO-OP silencieux** (a porter) : **22**
+- Ventilation NO-OP : **DAMAGE**=10, **EFFECT/BUFF**=7, **SUMMON**=4, **HEAL**=1
 
 ## Priorisation & templates de port
 
@@ -30,7 +30,7 @@ Le runner combat route chaque ability choisie via `ActiveAbilityMessage` -> `Abi
 
 Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 
-## NO-OP SILENCIEUX en combat (a porter, tries categorie puis frequence) (23)
+## NO-OP SILENCIEUX en combat (a porter, tries categorie puis frequence) (22)
 
 | id | ability | categorie | #units | kinds |
 |---|---|---|---|---|
@@ -48,7 +48,6 @@ Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 | 1010 | StormOfFlensingBlades | EFFECT/BUFF | 3 | N |
 | 1053 | DevoutPush | EFFECT/BUFF | 2 | NS |
 | 1185 | ForwardObservers | EFFECT/BUFF | 2 | NS |
-| 1228 | SternguardFocus | EFFECT/BUFF | 2 | LN |
 | 1133 | WarConstruct | EFFECT/BUFF | 2 | N |
 | 1203 | DaemonicPatrons | EFFECT/BUFF | 1 | L |
 | 1107 | Reveal | EFFECT/BUFF | 1 | N |
@@ -58,7 +57,7 @@ Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 | 1052 | CallRipperSwarms | SUMMON | 1 | N |
 | 1172 | InvocationOfMachineVengeance | SUMMON | 1 | N |
 
-## PORTED (registry) (152)
+## PORTED (registry) (153)
 
 | id | ability | categorie | #units | kinds |
 |---|---|---|---|---|
@@ -180,6 +179,7 @@ Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 | 1061 | UnbreakableDuty | EFFECT/BUFF | 4 | LN |
 | 1049 | CrusadeOfWrath | EFFECT/BUFF | 3 | LN |
 | 1140 | ExemplarOfHate | EFFECT/BUFF | 3 | LN |
+| 1228 | SternguardFocus | EFFECT/BUFF | 2 | LN |
 | 1186 | WallOfMirrors | EFFECT/BUFF | 2 | NS |
 | 1163 | BlackRage | EFFECT/BUFF | 1 | L |
 | 1032 | Catalyst | EFFECT/BUFF | 1 | N |
