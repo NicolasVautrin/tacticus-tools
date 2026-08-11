@@ -31,6 +31,29 @@ import gameconfig as G              # noqa: E402
 ACT = "IdunBattle.Entities.Enum.ActiveAbilityType"
 TRI = "IdunBattle.Entities.Enum.TriggeredAbilityType"
 
+# `DECLENCHEUR` (#486-r15) -- ce qui doit changer pour que ce fichier puisse changer de verdict.
+DECLENCHEUR = {
+    # PERIMETRE DERIVE du role du fichier, pas prudentiel. Le verdict depend de TROIS entrees :
+    #   * le routage lui-meme (`catalog_inject.route_configured_abilities` / `_ability_names`) ;
+    #   * les deux tables d'enum du build (`data/symbols/<build>/frida/enums.tsv`) et le
+    #     `gameconfig.json` qui les apparie -- une livraison de contenu peut creer un 3e nom mal
+    #     range, ou en supprimer un ;
+    #   * la capture `data/seed-bc.json`, qui EST le temoin de l'etage 4.
+    # Une liste choisie de fichiers Python serait un FAUX VERT : le gisement vit dans les DONNEES.
+    "chemins": ("scripts/python/catalog_inject.py", "scripts/python/gameconfig.py",
+                "scripts/python/symbols_layout.py",
+                "data/symbols/*/frida/enums.tsv", "data/symbols/*/gameconfig.json",
+                "data/symbols/*/BUILD", "data/seed-bc.json"),
+    # Le build EST une entree du verdict : les deux enums et le gameconfig sont per-build, et
+    # c'est precisement une mise a jour qui peut creer (ou dissoudre) un nom mal range.
+    "build": True,
+    "toujours": False,
+    "raison": ("Le verdict depend du ROUTAGE (`catalog_inject`) ET des DONNEES per-build : "
+               "les deux tables d'enum, le gameconfig vivant, et la capture `data/seed-bc.json` "
+               "qui est le TEMOIN de l'etage 4. Une livraison de contenu peut faire apparaitre "
+               "un 3e nom mal range sans qu'aucun fichier Python ne bouge."),
+}
+
 
 def _all_unit_ids():
     cfg = G._cfg()["units"]
