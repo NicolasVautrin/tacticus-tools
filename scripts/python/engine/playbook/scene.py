@@ -35,6 +35,12 @@ from engine.entities.stats import StatComponent, ValueModification
 from engine.entities.stats import StatType as _ST
 from engine.entities.traits.unit_trait import trait_names_from_ids
 from ..entities.pathfinding.board import adjacent_neigh_by_pos
+from ..entities.unit_faction import UnitFaction
+
+#: `UnitFaction.DarkAngels = 0xa` -- le NOM de la valeur d'enum, parce que c'est ce que le natif
+#: compare (`System.Enum.ToString(UnitFaction)` puis `String.Equals` sur `FactionComponent+0x30`),
+#: et non l'ordinal. Consommateur : `Scene.adjacent_dark_angels_friends` (#932).
+_DARK_ANGELS = UnitFaction.DarkAngels.name
 
 
 @dataclass
@@ -625,6 +631,48 @@ class Scene:
                 continue
             if eff is not None and eff.has_effect(
                     int(oid), int(EffectType.Taunted_OnlySpecificTargets)):   # 0x1b = 27
+                n += 1
+        return n
+
+    def adjacent_dark_angels_friends(self, uid) -> "int | None":
+        """`Count( UnitsFromFaction( AdjacentFriends(Owner, unique: 1, selectionType: 3),
+        UnitFaction.DarkAngels = 0xa, selectionType: 3 ) )` -- face PREDICTION du MEME selecteur que
+        `runner.components.adjacent_dark_angels_friends_count` (un noeud natif, deux substrats :
+        l'ECS cote runner, les tables de `Scene` ici, #932).
+
+        C'est le SECOND disjoint de `IdunBattle.Entities.Effects.Loki.DeathwingEffect$$
+        GetDoubleEffectCondition`, appele par les DEUX faces de degat de l'effet (`isDefense` ne
+        change QUE l'entite comparee du premier disjoint, jamais ce compteur) : la face DECISION doit
+        le voir sous peine de sous-predire de MOITIE le degat de Baraqiel.
+
+        ⚠ Le substrat impose de recomposer le selecteur ici (`Scene` n'a pas d'`AbilityEntities`
+        pour executer l'arbre) -- MEME regime que `adjacent_taunted_enemies` juste au-dessus, dont
+        cette methode est le decalque a trois differences LUES : le camp est AMI (et non ennemi),
+        le porteur ne se compte PAS lui-meme (`op_Subtraction` d'`AdjacentFriends`), et le filtre
+        porte sur la FACTION gameconfig, pas sur un effet.
+
+        ⚠ EVALUE A LA POSITION COURANTE, pas a la TUILE CANDIDATE -- meme contraste assume que
+        `adjacent_taunted_enemies` : un plan qui DEPLACE Baraqiel loin de ses freres predit encore
+        le doublement. Residu NOMME ; la face COMBAT, elle, mesure la position REELLE au coup.
+
+        `None` (equipe ou position du porteur inconnue) => cle ABSENTE => disjoint FERME cote effet
+        (degradation RESTRICTIVE) -- jamais un 0 invente."""
+        import hexgeo
+        team = self.team_by_id.get(uid)
+        here = self.pos(uid)
+        if team is None or here is None:
+            return None
+        n = 0
+        for u in (self.units or ()):
+            oid = u.get("id")
+            if oid == uid or u.get("team") != team or not u.get("alive"):   # AdjacentFriends(Owner)
+                continue
+            p = self.pos(oid)
+            if p is None or hexgeo.distance(tuple(here), tuple(p)) != 1:
+                continue
+            # `UnitsFromFaction(..., UnitFaction.DarkAngels, 3)` : le natif compare le NOM de la
+            # valeur d'enum au `FactionComponent+0x30` ; offline, c'est le `FactionId` gameconfig.
+            if (GC.unit(self.vis_by_id.get(oid)) or {}).get("FactionId") == _DARK_ANGELS:
                 n += 1
         return n
 

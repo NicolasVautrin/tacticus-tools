@@ -511,6 +511,25 @@ def _add_positional_and_defender_mods(mods, scene, att_id, tgt_id, is_melee, att
     _adt = scene.adjacent_taunted_enemies(tgt_id)
     if _adt is not None:
         att_ctx["adjacent_taunted_enemies"] = int(_adt)
+    # #932 -- les TROIS noeuds de `IdunBattle.Entities.Effects.Loki.DeathwingEffect$$
+    # GetDoubleEffectCondition` sur la face DEFENSE (`isDefense: true`), ou l'entite comparee est
+    # l'ACTEUR (l'attaquant) et l'Owner est la CIBLE `tgt_id` :
+    #   `HasTrait(Actor@+0x40, 0x7ea = Chaos)`  -> `grand_alliance` (celle de l'ATTAQUANT ; elle
+    #      n'est PAS dans `traits` -- le trait d'alliance est derive du `GrandAllianceId` par
+    #      `idun.Idun.Source.Shared.GrandAlliance$$GetTrait` et ajoute par le BattleConfiguration) ;
+    #   `AreEnemies(Actor@+0x40, Owner@+0x30)`  -> `team` (deja posee) + `owner_team` ;
+    #   `AmountIsGreaterThanZero(UnitsFromFaction(AdjacentFriends(Owner), DarkAngels))`
+    #                                           -> `adjacent_dark_angels_friends` du DEFENSEUR.
+    # TROISIEME et QUATRIEME cles de ce contexte portees sur l'OWNER de l'effet, comme
+    # `is_turn_of_owner` et `adjacent_taunted_enemies`. MEMES cles que la face COMBAT
+    # (`damage_model.defender_modifiers`) -- pas de fork.
+    att_ctx["grand_alliance"] = (GC.unit(scene.vis_by_id.get(att_id)) or {}).get("GrandAllianceId")
+    _own_team = scene.team(tgt_id)
+    if _own_team is not None:
+        att_ctx["owner_team"] = _own_team
+    _ada = scene.adjacent_dark_angels_friends(tgt_id)
+    if _ada is not None:
+        att_ctx["adjacent_dark_angels_friends"] = int(_ada)
     # STAT-MODS DEFENSE de la CIBLE (#194/#197) : moitie DEFENSE de `CalculateDefenderModifiersForPrediction
     # IdunBattle.Core.Services.DamageCalculations$$CalculateDefenderModifiersForPrediction` (DefenseComponent stat 3 IdunBattle.Core.Services.DamageCalculations$$CalculateDefenderModifiersForPrediction+0x436 → `IdunBattle.Core.Services.DamageCalculations$$CalculateModifiersFromStatModifications`
     # negate=1 → `1±v/100`). Ex. tuile Thorns −50 → +50 → ×1.5 (GROUND TRUTH C2_19). PORTEE DANS la fonction
