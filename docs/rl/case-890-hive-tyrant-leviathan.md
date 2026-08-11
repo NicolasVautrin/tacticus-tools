@@ -196,10 +196,12 @@ python scripts/python/rl_duel.py build --board CE2_boss --seed 777 \
 
 * `--explicit-stats` est **répétable** (un flag par unité) ; `--p-units` est à virgules ; et
   `--place` veut l'id **avec son palier** (`tyranBossHiveTyrantLeviathan:4:col,row`).
-* Le garde de roster imprime `roster NON MONTE … demande x1 mais MONTE x0` et sort en `rc != 0`
-  **alors que le boss EST en bataille** : le jeu le republie sous l'id d'entité remappé
-  `GuildBoss2Boss1TyranHiveTyrantLeviathan`. `TACTICUS_ALLOW_ROSTER_DEFICIT=1`, puis on VÉRIFIE la
-  présence dans la vue.
+* **Aucune échappatoire de roster n'est posée, et c'est délibéré.** Le garde butait sur l'id
+  d'entité remappé (`GuildBoss2Boss1TyranHiveTyrantLeviathan`) et rendait
+  `demande x1 mais MONTE x0` sur un boss pourtant EN BATAILLE ; ce probe a d'abord tourné sous
+  `TACTICUS_ALLOW_ROSTER_DEFICIT=1`. **#895 a réparé le garde** (il résout le remappage) → le build
+  passe `rc=0` sans rien neutraliser, VÉRIFIÉ. La variable est même **retirée de l'environnement**
+  hérité : la garder ferait taire un vrai déficit.
 * Le boss est `moveNone` → tout volet dépendant d'un déplacement du CASTER est **NON CONFRONTÉ**.
 * Board : `CE2_boss` (7×10, `IsBossBoard`, 1 `BossPlatform` de 3 tuiles) — celui que le gameconfig
   déclare pour ce boss, contre `MC1_67` (7×9, 0 `BossPlatform`).
@@ -216,8 +218,15 @@ python scripts/python/rl_duel.py build --board CE2_boss --seed 777 \
 
 ### Ce que les témoins NE discriminent PAS (limites écrites)
 
-* **`feet`** — 1 tuile partout, aucun porteur à `feet > 1` observé : « il occupe une tuile » et
-  « le canal rend 1 pour tout le monde » restent indiscernables (résidu `#890-r4`).
+* **`feet`** — 1 tuile partout, y compris le boss placé exactement sur une tuile de la
+  `BossPlatform`. Ce canal **ne discrimine rien** (il rend `1` pour tout le monde), et ce cas n'en
+  conclut donc rien. ⚠ **La question générale, elle, est TRANCHÉE par #895/#896, et pas par ce
+  canal** : un boss monté par `rl_duel` est **MONO-HEX**, prouvé par une porte NATIVE —
+  `1193 NovaCharge` porte `TargetingRule.CasterHas7Tiles` et `abilityTargets` y rend 0 quand sa
+  voisine rend 66 au même instant. Les deux masques du Hive Tyrant (`0x8004`, `0x100004002`) ne
+  portent **aucun** bit `CasterHas{1,3,7}Tiles` : ce boss-ci n'offre pas cette porte. Ce qui reste
+  ouvert est en amont — la `BossPlatform` de 3 tuiles existe dans le dump de board et n'est
+  consommée par aucun étage de notre voie de montage (résidu `#890-r4`).
 * Le volet **PERÇAGE** de la nature `None` : le boss a `extra_pierce_ranged = extra_pierce_melee =
   0`, donc `ranged=not is_melee` reste inobservable ici.
 * Le **camp** : le boss est monté côté JOUEUR (`--p-units`), alors qu'en campagne il est côté
