@@ -302,37 +302,12 @@ class NetherRealmCasketCritDamageReductionEffect(BaseEffect):
         return -amount if amount else None                                  #    ForSubtraction
 
 
-class NetherRealmCasketLivingMetalBonusEffect(BaseEffect):
-    """`NetherRealmCasket_LivingMetalBonus` (`EffectType` 0x5b0 = 1456) -- l'autre owner-effect
-    PERMANENT de la relique : le porteur regenere `hpToHeal[niveau de relique]` PV de PLUS quand la
-    reparation vient de son trait `LivingMetal`.
-
-    Cette classe ne porte AUCUN hook de bonus : la regle du canal `BaseEffect$$RepairBonus` (quels
-    `EffectType` contribuent, `add` vs `pct`, et desormais le gate `TriggeringAbilityIs`) vit dans
-    le foyer UNIQUE `engine.predict.calculate_repair_modifier_for_prediction`, partage par les DEUX
-    faces -- c'est l'arbitrage deja pris pour `NanoscarabRepairProtocolsEffect` (1545) et
-    `VoltagheistField_RepairReductionEffect` (1382), et le dupliquer ici serait un fork.
-
-    Ce qu'elle apporte, et pourquoi elle existe malgre tout : le foyer lit la magnitude par
-    `ability_var(..., level)`, et le NIVEAU d'une relique n'est PAS celui que l'effet capte porte
-    (`ability_level` = 50 sur tout runner normalise -> `hpToHeal` clampe a `[10] = 1456`, quel que
-    soit le niveau reel). L'entree `EFFECT_CLASSES` fait donc exister l'instance qui sait resoudre
-    l'etat TERTIAIRE du porteur, exactement comme pour 1455 ci-dessus.
-
-    `CreateActiveCondition` n'est PAS surchargee par cet effet (le natif ne la nomme que pour 1455)
-    -- il est donc TOUJOURS actif, et c'est son gate `TriggeringAbilityIs(LivingMetalRepair)` qui
-    le rend silencieux partout ailleurs."""
-
-    def repair_bonus_ability_state(self, ability_state_of=None, owner_id=None) -> tuple:
-        """`GetAbilityState(effect)` du descripteur `CreateEffectRepairBonus` -- meme lecture que
-        `NetherRealmCasketCritDamageReductionEffect._ability_state`, sur l'autre canal.
-
-        `ability_state_of` = callable `(owner_id, ability_name) -> (level, multiplier)` (le foyer
-        `triggered_ability_state` de #357). Absent, ou `owner_id` absent, ou niveau non resolu ->
-        repli sur les niveaux portes par l'effet capte."""
-        if ability_state_of is not None and owner_id is not None:
-            lvl, mult = ability_state_of(owner_id, ABILITY_ID)
-            if lvl is not None:
-                return int(lvl), int(mult if mult is not None else 100)
-        lvl = self.ability_level if self.ability_level is not None else self.level
-        return lvl, int(self.ability_variables_multiplier or 100)
+#: `EffectType` 0x5b0 = 1456 -- le nom runtime de l'effet `RepairBonus`. Il n'a **pas** de classe
+#: d'effet, et c'est un CHOIX : la regle du canal `IdunBattle.Entities.Effects.BaseEffect$$
+#: RepairBonus` (quels `EffectType` contribuent, `add` vs `pct`, et desormais le gate
+#: `TriggeringAbilityIs`) vit dans le foyer UNIQUE
+#: `engine.predict.calculate_repair_modifier_for_prediction`, partage par les DEUX faces -- c'est
+#: l'arbitrage deja pris pour les DEUX autres implementeurs du canal (`NanoscarabRepairProtocols`
+#: 1545, `VoltagheistField_RepairReduction` 1382), qui n'ont pas de classe non plus. En creer une
+#: ici dupliquerait la regle : un fork, pas un port.
+LIVING_METAL_BONUS_EFFECT_NAME = "NetherRealmCasket_LivingMetalBonus"

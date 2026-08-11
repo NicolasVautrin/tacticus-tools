@@ -11,6 +11,7 @@ from collections.abc import Mapping
 from .base import BaseEffect
 from .loki.ability_modifications import ListenUpMaggotsEffect
 from .loki.amulet_of_the_voidwyrm import AmuletOfTheVoidwyrmCritDamageReductionEffect
+from .loki.nether_realm_casket import NetherRealmCasketCritDamageReductionEffect
 from .loki.ramshackle import RamshackleDmgReductionEffect
 from .loki.supa_cybork_body import SupaCyborkBodyCritDmgReductionEffect
 from .loki.blood_chalice import BloodChaliceExtraPiercingEffect, BloodChaliceHealOnAttackEffect
@@ -1143,6 +1144,40 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # SON ABSENCE ETAIT PERMISSIVE ET SILENCIEUSE : mesuree sur le tir differe `1237` (#503-r4),
     # elle valait 1736 PV de trop sur une cible a 12049 PV (le port la TUAIT, le natif non).
     "SupaCyborkBody_CritDmgReduction": SupaCyborkBodyCritDmgReductionEffect,
+    # 1455 NetherRealmCasket_CritDamageReduction (#908) : TROISIEME implementeur de l'axe REDUCTION
+    # du canal crit-DEGAT, meme forme que les deux ci-dessus. Owner-effect PERMANENT de la RELIQUE
+    # `NetherRealmCasket` (`TriggeredAbilityType` 0x5b6 = 1462, `allowedUnits = [necroWarden,
+    # necroSpyder, necroDestroyer]`), pose par
+    #   `...Triggered.Loki.NetherRealmCasketAbility$$CreateBehaviour`
+    #       = AddEffect(0x5af, AbilityStateReference, source = Owner, targets = Owner,
+    #                   options = <32 octets ZEROES>)          <- surcharge tranchee par la CIBLE
+    #         op_BitwiseAnd                                        du `call` (`0x180e9e8b0`)
+    #         AddEffect(0x5b0 = 1456, <memes arguments>)
+    # -- DEUX effets, donc l'ability ne peut PAS deriver d'`AOwnerEffectTriggeredAbility` (dont le
+    # `CreateBehaviour` de base n'en pose qu'UN) : elle est fille directe de `BaseTriggeredAbility`.
+    #   `...NetherRealmCasket_CritDamageReductionEffect$$CreateCritDamageBonus`
+    #       = ForSubtraction(get_OwnerIsTarget,                <- trigger NU, aucun op_BitwiseAnd
+    #                        Multiply(ConfigVar(0x97 = critDmgReduction),
+    #                                 AdjacentMechanicalUnits()))   <- slot virtuel `+0x5f8`
+    #   + `CreateActiveCondition` = AmountIsGreaterThanZero(<le MEME compteur>)
+    #   + `GetCalculateLevel`     = <le MEME compteur>         (affichage, non porte)
+    # ⚠ Le COMPTEUR est `Count(MechanicalUnits(NormalUnits(AdjacentFriends(Owner, 1, 3), 3), 3))`,
+    # et `MechanicalUnits` n'est PAS `HasTrait(Mechanical)` : `UnitExtensions$$IsMechanical` =
+    # `Mechanical 5 | LivingMetal 1000 | Vehicle 1029`. Load-bearing ICI -- tout le roster necron
+    # porte `LivingMetal`, plusieurs SANS `Mechanical` (`necroWarden`, mesure #220) : un port par
+    # trait unique compterait systematiquement TROP PEU sur le camp meme ou la relique s'equipe.
+    # ⚠ CONFIG = la TRIGGERED 1462 (`.ctor` de 1456 relu A L'ASSEMBLEUR : `ba b6 05 00 00`), et le
+    # gameconfig n'a qu'UNE entree de ce nom -> pas d'ambiguite d'enum ici, contrairement a
+    # 1460/1464. Le niveau lu est celui de l'`AbilityState` TERTIAIRE du porteur (relique EQUIPEE),
+    # via le foyer `triggered_ability_state` de #357.
+    "NetherRealmCasket_CritDamageReduction": NetherRealmCasketCritDamageReductionEffect,
+    # ⚠ L'AUTRE effet de la meme relique, `1456 NetherRealmCasket_LivingMetalBonus`, n'a
+    # DELIBEREMENT pas d'entree ici : c'est un `IdunBattle.Entities.Effects.BaseEffect$$RepairBonus`
+    # (`ForAddition(get_OwnerIsTarget & TriggeringAbilityIs(LivingMetalRepair 0x3f2),
+    # ConfigVar(0x20 = hpToHeal))`), et la regle de ce canal vit dans le foyer UNIQUE
+    # `engine.predict.calculate_repair_modifier_for_prediction`, comme pour ses DEUX co-implementeurs
+    # `NanoscarabRepairProtocols` (1545) et `VoltagheistField_RepairReduction` (1382), qui n'ont pas
+    # de classe non plus. Cf. `loki/nether_realm_casket.py::LIVING_METAL_BONUS_EFFECT_NAME`.
     # 1090 Ramshackle_DmgReduction (#570-r1) : owner-effect PERMANENT du passif `Ramshackle`, seul
     # passif du summon `orksGrotTank`. #570 avait NOMME ce trou -- le tank arrivait avec ses stats,
     # ses traits et ses armes, et SANS sa reduction de degat : ecart PERMISSIF (il encaisse plus

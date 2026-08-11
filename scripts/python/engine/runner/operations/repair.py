@@ -76,7 +76,7 @@ if TYPE_CHECKING:
     from ..state import State
 
 
-def _repair_modifier(state: "State", target_id: int) -> tuple:
+def _repair_modifier(state: "State", target_id: int, ability_or_effect=None) -> tuple:
     """`IdunBattle.Core.Services.RepairCalculations$$CalculateRepairModifierForPrediction` cote RUNNER.
 
     Le natif part de `IdunBattle.Core.Services.RepairModifier$$Empty` = `{multiplier = Fix64.One,
@@ -95,11 +95,11 @@ def _repair_modifier(state: "State", target_id: int) -> tuple:
     runner au format `{name, level, source}` que cette fonction consomme. Une seule lecture du natif,
     deux substrats -- surtout pas deux tables.
 
-    RESIDU NOMME, et il est **ATTEIGNABLE** -- correction #317 d'un verdict « DEAD » errone de #310.
-    Le 3e implementeur `NetherRealmCasket_LivingMetalBonusEffect` (1456) est le SEUL dont le gate
+    RESIDU LEVE PAR #908 -- il etait **ATTEIGNABLE**, et il est desormais ATTEINT. Le 3e
+    implementeur `NetherRealmCasket_LivingMetalBonusEffect` (1456) est le SEUL dont le gate
     `TriggeringAbilityIs(LivingMetalRepair)` PEUT etre satisfait ici -- depuis #310 le trigger
     LivingMetal passe bien par cette Operation, donc la face COMBAT est le seul chemin ou ce bonus
-    vaudrait autre chose que 0.
+    vaut autre chose que 0.
     #310 l'avait classe DEAD sur `python unit_map.py find --ability NetherRealmCasket` = **0 unite**.
     Ce zero etait un FAUX NEGATIF : `unit_map find --ability` ne lisait que `activeAbilities` +
     `passiveAbilities`, il etait **aveugle aux RELIQUES** -- **CORRIGE par #323** (5 voies lues,
@@ -108,13 +108,22 @@ def _repair_modifier(state: "State", target_id: int) -> tuple:
     `R_Booster_Crit_NetherRealmCasket`, `allowedUnits = [necroWarden, necroSpyder, necroDestroyer]`
     -- TROIS heros DU POOL -- et `necroSpyder` (traits `Hero`/`LivingMetal`/`Mechanical`/`Mechanic`)
     la porte DEJA EQUIPEE dans le seed BC courant (`Units[].TertiaryAbility = 1462`).
-    Ce qui manque n'est donc pas un porteur mais DEUX canaux, tous deux nommes :
-      * le kit declenche REEL d'une unite (traits + reliques) n'est pas expose au rail COMBAT --
-        `collect_triggered_abilities` derive du gameconfig, la lecture fidele
+    Des DEUX canaux que #317 nommait comme manquants, il reste UN :
+      * `ability_or_effect` -- la CAUSE que le gate du descripteur consomme : **PORTE (#908)**, du
+        `RepairBehaviour+0x68` jusqu'ici, en mirror du 5e argument `source` de
+        `IdunBattle.Core.Services.RepairCalculations$$CalculateRepairModifierForPrediction` ;
+      * le kit declenche REEL d'une unite (traits + reliques) n'est PAS expose au rail COMBAT --
+        `collect_triggered_abilities` derive du gameconfig ; la lecture fidele
         (`engine/ai/context.py::live_triggered_ability_ids`, RPC `unitAbilityStates`) n'existe que
-        cote DECISION ; gap deja mesure par `probe_193_move_playbook_inventory.py` volet 2 ;
-      * le canal `triggering_ability` dans `engine.predict`, que le gate du descripteur consomme.
+        cote DECISION ; gap deja mesure par `probe_193_move_playbook_inventory.py` volet 2. TOUJOURS
+        OUVERT -- mais il ne bloque PAS ce bonus-ci : l'EFFET 1456 arrive dans l'etat du port par la
+        CAPTURE (`state.effects`), pas par le registre d'abilities.
     Detail et re-derivation : `docs/rl/case-317-repair-callers-inventory.md` par. 1.
+
+    `ability_or_effect` = un ordinal `TriggeredAbilityType`, ou `None` = cause NON THREADEE (le gate
+    rend alors FAUX -- jamais permissif). Le niveau du bonus est resolu par le foyer UNIQUE
+    `runner/operations/triggers/base.py::triggered_ability_state` (#357), sans quoi une relique de
+    niveau 1 lirait le dernier palier de `hpToHeal`.
 
     Rend `(mod_add, mod_mul)`. Aucun effet contributeur -> `(0, 1.0)` = no-op EXACT (`Empty`)."""
     if state.effects is None or target_id is None:
@@ -134,11 +143,20 @@ def _repair_modifier(state: "State", target_id: int) -> tuple:
         mult = getattr(sc.ctx, "ability_variables_multiplier", 100) if sc is not None else 100
         return {"multiplier": int(mult or 100)}
 
-    return calculate_repair_modifier_for_prediction(rows, heal_config=_cfg)
+    def _ability_state(ability_name):
+        """`GetAbilityState(effect)` du PORTEUR de l'effet -- et le porteur EST la cible, puisque
+        `get_OwnerIsTarget` est ce qui a laisse passer l'effet dans `rows`. Delegue au foyer UNIQUE
+        `triggered_ability_state` (#357) : etat TERTIAIRE pour une relique EQUIPEE, PASSIF sinon."""
+        from .triggers.base import triggered_ability_state
+        return triggered_ability_state(state, int(target_id), ability_name)
+
+    return calculate_repair_modifier_for_prediction(rows, heal_config=_cfg,
+                                                    ability_or_effect=ability_or_effect,
+                                                    ability_state_of=_ability_state)
 
 
 def predict_repair(state: "State", caster_id, target_id: int, amount: int,
-                   scope: int = 0) -> int:
+                   scope: int = 0, ability_or_effect=None) -> int:
     """`IdunBattle.Core.Services.DamagePrediction$$PredictRepair` -> son champ `fillUp` (le HIGH dword
     du `CONCAT44(MaxFillUp(...), GetStat(target, Health))` que le natif renvoie).
 
@@ -158,7 +176,15 @@ def predict_repair(state: "State", caster_id, target_id: int, amount: int,
          ORDRE. Il est desormais a sa place native : `Min(amount, GetGroupUnitHealLimit)` APRES le
          modifier ;
       3. cap BOSS `GetStat(Health, Initial) - current`, gate `IsBoss(target)` ;
-      4. `MaxFillUp` = `Min(amount, CurrentMaximumValue - current)`."""
+      4. `MaxFillUp` = `Min(amount, CurrentMaximumValue - current)`.
+
+    `ability_or_effect` (#908) = le 6e argument natif de `PredictRepair`, relaye tel quel au 5e
+    (`source`) de `CalculateRepairModifierForPrediction`. ⚠ **`PredictHeal` NE LE PORTE PAS** -- les
+    deux `Predict*` ne sont PAS jumeaux sur ce point, et c'est LU au decompile :
+    `IdunBattle.Core.Services.DamagePrediction$$PredictHeal(this, caster, casterTile, target,
+    amount, scope)` construit son `AbilityEntities` INLINE, sans champ de cause, tandis que
+    `PredictRepair` passe le sien a `CalculateRepairModifierForPrediction`. Cf.
+    `tests/engine/test_520_heal_pipeline_offline.py`, qui garde cette asymetrie."""
     from ..abilities.targeting import is_actor
     e = state.get_entity(int(target_id))
     hc = e.get_component(HealthComponent) if e is not None else None
@@ -166,7 +192,8 @@ def predict_repair(state: "State", caster_id, target_id: int, amount: int,
         return 0
     amt = int(amount)
     if caster_id is not None and is_actor(state, int(caster_id)):
-        mod_add, mod_mul = _repair_modifier(state, int(target_id))
+        mod_add, mod_mul = _repair_modifier(state, int(target_id),
+                                            ability_or_effect=ability_or_effect)
         amt = _repair_amount(amt, mod_add, mod_mul)
     cur, mx = int(hc.hp), int(hc.hp_max)
     # (2) `if (scope == 1) predicted = Min(predicted, GetGroupUnitHealLimit(target, health))` :
@@ -208,7 +235,7 @@ class RepairUnitOperation:
 
     @staticmethod
     def execute(state: "State", caster_id, target_id: int, amount: int,
-                scope: int = 0, remove_effects: bool = False) -> int:
+                scope: int = 0, remove_effects: bool = False, ability_or_effect=None) -> int:
         """Repare `target_id` et rend le montant REELLEMENT restaure (0 si le gate refuse, si la
         cible est deja pleine, ou si ses PV ne sont pas lisibles).
 
@@ -217,6 +244,18 @@ class RepairUnitOperation:
         `$$ForRegenerate` (= `1` / `0`) -- ce sont les deux SEULES fabriques du build (relues
         verbatim sur `rnca9r7q6c` : `ForRegenerate` ecrit `+0x10 = 1` puis `+0x14 = 0`, `ForRepair`
         l'inverse).
+
+        `ability_or_effect` = `RepairBehaviour+0x68` (`source`), le SEPTIEME argument natif -- celui
+        que Ghidra ne nomme pas parce qu'il arrive sur la PILE (`in_stack_00000040`), et que le
+        decompile montre recopie en 0x1c octets avant l'appel a `PredictRepair`. Il n'a qu'UN
+        consommateur porte, le gate `TriggeringAbilityIs` du descripteur
+        `NetherRealmCasket_LivingMetalBonusEffect$$CreateEffectRepairBonus` (#908) ; les vecteurs de
+        trigger `On(0x30)` / `On(0x1e)` qui le lisent aussi cote natif ne sont pas modelises.
+        ⚠ Ghidra DECALE la signature de cette fonction d'un cran (son 1er parametre est le buffer
+        de retour `OperationResult`, son `caster` est l'Operation elle-meme, et ce qu'il nomme
+        `source` est en realite `removeEffects`) -- meme piege que `HealUnitOperation$$Execute`,
+        deja documente dans `heal.py`. La lecture ci-dessus est celle des ARGUMENTS REELS,
+        recoupee par le call-site `RepairBehaviour$$Execute`.
 
         SOUS `scope == 1`, le gate natif prend une CONDITION DE PLUS : `if (scope == 0) return true;
         return !AttackQuery.IsAtGroupUnitHealLimit(entity);`. Cote port
@@ -241,7 +280,8 @@ class RepairUnitOperation:
         hc = e.get_component(HealthComponent) if e is not None else None
         if hc is None or hc.hp is None or hc.hp_max is None:
             return 0
-        predicted = predict_repair(state, caster_id, int(target_id), int(amount), scope=int(scope))
+        predicted = predict_repair(state, caster_id, int(target_id), int(amount), scope=int(scope),
+                                   ability_or_effect=ability_or_effect)
         # `FillUpStatComponent$$FillUp` : `filled = Min(amount, CurrentMaximumValue - current)` ;
         # `current += filled` ; le champ `+0x24` (over-reduce) est remis a 0. PORTE depuis
         # #462-r4e-o-r2 via le foyer unique `HealthComponent.fill_up` -- appele AVANT la sortie

@@ -101,6 +101,7 @@ from ...entities.effects import board_effect_carriers
 from ...entities.traits.unit_trait import entity_trait_names
 from ..components import (OwnerComponent, StatsComponent, UnitComponent,
                                   adjacent_enemies_count,
+                                  adjacent_friendly_mechanical_units_count,
                                   adjacent_friendly_summons_and_decoys_count)
 from ..components import UnitComponent, unit_state_for_effects
 from ..components import is_alive_and_not_fled
@@ -1140,6 +1141,13 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
                 # (la boucle native ECRASE `AbilityEntities+0x18` a chaque iteration).
                 "adjacent_enemies_of":
                     lambda oid: adjacent_enemies_count(state, int(oid)),
+                # `...NetherRealmCasket_CritDamageReductionEffect$$AdjacentMechanicalUnits` (#908) --
+                # le slot virtuel `+0x5f8` que `$$CreateCritDamageBonus` appelle comme 2e facteur de
+                # son `Multiply`, et que `$$CreateActiveCondition` compare a zero. MEME forme
+                # paresseuse et MEME raison que les deux compteurs ci-dessus : la grandeur depend de
+                # l'INSTANCE d'effet qui interroge (la boucle native ECRASE `AbilityEntities+0x18`).
+                "adjacent_friendly_mechanical_units_of":
+                    lambda oid: adjacent_friendly_mechanical_units_count(state, int(oid)),
                 "tertiary_ability_state_of":
                     lambda oid, ability: triggered_ability_state(state, int(oid), ability)}
 

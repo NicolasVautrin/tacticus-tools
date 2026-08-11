@@ -19,6 +19,7 @@ from ..battle_query import is_adjacent
 from ..entities.effect_targets import is_effect_target as _iet
 from ..entities.effects.loki.amulet_of_the_voidwyrm import (
         adjacent_friendly_summons_and_decoys_selector)
+from ..entities.effects.loki.nether_realm_casket import adjacent_mechanical_units_selector
 from ..entities.effects.loki.supa_cybork_body import adjacent_enemies_selector
 from ..entities.pathfinding.board import adjacent_neigh_by_pos, elevations_by_pos
 from ..entities.stats import StatType
@@ -3003,6 +3004,41 @@ def adjacent_taunted_enemies_count(state, unit_id: int) -> Optional[int]:
                .calculate(entities_from_state(state, int(unit_id))))
 
 
+def adjacent_friendly_mechanical_units_count(state, unit_id: int) -> Optional[int]:
+    """`Count( MechanicalUnits( NormalUnits( AdjacentFriends(Owner, unique: 1, selectionType: 3),
+    3 ), 3 ) )` -- le cardinal que `IdunBattle.Entities.Effects.Loki.
+    NetherRealmCasket_CritDamageReductionEffect$$AdjacentMechanicalUnits` calcule pour le PORTEUR
+    de l'effet (#908).
+
+    TROIS consommateurs natifs, un seul foyer ici (le natif appelle LA MEME methode -- slot virtuel
+    `+0x5f8` -- dans les trois cas), donc la CONDITION et la MAGNITUDE ne peuvent pas diverger :
+      * `...$$CreateActiveCondition`  = `AmountIsGreaterThanZero(<ce compteur>)` ;
+      * `...$$CreateCritDamageBonus`  = `ForSubtraction(get_OwnerIsTarget,
+                                          Multiply(ConfigVar(0x97), <ce compteur>))` ;
+      * `...$$GetCalculateLevel`      = `<ce compteur>` (niveau d'affichage, non porte).
+
+    L'ARBRE est celui de la classe d'effet (`entities/effects/loki/nether_realm_casket.py::
+    adjacent_mechanical_units_selector`, doctrine #149 : l'artefact natif est un SELECTEUR) ; ce
+    qu'on fait ICI, c'est lui donner son `AbilityEntities` -- `entities_from_state(state, unit_id)`
+    pose `caster = owner = le porteur`, `board = state.board` et `has_trait`.
+
+    ⚠ `MechanicalUnits` delegue a `UnitExtensions$$IsMechanical` = `HasTrait(Mechanical 5) ||
+    HasTrait(LivingMetal 1000) || HasTrait(Vehicle 1029)` -- et c'est load-bearing sur le camp de
+    cette relique : tout le roster necron porte `LivingMetal`, plusieurs SANS `Mechanical`.
+
+    `None` si le porteur n'a ni equipe ni tuile (le selecteur est GEOMETRIQUE **et** par equipe) --
+    jamais un 0 invente, qui annulerait le produit et ferait passer une reduction reelle pour une
+    absence de reduction (meme tri-etat que les deux compteurs ci-dessus)."""
+    ent = state.get_entity(unit_id)
+    oc = ent.get_component(OwnerComponent) if ent is not None else None
+    pc = ent.get_component(PositionComponent) if ent is not None else None
+    if oc is None or oc.team is None or pc is None:
+        return None
+    from .abilities.behaviours.context import entities_from_state
+    return int(adjacent_mechanical_units_selector()
+               .calculate(entities_from_state(state, int(unit_id))))
+
+
 class UnitEffectStateView(Mapping):
     """Le `unit_state` d'une unité — vue MAPPING PARESSEUSE sur l'ECS (`unit_state_for_effects`).
 
@@ -3060,7 +3096,10 @@ class UnitEffectStateView(Mapping):
         AdjacentFriends(Owner), Summon) + UnitsWithTrait(AdjacentFriends(Owner), Decoy))` que
         `AmountIsGreaterThanZero` compare à 0 dans
         `IdunBattle.Entities.Effects.Loki.AmuletOfTheVoidwyrm_CritDamageReductionEffect$$
-        CreateActiveCondition` (#589-r1-r1-r2-r1). MÊME gate de présence que la clé ci-dessus
+        CreateActiveCondition` (#589-r1-r1-r2-r1). Le pendant `adjacent_friendly_mechanical_units`
+        (#908) porte l'arbre `Count(MechanicalUnits(NormalUnits(AdjacentFriends(Owner, 1, 3), 3),
+        3))` de `NetherRealmCasket_CritDamageReductionEffect$$CreateActiveCondition`, avec le MEME
+        gate de presence. MÊME gate de présence que la clé ci-dessus
         (sélecteur géométrique ET par équipe) : présente dès que le porteur a une équipe ET une tuile.
       * `owner_id` — l'id du PORTEUR, mirror du noeud `Owner@DSLSelectors+0x30`. Ce n'est pas une
         commodite : `IdunBattle.Entities.Selectors.OwnerSelector$$Select` lit litteralement
@@ -3093,7 +3132,7 @@ class UnitEffectStateView(Mapping):
     par-porteur des chemins de dégât (auras), donc un cardinal EAGER y serait quadratique."""
 
     __slots__ = ("_state", "_uid", "_eager", "_has_psy", "_psy", "_has_pos",
-                 "_has_effstate", "_lc", "_bta", "_has_sa", "_sa", "_asd", "_ae", "_adt")
+                 "_has_effstate", "_lc", "_bta", "_has_sa", "_sa", "_asd", "_ae", "_adt", "_afm")
 
     def __init__(self, state, unit_id: int) -> None:
         self._state = state
@@ -3172,6 +3211,9 @@ class UnitEffectStateView(Mapping):
         # calculable sans elle (le filtre rend alors l'ensemble VIDE, donc 0), et le natif ne
         # distingue pas les deux -- une absence d'effet EST un compte nul de tauntes.
         self._adt: Optional[int] = None
+        # `MechanicalUnits(NormalUnits(AdjacentFriends(Owner)))` : MEME gate (selecteur geometrique
+        # ET par equipe) -> la cle n'existe que si le porteur a une tuile ET une equipe. #908.
+        self._afm: Optional[int] = None
 
     def __getitem__(self, key):
         if key in self._eager:
@@ -3226,6 +3268,13 @@ class UnitEffectStateView(Mapping):
             if self._adt is None:
                 self._adt = adjacent_taunted_enemies_count(self._state, self._uid)
             return self._adt
+        # `NetherRealmCasket_CritDamageReductionEffect$$CreateActiveCondition` =
+        # `AmountIsGreaterThanZero(AdjacentMechanicalUnits())` : MEME gate de presence que les
+        # quatre cles ci-dessus (selecteur geometrique ET par equipe). #908.
+        if key == "adjacent_friendly_mechanical_units" and self._has_sa:
+            if self._afm is None:
+                self._afm = adjacent_friendly_mechanical_units_count(self._state, self._uid)
+            return self._afm
         raise KeyError(key)
 
     def __iter__(self) -> Iterator[str]:
@@ -3244,10 +3293,11 @@ class UnitEffectStateView(Mapping):
             yield "adjacent_friendly_summons_and_decoys"
             yield "adjacent_enemies"
             yield "adjacent_taunted_enemies"
+            yield "adjacent_friendly_mechanical_units"
 
     def __len__(self) -> int:
         return (len(self._eager) + (1 if self._has_psy else 0) + (2 if self._has_pos else 0)
-                + (3 if self._has_effstate else 0) + (4 if self._has_sa else 0))
+                + (3 if self._has_effstate else 0) + (5 if self._has_sa else 0))
 
     def __repr__(self) -> str:                    # diagnostic (ASCII)
         return "UnitEffectStateView(u%d, %s)" % (self._uid, sorted(self))
