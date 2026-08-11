@@ -111,7 +111,12 @@ def _build(seed: str):
     state_file.parent.mkdir(parents=True, exist_ok=True)
     subprocess.run(
         [sys.executable, "rl_duel.py", "build", "--seed", str(seed), "--state-file", str(state_file),
-         "--board", "MC1_67", "--p-units", CASTER_VIS, "--a-units", A_UNITS, "--hp-target", "300000"],
+         "--board", "MC1_67", "--p-units", CASTER_VIS, "--a-units", A_UNITS, "--hp-target", "300000",
+         # #933 -- LE REGIME « cc = 0 » SE CONSTRUIT. Le volet bit-exact ci-dessous SKIPPE quand le
+         # caster a de la chance de crit ; depuis la bascule #419-r5/-r6 (items BiS par defaut),
+         # `eldarMauganRa` en porte (MESURE : `probe_933_premisses_regime.py --unites`), donc le
+         # skip etait SYSTEMATIQUE -- 1 passed / 2 skipped, rc 0, coeur du fichier jamais evalue.
+         "--crit", "0,0"],
         cwd=str(PYDIR), capture_output=True, text=True, encoding="utf-8", errors="replace")
     if not state_file.exists():
         return None, state_file
@@ -246,8 +251,10 @@ def test_harvester_live_moved_bitexact_and_native_factory(live_session, rpc, see
 
         st0 = mkstate()
         cc = int(getattr(st0.get_entity(cid).get_component(StatsComponent).ctx, "crit_chance", 0) or 0)
-        if cc != 0:
-            pytest.skip(f"crit_chance={cc} != 0 (bit-exact requiert cc=0)")
+        # #933 -- PREMISSE DE MONTAGE, plus un skip (cf. `_build` : `--crit 0,0`).
+        assert cc == 0, (
+            f"crit_chance={cc} != 0 : le bit-exact requiert cc=0, et le levier `--crit 0,0` du "
+            f"build ne mord plus (regime BiS, cf. #933)")
         # branche A BOUGE de `GetHits` = `ConfigConst(0x2f)` SEUL -> l'attendu est `constants.nrOfHits`
         # (oracle gameconfig), pas un 2 ecrit en dur.
         cfg_hits = int(_cfg_constants()["nrOfHits"])

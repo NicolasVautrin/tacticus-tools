@@ -65,7 +65,13 @@ def _build(rpc_unused, seed: str):
     state_file.parent.mkdir(parents=True, exist_ok=True)
     subprocess.run(
         [sys.executable, "rl_duel.py", "build", "--seed", str(seed), "--state-file", str(state_file),
-         "--board", "MC1_67", "--p-units", CASTER_VIS, "--a-units", A_UNITS, "--hp-target", "300000"],
+         "--board", "MC1_67", "--p-units", CASTER_VIS, "--a-units", A_UNITS, "--hp-target", "300000",
+         # #933 -- LE REGIME « cc = 0 » SE CONSTRUIT. Le volet bit-exact ci-dessous SKIPPE quand le
+         # caster a de la chance de crit ; depuis la bascule #419-r5/-r6 (items BiS par defaut),
+         # `eldarFarseer` en porte 35 (MESURE), donc le skip etait SYSTEMATIQUE : 1 passed /
+         # 2 skipped, rc 0, et le coeur du fichier n'etait plus jamais evalue. Le fichier n'etant
+         # pas INTEGRALEMENT skippe, la garde #455 ne le voyait pas non plus.
+         "--crit", "0,0"],
         cwd=str(PYDIR), capture_output=True, text=True, encoding="utf-8", errors="replace")
     if not state_file.exists():
         return None, state_file
@@ -193,8 +199,12 @@ def test_executioner_live_main_bitexact_and_native_factory(live_session, rpc, se
         csc = st.get_entity(cid).get_component(StatsComponent)
         cc = int(getattr(csc.ctx, "crit_chance", 0) or 0)
         ts = st.get_entity(cid).get_component(StatsComponent).ctx.stats.get_stat(int(StatType.TURNS_STARTED), 0)
-        if cc != 0:
-            pytest.skip(f"crit_chance={cc} != 0 (bit-exact requiert cc=0)")
+        # #933 -- PREMISSE DE MONTAGE, plus un skip. Un skip sur une premisse que le MONTAGE
+        # garantit (`--crit 0,0`) ne protege de rien : il masque la perte du levier derriere un
+        # vert. Si cc n'est plus nul, c'est le levier qui a lache, et il faut le VOIR.
+        assert cc == 0, (
+            f"crit_chance={cc} != 0 : le bit-exact requiert cc=0, et le levier `--crit 0,0` du "
+            f"build ne mord plus (regime BiS, cf. #933)")
         if off_hits < 2:
             pytest.skip(f"turnsStarted={off_hits} < 2 (pas de multi-coups discriminant)")
         assert off_hits == max(1, int(ts)), \
