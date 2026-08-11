@@ -312,11 +312,13 @@ def can_currently_be_used(state) -> bool | None:
 # (`is_tile_in_range_of_any_ability`) evalue la menace des unites ENNEMIES -- precisement celles
 # dont ce n'est PAS le tour.
 #
-# LE GISEMENT, re-derive des 148 masques que le foyer `targeting_options_for` publie (et non
-# herite) : `CasterHasNotMoved` 13 porteurs, `CasterMatchesDynamicRule` 12, `CasterHas2TurnsLeft` 3,
+# LE GISEMENT, RE-DERIVE (#943) des 168 masques que le foyer `targeting_options_for` publie (et non
+# herite) : `CasterHasNotMoved` 15 porteurs, `CasterMatchesDynamicRule` 15, `CasterHas2TurnsLeft` 3,
 # `CasterCanMove` 2, `CasterHas1Tiles` 1, `CasterIsMachine` 1, `CasterHasCompletedOneTurn` 0,
 # `CasterHasNoTile` 0, `CasterHas3Tiles` 0, `CasterHas7Tiles` 0. Les quatre a ZERO sont des mirrors
 # STRUCTURELS : ils sont ecrits parce que le natif les a, et leur gisement vide est un RESULTAT.
+# ⚠ CES CHIFFRES SE RE-DERIVENT (le test `..._caster_reason_offline` le fait), ils ne se citent pas :
+# 148 -> 168 masques et 12 -> 15 porteurs en trois jours, par notre PROPRE cadence de portage.
 #
 # ⚠ L'ETAT LU EST CELUI DU CASTER, PAS CELUI DE LA POSITION INTERROGEE -- et les deux se separent.
 # `AttackQuery$$GetAllTilesInAbilityRange(unit, possiblePositions, includeNormalAttack)` itere les
@@ -427,7 +429,11 @@ CASTER_GATE_NOT_READ = "not_read"
 
 #: Le regime de la regle-delegue CASTER, ability par ability. **N'y figurent QUE les porteurs du bit
 #: `CasterMatchesDynamicRule`** -- pour les autres le natif n'invoque jamais le delegue, et une
-#: entree serait du bruit. Les DOUZE porteurs des 148 masques lus y sont, aucun de plus.
+#: entree serait du bruit. Les QUINZE porteurs des 168 masques lus y sont, aucun de plus (compte
+#: RE-DERIVE #943 ; il etait de DOUZE sur 148, et les trois entrants sont marques ci-dessous).
+#: ⚠ TU PORTES UNE ABILITY DONT LE MASQUE POSE `CasterMatchesDynamicRule` ? Tu inscris sa ligne ICI,
+#: DANS LE MEME COMMIT -- meme regle que `TARGETING_OPTIONS` / `ABILITY_ATTACK_TYPE` au registre des
+#: abilities, et meme signature de degradation : un porteur ABSENT est traite comme « pas de regle ».
 DYNAMIC_CASTER_GATE_BY_ABILITY: dict[int, str] = {
     # --- DERIVABLE ---------------------------------------------------------------------------
     ActiveAbilityType.GetEmRuntz: CASTER_GATE_SPAWN_TILE,   # 1045 GetEmRuntzAbility : `GetSpawnTileSelector(caster).Count > 0 ? 0 : 2`
@@ -449,7 +455,32 @@ DYNAMIC_CASTER_GATE_BY_ABILITY: dict[int, str] = {
     ActiveAbilityType.AncestralFortune: CASTER_GATE_NOT_DERIVABLE,  # 1207 AncestralFortuneAbility : `CanAddCritChance` puis
     #     `CanAddBlockChance` (deux selecteurs sur les STATS du caster), puis
     #     `NormalUnits(AdjacentEnemies(...), 3)` ; le dernier `Count > 0` -> 0, sinon **2**.
+    # #943 -- 1173 et 1192, entrees au registre par #894 (`cf11fd3b`) et #895 (`d87b2095`) sans leur
+    # ligne ici, d'ou `master` ROUGE. Les DEUX corps EXISTENT dans `ghidra/functions.tsv` et ont ete
+    # RELUS au decompile (build `rnca9r7q6c`) -- ce ne sont donc pas des `NOT_READ`.
+    ActiveAbilityType.ArcScourge: CASTER_GATE_NOT_DERIVABLE,  # 1173 ArcScourgeAbility :
+    #     `eff = EntityExtensions.GetOwnedEffect(caster, state, 0x555 = EffectType.MachineVengeance)`
+    #     puis `if (eff != null && GetNumberConstant(0x76 = effectLevel_2) <= GetEffectLevel(eff))
+    #     return 4` ; sinon `st = ActiveAbilityComponent.GetActive(caster, 1173).<Nullable<int>+0x18>`
+    #     et `if (st.HasValue && st.Value == TurnComponent.GetAmountOfTurnsEnded(null))
+    #     return 0x40000000000000` (`AlreadyUseThisTurn`). Les DEUX bras lisent un substrat qu'aucun
+    #     canal DECISION ne publie (les EFFETS du caster ; le tour de derniere utilisation PAR
+    #     ability). La face RUNNER, elle, porte le 1er bras
+    #     (`runner/abilities/admec.py::ArcScourgeAbility.get_dynamic_invalid_caster_reason`) -- les
+    #     deux lectures CONCORDENT terme a terme.
+    ActiveAbilityType.NovaBoost: CASTER_GATE_NOT_DERIVABLE,  # 1192 NovaBoostAbility :
+    #     `AbilityEntities(caster, ..., casterTiles)` local, puis
+    #     `Enemies(Caster@DSLSelectors+0x48, GetMarkedTilesSelector(), selectionType = 3)` et
+    #     `return (count > 1) ? 0 : 4` -- « AU MOINS DEUX ennemis dans la couronne ».
+    #     `GetMarkedTilesSelector` = `Filter(AdjacentTiles(Caster), NOT IsTrenchTile(ActiveTarget))` :
+    #     le substrat DECISION ne publie PAS les tuiles TRANCHEE, donc la condition n'est pas
+    #     derivable telle quelle (meme famille que 1207 : un selecteur d'ennemis a portee).
     # --- BIT POSE, surcharge NON ETABLIE (residu, cf. `CASTER_GATE_NOT_READ`) --------------------
+    # #943 -- 1032, entree par #697 (`c94aa0e2`) sans sa ligne. `CatalystAbility` ne porte QUE TROIS
+    # corps nommes dans le binaire (`.ctor`, `GetEffectTargetsSelector`, `ExecuteBehaviour`) : aucun
+    # `GetDynamicInvalidCasterReason`. ⚠ Ce n'est PAS « elle ne surcharge pas » -- IL2CPP DEDUPLIQUE
+    # les corps triviaux, donc l'absence ne prouve rien. Meme regime que les cinq ci-dessous.
+    ActiveAbilityType.Catalyst: CASTER_GATE_NOT_READ,               # 1032
     ActiveAbilityType.EarlyWarningOverride: CASTER_GATE_NOT_READ,   # 1077
     ActiveAbilityType.WarHowl: CASTER_GATE_NOT_READ,                # 1106
     ActiveAbilityType.MomentShackle: CASTER_GATE_NOT_READ,          # 1184

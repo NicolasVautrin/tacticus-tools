@@ -149,14 +149,29 @@ def test_unknown_target_drops_both_target_terms():
 
 
 def test_targeting_options_mask_is_target_is_enemy_only():
-    """Masque EFFECTIF `0x4000` = `TargetIsEnemy` SEUL, avec `range = RANGE_ADJACENT`. Il est dans
-    `TARGETING_OPTIONS_UNPORTED` (face COMBAT non portee) -- jamais dans `ABILITY_CLASSES`, dont il
-    ferait passer la behaviour pour portee."""
+    """Masque EFFECTIF `0x4000` = `TargetIsEnemy` SEUL, avec `range = RANGE_ADJACENT`.
+
+    ⚠ LA SOURCE A BOUGE, PAS LA VALEUR (#943). Ce test lisait `TARGETING_OPTIONS_UNPORTED[1217]` et
+    exigeait `1217 not in ABILITY_CLASSES` -- deux affirmations vraies quand la face COMBAT n'etait
+    pas portee. `#889` (`d62d94e3`) l'a portee : le masque a MIGRE sur
+    `runner/abilities/darkangels.py::TheLionsWrathAbility.TARGETING_OPTIONS` (contrat de DISJONCTION
+    -- une ability a UNE source de masque, jamais deux) et la classe est entree au registre
+    (`dde62f07`, #892). Le test tombait donc en `KeyError: 1217` sur `master`, sans qu'aucune valeur
+    n'ait change : les QUATRE champs sont bit-identiques, et c'est ce que l'etage 2 de
+    `test_270r1_volet2_dict_keys_enum_offline` verrouille par ailleurs.
+
+    On garde donc les MEMES assertions de valeur, prises chez le resolveur (`targeting_options_for`,
+    c'est-a-dire ce que lisent reellement les appelants), et on retourne l'assertion de disjonction :
+    le masque est desormais sur la CLASSE et il ne doit PAS etre en double dans la table.
+    """
     from engine.runner.abilities.targeting import (TARGETING_OPTIONS_UNPORTED, targeting_options_for)
     from engine.runner.abilities.handler import ABILITY_CLASSES
-    o = TARGETING_OPTIONS_UNPORTED[LIONS_WRATH]
+    o = targeting_options_for(LIONS_WRATH)
+    assert o is not None, "aucune source de masque pour 1217 : ni la classe ni la table"
     assert int(o.rules) == 0x4000
     assert o.self_cast is False
     assert o.range is not None and o.range.override_range == 1
-    assert targeting_options_for(LIONS_WRATH) is o
-    assert LIONS_WRATH not in ABILITY_CLASSES
+    # DISJONCTION : la face COMBAT est portee -> le masque vit sur la classe, et NULLE PART ailleurs.
+    assert LIONS_WRATH in ABILITY_CLASSES
+    assert ABILITY_CLASSES[LIONS_WRATH].TARGETING_OPTIONS is o
+    assert LIONS_WRATH not in TARGETING_OPTIONS_UNPORTED

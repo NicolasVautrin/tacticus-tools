@@ -70,7 +70,22 @@ from engine.services import ability_caster_gates as ACG  # noqa: E402
 # `master`. Depuis, le couple d'une ability portee est retrouve par `_resolveur_targeting` sur sa
 # classe : NE RIEN RAYER, c'est precisement ce qui le laisserait sans garde.
 SNAP_TARGETING_UNPORTED = (
-    (1216, (32788, True, None, 1)),
+    # ⚠ 1216 -- SEULE VALEUR DU SNAPSHOT QUI AIT CHANGE, et c'est une CORRECTION, pas une derive.
+    # Le couple mesure etait `(32788, True, None, 1)` : le `range = None` venait d'un bloc de preset
+    # NON LU. `#923` (merge `46ba95e8`) l'a RE-LU et RESOLU -> `RANGE_SELF`, et c'est bien ce fichier
+    # qui l'a vu (l'etage 2 confronte la valeur EFFECTIVE, migration comprise) -- mais la tranche a
+    # oublie de reporter la mesure ici, d'ou `master` ROUGE.
+    # RE-VERIFIE INDEPENDAMMENT (#943, decompile `rnca9r7q6c`) avant de toucher au snapshot :
+    #   * `IdunBattle.Core.Services.TargetingOptions$$.cctor` ecrit le preset `<statics>+0x280` en
+    #     copiant `<TargetingRange statics>+0x60..0x77` dans `<preset>+0x288..0x29f`, avec
+    #     `<preset>+0x280 = 1` (isSelfCasting), `+0x2a0 = 1` (forceMeleeTarget = RangedBool.False) et
+    #     `+0x2a8 = 0x8004` (rules) ;
+    #   * `IdunBattle.Core.Services.TargetingRange$$.cctor` pose `<statics>+0x60 = 1`
+    #     (onlyAdjacent = RangedBool.False), `+0x68 = Nullable(0)` (overrideRange) et `+0x70 = null`
+    #     (overrideRangeFunc) -- c'est-a-dire exactement `RANGE_SELF`.
+    # Le tuple ci-dessous est donc la valeur NATIVE, et l'ancien `None` etait un aveu de non-lecture
+    # qui laissait `get_range` rendre `None`, donc AUCUN gate de portee (degradation PERMISSIVE).
+    (1216, (32788, True, (1, False, False, 0, False), 1)),
     (1217, (16384, False, (0, False, False, 1, False), 1)),
     (1093, (16386, False, (1, True, False, None, False), 1)),
     (1215, (32772, True, None, 1)),
