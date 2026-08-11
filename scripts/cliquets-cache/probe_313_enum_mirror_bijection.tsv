@@ -1250,7 +1250,7 @@ scripts/python/regen_enum_maps.py	refs	c21dacb78df678b7e65aa9189ed116258f391e98c
 scripts/python/regen_enum_mirrors.py	refs	04b8ed6f89820dcd5b94a60cec6313ee0b45adc5681605a897fb23a592c89c0a	[]
 scripts/python/regen_hook_name_tables.py	refs	dfc2ee52c9ec35033ad626afffd38aab1624b8891df0b5090780ffe8d2670d33	[]
 scripts/python/rl_collect_batch.py	refs	8cfcb5375b0b6d7a84c9de922fc276e59c145e7eb2c4ab5b10e3d2f059b6c6bf	[]
-scripts/python/rl_duel.py	refs	7c70f8e97d6db1a2d234e9382a23ee268f6e301a9aff95623b889f020fcce7d7	[]
+scripts/python/rl_duel.py	refs	f894d573cd1baf3820a7b24538ba5a731c629c38373ea0b9315b523fcc2f3f7f	[]
 scripts/python/rl_gen_enum_columns.py	refs	6ced2c455b3f2fb995d843592e695ea33fc69a42ad2bae993920f6e65e7dedc6	[]
 scripts/python/rl_gen_ref_tables.py	refs	d506c2228a94f8c3ffcf6fe4c3e25c118260dc3a85ed53a01a6e67885368b8de	[]
 scripts/python/rl_ingest_postgres.py	refs	0e7afda16f73910258f3b7d6155aadabbedc3d7fc7cbc61dfb1e9f35308a8562	[]
