@@ -9,9 +9,9 @@ Le runner combat route chaque ability choisie via `ActiveAbilityMessage` -> `Abi
 ## Bilan
 
 - ActiveAbilityType castables par les unites : **175** distinct
-- **PORTED** (dans `ABILITY_CLASSES`) : **152**
-- **NO-OP silencieux** (a porter) : **23**
-- Ventilation NO-OP : **DAMAGE**=10, **EFFECT/BUFF**=8, **SUMMON**=4, **HEAL**=1
+- **PORTED** (dans `ABILITY_CLASSES`) : **153**
+- **NO-OP silencieux** (a porter) : **22**
+- Ventilation NO-OP : **DAMAGE**=10, **EFFECT/BUFF**=8, **SUMMON**=4
 
 ## Priorisation & templates de port
 
@@ -30,7 +30,7 @@ Le runner combat route chaque ability choisie via `ActiveAbilityMessage` -> `Abi
 
 Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 
-## NO-OP SILENCIEUX en combat (a porter, tries categorie puis frequence) (23)
+## NO-OP SILENCIEUX en combat (a porter, tries categorie puis frequence) (22)
 
 | id | ability | categorie | #units | kinds |
 |---|---|---|---|---|
@@ -52,13 +52,12 @@ Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 | 1133 | WarConstruct | EFFECT/BUFF | 2 | N |
 | 1203 | DaemonicPatrons | EFFECT/BUFF | 1 | L |
 | 1107 | Reveal | EFFECT/BUFF | 1 | N |
-| 1231 | TitanhammerSquad | HEAL | 1 | L |
 | 1208 | AetherStride | SUMMON | 2 | LN |
 | 1144 | BioMinefield | SUMMON | 2 | LN |
 | 1052 | CallRipperSwarms | SUMMON | 1 | N |
 | 1172 | InvocationOfMachineVengeance | SUMMON | 1 | N |
 
-## PORTED (registry) (152)
+## PORTED (registry) (153)
 
 | id | ability | categorie | #units | kinds |
 |---|---|---|---|---|
@@ -191,6 +190,7 @@ Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 | 1037 | RevitalizingMalignancy | HEAL | 4 | LN |
 | 1039 | RitesOfRestoration | HEAL | 4 | LN |
 | 1175 | BloodChalice | HEAL | 1 | L |
+| 1231 | TitanhammerSquad | HEAL | 1 | L |
 | 1117 | DefendTheDivineWork | REPAIR | 6 | LN |
 | 1224 | NanoscarabRepairProtocols | REPAIR | 2 | LN |
 | 1223 | ReanimationBeam | REPAIR | 2 | LN |

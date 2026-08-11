@@ -104,10 +104,32 @@ BASILISK = int(ActiveAbilityType.BasiliskBarrage)           # 1026
 GROT_TANK = int(ActiveAbilityType.GrotTank)                 # 1057
 VALK_EFFECT = 1022                                          # EffectType.ValkyrieStrike_Effect
 
+TITANHAMMER = int(ActiveAbilityType.TitanhammerSquad)       # 1231
+NOVA_SHIELD = int(ActiveAbilityType.NovaShield)             # 1194
+
 #: Le RAYON EFFECTIF, mesure : les abilities qui portent `TargetIsTile` ET dont l'arbre EVALUE le
 #: noeud `Target()` quand `target_id` designe une tuile. Toute entree neuve doit etre CONFRONTEE
 #: (cf. l'en-tete [3]) avant d'etre ajoutee ici.
-RAYON_CONFRONTE = {FRAG_BOMB, VALKYRIE, GROT_TANK}
+#:
+#: `1231 TitanhammerSquad` (#448-r2d-r2) est CONFRONTEE, mais pas par `probe_287r12_confront_live.py`
+#: (dont les trois volets sont cables en dur sur 1017/1018/1026) : par
+#: `probe_448r2dr2_titanhammer_active.py`, qui compare port et natif TERME A TERME sur trois couples
+#: et dont l'assertion porte precisement sur l'ENTITE qui recoit le `1571` -- `tiles_1571` est lu
+#: des deux cotes par un balayage des effets de TUILE, ecrit independamment du port. Sa
+#: contre-epreuve `--mutate 5` (`tileonunit`) fait viser l'UNITE au lieu de la tuile et rougit :
+#: `tiles_1571 : port=[] natif=[(0, 2)]` + `astarLysander effets : port=[1571, 1572, 1573]
+#: natif=[1572, 1573]`. C'est exactement le regime que ce rayon garde.
+#:
+#: `1194 NovaShield` est entree au registre avec #895 et A ETE CONFRONTEE -- son inscription ICI
+#: avait seulement ete OUBLIEE, ce qui laissait ce cliquet ROUGE sur `origin/master` (mesure : le
+#: meme echec, `Extra items: 1194`, sur un worktree detache a `e702b37e` SANS aucun commit de
+#: #448-r2d-r2). Le meme gisement, donc, que celui que 1231 vient d'alimenter : une entree neuve
+#: TILE-TARGET qui ne met pas ce rayon a jour. La preuve pour 1194 est l'etage [2] de
+#: `probe_895_nova_boss_riptide.py` (ZONE MARQUEE, tuiles portant `1415` port vs natif) : son
+#: selecteur EST `GetMarkedTiles = Filter(Target@+0x60 + AdjacentTiles(Target@+0x60), NOT
+#: IsTrenchTile(...))`, soit exactement une lecture du role `Target()` en regime TUILE, et le probe
+#: assertionne son propre pouvoir discriminant (`marked_avec != marked_sans`).
+RAYON_CONFRONTE = {FRAG_BOMB, VALKYRIE, GROT_TANK, TITANHAMMER, NOVA_SHIELD}
 
 COLS = ROWS = 9
 POS_CASTER = (4, 1)
