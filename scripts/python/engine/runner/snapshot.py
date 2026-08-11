@@ -2046,12 +2046,16 @@ def _ability_state_with_rows(from_config: tuple, su) -> tuple:
     le trou existe**, exactement la garde de `_ability_state_with_channel` ci-dessous (« on n'ecrit
     QUE si le trou existe, donc jamais par-dessus une valeur mesuree »).
 
-    Le multiplicateur est comble sur son NEUTRE (`100`), qui est ce que rend
-    `_ability_state_from_config` faute de `unitConfig` -- donc un `100` mesure sur une unite normale
-    n'est jamais ecrase par le canal (elle a un `unitConfig`, et son propre 100 y est deja)."""
+    ⚠ **Le multiplicateur n'est comble que si le `unitConfig` est ABSENT**, jamais sur la seule vue
+    de sa valeur. `_ability_state_from_config` rend `100` dans DEUX regimes qu'un scalaire ne
+    distingue pas -- « mesure a 100 » et « pas de `unitConfig`, voici le neutre ». Le second est le
+    seul trou ; combler le premier ECRASERAIT une mesure, ce que la garde de ce module interdit.
+    On relit donc la PRESENCE du champ, pas sa valeur."""
     mult, passive_level, active_level = from_config
     r_mult, r_passive, r_active = _ability_state_from_rows(su)
-    return ((r_mult if (mult is None or mult == 100) and r_mult is not None else mult),
+    uc = (su or {}).get("unitConfig")
+    mesure = isinstance(uc, dict) and uc.get("abilityVariablesMultiplier") is not None
+    return ((mult if mesure or r_mult is None else r_mult),
             passive_level if passive_level else r_passive,
             active_level if active_level else r_active)
 
