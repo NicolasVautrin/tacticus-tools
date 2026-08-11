@@ -363,6 +363,16 @@ ABILITY_ATTACK_TYPE: dict[int, int] = {
     # ⚠ Le cast enchaine AUSSI une ATTAQUE NORMALE (`UseNormalAttack`/`UseNormalAttackIfAble`), et
     # l'`AbilityAttackType` ne le dit pas : il qualifie le CAST, pas la mecanique.
     ActiveAbilityType.MartialExemplar: AbilityAttackType.Others,  # 1216
+    # `IdunBattleLogic.Entities.Abilities.Active.Loki.SternguardFocusAbility$$.ctor` ->
+    # `AActiveAbility..ctor(this, &opts, 2, 0)` : 3e argument = **2 = Others** (#905). Le litteral
+    # est lu au DESASSEMBLAGE (`mov r8d, 2` juste avant le `call`) parce que le decompile ghidra
+    # avait perdu l'immediat -- pas deduit du fait que le cast FRAPPE. ⚠ Il frappe pourtant, et par
+    # une ATTAQUE NORMALE (`UseNormalAttack`) : l'`AbilityAttackType` qualifie le CAST, pas la
+    # mecanique -- meme lecture que 1216/1049, et litteral OPPOSE a celui de `1198`/`1217`, qui
+    # frappent aussi et valent `0`. Son ctor est de la forme PRESET STATIQUE COPIE (les 0x40 octets
+    # de `TargetingOptions statics+0x00`, passes TELS QUELS) -- ses `TARGETING_OPTIONS` SONT donc
+    # posees (le masque `0x4002` est lu dans `TargetingOptions$$.cctor` a `<preset>+0x28`).
+    ActiveAbilityType.SternguardFocus: AbilityAttackType.Others,  # 1228
     # `IdunBattleLogic.Entities.Abilities.Active.Loki.DoomSirenAbility$$.ctor` ->
     # `AActiveAbility..ctor(this, &opts, 0, 0)` : 3e argument = 0 = DirectTargetAttack.
     ActiveAbilityType.DoomSiren: AbilityAttackType.DirectTargetAttack,  # 1199

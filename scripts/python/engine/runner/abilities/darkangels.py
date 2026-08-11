@@ -66,7 +66,8 @@ from .behaviours.effects import AddBondEffect, AddEffect, RemoveEffect
 from .behaviours.lifecycle import KillDeadUnits
 from .behaviours.movement import MoveUnit
 from .behaviours.stats import AddStatOverrideEffect
-from .targeting import (RANGE_ADJACENT, RANGE_FROM_CONFIG, RANGE_SELF, RANGE_WHOLE_BOARD,
+from .targeting import (RANGE_ADJACENT, RANGE_ADJACENT_IF_MELEE_CASTER, RANGE_FROM_CONFIG,
+                        RANGE_SELF, RANGE_WHOLE_BOARD,
                         RANGED_BOOL_FALSE, RANGED_BOOL_IF_RANGED_CASTER, RANGED_BOOL_TRUE,
                         TargetingOptions)
 from .targeting_rule import TargetingRule as TR
@@ -1705,4 +1706,241 @@ class MartialExemplarAbility(ActiveAbility):
                  for n, p in ectx.emitted if n == "MoveUnit"]
         return {"ability": self.ABILITY_ID, "caster": caster_id, "target": target_id,
                 "posed": posed, "damage": dmg, "normal_attacks": normals, "moved": moved,
+                "dsl": True}
+
+
+# =================================================================================================== #
+# SternguardFocus (1228) -- `darkaSternguard` (lineup « Sternguard Veteran ») et
+# `darkaBossSternguardLHE` (npc). Portee #905.
+#
+# ⚠ **L'AUDIT LA CLASSE `EFFECT/BUFF`, ET C'EST LA MOITIE DE LA MECANIQUE.** L'effet 0x510
+# `TemporaryStatOverride` existe bien, mais il est POSE PUIS RETIRE dans le meme cast : son SEUL
+# role est d'armer une **ATTAQUE NORMALE** dont le degat sort du profil de l'ARME du caster. La
+# colonne d'audit derive du `damageProfile` de l'ability -- 1228 n'en a AUCUN au gameconfig
+# (`constants` = `{cooldownTurns: 3}` seul), donc elle ne peut pas voir le volet DEGAT. Meme angle
+# mort que `1216 MartialExemplar` (cf. sa docstring).
+#
+# `IdunBattleLogic.Entities.Abilities.Active.Loki.SternguardFocusAbility$$ExecuteBehaviour`
+# -- MIRROR 1:1, terme a terme (slots de `IdunBattleLogic.Entities.DSLSelectors` du build
+# `rnca9r7q6c` : `+0x30 Owner`, `+0x48 Caster`, `+0x60 Target`, `+0x68 ActiveTarget/Subject` ;
+# slots du DSL : `ability+0x30` = le DSL, `dsl+0x78` = DSLBehaviors, `dsl+0x80` = DSLFormulas,
+# `dsl+0x88` = DSLTriggers, `dsl+0x90` = DSLSelectors -- mapping RECOUPE sur
+# `HailstrikeAbility$$ExecuteBehaviour`, deja porte ci-dessus) :
+#
+#     cap    = DSLFormulas$$ConfigVar( abilityType = 0x4cc = 1228 SternguardFocus,
+#                                      unit        = Owner@+0x30,
+#                                      variableType = 0x0d = maxDmg )
+#     pct    = DSLFormulas$$ConfigVar( 0x4cc, Owner@+0x30, 0x4a = dmgPct )
+#     amount = DSLFormulas$$PercentageOfAttackCappedAtMax( unit = Subject@+0x68,
+#                                                          statPart = 0x3 = Initial,
+#                                                          cap, pct, roundingRule = 0 = Default )
+#     b1     = DSLBehaviors$$AddTemporaryAttackOverrideEffect( targets = Caster@+0x48, amount )
+#     b2     = DSLBehaviors$$UseNormalAttack( caster = Caster@+0x48, target = Target@+0x60,
+#                                             parentAbility = Nullable(AbilityOrEffect(...)),
+#                                             triggerAbilityOrEffect = default (HasValue = 0),
+#                                             options = <struct ZEROEE> )
+#     b3     = DSLBehaviors$$ResetTemporaryAttackOverrideEffect( targets = Caster@+0x48 )
+#     AActiveAbility$$Execute( this, op_Addition(op_Addition(b1, b2), b3), entities )
+#
+# Les DEUX helpers de `DSLBehaviors` sont des COMPOSITES sans noeud dedie (corps lus) :
+#   * `$$AddTemporaryAttackOverrideEffect(targets, amount)` = `new AddStatOverrideEffectBehaviour(
+#     targets, effectType = 0x510 TemporaryStatOverride, source = null, amount, duree = null,
+#     flag = 1)` -- `statType` = 0 = `StatType.ATTACK` ;
+#   * `$$ResetTemporaryAttackOverrideEffect(targets)` = `RemoveEffect(targets, Nullable(0x510), 0)`.
+#   * `$$PercentageOfAttackCappedAtMax` = `Min(cap, PercentageOf(StatAmount(unit, ATTACK, statPart),
+#     pct, roundingRule))` (semantique PROUVEE par identite de singleton de classe, cf.
+#     `entities/formulas.py::percentage_of_attack_capped_at_max`).
+#
+# QUATRE lectures que le decompile impose :
+#
+#  1. **`statPart = 3 = Initial`, PAS `Current`.** ExemplarOfHate (`GetAttackDamage`) et
+#     MyWillBeDoneOverlord passent `0 = Current` ; ICI le litteral LU est `3`. La difference n'est
+#     pas cosmetique : `Initial` = l'ATTACK DE BASE de l'unite, avant toute modification d'effet --
+#     un buff d'attaque en cours n'entre donc PAS dans le pourcentage. Le meme `3` est relu dans
+#     `...SternguardFocusAbility$$GetOverrideAttackDamageAmount` (la face PREDICTION, corps
+#     identique a la chaine `cap`/`pct`/`amount` ci-dessus).
+#  2. **`ConfigVar` est la surcharge `(ActiveAbilityType, unit, variableType)`** -- attribuee par
+#     XREFS ENTRANTES (`list_xrefs` sur les cinq surcharges : `SternguardFocusAbility$$
+#     ExecuteBehaviour` et `$$GetOverrideAttackDamageAmount` appellent celle-la, jamais la
+#     `TriggeredAbilityType`), donc `0x4cc` est bien un **ActiveAbilityType** (1228), pas un
+#     `TriggeredAbilityType`. Son corps = `new ConfigAmount(abilityType, abilitiesDatabase,
+#     unitSelector, variableType)` : le NIVEAU vient de l'UNITE (`Owner`), pas d'un `abilityState`.
+#  3. **`UseNormalAttack`, pas `UseNormalAttackIfAble`** (xrefs entrantes egalement) -> le champ
+#     `options+0x00` reste `null` (`IF_ABLE_OPTION = None`).
+#  4. **AUCUN `ExecuteAtomic`** : le decompile passe l'`op_Addition` DIRECTEMENT a
+#     `AActiveAbility$$Execute` (comme `FoulInfusion`, contraste `PlasmaCannon`).
+#
+# ⚠ **`SetsEndTurnFlags` EST SURCHARGE, ET SA VALEUR N'EST PAS LUE.**
+# `...SternguardFocusAbility$$SetsEndTurnFlags` = `return <DSLTriggers>+0x60;`. Or les deux
+# constantes de ce cache sont `+0x40` (TRUE) et `+0x48` (FALSE) -- etabli par
+# `IdunBattleLogic.Entities.DSLTriggers$$Direct(value)` (`value != 0 -> +0x40`, sinon `+0x48`) et
+# recoupe par `IdunBattle.Entities.Abilities.AActiveAbility$$SetsActiveAbilityUsedFlag`, le DEFAUT
+# de base, qui rend `+0x40`, et par `...WarHowlAbility$$SetsEndTurnFlags` (le fold-winner des 14
+# overrides « ne termine pas le tour »), qui rend `+0x48`. `+0x60` n'est NI l'un NI l'autre :
+# c'est une 3e instance, d'une classe distincte (celle-la meme qu'`IdunBattle.Entities.Abilities.
+# BaseTriggeredAbility$$GetEventTriggers` teste par `isinst` pour s'exempter de son « aucun event
+# trigger » -- sans que son NOM soit lisible offline). SternguardFocus est donc, avec WarHowl, la
+# seule ability du build a surcharger ce virtual, et la SEULE dont le verdict soit ni-vrai-ni-faux.
+# -> le port laisse le DEFAUT (1228 ABSENT de `NO_END_TURN_ABILITY_TYPES` / de
+# `NO_ABILITY_USED_FLAG_ABILITY_TYPES`, donc « termine le tour »), parce qu'inventer un « ne
+# termine pas » serait un ELARGISSEMENT (l'unite rejouerait) -- l'exact contraire de la regle de
+# non-regression. RESIDU NOMME **#905-r1** ; point d'ancrage pour le fermer : nommer la classe de
+# `<DSLTriggers>+0x60` (isinst de `BaseTriggeredAbility$$GetEventTriggers`).
+#
+# ⚠ **`TargetMatchesDynamicRule` (0x2) est dans le masque et le delegue n'est PAS lisible.** Aucun
+# `SternguardFocusAbility$$GetDynamicInvalidTargetReason` dans `frida/methods.tsv` -- mais un corps
+# `xor eax,eax ; ret` est DEDUPLIQUE par IL2CPP, donc l'absence ne prouve rien (doctrine
+# CLAUDE.md). Le port laisse la regle au defaut `0` (permissif), jamais un refus devine -- meme
+# traitement que `PlasmaCannon`.
+# =================================================================================================== #
+
+STERNGUARD_FOCUS_ID = "SternguardFocus"
+
+
+def _sternguard_capped_attack_vars(state: "State", caster_id: int) -> tuple:
+    """COLLAPSE des deux feuilles V `ConfigVar(0x4cc, Owner@+0x30, 0x0d = maxDmg)` /
+    `ConfigVar(0x4cc, Owner@+0x30, 0x4a = dmgPct)` (doctrine slice-23 : une formule `ConfigVar`
+    sans consommateur dynamique est calculee imperativement via `ability_var` et passee en
+    SCALAIRE). Rend `(cap, pct)`.
+
+    Le `unit` natif est `Owner@+0x30` ; pour un cast d'active, `Owner == Caster` (convention deja
+    en place dans tout le port, cf. `foul_infusion`), donc on lit le niveau et le multiplicateur
+    de rarete du CASTER. `variablesAffectedByRarityBonus` de `SternguardFocus` = `["maxDmg"]` ->
+    `ability_var` gate l'application du multiplicateur sur cette liste, on ne la re-implemente pas.
+
+    `(0, 0)` si le contexte manque -> l'override vaut 0 et la feuille reste inerte (jamais une
+    valeur devinee)."""
+    e = state.get_entity(caster_id)
+    sc = e.get_component(StatsComponent) if e is not None else None
+    ctx = getattr(sc, "ctx", None) if sc is not None else None
+    if ctx is None:
+        return (0, 0)
+    lvl = getattr(ctx, "active_ability_level", None)
+    mult = int(getattr(ctx, "ability_variables_multiplier", 100) or 100)
+    cap = ability_var(STERNGUARD_FOCUS_ID, "maxDmg", lvl, multiplier_pct=mult)   # rarity-scale
+    pct = ability_var(STERNGUARD_FOCUS_ID, "dmgPct", lvl, multiplier_pct=mult)   # hors rarity-scale
+    return (int(cap or 0), int(pct or 0))
+
+
+def sternguard_focus_tree(cap: int, pct: int):
+    """Arbre de `IdunBattleLogic.Entities.Abilities.Active.Loki.SternguardFocusAbility$$
+    ExecuteBehaviour` -- MIRROR 1:1 (cf. le bloc de commentaire ci-dessus) :
+
+        AddTemporaryAttackOverrideEffect( Caster@+0x48,
+            PercentageOfAttackCappedAtMax(Subject@+0x68, Initial, ConfigVar(maxDmg),
+                                          ConfigVar(dmgPct), Default) )
+        op_Addition  UseNormalAttack( Caster@+0x48, Target@+0x60 )
+        op_Addition  ResetTemporaryAttackOverrideEffect( Caster@+0x48 )
+
+    `op_add` = `IdunBattle.DSL.AbilityBehaviour$$op_Addition` (`CombinedBehaviour`) ; l'imbrication
+    est GAUCHE (`(b1 + b2) + b3`), reproduite telle quelle -- meme ORDRE d'execution, meme FORME.
+
+    L'override est pose AVANT l'attaque et retire APRES : c'est la SEQUENCE, pas le compte
+    d'effets, qui fait l'ability. Le montant reste le VRAI noeud (`Subject` lie par
+    `AddStatOverrideEffect` a l'unite courante = le caster) ; seules les deux feuilles `ConfigVar`
+    sont collapsees en scalaires."""
+    amount = percentage_of_attack_capped_at_max(
+        Subject(), Const(int(cap)), Const(int(pct)),
+        stat_part=int(StatPart.INITIAL),          # `statPart = 3` LU (contraste ExemplarOfHate = 0)
+        mode=0)                                   # `roundingRule = 0 = RoundingRule.Default` LU
+    override = AddStatOverrideEffect(Caster(), TEMPORARY_STAT_OVERRIDE, int(StatType.ATTACK),
+                                     amount, name="TemporaryStatOverride")
+    attack = UseNormalAttack(Caster(), Target())
+    clear = RemoveEffect(TEMPORARY_STAT_OVERRIDE, Caster())
+    return op_add(op_add(override, attack), clear)
+
+
+class SternguardFocusAbility(ActiveAbility):
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.SternguardFocusAbility$$ExecuteBehaviour`
+    (id 1228, `darkaSternguard` -- lineup DarkAngels ; `darkaBossSternguardLHE` -- npc).
+    Arbre DSL `sternguard_focus_tree()` (mirror 1:1, cf. le bloc de commentaire ci-dessus).
+
+    OBSERVABLE : le caster porte une **ATTAQUE NORMALE** sur la cible ennemie, avec son stat
+    `Attack` OVERRIDE le temps de l'attaque a
+    `min(maxDmg, round_half_to_even(Attack_INITIAL x dmgPct / 100))` ; l'override est retire juste
+    apres (NET-ZERO -- aucun `TemporaryStatOverride` residuel). Le profil de degat, le nombre de
+    coups et la portee sont ceux de l'ARME du caster, jamais ceux de l'ability : 1228 n'a AUCUN
+    `damageProfile` ni `nrOfHits` au gameconfig (`constants` = `{cooldownTurns: 3}`).
+
+    Kit gameconfig 1228 : `attackRangeType = Normal`, `cooldownTurns = 3`, variables `dmgPct`
+    (80 -> 90 -> 100 selon le niveau, HORS rarity-scale) et `maxDmg` (rarity-scale).
+
+    Turn-flags : defauts base -- 1228 est ABSENT des deux frozensets de `base.py`. ⚠ Le natif
+    SURCHARGE pourtant `SetsEndTurnFlags` avec un trigger qui n'est ni TRUE ni FALSE (residu
+    **#905-r1**, detaille dans le bloc ci-dessus) : le defaut retenu est la lecture PRUDENTE.
+
+    Diag : {ability, caster, target, override, attack, etages, dsl}."""
+    __slots__ = ()
+    ABILITY_TYPE = int(ActiveAbilityType.SternguardFocus)   # 1228
+    ABILITY_ID = STERNGUARD_FOCUS_ID
+
+    # GATE DE CIBLE (#115) + PORTEE (#241) -- forme **(B) PRESET STATIQUE COPIE**, lue au
+    # DESASSEMBLAGE (le decompile de `...SternguardFocusAbility$$.ctor` perdait les immediats) :
+    #     mov rax, [DAT_1833ffc10]            ; la classe `IdunBattle.Core.Services.TargetingOptions`
+    #     mov rax, [rax + 0xB8]               ; ses static_fields
+    #     movups xmm0/xmm1, [rax + 0x00 .. 0x3F]  ; les 0x40 octets du preset `<statics>+0x00`
+    #     xor r9d, r9d ; mov r8d, 2 ; call AActiveAbility..ctor(this, &opts, 2, 0)
+    # AUCUN `TargetingOptions..ctor` n'est appele : ce n'est donc PAS la surcharge « preset +
+    # flags » (dont le litteral visible ne serait pas le masque). Le masque effectif est ce
+    # qu'`IdunBattle.Core.Services.TargetingOptions$$.cctor` ecrit dans ce preset :
+    #     <statics>+0x00 isSelfCasting    = 0
+    #     <statics>+0x08 range           <- copie de `<TargetingRange statics>+0x00`
+    #                                       = `RANGE_ADJACENT_IF_MELEE_CASTER`
+    #     <statics>+0x20 forceMeleeTarget = 2 = `RangedBool.IfRangedCaster`
+    #     <statics>+0x28 rules            = **0x4002**
+    # Decomposition EXHAUSTIVE de 0x4002 (`IdunBattle.Core.Services.TargetingRule`), aucun bit
+    # residuel :
+    #     0x2    TargetMatchesDynamicRule -> consulte `get_dynamic_invalid_target_reason` ; le
+    #            delegue n'est PAS lisible offline (corps trivial DEDUPLIQUE) -> defaut 0
+    #            (permissif), jamais un refus devine. Cf. le bloc ci-dessus.
+    #     0x4000 TargetIsEnemy            -> PORTE (refus sur soi-meme / un allie).
+    # ⚠ Le preset `<statics>+0x00` porte le MEME masque 0x4002 que `<statics>+0x140` (celui de
+    # `PlasmaCannon`/`Supercharge`) mais PAS le meme `range` (`TargetingRange+0x00` vs `+0x18`
+    # `useRangeFromConfig`) ni le meme `forceMeleeTarget` (2 vs 0). Les deux presets ne sont donc
+    # pas interchangeables, et c'est exactement le piege que la doctrine nomme.
+    TARGETING_OPTIONS = TargetingOptions(rules=TR.TargetMatchesDynamicRule | TR.TargetIsEnemy,
+                                         self_cast=False,
+                                         range=RANGE_ADJACENT_IF_MELEE_CASTER,
+                                         force_melee_target=RANGED_BOOL_IF_RANGED_CASTER)
+
+    def execute_behaviour(self, state: "State", caster_id: int,
+                          target_id: Optional[int]) -> Optional[dict]:
+        if target_id is None:
+            return None
+        cap, pct = _sternguard_capped_attack_vars(state, caster_id)
+        ectx = ExecutionContext(state=state, rng=state.rng)
+        entities = entities_from_state(state, caster_id, target_id)
+        sternguard_focus_tree(cap, pct).execute(entities, ectx)
+        ov = next((p for n, p in ectx.emitted if n == "AddStatOverrideEffect"), None)
+        atk = next((p for n, p in ectx.emitted if n == "UseNormalAttack"), None)
+        a = (atk or {}).get("attack") or {}
+        # LES ETAGES, comme pour 1216 : un `total` absent ne dit ni SI l'attaque a ete refusee ni
+        # POURQUOI (`skipped` = tri-etat de la feuille). C'est le seul volet observable de 1228.
+        #
+        # ⚠ `total` de l'`AttackDamageOperation` N'INCLUT PAS les COUPS ADDITIONNELS
+        # (`additional_hits`, canal `EffectAdditionalHits`). Sur CE porteur ce n'est pas un detail :
+        # le passif `SpecialIssueCombiMelta_AdditionalHits` (1563) ajoute un coup `Bolter` ENTIER a
+        # la distance **2 EXACTEMENT**, et ce coup-la n'est PAS soumis a l'override d'`Attack`
+        # (mesure #905, d=2 override 1200 : live `Amount = [279, 2358]`, port `total = 279` +
+        # `additional_hits.total = 2358` -- somme 2637 = le delta de PV live, BIT-EXACT). Lire le
+        # seul `total` faisait donc croire a une divergence de 1228 alors que le port etait juste :
+        # le diagnostic expose les DEUX volets, et `damage_total` en porte la somme.
+        add = a.get("additional_hits") or {}
+        add_total = int(add.get("total") or 0)
+        base_total = a.get("total")
+        return {"ability": STERNGUARD_FOCUS_ID, "caster": caster_id, "target": target_id,
+                "cap": cap, "pct": pct,
+                "override": (ov or {}).get("amount"),
+                # L'UNITE qui recoit l'override : `targets = Caster@+0x48`, jamais la cible. Elle
+                # est dans le diagnostic parce qu'aucun chiffre de degat ne la revelerait (la
+                # cible n'attaque pas dans ce cast).
+                "override_unit": (ov or {}).get("unit"),
+                "total": base_total, "additional_hits": add or None,
+                "damage_total": (None if base_total is None else int(base_total) + add_total),
+                "skipped": (atk or {}).get("skipped"),
+                "etages": {k: a.get(k) for k in
+                           ("base_min", "base_max", "pierce", "armor", "did_block", "did_crit",
+                            "crits", "rolls", "per_hit", "per_hit_health",
+                            "clean_min", "clean_max", "hp_before", "hp_after")},
+                "after_hit": (atk or {}).get("after_hit"),
                 "dsl": True}
