@@ -106,7 +106,7 @@ def _duel(args):
                           errors="replace", check=False)
 
 
-def build(seed_value: str, board_id: str) -> int:
+def build(seed_value: str, board_id: str, extra_stat: str = "") -> int:
     LOGS.mkdir(parents=True, exist_ok=True)
     if STATE.exists():
         STATE.unlink()
@@ -115,7 +115,8 @@ def build(seed_value: str, board_id: str) -> int:
     try:
         p = _duel(["build", "--seed", seed_value, "--board", board_id, "--rank", "17", "--no-ai",
                    "--seed-bc", str(bc), "--p-units", P_UNITS, "--a-units", A_UNITS,
-                   "--unit-stat", HURT, "--state-file", str(STATE)])
+                   "--unit-stat", (HURT + ";" + extra_stat if extra_stat else HURT),
+                   "--state-file", str(STATE)])
         if not STATE.exists():
             raise SystemExit("build KO (MONTAGE, pas une mesure): "
                              + (p.stderr or p.stdout or "")[-900:])
@@ -264,6 +265,12 @@ def etape0(fails: list) -> None:
 MUTANTS = {1: "nofilter", 2: "noblock", 3: "noflag", 4: "nocaster", 5: "tileonunit"}
 
 
+def _ths_range_of() -> int:
+    """`GetNumberConstant(0x16 = range)` -- lu du gameconfig par le port lui-meme."""
+    import engine.runner.abilities.astartes as A
+    return int(A._ths_range())
+
+
 def install_mutant(n: int) -> None:
     """DESARME une clause de l'arbre. Chacun DOIT faire rougir la confrontation ; un mutant vert
     signale un temoin aveugle (regime degenere), pas un port juste."""
@@ -333,16 +340,56 @@ def install_mutant(n: int) -> None:
 
 # --------------------------------------------------------------------------- couple live
 
-def couple(board_id: str, seed_value: str, mutate: int, fails: list) -> None:
+def couple(board_id: str, seed_value: str, mutate: int, fails: list, craft: bool = False) -> None:
     from engine.runner.runner import Runner
     from engine.runner.messages import ActiveAbilityMessage
     from engine.runner.abilities.handler import ABILITY_CLASSES
     from engine.runner.abilities.targeting import get_invalid_target_reason
     from engine.runner.abilities.targeting_rule import TargetingRule as TR
+    from engine.runner.components import UnitFlagsComponent
+    from engine.entities.unit_flag import UnitFlag
+    from engine.entities.stats import StatType
 
-    print("\n=== couple board=%s seed=%s ===" % (board_id, seed_value))
-    rid = build(seed_value, board_id)
+    print("\n=== couple board=%s seed=%s%s ===" % (board_id, seed_value,
+                                                  " [CRAFTE]" if craft else ""))
+    # CRAFT : le regime NOMINAL ne discrimine NI le gate `BlockChance > 0` de b3 (toutes les unites
+    # portent leurs items BiS, donc BlockChance > 0) NI le gate `NOT ArrivedAtFinalTile` de b4
+    # (personne n'a bouge). Les deux mutants correspondants y sont AVEUGLES -- mesure, pas crainte.
+    # On force donc la configuration : `BlockChance = 0` sur UN terminator, et l'AUTRE BOUGE avant
+    # le cast (ce qui lui pose `ArrivedAtFinalTile`).
+    rid = build(seed_value, board_id, extra_stat=("%s:BlockChance=0" % TERM_B) if craft else "")
     try:
+        if craft:
+            import hexgeo
+            from engine.runner.components import get_unit_feet
+            cap_pre = capture(rid)
+            st_pre, board_pre = offline_state(cap_pre)
+            mover = find_vid(st_pre, TERM_A)
+            feet = get_unit_feet(st_pre, mover)
+            here = tuple(feet[0]) if feet else None
+            occupe = set()
+            for uid in list(st_pre.entities):
+                for p in (get_unit_feet(st_pre, int(uid)) or []):
+                    occupe.add(tuple(p))
+            # DEPLACER pour obtenir la configuration : une tuile LIBRE ou le mover (a) BOUGE
+            # vraiment (le natif pose `ArrivedAtFinalTile` a l'arrivee du pas) et (b) RESTE dans le
+            # rayon `range` du CASTER, sinon il sort du groupe et c'est la PORTEE qui l'exclut --
+            # le gate de b4 resterait non discrimine. Jamais << bloque par la geometrie >>.
+            cfeet = get_unit_feet(st_pre, find_vid(st_pre, CASTER))
+            chere = tuple(cfeet[0]) if cfeet else here
+            rng = int(__import__("engine.runner.abilities.astartes",
+                                 fromlist=["_ths_range"])._ths_range())
+            cands = sorted((t["col"], t["row"]) for t in board_pre.by_id.values()
+                           if (t["col"], t["row"]) not in occupe
+                           and hexgeo.distance(here, (t["col"], t["row"])) >= 1
+                           and 1 <= hexgeo.distance(chere, (t["col"], t["row"])) <= rng)
+            if not cands:
+                raise SystemExit("MONTAGE CRAFT : aucune tuile libre a la fois DISTINCTE de la "
+                                 "position de %s et DANS le rayon %d du caster" % (TERM_A, rng))
+            dest = cands[0]
+            mv = rpc("applyAction", {"runnerId": rid, "action": {
+                "kind": "move", "unitId": mover, "to": {"col": dest[0], "row": dest[1]}}}, 90)
+            print("[CRAFT] %s %r -> %r ok=%r" % (TERM_A, here, dest, mv.get("ok")))
         cap = capture(rid)
         st0, board = offline_state(cap)
         uids = {}
@@ -355,6 +402,53 @@ def couple(board_id: str, seed_value: str, mutate: int, fails: list) -> None:
         print("[MONTAGE] uids=%r" % uids)
         print("[MONTAGE] hp avant = %r"
               % {v: hp_of(st0, u) for v, u in uids.items()})
+
+        # -- NON-DEGENERESCENCE : ce que ce couple discrimine REELLEMENT ---------------------------
+        def _bc(uid):
+            e = st0.get_entity(int(uid))
+            sc = e.get_component(__import__(
+                "engine.runner.components", fromlist=["StatsComponent"]).StatsComponent)
+            ctx = getattr(sc, "ctx", None) if sc is not None else None
+            fn = getattr(ctx, "get_stat", None) if ctx is not None else None
+            try:
+                from engine.runner.stats import get_stat as _gs
+                return int(_gs(st0, int(uid), int(StatType.BLOCK_CHANCE)))
+            except Exception:
+                return None if fn is None else fn(int(StatType.BLOCK_CHANCE))
+
+        def _has_arrived(uid):
+            e = st0.get_entity(int(uid))
+            fl = e.get_component(UnitFlagsComponent) if e is not None else None
+            return bool(fl is not None and fl.has(int(UnitFlag.ArrivedAtFinalTile)))
+
+        groupe = [CASTER, TERM_A, TERM_B]
+        bcs = {v: _bc(uids[v]) for v in groupe}
+        arr = {v: _has_arrived(uids[v]) for v in groupe}
+        print("[DISCRIMINE] BlockChance du groupe = %r ; ArrivedAtFinalTile = %r" % (bcs, arr))
+        if craft:
+            if not any(b == 0 for b in bcs.values() if b is not None):
+                fails.append("[%s] CRAFT : aucun membre du groupe a BlockChance == 0 -- le gate de "
+                             "b3 reste NON DISCRIMINE" % board_id)
+            if not any(arr.values()):
+                fails.append("[%s] CRAFT : aucun membre du groupe ne porte ArrivedAtFinalTile -- "
+                             "le gate de b4 reste NON DISCRIMINE" % board_id)
+            # Et le porteur du flag doit ETRE DANS LE GROUPE : sinon c'est la PORTEE qui l'exclut,
+            # pas le gate -- l'ecart serait le meme des deux cotes et le mutant 3 resterait vert.
+            import hexgeo as _hg
+            from engine.runner.components import get_unit_feet as _feet2
+            _cf = _feet2(st0, uids[CASTER])
+            _chere = tuple(_cf[0]) if _cf else None
+            _rng = _ths_range_of()
+            dans_groupe = []
+            for v in (TERM_A, TERM_B):
+                f = _feet2(st0, uids[v])
+                if f and _chere is not None and _hg.distance(_chere, tuple(f[0])) <= _rng:
+                    dans_groupe.append(v)
+            print("[DISCRIMINE] membres a portee (hors caster) = %r" % dans_groupe)
+            if not any(arr[v] for v in dans_groupe):
+                fails.append("[%s] CRAFT : le porteur d'ArrivedAtFinalTile est HORS du rayon %d -- "
+                             "c'est la PORTEE qui l'exclut, pas le gate de b4 (temoin aveugle)"
+                             % (board_id, _rng))
 
         # -- face DECISION : le pool de tuiles du NATIF, confronte au gate du PORT ----------------
         ab = rpc("abilityTargets", {"runnerId": rid, "unitId": caster, "abilityType": ABILITY}, 180)
@@ -462,6 +556,9 @@ def main() -> int:
     if not a.offline:
         for board_id, seed_value in COUPLES:
             couple(board_id, seed_value, a.mutate, fails)
+        # 3e couple CRAFTE : le SEUL qui exerce les gates `BlockChance > 0` (b3) et
+        # `NOT ArrivedAtFinalTile` (b4). Sans lui, les mutants 2 et 3 sont VERTS -- mesure.
+        couple(COUPLES[0][0], COUPLES[0][1], a.mutate, fails, craft=True)
     if fails:
         print("\nECHECS (%d) :" % len(fails))
         for f in fails:
