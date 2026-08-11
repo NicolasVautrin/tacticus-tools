@@ -67,6 +67,32 @@ def ability_attack_params(state: "State", caster_id: int, ability_id: str,
     return int(bmin), int(bmax), pierce, int(hits)
 
 
+def active_ability_state(state: "State", caster_id: int, ability_type: int) -> tuple:
+    """`(level, mult)` de l'`AbilityState` de CETTE ability ACTIVE sur CE caster (#890).
+
+    Le natif resout chaque `IdunBattle.Configuration.AbilityConfiguration$$GetVariableForLevel`
+    contre l'`abilityState` que `AActiveAbility` lui passe -- celui de l'ability CASTEE, pas un
+    niveau global d'unite. Deux actives d'une meme unite peuvent differer : `ultraCalgar` porte
+    `1000` au niveau 50 et son attaque normale `69` au niveau 1 (mesure au canal
+    `unitAbilityStates`).
+
+    Repli EXPLICITE et documente : si le canal n'a pas ete mesure (`ctx.active_ability_levels is
+    None`) ou ne porte pas CETTE ability, on rend le scalaire `(ctx.active_ability_level,
+    ctx.ability_variables_multiplier)` -- exactement ce que lisait le port avant. Sans `ctx` du tout,
+    `(0, 100)`, qui indexe le niveau 1 : c'est le comportement historique, pas une valeur inventee."""
+    e = state.get_entity(caster_id) if state is not None else None
+    sc = e.get_component(StatsComponent) if e is not None else None
+    ctx = getattr(sc, "ctx", None) if sc is not None else None
+    if ctx is None:
+        return 0, 100
+    table = getattr(ctx, "active_ability_levels", None)
+    if isinstance(table, dict):
+        entry = table.get(int(ability_type))
+        if entry:
+            return int(entry[0]), int(entry[1])
+    return int(ctx.active_ability_level or 0), int(ctx.ability_variables_multiplier or 100)
+
+
 def profile_pierce(ctx, profile_name: str, ranged: bool = False, effect_bonus: int = 0) -> int:
     """Perçage effectif d'une attaque = `clamp(0, 100, profil.PiercingRatio + ExtraPierce +
     ExtraPierce{Melee|Ranged} + Σ bonus d'effets)` (volet perçage commun de `MinMaxDamage`/

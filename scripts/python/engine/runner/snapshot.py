@@ -469,11 +469,16 @@ def load_state(decision: dict, observe: dict, snapshot: Optional[dict] = None,
         # capteur #466) : le seul substrat sur lequel la garde `FilterNewList` du repli generique
         # ne soit pas tautologique. Cf. `_load_config_active_abilities`.
         seeded_cfg = _load_config_active_abilities(state, payload)
+        # MEME payload, MEME composant : le NIVEAU et le MULTIPLICATEUR de chaque active montee
+        # (#890). Cf. `_load_active_ability_levels` -- c'est le SEUL canal qui les porte pour une
+        # unite dont le `combatSnapshot.unitConfig` est en erreur (un BOSS).
+        seeded_lvl = _load_active_ability_levels(state, payload)
         state.ability_states_seed = {"source": source, "seeded": seeded,
                                      "seededPassives": seeded_pas,
                                      "seededTriggeredKits": seeded_kit,
                                      "seededActives": seeded_act,
-                                     "seededConfigActives": seeded_cfg}
+                                     "seededConfigActives": seeded_cfg,
+                                     "seededActiveLevels": seeded_lvl}
     else:
         state.ability_states_seed = {"source": source, "seeded": None, "seededPassives": None,
                                      "seededTriggeredKits": None, "seededActives": None}
@@ -1728,6 +1733,59 @@ def _load_active_abilities(state: State, ability_states: dict) -> int:
         if sc is None or getattr(sc, "ctx", None) is None:
             continue
         sc.ctx.active_abilities = names
+        seeded += 1
+    return seeded
+
+
+def _load_active_ability_levels(state: State, ability_states: dict) -> int:
+    """Seede le NIVEAU et le MULTIPLICATEUR des abilities ACTIVES depuis `unitAbilityStates`
+    (#890). Rend le nombre d'unites COMBLEES (pas le nombre d'unites visitees).
+
+    DEUX ecritures, et la seconde est un COMBLEMENT au sens strict :
+
+    1. `UnitContext.active_ability_levels` = `{ActiveAbilityType: (level, mult)}` -- l'`AbilityState`
+       PAR ABILITY, tel que `IdunBattle.Configuration.AbilityConfiguration$$GetVariableForLevel` le
+       consomme (le natif resout chaque variable contre l'`AbilityState` de l'ability CASTEE, pas
+       contre un niveau global d'unite). Ecriture ADDITIVE : personne n'est oblige de la lire.
+    2. `ctx.active_ability_level` / `ctx.ability_variables_multiplier` -- ECRITS **UNIQUEMENT SI LE
+       TROU EXISTE** (scalaire absent ou nul). Meme regle que `_load_passive_abilities` : on n'ecrit
+       jamais par-dessus une valeur mesuree.
+
+    POURQUOI ce comblement existe -- mesure, pas redoute. `combatSnapshot.units[].unitConfig` rend
+    `{"error": "config null"}` pour un BOSS monte par `--explicit-stats` : le scalaire retombe alors
+    a `0`, donc `ability_var(..., level=0)` lit l'INDEX 0, c'est-a-dire le NIVEAU 1. Mesure sur
+    `tyranBossHiveTyrantLeviathan:4` (`Catalyst`) : `extraArmor` 10 au lieu de 1190, `blockDmg` 15 au
+    lieu de 1786 -- deux ordres de grandeur, en silence. Le canal `unitAbilityStates`, lui, porte
+    `level = 55` et `mult = 200` pour les QUATRE actives du boss.
+
+    LA REGLE DU COMBLEMENT EST VERIFIABLE, et c'est ce qui la rend non arbitraire : on prend le
+    **MAXIMUM** des niveaux d'actives (avec le `mult` de CETTE entree). Sur les unites qui portent
+    DEJA leur scalaire, cette regle le REPRODUIT -- `ultraCalgar` porte `1000@50` et `69@1`
+    (l'attaque normale a son propre niveau 1) et son `unitConfig.activeAbilityLevel` vaut `50` ;
+    `tyranTyrantGuard` porte `1105@50` et `69@1` pour un scalaire `50`. C'est ce que
+    `test_890_hive_tyrant_live.py` assertionne : la regle est confrontee la ou la verite est connue,
+    puis appliquee la ou elle manque.
+
+    TRI-ETAT, meme discipline que les seeds voisins : sans canal, rien n'est pose."""
+    seeded = 0
+    for row in ((ability_states or {}).get("units") or []):
+        uid = row.get("entityId")
+        actives = [a for a in (row.get("actives") or []) if a.get("level") is not None]
+        if uid is None or not actives:
+            continue
+        ent = state.get_entity(uid)
+        sc = ent.get_component(StatsComponent) if ent is not None else None
+        ctx = getattr(sc, "ctx", None) if sc is not None else None
+        if ctx is None:
+            continue
+        ctx.active_ability_levels = {int(a["type"]): (int(a["level"]),
+                                                      int(a.get("mult") or 100))
+                                     for a in actives if a.get("type") is not None}
+        if getattr(ctx, "active_ability_level", None):
+            continue                       # deja mesure -> on n'ecrit JAMAIS par-dessus
+        best = max(actives, key=lambda a: int(a["level"]))
+        ctx.active_ability_level = int(best["level"])
+        ctx.ability_variables_multiplier = int(best.get("mult") or 100)
         seeded += 1
     return seeded
 
