@@ -20,7 +20,12 @@ import pytest
 CARRIER = "darkaAzrael"
 ALLY_DA = "darkaHellblaster"      # ami DARK ANGELS
 ALLY_OTHER = "ultraApothecary"    # ami NON Dark Angels
-FOE = "necroOverlord"
+# L'ennemi n'est pas un figurant : c'est le TEMOIN DE MORSURE du levier ci-dessous, et il est
+# CHOISI pour ca. `orksWarboss` porte 36 de BlockChance de base sous le regime courant (mesure :
+# `probe_933_premisses_regime.py --unites block`), la ou `necroOverlord` -- l'ennemi d'origine --
+# est a 0 : un temoin deja nul sans le levier serait TAUTOLOGIQUE, il passerait meme si le levier
+# ne mordait plus.
+FOE = "orksWarboss"
 
 # PREMISSE DE REGIME, RENDUE EXPLICITE (#933). Les discriminants ci-dessous lisent la stat
 # TOTALE de block ; ils ne valent donc « contribution de l'aura » que si la BASE est nulle.

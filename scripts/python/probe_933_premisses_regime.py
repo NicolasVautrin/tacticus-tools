@@ -210,6 +210,26 @@ def _premisses(path: Path, src: str) -> list[dict]:
     except SyntaxError:
         return out
     lignes = src.splitlines()
+
+    # LES COMPARAISONS QUI GARDENT UN `assert` (ou un `skip`) -- le patron le plus dangereux, et
+    # celui qui a effectivement mordu : `if cc == 0: assert port_ph == live_hits` de
+    # `test_savage_echoes_live.py`. Le caster porte desormais `CritChance = 20` : la garde SAUTE,
+    # l'assertion la plus forte du fichier n'est PLUS JAMAIS evaluee, et le fichier reste VERT.
+    # Aucun `rc` ne le signale -- c'est la definition meme du trompeur-mais-vert.
+    gardiennes: set[int] = set()
+    for n in ast.walk(arbre):
+        if not isinstance(n, ast.If):
+            continue
+        corps = list(n.body) + list(n.orelse)
+        protege = any(isinstance(c, ast.Assert) for b in corps for c in ast.walk(b)) or \
+            any(isinstance(c, ast.Attribute) and c.attr == "skip"
+                for b in corps for c in ast.walk(b))
+        if not protege:
+            continue
+        for c in ast.walk(n.test):
+            if isinstance(c, ast.Compare):
+                gardiennes.add(id(c))
+
     for n in ast.walk(arbre):
         if not isinstance(n, ast.Compare):
             continue
@@ -230,6 +250,9 @@ def _premisses(path: Path, src: str) -> list[dict]:
                 role = "valeur-en-dur"
             if role is None:
                 continue
+            if id(n) in gardiennes and role in ("premisse-zero", "attendu-non-nul",
+                                                "attendu-positif"):
+                role = "garde-qui-protege-un-assert"
             out.append({
                 "ligne": n.lineno,
                 "role": role,
@@ -320,8 +343,13 @@ def _classe_fichier(src: str, nom: str = "") -> dict:
         neutralise_stats |= {"CritChance", "CritDamage"}
     if faces["block_p"] and faces["block_a"]:
         neutralise_stats |= {"BlockChance", "BlockDamage"}
+    # `_offline.py` PREVAUT sur les marqueurs : un cliquet offline qui CITE `build_runner` dans un
+    # temoin synthetique (c'est le cas de `test_933_premisse_regime_offline.py` lui-meme) serait
+    # sinon classe LIVE et se recenserait -- un recenseur qui se compte lui-meme derive.
+    live = (not nom.endswith("_offline.py")
+            and (any(m in src for m in _MARQUEURS_LIVE) or nom.endswith("_live.py")))
     return {
-        "live": any(m in src for m in _MARQUEURS_LIVE) or nom.endswith("_live.py"),
+        "live": live,
         "neutralise": sorted(neutralise_stats),
     }
 
@@ -356,7 +384,7 @@ def recenser(racine: "Path | None" = None) -> dict:
 
 
 _ROLES_PERIMABLES = ("premisse-zero", "attendu-positif", "attendu-non-nul", "valeur-en-dur",
-                     "premisse-en-prose")
+                     "premisse-en-prose", "garde-qui-protege-un-assert")
 
 
 def _suspects(rec: dict) -> dict[str, list[dict]]:
