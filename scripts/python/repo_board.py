@@ -285,6 +285,8 @@ def load_prs(limit: int = PR_LIMIT) -> list[dict]:
             merge_sha=(p.get("mergeCommit") or {}).get("oid") or "",
             day=created.astimezone().strftime("%Y-%m-%d") if created else "",
             merged_day=merged.astimezone().strftime("%Y-%m-%d") if merged else "",
+            closed_day=(closed.astimezone().strftime("%Y-%m-%d")
+                        if (closed := _ts(p.get("closedAt"))) else ""),
             # duree de vie : ouverture -> merge. Sur une campagne d'agents elle mesure la
             # latence d'INTEGRATION, pas le temps de travail (l'agent a deja fini).
             ttm=((merged - created).total_seconds() / 60.0) if (merged and created) else None,
@@ -491,6 +493,78 @@ def load_metas(pdir: Path, cache: dict) -> dict:
     return by_branch
 
 
+# ------------------------------------------------- 2bis. livraison par squash manuel
+def squash_delivered(prs: list[dict], cache: dict) -> None:
+    """Marque les PR FERMEES SANS `mergedAt` qui ont pourtant LIVRE, et pose `delivered_day`.
+
+    ⛔ `mergedAt` N'EST PAS LE CRITERE DE LIVRAISON DANS CE DEPOT. Quand une branche est
+    squashee A LA MAIN sur `master` puis la PR fermee, le sha de la branche n'est jamais
+    ancetre de `master` : GitHub la classe `CLOSED`, `mergedAt` reste nul. La PR a livre.
+
+    MESURE DU 2026-08-11, qui a motive cette fonction : la journee affichait **15 PR** alors
+    que **42** avaient ete livrees. Les 27 manquantes etaient toutes des squashes manuels --
+    confrontees au CONTENU, **27/27 retrouvees dans `master`** (26 a 100 % de leurs fichiers,
+    1 a 85 %), **0 reellement abandonnee**. Le board les comptait en « fermees sans merge »,
+    c'est-a-dire en ABANDONS, et affichait un taux de merge de 93 % qui n'existait pas.
+
+    LE CRITERE EST LE CONTENU, PAS LE MESSAGE. Une premiere tentative cherchait le numero de
+    PR dans les sujets de commit de `master` : elle rendait 23 faux « sans trace », parce que
+    les messages citent le numero de RESIDU (`merge(#926)`) et non celui de la PR. On regarde
+    donc si les FICHIERS que la PR touche existent dans `origin/master`. Seuil a 80 % : une
+    PR livree peut voir un fichier renomme ou resupprime derriere elle.
+
+    MEMOISE : une PR fermee ne rouvre pas, donc son verdict est definitif. Sans cela, chaque
+    run refait un `gh pr view` par PR fermee (60 appels reseau au 2026-08-11).
+    """
+    dcache = cache.setdefault("delivered", {})
+    n_new = n_fail = 0
+    for p in prs:
+        p["via_squash"] = False
+        p["delivered_day"] = p["merged_day"]
+        if p["merged"] or p["state"] != "CLOSED" or not p["closed_day"]:
+            continue
+        key = str(p["num"])
+        hit = dcache.get(key)
+        if hit is None:
+            # UN ECHEC RESEAU N'EST PAS UN VERDICT. `gh` rend des 502/504 par rafales ; avec 60
+            # PR fermees a interroger, en faire une SystemExit tuait tout le run, et cacher le
+            # resultat vide aurait fige un « non livree » DEFINITIF sur une PR livree. On
+            # reessaie, puis on laisse la PR NON MESUREE (rien en cache, elle repassera).
+            raw = ""
+            for _ in range(3):
+                raw = sh_soft(["gh", "pr", "view", key, "--json", "files"])
+                if raw.strip():
+                    break
+            if not raw.strip():
+                n_fail += 1
+                continue
+            files = [f["path"] for f in (json.loads(raw).get("files") or [])]
+            present = sum(1 for f in files
+                          if subprocess.run(["git", "cat-file", "-e", "origin/master:" + f],
+                                            cwd=REPO, capture_output=True).returncode == 0)
+            # `part` est conserve tel quel : un verdict borderline doit rester RELISIBLE plus
+            # tard sans refaire l'appel reseau.
+            hit = dict(n=len(files), present=present,
+                       part=(present / len(files)) if files else 0.0)
+            dcache[key] = hit
+            n_new += 1
+        if hit["n"] and hit["part"] >= 0.80:
+            p["via_squash"] = True
+            p["delivered_day"] = p["closed_day"]
+            # LIGNES : base de mesure DIFFERENTE, et il faut le savoir. Une PR mergee est
+            # mesuree au diff NET de son merge contre master-avant ; une PR squashee n'a pas
+            # de merge, donc on prend le diff que GITHUB calcule pour la branche (`additions`).
+            # Les deux ne coincident pas exactement (le net absorbe ce qu'un rebase a deja fait
+            # entrer), mais l'alternative etait ZERO ligne : le 2026-08-11 affichait 20 994
+            # lignes pour 42 PR et un ctx/ligne de 317 k, quatre fois la normale de la fenetre.
+            p["net_add"], p["net_del"] = p["add"], p["dele"]
+            p["n_commits"] = 1
+    # `non_mesurees` est un TRI-ETAT, pas un zero : ces PR n'ont pas de verdict, et le board doit
+    # le DIRE plutot que les ranger en abandons par defaut.
+    cache["stat_delivered"] = dict(interroges=n_new, reutilises=len(dcache) - n_new,
+                                   non_mesurees=n_fail)
+
+
 # ---------------------------------------------------------------- 3. git
 def pr_commits(prs: list[dict], strict: bool, cache: dict) -> dict:
     """SHA -> numero de PR, pour chaque commit AMENE par une PR mergee.
@@ -641,6 +715,8 @@ def build(since: str, strict: bool = False, use_cache: bool = True,
         joined += bool(pr["agent_id"])
         via_msg += pr["via"] == "message"
 
+    squash_delivered(prs, cache)
+
     # L'enumeration des commits de PR vient APRES la jointure d'agent : `--strict-agent` en depend.
     owner = pr_commits(prs, strict, cache)
     git_day, git_net = load_git(since, set(owner))
@@ -655,8 +731,12 @@ def build(since: str, strict: bool = False, use_cache: bool = True,
     for d in days:
         g, t = git_day.get(d, {}), tok_day.get(d, {})
         opened = [p for p in prs if p["day"] == d]
-        merged = [p for p in prs if p["merged_day"] == d]
-        # Les colonnes sont portees par les PR MERGEES ce jour-la, au diff net de leur merge.
+        # LIVREE, pas « mergee » : une PR squashee A LA MAIN puis fermee n'a pas de `mergedAt`
+        # (le sha de sa branche n'est jamais ancetre de master) alors qu'elle a bel et bien
+        # livre. Les compter comme des abandons faisait tomber la livraison du 2026-08-11 de
+        # 42 a 15 -- cf. `squash_delivered`.
+        merged = [p for p in prs if p["delivered_day"] == d]
+        # Les colonnes sont portees par les PR LIVREES ce jour-la, au diff net de leur merge.
         # `commits` reste le compte des commits qu'elles ont fait entrer : c'est une INDICATION
         # de granularite, jamais le denominateur des lignes.
         ctx = t.get("ctx", 0)
@@ -664,6 +744,7 @@ def build(since: str, strict: bool = False, use_cache: bool = True,
         add = sum(p["net_add"] for p in merged)
         rows.append(dict(
             day=d, opened=len(opened), merged=len(merged),
+            squash=len([p for p in merged if p["via_squash"]]),
             closed=len([p for p in opened if p["state"] == "CLOSED"]),
             commits=commits, add=add, dele=sum(p["net_del"] for p in merged),
             direct_commits=g.get("direct_commits", 0), direct_add=g.get("direct_add", 0),
@@ -679,7 +760,8 @@ def build(since: str, strict: bool = False, use_cache: bool = True,
                 pr_rows=pr_rows,
                 cache=dict(tokens=cache.get("stat_tokens", {}),
                            merges=cache.get("stat_merges", {}),
-                           metas=cache.get("stat_metas", {})))
+                           metas=cache.get("stat_metas", {}),
+                           delivered=cache.get("stat_delivered", {})))
 
 
 # ---------------------------------------------------------------- console
@@ -691,31 +773,36 @@ def console(data: dict) -> None:
     # L'UNITE DE LA LIGNE EST LA PR MERGEE ce jour-la. Le compte de commits reste affiche, mais
     # en colonne SECONDAIRE : c'est une granularite (combien de commits une PR a fait entrer),
     # jamais le denominateur. Une PR = une livraison, quel que soit le nombre de commits dedans.
-    hdr = "%-12s%6s%16s%10s%14s%12s%9s%9s%8s"
-    print("unite = la PR MERGEE%s : lignes au diff net de son merge, au jour du merge."
+    hdr = "%-12s%6s%7s%16s%10s%14s%12s%9s%9s%8s"
+    print("unite = la PR LIVREE%s : lignes au diff net de son merge, au jour de la livraison."
           % (" (agent identifie)" if data["strict"] else ""))
+    print("`squash` = livrees a la MAIN puis fermees (pas de mergedAt) -- livrees quand meme.")
     print("`direct` = commits pousses sur master hors PR.")
-    print(hdr % ("jour", "PR", "context", "+lignes",
+    print(hdr % ("jour", "PR", "squash", "context", "+lignes",
                  "ctx/PR", "ctx/ligne", "ouvertes", "commits", "direct"))
     tot = defaultdict(int)
     for r in data["days"]:
-        for k in ("opened", "merged", "commits", "add", "dele", "ctx",
+        for k in ("opened", "merged", "squash", "commits", "add", "dele", "ctx",
                   "direct_commits", "direct_add"):
             tot[k] += r[k]
-        print(hdr % (r["day"], r["merged"] or "-", n(r["ctx"]), n(r["add"]),
+        print(hdr % (r["day"], r["merged"] or "-", r["squash"] or "-", n(r["ctx"]), n(r["add"]),
                      n(r["ctx_per_pr"]) if r["merged"] else "-",
                      n(r["ctx_per_line"]) if r["add"] else "-",
                      r["opened"] or "-", r["commits"] or "-", r["direct_commits"] or "-"))
-    print(hdr % ("TOTAL", tot["merged"], n(tot["ctx"]), n(tot["add"]),
+    print(hdr % ("TOTAL", tot["merged"], tot["squash"], n(tot["ctx"]), n(tot["add"]),
                  n(tot["ctx"] / tot["merged"]) if tot["merged"] else "-",
                  n(tot["ctx"] / tot["add"]) if tot["add"] else "-",
                  tot["opened"], tot["commits"], tot["direct_commits"]))
     prs = data["prs"]
-    merged = [p for p in prs if p["state"] == "MERGED"]
+    # LIVREE = mergee par GitHub OU squashee a la main (cf. `squash_delivered`). Compter les
+    # secondes en abandons donnait un taux de merge de 93 % qui n'existait pas.
+    merged = [p for p in prs if p["state"] == "MERGED" or p["via_squash"]]
+    squash = [p for p in prs if p["via_squash"]]
     ttm = sorted(p["ttm"] for p in merged if p["ttm"] is not None)
     print()
-    print("PR            : %d ouvertes, %d mergees (%.0f%%), %d fermees sans merge"
-          % (len(prs), len(merged), 100 * len(merged) / max(1, len(prs)),
+    print("PR            : %d ouvertes, %d livrees (%.0f%%) dont %d par squash manuel,"
+          " %d abandonnees"
+          % (len(prs), len(merged), 100 * len(merged) / max(1, len(prs)), len(squash),
              len(prs) - len(merged)))
     print("jointure agent: %d/%d (%.0f%%) -- dont %d par le message de merge seul"
           % (data["joined"], len(prs), 100 * data["joined"] / max(1, len(prs)),
