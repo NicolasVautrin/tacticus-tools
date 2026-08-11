@@ -7,9 +7,10 @@
 
 `1032 Catalyst` et `1056 StranglethornCannon`, portees par `tyranBossHiveTyrantLeviathan` (SEUL
 porteur des deux). Le boss n'est PAS dans `rl_duel build --list-pool` : il entre par
-`--explicit-stats <id>:<palier>` (injection catalogue), et le garde de roster le declare
-`NON MONTE` alors qu'il EST en bataille -- le jeu le republie sous l'id remappe
-`GuildBoss2Boss1TyranHiveTyrantLeviathan`. D'ou `TACTICUS_ALLOW_ROSTER_DEFICIT=1`.
+`--explicit-stats <id>:<palier>` (injection catalogue), et le jeu le republie sous l'id d'entite
+REMAPPE `GuildBoss2Boss1TyranHiveTyrantLeviathan` -- d'ou la resolution par visualId dans
+`_boss_id`. (Le garde de roster butait sur ce remappage ; **#895 l'a repare**, donc plus aucune
+echappatoire n'est posee ici -- cf. `build`.)
 
 Board : **`CE2_boss`** -- la carte que le gameconfig declare pour CE boss
 (`battles/campaigns/*/battles[]`, `BoardId`), 7x10, `IsBossBoard`, et la SEULE des deux a porter une
@@ -68,10 +69,13 @@ def build(p_units, a_units, places=(), a_places=(), board=BOSS_BOARD, seed=SEED)
 
     Rend `(sid, rid)`. Le runner est enregistre dans `PR._rids` pour que `PR.dispose` le retrouve.
 
-    `TACTICUS_ALLOW_ROSTER_DEFICIT=1` : le garde de roster compare `tyranBossHiveTyrantLeviathan` a
-    l'id d'entite REMAPPE `GuildBoss2Boss1TyranHiveTyrantLeviathan` et conclut `x0` alors que le boss
-    est en bataille. Le refus ne prouve rien -- on le neutralise et on VERIFIE la presence dans la
-    vue (`_assert_boss_present`)."""
+    ⚠ **AUCUNE echappatoire de roster n'est posee, et c'est DELIBERE.** Ce probe a d'abord tourne
+    sous `TACTICUS_ALLOW_ROSTER_DEFICIT=1` : le garde comparait `tyranBossHiveTyrantLeviathan` a l'id
+    d'entite REMAPPE (`GuildBoss2Boss1TyranHiveTyrantLeviathan`) et rendait
+    `demande x1 mais MONTE x0` -- un refus DUR sur un boss pourtant EN BATAILLE. #895 a repare le
+    garde (il resout desormais le remappage), donc le build passe `rc=0` sans rien neutraliser --
+    VERIFIE. Garder la variable ferait taire un VRAI deficit de roster, ce qui est exactement le
+    genre de vert qui ne prouve rien."""
     fd, path = tempfile.mkstemp(prefix="probe889_", suffix=".json")
     os.close(fd)
     argv = [sys.executable, os.path.join(PYDIR, "rl_duel.py"), "build",
@@ -82,8 +86,9 @@ def build(p_units, a_units, places=(), a_places=(), board=BOSS_BOARD, seed=SEED)
         argv += ["--place", p]
     for p in a_places:
         argv += ["--a-place", p]
-    env = dict(os.environ)
-    env["TACTICUS_ALLOW_ROSTER_DEFICIT"] = "1"
+    # `TACTICUS_ALLOW_ROSTER_DEFICIT` est RETIRE de l'environnement s'il traine : un probe qui
+    # herite d'une echappatoire posee par son appelant ne mesure plus le meme montage (cf. docstring).
+    env = {k: v for k, v in os.environ.items() if k != "TACTICUS_ALLOW_ROSTER_DEFICIT"}
     proc = subprocess.run(argv, capture_output=True, text=True, env=env, cwd=PYDIR)
     st = None
     try:
@@ -216,10 +221,22 @@ def _port_hits(port):
 def case_feet():
     """L'EMPREINTE du boss : combien de tuiles occupe-t-il ? (`decisionView.units[].feet`.)
 
-    Le canal est mesure sur les DEUX bords : le boss ET les autres unites du meme build. Un `1`
-    partout ne distingue pas `le boss occupe une tuile` de `le canal rend 1 pour tout le monde` --
-    d'ou la lecture de `BossPlatforms` du dump de board, qui, elle, DISCRIMINE : `CE2_boss` en porte
-    une (3 tuiles), `MC1_67` zero."""
+    ⚠ **LA QUESTION GENERALE EST TRANCHEE, ET PAS PAR CE CANAL** (#895/#896) : un boss monte par
+    `rl_duel` est **MONO-HEX**, et c'est le JEU qui le dit -- `1193 NovaCharge` porte
+    `TargetingRule.CasterHas7Tiles` (famille `CasterHas1/3/7Tiles` = `GetFeetCount(caster) != N` ->
+    refus), et sur le meme caster au meme instant `abilityTargets(1194)` rend 66 cibles quand
+    `abilityTargets(1193)` en rend 0. `feet`, lui, rend `1` pour TOUT LE MONDE et ne prouve donc
+    rien -- c'est la raison pour laquelle ce cas ne conclut PAS a partir de lui.
+
+    Ce que ce cas mesure quand meme, et qui reste utile : (a) le chiffre du canal sur les DEUX bords
+    (boss et voisins) pour le meme build ; (b) la `BossPlatform` que le DUMP DE BOARD declare, qui,
+    elle, DISCRIMINE entre les deux cartes -- `CE2_boss` en porte une de 3 tuiles, `MC1_67` zero.
+    L'ecart entre (a) et (b) est exactement le residu `#890-r4` : la plateforme existe dans la
+    donnee et n'est pas consommee par notre voie de montage.
+
+    Les DEUX masques du Hive Tyrant ont ete relus sur cet axe : `0x8004` et `0x100004002` ne portent
+    AUCUN bit `CasterHas{1,3,7}Tiles` -- ce boss-ci n'offre donc pas la porte native qui a tranche
+    pour `tauBossRiptide`."""
     out = {"boards": {}}
     for bid in (BOSS_BOARD, "MC1_67"):
         d = R._load_board_dump(bid)
