@@ -1,6 +1,7 @@
 """Abilities actives des **Black Templars** (prefixe `templ*`) — face EXECUTION (runner/ECS).
 
 - `FragstormGrenadeLauncher` (1048, `templAggressor` « Brother Burchard ») — #489.
+- `CrusadeOfWrath` (1049, `templHelbrecht` « High Marshal Helbrecht ») — bloc dedie ci-dessous (#893).
 - `HolyDuel` (1050, `templChampion` « Brother Jaeger ») — cf. le bloc dedie en bas de module.
 - `UnbreakableDuty` (1061, `templAncient` « Ancient Thoread ») — bloc dedie en bas de module (#572).
 
@@ -25,7 +26,8 @@ from ...entities.selectors.geometry import PickRandomly
 from ...entities.selectors.tiles import Caster
 from ...entities.selectors.units import (AdjacentEnemies, AllDeadOrResurrectedUnits, And, Damageable,
                                          Friends, SortByFormula, Sub, SurroundingEnemies,
-                                         ValidNormalAttackTargets, units_with_traits)
+                                         SurroundingUnits, ValidNormalAttackTargets,
+                                         units_with_traits)
 from ...entities.stats import StatType
 from ...entities.traits.unit_trait import UnitTrait
 from ...entities.triggers import AmountIsEqualOrGreater, AmountIsGreaterThanZero
@@ -238,6 +240,282 @@ class FragstormGrenadeLauncherAbility(ActiveAbility):
 # Les deux constantes de config LUES au decompile, nommees (regle « un entier qui DESIGNE passe par
 # un ENUM ») : `GetNumberConstant(0x16)` et `GetNumberConstant(0x2f)`.
 assert int(AbilityConstantType.range) == 0x16 and int(AbilityConstantType.nrOfHits) == 0x2F
+
+
+# =================================================================================================== #
+# CrusadeOfWrath (1049, `templHelbrecht` -- High Marshal Helbrecht, HERO Black Templars)        #893 #
+#
+# `IdunBattleLogic.Entities.Abilities.Active.Loki.CrusadeOfWrathAbility$$ExecuteBehaviour` (MIRROR du
+# DECOMPILE, build `rnca9r7q6c`) -- UN SEUL noeud terminal passe a `AActiveAbility$$Execute` :
+#
+#   range  = AbilityConfiguration.GetNumberConstant(config@this+0x60, 0x16 = range)      -> 2
+#   buffed = DSLSelectors.Friends(
+#                of       = Owner@DSLSelectors+0x30,
+#                entities = DSLSelectors.SurroundingUnits(origin = CasterTile@+0x50, range = range,
+#                                                         unique = 1, includeCenter = **0**,
+#                                                         unitSelectionType = 3)
+#                           op_Subtraction Caster@+0x48,
+#                selectionType = 3)
+#   turns  = DSLFormulas.TurnsFromRounds(**2**)
+#
+#   [A] dmg    = DSLBehaviors.AddStaticStatModifierEffect(
+#                    targets   = buffed,
+#                    effectType = 0x43e = 1086 CrusadeOfWrath_ExtraDamage,
+#                    statType  = **0** = Attack,
+#                    amount    = DSLFormulas.Direct(AbilityConfiguration.GetVariableForLevel(
+#                                    config, **8** = extraDmg, AbilityState, 0)),
+#                    turns = turns, isHidden = false)
+#   [B] pierce = DSLBehaviors.AddStaticStatModifierEffect(
+#                    targets   = buffed,
+#                    effectType = 0x43f = 1087 CrusadeOfWrath_ExtraPierce,
+#                    statType  = **0x15** = 21 ExtraPierceMelee,
+#                    amount    = DSLFormulas.Direct(AbilityConfiguration.GetVariableForLevel(
+#                                    config, **0x3f** = extraPierceRatio, AbilityState, 0)),
+#                    turns = turns, isHidden = false)
+#   [C] sel    = DSLSelectors.ValidNormalAttackTargets(CasterTile@+0x50, CasterTile@+0x50,
+#                                                      range = null, ignoreRule/additionalRule = null)
+#                op_BitwiseAnd DSLSelectors.AdjacentEnemies(Caster@+0x48, unique = 1,
+#                                                           selectionType = 3)
+#       attack = DSLBehaviors.UseActiveAbility(
+#                    caster            = Owner@+0x30,
+#                    target            = DSLSelectors.PickRandomly(sel, amount = 1,
+#                                            allowDuplicates = 0, maxDuplicatesAllowed = 0x7fffffff,
+#                                            ignoreForcedTargets = 0),
+#                    activeAbilityType = **DSLSelectors.UnitNormalAttackType(Owner@+0x30)**,
+#                    parentAbility     = Nullable(AbilityOrEffect(this+0x10)),
+#                    triggerAbilityOrEffect / options ZEROES)
+#       free   = DSLBehaviors.If(DSLTriggers.AmountIsGreaterThanZero(DSLFormulas.Count(sel)),
+#                                attack, null)
+#
+#   AActiveAbility.Execute(entities, this, [A] op_BitwiseAnd ([B] op_Addition [C]))
+#
+# i2 mot a mot (`Abilities/CrusadeOfWrath_CurrentLevelDescription`) : « All other friendly units
+# within {[range]} hexes gain +{[extraDmg]} Damage and +{[extraPierceRatio]}% pierce ratio in melee
+# - regardless of Damage type - for this round and the next. High Marshal Helbrecht immediately
+# performs a normal melee attack against a random adjacent enemy. » -- appariement UN A UN avec
+# [A] / [B] / [C], et « for this round and the next » = le `TurnsFromRounds(2)`.
+#
+# LA CATEGORIE ANNONCEE EST INCOMPLETE, et c'est un RESULTAT : `docs/rl/combat-ability-coverage.md`
+# classe 1049 en EFFECT/BUFF (colonne derivee du `damageProfile` de l'ARME du porteur, pas du
+# behaviour). C'est vrai de DEUX mecaniques sur TROIS. La troisieme, [C], FRAPPE -- par l'attaque
+# NORMALE de l'unite, pas par une `AttackWithAbilityDamage` : `abilities.CrusadeOfWrath` n'a NI
+# `minDmg`/`maxDmg`, NI `nrOfHits`, NI `damageProfile` (gameconfig : DEUX variables `extraDmg` /
+# `extraPierceRatio` et UNE constante `range` = 2). MEME configuration que `HolyDuel` 1050,
+# `UnbreakableDuty` 1061 et `Drachnyen` 1029.
+#
+# LE CASTER NE SE BUFFE PAS -- et c'est ecrit DEUX FOIS par le natif : `includeCenter = 0` exclut
+# deja la tuile du caster de `SurroundingUnits`, puis `op_Subtraction Caster@+0x48` l'ote une seconde
+# fois. Redondant sur une unite mono-tuile, load-bearing si le porteur en occupe plusieurs (le
+# `SurroundingTiles` d'un des pieds ramenerait les AUTRES pieds). C'est le « All OTHER friendly
+# units » de l'i2. Consequence observable : l'attaque libre [C] part SANS le `+extraDmg` du cast --
+# contraste avec `UnbreakableDuty` 1061, dont l'ordre `[C] dmgBuff` PUIS `[D] attaque` fait
+# beneficier le caster de son propre buff.
+#
+# ORDRE (`op_BitwiseAnd` comme `op_Addition` -> `CombinedBehaviour`, evalue a GAUCHE d'abord) :
+# [A] +Attack, [B] +ExtraPierceMelee, PUIS [C] l'attaque libre. [A] et [B] sont DETERMINISTES (aucun
+# tirage) : le flux `state.rng` de l'attaque est celui d'une attaque normale nue, precede du seul
+# tirage de `PickRandomly` (qui consomme MEME sur un pool de 1, cf. `_pick_randomly_n`).
+# =================================================================================================== #
+
+CRUSADE_OF_WRATH_ID = "CrusadeOfWrath"
+CRUSADE_OF_WRATH_EXTRA_DAMAGE = int(EffectType.CrusadeOfWrath_ExtraDamage)   # 0x43e = 1086
+CRUSADE_OF_WRATH_EXTRA_PIERCE = int(EffectType.CrusadeOfWrath_ExtraPierce)   # 0x43f = 1087
+#: `DSLFormulas$$TurnsFromRounds(2)` -- le litteral `2` du call-site, converti en TOURS par
+#: `ConvertRoundsToTurns`. C'est le « for this round and the next » de l'i2.
+CRUSADE_OF_WRATH_BUFF_ROUNDS = 2
+
+
+def crusade_of_wrath_buff_targets(range_val: int):
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.CrusadeOfWrathAbility$$GetBuffTargets`
+    -- MIRROR 1:1 :
+
+        Friends( of       = Owner@DSLSelectors+0x30,
+                 entities = SurroundingUnits(CasterTile@+0x50, GetNumberConstant(0x16 = range),
+                                             unique = 1, includeCenter = 0, selectionType = 3)
+                            op_Subtraction Caster@+0x48,
+                 selectionType = 3 )
+
+    ⚠ Le meme ensemble est relu, INLINE, par `$$ExecuteBehaviour` (le natif ne rappelle pas
+    `$$GetBuffTargets` mais recopie l'expression) -- il n'y a donc qu'UN foyer cote port, exactement
+    comme `fragstorm_grenade_launcher_other_targets` plus haut. Le natif, LUI, appelle bien
+    `$$GetBuffTargets` depuis un SEUL autre site : `IdunBattle.AI.Playbook.Loki.CrusadeOfWrathPlaybook$$GetMaxFriendlyUnitsBuffed`,
+    la face DECISION (non portee, residu `#893-r1`).
+
+    La surcharge de `SurroundingUnits` est celle a `range: System.Int32` (le call-site passe le
+    retour d'un `GetNumberConstant`, un int32 nu, PAS un `IAmountFormula`). Celle de `Friends` est
+    l'unique `(of, entities, selectionType)`.
+
+    `reference=Owner()` est EXPLICITE (jamais le collapse `ctx.caster` par defaut) : le natif ecrit
+    le slot `+0x30`, et le fait qu'Owner == Caster pour une active ne rend pas le defaut plus juste."""
+    # #585-r1 -- les DEUX litteraux `selectionType` LUS au call-site valent **3**
+    # (`OnlyAliveAndTargetable`), l'un dans le `SurroundingUnits`, l'autre dans le `Friends`.
+    autour = SurroundingUnits(CasterTile(), Const(int(range_val)), selection_type=SELECTION)
+    return Friends(Sub(autour, Caster()), reference=Owner(), selection_type=SELECTION)
+
+
+def crusade_of_wrath_free_attack_targets():
+    """Le selecteur `sel` de [C] -- MIRROR 1:1 :
+
+        ValidNormalAttackTargets(CasterTile@+0x50, CasterTile@+0x50, null, null, null)
+          op_BitwiseAnd
+        AdjacentEnemies(Caster@+0x48, unique = 1, selectionType = 3)
+
+    ⚠ EXPRESSION NATIVE IDENTIQUE, LITTERAL POUR LITTERAL, a celle de
+    `...UnbreakableDutyAbility$$ExecuteBehaviour` [D] (`unbreakable_duty_free_attack_targets`
+    ci-dessous) -- les deux ont ete relues cote a cote sur `rnca9r7q6c`. Les deux helpers restent
+    SEPARES a dessein : ce sont DEUX inlines natifs distincts, dans deux `ExecuteBehaviour`
+    differents, et une correction faite sur l'un ne doit pas deplacer l'autre en silence.
+
+    `AdjacentEnemies` est la VARIANTE A (`unit, unique, selectionType`), tranchee au call-site et non
+    par symetrie : le 2e argument est un booleen construit par `CONCAT71(..., 1)`, pas un selecteur,
+    ce qui exclut la variante B (`unit, unitTile, unique`) de meme arite apparente. Aucun rayon ->
+    ring-1 = « a random adjacent enemy » de l'i2.
+
+    Le `selectionType = 3` est pose parce qu'il est LU, pas parce qu'il mord : l'intersection avec
+    `ValidNormalAttackTargets` applique deja la cascade de ciblage complete
+    (`runner/abilities/targeting.py`, masque `NORMAL_ATTACK_TARGETING_OPTIONS`). Il est donc INERTE
+    a ce call-site -- ce qui est aussi pourquoi son absence chez le voisin 1061 ne se voit pas."""
+    return And(ValidNormalAttackTargets(CasterTile(), CasterTile()),
+               AdjacentEnemies(Caster(), selection_type=SELECTION))
+
+
+def crusade_of_wrath_tree(range_val: int, extra_dmg: int, extra_pierce: int):
+    """Arbre COMPLET de `...CrusadeOfWrathAbility$$ExecuteBehaviour` (cf. le bloc de commentaire).
+
+    `extra_dmg` / `extra_pierce` = les DEUX `GetVariableForLevel` COLLAPSES a la valeur qu'ils
+    rendent pour le caster (`variables.extraDmg` / `variables.extraPierceRatio` indexes par
+    l'`active_ability_level`). SEUL `extraDmg` est dans `variablesAffectedByRarityBonus` -> seul lui
+    est scale par l'`AbilityVariablesMultiplierPercentage` ; `ability_var` porte cette regle et
+    laisse `extraPierceRatio` brut (meme configuration que `BloodChalice` 1175, `bloodangels.py`).
+
+    `duration_rounds = 2` sur les DEUX effets = le `TurnsFromRounds(2)` natif, PARTAGE par les deux
+    `AddStaticStatModifierEffect` (le natif construit UN seul noeud `turns` et le passe deux fois).
+
+    Le terminal est `[A] op_BitwiseAnd ([B] op_Addition [C])` -- transcrit tel que lu ; les deux
+    operateurs rendent le meme `CombinedBehaviour` cote natif comme cote port (`Seq`), donc
+    l'ASSOCIATIVITE ecrite ici ne change pas l'ordre d'evaluation (A, B, C)."""
+    buffed = crusade_of_wrath_buff_targets(range_val)
+    dmg = AddStaticStatModifierEffect(buffed, CRUSADE_OF_WRATH_EXTRA_DAMAGE, int(StatType.ATTACK),
+                                      Const(int(extra_dmg)),
+                                      name=EffectType.CrusadeOfWrath_ExtraDamage.name,
+                                      duration_rounds=CRUSADE_OF_WRATH_BUFF_ROUNDS)
+    pierce = AddStaticStatModifierEffect(buffed, CRUSADE_OF_WRATH_EXTRA_PIERCE,
+                                         int(StatType.EXTRA_PIERCE_MELEE), Const(int(extra_pierce)),
+                                         name=EffectType.CrusadeOfWrath_ExtraPierce.name,
+                                         duration_rounds=CRUSADE_OF_WRATH_BUFF_ROUNDS)
+    sel = crusade_of_wrath_free_attack_targets()
+    attack = UseActiveAbility(Owner(), PickRandomly(sel, 1))      # UnitNormalAttackType(Owner@+0x30)
+    free = IfBehaviour(AmountIsGreaterThanZero(Count(sel)), attack)
+    return op_and(dmg, op_add(pierce, free))
+
+
+class CrusadeOfWrathAbility(ActiveAbility):
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.CrusadeOfWrathAbility$$ExecuteBehaviour`
+    (id 1049, `templHelbrecht` « High Marshal Helbrecht », HERO Black Templars) -- cf. le bloc de
+    commentaire.
+
+    PORTEURS, ventiles (`unit_map.py find --ability CrusadeOfWrath`) : `templHelbrecht` (HERO, DEJA
+    au pool `rl_duel build --list-pool`) + `templBossHelbrecht` / `templBossHelbrecht_LHE` (npc).
+    Aucun montage necessaire.
+
+    TROIS mecaniques (l'audit n'en annonce qu'UNE, « EFFECT/BUFF ») :
+      1. +`extraDmg` d'ATTACK sur les AUTRES allies a <= `range`(2) hexes, 2 rounds (effet 1086) ;
+      2. +`extraPierceRatio` d'`ExtraPierceMelee` sur les MEMES cibles, 2 rounds (effet 1087) ;
+      3. une attaque NORMALE gratuite sur UN ennemi adjacent tire au sort parmi les cibles valides.
+
+    Face DECISION **NON PORTEE** -- residu NOMME `#893-r1` : le natif a un playbook dedie
+    (`IdunBattle.AI.Playbook.Loki.CrusadeOfWrathPlaybook`, `ComparablePlaybook<CrusadeOfWrathAbility>`
+    ctor `0x419 = 1049`), dont `$$GetUseProbability` vaut `<Fix64 statique @ statics+0x08> x
+    $$GetMaxFriendlyUnitsBuffed(unit)`, ce dernier balayant les tuiles rendues par le slot de query
+    `this+0x28` et prenant le MAX du cardinal de `$$GetBuffTargets(Entity(unit), Entity(tuile))`.
+    C'est le sous-arbre `crusade_of_wrath_buff_targets` ci-dessus, evalue depuis CHAQUE tuile
+    atteignable -- donc un scorer de POSITIONNEMENT, pas un simple gate.
+
+    Renvoie {ability, caster, target, buffs, attack, dsl}. Termine le tour (1049 hors des frozensets
+    de `base.py`)."""
+
+    __slots__ = ()
+    ABILITY_TYPE = int(ActiveAbilityType.CrusadeOfWrath)   # 1049
+    ABILITY_ID = CRUSADE_OF_WRATH_ID
+
+    # GATE DE CIBLE. `...Active.Loki.CrusadeOfWrathAbility$$.ctor` est la forme **FLAGS DIRECTS**
+    # (le litteral EST le masque) : il recopie les 3 qwords du champ statique
+    # `<TargetingRange statics>+0x18` dans un local puis appelle
+    #     `TargetingOptions$$.ctor(&opts, 1, &range, 1, 0x400, 0, 0)`
+    # et enfin `AActiveAbility$$.ctor(this, &opts, 2)`.
+    #   selfCast          = 1
+    #   range             = `TargetingRange` statics `+0x18` = useRangeFromConfig -> `constants.range` = 2
+    #   forceMeleeTarget  = 1 = `RangedBool.False` (l'enum natif est INVERSE)
+    #   rules             = 0x400 = `TargetIsFriendly`, SEUL
+    # SURCHARGE TRANCHEE PAR SES XREFS ENTRANTES, jamais par l'arite du pseudo-C :
+    # `IdunBattle.Core.Services.TargetingOptions$$.ctor` a TROIS surcharges, et
+    # `list_xrefs` place `CrusadeOfWrathAbility$$.ctor` sur celle a SIX parametres
+    # (`isSelfCasting, range, forceMeleeTarget, rules, getDynamicInvalidCasterReason,
+    # getDynamicInvalidTargetReason`, `frida/methods.tsv`) -- ni l'overload PRESET+FLAGS
+    # (`template, additionalRules`), ni la copie pure (`template`). Le `0x400` visible est donc bien
+    # le masque EFFECTIF, sans OU avec un preset.
+    # ⚠ CONTRASTE AVEC LE VOISIN 1061 `UnbreakableDuty`, MEME forme de ctor et MEME `TargetingRange` :
+    # lui porte `0x8400` = `TargetIsFriendly | CasterIsPossibleTarget`. Ici le bit
+    # `CasterIsPossibleTarget` est ABSENT -- concordant avec l'i2 (« all OTHER friendly units ») et
+    # avec le `op_Subtraction Caster` de l'arbre. Recopier le masque du voisin aurait ouvert le cast
+    # sur le caster lui-meme.
+    # Valeur RELUE au decompile a la migration : elle est bit-identique a celle qui vivait dans
+    # `TARGETING_OPTIONS_UNPORTED` (`targeting.py`), d'ou elle est RETIREE par le contrat de
+    # disjonction (une ability portee tient son masque sur SA classe).
+    TARGETING_OPTIONS = TargetingOptions(rules=TR.TargetIsFriendly, self_cast=True,
+                                         range=RANGE_FROM_CONFIG,
+                                         force_melee_target=RANGED_BOOL_FALSE)
+
+    # `AbilityAttackType` = 3e argument d'`IdunBattle.Entities.Abilities.AActiveAbility$$.ctor` = le
+    # litteral **`2`** (`Others`), LU au ctor -> transcrit dans la table `ABILITY_ATTACK_TYPE`
+    # (`abilities/attack_type.py`), qui est le registre de cette donnee. TRANSCRIT, jamais deduit :
+    # l'arbre FRAPPE (attaque NORMALE gratuite via `UseActiveAbility`), ce qui ferait ecrire
+    # `DirectTargetAttack` a l'oeil -- et c'est justement la lecture INVERSE qu'ont donnee `HolyDuel`
+    # 1050 et `Drachnyen` 1029, MEME forme d'arbre, litteral `0`. Meme valeur que `UnbreakableDuty`
+    # 1061, du meme module.
+
+    def _params(self, state: "State", caster_id: int) -> tuple:
+        """`(range, extra_dmg, extra_pierce)`.
+
+        `range` = `AbilityConfiguration$$GetNumberConstant(config, 0x16)` = `constants.range` = 2
+        (CONSTANTE, jamais scalee). Niveau = `active_ability_level` (1049 est l'ability ACTIVE de
+        `templHelbrecht`), multiplier = `AbilityVariablesMultiplierPercentage` de l'unite --
+        `ability_var` ne l'applique qu'aux variables listees dans `variablesAffectedByRarityBonus`,
+        ici `['extraDmg']` SEUL : `extraPierceRatio` sort brut, par la regle de config, pas par une
+        exception ecrite ici."""
+        e = state.get_entity(caster_id)
+        sc = e.get_component(StatsComponent) if e is not None else None
+        ctx = sc.ctx if sc is not None else None
+        level = ctx.active_ability_level if ctx is not None else 0
+        mult = ctx.ability_variables_multiplier if ctx is not None else 100
+        rng_range = ability_var(self.ABILITY_ID, "range", is_constant=True) or 1
+        extra_dmg = ability_var(self.ABILITY_ID, "extraDmg", level, multiplier_pct=mult) or 0
+        extra_pierce = ability_var(self.ABILITY_ID, "extraPierceRatio", level,
+                                   multiplier_pct=mult) or 0
+        return int(rng_range), int(extra_dmg), int(extra_pierce)
+
+    def execute_behaviour(self, state: "State", caster_id: int,
+                          target_id: Optional[int]) -> Optional[dict]:
+        if state.get_entity(caster_id) is None:
+            return None
+        range_val, extra_dmg, extra_pierce = self._params(state, caster_id)
+        ectx = ExecutionContext(state=state, rng=state.rng)
+        entities = entities_from_state(state, caster_id, target_id)
+        crusade_of_wrath_tree(range_val, extra_dmg, extra_pierce).execute(entities, ectx)
+        buffs = [p for n, p in ectx.emitted if n == "AddStaticStatModifierEffect"]
+        atk = next((p for n, p in ectx.emitted if n == "UseActiveAbility"), None)
+        return {"ability": CRUSADE_OF_WRATH_ID, "caster": caster_id, "target": target_id,
+                "range": range_val, "buffs": buffs, "attack": atk, "dsl": True}
+
+
+# Les trois cles de config LUES au decompile de 1049, nommees (regle « un entier qui DESIGNE passe
+# par un ENUM »). ⚠ QUALIFICATION : `8`/`0x3f` sont des `AbilityVariableType` -- type DECLARE du 1er
+# parametre de `AbilityConfiguration$$GetVariableForLevel` -- et `0x16` un `AbilityConstantType`
+# (`GetNumberConstant`). Les ordinaux se croisent, et la confusion serait SILENCIEUSE (aucune erreur,
+# juste la mauvaise cle du gameconfig) : `AbilityConstantType(8)` nomme `unitToSpawn`, `(63)` nomme
+# `damageProfile_2`, et `AbilityVariableType(22)` nomme `blockDmg_2` -- trois cles sans aucun rapport
+# avec `extraDmg` / `extraPierceRatio` / `range`.
+assert int(AbilityVariableType.extraDmg) == 8 and int(AbilityVariableType.extraPierceRatio) == 0x3F
 
 
 # =================================================================================================== #

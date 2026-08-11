@@ -769,16 +769,16 @@ TARGETING_OPTIONS_UNPORTED: "dict[int, TargetingOptions]" = {
     #     PAS des faits de RE -- ils bougent a chaque face COMBAT portee, et c'est pour ca
     #     qu'aucun d'eux n'est ecrit a la main.
     #
-    #     len(TARGETING_OPTIONS_UNPORTED) ......... 12
+    #     len(TARGETING_OPTIONS_UNPORTED) ......... 11
     #       dont hors-bloc (tete de table) ..... 4
-    #       dont bloc du pool (#433-r4) ........ 8
+    #       dont bloc du pool (#433-r4) ........ 7
     #
     #     VENTILATION PAR FORME DE CTOR (dict ENTIER, hors-bloc compris) :
-    #       FLAGS-DIRECTS  ..................... 4
+    #       FLAGS-DIRECTS  ..................... 3
     #       PRESET+FLAGS   ..................... 2
     #       PRESET-SEUL    ..................... 0
     #       STATIC-COPY    ..................... 6
-    #       (somme = 12)
+    #       (somme = 11)
     # <<< FIN COMPTES DERIVES
     #
     # LES 16 PRESETS, RELUS A LA SOURCE dans `IdunBattle.Core.Services.TargetingOptions$$.cctor`
@@ -834,10 +834,11 @@ TARGETING_OPTIONS_UNPORTED: "dict[int, TargetingOptions]" = {
     #   COMBAT (`op_BitwiseAnd(Heal, Resurrect)`) ; contrat de disjonction ci-dessus. Le masque a ete
     #   RE-LU au decompile avant migration et est bit-identique a celui qui vivait ici :
     #   `.ctor(&opts, 1, &<TargetingRange statics+0x30>, 1, 0x8508, 0, 0)`.
-    # 1049 CrusadeOfWrath -- `...Active.Loki.CrusadeOfWrathAbility$$.ctor` :
+    # 1049 CrusadeOfWrath : MIGRE vers `ABILITY_CLASSES` (#893) -- sa face COMBAT est desormais
+    #   portee (`runner/abilities/blacktemplars.py::CrusadeOfWrathAbility.TARGETING_OPTIONS`), donc
+    #   le CONTRAT DE DISJONCTION ci-dessus lui interdit de rester ici. Le masque a ete RE-LU au
+    #   decompile avant migration et est bit-identique a celui qui vivait ici :
     #   `.ctor(&opts, 1, &<TargetingRange statics+0x18>, 1, 0x400, 0, 0)`.
-    ActiveAbilityType.CrusadeOfWrath: TargetingOptions(rules=TR.TargetIsFriendly, self_cast=True, range=RANGE_FROM_CONFIG,  # 1049
-                           force_melee_target=RANGED_BOOL_FALSE),
     # 1057 GrotTank : MIGRE vers `ABILITY_CLASSES` (#570) -- sa face COMBAT est desormais portee
     #   (`runner/abilities/orks.py::GrotTankAbility.TARGETING_OPTIONS`), donc le CONTRAT DE
     #   DISJONCTION impose de retirer sa ligne d'ici. Le masque a ete RE-LU au decompile avant
