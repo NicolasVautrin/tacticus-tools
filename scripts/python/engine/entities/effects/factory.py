@@ -105,6 +105,7 @@ from .loki.mind_control import (
 from .loki.icon_of_obstinacy import (      # #919 (passif astarLysander)
     IconOfObstinacyExtraArmorEffect, IconOfObstinacyExtraDmgEffect
 )
+from .loki.inescapable_death import InescapableDeathEffect   # #924 (passif necroDestroyer)
 from .loki.my_will_be_done_overlord import MyWillBeDoneOverlordExtraDamageEffect
 from .loki.titanhammer_squad import TitanhammerSquadExtraBlockDamageEffect
 from .loki.possession import AttemptedPossessionPossessedEffect
@@ -361,6 +362,14 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     #    `TurnsFromRounds(1)`.
     "IconOfObstinacy_ExtraDmg": IconOfObstinacyExtraDmgEffect,
     "IconOfObstinacy_ExtraArmor": IconOfObstinacyExtraArmorEffect,
+    # #924 -- `InescapableDeathEffect` (0x3fa = 1018), passif `InescapableDeath` de `necroDestroyer`.
+    # Cette classe porte la seule face DEGAT (`AReactivateOverwatchEffect$$CreateDamageModifier`,
+    # allume par l'override `GetOverwatchExtraDamage` = `ConfigVar(extraDmg)`) : +extraDmg PLAT par
+    # coup quand le declencheur du coup est l'effet 1009 `Overwatch_AutoAttack`. Ses DEUX autres
+    # faces vivent ailleurs -- les `Triggered()` heritees dans
+    # `runner/operations/triggers/dispatch/registry.py::EFFECT_TRIGGERS[1018]`, et la POSE de l'effet
+    # dans `ABILITY_INIT_OWNER_EFFECTS` plus bas. RE complete en tete de `loki/inescapable_death.py`.
+    "InescapableDeath_Effect": InescapableDeathEffect,
     # Volet CRIT du MEME behaviour (#373) : `AddDynamicStatModifierEffectToOwner(0x453 = 1107,
     # statType 0x9 = CritChance)`. Selecteur = SurroundingFriends(range 2) INTERSECTE
     # `UnitsWithStatBiggerThan(CritChance, Current, > 0, excludingEffect)` -> un allie a portee dont
@@ -1493,6 +1502,14 @@ ABILITY_INIT_OWNER_EFFECTS: dict[str, list[str]] = {
     # `$$CreateBehaviour` = `AddEffect(0x627, AbilityStateReference, source = Owner, targets = Owner)`
     # -> l'effet-AURA vit sur le porteur, exactement le patron `PathOfCommand`.
     "IconOfObstinacy": ["IconOfObstinacy_ExtraDmg"],
+    # #924 -- `IdunBattleLogic.Entities.Abilities.Active.Loki.InescapableDeathAbility`, dont la base
+    # est `IdunBattle.Entities.Abilities.AOwnerEffectTriggeredAbility` (LUE dans `classes.tsv` ; le
+    # namespace `...Active...` MENT, c'est une `passiveAbilities`). `AOwnerEffectTriggeredAbility$$
+    # CreateTrigger` = `OnOwnerSpecificAbilityInit(this@0x10)` et `$$CreateBehaviour` =
+    # `If(CreateCondition(), AddEffect(GetEffectType(), AbilityState(owner), owner, owner))`, avec
+    # `InescapableDeathAbility$$GetEffectType` = `return 0x3fa` -> l'effet 1018 est pose sur le
+    # PORTEUR a l'init. Exactement le patron `IconOfObstinacy` / `PathOfCommand` ci-dessus.
+    "InescapableDeath": ["InescapableDeath_Effect"],
     # `IdunBattleLogic.Entities.Abilities.Triggered.Loki.HypersensoryAbilitiesAbility$$CreateBehaviour : `AddEffect(0x564=1380, owner, owner)` -> le
     # HP-floor est posé sur le PORTEUR à l'init de l'ability passive (owner-effect self, aucun sélecteur). G6a.
     "HypersensoryAbilities": ["HypersensoryAbilities_MinimalHealth"],

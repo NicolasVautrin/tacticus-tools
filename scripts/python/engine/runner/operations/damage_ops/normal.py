@@ -324,6 +324,13 @@ class _Normal:
                                           # LionHelm_ExtraDmg : gate `IsOverwatchAttack` de l'aura
                                           # ALLIEE (meme flag que le bonus de percage Hailstrike).
                                           is_overwatch=bool(is_overwatch))
+        # #924 : ce vecteur ne threade PAS `trigger_ability_type` vers `attacker_modifiers` (axe
+        # DEGAT), alors que le natif n'a qu'UN contexte per-coup (`AbilityEntities`) dont le champ
+        # +0x98 est lu indifferemment par les canaux COUPS et DEGAT. L'axe COUPS le recoit bien
+        # (`build_hits_board` plus bas, consomme par `PurgeResponse`). Le threader est la PREMIERE
+        # etape du residu **#924-r2** ; il n'est pas fait ici parce qu'aucun consommateur porte ne
+        # le lit sur cet axe aujourd'hui -- l'ajouter seul serait un elargissement NON VALIDABLE
+        # d'un foyer partage.
         # #58 : feuille positionnelle ELEVATION (+surplomb) ajoutee au `mods` de l'attaquant, comme la
         # prediction (service PARTAGE `calculate_elevation_bonus_modifier` de DamageCalculations ; positions
         # REELLES depuis l'ECS/board).
