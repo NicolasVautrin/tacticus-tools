@@ -1143,7 +1143,7 @@ class ItItchesAbility(ActiveAbility):
 
 # ============ Catalyst (Hive Tyrant `tyranBossHiveTyrantLeviathan`, actif 1032) ================= #
 #
-# ⚠ LA FICHE D'AUDIT DISAIT « EFFECT/BUFF », ET C'EST EXACT ICI (#889) -- verifie au decompile, pas
+# ⚠ LA FICHE D'AUDIT DISAIT « EFFECT/BUFF », ET C'EST EXACT ICI (#890) -- verifie au decompile, pas
 # herite : `...CatalystAbility$$ExecuteBehaviour` ne contient AUCUN noeud d'attaque, seulement TROIS
 # `AddStaticStatModifierEffect`. La colonne d'audit derive du `damageProfile` de l'ARME du porteur ;
 # elle se trouve concorder, ce qui ne la rend pas fiable pour autant.
@@ -1358,7 +1358,7 @@ class CatalystAbility(ActiveAbility):
 #  * `InformWeapon` (1er terme du `op_BitwiseAnd`) N'EST PAS materialise en feuille : c'est le noeud
 #    qui pousse les TAGS d'arme dans le stream (`engine/streams/inform_ops.py`), aval deja porte et
 #    consomme par `AttackWithAttackDamage` (`get_inform_weapon_tags`). Aucune Operation d'etat.
-#    RESIDU NOMME `#889-r1` : le port n'emet pas l'event `InformWeapon` propre, donc une cascade
+#    RESIDU NOMME `#890-r1` : le port n'emet pas l'event `InformWeapon` propre, donc une cascade
 #    live comparee event-a-event portera un groupe de moins.
 STRANGLETHORN_ID = "StranglethornCannon"
 #: `GetDamageProfile(config@0x60)` -> `StranglethornCannon.constants.damageProfile` = `Blast`.

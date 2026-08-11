@@ -1,4 +1,4 @@
-"""#889 -- les deux actives du Hive Tyrant Leviathan : le port frappe-t-il/buffe-t-il les MEMES ?
+"""#890 -- les deux actives du Hive Tyrant Leviathan : le port frappe-t-il/buffe-t-il les MEMES ?
 
 QUESTIONS BINAIRES, une par cas :
 
@@ -32,7 +32,7 @@ declaree `Ranged` au lieu d'ABSENTE. C'est l'erreur que ce port a REELLEMENT com
 une cible adjacente a un `BigTarget` allie. Sans ce bras, l'accord du bras vert ne dirait pas que
 c'est CE terme qui le produit.
 
-Montage, decomposition et refus de mesurer un canal muet : `probe_889_hive_tyrant.py` (il LEVE si le
+Montage, decomposition et refus de mesurer un canal muet : `probe_890_hive_tyrant.py` (il LEVE si le
 canal `unitAbilityStates` n'a pas ete tire -- sans lui le niveau d'ability du boss retombe a 1 et
 toute la mesure serait faite deux ordres de grandeur trop bas, EN SILENCE).
 
@@ -48,7 +48,7 @@ import pytest
 PYDIR = Path(__file__).resolve().parents[2]                 # scripts/python
 sys.path.insert(0, str(PYDIR))
 
-import probe_889_hive_tyrant as P                            # noqa: E402
+import probe_890_hive_tyrant as P                            # noqa: E402
 from engine.runner.abilities.tyranids import CATALYST_TURNS  # noqa: E402
 
 # `DECLENCHEUR` (#486-r15) -- ce qui doit changer pour que ce fichier puisse changer de verdict.
@@ -64,7 +64,7 @@ DECLENCHEUR = {
     # Enumerer ces modules un a un serait un FAUX VERT : la chaine traversee n'est pas stable, et
     # c'est precisement un etage partage (`hits_channel_is_melee`) qui a fait rougir ce fichier la
     # premiere fois. Les DEUX formes de glob sont necessaires : `**/` exige un SEGMENT, donc
-    # `scripts/python/**/*.py` ne voit PAS `scripts/python/probe_889_hive_tyrant.py`.
+    # `scripts/python/**/*.py` ne voit PAS `scripts/python/probe_890_hive_tyrant.py`.
     "chemins": ("scripts/python/*.py", "scripts/python/**/*.py"),
     "build": True,
     "toujours": False,
@@ -221,7 +221,7 @@ def test_cannon_declaring_ranged_over_reduces_live(cannon):
 
 
 def test_cannon_inform_weapon_is_emitted_by_native_only_live(cannon):
-    """RESIDU BORNE (#889-r1) -- le noeud `IdunBattleLogic.Entities.DSLBehaviors$$InformWeapon`, 1er
+    """RESIDU BORNE (#890-r1) -- le noeud `IdunBattleLogic.Entities.DSLBehaviors$$InformWeapon`, 1er
     terme du `op_BitwiseAnd` natif, emet un event `Info` porteur du profil et du regime d'arme. Le
     port ne le materialise PAS en feuille (son aval, les TAGS d'arme, est deja porte par
     `engine/streams/inform_ops.py` et consomme par `AttackWithAttackDamage`).
