@@ -27,6 +27,46 @@ from __future__ import annotations
 
 import pytest
 
+#: Ce qui doit changer pour que ce FICHIER puisse changer de verdict (#486-r15). Perimetre pris
+#: LARGE a dessein : les deux abilities traversent le registre, le gate de ciblage, le seeding, les
+#: feuilles DSL et les Operations -- trop etroit serait un faux vert, trop large est sain.
+DECLENCHEUR = {
+    "chemins": (
+        # SOCLE COMMUN a tout fichier de test : la cascade des `conftest.py` et sa fermeture.
+        "scripts/python/conftest.py", "scripts/python/tests/conftest.py",
+        "scripts/python/tests/engine/conftest.py",
+        "scripts/python/tests/engine/runner/conftest.py",
+        "scripts/python/green_skip_guard.py", "scripts/python/declencheur_guard.py",
+        "scripts/python/catalog_inject.py",            # le MONTAGE : porteur hors pool
+        "scripts/python/gameconfig.py", "scripts/python/enum_maps.py",
+        "scripts/python/host_inputs.py", "scripts/python/rl_collect_batch.py",
+        "scripts/python/stream_events.py", "scripts/python/symbols_layout.py",
+        # PROPRE A CE FICHIER : l'arbre porte (`abilities/necrons.py`), les trois registres, le
+        # SEEDING (`runner/snapshot.py` -- le cran `healthMax`), les feuilles DSL (`Repair`,
+        # `ChangeStat`, `AddEffect`, `AddDynamicStatModifierEffect`, `AddStatOverrideEffect`,
+        # `PerformAIAction`), les selecteurs (`Friends`, `MechanicalUnits`, `EntitiesWithAnyEffect`,
+        # `Repairable`, `UnitsWithTrait`) et les Operations en dessous. Tout cela vit sous
+        # `engine/**` : on prend le paquet ENTIER plutot qu'une liste qui se perimerait.
+        # ⚠ Les DEUX formes de glob sont necessaires : dans ce matcher `**/` exige un segment.
+        "scripts/python/engine/*.py",
+        "scripts/python/engine/**/*.py",
+        # Les montants (`hp`, `hpToRepair`, `maxDmg`, `dmgPct`) et les ordinaux d'enum viennent du
+        # gameconfig et du dump du build.
+        "data/seed-bc.json",
+        "data/symbols/**",
+    ),
+    "build": True,
+    "toujours": False,
+    "raison": "Verdicts figes : les DEUX masques LUS sur leur ctor (0x200040000402 / 0x40000402, "
+              "surcharge FLAGS DIRECTS tranchee par xrefs), les deux `AbilityAttackType.Others`, "
+              "l'existence des quatre variables de config sur la BONNE ability (le `hpToRepair` de "
+              "1224 appartient a l'EFFET 1545), le montant `hp[level] x multiplier` du marquage, "
+              "l'invariant `Repairable(carriers)` != `Target()` (on repare une machine marquee qui "
+              "n'est PAS la cible du cast, et PAS la machine non marquee meme endommagee), le cap "
+              "`MaxFillUp`, l'effet 1547 sur l'ACTEUR, et le cran de seeding `combatSnapshot."
+              "healthMax` (max COURANT) contre `observeBattle.hpMax` (max INITIAL).",
+}
+
 import catalog_inject
 import gameconfig as GC
 from engine.entities.effect_type import EffectType
