@@ -18,12 +18,37 @@ from ...dsl.base import TargetsSelector, _feet, _is_alive, _pos, _units_of, reso
 from ._shared import _entity_pos, _tile_positions
 from ..pathfinding.walk_pathfinder import get_path_node_counts_by_pos
 from ..traits.unit_trait import UnitTrait
-# FORME B (`import <module>` + acces attributaire) : ces deux services SONT les mirrors natifs
-# appeles par les `$$Select` portes ici -- `MovementQuery$$GetDistance` (= `IBattleQuery` slots 108
-# et 110, meme corps) et `BattleQuery$$AreEntitiesAdjacent` (slot 96) -- et la forme B garde la
-# MORSURE d'un `monkeypatch.setattr` sur l'un d'eux (cf. CLAUDE.md, hissage en forme B).
+# FORME B (`import <module>` + acces attributaire) : `BattleQuery$$AreEntitiesAdjacent` (slot 96)
+# est le mirror natif appele par `NearestSelector$$GetDistance`, et la forme B garde la MORSURE
+# d'un `monkeypatch.setattr` dessus. Differe CLASSE **GRATUIT** (mesure du 2026-08-11 : charger
+# `engine.services.battle_query` seul en process FRAIS ne met PAS `engine.entities.selectors.pathing`
+# dans `sys.modules`) -> HISSE au niveau module, comme la doctrine l'exige.
 from ...services import battle_query as _svc_battle_query
-from ...services import movement_query as _movement_query
+
+
+def _mq():
+    """`engine.services.movement_query`, DIFFERE -- classe **PORTEUR**, et la mesure est celle que
+    la doctrine demande, pas le constat qu'un cycle existe : charger
+    `engine.services.movement_query` seul dans un process FRAIS met
+    `engine.entities.selectors.pathing` dans `sys.modules` (mesure du 2026-08-11), donc le hisser
+    FERMERAIT le cycle -- il le fermait, litteralement : la cascade
+    `movement_query -> runner.components -> ... -> entities.selectors -> pathing -> movement_query`
+    faisait echouer `from ..runner.components import OwnerComponent` sur un module partiellement
+    initialise, et rendait ROUGES les cinq dicts consommateurs de `probe_313` etape 5.
+
+    Les DEUX parades en amont ont ete essayees et ECARTEES, pas negligees :
+      * (1) DEPLACER -- `MovementQuery$$GetDistance` est le foyer natif partage par les faces
+        COMBAT et DECISION ; en extraire une copie ici creerait une SECONDE implementation du meme
+        natif, exactement ce que ce module existe pour eviter ;
+      * (2) ALLEGER l'`__init__` -- `entities/selectors/__init__.py` RE-EXPORTE toutes ses tranches
+        par contrat ecrit (145 sites d'import en dependent) ; en sortir `pathing` reglerait le
+        cycle en cassant l'uniformite du paquet.
+
+    FORME B (`from ... import <module>` + acces attributaire) : elle garde la morsure d'un
+    `monkeypatch.setattr("engine.services.movement_query.get_distance", ...)`, ce qu'une liaison
+    `from X import get_distance` perdrait."""
+    from ...services import movement_query
+    return movement_query
 
 #: `System.Int32.MaxValue` -- la sentinelle que rendent `NearestSelector$$GetDistance` (via
 #: `BattleQuery$$GetMinPathLength` sur un chemin vide) et le `maxDistance` ABSENT des deux noeuds.
@@ -95,7 +120,7 @@ def _free_adjacent_positions(ctx, entity) -> list:
                 occupied.add((int(f[0]), int(f[1])))
     out, seen = [], set()
     for p in _feet(entity):
-        for tid in _movement_query.adjacent_tile_ids(board, (int(p[0]), int(p[1]))):
+        for tid in _mq().adjacent_tile_ids(board, (int(p[0]), int(p[1]))):
             c = board.coord(int(tid))
             n = (int(c[0]), int(c[1]))
             if n in seen or n in occupied or not board.walkable(int(tid)):
@@ -172,7 +197,7 @@ class Nearest(TargetsSelector):
         if self.distance_type == 0:                            # DistanceType.Simple
             # `MovementQuery$$GetDistance(IList, IList)` = MIN sur les paires de pieds, sentinelle
             # `int.MaxValue` sur liste vide. ⚠ PAS `get_min_distance` (sentinelle `-1`).
-            return _movement_query.get_distance(
+            return _mq().get_distance(
                 _feet(candidate) if isinstance(candidate, dict) else [cp],
                 _feet(target) if isinstance(target, dict) else [tp])
         # DistanceType.PathLength
@@ -309,7 +334,7 @@ class ClosestPositionToTarget(TargetsSelector):
         for p, n in counts.items():
             if int(n) - 1 > max_d or p in occupied:
                 continue
-            d = _movement_query.get_distance([p], targets)
+            d = _mq().get_distance([p], targets)
             if d < best_d:                                   # `<` STRICT : 1er arrive, 1er servi
                 best, best_d = p, d
         return [] if best is None else [best]
