@@ -317,7 +317,7 @@ def temoins_mesures(rel: str) -> tuple:
     return tuple(entree.get("temoins") or ()), True
 
 
-def confronter(decl: dict, verbeux: bool = False) -> tuple:
+def confronter(decl: dict, verbeux: bool = False, ferm=None) -> tuple:
     """`(rouges, non_mesures, bypass)` -- ce que chaque declaration ne couvre PAS.
 
     DEUX SOURCES, et elles ne voient pas la meme chose :
@@ -332,8 +332,18 @@ def confronter(decl: dict, verbeux: bool = False) -> tuple:
     meme nature qu'un bypass qui en masque soixante (un balayage d'arbre). Et un bypass qui
     n'en masque AUCUN est une declaration MORTE, donc un rouge : c'est le seul cran qui empeche
     la cle de devenir l'echappatoire universelle qu'elle remplace.
+
+    `ferm` -- INJECTION, jamais un cache (#941-r2). Par defaut la fermeture est NEUVE, donc rien
+    ne change pour le CLI ni pour aucun appelant existant. Un appelant qui confronte plusieurs
+    fois dans le MEME process peut en revanche fournir la sienne et ne payer la resolution
+    qu'une fois : `test_486r24_bypass_confrontation_offline.py` appelait `confronter` TROIS fois
+    (deux mutations sur le meme fichier, puis la population reelle) et re-resolvait a chaque
+    fois la fermeture de ce fichier -- 19,1 s + 8,4 s + 42,1 s mesures le 2026-08-11. Un cache
+    GLOBAL aurait ete le mauvais outil : il servirait un releve perime a un appelant qui vient
+    d'ecrire dans l'arbre, et c'est precisement ce que ce fichier de test fait (`_monte_arbre`).
+    Ici, c'est l'appelant qui decide de la fraicheur, parce que lui seul la connait.
     """
-    ferm = Fermeture(ROOT)
+    ferm = ferm if ferm is not None else Fermeture(ROOT)
     rouges: list = []
     non_mesures: list = []
     bypass: list = []

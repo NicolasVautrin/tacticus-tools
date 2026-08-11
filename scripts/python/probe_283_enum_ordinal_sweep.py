@@ -1401,7 +1401,64 @@ def step_on(verbose: bool, racine: str = "scripts/python") -> tuple:
 
     Le GATE ne mord donc QUE la ou quelqu'un a DECLARE le membre. Une ancre nue reste un
     compteur, et une ancre mal ancree ne peut pas fabriquer de faux rouge : c'est ce qui
-    autorise l'ancre elargie (`0x51`, slot elide) sans risquer un rouge structurel."""
+    autorise l'ancre elargie (`0x51`, slot elide) sans risquer un rouge structurel.
+
+    MEMOISE (#941-r2). DEUX tests de `test_enum_ordinal_ratchet_offline.py` appellent cette
+    fonction avec les MEMES arguments et lisent chacun une position DIFFERENTE du meme tuple
+    (`decales` pour les quotes indecidables, `fails` pour les ancres perimees) : deux verdicts,
+    un seul balayage. Mesure du 2026-08-11, fichier joue seul : 34,7 s + 30,5 s. Le memo porte
+    sur le BALAYAGE seul -- l'impression, qui depend de `verbose`, reste rejouee a chaque appel,
+    et le retour est RE-CONSTRUIT pour qu'un appelant ne puisse pas muter ce que verra le
+    suivant (meme regle que `probe_514.etape_1`)."""
+    res = _ON_CACHE.get(racine)
+    if res is None:
+        res = _balayer_step_on(racine)
+        _ON_CACHE[racine] = res
+    cur, prev = current_build(), previous_build()
+    stables = res[0]
+    decales, ancrees, fails = [list(x) for x in res[1:]]
+    n_on = sum(1 for d in decales if d[5] == "On")
+    n_anc_fun = sum(1 for a in ancrees if a[4] == "FUN")
+    print("[283] etape 5 : ordinaux NUS en prose de %s (ancres `On(` et quote de publication) "
+          "-- %d stables, %d ANCRES par annotation (%d quote `FUN_`), %d AMBIGUS "
+          "(%d `On(`, %d quote `FUN_`)"
+          % (racine, stables, len(ancrees), n_anc_fun, len(decales), n_on, len(decales) - n_on))
+    print("       ambigu = l'ordinal a change de proprietaire ; sans le NOM accole, on ne peut")
+    print("       pas savoir de quel build vient la citation. NON corrige (residu #283-r1).")
+    print("       ancre  = la ligne porte `On(<Membre>)` et le membre vaut CE nombre sur le")
+    print("       build courant -- une citation decidable, donc gardee (residu #420-r5 ferme).")
+    par_fichier = {}
+    for rel, ln, s, a, b, quoi in decales:
+        par_fichier.setdefault(rel, []).append((ln, s, a, b, quoi))
+    for rel in sorted(par_fichier):
+        items = sorted(par_fichier[rel])
+        print("   %-62s %d" % (rel, len(items)))
+        for ln, s, a, b, quoi in (items if verbose else items[:2]):
+            print("        :%d  %s(%s) : etait %s, vaut %s"
+                  % (ln, "On" if quoi == "On" else "FUN_...", s, a, b))
+        if not verbose and len(items) > 2:
+            print("        ... (+%d)" % (len(items) - 2))
+    if verbose:
+        for rel, ln, s, membre, quoi in sorted(ancrees):
+            print("   ANCREE %s:%d  %s(%s) = On(%s)"
+                  % (rel, ln, "On" if quoi == "On" else "FUN_...", s, membre))
+    for rel, ln, s, membre, anc, courant, quoi in sorted(fails):
+        print("   FAIL %s:%d  %s(%s) annote `On(%s)` -- %s valait %s sur %s et vaut %s sur %s"
+              % (rel, ln, "On" if quoi == "On" else "FUN_...", s, membre, membre, anc,
+                 prev or "-", courant, cur))
+    return stables, decales, ancrees, fails
+
+
+#: Le releve de l'etape 5, par racine balayee. Des TUPLES : ce qui est retenu est immuable, et
+#: `step_on` en rend une copie -- un memo qui partagerait ses listes laisserait un test muter le
+#: releve du suivant (le vice que `test_486r5_balayages_memoises_offline.py` etage 2 garde).
+_ON_CACHE: dict = {}
+
+
+def _balayer_step_on(racine: str) -> tuple:
+    """Le BALAYAGE de l'etape 5, sans une seule impression. Foyer unique, appele par `step_on`.
+
+    Rend `(stables, decales, ancrees, fails)`, les trois derniers en TUPLE."""
     cur, prev = current_build(), previous_build()
     new = enum_map(cur, ENUMS["EventTriggerType"])
     old = enum_map(prev, ENUMS["EventTriggerType"]) if prev else {}
@@ -1454,36 +1511,7 @@ def step_on(verbose: bool, racine: str = "scripts/python") -> tuple:
                         stables += 1   # sous le point de decalage : le meme sur les 2 builds
                     else:
                         decales.append((rel, ln, s, old.get(v), new.get(v), quoi))
-    n_on = sum(1 for d in decales if d[5] == "On")
-    n_anc_fun = sum(1 for a in ancrees if a[4] == "FUN")
-    print("[283] etape 5 : ordinaux NUS en prose de %s (ancres `On(` et quote de publication) "
-          "-- %d stables, %d ANCRES par annotation (%d quote `FUN_`), %d AMBIGUS "
-          "(%d `On(`, %d quote `FUN_`)"
-          % (racine, stables, len(ancrees), n_anc_fun, len(decales), n_on, len(decales) - n_on))
-    print("       ambigu = l'ordinal a change de proprietaire ; sans le NOM accole, on ne peut")
-    print("       pas savoir de quel build vient la citation. NON corrige (residu #283-r1).")
-    print("       ancre  = la ligne porte `On(<Membre>)` et le membre vaut CE nombre sur le")
-    print("       build courant -- une citation decidable, donc gardee (residu #420-r5 ferme).")
-    par_fichier = {}
-    for rel, ln, s, a, b, quoi in decales:
-        par_fichier.setdefault(rel, []).append((ln, s, a, b, quoi))
-    for rel in sorted(par_fichier):
-        items = sorted(par_fichier[rel])
-        print("   %-62s %d" % (rel, len(items)))
-        for ln, s, a, b, quoi in (items if verbose else items[:2]):
-            print("        :%d  %s(%s) : etait %s, vaut %s"
-                  % (ln, "On" if quoi == "On" else "FUN_...", s, a, b))
-        if not verbose and len(items) > 2:
-            print("        ... (+%d)" % (len(items) - 2))
-    if verbose:
-        for rel, ln, s, membre, quoi in sorted(ancrees):
-            print("   ANCREE %s:%d  %s(%s) = On(%s)"
-                  % (rel, ln, "On" if quoi == "On" else "FUN_...", s, membre))
-    for rel, ln, s, membre, anc, courant, quoi in sorted(fails):
-        print("   FAIL %s:%d  %s(%s) annote `On(%s)` -- %s valait %s sur %s et vaut %s sur %s"
-              % (rel, ln, "On" if quoi == "On" else "FUN_...", s, membre, membre, anc,
-                 prev or "-", courant, cur))
-    return stables, decales, ancrees, fails
+    return stables, tuple(decales), tuple(ancrees), tuple(fails)
 
 
 # ------------------------------------------------------------------------------------------

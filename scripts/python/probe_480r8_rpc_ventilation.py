@@ -120,8 +120,26 @@ def groupe_de(rf: str) -> str:
     return "autre (%s)" % (rf.split("/", 1)[0] if "/" in rf else "<racine>")
 
 
+#: Les trois lectures du depot, memoisees (#941-r2). Elles ne dependent QUE du disque, et rien
+#: dans ce probe ni chez ses appelants n'ecrit dans l'arbre. Mesure du 2026-08-11 : recensement
+#: 6,32 s, corpus executable 7,90 s (2718 fichiers), corpus doc 1,66 s (864). Le CLI les appelle
+#: une fois chacune -- le memo ne sert donc qu'aux appelants IN-PROCESS, ou il vaut ~16 s.
+#: Chaque valeur retenue est RE-CONSTRUITE au retour : un appelant ne peut pas muter le corpus
+#: que verra le suivant.
+_LECTURES_CACHE: dict = {}
+
+
 def recenser_rpc() -> tuple[dict[str, list[str]], int]:
     """Les RPC declares dans les fichiers de hooks ATTEIGNABLES. Meme critere que #480-r6."""
+    fige = _LECTURES_CACHE.get("rpc")
+    if fige is None:
+        fige = _balayer_rpc()
+        _LECTURES_CACHE["rpc"] = fige
+    decl, n = fige
+    return {k: list(v) for k, v in decl.items()}, n
+
+
+def _balayer_rpc() -> tuple[dict[str, list[str]], int]:
     ent, _ = entrees_declarees()
     atteints, _, _ = closure(ent)
     hooks = sorted(p for p in atteints if rel(p).startswith(PREFIXE_DECLARANT))
@@ -140,6 +158,14 @@ def recenser_rpc() -> tuple[dict[str, list[str]], int]:
 
 def corpus_executable() -> dict[str, str]:
     """Tout fichier versionne d'extension executable HORS `frida/hooks/`. Pris par COMPLEMENT."""
+    fige = _LECTURES_CACHE.get("exec")
+    if fige is None:
+        fige = _balayer_corpus_executable()
+        _LECTURES_CACHE["exec"] = fige
+    return dict(fige)
+
+
+def _balayer_corpus_executable() -> dict[str, str]:
     out: dict[str, str] = {}
     for rf in _git("ls-files"):
         if not rf or not rf.endswith(EXT_EXEC):
@@ -157,6 +183,14 @@ def corpus_executable() -> dict[str, str]:
 
 
 def corpus_doc() -> dict[str, str]:
+    fige = _LECTURES_CACHE.get("doc")
+    if fige is None:
+        fige = _balayer_corpus_doc()
+        _LECTURES_CACHE["doc"] = fige
+    return dict(fige)
+
+
+def _balayer_corpus_doc() -> dict[str, str]:
     out: dict[str, str] = {}
     for rf in _git("ls-files", "*.md"):
         if not rf:
@@ -318,7 +352,7 @@ def archeologie(noms: list[str]) -> dict[str, list[str]]:
     return res
 
 
-def main() -> int:
+def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--verbose", action="store_true", help="detail canal par canal")
     ap.add_argument("--cliquet", action="store_true",
@@ -331,7 +365,7 @@ def main() -> int:
     ap.add_argument("--archeologie", action="store_true",
                     help="pour chaque candidat mort, chercher s'il a DEJA eu un appelant "
                          "(git log -S, ~12 s/terme, parallelise)")
-    a = ap.parse_args()
+    a = ap.parse_args(argv)
 
     # --- ETAPE 1 : recensement ------------------------------------------------------------
     decl, n_hooks = recenser_rpc()

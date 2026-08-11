@@ -205,9 +205,18 @@ def _camp_courant(aid, texte):
     return aid not in TARGETING_OPTIONS_UNPORTED
 
 
-def balayer(racine=None):
-    """Tous les sites du corpus, verdict pose. Le corpus est `scripts/python/**/*.py`."""
-    racine = pathlib.Path(racine) if racine else _ICI
+#: Les sites TROUVES, par racine balayee -- SANS leur verdict (cf. `balayer`). Des tuples de
+#: donnees, jamais des objets `Site` : le memo ne peut donc pas laisser un appelant muter le
+#: releve du suivant.
+_SITES_CACHE: dict = {}
+
+
+def _balayer_sites(racine):
+    """Le BALAYAGE du corpus : les sites trouves, sans verdict, en tuples de donnees.
+
+    C'est l'etage CHER et il ne depend QUE du disque. Ventilation mesuree le 2026-08-11 sur
+    `scripts/python/**` : lecture + AST **8,97 s**, pose des verdicts **0,00 s** pour 15 sites.
+    """
     sites = []
     for f in sorted(racine.rglob("*.py")):
         if f.name == pathlib.Path(__file__).name:
@@ -227,6 +236,28 @@ def balayer(racine=None):
         except SyntaxError:
             continue
         sites.extend(trouves)
+    return tuple((s.chemin, s.ligne, s.aid, s.texte, s.vrai_si) for s in sites)
+
+
+def balayer(racine=None):
+    """Tous les sites du corpus, verdict pose. Le corpus est `scripts/python/**/*.py`.
+
+    MEMOISE (#941-r2), et le decoupage n'est pas arbitraire : CINQ tests de
+    `test_519_comptes_derives_offline.py` appelaient cette fonction (dont trois par un
+    `parametrize`), soit **93 s des 112 s** du fichier mesures le 2026-08-11. Seul le BALAYAGE
+    est retenu -- ce qui vient du disque, immuable pendant une passe. Les VERDICTS, eux, sont
+    RE-POSES a chaque appel : ils dependent de l'etat du moteur (`ABILITY_CLASSES`,
+    `TARGETING_OPTIONS_UNPORTED`, `targeting_options_for`), qu'un appelant peut substituer, et
+    ils ne coutent rien. Un memo qui les aurait figes aurait rendu ce cliquet aveugle a ce
+    qu'il garde -- exactement le vert qui ment.
+    """
+    racine = pathlib.Path(racine) if racine else _ICI
+    cle = str(racine)
+    brut = _SITES_CACHE.get(cle)
+    if brut is None:
+        brut = _balayer_sites(racine)
+        _SITES_CACHE[cle] = brut
+    sites = [Site(*t) for t in brut]
     for s in sites:
         reel = _camp_courant(s.aid, s.texte)
         if reel != s.vrai_si:
