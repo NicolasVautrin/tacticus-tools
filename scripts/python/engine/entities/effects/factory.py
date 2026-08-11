@@ -12,6 +12,7 @@ from .base import BaseEffect
 from .loki.ability_modifications import ListenUpMaggotsEffect
 from .loki.amulet_of_the_voidwyrm import AmuletOfTheVoidwyrmCritDamageReductionEffect
 from .loki.kardiocore_galvanus import KardiocoreGalvanusExtraCritDmgEffect
+from .loki.maw_claws_of_thyrax import MawClawsOfThyraxExtraCritDmgEffect
 from .loki.nether_realm_casket import NetherRealmCasketCritDamageReductionEffect
 from .loki.ramshackle import RamshackleDmgReductionEffect
 from .loki.supa_cybork_body import SupaCyborkBodyCritDmgReductionEffect
@@ -1262,6 +1263,37 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # PAS d'entree `ABILITY_INIT_OWNER_EFFECTS` : `_seed_ability_owner_effects` lit le KIT
     # gameconfig, ou la relique ne figure PAS (cf. l'en-tete du module).
     "KardiocoreGalvanus_ExtraCritDmg": KardiocoreGalvanusExtraCritDmgEffect,
+    # 1461 MawClawsOfThyrax_ExtraCritDmg (#920) : owner-effect PERMANENT de la RELIQUE
+    # `MawClawsOfThyrax` (`items/R_Crit_MawClawsOfThyrax`, `allowedUnits = [tyranTyrantGuard,
+    # tyranWingedPrime, tyranParasite, genesPatriarch]` -- les QUATRE `lineup` et AU POOL), pose a
+    # l'init par la base `AOwnerEffectTriggeredAbility$$CreateBehaviour` comme 1450 ci-dessus.
+    # SECOND `ForAddition` de l'axe crit-DEGAT cote relique :
+    #   `...MawClawsOfThyrax_ExtraCritDmgEffect$$CreateCritDamageBonus`
+    #       = ForAddition(get_OwnerIsCaster,          <- trigger NU, aucun op_BitwiseAnd
+    #                     Multiply(ConfigVar(0x42 = extraCritDmg), EffectLevel(Effect@+0x38)))
+    #   + `GetCalculateLevel`     = Count(Unique(UnitsWithTrait(
+    #                                   AdjacentUnits(Owner@+0x30, unique: 1, sel: 3), 0x2, 3)))
+    #   + `CreateActiveCondition` = AmountIsGreaterThanZero(<vslot +0x5f8> = le MEME compteur)
+    # ⚠ `AdjacentUnits` et NON `AdjacentFriends` : son corps est `Units(AdjacentTiles(origin),
+    # unique, sel) op_Subtraction origin` -- AUCUN filtre d'equipe. Un summon ENNEMI adjacent
+    # compte autant qu'un allie. C'est l'exacte difference avec 1450 (`AdjacentFriends` +
+    # `MechanicalUnits`) et 1460 (`AdjacentFriends` + Summon/Decoy) : recopier l'un des deux
+    # manquerait tous les summons adverses, en silence, sur l'axe Tyranides/Genestealer ou les
+    # DEUX camps en produisent. D'ou un compteur distinct dans `components.py`.
+    # ⚠ SA CONDITION N'EST **PAS** CELLE DE 1450 : `KardiocoreGalvanus` a `<DSLTriggers+0x70>` =
+    # `YesTrigger` (toujours actif), celui-ci compare son compteur a zero -- donc il DISPARAIT du
+    # canal `decisionView.effects` (ACTIF-ONLY) quand aucun summon n'est adjacent.
+    # ⚠ DEUX collisions d'ordinal, chacune vers une AUTRE relique : `EffectType` 0x5b5 = 1461 est
+    # CET effet (corps ENTIER de `MawClawsOfThyraxAbility$$GetEffectType` : `return 0x5b5`), mais
+    # sa CONFIG est la TRIGGERED 0x5bd = **1469** `MawClawsOfThyrax` (`.ctor` relu a l'assembleur :
+    # `ba bd 05 00 00` + la surcharge `op_Implicit(triggeredAbility)`, tranchee par l'ADRESSE du
+    # `call` = `0x1669f80`) -- tandis que `TriggeredAbilityType` 1461 est `BookOfFate` (autre
+    # relique, config EXISTANTE : la confusion ne leverait pas) et `EffectType` 1469
+    # `MischiefMakers`.
+    # ⚠ Le niveau lu est celui de l'`AbilityState` TERTIAIRE du porteur, via `triggered_ability_state`
+    # (#357). PAS d'entree `ABILITY_INIT_OWNER_EFFECTS` : `_seed_ability_owner_effects` lit le KIT
+    # gameconfig, ou la relique ne figure PAS (cf. l'en-tete du module).
+    "MawClawsOfThyrax_ExtraCritDmg": MawClawsOfThyraxExtraCritDmgEffect,
     # 1090 Ramshackle_DmgReduction (#570-r1) : owner-effect PERMANENT du passif `Ramshackle`, seul
     # passif du summon `orksGrotTank`. #570 avait NOMME ce trou -- le tank arrivait avec ses stats,
     # ses traits et ses armes, et SANS sa reduction de degat : ecart PERMISSIF (il encaisse plus

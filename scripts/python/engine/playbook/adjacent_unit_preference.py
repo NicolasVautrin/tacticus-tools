@@ -574,6 +574,7 @@ class IconOfObstinacyPlaybook(AdjacentToOwnerNonOwnerPlaybook):
         return float(wt.sub("TriggeredAbilities", self.KEY))
 
 
+from .adjacent_summons import MawClawsOfThyraxPlaybook       # noqa: E402  (#920 : corps propre)
 from .fury_of_the_ancients import FuryOfTheAncientsPlaybook   # noqa: E402  (après les bases)
 from .friends_in_range import (AstartesBannerPlaybook,       # noqa: E402  (N13 : corps propres)
                                KardiocoreGalvanusPlaybook)
@@ -595,6 +596,11 @@ TRIGGERED_MOVE_PLAYBOOKS: dict = {
     # fabriquait les faux ties du sweep de position (case-n13).
     int(TriggeredAbilityType.AstartesBanner): AstartesBannerPlaybook(),         # 1106
     int(TriggeredAbilityType.KardiocoreGalvanus): KardiocoreGalvanusPlaybook(),  # 1457 (RELIQUE)
+    # #920 -- meme famille « corps propre », mais la query est `GetAdjacentUnits` (slot 0x7a,
+    # arite 4, litteraux `0, 0, 0`) et non `GetAdjacentFriends` : elle compte les summons des DEUX
+    # camps. Et contrairement a `KardiocoreGalvanus` (dont le corps DISCARDE le `get_Current`),
+    # celui-ci FILTRE par `HasTrait(u, 0x2 = Summon)`. Cf. `playbook/adjacent_summons.py`.
+    int(TriggeredAbilityType.MawClawsOfThyrax): MawClawsOfThyraxPlaybook(),      # 1469 (RELIQUE)
     # case-165b — meme famille « corps propre », mais elle compte des TUILES LIBRES (pas des amis) :
     # `10 x |CanAddUnit(AdjacentTiles(tuile))|`. Constante en plein plateau, DECISIVE au bord.
     int(TriggeredAbilityType.GeminaeSuperia): GeminaeSuperiaPlaybook(),         # 1048

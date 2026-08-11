@@ -103,7 +103,8 @@ from ..components import (OwnerComponent, StatsComponent, UnitComponent,
                                   adjacent_enemies_count,
                                   adjacent_friendly_mechanical_units_count,
                                   adjacent_friendly_summons_and_decoys_count,
-                                  adjacent_mechanical_friends_count)
+                                  adjacent_mechanical_friends_count,
+                                  adjacent_summons_count)
 from ..components import UnitComponent, unit_state_for_effects
 from ..components import is_alive_and_not_fled
 from ..components import unit_has_moved, unit_tiles_moved_this_turn
@@ -1156,6 +1157,15 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
                 # `adjacent_friendly_mechanical_units_of` juste au-dessus, malgre des noms voisins.
                 "adjacent_mechanical_friends_of":
                     lambda oid: adjacent_mechanical_friends_count(state, int(oid)),
+                # `...MawClawsOfThyrax_ExtraCritDmgEffect$$GetCalculateLevel` (#920) -- MEME role
+                # et MEME forme paresseuse que les compteurs ci-dessus. La difference est LUE et
+                # elle est structurelle : son etage de voisinage est `AdjacentUnits`, dont le corps
+                # (`Units(AdjacentTiles(origin), unique, sel) op_Subtraction origin`) ne filtre
+                # AUCUN camp -- un summon ENNEMI adjacent compte. C'est pourquoi il ne reutilise ni
+                # `adjacent_friendly_summons_and_decoys_of` (AMIS, et Decoy en plus) ni
+                # `adjacent_mechanical_friends_of`, malgre des noms voisins.
+                "adjacent_summons_of":
+                    lambda oid: adjacent_summons_count(state, int(oid)),
                 "tertiary_ability_state_of":
                     lambda oid, ability: triggered_ability_state(state, int(oid), ability)}
 
