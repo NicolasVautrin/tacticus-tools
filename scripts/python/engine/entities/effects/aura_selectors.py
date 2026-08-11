@@ -84,6 +84,84 @@ def is_targetable(state, unit_id: int) -> bool:
     return True
 
 
+def faction_of(state, unit_id: int) -> "str | None":
+    """`FactionId` gameconfig de l'unite (resolu par `visual_id`) -- le pendant offline des DEUX
+    noeuds natifs qui interrogent la faction d'une entite du selecteur :
+    `IdunBattleLogic.Entities.DSLSelectors$$UnitsFromFaction` (LionHelm_ExtraBlockChance) et
+    `IdunBattleLogic.Entities.DSLTriggers$$HasFaction` pose en filtre
+    (`IdunBattle.Entities.Effects.Loki.KustomForceFieldEffectReworked$$CreateTargetSelector`).
+
+    Les DEUX resolvent `IdunBattle.Entities.UnitExtensions$$HasFaction`, qui compare
+    `System.Enum.ToString(UnitFaction)` au `FactionComponent+0x30` (une CHAINE) -- d'ou la
+    comparaison par NOM cote port, jamais par ordinal.
+
+    HISSE ICI (#930) depuis `loki/dark_angels_passives.py`, ou il vivait en prive : le module est le
+    FOYER declare des primitives de selecteur d'aura (`is_targetable`, `surrounding_friends`), et un
+    second porteur du meme accesseur aurait ete un fork."""
+    from ...runner.components import StatsComponent
+    ent = state.get_entity(unit_id)
+    sc = ent.get_component(StatsComponent) if ent is not None else None
+    vid = getattr(getattr(sc, "ctx", None), "visual_id", None)
+    if vid is None:
+        return None
+    import gameconfig as GC
+    return (GC.unit(vid) or {}).get("FactionId")
+
+
+def adjacent_friends_including_owner(state, owner_id: int) -> List[int]:
+    """`Owner@DSLSelectors+0x30 + AdjacentFriends(Owner, unique = true, unitSelectionType = 3)`
+    evalue contre l'ECS -- le noeud de TETE, commun aux DEUX `CreateTargetSelector` de
+    `KustomForceFieldReworked` (#930).
+
+    `IdunBattleLogic.Entities.DSLSelectors$$AdjacentFriends`, surcharge `(unit, unique,
+    selectionType)` -- tranchee par le TYPE des arguments du call-site (le 3e est le litteral
+    booleen `1`, pas un `TargetsSelector*` : la surcharge `(unit, unitTile, unique)` est donc
+    exclue), corps natif :
+
+        Friends( unit, Units(AdjacentTiles(unit), unique, selectionType) - unit, selectionType )
+
+    Le `op_Subtraction` EXCLUT le porteur -- puis le `IdunBattle.DSL.TargetsSelector$$op_Addition`
+    du `CreateTargetSelector` appelant le RE-AJOUTE. Le porteur est donc DANS sa propre aura, et
+    c'est ce qui distingue ce noeud de `surrounding_friends` (qui l'exclut definitivement) et
+    d'`IconOfObstinacy`, qui porte le MEME `AdjacentFriends` **sans** le `op_Addition`.
+    GROUND TRUTH live (#930, `statModSources`, `orksBigMek`) : le porteur se buffe lui-meme.
+
+    ⚠ L'adjacence est `hexgeo.distance == 1`, le MEME foyer que le reste de la famille --
+    `surrounding_friends` ci-dessous, `entities/effect_targets.py::_adjacent_friends`. RESIDU
+    NOMME (#271) commun a toute la famille : le voisinage natif de
+    `IdunBattle.Core.Services.TileQuery$$IterateAdjacentTiles` porte en plus un gate
+    `|elev(a) - elev(b)| < 2`. Le corriger ICI seulement serait un fork."""
+    from ...runner.components import (PositionComponent, OwnerComponent, UnitComponent,
+                                      HealthComponent)
+    owner = state.get_entity(owner_id)
+    if owner is None:
+        return []
+    opc = owner.get_component(PositionComponent)
+    ooc = owner.get_component(OwnerComponent)
+    if opc is None or ooc is None:
+        return []
+    out: List[int] = [int(owner_id)]           # `op_Addition(Owner, ...)` : le porteur est cible
+    for uid, ent in state.entities.items():
+        if int(uid) == int(owner_id):
+            continue                           # deja pose par le terme `Owner` ci-dessus
+        uc = ent.get_component(UnitComponent)
+        if uc is not None and not uc.alive:
+            continue                           # OnlyAlive
+        hc = ent.get_component(HealthComponent)
+        if hc is not None and hc.hp is not None and hc.hp <= 0:
+            continue
+        oc = ent.get_component(OwnerComponent)
+        pc = ent.get_component(PositionComponent)
+        if oc is None or pc is None or oc.team != ooc.team:
+            continue                           # `Friends` = meme equipe que le porteur
+        if hex_distance((opc.col, opc.row), (pc.col, pc.row)) != 1:
+            continue                           # `AdjacentTiles` = ring-1 hex
+        if not is_targetable(state, uid):      # volet Targetable du `unitSelectionType = 3`
+            continue
+        out.append(int(uid))
+    return out
+
+
 def surrounding_friends(state, owner_id: int, rng: int) -> List[int]:
     """`IdunBattleLogic.Entities.DSLSelectors$$SurroundingFriends(unit = Owner@0x148, range,
     unique = true, unitSelectionType = 3 = OnlyAliveAndTargetable)` evalue contre l'ECS.

@@ -48,6 +48,9 @@ import LIGHT_COVER_TILE_ID` dans `operations/damage.py`) restent INCHANGES.
                           `+extraDmgPct %` sur le degat RECU, canal defenseur / face NATIVE
                           attaquant) et le MARQUEUR de bond `MindControl_Taunter` (1367, `get_Range`
                           = 1, zero contribution).
+- `kustom_force_field.py` — passif `KustomForceFieldReworked` (1547, orksBigMek) : les DEUX auras
+                          stat-mod `FixedArmor` posees sur le porteur, qui PARTITIONNENT leurs
+                          cibles par faction (1566 non-Orks / 1567 Orks) et INCLUENT le porteur.
 - `crit_aura.py`        — auras stat-mod dont le `StatType` ecrit chez la cible est le CRIT
                           (`PathOfCommand_ExtraCrit` 1107, eldarAutarch). Meme interface
                           `aura_stat_modification_*` que le volet block de LionHelm."""
