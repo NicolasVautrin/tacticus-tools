@@ -188,7 +188,10 @@ from ..loki.terminator_armour import (TerminatorArmourDeactivateOnAttack,   # #4
                                       TERMINATOR_ARMOUR_REDUCE_DMG)
 from ..loki.reactivate_overwatch import (EarlyWarningOverrideReactivateOverwatch,   # #114 residu 3
                                         EarlyWarningOverrideHitReductionPurge,
-                                        EWO_REACTIVATE_OVERWATCH)
+                                        EWO_REACTIVATE_OVERWATCH,
+                                        InescapableDeathReactivateOverwatch,        # #924 (necroDestroyer)
+                                        InescapableDeathHitReductionPurge,
+                                        INESCAPABLE_DEATH_EFFECT)
 from ..loki.cosmic_horror import (CosmicHorrorOnKillAbility,           # passif genesPatriarch (GS Cults)
                                  CosmicHorrorOnMoveAbility)
 from ..loki.spiritual_leader import SpiritualLeaderAbility             # passif genesMagus (GS Cults)
@@ -1163,6 +1166,13 @@ EFFECT_TRIGGERS: dict[int, list[type[EffectTrigger]]] = {
     # `RemoveEffect(1146)`. Cf. loki/reactivate_overwatch.py.
     EWO_REACTIVATE_OVERWATCH: [EarlyWarningOverrideReactivateOverwatch,   # 1145 -> re-entree + -1 coup
                                EarlyWarningOverrideHitReductionPurge],   # 1145 -> purge du 1146
+    # #924 -- `InescapableDeathEffect` (1018), passif `InescapableDeath` de `necroDestroyer`. MEME
+    # base native `AReactivateOverwatchEffect`, donc les MEMES deux `Triggered()`. Les deux points
+    # de variation sont lus au decompile, pas recopies du voisin : `GetHitReductionEffectType` =
+    # 0x3fb (1019, pas 1146), et `LegitDeathReasons` n'est PAS surcharge ici (la classe n'a que 4
+    # entrees `methodPointers`, aucune sur ce slot) -> UN seul terme la ou 1145 en a deux.
+    INESCAPABLE_DEATH_EFFECT: [InescapableDeathReactivateOverwatch,       # 1018 -> re-entree + -1 coup
+                               InescapableDeathHitReductionPurge],       # 1018 -> purge du 1019
     # `GhostEffect` -- le time-ghost, effet dont le PORTEUR est une TUILE. UNE SEULE classe native
     # (0 sous-classe, `classes.tsv` re-derive) mais DEUX effectTypes, donc deux entrees ICI :
     # 1186 `TimeFlux_Revive` (`thousTerminator`, #213) et 1284 `EchoesFromTheWarp_Revive`

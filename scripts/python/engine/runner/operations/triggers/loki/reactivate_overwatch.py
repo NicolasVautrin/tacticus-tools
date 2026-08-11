@@ -146,13 +146,21 @@ EWO_HIT_REDUCTION = int(EffectType.EarlyWarningOverride_HitReduction)           
 OVERWATCH_AUTO_ATTACK = int(EffectType.Overwatch_AutoAttack)                          # 0x3f1 = 1009
 CYCLIC_ION_BLASTER_HITS = int(EffectType.CyclicIonBlaster_AdditionalHits)             # 0x47c = 1148
 EARLY_WARNING_OVERRIDE_ABILITY = "EarlyWarningOverride"     # config source (ctor `..(this, 0x435)`)
+# --- #924 : la 2e sous-classe portee de `AReactivateOverwatchEffect` ------------------------------
+# `InescapableDeathEffect$$.ctor` = `AReactivateOverwatchEffect..ctor(this, 0x3ed)` (TriggeredAbilityType
+# `InescapableDeath`), `$$GetHitReductionEffectType` = `return 0x3fb`. Elle n'override NI
+# `LegitDeathReasons` NI `HitReductionValue` : comptage des entrees `methodPointers` de la classe
+# (4 exactement, aucune sur ces deux slots) -- cf. `entities/effects/loki/inescapable_death.py` §2.
+INESCAPABLE_DEATH_EFFECT = int(EffectType.InescapableDeath_Effect)                    # 0x3fa = 1018
+INESCAPABLE_DEATH_HITS_REDUCTION = int(EffectType.InescapableDeath_HitsReduction)     # 0x3fb = 1019
+INESCAPABLE_DEATH_ABILITY = "InescapableDeath"              # config source (ctor `..(this, 0x3ed)`)
 # `IdunBattle.Operations.DamageReason.Ability` -- membre NOMME, plus l'ordinal nu (regle ENUM du
 # CLAUDE.md). Le crush d'un `Steppable` grave `DamageReason.Steppable` : ce gate le REFUSE, et c'est
 # le comportement natif (`LegitDeathReasons` ne cite que des morts par ABILITY).
 DAMAGE_REASON_ABILITY = int(DamageReason.Ability)
 
 
-def _hit_reduction_value(ability_id: str = EARLY_WARNING_OVERRIDE_ABILITY) -> int:
+def _hit_reduction_value(ability_id: str) -> int:
     """`AReactivateOverwatchEffect$$HitReductionValue` = `Direct(AbilityConfiguration.
     GetNumberConstant(config@0x60, 0x2c))` -- la CONSTANTE (hors niveau) `hitsReduction` de l'ability
     source de l'effet (0x435 = 1077 pour 1145). Lue dans gameconfig, jamais en dur."""
@@ -210,24 +218,38 @@ def has_death_reason(state: State, unit_id: int, damage_reason: int,
     return abil is not None and int(abil) == int(ability_or_effect)
 
 
-class EarlyWarningOverrideReactivateOverwatch(EffectTrigger):
-    """Triggered #1 de `AReactivateOverwatchEffect$$CreateHandleTriggerAbilitiesInternal`, specialise
-    par les deux overrides de `EarlyWarningOverride_ReactivateOverwatchEffect` (cf. l'en-tete).
+class AReactivateOverwatch(EffectTrigger):
+    """Triggered #1 de `AReactivateOverwatchEffect$$CreateHandleTriggerAbilitiesInternal` -- le corps
+    de la BASE, partage par toutes ses sous-classes. Les trois points de variation sont exactement
+    les trois slots de vtable que le decompile appelle, et rien d'autre :
 
-    OBSERVABLE : quand Re'vas TUE en overwatch (ou avec les coups additionnels de son
-    `CyclicIonBlaster`), pendant un tour qui n'est PAS le sien, elle recoit l'effet 1146
-    `EarlyWarningOverride_HitReduction` = `EXTRA_HITS -hitsReduction` jusqu'a SON prochain tour."""
-    effect_type = EWO_REACTIVATE_OVERWATCH
+      * `HIT_REDUCTION_EFFECT_TYPE` = `GetHitReductionEffectType()`      (vtable +0x758)
+      * `SOURCE_ABILITY`            = l'argument du `..ctor(this, <baseAbility>)`, donc le
+                                      `config@0x60` que lit `HitReductionValue()` (vtable +0x748)
+      * `_legit_death_reasons`      = `LegitDeathReasons()`              (vtable +0x738)
+
+    Une sous-classe qui n'override PAS l'un d'eux prend celui de la base -- et c'est le comptage des
+    entrees `methodPointers` (une par proprietaire, meme quand l'ICF fusionne les corps) qui dit
+    lequel, jamais l'absence dans `frida/methods.tsv`."""
     event_id = EventTriggerType.PreUnitDeath            # On(1)
+    #: `GetHitReductionEffectType()` -- l'effet stat-mod pose par `GetAddHitReductionBehaviour`.
+    HIT_REDUCTION_EFFECT_TYPE: int = -1
+    #: L'ability dont `HitReductionValue()` lit la constante `hitsReduction` (`AbilityConstantType` 0x2c).
+    SOURCE_ABILITY: str = ""
+    #: Nom d'`EffectType` de l'effet de reduction (pour `AddStaticStatModifierEffect`).
+    HIT_REDUCTION_NAME: str = ""
+    #: Nom d'`EffectType` du porteur du trigger (pour le journal d'evenement).
+    EFFECT_NAME: str = ""
 
     def _legit_death_reasons(self, state: State, dying_id: Optional[int]) -> bool:
-        """`EarlyWarningOverride_ReactivateOverwatchEffect$$LegitDeathReasons` (override) =
-        `HasDeathReason(dying, Ability, 1009) | HasDeathReason(dying, Ability, 1148)`. Le selecteur
-        natif est `query@0x178` = l'unite MOURANTE de l'`AbilityEntities` de `On(PreUnitDeath)`."""
+        """`AReactivateOverwatchEffect$$LegitDeathReasons` -- **le corps de la BASE**, un seul terme :
+        `HasDeathReason(query@0x178, DamageReason.Ability, AbilityOrEffect(0x3f1 = 1009))`. Le
+        selecteur natif est l'unite MOURANTE de l'`AbilityEntities` de `On(PreUnitDeath)`.
+
+        Autrement dit : seule une mort causee par le TIR D'OVERWATCH lui-meme re-arme l'overwatch."""
         if dying_id is None:
             return False
-        return (has_death_reason(state, dying_id, DAMAGE_REASON_ABILITY, OVERWATCH_AUTO_ATTACK)
-                or has_death_reason(state, dying_id, DAMAGE_REASON_ABILITY, CYCLIC_ION_BLASTER_HITS))
+        return has_death_reason(state, dying_id, DAMAGE_REASON_ABILITY, OVERWATCH_AUTO_ATTACK)
 
     def matches(self, state: State, ev: TriggerEvent) -> bool:
         if ev.actor_id is None or int(ev.actor_id) != int(self.owner_id):
@@ -241,7 +263,7 @@ class EarlyWarningOverrideReactivateOverwatch(EffectTrigger):
                     and int(oc.player) == int(state.current_player_id):
                 return False
         # `AmountIsGreater(Max(RangedAttackHits(Owner), MeleeAttackHits(Owner)), HitReductionValue())`
-        red = _hit_reduction_value()
+        red = _hit_reduction_value(self.SOURCE_ABILITY)
         best = max(_attack_hits(state, self.owner_id, is_melee=False),
                    _attack_hits(state, self.owner_id, is_melee=True))
         if not best > red:
@@ -251,27 +273,73 @@ class EarlyWarningOverrideReactivateOverwatch(EffectTrigger):
     def execute_behaviour(self, state: State, ev: TriggerEvent) -> Optional[dict]:
         if state.effects is None:
             return None
-        red = _hit_reduction_value()
+        red = _hit_reduction_value(self.SOURCE_ABILITY)
         turns = turns_until_unit_owner_turn(state, self.owner_id)
         ectx = ExecutionContext(state=state, rng=state.rng)
         # `GetReactivateOverwatchBehaviour() & GetAddHitReductionBehaviour()` (`op_BitwiseAnd`).
         op_and(
             ActivateEffect(Caster(), OVERWATCH_AUTO_ATTACK,
                            EffectType.Overwatch_AutoAttack.name),
-            AddStaticStatModifierEffect(Caster(), EWO_HIT_REDUCTION,
+            AddStaticStatModifierEffect(Caster(), self.HIT_REDUCTION_EFFECT_TYPE,
                                         int(StatType.EXTRA_HITS), Const(-int(red)),
-                                        name=EffectType.EarlyWarningOverride_HitReduction.name,
+                                        name=self.HIT_REDUCTION_NAME,
                                         duration_turns=turns),
         ).execute(entities_from_state(state, self.owner_id, ev.dying_id), ectx)
         posed = [p for n, p in ectx.emitted if n == "AddStaticStatModifierEffect"]
         if not posed:
             return None                                  # deja pose (gate << deja present >>) -> muet
-        return {"effect": "EarlyWarningOverride_ReactivateOverwatch", "owner": int(self.owner_id),
+        return {"effect": self.EFFECT_NAME, "owner": int(self.owner_id),
                 "killed": ev.dying_id, "hits_reduction": int(red), "turns": turns,
                 "reactivated": [p for n, p in ectx.emitted if n == "ActivateEffect"]}
 
 
-class EarlyWarningOverrideHitReductionPurge(EffectTrigger):
+class EarlyWarningOverrideReactivateOverwatch(AReactivateOverwatch):
+    """`EarlyWarningOverride_ReactivateOverwatchEffect` (1145) -- la sous-classe qui override
+    `GetHitReductionEffectType` ET `LegitDeathReasons` (2 des 4 entrees `methodPointers` de la
+    classe, les deux autres etant `.ctor` et `GetOverwatchExtraDamage`, cf. #924-r1).
+
+    OBSERVABLE : quand Re'vas TUE en overwatch (ou avec les coups additionnels de son
+    `CyclicIonBlaster`), pendant un tour qui n'est PAS le sien, elle recoit l'effet 1146
+    `EarlyWarningOverride_HitReduction` = `EXTRA_HITS -hitsReduction` jusqu'a SON prochain tour."""
+    effect_type = EWO_REACTIVATE_OVERWATCH
+    HIT_REDUCTION_EFFECT_TYPE = EWO_HIT_REDUCTION
+    SOURCE_ABILITY = EARLY_WARNING_OVERRIDE_ABILITY
+    HIT_REDUCTION_NAME = EffectType.EarlyWarningOverride_HitReduction.name
+    EFFECT_NAME = EffectType.EarlyWarningOverride_ReactivateOverwatch.name
+
+    def _legit_death_reasons(self, state: State, dying_id: Optional[int]) -> bool:
+        """`EarlyWarningOverride_ReactivateOverwatchEffect$$LegitDeathReasons` (**override**) =
+        `HasDeathReason(dying, Ability, 1009) | HasDeathReason(dying, Ability, 1148)`. La base
+        ne garde que la 1re branche. **1148 = `CyclicIonBlaster_AdditionalHits`** = l'effet du
+        passif de Re'vas (triggered 1133) qui ajoute 3 coups Particle : un kill porte par CES
+        coups-la compte AUSSI. C'est le point que « toute mort re-arme » aurait rate."""
+        if dying_id is None:
+            return False
+        return (has_death_reason(state, dying_id, DAMAGE_REASON_ABILITY, OVERWATCH_AUTO_ATTACK)
+                or has_death_reason(state, dying_id, DAMAGE_REASON_ABILITY, CYCLIC_ION_BLASTER_HITS))
+
+
+class InescapableDeathReactivateOverwatch(AReactivateOverwatch):
+    """`InescapableDeathEffect` (1018) -- la sous-classe qui n'override QUE
+    `GetHitReductionEffectType` (`return 0x3fb` = 1019) sur cet axe.
+
+    **Elle n'override PAS `LegitDeathReasons`** : ses 4 entrees `methodPointers` sont `.ctor`,
+    `GetHitReductionEffectType`, `GetOverwatchExtraDamage` et `GetAdditionalExtraDamageTrigger`
+    (`entities/effects/loki/inescapable_death.py` §2). Elle prend donc le corps de la BASE -- un
+    SEUL terme, `HasDeathReason(dying, Ability, 1009)`. Recopier la version 1145 (deux termes)
+    aurait re-arme l'overwatch sur des morts que le natif refuse ici.
+
+    OBSERVABLE : quand `necroDestroyer` (Imospekh) TUE avec son tir d'overwatch, pendant un tour
+    qui n'est PAS le sien, il reste en overwatch et recoit 1019 `InescapableDeath_HitsReduction`
+    = `EXTRA_HITS -hitsReduction` jusqu'a SON prochain tour."""
+    effect_type = INESCAPABLE_DEATH_EFFECT
+    HIT_REDUCTION_EFFECT_TYPE = INESCAPABLE_DEATH_HITS_REDUCTION
+    SOURCE_ABILITY = INESCAPABLE_DEATH_ABILITY
+    HIT_REDUCTION_NAME = EffectType.InescapableDeath_HitsReduction.name
+    EFFECT_NAME = EffectType.InescapableDeath_Effect.name
+
+
+class AReactivateOverwatchHitReductionPurge(EffectTrigger):
     """Triggered #2 de `AReactivateOverwatchEffect$$CreateHandleTriggerAbilitiesInternal` :
 
         ( On(0 = UnitDeath) | On(0x11 = PostDamageTaken) )
@@ -283,18 +351,25 @@ class EarlyWarningOverrideHitReductionPurge(EffectTrigger):
     porte (`_ranged_auto_attack_is_active`, case-127) : c'est LA meme condition que celle qui autorise
     le tir.
 
-    Enregistre sur l'effet 1145 (le porteur du trigger), pas sur 1146 : c'est
-    `CreateHandleTriggerAbilitiesInternal` de 1145 qui rend les DEUX `Triggered`."""
-    effect_type = EWO_REACTIVATE_OVERWATCH
+    Enregistre sur l'effet PORTEUR du trigger (1145 / 1018), pas sur l'effet de reduction : c'est
+    `CreateHandleTriggerAbilitiesInternal` du porteur qui rend les DEUX `Triggered`.
+
+    Comme le Triggered #1, le seul point de variation est `GetHitReductionEffectType()` (vtable
+    +0x758) -- ici l'argument du `RemoveEffect`."""
     event_id = EventTriggerType.UnitDeath                                  # On(0)
     # 2e disjonct : `On(PostDamageTaken=0x11)`. AUCUN vecteur du port ne l'emet aujourd'hui (site
     # d'emission natif non localise) -- l'ecoute est declaree pour rester fidele, elle est dormante.
     event_ids = (int(EventTriggerType.UnitDeath), int(EventTriggerType.PostDamageTaken))
+    #: `GetHitReductionEffectType()` -- l'effet que `RemoveEffect` retire.
+    HIT_REDUCTION_EFFECT_TYPE: int = -1
+    #: Nom d'`EffectType` correspondant (journal d'evenement).
+    HIT_REDUCTION_NAME: str = ""
 
     def matches(self, state: State, ev: TriggerEvent) -> bool:
         if state.effects is None:
             return False
-        if not state.effects.has_effect(int(self.owner_id), effect_type=EWO_HIT_REDUCTION):
+        if not state.effects.has_effect(int(self.owner_id),
+                                        effect_type=self.HIT_REDUCTION_EFFECT_TYPE):
             return False                                 # rien a retirer -> le natif no-op aussi
         # `NOT HasEffect(Owner, Overwatch_AutoAttack, onlyActive=true, targetType=Both)` : `onlyActive`
         # se lit sur `EffectsState.active_effects`, qui conjugue le FLAG `EffectComponent.IsActive
@@ -306,10 +381,24 @@ class EarlyWarningOverrideHitReductionPurge(EffectTrigger):
 
     def execute_behaviour(self, state: State, ev: TriggerEvent) -> Optional[dict]:
         ectx = ExecutionContext(state=state, rng=state.rng)
-        RemoveEffect(EWO_HIT_REDUCTION, Caster()).execute(
+        RemoveEffect(self.HIT_REDUCTION_EFFECT_TYPE, Caster()).execute(
             entities_from_state(state, self.owner_id, self.owner_id), ectx)
         removed = sum(int(p.get("removed") or 0) for n, p in ectx.emitted if n == "RemoveEffect")
         if not removed:
             return None
-        return {"effect": "EarlyWarningOverride_HitReduction", "owner": int(self.owner_id),
+        return {"effect": self.HIT_REDUCTION_NAME, "owner": int(self.owner_id),
                 "removed": removed}
+
+
+class EarlyWarningOverrideHitReductionPurge(AReactivateOverwatchHitReductionPurge):
+    """Triggered #2 de `EarlyWarningOverride_ReactivateOverwatchEffect` (1145 -> retire 1146)."""
+    effect_type = EWO_REACTIVATE_OVERWATCH
+    HIT_REDUCTION_EFFECT_TYPE = EWO_HIT_REDUCTION
+    HIT_REDUCTION_NAME = EffectType.EarlyWarningOverride_HitReduction.name
+
+
+class InescapableDeathHitReductionPurge(AReactivateOverwatchHitReductionPurge):
+    """Triggered #2 de `InescapableDeathEffect` (1018 -> retire 1019)."""
+    effect_type = INESCAPABLE_DEATH_EFFECT
+    HIT_REDUCTION_EFFECT_TYPE = INESCAPABLE_DEATH_HITS_REDUCTION
+    HIT_REDUCTION_NAME = EffectType.InescapableDeath_HitsReduction.name
