@@ -69,6 +69,13 @@ receveur (`processor.` / `OperationProcessor`) apparaît dans le SPAN du couple.
 Le remède employé est celui que `case-477r25` documente (réécrire le site), pas le marqueur
 `[slot-attribution:refute]`, qui est réservé aux lignes citant une attribution RÉFUTÉE.
 
+⚠ **ET IL S'EST PROPAGÉ PAR IMITATION PENDANT LA TRANCHE — mesuré : 1 site → 3.** Au 3ᵉ rebase,
+`#944` a fusionné `UseNormalAttack` dans `UseActiveAbility`, **déplaçant** le bloc de pseudo-C
+(donc le foyer réparé plus haut) **et le RECOPIANT** dans sa propre fiche
+(`case-944-…md`) et dans son test (`test_944_combat_behaviours_offline.py`). `probe_477r24r1` est
+reparti à **2 citations fausses**, sur deux fichiers qui n'existaient pas à la mesure d'entrée.
+Les trois portent maintenant la même écriture.
+
 ## 4. Le cycle d'import : `from . import x` déclare le PAQUET
 
 `from .. import aura_selectors as ASel` (posé par #925 pour garder la FORME B) refermait le SCC.
