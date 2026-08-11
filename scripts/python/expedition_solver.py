@@ -58,11 +58,16 @@ PREFIXES = ("faction", "trait", "alliance", "damagetype")
 #: Noms NATIFS d'`objectiveType`, releves sur le plateau reel (capteur `expedition-board`,
 #: 2026-08-10). On les accepte VERBATIM pour que le JSON capte se rejoue sans traduction.
 #: `HasNoRangedAttack` porte `objectiveTarget: "None"` -- la cible est ignoree.
+#: `HasRangedAttack` (releve le 2026-08-11) est son PENDANT et porte `objectiveTarget: null` :
+#: meme forme, cible bidon a jeter. Il apparaissait sur 4 des 7 operations du plateau et
+#: faisait REFUSER tout le calcul -- refus correct (le solveur ne devine pas), mais la
+#: mecanique `ranged` etait deja la, seul l'alias manquait.
 ALIAS_NATIFS = {
     "faction": "faction",
     "trait": "trait",
     "damagetype": "damagetype",
     "hasnorangedattack": "melee",
+    "hasrangedattack": "ranged",
 }
 
 #: Plafond du nombre de solutions minimales enumerees pour UNE operation. Il est
@@ -119,11 +124,15 @@ def resoudre_objectif(txt: str, factions: set[str], traits: set[str],
     if not t:
         raise ObjectifIrresoluble("objectif VIDE")
     bas = t.lower()
-    # `HasNoRangedAttack` porte une cible bidon ("None") : on la jette AVANT de chercher un
-    # separateur, sinon on partirait resoudre une faction nommee "None".
-    if bas.split(":", 1)[0].strip() == "hasnorangedattack":
+    # Les DEUX formes `Has[No]RangedAttack` portent une cible bidon ("None" / null) : on la
+    # jette AVANT de chercher un separateur, sinon on partirait resoudre une faction "None".
+    tete = bas.split(":", 1)[0].strip()
+    if tete == "hasnorangedattack":
         return Objectif(brut=t, kind="melee", valeur=None,
                         libelle="HasNoRangedAttack (sans attaque a distance normale)")
+    if tete == "hasrangedattack":
+        return Objectif(brut=t, kind="ranged", valeur=None,
+                        libelle="HasRangedAttack (avec attaque a distance normale)")
     if bas in FORMES_SIMPLES:
         libelle = ("Melee (sans attaque a distance normale)" if bas == "melee"
                    else "Ranged (avec attaque a distance normale)")
@@ -604,12 +613,25 @@ def resoudre_plateau(ops: list[dict], kits: dict[str, dict], roster: list[str],
     plan = meilleur["plan"] or []
     ordre = sorted([p for p in plan if p["ensemble"] is not None],
                    key=lambda p: len(par_id[id(p["op"])]["ids"]))
+    # ⛔ TOUS LES ENSEMBLES COUVRANTS SONT RESERVES D'EMBLEE, pas au fil du parcours.
+    # `rec` garantit que les couvrants sont disjoints ENTRE EUX, mais le remplissage se
+    # sert dans le pool libre : parti d'un `utilisees` VIDE, il pouvait prendre une unite
+    # deja couvrante d'une operation PAS ENCORE TRAITEE, qui la gardait ensuite (son
+    # ensemble est fige). Le plan sortait avec la meme unite sur DEUX operations -- donc
+    # injouable, une unite partie etant immobilisee pour la duree.
+    # MESURE (plateau du 2026-08-11, 7 operations) : 3 doublons sur 28 places --
+    # `astraPrimarisPsy`, `adeptHospitaller`, `adeptRetributor`, chacun couvrant ici et
+    # remplissage la. Les trois relevaient exactement de ce patron.
+    reserves = {u for p in ordre for u in p["ensemble"]}
     utilisees: set[str] = set()
     incompletes: list[dict] = []
     for p in ordre:
         prep = par_id[id(p["op"])]
         besoin = int(p["op"].get("participants") or 0)
-        r = completer(set(p["ensemble"]), besoin, prep["ids"], utilisees)
+        # `reserves - ensemble` : les couvrants des AUTRES operations sont interdits au
+        # remplissage ; le sien propre ne l'est pas, il EST la base a completer.
+        r = completer(set(p["ensemble"]), besoin, prep["ids"],
+                      utilisees | (reserves - set(p["ensemble"])))
         if r is None:
             incompletes.append({"op": p["op"].get("expeditionId") or p["op"].get("id"),
                                 "besoin": besoin, "couvrant": len(p["ensemble"]),
