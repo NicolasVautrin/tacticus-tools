@@ -21,7 +21,17 @@ CARRIER = "darkaAzrael"
 ALLY_DA = "darkaHellblaster"      # ami DARK ANGELS
 ALLY_OTHER = "ultraApothecary"    # ami NON Dark Angels
 FOE = "necroOverlord"
-BUILD = ["--roster", "1", "--p-units", f"{CARRIER},{ALLY_DA},{ALLY_OTHER}", "--a-units", FOE]
+
+# PREMISSE DE REGIME, RENDUE EXPLICITE (#933). Les discriminants ci-dessous lisent la stat
+# TOTALE de block ; ils ne valent donc « contribution de l'aura » que si la BASE est nulle.
+# Elle l'etait quand ce fichier a ete ecrit -- puis la bascule #419-r5/-r6 (items Best-In-Slot
+# equipes PAR DEFAUT) a donne (36, 2349) de base a Azrael, ce qui rendait le fichier ROUGE en
+# accusant `SurroundingFriends`. Le porteur « sans block » se CONSTRUIT desormais, il ne se
+# suppose plus. Pas `TACTICUS_BIS_ITEMS=0`, qui deshabillerait tout le roster : cf. #914 §3.3.
+_ZERO_BLOCK = "BlockChance=0,BlockDamage=0"
+BUILD = ["--roster", "1", "--p-units", f"{CARRIER},{ALLY_DA},{ALLY_OTHER}", "--a-units", FOE,
+         "--unit-stat", ";".join(f"{u}:{_ZERO_BLOCK}"
+                                 for u in (CARRIER, ALLY_DA, ALLY_OTHER, FOE))]
 
 
 def _live_blocks(rpc, rid):
@@ -60,7 +70,7 @@ def lh_block(rpc, build_runner):
     if not (isinstance(bg, dict) and bg.get("tiles")):
         pytest.skip("boardGraph indispo")
     ids = {u.get("visualId"): u["id"] for u in (dv.get("units") or []) if u.get("alive")}
-    if not all(k in ids for k in (CARRIER, ALLY_DA, ALLY_OTHER)):
+    if not all(k in ids for k in (CARRIER, ALLY_DA, ALLY_OTHER, FOE)):
         pytest.skip(f"unite absente du build ({sorted(ids)})")
     state = load_state(dv, ob, snap, board=Board(bg["tiles"], adjacency="native_sym"))
     runner = Runner(state).install_default_handlers(20)
@@ -91,6 +101,23 @@ def test_block_aura_offline_equals_live_at_every_step(lh_block):
             assert live.get(uid) == off.get(uid), (
                 f"[{label}] u{uid} : block offline {off.get(uid)} != live {live.get(uid)} "
                 "(aura LionHelm mal materialisee / mal revertee)")
+
+
+def test_base_de_block_nulle_le_levier_mord(lh_block):
+    """PREMISSE DE MONTAGE : `--unit-stat …:BlockChance=0,BlockDamage=0` a bien MORDU.
+
+    Le temoin est l'ENNEMI : `SurroundingFriends(Azrael)` ne peut par construction JAMAIS le
+    selectionner, donc sa stat TOTALE de block EST sa base. S'il n'est pas a (0, 0), c'est le
+    LEVIER qui a cesse de mordre -- et alors les discriminants ci-dessous ne mesurent plus la
+    contribution de l'aura mais la base du roster, en accusant le selecteur. C'est exactement
+    ce qui est arrive a ce fichier apres la bascule #419-r5/-r6.
+    """
+    seed = lh_block["steps"][0][1]
+    foe = lh_block["ids"][FOE]
+    assert seed[foe] == (0, 0), (
+        f"base de block NON NULLE sur l'ennemi ({seed[foe]}) -> le levier --unit-stat "
+        "BlockChance/BlockDamage ne mord plus ; les discriminants de ce fichier lisent la "
+        "stat TOTALE et ne mesurent donc plus la contribution de l'aura LionHelm")
 
 
 def test_block_aura_discriminants(lh_block):
