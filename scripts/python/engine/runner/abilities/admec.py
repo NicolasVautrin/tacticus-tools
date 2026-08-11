@@ -14,13 +14,22 @@ from typing import Optional, TYPE_CHECKING
 
 from ...dsl.base import Const
 from ...dsl.effects import ExecutionContext
-from ...entities.behaviours import AtomicGroup, Foreach, op_add
-from ...entities.formulas import (Const as _AmountConst, RoundsStarted, Sum,
+from ...entities.behaviours import AtomicGroup, Foreach, If, Inform, op_add
+from ...entities.formulas import (Const as _AmountConst, GetPersistentData, RoundsStarted, Sum,
                                   TotalRepairActionsAmount)
-from ...entities.selectors.accessors import CasterTile, FixedTileIds, SelectTile, Subject, Target
-from ...entities.selectors.geometry import Blocking, SortReverse, TilesBehindInLine
+from ...entities.selectors.accessors import (ActiveTarget, CasterTile, FixedTileIds, SelectTile,
+                                             Subject, Target)
+from ...entities.selectors.geometry import Blocking, Otherwise, SortReverse, TilesBehindInLine
 from ...entities.selectors.tiles import AllAliveUnits, Caster
-from ...entities.selectors.units import AdjacentUnits, Friends, Sub, Union, Units, UnitsWithTrait
+from ...entities.selectors.units import (AdjacentUnits, And, Enemies, Friends, Sub, Union, Units,
+                                         UnitsWithTrait, UnitsWithoutTrait)
+from ...entities.triggers import AreEnemies, HasEffect, is_mechanical
+from ...battle_query import are_entities_adjacent
+from .targeting import is_mechanical as is_unit_mechanical    # `UnitExtensions$$IsMechanical`
+from .behaviours.chain import ChainBehaviourGeneric
+from .behaviours.effects import IncreaseEffectLevel
+from .behaviours.persistent_data import AddPersistentData, SetPersistentData
+import gameconfig as GC                     # `AbilityConfiguration$$GetNumberConstant` (#894)
 from ...entities.active_ability_type import ActiveAbilityType
 from ...entities.effect_type import EffectType
 from ...entities.traits.unit_trait import UnitTrait
@@ -667,3 +676,261 @@ class DefendTheDivineWorkAbility(ActiveAbility):
             state, caster_id, defend_the_divine_work_adjacent_friends())
         return {"ability": DEFEND_THE_DIVINE_WORK_ID, "caster": caster_id, "target": target_id,
                 "amount": amount, "repairs": rep.get("repairs"), "attacks": attacks, "dsl": True}
+
+
+# =================================================================================================== #
+# ArcScourge (1173, `admecBossBelisarius` -- Belisarius Cawl, BOSS npc AdeptusMechanicus) -- #894
+#
+# `IdunBattleLogic.Entities.Abilities.Active.ArcScourgeAbility$$ExecuteBehaviour` (MIRROR du DECOMPILE).
+# Une CHAINE (arc electrique) qui rebondit de proche en proche, et qui CAPITALISE : chaque maillon
+# incremente un compteur de donnee persistante, converti en fin de cast en niveau de l'effet
+# `MachineVengeance` sur le CASTER.
+#
+# Slots de `DSLSelectors` (mapping LU dans `IdunBattleLogic.Entities.DSLSelectors$$InitializeShared`,
+# deja cite par `blacktemplars.py`) : `+0x48 Caster`, `+0x60 Target`, `+0x68 ActiveTarget`.
+#
+#   maxAdjacentTargets = GetNumberConstant(0x75 maxAdjacentTargets)          # = 3
+#   chainOptions       = new <ChainBehaviourOptions>() ; +0x12 = 1           # coup DIFFERE d'un cran
+#   KEY                = Get("EffectLevel")                                  # literal 7679 du build
+#   addPD              = AddPersistentData( AbilityOrEffect(0x495 = 1173), Caster@+0x48,
+#                                           KEY, Get(GetNumberConstant(0x73 effectLevel) = 1) )
+#
+#   perTarget = If( AreEnemies(Caster@+0x48, ActiveTarget@+0x68, sel 0),
+#                   AttackWithAttackDamage( caster = Caster@+0x48, target = ActiveTarget@+0x68,
+#                                           amount = MinMaxDamage(this, abilityState),
+#                                           damageProfile = Direct(GetDamageProfile() = Particle),
+#                                           hits = GetHits() = nrOfHits = 3,
+#                                           AbilityOrEffect(1173), options ZEROEES, sel 2 )
+#                   + If( IsMechanical(ActiveTarget@+0x68, sel 0),
+#                         AddEffect(0x48a = 1162 Stunned, AbilityStateReference,
+#                                   targets = ActiveTarget@+0x68, turns = Nullable<int> VIDE)
+#                         + addPD,
+#                         null ),
+#                   addPD + Inform(TagKey 0xcb, ActiveTarget@+0x68) )
+#
+#   chain = ChainBehaviour( preselectedTargets = Target@+0x60,
+#                           jumpTargetSelector = Func(<ExecuteBehaviour>b__4_0),
+#                           maxTargets = Direct(maxAdjacentTargets),
+#                           behaviour = perTarget, options = chainOptions )
+#
+#   pd     = GetPersistentData( AbilityOrEffect(1173), Caster@+0x48, KEY )
+#   ifHas  = If( HasEffect(Caster@+0x48, 0x555 = 1365 MachineVengeance, onlyActive 0, targetType 6),
+#                IncreaseEffectLevel( owner = Caster@+0x48, 0x555, amount = pd, max = null ),
+#                AddEffect( 0x555, AbilityStateReference, source = Caster@+0x48,
+#                           targets = Caster@+0x48, options{level = pd} ) )
+#   reset  = SetPersistentData( AbilityOrEffect(1173), Caster@+0x48, KEY, Get(0) )
+#
+#   ExecuteAtomic( ((chain + ifHas) + reset), entities, 0x2a = Ability_AtomicGroup )
+#
+# `<ExecuteBehaviour>b__4_0(lastTargets)` -- le selecteur de SAUT, RE-CONSTRUIT a chaque maillon.
+# ⚠ Son parametre est PLURIEL et le natif l'invoque sur `DSLSelectors$$Entities(pickedTargets)`,
+# c.-a-d. TOUTES les cibles deja piquees (transcrit dans `ChainBehaviourBehaviour$$Execute`, cf.
+# `behaviours/chain.py`) -- pas sur la derniere. Lire « la derniere cible » raterait tout saut
+# depuis un maillon anterieur :
+#
+#   adj  = AdjacentUnits(lastTargets, unique = 1, sel 3) - Caster@+0x48
+#   sans = UnitsWithoutTraits(adj, [0x1b Steppable, 0xd Object], sel 3)
+#   return UnitsWithTrait(sans, 5 Mechanical, sel 3).Otherwise( Enemies(of = Caster@+0x48, sans, 3) )
+#
+# -> PRIORITE aux unites MECANIQUES adjacentes (amies comprises : c'est ce qui fait de 1173 une
+# ability qui traverse ses propres machines) ; a defaut, les ENNEMIS. `Otherwise` =
+# `IdunBattle.DSL.OtherwiseSelector$$Select` : rend la branche gauche si elle produit au moins un
+# element (`System.Linq.Enumerable$$Any`), la droite sinon.
+#
+# LE CORPS DISTINGUE ENNEMI ET ALLIE, et c'est la mecanique centrale : sur un ENNEMI l'arc FRAPPE
+# (et STUN si la cible est mecanique) ; sur un ALLIE mecanique il ne fait qu'incrementer le
+# compteur et poser un tag de flux -- le maillon allie sert de RELAIS. Les deux branches
+# incrementent `EffectLevel`, donc la pile `MachineVengeance` compte TOUS les maillons.
+#
+# `UnitsWithoutTraits` (pluriel) = `IdunBattleLogic.Entities.DSLSelectors$$UnitsWithoutTraits`, LU :
+# une INTERSECTION (`TargetsSelector$$op_BitwiseAnd`) des `UnitsWithoutTrait` un par trait -- c'est
+# pourquoi le port l'ecrit `And(UnitsWithoutTrait(.., Steppable), UnitsWithoutTrait(.., Object))`,
+# et non deux filtres chaines.
+# =================================================================================================== #
+
+ARC_SCOURGE_ID = "ArcScourge"
+AS_MACHINE_VENGEANCE = int(EffectType.MachineVengeance)      # 0x555 = 1365 -- la pile sur le CASTER
+AS_STUNNED = int(EffectType.Stunned)                         # 0x48a = 1162 -- sur un maillon mecanique
+#: Cle de donnee persistante, LUE : string literal #7679 du build (`"EffectLevel"`), passee a
+#: `DSLFormulas$$Get(s: System.String)` puis aux trois noeuds `*PersistentData`.
+AS_PD_KEY = "EffectLevel"
+#: `TagKey` du `DSLBehaviors$$Inform(tag, value: ITargetsSelector)` de la branche ALLIEE. Le port
+#: n'exprime pas la VALEUR (le selecteur) -- `Inform` y est un tag de flux VUE, sans effet de jeu.
+AS_INFORM_TAG = 0xcb
+
+
+def arc_scourge_jump_selector(last_targets):
+    """`ArcScourgeAbility$$u003CExecuteBehaviouru003Eb__4_0(lastTargets)` -- MIRROR 1:1.
+
+    `last_targets` = `DSLSelectors$$Entities(pickedTargets)`, la liste COMPLETE des maillons deja
+    piques (cf. `ChainBehaviourBehaviour$$Execute`), jamais le dernier seul."""
+    adj = Sub(AdjacentUnits(last_targets, selection_type=SELECTION), Caster())
+    sans = And(UnitsWithoutTrait(adj, int(UnitTrait.Steppable), selection_type=SELECTION),
+               UnitsWithoutTrait(adj, int(UnitTrait.Object), selection_type=SELECTION))
+    return Otherwise(UnitsWithTrait(sans, int(UnitTrait.Mechanical), selection_type=SELECTION),
+                     Enemies(sans, selection_type=SELECTION))
+
+
+def arc_scourge_per_target_tree() -> "If":
+    """Le `behaviour` passe a `ChainBehaviour` -- joue UNE FOIS PAR MAILLON, `ActiveTarget` lie."""
+    add_pd = AddPersistentData(int(ActiveAbilityType.ArcScourge), Caster(), AS_PD_KEY,
+                               _AmountConst(_arc_scourge_const("effectLevel")))
+    stun = AddEffect(AS_STUNNED, EffectType.Stunned.name, ActiveTarget(), duration_rounds=None)
+    hit = AttackWithAttackDamage(ActiveTarget(), ARC_SCOURGE_ID, "Particle", is_melee=False)
+    enemy_branch = op_add(hit, If(is_mechanical(ActiveTarget()), op_add(stun, add_pd), None))
+    ally_branch = op_add(add_pd, Inform(AS_INFORM_TAG))
+    return If(AreEnemies(Caster(), ActiveTarget()), enemy_branch, ally_branch)
+
+
+def _arc_scourge_const(name: str) -> int:
+    """`AbilityConfiguration$$GetNumberConstant` sur la config d'`ArcScourge` du gameconfig VIVANT.
+    `maxAdjacentTargets` = 0x75, `effectLevel` = 0x73, `effectLevel_2` = 0x76 (ordinaux
+    `IdunBattle.Configuration.AbilityConstantType`, resolus contre `enums.tsv` du build)."""
+    return int(((GC.ability(ARC_SCOURGE_ID) or {}).get("constants") or {}).get(name) or 0)
+
+
+def arc_scourge_tree() -> "AtomicGroup":
+    """Arbre complet -- `ExecuteAtomic( ((chain + ifHas) + reset), 0x2a )`."""
+    pd = GetPersistentData(int(ActiveAbilityType.ArcScourge), Caster(), AS_PD_KEY)
+    chain = ChainBehaviourGeneric(
+        Target(), arc_scourge_jump_selector,
+        _AmountConst(_arc_scourge_const("maxAdjacentTargets")),
+        arc_scourge_per_target_tree(),
+        deferred_hit=True)                       # `chainOptions+0x12 = 1`, LU au ctor
+    if_has = If(HasEffect(Caster(), AS_MACHINE_VENGEANCE, active_only=False),
+                IncreaseEffectLevel(AS_MACHINE_VENGEANCE, Caster(), pd),
+                AddEffect(AS_MACHINE_VENGEANCE, EffectType.MachineVengeance.name, Caster(),
+                          duration_rounds=None, level=pd))
+    reset = SetPersistentData(int(ActiveAbilityType.ArcScourge), Caster(), AS_PD_KEY,
+                              _AmountConst(0))
+    return AtomicGroup(op_add(op_add(chain, if_has), reset))
+
+
+class ArcScourgeAbility(ActiveAbility):
+    """`IdunBattleLogic.Entities.Abilities.Active.ArcScourgeAbility$$ExecuteBehaviour` (id 1173,
+    `admecBossBelisarius` « Belisarius Cawl », BOSS npc AdeptusMechanicus) -- cf. le bloc de
+    commentaire ci-dessus pour l'arbre LU noeud par noeud.
+
+    Retour : {chain_hits, stunned, machine_vengeance_level, dsl}."""
+    __slots__ = ()
+    ABILITY_TYPE = int(ActiveAbilityType.ArcScourge)          # 1173
+    ABILITY_ID = ARC_SCOURGE_ID
+
+    # GATE DE CIBLE (#894) -- FORME 1 « FLAGS DIRECTS ». `ArcScourgeAbility$$.ctor` :
+    #     <24 octets recopies de `<TargetingRange statics>+0x18`>
+    #     TargetingOptions..ctor(&opts, isSelfCasting = 0, range = &<statics+0x18>,
+    #                            forceMeleeTarget = 1, rules = 0x4006, 0, 0)
+    #     AActiveAbility..ctor(this, &opts, 2)          # 3e arg = 2 = AbilityAttackType.Others
+    # La SURCHARGE est tranchee par la SIGNATURE lue dans `frida/methods.tsv` : des trois
+    # `IdunBattle.Core.Services.TargetingOptions..ctor`, seule celle a SIX parametres
+    # (`isSelfCasting, range, forceMeleeTarget, rules, getDynamicInvalidCasterReason,
+    # getDynamicInvalidTargetReason`) accepte cet appel -- les deux autres sont des COPIES
+    # (`template` seul, `template + additionalRules`). Le litteral EST donc le masque.
+    # Decomposition EXHAUSTIVE de 0x4006, aucun bit residuel :
+    #     0x0002  TargetMatchesDynamicRule -> arme `GetDynamicInvalidTargetReason` (ci-dessous)
+    #     0x0004  CasterMatchesDynamicRule -> arme `GetDynamicInvalidCasterReason` (ci-dessous)
+    #     0x4000  TargetIsEnemy            -> refus sur soi-meme et sur un allie
+    # Les deux delegues passes au ctor sont NULS : ce sont les OVERRIDES virtuels de la classe qui
+    # portent les regles, et ce sont les deux bits ci-dessus qui les font consulter.
+    # PORTEE : `<TargetingRange statics>+0x18` = `RANGE_FROM_CONFIG` (meme champ statique
+    # qu'`IncursionAbility`/`MindControlAbility`) -> `AActiveAbility$$SetConfigValuesInTargetingOptions`
+    # pose `overrideRange = GetNumberConstant(0x16 range)` = `ArcScourge.constants.range` = **2**.
+    # `forceMeleeTarget` = **1** = `RangedBool.False` -> jamais de rabattement en melee.
+    TARGETING_OPTIONS = TargetingOptions(
+        rules=TR.TargetMatchesDynamicRule | TR.CasterMatchesDynamicRule | TR.TargetIsEnemy,
+        range=RANGE_FROM_CONFIG, force_melee_target=RANGED_BOOL_FALSE)
+
+    def get_dynamic_invalid_caster_reason(self, state: "State", caster_id: int) -> int:
+        """`ArcScourgeAbility$$GetDynamicInvalidCasterReason` -- MIRROR du decompile :
+
+            effect = EntityExtensions.GetOwnedEffect(caster, state, 0x555 MachineVengeance);
+            if (effect != null && GetNumberConstant(0x76 effectLevel_2) <= GetEffectLevel(effect))
+                return 4;                                        # CasterMatchesDynamicRule
+            st = ActiveAbilityComponent.GetActive(caster, <this+0x10> = 1173).<+0x18>;   # Nullable<int>
+            if (st.HasValue && st.Value == TurnComponent.GetAmountOfTurnsEnded())
+                return 0x40000000000000;                         # AlreadyUseThisTurn
+            return 0;
+
+        Le PREMIER bras est le plafond de la pile : Belisarius ne peut plus lancer l'arc une fois
+        `MachineVengeance` a `effectLevel_2` = **9**. `GetOwnedEffect` ne filtre NI `IsActive` NI
+        `Removed` (cf. `runner/components.py`), d'ou le balayage sans filtre d'activite ci-dessous
+        -- seul `consumed` (l'effet retire) est ecarte.
+
+        ⚠ SECOND BRAS NON PORTE, et NOMME : le port n'expose aucun « tour de derniere utilisation »
+        par ability (`ActiveAbilityComponent+0x18`) ; `State.turns_ended` existe, son pendant
+        par-ability non. Rendre `AlreadyUseThisTurn` sans ce substrat serait un refus INVENTE, donc
+        on degrade en PERMISSIF -- ce que le patron de `base.py` prescrit. Residu : la gate
+        « une fois par tour » de 1173 n'est pas exercee offline (elle l'est en live par le
+        `SetsActiveAbilityUsedFlag` du pipeline)."""
+        eff = state.effects
+        if eff is None:
+            return 0
+        cap = _arc_scourge_const("effectLevel_2")
+        for e in (eff.by_unit.get(int(caster_id), []) if hasattr(eff, "by_unit") else []):
+            if getattr(e, "consumed", False) or e.effect_type != AS_MACHINE_VENGEANCE:
+                continue
+            if cap and cap <= int(getattr(e, "level", 0) or 0):
+                return int(TR.CasterMatchesDynamicRule)
+        return 0
+
+    def get_dynamic_invalid_target_reason(self, state: "State", caster_id: int,
+                                          target_id: Optional[int]) -> int:
+        """`ArcScourgeAbility$$GetDynamicInvalidTargetReason` -- MIRROR du decompile :
+
+            if (EntityExtensions.IsUnit(target) && UnitExtensions.IsMechanical(target)) return 0;
+            foreach (u in <this+0x20>.<slot 0x7a>(target))            # IBattleQuery$$GetAdjacentUnits
+            {
+                if (UnitExtensions.IsEnemy(u, caster, state))                       return 0;
+                if (UnitExtensions.IsFriend(u, caster, state) && IsMechanical(u))   return 0;
+            }
+            return 2;                                                # TargetMatchesDynamicRule
+
+        Le slot `0x7a` est resolu par `data/symbols/<build>/metadata/interface_slots.tsv` :
+        `IBattleQuery` slot 122 = `GetAdjacentUnits` (4 parametres, les 3 derniers a 0 ici).
+
+        LA REGLE, EN CLAIR : l'arc exige un CONDUCTEUR. Ou bien la cible est elle-meme MECANIQUE,
+        ou bien il faut, AU CONTACT de la cible, soit un ennemi (le prochain maillon), soit un
+        allie MECANIQUE (le relais). Sans quoi la chaine n'irait nulle part et le cast est refuse.
+
+        N'est consulte que sous le bit `TargetMatchesDynamicRule` (0x2), qui EST pose."""
+        if target_id is None:
+            return 0
+        te = state.get_entity(target_id)
+        if te is None:
+            return 0
+        if is_unit_mechanical(state, target_id):
+            return 0
+        tpc = te.get_component(PositionComponent)
+        if tpc is None:
+            return 0                        # pas de position -> aucun refus INVENTE (permissif)
+        elev = getattr(state.board, "elevation_by_pos", None) if state.board is not None else None
+        tpos = (tpc.col, tpc.row)
+        for u in state.units():
+            uid = getattr(u, "entity_id", None)
+            if uid is None or int(uid) == int(target_id):
+                continue
+            upc = u.get_component(PositionComponent)
+            if upc is None:
+                continue
+            if not are_entities_adjacent(tpos, (upc.col, upc.row), elev):
+                continue
+            if units_are_enemies(state, int(uid), int(caster_id)):
+                return 0
+            if is_unit_mechanical(state, int(uid)):
+                return 0                    # allie (non-ennemi) ET mecanique = relais valide
+        return int(TR.TargetMatchesDynamicRule)
+
+    def execute_behaviour(self, state: "State", caster_id: int,
+                          target_id: Optional[int]) -> Optional[dict]:
+        if target_id is None or state.get_entity(caster_id) is None:
+            return None
+        ectx = ExecutionContext(state=state, rng=state.rng)
+        arc_scourge_tree().execute(entities_from_state(state, caster_id, target_id), ectx)
+        hits = [p for n, p in ectx.emitted if n == "AttackWithAttackDamage"]
+        stunned = [p for n, p in ectx.emitted
+                   if n == "AddEffect" and p.get("effect_type") == AS_STUNNED]
+        mv = [p for n, p in ectx.emitted
+              if n in ("AddEffect", "IncreaseEffectLevel")
+              and p.get("effect_type") == AS_MACHINE_VENGEANCE]
+        return {"ability": ARC_SCOURGE_ID, "caster": caster_id, "target": target_id,
+                "chain_hits": hits, "stunned": stunned, "machine_vengeance": mv, "dsl": True}

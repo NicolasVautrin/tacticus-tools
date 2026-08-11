@@ -1445,6 +1445,12 @@
     "data/seed-bc.json"
    ]
   },
+  "tests/engine/runner/test_894_arc_scourge_offline.py": {
+   "_at": 1786411888,
+   "_commit": "1d389eb3b00a3ae8c01f31fe94e4b05dc649f6c8",
+   "dirs": [],
+   "temoins": []
+  },
   "tests/engine/runner/test_ability_registry_ratchet.py": {
    "_at": 1786392144,
    "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
@@ -4680,6 +4686,20 @@
    ],
    "temoins": [
     "scripts/python/engine/entities/abilities/active_ability.py"
+   ]
+  },
+  "tests/engine/test_894_routage_ability_par_nom_offline.py": {
+   "_at": 1786411820,
+   "_commit": "97b63d192397bd027a972820de177c8f4af5188f",
+   "dirs": [
+    "data",
+    "data/symbols",
+    "data/symbols/rnca9r7q6c/frida"
+   ],
+   "temoins": [
+    "data/seed-bc.json",
+    "data/symbols/CURRENT",
+    "data/symbols/rnca9r7q6c/frida/enums.tsv"
    ]
   },
   "tests/engine/test_effect_1582_inertia_binary.py": {

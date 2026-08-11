@@ -196,6 +196,107 @@ def triggered_ability_id(name: str) -> int:
     return m[name]
 
 
+# ═══ #894 : LA VOIE DU GAMECONFIG N'EST QU'UN *HINT* -- LE NATIF RESOUT PAR LE NOM ════════════════
+#
+# LE VERROU. `synthesize` resolvait `passiveAbilities` par `triggered_ability_id` et
+# `activeAbilities` par `active_ability_id`, c.-a-d. « la VOIE dit l'enum ». Deux entrees du
+# gameconfig contredisent cette equation, et l'une d'elles rendait `admecBossBelisarius`
+# INMONTABLE (`KeyError: TriggeredAbilityType.ShroudPsalm inconnu du build courant`).
+#
+# CE QUE LE NATIF FAIT, LU (decompile = verite) --
+# `Idun.Source.IdunBattle.View.BattleConfigBuilder$$SetupAbilities` itere UNE seule liste
+# (`IdunMetaLogic.UserProgress.UnitProgression$$GetAllAbilities` = `GetAbilities(isActive:true)`
+# PUIS `GetAbilities(isActive:false)`, dans cet ordre) de `IdunMetaLogic.UserProgress.Model.UnitAbility`,
+# dont les champs sont ecrits par `IdunMetaLogic.UserProgress.UnitProgression$$GetAbility` :
+#     +0x00 = abilityId (string)                                  <- LE NOM, seul discriminant
+#     +0x0c = `activeAbilities.Contains(abilityId)`  (= IsActive) <- LE HINT DE VOIE
+#     +0x0e = `Level.IsZero`  (= ability VERROUILLEE)
+#     +0x10 = `IdunBattle.Entities.Enum.AbilityHierarchy` (3 = Tertiary/relique)
+# et l'aiguillage est :
+#     si +0x0e != 0                     -> l'entree est IGNOREE (verrouillee)
+#     sinon si +0x0c != 0 (voie ACTIVE) -> `UnitAbility$$TryParseActiveAbilityType`
+#           reussite -> `BattleConfigBuilder$$TrySetupActiveAbility`  -> `UnitConfiguration+0xa0`
+#           ECHEC    -> **il TOMBE dans le chemin passif ci-dessous** (pas de `continue`)
+#     chemin passif                     -> `BattleConfigBuilder$$TrySetupPassiveAbility`
+#           = `UnitAbility$$TryParseTriggeredAbilityType`
+#           reussite -> `UnitConfiguration+0xa8` (ou `+0xb0` si hierarchy == 3)
+#           ECHEC    -> **RIEN N'EST AJOUTE** -- l'ability est ABANDONNEE, sans log
+#
+# ⇒ LE REPLI EST ASYMETRIQUE, et c'est LA chose a ne pas deviner : ACTIVE -> PASSIVE existe,
+#   PASSIVE -> ACTIVE **n'existe pas**. Une resolution croisee symetrique (« essayer les deux
+#   enums, retenir celui qui porte le nom ») serait donc INFIDELE dans un sens sur deux : elle
+#   monterait `ShroudPsalm` que le jeu, lui, ne monte pas.
+#
+# LE GISEMENT, MESURE et non suppose (`probe_895_voie_vs_enum.py`, re-derive du gameconfig
+# VIVANT et des deux tables d'enum du build courant) : sur 1382 occurrences / 422 noms des
+# quatre voies (`activeAbilities`, `passiveAbilities`, `mythicAbilities`, `relicAbilities`),
+# **2 occurrences** contredisent leur voie, **0** nom est ambigu (present dans les DEUX enums),
+# **0** nom est absent des deux :
+#     `Maugetar`    ecrit en `activeAbilities`  de `eldarBossMauganRaUltra` -> TriggeredAbilityType 1498
+#     `ShroudPsalm` ecrit en `passiveAbilities` de `admecBossBelisarius`    -> ActiveAbilityType  1181
+# `mythicAbilities` (11 noms) et `relicAbilities` (25 noms) sont 100 % `TriggeredAbilityType`.
+#
+# ⚠ POURQUOI L'ORDINAL NE PEUT PAS SERVIR DE RATTRAPAGE : `ActiveAbilityType.ShroudPsalm` = 1181
+# est AUSSI `TriggeredAbilityType.GuardianOrganism`. Ecrire 1181 dans `PassiveAbilities` monterait
+# donc un passif ETRANGER, sans la moindre erreur. C'est la forme silencieuse decrite au CLAUDE.md.
+
+
+def route_configured_abilities(gc: dict) -> dict:
+    """Mirror 1:1 de `Idun.Source.IdunBattle.View.BattleConfigBuilder$$SetupAbilities`.
+
+    Rend `{"ActiveAbilities": [...ids], "PassiveAbilities": [...ids], "dropped": [...]}` pour
+    l'entree gameconfig `gc` d'une unite. `dropped` liste les `(nom, voie)` que le natif
+    ABANDONNE (nom d'aucun des deux enums par le chemin qui lui est ouvert) -- jamais en silence.
+
+    Le niveau (`UnitAbility+0x0e`, ability verrouillee) n'est PAS mirrore : le catalogue synthetise
+    vise une unite au niveau d'ability cible (>= 1), donc l'entree n'est jamais verrouillee ici.
+    La `TertiaryAbility` (hierarchy 3) n'est pas mirroree non plus -- c'est de l'etat JOUEUR,
+    pose par `equip_relic`, cf. `synthesize`.
+    """
+    act = enum_map("IdunBattle.Entities.Enum.ActiveAbilityType")
+    tri = enum_map("IdunBattle.Entities.Enum.TriggeredAbilityType")
+    active_names = list(gc.get("activeAbilities") or [])
+    passive_names = list(gc.get("passiveAbilities") or [])
+    # `UnitAbility+0x0c` = `activeAbilities.Contains(abilityId)` -- lu sur la LISTE, pas deduit de
+    # la boucle : un nom present dans les deux voies serait `IsActive` dans les deux passages.
+    is_active = set(active_names)
+    out_active: list = []
+    out_passive: list = []
+    dropped: list = []
+    # `GetAllAbilities` : actives d'abord, passives ensuite.
+    for name, voie in ([(n, "activeAbilities") for n in active_names]
+                       + [(n, "passiveAbilities") for n in passive_names]):
+        if name in is_active and name in act:          # TryParseActiveAbilityType -> reussite
+            out_active.append(act[name])
+            continue
+        if name in tri:                                # TrySetupPassiveAbility -> reussite
+            out_passive.append(tri[name])
+            continue
+        dropped.append((name, voie))                   # le natif n'ajoute RIEN
+    return {"ActiveAbilities": out_active, "PassiveAbilities": out_passive, "dropped": dropped}
+
+
+def misfiled_ability_names() -> list:
+    """Les `(unitId, voie, nom, enum_qui_le_porte)` du gameconfig VIVANT dont la voie contredit
+    l'enum. Re-DERIVE a chaque appel -- ce compte bouge avec le gameconfig et le build."""
+    act = enum_map("IdunBattle.Entities.Enum.ActiveAbilityType")
+    tri = enum_map("IdunBattle.Entities.Enum.TriggeredAbilityType")
+    attendu = {"activeAbilities": act, "passiveAbilities": tri,
+               "mythicAbilities": tri, "relicAbilities": tri}
+    out = []
+    units = G._cfg()["units"]
+    for kind in ("lineup", "npc", "summons"):
+        for uid, u in (units.get(kind) or {}).items():
+            for voie, table in attendu.items():
+                for name in (u.get(voie) or []):
+                    if name in table:
+                        continue
+                    porteur = ("ActiveAbilityType" if name in act else
+                               "TriggeredAbilityType" if name in tri else None)
+                    out.append((uid, voie, name, porteur))
+    return sorted(out)
+
+
 # --------------------------------------------------------------------------- helpers gameconfig
 
 def _weapons(gc: dict) -> list:
@@ -335,6 +436,7 @@ def synthesize(unit_id: str, rank: int = 17, ability_level: int = 50,
     is_mow = "MachineOfWar" in (gc.get("traits") or [])
     mult = ability_mult_pct if ability_mult_pct is not None else \
         ability_multiplier_pct(rank, ability_level, is_mow)
+    routed = route_configured_abilities(gc)
     e = {
         "Id": unit_id,
         "VisualId": visual,
@@ -351,8 +453,10 @@ def synthesize(unit_id: str, rank: int = 17, ability_level: int = 50,
         "TertiaryAbilityVariablesMultiplierPercentage": 100,
         "Level": 1, "Rarity": 0, "Rank": 0, "StarLevel": 0,
         "Weapons": _weapons(gc),
-        "ActiveAbilities": [active_ability_id(a) for a in (gc.get("activeAbilities") or [])],
-        "PassiveAbilities": [triggered_ability_id(a) for a in (gc.get("passiveAbilities") or [])],
+        # Routage PAR NOM, mirror de `BattleConfigBuilder$$SetupAbilities` -- pas « la voie dit
+        # l'enum », qui levait sur `admecBossBelisarius` (#894, cf. `route_configured_abilities`).
+        "ActiveAbilities": routed["ActiveAbilities"],
+        "PassiveAbilities": routed["PassiveAbilities"],
         # TertiaryAbility = l'ability du RELIQUE equipe : etat JOUEUR, pas gameconfig. Une unite
         # amenee sans relique porte null (171 des 175 entrees capturees).
         "TertiaryAbility": None,
@@ -731,11 +835,36 @@ def _ability_names(unit_id: str) -> tuple[list, list]:
     des `passiveAbilities` PLUS les traits qui ont une entree `units.abilities` -- les traits sans
     entree gameconfig (Ambush, PrioritisedEfficiency, CrushingStrike, ...) sont configures ailleurs
     par le moteur et ne sont jamais derivables d'ici.
+
+    ⚠ LA CLE DE CHAQUE NOEUD EST TYPEE PAR SON ENUM, et le routage se fait donc PAR NOM comme dans
+    `route_configured_abilities` (#894). Le natif lit ces deux dicts par
+    `IdunBattle.Configuration.AbilitiesConfiguration$$GetActive(ActiveAbilityType)` et
+    `$$GetPassive(TriggeredAbilityType)` -- ce sont des `Dictionary<<enum>, AbilityConfiguration>`,
+    donc une cle qui ne parse pas fait LEVER `Newtonsoft.Json.Utilities.EnumUtils$$ParseEnum` a la
+    relecture du BC (meme mecanique que `_traits`, d'ou « [error] initAndStart: system error »).
+    TEMOIN, sur la capture ecrite PAR LE JEU (`data/seed-bc.json`) : `ActiveAbilities` = 131/131
+    membres d'`ActiveAbilityType`, `PassiveAbilities` = 194/194 membres de `TriggeredAbilityType`,
+    **0 cle hors enum**. Le temoin DISCRIMINE : sur le meme BC, `EnvironmentAbilities` en porte 135
+    hors enum (`EnvStatBoost:Chaos`, ...) et `Traits` 3 -- ces deux noeuds-la sont keyes par une
+    string libre. Sans ce routage, `ShroudPsalm` (un `ActiveAbilityType`, ecrit en
+    `passiveAbilities`) atterrissait comme cle de `PassiveAbilities`.
     """
     gc = G.unit(unit_id.split(":")[0]) or {}
-    act = list(gc.get("activeAbilities") or [])
-    pas = [n for n in (gc.get("passiveAbilities") or []) if G.ability(n) is not None]
-    pas += [t for t in (gc.get("traits") or []) if G.ability(t) is not None]
+    active_names = list(gc.get("activeAbilities") or [])
+    cand = list(active_names)
+    cand += [n for n in (gc.get("passiveAbilities") or []) if G.ability(n) is not None]
+    cand += [t for t in (gc.get("traits") or []) if G.ability(t) is not None]
+    act_tab = enum_map("IdunBattle.Entities.Enum.ActiveAbilityType")
+    tri_tab = enum_map("IdunBattle.Entities.Enum.TriggeredAbilityType")
+    is_active = set(active_names)
+    act, pas = [], []
+    for n in cand:
+        if n in is_active and n in act_tab:
+            act.append(n)
+        elif n in tri_tab:
+            pas.append(n)
+        # sinon : aucun des deux noeuds ne peut porter cette cle -- ne rien ecrire (le natif,
+        # lui, n'aurait de toute facon monte aucune ability de ce nom).
     return act, pas
 
 
