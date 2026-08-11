@@ -38,9 +38,10 @@ from ...entities.selectors.units import (
     AdjacentUnits, Enemies, Filter, Friends, Sub, Union, Unique, Units, UnitsWithTrait,
     UnitsWithoutTrait
 )
-from ...entities.triggers import (AmountIsGreaterThanZero, HasNegativeModifier, IsInTeamAura,
-                                  IsInUnitAura, TriggerAnd, TriggerOr)
-from ...entities.formulas import StatAmount
+from ...entities.selectors.units import AdjacentFriends
+from ...entities.triggers import (AmountIsGreaterThanZero, HasNegativeModifier, HasTrait,
+                                  IsInTeamAura, IsInUnitAura, TriggerAnd, TriggerOr)
+from ...entities.formulas import Half, If, Multiply, StatAmount, Sum
 from ...entities.effect_type import EffectType
 from ...entities.stats import StatType, StatPart
 from ...entities.traits.unit_trait import UnitTrait
@@ -58,12 +59,16 @@ from .base import ActiveAbility
 from .targeting import (custom_range_func, RANGE_ADJACENT, RANGE_FROM_CONFIG, RANGE_WHOLE_BOARD,
                         RANGED_BOOL_FALSE, TargetingOptions)
 from .targeting_rule import TargetingRule as TR
-from .behaviours.combat import AttackWithAttackDamage, InformWeapon
+from .behaviours.combat import AttackWithAbilityDamage, AttackWithAttackDamage, InformWeapon
 from .behaviours.context import entities_from_state, main_tile_id
 from .behaviours.effects import AddEffect
 from .behaviours.stats import Heal, healable_heal_type_0
 from .behaviours.summon import PerformAIAttack, Spawn
 from ...entities.ability_variable_type import AbilityVariableType   # #270-r1-r1-r3
+# `GetNumberConstant(<idx>)` lit `AbilityConstantType`, jamais `AbilityVariableType` -- les deux
+# enums partagent des ordinaux (`47` = `nrOfHits` des DEUX cotes ici, mais `22` = `range` /
+# `blockDmg_2`), donc seul le NOM discrimine.
+from ...entities.ability_constant_type import AbilityConstantType
 # #270-r4 : groupType de DSLBehaviors.Group, type DECLARE lu dans rida/methods.tsv.
 from ...streams.group_type import GroupType
 from .loki.splash import _pick_randomly_n
@@ -1290,3 +1295,316 @@ def mortarions_plague_wind_psyker_selector() -> "UnitsWithTrait":
     et le natif n'en insere pas."""
     t1, t2, t3 = plague_wind_wave_selectors()
     return UnitsWithTrait(Union(Union(t1, t2), t3), int(UnitTrait.Psyker))   # 0x3ea = 1002
+
+
+# ============ MortarionsPlagueWind (deathBossMortarion, GUILD BOSS, actif 1093) ============
+#
+# `IdunBattleLogic.Entities.Abilities.Active.Loki.MortarionsPlagueWindAbility$$ExecuteBehaviour`
+# -- MIRROR du DECOMPILE (le lambda `<ExecuteBehaviour>b__0` de son `DisplayClass1_0` n'est que
+# l'`AActiveAbility.Execute(this, Group(bande_i, <Target>, 0x5d/0x5e/0x5f))` differe par
+# l'AtomicGroup 0x5c) :
+#
+#     t1 = Cache( <DSLSelectors+0x60> = Target )
+#     t2 = Cache( Enemies(<+0x48> = Caster, AdjacentUnits(t1, 1, 3), 3) )
+#     t3 = Cache( Unique(Enemies(<+0x48>, AdjacentUnits(t2, 1, 3), 3))
+#                 op_Subtraction t1 op_Subtraction t2 )
+#     d_i = If( DSLTriggers$$HasTrait(<DSLSelectors+0x60> = Target, 2 = Summon),
+#               Multiply( MinMaxDamage{,2,3}Average, <DSLFormulas+0x28> = Direct(2) ),
+#               MinMaxDamage{,2,3}Average )
+#     a_i = AttackWithAbilityDamage( <+0x78 behaviors>, <+0x48> = Caster, t_i, d_i,
+#                                    Nullable(AActiveAbility$$GetDamageProfile(this)),
+#                                    AActiveAbility$$GetHits(this) = GetNumberConstant(0x2f),
+#                                    AbilityOrEffect(this), 2 )
+#     b   = Group(a1, Target, 0x5d) & Group(a2, Target, 0x5e) & Group(a3, Target, 0x5f)
+#     return AtomicGroup( 0x5c, <lambda qui Execute(b)>, <entities+0x10> )
+#
+# JUMEAU STRUCTUREL de `1035 PlagueWind` (meme chaine de trois vagues concentriques, MEMES corps de
+# selecteur -- cf. `plague_wind_wave_selectors` plus haut), et DEUX differences LUES, aucune devinee :
+#
+#  1. **LA MOYENNE, PAS LE TIRAGE.** 1035 passe `MinMaxDamage{,2,3}` = `RandomAmount(min, max)` ;
+#     1093 passe `MinMaxDamage{,2,3}Average` = `Half(Sum(Direct(min), Direct(max)), 0)`. Le degat de
+#     1093 est donc DETERMINISTE et ne consomme AUCUN tirage de valeur -- ce qui est aussi ce que
+#     `active_ability._PREDICTION_MINMAX_AVERAGE` inscrit deja pour sa face DECISION.
+#  2. **LE GATE `Summon` x2.** `<DSLFormulas+0x28>` est LU : `IdunBattleLogic.Entities.DSLFormulas$$
+#     .ctor` alloue cinq constantes partagees (`+0x18 Direct(0)`, `+0x20 Direct(1)`,
+#     `+0x28 Direct(2)`, `+0x30 Direct(100)`, `+0x38 Direct(-1)`), donc le facteur vaut **2**.
+#     Le `HasTrait` porte sur `<DSLSelectors+0x60>` = **la CIBLE PRINCIPALE du cast**, jamais l'unite
+#     frappee : si la cible est un `Summon`, les TROIS vagues entieres sont doublees, y compris sur
+#     des unites qui n'en sont pas ; sinon aucune ne l'est, meme si toute la vague 2 est faite de
+#     summons. Meme quirk, meme foyer et meme lecture que la face DECISION
+#     (`playbook/prediction/plague_wind.py`).
+#
+# ⚠ FAMILLE = `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage` (classification par la
+# CALLEE du decompile, jamais au juge) -> `AbilityDamageBehaviour` -> `IdunBattle.Operations.
+# AbilityDamageOperation$$ExecuteHits` : AUCUN crit, AUCUNE feuille positionnelle, et l'ordre
+# « bouclier x limites » de `IdunBattle.Core.Services.DamagePrediction$$CalculateAbilityDamage`.
+# Le port passe par la feuille HOMONYME `AttackWithAbilityDamage(native_operation="ability")`, dont
+# le corps est `execute_ability_attack(base, base, ..., is_attack_damage_op=False)` -- la MEME
+# operation que la feuille de 1035, avec des bornes DEGENEREES parce que le node est deterministe.
+#
+# CONFIG (gameconfig `MortarionsPlagueWind`) : `damageProfile = Psychic`, `nrOfHits = 1` (la MEME
+# constante pour les trois vagues -- le decompile relit litteralement `GetHits` a chacun des trois
+# call-sites), `range = 2`, `attackRangeType = Ranged` -> `is_melee=False`. Les six variables de
+# degat sont dans `variablesAffectedByRarityBonus` (scaling `AbilityVariablesMultiplier`).
+# ⚠ Le degat CROIT avec la bande (20-25 / 30-35 / 50-70 au niveau 1), a l'INVERSE de 1035
+# (36-45 / 27-34 / 20-25) : la vague 3 est la plus forte. Aucune symetrie a supposer entre les deux.
+
+MORTARIONS_PLAGUE_WIND_ID = "MortarionsPlagueWind"
+
+#: Les trois couples `(min, max)` que lisent `AActiveAbility$$MinMaxDamage{,2,3}Average`, dans
+#: l'ordre des trois vagues -- MEME table que `playbook/prediction/plague_wind.WAVE_DAMAGE_VARS`
+#: (variables 0xc/0xd, 0x36/0x37, 0x38/0x39).
+MORTARIONS_PLAGUE_WIND_WAVE_VARS = ((AbilityVariableType.minDmg, AbilityVariableType.maxDmg),
+                                    (AbilityVariableType.minDmg_2, AbilityVariableType.maxDmg_2),
+                                    (AbilityVariableType.minDmg_3, AbilityVariableType.maxDmg_3))
+
+
+def mortarions_plague_wind_target_selectors() -> tuple:
+    """Les TROIS `Cache` de `MortarionsPlagueWindAbility$$ExecuteBehaviour` (t1/t2/t3), dans l'ordre
+    ou le decompile les construit -- STRICTEMENT la meme chaine que `plague_wind_target_selectors`
+    (les corps de selecteur sont litteralement les MEMES fonctions natives, cf. le bloc
+    « Vagues de la face DECISION » plus haut).
+
+    Rendus par une fonction PROPRE a 1093, et non par un alias, parce que l'appelant doit obtenir des
+    noeuds NEUFS a chaque cast : le `Cache` natif est alloue DANS `ExecuteBehaviour`, donc son memo
+    est PAR-CAST. C'est ce memo qui fige `t2` apres le degat de la bande 1 et `t3` apres celui de la
+    bande 2 -- exactement le natif."""
+    t1 = Cache(Target())                                                 # Cache(<+0x60> Target)
+    t2 = Cache(Enemies(adjacent_units(t1)))                              # Cache(Enemies(AdjacentUnits(t1)))
+    t3 = Cache(Sub(Sub(Unique(Enemies(adjacent_units(t2))),              # Unique(Enemies(AdjacentUnits(t2)))
+                       t1),                                              #   op_Subtraction t1
+                   t2))                                                  #   op_Subtraction t2
+    return t1, t2, t3
+
+
+def mortarions_plague_wind_damage_nodes(state: "State", caster_id: int) -> tuple:
+    """Les TROIS noeuds `MortarionsPlagueWindAbility$$GetDamage{1,2,3}` -- mirror 1:1 :
+
+        If( HasTrait(Target, 2 = Summon), Multiply(<avg>, Direct(2)), <avg> )
+        <avg> = MinMaxDamage{,2,3}Average = Half(Sum(Direct(min), Direct(max)), 0)
+
+    Les deux variables sont lues au niveau de l'ability ACTIVE du caster et scalees par
+    `AbilityVariablesMultiplier` -- c'est le `GetVariableForLevel(config, <var>, abilityState, 0)`
+    du decompile, et la MEME lecture que `ability_attack_params` fait pour le mode bornes.
+    Caster sans `StatsComponent` -> niveau 0 / multiplicateur 100 (meme degradation qu'ailleurs :
+    aucune valeur inventee, la config repond ce qu'elle a a l'index 0)."""
+    e = state.get_entity(caster_id)
+    sc = e.get_component(StatsComponent) if e is not None else None
+    ctx = sc.ctx if sc is not None else None
+    level = (ctx.active_ability_level if ctx is not None else 0) or 0
+    mult = (ctx.ability_variables_multiplier if ctx is not None else 100)
+    nodes = []
+    for mn_key, mx_key in MORTARIONS_PLAGUE_WIND_WAVE_VARS:
+        mn = int(ability_var(MORTARIONS_PLAGUE_WIND_ID, str(mn_key.name), level,
+                             multiplier_pct=mult) or 0)
+        mx = int(ability_var(MORTARIONS_PLAGUE_WIND_ID, str(mx_key.name), level,
+                             multiplier_pct=mult) or 0)
+        avg = Half(Sum(Const(mn), Const(mx)))                # MinMaxDamage{,2,3}Average
+        nodes.append(If(HasTrait(Target(), int(UnitTrait.Summon)),        # <+0x60> = CIBLE PRINCIPALE
+                        Multiply(avg, Const(2)),             # <DSLFormulas+0x28> = Direct(2)
+                        avg))
+    return tuple(nodes)
+
+
+def mortarions_plague_wind_tree(selectors: tuple, damages: tuple, hits: int) -> AtomicGroup:
+    """Arbre de `MortarionsPlagueWindAbility$$ExecuteBehaviour` -- MIRROR 1:1 du decompile
+    (cf. le bloc ci-dessus).
+
+    `multi=True` sur les trois : le natif passe TOUJOURS par `IdunBattle.Entities.Behaviours.
+    AttackBehaviour$$Execute` (resolution de la LISTE + `OrderBy`), y compris pour la bande 1 dont
+    l'ensemble est un singleton -> le mode multi est le mirror exact (et un no-op pour la bande 1).
+
+    `Group(..., 0x5d/0x5e/0x5f)` = les groupes de PRESENTATION natifs (pass-through d'etat) ;
+    `AtomicGroup` = l'`ExecuteAtomic(0x5c)`. Les quatre `GroupType` sont NOMMES par le build
+    (`MortarionsPlagueWind_Attack{,1,2,3}` = 92/93/94/95), aucun n'a d'effet observable sur l'etat
+    ni sur `state.rng`."""
+    t1, _t2, _t3 = selectors
+    bands = [AttackWithAbilityDamage(sel, "Psychic", node, is_melee=False, hits=hits, multi=True,
+                                     native_operation="ability",     # AbilityDamageOperation
+                                     ability_type=int(ActiveAbilityType.MortarionsPlagueWind))
+             for sel, node in zip(selectors, damages)]
+    return AtomicGroup(
+        op_and(op_and(Group(bands[0], int(GroupType.MortarionsPlagueWind_Attack1), t1),
+                      Group(bands[1], int(GroupType.MortarionsPlagueWind_Attack2), t1)),
+               Group(bands[2], int(GroupType.MortarionsPlagueWind_Attack3), t1)))
+
+
+class MortarionsPlagueWindAbility(ActiveAbility):
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.MortarionsPlagueWindAbility$$ExecuteBehaviour`
+    (id 1093, `deathBossMortarion` « Mortarion » -- GUILD BOSS, kind `npc`).
+
+    AoE CONCENTRIQUE a TROIS bandes, ancree sur la CIBLE (range 2) :
+      1. la cible                                -> 1x Psychic avg(`minDmg`  ,`maxDmg`  )
+      2. les ennemis ADJACENTS a la cible        -> 1x Psychic avg(`minDmg_2`,`maxDmg_2`)
+      3. les ennemis adjacents a >=1 SECONDAIRE  -> 1x Psychic avg(`minDmg_3`,`maxDmg_3`)
+         (cible et secondaires exclus)
+    Chaque bande est DOUBLEE quand la CIBLE PRINCIPALE porte le trait `Summon` (le gate est sur elle,
+    pas sur l'unite frappee). Profil `Psychic`, famille ABILITY (pas de crit, degat DETERMINISTE).
+    Behaviour = arbre DSL `mortarions_plague_wind_tree()`.
+
+    CONFRONTABILITE : porteur `npc`, monte par `rl_duel build --explicit-stats
+    "deathBossMortarion:<palier>" --p-units "deathBossMortarion:<palier>"` (le jeu le publie sous
+    l'id d'entite REMAPPE `GuildBoss5Boss1DeathMortarion`, ce que le garde de roster lit comme un
+    deficit -> `TACTICUS_ALLOW_ROSTER_DEFICIT=1`).
+
+    Diag : `{attacks, main, secondary, tertiary}` -- la ventilation par bande vient des memos `Cache`
+    (l'ensemble EXACT que chaque bande a frappe), pas d'un re-calcul de geometrie."""
+    __slots__ = ()
+    ABILITY_TYPE = int(ActiveAbilityType.MortarionsPlagueWind)   # 1093
+    ABILITY_ID = MORTARIONS_PLAGUE_WIND_ID
+
+    # MASQUE -- FORME STATIC-COPY : `MortarionsPlagueWindAbility$$.ctor` n'appelle AUCUN
+    # `TargetingOptions$$.ctor` ; il RECOPIE les 0x40 octets du champ statique
+    # `<TargetingOptions statics>+0x180` puis fait `AActiveAbility$$.ctor(this, &opts, 0)`. Le masque
+    # EFFECTIF est donc la constante que `IdunBattle.Core.Services.TargetingOptions$$.cctor` ecrit a
+    # `<preset>+0x28` (= `statics+0x1a8`) : **0x4002**, RELU dans le cctor sur le build courant.
+    #     0x4000  TargetIsEnemy            -> gate porte (`units_can_attack_each_other`)
+    #     0x0002  TargetMatchesDynamicRule -> consulte `GetDynamicInvalidTargetReason`, qu'aucun
+    #             symbole `MortarionsPlagueWindAbility$$GetDynamicInvalidTargetReason` ne surcharge
+    #             -> le slot vtable reste le defaut d'`AActiveAbility`, qui rend 0.
+    # Le preset est LE MEME (`statics+0x180`) que celui de son jumeau `PlagueWindAbility$$.ctor`
+    # (1035). Champs relus dans le cctor : `<preset>+0x180` isSelfCasting = 0 ;
+    # `<preset>+0x188..0x19f` range <- `TargetingRange statics+0x18` = RANGE_FROM_CONFIG (donc
+    # `overrideRange = GetNumberConstant(0x16 range)` = 2) ; `<preset>+0x1a0` forceMeleeTarget = 1
+    # = RANGED_BOOL_FALSE (l'enum natif est INVERSE : True=0, False=1) -> aucun clamp RangedInMelee.
+    # Cette entree MIGRE depuis `TARGETING_OPTIONS_UNPORTED` (contrat de disjonction de cette table :
+    # porter la face COMBAT EXIGE d'en retirer la ligne).
+    TARGETING_OPTIONS = TargetingOptions(
+        rules=(TR.TargetIsEnemy | TR.TargetMatchesDynamicRule),
+        range=RANGE_FROM_CONFIG, force_melee_target=RANGED_BOOL_FALSE)
+
+    def execute_behaviour(self, state: "State", caster_id: int,
+                          target_id: Optional[int]) -> Optional[dict]:
+        if target_id is None:
+            return None
+        selectors = mortarions_plague_wind_target_selectors()   # noeuds NEUFS -> memos par-cast
+        damages = mortarions_plague_wind_damage_nodes(state, caster_id)
+        # `AActiveAbility$$GetHits` = `GetNumberConstant(0x2f)` -> `AbilityConstantType`, PAS
+        # `AbilityVariableType` (les deux portent l'ordinal 47, et confondre les deux serait
+        # SILENCIEUX en ordinal : c'est le nom qui tranche).
+        hits = int(ability_var(MORTARIONS_PLAGUE_WIND_ID, str(AbilityConstantType.nrOfHits.name),
+                               is_constant=True) or 1)
+        ectx = ExecutionContext(state=state, rng=state.rng)
+        mortarions_plague_wind_tree(selectors, damages, hits).execute(
+            entities_from_state(state, caster_id, target_id), ectx)
+        atks = [{"target": p.get("target"), "total": p.get("total"), "attack": p.get("attack")}
+                for n, p in ectx.emitted if n == "AttackWithAbilityDamage"]
+
+        def _ids(cache_node) -> set:
+            """Ids memoises par un `Cache` APRES execution (`_cached` = le slot +0x28 natif)."""
+            memo = cache_node._cached
+            if memo is None:
+                return set()
+            items = [memo] if isinstance(memo, dict) else list(memo)
+            return {u.get("id") for u in items if isinstance(u, dict)}
+
+        main_ids, sec_ids, ter_ids = (_ids(s) for s in selectors)
+        return {"ability": MORTARIONS_PLAGUE_WIND_ID, "caster": caster_id, "target": target_id,
+                "attacks": atks,
+                "main": [a for a in atks if a["target"] in main_ids],
+                "secondary": [a for a in atks if a["target"] in sec_ids],
+                "tertiary": [a for a in atks if a["target"] in ter_ids],
+                "dsl": True}
+
+
+# ============ ReapingScythe (deathBossMortarion, GUILD BOSS, actif 1095) ============
+#
+# `IdunBattleLogic.Entities.Abilities.Active.Loki.ReapingScytheAbility$$ExecuteBehaviour`
+# -- MIRROR du DECOMPILE, qui tient en TROIS lignes (aucun lambda, aucun groupe) :
+#
+#     targets = op_Addition( <DSLSelectors+0x60> = Target,
+#                            DSLSelectors$$AdjacentFriends(<+0x60>, unique = 1, selectionType = 3) )
+#     b = AttackWithAttackDamage( <+0x78 behaviors>, <+0x48> = Caster, targets,
+#                                 AActiveAbility$$MinMaxDamage(this, abilityState, 0),
+#                                 Nullable(AActiveAbility$$GetDamageProfile(this)),
+#                                 AActiveAbility$$GetHits(this) = GetNumberConstant(0x2f),
+#                                 AbilityOrEffect(this), <AttackOptions VIDE>, 2 )
+#     return AActiveAbility$$Execute(this, b)
+#
+# Le meme selecteur est publie a part par `ReapingScytheAbility$$GetDamageTargetsSelector`, mot pour
+# mot -- c'est la face que lit `IdunBattle.AI.Playbook.Loki.ReapingScythePlaybook$$
+# MakeDamagePredictions`.
+#
+# ⚠ **`AdjacentFriends` ANCRE SUR LA CIBLE = les ENNEMIS DU CASTER.** La surcharge lue est la
+# VARIANTE A (`DSLSelectors$$AdjacentFriends(this, unit, unique, selectionType)` =
+# `Friends(unit, Units(AdjacentTiles(unit), unique, selectionType) - unit, selectionType)`) --
+# tranchee par ses XREFS ENTRANTES, `ReapingScytheAbility$$ExecuteBehaviour` etant ABSENTE de la
+# liste des appelants de la variante B. La REFERENCE d'equipe y est le CENTRE, donc `Target` : les
+# « amis » sont ceux de la CIBLE. Collapser la reference sur le caster (le defaut du port) rendrait
+# exactement le camp INVERSE -- les allies de Mortarion au lieu de ses victimes.
+#
+# ⚠ **FAMILLE = ATTACK.** La callee est `DSLBehaviors$$AttackWithAttackDamage` (et NON
+# `...$$AttackWithAbilityDamage`, celle de 1093) -> `AttackDamageBehaviour` ->
+# `IdunBattle.Operations.AttackDamageOperation$$ExecuteHit` : crit et block ACTIFS, 2 tirages par
+# coup. Le 8e argument `Nullable<AttackDamageBehaviourOptions>` est passe VIDE (`local_1b8..local_198
+# = 0`) -> ni `alwaysOverkilled`, ni `alwaysCrit`, ni le drapeau de variance d'arme.
+#
+# CONFIG (gameconfig `ReapingScythe`) : `damageProfile = Chain`, **`nrOfHits = 7`**,
+# `attackRangeType = Melee` -> `is_melee=True`. Aucune constante `range` : la portee vient du preset.
+
+REAPING_SCYTHE_ID = "ReapingScythe"
+
+
+def reaping_scythe_damage_targets_selector() -> Union:
+    """`ReapingScytheAbility$$GetDamageTargetsSelector` (= le selecteur de cibles de son
+    `ExecuteBehaviour`, mot pour mot) : `Target op_Addition AdjacentFriends(Target, 1, 3)`.
+
+    `reference=Target()` est OBLIGATOIRE et non decoratif : la variante A native referme
+    `Friends(unit = <le centre>, ...)`, donc l'equipe de reference est celle de la CIBLE. Le defaut
+    du port (`reference=None` -> `ctx.caster`) selectionnerait les allies du CASTER."""
+    t = Target()                                             # <DSLSelectors+0x60>
+    return Union(t, AdjacentFriends(t, reference=t, selection_type=SELECTION))
+
+
+def reaping_scythe_tree(hits: Optional[int] = None) -> AttackWithAttackDamage:
+    """Arbre de `ReapingScytheAbility$$ExecuteBehaviour` -- MIRROR 1:1 (cf. le bloc ci-dessus).
+
+    `multi=True` : le selecteur resout N unites (la cible + ses voisins allies), et le natif passe
+    par `AttackBehaviour$$Execute` (resolution de la LISTE puis `OrderBy`).
+    `hits=None` (defaut) = coups lus de la config par `ability_attack_params` (`nrOfHits` = 7)."""
+    return AttackWithAttackDamage(reaping_scythe_damage_targets_selector(), REAPING_SCYTHE_ID,
+                                  "Chain", is_melee=True, multi=True,
+                                  native_factory="attack",   # DSLBehaviors$$AttackWithAttackDamage
+                                  hits_override=hits,
+                                  ability_type=int(ActiveAbilityType.ReapingScythe))
+
+
+class ReapingScytheAbility(ActiveAbility):
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.ReapingScytheAbility$$ExecuteBehaviour`
+    (id 1095, `deathBossMortarion` « Mortarion » -- GUILD BOSS, kind `npc`).
+
+    Faux au contact : **7 coups** `Chain` (`minDmg`/`maxDmg`) portes sur la cible ADJACENTE **et sur
+    tous les allies de la cible qui lui sont adjacents** -- une propagation en ETOILE autour de la
+    victime, pas une chaine de proche en proche. Famille ATTACK (crit et block actifs).
+
+    CONFRONTABILITE : identique a 1093 (meme porteur `npc`, meme montage).
+
+    Diag : `{attacks}` -- une entree par cible frappee, dans l'ordre `OrderBy` natif (id croissant)."""
+    __slots__ = ()
+    ABILITY_TYPE = int(ActiveAbilityType.ReapingScythe)   # 1095
+    ABILITY_ID = REAPING_SCYTHE_ID
+
+    # MASQUE -- FORME STATIC-COPY : `ReapingScytheAbility$$.ctor` n'appelle AUCUN
+    # `TargetingOptions$$.ctor` ; il recopie les 0x40 octets de `<TargetingOptions statics>+0x40`
+    # puis fait `AActiveAbility$$.ctor(this, &opts, 0)`. Champs RELUS dans
+    # `IdunBattle.Core.Services.TargetingOptions$$.cctor` sur le build courant :
+    #   `<preset>+0x40` isSelfCasting    = 0
+    #   `<preset>+0x48..0x5f` range      <- `TargetingRange statics+0x30` = RANGE_ADJACENT
+    #   `<preset>+0x60` forceMeleeTarget = 1 = RANGED_BOOL_FALSE (enum natif INVERSE)
+    #   `<preset>+0x68` rules            = **0x4000** = TargetIsEnemy, et RIEN d'autre
+    # C'est le MEME preset que `1217 TheLionsWrath` -- et donc PAS de `TargetMatchesDynamicRule` :
+    # aucun `ReapingScytheAbility$$GetDynamicInvalidTargetReason` n'existe, ce qui est coherent.
+    TARGETING_OPTIONS = TargetingOptions(rules=TR.TargetIsEnemy, self_cast=False,
+                                         range=RANGE_ADJACENT,
+                                         force_melee_target=RANGED_BOOL_FALSE)
+
+    def execute_behaviour(self, state: "State", caster_id: int,
+                          target_id: Optional[int]) -> Optional[dict]:
+        if target_id is None:
+            return None
+        ectx = ExecutionContext(state=state, rng=state.rng)
+        reaping_scythe_tree().execute(entities_from_state(state, caster_id, target_id), ectx)
+        atks = [{"target": p.get("target"), "total": p.get("total"), "attack": p.get("attack")}
+                for n, p in ectx.emitted if n == "AttackWithAttackDamage"]
+        return {"ability": REAPING_SCYTHE_ID, "caster": caster_id, "target": target_id,
+                "attacks": atks, "dsl": True}
