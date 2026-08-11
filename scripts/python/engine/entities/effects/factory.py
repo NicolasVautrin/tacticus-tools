@@ -46,6 +46,9 @@ from .loki.dark_angels_passives import (
 )
 from .loki.darkangels import HailstrikeExtraPierceEffect
 from .loki.first_among_traitors import FirstAmongTraitorsExtraDmgEffect   # #926 (passif blackAbaddon)
+from .loki.kustom_force_field import (                                    # #930 (passif orksBigMek)
+    KustomForceFieldReworkedEffect, KustomForceFieldReworkedOrksEffect
+)
 from .loki.lions_wrath import TheLionsWrathExtraCritChanceEffect
 from .loki.martial_exemplar import MartialExemplarExtraCritChanceEffect
 from .loki.destroy_the_witch import (
@@ -164,6 +167,13 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     "LionHelm_ExtraDmg": LionHelmExtraDmgEffect,
     "LionHelm_ExtraBlockDamage": LionHelmExtraBlockDamageEffect,
     "LionHelm_ExtraBlockChance": LionHelmExtraBlockChanceEffect,
+    # KustomForceFieldReworked (passif orksBigMek, TriggeredAbilityType 1547) -- DEUX auras
+    # stat-mod FixedArmor posees sur le BIG MEK, qui PARTITIONNENT les cibles par faction :
+    # 1566 = +extraArmor aux NON-Orks, 1567 = +extraArmor_2 aux Orks. MEME selecteur de tete
+    # (`Owner + AdjacentFriends`, PORTEUR COMPRIS), filtre `HasFaction(Subject, Orks)` inverse.
+    # Canal = l'aura stat-mod PROJETEE (`runner/operations/aura_stat_mods.py`), comme LionHelm.
+    "KustomForceFieldReworked": KustomForceFieldReworkedEffect,           # 0x61e = 1566
+    "KustomForceFieldReworked_Orks": KustomForceFieldReworkedOrksEffect,  # 0x61f = 1567
     # FearedInterrogator (passif darkaAsmodai, TriggeredAbilityType 1235) — 2 effets sur ASMODAI.
     # 1295 = MARQUEUR (selecteur des ennemis eligibles, jamais materialise sur eux) ; 1294 = les deux
     # bonus (+extraDmg, +extraHits si la cible est de grande-alliance Chaos).
@@ -1572,6 +1582,14 @@ ABILITY_INIT_OWNER_EFFECTS: dict[str, list[str]] = {
     # targets=Owner, ...)`), tous INCONDITIONNELS -> tous CAPTES par `decisionView.effects` sur un
     # runner frais (verifie live). Le seed reste un filet (idempotent).
     "LionHelm": ["LionHelm_ExtraDmg", "LionHelm_ExtraBlockChance", "LionHelm_ExtraBlockDamage"],
+    # KustomForceFieldReworked (passif d'`orksBigMek`, TriggeredAbilityType 0x60b = 1547) --
+    # `IdunBattleLogic.Entities.Abilities.Triggered.Loki.KustomForceFieldReworkedAbility$$CreateBehaviour`
+    # pose les DEUX effets sur le PORTEUR (`AddDynamicStatModifierEffectToOwner` x2 joints par
+    # `op_BitwiseAnd`), INCONDITIONNELS, sous le trigger HERITE `On(0x21 = AbilityInit) &
+    # get_OwnerIsActor` -- le MEME corps deduplique que LionHelm/AnvilShield ci-dessus. VERIFIE
+    # LIVE sur un runner frais : `decisionView.effects` du Big Mek liste les DEUX (#930). Le seed
+    # reste un filet (idempotent).
+    "KustomForceFieldReworked": ["KustomForceFieldReworked", "KustomForceFieldReworked_Orks"],
     # PropheticSentinel (passif de kit de `thousSekhetar`, TriggeredAbilityType 0x607 = 1543) --
     # `IdunBattleLogic.Entities.Abilities.Triggered.Loki.PropheticSentinel_AddBuffAbility$$CreateBehaviour`
     # pose les TROIS effets sur le PORTEUR, INCONDITIONNELLEMENT et de facon PERMANENTE

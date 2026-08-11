@@ -35,6 +35,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 
 from ....services.effect_bonus import EffectBonus, for_addition
+from .. import aura_selectors as ASel   # FORME B (#930) : `faction_of` reste patchable au foyer
 from ..aura_selectors import is_targetable as _is_targetable, surrounding_friends
 from ..base import BaseEffect
 from ..magnitude import ability_var
@@ -279,13 +280,13 @@ def _unit_component_ctx(state, unit_id: int):
 
 def _faction_of(state, unit_id: int) -> "str | None":
     """`FactionId` gameconfig de l'unite (resolu par `visual_id`) — le pendant offline de
-    `IdunBattleLogic.Entities.DSLFactory$$UnitsFromFaction(UnitFaction)`."""
-    ctx = _unit_component_ctx(state, unit_id)
-    vid = getattr(ctx, "visual_id", None) if ctx is not None else None
-    if vid is None:
-        return None
-    import gameconfig as GC
-    return (GC.unit(vid) or {}).get("FactionId")
+    `IdunBattleLogic.Entities.DSLSelectors$$UnitsFromFaction(UnitFaction)`.
+
+    HISSE dans le FOYER `effects/aura_selectors.faction_of` (#930), qui porte deja les autres
+    primitives de selecteur d'aura : un second porteur du meme accesseur serait un fork.
+    Appel en FORME B (`ASel.faction_of`, module lie puis attribut lu a l'appel) — une liaison
+    `from ... import faction_of` figerait le binding et DESARMERAIT tout patch pose au foyer."""
+    return ASel.faction_of(state, unit_id)
 
 
 def grand_alliance_of(state, unit_id: int) -> "str | None":
