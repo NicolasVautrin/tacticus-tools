@@ -86,6 +86,9 @@ from engine.playbook import REGISTRY as CUSTOM_PLAYBOOKS   # comparables a overr
 from engine.playbook.noncomparable import PLAYBOOKS
 from engine.runner.abilities.handler import ABILITY_CLASSES
 from engine.runner.operations.triggers.dispatch.registry import ABILITY_TRIGGERS, TRAIT_TRIGGERS
+# 4e voie de couverture d'un PASSIF (#925) : il substitue l'attaque normale de son porteur au lieu
+# de poser un trigger ou un effet. Cf. `_passive_covered`.
+from engine.services.custom_normal_attack import CUSTOM_NORMAL_ATTACK_BY_PASSIVE
 
 OUT = os.path.join(_REPO, "docs", "rl", "kit-coverage.md")
 
@@ -116,8 +119,25 @@ def _has_effect_named_after(name: str) -> bool:
 
 def _passive_covered(nm: str) -> bool:
     """Le predicat de couverture d'un item NON-actif (passif, mythique, relique) : un trigger
-    d'ability, un owner-effect pose au spawn, ou une classe d'effet nommee d'apres lui."""
+    d'ability, un owner-effect pose au spawn, une classe d'effet nommee d'apres lui, ou -- QUATRIEME
+    voie (#925) -- une ATTAQUE NORMALE SUBSTITUEE.
+
+    ⚠ LA QUATRIEME VOIE MANQUAIT, et son absence produisait un faux `manque` -- pas une
+    approximation, une CONTRE-VERITE. Un passif comme `Boltstorm` (1090, `templAggressor`) n'a NI
+    `$$CreateTrigger` NI `$$CreateBehaviour` : sa classe
+    `IdunBattleLogic.Entities.Abilities.Triggered.Loki.BoltstormAbility` n'expose que deux ARBRES DE
+    CIBLAGE (`$$GetAdditionalTargets`, `$$GetAllTargets`). Il agit en faisant substituer l'attaque
+    normale de son porteur par `IdunBattle.Entities.Factories.UnitFactory$$AddNormalAttackAbility`,
+    et c'est cette attaque CONCRETE (`Boltstorm_NormalAttack` 1128) qui porte le corps. Aucun des
+    trois registres precedents ne peut donc le voir, quel que soit l'etat du port.
+
+    Le registre lu est `engine.services.custom_normal_attack.CUSTOM_NORMAL_ATTACK_BY_PASSIVE` : le
+    FOYER de cette cascade cote port, keye par le NOM du passif -- la meme cle que la voie
+    `passiveAbilities` du gameconfig, donc aucune traduction. Mesure a l'ajout : `Boltstorm`,
+    `Fealty`, `RighteousRepugnance`, `TalonOfHorus`, `HeavyBoltPistol` et leurs voisins cessent
+    d'etre comptes manquants."""
     return (nm in ABILITY_TRIGGERS or nm in ABILITY_INIT_OWNER_EFFECTS
+            or nm in CUSTOM_NORMAL_ATTACK_BY_PASSIVE
             or _has_effect_named_after(nm))
 
 

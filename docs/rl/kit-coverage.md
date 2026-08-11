@@ -23,9 +23,9 @@
 
 ## Bilan
 
-- Unites lineup : **127** ; kits COMPLETS (aucun manque detecte) : **80** ; kits avec du travail : **47**
-- Volume total : **48** items manquants (actives no-op + passifs/traits non registres)
-- HORS total — voies conditionnelles : **35** abilities non portees (11 mythiques, 24 reliques equipables)
+- Unites lineup : **127** ; kits COMPLETS (aucun manque detecte) : **83** ; kits avec du travail : **44**
+- Volume total : **45** items manquants (actives no-op + passifs/traits non registres)
+- HORS total — voies conditionnelles : **34** abilities non portees (11 mythiques, 23 reliques equipables)
 
 ### Priorite par faction (volume decroissant)
 
@@ -33,33 +33,31 @@
 |---|---:|---:|
 | EmperorsChildren | 4 | 4 |
 | LeaguesOfVotann | 4 | 4 |
-| Sisterhood | 4 | 4 |
-| AdeptusMechanicus | 3 | 3 |
 | AstraMilitarum | 3 | 3 |
 | BlackLegion | 3 | 3 |
 | BloodAngels | 3 | 3 |
 | DarkAngels | 3 | 3 |
 | Necrons | 3 | 3 |
+| Sisterhood | 3 | 3 |
 | SpaceWolves | 3 | 3 |
 | WorldEaters | 3 | 3 |
+| AdeptusMechanicus | 2 | 2 |
 | Aeldari | 2 | 2 |
 | Custodes | 2 | 2 |
 | Tau | 1 | 2 |
 | Tyranids | 2 | 2 |
-| BlackTemplars | 1 | 1 |
 | Genestealers | 1 | 1 |
 | Orks | 1 | 1 |
 | ThousandSons | 1 | 1 |
 
 ## Par faction (kits avec du travail)
 
-### AdeptusMechanicus — 3 kits, 3 items
+### AdeptusMechanicus — 2 kits, 2 items
 
 | unite | manque | actives | passifs manquants | traits de kit manquants |
 |---|---|---|---|---|
 | admecDestroyer | 1 | SentinelDirectives(1139) [C-] OK | - | Vehicle(x8) |
 | admecManipulus | 1 | DefendTheDivineWork(1117) [CD] OK | GalvanicField | - |
-| admecRuststalker | 1 | CordClaw(1122) [CD] OK | OptimizedGait | - |
 
 ### Aeldari — 2 kits, 2 items
 
@@ -83,12 +81,6 @@
 | blackAbaddon | 1 | Drachnyen(1029) [CD] OK | FirstAmongTraitors | - |
 | blackHaarken | 1 | HeraldOfTheApocalypse(1020) [CD] OK | HeadClaimer | - |
 | blackPossession | 1 | Incursion(1021) [CD] OK | Possession | - |
-
-### BlackTemplars — 1 kits, 1 items
-
-| unite | manque | actives | passifs manquants | traits de kit manquants |
-|---|---|---|---|---|
-| templAggressor | 1 | FragstormGrenadeLauncher(1048) [CD] OK | Boltstorm | - |
 
 ### BloodAngels — 3 kits, 3 items
 
@@ -151,13 +143,12 @@
 |---|---|---|---|---|
 | orksBigMek | 1 | GrotTank(1057) [CD] OK | KustomForceFieldReworked | - |
 
-### Sisterhood — 4 kits, 4 items
+### Sisterhood — 3 kits, 3 items
 
 | unite | manque | actives | passifs manquants | traits de kit manquants |
 |---|---|---|---|---|
 | adeptCelestine | 1 | SkyStrike(1025) [CD] OK | GeminaeSuperia | - |
 | adeptHospitaller | 1 | RitesOfRestoration(1039) [CD] OK | MedicusMinistorum | - |
-| adeptMorvenn | 1 | SanctorumMissile(1062) [CD] OK | RighteousRepugnance | - |
 | adeptRetributor | 1 | ArmoriumCherub(1014) [CD] OK | FireOfAbsolution | - |
 
 ### SpaceWolves — 3 kits, 3 items
@@ -195,11 +186,11 @@
 | worldJakhal | 1 | JakhalStimms(1131) [C-] OK | Skullsmasher | - |
 | worldTerminator | 1 | BloodyFury(1129) [CD] OK | WrathfulDevotion | - |
 
-## Kits lineup COMPLETS (80)
+## Kits lineup COMPLETS (83)
 
-adeptCanoness, adeptExorcist, admecDominus, admecMarshall, astarCyrus, astarLysander, astraBullgryn, astraCreed, astraOrdnanceBattery, astraPrimarisPsy, blackForgefiend, blackObliterator, blackTerminator, bloodDante, bloodDeathCompany, bloodSanguinary, custoAtlacoya, custoTrajann, custoVexilusPraetor, darkaAsmodai, darkaAzrael, darkaSternguard, darkaStormSpeeder, deathBlightbringer, deathBlightlord, deathCrawler, deathPutrifier, deathRotbone, deathTyphus, eldarAutarch, eldarFarseer, eldarMauganRa, eldarRanger, emperNoiseMarine, genesKelermorph, genesMagus, genesPatriarch, genesPrimus, necroOverlord, necroReanimator, necroSpyder, necroWarden, orksKillaKan, orksNob, orksRukkatrukk, orksRuntherd, orksWarboss, spaceBlackmane, spaceRockfist, spaceStormcaller, tauAunShi, tauBroadside, tauCrisis, tauDarkstrider, tauMarksman, tauShadowsun, templAncient, templChampion, templHelbrecht, templSwordBrother, thousAhriman, thousInfernalMaster, thousSekhetar, thousSorcerer, thousTerminator, thousTzaangor, tyranDeathleaper, tyranNeurothrope, tyranParasite, tyranTyrantGuard, ultraApothecary, ultraCalgar, ultraDreadnought, ultraEliminatorSgt, ultraInceptorSgt, ultraTigurius, ultraTitus, votanChampion, worldEightbound, worldKharn
+adeptCanoness, adeptExorcist, adeptMorvenn, admecDominus, admecMarshall, admecRuststalker, astarCyrus, astarLysander, astraBullgryn, astraCreed, astraOrdnanceBattery, astraPrimarisPsy, blackForgefiend, blackObliterator, blackTerminator, bloodDante, bloodDeathCompany, bloodSanguinary, custoAtlacoya, custoTrajann, custoVexilusPraetor, darkaAsmodai, darkaAzrael, darkaSternguard, darkaStormSpeeder, deathBlightbringer, deathBlightlord, deathCrawler, deathPutrifier, deathRotbone, deathTyphus, eldarAutarch, eldarFarseer, eldarMauganRa, eldarRanger, emperNoiseMarine, genesKelermorph, genesMagus, genesPatriarch, genesPrimus, necroOverlord, necroReanimator, necroSpyder, necroWarden, orksKillaKan, orksNob, orksRukkatrukk, orksRuntherd, orksWarboss, spaceBlackmane, spaceRockfist, spaceStormcaller, tauAunShi, tauBroadside, tauCrisis, tauDarkstrider, tauMarksman, tauShadowsun, templAggressor, templAncient, templChampion, templHelbrecht, templSwordBrother, thousAhriman, thousInfernalMaster, thousSekhetar, thousSorcerer, thousTerminator, thousTzaangor, tyranDeathleaper, tyranNeurothrope, tyranParasite, tyranTyrantGuard, ultraApothecary, ultraCalgar, ultraDreadnought, ultraEliminatorSgt, ultraInceptorSgt, ultraTigurius, ultraTitus, votanChampion, worldEightbound, worldKharn
 
-## HORS total — voies conditionnelles (35 abilities non portees)
+## HORS total — voies conditionnelles (34 abilities non portees)
 
 > Une unite `lineup` porte aussi des abilities par deux voies que le kit n'expose
 > pas : `mythic` (`units.<kind>.<id>.mythicAbilities`, a DEBLOQUER) et `item`
@@ -231,7 +222,6 @@ adeptCanoness, adeptExorcist, admecDominus, admecMarshall, astarCyrus, astarLysa
 | RelicPowerFist | item | 3 | bloodIntercessor, darkaTerminator, templAggressor |
 | SabreOfSacrifice | item | 1 | astraDreir |
 | TalismanOfRage | item | 3 | worldEightbound, worldExecutions, worldJakhal |
-| TalonOfHorus | item | 1 | blackAbaddon |
 | TheArdentBlade | item | 1 | adeptCelestine |
 | Vitarus | item | 1 | bloodMephiston |
 | VolummsMasterArtifice | item | 1 | votanIronmaster |
@@ -248,4 +238,4 @@ adeptCanoness, adeptExorcist, admecDominus, admecMarshall, astarCyrus, astarLysa
 | ShieldOfFaith | mythic | 1 | adeptExorcist |
 | WisdomOfTheAncients | mythic | 1 | ultraDreadnought |
 
-Portees (au moins un registre) : **8** — AmuletOfTheVoidwyrm, DaemonfleshPlate, IntoxicatingElixir, KardiocoreGalvanus, MawClawsOfThyrax, NetherRealmCasket, RelicBoltPistol, SupaCyborkBody
+Portees (au moins un registre) : **9** — AmuletOfTheVoidwyrm, DaemonfleshPlate, IntoxicatingElixir, KardiocoreGalvanus, MawClawsOfThyrax, NetherRealmCasket, RelicBoltPistol, SupaCyborkBody, TalonOfHorus

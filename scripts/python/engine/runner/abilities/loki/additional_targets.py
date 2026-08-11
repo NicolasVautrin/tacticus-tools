@@ -432,7 +432,52 @@ def fold_inherits_attack_state() -> bool:
     return True
 
 
-def _attack_damage_leaf(entry: "_Cleave", target_sel, is_melee: bool, attack_state0=None):
+def fold_emits_pre_attack() -> bool:
+    """#925 -- le FOLD primaire pousse-t-il `StartAttack`, donc `On(PreAttack = 5)` ?
+
+    FAUX est le natif, et c'est LU dans
+    `IdunBattleLogic.Entities.Abilities.Active.Loki.ALoki_NormalAttackAbility$$GetAttackDamageBehaviour`,
+    dont la queue est un `Attack(...)` UNIQUE qui englobe les TROIS volets :
+
+        b1 = DSLBehaviors$$AttackDamage(caster@0x48, Target@0x60, <vslot 0x4d8>, Direct(weapon+0x10),
+                                        <vslot 0x4c8>, source, options)      # les coups d'ARME
+        b2 = <vslot 0x4e8>(abilityState)             # = $$GetCustomNormalAttackBehaviour = le FOLD
+        b  = AbilityBehaviour$$op_BitwiseAnd(b1, b2)
+        b3 = DSLBehaviors$$ExecuteAdditionalHitsWithDamageProfileType(...)
+        b  = AbilityBehaviour$$op_BitwiseAnd(b, b3)
+        return IdunBattleLogic.Entities.DSLBehaviors$$Attack(caster@0x48, target, b, source)
+
+    Le FOLD est donc une feuille **NUE** -- `<X>_NormalAttackAbility$$GetCustomNormalAttackBehaviour`
+    rend un `DSLBehaviors$$If(<cond>, <AttackDamage>, null)`, AUCUN `DSLBehaviors$$Attack` -- composee
+    DANS l'`AttackBehaviour` que l'attaque primaire a deja ouvert. Or `StartAttack` (slot 58, LU dans
+    `data/symbols/<build>/metadata/ioperationprocessor_slots.tsv`) est pousse par
+    `IdunBattle.Entities.Behaviours.AttackBehaviour$$Execute`, et c'est le SEUL emetteur sur cette
+    voie : UN `Attack(...)` = UN `StartAttack` = UN `On(5)`, pour la cible primaire.
+
+    CONTRASTE avec le CLEAVE, qui appelle la MEME feuille (`$$GetAdditionalDamageBehaviour`) mais
+    l'enveloppe dans son PROPRE `IdunBattleLogic.Entities.DSLBehaviors$$Attack`
+    (`<X>_NormalAttackAbility$$GetAdditionalTargetsAttackBehavior`) : lui pousse bien un `StartAttack`
+    par cible additionnelle. Les DEUX volets partagent la feuille et DIFFERENT sur ce point -- c'est
+    pourquoi le drapeau est un ARGUMENT de `_attack_damage_leaf` et non une constante, et c'est ce
+    que le port n'exprimait pas (le defaut `is_outside_attack=True` d'`AttackWithAttackDamage` etait
+    pris par les DEUX).
+
+    CE QUE `On(5)` DECLENCHE, cote port : `SuppressiveFireAddEffectAbility` (pose `Pinned`, aucun
+    tirage) et `LetTheGalaxyBurnArmAbility`, dont le `Maybe(ConfigConst(0x2a))` de
+    `IdunBattleLogic.Entities.Abilities.Triggered.Loki.LetTheGalaxyBurnAbility$$CreateTrigger`
+    CONSOMME un `state.rng` -- un `On(5)` de trop y decale tout le flux de tirages, donc tous les
+    coups qui suivent.
+
+    Fonction de MODULE, et pas une expression inline, pour la MEME raison que
+    `fold_inherits_attack_state` : c'est le point de MUTATION des probes/cliquets
+    (`probe_925_fold_pre_attack.py` SUBSTITUE cet attribut de module et joue les DEUX regimes en une
+    seule passe -- il n'y a pas de drapeau de ligne de commande a passer). La rendre VRAIE restaure
+    exactement le port d'AVANT #925."""
+    return False
+
+
+def _attack_damage_leaf(entry: "_Cleave", target_sel, is_melee: bool, attack_state0=None,
+                        is_outside_attack: bool = True):
     """La feuille commune aux DEUX volets : `<X>_NormalAttackAbility$$GetAdditionalDamageBehaviour`
     -> `DSLBehaviors$$AttackDamage(caster, target, RandomAmount(var 0xc, var 0xd),
     Direct(GetDamageProfile()), Direct(GetNumberConstant(0x2f)), source, options)`.
@@ -460,7 +505,12 @@ def _attack_damage_leaf(entry: "_Cleave", target_sel, is_melee: bool, attack_sta
     Les options du call-site du fold sont un `Nullable<AttackDamageBehaviourOptions>` **NUL**
     (`hasValue = 0`), donc `GetValueOrDefault()` rend la struct zeroee : ni `alwaysOverkilled` (+4),
     ni `alwaysCrit` (+5), et surtout `isOutsideAttack` (+0) = **false**. Balayage exhaustif des 18
-    call-sites : `docs/rl/case-419-r3-is-outside-attack-inexprimable.md`."""
+    call-sites : `docs/rl/case-419-r3-is-outside-attack-inexprimable.md`.
+
+    `is_outside_attack` (#925) = la feuille est-elle emballee dans son PROPRE
+    `IdunBattleLogic.Entities.DSLBehaviors$$Attack`, donc pousse-t-elle `StartAttack` -> `On(5)` ?
+    CLEAVE oui (`$$GetAdditionalTargetsAttackBehavior` l'emballe), FOLD non (feuille nue composee
+    dans l'`Attack(...)` de la primaire). Detail et decompile : `fold_emits_pre_attack`."""
     profile = ((GC.ability(entry.passive) or {}).get("constants") or {}).get("damageProfile") or ""
     return AttackWithAttackDamage(
         target_sel, entry.passive, profile, is_melee=bool(is_melee),
@@ -479,7 +529,8 @@ def _attack_damage_leaf(entry: "_Cleave", target_sel, is_melee: bool, attack_sta
         # PAS `multi=True`, qui trierait par id (l'`OrderBy` d'`AttackBehaviour$$Execute` ne
         # s'applique que quand UN behaviour porte N cibles -- ce n'est pas la forme d'ici).
         multi=False,
-        attack_state0=attack_state0)     # #419-r3 : cf. docstring (None pour le CLEAVE)
+        attack_state0=attack_state0,     # #419-r3 : cf. docstring (None pour le CLEAVE)
+        is_outside_attack=bool(is_outside_attack))   # #925 : cf. `fold_emits_pre_attack`
 
 
 def primary_fold_tree(entry: "_Cleave", is_melee: bool, attack_state0=None):
@@ -495,8 +546,14 @@ def primary_fold_tree(entry: "_Cleave", is_melee: bool, attack_state0=None):
     `attack_state0` (#419-r3) = l'etat de l'`OngoingAttack` de l'attaque PRIMAIRE en sortie de ses
     coups d'arme (`{"attack_state": ...}` du retour d'`AttackDamageOperation.execute`). Ce volet-ci
     tourne DANS le `Attack(...)` de la primaire ; le passer est ce qui rend `isOutsideAttack = false`
-    exprimable cote port."""
-    return _attack_damage_leaf(entry, Target(), is_melee, attack_state0=attack_state0)
+    exprimable cote port.
+
+    #925 -- et le MEME fait a une SECONDE consequence, que #419-r3 n'avait pas tiree : tourner DANS
+    l'`Attack(...)` de la primaire veut dire ne PAS ouvrir le sien, donc ne PAS pousser `StartAttack`,
+    donc ne PAS emettre `On(PreAttack = 5)`. Le port le faisait (defaut `is_outside_attack=True`) :
+    un `On(5)` de trop par cast, sur la CIBLE PRIMAIRE. Lecture : `fold_emits_pre_attack`."""
+    return _attack_damage_leaf(entry, Target(), is_melee, attack_state0=attack_state0,
+                               is_outside_attack=fold_emits_pre_attack())
 
 
 def cleave_tree(entry: "_Cleave", is_melee: bool, weapon_range: Optional[int] = None):
@@ -508,9 +565,15 @@ def cleave_tree(entry: "_Cleave", is_melee: bool, weapon_range: Optional[int] = 
     La feuille est `AttackWithAttackDamage(Subject(), <passif>, <profil>, ...)` en mode BORNES --
     c'est le couple `AttackBehaviour` + `AttackDamageBehaviour` que le natif construit.
 
-    `is_melee` : cf. `_attack_damage_leaf`."""
+    `is_melee` : cf. `_attack_damage_leaf`.
+
+    #925 -- `is_outside_attack=True` (le defaut) est EXACT ici et ne se derive PAS du volet FOLD :
+    `<X>_NormalAttackAbility$$GetAdditionalTargetsAttackBehavior` emballe la feuille dans son PROPRE
+    `IdunBattleLogic.Entities.DSLBehaviors$$Attack`, donc `AttackBehaviour$$Execute` pousse
+    `StartAttack` -> `On(PreAttack = 5)` par cible additionnelle."""
     sel = entry.build(int(weapon_range or 0)) if entry.needs_weapon_range else entry.build()
-    return AtomicGroup(Foreach(sel, _attack_damage_leaf(entry, Subject(), is_melee)))
+    return AtomicGroup(Foreach(sel, _attack_damage_leaf(entry, Subject(), is_melee,
+                                                        is_outside_attack=True)))
 
 
 def _normal_attack_kind() -> int:
@@ -630,6 +693,7 @@ def execute_additional_targets_attacks(state: "State", caster_id: int, target_id
 __all__ = ["NORMAL_ATTACK_CLEAVES", "cleave_for", "cleave_tree", "primary_fold_tree",
            "selected_weapon_range", "is_melee_position",
            "execute_additional_targets_attacks", "fold_inherits_attack_state",
+           "fold_emits_pre_attack",
            "fealty_additional_targets",
            "talon_of_horus_additional_targets", "righteous_repugnance_additional_targets",
            "boltstorm_additional_targets"]

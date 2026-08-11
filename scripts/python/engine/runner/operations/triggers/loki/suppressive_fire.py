@@ -58,10 +58,17 @@ chacune dans son propre bloc `[Ability_Power e=77 <<SuppressiveFire>>]`, ce qui 
 
 Ce qui reste VRAI de la mise en garde : un SPLASH COMPOSE dans le `Attack(...)` d'une autre attaque
 (une feuille `IdunBattleLogic.Entities.DSLBehaviors$$AttackDamage` NUE, `isOutsideAttack = false`,
-cf. `#419-r3`) n'ouvre PAS de nouveau `StartAttack`, donc n'emet PAS de `PreAttack` — et le port ne
-lui en emet pas non plus (`pre_attack_triggers` est appele par les OPERATIONS d'attaque, une fois
-par cible). La distinction est donc STRUCTURELLE (`Attack(...)` vs feuille nue), pas « primaire vs
-toutes ».
+cf. `#419-r3`) n'ouvre PAS de nouveau `StartAttack`, donc n'emet PAS de `PreAttack`. La distinction
+est donc STRUCTURELLE (`Attack(...)` vs feuille nue), pas « primaire vs toutes ».
+
+⚠ **ET LE PORT, LUI, LUI EN EMETTAIT UN.** Cette docstring ajoutait « et le port ne lui en emet pas
+non plus (`pre_attack_triggers` est appele par les OPERATIONS d'attaque, une fois par cible) » —
+c'etait FAUX, et pour la raison exacte que le paragraphe precedent enonce : le port n'avait PAS de
+canal pour dire « feuille nue ». `AttackWithAttackDamage` prend `is_outside_attack=True` par DEFAUT,
+et le FOLD primaire de `Boltstorm`/`RighteousRepugnance`
+(`<X>_NormalAttackAbility$$GetCustomNormalAttackBehaviour`) le prenait comme le CLEAVE. MESURE
+(#925, `probe_925_fold_pre_attack.py`) : **4 emissions `On(5)` contre 3 natives** sur un cast de
+`templAggressor`. Corrige — `abilities/loki/additional_targets.py::fold_emits_pre_attack`.
 
 Gate ranged = `_is_ranged_attack` (mirror COMPLET du slot 3 `IdunBattle.Core.Services.BattleQuery$$
 IsRangedAttack`), PAS `ev.ranged` ni `_is_ranged_position` seul :

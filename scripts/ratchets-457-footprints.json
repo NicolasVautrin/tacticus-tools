@@ -4750,6 +4750,24 @@
    "dirs": [],
    "temoins": []
   },
+  "tests/engine/test_920_maw_claws_of_thyrax_offline.py": {
+   "_at": 1786446521,
+   "_commit": "b4480007bc11684ff18da0c5abb7202a4b53dae7",
+   "dirs": [
+    "scripts/python/engine/runner",
+    "scripts/python/engine/runner/operations"
+   ],
+   "temoins": [
+    "scripts/python/engine/runner/components.py",
+    "scripts/python/engine/runner/operations/damage.py"
+   ]
+  },
+  "tests/engine/test_925_boltstorm_faces_offline.py": {
+   "_at": 1786446521,
+   "_commit": "b4480007bc11684ff18da0c5abb7202a4b53dae7",
+   "dirs": [],
+   "temoins": []
+  },
   "tests/engine/test_effect_1582_inertia_binary.py": {
    "_at": 1786392144,
    "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",

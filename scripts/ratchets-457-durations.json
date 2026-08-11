@@ -248,6 +248,8 @@
  "tests/engine/test_909_decision_actives_offline.py": 1.686,
  "tests/engine/test_915_prophetic_sentinel_offline.py": 0.015,
  "tests/engine/test_919_icon_of_obstinacy_offline.py": 0.021,
+ "tests/engine/test_920_maw_claws_of_thyrax_offline.py": 2.799,
+ "tests/engine/test_925_boltstorm_faces_offline.py": 0.012,
  "tests/engine/test_effect_1582_inertia_binary.py": 1.156,
  "tests/engine/test_fabricator_claw_cap_binary.py": 0.446,
  "tests/engine/test_lions_wrath_custom_utility.py": 0.013,
