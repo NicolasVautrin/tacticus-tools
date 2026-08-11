@@ -63,8 +63,12 @@ from .geometry import (  # noqa: F401
     EffectSource, EffectFromOwner, EffectsFromUnitSource, OwnerOfEffect,
 )
 
+from .pathing import (  # noqa: F401
+    Nearest, ClosestPositionToTarget,
+)
+
 from .composites import (  # noqa: F401
-    get_spawn_tile_selector, adjacent_units,
+    get_spawn_tile_selector, adjacent_units, attackable_enemies,
 )
 
 __all__ = [
@@ -96,6 +100,7 @@ __all__ = [
     "Entity", "Nothing", "Null", "SelectIf", "AtIndex", "ConditionalSelector",
     "TileBehindTargetFromSourceDirection", "EffectSource", "EffectFromOwner",
     "EffectsFromUnitSource",
-    "OwnerOfEffect", "get_spawn_tile_selector", "adjacent_units",
+    "OwnerOfEffect", "get_spawn_tile_selector", "adjacent_units", "attackable_enemies",
     "SortTilesByUtility", "PreviousTile",
+    "Nearest", "ClosestPositionToTarget",
 ]

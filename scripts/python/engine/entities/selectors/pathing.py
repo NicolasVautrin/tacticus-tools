@@ -14,14 +14,16 @@ false))` ou `<cible tiree>` passe par `Nearest(..., CasterTiles, Owner, PathLeng
 """
 from __future__ import annotations
 
-import hexgeo
-
 from ...dsl.base import TargetsSelector, _feet, _is_alive, _pos, _units_of, resolve_unit
 from ._shared import _entity_pos, _tile_positions
 from ..pathfinding.walk_pathfinder import get_path_node_counts_by_pos
 from ..traits.unit_trait import UnitTrait
-from ..unit_selection_type import UnitSelectionType
+# FORME B (`import <module>` + acces attributaire) : ces deux services SONT les mirrors natifs
+# appeles par les `$$Select` portes ici -- `MovementQuery$$GetDistance` (= `IBattleQuery` slots 108
+# et 110, meme corps) et `BattleQuery$$AreEntitiesAdjacent` (slot 96) -- et la forme B garde la
+# MORSURE d'un `monkeypatch.setattr` sur l'un d'eux (cf. CLAUDE.md, hissage en forme B).
 from ...services import battle_query as _svc_battle_query
+from ...services import movement_query as _movement_query
 
 #: `System.Int32.MaxValue` -- la sentinelle que rendent `NearestSelector$$GetDistance` (via
 #: `BattleQuery$$GetMinPathLength` sur un chemin vide) et le `maxDistance` ABSENT des deux noeuds.
@@ -76,9 +78,13 @@ def _free_adjacent_positions(ctx, entity) -> list:
 
         GetAdjacentTiles(from, includeSelf: 1, onlyWalkable: 1).FilterInPlace(<tuile LIBRE>)
 
-    Le port materialise << libre >> par l'absence d'occupant VIVANT (le meme critere d'occupation
-    que `tiles.MovableTilesInRange`, par EMPREINTE et non par main tile) et << walkable >> par
-    `board.walkable`. Rend une liste de positions `(col,row)`, `[]` si le board n'est pas cale."""
+    L'etage ADJACENCE passe par le FOYER UNIQUE deja porte
+    (`services/movement_query.adjacent_tile_ids`, mirror de `BattleQuery$$GetAdjacentTiles(tile, 0,
+    1, 1)`, qui lit le voisinage STOCKE du board) -- pas par la geometrie hex pure, qui ignorerait
+    la connectivite et l'elevation. Le port materialise ensuite << libre >> par l'absence
+    d'occupant VIVANT (meme critere d'occupation que `tiles.MovableTilesInRange` : par EMPREINTE,
+    jamais par main tile). Rend une liste de positions `(col,row)`, `[]` si le board n'est pas
+    cale."""
     board = getattr(ctx, "board", None)
     if board is None or entity is None:
         return []
@@ -89,12 +95,10 @@ def _free_adjacent_positions(ctx, entity) -> list:
                 occupied.add((int(f[0]), int(f[1])))
     out, seen = [], set()
     for p in _feet(entity):
-        for n in hexgeo.neighbours((int(p[0]), int(p[1]))):
-            n = (int(n[0]), int(n[1]))
-            if n in seen or n in occupied:
-                continue
-            tid = board.id_at(n[0], n[1])
-            if tid is None or not board.walkable(tid):
+        for tid in _movement_query.adjacent_tile_ids(board, (int(p[0]), int(p[1]))):
+            c = board.coord(int(tid))
+            n = (int(c[0]), int(c[1]))
+            if n in seen or n in occupied or not board.walkable(int(tid)):
                 continue
             seen.add(n)
             out.append(n)
@@ -166,7 +170,9 @@ class Nearest(TargetsSelector):
         if cp is None or tp is None:
             return INT_MAX
         if self.distance_type == 0:                            # DistanceType.Simple
-            return _svc_battle_query.get_distance(
+            # `MovementQuery$$GetDistance(IList, IList)` = MIN sur les paires de pieds, sentinelle
+            # `int.MaxValue` sur liste vide. ⚠ PAS `get_min_distance` (sentinelle `-1`).
+            return _movement_query.get_distance(
                 _feet(candidate) if isinstance(candidate, dict) else [cp],
                 _feet(target) if isinstance(target, dict) else [tp])
         # DistanceType.PathLength
@@ -303,7 +309,7 @@ class ClosestPositionToTarget(TargetsSelector):
         for p, n in counts.items():
             if int(n) - 1 > max_d or p in occupied:
                 continue
-            d = _svc_battle_query.get_distance([p], targets)
+            d = _movement_query.get_distance([p], targets)
             if d < best_d:                                   # `<` STRICT : 1er arrive, 1er servi
                 best, best_d = p, d
         return [] if best is None else [best]

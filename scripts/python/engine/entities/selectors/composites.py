@@ -9,6 +9,40 @@ from ...dsl.base import TargetsSelector
 from .units import Enemies, Sub, Units, UnitsWithoutTrait
 from .tiles import AdjacentTiles, AllAliveUnits, CanAddUnit, Caster, TileIntersect, TileUnique
 from ..traits.unit_trait import UnitTrait
+from ..unit_selection_type import UnitSelectionType
+
+
+def attackable_enemies(unit: TargetsSelector = None,
+                       source: TargetsSelector = None) -> TargetsSelector:
+    """`IdunBattleLogic.Entities.DSLSelectors$$AttackableEnemies(unit)` -- le corps natif ENTIER,
+    transcrit :
+
+        entities = DSLSelectors$$Enemies(unit, this.<+0x20 = AllAliveUnits>,
+                                         UnitSelectionType.OnlyAliveAndTargetable);
+        return     DSLSelectors$$UnitsWithoutTrait(entities, UnitTrait.Steppable,
+                                                   UnitSelectionType.OnlyAliveAndTargetable);
+
+    Ce n'est donc PAS une classe : c'est un COMPOSITE de deux noeuds deja portes, et l'ecrire comme
+    tel est ce qui garantit qu'il n'existe pas une TROISIEME implementation de << ennemi >> ni de
+    << non Steppable >> dans le depot -- c'est aussi, litteralement, le meme couple que
+    `get_spawn_tile_selector` ci-dessous compose deja. Les DEUX `selectionType` valent `3` au
+    decompile et doivent etre poses : sans eux, les deux etages ne filtreraient RIEN (defaut
+    historique `None`, #585-r1).
+
+    `unit` = le referent d'alliance (`Owner@DSLSelectors+0x30` chez `MartialExemplarAbility$$
+    ExecuteBehaviour` et `TheBetrayer_TakeTurnAbility$$GetAttackTarget`, les DEUX seuls appelants du
+    build). ⚠ Le noeud `Enemies` du port lit ce referent dans `ctx.caster`, PAS dans un argument :
+    le parametre est conserve pour le mirror structurel de la signature native et pour rendre le
+    site grepable, mais l'alliance reste evaluee au contexte -- exact tant que `Owner == Caster`,
+    ce qui est le cas des deux appelants (une active castee par son porteur).
+
+    `source` = le champ partage `<DSLSelectors>+0x20` ; defaut `AllAliveUnits()`, qui EST ce champ
+    (cf. la docstring de `tiles.AllAliveUnits`). #889-r5."""
+    _ = unit                                     # cf. docstring : l'alliance vient de `ctx.caster`
+    st = int(UnitSelectionType.OnlyAliveAndTargetable)
+    return UnitsWithoutTrait(
+        Enemies(source if source is not None else AllAliveUnits(), selection_type=st),
+        int(UnitTrait.Steppable), selection_type=st)
 
 
 def adjacent_units(source: TargetsSelector, selection_type=None) -> TargetsSelector:
