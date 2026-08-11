@@ -53,7 +53,20 @@ DECLENCHEUR = {
         # les probes : montage, oracle geometrique et replay-diff en viennent
         "scripts/python/probe_925_fold_pre_attack.py",
         "scripts/python/probe_478_cleave_additional_targets.py",
-        "scripts/python/probe_446_r3b_fealty_talon_asymetrie.py"),
+        "scripts/python/probe_446_r3b_fealty_talon_asymetrie.py",
+        # la FERMETURE d'imports du montage, mesuree par `probe_486r15` : la geometrie du board,
+        # le pilote de messages et l'ordonnanceur de phases (le replay offline les traverse), et
+        # les probes que `probe_446_r3b` tire pour ecrire le seed BC greffe.
+        "scripts/python/board.py",
+        "scripts/python/engine/runner/runner.py",
+        "scripts/python/engine/runner/operations/triggers/dispatch/phase.py",
+        "scripts/python/probe_226_seed_bc_ability_configs.py",
+        "scripts/python/probe_27_3_live.py",
+        "scripts/python/probe_27_custom_utility_inventory.py",
+        "scripts/python/probe_27_r1_massdriver_custom.py",
+        "scripts/python/probe_353_ramming_speed_prediction.py",
+        "scripts/python/probe_380_seed_bc_patch_survival.py",
+        "scripts/python/repo_read.py"),
     "build": False,
     "toujours": False,
     "raison": "Il confronte la ventilation par coup d'une attaque normale a fold au natif, sous "
