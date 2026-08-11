@@ -43,6 +43,31 @@ if str(_PY) not in sys.path:
 
 import probe_933_premisses_regime as P                               # noqa: E402
 
+#: Ce qui doit changer pour que ce FICHIER de test puisse changer de verdict (#486-r15).
+#: Meme contrat que les cliquets de la banque (`declencheur_cliquet.py`).
+DECLENCHEUR = {
+    "chemins": (
+        # Le recenseur sous test : son jeu de stats, ses marqueurs de neutralisation et ses
+        # regles de classement live/offline decident A EUX SEULS du verdict.
+        "scripts/python/probe_933_premisses_regime.py",
+        # Le foyer des leviers de montage que le cliquet exige : si `--unit-stat` / `--crit` /
+        # `--block-*` cessaient d'ECRIRE la base du BC, la neutralisation deviendrait fictive et
+        # ce cliquet passerait au vert sur des montages inoperants.
+        "scripts/python/rl_duel.py",
+        # La bascule elle-meme (`_EQUIP_ITEMS_PAR_DEFAUT`, `_bis_item_specs`) : c'est elle qui
+        # definit QUELLES stats sont a zero ouvert.
+        "scripts/python/rl_collect_batch.py",
+    ),
+    "build": False,
+    "toujours": True,
+    "raison": "Le perimetre de ce cliquet est DERIVE de tout `scripts/python/tests/**/test_*.py` "
+              "(rglob) : n'importe quel fichier de test ajoute, renomme ou dont le montage change "
+              "peut entrer ou sortir de la liste des suspects. Un declencheur par chemins ne peut "
+              "donc pas etre a la fois juste et etroit -- et c'est exactement le gisement que ce "
+              "cliquet garde : les prochaines victimes seront des fichiers qui n'existent pas "
+              "encore.",
+}
+
 
 # --- BLOC GENERE (`probe_933_premisses_regime.py --attester`) -- ne pas tenir a la main -------
 _ATTESTES = (
