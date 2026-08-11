@@ -147,7 +147,7 @@ l'exactitude du montage — laquelle dépend de quel camp porte la mécanique, *
 statiquement**. Exiger les deux faces pousserait à des montages plus larges que la prémisse et,
 surtout, laisserait les fichiers réparés par une seule face **DANS** la liste attestée : perdre
 leur levier ne rougirait alors plus. Les neutralisations **PARTIELLES** sont comptées et imprimées
-(32 fichiers au 2026-08-11), jamais tues.
+(**28** fichiers au 2026-08-11, la liste attestée en comptant **33**), jamais tues.
 
 ## 5. Ce qui reste ouvert
 
