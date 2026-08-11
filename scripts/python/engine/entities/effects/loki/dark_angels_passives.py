@@ -35,7 +35,11 @@ from __future__ import annotations
 from collections.abc import Mapping
 
 from ....services.effect_bonus import EffectBonus, for_addition
-from .. import aura_selectors as ASel   # FORME B (#930) : `faction_of` reste patchable au foyer
+# FORME B (#930) : `faction_of` reste patchable au foyer. Import ABSOLU du MODULE et non
+# `from .. import aura_selectors` (#943) : la forme `from . import x` declare le PAQUET (elle lit
+# son attribut), donc elle refermait le SCC `effects` -> `effects.factory` -> `loki.dark_angels_
+# passives` -> `effects`. `import <module> as N` ne declare que le module, et reste forme B.
+import engine.entities.effects.aura_selectors as ASel
 from ..aura_selectors import is_targetable as _is_targetable, surrounding_friends
 from ..base import BaseEffect
 from ..magnitude import ability_var

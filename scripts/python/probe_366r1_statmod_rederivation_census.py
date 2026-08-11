@@ -77,6 +77,24 @@ POSE_TARGETS = {
     # --- SRC (cible != poseur, mais la SOURCE est passee explicitement) ------------------------
     "AugmentedAssault_ReduceArmor": ("SRC", "AugmentedAssaultAbility : AddDynamicStatModifierEffect("
                                      "targets = target@0x178, source = self@0x148)"),
+    # #943 -- les TROIS classes arrivees les 2026-08-10/11 sans classification, ce qui rendait
+    # `master` ROUGE sur `test_statmod_captured_channel_offline`. Les trois feuilles sont des
+    # `AddDynamicStatModifierEffect` qui passent la SOURCE explicitement : `SourceUnit` designe donc
+    # le POSEUR (le `source = null` de la note (b) ne les concerne pas), la re-derivation lit la
+    # bonne unite et le canal capte n'est PAS obligatoire. C'est exactement le regime
+    # `AugmentedAssault_ReduceArmor` ci-dessus -- et ce n'est pas un voisinage de forme : chacune des
+    # trois feuilles est LUE dans le module qui la porte, argument par argument.
+    "IconOfObstinacy_ExtraArmor": ("SRC", "IconOfObstinacy_AddArmourBuffAbility$$CreateBehaviour :"
+                                   " AddDynamicStatModifierEffect(targets = Actor@Sel+0x40,"
+                                   " source = Owner@Sel+0x30, 0x628, statType 0x10 = FixedArmor)"),
+    "TitanhammerSquad_ExtraBlockDamage": ("SRC", "TitanhammerSquadAbility$$ExecuteBehaviour volet 3 :"
+                                          " AddDynamicStatModifierEffect(targets = Filter(<groupe>,"
+                                          " AmountIsGreaterThanZero(StatAmount(ActiveTarget, 7 ="
+                                          " BlockChance))), source = Caster@Sel+0x48, 0x624,"
+                                          " statType 8 = BlockDamage)"),
+    "TwistedScience_ExtraHp": ("SRC", "TwistedScience_HealAbility$$ExecuteBehaviour :"
+                               " AddDynamicStatModifierEffect(targets = Target@Sel+0x60,"
+                               " source = Owner@Sel+0x30, 0x54b, statType 5 = Health)"),
     # --- CROSS (source = null + cibles != Owner) -> canal capte OBLIGATOIRE --------------------
     "ShockAssault_Buff": ("CROSS", "ShockAssaultAbility$$CreateBehaviour :"
                           " AddStaticStatModifierEffect(<Inceptors adjacents>)"),

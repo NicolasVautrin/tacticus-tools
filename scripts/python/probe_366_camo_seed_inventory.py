@@ -148,6 +148,24 @@ POSE_VECTOR: dict[str, tuple[str, str, str, str]] = {
         "IdunBattleLogic.Entities.Abilities.Active.Loki."
         "ContagionsOfNurgle_AddEffectInitially_Ability$$CreateBehaviour",
         "ContagionsOfNurgleAmount dans [min, max] (aura, geometrique)"),
+    # #943 -- les DEUX effets de `1203 DaemonicPatrons` (#911), entres au registre sans verdict de
+    # pose. Ils sont poses par le `ExecuteBehaviour` d'une ability ACTIVE (un CAST sur le CASTER),
+    # jamais par un trigger d'init : leur absence a la capture est donc FIDELE, et le rail de seed
+    # n'a rien a couvrir. `flip: sim` -- `ADaemonicPatronsEffect$$CreateActiveCondition` compte les
+    # ennemis ADJACENTS TAUNTES, donc elle rebascule des qu'une unite bouge ou qu'un taunt tombe.
+    "DaemonicPatrons_DmgReduction": (
+        "runtime", "sim",
+        "IdunBattleLogic.Entities.Abilities.Active.Loki.DaemonicPatronsAbility$$ExecuteBehaviour"
+        " (AddEffect(0x5b9 = 1465, targets = Caster))",
+        "AmountIsGreaterThanZero(Count(Filter(AdjacentEnemies(Owner@0x30), "
+        "HasEffect(It@0x68, 0x1b = 27 Taunted_OnlySpecificTargets, onlyActive: 0)))) -- "
+        "geometrique ET dependante du taunt"),
+    "DaemonicPatrons_ExtraDamage": (
+        "runtime", "sim",
+        "IdunBattleLogic.Entities.Abilities.Active.Loki.DaemonicPatronsAbility$$ExecuteBehaviour"
+        " (AddEffect(0x5b8 = 1464, targets = Caster))",
+        "AmountIsGreaterThanZero(<le MEME compteur que 1465>) -- corps FONDU : condition et "
+        "magnitude partagent le compteur, elles ne peuvent pas diverger"),
     "DestroyTheWitch_ExtraDamage": (
         "init", "sim",
         "IdunBattleLogic.Entities.Abilities.Triggered.Loki.DestroyTheWitchAbility$$CreateBehaviour",
@@ -175,15 +193,54 @@ POSE_VECTOR: dict[str, tuple[str, str, str, str]] = {
         "IdunBattleLogic.Entities.Abilities.Triggered.Loki."
         "InescapableAccuracyAbility$$CreateBehaviour",
         "NOT HasFlag(Owner, Moved)"),
+    # #943 -- `1459 IntoxicatingElixir` (#919). MEME base et MEME forme qu'`AmuletOfTheVoidwyrm` /
+    # `SupaCyborkBody` : `classes.tsv` donne `IntoxicatingElixirAbility` fille
+    # d'`AOwnerEffectTriggeredAbility`, qu'elle n'override QUE par `GetEffectType` (`return 0x5b3`,
+    # corps ENTIER). Le `CreateBehaviour` joue est donc celui de la BASE --
+    # `If(OnOwnerSpecificAbilityInit(0x5b7), AddEffect(0x5b3, source = targets = Owner@0x30))` --
+    # donc pose d'init INCONDITIONNELLE : l'instance existe TOUJOURS cote natif.
+    # ⚠ Aucune entree `ABILITY_INIT_OWNER_EFFECTS` ne la couvre, et c'est MESURE : le seed lit le KIT
+    # gameconfig (`activeAbilities + passiveAbilities`), or c'est une RELIQUE -- elle arrive par
+    # `BC.Units[].TertiaryAbility`. `flip: sim` : le compteur est GEOMETRIQUE.
+    "IntoxicatingElixir": (
+        "init", "sim",
+        "IdunBattle.Entities.Abilities.AOwnerEffectTriggeredAbility$$CreateBehaviour"
+        " (IntoxicatingElixirAbility)",
+        "AmountIsGreaterThanZero(Min(Count(EntitiesWithAnyEffect(SurroundingUnits(Tiles(Owner), "
+        "range, includeCenter: 1), [Pinned, Stunned, Taunted_OnlySpecificTargets, ThrillSeekers])), "
+        "nrOfUnits)) -- geometrique"),
     "MartialSuperiority_Visual": (
         "init", "sim",
         "IdunBattle.Entities.Abilities.AOwnerEffectTriggeredAbility$$CreateBehaviour"
         " (MartialSuperiorityAddEffectAbility)",
         "NOT IsTurnOf(Owner)"),
+    # #943 -- `1461 MawClawsOfThyrax_ExtraCritDmg` (#917). MEME base, MEME forme et MEME mesure de
+    # non-couverture que `IntoxicatingElixir` ci-dessus (`MawClawsOfThyraxAbility` n'override que
+    # `GetEffectType`, `return 0x5b5`). Pose d'init INCONDITIONNELLE ; compteur GEOMETRIQUE.
+    "MawClawsOfThyrax_ExtraCritDmg": (
+        "init", "sim",
+        "IdunBattle.Entities.Abilities.AOwnerEffectTriggeredAbility$$CreateBehaviour"
+        " (MawClawsOfThyraxAbility)",
+        "AmountIsGreaterThanZero(Count(Unique(UnitsWithTrait(AdjacentUnits(Owner@0x30), "
+        "0x2 = UnitTrait.Summon)))) -- geometrique, et SANS filtre d'equipe"),
     "ModifiedExoarmour_ExtraDmg": (
         "init", "sim",
         "IdunBattleLogic.Entities.Abilities.Triggered.Loki.ModifiedExoarmourAbility$$CreateBehaviour",
         "AmountIsGreaterThanZero(TilesMovedThisTurn(Self))"),
+    # #943 -- `1455 NetherRealmCasket_CritDamageReduction` (#909). Sa POSE est lue directement (elle
+    # n'emprunte PAS `AOwnerEffectTriggeredAbility` : `classes.tsv` la donne fille directe de
+    # `BaseTriggeredAbility` et elle ecrit son propre `CreateBehaviour`, qui pose DEUX effets) --
+    #     AddEffect(0x5af = 1455, source = targets = Owner@0x30, options = <32 octets ZEROES>)
+    #     op_BitwiseAnd AddEffect(0x5b0 = 1456, <memes arguments>)
+    # AUCUN `If` : la pose est INCONDITIONNELLE, et les options zeroees la rendent PERMANENTE.
+    # ⚠ Son `CreateTrigger` n'est PAS lisible (la classe ne porte que deux corps dans le binaire, et
+    # aucun des 20 appelants d'`OnOwnerSpecificAbilityInit` n'est elle) -- residu #589-r1-r1-r2-r1-r1,
+    # partage avec `AmuletOfTheVoidwyrm`. Ce qui est ETABLI et suffit a cet axe-ci : le vecteur n'est
+    # PAS un cast, et l'`AddEffect` est NU.
+    "NetherRealmCasket_CritDamageReduction": (
+        "init", "sim",
+        "IdunBattleLogic.Entities.Abilities.Triggered.Loki.NetherRealmCasketAbility$$CreateBehaviour",
+        "AmountIsGreaterThanZero(AdjacentMechanicalUnits()) -- geometrique"),
     "Pinned": (
         "runtime", "static",
         "pose par le vecteur d'ATTAQUE (Suppression), pas par un init d'ability",
@@ -211,6 +268,18 @@ POSE_VECTOR: dict[str, tuple[str, str, str, str]] = {
         "IdunBattleLogic.Entities.Abilities.Triggered.Loki."
         "ReinforcedHiveNodeAbility$$CreateBehaviour",
         "AmountIsOdd(Sum(RoundsStarted(Owner), 1)) -- corps FONDU avec celui de 1108"),
+    # #943 -- `1529 RitesOfMorkai_ExtraDamage` (#904/#906). Pose par le `ExecuteBehaviour` de
+    # l'ACTIVE `1211 RitesOfMorkai`, sur le sous-ensemble de sa zone FILTRE par le meme predicat que
+    # la condition -- donc un vecteur de CAST, jamais un trigger d'init : l'absence a la capture est
+    # FIDELE. `flip: sim` : le second disjonct est un `HasEffect` sur 1454, qui se pose et se retire
+    # en cours de partie (le premier, `HasTrait`, lui, ne bascule pas).
+    "RitesOfMorkai_ExtraDamage": (
+        "runtime", "sim",
+        "IdunBattleLogic.Entities.Abilities.Active.Loki.RitesOfMorkaiAbility$$ExecuteBehaviour"
+        " (AddEffect(0x5f9 = 1529, targets = <zone FILTREE par HasAnyKindOfFinalVengeance>))",
+        "HasTrait(Owner@0x30, 0x3f6 = 1014 UnitTrait.FinalJustice) op_BitwiseOr "
+        "HasEffect(Owner@0x30, 0x5ae = 1454 EffectType.FinalVengeance_UnitEffect, onlyActive: 0, "
+        "effectTargetType: 6 = Both)"),
     "StructuralAnalyser_Visual": (
         "init", "sim",
         "IdunBattleLogic.Entities.Abilities.Triggered.Loki."

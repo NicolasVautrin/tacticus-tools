@@ -205,6 +205,28 @@ RAIL: dict[str, tuple[str, str]] = {
         (ARRAYSET, "IdunBattle.Entities.Effects.AReactivateOverwatchEffect$$CreateHandleTriggerAbilitiesInternal"),
     "EarlyWarningOverrideHitReductionPurge":
         (ARRAYSET, "IdunBattle.Entities.Effects.AReactivateOverwatchEffect$$CreateHandleTriggerAbilitiesInternal"),
+    # #943 -- les DEUX classes de `InescapableDeathEffect` (1018), entrees au registre par #924 sans
+    # rail declare, ce qui rendait `master` ROUGE sur
+    # `test_421_effect_active_gate_offline::test_the_probe_rail_covers_the_whole_registry`.
+    # Ce ne sont PAS des voisines de forme : `InescapableDeathReactivateOverwatch` et
+    # `InescapableDeathHitReductionPurge` derivent, dans le PORT comme dans le NATIF, des memes
+    # bases que le couple `EarlyWarningOverride*` ci-dessus -- ce sont les Triggered #1 et #2 du
+    # MEME corps `AReactivateOverwatchEffect$$CreateHandleTriggerAbilitiesInternal` (les
+    # sous-classes n'overrident que `GetHitReductionEffectType` / `LegitDeathReasons`, jamais le
+    # `CreateHandleTriggerAbilitiesInternal`). MEME ArraySet => AUCUN gate `IsActive` natif.
+    "InescapableDeathReactivateOverwatch":
+        (ARRAYSET, "IdunBattle.Entities.Effects.AReactivateOverwatchEffect$$CreateHandleTriggerAbilitiesInternal"),
+    "InescapableDeathHitReductionPurge":
+        (ARRAYSET, "IdunBattle.Entities.Effects.AReactivateOverwatchEffect$$CreateHandleTriggerAbilitiesInternal"),
+    # #943 -- le SECOND chemin de declenchement de `TheLionsWrath_PendingAttackEffect` (1521), entre
+    # au registre par #892 sans rail declare. Le corps natif (cite verbatim dans
+    # `engine/runner/operations/triggers/loki/lions_wrath_attack.py` Sec. 2) part de
+    # `APendingAttackEffect$$CreateHandleTriggerAbilitiesInternal()` puis `set.Add(Triggered(
+    # On(0x25 = UnitRemoved) & get_OwnerIsTarget, GetAttackBehaviour(effect)))` -- donc le MEME
+    # ArraySet que celui qu'enumere `EvaluateTriggerOperation$$EvaluateEffectTriggerEffectAbilities`,
+    # ou `+0x5c` n'est jamais lu. Rail ARRAYSET, pas TARGETS.
+    "LionsWrathPendingAttackOnUnitRemoved":
+        (ARRAYSET, "IdunBattle.Entities.Effects.Loki.TheLionsWrath_PendingAttackEffect$$CreateHandleTriggerAbilitiesInternal"),
     # #421 -- `GhostEffect` : UNE classe native, DEUX effectTypes depuis #366-r1 (1186 TimeFlux_Revive,
     # 1284 EchoesFromTheWarp_Revive). L'ancien trio de noms (`GhostEffectRevive`, `GhostRemove*`) est
     # devenu le nom des BASES ABSTRAITES, non inscrites : le RAIL a continue de les citer et est donc
@@ -347,6 +369,11 @@ ARRAYSET_READS_BY_TREE = {
     "EchoesGhostRemoveOnSourceDeathInactive":     # idem -- MEME arbre natif, 2e effectType
         "IdunBattleLogic.Entities.DSLFactory$$IsEffectActive",
     "EarlyWarningOverrideHitReductionPurge":  # `NOT HasEffect(Owner, 0x3f1, onlyActive=1, Both)`
+        "IdunBattleLogic.Entities.DSLFactory$$HasEffect",
+    # #943 -- MEME arbre natif (Triggered #2 de `AReactivateOverwatchEffect`), second porteur : la
+    # lecture du flag vient du noeud `HasEffect(..., onlyActive=1)` de l'arbre, pas d'un gate
+    # d'evaluation. Le port herite du `matches` de la base, donc de la MEME lecture.
+    "InescapableDeathHitReductionPurge":      # `NOT HasEffect(Owner, 0x3f1, onlyActive=1, Both)`
         "IdunBattleLogic.Entities.DSLFactory$$HasEffect",
 }
 
