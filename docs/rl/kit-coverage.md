@@ -1,7 +1,7 @@
-ecrit -> C:\Users\nicolasv\tacticus-tools\docs\rl\kit-coverage.md
-lineup=127 complets=94 avec-travail=33 items=33
-hors-total voies conditionnelles: 34 non portees (11 mythic, 23 item), 9 portees
-ability-coverage.md`
+# Couverture moteur par KIT (unites lineup)
+
+> Genere par `scripts/python/audit_kit_coverage.py` (kit gameconfig x registres moteur
+> des deux faces). Vue KIT-centrique complementaire de `combat-ability-coverage.md`
 > (par-ability). **Ne jamais fusionner un conflit sur ce fichier : le REGENERER.**
 >
 > Faces : `[CD]` = combat/decision portees, `[--]` = aucune ; `D` couvre les TROIS
@@ -26,7 +26,7 @@ ability-coverage.md`
 - Unites lineup : **127** ; kits COMPLETS (aucun manque detecte) : **94** ; kits avec du travail : **33**
 - Volume total : **33** items manquants (actives no-op + passifs/traits non registres)
 - HORS total — voies conditionnelles : **34** abilities non portees (11 mythiques, 23 reliques equipables)
-- HORS total — faces DECISION non portees : **60** actives sur 138, dont **44** dans des kits declares COMPLETS (38 kits concernes)
+- HORS total — faces DECISION non portees : **55** actives sur 138, dont **40** dans des kits declares COMPLETS (34 kits concernes)
 
 ### Priorite par faction (volume decroissant)
 
@@ -96,7 +96,7 @@ ability-coverage.md`
 
 | unite | manque | actives | passifs manquants | traits de kit manquants |
 |---|---|---|---|---|
-| darkaCompanion | 1 | CalibaniteGreatsword(1189) [C-] OK | EnmityForTheUnworthy | - |
+| darkaCompanion | 1 | CalibaniteGreatsword(1189) [CD] OK | EnmityForTheUnworthy | - |
 | darkaHellblaster | 1 | Supercharge(1103) [CD] OK | GrimRetribution | - |
 
 ### EmperorsChildren — 4 kits, 4 items
@@ -158,7 +158,7 @@ ability-coverage.md`
 | worldExecutions | 1 | MurderousSwing(1137) [CD] OK | TrophyTaker | - |
 | worldJakhal | 1 | JakhalStimms(1131) [C-] OK | Skullsmasher | - |
 
-## HORS total — faces DECISION non portees dans des kits COMPLETS (44)
+## HORS total — faces DECISION non portees dans des kits COMPLETS (40)
 
 > ⚠ **`missing` NE COMPTE QUE LA FACE COMBAT.** Une ability dont l'execution est
 > portee mais dont l'UTILITE de decision ne l'est pas rend `missing = 0` : le kit
@@ -199,11 +199,9 @@ ability-coverage.md`
 | genesPrimus | CultDemagogue | 1179 | SUMMON |
 | necroReanimator | NanoscarabRepairProtocols | 1224 | REPAIR |
 | necroReanimator | ReanimationBeam | 1223 | REPAIR |
-| necroWarden | AdaptiveStrategy | 1005 | EFFECT/BUFF |
 | orksRukkatrukk | SquigLaunchas | 1200 | DAMAGE(Physical) |
 | orksRukkatrukk | SquigMine | 1201 | DAMAGE(Blast) |
 | orksWarboss | Waaagh | 1058 | SUMMON |
-| adeptCanoness | BrazierOfHolyFire | 1041 | DAMAGE(Flame) |
 | adeptExorcist | DevastatingRefrain | 1188 | DAMAGE(Blast) |
 | spaceBlackmane | WarHowl | 1106 | EFFECT/BUFF |
 | spaceRockfist | Foehammer | 1097 | DAMAGE(Power) |
@@ -213,20 +211,18 @@ ability-coverage.md`
 | thousAhriman | Doombolt | 1102 | DAMAGE(Psychic) |
 | tyranBiovore | SporeMineLauncher | 1145 | SUMMON |
 | tyranDeathleaper | FearOfTheUnseen | 1115 | DAMAGE(DirectDamage) |
-| tyranWingedPrime | AlphaWarrior | 1112 | SUMMON |
 | ultraDreadnought | DutyEternal | 1158 | SUMMON |
 | ultraDreadnought | MacroPlasmaIncinerator | 1159 | DAMAGE(Plasma) |
 | ultraInceptorSgt | DeathFromAbove | 1003 | EFFECT/BUFF |
-| ultraTigurius | StormOfWrath | 1019 | DAMAGE(Psychic) |
 | ultraTitus | TacticalPrecision | 1154 | DAMAGE(Bolter) |
 | worldEightbound | OverwhelmingWrath | 1141 | DAMAGE(Eviscerate) |
 
 ## Kits lineup COMPLETS (94)
 
-> ⚠ **COMPLET = face COMBAT complete.** 38 de ces kits portent au moins une active
+> ⚠ **COMPLET = face COMBAT complete.** 34 de ces kits portent au moins une active
 > sans face DECISION (section precedente) — ils sont marques `*` ci-dessous.
 
-adeptCanoness*, adeptExorcist*, adeptMorvenn, admecDominus*, admecMarshall, admecRuststalker, astarCyrus*, astarLysander*, astraBullgryn*, astraCreed, astraOrdnanceBattery*, astraPrimarisPsy, blackAbaddon, blackForgefiend, blackObliterator, blackTerminator, bloodDante, bloodDeathCompany, bloodMephiston, bloodSanguinary*, custoAtlacoya*, custoBladeChampion*, custoTrajann*, custoVexilusPraetor, darkaAsmodai*, darkaAzrael, darkaSternguard*, darkaStormSpeeder*, darkaTerminator, deathBlightbringer, deathBlightlord, deathCrawler*, deathPutrifier, deathRotbone, deathTyphus, eldarAutarch*, eldarFarseer, eldarMauganRa, eldarRanger, emperNoiseMarine*, genesBiophagus, genesKelermorph, genesMagus, genesPatriarch*, genesPrimus*, necroDestroyer, necroOverlord, necroReanimator*, necroSpyder, necroWarden*, orksBigMek, orksKillaKan, orksNob, orksRukkatrukk*, orksRuntherd, orksWarboss*, spaceBlackmane*, spaceRockfist*, spaceStormcaller, spaceWulfen, tauAunShi, tauBroadside*, tauCrisis, tauDarkstrider, tauMarksman, tauShadowsun*, templAggressor, templAncient, templChampion, templHelbrecht*, templSwordBrother*, thousAhriman*, thousInfernalMaster, thousSekhetar, thousSorcerer, thousTerminator, thousTzaangor, tyranBiovore*, tyranDeathleaper*, tyranNeurothrope, tyranParasite, tyranTyrantGuard, tyranWingedPrime*, ultraApothecary, ultraCalgar, ultraDreadnought*, ultraEliminatorSgt, ultraInceptorSgt*, ultraTigurius*, ultraTitus*, votanChampion, worldEightbound*, worldKharn, worldTerminator
+adeptCanoness, adeptExorcist*, adeptMorvenn, admecDominus*, admecMarshall, admecRuststalker, astarCyrus*, astarLysander*, astraBullgryn*, astraCreed, astraOrdnanceBattery*, astraPrimarisPsy, blackAbaddon, blackForgefiend, blackObliterator, blackTerminator, bloodDante, bloodDeathCompany, bloodMephiston, bloodSanguinary*, custoAtlacoya*, custoBladeChampion*, custoTrajann*, custoVexilusPraetor, darkaAsmodai*, darkaAzrael, darkaSternguard*, darkaStormSpeeder*, darkaTerminator, deathBlightbringer, deathBlightlord, deathCrawler*, deathPutrifier, deathRotbone, deathTyphus, eldarAutarch*, eldarFarseer, eldarMauganRa, eldarRanger, emperNoiseMarine*, genesBiophagus, genesKelermorph, genesMagus, genesPatriarch*, genesPrimus*, necroDestroyer, necroOverlord, necroReanimator*, necroSpyder, necroWarden, orksBigMek, orksKillaKan, orksNob, orksRukkatrukk*, orksRuntherd, orksWarboss*, spaceBlackmane*, spaceRockfist*, spaceStormcaller, spaceWulfen, tauAunShi, tauBroadside*, tauCrisis, tauDarkstrider, tauMarksman, tauShadowsun*, templAggressor, templAncient, templChampion, templHelbrecht*, templSwordBrother*, thousAhriman*, thousInfernalMaster, thousSekhetar, thousSorcerer, thousTerminator, thousTzaangor, tyranBiovore*, tyranDeathleaper*, tyranNeurothrope, tyranParasite, tyranTyrantGuard, tyranWingedPrime, ultraApothecary, ultraCalgar, ultraDreadnought*, ultraEliminatorSgt, ultraInceptorSgt*, ultraTigurius, ultraTitus*, votanChampion, worldEightbound*, worldKharn, worldTerminator
 
 ## HORS total — voies conditionnelles (34 abilities non portees)
 

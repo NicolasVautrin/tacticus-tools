@@ -5010,6 +5010,12 @@
     "data/symbols/rnca9r7q6c/frida/enums.tsv"
    ]
   },
+  "tests/engine/test_945_loki_decision_faces_offline.py": {
+   "_at": 1786483443,
+   "_commit": "e9b0f72c1d1154215a5df0048768e59da0152cae",
+   "dirs": [],
+   "temoins": []
+  },
   "tests/engine/test_effect_1582_inertia_binary.py": {
    "_at": 1786392144,
    "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
