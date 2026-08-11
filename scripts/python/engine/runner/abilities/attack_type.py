@@ -221,6 +221,13 @@ ABILITY_ATTACK_TYPE: dict[int, int] = {
     # lot #499/#511 en porte les contre-exemples dans les deux sens). (#605)
     ActiveAbilityType.HellfireShells: AbilityAttackType.DirectTargetAttack,  # 1080
     ActiveAbilityType.ThunderousAssault: AbilityAttackType.DirectTargetAttack,  # 1043
+    # IncendiaryShells (1044) : `...Active.Loki.IncendiaryShellsAbility$$.ctor` recopie les 0x40
+    # octets du preset statique `<TargetingOptions statics>+0x140` -- le MEME que 1080 ci-dessus --
+    # puis `AActiveAbility..ctor(this, &opts, 0)`. Le `0` est LU AU DESASSEMBLAGE (`xor r8d, r8d`
+    # juste avant le `call`), pas au pseudo-C : c'est le seul canal ou un immediat perdu se verrait.
+    # Le preset partage avec 1080 ne dit RIEN de l'attack-type -- 1191/1195 partagent le preset
+    # `+0x40` avec des litteraux `0` et `2`. (#907)
+    ActiveAbilityType.IncendiaryShells: AbilityAttackType.DirectTargetAttack,  # 1044
     # FragstormGrenadeLauncher (1048) : `FragstormGrenadeLauncherAbility$$.ctor` copie le preset
     # `TargetingOptions` statics `+0x180`, appelle la surcharge PRESET+FLAGS puis
     # `AActiveAbility..ctor(this, &opts, 0)` -> litteral `0`. (#489)

@@ -737,16 +737,16 @@ TARGETING_OPTIONS_UNPORTED: "dict[int, TargetingOptions]" = {
     #     PAS des faits de RE -- ils bougent a chaque face COMBAT portee, et c'est pour ca
     #     qu'aucun d'eux n'est ecrit a la main.
     #
-    #     len(TARGETING_OPTIONS_UNPORTED) ......... 8
+    #     len(TARGETING_OPTIONS_UNPORTED) ......... 7
     #       dont hors-bloc (tete de table) ..... 1
-    #       dont bloc du pool (#433-r4) ........ 7
+    #       dont bloc du pool (#433-r4) ........ 6
     #
     #     VENTILATION PAR FORME DE CTOR (dict ENTIER, hors-bloc compris) :
     #       FLAGS-DIRECTS  ..................... 3
     #       PRESET+FLAGS   ..................... 1
     #       PRESET-SEUL    ..................... 0
-    #       STATIC-COPY    ..................... 4
-    #       (somme = 8)
+    #       STATIC-COPY    ..................... 3
+    #       (somme = 7)
     # <<< FIN COMPTES DERIVES
     #
     # LES 16 PRESETS, RELUS A LA SOURCE dans `IdunBattle.Core.Services.TargetingOptions$$.cctor`
@@ -1112,15 +1112,20 @@ TARGETING_OPTIONS_UNPORTED: "dict[int, TargetingOptions]" = {
     # --- STATIC-COPY -- aucun ctor appele : le corps recopie les 0x40 octets d'un preset et passe
     #     la struct telle quelle a `AActiveAbility$$.ctor`. Masque = `<preset>+0x28` du `.cctor`.
     # --------------------------------------------------------------------------------------------
-    # 1044 IncendiaryShells -- `...Active.Loki.IncendiaryShellsAbility$$.ctor`, preset `+0x140`.
-    #   `*(statics+0x168)` = 0x4002 ; `+0x160` = `forceMeleeTarget` = **0** = `RangedBool.True` ;
-    #   range = `<TargetingRange statics+0x18>` = RANGE_FROM_CONFIG. C'est le preset de 1088
-    #   HellfyreMissileRack -- meme masque que 1027/1069 mais `forceMeleeTarget` DIFFERENT.
+    # ⚠ 1044 IncendiaryShells (preset `+0x140`) est SORTIE d'ici en #907, MEME migration que 1080
+    #   juste en dessous : sa face COMBAT est desormais portee, donc son masque vit sur la classe du
+    #   registre (`engine/runner/abilities/blacktemplars.py::IncendiaryShellsAbility.
+    #   TARGETING_OPTIONS`). CONTRAT DE DISJONCTION -- laisser la ligne ici rendrait
+    #   `test_targeting_options_sources` ROUGE pendant que `probe_181` reste VERT.
+    #   Le ctor a ete RELU au decompile ET AU DESASSEMBLAGE avant migration, et la valeur qui vivait
+    #   ici est CONFIRMEE champ pour champ : `*(statics+0x168)` = 0x4002 ; `+0x160` =
+    #   `forceMeleeTarget` = **0** = `RangedBool.True` ; range = `<TargetingRange statics+0x18>` =
+    #   RANGE_FROM_CONFIG. C'est le preset de 1088 HellfyreMissileRack -- meme masque que 1027/1069
+    #   mais `forceMeleeTarget` DIFFERENT. Une 3e source CONCORDE, et elle est LIVE :
+    #   `docs/rl/case-302-4/tile-target-population.json` -> `preset=320`, `rules=16386`.
     # 1080 HellfireShells -- MIGRE (#605) sur `runner/abilities/ultramarines.py::
     #   HellfireShellsAbility.TARGETING_OPTIONS` avec sa face COMBAT. Le masque y est RELU au
     #   decompile (meme preset `+0x140`) et il CONCORDE avec celui qui vivait ici.
-    ActiveAbilityType.IncendiaryShells: TargetingOptions(rules=TR.TargetMatchesDynamicRule | TR.TargetIsEnemy, self_cast=False,  # 1044
-                           range=RANGE_FROM_CONFIG, force_melee_target=RANGED_BOOL_TRUE),
     # 1053 DevoutPush  -- `...Active.Loki.DevoutPushAbility$$.ctor`, preset `+0x40`.
     # 1108 KissOfDeath -- `...Active.Loki.KissOfDeathAbility$$.ctor`, preset `+0x40`.
     #   `*(statics+0x68)` = 0x4000 = `TargetIsEnemy` SEUL ; `+0x60` = 1 = `RangedBool.False` ;

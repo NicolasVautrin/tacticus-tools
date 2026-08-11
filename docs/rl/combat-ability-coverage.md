@@ -9,9 +9,9 @@ Le runner combat route chaque ability choisie via `ActiveAbilityMessage` -> `Abi
 ## Bilan
 
 - ActiveAbilityType castables par les unites : **175** distinct
-- **PORTED** (dans `ABILITY_CLASSES`) : **154**
-- **NO-OP silencieux** (a porter) : **21**
-- Ventilation NO-OP : **DAMAGE**=10, **EFFECT/BUFF**=7, **SUMMON**=4
+- **PORTED** (dans `ABILITY_CLASSES`) : **155**
+- **NO-OP silencieux** (a porter) : **20**
+- Ventilation NO-OP : **DAMAGE**=9, **EFFECT/BUFF**=7, **SUMMON**=4
 
 ## Priorisation & templates de port
 
@@ -30,11 +30,10 @@ Le runner combat route chaque ability choisie via `ActiveAbilityMessage` -> `Abi
 
 Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 
-## NO-OP SILENCIEUX en combat (a porter, tries categorie puis frequence) (21)
+## NO-OP SILENCIEUX en combat (a porter, tries categorie puis frequence) (20)
 
 | id | ability | categorie | #units | kinds |
 |---|---|---|---|---|
-| 1044 | IncendiaryShells | DAMAGE(Flame) | 2 | NS |
 | 1108 | KissOfDeath | DAMAGE(DirectDamage) | 2 | NS |
 | 1015 | PrecisionShot | DAMAGE(Energy) | 2 | NS |
 | 1176 | BlightGrenades | DAMAGE(Toxic) | 1 | N |
@@ -56,7 +55,7 @@ Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 | 1052 | CallRipperSwarms | SUMMON | 1 | N |
 | 1172 | InvocationOfMachineVengeance | SUMMON | 1 | N |
 
-## PORTED (registry) (154)
+## PORTED (registry) (155)
 
 | id | ability | categorie | #units | kinds |
 |---|---|---|---|---|
@@ -115,6 +114,7 @@ Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 | 1147 | HadesAutocannons | DAMAGE(Flame) | 2 | LN |
 | 1214 | Hailstrike | DAMAGE(Projectile) | 2 | LN |
 | 1160 | HeavyRailRifle | DAMAGE(Piercing) | 2 | LN |
+| 1044 | IncendiaryShells | DAMAGE(Flame) | 2 | NS |
 | 1209 | InfernalCannon | DAMAGE(Flame) | 2 | LN |
 | 1131 | JakhalStimms | DAMAGE(Physical) | 2 | LN |
 | 1132 | KillMaimBurn | DAMAGE(Piercing) | 2 | LN |

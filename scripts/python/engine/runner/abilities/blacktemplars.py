@@ -1,5 +1,6 @@
 """Abilities actives des **Black Templars** (prefixe `templ*`) — face EXECUTION (runner/ECS).
 
+- `IncendiaryShells` (1044, `templNeophyte` SUMMON / `templNpc2Neophyte` NPC) — #907.
 - `FragstormGrenadeLauncher` (1048, `templAggressor` « Brother Burchard ») — #489.
 - `CrusadeOfWrath` (1049, `templHelbrecht` « High Marshal Helbrecht ») — bloc dedie ci-dessous (#893).
 - `HolyDuel` (1050, `templChampion` « Brother Jaeger ») — cf. le bloc dedie en bas de module.
@@ -20,7 +21,7 @@ from ...entities.ability_variable_type import AbilityVariableType
 from ...entities.effect_type import EffectType
 from ...entities.effects.magnitude import ability_var
 from ...entities.formulas import Count, StatAmount
-from ...entities.behaviours import If as IfBehaviour, op_add, op_and
+from ...entities.behaviours import AtomicGroup, If as IfBehaviour, op_add, op_and
 from ...entities.selectors.accessors import ActiveTarget, CasterTile, Owner, Target
 from ...entities.selectors.geometry import PickRandomly
 from ...entities.selectors.tiles import Caster
@@ -34,11 +35,13 @@ from ...entities.triggers import AmountIsEqualOrGreater, AmountIsGreaterThanZero
 from ..components import StatsComponent
 from ..operations.damage_prediction_sort import SortTargetsByDamagePrediction
 from .base import ActiveAbility, ability_attack_params
-from .behaviours.combat import ChainLeftOverHitsAttackDamage, UseActiveAbility
+from .behaviours.combat import (AttackWithAttackDamage, ChainLeftOverHitsAttackDamage, InformWeapon,
+                                UseActiveAbility)
 from .behaviours.context import entities_from_state
 from .behaviours.effects import AddBondEffect, AddEffect, AddStaticStatModifierEffect
 from .behaviours.stats import ChangeStat
-from .targeting import (RANGE_ADJACENT, RANGE_FROM_CONFIG, RANGED_BOOL_FALSE, TargetingOptions)
+from .targeting import (RANGE_ADJACENT, RANGE_FROM_CONFIG, RANGED_BOOL_FALSE, RANGED_BOOL_TRUE,
+                        TargetingOptions)
 from .targeting_rule import TargetingRule as TR
 from ...entities.unit_selection_type import UnitSelectionType
 
@@ -50,6 +53,191 @@ SELECTION = int(UnitSelectionType.OnlyAliveAndTargetable)     # 3
 
 if TYPE_CHECKING:                       # pragma: no cover
     from ..state import State
+
+
+# =================================================================================================== #
+# IncendiaryShells (1044, `templNeophyte` SUMMON / `templNpc2Neophyte` NPC -- Black Templars)   #907 #
+# =================================================================================================== #
+# `IdunBattleLogic.Entities.Abilities.Active.Loki.IncendiaryShellsAbility$$ExecuteBehaviour` (MIRROR du
+# DECOMPILE, build `rnca9r7q6c`) -- UN SEUL noeud terminal, passe a `AActiveAbility$$ExecuteAtomic` :
+#
+#   hits    = AbilityConfiguration.GetNumberConstant(config@this+0x60, **0x2f** = nrOfHits)   -> 3
+#   minDmg  = AbilityConfiguration.GetVariableForLevel(config, **0xc** = minDmg,  AbilityState, 0)
+#   maxDmg  = AbilityConfiguration.GetVariableForLevel(config, **0xd** = maxDmg,  AbilityState, 0)
+#   dmg     = DSLFormulas.RandomAmount(minDmg, maxDmg)
+#   profile = AbilityConfiguration.GetDamageProfile(config)   # Nullable<DamageProfileType> -> Flame
+#
+#   [A] atk    = DSLBehaviors.AttackWithAttackDamage(
+#                    caster          = Caster@DSLSelectors+0x48,
+#                    target          = Target@DSLSelectors+0x60,
+#                    amount          = dmg,
+#                    damageProfile   = profile,
+#                    hits            = hits,                  # surcharge `hits:System.Int32`
+#                    abilityOrEffect = AbilityOrEffect(this+0x10),
+#                    options         = Nullable<AttackDamageBehaviourOptions> **VIDE** (HasValue = 0),
+#                    selectionType   = **2** = UnitSelectionType.OnlyTargetable)
+#   [B] inform = DSLBehaviors.InformWeapon(damageProfileType = profile, isMelee = **0**,
+#                                          useSpecial = **0**)
+#
+#   AActiveAbility.ExecuteAtomic(this, [B] op_BitwiseAnd [A], entities,
+#                                groupType = **0x51** = GroupType.IncendiarySheels_AtomicGroup)
+#
+# i2 mot a mot (`Abilities/IncendiaryShells_CurrentLevelDescription`) : « Fires the Astartes shotgun at
+# an enemy within 2 hexes, dealing 3x 1892-2183 Flame Damage. » -- appariement UN A UN : `2 hexes` =
+# `GetNumberConstant(0x16 = range)` du gameconfig (lu par le GATE, pas par l'arbre), `3x` = `nrOfHits`,
+# `1892-2183` = `minDmg[50]`/`maxDmg[50]`, `Flame` = `constants.damageProfile`.
+#
+# LA CATEGORIE ANNONCEE EST JUSTE, ET C'EST UNE COINCIDENCE A NOMMER : `docs/rl/
+# combat-ability-coverage.md` classe 1044 en `DAMAGE(Flame)`, colonne DERIVEE du `damageProfile` de
+# l'ARME du porteur. Or `templNeophyte` ne porte AUCUNE arme Flame (gameconfig : melee `Physical`
+# 1 coup, ranged `Projectile` portee 2, 2 coups) : le `Flame` vient de `abilities.IncendiaryShells.
+# constants.damageProfile`, que le natif lit par `GetDamageProfile(config)`. La colonne tombe juste
+# parce que l'audit lit AUSSI la config d'ability quand elle en porte une -- pas parce que l'arme le
+# dirait. Verifie au decompile, pas herite.
+#
+# `AActiveAbility$$MinMaxDamage(this, abilityState, isPrediction: 0)` construit EXACTEMENT
+# `RandomAmount(GetVariableForLevel(0xc), GetVariableForLevel(0xd))` -- ce que `ExecuteBehaviour`
+# recopie INLINE ici. Le mode « bornes » de la feuille (`ability_attack_params`, aucun `amount`) est
+# donc le mirror exact, comme pour `FlailSwing` / `Fragstorm`. (La branche `isPrediction: 1` du meme
+# natif rend `Half(Sum(Direct(min), Direct(max)))` = la MOYENNE, et c'est la face DECISION, pas
+# celle-ci.)
+#
+# `IncendiaryShellsAbility$$GetDamageRange` est la SURCHARGE de prediction (face DECISION, hors de
+# cette tranche) et elle DIVERGE de `MinMaxDamage` : `random: 0` -> `Divide(Sum(Get(min), Get(max)),
+# Get(2))`, `random: 1` -> `RandomAmount(min, max)`. Elle n'est appelee par AUCUN noeud de l'arbre
+# d'execution ci-dessus -- ne pas la router ici.
+#
+# ORDRE (`op_BitwiseAnd` -> `CombinedBehaviour`, evalue a GAUCHE d'abord) : [B] `InformWeapon` PUIS
+# [A] l'attaque. `InformWeapon` est COMBAT-INERTE (tags de flux, 0 tirage, 0 mutation) -> l'ordre
+# `state.rng` de l'attaque est celui d'une attaque d'ability nue : bit-exact BY CONSTRUCTION.
+# =================================================================================================== #
+
+INCENDIARY_SHELLS_ID = "IncendiaryShells"
+INCENDIARY_SHELLS_PROFILE = "Flame"      # `AbilityConfiguration$$GetDamageProfile` (gameconfig)
+
+
+def incendiary_shells_tree() -> AtomicGroup:
+    """Arbre de `IdunBattleLogic.Entities.Abilities.Active.Loki.IncendiaryShellsAbility$$
+    ExecuteBehaviour` -- MIRROR 1:1 du bloc ci-dessus.
+
+    `AtomicGroup` porte le `AActiveAbility$$ExecuteAtomic(..., groupType)` : le natif emballe le
+    `op_BitwiseAnd` dans `DSLBehaviors$$AtomicGroup(groupType, <lambda>, ...)` (LU dans
+    `IdunBattle.Entities.Abilities.AActiveAbility$$ExecuteAtomic`), la ou `FlailSwing` passe son
+    `op_BitwiseAnd` DIRECTEMENT a `AActiveAbility$$Execute`. Cote port le groupe est un
+    pass-through d'execution (RE #201) -- il est ecrit pour le MIRROR STRUCTUREL.
+
+    `native_factory` reste le defaut `"attack"` : la callee est litteralement
+    `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAttackDamage` (surcharge
+    `damageProfile:System.Nullable<DamageProfileType>, hits:System.Int32` -- tranchee par le TYPE DE
+    RETOUR de `IdunBattle.Configuration.AbilityConfiguration$$GetDamageProfile`, qui est
+    `System.Nullable<IdunBattle.Entities.Enum.DamageProfileType>` dans `frida/methods.tsv`, et par le
+    fait que `hits` arrive d'un `GetNumberConstant` scalaire -- JAMAIS
+    `DSLBehaviors$$AttackWithAbilityDamage`). Donc 2 tirages/coup a `cc=0`, comme l'imperatif.
+
+    ⚠ **LES DEUX `isMelee` DE CET ARBRE NE SONT PAS LE MEME OBJET, ET LEUR VALEUR DIFFERE.**
+      * `InformWeapon(profile, isMelee: **0**, useSpecial: **0**)` -- un LITTERAL de call-site, LU au
+        decompile. Il alimente le tag de flux `TagKey.Attack_Weapon_IsMelee`. Il vaut donc `False`,
+        et rien d'autre.
+      * `AttackWithAttackDamage(..., is_melee=...)` -- ce parametre-la ne mirror AUCUN argument du
+        call-site : il mirror `IdunBattle.Core.Services.BattleQuery$$IsMeleeAttack`, que le natif
+        DERIVE de `GetAbilityAttackRangeType` sur l'`AbilityOrEffect` du coup. Or **la config 1044
+        n'a PAS d'`attackRangeType`** (gameconfig : `id`/`upgrades`/`variables`/`constants`/
+        `variablesAffectedByRarityBonus`, et rien d'autre) -- contraste MESURE avec ses quatre
+        voisines de patron, toutes `Ranged` : 1048 Fragstorm, 1080 HellfireShells, 1051 Stikkbomb,
+        1098 PlasmaGrenade. `rangeType = 0` (absent) rend `IsMeleeAttack` **ET** `IsRangedAttack`
+        FAUX : la nature du coup est NON DECLAREE -> `is_melee=None`, la convention deja posee par
+        `1168 EntropyCannons` (`deathguard.py`).
+    ⚠ Ecrire `is_melee=False` ici n'est PAS un synonyme prudent de `None` : le port lit le tri-etat
+    (`c.get("is_melee") is not False` dans `BigTargetAdjacentEffect.create_aura_hits_malus_for_defense`),
+    donc un booleen ARME les gates `IsRangedAttack` que le natif laisse muets. MESURE (#907, montage
+    `melee`, cible `eldarRanger` avec `astraBullgryn` -- trait `BigTarget` -- adjacent) : le port
+    rendait **2** coups la ou le natif en rend **3**, le `-1` d'aura de `BigTargetAdjacentEffect`
+    (`ForAdditionWithMinimum(OwnerIsTarget & IsRangedAttack, Direct(-1), min=1)`) s'appliquant a
+    tort. `None` restaure l'accord 3/3.
+
+    ⚠ `selectionType = OnlyTargetable` (2, et non le `3` OnlyAliveAndTargetable du reste du module)
+    n'est PAS materialise : la feuille du port collapse le selecteur mono-cible sur `ctx.target`
+    (cf. sa docstring). Sans effet observable ici -- la cible du message est vivante par
+    construction -- mais c'est un ECART NOMME, pas un oubli."""
+    return AtomicGroup(op_and(
+        # `op_BitwiseAnd` volet GAUCHE : execute EN PREMIER.
+        InformWeapon(INCENDIARY_SHELLS_PROFILE, is_melee=False, use_special=False),
+        AttackWithAttackDamage(Target(), INCENDIARY_SHELLS_ID, INCENDIARY_SHELLS_PROFILE,
+                               is_melee=None,     # `attackRangeType` ABSENT -> nature NON declaree
+                               # `abilityOrEffect = AbilityOrEffect(this+0x10)` -- LU au call-site.
+                               ability_type=int(ActiveAbilityType.IncendiaryShells))))
+
+
+class IncendiaryShellsAbility(ActiveAbility):
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.IncendiaryShellsAbility$$ExecuteBehaviour`
+    (id 1044). Porteurs : `templNeophyte` (SUMMON, trait `Summon`) et `templNpc2Neophyte` (NPC) --
+    deux Neophytes Black Templars au MEME kit d'armes.
+
+    Attaque RANGEE MONO-CIBLE : 3 coups `Flame` sur la cible du message, bornes `minDmg`/`maxDmg`
+    au niveau de l'ability. PAS de splash, PAS de report de coups, PAS d'effet, PAS de move.
+    Termine le tour (1044 hors des deux frozensets de `base.py`).
+
+    Le seul autre noeud de l'arbre est `InformWeapon` (tags de flux `Attack_Weapon_DamageProfile` /
+    `Attack_Weapon_IsMelee`), COMBAT-INERTE : aucune Operation mutante, aucun tirage.
+
+    Renvoie {ability, caster, target, attack, informed_weapon, dsl}."""
+
+    __slots__ = ()
+    ABILITY_TYPE = int(ActiveAbilityType.IncendiaryShells)    # 1044
+    ABILITY_ID = INCENDIARY_SHELLS_ID
+
+    # GATE DE CIBLE (#907). `...IncendiaryShellsAbility$$.ctor` est de la forme **STATIC-COPY** (la 3e
+    # des six) : il n'appelle AUCUN `IdunBattle.Core.Services.TargetingOptions$$.ctor`. Il recopie les
+    # 0x40 octets du champ STATIQUE `IdunBattle.Core.Services.TargetingOptions` statics `+0x140` puis
+    #     AActiveAbility..ctor(this, &opts, 0)          # 3e arg = 0 = DirectTargetAttack
+    # LU AU DESASSEMBLAGE, pas au pseudo-C : `movups xmm0,[rax+0x140]` ... `movups xmm1,[rax+0x170]`
+    # (quatre paires 16 octets = le preset ENTIER), precede de `xor r9d,r9d` / `xor r8d,r8d` -- ce
+    # dernier EST le litteral d'`AbilityAttackType`.
+    # Le preset `+0x140` est LU dans `IdunBattle.Core.Services.TargetingOptions$$.cctor` :
+    #     +0x140 isSelfCasting    = 0
+    #     +0x148 range            <- `TargetingRange` statics `+0x18` = RANGE_FROM_CONFIG -> range = 2
+    #     +0x160 forceMeleeTarget = **0** = `RangedBool.True`
+    #     +0x168 rules            = 0x4002
+    # Decomposition EXHAUSTIVE (`IdunBattle.Core.Services.TargetingRule`) :
+    #     0x2     TargetMatchesDynamicRule  -> `GetDynamicInvalidTargetReason` non surchargee ici
+    #                                          -> defaut 0 (degradation PERMISSIVE assumee)
+    #     0x4000  TargetIsEnemy             -> PORTE
+    # 0x2 + 0x4000 = 0x4002 : la somme est EXACTE, aucun bit residuel.
+    # CONFIRMATION INDEPENDANTE (mesure LIVE, pas ghidra) : `docs/rl/case-302-4/
+    # tile-target-population.json` ligne 1044 -> `state=measured`, `form=static-copy`,
+    # `preset=320` (= 0x140), `rules=16386` (= 0x4002).
+    # ⚠ MEME MASQUE, PRESET DIFFERENT : `1053 DevoutPush` (preset `+0x40`) vaut `0x4000` et
+    # `RANGE_ADJACENT` ; et le voisin `+0x180` (1048 Fragstorm) porte le MEME `0x4002` avec
+    # `forceMeleeTarget = 1`. Ici c'est **0** = `RangedBool.True` -> `TargetingQuery$$GetRange` rabat
+    # la portee a 1 au contact. Recopier le masque d'une voisine aurait donne le bon `rules` et la
+    # mauvaise PORTEE.
+    TARGETING_OPTIONS = TargetingOptions(rules=TR.TargetMatchesDynamicRule | TR.TargetIsEnemy,
+                                         self_cast=False,
+                                         range=RANGE_FROM_CONFIG,
+                                         force_melee_target=RANGED_BOOL_TRUE)
+
+    # `AbilityAttackType` = 3e argument d'`IdunBattle.Entities.Abilities.AActiveAbility$$.ctor` = `0`
+    # (`DirectTargetAttack`), LU au desassemblage du ctor (`xor r8d, r8d`) -> transcrit dans la table
+    # `ABILITY_ATTACK_TYPE` (`abilities/attack_type.py`), qui est le registre de cette donnee.
+
+    def execute_behaviour(self, state: "State", caster_id: int,
+                          target_id: Optional[int]) -> Optional[dict]:
+        if target_id is None:
+            return None
+        ectx = ExecutionContext(state=state, rng=state.rng)
+        incendiary_shells_tree().execute(entities_from_state(state, caster_id, target_id), ectx)
+        atk = next((p["attack"] for n, p in ectx.emitted if n == "AttackWithAttackDamage"), None)
+        informed = next((p.get("profile") for n, p in ectx.emitted if n == "InformWeapon"), None)
+        return {"ability": INCENDIARY_SHELLS_ID, "caster": caster_id, "target": target_id,
+                "attack": atk, "informed_weapon": informed, "dsl": True}
+
+
+# Les trois cles de config LUES au decompile de 1044, nommees (regle « un entier qui DESIGNE passe par
+# un ENUM »). ⚠ QUALIFICATION : `0xc`/`0xd` sont des `AbilityVariableType` -- type DECLARE du 1er
+# parametre d'`AbilityConfiguration$$GetVariableForLevel` -- et `0x2f` un `AbilityConstantType`
+# (`GetNumberConstant`). Les deux jeux d'ordinaux se croisent et la confusion serait SILENCIEUSE.
+assert int(AbilityVariableType.minDmg) == 0x0C and int(AbilityVariableType.maxDmg) == 0x0D
+assert int(AbilityConstantType.nrOfHits) == 0x2F
 
 
 # ================== FragstormGrenadeLauncher (templAggressor, actif 1048) -- #489 =================
