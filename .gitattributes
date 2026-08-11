@@ -13,3 +13,12 @@ data/symbols/**/BUILD  text eol=lf
 # diff limite aux fins de ligne (#326). Un document genere doit etre re-derivable A L'IDENTIQUE :
 # un `git status` propre apres regeneration est la seule preuve qu'il l'est.
 docs/rl/dsl-primitive-leverage.md text eol=lf
+# #895 : `index-foyers.md` est le SECOND document genere sous ratchet d'identite BYTE-A-BYTE
+# (`test_603_index_foyers_offline.py` etage 5 compare `INDEX.read_bytes()` a ce qu'ecrit
+# `probe_603_index_foyers.ecrire_index`, qui ouvre en `newline="\n"`). Sans cette ligne, la regle
+# ci-dessus le manquait : le blob est LF, le checkout Windows (`core.autocrlf=true`) le rend en
+# CRLF, et l'etage 5 ROUGIT dans TOUT worktree frais alors que `git diff` du fichier est VIDE.
+# MESURE (#895) : rouge sur un worktree fraichement rebase sur `origin/master`, `git diff` sans
+# aucune ligne de contenu, `probe_603 --index` re-ecrivant un fichier BIT POUR BIT identique au
+# blob. Le rouge accusait donc l'OUTIL, pas le contenu.
+docs/rl/index-foyers.md          text eol=lf
