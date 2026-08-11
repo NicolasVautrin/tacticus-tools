@@ -1102,9 +1102,33 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
         if state is not None:
             att_ctx.update(AttackDamageOperation._crit_board(state, att_id, tgt_id))
             carriers = AttackDamageOperation._crit_carriers(state, att_id, attacker_effects, tgt_id)
-        cc = ctx.stat(StatType.CRIT_CHANCE) + crit_chance_bonus_from_effects(carriers, att_ctx)
-        cd = ctx.stat(StatType.CRIT_DAMAGE) + crit_damage_bonus_from_effects(carriers, att_ctx)
-        return cc, cd, could_crit(cc, cd)
+        # #950 -- `CouldCrit` LIT LES STATS BRUTES, ET LA CRIT-DAMAGE EST CLAMPEE A 0. Les deux
+        # lectures sont relues VERBATIM sur `rnca9r7q6c`, et elles ne sont PAS interchangeables :
+        #
+        #   `IdunBattle.Core.Services.DamageCalculations$$CouldCrit(attacker)`
+        #       = `GetStat(9) > 0 && GetStat(10) > 0`   -- les STATS de l'attaquant, AUCUN bonus
+        #         d'effet ne l'atteint (la fonction ne prend QUE l'attaquant en argument) ;
+        #   `IdunBattle.Core.Services.DamagePrediction$$RollCritical`
+        #       = `cc = GetStat(9) + GetCritChanceBonusFromEffects(...)` puis
+        #         `if (cc < 0) false ; if (cc >= 101) cc = 100 ; if (cc < 1) false ; NextBool(cc)`
+        #         -- la SEULE grandeur post-bonus qui puisse supprimer le TIRAGE est la CHANCE ;
+        #   `IdunBattle.Core.Services.DamagePrediction$$CalculateCriticalDamage`
+        #       = `System.Math.Max(0, GetStat(10) + GetCritDamageBonusFromEffects(...))`.
+        #
+        # Le port evaluait `could_crit(cc, cd)` sur les valeurs POST-BONUS : une reduction de
+        # crit-DEGAT assez grande pour rendre `cd <= 0` y SUPPRIMAIT le tirage, donc DESYNCHRONISAIT
+        # le flux PRNG de toute l'attaque (un `NextBool` de moins par coup) -- pas seulement le degat.
+        # Le gisement etait INATTEIGNABLE tant qu'aucun effet porte ne poussait `cd` sous zero ;
+        # `ToughToKill` (1472) le fait (`critDmgReduction[50] x 160 % = 1330` contre un
+        # `GetStat(10) = 700`). MESURE (probe_950, bras `ttk`) : natif `[1619, 1789, 1355, 1624,
+        # 1215, 1352]` avec `Attack_DidCrit = 1` sur les deux premiers coups, port
+        # `[1415, 1619, 1515, 1789, 1397, 1355]` -- SIX coups divergents, dont l'ORDRE trahit le
+        # decalage de flux. Apres correctif : egalite a l'unite.
+        _cc_stat = ctx.stat(StatType.CRIT_CHANCE)
+        _cd_stat = ctx.stat(StatType.CRIT_DAMAGE)
+        cc = _cc_stat + crit_chance_bonus_from_effects(carriers, att_ctx)
+        cd = max(0, _cd_stat + crit_damage_bonus_from_effects(carriers, att_ctx))
+        return cc, cd, could_crit(_cc_stat, _cd_stat)
 
     @staticmethod
     def _crit_board(state: State, att_id, tgt_id) -> dict:
