@@ -56,6 +56,16 @@ from ..loki.wireweave_net import (WireweaveNetCounterAttack,          # #366-r1b
                                   WireweaveNetActivateOnOwnerTurnEnd,
                                   WireweaveNetDeactivateOnOwnerTurnStart,
                                   WIREWEAVE_NET_COUNTER_ATTACK)
+from ..loki.grim_retribution import (GrimRetributionCounterAttack,    # #946 (passif darkaHellblaster)
+                                     GrimRetributionActivateOnEnemyTurnStart,
+                                     GrimRetributionDeactivateOnEnemyTurnEnd,
+                                     GRIM_RETRIBUTION_COUNTER_ATTACK)
+from ..loki.unwavering_sentinel import (UnwaveringSentinelCounterAttack,   # #946 (passif custoKyrus)
+                                        UnwaveringSentinelCustomAbility,
+                                        UnwaveringSentinelActivateOnEnemyTurnStart,
+                                        UnwaveringSentinelDeactivateOnEnemyTurnEnd,
+                                        UNWAVERING_SENTINEL_COUNTER_ATTACK,
+                                        UNWAVERING_SENTINEL_ABILITY)
 from ..loki.master_of_the_tutelaries import (MasterOfTheTutelariesSummonAbility,   # #202-C (triggered 1173)
                                             MASTER_EFFECT as MASTEROFTUTELARIES_EFFECT)
 from ..loki.tainted_narthecium import TaintedNartheciumReviveAbility  # case-66 (passif deathRotbone, revive)
@@ -1018,6 +1028,15 @@ CUSTOM_TRIGGERED_ABILITIES: dict[int, list[type[TriggeredAbility]]] = {
     # re-declenchement re-evalue le selecteur a l'etat COURANT ; si la tuile est toujours prise, le
     # `Spawn` est un no-op et seul l'`AddPersistentData` mord. Cf. loki/haywire_mine.py.
     HAYWIRE_MINE_ID: [HaywireMineCustomAbility],
+    # 1449 UnwaveringSentinel (#946) : la branche `triggerType == 0x20 = Custom` de
+    # `UnwaveringSentinelAbility$$CreateBehaviour` = `IfAlive(Caster, AttackWithAttackDamage(Owner ->
+    # Caster, MinMaxDamage(abilityState), GetDamageProfile(), GetHits()))`. Elle est armee par le
+    # `TriggerAbilityDelayed(Owner, 0x5a9, OnlyAliveAndTargetable)` que le `GetCounterAttackBehaviour`
+    # de l'EFFET 1439 pose sur `On(0x9 = Attack)`. Le litteral `0x20` du re-declenchement est LU
+    # (dernier argument de l'appel au slot 4 dans
+    # `IdunBattle.Operations.TriggerTriggeredAbilityOperation$$TriggerAbility`), pas deduit.
+    # cf. loki/unwavering_sentinel.py.
+    UNWAVERING_SENTINEL_ABILITY: [UnwaveringSentinelCustomAbility],
 }
 
 # --- Registre : effectType → effet-trigger(s) ------------------------------------------------------
@@ -1055,6 +1074,22 @@ EFFECT_TRIGGERS: dict[int, list[type[EffectTrigger]]] = {
     WIREWEAVE_NET_COUNTER_ATTACK: [WireweaveNetCounterAttack,                  # On(0x2a = PreUnitAbility) -> la RIPOSTE
                                    WireweaveNetDeactivateOnOwnerTurnStart,     # On(0x12) -> DeactivateEffect
                                    WireweaveNetActivateOnOwnerTurnEnd],        # On(0x17) -> ActivateEffect
+    # 1213 GrimRetribution_CounterAttack (passif `darkaHellblaster` <<Sarquael>>, #946) : MEME famille
+    # que 1111 ci-dessus, mais `activationFrequency = 1` -- donc la paire de `Triggered()` est
+    # l'INVERSE (armement au DEBUT de chaque tour ENNEMI, desarmement a sa FIN => une riposte PAR TOUR
+    # ennemi, non une par cycle), et le trigger de riposte est `On(0x9 = Attack)`, pas
+    # `On(0x2a = PreUnitAbility)` : le coup adverse a deja porte quand Sarquael riposte.
+    # cf. loki/grim_retribution.py.
+    GRIM_RETRIBUTION_COUNTER_ATTACK: [GrimRetributionCounterAttack,             # On(0x9)  -> la RIPOSTE
+                                      GrimRetributionActivateOnEnemyTurnStart,  # On(0x12) -> ActivateEffect
+                                      GrimRetributionDeactivateOnEnemyTurnEnd], # On(0x17) -> DeactivateEffect
+    # 1439 UnwaveringSentinel_CounterAttack (passif `custoKyrus` <<Tyrith>>, #946) : MEME fenetre
+    # d'armement que 1213, mais le behaviour de riposte n'attaque PAS -- il ENFILE un
+    # `TriggerAbilityDelayed(Owner, 1449, OnlyAliveAndTargetable)`. Le degat tombe au drain, dans
+    # `CUSTOM_TRIGGERED_ABILITIES[1449]`. cf. loki/unwavering_sentinel.py.
+    UNWAVERING_SENTINEL_COUNTER_ATTACK: [UnwaveringSentinelCounterAttack,             # On(0x9)  -> ENFILE
+                                         UnwaveringSentinelActivateOnEnemyTurnStart,  # On(0x12) -> ActivateEffect
+                                         UnwaveringSentinelDeactivateOnEnemyTurnEnd], # On(0x17) -> DeactivateEffect
     # 1147 TerminatorArmour_ReduceDmg (trait `TerminatorArmour`, **44 porteurs**) : la REDUCTION
     # (-75 %, gate profil) vivait deja dans `entities/effects/loki/damage_reduction.py`, mais SANS
     # son cycle -- donc armee en permanence, alors que l'i2 dit « the FIRST attack each turn ». Les

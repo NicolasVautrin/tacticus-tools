@@ -149,64 +149,33 @@ from ..base import EffectTrigger, TriggerEvent, _is_adjacent_units
 from .....dsl.effects import ExecutionContext
 from ....abilities.behaviours.combat import AttackWithAttackDamage
 from ....abilities.behaviours.context import entities_from_state
+from . import counter_attack as _ca     # forme B (cf. la note au-dessus des quatre delegations)
 
 WIREWEAVE_NET_COUNTER_ATTACK = int(EffectType.WireweaveNet_CounterAttack)   # 0x457 = 1111
 WIREWEAVE_NET = "WireweaveNet"          # nom gameconfig de l'ability SOURCE (passif d'`eldarRanger`)
 _PROFILE = "Piercing"                   # `GetDamageProfile(cfg)` -> constants.damageProfile
 
 
+#: Les QUATRE lectures/ecritures de la BASE `PlayerTurnEffect` vivent depuis #946 dans le foyer
+#: PARTAGE `loki/counter_attack.py` (elles sont identiques pour les trois membres portes de la
+#: famille, parce qu'elles n'appartiennent a AUCUN d'eux). Liaison en forme B (`import <module>` puis
+#: acces attributaire) et non `from <module> import <nom>` : un binding de module n'est jamais gele,
+#: donc un `monkeypatch.setattr("...counter_attack.set_active", ...)` MORD ici -- ce qu'une liaison
+#: par nom desarmerait silencieusement.
 def _instances(state: State, owner_id: int) -> list:
-    """Les instances 1111 NON consommees portees par `owner_id` — les entites-effet dont les
-    `Triggered()` de `PlayerTurnEffect$$CreateHandleTriggerAbilitiesInternal` ecrivent
-    `EffectComponent.IsActive @+0x5c` (`e.active`). Liste et non instance unique parce que le natif
-    raisonne PAR ENTITE-EFFET ; en pratique `AddEffectOperation` no-ope sur un meme-type deja
-    present, donc il y en a 0 ou 1."""
-    if state.effects is None:
-        return []
-    return [e for e in state.effects.by_unit.get(int(owner_id), [])
-            if not e.consumed and e.effect_type == WIREWEAVE_NET_COUNTER_ATTACK]
+    return _ca.instances(state, owner_id, WIREWEAVE_NET_COUNTER_ATTACK)
 
 
 def _flag_is_set(state: State, owner_id: int) -> bool:
-    """Le flag `EffectComponent.IsActive @+0x5c` de l'instance — mirror EXACT du gate que
-    `IdunBattle.Operations.EvaluateTriggerOperation$$EvaluateEffectTriggerTargets` applique AVANT
-    d'evaluer le trigger de CIBLE. Aucune instance -> True (degradation PERMISSIVE : on ne fabrique
-    pas un refus ; si l'effet est reellement absent, `collect_effect_triggers` n'aura instancie aucun
-    trigger). MEME convention que `_ranged_auto_attack_flag_is_set` (#127)."""
-    insts = _instances(state, owner_id)
-    return (not insts) or any(e.active for e in insts)
+    return _ca.flag_is_set(state, owner_id, WIREWEAVE_NET_COUNTER_ATTACK)
 
 
 def _set_active(state: State, owner_id: int, value: bool) -> bool:
-    """Ecrit `EffectComponent.IsActive @+0x5c` — mirror de
-    `IdunBattle.Operations.RefreshEffectsOperation$$ActivateEffect` (`+0x5c = 1`) /
-    `$$DeactivateEffect` (`+0x5c = 0`, precede du gate « deja inactif -> no-op »). Renvoie True si un
-    flag a CHANGE (permet de ne rien emettre quand l'ecriture est un no-op, comme le natif)."""
-    changed = False
-    for e in _instances(state, owner_id):
-        if bool(e.active) != bool(value):
-            e.active = bool(value)
-            changed = True
-    return changed
+    return _ca.set_active(state, owner_id, WIREWEAVE_NET_COUNTER_ATTACK, value)
 
 
 def _is_turn_of_owner(state: State, owner_id: int, ev: Optional[TriggerEvent] = None) -> Optional[bool]:
-    """`<DSLTriggers+0x28>` = `IsTurnOf(Owner@<DSLSelectors+0x30>)`. Le joueur courant est
-    `state.current_player_id` ; sur les vecteurs de tour (`On(0x12)`/`On(0x17)`) le port threade en
-    plus `ev.player_id` — on le prefere quand il est renseigne, c'est le joueur que le natif a dans
-    `MatchState` a l'instant de l'evenement. None = indeterminable (aucun tour courant)."""
-    pid = None
-    if ev is not None and getattr(ev, "player_id", None) is not None:
-        pid = int(ev.player_id)
-    elif state.current_player_id is not None:
-        pid = int(state.current_player_id)
-    if pid is None:
-        return None
-    ow = state.get_entity(owner_id)
-    oc = ow.get_component(OwnerComponent) if ow is not None else None
-    if oc is None or oc.player is None:
-        return None
-    return int(oc.player) == pid
+    return _ca.is_turn_of_owner(state, owner_id, ev)
 
 
 def wireweave_net_tree():

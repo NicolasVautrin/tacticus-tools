@@ -1280,13 +1280,19 @@ class ValidNormalAttackTargets(TargetsSelector):
         [overrides range / ignoreRule / additionalRule]
         return targetingQuery.<slot 2>(u, tiles, opts, false).Targets
 
-    Les TROIS overrides sont a `null` / `Nullable` VIDE aux deux call-sites lus
-    (`IdunBattleLogic.Entities.Abilities.Active.Loki.SorcerousFacadeAbility$$GetTarget` et son
-    `$$ExecuteBehaviour`, `IdunBattle.Entities.Effects.Loki.FearedInterrogator_TargetEffect$$
-    CreateTargetSelector`) -> ce noeud ne les modelise pas (les ajouter sans call-site serait
-    speculatif ; le jour ou un call-site les pose, ils entrent ICI, pas dans un fork). Verifie une
-    troisieme fois sur `...Loki.UnbreakableDutyAbility$$ExecuteBehaviour` (#572) : `range = 0`,
-    `ignoreRule`/`additionalRule` = deux `Nullable` ZEROEES sur la pile.
+    Les DEUX `Nullable<TargetingRule>` (`ignoreRule` / `additionalRule`) sont VIDES a TOUS les
+    call-sites lus (`IdunBattleLogic.Entities.Abilities.Active.Loki.SorcerousFacadeAbility$$GetTarget`
+    et son `$$ExecuteBehaviour`, `IdunBattle.Entities.Effects.Loki.FearedInterrogator_TargetEffect$$
+    CreateTargetSelector`, `...Loki.UnbreakableDutyAbility$$ExecuteBehaviour` #572) -> ce noeud ne les
+    modelise pas ; les ajouter sans call-site serait speculatif.
+
+    `range` L'EST, et ce module avait ecrit « le jour ou un call-site les pose, ils entrent ICI, pas
+    dans un fork » : ce jour est #946.
+    `IdunBattle.Entities.Effects.Loki.UnwaveringSentinel_CounterAttackEffect$$GetCounterAttackCondition`
+    passe `DSLFormulas$$Direct(GetNumberConstant(cfg, AbilityConstantType.range))`. C'est donc un
+    `IAmountFormula` (le port accepte un `AAmountFormula` ou un `int`), et le bloc natif qu'il arme
+    fait AUSSI `opts.rules &= ~TargetMatchesDynamicRule` -- les deux ecritures vivent dans le foyer
+    unique `runner/abilities/targeting.valid_normal_attack_targets`, pas ici.
 
     ⚠ **`unit` peut etre un selecteur de TUILE, et le natif le resout en son OCCUPANT.** Les trois
     call-sites LUS ne s'accordent PAS sur le domaine : `SorcerousFacadeAbility$$GetTarget` passe
@@ -1308,8 +1314,8 @@ class ValidNormalAttackTargets(TargetsSelector):
     `unit_tile` est accepte pour le MIRROR STRUCTUREL de la signature native ; le port mesure la
     portee depuis la position REELLE de `unit` (cf. `valid_normal_attack_targets`), ce qui est exact
     au seul call-site COMBAT porte -- le cast part de la tuile courante du caster."""
-    def __init__(self, unit: TargetsSelector, unit_tile: TargetsSelector = None):
-        self.unit, self.unit_tile = unit, unit_tile
+    def __init__(self, unit: TargetsSelector, unit_tile: TargetsSelector = None, range=None):
+        self.unit, self.unit_tile, self.range = unit, unit_tile, range
 
     def select(self, ctx):
         fn = getattr(ctx, "valid_normal_attack_targets", None)
@@ -1326,7 +1332,15 @@ class ValidNormalAttackTargets(TargetsSelector):
                     break
         if u is None:                                  # mirror `unit == null -> liste VIDE`
             return []
-        return list(fn(u) or [])
+        if self.range is None:                         # `rangeSel@+0x28 == null` : aucun override
+            return list(fn(u) or [])
+        # `rangeSel != null` -> le natif EVALUE la formule puis arme `CustomRange(<valeur>)`. Un `int`
+        # nu est accepte pour les tests de noeud ; un `AAmountFormula` passe par `calculate(ctx)`,
+        # comme partout ailleurs.
+        r = self.range.calculate(ctx) if hasattr(self.range, "calculate") else self.range
+        if r is None:                                  # formule non evaluable -> pas d'override
+            return list(fn(u) or [])
+        return list(fn(u, range_override=int(r)) or [])
 
 
 class SortByDistance(TargetsSelector):

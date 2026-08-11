@@ -621,12 +621,16 @@ def entities_from_state(state, caster_id: int, target_id: int | None = None,
     # ciblage n'a QU'UN port, et c'est celui-la (surtout pas un 2e filtre ici). Rend les vues
     # `LiveUnit` deja construites (meme identite d'objet que `ctx.units`), dans l'ordre
     # d'enumeration de `state.entities`.
-    def _valid_normal_attack_targets(caster_unit):
+    def _valid_normal_attack_targets(caster_unit, range_override=None):
+        """`range_override` = le bloc `if (rangeSel@+0x28 != null)` du selecteur natif, arme par le
+        seul call-site qui le pose (`UnwaveringSentinel_CounterAttackEffect$$
+        GetCounterAttackCondition`, #946). `None` = comportement d'avant, inchange."""
         from ..targeting import valid_normal_attack_targets as _vnat
         cid = (caster_unit or {}).get("id")
         if cid is None:
             return []
-        return [_by_id[t] for t in _vnat(state, int(cid)) if t in _by_id]
+        return [_by_id[t] for t in _vnat(state, int(cid), range_override=range_override)
+                if t in _by_id]
 
     # `ctx.entity_can_be_repaired` (slot 0x13 d'`IAttackQuery`, lu par
     # `IdunBattle.Entities.Selectors.RepairableUnitsSelector$$Select`) : DELEGUE a l'unique mirror du
