@@ -28,9 +28,12 @@ scalerait les BORNES D'ARME donnerait le meme resultat.
 CE QUI EST ASSERTIONNE, et pourquoi ce n'est pas un total :
   * la SEQUENCE coup par coup (`UnitDamaged` natifs filtres sur `Active_Ability_Type = 1191` vs
     les `per_hit_health` du port) ;
-  * l'ATTRIBUTION EXACTE DES TIRAGES `genrand_int32` : le port en consomme `2 x <coups de 1191>`,
-    le natif `2 x <TOUS ses coups>` -- l'ecart etant, exactement, les coups de la triggered
-    `1319 LegacyOfCombat` (passif de Kariyan, NON PORTEE). L'identite est VERIFIEE, pas supposee ;
+  * l'ATTRIBUTION EXACTE DES TIRAGES `genrand_int32` : le natif en consomme `2 x <TOUS ses coups>`,
+    et le PORT AUTANT depuis #928 -- l'ecart d'avant etait, exactement, les coups de la triggered
+    `1319 LegacyOfCombat` (passif de Kariyan), alors NON PORTEE. Mesure (`MC1_67`/50901, regime
+    nominal) : AVANT port 6 / natif 18, APRES port 18 / natif 18, sur les DEUX regimes de compteur.
+    Le critere est donc l'EGALITE port/natif, plus `2 x coups`. L'identite est VERIFIEE, pas
+    supposee ;
   * les TROIS contre-epreuves, chacune ne retirant QU'UNE lecture du mirror. `sans_ability_type`
     est celle qui a MORDU pendant #509 : le port omettait le 7e argument natif
     (`abilityOrEffect = AbilityOrEffect(this)`), donc le gate `CurrentAbilityIs(1191)` restait
