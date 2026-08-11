@@ -590,6 +590,14 @@ ABILITY_ATTACK_TYPE: dict[int, int] = {
     ActiveAbilityType.Hailstrike: AbilityAttackType.Others,  # 1214
     ActiveAbilityType.IronkinSteeljack: AbilityAttackType.Others,  # 1219
     ActiveAbilityType.Chronometron: AbilityAttackType.Others,  # 1226
+    # ReanimationBeam (1223) et NanoscarabRepairProtocols (1224), `necroReanimator` MoW -- #902.
+    # Litteral RELU sur CHACUN des deux ctors (jamais deduit de l'autre, ni du profil de degat) :
+    # `...ReanimationBeamAbility$$.ctor` et `...NanoscarabRepairProtocolsAbility$$.ctor` finissent
+    # tous deux par `AActiveAbility..ctor(this, &opts, 2)` -> 3e argument = 2 = Others. Coherent :
+    # aucune des deux ne porte de coup (la seule attaque de 1223 est celle des SUMMONS, jouee par
+    # `PerformAIAction`, donc par LEUR propre ability), et aucune n'a de `damageProfile` au gameconfig.
+    ActiveAbilityType.ReanimationBeam: AbilityAttackType.Others,  # 1223
+    ActiveAbilityType.NanoscarabRepairProtocols: AbilityAttackType.Others,  # 1224
     # Doombolt (1102, Ahriman thousAhriman), case-psychic-aoe. Litteral RELU :
     # `IdunBattleLogic.Entities.Abilities.Active.Loki.DoomboltAbility$$.ctor` =
     # `AActiveAbility..ctor(this, &opts, 2, 0)` -> 3e argument = 2 = Others. Coherent avec la nature

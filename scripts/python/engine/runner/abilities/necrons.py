@@ -83,6 +83,21 @@ from ...entities.triggers import AmountIsGreaterThanZero
 from ...entities.triggers import TriggerAnd, is_mechanical
 from ...entities.triggers import is_mechanical
 from ..components import StatsComponent
+# --- #902 : `necroReanimator` (1223 ReanimationBeam / 1224 NanoscarabRepairProtocols) -------------
+from ...entities.formulas import percentage_of_attack_capped_at_max
+from ...entities.selectors.accessors import Actor, Owner
+from ...entities.selectors.geometry import EntitiesWithAnyEffect
+from ...entities.selectors.units import MechanicalUnits, Repairable
+from ...entities.stats import StatPart
+from ..components import has_effect_of_type
+from .base import active_ability_state
+from .behaviours.effects import AddDynamicStatModifierEffect
+# `is_mechanical` est ALIASE : ce module importe deja l'HOMONYME `entities.triggers.is_mechanical`
+# (le NOEUD DSL `DSLTriggers$$IsMechanical`, un predicat d'arbre). Celui-ci est le PREDICAT PYTHON
+# `IdunBattle.Entities.UnitExtensions$$IsMechanical` (Mechanical | LivingMetal | Vehicle), qu'on
+# evalue hors arbre dans les deux `GetDynamicInvalidTargetReason`. Sans alias, le second import
+# masquerait le premier EN SILENCE -- exactement le vice qu'a corrige la fusion d'#112/#114.
+from .behaviours.stats import ChangeStat, Repair, is_mechanical as unit_is_mechanical
 
 if TYPE_CHECKING:
     from ..state import State
@@ -1213,4 +1228,401 @@ class TunnelingHorrorAbility(ActiveAbility):
                  for n, p in ectx.emitted if n == "AddBondEffect"]
         return {"ability": TUNNELING_HORROR_ID, "caster": caster_id, "tile": tile_id,
                 "removed_from_tiles": removed, "posed": posed, "dsl": True}
+
+
+# ===================================================================================================
+# necroReanimator (MACHINE OF WAR Necrons) -- 1223 `ReanimationBeam` / 1224 `NanoscarabRepairProtocols`
+#                                                                                              #902 #
+# ===================================================================================================
+#
+# ⚠ L'AUDIT LES CLASSE TOUTES DEUX EN « REPAIR », ET C'EST VRAI DE **1223 SEULEMENT** -- la lecture
+# de `$$ExecuteBehaviour` (jamais de la colonne derivee) rend TROIS volets pour 1223 et TROIS pour
+# 1224, dont **UN SEUL** est une reparation :
+#
+#   1223 = reparation de MASSE  +  les SUMMONS marques agissent avec un Attack OVERRIDE  +  pose d'un
+#          effet de RESURRECTION sur l'acteur ;
+#   1224 = pose de l'effet-MARQUEUR 1545 sur UN allie mecanique  +  stat-mod +max HP  +  soin des PV
+#          COURANTS du meme montant. **Aucun `Repair`** : `hpToRepair` de 1224 n'est PAS lu par
+#          l'ability -- il est lu par l'EFFET 1545 (`NanoscarabRepairProtocolsEffect$$CreateEffectRepairBonus`
+#          = `EffectBonus.ForAddition(OwnerIsTarget, ConfigVar(0x24 = hpToRepair))`), qui BONIFIE
+#          toute reparation recue par le porteur. C'est cette variable-la que la colonne derivee de
+#          l'audit a vue, et elle appartient a l'effet, pas au cast.
+#
+# Le couple forme une BOUCLE : 1224 marque, 1223 moissonne (son selecteur ET son gate de cible
+# exigent l'effet 1545). Confirme par `IdunBattleLogic.Entities.Abilities.Active.Loki.ReanimationBeamAbility$$GetDynamicInvalidTargetReason`.
+#
+# ---------------------------------------------------------------------------------------------------
+# `IdunBattleLogic.Entities.Abilities.Active.Loki.NanoscarabRepairProtocolsAbility$$ExecuteBehaviour`
+# (MIRROR du decompile ; les 9 arguments de `ChangeStat` et les 8 d'`AddDynamicStatModifierEffect`
+#  ont ete RELUS AU DESASSEMBLAGE -- le decompilateur rendait leurs 4 derniers slots en registres
+#  non initialises) :
+#
+#   [A] addNrp = DSLBehaviors.AddEffect(0x609 = 1545 NanoscarabRepairProtocols,
+#                    abilityState = AActiveAbility.AbilityStateReference,
+#                    source  = Owner@DSLSelectors+0x30,
+#                    targets = Target@DSLSelectors+0x60,
+#                    options = default(0)          -> AUCUN override de duree = PERMANENT)
+#   hp        = AbilityConfiguration.GetVariableForLevel(config@this+0x60, 0x1d = hp, abilityState)
+#   [B] statMod = DSLBehaviors.AddDynamicStatModifierEffect(
+#                    targets = Target@+0x60, source = Owner@+0x30,
+#                    effectType = 0x60a = 1546 NanoscarabRepairProtocols_ExtraHp,
+#                    statType = 5 = Health, abilityStateSelector = AbilityStateReference,
+#                    turns = null, isHidden = false)
+#   [C] hpFill  = DSLBehaviors.ChangeStat(targets = Target@+0x60,
+#                    stat = Stat(5 = Health, part 0 = Current), mode = 2 = Add,
+#                    amount = DSLFormulas.Get(hp), modificationEntity = null,
+#                    selectionType = 3 = OnlyAliveAndTargetable,
+#                    isModifiable = false, isHiddenModification = false)
+#   Execute( ([B] op_Addition [C]) op_Addition [A] )
+#
+# `$$GetExtraMaxHealthBehavior` est le MEME couple `[B] + [C]`, sans appelant direct au binaire
+# (IL2CPP l'a INLINE dans `$$ExecuteBehaviour`) -> UN seul foyer cote port.
+#
+# `$$GetDynamicInvalidTargetReason` :
+#     if (target != null && UnitExtensions.IsMechanical(target))
+#         return EntityExtensions.IsOwnerOfEffect(target, entities, 0x609, onlyActive: null) ? 2 : 0;
+#     return 2;
+#   -> une machine QUI PORTE DEJA le marqueur est REFUSEE (pas de re-pose ; le `2` est
+#      `TargetingRule.TargetMatchesDynamicRule`).
+#
+# ---------------------------------------------------------------------------------------------------
+# `IdunBattleLogic.Entities.Abilities.Active.Loki.ReanimationBeamAbility$$ExecuteBehaviour` :
+#
+#   carriers = DSLSelectors.EntitiesWithAnyEffect(
+#                  DSLSelectors.MechanicalUnits(
+#                      DSLSelectors.Friends(of = Owner@+0x30, entities = AllAliveUnits@+0x20, 3), 3),
+#                  effectTypes = [0x609 = 1545], effectTarget = 6 = Both)
+#   [A] repair = DSLBehaviors.Repair(
+#                    mechanic = Caster@DSLSelectors+0x48,
+#                    selector = DSLSelectors.Repairable(carriers, scope = 0, removeEffects = true,
+#                                                       unitsToTarget = 3),
+#                    amount   = DSLFormulas.ConfigVar(0x24 = hpToRepair, abilityState, config@+0x60),
+#                    source   = AbilityOrEffect(0x4c7 = 1223),
+#                    options  = RepairBehaviourOptions.ForRepair()   -> scope 0, removeEffects true)
+#   [B] summons = $$GetSummonsTakeActionBehaviour(carriers, abilityState, entities) :
+#           sel  = DSLSelectors.UnitsWithTrait(carriers, 2 = Summon, 3)
+#           node = DSLFormulas.PercentageOfAttackCappedAtMax(
+#                      unit = ActiveTarget@+0x68, statPart = **0 = Current**,
+#                      maxAmount = ConfigVar(0xd = maxDmg), percentage = ConfigVar(0x4a = dmgPct),
+#                      roundingRule = 0)
+#           return ( DSLBehaviors.AddTemporaryAttackOverrideEffect(sel, node)
+#                    op_BitwiseAnd DSLBehaviors.PerformAIAction(sel, actAsAGroup: 1, forced: 1) )
+#                  op_BitwiseAnd DSLBehaviors.ResetTemporaryAttackOverrideEffect(sel)
+#   [C] revive = DSLBehaviors.AddEffect(0x60b = 1547 ReanimationBeam_Revive,
+#                    abilityState = AbilityStateReference, targets = Actor@DSLSelectors+0x40,
+#                    turns = DSLFormulas.TurnsFromRounds(1))
+#   Execute( ([A] op_Addition [B]) op_Addition [C] )
+#
+# `$$GetRepairBehaviour` et `$$GetAttackDamage` sont les MEMES sous-arbres, inlines par IL2CPP dans
+# `$$ExecuteBehaviour` / `$$GetSummonsTakeActionBehaviour` : ZERO appelant direct pour le premier ;
+# le second n'a que des call-sites d'`ExemplarOfHateAbility`, c'est-a-dire un CORPS PARTAGE par
+# deduplication IL2CPP (meme sous-arbre a l'octet pres), pas un appel de 1223. Un seul foyer ici.
+#
+# `$$GetDynamicInvalidTargetReason` :
+#     if (target != null && EntityExtensions.HasEffect(target, entities, 0x609, onlyActive: null)
+#                        && UnitExtensions.IsMechanical(target))       return 0;
+#     return 2;
+#   `HasEffect = IsOwnerOfEffect || IsTargetOfEffect` (relu) ; le port n'a qu'un canal
+#   (`EffectsState.by_unit`, indexe par l'entite PORTEUSE) et les deux branches y coincident --
+#   1545 est pose par un `AddEffect` dont les `targets` sont la cible, qui en devient proprietaire.
+#
+# ---------------------------------------------------------------------------------------------------
+# `AddTemporaryAttackOverrideEffect(targets, amount)` = `AddStatOverrideEffectBehaviour(targets,
+# **0x510 = 1296 TemporaryStatOverride**, statType 0 = Attack, amount, duree 0, isModifiable 1)` ;
+# `ResetTemporaryAttackOverrideEffect(targets)` = `RemoveEffect(targets, Nullable(0x510), 0)`.
+# Les deux litteraux sont ECRITS PAR LES FABRIQUES elles-memes, pas par l'ability -> meme couple
+# net-zero que `Repair_GalvanicField`/`TheQuickening`, a l'`EffectType` pres (1296 au lieu de 1242).
+#
+# ⚠ DEUX DIFFERENCES avec `Repair_GalvanicField`, lues et NON recopiees : `statPart` vaut **0 =
+# Current** (GalvanicField : 3 = Initial), et l'action libre passe par `PerformAIAction(asGroup=1,
+# forced=1)` -- le GROUP OPERATOR, qui boucle `PickNextUnit` -- la ou GalvanicField appelle
+# `PerformAIAttackFromCurrentPosition` (une attaque, sans deplacement). Un summon reanime PEUT donc
+# se DEPLACER puis agir.
+#
+# RESIDUS NOMMES (aucune invention, degradation FIDELE par absence de classe d'effet) :
+#   * 1546 `NanoscarabRepairProtocols_ExtraHp` n'est pas dans `EFFECT_CLASSES` -> `AddEffectOperation`
+#     pose un `BaseEffect` nu : l'effet EXISTE (visible de `decisionView.effects`, du gate de re-pose
+#     et de `has_effect`) mais n'ajoute AUCUN max-HP. Le porter serait INOBSERVABLE en l'etat : les
+#     stat-mods HEALTH vivent dans `ctx.stats[5]`, que RIEN ne relit pour les PV -- c'est le residu
+#     deja nomme #572-r1 (`ChangeStat`/`SetHealth` mutent `HealthComponent` directement). Le volet
+#     [C] (PV COURANTS), lui, MORD.
+#   * 1547 `ReanimationBeam_Revive` idem : l'effet est POSE sur l'acteur pour 1 round, mais son
+#     `ReviveEffect` n'est pas porte -> aucune resurrection. Son filtre natif, LU pour la fiche :
+#     `$$CreateTargetFilter` = `AreFriends(Owner@+0x30, Target@+0x60) & HasTrait(Target, 5 =
+#     Mechanical) & HasEffect(Target, 0x609, effectTarget 6)`, et `$$.ctor` =
+#     `ReviveEffect..ctor(this, 2, null, Nullable(AbilityOrEffect(this)), true)`.
+#   * 1545 `NanoscarabRepairProtocols` : sa PRESENCE suffit a tout ce que 1223 en attend (selecteur
+#     `EntitiesWithAnyEffect` + les deux gates) et elle est portee. Son `EffectBonus.ForAddition`
+#     (+hpToRepair a chaque reparation recue) ne l'est pas.
+
+#: `EffectType.NanoscarabRepairProtocols` -- le MARQUEUR que 1224 pose et que 1223 moissonne.
+NANOSCARAB_MARKER = int(EffectType.NanoscarabRepairProtocols)             # 0x609 = 1545
+#: `EffectType.NanoscarabRepairProtocols_ExtraHp` -- le stat-mod HEALTH du volet [B] de 1224.
+NANOSCARAB_EXTRA_HP = int(EffectType.NanoscarabRepairProtocols_ExtraHp)   # 0x60a = 1546
+#: `EffectType.ReanimationBeam_Revive` -- l'effet de resurrection pose par le volet [C] de 1223.
+REANIMATION_BEAM_REVIVE = int(EffectType.ReanimationBeam_Revive)          # 0x60b = 1547
+#: Litteral ECRIT PAR LA FABRIQUE `DSLBehaviors$$AddTemporaryAttackOverrideEffect` (et repris tel
+#: quel par `$$ResetTemporaryAttackOverrideEffect`), jamais par l'ability.
+TEMPORARY_STAT_OVERRIDE = int(EffectType.TemporaryStatOverride)           # 0x510 = 1296
+#: Cle de source du `ChangeStat` [C] de 1224. La branche HEALTH de la feuille mute
+#: `HealthComponent.hp` directement (stat FILL-UP) et ne la relit pas ; elle reste NOMMEE pour la
+#: tracabilite -- meme convention que `_UD_HEAL_SOURCE` (1061 `UnbreakableDuty`, MEME patron [B]+[C]).
+_NRP_HEAL_SOURCE = "NanoscarabRepairProtocols:hpFill"
+
+REANIMATION_BEAM_ID = "ReanimationBeam"
+NANOSCARAB_REPAIR_PROTOCOLS_ID = "NanoscarabRepairProtocols"
+
+
+def nanoscarab_carriers_selector() -> TargetsSelector:
+    """`carriers` de `...ReanimationBeamAbility$$ExecuteBehaviour` -- MIRROR feuille par feuille :
+
+        EntitiesWithAnyEffect( MechanicalUnits( Friends(of = Owner@+0x30,
+                                                        entities = AllAliveUnits@+0x20, 3), 3),
+                               [0x609 = 1545], effectTarget = 6 = Both )
+
+    Les alliees MECANIQUES du porteur qui portent le marqueur `NanoscarabRepairProtocols`. Le
+    `<DSLSelectors>+0x20` est `AllAliveUnits` (pool `EntityPool.AliveUnits`), PAS `AllUnits` -- le
+    filtre alive est DANS la source, pas dans un noeud aval (#514).
+
+    `effectTarget = 6 = Both` : cote port `EntitiesWithAnyEffect` interroge `ctx.has_effect`, dont le
+    `source_flag` vaut deja 6 -- les branches owned/targeted coincident sur `EffectsState.by_unit`."""
+    friends = Friends(AllAliveUnits(), Owner(), SELECTION)
+    return EntitiesWithAnyEffect(MechanicalUnits(friends, SELECTION), [NANOSCARAB_MARKER])
+
+
+def reanimation_beam_summons_selector(carriers: TargetsSelector) -> TargetsSelector:
+    """`sel` de `...ReanimationBeamAbility$$GetSummonsTakeActionBehaviour` =
+    `DSLSelectors.UnitsWithTrait(carriers, 2 = Summon, 3)`.
+
+    Le natif RE-UTILISE l'instance `carriers` deja construite par `$$ExecuteBehaviour` (elle lui est
+    passee en argument) -- d'ou le parametre plutot qu'une reconstruction, qui serait equivalente
+    (les selecteurs sont purs) mais masquerait le partage."""
+    return UnitsWithTrait(carriers, int(UnitTrait.Summon), SELECTION)
+
+
+def reanimation_beam_override_amount(max_dmg: int, dmg_pct: int) -> AAmountFormula:
+    """Le noeud MONTANT du volet SUMMONS de 1223 :
+    `PercentageOfAttackCappedAtMax(ActiveTarget@+0x68, statPart = 0 = Current, ConfigVar(maxDmg),
+    ConfigVar(dmgPct), roundingRule = 0)` = `Min(maxDmg, PercentageOf(Attack(sujet, Current), dmgPct))`.
+
+    Le SUJET est l'unite qui RECOIT l'override (le summon), pas le caster : c'est
+    `AddStatOverrideEffectBehaviour$$Execute` qui lie le slot sujet (`param_3[4] = current`) AVANT
+    d'evaluer le noeud -- d'ou `Subject()`, exactement comme `galvanic_override_amount`
+    (`abilities/repair.py`), dont le natif passe le MEME `<DSLSelectors>+0x68`.
+
+    ⚠ `stat_part = 0 = Current` et non `3 = Initial` : LU au call-site (`mov r8d, 0` avant l'appel a
+    `DSLFormulas$$PercentageOfAttackCappedAtMax`), et c'est la difference avec `GalvanicField`, qui
+    passe `3`. Sur un summon deja buffe/debuffe les deux ne donnent PAS le meme plafond."""
+    return percentage_of_attack_capped_at_max(Subject(), int(max_dmg), int(dmg_pct),
+                                              stat_part=int(StatPart.CURRENT))
+
+
+def _target_is_mechanical(state: "State", caster_id, target_id) -> bool:
+    """`IdunBattle.Entities.UnitExtensions$$IsMechanical(target)` evalue HORS arbre, pour les deux
+    `GetDynamicInvalidTargetReason`. Delegue au helper PARTAGE `behaviours.stats.is_mechanical`
+    (`Mechanical | LivingMetal | Vehicle`, deja confronte live case-220) via le `has_trait` du
+    contexte DSL. Accesseur ou unite absente -> False (degradation fidele : le natif rendrait alors
+    `2`, un REFUS -- jamais un « tout passe »)."""
+    if target_id is None:
+        return False
+    ents = entities_from_state(state, caster_id, int(target_id))
+    ht = ents.has_trait
+    if ht is None:
+        return False
+    u = next((x for x in (ents.units or ())
+              if isinstance(x, dict) and x.get("id") == int(target_id)), None)
+    return bool(u is not None and unit_is_mechanical(ht, u))
+
+
+class NanoscarabRepairProtocolsAbility(ActiveAbility):
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.NanoscarabRepairProtocolsAbility` (id 1224,
+    `necroReanimator` -- MACHINE OF WAR Necrons).
+
+    Cast sur UN allie MECANIQUE qui ne porte pas encore le marqueur : pose l'effet PERMANENT 1545,
+    ajoute `hp[level]` de PV MAX (stat-mod dynamique 1546) et le MEME montant de PV COURANTS.
+    Aucune reparation, aucun degat -- cf. le bloc de commentaire ci-dessus pour pourquoi la colonne
+    « REPAIR » de l'audit est trompeuse ici."""
+    __slots__ = ()
+    ABILITY_TYPE = int(ActiveAbilityType.NanoscarabRepairProtocols)   # 0x4c8 = 1224
+    ABILITY_ID = NANOSCARAB_REPAIR_PROTOCOLS_ID
+
+    # `...NanoscarabRepairProtocolsAbility$$.ctor` -- FORME 1 « FLAGS DIRECTS ». La surcharge appelee
+    # est TRANCHEE PAR SES XREFS ENTRANTES : le `call` cible la surcharge SEPT arguments de
+    # `IdunBattle.Core.Services.TargetingOptions$$.ctor` (`(this, isSelfCasting, range,
+    # forceMeleeTarget, rules, getDynamicInvalidCasterReason, getDynamicInvalidTargetReason)`),
+    # celle dont le corps ECRIT `rules` TEL QUEL a `options+0x28` -- ni preset combine (surcharge
+    # `(this, template, additionalRules)`, qui fait `template.Rules | additionalRules`), ni copie
+    # statique (surcharge `(this, template)`).
+    #
+    #   TargetingOptions..ctor(&opts, 0, &<TargetingRange statics>+0x48, 1, 0x40000402, 0, 0)
+    #     isSelfCasting    = 0
+    #     range            = `TargetingRange` statics+0x48 = RANGE_WHOLE_BOARD (`onlyAdjacent =
+    #                        RangedBool.False`, `useWholeBoard = true`) -- LU dans
+    #                        `IdunBattle.Core.Services.TargetingRange$$.cctor`
+    #     forceMeleeTarget = 1 = RangedBool.False
+    #     rules            = 0x40000402
+    #   puis `AActiveAbility..ctor(this, &opts, 2)`.
+    #
+    # Decomposition du masque (`IdunBattle.Core.Services.TargetingRule`, bit a bit, RESTE = 0) :
+    #     0x00000002  TargetMatchesDynamicRule -> tout le refus reel vit dans la regle DYNAMIQUE
+    #     0x00000400  TargetIsFriendly         -> une cible ENNEMIE est refusee
+    #     0x40000000  AllowNullCasterTile      -> permissif (une MoW n'occupe pas de tuile « caster »)
+    # Le bit `CasterIsPossibleTarget` est ABSENT (contraste `RepairAbility`, qui l'a) : le Reanimator
+    # ne peut pas se marquer lui-meme.
+    TARGETING_OPTIONS = TargetingOptions(
+        rules=(TR.TargetMatchesDynamicRule | TR.TargetIsFriendly | TR.AllowNullCasterTile),
+        self_cast=False, range=RANGE_WHOLE_BOARD, force_melee_target=RANGED_BOOL_FALSE)
+
+    def _extra_hp(self, state: "State", caster_id: int) -> int:
+        """`AbilityConfiguration.GetVariableForLevel(config@this+0x60, 0x1d = hp, abilityState)`.
+
+        COLLAPSE V : le natif garde un noeud `DSLFormulas.Get(<valeur>)`, dont l'argument est DEJA
+        le scalaire resolu (`GetVariableForLevel` est appele AVANT la construction du noeud, pas
+        dedans) -- on resout donc au meme endroit que lui. `(level, mult)` vient de l'`AbilityState`
+        de CETTE active sur CE caster (#890), jamais d'un niveau global d'unite."""
+        level, mult = active_ability_state(state, caster_id, self.ABILITY_TYPE)
+        return int(ability_var(self.ABILITY_ID, AbilityVariableType.hp.name, level,
+                               multiplier_pct=mult) or 0)
+
+    def execute_behaviour(self, state: "State", caster_id: int,
+                          target_id: Optional[int]) -> Optional[dict]:
+        if target_id is None:
+            return None
+        extra_hp = self._extra_hp(state, caster_id)
+        ents = entities_from_state(state, caster_id, int(target_id))
+        ectx = ExecutionContext(state=state, rng=state.rng)
+        # `turns = null` -> `duration_rounds=None` = pas d'override -> `DefaultAmountOfRounds`.
+        stat_mod = AddDynamicStatModifierEffect(Target(), Owner(), NANOSCARAB_EXTRA_HP,
+                                                int(StatType.HEALTH),
+                                                name=EffectType.NanoscarabRepairProtocols_ExtraHp.name,
+                                                duration_rounds=None)
+        hp_fill = ChangeStat(Target(), int(StatType.HEALTH), "add", _NRP_HEAL_SOURCE, extra_hp)
+        # `options = default(0)` -> aucun override de duree : le marqueur est PERMANENT.
+        add_marker = AddEffect(NANOSCARAB_MARKER, EffectType.NanoscarabRepairProtocols.name,
+                               Target(), duration_rounds=None, scale_from_source=True)
+        op_add(op_add(stat_mod, hp_fill), add_marker).execute(ents, ectx)
+        posed = [{"target": p["target"], "effect_type": p["effect_type"], "placed": p["placed"]}
+                 for n, p in ectx.emitted if n in ("AddEffect", "AddDynamicStatModifierEffect")]
+        filled = next((p for n, p in ectx.emitted if n == "ChangeStat"), None)
+        return {"ability": NANOSCARAB_REPAIR_PROTOCOLS_ID, "caster": caster_id, "target": target_id,
+                "extra_hp": extra_hp, "effects": posed, "hp_fill": filled, "dsl": True}
+
+    def get_dynamic_invalid_target_reason(self, state: "State", caster_id: int,
+                                          target_id: Optional[int]) -> int:
+        """`...NanoscarabRepairProtocolsAbility$$GetDynamicInvalidTargetReason` -- MIRROR verbatim :
+
+            if (target != null && UnitExtensions.IsMechanical(target))
+                return EntityExtensions.IsOwnerOfEffect(target, entities, 0x609, null) ? 2 : 0;
+            return 2;
+
+        (`-(uint)(IsOwnerOfEffect != 0) & 2` au decompile : 2 si l'effet est deja la, 0 sinon.)
+
+        `onlyActive = null` -> le natif NE consulte PAS `EffectComponent.IsActive @+0x5c` : le mirror
+        est `components.has_effect_of_type` (qui ne filtre que `consumed`), et surtout PAS
+        `ctx.has_effect`, dont le defaut `active_only=True` appellerait `BaseEffect.is_active`."""
+        if not _target_is_mechanical(state, caster_id, target_id):
+            return int(TR.TargetMatchesDynamicRule)
+        return (int(TR.TargetMatchesDynamicRule)
+                if has_effect_of_type(state, int(target_id), NANOSCARAB_MARKER) else 0)
+
+
+class ReanimationBeamAbility(ActiveAbility):
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.ReanimationBeamAbility` (id 1223,
+    `necroReanimator` -- MACHINE OF WAR Necrons).
+
+    Cast sur un allie mecanique DEJA marque par `NanoscarabRepairProtocols` : repare
+    `hpToRepair[level]` a TOUTES les machines alliees marquees (pas seulement la cible), fait agir
+    immediatement celles qui ont le trait `Summon` avec un Attack OVERRIDE
+    `Min(maxDmg, Attack_Current x dmgPct%)`, puis rend l'override (net-zero), et pose sur l'ACTEUR
+    l'effet `ReanimationBeam_Revive` pour 1 round."""
+    __slots__ = ()
+    ABILITY_TYPE = int(ActiveAbilityType.ReanimationBeam)   # 0x4c7 = 1223
+    ABILITY_ID = REANIMATION_BEAM_ID
+
+    # `...ReanimationBeamAbility$$.ctor` -- MEME surcharge SEPT arguments que 1224 (tranchee par les
+    # memes XREFS entrantes), MEME `TargetingRange` statique, MEME `forceMeleeTarget` ; DEUX ecarts,
+    # tous deux LUS :
+    #
+    #   TargetingOptions..ctor(&opts, **1**, &<TargetingRange statics>+0x48, 1, **0x200040000402**, 0, 0)
+    #     isSelfCasting    = 1        <- 1224 vaut 0
+    #     range            = statics+0x48 = RANGE_WHOLE_BOARD
+    #     forceMeleeTarget = 1 = RangedBool.False
+    #     rules            = 0x200040000402
+    #   puis `AActiveAbility..ctor(this, &opts, 2)`.
+    #
+    # Decomposition (RESTE = 0) :
+    #     0x000000000002  TargetMatchesDynamicRule
+    #     0x000000000400  TargetIsFriendly
+    #     0x000040000000  AllowNullCasterTile
+    #     0x200000000000  TargetIsUnit             <- ABSENT du masque de 1224
+    TARGETING_OPTIONS = TargetingOptions(
+        rules=(TR.TargetMatchesDynamicRule | TR.TargetIsFriendly | TR.AllowNullCasterTile
+               | TR.TargetIsUnit),
+        self_cast=True, range=RANGE_WHOLE_BOARD, force_melee_target=RANGED_BOOL_FALSE)
+
+    def _params(self, state: "State", caster_id: int) -> tuple:
+        """Les TROIS `ConfigVar` de l'ability, COLLAPSES a la valeur qu'ils rendent pour ce caster :
+        `hpToRepair` (0x24), `maxDmg` (0xd), `dmgPct` (0x4a). Les trois s'indexent sur l'`AbilityState`
+        de CETTE active (#890) ; `hpToRepair` et `maxDmg` sont dans `variablesAffectedByRarityBonus`
+        (lu au gameconfig), `dmgPct` non -- `ability_var` applique le multiplicateur au bon endroit."""
+        level, mult = active_ability_state(state, caster_id, self.ABILITY_TYPE)
+        hp_to_repair = ability_var(self.ABILITY_ID, AbilityVariableType.hpToRepair.name, level,
+                                   multiplier_pct=mult) or 0
+        max_dmg = ability_var(self.ABILITY_ID, AbilityVariableType.maxDmg.name, level,
+                              multiplier_pct=mult) or 0
+        dmg_pct = ability_var(self.ABILITY_ID, AbilityVariableType.dmgPct.name, level,
+                              multiplier_pct=mult) or 0
+        return int(hp_to_repair), int(max_dmg), int(dmg_pct)
+
+    def execute_behaviour(self, state: "State", caster_id: int,
+                          target_id: Optional[int]) -> Optional[dict]:
+        hp_to_repair, max_dmg, dmg_pct = self._params(state, caster_id)
+        carriers = nanoscarab_carriers_selector()
+        summons = reanimation_beam_summons_selector(carriers)
+        ents = entities_from_state(state, caster_id, target_id)
+        ectx = ExecutionContext(state=state, rng=state.rng)
+        # [A] `Repair(Caster, Repairable(carriers, 0, true, 3), ConfigVar(hpToRepair), ForRepair())`.
+        # `guard=None` : le natif ne pre-filtre PAS au-dela de `Repairable` -- c'est le gate
+        # `AttackQuery$$EntityCanBeRepaired` DE L'OPERATION qui tranche, exactement comme 28/1119.
+        repair = Repair(Repairable(carriers, scope=0, remove_effects=True,
+                                   unit_selection_type=SELECTION),
+                        hp_to_repair, guard=None, scope=0, remove_effects=True)
+        # [B] `(AddTemporaryAttackOverrideEffect & PerformAIAction) & ResetTemporaryAttackOverrideEffect`
+        override = AddStatOverrideEffect(summons, TEMPORARY_STAT_OVERRIDE, int(StatType.ATTACK),
+                                         reanimation_beam_override_amount(max_dmg, dmg_pct),
+                                         name=EffectType.TemporaryStatOverride.name,
+                                         is_modifiable=True)
+        act = PerformAIAction(summons, as_group=True, reset_turn_flags=True)
+        reset = RemoveEffect(TEMPORARY_STAT_OVERRIDE, summons)
+        # [C] `AddEffect(1547, AbilityStateReference, Actor@+0x40, TurnsFromRounds(1))`.
+        revive = AddEffect(REANIMATION_BEAM_REVIVE, EffectType.ReanimationBeam_Revive.name,
+                           Actor(), duration_rounds=1, scale_from_source=True)
+        op_add(op_add(repair, op_and(op_and(override, act), reset)), revive).execute(ents, ectx)
+        rep = next((p for n, p in ectx.emitted if n == "Repair"), None) or {}
+        acted = next((p for n, p in ectx.emitted if n == "PerformAIAction"), None)
+        posed = [{"target": p["target"], "effect_type": p["effect_type"], "placed": p["placed"]}
+                 for n, p in ectx.emitted if n == "AddEffect"]
+        return {"ability": REANIMATION_BEAM_ID, "caster": caster_id, "target": target_id,
+                "amount": rep.get("amount"), "repairs": rep.get("repairs"),
+                "summons": acted, "effects": posed, "dsl": True}
+
+    def get_dynamic_invalid_target_reason(self, state: "State", caster_id: int,
+                                          target_id: Optional[int]) -> int:
+        """`...ReanimationBeamAbility$$GetDynamicInvalidTargetReason` -- MIRROR verbatim :
+
+            if (target != null && EntityExtensions.HasEffect(target, entities, 0x609, null)
+                               && UnitExtensions.IsMechanical(target))   return 0;
+            return 2;
+
+        MEME canal `onlyActive = null` que 1224 (cf. sa docstring). `HasEffect` = `IsOwnerOfEffect ||
+        IsTargetOfEffect` : le port n'a qu'un canal (`EffectsState.by_unit`), ou les deux branches
+        coincident pour 1545 -- l'effet est pose AVEC la cible en `targets`, donc elle en est
+        proprietaire. Un effet 1545 qui serait un jour pose en AURA (porteur != cible) ferait diverger
+        cette branche ; aucun call-site natif ne le fait aujourd'hui."""
+        if target_id is None:
+            return int(TR.TargetMatchesDynamicRule)
+        if (has_effect_of_type(state, int(target_id), NANOSCARAB_MARKER)
+                and _target_is_mechanical(state, caster_id, target_id)):
+            return 0
+        return int(TR.TargetMatchesDynamicRule)
 
