@@ -17,6 +17,7 @@ que `probe_457` balaie -- un cliquet qu'aucune passe ne joue est exactement ce q
 from __future__ import annotations
 
 import shutil
+import subprocess
 import sys
 import tempfile
 from pathlib import Path
@@ -59,6 +60,19 @@ DECLENCHEUR = {
         "#486-r15 combat, vu depuis l'autre bout."
     ),
 }
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _temoin_partage():
+    """LE WORKTREE TEMOIN MEURT AVEC LE MODULE (#941).
+
+    Les etages 3 et 4 le PARTAGENT desormais (ils jugeaient le meme arbre `HEAD` depuis deux
+    montages independants, a 53 s piece -- `worktree add` 35,0 s + `remove --force` 18,4 s,
+    mesure du 2026-08-11). Ici, `main()` n'est pas dans la boucle : c'est pytest qui appelle
+    `etape3`/`etape4`, donc c'est a ce finalizer de liberer -- sans lui, un worktree survivrait
+    a la passe et apparaitrait dans `git worktree list` de tout le depot."""
+    yield
+    G._liberer_temoin()
 
 
 # --------------------------------------------------------- le DISCRIMINANT : `complete`
@@ -154,6 +168,84 @@ def test_le_cliquet_est_CABLE_a_son_verdict(monkeypatch):
     assert G.main([]) == 1
     monkeypatch.setattr(G, "ETAGES", [("X -- vrai", lambda: [])])
     assert G.main([]) == 0
+
+
+def test_les_deux_etages_a_temoin_ne_montent_QU_UN_SEUL_worktree(monkeypatch, tmp_path):
+    """#941 -- LE GAIN, VERROUILLE. Les etages 3 et 4 jugent le MEME arbre `HEAD` ; ils en
+    montaient DEUX.
+
+    Mesure du 2026-08-11 sur ce depot : `git worktree add --detach` = **35,0 s**,
+    `worktree remove --force` = **18,4 s** (l'essentiel vient de `data/`, 170 Mo pour 807
+    fichiers). Le second montage etait ~53 s de pur gaspillage, sur le fichier de test le plus
+    lourd du parc -- et il FUYAIT : un `wt547r1_*` du 2026-08-08 (4699 fichiers) etait encore
+    enregistre dans `git worktree list` trois jours plus tard.
+
+    Verifie par SUBSTITUTION : aucun worktree REEL n'est monte ici. Un cliquet qui, pour garder un
+    gain de 53 s, en couterait 53 rouvrirait le gisement qu'il ferme (lecon de #486-r5)."""
+    journal = []
+    racine = tmp_path / "temoin"
+    racine.mkdir(parents=True, exist_ok=True)
+    probe_dans_le_temoin = racine / "t" / "scripts" / "python" / "probe_457_offline_tests_green.py"
+
+    def _faux_git(args, cwd=None, tolere=False):
+        journal.append(" ".join(args[:2]))
+        if args[:2] == ["worktree", "add"]:
+            cible = Path(args[3])
+            (cible / "scripts" / "python" / "tests").mkdir(parents=True, exist_ok=True)
+            (cible / "scripts" / "python" / "probe_457_offline_tests_green.py").write_text(
+                G.ANCRAGE_CORRECTIF + "    return 99\n", encoding="utf-8")
+            (cible / "scripts" / "python" / "tests" / "t_jouet.py").write_text(
+                "def test_ok():\n    assert True\n", encoding="utf-8")
+        return ""
+
+    class _RcPytest:
+        returncode = 1                       # le fichier temoin EST rouge
+
+    def _faux_joue_457(cwd, args):
+        """Le geste rend `0` si et seulement si le MUTANT est pose -- c'est le DISCRIMINANT que
+        les etages 3 et 4 mesurent, reproduit ici sans lancer `probe_457`."""
+        mute = G.MUTANT_CORRECTIF in (Path(cwd) / "scripts" / "python"
+                                      / "probe_457_offline_tests_green.py").read_text(
+                                          encoding="utf-8")
+        return (0 if mute else 99), ""
+
+    monkeypatch.setattr(G, "_git", _faux_git)
+    monkeypatch.setattr(G, "_fichier_le_moins_cher", lambda: "tests/t_jouet.py")
+    monkeypatch.setattr(G, "_joue_457", _faux_joue_457)
+    monkeypatch.setattr(G.subprocess, "run", lambda *a, **k: _RcPytest())
+    monkeypatch.setattr(G.tempfile, "mkdtemp", lambda prefix="": str(racine))
+    monkeypatch.setattr(G, "_TEMOIN", None)
+
+    assert G.etape3() == [], "l'etage 3 doit passer sur ce montage jouet"
+    assert G.MUTANT_CORRECTIF not in probe_dans_le_temoin.read_text(encoding="utf-8")
+    assert G.etape4() == [], "l'etage 4 doit passer sur ce montage jouet"
+
+    assert journal.count("worktree add") == 1, (
+        "les deux etages montent %d worktree(s) alors qu'ils jugent le MEME arbre `HEAD` : un "
+        "seul suffit, et le second coute 53 s" % journal.count("worktree add"))
+    assert journal.count("worktree remove") == 0, (
+        "le temoin est demonte AVANT le dernier etage -- l'etage suivant le remonterait")
+
+
+def test_le_temoin_partage_REFUSE_de_deriver_entre_deux_etages(monkeypatch, tmp_path):
+    """LE CRAN QUI REND LE PARTAGE SUR, et il n'existait pas avant #941 parce que le partage non
+    plus.
+
+    `--measure-missing` ECRIT dans l'arbre qu'il juge (poids, empreinte, ledger). Sans
+    restauration entre les etages, le second trouverait << rien a mesurer >> et rendrait son `rc`
+    pour une raison ETRANGERE au critere -- exactement la lecture rassurante que ce cliquet
+    existe pour interdire. `_restaurer` REFUSE plutot que de laisser deriver."""
+    vus = []
+
+    def _git_qui_ne_nettoie_RIEN(args, cwd=None, tolere=False):
+        vus.append(args[0])
+        return " M scripts/ratchets-457-durations.json\n" if args[0] == "status" else ""
+
+    monkeypatch.setattr(G, "_git", _git_qui_ne_nettoie_RIEN)
+    with pytest.raises(SystemExit) as exc:
+        G._restaurer(tmp_path)
+    assert "restaure" in str(exc.value), str(exc.value)
+    assert "checkout" in vus, "la restauration n'a meme pas essaye : %r" % (vus,)
 
 
 def test_l_ancrage_du_mutant_existe_dans_le_probe_juge():

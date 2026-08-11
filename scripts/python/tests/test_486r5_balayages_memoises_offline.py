@@ -381,3 +381,87 @@ def test_l_empreinte_de_l_arbre_engine_est_NON_VIDE_et_BOUGE(tmp_path, monkeypat
     e2 = IP.empreinte_engine()
     assert e0 != e1, "un fichier AJOUTE ne change pas l'empreinte"
     assert e1 != e2, "un fichier MODIFIE ne change pas l'empreinte"
+
+
+# --- 8. #941 : les TROIS balayages memoises par la tranche du parc de cliquets ------------------
+#
+# Meme forme que les etages 3-4 ci-dessus, et pour la meme raison : un memo qui n'est jamais
+# consulte ne garde rien, et le gain serait imaginaire. On mesure par SUBSTITUTION du balayage
+# (compteur d'appels), jamais par un chronometre -- donc sans balayer le corpus reel.
+
+def test_le_cache_de_invocations_287r13r1_EVITE_le_second_balayage(monkeypatch):
+    """`invocations()` visite TOUT `git ls-files` et `ast.unparse` chaque `Call` des fichiers qui
+    citent `rl_duel` -- **38 s** mesures le 2026-08-11 -- et les TROIS tests du cliquet
+    #287-r13-r1 le refaisaient chacun pour son compte (180,7 s sous charge)."""
+    import probe_287r13r1_rayon_refus_roster as P287
+
+    appels = []
+    temoin = [("a.py", 1, "rc teste", True)]
+
+    def _faux():
+        appels.append(1)
+        return list(temoin)
+
+    monkeypatch.setattr(P287, "_balayer_invocations", _faux)
+    monkeypatch.setattr(P287, "_INVOCATIONS_CACHE", None)
+    a, b = P287.invocations(), P287.invocations()
+    assert len(appels) == 1, "le balayage a ete refait %d fois pour 2 appels" % len(appels)
+    assert a is b and a == tuple(temoin), (a, b)
+    assert isinstance(a, tuple), "la valeur memoisee doit etre IMMUABLE"
+
+
+def test_les_deux_caches_de_287r14r1_EVITENT_leurs_seconds_balayages(monkeypatch):
+    """DEUX balayages dans le meme cliquet : `appels_directs` lit et parse tout `.py` versionne,
+    `ventiler` refait un `inspect.getsource` par ability du registre."""
+    import probe_287r14r1_resolution_tile_target as P14
+
+    nv, na = [], []
+
+    def _faux_vent():
+        nv.append(1)
+        return ((1011, "TunnelingHorrorAbility", "OUI"),), (), ()
+
+    def _faux_appels():
+        na.append(1)
+        return (("a.py", 1, "XAbility", "tuile"),), ()
+
+    monkeypatch.setattr(P14, "_balayer_ventilation", _faux_vent)
+    monkeypatch.setattr(P14, "_balayer_appels_directs", _faux_appels)
+    monkeypatch.setattr(P14, "_VENTILATION_CACHE", None)
+    monkeypatch.setattr(P14, "_APPELS_CACHE", None)
+
+    v1, v2 = P14.ventiler(), P14.ventiler()
+    d1, d2 = P14.appels_directs(), P14.appels_directs()
+    assert len(nv) == 1 and len(na) == 1, (nv, na)
+    assert v1 is v2 and d1 is d2
+    assert all(isinstance(x, tuple) for x in v1), "la ventilation doit etre IMMUABLE"
+    assert all(isinstance(x, tuple) for x in d1), "les appels directs doivent etre IMMUABLES"
+
+
+def test_le_cache_de_etape1_514_EVITE_le_second_balayage_ET_REJOUE_ses_echecs(monkeypatch,
+                                                                             capsys):
+    """`etape_1` rend un dict de LISTES -- donc mutable : le memo doit RE-CONSTRUIRE, sinon un
+    test mute ce que verra le suivant. Et ses ECHECS s'accumulent dans le `fails` de l'appelant :
+    les memoiser sans les rejouer les ferait disparaitre du second appel."""
+    import probe_514_allunits_rayon_de_souffle as P514
+
+    appels = []
+    fige = ({"AllUnits": (("a.py", "f", 1),), "AllAliveUnits": ()}, ("un echec",))
+
+    def _faux():
+        appels.append(1)
+        return fige
+
+    monkeypatch.setattr(P514, "_balayer_etape_1", _faux)
+    monkeypatch.setattr(P514, "_ETAPE1_CACHE", None)
+    f1, f2 = [], []
+    a = P514.etape_1(f1)
+    b = P514.etape_1(f2)
+    assert len(appels) == 1, "le balayage a ete refait %d fois pour 2 appels" % len(appels)
+    assert a == b == {"AllUnits": [("a.py", "f", 1)], "AllAliveUnits": []}, (a, b)
+    assert a["AllUnits"] is not b["AllUnits"], "la liste est PARTAGEE -- une mutation fuirait"
+    assert f1 == f2 == ["un echec"], "les echecs ne sont pas rejoues : (%r, %r)" % (f1, f2)
+
+    a["AllUnits"].append("MUTATION-941")
+    assert P514.etape_1([])["AllUnits"] == [("a.py", "f", 1)], "une mutation a fuite dans le cache"
+

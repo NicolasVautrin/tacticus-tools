@@ -173,16 +173,23 @@ def _porteur(arbre, noeud):
     return meilleur.name if meilleur is not None else "<module>"
 
 
-def etape_1(fails: list) -> dict:
-    """Inventaire AST des sites EXECUTABLES. Rend {nom_noeud: [(fichier, porteur, ligne), ...]}."""
-    print("=== etape 1 -- inventaire PORT (AST : docstrings et commentaires EXCLUS) ===")
+#: MEMO DE RESULTAT (#941). Le balayage lit et `ast.parse` tout `_PORTEE`, et `_porteur` refait
+#: un `ast.walk` COMPLET par site trouve. Mesure du 2026-08-11 : les DEUX tests du cliquet qui
+#: l'appellent coutaient 63,3 s et 59,6 s -- pour le MEME inventaire. Ce qui est retenu est
+#: minuscule (deux listes de triplets) ; jamais un AST.
+_ETAPE1_CACHE: tuple | None = None
+
+
+def _balayer_etape_1() -> tuple:
+    """LE BALAYAGE. Rend `(trouve, messages_d_echec)` -- separe pour etre SUBSTITUABLE."""
     trouve: dict = {"AllUnits": [], "AllAliveUnits": []}
+    echecs: list = []
     for chemin in _fichiers_python():
         try:
             with open(chemin, "r", encoding="utf-8") as fh:
                 arbre = ast.parse(fh.read(), filename=chemin)
         except (SyntaxError, UnicodeDecodeError) as exc:
-            fails.append("etape 1 : %s illisible (%s)" % (_rel(chemin), exc))
+            echecs.append("etape 1 : %s illisible (%s)" % (_rel(chemin), exc))
             continue
         for noeud in ast.walk(arbre):
             if not isinstance(noeud, ast.Call):
@@ -191,6 +198,22 @@ def etape_1(fails: list) -> dict:
             nom = f.id if isinstance(f, ast.Name) else (f.attr if isinstance(f, ast.Attribute) else None)
             if nom in trouve:
                 trouve[nom].append((_rel(chemin), _porteur(arbre, noeud), noeud.lineno))
+    return {k: tuple(v) for k, v in trouve.items()}, tuple(echecs)
+
+
+def etape_1(fails: list) -> dict:
+    """Inventaire AST des sites EXECUTABLES. Rend {nom_noeud: [(fichier, porteur, ligne), ...]}.
+
+    MEMOISE (#941). Le RAPPORT et les echecs sont rejoues a chaque appel : seul le BALAYAGE est
+    evite. Le retour est RE-CONSTRUIT (listes neuves) -- un appelant qui le muterait ne peut pas
+    changer ce que verra le suivant."""
+    global _ETAPE1_CACHE
+    print("=== etape 1 -- inventaire PORT (AST : docstrings et commentaires EXCLUS) ===")
+    if _ETAPE1_CACHE is None:
+        _ETAPE1_CACHE = _balayer_etape_1()
+    fige, echecs = _ETAPE1_CACHE
+    fails.extend(echecs)
+    trouve = {k: list(v) for k, v in fige.items()}
     for nom in ("AllUnits", "AllAliveUnits"):
         print("  %-14s : %d site(s) executable(s)" % (nom, len(trouve[nom])))
         for (fic, port, lig) in trouve[nom]:

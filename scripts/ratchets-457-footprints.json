@@ -87,6 +87,12 @@
     "scripts/python/engine/utilities/sworn_protector.py"
    ]
   },
+  "tests/engine/runner/test_1210_exemplar_of_the_montka_offline.py": {
+   "_at": 1786477743,
+   "_commit": "60bab80538e3ea673c631edcfc5431a0827e658b",
+   "dirs": [],
+   "temoins": []
+  },
   "tests/engine/runner/test_231r1_master_tutelaries_expiry_offline.py": {
    "_at": 1786392144,
    "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
@@ -1558,6 +1564,12 @@
     "scripts/python/engine/utilities/wireweave_net.py",
     "scripts/python/engine/weights.py"
    ]
+  },
+  "tests/engine/runner/test_939_bio_minefield_offline.py": {
+   "_at": 1786477743,
+   "_commit": "60bab80538e3ea673c631edcfc5431a0827e658b",
+   "dirs": [],
+   "temoins": []
   },
   "tests/engine/runner/test_ability_registry_ratchet.py": {
    "_at": 1786392144,
