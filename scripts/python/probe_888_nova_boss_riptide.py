@@ -376,6 +376,14 @@ def _measure(sid: int, rid: int, ability: int, target_pos) -> dict:
     off_hp_after = hp_off(state0)
     off_marked = {coord[k] for k, v in off.items()
                   if k in coord and (NS_PENDING_TARGET in v or NB_PENDING_TARGET in v)}
+    # SOURCE cote PORT de chaque PendingTarget pose -- l'homologue exact du `Effect_SourceId` de la
+    # cascade. Sans lui, l'etage [4] ne jugeait que le NATIF (il aurait donc rendu VERT sur un port
+    # qui se trompe de surcharge d'`AddEffect` : mesure de contre-epreuve M3/M6).
+    off_pt_sources = []
+    for uid, effs in (state0.effects.by_unit or {}).items():
+        for e in effs:
+            if int(e.effect_type) in (NS_PENDING_TARGET, NB_PENDING_TARGET) and not e.consumed:
+                off_pt_sources.append({"on": int(uid), "source": getattr(e, "source", None)})
     off_bonds = {}
     for uid, effs in (state0.effects.by_unit or {}).items():
         for e in effs:
@@ -408,6 +416,7 @@ def _measure(sid: int, rid: int, ability: int, target_pos) -> dict:
         "ported": diag.get("ported"), "routed": res.get("routed"), "diag": diag,
         "cast_error": act0.get("error"),
         "off": off, "off_marked": off_marked, "off_bonds": off_bonds,
+        "off_pt_sources": off_pt_sources,
         "off_shields": off_shields, "off_block": off_block,
         "live_units": delta(live_units_before, unit_fp_live(dec1)),
         "live_tiles": live_tiles, "live_marked": live_marked,
@@ -501,17 +510,31 @@ def _report(tag: str, m: dict) -> int:
             print("    ECART de DUREE sur %d : natif(pose)=%d port=%d" % (et, nat, int(prt)))
             rc = 1
 
-    print("[4] SOURCE des PendingTarget (surcharge d'AddEffect)")
+    print("[4] SOURCE des PendingTarget (la surcharge d'AddEffect, LUE DES DEUX COTES)")
     pt = NS_PENDING_TARGET if ab == NOVA_SHIELD else NB_PENDING_TARGET
     rows = m["cascade"].get(pt) or []
-    self_src = [r for r in rows if r.get("on") == r.get("source")]
+    prows = m["off_pt_sources"]
+    nat_self = sum(1 for r in rows if r.get("on") == r.get("source"))
+    prt_self = sum(1 for r in prows if r.get("on") == r.get("source"))
     print("    natif : %d instance(s), dont %d ou source == la TUILE elle-meme"
-          % (len(rows), len(self_src)))
-    if ab == NOVA_SHIELD and rows and len(self_src) != len(rows):
-        print("    ECART : la 5-args d'AddEffect n'a PAS de selecteur source -> source == cible")
+          % (len(rows), nat_self))
+    print("    port  : %d instance(s), dont %d ou source == la TUILE elle-meme"
+          % (len(prows), prt_self))
+    if len(rows) != len(prows) or nat_self != prt_self:
+        print("    ECART port/natif sur la SOURCE : la surcharge d'`AddEffect` differe "
+              "(5-args = pas de selecteur source -> source == cible ; 6-args = Caster@+0x48)")
         rc = 1
-    if ab == NOVA_BOOST and rows and any(r.get("source") == r.get("on") for r in rows):
-        print("    ECART : la 6-args passe Caster@+0x48 en source -> source != la tuile")
+    # Le SENS attendu, ability par ability -- ecrit pour que le bras ne puisse pas etre vert par
+    # accord degenere (0 instance des deux cotes).
+    if not rows or not prows:
+        print("    LIMITE : aucune instance mesuree d'un cote -- ce bras ne prouve RIEN")
+        rc = 1
+    elif ab == NOVA_SHIELD and (nat_self != len(rows) or prt_self != len(prows)):
+        print("    ECART : 1194 utilise la 5-args -> les %d sources doivent etre les TUILES"
+              % len(rows))
+        rc = 1
+    elif ab == NOVA_BOOST and (nat_self != 0 or prt_self != 0):
+        print("    ECART : 1192 utilise la 6-args -> AUCUNE source ne doit etre la tuile")
         rc = 1
     pa = NS_PENDING_ATTACK if ab == NOVA_SHIELD else NB_PENDING_ATTACK
     print("    bond natif %d : %s" % (pa, m["cascade"].get(pa)))
