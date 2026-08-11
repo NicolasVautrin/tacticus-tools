@@ -533,6 +533,7 @@ from .modified_exoarmour import ModifiedExoarmourPlaybook    # noqa: E402  (#304
 from .savior_protocols import SaviorProtocolsPlaybook        # noqa: E402  (#443-r1 : face MOVE, cf. module)
 from .serene_unifier import SereneUnifierPlaybook            # noqa: E402  (#456-r1 : corps propre, 101/ami)
 from .rad_saturation import RadSaturationPlaybook            # noqa: E402  (#477-r29 : corps propre, +10/marshal)
+from .prophetic_sentinel import PropheticSentinelPlaybook    # noqa: E402  (#915 : corps propre, +20/Psyker adjacent)
 
 TRIGGERED_MOVE_PLAYBOOKS: dict = {
     int(TriggeredAbilityType.GuardianOrganism): GuardianOrganismPlaybook(),
@@ -589,6 +590,12 @@ TRIGGERED_MOVE_PLAYBOOKS: dict = {
     # GREFFE du passif sur un heros du pool (`catalog_inject.graft_passive_ability`), le corps ne
     # lisant ni stats ni traits du caster.
     int(TriggeredAbilityType.RadSaturation): RadSaturationPlaybook(),            # 1202 (10 / marshal adjacent)
+    # #915 -- la face OWNER du passif `PropheticSentinel`, dont la face NON-OWNER etait DEJA portee
+    # (`non_owner.py`) : le registre non-owner ne couvre PAS celui-ci, et l'absence ici valait 0
+    # alors que le natif rend `20 x |amis Psyker adjacents a la tuile candidate|`. Les DEUX faces
+    # ont des predicats DIFFERENTS -- non-owner CUMULE Psyker+Chaos, owner ne connait que Psyker.
+    # Porteur : `thousSekhetar` (HERO hors pool -> injection catalogue, case-92 §6).
+    int(TriggeredAbilityType.PropheticSentinel): PropheticSentinelPlaybook(),    # 1543 (20 / Psyker adjacent)
 }
 
 

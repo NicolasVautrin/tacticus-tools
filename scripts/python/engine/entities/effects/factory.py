@@ -103,6 +103,10 @@ from .loki.mind_control import (
 from .loki.my_will_be_done_overlord import MyWillBeDoneOverlordExtraDamageEffect
 from .loki.titanhammer_squad import TitanhammerSquadExtraBlockDamageEffect
 from .loki.possession import AttemptedPossessionPossessedEffect
+from .loki.prophetic_sentinel import (
+    PropheticSentinelExtraArmorEffect, PropheticSentinelExtraBlockChanceEffect,
+    PropheticSentinelExtraBlockDamageEffect
+)
 from .loki.reality_unbound import (
     RealityUnboundExtraMaxDamageEffect, RealityUnboundMovementEffect, RealityUnboundRangeEffect
 )
@@ -918,6 +922,19 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # impose le balayage BOARD-WIDE de `block_hits_reduction_from_effects` (l'ancien balayage
     # attaquant-seul RENDAIT le `get_OwnerIsCaster` de 1117, qui a migre dans sa classe).
     "PurgeResponse": PurgeResponseEffect,
+    # 0x616/0x617/0x618 = 1558/1559/1560 `PropheticSentinel_ExtraArmor` / `_ExtraBlockChance` /
+    # `_ExtraBlockDamage` -- les TROIS owner-effects PERMANENTS du passif de kit `PropheticSentinel`
+    # (`thousSekhetar`, TriggeredAbilityType 0x607 = 1543), poses A L'INIT de l'ability par
+    # `IdunBattleLogic.Entities.Abilities.Triggered.Loki.PropheticSentinel_AddBuffAbility$$CreateBehaviour`
+    # (trois `AddStaticStatModifierEffectToOwner`, `turns = NULL`). AUCUNE classe d'effet dediee
+    # cote natif : ce sont des `StaticStatModifierEffect` GENERIQUES, comme `UnbreakableDuty_Health`
+    # -- les classes portees ici existent pour l'ATTRIBUTION du seed (`decisionView.effects`
+    # n'expose ni le stat ni le montant d'un effet CAPTE, cf. RealityUnbound). Detail + le piege de
+    # RE (le `CreateTrigger` DEDUPLIQUE qui fait croire a un trigger partage avec l'autre ability du
+    # kit) : `effects/loki/prophetic_sentinel.py`.
+    "PropheticSentinel_ExtraArmor": PropheticSentinelExtraArmorEffect,
+    "PropheticSentinel_ExtraBlockChance": PropheticSentinelExtraBlockChanceEffect,
+    "PropheticSentinel_ExtraBlockDamage": PropheticSentinelExtraBlockDamageEffect,
     # Trait PrioritisedEfficiency (0x423=1059, LES TROIS Votann : votanBeserk/votanIronmaster/votanUthar)
     # -- systeme de STANCES a 5 effets (#121). Les DEUX effets porteurs de degat sont portes ici ; les
     # deux MARQUEURS de stance (1479 HostileAcquisition / 1480 FortifyTakeover) n'ont AUCUNE methode
@@ -1404,6 +1421,16 @@ ABILITY_INIT_OWNER_EFFECTS: dict[str, list[str]] = {
     # targets=Owner, ...)`), tous INCONDITIONNELS -> tous CAPTES par `decisionView.effects` sur un
     # runner frais (verifie live). Le seed reste un filet (idempotent).
     "LionHelm": ["LionHelm_ExtraDmg", "LionHelm_ExtraBlockChance", "LionHelm_ExtraBlockDamage"],
+    # PropheticSentinel (passif de kit de `thousSekhetar`, TriggeredAbilityType 0x607 = 1543) --
+    # `IdunBattleLogic.Entities.Abilities.Triggered.Loki.PropheticSentinel_AddBuffAbility$$CreateBehaviour`
+    # pose les TROIS effets sur le PORTEUR, INCONDITIONNELLEMENT et de facon PERMANENTE
+    # (`AddStaticStatModifierEffectToOwner(..., turns = NULL)` x3, joints par `op_BitwiseAnd`), sous
+    # le trigger HERITE `<DSLTriggers+0x30>` = `On(0x21 = AbilityInit) & get_OwnerIsActor` -- le
+    # MEME corps deduplique que LionHelm/AnvilShield ci-dessus. Le compte d'amis Psyker adjacents
+    # ne conditionne PAS ces buffs : il appartient a l'AUTRE ability du kit
+    # (`PropheticSentinel_OverwatchAbility`), qui ne pose aucun de ces trois effets.
+    "PropheticSentinel": ["PropheticSentinel_ExtraArmor", "PropheticSentinel_ExtraBlockChance",
+                          "PropheticSentinel_ExtraBlockDamage"],
     # FearedInterrogator (passif d'Asmodai darkaAsmodai, TriggeredAbilityType 1235) —
     # `IdunBattleLogic.Entities.Abilities.Triggered.Loki.FearedInterrogatorAbility$$CreateBehaviour`
     # pose les DEUX effets sur le PORTEUR (`AddEffect(1294, source=Owner, targets=Owner)` &
