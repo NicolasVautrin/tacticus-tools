@@ -787,8 +787,10 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
             # (attaquant) PUIS `...$$RegisterAttackReceived` (defenseur) -- `_record_attacked`
             # ci-dessus ne portait que le second. Meme gate `is_attack` (meme operation, donc meme
             # gate par FAMILLE : un DoT n'est pas une attaque). Ecrit `turns_with_attacks_made`
-            # (+0x30) et `units_attacked_this_turn` (+0x40) ; lecteur porte :
-            # `MartialInspiration_ExtraDamageEffect` via `TotalTurnsWithAttacksMadeFormula`.
+            # (+0x30), `attacks_made_this_turn` (+0x24), `total_attacks_made` (+0x20, #926) et
+            # `units_attacked_this_turn` (+0x40) ; lecteurs portes :
+            # `MartialInspiration_ExtraDamageEffect` via `TotalTurnsWithAttacksMadeFormula`, et
+            # `FirstAmongTraitors_ExtraDmgEffect` via `TotalAttacksMadeFormula` (#926).
             register_attack_made(state, attacker_id, target_id)
         AttackDamageOperation._register_received_damage(
             state, target_id, profile, total, shield_dmg, armor_dmg)

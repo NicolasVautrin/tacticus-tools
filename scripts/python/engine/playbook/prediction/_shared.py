@@ -729,7 +729,14 @@ def _apply_ally_attack_dmg_bonus(mods, scene, att_id, att_pos, is_melee, tgt_arm
            # `aura_attack_damage_bonus_from_allies` qui pose `owner_id` dans son ctx par-carrier, et
            # l'effet re-cle avec. MEME cle et MEME semantique que la face COMBAT
            # (`damage_model._apply_ally_attack_damage_auras`) -- pas de fork.
-           "owner_stat_block_damage": {c[0]: prediction_block_damage(scene, c[0]) for c in carriers}}
+           "owner_stat_block_damage": {c[0]: prediction_block_damage(scene, c[0]) for c in carriers},
+           # #926 -- `TotalAttacksMade(EffectSource)` de
+           # `IdunBattle.Entities.Effects.Loki.FirstAmongTraitors_ExtraDmgEffect$$CurrentDamageBonus`.
+           # MAP par PORTEUR (l'agregateur pose `owner_id` dans son ctx par-carrier). Le canal est
+           # `Scene.total_attacks_made` = le capteur live `actorStats.totalAttacksMade`, c.-a-d.
+           # exactement le champ `ActorStatisticsComponent+0x20` que la face COMBAT lit par
+           # `components.unit_total_attacks_made` -- MEME cle, MEME semantique, pas de fork.
+           "owner_total_attacks_made": {c[0]: scene.total_attacks_made(c[0]) for c in carriers}}
     for eb in aura_attack_damage_bonus_from_allies(carriers, ctx):
         add_modifier(mods, eb)
 

@@ -1235,12 +1235,19 @@ def _load_actor_statistics(state: State, actor_stats: dict) -> None:
         # C'est aussi un compteur a increments `>= 1` : `...$$RegisterAttackMade` fait `+0x30 += 1`
         # sous `Count(+0x40) == 0`, et RIEN ne le remet a zero (seul le SET `+0x40` est vide, par
         # `ResetUnitsAttackedThisTurn`) -> une valeur negative denonce une lecture invalide.
-        # ⚠ `TotalAttacksMade` (`+0x20`) reste NON seede : la face PREDICTION le lit par son propre
-        # canal (`playbook/scene.py::actorstats_by_id`), et aucun consommateur du `State` ne le lit.
+        # #926 : `TotalAttacksMade` (`+0x20`) rejoint la boucle -- MEME canal, MEME hook
+        # (`rpc-snapshot.ts` publie DEJA `totalAttacksMade`, lu depuis toujours par la face
+        # PREDICTION via `playbook/scene.py::actorstats_by_id`), MEME tri-etat et MEME garde `< 0`.
+        # Il n'y avait aucun consommateur du `State` avant que `FirstAmongTraitors_ExtraDmgEffect`
+        # n'en devienne un ; le seeder est ce qui evite qu'un runner monte SUR UNE BATAILLE EN
+        # COURS reparte d'un compteur a 0 la ou la prediction, elle, voit la vraie valeur.
+        # C'est aussi un compteur a increments `>= 1` que RIEN ne remet a zero (cf.
+        # `components.register_attack_made`) -> une valeur negative denonce une lecture invalide.
         for key, attr in (("tilesMovedThisBattle", "tiles_moved_this_battle"),
                           ("tilesMovedThisTurn", "tiles_moved_this_turn"),
                           ("tilesMovedLastTurn", "tiles_moved_last_turn"),
-                          ("totalTurnsWithAttacksMade", "turns_with_attacks_made")):
+                          ("totalTurnsWithAttacksMade", "turns_with_attacks_made"),
+                          ("totalAttacksMade", "total_attacks_made")):
             v = su.get(key)
             if v is None or int(v) < 0:
                 continue

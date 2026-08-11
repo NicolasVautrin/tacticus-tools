@@ -33,7 +33,8 @@ from .components import (StatsComponent, HealthComponent, OwnerComponent, Positi
                          UnitComponent, unit_has_moved, unit_has_teleported,
                          unit_has_used_active_ability,
                          unit_tiles_moved_this_turn, unit_state_for_effects,
-                         unit_turns_with_attacks_made, adjacent_taunted_enemies_count)
+                         unit_turns_with_attacks_made, unit_total_attacks_made,
+                         adjacent_taunted_enemies_count)
 from ..entities.stats import StatType, ARMOR_STAT_TYPES
 from ..services.damage_prediction import get_attack_prediction, apply_pierce_and_modifiers
 from ..services.battle_query import (
@@ -281,6 +282,13 @@ def _apply_ally_attack_damage_auras(state: State, att_id: int, mods, is_ranged: 
     # la lit, aucun comportement existant ne bouge.
     owner_block_damage = {uid: _unit_stat(state, uid, int(StatType.BLOCK_DAMAGE))
                           for (uid, _p, _t, _e) in carriers}
+    # #926 -- `FirstAmongTraitors_ExtraDmg` est la PREMIERE aura dont la magnitude lit un COMPTEUR
+    # DU PORTEUR (`TotalAttacksMade(EffectSource)` = `ActorStatisticsComponent+0x20` d'Abaddon), et
+    # non une stat ni une variable de config seule. MEME forme que `owner_stat_block_damage`
+    # ci-dessus : map PAR PORTEUR, l'agregateur re-cle par `owner_id`. Le lecteur est le foyer
+    # unique `components.unit_total_attacks_made` (mirror `TotalAttacksMadeFormula$$Calculate`).
+    owner_total_attacks = {uid: unit_total_attacks_made(state, uid)
+                           for (uid, _p, _t, _e) in carriers}
     if not carriers:
         return
     is_melee = (not is_ranged) if is_ranged is not None else None
@@ -311,7 +319,11 @@ def _apply_ally_attack_damage_auras(state: State, att_id: int, mods, is_ranged: 
            "tgt_team": _unit_team(state, target_id),
            # #919 -- cf. la construction de la map ci-dessus. Cle par PORTEUR ; l'effet la resout
            # avec le `owner_id` que l'agregateur pose dans son ctx par-carrier.
-           "owner_stat_block_damage": owner_block_damage}
+           "owner_stat_block_damage": owner_block_damage,
+           # #926 -- `TotalAttacksMade(EffectSource)` de `FirstAmongTraitors_ExtraDmgEffect`. MEME
+           # cle et MEME semantique que la face PREDICTION (`_shared._apply_ally_attack_dmg_bonus`,
+           # qui la remplit par `scene.total_attacks_made`) -- pas de fork.
+           "owner_total_attacks_made": owner_total_attacks}
     # `PsychicStalk_FriendlyChaosExtraDamage` (#366-r1, effet 1435) -- PATTE AURA : son conjoint
     # `GetTargetIsOnFireTileCondition` lit `EntitiesWithAnyEffect(Tiles(Target@0x60), Fire)`, donc
     # les effets de la MAIN TILE de la cible. MEME canal / MEME forme `{(col,row): [noms]}` que
