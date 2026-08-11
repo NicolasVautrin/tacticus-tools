@@ -88,8 +88,8 @@
    ]
   },
   "tests/engine/runner/test_1210_exemplar_of_the_montka_offline.py": {
-   "_at": 1786477743,
-   "_commit": "60bab80538e3ea673c631edcfc5431a0827e658b",
+   "_at": 1786478025,
+   "_commit": "4f301deeb8ea9711d4db18b78d3e52980394b660",
    "dirs": [],
    "temoins": []
   },
@@ -1566,8 +1566,14 @@
    ]
   },
   "tests/engine/runner/test_939_bio_minefield_offline.py": {
-   "_at": 1786477743,
-   "_commit": "60bab80538e3ea673c631edcfc5431a0827e658b",
+   "_at": 1786478025,
+   "_commit": "4f301deeb8ea9711d4db18b78d3e52980394b660",
+   "dirs": [],
+   "temoins": []
+  },
+  "tests/engine/runner/test_940_kiss_of_death_offline.py": {
+   "_at": 1786478025,
+   "_commit": "4f301deeb8ea9711d4db18b78d3e52980394b660",
    "dirs": [],
    "temoins": []
   },
