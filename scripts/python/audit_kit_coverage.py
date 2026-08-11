@@ -245,6 +245,19 @@ def main():
     total = sum(r["missing"] for r in todo)
     cond_open = [c for c in cond if not c["covered"]]
 
+    # LA FACE DECISION EST CALCULEE MAIS NE COMPTE PAS DANS `missing` (cf. `collect`,
+    # qui ne somme que `not a["combat"]`). Ce n'est pas un bug a corriger en douce :
+    # redefinir `missing` changerait le sens du chiffre que tout le monde cite. Mais
+    # taire le trou l'a rendu INVISIBLE -- le marqueur `[C-]` n'est rendu que dans la
+    # section << kits avec du travail >>, donc une ability sans face DECISION vivant
+    # dans un kit declare COMPLET n'etait imprimee NULLE PART.
+    # Mesure du 2026-08-11 : 59 actives sur 138 sans face DECISION, dont 42 dans 36
+    # des 91 kits << complets >>. On les compte a part, et on les LISTE.
+    n_actives = sum(len(r["actives"]) for r in rows)
+    deci_open = [(r, a) for r in rows for a in r["actives"] if not a["decision"]]
+    deci_masquees = [(r, a) for (r, a) in deci_open if r["missing"] == 0]
+    kits_masques = sorted({r["id"] for (r, _a) in deci_masquees})
+
     lines = []
     lines.append("# Couverture moteur par KIT (unites lineup)\n\n")
     lines.append("> Genere par `scripts/python/audit_kit_coverage.py` (kit gameconfig x registres moteur\n"
@@ -273,10 +286,13 @@ def main():
     lines.append("- Volume total : **%d** items manquants (actives no-op + passifs/traits non registres)\n"
                  % total)
     lines.append("- HORS total — voies conditionnelles : **%d** abilities non portees "
-                 "(%d mythiques, %d reliques equipables)\n\n"
+                 "(%d mythiques, %d reliques equipables)\n"
                  % (len(cond_open),
                     sum(1 for c in cond_open if c["voie"] == "mythic"),
                     sum(1 for c in cond_open if c["voie"] == "item")))
+    lines.append("- HORS total — faces DECISION non portees : **%d** actives sur %d, "
+                 "dont **%d** dans des kits declares COMPLETS (%d kits concernes)\n\n"
+                 % (len(deci_open), n_actives, len(deci_masquees), len(kits_masques)))
 
     lines.append("### Priorite par faction (volume decroissant)\n\n")
     lines.append("| faction | kits | items |\n|---|---:|---:|\n")
@@ -296,8 +312,33 @@ def main():
             tmiss = ", ".join("%s(x%d)" % (t["name"], t["carriers"])
                               for t in r["traits"] if not t["covered"]) or "-"
             lines.append("| %s | %d | %s | %s | %s |\n" % (r["id"], r["missing"], acts, pmiss, tmiss))
+    lines.append("\n## HORS total — faces DECISION non portees dans des kits COMPLETS (%d)\n\n"
+                 % len(deci_masquees))
+    lines.append("> ⚠ **`missing` NE COMPTE QUE LA FACE COMBAT.** Une ability dont l'execution est\n"
+                 "> portee mais dont l'UTILITE de decision ne l'est pas rend `missing = 0` : le kit\n"
+                 "> sort << COMPLET >>, et son marqueur `[C-]` n'etait imprime nulle part, la section\n"
+                 "> par faction ne rendant que les kits AVEC du travail. C'est le meme angle mort que\n"
+                 "> #323 (un recensement qui rend zero sur ce qu'il ne visite pas), sur l'axe DECIDER.\n"
+                 ">\n"
+                 "> Consequence : l'IA CHOISIT ces abilities avec un scoring qui n'est pas celui du\n"
+                 "> natif — divergence de POLITIQUE, invisible en replay puisque l'execution, elle,\n"
+                 "> est fidele. Cf. doctrine « DECIDER != EXECUTER », face DECISION.\n"
+                 ">\n"
+                 "> Ces entrees restent **hors du total** : elles ne sont pas des items de kit\n"
+                 "> manquants, ce sont des faces manquantes d'items presents. Les fondre dans\n"
+                 "> `missing` changerait le sens du chiffre cite partout.\n\n")
+    lines.append("| unite | ability | id | categorie |\n|---|---|---:|---|\n")
+    for r, a in sorted(deci_masquees, key=lambda ra: (ra[0]["faction"], ra[0]["id"], ra[1]["name"])):
+        lines.append("| %s | %s | %s | %s |\n"
+                     % (r["id"], a["name"], a["id"], a["cat"]))
+
     lines.append("\n## Kits lineup COMPLETS (%d)\n\n" % len(done))
-    lines.append(", ".join(sorted(r["id"] for r in done)) + "\n")
+    lines.append("> ⚠ **COMPLET = face COMBAT complete.** %d de ces kits portent au moins une active\n"
+                 "> sans face DECISION (section precedente) — ils sont marques `*` ci-dessous.\n\n"
+                 % len(kits_masques))
+    lines.append(", ".join(
+        (r["id"] + ("*" if r["id"] in kits_masques else "")) for r in sorted(done, key=lambda r: r["id"]))
+        + "\n")
 
     lines.append("\n## HORS total — voies conditionnelles (%d abilities non portees)\n\n" % len(cond_open))
     lines.append("> Une unite `lineup` porte aussi des abilities par deux voies que le kit n'expose\n"
