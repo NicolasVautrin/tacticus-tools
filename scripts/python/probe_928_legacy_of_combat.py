@@ -182,7 +182,7 @@ def _port_seq_1319(last):
     return seq
 
 
-def mesure_live(sid, state_file, seed, board, a_units, a_places, tours=6):
+def mesure_live(sid, state_file, seed, board, a_units, a_places, tours=6, big_target=False):
     """Un cast de `1191 MartialInspiration` par tour ; a chaque cast on capture l'etat, on REJOUE
     hors-ligne par le chemin COMPLET (`Runner.apply`, donc le vecteur `On(0xb)` et le trigger 1319),
     puis on joue le cast NATIF et on confronte les deux sequences de `1319`."""
@@ -227,8 +227,10 @@ def mesure_live(sid, state_file, seed, board, a_units, a_places, tours=6):
                 P._rendre_la_main(sid, rid, me)
                 continue
             hp_avant = {v: u[v]["hp"] for v in adj}
+            cnt = (P._counters(sid, rid) or {}).get(cid)
             cap = P.capture(sid, rid)
             port = _rejeu(cap, cid, tid, adj)
+            mut = contre_epreuves(cap, cid, tid, adj, big_target)
             proc = P._cast(state_file, rid, cid, tid, P.MARTIAL_INSPIRATION)
             par_ab = _seq_par_ability(proc.stdout or "", cid)
             u2, _dv2 = P.unites(sid, rid)
@@ -236,6 +238,8 @@ def mesure_live(sid, state_file, seed, board, a_units, a_places, tours=6):
             rng_apres = P._rpc(sid, "dumpRng", {"runnerId": rid}, 60)
             casts.append({
                 "port": port,
+                "mutants": mut,
+                "compteur_live": (cnt or (None, None))[0],
                 "natif_par_ability": par_ab,
                 "hp_natif": {v: int(hp_avant[v] or 0) - int(hp_apres.get(v) or 0) for v in adj},
                 "brut": [l.strip() for l in (proc.stdout or "").splitlines()
@@ -278,7 +282,133 @@ def _rejeu(cap, caster_id, target_id, adj):
     return {"seq_1191": seq_1191, "seq_1319": _port_seq_1319(last),
             "diag": last.get("unit_ability_triggers"),
             "hp": {v: avant[v] - _hp(uid) for v, uid in (adj or {}).items()},
+            "tirages": P.tirages(cap["rng"], list(st.rng.mt), st.rng.mti),
             "mt": (list(st.rng.mt), st.rng.mti)}
+
+
+def contre_epreuves(cap, caster_id, target_id, adj, big_target: bool):
+    """MUTANTS. Chacun ne change QU'UNE lecture du mirror, sur la MEME capture (donc le MEME MT).
+    Si l'un rendait le MEME couple (delta de PV, tirages) que la reference, la lecture
+    correspondante ne serait PAS mesuree par ce montage -- et l'accord port/natif serait un accord
+    de hasard.
+
+    Le rejeu passe par le CHEMIN COMPLET (`Runner.apply`), donc chaque mutant traverse aussi le
+    vecteur `On(0xb)` et le registre : c'est ce qui rend `sans_trigger` mordant.
+
+    ⚠ Les mutants sont CHOISIS PAR REGIME : muter la branche `else` pendant que le `If` prend la
+    branche `then` ne prouverait rien (le noeud mute n'est pas execute). C'est le piege du
+    << mutant vert par pauvrete du pilotage >> -- ici il serait vert par pauvrete du MUTANT."""
+    import engine.runner.operations.triggers.loki.legacy_of_combat as LOC
+    from engine.runner.operations.triggers.dispatch import registry as REG
+    from engine.entities.behaviours import If
+    from engine.entities.selectors.units import UnitsWithTrait
+    from engine.entities.triggers import AmountIsGreaterThanZero
+    from engine.runner.abilities.behaviours.combat import AttackWithAttackDamage
+
+    ref_tree = LOC.legacy_of_combat_tree
+    ref_reg = REG.ABILITY_TRIGGERS.get("LegacyOfCombat")
+    ref_big = LOC.big_target_selector
+
+    def _arbre(then=None, els=None):
+        """`then`/`els` = surcharges de la feuille de CETTE branche (les autres restent au mirror)."""
+        then, els = dict(then or {}), dict(els or {})
+
+        def _f(state, owner_id):
+            first_bt = LOC.big_target_selector(state, owner_id)
+            return If(
+                AmountIsGreaterThanZero(first_bt),
+                AttackWithAttackDamage(first_bt, LOC.ABILITY_ID,
+                                       then.get("profile", LOC.PROFILE_BIG_TARGET), is_melee=True,
+                                       min_key=then.get("min_key", LOC.MIN_KEY_BIG_TARGET),
+                                       max_key=then.get("max_key", LOC.MAX_KEY_BIG_TARGET),
+                                       hits_key=then.get("hits_key", LOC.HITS_KEY_BIG_TARGET),
+                                       multi=True, level_slot="passive",
+                                       ability_type=then.get("ability_type", LOC.LEGACY_OF_COMBAT)),
+                AttackWithAttackDamage(LOC.adjacent_enemies_selector(), LOC.ABILITY_ID,
+                                       els.get("profile", LOC.PROFILE_ADJACENT), is_melee=True,
+                                       min_key=els.get("min_key", LOC.MIN_KEY_ADJACENT),
+                                       max_key=els.get("max_key", LOC.MAX_KEY_ADJACENT),
+                                       hits_key=els.get("hits_key", LOC.HITS_KEY_ADJACENT),
+                                       multi=True, level_slot="passive",
+                                       ability_type=els.get("ability_type", LOC.LEGACY_OF_COMBAT)))
+        return _f
+
+    def _sans_filtre_bigtarget(state, owner_id):
+        """`UnitsWithTrait(..., BigTarget)` RETIRE : la condition du `If` devient << au moins un
+        ennemi adjacent >>, donc la branche `then` (1x Piercing) remplace la branche `else`."""
+        from engine.entities.selectors.geometry import Randomize
+        from engine.entities.selectors.accessors import Owner as _Owner
+        from engine.runner.abilities.base import ability_attack_params
+        from engine.runner.operations.damage_prediction_sort import SortTargetsByDamagePrediction
+        from engine.entities.selectors.units import First as _First
+        bmin, bmax, pierce, hits = ability_attack_params(
+            state, owner_id, LOC.ABILITY_ID, LOC.PROFILE_BIG_TARGET, ranged=False,
+            min_key=LOC.MIN_KEY_BIG_TARGET, max_key=LOC.MAX_KEY_BIG_TARGET,
+            hits_key=LOC.HITS_KEY_BIG_TARGET, level_slot="passive")
+        return _First(SortTargetsByDamagePrediction(
+            state=state, attacker=_Owner(), targets=Randomize(LOC.adjacent_enemies_selector()),
+            ability_type=LOC.LEGACY_OF_COMBAT, damage_min=bmin, damage_max=bmax, hits=hits,
+            damage_profile=LOC.PROFILE_BIG_TARGET, pierce=pierce, is_melee=True))
+
+    def _sans_randomize(state, owner_id):
+        """`Randomize` RETIRE : meme cible a pool 1, mais la CONSOMMATION RNG change (le natif
+        tire `len(pool)` fois, DEUX fois -- une par evaluation du sous-arbre)."""
+        from engine.entities.selectors.accessors import Owner as _Owner
+        from engine.runner.abilities.base import ability_attack_params
+        from engine.runner.operations.damage_prediction_sort import SortTargetsByDamagePrediction
+        from engine.entities.selectors.units import First as _First
+        bmin, bmax, pierce, hits = ability_attack_params(
+            state, owner_id, LOC.ABILITY_ID, LOC.PROFILE_BIG_TARGET, ranged=False,
+            min_key=LOC.MIN_KEY_BIG_TARGET, max_key=LOC.MAX_KEY_BIG_TARGET,
+            hits_key=LOC.HITS_KEY_BIG_TARGET, level_slot="passive")
+        big = UnitsWithTrait(LOC.adjacent_enemies_selector(), int(LOC.UnitTrait.BigTarget),
+                             selection_type=LOC._SELECTION_ALIVE_AND_TARGETABLE)
+        return _First(SortTargetsByDamagePrediction(
+            state=state, attacker=_Owner(), targets=big,
+            ability_type=LOC.LEGACY_OF_COMBAT, damage_min=bmin, damage_max=bmax, hits=hits,
+            damage_profile=LOC.PROFILE_BIG_TARGET, pierce=pierce, is_melee=True))
+
+    # (tree, registre, selecteur-BigTarget) ; `None` = on garde le mirror.
+    variantes = {"ref": (None, None, None),
+                 # le trigger n'est PAS enregistre -> seule 1191 joue (l'etat d'AVANT #928).
+                 "sans_trigger": (None, [], None)}
+    if big_target:
+        # branche `then` prise : on mute SES lectures + le selecteur qui l'a fait prendre.
+        variantes.update({
+            "then_profil_volet1": (_arbre(then={"profile": LOC.PROFILE_ADJACENT}), None, None),
+            "then_hits_volet1": (_arbre(then={"hits_key": LOC.HITS_KEY_ADJACENT}), None, None),
+            "then_bornes_volet1": (_arbre(then={"min_key": LOC.MIN_KEY_ADJACENT,
+                                                "max_key": LOC.MAX_KEY_ADJACENT}), None, None),
+            "then_sans_ability_type": (_arbre(then={"ability_type": None}), None, None),
+            "sans_randomize": (None, None, _sans_randomize),
+        })
+    else:
+        # branche `else` prise : on mute SES lectures, et on verifie que le FILTRE `BigTarget`
+        # est bien ce qui l'a fait prendre.
+        variantes.update({
+            "else_profil_volet2": (_arbre(els={"profile": LOC.PROFILE_BIG_TARGET}), None, None),
+            "else_hits_volet2": (_arbre(els={"hits_key": LOC.HITS_KEY_BIG_TARGET}), None, None),
+            "else_bornes_volet2": (_arbre(els={"min_key": LOC.MIN_KEY_BIG_TARGET,
+                                               "max_key": LOC.MAX_KEY_BIG_TARGET}), None, None),
+            "else_sans_ability_type": (_arbre(els={"ability_type": None}), None, None),
+            "sans_filtre_bigtarget": (None, None, _sans_filtre_bigtarget),
+        })
+    out = {}
+    for nom, (tree, reg, bigsel) in variantes.items():
+        try:
+            if tree is not None:
+                LOC.legacy_of_combat_tree = tree
+            if bigsel is not None:
+                LOC.big_target_selector = bigsel
+            if reg is not None:
+                REG.ABILITY_TRIGGERS["LegacyOfCombat"] = reg
+            out[nom] = _rejeu(cap, caster_id, target_id, adj)
+        finally:
+            LOC.legacy_of_combat_tree = ref_tree
+            LOC.big_target_selector = ref_big
+            if ref_reg is not None:
+                REG.ABILITY_TRIGGERS["LegacyOfCombat"] = ref_reg
+    return out
 
 
 def etape5(seed, board, tours, big_target: bool):
@@ -296,7 +426,7 @@ def etape5(seed, board, tours, big_target: bool):
     a_units = [v for v, _t in a_places]
     sf = os.path.join(os.environ.get("TEMP", "."),
                       "p928_%s_%d.json" % ("bt" if big_target else "adj", os.getpid()))
-    m = mesure_live(sid, sf, seed, board, a_units, a_places, tours=tours)
+    m = mesure_live(sid, sf, seed, board, a_units, a_places, tours=tours, big_target=big_target)
     try:
         os.remove(sf)
     except OSError:
@@ -337,6 +467,27 @@ def rapport5(m, big_target: bool) -> bool:
         if c["tirages_port"] != c["tirages_natif"]:
             print("     !! TIRAGES divergents (port %s / natif %s)"
                   % (c["tirages_port"], c["tirages_natif"]))
+            ok = False
+        # MUTANTS : chacun doit MORDRE (delta de PV different de la reference), sinon la lecture
+        # qu'il retire n'est pas mesuree par ce montage.
+        mut = c.get("mutants") or {}
+        ref = mut.get("ref") or {}
+        ref_cle = (ref.get("hp"), ref.get("tirages"))
+        print("     -- mutants (hors-ligne, MEME capture, MEME MT ; compteur = %s) --"
+              % (c.get("compteur_live"),))
+        for nom, r in mut.items():
+            if nom == "ref":
+                continue
+            # Un mutant MORD s'il change le delta de PV **ou** la consommation RNG : `sans_randomize`
+            # ne deplace aucun montant a pool de 1, mais il change le nombre de tirages -- et c'est
+            # exactement l'etage qu'il est cense mesurer.
+            mord = (r.get("hp"), r.get("tirages")) != ref_cle
+            print("        %-24s hp=%-40s tirages=%-4s %s"
+                  % (nom, r["hp"], r.get("tirages"), "MORD" if mord else "== REF !!"))
+            if not mord:
+                ok = False
+        if ref.get("hp") != c["port"]["hp"]:
+            print("     !! le mutant `ref` ne reproduit pas le rejeu de reference")
             ok = False
         touchees = {v for v, d in c["hp_natif"].items() if d and v not in ("__na__",)}
         # Retire la contribution de 1191, qui ne frappe QUE la cible du cast.
