@@ -190,7 +190,28 @@ leçon de #589-r1-r1-r2-r1-r8/r9.
   natif **ni** par le port ;
 * **recoupement non cherché** : la salve du bras `n=0` **égale** le mutant `NOCHANNEL` des bras
   `n=1` et `n=2` — le canal ne verse rien à `n=0`, et les rolls sont bien identiques ;
-* mutants `NOCHANNEL` et `PASSIF` mordent tous deux dès `n > 0`.
+* mutants `NOCHANNEL` et `PASSIF` mordent tous deux dès `n > 0` ;
+* **généralisation** : niveau 7 (`critDmgReduction[7] = 516`), trait `Mechanical`, board `C1_74`,
+  seed 31337 — accord également.
+
+### ⚠ Le probe s'est d'abord accusé lui-même, et c'est le port qui avait raison
+
+Sur `C1_74`, le premier jet du volet CRIT a rendu **`n_natif = 2`** contre `compteur = 1` au port
+— un **FAUX ROUGE**. Le discriminant était sous les yeux : **LIVE et PORT étaient IDENTIQUES**
+(`[5851, 5927, 5861, 6225]`). Si le natif avait compté 2 et le port 1, l'écart de `516` par coup
+serait apparu dans la salve.
+
+Cause : l'inventaire filtrait par `hexgeo.distance == 1`, alors que le natif suit la liste
+d'adjacence **STOCKÉE** — `AdjacentFriends` → `AdjacentTiles` → `AdjacentTilesSelector$$Select` →
+`IBattleQuery` slot 80 = `IterateAdjacentTiles`, dont
+`IdunBattle.Core.Services.TileQuery.u003CIterateAdjacentTilesu003Ed__8$$MoveNext` énumère
+`tile.<+0x30>.<+0x10>`, **sans aucune géométrie**. Deux tuiles à hex 1 peuvent donc ne pas être
+voisines. C'est exactement la mesure de #589-r1-r1-r2-r1-r8, **ici re-observée sur un canal
+indépendant** (l'activité d'un effet + le dégât, plutôt que le compteur d'un autre effet).
+
+Le probe dérive désormais `n_natif` de `board.neighbours(<tuile de l'ancre>)` et **DIT** quand le
+`n` posé diffère du `n` compté — il ne corrige pas le montage en silence. `MC1_67` ne montrait pas
+l'écart (les deux critères y coïncident) : un seul board n'aurait jamais fait apparaître le vice.
 
 ---
 

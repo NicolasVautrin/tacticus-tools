@@ -160,6 +160,14 @@ def _pos_de(u) -> tuple:
     return (p.get("col"), p.get("row"))
 
 
+def _tid_de(board, coord):
+    """`(col, row)` -> `TileId`. L'adjacence NATIVE est indexee par TileId, pas par coordonnee."""
+    for tid in board.by_id:
+        if board.coord(tid) == tuple(coord):
+            return tid
+    return None
+
+
 def inventaire_mecaniques(h, dv=None) -> tuple:
     """Inventaire NATIF des unites que `IsMechanical` retiendrait, lu sur
     `combatSnapshot.units[].traits` (#233 : les traits REELLEMENT portes en bataille, veto compris)
@@ -262,16 +270,32 @@ def stage(h, board, n, verbose=False):
         mecas, muets = inventaire_mecaniques(h)
         if muets:
             return None, "capteur de traits MUET pour %r -- inventaire non fiable" % (muets,)
-        import hexgeo
+        # ⚠ ADJACENCE = LA LISTE STOCKEE, PAS `hexgeo.distance == 1`. Cette ligne a d'abord ete
+        # ecrite en distance hex, et elle a produit un FAUX ROUGE sur `C1_74` : `n_natif = 2` alors
+        # que le natif ET le port comptaient 1 -- les degats LIVE et PORT etant IDENTIQUES, c'est
+        # l'INVENTAIRE qui mentait, pas le port. `AdjacentFriends` -> `AdjacentTiles` ->
+        # `AdjacentTilesSelector$$Select` -> `IBattleQuery` slot 80 = `IterateAdjacentTiles`, dont
+        # `IdunBattle.Core.Services.TileQuery.u003CIterateAdjacentTilesu003Ed__8$$MoveNext` enumere
+        # une LISTE STOCKEE par la tuile (`tile.<+0x30>.<+0x10>`) -- AUCUNE geometrie. Deux tuiles a
+        # hex 1 peuvent donc ne PAS etre voisines. C'est exactement la mesure de
+        # #589-r1-r1-r2-r1-r8, ici re-observee sur un canal independant.
+        voisins = set(board.neighbours(_tid_de(board, anchor)))
         amis = [m for m in mecas
                 if m["team"] == car.get("team") and m["id"] != car["id"] and m["alive"]
-                and m["pos"] and hexgeo.distance(m["pos"], anchor) == 1 and m["normal"]]
+                and m["pos"] and _tid_de(board, m["pos"]) in voisins and m["normal"]]
         n_natif = len(amis)
         actif = _activite(h, car["id"])
         rec = {"caster": att["id"], "target": car["id"], "anchor": anchor, "step_to": None,
                "regime": "NO_STEP", "n_demande": n, "n_natif": n_natif,
                "actif_natif": actif, "poses": poses,
                "mecas_adjacents": [(m["visualId"], m["pos"], m["normal"]) for m in amis]}
+        if n_natif != n:
+            # On ne CORRIGE pas le montage, on le DIT : `n_natif` fait foi (il est derive de
+            # l'adjacence STOCKEE), et le verdict porte sur lui. Une tuile a hex 1 peut ne pas
+            # etre voisine -- le montage a donc pose un compagnon que le natif ne compte pas.
+            print("[n=%d] ANCRE %s : %d compagnon(s) pose(s), %d compte(s) par l'adjacence "
+                  "STOCKEE -- le verdict porte sur n_natif=%d, pas sur le n demande."
+                  % (n, anchor, n, n_natif, n_natif))
         if verbose:
             print("    ancre=%s | n demande=%d | n NATIF derive=%d | effet actif natif=%s"
                   % (anchor, n, n_natif, actif))
