@@ -77,6 +77,7 @@ from __future__ import annotations
 from typing import Optional
 
 from .....dsl.event_trigger_type import EventTriggerType
+from .....entities.triggered_ability_type import TriggeredAbilityType
 from ....state import State
 from ....components import HealthComponent, OwnerComponent
 from ..base import TriggeredAbility, TriggerEvent
@@ -104,6 +105,12 @@ LIVING_METAL_HP_VAR = "livingMetalHp"      # trait var gameconfig (=10, %) -> `G
 # de `predict_repair` n'a toujours qu'UN consommateur porte -- mais ce n'est plus le seul du BUILD.
 REGENERATE_SCOPE = 1
 REGENERATE_REMOVE_EFFECTS = False
+
+#: `cause = AbilityOrEffect(LivingMetalRepair 0x3f2)`, le 4e argument que
+#: `...LivingMetalRepairAbility$$CreateBehaviour` passe a `IdunBattleLogic.Entities.DSLBehaviors$$
+#: Repair`. PORTE depuis #908 : c'est ce que lit le gate `TriggeringAbilityIs` du descripteur
+#: `RepairBonus` de `NetherRealmCasket_LivingMetalBonusEffect` (1456) -- le seul du build.
+REPAIR_CAUSE = int(TriggeredAbilityType.LivingMetalRepair)      # 0x3f2 = 1010
 
 
 def living_metal_pct() -> int:
@@ -154,9 +161,18 @@ class LivingMetalRepairAbility(TriggeredAbility):
         # `mechanic` (le REPARATEUR) et la cible sont le MEME `Owner@0x30` au decompile -> caster et
         # target = `self.owner_id`. `ForRegenerate` -> `scope = 1` (cap de GROUPE arme dans
         # `predict_repair`, cf. son etage (2)) et `removeEffects = 0`.
+        #
+        # `cause` = `AbilityOrEffect(LivingMetalRepair 0x3f2)`, le 4e argument de
+        # `IdunBattleLogic.Entities.DSLBehaviors$$Repair` au decompile de `...LivingMetalRepair
+        # Ability$$CreateBehaviour`. Il etait CONSTRUIT par le natif et JETE par le port : c'est ce
+        # canal (`RepairBehaviour+0x68` -> `RepairUnitOperation$$Execute` -> `PredictRepair` ->
+        # `CalculateRepairModifierForPrediction`) que lit le gate `TriggeringAbilityIs` du
+        # descripteur `NetherRealmCasket_LivingMetalBonusEffect$$CreateEffectRepairBonus`. C'est le
+        # SEUL call-site du build qui peut le satisfaire -- d'ou #908.
         repaired = RepairUnitOperation.execute(state, self.owner_id, self.owner_id, amount,
                                                scope=REGENERATE_SCOPE,
-                                               remove_effects=REGENERATE_REMOVE_EFFECTS)
+                                               remove_effects=REGENERATE_REMOVE_EFFECTS,
+                                               ability_or_effect=REPAIR_CAUSE)
         if repaired <= 0:
             return None
         return {"type": "living_metal_repair", "unit": int(self.owner_id),

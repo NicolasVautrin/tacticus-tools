@@ -25,7 +25,7 @@
 
 - Unites lineup : **127** ; kits COMPLETS (aucun manque detecte) : **76** ; kits avec du travail : **51**
 - Volume total : **52** items manquants (actives no-op + passifs/traits non registres)
-- HORS total — voies conditionnelles : **40** abilities non portees (11 mythiques, 29 reliques equipables)
+- HORS total — voies conditionnelles : **39** abilities non portees (11 mythiques, 28 reliques equipables)
 
 ### Priorite par faction (volume decroissant)
 
@@ -209,7 +209,7 @@
 
 adeptCanoness, adeptExorcist, admecDominus, admecMarshall, astarCyrus, astraBullgryn, astraCreed, astraOrdnanceBattery, astraPrimarisPsy, blackForgefiend, blackObliterator, blackTerminator, bloodDante, bloodDeathCompany, custoAtlacoya, custoTrajann, custoVexilusPraetor, darkaAsmodai, darkaAzrael, darkaSternguard, darkaStormSpeeder, deathBlightbringer, deathBlightlord, deathCrawler, deathPutrifier, deathRotbone, deathTyphus, eldarAutarch, eldarFarseer, eldarMauganRa, eldarRanger, emperNoiseMarine, genesKelermorph, genesMagus, genesPatriarch, genesPrimus, necroOverlord, necroReanimator, necroSpyder, necroWarden, orksKillaKan, orksNob, orksRukkatrukk, orksRuntherd, spaceBlackmane, spaceRockfist, spaceStormcaller, tauAunShi, tauBroadside, tauCrisis, tauDarkstrider, tauMarksman, tauShadowsun, templAncient, templChampion, templHelbrecht, templSwordBrother, thousAhriman, thousInfernalMaster, thousSorcerer, thousTerminator, thousTzaangor, tyranDeathleaper, tyranNeurothrope, tyranParasite, tyranTyrantGuard, ultraApothecary, ultraCalgar, ultraDreadnought, ultraEliminatorSgt, ultraInceptorSgt, ultraTigurius, ultraTitus, votanChampion, worldEightbound, worldKharn
 
-## HORS total — voies conditionnelles (40 abilities non portees)
+## HORS total — voies conditionnelles (39 abilities non portees)
 
 > Une unite `lineup` porte aussi des abilities par deux voies que le kit n'expose
 > pas : `mythic` (`units.<kind>.<id>.mythicAbilities`, a DEBLOQUER) et `item`
@@ -236,7 +236,6 @@ adeptCanoness, adeptExorcist, admecDominus, admecMarshall, astarCyrus, astraBull
 | Maugetar | item | 1 | eldarMauganRa |
 | MawClawsOfThyrax | item | 4 | genesPatriarch, tyranParasite, tyranTyrantGuard, tyranWingedPrime |
 | MonsterSlayerOfCaliban | item | 1 | darkaCompanion |
-| NetherRealmCasket | item | 3 | necroDestroyer, necroSpyder, necroWarden |
 | NornCrown | item | 1 | tyranNeurothrope |
 | OrbsOfDecay | item | 3 | deathBlightbringer, deathPutrifier, deathRotbone |
 | ParagonSpear | item | 1 | custoKyrus |
@@ -263,4 +262,4 @@ adeptCanoness, adeptExorcist, admecDominus, admecMarshall, astarCyrus, astraBull
 | ShieldOfFaith | mythic | 1 | adeptExorcist |
 | WisdomOfTheAncients | mythic | 1 | ultraDreadnought |
 
-Portees (au moins un registre) : **3** — AmuletOfTheVoidwyrm, RelicBoltPistol, SupaCyborkBody
+Portees (au moins un registre) : **4** — AmuletOfTheVoidwyrm, NetherRealmCasket, RelicBoltPistol, SupaCyborkBody

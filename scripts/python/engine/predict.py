@@ -392,7 +392,9 @@ def repair_amount_weapon(attack_stat: int, weapon_highest_hits: int = 1) -> int:
     return int(attack_stat) * max(int(weapon_highest_hits), 1)
 
 
-def calculate_repair_modifier_for_prediction(target_effects, heal_config=None) -> tuple:
+def calculate_repair_modifier_for_prediction(target_effects, heal_config=None,
+                                             ability_or_effect=None,
+                                             ability_state_of=None) -> tuple:
     """`IdunBattle.Core.Services.RepairCalculations$$CalculateRepairModifierForPrediction` — construit le
     `RepairModifier` {mult, add} (défaut `IdunBattle.Core.Services.RepairModifier$$Empty` = {1.0, 0}) en foldant
     (`IdunBattle.Core.Services.RepairModifier$$Add` : add SOMMÉS via op_Addition, mult MULTIPLIÉS via op_Multiply,
@@ -411,14 +413,38 @@ def calculate_repair_modifier_for_prediction(target_effects, heal_config=None) -
         `IdunBattle.Entities.Effects.EffectBonus$$ForPercentDecrease` (pctNode enveloppé ×−1), pct = −`healthPct` (constante
         config 50, NON scalée) → mult ×= 1 − healthPct/100.
       - `NetherRealmCasket_LivingMetalBonusEffect IdunBattle.Entities.Effects.Loki.NetherRealmCasket_LivingMetalBonusEffect$$CreateEffectRepairBonus` (EffectType 1456) : ForAddition
-        `hpToHeal[lvl]` MAIS gate `TriggeringAbilityIs(LivingMetalRepair=0x3f2)` — la prédiction
-        Comparable (Repair 28 / GalvanicField 1119) n'est JAMAIS déclenchée par LivingMetalRepair
-        → contribue 0 sur ce chemin (no-op FIDÈLE, pas un manque : le +hpToHeal ne vit que dans le
-        self-repair trigger LivingMetal, hors décision).
+        `hpToHeal[lvl]` (`AbilityVariableType` 0x20 = 32) MAIS gate `get_OwnerIsTarget &
+        TriggeringAbilityIs(LivingMetalRepair=0x3f2)` — les DEUX `AbilityOrEffect` relus OCTET A
+        OCTET (`ba f2 03 00 00` pour le gate, `ba b6 05 00 00` = 1462 `NetherRealmCasket` pour le
+        `source` du descripteur). La prédiction Comparable (Repair 28 / GalvanicField 1119) n'est
+        JAMAIS déclenchée par LivingMetalRepair → contribue 0 sur ce chemin (no-op FIDÈLE) ; le
+        `+hpToHeal` ne vit que dans le self-repair trigger LivingMetal, face COMBAT. **PORTE depuis
+        #908** : le canal `ability_or_effect` ci-dessous transporte la cause, et
+        `runner/operations/repair.py` la thread depuis `RepairUnitOperation`.
 
     `target_effects` = decisionView.units[cible].effects (IsActive-filtrés ; {name, level, source}) ;
     `heal_config` = callable(uid) → {"multiplier": …} (scaling rareté du poseur du Nanoscarab).
+
+    `ability_or_effect` (#908) = la CAUSE de la réparation, mirror du paramètre natif `source` de
+    `IdunBattle.Core.Services.RepairCalculations$$CalculateRepairModifierForPrediction` (5ᵉ
+    argument, celui que `IdunBattle.Operations.RepairUnitOperation$$Execute` reçoit sur la PILE et
+    relaie à `IdunBattle.Core.Services.DamagePrediction$$PredictRepair`). Le natif le pose dans
+    l'`AbilityEntities` que la boucle construit, et c'est ce champ que `TriggeringAbilityIs` lit.
+    Valeur = un ordinal `TriggeredAbilityType`. `None` = **cause non threadée** → le gate rend
+    FAUX, jamais VRAI : un gate permissif ferait contribuer un bonus que le natif tait (la
+    dégradation que la doctrine condamne). C'est exactement l'état de la face DÉCISION, où le natif
+    ne satisfait de toute façon jamais ce gate.
+
+    `ability_state_of` (#908) = callable `(ability_name) -> (level, multiplier)` pour le PORTEUR de
+    l'effet — mirror de `GetAbilityState(effect)`. Le porteur EST la cible (`get_OwnerIsTarget`),
+    donc l'appelant n'a pas à passer d'id. Indispensable pour une RELIQUE : `hpToHeal` a 10 paliers
+    indexés par `BC.Units[].TertiaryAbilityLevel`, alors que le `level` de l'effet capté vaut 50 sur
+    tout runner normalisé — `ability_var` clamperait TOUJOURS au dernier palier (1456 PV). `None` →
+    repli sur le `level` de l'effet, comme les deux autres implémenteurs.
+
     Retourne `(mod_add, mod_mul)` à passer à `repair_amount` (troncature unique là-bas)."""
+    from .entities.effects.loki import nether_realm_casket as _NRC   # feuille, aucun cycle
+    from .entities.triggered_ability_type import TriggeredAbilityType
     mod_add, mod_mul = 0, 1.0
     for e in (target_effects or []):
         name = str(e.get("name") or "")
@@ -437,8 +463,24 @@ def calculate_repair_modifier_for_prediction(target_effects, heal_config=None) -
             pct = ability_var("VoltagheistField", "healthPct", is_constant=True)
             if pct is not None:
                 mod_mul *= 1.0 - pct / 100.0
-        # NetherRealmCasket_LivingMetalBonus (1456) : gate TriggeringAbilityIs(LivingMetalRepair)
-        # jamais satisfait ici (cf. docstring) → aucun terme.
+        elif name == _NRC.LIVING_METAL_BONUS_EFFECT_NAME:
+            # `...NetherRealmCasket_LivingMetalBonusEffect$$CreateEffectRepairBonus` (#908) :
+            #     ForAddition( get_OwnerIsTarget & TriggeringAbilityIs(LivingMetalRepair 0x3f2),
+            #                  ConfigVar(0x20 = hpToHeal, GetAbilityState(effect), config@+0x60) )
+            # `get_OwnerIsTarget` est déjà porté par la BOUCLE : `target_effects` ne contient QUE
+            # les effets de la CIBLE de la réparation (cf. le paragraphe d'en-tête). Le conjoint
+            # restant est le gate de CAUSE, et il est FAUX tant que la cause n'est pas threadée.
+            if (ability_or_effect is None
+                    or int(ability_or_effect) != int(TriggeredAbilityType.LivingMetalRepair)):
+                continue
+            lvl, mult = e.get("level"), 100
+            if ability_state_of is not None:
+                s_lvl, s_mult = ability_state_of(_NRC.ABILITY_ID)
+                if s_lvl is not None:                 # état TERTIAIRE de la relique équipée
+                    lvl, mult = int(s_lvl), int(s_mult if s_mult is not None else 100)
+            add = ability_var(_NRC.ABILITY_ID, _NRC.VAR_HP_TO_HEAL, lvl, multiplier_pct=mult)
+            if add:
+                mod_add += int(add)
     return mod_add, mod_mul
 
 

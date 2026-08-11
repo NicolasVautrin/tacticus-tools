@@ -191,9 +191,21 @@ class HealUnitOperation:
 
     @staticmethod
     def execute(state: "State", caster_id, target_id: int, amount: int,
-                scope: int = 0, remove_effects: bool = False) -> int:
+                scope: int = 0, remove_effects: bool = False, ability_or_effect=None) -> int:
         """Soigne `target_id` et rend le montant REELLEMENT restaure (0 si le gate refuse, si la
         cible est deja pleine, si elle porte `Cursed`, ou si ses PV ne sont pas lisibles).
+
+        `ability_or_effect` = le SEPTIEME argument natif d'`IdunBattle.Operations.
+        HealUnitOperation$$Execute`, celui que Ghidra ne nomme pas parce qu'il arrive sur la PILE
+        (`in_stack_00000040`) -- a ne pas confondre avec le parametre que Ghidra APPELLE
+        `abilityOrEffect`, qui est en realite `removeEffects` (cf. le decalage documente en tete de
+        module). PORTE PAR SYMETRIE avec `RepairUnitOperation.execute` (#908), ou il a un
+        consommateur reel.
+        ⚠ **AUCUN CONSOMMATEUR PORTE ICI, et c'est ecrit plutot que tu** : cote natif il n'alimente
+        que les vecteurs de trigger `On(0x2b)` / `On(0x2c)` (non modelises) -- et surtout,
+        `IdunBattle.Core.Services.DamagePrediction$$PredictHeal` NE LE RECOIT PAS, contrairement a
+        `PredictRepair`. C'est pourquoi il n'est PAS relaye a `predict_heal` : le canal de bonus du
+        soin n'a pas de champ de cause.
 
         `scope` / `remove_effects` = `HealBehaviourOptions+0x2c` / `+0x30`, ecrits par
         `IdunBattle.Entities.Behaviours.HealBehaviourOptions$$ForHeal` (= `0` / `1`) ou

@@ -171,19 +171,48 @@ def test_predict_heal_cap_de_GROUPE_est_GATE_par_scope():
 # 3. HEAL et REPAIR sont des JUMEAUX -- meme signature, meme forme
 # --------------------------------------------------------------------------------------------
 
+#: Le SEUL parametre sur lequel les deux `Predict*` natifs DIVERGENT (#908, mesure ci-dessous).
+_PREDICT_ASYMETRIE = "ability_or_effect"
+
+
 def test_les_deux_Operations_ont_la_MEME_signature():
     """Le natif a deux Operations symetriques (`<slot 0x57>` / `<slot 0x58>` de
-    l'`OperationProcessor`), deux `BehaviourOptions` de meme forme, deux `Predict*` de meme forme.
+    l'`OperationProcessor`), deux `BehaviourOptions` de meme forme.
 
     Le port doit l'etre aussi : c'est ce qui a manque pendant toute la vie de `heal.py`, et c'est
-    ce qui rendait l'asymetrie INVISIBLE a la relecture -- les deux modules ne se comparaient pas."""
+    ce qui rendait l'asymetrie INVISIBLE a la relecture -- les deux modules ne se comparaient pas.
+
+    ⚠ LES `Execute` SONT JUMEAUX, LES `Predict*` NE LE SONT PAS -- et cette ligne-ci disait le
+    contraire (#908). Ce qui est LU au decompile de `rnca9r7q6c` :
+
+      * `IdunBattle.Operations.HealUnitOperation$$Execute` et `IdunBattle.Operations.
+        RepairUnitOperation$$Execute` portent TOUS DEUX un 7e argument `abilityOrEffect`, passe sur
+        la PILE (`in_stack_00000040` dans les deux decompiles) -- donc la symetrie des `execute`
+        est REELLE, et le port la tient ;
+      * `IdunBattle.Core.Services.DamagePrediction$$PredictHeal(this, caster, casterTile, target,
+        amount, scope)` **n'a PAS** ce parametre : il batit son `AbilityEntities` INLINE, sans champ
+        de cause. `PredictRepair`, lui, le recoit et le relaie a
+        `IdunBattle.Core.Services.RepairCalculations$$CalculateRepairModifierForPrediction`
+        (5e argument, `source`) -- c'est ce champ que lit le gate `TriggeringAbilityIs` du seul
+        descripteur `RepairBonus` qui en porte un (`NetherRealmCasket_LivingMetalBonusEffect`).
+
+    Le test ne s'affaiblit donc pas : il exige la symetrie PARTOUT SAUF sur ce parametre, et il
+    ASSERTIONNE l'asymetrie elle-meme (sans quoi un retrait silencieux du canal passerait vert)."""
     import inspect
     sh = inspect.signature(HealUnitOperation.execute)
     sr = inspect.signature(RepairUnitOperation.execute)
     assert list(sh.parameters) == list(sr.parameters), (
         "HealUnitOperation.execute %s != RepairUnitOperation.execute %s" % (sh, sr))
-    assert list(inspect.signature(predict_heal).parameters) == \
-           list(inspect.signature(predict_repair).parameters)
+    ph = list(inspect.signature(predict_heal).parameters)
+    pr = list(inspect.signature(predict_repair).parameters)
+    assert [p for p in pr if p != _PREDICT_ASYMETRIE] == ph, (
+        "predict_heal %s != predict_repair %s (hors '%s')" % (ph, pr, _PREDICT_ASYMETRIE))
+    # l'ASYMETRIE elle-meme, dans les DEUX sens -- c'est ce que le decompile impose.
+    assert _PREDICT_ASYMETRIE in pr, (
+        "PredictRepair recoit `source` (5e arg de CalculateRepairModifierForPrediction) : "
+        "predict_repair doit le porter, sinon le gate TriggeringAbilityIs est INATTEIGNABLE")
+    assert _PREDICT_ASYMETRIE not in ph, (
+        "PredictHeal ne recoit AUCUNE cause au decompile : lui en donner une serait une invention")
     # les feuilles DSL portent toutes deux leurs options
     for cls in (Heal, Repair):
         assert "scope" in cls.__slots__ and "remove_effects" in cls.__slots__, cls.__name__
