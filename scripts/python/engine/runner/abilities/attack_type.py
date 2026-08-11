@@ -518,6 +518,13 @@ ABILITY_ATTACK_TYPE: dict[int, int] = {
     # (`&opts` = recopie des 0x40 octets du PRESET `TargetingOptions statics+0x280`, forme
     #  STATIC-COPY, masque `0x8004` ; `TARGETING_OPTIONS` sur la classe du registre.) (#890)
     ActiveAbilityType.Catalyst: AbilityAttackType.Others,  # 1032
+    # ExemplarOfTheMontka (1210, `tauFarsight` « Commander Farsight »). Litteral LU aux OCTETS du
+    # ctor, jamais deduit du fait que le cast ne frappe personne :
+    # `IdunBattleLogic.Entities.Abilities.Active.Loki.ExemplarOfTheMontkaAbility$$.ctor` recopie les
+    # 0x40 octets du PRESET `<TargetingOptions statics>+0x280` (forme STATIC-COPY, masque `0x8004`,
+    # `TARGETING_OPTIONS` sur la classe du registre) puis finit par
+    # `AActiveAbility..ctor(this, &opts, 2)` -> 3e argument = 2 = Others. TRANSCRIT.
+    ActiveAbilityType.ExemplarOfTheMontka: AbilityAttackType.Others,  # 1210
     ActiveAbilityType.Repair: AbilityAttackType.Others,  # 28 RepairAbility (derivee du trait Mechanic)
     ActiveAbilityType.Repair_GalvanicField: AbilityAttackType.Others,  # 1119 (passif GalvanicField)
     # `DefendTheDivineWorkAbility$$.ctor` -> `AActiveAbility..ctor(this, &opts, 2)` : le litteral EST

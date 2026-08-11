@@ -159,6 +159,7 @@ from .loki.votann import (
 )
 from .loki.wall_of_mirrors import WallOfMirrorsEffect
 from .loki.war_howl import WarHowlExtraDamageUnstoppableEffect
+from .loki.exemplar_of_the_montka import ExemplarOfTheMontkaEffect
 
 # Registre nom d'EffectType (`decisionView.effects[].name`) → classe d'effet. À ÉTENDRE au roster.
 EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
@@ -1091,6 +1092,20 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # Unstoppable`, isTemporary) est LU par le substrat d'entite (`combatSnapshot.units[].traits`,
     # MESURE : u81 gagne 1042 au cast) ; sa POSE offline attend le port de l'ability 1106.
     "WarHowl_ExtraDamage_Unstoppable": WarHowlExtraDamageUnstoppableEffect,
+    # 1498 ExemplarOfTheMontka : le buff de l'ACTIVE `ExemplarOfTheMontka` (0x4ba = 1210) de
+    # `tauFarsight`, pose sur les amis HERO porteurs d'une arme a distance (le caster COMPRIS, par
+    # le filtre et non par une exception -- cf. l'en-tete du module). DEUX artefacts seulement, et
+    # la classe native n'en porte pas d'autre (quatre slots contigus dans le bloc `methodPointers`,
+    # entre `ExemplarOfTheKauyon_AdditionalHitsEffectEffect` et
+    # `ExplosiveMaladies_ExtraMeleeAttackEffect`) :
+    #   `...ExemplarOfTheMontkaEffect$$CreateEffectDamageBonusForAttack`
+    #       = ForAddition( get_OwnerIsCaster & IsNormalAttack,
+    #                      If(HasTrait(Target@+0x60, 0x3f9 BigTarget),
+    #                         ConfigVar(0x09 = extraDmg_2), ConfigVar(0x08 = extraDmg)) )
+    #     -> additif per-coup, SANS gate de nature (melee ET distance, contrairement a 1222) ;
+    #   `...$$ApplyInternal` / `$$RevertInternal` = AddTrait/RemoveTrait `0x412 = 1042 Unstoppable`,
+    #     isTemporary -- MEME trait et MEME paire de slots que 1222, a une adresse distincte.
+    "ExemplarOfTheMontka": ExemplarOfTheMontkaEffect,
     # 1529 RitesOfMorkai_ExtraDamage (#906) : SECOND effet de l'ACTIVE `RitesOfMorkai` (0x4bb = 1211)
     # de `spaceWolfPriest` <<Baldr>>, pose sur le sous-ensemble de sa zone qui porte deja une forme de
     # Final Vengeance (`RitesOfMorkaiAbility$$ExecuteBehaviour` : `AddEffect(0x5f9,

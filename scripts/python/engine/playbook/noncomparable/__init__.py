@@ -104,6 +104,7 @@ from .hellfyre_missile_rack import HellfyreMissileRackPlaybook
 from .unstoppable_momentum import UnstoppableMomentumReworkedPlaybook
 from .mind_control import MindControlPlaybook
 from .unbreakable_duty import UnbreakableDutyPlaybook
+from .exemplar_of_the_montka import ExemplarOfTheMontkaPlaybook
 from .attempted_possession import AttemptedPossessionPlaybook
 from .bio_minefield import BioMinefieldPlaybook
 
@@ -230,6 +231,13 @@ PLAYBOOKS: dict[int, NonComparablePlaybook] = {
         # `NonComparablePlaybook` LUE dans `classes.tsv` ; slots `0x75`/`0x7d` resolus dans
         # `metadata/interface_slots.tsv` (l'`etage manquant` que la fiche annoncait).
         UnbreakableDutyPlaybook(),      # 1061
+        # Face DECISION de `1210 ExemplarOfTheMontka` (`tauFarsight`), portee avec sa face COMBAT.
+        # Reachability LUE dans `metadata/active_playbook_builders.tsv` (`active 1210 ->
+        # ...ExemplarOfTheMontkaPlaybook`, une seule entree, dict `active` seul). Meme forme
+        # d'`EvaluateNonComparable` que 1061 -- utilite CONSTANTE `Fix64(1)` = `MIN_UTILITY` --
+        # mais le gate est une surcharge DIRECTE du slot 4 (`ShouldEvaluate = HasNormalAttackTarget`),
+        # pas un `GetUseProbability` : aucun tirage aleatoire, donc le port peut etre EXACT.
+        ExemplarOfTheMontkaPlaybook(),  # 1210
     )
 }
 
@@ -288,7 +296,7 @@ __all__ = [
     "_has_valid_targets",
     "PLAYBOOKS", "playbook_for", "is_noncomp", "is_summon",
     "choose_action", "BloodyFuryPlaybook", "VexillaMagnificaPlaybook", "FightingRetreatPlaybook",
-    "FireAndRepositionPlaybook", "UnbreakableDutyPlaybook",
+    "FireAndRepositionPlaybook", "UnbreakableDutyPlaybook", "ExemplarOfTheMontkaPlaybook",
     "AberrantHypermorphPlaybook", "NovaBoostPlaybook", "NovaShieldPlaybook",
     "RitesOfRestorationPlaybook", "CombatRestorativesPlaybook", "DefendTheDivineWorkPlaybook",
     "RevitalizingMalignancyPlaybook", "InspiredToGreatnessPlaybook", "ScarabSummonPlaybook",
