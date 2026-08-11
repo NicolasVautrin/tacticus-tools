@@ -1,6 +1,6 @@
-# Couverture combat des abilities actives (audit #95)
-
-> Genere par `scripts/python/audit_combat_ability_coverage.py` (source de verite : `gameconfig.activeAbilities` par unite x `AbilityHandler.ABILITY_CLASSES`). A regenerer au changement de build ou apres un port d'ability.
+ecrit -> C:\Users\nicolasv\tacticus-tools\docs\rl\combat-ability-coverage.md
+actives=175 ported=159 no-op=16 | DAMAGE=8, EFFECT/BUFF=5, SUMMON=3
+nfig.activeAbilities` par unite x `AbilityHandler.ABILITY_CLASSES`). A regenerer au changement de build ou apres un port d'ability.
 
 ## Contexte : DECIDER != EXECUTER
 
@@ -9,9 +9,9 @@ Le runner combat route chaque ability choisie via `ActiveAbilityMessage` -> `Abi
 ## Bilan
 
 - ActiveAbilityType castables par les unites : **175** distinct
-- **PORTED** (dans `ABILITY_CLASSES`) : **157**
-- **NO-OP silencieux** (a porter) : **18**
-- Ventilation NO-OP : **DAMAGE**=8, **EFFECT/BUFF**=6, **SUMMON**=4
+- **PORTED** (dans `ABILITY_CLASSES`) : **159**
+- **NO-OP silencieux** (a porter) : **16**
+- Ventilation NO-OP : **DAMAGE**=8, **EFFECT/BUFF**=5, **SUMMON**=3
 
 ## Priorisation & templates de port
 
@@ -30,7 +30,7 @@ Le runner combat route chaque ability choisie via `ActiveAbilityMessage` -> `Abi
 
 Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 
-## NO-OP SILENCIEUX en combat (a porter, tries categorie puis frequence) (18)
+## NO-OP SILENCIEUX en combat (a porter, tries categorie puis frequence) (16)
 
 | id | ability | categorie | #units | kinds |
 |---|---|---|---|---|
@@ -42,18 +42,16 @@ Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 | 1193 | NovaCharge | DAMAGE(Particle) | 1 | N |
 | 1174 | SolarAtomizer | DAMAGE(Melta) | 1 | N |
 | 1094 | TheLantern | DAMAGE(Energy) | 1 | N |
-| 1210 | ExemplarOfTheMontka | EFFECT/BUFF | 6 | LN |
 | 1010 | StormOfFlensingBlades | EFFECT/BUFF | 3 | N |
 | 1053 | DevoutPush | EFFECT/BUFF | 2 | NS |
 | 1185 | ForwardObservers | EFFECT/BUFF | 2 | NS |
 | 1133 | WarConstruct | EFFECT/BUFF | 2 | N |
 | 1107 | Reveal | EFFECT/BUFF | 1 | N |
 | 1208 | AetherStride | SUMMON | 2 | LN |
-| 1144 | BioMinefield | SUMMON | 2 | LN |
 | 1052 | CallRipperSwarms | SUMMON | 1 | N |
 | 1172 | InvocationOfMachineVengeance | SUMMON | 1 | N |
 
-## PORTED (registry) (157)
+## PORTED (registry) (159)
 
 | id | ability | categorie | #units | kinds |
 |---|---|---|---|---|
@@ -164,6 +162,7 @@ Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 | 1023 | Burrowers | EFFECT/BUFF | 6 | NS |
 | 1118 | DoctrinaImperatives | EFFECT/BUFF | 6 | LN |
 | 1066 | Executioner | EFFECT/BUFF | 6 | LN |
+| 1210 | ExemplarOfTheMontka | EFFECT/BUFF | 6 | LN |
 | 1050 | HolyDuel | EFFECT/BUFF | 6 | LN |
 | 1101 | AttemptedPossession | EFFECT/BUFF | 5 | LN |
 | 1226 | Chronometron | EFFECT/BUFF | 5 | LN |
@@ -210,6 +209,7 @@ Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 | 1179 | CultDemagogue | SUMMON | 4 | LN |
 | 1040 | Poxwalkers | SUMMON | 4 | LN |
 | 1047 | ScarabSummon | SUMMON | 3 | NS |
+| 1144 | BioMinefield | SUMMON | 2 | LN |
 | 1158 | DutyEternal | SUMMON | 2 | LN |
 | 1143 | ForwardSpotter | SUMMON | 2 | LN |
 | 1145 | SporeMineLauncher | SUMMON | 2 | LN |
