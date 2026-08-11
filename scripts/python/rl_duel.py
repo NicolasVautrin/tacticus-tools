@@ -366,6 +366,38 @@ def _base_unit_id(uid: str) -> str:
     return head if (sep and head and tail.strip().isdigit()) else str(uid)
 
 
+def _published_unit_ids(uid: str) -> tuple[str, ...]:
+    """Les cles sous lesquelles le jeu PUBLIE l'unite `uid` dans `decisionView.units[].visualId`,
+    de la PLUS SPECIFIQUE a la plus generale (#888).
+
+    `--p-units`/`--a-units`/`--place` nomment un **unitId de CONFIG** ; `decisionView` publie un
+    **visualId**. Pour les 254 unites `lineup` les deux coincident, et les deux gardes ci-dessous
+    comparaient donc les bonnes chaines... jusqu'a ce qu'un porteur NPC arrive. MESURE (#888,
+    gameconfig du build `rnca9r7q6c`) : **429 unites sur 683** ont `visualId != id`, TOUTES `npc`
+    ou `summons` -- `tauBossRiptide` -> `GuildBoss11Boss1TauRiptide`,
+    `admecBossBelisarius` -> `GuildBoss10Boss1AdmecBelisarius`, `adeptBossCanoness` ->
+    `adeptCanoness`... Le garde de roster rendait donc `demande x1 mais MONTE x0` -- un refus DUR
+    (rc 3) -- pour un boss qui EST en bataille, ce qui se lit comme « ce porteur n'est pas
+    montable » alors qu'il l'est. C'est le seul canal par lequel un lot d'abilities de boss
+    arrivait « non confrontable ».
+
+    L'ORDRE compte, et le repli est CONDITIONNEL au site d'appel (`X or Y`, jamais un `max`) :
+    l'id EXACT reste primaire, le `visualId` de config n'est consulte QUE si l'exact ne trouve
+    RIEN. Aucune detection existante ne peut donc disparaitre -- on ne retire que le faux positif.
+    ⚠ La resolution est MANY-TO-ONE (`adeptBossCanoness` et `adeptBossCanonessLHE` publient tous
+    deux `adeptCanoness`) : deux npc distincts qui partagent un visualId sont indiscernables par
+    ce canal. C'est deja mieux que le zero franc d'aujourd'hui, mais ca ne les separe pas.
+    Gameconfig illisible -> on rend l'id de base seul (comportement d'avant, jamais une exception).
+    """
+    base = _base_unit_id(uid)
+    try:
+        import gameconfig as _GC
+        vis = (_GC.unit(base) or {}).get("visualId")
+    except Exception:                                     # gameconfig absent -> pas de repli
+        vis = None
+    return (base,) if (not vis or str(vis) == base) else (base, str(vis))
+
+
 def _verify_roster(dec: dict, p_units: list[str], a_units: list[str]) -> list[str]:
     """Confronte le ROSTER DEMANDE au roster REELLEMENT MONTE, camp par camp (#287-r13).
 
@@ -396,7 +428,13 @@ def _verify_roster(dec: dict, p_units: list[str], a_units: list[str]) -> list[st
             b = _base_unit_id(uid)
             want[b] = want.get(b, 0) + 1
         for uid, n in sorted(want.items()):
-            got = have.get((uid, team), 0)
+            # #888 : l'id EXACT d'abord, le `visualId` de config en REPLI seulement s'il rend 0
+            # (cf. `_published_unit_ids`) -- 429 npc/summons sur 683 publient un autre nom.
+            got = 0
+            for key in _published_unit_ids(uid):
+                got = have.get((key, team), 0)
+                if got:
+                    break
             if got < n:
                 problems.append(f"{uid} (team{team}) demande x{n} mais MONTE x{got} "
                                 f"-- {n - got} exemplaire(s) absent(s) du deploiement")
@@ -426,7 +464,16 @@ def _verify_placements(sid: int, rid: int, wanted: list[dict], dec: dict | None 
             (int(p["col"]), int(p["row"])))
     problems: list[str] = []
     for w in wanted:
+        # #888 : MEME resolution que `_verify_roster` -- l'id EXACT d'abord (comportement
+        # historique intact), puis le suffixe de PALIER retire, puis le `visualId` de config.
+        # Sans elle, tout `--place` d'un porteur NPC (429/683) ou a palier (`tauBossRiptide:4`)
+        # rapportait « present NULLE PART (non deploye) » pour une unite CORRECTEMENT posee.
         got = pos_by.get((w["unitId"], w["team"]), [])
+        if not got:
+            for key in _published_unit_ids(w["unitId"]):
+                got = pos_by.get((key, w["team"]), [])
+                if got:
+                    break
         if (w["col"], w["row"]) not in got:
             problems.append(f"{w['unitId']} (team{w['team']}) demande @({w['col']},{w['row']}) "
                             f"mais present @{got or 'NULLE PART (non deploye)'}")

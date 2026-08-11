@@ -1387,13 +1387,33 @@ NOVA_SHIELD_PENDING_TARGET = int(EffectType.NovaShield_PendingTarget)          #
 NOVA_SHIELD_EXTRA_BLOCK_CHANCE = int(EffectType.NovaShield_ExtraBlockChance)   # 0x588 = 1416
 
 
-def _nova_ability_scaling(state: "State", caster_id: int) -> tuple:
-    """`(level, multiplier_pct)` du CASTER pour `GetVariableForLevel` -- MEME lecture que
-    `_itg_heal_amounts` ci-dessus (`StatsComponent.ctx.active_ability_level` +
-    `ability_variables_multiplier`). Le natif indexe `AbilityConfiguration$$GetVariableForLevel`
-    par l'`AbilityState` du caster ; hors seed, `level=0` -> `ability_var` clampe sur l'entree 0."""
+def _nova_ability_scaling(state: "State", caster_id: int, ability_type: int) -> tuple:
+    """`(level, multiplier_pct)` a passer a `ability_var` = l'**`AbilityState` PER-ABILITY** du
+    caster, mirror EXACT du 3e argument d'`IdunBattle.Configuration.AbilityConfiguration$$
+    GetVariableForLevel(type, abilityState, fallback)`.
+
+    Le decompile ne laisse aucun doute sur QUEL etat le natif indexe : `ExecuteBehaviour(this,
+    abilityState, entities)` recopie `*(abilityState)` / `*(abilityState + 8)` dans un local et
+    passe CE local -- c'est l'`AbilityState` de CETTE ability, celui que le canal `readAbilityState`
+    (#100) publie dans `decisionView.units[].abilities[]` et que porte
+    `ActiveAbility.level` / `.multiplier`.
+
+    ⚠ CE N'EST PAS le canal GLOBAL `StatsComponent.ctx.active_ability_level` /
+    `ability_variables_multiplier`, et les confondre est SILENCIEUX SUR UN HEROS et FAUX SUR UN
+    BOSS. MESURE (#888, runner `GB_Riptide_01`, `tauBossRiptide:4`) : le canal global rend
+    `level=0, mult=100` (`combatSnapshot.unitConfig` = `{"error": "config null"}` pour un npc),
+    la ou `abilityStates[]` rend `level=55, multiplier=200` -- soit `shieldHp` **100** au lieu de
+    **13686** (round(6843 x 200/100), le `Shields_InitialAmount` du cast natif). Un facteur 137.
+    Le canal global reste le REPLI (unite dont le composant per-ability n'est pas seede : le
+    canal exige `allAbilities: true`)."""
     e = state.get_entity(caster_id) if caster_id is not None else None
-    sc = e.get_component(StatsComponent) if e is not None else None
+    if e is None:
+        return (0, 100)
+    comp = e.get_component(ActiveAbilitiesComponent)
+    ab = comp.get(int(ability_type)) if comp is not None else None
+    if ab is not None and ab.level is not None:
+        return (int(ab.level), int(ab.multiplier if ab.multiplier is not None else 100) or 100)
+    sc = e.get_component(StatsComponent)
     ctx = sc.ctx if sc is not None else None
     level = getattr(ctx, "active_ability_level", 0) if ctx is not None else 0
     mult = int(getattr(ctx, "ability_variables_multiplier", 100) or 100) if ctx is not None else 100
@@ -1424,7 +1444,7 @@ def nova_shield_tree(state: "State", caster_id: int):
     rarete du caster. `nrOfRounds` (0x45) est un `GetNumberConstant` -> `constants` du kit.
     `TurnsFromRounds` = `convert_rounds_to_turns` pour les DEUX consommateurs (le bouclier et
     l'effet de blockChance partagent le MEME noeud natif `pvVar6`)."""
-    level, mult = _nova_ability_scaling(state, caster_id)
+    level, mult = _nova_ability_scaling(state, caster_id, int(ActiveAbilityType.NovaShield))
     shield_hp = int(ability_var(NOVA_SHIELD_ID, "shieldHp", level, multiplier_pct=mult) or 0)
     block_chance = int(ability_var(NOVA_SHIELD_ID, "blockChance", level, multiplier_pct=mult) or 0)
     rounds = int(ability_var(NOVA_SHIELD_ID, "nrOfRounds", is_constant=True) or 0)
