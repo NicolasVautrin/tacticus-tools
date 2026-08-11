@@ -223,19 +223,80 @@ STDERR de `gh` en clair (un `rc` ne nomme rien -- `rc=1` couvre a lui seul le to
 depot inconnu et l'erreur d'usage, cf. #467-r6), et JAMAIS rabattu sur << 0 PR >>. Aucun repli
 sur cache : un cache disant << 0 PR >> ne prouverait rien.
 
+CINQ SOURCES NE SUFFISENT PAS : ON N'OBSERVE PLUS, ON ALLOUE (#468-r14)
+-----------------------------------------------------------------------
+Les cinq elargissements ci-dessus repondent tous a la meme question -- << ou ce numero est-il
+deja ECRIT ? >>. Aucun ne peut repondre a celle qui produit nos collisions : << qui vient de le
+PRENDRE ? >>. Un agent alloue au DEBUT de sa tranche et n'ecrit qu'a la fin, des heures plus
+tard ; entre les deux, il est invisible de toute lecture, par construction. Le corpus etait donc
+epuise comme piste -- mesure : les branches non fusionnees apportent 0 changement de numero, le
+corps des PR en apporte 2, et il ne reste rien a lire.
+
+MESURE DU SYMPTOME (2026-08-11, trois jours) : SEPT collisions, dont quatre vues de visu -- un
+agent annonce `#907`, un autre le prend PENDANT qu'il travaille (renumerotation manuelle en
+`#911`) ; `--suggere` rend `#909` deja pris ; `#479` collisionne DOUBLE (racine ET `-r1`) ;
+`#420-r1` QUADRUPLE. Toutes dans le meme regime : deux allocations concurrentes, aucune ecriture
+entre les deux.
+
+LE REMEDE EST UN CHANGEMENT DE NATURE, PAS UN SIXIEME CAPTEUR. `--suggere` RESERVE le numero
+qu'elle rend, et la reservation EST l'allocation :
+
+    os.open(<dossier>/<cle>.json, O_CREAT | O_EXCL)
+
+`O_CREAT|O_EXCL` (CREATE_NEW cote Win32) est atomique : pour une cle donnee, EXACTEMENT UN
+processus peut reussir. Il n'y a aucune fenetre entre << je constate que c'est libre >> et
+<< je le prends >>, parce que c'est le MEME appel systeme. Deux `--suggere` simultanes ne
+peuvent donc pas rendre le meme numero -- ce n'est pas improbable, c'est impossible ; celui qui
+perd la course voit son `FileExistsError`, incremente et rejoue. Le refus est EXECUTABLE, pas
+redige.
+
+OU VIT LA RESERVATION, ET POURQUOI LA -- trois contraintes, un seul emplacement qui les tienne :
+  (1) VISIBLE DE TOUS. Jusqu'a 6 agents tournent en parallele, chacun dans SON worktree, sur la
+      meme machine. Mesure du 2026-08-11 : `git rev-parse --git-common-dir` rend le MEME chemin
+      absolu (`<principal>/.git`) depuis l'arbre principal ET depuis chacun des 32 worktrees --
+      c'est la definition d'un worktree lie, pas une coincidence d'installation.
+  (2) SURVIT A LA DISPARITION D'UN WORKTREE. Un worktree PROPRE est auto-supprime des que son
+      agent rend la main ; `.git/` du principal, lui, n'est touche ni par `git worktree remove`,
+      ni par `git clean` (qui ne descend jamais dans le repertoire git).
+  (3) HORS DE TOUT ARBRE DE TRAVAIL. Une reservation versionnee exigerait commit+push (donc de
+      serialiser l'allocation, donc le reseau) et ferait de `backlog.md` -- deja le fichier le
+      plus partage du depot, 36 des 40 dernieres PR -- le lieu d'un conflit par allocation.
+      Sous `.git/`, elle n'apparait dans aucun `git status` et ne peut entrer dans aucune PR.
+
+TROIS FORMES REFUSEES, et le motif de chacune :
+  * VERROU GLOBAL + registre JSON (lire, decider, ecrire, deverrouiller) : ajoute un mode de
+    panne que la creation exclusive n'a pas -- le verrou ORPHELIN, qu'un process tue laisse
+    derriere lui et qu'il faut alors expirer par un DELAI, c'est-a-dire par un seuil qui se
+    degrade en silence. Ici il n'y a rien a relacher : l'artefact EST le resultat.
+  * COMMIT+PUSH d'une ligne de reservation : serialise l'allocation entre agents et depend du
+    reseau ; c'est la parade que #468-r10 avait deja nommee puis ecartee pour cette raison.
+  * UN SERVICE (le host, un daemon d'allocation) : une piece mobile de plus, qui peut etre
+    eteinte -- et un allocateur indisponible fait revenir au geste qu'on supprime.
+
+CE QUE LA RESERVATION NE COUVRE PAS, et c'est dit a chaque appel (`_imprimer_portee`) : un
+numero choisi SANS passer par l'outil ; un autre clone du depot ou une autre machine (l'espace
+de noms est per-depot, comme le `.git` qui le porte) ; et un numero reserve puis jamais livre --
+un entier brule, exactement l'asymetrie que la monotonie assume deja (sauter coute un entier,
+reprendre coute une reecriture d'historique). Il n'y a donc PAS de liberation : `--liberer`
+rouvrirait une course entre le releaseur et un demandeur, pour economiser un entier.
+
 ASCII only (console Windows cp1252).
 Usage:
     python probe_468_collision_numeros.py [-v]
     python probe_468_collision_numeros.py --report
     python probe_468_collision_numeros.py --self-test
     python probe_468_collision_numeros.py --attester "<ident>|<fichier>=<raison>"
-    python probe_468_collision_numeros.py --suggere            # une RACINE libre
+    python probe_468_collision_numeros.py --suggere            # une RACINE libre, RESERVEE
     python probe_468_collision_numeros.py --suggere 420        # un RESIDU libre sous #420
+    python probe_468_collision_numeros.py --suggere --pour "<sujet>"   # etiquette la reservation
+    python probe_468_collision_numeros.py --reservations       # ce qui est alloue, par qui
 """
 from __future__ import annotations
 
 import argparse
+import datetime
 import json
+import os
 import re
 import sys
 from pathlib import Path
@@ -911,15 +972,157 @@ def _identifiants_des_pr(prs) -> dict:
     return out
 
 
-def employes(ids_worktrees=None, ids_pr=None) -> dict:
+# ------------------------------------------------------------------------------------------
+#  LA RESERVATION -- ce qui fait passer d'OBSERVER a ALLOUER (#468-r14)
+# ------------------------------------------------------------------------------------------
+#
+# Voir la section << CINQ SOURCES NE SUFFISENT PAS >> du docstring pour le POURQUOI et pour les
+# trois formes refusees. Ici, le COMMENT, et il tient en une ligne : la creation exclusive d'un
+# fichier EST l'allocation. Pas de verrou a prendre, donc pas de verrou orphelin a expirer ;
+# pas d'etat a relire apres l'avoir ecrit, donc pas de fenetre entre le constat et la prise.
+
+#: Libelle de PROVENANCE d'un numero RESERVE mais pas encore ecrit. C'est la SIXIEME source, et
+#: la seule qui ne soit pas une lecture de ce qui existe : elle dit ce qui a ete PRIS.
+SRC_RESERVATION = "reservation"
+
+#: Le sous-dossier, sous le `.git` COMMUN. Prefixe explicite : ce repertoire cohabite avec les
+#: donnees de git, il doit se lire comme etranger a elles au premier coup d'oeil.
+NOM_DOSSIER_RESERVATIONS = "tacticus-468-reservations"
+
+#: Garde de TERMINAISON de la boucle d'allocation -- pas un seuil de qualite. Chaque tour perdu
+#: signifie qu'un AUTRE processus a pris notre candidat entre notre calcul et notre creation ;
+#: avec C allocateurs concurrents, un ordonnancement equitable en produit au plus C-1. La borne
+#: est large et ne se degrade PAS en silence : elle LEVE (`Indisponible`), elle ne rend jamais
+#: un numero non reserve.
+PLAFOND_TENTATIVES = 1000
+
+#: Un parent acceptable APRES normalisation. Il devient un NOM DE FICHIER : tout ce qui n'est
+#: pas alphanumerique est refuse ici plutot que traduit en chemin (`--suggere ../ailleurs`).
+RE_PARENT_SUR = re.compile(r"^[0-9a-z]+$")
+
+
+def _chemin_git_commun() -> Path:
+    """Le `.git` PARTAGE par tous les worktrees de ce depot.
+
+    MESURE (2026-08-11) : `git rev-parse --git-common-dir` rend le meme chemin absolu
+    (`C:/Users/nicolasv/tacticus-tools/.git`) depuis l'arbre principal ET depuis chacun des 32
+    worktrees d'agents. C'est ce que garantit un worktree LIE -- le `.git` d'un worktree est un
+    fichier qui pointe vers le repertoire commun -- donc ce n'est pas une propriete de notre
+    installation, c'est la definition.
+
+    La forme RELATIVE (`.git`, rendue depuis l'arbre principal par les git anciens) est resolue
+    contre `REPO` : on n'exige pas `--path-format=absolute`, qui daterait la compatibilite a
+    git 2.31 sans rien apporter."""
+    brut = _git(["rev-parse", "--git-common-dir"], "`git rev-parse --git-common-dir`").strip()
+    if not brut:
+        raise Indisponible("`git rev-parse --git-common-dir` muet -- sans repertoire git commun, "
+                           "aucune reservation n'est visible des autres worktrees")
+    chemin = Path(brut)
+    if not chemin.is_absolute():
+        chemin = REPO / brut
+    return chemin.resolve()
+
+
+def _dossier_reservations() -> Path:
+    """Le dossier des reservations, CREE si besoin. LEVE si on ne peut pas y ecrire.
+
+    Une reservation impossible ne se degrade PAS en observation : ce serait revenir exactement
+    au defaut que cette tranche supprime, et en silence. `--suggere` sort alors en INDISPONIBLE
+    sans imprimer de numero -- meme frontiere que << une mesure incomplete ne rend jamais de
+    numero >>, transposee de la LECTURE a l'ECRITURE."""
+    dossier = _chemin_git_commun() / NOM_DOSSIER_RESERVATIONS
+    try:
+        dossier.mkdir(parents=True, exist_ok=True)          # exist_ok : deux agents en parallele
+    except OSError as exc:
+        raise Indisponible("dossier de reservations inaccessible (%s) -- aucun numero ne peut "
+                           "etre ALLOUE, et l'observation seule ne suffit pas" % exc) from exc
+    return dossier
+
+
+def _contexte_de_reservation(etiquette: str) -> dict:
+    """Qui reserve, d'ou, quand. MESURE AVANT la creation exclusive, a dessein : une panne de
+    capteur ici ne doit pas survenir APRES qu'on a deja pris le numero."""
+    import subprocess
+    branche = "?"
+    try:
+        res = subprocess.run(["git", "-C", str(REPO), "rev-parse", "--abbrev-ref", "HEAD"],
+                             capture_output=True, text=True, encoding="utf-8",
+                             errors="replace", timeout=30)
+        if res.returncode == 0 and res.stdout.strip():
+            branche = res.stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        pass                                    # informatif : jamais bloquant pour l'allocation
+    return {
+        "quand": datetime.datetime.now().astimezone().isoformat(timespec="seconds"),
+        "worktree": str(REPO),
+        "branche": branche,
+        "pid": os.getpid(),
+        "pour": etiquette or "(non dit)",
+    }
+
+
+def _reserver(cle: str, dossier: Path, contexte: dict) -> bool:
+    """PREND `cle`. True si NOUS l'avons obtenue, False si un autre nous a devances.
+
+    `O_CREAT|O_EXCL` est le point entier de cette tranche : c'est un appel systeme atomique
+    (CREATE_NEW cote Win32), donc pour une cle donnee exactement UN processus en sort avec
+    True, quels que soient l'entrelacement et le nombre de concurrents.
+
+    LE CONTENU N'EST QU'INFORMATIF : un fichier cree puis vide (processus tue entre les deux)
+    reserve tout autant, puisque c'est le NOM qui porte l'identifiant. La reservation ne peut
+    donc pas etre a moitie faite."""
+    chemin = dossier / (cle + ".json")
+    try:
+        fd = os.open(str(chemin), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+    except FileExistsError:
+        return False
+    except OSError as exc:
+        raise Indisponible("reservation de #%s impossible (%s) -- aucun numero n'est rendu sans "
+                           "avoir ete PRIS" % (cle, exc)) from exc
+    with os.fdopen(fd, "w", encoding="utf-8") as flux:
+        json.dump(dict(contexte, cle=cle), flux, indent=2, ensure_ascii=True, sort_keys=True)
+    return True
+
+
+def _identifiants_des_reservations(dossier) -> dict:
+    """{cle: {SRC_RESERVATION}} -- les numeros PRIS et pas encore ecrits.
+
+    On lit les NOMS, jamais le contenu : un fichier tronque par un processus tue reserve quand
+    meme, et c'est ce qu'on veut -- le cote SUR est de sauter un entier, pas de le reprendre."""
+    out = {}
+    for chemin in (dossier.glob("*.json") if dossier else ()):
+        cle = normaliser(chemin.stem)
+        if cle:
+            out.setdefault(cle, set()).add(SRC_RESERVATION)
+    return out
+
+
+def lire_reservations(dossier) -> list:
+    """[(cle, contexte)] -- pour `--reservations`. Un fichier illisible est RENDU quand meme,
+    avec un contexte vide : il RESERVE, et le taire le ferait passer pour libre."""
+    out = []
+    for chemin in sorted(dossier.glob("*.json")):
+        try:
+            ctx = json.loads(chemin.read_text(encoding="utf-8"))
+            if not isinstance(ctx, dict):
+                ctx = {}
+        except (OSError, ValueError):
+            ctx = {}
+        out.append((chemin.stem, ctx))
+    return out
+
+
+def employes(ids_worktrees=None, ids_pr=None, ids_reservations=None) -> dict:
     """{cle normalisee: {sources}} -- l'UNION, toutes positions confondues.
 
     Depuis #468-r10 l'union couvre AUSSI les deux sources en vol (N1 et N2) : sans elles,
     `--suggere 425` et `--suggere 448` rendaient, le jour de la mesure, deux numeros que des
     dossiers en vol portaient deja. Depuis #468-r11 elle couvre la QUATRIEME source hors-arbre,
     le corps des PR : sans elle, `--suggere 479` rendait `#479-r2`, ouvert par la PR #663 et
-    introuvable de `git grep` comme de `git log --all`. Les parametres evitent de mesurer deux
-    fois quand l'appelant a deja interroge ces capteurs pour imprimer sa portee."""
+    introuvable de `git grep` comme de `git log --all`. Depuis #468-r14 elle couvre la SIXIEME,
+    qui n'est pas une lecture de ce qui existe mais de ce qui a ete PRIS : les reservations.
+    Les parametres evitent de mesurer deux fois quand l'appelant a deja interroge ces capteurs
+    pour imprimer sa portee."""
     if ids_worktrees is None:
         ids_worktrees, _illisibles = _identifiants_des_worktrees(_autres_worktrees())
     if ids_pr is None:
@@ -928,10 +1131,12 @@ def employes(ids_worktrees=None, ids_pr=None) -> dict:
         # et passe le resultat : le tri-etat ne vaut que la ou quelqu'un l'imprime.
         prs, _panne = _pull_requests()
         ids_pr = _identifiants_des_pr(prs)
+    if ids_reservations is None:
+        ids_reservations = _identifiants_des_reservations(_dossier_reservations())
     union = {}
     for part in (_identifiants_du_contenu(), _identifiants_des_noms(),
                  _identifiants_des_commits(), _identifiants_des_refs_hors_head(),
-                 ids_worktrees, ids_pr):
+                 ids_worktrees, ids_pr, ids_reservations):
         for k, v in part.items():
             union.setdefault(k, set()).update(v)
     return union
@@ -957,14 +1162,25 @@ MARQUEUR_ANGLE_MORT = "ANGLE MORT"
 
 
 def _imprimer_portee(pris, autres, illisibles, pr_lues=None,
-                     pr_panne="capteur non sollicite") -> None:
+                     pr_panne="capteur non sollicite", reserve=None, dossier=None,
+                     refus=()) -> None:
     """Dit ce que le numero rendu NE garantit PAS. Voir le commentaire de bloc ci-dessus."""
     print("[468] PORTEE DE LA MESURE -- ce que ce numero ne garantit PAS")
-    print("   %s : un agent qui vient de recevoir un numero et n'a RIEN encore ecrit est"
+    if reserve:
+        print("   RESERVE : %s.json -- creation EXCLUSIVE dans %s" % (reserve, dossier))
+        print("   Deux `--suggere` simultanes ne PEUVENT PAS rendre ce numero tous les deux :")
+        print("   l'allocation EST le `O_CREAT|O_EXCL`, il n'y a pas de fenetre entre le")
+        print("   constat et la prise. Ce n'est pas improbable, c'est impossible.")
+        if refus:
+            print("   PRIS SOUS NOS PIEDS pendant cette allocation : %s -- la course a EU LIEU"
+                  % ", ".join("#" + c for c in refus))
+    else:
+        print("   NON RESERVE -- ce numero n'a ete qu'OBSERVE, donc un autre appel peut le")
+        print("   rendre au meme instant. C'est le regime d'avant #468-r14.")
+    print("   %s : la reservation ne vaut que pour CE depot sur CETTE machine (elle vit dans"
           % MARQUEUR_ANGLE_MORT)
-    print("   invisible de toute lecture de l'arbre. Deux `--suggere` lances au meme instant")
-    print("   depuis deux worktrees rendent le MEME numero. Reserver le supprimerait, mais")
-    print("   exigerait commit+push -- ce qui serialiserait l'allocation entre agents.")
+    print("   le `.git` commun). Restent invisibles jusqu'a etre ECRITS : un numero choisi SANS")
+    print("   passer par cet outil, et un numero pris depuis un autre clone du depot.")
     if pr_lues is None:
         # Tri-etat, meme regle que partout : `null` n'est pas `0`. Un << 0 PR >> fabrique ferait
         # lire << aucune PR ne porte ce numero >>, et aucun repli sur cache ne peut le dire.
@@ -1043,8 +1259,48 @@ def _lister_trous(trous, libelle_element) -> str:
     return txt
 
 
-def suggerer(parent: str) -> int:
-    """Imprime un identifiant LIBRE. `parent` vide -> une racine ; sinon un `r<k>` sous `parent`.
+def candidat_observe(base: str, pris: dict, borne: int) -> tuple:
+    """(cle, rang) -- le numero que l'OBSERVATION SEULE designe, et rien de plus.
+
+    C'est EXACTEMENT ce que `--suggere` rendait avant #468-r14, extrait en fonction PURE. Deux
+    raisons, et la seconde est la plus importante :
+      * la boucle d'allocation la rejoue apres chaque candidat perdu, sans dupliquer la regle ;
+      * la contre-epreuve peut la lancer en CONCURRENCE et MONTRER qu'elle rend N fois le meme
+        numero. Un remede dont on ne peut pas exhiber le defaut qu'il corrige ne se prouve pas.
+    """
+    if base:
+        occupes = _residus_pris(base, pris)
+        k = max(occupes) + 1 if occupes else 1
+        return normaliser("%sr%d" % (base, k)), k
+    n = borne + 1
+    while str(n) in pris:
+        n += 1
+    return str(n), n
+
+
+def allouer(base: str, pris: dict, borne: int, dossier: Path, contexte: dict) -> tuple:
+    """(cle, rang, refus) -- le numero PRIS, jamais seulement observe.
+
+    L'invariant tient en une phrase : cette fonction ne rend une cle que si `_reserver` a rendu
+    True pour elle, et `_reserver` ne peut rendre True qu'a UN processus. Un candidat perdu
+    entre dans `pris` comme n'importe quelle autre source occupee -- donc le tour suivant
+    respecte la MONOTONIE comme le premier, et `refus` garde la trace de la course pour que le
+    lecteur la voie au lieu de la supposer.
+    """
+    refus = []
+    for _ in range(PLAFOND_TENTATIVES):
+        cle, rang = candidat_observe(base, pris, borne)
+        if _reserver(cle, dossier, contexte):
+            return cle, rang, refus
+        refus.append(cle)
+        pris.setdefault(cle, set()).add(SRC_RESERVATION)
+    raise Indisponible("%d candidats consecutifs pris par d'autres processus -- l'allocation "
+                       "n'aboutit pas ; AUCUN numero n'est rendu (une garde de terminaison ne "
+                       "se degrade pas en suggestion non reservee)" % PLAFOND_TENTATIVES)
+
+
+def suggerer(parent: str, etiquette: str = "") -> int:
+    """ALLOUE un identifiant libre. `parent` vide -> une racine ; sinon un `r<k>` sous `parent`.
 
     On ne recycle JAMAIS un trou, meme libre : un trou peut etre un numero pris par un agent EN
     VOL dont la PR n'est pas encore fusionnee -- l'arbre ne peut pas le voir. La suggestion est
@@ -1057,31 +1313,43 @@ def suggerer(parent: str) -> int:
     worktree est deja supprime. Mesure de l'asymetrie : **11 parents sur 218** proposaient un
     trou alors que des residus SUPERIEURS existaient.
 
+    ELLE N'OBSERVE PLUS, ELLE ALLOUE (#468-r14) : le numero rendu est RESERVE par creation
+    exclusive avant d'etre imprime, dans le `.git` commun a tous les worktrees. Deux appels
+    concurrents ne peuvent donc plus rendre le meme -- ce que la version d'avant NOMMAIT comme
+    son angle mort irreductible, et que sept collisions en trois jours ont paye.
+
     La PORTEE est imprimee dans les deux modes, et apres le numero : c'est ce qui empeche de
     lire une suggestion comme une garantie (#468-r10).
     """
+    nom = parent.lstrip("#") if parent else ""
+    base = normaliser(nom)
+    if nom and not RE_PARENT_SUR.match(base):
+        # Le parent devient un NOM DE FICHIER de reservation : ce qui n'est pas alphanumerique
+        # est refuse ici, pas traduit en chemin.
+        print("[468] REFUS : parent `%s` non conforme (attendu : un identifiant, ex. 420 ou "
+              "448-r1). Rien n'a ete reserve." % parent)
+        return 2
+    dossier = _dossier_reservations()          # LEVE si on ne peut pas ALLOUER -> aucun numero
+    contexte = _contexte_de_reservation(etiquette)
     autres = _autres_worktrees()
     ids_wt, illisibles = _identifiants_des_worktrees(autres)
     prs, pr_panne = _pull_requests()
-    pris = employes(ids_wt, _identifiants_des_pr(prs))
-    if parent:
-        nom = parent.lstrip("#")
-        base = normaliser(nom)
+    pris = employes(ids_wt, _identifiants_des_pr(prs), _identifiants_des_reservations(dossier))
+
+    if base:
+        _cle, k, refus = allouer(base, pris, 0, dossier, contexte)
         occupes = _residus_pris(base, pris)
-        k = max(occupes) + 1 if occupes else 1
         print("[468] LIBRE : #%s-r%d" % (nom, k))
         print("   pris sous #%s : %s"
               % (nom, ", ".join("r%d" % i for i in sorted(occupes)) or "(aucun)"))
         trous = [i for i in range(1, k) if i not in occupes]
         print("   %d trou(s) libre(s) SOUS r%d, NON proposes (un trou peut etre reserve par une "
               "PR en vol) : %s" % (len(trous), k, _lister_trous(trous, lambda i: "r%d" % i)))
-        _imprimer_portee(pris, autres, illisibles, prs, pr_panne)
+        _imprimer_portee(pris, autres, illisibles, prs, pr_panne, _cle, dossier, refus)
         return 0
 
     borne = borne_des_taches()
-    n = borne + 1
-    while str(n) in pris:
-        n += 1
+    _cle, n, refus = allouer("", pris, borne, dossier, contexte)
     print("[468] LIBRE : #%d" % n)
     print("   borne des taches = %d (plus grande racine DEFINIE que backlog.md connait) ; "
           "%d..%d etaient pris" % (borne, borne + 1, n - 1) if n > borne + 1 else
@@ -1090,9 +1358,24 @@ def suggerer(parent: str) -> int:
     print("   %d trou(s) libre(s) SOUS la borne, NON proposes (un trou peut etre reserve par une "
           "PR en vol) : %s" % (len(trous), _lister_trous(trous, str)))
     print("   corpus : docs/rl + scripts/python + messages de commit + refs hors HEAD + noms "
-          "des autres worktrees + corps des PR -- l'UNION, mentions comprises (%d identifiants)"
-          % len(pris))
-    _imprimer_portee(pris, autres, illisibles, prs, pr_panne)
+          "des autres worktrees + corps des PR + RESERVATIONS -- l'UNION, mentions comprises "
+          "(%d identifiants)" % len(pris))
+    _imprimer_portee(pris, autres, illisibles, prs, pr_panne, _cle, dossier, refus)
+    return 0
+
+
+def lister(dossier) -> int:
+    """`--reservations` : ce qui est ALLOUE et pas encore ecrit, avec qui l'a pris.
+
+    Sans cette vue, la sixieme source serait la seule du corpus qu'aucun humain ne peut lire --
+    un allocateur dont l'etat est invisible se fait contourner des la premiere surprise."""
+    entrees = lire_reservations(dossier)
+    print("[468] RESERVATIONS : %d -- %s" % (len(entrees), dossier))
+    for cle, ctx in entrees:
+        print("   #%-14s %s  %-28s %s" % (cle, ctx.get("quand", "?"),
+                                          ctx.get("branche", "?"), ctx.get("pour", "?")))
+    if not entrees:
+        print("   (aucune) -- personne n'a d'allocation en cours sur ce depot")
     return 0
 
 
@@ -1222,8 +1505,12 @@ def main(argv) -> int:
     ap.add_argument("--attester", metavar="ENTREE",
                     help="ajoute au ledger : \"<ident>|<fichier>=<raison>\" (raison OBLIGATOIRE)")
     ap.add_argument("--suggere", metavar="PARENT", nargs="?", const="",
-                    help="DONNE un identifiant libre : sans argument une racine, avec un parent "
-                         "(ex. 420) le plus petit `r<k>` libre sous lui")
+                    help="ALLOUE un identifiant libre (et le RESERVE) : sans argument une "
+                         "racine, avec un parent (ex. 420) le plus petit `r<k>` libre sous lui")
+    ap.add_argument("--pour", metavar="SUJET", default="",
+                    help="etiquette la reservation (ce que la tranche va traiter)")
+    ap.add_argument("--reservations", action="store_true",
+                    help="liste les numeros ALLOUES et pas encore ecrits, avec qui les a pris")
     ap.add_argument("--racine", metavar="CHEMIN",
                     help="vise un AUTRE arbre (contre-epreuve bout-en-bout sur depot jetable)")
     ap.add_argument("--geler-sujets", action="store_true", dest="geler_sujets",
@@ -1251,8 +1538,11 @@ def main(argv) -> int:
         print("[468] atteste : %s -> %s" % (cle.strip(), raison.strip()))
         return 0
 
+    if args.reservations:
+        return lister(_dossier_reservations())
+
     if args.suggere is not None:
-        return suggerer(args.suggere)
+        return suggerer(args.suggere, args.pour)
 
     if args.report:
         rapport()
