@@ -252,7 +252,7 @@ ABILITY_ATTACK_TYPE: dict[int, int] = {
     # du ctor, jamais la forme de l'arbre. (#589-r1-r1-r1)
     ActiveAbilityType.EmpyricAmbush: AbilityAttackType.DirectTargetAttack,  # 1232
     # MortarionsPlagueWind (1093) et ReapingScythe (1095), les deux actives de degat de
-    # `deathBossMortarion` (#892). Leurs ctors sont tous deux des STATIC-COPY (aucun appel a
+    # `deathBossMortarion` (#888). Leurs ctors sont tous deux des STATIC-COPY (aucun appel a
     # `TargetingOptions$$.ctor`) et finissent par `AActiveAbility$$.ctor(this, &opts, 0)` -- 3e
     # argument = litteral `0`. TRANSCRIT, jamais deduit : ni de la forme de l'arbre (1093 est une AoE
     # a trois bandes, pas une frappe mono-cible), ni du profil (`Psychic` / `Chain`). Les DEUX ctors
