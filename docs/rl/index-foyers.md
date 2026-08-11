@@ -21,10 +21,10 @@
 
 | | nombre |
 |---|---|
-| lignes de tableau OUVERTES | 334 |
-| dont ANNOTEES (`FOYER:` + `BLOCAGE:`) | 331 |
+| lignes de tableau OUVERTES | 335 |
+| dont ANNOTEES (`FOYER:` + `BLOCAGE:`) | 332 |
 | dont NON ANNOTEES | 3 |
-| foyers distincts (fichiers/repertoires) | 276 |
+| foyers distincts (fichiers/repertoires) | 277 |
 
 Non annotees restantes : #120bis-spawn, #390-r1, #BL-1020r
 
@@ -125,6 +125,7 @@ Ces residus **ne partent pas ensemble**.
 | `scripts/python/probe_486r15_declencheurs_tests.py` | 2 | #486-r20, #486-r21 |
 | `scripts/python/probe_486r2_usage_des_probes.py` | 2 | #486-r3, #486-r6 |
 | `scripts/python/tests/conftest.py` | 2 | #455-r2, #531-r1 |
+| `scripts/python/tests/engine/conftest.py` | 2 | #419-r1-tr5-r8, #531-r1 |
 | `scripts/python/tests/engine/runner/` | 2 | #503-r2, #914-r2 |
 | `scripts/python/tests/engine/runner/test_585r1_selection_type_releve_offline.py` | 2 | #585-r1, #585-r4 |
 | `scripts/python/tests/engine/runner/test_catalog_inject_offline.py` | 2 | #254-bc, #254-bc-r1 |
@@ -245,6 +246,7 @@ Candidats naturels a un dispatch parallele, sous reserve de croiser leurs autres
 | `scripts/python/import_closure.py` | #486-r17 | `aucun` |
 | `scripts/python/mcp_ghidra.py` | #594 | `aucun` |
 | `scripts/python/migrate_485r1_barils_reexport.py` | #485-r1-r3 | `aucun` |
+| `scripts/python/probe_116_necrons.py` | #419-r1-tr5-r8 | `capteur` |
 | `scripts/python/probe_202r_decision_abraxas.py` | #202-r1 | `aucun` |
 | `scripts/python/probe_229_effect_triggers_active.py` | #426-r1 | `aucun` |
 | `scripts/python/probe_230_load_state_turn_state.py` | #462-r4c-r2 | `aucun` |
@@ -305,7 +307,6 @@ Candidats naturels a un dispatch parallele, sous reserve de croiser leurs autres
 | `scripts/python/rl_gen_ref_tables.py` | #270-b | `aucun` |
 | `scripts/python/targeting_reason.py` | #447-r2 | `aucun` |
 | `scripts/python/tests/` | #486-r20 | `aucun` |
-| `scripts/python/tests/engine/conftest.py` | #531-r1 | `aucun` |
 | `scripts/python/tests/engine/runner/conftest.py` | #531-r1 | `aucun` |
 | `scripts/python/tests/engine/runner/test_894_arc_scourge_offline.py` | #894-r1 | `aucun` |
 | `scripts/python/tests/engine/runner/test_foehammer_live.py` | #281-r4 | `aucun` |
@@ -324,7 +325,7 @@ Un residu `capteur` ne part pas tant qu'aucune fenetre de reinject n'est prevue.
 
 | blocage | n | residus |
 |---|---|---|
-| `capteur` | 32 | #259-a, #259-b, #273-r, #287-r5-r2, #347-r1, #347-r3, #389-r3, #419-r1-tr11-r2, #419-r1-tr14-r5-r2-r1-r2-r1-r2, #419-r6-r1-r1, #433-r4-r2-r1-r1-a-r1, #433-r4-r2-r1-r1-b, #433-r4-r2-r1-r1-c-r1, #433-r4-r2-r1-r3, #444-r1, #449-r1, #462-r4b-r1-r1-r1-r1-c-r3-r1-r5-r1, #462-r4e-o-r2-r1-r1-r1-r1, #462-r4e-o-r2-r1-r1-r1-r2, #475-r2, #475-r3, #487-r2, #545-r1, #552-r2, #590-r2, #590-r5, #595-r1, #595-r2, #595-r3, #596, #596-r2, #916-r1 |
+| `capteur` | 33 | #259-a, #259-b, #273-r, #287-r5-r2, #347-r1, #347-r3, #389-r3, #419-r1-tr11-r2, #419-r1-tr14-r5-r2-r1-r2-r1-r2, #419-r1-tr5-r8, #419-r6-r1-r1, #433-r4-r2-r1-r1-a-r1, #433-r4-r2-r1-r1-b, #433-r4-r2-r1-r1-c-r1, #433-r4-r2-r1-r3, #444-r1, #449-r1, #462-r4b-r1-r1-r1-r1-c-r3-r1-r5-r1, #462-r4e-o-r2-r1-r1-r1-r1, #462-r4e-o-r2-r1-r1-r1-r2, #475-r2, #475-r3, #487-r2, #545-r1, #552-r2, #590-r2, #590-r5, #595-r1, #595-r2, #595-r3, #596, #596-r2, #916-r1 |
 | `seeding` | 19 | #287-r11, #287-r14-r2, #392-r1, #419-r1-tr9-r1, #433-r4-r1-r4-r2-r1-r1-r1-r1, #433-r4-r2-r1-r2-r3, #447-r1-r1-r3-r1, #448-r3-r1-r1-r1, #448-r6, #449-r2-r4-r1, #482-r1, #590-r1, #590-r7, #889-r3, #889-r5-r3, #890-r4, #902-r2, #911-r1, #BF-chance |
 | `etage` | 32 | #116-r, #17, #175-r1, #175-r3, #27-r9, #271-r7, #287-r11-r2-r1-r3, #368-r2, #419-r1-tr12-r2-r1, #419-r4, #433-r3-r2-r1, #433-r4-r1-r1-r1, #433-r4-r1-r1-r2, #433-r4-r1-r3, #433-r4-r3-r1-r2, #443-r2-b2, #444-r2, #462-r4b-r1-r1-r1-r1-b-r1-r1-r3-r1-r2-r1, #462-r4b-r1-r1-r1-r1-b-r1-r1-r3-r1-r3-r1, #508-r2, #577-r2, #590-r3, #590-r6, #590-r8, #889-r2, #889-r6, #893-r1, #894-r2, #895-r4, #902-r1, #907-r1, #919-r1 |
 | `porteur` | 35 | #366-r1-chaos-friendly-fire, #419-r1-tr12-r2-r2, #419-r1-tr12-r4, #419-r1-tr14-r2, #419-r1-tr14-r4-r3, #419-r1-tr14-r5-r2-r1-r1-r2, #419-r1-tr14-r5-r2-r1-r2-r1-r1-r2, #419-r1-tr14-r5-r2-r1-r2-r1-r1-r4-r1, #419-r1-tr14-r5-r2-r1-r2-r1-r3, #419-r1-tr14-r5-r3, #419-r1-tr9-r4-r1-r2-r2, #419-r2, #419-t6-r1, #425-r1, #433-r4-r1-r2, #433-r4-r2-r1-r2-r2-r1-r1-r1-r3, #433-r4-r2-r1-r2-r2-r1-r1-r1-r4-r2, #437-r1-r1-r2, #445-r1, #446-r3a, #447-r1-r1-r1, #447-r3, #448-r1-r1-r1-r1-r2-r2, #448-r1-r2-r1, #449-r2-r4-r3, #462-r4b-r1-r1-r1-r1-c-r3-r1-r5-r4, #462-r4b-r1-r1-r1-r1-c-r3-r2, #462-r4e-o-r1-r1-r1, #465-r1, #503-r2, #521-r4, #550-r2, #884-r2, #895-r1, #915-r2 |
