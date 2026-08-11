@@ -76,8 +76,42 @@ La forme B est conservée — c'est `import engine.entities.effects.aura_selecto
 donne sans déclarer le paquet, exactement comme `services/ability_range.py` le fait déjà. Le
 compte reste **430/430** modules importables seuls.
 
-## 5. Ce qui n'est PAS couvert
+## 5. Le quinzième — un rouge HONNÊTE, et une étape 5 qui devenait inerte quand il y avait
+quelque chose à garder
 
+`test_433r4r1r4r2r1r1_derivation_morte_offline` portait DEUX rouges, et **une seule cause**.
+
+L'étage 2 de `probe_433r4r1r4r2_neigh_channel_wired` (« un mirror déclaré fait-il de la géométrie
+NUE sans toucher le canal de voisinage ? ») nommait trois foyers :
+
+* `playbook/noncomparable/bio_minefield.py::_free_adjacent_tiles` (#934, arrivé **pendant** cette
+  tranche) — **RÉPARÉ** : son jumeau exact, `doctrina_imperatives._free_adjacent_tiles`, mirrore le
+  MÊME `BattleQuery$$GetFreeAdjacentTiles` et consomme déjà `neigh_by_pos`. L'adjacence passe
+  désormais par `engine.battle_query.is_adjacent`, qui dégrade seul en `hexgeo` quand les canaux
+  sont vides — donc NO-OP démontrable là où ils le sont ;
+* `aura_selectors.py::adjacent_friends_including_owner` (#925) et
+  `icon_of_obstinacy.py::create_aura_attack_damage_bonus_for_ally` (#913) — **NON RÉPARÉS**,
+  résidu **#943-r4**. Balayage des **64** fonctions qui citent `IterateAdjacentTiles` : **3**
+  seulement font de la géométrie nue, mais **trois autres** (`effect_targets._adjacent_friends`,
+  `imperative.create_aura_attack_damage_bonus_for_ally`, `get_em_runtz._spawn_tile_count`) font la
+  même et sont invisibles au critère — leur docstring ne NOMME pas le natif. Réparer ici seulement
+  serait le fork que les deux sites annoncent, et la porte d'élévation peut déplacer la ground
+  truth live de #930 (`statModSources`, `orksBigMek`) qu'une tranche offline ne peut pas re-mesurer.
+
+**Le second rouge du fichier était un DÉFAUT DU CLIQUET, et il est réparé.** L'étape 5 re-mesure
+« la suspension d'un natif est-elle encore justifiée ? » en l'armant pour de faux et en regardant
+si quelque chose rougit. Elle regardait la rougeur **ABSOLUE**, pas le **DELTA** : dès qu'un vice
+existe ailleurs — le régime normal d'un cliquet, qui existe pour en trouver — toute suspension
+devient « justifiée », y compris celle d'un natif absent de toute docstring. Contre-épreuve dans
+les deux sens après correction : `NatifQuiNexistePas` est dénoncé PÉRIMÉ (delta vide), et les deux
+vraies suspensions restent justifiées avec leurs foyers **attribuables** (`AdjacentTiles` → 1 foyer
+au lieu d'une liste polluée par les rouges des voisins).
+
+## 6. Ce qui n'est PAS couvert
+
+* **`#943-r4`** — les deux sélecteurs d'aura à géométrie nue (§5). `test_433r4r1r4r2r1r1_
+  derivation_morte_offline::test_le_VICE_REEL_de_orks_est_CORRIGE_et_la_liste_ELARGIE` reste
+  **ROUGE** : 14 fichiers sur 15 sont verts, celui-ci porte 1 test rouge sur 12.
 * **`#943-r1`** — `TARGETING_OPTIONS_UNPORTED[1215].range` (§2).
 * **`#943-r2`** — `scripts/cliquets-cache/probe_477r24r1_slots_interface.tsv` périmé : `rc=6`, et
   **24** lignes de diff sur **2372** sont imputables à cette tranche. Non régénéré ici : le cache

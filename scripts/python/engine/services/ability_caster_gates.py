@@ -312,13 +312,13 @@ def can_currently_be_used(state) -> bool | None:
 # (`is_tile_in_range_of_any_ability`) evalue la menace des unites ENNEMIES -- precisement celles
 # dont ce n'est PAS le tour.
 #
-# LE GISEMENT, RE-DERIVE (#943) des 168 masques que le foyer `targeting_options_for` publie (et non
-# herite) : `CasterHasNotMoved` 15 porteurs, `CasterMatchesDynamicRule` 15, `CasterHas2TurnsLeft` 3,
+# LE GISEMENT, RE-DERIVE (#943) des 169 masques que le foyer `targeting_options_for` publie (et non
+# herite) : `CasterHasNotMoved` 15 porteurs, `CasterMatchesDynamicRule` 16, `CasterHas2TurnsLeft` 3,
 # `CasterCanMove` 2, `CasterHas1Tiles` 1, `CasterIsMachine` 1, `CasterHasCompletedOneTurn` 0,
 # `CasterHasNoTile` 0, `CasterHas3Tiles` 0, `CasterHas7Tiles` 0. Les quatre a ZERO sont des mirrors
 # STRUCTURELS : ils sont ecrits parce que le natif les a, et leur gisement vide est un RESULTAT.
 # ⚠ CES CHIFFRES SE RE-DERIVENT (le test `..._caster_reason_offline` le fait), ils ne se citent pas :
-# 148 -> 168 masques et 12 -> 15 porteurs en trois jours, par notre PROPRE cadence de portage.
+# 148 -> 169 masques et 12 -> 16 porteurs en trois jours -- dont UN arrive PENDANT #943, par notre PROPRE cadence de portage.
 #
 # ⚠ L'ETAT LU EST CELUI DU CASTER, PAS CELUI DE LA POSITION INTERROGEE -- et les deux se separent.
 # `AttackQuery$$GetAllTilesInAbilityRange(unit, possiblePositions, includeNormalAttack)` itere les
@@ -429,8 +429,8 @@ CASTER_GATE_NOT_READ = "not_read"
 
 #: Le regime de la regle-delegue CASTER, ability par ability. **N'y figurent QUE les porteurs du bit
 #: `CasterMatchesDynamicRule`** -- pour les autres le natif n'invoque jamais le delegue, et une
-#: entree serait du bruit. Les QUINZE porteurs des 168 masques lus y sont, aucun de plus (compte
-#: RE-DERIVE #943 ; il etait de DOUZE sur 148, et les trois entrants sont marques ci-dessous).
+#: entree serait du bruit. Les SEIZE porteurs des 169 masques lus y sont, aucun de plus (compte
+#: RE-DERIVE #943 ; il etait de DOUZE sur 148, et les QUATRE entrants sont marques ci-dessous).
 #: ⚠ TU PORTES UNE ABILITY DONT LE MASQUE POSE `CasterMatchesDynamicRule` ? Tu inscris sa ligne ICI,
 #: DANS LE MEME COMMIT -- meme regle que `TARGETING_OPTIONS` / `ABILITY_ATTACK_TYPE` au registre des
 #: abilities, et meme signature de degradation : un porteur ABSENT est traite comme « pas de regle ».
@@ -481,6 +481,11 @@ DYNAMIC_CASTER_GATE_BY_ABILITY: dict[int, str] = {
     # `GetDynamicInvalidCasterReason`. ⚠ Ce n'est PAS « elle ne surcharge pas » -- IL2CPP DEDUPLIQUE
     # les corps triviaux, donc l'absence ne prouve rien. Meme regime que les cinq ci-dessous.
     ActiveAbilityType.Catalyst: CASTER_GATE_NOT_READ,               # 1032
+    # #943 (au REBASE) -- 1210, entree par #935 PENDANT cette tranche : le compte se RE-DERIVE,
+    # il ne se soustrait pas. MEME mesure que 1032 -- `ExemplarOfTheMontkaAbility` ne porte que
+    # `.ctor` et `ExecuteBehaviour` (`ghidra/functions.tsv` ET `search_symbols_by_name`, 14 symboles
+    # pour tout le nom, dont aucun `GetDynamicInvalidCasterReason`), et l'absence ne prouve rien.
+    ActiveAbilityType.ExemplarOfTheMontka: CASTER_GATE_NOT_READ,    # 1210
     ActiveAbilityType.EarlyWarningOverride: CASTER_GATE_NOT_READ,   # 1077
     ActiveAbilityType.WarHowl: CASTER_GATE_NOT_READ,                # 1106
     ActiveAbilityType.MomentShackle: CASTER_GATE_NOT_READ,          # 1184
@@ -731,3 +736,4 @@ def normal_attack_id(unit_row):
             except (TypeError, ValueError):
                 return None
     return None
+
