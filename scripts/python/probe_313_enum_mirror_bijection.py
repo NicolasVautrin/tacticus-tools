@@ -293,6 +293,15 @@ REGISTRE: list[Mirror] = [
     # `.../loki/tainted_narthecium.py`), toutes converties par la meme tranche.
     Mirror("UnitSelectionType", "engine/entities/unit_selection_type.py",
            "IdunBattle.Entities.Enum.UnitSelectionType"),
+    # #944 (residu #889-r5-r2) -- `InvalidTargetPolicy`, mirror NEUF, inscrit DANS LE COMMIT QUI LE
+    # CREE. Sa cle est LUE dans `enums.tsv` et son namespace est `IdunBattle.Operations`, PAS
+    # `IdunBattle.Entities.Enum` : le nom court aurait cherche en vain. C'est le type du champ
+    # `+0x00` des `UseActiveAbilityBehaviourOptions`, identifie par la signature NOMMEE
+    # d'`IdunBattle.Operations.ActiveAbilityOperation$$IsInvalidTarget` (6e parametre
+    # `invalidTargetPolicy`), pas par son ordinal -- `2` est aussi un membre valide
+    # d'`ExecutionType`, de `UnitSelectionType` et de six autres enums du build.
+    Mirror("InvalidTargetPolicy", "engine/entities/invalid_target_policy.py",
+           "IdunBattle.Operations.ActiveAbilityOperation.InvalidTargetPolicy"),
     Mirror("GroupType", "engine/streams/group_type.py",
            "IdunBattle.Streams.GroupType"),
     Mirror("StepType", "engine/streams/step_type.py",

@@ -1714,7 +1714,10 @@ class MartialExemplarAbility(ActiveAbility):
         normals = [{"subject": p.get("subject"), "target": p.get("target"),
                     "total": (p.get("attack") or {}).get("total"),
                     "attack": p.get("attack"), "skipped": p.get("skipped"),
-                    "if_able": p.get("if_able_option")}
+                    # #944 : la cle porte desormais le NOM de l'enum natif
+                    # (`InvalidTargetPolicy`), pas un << if_able >> devine -- la semantique du champ
+                    # `options+0x00` est LUE depuis `ActiveAbilityOperation$$IsInvalidTarget`.
+                    "invalid_target_policy": p.get("invalid_target_policy")}
                    for n, p in ectx.emitted if n in ("UseNormalAttack", "UseNormalAttackIfAble")]
         moved = [{"unit": p.get("unit"), "to": p.get("to")}
                  for n, p in ectx.emitted if n == "MoveUnit"]
@@ -1780,7 +1783,7 @@ class MartialExemplarAbility(ActiveAbility):
 #     `TriggeredAbilityType`. Son corps = `new ConfigAmount(abilityType, abilitiesDatabase,
 #     unitSelector, variableType)` : le NIVEAU vient de l'UNITE (`Owner`), pas d'un `abilityState`.
 #  3. **`UseNormalAttack`, pas `UseNormalAttackIfAble`** (xrefs entrantes egalement) -> le champ
-#     `options+0x00` reste `null` (`IF_ABLE_OPTION = None`).
+#     `options+0x00` reste `null` (`INVALID_TARGET_POLICY = None` -> `GetValueOrDefault` = `Error`).
 #  4. **AUCUN `ExecuteAtomic`** : le decompile passe l'`op_Addition` DIRECTEMENT a
 #     `AActiveAbility$$Execute` (comme `FoulInfusion`, contraste `PlasmaCannon`).
 #

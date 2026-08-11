@@ -490,6 +490,28 @@ class HazeOfCorruptionDamageTransferTrigger(EffectTrigger):
         # `foreach d in dmgs : AttackDamage(bonded, Owner@0x148, Get(d.amount), Direct(d.type),
         #                                   One@0xc0, AbilityOrEffect(0x435))`
         # puis `Attack(bonded, Owner@0x148, beh)` -- l'attaquant est le BONDED, la cible le RELAIS.
+        #
+        # `On(PreAttack = 5)` -- **UNE SEULE FOIS, ICI**, et c'est LU (#925-r2, cable par #944).
+        # `$$CreateTargetTriggerBehaviour` accumule les N feuilles par `op_Addition` dans **UN SEUL**
+        # `IdunBattleLogic.Entities.DSLBehaviors$$Attack(bonded, Owner@0x148, beh)` -- donc UN SEUL
+        # `IdunBattle.Entities.Behaviours.AttackBehaviour`, donc UN SEUL `StartAttack` (slot 58) ->
+        # `StartAttackOperation$$Execute` -> `EvaluateAbilitiesImmediately(5)`. Les feuilles, elles,
+        # sont des `DSLBehaviors$$AttackDamage` **NUES** (aucun `AttackBehaviour`) : elles portent
+        # `is_outside_attack=False` et n'emettent RIEN, sans quoi le port en emettrait **N** la ou le
+        # natif en emet **1**. Le port n'en emettait **aucune** avant #944 (le vecteur `amount`
+        # n'exprimait pas le drapeau) : c'est cette emission-ci qui comble l'ecart.
+        # ⚠ `ability_type=None`, et c'est LU AUX OCTETS, pas herite des feuilles : le 5e argument du
+        # `$$Attack` englobant est un `AbilityOrEffect` **MIS A ZERO** juste avant l'appel
+        # (`local_3b8 = 0 ; uStack_3b0 = 0 ; local_3a8 = 0`), alors que chaque feuille
+        # `$$AttackDamage`, elle, recoit le vrai (`AbilityOrEffect$$op_Implicit` -> les 24 octets
+        # recopies). Recopier `0x435` ici aurait donc INVENTE une valeur que le natif ne passe pas --
+        # et elle n'est pas neutre : le slot 3 `IdunBattle.Core.Services.BattleQuery$$IsRangedAttack`
+        # commence par `if (!ability.HasValue) return false`, donc l'attaque englobante se declare
+        # NON-ranged, ce qui est exactement ce que `None` produit cote port.
+        if dmgs:
+            from ..dispatch.attack import pre_attack_triggers
+            pre_attack_triggers(state, int(bonded), int(self.owner_id), ranged=False,
+                                ability_type=None)
         done = []
         for i, d in enumerate(dmgs):
             amount = int(d.get("amount") or 0)
@@ -518,6 +540,12 @@ class HazeOfCorruptionDamageTransferTrigger(EffectTrigger):
                                    d.get("profile") or HAZE_BONUS_PROFILE,
                                    is_melee=True, amount=Const(amount), hits=1,
                                    level_slot="passive",
+                                   # #925-r2 : feuille `DSLBehaviors$$AttackDamage` **NUE** -- aucun
+                                   # `AttackBehaviour` propre, donc AUCUN `StartAttack`. C'est
+                                   # l'englobant `$$Attack` (emis une fois plus haut) qui ouvre
+                                   # l'attaque ; sans ce `False`, le port emettrait N `On(5)` la ou
+                                   # le natif en emet 1.
+                                   is_outside_attack=False,
                                    is_first_hit=(i == 0)).execute(entities, ectx)
             done.append(amount)
         return {"ability": HAZE_OF_CORRUPTION_ABILITY, "volet": "damage_transfer",

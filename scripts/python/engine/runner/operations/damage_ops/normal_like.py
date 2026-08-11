@@ -36,7 +36,8 @@ class _NormalLike:
                             is_melee: Optional[bool] = None,
                             ability_type: Optional[int] = None,
                             is_attack_damage_op: bool = True,
-                            is_first_hit: bool = True) -> Optional[dict]:
+                            is_first_hit: bool = True,
+                            is_outside_attack: bool = True) -> Optional[dict]:
         """Attaque dont le node de dégât est un `StatAmount`/`PercentageOf(StatAmount(...))` (ex. splash
         Psyker = `PercentageOf(StatAmount(Attack), psykerExtraDmg%)`, profil Psychic). Pipeline
         **reduce-then-roll** (bornes pré-réduites puis tirage, post_roll=None), comme l'attaque normale
@@ -53,7 +54,37 @@ class _NormalLike:
         cap sur le RESTE post-bouclier ; famille ATTACK = cap sur le total, split en aval). Le resolve
         slot-8 qu'il gate aussi dans `_run_hits` n'existe pas sur ce vecteur (bornes pré-réduites,
         `post_roll=None`) → défaut `True` = comportement historique strictement inchangé pour les
-        appelants qui ne le renseignent pas (attaque normale d'un summon, …)."""
+        appelants qui ne le renseignent pas (attaque normale d'un summon, …).
+
+        `is_outside_attack` (#925-r2, câblé par #944) = le LITTÉRAL natif du même nom, et il pilote
+        ICI la même chose que sur son jumeau `execute_ability_attack` : l'émission d'
+        `On(PreAttack = 5)`. Ce vecteur ne l'exprimait **pas du tout** — donc il n'émettait
+        **JAMAIS** `On(5)`, alors que ses appelants portent des feuilles EMBALLÉES.
+
+        ⚠ **LE RÉSIDU #925-r2 ÉTAIT ÉCRIT À L'ENVERS, et c'est la lecture du code qui le dit** : il
+        annonçait « la voie `amount` émet `On(5)` INCONDITIONNELLEMENT » et prédisait donc **N**
+        émissions pour `HazeOfCorruption`. Le compte réel était **0** — la fiche avait confondu
+        `pre_attack_hit_triggers` (`On(PreAttackHit = 6)`, per-coup, bien présent lignes plus bas)
+        avec `pre_attack_triggers` (`On(5)`, per-cible, absent). Le sens de la divergence est donc
+        l'INVERSE de ce qui était écrit : il manquait des émissions, il n'y en avait pas en trop.
+
+        LES QUATRE CALL-SITES du mode `amount`, chacun tranché sur SA factory native (jamais par
+        famille ni par ressemblance) :
+
+          * `PsykerExtraAttackAbility$$CreateBehaviour`      -> `DSLBehaviors$$AttackWithAttackDamage`
+          * `CursedPlagueBellAttackAbility$$CreateBehaviour` -> `DSLBehaviors$$AttackWithAttackDamage`
+          * `SkyStrikeAbility$$ExecuteBehaviour`             -> `DSLBehaviors$$AttackWithAttackDamage`
+                ... les trois EMBALLÉES : la factory construit `AttackDamageBehaviour` **puis**
+                `IdunBattle.Entities.Behaviours.AttackBehaviour$$.ctor` et RETOURNE ce dernier (lu
+                verbatim sur la surcharge à 9 arguments, celle que les xrefs entrantes désignent)
+                -> `AttackBehaviour$$Execute` pousse `StartAttack` -> `On(5)`. `True`.
+          * `HazeOfCorruption_DamageTransferEffect$$CreateTargetTriggerBehaviour` -> **N** feuilles
+                `DSLBehaviors$$AttackDamage` **NUES**, accumulées par `op_Addition` dans **UN SEUL**
+                `DSLBehaviors$$Attack(bonded, Owner@0x148, beh)`. Le natif émet donc **1** `On(5)`,
+                porté par l'englobant, et **0** par feuille -> `False` sur chaque feuille, et
+                l'appelant émet l'unique `On(5)` lui-même (cf. `triggers/loki/haze_of_corruption.py`).
+
+        Défaut `True` = la sémantique de la factory EMBALLANTE, identique au défaut du jumeau."""
         from ..damage import AttackDamageOperation  # lazy : rompt le cycle damage<->damage_ops
         if state.rng is None:
             return None
@@ -81,6 +112,24 @@ class _NormalLike:
         # (`playbook/psyker.py` passe `is_ranged=True`). `is_melee is None` (appel direct hors des deux
         # call-sites portes, qui passent tous un bool) -> None conserve = gates inertes.
         _ranged = (not is_melee) if is_melee is not None else None
+        # `On(PreAttack = 5)` -- EMIS ICI, **AVANT** la collecte des mods ATTAQUANT, exactement a la
+        # place ou son jumeau `execute_ability_attack` l'emet, et pour la meme raison NATIVE :
+        # `AttackBehaviour$$Execute` pousse `processor.StartAttack` (slot 58) ->
+        # `IdunBattle.Operations.StartAttackOperation$$Execute` ->
+        # `EvaluateAbilitiesImmediately(EventTriggerType.PreAttack = 5, ...)` AVANT d'executer le
+        # behaviour enfant. La place PORTE (#512-r1) : `SuppressiveFire` ecoute ce vecteur et pose
+        # `Pinned`, ce qui monte `TerrifyingCrescendo_ExtraDmg` d'un niveau -- un bonus de degat
+        # ATTAQUANT, que le coup EN COURS doit voir.
+        # ⚠ Ce vecteur ne l'emettait PAS DU TOUT (#925-r2, cf. la docstring) : ce n'est donc pas un
+        # deplacement mais une emission NEUVE, et elle CONSOMME un tirage `state.rng` chez un
+        # porteur de `LetTheGalaxyBurn` (son `Maybe(ConfigConst(0x2a))`). Cout pour toute unite qui
+        # n'ecoute pas l'event 5 : NUL (zero mutation, zero tirage -- seuls
+        # `SuppressiveFireAddEffectAbility` et `LetTheGalaxyBurnArmAbility` y sont abonnes).
+        from ..triggers.dispatch.attack import pre_attack_triggers  # lazy : cycle damage<->triggers
+        if is_outside_attack:
+            pre_attack_triggers(state, attacker_id, target_id,
+                                ranged=not bool(is_melee) if is_melee is not None else False,
+                                profile=damage_profile, ability_type=ability_type)
         mods, active = attacker_modifiers(state, attacker_id, ahc.hp if ahc else None, target_id=target_id,
                                           is_ranged=_ranged,
                                           # `DamageProfileIs(...)` du collecteur attaquant unique

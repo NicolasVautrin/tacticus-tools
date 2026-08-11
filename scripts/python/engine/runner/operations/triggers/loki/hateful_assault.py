@@ -121,7 +121,7 @@ from .....dsl.event_trigger_type import EventTriggerType
 from .....entities.behaviours import op_add
 from .....entities.damage_profile_type import DamageProfileType
 from .....entities.effect_type import EffectType
-from .....entities.selectors.units import UnitSet
+from .....entities.selectors.accessors import Target
 from .....entities.triggered_ability_type import TriggeredAbilityType
 from ....components import OwnerComponent, PositionComponent, UnitComponent
 from ....state import State
@@ -139,7 +139,7 @@ ALREADY_ATTACKED = int(EffectType.HatefulAssault_AlreadyAttacked)    # 0x497 = 1
 DAMAGE_PROFILE = DamageProfileType.Power.name                          # "Power"
 
 
-def hateful_assault_tree(mover_id: int):
+def hateful_assault_tree():
     """Arbre de `HatefulAssaultAbility$$CreateBehaviour` -- MIRROR 1:1 du decompile :
 
         AttackWithAttackDamage(Owner, Target, MinMaxDamage, Power, nrOfHits, this, null, 2)
@@ -149,9 +149,21 @@ def hateful_assault_tree(mover_id: int):
     decompile (cf. `entities/behaviours.py::Seq`) : sequence gauche->droite, sans court-circuit ici
     (les deux feuilles jettent le retour de leur Operation -> flag `stop` jamais pose).
 
-    `UnitSet([mover])` porte `Target@0x60` : sur le vecteur `PreUnitMove`, `AbilityEntities.Target`
-    EST le mover (`EvaluatePreMoveTriggers` passe `unit` en caster/actor/target). Le passer
-    explicitement evite de dependre du threading de `entities_from_state`.
+    `Target()` porte `Target@0x60` -- le SELECTEUR natif, verbatim. Sur le vecteur `PreUnitMove`,
+    `AbilityEntities.Target` EST le mover (`EvaluatePreMoveTriggers` passe `unit` en
+    caster/actor/target), et `execute_behaviour` construit son contexte avec
+    `entities_from_state(state, owner, mover, mover)` -> `Target()` rend le mover.
+
+    ⚠ **Ce noeud portait `UnitSet([mover_id])`, et ce chemin LEVAIT en production** (#929-r3, ferme
+    par #944). `UnitSet.select` rend sa liste TELLE QUELLE : une liste d'**entiers**. La branche
+    `multi` d'`AttackWithAttackDamage.execute` filtre par `(u or {}).get("id")`, d'ou
+    `AttributeError: 'int' object has no attribute 'get'` -- REPRODUIT offline, en 12 lignes, sur un
+    `State` a deux unites. Le chemin est ATTEIGNABLE (`ABILITY_TRIGGERS["HatefulAssault"]`,
+    `event_id = PreUnitMove`, vecteur emis par `move_death.py`) : toute bataille ou `blackTerminator`
+    voit un ennemi adjacent se deplacer plantait le port. Les 10 tests du fichier live etaient VERTS
+    parce qu'AUCUN n'executait `execute_behaviour` -- les 4 `test_live_*` mesurent le natif, les 6
+    `test_port_*` n'appellent que `matches`. La reparation n'est pas un contournement : le natif
+    passe bien un SELECTEUR (`Target@+0x60`), pas un ensemble d'ids, donc `Target()` est le mirror.
 
     `level_slot="passive"` : `HatefulAssault` est un PASSIF, donc `MinMaxDamage` indexe minDmg/maxDmg
     au niveau de PASSIVE ability (== l'active dans un runner rank-based, mais on lit la bonne source).
@@ -161,7 +173,7 @@ def hateful_assault_tree(mover_id: int):
     docstring de module) -> la source de 1175 est le mover.
 
     Lazy import (evite le cycle triggers <-> abilities.behaviours au chargement, == martial_apotheosis)."""
-    targets = UnitSet([mover_id])
+    targets = Target()                       # `Target@DSLSelectors+0x60`, le selecteur natif
     return op_add(
         AttackWithAttackDamage(targets, ABILITY_ID, DAMAGE_PROFILE,
                                is_melee=True, multi=True, level_slot="passive"),
@@ -243,7 +255,10 @@ class HatefulAssaultAttackAbility(TriggeredAbility):
         # target = Target@0x60 (le mover). `actor` reflete le mover comme sur l'evenement natif.
         entities = entities_from_state(state, self.owner_id, mover_id, mover_id)
         ectx = ExecutionContext(state=state, rng=state.rng)
-        hateful_assault_tree(mover_id).execute(entities, ectx)
+        # Aucun id passe a l'arbre : le `CreateBehaviour` natif n'en prend pas non plus -- ses deux
+        # feuilles lisent `Target@DSLSelectors+0x60` dans l'`AbilityEntities`, que la ligne
+        # au-dessus vient de construire.
+        hateful_assault_tree().execute(entities, ectx)
         atks = [p for n, p in ectx.emitted if n == "AttackWithAttackDamage"]
         atk = atks[0] if atks else None
         marks = [p for n, p in ectx.emitted if n == "AddEffect"]
