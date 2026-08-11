@@ -577,6 +577,7 @@ class IconOfObstinacyPlaybook(AdjacentToOwnerNonOwnerPlaybook):
 from .adjacent_summons import MawClawsOfThyraxPlaybook       # noqa: E402  (#920 : corps propre)
 from .fury_of_the_ancients import FuryOfTheAncientsPlaybook   # noqa: E402  (après les bases)
 from .friends_in_range import (AstartesBannerPlaybook,       # noqa: E402  (N13 : corps propres)
+                               FirstAmongTraitorsPlaybook,   # noqa: E402  (#926)
                                KardiocoreGalvanusPlaybook)
 from .geminae_superia import GeminaeSuperiaPlaybook          # noqa: E402  (case-165b : corps propre)
 from .intoxicating_elixir import IntoxicatingElixirPlaybook  # noqa: E402  (#922 : corps propre, PAR EFFET)
@@ -668,6 +669,15 @@ TRIGGERED_MOVE_PLAYBOOKS: dict = {
     # Porteurs : 4 heroes Emperor's Children par RELIQUE (`emperKakophonist` et `emperNoiseMarine`
     # au pool, `emperExultant` et `emperFlawlessBlade` par injection catalogue).
     int(TriggeredAbilityType.IntoxicatingElixir): IntoxicatingElixirPlaybook(),  # 1463 (RELIQUE, 5 / debuffe)
+    # #926 -- face OWNER du passif `FirstAmongTraitors`, dont seule la face NON-OWNER etait portee
+    # (#477-r37, `non_owner.py`). MEME famille « corps propre » qu'`AstartesBanner` (MEME slot de
+    # query `0x75 = GetSurroundingUnits`, MEME `includeCenter = true`), mais le corps porte DEUX
+    # filtres que son voisin n'a pas : `u != case.unit` (le mover s'exclut) et
+    # `HasTrait(u, 0x7ea = UnitTrait.Chaos)`. Les DEUX faces lisent des CLES BC differentes, dans
+    # des SECTIONS differentes (`TriggeredAbilities` vs `TriggeredAbilitiesNonOwner`), et se
+    # cumulent sur une meme decision. Porteur : `blackAbaddon`, HERO **DU POOL** -- confrontable
+    # sans aucun montage.
+    int(TriggeredAbilityType.FirstAmongTraitors): FirstAmongTraitorsPlaybook(),  # 1064 (10 / ami Chaos)
 }
 
 

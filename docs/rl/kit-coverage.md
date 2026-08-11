@@ -23,8 +23,8 @@
 
 ## Bilan
 
-- Unites lineup : **127** ; kits COMPLETS (aucun manque detecte) : **84** ; kits avec du travail : **43**
-- Volume total : **44** items manquants (actives no-op + passifs/traits non registres)
+- Unites lineup : **127** ; kits COMPLETS (aucun manque detecte) : **85** ; kits avec du travail : **42**
+- Volume total : **43** items manquants (actives no-op + passifs/traits non registres)
 - HORS total — voies conditionnelles : **34** abilities non portees (11 mythiques, 23 reliques equipables)
 
 ### Priorite par faction (volume decroissant)
@@ -34,7 +34,6 @@
 | EmperorsChildren | 4 | 4 |
 | LeaguesOfVotann | 4 | 4 |
 | AstraMilitarum | 3 | 3 |
-| BlackLegion | 3 | 3 |
 | BloodAngels | 3 | 3 |
 | DarkAngels | 3 | 3 |
 | Sisterhood | 3 | 3 |
@@ -42,6 +41,7 @@
 | WorldEaters | 3 | 3 |
 | AdeptusMechanicus | 2 | 2 |
 | Aeldari | 2 | 2 |
+| BlackLegion | 2 | 2 |
 | Custodes | 2 | 2 |
 | Necrons | 2 | 2 |
 | Tau | 1 | 2 |
@@ -74,11 +74,10 @@
 | astraOrdnance | 1 | BasiliskBarrage(1026) [C-] OK | - | IndirectFire(x9) |
 | astraYarrick | 1 | SendInTheNextWave(1016) [CD] OK | SummaryExecution | - |
 
-### BlackLegion — 3 kits, 3 items
+### BlackLegion — 2 kits, 2 items
 
 | unite | manque | actives | passifs manquants | traits de kit manquants |
 |---|---|---|---|---|
-| blackAbaddon | 1 | Drachnyen(1029) [CD] OK | FirstAmongTraitors | - |
 | blackHaarken | 1 | HeraldOfTheApocalypse(1020) [CD] OK | HeadClaimer | - |
 | blackPossession | 1 | Incursion(1021) [CD] OK | Possession | - |
 
@@ -185,9 +184,9 @@
 | worldJakhal | 1 | JakhalStimms(1131) [C-] OK | Skullsmasher | - |
 | worldTerminator | 1 | BloodyFury(1129) [CD] OK | WrathfulDevotion | - |
 
-## Kits lineup COMPLETS (84)
+## Kits lineup COMPLETS (85)
 
-adeptCanoness, adeptExorcist, adeptMorvenn, admecDominus, admecMarshall, admecRuststalker, astarCyrus, astarLysander, astraBullgryn, astraCreed, astraOrdnanceBattery, astraPrimarisPsy, blackForgefiend, blackObliterator, blackTerminator, bloodDante, bloodDeathCompany, bloodSanguinary, custoAtlacoya, custoTrajann, custoVexilusPraetor, darkaAsmodai, darkaAzrael, darkaSternguard, darkaStormSpeeder, deathBlightbringer, deathBlightlord, deathCrawler, deathPutrifier, deathRotbone, deathTyphus, eldarAutarch, eldarFarseer, eldarMauganRa, eldarRanger, emperNoiseMarine, genesKelermorph, genesMagus, genesPatriarch, genesPrimus, necroDestroyer, necroOverlord, necroReanimator, necroSpyder, necroWarden, orksKillaKan, orksNob, orksRukkatrukk, orksRuntherd, orksWarboss, spaceBlackmane, spaceRockfist, spaceStormcaller, tauAunShi, tauBroadside, tauCrisis, tauDarkstrider, tauMarksman, tauShadowsun, templAggressor, templAncient, templChampion, templHelbrecht, templSwordBrother, thousAhriman, thousInfernalMaster, thousSekhetar, thousSorcerer, thousTerminator, thousTzaangor, tyranDeathleaper, tyranNeurothrope, tyranParasite, tyranTyrantGuard, ultraApothecary, ultraCalgar, ultraDreadnought, ultraEliminatorSgt, ultraInceptorSgt, ultraTigurius, ultraTitus, votanChampion, worldEightbound, worldKharn
+adeptCanoness, adeptExorcist, adeptMorvenn, admecDominus, admecMarshall, admecRuststalker, astarCyrus, astarLysander, astraBullgryn, astraCreed, astraOrdnanceBattery, astraPrimarisPsy, blackAbaddon, blackForgefiend, blackObliterator, blackTerminator, bloodDante, bloodDeathCompany, bloodSanguinary, custoAtlacoya, custoTrajann, custoVexilusPraetor, darkaAsmodai, darkaAzrael, darkaSternguard, darkaStormSpeeder, deathBlightbringer, deathBlightlord, deathCrawler, deathPutrifier, deathRotbone, deathTyphus, eldarAutarch, eldarFarseer, eldarMauganRa, eldarRanger, emperNoiseMarine, genesKelermorph, genesMagus, genesPatriarch, genesPrimus, necroDestroyer, necroOverlord, necroReanimator, necroSpyder, necroWarden, orksKillaKan, orksNob, orksRukkatrukk, orksRuntherd, orksWarboss, spaceBlackmane, spaceRockfist, spaceStormcaller, tauAunShi, tauBroadside, tauCrisis, tauDarkstrider, tauMarksman, tauShadowsun, templAggressor, templAncient, templChampion, templHelbrecht, templSwordBrother, thousAhriman, thousInfernalMaster, thousSekhetar, thousSorcerer, thousTerminator, thousTzaangor, tyranDeathleaper, tyranNeurothrope, tyranParasite, tyranTyrantGuard, ultraApothecary, ultraCalgar, ultraDreadnought, ultraEliminatorSgt, ultraInceptorSgt, ultraTigurius, ultraTitus, votanChampion, worldEightbound, worldKharn
 
 ## HORS total — voies conditionnelles (34 abilities non portees)
 

@@ -344,6 +344,7 @@ class UnitComponent(Component):
                  "tiles_moved_this_battle", "tiles_moved_this_turn", "tiles_moved_last_turn",
                  "blocks_made_this_turn", "blocks_made_this_battle",
                  "turns_with_attacks_made", "units_attacked_this_turn", "attacks_made_this_turn",
+                 "total_attacks_made",
                  "movement_target_override")
 
     def __init__(self, visual_id: Optional[str], alive: bool, ai_controlled: bool = False,
@@ -414,6 +415,13 @@ class UnitComponent(Component):
         # `reset_units_attacked_this_turn` -- ce dernier NOM ne le dit pas, l'assembleur si
         # (`*(undefined8*)(this + 0x24) = 0` : une ecriture 64 bits qui couvre +0x24 ET +0x28).
         self.attacks_made_this_turn = 0
+        # `ActorStatisticsComponent+0x20` = `TotalAttacksMade` (#926). ⚠ Ce n'est NI
+        # `turns_with_attacks_made` (+0x30, un compte de TOURS), NI `attacks_made_this_turn` (+0x24,
+        # remis a 0 chaque tour) : c'est un CUMUL DE BATAILLE que RIEN ne remet a zero
+        # (`reset_units_attacked_this_turn` ecrit `*(u64*)(this+0x24) = 0`, donc +0x24/+0x28 -- pas
+        # +0x20). Ecrit par `register_attack_made`, lu par `unit_total_attacks_made`, seede par
+        # `snapshot._apply_actor_stats` (le hook publie deja `totalAttacksMade`).
+        self.total_attacks_made = 0
         # `Nullable<UnitPositionId>` a `+0xa8` du composant que `IdunBattle.Operations.
         # MoveUnitOperation$$Execute` ET `IdunBattle.Operations.OverrideMovementTargetOperation$$
         # Execute` recuperent tous DEUX par la MEME paire de caches (#448-r1) -- la DESTINATION
@@ -2204,7 +2212,7 @@ def register_attack_made(state, attacker_id: int, target_id: int) -> None:
         if (this[0x40] != null) {                        // HashSet<BEntityId> unitsAttackedThisTurn
             if (Count(this[0x40]) == 0) this[0x30] += 1; // <- TotalTurnsWithAttacksMade
             Add(this[0x40], target.Id);
-            this[0x20] += 1;                             // TotalAttacksMade      (non porte)
+            this[0x20] += 1;                             // <- TotalAttacksMade (#926)
             this[0x54] += totalCrits;                    //                       (non porte)
             this[0x24] += 1;                             // <- AmountOfAttacksMadeThisTurn (#508-r1)
             if (rangeType == 1) this[0x2c] += 1;         // variante Melee        (non portee)
@@ -2212,9 +2220,16 @@ def register_attack_made(state, attacker_id: int, target_id: int) -> None:
         }
 
     `+0x30` n'avance donc **qu'une fois par tour**, au PREMIER coup porte -- c'est ce qui fait de
-    lui un compte de TOURS et non d'attaques. `+0x20` (`TotalAttacksMade`) reste non porte : le
-    compteur d'attaques utilise par la PREDICTION vient du capteur live `actorStats.totalAttacksMade`
-    (cf. `playbook/scene.py`).
+    lui un compte de TOURS et non d'attaques.
+
+    **`+0x20` (`TotalAttacksMade`) EST PORTE DEPUIS #926** -- c'est ce que lit
+    `IdunBattle.Entities.Formulas.TotalAttacksMadeFormula$$Calculate` (`return *(uint*)(comp +
+    0x20)`), et donc le noeud DSL `IdunBattleLogic.Entities.DSLFormulas$$TotalAttacksMade`. Son
+    premier consommateur COMBAT est `FirstAmongTraitors_ExtraDmgEffect`, dont la magnitude est
+    `Min(Sum(ConfigVar(extraDmg), Multiply(TotalAttacksMade(EffectSource), ConfigVar(extraDmg_2))),
+    ConfigVar(maxDmg))` : sans le compteur, le terme croissant serait fige a 0 cote combat alors
+    que la face PREDICTION, elle, le lit deja (capteur live `actorStats.totalAttacksMade`,
+    `playbook/scene.py`). Porter le champ est ce qui EMPECHE un fork prediction/combat.
 
     **`+0x24` EST PORTE DEPUIS #508-r1** -- c'est ce que lit
     `IdunBattle.Entities.Formulas.AmountOfAttacksMadeThisTurnFormula$$Calculate` quand son
@@ -2239,8 +2254,8 @@ def register_attack_made(state, attacker_id: int, target_id: int) -> None:
     voit PAS elle-meme** (elle a deja calcule son degat).
 
     LECTEURS PORTES : `MartialInspiration_ExtraDamageEffect` (#509), via
-    `IdunBattle.Entities.Formulas.TotalTurnsWithAttacksMadeFormula$$Calculate` ; et
-    `unit_attacks_made_this_turn` ci-dessous (#508-r1)."""
+    `IdunBattle.Entities.Formulas.TotalTurnsWithAttacksMadeFormula$$Calculate` ;
+    `unit_attacks_made_this_turn` ci-dessous (#508-r1) ; et `unit_total_attacks_made` (#926)."""
     if attacker_id is None or target_id is None:
         return                                           # `attacker == null` -> le natif ne fait rien
     e = state.get_entity(attacker_id)
@@ -2250,6 +2265,7 @@ def register_attack_made(state, attacker_id: int, target_id: int) -> None:
     if not uc.units_attacked_this_turn:                   # `Count(this[0x40]) == 0`
         uc.turns_with_attacks_made = int(uc.turns_with_attacks_made or 0) + 1
     uc.units_attacked_this_turn.add(int(target_id))
+    uc.total_attacks_made = int(uc.total_attacks_made or 0) + 1           # `this[0x20] += 1`
     uc.attacks_made_this_turn = int(uc.attacks_made_this_turn or 0) + 1   # `this[0x24] += 1`
 
 
@@ -2262,12 +2278,31 @@ def unit_turns_with_attacks_made(state, unit_id: int) -> int:
     dont le consommateur porte est `MartialInspiration_ExtraDamageEffect` (magnitude
     `ConfigVar(extraDmgPct) x n`). Composant absent = 0, comme un composant natif frais.
 
-    ⚠ Ce n'est PAS `TotalAttacksMade` (`+0x20`), que la face PREDICTION lit par le capteur
-    `actorStats` (`playbook/scene.py::total_attacks_made`) : le natif fait diverger les deux faces
-    de cette ability -- divergence prediction/combat NATIVE, portee telle quelle des deux cotes."""
+    ⚠ Ce n'est PAS `TotalAttacksMade` (`+0x20`, `unit_total_attacks_made` ci-dessous, #926) : le
+    natif fait diverger les deux faces de cette ability -- divergence prediction/combat NATIVE,
+    portee telle quelle des deux cotes."""
     e = state.get_entity(unit_id)
     uc = e.get_component(UnitComponent) if e is not None else None
     return int(uc.turns_with_attacks_made or 0) if uc is not None else 0
+
+
+def unit_total_attacks_made(state, unit_id: int) -> int:
+    """`IdunBattle.Entities.Formulas.TotalAttacksMadeFormula$$Calculate` = le champ
+    `ActorStatisticsComponent + 0x20` de l'unite selectionnee (`GetComponent` puis
+    `*(uint*)(c+0x20)`) -- LECTEUR UNIQUE du canal cote COMBAT (#926).
+
+    C'est ce que resout le noeud DSL `IdunBattleLogic.Entities.DSLFormulas$$TotalAttacksMade`.
+    Consommateur porte : `FirstAmongTraitors_ExtraDmgEffect` (magnitude `Min(extraDmg + n x
+    extraDmg_2, maxDmg)`, `n` = ce compteur pris sur l'`EffectSource` = le PORTEUR de l'aura).
+    Composant absent = 0, comme un composant natif frais.
+
+    ⚠ CUMUL DE BATAILLE : contrairement a `attacks_made_this_turn` (+0x24),
+    `reset_units_attacked_this_turn` ne le remet PAS a zero (son ecriture 64 bits part de +0x24).
+    Pendant EXACT de la face PREDICTION `playbook/scene.py::total_attacks_made` (capteur live
+    `actorStats.totalAttacksMade`) : MEME champ natif, MEME semantique, pas de fork."""
+    e = state.get_entity(unit_id)
+    uc = e.get_component(UnitComponent) if e is not None else None
+    return int(uc.total_attacks_made or 0) if uc is not None else 0
 
 
 def unit_attacks_made_this_turn(state, unit_id: int) -> int:

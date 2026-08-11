@@ -44,6 +44,7 @@ from .loki.dark_angels_passives import (
     LionHelmExtraBlockDamageEffect, LionHelmExtraDmgEffect
 )
 from .loki.darkangels import HailstrikeExtraPierceEffect
+from .loki.first_among_traitors import FirstAmongTraitorsExtraDmgEffect   # #926 (passif blackAbaddon)
 from .loki.lions_wrath import TheLionsWrathExtraCritChanceEffect
 from .loki.martial_exemplar import MartialExemplarExtraCritChanceEffect
 from .loki.destroy_the_witch import (
@@ -992,6 +993,17 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # Les TROIS constantes du corps passent par TROIS surcharges DIFFERENTES d'`op_Implicit`
     # (`set_ActiveAbility` / `set_TriggeredAbility` / `set_Effect`) -- cf. l'en-tete du module.
     "MartialInspiration_ExtraDamage": MartialInspirationExtraDamageEffect,
+    # 0x427=1063 FirstAmongTraitors_ExtraDmg (#926) : effet-AURA du passif `1064 FirstAmongTraitors`
+    # de `blackAbaddon`, pose sur LUI a l'init (`ABILITY_INIT_OWNER_EFFECTS` plus bas) et projete par
+    # `...FirstAmongTraitors_ExtraDmgEffect$$CreateTargetSelector` = `UnitsWithTrait(
+    #  SurroundingFriends(Owner@0x30, ConfigConst(0x16 = range), true, 3), 0x7ea = Chaos, 3)`.
+    # ⚠ `SurroundingFriends` EXCLUT le porteur et RIEN ne le re-ajoute (aucun `op_Addition Owner`) ->
+    # UNE SEULE patte de port (`create_aura_attack_damage_bonus_for_ally`), pas de patte SELF.
+    # `...$$CreateEffectDamageBonusForAttack` = `ForAddition(get_OwnerIsCaster, CurrentDamageBonus)`,
+    # UN SEUL noeud de trigger -> TOUTES les attaques du beneficiaire. Magnitude (indexee sur
+    # l'`EffectSource`, donc sur ABADDON) = `Min(extraDmg + TotalAttacksMade(Abaddon) x extraDmg_2,
+    # maxDmg)`. Detail : `entities/effects/loki/first_among_traitors.py`.
+    "FirstAmongTraitors_ExtraDmg": FirstAmongTraitorsExtraDmgEffect,
     # 0x5e5=1509 Hailstrike (case-117 phase 2) : buff pose sur un ALLIE par l'ability 1214 de la MoW
     # `darkaStormSpeeder`. Classe DEDIEE `IdunBattle.Entities.Effects.Loki.Hailstrike_ExtraPierceEffect`
     # — canal PERCAGE : `CreatePiercingBonusForAttack` = `ForPiercing(OwnerIsCaster & (IsRangedAttack |
@@ -1510,6 +1522,15 @@ ABILITY_INIT_OWNER_EFFECTS: dict[str, list[str]] = {
     # `InescapableDeathAbility$$GetEffectType` = `return 0x3fa` -> l'effet 1018 est pose sur le
     # PORTEUR a l'init. Exactement le patron `IconOfObstinacy` / `PathOfCommand` ci-dessus.
     "InescapableDeath": ["InescapableDeath_Effect"],
+    # #926 -- `IdunBattleLogic.Entities.Abilities.Active.Loki.FirstAmongTraitorsAbility`, parent
+    # `IdunBattle.Entities.Abilities.AOwnerEffectTriggeredAbility` (`classes.tsv`). La classe ne
+    # DECLARE que `GetEffectType` (corps entier : `return 0x427`) et `GetRange` : ni `CreateTrigger`
+    # ni `CreateBehaviour` propres -> ce sont les corps de BASE
+    # (`AOwnerEffectTriggeredAbility$$CreateTrigger` = `OnOwnerSpecificAbilityInit(this.AbilityType)`,
+    # `$$CreateBehaviour` = `AddEffect(GetEffectType(), AbilityStateReference, source = Owner,
+    # targets = Owner)`), donc un owner-effect PERMANENT pose a l'init, exactement le patron
+    # `PathOfCommand` / `IconOfObstinacy`. L'appariement ability -> effet est LU (`0x427`), pas devine.
+    "FirstAmongTraitors": ["FirstAmongTraitors_ExtraDmg"],
     # `IdunBattleLogic.Entities.Abilities.Triggered.Loki.HypersensoryAbilitiesAbility$$CreateBehaviour : `AddEffect(0x564=1380, owner, owner)` -> le
     # HP-floor est posé sur le PORTEUR à l'init de l'ability passive (owner-effect self, aucun sélecteur). G6a.
     "HypersensoryAbilities": ["HypersensoryAbilities_MinimalHealth"],
