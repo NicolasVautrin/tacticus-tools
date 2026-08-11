@@ -42,8 +42,18 @@ from .behaviours.stats import Heal
 from .targeting import (RANGE_FROM_CONFIG, RANGE_WHOLE_BOARD, RANGED_BOOL_FALSE, RANGED_BOOL_TRUE,
                         TargetingOptions)
 from .targeting_rule import TargetingRule as TR
-from ...dsl.base import _feet
-from ...services.battle_query import are_entities_adjacent
+import engine.dsl.base as _dsl_base                  # FORME B (#923), et ABSOLUE
+import engine.services.battle_query as _battle_query  # FORME B (#923), et ABSOLUE
+# Les deux differes qui vivaient dans `_target_not_adjacent_to_enemy_reason` ont ete hisses par
+# `migrate_270r4r2r2_hisser_differes`, qui ecrit en FORME A -- or ces deux symboles sont SUBSTITUES
+# par des tests : `_feet` par `test_433_r3_r1a_occupancy_offline.py` (qui patche EXPLICITEMENT
+# « chaque module qui l'a importe par nom », donc une liaison de forme A de plus est une liaison de
+# plus a tenir a jour) et `are_entities_adjacent` par `test_433_r4_r2_adjacency_foyer_offline.py`
+# (compteur d'appels sur le foyer). Aucun de ces deux tests ne vise CE module, donc aucun n'etait
+# rouge -- mais une liaison de forme A gele la reference a l'import et rendrait INERTE tout patch
+# pose ensuite. La forme B relit le binding a chaque appel. `migrate_485r1_barils_reexport.py
+# morsure` ne classait PAS ces couples (ses sites n'etaient pas dans sa base de gratuits) : c'est
+# le croisement « symbole hisse x monkeypatch » qui les a trouves.
 
 if TYPE_CHECKING:                       # pragma: no cover
     from ..state import State
@@ -453,7 +463,7 @@ class TitanhammerSquadAbility(ActiveAbility):
         tile = entities.target
         if not tile:
             return 0                                          # `IsNullOrEmpty(targetTiles)` -> tile = null
-        tile_feet = _feet(tile)
+        tile_feet = _dsl_base._feet(tile)
         if not tile_feet:
             return 0
         caster = entities.caster or {}
@@ -467,7 +477,7 @@ class TitanhammerSquadAbility(ActiveAbility):
                 continue
             if has_trait is not None and has_trait(u, int(UnitTrait.Steppable)):
                 continue                                      # `ignoreSteppables = true`
-            if are_entities_adjacent(_feet(u), tile_feet, board):
+            if _battle_query.are_entities_adjacent(_dsl_base._feet(u), tile_feet, board):
                 return int(TR.TargetIsNotAdjacentToEnemy)     # 0x40000000000
         return 0
 

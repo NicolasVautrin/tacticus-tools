@@ -55,7 +55,20 @@ from engine.runner.snapshot import load_state
 TITUS = "ultraTitus"            # 1154 TacticalPrecision
 TRAJANN = "custoTrajann"        # 1184 MomentShackle
 FOES = "necroWarden,astraBullgryn"
-BUILD = ["--p-units", "%s,%s" % (TITUS, TRAJANN), "--a-units", FOES, "--rank", "17", "--no-ai"]
+#: ⚠ `TITUS:CritChance=0` -- LA PREMISSE DU FICHIER, RECONSTRUITE (#923). Tout ce fichier est ecrit
+#: sur « Titus a `CritChance = 0` » (cf. l'en-tete : le coup est critique SANS tirage, MEME a
+#: `CouldCrit` faux), et `test_force_crit_change_le_degat_ab_offline` en fait une ASSERTION -- sans
+#: quoi son A/B `force_crit=True` vs `False` ne compare plus rien, la branche `False` pouvant crit
+#: toute seule. Or cette premisse est une propriete du HARNAIS, pas du jeu : depuis #419-r5/#419-r6
+#: `_normalize_and_extract_pool` equipe par defaut les items Best-In-Slot, et les quatre stats
+#: crit/block ne vivent QUE dans les items -> `ultraTitus` arrive a 26. QUATRIEME peremption de
+#: premisse due a ce meme changement de regime.
+#: VOIE RETENUE = reconstruire LE PORTEUR, precedent #914/#912 deja applique par
+#: `probe_373_path_of_command_extra_crit.py`. PAS `TACTICUS_BIS_ITEMS=0`, qui deshabillerait tout
+#: le roster et changerait le regime des DEUX equipes (dont `critDamage`) : on veut le regime
+#: COURANT avec un porteur a crit nul, pas l'ancien regime.
+BUILD = ["--p-units", "%s,%s" % (TITUS, TRAJANN), "--a-units", FOES, "--rank", "17", "--no-ai",
+         "--unit-stat", "%s:CritChance=0" % (TITUS,)]
 TP = 1154
 MS = 1184
 
