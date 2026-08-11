@@ -304,7 +304,8 @@ class _AbilityAttack:
         # #522-r1 : `ExecuteHit` emet `On(6)` **APRES** le `RollCritical` du coup -> on mesure la
         # crit chance AVANT l'event (celle du coup 0), on emet, puis on la RELIT pour les coups 1+.
         crit_avant = (AttackDamageOperation._crit_params(ctx, active, state, attacker_id, target_id,
-                                                         is_ranged=_ranged, is_normal_attack=False)
+                                                         is_ranged=_ranged, is_normal_attack=False,
+                                                         hit_index=int(hit_index0))
                       if ctx is not None else (0, 0, False))
         from ..triggers.dispatch.attack import pre_attack_hit_triggers  # lazy : cycle damage<->triggers
         pre_attack_hit_triggers(state, attacker_id, target_id,
@@ -313,9 +314,12 @@ class _AbilityAttack:
         # Identites du coup -> `att_ctx` du canal CRIT, bati DANS `_crit_params` (foyer unique, mirror
         # de l'`AbilityEntities` de `GetCritDamageBonusFromEffects`). Le gate famille ABILITY juste
         # en-dessous remet (0,0,False) : ce vecteur-la n'a AUCUN chemin crit natif.
+        # `hit_index = hit_index0 + 1` : valeurs des coups 1+ de CETTE serie (cf. `_roll_crit(idx)`).
+        # MEME limite ecrite que dans `normal.py` -- deux points de mesure, pas un par coup (#892-r1).
         crit_chance, crit_damage, crit_enabled = (
             AttackDamageOperation._crit_params(ctx, active, state, attacker_id, target_id,
-                                               is_ranged=_ranged, is_normal_attack=False)
+                                               is_ranged=_ranged, is_normal_attack=False,
+                                               hit_index=int(hit_index0) + 1)
             if ctx is not None else (0, 0, False))
         crit_apres = (crit_chance, crit_damage, crit_enabled)
         crit_chance, crit_damage, crit_enabled = crit_avant

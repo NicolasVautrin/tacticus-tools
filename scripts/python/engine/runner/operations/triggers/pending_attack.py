@@ -158,6 +158,28 @@ PENDING_ATTACK_EFFECTS: dict[int, PendingAttackSpec] = {
     int(EffectType.OverwhelmingWrath_PendingAttack): PendingAttackSpec(
         "IdunBattle.Entities.Effects.Loki.OverwhelmingWrath_PendingAttackEffect",
         int(TriggeredAbilityType.OverwhelmingWrath_Attack)),
+    # Pose par `IdunBattleLogic.Entities.Abilities.Active.Loki.TheLionsWrathAbility$$
+    # ExecuteBehaviour` (1217, #892) : `AddBondEffect(0x5f1, AbilityStateReference,
+    # source = Owner@DSLSelectors+0x30, targets = Target@+0x60, bondedEntity = Owner@+0x30,
+    # options = <Nullable ZERO>)`. La derivation d'`APendingAttackEffect` est LUE et non deduite du
+    # nom : `...TheLionsWrath_PendingAttackEffect$$CreateHandleTriggerAbilitiesInternal` appelle
+    # explicitement `IdunBattle.Entities.Effects.APendingAttackEffect$$
+    # CreateHandleTriggerAbilitiesInternal` puis AJOUTE son propre `Triggered()` a l'`ArraySet`.
+    #
+    # ⚠ CETTE DERIVEE PORTE UN **SECOND** CHEMIN DE DECLENCHEMENT, que ni 1069 ni 1141 n'ont :
+    #     Triggered( On(0x25 = UnitRemoved, ownerNeedsToBeAlive: 0) & get_OwnerIsTarget,
+    #                APendingAttackEffect$$GetAttackBehaviour(effect) )
+    # -- le `TriggerAbility` SEUL, sans le `RemoveEffect(Effect@+0x38)` que porte le `Triggered()`
+    # de la base. Il vit dans `loki/lions_wrath_attack.py` (avec la phase 2), pas ici : c'est un
+    # `Triggered()` de la DERIVEE, pas de la base, et le mettre dans ce foyer-ci l'appliquerait aux
+    # 20 derivees.
+    #
+    # ⚠ ICI PORTEUR ET BONDE SONT DEUX UNITES DE DEUX JOUEURS DIFFERENTS (porteur = la CIBLE du
+    # cast, bonde = le Lion) -- meme configuration que 1069, et c'est ce que le `IsTurnOf(
+    # GetAttackingUnitSelector())` du `Triggered()` de la base separe d'un tour entier.
+    int(EffectType.TheLionsWrath_PendingAttack): PendingAttackSpec(
+        "IdunBattle.Entities.Effects.Loki.TheLionsWrath_PendingAttackEffect",
+        int(TriggeredAbilityType.TheLionsWrath_PendingAttack)),
 }
 
 

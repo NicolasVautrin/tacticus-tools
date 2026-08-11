@@ -111,16 +111,18 @@ class _NormalLike:
         # coup 0), on emet, puis on la RELIT pour les coups 1+.
         crit_avant = AttackDamageOperation._crit_params(
             ctx, active, state, attacker_id, target_id,
-            is_ranged=_ranged, is_normal_attack=False)
+            is_ranged=_ranged, is_normal_attack=False, hit_index=0)
         from ..triggers.dispatch.attack import pre_attack_hit_triggers  # lazy : cycle damage<->triggers
         pre_attack_hit_triggers(state, attacker_id, target_id,
                                 ranged=not bool(is_melee) if is_melee is not None else False,
                                 profile=damage_profile, is_first_hit=True, ability_type=ability_type)
         # Identites du coup -> `att_ctx` du canal CRIT, bati DANS `_crit_params` (foyer unique, mirror
         # de l'`AbilityEntities` de `GetCritDamageBonusFromEffects`).
+        # `hit_index=1` : valeurs des coups 1+ (cf. `_roll_crit(idx)`) -- MEME limite ecrite que dans
+        # `normal.py` (deux points de mesure, pas un par coup ; residu #892-r1).
         crit_chance, crit_damage, crit_enabled = AttackDamageOperation._crit_params(
             ctx, active, state, attacker_id, target_id,
-            is_ranged=_ranged, is_normal_attack=False)   # #112 : ce vecteur porte une SPECIALE
+            is_ranged=_ranged, is_normal_attack=False, hit_index=1)   # #112 : ce vecteur porte une SPECIALE
         crit_apres = (crit_chance, crit_damage, crit_enabled)
         crit_chance, crit_damage, crit_enabled = crit_avant
         # #120 : réduction PLATE défenseur (Nightshroud, ungated -> splash/normal-like aussi) fusionnée pré-perçage.
