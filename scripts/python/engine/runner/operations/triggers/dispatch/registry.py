@@ -195,6 +195,7 @@ from ..loki.spiritual_leader import SpiritualLeaderAbility             # passif 
 from ..loki.barbed_ovipositor import BarbedOvipositorSummonAbility     # passif tyranParasite (Tyranids)
 from ..loki.fabricator_claw_array import FabricatorClawArrayAbility    # #303 (passif necroSpyder, N20)
 from ..loki.champion_of_the_feast import ChampionOfTheFeastAbility    # #419-r6-r2 (passif templSwordBrother)
+from ..loki.sanguinary_priest import SanguinaryPriestAbility          # #921 (passif bloodSanguinary)
 from ..loki.dawn_blade import DawnBladeHealAbility                     # #317 (relique tauFarsight)
 from ..loki.daemonflesh_plate import (DaemonfleshPlateAbility,        # #916 (relique 1493)
                                       DaemonfleshPlateResetActiveAbility)
@@ -605,6 +606,21 @@ ABILITY_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
     # Cf. loki/champion_of_the_feast.py (IdunBattleLogic.Entities.Abilities.Triggered.Loki.ChampionOfTheFeastAbility$$CreateTrigger /
     # ...$$CreateBehaviour / ...$$GetTarget / ...$$GetPossibleTargets).
     "ChampionOfTheFeast": [ChampionOfTheFeastAbility],
+    # SanguinaryPriest (passif de kit `bloodSanguinary` << Nicodemus >>, `TriggeredAbilityType`
+    # 0x510 = 1296 -- #921) = TROISIEME consommateur d'`On(0x1c = ArrivedAtFinalTile)`, mais son
+    # `CreateTrigger` porte UN TERME DE PLUS que celui de `SpiritualLeader` :
+    #   `On(0x1c, ownerNeedsToBeAlive = 1) & <DSLTriggers+0x28 = IsTurnOf(Owner)> & get_OwnerIsActor`
+    # -> `Heal(Owner@+0x30, AdjacentFriends(Owner, unique, 3) op_Subtraction MechanicalUnits(., 3),
+    #          RandomAmount(GetVariableForLevel(0x20 hpToHeal), GetVariableForLevel(0x47 maxHpToHeal)),
+    #          HealBehaviourOptions.ForRegenerate)`.
+    # ⚠ AUCUN filtre `UnitTrait.Immune` ici -- c'est l'ACTIF `BloodChalice` du MEME porteur qui en
+    # porte un (`UnitsWithoutTrait(adj - mech, 0x19, 3)`). Ne pas recopier le voisin de forme.
+    # Le `RandomAmount` est tire PAR CIBLE (`HealBehaviour$$Execute` appelle `Calculate` dans la
+    # boucle d'enumeration) -- la feuille `abilities/behaviours/stats.py::Heal` a ete corrigee en
+    # consequence dans le meme commit.
+    # Cf. loki/sanguinary_priest.py (IdunBattleLogic.Entities.Abilities.Triggered.Loki.SanguinaryPriestAbility$$CreateTrigger /
+    # ...$$CreateBehaviour / ...$$GetTargets).
+    "SanguinaryPriest": [SanguinaryPriestAbility],
     # RelentlessMarch (passif `necroWarden` << Makhotep >>, `TriggeredAbilityType` 0x3ec = 1004 --
     # HOMONYME d'id avec `ActiveAbilityType` 1004 `MortisRound`, #328) :
     # `On(TurnStart_Other=0x13) & <DSLTriggers+0x28 = IsTurnOf(Owner)>` ->
