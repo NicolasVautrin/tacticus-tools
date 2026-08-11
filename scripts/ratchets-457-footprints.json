@@ -4784,9 +4784,25 @@
    "dirs": [],
    "temoins": []
   },
+  "tests/engine/test_927_fury_offline.py": {
+   "_at": 1786459400,
+   "_commit": "296c5c6e07361676d697499ee56681e0f3e54362",
+   "dirs": [
+    "data/symbols/gqfc5mff6c/frida"
+   ],
+   "temoins": [
+    "data/symbols/gqfc5mff6c/frida/methods.tsv"
+   ]
+  },
   "tests/engine/test_930_kustom_force_field_reworked_offline.py": {
    "_at": 1786452690,
    "_commit": "945c1366553370619620b76a1c630bc1daded165",
+   "dirs": [],
+   "temoins": []
+  },
+  "tests/engine/test_931_twisted_science_offline.py": {
+   "_at": 1786458639,
+   "_commit": "3b2efb79678921170f89c012c12b78f0c64acb27",
    "dirs": [],
    "temoins": []
   },

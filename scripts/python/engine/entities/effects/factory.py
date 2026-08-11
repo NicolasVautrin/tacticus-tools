@@ -66,7 +66,7 @@ from .loki.extra_damage import (
     ModifiedExoarmourExtraDmgEffect, PrimarchOfTheFirstLegionExtraDamageEffect,
     PrioritisedEfficiencyExtraDmgEffect, RangedSpecialistEffect, RapidAssaultExtraDamageEffect,
     SmashaEadExtraDamageEffect, SpecialIssueCombiMeltaExtraDmgEffect,
-    TerrifyingCrescendoExtraDmgEffect
+    TerrifyingCrescendoExtraDmgEffect, TwistedScienceExtraDmgEffect
 )
 from .loki.extra_damage_aura import (
     BeaconOfRageFriendlyExtraDamageEffect, DaughterOfTheAbyssExtraDamagePctEffect,
@@ -113,6 +113,7 @@ from .loki.icon_of_obstinacy import (      # #919 (passif astarLysander)
 )
 from .loki.inescapable_death import InescapableDeathEffect   # #924 (passif necroDestroyer)
 from .loki.my_will_be_done_overlord import MyWillBeDoneOverlordExtraDamageEffect
+from .loki.twisted_science import TwistedScienceExtraHpEffect   # #931 (passif genesBiophagus)
 from .loki.titanhammer_squad import TitanhammerSquadExtraBlockDamageEffect
 from .loki.possession import AttemptedPossessionPossessedEffect
 from .loki.prophetic_sentinel import (
@@ -187,6 +188,22 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # (`effects/__init__.py`) parce que ce canal-la est OPT-IN : sans la seconde inscription le
     # bonus serait inerte dans tous les chemins qui ne passent pas `tiles=` (#488-r1).
     "Melta_ExtraDmg": MeltaExtraDmgEffect,
+    # TwistedScience (passif `genesBiophagus` "Hollan", TriggeredAbilityType 1278) -- les DEUX
+    # effets que l'active substituee `1167 Heal_TwistedScience` pose sur la cible de son soin
+    # (`runner/abilities/genestealer.py`), et ils N'ONT PAS LE MEME STATUT NATIF :
+    #  * 0x54c = 1356 `_ExtraDmg` a une CLASSE dediee
+    #    (`...TwistedScience_ExtraDmgEffect$$CreateEffectDamageBonusForAttack` = `ForAddition(
+    #    get_OwnerIsCaster, ConfigVar(8 extraDmg))`, gate `OwnerIsCaster` SEUL) -> +extraDmg additif
+    #    a TOUTES les attaques du porteur. Pose SEULEMENT si la cible est de faction `Genestealers`.
+    #  * 0x54b = 1355 `_ExtraHp` n'en a AUCUNE : c'est un `DynamicStatModifierEffect` GENERIQUE
+    #    (base d'effets + `statType = 5 Health` litteral de la feuille de pose) -> +hp de PV MAX,
+    #    PERMANENT, pose sur TOUTE cible. Cote port `EFFECT_CLASSES` est la seule voie d'un stat-mod
+    #    (un effet hors registre est POSE mais INERTE), d'ou une classe pour lui aussi -- mesure :
+    #    sans elle, une cible blessee finit a 6023 au lieu de 7606 (#931, `--phase blesse`).
+    # Le rangement suit la FAMILLE, comme partout dans ce paquet : le bonus de degat direct est dans
+    # `extra_damage.py`, le stat-mod dans `twisted_science.py`. #931
+    "TwistedScience_ExtraDmg": TwistedScienceExtraDmgEffect,
+    "TwistedScience_ExtraHp": TwistedScienceExtraHpEffect,
     "RapidAssault_ExtraDamage": RapidAssaultExtraDamageEffect,
     "SquigHound_AdditionalHits": SquigHoundAdditionalHitsEffect,   # #179 : 2 coups hetero [minDmg,maxDmg] Physical
     # SpecialIssueCombiMelta (`darkaSternguard` « Ramus », npc `darkaBossSternguardLHE` ; ability
