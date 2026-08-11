@@ -25,7 +25,7 @@
 
 - Unites lineup : **127** ; kits COMPLETS (aucun manque detecte) : **80** ; kits avec du travail : **47**
 - Volume total : **48** items manquants (actives no-op + passifs/traits non registres)
-- HORS total — voies conditionnelles : **36** abilities non portees (11 mythiques, 25 reliques equipables)
+- HORS total — voies conditionnelles : **35** abilities non portees (11 mythiques, 24 reliques equipables)
 
 ### Priorite par faction (volume decroissant)
 
@@ -199,7 +199,7 @@
 
 adeptCanoness, adeptExorcist, admecDominus, admecMarshall, astarCyrus, astarLysander, astraBullgryn, astraCreed, astraOrdnanceBattery, astraPrimarisPsy, blackForgefiend, blackObliterator, blackTerminator, bloodDante, bloodDeathCompany, bloodSanguinary, custoAtlacoya, custoTrajann, custoVexilusPraetor, darkaAsmodai, darkaAzrael, darkaSternguard, darkaStormSpeeder, deathBlightbringer, deathBlightlord, deathCrawler, deathPutrifier, deathRotbone, deathTyphus, eldarAutarch, eldarFarseer, eldarMauganRa, eldarRanger, emperNoiseMarine, genesKelermorph, genesMagus, genesPatriarch, genesPrimus, necroOverlord, necroReanimator, necroSpyder, necroWarden, orksKillaKan, orksNob, orksRukkatrukk, orksRuntherd, orksWarboss, spaceBlackmane, spaceRockfist, spaceStormcaller, tauAunShi, tauBroadside, tauCrisis, tauDarkstrider, tauMarksman, tauShadowsun, templAncient, templChampion, templHelbrecht, templSwordBrother, thousAhriman, thousInfernalMaster, thousSekhetar, thousSorcerer, thousTerminator, thousTzaangor, tyranDeathleaper, tyranNeurothrope, tyranParasite, tyranTyrantGuard, ultraApothecary, ultraCalgar, ultraDreadnought, ultraEliminatorSgt, ultraInceptorSgt, ultraTigurius, ultraTitus, votanChampion, worldEightbound, worldKharn
 
-## HORS total — voies conditionnelles (36 abilities non portees)
+## HORS total — voies conditionnelles (35 abilities non portees)
 
 > Une unite `lineup` porte aussi des abilities par deux voies que le kit n'expose
 > pas : `mythic` (`units.<kind>.<id>.mythicAbilities`, a DEBLOQUER) et `item`
@@ -219,7 +219,6 @@ adeptCanoness, adeptExorcist, admecDominus, admecMarshall, astarCyrus, astarLysa
 | Dw02AdvancedBurstCannon | item | 1 | tauCrisis |
 | HeadwoppasKillchoppa | item | 1 | orksWarboss |
 | Helspear | item | 1 | blackHaarken |
-| IntoxicatingElixir | item | 4 | emperExultant, emperFlawlessBlade, emperKakophonist, emperNoiseMarine |
 | Lakrimae | item | 1 | deathTyphus |
 | Maugetar | item | 1 | eldarMauganRa |
 | MonsterSlayerOfCaliban | item | 1 | darkaCompanion |
@@ -249,4 +248,4 @@ adeptCanoness, adeptExorcist, admecDominus, admecMarshall, astarCyrus, astarLysa
 | ShieldOfFaith | mythic | 1 | adeptExorcist |
 | WisdomOfTheAncients | mythic | 1 | ultraDreadnought |
 
-Portees (au moins un registre) : **7** — AmuletOfTheVoidwyrm, DaemonfleshPlate, KardiocoreGalvanus, MawClawsOfThyrax, NetherRealmCasket, RelicBoltPistol, SupaCyborkBody
+Portees (au moins un registre) : **8** — AmuletOfTheVoidwyrm, DaemonfleshPlate, IntoxicatingElixir, KardiocoreGalvanus, MawClawsOfThyrax, NetherRealmCasket, RelicBoltPistol, SupaCyborkBody

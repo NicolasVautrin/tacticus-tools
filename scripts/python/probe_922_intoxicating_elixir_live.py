@@ -167,6 +167,14 @@ def build(a, tag: str, level: int, extra=()) -> tuple:
             "--equip-relic", "%s:%s:%d" % (CARRIER, ABILITY_ID, level),
             "--hp-target", "900000", "--hp-player", "900000",
             "--no-ai", "--crit", "100,%d" % a.crit_damage, "--block-target", "0,0"]
+    if getattr(a, "low_hp", False):
+        # PV du PORTEUR sous le seuil, PATCHES SUR LE BC NORMALISE (`--unit-stat`) : `--hp-player`
+        # force `Health == RemainingHealth`, donc 100 %, et n'exercerait JAMAIS le facteur x2.
+        # ⚠ CE MONTAGE VIT ICI ET NULLE PART AILLEURS : quand il etait dans `run_degat`, le
+        # cliquet -- qui appelle `build` directement -- construisait un porteur A PLEINE VIE et
+        # accusait le port d'un « regime non atteint » que le probe, lui, atteignait.
+        argv += ["--unit-stat", "%s:Health=100000,RemainingHealth=%d"
+                 % (CARRIER, 100000 * config_du_gameconfig()["healthPct"] // 100 - 1)]
     argv += list(extra)
     p = subprocess.run(argv, cwd=str(PYDIR), capture_output=True, text=True,
                        encoding="utf-8", errors="replace")
@@ -605,13 +613,8 @@ def etages(h, rec) -> dict:
 
 
 def run_degat(a, rpc, Board, Harness, n: int, cfg: dict) -> int:
-    extra = []
-    if a.low_hp:
-        # PV du PORTEUR sous le seuil, PATCHES SUR LE BC NORMALISE (`--unit-stat`) : `--hp-player`
-        # force `Health == RemainingHealth` (donc 100 %) et n'exercerait JAMAIS le facteur x2.
-        extra = ["--unit-stat", "%s:Health=100000,RemainingHealth=%d"
-                 % (CARRIER, 100000 * cfg["healthPct"] // 100 - 1)]
-    rid, sf = build(a, "deg_n%d_%s" % (n, "low" if a.low_hp else "full"), a.level, extra)
+    # le montage `--low-hp` vit dans `build` (foyer UNIQUE, partage avec le cliquet).
+    rid, sf = build(a, "deg_n%d_%s" % (n, "low" if a.low_hp else "full"), a.level)
     if rid is None:
         return 2
     try:

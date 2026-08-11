@@ -1,0 +1,252 @@
+# #922 — `IntoxicatingElixir` : la relique dont le compteur inclut son propre porteur
+
+**Verdict : PORTÉ (les DEUX faces) + CONFRONTÉ LIVE.** `EffectType.IntoxicatingElixir` (0x5b3 =
+**1459**) était **déclaré dans l'enum et jamais posé** ; le playbook de mouvement 1463 n'était pas
+au registre. Les deux le sont.
+
+En chemin, un **écart de fidélité du foyer PARTAGÉ du crit** a été trouvé et corrigé : la crit
+DAMAGE se relit **après** `On(PreAttackHit)`, coup 0 **compris**.
+
+---
+
+## 1. L'artefact, lu en entier (build `rnca9r7q6c`)
+
+`IdunBattle.Entities.Effects.Loki.IntoxicatingElixir_ExtraCritDmgEffect` (: `BaseEffect`).
+SEPT méthodes, dont `CreateTargetSelector` seule dédupliquée (défaut `Owner`, cf. #913) :
+
+```
+$$.ctor                 = BaseEffect..ctor(this, AbilityOrEffect(0x5b7), hasAutomatic: 1)
+$$GetLevelFormula(dsl, config, tileSelector) =
+      Min( Count( EntitiesWithAnyEffect(
+                      SurroundingUnits( origin = tileSelector,
+                                        range  = GetNumberConstant(0x16 = range),
+                                        unique = 1, includeCenter = 1, selectionType = 3 ),
+                      EffectType[4] { Pinned, Stunned,
+                                      Taunted_OnlySpecificTargets, ThrillSeekers } ) ),
+           Get( GetNumberConstant(0x78 = nrOfUnits) ) )
+$$GetCalculateLevel     = GetLevelFormula(dsl, config, Tiles(Owner@DSLSelectors+0x30))
+$$CreateActiveCondition = AmountIsGreaterThanZero( <le MÊME GetLevelFormula> )
+$$CreateCritDamageBonus = EffectBonus.ForAddition( get_OwnerIsCaster, GetCritAmount() )
+$$GetCritAmount         = Multiply(
+                              Multiply( ConfigVar(0x42 = extraCritDmg, GetAbilityState(effet),
+                                                  config@+0x60),
+                                        EffectLevel(Effect@DSLSelectors+0x38) ),
+                              ConditionalAmount(
+                                  HealthPctIsBelowOrEqual(Owner@+0x30,
+                                                          Get(GetNumberConstant(0x4f=healthPct))),
+                                  formulaTrue  = <DSLFormulas+0x28> = Direct(2),
+                                  formulaFalse = <DSLFormulas+0x20> = Direct(1) ) )
+$$GetLocalizationDataInternal                                            — affichage seul
+```
+
+Surcharges tranchées par l'**adresse du `call`**, jamais par le nom ni l'arité :
+`AmountIsGreaterThanZero(amount: IAmountFormula)` (tail-call, sa voisine prend un
+`ITargetsSelector`), `ConditionalAmount(trigger, formulaTrue, formulaFalse)` à **3** arguments (les
+deux autres surcharges sont `(trigger, formulaTrue)` et `(trigger, int, int)`),
+`SurroundingUnits(origin, range: Int32, unique, includeCenter, unitSelectionType)`,
+`EntitiesWithAnyEffect(entities, effectTypes: EffectType[])` — la variante **params-array**, sans
+`effectTarget`.
+
+Gameconfig : `range = 2`, `nrOfUnits = 6`, `healthPct = 50`,
+`extraCritDmg = [295, 311, 327, 343, 359, 375, 391, 406, 422, 438]`.
+
+### Le piège d'ordinal, et ce qui le tranche
+
+```
+EffectType            0x5b3 = 1459 = IntoxicatingElixir           <- CET effet
+TriggeredAbilityType  0x5b7 = 1463 = IntoxicatingElixir           <- sa CONFIG
+EffectType            0x5b7 = 1463 = OrbsOfDecay_AdditionalHits   <- une AUTRE ability
+```
+
+Le `.ctor`, relu **octet à octet** : `ba b7 05 00 00` (`mov edx, 0x5b7`) puis un `call` dont la
+cible, résolue par son **RVA** (`next_ip + rel32`), appelle `AbilityOrEffect$$set_TriggeredAbility`
+— les **quatre** surcharges d'`op_Implicit` sont homonymes dans les tables, seule l'adresse les
+sépare. `…IntoxicatingElixirAbility$$GetEffectType` a pour corps ENTIER `return 0x5b3`.
+
+## 2. Le bloc de quatre `EffectType` — AUCUN immédiat au décompilé, LU dans le metadata
+
+Le tableau vient d'un `RuntimeHelpers.InitializeArray(new EffectType[4], <FieldInfo>)` : le `DAT_`
+du site porte l'**index de metadata encodé** (`(kind << 29) | index`, ici `kind = 4 = FieldInfo`),
+qui n'est résolu qu'au runtime. Rien à lire statiquement dans le PE.
+
+Il a donc été lu dans `global-metadata.dat` (21,6 Mo) : l'**UNIQUE** fenêtre de 4 `int32` alignés
+du fichier contenant à la fois `1065` et `1162` vaut
+
+```
+[1065, 1162, 27, 1434] = Pinned, Stunned, Taunted_OnlySpecificTargets, ThrillSeekers
+```
+
+et cet ordre est **exactement** celui de l'i2 (« Suppressed, Stunned, Taunted, or Thrilled »).
+⚠ `Taunted` y est le **composite 27**, PAS ses trois sous-effets (`Taunted_BlockMovement` 25,
+`Taunted_CantUseAbility` 26, `Taunted_RefreshUnitTurnFinished` 1237) que
+`TauntedEffect$$ApplyInternal` spawne en même temps : les confondre compterait une cible tauntée
+**quatre** fois.
+
+## 3. Ce qui SÉPARE cet effet de ses quatre voisins de forme
+
+`KardiocoreGalvanus_ExtraCritDmg` (#913), `AmuletOfTheVoidwyrm_CritDamageReduction`,
+`SupaCyborkBody_CritDmgReduction` et `NetherRealmCasket_CritDamageReduction` partagent la forme
+`ForXxx(<trigger>, Multiply(ConfigVar, <compteur>))`. **Recopier l'un d'eux serait faux ici** :
+
+| | les voisins | `IntoxicatingElixir` |
+|---|---|---|
+| géométrie | `AdjacentFriends` — ring-1 **STOCKÉ** + porte d'élévation, porteur EXCLU | **`SurroundingUnits(Tiles(Owner), 2)` — disque CUBE, sans porte, `includeCenter = 1` : le PORTEUR SE COMPTE LUI-MÊME** |
+| équipe | `Friends(reference = Owner)` | **AUCUN filtre — amis ET ennemis** |
+| filtre | par TRAIT (`MechanicalUnits`) | **par EFFET (`EntitiesWithAnyEffect`)** |
+| plafond | aucun | **`Min(…, nrOfUnits = 6)`** |
+| magnitude | `ConfigVar × compteur` | **`× 2` de plus si `HealthPct(Owner) <= 50`** |
+| activité | `YesTrigger` (Kardiocore) / géométrique (les 3 autres) | **géométrique** — absent du canal `decisionView` à compteur nul |
+
+## 4. La confrontabilité — état 2, et le DEBUFF vient du jeu
+
+Quatre porteurs `lineup` Emperor's Children (`emperExultant`, `emperFlawlessBlade`,
+`emperKakophonist`, `emperNoiseMarine`), **aucun** ne l'équipe au seed. `emperKakophonist` et
+`emperNoiseMarine` sont **au pool** ; la relique est montée par `--equip-relic` (#237).
+
+Les deux debuffs exercés sont posés **par le jeu**, jamais inventés :
+
+* `emperNoiseMarine` porte le trait **`SuppressiveFire`** (« An enemy hit by this unit's ranged
+  attack becomes Suppressed ») → son tir **à distance** pose `Pinned` (1065). Un coup de **mêlée**
+  n'en pose **aucun** — c'est ce qui donne le régime `n = 0` (cible BLESSÉE sans être DEBUFFÉE),
+  et c'est mesuré, pas supposé ;
+* les **cinq** Emperor's Children portent le trait `ThrillSeekers`, et
+  `ThrillSeekersAbility$$CreateTrigger` = `On(6) & IsFirstHitInSeries & get_OwnerIsCaster &
+  NOT IsWounded(target)` les rend `Thrilled` (1434) dès qu'ils frappent une cible à **pleine vie**.
+  C'est ce qui rend confrontables les deux quirks que rien d'autre n'exerce : le porteur qui se
+  compte lui-même, et l'ami qui compte comme un ennemi.
+
+## 5. L'observable qui rend l'étage COMPTEUR confrontable SANS passer par le dégât
+
+`decisionView.effects[].level` publie le niveau **STOCKÉ** (`EffectComponent+0x68`), que
+`RefreshEffectsOperation$$UpdateLevel` tient égal à `$$GetCalculateLevel`.
+
+⚠ **MESURE** : tant que l'effet est **INACTIF**, `UpdateLevel` ne le rafraîchit pas — le champ
+reste à sa valeur d'initialisation (**1**, mesuré à compteur nul). Le `level` ne fait donc foi
+**que** lorsque `active` est vrai ; à `active == False` c'est `active` qui porte l'information.
+Un cliquet qui lirait `level` sans ce gate accuserait le port sur un régime où le natif ne dit
+rien.
+
+## 6. LE FIX DU FOYER PARTAGÉ — la crit DAMAGE se relit APRÈS `On(6)`, coup 0 COMPRIS
+
+`AttackDamageOperation$$ExecuteHit`, relu dans l'ordre :
+
+```
+slot 0xad (profil) -> AttackHit..ctor -> slot 0xa RollCritical
+   -> AbilityEntities..ctor -> EnqueueOperation(6) -> EnqueueOperation(7)
+   -> slot 0xb CalculateCriticalDamage -> sub-op 0x42 -> EvaluateAfterHitTriggers
+```
+
+`On(6)` tombe **ENTRE** `RollCritical` et `CalculateCriticalDamage`. Donc ce qu'il pose :
+
+* **ne mord pas** sur le TIRAGE de crit du coup 0 (c'est #522-r1, toujours vrai) ;
+* **mord** sur sa **MAGNITUDE**, coup 0 compris.
+
+Les trois vecteurs (`damage_ops/{normal,normal_like,ability}.py`) calculaient déjà `crit_apres` et
+n'en consommaient que la **chance** — `crit_apres[1]` était calculé et **jamais lu**. Le trou était
+**INERTE** jusqu'ici : aucun écouteur porté d'`On(6)` ne changeait la crit damage. Cette tranche en
+crée un (le `Thrilled` que le porteur se pose à son propre coup 0 fait monter le compteur de la
+relique), donc le trou devient **observable**.
+
+**Mesure** (porteur `emperKakophonist`, relique niveau 3, cible à pleine vie) :
+
+| | coup 0 | coup 1 | coup 2 |
+|---|---|---|---|
+| natif | 7289 | 6938 | 6979 |
+| port AVANT le correctif | 5991 | 4889 | 5149 |
+| port APRÈS | **7289** | **6938** | **6979** |
+
+Les **trois** coups divergeaient, le 0 compris — c'est ce qui établit que la magnitude se relit
+après l'event, et pas seulement pour les coups 1+.
+
+Le correctif est un `crit_damage = crit_apres[1]` dans chacun des trois vecteurs : **strict no-op**
+partout ailleurs (les deux mesures ne diffèrent que si un écouteur d'`On(6)` change la crit damage).
+Contre-épreuve exécutable : le mutant `CRITDMG_AVANT` du probe fige la crit damage sur sa première
+mesure et **doit** diverger.
+
+## 7. Le port
+
+* `engine/entities/effects/loki/intoxicating_elixir.py` — la classe + l'arbre du compteur ;
+* `engine/entities/effects/factory.py` — `EFFECT_CLASSES["IntoxicatingElixir"]` ;
+* `engine/runner/components.py` — `debuffed_units_in_range_count` + la clé de `unit_state`.
+  ⚠ Son gate de présence est la **POSITION SEULE**, pas `position ET équipe` comme ses quatre
+  voisins : ce sélecteur-là n'a aucun filtre d'équipe, donc exiger une équipe rendrait `None` là où
+  le natif sait compter ;
+* `engine/runner/operations/damage.py` — `debuffed_units_in_range_of` et `unit_health_of` dans
+  `_crit_board` (le second est le substrat de `HealthPctIsBelowOrEqual`, tri-état `(None, None)`) ;
+* `engine/playbook/intoxicating_elixir.py` + son entrée au registre `TRIGGERED_MOVE_PLAYBOOKS` ;
+* `engine/utilities/tile.py` — la clé `self_effects` des **trois** constructeurs de `leaf_ctx`.
+
+**PAS d'entrée `ABILITY_INIT_OWNER_EFFECTS`** : `_seed_ability_owner_effects` lit le **KIT**
+gameconfig (`activeAbilities + passiveAbilities`), où la relique ne figure pas — elle arrive par
+`BC.Units[].TertiaryAbility`. Même arbitrage explicite que `kardiocore_galvanus.py`.
+
+## 8. La face DÉCISION
+
+`IdunBattle.AI.Playbook.Loki.IntoxicatingElixirPlaybook` (`.ctor` → `0x5b7` = 1463) :
+
+* `<CalculateAttackUtilityInStepsInternal>d__3$$MoveNext` = `yield Fix64(0)` — corps PROPRE, pas une
+  absence. Rien à enregistrer côté attack ;
+* `<CalculateMovementUtilityInStepsInternal>d__2$$MoveNext` appelle **littéralement la
+  `$$GetLevelFormula` de l'effet de COMBAT**, seule l'ancre changeant (`DSLSelectors.Get(<tuile
+  candidate>)` au lieu de `Tiles(Owner)`), puis `yield Fix64(w × n)` où
+  `w = Utilities.Default.TriggeredAbilities["IntoxicatingElixir_LikesSuppressionStunTauntThrilled"]`
+  = **5**. La clé est **LUE** : le `DAT_` du site est un slot de `StringLiteral`
+  (`metadata/string_literals.tsv`), pas une devinette par préfixe.
+
+Le port **partage donc son arbre** avec la classe d'effet et n'en re-dérive aucun étage. Le corps
+n'écrit **aucun** `RemoveAll(u.Id == case.Unit.Id)` : le mover se compte lui-même dès que son
+ORIGINE est à ≤ 2 hex de la tuile candidate — d'où la clé `self_effects`, ajoutée aux trois
+constructeurs de `leaf_ctx` (c'est le pendant de `self_pos` sur l'axe des effets, et le régime est
+COURANT : les quatre porteurs sont Emperor's Children).
+
+## 9. Validation — 8 tests, 6 mutants du compteur, 4 contre-épreuves de canal
+
+`probe_922_intoxicating_elixir_live.py` et `test_922_intoxicating_elixir_crit_live.py`.
+LIVE == OFFLINE **bit-exact**, coup par coup, sur **tous** les bras de dégât.
+
+| bras | compteur natif | port | résultat |
+|---|---|---|---|
+| `n = 0` (cible blessée en MÊLÉE, non pinnée) | effet **INACTIF** | inactif | bonus `None` — la condition est GÉOMÉTRIQUE |
+| `n = 1` | 1 | 1 | **+327** |
+| `n = 2` | 2 | 2 | **+654** — le PRODUIT discrimine |
+| `--dist 3` (2 victimes, une hors portée) | **1** | 1 | le rayon `range = 2` mord, témoin NON NUL |
+| `--low-hp` (49999/100000) | 1 | 1 | **+654** = `327 × 1 × 2` — le `ConditionalAmount` mord |
+| `--compteur` | **1 → 2** | 2 | l'AMI `Thrilled` compte (aucun filtre d'équipe), puis le PORTEUR lui-même (`includeCenter`) |
+| `--thrilled n = 1` | 1 au snapshot, **2** en cours de salve | idem | le correctif §6 exercé, `CRITDMG_AVANT` diverge |
+
+**Mutants du compteur** — six lectures plausibles et fausses, chacune déclarant dans quel régime
+elle doit mordre : `SANS_CENTRE`, `VOISIN_KARDIOCORE` (ring-1 + filtre d'équipe), `PORTEE_1`,
+`SANS_PINNED`, `SANS_THRILLED`, `PLAFOND_1`. **6/6 conformes** dans les deux régimes.
+
+**Contre-épreuves de canal** : `NOCHANNEL` (l'effet retiré d'`EFFECT_CLASSES`), `PASSIF` (le
+callable `tertiary_ability_state_of` retiré → niveau des passifs, dernier palier), `SANSSANTE` (le
+callable `unit_health_of` retiré → branche non doublée), `CRITDMG_AVANT` (l'état d'avant §6).
+
+**Deux pièges de montage MESURÉS**, tous deux réparés dans le probe :
+
+1. la clé de `abilityTargets.fromHere` est **`targetId`**, pas `unitId` — la lire au mauvais nom
+   rendait un ensemble **VIDE en silence** et le montage se refusait (« aucun TIR possible ») sur
+   une géométrie pourtant légale ;
+2. les positions doivent être **RELUES** après chaque `place` — un dict capté avant les placements
+   faisait chercher les tuiles de tir autour de l'ANCIENNE case, et a fait écrire une attente de
+   mutant erronée avant d'être corrigée par la mesure.
+
+## 10. Ce qui n'est PAS couvert
+
+* **le PLAFOND `nrOfUnits = 6` n'est pas exercé LIVE** : il faudrait sept unités debuffées dans un
+  disque de rayon 2, donc sept tireurs ou sept tours. Il est gardé par le mutant `PLAFOND_1`
+  (rabattu à 1, il mord) et par la lecture du gameconfig — mais aucune mesure live ne le confirme ;
+* **`Stunned` (1162) et `Taunted_OnlySpecificTargets` (27) ne sont pas exercés LIVE** : seuls
+  `Pinned` et `ThrillSeekers` le sont. Les quatre entrent par le **même** `HasOneOfEffects`, donc
+  rien ne les distingue dans le code — mais c'est dit plutôt que supposé ;
+* **le SEEDING d'un effet INACTIF au snapshot** — résidu `#922-r1`. `decisionView` est ACTIF-ONLY
+  (#100), donc un effet de relique à condition géométrique **fausse au moment de la capture** est
+  absent de l'état offline : si le compteur devient positif pendant la simulation, le port ne verse
+  rien. **MESURÉ** : bras `--thrilled n = 0`, live `[6996, 6221, 5998]` contre port
+  `[6534, 4621, 5010]`, soit `[462, 1600, 988]` d'écart. Le gisement est **PARTAGÉ** avec
+  `AmuletOfTheVoidwyrm` et `NetherRealmCasket` (mêmes conditions géométriques, même absence
+  d'entrée `ABILITY_INIT_OWNER_EFFECTS` puisque la relique n'est pas au kit) ;
+* la face **DÉCISION** est portée et son arbre est partagé avec la face COMBAT (donc confronté par
+  ricochet), mais **l'utilité de mouvement elle-même n'est pas confrontée live** : le seul canal
+  qui la publierait est le walk L3, interdit en session partagée. Résidu `#922-r2` ;
+* `$$GetLocalizationDataInternal` : affichage seul, aucun observable de combat — non porté.
