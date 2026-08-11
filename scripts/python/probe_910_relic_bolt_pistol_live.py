@@ -77,6 +77,13 @@ sys.path.insert(0, str(PYDIR / "tests" / "engine" / "runner"))
 
 CARRIER = "darkaHellblaster"      # porteur autorise de RelicBoltPistol, AU POOL, melee + ranged r3
 TARGET = "astraBullgryn"          # cible ; ses traits sont ECRITS par --unit-stat
+#: SECOND porteur autorise, AU POOL (`items.R_Crit_RelicBoltPistol.allowedUnits`). Il sert le bras
+#: SPECTATEUR : il EQUIPE la relique et n'attaque PAS, pendant que `CARRIER` -- prive de relique --
+#: frappe. C'est le seul montage qui exerce `get_OwnerIsCaster`, et il ne mord QUE sur le canal
+#: crit-DEGAT : l'agregateur du PERCAGE ne visite que les effets de l'ATTAQUANT (le gate y est
+#: satisfait structurellement), tandis que `crit_damage_bonus_from_effects` balaye TOUT LE BOARD
+#: (`board_effect_carriers`, #589-r1-r1) -- un porteur SPECTATEUR y est donc bel et bien VISITE.
+SPECTATOR = "ultraTitus"
 ABILITY_ID = "RelicBoltPistol"    # TriggeredAbilityType 0x5bb = 1467 (la CONFIG)
 EFFECT_PIERCE = "RelicBoltPistol_ExtraPierce"           # EffectType 0x5b1 = 1457
 EFFECT_CRIT = "RelicBoltPistol_ExtraCritDamage"         # EffectType 0x5b2 = 1458
@@ -146,6 +153,26 @@ ARMOR = 6000
 CRIT_DAMAGE = 2000
 
 
+def flags_spectateur(trait: str, level: int,
+                     armor: int = ARMOR, crit_damage: int = CRIT_DAMAGE) -> list:
+    """BRAS SPECTATEUR : la relique est sur `SPECTATOR`, et c'est `CARRIER` -- SANS relique -- qui
+    frappe. `get_OwnerIsCaster` doit alors FERMER le canal crit-DEGAT, alors meme que l'agregateur
+    VISITE le porteur (balayage board-wide). Sans ce gate, un porteur spectateur bufferait un tiers.
+
+    A jouer avec `--p-units CARRIER,SPECTATOR` (le probe s'en charge)."""
+    return [
+        "--equip-relic", "%s:%s:%d" % (SPECTATOR, ABILITY_ID, level),
+        "--unit-stat", '%s:Traits=["%s"]' % (TARGET, trait),
+        "--unit-stat", '%s:PassiveAbilities=[]' % TARGET,
+        "--unit-stat", '%s:Traits=["Hero"]' % CARRIER,
+        "--unit-stat", '%s:PassiveAbilities=[]' % CARRIER,
+        "--unit-stat", '%s:Traits=["Hero"]' % SPECTATOR,
+        "--unit-stat", '%s:PassiveAbilities=[]' % SPECTATOR,
+        "--armor-target", str(armor),
+        "--hp-target", "900000", "--hp-player", "900000", "--no-ai",
+        "--crit", "100,%d" % crit_damage, "--block-target", "0,0"]
+
+
 def flags_de_build(trait: str, canal: str, level: int,
                    armor: int = ARMOR, crit_damage: int = CRIT_DAMAGE) -> list:
     """FOYER UNIQUE des flags de montage, partage par le probe et par son cliquet
@@ -177,15 +204,19 @@ def flags_de_build(trait: str, canal: str, level: int,
         "--block-target", "0,0"]
 
 
-def build(a, trait: str, canal: str, level: int):
-    """Un runner par couple (TRAIT de cible, CANAL) -- les deux sont des parametres de BUILD."""
+def build(a, trait: str, canal: str, level: int, spectateur: bool = False):
+    """Un runner par couple (TRAIT de cible, CANAL) -- les deux sont des parametres de BUILD.
+
+    `spectateur=True` : la relique part sur `SPECTATOR` et `CARRIER` frappe SANS elle."""
     fd, sf = tempfile.mkstemp(prefix="probe_910_%s_%s_l%d_" % (trait, canal, level), suffix=".json")
     os.close(fd)
     Path(sf).unlink(missing_ok=True)
+    p_units = "%s,%s" % (CARRIER, SPECTATOR) if spectateur else CARRIER
+    flags = (flags_spectateur(trait, level, armor=a.armor, crit_damage=a.crit_damage) if spectateur
+             else flags_de_build(trait, canal, level, armor=a.armor, crit_damage=a.crit_damage))
     argv = ([sys.executable, "rl_duel.py", "build",
              "--seed", str(a.seed), "--state-file", sf, "--board", a.board,
-             "--p-units", CARRIER, "--a-units", TARGET]
-            + flags_de_build(trait, canal, level, armor=a.armor, crit_damage=a.crit_damage))
+             "--p-units", p_units, "--a-units", TARGET] + flags)
     p = subprocess.run(argv, cwd=str(PYDIR), capture_output=True, text=True,
                        encoding="utf-8", errors="replace")
     if not Path(sf).exists():
@@ -239,9 +270,12 @@ def traits_natifs(h, uid: int) -> "set | None":
     return None
 
 
-def stage(h, canal: str, verbose=False):
+def stage(h, canal: str, verbose=False, porteur: str = CARRIER):
     """Place le caster a la DISTANCE du canal, verifie que les DEUX effets sont bien montes et que
     le trait ecrit est bien porte cote natif, puis fige l'etat.
+
+    `porteur` = l'unite qui EQUIPE la relique. Elle vaut `CARRIER` (= l'attaquant) dans le regime
+    nominal, et `SPECTATOR` dans le bras qui exerce `get_OwnerIsCaster`.
 
     On DEPLACE les unites pour obtenir la configuration voulue -- jamais « bloque par la geometrie
     de spawn »."""
@@ -253,24 +287,35 @@ def stage(h, canal: str, verbose=False):
     dv0 = h.dview()
     c0 = h.by_visual(CARRIER, dv0)
     if c0 is None:
-        raise MontageError("porteur absent du decisionView")
+        raise MontageError("attaquant absent du decisionView")
     h.my_player = c0.get("owner")
     dv = h.reach_my_turn(force_cycle=True)
     if dv is None:
-        raise MontageError("le tour du porteur est inatteignable")
+        raise MontageError("le tour de l'attaquant est inatteignable")
     carrier = h.by_visual(CARRIER, dv)
     target = h.by_visual(TARGET, dv)
     if carrier is None or target is None:
         raise MontageError("caster ou cible absent du decisionView")
+    equipe = h.by_visual(porteur, dv)
+    if equipe is None:
+        raise MontageError("porteur de relique (%s) absent du decisionView" % porteur)
 
     # --- les DEUX effets de la relique doivent etre MONTES, cote natif. Sans cette garde, un
     # `--equip-relic` silencieusement rate (les trois ecritures de #237, dont DEUX echouent sans
     # bruit) ferait mesurer une unite SANS relique et rendrait un accord vide de sens.
-    noms = {e.get("name") for e in (carrier.get("effects") or [])}
+    noms = {e.get("name") for e in (equipe.get("effects") or [])}
     manquants = [n for n in (EFFECT_PIERCE, EFFECT_CRIT) if n not in noms]
     if manquants:
-        raise MontageError("relique NON montee : %s absent(s) de decisionView.effects du porteur "
-                           "(presents : %s)" % (manquants, sorted(noms)))
+        raise MontageError("relique NON montee sur %s : %s absent(s) de decisionView.effects "
+                           "(presents : %s)" % (porteur, manquants, sorted(noms)))
+    if porteur != CARRIER:
+        # CONTROLE NEGATIF du bras SPECTATEUR : l'ATTAQUANT ne doit porter AUCUN des deux effets,
+        # sinon le gate qu'on croit exercer serait satisfait par le porteur lui-meme.
+        an = {e.get("name") for e in (carrier.get("effects") or [])}
+        intrus = [n for n in (EFFECT_PIERCE, EFFECT_CRIT) if n in an]
+        if intrus:
+            raise MontageError("l'ATTAQUANT porte %s -- le bras SPECTATEUR ne mesurerait rien"
+                               % intrus)
 
     # --- le TRAIT ecrit doit etre porte cote natif (tri-etat : capteur muet => REFUS).
     tn = traits_natifs(h, target["id"])
@@ -319,7 +364,8 @@ def stage(h, canal: str, verbose=False):
         raise MontageError("attaque normale introuvable sur le porteur")
     rec = {"caster": carrier["id"], "target": target["id"], "ability_type": at,
            "step_to": None, "snapshot": h.snapshot(), "canal": canal,
-           "traits_natifs_cible": sorted(tn), "dist": dist}
+           "traits_natifs_cible": sorted(tn), "dist": dist,
+           "porteur": porteur, "porteur_id": equipe["id"]}
     if verbose:
         print("    canal=%s dist=%d caster=u%s@%s cible=u%s@%s traits natifs cible=%s"
               % (canal, dist, carrier["id"], _pos(carrier), target["id"], _pos(target), sorted(tn)))
@@ -351,6 +397,7 @@ def replay(h, rec, mutate=None):
     saved = {n: F.EFFECT_CLASSES.get(n) for n in (EFFECT_PIERCE, EFFECT_CRIT)}
     orig_board = D.AttackDamageOperation._crit_board
     orig_double = RBP._DOUBLE
+    orig_oic = RBP._owner_is_caster
     orig_pbonus = AB.ability_pierce_effect_bonus
     orig_pierce_m = RBP.RelicBoltPistolExtraPierceEffect.create_effect_piercing_bonus_for_attack
     orig_crit_m = RBP.RelicBoltPistolExtraCritDamageEffect.create_effect_crit_damage_bonus_for_attack
@@ -416,6 +463,12 @@ def replay(h, rec, mutate=None):
                     AB.piercing_bonus_from_effects = vrai
             AB.ability_pierce_effect_bonus = _pbonus_kit
             _A.base.ability_pierce_effect_bonus = _pbonus_kit
+        elif mutate == "OWNERISCASTER_OFF":
+            # `get_OwnerIsCaster` neutralise (toujours VRAI). Sur le bras SPECTATEUR il doit MORDRE :
+            # c'est la preuve que l'agregateur crit-DEGAT VISITE bel et bien le porteur spectateur
+            # (balayage board-wide) et que SEUL ce gate ferme le canal. Sur le regime nominal
+            # (porteur == attaquant) il ne peut RIEN changer -- controle negatif gratuit.
+            RBP._owner_is_caster = lambda ctx: True
         elif mutate == "CROISE":
             # Gate de NATURE inverse dans les deux classes : le canal PERCAGE ne verserait plus
             # qu'en RANGED, le canal CRIT qu'en MELEE.
@@ -441,6 +494,7 @@ def replay(h, rec, mutate=None):
                 F.EFFECT_CLASSES[n] = cls
         D.AttackDamageOperation._crit_board = orig_board
         RBP._DOUBLE = orig_double
+        RBP._owner_is_caster = orig_oic
         AB.ability_pierce_effect_bonus = orig_pbonus
         _A.base.ability_pierce_effect_bonus = orig_pbonus
         RBP.RelicBoltPistolExtraPierceEffect.create_effect_piercing_bonus_for_attack = orig_pierce_m
@@ -488,8 +542,9 @@ from engine.entities.effects.loki.relic_bolt_pistol import CTX_ABILITY_STATE_OF 
 
 
 def run_case(a, rpc, Board, Harness, trait: str, canal: str, level: int,
-             p_pierce: list, p_crit: list) -> int:
-    rid, sf = build(a, trait, canal, level)
+             p_pierce: list, p_crit: list, spectateur: bool = False) -> int:
+    rid, sf = build(a, trait, canal, level, spectateur=spectateur)
+    tag = "%s/%s%s" % (trait, canal, "/SPECTATEUR" if spectateur else "")
     if rid is None:
         Path(sf).unlink(missing_ok=True)
         return 2
@@ -498,25 +553,32 @@ def run_case(a, rpc, Board, Harness, trait: str, canal: str, level: int,
         h = Harness(rpc, rid, Board(bg["tiles"], adjacency="native_sym"))
         double = trait in TRAITS_DOUBLANTS
         try:
-            rec = stage(h, canal, a.verbose)
+            rec = stage(h, canal, a.verbose, porteur=(SPECTATOR if spectateur else CARRIER))
         except MontageError as e:
-            print("[%s/%s] REFUS : %s" % (trait, canal, e))
+            print("[%s] REFUS : %s" % (tag, e))
             return 2
         live, why = strike(h, rec)
         if live is None:
-            print("[%s/%s] REFUS : %s" % (trait, canal, why))
+            print("[%s] REFUS : %s" % (tag, why))
             return 2
         off = replay(h, rec)
         k = len(live)
         accord = (off[:k] == live)
         rc = 0 if accord else 1
 
-        bras = [("NOCHANNEL", True),
-                ("NODOUBLE", double),
-                ("PASSIF", level != len(p_pierce)),
-                ("CROISE", True)]
-        if canal == "PIERCE":
-            bras.append(("KIT_TRAITS", double))
+        if spectateur:
+            # Le porteur n'est PAS l'attaquant : le canal doit etre MUET. `NOCHANNEL` ne peut donc
+            # RIEN changer, et c'est `OWNERISCASTER_OFF` -- le gate neutralise -- qui doit mordre.
+            bras = [("NOCHANNEL", False), ("OWNERISCASTER_OFF", True)]
+        else:
+            bras = [("NOCHANNEL", True),
+                    ("NODOUBLE", double),
+                    ("PASSIF", level != len(p_pierce)),
+                    ("CROISE", True),
+                    # Controle NEGATIF gratuit : porteur == attaquant, le gate est deja VRAI.
+                    ("OWNERISCASTER_OFF", False)]
+            if canal == "PIERCE":
+                bras.append(("KIT_TRAITS", double))
         lignes = []
         for nom, attendu in bras:
             mut = replay(h, rec, mutate=nom)
@@ -527,9 +589,11 @@ def run_case(a, rpc, Board, Harness, trait: str, canal: str, level: int,
                           % (nom, mord, attendu, off[:3], mut[:3],
                              "" if mord == attendu else "  <<< ECART"))
         v = (p_pierce if canal == "PIERCE" else p_crit)[level - 1]
-        print("[%s/%s] accord=%s | %s attendu = %d%s | live=%s port=%s"
-              % (trait, canal, accord, VAR_PIERCE if canal == "PIERCE" else VAR_CRIT,
-                 v * (2 if double else 1), " (x2)" if double else "", live[:6], off[:6]))
+        print("[%s] accord=%s | %s attendu = %s | live=%s port=%s"
+              % (tag, accord, VAR_PIERCE if canal == "PIERCE" else VAR_CRIT,
+                 "0 (porteur != attaquant)" if spectateur
+                 else "%d%s" % (v * (2 if double else 1), " (x2)" if double else ""),
+                 live[:6], off[:6]))
         for l in lignes:
             print("        %s" % l)
         if a.verbose:
@@ -560,6 +624,11 @@ def main() -> int:
                          "200/800/3000 -> degat 4000/3400/1200, IDENTIQUE avec et sans le canal ; "
                          "armure 6000 -> 42 (sans) contre 693 (avec).")
     ap.add_argument("--crit-damage", type=int, default=CRIT_DAMAGE, help="CritDamage des p-units")
+    ap.add_argument("--spectateur", action="store_true",
+                    help="BRAS `get_OwnerIsCaster` : la relique est sur `%s` (qui n'attaque PAS) et "
+                         "`%s` frappe SANS elle. Le canal crit-DEGAT balaye TOUT le board, donc le "
+                         "porteur EST visite -- seul le gate le ferme. Le mutant "
+                         "`OWNERISCASTER_OFF` doit alors MORDRE." % (SPECTATOR, CARRIER))
     ap.add_argument("--verbose", action="store_true")
     a = ap.parse_args()
     a.canaux = [c.strip() for c in a.canaux.split(",") if c.strip()]
@@ -590,7 +659,7 @@ def main() -> int:
     for trait in [t.strip() for t in a.traits.split(",") if t.strip()]:
         for canal in a.canaux:
             rc |= run_case(a, rpc, Board, ChargeRegimeHarness, trait, canal, a.level,
-                           p_pierce, p_crit)
+                           p_pierce, p_crit, spectateur=a.spectateur)
     print("VERDICT: %s" % ("PASS" if rc == 0 else "FAIL(%d)" % rc))
     return 0 if rc == 0 else 1
 

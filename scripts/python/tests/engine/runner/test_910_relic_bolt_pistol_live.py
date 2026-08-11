@@ -49,8 +49,8 @@ if _PYDIR not in sys.path:
     sys.path.insert(0, _PYDIR)
 
 from probe_910_relic_bolt_pistol_live import (  # noqa: E402
-    ABILITY_ID, CARRIER, EFFECT_CRIT, EFFECT_PIERCE, TARGET, TRAITS_DOUBLANTS,
-    VAR_CRIT, VAR_PIERCE, etages, flags_de_build, paliers, replay, stage, strike)
+    ABILITY_ID, CARRIER, EFFECT_CRIT, EFFECT_PIERCE, SPECTATOR, TARGET, TRAITS_DOUBLANTS,
+    VAR_CRIT, VAR_PIERCE, etages, flags_de_build, flags_spectateur, paliers, replay, stage, strike)
 
 from _charge_regime import charge_regime  # noqa: E402,F401  (fixture)
 
@@ -98,18 +98,23 @@ _P_PIERCE = paliers(VAR_PIERCE)
 _P_CRIT = paliers(VAR_CRIT)
 
 
-def _mesure(charge_regime, trait, canal, level=3, board="MC1_67", seed="777"):
-    """Monte, frappe, rejoue -- et rend les cinq vues d'un coup. Toute impossibilite de MONTAGE
-    LEVE (jamais un skip vert : un echec de montage parti en skip est un VERT QUI MENT)."""
-    h = charge_regime(p_units=CARRIER, a_units=TARGET, seed=seed, board=board,
-                      extra=flags_de_build(trait, canal, level))
-    rec = stage(h, canal)
+_MUTANTS = ("NOCHANNEL", "NODOUBLE", "PASSIF", "CROISE", "KIT_TRAITS", "OWNERISCASTER_OFF")
+
+
+def _mesure(charge_regime, trait, canal, level=3, board="MC1_67", seed="777", spectateur=False):
+    """Monte, frappe, rejoue -- et rend toutes les vues d'un coup. Toute impossibilite de MONTAGE
+    LEVE (jamais un skip vert : un echec de montage parti en skip est un VERT QUI MENT).
+
+    `spectateur=True` : la relique part sur `SPECTATOR`, qui n'attaque PAS."""
+    p_units = "%s,%s" % (CARRIER, SPECTATOR) if spectateur else CARRIER
+    extra = (flags_spectateur(trait, level) if spectateur else flags_de_build(trait, canal, level))
+    h = charge_regime(p_units=p_units, a_units=TARGET, seed=seed, board=board, extra=extra)
+    rec = stage(h, canal, porteur=(SPECTATOR if spectateur else CARRIER))
     live, why = strike(h, rec)
     assert live is not None, "attaque non jouee : %s" % why
     k = len(live)
     off = replay(h, rec)[:k]
-    vues = {nom: replay(h, rec, mutate=nom)[:k]
-            for nom in ("NOCHANNEL", "NODOUBLE", "PASSIF", "CROISE", "KIT_TRAITS")}
+    vues = {nom: replay(h, rec, mutate=nom)[:k] for nom in _MUTANTS}
     return rec, live, off, vues, etages(h, rec)
 
 
@@ -139,6 +144,9 @@ def test_le_canal_percage_double_contre_chaos_ou_xenos(charge_regime, trait):
         "trait=%s : `Direct(2)` doit mordre SSI la cible est Chaos/Xenos (mut=%s off=%s)"
         % (trait, vues["NODOUBLE"], off))
     assert vues["CROISE"] != off, "le gate `IsMeleeAttack` doit mordre"
+    assert vues["OWNERISCASTER_OFF"] == off, (
+        "controle NEGATIF : ici porteur == attaquant, donc neutraliser `get_OwnerIsCaster` ne peut "
+        "RIEN changer (mut=%s off=%s)" % (vues["OWNERISCASTER_OFF"], off))
 
 
 @pytest.mark.parametrize("trait", ["Hero", "Chaos"])
@@ -164,6 +172,32 @@ def test_le_canal_crit_degat_double_contre_chaos_ou_xenos(charge_regime, trait):
         "trait=%s : `Direct(2)` doit mordre SSI la cible est Chaos/Xenos (mut=%s off=%s)"
         % (trait, vues["NODOUBLE"], off))
     assert vues["CROISE"] != off, "le gate `IsRangedAttack` doit mordre"
+    assert vues["OWNERISCASTER_OFF"] == off, (
+        "controle NEGATIF : ici porteur == attaquant (mut=%s off=%s)"
+        % (vues["OWNERISCASTER_OFF"], off))
+
+
+def test_un_porteur_SPECTATEUR_ne_buffe_pas_un_tiers(charge_regime):
+    """`get_OwnerIsCaster` -- le SEUL gate que le regime nominal n'exerce PAS (le porteur y est
+    toujours l'attaquant), et il est LOAD-BEARING sur le canal crit-DEGAT.
+
+    `crit_damage_bonus_from_effects` balaye TOUT le board (`board_effect_carriers`, #589-r1-r1) et
+    pose `owner_id` PAR PORTEUR : le porteur SPECTATEUR est donc bel et bien VISITE, et seul le gate
+    ferme le canal. Sans lui, le port bufferait un tiers -- exactement le regime PERMISSIF que
+    l'elargissement du balayage a rendu possible.
+
+    (Le canal PERCAGE n'a pas ce risque : son agregateur ne visite que les effets de l'ATTAQUANT,
+    donc le gate y est satisfait structurellement. C'est pourquoi ce bras porte sur `CRIT`.)"""
+    rec, live, off, vues, et = _mesure(charge_regime, "Xenos", "CRIT", 3, spectateur=True)
+    assert rec["porteur"] == SPECTATOR and rec["porteur_id"] != rec["caster"], (
+        "le montage n'a pas separe le porteur de l'attaquant : %s" % (rec,))
+    assert off == live, "port %s != natif %s (etages %s)" % (off, live, et)
+    assert vues["NOCHANNEL"] == off, (
+        "le canal doit deja etre MUET (porteur != attaquant) : retirer les classes ne peut RIEN "
+        "changer, or mut=%s off=%s" % (vues["NOCHANNEL"], off))
+    assert vues["OWNERISCASTER_OFF"] != off, (
+        "gate neutralise et RIEN ne bouge -- soit l'agregateur ne visite pas le porteur (le bras ne "
+        "mesure alors rien), soit le canal est ferme AILLEURS que par `get_OwnerIsCaster`")
 
 
 def test_le_gate_de_traits_lit_le_substrat_d_entite_pas_le_kit(charge_regime):

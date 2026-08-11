@@ -124,7 +124,7 @@ Sans ce discriminant, une relique de niveau 3 lit le niveau des PASSIFS (50 en r
 le **dernier palier** : `extraPierceRatio` 10 au lieu de 6, `extraCritDmg` 877 au lieu de 654.
 MESURÉ par le bras `PASSIF` : `693 -> 944` sur le canal perçage.
 
-## 4. Confrontation live — 6 montages, 5 mutants, tous mordants
+## 4. Confrontation live — 7 montages, 6 mutants, tous conformes
 
 Porteur : **`darkaHellblaster` (Sarquael)** — l'un des 5 porteurs autorisés présents au pool, et le
 SEUL à porter **deux armes** (`Physical` melee et `Plasma` r3). Un seul porteur exerce donc les deux
@@ -148,7 +148,27 @@ construction ».
 `config_var_pierce = 6`, **`bonus_pierce = 12`**, `bonus_crit = None` (le canal ranged se tait en
 mêlée). Symétriquement sur `Xenos/CRIT` : **`bonus_crit = 1308`**, `bonus_pierce = None`.
 
-### 4.1 DEUX régimes dégénérés trouvés en montant, et ce sont eux la vraie leçon
+### 4.1 Le gate `get_OwnerIsCaster` — le SEUL que le régime nominal n'exerce PAS
+
+Dans les six montages ci-dessus, le porteur EST l'attaquant : le gate est vrai par construction et
+**n'est jamais mis à l'épreuve**. Or il est load-bearing sur le canal crit-dégât, parce que
+`crit_damage_bonus_from_effects` balaye **tout le board** (`board_effect_carriers`, #589-r1-r1) et
+pose `owner_id` par porteur — un porteur SPECTATEUR y est bel et bien VISITÉ.
+
+Scénario crafté : la relique part sur `ultraTitus` (2ᵉ porteur autorisé, au pool), qui **n'attaque
+pas** ; `darkaHellblaster` frappe en ranged **sans** relique.
+
+| bras | live | port | NOCHANNEL | OWNERISCASTER_OFF |
+|---|---|---|---|---|
+| Xenos / CRIT / SPECTATEUR | 5287 | 5287 | 5287 (=) | **5900** |
+
+`5287` est exactement la valeur `NOCHANNEL` du régime nominal (aucun bonus versé), et `5900` la
+valeur du régime nominal `Xenos/CRIT` — **le gate neutralisé rend au tiers l'intégralité du +1308**.
+Le canal PERÇAGE n'a pas ce risque (son agrégateur ne visite que les effets de l'attaquant, le gate
+y est satisfait structurellement), ce qui est pourquoi le bras porte sur `CRIT`. Le mutant sert
+aussi de **contrôle négatif gratuit** sur les six montages nominaux : il ne doit RIEN y changer.
+
+### 4.2 DEUX régimes dégénérés trouvés en montant, et ce sont eux la vraie leçon
 
 **(a) Le CRIT rend le PERÇAGE inobservable.** Premier montage avec `--crit 100,2000` : le port
 calculait bien `bonus_pierce = 12`, et pourtant `NOCHANNEL` **ne mordait pas** — live == port == 4196
@@ -165,7 +185,7 @@ armure 6000 → 42 (sans) contre 693 (avec).
 Les deux régimes ont la même signature — un accord parfait qui ne mesure rien — et aucun des deux ne
 se voit sans un mutant. C'est l'argument pour lequel les mutants ne sont pas une formalité.
 
-### 4.2 Deux refus SILENCIEUX du montage, tous deux mesurés
+### 4.3 Deux refus SILENCIEUX du montage, tous deux mesurés
 
 * **`my_player` dérivé de la première unité vivante** du `decisionView` est celui de la CIBLE (owner
   adverse) : le tour amené est le mauvais, l'attaque part, rend `ok: true` et ne mute RIEN
@@ -190,7 +210,9 @@ se voit sans un mutant. C'est l'argument pour lequel les mutants ne sont pas une
 * **`astarCyrus` et `darkaSternguard`** (2 des 7 porteurs) ne sont pas au pool : état 3 de la gate
   relique (injection catalogue). NON CONFRONTÉS — sans conséquence sur le verdict, car les deux
   canaux ne lisent **rien** du porteur hors son `AbilityState` (aucun trait, aucune stat, aucune
-  position), ce qui rend le mécanisme indépendant de l'identité du porteur.
+  position), ce qui rend le mécanisme indépendant de l'identité du porteur. Corollaire mesuré : le
+  bras SPECTATEUR monte la relique sur un **second** porteur (`ultraTitus`) et le canal se comporte
+  identiquement.
 * **Le régime OVERWATCH.** Le gate natif est `IsRangedAttack` **seul** — il n'y a AUCUN
   `IsOverwatchAttack` dans ce corps, contrairement à `Hailstrike_ExtraPierceEffect` qui teste la
   disjonction. Le port passe donc `is_ranged` tel quel et ignore `is_overwatch`, ce qui est le
@@ -207,7 +229,7 @@ se voit sans un mutant. C'est l'argument pour lequel les mutants ne sont pas une
 | `engine/entities/effects/loki/relic_bolt_pistol.py` | les deux classes d'effet (NEUF) |
 | `engine/entities/effects/factory.py` | inscription des deux clés dans `EFFECT_CLASSES` |
 | `engine/runner/abilities/base.py` | canal PERÇAGE : `target_traits` = substrat d'ENTITÉ + `tertiary_ability_state_of` |
-| `probe_910_relic_bolt_pistol_live.py` | la MESURE (montage `flags_de_build`, 5 mutants) |
-| `tests/engine/runner/test_910_relic_bolt_pistol_live.py` | le CLIQUET (10 tests, dont 2 offline) |
+| `probe_910_relic_bolt_pistol_live.py` | la MESURE (montages `flags_de_build` / `flags_spectateur`, 6 mutants) |
+| `tests/engine/runner/test_910_relic_bolt_pistol_live.py` | le CLIQUET (11 tests, dont 2 offline) |
 
 Résidus ouverts : **`#910-r1`** (face DÉCISION des deux canaux — structurel, partagé).
