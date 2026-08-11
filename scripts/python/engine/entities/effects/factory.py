@@ -46,7 +46,13 @@ from .loki.dark_angels_passives import (
 )
 from .loki.darkangels import HailstrikeExtraPierceEffect
 from .loki.deathwing import DeathwingEffect                # #932 (passif darkaTerminator)
+from .loki.enmity_for_the_unworthy import (                # #948 (passif darkaCompanion)
+    EnmityForTheUnworthyExtraDamageEffect, EnmityForTheUnworthyExtraDamagePctEffect
+)
 from .loki.first_among_traitors import FirstAmongTraitorsExtraDmgEffect   # #926 (passif blackAbaddon)
+from .loki.head_claimer import (                           # #947 (passif blackHaarken)
+    HeadClaimerExtraDmgEffect, HeadClaimerExtraHitEffect
+)
 from .loki.kustom_force_field import (                                    # #930 (passif orksBigMek)
     KustomForceFieldReworkedEffect, KustomForceFieldReworkedOrksEffect
 )
@@ -779,6 +785,29 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # (`On(9=Attack) & OwnerIsTarget & WasBlock` -> `If(HasEffect, IncreaseEffectLevel,
     # AddEffect(turns=TurnsFromRounds(1)))`). extraDmg[L65]=dmgReduction[L65]=146, rarity-scale.
     "Deathwing": DeathwingEffect,
+    # HeadClaimer (passif triggered 0x407=1031 de `blackHaarken` << Haarken >>, #947) -- les DEUX
+    # faces d'un compteur de TETES accumule par `ABILITY_TRIGGERS["HeadClaimer"]` :
+    #   1028 `...HeadClaimer_ExtraDamageEffect$$CreateEffectDamageBonusForAttack` =
+    #        `ForAddition(get_OwnerIsCaster, Multiply(ConfigVar 8=extraDmg, EffectLevel))` ;
+    #   1029 `...HeadClaimer_ExtraHitsEffect$$CreateEffectHitsBonusForAttack` =
+    #        `ForAddition(get_OwnerIsCaster, Multiply(Get(GetNumberConstant 0x2b=extraHit),
+    #        EffectLevel))`.
+    # Le gate est `get_OwnerIsCaster` SEUL des deux cotes -- PAS l'`IsRangedAttack` de son jumeau de
+    # magnitude `TerrifyingCrescendo_ExtraDmg`, et AUCUN cap (le `max` d'AddEffectOrIncreaseLevel
+    # est NULL). Cf. `loki/head_claimer.py`.
+    "HeadClaimer_ExtraDmg": HeadClaimerExtraDmgEffect,
+    "HeadClaimer_ExtraHit": HeadClaimerExtraHitEffect,
+    # EnmityForTheUnworthy (passif triggered 0x522=1314 de `darkaCompanion` << Forcas >>, #948) --
+    # DEUX effets poses ENSEMBLE a l'init (cf. `ABILITY_INIT_OWNER_EFFECTS`), qui comptent des
+    # populations DIFFERENTES autour du porteur :
+    #   1400 `..._ExtraDamageEffect`    = `ForAddition(get_OwnerIsCaster, Multiply(ConfigVar
+    #        8=extraDmg, Count(NonSteppableOrObject(UnitsFromFaction(AdjacentFriends, DarkAngels)))))` ;
+    #   1399 `..._ExtraDamagePctEffect` = `ForPercentIncrease(get_OwnerIsCaster, Multiply(ConfigVar
+    #        0xa=extraDmgPct, Count(NonSteppableOrObject(AdjacentUnits))))` -- AUCUN filtre d'equipe.
+    # Les deux portent `CreateActiveCondition = AmountIsGreaterThanZero(<leur propre compteur>)`.
+    # Cf. `loki/enmity_for_the_unworthy.py` pour les QUATRE ecarts entre les deux.
+    "EnmityForTheUnworthy_ExtraDamage": EnmityForTheUnworthyExtraDamageEffect,
+    "EnmityForTheUnworthy_ExtraDamagePct": EnmityForTheUnworthyExtraDamagePctEffect,
     # ModifiedExoarmour (passif triggered 0x5f9=1529 de votanChampion << Kimm >>) : +extraDmg[ablvl
     # passif] x mult x TILES-PARCOURUES-CE-TOUR, additif PRE-percage, sur les attaques de MELEE du
     # porteur (`IdunBattle.Entities.Effects.Loki.ModifiedExoarmour_ExtraDmgEffect$$
@@ -1704,6 +1733,20 @@ ABILITY_INIT_OWNER_EFFECTS: dict[str, list[str]] = {
     # (`operations/movement.py::refresh_effects_after_move_triggers`), pas par ce drapeau.
     # case-366-r1-camo-seed.
     "CamoCloak": ["CamoCloak_DmgReduction"],
+    # EnmityForTheUnworthy (passif de `darkaCompanion` << Forcas >>, TriggeredAbilityType
+    # 0x522 = 1314, #948) -- `IdunBattleLogic.Entities.Abilities.Triggered.Loki.
+    # EnmityForTheUnworthyAbility$$CreateBehaviour` = `AddEffect(0x578 = 1400, AbilityStateReference,
+    # targets = Owner@DSLSelectors+0x30, turns = NULL) + AddEffect(0x577 = 1399, ...)` joints par
+    # `AbilityBehaviour$$op_Addition` : les DEUX effets sont poses sur le PORTEUR, INCONDITIONNELLEMENT
+    # et de facon PERMANENTE. La classe n'a AUCUN `CreateTrigger` propre (bloc `methodPointers` :
+    # `CreateBehaviour` seul) -> elle prend celui de sa base, `On(AbilityInit) & get_OwnerIsActor`.
+    # POURQUOI le seed est NECESSAIRE (motif `AnvilShield`/`CamoCloak`/`ModifiedExoarmour_ExtraDmg`) :
+    # les deux effets portent `CreateActiveCondition = AmountIsGreaterThanZero(<voisins adjacents>)`,
+    # donc un Forcas capte ISOLE ne les publie PAS sur le canal `decisionView.effects` (ACTIF-ONLY,
+    # GROUND TRUTH #100) -- sans ce seed, aucune instance n'existerait a rallumer quand la sim le
+    # rapproche de ses freres. Idempotent (skip si deja capte).
+    "EnmityForTheUnworthy": ["EnmityForTheUnworthy_ExtraDamage",
+                             "EnmityForTheUnworthy_ExtraDamagePct"],
     # PAS d'entree `"WireweaveNet"` ici, et c'est une DECISION MESUREE (case-366-r1b §7bis).
     # `1111 WireweaveNet_CounterAttack` est pourtant bien un owner-effect pose a l'init
     # (`WireweaveNetAbility$$CreateBehaviour` = `AddEffect(0x457, .., source=Owner, targets=Owner)`

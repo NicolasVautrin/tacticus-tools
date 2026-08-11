@@ -13,6 +13,10 @@ from ._shared import (_PROFILE_INDEX, _weapon_pierce, _add_positional_and_defend
 # `MinMaxDamage$$Avg` ni `AActiveAbility$$MinMaxDamageAverage` : ils arrondissent demi-vers-le-PAIR.
 from engine.dsl.base import calculate_average
 from engine.entities.traits.unit_trait import entity_trait_names
+# #948 : les cles du contexte per-coup d'`EnmityForTheUnworthy` viennent de la classe d'effet --
+# un seul foyer de nommage pour les DEUX faces (PREDICTION ici, COMBAT dans `runner/damage_model`).
+from engine.entities.effects.loki.enmity_for_the_unworthy import (
+    CTX_ADJACENT_UNITS as _ENMITY_CTX_UNITS, CTX_ADJACENT_DA as _ENMITY_CTX_DA)
 from engine.services.custom_normal_attack import substitutes_normal_attack
 from engine.runner.abilities.loki.mv71 import pick_tile_scene
 from engine.services.battle_query import get_attack_weapon_for_default_normal_attack
@@ -681,7 +685,16 @@ def make_normal_attack_predictions(scene, att_id, tgt_id, attack_pos, *, meta=Fa
                 # `att_gu` = le KIT (`GrandAllianceId` est une donnee de CONFIGURATION).
                 "tgt_grand_alliance": (GC.unit(scene.vis_by_id.get(tgt_id)) or {}).get("GrandAllianceId"),
                 "att_team": scene.team(att_id),
-                "adjacent_dark_angels_friends": scene.adjacent_dark_angels_friends(att_id)}
+                "adjacent_dark_angels_friends": scene.adjacent_dark_angels_friends(att_id),
+                # #948 -- les DEUX compteurs d'`EnmityForTheUnworthy` (`darkaCompanion` << Forcas >>),
+                # PATTE SELF comme les cles ci-dessus (l'OWNER de chaque effet parcouru EST
+                # l'attaquant, ce qu'exige leur `get_OwnerIsCaster`). MEMES cles et MEME semantique
+                # que la face COMBAT (`damage_model.attacker_modifiers`).
+                # ⚠ DISTINCTS d'`adjacent_dark_angels_friends` juste au-dessus : l'arbre d'Enmity
+                # porte en plus l'etage `NonSteppableOrObjectUnits`, et sa face Pct ne filtre NI
+                # l'equipe NI la faction.
+                _ENMITY_CTX_UNITS: scene.enmity_adjacent_units(att_id),
+                _ENMITY_CTX_DA: scene.enmity_adjacent_dark_angels_friends(att_id)}
     mods = calculate_attacker_modifiers_for_prediction(att_effects, is_ranged=_ranged, has_moved=_hm,
                                                        target_traits=_tgt_traits,
                                                        target_armor_reduced=_tgt_armor_reduced,

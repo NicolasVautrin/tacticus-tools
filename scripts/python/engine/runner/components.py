@@ -3236,6 +3236,58 @@ def adjacent_dark_angels_friends_count(state, unit_id: int) -> Optional[int]:
                .calculate(entities_from_state(state, int(unit_id))))
 
 
+def enmity_adjacent_units_count(state, unit_id: int) -> Optional[int]:
+    """`Count( NonSteppableOrObjectUnits( AdjacentUnits(Owner, unique: 1, selectionType: 3), 3 ) )`
+    -- `IdunBattle.Entities.Effects.Loki.EnmityForTheUnworthy_ExtraDamagePctEffect$$
+    AdjacentUnitsAmount`, calcule pour le PORTEUR de l'effet (#948).
+
+    UN SEUL foyer pour la `CreateActiveCondition` ET la magnitude : le natif appelle le MEME
+    `AdjacentUnitsAmount` depuis `CreateActiveCondition` et depuis `CurrentDamagePct`, donc les deux
+    ne peuvent pas diverger.
+
+    L'ARBRE est celui de la classe d'effet (`entities/effects/loki/enmity_for_the_unworthy.py::
+    adjacent_units_selector`, doctrine #149 : l'artefact natif est un SELECTEUR) ; ce qu'on fait ICI,
+    c'est lui donner son `AbilityEntities` -- `entities_from_state(state, unit_id)` pose
+    `caster = owner = le porteur`, `board = state.board` et `has_trait`.
+
+    ⚠ AUCUN filtre d'equipe : `AdjacentUnits` compte les AMIS **et** les ENNEMIS (le natif
+    `op_Subtraction(Units(AdjacentTiles(origin), ...), origin)` ne retire que le porteur lui-meme).
+    C'est ce qui le distingue de son jumeau `enmity_adjacent_dark_angels_friends_count` ci-dessous.
+
+    `None` si le porteur n'a pas de tuile (le selecteur est GEOMETRIQUE) -- jamais un 0 invente, qui
+    ferait passer un bonus reel pour son absence (meme tri-etat que les compteurs voisins)."""
+    ent = state.get_entity(unit_id)
+    pc = ent.get_component(PositionComponent) if ent is not None else None
+    if pc is None:
+        return None
+    from .abilities.behaviours.context import entities_from_state
+    from ..entities.effects.loki.enmity_for_the_unworthy import adjacent_units_selector
+    return int(adjacent_units_selector().calculate(entities_from_state(state, int(unit_id))))
+
+
+def enmity_adjacent_dark_angels_friends_count(state, unit_id: int) -> Optional[int]:
+    """`Count( NonSteppableOrObjectUnits( UnitsFromFaction( AdjacentFriends(Owner, unique: 1, 3),
+    UnitFaction.DarkAngels = 0xa, 3 ), 3 ) )` -- `IdunBattle.Entities.Effects.Loki.
+    EnmityForTheUnworthy_ExtraDamageEffect$$AdjacentFriendlyDarkaUnitsAmount` (#948).
+
+    ⚠ CE N'EST PAS `adjacent_dark_angels_friends_count` (#932, Deathwing), qui s'arrete a
+    `UnitsFromFaction` : l'etage `NonSteppableOrObjectUnits` (= retirer les traits `Steppable` 0x1b
+    et `Object` 0xd) est PROPRE a Enmity, il est LU dans son decompile. Deux arbres distincts, deux
+    compteurs distincts -- les confondre porterait un ordinal juste sur un arbre faux.
+
+    `None` si le porteur n'a ni equipe ni tuile (le selecteur est GEOMETRIQUE **et** par equipe) --
+    jamais un 0 invente."""
+    ent = state.get_entity(unit_id)
+    oc = ent.get_component(OwnerComponent) if ent is not None else None
+    pc = ent.get_component(PositionComponent) if ent is not None else None
+    if oc is None or oc.team is None or pc is None:
+        return None
+    from .abilities.behaviours.context import entities_from_state
+    from ..entities.effects.loki.enmity_for_the_unworthy import (
+        adjacent_dark_angels_friends_selector as _enmity_da_selector)
+    return int(_enmity_da_selector().calculate(entities_from_state(state, int(unit_id))))
+
+
 class UnitEffectStateView(Mapping):
     """Le `unit_state` d'une unité — vue MAPPING PARESSEUSE sur l'ECS (`unit_state_for_effects`).
 

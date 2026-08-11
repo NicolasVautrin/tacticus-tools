@@ -33,7 +33,7 @@ from ..runner.snapshot import triggered_ability_ids_by_unit
 from engine.entities.pathfinding.board import Board
 from engine.entities.stats import StatComponent, ValueModification
 from engine.entities.stats import StatType as _ST
-from engine.entities.traits.unit_trait import trait_names_from_ids
+from engine.entities.traits.unit_trait import UnitTrait, trait_names_from_ids
 from ..entities.pathfinding.board import adjacent_neigh_by_pos
 from ..entities.unit_faction import UnitFaction
 
@@ -41,6 +41,13 @@ from ..entities.unit_faction import UnitFaction
 #: compare (`System.Enum.ToString(UnitFaction)` puis `String.Equals` sur `FactionComponent+0x30`),
 #: et non l'ordinal. Consommateur : `Scene.adjacent_dark_angels_friends` (#932).
 _DARK_ANGELS = UnitFaction.DarkAngels.name
+#: `UnitTrait.Steppable = 0x1b` et `UnitTrait.Object = 0xd` -- les DEUX traits que
+#: `IdunBattleLogic.Entities.DSLSelectors$$NonSteppableOrObjectUnits` retire (`UnitsWithoutTrait`
+#: x2, intersectes). `Scene.traits` publie des NOMS (`trait_names_from_ids`), d'ou `.name` : c'est
+#: l'ordinal du BUILD qui est la source, jamais un litteral recopie. Consommateur :
+#: `Scene._enmity_adjacent` (#948).
+_TRAIT_STEPPABLE = UnitTrait.Steppable.name
+_TRAIT_OBJECT = UnitTrait.Object.name
 
 
 @dataclass
@@ -675,6 +682,69 @@ class Scene:
             if (GC.unit(self.vis_by_id.get(oid)) or {}).get("FactionId") == _DARK_ANGELS:
                 n += 1
         return n
+
+    def _enmity_adjacent(self, uid, *, dark_angels_friends_only: bool) -> "int | None":
+        """Les DEUX compteurs d'`EnmityForTheUnworthy` (#948) -- face PREDICTION des MEMES arbres que
+        `runner.components.enmity_adjacent_units_count` /
+        `..enmity_adjacent_dark_angels_friends_count` (un noeud natif, deux substrats : l'ECS cote
+        runner, les tables de `Scene` ici) :
+
+            `..._ExtraDamagePctEffect$$AdjacentUnitsAmount` =
+                Count( NonSteppableOrObjectUnits( AdjacentUnits(Owner, 1, 3), 3 ) )
+            `..._ExtraDamageEffect$$AdjacentFriendlyDarkaUnitsAmount` =
+                Count( NonSteppableOrObjectUnits(
+                           UnitsFromFaction(AdjacentFriends(Owner, 1, 3), DarkAngels, 3), 3 ) )
+
+        Les deux arbres ne different que par `dark_angels_friends_only` : filtre d'EQUIPE + de
+        FACTION quand il est vrai, AUCUN filtre quand il est faux (le natif compte alors les amis ET
+        les ennemis). Le porteur ne se compte JAMAIS lui-meme (`op_Subtraction` present dans les
+        deux).
+
+        ⚠ L'etage `NonSteppableOrObjectUnits` (retirer `UnitTrait.Steppable` 0x1b et
+        `UnitTrait.Object` 0xd) est PROPRE a Enmity -- c'est ce qui l'empeche de reutiliser
+        `adjacent_dark_angels_friends` (#932, Deathwing), qui s'arrete a `UnitsFromFaction`.
+
+        ⚠ Le substrat impose de recomposer le selecteur ici (`Scene` n'a pas d'`AbilityEntities`
+        pour executer l'arbre) -- MEME regime qu'`adjacent_taunted_enemies` /
+        `adjacent_dark_angels_friends` ci-dessus.
+
+        ⚠ EVALUE A LA POSITION COURANTE, pas a la TUILE CANDIDATE -- meme contraste assume que ses
+        deux voisins (residu NOMME #948-r1) ; la face COMBAT, elle, mesure la position REELLE au
+        moment du coup.
+
+        `None` (position -- et pour la face DA, equipe -- du porteur inconnue) => cle ABSENTE =>
+        aucune contribution cote effet (degradation RESTRICTIVE) -- jamais un 0 invente."""
+        import hexgeo
+        here = self.pos(uid)
+        team = self.team_by_id.get(uid)
+        if here is None or (dark_angels_friends_only and team is None):
+            return None
+        n = 0
+        for u in (self.units or ()):
+            oid = u.get("id")
+            if oid == uid or not u.get("alive"):        # op_Subtraction(<ring>, origin)
+                continue
+            if dark_angels_friends_only and u.get("team") != team:   # AdjacentFriends(Owner)
+                continue
+            p = self.pos(oid)
+            if p is None or hexgeo.distance(tuple(here), tuple(p)) != 1:
+                continue
+            if dark_angels_friends_only and \
+                    (GC.unit(self.vis_by_id.get(oid)) or {}).get("FactionId") != _DARK_ANGELS:
+                continue                               # UnitsFromFaction(..., DarkAngels, 3)
+            tr = self.traits(oid)                      # NonSteppableOrObjectUnits(..., 3)
+            if _TRAIT_STEPPABLE in tr or _TRAIT_OBJECT in tr:
+                continue
+            n += 1
+        return n
+
+    def enmity_adjacent_units(self, uid) -> "int | None":
+        """`..._ExtraDamagePctEffect$$AdjacentUnitsAmount` -- cf. `_enmity_adjacent`."""
+        return self._enmity_adjacent(uid, dark_angels_friends_only=False)
+
+    def enmity_adjacent_dark_angels_friends(self, uid) -> "int | None":
+        """`..._ExtraDamageEffect$$AdjacentFriendlyDarkaUnitsAmount` -- cf. `_enmity_adjacent`."""
+        return self._enmity_adjacent(uid, dark_angels_friends_only=True)
 
     def _camo_cloak_cover_keys(self, uid, out: dict) -> None:
         """Les DEUX membres du `op_BitwiseOr` de `IdunBattle.Entities.Effects.Loki.
