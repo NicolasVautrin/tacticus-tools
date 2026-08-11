@@ -39,6 +39,11 @@ DECLENCHEUR = {
         "scripts/python/probe_509_martial_inspiration.py",
         "scripts/python/engine/runner/runner.py",
         "scripts/python/engine/runner/operations/triggers/dispatch/phase.py",
+        # ... et l'etage 7 du probe (terme de tuile, face DECISION) tire `probe_193c`, dont le pin
+        # de build refuse d'armer les hooks sur un binaire etranger.
+        "scripts/python/probe_193c_move_playbook_terms.py",
+        "scripts/python/build_pin.py",
+        "scripts/python/il2cpp_provenance.py",
         # LES DEUX MIRRORS du cas et leurs registres.
         "scripts/python/engine/runner/operations/triggers/loki/legacy_of_combat.py",
         "scripts/python/engine/runner/operations/triggers/dispatch/registry.py",
