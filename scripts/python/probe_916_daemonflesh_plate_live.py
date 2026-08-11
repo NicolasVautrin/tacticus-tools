@@ -104,21 +104,42 @@ def garde_regime(level: int, p_armor: list, p_atk: list) -> None:
                          % (level, p_armor[level - 1]))
 
 
+def porteur_de(bras: str) -> str:
+    """Qui EQUIPE la relique. Dans le bras SPECTATEUR c'est une SECONDE unite de mon camp, pas
+    l'attaquant -- c'est tout l'objet du bras."""
+    return SPECTATOR if bras == "SPECTATEUR" else CARRIER
+
+
+def p_units_de(bras: str) -> str:
+    return "%s,%s" % (CARRIER, SPECTATOR) if bras == "SPECTATEUR" else CARRIER
+
+
+def flags_de_build(bras: str, level: int) -> list:
+    """FOYER UNIQUE des flags de montage, partage par le probe et par son cliquet
+    (`tests/engine/runner/test_916_daemonflesh_plate_live.py`) : un montage DUPLIQUE derive de son
+    original sans que rien ne le signale.
+
+    ⚠ `--hp-player`/`--hp-target` mettent `Armor`/`FixedArmor` a 0 des DEUX cotes : la base d'armure
+    du porteur est donc NULLE, et `fixedArmor` mesure EXACTEMENT la contribution de la relique -- pas
+    un delta a soustraire d'un socle qu'on n'aurait pas mesure. Ils font AUSSI durer la bataille
+    assez longtemps pour jouer les `nrOfAttacks + 2` actions de la serie.
+
+    ⚠ `--crit 0,0` / `--block-target 0,0` : un CRIT ou un BLOCK ne changent rien au compteur (le
+    behaviour ne lit ni l'un ni l'autre), mais ils peuvent TUER la cible-sac et interrompre la serie.
+    On les eteint pour que le montage ne depende d'aucun tirage."""
+    return ["--equip-relic", "%s:%s:%d" % (porteur_de(bras), ABILITY_ID, level),
+            "--hp-target", "900000", "--hp-player", "900000", "--no-ai",
+            "--crit", "0,0", "--block-target", "0,0"]
+
+
 def build(a, bras: str, level: int):
-    """Un runner par bras. `--hp-player`/`--hp-target` mettent `Armor`/`FixedArmor` a 0 des DEUX
-    cotes : la base d'armure du porteur est donc NULLE, et `fixedArmor` mesure EXACTEMENT la
-    contribution de la relique -- pas un delta a soustraire d'un socle qu'on n'aurait pas mesure."""
+    """Un runner par bras, dispose aussitot (le budget est partage)."""
     fd, sf = tempfile.mkstemp(prefix="probe_916_%s_l%d_" % (bras, level), suffix=".json")
     os.close(fd)
     Path(sf).unlink(missing_ok=True)
-    porteur = SPECTATOR if bras == "SPECTATEUR" else CARRIER
-    p_units = "%s,%s" % (CARRIER, SPECTATOR) if bras == "SPECTATEUR" else CARRIER
-    argv = [sys.executable, "rl_duel.py", "build",
-            "--seed", str(a.seed), "--state-file", sf, "--board", a.board,
-            "--p-units", p_units, "--a-units", TARGET,
-            "--equip-relic", "%s:%s:%d" % (porteur, ABILITY_ID, level),
-            "--hp-target", "900000", "--hp-player", "900000", "--no-ai",
-            "--crit", "0,0", "--block-target", "0,0"]
+    argv = ([sys.executable, "rl_duel.py", "build",
+             "--seed", str(a.seed), "--state-file", sf, "--board", a.board,
+             "--p-units", p_units_de(bras), "--a-units", TARGET] + flags_de_build(bras, level))
     p = subprocess.run(argv, cwd=str(PYDIR), capture_output=True, text=True,
                        encoding="utf-8", errors="replace")
     if not Path(sf).exists():
@@ -243,7 +264,7 @@ def stage(h, bras: str, level: int):
         raise MontageError("le tour de l'attaquant est inatteignable")
     att = h.by_visual(CARRIER, dv)
     tgt = h.by_visual(TARGET, dv)
-    porteur_vis = SPECTATOR if bras == "SPECTATEUR" else CARRIER
+    porteur_vis = porteur_de(bras)
     porteur = h.by_visual(porteur_vis, dv)
     if att is None or tgt is None or porteur is None:
         raise MontageError("attaquant / cible / porteur absent du decisionView")
@@ -279,8 +300,27 @@ def stage(h, bras: str, level: int):
     na = h.normal_attack_type(att["id"])
     if na is None:
         raise MontageError("attaque normale introuvable pour l'attaquant")
-    return {"att": att["id"], "tgt": tgt["id"], "porteur": porteur["id"], "na": na,
-            "snapshot": h.snapshot()}
+    return {"att": att["id"], "tgt": tgt["id"], "porteur": porteur["id"],
+            "porteur_vis": porteur_vis, "na": na, "snapshot": h.snapshot()}
+
+
+def attendus(bras: str, ea: int, nr: int, n: int):
+    """Les DEUX sequences ATTENDUES, DERIVEES du RE -- foyer partage probe/cliquet.
+
+    ARMURE : `k x extraArmor` pour `k = 1..N-1`, puis **0** a la N-ieme action (la branche THEN
+    retire les N-1 piles d'un coup), puis le cycle REPART. Le maximum est donc `(N-1) x extraArmor`,
+    PAS `N x extraArmor` -- c'est le `Subtract(ConfigVar(nrOfAttacks), DSLFormulas+0x20 = Direct(1))`
+    du seuil.
+
+    ACTIVE : consommee par le cast en tete de serie, elle redevient utilisable EXACTEMENT a la
+    N-ieme action (celle qui pose 1491) et le reste.
+
+    Bras SPECTATEUR : le gate `get_OwnerIsCaster` ferme le canal -> armure NULLE partout."""
+    if bras == "SPECTATEUR":
+        return [0] * n, None
+    armure = [ea * k for k in range(1, nr)] + [0] + [ea * k for k in range(1, n - nr + 1)]
+    active = [False] * (nr - 1) + [True] * (n - nr + 1)
+    return armure, active
 
 
 def serie_live(h, rec, n: int, active_en_tete: bool):
@@ -491,10 +531,7 @@ def run_bras(a, rpc, Board, bras: str, level: int, p_armor: list, p_atk: list) -
             print("[%s/l%d] REFUS : %s" % (bras, level, e))
             return 2
 
-        if bras == "SPECTATEUR":
-            att_armure = [0] * n        # le gate ferme le canal : AUCUNE armure sur le porteur
-        else:
-            att_armure = [ea * k for k in range(1, nr)] + [0] + [ea, ea * 2]
+        att_armure, att_us = attendus(bras, ea, nr, n)
         off_a, off_u = serie_offline(h.board, rec, n, active_consommee=actif)
         accord = (off_a == armures)
         conforme = (armures == att_armure)
@@ -507,7 +544,6 @@ def run_bras(a, rpc, Board, bras: str, level: int, p_armor: list, p_atk: list) -
         if actif:
             # Volet RESET. Le cast d'active EN TETE de serie l'a consommee ; elle doit redevenir
             # utilisable EXACTEMENT a l'action de reset (la nr-ieme), pas avant.
-            att_us = [False] * (nr - 1) + [True] * (n - nr + 1)
             ok_live = (usables == att_us)
             ok_port = (off_u == att_us)
             rc |= 0 if (ok_live and ok_port) else 1
