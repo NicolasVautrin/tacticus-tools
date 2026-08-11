@@ -1290,12 +1290,18 @@ class KissOfDeathAbility(ActiveAbility):
     # Aucun `TargetHasFreeAdjacentTile` ici, contrairement a `EmpyricAmbush` : le natif n'exige PAS
     # de tuile libre au contact de la cible, parce que l'atterrissage a DEUX replis (cf. l'arbre) et
     # que `FlyUnit` sur une destination vide est simplement un no-op.
-    # `range` est le champ `<preset>+0x08..0x18` recopie du preset -> RANGE_FROM_CONFIG (la portee
-    # de la config 1108 ; `attackRangeType: "Melee"`).
+    # ⚠ **LA PORTEE NE SE DEDUIT PAS DE `attackRangeType`** : le `.cctor` recopie dans ce preset le
+    # `TargetingRange` de `<TargetingRange statics>+0x30` (`*(lVar3 + 0x30)` puis `+0x38`, `+0x40`),
+    # et `IdunBattle.Core.Services.TargetingRange$$.cctor` ecrit LA : `+0x30 = 0`
+    # (`onlyAdjacent = RangedBool.True`), `+0x38 = Nullable(1)` (`overrideRange = 1`), `+0x40 = 0`
+    # -> c'est **RANGE_ADJACENT**, pas `RANGE_FROM_CONFIG` (qui vit a `statics+0x18`). La config
+    # 1108 n'a d'ailleurs AUCUNE constante `range`. Mesure du 2026-08-11 : avec `RANGE_FROM_CONFIG`,
+    # le port acceptait les QUATRE ennemis du montage plus le caster la ou le natif n'en accepte
+    # qu'UN (`abilityTargets.fromHere = [T]`) -- le gate sautait en silence.
     # `AbilityAttackType` = 3e argument d'`AActiveAbility$$.ctor(this, &opts, 0)` = **0**
     # (`DirectTargetAttack`), TRANSCRIT dans `abilities/attack_type.py` au meme commit.
     TARGETING_OPTIONS = TargetingOptions(rules=int(TR.TargetIsEnemy),        # `<statics>+0x68` = 0x4000
-                                         self_cast=False, range=RANGE_FROM_CONFIG,
+                                         self_cast=False, range=RANGE_ADJACENT,
                                          force_melee_target=RANGED_BOOL_FALSE)
 
     def execute_behaviour(self, state: "State", caster_id: int,
