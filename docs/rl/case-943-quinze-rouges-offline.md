@@ -123,3 +123,22 @@ au lieu d'une liste polluée par les rouges des voisins).
   DIRECT à `execute_behaviour`. Le régime live n'a donc rien à mesurer — mais il n'a pas été mesuré.
 * **Les 63 lignes `nom_ecarte_par_un_cran`** de `probe_477r24r1` restent le gisement de #477-r34 ;
   cette tranche n'y touche pas.
+
+## 7. TROIS rouges de plus, mesurés au passage — et ils ne sont pas de cette tranche
+
+Passe large `probe_457 --jobs 4` (une seule fois, comme demandé) : **330 fichiers, 324 VERT,
+6 non-VERT**. Ventilation, avec l'accusé :
+
+| rouge | armé par | statut |
+|---|---|---|
+| `test_519_comptes_derives_offline::test_le_bloc_genere_est_a_jour` | `069cd7cf` (#934) a retiré `1144` de `TARGETING_OPTIONS_UNPORTED` sans régénérer le bloc | **RÉPARÉ ici** (`probe_519 --ecrire`) |
+| `test_463r1_ecart_empreinte_offline::test_l_ecart_est_NUL_sur_ce_checkout` | `test_1210_…_offline.py` et `test_939_…_offline.py` entrés non mesurés (#934/#935) | **résorbé en amont** entre-temps ; vert après rebase |
+| `test_468r14_reservation_offline` (ERROR au teardown) | registre de réservations **partagé** entre worktrees — concurrence | **transitoire** : vert au re-jeu isolé |
+| `test_270r4r2r2_differes_offline::test_etage1_invariant_aucun_differe_gratuit` | `engine/runner/abilities/behaviours/ai_control.py:133` (#931/#934) — cible déjà importée au préambule | **NON TRAITÉ** : hors des 15, foyer d'une autre tranche |
+| `test_effect_trigger_channels::test_the_divergence_is_latent_and_says_why` | `WrathfulDevotionAbility` consomme désormais `On(59)` (#931) sans lire `ev.triggering_ability` | **NON TRAITÉ** : hors des 15, foyer d'une autre tranche |
+| `test_433r4r1r4r2r1r1_…::test_le_VICE_REEL_de_orks_…` | #925 / #913 | **ROUGE ASSUMÉ** — #943-r4 (§5) |
+
+Les deux « NON TRAITÉS » sont la même forme que les treize de §1 : une entrée arrive, son cliquet
+jumeau n'est pas rejoué. Ils sont nommés ici plutôt que réparés parce qu'ils accusent des ports
+mergés il y a quelques heures, dont l'auteur a la RE en main — l'arbitrage par celui qui en sait le
+moins est exactement ce que le rebase est censé éviter.
