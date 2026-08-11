@@ -477,13 +477,148 @@ def consumers(verbose: bool = True) -> dict:
         for e in events:
             if e in ids:
                 by_event[e].append(name)
-    res = {"registry_size": len(seen), "by_event": by_event, "labels": events}
+    # `_classes` : le nom ne suffit pas a MESURER un consommateur -- `verdict_canal_retrait` doit
+    # l'instancier pour lire son `matches`. Sans ce canal, la seule verification possible serait un
+    # grep de source, qui ne voit ni les `getattr` ni les lectures faites dans une classe de base.
+    res = {"registry_size": len(seen), "by_event": by_event, "labels": events, "_classes": seen}
     if verbose:
         print("classes-triggers portees au registre : %d" % len(seen))
         for e, label in events.items():
             names = sorted(by_event[e])
             print("  On(%-3d) %-34s : %d  %s" % (e, label, len(names), names or ""))
     return res
+
+
+#: Les trois vecteurs qu'`IdunBattle.Operations.RemoveEffectOperation$$Execute` publie. Sur eux
+#: `+0x98` n'est JAMAIS ecrit (controle negatif a l'assembleur, cf. l'en-tete) -> un gate
+#: `TriggeringEffectIs` y serait TOUJOURS faux, et c'est `CurrentAbilityIs` (`+0x60`) qui porte
+#: l'effet retire.
+VECTEURS_RETRAIT = ("PreEffectRemoved", "EffectRemoved", "UnitBecameTargetable")
+#: Valeur ARBITRAIRE promenee dans les deux canaux. Elle ne sert qu'a rendre la lecture OBSERVABLE :
+#: un `matches` lit son canal que la comparaison reussisse ou non.
+_SONDE = 1035
+
+
+def _event_tracant(journal: set, *args, **kw):
+    """Un `TriggerEvent` qui NOTE quel canal on lui demande.
+
+    C'est une MESURE, pas un grep : le canal effectivement lu se constate a l'execution du vrai
+    `matches`, a travers les helpers, les `getattr` et les classes de base. Un balayage de source
+    ne verrait ni `getattr(ev, "triggering_ability", None)` ni une lecture faite dans une methode
+    heritee."""
+    from engine.runner.operations.triggers.base import TriggerEvent
+
+    class _Ev(TriggerEvent):
+        __slots__ = ()
+
+        def __getattribute__(self, nom):
+            if nom in ("triggering_ability", "triggering_effect"):
+                journal.add(nom)
+            return TriggerEvent.__getattribute__(self, nom)
+    return _Ev(*args, **kw)
+
+
+def canaux_lus(cls, event_id: int, owner_id: int = 2) -> dict:
+    """Quels canaux le `matches` de `cls` LIT-il sur ce vecteur, et par lequel est-il SATISFAIT ?
+
+    Le `matches` d'un trigger commence par des gates de position (`OwnerIsActor` / `OwnerIsTarget`,
+    porteur vivant) : une seule configuration d'evenement n'atteindrait pas forcement la lecture du
+    canal. On BALAYE donc les placements du porteur (acteur, cible, les deux) et les trois formes de
+    payload, et on rend l'UNION -- une union ne peut que SUR-estimer les lectures, jamais en manquer
+    une, donc le critere qui s'appuie dessus ne peut pas rendre un faux VERT.
+
+    Rend `{"lus": set, "vrai_par": set, "atteint": bool, "erreurs": [str]}` :
+      * `lus`       -- les canaux dont la valeur a ete DEMANDEE ;
+      * `vrai_par`  -- les formes de payload sur lesquelles `matches` a rendu VRAI. `natif` = la
+                       forme que `RemoveEffectOperation` publie reellement (`+0x60` seul) ;
+                       `inverse` = `+0x98` seul, une forme que le natif NE PRODUIT JAMAIS sur ce
+                       vecteur : y etre VRAI, c'est lire le mauvais canal ;
+      * `atteint`   -- au moins un `matches` s'est evalue sans lever. FAUX = montage insuffisant
+                       pour cette classe, PAS un vice : il faut le DIRE, pas le compter vert.
+    """
+    from engine.runner.state import State
+    from engine.runner.components import UnitComponent, OwnerComponent
+    from engine.entities.effects_state import EffectsState
+
+    state = State()
+    for eid, team in ((owner_id, 1), (owner_id + 1, 1), (owner_id + 2, 2)):
+        e = state.add_entity(eid)
+        e.add_component(UnitComponent("probe306Unit%d" % eid, True))
+        e.add_component(OwnerComponent(team=team))
+    state.effects = EffectsState()
+
+    formes = {"natif": (_SONDE, None), "inverse": (None, _SONDE), "pose": (_SONDE, _SONDE)}
+    lus: set = set()
+    vrai_par: set = set()
+    erreurs: list = []
+    atteint = False
+    try:
+        trig = cls(owner_id)
+    except Exception as exc:                      # noqa: BLE001 -- un ctor exigeant est un MONTAGE
+        return {"lus": lus, "vrai_par": vrai_par, "atteint": False,
+                "erreurs": ["ctor(%s) : %s" % (owner_id, exc)]}
+    autre = owner_id + 2
+    for actor, target in ((owner_id, autre), (autre, owner_id), (owner_id, owner_id)):
+        for nom, (ta, te) in formes.items():
+            ev = _event_tracant(lus, int(event_id), actor, target, ranged=False, profile=None,
+                                triggering_ability=ta, triggering_effect=te)
+            try:
+                ok = trig.matches(state, ev)
+            except Exception as exc:              # noqa: BLE001 -- montage, jamais un verdict
+                erreurs.append("%s/%s/%s : %s" % (actor, target, nom, exc))
+                continue
+            atteint = True
+            if ok:
+                vrai_par.add(nom)
+    return {"lus": lus, "vrai_par": vrai_par, "atteint": atteint, "erreurs": erreurs}
+
+
+def verdict_canal_retrait(verbose: bool = True) -> tuple:
+    """(ok, message, details) -- les consommateurs de vecteurs de RETRAIT lisent-ils `+0x60` ?
+
+    CE N'EST PAS UNE INTERDICTION. Un consommateur de vecteur de retrait est parfaitement legitime
+    (`WrathfulDevotionAbility` en est un, LU : `On(UnitBecameTargetable) & get_OwnerIsTarget &
+    CurrentAbilityIs(AbilityOrEffect((EffectType)0x40b))`). Ce qui ne l'est pas, c'est d'y lire le
+    canal `+0x98` que `RemoveEffectOperation` laisse VIDE : le gate serait alors TOUJOURS faux cote
+    natif, donc l'ability serait morte -- ou, cote port, vraie sur un canal que le natif ne remplit
+    pas.
+
+    DEUX faits par consommateur, et le second existe parce que le premier ne suffit pas :
+      1. il n'est jamais VRAI sur la forme `inverse` (`+0x98` seul) -- c'est le vice ;
+      2. s'il lit `triggering_effect`, il doit AUSSI lire `triggering_ability` -- une classe qui ne
+         lirait QUE `+0x98` sur un vecteur de retrait est morte a coup sur.
+    """
+    from engine.dsl.event_trigger_type import EventTriggerType
+
+    c = consumers(verbose=False)
+    details: list = []
+    fautes: list = []
+    for nom_ev in VECTEURS_RETRAIT:
+        eid = int(getattr(EventTriggerType, nom_ev))
+        for nom_cls in sorted(c["by_event"][eid]):
+            cls = c["_classes"][nom_cls]
+            m = canaux_lus(cls, eid)
+            details.append((nom_ev, nom_cls, m))
+            if "inverse" in m["vrai_par"]:
+                fautes.append("%s sur On(%d = %s) est VRAI sur la forme `inverse` (+0x98 seul) : "
+                              "il lit `TriggeringEffectIs` la ou RemoveEffectOperation laisse "
+                              "+0x98 VIDE -- il doit lire `CurrentAbilityIs` "
+                              "(`ev.triggering_ability`)" % (nom_cls, eid, nom_ev))
+            elif "triggering_effect" in m["lus"] and "triggering_ability" not in m["lus"]:
+                fautes.append("%s sur On(%d = %s) ne lit QUE `+0x98` : ce canal est structurellement "
+                              "VIDE sur un vecteur de retrait, donc le gate est mort"
+                              % (nom_cls, eid, nom_ev))
+    if verbose:
+        for (nom_ev, nom_cls, m) in details:
+            print("  %-22s %-38s lus=%s vrai_par=%s%s"
+                  % (nom_ev, nom_cls, sorted(m["lus"]) or "-", sorted(m["vrai_par"]) or "-",
+                     "" if m["atteint"] else "  [NON ATTEINT : montage insuffisant]"))
+        if not details:
+            print("  aucun consommateur porte sur les trois vecteurs de RETRAIT")
+    if fautes:
+        return (False, "ROUGE -- " + " | ".join(fautes), details)
+    return (True, "VERT -- %d consommateur(s) de vecteur de RETRAIT, tous sur `+0x60`"
+            % len(details), details)
 
 
 def main() -> int:

@@ -180,7 +180,19 @@ def test_the_divergence_is_latent_and_says_why():
 
     Ce test n'interdit pas d'ajouter un consommateur -- il rougit quand on en ajoute un sur un
     vecteur de RETRAIT, au moment precis ou le canal lu cesse d'etre indifferent : le porteur devra
-    alors lire `CurrentAbilityIs` (`ev.triggering_ability`), jamais `TriggeringEffectIs`."""
+    alors lire `CurrentAbilityIs` (`ev.triggering_ability`), jamais `TriggeringEffectIs`.
+
+    ⚠ CE JOUR EST ARRIVE, ET L'ASSERTION QUI L'ATTENDAIT NE SAVAIT QUE L'INTERDIRE (#943-r6).
+    `WrathfulDevotionAbility` (#931) consomme `On(59 = UnitBecameTargetable)` -- LU :
+    `WrathfulDevotionAbility$$CreateTrigger` branche 2 = `On(0x3b, ownerNeedsToBeAlive: 1) &
+    get_OwnerIsTarget & CurrentAbilityIs(AbilityOrEffect((EffectType)0x40b))`. C'est un
+    consommateur PARFAITEMENT LEGITIME, et il lit deja le BON canal. L'ancienne redaction
+    (`got == []`) rendait donc `master` ROUGE pour un port JUSTE : elle cotait la PRESENCE d'un
+    consommateur, quand la regle #306 porte sur le CANAL qu'il lit.
+
+    La condition est desormais MESUREE (`EFC.verdict_canal_retrait`), pas interdite : on instancie
+    chaque consommateur et on regarde, a l'execution de son vrai `matches`, quel canal il demande
+    et lequel le satisfait."""
     from engine.dsl.event_trigger_type import EventTriggerType
     c = EFC.consumers(verbose=False)
     add61 = sorted(c["by_event"][int(EventTriggerType.PreEffectAdded)])
@@ -193,13 +205,83 @@ def test_the_divergence_is_latent_and_says_why():
     assert add61 == ["NeuroparasiteIncreaseLevelOnPinned", "TerrifyingCrescendoSuppressAbility"], (
         f"consommateurs de On(61) = {add61} ; un nouvel entrant doit declarer quel canal il lit "
         f"(+0x60 CurrentAbilityIs / +0x98 TriggeringEffectIs) et mettre ce test a jour")
-    for ev in (EventTriggerType.PreEffectRemoved, EventTriggerType.EffectRemoved,
-               EventTriggerType.UnitBecameTargetable):
-        got = c["by_event"][int(ev)]
-        assert got == [], (
-            f"On({int(ev)}) a maintenant un consommateur porte : {got}. C'est un vecteur de "
-            f"RETRAIT -> il doit lire `ev.triggering_ability` (+0x60), car "
-            f"RemoveEffectOperation laisse +0x98 VIDE (#306)")
+    ok, msg, details = EFC.verdict_canal_retrait(verbose=False)
+    assert ok, msg
+    # TEMOIN : le verdict ci-dessus est vide de sens s'il ne mesure RIEN. Depuis #931 il existe au
+    # moins un consommateur porte de vecteur de retrait -- si ce compte retombe a zero, ce n'est
+    # plus ce test qui garde le canal, et il faut le dire plutot que rester vert a vide.
+    assert details, ("aucun consommateur de vecteur de RETRAIT mesure : le verdict de canal est "
+                     "vert A VIDE (a-t-on retire WrathfulDevotionAbility du registre ?)")
+
+
+def test_le_consommateur_de_RETRAIT_lit_le_canal_0x60_et_pas_0x98():
+    """LE PENDANT EXACT des deux tests de consommateur de POSE, sur la face RETRAIT.
+
+    `WrathfulDevotionAbility` branche 2 gate `CurrentAbilityIs(AbilityOrEffect((EffectType)0x40b =
+    TeleportStrike_TeleportingIn))`, un noeud qui prend le slot `DSLSelectors+0x88` -> `+0x60` ->
+    `ev.triggering_ability`. Le vecteur est publie en queue de
+    `IdunBattle.Operations.RemoveEffectOperation$$Execute`, qui n'ecrit JAMAIS `+0x98`.
+
+    Les deux sens comptent : VRAI sur la forme que le natif publie reellement (`+0x60` seul), et
+    FAUX sur la forme miroir (`+0x98` seul), que le natif ne produit sur AUCUN vecteur de retrait --
+    y etre vrai signerait une lecture de `TriggeringEffectIs`."""
+    from engine.runner.state import State
+    from engine.runner.components import UnitComponent, OwnerComponent
+    from engine.runner.operations.triggers.base import TriggerEvent
+    from engine.dsl.event_trigger_type import EventTriggerType
+    from engine.entities.effect_type import EffectType
+    from engine.runner.operations.triggers.loki.wrathful_devotion import (
+        WrathfulDevotionAbility, _TELEPORT_STRIKE_TELEPORTING_IN as TELEPORTING_IN)
+
+    st = State()
+    wrask = st.add_entity(2)
+    wrask.add_component(UnitComponent("worldTerminator", True))
+    wrask.add_component(OwnerComponent(team=1))
+    trig = WrathfulDevotionAbility(2)
+
+    def ev(ta, te):
+        # `get_OwnerIsTarget` : le porteur est en `target` (`RemoveEffectOperation` ecrit +0x10 ET
+        # +0x18 avec le porteur de l'effet, et laisse `actor` VIDE).
+        return TriggerEvent(int(EventTriggerType.UnitBecameTargetable), -1, 2,
+                            ranged=False, profile=None,
+                            triggering_ability=ta, triggering_effect=te)
+
+    assert trig.matches(st, ev(TELEPORTING_IN, None)), (
+        "la forme que RemoveEffectOperation publie REELLEMENT (+0x60 seul) ne declenche plus : "
+        "le gate ne lit plus `CurrentAbilityIs`")
+    assert not trig.matches(st, ev(None, TELEPORTING_IN)), (
+        "le gate est satisfait par +0x98 SEUL -- il lit `TriggeringEffectIs`, un canal que "
+        "RemoveEffectOperation ne remplit JAMAIS (#306) : la face Deep Strike serait morte en jeu")
+    # Un AUTRE effet retire du porteur : le vecteur est le meme, seul l'`EffectType` change. Le
+    # membre est nomme (jamais un ordinal nu) -- `Pinned` est un effet REEL, retire par la meme
+    # Operation, et qui n'est PAS celui du gate.
+    autre_effet = int(EffectType.Pinned)
+    assert autre_effet != TELEPORTING_IN, "temoin degenere : les deux EffectType coincident"
+    assert not trig.matches(st, ev(autre_effet, TELEPORTING_IN)), (
+        "un +0x60 qui ne vaut pas TeleportStrike_TeleportingIn declenche quand meme : le gate ne "
+        "compare plus l'EffectType, ou il se rabat sur +0x98")
+
+
+def test_la_mesure_de_canal_MORD_sur_un_consommateur_qui_lit_le_mauvais_canal(monkeypatch):
+    """CONTRE-EPREUVE de la mesure ci-dessus -- sans elle, `verdict_canal_retrait` pourrait etre
+    vert parce qu'il ne regarde rien.
+
+    On remplace le gate de `WrathfulDevotionAbility` par la faute EXACTE que #306 decrit : lire
+    `ev.triggering_effect` au lieu d'`ev.triggering_ability`. Le verdict DOIT rougir, et nommer la
+    classe."""
+    from engine.runner.operations.triggers.loki import wrathful_devotion as WD
+
+    def _faute(self, ev):
+        if ev.target_id is None or int(ev.target_id) != int(self.owner_id):
+            return False
+        te = getattr(ev, "triggering_effect", None)          # <- +0x98, le mauvais canal
+        return te is not None and int(te) == WD._TELEPORT_STRIKE_TELEPORTING_IN
+    monkeypatch.setattr(WD.WrathfulDevotionAbility, "_teleport_in_face", _faute)
+
+    ok, msg, _details = EFC.verdict_canal_retrait(verbose=False)
+    assert not ok, ("la mutation `TriggeringEffectIs` n'a RIEN casse -- la mesure de canal ne "
+                    "discrimine pas")
+    assert "WrathfulDevotionAbility" in msg, msg
 
 
 def test_the_pose_consumer_still_reads_the_0x98_channel():
