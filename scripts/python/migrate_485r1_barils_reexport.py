@@ -721,6 +721,31 @@ def _hors_corps(ouvreur):
         yield k.value
 
 
+#: Les DEUX seules formes d'expression par lesquelles un nom peut recevoir un module :
+#: une re-liaison (`M = X`, `M = pkg.sub`) ou un choix entre de telles formes. Tout le reste
+#: (appel, litteral, conteneur, indexation, operateur, comprehension, f-string...) designe
+#: assurement autre chose -- c'est ce qui autorise a MASQUER (cf. `_liaisons_de_portee`).
+_FORMES_DE_RELIAISON = (ast.Name, ast.Attribute)
+#: Les seuls APPELS qui rendent un module. Sans cette exception, un
+#: `M = importlib.import_module("engine.x")` masquerait une liaison pourtant reelle.
+_APPELS_QUI_RENDENT_UN_MODULE = ("import_module", "__import__", "reload")
+
+
+def _peut_etre_un_module(valeur) -> bool:
+    """`True` si cette expression PEUT designer un module -- conservateur par construction."""
+    if isinstance(valeur, _FORMES_DE_RELIAISON):
+        return True
+    if isinstance(valeur, ast.IfExp):
+        return _peut_etre_un_module(valeur.body) or _peut_etre_un_module(valeur.orelse)
+    if isinstance(valeur, ast.BoolOp):
+        return any(_peut_etre_un_module(v) for v in valeur.values)
+    if isinstance(valeur, ast.Call):
+        f = valeur.func
+        nom = f.attr if isinstance(f, ast.Attribute) else getattr(f, "id", "")
+        return nom in _APPELS_QUI_RENDENT_UN_MODULE
+    return False
+
+
 def _liaisons_de_portee(portee, mod: str, racine: Path) -> dict[str, str | None]:
     """`{nom: module absolu}` pour ce que cette portee lie, `None` quand le nom est CONNU pour
     designer autre chose qu'un module.
@@ -728,11 +753,28 @@ def _liaisons_de_portee(portee, mod: str, racine: Path) -> dict[str, str | None]
     ⚠ TRI-ETAT, ET LA TROISIEME VALEUR EST L'ABSENCE (#485-r2). Trois classes, pas deux :
 
       * **module**            -- `import x.y as M`, `from x import y` quand `x.y` EST un module ;
-      * **connu NON-module**  -- `from x import OBJET as M`, `def M`, `class M`, `except E as M`.
+      * **connu NON-module**  -- `from x import OBJET as M`, `def M`, `class M`, `except E as M`,
+        et une AFFECTATION `M = <expression qui ne peut PAS designer un module>` (cf. plus bas).
         La valeur est `None`, et elle est PLEINE : c'est elle qui MASQUE une liaison de module
         d'une portee englobante ;
-      * **INCONNU**           -- un parametre, une affectation, une cible de boucle. Il n'entre
-        PAS dans la table : le nom continue de se resoudre dans la portee englobante.
+      * **INCONNU**           -- un parametre, une cible de boucle, une affectation dont la
+        valeur POURRAIT etre un module. Il n'entre PAS dans la table : le nom continue de se
+        resoudre dans la portee englobante.
+
+    ⚠ L'AFFECTATION N'EST PAS UN PARAMETRE, ET LES CONFONDRE FABRIQUE UN FAUX POSITIF (#935).
+    L'argument qui rend l'inconnu transparent (ci-dessous) porte sur les PARAMETRES : l'appelant y
+    passe reellement le module homonyme, donc l'acces est reel. Une AFFECTATION dont on LIT la
+    valeur dans le fichier meme n'a pas cette propriete -- `U = _live_units(rpc, rid)` lie le
+    resultat d'un APPEL, jamais un module, et le langage est categorique. Mesure du 2026-08-11 :
+    `probe_927_fury_of_the_ancients.py` porte `import engine.entities.selectors.units as U`
+    ligne 238 (dans UNE fonction) et `U = _live_units(...)` ligne 376 (dans une AUTRE) ; le
+    dernier recours plat attribuait les `U.items()` / `U.values()` de la seconde a la liaison de
+    module de la premiere, et `probe_485r1r1` accusait `engine.entities.selectors.units.items` --
+    3 acces, rouge de `master`, FAUX, meme forme exacte que le faux positif `F` repare par #485-r2.
+    Le critere retenu est CONSERVATEUR : seules les valeurs qui ne peuvent PAS designer un module
+    masquent (appel, litteral, conteneur, indexation, operateur, comprehension...). Un
+    `M = <Name>` ou `M = <Attribute>` -- les deux seules formes par lesquelles un module se
+    re-lie -- reste INCONNU, donc transparent.
 
     Pourquoi l'inconnu est TRANSPARENT, et c'est une MESURE, pas un principe : le rendre opaque
     (`None`) retirait 8 acces VRAIS du recensement (2026-08-10) -- tous du meme patron, un module
@@ -776,6 +818,13 @@ def _liaisons_de_portee(portee, mod: str, racine: Path) -> dict[str, str | None]
             t[n.name] = None
         elif isinstance(n, ast.ExceptHandler) and n.name:
             t[n.name] = None
+        elif isinstance(n, (ast.Assign, ast.AnnAssign)):
+            cibles = n.targets if isinstance(n, ast.Assign) else [n.target]
+            if n.value is not None and not _peut_etre_un_module(n.value):
+                for c in cibles:
+                    if isinstance(c, ast.Name):
+                        t.setdefault(c.id, None)     # `setdefault` : un `import as` de la MEME
+                        #                              portee prime (il est LU, pas devine).
     for nom in externes:
         t.pop(nom, None)
     return t

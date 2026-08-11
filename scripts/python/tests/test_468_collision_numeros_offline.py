@@ -56,7 +56,9 @@ DECLENCHEUR = {
               "verdict -- c'est le probe lui-meme qui est juge, pas le corpus.",
 }
 
+import ast
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -88,9 +90,25 @@ def le_registre_du_depot_REEL_ne_bouge_pas():
     indistinguables d'une allocation legitime une fois posees.
 
     Le registre est PARTAGE et SURVIT a tout : c'est ce qui fait la valeur du remede, et c'est
-    ce qui le rend polluable. INVARIANT, pas seuil : population identique avant et apres chaque
-    test. Il verifie aussi que la cible de `viser` a ete rendue -- c'est par la que la faute est
-    arrivee, et un test qui la laisse ailleurs fait tourner le SUIVANT ou il ne croit pas."""
+    ce qui le rend polluable. Il verifie aussi que la cible de `viser` a ete rendue -- c'est par
+    la que la faute est arrivee, et un test qui la laisse ailleurs fait tourner le SUIVANT ou il
+    ne croit pas.
+
+    ⚠ L'ACCUSATION SE PORTE PAR AUTEUR, PAS PAR FENETRE TEMPORELLE (#935). La premiere version
+    comparait la POPULATION avant/apres et accusait << ce test >> de toute entree neuve. Or ce
+    registre est partage par 35 worktrees et des agents qui allouent en continu : mesure du
+    2026-08-11, `#936` y est apparu pendant ce test, alloue par `worktree-agent-ab5c3278368678ce3`
+    (pid 62856) -- ni par ce test, ni meme depuis ce worktree. Le cliquet rougissait donc EXACTEMENT
+    quand la campagne tourne, c'est-a-dire quand on a le plus besoin de lui, et un cliquet qui
+    accuse a tort se fait desarmer. Le discriminant est le `pid` ecrit dans la metadonnee : la
+    faute mesuree (`#917`, `#900-r8`) etait une allocation EN PROCESS, donc `os.getpid()`. Les
+    entrees d'un AUTRE pid sont de la concurrence : elles sont IMPRIMEES, jamais accusees.
+
+    PORTEE -- ce que ce garde ne voit pas : une allocation faite par un SOUS-PROCESSUS de ce
+    fichier. Elle est couverte par l'autre bout, statiquement et sur le futur, par
+    `test_aucun_sous_process_de_ce_fichier_ne_vise_le_depot_REEL` : les quinze appels de
+    `--suggere` d'ici passent tous `--racine <depot jetable>`, donc ecrivent dans le registre du
+    jetable."""
     p468.viser(REPO)
     dossier = p468._dossier_reservations()
     avant = set(p468._identifiants_des_reservations(dossier))
@@ -98,11 +116,17 @@ def le_registre_du_depot_REEL_ne_bouge_pas():
     cible = p468.REPO
     p468.viser(REPO)
     apres = set(p468._identifiants_des_reservations(dossier))
-    neuves = sorted(apres - avant)
-    assert not neuves, (
-        "ce test a ALLOUE dans le registre PARTAGE du depot reel : %s -- ces numeros sont "
-        "desormais brules pour tout le monde" % ", ".join("#" + k for k in neuves))
-    assert apres == avant, "le registre du depot reel a change : %s" % sorted(apres ^ avant)
+    neuves = set(apres) - set(avant)
+    if neuves:
+        par_cle = {p468.normaliser(k): ctx for k, ctx in p468.lire_reservations(dossier)}
+        miennes = sorted(k for k in neuves if par_cle.get(k, {}).get("pid") == os.getpid())
+        tierces = sorted(k for k in neuves if k not in miennes)
+        if tierces:
+            print("[468] concurrence pendant ce test (allocations d'AUTRES processus, non "
+                  "imputables) : %s" % ", ".join("#" + k for k in tierces))
+        assert not miennes, (
+            "ce test a ALLOUE dans le registre PARTAGE du depot reel : %s -- ces numeros sont "
+            "desormais brules pour tout le monde" % ", ".join("#" + k for k in miennes))
     assert cible == REPO, (
         "ce test a laisse `viser` pointe sur %s : le test SUIVANT tournerait ailleurs qu'il ne "
         "croit" % cible)
@@ -488,6 +512,53 @@ def _suggere(racine, *args):
                          capture_output=True, text=True, encoding="utf-8", errors="replace",
                          cwd=str(PYDIR))
     return out.returncode, out.stdout + out.stderr
+
+
+def test_aucun_sous_process_de_ce_fichier_ne_vise_le_depot_REEL():
+    """L'AUTRE BOUT du garde `le_registre_du_depot_REEL_ne_bouge_pas` (#935).
+
+    Ce garde-la accuse par `pid`, donc il ne voit pas un SOUS-PROCESSUS. Celui-ci ferme la porte
+    par l'autre cote, et STATIQUEMENT -- donc sur du code qui n'a pas encore tourne : tout appel
+    de `probe_468` lance depuis ce fichier doit passer `--racine`, et cette racine ne doit jamais
+    etre `REPO`. C'est ce qui rend l'accusation par pid SUFFISANTE ; sans lui, la reduction de
+    portee serait un trou.
+
+    Derive de l'AST de CE fichier : un appel futur non conforme rougit sans que personne ait a y
+    penser -- c'est le meme principe que le declencheur derive plutot qu'enumere."""
+    arbre = ast.parse(Path(__file__).read_text(encoding="utf-8"))
+    fautifs = []
+    vus = 0
+    for n in ast.walk(arbre):
+        if not isinstance(n, ast.Call) or not n.args:
+            continue
+        #: la LISTE d'arguments d'un `subprocess.run([...])` -- seule forme employee ici.
+        if not isinstance(n.args[0], ast.List):
+            continue
+        #: on descend DANS chaque element : la forme reelle est `[sys.executable, str(PROBE),
+        #: "--racine", str(racine), "--suggere"]` -- ni `PROBE` ni `racine` n'y sont des
+        #: `ast.Name` DIRECTS. Une lecture au premier niveau rendait `vus = 0`, et c'est
+        #: l'anti-vacuite qui l'a dit (elle a mordu au premier rejeu).
+        litteraux, noms = [], []
+        for e in n.args[0].elts:
+            for sous in ast.walk(e):
+                if isinstance(sous, ast.Constant) and isinstance(sous.value, str):
+                    litteraux.append(sous.value)
+                elif isinstance(sous, ast.Name):
+                    noms.append(sous.id)
+        if "PROBE" not in noms and not any("probe_468" in s for s in litteraux):
+            continue
+        vus += 1
+        if "--racine" not in litteraux:
+            fautifs.append((n.lineno, "aucun `--racine` : le sous-process viserait le depot REEL"))
+            continue
+        if "REPO" in noms:
+            fautifs.append((n.lineno, "`--racine REPO` : c'est le depot REEL"))
+    assert vus, ("aucun lancement de `probe_468` en sous-process trouve dans ce fichier -- le "
+                 "balayage est devenu aveugle, il ne prouverait plus rien")
+    assert not fautifs, (
+        "sous-process(es) de ce fichier visant le depot REEL : %s -- une allocation faite la "
+        "brulerait un numero pour tout le monde, et le garde par `pid` ne la verrait pas"
+        % fautifs)
 
 
 def _vider_reservations(racine):

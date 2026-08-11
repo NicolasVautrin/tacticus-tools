@@ -24,6 +24,8 @@ if str(HERE) not in sys.path:
 import probe_112_darkangels as PR                                          # noqa: E402
 import probe_27_custom_utility_inventory as INV                            # noqa: E402
 
+import stream_events as SE                                                 # noqa: E402
+
 from engine.entities.active_ability_type import ActiveAbilityType          # noqa: E402
 
 LOGS = HERE.parents[1] / "logs"
@@ -79,7 +81,9 @@ def main() -> int:
             for e in (act.get("events") or []):
                 print("      %-7s step=%-4r entity=%-5r source=%-28r tags=%s"
                       % (e.get("kind"), e.get("step"), e.get("entity"), e.get("source"),
-                         (e.get("tags") or "") if e.get("step") == 4 else
+                         # `UnitDamaged` par son NOM : un ordinal fige designerait le pas voisin
+                         # au prochain build (#935 -- cliquet `test_step_ordinal_ratchet_offline`).
+                         (e.get("tags") or "") if e.get("step") == SE.step_id("UnitDamaged") else
                          (e.get("tags") or "")[:220]))
     finally:
         if not a.keep:

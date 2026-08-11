@@ -146,6 +146,33 @@ _COVERAGE_HOLES = {
         "PERTE MESUREE, bornee : l'axe est MIXTE, donc `_emit` continue d'emettre tous les "
         "couples LITTERAUX du foyer et n'ajoute qu'`ANY` -- seuls les couples "
         "`(HeavyBoltPistol, dmg)` et `(HeavyBoltPistol, nrOfHits)` cessent d'etre nommes."),
+    "scripts/python/engine/predict.py": (
+        "#935. MEME CAUSE EXACTE que `abilities/base.py` ci-dessus, et c'est la croissance qui y "
+        "etait ANNONCEE : le site est "
+        "`ability_var(_NRC.ABILITY_ID, _NRC.VAR_HP_TO_HEAL, lvl, multiplier_pct=mult)`, ou `_NRC` "
+        "est `engine.entities.effects.loki.nether_realm_casket`, importe. L'env du resolveur est "
+        "PAR MODULE, donc AUCUN des deux axes ne se resout -- d'ou `(ANY, ANY)`, un trou et non "
+        "un couple. Rouge apparu au merge de #909 (`9f80611d`), qui a introduit ce site. "
+        "PERTE MESUREE, nulle en pratique : les deux constantes valent `\"NetherRealmCasket\"` et "
+        "`\"hpToHeal\"` (LUES dans leur module de definition), et le couple "
+        "`(NetherRealmCasket, hpToHeal)` n'est patche par AUCUNE fixture du depot -- la seule "
+        "chose perdue est de POUVOIR le nommer si une fixture future le patchait. "
+        "La reparation de fond reste le residu #484-r1 (resoudre une constante importee d'un "
+        "AUTRE module) ; la nommer ici est ce que le probe prescrit, pas un blanc-seing."),
+    "scripts/python/engine/runner/abilities/genestealer.py": (
+        "#935, TROISIEME occurrence de la MEME lacune -- et celle-ci est apparue au REBASE, pas "
+        "dans le diff de la tranche. Le site est "
+        "`ability_var(self.ABILITY_ID, AbilityConstantType.range.name, is_constant=True)` dans "
+        "`HeroicFusilladeAbility.get_dynamic_invalid_target_reason`. AUCUN des deux axes ne se "
+        "resout : l'ability est un ATTRIBUT DE CLASSE lu par `self.` (le resolveur ne remonte pas "
+        "a la classe englobante) et la variable est un `<Enum>.<membre>.name`, la lacune que "
+        "`abilities/base.py` nomme deja et annonce CROISSANTE -- ecrire le membre d'enum plutot "
+        "que le litteral est ce que CLAUDE.md prescrit, donc ce patron se repand, exactement "
+        "comme predit. "
+        "PERTE MESUREE, nulle en pratique : les deux valeurs sont LUES dans le fichier -- "
+        "`ABILITY_ID = \"HeroicFusillade\"` et `range` -- et le couple "
+        "`(HeroicFusillade, range)` n'est patche par AUCUNE fixture du depot. "
+        "Meme reparation de fond : residu #484-r1."),
 }
 
 _LIGHTIMUP_WHY = (
@@ -158,6 +185,21 @@ _LIGHTIMUP_WHY = (
     "`ability_var` ; `probe_380` et les deux tests offline ne montent aucun runner. "
     "CONDITION DE VALIDITE, a re-verifier avant tout reemploi : ne JAMAIS confronter une face "
     "PORT sur ce seed BC -- toute prediction Python y lirait 831/1109, le natif 831/1112.")
+
+_HELLFIRE_WHY = (
+    "montage #605 (`probe_605_hellfire_hits.py`) : MESURE D'ETAGE de "
+    "`...HellfireShellsAbility$$ExecuteBehaviour`. Le decompile lit ses deux entrees par "
+    "`IdunBattle.Configuration.AbilityConfiguration$$GetNumberConstant` "
+    "(`0x2f = nrOfHits`, `0x2b = extraHit`) et en derive le NOMBRE DE COUPS ; le probe fait donc "
+    "VARIER l'entree et compte les `UnitDamaged` du natif, plutot que de fitter un scalaire. La "
+    "desynchronisation est INHERENTE : `GetNumberConstant` lit `BC.Abilities.ActiveAbilities."
+    "HellfireShells.Constants`, pas le gameconfig -- ecrire ailleurs laisserait la fixture INERTE "
+    "(meme verrou que #375, d'ou le sidecar d'epinglage). Elle est SANS CONSEQUENCE parce que ce "
+    "montage ne confronte QUE le natif : `probe_605` n'importe RIEN d'`engine` (verifie #935 -- "
+    "ses seuls imports du depot sont `catalog_inject`, `hexgeo`, `rl_duel`, `stream_events`), "
+    "aucune prediction Python n'y est calculee, et aucun autre artefact ne l'appelle. "
+    "CONDITION DE VALIDITE, a re-verifier avant tout reemploi : ne JAMAIS confronter une face "
+    "PORT sur ce seed BC -- le port y lirait les valeurs du gameconfig, le natif celles du patch.")
 
 #: PATCHS A CLE CALCULEE, nommes. Le balayage est statique : quand l'ability ou la variable est
 #: choisie a l'execution, il ne peut RIEN conclure -- et rendre `(*, *)` ferait rougir tout le
@@ -193,6 +235,8 @@ _EXCEPTIONS = {
         "l'emprunte."),
     ("LightImUp", "minDmg"): _LIGHTIMUP_WHY,
     ("LightImUp", "maxDmg"): _LIGHTIMUP_WHY,
+    ("HellfireShells", "nrOfHits"): _HELLFIRE_WHY,
+    ("HellfireShells", "extraHit"): _HELLFIRE_WHY,
 }
 
 

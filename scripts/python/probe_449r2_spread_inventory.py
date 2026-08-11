@@ -440,6 +440,17 @@ EXPECTED_DEFAULT = {
      "amount_spread_pct"): (0, _RAISON_NULLABLE_VIDE),
     ("engine/runner/abilities/behaviours/combat.py", "UseActiveAbility",
      "spread_pct"): ("LU_BC", _RAISON_SPREAD_BC),
+    #: LU au decompile (#935, build courant) et NON recopie du voisin : le corps de
+    #: `IdunBattleLogic.Entities.DSLBehaviors$$UseNormalAttack` alloue
+    #: `DSLSelectors$$UnitNormalAttackType(caster)` puis construit
+    #: `IdunBattle.Entities.Behaviours.UseActiveAbilityBehaviour$$.ctor(caster, target, <ce type>,
+    #: parentAbility, triggerAbilityOrEffect, options)` en RECOPIANT les options telles quelles --
+    #: aucun champ n'y est ecrit. Ce sont des `AbilityOptions` (0x14 octets), PAS des
+    #: `AttackDamageBehaviourOptions` : l'octet d'aiguillage plate-vs-spread (`options+6`) n'existe
+    #: pas sur ce chemin, donc rien ici ne peut imposer une variance. Le regime est celui de
+    #: l'attaque NORMALE, et il se lit dans la BC.
+    ("engine/runner/abilities/behaviours/combat.py", "UseNormalAttack",
+     "spread_pct"): ("LU_BC", _RAISON_SPREAD_BC),
     ("engine/runner/operations/additional_hits.py", "execute_additional_hits",
      "spread_pct"): ("LU_BC", _RAISON_SPREAD_BC),
     ("engine/runner/operations/damage.py", "DamageHandler",

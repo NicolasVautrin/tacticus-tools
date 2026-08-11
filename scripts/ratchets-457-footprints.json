@@ -1457,6 +1457,18 @@
    "dirs": [],
    "temoins": []
   },
+  "tests/engine/runner/test_929_savage_killer_offline.py": {
+   "_at": 1786468232,
+   "_commit": "b02ea7a6144e9a601fb7f86697ad6a6e1898d01d",
+   "dirs": [
+    "data",
+    "data/symbols/rnca9r7q6c/ghidra"
+   ],
+   "temoins": [
+    "data/i2_en.json",
+    "data/symbols/rnca9r7q6c/ghidra/functions.tsv"
+   ]
+  },
   "tests/engine/runner/test_ability_registry_ratchet.py": {
    "_at": 1786392144,
    "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
@@ -4794,6 +4806,26 @@
     "data/symbols/gqfc5mff6c/frida/methods.tsv"
    ]
   },
+  "tests/engine/test_928_legacy_of_combat_offline.py": {
+   "_at": 1786468232,
+   "_commit": "b02ea7a6144e9a601fb7f86697ad6a6e1898d01d",
+   "dirs": [
+    "data/symbols",
+    "data/symbols/rnca9r7q6c/frida",
+    "data/symbols/rnca9r7q6c/ghidra",
+    "data/symbols/rnca9r7q6c/metadata",
+    "scripts/python/engine/runner/abilities",
+    "scripts/python/engine/runner/operations/triggers/dispatch"
+   ],
+   "temoins": [
+    "data/symbols/CURRENT",
+    "data/symbols/rnca9r7q6c/frida/enums.tsv",
+    "data/symbols/rnca9r7q6c/ghidra/functions.tsv",
+    "data/symbols/rnca9r7q6c/metadata/non_owner_slot4.tsv",
+    "scripts/python/engine/runner/abilities/handler.py",
+    "scripts/python/engine/runner/operations/triggers/dispatch/attack.py"
+   ]
+  },
   "tests/engine/test_930_kustom_force_field_reworked_offline.py": {
    "_at": 1786452690,
    "_commit": "945c1366553370619620b76a1c630bc1daded165",
@@ -4805,6 +4837,25 @@
    "_commit": "3b2efb79678921170f89c012c12b78f0c64acb27",
    "dirs": [],
    "temoins": []
+  },
+  "tests/engine/test_932_deathwing_offline.py": {
+   "_at": 1786468232,
+   "_commit": "b02ea7a6144e9a601fb7f86697ad6a6e1898d01d",
+   "dirs": [
+    "data",
+    "data/symbols",
+    "data/symbols/rnca9r7q6c/frida",
+    "data/symbols/rnca9r7q6c/ghidra",
+    "data/symbols/rnca9r7q6c/metadata"
+   ],
+   "temoins": [
+    "data/seed-bc.json",
+    "data/symbols/CURRENT",
+    "data/symbols/rnca9r7q6c/frida/classes.tsv",
+    "data/symbols/rnca9r7q6c/frida/methods.tsv",
+    "data/symbols/rnca9r7q6c/ghidra/functions.tsv",
+    "data/symbols/rnca9r7q6c/metadata/string_literals.tsv"
+   ]
   },
   "tests/engine/test_933_premisse_regime_offline.py": {
    "_at": 1786461176,

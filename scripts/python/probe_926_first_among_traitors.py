@@ -64,7 +64,9 @@ PLACES = {CARRIER: (3, 3), NEAR_CHAOS: (3, 4), PLAIN: (2, 3), FAR_CHAOS: (0, 0)}
 A_PLACES = {FOE_NEAR: (2, 4), FOE_FAR: (5, 1)}
 ABILITY = "FirstAmongTraitors"
 EFFECT_NAME = "FirstAmongTraitors_ExtraDmg"
-STATE: Path = PYDIR / "logs" / "st-926.json"
+#: Sortie de run sous le `logs/` de la RACINE, jamais `scripts/python/logs/` (#935) : `probe_273`
+#: ne reconnait comme SORTIE que les racines de premier niveau (`_OUTPUT_ROOTS = {"logs", "app"}`).
+STATE: Path = Path(__file__).resolve().parents[2] / "logs" / "st-926.json"
 TOL = 3          # meme tolerance d'arrondi que `test_aura_position_live`
 
 
