@@ -62,13 +62,43 @@ from ..services.damage_config import DAMAGE_FIELDS
 _ENTITY_TYPE_MACHINE = EntityType.Machine
 
 
-def _hp_by_id(observe: dict) -> Dict[int, Tuple[Optional[int], Optional[int]]]:
-    """hp/hpMax par id d'UNITÉ (squadId == decisionView.id). PAS entityId."""
+def _hp_by_id(observe: dict,
+              snapshot: Optional[dict] = None) -> Dict[int, Tuple[Optional[int], Optional[int]]]:
+    """hp/hpMax par id d'UNITÉ (squadId == decisionView.id). PAS entityId.
+
+    ⚠ **`observeBattle.hpMax` est le max INITIAL, `combatSnapshot.healthMax` est le max COURANT** —
+    et les deux DIVERGENT dès qu'un stat-mod `HEALTH` a relevé le maximum (#902). Mesuré sur le
+    marquage `1224 NanoscarabRepairProtocols` (`AddDynamicStatModifierEffect(1546, stat Health)`) :
+
+        squadId 56 `necroSpyder`  -> observeBattle hp 11696 / hpMax **9037**  (max initial)
+                                     combatSnapshot health 11696 / healthMax **11696** (max courant)
+
+    Sans ce correctif l'ECS Python reçoit `hp > hp_max`, donc l'unité passe pour PLEINE : tous les
+    gates « a-t-elle des PV manquants » se trompent — `AttackQuery$$EntityCanBeRepaired`,
+    `HealableUnitsSelector`, `FillUpStatComponent$$MaxFillUp`. Conséquence MESURÉE : le port de
+    `1223 ReanimationBeam` ne réparait AUCUNE des machines marquées (`Repairable` rendait `[]`) là où
+    le natif en réparait une de 1457 PV. Le maximum relevé est *la condition d'entrée* de l'ability,
+    donc l'écart était structurel, pas accidentel.
+
+    Le snapshot PRIME quand il porte une valeur EXPLOITABLE ; `snapshot=None` (appelant qui ne le
+    capture pas) et `healthMax` absent/0 retombent sur `observeBattle` — **jamais** un `0` rendu
+    comme une mesure : `healthMax == 0` est ce que publie une entité sans PV (la MoW `necroReanimator`
+    le rend, cf. `snapshot.py` §« stats à 0 »), pas un maximum de zéro.
+
+    N'ADRESSE PAS le résidu #572-r1 (le port, quand c'est LUI qui pose le stat-mod HEALTH, ne relève
+    toujours pas `hp_max` : `ctx.stats[5]` ne se propage pas à `HealthComponent`). Ici on corrige le
+    SEEDING d'un état live, pas la propagation offline — deux étages distincts."""
     out: Dict[int, Tuple[Optional[int], Optional[int]]] = {}
     for u in (observe.get("units") or []):
         uid = u.get("squadId")
         if uid is not None:
             out[uid] = (u.get("hp"), u.get("hpMax"))
+    for u in ((snapshot or {}).get("units") or []):
+        eid = u.get("entityId")
+        hmax = u.get("healthMax")
+        if eid is None or eid not in out or not hmax:
+            continue
+        out[int(eid)] = (out[int(eid)][0], int(hmax))
     return out
 
 
@@ -366,7 +396,8 @@ def load_state(decision: dict, observe: dict, snapshot: Optional[dict] = None,
     _pc = (observe.get("counts") or {}).get("player")
     if _pc is not None and int(_pc) > 1:
         state.turn_order_player_count = int(_pc) - 1
-    hp_by_id = _hp_by_id(observe)
+    # `snapshot` PRIME sur `observe` pour le MAXIMUM (max COURANT vs max INITIAL, cf. `_hp_by_id`).
+    hp_by_id = _hp_by_id(observe, snapshot)
     for u in (decision.get("units") or []):
         uid = u.get("id")
         if uid is None:
