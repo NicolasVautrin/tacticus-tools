@@ -49,11 +49,21 @@ def rpc(sid, method, body=None, timeout=120):
     return _unwrap(_rpc(sid, method, [body] if body is not None else [], timeout=timeout))
 
 
+#: PV forces a la cible du bras TANKY. `--unit-stat` (BC deja NORMALISE), jamais le seed BC.
+TANKY_HP = 900000
+
+
 def ensure_seed_bc(ammo: int = 5, tanky: bool = False):
-    """Seed BC augmente du porteur MoW (#92) + munitions. `tanky` = PV enormes pour l'ennemi SANS
-    toucher son armure : `--hp-target` de rl_duel met `FixedArmor = 0` (ce qui rendrait le PERCAGE
-    inerte), on ne peut donc pas s'en servir quand on veut PLUSIEURS echantillons de degat perce.
-    Extension de HARNAIS (parametre de BATAILLE), pas de mecanique."""
+    """Seed BC augmente du porteur MoW (#92) + munitions.
+
+    ⚠ `tanky` NE PATCHE PLUS LES PV ICI (#914). Le patch de `BC.Units[].Health` du SEED BC etait
+    INOPERANT : `buildNormalizedBC` RECALCULE `Health`/`Damage` au rank cible, donc l'ennemi arrivait
+    a ses PV normalises (~9539 mesures) et non aux 900000 annonces -- un montage qui MENT dans son
+    propre `print`. Il mourait au 4e tir, et le montant reporte par le natif devenait alors un
+    OVERKILL, c.-a-d. les PV RESTANTS, pas le degat calcule (cf. `build`, qui passe `--unit-stat`).
+    Le seul levier qui mord est celui applique au BC DEJA NORMALISE (`runner.md` : « le patch
+    s'applique au BC deja normalise, comme les autres »).
+    """
     path = SEED_BC.with_name(SEED_BC.stem + ("_tanky" if tanky else "") + SEED_BC.suffix)
     if path.exists():
         return path
@@ -63,25 +73,33 @@ def ensure_seed_bc(ammo: int = 5, tanky: bool = False):
     for _pid, p in ((bc.get("Player") or {}).get("Players") or {}).items():
         if isinstance(p, dict) and p.get("PlayerType") != 2:
             p["MachineOfWarAmmo"] = ammo
-    if tanky:
-        n = 0
-        for u in (bc.get("Units") or {}).values() if isinstance(bc.get("Units"), dict) \
-                else (bc.get("Units") or []):
-            if isinstance(u, dict) and u.get("VisualId") == FOE:
-                u["Health"] = 900000
-                u["RemainingHealth"] = 900000
-                n += 1
-        print(f"[bc] {FOE} : PV portes a 900000 sur {n} template(s) (armure INCHANGEE)")
     path.write_text(json.dumps(bc), encoding="utf-8")
     return path
 
 
-def build(state_file: str, seed: str = "31337", no_armor: bool = False, tanky: bool = False) -> int:
+def build(state_file: str, seed: str = "31337", no_armor: bool = False, tanky: bool = False,
+          regime_propre: bool = False) -> int:
     bcp = ensure_seed_bc(tanky=tanky)
     # `--hp-target` met `FixedArmor = 0` (rl_duel.py) -> le PERCAGE devient INERTE sur le degat.
     # C'est le levier de DECOMPOSITION PAR ETAGE : sans armure, un buff purement « percage » ne doit
     # RIEN changer ; s'il change quand meme le degat, c'est qu'il agit sur un AUTRE etage.
     extra = ["--hp-target", "900000", "--hp-player", "900000"] if no_armor else []
+    if tanky:
+        # PV enormes SANS toucher l'armure -- sur le BC DEJA NORMALISE, seul endroit ou le patch
+        # survit (cf. `ensure_seed_bc`). Sans lui la cible meurt en cours de serie et le dernier
+        # montant live est un OVERKILL (= les PV restants), donc hors de l'enveloppe de degat.
+        extra += ["--unit-stat", f"{FOE}:Health={TANKY_HP},RemainingHealth={TANKY_HP}"]
+    if regime_propre:
+        # #914 -- REGIME OBSERVABLE pour le canal PERCAGE. Les bornes `clean_min`/`clean_max` que
+        # rend le port sont la plage NON-CRIT (`hit_nc.min/max x hits`, damage_ops/normal.py) : un
+        # coup qui CRITE ou qui est BLOQUE n'y appartient pas, et l'encadrer par elles est une faute
+        # de REGIME, pas une divergence de magnitude. Depuis #419-r6 les items BiS sont EQUIPES par
+        # defaut, donc `DamageCalculations$$CouldCrit` (`GetStat(9) > 0 && GetStat(10) > 0`) est VRAI
+        # -- ce qui n'etait pas le cas quand ce montage a ete ecrit (#123 : could_crit 0/106).
+        # On eteint les DEUX canaux orthogonaux, et EUX SEULS : crit cote attaquant, block cote
+        # defenseur. Ce n'est pas `--no-bis-items`, qui retirerait TOUS les items (« un heros rank 17
+        # sans aucun item n'existe pas dans le jeu ») ; le reste du regime nominal est preserve.
+        extra += ["--crit", "0,0", "--block-target", "0,0"]
     p = subprocess.run([sys.executable, "rl_duel.py", "build", "--seed", seed,
                         "--board", BOARD, "--seed-bc", str(bcp),
                         "--p-units", f"{ALLY},{SPARE}", "--a-units", f"{FOE},{FOE}",

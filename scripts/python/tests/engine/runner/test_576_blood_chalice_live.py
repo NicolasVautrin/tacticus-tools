@@ -104,7 +104,8 @@ def test_le_cablage_du_registre_est_complet():
     from engine.runner.abilities.handler import ABILITY_CLASSES
     from engine.runner.abilities.targeting import (DYNAMIC_TARGET_RULE_UNPORTED,
                                                    TARGETING_OPTIONS_UNPORTED,
-                                                   RANGE_ADJACENT, RANGED_BOOL_FALSE)
+                                                   RANGE_ADJACENT, RANGED_BOOL_FALSE,
+                                                   targeting_options_for)
     from engine.runner.abilities.targeting_rule import TargetingRule as TR
 
     bc = int(ActiveAbilityType.BloodChalice)                      # 1175
@@ -130,13 +131,33 @@ def test_le_cablage_du_registre_est_complet():
     assert not (int(opts.rules) & int(TR.TargetIsHealable))
     # 3e argument d'`AActiveAbility$$.ctor`, TRANSCRIT (jamais deduit du profil de degat).
     assert ABILITY_ATTACK_TYPE.get(bc) == AbilityAttackType.Others
-    # ... et le retrait des deux tables est CIBLE, pas un effacement.
-    assert len(TARGETING_OPTIONS_UNPORTED) > 10
-    assert len(DYNAMIC_TARGET_RULE_UNPORTED) >= 1
+    # ... et le retrait des deux tables est CIBLE : la source EFFECTIVE du masque de 1175 est sa
+    # CLASSE. `targeting_options_for` consulte la classe PUIS la table -- cette identite dit donc ce
+    # qu'un COMPTE d'entrees ne disait pas : que le masque LU ci-dessus est bien celui qui SERT.
+    assert targeting_options_for(bc) is opts
+    #
+    # ⚠ ICI VIVAIENT DEUX SEUILS EN DUR (`len(...) > 10`, `>= 1`), et ils ont rendu `master` ROUGE
+    # (#914, `assert 7 > 10`). Ce n'etait pas un chiffre perime : la propriete gardee etait FAUSSE
+    # des l'ecriture. Ces deux tables FONDENT par construction -- toute face COMBAT portee en retire
+    # sa ligne, le CONTRAT DE DISJONCTION l'exige, et quinze entrees sont sorties depuis #487. Un
+    # seuil pose dessus est un compte a rebours : il passe de vrai a faux sans qu'AUCUNE propriete
+    # gardee n'ait change. Le descendre le ferait retomber ; le RE-DERIVER dans un test le
+    # perimerait au meme rythme, et un compte ecrit a la main dans CETTE table a deja ete faux
+    # quatre fois en un jour (#519).
+    # La garde anti-EFFACEMENT existe, et elle est DERIVEE DU CODE au lieu d'etre ecrite :
+    # `probe_519_comptes_de_table.py` recompte la table par ses marqueurs `@FORME`, et
+    # `tests/engine/test_519_comptes_derives_offline.py` exige a la fois que le bloc genere soit a
+    # jour et que la derivation « mesure quelque chose » (`total > 0`, bloc ET hors-bloc non vides).
+    # La DISJONCTION, elle, est tenue globalement par
+    # `test_targeting_options_sources.py::test_les_deux_sources_de_masque_sont_disjointes`.
 
-    # La surcharge de regle dynamique DOIT deleguer au mirror unique -- sur une cible NON adjacente
-    # elle refuse (`TargetMatchesDynamicRule`), sur le caster lui-meme elle laisse passer.
-    assert hasattr(cls, "get_dynamic_invalid_target_reason")
+    # La regle dynamique est SURCHARGEE PAR LA CLASSE, pas heritee : c'est ce qui autorise la sortie
+    # de `DYNAMIC_TARGET_RULE_UNPORTED` juste au-dessus. `hasattr` seul serait VRAI meme si la
+    # surcharge disparaissait (`ActiveAbility` en porte un defaut permissif qui rend 0) -- il faut
+    # donc lire le `__dict__` de la classe elle-meme.
+    assert "get_dynamic_invalid_target_reason" in vars(cls), (
+        "1175 est SORTIE de DYNAMIC_TARGET_RULE_UNPORTED sans que sa classe surcharge la regle : le "
+        "defaut permissif de `ActiveAbility` rendrait 0 et le gate dynamique serait DESARME")
 
 
 def test_les_deux_effets_sont_enregistres_et_portent_la_bonne_face():
