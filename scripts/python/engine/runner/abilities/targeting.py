@@ -1129,13 +1129,17 @@ TARGETING_OPTIONS_UNPORTED: "dict[int, TargetingOptions]" = {
     #   HellfireShellsAbility.TARGETING_OPTIONS` avec sa face COMBAT. Le masque y est RELU au
     #   decompile (meme preset `+0x140`) et il CONCORDE avec celui qui vivait ici.
     # 1053 DevoutPush  -- `...Active.Loki.DevoutPushAbility$$.ctor`, preset `+0x40`.
-    # 1108 KissOfDeath -- `...Active.Loki.KissOfDeathAbility$$.ctor`, preset `+0x40`.
     #   `*(statics+0x68)` = 0x4000 = `TargetIsEnemy` SEUL ; `+0x60` = 1 = `RangedBool.False` ;
     #   range = `<TargetingRange statics+0x30>` = RANGE_ADJACENT. Meme preset que 1064/1068/1132/
     #   1165/1191/1195 -- et que `DiveAttackAbilityBase$$.ctor`.
+    # 1108 KissOfDeath -- MIGRE (#940) sur `runner/abilities/aeldari.py::KissOfDeathAbility.
+    #   TARGETING_OPTIONS` avec sa face COMBAT, qui a RELU le meme preset `+0x40`. La valeur qui
+    #   vivait ici est CONFIRMEE champ pour champ (comparaison exercee : les deux objets sont
+    #   EGAUX). CONTRAT DE DISJONCTION -- la ligne avait ete laissee ici par #940, ce qui rendait
+    #   `test_512_excruciating_frequencies_offline` ROUGE sur `master` pendant que `probe_181`
+    #   restait VERT : ce dernier est un garde d'EXISTENCE (chaque entree du registre A un masque),
+    #   structurellement aveugle a la DOUBLE declaration.
     ActiveAbilityType.DevoutPush: TargetingOptions(rules=TR.TargetIsEnemy, self_cast=False, range=RANGE_ADJACENT,  # 1053
-                           force_melee_target=RANGED_BOOL_FALSE),
-    ActiveAbilityType.KissOfDeath: TargetingOptions(rules=TR.TargetIsEnemy, self_cast=False, range=RANGE_ADJACENT,  # 1108
                            force_melee_target=RANGED_BOOL_FALSE),
 }
 
