@@ -72,6 +72,9 @@ DECLENCHEUR = {
         # reparation #910 (`target_traits` = substrat d'ENTITE + niveau TERTIAIRE).
         "scripts/python/probe_910_relic_bolt_pistol_live.py",
         "scripts/python/engine/entities/effects/loki/relic_bolt_pistol.py",
+        # Le paquet `loki` est traverse par la fermeture d'imports (`factory` l'entre) : declare
+        # explicitement, sinon `probe_486r15` rougit sur un DECLENCHEUR trop ETROIT.
+        "scripts/python/engine/entities/effects/loki/__init__.py",
         "scripts/python/engine/entities/effects/factory.py",
         "scripts/python/engine/entities/effects/__init__.py",
         "scripts/python/engine/entities/effects/base.py",
