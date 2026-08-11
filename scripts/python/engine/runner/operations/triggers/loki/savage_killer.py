@@ -173,7 +173,7 @@ from .....dsl.event_trigger_type import EventTriggerType
 from .....dsl.effects import ExecutionContext
 from .....entities.active_ability_type import ActiveAbilityType
 from .....entities.damage_profile_type import DamageProfileType
-from .....entities.selectors.units import UnitSet
+from .....entities.selectors.accessors import Target
 from .....entities.traits.unit_trait import UnitTrait
 from .....entities.triggered_ability_type import TriggeredAbilityType
 from ....components import OwnerComponent, UnitComponent
@@ -200,25 +200,32 @@ _ON_UNIT_ADDED = int(EventTriggerType.UnitAdded)             # 0x32 = 50
 _ARMOURED_MIGHT_MOVE = int(ActiveAbilityType.ArmouredMight_Move)          # 0x467 = 1127
 
 
-def savage_killer_tree(victim_id: int):
+def savage_killer_tree():
     """Arbre de `...SavageKillerAbility$$CreateBehaviour` -- MIRROR 1:1 :
 
         AttackWithAttackDamage(Owner@+0x30, <target>, RandomAmount(minDmg, maxDmg),
                                Nullable(Power), nrOfHits = 5, AbilityOrEffect(1159), null, 2)
 
-    `UnitSet([victim_id])` porte le selecteur de cibles natif (`Caster@+0x48` ou `Target@+0x60`
-    selon le `triggerType`, cf. `_victim_id`) : le passer explicitement evite de dependre du
-    threading de `entities_from_state`, comme dans `hateful_assault`. `multi=True` = mirror de
-    `AttackBehaviour$$Execute` qui resout la LISTE du selecteur ; elle ne porte qu'UNE entite ici,
-    donc le tri et la boucle sont des identites -- mais c'est la FORME du natif.
+    Le selecteur de cibles natif est `Caster@DSLSelectors+0x48` sur la face B et `Target@+0x60` sur
+    la face A -- DEUX slots, mais UN SEUL `AttackWithAttackDamage`, et les deux ne rendent qu'UNE
+    entite. Le port fait converger les deux dans le slot `target` de l'`AbilityEntities` qu'il batit
+    (`entities_from_state(state, owner, victime, victime)`), et lit ce slot par le nœud `Target()`
+    (`entities/selectors/accessors.py`, `factory+0x178`). Le CHOIX du slot natif, lui, n'est pas
+    dilue : il vit dans `SavageKillerAbility._victim_id`, foyer unique, qui mirroir a la fois le
+    `if (triggerType == 0x2a)` de `CreateBehaviour` et le `ConditionalSelector` de
+    `$$GetInitialTarget`. MEME collapse, MEME raison et MEME forme que `MartialSuperiority`
+    (`Actor()` + `multi=False`), qui porte le patron jumeau.
+
+    `multi=False` = collapse MONO-CIBLE (`Units(Cache(First(Nearest(...))))` du natif) : les deux
+    slots ne portent qu'UNE entite.
 
     `is_melee=True` : `BaseTriggeredAbility$$GetAttackRangeType` rend `config@+0x20`, et le
     gameconfig de `SavageKiller` porte `attackRangeType: "Melee"`. `level_slot="passive"` :
     `SavageKiller` est une passiveAbility, donc `minDmg`/`maxDmg` s'indexent au niveau PASSIF.
     `native_factory` reste le defaut "attack" (la factory native est bien `AttackWithAttackDamage`,
     pas `AttackWithAbilityDamage`)."""
-    return AttackWithAttackDamage(UnitSet([int(victim_id)]), ABILITY_ID, DAMAGE_PROFILE,
-                                  is_melee=True, multi=True, level_slot="passive")
+    return AttackWithAttackDamage(Target(), ABILITY_ID, DAMAGE_PROFILE,
+                                  is_melee=True, level_slot="passive")
 
 
 class SavageKillerAbility(TriggeredAbility):
@@ -357,7 +364,7 @@ class SavageKillerAbility(TriggeredAbility):
         # victime resolue par le `ConditionalSelector`. `actor` la reflete, comme sur l'evenement.
         entities = entities_from_state(state, self.owner_id, victim_id, victim_id)
         ectx = ExecutionContext(state=state, rng=state.rng)
-        savage_killer_tree(victim_id).execute(entities, ectx)
+        savage_killer_tree().execute(entities, ectx)
         atks = [p for n, p in ectx.emitted if n == "AttackWithAttackDamage"]
         atk = atks[0] if atks else None
         return {"ability": ABILITY_ID, "caster": int(self.owner_id),
