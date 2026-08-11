@@ -87,6 +87,13 @@ et 3) : **AVANT port 6 / natif 18 ; APRÈS 18 / 18**. Le critère est devenu l'�
 | 6 | `astraBullgryn` (BigTarget) adjacent | delta PV **bit-exact** (`15896` puis `22242`), tirages **10/10** (dont 2 de `Randomize`), 1 seul coup Piercing ; **6 mutants sur 6 mordent** |
 | 7 | terme de tuile, `MC1_67`/777 | `X_nat == X_port` sur **7 tuiles sur 7**, terme prenant **3 valeurs distinctes** (10/20/30) |
 | 8 | contre-épreuve registre neutralisé | le terme du port devient plat à zéro : plus aucun pas discriminant, alors que le natif vaut 10/20/30 sur ces mêmes tuiles |
+| 9 | **voie ATTAQUE NORMALE** (l'autre porte de `On(0xb)`) | delta PV **bit-exact** sur 3 casts, tirages **15/15** ; supplément `ref - sans_trigger` = `{warden: 2200, overlord: 1993}` puis `{1711, 1594}`, `{1744, 1590}` — DEUX cibles touchées, et le total reste bit-égal au natif, donc le passif joue **UNE SEULE FOIS** (une double émission le doublerait) |
+
+⚠ **Le port a DEUX portes d'opération là où le natif n'a qu'un site** (#120) : une émission manquante
+ou doublée d'un côté ne se verrait sur **aucun** montage de l'autre. L'étape 9 est donc un axe à part
+entière, pas une variante de confort. Un seul mutant y est inerte, avec sa **cause mesurée** :
+`else_sans_ability_type` n'a d'observable qu'à travers le gate `CurrentAbilityIs(1319)` de l'effet
+1408, que seul un cast de `1191` pose — il mord sur l'autre voie, à compteur > 0.
 
 Mutants joués (chacun retire UNE lecture, sur la MÊME capture et le MÊME état MT), **choisis par
 branche** — muter la branche non prise serait un vert par pauvreté du mutant :
