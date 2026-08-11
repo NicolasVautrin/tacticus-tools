@@ -105,6 +105,7 @@ from .unstoppable_momentum import UnstoppableMomentumReworkedPlaybook
 from .mind_control import MindControlPlaybook
 from .unbreakable_duty import UnbreakableDutyPlaybook
 from .attempted_possession import AttemptedPossessionPlaybook
+from .bio_minefield import BioMinefieldPlaybook
 
 
 # Registre abilityType -> instance de playbook (remplace le switch `kind`).
@@ -126,6 +127,9 @@ PLAYBOOKS: dict[int, NonComparablePlaybook] = {
         InspiredToGreatnessPlaybook(),
         ScarabSummonPlaybook(),
         GetEmRuntzPlaybook(),
+        BioMinefieldPlaybook(),         # 1144 (#939) — util = 100 * |GetFreeAdjacentTiles(cible)|
+        #                                 (IBattleQuery slot 82) + 100 * PV%(cible), gate count > 0,
+        #                                 MIN_UTILITY = 1 (cctor). Position-INDEPENDANTE -> to=None.
         GrotTankPlaybook(),             # 1057 — util = #ennemis dans le DISQUE r=3 autour de la
         #                                 tuile de spawn (= la portee Blast du tank), gate u > 0
         #                                 (IdunBattle.AI.Playbook.Loki.GrotTankPlaybook$$GetUtility)

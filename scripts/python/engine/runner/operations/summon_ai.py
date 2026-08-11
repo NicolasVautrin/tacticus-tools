@@ -308,6 +308,80 @@ def ai_control_execute_for(state: State, uid: int) -> dict:
     return decide_and_apply(state, uid)
 
 
+def ai_control_execute_movement_for(state: State, uid: int, override_range=None,
+                                    override_tile_utility=None) -> dict:
+    """`IdunBattle.Core.Services.AiControl$$ExecuteMovementFor(unit, overrideRange,
+    overrideTileUtility)` -- corps natif :
+
+        var tactic = this.<+0x10 : IPlayerStrategy>.GetUnitTactic(unit);      // iface
+        var it = tactic.CalculateMovementForUnit(unit, overrideRange, overrideTileUtility); // slot 3
+        while (it.MoveNext()) { }                                            // drainee
+        return this.ApplyAiMessages(it.<messages>);
+
+    et le corps de la coroutine, `IdunBattle.AI.Tactics.DefaultAiUnitTactic.<CalculateMovementForUnit>
+    d__8$$MoveNext`, transcrit :
+
+        if (state == null || !UnitExtensions.IsAlive(unit, query)) { yield return new List<>(); }
+        else {
+            tiles    = ABaseAiUnitTactic$$GenerateActionTiles(this, unit, onlyMove: true, overrideRange);
+            mainTile = EntityExtensions$$GetMainTile(unit, query);
+            pos      = EntityExtensions$$GetUnitPosition(unit, query);
+            action   = this.<+0x58 : MovementActionGenerator>.GenerateActions(unit, pos, tiles,
+                                                                              overrideTileUtility);
+            if (action != null)
+                yield return InputBuilder$$GenerateInputMessagesFromUnitAction(action, unit,
+                                                                new UnitPosition(mainTile), flags);
+        }
+
+    Port, etage par etage : le gate `IsAlive` ; `GenerateActionTiles(onlyMove: true, overrideRange)`
+    = `state_bridge.build_from_state(..., max_distance=override_range)` (son `max_distance` EST le
+    3e argument natif, cf. sa docstring) ; le generateur = `action_generators.
+    movement_action_with_override` ; l'apply = `apply_action`, qui n'emet un `MoveUnitOperation` que
+    si `to != origin` -- c'est le mirror du `if (action != null)` PUIS du fait qu'`InputBuilder`
+    n'emet aucun `MoveUnitMessage` pour un deplacement nul (cf. `engine.ai.tactic.
+    input_messages_from_unit_action`).
+
+    ⚠ **CE N'EST PAS `ExecuteFor`** : aucune composante ATTAQUE n'est decidee ici (le natif appelle
+    le seul `MovementActionGenerator`, pas la liste complete des generateurs). `apply_action` recoit
+    donc une action `{"kind": "move"}` sans `ability`, et sa branche attaque ne s'arme pas.
+
+    ⚠ **AUCUN reset/restore de flags de tour**, a la difference de `ComputerActionOperation.execute`
+    : `Core.Services.OperationProcessor$$ComputerMovementAction` (slot `IOperationProcessor` **54**,
+    3 arguments, LU dans `metadata/ioperationprocessor_slots.tsv`) appelle
+    `ComputerActionOperation$$ExecuteMovementFor` DIRECTEMENT, sans le cycle
+    `RemoveTurnFlags`/`SetUnitTurnsFlags` que la surcharge `ComputerAction` porte. Ajouter le cycle
+    ici ferait bouger des unites qui ont fini leur tour. (#939)"""
+    e = state.get_entity(int(uid))
+    uc = e.get_component(UnitComponent) if e is not None else None
+    if uc is None or not uc.alive:            # `!IsAlive(unit)` -> la coroutine rend une liste VIDE
+        return {"uid": int(uid), "skipped": "not-alive"}
+    from engine.ai.state_bridge import build_from_state
+    from engine.ai.action_generators import movement_action_with_override
+    try:
+        ctx = build_from_state(state, int(uid), max_distance=override_range)
+        action = movement_action_with_override(ctx, override_tile_utility)
+    except Exception as ex:                             # pragma: no cover (diagnostic)
+        return {"uid": int(uid), "error": repr(ex)}
+    return apply_action(state, int(uid), action)
+
+
+class ComputerMovementActionOperation:
+    """`IdunBattle.Operations.ComputerActionOperation$$ExecuteMovementFor(unit, overrideRange,
+    overrideTileUtility)` -- le mutateur ECS derriere le slot `IOperationProcessor` **54**
+    (`ComputerMovementAction`, 3 arguments), lui-meme la feuille du behaviour DSL
+    `PerformAIMovement` (`IdunBattle.Entities.Behaviours.PerformAIMovementBehaviour$$Execute`).
+
+    Le corps natif ne fait QUE deleguer -- `IAiControl.<slot 2>(unit, overrideRange,
+    overrideTileUtility)` -> `AiControl$$ExecuteMovementFor` -- d'ou cette classe MINCE, symetrique
+    de `ComputerActionOperation` ci-dessous, qui existe pour que le call-site du behaviour cite une
+    Operation et non le service. (#939)"""
+    __slots__ = ()
+
+    @staticmethod
+    def execute(state: State, uid: int, override_range=None, override_tile_utility=None) -> dict:
+        return ai_control_execute_movement_for(state, uid, override_range, override_tile_utility)
+
+
 def ai_control_execute_ability_action_for(state: State, uid: int, ability_id: int,
                                           allow_only_move: bool = False,
                                           move_amount: Optional[int] = None,

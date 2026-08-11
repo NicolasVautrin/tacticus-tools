@@ -50,7 +50,7 @@ from __future__ import annotations
 
 from .context import entities_from_state, LiveUnit, _unit_dict
 from .summon import Spawn, PerformAIAttack, SpawnSummon, SpawnReplica
-from .ai_control import PerformAIAction
+from .ai_control import PerformAIAction, PerformAIMovement
 from .combat import (AttackWithAttackDamage, AttackWithAbilityDamage, EvaluateAbilities,
                      UseActiveAbility, UseNormalAttack, UseNormalAttackIfAble, InformWeapon,
                      ChainLeftOverHitsAttackDamage, SortedAttackSeries)
@@ -81,6 +81,7 @@ from .persistent_data import (AddPersistentData, AddToPersistentDataList,
 __all__ = [
     "entities_from_state", "LiveUnit",
     "Spawn", "PerformAIAttack", "SpawnSummon", "SpawnReplica", "PerformAIAction",
+    "PerformAIMovement",
     "AttackWithAttackDamage", "AttackWithAbilityDamage", "EvaluateAbilities", "UseActiveAbility",
     "UseNormalAttack", "UseNormalAttackIfAble",
     "InformWeapon", "ChainLeftOverHitsAttackDamage", "SortedAttackSeries",
