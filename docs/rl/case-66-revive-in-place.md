@@ -13,6 +13,13 @@ la tuile de mort et la tuile de revive DIFFERENT. Primitive `ReviveEffect`
 (passif `TaintedNarthecium`). Le retrofit #79 a porte **Narthecium** (LIVE-validee end-to-end),
 **RitesOfMorkai**, **ReanimationBeam** et **PhoenixGem** (mirror + offline, carriers non montables).
 
+> ⚠ **« carriers non montables » est PÉRIMÉ pour RitesOfMorkai** (et l'était déjà à demi depuis
+> #229). `spaceWolfPriest` s'injecte au catalogue (`catalog_inject.write_augmented_seed_bc` +
+> `rl_duel build --seed-bc`) et entre au pool ; son ability **1211** est portée et confrontée live
+> — les trois volets, dont la POSE qui manquait : rien n'inscrivait jamais 1502 hors seed. Cf.
+> `docs/rl/case-906-rites-of-morkai-trois-mecaniques.md`. La même remarque vaut pour le « slots
+> **NULS** » du §7 ci-dessous, que `runner/operations/triggers/revive_effect.py` corrige déjà.
+
 La reprise **#88/#89** a ferme les trois hypotheses restantes **par LECTURE** (§6.0, §7) :
 `get_ReviveOnOverkill` et `get_HealType` de ReanimationBeam/RitesOfMorkai (**B1** — et `heal_type=1`
 levait un **no-op garanti**), `GetReviveChance` litteral **= 100** (**B2**), le vecteur

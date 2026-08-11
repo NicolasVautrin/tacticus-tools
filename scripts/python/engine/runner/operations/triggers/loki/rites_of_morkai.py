@@ -8,10 +8,18 @@ surrounding friendly non-mechanical units become <i>Inspired</i> for 1 round or 
 Health, unless Overkilled.** Inspired units with Final Vengeance deal +{dmg} Damage with all attacks.
 After using this ability, Baldr immediately performs a normal melee attack against an adjacent enemy. »
 
-Ce module ne porte QUE le volet REVIVE (`RitesOfMorkaiEffect`, EffectType 1502). Les autres volets de
-l'ability (pose de l'effet sur la zone, `RitesOfMorkai_ExtraDamageEffect` IdunBattle.Entities.Effects.Loki.RitesOfMorkai_ExtraDamageEffect$$.ctor = +dmg si Final
-Vengeance, l'attaque melee de suivi de `IdunBattleLogic.Entities.Abilities.Active.Loki.RitesOfMorkaiAbility$$ExecuteBehaviour`) NE SONT PAS
-portes -- cf. le residu documente dans docs/rl/case-66-revive-in-place.md.
+Ce module ne porte QUE le volet REVIVE (`RitesOfMorkaiEffect`, EffectType 1502).
+
+⚠ **LA PHRASE QUI SUIVAIT ICI EST PERIMEE DEPUIS #906, ET C'ETAIT LE MOTIF #519.** Elle disait que
+les autres volets de l'ability « NE SONT PAS portes » et renvoyait au residu de
+`docs/rl/case-66-revive-in-place.md`. Ils LE SONT desormais, et le trou etait plus grave que ce
+qu'elle decrivait : rien ne POSAIT jamais 1502 hors seed, donc ce trigger-ci n'etait atteignable
+que sur un etat rechargeant une pose NATIVE. Les trois volets vivent maintenant dans
+`engine/runner/abilities/spacewolves.py` (`rites_of_morkai_tree` : la ZONE, le
+`RitesOfMorkai_ExtraDamageEffect` = `entities/effects/loki/rites_of_morkai.py`, et l'ATTAQUE
+NORMALE de suivi de `IdunBattleLogic.Entities.Abilities.Active.Loki.RitesOfMorkaiAbility$$
+ExecuteBehaviour`). Detail et confrontation live :
+`docs/rl/case-906-rites-of-morkai-trois-mecaniques.md`.
 
 Artefact natif (RE ghidra gqfc5mff6c, VA citees) :
 

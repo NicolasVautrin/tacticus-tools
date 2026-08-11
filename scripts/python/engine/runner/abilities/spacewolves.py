@@ -16,24 +16,32 @@ degat porte un bonus FLAT `extraDmg x nb de HEROS morts/ressuscites de la batail
 `WarHowl_ExtraDamage_Unstoppable` (0x4c6 = 1222) pour UN tour sur le caster ET tout ami MELEE
 non-Summon du plateau. Cf. `war_howl_tree()`. Case-366-r1 (l'effet, LECTURE) + cette tranche (la
 POSE, residu 6.3 de la meme fiche).
+
+[1211 RitesOfMorkai | spaceWolfPriest «Baldr»] — TROIS mecaniques en un cast, et l'audit n'en
+classe qu'une : pose du REVIVE `RitesOfMorkai` (0x5de = 1502) sur le caster + ses amis
+non-mecaniques a portee, pose de `RitesOfMorkai_ExtraDamage` (0x5f9 = 1529) sur le SOUS-ENSEMBLE
+de cette zone qui a deja une forme de Final Vengeance, puis **ATTAQUE NORMALE** sur le meilleur
+ennemi adjacent. Cf. `rites_of_morkai_tree()`. #906.
 """
 from __future__ import annotations
 
 from typing import Optional, TYPE_CHECKING
 
 from ...entities.behaviours import op_and, op_add, If
-from ...entities.formulas import Count, Get, Multiply
-from ...entities.selectors.accessors import Owner, Target
+from ...entities.formulas import Const, Count, Get, Multiply, StatAmount, UnitNormalAttackType
+from ...entities.selectors.accessors import ActiveTarget, Owner, Target
 from ...entities.selectors.geometry import Cache, PickRandomly
 from ...entities.selectors.tiles import AdjacentTiles, AllAliveUnits, CanAddUnit, Caster
 from ...entities.selectors.units import (
-    AllDeadOrResurrectedUnits, First, Friends, Sub, Tiles, Union, Units, UnitsWithTrait,
-    UnitsWithoutRangedWeapons, UnitsWithoutTrait
+    AdjacentEnemies, AllDeadOrResurrectedUnits, And, First, Filter, Friends, SortUnitsByDamageUtility,
+    Sub, SurroundingFriends, Tiles, Union, Units, UnitsWithTrait, UnitsWithoutRangedWeapons,
+    UnitsWithoutTrait, ValidNormalAttackTargets
 )
+from ...entities.stats import StatType
 from ...entities.traits.unit_trait import UnitTrait
 from ...entities.unit_selection_type import UnitSelectionType
-from ...entities.triggers import (IsAlive, IsDead, AreEqual, Not, TriggerAnd, IsCanAddUnit,
-                                  AmountIsGreaterThanZero)
+from ...entities.triggers import (IsAlive, IsDead, AreEqual, HasEffect, HasTrait, Not, TriggerAnd,
+                                  TriggerOr, IsCanAddUnit, AmountIsGreaterThanZero)
 from ...entities.active_ability_type import ActiveAbilityType
 from ...entities.effect_type import EffectType
 from ...entities.effects.magnitude import ability_var
@@ -41,9 +49,9 @@ from ...dsl.effects import ExecutionContext
 from ..components import StatsComponent
 from .base import ActiveAbility
 from .targeting import (RANGE_ADJACENT, RANGE_FROM_CONFIG, RANGE_SELF, RANGED_BOOL_FALSE,
-                        RANGED_BOOL_TRUE, TargetingOptions)
+                        RANGED_BOOL_TRUE, TargetingOptions, is_mechanical)
 from .targeting_rule import TargetingRule as TR
-from .behaviours.combat import AttackWithAttackDamage
+from .behaviours.combat import AttackWithAttackDamage, UseNormalAttack
 from .behaviours.context import entities_from_state
 from .behaviours.effects import AddEffect
 from .behaviours.lifecycle import KillDeadUnits, RemoveUnitFromItsTiles
@@ -63,6 +71,13 @@ SUMMON_TRAIT = int(UnitTrait.Summon)    # 0x2=2 — l'argument `trait` d'`UnitsW
 # `UnitsWithoutTrait`. Il MORD (#585) : une unite en DEEP STRIKE porte `UnitFlag.Untargetable` et
 # le natif ne la buffe pas, alors que tous les autres filtres la retiennent.
 SELECTION = int(UnitSelectionType.OnlyAliveAndTargetable)     # 3
+# --- RitesOfMorkai (1211) -------------------------------------------------------------------
+RITES_OF_MORKAI = int(EffectType.RitesOfMorkai)                    # 0x5de=1502 — le REVIVE (« Inspired »)
+RITES_OF_MORKAI_EXTRA_DMG = int(EffectType.RitesOfMorkai_ExtraDamage)   # 0x5f9=1529 — le +extraDmg
+MECHANICAL_TRAIT = int(UnitTrait.Mechanical)   # 0x5=5 — l'argument `trait` d'`UnitsWithoutTrait` de 1211
+# `HasTrait(ActiveTarget, 0x3f6)` — le « Final Vengeance » de l'i2 s'ecrit `FinalJustice` a l'enum.
+FINAL_VENGEANCE_TRAIT = int(UnitTrait.FinalJustice)                # 0x3f6=1014
+FINAL_VENGEANCE_EFFECT = int(EffectType.FinalVengeance_UnitEffect)  # 0x5ae=1454
 
 
 def great_frost_axe_ice_tiles() -> Union:
@@ -682,3 +697,305 @@ class WarHowlAbility(ActiveAbility):
                     placed.append(p.get("target"))
         return {"ability": "WarHowl", "caster": caster_id, "target": target_id,
                 "buff_targets": buffed, "buffed": placed, "dsl": True}
+
+
+# ====================== RitesOfMorkai (spaceWolfPriest «Baldr», actif 1211) ======================
+
+def rites_of_morkai_buff_zone(range_const):
+    """`<la zone inspiree>` -- MIRROR du DECOMPILE de
+    `IdunBattleLogic.Entities.Abilities.Active.Loki.RitesOfMorkaiAbility$$ExecuteBehaviour`, noeud
+    pour noeud (slots `DSLFactory` : `+0x90 Selectors` ; `DSLSelectors+0x30` = Owner) :
+
+        Cache( op_Addition( Owner@DSLSelectors+0x30,
+                            UnitsWithoutTrait(
+                                SurroundingFriends( Owner@+0x30,
+                                    range  = AbilityConfiguration$$GetNumberConstant(0x16 = range),
+                                    unique = true,
+                                    unitSelectionType = 3 = OnlyAliveAndTargetable ),
+                                trait = 0x5 = UnitTrait.Mechanical,
+                                selectionType = 3 ) ),
+               matchAbilityEntities = true )
+
+    LE `Cache` EST LOAD-BEARING, et c'est la structure meme de l'ability : le MEME objet-selecteur
+    est consomme DEUX fois -- une par l'`AddEffect(1502)` qui inspire la zone, une par le `Filter`
+    qui en extrait le sous-ensemble Final-Vengeance pour l'`AddEffect(1529)`. Sans memoisation, la
+    seconde evaluation relirait un plateau deja mute par la premiere pose.
+
+    ⚠ Le CASTER entre par le `op_Addition`, PAS par le filtre : il est inspire quelles que soient
+    ses proprietes, alors que `SurroundingFriends` l'exclut par construction (le centre n'est jamais
+    dans sa propre couronne). Meme forme que `war_howl_buff_targets()` juste au-dessus. Corollaire
+    LU et non dit par l'i2 : `UnitsWithoutTrait(Mechanical)` ne s'applique QU'AUX ALLIES -- un Baldr
+    qui serait mecanique s'inspirerait quand meme. (Il ne l'est pas ; on ecrit ce que le natif fait.)
+
+    ⚠ `UnitsWithoutTrait(..., 0x5)` mirrore `UnitTrait.Mechanical` SEUL -- ce n'est PAS
+    `IdunBattle.Entities.UnitExtensions$$IsMechanical` (la disjonction Mechanical | LivingMetal |
+    Vehicle) que la `GetDynamicInvalidTargetReason` de la meme classe consulte, elle. Les DEUX
+    predicats coexistent dans cette ability et ils DIFFERENT : un Necron `LivingMetal` sans
+    `Mechanical` serait refuse comme CIBLE et retenu dans la ZONE. On mirrore chacun a sa place.
+
+    `range_const` = `GetNumberConstant(0x16 = AbilityConstantType.range)`, LU du gameconfig par
+    l'appelant (= 1 pour cette config), jamais code en dur."""
+    friends = UnitsWithoutTrait(
+        SurroundingFriends(Owner(), Const(int(range_const)), selection_type=SELECTION),
+        MECHANICAL_TRAIT, selection_type=SELECTION)          # 3e argument natif : 3
+    return Cache(Union(Owner(), friends))                    # op_Addition(Owner, <ci-dessus>)
+
+
+def rites_of_morkai_has_any_kind_of_final_vengeance():
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.RitesOfMorkaiAbility$$HasAnyKindOfFinalVengeance`
+    -- MIRROR 1:1 (deux noeuds, aucune logique en plus) :
+
+        HasTrait ( ActiveTarget@DSLSelectors+0x68, 0x3f6 = 1014 UnitTrait.FinalJustice )
+        op_BitwiseOr
+        HasEffect( ActiveTarget@DSLSelectors+0x68, 0x5ae = 1454 EffectType.FinalVengeance_UnitEffect,
+                   onlyActive = 0, effectTargetType = 6 = Both )
+
+    `ExecuteBehaviour` RECONSTRUIT ce trigger INLINE (il n'appelle pas la sous-fonction), noeud pour
+    noeud a l'identique -- meme situation que `WarHowlAbility$$OtherBuffTargets` ci-dessus. Le
+    MEME corps sert de `CreateActiveCondition` a l'effet 1529
+    (`IdunBattle.Entities.Effects.Loki.RitesOfMorkai_ExtraDamageEffect$$HasAnyKindOfFinalVengeance`,
+    dont la MEME adresse occupe DEUX slots du bloc `methodPointers` de la classe -- corps FONDU par
+    IL2CPP) ; la version EFFET ancre ses deux noeuds sur `Owner@+0x30` au lieu d'`ActiveTarget@+0x68`,
+    parce qu'elle n'est PAS sous un `Filter`.
+
+    ⚠ **`onlyActive = 0`, et il MORD** : le natif accepte une instance 1454 INERTE. Le port passe
+    donc `active_only=False`, a l'inverse du DEFAUT du noeud (`True`, qui est ce que passent les
+    call-sites du cluster AnvilShield). Recopier le defaut aurait retire du bonus a un porteur dont
+    la Final Vengeance est momentanement desactivee -- silencieusement.
+
+    ⚠ `0x3f6 = 1014` est QUALIFIE `UnitTrait` : 1014 nomme `EffectType.ArmoriumCherub` et
+    `ActiveAbilityType.ArmoriumCherub` dans d'AUTRES enums."""
+    return TriggerOr(HasTrait(ActiveTarget(), FINAL_VENGEANCE_TRAIT),
+                     HasEffect(ActiveTarget(), FINAL_VENGEANCE_EFFECT,
+                               active_only=False))           # `onlyActive = 0` LU au call-site
+
+
+def rites_of_morkai_normal_attack_targets():
+    """`<les cibles de l'attaque de suivi>` -- MIRROR du DECOMPILE, dans l'ordre ou
+    `ExecuteBehaviour` les construit :
+
+        sel = ValidNormalAttackTargets( unit = Owner@DSLSelectors+0x30,
+                                        unitTile = Tiles(Owner@+0x30),
+                                        range = null, ignoreRule = null, additionalRule = null )
+              op_BitwiseAnd
+              AdjacentEnemies( Owner@+0x30, unique = true,
+                               selectionType = 3 = OnlyAliveAndTargetable )
+
+        SortUnitsByDamageUtility( targets           = sel,
+                                  caster            = Owner@+0x30,
+                                  ability           = UnitNormalAttackType(Owner@+0x30),
+                                  utilityDefinition = UtilityDefinition(0x23 = UtilityType.Damage),
+                                  damage            = DSLFormulas$$NormalAttackDamage(Owner@+0x30),
+                                  unitSelectionType = 0 = UnitSelectionType.Any,
+                                  hits              = null )
+
+    ⚠ **`unitSelectionType = 0 = Any`, LU AU DESASSEMBLAGE** (`mov dword ptr [rsp+0x30], r13d` avec
+    `r13d` zeroe, juste avant le `call` du selecteur) et NON deduit : la jumelle structurelle
+    `IdunBattleLogic.Entities.Abilities.Active.Loki.MartialExemplarAbility$$ExecuteBehaviour` passe
+    `3` au meme rang. Recopier son `3` par analogie de forme aurait ete un filtre INVENTE -- ici le
+    natif s'en remet entierement aux deux selecteurs sources, qui portent DEJA leurs filtres.
+
+    ⚠ **AUCUN `Cache` sur cette branche**, contrairement a la zone du buff : le meme objet-selecteur
+    est pourtant consomme deux fois (par `AmountIsGreaterThanZero` puis par `UseNormalAttack`), donc
+    le natif l'evalue DEUX fois. C'est lu, pas suppose -- le `DSLSelectors$$Cache` du corps est
+    applique a la ZONE, jamais a ce selecteur-ci. On ne l'ajoute pas << pour bien faire >> : la
+    difference est observable si une pose d'effet change l'ensemble entre les deux evaluations.
+
+    `AdjacentEnemies` est appele par la variante A `(unit, unique, selectionType)` -- tranchee par
+    l'ADRESSE du `call` confrontee a `frida/methods.tsv`, pas au pseudo-C (la variante B a la meme
+    arite et son 3e argument est une ENTITE). Le port ne materialise pas `unique` et porte un
+    `radius` a sa place ; l'adjacence (rayon 1) est son defaut."""
+    valid = And(
+        # `ValidNormalAttackTargets(Owner, Tiles(Owner), null, null, null)` : les trois overrides
+        # sont a `null` ici comme aux quatre autres call-sites lus -> le noeud ne les modelise pas.
+        ValidNormalAttackTargets(Owner(), Tiles(Owner())),
+        AdjacentEnemies(Owner(), selection_type=SELECTION))
+    return SortUnitsByDamageUtility(
+        valid, Owner(),
+        damage=StatAmount(Owner(), int(StatType.ATTACK)),    # `NormalAttackDamage(Owner)`
+        ability=UnitNormalAttackType(Owner()),
+        selection_type=int(UnitSelectionType.Any),           # 0 -- LU au desassemblage
+        hits=None)
+
+
+def rites_of_morkai_tree(range_const, nr_of_rounds):
+    """Arbre de `IdunBattleLogic.Entities.Abilities.Active.Loki.RitesOfMorkaiAbility$$ExecuteBehaviour`
+    (id 1211, `spaceWolfPriest` « Baldr ») -- MIRROR 1:1 du DECOMPILE, relu au DESASSEMBLAGE pour
+    chaque immediat :
+
+        zone  = <rites_of_morkai_buff_zone>                        # un `Cache`, PARTAGE
+        e1    = DSLBehaviors$$AddEffect( 0x5de = 1502 RitesOfMorkai,
+                                         abilityState = AActiveAbility$$get_AbilityStateReference(this),
+                                         targets = zone,
+                                         turns   = TurnsFromRounds(ConfigConst(0x45 = nrOfRounds,
+                                                                               config@this+0x60)) )
+        e2    = DSLBehaviors$$AddEffect( 0x5f9 = 1529 RitesOfMorkai_ExtraDamage,
+                                         abilityState = <un SECOND get_AbilityStateReference>,
+                                         targets = DSLSelectors$$Filter(zone,
+                                                       <rites_of_morkai_has_any_kind_of_final_vengeance>),
+                                         turns   = TurnsFromRounds(ConfigConst(0x45)) )
+        atk   = DSLBehaviors$$If( DSLTriggers$$AmountIsGreaterThanZero(<cibles d'attaque>),
+                                  DSLBehaviors$$UseNormalAttack( Owner@DSLSelectors+0x30,
+                                      <cibles d'attaque>, parentAbility: null, trigger: null,
+                                      options: <ZEROEE> ),
+                                  <else> = null )
+        AActiveAbility$$Execute( op_Addition(op_Addition(e1, e2), atk) )
+
+    QUATRE points de structure, aucun cosmetique :
+
+    * **L'AUDIT CLASSE 1211 EN `EFFECT/BUFF`, ET C'EST VRAI D'UNE MECANIQUE SUR TROIS.** Le cast
+      pose DEUX effets distincts puis enchaine une **ATTAQUE NORMALE** complete (degat, crit,
+      block, riposte, after-hit). Ni le profil ni le nombre de coups ne sont ceux de l'ability :
+      ce sont ceux de l'ARME de Baldr, et la colonne, derivee du `damageProfile` de l'ability
+      (que cette config n'a meme pas), ne peut pas les voir. L'i2 le dit en clair -- « After using
+      this ability, Baldr immediately performs a normal melee attack against an adjacent enemy ».
+    * **L'ORDRE est buff -> buff -> attaque** (`op_Addition` = `CombinedBehaviour`, gauche->droite),
+      et il MORD : l'attaque part APRES que Baldr s'est lui-meme inspire, donc une riposte qui le
+      tuerait declencherait SON revive 1502. L'inverser rendrait ce cas silencieusement different.
+    * **`e2` cible un `Filter` DE LA ZONE MEMORISEE**, pas un selecteur reconstruit : les deux poses
+      voient rigoureusement le meme ensemble, au filtre Final-Vengeance pres.
+    * **`AddEffect` est la surcharge 4-args** `(effectType, abilityState, targets, turns)`, dont le
+      corps passe litteralement `0` en `source` a `AddEffectBehaviour..ctor` -> **chaque cible est
+      sa PROPRE source** (`source_from_target=True`). Ce n'est pas un detail : c'est ce qui rend le
+      revive SELF (`RitesOfMorkaiEffect$$CreateTargetFilter` = `get_OwnerIsTarget`) coherent, chaque
+      unite inspiree se revivant elle-meme. L'`abilityState`, lui, reste ancre sur le CASTER
+      (`get_AbilityStateReference` = `DSLSelectors$$AbilityState(Caster@+0x48, <l'active>)`), d'ou
+      `scale_from_source=True` -- et `extraDmg`/`hp` etant TOUS DEUX dans
+      `variablesAffectedByRarityBonus`, confondre les deux slots serait un ecart NUMERIQUE.
+
+    `range_const` = `GetNumberConstant(0x16 = range)`, `nr_of_rounds` = `ConfigConst(0x45 =
+    nrOfRounds)` -- les DEUX lus du gameconfig par l'appelant."""
+    zone = rites_of_morkai_buff_zone(range_const)             # `Cache` PARTAGE par e1 et e2
+    e1 = AddEffect(RITES_OF_MORKAI, EffectType.RitesOfMorkai.name, zone,
+                   duration_rounds=nr_of_rounds,              # `TurnsFromRounds(ConfigConst(0x45))`
+                   scale_from_source=True,                    # `abilityState` = celui du CASTER
+                   source_from_target=True)                   # `source` NULL -> la cible est sa source
+    e2 = AddEffect(RITES_OF_MORKAI_EXTRA_DMG, EffectType.RitesOfMorkai_ExtraDamage.name,
+                   Filter(zone, rites_of_morkai_has_any_kind_of_final_vengeance()),
+                   duration_rounds=nr_of_rounds,
+                   scale_from_source=True, source_from_target=True)
+    targets = rites_of_morkai_normal_attack_targets()         # PAS de `Cache` (cf. sa docstring)
+    atk = If(AmountIsGreaterThanZero(targets), UseNormalAttack(Owner(), targets))
+    return op_add(op_add(e1, e2), atk)
+
+
+class RitesOfMorkaiAbility(ActiveAbility):
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.RitesOfMorkaiAbility$$ExecuteBehaviour`
+    (id 1211, `spaceWolfPriest` « Baldr », Space Wolves) -- cf. `rites_of_morkai_tree()`.
+
+    i2 : « Baldr and all surrounding friendly non-mechanical units become <i>Inspired</i> for
+    {[nrOfRounds]} round or until they are revived. The first time each inspired unit would be
+    defeated, it is instead revived with a maximum of {[hp]} Health, unless Overkilled. Inspired
+    units with <i>Final Vengeance</i> deal +{[extraDmg]} Damage with all attacks. After using this
+    ability, Baldr immediately performs a normal melee attack against an adjacent enemy. »
+
+    ROUGE MESURE AVANT CE PORT : 1211 etait ABSENTE d'`ABILITY_CLASSES` -> `AbilityHandler`
+    acceptait le cast, posait les flags de tour, et n'executait RIEN -- zero effet, zero attaque,
+    zero erreur. La face EFFET etait pourtant a moitie portee depuis #79 : le trigger de revive
+    1502 (`runner/operations/triggers/loki/rites_of_morkai.py`) existait et etait confronte live
+    (#229), mais **rien ne posait jamais l'effet** hors seed. C'est le residu que la fiche
+    `docs/rl/case-66-revive-in-place.md` nommait ; il est ferme ici, avec 1529.
+
+    Turn-flags = defauts base (1211 ABSENT des overrides `NO_END_TURN_ABILITY_TYPES` /
+    `NO_ABILITY_USED_FLAG_ABILITY_TYPES`) -> le cast TERMINE le tour et pose `ActiveAbilityUsed`.
+
+    Face DECISION : `IdunBattle.AI.Playbook.Loki.RitesOfMorkaiPlaybook` existe (un
+    `NonComparablePlaybook` avec `ShouldEvaluate` + `EvaluateNonComparable`) et n'est PAS portee --
+    residu nomme dans le rapport de tranche, hors du perimetre de la face COMBAT.
+
+    Diag : {posed: [...], extra_damage: [...], normal_attack: {...}, dsl: True}."""
+    __slots__ = ()
+    ABILITY_TYPE = int(ActiveAbilityType.RitesOfMorkai)      # 1211
+    ABILITY_ID = "RitesOfMorkai"
+
+    # GATE DE CIBLE (#115) + PORTEE (#241). `IdunBattleLogic.Entities.Abilities.Active.Loki.
+    # RitesOfMorkaiAbility$$.ctor` est de la forme **FLAGS DIRECTS** -- le litteral EST le masque
+    # effectif, aucun preset a OU-er. Le critere de tranche n'est ni l'arite affichee ni la forme du
+    # pseudo-C : c'est l'ADRESSE APPELEE, confrontee a `frida/methods.tsv`. Le `call` vise la
+    # surcharge `TargetingOptions..ctor(isSelfCasting, range, forceMeleeTarget, rules,
+    # getDynamicInvalidCasterReason, getDynamicInvalidTargetReason)` -- les deux autres surcharges
+    # homonymes (`(template)` et `(template, additionalRules)`) vivent a d'AUTRES adresses, et c'est
+    # cette seconde-la qui aurait exige l'OU avec un preset.
+    #     mov rax, [<TargetingRange klass> + 0xb8]      ; ses statics
+    #     movups xmm2, [rax + 0x18] / movsd xmm1, [rax + 0x28]   ; copie de <statics + 0x18>, 24 o
+    #     lea r8, [rsp + 0x80]                          ; arg3 range  = &cette copie
+    #     mov r9d, 1 / movzx edx, r9b                   ; arg4 forceMeleeTarget = 1 ; arg2 isSelfCasting = 1
+    #     mov qword [rsp + 0x20], 0x2008402             ; arg5 rules
+    #     mov qword [rsp + 0x28], 0 / [rsp + 0x30], 0   ; arg6/arg7 : les DEUX delegues a null
+    #     call <TargetingOptions..ctor a 6 arguments>
+    #     mov r8d, 2 ; call <AActiveAbility..ctor>      ; 3e arg = AbilityAttackType.Others
+    # Decomposition EXHAUSTIVE de `0x2008402` (`IdunBattle.Core.Services.TargetingRule`) -- il ne
+    # reste AUCUN bit residuel :
+    #     0x2        (bit  1) TargetMatchesDynamicRule  -> consulte `GetDynamicInvalidTargetReason`,
+    #                que cette classe SURCHARGE (mirror ci-dessous). Les delegues du ctor sont nuls :
+    #                c'est bien la methode VIRTUELLE qui porte le gate, pas un `TargetingOptions`.
+    #     0x400      (bit 10) TargetIsFriendly          -> PORTE (refus sur un ennemi).
+    #     0x8000     (bit 15) CasterIsPossibleTarget    -> PORTE (Baldr peut se viser lui-meme).
+    #     0x2000000  (bit 25) AllowObscuredTargetByElevation -> PERMISSION (leve `TargetIsUnobscured`
+    #                pour l'obstruction par ELEVATION seule) ; aucune regle d'obstruction n'etant
+    #                portee par la cascade, ce bit est inerte offline -- et le noter est ce qui evite
+    #                de le relire un jour comme un refus.
+    # PORTEE : `TargetingRange` statics `+0x18` = **RANGE_FROM_CONFIG** (`useRangeFromConfig = 1`,
+    # LU dans `IdunBattle.Core.Services.TargetingRange$$.cctor` : `+0x18 = 1 ; +0x1c = 1`) ->
+    # `AActiveAbility$$SetConfigValuesInTargetingOptions` pose `OverrideRange =
+    # GetNumberConstant(0x16 = range)` = `RitesOfMorkai.constants.range` = **1**. C'est le MEME
+    # static que `GrapnelLauncher` et `Foehammer` lisent -- et un AUTRE que les `+0x30` (Adjacent)
+    # et `+0x60` (Self) des voisins de ce module. `forceMeleeTarget = 1 = RangedBool.False`.
+    TARGETING_OPTIONS = TargetingOptions(rules=TR.TargetMatchesDynamicRule | TR.TargetIsFriendly
+                                         | TR.CasterIsPossibleTarget
+                                         | TR.AllowObscuredTargetByElevation,
+                                         self_cast=True, range=RANGE_FROM_CONFIG,
+                                         force_melee_target=RANGED_BOOL_FALSE)
+
+    def get_dynamic_invalid_target_reason(self, state: "State", caster_id: int,
+                                          target_id: Optional[int]) -> int:
+        """`IdunBattleLogic.Entities.Abilities.Active.Loki.RitesOfMorkaiAbility$$
+        GetDynamicInvalidTargetReason` -- MIRROR du decompile, qui tient en deux lignes :
+
+            if (target != null) return UnitExtensions.IsMechanical(target) ? 2 : 0;
+            return 2;
+
+        Le code rendu est un `TargetingRule` brut (`2 = TargetMatchesDynamicRule`), comme dans le
+        natif. Cible NULLE -> refus AUSSI : la branche est explicite au decompile, ce n'est pas une
+        chute par defaut.
+
+        ⚠ **`IsMechanical` n'est PAS `HasTrait(Mechanical)`** : c'est la disjonction
+        `Mechanical(5) | LivingMetal(0x3e8) | Vehicle(0x405)` (#116-e, foyer unique
+        `abilities/targeting.py::is_mechanical`). Et ce predicat DIFFERE de celui de la ZONE, qui
+        est `UnitsWithoutTrait(..., 0x5)` -- le trait SEUL. Les deux coexistent dans cette ability :
+        un Necron `LivingMetal` sans `Mechanical` est refuse comme CIBLE DIRECTE et reste dans la
+        zone si Baldr en vise une autre. Ecrire le meme predicat aux deux places aurait ete une
+        harmonisation INVENTEE."""
+        if target_id is None:
+            return int(TR.TargetMatchesDynamicRule)          # `target == null` -> 2
+        return int(TR.TargetMatchesDynamicRule) if is_mechanical(state, target_id) else 0
+
+    def execute_behaviour(self, state: "State", caster_id: int,
+                          target_id: Optional[int]) -> Optional[dict]:
+        """`target_id` est IGNORE par l'arbre : `isSelfCasting = 1` fait rendre le CASTER a
+        `IdunBattle.Core.Services.TargetingQuery$$GetActualTarget`, et aucun noeud `Target()`
+        n'apparait dans `ExecuteBehaviour` -- toutes les cibles sortent de selecteurs ancres sur
+        `Owner`."""
+        ectx = ExecutionContext(state=state, rng=state.rng)
+        entities = entities_from_state(state, caster_id, target_id)
+        # `GetNumberConstant(0x16 = range)` et `ConfigConst(0x45 = nrOfRounds)` -- LUS du gameconfig,
+        # jamais codes en dur (tous deux des CONSTANTES, donc pas d'indexation par niveau).
+        rng_const = ability_var("RitesOfMorkai", "range", is_constant=True)
+        rounds = ability_var("RitesOfMorkai", "nrOfRounds", is_constant=True)
+        rites_of_morkai_tree(rng_const, rounds).execute(entities, ectx)
+        posed: list = []
+        extra: list = []
+        attack = None
+        for name, p in ectx.emitted:
+            if name == "AddEffect" and p.get("effect_type") == RITES_OF_MORKAI:
+                posed.append({"target": p.get("target"), "placed": p.get("placed"),
+                              "active": p.get("active")})
+            elif name == "AddEffect" and p.get("effect_type") == RITES_OF_MORKAI_EXTRA_DMG:
+                extra.append({"target": p.get("target"), "placed": p.get("placed"),
+                              "active": p.get("active")})
+            elif name == "UseNormalAttack":
+                attack = {"target": p.get("target"), "attack": p.get("attack"),
+                          "skipped": p.get("skipped")}
+        return {"ability": "RitesOfMorkai", "caster": caster_id, "target": target_id,
+                "inspired": posed, "extra_damage": extra, "normal_attack": attack,
+                "range": rng_const, "rounds": rounds, "dsl": True}

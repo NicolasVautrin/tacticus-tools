@@ -295,7 +295,24 @@ class AddEffect(AbilityBehaviour):
         dur = _resolve_duration(state, self.duration_rounds, self.duration_turns)
         lvl = (self.level.evaluate(entities) if hasattr(self.level, "evaluate")
                else self.level)
-        mult, ab_lvl, act_lvl = (_source_scaling(state, src) if self.scale_from_source
+        # `scale_from_source` porte le 3e argument natif d'`AddEffectBehaviour..ctor`
+        # (`abilityState`), qui est un objet **DISTINCT** du 4e (`source`) que `src` porte -- et
+        # les deux ne coincident pas toujours. Sur tous les call-sites d'avant #906 ils
+        # coincidaient (`source_ref = Caster()`, ou le defaut `src = caster`), donc lire le scaling
+        # sur `src` etait exact. La surcharge 4-args
+        # `IdunBattleLogic.Entities.DSLBehaviors$$AddEffect(effectType, abilityState, targets,
+        # turns)` les DISSOCIE : son corps passe litteralement `0` en `source` (d'ou
+        # `source_from_target`) tout en transmettant l'`abilityState` recu -- et
+        # `IdunBattleLogic.Entities.Abilities.Active.Loki.RitesOfMorkaiAbility$$ExecuteBehaviour` y
+        # passe `AActiveAbility$$get_AbilityStateReference` =
+        # `DSLSelectors$$AbilityState(Caster@DSLSelectors+0x48, <l'active courante>)`, donc l'etat
+        # d'ability du **CASTER**. Lire le scaling sur la cible y donnerait le niveau et le
+        # multiplicateur de rarete du BUFFE : mesure du 2026-08-11 sur la config `RitesOfMorkai`,
+        # `extraDmg` et `hp` sont TOUS DEUX dans `variablesAffectedByRarityBonus`, et les
+        # multiplicateurs different d'une unite a l'autre (mesure #585 : 200 vs 180) -- l'ecart
+        # serait donc numerique et SILENCIEUX.
+        scale_src = (entities.caster or {}).get("id") if self.source_from_target else src
+        mult, ab_lvl, act_lvl = (_source_scaling(state, scale_src) if self.scale_from_source
                                  else (None, None, None))
         for elem in _add_effect_targets(self.target_sel.evaluate(entities)):  # natif : itere le selecteur
             tgt = _add_effect_target_id(elem, state)          # unit dict->id | (col,row)->tile id | int->tile id
