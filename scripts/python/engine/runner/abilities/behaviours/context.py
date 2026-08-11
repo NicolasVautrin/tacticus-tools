@@ -673,6 +673,18 @@ def entities_from_state(state, caster_id: int, target_id: int | None = None,
         return _stbu(state, list(tiles), None, uid, int(utility_type), pid, utility_definition,
                      runner_tile_leaf_ctx(state, uid, pid))
 
+    def _sort_units_by_damage_utility(candidate_ids, dmin, dmax, owner_id=None, hits=1,
+                                      ability_type=None):
+        """`IdunBattle.Entities.Selectors.SortUnitsByDamageUtilitySelector$$Select` -- l'accesseur
+        que lit le noeud DSL `selectors.units.SortUnitsByDamageUtility`. DELEGUE au foyer deja
+        porte (`runner/operations/damage_utility.sort_units_by_damage_utility`), jamais une seconde
+        implementation. `is_melee=None` : le foyer le derive lui-meme du couple (attaquant, cible)
+        par `GetAttackWeaponForDefaultNormalAttack`, comme le natif. #889-r5."""
+        from ...operations.damage_utility import sort_units_by_damage_utility as _subdu
+        return _subdu(state, [int(c) for c in candidate_ids], int(dmin), int(dmax),
+                      owner_id=None if owner_id is None else int(owner_id), hits=int(hits or 1),
+                      ability_type=None if ability_type is None else int(ability_type))
+
     # `ctx.charged_units` (`UnitComponent + 0x190`, cf. `update_charging`) : ids que l'unite a CHARGES
     # pendant son activation courante. Moitie runtime du predicat
     # `IdunBattle.Core.Services.BattleQuery$$IsCharging` (l'autre moitie = l'adjacence). Vide si le
@@ -742,6 +754,7 @@ def entities_from_state(state, caster_id: int, target_id: int | None = None,
                       entity_can_be_healed=_entity_can_be_healed,
                       pick_randomly=_pick_randomly,
                       sort_tiles_by_utility=_sort_tiles_by_utility,
+                      sort_units_by_damage_utility=_sort_units_by_damage_utility,
                       # `has_effect_of_type` reste NON BRANCHE : la CATEGORIE d'un effet
                       # (`EffectsDatabase` def+0x58) n'est pas dans le canal de seed. Cf. le noeud
                       # `UnitsWithEffectsOfType` -- residu NOMME, pas un oubli.

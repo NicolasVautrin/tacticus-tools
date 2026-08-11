@@ -35,7 +35,7 @@ from .units import (  # noqa: F401
     non_steppable_or_object_units, units_with_traits, NormalUnits,
     AdjacentFriends, SurroundingEnemies, SurroundingFriends, SortByFormula, SortByDistance,
     Alive, UnitsThatCanHaveActiveAbilityReset, Unobscured, UnitsDamagedThisPhase,
-    ValidNormalAttackTargets,
+    ValidNormalAttackTargets, SortUnitsByDamageUtility,
     UnitsAffectedByHealType, Healable, Repairable, UnitsWithEffectsOfType, UnitsWithNegativeEffects,
 )
 
@@ -81,7 +81,7 @@ __all__ = [
     "non_steppable_or_object_units", "NormalUnits", "AdjacentFriends",
     "SurroundingEnemies", "SurroundingFriends", "SortByFormula", "SortByDistance", "Alive",
     "UnitsThatCanHaveActiveAbilityReset", "Unobscured", "UnitsDamagedThisPhase",
-    "ValidNormalAttackTargets",
+    "ValidNormalAttackTargets", "SortUnitsByDamageUtility",
     "UnitsAffectedByHealType", "Healable", "Repairable", "UnitsWithEffectsOfType",
     "UnitsWithNegativeEffects",
     "Owner", "PickRandomly", "Randomize",
