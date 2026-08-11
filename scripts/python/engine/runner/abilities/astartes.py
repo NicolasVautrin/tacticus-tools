@@ -2,26 +2,45 @@
 (runner/ECS).
 
 - `StrikeFromTheShadows` (1225, `astarCyrus` << Cyrus >>) -- #511.
+- `TitanhammerSquad` (1231, `astarLysander` << Lysander >>) -- #448-r2d-r2.
 
-Le passif `HaywireMine` du meme porteur vit dans
-`engine/runner/operations/triggers/loki/haywire_mine.py` (couche TRIGGER, pas ACTIVE).
+Le passif `HaywireMine` d'`astarCyrus` vit dans
+`engine/runner/operations/triggers/loki/haywire_mine.py` (couche TRIGGER, pas ACTIVE) ; les
+TRIGGERS des effets `TitanhammerSquad_TeleportingIn`/`_Moving` (1573/1574) vivent dans
+`engine/runner/operations/triggers/loki/teleporting_in.py` (#448-r2d) et la classe d'effet
+`TitanhammerSquad_ExtraBlockDamage` (1572) dans
+`engine/entities/effects/loki/titanhammer_squad.py`.
 """
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Optional
 
 from ...dsl.effects import ExecutionContext
+from ...entities.ability_constant_type import AbilityConstantType
+from ...entities.ability_variable_type import AbilityVariableType
 from ...entities.active_ability_type import ActiveAbilityType
 from ...entities.behaviours import op_and
 from ...entities.effect_type import EffectType
-from ...entities.selectors.accessors import Owner, Target
+from ...entities.effects.magnitude import ability_var
+from ...entities.formulas import Get, StatAmount, TurnsUntilUnitOwnerTurn
+from ...entities.selectors.accessors import ActiveTarget, Owner, Target
 from ...entities.selectors.tiles import Caster
-from .base import ActiveAbility, turns_until_end_of_current_players_next_turn
+from ...entities.selectors.units import Filter, SurroundingFriends, Union
+from ...entities.stats import StatType
+from ...entities.traits.unit_trait import UnitTrait
+from ...entities.triggers import AmountIsGreaterThanZero, HasTrait, HasUnitFlag, Not
+from ...entities.unit_flag import UnitFlag
+from ...entities.unit_selection_type import UnitSelectionType
+from ..components import StatsComponent
+from .base import (ActiveAbility, convert_rounds_to_turns,
+                   turns_until_end_of_current_players_next_turn)
 from .behaviours.combat import AttackWithAttackDamage
 from .behaviours.context import entities_from_state
-from .behaviours.effects import AddEffect
+from .behaviours.effects import AddDynamicStatModifierEffect, AddEffect
 from .behaviours.movement import ResetMovement
-from .targeting import RANGE_FROM_CONFIG, RANGED_BOOL_TRUE, TargetingOptions
+from .behaviours.stats import Heal
+from .targeting import (RANGE_FROM_CONFIG, RANGE_WHOLE_BOARD, RANGED_BOOL_FALSE, RANGED_BOOL_TRUE,
+                        TargetingOptions)
 from .targeting_rule import TargetingRule as TR
 
 if TYPE_CHECKING:                       # pragma: no cover
@@ -186,3 +205,293 @@ class StrikeFromTheShadowsAbility(ActiveAbility):
                 "reset": (rst or {}).get("subject"),
                 "reset_reopened": bool((rst or {}).get("reopened")),
                 "dsl": True}
+
+
+
+# ============ TitanhammerSquad (astarLysander, actif 1231) -- #448-r2d-r2 ========================
+
+TITANHAMMER_SQUAD_ID = "TitanhammerSquad"
+#: `IdunBattle.Configuration.AbilityConstantType` 0x16 = 22 (`GetNumberConstant`) -- gameconfig = 2.
+CONST_THS_RANGE = AbilityConstantType.range
+#: `IdunBattle.Configuration.AbilityVariableType` 0x20 = 32 (`GetVariableForLevel`).
+VAR_THS_HP_TO_HEAL = AbilityVariableType.hpToHeal
+THS_TARGET_TILE = int(EffectType.TitanhammerSquad_TargetTile)              # 0x623 = 1571
+THS_EXTRA_BLOCK_DAMAGE = int(EffectType.TitanhammerSquad_ExtraBlockDamage)  # 0x624 = 1572
+THS_TELEPORTING_IN = int(EffectType.TitanhammerSquad_TeleportingIn)         # 0x625 = 1573
+
+
+def titanhammer_squad_group():
+    """Le SET commun aux quatre volets, mirror de la construction repetee du decompile (et de
+    `TitanhammerSquadAbility$$GetCurrentlyAffectedFriends`, qui n'en est QUE les deux premieres
+    lignes -- preuve que c'est bien un sous-arbre nomme, pas un decoupage invente) :
+
+        friends = DSLSelectors$$SurroundingFriends( unit  = Caster@<Sel+0x48>,
+                                                    range = GetNumberConstant(config@0x60, 0x16),
+                                                    unique = true,
+                                                    unitSelectionType = 3 )
+        squad   = DSLSelectors$$Filter( friends,
+                                        DSLTriggers$$HasTrait(ActiveTarget@<Sel+0x68>, 0x40f) )
+        group   = TargetsSelector$$op_Addition( Caster@<Sel+0x48>, squad )
+
+    `0x40f` = 1039 = `UnitTrait.TerminatorArmour` ; `3` = `UnitSelectionType.OnlyAliveAndTargetable`.
+    Le CASTER est RE-AJOUTE explicitement par l'`op_Addition` : `SurroundingFriends` exclut son
+    centre (mirror `_within` d>0), donc le groupe est bien `{Lysander} + {allies TerminatorArmour a
+    portee}`, sans doublon.
+
+    ⚠ Les slots sont LUS, pas devines : `DSLSelectors+0x48/+0x60/+0x68` = `DSLFactory+0x160/+0x178/
+    +0x180` (decalage 0x118, etabli par les cinq points de contact du build -- `+0x50`/`+0x58` sont
+    la MEME classe = `CasterTile`/`CasterTiles`, `EffectSource(<Sel+0x38>)` = `Effect`, et
+    `Contains(<Sel+0x78>, ...)` = `TargetTiles` dans
+    `TitanhammerSquad_TeleportingInEffect$$GetCustomMovingEffectCondition`), soit `Caster`, `Target`
+    et `ActiveTarget`."""
+    friends = SurroundingFriends(
+        Caster(), Get(int(_ths_range())),
+        selection_type=int(UnitSelectionType.OnlyAliveAndTargetable))       # `3`
+    squad = Filter(friends, HasTrait(ActiveTarget(), int(UnitTrait.TerminatorArmour)))  # `0x40f`
+    return Union(Caster(), squad)                                           # `op_Addition`
+
+
+def _ths_range() -> int:
+    """`AbilityConfiguration$$GetNumberConstant(config@0x60, 0x16 = range)` -- lu du gameconfig, JAMAIS
+    en dur. Le meme appel est fait DEUX fois par le natif (dans `$$ExecuteBehaviour` et dans
+    `$$GetCurrentlyAffectedFriends`) sur la meme config, donc une seule lecture ici."""
+    import gameconfig as GC                                                # noqa: PLC0415
+    consts = (GC.ability(TITANHAMMER_SQUAD_ID) or {}).get("constants") or {}
+    return int(consts.get(CONST_THS_RANGE.name) or 0)
+
+
+def titanhammer_squad_tree(state: "State", entities, heal_amount: int):
+    """Arbre de `IdunBattleLogic.Entities.Abilities.Active.Loki.TitanhammerSquadAbility$$ExecuteBehaviour`
+    -- MIRROR 1:1 du DECOMPILE, remis en C# :
+
+        group = <cf. titanhammer_squad_group()>
+
+        b1 = DSLBehaviors$$AddEffect( effectType   = 0x623,                 // _TargetTile
+                                      abilityState = get_AbilityStateReference(this),
+                                      source       = Caster@<Sel+0x48>,
+                                      targets      = Target@<Sel+0x60>,     // la TUILE ciblee
+                                      turns        = Sum( TurnsUntilUnitOwnerTurn(group),
+                                                          <DSLFormulas+0x20 = Direct(1)> ) )
+        b2 = DSLBehaviors$$Heal( healer   = Caster@<Sel+0x48>,
+                                 selector = group,
+                                 amount   = DSLFormulas$$Get( GetVariableForLevel(config@0x60,
+                                                                                  0x20, state) ),
+                                 options  = HealBehaviourOptions$$ForHeal( AbilityOrEffect(this) ) )
+        b3 = DSLBehaviors$$AddDynamicStatModifierEffect(
+                 targets = Filter( group,
+                                   AmountIsGreaterThanZero( StatAmount(ActiveTarget@<Sel+0x68>,
+                                                                       7, 0, null, 0) ) ),
+                 source  = Caster@<Sel+0x48>,  effectType = 0x624,  statType = 8,
+                 abilityStateSelector = get_AbilityStateReference(this),
+                 turns = Sum( TurnsUntilUnitOwnerTurn(ActiveTarget@<Sel+0x68>),
+                              TurnsFromRounds(1) ),  isHidden = 0 )
+        b4 = DSLBehaviors$$AddEffect( effectType   = 0x625,                 // _TeleportingIn
+                                      abilityState = get_AbilityStateReference(this),
+                                      source       = Caster@<Sel+0x48>,
+                                      targets      = Filter( group,
+                                          AbilityTrigger$$op_LogicalNot(
+                                              DSLTriggers$$HasFlag(ActiveTarget@<Sel+0x68>, 1) ) ),
+                                      turns = Sum( TurnsUntilUnitOwnerTurn(ActiveTarget@<Sel+0x68>),
+                                                   <DSLFormulas+0x20 = Direct(1)> ) )
+        return AActiveAbility$$Execute(entities, this,
+                                       op_BitwiseAnd(op_BitwiseAnd(op_BitwiseAnd(b1, b2), b3), b4))
+
+    ORDRE LU, PAS DEVINE -- les trois `AbilityBehaviour$$op_BitwiseAnd` du decompile s'emboitent
+    `((b1 & b2) & b3) & b4` : la TUILE est marquee d'abord, le soin ensuite, puis le buff de blocage,
+    puis le marqueur de teleportation.
+
+    ⚠ CE N'EST PAS << UNE ABILITY DE SOIN >> -- l'audit la classait `HEAL`, et le soin n'est que le
+    2e des QUATRE volets. Les trois autres sont : le marquage de la tuile d'arrivee (`1571`, pose sur
+    une ENTITE-TUILE, relu par `TitanhammerSquadPathfinder$$IsValid{Teleport,TitanhammerSquadTarget}Tile`
+    via `EntityExtensions$$GetOwnedEffect(tile, state, 0x623)`), le buff de BLOCK DAMAGE (`1572`,
+    magnitude `blockDmg` -- cf. `entities/effects/loki/titanhammer_squad.py`), et le marqueur de
+    teleportation (`1573`, un `APsychicStalkEffect` dont les triggers sont deja portes par #448-r2d).
+
+    LES TROIS DUREES SONT DES `TurnsUntilUnitOwnerTurn`, JAMAIS DES CONSTANTES. Le second terme des
+    `Sum` de `b1` et `b4` est le champ `<DSLFormulas+0x20>`, et `IdunBattleLogic.Entities.DSLFormulas$$.ctor`
+    etablit ces champs sans ambiguite (`+0x18 = 0`, **`+0x20 = 1`**, `+0x28 = 2`, `+0x30 = 100`,
+    `+0x38 = -1`) : c'est `Direct(1)`, deja en TOURS -- pas un `TurnsFromRounds`. Celui de `b3`, en
+    revanche, EST un `TurnsFromRounds(1)`, donc il traverse `BattleQuery$$ConvertRoundsToTurns` (#98).
+    Confondre les deux raterait d'un tour sur `b3` des que le facteur de conversion vaut != 1.
+
+    DIVERGENCE STRUCTURELLE NOMMEE (`b3`/`b4`) : le natif evalue leur noeud de duree **PAR CIBLE**.
+    `IdunBattle.Entities.Behaviours.AddEffectBehaviour$$Execute` ecrit l'entite courante dans le slot
+    `AbilityEntities+0x20` AVANT d'evaluer son champ `+0x78` (le noeud `turns`), donc
+    `TurnsUntilUnitOwnerTurn(ActiveTarget)` y vaut la valeur de LA cible en cours. Le port evalue le
+    noeud UNE fois, sur le SET des cibles du volet -- ce qui est exactement le `Max` que fait deja
+    `TurnsUntilUnitOwnerTurnFormula$$Calculate`, donc les deux coincident des que le set est
+    HOMOGENE. Il l'est structurellement ici : toutes les cibles sont des ALLIES du caster, et le
+    caster JOUE au moment du cast, donc `owner == currentPlayer` pour chacune -> 0. Un ecart
+    exigerait des allies appartenant a DEUX joueurs distincts (coop), regime que le port ne construit
+    pas. Residu ouvert (cf. `docs/rl/backlog.md`).
+
+    DETERMINISTE : aucun des quatre volets ne tire -- `Heal` clampe au `hp_max`, les trois poses
+    d'effet sont des mutations pures."""
+    group = titanhammer_squad_group()
+
+    # b1 -- l'effet de TUILE, sur `Target@<Sel+0x60>` (l'ability est TILE-TARGET : le masque porte
+    # `TargetIsTile`, donc `AActiveAbility$$GetActualTarget` rend l'ENTITE-TUILE, cf. #287-r12).
+    dur_a = int(TurnsUntilUnitOwnerTurn(group).evaluate(entities)) + 1      # `Sum(..., Direct(1))`
+    b1 = AddEffect(THS_TARGET_TILE, EffectType.TitanhammerSquad_TargetTile.name, Target(),
+                   source_ref=Caster(), duration_rounds=None, duration_turns=dur_a)
+
+    # b2 -- `HealBehaviourOptions$$ForHeal` = les DEFAUTS `scope=0, remove_effects=True` (fabrique LUE
+    # au call-site : `HealBehaviourOptions$$ForHeal(AbilityOrEffect$$op_Implicit(...))`, pas
+    # `ForRegenerate`). AUCUNE garde `Healable` : le decompile passe le selecteur `group` BRUT au
+    # `DSLBehaviors$$Heal`, sans `HealableUnitsSelector` -- en poser une serait un refus invente.
+    b2 = Heal(group, heal_amount)
+
+    # b3 -- le buff BlockDamage, restreint aux membres dont la BlockChance COURANTE est > 0.
+    # `StatAmount(unit, 7 = BlockChance, 0 = Current, modificationEntity = null, 0 = Any)` : le port
+    # ne modelise ni `modificationEntity` ni `selectionType` (tous deux nuls/Any ici).
+    blockers = Filter(group, AmountIsGreaterThanZero(
+        StatAmount(ActiveTarget(), int(StatType.BLOCK_CHANCE), 0)))
+    dur_b = (int(TurnsUntilUnitOwnerTurn(blockers).evaluate(entities))
+             + convert_rounds_to_turns(state, 1))                          # `Sum(..., TurnsFromRounds(1))`
+    b3 = AddDynamicStatModifierEffect(
+        blockers, Caster(), THS_EXTRA_BLOCK_DAMAGE, int(StatType.BLOCK_DAMAGE),
+        name=EffectType.TitanhammerSquad_ExtraBlockDamage.name,
+        duration_rounds=None, duration_turns=dur_b)
+
+    # b4 -- le marqueur de teleportation, restreint aux membres qui n'ont PAS `ArrivedAtFinalTile`.
+    # `DSLTriggers$$HasFlag(unit, flag)` est le predicat UNIT-FLAG (`HasUnitFlag` cote port), PAS le
+    # `HasFlag` scalaire du contexte : `1` = `UnitFlag.ArrivedAtFinalTile`.
+    teleporters = Filter(group, Not(HasUnitFlag(ActiveTarget(), int(UnitFlag.ArrivedAtFinalTile))))
+    dur_c = int(TurnsUntilUnitOwnerTurn(teleporters).evaluate(entities)) + 1
+    b4 = AddEffect(THS_TELEPORTING_IN, EffectType.TitanhammerSquad_TeleportingIn.name, teleporters,
+                   source_ref=Caster(), duration_rounds=None, duration_turns=dur_c)
+
+    return op_and(op_and(op_and(b1, b2), b3), b4)
+
+
+class TitanhammerSquadAbility(ActiveAbility):
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.TitanhammerSquadAbility$$ExecuteBehaviour`
+    (id 1231, `astarLysander` << Lysander >>, Adeptus Astartes / Imperial Fists). Arbre DSL
+    `titanhammer_squad_tree` (mirror 1:1).
+
+    KIT (gameconfig, ZERO hardcode) : `constants = {range: 2, initialCooldownTurns: 1}`,
+    `variables = {hpToHeal, blockDmg}` (les DEUX dans `variablesAffectedByRarityBonus`). Traits du
+    porteur : `Hero`, `TeleportStrike`, **`TerminatorArmour`** -- Lysander satisfait donc lui-meme le
+    predicat du `Filter`, mais il entre au groupe par l'`op_Addition`, pas par le filtre.
+
+    TARGETING -- surcharge tranchee par les XREFS ENTRANTES, pas par la signature. `$$.ctor` appelle
+    `IdunBattle.Core.Services.TargetingOptions$$.ctor` a l'adresse dont les xrefs entrantes designent
+    la surcharge PLEINE `(isSelfCasting, range, forceMeleeTarget, rules, getDynamicInvalidCasterReason,
+    getDynamicInvalidTargetReason)` (les deux autres surcharges du build sont `(template)` et
+    `(template, additionalRules)`, et ce call-site n'est dans aucune des deux listes de xrefs). Il
+    passe :
+
+        isSelfCasting  = 0                                   -> self_cast = False
+        range          = <TargetingRange statics + 0x48>      -> RANGE_WHOLE_BOARD
+        forceMeleeTarget = 1                                 -> RANGED_BOOL_FALSE
+        rules          = 0x6001042
+        getDynamicInvalidCasterReason = null ; getDynamicInvalidTargetReason = null
+
+    `statics+0x48` est LU dans `IdunBattle.Core.Services.TargetingRange$$.cctor` :
+    `+0x48 = 1` (`onlyAdjacent = RangedBool.False`) et `+0x4c = 0x100`, dont l'octet [1] est
+    `useWholeBoard = true` -- c'est le preset deja nomme `RANGE_WHOLE_BOARD` du port.
+
+    `0x6001042` = `TargetMatchesDynamicRule (0x2)` | `TargetIsTile (0x40)` | `TargetTileIsFree
+    (0x1000)` | `AllowObscuredTarget (0x6000000`, le COMPOSITE `AllowObscuredTargetByElevation |
+    AllowObscuredTargetByWalls`). C'est une ability de ciblage TUILE, pas d'unite.
+
+    ⚠ LES DEUX DELEGUES SONT NULS AU CTOR ET LA REGLE DYNAMIQUE EST QUAND MEME ARMEE :
+    `IdunBattle.Entities.Abilities.AActiveAbility$$.ctor` RECONSTRUIT les deux delegues sur les slots
+    de vtable `this+0x470`/`this+0x480` et les ecrit en `this+0xa0`/`this+0xa8` -- inconditionnellement,
+    apres avoir recopie les `TargetingOptions` recues. Le `null` du ctor d'ability n'est donc PAS un
+    << pas de regle dynamique >> ; c'est le bit `TargetMatchesDynamicRule` qui decide, et il est pose.
+    D'ou la surcharge de `get_dynamic_invalid_target_reason` ci-dessous.
+
+    `AbilityAttackType` = 3e argument d'`AActiveAbility$$.ctor(this, &opts, 2)` = **2** (`Others`).
+
+    Diag : {ability, caster, target, heal_amount, range, turns, heals, posed}."""
+    __slots__ = ()
+    ABILITY_TYPE = int(ActiveAbilityType.TitanhammerSquad)   # 1231
+    ABILITY_ID = TITANHAMMER_SQUAD_ID
+    TARGETING_OPTIONS = TargetingOptions(
+        rules=int(TR.TargetMatchesDynamicRule | TR.TargetIsTile | TR.TargetTileIsFree
+                  | TR.AllowObscuredTarget),                   # 0x6001042
+        self_cast=False, range=RANGE_WHOLE_BOARD,              # `<TargetingRange statics>+0x48`
+        force_melee_target=RANGED_BOOL_FALSE)                  # 4e argument du ctor = 1
+
+    def get_dynamic_invalid_target_reason(self, state: "State", caster_id: int,
+                                          target_id: Optional[int]) -> int:
+        """`IdunBattleLogic.Entities.Abilities.Active.Loki.TitanhammerSquadAbility$$GetDynamicInvalidTargetReason`
+        -- MIRROR du decompile :
+
+            tile = CollectionExtensions.IsNullOrEmpty(targetTiles) ? null : targetTiles[0]
+            enemies = battleQuery.<slot 0x7f>(tile, caster, true)   // GetAdjacentEnemies
+            return enemies.Count >= 1 ? 0x40000000000 : 0          // TargetIsNotAdjacentToEnemy
+
+        POLARITE LUE AU DESASSEMBLAGE, pas au decompile : `test eax,eax ; mov rcx, 0x40000000000 ;
+        cmovle rcx, rdi` avec `rdi = 0` -- donc `count <= 0` rend 0 (VALIDE) et `count >= 1` rend la
+        regle brisee. `0x40000000000` = 2^42 = `TargetingRule.TargetIsNotAdjacentToEnemy`. Autrement
+        dit : **on ne peut pas se teleporter au contact d'un ennemi**.
+
+        Le slot est LU (`data/symbols/<build>/metadata/interface_slots.tsv` : `IBattleQuery 127
+        GetAdjacentEnemies` a 3 arguments), et la surcharge est celle dont la signature colle au
+        call-site (`from:IEntity, unit:IEntity, ignoreSteppables:bool`).
+        `IdunBattle.Core.Services.BattleQuery$$GetAdjacentEnemies` se decompose en
+        `GetUnitsOnTiles( IterateAdjacentTiles(from, null, 1, 1), null, <camp adverse de unit>,
+        ignoreSteppables )` : les unites du camp adverse posees sur la couronne de la tuile, CENTRE
+        INCLUS (le 3e argument d'`IterateAdjacentTiles` vaut 1), les STEPPABLES exclues.
+
+        Le centre est neutre ici : `TargetTileIsFree` est deja dans le masque STATIQUE, donc aucune
+        unite non-steppable ne peut y etre -- et les steppables sont precisement celles qu'on ignore.
+        On le mirror quand meme (`are_entities_adjacent` inclut `t1 == t2`), pour ne pas dependre de
+        l'ordre des deux filtres.
+
+        `target_id` absent / non resolu en tuile -> 0 : mirror de la branche `IsNullOrEmpty` (le natif
+        appelle alors `GetAdjacentEnemies(null, ...)`, dont le `IterateAdjacentTiles(null)` rend un
+        ensemble vide, donc `count = 0`)."""
+        from ...services.battle_query import are_entities_adjacent        # noqa: PLC0415
+        from ...dsl.base import _feet                                     # noqa: PLC0415
+        # Imports DIFFERES, classe PORTEUR : `engine.services.battle_query` et `engine.dsl.base`
+        # ramenent tous deux `engine.runner.abilities.base` dans `sys.modules` quand on les charge
+        # seuls en process frais -- hisser fermerait un cycle. Meme classe que les differes voisins.
+        entities = entities_from_state(state, caster_id, target_id)
+        tile = entities.target
+        if not tile:
+            return 0                                          # `IsNullOrEmpty(targetTiles)` -> tile = null
+        tile_feet = _feet(tile)
+        if not tile_feet:
+            return 0
+        caster = entities.caster or {}
+        team = caster.get("team")
+        board = getattr(entities, "board", None)
+        has_trait = entities.has_trait
+        for u in entities.units:
+            if u.get("team") is None or u.get("team") == team:
+                continue                                      # `<camp adverse de unit>`
+            if not u.get("alive"):
+                continue
+            if has_trait is not None and has_trait(u, int(UnitTrait.Steppable)):
+                continue                                      # `ignoreSteppables = true`
+            if are_entities_adjacent(_feet(u), tile_feet, board):
+                return int(TR.TargetIsNotAdjacentToEnemy)     # 0x40000000000
+        return 0
+
+    def execute_behaviour(self, state: "State", caster_id: int,
+                          target_id: Optional[int]) -> Optional[dict]:
+        e = state.get_entity(caster_id)
+        if e is None:
+            return None
+        sc = e.get_component(StatsComponent)
+        cctx = sc.ctx if sc is not None else None
+        level = getattr(cctx, "active_ability_level", None)
+        mult = int(getattr(cctx, "ability_variables_multiplier", 100) or 100)
+        # `DSLFormulas$$Get( AbilityConfiguration$$GetVariableForLevel(config@0x60, 0x20, state) )` --
+        # le montant est resolu AVANT l'arbre par le natif lui-meme (un `Get`, pas un `ConfigVar`).
+        heal_amount = int(ability_var(self.ABILITY_ID, VAR_THS_HP_TO_HEAL.name, level,
+                                      multiplier_pct=mult) or 0)
+        ectx = ExecutionContext(state=state, rng=state.rng)
+        entities = entities_from_state(state, caster_id, target_id)
+        titanhammer_squad_tree(state, entities, heal_amount).execute(entities, ectx)
+        heals = next((p for n, p in ectx.emitted if n == "Heal"), None)
+        posed = [{"effect": p.get("effect_type"), "target": p.get("target"),
+                  "placed": p.get("placed")}
+                 for n, p in ectx.emitted
+                 if n in ("AddEffect", "AddDynamicStatModifierEffect")]
+        return {"ability": self.ABILITY_ID, "caster": caster_id, "target": target_id,
+                "heal_amount": heal_amount, "range": _ths_range(),
+                "heals": heals, "posed": posed, "dsl": True}

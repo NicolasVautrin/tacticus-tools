@@ -110,7 +110,7 @@ from .emperorschildren import (DoomSirenAbility, EuphoricStrikesAbility,
                                ExcruciatingFrequenciesAbility, LashOfTormentAbility)
 from .blacktemplars import (CrusadeOfWrathAbility, FragstormGrenadeLauncherAbility, HolyDuelAbility,
                             UnbreakableDutyAbility)
-from .astartes import StrikeFromTheShadowsAbility
+from .astartes import StrikeFromTheShadowsAbility, TitanhammerSquadAbility
 from ..components import is_alive_and_not_fled
 from ..components import unit_is_dead, MachineComponent
 from ..messages import ActiveAbilityMessage
@@ -319,6 +319,7 @@ ABILITY_CLASSES: dict[int, type[ActiveAbility]] = {
     # `entities/abilities/active_ability.py`, `MakeDamagePredictions` = GenerateMultiHitAttackPredictions).
     # Porteur HORS pool (`astarCyrus`) -> confronte par `catalog_inject`, comme son passif HaywireMine.
     StrikeFromTheShadowsAbility.ABILITY_TYPE: StrikeFromTheShadowsAbility,  # 1225 (astarCyrus « Cyrus » Adeptus Astartes : (AttackWithAttackDamage(Caster@0x48, Target@0x60, MinMaxDamage, Bolter, GetHits, selectionType 2) + AddEffect(0x60d StrikeFromTheShadows -> Target, source Caster, Sum(TurnsFromRounds(1), Direct(1)) TOURS)) + ResetMovement(Owner@0x30) ; l'attaque part D'ABORD, le mouvement est rendu EN DERNIER ; l'effet 0x60d est numeriquement INERTE (EffectBonus a trigger seul, six slots de magnitude a ZERO) ; PAS d'ExecuteAtomic)
+    TitanhammerSquadAbility.ABILITY_TYPE: TitanhammerSquadAbility,  # 1231 (astarLysander « Lysander » Adeptus Astartes/ImperialFists, TILE-TARGET : ((AddEffect(0x623 _TargetTile -> Target@0x60 la TUILE, source Caster@0x48, Sum(TurnsUntilUnitOwnerTurn(groupe), Direct(1)) TOURS) & Heal(Caster@0x48, groupe, Get(GetVariableForLevel(0x20 hpToHeal)), ForHeal)) & AddDynamicStatModifierEffect(Filter(groupe, AmountIsGreaterThanZero(StatAmount(ActiveTarget@0x68, 7 BlockChance, 0 Current))), Caster@0x48, 0x624 _ExtraBlockDamage, stat 8 BlockDamage, Sum(TurnsUntilUnitOwnerTurn(ActiveTarget@0x68), TurnsFromRounds(1)))) & AddEffect(0x625 _TeleportingIn -> Filter(groupe, NOT HasFlag(ActiveTarget@0x68, 1 ArrivedAtFinalTile)), source Caster@0x48, Sum(TurnsUntilUnitOwnerTurn(ActiveTarget@0x68), Direct(1)) TOURS) ; groupe = Caster@0x48 + Filter(SurroundingFriends(Caster@0x48, GetNumberConstant(0x16 range), unique, 3 OnlyAliveAndTargetable), HasTrait(ActiveTarget@0x68, 0x40f TerminatorArmour)) ; l'audit la classait HEAL, le soin n'est que le 2e des QUATRE volets ; PAS d'ExecuteAtomic)
 }
 
 
