@@ -53,6 +53,43 @@ from engine.runner.prng import IntBasedMersenneTwister
 from engine.runner.runner import Runner
 from engine.runner.snapshot import load_state
 
+DECLENCHEUR = {
+    "chemins": (
+        # le port lui-meme et son inscription
+        "scripts/python/engine/runner/operations/triggers/loki/savage_killer.py",
+        "scripts/python/engine/runner/operations/triggers/dispatch/registry.py",
+        # le foyer PARTAGE du gate `IsActiveAbilityCountedAsUsed` (branche `pre` ajoutee par #929)
+        "scripts/python/engine/runner/operations/triggers/loki/fuelled_by_fury.py",
+        # les QUATRE emetteurs d'evenement dont depend chaque face
+        "scripts/python/engine/runner/operations/triggers/dispatch/ability.py",
+        "scripts/python/engine/runner/operations/triggers/dispatch/move_death.py",
+        "scripts/python/engine/runner/operations/triggers/dispatch/core.py",
+        "scripts/python/engine/runner/operations/spawn.py",
+        # la feuille d'attaque et le contexte que le behaviour lit
+        "scripts/python/engine/runner/abilities/behaviours/combat.py",
+        "scripts/python/engine/runner/abilities/behaviours/context.py",
+        "scripts/python/engine/entities/selectors/accessors.py",
+        # le montage de la face A : les grots naissent par CE selecteur de tuiles
+        "scripts/python/engine/runner/abilities/behaviours/composites.py",
+        # la base des triggers (adjacence, traits) et le gate de ciblage
+        "scripts/python/engine/runner/operations/triggers/base.py",
+        "scripts/python/engine/runner/abilities/targeting.py",
+        # le harnais live
+        "scripts/python/tests/conftest.py", "scripts/python/tests/engine/conftest.py",
+        "scripts/python/tests/engine/runner/conftest.py",
+        "scripts/python/engine/runner/snapshot.py",
+    ),
+    # Le montage joue une bataille REELLE et compare des PV au PV pres : un changement de build
+    # (stats normalisees, config d'ability, spawn des grots) peut le faire basculer sans qu'un
+    # fichier du depot bouge.
+    "build": True,
+    "toujours": False,
+    "raison": "Il confronte les DEUX faces de `SavageKiller` au jeu : le port et son registre, le "
+              "foyer partage du gate d'attaque-normale, les quatre emetteurs d'evenement, la "
+              "feuille d'attaque et son contexte, le selecteur de tuiles de spawn de `GetEmRuntz` "
+              "(qui EST ce qui fait naitre un summon adjacent), et le harnais live.",
+}
+
 ULF = "spaceWulfen"
 RUNTHERD = "orksRuntherd"
 SAVAGE_KILLER = int(TriggeredAbilityType.SavageKiller)          # 0x487 = 1159
@@ -357,20 +394,6 @@ def test_face_b_ne_part_pas_a_deux_hexes_mais_face_a_oui(sk_active_at_two):
         f"le port n'a pas tue le grot ne adjacent : offline={c['off_summons']} live={live}")
 
 
-def test_les_quatre_evenements_natifs_sont_abonnes():
-    """GARDE STRUCTURELLE, offline pur : le `CreateTrigger` natif est une union de QUATRE
-    disjonctions ; TROIS sont abonnees (`UnitAfterMove`, `UnitDisplaced`, `UnitAdded`) plus
-    `PreUnitAbility`. La 4e (`UnitBecameTargetable`) ne l'est PAS -- residu #929-r1, faute
-    d'emetteur cote port. Ce test FIGE cette repartition : la modifier sans toucher a la RE ferait
-    rougir, et retirer un evenement par accident (le plus probable) aussi."""
-    abonnes = {int(SavageKillerAbility.event_id)} | {int(e) for e in SavageKillerAbility.event_ids}
-    assert abonnes == {int(EventTriggerType.PreUnitAbility),
-                       int(EventTriggerType.UnitAfterMove),
-                       int(EventTriggerType.UnitDisplaced),
-                       int(EventTriggerType.UnitAdded)}, (
-        f"abonnements = {sorted(abonnes)} ; le decompile en veut exactement ces quatre "
-        "(la 5e branche `UnitBecameTargetable` est un residu documente, PAS un oubli)")
-    assert int(EventTriggerType.UnitBecameTargetable) not in abonnes, (
-        "`UnitBecameTargetable` a ete abonne : aucun site du port n'emet cet evenement, donc le "
-        "predicat `NOT (PreviousTile | TurnStartTile)` de cette branche serait NON confrontable "
-        "(port speculatif). Si un emetteur a ete ajoute, porter la branche ET retirer #929-r1.")
+# NB : la garde STRUCTURELLE des quatre evenements abonnes vit dans
+# `test_929_savage_killer_offline.py` -- elle est OFFLINE PURE, et un test offline heberge dans un
+# `_live.py` est invisible des DEUX gardes du parc (cf. `probe_547_ledger_sans_verdict_non_vert.py`).

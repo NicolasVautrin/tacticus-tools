@@ -29,6 +29,32 @@ from engine.entities.triggered_ability_type import TriggeredAbilityType
 from engine.runner.operations.triggers.loki import savage_killer as SK
 from engine.runner.operations.triggers.loki import fuelled_by_fury as FBF
 
+DECLENCHEUR = {
+    "chemins": (
+        "scripts/python/engine/runner/operations/triggers/loki/savage_killer.py",
+        # le foyer PARTAGE dont ce fichier garde le seuil ET le defaut (regression #929)
+        "scripts/python/engine/runner/operations/triggers/loki/fuelled_by_fury.py",
+        # les trois mirrors d'enum dont il fige les ordinaux et la DISJONCTION des espaces
+        "scripts/python/engine/entities/triggered_ability_type.py",
+        "scripts/python/engine/entities/active_ability_type.py",
+        "scripts/python/engine/entities/damage_profile_type.py",
+        # l'enum des evenements, dont il FIGE les quatre abonnements
+        "scripts/python/engine/dsl/event_trigger_type.py",
+        # les deux lecteurs de gameconfig qu'il confronte au port
+        "scripts/python/gameconfig.py", "scripts/python/unit_map.py",
+    ),
+    # Il LIT `GameAssembly.dll` (verdict DEAD CODE aux octets) et le gameconfig d'`AppData`, tous
+    # deux HORS de l'arbre : un changement de build peut le faire basculer sans qu'un fichier du
+    # depot bouge. Le foyer ajoute `data/symbols/**` de lui-meme.
+    "build": True,
+    "toujours": False,
+    "raison": "Il grave ce que le live ne peut PAS garder : le profil et le nombre de coups lus au "
+              "gameconfig (le mutant `Power -> Physical` est INERTE live, armure a 0), la "
+              "disjonction des DEUX espaces d'enum du call-site, le seuil de la branche `pre` du "
+              "foyer partage, et le verdict DEAD CODE de `$$CreateValidActiveAbilityTrigger` lu "
+              "aux octets du binaire.",
+}
+
 ROOT = Path(__file__).resolve().parents[4].parent          # racine du depot
 IMAGE_BASE = 0x180000000                                   # base de l'image PE de GameAssembly.dll
 
@@ -103,6 +129,30 @@ def test_ArmouredMight_n_a_aucun_porteur_et_c_est_pourquoi_le_terme_est_inerte()
 
 
 # ------------------------------------------------------- le foyer PARTAGE (regression #929)
+def test_les_quatre_evenements_natifs_sont_abonnes():
+    """GARDE STRUCTURELLE : le `CreateTrigger` natif est une union de QUATRE disjonctions ; TROIS
+    sont abonnees (`UnitAfterMove`, `UnitDisplaced`, `UnitAdded`) plus `PreUnitAbility`. La 4e
+    (`UnitBecameTargetable`) ne l'est PAS -- residu #929-r1, faute d'emetteur cote port.
+
+    Ce test FIGE la repartition : la modifier sans toucher a la RE fait rougir, et retirer un
+    evenement par accident (le plus probable) aussi. Il vit ICI et pas dans le fichier `_live.py`
+    parce qu'il est OFFLINE PUR, et qu'un test offline heberge dans un `_live.py` est invisible des
+    DEUX gardes du parc (`probe_547_ledger_sans_verdict_non_vert.py`)."""
+    from engine.dsl.event_trigger_type import EventTriggerType
+    abonnes = ({int(SK.SavageKillerAbility.event_id)}
+               | {int(e) for e in SK.SavageKillerAbility.event_ids})
+    assert abonnes == {int(EventTriggerType.PreUnitAbility),
+                       int(EventTriggerType.UnitAfterMove),
+                       int(EventTriggerType.UnitDisplaced),
+                       int(EventTriggerType.UnitAdded)}, (
+        f"abonnements = {sorted(abonnes)} ; le decompile en veut exactement ces quatre "
+        "(la 5e branche `UnitBecameTargetable` est un residu documente, PAS un oubli)")
+    assert int(EventTriggerType.UnitBecameTargetable) not in abonnes, (
+        "`UnitBecameTargetable` a ete abonne : aucun site du port n'emet cet evenement, donc le "
+        "predicat `NOT (PreviousTile | TurnStartTile)` de cette branche serait NON confrontable "
+        "(port speculatif). Si un emetteur a ete ajoute, porter la branche ET retirer #929-r1.")
+
+
 def test_le_seuil_pre_et_le_defaut_du_foyer_partage():
     """`IsActiveAbilityCountedAsUsed(isPreAbilityTrigger)` : le decompile ne choisit QUE le seuil
     (`DSLFormulas@+0x18 = Direct(0)` si `true`, `+0x20 = Direct(1)` sinon), jamais la classe du
