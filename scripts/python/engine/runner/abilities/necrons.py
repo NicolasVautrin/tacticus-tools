@@ -1579,7 +1579,15 @@ class ReanimationBeamAbility(ActiveAbility):
         hp_to_repair, max_dmg, dmg_pct = self._params(state, caster_id)
         carriers = nanoscarab_carriers_selector()
         summons = reanimation_beam_summons_selector(carriers)
-        ents = entities_from_state(state, caster_id, target_id)
+        # `actor_id = caster_id` : le volet [C] pose 1547 sur `Actor@DSLSelectors+0x40`, et
+        # `IdunBattle.Entities.Selectors.ActorSelector$$Select` rend une liste VIDE quand le slot
+        # `AbilityEntities+0x00` est nul (les trois selecteurs Actor/Caster/Owner ont le MEME corps a
+        # l'offset lu pres : `+0x00` / `+0x08` / `+0x18`). Sur un cast d'ACTIVE ce slot est renseigne,
+        # et il vaut le CASTER -- MESURE, pas deduite : `probe_902 --phase beam` voit l'effet 1547
+        # arriver sur la MoW casteuse (`Effect_Refresh e=79 -> ReceiveEffect e=53`). Sans ce fil, le
+        # port n'aurait POSE AUCUN effet, et le temoin qui le montre a lui-meme du etre repare (le
+        # mutant `Actor() -> Target()` passait AVEUGLE tant qu'on ne lisait que le cote live).
+        ents = entities_from_state(state, caster_id, target_id, actor_id=caster_id)
         ectx = ExecutionContext(state=state, rng=state.rng)
         # [A] `Repair(Caster, Repairable(carriers, 0, true, 3), ConfigVar(hpToRepair), ForRepair())`.
         # `guard=None` : le natif ne pre-filtre PAS au-dela de `Repairable` -- c'est le gate

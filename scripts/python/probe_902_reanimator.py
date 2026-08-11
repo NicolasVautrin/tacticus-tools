@@ -20,9 +20,17 @@ TROIS phases, trois TEMOINS distincts :
   * `--phase beam`   : cast 1223 sur DEUX machines marquees et ENDOMMAGEES : le discriminant est que
                        le natif repare **toutes** les machines marquees, pas la cible du cast.
 
-CE QUE CES TEMOINS NE VOIENT PAS (dit explicitement, cf. le rapport) : le volet SUMMONS de 1223
-(`--phase summons`, qui exige un summon mecanique marque) et la RESURRECTION de l'effet 1547 (sa
-classe d'effet n'est pas portee -- l'effet est POSE des deux cotes, il n'agit d'aucun cote).
+CE QUE CES TEMOINS NE VOIENT PAS (dit explicitement, cf. le rapport) : la RESURRECTION de l'effet
+1547 (sa classe d'effet n'est pas portee -- l'effet est POSE des deux cotes, il n'agit d'aucun cote).
+
+⚠ ET UN ANGLE MORT **STRUCTUREL**, mesure : sur 1223, le slot `Actor@+0x40` du volet [C] n'est PAS
+distinguable de `Target`/`Caster`. Cause LUE, pas supposee --
+`IdunBattle.Core.Services.TargetingQuery$$GetActualTarget` commence par
+`if (options.isSelfCasting != 0) return caster;`, et 1223 a `isSelfCasting = 1` : la cible EFFECTIVE
+d'un cast de 1223 est TOUJOURS le caster (verifie au diagnostic : `target_id=53 ctx.target=53
+ctx.actor=53`). Le mutant « `Actor()` -> `Target()` » passe donc AVEUGLE, et c'est un fait du natif,
+pas un trou du temoin. Ce que le temoin garde en revanche, et qui a trouve un VRAI bug : sans le fil
+`actor_id=caster_id`, `ActorSelector` rend VIDE et le port ne pose AUCUN effet 1547 (mutant M8 : rc 1).
 
 ASCII only (cp1252). Usage :
     python probe_902_reanimator.py --phase gates
@@ -205,6 +213,28 @@ def _effects_of(dec, uid):
     return set()
 
 
+def _porteurs_offline(st, effect_type: int) -> set:
+    """{id d'entite} portant `effect_type` dans l'ECS Python (`EffectsState.by_unit`)."""
+    if st.effects is None:
+        return set()
+    return {int(uid) for uid, effs in st.effects.by_unit.items()
+            if any(int(e.effect_type) == int(effect_type) for e in effs)}
+
+
+def _porteurs_live(dec, effect_type: int) -> set:
+    """Pendant LIVE : les MoW sont dans `dec.mows` (cle `casterId`), pas dans `dec.units`."""
+    out = set()
+    for u in (dec.get("units") or []):
+        if effect_type in {int(e.get("type") or e.get("effectType") or -1)
+                           for e in (u.get("effects") or [])}:
+            out.add(int(u["id"]))
+    for m in (dec.get("mows") or []):
+        if effect_type in {int(e.get("type") or e.get("effectType") or -1)
+                           for e in (m.get("effects") or [])}:
+            out.add(int(m.get("casterId") or m.get("machineId")))
+    return out
+
+
 def _endturn(sid, rid):
     _r(sid, "applyAction", {"runnerId": rid, "action": {"kind": "endturn"}}, 60)
 
@@ -338,17 +368,21 @@ def phase_beam(sid, state_path, seedbc):
     mkstate, dec = _capture(sid, rid)
     st = mkstate()
     hp_before_off = _hp_offline(st)
+    revive_before_off = _porteurs_offline(st, REVIVE)
     diag = _cast_offline(st, cid, a, REANIMATION_BEAM)
     hp_after_off = _hp_offline(st)
     d_off = {u: hp_after_off[u] - hp_before_off.get(u, 0)
              for u in hp_after_off if hp_after_off[u] != hp_before_off.get(u)}
+    revive_off = _porteurs_offline(st, REVIVE) - revive_before_off
 
     hp_before_live = _hp_of(dec)
+    revive_before_live = _porteurs_live(dec, REVIVE)
     _cast_live(sid, rid, cid, a, REANIMATION_BEAM)
     _mk2, dec2 = _capture(sid, rid)
     hp_after_live = _hp_of(dec2)
     d_live = {u: hp_after_live[u] - hp_before_live.get(u, 0)
               for u in hp_after_live if hp_after_live[u] != hp_before_live.get(u)}
+    revive_live = _porteurs_live(dec2, REVIVE) - revive_before_live
 
     print("[902][beam] PV avant le beam : %s"
           % {int(u["id"]): "%s/%s" % (u.get("hp"), u.get("maxHp"))
@@ -365,9 +399,13 @@ def phase_beam(sid, state_path, seedbc):
     # reparee est alors celle que le port naif ignorerait.
     hors_cible = set(d_live) - {int(a)}
     print("[902][beam] unites reparees HORS de la cible du cast : %s" % sorted(hors_cible))
-    print("[902][beam] effet 1547 sur l'ACTEUR (%d) : live=%s"
-          % (cid, REVIVE in _effects_of(dec2, cid)))
-    ok = (d_off == d_live) and bool(hors_cible)
+    # ⚠ CE VOLET A ETE AJOUTE PARCE QU'UN MUTANT L'A EXIGE : le temoin ne lisait que le cote LIVE,
+    # donc le mutant « `AddEffect(1547, Actor())` -> `Target()` » passait AVEUGLE (rc 0). Un porteur
+    # confronte DES DEUX COTES le fait rougir : l'acteur est la MoW, la cible une unite.
+    print("[902][beam] porteurs NEUFS de 1547 : offline=%s live=%s %s (acteur attendu = %d)"
+          % (sorted(revive_off), sorted(revive_live),
+             "=" if revive_off == revive_live else "!", cid))
+    ok = (d_off == d_live) and bool(hors_cible) and revive_off == revive_live
     print("[902][beam] %s" % ("OK" if ok else "DIVERGENCE"))
     return ok
 
