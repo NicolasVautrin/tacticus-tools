@@ -24,7 +24,7 @@
 ## Bilan
 
 - Unites lineup : **127** ; kits COMPLETS (aucun manque detecte) : **76** ; kits avec du travail : **51**
-- Volume total : **54** items manquants (actives no-op + passifs/traits non registres)
+- Volume total : **53** items manquants (actives no-op + passifs/traits non registres)
 - HORS total — voies conditionnelles : **41** abilities non portees (11 mythiques, 30 reliques equipables)
 
 ### Priorite par faction (volume decroissant)
@@ -42,23 +42,23 @@
 | Necrons | 3 | 3 |
 | SpaceWolves | 3 | 3 |
 | WorldEaters | 3 | 3 |
-| AdeptusAstartes | 1 | 2 |
 | Aeldari | 2 | 2 |
 | Custodes | 2 | 2 |
 | Orks | 2 | 2 |
 | Tau | 1 | 2 |
 | ThousandSons | 2 | 2 |
 | Tyranids | 2 | 2 |
+| AdeptusAstartes | 1 | 1 |
 | BlackTemplars | 1 | 1 |
 | Genestealers | 1 | 1 |
 
 ## Par faction (kits avec du travail)
 
-### AdeptusAstartes — 1 kits, 2 items
+### AdeptusAstartes — 1 kits, 1 items
 
 | unite | manque | actives | passifs manquants | traits de kit manquants |
 |---|---|---|---|---|
-| astarLysander | 2 | TitanhammerSquad(1231) [--] NO-OP HEAL | IconOfObstinacy | - |
+| astarLysander | 1 | TitanhammerSquad(1231) [C-] OK | IconOfObstinacy | - |
 
 ### AdeptusMechanicus — 3 kits, 3 items
 
