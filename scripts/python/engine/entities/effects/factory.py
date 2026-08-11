@@ -104,6 +104,7 @@ from .loki.reinforced_hive_node import (
     ReinforcedHiveNodeExtraArmorEffect, ReinforcedHiveNodeExtraBlockEffect
 )
 from .loki.relentless_march import RelentlessMarchExtraMoveEffect
+from .loki.rites_of_morkai import RitesOfMorkaiExtraDamageEffect
 from .loki.serene_unifier import SereneUnifierStormOfFireEffect
 from .loki.shock_assault import ShockAssaultBuffEffect
 from .loki.status import (
@@ -960,6 +961,22 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # Unstoppable`, isTemporary) est LU par le substrat d'entite (`combatSnapshot.units[].traits`,
     # MESURE : u81 gagne 1042 au cast) ; sa POSE offline attend le port de l'ability 1106.
     "WarHowl_ExtraDamage_Unstoppable": WarHowlExtraDamageUnstoppableEffect,
+    # 1529 RitesOfMorkai_ExtraDamage (#904) : SECOND effet de l'ACTIVE `RitesOfMorkai` (0x4bb = 1211)
+    # de `spaceWolfPriest` <<Baldr>>, pose sur le sous-ensemble de sa zone qui porte deja une forme de
+    # Final Vengeance (`RitesOfMorkaiAbility$$ExecuteBehaviour` : `AddEffect(0x5f9,
+    #  AbilityStateReference, Filter(<la zone cachee>, HasTrait(ActiveTarget, 0x3f6 FinalJustice)
+    #  op_BitwiseOr HasEffect(ActiveTarget, 0x5ae FinalVengeance_UnitEffect, onlyActive: 0, Both)),
+    #  TurnsFromRounds(ConfigConst(0x45 nrOfRounds)))`). Le PREMIER effet du meme cast est 1502
+    # `RitesOfMorkai` (le revive, `runner/operations/triggers/loki/rites_of_morkai.py`, #79/#229).
+    # UN canal de LECTURE porte, a UN SEUL noeud de trigger -- et c'est le contraste avec 1222 :
+    #   `...RitesOfMorkai_ExtraDamageEffect$$CreateEffectDamageBonusForAttack`
+    #       = ForAddition(get_OwnerIsCaster, ConfigVar(0x08 = extraDmg))     -> additif per-coup,
+    #     SANS `IsMeleeAttack` ni `IsNormalAttack` (i2 : « with all attacks »).
+    # `CreateActiveCondition` = `$$HasAnyKindOfFinalVengeance` (corps FONDU par IL2CPP, la MEME
+    # adresse occupe DEUX slots du bloc `methodPointers`) -> `is_active` la mirrore, mais
+    # `active_condition_ported` reste FALSE (les deux membres du OR n'ont pas la meme surete de
+    # mesure -- cf. l'en-tete du module).
+    "RitesOfMorkai_ExtraDamage": RitesOfMorkaiExtraDamageEffect,
     # 1115 InescapableAccuracy_extraCritChance (case-366-r1) : volet CHANCE DE CRIT du passif
     # `InescapableAccuracy` (TriggeredAbilityType 0x45b = 1115) d'`eldarMauganRa`.
     # `InescapableAccuracyAbility$$CreateBehaviour` pose les TROIS effets d'un bloc sur l'Owner
