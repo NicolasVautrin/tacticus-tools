@@ -121,6 +121,7 @@ from ..loki.stormboyz_strike import (StormboyzStrikeTeleportAbility,   # #366-r1
 from ..loki import full_throttle as _full_throttle                  # noqa: F401
 from ..loki import seeker_missile_attack as _seeker_missile_attack  # noqa: F401
 from ..loki import overwhelming_wrath_attack as _overwhelming_wrath_attack  # noqa: F401
+from ..loki import lions_wrath_attack as _lions_wrath_attack        # noqa: F401  (#889, phase 2 de 1217)
 from ..loki.thrill_seekers import (ThrillSeekersFullHealthTargetAbility,   # trait ThrillSeekers 1056
                                   ThrillSeekersDamageTakenAbility)        # (x5 Emperor's Children)
 from ..loki.hailstrike import HailstrikeAttackAbility                 # case-117 ph.2 (1214 -> 1507)
@@ -1145,3 +1146,12 @@ for _bond_et, _bond_cls in bond_removal_registry_entries():
 # et cette attaque. Cf. `pending_attack.py` pour la table et son critere d'inscription.
 for _pend_et, _pend_cls in pending_attack_registry_entries():
     EFFECT_TRIGGERS.setdefault(_pend_et, []).append(_pend_cls)
+
+
+# #889 -- le SECOND `Triggered()` de `TheLionsWrath_PendingAttackEffect` (1521), celui de la
+# DERIVEE et non de la base : `On(0x25 = UnitRemoved) & get_OwnerIsTarget -> GetAttackBehaviour`.
+# 1521 porte donc DEUX entrees ici (celle de la base, derivee ci-dessus, et celle-ci), exactement
+# comme le natif ajoute son `Triggered()` a l'`ArraySet` que lui rend
+# `APendingAttackEffect$$CreateHandleTriggerAbilitiesInternal`. Cf. `loki/lions_wrath_attack.py`.
+EFFECT_TRIGGERS.setdefault(_lions_wrath_attack.LW_PENDING_ATTACK, []).append(
+    _lions_wrath_attack.LionsWrathPendingAttackOnUnitRemoved)

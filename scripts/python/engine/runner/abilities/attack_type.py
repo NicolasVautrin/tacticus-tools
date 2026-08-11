@@ -334,6 +334,14 @@ ABILITY_ATTACK_TYPE: dict[int, int] = {
     # ⚠ Voisin IMMEDIAT et litteral OPPOSE : `1195` juste au-dessus vaut `Others`. Les deux sont LUS
     # sur leur propre appel, jamais deduits du fait que ce sont deux attaques directes mono-cible.
     ActiveAbilityType.EuphoricStrikes: AbilityAttackType.DirectTargetAttack,  # 1198
+    # `IdunBattleLogic.Entities.Abilities.Active.Loki.TheLionsWrathAbility$$.ctor` ->
+    # `AActiveAbility..ctor(this, &opts, 0)` : 3e argument = **0 = DirectTargetAttack** (#889).
+    # Meme forme de ctor que `1198` ci-dessus -- PRESET STATIQUE COPIE (les 0x40 octets de
+    # `TargetingOptions statics+0x40`, passes TELS QUELS, aucune surcharge preset+flags) -- et donc
+    # meme lecture : le litteral est pris sur l'appel, pas deduit du fait que le cast frappe.
+    # ⚠ Le cast arme AUSSI une attaque DIFFEREE (la triggered 1520, profil `Piercing`), et
+    # l'`AbilityAttackType` ne le dit pas : il qualifie le CAST, pas la mecanique.
+    ActiveAbilityType.TheLionsWrath: AbilityAttackType.DirectTargetAttack,  # 1217
     # `IdunBattleLogic.Entities.Abilities.Active.Loki.DoomSirenAbility$$.ctor` ->
     # `AActiveAbility..ctor(this, &opts, 0, 0)` : 3e argument = 0 = DirectTargetAttack.
     ActiveAbilityType.DoomSiren: AbilityAttackType.DirectTargetAttack,  # 1199

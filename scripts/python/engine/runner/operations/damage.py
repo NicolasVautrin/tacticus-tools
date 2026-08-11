@@ -982,7 +982,8 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
     def _crit_params(ctx, attacker_effects, state: Optional[State] = None,
                      att_id: Optional[int] = None, tgt_id: Optional[int] = None,
                      is_ranged: Optional[bool] = None,
-                     is_normal_attack: Optional[bool] = None) -> tuple:
+                     is_normal_attack: Optional[bool] = None,
+                     hit_index: Optional[int] = None) -> tuple:
         """(crit_chance, crit_damage, crit_enabled) de l'ATTAQUANT — GetStat(9/10) + bonus calc-time des
         effets (`IdunBattle.Core.Services.DamagePrediction$$GetCritChanceBonusFromEffects` / `IdunBattle.Core.Services.DamagePrediction$$GetCritDamageBonusFromEffects`) ;
         `could_crit` = `IdunBattle.Core.Services.DamageCalculations$$CouldCrit`. Partage par les 3 vecteurs (normale/ability/splash).
@@ -1053,7 +1054,17 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
             (`unit_tiles_moved_this_turn`), le MEME store que l'axe DEGAT (`attacker_modifiers`)."""
         att_ctx = {"is_ranged": is_ranged, "is_normal_attack": is_normal_attack,
                    "caster_crit_chance": int(ctx.stat(StatType.CRIT_CHANCE) or 0),
-                   "att_id": att_id, "tgt_id": tgt_id}
+                   "att_id": att_id, "tgt_id": tgt_id,
+                   # #889 -- `hit_index` = le **5e argument natif** de `IdunBattle.Core.Services.
+                   # DamagePrediction$$GetCritChanceBonusFromEffects(this, attaquant, defenseur,
+                   # abilityOrEffect, hitIndex)`, que la couche `EffectBonus` expose au noeud
+                   # `IdunBattleLogic.Entities.DSLFormulas$$CurrentHitIndex`. Porteur :
+                   # `IdunBattle.Entities.Effects.Loki.TheLionsWrath_ExtraCritChanceEffect$$
+                   # CreateCritChanceBonus` = `ForAddition(get_OwnerIsCaster & AmountIsEqual(
+                   # CurrentHitIndex(), <DSLFormulas+0x20> = Direct(1)), ConfigVar(0x3a = chance))`.
+                   # Tri-etat : `None` = index NON THREADE par le vecteur appelant -> le noeud est
+                   # FAUX, jamais permissif (meme discipline que `is_ranged` / `caster_crit_chance`).
+                   "hit_index": hit_index}
         carriers = [(att_id, attacker_effects)]
         if state is not None and att_id is not None:
             att_ctx["has_moved"] = unit_has_moved(state, int(att_id))

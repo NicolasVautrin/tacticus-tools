@@ -37,6 +37,7 @@ from .loki.dark_angels_passives import (
     LionHelmExtraBlockDamageEffect, LionHelmExtraDmgEffect
 )
 from .loki.darkangels import HailstrikeExtraPierceEffect
+from .loki.lions_wrath import TheLionsWrathExtraCritChanceEffect
 from .loki.destroy_the_witch import (
     DestroyTheWitchExtraDamageEffect, DestroyTheWitchExtraMoveEffect
 )
@@ -1029,6 +1030,22 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # EffectSource`) vit dans `EFFECT_TRIGGERS[1429]` : sans lui le +crit ne serait pas une CHARGE A
     # USAGE UNIQUE mais un buff de tout le tour -- regression PERMISSIVE (forme de 1550/1000).
     "EuphoricStrikes_ExtraCrit": EuphoricStrikesExtraCritEffect,
+    # 1522 TheLionsWrath_ExtraCritChance (#889) : le buff que `darkaBossLion` pose sur LUI-MEME au
+    # cast de son active 1217 -- `AddEffect(0x5f2, <abilityStateRef>, targets = Owner@DSLSelectors
+    # +0x30, turns = null)`, surcharge a CINQ arguments (pas de `source`). UN SEUL canal (le build ne
+    # porte que `$$CreateCritChanceBonus` et `$$.ctor` pour cette classe -- ni CritDamage, ni
+    # `CreateRemoveEffectTrigger`) :
+    #   `TheLionsWrath_ExtraCritChanceEffect$$CreateCritChanceBonus`
+    #       = ForAddition(get_OwnerIsCaster
+    #                       & AmountIsEqual(CurrentHitIndex(), <DSLFormulas+0x20> = Direct(1)),
+    #                     ConfigVar(0x3a = chance))
+    # `get_OwnerIsCaster` = le porteur est l'ATTAQUANT (symetrique de 1429, porte par le DEFENSEUR).
+    # ⚠ La variable est `chance` (0x3a = 58), **PAS** `extraCritChance` (0x41 = 65) : c'est celle-ci
+    # que lit `1216 MartialExemplar`, l'AUTRE active du meme boss. L'ordinal seul ne l'aurait pas dit.
+    # `chance` = 100 a tous les niveaux et `nrOfHits = 2` -> le SECOND coup crite par construction.
+    # Le RETRAIT n'est pas un `EFFECT_TRIGGERS` : la PHASE 2 (`TheLionsWrath_PendingAttackAbility$$
+    # CreateBehaviour`) finit par `RemoveEffect(Owner@+0x30, Nullable(0x5f2))`, HORS de son `If`.
+    "TheLionsWrath_ExtraCritChance": TheLionsWrathExtraCritChanceEffect,
     # 1460 AmuletOfTheVoidwyrm_CritDamageReduction (#589-r1-r1-r2-r1) : owner-effect PERMANENT de la
     # RELIQUE `AmuletOfTheVoidwyrm`, pose a l'init par la base `IdunBattle.Entities.Abilities.
     # AOwnerEffectTriggeredAbility$$CreateBehaviour` (`If(<trig>, AddEffect(GetEffectType() = 0x5b4,

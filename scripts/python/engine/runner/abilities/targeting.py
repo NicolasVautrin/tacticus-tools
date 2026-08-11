@@ -633,25 +633,13 @@ TARGETING_OPTIONS_UNPORTED: "dict[int, TargetingOptions]" = {
     ActiveAbilityType.MartialExemplar: TargetingOptions(rules=TR.CasterIsPossibleTarget | TR.CasterHasNotMoved  # 1216
                                  | TR.CasterMatchesDynamicRule,
                            self_cast=True, range=None, force_melee_target=RANGED_BOOL_FALSE),
-    # @FORME STATIC-COPY   (couvre aussi 1093 et 1215 ci-dessous : les trois recopient les 0x40
+    # @FORME STATIC-COPY   (couvre aussi 1093 et 1215 ci-dessous : les deux recopient les 0x40
     #                       octets d'un preset et n'appellent AUCUN `TargetingOptions$$.ctor`)
-    # 1217 TheLionsWrath (#27-r4) -- meme configuration que 1216 : face DECISION portee (playbook
-    # `loki_custom.TheLionsWrathPlaybook`), face COMBAT NON portee -> cette table, pas
-    # `ABILITY_CLASSES`. Ici le masque est le LITTERAL, sans piege PRESET+FLAGS :
-    # `IdunBattleLogic.Entities.Abilities.Active.Loki.TheLionsWrathAbility$$.ctor` recopie les 0x40
-    # octets du preset `<TargetingOptions statics>+0x40` et appelle
-    # `IdunBattle.Entities.Abilities.AActiveAbility$$.ctor(this, &opts, abilityAttackType)` -- dont le
-    # corps recopie la struct TELLE QUELLE dans `this+0x70..0xac` (aucun `|` de flags additionnels ;
-    # le 3e argument est l'`AbilityAttackType`, ici le litteral 0, ecrit a `this+0x68`).
-    # Champs du preset, LUS dans `IdunBattle.Core.Services.TargetingOptions$$.cctor` :
-    #   +0x40 (`isSelfCasting`)     = 0
-    #   +0x48..+0x5f (`range`)      = recopie de `<TargetingRange statics>+0x30` = RANGE_ADJACENT
-    #   +0x60 (`forceMeleeTarget`)  = 1 = RangedBool.False
-    #   +0x68 (`rules`)             = 0x4000 = TargetIsEnemy, et RIEN d'autre
-    # C'est ce masque qui met 1217 sur la route d'ATTAQUE (cibles ENNEMIES), la ou 1216 -- self-cast
-    # par `CasterIsPossibleTarget` -- passait par la route non-attaque.
-    ActiveAbilityType.TheLionsWrath: TargetingOptions(rules=TR.TargetIsEnemy, self_cast=False, range=RANGE_ADJACENT,  # 1217
-                           force_melee_target=RANGED_BOOL_FALSE),
+    # ⚠ 1217 `TheLionsWrath` A QUITTE CETTE TABLE (#889) : sa face COMBAT est desormais portee, et le
+    # CONTRAT DE DISJONCTION ci-dessus exige alors le retrait de la ligne. Son masque -- les MEMES
+    # quatre valeurs, RE-LUES au decompile avant migration -- vit sur la classe,
+    # `runner/abilities/darkangels.py::TheLionsWrathAbility.TARGETING_OPTIONS`, avec la lecture
+    # complete du preset `<TargetingOptions statics>+0x40`.
     # 1093 MortarionsPlagueWind (#27-r5) -- face DECISION portee (playbook), face COMBAT NON portee.
     # `IdunBattleLogic.Entities.Abilities.Active.Loki.MortarionsPlagueWindAbility$$.ctor` n'appelle
     # AUCUN `TargetingOptions$$.ctor` : il RECOPIE les 0x40 octets du champ statique
@@ -769,16 +757,16 @@ TARGETING_OPTIONS_UNPORTED: "dict[int, TargetingOptions]" = {
     #     PAS des faits de RE -- ils bougent a chaque face COMBAT portee, et c'est pour ca
     #     qu'aucun d'eux n'est ecrit a la main.
     #
-    #     len(TARGETING_OPTIONS_UNPORTED) ......... 11
-    #       dont hors-bloc (tete de table) ..... 4
+    #     len(TARGETING_OPTIONS_UNPORTED) ......... 10
+    #       dont hors-bloc (tete de table) ..... 3
     #       dont bloc du pool (#433-r4) ........ 7
     #
     #     VENTILATION PAR FORME DE CTOR (dict ENTIER, hors-bloc compris) :
     #       FLAGS-DIRECTS  ..................... 3
     #       PRESET+FLAGS   ..................... 2
     #       PRESET-SEUL    ..................... 0
-    #       STATIC-COPY    ..................... 6
-    #       (somme = 11)
+    #       STATIC-COPY    ..................... 5
+    #       (somme = 10)
     # <<< FIN COMPTES DERIVES
     #
     # LES 16 PRESETS, RELUS A LA SOURCE dans `IdunBattle.Core.Services.TargetingOptions$$.cctor`

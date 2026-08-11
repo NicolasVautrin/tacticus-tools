@@ -28,7 +28,8 @@ from ...dsl.effects import ExecutionContext
 from ...entities.behaviours import AtomicGroup, Foreach, If, op_add, op_and
 from ...entities.effect_type import EffectType
 from ...entities.formulas import AngleBetweenLines, Count, percentage_of_attack_capped_at_max
-from ...entities.selectors.accessors import FixedTileIds, Subject, SurroundingTiles, Target
+from ...entities.selectors.accessors import (FixedTileIds, Owner, Subject, SurroundingTiles,
+                                             Target)
 from ...entities.selectors.geometry import Cache, FilterContinuous, PickFirstN, TilesBehindInLine
 from ...entities.selectors.tiles import AdjacentTiles, Caster
 from ...entities.selectors.units import (
@@ -45,7 +46,7 @@ from ...entities.unit_selection_type import UnitSelectionType
 #: `IdunBattle.DSL.TargetsSelector$$SelectUnit` -> `IdunBattle.Entities.UnitExtensions$$MatchesUnitSelectionType`.
 SELECTION = int(UnitSelectionType.OnlyAliveAndTargetable)     # 3
 from ...entities.triggers import (AreEnemies, AreEqual, HasEffect, HasGrandAlliance, HasUnit,
-                                  TriggerAnd)
+                                  IsAlive, TriggerAnd)
 # `IdunBattle.Core.Services.MinMaxDamage$$Avg` (demi-vers-le-PAIR) : la cle de tri de
 # `SortAttackersByDamagePredictionSelector`. Import AU NIVEAU MODULE pour que le cablage soit
 # verifiable sur l'objet importe (garde #344), et non sur le texte du fichier.
@@ -53,10 +54,11 @@ from ...services.min_max_damage import min_max_avg
 from .base import ActiveAbility
 from .behaviours.combat import AttackWithAttackDamage, UseActiveAbility
 from .behaviours.context import entities_from_state
-from .behaviours.effects import AddEffect, RemoveEffect
+from .behaviours.effects import AddBondEffect, AddEffect, RemoveEffect
 from .behaviours.stats import AddStatOverrideEffect
-from .targeting import (RANGE_FROM_CONFIG, RANGE_SELF, RANGE_WHOLE_BOARD, RANGED_BOOL_FALSE,
-                        RANGED_BOOL_IF_RANGED_CASTER, RANGED_BOOL_TRUE, TargetingOptions)
+from .targeting import (RANGE_ADJACENT, RANGE_FROM_CONFIG, RANGE_SELF, RANGE_WHOLE_BOARD,
+                        RANGED_BOOL_FALSE, RANGED_BOOL_IF_RANGED_CASTER, RANGED_BOOL_TRUE,
+                        TargetingOptions)
 from .targeting_rule import TargetingRule as TR
 from ...dsl.base import _round_fix64
 from ...entities.effects import hits_bonus_from_effects
@@ -1280,3 +1282,169 @@ class CalibaniteGreatswordAbility(ActiveAbility):
         return {"ability": "CalibaniteGreatsword", "caster": caster_id,
                 "stance": "Sweep" if CG_SWEEP in added else ("Strike" if CG_STRIKE in added else None),
                 "added": added, "removed": removed, "dsl": True}
+
+
+# ============ TheLionsWrath (1217, `darkaBossLion` « le Lion », GuildBoss) -- #889 ================
+#
+# PHASE 1 du patron 2-PHASES. La PHASE 2 (la triggered 1520) vit dans
+# `runner/operations/triggers/loki/lions_wrath_attack.py`, avec les triggers -- meme emplacement et
+# meme cause que les phases 2 de 1069 et 1141 (#503-r3).
+#
+#: `EffectType.TheLionsWrath_ExtraCritChance` -- le buff de crit pose sur le CASTER.
+LW_EXTRA_CRIT = int(EffectType.TheLionsWrath_ExtraCritChance)       # 0x5f2 = 1522
+#: `EffectType.TheLionsWrath_PendingAttack` -- l'ARMEMENT de la phase 2, pose sur la CIBLE.
+LW_PENDING_ATTACK = int(EffectType.TheLionsWrath_PendingAttack)     # 0x5f1 = 1521
+#: `EffectType.Taunted_OnlySpecificTargets` -- l'effet COMPOSITE 27 (`TauntedEffect`, base
+#: `ABondEffect`), le MEME que posent `OverwhelmingWrath` / `GetEmRuntz` / `CrushingClaws`.
+LW_TAUNTED = int(EffectType.Taunted_OnlySpecificTargets)            # 0x1b = 27
+LW_ACTIVE_ID = ActiveAbilityType.TheLionsWrath.name                 # "TheLionsWrath"
+
+
+def the_lions_wrath_tree(taunt_rounds: int):
+    """Arbre de `IdunBattleLogic.Entities.Abilities.Active.Loki.TheLionsWrathAbility$$ExecuteBehaviour`
+    -- MIRROR 1:1 du DECOMPILE (build `rnca9r7q6c`) :
+
+        e1  = DSLBehaviors$$AddEffect( 0x5f2 = 1522 TheLionsWrath_ExtraCritChance,
+                                       AActiveAbility$$get_AbilityStateReference(this),
+                                       targets = Owner@DSLSelectors+0x30,
+                                       turns   = null )
+        atk = DSLBehaviors$$AttackWithAttackDamage(
+                  caster        = Caster@DSLSelectors+0x48,
+                  target        = Target@DSLSelectors+0x60,
+                  amount        = AActiveAbility$$MinMaxDamage(this, abilityState),
+                  damageProfile = AbilityConfiguration$$GetDamageProfile(config@+0x60),
+                  hits          = DSLFormulas$$ConfigConst(0x2f = nrOfHits, config@+0x60),
+                  abilityOrEffect = AbilityOrEffect(this),
+                  options       = Nullable{ +0x00..0x07 = 0 ; +0x08 = List<int>{1} ; reste = 0 },
+                  selectionType = 2 )
+        b1  = DSLBehaviors$$AddBondEffect( 0x1b = 27 Taunted_OnlySpecificTargets,
+                                           AbilityStateReference,
+                                           source = Owner@+0x30, targets = Target@+0x60,
+                                           bondedEntity = Owner@+0x30,
+                                           turns = DSLFormulas$$TurnsFromRounds(
+                                                       GetNumberConstant(0x45 = nrOfRounds)) )
+        b2  = DSLBehaviors$$AddBondEffect( 0x5f1 = 1521 TheLionsWrath_PendingAttack,
+                                           AbilityStateReference,
+                                           source = Owner@+0x30, targets = Target@+0x60,
+                                           bondedEntity = Owner@+0x30,
+                                           options = <struct ZEROEE> )
+        AActiveAbility$$Execute( (e1 op_Addition atk)
+                                 op_Addition DSLBehaviors$$IfAlive(Target@+0x60, b1 op_Addition b2,
+                                                                   <else> = null) )
+
+    LA STRUCTURE EST LE POINT, deux fois :
+
+    * `IfAlive(Target)` -- `DSLBehaviors$$IfAlive(this, selector, if, else)` a pour corps ENTIER
+      `If(DSLTriggers$$IsAlive(selector), if, else)` : le port l'ecrit donc `If(IsAlive(Target()),
+      ...)`, ce qui EST le mirror et non une paraphrase. Le taunt et l'armement de la phase 2 ne
+      sont poses QUE si la cible SURVIT au coup. Les mettre hors du `If` armerait une attaque
+      differee sur un cadavre -- exactement la forme de faute que `LashOfTorment` (1196) a coutee
+      (`case-524` : le port posait `[25, 26, 27, 1237]` sur un cadavre).
+    * `e1` (le buff de crit) est en revanche AVANT le `If` **et avant l'attaque** : il doit etre
+      pose pour que le coup d'index 1 de CE cast crite. L'ordre `AddEffect -> Attack` est celui du
+      decompile, pas une commodite.
+
+    `turns` de `e1` est **null** (le 5e argument de la surcharge a CINQ arguments) -> duree DEFAUT
+    de l'effet, pas `TurnsFromRounds(1)` : `duration_rounds=None`.
+    `scale_from_source=True` sur `e1` : sa magnitude est un `ConfigVar(0x3a = chance)` -- sans le
+    bake de l'`AbilityStateReference` (3e argument natif), l'effet materialise lirait le niveau par
+    defaut au lieu de celui du poseur. Les deux bonds n'en ont PAS besoin (27 est un composite a
+    sous-effets, 1521 est un marqueur : aucun des deux ne lit de `ConfigVar` cote port).
+
+    `taunt_rounds` = `GetNumberConstant(0x45 = nrOfRounds)`, LU du gameconfig par l'appelant (jamais
+    code en dur : c'est une constante d'ability, pas un litteral du decompile).
+
+    ⚠ **NON RESOLU -- le champ `+0x08` des `AttackDamageBehaviourOptions`** (une `List<int>` a
+    laquelle le call-site `Add(1)`). Meme champ, meme liste, meme valeur que dans la PHASE 2 ; sa
+    semantique n'est pas lue et le port ne lui prete aucun effet -- residu **#889-r2**, detail dans
+    l'en-tete de `runner/operations/triggers/loki/lions_wrath_attack.py`. Le PREMIER qword des
+    options vaut 0, donc ni `alwaysOverkilled` (+4), ni `alwaysCrit` (+5), ni
+    `isNormalAttackDamage` (+6)."""
+    e1 = AddEffect(LW_EXTRA_CRIT, EffectType.TheLionsWrath_ExtraCritChance.name,
+                   Owner(), duration_rounds=None, scale_from_source=True)
+    atk = AttackWithAttackDamage(
+        Target(),                                       # `Target@DSLSelectors+0x60`
+        LW_ACTIVE_ID,
+        _ability_profile(LW_ACTIVE_ID, "damageProfile"),   # `GetDamageProfile(config@+0x60)`
+        # `attackRangeType` de 1217 = `"Melee"` au gameconfig -- c'est la CONFIG qui decide
+        # (`BattleQuery$$IsMeleeAttack` part de `GetAbilityAttackRangeType`), pas le noeud, qui ne
+        # porte AUCUN bit melee/ranged (releve #503-r5 sur les cinq surcharges).
+        is_melee=True,
+        level_slot="active",
+        multi=False,                                    # selecteur MONO-cible (le slot `Target`)
+        ability_type=int(ActiveAbilityType.TheLionsWrath),
+        force_overkill=False, force_crit=False)         # premier qword des options = 0
+    b1 = AddBondEffect(LW_TAUNTED, EffectType.Taunted_OnlySpecificTargets.name,
+                       Owner(), Target(), duration_rounds=int(taunt_rounds), bonded_ref=Owner())
+    b2 = AddBondEffect(LW_PENDING_ATTACK, EffectType.TheLionsWrath_PendingAttack.name,
+                       Owner(), Target(), duration_rounds=None, bonded_ref=Owner())
+    return op_add(op_add(e1, atk),
+                  # `DSLBehaviors$$IfAlive(Target@+0x60, b1 + b2, null)` = `If(IsAlive(...), ...)`.
+                  If(IsAlive(Target()), op_add(b1, b2)))
+
+
+class TheLionsWrathAbility(ActiveAbility):
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.TheLionsWrathAbility$$ExecuteBehaviour`
+    (id 1217, `darkaBossLion` « le Lion », GuildBoss DarkAngels). Arbre DSL `the_lions_wrath_tree`.
+
+    ROUGE MESURE AVANT CE PORT : 1217 etait ABSENTE d'`ABILITY_CLASSES` -> `AbilityHandler`
+    acceptait le cast, posait les flags de tour, et n'executait RIEN. Zero degat, zero effet, zero
+    erreur -- et la face DECISION, elle, etait deja portee (`playbook/loki_custom.py::
+    TheLionsWrathPlaybook`), donc l'IA CHOISISSAIT une ability qui ne faisait rien.
+
+    ⚠ L'AUDIT CLASSE 1217 EN `DAMAGE(Power)` ET C'EST JUSTE, MAIS INCOMPLET : le cast frappe bien
+    (`AttackWithAttackDamage`, profil `Power`, `nrOfHits = 2`), **et** il arme une SECONDE attaque
+    differee de profil `Piercing` (`nrOfHits_2 = 2`) qui part au debut du tour suivant du Lion. La
+    colonne de l'audit derive du `damageProfile` de l'ARME, donc elle ne voit que le premier volet.
+
+    `ABILITY_ATTACK_TYPE` : `...TheLionsWrathAbility$$.ctor` termine par
+    `AActiveAbility..ctor(this, &opts, 0)` -> 3e argument = `0` = `DirectTargetAttack`. LITTERAL
+    TRANSCRIT (relu au decompile de ce build), pas deduit du profil de degat.
+
+    Turn-flags = defauts base (1217 ABSENT des overrides `NO_END_TURN_ABILITY_TYPES` /
+    `NO_ABILITY_USED_FLAG_ABILITY_TYPES`) -> le cast termine le tour et pose `ActiveAbilityUsed`.
+
+    Diag : {posed: [...], damage: [...], dsl: True}."""
+    __slots__ = ()
+    ABILITY_TYPE = int(ActiveAbilityType.TheLionsWrath)   # 1217
+    ABILITY_ID = "TheLionsWrath"
+
+    # GATE DE CIBLE (#115) + PORTEE (#241) -- forme **STATIC-COPY** : le ctor n'appelle AUCUNE
+    # surcharge de `TargetingOptions$$.ctor`. `IdunBattleLogic.Entities.Abilities.Active.Loki.
+    # TheLionsWrathAbility$$.ctor` recopie les 0x40 octets du preset
+    # `<TargetingOptions statics>+0x40` dans une struct locale et la passe TELLE QUELLE a
+    # `IdunBattle.Entities.Abilities.AActiveAbility$$.ctor(this, &opts, 0)` -- dont le corps recopie
+    # la struct dans `this+0x70..0xac` (aucun `|` de flags additionnels).
+    # Champs du preset, LUS dans `IdunBattle.Core.Services.TargetingOptions$$.cctor` :
+    #   +0x40 (`isSelfCasting`)     = 0
+    #   +0x48..+0x5f (`range`)      = recopie de `<TargetingRange statics>+0x30` = RANGE_ADJACENT
+    #   +0x60 (`forceMeleeTarget`)  = 1 = RangedBool.False
+    #   +0x68 (`rules`)             = 0x4000 = TargetIsEnemy, et RIEN d'autre
+    # C'est ce masque qui met 1217 sur la route d'ATTAQUE (cibles ENNEMIES), la ou `1216
+    # MartialExemplar` -- self-cast par `CasterIsPossibleTarget` -- passe par la route non-attaque.
+    # ⚠ Ces quatre valeurs MIGRENT depuis `TARGETING_OPTIONS_UNPORTED[1217]` (contrat de DISJONCTION :
+    # une ability a UNE source de masque, jamais deux) ; elles ont ete RE-LUES au decompile avant
+    # migration et sont bit-identiques a celles qui vivaient la-bas.
+    TARGETING_OPTIONS = TargetingOptions(rules=TR.TargetIsEnemy, self_cast=False,
+                                         range=RANGE_ADJACENT,
+                                         force_melee_target=RANGED_BOOL_FALSE)
+
+    def execute_behaviour(self, state: "State", caster_id: int,
+                          target_id: Optional[int]) -> Optional[dict]:
+        # `GetNumberConstant(0x45 = nrOfRounds)` -- LU du gameconfig, jamais code en dur.
+        rounds = int(_ability_profile(LW_ACTIVE_ID, "nrOfRounds"))
+        ectx = ExecutionContext(state=state, rng=state.rng)
+        entities = entities_from_state(state, caster_id, target_id)
+        the_lions_wrath_tree(rounds).execute(entities, ectx)
+        posed = [{"effect": p.get("effect_type"), "target": p.get("target"),
+                  "bonded": p.get("bonded")}
+                 for n, p in ectx.emitted if n in ("AddEffect", "AddBondEffect")]
+        # LES ETAGES du coup, pas seulement son total (meme diag que les phases 2).
+        dmg = [{"target": p.get("target"), "total": (p.get("attack") or {}).get("total"),
+                "etages": {k: (p.get("attack") or {}).get(k) for k in
+                           ("base_min", "base_max", "pierce", "armor", "did_block", "did_crit",
+                            "crits", "rolls", "per_hit", "per_hit_health",
+                            "clean_min", "clean_max", "hp_before", "hp_after")}}
+               for n, p in ectx.emitted if n == "AttackWithAttackDamage"]
+        return {"ability": self.ABILITY_ID, "caster": caster_id, "target": target_id,
+                "posed": posed, "damage": dmg, "dsl": True}

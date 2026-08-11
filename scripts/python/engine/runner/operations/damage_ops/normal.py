@@ -444,7 +444,7 @@ class _Normal:
         # `is_first_hit=True` = le coup 0 (le port n'a pas de boucle de coups au niveau trigger).
         crit_avant = AttackDamageOperation._crit_params(
             ctx, active, state, attacker_id, target_id,
-            is_ranged=_ranged, is_normal_attack=True)
+            is_ranged=_ranged, is_normal_attack=True, hit_index=0)
         from ..triggers.dispatch.attack import pre_attack_hit_triggers  # lazy : cycle damage<->triggers
         pre_attack_hit_triggers(state, attacker_id, target_id, ranged=bool(_ranged),
                                 profile=_profile, is_first_hit=True, ability_type=1013)
@@ -462,9 +462,15 @@ class _Normal:
         # RELECTURE post-event : ce sont les valeurs des coups 1+ (`crit_avant` reste celle du
         # coup 0). Hors ThrillSeekers les deux coincident -- aucun autre trigger porte n'ecoute
         # `On(6)`/`On(7)` (mesure #522-r1 : 1 seul ecouteur dans tout le registre).
+        # `hit_index=1` : ces valeurs-la sont celles des coups 1+ (cf. `_roll_crit(idx)` de
+        # `damage_hits.py`, qui bascule sur `crit_chance_after` des que `idx != 0`). Le port n'a que
+        # DEUX points de mesure la ou le natif relit `GetCritChanceBonusFromEffects(..., hitIndex)` a
+        # CHAQUE coup -- donc un `EffectBonus` qui discrimine un index >= 2 lirait `1` ici. Exact pour
+        # toute serie de 1 ou 2 coups (le porteur du noeud, `TheLionsWrath`, a `nrOfHits = 2`) ;
+        # LIMITE ECRITE au-dela -- residu #889-r1.
         crit_chance, crit_damage, crit_enabled = AttackDamageOperation._crit_params(
             ctx, active, state, attacker_id, target_id,
-            is_ranged=_ranged, is_normal_attack=True)
+            is_ranged=_ranged, is_normal_attack=True, hit_index=1)
         crit_apres = (crit_chance, crit_damage, crit_enabled)
         crit_chance, crit_damage, crit_enabled = crit_avant
         # #120 : réduction PLATE défenseur (Nightshroud) fusionnée dans l'additif pré-perçage (mirror prédiction).
