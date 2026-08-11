@@ -2,7 +2,7 @@
 inline), extraits de `triggers/dispatch.py` (scission du module >1000 lignes, tache #169
 -- deplacement VERBATIM, zero changement de comportement).
 
-`On(AbilityInit=0x21)`, `On(PreUnitAbility=0x2a)`, `On(UnitPostAbility)`,
+`On(AbilityInit=0x21)`, `On(PreUnitAbility=0x2a)`, `On(UnitAbility=0xb)`, `On(UnitPostAbility)`,
 `On(UnitActiveAbility)`, plus `evaluate_abilities_for_event` (noeud DSL `EvaluateAbilities`)."""
 from __future__ import annotations
 
@@ -99,6 +99,42 @@ def unit_post_ability_triggers(state: State, caster_id: int, target_id: int,
     comme le natif). Emettre `0x2b` sans son `0xe` sur la meme voie laisserait un effet
     « le temps de CETTE ability » pose pour toujours."""
     ev = TriggerEvent(EventTriggerType.UnitPostAbility, caster_id, target_id,
+                      ranged=ranged, profile=profile, ability_type=ability_type)
+    return evaluate_trigger_operation(state, ev)
+
+
+def unit_ability_triggers(state: State, caster_id: int, target_id: Optional[int],
+                          ranged: bool, profile: Optional[str] = None,
+                          ability_type: Optional[int] = None) -> list[dict]:
+    """Vecteur `On(UnitAbility = 0xb = 11)` -- emis par
+    `IdunBattle.Operations.ActiveAbilityOperation$$ExecuteInternal` **APRES l'execution de la
+    behaviour** et **AVANT** le gate `IsActiveAbility` qui conditionne `On(0xc)`. Sequence LUE au
+    desassemblage du corps (`probe_928_legacy_of_combat.py --step 2` sur le voisin `0x2a`) :
+
+        On(0x2a) -> gates -> execution -> **On(0xb)** -> if (IsActiveAbility) On(0xc)
+                 -> AddFlagsAfterAbilityExecution -> On(0xe)
+
+    ⚠ **INCONDITIONNEL**, contrairement a `0xc` : l'attaque NORMALE (qui est une active ability
+    natif, `IsRegularAttack`) l'emet aussi. C'est ce qui en fait le vecteur du << after performing
+    his first attack each turn >> de `1319 LegacyOfCombat`, dont le gate compte les attaques et
+    n'a besoin d'AUCUN discriminant de kind.
+
+    Emis par les DEUX voies du port, comme `0x2a`/`0xe` (#120) : `AbilityHandler.
+    visit_ActiveAbilityMessage` pour un cast, `after_hit_normal_attack` pour l'attaque normale.
+    N'emettre que d'un cote recreerait le fork que #120 a ferme.
+
+    RANG vis-a-vis du COMPTEUR D'ATTAQUES : l'increment `ActorStatisticsComponent+0x24` est pose
+    par `RegisterAttackOperation$$Execute` **pendant** l'execution de la behaviour (port :
+    `components.register_attack_made`, appele par `AttackDamageOperation._apply_damage_pipeline`),
+    donc AVANT ce vecteur. `TimesAttackMadeThisTurn(Owner)` y vaut deja 1 a la premiere attaque du
+    tour -- c'est exactement ce que le trigger de 1319 teste (`AmountIsEqual(..., Direct(1))`).
+
+    `ability_type` = `AbilityEntities.CurrentAbility` (`+0x60`), ce que lit
+    `IdunBattleLogic.Entities.DSLTriggers$$CurrentAbilityIs` : `0x3f5` (marqueur attaque-normale)
+    sur la voie normale, l'`ActiveAbilityType` du cast sur la voie ability. SEUL consommateur
+    porte : `LegacyOfCombatAdditionalAttackAbility` (#928)."""
+    ev = TriggerEvent(EventTriggerType.UnitAbility, caster_id,
+                      target_id if target_id is not None else caster_id,
                       ranged=ranged, profile=profile, ability_type=ability_type)
     return evaluate_trigger_operation(state, ev)
 

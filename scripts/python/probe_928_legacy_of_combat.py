@@ -130,9 +130,13 @@ def etape4():
     sys.path.insert(0, str(PYDIR))
     from engine.entities.triggered_ability_type import TriggeredAbilityType
     assert int(TriggeredAbilityType.LegacyOfCombat) == TRIGGERED_ID
+    # `ABILITY_TRIGGERS` est indexe par le NOM de la passiveAbility du kit gameconfig, pas par id.
     from engine.runner.operations.triggers.dispatch.registry import ABILITY_TRIGGERS
-    print("   ABILITY_TRIGGERS[%d] : %s"
-          % (TRIGGERED_ID, ABILITY_TRIGGERS.get(TRIGGERED_ID, "ABSENT")))
+    print("   ABILITY_TRIGGERS[%r] : %s"
+          % (ABILITY, [c.__name__ for c in ABILITY_TRIGGERS.get(ABILITY, ())] or "ABSENT"))
+    from engine.playbook.psyker import TRIGGERED_ATTACK_PLAYBOOKS
+    print("   TRIGGERED_ATTACK_PLAYBOOKS[%d] : %s   (DEAD attendu -> ABSENT)"
+          % (TRIGGERED_ID, TRIGGERED_ATTACK_PLAYBOOKS.get(TRIGGERED_ID, "ABSENT")))
     from engine.playbook.adjacent_unit_preference import TRIGGERED_MOVE_PLAYBOOKS
     print("   TRIGGERED_MOVE_PLAYBOOKS[%d] : %s"
           % (TRIGGERED_ID, TRIGGERED_MOVE_PLAYBOOKS.get(TRIGGERED_ID, "ABSENT")))

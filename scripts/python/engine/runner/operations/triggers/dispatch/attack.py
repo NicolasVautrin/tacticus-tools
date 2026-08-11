@@ -19,7 +19,7 @@ from .core import evaluate_trigger_operation
 # `after_hit_normal_attack` clot l'attaque normale par le `On(UnitPostAbility=0xe)` de la face
 # ABILITY -- le natif n'a qu'UN emetteur (`ActiveAbilityOperation.ExecuteInternal`), et l'attaque
 # normale EST une active ability.
-from .ability import unit_post_ability_triggers
+from .ability import unit_ability_triggers, unit_post_ability_triggers
 from ...spawn import SpawnUnitOperation
 
 
@@ -394,6 +394,14 @@ def after_hit_normal_attack(state: State, attacker_id: int, target_id: int,
     # (cf. la docstring de `damage_dealt_triggers` -- bus 6/6 vs imperatif 3/6).
     out = out + _fire_of_absolution_after_attack(state, attacker_id, target_id, ranged)  # passif IdunBattleLogic.Entities.Abilities.Active.Loki.FireOfAbsolutionAbility$$CreateBehaviour (Vindicta)
     out = out + _squighound_after_attack(state, attacker_id, target_id)
+    # `On(UnitAbility=0xb)` (#928) — emis par `ActiveAbilityOperation$$ExecuteInternal` APRES
+    # l'execution de la behaviour et AVANT le gate `IsActiveAbility` du `0xc`. INCONDITIONNEL : le
+    # natif ne le gate pas, donc l'attaque NORMALE (qui EST une active ability) l'emet aussi. Rang
+    # cote port : apres `On(0x26)`/`On(8)` (emis par le behaviour de l'attaque normale, DANS
+    # l'execution) et avant `On(0xe)` -- c'est l'ordre natif. Le compteur d'attaques du tour a deja
+    # ete incremente par le pipeline de degat, ce dont depend le gate de `1319 LegacyOfCombat`.
+    out = out + unit_ability_triggers(state, attacker_id, target_id, ranged, profile,
+                                      ability_type=1013)
     # `On(UnitPostAbility=0xe)` (#100) — DERNIER evenement de `ActiveAbilityOperation.ExecuteInternal`
     # (sequence `0x2b` -> execution -> `0xb` -> `0xc` -> `0xe`). Emis ICI = a la CLOTURE de l'attaque
     # normale, en pendant exact du `On(0x2a = PreUnitAbility)` emis en tete par `AttackDamageOperation.execute`.
