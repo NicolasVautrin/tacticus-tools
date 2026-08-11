@@ -62,9 +62,18 @@ MUTANT (l'ancien comportement) n'y arrive pas -- il n'a meme pas le bon NOMBRE d
      inerte et l'etage 2 ne prouve rien : le probe REFUSE au lieu de rendre un vert (meme discipline
      que `probe_419r3_fold_attack_state.py`).
 
+## Les DEUX porteurs de fold sont confrontes, et leurs gates sont INVERSES
+
+`--regime boltstorm` (`templAggressor`, fold gate `DSLTriggers$$IsRangedPosition`) et `--regime rr`
+(`adeptMorvenn`, fold gate `<DSLTriggers+0x18>` = `IsMeleePosition`). Le foyer porte est le MEME
+(`additional_targets._attack_damage_leaf`), donc jouer les deux est ce qui distingue « le fix est
+juste » de « le fix est juste sur CE porteur ». Mesure : `rr` rend `2 | 3` emissions et une
+ventilation native `[1076, 1073, 964, 507, 563, 526]` que le corrige egale et que le mutant rate
+(`[557, 614, 572]` au lieu de `[507, 563, 526]`).
+
 Usage :
     python scripts/python/probe_925_fold_pre_attack.py --state-file <ABSOLU>.json
-        [--board MC1_67] [--seed 4463111] [--runner N]
+        [--regime boltstorm|rr] [--board MC1_67] [--seed 4463111] [--runner N]
 
 ASCII only. Garde jumelle : `scripts/python/tests/engine/test_925_fold_pre_attack_live.py`.
 """
@@ -94,6 +103,16 @@ MontageError = R3B.MontageError
 
 CARRIER = "templAggressor"          # porteur NATUREL de `Boltstorm` (passif 1090)
 
+#: Les DEUX porteurs de FOLD primaire, et le regime de `probe_478` qui les met en position de
+#: folder. Le foyer porte est le MEME (`additional_targets._attack_damage_leaf`), mais leurs gates
+#: sont INVERSES -- `Boltstorm` folde a DISTANCE (`DSLTriggers$$IsRangedPosition`),
+#: `RighteousRepugnance` au CONTACT (`<DSLTriggers+0x18>` = `IsMeleePosition`). Confronter les deux
+#: est ce qui distingue « le fix marche » de « le fix marche sur CE porteur ».
+REGIMES = {
+    "boltstorm": ("templAggressor", "boltstorm"),
+    "rr": ("adeptMorvenn", "rr"),
+}
+
 #: Les traits ECRITS sur l'entite du porteur. `--unit-stat Traits=[...]` REMPLACE la liste, donc
 #: ceci EST le kit effectif du montage, des deux cotes (il part dans le seed BC).
 #:   * `Hero`             : conserve le statut de heros (activation, ciblage IA).
@@ -109,17 +128,23 @@ TRAITS = (UnitTrait.Hero.name, UnitTrait.LetTheGalaxyBurn.name)
 _FOLD_NATIF = AT.fold_emits_pre_attack
 
 
-def build(state_file: str, board: str, seed: str, lay: dict) -> int:
-    """Meme montage que `probe_478 --regime boltstorm`, PLUS la greffe du trait canal.
+def trait_arg(porteur: str) -> list:
+    """L'argument `rl_duel build` qui GREFFE le trait canal sur l'ENTITE du porteur -- foyer UNIQUE,
+    partage par le probe et la garde jumelle."""
+    return ["--unit-stat",
+            '%s:Traits=[%s]' % (porteur, ",".join('"%s"' % t for t in TRAITS))]
+
+
+def build(state_file: str, board: str, seed: str, lay: dict, porteur: str = CARRIER) -> int:
+    """Meme montage que `probe_478 --regime <x>`, PLUS la greffe du trait canal sur `porteur`.
 
     Le seed BC est celui de `probe_446_r3b` (foyer PARTAGE : il greffe `Fealty`/`TalonOfHorus` dans
-    `BC.Abilities.PassiveAbilities`, inerte ici puisque aucun de leurs porteurs n'est au montage --
-    on ne fourche pas un foyer pour autant)."""
+    `BC.Abilities.PassiveAbilities` -- necessaire des que le regime monte ces porteurs-la, comme
+    `rr`)."""
     bc_path = os.path.splitext(state_file)[0] + ".seedbc.json"
     R3B.write_seed_bc(bc_path)
     argv = [sys.executable, "rl_duel.py", "build", "--seed", seed, "--state-file", state_file,
-            *P478.build_args(lay, bc_path, board),
-            "--unit-stat", '%s:Traits=[%s]' % (CARRIER, ",".join('"%s"' % t for t in TRAITS))]
+            *P478.build_args(lay, bc_path, board), *trait_arg(porteur)]
     p = subprocess.run(argv, cwd=_HERE, capture_output=True, text=True,
                        encoding="utf-8", errors="replace")
     if p.returncode != 0:
@@ -203,7 +228,10 @@ def main() -> int:
     ap.add_argument("--board", default=P478.BOARD)
     ap.add_argument("--seed", default=P478.SEED)
     ap.add_argument("--runner", type=int, default=None, help="reutilise un runner deja monte")
+    ap.add_argument("--regime", default="boltstorm", choices=tuple(REGIMES),
+                    help="le porteur de FOLD confronte (leurs gates sont INVERSES)")
     args = ap.parse_args()
+    porteur, layout = REGIMES[args.regime]
 
     from rl_collect_batch import _resolve_session, _rpc
     sid = _resolve_session()
@@ -213,26 +241,27 @@ def main() -> int:
         return r["result"] if isinstance(r, dict) and "result" in r else r
 
     elev, playable = R3B.board_geometry(args.board)
-    lay = P478.layout_boltstorm(elev, playable)
+    lay = P478.LAYOUTS[layout](elev, playable)
     if lay is None:
-        raise MontageError(f"montage NON INSTALLE : aucun layout boltstorm sur {args.board}")
-    print(f"board {args.board} seed {args.seed} | regime boltstorm + trait canal {TRAITS[-1]}")
-    print(f"  T={lay['T']} A={lay['A']} porteur={lay['C']} cardinal={lay['want']}")
+        raise MontageError(f"montage NON INSTALLE : aucun layout {layout} sur {args.board}")
+    print(f"board {args.board} seed {args.seed} | regime {args.regime} (porteur {porteur}, "
+          f"layout {layout}) + trait canal {TRAITS[-1]}")
+    print(f"  T={lay['T']} A={lay['A']} porteurs={lay['C']} cardinaux={lay['want']}")
 
     rid = (args.runner if args.runner is not None
-           else build(args.state_file, args.board, args.seed, lay))
+           else build(args.state_file, args.board, args.seed, lay, porteur))
     print(f"  runner {rid}")
     bad = []
     try:
         st = P478.stage(rpc, rid, lay, elev)
-        r = P478.replay(rpc, st, CARRIER)
+        r = P478.replay(rpc, st, porteur)
         bundle = r["bundle"]
 
         # --- etage 0 : la GREFFE a mordu sur l'ENTITE (sinon aucun consommateur d'`On(5)` ne tire)
         tr = traits_mesures(bundle)
         if TRAITS[-1] not in tr:
             raise MontageError(
-                f"canal NON ARME : l'entite de {CARRIER} porte {sorted(tr)} -- {TRAITS[-1]} n'y est "
+                f"canal NON ARME : l'entite de {porteur} porte {sorted(tr)} -- {TRAITS[-1]} n'y est "
                 f"pas, donc aucun consommateur d'`On(5)` ne consomme de tirage. Un accord a "
                 f"l'etage 2 ne prouverait RIEN.")
         print(f"  traits MESURES sur l'entite : {sorted(tr)}")

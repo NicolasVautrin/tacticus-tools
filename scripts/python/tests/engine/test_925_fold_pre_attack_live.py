@@ -75,30 +75,45 @@ DECLENCHEUR = {
 }
 
 
-@pytest.fixture(scope="module")
-def case(rpc, build_runner, tmp_path_factory):
-    """Le montage GREFFE : regime boltstorm de #478 + le trait canal sur l'entite du porteur."""
+def _case(rpc, build_runner, tmp_path_factory, regime: str) -> dict:
+    """Le montage GREFFE : le layout de #478 + le trait canal sur l'ENTITE du porteur de fold."""
+    porteur, layout = P925.REGIMES[regime]
     try:
         elev, playable = P478.R3B.board_geometry(P478.BOARD)
-        lay = P478.layout_boltstorm(elev, playable)
+        lay = P478.LAYOUTS[layout](elev, playable)
         if lay is None:
-            pytest.fail(f"montage NON INSTALLE : aucun layout boltstorm sur {P478.BOARD}",
+            pytest.fail(f"montage NON INSTALLE : aucun layout {layout} sur {P478.BOARD}",
                         pytrace=False)
-        bc = os.path.join(str(tmp_path_factory.mktemp("c925")), "seed-bc.json")
+        bc = os.path.join(str(tmp_path_factory.mktemp(f"c925{regime}")), "seed-bc.json")
         P478.R3B.write_seed_bc(bc)
-        extra = list(P478.build_args(lay, bc)) + [
-            "--unit-stat",
-            '%s:Traits=[%s]' % (P925.CARRIER, ",".join('"%s"' % t for t in P925.TRAITS))]
+        extra = list(P478.build_args(lay, bc)) + P925.trait_arg(porteur)
         rid = build_runner(P478.SEED, extra)["rid"]
         st = P478.stage(rpc, rid, lay, elev)
-        r = P478.replay(rpc, st, P925.CARRIER)
+        r = P478.replay(rpc, st, porteur)
         bundle = r["bundle"]
-        return {"r": r, "bundle": bundle,
+        return {"r": r, "bundle": bundle, "porteur": porteur,
                 "traits": P925.traits_mesures(bundle),
                 "corr": P925.rejoue(bundle, fold_emet=False),
                 "mut": P925.rejoue(bundle, fold_emet=True)}
     except P478.MontageError as e:
         pytest.fail(str(e), pytrace=False)
+
+
+@pytest.fixture(scope="module")
+def case(rpc, build_runner, tmp_path_factory):
+    """`Boltstorm` sur `templAggressor` -- fold gate `IdunBattleLogic.Entities.DSLTriggers$$
+    IsRangedPosition` (le porteur tire, a distance hex 2 de sa cible)."""
+    return _case(rpc, build_runner, tmp_path_factory, "boltstorm")
+
+
+@pytest.fixture(scope="module")
+def case_rr(rpc, build_runner, tmp_path_factory):
+    """GENERALISATION -- `RighteousRepugnance` sur `adeptMorvenn`, le SECOND (et dernier) porteur de
+    fold, dont la gate est l'INVERSE (`<DSLTriggers+0x18>` = `IsMeleePosition`, porteur AU CONTACT).
+
+    Le foyer porte est le MEME (`additional_targets._attack_damage_leaf`) : jouer les deux est ce
+    qui distingue « le fix est juste » de « le fix est juste sur CE porteur »."""
+    return _case(rpc, build_runner, tmp_path_factory, "rr")
 
 
 @pytest.fixture(scope="module")
@@ -117,23 +132,27 @@ def case_nominal(rpc, build_runner, tmp_path_factory):
         P478.R3B.write_seed_bc(bc)
         rid = build_runner(P478.SEED, P478.build_args(lay, bc))["rid"]
         st = P478.stage(rpc, rid, lay, elev)
-        return P478.replay(rpc, st, P925.CARRIER)
+        return P478.replay(rpc, st, P925.REGIMES["boltstorm"][0])
     except P478.MontageError as e:
         pytest.fail(str(e), pytrace=False)
 
 
-def test_le_canal_est_arme_sur_l_entite(case):
+@pytest.mark.parametrize("fx", ["case", "case_rr"])
+def test_le_canal_est_arme_sur_l_entite(fx, request):
     """(1) Sans le trait sur l'ENTITE, aucun consommateur d'`On(5)` ne tire : tous les etages qui
     suivent seraient des accords en regime DEGENERE."""
+    case = request.getfixturevalue(fx)
     assert P925.TRAITS[-1] in case["traits"], (
-        f"canal NON ARME : l'entite de {P925.CARRIER} porte {sorted(case['traits'])} -- "
+        f"canal NON ARME : l'entite de {case['porteur']} porte {sorted(case['traits'])} -- "
         f"{P925.TRAITS[-1]} n'y est pas. `--unit-stat Traits=[...]` n'a pas mordu, et un accord "
         f"aux etages suivants ne discriminerait RIEN.")
 
 
-def test_le_drapeau_pilote_exactement_une_emission_on5(case):
+@pytest.mark.parametrize("fx", ["case", "case_rr"])
+def test_le_drapeau_pilote_exactement_une_emission_on5(fx, request):
     """(2) ETAGE STRUCTUREL. `fold_emits_pre_attack` doit valoir EXACTEMENT une emission
     `On(PreAttack = 5)` -- ni zero (le drapeau serait inerte), ni deux (il piloterait autre chose)."""
+    case = request.getfixturevalue(fx)
     corr, mut = case["corr"], case["mut"]
     assert mut["on5"] - corr["on5"] == 1, (
         f"`fold_emits_pre_attack` change le nombre d'`On(5)` de {mut['on5'] - corr['on5']}, attendu "
@@ -141,10 +160,12 @@ def test_le_drapeau_pilote_exactement_une_emission_on5(case):
         f"que `ALoki_NormalAttackAbility$$GetAttackDamageBehaviour` dit qu'il pilote")
 
 
-def test_le_montage_exerce_bien_le_fold(case):
+@pytest.mark.parametrize("fx", ["case", "case_rr"])
+def test_le_montage_exerce_bien_le_fold(fx, request):
     """(2bis) NON-TRIVIALITE : sans coup de FOLD, le drapeau teste n'est meme pas atteint et les
     etages 3/4 jugeraient une branche morte. Les coups de fold natifs sont ceux dont l'
     `Active_Ability_Type` est NUL (feuille `AttackDamageBehaviour` nue)."""
+    case = request.getfixturevalue(fx)
     r, corr = case["r"], case["corr"]
     n_fold_nat = sum(1 for k in r["nat_primaire_kinds"] if k is None)
     assert r["want_primary_fold"] and n_fold_nat and corr["fold"], (
@@ -152,12 +173,14 @@ def test_le_montage_exerce_bien_le_fold(case):
         f"{n_fold_nat}, coups de fold du port {corr['fold']}")
 
 
-def test_le_port_egale_la_ventilation_native_coup_par_coup(case):
+@pytest.mark.parametrize("fx", ["case", "case_rr"])
+def test_le_port_egale_la_ventilation_native_coup_par_coup(fx, request):
     """(3) Le VERDICT. Il porte sur la suite des `Amount` natifs de la cible primaire, PAS sur le
     total de PV : ce montage reveille une divergence TIERCE (le port attribue le +1 coup de
     `LetTheGalaxyBurn` a la cible PRIMAIRE la ou le natif l'attribue a une cible du CLEAVE, residu
     `#925-r1`), et elle subsiste dans les DEUX regimes du port -- donc elle est etrangere au fold.
     La coherence du NATIF est assertionnee juste en dessous, ce qui autorise cette separation."""
+    case = request.getfixturevalue(fx)
     r, corr = case["r"], case["corr"]
     nat = list(r["nat_primaire_hits"])
     got = list(corr["arme"]) + list(corr["fold"])
@@ -167,10 +190,12 @@ def test_le_port_egale_la_ventilation_native_coup_par_coup(case):
         f"{corr['fold']}) != natif {nat} (kinds {r['nat_primaire_kinds']})")
 
 
-def test_le_natif_est_coherent_donc_la_ventilation_fait_verdict(case):
+@pytest.mark.parametrize("fx", ["case", "case_rr"])
+def test_le_natif_est_coherent_donc_la_ventilation_fait_verdict(fx, request):
     """(3bis) La somme des coups natifs DOIT egaler le delta de PV natif. Sans ce cran, ecarter le
     total de PV du verdict serait une echappatoire ; avec lui, c'est une MESURE : le natif est
     complet, le port ajoute ailleurs."""
+    case = request.getfixturevalue(fx)
     r = case["r"]
     s = sum(int(x) for x in r["nat_primaire_hits"])
     assert s == int(r["nat_primaire"]), (
@@ -178,10 +203,12 @@ def test_le_natif_est_coherent_donc_la_ventilation_fait_verdict(case):
         f"ventilation ne peut alors pas servir de verdict")
 
 
-def test_la_contre_epreuve_mord(case):
+@pytest.mark.parametrize("fx", ["case", "case_rr"])
+def test_la_contre_epreuve_mord(fx, request):
     """(4) Le port MUTANT (`fold_emits_pre_attack() == True`, l'ancien comportement) DOIT s'ecarter
     de la ventilation native. S'il l'egalait, le canal serait inerte et le test precedent
     n'aurait discrimine RIEN."""
+    case = request.getfixturevalue(fx)
     r, mut = case["r"], case["mut"]
     nat = list(r["nat_primaire_hits"])
     mgot = list(mut["arme"]) + list(mut["fold"])
