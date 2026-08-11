@@ -11,6 +11,7 @@ from collections.abc import Mapping
 from .base import BaseEffect
 from .loki.ability_modifications import ListenUpMaggotsEffect
 from .loki.amulet_of_the_voidwyrm import AmuletOfTheVoidwyrmCritDamageReductionEffect
+from .loki.kardiocore_galvanus import KardiocoreGalvanusExtraCritDmgEffect
 from .loki.nether_realm_casket import NetherRealmCasketCritDamageReductionEffect
 from .loki.ramshackle import RamshackleDmgReductionEffect
 from .loki.supa_cybork_body import SupaCyborkBodyCritDmgReductionEffect
@@ -1202,6 +1203,32 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # `engine.predict.calculate_repair_modifier_for_prediction`, comme pour ses DEUX co-implementeurs
     # `NanoscarabRepairProtocols` (1545) et `VoltagheistField_RepairReduction` (1382), qui n'ont pas
     # de classe non plus. Cf. `loki/nether_realm_casket.py::LIVING_METAL_BONUS_EFFECT_NAME`.
+    # 1450 KardiocoreGalvanus_ExtraCritDmg (#913) : owner-effect PERMANENT de la RELIQUE
+    # `KardiocoreGalvanus`, sur l'axe ADDITION du canal crit-DEGAT (les deux `NetherRealmCasket` /
+    # `SupaCyborkBody` ci-dessus sont des `ForSubtraction` sur la CIBLE ; `RelicBoltPistol_
+    # ExtraCritDamage` est l'autre `ForAddition` du lot) :
+    #   `...KardiocoreGalvanus_ExtraCritDmgEffect$$CreateCritDamageBonus`
+    #       = ForAddition(get_OwnerIsCaster,          <- trigger NU, aucun op_BitwiseAnd
+    #                     Multiply(ConfigVar(0x42 = extraCritDmg), EffectLevel(Effect@+0x38)))
+    #   + `GetCalculateLevel`     = Count(MechanicalUnits(AdjacentFriends(Owner, 1, 3), 3))
+    #   + `CreateActiveCondition` = <DSLTriggers+0x70> = YesTrigger  -> TOUJOURS ACTIF
+    # ⚠ SON COMPTEUR N'EST **PAS** CELUI DE `NetherRealmCasket`, et la difference se lit au
+    # decompile : celui-ci n'a **aucun** `NormalUnits` (TROIS appels en tout -- `AdjacentFriends`,
+    # `MechanicalUnits`, `Count`), la ou 1455 en pose un ENTRE les deux. Deux reliques du meme
+    # patron, deux arbres DIFFERENTS -- d'ou deux compteurs distincts dans `components.py`, et non
+    # une reutilisation qui aurait paru economique.
+    # ⚠ TROIS enums, et DEUX valent 1457 : `EffectType` 0x5aa = 1450 est CET effet, sa CONFIG est la
+    # TRIGGERED 0x5b1 = **1457** `KardiocoreGalvanus` (`.ctor` relu octet a octet : `mov edx,0x5b1`
+    # + la SURCHARGE `op_Implicit(triggeredAbility: TriggeredAbilityType)`, tranchee par l'ADRESSE
+    # du `call`) -- tandis que `EffectType` 1457 est `RelicBoltPistol_ExtraPierce`, l'entree PORTEE
+    # quelques lignes plus haut : la confusion ne leverait pas, elle lirait juste la mauvaise
+    # variable de la mauvaise relique, en silence.
+    # ⚠ Le niveau lu est celui de l'`AbilityState` TERTIAIRE du porteur, via le foyer
+    # `triggered_ability_state` (#357) ; `ability_level` (le passif, 50 en runner normalise)
+    # rendrait TOUJOURS le dernier palier (438 au lieu de 295 au niveau 1 du seed).
+    # PAS d'entree `ABILITY_INIT_OWNER_EFFECTS` : `_seed_ability_owner_effects` lit le KIT
+    # gameconfig, ou la relique ne figure PAS (cf. l'en-tete du module).
+    "KardiocoreGalvanus_ExtraCritDmg": KardiocoreGalvanusExtraCritDmgEffect,
     # 1090 Ramshackle_DmgReduction (#570-r1) : owner-effect PERMANENT du passif `Ramshackle`, seul
     # passif du summon `orksGrotTank`. #570 avait NOMME ce trou -- le tank arrivait avec ses stats,
     # ses traits et ses armes, et SANS sa reduction de degat : ecart PERMISSIF (il encaisse plus
