@@ -4762,9 +4762,31 @@
     "scripts/python/engine/runner/operations/damage.py"
    ]
   },
+  "tests/engine/test_924_inescapable_death_offline.py": {
+   "_at": 1786452690,
+   "_commit": "945c1366553370619620b76a1c630bc1daded165",
+   "dirs": [
+    "scripts/python/engine/runner/operations/damage_ops"
+   ],
+   "temoins": [
+    "scripts/python/engine/runner/operations/damage_ops/normal.py"
+   ]
+  },
   "tests/engine/test_925_boltstorm_faces_offline.py": {
    "_at": 1786446521,
    "_commit": "b4480007bc11684ff18da0c5abb7202a4b53dae7",
+   "dirs": [],
+   "temoins": []
+  },
+  "tests/engine/test_926_first_among_traitors_offline.py": {
+   "_at": 1786452690,
+   "_commit": "945c1366553370619620b76a1c630bc1daded165",
+   "dirs": [],
+   "temoins": []
+  },
+  "tests/engine/test_930_kustom_force_field_reworked_offline.py": {
+   "_at": 1786452690,
+   "_commit": "945c1366553370619620b76a1c630bc1daded165",
    "dirs": [],
    "temoins": []
   },
