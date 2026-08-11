@@ -54,6 +54,14 @@ DECLENCHEUR = {
         "scripts/python/engine/runner/abilities/darkangels.py",
         # Le vecteur d'emission dont ces gardes comptent les appels.
         "scripts/python/engine/runner/operations/triggers/dispatch/attack.py",
+        # Tires par l'import de `probe_313_enum_mirror_bijection` (etage 3 lui emprunte
+        # `current_build`, `enum_natif` et `REGISTRE` au lieu de re-transcrire une seconde
+        # table -- une transcription locale pourrait diverger de celle du cliquet).
+        "scripts/python/repo_read.py",
+        "scripts/python/verdict_cache.py",
+        # LU par la cascade d'import d'`engine` (`_monde` construit un `State`) -- confronte par
+        # l'empreinte #486-r15, pas devine.
+        "data/seed-bc.json",
     ),
     "build": True,
     "toujours": False,
