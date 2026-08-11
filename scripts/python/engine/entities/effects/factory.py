@@ -96,6 +96,7 @@ from .loki.mind_control import (
     MindControlTaunterEffect
 )
 from .loki.my_will_be_done_overlord import MyWillBeDoneOverlordExtraDamageEffect
+from .loki.titanhammer_squad import TitanhammerSquadExtraBlockDamageEffect
 from .loki.possession import AttemptedPossessionPossessedEffect
 from .loki.reality_unbound import (
     RealityUnboundExtraMaxDamageEffect, RealityUnboundMovementEffect, RealityUnboundRangeEffect
@@ -286,6 +287,17 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # `DynamicStatModifierEffect$$GetDynamicStatModificationAmount` (meme mold que le lot Votann).
     # Residu nomme de #354-r1, ferme par #358 -- cf. `loki/my_will_be_done_overlord.py`.
     "MyWillBeDoneOverlord_ExtraDamage": MyWillBeDoneOverlordExtraDamageEffect,
+    # TitanhammerSquad (astarLysander "Lysander", active 1231) : effet 0x624=1572 pose sur chaque
+    # membre du groupe (Lysander + allies `TerminatorArmour` a portee `range`) dont la BlockChance
+    # COURANTE est > 0, par le 3e volet de
+    # `IdunBattleLogic.Entities.Abilities.Active.Loki.TitanhammerSquadAbility$$ExecuteBehaviour`
+    # (`AddDynamicStatModifierEffect(..., 0x624, stat 8 = BlockDamage, ...)`). AUCUNE classe d'effet
+    # native dediee : instance GENERIQUE `DynamicStatModifierEffect(AbilityType(1231), 0x14 =
+    # blockDmg, isNegative = 0, 0)` construite par la lambda
+    # `EffectsDatabase.<>c$$<InitializeEffects>b__14_565` (l'`AbilityType` 0x4cf est LU AU
+    # DESASSEMBLEUR) -> magnitude lue par `DynamicStatModifierEffect$$GetDynamicStatModificationAmount`,
+    # meme mold que `MyWillBeDoneOverlord` ci-dessus. Cf. `loki/titanhammer_squad.py`.
+    "TitanhammerSquad_ExtraBlockDamage": TitanhammerSquadExtraBlockDamageEffect,
     # SpotterReworked (Thaddeus astraOrdnance, 2 effets sur le PORTEUR IdunBattleLogic.Entities.Abilities.Triggered.Loki.SpotterReworkedAbility$$CreateBehaviour) : aura
     # +extraDmg[ablvl]xmult additif pre-percage aux attaques RANGED des amis SANS HeavyWeapon
     # rayon 2 (IdunBattle.Entities.Effects.Loki.SpotterReworked_ExtraDamageEffect$$CreateEffectDamageBonusForAttack) ; +extraDmg_2 aux amis AVEC HeavyWeapon, toutes attaques (IdunBattle.Entities.Effects.Loki.SpotterReworked_HeavyWeaponEffect$$CreateEffectDamageBonusForAttack).

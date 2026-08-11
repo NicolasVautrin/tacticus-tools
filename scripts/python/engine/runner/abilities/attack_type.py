@@ -194,6 +194,13 @@ ABILITY_ATTACK_TYPE: dict[int, int] = {
     # `AActiveAbility..ctor(this, &opts, 0)` -- le 3e argument est le litteral `0`. TRANSCRIT, jamais
     # deduit du profil de degat de l'arbre. (#511)
     ActiveAbilityType.StrikeFromTheShadows: AbilityAttackType.DirectTargetAttack,  # 1225
+    # TitanhammerSquad (1231) : `...Active.Loki.TitanhammerSquadAbility$$.ctor` appelle le ctor PLEIN
+    # de `TargetingOptions` (surcharge tranchee par ses XREFS ENTRANTES) puis
+    # `AActiveAbility..ctor(this, &opts, 2)` -- le 3e argument est le litteral `2` = `Others`.
+    # TRANSCRIT, jamais deduit : l'arbre ne porte AUCUNE attaque (marquage de tuile + soin + buff +
+    # marqueur de teleportation), donc `Others` est aussi ce qu'on attendrait -- mais c'est le
+    # litteral qui tranche, pas l'arbre. (#448-r2d-r2)
+    ActiveAbilityType.TitanhammerSquad: AbilityAttackType.Others,  # 1231
     # LashOfTorment (1196) : `...Active.Loki.LashOfTormentAbility$$.ctor` recopie les 0x40 octets du
     # MEME preset statique `<TargetingOptions statics>+0x140` que 1225 puis appelle
     # `AActiveAbility..ctor(this, &opts, 0)` -- le 3e argument est le litteral `0`. TRANSCRIT au

@@ -580,6 +580,52 @@ class PlayerTurnsStarted(AAmountFormula):
         return int(fn(u) or 0)
 
 
+class TurnsUntilUnitOwnerTurn(AAmountFormula):
+    """`IdunBattleLogic.Entities.DSLFormulas$$TurnsUntilUnitOwnerTurn(unit)` ->
+    `IdunBattle.Entities.Formulas.TurnsUntilUnitOwnerTurnFormula$$Calculate` -- MIRROR du decompile :
+
+        result = 0
+        foreach u in selector.Select(entities):
+            result = System.Math.Max(result, GetTurnsUntilUnitOwnerTurn(u))
+        return result
+
+    L'accumulateur est initialise a ZERO **avant** la boucle et n'est jamais ecrit hors du `Max` :
+    un set VIDE rend donc 0, pas une duree inventee. C'est le MAX, pas le premier element -- le
+    natif l'applique meme sur un selecteur mono-unite (ou il degenere en la valeur unique).
+
+    `IdunBattle.Entities.Formulas.TurnsUntilUnitOwnerTurnFormula$$GetTurnsUntilUnitOwnerTurn` (LU) :
+
+        cur = StateExtensions.GetCurrentPlayer(state)
+        if (cur == null) return 0
+        if (GetOriginalPlayerId(cur) == GetOriginalPlayerId(unit)) return 0   # c'est deja son tour
+        ... compte les tours de joueur (hors Environment, hors elimine) avant celui du proprietaire
+
+    MEME COLLAPSE ASSUME que le helper imperatif jumeau `runner/abilities/base.py
+    :turns_until_unit_owner_turn`, et pour la MEME raison : le port ne detient pas la LISTE
+    `TurnOrder`. Sur le seul vecteur constructible -- un duel a deux joueurs non-Environment -- la
+    boucle native ne peut compter que le joueur COURANT avant de tomber sur le proprietaire, donc
+    **1** ; et **0** des que le proprietaire EST le joueur courant. Avec plus de deux joueurs le
+    rang exact n'est pas derivable offline et ce noeud rend 1 (borne INFERIEURE, jamais une duree
+    inventee plus longue).
+
+    Canaux : `ctx.current_player_id` (deja porte, lu par `IsTurnOf`) et le champ `player` du dict
+    d'unite (`OwnerComponent.player`, cf. `runner/abilities/behaviours/context.py:_unit_dict`) --
+    aucun accesseur neuf. `current_player_id is None` -> 0, mirror de la branche `cur == null`."""
+    def __init__(self, selector: TargetsSelector):
+        self.selector = selector
+
+    def calculate(self, ctx):
+        cur = getattr(ctx, "current_player_id", None)
+        if cur is None:                              # `if (GetCurrentPlayer(state) == null) return 0`
+            return 0
+        result = 0                                   # accumulateur natif, ZERO avant la boucle
+        for u in _units_of(self.selector, ctx):
+            owner = u.get("player") if isinstance(u, dict) else None
+            turns = 0 if (owner is not None and int(owner) == int(cur)) else 1
+            result = max(result, turns)              # `System.Math.Max(result, ...)`
+        return result
+
+
 class TurnsFromRounds(AAmountFormula):
     """`IdunBattleLogic.Entities.DSLFactory$$TurnsFromRounds(rounds)` → `IdunBattle.Entities.Formulas.TurnsFromRoundsFormula$$Calculate`
     = `IdunBattle.Core.Services.BattleQuery$$ConvertRoundsToTurns` (interface slot 0x1c) = `count(joueurs du turnOrder,
