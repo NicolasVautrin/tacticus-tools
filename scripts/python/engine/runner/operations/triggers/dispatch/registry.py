@@ -195,6 +195,8 @@ from ..loki.barbed_ovipositor import BarbedOvipositorSummonAbility     # passif 
 from ..loki.fabricator_claw_array import FabricatorClawArrayAbility    # #303 (passif necroSpyder, N20)
 from ..loki.champion_of_the_feast import ChampionOfTheFeastAbility    # #419-r6-r2 (passif templSwordBrother)
 from ..loki.dawn_blade import DawnBladeHealAbility                     # #317 (relique tauFarsight)
+from ..loki.daemonflesh_plate import (DaemonfleshPlateAbility,        # #916 (relique 1493)
+                                      DaemonfleshPlateResetActiveAbility)
 from ..loki.relentless_march import RelentlessMarchAbility             # #328 (passif necroWarden)
 from ..loki.my_will_be_done_overlord import (MyWillBeDoneOverlordAttackAbility,   # #354 (necroOverlord)
                                              MyWillBeDoneOverlordClearAbility)
@@ -803,6 +805,18 @@ RELIC_ABILITY_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
     # La 2e classe native du meme id (`DawnBlade_InitAbility`, qui pose l'effet 1501
     # `DawnBlade_ExtraDmg`) n'est PAS portee : elle ne construit aucun `Repair` (#317, hors perimetre).
     "DawnBlade": [DawnBladeHealAbility],
+    # DaemonfleshPlate (relique `R_Block_DaemonfleshPlate`, `TriggeredAbilityType` 0x5d5 = 1493 ;
+    # 4 porteurs `lineup` : blackTerminator / deathBlightlord / thousTerminator / worldTerminator).
+    # DEUX classes natives pour UNE cle (patron `LetTheGalaxyBurn` / `HaywireMine`) :
+    #   * `DaemonfleshPlateAbility` -- `On(9 = Attack) & OwnerIsCaster` (⚠ ce `CreateTrigger` est
+    #     INVISIBLE des tables : son corps est DEDUPLIQUE avec celui de
+    #     `LetTheGalaxyBurn_ResetAbility$$CreateTrigger` ; appartenance etablie slot a slot dans le
+    #     bloc `methodPointers` du PE) -> `If(counter >= nrOfAttacks - 1, retire les piles + arme
+    #     1491 + vide le compteur, +1 pile d'armure 1490 + counter += 1)` ;
+    #   * `DaemonfleshPlate_ResetActiveAbility` -- `On(0x3a = PhaseEnd) & HasEffect(Owner, 1491)`
+    #     -> `ResetActiveAbility(Owner, true) + RemoveEffect(1491)`.
+    # Cf. loki/daemonflesh_plate.py.
+    "DaemonfleshPlate": [DaemonfleshPlateAbility, DaemonfleshPlateResetActiveAbility],
 }
 
 # --- Registre : abilities GLOBALES (aucun owner) ---------------------------------------------------

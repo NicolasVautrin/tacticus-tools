@@ -110,6 +110,7 @@ from .loki.prophetic_sentinel import (
     PropheticSentinelExtraArmorEffect, PropheticSentinelExtraBlockChanceEffect,
     PropheticSentinelExtraBlockDamageEffect
 )
+from .loki.daemonflesh_plate import DaemonfleshPlateExtraArmorEffect
 from .loki.reality_unbound import (
     RealityUnboundExtraMaxDamageEffect, RealityUnboundMovementEffect, RealityUnboundRangeEffect
 )
@@ -570,6 +571,11 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     "RealityUnbound_Movement": RealityUnboundMovementEffect,          # 1205 : +1 MOVEMENT, 1 tour
     "RealityUnbound_Range": RealityUnboundRangeEffect,                # 1206 : +1 EXTRA_RANGE, 1 tour
     "RealityUnbound_ExtraMaxDamage": RealityUnboundExtraMaxDamageEffect,  # 1207 : +extraMaxDmg, EMPILABLE
+    # DaemonfleshPlate (relique `R_Block_DaemonfleshPlate`, `TriggeredAbilityType` 1493) : la pile
+    # d'armure posee a CHAQUE attaque du porteur. Meme motif que 1207 -- EMPILABLE
+    # (`stacks_stat_mod_on_add`), sans quoi le gate << deja-present >> d'`AddEffectOperation`
+    # plafonnerait le bonus a un seul cran. Cf. `entities/effects/loki/daemonflesh_plate.py`.
+    "DaemonfleshPlate_ExtraArmor": DaemonfleshPlateExtraArmorEffect,  # 1490 : +extraArmor, EMPILABLE
     # Tyrant Guard (CrushingClaws) :
     "Taunted_OnlySpecificTargets": TauntedEffect,  # COMPOSITE 27 → enfants 25/26/1237 (bond cible↔tauntant)
     # HolyDuel (1050, templChampion « Brother Jaeger ») — `entities/effects/loki/holy_duel.py`.
