@@ -102,14 +102,27 @@ import probe_270r4r2r2_tri_differes as TR       # noqa: E402
 #   * ce qui RESTE, et c'est une mesure, pas un renoncement : 31 sites restent refuses
 #     `fermerait-une-boucle`. Hisser ceux-la ne se fait pas par deplacement d'import -- il faut
 #     DEPLACER le code partage (doctrine (1)), ce que le residu #270-r4-r2-r2-r4 porte deja.
-#   * les DEUX mesures descendent SOUS celles du 2026-08-10 (270 -> 269, 173 -> 167), donc les deux
-#     plafonds descendent avec elles (290 -> 289, 193 -> 187) : le ratchet joue dans le bon sens.
-#     Un plafond ne remonte jamais ; celui-ci a BAISSE.
-#: MESURE le 2026-08-11 (#923) : 269 instructions, dont 167 inconditionnelles. Les plafonds portent
-#: la marge de 20 justifiee ci-dessus -- ils ne SONT pas la mesure, ils la bornent.
-MESURE_DIFFERES, MESURE_INCONDITIONNELS = 269, 167
-PLAFOND_DIFFERES = MESURE_DIFFERES + 20
-PLAFOND_INCONDITIONNELS = MESURE_INCONDITIONNELS + 20
+#   * les DEUX mesures descendent SOUS celles du 2026-08-10 (270 -> 271 puis 269 sur l'arbre de la
+#     tranche, 173 -> 169), donc les deux plafonds descendent avec elles (290 -> 289, 193 -> 187) :
+#     le ratchet joue dans le bon sens. Un plafond ne remonte jamais ; celui-ci a BAISSE.
+#
+# ⚠⚠ ET LA MARGE VAUT 18, PAS 20 -- C'EST UNE CONSEQUENCE, PAS UN CHOIX. La tranche a atteint
+# 269/167 sur son propre arbre ; le REBASE sur `27e78a8a` (#919) en a re-ajoute 2, portant l'arbre
+# LIVRE a 271/169. C'est cette derniere mesure qui est inscrite -- celle de ce qu'on livre, pas
+# celle d'un arbre qui n'existe plus. Or `MESURE + 20` vaudrait 291, donc REMONTERAIT le plafond
+# de 290 : interdit, un plafond ne remonte pas. La marge est donc ce qui RESTE sous le plafond
+# herite, et elle se re-elargira a 20 des qu'une tranche descendra la mesure de deux crans de plus.
+# Les deux sites qui manquaient ont ete EXAMINES et ECARTES, pas oublies : `selectors/pathing.py`
+# (lignes ~50 et ~111) porte deux differes PORTEURS dont le motif est MESURE et ECRIT sur place
+# (« charger `engine.entities.triggers` seul met `engine.entities.selectors.pathing` dans
+# `sys.modules` »). Les hisser irait contre une mesure existante.
+#: MESURE le 2026-08-11 (#923), APRES rebase sur `27e78a8a` : 271 instructions, dont 169
+#: inconditionnelles. Les plafonds ne SONT pas la mesure, ils la bornent -- et ils ne remontent pas.
+MESURE_DIFFERES, MESURE_INCONDITIONNELS = 271, 169
+#: MARGE = 18 (et non 20) : le plafond herite etait 290/193 et un ratchet ne se desserre jamais.
+_MARGE = 18
+PLAFOND_DIFFERES = MESURE_DIFFERES + _MARGE
+PLAFOND_INCONDITIONNELS = MESURE_INCONDITIONNELS + _MARGE
 
 
 @pytest.fixture(scope="module")
