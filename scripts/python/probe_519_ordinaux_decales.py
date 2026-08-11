@@ -84,8 +84,29 @@ def builds():
     return meilleur, courant
 
 
+_BALAYAGE_CACHE = None
+
+
 def balayer():
-    """Les citations dont l'ordinal est celui du build PRECEDENT. Rend (liste, vieux, neuf, builds)."""
+    """Les citations dont l'ordinal est celui du build PRECEDENT. Rend (liste, vieux, neuf, builds).
+
+    MEMOISE (#941-r2) : DEUX tests de `test_519_comptes_derives_offline.py` l'appellent, l'un
+    pour les citations perimees, l'autre pour attester qu'il EXISTE des membres decales -- deux
+    verdicts, le meme balayage (3,90 s + 3,69 s mesures le 2026-08-11). Le releve ne depend que
+    du disque (`data/symbols/**` et `engine/**`) ; les deux tables sont RE-CONSTRUITES a chaque
+    appel, pour qu'un appelant ne puisse pas muter ce que verra le suivant.
+    """
+    global _BALAYAGE_CACHE
+    if _BALAYAGE_CACHE is not None:
+        trouves, vieux, neuf, blds = _BALAYAGE_CACHE
+        return (list(trouves), dict(vieux) if vieux is not None else vieux,
+                dict(neuf) if neuf is not None else neuf, blds)
+    _BALAYAGE_CACHE = _balayer()
+    return balayer()
+
+
+def _balayer():
+    """Le BALAYAGE, foyer unique -- appele une seule fois par `balayer`."""
     prec, cour = builds()
     vieux, neuf = _charger(prec) if prec else None, _charger(cour)
     trouves = []

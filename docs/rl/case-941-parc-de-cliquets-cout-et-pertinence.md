@@ -102,11 +102,101 @@ périmètre (~976 s) et le faire sous cette charge écrirait des poids gonflés.
 sur-estimés sont **conservateurs** pour l'équilibrage LPT (le fichier reçoit trop de place, jamais
 trop peu). À re-mesurer machine calme.
 
+### 2.2ter Seconde passe (#941-r2) — huit fichiers LUS, quatre corrigés, quatre refusés
+
+Le critère qui a produit la liste de 23 est un **proxy**, et il faut le dire avant les résultats :
+« ≥ 2 tests coûtant chacun ≥ 8 s » a été appliqué aux `--durations` d'une passe **à 4 shards**,
+donc à des durées gonflées par la contention (x2,8). Re-mesurés **fichier seul**, deux des huit ne
+portent qu'**UN** test cher : le proxy les avait retenus sur du bruit. Un troisième les comptait
+par son *setup* de fixture — qui est précisément le montage **déjà partagé**.
+
+**Le vrai discriminant n'est pas « combien de verdicts », c'est « combien d'APPELS ».** §2.3
+écartait `probe_283` sur « cinq balayages, cinq verdicts différents » : c'est exact pour les
+verdicts et **faux pour les appels**. `step_on(verbose=False)` y est appelé **deux fois avec les
+mêmes arguments**, un test lisant `decales` et l'autre `fails` — deux positions du **même tuple**.
+Un fichier peut donc porter N verdicts et N-1 balayages, et seule la lecture le dit.
+
+| fichier (mesuré SEUL) | avant | après | tests ≥ 8 s | ce qui était refait |
+|---|---|---|---|---|
+| `test_enum_ordinal_ratchet` | 275,0 s | 220,4 s | 5 → 4 | `step_on()` **×2**, arguments identiques |
+| `test_519_comptes_derives` | 112,1 s | 27,8 s | 5 → 1 | `temoins.balayer()` **×5**, `ordinaux.balayer()` **×2** |
+| `test_486r24_bypass_confrontation` | 89,7 s | 72,5 s | 4 → 2 | `Fermeture(ROOT)` reconstruite **×3** |
+| `test_480r8_rpc_joignable` | 55,1-58,5 s | 41,1-50,5 s | 2 → 1 | le dépôt lu **des DEUX côtés** d'un `subprocess` |
+
+Et les quatre refusés — **c'est un résultat, pas un abandon** :
+
+* **`test_431_build_pin`** — ses trois appels chers (30,1 + 29,3 + 29,3 s) lancent le cliquet sur
+  **trois états d'arbre différents** (intact / résolution réintroduite / mention en prose). Il n'y
+  a rien de commun à mémoïser : mutualiser reviendrait à ne plus éprouver que l'un des trois. Le
+  worktree témoin, lui, est **déjà unique** (fixture `scope="module"`, 59,6 s de `add` + 23,3 s de
+  `remove`) — le gisement `probe_547r1` de §2.2 n'a pas d'équivalent ici.
+* **`test_457_r8_selection_par_diff`** — **UN** seul test cher (62,7 s) ; les deux suivants sont à
+  **4,4 s** parce que `_import_graph` est mémoïsé depuis #486-r5. Le fichier était déjà corrigé,
+  la liste ne pouvait pas le savoir.
+* **`test_465_ledger_validite`** — **UN** seul test cher (29,7 s, produit cartésien 7 verdicts × 5
+  positions × 2 blobs). Le « second test cher » de la liste est le **setup** de `_depot_shas`
+  (59,9 s), une fixture `scope="module"` **déjà partagée** par les 12 tests qui en dépendent.
+* **`test_468_collision_numeros`** — 20 tests entre 1 et 31 s, et **aucun couple ne calcule la même
+  chose** : chacun construit **son** dépôt git jetable (mentions, messages de commit, worktree
+  voisin, ledger) puis lance `probe_468` dessus. Le coût est le montage, et il est propre à chaque
+  cas.
+
+**La preuve est structurelle, et les murs ci-dessus ne la portent pas** : les deux colonnes ont été
+mesurées à des charges différentes (8 fichiers en parallèle contre 4). Ce qui se compte :
+
+```
+519      : 5 appels de balayer -> 1 balayage ; les 4 tests a 15,2-23,5 s tombent sous 0,005 s
+283      : 2 appels de step_on -> 1 balayage ; `test_aucune_ancre_ANNOTEE` : 30,5 s -> < 0,005 s
+486r24   : 3 fermetures       -> 1          ; les deux mutations : 19,1 + 8,4 s -> 0,39 + 0,18 s
+480r8    : 6 lectures du depot -> 3         ; l'etage 2 : 18,6 s -> 6,9 s
+```
+
+**La contre-épreuve, elle, ne se délègue pas au chronomètre** : pour chaque mémo posé, une mutation
+du sujet gardé a été écrite dans l'arbre, vérifiée présente, puis le test cible joué — **9 verdicts
+attendus sur 9**. S'y ajoute la **disjonction** pour `step_on`, qui est la propriété que la
+mémoïsation menaçait directement : l'ancre annotée périmée fait rougir `fails` **et laisse
+`decales` vert**, la quote indécidable l'inverse. Deux verdicts tirés d'un seul balayage restent
+deux verdicts.
+
+⚠ **Le mur EN PARALLÈLE a failli faire renoncer à une correction qui gagne 25 %.** `test_480r8`
+mesuré à 4 jobs concurrents rendait **73,8 s avant / 73,6 s après** — « aucun gain », et la
+tentation d'annuler. Rejoué **en série et ALTERNÉ** sur la même machine (A/B/A/B), il rend
+**50,5 et 41,1 s après** contre **58,5 et 55,1 s avant**, avec **un test de PLUS**. Le bruit d'une
+machine partagée est du même ordre que le gain qu'on mesure : quatre passes alternées coûtent
+3 minutes et tranchent, une passe parallèle ne tranche rien — dans aucun des deux sens.
+
+⚠ **Un mémo peut figer autre chose qu'un coût : un VERDICT.** `probe_519_temoins_de_camp.balayer`
+rend des sites **avec leur verdict**, et ce verdict ne vient pas du disque — il interroge l'état du
+moteur (`ABILITY_CLASSES`, `TARGETING_OPTIONS_UNPORTED`, `targeting_options_for`), que notre
+cadence de portage fait bouger. Le mémo s'arrête donc au **corpus** (8,97 s mesurées) et les
+verdicts sont **re-posés** à chaque appel (0,00 s pour 15 sites). Mémoïser le tuple entier aurait
+coûté zéro et rendu le cliquet aveugle à ce qu'il garde. C'est le seul étage vraiment neuf de
+`test_486r5_balayages_memoises_offline.py` §9.
+
+⚠ **Un mémo ne traverse pas une frontière de PROCESS, et `test_480r8` payait exactement ça** : son
+étage 1 lançait le probe en `subprocess`, son étage 2 refaisait les trois mêmes lectures
+in-process (recensement 6,32 s, corpus exécutable 7,90 s, corpus doc 1,66 s). Les réunir dans un
+seul process est ce qui rend le mémo payant — mais **le sous-process exerçait aussi l'entrée
+script**, et `probe_480r8` **n'est pas une entrée de `scripts/ratchets.ps1`** (vérifié) : ce
+fichier était le seul à la jouer. Elle n'est donc pas abandonnée, elle est **rendue bon marché** —
+un `--help` en sous-process (0,80 s) traverse imports, `__main__` et `argparse` sans balayer quoi
+que ce soit, pendant que le CORPS de `main` est exercé in-process. Coquille d'un côté, contenu de
+l'autre.
+
+⚠ **`confronter` a reçu une INJECTION, pas un cache**, et l'écart n'est pas cosmétique : ce
+fichier de test **écrit** dans des arbres jetables entre deux confrontations (`_monte_arbre`, qui
+vide `DC._HARNAIS`). Un cache global y aurait servi un relevé périmé. Le défaut reste une fermeture
+neuve — aucun appelant existant ne change de comportement — et c'est l'appelant, seul à connaître
+la fraîcheur de son arbre, qui décide de partager la sienne.
+
 ### 2.3 Ce qui N'EST PAS du gaspillage, et pourquoi on n'y touche pas
 
 * **`probe_283` (`test_enum_ordinal_ratchet`, 5 étapes, 235 s mesurés)** — cinq balayages, mais
   **cinq verdicts différents**. Les mutualiser exigerait une passe unique à N visiteurs : gros
   refactor, gain plafonné à 4 × 22,7 s, risque d'infidélité élevé. NON FAIT.
+  ⚠ **Vrai pour QUATRE d'entre eux, faux pour le cinquième** : `step_on` était appelé **deux fois**
+  avec les mêmes arguments, et #941-r2 l'a mémoïsé (cf. §2.2ter). Le reste du paragraphe tient :
+  `step_mirror`, `step_exec`, `step_tables` et `step_on` sont bien quatre balayages distincts.
 * **Le cache de verdict par fichier (`verdict_cache`, #486-r1) est REFUSÉ pour `step_exec`** —
   par sa propre règle d'admission. Son verdict est **GLOBAL** : `sigs =
   _signatures_positionnelles(arbres)` se dérive de TOUS les fichiers (« un appel peut précéder
@@ -209,10 +299,22 @@ Le parc n'est pas surdimensionné — il est **sous-joué**. C'est l'argument ce
 * Le **mur APRÈS** est mesuré fichier par fichier (§2.2), pas par une seconde passe complète :
   une passe coûte ~24 min de machine partagée, et la rejouer deux fois pour un gain déjà
   attribuable fichier par fichier ne se justifiait pas.
-* Les **19 autres fichiers** du patron « ≥ 2 tests chers » (`test_468`, `test_431_build_pin`,
-  `test_486r24`, `test_519`, `test_457_r8`…) ne sont pas traités : chacun demande de vérifier À
-  LA LECTURE que les tests refont bien le MÊME calcul. Reste ~900 s de gain potentiel, borne
-  haute. Résidu `#941-r2`.
+* **Onze** des 19 fichiers du patron « ≥ 2 tests chers » restent à lire. Huit l'ont été
+  (#941-r2, §2.2ter) : quatre corrigés, quatre refusés avec mesure. Le reste du gain annoncé
+  (~290 s de borne haute) porte sur `test_433r4r1r4r2r1r1`, `test_477r25`, `test_477r24r1`,
+  `test_468r14`, `test_474_optional_locks`, `test_477r24_phase_attribution`,
+  `test_448_r3_r1_noms_non_resolvables`, `test_270r4r2r2r3`, `test_486r15_empreinte_par_entree`,
+  `test_ctx_traits_substrat_ventilation`, `test_515_adjacence_elevation`. Résidu `#941-r2`.
+* Les **poids de `scripts/ratchets-457-durations.json` n'ont PAS été re-mesurés** — ni par #941,
+  ni ici (vérifié : `git show <sha>:scripts/ratchets-457-durations.json` rend le même fichier
+  avant et après #941). `--jobs` répartit donc les shards sur des poids périmés pour les huit
+  fichiers déjà optimisés : les surcharges sont **conservatrices** pour l'équilibrage LPT (le
+  shard reçoit trop de place, jamais trop peu), mais elles cessent de décrire le parc.
+  `--measure` rejoue tout le périmètre (~2000 s) et le lancer sous la charge d'une flotte
+  graverait des poids gonflés de x2,8 : **à re-mesurer machine calme**, en un seul geste, pas
+  par tranche.
+* Le **montage** de deux fichiers refusés est un gisement RÉEL mais d'une autre nature que le
+  patron de ce résidu — un coût de fixture, pas un balayage dupliqué. Résidu `#941-r4`.
 * La **vacuité** n'a été instruite que par un critère syntaxique (assertions de vide sans
   contre-partie). Il ne voit pas un cliquet dont la population est non vide mais dont le
   PRÉDICAT ne discrimine plus.

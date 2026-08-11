@@ -77,6 +77,23 @@ import probe_486r15_declencheurs_tests as G
 ROOT = Path(__file__).resolve().parents[3]
 
 
+@pytest.fixture(scope="module")
+def fermeture():
+    """UNE fermeture d'imports pour les trois `confronter` de ce fichier (#941-r2).
+
+    Les trois appels resolvaient chacun leur fermeture : deux d'entre eux portent MEME le meme
+    `rel` (`test_486_r1_cache_verdict_offline.py`), donc la meme resolution etait faite trois
+    fois -- 19,1 s + 8,4 s + 42,1 s mesures le 2026-08-11.
+
+    L'OBJET est tenu par cette fixture, et c'est ce qui le rend sur : `_monte_arbre` VIDE
+    `DC._HARNAIS` (il doit le faire -- il repointe `DC.RACINE` sur un arbre jetable), donc
+    passer par `DC._fermeture(ROOT)` a chaque test rendrait une instance FROIDE apres chaque
+    montage. Une reference gardee ici survit au vidage sans le contredire : elle ne decrit que
+    l'arbre REEL, que ces tests ne modifient jamais.
+    """
+    return DC._fermeture(ROOT)
+
+
 def _decl(**kw):
     d = {"chemins": ("a/b.py",), "build": False, "toujours": False,
          "raison": "x" * (DC.RAISON_MIN + 5)}
@@ -194,7 +211,7 @@ def test_le_paquet_d_un_import_relatif_est_DERIVE_du_chemin(rel, niveau, attendu
 
 
 # =============================================================== [3] LE CLIQUET
-def test_un_bypass_DESARME_la_confrontation_de_CE_fichier_seulement():
+def test_un_bypass_DESARME_la_confrontation_de_CE_fichier_seulement(fermeture):
     """MUTATION : on ampute une declaration REELLE, on verifie qu'elle rougit, puis on lui pose
     le bypass et on verifie qu'elle ne rougit plus. Sans la premiere moitie, le vert de la
     seconde ne prouverait rien."""
@@ -204,24 +221,24 @@ def test_un_bypass_DESARME_la_confrontation_de_CE_fichier_seulement():
     ampute["chemins"] = tuple(c for c in vraie["chemins"] if "verdict_cache" not in c)
     assert len(ampute["chemins"]) < len(vraie["chemins"]), "la mutation n'a pas MORDU"
 
-    rouges, _, bypass = G.confronter({rel: ampute})
+    rouges, _, bypass = G.confronter({rel: ampute}, ferm=fermeture)
     assert rouges and not bypass, "l'ampute doit ROUGIR avant qu'on lui pose la cle"
 
     avec = dict(ampute)
     avec[DC.CLE_HORS_CONFRONTATION] = ("mutation de test : la fermeture ne borne pas ce fichier")
-    rouges2, _, bypass2 = G.confronter({rel: avec})
+    rouges2, _, bypass2 = G.confronter({rel: avec}, ferm=fermeture)
     assert not rouges2, "le bypass doit desarmer la confrontation"
     assert len(bypass2) == 1 and bypass2[0][0] == rel
     assert bypass2[0][2], "le bypass doit COMPTER ce qu'il masque, pas seulement le taire"
 
 
-def test_un_bypass_qui_ne_masque_RIEN_est_vu_comme_MORT():
+def test_un_bypass_qui_ne_masque_RIEN_est_vu_comme_MORT(fermeture):
     """Le cran anti-imitation. Une declaration deja juste qui pose la cle << au cas ou >> doit
     etre refusee -- sinon les 29 de la cascade l'auraient copiee et rien n'aurait change."""
     rel = "scripts/python/tests/test_486_r1_cache_verdict_offline.py"
     vraie = dict(DC.lire(ROOT / rel))
     vraie[DC.CLE_HORS_CONFRONTATION] = "pose au cas ou, alors que la confrontation passe deja"
-    _, _, bypass = G.confronter({rel: vraie})
+    _, _, bypass = G.confronter({rel: vraie}, ferm=fermeture)
     assert len(bypass) == 1
     assert bypass[0][2] == [], "cette declaration ne masque RIEN : le cliquet doit le voir"
 
@@ -287,12 +304,12 @@ def test_la_population_ATTESTEE_est_exactement_celle_qui_bypasse():
         "regenerer : python scripts/python/probe_486r15_declencheurs_tests.py --ecrire-bypass"
 
 
-def test_chaque_bypass_reel_MASQUE_quelque_chose_et_le_DIT():
+def test_chaque_bypass_reel_MASQUE_quelque_chose_et_le_DIT(fermeture):
     """ANTI-VACUITE sur la population reelle : un fichier atteste dont le bypass ne servirait a
     rien serait un bypass d'imitation -- et le compte imprime serait un chiffre creux."""
     fichiers = G.fichiers_de_test()
     ok, _ko = G.declarations(fichiers)
-    _, _, bypass = G.confronter(ok)
+    _, _, bypass = G.confronter(ok, ferm=fermeture)
     assert bypass, "la population est VIDE : ce test ne prouverait rien (cf. #270-r1-r1-r3)"
     for rel, motif, decouverts in bypass:
         assert len(motif) >= DC.RAISON_MIN, rel

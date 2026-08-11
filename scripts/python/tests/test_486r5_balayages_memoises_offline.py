@@ -465,3 +465,150 @@ def test_le_cache_de_etape1_514_EVITE_le_second_balayage_ET_REJOUE_ses_echecs(mo
     a["AllUnits"].append("MUTATION-941")
     assert P514.etape_1([])["AllUnits"] == [("a.py", "f", 1)], "une mutation a fuite dans le cache"
 
+
+# --- 9. #941-r2 : les QUATRE balayages memoises par la seconde tranche du parc ------------------
+#
+# Meme forme que l'etage 8, meme methode (SUBSTITUTION du balayage, jamais un chronometre). Un
+# etage de plus ici, et c'est le seul VRAIMENT neuf : un memo peut aussi figer un VERDICT, et un
+# verdict fige est un vert qui ment -- pas un cout qui revient.
+
+def test_le_cache_de_step_on_283_EVITE_le_second_balayage_ET_RE_CONSTRUIT(monkeypatch, capsys):
+    """`step_on` etait appele DEUX fois par `test_enum_ordinal_ratchet_offline.py`, avec les
+    memes arguments : un test lit `decales` (quotes indecidables), l'autre `fails` (ancres
+    perimees). Deux verdicts, un seul balayage -- 34,7 s + 30,5 s mesures le 2026-08-11.
+
+    L'IMPRESSION reste rejouee : elle depend de `verbose`, donc la memoiser ferait taire le
+    second appel."""
+    import probe_283_enum_ordinal_sweep as SW
+
+    appels = []
+    fige = (7, (("a.py", 1, "0x2b", "X", "Y", "On"),),
+            (("b.py", 2, "0x2a", "PreUnitAbility", "FUN"),),
+            (("c.py", 3, "0x2b", "PreUnitAbility", 43, 42, "FUN"),))
+
+    monkeypatch.setattr(SW, "_balayer_step_on", lambda racine: (appels.append(racine), fige)[1])
+    monkeypatch.setattr(SW, "_ON_CACHE", {})
+    a = SW.step_on(verbose=False)
+    b = SW.step_on(verbose=False)
+    assert len(appels) == 1, "le balayage a ete refait %d fois pour 2 appels" % len(appels)
+    assert a[0] == b[0] == 7
+    for i in (1, 2, 3):
+        assert list(a[i]) == list(fige[i]), (i, a[i])
+        assert a[i] is not b[i], "les releves sont PARTAGES -- une mutation fuirait (position %d)" % i
+    a[3].append(("MUTATION-941r2",))
+    assert len(SW.step_on(verbose=False)[3]) == len(fige[3]), "une mutation a fuite dans le cache"
+    assert "etape 5" in capsys.readouterr().out, "l'impression ne doit PAS etre memoisee"
+
+    # ... et une RACINE differente n'est PAS servie par le cache de la premiere.
+    SW.step_on(verbose=False, racine="frida")
+    assert len(appels) == 2, "le cache a servi une AUTRE racine -- le releve serait faux"
+
+
+def test_le_cache_des_temoins_519_MEMOISE_le_corpus_mais_PAS_le_VERDICT(monkeypatch):
+    """L'ETAGE QUI COMPTE, et il n'existait pour aucun des memos precedents.
+
+    `balayer` rend des sites AVEC leur verdict, et ce verdict ne se derive PAS du disque : il
+    interroge l'etat du moteur (`ABILITY_CLASSES`, `TARGETING_OPTIONS_UNPORTED`,
+    `targeting_options_for`), que la cadence de portage fait bouger et qu'un appelant peut
+    substituer. Memoiser le tout aurait fige exactement ce que ce cliquet garde -- un vert qui
+    ment, pas un cout qui revient. Le memo s'arrete donc au CORPUS (8,97 s mesurees), et les
+    verdicts sont RE-POSES a chaque appel (0,00 s)."""
+    import probe_519_temoins_de_camp as T
+
+    appels = []
+    site = ("engine/x.py", 12, 1091, "targeting_options_for(1091) is None", False)
+    monkeypatch.setattr(T, "_balayer_sites", lambda racine: (appels.append(racine), (site,))[1])
+    monkeypatch.setattr(T, "_SITES_CACHE", {})
+
+    monkeypatch.setattr(T, "_camp_courant", lambda aid, texte: False)
+    a = T.balayer()
+    assert len(appels) == 1 and [s.verdict for s in a] == [T.PERISSABLE], (appels, a)
+
+    # LE CRAN : le corpus n'a pas bouge (aucun second balayage), mais l'etat du moteur, si.
+    monkeypatch.setattr(T, "_camp_courant", lambda aid, texte: True)
+    b = T.balayer()
+    assert len(appels) == 1, "le corpus a ete rebalaye %d fois pour 2 appels" % len(appels)
+    assert [s.verdict for s in b] == [T.PERIME], (
+        "le verdict a ete MEMOISE avec le corpus : ce cliquet est devenu aveugle a ce qu'il garde")
+    assert a[0] is not b[0], "les objets `Site` sont partages -- une mutation fuirait"
+
+    # ... et une RACINE differente n'est PAS servie par le cache de la premiere.
+    T.balayer(racine=T._ICI.parent)
+    assert len(appels) == 2, "le cache a servi une AUTRE racine"
+
+
+def test_le_cache_des_ordinaux_519_EVITE_le_second_balayage(monkeypatch):
+    """Deux tests l'appellent : l'un pour les citations perimees, l'autre pour attester qu'il
+    EXISTE des membres decales (sans quoi le zero du premier ne dirait rien)."""
+    import probe_519_ordinaux_decales as O
+
+    appels = []
+    fige = ([(Path("x.py"), 3, "Damage", 34, 33)], {"Damage": 34}, {"Damage": 33}, ("v", "n"))
+    monkeypatch.setattr(O, "_balayer", lambda: (appels.append(1), fige)[1])
+    monkeypatch.setattr(O, "_BALAYAGE_CACHE", None)
+
+    a = O.balayer()
+    b = O.balayer()
+    assert len(appels) == 1, "le balayage a ete refait %d fois pour 2 appels" % len(appels)
+    assert a[0] == b[0] == fige[0] and a[3] == fige[3]
+    assert a[1] is not b[1] and a[2] is not b[2], "les tables sont PARTAGEES -- une mutation fuirait"
+    a[1]["Damage"] = 999
+    a[0].append("MUTATION-941r2")
+    assert O.balayer()[1]["Damage"] == 34, "une mutation a fuite dans le cache"
+    assert len(O.balayer()[0]) == len(fige[0]), "une insertion a fuite dans le cache"
+
+
+def test_les_trois_lectures_de_480r8_EVITENT_leurs_seconds_balayages(monkeypatch):
+    """Ce fichier de test lisait le depot DEUX FOIS, de chaque cote d'une frontiere de process
+    qu'aucun memo ne traverse. Depuis #941-r2 les deux etages partagent le process ; ces memos
+    sont ce qui rend ce partage payant (6,32 + 7,90 + 1,66 s mesurees)."""
+    import probe_480r8_rpc_ventilation as P480
+
+    n = {"rpc": 0, "exec": 0, "doc": 0}
+
+    def _c(cle, val):
+        def _f():
+            n[cle] += 1
+            return val
+        return _f
+
+    monkeypatch.setattr(P480, "_balayer_rpc", _c("rpc", ({"aRpc": ["frida/hooks/x.ts"]}, 1)))
+    monkeypatch.setattr(P480, "_balayer_corpus_executable", _c("exec", {"a.ts": "aRpc"}))
+    monkeypatch.setattr(P480, "_balayer_corpus_doc", _c("doc", {"a.md": "aRpc"}))
+    monkeypatch.setattr(P480, "_LECTURES_CACHE", {})
+
+    for _ in range(3):
+        decl, _n = P480.recenser_rpc()
+        ce = P480.corpus_executable()
+        cd = P480.corpus_doc()
+    assert n == {"rpc": 1, "exec": 1, "doc": 1}, n
+    assert decl == {"aRpc": ["frida/hooks/x.ts"]} and ce == {"a.ts": "aRpc"} and cd == {"a.md": "aRpc"}
+
+    # ... et le retour est RE-CONSTRUIT : muter ce qu'on recoit ne touche pas le suivant.
+    decl["aRpc"].append("MUTATION-941r2")
+    ce["MUTATION-941r2"] = "x"
+    assert P480.recenser_rpc()[0] == {"aRpc": ["frida/hooks/x.ts"]}, "une mutation a fuite"
+    assert "MUTATION-941r2" not in P480.corpus_executable(), "une mutation a fuite"
+
+
+def test_confronter_486r15_UTILISE_la_fermeture_injectee_et_en_cree_une_SINON(monkeypatch):
+    """INJECTION, pas cache : le defaut reste une fermeture NEUVE, donc aucun appelant existant
+    ne change de comportement. C'est l'appelant qui decide de la fraicheur -- et il le faut,
+    parce que ce meme fichier de test ECRIT dans des arbres jetables entre deux confrontations.
+    """
+    import probe_486r15_declencheurs_tests as G486
+    import declencheur_cliquet as DC486
+
+    creees = []
+    reelle = DC486.Fermeture
+
+    monkeypatch.setattr(G486, "Fermeture",
+                        lambda racine: (creees.append(racine), reelle(racine))[1])
+    G486.confronter({})
+    assert len(creees) == 1, "le defaut ne construit plus sa propre fermeture"
+
+    partagee = reelle(G486.ROOT)
+    G486.confronter({}, ferm=partagee)
+    G486.confronter({}, ferm=partagee)
+    assert len(creees) == 1, "la fermeture injectee a ete ignoree : %d construction(s)" % len(creees)
+
