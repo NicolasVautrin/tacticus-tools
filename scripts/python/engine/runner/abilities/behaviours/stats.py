@@ -105,11 +105,12 @@ class Heal(AbilityBehaviour):
       * `IdunBattle.Entities.Behaviours.HealBehaviourOptions$$ForRegenerate` -> `(1, False)`.
 
     ⚠ LE DEFAUT `ForHeal` N'EST PAS UNE COMMODITE : c'est la fabrique de 19 des 25 call-sites du
-    build (xrefs relues sur `rnca9r7q6c`). Les SIX qui prennent `ForRegenerate` sont NOMMES, et deux
+    build (xrefs relues sur `rnca9r7q6c`). Les SIX qui prennent `ForRegenerate` sont NOMMES, et TROIS
     d'entre eux sont portes -- ils DECLARENT donc `scope=1` a leur site :
-    `SavageEchoesAbility$$ExecuteBehaviour` (`abilities/bloodangels.py`) et
-    `TimeFluxAbility$$CreateBehaviour` (`operations/triggers/loki/time_flux.py`) ; les quatre autres
-    (`MedicusMinistorumAbility`, `LifeStealEffect`, `SanguinaryPriestAbility`,
+    `SavageEchoesAbility$$ExecuteBehaviour` (`abilities/bloodangels.py`),
+    `TimeFluxAbility$$CreateBehaviour` (`operations/triggers/loki/time_flux.py`) et
+    `SanguinaryPriestAbility$$CreateBehaviour` (`operations/triggers/loki/sanguinary_priest.py`,
+    #921) ; les trois autres (`MedicusMinistorumAbility`, `LifeStealEffect`,
     `ToughToKill_HealAbility`) ne sont pas portes. Un call-site NEUF lit sa fabrique au decompile ; il
     ne recopie pas ce defaut."""
     __slots__ = ("targets_sel", "amount_fn", "guard", "scope", "remove_effects")
@@ -121,14 +122,9 @@ class Heal(AbilityBehaviour):
 
     def execute(self, entities, ectx):
         state = ectx.state
-        # `amount_fn` = FOLD du noeud montant natif : CALLABLE (montant derive, ex. le `SetCache
-        # (PercentageOf(LastAttackDamageMade))` du lifesteal SpiritLeech) ou SCALAIRE deja resolu
-        # (`Direct(GetVariableForLevel(...))` d'InspiredToGreatness) -- meme convention que
-        # `ChangeStat.amount` / `Repair.amount_fn`.
-        amount = int((self.amount_fn(entities, ectx) if callable(self.amount_fn)
-                      else self.amount_fn) or 0)
         heals: list = []
-        if state is not None and amount > 0:
+        amount = 0
+        if state is not None:
             src = (entities.caster or {}).get("id")
             # `_units_of` NORMALISE le selecteur en list[dict] : un selecteur MONO-unite (`Caster()` =
             # `Self@0x148` de SavageEchoes, qui rend un dict) -> `[dict]` (sinon `for u in dict` itererait
@@ -140,6 +136,24 @@ class Heal(AbilityBehaviour):
                     continue
                 if self.guard is not None and not self.guard(entities, ectx, u):
                     continue                              # garde Healable (case-220 1037) : HP<max & non-mechanical
+                # `amount_fn` = FOLD du noeud montant natif : CALLABLE (montant derive, ex. le
+                # `SetCache(PercentageOf(LastAttackDamageMade))` du lifesteal SpiritLeech) ou SCALAIRE
+                # deja resolu (`Direct(GetVariableForLevel(...))` d'InspiredToGreatness) -- meme
+                # convention que `ChangeStat.amount` / `Repair.amount_fn`.
+                # ⚠ IL EST EVALUE **PAR CIBLE**, DANS LA BOUCLE -- mirror de
+                # `IdunBattle.Entities.Behaviours.HealBehaviour$$Execute`, dont le
+                # `<+0x60>.Calculate(entities)` tombe ENTRE le `get_Current` de l'enumerateur de
+                # cibles et l'appel `processor.<slot 0x57>` (meme structure que
+                # `RepairBehaviour$$Execute`, citee par `operations/heal.py` et `operations/repair.py`
+                # depuis #299/#520). Sur un `Direct(...)` la difference ne s'observe pas ; sur un
+                # `RandomAmount` SI -- `SanguinaryPriestAbility$$CreateBehaviour` (#921) donne DEUX
+                # tirages INDEPENDANTS a deux allies adjacents. Le hissage hors boucle qui vivait ici
+                # consommait en plus un tirage FANTOME quand le selecteur ne rend AUCUNE cible, ce que
+                # le natif ne fait jamais (il n'entre pas dans la boucle).
+                amount = int((self.amount_fn(entities, ectx) if callable(self.amount_fn)
+                              else self.amount_fn) or 0)
+                if amount <= 0:
+                    continue                              # no-op a montant <= 0 (comportement conserve)
                 # `healer` = `<selecteur@+0x50>` : le SOIGNEUR, `Caster` sur les call-sites lus. Il
                 # n'etait PAS transmis a l'Operation avant #520 (`source_id` etait un parametre MORT),
                 # alors que le gate natif `EntityCanBeHealed` en depend (`caster != null &&
@@ -147,7 +161,10 @@ class Heal(AbilityBehaviour):
                 healed = HealUnitOperation.execute(state, src, tid, amount,
                                                    scope=self.scope,
                                                    remove_effects=self.remove_effects)
-                heals.append({"target": tid, "healed": healed})
+                heals.append({"target": tid, "healed": healed, "amount": amount})
+        # `amount` = le montant de la DERNIERE cible evaluee (l'unique quand la formule est
+        # deterministe -- le cas de tous les call-sites portes avant #921). Le montant PAR CIBLE, seul
+        # exact sous un `RandomAmount`, est dans chaque entree de `heals`.
         ectx.emit("Heal", amount=amount, heals=heals)
         return OperationResult.ok()
 
