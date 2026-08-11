@@ -119,6 +119,17 @@ class UnitContext:
     # `playbook.scene._seed_measured_config_actives` (DECISION), tous deux sur le parsing PARTAGE
     # `snapshot.config_active_ability_names_by_unit`.
     config_active_abilities: list[str] | None = None
+    # --- l'`AbilityState` PAR ABILITY ACTIVE (#889) --------------------------------------------------
+    # `{ActiveAbilityType: (level, mult)}`. Le champ scalaire `active_ability_level` ci-dessus est une
+    # REDUCTION : le natif resout chaque `GetVariableForLevel` contre l'`AbilityState` de l'ability
+    # CASTEE, et deux actives d'une meme unite peuvent etre a des niveaux differents -- mesure sur
+    # `ultraCalgar`, qui porte `1000` au niveau 50 et son attaque normale `69` au niveau 1.
+    #
+    # TRI-ETAT, meme discipline que les trois voisins : `None` = canal non mesure -> les lecteurs
+    # retombent sur le scalaire (comportement strictement d'avant) ; un DICT (fut-il vide) = mesure.
+    # Canal : `unitAbilityStates.units[].actives[]` (`type`/`level`/`mult`).
+    # Seede par `snapshot._load_active_ability_levels`.
+    active_ability_levels: dict | None = None
     # --- l'`AbilitiesComponent` ENTIER (#456-r1) -----------------------------------------------------
     # `passive_abilities` ci-dessus ne porte que la HIERARCHIE 2. Le dispatcher d'utilite, lui, itere
     # la collection COMPLETE : `IdunBattle.AI.Utilities.TriggeredAbilitiesUtility.
