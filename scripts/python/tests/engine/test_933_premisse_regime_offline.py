@@ -25,6 +25,13 @@ le fait revenir dans `nouveaux` et ROUGIR. C'est le cran qui manquait -- `probe_
 que les fichiers exigeant un coup propre ou portant une valeur en dur, et `test_lion_helm...`
 n'etait ni l'un ni l'autre.
 
+⚠ `_ATTESTES` est une DETTE INVENTORIEE, pas un blanc-seing : y figurer ne dit PAS que la
+premisse du fichier tient, seulement qu'elle n'etait pas declaree au moment de #933 et qu'elle
+n'a pas ete tranchee. Le seul engagement du cliquet est que cette liste ne GRANDISSE pas.
+Exemple vecu : `test_928_legacy_of_combat_live.py` y est entre AU REBASE de #933 -- il est arrive
+par un merge pendant la tranche, sa docstring porte bien une premisse de regime
+(« 2 tirages chacun a `critChance = 0` »), et il n'a PAS ete mesure ici.
+
 ⚠ `TACTICUS_BIS_ITEMS=0` est un instrument de DIAGNOSTIC, jamais un remede : il deshabille tout
 le roster et restitue le regime DEGENERE que #419-r6 a supprime (cf. #914 §3.3).
 
@@ -79,6 +86,7 @@ _ATTESTES = (
     "engine/runner/test_919_icon_of_obstinacy_live.py",
     "engine/runner/test_920_maw_claws_of_thyrax_live.py",
     "engine/runner/test_922_intoxicating_elixir_crit_live.py",
+    "engine/runner/test_928_legacy_of_combat_live.py",
     "engine/runner/test_additional_hits_roll_order_live.py",
     "engine/runner/test_beast_slayer_block_live.py",
     "engine/runner/test_beast_slayer_extradmg_live.py",
