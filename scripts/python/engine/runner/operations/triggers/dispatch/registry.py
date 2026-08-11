@@ -33,6 +33,7 @@ from ..genestealer import (DecoysAndMisdirectionDamageEnemiesAbility,
 from ..loki.weaver_of_fate import WeaverOfFateAbility                 # #202-A (trait WeaverOfFate)
 from ..loki.reality_unbound import (RealityUnboundAbility,            # passif thousTzaangor (2 volets)
                                    RealityUnboundExtraMaxDamageAbility)
+from ..loki.prophetic_sentinel import PropheticSentinelOverwatchAbility  # passif thousSekhetar (volet overwatch)
 from ..loki.time_flux import TimeFluxRegenAbility                     # passif thousTerminator (volet regen)
 from ..loki.ghost_revive import (                                     # #213 + #366-r1
     TimeFluxReviveAbility, EchoesFromTheWarpAbility,                  # les 2 poses (`GhostReviveAbility`)
@@ -506,6 +507,21 @@ ABILITY_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
     # mais AUCUN vecteur offline ne le POSAIT : en self-play 100 % porte le parasite n'apparaissait
     # jamais. Sa MONTEE EN NIVEAU vit dans `EFFECT_TRIGGERS[1218]`. Cf. loki/neuroparasite.py.
     "Neuroparasite": [NeuroparasiteAddBondEffectAbility],
+    # PropheticSentinel (passif de kit `thousSekhetar` << Sekhetar Robot >>, TriggeredAbilityType
+    # 0x607 = 1543) = DEUX classes natives sous le MEME id, et une SEULE entre ici :
+    #   * `PropheticSentinel_AddBuffAbility` : trigger HERITE `<DSLTriggers+0x30>` =
+    #     `On(0x21 = AbilityInit) & get_OwnerIsActor` -> trois `AddStaticStatModifierEffectToOwner`
+    #     PERMANENTS. C'est un owner-effect posé au spawn : son canal est
+    #     `factory.ABILITY_INIT_OWNER_EFFECTS["PropheticSentinel"]`, PAS ce registre.
+    #   * `PropheticSentinel_OverwatchAbility` (ici) : `On(0x17 = TurnEnd) & IsTurnOf(Owner) &
+    #     AmountIsEqualOrGreater(Count(UnitsWithTrait(AdjacentFriends(Caster, CasterTile, 1),
+    #     0x3ea = Psyker, 3)), Direct(1))` -> `ActivateEffect(Owner, 0x3f1 = Overwatch_AutoAttack)`
+    #     = RE-ARMEMENT de l'overwatch en fin de son tour s'il a >= 1 ami Psyker adjacent.
+    # ⚠ Les deux `CreateTrigger` sont DIFFERENTS -- l'hypothese « un trigger partage » est refutee
+    # par la table des pointeurs de methodes (le corps du `CreateTrigger` d'`_AddBuffAbility` est un
+    # fold ICF vers `SummaryExecutionAddBaseEffectAbility$$CreateTrigger` = `return <+0x30>`).
+    # Cf. loki/prophetic_sentinel.py + entities/effects/loki/prophetic_sentinel.py.
+    "PropheticSentinel": [PropheticSentinelOverwatchAbility],
     # SpiritualLeader (passif `genesMagus` << Xybia >>) = `On(0x1c=ArrivedAtFinalTile) & OwnerIsActor`
     # (fin d'activation : apres son 1er move, OU cloture de tour si elle n'a pas bouge -- les DEUX
     # emetteurs natifs de 0x1c) -> decoy sur la meilleure tuile adjacente libre, puis si >=2 decoys
