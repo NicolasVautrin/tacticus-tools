@@ -348,6 +348,12 @@ class _AbilityAttack:
             if ctx is not None else (0, 0, False))
         crit_apres = (crit_chance, crit_damage, crit_enabled)
         crit_chance, crit_damage, crit_enabled = crit_avant
+        # #922 : `On(6)` tombe ENTRE `RollCritical` (slot 0xa) et `CalculateCriticalDamage`
+        # (slot 0xb) -> la CHANCE du coup 0 est celle d'AVANT, sa MAGNITUDE celle d'APRES. Meme
+        # correctif et meme mesure que `normal.py`. INERTE sur la famille ABILITY (le gate
+        # `is_attack_damage_op` juste en dessous remet les trois a zero), mais ce vecteur porte
+        # AUSSI la famille ATTACK, ou il mord.
+        crit_damage = crit_apres[1]
         # #45f : la famille ABILITY (`IdunBattle.Operations.AbilityDamageOperation$$ExecuteHit`) n'a AUCUN chemin
         # crit — pas d'appel RollCritical (le slot crit n'existe que dans `AttackDamageOperation.
         # IdunBattle.Operations.AttackDamageOperation$$ExecuteHit`), l'AttackHit est construit isCrit=0, et `CalculateAbilityDamage

@@ -99,12 +99,13 @@ from .damage_hits import HitDamage, _DamageHitsMixin
 from .damage_ops import _DamageOpsMixin
 from ...entities.effects import board_effect_carriers
 from ...entities.traits.unit_trait import entity_trait_names
-from ..components import (OwnerComponent, StatsComponent, UnitComponent,
+from ..components import (HealthComponent, OwnerComponent, StatsComponent, UnitComponent,
                                   adjacent_enemies_count,
                                   adjacent_friendly_mechanical_units_count,
                                   adjacent_friendly_summons_and_decoys_count,
                                   adjacent_mechanical_friends_count,
-                                  adjacent_summons_count)
+                                  adjacent_summons_count,
+                                  debuffed_units_in_range_count)
 from ..components import UnitComponent, unit_state_for_effects
 from ..components import is_alive_and_not_fled
 from ..components import unit_has_moved, unit_tiles_moved_this_turn
@@ -129,6 +130,27 @@ def _kill_unit_remove_effects(state: State, dead_id: int, step: int) -> list:
     `operations/remove_effects.py` (`RemoveEffectsOperation$$Execute` + `RemoveEffectOperation$$
     Execute`), foyer partage avec la feuille DSL `RemoveEffect`."""
     return remove_effects_operation(state, int(dead_id), step=int(step))
+
+
+def _health_of(state: State, unit_id) -> tuple:
+    """`(GetStat(5 = Health, CURRENT), GetStat(5, MAXIMUM))` d'une entite, pour les noeuds
+    `HealthPctIsBelowOrEqual(<selecteur>, <pct>)` du canal CRIT.
+
+    Substrat UNIQUE : le `HealthComponent` (`hp` / `hp_max`), le MEME que les cles `hp` / `max_hp`
+    du `unit_state` que lisent les `is_active` a seuil de vie (`VisionsOfHeresy`,
+    `HammerOfWrath_ConditionalDamage`, `AnvilShield`) -- deux axes qui lisent la meme grandeur ne
+    peuvent donc pas diverger.
+
+    TRI-ETAT : `(None, None)` = **non mesure** (entite absente ou sans `HealthComponent`), jamais
+    un zero invente -- un `hp = 0` ferait passer pour « au seuil » une unite dont on ignore la vie.
+    Consommateur porte : `IntoxicatingElixirEffect._health_multiplier`."""
+    if unit_id is None:
+        return (None, None)
+    e = state.entities.get(int(unit_id))
+    hc = e.get_component(HealthComponent) if e is not None else None
+    if hc is None:
+        return (None, None)
+    return (hc.hp, hc.hp_max)
 
 
 class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
@@ -1166,6 +1188,23 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
                 # `adjacent_mechanical_friends_of`, malgre des noms voisins.
                 "adjacent_summons_of":
                     lambda oid: adjacent_summons_count(state, int(oid)),
+                # `...IntoxicatingElixir_ExtraCritDmgEffect$$GetCalculateLevel` (#922) -- MEME role
+                # et MEME forme paresseuse que les compteurs ci-dessus. QUATRE differences, toutes
+                # LUES : son disque est `SurroundingUnits(Tiles(Owner), range = 2, includeCenter:
+                # 1)` (donc le PORTEUR se compte lui-meme), il n'a AUCUN filtre d'equipe (comme
+                # celui de 1461 juste au-dessus, contre les trois autres), il filtre par EFFET
+                # (`EntitiesWithAnyEffect`) et non par trait, et il est PLAFONNE (`Min(..., 6)`).
+                "debuffed_units_in_range_of":
+                    lambda oid: debuffed_units_in_range_count(state, int(oid)),
+                # `HealthPctIsBelowOrEqual(Owner@DSLSelectors+0x30, Get(healthPct))` --
+                # `StatPercentageIsBelowOrEqualAbilityTrigger$$ShouldTrigger` lit `GetStat(5 =
+                # Health, CURRENT)` et `GetStat(5, MAXIMUM)`. CALLABLE pour la MEME raison que les
+                # compteurs : la grandeur porte sur le PORTEUR de l'instance d'effet, que la boucle
+                # native reecrit dans `AbilityEntities+0x18` a chaque iteration -- pas sur les deux
+                # entites du coup. Tri-etat : `(None, None)` = non mesure (aucun `HealthComponent`).
+                # MEME substrat que la cle `hp`/`max_hp` du `unit_state`, pour que la MAGNITUDE et
+                # les `is_active` a seuil de vie ne puissent pas diverger.
+                "unit_health_of": lambda oid: _health_of(state, oid),
                 "tertiary_ability_state_of":
                     lambda oid, ability: triggered_ability_state(state, int(oid), ability)}
 

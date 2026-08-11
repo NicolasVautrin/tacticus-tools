@@ -29,6 +29,12 @@ DECLENCHEUR = {
         "scripts/python/engine/entities/abilities/active_ability.py",
         # La population : le kit gameconfig lu par `population()`.
         "scripts/python/unit_map.py", "scripts/python/gameconfig.py",
+        # ⚠ AJOUTE PAR MESURE (#922) : `unit_map` ouvre AUSSI la table i2 pour resoudre les noms
+        # affiches. La declaration ne la nommait pas, et personne ne pouvait le voir -- ce fichier
+        # n'avait AUCUNE empreinte gravee, donc `probe_486r15` ne confrontait que la fermeture
+        # d'imports, aveugle a un JSON ouvert au runtime. Le premier `probe_457 --measure-missing`
+        # qui l'a joue a rendu le chemin visible et le cliquet ROUGE.
+        "data/i2_en.json",
         # Le mirror d'enum confronte a l'etage 3.
         "scripts/python/enum_maps.py",
         "scripts/python/engine/entities/active_ability_type.py",

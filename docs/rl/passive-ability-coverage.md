@@ -42,7 +42,7 @@ Sinon, trois verdicts NEGATIFS distincts :
 
 Mesure de ce run : un `substring` brut du nom sur `engine/**/*.py` rend **211/211 presents, 0 manquant**. La cause n'est pas que tout est porte : `engine/entities/triggered_ability_type.py` est un **mirror 1:1 de l'enum natif `TriggeredAbilityType`** (573 membres), ou le nom de CHAQUE passif figure comme membre. **Un catalogue n'est pas un cablage.**
 
-Le signal code de cet audit est donc derive de l'**AST** et exclut les **definitions** de membres d'enum (2629 assignations ecartees dans 509 fichiers `engine/**/*.py`) tout en gardant les **usages** (`TriggeredAbilityType.X` = `ast.Attribute` -> compte). Il separe en outre le CODE (11748 symboles distincts) de la PROSE (8900 ko de commentaires + docstrings, invisibles a l'AST, lus via `tokenize`). Le rapprochement est CamelCase-aware : `HeavyGravCannon` matche `HeavyGravCannonEffect`, `Guard` ne matche ni `Guardsman` ni `RoyalGuard` (ni, pour `Possession`, l'unitId `blackPossession`).
+Le signal code de cet audit est donc derive de l'**AST** et exclut les **definitions** de membres d'enum (2629 assignations ecartees dans 513 fichiers `engine/**/*.py`) tout en gardant les **usages** (`TriggeredAbilityType.X` = `ast.Attribute` -> compte). Il separe en outre le CODE (11781 symboles distincts) de la PROSE (8967 ko de commentaires + docstrings, invisibles a l'AST, lus via `tokenize`). Le rapprochement est CamelCase-aware : `HeavyGravCannon` matche `HeavyGravCannonEffect`, `Guard` ne matche ni `Guardsman` ni `RoyalGuard` (ni, pour `Possession`, l'unitId `blackPossession`).
 
 Chaque reference est en outre ATTRIBUEE A SA ZONE du moteur (`__init__, ai, battle_query, dsl, effects, entities, hex_corner, hex_edge, move, playbook, predict, runner, services, streams, utilities, weights`), parce qu'une reference dans `playbook/`/`ai/`/`utilities/` (face DECISION) ne prouve RIEN sur l'execution combat. C'est ce qui separe **B** (litteral exact sous `runner/`) de **R**.
 
@@ -67,7 +67,7 @@ La colonne `kind` de gameconfig MENT sur la spawnabilite -> le pool vient de la 
 - Passifs distincts dans le parc (lineup 127 / npc 491 / summons 65) : **211**
 - **PORTES** (>=1 canal structurel) : **95** (45 %)
 - **ZONE-GRISE** (direct-read hors registre, a trancher) : **26**
-- **GAPS** (mention seule + absent) : **90** = 42 mention + 48 absent
+- **GAPS** (mention seule + absent) : **90** = 43 mention + 47 absent
 - Passifs portes par >=1 unite **confrontable** : **134** ; parmi eux, **34 gaps** et **16 zone-grise** -> c'est la FILE reelle.
 
 Ventilation des canaux qui portent (un passif peut en cumuler) : **T**=43, **O**=12, **E**=62, **G**=6, **X**=0, **B**=8
@@ -159,7 +159,7 @@ Tri : nombre de porteurs spawnables SANS AMENAGEMENT (`L+`+`M`) decroissant, pui
 | ItsGonnaBlow | N=1 | - | GAP-MENTION | **.** | - |
 | Lifewards | S?=1 | - | GAP-MENTION | **.** | - |
 | LivingLightning | L!=1 N=5 | - | GAP-MENTION | **.** | - |
-| MischiefMakers | S?=1 N=1 | - | GAP-ABSENT | - | - |
+| MischiefMakers | S?=1 N=1 | - | GAP-MENTION | **.** | - |
 | MultiTracker | N=1 | - | GAP-ABSENT | - | - |
 | OiWatchIt | N=1 | - | GAP-ABSENT | - | - |
 | OmnissiahsBlessing | S?=1 N=1 | - | GAP-ABSENT | - | - |

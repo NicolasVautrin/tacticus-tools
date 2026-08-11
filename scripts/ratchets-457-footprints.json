@@ -1451,6 +1451,12 @@
    "dirs": [],
    "temoins": []
   },
+  "tests/engine/runner/test_906_rites_of_morkai_offline.py": {
+   "_at": 1786441479,
+   "_commit": "52b971d8dcb6fe11128431e525fc7a5d479f245c",
+   "dirs": [],
+   "temoins": []
+  },
   "tests/engine/runner/test_ability_registry_ratchet.py": {
    "_at": 1786392144,
    "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
@@ -4702,6 +4708,48 @@
     "data/symbols/rnca9r7q6c/frida/enums.tsv"
    ]
   },
+  "tests/engine/test_908_nether_realm_casket_offline.py": {
+   "_at": 1786441479,
+   "_commit": "52b971d8dcb6fe11128431e525fc7a5d479f245c",
+   "dirs": [
+    "scripts/python/engine/runner",
+    "scripts/python/engine/runner/operations",
+    "scripts/python/engine/runner/operations/triggers/loki"
+   ],
+   "temoins": [
+    "scripts/python/engine/runner/components.py",
+    "scripts/python/engine/runner/operations/damage.py",
+    "scripts/python/engine/runner/operations/triggers/loki/living_metal.py"
+   ]
+  },
+  "tests/engine/test_909_decision_actives_offline.py": {
+   "_at": 1786441479,
+   "_commit": "52b971d8dcb6fe11128431e525fc7a5d479f245c",
+   "dirs": [
+    "data",
+    "data/symbols",
+    "data/symbols/rnca9r7q6c/ghidra",
+    "data/symbols/rnca9r7q6c/metadata"
+   ],
+   "temoins": [
+    "data/i2_en.json",
+    "data/symbols/CURRENT",
+    "data/symbols/rnca9r7q6c/ghidra/functions.tsv",
+    "data/symbols/rnca9r7q6c/metadata/active_playbook_builders.tsv"
+   ]
+  },
+  "tests/engine/test_915_prophetic_sentinel_offline.py": {
+   "_at": 1786441479,
+   "_commit": "52b971d8dcb6fe11128431e525fc7a5d479f245c",
+   "dirs": [],
+   "temoins": []
+  },
+  "tests/engine/test_919_icon_of_obstinacy_offline.py": {
+   "_at": 1786441479,
+   "_commit": "52b971d8dcb6fe11128431e525fc7a5d479f245c",
+   "dirs": [],
+   "temoins": []
+  },
   "tests/engine/test_effect_1582_inertia_binary.py": {
    "_at": 1786392144,
    "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
@@ -6026,6 +6074,12 @@
     "scripts/ratchets-468-numeros-attestes.json",
     "scripts/ratchets-468-sujets-de-commit.txt"
    ]
+  },
+  "tests/test_468r14_reservation_offline.py": {
+   "_at": 1786441479,
+   "_commit": "52b971d8dcb6fe11128431e525fc7a5d479f245c",
+   "dirs": [],
+   "temoins": []
   },
   "tests/test_469_priorite_banque_de_fond_offline.py": {
    "_at": 1786392144,

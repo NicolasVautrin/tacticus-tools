@@ -19,6 +19,7 @@ from ..battle_query import is_adjacent
 from ..entities.effect_targets import is_effect_target as _iet
 from ..entities.effects.loki.amulet_of_the_voidwyrm import (
         adjacent_friendly_summons_and_decoys_selector)
+from ..entities.effects.loki.intoxicating_elixir import debuffed_units_in_range_selector
 from ..entities.effects.loki.kardiocore_galvanus import adjacent_mechanical_friends_selector
 from ..entities.effects.loki.maw_claws_of_thyrax import adjacent_summons_selector
 from ..entities.effects.loki.nether_realm_casket import adjacent_mechanical_units_selector
@@ -3036,6 +3037,48 @@ def adjacent_summons_count(state, unit_id: int) -> Optional[int]:
                .calculate(entities_from_state(state, int(unit_id))))
 
 
+def debuffed_units_in_range_count(state, unit_id: int) -> Optional[int]:
+    """`Min( Count( EntitiesWithAnyEffect( SurroundingUnits(Tiles(Owner), range = 2, unique: 1,
+    includeCenter: 1, selectionType: 3), [Pinned, Stunned, Taunted_OnlySpecificTargets,
+    ThrillSeekers] ) ), Get(nrOfUnits = 6) )` -- le cardinal PLAFONNE que
+    `IdunBattle.Entities.Effects.Loki.IntoxicatingElixir_ExtraCritDmgEffect$$GetCalculateLevel`
+    calcule pour le PORTEUR de l'effet.
+
+    DEUX consommateurs natifs, un seul foyer ici -- donc CONDITION et MAGNITUDE ne peuvent pas
+    diverger (le natif appelle LITTERALEMENT la meme `$$GetLevelFormula`, avec le meme
+    `Tiles(Owner)`) :
+      * `...$$CreateActiveCondition` = `AmountIsGreaterThanZero(<ce compte>)` ;
+      * `...$$GetCritAmount` = `Multiply(Multiply(ConfigVar(0x42), EffectLevel(Effect@+0x38)),
+        ConditionalAmount(...))`, et c'est ce compte que `RefreshEffectsOperation$$UpdateLevel`
+        ECRIT dans `EffectComponent+0x68`, donc celui que `DSLFormulas.EffectLevel` relit.
+
+    L'ARBRE est celui de la classe d'effet (`entities/effects/loki/intoxicating_elixir.py::
+    debuffed_units_in_range_selector`, doctrine #149) ; ce qu'on fait ICI, c'est lui donner son
+    `AbilityEntities` -- `entities_from_state(state, unit_id)` pose `caster = owner = le porteur`,
+    `board = state.board` et `has_effect`.
+
+    ⚠ GATE DE PRESENCE : la POSITION SEULE, comme `adjacent_summons_count` juste au-dessus et
+    contrairement aux TROIS autres compteurs de ce foyer. La raison est LUE et c'est la meme :
+    `SurroundingUnits` n'a AUCUN filtre d'equipe (amis ET ennemis comptent), la ou
+    `AdjacentFriends`/`AdjacentEnemies` en ont un. Exiger en plus une equipe rendrait `None` la ou
+    le natif rend un compte.
+
+    ⚠ Le predicat `HasOneOfEffects` du selecteur passe par `ctx.has_effect`, qui retombe sur
+    `EffectsState.has_effect` (filtre `consumed` seulement) et NON sur `active_effects` : ce lecteur
+    alimente justement le `unit_state` des `is_active`, donc l'appeler bouclerait -- meme arbitrage
+    qu'`adjacent_taunted_enemies_count` ci-dessous.
+
+    `None` si le porteur n'est pas SUR le plateau (le selecteur est GEOMETRIQUE) -- jamais un 0
+    invente, qui annulerait le produit et ferait passer un bonus reel pour une absence de bonus."""
+    ent = state.get_entity(unit_id)
+    pc = ent.get_component(PositionComponent) if ent is not None else None
+    if pc is None:
+        return None
+    from .abilities.behaviours.context import entities_from_state
+    return int(debuffed_units_in_range_selector()
+               .calculate(entities_from_state(state, int(unit_id))))
+
+
 def adjacent_taunted_enemies_count(state, unit_id: int) -> Optional[int]:
     """`Count( Filter( AdjacentEnemies(Owner, unique: 1, selectionType: 3),
                        HasEffect(It, 27 Taunted_OnlySpecificTargets, onlyActive: 0) ) )` -- le
@@ -3164,7 +3207,12 @@ class UnitEffectStateView(Mapping):
         AdjacentFriends(Owner), Summon) + UnitsWithTrait(AdjacentFriends(Owner), Decoy))` que
         `AmountIsGreaterThanZero` compare à 0 dans
         `IdunBattle.Entities.Effects.Loki.AmuletOfTheVoidwyrm_CritDamageReductionEffect$$
-        CreateActiveCondition` (#589-r1-r1-r2-r1). Le pendant `adjacent_friendly_mechanical_units`
+        CreateActiveCondition` (#589-r1-r1-r2-r1). Le pendant `debuffed_units_in_range` porte
+        l'arbre `Min(Count(EntitiesWithAnyEffect(SurroundingUnits(Tiles(Owner), 2, includeCenter:
+        1, sel 3), [Pinned, Stunned, Taunted_OnlySpecificTargets, ThrillSeekers])), nrOfUnits)` de
+        `IntoxicatingElixir_ExtraCritDmgEffect$$CreateActiveCondition` — MAIS son gate de présence
+        est `_has_pos` SEUL, pas `_has_sa` : ce sélecteur-là n'a AUCUN filtre d'équipe.
+        Le pendant `adjacent_friendly_mechanical_units`
         (#908) porte l'arbre `Count(MechanicalUnits(NormalUnits(AdjacentFriends(Owner, 1, 3), 3),
         3))` de `NetherRealmCasket_CritDamageReductionEffect$$CreateActiveCondition`, avec le MEME
         gate de presence. MÊME gate de présence que la clé ci-dessus
@@ -3208,7 +3256,7 @@ class UnitEffectStateView(Mapping):
 
     __slots__ = ("_state", "_uid", "_eager", "_has_psy", "_psy", "_has_pos",
                  "_has_effstate", "_lc", "_bta", "_has_sa", "_sa", "_asd", "_ae", "_adt", "_afm",
-                 "_asu")
+                 "_asu", "_dbr")
 
     def __init__(self, state, unit_id: int) -> None:
         self._state = state
@@ -3292,9 +3340,15 @@ class UnitEffectStateView(Mapping):
         self._afm: Optional[int] = None
         # `Unique(UnitsWithTrait(AdjacentUnits(Owner), Summon))` : gate GEOMETRIQUE SEUL (#920).
         # `AdjacentUnits` ne filtre AUCUN camp -> la cle existe des que le porteur a une tuile,
-        # meme sans `OwnerComponent`. C'est la SEULE cle de cette vue dont le gate differe des
-        # quatre `_has_sa`, et l'aligner sur elles rendrait la cle absente la ou le natif compte.
+        # meme sans `OwnerComponent`. L'aligner sur les quatre `_has_sa` rendrait la cle absente la
+        # ou le natif compte.
         self._asu: Optional[int] = None
+        # `Min(Count(EntitiesWithAnyEffect(SurroundingUnits(Tiles(Owner), 2, includeCenter: 1))),
+        # nrOfUnits)` : selecteur GEOMETRIQUE **SANS filtre d'equipe** -> gate `_has_pos` SEUL,
+        # comme `_asu` juste au-dessus et contrairement aux quatre `_has_sa` (#922). Exiger une
+        # equipe rendrait la cle ABSENTE (donc la condition VRAIE par degradation) sur une entite
+        # sans `OwnerComponent.team`, la ou le natif, lui, sait compter.
+        self._dbr: Optional[int] = None
 
     def __getitem__(self, key):
         if key in self._eager:
@@ -3364,6 +3418,13 @@ class UnitEffectStateView(Mapping):
             if self._asu is None:
                 self._asu = adjacent_summons_count(self._state, self._uid)
             return self._asu
+        # `IntoxicatingElixir_ExtraCritDmgEffect$$CreateActiveCondition` =
+        # `AmountIsGreaterThanZero(GetLevelFormula(Tiles(Owner)))`. Gate `_has_pos` SEUL : le
+        # selecteur `SurroundingUnits` n'a AUCUN filtre d'equipe (cf. le commentaire du `__init__`).
+        if key == "debuffed_units_in_range" and self._has_pos:
+            if self._dbr is None:
+                self._dbr = debuffed_units_in_range_count(self._state, self._uid)
+            return self._dbr
         raise KeyError(key)
 
     def __iter__(self) -> Iterator[str]:
@@ -3374,6 +3435,7 @@ class UnitEffectStateView(Mapping):
             yield "contagions_of_nurgle_amount"
             yield "is_target_of_big_target_adjacent"
             yield "adjacent_summons"                     # #920 : gate GEOMETRIQUE seul
+            yield "debuffed_units_in_range"          # #922 : idem, gate GEOMETRIQUE seul
         if self._has_effstate:
             yield "has_effect_light_cover"
             yield "owned_effect_bonded_entity"
@@ -3386,7 +3448,10 @@ class UnitEffectStateView(Mapping):
             yield "adjacent_friendly_mechanical_units"
 
     def __len__(self) -> int:
-        return (len(self._eager) + (1 if self._has_psy else 0) + (3 if self._has_pos else 0)
+        # `_has_pos` en compte QUATRE depuis #922 : `contagions_of_nurgle_amount`,
+        # `is_target_of_big_target_adjacent`, `adjacent_summons` (#920) et
+        # `debuffed_units_in_range` -- les deux derniers ont un gate GEOMETRIQUE seul.
+        return (len(self._eager) + (1 if self._has_psy else 0) + (4 if self._has_pos else 0)
                 + (3 if self._has_effstate else 0) + (5 if self._has_sa else 0))
 
     def __repr__(self) -> str:                    # diagnostic (ASCII)

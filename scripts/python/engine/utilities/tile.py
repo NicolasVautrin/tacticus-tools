@@ -1604,6 +1604,15 @@ def runner_tile_leaf_ctx(state, unit_id: int | None, parent_id: int | None = Non
             # `get_IsSpawning` = `unit == null && parent != null` : ici le sujet EXISTE -> False.
             "is_spawning": False,
             "self_pos": (mpc.col, mpc.row) if mpc is not None else None,
+            # EFFETS du MOVER (#922) -- pendant EXACT de `self_pos` sur l'axe des effets, et pour la
+            # MEME raison : les corps qui ne font aucun `RemoveAll(u.Id == case.Unit.Id)` voient le
+            # mover dans leur propre voisinage (il est encore SUR SON ORIGINE pendant tout le sweep).
+            # `IntoxicatingElixirPlaybook` filtre ce voisinage PAR EFFET, donc sans cette cle il
+            # sous-compterait de 1 des que le porteur est lui-meme debuffe -- regime COURANT chez
+            # les Emperor's Children, que `ThrillSeekers` met en `Thrilled` a leur propre attaque.
+            # MEME forme que le champ `effects` d'un voisin (`_unit_record`) : noms non consommes.
+            "self_effects": tuple(ef.name for ef in ((fx.by_unit.get(int(unit_id), []) if fx else []))
+                                  if not ef.consumed and ef.name),
             "friend_units": friends, "enemy_units": enemies, "friend_positions": fpos,
             "elev_by_pos": elev_by_pos, "neigh_by_pos": neigh_by_pos,
             "walkable_by_pos": walkable_by_pos}
@@ -1725,6 +1734,8 @@ def scene_tile_leaf_ctx(scene, unit_id: int | None) -> dict:
             "unit_faction": faction_value(my_vis),
             "is_spawning": False,
             "self_pos": scene.pos(unit_id),
+            # EFFETS du MOVER (#922) -- cf. `runner_tile_leaf_ctx`, meme role et meme forme.
+            "self_effects": tuple(_effect_names(unit_id)),
             "friend_units": friends, "enemy_units": enemies, "friend_positions": fpos,
             "elev_by_pos": (getattr(scene, "elev_by_pos", None) or elev_by_pos),
             "neigh_by_pos": neigh_by_pos, "walkable_by_pos": walkable_by_pos,
@@ -1879,6 +1890,14 @@ def tile_leaf_ctx(ctx) -> dict:
             # `case.unit` : l'unite est encore SUR SON ORIGINE pendant tout le sweep, elle compte
             # donc pour elle-meme des que cette origine tombe dans le voisinage evalue (N13).
             "self_pos": self_pos,
+            # EFFETS du MOVER (#922) -- pendant de `self_pos` sur l'axe des effets, meme raison
+            # (cf. `runner_tile_leaf_ctx`). Substrat : le canal `decisionView.effects` du mover,
+            # exactement celui que `_adjacent_units` lit pour ses voisins.
+            # ⚠ CANAL ACTIF-ONLY (#100) : `decisionView` ne publie que les effets ACTIFS, la ou le
+            # selecteur natif `EntitiesWithAnyEffect` ne filtre PAS sur l'activite. Ecart NOMME,
+            # commun a toute la face DECISION (le champ `effects` des voisins a la meme borne).
+            "self_effects": tuple(e.get("name") if isinstance(e, dict) else e
+                                  for e in (me.get("effects") or ())),
             "enemies": getattr(ctx, "enemies", None) or [],
             "elev_by_pos": getattr(ctx, "elev_by_pos", None),
             "neigh_by_pos": getattr(ctx, "neigh_by_pos", None),
