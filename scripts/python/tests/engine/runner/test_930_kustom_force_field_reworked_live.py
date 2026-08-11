@@ -22,7 +22,40 @@ Mesure de reference : `probe_930_kustom_force_field_reworked.py`.
 """
 from __future__ import annotations
 
-import pytest
+DECLENCHEUR = {
+    "chemins": (
+        "scripts/python/conftest.py", "scripts/python/tests/conftest.py",
+        "scripts/python/tests/engine/conftest.py",
+        "scripts/python/tests/engine/runner/conftest.py",
+        "scripts/python/probe_930_kustom_force_field_reworked.py",
+        # Le port et son foyer de selecteur.
+        "scripts/python/engine/entities/effects/loki/kustom_force_field.py",
+        "scripts/python/engine/entities/effects/aura_selectors.py",
+        "scripts/python/engine/entities/effects/factory.py",
+        "scripts/python/engine/entities/effects/magnitude.py",
+        # Le driver de l'aura et ses DEUX points de cablage (seed / mouvement) : ce test compare
+        # la stat TOTALE a chaque etape, donc l'un ou l'autre le fait diverger.
+        "scripts/python/engine/runner/operations/aura_stat_mods.py",
+        "scripts/python/engine/runner/operations/movement.py",
+        "scripts/python/engine/runner/snapshot.py",
+        "scripts/python/engine/runner/components.py",
+        "scripts/python/engine/entities/effects_state.py",
+        "scripts/python/engine/entities/stats.py",
+        "scripts/python/engine/entities/unit_faction.py",
+        "scripts/python/engine/entities/pathfinding/board.py",
+    ),
+    "build": True,
+    "toujours": False,
+    "raison": "Live : monte un runner a positions FORCEES et confronte la face COMBAT du passif a "
+              "son oracle NATIF -- `FixedArmor` total (`combatSnapshot`) a chaque etape ET la "
+              "contribution PAR ENTITE-EFFET (`statModSources`), sur cinq entites couvrant les "
+              "quatre cases du couple (Ork ?) x (adjacent ?) plus un ennemi. Cinq mutants doivent "
+              "mordre. Toute modification du port, du foyer de selecteur, du driver d'aura ou d'un "
+              "de ses deux points de cablage peut deplacer l'accord ; `build: True` parce que les "
+              "magnitudes viennent du gameconfig du hash courant.",
+}
+
+import pytest        # noqa: E402  (le DECLENCHEUR doit rester en tete, cf. `probe_486r15`)
 
 CARRIER = "orksBigMek"           # HERO, au pool rank 17
 ALLY_ORK = "orksNob"             # ami ORK      -> 1567
@@ -65,6 +98,31 @@ def _off_armor(state):
     return out
 
 
+def _off_aura_part(state):
+    """La contribution PORT de la seule famille AURA (cle `("aura_statmod", ...)` de
+    `runner/operations/aura_stat_mods.aura_stat_mod_key`) -- le pendant EXACT de
+    `statModSources.bySource` cote natif.
+
+    ⚠ Ce canal existe parce que le TOTAL ne suffit pas : mesure, retirer le porteur de son propre
+    selecteur laisse le total INCHANGE au seed (la part reste dans le residu opaque
+    `CAPTURED_SOURCE`, que `attribute_aura_stat_modifiers` n'a alors rien a re-attribuer). Le
+    mutant << op_Addition perdu >> passait 4/4 tant que ce test ne lisait que le total et la
+    mesure NATIVE."""
+    from engine.entities.stats import StatType
+    from engine.runner.components import StatsComponent
+    out = {}
+    for uid, e in state.entities.items():
+        sc = e.get_component(StatsComponent)
+        stats = getattr(getattr(sc, "ctx", None), "stats", None)
+        if stats is None:
+            continue
+        comp = stats.components.get(int(StatType.FIXED_ARMOR))
+        per_source = getattr(getattr(comp, "modification", None), "per_source", {}) or {}
+        out[int(uid)] = int(sum(v for k, v in per_source.items()
+                                if isinstance(k, tuple) and k and k[0] == "aura_statmod"))
+    return out
+
+
 @pytest.fixture(scope="module")
 def kff(rpc, build_runner):
     """Monte le runner, charge l'etat offline, puis rejoue DEUX deplacements EN LIVE ET OFFLINE :
@@ -97,7 +155,7 @@ def kff(rpc, build_runner):
 
     def snap_step(label):
         steps.append((label, _live_armor(rpc, rid), _off_armor(state),
-                      _live_aura_part(rpc, rid)))
+                      _live_aura_part(rpc, rid), _off_aura_part(state)))
 
     def move(uid, col, row):
         rpc("applyAction", {"runnerId": rid, "action": {
@@ -125,11 +183,25 @@ def test_le_porteur_porte_les_DEUX_effets(kff):
 def test_armure_offline_equals_live_at_every_step(kff):
     """A CHAQUE etape (seed, entree dans le ring, sortie du ring), `FixedArmor` offline == live sur
     les CINQ entites -- l'aura est materialisee ET revertee comme le natif."""
-    for label, live, off, _part in kff["steps"]:
+    for label, live, off, _lp, _op in kff["steps"]:
         for vid, uid in kff["ids"].items():
             assert live.get(uid) == off.get(uid), (
                 f"[{label}] u{uid} ({vid}) : FixedArmor offline {off.get(uid)} != live "
                 f"{live.get(uid)} (aura KustomForceFieldReworked mal materialisee / mal revertee)")
+
+
+def test_la_contribution_PAR_EFFET_offline_equals_live(kff):
+    """Le cran DU DESSOUS : la stat TOTALE peut concorder alors que le port n'ATTRIBUE rien (la
+    part dort dans le residu opaque `CAPTURED_SOURCE`). On confronte donc la contribution de la
+    famille AURA elle-meme, entite par entite, a `statModSources.bySource` du natif.
+
+    Mesure : sans ce test, le mutant << le porteur n'est plus dans son propre selecteur >> passait
+    4/4 -- et c'est precisement le quirk que cette tranche etablit."""
+    for label, _live, _off, live_part, off_part in kff["steps"]:
+        for vid, uid in kff["ids"].items():
+            assert off_part.get(uid, 0) == live_part.get(uid, 0), (
+                f"[{label}] u{uid} ({vid}) : contribution AURA offline {off_part.get(uid)} != "
+                f"live {live_part.get(uid)} (le port n'attribue pas la meme part que le natif)")
 
 
 def test_les_quatre_discriminants_du_selecteur(kff):
@@ -141,7 +213,7 @@ def test_les_quatre_discriminants_du_selecteur(kff):
       * l'ami hors ring et l'ennemi n'ont RIEN.
     """
     ids = kff["ids"]
-    seed = {lbl: part for lbl, _l, _o, part in kff["steps"]}["seed"]
+    seed = {lbl: part for lbl, _l, _o, part, _op in kff["steps"]}["seed"]
     amt_ork = seed[ids[CARRIER]]
     amt_other = seed[ids[ALLY_OTHER]]
     assert amt_ork > 0, "le PORTEUR ne se buffe pas -- le `op_Addition(Owner, ...)` est perdu"
@@ -163,7 +235,7 @@ def test_la_mobilite_est_suivie_dans_les_DEUX_sens(kff):
     valeur non-Ork ; celui qui en SORT retombe a 0. Les deux sens comptent -- un port qui
     appliquerait sans jamais reverter passerait la moitie de ce test."""
     ids = kff["ids"]
-    parts = {lbl: part for lbl, _l, _o, part in kff["steps"]}
+    parts = {lbl: part for lbl, _l, _o, part, _op in kff["steps"]}
     seed, far_in, other_out = parts["seed"], parts["far_in"], parts["other_out"]
     non_ork = seed[ids[ALLY_OTHER]]
     assert far_in[ids[ALLY_FAR]] == non_ork, (
