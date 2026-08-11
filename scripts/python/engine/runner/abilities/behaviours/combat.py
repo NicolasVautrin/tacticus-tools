@@ -1107,7 +1107,18 @@ class UseNormalAttack(AbilityBehaviour):
             if not isinstance(cu, dict) or cu.get("id") is None:
                 continue
             sid = cu["id"]
-            res = None if state.rng is None else AttackDamageOperation.execute(
+            # TRI-ETAT sur l'absence d'attaque, et il est NECESSAIRE : un `attack=None` nu ne dit
+            # pas SI l'operation a ete refusee (gate cible-morte / stats absentes) ou si le RNG
+            # n'etait pas cale -- deux causes opposees, l'une fidele au natif, l'autre un trou de
+            # harnais. Sans ce champ, une confrontation live lit « le port ne frappe pas » sans
+            # pouvoir dire pourquoi. Meme discipline de nommage que `host_inputs` (#889-r5).
+            if state.rng is None:
+                # DEFENSIF (meme mirror que `UseActiveAbility` juste au-dessus) : le wiring reste
+                # utilisable pour un replay EFFET-SEUL ; un replay de DEGAT cale `rng` avant.
+                ectx.emit(type(self).__name__, subject=sid, target=tid, attack=None, after_hit=[],
+                          skipped="rng_non_cale", if_able_option=type(self).IF_ABLE_OPTION)
+                continue
+            res = AttackDamageOperation.execute(
                 state, sid, tid, resolve_spread_pct(self.spread_pct, state),
                 allow_dead_caster=True)
             after = []
@@ -1118,6 +1129,7 @@ class UseNormalAttack(AbilityBehaviour):
                     res.get("profile"), is_crit=bool(res.get("did_crit")),
                     did_block=bool(res.get("did_block")))
             ectx.emit(type(self).__name__, subject=sid, target=tid, attack=res, after_hit=after,
+                      skipped=None if res is not None else "operation_refusee",
                       if_able_option=type(self).IF_ABLE_OPTION)
         return OperationResult.ok()
 

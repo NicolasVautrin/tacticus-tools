@@ -98,6 +98,33 @@ def _path_node_counts(ctx, mover, origin):
                                        blocking_positions=_walk_blocking_positions(ctx, mover))
 
 
+def _can_move_gate(ctx, unit) -> bool:
+    """`IdunBattle.Entities.UnitExtensions$$CanMove(unit)` -- DELEGUE au foyer deja porte
+    (`entities/triggers.py::CanMove`), jamais re-teste ici. Les quatre etages natifs :
+    `unit != null`, `IsUnit(unit)`, `!BaseUnitComponent.HasTrait(0x418 = UnitTrait.Stationary)`,
+    puis `MovementComponent.IsAllowedToMove()` -- ce dernier restant un RESIDU NOMME cote port
+    (aucun canal de seed), donc la degradation est PERMISSIVE et bornee a lui seul.
+
+    Import DIFFERE, classe **PORTEUR** : `entities.triggers` importe `entities.selectors` (mesure
+    du 2026-08-11 -- charger `engine.entities.triggers` seul met `engine.entities.selectors.pathing`
+    dans `sys.modules`), donc le hisser fermerait un cycle. FORME B (module + attributaire)."""
+    from .. import triggers as _triggers
+    return _triggers.CanMove(_UnitConst(unit)).should_trigger(ctx)
+
+
+class _UnitConst(TargetsSelector):
+    """Enveloppe un dict d'unite DEJA resolu en noeud, pour le passer a un trigger qui attend un
+    selecteur (`CanMove`). Pas un noeud du DSL natif : un adaptateur local, comme
+    `DSLSelectors$$Entity(x)` cote natif."""
+    __slots__ = ("unit",)
+
+    def __init__(self, unit):
+        self.unit = unit
+
+    def select(self, ctx):
+        return self.unit
+
+
 def _free_adjacent_positions(ctx, entity) -> list:
     """`IdunBattle.Core.Services.BattleQuery$$GetFreeAdjacentTiles(from)` (slot 82) -- corps LU :
 
@@ -317,6 +344,24 @@ class ClosestPositionToTarget(TargetsSelector):
             v = (self.max_distance.evaluate(ctx) if hasattr(self.max_distance, "evaluate")
                  else self.max_distance)
             max_d = INT_MAX if v is None else int(v)
+        # GATE D'ENTREE de `MovementQuery$$FindAnyOrAllMoveableTiles`, et il precede TOUT le reste :
+        #
+        #     if ((UnitFlagsComponent$$Has(unitFlags, 1) && ignoreFlags == 0)
+        #         || !UnitExtensions$$CanMove(unit))            return;      // set VIDE
+        #
+        # ⚠ SANS LUI, LE PORT DEPLACE UNE UNITE QUE LE NATIF NE DEPLACE PAS. Mesure du 2026-08-11 :
+        # `darkaBossLion` est **`moveNone`** sur sa carte `CE6_boss` -- le natif rend donc un
+        # ensemble VIDE, `ClosestPositionToTarget` rend `[]`, et le `MoveUnit` de la branche ELSE de
+        # `1216` est un NO-OP, l'`UseNormalAttackIfAble` qui suit partant quand meme. Le BFS nu, lui,
+        # aurait rendu des positions et fait marcher le Lion. C'est exactement l'ecart que le
+        # decompile annonce et que le montage a confirme.
+        #
+        # `CanMove` passe par le FOYER deja porte (`entities/triggers.py::CanMove`, meme mirror,
+        # meme residu NOMME : `MovementComponent$$IsAllowedToMove` n'est publie par aucun canal du
+        # runner -> degradation PERMISSIVE bornee au seul 4e etage). On appelle le trigger plutot que
+        # de re-tester `UnitTrait.Stationary` ici : deux copies du meme gate divergeraient.
+        if not _can_move_gate(ctx, unit):
+            return []
         # `GetMovablePositionsFor(unit, ignoreFlags, overrideRange)` : le port reutilise le FOYER
         # deja porte -- le BFS de marche borne a `overrideRange`, occupation par empreinte. Les
         # positions rendues sont le `stop_set` (cf. `tiles.MovableTilesInRange` : le natif filtre

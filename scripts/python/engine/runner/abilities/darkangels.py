@@ -1693,8 +1693,12 @@ class MartialExemplarAbility(ActiveAbility):
                             "clean_min", "clean_max", "hp_before", "hp_after")}}
                for n, p in ectx.emitted if n == "AttackWithAttackDamage"]
         # Le SECOND volet de degat -- celui que la colonne `DAMAGE(Power)` de l'audit ne voit pas.
+        # LES ETAGES du second volet aussi : sans eux, un `total` absent ne dit pas SI l'attaque a
+        # ete refusee ni POURQUOI -- et c'est exactement ce que la colonne `DAMAGE(Power)` de
+        # l'audit ne peut pas voir. `attack` brut quand il n'y a pas de total (diagnostic).
         normals = [{"subject": p.get("subject"), "target": p.get("target"),
                     "total": (p.get("attack") or {}).get("total"),
+                    "attack": p.get("attack"), "skipped": p.get("skipped"),
                     "if_able": p.get("if_able_option")}
                    for n, p in ectx.emitted if n in ("UseNormalAttack", "UseNormalAttackIfAble")]
         moved = [{"unit": p.get("unit"), "to": p.get("to")}
