@@ -19,6 +19,7 @@ from .loki.ramshackle import RamshackleDmgReductionEffect
 from .loki.supa_cybork_body import SupaCyborkBodyCritDmgReductionEffect
 from .loki.blood_chalice import BloodChaliceExtraPiercingEffect, BloodChaliceHealOnAttackEffect
 from .loki.champion_of_the_feast import ChampionOfTheFeastReduceArmorEffect
+from .loki.heal_blocking import FuryOfTheAncientsEffect
 from .loki.counter_attack import WireweaveNetCounterAttackEffect
 from .loki.crit_aura import PathOfCommandExtraCritEffect
 from .loki.cursed_plague_bell import CursedPlagueBellExtraMoveEffect
@@ -924,6 +925,13 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # Le signe vient de la FORMULE (`Direct(-v)`), pas d'un flag `isNegative`. Detail :
     # entities/effects/loki/champion_of_the_feast.py.
     "ChampionOfTheFeast_ReduceArmor": ChampionOfTheFeastReduceArmorEffect,
+    # 0x528 = 1320 (#927) : `IdunBattle.Entities.Effects.Loki.FuryOfTheAncientsEffect`, derivant de
+    # `IdunBattle.Entities.Effects.HealBlockingEffect` (hierarchie LUE dans `frida/classes.tsv` -- le
+    # pseudo-C de son `.ctor` designe `DeathwingEffect`, un corps ICF-fondu qui trompe). Son SEUL
+    # comportement natif est l'inscription au registre de bloqueurs de soin (`HealthComponent+0x78`),
+    # que lit `IdunBattle.Entities.UnitExtensions$$HasHealBlockers` -> gates SOIN / REPARATION /
+    # RESURRECTION. Aucune contribution de degat. Detail : entities/effects/loki/heal_blocking.py.
+    "FuryOfTheAncients": FuryOfTheAncientsEffect,
     "AugmentedAssault_ReduceArmor": AugmentedAssaultReduceArmorEffect,
     "AncestralFortune_ExtraCritChance": AncestralFortuneExtraCritChanceEffect,
     "AncestralFortune_ExtraBlockChance": AncestralFortuneExtraBlockChanceEffect,

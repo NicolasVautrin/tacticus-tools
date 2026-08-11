@@ -38,6 +38,8 @@ from ...entities.unit_flag import UnitFlag   # #270-r1-r1-r3
 from ..components import HealthComponent
 from ..components import UnitComponent
 from ..components import UnitFlagsComponent
+from ...entities.effects.loki import heal_blocking as _heal_blocking   # forme B (CLAUDE.md) -- GRATUIT :
+# `heal_blocking` charge seul en process frais ne tire PAS ce module, donc aucun cycle a differer.
 from ..operations.triggers.revive_effect import is_affected_by_heal_type as _impl
 from .targeting import _is_machine
 from .targeting import _resolves_to_unit
@@ -146,11 +148,35 @@ def has_heal_blockers(state: "State", entity_id) -> bool:
         hc = entity.HealthComponent;
         return hc.<+0x78> != null && hc.<+0x78>.Count > 0;      // dict des bloqueurs de soin
 
-    NON PORTE (le dict `+0x78` n'est pas expose par le canal live ; c'est la ou vit `Cursed`, cf.
-    `operations/triggers/loki/living_metal.py`). Rendu `False` = « aucun bloqueur », donc PERMISSIF
-    ici : le predicat qui l'appelle en negation reste vrai, et l'eligibilite n'est jamais refusee
-    pour une raison que le port ne sait pas lire."""
-    return False
+    PORTE depuis #927. Le dict `+0x78` n'est toujours pas materialise -- il n'a pas besoin de
+    l'etre : les DEUX seules methodes qui l'ecrivent sont
+    `IdunBattle.Entities.Effects.HealBlockingEffect$$ApplyInternal` (`Add(effect.Id, effect.Id)`) et
+    `...$$RevertInternal` (`Remove(effect.Id)`), donc son contenu est EXACTEMENT l'ensemble des
+    instances vivantes de cette famille sur la cible. Le port teste cette famille par son TYPE
+    (`entities/effects/loki/heal_blocking.HealBlockingEffect`), ce qui est equivalent PAR
+    CONSTRUCTION.
+
+    ⚠ AUCUN filtre `IsActive @+0x5c` : ni `ApplyInternal`/`RevertInternal`, ni `HasHealBlockers` ne
+    consultent le flag. On lit donc la liste BRUTE du porteur (`EffectsState.by_unit`), non
+    `active_effects` -- exactement comme `components.has_effect_of_type`, et pour la meme raison.
+    On ecarte les seules instances que le natif a DEJA retirees de la liste possedee : `consumed`
+    (retire d'`EffectsOwnedComponent`) et `expired` (timer a 0, `RevertInternal` joue).
+
+    ⚠ CE PREDICAT DEGRADE DU COTE RESTRICTIF quand il rend `True` (il REFUSE un soin), a l'inverse
+    de la quasi-totalite des non-ports de ce module. Il ne peut donc rendre `True` que sur un effet
+    dont la classe est INSCRITE au registre `EffectFactory` : un `EffectType` bloqueur non encore
+    porte (`MischiefMakers` 1469, cf. `heal_blocking.py`) reste materialise en `BaseEffect` nu et ne
+    mord pas -- meme dégradation PERMISSIVE qu'avant #927, et bornee a ce seul id.
+
+    Une entite non-unite (tuile, MoW) n'a pas d'entree dans `EffectsState.by_unit` cote unite ; le
+    garde `_resolves_to_unit` reproduit `GetEntityType(entity) != 1`."""
+    if entity_id is None or not _resolves_to_unit(state, entity_id):
+        return False
+    st = getattr(state, "effects", None)
+    if st is None:
+        return False
+    return any(isinstance(e, _heal_blocking.HealBlockingEffect) and not e.consumed and not e.expired
+               for e in st.by_unit.get(int(entity_id), []))
 
 
 def is_at_group_unit_heal_limit(state: "State", entity_id) -> bool:

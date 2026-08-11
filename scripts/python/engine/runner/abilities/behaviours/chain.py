@@ -21,7 +21,7 @@ from ....dsl.effects import AbilityBehaviour, OperationResult
 from ....entities.selectors.accessors import ActiveTarget
 from ....entities.selectors.geometry import PickRandomly
 from ....entities.selectors.units import Sub, UnitSet, Units
-from .combat import AttackWithAbilityDamage
+from .combat import AttackWithAbilityDamage, AttackWithAttackDamage
 
 
 class ChainAbilityDamage(AbilityBehaviour):
@@ -221,6 +221,70 @@ class ChainAbilityDamage(AbilityBehaviour):
         if self.deferred_hit and not executed[0]:
             perform_on_last()
         return res
+
+
+class ChainAttackDamage(ChainAbilityDamage):
+    """`IdunBattleLogic.Entities.DSLBehaviors$$ChainAttackDamage(preselectedTargets,
+    jumpTargetSelector, maxTargets, dmgAmount, damageProfileType, hits, abilityType,
+    extraBehaviour, maxTargetsExtra, damageOptions, chainOptions)` ->
+    `IdunBattle.Entities.Behaviours.ChainAttackDamageBehaviour$$.ctor` (#927).
+
+    **LA BOUCLE EST LA MEME** -- `ChainAttackDamageBehaviour` derive de `ChainBehaviourBehaviour`
+    comme `ChainAbilityDamageBehaviour`, et son `.ctor` remplit LES MEMES champs, dans le meme
+    ordre (`+0x58 preselected`, `+0x60 targetsSelector`, `+0x68 maxTargets`, `+0x70
+    maxTargetsExtra`, `+0xa0 chainOptions`, `+0x80 StartAttackBehaviour`, `+0x90
+    FinishAttackBehaviour`, `+0x88 op_BitwiseAnd(<degat>, extraBehaviour ?? Nothing())`). D'ou
+    l'heritage : la boucle et `performBehaviourOnLastTarget` ne sont PAS re-ecrites.
+
+    **CE QUI DIFFERE, ET C'EST LA SEULE CHOSE** : le behaviour interne `+0x88`. La ou
+    `ChainAbilityDamage` alloue un `AbilityDamageBehaviour` (famille ABILITY, aucun crit, aucun
+    tirage dans l'operation), celui-ci alloue un **`AttackDamageBehaviour`** :
+
+        AttackDamageBehaviour..ctor(state,
+                                    <DSLSelectors+0x30 = Owner>,
+                                    Units(<DSLSelectors+0x68 = ActiveTarget>, unique: 1, sel: 3),
+                                    dmgFormula,
+                                    Nullable<DamageProfileType>(damageProfileType),
+                                    hits,
+                                    abilityOrEffect,
+                                    Nullable<AttackDamageBehaviourOptions>(damageOptions),
+                                    2 = UnitSelectionType.OnlyTargetable)
+
+    -> famille **ATTACK** : `AttackDamageOperation`, donc CRIT, BLOCK, bouclier et pipeline
+    after-hit complets, et un tirage de valeur PAR COUP dans l'operation. `damageProfileType` et
+    `hits` sont des ARGUMENTS de la factory ici (`ChainAbilityDamage` les lisait dans ses
+    `damageOptions`) -- c'est la seule difference de SIGNATURE entre les deux.
+
+    RESIDUS NOMMES -- les MEMES que `ChainAbilityDamage`, pour la meme raison :
+      * `this+0x80` / `this+0x90` (`StartAttackBehaviour` / `FinishAttackBehaviour` par cible) ne
+        sont pas materialises separement : le port ouvre une attaque NEUVE par cible dans
+        `AttackDamageOperation.execute_ability_attack` (d'ou `is_outside_attack` laisse a son defaut
+        `True`), ce que la paire native produit aussi par cible. Les declencheurs eventuels attaches
+        a ces deux Operations ne sont donc pas emis separement ;
+      * `UnitSelectionType.OnlyTargetable` (le `2` du dernier argument) : les occupants rendus par
+        `Units(...)` sont deja VIVANTS."""
+    __slots__ = ()
+
+    def __init__(self, preselected_sel, jump_target_selector, max_targets, amount,
+                 ability_id: str, profile: str, is_melee: bool = True, hits=None,
+                 extra_behaviour: Optional[AbilityBehaviour] = None,
+                 allow_repeat_targets: bool = False, allow_immediate_repeat: bool = False,
+                 deferred_hit: bool = True, level_slot: str = "passive"):
+        self.preselected_sel = preselected_sel
+        self.jump_target_selector = jump_target_selector
+        self.max_targets = max_targets
+        self.allow_repeat_targets = bool(allow_repeat_targets)
+        self.allow_immediate_repeat = bool(allow_immediate_repeat)
+        self.deferred_hit = bool(deferred_hit)
+        self.extra_behaviour = extra_behaviour
+        # `AttackDamageBehaviour(caster = Owner@<DSLSelectors+0x30>, target = Units(ActiveTarget
+        # @<+0x68>), dmgFormula, profile, hits, options)` -- construit par le `.ctor` natif lui-meme,
+        # ce n'est PAS un argument de la factory. `amount = None` -> mode BORNES (le `dmgFormula` du
+        # natif est `BaseTriggeredAbility$$MinMaxDamage` = `RandomAmount(minDmg, maxDmg)`, dont
+        # `ability_attack_params` rend exactement les deux bornes).
+        self.damage = AttackWithAttackDamage(Units(ActiveTarget()), ability_id, profile,
+                                             is_melee=is_melee, multi=True, hits=hits,
+                                             level_slot=level_slot)
 
 
 class ChainBehaviourGeneric(AbilityBehaviour):
