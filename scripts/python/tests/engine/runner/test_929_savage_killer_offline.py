@@ -42,6 +42,10 @@ DECLENCHEUR = {
         "scripts/python/engine/dsl/event_trigger_type.py",
         # les deux lecteurs de gameconfig qu'il confronte au port
         "scripts/python/gameconfig.py", "scripts/python/unit_map.py",
+        # ELARGI par #937 : `gameconfig.ability_description` LIT `data/i2_en.json` (entree
+        # VERSIONNEE), lecture invisible du graphe d'imports. Rendue visible en gravant
+        # l'empreinte #457 de ce fichier, qui a fait rougir `probe_486r15` en DECLARE TROP ETROIT.
+        "data/i2_en.json",
     ),
     # Il LIT `GameAssembly.dll` (verdict DEAD CODE aux octets) et le gameconfig d'`AppData`, tous
     # deux HORS de l'arbre : un changement de build peut le faire basculer sans qu'un fichier du

@@ -15,6 +15,10 @@ from ...hex_edge import Edge          # `IdunBattle.Utils.Hex.Edge` (#270-r1-r1)
 from ...dsl.base import (TargetsSelector, Const, _pos, _feet, _within, _is_alive, _units_of,
                          _effect_field, resolve_unit)
 from ._shared import _entity_pos, _tile_positions
+# Foyer UNIQUE du filtre `UnitSelectionType` (mirror `IdunBattle.Entities.UnitExtensions$$
+# MatchesUnitSelectionType`), lu par `UnitsWithId` : surtout pas un 2e port du predicat. Feuille
+# legere (l'enum + son derivateur), deja partagee par `selectors/units.py` et `entities/triggers.py`.
+from ..unit_selection_type import UnitSelectionType, selection_ok_from_ctx
 from ...services.spawn_tile_shape import get_area
 
 
@@ -639,15 +643,31 @@ class UnitsWithId(TargetsSelector):
     Consommateur lu : `IdunBattleLogic.Entities.Abilities.Active.Loki.CultDemagogueAbility$$ExecuteBehaviour`
     (`UnitsWithId(SurroundingEnemies(target@0x178, range, 1, 3), GetStringConstant(0|4), 3)`).
     Meme reduction offline que `UnitsWithIds` : comparaison sur le champ `visualId` du dict d'unite
-    (qui porte l'id de CONFIG pour les unites SPAWNEES, cf. `_spawn_config_grot`)."""
-    def __init__(self, source: TargetsSelector, unit_id, mode: int = 3):
+    (qui porte l'id de CONFIG pour les unites SPAWNEES, cf. `_spawn_config_grot`).
+
+    ⚠ **LE 3e ARGUMENT `mode` EST UN `UnitSelectionType`, ET IL EST DESORMAIS APPLIQUE.** Il etait
+    STOCKE et jamais LU : le noeud ne filtrait que sur `visualId`. Tant que la SOURCE etait
+    elle-meme un selecteur d'unites filtre (`Friends`, `SurroundingEnemies` -- les deux seuls
+    call-sites executables anterieurs), l'omission etait INERTE, les morts etant deja ecartes en
+    amont. Elle cesse de l'etre des que la source ne filtre RIEN : `ChildrenOf`
+    (`IdunBattleLogic.Entities.DSLSelectors$$Children(parent)`) rend explicitement TOUTES les
+    entites enfants, mortes comprises. Le call-site
+    `IdunBattleLogic.Entities.Abilities.Triggered.Loki.SynapticLinchpinAbility$$CreateBehaviour`
+    compte ainsi `UnitsWithId(Children(owner@+0x30), unitId, OnlyAliveAndTargetable)` pour son cap
+    de summons : sans le filtre, un Hormagaunt MORT tenait un slot que le natif a libere -- le port
+    refusait un spawn que le natif fait. Le filtre passe par le FOYER unique
+    (`entities/unit_selection_type.py::selection_ok_from_ctx`, mirror de
+    `IdunBattle.Entities.UnitExtensions$$MatchesUnitSelectionType`), jamais par un `alive` a la
+    main ; son tri-etat degrade en VRAI ce qui n'est pas mesure."""
+    def __init__(self, source: TargetsSelector, unit_id, mode: int = int(UnitSelectionType.OnlyAliveAndTargetable)):
         self.source, self.unit_id, self.mode = source, unit_id, int(mode)
 
     def select(self, ctx):
         uid = self.unit_id.evaluate(ctx) if hasattr(self.unit_id, "evaluate") else self.unit_id
         if uid is None:
             return []
-        return [u for u in self.source.evaluate(ctx) if u.get("visualId") == uid]
+        return [u for u in self.source.evaluate(ctx)
+                if u.get("visualId") == uid and selection_ok_from_ctx(u, self.mode, ctx)]
 
 
 class Cache(TargetsSelector):

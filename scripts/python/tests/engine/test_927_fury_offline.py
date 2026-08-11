@@ -41,6 +41,8 @@ from engine.runner.operations.triggers.loki import fury_of_the_ancients as F    
 #: `data/symbols/**` ajoute par `build: True` ne peut pas apparier -> `DECLARE TROP ETROIT`.
 #: Le defaut est INVISIBLE tant que l'empreinte de ce fichier n'est pas mesuree, et c'est en la
 #: mesurant (ordre #486-r29) qu'il est apparu.
+#: ⚠ #931 et #937 ont trouve ce meme defaut INDEPENDAMMENT, en gravant l'empreinte chacun de son
+#: cote -- deux mesures concordantes, une seule correction.
 BUILD_DIR = os.path.normpath(
     os.path.join(os.path.dirname(__file__), "..", "..", "..", "..", "data", "symbols"))
 
@@ -170,6 +172,25 @@ def test_etape4_la_prediction_tire_avant_ses_null_guards():
 
 # ---------------------------------------------------------------- 5. la face DECISION DEAD ------
 def _methods_tsv():
+    """La table `frida/methods.tsv` du build **COURANT** (`data/symbols/CURRENT`).
+
+    ⚠ CORRIGE PAR #937 : la version d'avant prenait le **premier** repertoire rendu par
+    `os.listdir(BUILD_DIR)`, c'est-a-dire `gqfc5mff6c` (ordre alphabetique) -- un build **PERIME**.
+    Le verdict DEAD de l'etape 5 etait donc rendu contre le mauvais dump, et l'annonce
+    « si un build futur ajoute une voie ATTAQUE, ce test rougit » etait FAUSSE : le fichier lu ne
+    bougeait jamais. C'est le vice que le CLAUDE.md nomme (« une RVA resolue contre le mauvais dump
+    donne un nom incoherent »), applique a un nom de methode. Trouve en gravant l'empreinte #457 de
+    ce fichier, qui a rendu son DECLENCHEUR TROP ETROIT en pointant `data/symbols/gqfc5mff6c/...`.
+
+    Repli sur l'ancien balayage si `CURRENT` est absent -- l'etape SKIPPE alors comme avant, elle ne
+    ment pas."""
+    cur = os.path.join(BUILD_DIR, "CURRENT")
+    if os.path.exists(cur):
+        with open(cur, encoding="utf-8") as fh:
+            build = fh.read().strip()
+        p = os.path.join(BUILD_DIR, build, "frida", "methods.tsv")
+        if build and os.path.exists(p):
+            return p
     builds = [d for d in os.listdir(BUILD_DIR)
               if os.path.isdir(os.path.join(BUILD_DIR, d)) and not d.startswith(".")]
     for b in builds:
