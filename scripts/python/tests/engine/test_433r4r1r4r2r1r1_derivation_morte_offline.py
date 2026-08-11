@@ -173,10 +173,17 @@ def test_la_JUSTIFICATION_de_la_tolerance_se_re_mesure(arbres_reels):
     etre vus. C'est un fait du depot, et il peut cesser d'etre vrai -- le jour ou la famille est
     reparee au foyer, la tolerance n'a plus d'objet et doit tomber.
 
-    MESURE au 2026-08-12 : 29 fonctions d'`engine/` comparent une distance hex a 1 ; 2 sont vues par
-    l'etape 2 ; 25 sont MUETTES (aucun natif declare dans leur docstring), dont les trois que
-    `case-943` nommait deja (`effect_targets._adjacent_friends`,
-    `imperative.create_aura_attack_damage_bonus_for_ally`, `get_em_runtz._spawn_tile_count`)."""
+    MESURE au 2026-08-12 : 30 fonctions d'`engine/` comparent une distance hex a 1 ; 2 sont vues par
+    l'etape 2 ; 2 touchent le canal ; 26 sont MUETTES (aucun natif declare dans leur docstring),
+    dont les trois que `case-943` nommait deja (`effect_targets._adjacent_friends`,
+    `imperative.create_aura_attack_damage_bonus_for_ally`, `get_em_runtz._spawn_tile_count`).
+
+    ⚠ LE SEUIL EST A 3, PAS AU COMPTE MESURE, ET C'EST DELIBERE. Le gisement a gagne UN site
+    pendant la duree de cette tranche (25 -> 26 muets, entre la mesure et le rebase) : un test qui
+    figerait le compte exact rougirait chez l'auteur SUIVANT pour un site qu'il n'a pas creuse --
+    la faute que `test_270r4r2r2_differes_offline` a payee trois fois. Ce qui doit tenir ici n'est
+    pas un entier, c'est le FAIT qui fonde la tolerance : une FAMILLE existe, invisible au critere.
+    Les trois foyers nommes ci-dessous, eux, sont gardes NOMMEMENT."""
     muets, total = G.etape6(arbres_reels)
     assert total > 0, "perimetre casse : aucune geometrie nue vue par l'etape 6"
     assert len(muets) >= 3, (

@@ -67,13 +67,20 @@ CONFIRMÉE, et très sous-estimée.** Le critère d'entrée des étapes 2 et 4 e
 (`etape6`, ajoutée ici, même arbre, même passe) :
 
 ```
-29  fonctions d'engine/ comparent une distance hex a 1
+30  fonctions d'engine/ comparent une distance hex a 1
  2  vues par etape2 (declarantes, sans canal)   <- les 2 rouges
  2  touchent le canal (etape4)
-25  MUETTES -- invisibles aux etapes 2 et 4 par construction
+26  MUETTES -- invisibles aux etapes 2 et 4 par construction
 ```
 
-Les trois nommées par #943 sont **confirmées** et ne sont que 3 des 25. `imperative.py::
+⚠ **Ces chiffres se re-dérivent, ils ne se citent pas** — et la tranche en a fait l'expérience sur
+elle-même : le gisement est passé de **25 à 26** muets entre la mesure et le rebase, soit un site
+gagné en quelques heures. Le fait qui compte n'est pas l'entier mais l'ordre de grandeur : la part
+muette est **13×** la part visible. C'est pourquoi le test garde un seuil à 3 et trois foyers
+**nommés**, jamais le compte exact — figer l'entier ferait rougir l'auteur suivant pour un site
+qu'il n'a pas creusé.
+
+Les trois nommées par #943 sont **confirmées** et ne sont que 3 des 26. `imperative.py::
 create_aura_attack_damage_bonus_for_ally` applique exactement le même `hexgeo.distance != 1` que
 son jumeau `icon_of_obstinacy`, sans le mentionner — le premier est invisible, le second est rouge.
 Réparer les 2 visibles laisserait **25** sites divergents : c'est le fork que les docstrings

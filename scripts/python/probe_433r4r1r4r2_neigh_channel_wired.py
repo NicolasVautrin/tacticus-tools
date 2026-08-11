@@ -188,11 +188,17 @@ NATIFS_LISTE_STOCKEE_SUSPENDUS = {
 # une propriete de la PROSE, pas du code. Balayage EXHAUSTIF du contenu (`etape6` ci-dessous, meme
 # arbre, meme passe) :
 #
-#     29 fonctions d'`engine/` comparent une distance hex a 1
+#     30 fonctions d'`engine/` comparent une distance hex a 1
 #      2 seulement sont VUES par l'etape 2 (docstring declarante, aucun acces au canal)
-#     25 font la MEME geometrie nue et sont MUETTES -- invisibles a l'etape 2 par construction
+#      2 touchent le canal (etape 4)
+#     26 font la MEME geometrie nue et sont MUETTES -- invisibles a l'etape 2 par construction
 #
-# Reparer les deux visibles laisserait donc 25 sites divergents : c'est le FORK que les deux
+# ⚠ CES CHIFFRES SE RE-DERIVENT (`etape6`, publiee a chaque passe), ils ne se citent pas : le
+# gisement a gagne UN site pendant la seule duree de la tranche qui l'a mesure (25 -> 26, entre la
+# mesure et le rebase). C'est le fait qui compte, pas l'entier : la part MUETTE est d'un ordre de
+# grandeur au-dessus de la part visible.
+#
+# Reparer les deux visibles laisserait donc 26 sites divergents : c'est le FORK que les deux
 # docstrings annoncent explicitement (<< Le corriger ICI seulement serait un fork >>), pas son
 # evitement. La reparation est un DEPLACEMENT AU FOYER pour toute la famille -- elle est ouverte en
 # residu, et elle n'est pas de la taille d'une tranche de reparation de cliquets.
