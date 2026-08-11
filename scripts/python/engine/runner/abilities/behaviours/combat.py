@@ -101,7 +101,7 @@ class AttackWithAttackDamage(AbilityBehaviour):
                  "damage_override", "multi", "pick_n", "amount", "hits", "ability_type", "hits_add_key",
                  "native_factory", "force_overkill", "hits_override", "level_slot", "tile_domain",
                  "force_crit", "is_first_hit", "amount_spread_pct", "attack_state0",
-                 "is_outside_attack")
+                 "is_outside_attack", "skip_hits_modifiers")
 
     def __init__(self, target_sel: TargetsSelector, ability_id: str, profile: str, is_melee: bool = True,
                  min_key: str = "minDmg", max_key: str = "maxDmg", hits_key: str = "nrOfHits",
@@ -110,7 +110,14 @@ class AttackWithAttackDamage(AbilityBehaviour):
                  force_overkill: bool = False, hits_override=None, level_slot: str = "active",
                  tile_domain: bool = False, force_crit: bool = False,
                  is_first_hit: bool = True, amount_spread_pct: int = 0,
-                 attack_state0: Optional[dict] = None, is_outside_attack: bool = True):
+                 attack_state0: Optional[dict] = None, is_outside_attack: bool = True,
+                 skip_hits_modifiers: bool = False):
+        # #419-r1-tr5-r4 : l'OCTET **+3** du `Nullable<AttackDamageBehaviourOptions>` -- le nombre
+        # de coups passe est DEJA FINAL, `AttackDamageOperation$$GetAttackHits` rend la base sans
+        # traverser le slot 0xb6 (`AttackHitsWithModifiersFormula`). Mode BORNES uniquement (le mode
+        # `amount` route par `execute_normal_like`, qui n'a pas ce canal). Cf. la docstring de
+        # `AttackDamageOperation.execute_ability_attack` pour la chaine d'offsets LUE.
+        self.skip_hits_modifiers = bool(skip_hits_modifiers)
         # #512-r2 : `isOutsideAttack`, le litteral natif. `True` = cette feuille EST celle que
         # `DSLBehaviors$$AttackWith{Attack,Ability}Damage` emballe dans son propre `AttackBehaviour`
         # -> elle pousse `StartAttack`, donc `On(PreAttack = 5)`. `False` = feuille NUE
@@ -317,7 +324,9 @@ class AttackWithAttackDamage(AbilityBehaviour):
                     # #419-r3 : etat de l'`OngoingAttack` heritee (cf. `__init__`). Absent = neuve.
                     hit_index0=int(_as0.get("next_hit_index", 0)),
                     crit_allowed0=bool(_as0.get("crit_allowed", True)),
-                    failed_block0=_as0.get("failed_block"))
+                    failed_block0=_as0.get("failed_block"),
+                    # #419-r1-tr5-r4 : octet +3 des options natives (coups DEJA finaux).
+                    skip_hits_modifiers=self.skip_hits_modifiers)
             ectx.emit("AttackWithAttackDamage", caster=caster, target=tgt,
                       total=(atk or {}).get("total"), attack=atk)
         return OperationResult.ok()

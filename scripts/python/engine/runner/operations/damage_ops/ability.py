@@ -47,7 +47,8 @@ class _AbilityAttack:
                                round_materialize: bool = False,
                                hit_index0: int = 0, crit_allowed0: bool = True,
                                failed_block0=None,
-                               is_outside_attack: bool = True) -> Optional[dict]:
+                               is_outside_attack: bool = True,
+                               skip_hits_modifiers: bool = False) -> Optional[dict]:
         """Attaque d'une ABILITY active (mirror `AttackWithAttackDamage` + `MinMaxDamage`/`GetHits`/
         `GetDamageProfile`). DIFFÈRE de l'attaque normale par la BASE : les bornes du coup = `[base_min,
         base_max]` données par la config d'ability (`GetVariableForLevel` clés 0xc/0xd = minDmg/maxDmg),
@@ -101,7 +102,31 @@ class _AbilityAttack:
         ⚠ C'est le MEME littéral que celui qui commande `hit_index0`/`crit_allowed0`/`failed_block0`
         ci-dessus -- deux consequences d'un seul champ natif, laissees en deux parametres parce que
         le port n'a pas (encore) de canal pour propager l'`OngoingAttack` a travers un
-        `SortedAttackSeries`."""
+        `SortedAttackSeries`.
+
+        `skip_hits_modifiers` (#419-r1-tr5-r4, face COMBAT de `LightImUp`) = l'OCTET **+3** du
+        `Nullable<AttackDamageBehaviourOptions>` (8e argument de `DSLBehaviors$$AttackDamage` /
+        `$$AttackWithAttackDamage`), a cote de `+4 alwaysOverkilled`, `+5 alwaysCrit`, `+6 spread`
+        et `+0 isOutsideAttack`. Le champ n'a **aucun nom lisible** (`AttackDamageBehaviourOptions`
+        est un ValueType SANS methode : `frida/methods.tsv` n'en indexe aucune) -- ce parametre
+        porte donc son EFFET, LU, pas un nom devine. Chaine des offsets, lue de bout en bout :
+        `AttackDamageBehaviour$$.ctor` copie les options en `this+0x98..0xb8` (donc `+3` ->
+        `+0x9b`), `AttackDamageBehaviour$$ExecuteTarget` recopie `+0x9b` en TETE du bloc de drapeaux
+        de l'`AttackDamageOptions` (donc `options+0x28` ; c'est le MEME bloc dont `+0x2f` porte le
+        spread deja documente et `+0x2e` l'`isOutsideAttack`), et
+        `IdunBattle.Operations.AttackDamageOperation$$GetAttackHits` fait, VERBATIM :
+
+            hits = <Nullable<int> options+0x18>.GetValueOrDefault(1)
+            if (options+0x28 != 0) return hits;             # <-- CE drapeau
+            return BattleQuery.<slot 0xb6>(caster, target, hitGroupIndex, <requete hits=hits>)
+
+        -> `True` = le nombre de coups passe est DEJA FINAL, la couche de modificateurs de coups
+        (`AttackHitsWithModifiersFormula` == le foyer `attack_hits_with_modifiers` du port) n'est
+        PAS traversee. C'est exactement le regime de `LightImUpAbility$$CreateBehaviour`, dont les
+        deux volets calculent leurs coups par un NOEUD (`AttackHitsWithModifiers(Caster, Target,
+        Direct(nrOfHits))` pour le premier, `NumLeftOverHits(...)` pour le second) : sans le
+        drapeau, le natif appliquerait les modificateurs DEUX FOIS. Defaut `False` = strict no-op
+        pour tous les appelants existants."""
         from ..damage import AttackDamageOperation  # lazy : rompt le cycle damage<->damage_ops
         # GARDE-FOU rng (PAS un mirror natif) : sans `state.rng` cale (replay effet-seul, etat
         # `load_state` sans dumpRng) on SKIP au lieu de lever. RAFFINE a la migration du DoT de tuile :
@@ -457,7 +482,11 @@ class _AbilityAttack:
         _ltgb_tfx = (tile_status_effects_by_pos(state, [(_tp_h.col, _tp_h.row)])
                      if _tp_h is not None else None)
         _ltgb_pd = persistent_data_keys(att)
-        if is_attack_damage_op and _ap_h is not None and _tp_h is not None and state.board is not None:
+        # `skip_hits_modifiers` = l'octet +3 des options (cf. docstring) : `GetAttackHits` rend la
+        # base SANS appeler le slot 0xb6, donc AUCUN modificateur de coups. Il est teste ICI, au
+        # rang exact du `return` natif -- avant la construction du board de coups.
+        if (not skip_hits_modifiers) and is_attack_damage_op and _ap_h is not None \
+                and _tp_h is not None and state.board is not None:
             _melee_ch = hits_channel_is_melee(state, attacker_id, target_id, is_melee)
             _board_h, _auras_h, _tgt_eff_h = build_hits_board(
                 state, attacker_id, target_id, (_ap_h.col, _ap_h.row), (_tp_h.col, _tp_h.row),

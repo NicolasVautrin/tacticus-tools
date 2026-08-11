@@ -50,6 +50,7 @@ from ..loki.destroyer_hive import DestroyerHiveAbility               # case-220 
 from ..loki.cursed_plague_bell import (CursedPlagueBellMovementAbility,   # #224 DG (passif deathBlightbringer)
                                       CursedPlagueBellAttackAbility)     # #224 item 5 (volet ATTAQUE)
 from ..loki.martial_apotheosis import MartialApotheosisAttackAbility  # case-220 (passif necroOverlord, Necron)
+from ..loki.light_im_up import LightImUpAbility                       # #419-r1-tr5-r4 (passif orksWarboss, face COMBAT)
 from ..loki.martial_superiority import MartialSuperiorityRiposteAbility  # #133 (passif templChampion)
 from ..loki.wireweave_net import (WireweaveNetCounterAttack,          # #366-r1b (passif eldarRanger)
                                   WireweaveNetActivateOnOwnerTurnEnd,
@@ -352,6 +353,15 @@ ABILITY_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
     # 3702 au turn-start (0 a d=2). #354 avait conclu « orpheline » depuis le seul gameconfig : c'est
     # ce referentiel qui etait faux. Mesure + verdict : case-392, probe_392.
     "MartialApotheosis": [MartialApotheosisAttackAbility],
+    # LightImUp (passif de kit d'`orksWarboss` << Boss Gulgortz >>, triggered 1103), face COMBAT --
+    # #419-r1-tr5-r4. `On(0x26 = NormalAttack, ownerNeedsToBeAlive: 0) & get_OwnerIsActor` ->
+    # `If(IsInAttackRange(Caster, Target), Attack(nrOfHits x Projectile [minDmg,maxDmg] sur la
+    # cible)) & If(IsDead(Target), Attack(NumLeftOverHits sur 1 ennemi PickRandomly du disque
+    # r = range, non obscurci, cible principale exclue))`.
+    # ⚠ AUCUNE gate de MELEE cote combat : c'est le PLAYBOOK (face DECISION, #419-r1-tr5) qui porte
+    # `IsMeleeAttack(case)`. Les deux faces divergent, et c'est natif.
+    # Cf. loki/light_im_up.py (IdunBattleLogic.Entities.Abilities.Triggered.Loki.LightImUpAbility$$CreateTrigger/IdunBattleLogic.Entities.Abilities.Triggered.Loki.LightImUpAbility$$CreateBehaviour).
+    "LightImUp": [LightImUpAbility],
     # TaintedNarthecium (passif deathRotbone, Death Guard/Chaos, case-66) = base ReviveEffect : `OnPreDeath &
     # CanBeRevived & AreFriends & HasTrait(Chaos) & IsAdjacent(2)` -> Maybe(75%){ Revive-EN-PLACE a
     # min(reviveHP,maxPV), even-if-Overkilled ; DeactivateEffect once-per-turn }. Debloqueur du sous-systeme
