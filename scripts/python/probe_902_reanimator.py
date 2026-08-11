@@ -247,9 +247,15 @@ def _aiturn(state_path: Path):
 
 # --------------------------------------------------------------------------- phases
 
-def _mount(state_path: Path, seedbc: Path, damaged: bool):
+def _mount(state_path: Path, seedbc: Path, damaged: bool, harmless_foes: bool = False):
     extra = ["--seed", "777", "--board", BOARD, "--seed-bc", str(seedbc),
              "--p-mow", MOW, "--p-units", ALLIES, "--a-units", FOES, "--no-ai"]
+    if harmless_foes:
+        # Le montage SUMMONS a besoin de TROIS tours (spawn, 2 marquages, beam) et le summon mourait
+        # avant le beam. On DRIVE la condition testee au lieu de la subir : `--dmg-target 0` rend les
+        # ennemis inoffensifs SANS toucher a la mecanique mesuree (leur stat d'ATTAQUE, pas leurs PV
+        # ni leurs traits) -- ils restent des cibles vivantes pour l'attaque libre du summon.
+        extra += ["--dmg-target", "0"]
     if damaged:
         # DRIVE l'etat teste : on ne SUBIT pas des PV pleins qui rendraient le `Repair` inerte
         # (`AttackQuery$$EntityCanBeRepaired` refuse une unite sans PV manquants -- c'est ce qui a
@@ -413,13 +419,28 @@ def phase_beam(sid, state_path, seedbc):
 def phase_summons(sid, state_path, seedbc):
     """Volet [B] de 1223 : un SUMMON mecanique marque agit (Attack OVERRIDE + PerformAIAction).
     `necroOverlord` invoque `necroSmnWarrior` (1009), on le marque, puis on tire le beam."""
-    rid = _mount(state_path, seedbc, damaged=True)
+    rid = _mount(state_path, seedbc, damaged=True, harmless_foes=True)
     _mk, dec = _capture(sid, rid)
     cid = _mow_id(dec)
     ov = _by_visual(dec, "necroOverlord")
     if cid is None or ov is None:
         print("[902] montage KO")
         return False
+    # ⚠ ORDRE CONTRAINT PAR LA DUREE DE VIE DU SUMMON, et il a fallu le MESURER : marquer le summon
+    # puis le `necroSpyder` lui coutait DEUX tours d'attente et il ne survivait pas jusqu'au beam
+    # (« le summon est mort avant le beam », y compris avec des ennemis rendus inoffensifs). On marque
+    # donc la machine NON-summon EN PREMIER, avant meme de l'invoquer.
+    #
+    # ⚠ ON MARQUE **DEUX** MACHINES, et la seconde n'est PAS un summon : sans elle, `carriers` et
+    # `UnitsWithTrait(carriers, Summon)` sont le MEME ensemble, et le mutant « retirer le filtre
+    # Summon » passe AVEUGLE (mesure M11). Avec le `necroSpyder` marque, un port qui perdrait le
+    # filtre le ferait attaquer lui aussi -> les degats divergent.
+    spy = _by_visual(dec, "necroSpyder")
+    if spy is not None:
+        _cast_live(sid, rid, cid, spy, NANOSCARAB_REPAIR_PROTOCOLS)
+        _endturn(sid, rid)
+        _aiturn(state_path)
+        _mk, dec = _capture(sid, rid)
     before = {int(u["id"]) for u in _units(dec)}
     _cast_live(sid, rid, ov, ov, 1009)                       # ResurrectionOrb : SELF-cast
     _mk, dec = _capture(sid, rid)
@@ -439,15 +460,39 @@ def phase_summons(sid, state_path, seedbc):
     st = mkstate()
     hp_foes_before = {int(u["id"]): int(u.get("hp") or 0) for u in _units(dec) if not u.get("ctrl")}
     diag = _cast_offline(st, cid, smn, REANIMATION_BEAM)
-    print("[902][summons] port : summons=%s" % (diag.get("summons"),))
+    # ⚠ CE TEMOIN COMPARE LES DEUX COTES, et il a fallu le REPARER pour cela : sa 1re version ne
+    # regardait que les degats LIVE, donc aucun mutant du PORT (statPart, trait Summon, asGroup,
+    # stat de l'override) ne pouvait la faire rougir. On confronte desormais {cible -> degats}.
+    port_hits: dict = {}
+    for r in ((diag.get("summons") or {}).get("results") or []):
+        atk = (r or {}).get("attack") or {}
+        if atk.get("target") is not None and atk.get("total"):
+            port_hits[int(atk["target"])] = port_hits.get(int(atk["target"]), 0) + int(atk["total"])
+    acteurs = {int(r["uid"]) for r in ((diag.get("summons") or {}).get("results") or [])
+               if r.get("uid") is not None}
+    print("[902][summons] acteurs (port) = %s ; attendu = {%d} (le SEUL summon marque ; le "
+          "`necroSpyder` est marque mais n'a PAS le trait Summon)" % (sorted(acteurs), smn))
     res = _cast_live(sid, rid, cid, smn, REANIMATION_BEAM)
     _mk2, dec2 = _capture(sid, rid)
     hp_foes_after = {int(u["id"]): int(u.get("hp") or 0) for u in _units(dec2) if not u.get("ctrl")}
     hit = {u: hp_foes_before[u] - hp_foes_after.get(u, 0)
            for u in hp_foes_before if hp_foes_after.get(u, 0) != hp_foes_before[u]}
-    print("[902][summons] degats subis par les ENNEMIS pendant le beam (live) : %s" % hit)
+    print("[902][summons] degats aux ENNEMIS : port=%s live=%s %s"
+          % (port_hits, hit, "=" if port_hits == hit else "! (etage IA, cf. ci-dessous)"))
     print("[902][summons] mutated=%s" % res.get("mutated"))
-    return bool(hit)
+    # DECOUPAGE PAR ETAGE, assume et ecrit : **l'arbre DSL de 1223 decide QUI agit** (le filtre
+    # `UnitsWithTrait(carriers, Summon)`), **`ComputerActionOperation` decide OU et SUR QUI**. Le 1er
+    # etage est de cette tranche et il est GARDE strictement ; le second est un mirror PARTAGE du
+    # moteur d'utilite natif, deja approxime (residu #338, meme famille que
+    # `perform_ai_attack_from_current_position`) -- il est MESURE et RAPPORTE, jamais fitte ici.
+    # Mesure des deux regimes : un seul summon en jeu -> accord EXACT port {49: 3680} == live
+    # {49: 3680} ; deux summons (dont un seul marque) -> le port choisit u51, le natif u49.
+    ok = bool(hit) and acteurs == {int(smn)}
+    if port_hits != hit:
+        print("[902][summons] ECART D'ETAGE (choix de cible de l'IA), HORS du perimetre de l'arbre "
+              "porte : l'ensemble des ACTEURS, lui, concorde -- c'est ce que garde ce probe.")
+    print("[902][summons] %s" % ("OK" if ok else "DIVERGENCE"))
+    return ok
 
 
 def main():

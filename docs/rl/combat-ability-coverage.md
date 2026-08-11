@@ -9,9 +9,9 @@ Le runner combat route chaque ability choisie via `ActiveAbilityMessage` -> `Abi
 ## Bilan
 
 - ActiveAbilityType castables par les unites : **175** distinct
-- **PORTED** (dans `ABILITY_CLASSES`) : **149**
-- **NO-OP silencieux** (a porter) : **26**
-- Ventilation NO-OP : **DAMAGE**=10, **EFFECT/BUFF**=9, **SUMMON**=4, **REPAIR**=2, **HEAL**=1
+- **PORTED** (dans `ABILITY_CLASSES`) : **151**
+- **NO-OP silencieux** (a porter) : **24**
+- Ventilation NO-OP : **DAMAGE**=10, **EFFECT/BUFF**=9, **SUMMON**=4, **HEAL**=1
 
 ## Priorisation & templates de port
 
@@ -30,7 +30,7 @@ Le runner combat route chaque ability choisie via `ActiveAbilityMessage` -> `Abi
 
 Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 
-## NO-OP SILENCIEUX en combat (a porter, tries categorie puis frequence) (26)
+## NO-OP SILENCIEUX en combat (a porter, tries categorie puis frequence) (24)
 
 | id | ability | categorie | #units | kinds |
 |---|---|---|---|---|
@@ -54,14 +54,12 @@ Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 | 1107 | Reveal | EFFECT/BUFF | 1 | N |
 | 1211 | RitesOfMorkai | EFFECT/BUFF | 1 | L |
 | 1231 | TitanhammerSquad | HEAL | 1 | L |
-| 1224 | NanoscarabRepairProtocols | REPAIR | 2 | LN |
-| 1223 | ReanimationBeam | REPAIR | 2 | LN |
 | 1208 | AetherStride | SUMMON | 2 | LN |
 | 1144 | BioMinefield | SUMMON | 2 | LN |
 | 1052 | CallRipperSwarms | SUMMON | 1 | N |
 | 1172 | InvocationOfMachineVengeance | SUMMON | 1 | N |
 
-## PORTED (registry) (149)
+## PORTED (registry) (151)
 
 | id | ability | categorie | #units | kinds |
 |---|---|---|---|---|
@@ -194,6 +192,8 @@ Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 | 1039 | RitesOfRestoration | HEAL | 4 | LN |
 | 1175 | BloodChalice | HEAL | 1 | L |
 | 1117 | DefendTheDivineWork | REPAIR | 6 | LN |
+| 1224 | NanoscarabRepairProtocols | REPAIR | 2 | LN |
+| 1223 | ReanimationBeam | REPAIR | 2 | LN |
 | 1112 | AlphaWarrior | SUMMON | 8 | LN |
 | 1121 | ItItches | SUMMON | 7 | LN |
 | 1016 | SendInTheNextWave | SUMMON | 7 | LN |
