@@ -94,6 +94,12 @@ def units_by_id(view):
     return {u.get("id"): u for u in (view.get("units") or [])}
 
 
+def gc_traits(visual_id):
+    """Traits gameconfig d'un `visualId` -- pour DIRE ce que le placement exerce, pas pour decider."""
+    import gameconfig as GC
+    return ((GC.unit(visual_id) or {}).get("traits") or []) if visual_id else []
+
+
 def carriers(view, effect_type):
     """Ids des unites qui PORTENT `effect_type` dans la vue (canal `decisionView.units[].effects`)."""
     return sorted(u.get("id") for u in (view.get("units") or [])
@@ -125,10 +131,14 @@ def pos_of(view, uid):
 
 # --------------------------------------------------------------------------- montage
 
-def build(seed, board_id, state_file, seed_bc, p_units, a_units):
+def build(seed, board_id, state_file, seed_bc, p_units, a_units, hp_target):
+    # ⚠ `--hp-target` gonfle les PV des a-units, et c'est LOAD-BEARING pour le volet V3 : au premier
+    # jet la cible mourait (10040 PV pour 12063 de degat), donc le natif et le port rendaient tous
+    # deux `hp = 0` -- un accord SATURE, ou un port qui infligerait 11000 aurait passe. Avec des PV
+    # tres au-dessus du coup, la comparaison porte sur le MONTANT et non sur la seule mort.
     cmd = [sys.executable, "rl_duel.py", "build",
            "--seed", str(seed), "--board", board_id, "--seed-bc", str(seed_bc),
-           "--p-units", p_units, "--a-units", a_units,
+           "--p-units", p_units, "--a-units", a_units, "--hp-target", str(hp_target),
            "--state-file", str(state_file), "--no-ai"]
     r = subprocess.run(cmd, cwd=str(HERE), capture_output=True, text=True)
     if r.returncode != 0:
@@ -211,6 +221,12 @@ def main(argv) -> int:
     ap.add_argument("--far", action="store_true",
                     help="garde le 3e allie a 2 hexes : il doit alors N'ETRE PAS inspire "
                          "(discrimine `SurroundingFriends(range = constants.range = 1)`)")
+    ap.add_argument("--allies-first", action="store_true",
+                    help="place les allies AVANT l'ennemi -> le MECANIQUE arrive au contact et son "
+                         "exclusion prouve le filtre de trait ; en contrepartie l'ennemi reste "
+                         "enferme a 2 hexes et le volet V3 n'est pas exerce (cf. l'en-tete)")
+    ap.add_argument("--hp-target", type=int, default=60000,
+                    help="PV des a-units -- assez HAUT pour que le coup ne SATURE pas (cf. build)")
     ap.add_argument("--keep", action="store_true")
     a = ap.parse_args(argv)
 
@@ -222,8 +238,9 @@ def main(argv) -> int:
     print("[inject] units=%s abils=%s" % (units, abils))
 
     sid = _resolve_session()
-    rid = build(a.seed, a.board, state_file, seed_bc, a.p_units, a.a_units)
-    print("[build] sid=%d runnerId=%d board=%s seed=%d" % (sid, rid, a.board, a.seed))
+    rid = build(a.seed, a.board, state_file, seed_bc, a.p_units, a.a_units, a.hp_target)
+    print("[build] sid=%d runnerId=%d board=%s seed=%d hp_target=%d"
+          % (sid, rid, a.board, a.seed, a.hp_target))
     print("[build] p_units=%s | a_units=%s" % (a.p_units, a.a_units))
     rc = 0
     try:
@@ -238,16 +255,28 @@ def main(argv) -> int:
                                             [(u, vis.get(u)) for u in foes]))
         print("[roster] Baldr=u%d (%s)" % (baldr, vis.get(baldr)))
 
-        # DEPLACER : les 3 allies au contact de Baldr (ou a 2 hexes pour le dernier si `--far`),
-        # puis UN ennemi au contact de Baldr (pour armer le volet ATTAQUE NORMALE).
+        # DEPLACER -- on ne se plaint jamais de la geometrie de spawn. ⚠ **L'ORDRE COMPTE, ET AUCUN
+        # DES DEUX N'EXERCE TOUT** : Baldr n'a que SIX voisins. Allies d'abord, ils les occupent et
+        # l'ennemi reste ENFERME a 2 hexes -> V3 non exerce (mesure du 1er jet ; le temoin de
+        # non-degenerescence l'a refuse, il ne s'est pas tu). Ennemi d'abord, c'est le 4e allie
+        # (`admecMarshall`, le MECANIQUE) qui reste a 2 -> son exclusion de la zone ne prouve plus
+        # rien du filtre de trait, seulement de la portee. D'ou **deux bras**, et un rapport de
+        # DISCRIMINATION qui dit lequel est exerce. Le tour bascule a chaque `endturn`, donc
+        # `gather` avance quel que soit le camp mobile.
         want = {u: 1 for u in mine[1:]}
         if a.far and len(mine) >= 4:
             want[mine[3]] = 2
-        n = gather(sid, rid, board, baldr, list(want), want)
-        print("[gather] allies places apres %d rounds (cibles=%s)" % (n, want))
         wf = {foes[0]: 1}
-        n2 = gather(sid, rid, board, baldr, list(wf), wf)
-        print("[gather] ennemi u%d amene au contact apres %d rounds" % (foes[0], n2))
+        if a.allies_first:
+            n = gather(sid, rid, board, baldr, list(want), want)
+            print("[gather] allies places apres %d rounds (cibles=%s)" % (n, want))
+            n2 = gather(sid, rid, board, baldr, list(wf), wf)
+            print("[gather] ennemi u%d amene au contact apres %d rounds" % (foes[0], n2))
+        else:
+            n2 = gather(sid, rid, board, baldr, list(wf), wf)
+            print("[gather] ennemi u%d amene au contact apres %d rounds" % (foes[0], n2))
+            n = gather(sid, rid, board, baldr, list(want), want)
+            print("[gather] allies places apres %d rounds (cibles=%s)" % (n, want))
 
         # rendre le tour a mon camp
         for _ in range(4):
@@ -297,27 +326,71 @@ def main(argv) -> int:
             ok &= same
             print("  %-16s port=%-22s natif=%-22s %s"
                   % (label, port_set, nat_set, "OK" if same else "DIVERGE"))
-        # V3 : l'attaque normale a-t-elle eu lieu, et sur QUI ?
+        # V3 : l'attaque normale a-t-elle eu lieu, sur QUI, et pour COMBIEN ?
+        # ⚠ L'IDENTITE DE LA CIBLE NE SUFFIT PAS : un port qui infligerait 100 au lieu de 12063
+        # rendrait le MEME ensemble « unites blessees ». On confronte donc l'ETAT DE PV, en
+        # projetant le total du port sur les PV de depart (mirror du clamp a 0 du natif).
         nat_target = sorted(damaged) if damaged else []
         port_target = [patk.get("target")] if patk.get("target") is not None else []
         same3 = sorted(port_target) == nat_target
+        hp_verdict = "(pas de cible)"
+        if port_target and nat_target and port_target[0] in hp0:
+            tid = port_target[0]
+            total = (patk.get("attack") or {}).get("total")
+            attendu = None if total is None else max(0, int(hp0[tid]) - int(total))
+            obtenu = hp1.get(tid)
+            same_hp = attendu is not None and obtenu is not None and attendu == obtenu
+            same3 &= bool(same_hp)
+            hp_verdict = ("hp: %s - %s -> port=%s natif=%s %s"
+                          % (hp0[tid], total, attendu, obtenu, "OK" if same_hp else "DIVERGE"))
         ok &= same3
         print("  %-16s port=%-22s natif=%-22s %s"
               % ("V3 attaque", port_target, nat_target, "OK" if same3 else "DIVERGE"))
+        print("  %-16s %s" % ("", hp_verdict))
         # TEMOIN DE NON-DEGENERESCENCE : un accord sur DEUX ensembles vides ne prouve rien.
+        # ⚠ On SEPARE deux natures que le premier jet confondait : une DIVERGENCE (le port et le
+        # natif ne disent pas la meme chose -> rouge de FIDELITE) et un VOLET NON EXERCE (le
+        # montage n'a pas arme ce volet -> rouge de MONTAGE, et seulement si ce bras devait
+        # l'armer). Les melanger faisait lire « ROUGE » sur un bras `--allies-first` parfaitement
+        # concordant, dont on SAIT qu'il enferme l'ennemi.
+        montage_ko = False
         if not n1502:
             print("  [TEMOIN] REGIME DEGENERE : le natif n'a pose AUCUN 1502 -- l'accord ne vaut rien")
-            ok = False
+            montage_ko = True
         if not n1529 and not a.far:
             print("  [TEMOIN] REGIME DEGENERE : aucun 1529 natif -- le volet V2 n'est pas exerce")
-            ok = False
+            montage_ko = True
         if not damaged:
-            print("  [TEMOIN] REGIME DEGENERE : aucune unite blessee -- le volet V3 n'est pas exerce")
+            if a.allies_first:
+                print("  [TEMOIN] volet V3 NON EXERCE, et c'est ATTENDU de ce bras : les allies "
+                      "places d'abord occupent les voisins de Baldr et enferment l'ennemi. "
+                      "Jouer le bras par defaut pour V3.")
+            else:
+                print("  [TEMOIN] MONTAGE KO : aucune unite blessee -- le volet V3 devait etre "
+                      "exerce par ce bras")
+                montage_ko = True
+        if montage_ko:
             ok = False
         # DISCRIMINATION : les deux ensembles doivent DIFFERER, sinon le filtre n'est pas teste.
         if n1502 and n1529 and sorted(n1502) == sorted(n1529):
             print("  [TEMOIN] NON DISCRIMINANT : 1502 et 1529 portent sur le MEME ensemble --"
                   " le `Filter` Final Vengeance n'est pas exerce par ce roster")
+        # CE QUE CE RUN EXERCE VRAIMENT, allie par allie -- une exclusion ne prouve le FILTRE DE
+        # TRAIT que si l'unite etait A PORTEE. Sans ce bloc, un `admecMarshall` reste a 2 hexes
+        # ferait lire son absence de la zone comme une preuve du filtre `Mechanical` alors qu'elle
+        # ne prouve que la portee. C'est exactement l'ecart entre les deux bras.
+        print("  --- ce que ce placement EXERCE ---")
+        for u in mine[1:]:
+            d = geo.get(u)
+            tr = (gc_traits(vis.get(u)) or [])
+            dedans = u in n1502
+            if d is not None and d <= 1:
+                quoi = ("EXERCE le filtre de trait (a portee, %s)"
+                        % ("EXCLU" if not dedans else "inclus"))
+            else:
+                quoi = "n'exerce QUE la portee (hors range, exclusion non concluante sur le trait)"
+            print("      u%-3d %-16s dist=%-3s traits=%-42s %s"
+                  % (u, vis.get(u), d, ",".join(tr), quoi))
         print("")
         print("[906] %s" % ("OK -- les trois volets concordent" if ok else "ROUGE"))
         rc = 0 if ok else 1
