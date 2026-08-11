@@ -134,8 +134,26 @@ def incendiary_shells_tree() -> AtomicGroup:
     fait que `hits` arrive d'un `GetNumberConstant` scalaire -- JAMAIS
     `DSLBehaviors$$AttackWithAbilityDamage`). Donc 2 tirages/coup a `cc=0`, comme l'imperatif.
 
-    `is_melee=False` est LU au litteral (`InformWeapon(profile, isMelee: **0**, useSpecial: **0**)`),
-    pas deduit -- il CONCORDE avec la portee 2 du gate, mais c'est le litteral qui fait foi.
+    ⚠ **LES DEUX `isMelee` DE CET ARBRE NE SONT PAS LE MEME OBJET, ET LEUR VALEUR DIFFERE.**
+      * `InformWeapon(profile, isMelee: **0**, useSpecial: **0**)` -- un LITTERAL de call-site, LU au
+        decompile. Il alimente le tag de flux `TagKey.Attack_Weapon_IsMelee`. Il vaut donc `False`,
+        et rien d'autre.
+      * `AttackWithAttackDamage(..., is_melee=...)` -- ce parametre-la ne mirror AUCUN argument du
+        call-site : il mirror `IdunBattle.Core.Services.BattleQuery$$IsMeleeAttack`, que le natif
+        DERIVE de `GetAbilityAttackRangeType` sur l'`AbilityOrEffect` du coup. Or **la config 1044
+        n'a PAS d'`attackRangeType`** (gameconfig : `id`/`upgrades`/`variables`/`constants`/
+        `variablesAffectedByRarityBonus`, et rien d'autre) -- contraste MESURE avec ses quatre
+        voisines de patron, toutes `Ranged` : 1048 Fragstorm, 1080 HellfireShells, 1051 Stikkbomb,
+        1098 PlasmaGrenade. `rangeType = 0` (absent) rend `IsMeleeAttack` **ET** `IsRangedAttack`
+        FAUX : la nature du coup est NON DECLAREE -> `is_melee=None`, la convention deja posee par
+        `1168 EntropyCannons` (`deathguard.py`).
+    ⚠ Ecrire `is_melee=False` ici n'est PAS un synonyme prudent de `None` : le port lit le tri-etat
+    (`c.get("is_melee") is not False` dans `BigTargetAdjacentEffect.create_aura_hits_malus_for_defense`),
+    donc un booleen ARME les gates `IsRangedAttack` que le natif laisse muets. MESURE (#907, montage
+    `melee`, cible `eldarRanger` avec `astraBullgryn` -- trait `BigTarget` -- adjacent) : le port
+    rendait **2** coups la ou le natif en rend **3**, le `-1` d'aura de `BigTargetAdjacentEffect`
+    (`ForAdditionWithMinimum(OwnerIsTarget & IsRangedAttack, Direct(-1), min=1)`) s'appliquant a
+    tort. `None` restaure l'accord 3/3.
 
     ⚠ `selectionType = OnlyTargetable` (2, et non le `3` OnlyAliveAndTargetable du reste du module)
     n'est PAS materialise : la feuille du port collapse le selecteur mono-cible sur `ctx.target`
@@ -145,7 +163,7 @@ def incendiary_shells_tree() -> AtomicGroup:
         # `op_BitwiseAnd` volet GAUCHE : execute EN PREMIER.
         InformWeapon(INCENDIARY_SHELLS_PROFILE, is_melee=False, use_special=False),
         AttackWithAttackDamage(Target(), INCENDIARY_SHELLS_ID, INCENDIARY_SHELLS_PROFILE,
-                               is_melee=False,
+                               is_melee=None,     # `attackRangeType` ABSENT -> nature NON declaree
                                # `abilityOrEffect = AbilityOrEffect(this+0x10)` -- LU au call-site.
                                ability_type=int(ActiveAbilityType.IncendiaryShells))))
 
