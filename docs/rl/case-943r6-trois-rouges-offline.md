@@ -104,7 +104,7 @@ ligne, qui bouge à chaque édition et ferait périmer la liste sans que rien n'
 
 ## 4. Ce qui n'est PAS couvert
 
-* **`#943-r6`** (résidu ouvert) — `etape1` du même probe est **ROUGE** sur `admec.py:917`
+* **`#943-r6-r1`** (résidu ouvert) — `etape1` du même probe est **ROUGE** sur `admec.py:917`
   (`are_entities_adjacent` : élévation fournie, voisinage omis) et **aucun test de la banque ne la
   joue** : le seul fichier qui importe le probe appelle `etape2/3/4/5`, jamais `etape1`. Les quatre
   étapes *neuves* ont un test de câblage dédié, l'ancienne n'en a pas. Non traité ici : la tranche
