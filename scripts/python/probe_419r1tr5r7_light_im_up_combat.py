@@ -85,7 +85,11 @@ def _dist(board, a, b):
 
 
 def _drive_adjacent(sid, rid, board, caster_vid, want_dist=1, turns=30):
-    """DEPLACE le caster jusqu'a `want_dist` de l'ennemi le plus proche. Rend (dec, cid, tid)."""
+    """DEPLACE le caster jusqu'a la distance EXACTE `want_dist` de l'ennemi le plus proche.
+
+    ⚠ La cible de distance est EXACTE, pas un plafond : le premier jet s'arretait a `d <=
+    want_dist` et rendait donc TOUJOURS d = 1 -- le regime A DISTANCE, celui qui rend la gate de
+    melee discriminante, n'etait jamais atteint et le mutant serait passe pour vert."""
     for _ in range(turns):
         dec = _r(sid, "decisionView", {"runnerId": rid, "maxRank": 1, "allAbilities": True}, 90)
         cu = _unit_of(dec, caster_vid)
@@ -96,7 +100,7 @@ def _drive_adjacent(sid, rid, board, caster_vid, want_dist=1, turns=30):
             return dec, int(cu["id"]), None
         best = min(foes, key=lambda u: (_dist(board, _pos(cu), _pos(u)) or 99))
         d = _dist(board, _pos(cu), _pos(best))
-        if d is not None and d <= want_dist:
+        if d == want_dist:
             return dec, int(cu["id"]), int(best["id"])
         if dec.get("currentPlayer") != cu.get("owner"):
             _r(sid, "applyAction", {"runnerId": rid, "action": {"kind": "endturn"}}, 40)
@@ -109,8 +113,12 @@ def _drive_adjacent(sid, rid, board, caster_vid, want_dist=1, turns=30):
             _r(sid, "applyAction", {"runnerId": rid, "action": {"kind": "endturn"}}, 40)
             continue
         tgt = _pos(best)
-        tiles.sort(key=lambda t: (_dist(board, (t["col"], t["row"]), tgt) or 99))
+        # tuile dont la distance a T1 est la plus PROCHE de `want_dist` (en valeur absolue) : on
+        # peut donc aussi s'ELOIGNER, ce qu'un tri par distance croissante ne permet pas.
+        tiles.sort(key=lambda t: abs((_dist(board, (t["col"], t["row"]), tgt) or 99) - want_dist))
         t0 = tiles[0]
+        if (_dist(board, (t0["col"], t0["row"]), tgt) or 99) == d:
+            return dec, int(cu["id"]), int(best["id"])       # plus rien a gagner : on rend l'etat
         _r(sid, "applyAction", {"runnerId": rid, "action": {
             "kind": "move", "unitId": int(cu["id"]), "to": {"col": t0["col"], "row": t0["row"]}}}, 40)
     dec = _r(sid, "decisionView", {"runnerId": rid, "maxRank": 1, "allAbilities": True}, 90)
@@ -151,6 +159,10 @@ def main():
                          "force une valeur unique sur tout le camp (et met l'armure a 0). Poser "
                          "`RemainingHealth` EN PLUS de `Health` -- le natif lit le premier.")
     ap.add_argument("--dump-tags", action="store_true", help="imprime les TAGS BRUTS des events de degat")
+    ap.add_argument("--dist", type=int, default=1,
+                    help="distance VOULUE entre le caster et T1. `orksWarboss` porte DEUX armes "
+                         "(melee Eviscerate 2 coups + Projectile Range 3, 1 coup) : a d >= 2 il "
+                         "attaque A DISTANCE, ce qui rend la gate de melee DISCRIMINANTE.")
     ap.add_argument("--no-hp-target", action="store_true",
                     help="n'envoie PAS `--hp-target` (qui met Armor/FixedArmor a 0)")
     ap.add_argument("--mutant", default="none",
@@ -196,7 +208,7 @@ def main():
         bg = _r(sid, "boardGraph", {"runnerId": rid}, 60)
         from engine.entities.pathfinding.board import Board
         board = Board(bg["tiles"], adjacency="evenq")
-        dec, cid, t1 = _drive_adjacent(sid, rid, board, WARBOSS, want_dist=1)
+        dec, cid, t1 = _drive_adjacent(sid, rid, board, WARBOSS, want_dist=int(args.dist))
         if cid is None or t1 is None:
             print("[tr5r7] ECHEC MONTAGE : caster ou cible introuvable")
             return 2
