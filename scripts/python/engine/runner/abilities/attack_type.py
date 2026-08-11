@@ -352,6 +352,17 @@ ABILITY_ATTACK_TYPE: dict[int, int] = {
     # ⚠ Le cast arme AUSSI une attaque DIFFEREE (la triggered 1520, profil `Piercing`), et
     # l'`AbilityAttackType` ne le dit pas : il qualifie le CAST, pas la mecanique.
     ActiveAbilityType.TheLionsWrath: AbilityAttackType.DirectTargetAttack,  # 1217
+    # `IdunBattleLogic.Entities.Abilities.Active.Loki.MartialExemplarAbility$$.ctor` ->
+    # `AActiveAbility..ctor(this, &opts, 2)` : 3e argument = **2 = Others** (#889-r5).
+    # ⚠ **LITTERAL OPPOSE A CELUI DE SA JUMELLE**, ligne du dessus : 1216 et 1217 sont les DEUX
+    # actives du MEME boss (`darkaBossLion`), toutes deux frappent, et pourtant l'une vaut `0` et
+    # l'autre `2`. Le deduire du profil de degat ou de la parente aurait ecrit `0`. Ce qui les
+    # separe est la FORME du ctor, lue octet a octet : 1217 recopie le preset `statics+0x40` TEL
+    # QUEL (STATIC-COPY), 1216 recopie `statics+0x280` puis appelle la surcharge PRESET+FLAGS avec
+    # `additionalRules = 0x10` -- et son 3e argument a `AActiveAbility..ctor` est `2`.
+    # ⚠ Le cast enchaine AUSSI une ATTAQUE NORMALE (`UseNormalAttack`/`UseNormalAttackIfAble`), et
+    # l'`AbilityAttackType` ne le dit pas : il qualifie le CAST, pas la mecanique.
+    ActiveAbilityType.MartialExemplar: AbilityAttackType.Others,  # 1216
     # `IdunBattleLogic.Entities.Abilities.Active.Loki.DoomSirenAbility$$.ctor` ->
     # `AActiveAbility..ctor(this, &opts, 0, 0)` : 3e argument = 0 = DirectTargetAttack.
     ActiveAbilityType.DoomSiren: AbilityAttackType.DirectTargetAttack,  # 1199

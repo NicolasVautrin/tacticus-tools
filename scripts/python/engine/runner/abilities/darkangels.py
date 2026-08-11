@@ -27,15 +27,21 @@ from ...dsl.base import Const
 from ...dsl.effects import ExecutionContext
 from ...entities.behaviours import AtomicGroup, Foreach, If, op_add, op_and
 from ...entities.effect_type import EffectType
-from ...entities.formulas import AngleBetweenLines, Count, percentage_of_attack_capped_at_max
-from ...entities.selectors.accessors import (FixedTileIds, Owner, Subject, SurroundingTiles,
-                                             Target)
-from ...entities.selectors.geometry import Cache, FilterContinuous, PickFirstN, TilesBehindInLine
-from ...entities.selectors.tiles import AdjacentTiles, Caster
+from ...entities.formulas import (AngleBetweenLines, Count, StatAmount, UnitNormalAttackType,
+                                  percentage_of_attack_capped_at_max)
+from ...entities.selectors.accessors import (ActiveTarget, CasterTile, FixedTileIds, Owner, Subject,
+                                             SurroundingTiles, Target)
+from ...entities.selectors.geometry import (Cache, FilterContinuous, PickFirstN, PickRandomly,
+                                            TilesBehindInLine)
+from ...entities.selectors.tiles import AdjacentTiles, AllAliveUnits, Caster
 from ...entities.selectors.units import (
-    Alive, Enemies, SortByDistance, SortByFormula, Tiles, Union, UnitSet, Units,
-    UnitsDirectlyBehind
+    AdjacentEnemies, Alive, Enemies, Filter, SortByDistance, SortByFormula,
+    SortUnitsByDamageUtility, Tiles, Union, UnitSet, Units, UnitsDirectlyBehind
 )
+from ...entities.selectors.composites import attackable_enemies
+from ...entities.selectors.pathing import ClosestPositionToTarget, Nearest
+from ...entities.distance_type import DistanceType
+from ...entities.traits.unit_trait import UnitTrait
 from ...entities.active_ability_type import ActiveAbilityType
 from ...entities.stats import StatPart, StatType
 from ...entities.unit_selection_type import UnitSelectionType
@@ -45,16 +51,20 @@ from ...entities.unit_selection_type import UnitSelectionType
 #: `OnlyAliveAndTargetable` = `IsAlive && !HasFlag(UnitFlag.Untargetable)`, applique PAR ELEMENT par
 #: `IdunBattle.DSL.TargetsSelector$$SelectUnit` -> `IdunBattle.Entities.UnitExtensions$$MatchesUnitSelectionType`.
 SELECTION = int(UnitSelectionType.OnlyAliveAndTargetable)     # 3
-from ...entities.triggers import (AreEnemies, AreEqual, HasEffect, HasGrandAlliance, HasUnit,
-                                  IsAlive, TriggerAnd)
+from ...entities.triggers import (AmountIsGreaterThanZero, AreEnemies, AreEqual, HasEffect,
+                                  HasGrandAlliance, HasTrait, HasUnit, IsAdjacent, IsAlive, Not,
+                                  TriggerAnd)
 # `IdunBattle.Core.Services.MinMaxDamage$$Avg` (demi-vers-le-PAIR) : la cle de tri de
 # `SortAttackersByDamagePredictionSelector`. Import AU NIVEAU MODULE pour que le cablage soit
 # verifiable sur l'objet importe (garde #344), et non sur le texte du fichier.
 from ...services.min_max_damage import min_max_avg
 from .base import ActiveAbility
-from .behaviours.combat import AttackWithAttackDamage, UseActiveAbility
+from .behaviours.combat import (AttackWithAttackDamage, UseActiveAbility, UseNormalAttack,
+                                UseNormalAttackIfAble)
 from .behaviours.context import entities_from_state
 from .behaviours.effects import AddBondEffect, AddEffect, RemoveEffect
+from .behaviours.lifecycle import KillDeadUnits
+from .behaviours.movement import MoveUnit
 from .behaviours.stats import AddStatOverrideEffect
 from .targeting import (RANGE_ADJACENT, RANGE_FROM_CONFIG, RANGE_SELF, RANGE_WHOLE_BOARD,
                         RANGED_BOOL_FALSE, RANGED_BOOL_IF_RANGED_CASTER, RANGED_BOOL_TRUE,
@@ -1448,3 +1458,247 @@ class TheLionsWrathAbility(ActiveAbility):
                for n, p in ectx.emitted if n == "AttackWithAttackDamage"]
         return {"ability": self.ABILITY_ID, "caster": caster_id, "target": target_id,
                 "posed": posed, "damage": dmg, "dsl": True}
+
+
+# =========== MartialExemplar (1216, `darkaBossLion` « le Lion », GuildBoss) -- #889-r5 ============
+#
+# L'AUTRE active du MEME boss que `1217 TheLionsWrath` ci-dessus. Ce n'est PAS un patron 2-phases :
+# tout se joue dans le cast, mais en DEUX temps -- une frappe AoE adjacente, puis une ATTAQUE
+# NORMALE enchainee, avec un DEPLACEMENT si plus aucune cible n'est adjacente apres la frappe.
+#
+#: `EffectType.MartialExemplar_ExtraCritChance` -- le buff de crit pose sur le CASTER, 1 tour.
+#: ⚠ `1520` est AUSSI `TriggeredAbilityType.TheLionsWrath_PendingAttack` (la phase 2 de 1217) : deux
+#: enums, deux entites, meme ordinal. C'est le 2e argument de l'`AddEffect` natif (un `EffectType`)
+#: qui tranche ici.
+ME_EXTRA_CRIT = int(EffectType.MartialExemplar_ExtraCritChance)     # 0x5f0 = 1520
+ME_ACTIVE_ID = ActiveAbilityType.MartialExemplar.name               # "MartialExemplar"
+
+
+def _martial_exemplar_pulled_target():
+    """`<cible tiree>` de `...MartialExemplarAbility$$ExecuteBehaviour` -- MIRROR du decompile :
+
+        Cache( PickRandomly(
+                   Nearest( Filter( Enemies(Owner@+0x30, AllAliveUnits@+0x20,
+                                            OnlyAliveAndTargetable),
+                                    NOT HasTrait(ActiveTarget@+0x68, 0x1b = Steppable) ),
+                            target          = CasterTiles@DSLSelectors+0x58,
+                            pathfindingUnit = Owner@+0x30,
+                            distanceType    = DistanceType.PathLength,
+                            maxDistance     = null ),
+                   amount = 1, allowDuplicates = false, maxDuplicates = 0x7fffffff,
+                   ignoreForcedTargets = false ),
+               true )
+
+    Le `Filter` est LITTERALEMENT ce que fait la sous-fonction nommee
+    `...MartialExemplarAbility$$GetValidDamageTargets`, et le couple `Filter + Nearest` ce que fait
+    `$$GetNearestValidAttackTargets` -- les DEUX sont inlinees dans l'`ExecuteBehaviour`, verifie
+    par les xrefs (`$$ExecuteBehaviour` appelle `DSLSelectors$$Nearest` DIRECTEMENT, a
+    `MartialExemplarAbility$$ExecuteBehaviour+0x355`, en plus de l'appel de la sous-fonction).
+
+    ⚠ `distanceType = PathLength` : l'ennemi << le plus proche >> se mesure en NOMBRE DE PAS depuis
+    la tuile du caster, pas en distance hex. Sur un board a obstacles les deux classements different,
+    et c'est exactement ce que le Lion utilise pour choisir vers QUI marcher.
+
+    ⚠ `CasterTiles@+0x58` s'ecrit `CasterTile()` : `DSLSelectors$$InitializeShared` alloue le
+    SINGULIER (+0x50) et le PLURIEL (+0x58) depuis le MEME pointeur de classe et le meme ctor -- le
+    port les collapse deja sur un seul noeud, qui rend l'EMPREINTE (residu #478-r1, anterieur)."""
+    valid = Filter(Enemies(AllAliveUnits(),
+                           selection_type=int(UnitSelectionType.OnlyAliveAndTargetable)),
+                   Not(HasTrait(ActiveTarget(), int(UnitTrait.Steppable))))
+    nearest = Nearest(valid, CasterTile(), Owner(),
+                      distance_type=int(DistanceType.PathLength), max_distance=None)
+    return Cache(PickRandomly(nearest, 1))
+
+
+def _martial_exemplar_adjacent_attackable():
+    """`<attaquables adjacents>` -- MIRROR du decompile :
+
+        Cache( Filter( AttackableEnemies(Owner@DSLSelectors+0x30),
+                       IsAdjacent(ActiveTarget@+0x68, Owner@+0x30,
+                                  UnitSelectionType.OnlyAliveAndTargetable) ),
+               true )
+
+    `AttackableEnemies` = `UnitsWithoutTrait(Enemies(unit, AllAliveUnits, 3), Steppable, 3)` (corps
+    natif entier, cf. `selectors/composites.attackable_enemies`).
+
+    Le `Cache` compte : ce selecteur est evalue DEUX fois dans l'arbre -- une par le predicat
+    `AmountIsGreaterThanZero`, une par le `SortUnitsByDamageUtility` de la branche THEN -- et le
+    natif memoise entre les deux. Sans memoisation, un ennemi tue ENTRE les deux evaluations ferait
+    diverger la condition et l'action."""
+    return Cache(Filter(attackable_enemies(Owner()),
+                        IsAdjacent(ActiveTarget(), Owner(),
+                                   selection_type=int(UnitSelectionType.OnlyAliveAndTargetable))))
+
+
+def martial_exemplar_tree(nr_tiles):
+    """Arbre de `IdunBattleLogic.Entities.Abilities.Active.Loki.MartialExemplarAbility$$
+    ExecuteBehaviour` -- MIRROR 1:1 du DECOMPILE (build `rnca9r7q6c`), lu de bout en bout :
+
+        e1  = DSLBehaviors$$AddEffect( 0x5f0 = 1520 MartialExemplar_ExtraCritChance,
+                                       AActiveAbility$$get_AbilityStateReference(this),
+                                       targets = Owner@DSLSelectors+0x30,
+                                       turns   = <DSLFormulas+0x20> = Direct(1) )
+        atk = DSLBehaviors$$AttackWithAttackDamage(
+                  caster        = Owner@+0x30,
+                  target        = DSLSelectors$$AdjacentEnemies(Owner@+0x30, unique: true,
+                                                                OnlyAliveAndTargetable),
+                  amount        = AActiveAbility$$MinMaxDamage(this, abilityState),
+                  damageProfile = AbilityConfiguration$$GetDamageProfile(config@+0x60),
+                  hits          = DSLFormulas$$ConfigConst(0x2f = nrOfHits, config@+0x60),
+                  abilityOrEffect = AbilityOrEffect(this),
+                  options       = <struct ZEROEE>,
+                  selectionType = 2 )
+        kill = DSLBehaviors$$KillDeadUnits( Caster@+0x48,
+                                            AdjacentEnemies(Owner@+0x30, unique: true,
+                                                            UnitSelectionType.Any) )
+        then = DSLBehaviors$$UseNormalAttack( Owner@+0x30,
+                   DSLSelectors$$SortUnitsByDamageUtility(<attaquables adjacents>, Owner@+0x30,
+                       UnitNormalAttackType(Owner@+0x30), UtilityDefinition(0x23 = Damage),
+                       DSLFormulas$$NormalAttackDamage(Owner@+0x30),
+                       UnitSelectionType.OnlyAliveAndTargetable, hits: null),
+                   parentAbility: null, trigger: null, options: <ZEROEE> )
+        els  = DSLBehaviors$$MoveUnit( Owner@+0x30,
+                   DSLSelectors$$ClosestPositionToTarget(Owner@+0x30, Tiles(<cible tiree>),
+                       maxDistance = ConfigConst(0x17 = nrOfTiles), ignoreFlags = false),
+                   options: <ZEROEE> )
+               op_Addition
+               DSLBehaviors$$UseNormalAttackIfAble( Owner@+0x30, <cible tiree>,
+                   parentAbility: null, trigger: null, options: <ZEROEE + Nullable(2)> )
+        AActiveAbility$$Execute( (e1 op_Addition atk)
+                                 op_Addition DSLBehaviors$$IfAlive( Caster@+0x48,
+                                     kill op_Addition DSLBehaviors$$If(
+                                         DSLTriggers$$AmountIsGreaterThanZero(<attaquables adjacents>),
+                                         then, els),
+                                     <else> = null ) )
+
+    QUATRE points de structure, et aucun n'est cosmetique :
+
+    * **`AdjacentEnemies` est appele DEUX fois avec des `selectionType` DIFFERENTS.** La frappe
+      passe `OnlyAliveAndTargetable(3)` -- elle ne vise que du vivant ; le `KillDeadUnits` qui suit
+      passe **`Any(0)`** -- il doit voir les CADAVRES que la frappe vient de faire. Recopier `3`
+      aux deux rangs aurait laisse des morts non nettoyes, en silence. Le port ne materialise pas
+      le flag `unique` (residu anterieur `#433-r3-r1a-r1`), et son `AdjacentEnemies` porte un
+      `radius` la ou le natif porte `unique` : l'adjacence (rayon 1) est le DEFAUT du port.
+    * **le `If` est DANS l'`IfAlive(Caster)`, et l'`AddEffect`+frappe sont DEHORS.** Un Lion mort au
+      vol (riposte, overwatch) a donc quand meme buffe et frappe, mais n'enchaine ni attaque
+      normale ni deplacement -- meme forme que `1217`, meme faute evitee que `LashOfTorment`.
+    * **la branche ELSE bouge PUIS attaque**, et son `UseNormalAttackIfAble` vise `<cible tiree>`,
+      pas la cible du deplacement calculee separement : les deux consomment le MEME `Cache`.
+    * **`UseNormalAttack` prend la PREMIERE cible du tri** (`SelectFirst`, slot 1 de
+      `ITargetsSelector`), pas toutes -- cf. la docstring du noeud.
+
+    `nr_tiles` = `GetNumberConstant(0x17 = nrOfTiles)`, LU du gameconfig par l'appelant.
+
+    ⚠ **CE QUE L'AUDIT NE DIT PAS.** Il classe 1216 en `DAMAGE(Power)` : c'est le profil de la
+    frappe AoE, et c'est juste. Mais le cast enchaine une **ATTAQUE NORMALE**, dont le profil et le
+    nombre de coups sont ceux de l'ARME du Lion, pas `Power`/`nrOfHits`. La colonne derive du
+    `damageProfile` de l'ability et ne peut pas voir ce second volet."""
+    e1 = AddEffect(ME_EXTRA_CRIT, EffectType.MartialExemplar_ExtraCritChance.name,
+                   Owner(), duration_rounds=None, duration_turns=1, scale_from_source=True)
+    atk = AttackWithAttackDamage(
+        # `AdjacentEnemies(Owner@+0x30, unique: true, OnlyAliveAndTargetable)` -- selecteur MULTI.
+        AdjacentEnemies(Owner(), selection_type=int(UnitSelectionType.OnlyAliveAndTargetable)),
+        ME_ACTIVE_ID,
+        _ability_profile(ME_ACTIVE_ID, "damageProfile"),    # `GetDamageProfile(config@+0x60)`
+        # `attackRangeType` de 1216 = melee au gameconfig ; le noeud ne porte AUCUN bit melee/ranged
+        # (releve #503-r5 sur les cinq surcharges), c'est la CONFIG qui decide.
+        is_melee=True,
+        level_slot="active",
+        multi=True,                                        # l'AoE frappe TOUS les adjacents
+        ability_type=int(ActiveAbilityType.MartialExemplar),
+        force_overkill=False, force_crit=False)            # options ZEROEES
+    kill = KillDeadUnits(Caster(),
+                         # ⚠ `UnitSelectionType.Any` ICI, et `OnlyAliveAndTargetable` sur la frappe.
+                         AdjacentEnemies(Owner(), selection_type=int(UnitSelectionType.Any)))
+    adjacent = _martial_exemplar_adjacent_attackable()
+    pulled = _martial_exemplar_pulled_target()
+    then = UseNormalAttack(
+        Owner(),
+        SortUnitsByDamageUtility(
+            adjacent, Owner(),
+            damage=StatAmount(Owner(), int(StatType.ATTACK)),   # `NormalAttackDamage(Owner)`
+            ability=UnitNormalAttackType(Owner()),
+            selection_type=int(UnitSelectionType.OnlyAliveAndTargetable), hits=None))
+    els = op_add(MoveUnit(Owner(),
+                          ClosestPositionToTarget(Owner(), Tiles(pulled),
+                                                  max_distance=Const(int(nr_tiles)),
+                                                  ignore_flags=False)),
+                 UseNormalAttackIfAble(Owner(), pulled))
+    return op_add(op_add(e1, atk),
+                  # `DSLBehaviors$$IfAlive(Caster@+0x48, …, null)` = `If(IsAlive(...), ...)`.
+                  If(IsAlive(Caster()),
+                     op_add(kill, If(AmountIsGreaterThanZero(adjacent), then, els))))
+
+
+class MartialExemplarAbility(ActiveAbility):
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.MartialExemplarAbility$$ExecuteBehaviour`
+    (id 1216, `darkaBossLion` « le Lion », GuildBoss DarkAngels). Arbre DSL `martial_exemplar_tree`.
+
+    ROUGE MESURE AVANT CE PORT, et c'est le MEME que celui de sa jumelle 1217 : 1216 etait ABSENTE
+    d'`ABILITY_CLASSES` -> `AbilityHandler` acceptait le cast, posait les flags de tour, et
+    n'executait RIEN. Zero degat, zero effet, zero erreur -- alors que la face DECISION etait deja
+    portee (`playbook/loki_custom.py::MartialExemplarPlaybook`, #27-r4) : l'IA CHOISISSAIT une
+    ability qui ne faisait rien. La tranche #889 avait REFUSE de la porter faute des noeuds DSL
+    (`Nearest`, `ClosestPositionToTarget`, `SortUnitsByDamageUtility`, `AttackableEnemies`,
+    `UseNormalAttack`/`IfAble`) ; ils sont portes par #889-r5, dans le meme commit que cette classe.
+
+    `ABILITY_ATTACK_TYPE` : `...MartialExemplarAbility$$.ctor` termine par
+    `AActiveAbility..ctor(this, &opts, 2)` -> 3e argument = `2`. LITTERAL TRANSCRIT (relu au
+    decompile de ce build), pas deduit du profil de degat -- et il DIFFERE de celui de 1217 (`0`).
+
+    Turn-flags = defauts base (1216 ABSENT des overrides `NO_END_TURN_ABILITY_TYPES` /
+    `NO_ABILITY_USED_FLAG_ABILITY_TYPES`) -> le cast termine le tour et pose `ActiveAbilityUsed`.
+
+    Diag : {posed: [...], damage: [...], normal_attacks: [...], moved: [...], dsl: True}."""
+    __slots__ = ()
+    ABILITY_TYPE = int(ActiveAbilityType.MartialExemplar)   # 1216
+    ABILITY_ID = "MartialExemplar"
+
+    # GATE DE CIBLE (#115) + PORTEE (#241) -- forme **PRESET + FLAGS**, et le litteral visible n'est
+    # PAS le masque. `IdunBattleLogic.Entities.Abilities.Active.Loki.MartialExemplarAbility$$.ctor`
+    # recopie les 0x40 octets du preset `<TargetingOptions statics>+0x280` dans une struct locale,
+    # appelle `IdunBattle.Core.Services.TargetingOptions$$.ctor(this, template, additionalRules)`
+    # avec `additionalRules = 0x10` (dont le corps fait `this.rules = additionalRules |
+    # template.rules`), puis passe le resultat a `AActiveAbility$$.ctor(this, &opts, 2)`.
+    # Le preset porte `rules = 0x8004` (ecrit par `TargetingOptions$$.cctor` en `<preset>+0x28`) :
+    #     0x8004 | 0x10 = 0x8014
+    #   = CasterIsPossibleTarget(0x8000) | CasterHasNotMoved(0x10) | CasterMatchesDynamicRule(0x4)
+    # Recopier `0x10` seul aurait produit un masque FAUX -- pire que l'absence.
+    # `isSelfCasting` = `<preset>+0x00` = 1 ; `forceMeleeTarget` = `<preset>+0x20` = 1 = RangedBool.False.
+    # `range` = `None` DELIBERE : le bloc de 24 octets `<preset>+0x08..0x1f` est recopie d'un champ
+    # statique de `TargetingRange` et n'a PAS ete resolu -> aucun gate de portee invente.
+    # ⚠ Ces quatre valeurs MIGRENT depuis `TARGETING_OPTIONS_UNPORTED[1216]` (contrat de DISJONCTION :
+    # une ability a UNE source de masque, jamais deux) ; elles ont ete RE-LUES au decompile avant
+    # migration et sont bit-identiques a celles qui vivaient la-bas.
+    # ⚠ `1215 InstrumentsOfVengeance` recopie le MEME preset SANS les flags (forme STATIC-COPY) et
+    # reste donc dans la table : elle n'a PAS `CasterHasNotMoved`.
+    TARGETING_OPTIONS = TargetingOptions(rules=TR.CasterIsPossibleTarget | TR.CasterHasNotMoved
+                                         | TR.CasterMatchesDynamicRule,
+                                         self_cast=True, range=None,
+                                         force_melee_target=RANGED_BOOL_FALSE)
+
+    def execute_behaviour(self, state: "State", caster_id: int,
+                          target_id: Optional[int]) -> Optional[dict]:
+        # `GetNumberConstant(0x17 = nrOfTiles)` -- LU du gameconfig, jamais code en dur.
+        nr_tiles = int(_ability_profile(ME_ACTIVE_ID, "nrOfTiles"))
+        ectx = ExecutionContext(state=state, rng=state.rng)
+        entities = entities_from_state(state, caster_id, target_id)
+        martial_exemplar_tree(nr_tiles).execute(entities, ectx)
+        posed = [{"effect": p.get("effect_type"), "target": p.get("target")}
+                 for n, p in ectx.emitted if n in ("AddEffect", "AddBondEffect")]
+        dmg = [{"target": p.get("target"), "total": (p.get("attack") or {}).get("total"),
+                "etages": {k: (p.get("attack") or {}).get(k) for k in
+                           ("base_min", "base_max", "pierce", "armor", "did_block", "did_crit",
+                            "crits", "rolls", "per_hit", "per_hit_health",
+                            "clean_min", "clean_max", "hp_before", "hp_after")}}
+               for n, p in ectx.emitted if n == "AttackWithAttackDamage"]
+        # Le SECOND volet de degat -- celui que la colonne `DAMAGE(Power)` de l'audit ne voit pas.
+        normals = [{"subject": p.get("subject"), "target": p.get("target"),
+                    "total": (p.get("attack") or {}).get("total"),
+                    "if_able": p.get("if_able_option")}
+                   for n, p in ectx.emitted if n in ("UseNormalAttack", "UseNormalAttackIfAble")]
+        moved = [{"unit": p.get("unit"), "to": p.get("to")}
+                 for n, p in ectx.emitted if n == "MoveUnit"]
+        return {"ability": self.ABILITY_ID, "caster": caster_id, "target": target_id,
+                "posed": posed, "damage": dmg, "normal_attacks": normals, "moved": moved,
+                "dsl": True}
