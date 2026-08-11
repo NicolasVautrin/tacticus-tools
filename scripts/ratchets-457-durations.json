@@ -265,6 +265,7 @@
  "tests/engine/test_933_premisse_regime_offline.py": 12.224,
  "tests/engine/test_937_repeat_node_offline.py": 0.008,
  "tests/engine/test_944_combat_behaviours_offline.py": 1.48,
+ "tests/engine/test_945_loki_decision_faces_offline.py": 1.068,
  "tests/engine/test_effect_1582_inertia_binary.py": 1.156,
  "tests/engine/test_fabricator_claw_cap_binary.py": 0.446,
  "tests/engine/test_lions_wrath_custom_utility.py": 0.013,

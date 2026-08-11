@@ -107,6 +107,10 @@ from .unbreakable_duty import UnbreakableDutyPlaybook
 from .exemplar_of_the_montka import ExemplarOfTheMontkaPlaybook
 from .attempted_possession import AttemptedPossessionPlaybook
 from .bio_minefield import BioMinefieldPlaybook
+from .adaptive_strategy import AdaptiveStrategyPlaybook
+from .storm_of_wrath import StormOfWrathPlaybook
+from .alpha_warrior import AlphaWarriorPlaybook
+from .calibanite_greatsword import CalibaniteGreatswordPlaybook
 
 
 # Registre abilityType -> instance de playbook (remplace le switch `kind`).
@@ -238,6 +242,26 @@ PLAYBOOKS: dict[int, NonComparablePlaybook] = {
         # mais le gate est une surcharge DIRECTE du slot 4 (`ShouldEvaluate = HasNormalAttackTarget`),
         # pas un `GetUseProbability` : aucun tirage aleatoire, donc le port peut etre EXACT.
         ExemplarOfTheMontkaPlaybook(),  # 1210
+        # #945 -- les QUATRE faces DECISION `NonComparable` du lot `IdunBattle.AI.Playbook.Loki.*`
+        # (base LUE dans `frida/classes.tsv` pour les quatre ; le `.ctor` NOMME
+        # `ComparablePlaybook<...>` pour toutes, corps trivial DEDUPLIQUE -- piege de #487-r1).
+        # Aucune ne surcharge `get_Priority` (absentes du sweep exhaustif #170) -> tier 0.
+        AdaptiveStrategyPlaybook(),     # 1005 -- util = #allies du caster NON-HEROS adjacents a la
+        #                                 CIBLE ; gate `if (1 < n)` INLINE (pas de `.cctor`).
+        #                                 ⚠ le playbook ancre sur `Target@+0x60` la ou
+        #                                 `...AdaptiveStrategyAbility$$ExecuteBehaviour` ancre sur
+        #                                 `Caster@+0x48` : ecart NATIF, transcrit tel quel.
+        StormOfWrathPlaybook(),         # 1019 -- util = |GetChainedUnits(cible, onlyFriends: true)|
+        #                                 (slot IBattleQuery 16), CIBLE COMPRISE ; MIN_UTILITY = 2
+        #                                 construit INLINE dans la methode, pas dans un `.cctor`.
+        AlphaWarriorPlaybook(),         # 1112 -- util BOOLEENNE `HasSummonTargetInAttackRangeAtTile`
+        #                                 (slot 195) sur la TUILE de spawn ; MIN_UTILITY = 1
+        #                                 (`.cctor`) en fait un VETO. Gate slot 4 = le corps folde
+        #                                 `AlphaWarriorPlaybook$$ShouldEvaluate` (turnsStarted > 1).
+        CalibaniteGreatswordPlaybook(),  # 1189 -- TOGGLE self-cast : `Fix64(int.MaxValue)` emis ssi
+        #                                 `cond XOR HasEffect(CalibaniteGreatswordSweep)`, et
+        #                                 SEULEMENT depuis l'origine (`casterPosition != current`
+        #                                 -> bucket vide).
     )
 }
 
@@ -311,4 +335,6 @@ __all__ = [
     "MasterOfTheTutelariesPlaybook", "SupremeCommanderPlaybook",
     "HellfyreMissileRackPlaybook", "UnstoppableMomentumReworkedPlaybook",
     "MindControlPlaybook", "AttemptedPossessionPlaybook",
+    "AdaptiveStrategyPlaybook", "StormOfWrathPlaybook", "AlphaWarriorPlaybook",
+    "CalibaniteGreatswordPlaybook",
 ]

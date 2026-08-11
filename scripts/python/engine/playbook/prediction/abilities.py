@@ -358,6 +358,43 @@ def _hellfire_shells_inputs(scene, caster_id, target_id, ab, cfg) -> dict:
     return {"base_override": base, "hits_override": hits, "profile_override": "None"}
 
 
+def _brazier_of_holy_fire_inputs(scene, caster_id, target_id, ab, cfg) -> dict:
+    """`IdunBattle.AI.Playbook.Loki.BrazierOfHolyFirePlaybook$$MakeDamagePredictions` (ability 1041,
+    `adeptCanoness`) -- HITS CONDITIONNELS AU TRAIT DE LA CIBLE (#945).
+
+    Le playbook n'appelle PAS `AActiveAbility$$GetHits` : il evalue la formule
+    `IdunBattleLogic.Entities.Abilities.Active.Loki.BrazierOfHolyFireAbility$$GetNumberOfHits`
+    (`ConditionalAmount(HasTrait(target, 0x3fb = UnitTrait.Daemon), nrOfHits_2, nrOfHits)`) sur un
+    `AbilityEntities` dont la cible est `param_4`, puis passe le RESULTAT BRUT en 7e argument de
+    `ComparablePlaybook<T>$$GenerateMultiHitAttackPredictions`. Deux consequences, toutes deux
+    absentes du chemin generique :
+
+      * config `rnca9r7q6c` : `nrOfHits = 2`, `nrOfHits_2 = 4` -> **4 coups contre un Daemon**, 2
+        sinon. Le port en predisait 2 dans les deux cas, soit la MOITIE du degat face aux 24 unites
+        `Daemon` du gameconfig ;
+      * `GetDefaultAttackHits` (donc `ExtraHits` / `ExtraHitsMelee`) n'intervient PAS -- le chemin
+        generique l'appliquait. Meme quirk et meme correctif que `_hellfire_shells_inputs` (#173).
+
+    La BASE n'est pas surchargee : `<BrazierOfHolyFireAbility>$$GetDamageAmountMain` est le corps
+    DEDUPLIQUE etiquete `StranglethornCannonAbility$$GetDamageAmountMain` ->
+    `AActiveAbility$$MinMaxDamageAverage`, et 1041 figure DEJA dans
+    `entities.abilities.active_ability._A_VIA_GET_DAMAGE_AMOUNT_MAIN` (#344) : `ab.get_damage()`
+    rend deja la moyenne demi-vers-le-pair. Le PROFIL non plus (`Flame` de la config).
+
+    Le trait est lu sur l'ENTITE cible (`_entity_traits`, #267-r1), jamais sur le kit par visualId
+    -- le natif appelle `DSLTriggers.HasTrait(<Entity(target)>, ...)` en direct.
+
+    Formule portee dans `entities.abilities.active_ability.BrazierOfHolyFireAbility.
+    get_number_of_hits` (mirror 1:1 de la methode d'ABILITY native), consommee ici : le registre
+    `_SPECIAL_ABILITY_CLASSES` fait que `ab` EST une `BrazierOfHolyFireAbility`. Si un autre
+    chemin instanciait la base, `hits <= 0` -> aucun override (statu quo, jamais un chiffre faux)."""
+    fn = getattr(ab, "get_number_of_hits", None)
+    if fn is None:
+        return {}
+    hits = int(fn(_entity_traits(scene, target_id)))
+    return {"hits_override": hits} if hits > 0 else {}
+
+
 def _great_frost_axe_inputs(scene, caster_id, target_id, ab, cfg) -> dict:  # target_id ignore (contrat registre)
     """`IdunBattle.AI.Playbook.Loki.GreatFrostAxePlaybook$$MakeDamagePredictions` (ability 1089) — BASE =
     `Get(GetVariableForLevel(0xc=minDmg, state))` = **minDmg SEUL** (rarity-scaled), PAS l'avg
@@ -1026,6 +1063,7 @@ _MAKE_DMG_INPUT_OVERRIDES = {
     ActiveAbilityType.MartialInspiration: _martial_inspiration_inputs,            # 1191
     ActiveAbilityType.CrushingClaws: _crushing_claws_inputs,                      # 1105
     ActiveAbilityType.HellfireShells: _hellfire_shells_inputs,                    # 1080
+    ActiveAbilityType.BrazierOfHolyFire: _brazier_of_holy_fire_inputs,            # 1041
     ActiveAbilityType.GreatFrostAxe: _great_frost_axe_inputs,                     # 1089
     ActiveAbilityType.FrenziedFiring: _frenzied_firing_inputs,                    # 1036
     ActiveAbilityType.SavageEchoes: _savage_echoes_inputs,                        # 1230
