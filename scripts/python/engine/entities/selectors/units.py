@@ -724,6 +724,54 @@ class UnitsWithoutRangedWeapons(TargetsSelector):
         return [u for u in units if not hrw(u)]
 
 
+class UnitsWithRangedWeapons(TargetsSelector):
+    """`IdunBattleLogic.Entities.DSLSelectors$$UnitsWithRangedWeapons(entities)` ->
+    `IdunBattle.Entities.Selectors.UnitsWithWeaponsSelector$$Select` : garde les entites de `source`
+    dont AU MOINS UN profil d'arme satisfait `IsMatchingWeapon`.
+
+    ⚠ CE N'EST PAS LE COMPLEMENT EXACT d'`UnitsWithoutRangedWeapons` ci-dessous, et les deux
+    differences sont LUES, pas deduites -- ce sont DEUX classes natives distinctes
+    (`UnitsWithWeaponsSelector` vs `UnitsWithoutWeaponsSelector`) :
+
+      * le predicat n'est pas `get_IsRanged` mais un FILTRE A QUATRE CHAMPS. La factory alloue
+        `UnitsWithWeaponsSelector..ctor(state, entities, minRange: Nullable<int>(2), maxRange: null,
+        requiredDamageProfile: null, excludedDamageProfile: null)` -- le `2` est LU (un
+        `Nullable<int>` construit sur place et passe en 3e argument), et `IsMatchingWeapon` s'y
+        reduit alors a « l'arme porte un `Range` ET `Range >= 2` ». Meme SEUIL que
+        `weapon_is_melee`, donc meme verdict que `has_ranged_weapon` sur toute arme du kit ;
+      * une entite dont `UnitExtensions$$GetUnit` rend `null` (une TUILE, une MoW) est **JETEE**
+        ici -- la boucle `while (lVar8 == 0)` du `Select` reboucle sur l'iterateur -- la ou
+        `UnitsWithoutWeaponsSelector` la GARDE. Les polarites degenerees sont donc OPPOSEES.
+
+    `SelectUniqueUnits(<+0x18>, entities, 1)` : le litteral `1` = `UnitSelectionType.OnlyAlive` est
+    LU dans le `Select`, exactement comme chez le jumeau negatif. Ce noeud ne prend PAS de
+    `selectionType` cote natif (`DSLSelectors$$UnitsWithRangedWeapons(this, entities)` a DEUX
+    arguments) -> aucun parametre ici : un optionnel inviterait a y passer le `3` de l'appelant,
+    qui appartient au noeud PRECEDENT.
+
+    SUBSTRAT : `ctx.has_ranged_weapon(unit)` -- le MEME accesseur que `UnitsWithoutRangedWeapons`
+    (foyer `engine.services.battle_query.has_ranged_weapon`, cable par `entities_from_state`), donc
+    un seul port du predicat. Accesseur ABSENT -> AUCUNE entite gardee : c'est la polarite du natif
+    (il n'ajoute que sur match), et la seule qui ne fabrique pas un buff depuis une non-mesure.
+
+    Call-site porte : `IdunBattleLogic.Entities.Abilities.Active.Loki.ExemplarOfTheMontkaAbility$$
+    ExecuteBehaviour` (1210, `tauFarsight`)."""
+    def __init__(self, source: TargetsSelector):
+        self.source = source
+
+    def select(self, ctx):
+        # `SelectUniqueUnits(<+0x18>, entities, 1)` -- `1` = `OnlyAlive`, litteral LU dans
+        # `UnitsWithWeaponsSelector$$Select` (meme site que chez le jumeau negatif).
+        units = [u for u in self.source.evaluate(ctx)
+                 if _selection_ok(u, UnitSelectionType.OnlyAlive, ctx)]
+        hrw = getattr(ctx, "has_ranged_weapon", None)
+        if hrw is None:
+            return []                               # aucun match prouvable -> le natif n'ajoute rien
+        # `GetUnit(entity) == null` -> JETEE (le natif reboucle sans `Add`). Le port le mirrore en
+        # ecartant tout element que le predicat ne peut pas classer (`visualId` absent).
+        return [u for u in units if u.get("visualId") is not None and hrw(u)]
+
+
 def non_steppable_or_object_units(source: TargetsSelector, selection_type=None) -> TargetsSelector:
     """`IdunBattleLogic.Entities.DSLSelectors$$NonSteppableOrObjectUnits(source, selectionType)` --
     MIRROR de la FACTORY : le natif N'ALLOUE AUCUN selecteur dedie, il COMPOSE textuellement

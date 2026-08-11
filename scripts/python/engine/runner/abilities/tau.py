@@ -47,9 +47,11 @@ from ...entities.selectors.accessors import (ActiveTarget, CasterTile, FixedTile
 from ...entities.selectors.geometry import EntitiesWithAnyEffect, Randomize
 from ...entities.selectors.tiles import AllAliveUnits, AllTiles, Caster
 from ...entities.selectors.units import (
-    AdjacentEnemies, AdjacentFriends, Enemies, Filter, SortByDistance, Sub, Union,
-    UnitsThatCanHaveActiveAbilityReset, non_steppable_or_object_units
+    AdjacentEnemies, AdjacentFriends, Enemies, Filter, Friends, SortByDistance, Sub, Union,
+    UnitsThatCanHaveActiveAbilityReset, UnitsWithRangedWeapons, UnitsWithTrait,
+    non_steppable_or_object_units
 )
+from ...entities.unit_selection_type import UnitSelectionType
 from ...entities.stats import StatType
 from ...entities.traits.unit_trait import UnitTrait
 from ...entities.triggers import (AmountIsGreater, HasEffect, HasTrait, IsRepairable, IsTrenchTile,
@@ -1331,6 +1333,168 @@ class ExemplarOfTheKauyonAbility(ActiveAbility):
                 "removed": [p for n, p in ectx.emitted if n == "RemoveEffect"],
                 "spawned": [p["unit"] for n, p in ectx.emitted if n == "SpawnUnit"],
                 "dsl": True}
+
+
+# =========== ExemplarOfTheMontka (`tauFarsight` « Commander Farsight », actif 1210) ===========
+
+EXEMPLAR_OF_THE_MONTKA_ID = "ExemplarOfTheMontka"
+EXEMPLAR_OF_THE_MONTKA_BUFF = int(EffectType.ExemplarOfTheMontka)     # 0x5da = 1498
+#: `UnitSelectionType.OnlyAliveAndTargetable` -- le 4e argument natif de `Friends` ET le 4e
+#: d'`UnitsWithTrait`, tous deux LUS a `0x3` dans le decompile de `...$$ExecuteBehaviour`.
+_MONTKA_SELECTION = int(UnitSelectionType.OnlyAliveAndTargetable)     # 3
+#: `UnitsWithTrait(<...>, 0x10, 3)` -- `0x10 = 16 = UnitTrait.Hero` (qualifie : 16 vaut
+#: `EffectType.None` et `AbilityConstantType.nrOfSummons` dans d'AUTRES enums).
+_MONTKA_TRAIT = int(UnitTrait.Hero)                                   # 0x10 = 16
+
+
+def exemplar_of_the_montka_buff_targets():
+    """Le selecteur-cible d'`IdunBattleLogic.Entities.Abilities.Active.Loki.
+    ExemplarOfTheMontkaAbility$$ExecuteBehaviour` -- MIRROR 1:1 du DECOMPILE, trois noeuds,
+    aucune logique en plus :
+
+        UnitsWithRangedWeapons(
+            UnitsWithTrait( Friends( of        = <DSLSelectors+0x48 = Caster>,
+                                     entities  = <DSLSelectors+0x20 = AllAliveUnits>,
+                                     selection = 3 ),
+                            trait     = 0x10 = UnitTrait.Hero,
+                            selection = 3 ) )
+
+    ⚠ **LE CASTER ENTRE PAR LE FILTRE, PAS PAR UNE EXCEPTION** -- et c'est la difference de fond
+    avec le jumeau de forme `WarHowlAbility$$ExecuteBehaviour` (1106), qui SOUSTRAIT l'Owner du
+    pool (`op_Subtraction(<+0x20>, <+0x30>)`) puis le RE-AJOUTE par un `op_Addition`. Ici il n'y a
+    NI soustraction NI addition : `entities` est le pool ENTIER, et `IdunBattle.Entities.
+    UnitExtensions$$IsFriend` n'ecarte pas l'egalite, donc le caster est son propre ami. CONSEQUENCE
+    OBSERVABLE : Farsight ne se buffe que s'il satisfait LUI AUSSI les deux filtres. Il les
+    satisfait au kit (`traits: [Hero, BeastSlayer, BigTarget, Flying, Mechanical]`, arme `Plasma`
+    `Range 2`), mais un porteur qui perdrait `Hero` ou son arme distante ne se bufferait PAS -- la
+    ou WarHowl buffe son caster inconditionnellement.
+
+    ⚠ Le REFERENT de `Friends` est `<+0x48 = Caster>`, pas `<+0x30 = Owner>` : deuxieme ecart
+    d'ecriture avec 1106, sans effet observable sur une ability ACTIVE (les deux slots designent le
+    porteur qui caste) mais on ecrit les slots que le natif ecrit.
+
+    ⚠ Le `selectionType = 3` (`OnlyAliveAndTargetable` = `IsAlive && !HasFlag(0x11 Untargetable)`)
+    est passe aux DEUX noeuds qui l'acceptent -- MEME filtre, MEME mesure que #585 : il ecarte un
+    allie en DEEP STRIKE que tous les autres filtres retiennent. `UnitsWithRangedWeapons`, lui,
+    n'en prend PAS (son `Select` code en dur `SelectUniqueUnits(..., 1 = OnlyAlive)`).
+
+    NI FACTION, NI RAYON : aucune borne de distance, aucune contrainte de sous-faction. Tout ami
+    `Hero` porteur d'une arme distante du PLATEAU recoit le buff."""
+    friends = Friends(AllAliveUnits(), reference=Caster(),        # Friends(of = Caster@+0x48, ...)
+                      selection_type=_MONTKA_SELECTION)           # 4e argument natif : 3
+    return UnitsWithRangedWeapons(
+        UnitsWithTrait(friends, _MONTKA_TRAIT,                    # 0x10 = Hero
+                       selection_type=_MONTKA_SELECTION))         # 4e argument natif : 3
+
+
+def exemplar_of_the_montka_tree():
+    """Arbre d'`IdunBattleLogic.Entities.Abilities.Active.Loki.ExemplarOfTheMontkaAbility$$
+    ExecuteBehaviour` -- MIRROR 1:1 du DECOMPILE, **un seul noeud** :
+
+        Execute( AddEffect( 0x5da = 1498 ExemplarOfTheMontka,
+                            abilityState = AActiveAbility$$get_AbilityStateReference,
+                            source       = <DSLSelectors+0x48 = Caster>,
+                            targets      = <exemplar_of_the_montka_buff_targets()>,
+                            turns        = <DSLFormulas+0x20> ) )
+
+    LA SURCHARGE D'`AddEffect` EST TRANCHEE PAR L'ADRESSE DE LA CIBLE DU `call`, pas a l'oeil : le
+    binaire en porte QUATRE du meme nom, et le `e8` du site resout sur
+    `IdunBattleLogic.Entities.DSLBehaviors.AddEffect(effectType, abilityState, source, targets,
+    turns: IdunBattle.DSL.IAmountFormula)` -- la MEME que `WarHowlAbility$$ExecuteBehaviour`. Une
+    source EXPLICITE est donc passee (pas de `source_from_target`).
+
+    `turns` = `<DSLFormulas+0x20>`, un champ POSE PAR LE CTOR, pas un appel : `IdunBattleLogic.
+    Entities.DSLFormulas$$.ctor` remplit un cache de constantes -- `+0x18 <- 0`, **`+0x20 <- 1`**,
+    `+0x28 <- 2`, `+0x30 <- 100`, `+0x38 <- -1`. La duree est donc la constante **1**, et elle
+    arrive telle quelle dans le `param_6` d'`IdunBattle.Operations.AddEffectOperation$$Execute`,
+    qui ne la convertit PAS -> **1 TOUR**, d'ou `duration_turns=1` (et non `duration_rounds`).
+    C'est le meme noeud, a la meme valeur, que le `DSLFormulas$$Get(1)` de 1106 -- ecrit ici par
+    lecture du champ, la ou 1106 passe par la factory.
+
+    `scale_from_source=True` = le PORT de l'`AbilityStateReference` (2e argument natif). Ce n'est
+    PAS le `CreateSnapshot(abilityState)` de 1106 mais ca designe le MEME etat :
+    `IdunBattle.Entities.Abilities.AActiveAbility$$get_AbilityStateReference` =
+    `DSLSelectors$$AbilityState(<+0x48 = Caster>, AbilityType(<l'active courante>))`, donc l'etat
+    d'ability du CASTER. Ce n'est pas cosmetique : `extraDmg` ET `extraDmg_2` sont TOUS DEUX dans
+    `variablesAffectedByRarityBonus` du kit, et le multiplicateur de rarete differe d'une unite a
+    l'autre (mesure #585 : 200 contre 180) -- lire le scaling sur le BUFFE donnerait un ecart
+    NUMERIQUE et SILENCIEUX.
+
+    `source_ref=Caster()` = le 4e argument NATIF (`<DSLSelectors+0x48>`).
+
+    AUCUNE ATTAQUE, AUCUN DEGAT DIRECT : `ExecuteBehaviour` n'appelle ni `AttackWithAttackDamage`
+    ni `AttackWithAbilityDamage`, et la classe native n'a que DEUX methodes en tout (`ExecuteBehaviour`
+    et `.ctor` -- slots contigus du bloc `methodPointers`, entre `ExemplarOfTheKauyonAbility$$.ctor`
+    et `ExplosivePresentsAbility$$ExecuteBehaviour`). Le `+Damage` de l'i2 appartient a l'EFFET
+    1498 (`entities/effects/loki/exemplar_of_the_montka.py`), pas au cast."""
+    return AddEffect(EXEMPLAR_OF_THE_MONTKA_BUFF, EffectType.ExemplarOfTheMontka.name,
+                     exemplar_of_the_montka_buff_targets(),
+                     duration_turns=1,               # `<DSLFormulas+0x20>` = 1 -> 1 TOUR, PAS 1 round
+                     scale_from_source=True,         # `get_AbilityStateReference` = l'etat du CASTER
+                     source_ref=Caster())            # 4e argument natif = `<DSLSelectors+0x48>`
+
+
+class ExemplarOfTheMontkaAbility(ActiveAbility):
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.ExemplarOfTheMontkaAbility$$ExecuteBehaviour`
+    (id 1210, `tauFarsight` « Commander Farsight », Tau/FarsightEnclaves, HERO). Cast SELF.
+
+    i2 : « Until the end of this turn, Commander Farsight and all other friendly Characters with a
+    normal ranged attack gain Unstoppable and all their normal attacks deal +{extraDmg} Damage.
+    When attacking a Big Target, they deal +{extraDmg_2} Damage instead. Using Exemplar of the
+    Mont'ka does not end Commander Farsight's turn. »
+
+    QUATRE mecaniques, appariees une a une aux artefacts natifs :
+      1. ciblage « Farsight and all other friendly Characters with a normal ranged attack »
+         -> `exemplar_of_the_montka_buff_targets()` (les trois noeuds du selecteur) ;
+      2. « gain Unstoppable » -> `ExemplarOfTheMontkaEffect.applied_traits` (AddTrait 0x412,
+         temporaire), face DEJA portee par cette meme tranche ;
+      3. « +{extraDmg} Damage / +{extraDmg_2} vs Big Target »
+         -> `...ExemplarOfTheMontkaEffect$$CreateEffectDamageBonusForAttack` ;
+      4. « does not end Farsight's turn » -> 1210 est DEJA dans `NO_END_TURN_ABILITY_TYPES` **et**
+         dans `NO_ABILITY_USED_FLAG_ABILITY_TYPES` (`runner/abilities/base.py`, inventaire #139) --
+         aucune ecriture necessaire ici, et c'est ce qui rend le cast REPETABLE dans le tour si
+         aucun cooldown ne l'en empeche (le kit 1210 n'en declare aucun : ses `variables` sont
+         `extraDmg` / `extraDmg_2`, et il n'a NI `constants` NI `cooldownTurns`).
+
+    Kit gameconfig 1210 : `extraDmg[level]`, `extraDmg_2[level]`, les DEUX dans
+    `variablesAffectedByRarityBonus`. Aucune constante -> aucun `GetNumberConstant` a lire.
+
+    Retour : {posed, dsl}."""
+    __slots__ = ()
+    ABILITY_TYPE = int(ActiveAbilityType.ExemplarOfTheMontka)     # 0x4ba = 1210
+    ABILITY_ID = EXEMPLAR_OF_THE_MONTKA_ID
+
+    # GATE DE CIBLE (#115) + PORTEE (#241) -- forme **STATIC-COPY** : `...ExemplarOfTheMontkaAbility$$
+    # .ctor` recopie les 0x40 octets de `<TargetingOptions statics>+0x280` dans une struct locale et
+    # la passe TELLE QUELLE a `AActiveAbility$$.ctor(this, &opts, 2)` -- il n'appelle AUCUNE surcharge
+    # de `TargetingOptions$$.ctor`, ni la forme « flags directs » ni la forme PRESET+FLAGS. Le masque
+    # effectif est donc la constante ecrite par `IdunBattle.Core.Services.TargetingOptions$$.cctor`
+    # en `<preset>+0x28`, RE-LUE au decompile de ce build :
+    #     0x8004 = CasterIsPossibleTarget(0x8000) | CasterMatchesDynamicRule(0x4)
+    # Decomposition EXHAUSTIVE, aucun bit residuel. C'est le MEME preset que `1215
+    # InstrumentsOfVengeance` (STATIC-COPY nue, sans flags), et celui de `1216 MartialExemplar` /
+    # `1192 NovaBoost` MOINS leur `additionalRules = 0x10` -> 1210 n'a PAS `CasterHasNotMoved` :
+    # elle reste castable APRES deplacement.
+    # ⚠ `CasterMatchesDynamicRule` (0x4) delegue a `GetDynamicInvalidCasterReason` (`options+0x30`).
+    # La classe native NE LE SURCHARGE PAS -- le bloc `methodPointers` ne lui donne que deux slots
+    # (`ExecuteBehaviour`, `.ctor`) -- donc le delegue reste le DEFAUT de `AActiveAbility`, qui ne
+    # refuse rien. Aucun `get_dynamic_invalid_caster_reason` a poser ici.
+    # `isSelfCasting` = `<preset>+0x00` = 1 ; `forceMeleeTarget` = `<preset>+0x20` = 1 = RangedBool.False.
+    # PORTEE : le bloc `<preset>+0x08..0x1f` est la copie de `<TargetingRange statics>+0x60` faite par
+    # `TargetingOptions$$.cctor`, soit **RANGE_SELF** (`overrideRange = Nullable(0)`) -- lecture DEJA
+    # etablie et re-verifiee ici (cf. `darkangels.py::MartialExemplarAbility`, #923). Portee NULLE :
+    # toute cible autre que le caster tombe sur `range.Value(0) < d`, le gate attendu d'un self-cast.
+    TARGETING_OPTIONS = TargetingOptions(
+        rules=TR.CasterIsPossibleTarget | TR.CasterMatchesDynamicRule,
+        self_cast=True, range=RANGE_SELF, force_melee_target=RANGED_BOOL_FALSE)
+
+    def execute_behaviour(self, state: "State", caster_id: int,
+                          target_id: Optional[int]) -> Optional[dict]:
+        entities = entities_from_state(state, caster_id)
+        ectx = ExecutionContext(state=state, rng=state.rng)
+        exemplar_of_the_montka_tree().execute(entities, ectx)
+        return {"ability": EXEMPLAR_OF_THE_MONTKA_ID, "caster": caster_id, "target": target_id,
+                "posed": [p for n, p in ectx.emitted if n == "AddEffect"], "dsl": True}
 
 
 # ============ LOT BOSS RIPTIDE (`tauBossRiptide`, NPC) -- NovaShield 1194 / NovaBoost 1192 ===========
