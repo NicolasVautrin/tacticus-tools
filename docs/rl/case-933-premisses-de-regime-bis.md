@@ -77,6 +77,39 @@ face **DÉCISION hors tests** (`engine_validate.py`, `predict_sweep.py`), qui mo
 runners ; les mots courts (`cc`, `bd`, `hp`) en **identifiant nu**, écartés parce qu'ambigus
 (`hexgeo.distance(cc, tc)`, `bc` = BattleConfiguration) et **comptés** comme écartés.
 
+## 3bis. Le compte, et les huit victimes
+
+**Balayage statique** : 886 fichiers de test visités → 564 LIVE → **87** lisent une stat à zéro
+ouvert → **84** y comparent à 0 / à un positif → **suspects**. **81** fichiers ont été **JOUÉS en
+régime nominal** (4 workers, journal ré-entrant `logs/933/nominal.jsonl`), et les rouges rejoués
+sous `TACTICUS_BIS_ITEMS=0` pour établir la causalité.
+
+**0 INERTE** (garde #455), **2 ROUGES** — tous deux **PRÉEXISTANTS** (§5).
+
+| # | fichier | prémisse fausse | avant | après |
+|---|---|---|---|---|
+| 1 | `test_lion_helm_block_aura_live` | `seed[azrael] == (0, 0)` sur la stat TOTALE ; Azrael a `(36, 2349)` de base | **1 failed** / 1 passed | **3 passed** |
+| 2 | `test_savage_echoes_live` | garde `if cc == 0:` autour du bit-exact port/live ; le caster porte **`CritChance = 20`** | 2 passed, **assertion jamais évaluée** | 2 passed, **évaluée** |
+| 3 | `test_executioner_live` | `if cc != 0: pytest.skip(…)` ; `eldarFarseer` porte **35** | 1 passed / **2 skipped** | **3 passed** |
+| 4 | `test_harvester_live` | idem, `eldarMauganRa` | 1 passed / **2 skipped** | **3 passed** |
+| 5 | `test_brazier_of_holy_fire_live` | skip « coup non propre (crit/block/evade) », trouvé sans rien demander tant que le canal était muet | 1 passed / **2 skipped** | **3 passed** |
+| 6 | `test_sentinel_directives_live` | idem | 1 passed / **1 skipped** | **2 passed** |
+| 7 | `test_damage_block_live` | prose : « aucune unité n'a de block de base » (faux : 46/106) et « `necroDestroyer` sans crit » (faux : **41**) | 2 passed | 2 passed, isolation **restaurée** |
+| 8 | `test_heavy_grav_cannon_live` | skip « coup non propre » — **PRÉVENTIF** | 1 passed / 1 skipped | 1 passed / 1 skipped |
+
+⚠ **La ligne 8 est honnête et signalée comme telle** : son skip restant est celui du *tirage à
+partie fractionnaire < .5* (L401), **identique sous `TACTICUS_BIS_ITEMS=0`** — donc ce montage ne
+répare **aucun écart observé**, il ferme un skip probabiliste. Le commentaire au site le dit.
+
+**Les lignes 2 à 6 sont la découverte de la tranche** : cinq fichiers **VERTS**, `rc = 0`, dont le
+cœur n'était plus évalué. Aucun `rc` ne les signalait, et la garde #455 non plus — ils ne sont
+**pas** intégralement skippés. Le seul qui se voyait était le n°1, et il accusait le sélecteur.
+
+**Le témoin de morsure doit être NON TAUTOLOGIQUE** (n°1) : l'ennemi du montage passe de
+`necroOverlord` (base `(0, 0)` — il aurait passé *sans* le levier) à `orksWarboss` (base
+`BlockChance = 36`), que `SurroundingFriends(Azrael)` ne peut par construction jamais sélectionner.
+Sa stat totale EST donc sa base : s'il n'est pas à `(0, 0)`, c'est le **levier** qui a lâché.
+
 ## 4. Le cliquet — `tests/engine/test_933_premisse_regime_offline.py`
 
 Cinq étages, tous offline (donc joués par la banque `probe_457` à chaque PR) :
@@ -93,6 +126,28 @@ Cinq étages, tous offline (donc joués par la banque `probe_457` à chaque PR) 
   cliquet : perdre leur montage les fait revenir dans `nouveaux`, donc **rougir**.
 
 Le bloc `_ATTESTES` se **régénère** (`--attester`), il ne se tient pas à la main.
+
+⚠ **UN CLIQUET QUI SE CONTENTE D'UNE MENTION GARDE UNE INTENTION, PAS UN MONTAGE** — et ce cran a
+été trouvé par la **contre-épreuve**, jamais par la relecture. Le détecteur cherchait d'abord
+`--crit` n'importe où dans la source : retirer *pour de vrai* le `"--crit", "0,0"` du montage de
+`test_savage_echoes_live.py` laissait le cliquet **VERT**, parce que le **commentaire** qui
+explique le levier contient le mot. Le détecteur exige désormais le drapeau **entre guillemets**
+(un argument), et la contre-épreuve rougit — c'est ce qui fait qu'un test réparé dont on
+retirerait le montage revient dans `nouveaux`.
+
+⚠ **La face compte dès qu'elle est POSÉE, quelle que soit sa VALEUR.** `_patch_combat_stat` ÉCRIT
+`u[field] = valeur` : `--block-target "100,300"` écrase la base autant que `0,0`. Ce qui périme
+une prémisse, c'est une base **SUBIE** ; une base **ÉCRITE** par le montage est déclarée. Exiger
+`0,0` sortait `test_damage_block_live` en faux positif, alors que son `--block-target "100,300"`
+est précisément le montage qui maîtrise le canal.
+
+⚠ **Et une seule face suffit à DÉCLARER**, alors même que #419-r6 §3.1 a mesuré qu'il en faut
+souvent quatre. Ce n'est pas un relâchement : ce cliquet garde la **déclaration**, pas
+l'exactitude du montage — laquelle dépend de quel camp porte la mécanique, **indécidable
+statiquement**. Exiger les deux faces pousserait à des montages plus larges que la prémisse et,
+surtout, laisserait les fichiers réparés par une seule face **DANS** la liste attestée : perdre
+leur levier ne rougirait alors plus. Les neutralisations **PARTIELLES** sont comptées et imprimées
+(32 fichiers au 2026-08-11), jamais tues.
 
 ## 5. Ce qui reste ouvert
 
