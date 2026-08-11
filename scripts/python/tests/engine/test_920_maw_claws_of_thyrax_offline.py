@@ -25,6 +25,55 @@ import inspect
 
 import pytest
 
+# `DECLENCHEUR` (#486-r15) -- ce qui doit changer pour que ce fichier puisse changer de verdict.
+DECLENCHEUR = {
+    "chemins": (
+        # SOCLE COMMUN a tout fichier de test : la cascade des deux `conftest.py` et sa fermeture.
+        "scripts/python/conftest.py", "scripts/python/tests/conftest.py",
+        "scripts/python/green_skip_guard.py", "scripts/python/declencheur_guard.py",
+        "scripts/python/gameconfig.py",
+        # LE MODULE D'EFFET et son registre : l'arbre du compteur, les gates, la magnitude.
+        "scripts/python/engine/entities/effects/loki/maw_claws_of_thyrax.py",
+        "scripts/python/engine/entities/effects/factory.py",
+        "scripts/python/engine/entities/effects/base.py",
+        "scripts/python/engine/entities/effects/magnitude.py",
+        # LE CONTRE-TEMOIN : 1450 doit rester `active_condition_ported = False` (`YesTrigger`).
+        "scripts/python/engine/entities/effects/loki/kardiocore_galvanus.py",
+        # LES DEUX ENUMS dont ce fichier fige les ordinaux ECRITS AUX SITES, et les DEUX collisions.
+        "scripts/python/engine/entities/effect_type.py",
+        "scripts/python/engine/entities/triggered_ability_type.py",
+        # LES NOEUDS DSL du compteur : un etage retire ou une signature changee doit rougir ici.
+        "scripts/python/engine/entities/selectors/units.py",
+        "scripts/python/engine/entities/selectors/accessors.py",
+        "scripts/python/engine/entities/formulas.py",
+        "scripts/python/engine/entities/traits/unit_trait.py",
+        "scripts/python/engine/entities/unit_selection_type.py",
+        # LA FACE DECISION : le playbook MOVE, son registre, et les deux registres qui doivent
+        # rester DISJOINTS (MOVE inscrit / ATTACK deliberement absent).
+        "scripts/python/engine/playbook/adjacent_summons.py",
+        "scripts/python/engine/playbook/adjacent_unit_preference.py",
+        "scripts/python/engine/playbook/non_owner.py",
+        "scripts/python/engine/playbook/psyker.py",
+        "scripts/python/engine/battle_query.py",
+        # LE SUBSTRAT D'ETAT du compteur (cle du `unit_state`, gate de presence) et le canal CRIT
+        # (callable par porteur) : les deux points ou la cle peut disparaitre EN SILENCE.
+        "scripts/python/engine/runner/components.py",
+        "scripts/python/engine/runner/operations/damage.py",
+    ),
+    # `build: True` -- les ordinaux figes (etage 1) et les paliers `extraCritDmg` (etage 3) sont
+    # RELUS du gameconfig VIVANT et des mirrors d'enum : un changement de build peut les deplacer,
+    # et c'est precisement ce que ce fichier doit rougir.
+    "build": True,
+    "toujours": False,
+    "raison": (
+        "Ce fichier garde le port de la relique `MawClawsOfThyrax` (1469) et de son effet 1461 sur "
+        "le canal crit-DEGAT, PLUS sa face DECISION owner (playbook MOVE). Les chemins listes sont "
+        "ceux dont une modification peut faire changer un verdict : le mirror lui-meme, les deux "
+        "enums qu'il fige, les noeuds DSL du compteur (dont l'interdiction d'`AdjacentFriends`), "
+        "le contre-temoin 1450, les deux registres de playbook, et les deux points du substrat "
+        "d'etat ou la cle du compteur peut disparaitre."),
+}
+
 EFFECT_NAME = "MawClawsOfThyrax_ExtraCritDmg"
 ABILITY_ID = "MawClawsOfThyrax"
 
