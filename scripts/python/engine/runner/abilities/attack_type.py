@@ -318,6 +318,13 @@ ABILITY_ATTACK_TYPE: dict[int, int] = {
     # `UseActiveAbility(Loki_NormalAttack)`), exactement comme `HolyDuel` 1050 et `Drachnyen` 1029 --
     # qui, eux, portent `0`. Meme forme d'arbre, litteral OPPOSE : c'est le contre-exemple de plus.
     ActiveAbilityType.UnbreakableDuty: AbilityAttackType.Others,  # 1061
+    # `IdunBattleLogic.Entities.Abilities.Active.Loki.CrusadeOfWrathAbility$$.ctor` recopie les
+    # 3 qwords du champ statique `<TargetingRange statics>+0x18` (le MEME que 1061), appelle la
+    # surcharge FLAGS DIRECTS `TargetingOptions..ctor(&opts, 1, &range, 1, 0x400, 0, 0)` puis
+    # `AActiveAbility..ctor(this, &opts, 2)` : 3e argument = **2 = Others** (#893). TRANSCRIT TEL
+    # QUEL : 1049 FRAPPE (attaque NORMALE gratuite dispatchee par `UseActiveAbility(
+    # UnitNormalAttackType(Owner))`), exactement comme `HolyDuel` 1050 -- qui, lui, porte `0`.
+    ActiveAbilityType.CrusadeOfWrath: AbilityAttackType.Others,  # 1049
     # `IdunBattleLogic.Entities.Abilities.Active.Loki.EuphoricStrikesAbility$$.ctor` ->
     # `AActiveAbility..ctor(this, &preset, 0)` : 3e argument = **0 = DirectTargetAttack** (#522).
     # Le ctor est de la forme PRESET STATIQUE COPIE (il recopie les 0x40 octets de
