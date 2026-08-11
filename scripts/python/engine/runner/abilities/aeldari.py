@@ -253,13 +253,14 @@ from ...dsl.effects import ExecutionContext
 from ...entities.behaviours import op_add, op_and, If, AtomicGroup, Group, SetCache
 from ...entities.effect_type import EffectType
 from ...entities.selectors.accessors import CasterTile, Owner, Target, TargetTile
-from ...entities.selectors.geometry import (AtIndex, Cache, ConditionalSelector, Null, PickFirstN,
-                                            PickRandomly, Randomize, TilesBehindInLine)
+from ...entities.selectors.geometry import (AtIndex, Cache, ConditionalSelector, Null, Otherwise,
+                                            PickFirstN, PickLastN, PickRandomly, Randomize,
+                                            TilesBehindInLine)
 from ...entities.selectors.tiles import (AdjacentTiles, AllAliveUnits, AllTiles, CanAddUnit, Caster,
                                          SortTilesByUtility, TileBehindTargetFromSourceDirection)
 from ...entities.selectors.units import (
     AdjacentEnemies, AdjacentUnits, Alive, And, Damageable, Enemies, First, SortByDistance, Sub,
-    SurroundingUnits, Tiles, Union, Units
+    SurroundingUnits, Tiles, Union, Units, UnitsAttackedThisTurn
 )
 from ...entities.formulas import Count, Get
 from ...streams.group_type import GroupType
@@ -267,11 +268,14 @@ from ...entities.triggers import AmountIsGreater, AmountIsGreaterThanZero, AreEq
 from ...entities.active_ability_type import ActiveAbilityType
 from ...entities.stats import StatType
 from ...utilities.utility_type import UtilityType
+from ...entities.ability_constant_type import AbilityConstantType
+from ...entities.ability_variable_type import AbilityVariableType
 from ..components import PositionComponent, StatsComponent, unit_has_moved
-from .base import ActiveAbility
+from .base import ActiveAbility, active_ability_state
+from .behaviours.chain import ChainAttackDamage
 from .behaviours.combat import AttackWithAbilityDamage, AttackWithAttackDamage, UseActiveAbility
 from .behaviours.context import entities_from_state
-from .behaviours.effects import AddEffect
+from .behaviours.effects import AddEffect, RemoveEffect
 from .behaviours.movement import FlyUnit, MoveUnit, ResetMovement
 # `DiveAttackAbilityBase` vit dans le namespace natif `...Active.Loki` : le mirror y reste, et les
 # deux heritieres (1064 ici, 1091 sur `thousandsons.py`) l'importent -- jamais l'une l'autre.
@@ -1007,3 +1011,314 @@ class FireAndRepositionAbility(ActiveAbility):
                 "reset_reopened": bool((rst or {}).get("reopened")),
                 "effect_placed": bool((eff or {}).get("placed")),
                 "dsl": True}
+
+
+# ============ KissOfDeath (1108, eldarSmnHarlequin / eldarNpc3Harlequin) -- #940 ================= #
+#
+# `IdunBattleLogic.Entities.Abilities.Active.Loki.KissOfDeathAbility$$ExecuteBehaviour`
+# (MIRROR du DECOMPILE, terme a terme, dans l'ordre des allocations) :
+#
+#     damageProfile = AActiveAbility$$GetDamageProfile(this)                      # "DirectDamage"
+#     hitsF         = DSLFormulas$$Direct( AActiveAbility$$GetHits(this) )        # nrOfHits (0x2f)
+#     dmgF          = DSLFormulas$$Direct( AbilityConfiguration$$GetVariableForLevel(
+#                                              config, 0xb = dmg, abilityState, 0) )
+#     maxTargetsF   = DSLFormulas$$ConfigVar( 0x0 = maxAdjacentTargets, abilityState, config )
+#     chainOptions  = new <ChainBehaviourOptions> { +0x12 = 1 }   # +0x10 / +0x11 laisses a 0
+#     jumpSel       = new Func<TargetsSelector, TargetsSelector>( this, <lambda> )
+#
+#     chain  = DSLBehaviors$$ChainAttackDamage(
+#                  preselectedTargets = Target@<DSLSelectors+0x60>,
+#                  jumpTargetSelector = jumpSel,
+#                  maxTargets         = maxTargetsF,
+#                  dmgAmount          = dmgF,
+#                  damageProfileType  = damageProfile,
+#                  hits               = hitsF,
+#                  abilityType        = AbilityOrEffect$$op_Implicit(this),
+#                  extraBehaviour     = null,
+#                  maxTargetsExtra    = null,
+#                  damageOptions      = <AttackDamageBehaviourOptions ZERO>,
+#                  chainOptions       = chainOptions )
+#
+#     attacked = DSLSelectors$$UnitsAttackedThisTurn( Caster@<DSLSelectors+0x48> )
+#     landA    = DSLSelectors$$CanAddUnit( AdjacentTiles( Last(attacked, 1, false) ) )
+#                    op_Subtraction <DSLSelectors+0x50 = CasterTile>
+#     landB    = DSLSelectors$$CanAddUnit( AdjacentTiles( AtIndex(attacked, 1) ) )
+#                    op_Subtraction <DSLSelectors+0x50 = CasterTile>
+#     landC    = DSLSelectors$$CanAddUnit( AdjacentTiles( Target@<DSLSelectors+0x60> ) )
+#                    op_Subtraction <DSLSelectors+0x50 = CasterTile>
+#     land     = DSLSelectors$$First(
+#                    SortTilesByUtility( landA.Otherwise(landB).Otherwise(landC),
+#                                        unit = Caster@+0x48, utilityType = 7 = Tile, parent = null ),
+#                    amount = 1, ignoreForcedTargets = false )
+#     fly      = DSLBehaviors$$FlyUnit( unit = Caster@+0x48, tiles = land )
+#
+#     addEff = DSLBehaviors$$AddEffect( 0x414 = EffectType.Untargetable,
+#                                       abilityState = AActiveAbility$$get_AbilityStateReference(this),
+#                                       source  = Caster@+0x48,
+#                                       targets = Caster@+0x48,
+#                                       options = <Nullable<AddEffectBehaviourOptions> VIDE> )
+#     remEff = DSLBehaviors$$RemoveEffect( selector   = Caster@+0x48,
+#                                          effectType = Nullable(0x414 Untargetable),
+#                                          replaceableEffectType = null )
+#
+#     AActiveAbility$$ExecuteAtomic( this, ((addEff & chain) & fly) & remEff,
+#                                    entities, GroupType 0x2a = Ability_AtomicGroup )
+#
+# i2 (`Abilities/KissOfDeath_CurrentLevelDescription`) : « The Harlequin Player DISAPPEARS and deals
+# {nrOfHits}x {dmg} Direct Damage to an adjacent enemy, and up to {maxAdjacentTargets} additional
+# enemies adjacent to A PREVIOUS target, then it REAPPEARS in a hex adjacent to the last target
+# hit. » -- chacune des quatre propositions est l'un des quatre membres de l'`op_BitwiseAnd`.
+#
+# CINQ LECTURES QUE LE DECOMPILE IMPOSE, ET QU'AUCUNE TABLE NE DIT :
+#
+#  1. **L'ability FRAPPE, et l'audit ne le savait pas.** La colonne `DAMAGE(DirectDamage)` de
+#     `combat-ability-coverage.md` derive du `damageProfile` de l'ARME du porteur, pas du behaviour
+#     -- elle est VRAIE ici, mais par coincidence : le degat vient d'un `ChainAttackDamage` (famille
+#     ATTACK -> `AttackDamageOperation`, donc crit/block/bouclier complets), pas d'une attaque
+#     directe. Le profil, lui, est LU (`GetDamageProfile` -> constante `damageProfile` de la config).
+#
+#  2. **`dmgAmount` est un `Direct(GetVariableForLevel(dmg))`, PAS un `MinMaxDamage`.** La config
+#     1108 n'a NI `minDmg` NI `maxDmg` : elle porte `dmg` (une variable indexee par niveau, dans
+#     `variablesAffectedByRarityBonus`) et `maxAdjacentTargets`. Le mode BORNES de la feuille
+#     d'attaque lirait donc deux cles ABSENTES -> 0 degat, silencieusement. D'ou le mode `amount` et
+#     le passage du 4e argument de la factory, que `ChainAttackDamage` ignorait jusqu'ici (son unique
+#     consommateur, `FuryOfTheAncients`, est en bornes).
+#     `damageOptions` = 32 octets ZERO -> `amount_spread_pct = 0` : AUCUNE variance d'arme.
+#
+#  3. **`maxTargets` borne les SAUTS, pas le total.** Le compteur natif est un DELTA sur la liste
+#     preselectionnee (`picked.Count - pres.Count < GetCurrentMaxTargets()`, cf. `chain.py`) : avec
+#     `maxAdjacentTargets = 2` et UNE cible preselectionnee, ce sont **3 unites** frappees au plus --
+#     ce que dit l'i2 (« an adjacent enemy, AND UP TO 2 ADDITIONAL »).
+#
+#  4. **`chainOptions+0x12 = 1`** = coup DIFFERE d'un cran : le maillon N+1 est choisi alors que le
+#     maillon N est encore VIVANT. Une cible tuee ne coupe donc pas la chaine a l'endroit ou elle
+#     tombe. Meme octet, meme valeur que les trois autres consommateurs de la famille.
+#
+#  5. **L'ATTERRISSAGE SE LIT APRES LA CHAINE, ET C'EST LA TOUTE LA SUBTILITE.** `UnitsAttackedThisTurn`
+#     est l'`ActorStatisticsComponent+0x40` du CASTER -- un `OrderedSet` que CHAQUE maillon de la
+#     chaine vient d'allonger, dans l'ordre des coups. `FlyUnit` n'evalue son selecteur de destination
+#     qu'a son `execute`, donc APRES le `chain` dans la sequence `&` : `Last(attacked, 1)` est bien
+#     « the last target hit ». Un port qui figerait ce champ au debut de l'arbre lirait une liste
+#     VIDE et le Harlequin ne bougerait pas -- d'ou l'entree de `unitsAttackedThisTurn` dans
+#     `_LIVE_KEYS` (`behaviours/context.py`) et le passage de `set` a `dict` ORDONNE (`components.py`).
+#     Les DEUX replis suivent : `AtIndex(attacked, 1)` = la DEUXIEME unite frappee du tour (pas la
+#     derniere), puis `Target@+0x60` = la cible designee. Chacun subit le meme
+#     `CanAddUnit(AdjacentTiles(.)) - CasterTile`, et `Otherwise` ne bascule que sur un VIDE.
+#
+# ⚠ LE LAMBDA `jumpTargetSelector` N'EST DANS AUCUNE DES DEUX TABLES -- ATTRIBUTION ETAYEE, PAS LUE.
+#   `KissOfDeathAbility` ne porte que DEUX methodes (`.ctor`, `ExecuteBehaviour`) dans
+#   `frida/methods.tsv` comme dans `ghidra/functions.tsv`, et le voisinage du bloc `methodPointers`
+#   (entre `KillMaimBurnAbility$$.ctor` et `LashOfTormentAbility$$ExecuteBehaviour`) ne contient rien
+#   d'autre : son `<ExecuteBehaviour>b__N_0` a donc ete FONDU PAR L'ICF, comme le prevoit la regle
+#   « l'ABSENCE d'une methode dans les tables ne prouve RIEN ». Le corps retenu est celui de
+#   `IdunBattleLogic.Entities.Abilities.Active.Loki.StormOfWrathAbility$$u003CExecuteBehaviouru003Eb__1_0` :
+#
+#       lastTargets => DSLSelectors$$Enemies( of       = Caster@<DSLSelectors+0x48>,
+#                                             entities = DSLSelectors$$AdjacentUnits(lastTargets,
+#                                                            unique = 1, selectionType = 3),
+#                                             selectionType = 3 )
+#
+#   TROIS arguments concordants, et aucune mesure ne les separe : (a) c'est la seule des cinq
+#   lambdas `-> TargetsSelector` du binaire dont le corps ne porte AUCUN litteral propre ni bloc
+#   d'init de metadata-usage -- donc le seul candidat que l'ICF PEUT fondre avec un homologue d'une
+#   autre classe ; (b) sa semantique est mot pour mot celle de l'i2 (« additional ENEMIES ADJACENT
+#   to a previous target ») ; (c) `KissOfDeath` et `StormOfWrath` partagent deja le pointeur de
+#   classe des `chainOptions` (`DAT_183343388`) et celui du `Func<>` (`DAT_183336970`), donc la MEME
+#   forme de construction. Le port ecrit ce lambda et le DIT hypothese ; le residu `#940-r1` porte
+#   la mesure qui le trancherait (lire le `MethodInfo*` du delegue en live).
+#   ⚠ `lastTargets` est PLURIEL : la boucle native invoque le `Func` sur `Entities(pickedTargets)`,
+#   la liste COMPLETE des cibles deja piquees -- « adjacent to A PREVIOUS target », pas « the ».
+#
+# CONFRONTABILITE -- les deux porteurs, et pourquoi la voie SUMMON est FERMEE :
+#   `eldarNpc3Harlequin` est un **npc** ; `eldarSmnHarlequin` est un **summon**, et son summoner
+#   n'est PAS une unite : l'unique ability du gameconfig dont `constants.unitId` vaut
+#   `eldarSmnHarlequin` est `EnvFactionSummons:Aeldari`, que `unit_map find --ability` ne rattache a
+#   AUCUNE unite du catalogue (spawner d'ENVIRONNEMENT, pose par le board). On ne peut donc pas
+#   « spawner son summoner » depuis `rl_duel build`. La voie retenue est la GREFFE sur une unite du
+#   pool (`docs/rl/case-92-catalog-injection.md` §5bis), dont la CONDITION est VERIFIEE ici :
+#   `KissOfDeathPlaybook` est enregistre PAR ABILITY (`metadata/active_playbook_builders.tsv` :
+#   `active  1108  IdunBattle.AI.Playbook.Loki.KissOfDeathPlaybook`), et NI `ExecuteBehaviour` NI
+#   `KissOfDeathPlaybook$$EvaluateNonComparable` ne lisent une stat ou un trait du caster -- tout
+#   vient de la config d'ability (`GetDamageProfile`, `GetHits`, `GetVariableForLevel`, `ConfigVar`).
+
+KISS_OF_DEATH_ID = "KissOfDeath"                              # la cle gameconfig de l'ability 1108
+KISS_OF_DEATH_UNTARGETABLE = int(EffectType.Untargetable)     # 0x414 = 1044, pose ET retire par l'arbre
+#: `attackRangeType` de la config 1108 = « Melee » -> `is_melee=True`.
+KISS_OF_DEATH_IS_MELEE = True
+#: `chainOptions` : le ctor n'ecrit QUE `+0x12 = 1` (coup differe d'un cran).
+KISS_OF_DEATH_DEFERRED_HIT = True
+KISS_OF_DEATH_ALLOW_REPEAT_TARGETS = False                    # `chainOptions+0x10`
+KISS_OF_DEATH_ALLOW_IMMEDIATE_REPEAT = False                  # `chainOptions+0x11`
+#: `unique`/`selectionType` du lambda de saut -- les DEUX litteraux du corps retenu.
+KISS_OF_DEATH_JUMP_UNIQUE = 1
+#: L'indice du 2e repli d'atterrissage : `AtIndex(attacked, 1)`, le litteral du call-site.
+KISS_OF_DEATH_FALLBACK_INDEX = 1
+
+
+def kiss_of_death_profile() -> str:
+    """`AActiveAbility$$GetDamageProfile` -> `AbilityConfiguration$$GetDamageProfile(config)` : la
+    constante `damageProfile` de la config 1108, RELUE du gameconfig (= « DirectDamage »), jamais
+    codee en dur. Config sans la cle -> `""` (le natif rend un `Nullable` VIDE, replie sur l'arme)."""
+    import gameconfig as GC
+    consts = (GC.ability(KISS_OF_DEATH_ID) or {}).get("constants") or {}
+    return str(consts.get("damageProfile") or "")
+
+
+def kiss_of_death_hits() -> int:
+    """`Direct( AActiveAbility$$GetHits(this) )` = `GetNumberConstant(0x2f = nrOfHits)` : une
+    CONSTANTE de config (hors niveau), d'ou `is_constant=True`. Absente -> 1, comme le port partout
+    ailleurs (`abilities/base.py::ability_attack_params`)."""
+    return int(ability_var(KISS_OF_DEATH_ID, AbilityConstantType.nrOfHits.name,
+                           is_constant=True) or 1)
+
+
+def kiss_of_death_damage(state: "State", caster_id: int) -> int:
+    """`Direct( AbilityConfiguration$$GetVariableForLevel(config, 0xb = dmg, abilityState, 0) )`.
+
+    L'`abilityState` est celui de CETTE active sur CE caster (`active_ability_state`, #890), pas un
+    niveau global d'unite. `dmg` est dans `variablesAffectedByRarityBonus` -> le multiplicateur de
+    rarete MORD, et c'est `ability_var` qui l'applique."""
+    level, mult = active_ability_state(state, caster_id, int(ActiveAbilityType.KissOfDeath))
+    return int(ability_var(KISS_OF_DEATH_ID, AbilityVariableType.dmg.name, level,
+                           multiplier_pct=mult) or 0)
+
+
+def kiss_of_death_max_targets(state: "State", caster_id: int) -> int:
+    """`DSLFormulas$$ConfigVar(0x0 = maxAdjacentTargets, abilityState, config)`.
+
+    Le natif garde un NOEUD (re-evalue a chaque tour de boucle par
+    `ChainBehaviourBehaviour$$GetCurrentMaxTargets`) ; le port resout la valeur au cast et la passe
+    en `Const`. C'est value-preserving ICI et seulement ici : `maxAdjacentTargets` est une variable
+    de CONFIG indexee par le seul niveau d'ability, que rien ne fait varier pendant l'execution de
+    l'arbre (contrairement, par exemple, a un `StatAmount`). Meme `abilityState` que `dmg`."""
+    level, mult = active_ability_state(state, caster_id, int(ActiveAbilityType.KissOfDeath))
+    return int(ability_var(KISS_OF_DEATH_ID, AbilityVariableType.maxAdjacentTargets.name, level,
+                           multiplier_pct=mult) or 0)
+
+
+def kiss_of_death_jump_targets(picked_sel):
+    """Le `jumpTargetSelector` -- cf. l'avertissement ICF de l'en-tete de section : corps ATTRIBUE
+    (`StormOfWrathAbility$$u003CExecuteBehaviouru003Eb__1_0`), pas lu sous le nom de cette classe.
+
+        lastTargets => Enemies( of = Caster@+0x48,
+                                AdjacentUnits(lastTargets, unique = 1, selectionType = 3),
+                                selectionType = 3 )
+
+    `picked_sel` est la liste COMPLETE des cibles deja piquees (`Entities(pickedTargets)`), pas la
+    derniere. Une NOUVELLE instance par iteration, comme le natif -- aucune memoisation."""
+    return Enemies(AdjacentUnits(picked_sel, Const(KISS_OF_DEATH_JUMP_UNIQUE),
+                                 selection_type=SELECTION),
+                   selection_type=SELECTION)
+
+
+def kiss_of_death_landing_tiles():
+    """Chaine de TUILES d'atterrissage (cf. l'en-tete de section, lecture 5) :
+
+        First( SortTilesByUtility( A.Otherwise(B).Otherwise(C), Caster@+0x48, 7 = Tile ), 1, false )
+
+    avec `X = CanAddUnit(AdjacentTiles(<origine>)) op_Subtraction <DSLSelectors+0x50 = CasterTile>` et
+    `<origine>` = `Last(UnitsAttackedThisTurn(Caster), 1)` / `AtIndex(<les memes>, 1)` / `Target@+0x60`.
+
+    `CasterTile(as_ids=True)` : les deux operandes de l'`op_Subtraction` doivent vivre dans le MEME
+    domaine (le natif compare des references d'entite-tuile) -- sans la conversion, la soustraction
+    ne retrancherait RIEN, silencieusement (meme piege et meme parade qu'`EmpyricAmbush`).
+
+    Le noeud est passe TEL QUEL a `FlyUnit`, qui ne l'evalue qu'a son `execute` : c'est ce qui rend
+    `UnitsAttackedThisTurn` porteur de la chaine qui vient de s'executer."""
+    attacked = UnitsAttackedThisTurn(Caster())
+    def _free_around(origin):
+        return Sub(CanAddUnit(AdjacentTiles(origin)), CasterTile(as_ids=True))
+    a = _free_around(PickLastN(attacked, Const(1)))
+    b = _free_around(AtIndex(attacked, KISS_OF_DEATH_FALLBACK_INDEX))
+    c = _free_around(Target())
+    ranked = SortTilesByUtility(Otherwise(Otherwise(a, b), c), unit_sel=Caster(),
+                                utility_type=UTILITY_TYPE_TILE)
+    return PickFirstN(ranked, Const(1))
+
+
+def kiss_of_death_tree(dmg: int, hits: int, max_targets: int) -> AtomicGroup:
+    """Arbre de `KissOfDeathAbility$$ExecuteBehaviour` -- MIRROR du DECOMPILE (cf. l'en-tete).
+
+        ExecuteAtomic( ((AddEffect(1044 Untargetable, Caster, Caster) & ChainAttackDamage(...))
+                        & FlyUnit(Caster, <tuiles>)) & RemoveEffect(1044, Caster),
+                       0x2a = Ability_AtomicGroup )
+
+    `duration_rounds=None` : le natif passe un `Nullable<AddEffectBehaviourOptions>` **VIDE** (32
+    octets a zero) -- ni duree ni niveau, donc la duree DEFAUT de l'effet. C'est sans consequence
+    observable ici puisque le MEME arbre le retire trois membres plus loin, mais c'est ce qui est
+    ECRIT, et rien n'autorise a inventer un `TurnsFromRounds`."""
+    add = AddEffect(KISS_OF_DEATH_UNTARGETABLE, EffectType.Untargetable.name, Caster(),
+                    duration_rounds=None, source_ref=Caster())   # source ET cible = Caster@+0x48
+    chain = ChainAttackDamage(Target(), kiss_of_death_jump_targets, Const(max_targets), Const(dmg),
+                              KISS_OF_DEATH_ID, kiss_of_death_profile(),
+                              is_melee=KISS_OF_DEATH_IS_MELEE, hits=hits,
+                              allow_repeat_targets=KISS_OF_DEATH_ALLOW_REPEAT_TARGETS,
+                              allow_immediate_repeat=KISS_OF_DEATH_ALLOW_IMMEDIATE_REPEAT,
+                              deferred_hit=KISS_OF_DEATH_DEFERRED_HIT, level_slot="active",
+                              ability_type=int(ActiveAbilityType.KissOfDeath))
+    fly = FlyUnit(Caster(), kiss_of_death_landing_tiles())
+    rem = RemoveEffect(KISS_OF_DEATH_UNTARGETABLE, Caster())
+    return AtomicGroup(op_and(op_and(op_and(add, chain), fly), rem))
+
+
+class KissOfDeathAbility(ActiveAbility):
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.KissOfDeathAbility$$ExecuteBehaviour` (id
+    **1108**, `eldarSmnHarlequin` summon / `eldarNpc3Harlequin` npc, Aeldari) -- MIRROR du DECOMPILE,
+    arbre DSL (`kiss_of_death_tree`). Avant #940 l'ability etait un **NO-OP SILENCIEUX** : absente
+    d'`ABILITY_CLASSES`, elle etait choisie par l'IA puis n'executait RIEN -- zero degat, aucune
+    erreur, invisible en self-play.
+
+    Le Harlequin devient INTARGETABLE (effet 1044), enchaine `nrOfHits` coups `damageProfile` sur sa
+    cible puis sur jusqu'a `maxAdjacentTargets` ennemis adjacents a une cible deja frappee, REAPPARAIT
+    sur la meilleure tuile libre au contact de sa derniere victime, et perd l'intargetabilite.
+    Chaine native, options et attribution du lambda : cf. l'en-tete de section."""
+    __slots__ = ()
+    ABILITY_TYPE = int(ActiveAbilityType.KissOfDeath)         # 1108 = 0x454
+    ABILITY_ID = KISS_OF_DEATH_ID
+
+    # `IdunBattleLogic.Entities.Abilities.Active.Loki.KissOfDeathAbility$$.ctor` -- FORME
+    # « RECOPIE D'UN PRESET STATIQUE », la seconde forme du piege (aucun `TargetingOptions$$.ctor`
+    # n'est appele) : le corps copie les 0x40 octets de `<TargetingOptions statics>+0x40` dans un
+    # temporaire, puis `AActiveAbility..ctor(this, &opts, 0)`. Le masque EFFECTIF est donc la
+    # constante qu'ecrit `IdunBattle.Core.Services.TargetingOptions$$.cctor` a `<preset>+0x28`,
+    # c'est-a-dire `<statics>+0x68` = **0x4000**. Relu dans le `.cctor` ligne a ligne :
+    #     statics+0x40 = 0        (isSelfCasting)
+    #     statics+0x60 = 1        (forceMeleeTarget = RangedBool.False)
+    #     statics+0x68 = 0x4000   (rules)            <-- le seul bit pose
+    # Decomposition EXHAUSTIVE, somme exacte, aucun bit residuel :
+    #     0x4000 (bit 14) TargetIsEnemy
+    # Aucun `TargetHasFreeAdjacentTile` ici, contrairement a `EmpyricAmbush` : le natif n'exige PAS
+    # de tuile libre au contact de la cible, parce que l'atterrissage a DEUX replis (cf. l'arbre) et
+    # que `FlyUnit` sur une destination vide est simplement un no-op.
+    # ⚠ **LA PORTEE NE SE DEDUIT PAS DE `attackRangeType`** : le `.cctor` recopie dans ce preset le
+    # `TargetingRange` de `<TargetingRange statics>+0x30` (`*(lVar3 + 0x30)` puis `+0x38`, `+0x40`),
+    # et `IdunBattle.Core.Services.TargetingRange$$.cctor` ecrit LA : `+0x30 = 0`
+    # (`onlyAdjacent = RangedBool.True`), `+0x38 = Nullable(1)` (`overrideRange = 1`), `+0x40 = 0`
+    # -> c'est **RANGE_ADJACENT**, pas `RANGE_FROM_CONFIG` (qui vit a `statics+0x18`). La config
+    # 1108 n'a d'ailleurs AUCUNE constante `range`. Mesure du 2026-08-11 : avec `RANGE_FROM_CONFIG`,
+    # le port acceptait les QUATRE ennemis du montage plus le caster la ou le natif n'en accepte
+    # qu'UN (`abilityTargets.fromHere = [T]`) -- le gate sautait en silence.
+    # `AbilityAttackType` = 3e argument d'`AActiveAbility$$.ctor(this, &opts, 0)` = **0**
+    # (`DirectTargetAttack`), TRANSCRIT dans `abilities/attack_type.py` au meme commit.
+    TARGETING_OPTIONS = TargetingOptions(rules=int(TR.TargetIsEnemy),        # `<statics>+0x68` = 0x4000
+                                         self_cast=False, range=RANGE_ADJACENT,
+                                         force_melee_target=RANGED_BOOL_FALSE)
+
+    def execute_behaviour(self, state: "State", caster_id: int,
+                          target_id: Optional[int]) -> Optional[dict]:
+        if target_id is None:
+            return None
+        dmg = kiss_of_death_damage(state, caster_id)
+        hits = kiss_of_death_hits()
+        max_targets = kiss_of_death_max_targets(state, caster_id)
+        ectx = ExecutionContext(state=state, rng=state.rng)
+        kiss_of_death_tree(dmg, hits, max_targets).execute(
+            entities_from_state(state, caster_id, target_id), ectx)
+        attacks = [p for (n, p) in ectx.emitted if n == "AttackWithAttackDamage"]
+        fly = next((p for n, p in ectx.emitted if n == "FlyUnit"), None)
+        return {"ability": KISS_OF_DEATH_ID, "caster": caster_id, "target": target_id,
+                "dmg": int(dmg), "hits": int(hits), "maxTargets": int(max_targets),
+                "targets": [a.get("target") for a in attacks],
+                "attacks": [a.get("attack") for a in attacks],
+                "move": fly, "dsl": True,
+                "emitted": [n for n, _ in ectx.emitted]}

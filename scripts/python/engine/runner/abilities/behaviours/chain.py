@@ -269,7 +269,8 @@ class ChainAttackDamage(ChainAbilityDamage):
                  ability_id: str, profile: str, is_melee: bool = True, hits=None,
                  extra_behaviour: Optional[AbilityBehaviour] = None,
                  allow_repeat_targets: bool = False, allow_immediate_repeat: bool = False,
-                 deferred_hit: bool = True, level_slot: str = "passive"):
+                 deferred_hit: bool = True, level_slot: str = "passive",
+                 ability_type=None, amount_spread_pct: int = 0):
         self.preselected_sel = preselected_sel
         self.jump_target_selector = jump_target_selector
         self.max_targets = max_targets
@@ -279,12 +280,23 @@ class ChainAttackDamage(ChainAbilityDamage):
         self.extra_behaviour = extra_behaviour
         # `AttackDamageBehaviour(caster = Owner@<DSLSelectors+0x30>, target = Units(ActiveTarget
         # @<+0x68>), dmgFormula, profile, hits, options)` -- construit par le `.ctor` natif lui-meme,
-        # ce n'est PAS un argument de la factory. `amount = None` -> mode BORNES (le `dmgFormula` du
-        # natif est `BaseTriggeredAbility$$MinMaxDamage` = `RandomAmount(minDmg, maxDmg)`, dont
-        # `ability_attack_params` rend exactement les deux bornes).
+        # ce n'est PAS un argument de la factory. En revanche le `dmgFormula` qu'il recoit, LUI, EST
+        # le 4e argument de la factory (`dmgAmount`), et les deux consommateurs natifs ne le
+        # remplissent PAS de la meme facon (#940) :
+        #   * `FuryOfTheAncientsAbility$$CreateBehaviour` passe `BaseTriggeredAbility$$MinMaxDamage`
+        #     = `RandomAmount(minDmg, maxDmg)` -> `amount = None` cote port = mode BORNES, dont
+        #     `ability_attack_params` rend exactement les deux bornes depuis la config ;
+        #   * `KissOfDeathAbility$$ExecuteBehaviour` passe `DSLFormulas$$Direct(
+        #     GetVariableForLevel(0xb = dmg))` -- une valeur MONO, qui n'a NI minDmg NI maxDmg dans
+        #     sa config. La rabattre sur le mode bornes lirait deux cles ABSENTES.
+        # D'ou : `amount` non nul -> mode `amount` de la feuille, TEL QUEL. `amount_spread_pct` porte
+        # l'octet +6 du `Nullable<AttackDamageBehaviourOptions>` de la factory (0 = aucune variance
+        # d'arme) ; il n'a de sens qu'en mode `amount`, comme le dit la feuille.
         self.damage = AttackWithAttackDamage(Units(ActiveTarget()), ability_id, profile,
                                              is_melee=is_melee, multi=True, hits=hits,
-                                             level_slot=level_slot)
+                                             level_slot=level_slot, amount=amount,
+                                             ability_type=ability_type,
+                                             amount_spread_pct=amount_spread_pct)
 
 
 class ChainBehaviourGeneric(AbilityBehaviour):
