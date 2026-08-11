@@ -82,7 +82,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from ...services.damage_combat import could_crit, BlockSource
+from ...services.damage_combat import BlockSource
 from ...services.damage_config import resolve_spread_pct
 from ...entities.damage_trait import DamageTrait
 from ...entities.damage_profile_type import DamageProfileType
@@ -1014,7 +1014,10 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
                      hit_index: Optional[int] = None) -> tuple:
         """(crit_chance, crit_damage, crit_enabled) de l'ATTAQUANT — GetStat(9/10) + bonus calc-time des
         effets (`IdunBattle.Core.Services.DamagePrediction$$GetCritChanceBonusFromEffects` / `IdunBattle.Core.Services.DamagePrediction$$GetCritDamageBonusFromEffects`) ;
-        `could_crit` = `IdunBattle.Core.Services.DamageCalculations$$CouldCrit`. Partage par les 3 vecteurs (normale/ability/splash).
+        `crit_enabled` = le gate de `IdunBattle.Core.Services.DamagePrediction$$RollCritical`
+        (`cc post-bonus >= 1`), et NON `IdunBattle.Core.Services.DamageCalculations$$CouldCrit`, qui
+        n'est pas sur le chemin d'execution d'un coup (#950, cf. le bloc en fin de fonction).
+        Partage par les 3 vecteurs (normale/ability/splash).
 
         CONTEXTE DU CANAL CRIT (`att_ctx`) -- **FOYER UNIQUE**, pose ICI et nulle part ailleurs.
         `_crit_params` est a l'axe CRIT ce que `runner/damage_model.py::build_hits_board` est a l'axe
@@ -1102,33 +1105,40 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
         if state is not None:
             att_ctx.update(AttackDamageOperation._crit_board(state, att_id, tgt_id))
             carriers = AttackDamageOperation._crit_carriers(state, att_id, attacker_effects, tgt_id)
-        # #950 -- `CouldCrit` LIT LES STATS BRUTES, ET LA CRIT-DAMAGE EST CLAMPEE A 0. Les deux
-        # lectures sont relues VERBATIM sur `rnca9r7q6c`, et elles ne sont PAS interchangeables :
+        # #950 -- LA CRIT-DAMAGE NE GATE PAS LE TIRAGE, ELLE EST CLAMPEE A ZERO. Les deux lectures
+        # natives sont relues VERBATIM sur `rnca9r7q6c`, et elles portent sur des AXES DIFFERENTS :
         #
-        #   `IdunBattle.Core.Services.DamageCalculations$$CouldCrit(attacker)`
-        #       = `GetStat(9) > 0 && GetStat(10) > 0`   -- les STATS de l'attaquant, AUCUN bonus
-        #         d'effet ne l'atteint (la fonction ne prend QUE l'attaquant en argument) ;
-        #   `IdunBattle.Core.Services.DamagePrediction$$RollCritical`
-        #       = `cc = GetStat(9) + GetCritChanceBonusFromEffects(...)` puis
-        #         `if (cc < 0) false ; if (cc >= 101) cc = 100 ; if (cc < 1) false ; NextBool(cc)`
-        #         -- la SEULE grandeur post-bonus qui puisse supprimer le TIRAGE est la CHANCE ;
+        #   `IdunBattle.Core.Services.DamagePrediction$$RollCritical(attacker, defender, ability,
+        #    hitIndex)` = `cc = GetStat(9) + GetCritChanceBonusFromEffects(...)` puis
+        #        `if (cc < 0) false ; if (cc >= 101) cc = 100 ; if (cc < 1) false ; NextBool(cc)`
+        #        -- la SEULE grandeur qui puisse supprimer le TIRAGE est la CHANCE post-bonus ;
         #   `IdunBattle.Core.Services.DamagePrediction$$CalculateCriticalDamage`
-        #       = `System.Math.Max(0, GetStat(10) + GetCritDamageBonusFromEffects(...))`.
+        #        = `System.Math.Max(0, GetStat(10) + GetCritDamageBonusFromEffects(...))`
+        #        -- la crit-DEGAT est simplement PLANCHEE a 0, jamais un gate.
         #
-        # Le port evaluait `could_crit(cc, cd)` sur les valeurs POST-BONUS : une reduction de
-        # crit-DEGAT assez grande pour rendre `cd <= 0` y SUPPRIMAIT le tirage, donc DESYNCHRONISAIT
-        # le flux PRNG de toute l'attaque (un `NextBool` de moins par coup) -- pas seulement le degat.
-        # Le gisement etait INATTEIGNABLE tant qu'aucun effet porte ne poussait `cd` sous zero ;
-        # `ToughToKill` (1472) le fait (`critDmgReduction[50] x 160 % = 1330` contre un
-        # `GetStat(10) = 700`). MESURE (probe_950, bras `ttk`) : natif `[1619, 1789, 1355, 1624,
-        # 1215, 1352]` avec `Attack_DidCrit = 1` sur les deux premiers coups, port
-        # `[1415, 1619, 1515, 1789, 1397, 1355]` -- SIX coups divergents, dont l'ORDRE trahit le
-        # decalage de flux. Apres correctif : egalite a l'unite.
-        _cc_stat = ctx.stat(StatType.CRIT_CHANCE)
-        _cd_stat = ctx.stat(StatType.CRIT_DAMAGE)
-        cc = _cc_stat + crit_chance_bonus_from_effects(carriers, att_ctx)
-        cd = max(0, _cd_stat + crit_damage_bonus_from_effects(carriers, att_ctx))
-        return cc, cd, could_crit(_cc_stat, _cd_stat)
+        # (`IdunBattle.Core.Services.DamageCalculations$$CouldCrit(attacker)` = `GetStat(9) > 0 &&
+        # GetStat(10) > 0` n'a QUE des xrefs DATA : il n'est invoque que par slot d'interface, PAS
+        # sur le chemin d'execution d'un coup -- constat deja etabli et MESURE par
+        # `entities/effects/loki/inescapable_accuracy.py`, ou `GetStat(9) == 0` crite quand meme.)
+        #
+        # Le port passait `could_crit(cc, cd)` : le conjoint `cd > 0` y SUPPRIMAIT le tirage des
+        # qu'une reduction de crit-DEGAT rendait `cd <= 0`, donc DESYNCHRONISAIT le flux PRNG de
+        # toute l'attaque (un `NextBool` de moins par coup) -- pas seulement le degat. Le gisement
+        # etait INATTEIGNABLE tant qu'aucun effet porte ne poussait `cd` sous zero ; `ToughToKill`
+        # (1472) le fait (`critDmgReduction[50] x 160 % = 1330` contre un `GetStat(10) = 700`).
+        # MESURE (probe_950, bras `ttk`) : natif `[1619, 1789, 1355, 1624, 1215, 1352]` avec
+        # `Attack_DidCrit = 1` sur les deux premiers coups, port `[1415, 1619, 1515, 1789, 1397,
+        # 1355]` -- SIX coups divergents, dont l'ORDRE trahit le decalage de flux. Apres correctif :
+        # egalite a l'unite.
+        # ⚠ Le conjoint CHANCE, lui, RESTE post-bonus : c'est exactement le gate de `RollCritical`,
+        # et c'est ce qui fait criter un `eldarMauganRa` a `GetStat(9) == 0` porte a 15 par
+        # `InescapableAccuracy_extraCritChance` (mesure live, `test_inescapable_accuracy_crit_chance
+        # _live.py`). Le remplacer par les stats BRUTES eteindrait ce canal -- essaye, et les quatre
+        # cas de ce fichier rougissent.
+        cc = ctx.stat(StatType.CRIT_CHANCE) + crit_chance_bonus_from_effects(carriers, att_ctx)
+        cd = max(0, ctx.stat(StatType.CRIT_DAMAGE)
+                 + crit_damage_bonus_from_effects(carriers, att_ctx))
+        return cc, cd, cc >= 1
 
     @staticmethod
     def _crit_board(state: State, att_id, tgt_id) -> dict:
