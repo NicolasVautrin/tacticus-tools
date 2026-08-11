@@ -98,12 +98,15 @@ def tracked_py() -> list[str]:
     return [p for p in r.stdout.split("\0") if p.endswith(".py")]
 
 
-def invocations() -> list[tuple[str, int, str, bool]]:
-    """[(rel, ligne, garde, monte_une_bataille)] pour chaque `rl_duel ... build`.
+#: MEMO DE RESULTAT (#941), meme forme que les quatre balayages de #486-r5 -- jamais un cache
+#: d'AST. Ce qui est retenu est minuscule (un tuple de quadruplets) ; ce qui est evite est le
+#: balayage de tout `git ls-files`, `ast.unparse` compris.
+_INVOCATIONS_CACHE: tuple | None = None
 
-    `garde` in {'check=True', 'rc teste', 'rc IGNORE', 'resultat non lie'}.
-    `monte_une_bataille` est False pour `--list-pool`, qui n'atteint jamais `_verify_roster`.
-    """
+
+def _balayer_invocations() -> list[tuple[str, int, str, bool]]:
+    """LE BALAYAGE. Separe de `invocations()` pour qu'un cliquet puisse le SUBSTITUER et mesurer
+    que le memo mord (garde : `test_486r5_balayages_memoises_offline.py`)."""
     out = []
     for rel in tracked_py():
         if rel.endswith("rl_duel.py"):
@@ -149,6 +152,22 @@ def invocations() -> list[tuple[str, int, str, bool]]:
                       for m in ast.walk(arbre))
             out.append((rel, n.lineno, "rc teste" if lit else "rc IGNORE", monte))
     return out
+
+
+def invocations() -> tuple[tuple[str, int, str, bool], ...]:
+    """[(rel, ligne, garde, monte_une_bataille)] pour chaque `rl_duel ... build`.
+
+    `garde` in {'check=True', 'rc teste', 'rc IGNORE', 'resultat non lie'}.
+    `monte_une_bataille` est False pour `--list-pool`, qui n'atteint jamais `_verify_roster`.
+
+    MEMOISE (#941). Le balayage visite TOUT `.py` versionne, `ast.unparse` a chaque `Call` des
+    fichiers qui citent `rl_duel` -- mesure du 2026-08-11 : **38 s**, et les TROIS tests du
+    cliquet le refaisaient chacun pour son compte (114 s pour un seul releve). La valeur rendue
+    est un TUPLE, donc aucun appelant ne peut modifier ce que verra le suivant."""
+    global _INVOCATIONS_CACHE
+    if _INVOCATIONS_CACHE is None:
+        _INVOCATIONS_CACHE = tuple(_balayer_invocations())
+    return _INVOCATIONS_CACHE
 
 
 # ------------------------------------------------------- ETAGE 2 : COMBIEN DECLENCHENT

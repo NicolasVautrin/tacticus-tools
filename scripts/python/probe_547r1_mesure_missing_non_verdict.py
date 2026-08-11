@@ -166,14 +166,61 @@ def _fichier_le_moins_cher() -> str:
     return cands[0][1]
 
 
-def _temoin(mute_le_correctif: bool) -> tuple:
-    """Monte un worktree, y rend ROUGE un fichier de test offline EXISTANT, et joue le geste.
+#: LE WORKTREE TEMOIN, MONTE UNE SEULE FOIS POUR LES DEUX ETAGES (#941).
+#: Mesure du 2026-08-11 sur ce depot : `git worktree add --detach` = **35,0 s**,
+#: `worktree remove --force` = **18,4 s**, soit **53 s** par temoin -- et il en etait monte DEUX,
+#: pour LE MEME arbre commite (`HEAD`), a 106 s des 139 s de ce cliquet. Les etages 3 et 4 ne
+#: different que par la MUTATION du foyer de `probe_457`, qui se pose et se retire dans l'arbre.
+#: Partager le temoin RENFORCE d'ailleurs ce que la docstring de l'etage 4 affirme deja --
+#: << sur le MEME arbre rouge >> -- au lieu de le supposer de deux montages independants.
+_TEMOIN: tuple | None = None                        # (base, cible)
 
-    Rend `(rc_du_geste, rc_de_pytest_sur_le_fichier, rel)`."""
+#: Ce que `probe_457 --measure-missing` ECRIT dans l'arbre qu'il juge. L'etage 4 doit repartir de
+#: l'arbre EXACT de l'etage 3 : tout ce qui a bouge est restaure PAR CHEMIN, et l'absence de
+#: residu est VERIFIEE (`_restaurer`) -- un temoin partage qui derive silencieusement serait pire
+#: que deux montages.
+def _restaurer(cible: Path) -> None:
+    """Ramene l'arbre temoin a son etat COMMITE, et REFUSE si un residu subsiste."""
+    sale = [l for l in _git(["status", "--porcelain"], cwd=cible).splitlines() if l.strip()]
+    for ligne in sale:
+        etat, chemin = ligne[:2], ligne[3:].strip().strip('"')
+        if etat == "??":
+            p = cible / chemin
+            if p.is_dir():
+                shutil.rmtree(p, ignore_errors=True)
+            elif p.exists():
+                p.unlink()
+        else:
+            _git(["checkout", "--", chemin], cwd=cible, tolere=True)
+    reste = [l for l in _git(["status", "--porcelain"], cwd=cible).splitlines() if l.strip()]
+    if reste:
+        raise SystemExit("[547-r1] le temoin n'a pas pu etre restaure (%d residu(s), ex. %r) -- "
+                         "l'etage suivant ne jugerait plus le MEME arbre"
+                         % (len(reste), reste[0]))
+
+
+def _liberer_temoin() -> None:
+    """Demonte le worktree partage. APPELE PAR LE DERNIER ETAGE et par `main`, jamais oublie :
+    un worktree laisse derriere soi apparait dans `git worktree list` de tout le depot."""
+    global _TEMOIN
+    if _TEMOIN is None:
+        return
+    base, cible = _TEMOIN
+    _TEMOIN = None
+    _git(["worktree", "remove", "--force", str(cible)], tolere=True)
+    shutil.rmtree(base, ignore_errors=True)
+
+
+def _monter_temoin() -> tuple:
+    """(cible, rel) -- le worktree ROUGE, monte au plus une fois par processus."""
+    global _TEMOIN
+    rel = _fichier_le_moins_cher()
+    if _TEMOIN is not None:
+        return _TEMOIN[1], rel
     base = Path(tempfile.mkdtemp(prefix="wt547r1_"))
     cible = base / "t"
-    _git(["worktree", "add", "--detach", str(cible), "HEAD"], tolere=True)
     try:
+        _git(["worktree", "add", "--detach", str(cible), "HEAD"], tolere=True)
         # ⚠ LA GARDE DE CE CLIQUET N'A RIEN A FAIRE DANS LE TEMOIN, et l'y laisser FAUSSE la
         # mesure : elle n'y a pas d'entree d'empreinte, donc `--measure-missing` la JOUE, et a
         # l'etage 4 son propre controle d'ancrage la voit MUTEE et rougit -- le geste rendait
@@ -182,33 +229,61 @@ def _temoin(mute_le_correctif: bool) -> tuple:
         garde = cible / "scripts" / "python" / "tests" / GARDE_DU_CLIQUET
         if garde.exists():
             garde.unlink()
-        rel = _fichier_le_moins_cher()
         f = cible / "scripts" / "python" / rel.replace("/", os.sep)
         if not f.exists():
             raise SystemExit("[547-r1] le fichier choisi n'existe pas dans le temoin : %s" % rel)
         with io.open(f, "a", encoding="utf-8") as fh:
             fh.write("\n\ndef test_547r1_contre_epreuve_injectee():\n"
                      "    assert False, 'ROUGE injecte par le cliquet #547-r1'\n")
-        if mute_le_correctif:
-            g = cible / "scripts" / "python" / "probe_457_offline_tests_green.py"
-            src = g.read_text(encoding="utf-8")
-            if ANCRAGE_CORRECTIF not in src:
-                raise SystemExit("[547-r1] ANCRAGE du correctif introuvable -- le code a bouge, "
-                                 "le mutant ne prouverait rien")
-            g.write_text(src.replace(ANCRAGE_CORRECTIF, MUTANT_CORRECTIF, 1), encoding="utf-8")
         _git(["add", "-A"], cwd=cible)
         _git(["-c", "user.email=x@x", "-c", "user.name=x", "commit", "-m", "contre-epreuve"],
              cwd=cible, tolere=True)
-        # (a) le fichier est-il REELLEMENT rouge ? Sans ce controle, l'etage ne prouve rien.
-        pr = subprocess.run([sys.executable, "-m", "pytest", rel, "-q", "--no-header",
-                             "-p", "no:cacheprovider"],
-                            cwd=str(cible / "scripts" / "python"), capture_output=True, text=True,
-                            errors="replace")
-        rc_geste, _ = _joue_457(cible, ["--measure-missing"])
-        return rc_geste, pr.returncode, rel
-    finally:
+    except BaseException:
         _git(["worktree", "remove", "--force", str(cible)], tolere=True)
         shutil.rmtree(base, ignore_errors=True)
+        raise
+    _TEMOIN = (base, cible)
+    return cible, rel
+
+
+def _muter_le_correctif(cible: Path) -> None:
+    """Pose le MUTANT dans l'arbre temoin, et le COMMITE -- comme le faisait le montage a deux
+    worktrees, pour que le geste juge un arbre PROPRE dans les deux etages."""
+    g = cible / "scripts" / "python" / "probe_457_offline_tests_green.py"
+    src = g.read_text(encoding="utf-8")
+    if ANCRAGE_CORRECTIF not in src:
+        raise SystemExit("[547-r1] ANCRAGE du correctif introuvable -- le code a bouge, "
+                         "le mutant ne prouverait rien")
+    g.write_text(src.replace(ANCRAGE_CORRECTIF, MUTANT_CORRECTIF, 1), encoding="utf-8")
+    _git(["add", "-A"], cwd=cible)
+    _git(["-c", "user.email=x@x", "-c", "user.name=x", "commit", "-m", "mutant"],
+         cwd=cible, tolere=True)
+
+
+def _temoin(mute_le_correctif: bool) -> tuple:
+    """Joue le geste sur l'arbre temoin ROUGE, avec ou sans le MUTANT du correctif.
+
+    Rend `(rc_du_geste, rc_de_pytest_sur_le_fichier, rel)`."""
+    cible, rel = _monter_temoin()
+    g = cible / "scripts" / "python" / "probe_457_offline_tests_green.py"
+    if mute_le_correctif:
+        _muter_le_correctif(cible)
+    elif MUTANT_CORRECTIF in g.read_text(encoding="utf-8"):
+        # Le temoin est PARTAGE : un etage NON MUTE joue apres l'etage 4 mesurerait le mutant et
+        # rendrait un `0` qu'on lirait comme le vice. On refuse plutot que de le rendre.
+        raise SystemExit("[547-r1] le MUTANT est encore pose dans le temoin partage -- l'etage "
+                         "non mute ne jugerait pas le correctif (jouer les etages dans l'ordre)")
+    # (a) le fichier est-il REELLEMENT rouge ? Sans ce controle, l'etage ne prouve rien.
+    pr = subprocess.run([sys.executable, "-m", "pytest", rel, "-q", "--no-header",
+                         "-p", "no:cacheprovider"],
+                        cwd=str(cible / "scripts" / "python"), capture_output=True, text=True,
+                        errors="replace")
+    rc_geste, _ = _joue_457(cible, ["--measure-missing"])
+    # ⚠ LE GESTE ECRIT (poids, empreinte, ledger). Sans cette restauration, l'etage suivant ne
+    # jugerait plus le MEME arbre -- et son `--measure-missing` trouverait << rien a mesurer >>,
+    # c'est-a-dire un rc RENDU POUR UNE AUTRE RAISON QUE LE CRITERE.
+    _restaurer(cible)
+    return rc_geste, pr.returncode, rel
 
 
 def etape3() -> list:
@@ -250,11 +325,15 @@ def main(argv=None) -> int:
 
     print("== #547-r1 -- `--measure-missing` ne se lit plus comme un verdict de VERDEUR")
     fautes = []
-    for i, (titre, fn) in enumerate(ETAGES, start=1):
-        if args.etage and args.etage != i:
-            continue
-        print("-- etage %s" % titre)
-        fautes += ["etage %d : %s" % (i, f) for f in fn()]
+    try:
+        for i, (titre, fn) in enumerate(ETAGES, start=1):
+            if args.etage and args.etage != i:
+                continue
+            print("-- etage %s" % titre)
+            fautes += ["etage %d : %s" % (i, f) for f in fn()]
+    finally:
+        # Le temoin est PARTAGE par les etages 3 et 4 : c'est ici qu'il meurt, quoi qu'il arrive.
+        _liberer_temoin()
     print("-- PORTEE DE LA MESURE")
     print("   Ce cliquet NE PROUVE PAS que `--measure-missing` VOIT un rouge existant : il ne le")
     print("   peut pas, et c'est un choix de COUT assume (le lui faire jouer = `--measure`")

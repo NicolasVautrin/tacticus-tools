@@ -111,8 +111,17 @@ def resout_sa_cible(cls) -> str:
     return "NON"
 
 
-def ventiler():
-    """(tile, autres) = [(id, nom, verdict)] -- DERIVE du registre, jamais d'une liste saisie."""
+#: MEMOS DE RESULTAT (#941). Meme forme que les quatre balayages de #486-r5 : ce qui est retenu
+#: est minuscule (des tuples de triplets), ce qui est evite est un balayage complet. Mesure du
+#: 2026-08-11 : lire + `ast.parse` tout `scripts/python/**` coute **27,8 s**, et `appels_directs`
+#: le faisait DEUX fois dans ce seul cliquet (`ventiler` TROIS -- la fixture `scope="module"` ne
+#: couvrait que trois des cinq appels).
+_VENTILATION_CACHE: tuple | None = None
+_APPELS_CACHE: tuple | None = None
+
+
+def _balayer_ventilation():
+    """LE BALAYAGE. Separe pour qu'un cliquet puisse le SUBSTITUER et mesurer que le memo mord."""
     from engine.runner.abilities.handler import ABILITY_CLASSES
     from engine.runner.abilities.targeting_rule import TargetingRule as TR
     tile, autres, sans_masque = [], [], []
@@ -125,7 +134,17 @@ def ventiler():
             continue
         cible = tile if int(opts.rules) & int(TR.TargetIsTile) else autres
         cible.append((aid, cls.__name__, resout_sa_cible(cls)))
-    return tile, autres, sans_masque
+    return tuple(tile), tuple(autres), tuple(sans_masque)
+
+
+def ventiler():
+    """(tile, autres, sans_masque) = [(id, nom, verdict)] -- DERIVE du registre, jamais d'une
+    liste saisie. MEMOISE (#941), valeur IMMUABLE : aucun appelant ne peut modifier ce que verra
+    le suivant."""
+    global _VENTILATION_CACHE
+    if _VENTILATION_CACHE is None:
+        _VENTILATION_CACHE = _balayer_ventilation()
+    return _VENTILATION_CACHE
 
 
 # ------------------------------------------------------- ETAGE 2 : les APPELANTS directs
@@ -146,12 +165,21 @@ def _nom_classe_appelee(node: ast.Call) -> str | None:
     return None
 
 
-def appels_directs() -> tuple[list, list]:
+def appels_directs() -> tuple:
     """([(rel, ligne, classe, cible)] attribues, [(rel, ligne, cible)] non attribues).
 
     Perimetre : tout `.py` versionne, moins `AbilityHandler` -- qui est la voie NATIVE et
     resout deja, donc n'est pas un << appel direct >>.
-    """
+
+    MEMOISE (#941), valeur IMMUABLE."""
+    global _APPELS_CACHE
+    if _APPELS_CACHE is None:
+        _APPELS_CACHE = _balayer_appels_directs()
+    return _APPELS_CACHE
+
+
+def _balayer_appels_directs() -> tuple:
+    """LE BALAYAGE -- lit et `ast.parse` TOUT `.py` versionne."""
     r = subprocess.run(["git", "ls-files", "-z"], cwd=str(REPO),
                        capture_output=True, text=True, timeout=120)
     if r.returncode != 0:
@@ -181,7 +209,7 @@ def appels_directs() -> tuple[list, list]:
                 attribues.append((rel, n.lineno, klass, cible))
             else:
                 non_attribues.append((rel, n.lineno, cible))
-    return attribues, non_attribues
+    return tuple(attribues), tuple(non_attribues)
 
 
 def main() -> int:
