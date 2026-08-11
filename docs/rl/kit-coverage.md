@@ -23,8 +23,8 @@
 
 ## Bilan
 
-- Unites lineup : **127** ; kits COMPLETS (aucun manque detecte) : **78** ; kits avec du travail : **49**
-- Volume total : **50** items manquants (actives no-op + passifs/traits non registres)
+- Unites lineup : **127** ; kits COMPLETS (aucun manque detecte) : **79** ; kits avec du travail : **48**
+- Volume total : **49** items manquants (actives no-op + passifs/traits non registres)
 - HORS total — voies conditionnelles : **38** abilities non portees (11 mythiques, 27 reliques equipables)
 
 ### Priorite par faction (volume decroissant)
@@ -44,11 +44,11 @@
 | WorldEaters | 3 | 3 |
 | Aeldari | 2 | 2 |
 | Custodes | 2 | 2 |
-| Orks | 2 | 2 |
 | Tau | 1 | 2 |
 | Tyranids | 2 | 2 |
 | BlackTemplars | 1 | 1 |
 | Genestealers | 1 | 1 |
+| Orks | 1 | 1 |
 | ThousandSons | 1 | 1 |
 
 ## Par faction (kits avec du travail)
@@ -146,12 +146,11 @@
 | necroDestroyer | 1 | MultiThreatEliminator(1006) [CD] OK | InescapableDeath | - |
 | necroPlasmancer | 1 | HarbingerOfDestruction(1008) [CD] OK | LivingLightning | - |
 
-### Orks — 2 kits, 2 items
+### Orks — 1 kits, 1 items
 
 | unite | manque | actives | passifs manquants | traits de kit manquants |
 |---|---|---|---|---|
 | orksBigMek | 1 | GrotTank(1057) [CD] OK | KustomForceFieldReworked | - |
-| orksWarboss | 1 | Waaagh(1058) [C-] OK | LightImUp | - |
 
 ### Sisterhood — 4 kits, 4 items
 
@@ -197,9 +196,9 @@
 | worldJakhal | 1 | JakhalStimms(1131) [C-] OK | Skullsmasher | - |
 | worldTerminator | 1 | BloodyFury(1129) [CD] OK | WrathfulDevotion | - |
 
-## Kits lineup COMPLETS (78)
+## Kits lineup COMPLETS (79)
 
-adeptCanoness, adeptExorcist, admecDominus, admecMarshall, astarCyrus, astarLysander, astraBullgryn, astraCreed, astraOrdnanceBattery, astraPrimarisPsy, blackForgefiend, blackObliterator, blackTerminator, bloodDante, bloodDeathCompany, custoAtlacoya, custoTrajann, custoVexilusPraetor, darkaAsmodai, darkaAzrael, darkaSternguard, darkaStormSpeeder, deathBlightbringer, deathBlightlord, deathCrawler, deathPutrifier, deathRotbone, deathTyphus, eldarAutarch, eldarFarseer, eldarMauganRa, eldarRanger, emperNoiseMarine, genesKelermorph, genesMagus, genesPatriarch, genesPrimus, necroOverlord, necroReanimator, necroSpyder, necroWarden, orksKillaKan, orksNob, orksRukkatrukk, orksRuntherd, spaceBlackmane, spaceRockfist, spaceStormcaller, tauAunShi, tauBroadside, tauCrisis, tauDarkstrider, tauMarksman, tauShadowsun, templAncient, templChampion, templHelbrecht, templSwordBrother, thousAhriman, thousInfernalMaster, thousSekhetar, thousSorcerer, thousTerminator, thousTzaangor, tyranDeathleaper, tyranNeurothrope, tyranParasite, tyranTyrantGuard, ultraApothecary, ultraCalgar, ultraDreadnought, ultraEliminatorSgt, ultraInceptorSgt, ultraTigurius, ultraTitus, votanChampion, worldEightbound, worldKharn
+adeptCanoness, adeptExorcist, admecDominus, admecMarshall, astarCyrus, astarLysander, astraBullgryn, astraCreed, astraOrdnanceBattery, astraPrimarisPsy, blackForgefiend, blackObliterator, blackTerminator, bloodDante, bloodDeathCompany, custoAtlacoya, custoTrajann, custoVexilusPraetor, darkaAsmodai, darkaAzrael, darkaSternguard, darkaStormSpeeder, deathBlightbringer, deathBlightlord, deathCrawler, deathPutrifier, deathRotbone, deathTyphus, eldarAutarch, eldarFarseer, eldarMauganRa, eldarRanger, emperNoiseMarine, genesKelermorph, genesMagus, genesPatriarch, genesPrimus, necroOverlord, necroReanimator, necroSpyder, necroWarden, orksKillaKan, orksNob, orksRukkatrukk, orksRuntherd, orksWarboss, spaceBlackmane, spaceRockfist, spaceStormcaller, tauAunShi, tauBroadside, tauCrisis, tauDarkstrider, tauMarksman, tauShadowsun, templAncient, templChampion, templHelbrecht, templSwordBrother, thousAhriman, thousInfernalMaster, thousSekhetar, thousSorcerer, thousTerminator, thousTzaangor, tyranDeathleaper, tyranNeurothrope, tyranParasite, tyranTyrantGuard, ultraApothecary, ultraCalgar, ultraDreadnought, ultraEliminatorSgt, ultraInceptorSgt, ultraTigurius, ultraTitus, votanChampion, worldEightbound, worldKharn
 
 ## HORS total — voies conditionnelles (38 abilities non portees)
 

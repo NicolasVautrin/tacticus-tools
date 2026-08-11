@@ -246,8 +246,15 @@ discriminante) et le probe imprimait `-> OK`. Le probe compte désormais l'ancra
   retenues, il ne l'exerce pas (il faudrait un relief bloquant entre le caster et une cible à 2 hex).
 * Les **quatre porteurs npc** : hors-jeu, et sans intérêt ici — le HERO du pool exerce le même corps
   avec la même config.
-* La **face COMBAT** du passif (`LightImUpAbility$$CreateBehaviour` : `Attack(...) & If(IsDead(...),
-  ...)` sur `NumLeftOverHits`) : hors périmètre de cette tranche, qui ne porte que la face DÉCISION.
+* ~~La **face COMBAT** du passif~~ — **PORTÉE et CONFRONTÉE LIVE par `#419-r1-tr5-r7`**
+  (`docs/rl/case-419-r1-tr5-r7-light-im-up-combat.md`). Elle était un **no-op silencieux** :
+  absente d'`ABILITY_TRIGGERS`, donc le passif ne frappait jamais offline alors que ce
+  playbook-ci en tenait compte pour décider. ⚠ Et la lecture esquissée ici (`Attack(...) &
+  If(IsDead(...), ...)`) était **incomplète** : le premier volet est lui aussi sous un `If`, dont
+  la condition est `IsInAttackRange(Caster, Target)` — **et il n'y a AUCUNE gate de mêlée côté
+  combat**. Les deux faces divergent sur ce point, et c'est natif : recopier l'`IsMeleeAttack` de
+  ce playbook dans l'exécution annule 100 % du passif sur une attaque normale à distance (mesuré :
+  12 933 de dégât).
 
 ## 10. Livré
 

@@ -39,6 +39,23 @@ from engine.runner.prng import IntBasedMersenneTwister
 from engine.runner.runner import Runner
 from engine.runner.snapshot import load_state
 
+DECLENCHEUR = {
+    "chemins": (),
+    "build": False,
+    "toujours": False,
+    "raison": "`chemins` VIDE, et c'est MESURE, pas commode : `probe_486r15 --proposer` rend une "
+              "fermeture d'imports de 520 modules qui tient ENTIEREMENT dans la cascade DERIVEE du "
+              "foyer (521 chemins), qu'on ne redeclare pas (#531) -- le foyer de la tranche "
+              "(`triggers/loki/light_im_up.py`, son entree de registre, et le "
+              "`skip_hits_modifiers` de `damage_ops/ability.py` + `behaviours/combat.py`) y est "
+              "deja. `toujours: False` parce que ce fichier est LIVE : il monte TROIS runners "
+              "(~37 s, budget partage) -- le rejouer a chaque passe couterait ce que la cascade "
+              "donne gratuitement. `build: False` : rien n'est fige depuis le binaire ni depuis "
+              "`data/symbols/**` -- les coups, le profil et le rayon sont re-derives du gameconfig "
+              "par le port a chaque passe, et le test n'assertionne que des EGALITES live/offline "
+              "et des non-nullites, jamais un scalaire.",
+}
+
 WARBOSS = "orksWarboss"
 T1_VIS = "astraBullgryn"          # la plus proche apres le pilotage -> cible de l'attaque normale
 T2_VIS = "necroWarden"            # dans le disque `range = 3` du passif -> cible du report
