@@ -321,6 +321,15 @@ def phase_scan(sid, args):
 
 # ---------------------------------------------------------------- phase hailstrike
 def _ensure_seed_bc(tanky: bool):
+    """Seed BC augmente du porteur MoW + munitions.
+
+    ⚠ `tanky` NE PATCHE PLUS LES PV ICI (#914), pour la meme raison que dans
+    `probe_123_hailstrike_phase2.ensure_seed_bc` (foyer jumeau, MEME fichier de cache) : le patch de
+    `BC.Units[].Health` du SEED BC est INOPERANT -- `buildNormalizedBC` RECALCULE `Health` au rank
+    cible (~9539 PV mesures pour 900000 demandes). Le seul levier qui mord est `--unit-stat`, sur le
+    BC DEJA NORMALISE ; il est passe par `_build(tanky=True)`. Le nom du fichier garde son suffixe
+    `_tanky` : les deux probes partagent ce cache, et changer le nom aurait fait diverger l'un des
+    deux en silence."""
     # Meme fichier que `probe_123_hailstrike_phase2.SEED_BC` -- garder les deux du MEME cote (#349)
     seed_bc = LOGS / "runners" / "_123_hailstrike_bc.json"
     path = seed_bc.with_name(seed_bc.stem + ("_tanky" if tanky else "") + seed_bc.suffix)
@@ -332,23 +341,21 @@ def _ensure_seed_bc(tanky: bool):
     for _pid, p in ((bc.get("Player") or {}).get("Players") or {}).items():
         if isinstance(p, dict) and p.get("PlayerType") != 2:
             p["MachineOfWarAmmo"] = 5
-    if tanky:
-        units = bc.get("Units") or {}
-        for u in (units.values() if isinstance(units, dict) else units):
-            if isinstance(u, dict) and u.get("VisualId") == FOE:
-                u["Health"] = 900000
-                u["RemainingHealth"] = 900000
     path.write_text(json.dumps(bc), encoding="utf-8")
     return path
 
 
-def _build(state_file, seed, p_units, a_units, p_mow=None, seed_bc=None, block_target=None):
+def _build(state_file, seed, p_units, a_units, p_mow=None, seed_bc=None, block_target=None,
+           tanky=False):
     cmd = [sys.executable, "rl_duel.py", "build", "--seed", str(seed), "--board", BOARD,
            "--p-units", p_units, "--a-units", a_units, "--state-file", state_file]
     if seed_bc:
         cmd += ["--seed-bc", str(seed_bc)]
     if p_mow:
         cmd += ["--p-mow", p_mow]
+    if tanky:
+        # PV enormes SANS toucher l'armure, sur le BC DEJA NORMALISE (cf. `_ensure_seed_bc`).
+        cmd += ["--unit-stat", f"{FOE}:Health=900000,RemainingHealth=900000"]
     if block_target is not None:
         cmd += ["--block-target", str(block_target)]
     p = subprocess.run(cmd, cwd=str(PYDIR), capture_output=True, text=True,
@@ -365,7 +372,7 @@ def phase_hailstrike(sid, args):
     astraBullgryn (armure 3513, PV enormes). N tirs INDEPENDANTS."""
     bcp = _ensure_seed_bc(tanky=True)
     rid = _build(args.state, args.seed, f"{ALLY},{SPARE}", f"{FOE},{FOE}",
-                 p_mow=MOW, seed_bc=bcp)
+                 p_mow=MOW, seed_bc=bcp, tanky=True)
     print(f"[hailstrike] runner {rid}")
     d = dview(sid, rid)
     m = mow_of(d)
@@ -429,11 +436,12 @@ def phase_plain(sid, args):
     les couples (base, PiercingRatio) ou floor != round."""
     p_units = args.p_units
     a_units = args.a_units
-    # `--tanky` : seed BC ou l'ennemi a des PV enormes mais son ARMURE INTACTE (`--hp-target` de
-    # rl_duel met FixedArmor=0, ce qui rendrait le percage inerte -> plus aucune borne reduite).
+    # `--tanky` : l'ennemi a des PV enormes mais son ARMURE INTACTE (`--hp-target` de rl_duel met
+    # FixedArmor=0, ce qui rendrait le percage inerte -> plus aucune borne reduite). Les PV passent
+    # par `--unit-stat` (BC deja normalise), jamais par le seed BC -- cf. `_ensure_seed_bc` (#914).
     rid = _build(args.state, args.seed, p_units, a_units,
                  seed_bc=_ensure_seed_bc(tanky=True) if args.tanky else None,
-                 block_target=args.block_target)
+                 tanky=bool(args.tanky), block_target=args.block_target)
     print(f"[plain] runner {rid} p={p_units} a={a_units}")
     d = dview(sid, rid)
     me = [u for u in (d.get("units") or []) if u.get("owner") == d.get("currentPlayer")]
