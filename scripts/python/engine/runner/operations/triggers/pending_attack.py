@@ -159,7 +159,7 @@ PENDING_ATTACK_EFFECTS: dict[int, PendingAttackSpec] = {
         "IdunBattle.Entities.Effects.Loki.OverwhelmingWrath_PendingAttackEffect",
         int(TriggeredAbilityType.OverwhelmingWrath_Attack)),
     # Pose par `IdunBattleLogic.Entities.Abilities.Active.Loki.TheLionsWrathAbility$$
-    # ExecuteBehaviour` (1217, #892) : `AddBondEffect(0x5f1, AbilityStateReference,
+    # ExecuteBehaviour` (1217, #889) : `AddBondEffect(0x5f1, AbilityStateReference,
     # source = Owner@DSLSelectors+0x30, targets = Target@+0x60, bondedEntity = Owner@+0x30,
     # options = <Nullable ZERO>)`. La derivation d'`APendingAttackEffect` est LUE et non deduite du
     # nom : `...TheLionsWrath_PendingAttackEffect$$CreateHandleTriggerAbilitiesInternal` appelle

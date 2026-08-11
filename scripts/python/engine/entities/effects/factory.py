@@ -1030,7 +1030,7 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # EffectSource`) vit dans `EFFECT_TRIGGERS[1429]` : sans lui le +crit ne serait pas une CHARGE A
     # USAGE UNIQUE mais un buff de tout le tour -- regression PERMISSIVE (forme de 1550/1000).
     "EuphoricStrikes_ExtraCrit": EuphoricStrikesExtraCritEffect,
-    # 1522 TheLionsWrath_ExtraCritChance (#892) : le buff que `darkaBossLion` pose sur LUI-MEME au
+    # 1522 TheLionsWrath_ExtraCritChance (#889) : le buff que `darkaBossLion` pose sur LUI-MEME au
     # cast de son active 1217 -- `AddEffect(0x5f2, <abilityStateRef>, targets = Owner@DSLSelectors
     # +0x30, turns = null)`, surcharge a CINQ arguments (pas de `source`). UN SEUL canal (le build ne
     # porte que `$$CreateCritChanceBonus` et `$$.ctor` pour cette classe -- ni CritDamage, ni

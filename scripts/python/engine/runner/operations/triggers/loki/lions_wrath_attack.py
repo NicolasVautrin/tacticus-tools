@@ -1,5 +1,5 @@
 """PHASE 2 de `TheLionsWrath` -- la TRIGGERED `1520`, declenchee par le `Triggered()` d'
-`IdunBattle.Entities.Effects.APendingAttackEffect` (`triggers/pending_attack.py`). #892.
+`IdunBattle.Entities.Effects.APendingAttackEffect` (`triggers/pending_attack.py`). #889.
 
 Meme emplacement et meme cause que `loki/overwhelming_wrath_attack.py` et
 `loki/seeker_missile_attack.py` : une ability TRIGGERED vit avec les triggers, pour que
@@ -74,7 +74,7 @@ tout dans un `Nullable`. Chemin LU : `AttackDamageBehaviour$$.ctor` recopie
 l'operation de degat. Sa SEMANTIQUE n'est pas lue : les trois octets connus de cette struct
 (`+0x04 alwaysOverkilled`, `+0x05 alwaysCrit`, `+0x06 isNormalAttackDamage`) sont tous dans le
 premier qword, qui vaut **0** ici. AUCUN autre call-site porte du depot ne renseigne ce champ (les
-douze recenses passent la struct ZEROEE). Le port ne l'invente donc pas -- residu **#892-r2**.
+douze recenses passent la struct ZEROEE). Le port ne l'invente donc pas -- residu **#889-r2**.
 La MEME liste `[1]` est passee par la PHASE 1, ce qui rend l'hypothese « indices de coups » lisible
 a cote de l'`AmountIsEqual(CurrentHitIndex(), 1)` de l'effet 1522 -- mais une hypothese lisible
 n'est pas une lecture, et la coder serait un fit.
@@ -149,7 +149,7 @@ def lions_wrath_attack_tree():
         ability_type=LW_ATTACK,
         # `options` : premier qword a ZERO -> ni `alwaysOverkilled` (+4) ni `alwaysCrit` (+5) ni
         # `isNormalAttackDamage` (+6). Le champ `+0x08` (une `List<int>{1}`) est NON RESOLU --
-        # residu #892-r2, cf. l'en-tete ; le port ne lui prete aucun effet.
+        # residu #889-r2, cf. l'en-tete ; le port ne lui prete aucun effet.
         force_overkill=False, force_crit=False)
     rm2 = RemoveEffect(LW_EXTRA_CRIT, Owner())
     cond = TriggerAnd(IsAlive(Target()),

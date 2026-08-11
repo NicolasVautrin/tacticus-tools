@@ -335,7 +335,7 @@ ABILITY_ATTACK_TYPE: dict[int, int] = {
     # sur leur propre appel, jamais deduits du fait que ce sont deux attaques directes mono-cible.
     ActiveAbilityType.EuphoricStrikes: AbilityAttackType.DirectTargetAttack,  # 1198
     # `IdunBattleLogic.Entities.Abilities.Active.Loki.TheLionsWrathAbility$$.ctor` ->
-    # `AActiveAbility..ctor(this, &opts, 0)` : 3e argument = **0 = DirectTargetAttack** (#892).
+    # `AActiveAbility..ctor(this, &opts, 0)` : 3e argument = **0 = DirectTargetAttack** (#889).
     # Meme forme de ctor que `1198` ci-dessus -- PRESET STATIQUE COPIE (les 0x40 octets de
     # `TargetingOptions statics+0x40`, passes TELS QUELS, aucune surcharge preset+flags) -- et donc
     # meme lecture : le litteral est pris sur l'appel, pas deduit du fait que le cast frappe.

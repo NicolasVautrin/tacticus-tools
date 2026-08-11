@@ -315,7 +315,7 @@ class _AbilityAttack:
         # de l'`AbilityEntities` de `GetCritDamageBonusFromEffects`). Le gate famille ABILITY juste
         # en-dessous remet (0,0,False) : ce vecteur-la n'a AUCUN chemin crit natif.
         # `hit_index = hit_index0 + 1` : valeurs des coups 1+ de CETTE serie (cf. `_roll_crit(idx)`).
-        # MEME limite ecrite que dans `normal.py` -- deux points de mesure, pas un par coup (#892-r1).
+        # MEME limite ecrite que dans `normal.py` -- deux points de mesure, pas un par coup (#889-r1).
         crit_chance, crit_damage, crit_enabled = (
             AttackDamageOperation._crit_params(ctx, active, state, attacker_id, target_id,
                                                is_ranged=_ranged, is_normal_attack=False,

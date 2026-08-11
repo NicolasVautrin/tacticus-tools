@@ -635,7 +635,7 @@ TARGETING_OPTIONS_UNPORTED: "dict[int, TargetingOptions]" = {
                            self_cast=True, range=None, force_melee_target=RANGED_BOOL_FALSE),
     # @FORME STATIC-COPY   (couvre aussi 1093 et 1215 ci-dessous : les deux recopient les 0x40
     #                       octets d'un preset et n'appellent AUCUN `TargetingOptions$$.ctor`)
-    # ⚠ 1217 `TheLionsWrath` A QUITTE CETTE TABLE (#892) : sa face COMBAT est desormais portee, et le
+    # ⚠ 1217 `TheLionsWrath` A QUITTE CETTE TABLE (#889) : sa face COMBAT est desormais portee, et le
     # CONTRAT DE DISJONCTION ci-dessus exige alors le retrait de la ligne. Son masque -- les MEMES
     # quatre valeurs, RE-LUES au decompile avant migration -- vit sur la classe,
     # `runner/abilities/darkangels.py::TheLionsWrathAbility.TARGETING_OPTIONS`, avec la lecture
@@ -757,16 +757,16 @@ TARGETING_OPTIONS_UNPORTED: "dict[int, TargetingOptions]" = {
     #     PAS des faits de RE -- ils bougent a chaque face COMBAT portee, et c'est pour ca
     #     qu'aucun d'eux n'est ecrit a la main.
     #
-    #     len(TARGETING_OPTIONS_UNPORTED) ......... 11
-    #       dont hors-bloc (tete de table) ..... 4
+    #     len(TARGETING_OPTIONS_UNPORTED) ......... 10
+    #       dont hors-bloc (tete de table) ..... 3
     #       dont bloc du pool (#433-r4) ........ 7
     #
     #     VENTILATION PAR FORME DE CTOR (dict ENTIER, hors-bloc compris) :
     #       FLAGS-DIRECTS  ..................... 3
     #       PRESET+FLAGS   ..................... 2
     #       PRESET-SEUL    ..................... 0
-    #       STATIC-COPY    ..................... 6
-    #       (somme = 11)
+    #       STATIC-COPY    ..................... 5
+    #       (somme = 10)
     # <<< FIN COMPTES DERIVES
     #
     # LES 16 PRESETS, RELUS A LA SOURCE dans `IdunBattle.Core.Services.TargetingOptions$$.cctor`

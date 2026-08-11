@@ -119,7 +119,7 @@ class _NormalLike:
         # Identites du coup -> `att_ctx` du canal CRIT, bati DANS `_crit_params` (foyer unique, mirror
         # de l'`AbilityEntities` de `GetCritDamageBonusFromEffects`).
         # `hit_index=1` : valeurs des coups 1+ (cf. `_roll_crit(idx)`) -- MEME limite ecrite que dans
-        # `normal.py` (deux points de mesure, pas un par coup ; residu #892-r1).
+        # `normal.py` (deux points de mesure, pas un par coup ; residu #889-r1).
         crit_chance, crit_damage, crit_enabled = AttackDamageOperation._crit_params(
             ctx, active, state, attacker_id, target_id,
             is_ranged=_ranged, is_normal_attack=False, hit_index=1)   # #112 : ce vecteur porte une SPECIALE

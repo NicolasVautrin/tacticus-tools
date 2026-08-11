@@ -1284,7 +1284,7 @@ class CalibaniteGreatswordAbility(ActiveAbility):
                 "added": added, "removed": removed, "dsl": True}
 
 
-# ============ TheLionsWrath (1217, `darkaBossLion` « le Lion », GuildBoss) -- #892 ================
+# ============ TheLionsWrath (1217, `darkaBossLion` « le Lion », GuildBoss) -- #889 ================
 #
 # PHASE 1 du patron 2-PHASES. La PHASE 2 (la triggered 1520) vit dans
 # `runner/operations/triggers/loki/lions_wrath_attack.py`, avec les triggers -- meme emplacement et
@@ -1356,7 +1356,7 @@ def the_lions_wrath_tree(taunt_rounds: int):
 
     ⚠ **NON RESOLU -- le champ `+0x08` des `AttackDamageBehaviourOptions`** (une `List<int>` a
     laquelle le call-site `Add(1)`). Meme champ, meme liste, meme valeur que dans la PHASE 2 ; sa
-    semantique n'est pas lue et le port ne lui prete aucun effet -- residu **#892-r2**, detail dans
+    semantique n'est pas lue et le port ne lui prete aucun effet -- residu **#889-r2**, detail dans
     l'en-tete de `runner/operations/triggers/loki/lions_wrath_attack.py`. Le PREMIER qword des
     options vaut 0, donc ni `alwaysOverkilled` (+4), ni `alwaysCrit` (+5), ni
     `isNormalAttackDamage` (+6)."""

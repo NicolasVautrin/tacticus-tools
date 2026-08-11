@@ -1,6 +1,6 @@
 """`TheLionsWrath_ExtraCritChance` (0x5f2 = **1522**) -- le buff de crit que `darkaBossLion` (« le
 Lion ») pose SUR LUI-MEME au cast de son active `1217 TheLionsWrath`, et qui rend son SECOND coup
-critique. #892.
+critique. #889.
 
 ## IDENTITE -- la config lue est l'ability ACTIVE 1217
 
@@ -59,7 +59,7 @@ port le pose desormais dans `att_ctx["hit_index"]` au foyer unique
 (`runner/operations/damage.py::AttackDamageOperation._crit_params`). LIMITE ECRITE : le port ne
 mesure la crit chance qu'a DEUX index (0 et 1+, cf. `_roll_crit(idx)` de `damage_hits.py`), la ou
 le natif la relit a CHAQUE coup -- exact pour toute serie de 1 ou 2 coups, donc exact pour ce
-porteur ; residu #892-r1 pour les series plus longues.
+porteur ; residu #889-r1 pour les series plus longues.
 """
 from __future__ import annotations
 

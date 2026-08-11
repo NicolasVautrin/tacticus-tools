@@ -467,7 +467,7 @@ class _Normal:
         # DEUX points de mesure la ou le natif relit `GetCritChanceBonusFromEffects(..., hitIndex)` a
         # CHAQUE coup -- donc un `EffectBonus` qui discrimine un index >= 2 lirait `1` ici. Exact pour
         # toute serie de 1 ou 2 coups (le porteur du noeud, `TheLionsWrath`, a `nrOfHits = 2`) ;
-        # LIMITE ECRITE au-dela -- residu #892-r1.
+        # LIMITE ECRITE au-dela -- residu #889-r1.
         crit_chance, crit_damage, crit_enabled = AttackDamageOperation._crit_params(
             ctx, active, state, attacker_id, target_id,
             is_ranged=_ranged, is_normal_attack=True, hit_index=1)

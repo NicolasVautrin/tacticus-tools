@@ -1055,7 +1055,7 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
         att_ctx = {"is_ranged": is_ranged, "is_normal_attack": is_normal_attack,
                    "caster_crit_chance": int(ctx.stat(StatType.CRIT_CHANCE) or 0),
                    "att_id": att_id, "tgt_id": tgt_id,
-                   # #892 -- `hit_index` = le **5e argument natif** de `IdunBattle.Core.Services.
+                   # #889 -- `hit_index` = le **5e argument natif** de `IdunBattle.Core.Services.
                    # DamagePrediction$$GetCritChanceBonusFromEffects(this, attaquant, defenseur,
                    # abilityOrEffect, hitIndex)`, que la couche `EffectBonus` expose au noeud
                    # `IdunBattleLogic.Entities.DSLFormulas$$CurrentHitIndex`. Porteur :
