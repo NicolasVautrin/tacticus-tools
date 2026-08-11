@@ -623,7 +623,7 @@ ABILITY_ATTACK_TYPE: dict[int, int] = {
     # appartient a la TRIGGERED 1237 `OverwhelmingWrath_Attack`, pas au cast. Meme configuration que
     # 1069 SeekerMissileFrequencyLock et 1184 MomentShackle (2-phases).
     ActiveAbilityType.OverwhelmingWrath: AbilityAttackType.Others,  # 1141
-    # Lot BOSS RIPTIDE (#888) -- les DEUX ctors du boss `tauBossRiptide` finissent litteralement par
+    # Lot BOSS RIPTIDE (#895) -- les DEUX ctors du boss `tauBossRiptide` finissent litteralement par
     # `AActiveAbility..ctor(this, &opts, 2)` (relu au decompile, 3e argument = le litteral
     # `AbilityAttackType`). MEME configuration que 1069/1141 ci-dessus : l'audit les classe
     # `DAMAGE(Particle)` d'apres le `damageProfile` du KIT, et le ctor dit quand meme `2` -- parce

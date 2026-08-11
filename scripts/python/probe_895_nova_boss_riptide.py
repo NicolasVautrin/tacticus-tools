@@ -1,4 +1,4 @@
-"""probe_888 -- MESURE des DEUX actives de cast du boss de guilde `tauBossRiptide` :
+"""probe_895 -- MESURE des DEUX actives de cast du boss de guilde `tauBossRiptide` :
 `1194 NovaShield` et `1192 NovaBoost`.
 
 QUESTION BINAIRE, posee AVANT la methode : **le CAST de 1194 / 1192 inflige-t-il des degats ?**
@@ -55,7 +55,7 @@ sans trench serait une LIMITE, pas une confirmation.
 Sortie ASCII stricte (console cp1252). Ecrit sous `logs/`, jamais `data/` (#349).
 
 Usage:
-    python probe_888_nova_boss_riptide.py
+    python probe_895_nova_boss_riptide.py
 """
 from __future__ import annotations
 
@@ -123,7 +123,7 @@ def rpc(sid: int, method: str, body: dict, timeout: int = 90):
 
 
 def build(state_path: Path, args: list) -> int:
-    """`rl_duel build`. `TACTICUS_ALLOW_ROSTER_DEFICIT` n'est PAS pose : depuis #888 le garde de
+    """`rl_duel build`. `TACTICUS_ALLOW_ROSTER_DEFICIT` n'est PAS pose : depuis #895 le garde de
     roster resout le `visualId` de config, donc un porteur npc ne rend plus un deficit fantome --
     et si le refus revient, c'est un VRAI deficit qu'on veut voir."""
     state_path.parent.mkdir(parents=True, exist_ok=True)
@@ -269,7 +269,7 @@ def _feet_of(dec, visual_id) -> list:
     return list((u or {}).get("feet") or [])
 
 
-def measure_shield(sid: int, seed: str = "777", state_name: str = "probe_888_shield") -> tuple:
+def measure_shield(sid: int, seed: str = "777", state_name: str = "probe_895_shield") -> tuple:
     """1194 sur la cible `(6,2)`, dont la couronne NATIVE contient la `Trench` `(6,1)` -> le
     contre-modele « sans filtre » compte 5 tuiles contre 4 pour le modele porte.
 
@@ -298,7 +298,7 @@ def measure_shield(sid: int, seed: str = "777", state_name: str = "probe_888_shi
         raise
 
 
-def measure_boost(sid: int, seed: str = "777", state_name: str = "probe_888_boost") -> tuple:
+def measure_boost(sid: int, seed: str = "777", state_name: str = "probe_895_boost") -> tuple:
     """1192 : self-cast. Le boss est place en (6,2), dont la couronne contient la `Trench` (6,1) ;
     DEUX ennemis sont poses dessus pour armer le gate dynamique `GetDynamicInvalidCasterReason`
     (`Count(Enemies(Caster, GetMarkedTilesSelector())) > 1`), sans quoi le natif refuse le cast et

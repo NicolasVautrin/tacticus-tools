@@ -1,4 +1,4 @@
-"""CONFRONT LIVE des DEUX actives de cast du boss de guilde `tauBossRiptide` -- #888.
+"""CONFRONT LIVE des DEUX actives de cast du boss de guilde `tauBossRiptide` -- #895.
 
 `1194 NovaShield` (tile-target) et `1192 NovaBoost` (self-cast). Ce que ce fichier GARDE, et
 pourquoi chaque garde existe :
@@ -29,7 +29,7 @@ pourquoi chaque garde existe :
 
 Le montage (build sur la carte du boss, `--explicit-stats`, DRIVE des positions par
 `--place`/`--a-place`) et TOUTES les lectures vivent dans
-`scripts/python/probe_888_nova_boss_riptide.py` : le probe MESURE, ce test GARDE, une seule
+`scripts/python/probe_895_nova_boss_riptide.py` : le probe MESURE, ce test GARDE, une seule
 implementation -- aucune divergence possible entre les deux.
 
 Lit l'etat LIVE, aucune RVA ni tuile hardcodee, ASCII only.
@@ -38,7 +38,7 @@ from __future__ import annotations
 
 import pytest
 
-import probe_888_nova_boss_riptide as P
+import probe_895_nova_boss_riptide as P
 
 #: Ce qui doit changer pour que ce FICHIER de test puisse changer de verdict (#486-r15).
 DECLENCHEUR = {
@@ -74,7 +74,7 @@ NB_PENDING_TARGET = P.NB_PENDING_TARGET     # 1410 EffectType.NovaBoost_PendingT
 def shield(live_session):
     """UN SEUL runner pour toutes les gardes 1194 : le cast n'est pas rejouable (il consomme
     l'actif ET termine le tour), donc les gardes relisent la MEME mesure."""
-    m, dispose = P.measure_shield(live_session, state_name="test_888_shield")
+    m, dispose = P.measure_shield(live_session, state_name="test_895_shield")
     try:
         yield m
     finally:
@@ -86,7 +86,7 @@ def boost(live_session):
     """Runner DISTINCT pour 1192 : le boss est place en (6,2) (couronne contenant une `Trench`) et
     DEUX ennemis sont poses dessus pour armer le gate dynamique
     `NovaBoostAbility$$GetDynamicInvalidCasterReason` (`Count(Enemies(Caster, marked)) > 1`)."""
-    m, dispose = P.measure_boost(live_session, state_name="test_888_boost")
+    m, dispose = P.measure_boost(live_session, state_name="test_895_boost")
     try:
         yield m
     finally:

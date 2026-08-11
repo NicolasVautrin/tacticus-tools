@@ -368,11 +368,11 @@ def _base_unit_id(uid: str) -> str:
 
 def _published_unit_ids(uid: str) -> tuple[str, ...]:
     """Les cles sous lesquelles le jeu PUBLIE l'unite `uid` dans `decisionView.units[].visualId`,
-    de la PLUS SPECIFIQUE a la plus generale (#888).
+    de la PLUS SPECIFIQUE a la plus generale (#895).
 
     `--p-units`/`--a-units`/`--place` nomment un **unitId de CONFIG** ; `decisionView` publie un
     **visualId**. Pour les 254 unites `lineup` les deux coincident, et les deux gardes ci-dessous
-    comparaient donc les bonnes chaines... jusqu'a ce qu'un porteur NPC arrive. MESURE (#888,
+    comparaient donc les bonnes chaines... jusqu'a ce qu'un porteur NPC arrive. MESURE (#895,
     gameconfig du build `rnca9r7q6c`) : **429 unites sur 683** ont `visualId != id`, TOUTES `npc`
     ou `summons` -- `tauBossRiptide` -> `GuildBoss11Boss1TauRiptide`,
     `admecBossBelisarius` -> `GuildBoss10Boss1AdmecBelisarius`, `adeptBossCanoness` ->
@@ -428,7 +428,7 @@ def _verify_roster(dec: dict, p_units: list[str], a_units: list[str]) -> list[st
             b = _base_unit_id(uid)
             want[b] = want.get(b, 0) + 1
         for uid, n in sorted(want.items()):
-            # #888 : l'id EXACT d'abord, le `visualId` de config en REPLI seulement s'il rend 0
+            # #895 : l'id EXACT d'abord, le `visualId` de config en REPLI seulement s'il rend 0
             # (cf. `_published_unit_ids`) -- 429 npc/summons sur 683 publient un autre nom.
             got = 0
             for key in _published_unit_ids(uid):
@@ -464,7 +464,7 @@ def _verify_placements(sid: int, rid: int, wanted: list[dict], dec: dict | None 
             (int(p["col"]), int(p["row"])))
     problems: list[str] = []
     for w in wanted:
-        # #888 : MEME resolution que `_verify_roster` -- l'id EXACT d'abord (comportement
+        # #895 : MEME resolution que `_verify_roster` -- l'id EXACT d'abord (comportement
         # historique intact), puis le suffixe de PALIER retire, puis le `visualId` de config.
         # Sans elle, tout `--place` d'un porteur NPC (429/683) ou a palier (`tauBossRiptide:4`)
         # rapportait « present NULLE PART (non deploye) » pour une unite CORRECTEMENT posee.

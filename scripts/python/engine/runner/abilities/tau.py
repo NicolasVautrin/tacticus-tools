@@ -1400,7 +1400,7 @@ def _nova_ability_scaling(state: "State", caster_id: int, ability_type: int) -> 
 
     ⚠ CE N'EST PAS le canal GLOBAL `StatsComponent.ctx.active_ability_level` /
     `ability_variables_multiplier`, et les confondre est SILENCIEUX SUR UN HEROS et FAUX SUR UN
-    BOSS. MESURE (#888, runner `GB_Riptide_01`, `tauBossRiptide:4`) : le canal global rend
+    BOSS. MESURE (#895, runner `GB_Riptide_01`, `tauBossRiptide:4`) : le canal global rend
     `level=0, mult=100` (`combatSnapshot.unitConfig` = `{"error": "config null"}` pour un npc),
     la ou `abilityStates[]` rend `level=55, multiplier=200` -- soit `shieldHp` **100** au lieu de
     **13686** (round(6843 x 200/100), le `Shields_InitialAmount` du cast natif). Un facteur 137.
