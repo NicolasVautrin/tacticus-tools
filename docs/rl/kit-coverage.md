@@ -1,7 +1,7 @@
-# Couverture moteur par KIT (unites lineup)
-
-> Genere par `scripts/python/audit_kit_coverage.py` (kit gameconfig x registres moteur
-> des deux faces). Vue KIT-centrique complementaire de `combat-ability-coverage.md`
+ecrit -> C:\Users\nicolasv\tacticus-tools\docs\rl\kit-coverage.md
+lineup=127 complets=94 avec-travail=33 items=33
+hors-total voies conditionnelles: 34 non portees (11 mythic, 23 item), 9 portees
+ability-coverage.md`
 > (par-ability). **Ne jamais fusionner un conflit sur ce fichier : le REGENERER.**
 >
 > Faces : `[CD]` = combat/decision portees, `[--]` = aucune ; `D` couvre les TROIS

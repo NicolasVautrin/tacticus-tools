@@ -1,6 +1,6 @@
-# Couverture combat des abilities actives (audit #95)
-
-> Genere par `scripts/python/audit_combat_ability_coverage.py` (source de verite : `gameconfig.activeAbilities` par unite x `AbilityHandler.ABILITY_CLASSES`). A regenerer au changement de build ou apres un port d'ability.
+ecrit -> C:\Users\nicolasv\tacticus-tools\docs\rl\combat-ability-coverage.md
+actives=175 ported=159 no-op=16 | DAMAGE=8, EFFECT/BUFF=5, SUMMON=3
+nfig.activeAbilities` par unite x `AbilityHandler.ABILITY_CLASSES`). A regenerer au changement de build ou apres un port d'ability.
 
 ## Contexte : DECIDER != EXECUTER
 
