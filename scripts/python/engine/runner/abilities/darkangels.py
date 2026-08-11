@@ -1666,16 +1666,30 @@ class MartialExemplarAbility(ActiveAbility):
     #   = CasterIsPossibleTarget(0x8000) | CasterHasNotMoved(0x10) | CasterMatchesDynamicRule(0x4)
     # Recopier `0x10` seul aurait produit un masque FAUX -- pire que l'absence.
     # `isSelfCasting` = `<preset>+0x00` = 1 ; `forceMeleeTarget` = `<preset>+0x20` = 1 = RangedBool.False.
-    # `range` = `None` DELIBERE : le bloc de 24 octets `<preset>+0x08..0x1f` est recopie d'un champ
-    # statique de `TargetingRange` et n'a PAS ete resolu -> aucun gate de portee invente.
-    # ⚠ Ces quatre valeurs MIGRENT depuis `TARGETING_OPTIONS_UNPORTED[1216]` (contrat de DISJONCTION :
+    # PORTEE (#923) -- le bloc de 24 octets `<preset>+0x08..0x1f` est desormais RESOLU. La surcharge
+    # PRESET+FLAGS de `IdunBattle.Core.Services.TargetingOptions$$.ctor` recopie le template CHAMP
+    # PAR CHAMP et ne devie QUE `rules` (`this+0x28 = additionalRules | template+0x28`) : ses
+    # ecritures `this+0x08/0x10/0x18 <- template+0x08/0x10/0x18` sont exactement les 24 octets du
+    # `TargetingRange`. La portee de 1216 EST donc celle du preset, sans alteration.
+    # `IdunBattle.Core.Services.TargetingOptions$$.cctor` ecrit le bloc `statics+0x280` en copiant
+    # `<TargetingRange statics>+0x60`, et `IdunBattle.Core.Services.TargetingRange$$.cctor` pose ce
+    # slot a `{+0x60 = 1 -> onlyAdjacent = RangedBool.False ; +0x68 = Nullable(0) overrideRange ;
+    # +0x70 = null overrideRangeFunc}` = **RANGE_SELF**, portee NULLE : toute cible autre que le
+    # caster tombe sur `range.Value(0) < d` -> `TargetIsInRange`, ce qui est le gate attendu d'un
+    # self-cast `CasterIsPossibleTarget`.
+    # ⚠ `range=None` etait un AVEU DE NON-LECTURE, pas un choix : il rendait `get_range` -> None,
+    # donc AUCUN gate de portee, et le moteur acceptait des casts que le natif REFUSE.
+    # ⚠ Ces valeurs MIGRENT depuis `TARGETING_OPTIONS_UNPORTED[1216]` (contrat de DISJONCTION :
     # une ability a UNE source de masque, jamais deux) ; elles ont ete RE-LUES au decompile avant
     # migration et sont bit-identiques a celles qui vivaient la-bas.
+    # ⚠ `1192 NovaBoost` est le JUMEAU bit-identique (meme preset `statics+0x280`, memes flags 0x10,
+    # meme masque effectif 0x8014, meme `AActiveAbility..ctor(..., 2)`) et porte deja `RANGE_SELF` --
+    # la resolution etait donc DEJA ecrite dans le depot quand 1216 a ete portee.
     # ⚠ `1215 InstrumentsOfVengeance` recopie le MEME preset SANS les flags (forme STATIC-COPY) et
     # reste donc dans la table : elle n'a PAS `CasterHasNotMoved`.
     TARGETING_OPTIONS = TargetingOptions(rules=TR.CasterIsPossibleTarget | TR.CasterHasNotMoved
                                          | TR.CasterMatchesDynamicRule,
-                                         self_cast=True, range=None,
+                                         self_cast=True, range=RANGE_SELF,
                                          force_melee_target=RANGED_BOOL_FALSE)
 
     def execute_behaviour(self, state: "State", caster_id: int,
