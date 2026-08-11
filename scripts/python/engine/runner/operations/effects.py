@@ -58,6 +58,8 @@ from .stat_ops import apply_change_stat
 from .stat_ops import apply_stat_override
 from .stat_ops import remove_stat_override
 from .stat_ops import revert_change_stat
+from .change_unit_owner import ChangeUnitOwnerOperation
+from .traits import apply_traits_of_effect
 
 # `idun.Idun.Source.Shared.Battle.StaticBattleRules.StaticBattleRules.Effect$$IsUpdatable` : la fonction
 # parcourt les GROUPES d'effets de la table statique et, si le type n'appartient a aucun groupe, sort sur
@@ -294,7 +296,6 @@ class AddEffectOperation:
         # (`AddTrait(target, 0x412 = UnitTrait.Unstoppable, isTemporary: 1)`). Comme les
         # modifications d'ability juste au-dessus, le natif appelle l'Operation DIRECTEMENT depuis
         # l'effet -- aucun noeud DSL n'y mene.
-        from .traits import apply_traits_of_effect
         apply_traits_of_effect(state, target, eff)
         # Effet COMPOSITE : `<Effect>.ApplyInternal` spawne ses SOUS-effets (enfants) juste après le
         # parent (ex. Stunned 1162 → 1165/1166/1167). Effet-driven : la liste vient de la classe d'effet.
@@ -331,7 +332,6 @@ class AddEffectOperation:
         porte passe `bondedEntity = Caster@sel+0x48`, jamais nul."""
         if not eff.overrides_unit_owner():
             return
-        from .change_unit_owner import ChangeUnitOwnerOperation
         ChangeUnitOwnerOperation.execute(state, int(target), eff.bonded)
 
     @staticmethod

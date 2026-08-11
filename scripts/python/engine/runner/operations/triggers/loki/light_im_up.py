@@ -141,6 +141,15 @@ from typing import Optional
 import gameconfig as GC
 
 from .....dsl.base import AbilityTrigger, Const
+import engine.dsl.base as _dsl_base   # FORME B (#923), et ABSOLUE
+# `resolve_unit` etait re-importe DANS `should_trigger` alors que `engine.dsl.base` est deja
+# charge par la ligne ci-dessus : ni cycle possible (l'arete existe), ni cout (le module est la).
+# Le differe etait donc GRATUIT (`test_270r4r2r2_differes_offline::test_etage1_...`).
+# ⚠ Le nom est lie via le MODULE et non importe directement : `migrate_485r1_barils_reexport.py
+# morsure` ne classe pas ce couple HISSAGE_DESARMERAIT aujourd'hui, mais une liaison de module
+# n'est jamais gelee -- un `monkeypatch.setattr("engine.dsl.base.resolve_unit", ...)` pose plus
+# tard mordra encore. ABSOLUE plutot que `from .....dsl import base` : la forme relative
+# declarerait une arete vers le PAQUET PARENT (meme mesure que `loki/attempted_possession.py`).
 from .....dsl.effects import ExecutionContext
 from .....dsl.event_trigger_type import EventTriggerType
 from .....entities.behaviours import If, Seq
@@ -154,6 +163,7 @@ from ....abilities.behaviours.combat import AttackWithAttackDamage, ChainLeftOve
 from ....abilities.behaviours.context import entities_from_state
 from ....state import State
 from ..base import TriggeredAbility, TriggerEvent, _in_attack_range
+from .....entities.triggers import IsDead
 
 # Cle gameconfig de l'ability : le membre d'enum EST le nom de config. `GC.ability_name(1103)`
 # rendrait `"Supercharge"` (l'index est celui d'`ActiveAbilityType` -- 1103 nomme TROIS artefacts :
@@ -195,9 +205,8 @@ class _IsInAttackRange(AbilityTrigger):
         self.state, self.ranged_unit, self.target = state, ranged_unit, target
 
     def should_trigger(self, ctx) -> bool:
-        from .....dsl.base import resolve_unit
-        a = resolve_unit(self.ranged_unit, ctx)
-        t = resolve_unit(self.target, ctx)
+        a = _dsl_base.resolve_unit(self.ranged_unit, ctx)
+        t = _dsl_base.resolve_unit(self.target, ctx)
         if a is None or t is None or a.get("id") is None or t.get("id") is None:
             return False
         return _in_attack_range(self.state, int(a["id"]), int(t["id"]))
@@ -302,7 +311,6 @@ def light_im_up_tree(state: State, ectx: ExecutionContext):
                                  # octet +3 des options : le reste est deja final (cf. docstring)
                                  skip_hits_modifiers=True)
     # `IsDead(main)` -- `DSLTriggers$$IsDead(unit)` = `op_LogicalNot(IsAlive(unit))` (LU).
-    from .....entities.triggers import IsDead
     return Seq(If(_IsInAttackRange(state, Caster(), Target()), main),
                If(IsDead(Target()), sec))
 

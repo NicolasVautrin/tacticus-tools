@@ -32,6 +32,7 @@ from ..entities.traits.unit_trait import UnitTrait as _UT, has_trait as _has_tra
 from ..entities.traits.unit_trait import UnitTrait, has_trait
 from ..entities.traits.unit_trait import entity_trait_names, has_any_trait   # #498-r2
 from ..entities.stats import StatType as _ST
+from ..entities.effects.loki.daemonic_patrons import adjacent_taunted_enemies_selector
 
 if TYPE_CHECKING:
     from ..entities.unit_context import UnitContext
@@ -3109,7 +3110,6 @@ def adjacent_taunted_enemies_count(state, unit_id: int) -> Optional[int]:
     pc = ent.get_component(PositionComponent) if ent is not None else None
     if oc is None or oc.team is None or pc is None:
         return None
-    from ..entities.effects.loki.daemonic_patrons import adjacent_taunted_enemies_selector
     from .abilities.behaviours.context import entities_from_state
     return int(adjacent_taunted_enemies_selector()
                .calculate(entities_from_state(state, int(unit_id))))

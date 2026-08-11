@@ -45,6 +45,7 @@ from ..components import UnitFlagsComponent
 from ..components import get_unit_feet
 # Branche `allowNullTargetPosition` (E8) : le slot 7 de l'`IOperationProcessor`.
 from .remove_unit_from_tiles import RemoveUnitFromTilesOperation
+from . import tile_reservation
 
 
 def _blocking_positions(state: State, mover_id: int) -> set:
@@ -547,7 +548,6 @@ def _is_position_reserved_for_other_unit(state: State, mover_id: int, position: 
     deux polarites sont opposees et les deux sont LUES (cf. l'en-tete de `tile_reservation.py`)."""
     if not position:
         return False
-    from . import tile_reservation
     return tile_reservation.is_tile_reserved_for_another_unit(state, position, int(mover_id))
 
 
@@ -1073,7 +1073,6 @@ class MoveUnitOperation(Operation):
         reservation) -- cf. `operations/tile_reservation.py`. Quatre call-sites natifs, tous portes :
         les trois abandons (`TilesAreEmpty` faux, override invalide/mort, `path` vide) et le chemin
         nominal."""
-        from . import tile_reservation
         for t in position:
             tile_reservation.remove_reserve_for_unit(state, t, self.unit_id)
 
@@ -1160,7 +1159,6 @@ class MoveUnitOperation(Operation):
         if uc0 is not None:
             uc0.movement_target_override = (() if self.to is None
                                             else (int(self.to[0]), int(self.to[1])))   # (a)
-        from . import tile_reservation
         for _t in position:                                                            # SetReservation
             tile_reservation.reserve_for_unit(state, _t, self.unit_id)
         if not self.skip_pre_move_triggers:

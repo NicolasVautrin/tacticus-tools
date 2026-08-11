@@ -34,6 +34,7 @@ from ...services.damage_prediction import get_attack_prediction
 from ..components import HealthComponent, StatsComponent
 from ..damage_model import (attacker_modifiers, defender_modifiers, defender_fixed_armor,
                             apply_elevation_bonus, apply_trench_reduction, target_trait_names)
+from .damage import AttackDamageOperation
 
 
 def multi_hit_attack_prediction(state, attacker_id: int, target_id: int, amount: int, hits: int,
@@ -89,7 +90,6 @@ def multi_hit_attack_prediction(state, attacker_id: int, target_id: int, amount:
     # Differe PORTEUR : `operations.damage` importe `damage_ops`, qui importe ce paquet -> hisser
     # fermerait le cycle (meme raison, ecrite, que le `from ..damage import AttackDamageOperation`
     # de `damage_ops/ability.py`).
-    from .damage import AttackDamageOperation
     AttackDamageOperation._apply_defender_flat_reductions(mods, def_mods)
     _pt = int(DamageProfileType.None_ if damage_profile is None
               else DamageProfileType[damage_profile])

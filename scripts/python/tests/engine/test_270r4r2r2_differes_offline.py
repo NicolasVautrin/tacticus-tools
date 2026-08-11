@@ -88,11 +88,41 @@ import probe_270r4r2r2_tri_differes as TR       # noqa: E402
 # #270-r4-r2-r2-r4 : il touche autant de fichiers partages, et chaque site doit passer par
 # `migrate_485r1_barils_reexport.py morsure` puis etre hisse en FORME B -- ce n'est pas un geste a
 # glisser dans une tranche de reparation de cliquets.
-#: MESURE le 2026-08-10 : 270 instructions, dont 173 inconditionnelles. Les plafonds portent la
-#: marge de 20 justifiee ci-dessus -- ils ne SONT pas la mesure, ils la bornent.
-MESURE_DIFFERES, MESURE_INCONDITIONNELS = 270, 173
-PLAFOND_DIFFERES = MESURE_DIFFERES + 20
-PLAFOND_INCONDITIONNELS = MESURE_INCONDITIONNELS + 20
+#
+# ⚠⚠ 2026-08-11 (#923) -- LE SEUIL N'A PAS ETE RELEVE, LE COMPTE A ETE ABAISSE. `master` etait
+# ROUGE a 305 pour un plafond de 290. Ce qui a ete MESURE avant de decider :
+#   * l'ATTRIBUTION. 128 commits entre `0c30d55d` (le commit qui a pose 270/173, 2026-08-10 21:03)
+#     et `4f3b7bb3`, pour +35 instructions -- soit 0,27 par commit, l'ORDRE EXACT du debit
+#     historique (0,23) qui avait justifie la marge. Ce n'est donc PAS la reprise de MASSE que ce
+#     seuil surveille : la marge de 20 a simplement ete consommee, comme prevu, en une journee.
+#   * la REPONSE. Relever le plafond aurait ete la 4e fois -- et un seuil qu'on releve a chaque
+#     rouge ne mesure plus rien. Le gisement REEL (les HISSABLES, cf. le paragraphe ci-dessous)
+#     valait 65 sites : 36 ont ete hisses, dont 34 par `migrate_270r4r2r2_hisser_differes` sous son
+#     filtre acyclique (SCC du graphe projete = 0) et 2 a la main en FORME B ABSOLUE.
+#   * ce qui RESTE, et c'est une mesure, pas un renoncement : 31 sites restent refuses
+#     `fermerait-une-boucle`. Hisser ceux-la ne se fait pas par deplacement d'import -- il faut
+#     DEPLACER le code partage (doctrine (1)), ce que le residu #270-r4-r2-r2-r4 porte deja.
+#   * les DEUX mesures descendent SOUS celles du 2026-08-10 (270 -> 271 puis 269 sur l'arbre de la
+#     tranche, 173 -> 169), donc les deux plafonds descendent avec elles (290 -> 289, 193 -> 187) :
+#     le ratchet joue dans le bon sens. Un plafond ne remonte jamais ; celui-ci a BAISSE.
+#
+# ⚠⚠ ET LA MARGE VAUT 18, PAS 20 -- C'EST UNE CONSEQUENCE, PAS UN CHOIX. La tranche a atteint
+# 269/167 sur son propre arbre ; le REBASE sur `27e78a8a` (#919) en a re-ajoute 2, portant l'arbre
+# LIVRE a 271/169. C'est cette derniere mesure qui est inscrite -- celle de ce qu'on livre, pas
+# celle d'un arbre qui n'existe plus. Or `MESURE + 20` vaudrait 291, donc REMONTERAIT le plafond
+# de 290 : interdit, un plafond ne remonte pas. La marge est donc ce qui RESTE sous le plafond
+# herite, et elle se re-elargira a 20 des qu'une tranche descendra la mesure de deux crans de plus.
+# Les deux sites qui manquaient ont ete EXAMINES et ECARTES, pas oublies : `selectors/pathing.py`
+# (lignes ~50 et ~111) porte deux differes PORTEURS dont le motif est MESURE et ECRIT sur place
+# (« charger `engine.entities.triggers` seul met `engine.entities.selectors.pathing` dans
+# `sys.modules` »). Les hisser irait contre une mesure existante.
+#: MESURE le 2026-08-11 (#923), APRES rebase sur `27e78a8a` : 271 instructions, dont 169
+#: inconditionnelles. Les plafonds ne SONT pas la mesure, ils la bornent -- et ils ne remontent pas.
+MESURE_DIFFERES, MESURE_INCONDITIONNELS = 271, 169
+#: MARGE = 18 (et non 20) : le plafond herite etait 290/193 et un ratchet ne se desserre jamais.
+_MARGE = 18
+PLAFOND_DIFFERES = MESURE_DIFFERES + _MARGE
+PLAFOND_INCONDITIONNELS = MESURE_INCONDITIONNELS + _MARGE
 
 
 @pytest.fixture(scope="module")

@@ -89,6 +89,7 @@ from .....entities.unit_selection_type import UnitSelectionType
 from .....dsl.effects import ExecutionContext
 from .....dsl.event_trigger_type import EventTriggerType
 from ..base import TriggeredAbility, TriggerEvent
+from .....entities.formulas import Count
 
 _TURN_END = int(EventTriggerType.TurnEnd)                  # `On(0x17)`
 OVERWATCH_AUTO_ATTACK = int(EffectType.Overwatch_AutoAttack)   # 0x3f1 = 1009
@@ -123,7 +124,6 @@ def adjacent_psyker_friends_selector():
 def adjacent_psyker_friends_count(state: State, unit_id: int) -> Optional[int]:
     """`Count(<le selecteur ci-dessus>)` pour le porteur. `None` si le porteur n'a ni equipe ni
     tuile -- jamais un `0` invente (un 0 fabrique fermerait le trigger a tort)."""
-    from .....entities.formulas import Count
     ent = state.get_entity(int(unit_id))
     oc = ent.get_component(OwnerComponent) if ent is not None else None
     pc = ent.get_component(PositionComponent) if ent is not None else None

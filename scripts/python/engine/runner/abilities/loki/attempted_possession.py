@@ -130,6 +130,12 @@ import engine.runner.abilities.targeting as _targeting   # FORME B (#547-r2), et
 # absolue nomme le MODULE, donc l'arete va au module et le cycle ne se ferme pas.
 from ..targeting import (RANGE_FROM_CONFIG, RANGED_BOOL_FALSE, TargetingOptions)
 from ..targeting_rule import TargetingRule as TR
+from ....entities.effects.aura_selectors import hex_distance
+from ...components import HealthComponent, UnitComponent
+from ...components import PositionComponent
+from ...components import StatsComponent, UnitComponent
+from ...components import UnitComponent
+from ...operations.change_unit_owner import (ChangeUnitOwnerOperation, ResetUnitOwnerOperation)
 
 if TYPE_CHECKING:
     from ...state import State
@@ -375,7 +381,6 @@ def attempted_possession_preferred_target(state: "State", caster_id: int,
     annulee par une simulation imbriquee.
 
     Rend l'id de la cible preferee, ou `None` (aucun candidat)."""
-    from ...operations.change_unit_owner import (ChangeUnitOwnerOperation, ResetUnitOwnerOperation)
     ent = state.get_entity(int(possessed_id))
     if ent is None:
         return None
@@ -427,7 +432,6 @@ def _has_trait(state: "State", unit_id: int, trait: int) -> bool:
     Le substrat de traits du port est `entity_trait_names` (le FOYER : kit gameconfig + traits
     ACCORDES en bataille + pseudo-trait d'alliance) -- pas `sc.ctx.traits` brut, qui rate les
     traits accordes."""
-    from ...components import StatsComponent, UnitComponent
     ent = state.get_entity(int(unit_id))
     if ent is None:
         return False
@@ -449,8 +453,6 @@ def _has_effect(state: "State", unit_id: int, effect_type: int) -> bool:
 def _nearest_of(state: "State", unit_id: int, candidates) -> Optional[int]:
     """`IBattleQuery 75 GetNearestUnit(unit, candidates)` -- la plus proche par distance hex.
     Tie-break `id` (NON lu au natif, cf. `attempted_possession_preferred_target`)."""
-    from ....entities.effects.aura_selectors import hex_distance
-    from ...components import PositionComponent
     ent = state.get_entity(int(unit_id))
     pc = ent.get_component(PositionComponent) if ent is not None else None
     if pc is None or not candidates:
@@ -567,7 +569,6 @@ class AttemptedPossessionAbility(ActiveAbility):
         """`IdunBattle.Entities.UnitExtensions$$GetChildren(unit, state, filtre)` avec `filtre =
         null` -- TOUS les enfants, morts compris. Meme substrat que le selecteur `ChildrenOf`
         (`UnitComponent.parent_id`)."""
-        from ...components import UnitComponent
         out = []
         for eid, ent in state.entities.items():
             uc = ent.get_component(UnitComponent)
@@ -578,7 +579,6 @@ class AttemptedPossessionAbility(ActiveAbility):
     @staticmethod
     def _is_alive(state: "State", unit_id: int) -> bool:
         """`IdunBattle.Entities.UnitExtensions$$IsAlive` (= le lambda `b__3_0`) : vivant ET PV > 0."""
-        from ...components import HealthComponent, UnitComponent
         ent = state.get_entity(int(unit_id))
         if ent is None:
             return False

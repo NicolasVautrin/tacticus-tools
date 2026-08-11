@@ -96,6 +96,9 @@ from ..base import BaseEffect
 from ..magnitude import ability_var
 from ....entities.stats import StatType
 from ....entities.traits.unit_trait import UnitTrait
+from ....dsl.base import Const
+from ...selectors.accessors import Owner
+from ...selectors.units import AdjacentFriends, UnitsWithTrait
 
 _ABILITY_ID = "PropheticSentinel"                 # TriggeredAbilityType 0x607 = 1543
 #: `unitSelectionType` LU au dernier argument des DEUX `DSLSelectors$$*` des selecteurs natifs.
@@ -122,9 +125,6 @@ def adjacent_friends_with_trait(state, owner_id: int, trait: int) -> list:
     sont assembles APRES le paquet `entities/effects` (charger `context` au niveau module ferme le
     cycle `effects -> runner -> effects`). Meme convention que
     `effects/loki/amulet_of_the_voidwyrm.py::adjacent_friendly_summons_and_decoys_selector`."""
-    from ...selectors.accessors import Owner
-    from ...selectors.units import AdjacentFriends, UnitsWithTrait
-    from ....dsl.base import Const
     from ....runner.abilities.behaviours.context import entities_from_state
     sel = UnitsWithTrait(
         AdjacentFriends(Owner(), Const(1), Owner(), selection_type=_SELECTION),

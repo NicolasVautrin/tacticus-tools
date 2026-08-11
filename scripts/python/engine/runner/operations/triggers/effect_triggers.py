@@ -36,6 +36,8 @@ from .... import weights as _weights_cfg
 from ...abilities.base import convert_rounds_to_turns
 from ..effects import AddEffectOperation
 from ..effects import entity_is_immune_to_effect
+from ....entities.effects.magnitude import ability_var as _ability_var
+from ..heal import HealUnitOperation
 _EFF_CFG: dict = (_json_cfg.loads(_weights_cfg.DEFAULT_BC.read_text(encoding="utf-8")).get("Effect", {})
                   if _weights_cfg.DEFAULT_BC.exists() else {})
 CONTAMINATED_ARMOR_REDUCTION_PCT: int = int(_EFF_CFG.get("ContaminatedArmorReductionPct", 30))
@@ -416,8 +418,6 @@ class BloodChaliceHealOnMeleeAttack(EffectTrigger):
         return int(ev.actor_id) == int(self.owner_id) and not bool(ev.ranged)
 
     def execute_behaviour(self, state: State, ev: "TriggerEvent") -> Optional[dict]:
-        from ..heal import HealUnitOperation
-        from ....entities.effects.magnitude import ability_var as _ability_var
         inst = self._instance(state)
         lvl = mult = None
         healer = self.owner_id

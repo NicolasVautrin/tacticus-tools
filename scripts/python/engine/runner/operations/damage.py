@@ -121,6 +121,7 @@ from .minimal_health import record_attacked
 from .refresh_effects import refresh_stat_modifier_effects
 from .remove_effects import KillUnitStep
 from .remove_effects import remove_effects_operation
+from ...dsl.event_trigger_type import EventTriggerType
 
 
 def _kill_unit_remove_effects(state: State, dead_id: int, step: int) -> list:
@@ -1544,7 +1545,6 @@ class DamageHandler:
             _atomic_group_done.append(True)
             from .triggers.dispatch import ability as _atomic_dispatch   # lazy : cycle damage<->triggers
             from ..abilities.attack_type import NORMAL_ATTACK_KIND       # lazy : meme cycle
-            from ...dsl.event_trigger_type import EventTriggerType
             _r = _atomic_dispatch.evaluate_abilities_for_event(
                 self.state, msg.attacker_id, self.last.get("target", msg.target_id),
                 int(EventTriggerType.AttackInAtomicGroup), bool(self.last.get("ranged")),

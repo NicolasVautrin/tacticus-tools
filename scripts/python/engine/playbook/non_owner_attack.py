@@ -75,6 +75,8 @@ from ..entities.traits.unit_trait import UnitTrait
 from ..entities.triggered_ability_type import TriggeredAbilityType
 from ..entities.unit_faction import UnitFaction
 from .non_owner import TriggeredAbilityNonOwnerPlaybook
+from .adjacent_unit_preference import _has_ranged_weapon as _hrw
+from .adjacent_unit_preference import _unit_faction
 
 
 def _has_trait(scene, uid, trait_id) -> bool:
@@ -96,7 +98,6 @@ def _has_faction(scene, uid, faction) -> bool:
     passer par `Scene.faction` : ce champ-la est seede depuis `cfg.get("faction")`, une cle que le
     gameconfig d'unite ne porte PAS (mesure : `None` sur les six unites Tau du catalogue) -- le
     gate aurait ete identiquement faux, en silence."""
-    from .adjacent_unit_preference import _unit_faction
     vis = (scene.vis_by_id or {}).get(uid) if scene is not None else None
     return bool(vis) and _unit_faction({"vis": vis}) == UnitFaction(faction).name
 
@@ -109,7 +110,6 @@ def _has_ranged_weapon(scene, uid) -> bool:
     `Range >= 2` de `WeaponProfile$$get_IsMelee`) plutot que de re-tester `normal_ranged` : ce
     dernier ne parle que de l'arme NORMALE, alors que le natif balaie TOUTES les armes. Un fork
     ici serait exactement la faute de #175-e sur `IsMechanical`."""
-    from .adjacent_unit_preference import _has_ranged_weapon as _hrw
     vis = (scene.vis_by_id or {}).get(uid) if scene is not None else None
     return bool(vis) and bool(_hrw({"vis": vis}))
 

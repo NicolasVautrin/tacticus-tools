@@ -48,6 +48,7 @@ from ..abilities.loki.swarm import on_group_unit_hp_changed
 # plutot que d'en ecrire un second, ce qui garantit qu'une correction de polarite profite aux deux.
 from .movement import _kill_steppable_units, _tiles_are_walkable
 from .tile_reservation import is_tile_reserved_for_another_unit
+from ..abilities.attack_query import can_be_resurrected
 
 
 def update_flags_on_resurrect(fl: UnitFlagsComponent) -> None:
@@ -189,7 +190,6 @@ class ResurrectUnitOperation:
     @staticmethod
     def execute(state: State, unit_id: int, dest_coord, hp,
                 *, immediate_turn: bool, heal_type: int = 0) -> Optional[dict]:
-        from ..abilities.attack_query import can_be_resurrected
         e = state.get_entity(unit_id)
         if e is None:
             return None

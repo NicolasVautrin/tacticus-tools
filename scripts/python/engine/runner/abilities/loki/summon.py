@@ -12,6 +12,17 @@ import hexgeo
 
 from ..base import ActiveAbility
 from ..targeting import (TargetingOptions, RANGE_ADJACENT, RANGE_SELF, RANGED_BOOL_FALSE)
+import engine.runner.abilities.targeting as _targeting   # FORME B (#923), et ABSOLUE
+# `valid_normal_attack_targets` est SUBSTITUE via le chemin PLEIN
+# (`migrate_485r1_barils_reexport.py morsure` classe le couple HISSAGE_DESARMERAIT) : hisser en
+# forme A (`from ..targeting import valid_normal_attack_targets`) gelerait la liaison a l'import
+# et rendrait ces patchs INERTES. Le binding de MODULE, lui, est relu a chaque appel.
+# ⚠ ABSOLUE, PAS `from .. import targeting` : cette derniere DECLARE une arete vers le PAQUET
+# PARENT et referme un SCC (`engine.runner.abilities` / `.loki` / `.loki.summon`) -- meme mesure
+# que pour `loki/attempted_possession.py` (#547-r2).
+# ⚠ Le differe qui vivait a l'ancienne ligne 310 se DECLARAIT porteur ; il etait GRATUIT --
+# l'arete `summon -> targeting` existe deja par la ligne ci-dessus, donc ni cycle possible ni
+# cout. C'est le critere de `test_270r4r2r2_differes_offline::test_etage1_...`.
 from ..targeting_rule import TargetingRule as TR
 from ...operations.damage import AttackDamageOperation
 from ...components import StatsComponent, OwnerComponent, PositionComponent, UnitComponent
@@ -304,10 +315,9 @@ def perform_ai_ability_unit_behaviour(state: "State", unit_id: int, allow_move_a
     # Mirror utilise : `IdunBattle.Entities.Selectors.ValidNormalAttackTargetsSelector$$Select`
     # (`valid_normal_attack_targets`), qui applique la cascade avec les `TargetingOptions` du TYPE
     # d'attaque normale du caster -- exactement l'`abilityType` que passe le natif.
-    # DIFFERE **PORTEUR** (classe mecaniquement : charger `engine.runner.abilities.targeting` seul
-    # dans un process FRAIS fait atterrir ce module dans `sys.modules` -> le hisser fermerait le
-    # cycle). Meme classe que le `_in_attack_range` juste au-dessus.
-    from ..targeting import valid_normal_attack_targets
+    # HISSE (#923) au preambule en FORME B (`_targeting`) : ce differe se declarait PORTEUR, mais
+    # l'arete `summon -> targeting` etait DEJA posee au niveau module par l'import de
+    # `TargetingOptions`/`RANGE_*` -- ni cycle possible, ni cout. Il etait donc GRATUIT.
     _e0 = state.get_entity(int(unit_id))
     _pc0 = _e0.get_component(_PC) if _e0 is not None else None
     _here = (_pc0.col, _pc0.row) if _pc0 is not None else None
@@ -317,7 +327,8 @@ def perform_ai_ability_unit_behaviour(state: "State", unit_id: int, allow_move_a
     # `GetEligibleTargetsForNormalAttack` POUR CHAQUE position candidate. On applique donc la cascade
     # sur la tuile COURANTE -- le seul domaine de `...FromCurrentPosition` (`move_amount == 0`) --
     # et on retombe sur le seul volet PORTEE pour les tuiles d'approche de `PerformAIAttack`.
-    _eligible_here = set(int(x) for x in (valid_normal_attack_targets(state, int(unit_id)) or ()))
+    _eligible_here = set(int(x) for x in
+                         (_targeting.valid_normal_attack_targets(state, int(unit_id)) or ()))
 
     def _gate(t, tile):
         if t is None or not _in_attack_range(state, unit_id, t, from_pos=tile):

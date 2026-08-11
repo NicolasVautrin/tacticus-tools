@@ -96,6 +96,7 @@ from .....entities.stats import StatType
 from .....entities.traits.unit_trait import UnitTrait
 from .....entities.triggered_ability_type import TriggeredAbilityType
 from ..base import TriggeredAbility, TriggerEvent
+from ....damage_model import target_trait_names
 
 ABILITY_ID = "IconOfObstinacy"
 ICON_OF_OBSTINACY = int(TriggeredAbilityType.IconOfObstinacy)          # 0x610 = 1552
@@ -116,7 +117,6 @@ def _has_terminator_armour(state: State, unit_id: int) -> bool:
     .target_trait_names` (#267-r1) -- et non le kit gameconfig cache par `visualId`. Le foyer est
     ce lecteur-la : les traits y sont des NOMS, l'enum sert a NOMMER le membre au site, pas a
     convertir. Composant absent -> faux (une unite sans stats n'a aucun trait porte)."""
-    from ....damage_model import target_trait_names
     return UnitTrait.TerminatorArmour.name in (target_trait_names(state, int(unit_id)) or ())
 
 
