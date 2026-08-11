@@ -538,7 +538,11 @@ class AbilityHandler:
         # `On(UnitAbility=0xb)` (#928) — emis JUSTE AVANT le `0xc`, et sans son gate
         # `IsActiveAbility` : le natif publie `0xb` inconditionnellement, puis teste le kind pour
         # `0xc`. Consommateur porte : `1319 LegacyOfCombat` (l'attaque supplementaire de Kariyan).
-        self._unit_ability(msg)
+        # Publie SEULEMENT s'il a declenche quelque chose (cf. `actual_target` ci-dessus : un champ
+        # toujours present ferait diverger l'empreinte de tous les casts qui n'en declenchent pas).
+        _trig = self._unit_ability(msg)
+        if _trig:
+            self.last["unit_ability_triggers"] = _trig
         # `On(UnitActiveAbility=0xc)` — emis APRES l'execution de la behaviour et AVANT
         # `AddFlagsAfterAbilityExecution` (ordre lu au decompile). L'ability qui vient de s'executer
         # beneficie donc encore de tout ce que ce vecteur consomme (ex. l'override de niveau 1180 que
@@ -598,17 +602,21 @@ class AbilityHandler:
                                                    ranged=self._ranged(msg), profile=None,
                                                    ability_type=int(msg.ability_type))
 
-    def _unit_ability(self, msg) -> None:
+    def _unit_ability(self, msg) -> list:
         """`FUN_1800280e0(0x4d, .., 0xb)` = `On(UnitAbility)` d'`ExecuteInternal` (#928), emis APRES
         l'execution de la behaviour et **SANS AUCUN GATE** -- le `IsActiveAbility` qui suit ne
         conditionne que le `0xc`. Il fire donc pour TOUTE ability qui traverse cette operation,
         attaque normale comprise. Voie ABILITY ici ; voie NORMALE dans
         `triggers/dispatch/attack.py::after_hit_normal_attack` (meme raison que #120 : un seul site
-        natif, deux portes d'operation cote port)."""
-        ability_dispatch.unit_ability_triggers(
+        natif, deux portes d'operation cote port).
+
+        Rend les diagnostics des triggers declenches -- l'appelant ne les publie dans `self.last`
+        que s'il y en a (un champ toujours present ferait diverger l'empreinte de tout cast qui
+        n'en declenche aucun)."""
+        return ability_dispatch.unit_ability_triggers(
             self.state, int(msg.caster_id), msg.target_id,
             ranged=self._ranged(msg), profile=None,
-            ability_type=int(msg.ability_type))
+            ability_type=int(msg.ability_type)) or []
 
     def _unit_active_ability(self, msg) -> None:
         """`FUN_1800280e0(0x4d, .., 0xc)` = `On(UnitActiveAbility)` d'`ExecuteInternal`, emis SOUS LE GATE
