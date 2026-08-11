@@ -313,6 +313,27 @@ NO_END_TURN_ABILITY_TYPES = frozenset({
     ActiveAbilityType.EuphoricStrikes,       # 1198
     ActiveAbilityType.VigilanceEternal,      # 1202
     ActiveAbilityType.ExemplarOfTheMontka,   # 1210
+    # 1228 SternguardFocus (`darkaSternguard`) -- AJOUTEE PAR #905, et elle N'ETAIT PAS dans
+    # l'inventaire ci-dessus parce que son corps natif est DIFFERENT de celui des 14 autres :
+    # `...WarHowlAbility$$SetsEndTurnFlags` (le fold-winner des 14, 30 refs) rend
+    # `<DSLTriggers>+0x48` = la constante FALSE (`DSLTriggers$$Direct(false)`), tandis que
+    # `...SternguardFocusAbility$$SetsEndTurnFlags` rend `<DSLTriggers>+0x60` -- une TROISIEME
+    # instance, d'une classe de trigger SANS CHAMP distincte des deux constantes (`+0x40` TRUE, que
+    # rend aussi le DEFAUT `AActiveAbility$$SetsActiveAbilityUsedFlag`). Son NOM n'est pas lisible
+    # offline (la classe n'est referencee que par le ctor de `DSLTriggers` et par un `isinst` d'
+    # `IdunBattle.Entities.Abilities.BaseTriggeredAbility$$GetEventTriggers`) -> RESIDU **#905-r1**.
+    # LE VERDICT EST DONC MESURE, PAS LU : `probe_905_sternguard_focus.py --case flags`, QUATRE
+    # regimes (caster seul / allie DarkAngels adjacent / apres mouvement / distances 1-2-3) ->
+    # `hasAction` reste `True` apres le cast et une ATTAQUE NORMALE enchainee MUTE (4/4). TEMOIN de
+    # DISCRIMINATION (`--case control`, meme runner, meme sequence) : `1150 PlasmaCannon`, qui n'est
+    # PAS dans ce frozenset, rend `hasAction = False` et son attaque normale enchainee est REFUSEE
+    # (`mutated = False`) -- sans ce temoin la mesure ci-dessus ne dirait rien.
+    # Le port prend donc la branche MESUREE ; si `+0x60` s'averait CONDITIONNEL, ce serait la
+    # branche qu'il prend dans les quatre regimes joues. 1228 reste HORS de
+    # `NO_ABILITY_USED_FLAG_ABILITY_TYPES` : elle ne surcharge PAS `SetsActiveAbilityUsedFlag`
+    # (defaut base = `+0x40` TRUE), et le cooldown (`constants.cooldownTurns = 3`) rend de toute
+    # facon ce flag-la inobservable au tour du cast.
+    ActiveAbilityType.SternguardFocus,       # 1228
 })
 
 # Classes overridant `SetsActiveAbilityUsedFlag` (pas de flag ActiveAbilityUsed=2) — 13 classes
