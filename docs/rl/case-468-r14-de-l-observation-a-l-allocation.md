@@ -165,6 +165,29 @@ testées **séparément** parce qu'elles peuvent casser séparément :
 
 Plus la contre-épreuve de concurrence à N = 4, appelée depuis le cliquet.
 
+### 5 bis. Le revers du remède : un registre PARTAGÉ est un registre POLLUABLE
+
+Ce qui fait la valeur du registre — il est **partagé** et **survit à tout** — le rend aussi
+polluable, et **un test est précisément ce qui appelle l'allocateur le plus souvent**. La faute a
+été commise ici même : la première version de `_vider_reservations` remettait `REPO` en dur, donc
+deux cas de `test_468_collision_numeros_offline.py` qui croyaient viser un dépôt jetable ont
+**alloué pour de bon** dans `<principal>/.git/tacticus-468-reservations`.
+
+**Deux entrées parasites** — `#917` et `#900-r8` — reconnaissables à leur métadonnée (même `pid`,
+`pour` vide, horodatage pendant une passe pytest). Deux entiers brûlés **pour une raison fausse**,
+et **indistinguables d'une allocation légitime** une fois posées : c'est précisément ce que le
+métadonnage rend rattrapable. Vérifié qu'aucune source du corpus ne les revendiquait, ils ont été
+**retirés à la main** (pas de `--liberer` : c'est un nettoyage de débris, pas une fonction).
+
+**Garde exécutable**, dans les **deux** fichiers de test — fixture `autouse`
+`le_registre_du_depot_REEL_ne_bouge_pas` : la population du registre réel doit être **identique**
+avant et après **chaque** test, et la cible de `viser` doit avoir été **rendue** (c'est par là que
+la faute est arrivée ; une cible restée sur un dépôt jetable fait tourner le test **suivant** là
+où il ne croit pas). Invariant, pas seuil.
+
+**Contre-épreuve du garde** : en remettant le bug exact, la passe rougit en **nommant** les
+numéros pollués — `#918` et `#900-r9`. Sans le garde, elle était **verte**.
+
 ## 6. CE QUE LE REMÈDE NE COUVRE PAS
 
 - **Un numéro choisi SANS passer par l'outil.** Rien n'oblige un agent à appeler `--suggere` ;
@@ -184,7 +207,13 @@ Plus la contre-épreuve de concurrence à N = 4, appelée depuis le cliquet.
   partage réseau, elle n'est pas garantie — le bras RESERVER du probe le **verrait** (plusieurs
   gagnants), il ne le suppose pas.
 - **`--reservations` liste, mais ne confronte pas.** Une réservation dont le numéro a depuis été
-  écrit est indistinguable d'une allocation encore en vol. Résidu ouvert.
+  écrit est indistinguable d'une allocation encore en vol. Résidu `#468-r15`.
+- **La pollution du registre n'est gardée que dans les DEUX fichiers de test de #468** (§5 bis).
+  N'importe quel autre appelant qui lancerait `suggerer` contre le dépôt réel — un probe, un
+  script, un agent qui explore — y allouerait pour de bon, et rien ne le signalerait. C'est
+  cohérent (`--suggere` **est** faite pour allouer) mais le corollaire est que **`--suggere`
+  n'est pas un mode de lecture** : il n'existe aucun « regarder sans prendre », **à dessein** —
+  un tel mode serait exactement le régime d'avant, et il finirait par être celui qu'on appelle.
 
 ## 7. Fichiers
 

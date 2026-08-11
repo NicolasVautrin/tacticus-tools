@@ -74,6 +74,39 @@ import probe_468_collision_numeros as p468  # noqa: E402
 
 PROBE = PYDIR / "probe_468_collision_numeros.py"
 
+
+@pytest.fixture(autouse=True)
+def le_registre_du_depot_REEL_ne_bouge_pas():
+    """AUCUN test de ce fichier ne doit ALLOUER dans le registre PARTAGE du depot reel.
+
+    CE GARDE EXISTE PARCE QUE CE FICHIER A COMMIS LA FAUTE (2026-08-11). Depuis #468-r14,
+    `suggerer` ALLOUE : deux cas d'ici l'appellent EN PROCESS apres `viser(<depot jetable>)`, et
+    la premiere version de `_vider_reservations` remettait `REPO` en dur au lieu de restaurer la
+    cible precedente. Resultat MESURE : deux entrees parasites dans
+    `<principal>/.git/tacticus-468-reservations` -- `#917` et `#900-r8`, reconnaissables a leur
+    metadonnee (meme pid, `pour` vide) -- soit deux entiers brules pour tout le monde, et
+    indistinguables d'une allocation legitime une fois posees.
+
+    Le registre est PARTAGE et SURVIT a tout : c'est ce qui fait la valeur du remede, et c'est
+    ce qui le rend polluable. INVARIANT, pas seuil : population identique avant et apres chaque
+    test. Il verifie aussi que la cible de `viser` a ete rendue -- c'est par la que la faute est
+    arrivee, et un test qui la laisse ailleurs fait tourner le SUIVANT ou il ne croit pas."""
+    p468.viser(REPO)
+    dossier = p468._dossier_reservations()
+    avant = set(p468._identifiants_des_reservations(dossier))
+    yield
+    cible = p468.REPO
+    p468.viser(REPO)
+    apres = set(p468._identifiants_des_reservations(dossier))
+    neuves = sorted(apres - avant)
+    assert not neuves, (
+        "ce test a ALLOUE dans le registre PARTAGE du depot reel : %s -- ces numeros sont "
+        "desormais brules pour tout le monde" % ", ".join("#" + k for k in neuves))
+    assert apres == avant, "le registre du depot reel a change : %s" % sorted(apres ^ avant)
+    assert cible == REPO, (
+        "ce test a laisse `viser` pointe sur %s : le test SUIVANT tournerait ailleurs qu'il ne "
+        "croit" % cible)
+
 #: Ce qui doit changer pour que cette contre-epreuve puisse changer d'avis.
 #:
 #: Une contre-epreuve est normalement de PORTEE 4 -- son verdict ne depend que de {la source du

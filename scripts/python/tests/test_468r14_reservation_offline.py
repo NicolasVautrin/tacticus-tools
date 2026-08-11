@@ -77,6 +77,42 @@ PROBE = PYDIR / "probe_468_collision_numeros.py"
 ENV_GIT = {"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t",
            "GIT_COMMITTER_EMAIL": "t@t", "PATH": os.environ.get("PATH", "")}
 
+
+@pytest.fixture(autouse=True)
+def le_registre_du_depot_REEL_ne_bouge_pas():
+    """AUCUN test ne doit ALLOUER dans le registre partage du depot reel.
+
+    CE GARDE EXISTE PARCE QUE LA FAUTE A ETE COMMISE, ET MESUREE (2026-08-11). Un helper de
+    l'autre fichier de test remettait `viser(REPO)` au lieu de restaurer la cible precedente :
+    deux appels a `suggerer` qui croyaient viser un depot jetable ont ALLOUE pour de bon dans
+    `<principal>/.git/tacticus-468-reservations`. Deux entrees parasites, `#917` et `#900-r8`,
+    reconnaissables a leur metadonnee (meme pid, `pour` vide) -- donc deux entiers brules pour
+    une raison fausse, et impossibles a distinguer d'une allocation legitime une fois posees.
+
+    C'est le revers exact de ce qui fait la valeur du remede : le registre est PARTAGE et
+    SURVIT a tout. Ce qui le rend utile le rend aussi polluable, et un test est precisement ce
+    qui appelle l'allocateur le plus souvent. Le garde est un INVARIANT, pas un seuil : la
+    population du registre reel doit etre IDENTIQUE avant et apres chaque test.
+
+    Il verifie AUSSI que le test a rendu la cible de `viser` -- une cible restee sur un depot
+    jetable ferait tourner le test SUIVANT ailleurs qu'il ne croit, et c'est exactement par la
+    que la faute est arrivee."""
+    p468.viser(REPO)
+    dossier = p468._dossier_reservations()
+    avant = set(p468._identifiants_des_reservations(dossier))
+    yield
+    cible = p468.REPO
+    p468.viser(REPO)
+    apres = set(p468._identifiants_des_reservations(dossier))
+    neuves = sorted(apres - avant)
+    assert not neuves, (
+        "ce test a ALLOUE dans le registre PARTAGE du depot reel : %s -- ces numeros sont "
+        "desormais brules pour tout le monde" % ", ".join("#" + k for k in neuves))
+    assert apres == avant, "le registre du depot reel a change : %s" % sorted(apres ^ avant)
+    assert cible == REPO, (
+        "ce test a laisse `viser` pointe sur %s : le test SUIVANT tournerait ailleurs qu'il ne "
+        "croit" % cible)
+
 BACKLOG = [
     "| # | Tache | Modele | Point d'entree |",
     "|---|---|---|---|",
