@@ -40,6 +40,11 @@ DECLENCHEUR = {
         "scripts/python/engine/runner/abilities/targeting.py",
         "scripts/python/engine/runner/abilities/behaviours/chain.py",
         "scripts/python/engine/runner/abilities/behaviours/context.py",
+        # L'`__init__` du paquet `behaviours` : il est TRAVERSE par l'import des deux modules
+        # ci-dessus, donc il fait partie du perimetre REEL. Son absence rendait ce fichier
+        # `DECLARE TROP ETROIT` -- un declencheur trop etroit est un FAUX VERT (#486-r15) : le
+        # fichier ne se rejoue pas quand ce qu'il garde a bouge.
+        "scripts/python/engine/runner/abilities/behaviours/__init__.py",
         "scripts/python/engine/runner/components.py",
         "scripts/python/engine/entities/selectors/geometry.py",
         "scripts/python/engine/entities/selectors/units.py",

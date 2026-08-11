@@ -47,6 +47,11 @@ DECLENCHEUR = {
         "scripts/python/build_pin.py",
         "scripts/python/il2cpp_metadata.py",
         "scripts/python/il2cpp_provenance.py",
+        # La seed BC, LUE a l'execution : c'est une ENTREE versionnee (`data/` = ce qu'on LIT), donc
+        # son contenu peut changer le verdict. Son absence rendait ce fichier `DECLARE TROP ETROIT`
+        # -- et un declencheur trop etroit est un FAUX VERT (#486-r15) : le fichier ne se rejoue pas
+        # quand ce qu'il garde a bouge.
+        "data/seed-bc.json",
     ),
     "build": True,
     "toujours": False,
