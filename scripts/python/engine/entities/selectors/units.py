@@ -940,6 +940,58 @@ class AllDeadUnits(TargetsSelector):
         return [u for u in ctx.units if not _is_alive(u)]
 
 
+class UnitsDefeatedBy(TargetsSelector):
+    """`IdunBattleLogic.Entities.DSLSelectors$$UnitsDefeatedBy(unit)` ->
+    `IdunBattle.Entities.Selectors.UnitsDefeatedBySelector$$Select` -- MIRROR du decompile
+    (`rnca9r7q6c`, #951) :
+
+        result = new OrderedSet<IEntity>();
+        foreach (var e in <source>.Select(entities)) {
+            var stats = e.GetComponent<ActorStatisticsComponent>();
+            AddUnits(result, stats.<+0xa8>);      // defaites en MELEE
+            AddUnits(result, stats.<+0xb0>);      // les autres
+        }
+
+    et `$$AddUnits(result, ids)` :
+
+        foreach (var id in ids) { var u = state.GetEntity(id); if (u != null) result.Add(u); }
+
+    Trois consequences LUES, dont deux qu'un port naif aurait perdues :
+      * les DEUX listes sont reunies -- c'est l'UNION, pas les seules defaites en melee (le
+        selecteur qui, lui, ne prend que la melee est `$$UnitsDefeatedByMeleeAttack`, une AUTRE
+        factory et une AUTRE classe : `UnitsDefeatedByMeleeAttackSelector`) ;
+      * les MORTS en font partie -- rien ici ne filtre sur la liveness ; le seul rejet est
+        « l'id ne resout pas en entite » ;
+      * `OrderedSet` : ordre d'inscription, sans doublon.
+
+    Substrat cote port : la cle `defeatedUnits` du dict d'unite (`ActorStatisticsComponent` @+0xa8
+    UNION @+0xb0), alimentee par `components.register_defeated_unit`. `_units_of` normalise la
+    source (un ref-unite SEUL devient `[dict]`), comme partout ailleurs dans ce module.
+
+    Consommateur porte : `IdunBattleLogic.Entities.Abilities.Triggered.Loki.TrophyTakerAbility$$
+    GetCritChanceMultiplier` = `Count(NormalUnits(UnitsDefeatedBy(Owner@+0x30), Any))`."""
+    def __init__(self, source: TargetsSelector):
+        self.source = source
+
+    def select(self, ctx):
+        par_id = {}
+        for u in (ctx.units or ()):
+            if isinstance(u, dict) and u.get("id") is not None:
+                par_id.setdefault(int(u["id"]), u)
+        vus, out = set(), []
+        for src in _units_of(self.source, ctx):
+            if not isinstance(src, dict):
+                continue
+            for i in (src.get("defeatedUnits") or ()):
+                # `if (u != null) result.Add(u)` : un id qui ne resout pas est IGNORE, il ne
+                # devient pas une entree nulle -- sinon `Count` compterait des fantomes.
+                u = par_id.get(int(i))
+                if u is not None and int(i) not in vus:
+                    vus.add(int(i))
+                    out.append(u)
+        return out
+
+
 class DeadUnits(TargetsSelector):
     """`IdunBattleLogic.Entities.DSLSelectors$$DeadUnits(entities)` -- le FILTRE, a ne pas confondre
     avec `AllDeadUnits` ci-dessus (qui, lui, part du POOL de la bataille et n'a pas de source).
