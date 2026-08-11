@@ -45,6 +45,7 @@ from .loki.dark_angels_passives import (
     LionHelmExtraBlockDamageEffect, LionHelmExtraDmgEffect
 )
 from .loki.darkangels import HailstrikeExtraPierceEffect
+from .loki.deathwing import DeathwingEffect                # #932 (passif darkaTerminator)
 from .loki.first_among_traitors import FirstAmongTraitorsExtraDmgEffect   # #926 (passif blackAbaddon)
 from .loki.kustom_force_field import (                                    # #930 (passif orksBigMek)
     KustomForceFieldReworkedEffect, KustomForceFieldReworkedOrksEffect
@@ -748,6 +749,18 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # IsActiveAbilityCountedAsUsed`) -> `If(HasEffect, IncreaseEffectLevel(+1, SANS cap), AddEffect)`.
     # EffectType 0x52b=1323 (#1323). extraDmg[L65]=153 (i2), rarity-scale.
     "FuelledByFury_ExtraDamage": FuelledByFuryExtraDamageEffect,
+    # Deathwing (passif triggered 0x4dd=1245 de `darkaTerminator` << Baraqiel >>) -- EffectType
+    # 0x526=1318. Le SEUL effet du registre qui porte les DEUX faces de degat a la fois :
+    # `...DeathwingEffect$$CreateEffectDamageBonusForAttack` = `ForAddition(get_OwnerIsActor &
+    # (IsMeleeAttack | NOT IsNormalAttack), GetEffectAmount(ConfigVar 8=extraDmg, isDefense:false))`
+    # et `...$$CreateEffectDamageMalusForDefense` = `ForSubtraction(get_OwnerIsTarget,
+    # GetEffectAmount(ConfigVar 0x12=dmgReduction, isDefense:true))`. `GetEffectAmount` =
+    # `If(GetDoubleEffectCondition, Double(Multiply(ConfigVar, EffectLevel)), Multiply(...))` :
+    # la magnitude est `V x niveau`, DOUBLEE contre un ennemi Chaos ou si le porteur a un ami Dark
+    # Angel adjacent. Accumulation du niveau = `ABILITY_TRIGGERS["Deathwing"]`
+    # (`On(9=Attack) & OwnerIsTarget & WasBlock` -> `If(HasEffect, IncreaseEffectLevel,
+    # AddEffect(turns=TurnsFromRounds(1)))`). extraDmg[L65]=dmgReduction[L65]=146, rarity-scale.
+    "Deathwing": DeathwingEffect,
     # ModifiedExoarmour (passif triggered 0x5f9=1529 de votanChampion << Kimm >>) : +extraDmg[ablvl
     # passif] x mult x TILES-PARCOURUES-CE-TOUR, additif PRE-percage, sur les attaques de MELEE du
     # porteur (`IdunBattle.Entities.Effects.Loki.ModifiedExoarmour_ExtraDmgEffect$$

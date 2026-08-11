@@ -81,6 +81,7 @@ from ..loki.despoiled_ground import (DespoiledGroundTileDoT,         # #85 (EnvD
                                     DESPOILED_GROUND_TILE)
 from ..loki.terrifying_crescendo import (TerrifyingCrescendoOverkillAbility,   # lot POSE (passif
                                         TerrifyingCrescendoSuppressAbility)   # emperNoiseMarine, #204)
+from ..loki.deathwing import DeathwingAbility                          # #932 (passif darkaTerminator)
 from ..loki.fuelled_by_fury import (FuelledByFuryExtraDamageAbility,  # compteur 1323 (passif ultraTitus)
                                     FuelledByFuryReviveAbility,       # #88 A1 : self-revive On(3)
                                     FuelledByFuryCanReviveActivateOnAbilityInit,
@@ -421,6 +422,14 @@ ABILITY_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
     # `Revive(self, self, ConfigVar('hp'), healType=0, sourceId=1251)`. Le passif porte les DEUX
     # triggered-abilities (l'`ArraySet` du marqueur 1324 n'enregistre, lui, que ses 3 triggers d'etat).
     "FuelledByFury": [FuelledByFuryExtraDamageAbility, FuelledByFuryReviveAbility],
+    # Deathwing (passif `darkaTerminator` << Baraqiel >>, TriggeredAbilityType 0x4dd=1245) :
+    # `On(9 = Attack, ownerNeedsToBeAlive: true) & get_OwnerIsTarget & WasBlock()` ->
+    # `If(HasEffect(Owner, 0x526=1318), IncreaseEffectLevel(+1, SANS cap),
+    #    AddEffect(1318, AbilityStateReference, Owner, Owner, turns = TurnsFromRounds(1)))`.
+    # TROIS termes au trigger, et c'est tout -- aucun gate de profil, de bouclier ni de degat aux PV
+    # (contraste `TerminatorArmour_ReduceDmg`, que le MEME porteur transporte via son trait).
+    # Cf. loki/deathwing.py ; la MAGNITUDE vit dans `entities/effects/loki/deathwing.py`.
+    "Deathwing": [DeathwingAbility],
     # AnvilShield (passif spaceRockfist << Arjac >>) = volet ON-BLOCK `ApplyIce` : `On(UnitBlocked=0x3c) &
     # OwnerIsTarget & IsUnit(caster)` -> `AddEffect(Ice=0x11, source=Self, cible=CasterTile)` (la tuile de
     # l'attaquant BLOQUE gele). L'effet de tuile Ice etait deja porte ; c'est le DISPATCH `On(0x3c = UnitBlocked)` qui

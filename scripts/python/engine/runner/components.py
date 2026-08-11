@@ -19,6 +19,7 @@ from ..battle_query import is_adjacent
 from ..entities.effect_targets import is_effect_target as _iet
 from ..entities.effects.loki.amulet_of_the_voidwyrm import (
         adjacent_friendly_summons_and_decoys_selector)
+from ..entities.effects.loki.deathwing import adjacent_dark_angels_friends_selector
 from ..entities.effects.loki.intoxicating_elixir import debuffed_units_in_range_selector
 from ..entities.effects.loki.kardiocore_galvanus import adjacent_mechanical_friends_selector
 from ..entities.effects.loki.maw_claws_of_thyrax import adjacent_summons_selector
@@ -3182,6 +3183,39 @@ def adjacent_friendly_mechanical_units_count(state, unit_id: int) -> Optional[in
         return None
     from .abilities.behaviours.context import entities_from_state
     return int(adjacent_mechanical_units_selector()
+               .calculate(entities_from_state(state, int(unit_id))))
+
+
+def adjacent_dark_angels_friends_count(state, unit_id: int) -> Optional[int]:
+    """`Count( UnitsFromFaction( AdjacentFriends(Owner, unique: 1, selectionType: 3),
+    UnitFaction.DarkAngels = 0xa, selectionType: 3 ) )` -- le cardinal du SECOND disjoint de
+    `IdunBattle.Entities.Effects.Loki.DeathwingEffect$$GetDoubleEffectCondition`, calcule pour le
+    PORTEUR de l'effet (#932).
+
+    UN SEUL foyer pour les DEUX faces de degat (`CreateEffectDamageBonusForAttack` et
+    `CreateEffectDamageMalusForDefense` appellent le MEME `GetDoubleEffectCondition`, a l'argument
+    `isDefense` pres qui ne change QUE l'entite comparee -- jamais ce compteur) : la condition
+    d'ATTAQUE et celle de DEFENSE ne peuvent donc pas diverger.
+
+    L'ARBRE est celui de la classe d'effet (`entities/effects/loki/deathwing.py::
+    adjacent_dark_angels_friends_selector`, doctrine #149 : l'artefact natif est un SELECTEUR) ; ce
+    qu'on fait ICI, c'est lui donner son `AbilityEntities` -- `entities_from_state(state, unit_id)`
+    pose `caster = owner = le porteur`, `board = state.board` et `faction_of`.
+
+    ⚠ `UnitsFromFaction` compare le `FactionId` gameconfig au NOM de la valeur d'enum : c'est ce que
+    le natif fait (`System.Enum.ToString(UnitFaction)` puis `String.Equals` sur
+    `FactionComponent+0x30`), pas une comparaison d'ordinal.
+
+    `None` si le porteur n'a ni equipe ni tuile (le selecteur est GEOMETRIQUE **et** par equipe) --
+    jamais un 0 invente, qui fermerait le disjoint en silence et ferait passer un doublement reel
+    pour son absence (meme tri-etat que les compteurs voisins)."""
+    ent = state.get_entity(unit_id)
+    oc = ent.get_component(OwnerComponent) if ent is not None else None
+    pc = ent.get_component(PositionComponent) if ent is not None else None
+    if oc is None or oc.team is None or pc is None:
+        return None
+    from .abilities.behaviours.context import entities_from_state
+    return int(adjacent_dark_angels_friends_selector()
                .calculate(entities_from_state(state, int(unit_id))))
 
 

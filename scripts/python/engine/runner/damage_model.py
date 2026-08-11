@@ -34,7 +34,8 @@ from .components import (StatsComponent, HealthComponent, OwnerComponent, Positi
                          unit_has_used_active_ability,
                          unit_tiles_moved_this_turn, unit_state_for_effects,
                          unit_turns_with_attacks_made, unit_total_attacks_made,
-                         adjacent_taunted_enemies_count)
+                         adjacent_taunted_enemies_count,
+                         adjacent_dark_angels_friends_count)
 from ..entities.stats import StatType, ARMOR_STAT_TYPES
 from ..services.damage_prediction import get_attack_prediction, apply_pierce_and_modifiers
 from ..services.battle_query import (
@@ -557,6 +558,19 @@ def attacker_modifiers(state: State, unit_id: int, hp: Optional[int], is_ranged:
     # Foyer unique `components.adjacent_taunted_enemies_count` ; tri-etat conserve (`None` = le
     # porteur n'a ni equipe ni tuile), jamais un 0 invente.
     att_ctx["adjacent_taunted_enemies"] = adjacent_taunted_enemies_count(state, unit_id)
+    # #932 : `UnitsFromFaction(AdjacentFriends(Owner@+0x30, 1, 3), DarkAngels, 3)` -- le SECOND
+    # disjoint de `IdunBattle.Entities.Effects.Loki.DeathwingEffect$$GetDoubleEffectCondition`.
+    # MEME regime que `adjacent_taunted_enemies` ci-dessus : sur ce canal l'OWNER de chaque effet
+    # parcouru EST l'attaquant (l'agregateur n'itere que SES effets), ce qu'exige le
+    # `get_OwnerIsActor` du trigger de `CreateEffectDamageBonusForAttack`. Foyer unique
+    # `components.adjacent_dark_angels_friends_count` ; tri-etat conserve (`None` = le porteur n'a
+    # ni equipe ni tuile), jamais un 0 invente -- il fermerait le disjoint en silence.
+    att_ctx["adjacent_dark_angels_friends"] = adjacent_dark_angels_friends_count(state, unit_id)
+    # #932 : `AreEnemies(Target@+0x60, Owner@+0x30, 0)` a besoin des DEUX equipes. `tgt_team` est
+    # deja posee plus bas (branche `target_id`), il manquait celle du PORTEUR -- qui, sur ce canal,
+    # EST l'attaquant. MEME cle et MEME semantique que le ctx du canal AURA
+    # (`_apply_ally_attack_damage_auras`) et que le `_crit_board`, pas de vocabulaire neuf.
+    att_ctx["att_team"] = _unit_team(state, unit_id)
     # #509 : `TotalTurnsWithAttacksMade(Owner)` — `IdunBattle.Entities.Formulas.
     # TotalTurnsWithAttacksMadeFormula$$Calculate` = `ActorStatisticsComponent+0x30`. MEME regime que
     # `tiles_moved_this_turn` juste au-dessus : la valeur est MESUREE cote COMBAT, donc la cle est
@@ -703,6 +717,20 @@ def defender_modifiers(state: State, unit_id: int, hp: Optional[int],
     if _adt is not None:
         att_ctx = dict(att_ctx or {})
         att_ctx["adjacent_taunted_enemies"] = _adt
+    # #932 : TROISIEME cle de ce contexte portee sur l'OWNER de l'effet (= la CIBLE `unit_id`), pour
+    # la MEME raison qu'`is_turn_of_owner` et `adjacent_taunted_enemies` ci-dessus -- le trigger de
+    # `DeathwingEffect$$CreateEffectDamageMalusForDefense` est `get_OwnerIsTarget`, donc son
+    # compteur d'amis Dark Angels adjacents est celui du DEFENSEUR. `owner_team` est le membre DROIT
+    # d'`AreEnemies(Actor@+0x40, Owner@+0x30, 0)` : le membre GAUCHE est deja `team` (l'attaquant),
+    # posee plus bas. Cles ABSENTES quand la mesure n'aboutit pas -> disjoint FERME cote effet.
+    _ada = adjacent_dark_angels_friends_count(state, unit_id)
+    if _ada is not None:
+        att_ctx = dict(att_ctx or {})
+        att_ctx["adjacent_dark_angels_friends"] = _ada
+    _own_team = _unit_team(state, unit_id)
+    if _own_team is not None:
+        att_ctx = dict(att_ctx or {})
+        att_ctx["owner_team"] = _own_team
     if attacker_id is not None or is_normal_attack is not None:
         att_ctx = dict(att_ctx or {})
         att_ctx.update({"id": attacker_id, "is_normal_attack": is_normal_attack})
@@ -735,6 +763,12 @@ def defender_modifiers(state: State, unit_id: int, hp: Optional[int],
             _aoc = _ae.get_component(OwnerComponent) if _ae is not None else None
             att_ctx["team"] = _aoc.team if _aoc is not None else None
             att_ctx["traits"] = target_trait_names(state, attacker_id)
+            # #932 : `HasTrait(Actor@DSLSelectors+0x40, 0x7ea)` -- la grande-alliance de l'ATTAQUANT.
+            # Elle N'EST PAS dans `traits` juste au-dessus : le trait d'alliance est DERIVE du
+            # `GrandAllianceId` par `idun.Idun.Source.Shared.GrandAlliance$$GetTrait` et ajoute par
+            # le BattleConfiguration, pas par le kit gameconfig. MEME resolveur et MEME semantique
+            # que `tgt_grand_alliance` / `att_grand_alliance` de la face ATTAQUANT.
+            att_ctx["grand_alliance"] = grand_alliance_of(state, attacker_id)
             att_ctx["team_by_id"] = {int(uid): oc.team
                                      for uid, e in state.entities.items()
                                      for oc in (e.get_component(OwnerComponent),) if oc is not None}
