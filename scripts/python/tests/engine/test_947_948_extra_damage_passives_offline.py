@@ -484,6 +484,84 @@ def test_contre_epreuve_extrahit_traite_comme_une_variable(monkeypatch):
     _rougit(test_head_claimer_coups_est_la_constante_extrahit_fois_le_niveau)
 
 
+# ==================================================================================================
+# [7] LE `If(IsHero(Target))` DU BEHAVIOUR -- son CAS NEGATIF n'est PAS confrontable live
+# ==================================================================================================
+#
+# Raison MESUREE (cf. `probe_947_948_extra_damage_passives.CAS_NEGATIF_ISHERO`) : toutes les unites
+# `lineup` placables portent `Hero`, que le natif REPOSE independamment de `BC.Units[].Traits`
+# (`--unit-stat "<vis>:Traits=[]"` laisse `combatSnapshot.traits == [16]`), et les MACHINES OF WAR
+# -- seules unites confrontables sans `Hero` -- ne sont PAS posees sur le plateau. Le cas negatif
+# est donc garde ICI, en executant le predicat contre un `AbilityEntities` fabrique.
+
+class _Ctx:
+    """`AbilityEntities` minimal : le noeud `HasTrait` ne lit que `ctx.has_trait` et le slot cible."""
+
+    def __init__(self, traits):
+        self._traits = set(traits)
+        self.target = {"id": 2, "team": 2, "_traits": self._traits}
+        self.caster = self.owner = {"id": 1, "team": 1, "_traits": set()}
+        self.units = [self.caster, self.target]
+        self.board = None
+
+    def has_trait(self, unit, trait_id):
+        return int(trait_id) in ((unit or {}).get("_traits") or set())
+
+
+def test_isheros_gate_du_behaviour_discrimine():
+    """`IdunBattleLogic.Entities.DSLTriggers$$IsHero(unit)` a pour corps ENTIER
+    `HasTraitAbilityTrigger(unit, 0x10, 0)`. Le port l'ecrit comme un NOEUD DSL du foyer partage
+    (`HasTrait(Target(), UnitTrait.Hero)`), jamais comme une recopie du nom de trait : il doit dire
+    VRAI sur une cible `Hero` et FAUX sans."""
+    assert HCT._IS_HERO_TARGET.should_trigger(_Ctx({int(UnitTrait.Hero)})) is True
+    assert bool(HCT._IS_HERO_TARGET.should_trigger(_Ctx(set()))) is False
+    # un trait VOISIN ne doit pas ouvrir le gate (16 = Hero, 17 = Immovable, 13 = Object)
+    assert bool(HCT._IS_HERO_TARGET.should_trigger(_Ctx({13, 17}))) is False
+
+
+def test_steppable_gate_de_ondeathevent_discrimine():
+    """`OnDeathEvent(2, a, b=false)` porte `NOT HasTrait(Target@+0x60, 0x1b = Steppable)` -- c'est
+    la SEULE difference de gate entre les deux branches du trigger (la branche `UnitFled`, elle, ne
+    le porte pas : il appartient a `OnDeathEvent`, pas a `On(...)`)."""
+    assert HCT._IS_STEPPABLE_TARGET.should_trigger(_Ctx({int(UnitTrait.Steppable)})) is True
+    assert bool(HCT._IS_STEPPABLE_TARGET.should_trigger(_Ctx({int(UnitTrait.Hero)}))) is False
+
+
+def test_les_deux_arbres_du_behaviour_ciblent_des_effets_distincts():
+    """`op_BitwiseAnd(AddEffectOrIncreaseLevel(0x404), If(IsHero, AddEffectOrIncreaseLevel(0x405)))`
+    -- deux arbres, deux `EffectType`, et le MEME increment `Const(1)` sans cap."""
+    import engine.runner.abilities.behaviours.effects as BE
+    for factory, attendu in ((HCT.head_claimer_extra_dmg_tree, EffectType.HeadClaimer_ExtraDmg),
+                             (HCT.head_claimer_extra_hit_tree, EffectType.HeadClaimer_ExtraHit)):
+        arbre = factory()
+        feuilles = _feuilles_effet(arbre, BE)
+        assert feuilles, factory.__name__
+        assert {f.effect_type for f in feuilles} == {int(attendu)}, factory.__name__
+        for f in feuilles:
+            if isinstance(f, BE.IncreaseEffectLevel):
+                assert f.max_level is None, "cap INVENTE : le natif passe `max = NULL`"
+
+
+def _feuilles_effet(node, BE, out=None):
+    """Descend l'arbre `Foreach(sel, lambda _sub: IfBehaviour(HasEffect, IncreaseEffectLevel,
+    AddEffect))` que `add_effect_or_increase_level` alloue. Le `body` du `Foreach` est un LAMBDA :
+    il faut l'appeler pour voir les deux feuilles (c'est exactement la forme native --
+    `ForeachBehaviour(selector, Func<entity, behaviour>)`)."""
+    out = [] if out is None else out
+    if node is None:
+        return out
+    if isinstance(node, (BE.IncreaseEffectLevel, BE.AddEffect)):
+        out.append(node)
+    body = getattr(node, "body", None)
+    if callable(body):
+        _feuilles_effet(body(None), BE, out)
+    elif body is not None:
+        _feuilles_effet(body, BE, out)
+    for attr in ("then_b", "else_b", "then", "otherwise", "behaviour"):
+        _feuilles_effet(getattr(node, attr, None), BE, out)
+    return out
+
+
 def test_contre_epreuve_selecteur_enmity_sans_letage_non_steppable(monkeypatch):
     """MUTATION : on recopie le selecteur de `Deathwing` (sans `NonSteppableOrObjectUnits`)."""
     monkeypatch.setattr(EN, "adjacent_dark_angels_friends_selector",
