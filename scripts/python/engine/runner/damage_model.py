@@ -749,6 +749,16 @@ def defender_modifiers(state: State, unit_id: int, hp: Optional[int],
     if _own_team is not None:
         att_ctx = dict(att_ctx or {})
         att_ctx["owner_team"] = _own_team
+    # `IsAdjacent(Caster@DSLSelectors+0x48, Owner@DSLSelectors+0x30, 3)` -- les DEUX arguments d'un
+    # noeud GEOMETRIQUE que ce contexte ne portait pas encore. `owner_pos` est la CINQUIEME cle
+    # portee sur l'OWNER de l'effet (= la CIBLE `unit_id`), meme convention qu'`owner_team`
+    # ci-dessus ; `att_pos` est posee plus bas avec les autres cles du CASTER. MEMES cles que la face
+    # PREDICTION (`playbook/prediction/_shared.py`) -- pas de fork. Consommateur :
+    # `TerrorsLament_DamageReduction`. Position inconnue -> cle a None -> le gate se FERME.
+    _own_pos = _unit_pos(state, unit_id)
+    if _own_pos is not None:
+        att_ctx = dict(att_ctx or {})
+        att_ctx["owner_pos"] = _own_pos
     if attacker_id is not None or is_normal_attack is not None:
         att_ctx = dict(att_ctx or {})
         att_ctx.update({"id": attacker_id, "is_normal_attack": is_normal_attack})
@@ -790,6 +800,10 @@ def defender_modifiers(state: State, unit_id: int, hp: Optional[int],
             att_ctx["team_by_id"] = {int(uid): oc.team
                                      for uid, e in state.entities.items()
                                      for oc in (e.get_component(OwnerComponent),) if oc is not None}
+            # `IsAdjacent(Caster@DSLSelectors+0x48, …)` : la TUILE de l'attaquant. En COMBAT le
+            # caster a deja bouge quand `Execute` tourne, donc sa position ECS EST sa tuile
+            # d'attaque -- MEME lecture que `_apply_ally_attack_damage_auras` (`PositionComponent`).
+            att_ctx["att_pos"] = _unit_pos(state, attacker_id)
             # #462-r4b-r1-r1 -- NIVEAU + MULTIPLICATEUR de l'ATTAQUANT, la MAGNITUDE d'un additif
             # defenseur indexe sur la SOURCE. `IdunBattle.Entities.Effects.Loki.NeuroparasiteEffect$$
             # CreateEffectDamageMalusForDefense` = `ForAddition(OwnerIsTarget & AreEqual(BondedEntity,
@@ -864,8 +878,20 @@ def defender_modifiers(state: State, unit_id: int, hp: Optional[int],
                            # son gate sur le CASTER, pas sur le porteur de l'effet. Absente si
                            # l'appelant ne passe pas `attacker_id` -> le gate se tait.
                            **({"att_id": attacker_id,
-                               "att_is_unit": (att_ctx or {}).get("is_unit")}
+                               "att_is_unit": (att_ctx or {}).get("is_unit"),
+                               # `IsAdjacent(Caster@+0x48, Owner@+0x30, 3)` et
+                               # `AreEnemies(Owner@+0x30, Caster@+0x48, 0)` -- les DEUX arguments
+                               # sont ici : `owner_*` vient du carrier (pose par l'agregateur),
+                               # `att_*` du coup. MEMES cles que le canal AURA jumeau cote ATTAQUE
+                               # (`_apply_ally_attack_damage_auras`), pas un nommage neuf.
+                               # Consommateur : `TerrorsLament_DamageReduction`, dont le trigger ne
+                               # porte NI sur la cible NI sur un `CreateTargetSelector`.
+                               "att_pos": _unit_pos(state, attacker_id),
+                               "att_team": (att_ctx or {}).get("team")}
                               if attacker_id is not None else {}),
+                           # `IsMeleeAttack`, 3e conjoint du meme trigger. Tri-etat #106 conserve :
+                           # `None` = nature non declaree -> le gate se ferme cote effet.
+                           "is_melee": is_melee,
                            # `HasTileStatusEffect`/`EntitiesWithAnyEffect(Tiles(Target), Fire)` --
                            # MEME canal et MEME forme `{(col,row): [noms]}` que celui deja monte
                            # pour `LetTheGalaxyBurnEffect` (`collect_additional_hit_groups`).
@@ -1080,6 +1106,12 @@ def build_hits_board(state: State, att_id: int, tgt_id: int,
              #  * `rng` = `Maybe(chance)` — en COMBAT `CanUseRandom` est VRAI, le natif TIRE
              #    (`DisallowablePseudoRNG$$NextBool`) et ce tirage CONSOMME un genrand.
              "att_faction": (_unit_gameconfig(state, att_id) or {}).get("FactionId"),
+             # `HasTrait(Caster@DSLSelectors+0x48, …)` sur le canal COUPS -- MEME resolveur
+             # (`target_trait_names`) et MEME cle que le canal DEGAT (`attacker_modifiers`), pose ICI
+             # parce que `build_hits_board` est la facade COMBAT PARTAGEE des deux vecteurs
+             # d'attaque. Consommateur : `TerrorsLament_HitReduction`, dont le trigger porte
+             # `NOT HasTrait(Caster, 0x19 = UnitTrait.Immune)`.
+             "att_traits": target_trait_names(state, att_id),
              "turns_started_by_id": turns_started_by_id,
              "parent_by_id": parent_by_id,
              "rng": state.rng,

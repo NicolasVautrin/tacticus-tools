@@ -759,6 +759,13 @@ def make_normal_attack_predictions(scene, att_id, tgt_id, attack_pos, *, meta=Fa
              #    #372). Table vide = capteur anterieur a #378 -> `pid is None` -> le noeud retombe
              #    sur la source, exactement le comportement d'avant.
              "att_faction": att_faction,
+             # `HasTrait(Caster@DSLSelectors+0x48, …)` sur le canal COUPS. MEME cle, MEME resolveur
+             # et MEME semantique que le `att_traits` deja pose par le canal DEGAT juste au-dessus et
+             # par le board COMBAT (`runner/damage_model.py::build_hits_board`) : pas de fork.
+             # Consommateur : `TerrorsLament_HitReduction`, dont le trigger porte
+             # `NOT HasTrait(Caster, 0x19 = UnitTrait.Immune)` -- le SEUL conjoint qui separe sa
+             # moitie COUPS de sa moitie DEGAT.
+             "att_traits": _entity_traits(scene, att_id),
              "turns_started_by_id": scene.turns_started_by_id,
              "parent_by_id": scene.parent_by_id,
              # `HasFlag(Self, Moved)` sur le canal COUPS (case-366-r1) -- MEME valeur `_hm` que

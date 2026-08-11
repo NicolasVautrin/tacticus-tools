@@ -271,7 +271,14 @@ def attack_hits_with_modifiers(*, weapon_hits: int, extra_hits: int, extra_hits_
                                                   # #419-r1-tr9-r4-r1-r2 : `ShroudPsalmEffect` porte
                                                   # `get_OwnerIsTarget & IsNormalAttack` -- le canal
                                                   # DEFENSE a lui aussi ce noeud.
-                                                  is_normal_attack=bool(is_normal_attack))
+                                                  is_normal_attack=bool(is_normal_attack),
+                                                  # Le `board` COMPLET, le MEME que celui deja passe
+                                                  # aux canaux ATTAQUANT et AURA : le natif n'a QU'UN
+                                                  # canal et passe le MEME `AbilityEntities` a tous
+                                                  # les effets de sa boucle. Consommateur :
+                                                  # `TerrorsLament_HitReduction`, dont le trigger
+                                                  # porte sur l'ATTAQUANT.
+                                                  att_ctx=board)
                + aura_hits_malus_for_defense(aura_sources, board,
                                              block_reduction=block_reduction))
     return hits
