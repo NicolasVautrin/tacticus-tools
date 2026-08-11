@@ -80,11 +80,12 @@ def test_etape1_le_passif_et_son_effet_sont_inscrits():
 def test_etape2_litteraux_du_decompile_figes_au_site():
     """Les constantes que le decompile DONNE, figees a l'endroit ou elles sont ECRITES.
 
-    ⚠ `MAX_TARGETS` est le cran le plus important du fichier : `DSLFormulas$$.ctor` range
-    `Direct(0)` en `+0x18` et **`Direct(1)` en `+0x20`**, et `CreateBehaviour` passe `+0x20`. Un
-    commentaire du depot annote `+0x20` comme le `Zero` -- le suivre rendrait `maxTargets = 0`,
-    donc AUCUN saut, donc la moitie de l'ability, sans erreur ni crash."""
-    assert F.MAX_TARGETS == 1, "DSLFormulas+0x20 = Direct(1), PAS Direct(0)"
+    ⚠ `MAX_TARGETS` est le cran le plus important du fichier, et sa valeur vient de la MESURE, pas
+    d'un offset : `CreateBehaviour` lit `<DSLFormulas + 0x20>`, mais `DSLTriggers$$AmountIsZero` lit
+    le MEME offset comme son `minAmount`, et les deux comportements mesures sont incompatibles
+    (1 cote chaine, 0 cote gate -- cf. l'en-tete du module porte et `probe_927 --solo`). A 0, le
+    behaviour ne ferait AUCUN saut : une seule cible, la moitie de l'ability, sans erreur ni crash."""
+    assert F.MAX_TARGETS == 1, "1 saut supplementaire = 2 cibles (mesure, 3 montages)"
     assert F.UNIT_SELECTION_TYPE == 3          # OnlyAliveAndTargetable, surcharge A d'AdjacentEnemies
     assert F.ADJACENT_UNIQUE == 1
     assert F.DAMAGE_PROFILE == "Psychic"       # GetDamageProfileOrDefault(DamageProfileType 0xd)

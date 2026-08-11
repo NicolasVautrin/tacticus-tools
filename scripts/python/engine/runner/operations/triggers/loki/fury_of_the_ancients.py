@@ -108,14 +108,31 @@ XREFS ENTRANTES, jamais par le pseudo-C (piege #585-r3) :
                        damageOptions      = <AttackDamageBehaviourOptions ZERO>,
                        chainOptions       = <+0x10 = 0, +0x11 = 0, +0x12 = 1> )
 
-  ⚠ **`maxTargets` VAUT `Direct(1)`, ET LE COMMENTAIRE QUI COURT DANS LE DEPOT DIT L'INVERSE.**
-  `IdunBattleLogic.Entities.DSLFormulas$$.ctor` alloue cinq constantes consecutives et les range
-  ainsi : `+0x18 = Direct(0)`, **`+0x20 = Direct(1)`**, `+0x28 = Direct(2)`, `+0x30 = Direct(100)`,
-  `+0x38 = Direct(-1)`. `loki/fabricator_claw_array.py` annote « `<Zero @formulas+0x20>` » : le Zero
-  est en `+0x18`. Lire `+0x20` comme un zero ici aurait rendu `maxTargets = 0`, c.-a-d. AUCUN saut,
-  donc UNE SEULE cible -- exactement la moitie de ce que l'i2 decrit. Le compteur natif est un DELTA
-  sur la liste preselectionnee (`picked.Count - pres.Count < GetCurrentMaxTargets()`), donc
-  `1 preselectionnee + 1 saut = 2 cibles`.
+  ⚠ **`maxTargets` VAUT 1, ET C'EST LA MESURE QUI LE DIT -- PAS L'OFFSET.** Le compteur natif est un
+  DELTA sur la liste preselectionnee (`picked.Count - pres.Count < GetCurrentMaxTargets()`), donc
+  `1 preselectionnee + 1 saut = 2 cibles`, ce que le natif fait sur les TROIS montages de
+  `probe_927` (et le mutant `maxTargets = 0` MORD sur les trois : une seule cible frappee).
+
+  ⚠⚠ **DEUX CALL-SITES LISENT `<DSLFormulas + 0x20>` ET LEURS COMPORTEMENTS MESURES SONT
+  INCOMPATIBLES -- L'UN DES DEUX OFFSETS AFFICHES EST FAUX, ET ON LE DIT PLUTOT QUE DE CHOISIR.**
+
+    `DSLFormulas$$.ctor`          : `+0x18 <- (0)`, `+0x20 <- (1)`, `+0x28 <- (2)`,
+                                    `+0x30 <- (100)`, `+0x38 <- (-1)`
+    `CreateBehaviour`             : `maxTargets = <DSLFormulas + 0x20>`   -> MESURE : **1**
+    `DSLTriggers$$AmountIsZero(x)`: `op_LogicalNot( AmountIsGreaterAbilityTrigger(
+                                        x, minAmount = <DSLFormulas + 0x20>) )`
+    `...AmountIsGreaterAbilityTrigger$$ShouldTrigger` : `return minAmount.Calculate() < count(x)`
+
+  Si `+0x20` valait 1 des DEUX cotes, le gate serait `count > 1` -- le passif exigerait **deux**
+  ennemis adjacents. Il n'en exige qu'un : mesure `probe_927 --solo` (tuile adjacente a EXACTEMENT
+  un ennemi, le natif FRAPPE). Donc `minAmount = 0`, donc les deux `+0x20` ne designent pas le meme
+  champ, et le pseudo-C en affiche un de travers. Le port suit la MESURE des deux cotes :
+  `MAX_TARGETS = 1` et le gate `count > 0` (ce que le NOM `AmountIsZero` dit, et ce que le noeud
+  porte `AmountIsZero` fait deja). RESIDU `#927-r1`.
+  ⚠ `loki/fabricator_claw_array.py` annote ce champ « `<Zero @formulas+0x20>` » : cote GATE cette
+  lecture est celle que la mesure confirme, et son port (`count <= 0`) est JUSTE. On ne la corrige
+  donc pas -- c'est le `.ctor` qu'il faut relire, pas le call-site.
+
   ⚠ `chainOptions+0x12 = 1` (le SEUL octet pose) = coup DIFFERE d'un cran : la 2e cible est choisie
   alors que la 1re est encore VIVANTE. Meme valeur que les deux consommateurs de `ChainAbilityDamage`.
 

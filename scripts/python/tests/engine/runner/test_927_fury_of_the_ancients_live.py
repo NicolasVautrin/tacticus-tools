@@ -69,6 +69,11 @@ DECLENCHEUR = {
 CASES = {
     "mc167": dict(board_id="MC1_67", seed=777),
     "mc163": dict(board_id="MC1_63", seed=38704),
+    # REGIME SOLO : tuile adjacente a EXACTEMENT UN ennemi. C'est le seul des trois qui exerce le
+    # GATE (`!AmountIsZero(pool)`) -- les deux autres arrivent a 2 adjacents, ou aucune lecture du
+    # seuil ne peut diverger. Il tranche aussi la lecture d'offset decrite dans
+    # `solo_candidates` : le natif FRAPPE a un seul adjacent, donc `minAmount = 0`.
+    "solo": dict(board_id="MC1_67", seed=777, solo=True),
 }
 
 
@@ -136,6 +141,23 @@ def test_effet_1320_pose_sur_chaque_maillon(fury_case, name):
     # l'effet suit le degat : tout ce qui a ete frappe porte l'effet.
     assert set(m["fury_live"]) == set(m["cible_live"]), (
         "natif : frappes %s mais effet sur %s" % (m["cible_live"], m["fury_live"]))
+
+
+def test_gate_fire_avec_UN_SEUL_ennemi_adjacent(fury_case):
+    """LE GATE : `!AmountIsZero(Damageable(AdjacentEnemies(Caster)))` doit passer a **UN** adjacent.
+
+    `AmountIsZero(x)` = `NOT( AmountIsGreater(x, minAmount = <DSLFormulas+0x20>) )` et
+    `AmountIsGreaterAbilityTrigger$$ShouldTrigger` rend `minAmount < count`. Lire `minAmount = 1`
+    (la valeur que le MEME offset porte cote `maxTargets`) donnerait un gate `count > 1`, donc un
+    passif INERTE contre un ennemi isole. Ce test mesure l'inverse, et c'est ce qui fixe
+    `minAmount = 0` -- une lecture d'offset ne pouvait pas le faire, les deux etant en conflit."""
+    m = _require(fury_case("solo"))
+    assert m.get("adj_atteint") == 1, (
+        "montage non discriminant : %s ennemi(s) adjacent(s) a la tuile atteinte, il en faut "
+        "EXACTEMENT 1" % m.get("adj_atteint"))
+    assert m["cible_live"], (
+        "le natif n'a RIEN frappe avec un seul ennemi adjacent -- le gate serait `count > 1`, et "
+        "le port (`count > 0`) sur-declencherait")
 
 
 def test_regime_chaine_non_degenere(fury_case):

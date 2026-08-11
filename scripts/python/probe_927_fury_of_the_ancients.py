@@ -140,6 +140,36 @@ def _adj(board, a, b):
     return _hex_dist(board, a, b, 1) == 1
 
 
+def solo_candidates(board, occupied, enemy_tiles, exclude):
+    """Tuiles LIBRES adjacentes a EXACTEMENT **UN** ennemi -- le regime que ni `prefer_chain` ni son
+    contraire ne garantissent, et le SEUL qui tranche la semantique d'`AmountIsZero`.
+
+    POURQUOI CE REGIME EXISTE. `IdunBattleLogic.Entities.DSLTriggers$$AmountIsZero(selector)` =
+    `op_LogicalNot( AmountIsGreaterAbilityTrigger(selector, minAmount = <DSLFormulas+0x20>) )`, et
+    `...AmountIsGreaterAbilityTrigger$$ShouldTrigger` rend `minAmount.Calculate() < count(selector)`.
+    Le gate du trigger est donc `count > <DSLFormulas+0x20>`. Or `CreateBehaviour` lit le MEME champ
+    (`<DSLFormulas+0x20>`) comme `maxTargets`, et la mesure de chaine etablit qu'il vaut **1**.
+    Lu ainsi, le trigger exigerait **DEUX** ennemis adjacents -- ce dont le nom `AmountIsZero` dit
+    l'inverse. Un seul montage separe les deux lectures : UN ennemi adjacent, et on regarde si le
+    NATIF frappe.
+
+    RESULTAT (MC1_67 / 777, tuile (4,7), `adjacents=1`) : **le natif FRAPPE** -- et il frappe DEUX
+    unites (l'ennemi adjacent, puis le saut de chaine sur un ennemi adjacent a LUI). Donc
+    `minAmount = 0` cote gate ET `maxTargets = 1` cote chaine : les deux `+0x20` du pseudo-C ne
+    designent pas le meme champ. Le port suit la mesure des deux cotes (residu `#927-r1`).
+    Ce regime est donc le PLUS discriminant des trois : il exerce le gate ET la chaine."""
+    et = set(enemy_tiles)
+    out = []
+    for t in board.by_id:
+        if t in occupied or t in exclude or not board.walkable(t):
+            continue
+        n = sum(1 for e in et if _adj(board, t, e))
+        if n == 1:
+            out.append((t, 0, 1))
+    out.sort(key=lambda x: x[0])
+    return out
+
+
 def _destination_candidates(board, occupied, enemy_tiles, exclude, prefer_chain=True):
     """Tuiles LIBRES marchables adjacentes a >= 1 ennemi, TRIEES pour maximiser le regime de CHAINE.
 
@@ -319,7 +349,7 @@ def _run_mutants(pre, board, cid, tids, before, live_hp, live_eff, reached_coord
 
 
 def run(board_id=BOARD, seed=SEED, p_units=P_UNITS, a_units=A_UNITS,
-        state_file=None, prefer_chain=True, keep=False, mutants=False) -> dict:
+        state_file=None, prefer_chain=True, keep=False, mutants=False, solo=False) -> dict:
     """Monte UN runner, CONDUIT Mephiston au contact, mesure les deux cotes, DISPOSE le runner.
 
     Rend un dict de mesure (jamais d'assertion ici -- un probe MESURE, un test GARDE)."""
@@ -357,10 +387,14 @@ def run(board_id=BOARD, seed=SEED, p_units=P_UNITS, a_units=A_UNITS,
         occupied = {board.id_at(u["col"], u["row"]) for u in U.values()}
         c_tile = board.id_at(U[sq_c]["col"], U[sq_c]["row"])
         enemy_tiles = {sq: board.id_at(U[sq]["col"], U[sq]["row"]) for sq in enemies}
-        cands = _destination_candidates(board, occupied, set(enemy_tiles.values()),
-                                        exclude={c_tile}, prefer_chain=prefer_chain)
+        if solo:
+            cands = solo_candidates(board, occupied, set(enemy_tiles.values()), exclude={c_tile})
+        else:
+            cands = _destination_candidates(board, occupied, set(enemy_tiles.values()),
+                                            exclude={c_tile}, prefer_chain=prefer_chain)
         if not cands:
-            out["err"] = "aucune tuile libre adjacente a un ennemi"
+            out["err"] = ("aucune tuile libre adjacente a %s ennemi"
+                          % ("EXACTEMENT UN" if solo else "un"))
             return out
         out["candidates"] = len(cands)
         out["chain_potentiel"] = cands[0][1]
@@ -467,6 +501,8 @@ def main() -> int:
     ap.add_argument("--state-file", dest="state_file", default=None)
     ap.add_argument("--no-prefer-chain", dest="prefer_chain", action="store_false",
                     help="ne PAS chercher le regime de CHAINE (2 cibles) -- regime DEGENERE")
+    ap.add_argument("--solo", action="store_true",
+                    help="viser une tuile adjacente a EXACTEMENT UN ennemi (tranche AmountIsZero)")
     ap.add_argument("--keep", action="store_true")
     ap.add_argument("--mutants", action="store_true",
                     help="rejouer le port MUTE contre la mesure native (contre-epreuve)")
@@ -474,7 +510,7 @@ def main() -> int:
 
     m = run(board_id=args.board, seed=args.seed, p_units=args.p_units, a_units=args.a_units,
             state_file=args.state_file, prefer_chain=args.prefer_chain, keep=args.keep,
-            mutants=args.mutants)
+            mutants=args.mutants, solo=args.solo)
     if m.get("err"):
         print("KO : %s" % m["err"])
         return 1
