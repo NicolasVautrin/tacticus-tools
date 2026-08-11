@@ -148,6 +148,22 @@ Deux crans autorisent à la sortir du verdict au lieu de la taire :
 
 Résidu **`#925-r1`**.
 
+### 3.3 GÉNÉRALISATION — le second porteur de fold, gate INVERSE
+
+Le foyer corrigé (`_attack_damage_leaf`) est **partagé** : confronter le seul `Boltstorm` ne
+distinguerait pas « le fix est juste » de « le fix est juste sur ce porteur ». `--regime rr` monte
+`adeptMorvenn` / `RighteousRepugnance`, dont le fold gate `<DSLTriggers+0x18>` = **`IsMeleePosition`**
+— l'**inverse** de `Boltstorm` — avec le même trait canal greffé :
+
+```
+[etage 1] emissions On(PreAttack=5) : corrige 2 | mutant 3
+[etage 2] NATIF   coups primaire [1076, 1073, 964, 507, 563, 526]
+          CORRIGE arme [1076, 1073, 964] + fold [507, 563, 526]
+[etage 3] MUTANT  arme [1076, 1073, 964] + fold [557, 614, 572]
+```
+
+Les deux régimes sont paramétrés dans la garde jumelle (`case` / `case_rr`).
+
 ---
 
 ## 4. Le faux `manque 1` de `kit-coverage` — cause structurelle, pas approximation
@@ -173,8 +189,8 @@ kits complets **80 → 83**, items manquants **48 → 45**.
 
 | ce qui est joué | résultat |
 |---|---|
-| `probe_925_fold_pre_attack.py` | **OK** (3 étages + rapport) |
-| `tests/engine/test_925_fold_pre_attack_live.py` | **7 passed** |
+| `probe_925_fold_pre_attack.py` (`--regime boltstorm` **et** `--regime rr`) | **OK** (3 étages + rapport) |
+| `tests/engine/test_925_fold_pre_attack_live.py` | **13 passed** (6 tests × 2 porteurs + non-régression) |
 | `tests/engine/test_925_boltstorm_faces_offline.py` | **7 passed** |
 | `probe_478 --regime boltstorm` (avant ET après le fix) | **OK**, identique au natif |
 | `tests/engine/test_478_cleave_live.py` (3 régimes, 4 contre-épreuves) | **13 passed** |
@@ -190,10 +206,13 @@ kits complets **80 → 83**, items manquants **48 → 45**.
   donc pas ce que le natif ferait d'un `On(5)` **répété sur la même cible** ; la preuve que le fold
   n'en émet pas reste la **LECTURE** (`$$GetAttackDamageBehaviour` : un seul `$$Attack`), le live
   n'en est que la confirmation.
-* **`RighteousRepugnance`, l'autre porteur de fold, n'est pas confronté sur cet axe** — son fold
-  gate `IsMeleePosition`, donc son canal `On(5)` exigerait un porteur mêlée avec `LetTheGalaxyBurn`.
-  Le foyer est partagé (`_attack_damage_leaf`), donc le fix vaut pour lui, mais la mesure ne le dit
-  pas.
+* **Un seul board (`MC1_67`) et un seul seed (`4463111`)** — la géométrie du montage est dérivée
+  (aucune constante de tuile), mais l'amplitude ne s'estime pas depuis un board.
+* **Les autres cliquets de la banque `probe_457` n'ont pas été rejoués** — seule la sélection ciblée
+  l'a été. En revanche `--measure-missing` a gravé l'empreinte des **8** fichiers qui en étaient
+  dépourvus (7 antérieurs à cette tranche), et cette gravure a rendu **confrontable pour la première
+  fois** la déclaration de `test_909_decision_actives_offline.py`, qui manquait `data/i2_en.json` :
+  corrigé ici, dans la même PR.
 * **Les autres feuilles NUES du port n'ont pas ce canal** — résidu `#925-r2` : le drapeau
   `is_outside_attack` ne pilote que la voie **BORNES** (`execute_ability_attack`) ; la voie
   **`amount`** (`execute_normal_like`) émet `On(5)` **inconditionnellement**. Conséquence mesurable :
