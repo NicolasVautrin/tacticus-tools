@@ -19,6 +19,7 @@ from ..battle_query import is_adjacent
 from ..entities.effect_targets import is_effect_target as _iet
 from ..entities.effects.loki.amulet_of_the_voidwyrm import (
         adjacent_friendly_summons_and_decoys_selector)
+from ..entities.effects.loki.kardiocore_galvanus import adjacent_mechanical_friends_selector
 from ..entities.effects.loki.nether_realm_casket import adjacent_mechanical_units_selector
 from ..entities.effects.loki.supa_cybork_body import adjacent_enemies_selector
 from ..entities.pathfinding.board import adjacent_neigh_by_pos, elevations_by_pos
@@ -2966,6 +2967,36 @@ def adjacent_enemies_count(state, unit_id: int) -> Optional[int]:
         return None
     from .abilities.behaviours.context import entities_from_state
     return int(adjacent_enemies_selector().calculate(entities_from_state(state, int(unit_id))))
+
+
+def adjacent_mechanical_friends_count(state, unit_id: int) -> Optional[int]:
+    """`Count( MechanicalUnits(AdjacentFriends(Owner, unique: 1, selectionType: 3), 3) )` -- le
+    cardinal que `IdunBattle.Entities.Effects.Loki.KardiocoreGalvanus_ExtraCritDmgEffect$$
+    GetCalculateLevel` calcule pour le PORTEUR de l'effet (#909).
+
+    UN SEUL consommateur natif, contrairement a ses voisins de forme : la `CreateActiveCondition`
+    de cet effet est `<DSLTriggers+0x70>` = `YesTrigger` (constante VRAIE), donc rien ne compare ce
+    compteur a zero. Il ne sert qu'a la MAGNITUDE :
+      * `...$$GetCalculateLevel` = `Count(<ce selecteur>)`, et c'est cette valeur que
+        `RefreshEffectsOperation$$UpdateLevel` ECRIT dans `EffectComponent+0x68`, donc celle que
+        `DSLFormulas.EffectLevel` relit dans `$$GetExtraCritAmount`.
+
+    L'ARBRE est celui de la classe d'effet (`entities/effects/loki/kardiocore_galvanus.py::
+    adjacent_mechanical_friends_selector`, doctrine #149) ; ce qu'on fait ICI, c'est lui donner son
+    `AbilityEntities` -- `entities_from_state(state, unit_id)` pose `caster = owner = le porteur`,
+    `board = state.board` et `has_trait`.
+
+    `None` si le porteur n'a ni equipe ni tuile (le selecteur est GEOMETRIQUE **et** par equipe) --
+    jamais un 0 invente, qui annulerait le produit et ferait passer un bonus reel pour une absence
+    de bonus (meme tri-etat que les autres compteurs de ce foyer)."""
+    ent = state.get_entity(unit_id)
+    oc = ent.get_component(OwnerComponent) if ent is not None else None
+    pc = ent.get_component(PositionComponent) if ent is not None else None
+    if oc is None or oc.team is None or pc is None:
+        return None
+    from .abilities.behaviours.context import entities_from_state
+    return int(adjacent_mechanical_friends_selector()
+               .calculate(entities_from_state(state, int(unit_id))))
 
 
 def adjacent_taunted_enemies_count(state, unit_id: int) -> Optional[int]:
