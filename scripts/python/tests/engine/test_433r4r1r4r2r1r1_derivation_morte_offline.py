@@ -141,8 +141,97 @@ def test_le_VICE_REEL_de_orks_est_CORRIGE_et_la_liste_ELARGIE(arbres_reels):
     assert "AreEntitiesAdjacent" in (ast.get_docstring(fn) or ""), (
         "le mirror doit CITER le natif qu'il porte -- sans quoi il sort du gisement pour la "
         "mauvaise raison")
-    assert G.etape2(arbres_reels)[0] == [], "l'etape 2 rougit sur la liste elargie"
+    # HORS TOLERANCE : les deux selecteurs d'aura de #943-r4 sont un ecart ASSUME et NOMME
+    # (cf. `GEOMETRIE_NUE_TOLEREE` et les quatre tests ci-dessous, qui re-mesurent sa
+    # justification). Tout AUTRE mirror declare a geometrie nue rougit ici.
+    assert G.etape2_hors_tolerance(arbres_reels)[0] == [], (
+        "l'etape 2 rougit sur la liste elargie, HORS les sites nommement toleres")
     assert G.etape4(arbres_reels)[0] == [], "l'etape 4 rougit sur la liste elargie"
+
+
+# ------------------------------------------------- #943-r4 : la TOLERANCE se MESURE, elle ne se
+# ------------------------------------------------- declare pas (meme regle que l'etape 5)
+
+def test_la_tolerance_ne_contient_aucune_entree_PERIMEE(arbres_reels):
+    """Une entree qui ne designe plus rien est le vice que la liste pourrait cacher.
+
+    Meme mode de defaillance que la SUSPENSION de l'etape 5 : une liste d'exceptions qui se
+    perpetue apres la disparition de son objet dispense un site que plus personne n'a lu. On exige
+    donc que CHAQUE cle corresponde a un site REELLEMENT vu par la mesure brute."""
+    vus = {(rel, nom) for (rel, _ln, nom) in G.etape2(arbres_reels)[0]}
+    perimees = sorted(k for k in G.GEOMETRIE_NUE_TOLEREE if k not in vus)
+    assert not perimees, (
+        "%d entree(s) de GEOMETRIE_NUE_TOLEREE ne designent plus aucun site du gisement : "
+        "%r -- la tolerance est PERIMEE, retire-la" % (len(perimees), perimees))
+
+
+def test_la_JUSTIFICATION_de_la_tolerance_se_re_mesure(arbres_reels):
+    """LE FAIT QUI FONDE LA TOLERANCE, re-derive a chaque passe -- jamais cite de memoire.
+
+    La tolerance ne dit pas << cette geometrie est correcte >> : elle dit << la reparer ICI SEULEMENT
+    serait un fork >>, ce qui n'est vrai que TANT QUE d'autres sites portent la meme geometrie sans
+    etre vus. C'est un fait du depot, et il peut cesser d'etre vrai -- le jour ou la famille est
+    reparee au foyer, la tolerance n'a plus d'objet et doit tomber.
+
+    MESURE au 2026-08-12 : 30 fonctions d'`engine/` comparent une distance hex a 1 ; 2 sont vues par
+    l'etape 2 ; 2 touchent le canal ; 26 sont MUETTES (aucun natif declare dans leur docstring),
+    dont les trois que `case-943` nommait deja (`effect_targets._adjacent_friends`,
+    `imperative.create_aura_attack_damage_bonus_for_ally`, `get_em_runtz._spawn_tile_count`).
+
+    ⚠ LE SEUIL EST A 3, PAS AU COMPTE MESURE, ET C'EST DELIBERE. Le gisement a gagne UN site
+    pendant la duree de cette tranche (25 -> 26 muets, entre la mesure et le rebase) : un test qui
+    figerait le compte exact rougirait chez l'auteur SUIVANT pour un site qu'il n'a pas creuse --
+    la faute que `test_270r4r2r2_differes_offline` a payee trois fois. Ce qui doit tenir ici n'est
+    pas un entier, c'est le FAIT qui fonde la tolerance : une FAMILLE existe, invisible au critere.
+    Les trois foyers nommes ci-dessous, eux, sont gardes NOMMEMENT."""
+    muets, total = G.etape6(arbres_reels)
+    assert total > 0, "perimetre casse : aucune geometrie nue vue par l'etape 6"
+    assert len(muets) >= 3, (
+        "seulement %d site(s) MUET(s) a geometrie nue : la tolerance de #943-r4 se justifiait par "
+        "l'existence d'une FAMILLE que le critere `docstring` ne voit pas. Si la famille a ete "
+        "reparee, la tolerance n'a plus d'objet -- retire-la et arme l'etape 2." % len(muets))
+    # les trois foyers NOMMEMENT cites par `case-943-quinze-rouges-offline.md` SS5 doivent toujours
+    # etre du lot : ce sont eux qui rendent le fork demontrable, pas un compte anonyme.
+    noms = {nom for (_rel, _ln, nom) in muets}
+    for attendu in ("_adjacent_friends", "create_aura_attack_damage_bonus_for_ally",
+                    "_spawn_tile_count"):
+        assert attendu in noms, (
+            "`%s` n'est plus un site MUET a geometrie nue -- la mesure qui fonde #943-r4 a change, "
+            "re-mesure la tolerance au lieu de la reconduire" % attendu)
+
+
+def test_la_tolerance_ne_dispense_QUE_les_sites_quelle_NOMME():
+    """CONTRE-EPREUVE 1 -- un mirror declare NEUF a geometrie nue rougit malgre la tolerance.
+
+    Sans elle, `GEOMETRIE_NUE_TOLEREE` serait une porte ouverte : on verifierait que le cliquet est
+    vert sans verifier qu'il peut encore rougir."""
+    arbres = _synthetique(faux="""
+import hexgeo
+
+
+def adjacents(a, b):
+    %s
+    return hexgeo.distance(a, b) == 1
+""" % _DOC)
+    assert _noms(G.etape2_hors_tolerance(arbres)[0]) == {"adjacents"}, (
+        "un mirror declare NEUF a geometrie nue ne rougit plus : la tolerance dispense plus que "
+        "les deux sites qu'elle nomme")
+
+
+def test_la_tolerance_MORD_quand_on_la_vide(arbres_reels, monkeypatch):
+    """CONTRE-EPREUVE 2 -- le filtre porte bien sur les DEUX sites reels, et pas sur rien.
+
+    Si `etape2_hors_tolerance` se contentait de recopier `etape2`, le test principal serait vert
+    par accident (il l'etait sur `master`... et rouge). En vidant la liste, les deux sites DOIVENT
+    reapparaitre : c'est ce qui prouve que le vert d'aujourd'hui vient de la tolerance, et non
+    d'une disparition silencieuse du gisement."""
+    monkeypatch.setattr(G, "GEOMETRIE_NUE_TOLEREE", {})
+    reapparus = {(rel, nom) for (rel, _ln, nom) in G.etape2_hors_tolerance(arbres_reels)[0]}
+    assert reapparus == {
+        ("scripts/python/engine/entities/effects/aura_selectors.py",
+         "adjacent_friends_including_owner"),
+        ("scripts/python/engine/entities/effects/loki/icon_of_obstinacy.py",
+         "create_aura_attack_damage_bonus_for_ally")}, reapparus
 
 
 def test_les_natifs_SUSPENDUS_le_sont_pour_une_raison_qui_se_MESURE(arbres_reels):

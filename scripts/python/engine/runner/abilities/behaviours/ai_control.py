@@ -28,6 +28,13 @@ import inspect
 from ....dsl.base import AAmountFormula, TargetsSelector, resolve_unit
 from ....dsl.effects import AbilityBehaviour, OperationResult
 from ...operations.summon_ai import ComputerActionOperation
+# FORME B (`import <module>` puis `<module>.<nom>`) -- `ComputerMovementActionOperation` etait
+# DIFFERE dans `PerformAIMovement.execute` alors que la ligne au-dessus charge DEJA le meme module :
+# ni cycle possible (l'arete existe au niveau module), ni cout. Hisser en forme A (l'ajouter a
+# l'import ci-dessus) gelerait la liaison et DESARMERAIT tout `monkeypatch.setattr` futur sur ce nom
+# -- mesure `migrate_485r1_barils_reexport.py morsure` : AUCUN patcheur aujourd'hui, et c'est
+# precisement pourquoi la forme qui n'en interdit pas est la bonne.
+from ...operations import summon_ai
 
 
 class PerformAIAction(AbilityBehaviour):
@@ -130,7 +137,6 @@ class PerformAIMovement(AbilityBehaviour):
         self.override_utility = override_utility
 
     def execute(self, entities, ectx):
-        from ...operations.summon_ai import ComputerMovementActionOperation
         state = ectx.state
         if state is None:
             return OperationResult.ok()
@@ -145,7 +151,7 @@ class PerformAIMovement(AbilityBehaviour):
         uids = [u.get("id") for u in units if isinstance(u, dict) and u.get("id") is not None]
         moved = []
         for uid in uids:
-            moved.append(ComputerMovementActionOperation.execute(
+            moved.append(summon_ai.ComputerMovementActionOperation.execute(
                 state, int(uid), override_range=rng,
                 override_tile_utility=self.override_utility))
         ectx.emit("PerformAIMovement", units=uids, range=rng,

@@ -177,6 +177,42 @@ NATIFS_LISTE_STOCKEE_SUSPENDUS = {
     "AdjacentUnits": "#433-r4-r1-r4-r2-r1-r1-r1-r1",
 }
 
+# TOLERANCE NOMMEE de l'etape 2 -- les mirrors declares dont la geometrie nue est un ECART ASSUME,
+# et non un oubli. Cle = `(chemin, nom de fonction)` : PAS la ligne, qui bouge a chaque edition du
+# fichier et ferait perimer la liste sans que rien n'ait change au fond.
+#
+# ⚠ POURQUOI UNE TOLERANCE PLUTOT QU'UNE REPARATION -- c'est une MESURE, pas un renoncement
+# (#943-r4, 2026-08-12). Le residu #271 (`IterateAdjacentTiles` porte en plus un gate
+# `|elev(a) - elev(b)| < 2`) est commun a TOUTE une famille de selecteurs, et le critere de l'etape 2
+# n'en voit qu'une fraction : il exige que la docstring NOMME un natif a liste stockee, ce qui est
+# une propriete de la PROSE, pas du code. Balayage EXHAUSTIF du contenu (`etape6` ci-dessous, meme
+# arbre, meme passe) :
+#
+#     30 fonctions d'`engine/` comparent une distance hex a 1
+#      2 seulement sont VUES par l'etape 2 (docstring declarante, aucun acces au canal)
+#      2 touchent le canal (etape 4)
+#     26 font la MEME geometrie nue et sont MUETTES -- invisibles a l'etape 2 par construction
+#
+# ⚠ CES CHIFFRES SE RE-DERIVENT (`etape6`, publiee a chaque passe), ils ne se citent pas : le
+# gisement a gagne UN site pendant la seule duree de la tranche qui l'a mesure (25 -> 26, entre la
+# mesure et le rebase). C'est le fait qui compte, pas l'entier : la part MUETTE est d'un ordre de
+# grandeur au-dessus de la part visible.
+#
+# Reparer les deux visibles laisserait donc 26 sites divergents : c'est le FORK que les deux
+# docstrings annoncent explicitement (<< Le corriger ICI seulement serait un fork >>), pas son
+# evitement. La reparation est un DEPLACEMENT AU FOYER pour toute la famille -- elle est ouverte en
+# residu, et elle n'est pas de la taille d'une tranche de reparation de cliquets.
+#
+# CE QUE LA TOLERANCE N'EXCUSE PAS, et c'est ce qui la distingue d'un silence : elle est NOMMEE site
+# par site. Tout mirror declare QUI N'Y EST PAS fait rougir -- le gisement ne peut donc pas grandir
+# a l'abri de cette liste, seulement sous les 25 muets, que l'etape 6 publie et compte.
+GEOMETRIE_NUE_TOLEREE = {
+    ("scripts/python/engine/entities/effects/aura_selectors.py",
+     "adjacent_friends_including_owner"): "#271/#943-r4",
+    ("scripts/python/engine/entities/effects/loki/icon_of_obstinacy.py",
+     "create_aura_attack_damage_bonus_for_ally"): "#271/#943-r4",
+}
+
 # Les foyers qui rougiraient, PAR natif suspendu, remplis par `etape5` a chaque passe et imprimes
 # par `main`. Ils ne pesent sur AUCUN verdict -- c'est du CONTEXTE.
 #
@@ -354,6 +390,51 @@ def etape2(arbres) -> tuple[list, int]:
             if not corps & set(ACCES_CANAL):
                 manquants.append((p.relative_to(ROOT).as_posix(), node.lineno, node.name))
     return manquants, total
+
+
+def etape2_hors_tolerance(arbres) -> tuple[list, int]:
+    """`etape2` PRIVEE des sites nommement toleres (`GEOMETRIE_NUE_TOLEREE`).
+
+    C'est CETTE version qui pese sur le verdict ; `etape2` reste la mesure BRUTE du gisement, parce
+    qu'un cliquet doit pouvoir dire ce qu'il tolere ET combien. Un site tolere qui DISPARAIT ou qui
+    est RENOMME cesse simplement d'etre soustrait -- la liste ne peut donc pas dispenser un site
+    qu'elle ne designe plus."""
+    manquants, total = etape2(arbres)
+    return ([m for m in manquants if (m[0], m[2]) not in GEOMETRIE_NUE_TOLEREE], total)
+
+
+def etape6(arbres) -> tuple[list, int]:
+    """HORS VERDICT -- le gisement COMPLET des geometries nues, docstring ou pas.
+
+    Les etapes 2 et 4 gardent les mirrors qui DECLARENT mirrorer le substrat stocke : leur critere
+    d'entree est un token de PROSE. Cette etape-ci enleve ce filtre et ne garde que le CONTENU (une
+    distance hex comparee a 1, aucun acces au canal) -- elle mesure donc ce que les deux autres ne
+    peuvent PAS voir, et c'est exactement ce qui justifie la tolerance ci-dessus : sans elle,
+    << 2 sites rouges >> se lit comme l'ampleur du gisement, alors que c'en est la part DOCUMENTEE.
+
+    Elle ne rend AUCUN verdict, et c'est deliberé : la geometrie hex est legitime partout ou le
+    natif mirrore est lui-meme geometrique (`IterateSurroundingTiles`, une portee, un rayon). Coter
+    ces 25 sites sans les avoir LUS un par un ferait exactement l'erreur que ce cliquet reproche aux
+    ports -- decider sans lire. Le compte est publie pour etre re-derive, pas pour etre cru.
+
+    Rend `(sites MUETS, total des geometries nues sans canal)`."""
+    exclus = {p for p, tree in arbres.items()
+              if any(isinstance(n, ast.FunctionDef) and n.name == FOYER_CANAL
+                     for n in ast.walk(tree))}
+    muets, total = [], 0
+    for p, tree in arbres.items():
+        if p in exclus:
+            continue
+        for fn in _fonctions_racine(tree):
+            if not _compare_distance_a_un(fn):
+                continue
+            if _noms_du_corps(fn) & set(ACCES_CANAL):
+                continue                     # la fonction a le canal : etape 4, pas ici
+            total += 1
+            doc = ast.get_docstring(fn) or ""
+            if not any(nat in doc for nat in NATIFS_LISTE_STOCKEE):
+                muets.append((p.relative_to(ROOT).as_posix(), fn.lineno, fn.name))
+    return muets, total
 
 
 # --------------------------------------------------------------------------------------------
@@ -729,11 +810,14 @@ def etape5(arbres) -> tuple[list, int]:
     manquants = []
     base = NATIFS_LISTE_STOCKEE
     #: La rougeur SANS aucun natif suspendu arme -- la reference a soustraire.
-    reference = set(etape2(arbres)[0]) | {tuple(f) for f in etape4(arbres)[0]}
+    #: HORS TOLERANCE des deux cotes : la question est << armer ce natif ferait-il rougir le
+    #: VERDICT ? >>, or un site nommement tolere ne le fait pas rougir. Compter la mesure brute
+    #: ferait passer pour justifiee une suspension dont le seul foyer est deja excuse.
+    reference = set(etape2_hors_tolerance(arbres)[0]) | {tuple(f) for f in etape4(arbres)[0]}
     for nat, residu in sorted(NATIFS_LISTE_STOCKEE_SUSPENDUS.items()):
         try:
             NATIFS_LISTE_STOCKEE = base + (nat,)
-            arme = etape2(arbres)[0] + etape4(arbres)[0]
+            arme = etape2_hors_tolerance(arbres)[0] + etape4(arbres)[0]
         finally:
             NATIFS_LISTE_STOCKEE = base
         foyers = [f for f in arme if tuple(f) not in reference]
@@ -781,10 +865,12 @@ def main() -> int:
         except (OSError, SyntaxError):
             continue
     m1, t1 = etape1(arbres)
-    m2, t2 = etape2(arbres)
+    m2, t2 = etape2_hors_tolerance(arbres)
+    m2_brut, _ = etape2(arbres)
     m3, t3 = etape3(arbres)
     m4, t4 = etape4(arbres)
     m5, t5 = etape5(arbres)
+    m6, t6 = etape6(arbres)
     print("== #433-r4-r1-r4-r2 -- substrat de voisinage natif")
     print("-- etape 1 : invariant de COUPLE sur les call-sites (imports RESOLUS)")
     print("   call-sites gates par l'elevation : %d" % t1)
@@ -793,9 +879,13 @@ def main() -> int:
         print("      %s:%d  %s -- elevation fournie, voisinage MANQUANT" % (rel, ln, name))
     print("-- etape 2 : geometrie NUE dans un mirror declare du substrat stocke")
     print("   mirrors declares qui comparent une distance a 1 : %d" % t2)
-    print("   dont SANS acces au canal                        : %d (attendu 0)" % len(m2))
+    print("   dont SANS acces au canal                        : %d" % len(m2_brut))
+    print("   dont NON tolere nommement                       : %d (attendu 0)" % len(m2))
     for (rel, ln, name) in m2:
         print("      %s:%d  %s -- mirror declare, geometrie NUE, canal INACCESSIBLE" % (rel, ln, name))
+    for (rel, ln, name) in m2_brut:
+        if (rel, name) in GEOMETRIE_NUE_TOLEREE:
+            print("      [TOLERE %s] %s:%d  %s" % (GEOMETRIE_NUE_TOLEREE[(rel, name)], rel, ln, name))
     print("-- etape 3 : la DERIVATION du canal est-elle CONSOMMEE ? (#433-r4-r1-r4-r2-r1-r1)")
     print("   fonctions qui touchent le canal : %d" % t3)
     print("   dont une derivation laissee MORTE : %d (attendu 0)" % len(m3))
@@ -821,6 +911,15 @@ def main() -> int:
         print("      %s : %d foyer(s) le justifient encore" % (nat, len(foyers)))
         for (rel, ln, name) in foyers:
             print("         %s:%d  %s" % (rel, ln, name))
+    # HORS VERDICT -- l'AMPLEUR reelle du gisement, celle que le critere << docstring >> ne peut pas
+    # voir. C'est la mesure qui JUSTIFIE `GEOMETRIE_NUE_TOLEREE` : sans elle, le compte de l'etape 2
+    # se lirait comme l'ampleur du gisement alors qu'il n'en est que la part DOCUMENTEE.
+    print("-- etape 6 (HORS VERDICT) : ampleur reelle de la geometrie nue (#943-r4)")
+    print("   fonctions a geometrie nue SANS acces au canal : %d" % t6)
+    print("   dont MUETTES (aucun natif declare)            : %d -- invisibles aux etapes 2 et 4"
+          % len(m6))
+    for (rel, ln, name) in m6:
+        print("      %s:%d  %s" % (rel, ln, name))
     if "--inventaire" in sys.argv:
         inv = inventaire(arbres)
         print("-- inventaire HORS VERDICT : geometrie nue + canal, natif NON declare")
