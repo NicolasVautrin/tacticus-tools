@@ -148,6 +148,7 @@ from ..loki.euphoric_strikes import (EuphoricStrikesExtraCritRemove,            
 from ..loki.shock_assault import (ShockAssaultBuffRemove,                          # case-366-r1 (1000)
                                   SHOCK_ASSAULT_BUFF)
 from ..loki.hateful_assault import HatefulAssaultAttackAbility            # case-366-r1 (1038 + 1175)
+from ..loki.savage_killer import SavageKillerAbility                      # #929 (1159, passif spaceWulfen)
 from ..loki.full_throttle import FullThrottlePassiveAbility               # #448-r1-r1 (1134, gate)
 from ..loki.harlequins_panoply import (HarlequinsPanoplyIgnoreHitsRemove,  # case-366-r1 (1227)
                                        HarlequinsPanoplyCustomAbility,     # case-366-r1 move (#406)
@@ -715,6 +716,29 @@ ABILITY_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
     # multi-tours gardait donc a vie l'effet SEEDE au chargement. Cf. loki/serene_unifier.py et
     # `docs/rl/case-462-r4e-o-amount-borne-aux-pv.md` SS 9.
     "SereneUnifier": [SereneUnifierRotationAbility],
+    # SavageKiller (passif `spaceWulfen` << Ulf >>, `TriggeredAbilityType` 0x487 = 1159 -- #929) :
+    # UNE seule classe native, donc UNE seule entree ici -- et c'est LOAD-BEARING, pas cosmetique :
+    # le cap de phase d'`EvaluateTriggerOperation$$EvaluateAbilityTrigger` est indexe par
+    # ability-type cote natif et par `type(entry).__name__` cote port ; deux classes Python
+    # donneraient DEUX compteurs pour UN compteur natif.
+    #   `$$CreateTrigger` = `CreateSummonMoveTrigger() | CreateCharacterActiveAbilityTrigger()`
+    #     FACE A : `On(4 = UnitAfterMove | 0x23 = UnitDisplaced | 0x32 = UnitAdded)`
+    #              & HasTrait(Target@DSLSelectors+0x60, 2 = Summon)
+    #              & IsAdjacent(Owner@+0x30, Target@+0x60, 3) & AreEnemies(Owner, Target, 0)
+    #              [+ `NOT IsReplacedUnit` sur la seule branche UnitAdded -- residu #929-r2]
+    #     FACE B : `On(0x2a = PreUnitAbility)` & IsActiveAbilityCountedAsUsed(**true**)
+    #              & NOT TriggeringAbilityIs((ActiveAbilityType)0x467 = ArmouredMight_Move)
+    #              & NOT IsOverwatchAttack()
+    #              & IsAdjacent(Owner@+0x30, Caster@+0x48, 3) & AreEnemies(Owner, Caster, 0)
+    #   `$$CreateBehaviour(abilityState, triggerType)` -> AttackWithAttackDamage(Owner -> cible,
+    #     5 coups Power [minDmg,maxDmg]), la cible etant `Caster@+0x48` sur `0x2a` et `Target@+0x60`
+    #     sinon (le MEME choix que `$$GetInitialTarget` exprime en `ConditionalSelector`).
+    # ⚠ La 4e disjonction native (`On(0x3b = UnitBecameTargetable)`) n'est PAS abonnee : le port
+    # n'emet nulle part cet evenement -> residu #929-r1, port speculatif refuse.
+    # ⚠ `$$CreateValidActiveAbilityTrigger` est du DEAD CODE (0 `UNCONDITIONAL_CALL`, aucun homonyme
+    # dans le binaire) -- verdict grave par `test_929_savage_killer_offline.py`.
+    # Cf. loki/savage_killer.py + `docs/rl/case-929-savage-killer.md`.
+    "SavageKiller": [SavageKillerAbility],
 }
 
 # --- Registre : ability ACTIVE → triggered-ability(s) DERIVEE(s) ----------------------------------

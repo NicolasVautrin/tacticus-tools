@@ -227,11 +227,18 @@ ABILITY_COUNTED_ONCE_PER_BATTLE = frozenset({
 })
 
 # `minAmount` du `AmountIsGreaterAbilityTrigger` de `IdunBattleLogic.Entities.DSLTriggers$$
-# IsActiveAbilityCountedAsUsed`, sur la branche `isPreAbilityTrigger = false` -- la SEULE que ce
-# port mirroir (l'appelant passe le litteral 0). C'est le noeud constant mis en cache par
-# `IdunBattleLogic.Entities.DSLFormulas$$.ctor` en `+0x20`, soit `Direct(1)` (`+0x18 = Direct(0)`
-# est le seuil de l'autre branche, non portee ici).
+# IsActiveAbilityCountedAsUsed`, sur la branche `isPreAbilityTrigger = false` -- celle des DEUX
+# appelants de ce module (`FuelledByFury_ExtraDamage`, `TalonsOfTheEmperor_UsedAbilities`, qui
+# passent tous deux le litteral 0). C'est le noeud constant mis en cache par
+# `IdunBattleLogic.Entities.DSLFormulas$$.ctor` en `+0x20`, soit `Direct(1)`.
 COUNTED_AS_USED_THRESHOLD = 1
+# Le seuil de l'AUTRE branche (`isPreAbilityTrigger = true`), soit `DSLFormulas@+0x18 = Direct(0)`.
+# Le decompile ne choisit QUE le seuil, jamais la classe du comparateur, qui reste
+# `AmountIsGreaterAbilityTrigger` (STRICT) -- donc `used > 0` ici contre `used > 1` la.
+# Appelant : `IdunBattleLogic.Entities.Abilities.Triggered.Loki.SavageKillerAbility$$
+# CreateCharacterActiveAbilityTrigger` (`mov dl, 1` avant le `call`, lu aux octets), porte par
+# `loki/savage_killer.py` (#929).
+COUNTED_AS_USED_THRESHOLD_PRE = 0
 
 
 def fuelled_by_fury_tree():
@@ -250,10 +257,18 @@ def _team_of(state: State, unit_id) -> Optional[int]:
     return oc.team if oc is not None else None
 
 
-def is_active_ability_counted_as_used(state: State, caster_id, ability_type) -> bool:
-    """`IdunBattleLogic.Entities.DSLTriggers$$IsActiveAbilityCountedAsUsed(df, isPreAbilityTrigger=false)`
+def is_active_ability_counted_as_used(state: State, caster_id, ability_type, *,
+                                      is_pre_ability_trigger: bool = False) -> bool:
+    """`IdunBattleLogic.Entities.DSLTriggers$$IsActiveAbilityCountedAsUsed(df, isPreAbilityTrigger)`
     = `!IsNormalAttackOrHealOrRepair(ability)
-       & !( TotalActiveAbilityUsed(unit, ability) > 1 & IsAbilityCountedOnlyOnce(ability) )`.
+       & !( TotalActiveAbilityUsed(unit, ability) > seuil & IsAbilityCountedOnlyOnce(ability) )`.
+
+    `is_pre_ability_trigger` = le PARAMETRE natif, et il ne change QUE le seuil : le decompile lit
+    `DSLFormulas@+0x18 = Direct(0)` quand il vaut `true`, `+0x20 = Direct(1)` quand il vaut `false`
+    -- jamais la classe du comparateur. Defaut `False` = la branche des deux appelants historiques
+    (`FuelledByFury_ExtraDamage`, `TalonsOfTheEmperor_UsedAbilities`), donc leur comportement est
+    INCHANGE. La branche `True` a un appelant : `SavageKillerAbility$$
+    CreateCharacterActiveAbilityTrigger` (#929).
 
     Le comparateur du `left` est **STRICT** (`AmountIsGreaterAbilityTrigger`, `minAmount < amount`),
     lu au POINTEUR DE CLASSE et corrobore par l'encodage `setg` -- surtout PAS au nom du `.ctor`,
@@ -275,8 +290,11 @@ def is_active_ability_counted_as_used(state: State, caster_id, ability_type) -> 
         return False
     if int(ability_type) in ABILITY_COUNTED_ONCE_PER_BATTLE:
         used = _total_active_ability_used(state, caster_id, ability_type)
-        # `!left` : STRICT (`minAmount < amount`), seuil `Direct(1)` -> deja comptee -> ne recompte pas
-        if used is not None and int(used) > COUNTED_AS_USED_THRESHOLD:
+        # `!left` : STRICT (`minAmount < amount`) ; seuil `Direct(0)` sur la branche `pre` (avant
+        # increment), `Direct(1)` sinon -> deja comptee -> ne recompte pas.
+        seuil = (COUNTED_AS_USED_THRESHOLD_PRE if is_pre_ability_trigger
+                 else COUNTED_AS_USED_THRESHOLD)
+        if used is not None and int(used) > seuil:
             return False
     return True
 
