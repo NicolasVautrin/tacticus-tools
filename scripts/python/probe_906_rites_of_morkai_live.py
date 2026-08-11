@@ -191,6 +191,67 @@ def capture(sid, rid):
     return board, dv, ob, snap
 
 
+# --------------------------------------------------------------------------- MUTANTS
+
+def appliquer_mutant(nom):
+    """Casse UN volet du port, pour PROUVER que le temoin le voit. Un mutant qui laisse la
+    confrontation VERTE est un mutant INERTE : soit le volet n'est pas exerce par ce montage, soit
+    le temoin ne le regarde pas -- dans les deux cas le vert d'origine ne prouvait rien.
+
+    Chaque mutant patche le module PORT lui-meme (pas une copie), et le probe est relance en
+    process FRAIS a chaque fois -- donc aucune fuite d'un mutant sur le suivant."""
+    import engine.runner.abilities.spacewolves as SW
+    from engine.entities.selectors.units import Filter, UnitsWithoutTrait
+    from engine.entities.effects.loki.rites_of_morkai import RitesOfMorkaiExtraDamageEffect
+    if nom == "no_extra_dmg":
+        # le canal DEGAT de 1529 se tait -> si le total d'attaque du port BOUGE, c'est que le
+        # bonus `+extraDmg` entre bien dans le coup de suivi (et que l'accord natif le contient).
+        RitesOfMorkaiExtraDamageEffect.create_effect_damage_bonus_for_attack = (
+            lambda self, *a, **k: None)
+        return "canal +extraDmg de 1529 muet"
+    if nom == "no_filter":
+        # 1529 pose sur TOUTE la zone (le `Filter` Final Vengeance saute) -> V2 doit DIVERGER.
+        orig = SW.rites_of_morkai_tree
+
+        def sans_filtre(range_const, nr_of_rounds):
+            SW.Filter = lambda source, predicate: source        # `Filter` -> identite
+            try:
+                return orig(range_const, nr_of_rounds)
+            finally:
+                SW.Filter = Filter
+        SW.rites_of_morkai_tree = sans_filtre
+        return "`Filter` Final Vengeance neutralise (1529 sur toute la zone)"
+    if nom == "no_mech_filter":
+        # `UnitsWithoutTrait(Mechanical)` saute -> le MECANIQUE entre dans la zone, V1 doit DIVERGER.
+        orig = SW.rites_of_morkai_buff_zone
+
+        def sans_mech(range_const):
+            SW.UnitsWithoutTrait = lambda source, trait, selection_type=None: source
+            try:
+                return orig(range_const)
+            finally:
+                SW.UnitsWithoutTrait = UnitsWithoutTrait
+        SW.rites_of_morkai_buff_zone = sans_mech
+        return "`UnitsWithoutTrait(Mechanical)` neutralise"
+    if nom == "no_scale":
+        # `scale_from_source` a False -> l'effet 1529 lit le niveau/multiplicateur du PORTEUR au
+        # lieu de celui du CASTER. Mord si les deux different (rarity multiplier).
+        orig = SW.AddEffect
+
+        class SansScale(orig):
+            def __init__(self, *a, **k):
+                k["scale_from_source"] = False
+                super().__init__(*a, **k)
+        SW.AddEffect = SansScale
+        return "`scale_from_source` force a False (scaling lu sur le PORTEUR)"
+    if nom == "range0":
+        # rayon de la zone force a 0 -> seul le caster est inspire, V1 doit DIVERGER.
+        orig = SW.rites_of_morkai_buff_zone
+        SW.rites_of_morkai_buff_zone = lambda _r: orig(0)
+        return "rayon de `SurroundingFriends` force a 0"
+    raise SystemExit("mutant inconnu: %s" % nom)
+
+
 # --------------------------------------------------------------------------- face PORT
 
 def run_port(board, dv, ob, snap, caster_id, seed):
@@ -227,8 +288,14 @@ def main(argv) -> int:
                          "enferme a 2 hexes et le volet V3 n'est pas exerce (cf. l'en-tete)")
     ap.add_argument("--hp-target", type=int, default=60000,
                     help="PV des a-units -- assez HAUT pour que le coup ne SATURE pas (cf. build)")
+    ap.add_argument("--mutant", default=None,
+                    choices=["no_extra_dmg", "no_filter", "no_mech_filter", "no_scale", "range0"],
+                    help="casse UN volet du port : la confrontation DOIT alors rougir "
+                         "(cf. `appliquer_mutant`)")
     ap.add_argument("--keep", action="store_true")
     a = ap.parse_args(argv)
+    if a.mutant:
+        print("[MUTANT] %s -> %s" % (a.mutant, appliquer_mutant(a.mutant)))
 
     LOGS.mkdir(parents=True, exist_ok=True)
     seed_bc = LOGS / "seed_bc_906_swp.json"
@@ -392,8 +459,16 @@ def main(argv) -> int:
             print("      u%-3d %-16s dist=%-3s traits=%-42s %s"
                   % (u, vis.get(u), d, ",".join(tr), quoi))
         print("")
-        print("[906] %s" % ("OK -- les trois volets concordent" if ok else "ROUGE"))
-        rc = 0 if ok else 1
+        if a.mutant:
+            # ⚠ INVERSION DE POLARITE : sous mutant, le VERT est l'echec (le mutant est INERTE, ou
+            # le temoin ne regarde pas ce volet). C'est le seul regime ou `ok` se lit a l'envers.
+            print("[906/MUTANT %s] %s" % (a.mutant,
+                  "OK -- le mutant MORD (la confrontation rougit)" if not ok
+                  else "INERTE -- le mutant ne change RIEN : ce volet n'est pas garde"))
+            rc = 0 if not ok else 1
+        else:
+            print("[906] %s" % ("OK -- les trois volets concordent" if ok else "ROUGE"))
+            rc = 0 if ok else 1
     finally:
         if not a.keep:
             _rpc(sid, "disposeRunner", [{"runnerId": rid}], timeout=60)
