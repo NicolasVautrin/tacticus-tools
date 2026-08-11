@@ -125,6 +125,10 @@ class _NormalLike:
             is_ranged=_ranged, is_normal_attack=False, hit_index=1)   # #112 : ce vecteur porte une SPECIALE
         crit_apres = (crit_chance, crit_damage, crit_enabled)
         crit_chance, crit_damage, crit_enabled = crit_avant
+        # #922 : `On(6)` tombe ENTRE `RollCritical` (slot 0xa) et `CalculateCriticalDamage`
+        # (slot 0xb) dans `AttackDamageOperation$$ExecuteHit` -> la CHANCE du coup 0 est celle
+        # d'AVANT, sa MAGNITUDE celle d'APRES. Meme correctif et meme mesure que `normal.py`.
+        crit_damage = crit_apres[1]
         # #120 : réduction PLATE défenseur (Nightshroud, ungated -> splash/normal-like aussi) fusionnée pré-perçage.
         AttackDamageOperation._apply_defender_flat_reductions(mods, def_mods)
 

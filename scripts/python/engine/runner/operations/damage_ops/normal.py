@@ -473,6 +473,20 @@ class _Normal:
             is_ranged=_ranged, is_normal_attack=True, hit_index=1)
         crit_apres = (crit_chance, crit_damage, crit_enabled)
         crit_chance, crit_damage, crit_enabled = crit_avant
+        # #922 -- LA CRIT CHANCE ET LA CRIT DAMAGE N'ONT PAS LA MEME PLACE DANS `ExecuteHit`, et
+        # c'est LU : l'ordre du decompile est slot 0xad (profil) -> `AttackHit..ctor` -> slot 0xa
+        # **`RollCritical`** -> `AbilityEntities..ctor` -> `EnqueueOperation(6)` ->
+        # `EnqueueOperation(7)` -> slot 0xb **`CalculateCriticalDamage`** -> sub-op 0x42 ->
+        # `EvaluateAfterHitTriggers`. `On(6)` tombe donc ENTRE les deux : ce qu'il pose ne mord pas
+        # sur le tirage de crit du coup 0 (d'ou `crit_avant` pour la CHANCE), mais mord bien sur sa
+        # MAGNITUDE (d'ou `crit_apres` pour la DAMAGE) -- coup 0 COMPRIS.
+        # MESURE (#922, porteur `emperKakophonist` + relique `IntoxicatingElixir`, cible a pleine
+        # vie -> `ThrillSeekersAbility` rend le porteur `Thrilled` a son propre coup 0, ce qui fait
+        # passer le compteur de la relique de 0 a 1) : live `[6996, 6221, 5998]` contre port
+        # `[6534, 4621, 5010]` AVANT ce correctif -- les TROIS coups divergeaient, le 0 compris.
+        # STRICT NO-OP partout ailleurs : les deux mesures ne different que si un ecouteur d'`On(6)`
+        # change la crit DAMAGE, et il n'en existait aucun avant cette tranche.
+        crit_damage = crit_apres[1]
         # #120 : réduction PLATE défenseur (Nightshroud) fusionnée dans l'additif pré-perçage (mirror prédiction).
         AttackDamageOperation._apply_defender_flat_reductions(mods, def_mods)
 

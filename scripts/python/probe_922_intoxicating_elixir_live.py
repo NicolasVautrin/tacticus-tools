@@ -416,8 +416,11 @@ def stage_degat(h, a, n: int, cfg: dict):
     v0, v1 = foes[0], foes[1]
     if _pose(h, v0["id"], adj) is None:
         return None, "placement de la cible de melee refuse"
-    # V1 = la SECONDE victime, a la distance demandee (2 = comptee, 3 = hors portee)
-    if n >= 2 and _pose(h, v1["id"], _libres_a(h, anchor, a.dist)) is None:
+    # V1 = la SECONDE victime, a la distance demandee (2 = comptee, 3 = hors portee). Sous
+    # `--thrilled` c'est ELLE qui porte le `Pinned` (V0 doit rester a PLEINE VIE pour que
+    # `ThrillSeekersAbility` morde), donc elle est posee des `n >= 1`.
+    seuil_v1 = 1 if getattr(a, "thrilled", False) else 2
+    if n >= seuil_v1 and _pose(h, v1["id"], _libres_a(h, anchor, a.dist)) is None:
         return None, "placement de la 2e victime refuse (distance %d)" % a.dist
 
     # 3. les TIRS. Un tir RANGED pose `Pinned` (trait `SuppressiveFire`) ; un coup de MELEE, NON --
@@ -440,7 +443,17 @@ def stage_degat(h, a, n: int, cfg: dict):
                     return True
         return False
 
-    if n == 0:
+    if getattr(a, "thrilled", False):
+        # BRAS MI-SALVE : la cible de MELEE reste a PLEINE VIE, donc `ThrillSeekersAbility`
+        # (`On(6) & IsFirstHitInSeries & get_OwnerIsCaster & NOT IsWounded(target)`) rend le
+        # PORTEUR `Thrilled` apres son coup 0 -- le compteur MONTE D'UN CRAN EN COURS DE SALVE.
+        # ⚠ A `n = 0` l'effet est INACTIF au snapshot, donc ABSENT du canal `decisionView`
+        # (ACTIF-ONLY, #100) et donc de l'etat OFFLINE : le port ne peut alors RIEN verser, quoi
+        # que fasse le compteur (residu de SEEDING, cf. le rapport). A `n >= 1` l'effet EST capte,
+        # et la montee du compteur devient confrontable.
+        if n >= 1 and not _tirer_sur(pinners[0], v1, ranged=True):
+            return None, "aucun TIR possible sur la victime de fond (bras --thrilled)"
+    elif n == 0:
         if not _tirer_sur(pinners[0], v0, ranged=False):
             return None, "aucun coup de MELEE possible sur la cible (regime n=0)"
     else:
@@ -525,12 +538,29 @@ def rejeu(h, rec, mutate=None):
     `ability_level` (le niveau des PASSIFS, 50 en runner normalise -> dernier palier).
 
     `SANSSANTE` : le callable `unit_health_of` retire -- le facteur `ConditionalAmount` retombe sur
-    sa branche NON DOUBLEE. Ne peut mordre que si le porteur est REELLEMENT sous le seuil."""
+    sa branche NON DOUBLEE. Ne peut mordre que si le porteur est REELLEMENT sous le seuil.
+
+    `CRITDMG_AVANT` : la crit DAMAGE figee sur sa PREMIERE mesure (celle d'AVANT `On(6)`) -- c'est
+    exactement l'etat du port AVANT le correctif #922 des trois vecteurs. Ne peut mordre que si un
+    ecouteur d'`On(6)` change la crit damage EN COURS DE SALVE (bras `--thrilled`)."""
     from engine.entities.effects.factory import EFFECT_CLASSES
     from engine.runner.operations import damage as D
     saved = EFFECT_CLASSES.get(EFFECT_NAME)
     orig = D.AttackDamageOperation._crit_board
+    orig_params = D.AttackDamageOperation._crit_params
     try:
+        if mutate == "CRITDMG_AVANT":
+            memo = {}
+
+            def _fige(ctx, attacker_effects, state=None, att_id=None, tgt_id=None, **kw):
+                cc, cd, en = orig_params(ctx, attacker_effects, state, att_id, tgt_id, **kw)
+                cle = (id(state), att_id, tgt_id)
+                if cle in memo:
+                    cd = memo[cle]
+                else:
+                    memo[cle] = cd
+                return cc, cd, en
+            D.AttackDamageOperation._crit_params = staticmethod(_fige)
         if mutate == "NOCHANNEL":
             EFFECT_CLASSES.pop(EFFECT_NAME, None)
         if mutate in ("PASSIF", "SANSSANTE"):
@@ -546,6 +576,7 @@ def rejeu(h, rec, mutate=None):
         if saved is not None:
             EFFECT_CLASSES[EFFECT_NAME] = saved
         D.AttackDamageOperation._crit_board = orig
+        D.AttackDamageOperation._crit_params = orig_params
 
 
 def etages(h, rec) -> dict:
@@ -598,6 +629,45 @@ def run_degat(a, rpc, Board, Harness, n: int, cfg: dict) -> int:
         k = len(live)
         accord = (off[:k] == live)
         et = etages(h, rec)
+
+        if a.thrilled:
+            # MESURE du residu #922-r1, jamais une supposition. Le NATIF doit STEPPER en cours de
+            # salve (coup 0 sans bonus, coups 1+ avec, le porteur etant devenu `Thrilled`) ; le
+            # PORT, lui, calcule sa crit-DAMAGE une seule fois (`crit_apres[1]` n'est jamais
+            # consomme par `_run_hits`, seul `crit_chance_after` l'est).
+            after = _debuffs_of(h, rec["porteur"])
+            mut = rejeu(h, rec, mutate="NOCHANNEL")
+            avant = rejeu(h, rec, mutate="CRITDMG_AVANT")
+            print("[--thrilled n=%d] debuffs du PORTEUR APRES la salve = %s | compteur natif au "
+                  "snapshot = %s (actif %s)" % (n, after, rec["niveau_natif"], rec["actif_natif"]))
+            print("        LIVE          %s" % (live[:6],))
+            print("        OFFLINE       %s  accord=%s" % (off[:k][:6], accord))
+            print("        NOCHANNEL     %s  (le port SANS le canal)" % (mut[:k][:6],))
+            print("        CRITDMG_AVANT %s  (le port AVANT le correctif #922 des 3 vecteurs)"
+                  % (avant[:k][:6],))
+            rc = 0
+            if not after:
+                print("        !! le porteur n'est PAS devenu Thrilled -- bras degenere")
+                rc |= 2
+            if not rec["actif_natif"]:
+                # A `n = 0` l'effet est INACTIF au snapshot, donc ABSENT du canal `decisionView`
+                # (ACTIF-ONLY) et de l'etat OFFLINE : le port ne peut RIEN verser. C'est un residu
+                # de SEEDING, pas une faute de ce port -- on le MESURE et on le DIT.
+                print("        [residu SEEDING] l'effet est INACTIF au snapshot -> ABSENT de "
+                      "l'etat offline. Ecart par coup = %s"
+                      % ([l - o for l, o in zip(live, off[:k])],))
+                return rc
+            if not accord:
+                print("        !! LIVE != OFFLINE : ecart par coup = %s"
+                      % ([l - o for l, o in zip(live, off[:k])],))
+                rc |= 1
+            if off[:k] == mut[:k]:
+                print("        !! le canal ne verse RIEN offline -- bras degenere")
+                rc |= 2
+            if avant[:k] == off[:k]:
+                print("        !! CRITDMG_AVANT ne mord PAS : ce bras n'exerce pas le correctif")
+                rc |= 2
+            return rc
 
         # ATTENDU, DERIVE des etages MESURES (jamais un scalaire code en dur) :
         #   bonus = extraCritDmg[level] x min(n, nrOfUnits) x (2 si hp <= healthPct % sinon 1)
@@ -800,6 +870,10 @@ def main() -> int:
     ap.add_argument("--low-hp", action="store_true",
                     help="BRAS SANTE : le porteur sous `healthPct` %% de vie -> le "
                          "`ConditionalAmount` doit DOUBLER le bonus.")
+    ap.add_argument("--thrilled", action="store_true",
+                    help="BRAS RESIDU #922-r1 : la cible reste a PLEINE VIE, donc le PORTEUR "
+                         "devient `Thrilled` apres son coup 0 et le compteur STEPPE EN COURS DE "
+                         "SALVE. MESURE l'ecart au lieu de le supposer.")
     ap.add_argument("--mutants", action="store_true",
                     help="rejoue le COMPTEUR sous SIX lectures fausses de `$$GetLevelFormula` et "
                          "exige que chacune MORDE dans son regime. Un mutant VERT dit que le "
