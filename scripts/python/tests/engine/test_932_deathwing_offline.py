@@ -21,11 +21,49 @@ ASCII only dans les sorties (cp1252).
 """
 from __future__ import annotations
 
-import io
-import json
-from pathlib import Path
+DECLENCHEUR = {
+    "chemins": (
+        # Le port lui-meme : la classe d'effet (les deux faces + le predicat de doublement) et le
+        # trigger d'accumulation.
+        "scripts/python/engine/entities/effects/loki/deathwing.py",
+        "scripts/python/engine/runner/operations/triggers/loki/deathwing.py",
+        # Les TROIS registres dont l'etage 7 exige la coexistence.
+        "scripts/python/engine/entities/effects/factory.py",
+        "scripts/python/engine/runner/operations/triggers/dispatch/registry.py",
+        "scripts/python/engine/playbook/adjacent_unit_preference.py",
+        # Les mirrors d'enum dont l'etage 4 FIGE les ordinaux ECRITS AUX SITES.
+        "scripts/python/engine/entities/effect_type.py",
+        "scripts/python/engine/entities/triggered_ability_type.py",
+        "scripts/python/engine/entities/unit_faction.py",
+        "scripts/python/engine/entities/unit_selection_type.py",
+        "scripts/python/engine/dsl/event_trigger_type.py",
+        # Le canal de degat dont l'etage 6 lit le KIND (Addition / Subtraction) et le porteur.
+        "scripts/python/engine/services/effect_bonus.py",
+        "scripts/python/engine/entities/effects/base.py",
+        # Le confront LIVE dont ces gardes figent le resultat.
+        "scripts/python/probe_932_deathwing.py",
+    ),
+    "build": True,
+    "toujours": False,
+    "raison": (
+        "Ces gardes figent des VERDICTS DE LECTURE que rien d'autre ne tient : les faces ATTACK / "
+        "REPAIR sont DEAD (corps herite `yield Fix64(0)`), la face NON-OWNER n'existe pas, et la "
+        "parente de `DeathwingEffect` est `BaseEffect` -- alors que le pseudo-C de son `.ctor` "
+        "designe un corps ICF-fondu partage avec `HealBlockingEffect`. Aucun test de comportement "
+        "ne peut rougir sur ces trois-la : ils portent sur ce que le binaire N'A PAS. "
+        "`build: True` : les etages 1 a 4 lisent `frida/methods.tsv`, `frida/classes.tsv`, "
+        "`frida/enums.tsv`, `ghidra/functions.tsv` et `metadata/string_literals.tsv` du hash "
+        "COURANT -- un renumerotage, un symbole neuf sur une face heritee ou une classe non-owner "
+        "ajoutee au prochain build les rendent faux, et c'est precisement ce que ce fichier doit "
+        "voir."
+    ),
+}
 
-import pytest
+import io          # noqa: E402  (le DECLENCHEUR doit rester en tete, cf. `probe_486r15`)
+import json        # noqa: E402
+from pathlib import Path                                               # noqa: E402
+
+import pytest                                                          # noqa: E402
 
 #: `.../scripts/python/tests/engine/<ce fichier>` -> quatre crans jusqu'a la RACINE du depot.
 ROOT = Path(__file__).resolve().parents[4]

@@ -26,10 +26,44 @@ ASCII only dans les sorties (cp1252).
 """
 from __future__ import annotations
 
-import sys
-from pathlib import Path
+DECLENCHEUR = {
+    "chemins": (
+        # Le montage et les bras eux-memes.
+        "scripts/python/probe_932_deathwing.py",
+        # Le port confronte : les deux faces de degat et l'accumulation du stack.
+        "scripts/python/engine/entities/effects/loki/deathwing.py",
+        "scripts/python/engine/runner/operations/triggers/loki/deathwing.py",
+        "scripts/python/engine/entities/effects/factory.py",
+        "scripts/python/engine/runner/operations/triggers/dispatch/registry.py",
+        # Le SUBSTRAT du predicat de doublement -- les quatre cles de contexte et leurs deux foyers.
+        "scripts/python/engine/runner/damage_model.py",
+        "scripts/python/engine/runner/components.py",
+        "scripts/python/engine/playbook/scene.py",
+        "scripts/python/engine/playbook/prediction/_shared.py",
+        # Le pipeline de degat que la comparaison coup-par-coup traverse.
+        "scripts/python/engine/services/damage_modifiers.py",
+        "scripts/python/engine/services/effect_bonus.py",
+        "scripts/python/engine/runner/operations/damage_ops/normal.py",
+        # Le rejeu offline depuis capture (etat + flux RNG).
+        "scripts/python/engine/runner/snapshot.py",
+        "scripts/python/engine/runner/prng.py",
+    ),
+    "build": True,
+    "toujours": False,
+    "raison": (
+        "Le seul garde qui confronte le port au NATIF sur ce passif, et le seul qui exige qu'un "
+        "MUTANT MORDE : un bras vert dont le mutant reste vert ne mesure rien, et c'est exactement "
+        "le faux vert que cette tranche a trouve dans son propre harnais (mutants poses APRES "
+        "`load_state`). `build: True` : le montage lit `EffectType` 1035 / 1318 et la table des "
+        "poids `BC.Utilities` du hash courant -- un renumerotage rend le bras muet, pas faux, et "
+        "c'est ce fichier qui doit le voir."
+    ),
+}
 
-import pytest
+import sys        # noqa: E402  (le DECLENCHEUR doit rester en tete, cf. `probe_486r15`)
+from pathlib import Path                                               # noqa: E402
+
+import pytest                                                          # noqa: E402
 
 PYDIR = Path(__file__).resolve().parents[3]
 if str(PYDIR) not in sys.path:
