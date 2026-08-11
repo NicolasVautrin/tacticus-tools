@@ -60,10 +60,15 @@ et `$$Execute`, lu aux slots d'interface (`interface_slots.tsv` : `ITargetsSelec
 `Select`, slot 1 = `SelectFirst`) :
 
 ```
-targets = (+0x60 target).SelectFirst(entities)      // slot 1 — UNE cible, la PREMIÈRE
-foreach (caster in (+0x58 caster).Select(entities)) // slot 0 — la boucle est ICI
+targets = (+0x60 target).SelectFirst(entities)      // ITargetsSelector — UNE cible, la PREMIÈRE
+foreach (caster in (+0x58 caster).Select(entities)) // ITargetsSelector — la boucle est ICI
     processor.ActiveAbility(caster, targets, abilityType, options)   // slot 2, arité 4
 ```
+
+*(#943 — les deux numéros de slot d'`ITargetsSelector` sont donnés dans la phrase juste au-dessus
+et plus en fin des deux lignes de pseudo-C : écrits là, `probe_477r24r1` les appariait au
+`processor.<Nom>` de la ligne suivante — il juge le receveur sur le SPAN du couple. Le couple faux
+était `(slot 0, ActiveAbility)`, alors que le slot 0 cité ici est celui d'une AUTRE interface.)*
 
 Le port faisait l'exact contraire : il itérait les cibles, **triées par id**. Le natif n'appelle
 **aucun** `OrderBy` ici (contraste `AttackBehaviour$$Execute`, qui trie quand `Count > 1`).
