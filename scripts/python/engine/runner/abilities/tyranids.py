@@ -32,7 +32,7 @@ from typing import Optional, TYPE_CHECKING
 
 import gameconfig as GC
 
-from .base import ActiveAbility, convert_rounds_to_turns
+from .base import ActiveAbility, active_ability_state, convert_rounds_to_turns
 from .behaviours.combat import AttackWithAttackDamage
 from .behaviours.context import entities_from_state
 from .behaviours.effects import AddEffect, AddStaticStatModifierEffect
@@ -1143,7 +1143,7 @@ class ItItchesAbility(ActiveAbility):
 
 # ============ Catalyst (Hive Tyrant `tyranBossHiveTyrantLeviathan`, actif 1032) ================= #
 #
-# ⚠ LA FICHE D'AUDIT DISAIT « EFFECT/BUFF », ET C'EST EXACT ICI (#697) -- verifie au decompile, pas
+# ⚠ LA FICHE D'AUDIT DISAIT « EFFECT/BUFF », ET C'EST EXACT ICI (#889) -- verifie au decompile, pas
 # herite : `...CatalystAbility$$ExecuteBehaviour` ne contient AUCUN noeud d'attaque, seulement TROIS
 # `AddStaticStatModifierEffect`. La colonne d'audit derive du `damageProfile` de l'ARME du porteur ;
 # elle se trouve concorder, ce qui ne la rend pas fiable pour autant.
@@ -1292,15 +1292,13 @@ class CatalystAbility(ActiveAbility):
     def _params(self, state: "State", caster_id: int) -> tuple:
         """`(extraArmor, blockChance, blockDmg)` = les trois amounts collapses.
 
-        Niveau = `active_ability_level` (1032 est une ability ACTIVE), multiplier =
-        `AbilityVariablesMultiplierPercentage` de l'unite. Les DEUX variables sont dans
-        `variablesAffectedByRarityBonus` (`['extraArmor', 'blockDmg']`) donc scalees ; `blockChance`
-        est une constante (`GetNumberConstant`), jamais scalee."""
-        e = state.get_entity(caster_id)
-        sc = e.get_component(StatsComponent) if e is not None else None
-        ctx = sc.ctx if sc is not None else None
-        level = ctx.active_ability_level if ctx is not None else 0
-        mult = ctx.ability_variables_multiplier if ctx is not None else 100
+        Niveau et multiplicateur = l'`AbilityState` de **1032 elle-meme** (`active_ability_state`),
+        pas un niveau global d'unite : c'est ce que le natif passe a `GetVariableForLevel`. Les DEUX
+        variables sont dans `variablesAffectedByRarityBonus` (`['extraArmor', 'blockDmg']`) donc
+        scalees par `AbilityVariablesMultiplierPercentage` ; `blockChance` est une CONSTANTE
+        (`GetNumberConstant`), jamais scalee -- trois nombres, deux regimes, et c'est ce qui rend la
+        confrontation live discriminante."""
+        level, mult = active_ability_state(state, caster_id, self.ABILITY_TYPE)
         armor = ability_var(CATALYST_ID, "extraArmor", level, multiplier_pct=mult) or 0
         block_dmg = ability_var(CATALYST_ID, "blockDmg", level, multiplier_pct=mult) or 0
         chance = ability_var(CATALYST_ID, "blockChance", is_constant=True) or 0
@@ -1360,14 +1358,19 @@ class CatalystAbility(ActiveAbility):
 #  * `InformWeapon` (1er terme du `op_BitwiseAnd`) N'EST PAS materialise en feuille : c'est le noeud
 #    qui pousse les TAGS d'arme dans le stream (`engine/streams/inform_ops.py`), aval deja porte et
 #    consomme par `AttackWithAttackDamage` (`get_inform_weapon_tags`). Aucune Operation d'etat.
-#    RESIDU NOMME `#697-r1` : le port n'emet pas l'event `InformWeapon` propre, donc une cascade
+#    RESIDU NOMME `#889-r1` : le port n'emet pas l'event `InformWeapon` propre, donc une cascade
 #    live comparee event-a-event portera un groupe de moins.
 STRANGLETHORN_ID = "StranglethornCannon"
 #: `GetDamageProfile(config@0x60)` -> `StranglethornCannon.constants.damageProfile` = `Blast`.
 STRANGLETHORN_PROFILE = "Blast"
-#: L'ability est RANGED (`constants.range` = 3, preset `+0x140` = `useRangeFromConfig`) -> le volet
-#: percage lit l'arme RANGED du caster, pas la melee.
-STRANGLETHORN_IS_MELEE = False
+#: ⚠ **`None`, PAS `False`** -- et l'ecart est OBSERVABLE, il a ete mesure live (cf. la docstring de
+#: la classe). La NATURE du coup ne se deduit PAS de la portee : elle est DECLAREE par l'ability, via
+#: `IdunBattle.Core.Services.BattleQuery$$GetAbilityAttackRangeType` = `gameconfig.abilities[<nom>]
+#: .attackRangeType`. La config 1056 n'en a **AUCUN** (ses constantes : `damageProfile`, `nrOfHits`,
+#: `nrOfHits_2`, `range`) -- contraste `HarvesterOfSouls`/`Supercharge`/`Stikkbomb`, tous `Ranged`.
+#: `rangeType` absent => `IsMeleeAttack` FAUX **et** `IsRangedAttack` FAUX => les gates de nature des
+#: effets sont TOUS inertes (convention `hits_channel_is_melee(is_melee=None)`, cf. `EntropyCannons`).
+STRANGLETHORN_IS_MELEE = None
 
 
 def stranglethorn_cannon_tree() -> AtomicGroup:
