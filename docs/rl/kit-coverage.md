@@ -1,7 +1,8 @@
-ecrit -> C:\Users\nicolasv\tacticus-tools\.claude\worktrees\merge-133\docs\rl\kit-coverage.md
-lineup=127 complets=98 avec-travail=29 items=29
-hors-total voies conditionnelles: 34 non portees (11 mythic, 23 item), 9 portees
--ability). **Ne jamais fusionner un conflit sur ce fichier : le REGENERER.**
+# Couverture moteur par KIT (unites lineup)
+
+> Genere par `scripts/python/audit_kit_coverage.py` (kit gameconfig x registres moteur
+> des deux faces). Vue KIT-centrique complementaire de `combat-ability-coverage.md`
+> (par-ability). **Ne jamais fusionner un conflit sur ce fichier : le REGENERER.**
 >
 > Faces : `[CD]` = combat/decision portees, `[--]` = aucune ; `D` couvre les TROIS
 > registres de scoring (non-comparables + overrides custom des comparables +
@@ -22,10 +23,10 @@ hors-total voies conditionnelles: 34 non portees (11 mythic, 23 item), 9 portees
 
 ## Bilan
 
-- Unites lineup : **127** ; kits COMPLETS (aucun manque detecte) : **98** ; kits avec du travail : **29**
-- Volume total : **29** items manquants (actives no-op + passifs/traits non registres)
+- Unites lineup : **127** ; kits COMPLETS (aucun manque detecte) : **100** ; kits avec du travail : **27**
+- Volume total : **27** items manquants (actives no-op + passifs/traits non registres)
 - HORS total — voies conditionnelles : **34** abilities non portees (11 mythiques, 23 reliques equipables)
-- HORS total — faces DECISION non portees : **55** actives sur 138, dont **40** dans des kits declares COMPLETS (34 kits concernes)
+- HORS total — faces DECISION non portees : **55** actives sur 138, dont **42** dans des kits declares COMPLETS (36 kits concernes)
 
 ### Priorite par faction (volume decroissant)
 
@@ -33,14 +34,14 @@ hors-total voies conditionnelles: 34 non portees (11 mythic, 23 item), 9 portees
 |---|---:|---:|
 | EmperorsChildren | 4 | 4 |
 | LeaguesOfVotann | 4 | 4 |
-| AstraMilitarum | 3 | 3 |
 | Sisterhood | 3 | 3 |
 | AdeptusMechanicus | 2 | 2 |
-| Aeldari | 2 | 2 |
+| AstraMilitarum | 2 | 2 |
 | BloodAngels | 2 | 2 |
 | Necrons | 2 | 2 |
 | SpaceWolves | 2 | 2 |
 | WorldEaters | 2 | 2 |
+| Aeldari | 1 | 1 |
 | BlackLegion | 1 | 1 |
 | Tau | 1 | 1 |
 | ThousandSons | 1 | 1 |
@@ -54,18 +55,16 @@ hors-total voies conditionnelles: 34 non portees (11 mythic, 23 item), 9 portees
 | admecDestroyer | 1 | SentinelDirectives(1139) [C-] OK | - | Vehicle(x8) |
 | admecManipulus | 1 | DefendTheDivineWork(1117) [CD] OK | GalvanicField | - |
 
-### Aeldari — 2 kits, 2 items
+### Aeldari — 1 kits, 1 items
 
 | unite | manque | actives | passifs manquants | traits de kit manquants |
 |---|---|---|---|---|
-| eldarJainZar | 1 | SilentDeath(1068) [C-] OK | TerrorsLament | - |
 | eldarLhykhis | 1 | EmpyricAmbush(1232) [C-] OK | WhisperingWeb | - |
 
-### AstraMilitarum — 3 kits, 3 items
+### AstraMilitarum — 2 kits, 2 items
 
 | unite | manque | actives | passifs manquants | traits de kit manquants |
 |---|---|---|---|---|
-| astraDreir | 1 | LeadingTheCharge(1204) [C-] OK | ToughToKill | - |
 | astraOrdnance | 1 | BasiliskBarrage(1026) [C-] OK | - | IndirectFire(x9) |
 | astraYarrick | 1 | SendInTheNextWave(1016) [CD] OK | SummaryExecution | - |
 
@@ -141,7 +140,7 @@ hors-total voies conditionnelles: 34 non portees (11 mythic, 23 item), 9 portees
 | worldExecutions | 1 | MurderousSwing(1137) [CD] OK | TrophyTaker | - |
 | worldJakhal | 1 | JakhalStimms(1131) [C-] OK | Skullsmasher | - |
 
-## HORS total — faces DECISION non portees dans des kits COMPLETS (40)
+## HORS total — faces DECISION non portees dans des kits COMPLETS (42)
 
 > ⚠ **`missing` NE COMPTE QUE LA FACE COMBAT.** Une ability dont l'execution est
 > portee mais dont l'UTILITE de decision ne l'est pas rend `missing = 0` : le kit
@@ -163,7 +162,9 @@ hors-total voies conditionnelles: 34 non portees (11 mythic, 23 item), 9 portees
 | astarLysander | TitanhammerSquad | 1231 | HEAL |
 | admecDominus | RadBombardment | 1116 | DAMAGE(Toxic) |
 | eldarAutarch | Loki_SwoopingHawk | 1064 | DAMAGE(Piercing) |
+| eldarJainZar | SilentDeath | 1068 | DAMAGE(Piercing) |
 | astraBullgryn | FragBomb | 1017 | DAMAGE(Blast) |
+| astraDreir | LeadingTheCharge | 1204 | DAMAGE(Power) |
 | astraOrdnanceBattery | ForwardSpotter | 1143 | SUMMON |
 | astraOrdnanceBattery | MalleusRocketLauncher | 1142 | DAMAGE(Blast) |
 | templHelbrecht | CrusadeOfWrath | 1049 | EFFECT/BUFF |
@@ -200,12 +201,12 @@ hors-total voies conditionnelles: 34 non portees (11 mythic, 23 item), 9 portees
 | ultraTitus | TacticalPrecision | 1154 | DAMAGE(Bolter) |
 | worldEightbound | OverwhelmingWrath | 1141 | DAMAGE(Eviscerate) |
 
-## Kits lineup COMPLETS (98)
+## Kits lineup COMPLETS (100)
 
-> ⚠ **COMPLET = face COMBAT complete.** 34 de ces kits portent au moins une active
+> ⚠ **COMPLET = face COMBAT complete.** 36 de ces kits portent au moins une active
 > sans face DECISION (section precedente) — ils sont marques `*` ci-dessous.
 
-adeptCanoness, adeptExorcist*, adeptMorvenn, admecDominus*, admecMarshall, admecRuststalker, astarCyrus*, astarLysander*, astraBullgryn*, astraCreed, astraOrdnanceBattery*, astraPrimarisPsy, blackAbaddon, blackForgefiend, blackHaarken, blackObliterator, blackTerminator, bloodDante, bloodDeathCompany, bloodMephiston, bloodSanguinary*, custoAtlacoya*, custoBladeChampion*, custoKyrus, custoTrajann*, custoVexilusPraetor, darkaAsmodai*, darkaAzrael, darkaCompanion, darkaHellblaster, darkaSternguard*, darkaStormSpeeder*, darkaTerminator, deathBlightbringer, deathBlightlord, deathCrawler*, deathPutrifier, deathRotbone, deathTyphus, eldarAutarch*, eldarFarseer, eldarMauganRa, eldarRanger, emperNoiseMarine*, genesBiophagus, genesKelermorph, genesMagus, genesPatriarch*, genesPrimus*, necroDestroyer, necroOverlord, necroReanimator*, necroSpyder, necroWarden, orksBigMek, orksKillaKan, orksNob, orksRukkatrukk*, orksRuntherd, orksWarboss*, spaceBlackmane*, spaceRockfist*, spaceStormcaller, spaceWulfen, tauAunShi, tauBroadside*, tauCrisis, tauDarkstrider, tauMarksman, tauShadowsun*, templAggressor, templAncient, templChampion, templHelbrecht*, templSwordBrother*, thousAhriman*, thousInfernalMaster, thousSekhetar, thousSorcerer, thousTerminator, thousTzaangor, tyranBiovore*, tyranDeathleaper*, tyranNeurothrope, tyranParasite, tyranTyrantGuard, tyranWingedPrime, ultraApothecary, ultraCalgar, ultraDreadnought*, ultraEliminatorSgt, ultraInceptorSgt*, ultraTigurius, ultraTitus*, votanChampion, worldEightbound*, worldKharn, worldTerminator
+adeptCanoness, adeptExorcist*, adeptMorvenn, admecDominus*, admecMarshall, admecRuststalker, astarCyrus*, astarLysander*, astraBullgryn*, astraCreed, astraDreir*, astraOrdnanceBattery*, astraPrimarisPsy, blackAbaddon, blackForgefiend, blackHaarken, blackObliterator, blackTerminator, bloodDante, bloodDeathCompany, bloodMephiston, bloodSanguinary*, custoAtlacoya*, custoBladeChampion*, custoKyrus, custoTrajann*, custoVexilusPraetor, darkaAsmodai*, darkaAzrael, darkaCompanion, darkaHellblaster, darkaSternguard*, darkaStormSpeeder*, darkaTerminator, deathBlightbringer, deathBlightlord, deathCrawler*, deathPutrifier, deathRotbone, deathTyphus, eldarAutarch*, eldarFarseer, eldarJainZar*, eldarMauganRa, eldarRanger, emperNoiseMarine*, genesBiophagus, genesKelermorph, genesMagus, genesPatriarch*, genesPrimus*, necroDestroyer, necroOverlord, necroReanimator*, necroSpyder, necroWarden, orksBigMek, orksKillaKan, orksNob, orksRukkatrukk*, orksRuntherd, orksWarboss*, spaceBlackmane*, spaceRockfist*, spaceStormcaller, spaceWulfen, tauAunShi, tauBroadside*, tauCrisis, tauDarkstrider, tauMarksman, tauShadowsun*, templAggressor, templAncient, templChampion, templHelbrecht*, templSwordBrother*, thousAhriman*, thousInfernalMaster, thousSekhetar, thousSorcerer, thousTerminator, thousTzaangor, tyranBiovore*, tyranDeathleaper*, tyranNeurothrope, tyranParasite, tyranTyrantGuard, tyranWingedPrime, ultraApothecary, ultraCalgar, ultraDreadnought*, ultraEliminatorSgt, ultraInceptorSgt*, ultraTigurius, ultraTitus*, votanChampion, worldEightbound*, worldKharn, worldTerminator
 
 ## HORS total — voies conditionnelles (34 abilities non portees)
 
