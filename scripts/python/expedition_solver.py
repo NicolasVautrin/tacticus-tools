@@ -525,8 +525,31 @@ def deja_parties(ops: list[dict]) -> tuple[list[dict], list[str]]:
     return libres, sorted(set(prises))
 
 
+def presse_par_unite(prepares: list[dict]) -> dict[str, int]:
+    """unite -> taille du POOL LE PLUS ETROIT ou elle figure. Petit = PRECIEUSE.
+
+    POURQUOI, et c'est une operation PERDUE le 2026-08-11 : le remplissage piochait dans le
+    pool le plus large sans regarder ce qu'il coutait ailleurs. Il a depense `adeptCanoness`
+    et `admecRuststalker` -- deux des CINQ seules unites de rang 17 du roster -- en bourrage
+    sur une Legendary a 32 eligibles. L'operation Mythic, qui n'avait que ces 5 candidats
+    pour 4 places, s'est retrouvee a 2 unites libres : elle n'est jamais partie, alors que
+    sa recompense de BASE etait a portee.
+
+    On consomme donc les unites par presse DECROISSANTE : les abondantes d'abord, celles qui
+    sont le dernier recours d'une operation etroite en dernier.
+    """
+    presse: dict[str, int] = {}
+    for p in prepares:
+        n = len(p["ids"])
+        for u in p["ids"]:
+            if u not in presse or n < presse[u]:
+                presse[u] = n
+    return presse
+
+
 def completer(ensemble: set[str], besoin: int, pool: list[str],
-              indisponibles: set[str]) -> tuple[set[str], int] | None:
+              indisponibles: set[str], presse: dict[str, int] | None = None
+              ) -> tuple[set[str], int] | None:
     """Complete `ensemble` jusqu'a `besoin` unites, avec des eligibles libres.
 
     POURQUOI C'EST OBLIGATOIRE, et mesure au decompile :
@@ -543,6 +566,12 @@ def completer(ensemble: set[str], besoin: int, pool: list[str],
     libres = [u for u in pool if u not in ensemble and u not in indisponibles]
     if len(libres) < manque:
         return None
+    if presse:
+        # presse DECROISSANTE : on brule les unites abondantes avant les rares. `-presse` en
+        # cle primaire, le nom en secondaire pour rester DETERMINISTE (deux unites de meme
+        # presse doivent toujours sortir dans le meme ordre, sinon le plan bouge d'un run a
+        # l'autre sans qu'aucune donnee n'ait change).
+        libres.sort(key=lambda u: (-presse.get(u, 10 ** 9), u))
     return set(ensemble) | set(libres[:manque]), manque
 
 
@@ -623,6 +652,7 @@ def resoudre_plateau(ops: list[dict], kits: dict[str, dict], roster: list[str],
     # `astraPrimarisPsy`, `adeptHospitaller`, `adeptRetributor`, chacun couvrant ici et
     # remplissage la. Les trois relevaient exactement de ce patron.
     reserves = {u for p in ordre for u in p["ensemble"]}
+    presse = presse_par_unite(prepares)
     utilisees: set[str] = set()
     incompletes: list[dict] = []
     for p in ordre:
@@ -631,7 +661,7 @@ def resoudre_plateau(ops: list[dict], kits: dict[str, dict], roster: list[str],
         # `reserves - ensemble` : les couvrants des AUTRES operations sont interdits au
         # remplissage ; le sien propre ne l'est pas, il EST la base a completer.
         r = completer(set(p["ensemble"]), besoin, prep["ids"],
-                      utilisees | (reserves - set(p["ensemble"])))
+                      utilisees | (reserves - set(p["ensemble"])), presse)
         if r is None:
             incompletes.append({"op": p["op"].get("expeditionId") or p["op"].get("id"),
                                 "besoin": besoin, "couvrant": len(p["ensemble"]),
@@ -646,9 +676,36 @@ def resoudre_plateau(ops: list[dict], kits: dict[str, dict], roster: list[str],
         utilisees |= equipe
 
     couvertes = sum(1 for p in plan if p["ensemble"] is not None)
+
+    # SANS BONUS N'EST PAS SANS INTERET. Une operation dont aucun ensemble ne couvre les
+    # objectifs rapporte quand meme sa recompense de BASE -- la renoncer, c'est laisser un
+    # slot vide. MESURE du 2026-08-11 : la Mythic `imp_guns_m_01_10` (bonus hors d'atteinte,
+    # 5 eligibles pour 4 places) a ete abandonnee, et 6 operations sont parties la ou 7
+    # pouvaient l'etre.
+    # On les traite APRES les operations a bonus -- jamais au detriment d'un bonus -- et de
+    # la plus etroite a la plus large, meme raison qu'au-dessus.
+    sans_bonus = sorted([p for p in plan if p["ensemble"] is None],
+                        key=lambda p: len(par_id[id(p["op"])]["ids"]))
+    base_seule: list[str] = []
+    for p in sans_bonus:
+        prep = par_id[id(p["op"])]
+        besoin = int(p["op"].get("participants") or 0)
+        r = completer(set(), besoin, prep["ids"], utilisees, presse)
+        if r is None:
+            continue
+        equipe, ajoutes = r
+        p["equipe"] = sorted(equipe)
+        p["remplissage"] = ajoutes
+        p["base_seule"] = True
+        utilisees |= equipe
+        base_seule.append(p["op"].get("expeditionId") or p["op"].get("id"))
+
     return {
         "operations": len(prepares),
         "couvertes": couvertes,
+        # Operations parties SANS bonus : elles occupent un slot et rapportent la base.
+        "base_seule": base_seule,
+        "partantes": couvertes + len(base_seule),
         # Ce que le plan consomme REELLEMENT : la somme des `participants`, pas la taille
         # des ensembles couvrants.
         "unites_mobilisees": len(utilisees),
@@ -877,7 +934,8 @@ def cmd_board(a) -> int:
         print("")
     r = resoudre_plateau(ops, kits, roster, progression=progression, seuils=seuils)
     print("Operations disponibles : %d" % r["operations"])
-    print("Bonus obtenu : %d / %d" % (r["couvertes"], r["operations"]))
+    print("PARTANTES : %d / %d   (dont %d avec bonus, %d pour la BASE seule)"
+          % (r["partantes"], r["operations"], r["couvertes"], len(r["base_seule"])))
     print("Unites mobilisees : %d (dont %d utiles au bonus, le reste = remplissage "
           "OBLIGATOIRE)" % (r["unites_mobilisees"], r["unites_utiles"]))
     for i in r.get("incompletes") or []:
@@ -894,8 +952,16 @@ def cmd_board(a) -> int:
     for p in r["plan"]:
         op = p["op"]
         nom = op.get("expeditionId") or op.get("id") or "?"
-        if p["ensemble"] is None:
-            print("  [BONUS NON OBTENU] %s" % nom)
+        if p["ensemble"] is None and not p.get("equipe"):
+            print("  [NON PARTANTE] %s -- bonus hors d'atteinte ET pas assez d'unites "
+                  "libres eligibles" % nom)
+        elif p["ensemble"] is None:
+            # Bonus hors d'atteinte, mais l'operation PART : elle occupe un slot et rapporte
+            # sa recompense de base. Toutes ses unites sont du remplissage par construction.
+            eq = p["equipe"]
+            print("  [BASE SEULE] %-33s %d place(s)  -- aucun bonus atteignable" % (nom, len(eq)))
+            for u in eq:
+                print("             %-24s (remplissage)" % u)
         else:
             eq = p.get("equipe") or p["ensemble"]
             utiles = set(p["ensemble"])

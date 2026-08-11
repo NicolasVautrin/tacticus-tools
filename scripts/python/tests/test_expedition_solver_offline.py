@@ -379,6 +379,68 @@ def test_plateau_couvre_les_deux_operations_quand_le_roster_suffit():
     assert r["unites_mobilisees"] == 2
 
 
+def test_une_operation_SANS_bonus_atteignable_part_quand_meme():
+    """MESURE du 2026-08-11 : 6 operations parties la ou 7 pouvaient l'etre.
+
+    Une operation dont aucun ensemble ne couvre les objectifs rapporte quand meme sa
+    recompense de BASE. La renoncer laisse un slot vide -- ce n'est pas une optimisation,
+    c'est une perte seche. Le bonus reste PRIORITAIRE : la base ne se sert qu'apres.
+    """
+    kits = {
+        "cible": _kit("cible", faction="Custodes", ranged_hits=0),
+        "quelconque": _kit("quelconque", faction="Ultramarines", ranged_hits=0),
+    }
+    ops = [
+        # couvrable : `cible` porte la faction demandee
+        {"id": "avec", "expeditionId": "avec", "participants": 1,
+         "grandAlliance": "Imperial", "_objs": [_obj("faction:Custodes")]},
+        # INCOUVRABLE : aucun kit ne porte ce trait -- mais l'operation peut PARTIR
+        {"id": "sans", "expeditionId": "sans", "participants": 1,
+         "grandAlliance": "Imperial", "_objs": [_obj("trait:MkXGravis")]},
+    ]
+    r = ES.resoudre_plateau(ops, kits, ["cible", "quelconque"])
+    assert r["couvertes"] == 1, "le bonus reste prioritaire"
+    assert r["partantes"] == 2, "l'operation sans bonus doit PARTIR pour sa base"
+    assert r["base_seule"] == ["sans"]
+    sans = next(p for p in r["plan"] if p["op"]["id"] == "sans")
+    assert sans["equipe"] == ["quelconque"], (
+        "la base seule ne doit pas voler l'unite qui debloque un bonus")
+
+
+def test_le_remplissage_epargne_l_unite_RARE_pour_l_operation_servie_en_DERNIER():
+    """MESURE du 2026-08-11 : deux des CINQ unites rang 17 du roster brulees en bourrage
+    sur une operation a 32 eligibles, ce qui a verrouille la Mythic (5 candidats, 4 places).
+
+    ⚠ CE CAS EST CALIBRE, et la premiere version ne discriminait PAS. Si l'unite rare
+    appartient a un ensemble COUVRANT, la disjonction la reserve deja -- le test passait
+    avec ou sans la presse. La presse ne compte que pour ce qui est servi EN DERNIER : les
+    operations sans bonus, remplies apres toutes les autres. C'est exactement le cas reel.
+
+    Montage : `etroite` n'a aucun bonus atteignable (personne ne porte le trait), donc elle
+    passe en dernier, et son alliance Chaos ne laisse passer que `rare`. `large` a une place
+    de remplissage et accepte les deux alliances. Sans presse, elle prend `rare` -- l'ordre
+    du pool suit celui du roster -- et `etroite` ne part jamais.
+    """
+    kits = {
+        "pivot": _kit("pivot", faction="Custodes", ranged_hits=0),
+        "rare": _kit("rare", faction="AdeptusAstartes", alliance="Chaos", ranged_hits=0),
+        "commune": _kit("commune", faction="Ultramarines", ranged_hits=0),
+    }
+    ops = [
+        {"id": "large", "expeditionId": "large", "participants": 2,
+         "grandAlliance": None, "_objs": [_obj("faction:Custodes")]},
+        {"id": "etroite", "expeditionId": "etroite", "participants": 1,
+         "grandAlliance": "Chaos", "_objs": [_obj("trait:MkXGravis")]},
+    ]
+    # `rare` AVANT `commune` dans le roster : sans presse, c'est elle que le pool sert.
+    r = ES.resoudre_plateau(ops, kits, ["pivot", "rare", "commune"])
+    large = next(p for p in r["plan"] if p["op"]["id"] == "large")
+    assert "rare" not in (large["equipe"] or []), (
+        "le remplissage a brule l'unite qui etait le SEUL recours de `etroite`")
+    assert r["partantes"] == 2, "`etroite` doit partir pour sa base"
+    assert r["base_seule"] == ["etroite"]
+
+
 # ---------------------------------------------------------------------------
 # ELIGIBILITE -- mirror de `ExpeditionUnitEligibility$$IsEligibleFor`
 # ---------------------------------------------------------------------------
