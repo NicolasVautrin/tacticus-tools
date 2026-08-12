@@ -99,12 +99,25 @@ import pytest                                                           # noqa: 
 import probe_950_terrors_lament_tough_to_kill as P                      # noqa: E402
 
 
-def _run(arm, mutate=False):
-    r = P.run(arm, mutate=mutate, verbose=True)
+def _run(arm, mutate=False, mutate_immune=False):
+    r = P.run(arm, mutate=mutate, verbose=True, mutate_immune=mutate_immune)
     if "error" in r:
         pytest.fail("montage #950 NON INSTALLE (%s%s) : %s"
                     % (arm, " mutant" if mutate else "", r["error"]), pytrace=False)
     return r
+
+
+@pytest.fixture(scope="module")
+def immune_arms(live_session):
+    """#987 (residu #950-r1) -- le conjoint `NOT HasTrait(Caster, 0x19 = Immune)`, PROPRE a `1120`.
+
+    Le trait est GREFFE sur l'attaquant des bras `tl_aura` / `tl_away` (`BC.Units[].Traits`, le
+    canal que `UnitFactory$$Build` lit) : meme unite, meme geometrie, meme cible, meme seed --
+    SEUL le trait change. Le 4e bras est la contre-epreuve CIBLEE, qui neutralise ce seul conjoint.
+    """
+    return {"near": _run("tl_immune"),
+            "away": _run("tl_immune_away"),
+            "near_mut": _run("tl_immune", mutate_immune=True)}
 
 
 @pytest.fixture(scope="module")
@@ -152,6 +165,57 @@ def test_port_matches_native(arms, arm):
     base, _ = arms
     fails = P.verdict_port_matches_native(base[arm])
     assert not fails, "port vs natif #950 :\n  - " + "\n  - ".join(fails)
+
+
+def test_immune_caster_keeps_its_hits_but_not_its_damage(arms, immune_arms):
+    """#987 (3c) Le NATIF, plan 2x2 : le trait `Immune` de l'ATTAQUANT n'agit QUE sur les COUPS,
+    et QUE sous l'aura.
+
+    C'est le conjoint que `1120` porte et que `1119` n'a pas -- s'il etait recopie d'un trigger sur
+    l'autre, l'une des deux colonnes de ce tableau bougerait."""
+    base, _ = arms
+    aura, away = base["tl_aura"], base["tl_away"]
+    near, far = immune_arms["near"], immune_arms["away"]
+    n = lambda r: r["native"]["n"]                                        # noqa: E731
+    tot = lambda r: r["native"]["total"]                                  # noqa: E731
+    # Hors aura, le trait ne change RIEN -- il n'a aucun effet propre sur l'attaque.
+    assert (n(far), tot(far)) == (n(away), tot(away)), (
+        "hors aura, `Immune` a change l'attaque : Immune=%s/%s vs temoin=%s/%s"
+        % (n(far), tot(far), n(away), tot(away)))
+    # Sous l'aura, l'attaquant `Immune` GARDE le coup que l'autre perd.
+    assert n(near) == n(away), (
+        "sous l'aura, l'attaquant `Immune` devrait garder ses %d coups, il en a %d"
+        % (n(away), n(near)))
+    assert n(aura) == n(away) - 1, (
+        "le temoin SANS `Immune` devrait perdre exactement 1 coup (`hitsReduction = 1`) : %d -> %d"
+        % (n(away), n(aura)))
+    # ... mais le DEGAT par coup reste reduit : les coups communs sont ceux du bras `tl_aura`.
+    k = len(aura["native"]["hits"])
+    assert near["native"]["hits"][:k] == aura["native"]["hits"], (
+        "le degat par coup devrait rester reduit (1119 n'a PAS le conjoint `Immune`) : %s vs %s"
+        % (near["native"]["hits"][:k], aura["native"]["hits"]))
+
+
+@pytest.mark.parametrize("arm", ["near", "away"])
+def test_immune_port_matches_native(immune_arms, arm):
+    """#987 (4c) Le PORT reproduit les deux bras `Immune`, a l'unite, par coup."""
+    fails = P.verdict_port_matches_native(immune_arms[arm])
+    assert not fails, "port vs natif #987/#950-r1 :\n  - " + "\n  - ".join(fails)
+
+
+def test_immune_conjunct_is_load_bearing(immune_arms):
+    """#987 (5c) CONTRE-EPREUVE CIBLEE : neutraliser le SEUL conjoint `NOT HasTrait(Caster, Immune)`
+    doit faire DIVERGER le port du natif.
+
+    Un mutant VERT serait le resultat suspect -- il dirait que le gate n'est pas LU, et que le vert
+    du test precedent ne prouve rien."""
+    near, mut = immune_arms["near"], immune_arms["near_mut"]
+    assert mut["port"]["n"] != near["native"]["n"], (
+        "la mutation NE MORD PAS : le port rend encore %d coups alors que le gate est neutralise"
+        % mut["port"]["n"])
+    assert mut["port"]["n"] == near["native"]["n"] - 1, (
+        "la mutation devrait retirer exactement le coup rendu par `Immune` : %d au lieu de %d"
+        % (mut["port"]["n"], near["native"]["n"] - 1))
 
 
 def test_regen_matches_native(arms):
