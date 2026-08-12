@@ -178,7 +178,10 @@ from .loki.visions_of_heresy import (
 )
 from .loki.votann import (
     AncestralFortuneExtraBlockChanceEffect, AncestralFortuneExtraCritChanceEffect,
-    AugmentedAssaultReduceArmorEffect, GravitonRifleExtraPierceEffect, PurgeResponseEffect
+    AugmentedAssaultReduceArmorEffect, GravitonRifleExtraPierceEffect, PurgeResponseEffect,
+    GrimEfficiencyExtraArmorEffect, GrimEfficiencyExtraPierceEffect,            # #959
+    PredictiveGuidanceExtraHitsEffect, PredictiveGuidanceMeleeEffect,           # #959
+    PredictiveGuidanceRangedEffect                                              # #959
 )
 from .loki.wall_of_mirrors import WallOfMirrorsEffect
 from .loki.war_howl import WarHowlExtraDamageUnstoppableEffect
@@ -1137,6 +1140,31 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     #    = `ForPercentDecrease(get_OwnerIsTarget, ConfigConst(0x72))` -> -33 % sur TOUT degat recu.
     "PrioritisedEfficiency_ExtraDmg": PrioritisedEfficiencyExtraDmgEffect,
     "PrioritisedEfficiency_DmgReduction": PrioritisedEfficiencyDmgReductionEffect,
+    # #959 -- `GrimEfficiency` (TriggeredAbilityType 0x5d2 = 1490, passif de `votanUthar`) : DEUX
+    # auras stat-mod PROJETEES sur les autres allies a <= `range` hexes, qui PARTITIONNENT les deux
+    # marqueurs de stance ci-dessus (1479 / 1480) par leur `CreateActiveCondition`.
+    # `...GrimEfficiencyAbility$$CreateBehaviour` = `AddDynamicStatModifierEffectToOwner(0x5cf,
+    # statType = 0x10 FixedArmor, null, false) & AddDynamicStatModifierEffectToOwner(0x5d0,
+    # statType = 0x1a ExtraPierce, null, false)` ; le selecteur des deux est le corps ICF PARTAGE
+    # avec `LionHelm_ExtraBlockDamageEffect$$CreateTargetSelector` (`SurroundingFriends(Owner,
+    # ConfigConst(0x16 = range), true, 3)`, PORTEUR EXCLU). Canal = l'aura stat-mod PROJETEE
+    # (`runner/operations/aura_stat_mods.py`), comme `LionHelm` / `KustomForceFieldReworked`.
+    # ⚠ Leurs `is_active` sont PORTEES et `active_condition_ported = True` : sans ca, l'instance
+    # SEEDEE de la stance NON courante (flag `active` a True par defaut) doublerait le bonus.
+    # RE complete : en bas de `effects/loki/votann.py`.
+    "GrimEfficiency_ExtraArmor": GrimEfficiencyExtraArmorEffect,          # 0x5cf = 1487
+    "GrimEfficiency_ExtraPierce": GrimEfficiencyExtraPierceEffect,        # 0x5d0 = 1488
+    # #959 -- `PredictiveGuidance` (TriggeredAbilityType 0x5f5 = 1525, passif de `votanMemnyr`) :
+    # TROIS effets-AURA poses sur AMMUK (`targets = Owner`), dont le `CreateTargetSelector` designe
+    # les ENNEMIS a <= `range` hexes. Le bonus va a l'ATTAQUANT quand la CIBLE est dans le selecteur
+    # (`get_OwnerIsTarget` de la boucle `effets x cibles`), d'ou les canaux AURA cote DEFENSE :
+    # `create_aura_defense_damage_malus_for_ally` (axe DEGAT, face native ATTAQUANT) pour 1535/1536,
+    # `create_aura_hits_malus_for_defense` (axe COUPS, `ForAddition` POSITIF) pour 1537.
+    # ⚠ Les trois selecteurs DIFFERENT (`UnitsWithoutFlag(Moved)` / `UnitsWithFlag(Moved)` / aucun
+    # filtre) et 1537 n'a NI `IsMechanical` NI `ConfigVar` -- quatre ecarts LUS, cf. `votann.py`.
+    "PredictiveGuidance_Melee": PredictiveGuidanceMeleeEffect,            # 0x5ff = 1535
+    "PredictiveGuidance_Ranged": PredictiveGuidanceRangedEffect,          # 0x600 = 1536
+    "PredictiveGuidance_ExtraHits": PredictiveGuidanceExtraHitsEffect,    # 0x601 = 1537
     # 0x580=1408 MartialInspiration_ExtraDamage (#509) : l'active `1191 MartialInspiration` de
     # `custoBladeChampion` << Kariyan >> le pose SUR SON PROPRE CASTER (1 tour) AVANT de frapper.
     # `...MartialInspiration_ExtraDamageEffect$$CreateEffectDamageBonusForAttack` =
@@ -1823,6 +1851,30 @@ ABILITY_INIT_OWNER_EFFECTS: dict[str, list[str]] = {
     # targets = Owner)`), donc un owner-effect PERMANENT pose a l'init, exactement le patron
     # `PathOfCommand` / `IconOfObstinacy`. L'appariement ability -> effet est LU (`0x427`), pas devine.
     "FirstAmongTraitors": ["FirstAmongTraitors_ExtraDmg"],
+    # #959 -- `IdunBattleLogic.Entities.Abilities.Triggered.Loki.GrimEfficiencyAbility` (base LUE
+    # dans `classes.tsv` : `BaseTriggeredAbility`). Son `CreateTrigger` est un corps FONDU par l'ICF
+    # (il partage son adresse avec `...WayOfTheShortBlade_InitAbility$$CreateTrigger`, exactement
+    # comme `IconOfObstinacy` ci-dessus) et rend `OnOwnerSpecificAbilityInit(this.AbilityType)` :
+    # c'est un passif d'INIT, jamais un `ABILITY_TRIGGERS` -- s'y tromper donne un passif qui ne se
+    # pose JAMAIS. `$$CreateBehaviour` pose les DEUX auras sur le PORTEUR
+    # (`AddDynamicStatModifierEffectToOwner`, `turns = null` -> PERMANENT). ORDRE = celui de
+    # l'`op_BitwiseAnd` du behaviour : 0x5cf puis 0x5d0.
+    # ⚠ CE SEED N'EST PAS UN FILET, il est NECESSAIRE, et pour la MEME raison que `Skullsmasher` :
+    # les `CreateActiveCondition` sont `HasEffect(EffectSource, <marqueur de stance>)`, donc le
+    # canal ACTIF-ONLY ne publie QUE l'aura de la stance COURANTE. Sans ce seed, Uthar capte dans
+    # une stance n'a AUCUNE instance a rallumer quand l'autre stance arrive. La contrepartie est
+    # portee par `is_active` + `active_condition_ported` (cf. `EFFECT_CLASSES` plus haut) : les deux
+    # instances coexistent, une seule CONTRIBUE.
+    "GrimEfficiency": ["GrimEfficiency_ExtraArmor", "GrimEfficiency_ExtraPierce"],
+    # #959 -- `...Triggered.Loki.PredictiveGuidanceAbility` (base `BaseTriggeredAbility`,
+    # `classes.tsv`). MEME corps ICF de `CreateTrigger` que `GrimEfficiency` ci-dessus.
+    # `$$CreateBehaviour` = `AddEffect(0x5ff, AbilityStateReference, source = Owner, targets =
+    # Owner) & AddEffect(0x600, ...) & AddEffect(0x601, ...)` -> les TROIS effets-aura vivent sur
+    # AMMUK. ORDRE = celui des deux `op_BitwiseAnd`. Leur `CreateActiveCondition` est le trigger
+    # CONSTANT VRAI (`<DSLTriggers+0x40>`) -> ils sont toujours captes, ce seed EST un filet
+    # (idempotent).
+    "PredictiveGuidance": ["PredictiveGuidance_Melee", "PredictiveGuidance_Ranged",
+                           "PredictiveGuidance_ExtraHits"],
     # #952 -- `IdunBattleLogic.Entities.Abilities.Triggered.Loki.HuntersBeyondDeathAbility`. Son
     # `CreateTrigger` est un corps FONDU par l'ICF (il partage son adresse avec
     # `...Active.Loki.SummaryExecutionAddBaseEffectAbility$$CreateTrigger`) et rend
