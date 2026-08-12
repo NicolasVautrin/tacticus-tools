@@ -128,6 +128,21 @@ function encoreVivant(obj: NativePointer): boolean | null {
     } catch { return null; }
 }
 
+/** SOMMES-NOUS EN BATAILLE ? -- `IdunMainView$$get_IsBattleActive()`, STATIQUE, donc lisible
+ *  sans instance et sans UI.
+ *
+ *  C'est la comptabilite du JEU, pas un proxy : le harnais deduisait jusqu'ici cet etat de
+ *  l'etat des ECRANS. `null` = NON MESURE (methode introuvable), jamais rabattu sur `false`. */
+function enBataille(): boolean | null {
+    try {
+        const k = findClassAnywhere(NS_VIEW, CLS_VIEW);
+        const mi = k ? findMethodByParamCount(k, "get_IsBattleActive", 0) : null;
+        if (!mi) return null;
+        const r = invokeMethod(mi.info, null, null);   // statique : pas d'instance
+        return r.isNull() ? false : r.add(0x10).readU8() !== 0;
+    } catch { return null; }
+}
+
 function nomClasseDe(obj: NativePointer): string | null {
     try {
         if (obj.isNull()) return null;
@@ -409,11 +424,31 @@ export function register(ctx: Ctx): void {
                   + "(UnityEngine.Object$$op_Inequality introuvable) -- on n'invoque pas sur "
                   + "un objet dont on ne sait pas s'il existe." };
         }
-        if (!journal.some((f) => f.quoi === `${CLS_VIEW}$$${methode}`)) {
-            return { ok: false, error: "REFUS : " + methode + " n'a JAMAIS ete observee dans ce "
-                + "journal. Tant qu'une retraite pilotee par l'UI ne l'a pas fait tirer, rien "
-                + "n'etablit que c'est l'entree que le jeu emprunte -- et une chaine d'appels "
-                + "deduite des noms a deja ete dementie par la mesure." };
+        // ⚠ CE GARDE A REMPLACE << la methode doit avoir ete OBSERVEE dans ce journal >>, et le
+        // remplacement est une REPARATION, pas un assouplissement.
+        //
+        // L'ancien exigeait qu'une retraite PILOTEE PAR L'UI ait deja fait tirer la methode dans
+        // LA SESSION COURANTE. Il avait sa raison : avant #992, la chaine de retraite etait
+        // DEDUITE DES NOMS, et cette deduction a ete dementie par la mesure. Il fallait donc
+        // forcer une observation avant tout appel.
+        //
+        // Cette observation a EU LIEU (case-992) : les piles montrent que l'UI passe par
+        // `OnBattleSurrender` -> `PauseSurrender` (qui rend `true`, donc DIFFERE) puis, par un
+        // UnityEvent du bouton de CONFIRMATION, par `ContinueSurrender`. La liste blanche
+        // `INVOCABLES` EST ce resultat mesure. Exiger en plus un fire dans la session rendait le
+        // chemin NON AUTOSUFFISANT A FROID -- mesure du 2026-08-12, session 77 : le RPC refusait,
+        // et le jeu restait bloque en bataille apres un lancement programmatique.
+        //
+        // Le nouveau garde est PLUS FORT, pas plus faible : il verifie la PRECONDITION REELLE --
+        // y a-t-il une bataille a quitter -- en interrogeant la comptabilite du jeu, et il est
+        // disponible des la premiere seconde d'une session froide.
+        const bataille = enBataille();
+        if (bataille !== true) {
+            return { ok: false, error: bataille === false
+                ? "REFUS : `IdunMainView$$get_IsBattleActive()` rend FALSE -- il n'y a aucune "
+                  + "bataille a quitter. Appeler " + methode + " ici n'aurait pas de cible."
+                : "REFUS : etat de bataille NON MESURE (get_IsBattleActive introuvable) -- on "
+                  + "ne quitte pas une bataille dont on ne sait pas si elle existe." };
         }
         const kView = findClassAnywhere(NS_VIEW, CLS_VIEW);
         const mr = kView ? findMethodByParamCount(kView, methode, 0) : null;

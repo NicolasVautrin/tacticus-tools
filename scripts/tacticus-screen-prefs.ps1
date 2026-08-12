@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-  Reduit le budget de rendu de Tacticus (fenetre 1280x800) ou le restaure.
+  Reduit le budget de rendu de Tacticus (fenetre 560x800) ou le restaure.
 
 .DESCRIPTION
   POURQUOI. Mesure du 2026-07-28 : Tacticus est le SEUL client de la RTX 4070 et y consommait
@@ -8,8 +8,18 @@
   bataille STATIQUE. La cause n'est pas un rendu couteux mais sa SURFACE : les prefs Unity
   demandaient 3840x2400 (9,2 Mpx, plus qu'un 4K) en plein ecran a 90 Hz, soit ~830 Mpx/s.
   Signature confirmee par `nvidia-smi` : utilization.gpu a 43 % pendant que utilization.memory
-  reste a 3 % -- scene triviale, repeinte sur enormement de pixels. Passer en 1280x800 divise
-  la surface par 9 (9 216 000 px -> 1 024 000 px).
+  reste a 3 % -- scene triviale, repeinte sur enormement de pixels.
+
+  LA LARGEUR : 560, ET C'EST MESURE. L'UI de Tacticus est mobile-first -- elle rend une COLONNE
+  PORTRAIT centree, et tout pixel donne au-dela devient une BANDE NOIRE. Capture du 2026-08-13 a
+  900x800 : contenu 557x797, soit ~171 px perdus DE CHAQUE COTE. Le 1280x800 qui vivait ici
+  divisait bien la surface, mais il payait encore 56 % de bandes noires -- il est RETIRE, pas
+  ajuste. A 560x800 le contenu remplit la fenetre bord a bord :
+  9 216 000 px -> 448 000 px, soit une division par 20.
+
+  ⚠ Un chiffre de surface ne dit PAS si les pixels servent : celui-ci a tenu deux semaines
+  parce que personne n'avait REGARDE la fenetre. `scripts/python/gamenav/regard.py` capture,
+  et les bandes noires se voient immediatement.
 
   Le jeu sert ici d'hote de calcul IL2CPP pilote par Frida, pas d'objet a regarder : la
   resolution d'affichage n'a aucune incidence sur le harnais.
@@ -23,7 +33,7 @@
 
   LEVIER JUMEAU, A CHAUD -- le RPC `renderBudget` (frida/hooks/features/render-budget.ts) fait la
   meme chose sur le process VIVANT, sans le fermer :
-      renderBudget({width:1280, height:800, fullScreenMode:3, clampVSync:0, clampFrameRate:30})
+      renderBudget({width:560, height:800, fullScreenMode:3, clampVSync:0, clampFrameRate:30})
   Les deux sont complementaires, pas redondants : ce script regle le DEMARRAGE (persistant), le
   RPC regle la SESSION EN COURS (volatile, perdu au prochain lancement ET a chaque reinject).
 
@@ -56,7 +66,7 @@
 param(
   [switch]$Restore,
   [switch]$Force,
-  [int]$Width = 1280,
+  [int]$Width = 560,
   [int]$Height = 800
 )
 
