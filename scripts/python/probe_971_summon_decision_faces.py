@@ -53,9 +53,11 @@ CAS = {
     1058: {"name": "Waaagh", "carrier": "orksWarboss", "inject": False, "mow": False,
            "p_units": "orksWarboss,orksNob,orksRuntherd,orksBigMek",
            "a_units": "ultraTitus,ultraApothecary,necroWarden"},
+    # La MoW est mise du cote ADVERSE : c'est `aiPlayByUnit` qui joue son tour, donc la tuile ou
+    # le spore mine apparait EST la decision native observee (cf. `confront_mow`).
     1145: {"name": "SporeMineLauncher", "carrier": "tyranBiovore", "inject": False, "mow": True,
-           "p_units": "tyranNeurothrope,tyranParasite",
-           "a_units": "ultraTitus,ultraApothecary,necroWarden"},
+           "p_units": "ultraTitus,ultraApothecary,necroWarden",
+           "a_units": "tyranNeurothrope,tyranParasite"},
     # `votanChampion` n'est PAS dans le pool : les allies sont pris DANS le pool
     # (`rl_duel build --list-pool`), seul le PORTEUR est injecte.
     1219: {"name": "IronkinSteeljack", "carrier": "votanMemnyr", "inject": True, "mow": False,
@@ -81,7 +83,19 @@ def build(cas, seed, board):
            "--state-file", str(state), "--p-units", cas["p_units"],
            "--a-units", cas["a_units"]]
     if cas["mow"]:
-        cmd += ["--p-mow", cas["carrier"]]
+        cmd += ["--a-mow", cas["carrier"]]
+        # MUNITIONS : sans `MachineOfWarAmmo`, la MoW se deploie mais ne CASTE JAMAIS -- le tour
+        # d'IA ne propose alors rien, et un « le natif ne propose pas 1145 » se lirait a tort
+        # comme un verdict. Meme levier que `test_storm_speeder_live` / `probe_129`.
+        import rl_duel as RD
+        bc = RD._load_seed_bc()
+        for _pid, pl in ((bc.get("Player") or {}).get("Players") or {}).items():
+            if isinstance(pl, dict) and pl.get("PlayerType") != 2:      # Environment exclu
+                pl["MachineOfWarAmmo"] = 5
+        bcf = ROOT / "logs" / "runners" / f"bc-971-{uuid.uuid4().hex[:8]}.json"
+        bcf.parent.mkdir(parents=True, exist_ok=True)
+        bcf.write_text(json.dumps(bc), encoding="utf-8")
+        cmd += ["--seed-bc", str(bcf)]
     if cas["inject"]:
         # Porteur HORS POOL -> BC augmente EN MEMOIRE (meme recette que
         # `tests/engine/runner/test_ironkin_steeljack_live.py::_build_votan`, case-92 §6).
@@ -116,6 +130,23 @@ def native_nc(sid, rid, uid, aid):
     """`ncEvaluate` : le bucket natif PAR POSITION (util + cible + ability)."""
     return rpc(sid, "ncEvaluate", {"runnerId": rid, "unitId": uid, "abilityType": aid,
                                    "sweep": True}, 180)
+
+
+def native_dryrun(sid, rid, uid):
+    """`aiDryRunAllUnits` : le TOUR D'IA OBSERVE (la decision reelle, pas une preview).
+
+    C'est le SEUL oracle disponible quand le caster est une MACHINE OF WAR : `ncEvaluate` resout
+    son unite par `forEachEntity(..., EntityType.Unit, ...)` et une MoW n'y est pas -- il rend
+    alors « unit N not found ». Corriger ce point exigerait de LIVRER un hook, donc une fenetre de
+    reinject (residu `#971-r3`). `aiDryRunAllUnits`, lui, couvre bien le caster MoW (meme voie que
+    `probe_129_thrice_blessed_decision.py`)."""
+    dry = rpc(sid, "aiDryRunAllUnits", {"runnerId": rid}, 240)
+    print("   dryRun couvre : %s"
+          % [(u.get("unitId"), [m.get("abilityType") for m in (u.get("proposed") or [])])
+             for u in (dry.get("units") or [])])
+    nat = next((u for u in (dry.get("units") or []) if u.get("unitId") == uid), None)
+    return [{"cls": m.get("cls"), "ability": m.get("abilityType"), "target": m.get("targetId"),
+             "to": m.get("to")} for m in ((nat or {}).get("proposed") or [])]
 
 
 def playbook_gates(sid, rid, uid, aid):
@@ -227,9 +258,25 @@ def confront(sid, rid, uid, aid, cas, as_json=False):
     print("   PORT should_evaluate=%s candidats=%s"
           % (pb.should_evaluate(ctx), cands))
     if not positions:
-        print("   NON CONFRONTE : aucune position ne rend d'utilite (bucket vide partout)")
-        rec["verdict"] = "NON_CONFRONTE"
-        return rec, 2
+        # Repli sur le TOUR D'IA OBSERVE -- seul oracle disponible pour un caster MoW.
+        dry = native_dryrun(sid, rid, uid)
+        rec["dryRun"] = dry
+        casts = [m for m in dry if m.get("ability") == aid]
+        print("   ncEvaluate MUET (%s) -> repli oracle TOUR D'IA OBSERVE : %s"
+              % (nat.get("error") or "aucune position", dry))
+        if not casts:
+            print("   NON CONFRONTE : le natif ne propose PAS %d ce tour (une autre action gagne)"
+                  % aid)
+            rec["verdict"] = "NON_CONFRONTE"
+            return rec, 2
+        ok = bool(cands) and cands[0].get("target") == casts[0].get("target")
+        rec["verdict"] = "OK" if ok else "DESACCORD"
+        print("   VERDICT (tour observe) : natif tgt=%s port tgt=%s -> %s"
+              % (casts[0].get("target"), (cands[0].get("target") if cands else None),
+                 rec["verdict"]))
+        if as_json:
+            print(json.dumps(rec, default=str))
+        return rec, (0 if ok else 1)
     # ETAGE 1 -- l'utilite, POSITION PAR POSITION.
     ecarts = []
     nat_cls: dict = {}          # ptr natif -> [positions]
@@ -293,6 +340,68 @@ def confront(sid, rid, uid, aid, cas, as_json=False):
     return rec, (0 if ok else 1)
 
 
+def confront_mow(sid, rid, uid, aid, cas, as_json=False):
+    """Confrontation d'un caster MACHINE OF WAR -- oracle = le TOUR D'IA REELLEMENT JOUE.
+
+    POURQUOI PAS `ncEvaluate` NI `aiDryRunAllUnits` : les deux resolvent leur unite parmi les
+    `EntityType.Unit`, et une MoW n'en est pas une. MESURE : `ncEvaluate` rend « unit 83 not
+    found », et `aiDryRunAllUnits` ne couvre que les DEUX unites de l'equipe (84, 86), jamais le
+    caster MoW 83. Ce n'est pas un trou de montage : c'est une limite des deux capteurs, et la
+    lever exige de LIVRER un hook -> fenetre de reinject, residu `#971-r3`.
+
+    L'oracle retenu est donc le plus fort de tous : `aiPlayByUnit` joue le tour, et la TUILE OU LE
+    SPORE MINE APPARAIT **EST** la cible que le natif a choisie. On la lit dans `observeBattle`
+    (delta avant/apres), pas dans une preview."""
+    from engine.playbook import noncomparable as PB
+    summon_id = (__import__("gameconfig").ability(cas["name"]) or {}) \
+        .get("constants", {}).get("unitId")
+    ctx, dv = port_ctx(sid, rid, uid, True)
+    mow_e = next((m for m in (dv.get("mows") or []) if m.get("casterId") == uid), None)
+    print("   MoW=%s owner=%s pos=%s abilities=%s currentPlayer=%s"
+          % ((mow_e or {}).get("visualId"), (mow_e or {}).get("owner"),
+             (mow_e or {}).get("pos"),
+             [(a.get("id"), a.get("usable"), a.get("hasAmmo"), a.get("cooldown"))
+              for a in ((mow_e or {}).get("abilities") or [])],
+             dv.get("currentPlayer")))
+    pb = PB.PLAYBOOKS[aid]
+    cands = pb.generate_candidates(ctx)
+    pos_of_tile = {v: k for k, v in (ctx.tile_id_by_pos or {}).items()}
+    port_tile = pos_of_tile.get(cands[0]["target"]) if cands else None
+    print("   PORT candidats=%s -> tuile %s" % (cands, port_tile))
+    ob0 = rpc(sid, "observeBattle", {"runnerId": rid}, 90)
+    before = {u.get("entityId") or u.get("squadId") for u in (ob0.get("units") or [])}
+    r = rpc(sid, "aiPlayByUnit", {"runnerId": rid, "maxTurns": 1, "maxActivations": 9999,
+                                  "maxPump": 400, "captureEvents": False}, 300)
+    print("   aiPlayByUnit ok=%s turns=%s stop=%s"
+          % (r.get("ok"), r.get("turnsPlayed"), r.get("stopReason")))
+    ob1 = rpc(sid, "observeBattle", {"runnerId": rid}, 90)
+    news = [u for u in (ob1.get("units") or [])
+            if (u.get("entityId") or u.get("squadId")) not in before
+            and u.get("visualId") == summon_id]
+    rec = {"ability": aid, "name": cas["name"], "uid": uid, "portCandidates": cands,
+           "portTile": list(port_tile) if port_tile else None,
+           "summonId": summon_id,
+           "spawned": [{"visualId": u.get("visualId"), "pos": [u.get("col"), u.get("row")]}
+                       for u in news]}
+    print("   natif : %s spawn(s) de %s -> %s"
+          % (len(news), summon_id, [(u.get("col"), u.get("row")) for u in news]))
+    if not news:
+        print("   NON CONFRONTE : le natif n'a pas caste %d ce tour (aucun %s apparu)"
+              % (aid, summon_id))
+        rec["verdict"] = "NON_CONFRONTE"
+        if as_json:
+            print(json.dumps(rec, default=str))
+        return rec, 2
+    nat_tile = (news[0].get("col"), news[0].get("row"))
+    ok = (port_tile is not None) and tuple(port_tile) == nat_tile
+    rec["verdict"] = "OK" if ok else "DESACCORD"
+    print("   VERDICT (tour JOUE) : natif tuile=%s port tuile=%s -> %s"
+          % (nat_tile, port_tile, rec["verdict"]))
+    if as_json:
+        print(json.dumps(rec, default=str))
+    return rec, (0 if ok else 1)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--ability", default="1219")
@@ -323,7 +432,10 @@ def main():
                       % (aid, cas["name"], cas["carrier"]))
                 rc = max(rc, 2)
                 continue
-            _rec, r = confront(sid, rid, uid, aid, cas, as_json=args.json)
+            if cas["mow"]:
+                _rec, r = confront_mow(sid, rid, uid, aid, cas, as_json=args.json)
+            else:
+                _rec, r = confront(sid, rid, uid, aid, cas, as_json=args.json)
             rc = max(rc, r)
         finally:
             if not args.keep:
