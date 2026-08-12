@@ -89,8 +89,8 @@
 // slots et la nullité du pointeur ; ouvrir un menu reste un geste explicite de l'appelant.
 
 import {
-    class_get_fields, class_get_methods, field_get_name, field_get_offset, field_get_type,
-    findClassAnywhere, findMethod, findMethodByParamCount, getSystemType,
+    class_get_fields, class_get_methods, class_get_name, field_get_name, field_get_offset,
+    field_get_type, findClassAnywhere, findMethod, findMethodByParamCount, getSystemType,
     method_get_name, method_get_param_count, methodEntry, s as cstr,
     type_get_class_or_element_class,
 } from "../il2cpp/helpers.js";
@@ -187,8 +187,47 @@ function membre(
 // décompilé). `findMethod` en rendrait UNE, au hasard, et le journal raterait la moitié des
 // inscriptions sans jamais le dire. On s'attache donc à TOUTES les méthodes portant le nom, et
 // on publie le compte (`ancrages`) pour que « 0 fire » se distingue de « pas accroché ».
+//
+// ⚠ ET LES DEUX SURCHARGES NE PRENNENT PAS LE MÊME TYPE — mesuré dans `frida/methods.tsv` :
+//     idun.ui.ScreenVisibilityManager.Register    screen:idun.ui.IScreenVisibility
+//     idun.ui.ScreenVisibilityManager.Register    screen:idun.ui.ITemporarilyHideable
+//     idun.ui.ScreenVisibilityManager.Unregister  screen:idun.ui.ITemporarilyHideable
+// Ce sont des INTERFACES : rien ne garantit que l'objet reçu soit un `idun.ui.ScreenVisibility`,
+// et lire `<GuiId>k__BackingField` à SON offset sur un objet d'une autre classe rend un entier
+// arbitraire. C'est mesuré, pas redouté : le journal publiait `ordinal -1988785488` sur deux
+// transitions de chaque cycle de warmup (#390-r2, deux runs identiques à 28/28 transitions).
+// D'où `classe` ci-dessous — le nom IL2CPP de la classe RÉELLE de l'objet. L'ordinal reste
+// publié tel quel (le rabattre sur `null` masquerait la mesure) ; `classe` est ce qui le rend
+// LISIBLE : `idun.ui.BlurredBackgroundScreen` n'est pas un écran, c'est le wrapper de fond
+// flouté que `BlurredBackgroundScreenVisibilityManagerProxy$$CreateBlurredBackgroundWrapper`
+// inscrit EN PLUS du vrai écran — ce qui explique aussi pourquoi les transitions vont par
+// PAIRES (`montre-debut <wrapper>` puis `montre-debut PauseMenu`).
 
-interface Transition { n: number; quoi: string; gui: { v: number | null; nom: string | null } }
+/** LES LIBELLÉS DE TRANSITION — foyer unique. Ils sont publiés dans `uiWindowEvents` ET
+ *  consommés comme SIGNAL par `warmup-retreat-signal.ts` (#390-r2), qui ne peut pas importer
+ *  ce module (il est pur, donc exécutable hors Frida) et redéclare donc les siens. C'est
+ *  `frida/tools/probe-390-r2-signal-retraite.ts` étage 2 qui garde les deux appariés — une
+ *  divergence rendrait le signal muet sans rien casser d'autre. */
+export const TRANSITION = {
+    /** `ScreenVisibilityManager$$HandleOnScreenStartedShowing` */
+    montreDebut: "montre-debut",
+    /** `ScreenVisibilityManager$$HandleOnScreenFinishedShowing` */
+    montreFin: "montre-fin",
+    /** `ScreenVisibilityManager$$HandleOnScreenStartedHiding` */
+    cacheDebut: "cache-debut",
+    /** `ScreenVisibilityManager$$Register` (les DEUX surcharges) */
+    inscrit: "inscrit",
+    /** `ScreenVisibilityManager$$Unregister` */
+    retire: "retire",
+} as const;
+
+export interface TransitionVue {
+    quoi: string;
+    gui: { v: number | null; nom: string | null };
+    /** Nom IL2CPP de la classe réelle de l'objet reçu. `null` = illisible. */
+    classe: string | null;
+}
+interface Transition extends TransitionVue { n: number }
 
 const journal: Transition[] = [];
 /** Tampon glissant. Publier `ecartes` : un débordement muet ferait dater à tort une séquence. */
@@ -197,6 +236,11 @@ let recus = 0;
 let actif = false;
 let ancrages: number | null = null;   // null = hooks JAMAIS posés (≠ posés et 0 fire)
 const PLAFOND_JOURNAL = 2000;
+
+/** Les abonnés PUSH (cf. `ecouterTransitions`). Volontairement SÉPARÉS du drapeau `actif` et
+ *  du tampon : ceux-là sont l'état de l'OPÉRATEUR. */
+type Abonne = (t: TransitionVue) => void;
+const abonnes = new Set<Abonne>();
 
 /** Résolu une fois : le champ `GuiId` de `ScreenVisibility` et sa table de membres. */
 let cGuiCache: Champ | null | undefined;
@@ -211,11 +255,35 @@ function guiDeLEcran(screen: NativePointer): { v: number | null; nom: string | n
     return membre(lireInt(screen, cGuiCache ?? null), tGuiCache);
 }
 
-function noter(quoi: string, screen: NativePointer): void {
-    if (!actif) return;
+/** Le nom de la classe RÉELLE d'un objet IL2CPP : son premier slot est son `Il2CppClass*`.
+ *  Rend `null` plutôt que d'inventer — un nom faux serait pire que pas de nom. */
+function classeDe(obj: NativePointer): string | null {
     try {
+        if (obj.isNull()) return null;
+        const k = obj.readPointer();
+        if (k.isNull()) return null;
+        return cstr(class_get_name(k) as NativePointer);
+    } catch { return null; }
+}
+
+function noter(quoi: string, screen: NativePointer): void {
+    // Sortie immédiate quand personne n'écoute : le drapeau `actif` gate le JOURNAL, les
+    // abonnés sont indépendants — mais aucun des deux ne doit faire payer les lectures
+    // quand il n'y a rien à alimenter.
+    if (!actif && abonnes.size === 0) return;
+    try {
+        const vue: TransitionVue = {
+            quoi, gui: guiDeLEcran(screen), classe: classeDe(screen),
+        };
+        // Diffusion AVANT le gate : un abonné n'a pas à dépendre de l'état du journal de
+        // l'opérateur, et le warmup ne doit pas avoir à l'armer (donc à l'éteindre après,
+        // ce qui écraserait une observation en cours).
+        for (const cb of abonnes) {
+            try { cb(vue); } catch { /* un abonné qui jette n'emporte pas les autres */ }
+        }
+        if (!actif) return;
         recus++;
-        journal.push({ n: recus, quoi, gui: guiDeLEcran(screen) });
+        journal.push({ n: recus, ...vue });
         if (journal.length > PLAFOND_JOURNAL) {
             ecartes += journal.length - PLAFOND_JOURNAL;
             journal.splice(0, journal.length - PLAFOND_JOURNAL);
@@ -244,15 +312,88 @@ function ancrer(klass: NativePointer, nom: string, quoi: string): number {
     return poses;
 }
 
+/** UNE ÉCOUTE PUSH DES TRANSITIONS — ce qu'un consommateur INTERNE au bundle peut attendre
+ *  sans sonder. Ajouté par #390-r2 pour `retreatToCampaign` (`warmup-singletons.ts`), qui
+ *  détectait la sortie de bataille en interrogeant l'UI toutes les 250 ms.
+ *
+ *  ⚠ POURQUOI CE N'EST **PAS** UN `uiWindowEvents({start:true})` SUIVI D'UN `{stop:true}`.
+ *  Le drapeau `actif`, le tampon et `recus` sont l'état de l'OPÉRATEUR : un `start` du warmup
+ *  puis son `stop` ÉTEINDRAIT un journal qu'un humain venait d'armer, et un `clear` effacerait
+ *  ses transitions. L'abonnement est purement ADDITIF — il ne lit ni n'écrit `actif`, ne touche
+ *  pas au tampon, et se retire à `fermer()`.
+ *
+ *  ⚠ `ancrages === null` = LE SIGNAL N'EXISTE PAS (classe introuvable). Tri-état : l'appelant
+ *  doit le DIRE et retomber sur son filet, jamais le lire comme « rien ne s'est passé ».
+ *
+ *  COÛT MESURÉ (#390-r2, build rnca9r7q6c) : un cycle de warmup complet — entrée en bataille,
+ *  pause, retraite, retour campagne — produit **28** transitions, dont 6 après le clic de
+ *  confirmation. Ces points sont FROIDS ; ils ne sont pas dans le régime de `ui-mutations.ts`
+ *  (`GameObject$$SetActive`), qui lui n'est jamais auto-armé. */
+export interface EcouteTransitions {
+    /** Les transitions vues DEPUIS l'abonnement, dans l'ordre d'arrivée. */
+    vues: () => readonly TransitionVue[];
+    /** Résout sur la PREMIÈRE transition d'index `>= depuis` satisfaisant `pred` — déjà
+     *  arrivée (balayage du tampon local) ou à venir (push). `null` au plafond.
+     *
+     *  Le balayage préalable n'est pas un sondage : il ferme la fenêtre entre le geste qui
+     *  déclenche la transition et l'appel — sans lui, la transition la plus rapide serait
+     *  perdue, et c'est exactement celle qui compte. */
+    attendre: (
+        pred: (t: TransitionVue) => boolean, plafondMs: number, depuis?: number,
+    ) => Promise<TransitionVue | null>;
+    /** Nombre d'`Interceptor` posés. `null` = aucun, donc AUCUN signal possible. */
+    ancrages: number | null;
+    fermer: () => void;
+}
+
+export function ecouterTransitions(): EcouteTransitions {
+    if (ancrages === null) ancrages = installerAncrages();
+    const vues: TransitionVue[] = [];
+    const reveils = new Set<() => void>();
+    const cb: Abonne = (t) => {
+        vues.push(t);
+        for (const r of [...reveils]) r();
+    };
+    abonnes.add(cb);
+    return {
+        ancrages,
+        vues: () => vues,
+        fermer: () => { abonnes.delete(cb); reveils.clear(); },
+        attendre: (pred, plafondMs, depuis = 0) => new Promise<TransitionVue | null>(
+            (resolve) => {
+                let i = Math.max(0, depuis);
+                let fini = false;
+                let minuteur: ReturnType<typeof setTimeout> | null = null;
+                const terminer = (v: TransitionVue | null): void => {
+                    if (fini) return;
+                    fini = true;
+                    reveils.delete(examiner);
+                    if (minuteur !== null) clearTimeout(minuteur);
+                    resolve(v);
+                };
+                function examiner(): void {
+                    for (; i < vues.length; i++) {
+                        const t = vues[i] as TransitionVue;
+                        if (pred(t)) { terminer(t); return; }
+                    }
+                }
+                reveils.add(examiner);
+                examiner();                       // ce qui est DÉJÀ arrivé
+                if (fini) return;
+                minuteur = setTimeout(() => terminer(null), plafondMs);
+            }),
+    };
+}
+
 function installerAncrages(): number | null {
     const klass = findClassAnywhere("idun.ui", "ScreenVisibilityManager");
     if (!klass) return null;
     let total = 0;
-    total += ancrer(klass, "HandleOnScreenStartedShowing", "montre-debut");
-    total += ancrer(klass, "HandleOnScreenFinishedShowing", "montre-fin");
-    total += ancrer(klass, "HandleOnScreenStartedHiding", "cache-debut");
-    total += ancrer(klass, "Register", "inscrit");
-    total += ancrer(klass, "Unregister", "retire");
+    total += ancrer(klass, "HandleOnScreenStartedShowing", TRANSITION.montreDebut);
+    total += ancrer(klass, "HandleOnScreenFinishedShowing", TRANSITION.montreFin);
+    total += ancrer(klass, "HandleOnScreenStartedHiding", TRANSITION.cacheDebut);
+    total += ancrer(klass, "Register", TRANSITION.inscrit);
+    total += ancrer(klass, "Unregister", TRANSITION.retire);
     Interceptor.flush();
     return total;
 }
