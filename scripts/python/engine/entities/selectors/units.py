@@ -424,6 +424,29 @@ class Friends(TargetsSelector):
                 and (st is None or _selection_ok(u, st, ctx))]
 
 
+def _est_entite_tuile(d: dict, board) -> bool:
+    """`IdunBattle.Entities.EntityExtensions$$IsTile(entity)` -- le conjoint du `IsUnitFoot ||
+    IsTile` qui GARDE la re-resolution `GetUnit` de
+    `IdunBattle.DSL.TargetsSelector$$SelectUnit`. Le port n'a pas de composant de tuile : sa SEULE
+    fabrique d'entite-tuile est `runner.abilities.behaviours.context._tile_entity`, dont la forme
+    est figee par `test_287r12_role_target_tuile_offline` -- `visualId` NUL et un `id` du
+    `boardGraph`. Les deux conditions ensemble, jamais l'une seule : `visualId` nul designe aussi
+    le caster MINIMAL non-tuile (qui n'a pas de `pos` et que la branche de re-resolution jette,
+    comme le natif), et un id de tuile ne peut pas etre confondu avec une unite qui, elle, porte
+    toujours son `visualId`.
+
+    ⚠ POURQUOI CE PREDICAT EXISTE (#962). Le court-circuit << ENTITE-UNITE en entree >> de
+    `Units.select` (#951) testait la seule presence de la CLE `visualId`. Or l'entite-tuile PORTE
+    cette cle, a `None` : elle passait donc pour une unite et se rendait ELLE-MEME au lieu de son
+    occupant. Effet MESURE sur `1017 FragBomb` (tile-target) : `Units(Target@0x178, 1, 1)` rendait
+    l'id de la TUILE, donc `main_attack: None` et la cible principale rangee dans `splash` -- le
+    defaut exact que #287-r12 avait ferme, rouvert par la bande.
+    """
+    return (d.get("visualId") is None
+            and board is not None
+            and d.get("id") in getattr(board, "by_id", {}))
+
+
 class Units(TargetsSelector):
     """`IdunBattleLogic.Entities.DSLFactory$$Units(tiles)` → `UnitsOnTilesSelector` : unités DEBOUT sur les tuiles du
     sélecteur source (`tiles` évalue → liste de positions). Généralise l'inline de SurroundingUnits.
@@ -478,7 +501,8 @@ class Units(TargetsSelector):
         for it in items:
             if isinstance(it, bool):
                 continue
-            if isinstance(it, dict) and it.get("id") is not None and "visualId" in it:
+            if (isinstance(it, dict) and it.get("id") is not None and "visualId" in it
+                    and not _est_entite_tuile(it, board)):
                 # ENTITE-UNITE en entree -> COURT-CIRCUIT, mirror LU de
                 # `IdunBattle.DSL.TargetsSelector$$SelectUnit(entity, selectionType)` :
                 #
