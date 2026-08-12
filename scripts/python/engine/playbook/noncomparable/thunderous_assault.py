@@ -184,6 +184,23 @@ class ThunderousAssaultPlaybook(NonComparablePlaybook):
             return r
         return None
 
+    def evaluate_at(self, ctx: NCContext, P: tuple):
+        """`EvaluateNonComparable(caster, UnitPosition(P))` -> `(target, util)` ou `None` -- la
+        PREMIERE strategie non nulle, jamais un argmax entre les deux (`break` natif).
+
+        C'est l'unite de mesure de l'oracle `ncEvaluate`, qui invoque exactement ce corps par
+        position. `MIN_UTILITY` vaut `-inf` : le test est ecrit pour que le lecteur voie qu'il
+        n'est JAMAIS franchi, pas parce qu'un seuil existe."""
+        r = self.strategy1(ctx, P)
+        if r is None:
+            r = self.strategy2(ctx, P)        # `break` natif : la 2e ne tire que si la 1re rend null
+        if r is None:
+            return None
+        util = float(r[1])
+        if util < self.MIN_UTILITY:           # `-inf` : jamais franchi (aucun seuil natif)
+            return None
+        return (r[0], util)
+
     def generate_candidates(self, ctx: NCContext) -> list[dict]:
         """Le generateur natif balaie les positions (`<GenerateActions>d__7`) et fusionne les
         Buckets ; PAR position, `EvaluateNonComparable` prend la PREMIERE strategie non nulle. Le
@@ -191,16 +208,11 @@ class ThunderousAssaultPlaybook(NonComparablePlaybook):
         `ctx.reach_nc` (l'ORIGINE) gagne."""
         best = None       # (target, tile, util)
         for P in (ctx.reach_nc or []):            # ORIGINE en tete puis moves (ordre natif)
-            r = self.strategy1(ctx, P)
-            if r is None:
-                r = self.strategy2(ctx, P)        # `break` natif : la 2e ne tire que si la 1re rend null
+            r = self.evaluate_at(ctx, P)
             if r is None:
                 continue
-            util = float(r[1])
-            if util < self.MIN_UTILITY:           # `-inf` : jamais franchi (aucun seuil natif)
-                continue
-            if best is None or util > best[2]:    # strict > : premiere position du max gagne
-                best = (r[0], P, util)
+            if best is None or r[1] > best[2]:    # strict > : premiere position du max gagne
+                best = (r[0], P, r[1])
         if best is None:
             return []
         if ctx.debug:

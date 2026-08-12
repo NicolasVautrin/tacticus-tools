@@ -119,20 +119,35 @@ class JakhalStimmsPlaybook(NonComparablePlaybook):
             return False
         return (_get_num_attack_targets_in_position(ctx, ctx.uid, P) - 1) < 1
 
+    def evaluate_at(self, ctx: NCContext, P: tuple):
+        """`EvaluateNonComparable(caster, UnitPosition(P))` -> `(target, util)` = le `best` du
+        `Bucket` LOCAL a cette position, ou `None` (bucket vide).
+
+        C'est l'unite de mesure de l'oracle `ncEvaluate`, qui invoque exactement ce corps par
+        position -- d'ou son existence separee de `generate_candidates` (le generateur, qui
+        fusionne les buckets de toutes les positions)."""
+        best = None       # (target, util)
+        for tgt, tpos in eligible_units_at_position(ctx, self.ABILITY_ID, P):
+            if tpos is None:
+                continue
+            n = self.aoe_count(ctx, P, tpos)
+            util = 1.0 + float(n)                 # `Fix64(1) + Fix64(count)`
+            if self.is_disallowed_target(ctx, P, tgt, n):
+                continue                          # aucune action pour cette cible
+            if util < self.MIN_UTILITY:
+                continue                          # admission `Bucket.AddAction`
+            if best is None or util > best[1]:    # strict > : premiere cible du max gagne
+                best = (tgt, util)
+        return best
+
     def generate_candidates(self, ctx: NCContext) -> list[dict]:
         best = None       # (target, tile, util)
         for P in (ctx.reach_nc or []):            # ORIGINE en tete puis moves (ordre natif)
-            for tgt, tpos in eligible_units_at_position(ctx, self.ABILITY_ID, P):
-                if tpos is None:
-                    continue
-                n = self.aoe_count(ctx, P, tpos)
-                util = 1.0 + float(n)             # `Fix64(1) + Fix64(count)`
-                if self.is_disallowed_target(ctx, P, tgt, n):
-                    continue                      # aucune action pour cette cible
-                if util < self.MIN_UTILITY:
-                    continue                      # admission `Bucket.AddAction`
-                if best is None or util > best[2]:   # strict > : premiere position/cible du max
-                    best = (tgt, P, util)
+            r = self.evaluate_at(ctx, P)
+            if r is None:
+                continue
+            if best is None or r[1] > best[2]:    # strict > : premiere position du max gagne
+                best = (r[0], P, r[1])
         if best is None:
             return []
         if ctx.debug:
@@ -177,29 +192,37 @@ class OverwhelmingWrathPlaybook(NonComparablePlaybook):
     `TargetingQuery$$GetCasterNotAddedReason`, MESUREE en contre-epreuve G1 de
     `probe_503_generalisation.py` : sans ennemi adjacent le natif REFUSE le cast).
 
-    Consequence DIRECTE sur l'utilite, et c'est le point le plus fragile de ce port : si le natif
-    compte le caster dans `targets.Count`, l'utilite vaut `nAdjacents + 1`, pas `nAdjacents`. Le
-    port ne TRANCHE pas a priori -- il compte ce que le selecteur natif publie
-    (`_targets.eligible_units_at_position(..., self_cast=True)`), donc il suit le natif dans les
-    deux regimes.
-    Ce que le port ne peut pas faire seul, c'est PLACER le caster dans l'ordre s'il n'y figure pas :
-    ce volet est alors inerte, et l'ecart est nomme."""
+    Consequence DIRECTE sur l'utilite, et c'est le point le plus fragile de ce port : le natif
+    COMPTE le caster dans `targets.Count`, donc l'utilite vaut `nAdjacents + 1`, pas `nAdjacents`.
+    MESURE #977 (runner MC1_67/777, `worldEightbound` en (2,5), DEUX ennemis adjacents) :
+    `abilityTargets.fromHere` rend `[86, 90, 80]` et `ncEvaluate` rend `util = 3`. Le caster est
+    donc bien dans le compte, et il y est EN DERNIER -- ce rang decide de la cible emise, puisque
+    le corps ne garde que `First(targets)`. C'est `_targets.eligible_units_at_position(...,
+    self_cast=True)` qui porte les deux faits."""
 
     ABILITY_ID = int(ActiveAbilityType.OverwhelmingWrath)   # 1141 = 0x475
     MIN_UTILITY = 1.0     # IdunBattle.AI.Playbook.Loki.OverwhelmingWrathPlaybook$$.cctor = Fix64(1)
     PRIORITY = 0          # 1141 hors `NATIVE_PRIORITY` (sweep exhaustif #170) -> AbilityPriority.Normal
 
+    def evaluate_at(self, ctx: NCContext, P: tuple):
+        """`EvaluateNonComparable(caster, UnitPosition(P))` -> `(target, util)` ou `None`.
+        L'unite de mesure de l'oracle `ncEvaluate` (cf. le jumeau de `JakhalStimmsPlaybook`)."""
+        targets = eligible_units_at_position(ctx, self.ABILITY_ID, P, self_cast=True)
+        if not targets:
+            return None                           # `targets.Count > 0` : aucune action
+        util = float(len(targets))                # `Fix64(targets.Count)`
+        if util < self.MIN_UTILITY:
+            return None
+        return (targets[0][0], util)              # `Enumerable.First(targets)`
+
     def generate_candidates(self, ctx: NCContext) -> list[dict]:
         best = None       # (target, tile, util)
         for P in (ctx.reach_nc or []):            # ORIGINE en tete puis moves (ordre natif)
-            targets = eligible_units_at_position(ctx, self.ABILITY_ID, P, self_cast=True)
-            if not targets:
-                continue                          # `targets.Count > 0` : aucune action
-            util = float(len(targets))            # `Fix64(targets.Count)`
-            if util < self.MIN_UTILITY:
+            r = self.evaluate_at(ctx, P)
+            if r is None:
                 continue
-            if best is None or util > best[2]:    # strict > : premiere position du max gagne
-                best = (targets[0][0], P, util)   # `Enumerable.First(targets)`
+            if best is None or r[1] > best[2]:    # strict > : premiere position du max gagne
+                best = (r[0], P, r[1])
         if best is None:
             return []
         if ctx.debug:
