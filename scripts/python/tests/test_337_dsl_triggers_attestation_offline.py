@@ -204,9 +204,15 @@ def test_la_famille_DSLTriggers_est_INTEGRALEMENT_TRANCHEE(tmp_path, capsys):
     # noeud. Une mention documentaire qui devient un PORT change de colonne dans la table
     # d'attestation ET ici, dans le MEME commit -- et l'assertion suivante verifie qu'elle a bien
     # change de colonne, au lieu d'avoir simplement disparu de la table.
+    # `IsPlayerDefeated` vient de #962 : #960 (`ArmourOfShriekingSouls`) l'a CITEE en portant le
+    # gate `If(NOT AmountIsZero(Filter(PlayersByTeam, NOT IsPlayerDefeated)), ...)` de
+    # `$$Resurrect`. Le natif alloue un trigger DEDIE dont le predicat
+    # (`PlayerExtensions$$IsPlayerDefeated`) a TROIS branches, dont le port n'a de substrat que pour
+    # UNE (`_team_has_living_unit`, degradation RESTRICTIF nommee) -- donc NON_PORTE, exactement la
+    # croissance d'inventaire que le paragraphe ci-dessus decrit.
     lus = {r[1] for r in trig if r[6].startswith("attestation:") and r[5] == "NON_PORTE"}
     assert lus == {"Direct", "IsFirstHitGroupInAttack",
-                   "IsInTeamSynapseRange",
+                   "IsInTeamSynapseRange", "IsPlayerDefeated",
                    "get_CasterIsCasterTile", "get_OwnerIsTargetTile", "get_OwnerTileIsTarget"}, lus
 
     # Les quatre premiers rangs du classement par levier (#337 les cible nommement).
