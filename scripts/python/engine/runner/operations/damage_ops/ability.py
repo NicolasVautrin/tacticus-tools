@@ -703,7 +703,10 @@ class _AbilityAttack:
                 crit_allowed0=r["crit_allowed"],
                 # #407 : JUMEAU BLOCK -- `OngoingAttack+0x48` (`FailedBlockIds`), meme portee et
                 # meme threading (`SetupHitGroup` le seme par reference dans `OngoingHitGroup+0x60`).
-                failed_block0=r["failed_block"])
+                failed_block0=r["failed_block"],
+                # #963-r2 : TROISIEME etat de portee ATTAQUE (`isFirstDamagingHit`), cf.
+                # `damage_ops/normal.py`. A ZERO, le flag revient au premier groupe qui damage.
+                damaging_done0=int(r["total"] or 0) > 0)
         # DE-FORK — la POSE on-hit des tile-effects de profil (`OnFireDamageAbility` 1016,
         # `OnToxicDamageAbility` 1203) N'EST PLUS appelee ici. Leur vecteur natif est
         # `On(DamageDealt = 0x10)`, emis par `IdunBattle.Operations.ApplyDamageOperation$$Execute`

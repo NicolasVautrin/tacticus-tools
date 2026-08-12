@@ -731,6 +731,10 @@ class _Normal:
             # dans `OngoingHitGroup+0x60` par `ADamageOperation$$SetupHitGroup` et alimente par
             # `RegisterBlocks`. Une source ayant echoue en phase d'arme reste EXCLUE des groupes.
             failed_block0=r["failed_block"],
+            # #963-r2 : TROISIEME etat de portee ATTAQUE (`isFirstDamagingHit`, `AbilityEntities
+            # +0x118`) -- la phase d'arme a-t-elle deja inflige du degat ? A ZERO (salve entierement
+            # bloquee), le flag revient au PREMIER groupe additionnel qui damage, comme le natif.
+            damaging_done0=int(r["total"] or 0) > 0,
             hit_interceptor=_hit_icept)      # #366-r1 : meme attaque -> meme intercepteur per-coup
         if _ah is not None:
             death = death or _ah.get("death")
