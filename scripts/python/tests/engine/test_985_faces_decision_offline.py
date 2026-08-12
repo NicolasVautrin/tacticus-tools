@@ -17,6 +17,39 @@ if _PYROOT not in sys.path:
     sys.path.insert(0, _PYROOT)
 
 
+#: Ce qui doit changer pour que ce FICHIER de test puisse changer de verdict (#486-r15).
+#: Un declencheur trop ETROIT est un FAUX VERT -- le fichier ne se rejoue pas sous `--since`
+#: quand ce qu'il garde a bouge. On liste donc ce que les etages LISENT reellement.
+DECLENCHEUR = {
+    "chemins": (
+        # Les deux modules portes, et le registre qui les inscrit.
+        "scripts/python/engine/playbook/noncomparable/silent_death.py",
+        "scripts/python/engine/playbook/noncomparable/heavy_rail_rifle.py",
+        "scripts/python/engine/playbook/noncomparable/__init__.py",
+        # `NCContext`, `native_priority`/`NATIVE_PRIORITY` (etage 1) et `_unit_cfg` (etage 4).
+        "scripts/python/engine/playbook/noncomparable/_base.py",
+        # Le recenseur de faces DECISION et le ledger d'attestations qu'il consulte (etage 1).
+        "scripts/python/decision_face_voies.py",
+        "scripts/python/coverage_attestations.py",
+        # Le registre des formes de moyenne et le foyer de config (etage 3).
+        "scripts/python/engine/entities/abilities/triggered_ability.py",
+        "scripts/python/engine/entities/abilities/ability_configuration.py",
+        # La SOURCE des mesures d'unicite et de lisibilite (etage 3) : sans elle, la refutation
+        # de #970-r2 n'est plus verifiable.
+        "scripts/python/gameconfig.py",
+        "data/symbols/*/frida/gameconfig.json",
+        # `MOW_POOL`, consomme tel quel par l'etage 4.
+        "scripts/python/probe_985_six_faces.py",
+    ),
+    "build": False,
+    "toujours": False,
+    "raison": "Les deux playbooks portes, le registre qui les inscrit, le recenseur de faces "
+              "DECISION, les deux foyers de config/triggered dont l'etage 3 tire la refutation "
+              "de #970-r2, et le gameconfig -- dont l'UNICITE de l'appariement "
+              "`dmgPctReduction`+`extraDmgPct` est la mesure qui fonde cette refutation.",
+}
+
+
 # ── etage 1 : les deux abilities sont INSCRITES, et par la voie attendue ──────────────────────
 def test_1068_et_1160_sont_portees_par_le_registre_noncomparable():
     import decision_face_voies as DFV
