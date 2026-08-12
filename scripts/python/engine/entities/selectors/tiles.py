@@ -200,6 +200,36 @@ class LastUnitAttackedBy(TargetsSelector):
         return (u or {}).get("_last_attacked")
 
 
+class PendingMovingTile(TargetsSelector):
+    """`IdunBattleLogic.Entities.DSLSelectors$$PendingMovingTile(unit)` ->
+    `IdunBattle.Entities.Selectors.PendingMovingTileSelector$$Select` (#963).
+
+    Le corps natif, LU :
+
+        var pending = <unit>.SelectFirst(entities)?.<+0xa8 Nullable<UnitPositionId>>;
+        if (pending.HasValue)
+            return UnitPositionIdExtensions.ToTileList(pending.Value, this.<+0x10 state>);
+        return new List<IEntity>();                       // Nullable VIDE -> liste vide
+
+    C'est la tuile vers laquelle l'unite est **EN COURS** de se deplacer : le champ `+0xa8` n'est
+    renseigne que pendant qu'un `MoveUnitOperation` est en vol (la reservation de destination), et
+    il est VIDE le reste du temps.
+
+    ⚠ CE SELECTEUR REND TOUJOURS `[]` COTE PORT, ET C'EST FIDELE, pas une degradation : le
+    deplacement y est ATOMIQUE (`MoveUnitOperation` ecrit la `PositionComponent` et rend la main),
+    il n'existe aucun etat « position reservee, pas encore atteinte ». Il est porte quand meme pour
+    que la structure des arbres qui l'utilisent reste LISIBLE -- le call-site
+    `IdunBattleLogic.Entities.Abilities.Active.Loki.GeminaeSuperiaAbility$$GetPossibleSpawnTiles`
+    ecrit `AdjacentTiles(Owner) op_Subtraction PendingMovingTile(Owner)`, et effacer la
+    soustraction ferait disparaitre un terme du natif au lieu de le documenter comme inerte.
+    Il redeviendra actif le jour ou le port modelisera la reservation de destination."""
+    def __init__(self, unit: TargetsSelector):
+        self.unit = unit
+
+    def select(self, ctx):
+        return []               # `Nullable<UnitPositionId>` toujours VIDE cote port (cf. docstring)
+
+
 class AdjacentTiles(TargetsSelector):
     """`DSLFactory.AdjacentTiles(source)` : UNION (BRUTE, avec doublons possibles entre unites -> le
     natif fait suivre d'un `Unique`) des tuiles hex-adjacentes aux unites de `source`, via le

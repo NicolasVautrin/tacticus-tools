@@ -243,6 +243,9 @@ from ..loki.medicus_ministorum import MedicusMinistorumAbility        # #958 (pa
 from ..loki.aggressive_onslaught import (AggressiveOnslaughtPrepareAbility,   # #958 (passif
                                          AggressiveOnslaughtSummonAbility,    #  bloodIntercessor,
                                          AggressiveOnslaughtUnsummonAbility)  #  3 classes natives)
+from ..loki.red_rampage import (RedRampageAttackAbility,              # #963 (passif bloodTerminator,
+                                RedRampageBuffAbility)                #  2 classes natives)
+from ..loki.geminae_superia import GeminaeSuperiaAbility              # #963 (passif adeptCelestine)
 from ..loki.dawn_blade import DawnBladeHealAbility                     # #317 (relique tauFarsight)
 from ..loki.daemonflesh_plate import (DaemonfleshPlateAbility,        # #916 (relique 1493)
                                       DaemonfleshPlateResetActiveAbility)
@@ -895,6 +898,60 @@ ABILITY_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
     "AggressiveOnslaught": [AggressiveOnslaughtPrepareAbility,
                             AggressiveOnslaughtSummonAbility,
                             AggressiveOnslaughtUnsummonAbility],
+    # RedRampage (passif de kit `bloodTerminator` << Cezare >>, `TriggeredAbilityType` 0x60f = 1551
+    # -- #963) -- DEUX classes natives pour UN id de kit, toutes deux base `BaseTriggeredAbility`
+    # (lue dans `classes.tsv`) :
+    #   * `RedRampage_AttackAbility` : `On(0x1c = ArrivedAtFinalTile) & get_OwnerIsActor
+    #     & !AmountIsZero(AdjacentEnemies(Owner@+0x30, 1, 3))`
+    #     -> `AttackWithAttackDamage(Owner@+0x30, <le MEME selecteur NU>, MinMaxDamage(abilityState),
+    #        GetDamageProfile(), GetHits(), ..., selectionType 2 OnlyTargetable)` ;
+    #   * `RedRampage_BuffAbility`   : `On(0x36 = UnitDefeated) & <DSLTriggers+0x28 = IsTurnOf(Owner)>
+    #     & AreEnemies(Owner@+0x30, Target@+0x60, 1 ByOriginalTeam) & get_OwnerIsActor
+    #     & !AmountIsEqual(EffectRemainingTurns(EffectFromOwner(Owner, 0x622)), <turns>)`
+    #     -> `If(HasEffect(Owner, 0x622, 0, 6 Both), ChangeEffectTurns(Owner, 0x622, <turns>, 1 Set),
+    #        AddStaticStatModifierEffect(Owner, 0x622 RedRampage_ExtraMovement, 1 Movement,
+    #        Get(GetNumberConstant(0xe extraMovement)), <turns>, isHidden 0))`,
+    #     ou `<turns>` = `RedRampage_BuffAbility$$GetEffectTurnsAfterDefeatedEnemy` =
+    #     `Sum(<DSLFormulas+0x20> = Direct(1), TurnsFromRounds(1))`.
+    # ⚠ CINQUIEME consommateur d'`On(0x1c)`, MEME gate que `ChampionOfTheFeast` / `FuryOfTheAncients`
+    # -- ET LA RESSEMBLANCE S'ARRETE LA : les deux autres enveloppent leur pool dans un
+    # `Cache`/`PickRandomly` et ne frappent QU'UNE cible ; celui-ci passe le selecteur NU et frappe
+    # TOUS les ennemis adjacents, sans consommer le moindre tirage PRNG. Ne pas recopier le voisin.
+    # ⚠ Le buff n'est PAS cumulatif : la branche `if` RE-TIME (`ChangeType.Set`), elle ne re-pose
+    # rien -- et `NeedsEffectUpdateAfterDefeatedEnemy` coupe deja le fire quand la duree est atteinte.
+    # Cf. loki/red_rampage.py (IdunBattleLogic.Entities.Abilities.Triggered.Loki.RedRampage_AttackAbility$$CreateTrigger /
+    # ...$$CreateBehaviour / ...$$GetTargets ; ...RedRampage_BuffAbility$$CreateTrigger /
+    # ...$$CreateBehaviour / ...$$NeedsEffectUpdateAfterDefeatedEnemy /
+    # ...$$GetEffectTurnsAfterDefeatedEnemy).
+    "RedRampage": [RedRampageAttackAbility, RedRampageBuffAbility],
+    # GeminaeSuperia (passif de kit `adeptCelestine` << Celestine >>, `TriggeredAbilityType`
+    # 0x418 = 1048 -- #963). Le namespace natif dit `Abilities.**Active**.Loki` alors que la base LUE
+    # dans `classes.tsv` est `BaseTriggeredAbility` : c'est bien une passiveAbility (meme piege que
+    # `MedicusMinistorum`).
+    #   `On(0x39 = PreDamageTaken, ownerNeedsToBeAlive = 0) & IsFirstDamagingHitInSeries
+    #    & get_OwnerIsTarget & AmountIsGreaterThanZero(GetPossibleSpawnTiles()) & SummonLimit()`
+    #   -> `Spawn(Owner@+0x30, PickRandomly(GetPossibleSpawnTiles(), 1, 0, 0x7fffffff, false),
+    #            GetStringConstant(0 unitId), SpawnUnitOptions.WithStatsFromConfig(config,
+    #            abilityState){ +0x10 = AddEffect(0x425 GeminaeSuperia_JustSummonedEffect,
+    #            AbilityStateReference, Target@+0x60, turns = null) })
+    #      op_BitwiseAnd
+    #      TriggerAbility(Last(Children(Owner@+0x30), 1, true), 0x419 = Lifewards,
+    #                     actor = Actor@+0x40, caster = Caster@+0x48, target = Owner@+0x30,
+    #                     unitFeetTiles = null, selectionType 1 OnlyAlive, ignoreUnitHavingAbility 0)`
+    # avec `GetPossibleSpawnTiles` = `CanAddUnit(AdjacentTiles(Owner) op_Subtraction
+    # PendingMovingTile(Owner))` et `SummonLimit` = `!AmountIsEqualOrGreater(UnitsWithId(
+    # Children(Owner), GetStringConstant(0), 0 Any), Get(2))`. ⚠ Le `0` du `UnitsWithId` est
+    # `UnitSelectionType.Any` et `DSLSelectors$$Children` n'a AUCUN filtre `alive` : le cap compte
+    # donc les Geminae POSEES, MORTES COMPRISES -- c'est bien le « twice per battle » de l'i2, pas
+    # « deux vivantes a la fois ». Et `Get(2)` est le LITTERAL 2, ecrit dans l'ability native, pas
+    # une variable de config.
+    # ⚠ La face DECISION (`IdunBattle.AI.Playbook.Loki.GeminaeSuperiaPlaybook`) etait DEJA portee
+    # depuis case-165b (`engine/playbook/geminae_superia.py`) ; seule la face COMBAT manquait, et
+    # DEUX lecteurs de l'effet 1061 l'attendaient (`operations/spawn.py`, `abilities/loki/momentum.py`,
+    # tous deux annotes « NO-OP offline tant qu'aucun poseur de 1061 n'est porte »).
+    # Cf. loki/geminae_superia.py (IdunBattleLogic.Entities.Abilities.Active.Loki.GeminaeSuperiaAbility$$CreateTrigger /
+    # ...$$CreateBehaviour / ...$$GetPossibleSpawnTiles / ...$$SummonLimit).
+    "GeminaeSuperia": [GeminaeSuperiaAbility],
     # RelentlessMarch (passif `necroWarden` << Makhotep >>, `TriggeredAbilityType` 0x3ec = 1004 --
     # HOMONYME d'id avec `ActiveAbilityType` 1004 `MortisRound`, #328) :
     # `On(TurnStart_Other=0x13) & <DSLTriggers+0x28 = IsTurnOf(Owner)>` ->

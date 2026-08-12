@@ -172,7 +172,7 @@ class Spawn(AbilityBehaviour):
     native VIDE = comportement anterieur strictement inchange."""
     __slots__ = ("tile_selector", "summon_ability", "pick_n", "on_appearance",
                  "spawn_as_single_unit", "unit_id_constant", "ability_state",
-                 "stat_modifier_formulas", "stat_key_suffix")
+                 "stat_modifier_formulas", "stat_key_suffix", "on_spawn_effect")
 
     def __init__(self, tile_selector: TargetsSelector, summon_ability: str, pick_n: int | None = None,
                  on_appearance: AbilityBehaviour | None = None,
@@ -180,7 +180,8 @@ class Spawn(AbilityBehaviour):
                  unit_id_constant: str = "unitId",
                  ability_state: tuple | None = None,
                  stat_modifier_formulas: list | None = None,
-                 stat_key_suffix: str = ""):
+                 stat_key_suffix: str = "",
+                 on_spawn_effect: AbilityBehaviour | None = None):
         self.tile_selector, self.summon_ability = tile_selector, summon_ability
         self.pick_n = pick_n
         self.on_appearance = on_appearance
@@ -189,6 +190,7 @@ class Spawn(AbilityBehaviour):
         self.ability_state = ability_state                       # 2e arg de `WithStatsFromConfig`
         self.stat_modifier_formulas = stat_modifier_formulas     # `SpawnUnitOptions+0x28`
         self.stat_key_suffix = str(stat_key_suffix)              # `ordinal` de WithStatsFromConfig
+        self.on_spawn_effect = on_spawn_effect                   # `SpawnUnitOptions+0x10` (#963)
 
     def execute(self, entities, ectx):
         import gameconfig as GC
@@ -275,6 +277,19 @@ class Spawn(AbilityBehaviour):
                 # l'unite fraichement creee s'INITIALISENT -> event `On(AbilityInit=0x21)`. C'est ce
                 # vecteur que consomme `ListenUpMaggotsAbility` (df@0xa8 = On(0x21) & OwnerIsActor).
                 ability_init_triggers(state, gid)
+                if self.on_spawn_effect is not None:  # SpawnUnitOptions+0x10 (#963)
+                    # Champ `+0x10` des options, DISTINCT du `+0x18` ci-dessous. Deux call-sites lus :
+                    # `SwornProtectorAbility$$CreateBehaviour` (`AddEffect(0x4ce =
+                    # SwornProtector_JustSummonedEffect, absRef, target@0x178)`, pose PUIS retiree
+                    # dans le meme arbre) et
+                    # `IdunBattleLogic.Entities.Abilities.Active.Loki.GeminaeSuperiaAbility$$
+                    # CreateBehaviour` (`AddEffect(0x425 = GeminaeSuperia_JustSummonedEffect,
+                    # AbilityStateReference, Target@<DSLSelectors+0x60>, turns = null)`, elle NON
+                    # retiree -- c'est le marqueur que relisent `operations/spawn.py` et
+                    # `abilities/loki/momentum.py`).
+                    # RESIDU NOMME : l'ORDRE relatif de `+0x10` et `+0x18` n'est pas tranche au
+                    # decompile. Inerte sur les deux call-sites lus (aucun ne porte les deux).
+                    self.on_spawn_effect.execute(replace(entities, active_target=child), ectx)
                 if self.on_appearance is not None:    # SpawnUnitOptions+0x18 (TriggerSpawnedUnitBehaviours)
                     self.on_appearance.execute(replace(entities, active_target=child), ectx)
                     # #291 : SECONDE moitie de `TriggerSpawnedUnitBehaviours` — le tour du summon est

@@ -42,7 +42,7 @@ Sinon, trois verdicts NEGATIFS distincts :
 
 Mesure de ce run : un `substring` brut du nom sur `engine/**/*.py` rend **211/211 presents, 0 manquant**. La cause n'est pas que tout est porte : `engine/entities/triggered_ability_type.py` est un **mirror 1:1 de l'enum natif `TriggeredAbilityType`** (573 membres), ou le nom de CHAQUE passif figure comme membre. **Un catalogue n'est pas un cablage.**
 
-Le signal code de cet audit est donc derive de l'**AST** et exclut les **definitions** de membres d'enum (2632 assignations ecartees dans 564 fichiers `engine/**/*.py`) tout en gardant les **usages** (`TriggeredAbilityType.X` = `ast.Attribute` -> compte). Il separe en outre le CODE (12422 symboles distincts) de la PROSE (9833 ko de commentaires + docstrings, invisibles a l'AST, lus via `tokenize`). Le rapprochement est CamelCase-aware : `HeavyGravCannon` matche `HeavyGravCannonEffect`, `Guard` ne matche ni `Guardsman` ni `RoyalGuard` (ni, pour `Possession`, l'unitId `blackPossession`).
+Le signal code de cet audit est donc derive de l'**AST** et exclut les **definitions** de membres d'enum (2632 assignations ecartees dans 566 fichiers `engine/**/*.py`) tout en gardant les **usages** (`TriggeredAbilityType.X` = `ast.Attribute` -> compte). Il separe en outre le CODE (12465 symboles distincts) de la PROSE (9879 ko de commentaires + docstrings, invisibles a l'AST, lus via `tokenize`). Le rapprochement est CamelCase-aware : `HeavyGravCannon` matche `HeavyGravCannonEffect`, `Guard` ne matche ni `Guardsman` ni `RoyalGuard` (ni, pour `Possession`, l'unitId `blackPossession`).
 
 Chaque reference est en outre ATTRIBUEE A SA ZONE du moteur (`__init__, ai, battle_query, dsl, effects, entities, hex_corner, hex_edge, move, playbook, predict, runner, services, streams, utilities, weights`), parce qu'une reference dans `playbook/`/`ai/`/`utilities/` (face DECISION) ne prouve RIEN sur l'execution combat. C'est ce qui separe **B** (litteral exact sous `runner/`) de **R**.
 
@@ -65,18 +65,18 @@ La colonne `kind` de gameconfig MENT sur la spawnabilite -> le pool vient de la 
 ## Bilan
 
 - Passifs distincts dans le parc (lineup 127 / npc 491 / summons 65) : **211**
-- **PORTES** (>=1 canal structurel) : **125** (59 %)
+- **PORTES** (>=1 canal structurel) : **127** (60 %)
 - **ZONE-GRISE** (direct-read hors registre, a trancher) : **19**
-- **GAPS** (mention seule + absent) : **67** = 28 mention + 39 absent
-- Passifs portes par >=1 unite **confrontable** : **134** ; parmi eux, **13 gaps** et **8 zone-grise** -> c'est la FILE reelle.
+- **GAPS** (mention seule + absent) : **65** = 26 mention + 39 absent
+- Passifs portes par >=1 unite **confrontable** : **134** ; parmi eux, **12 gaps** et **7 zone-grise** -> c'est la FILE reelle.
 
-Ventilation des canaux qui portent (un passif peut en cumuler) : **T**=62, **O**=24, **E**=82, **G**=10, **X**=0, **B**=8
+Ventilation des canaux qui portent (un passif peut en cumuler) : **T**=64, **O**=24, **E**=82, **G**=10, **X**=0, **B**=8
 
 ## Tableaux par valeur
 
 Tri : nombre de porteurs spawnables SANS AMENAGEMENT (`L+`+`M`) decroissant, puis `S+` (un summon a amener), puis `L~` (une injection de catalogue). Un passif non couvert porte par une unite spawnable vaut plus qu'un passif npc-seul, et un porteur direct coute moins cher a confronter qu'un porteur a amener.
 
-### GAPS **confrontables** -- non couverts ET portes par une unite spawnable (13)
+### GAPS **confrontables** -- non couverts ET portes par une unite spawnable (12)
 
 | passif | porteurs | spawnables (ex.) | verdict | canal | zones engine/ | symbole natif (a confirmer) |
 |---|---|---|---|---|---|---|
@@ -90,11 +90,10 @@ Tri : nombre de porteurs spawnables SANS AMENAGEMENT (`L+`+`M`) decroissant, pui
 | RedThirst | S+=1 N=1 | bloodSmnIntercessor | GAP-ABSENT | - | - | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.RedThirstAbility` |
 | Split | S+=1 S?=1 N=1 | thousSmnPinkHorror | GAP-MENTION | **.** | - | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.SplitAbility$$CreateBehaviour` |
 | FuryFromTheDelve | L~=1 | votanBeserk | GAP-ABSENT | - | - | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.FuryFromTheDelveAbility$$CreateBehaviour` |
-| RedRampage | L~=1 N=1 | bloodTerminator | GAP-MENTION | **.** | - | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.RedRampage_BuffAbility$$CreateBehaviour` |
 | RefusalToBeOutdone | L~=1 | emperExultant | GAP-MENTION | **.** | - | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.RefusalToBeOutdoneAbility$$CreateBehaviour` |
 | WhisperingWeb | L~=1 | eldarLhykhis | GAP-MENTION | **.** | - | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.WhisperingWebAbility$$CreateBehaviour` |
 
-### ZONE-GRISE confrontable -- reference en code hors registre, couverture a TRANCHER (8)
+### ZONE-GRISE confrontable -- reference en code hors registre, couverture a TRANCHER (7)
 
 | passif | porteurs | spawnables (ex.) | verdict | canal | zones engine/ | symbole natif (a confirmer) |
 |---|---|---|---|---|---|---|
@@ -103,11 +102,10 @@ Tri : nombre de porteurs spawnables SANS AMENAGEMENT (`L+`+`M`) decroissant, pui
 | AncientFury | S+=1 | ultraSmnDreadnought | ZONE-GRISE | **R** | runner, services | `IdunBattleLogic.Entities.Abilities.Active.Loki.AncientFury_NormalAttackAbility` |
 | FloatingDeath | S+=1 N=1 | tyranSmnSporeMine | ZONE-GRISE | **R** | runner, services | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.FloatingDeath_InitAbility$$CreateBehaviour` |
 | EcogSupport | L~=1 | votanIronmaster | ZONE-GRISE | **R** | playbook | `?` |
-| GeminaeSuperia | L~=1 N=4 | adeptCelestine | ZONE-GRISE | **R** | playbook, runner | `IdunBattleLogic.Entities.Abilities.Active.Loki.GeminaeSuperiaAbility$$CreateBehaviour` |
 | HealingBalms | L~=1 | spaceWolfPriest | ZONE-GRISE | **R** | ai, playbook, runner | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.HealingBalmsAbility$$CreateBehaviour` |
 | WayOfTheShortBlade | L~=1 N=5 | tauFarsight | ZONE-GRISE | **R** | playbook | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.WayOfTheShortBlade_InitAbility$$CreateBehaviour` |
 
-### GAPS non confrontables (npc-only / non spawnable `L!` / summon indetermine `S?`) (54)
+### GAPS non confrontables (npc-only / non spawnable `L!` / summon indetermine `S?`) (53)
 
 | passif | porteurs | spawnables (ex.) | verdict | canal | zones engine/ |
 |---|---|---|---|---|---|
@@ -127,7 +125,6 @@ Tri : nombre de porteurs spawnables SANS AMENAGEMENT (`L+`+`M`) decroissant, pui
 | HostOfPlagues | N=1 | - | GAP-ABSENT | - | - |
 | HunterOfSouls | S?=1 | - | GAP-MENTION | **.** | - |
 | HuntersInstincts | N=1 | - | GAP-MENTION | **.** | - |
-| Lifewards | S?=1 | - | GAP-MENTION | **.** | - |
 | MischiefMakers | S?=1 N=1 | - | GAP-MENTION | **.** | - |
 | MultiTracker | N=1 | - | GAP-ABSENT | - | - |
 | OiWatchIt | N=1 | - | GAP-ABSENT | - | - |
@@ -166,7 +163,7 @@ Tri : nombre de porteurs spawnables SANS AMENAGEMENT (`L+`+`M`) decroissant, pui
 | Volatile | N=1 | - | GAP-ABSENT | - | - |
 | WhipcoilBody | S?=1 N=3 | - | GAP-MENTION | **.** | - |
 
-### ZONE-GRISE non confrontable (11)
+### ZONE-GRISE non confrontable (12)
 
 | passif | porteurs | spawnables (ex.) | verdict | canal | zones engine/ |
 |---|---|---|---|---|---|
@@ -175,6 +172,7 @@ Tri : nombre de porteurs spawnables SANS AMENAGEMENT (`L+`+`M`) decroissant, pui
 | Explosive | N=1 | - | ZONE-GRISE | **R** | effects, entities, playbook |
 | HeavyBoltPistol | S?=1 N=1 | - | ZONE-GRISE | **R** | playbook, runner, services |
 | ItsGonnaBlow | N=1 | - | ZONE-GRISE | **R** | runner |
+| Lifewards | S?=1 | - | ZONE-GRISE | **R** | runner |
 | NoHidingFromTheWatchers | S?=1 N=1 | - | ZONE-GRISE | **R** | playbook |
 | PowerUp_Armor | N=1 | - | ZONE-GRISE | **R** | runner |
 | RapidFire | S?=1 N=3 | - | ZONE-GRISE | **R** | playbook |
@@ -182,7 +180,7 @@ Tri : nombre de porteurs spawnables SANS AMENAGEMENT (`L+`+`M`) decroissant, pui
 | WatchedOver | S?=1 N=1 | - | ZONE-GRISE | **R** | playbook, runner |
 | Wraithcannon | N=2 | - | ZONE-GRISE | **R** | runner, services |
 
-### PORTES (125)
+### PORTES (127)
 
 | passif | porteurs | spawnables (ex.) | verdict | canal | zones engine/ |
 |---|---|---|---|---|---|
@@ -291,12 +289,14 @@ Tri : nombre de porteurs spawnables SANS AMENAGEMENT (`L+`+`M`) decroissant, pui
 | UnstoppableFerocity | S+=1 S?=1 N=1 | blackSmnBloodletter | PORTE | **E**=UnstoppableFerocity_OwnerEffect | effects |
 | ArmourOfShriekingSouls | L~=1 | emperLucius | PORTE | **T**=ArmourOfShriekingSoulsOnDeathAbility | runner |
 | EcstaticSlaughter | L~=1 | emperFlawlessBlade | PORTE | **T**=EcstaticSlaughterOnThrilledAbility,EcstaticSlaughterOnOverkillAbility | runner |
+| GeminaeSuperia | L~=1 N=4 | adeptCelestine | PORTE | **T**=GeminaeSuperiaAbility | playbook, runner |
 | GrimEfficiency | L~=1 | votanUthar | PORTE | **O**=GrimEfficiency_ExtraArmor,GrimEfficiency_ExtraPierce **E**=GrimEfficiency_ExtraArmor,GrimEfficiency_ExtraPierce | effects |
 | HaywireMine | L~=1 N=1 | astarCyrus | PORTE | **T**=HaywireMinePlaceOnMoveAbility,HaywireMinePlaceOnTurnEndAbility | playbook, runner |
 | IconOfObstinacy | L~=1 | astarLysander | PORTE | **T**=IconOfObstinacyAddArmourBuffAbility **O**=IconOfObstinacy_ExtraDmg **E**=IconOfObstinacy_ExtraArmor,IconOfObstinacy_ExtraDmg | effects, playbook, runner |
 | ModifiedExoarmour | L~=1 | votanChampion | PORTE | **O**=ModifiedExoarmour_ExtraDmg **E**=ModifiedExoarmour_ExtraDmg | effects, playbook |
 | PredictiveGuidance | L~=1 | votanMemnyr | PORTE | **O**=PredictiveGuidance_Melee,PredictiveGuidance_Ranged **E**=PredictiveGuidance_ExtraHits,PredictiveGuidance_Melee | effects |
 | PropheticSentinel | L~=1 | thousSekhetar | PORTE | **T**=PropheticSentinelOverwatchAbility **O**=PropheticSentinel_ExtraArmor,PropheticSentinel_ExtraBlockChance **E**=PropheticSentinel_ExtraArmor,PropheticSentinel_ExtraBlockChance | effects, playbook, runner |
+| RedRampage | L~=1 N=1 | bloodTerminator | PORTE | **T**=RedRampageAttackAbility,RedRampageBuffAbility | playbook, runner |
 | SpecialIssueCombiMelta | L~=1 N=1 | darkaSternguard | PORTE | **T**=SpecialIssueCombiMeltaAddEffectAbility **E**=SpecialIssueCombiMelta_AdditionalHits,SpecialIssueCombiMelta_ExtraDmg | effects, playbook, runner |
 | TimesplinterMantle | L~=1 N=4 | necroChronomancer | PORTE | **T**=TimesplinterMantleAbility **E**=TimesplinterMantle_DamageReduction **G**=TimesplinterMantle_DamageReduction | effects, playbook, runner |
 | DrawFire | S?=1 N=1 | - | PORTE | **B**=litteral exact sous engine/runner/ | runner |
@@ -314,7 +314,7 @@ Tri : nombre de porteurs spawnables SANS AMENAGEMENT (`L+`+`M`) decroissant, pui
 
 ## FILE DISPATCHABLE
 
-Passifs **non couverts** (GAP-MENTION ou GAP-ABSENT) **ET confrontables** (>=1 porteur `L+`/`M`/`S+`) : **13 items**. Le symbole natif est resolu PAR NOM dans `data/symbols/<build>/frida/methods.tsv` -- **a confirmer en ghidra avant tout port** (`search_symbols_by_name`), ce n'est pas une preuve d'existence de la mecanique.
+Passifs **non couverts** (GAP-MENTION ou GAP-ABSENT) **ET confrontables** (>=1 porteur `L+`/`M`/`S+`) : **12 items**. Le symbole natif est resolu PAR NOM dans `data/symbols/<build>/frida/methods.tsv` -- **a confirmer en ghidra avant tout port** (`search_symbols_by_name`), ce n'est pas une preuve d'existence de la mecanique.
 
 | # | passif | porteurs spawnables | ventilation | verdict | symbole natif (a confirmer) |
 |---|---|---|---|---|---|
@@ -328,9 +328,8 @@ Passifs **non couverts** (GAP-MENTION ou GAP-ABSENT) **ET confrontables** (>=1 p
 | 8 | **RedThirst** | bloodSmnIntercessor | S+=1 N=1 | GAP-ABSENT | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.RedThirstAbility` |
 | 9 | **Split** | thousSmnPinkHorror | S+=1 S?=1 N=1 | GAP-MENTION | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.SplitAbility$$CreateBehaviour` |
 | 10 | **FuryFromTheDelve** | votanBeserk | L~=1 | GAP-ABSENT | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.FuryFromTheDelveAbility$$CreateBehaviour` |
-| 11 | **RedRampage** | bloodTerminator | L~=1 N=1 | GAP-MENTION | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.RedRampage_BuffAbility$$CreateBehaviour` |
-| 12 | **RefusalToBeOutdone** | emperExultant | L~=1 | GAP-MENTION | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.RefusalToBeOutdoneAbility$$CreateBehaviour` |
-| 13 | **WhisperingWeb** | eldarLhykhis | L~=1 | GAP-MENTION | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.WhisperingWebAbility$$CreateBehaviour` |
+| 11 | **RefusalToBeOutdone** | emperExultant | L~=1 | GAP-MENTION | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.RefusalToBeOutdoneAbility$$CreateBehaviour` |
+| 12 | **WhisperingWeb** | eldarLhykhis | L~=1 | GAP-MENTION | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.WhisperingWebAbility$$CreateBehaviour` |
 
 > Rappel de dispatch : un passif **`S+`** se confronte en spawnant son **summoner** (qui, lui, est dans le pool) -- ne jamais le classer « non confrontable ». Les `S?` sont a re-qualifier a la main (leur spawn n'est pas exprime dans `constants`).
 

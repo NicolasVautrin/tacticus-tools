@@ -163,6 +163,50 @@ def pre_attack_hit_triggers(state: State, attacker_id: int, target_id: int,
     return evaluate_trigger_operation(state, ev)
 
 
+def pre_damage_taken_triggers(state: State, source_id: Optional[int], target_id: int,
+                              profile: Optional[str] = None,
+                              is_first_damaging_hit: Optional[bool] = None) -> list[dict]:
+    """Vecteur `On(PreDamageTaken = 0x39 = 57)` — **PREMIER** des TROIS events qu'emet
+    `IdunBattle.Operations.ApplyDamageOperation$$Execute`, dans l'ordre `On(0x39)` -> `On(0xf =
+    DamageTaken)` -> `On(0x10 = DamageDealt)`. Il N'AVAIT AUCUN EMETTEUR cote port (#963) : un
+    trigger inscrit dessus serait entre MORT, sans erreur ni crash -- exactement le regime
+    *registered-but-dead*. Mesure au moment de l'ouverture : 40 types d'evenement construits dans
+    `engine/**`, celui-ci absent des 40.
+
+    PLACE EXACTE, LUE AUX OCTETS dans le decompile d'`ApplyDamageOperation$$Execute` :
+
+        ...
+        if (UnitExtensions.HasFlag(cible, 8 = Overkilled)) { AddLeftoverHit(...); return; }   // SITE (A)
+        ...
+        if (0 < DamageAppliedResult.get_Damage(&result))          // <- LE GATE
+            <publish 0x39>                                        //    ICI
+        if (HealthComponent.IsDead(hp)) { ... }
+        ...
+        local_7dc = FillUpStatComponent.Reduce(hp, healthDamage)  // MUTATION DES PV
+        if (0 < local_7dc || !IsUnitWithHealthStat(cible))  <publish 0xf>
+        ...                                                 <publish 0x10>
+
+    Donc : APRES le gate `Overkilled` (site A), sous le gate « ce coup inflige un degat > 0 »,
+    et **AVANT** la mutation des PV. Une cible qui va tomber a 0 est donc encore a PLEINE VIE quand
+    cet event part -- c'est ce qui permet a un consommateur de reagir « au moment ou il est
+    attaque », avant l'encaissement.
+
+    `AbilityEntities` du vecteur : meme forme que ses deux freres de la meme operation --
+    `caster == actor == la SOURCE du degat`, `target == la VICTIME`. C'est ce qui rend
+    `get_OwnerIsTarget` lisible « le porteur EST celui qui encaisse ».
+
+    `is_first_damaging_hit` = le 29e parametre nomme du ctor (`AbilityEntities+0x118`), canal UNIQUE
+    du noeud `IdunBattleLogic.Entities.DSLTriggers$$IsFirstDamagingHitInSeries`. Cf. le bloc de
+    commentaire de `TriggerEvent`.
+
+    Consommateur porte : `GeminaeSuperiaAbility` (passif d'`adeptCelestine`, #963).
+    No-op si aucun trigger ne matche."""
+    ev = TriggerEvent(EventTriggerType.PreDamageTaken, source_id, target_id,
+                      ranged=False, profile=profile,
+                      is_first_damaging_hit=is_first_damaging_hit)
+    return evaluate_trigger_operation(state, ev)
+
+
 def damage_taken_triggers(state: State, source_id: Optional[int], target_id: int,
                           profile: Optional[str] = None) -> list[dict]:
     """Vecteur `On(DamageTaken=0xf=15)` — emis par `IdunBattle.Operations.ApplyDamageOperation$$Execute`
