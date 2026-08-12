@@ -44,6 +44,12 @@ from ...hex_corner import Corner
 from ...services.damage_prediction import get_attack_piercing_damage_ratio
 from ..damage_trait import DamageTrait
 from ..traits.unit_trait import UnitTrait
+from ..unit_selection_type import UnitSelectionType as _UnitSelectionType
+# `TacticalPrecisionAbility.get_aoe_targets` interroge `WillBeCharging` (`IBattleQuery` slot 0xcd).
+# Import EN TETE, forme B (le module, pas le nom) : `engine.battle_query` est une FEUILLE (ses
+# seuls imports sont `hexgeo` et `engine.hex_corner`), donc aucune arete de cycle a fermer --
+# verifie en process frais, `import engine.battle_query` ne ramene pas ce module.
+from ... import battle_query as _bq
 
 
 # ─── #344 : la PRÉDICTION d'ability moyenne `minDmg/maxDmg` par DEUX chaînes natives distinctes ───
@@ -1221,6 +1227,125 @@ class BrazierOfHolyFireAbility(AActiveAbility):
         return hits
 
 
+class TacticalPrecisionAbility(AActiveAbility):
+    """`TacticalPrecision` (1154, `ultraTitus` << Titus >>) — le volet SÉLECTEUR de sa prédiction (#976).
+
+    `IdunBattle.AI.Playbook.Loki.TacticalPrecisionPlaybook$$MakeDamagePredictions` a **DEUX
+    BRANCHES EXCLUSIVES**, et c'est la seule ability du port dont le sélecteur ET les trois entrées
+    (base / hits / profil) basculent ensemble :
+
+        mainTile = casterPosition.get_MainTile()
+        if (battleQuery.<slot 0xcd>(caster, mainTile, target))        // WillBeCharging
+            base   = VigilanceEternalAbility$$GetDamage(state)        // = MinMaxDamage(minDmg, maxDmg)
+            hits   = AActiveAbility$$GetHits()                        // nrOfHits
+            prof   = TacticalPrecisionAbility$$GetChargingAttackDamageProfile()
+                     = AActiveAbility$$GetDamageProfile()             // damageProfile
+            sel    = <DSLSelectors+0x60> = Target                     // MONO-CIBLE
+        else
+            base   = TacticalPrecisionAbility$$GetNonChargingAttackDamage(state)
+                     = AActiveAbility$$MinMaxDamage2(state)           // minDmg_2 / maxDmg_2
+            hits   = TacticalPrecisionAbility$$GetNonChargingAttackHits()
+                     = AActiveAbility$$GetHits2() = GetNumberConstant(0x32 = nrOfHits_2)
+            prof   = TacticalPrecisionAbility$$GetNonChargingAttackDamageProfile()
+                     = AActiveAbility$$GetDamageProfile2()            // damageProfile_2
+            sel    = TacticalPrecisionAbility$$GetNonChargingAttackTargets()
+                     = DSLSelectors$$AdjacentEnemies(Caster@+0x48, unique: 1, selectionType: 3)
+        return GenerateMultiHitAttackPredictions(caster, casterPosition, target, sel, base, hits,
+                                                 Nullable(prof), <poids vide>, 0)
+
+    C'est le MÊME découpage que la face COMBAT (`runner/abilities/ultramarines.py` : « If(IsCharging
+    (caster, cible), 1x Bolter FORCE-CRIT sur la cible, 3x Chain sur TOUS les AdjacentEnemies
+    (caster)) », branches EXCLUSIVES) — la face DÉCISION prédit donc exactement ce que la face
+    COMBAT exécutera.
+
+    ⚠ **`WillBeCharging` n'est PAS `IsCharging`**, et les confondre est le piège central de ce port.
+    `IsCharging(caster, target)` lit `UnitComponent.ChargedUnitIds`, c'est-à-dire un pas DÉJÀ JOUÉ ;
+    le playbook, lui, score une position CANDIDATE que le caster n'a pas prise — il ne peut donc
+    interroger qu'un prédicat PROSPECTIF. Le slot `0xcd` est LU dans
+    `data/symbols/<build>/metadata/interface_slots.tsv` (`IBattleQuery 205 WillBeCharging 3`), et
+    son arité **3** est ce qui le distingue d'`IsCharging` (slot 0xcc-, arité 2) au call-site.
+    Foyer : `battle_query.will_be_charging`, qui délègue à `newly_adjacent_ids` — le corps
+    d'`IdunBattle.Operations.MoveUnitOperation$$UpdateCharging`, déjà partagé avec la face COMBAT.
+
+    ⚠ Les DEUX branches sont `_MAKE_DMG_SELECTOR_ONLY` : le natif n'émet **aucun** event `<Target>`
+    séparé — il passe UN sélecteur à `GenerateMultiHitAttackPredictions`, qui boucle dessus. En
+    branche CHARGING ce sélecteur EST `Target`, donc la liste rendue ici vaut `[target]` et le
+    résultat coïncide avec un batch principal ; en branche NON-CHARGING la cible demandée n'a
+    d'event **que si** elle est adjacente au caster. Émettre un event `<Target>` en plus aurait
+    doublé la cible dans la première branche et l'aurait inventée dans la seconde.
+
+    La BRANCHE est mémorisée sur l'instance (`tp_will_be_charging`) et relue par
+    `playbook.prediction.abilities._tactical_precision_inputs` : `make_damage_predictions` appelle
+    `get_aoe_targets` AVANT le handler d'entrées, donc l'ordre garantit **un seul** calcul du
+    prédicat sur **un seul** substrat. Le recalculer côté handler ferait deux lectures qui peuvent
+    diverger — exactement ce que « décomposer par étage » interdit."""
+
+    #: `DSLSelectors$$AdjacentEnemies(Caster, unique: 1, selectionType: 3)`. Le 3e argument du
+    #: call-site est l'immédiat `1` (et non une entité) : c'est donc la surcharge **A**
+    #: `(this, unit, unique, selectionType)`, celle qui propage le littéral aux deux étages — le
+    #: discriminant est la cible du `call`, pas le pseudo-C (#585-r3). `3` est nommé.
+    _AOE_NON_CHARGING = dsl.AdjacentEnemies(
+        dsl.Caster(), selection_type=int(_UnitSelectionType.OnlyAliveAndTargetable))
+
+    @staticmethod
+    def _neigh_two_tiles(board, positions) -> dict | None:
+        """`{pos: [voisins]}` restreint aux SEULES tuiles que `newly_adjacent_ids` interroge (la
+        position courante et la position candidate) — le substrat NATIF d'adjacence.
+
+        `Board.neighbours_connectivity` EST la liste stockée du `ConnectivityComponent`, celle
+        qu'énumère `TileQuery.<IterateAdjacentTiles>d__8`. TRI-ÉTAT : board absent, sans
+        connectivité, ou tuile inconnue -> `None`, ce qui fait retomber `is_adjacent` sur son repli
+        GÉOMÉTRIQUE **nommé** (couronne hex, écart strictement permissif de 4 à 38 arêtes selon le
+        board, cf. #433-r4-r1-r4-r2). Jamais `{}`, qui se lirait « aucune tuile n'a de voisin »."""
+        if board is None:
+            return None
+        out = {}
+        for p in positions:
+            if p is None:
+                continue
+            tid = board.id_at(p[0], p[1])
+            if tid is None:
+                return None
+            nb = board.neighbours_connectivity(tid)
+            if nb is None:
+                return None
+            out[(p[0], p[1])] = [board.coord(n) for n in nb if board.coord(n) is not None]
+        return out or None
+
+    def get_aoe_targets(self, ctx):
+        """Le sélecteur UNIQUE que le playbook passe à `GenerateMultiHitAttackPredictions`, branche
+        comprise. Rend `[target]` en CHARGING (`DSLSelectors+0x60`), les `AdjacentEnemies(Caster)`
+        sinon.
+
+        Le prédicat est évalué sur la position CANDIDATE (`ctx.caster_pos`, le sweep de tuiles du
+        générateur d'action) contre la position COURANTE du caster — c'est littéralement
+        `WillBeCharging(caster, casterPosition.MainTile, target)`.
+
+        Canal muet (pas de position de caster ou de cible publiée) -> branche NON-CHARGING. C'est
+        la dégradation du natif lui-même : sans nouveau contact, `newly` est vide et le prédicat
+        est FAUX ; on ne suppose jamais une charge."""
+        caster = ctx.caster or {}
+        target = ctx.target
+        cp = (caster.get("pos") or {}) if isinstance(caster.get("pos"), dict) else {}
+        cur = (cp.get("col"), cp.get("row")) if cp.get("col") is not None else None
+        frm = getattr(ctx, "caster_pos", None) or cur
+        tid = (target or {}).get("id")
+        pos_by_id = {}
+        for u in (ctx.units or []):
+            if u.get("id") is None or u.get("id") == caster.get("id"):
+                continue                       # le natif exclut l'unité qui bouge (paramètre `unit`)
+            p = u.get("pos") or {}
+            if p.get("col") is not None:
+                pos_by_id[int(u["id"])] = (p["col"], p["row"])
+        neigh = self._neigh_two_tiles(getattr(ctx, "board", None), (cur, frm))
+        charging = _bq.will_be_charging(tid, cur, frm, pos_by_id,
+                                        getattr(ctx, "elev_by_pos", None), neigh)
+        self.tp_will_be_charging = bool(charging)
+        if charging:
+            return [target] if target is not None else []
+        return self._AOE_NON_CHARGING.evaluate(ctx)
+
+
 _SPECIAL_ABILITY_CLASSES: dict[str, type[AActiveAbility]] = {
     "DaemonicOrdnance": DaemonicOrdnanceAbility,
     "BrazierOfHolyFire": BrazierOfHolyFireAbility,   # #945 — hits conditionnels au trait Daemon
@@ -1236,6 +1361,7 @@ _SPECIAL_ABILITY_CLASSES: dict[str, type[AActiveAbility]] = {
     "SavageEchoes": SavageEchoesAbility,
     "MassDriverAccelerator": MassDriverAcceleratorAbility,
     "FragBomb": FragBombAbility,                     # #957 — volet SPLASH (`GetAdjacentTargets`)
+    "TacticalPrecision": TacticalPrecisionAbility,   # #976 — sélecteur à DEUX branches (WillBeCharging)
 }
 
 
@@ -1314,6 +1440,22 @@ _NONCOMPARABLE_ABILITIES: "frozenset[str]" = frozenset({
     # elles ; sans ces entrees le port en fabriquerait un depuis leur `minDmg`/`maxDmg` gameconfig.
     "ExemplarOfHate",     # 1140 IdunBattle.AI.Playbook.Loki.ExemplarOfHatePlaybook$$EvaluateNonComparable ; util = 1 + PV%/100 + 2*(non-Infiltrate) + 1*(Chaos)
     "FearOfTheUnseen",    # 1115 IdunBattle.AI.Playbook.Loki.FearOfTheUnseenPlaybook$$EvaluateNonComparable ; VETO, util constante Fix64(10) sur SOI
+    # --- #976 : `TitanhammerSquadPlaybook` a pour base `NonComparablePlaybook`1` — LUE dans
+    # `data/symbols/<build>/frida/classes.tsv`, PAS deduite du `.ctor` (qui NOMME
+    # `ComparablePlaybook<...>$$.ctor`, corps trivial DEDUPLIQUE : le piege de #487-r1 / #945 /
+    # #957, verifie 5/5 sur le lot). Le natif n'a AUCUN `Make*Predictions`, donc n'emet AUCUN
+    # `ProbableDamageEvent` pour 1231.
+    # ⚠ CE QUE CETTE ENTREE CORRIGE EST LE **DISPATCH**, PAS UN CHIFFRE -- mesure, pas supposition :
+    # le gameconfig de 1231 n'a NI `minDmg` NI `maxDmg` (constants = `initialCooldownTurns`,
+    # `range` ; variables = `blockDmg`, `hpToHeal`), donc `ab.get_damage()` rendait deja **0**. Meme
+    # situation exactement que `MindControl` (1164) et `AlphaWarrior` (1112) ci-dessus, et
+    # l'affirmation « le port fabriquait un degat » aurait ete FAUSSE ici. Ce que l'entree ferme,
+    # c'est la route : sans elle, `makes_damage_predictions` rendait `True` et 1231 restait sur le
+    # chemin COMPARABLE, donc sa face DECISION ne pouvait pas etre son `EvaluateNonComparable`.
+    "TitanhammerSquad",   # 1231 IdunBattle.AI.Playbook.Loki.TitanhammerSquadPlaybook$$EvaluateNonComparable ;
+                          # util = |ennemis DISTINCTS du caster adjacents a la couronne de la TUILE
+                          # visee| (`GetAdjacentTiles` slot 0x4f o `GetAdjacentEnemies` slot 0x7f,
+                          # dedoublonnes par un `PooledHashSet`) ; MIN_UTILITY = 1 (`.cctor`).
     "Foehammer",          # 1097 IdunBattle.AI.Playbook.Loki.FoehammerPlaybook$$EvaluateNonComparable ; util = |unites mortes du plateau| (CONSTANTE)
                           # ⚠ 1097 EST une attaque (son `ExecuteBehaviour` fait bien un
                           # `AttackWithAttackDamage`) : c'est le PLAYBOOK qui est NonComparable, donc

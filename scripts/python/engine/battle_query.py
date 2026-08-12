@@ -470,6 +470,41 @@ def newly_adjacent_ids(old_pos, new_pos, positions_by_id: dict,
     return _adj(new_pos) - _adj(old_pos)
 
 
+def will_be_charging(target_id, cur_pos, from_pos, positions_by_id: dict,
+                     elev_by_pos: dict | None = None,
+                     neigh_by_pos: dict | None = None) -> bool:
+    """`IdunBattle.Core.Services.BattleQuery$$WillBeCharging(caster, fromTile, target)`
+    (`IBattleQuery` slot 0xcd, arite 3 -- LUE dans
+    `data/symbols/<build>/metadata/interface_slots.tsv`, jamais devinee) -- MIRROR :
+
+        current = GetAdjacentUnits(GetUnitPosition(caster), null, <joueur du caster>, false)
+        newly   = []
+        foreach u in GetUnitsOnTiles(IterateAdjacentTiles(fromTile, null, true, true),
+                                     null, <joueur du caster>, false)
+            if (!current.Contains(u)) newly.Add(u.Id)
+        return newly.Contains(target.Id)
+
+    C'est le pendant PROSPECTIF d'`is_charging` : « si le caster se pose sur `from_pos`, la cible
+    lui deviendra-t-elle NOUVELLEMENT adjacente ? ». Le natif reutilise exactement la paire
+    before/after de `IdunBattle.Operations.MoveUnitOperation$$UpdateCharging` -- d'ou la delegation
+    a `newly_adjacent_ids`, qui EST ce corps-la (meme primitive `is_adjacent`, donc meme liste
+    STOCKEE et meme porte d'elevation). Ecrire ici une seconde adjacence ferait diverger le
+    predicat de DECISION du predicat de COMBAT sur un natif unique.
+
+    ⚠ `is_charging` et `will_be_charging` ne sont PAS interchangeables : le premier lit la liste
+    DEJA constituee (`UnitComponent.ChargedUnitIds`, donc un pas DEJA joue), le second n'a besoin
+    d'aucun etat -- il compare deux voisinages. `TacticalPrecisionPlaybook` interroge le second,
+    parce qu'il score une position CANDIDATE que le caster n'a pas encore prise.
+
+    `from_pos = None` -> repli sur `cur_pos` (le natif recoit alors la tuile courante, et l'ensemble
+    `newly` est vide : aucune charge). `target_id` absent -> False."""
+    if target_id is None:
+        return False
+    frm = cur_pos if from_pos is None else from_pos
+    return int(target_id) in newly_adjacent_ids(cur_pos, frm, positions_by_id,
+                                                elev_by_pos, neigh_by_pos)
+
+
 def in_arc(tile: tuple, pos: tuple) -> bool:
     """`pos` est-il dans l'ARC de `tile` (ring-1 UNION ring-2) ? = dist hex <= 2, **GEOMETRIQUE PUR**.
 

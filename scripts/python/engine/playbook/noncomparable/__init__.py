@@ -128,6 +128,7 @@ from .war_howl import WarHowlPlaybook
 from .waaagh import WaaaghPlaybook
 from .spore_mine_launcher import SporeMineLauncherPlaybook
 from .ironkin_steeljack import IronkinSteeljackPlaybook
+from .titanhammer_squad import TitanhammerSquadPlaybook
 
 
 # Registre abilityType -> instance de playbook (remplace le switch `kind`).
@@ -433,6 +434,11 @@ PLAYBOOKS: dict[int, NonComparablePlaybook] = {
         #                                 (1203, #969, quelques lignes plus haut) a EXACTEMENT ce
         #                                 patron -- PV courants + gate `WillNormalAttackKill`. Deux
         #                                 lectures separees du meme squelette natif.
+        TitanhammerSquadPlaybook(),     # 1231 (`astarLysander`) -- util = |ennemis DISTINCTS du
+        #                                 caster adjacents a une tuile de la couronne de la TUILE
+        #                                 visee| (`GetAdjacentTiles` slot 0x4f o `GetAdjacentEnemies`
+        #                                 slot 0x7f, dedoublonne par `PooledHashSet`) ; MIN = 1
+        #                                 (`.cctor` = `Fix64(1)`). Domaine TUILE, jumeau de 1201.
     )
 }
 
@@ -516,4 +522,5 @@ __all__ = [
     "CrusadeOfWrathPlaybook", "DaemonicPatronsPlaybook", "DeathFromAbovePlaybook",
     "SternguardFocusPlaybook", "WarHowlPlaybook",
     "WaaaghPlaybook", "SporeMineLauncherPlaybook", "IronkinSteeljackPlaybook",   # #971
+    "TitanhammerSquadPlaybook",
 ]

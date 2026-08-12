@@ -31,6 +31,10 @@ from engine.services import current_player as _cp   # forme B (#359-r6) : foyer 
 from engine import battle_query as _bq   # forme B (#485-r1-r1) : foyer des DEUX etages
 #                                          d'`IterateAdjacentTiles` (#943-r7)
 import engine.playbook.adjacency as _adjacency   # foyer PARTAGE multi-tuiles (#954)
+# `_tactical_precision_inputs` : la TRONCATURE de la forme (b) (`RandomAmount` puis slot 4
+# `AAmountFormula$$CalculateAverage`). MEME foyer que `AActiveAbility.get_damage`, pour que les
+# deux paires de variables (`minDmg`/`maxDmg` et `minDmg_2`/`maxDmg_2`) partagent l'arrondi.
+from engine.dsl.base import calculate_average
 # ⚠ La forme `from engine.playbook import adjacency` declarerait le PAQUET (elle en lit
 # l'attribut), pas le module -- et `engine.playbook` atteint deja ce module par `.base`, donc
 # l'arete refermait un SCC de 16 (`test_270r4r2_cycles_imports_offline` etage 1, MESURE).
@@ -506,6 +510,57 @@ def _hellfire_shells_inputs(scene, caster_id, target_id, ab, cfg) -> dict:
     if "BigTarget" in tgt_traits:                                # HasTrait(target, 0x3f9=BigTarget)
         hits += int((cfg.constants or {}).get("extraHit") or 0)   # const 0x2b = extraHit (+2)
     return {"base_override": base, "hits_override": hits, "profile_override": "None"}
+
+
+def _tactical_precision_inputs(scene, caster_id, target_id, ab, cfg) -> dict:  # ids ignores (contrat registre)
+    """`IdunBattle.AI.Playbook.Loki.TacticalPrecisionPlaybook$$MakeDamagePredictions` (1154,
+    `ultraTitus`) -- les entrees de la branche NON-CHARGING (#976).
+
+    Le playbook natif bascule sur `battleQuery.<slot 0xcd>(caster, casterPosition.MainTile, target)`
+    = `IdunBattle.Core.Services.BattleQuery$$WillBeCharging` (arite **3**, LUE dans
+    `data/symbols/<build>/metadata/interface_slots.tsv`) :
+
+        CHARGING      base = VigilanceEternalAbility$$GetDamage        = MinMaxDamage(minDmg, maxDmg)
+                      hits = AActiveAbility$$GetHits                   = nrOfHits
+                      prof = AActiveAbility$$GetDamageProfile          = damageProfile
+        NON-CHARGING  base = AActiveAbility$$MinMaxDamage2             = avg(minDmg_2, maxDmg_2)
+                      hits = AActiveAbility$$GetHits2                  = GetNumberConstant(0x32 = nrOfHits_2)
+                      prof = AActiveAbility$$GetDamageProfile2         = damageProfile_2
+
+    La branche CHARGING est EXACTEMENT le chemin generique du port -> ce handler rend `{}` pour
+    elle, jamais un override qui recopierait le defaut (un tel override figerait le defaut et
+    survivrait a sa correction ailleurs).
+
+    ⚠ LA BRANCHE N'EST PAS RECALCULEE ICI. Elle est LUE sur l'instance
+    (`ab.tp_will_be_charging`), posee par
+    `entities.abilities.active_ability.TacticalPrecisionAbility.get_aoe_targets`, que
+    `make_damage_predictions` appelle AVANT ce handler. Un second calcul, meme de la meme formule,
+    prendrait un SUBSTRAT different (`scene` ici, `DslContext` la-bas) et pourrait rendre l'autre
+    branche : le selecteur et les entrees se contrediraient alors sans qu'aucune erreur ne sorte.
+    Attribut ABSENT (ability non construite par la sous-classe) -> on rend `{}` = branche CHARGING,
+    c.-a-d. le comportement d'AVANT ce port : une degradation qui ne peut rien casser de neuf.
+
+    ⚠ `hits` est la CONSTANTE NUE. `AActiveAbility$$GetHits2` est `GetNumberConstant(0x32)` et rien
+    d'autre -- pas de `GetDefaultAttackHits`, donc ni `ExtraHits` ni `ExtraHitsMelee`. C'est le
+    corps qui le dit, pas une symetrie avec `get_hits`.
+
+    La base suit la forme **(b)** (`RandomAmount` puis slot 4 `CalculateAverage` = TRONCATURE) : la
+    branche NON-CHARGING passe par `MinMaxDamage2`, dont le corps est le jumeau exact de
+    `MinMaxDamage` a la paire de variables pres, et 1154 est deja rangee en (b) dans
+    `_PREDICTION_MINMAX_AVERAGE` (registre `_A_VIA_VIGILANCE_ETERNAL_GET_DAMAGE`) pour sa branche
+    CHARGING. Les deux branches partagent donc l'arrondi -- lu, pas suppose : le playbook prend le
+    meme slot 4 sur les deux formules."""
+    if not getattr(ab, "tp_will_be_charging", True):
+        lvl, mult = ab.level, ab.multiplier
+        mn = cfg.get_variable_for_level("minDmg_2", lvl, 0, mult)   # var 0x36 = minDmg_2
+        mx = cfg.get_variable_for_level("maxDmg_2", lvl, 0, mult)   # var 0x37 = maxDmg_2
+        out = {"base_override": calculate_average(mn, mx),
+               "hits_override": int((cfg.constants or {}).get("nrOfHits_2") or 0)}
+        prof = (cfg.constants or {}).get("damageProfile_2")
+        if prof:
+            out["profile_override"] = prof                          # `GetDamageProfile2`
+        return out
+    return {}                                                       # branche CHARGING = defaut
 
 
 def _brazier_of_holy_fire_inputs(scene, caster_id, target_id, ab, cfg) -> dict:
@@ -1240,6 +1295,13 @@ _MAKE_DMG_SELECTOR_ONLY = frozenset({
     ActiveAbilityType.HadesAutocannons,    # 1147 IdunBattle.AI.Playbook.Loki.HadesAutocannonsPlaybook$$MakeDamagePredictions
     ActiveAbilityType.DaemonicOrdnance,    # 1148 IdunBattle.AI.Playbook.Loki.DaemonicOrdnancePlaybook$$MakeDamagePredictions
     ActiveAbilityType.MurderousSwing,      # 1137 IdunBattle.AI.Playbook.MurderousSwingPlaybook$$MakeDamagePredictions
+    # 1154 (#976) : le natif ne construit AUCUN batch `<Target>`. Il fait UN SEUL appel a
+    # `GenerateMultiHitAttackPredictions` avec UN selecteur, dont l'identite depend de la branche
+    # `WillBeCharging` -- `DSLSelectors+0x60 = Target` en CHARGING, `AdjacentEnemies(Caster)` sinon.
+    # `TacticalPrecisionAbility.get_aoe_targets` rend ce selecteur-la dans les deux cas (donc
+    # `[target]` en CHARGING) : l'appartenance a ce registre est ce qui evite de DOUBLER la cible
+    # dans la 1re branche et de l'INVENTER dans la 2de.
+    ActiveAbilityType.TacticalPrecision,   # 1154 IdunBattle.AI.Playbook.Loki.TacticalPrecisionPlaybook$$MakeDamagePredictions
 })
 
 
@@ -1266,6 +1328,7 @@ _MAKE_DMG_INPUT_OVERRIDES = {
     ActiveAbilityType.RammingSpeed: _ramming_speed_inputs,                        # 1059
     ActiveAbilityType.PlagueWind: _plague_wind_inputs,                            # 1035
     ActiveAbilityType.MortarionsPlagueWind: _plague_wind_inputs,                  # 1093
+    ActiveAbilityType.TacticalPrecision: _tactical_precision_inputs,              # 1154
 }
 
 # Batchs SUPPLEMENTAIRES per-ability (cf. `_ramming_speed_self_events`) : le playbook emet des events
