@@ -33,6 +33,52 @@ from engine.entities.active_ability_type import ActiveAbilityType  # noqa: E402
 from engine.playbook import noncomparable as NC                    # noqa: E402
 from engine.playbook.noncomparable import _targets as TGT          # noqa: E402
 
+#: Ce qui doit changer pour que ce FICHIER de test puisse changer de verdict (#486-r15).
+#: Trop LARGE est sain, trop ETROIT est un FAUX VERT -- on prend donc TOUT ce que les six
+#: playbooks lisent, y compris les foyers geometriques et le gameconfig.
+DECLENCHEUR = {
+    "chemins": (
+        # LES SIX FACES ET LEURS FOYERS -- ce que le fichier garde directement.
+        "scripts/python/engine/playbook/noncomparable/storm_speeder.py",
+        "scripts/python/engine/playbook/noncomparable/ordnance_battery.py",
+        "scripts/python/engine/playbook/noncomparable/necro_reanimator.py",
+        "scripts/python/engine/playbook/noncomparable/summon_attack_range.py",
+        "scripts/python/engine/playbook/noncomparable/_targets.py",
+        # LE REGISTRE et la BASE : une ability retiree de `PLAYBOOKS`, un `native_priority`
+        # renumerote ou un `NCContext` ampute changent le verdict de l'etage 0.
+        "scripts/python/engine/playbook/noncomparable/__init__.py",
+        "scripts/python/engine/playbook/noncomparable/_base.py",
+        # LE VOISIN qui partage le foyer du slot 195 -- si `alpha_warrior` reprenait une copie
+        # locale, l'etage 3 cesserait de mesurer la branche MACHINE.
+        "scripts/python/engine/playbook/noncomparable/alpha_warrior.py",
+        # LA GEOMETRIE : `get_tiles_behind` / `get_surrounding_tiles` / `count_adjacent` /
+        # `neigh_map` decident les comptes de 1213, 1142 et 1143.
+        "scripts/python/engine/battle_query.py",
+        "scripts/python/hexgeo.py",
+        # LES MIRRORS D'ENUM cites au site (`StatType.ATTACK`, `UnitTrait.Overwatch`, les ids).
+        "scripts/python/engine/entities/active_ability_type.py",
+        "scripts/python/engine/entities/stats.py",
+        "scripts/python/engine/entities/traits/unit_trait.py",
+        # LE GAMECONFIG : `nrOfTiles` (1213), `unitId`/armes du summon (1143), `PiercingRatio`
+        # et traits (1214) sont LUS a l'execution du test.
+        "scripts/python/gameconfig.py",
+        "scripts/python/engine/entities/effects/magnitude.py",
+        # LA SONDE DE MORSURE : elle ancre ses mutations sur des lignes EXACTES de ces fichiers ;
+        # si elle change, la valeur de ce garde change avec elle.
+        "scripts/python/probe_967_morsure.py",
+    ),
+    # Le fichier LIT le gameconfig du build courant -- `nrOfTiles` de 1213, `unitId` et les
+    # armes du summon de 1143, `PiercingRatio`/`traits` de 1214. Un changement de build change
+    # donc ce qu'il mesure, et l'etage 5 assertionne d'ailleurs son propre NON-VIDE dessus.
+    "build": True,
+    "toujours": False,
+    "raison": (
+        "Garde des six faces DECISION #967 : seuils du `.cctor`, tiers `get_Priority`, forme "
+        "de chaque utilite, et ORDRE du selecteur (l'argmax de `Bucket.AddAction` est un "
+        "remplacement STRICT). Tout ce qui precede entre dans son verdict, plus le gameconfig "
+        "du build -- d'ou `build: True`."),
+}
+
 DOTW = int(ActiveAbilityType.DeathOnTheWind)              # 1213
 HAILSTRIKE = int(ActiveAbilityType.Hailstrike)            # 1214
 MALLEUS = int(ActiveAbilityType.MalleusRocketLauncher)    # 1142
