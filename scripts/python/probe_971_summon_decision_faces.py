@@ -50,9 +50,15 @@ from rl_collect_batch import _resolve_session, _rpc                  # noqa: E40
 
 #: `visualId` du porteur, roster adverse, et si le porteur exige une injection catalogue.
 CAS = {
+    # ⚠ MONTAGE : `Waaagh` exige une cible NON ADJACENTE + une tuile de charge atteignable. Laisser
+    # l'IA adverse approcher fait passer la geometrie de « trop loin » a « au contact » sans jamais
+    # traverser le regime. On IMMOBILISE donc les ennemis (`Movement = 0`) et on avance le Warboss
+    # pas a pas -- driver les positions, jamais subir la geometrie de spawn.
     1058: {"name": "Waaagh", "carrier": "orksWarboss", "inject": False, "mow": False,
            "p_units": "orksWarboss,orksNob,orksRuntherd,orksBigMek",
-           "a_units": "ultraTitus,ultraApothecary,necroWarden"},
+           "a_units": "ultraTitus,ultraApothecary,necroWarden",
+           "extra": ["--unit-stat", "ultraTitus:Movement=0;ultraApothecary:Movement=0;"
+                                    "necroWarden:Movement=0"]},
     # La MoW est mise du cote ADVERSE : c'est `aiPlayByUnit` qui joue son tour, donc la tuile ou
     # le spore mine apparait EST la decision native observee (cf. `confront_mow`).
     1145: {"name": "SporeMineLauncher", "carrier": "tyranBiovore", "inject": False, "mow": True,
@@ -64,6 +70,8 @@ CAS = {
            "p_units": "votanMemnyr,orksNob",
            "a_units": "ultraTitus,ultraApothecary,necroWarden"},
 }
+for _c in CAS.values():
+    _c.setdefault("extra", [])
 
 
 def _sid():
@@ -81,7 +89,7 @@ def build(cas, seed, board):
     state.parent.mkdir(parents=True, exist_ok=True)
     cmd = [sys.executable, "rl_duel.py", "build", "--seed", seed, "--board", board,
            "--state-file", str(state), "--p-units", cas["p_units"],
-           "--a-units", cas["a_units"]]
+           "--a-units", cas["a_units"]] + list(cas.get("extra") or [])
     if cas["mow"]:
         cmd += ["--a-mow", cas["carrier"]]
         # MUNITIONS : sans `MachineOfWarAmmo`, la MoW se deploie mais ne CASTE JAMAIS -- le tour
@@ -112,6 +120,100 @@ def build(cas, seed, board):
         print("BUILD KO:", (p.stderr or p.stdout or "")[-800:])
         return None, state
     return json.loads(state.read_text())["runnerId"], state
+
+
+def _ring(p, walk, elev):
+    return [n for n in hexgeo.neighbors(p[0], p[1])
+            if walk.get(n) and elev.get(n) is not None and elev.get(p) is not None
+            and abs(elev[n] - elev[p]) < 2]
+
+
+def _path(src, dst, walk, elev):
+    """BFS gate `walkable` + `|dElev| < 2` -- le meme voisinage que le mouvement natif."""
+    from collections import deque
+    if src == dst:
+        return [src]
+    prev, q = {src: None}, deque([src])
+    while q:
+        cur = q.popleft()
+        for n in _ring(cur, walk, elev):
+            if n in prev:
+                continue
+            prev[n] = cur
+            if n == dst:
+                path, x = [], n
+                while x is not None:
+                    path.append(x)
+                    x = prev[x]
+                return list(reversed(path))
+            q.append(n)
+    return []
+
+
+def approach(sid, rid, uid, aid, rounds: int, stand_off: int = 3):
+    """AMENE le porteur A PORTEE, au lieu de conclure d'une geometrie de spawn.
+
+    `Waaagh` exige une cible ENNEMIE non adjacente ET une tuile de charge atteignable
+    (`WaaaghAbility$$GetDynamicInvalidTargetReason` -> `TargetIsInRange` sinon). Aux positions de
+    SPAWN de la plupart des boards, aucun ennemi ne satisfait cela : le bucket vide est alors la
+    REPONSE JUSTE du natif, et un accord port/natif sur ce vide ne prouve RIEN.
+
+    On avance donc le porteur vers l'ennemi le plus proche, tour par tour, jusqu'a ce que
+    `abilityTargets(uid, aid).fromHere` soit NON VIDE -- c'est-a-dire jusqu'a ce que le regime soit
+    ATTEINT, et le probe le dit."""
+    bg = rpc(sid, "boardGraph", {"runnerId": rid}, 90)
+    tiles = bg.get("tiles") or []
+    walk = {(t["col"], t["row"]): bool(t.get("walkable")) for t in tiles}
+    elev = {(t["col"], t["row"]): t.get("elevation") for t in tiles}
+
+    def legal():
+        at = rpc(sid, "abilityTargets", {"runnerId": rid, "unitId": uid, "abilityType": aid}, 120)
+        return sum(len(a.get("fromHere") or []) for u in (at.get("units") or [])
+                   for a in (u.get("abilities") or []) if a.get("abilityId") == aid)
+
+    for k in range(rounds):
+        n = legal()
+        if n:
+            print("   REGIME ATTEINT au tour %d : %d cible(s) legale(s) depuis la position" % (k, n))
+            return True
+        dv = rpc(sid, "decisionView", {"runnerId": rid, "allAbilities": True}, 180)
+        me = next((u for u in (dv.get("units") or []) if u.get("id") == uid), None)
+        if me is None or not me.get("pos"):
+            return False
+        src = (me["pos"]["col"], me["pos"]["row"])
+        foes = [(u["pos"]["col"], u["pos"]["row"]) for u in (dv.get("units") or [])
+                if u.get("alive") and u.get("pos") and not u.get("ctrl")]
+        if not foes:
+            return False
+        near = min(foes, key=lambda q: hexgeo.distance(src, q))
+        occ = {(u["pos"]["col"], u["pos"]["row"]) for u in (dv.get("units") or [])
+               if u.get("alive") and u.get("pos")}
+        print("   [approche %d] porteur=%s ennemis=%s d=%s"
+              % (k, src, foes, [hexgeo.distance(src, q) for q in foes]))
+        # On ne vise PAS l'ennemi : on vise une tuile a `stand_off` hex de lui. Aller AU CONTACT
+        # rend `Waaagh` illegal (`TargetIsNotAdjacent`), donc le regime serait manque par exces.
+        full = _path(src, near, walk, elev)
+        if len(full) <= 1:
+            return False
+        dst = full[max(0, len(full) - 1 - stand_off)]
+        for step in reversed(_path(src, dst, walk, elev)[1:]):
+            if step in occ:
+                continue
+            r = rpc(sid, "applyAction", {"runnerId": rid, "action": {
+                "kind": "move", "unitId": uid, "to": {"col": step[0], "row": step[1]}}}, 60)
+            if isinstance(r, dict) and r.get("ok"):
+                break
+        # RE-TESTER AVANT d'`endturn` : sinon on ne regarde le regime qu'APRES le tour adverse,
+        # et la geometrie saute de « trop loin » a « au contact » sans jamais etre mesuree.
+        n = legal()
+        if n:
+            print("   REGIME ATTEINT au tour %d (apres deplacement) : %d cible(s) legale(s)"
+                  % (k, n))
+            return True
+        rpc(sid, "applyAction", {"runnerId": rid, "action": {"kind": "endturn"}}, 60)
+        rpc(sid, "applyAction", {"runnerId": rid, "action": {"kind": "endturn"}}, 60)
+    print("   REGIME NON ATTEINT apres %d tour(s) : aucune cible legale" % rounds)
+    return False
 
 
 def find_caster(sid, rid, cas):
@@ -319,14 +421,18 @@ def confront(sid, rid, uid, aid, cas, as_json=False):
           % (best.get("pos"), best.get("util"),
              (cands[0].get("to") if cands else None),
              (cands[0].get("pred") if cands else None)))
-    degenere = (len(utils) == 1 or len(positions) < 2 or len(nat_cls) < 2)
-    if degenere:
-        print("   NON CONFRONTE : le montage ne DEPARTAGE pas (%d position(s), %d utilite(s)"
-              " distincte(s), %d cible(s) distincte(s))"
-              % (len(positions), len(utils), len(nat_cls)))
-        rec["verdict"] = "NON_CONFRONTE_DEGENERE"
-        rec["degenere"] = True
-        return rec, 2
+    # NON-DEGENERESCENCE, en DEUX axes distincts -- les confondre ferait rendre un vert ou un
+    # « non confronte » pour la mauvaise raison :
+    #   * axe FORMULE  : au moins une position ou le natif rend une utilite. C'est ce que les
+    #                    lignes ETAGE confrontent, et c'est ce qui vaut verdict.
+    #   * axe ARGMAX   : au moins DEUX positions a utilites DISTINCTES. Sans lui, le choix de
+    #                    position n'est pas exerce -- on le DIT au lieu de le taire.
+    argmax_exerce = (len(positions) >= 2 and len(utils) >= 2)
+    rec["argmaxExerce"] = argmax_exerce
+    if not argmax_exerce:
+        print("   ⚠ ARGMAX NON EXERCE : %d position(s) a bucket, %d utilite(s) distincte(s)"
+              " -- le choix de POSITION n'est pas departage par ce montage (la FORMULE, si)"
+              .replace("⚠ ", "") % (len(positions), len(utils)))
     port_best_pos = (tuple(cands[0]["to"]) if (cands and cands[0].get("to"))
                      else (ctx.origin if cands else None))
     ok_argmax = bool(cands) and (list(port_best_pos or ()) == list(best.get("pos") or ()))
@@ -408,6 +514,13 @@ def main():
     ap.add_argument("--board", default="MC1_67")
     ap.add_argument("--seed", default="4242")
     ap.add_argument("--endturns", type=int, default=0)
+    ap.add_argument("--p-units", default=None,
+                    help="ecrase le roster ami du cas -- CONTRE-EPREUVE : changer le roster change"
+                         " `nBuffed` de Waaagh, donc l'utilite NATIVE. Un port qui ne suivrait pas"
+                         " ce changement serait un scalaire fitte.")
+    ap.add_argument("--approach", type=int, default=0,
+                    help="tours d'approche du porteur vers l'ennemi le plus proche, jusqu'a ce "
+                         "que le regime soit atteint (cf. `approach`)")
     ap.add_argument("--json", action="store_true")
     ap.add_argument("--keep", action="store_true")
     args = ap.parse_args()
@@ -416,7 +529,9 @@ def main():
     sid = _sid()
     rc = 0
     for aid in ids:
-        cas = CAS[aid]
+        cas = dict(CAS[aid])
+        if args.p_units:
+            cas["p_units"] = args.p_units
         rid, _state = build(cas, args.seed, args.board)
         if rid is None:
             print("[%d %s] NON CONFRONTE : build KO" % (aid, cas["name"]))
@@ -432,6 +547,14 @@ def main():
                       % (aid, cas["name"], cas["carrier"]))
                 rc = max(rc, 2)
                 continue
+            if args.approach and not cas["mow"]:
+                approach(sid, rid, uid, aid, args.approach)
+                uid, _dv = find_caster(sid, rid, cas)
+                if uid is None:
+                    print("[%d %s] NON CONFRONTE : porteur mort pendant l'approche"
+                          % (aid, cas["name"]))
+                    rc = max(rc, 2)
+                    continue
             if cas["mow"]:
                 _rec, r = confront_mow(sid, rid, uid, aid, cas, as_json=args.json)
             else:
