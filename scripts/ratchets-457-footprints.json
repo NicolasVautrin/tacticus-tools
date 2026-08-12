@@ -5503,6 +5503,17 @@
     "scripts/python/engine/runner/abilities/loki/healing_balms.py"
    ]
   },
+  "tests/engine/test_974_custodes_emperors_children_decision_offline.py": {
+   "_at": 1786539538,
+   "_commit": "47848d13ad8fdb717b15c944d953aa8aa92961e2",
+   "dirs": [
+    "frida/hooks/data"
+   ],
+   "py": [],
+   "temoins": [
+    "frida/hooks/data/ability-names.ts"
+   ]
+  },
   "tests/engine/test_effect_1582_inertia_binary.py": {
    "_at": 1786392144,
    "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",

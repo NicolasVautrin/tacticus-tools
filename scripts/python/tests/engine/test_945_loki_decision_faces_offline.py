@@ -293,9 +293,21 @@ def test_storm_ne_construit_AUCUNE_prediction_de_degat():
 # ETAGE 4 -- ALPHA WARRIOR : UN VETO, PAS UN SCORE (piege 5)
 # =============================================================================================
 def _portee_du_summon():
-    """`Max(w.Range ?? 1)` sur les armes du `constants.unitId` de 1112 -- DERIVE du gameconfig."""
-    from engine.playbook.noncomparable.alpha_warrior import _summon_attack_range, _summon_id
-    return _summon_attack_range(_summon_id(ALPHA))
+    """`Max(w.Range ?? 1)` sur les armes du `constants.unitId` de 1112 -- DERIVE du gameconfig.
+
+    Les deux helpers ont demenage dans le foyer PARTAGE
+    `engine.playbook.noncomparable.summon_attack_range` (#967, slot 195 = les DEUX branches) et y
+    sont PUBLICS (`summon_id`, `summon_attack_range`). `alpha_warrior` n'en est plus qu'un lecteur
+    en FORME B : re-exporter les anciens noms prives y aurait fabrique une seconde adresse pour un
+    foyer unique. FORME B ici aussi -- un patcheur qui substitue `summon_attack_range.<nom>` mord.
+
+    ⚠ La SIGNATURE a change avec l'adresse : l'ancien `alpha_warrior._summon_id` prenait un
+    ability_ID (int) et faisait lui-meme `ActiveAbilityType(id).name` ; le foyer prend le NOM.
+    Un simple re-export des anciens noms n'aurait donc PAS repare ce test -- il aurait rendu
+    `None` en silence (l'int ne matche aucune cle du gameconfig), et l'assertion serait tombee
+    plus loin, sur une valeur, au lieu de l'import. C'est le meme appel que fait le playbook."""
+    import engine.playbook.noncomparable.summon_attack_range as SAR
+    return SAR.summon_attack_range(SAR.summon_id(ActiveAbilityType(ALPHA).name))
 
 
 def _ctx_alpha(tuile, ennemi, turns_started=2):
@@ -313,8 +325,8 @@ def _ctx_alpha(tuile, ennemi, turns_started=2):
 def test_alpha_la_portee_du_summon_est_celle_de_son_ARME_LA_PLUS_LONGUE():
     """`foreach w in GetUnitConfig(unitId).weapons: range = Max(range, w.Range ?? 1)`. Le `?? 1`
     est LU : une arme de melee compte pour 1, pas pour 0. Valeur re-derivee du gameconfig."""
-    from engine.playbook.noncomparable.alpha_warrior import _summon_id
-    sid = _summon_id(ALPHA)
+    import engine.playbook.noncomparable.summon_attack_range as SAR
+    sid = SAR.summon_id(ActiveAbilityType(ALPHA).name)   # le foyer #967 prend le NOM, pas l'id
     assert sid, "constants.unitId de 1112 introuvable"
     armes = (GC.unit(sid) or {}).get("weapons") or []
     attendu = max(int(w.get("Range") or 1) for w in armes)

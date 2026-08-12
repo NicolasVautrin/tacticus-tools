@@ -356,6 +356,116 @@ def _martial_inspiration_inputs(scene, caster_id, target_id, ab, cfg) -> dict:  
     return {"base_override": round(minv * buff), "hits_override": 1}
 
 
+def _talons_of_the_emperor_inputs(scene, caster_id, target_id, ab, cfg) -> dict:
+    """`TalonsOfTheEmperorPlaybook.<MakeDamagePredictions>d__2$$MoveNext` (1195, `custoAtlacoya`
+    « Atlacoya ») -- il SURCHARGE la base ET le profil, LU verbatim :
+
+        base    = AbilityConfiguration.GetVariableForLevel(cfg, 0xc, level, null)   # minDmg SEUL
+        extraN  = TalonsOfTheEmperorAbility$$GetExtraDamage(ability, level)         # un NOEUD
+        extra   = IAmountFormula slot 1 (extraN, entities{ +0x08 = caster })        # caster SEUL
+        prof1   = AbilityConfiguration$$GetDamageProfile(cfg)                       # damageProfile
+        prof2   = AbilityConfiguration$$GetDamageProfile2(cfg)                      # damageProfile_2
+        met     = TalonsOfTheEmperorAbility$$MeetSecondDamageProfileRequirement(ability)
+                     .<slot>(entities{ +0x08 = caster, +0x10 = target, +0x40 = casterTile }, 0x20)
+        hits    = AActiveAbility$$GetHits(ability)                                  # nrOfHits
+        yield new ProbableDamageEvent(target,
+                  GetAttackPrediction(caster, target, casterPosition, Nullable(AbilityOrEffect),
+                                      extra + base, met ? prof2 : prof1, hits))
+
+    DEUX ECARTS avec le chemin generique, et ils vont dans des sens OPPOSES -- c'est pourquoi
+    aucune mesure scalaire ne pouvait les separer :
+
+      1. **La BASE est `minDmg` SEUL, pas `avg(minDmg, maxDmg)`.** `GetVariableForLevel(0xc)` est
+         appele DIRECTEMENT ; il n'y a AUCUN `MinMaxDamage` dans ce corps. Le generique
+         SUR-evaluait donc (`1195` rejoint `HellfireShells`/`GreatFrostAxe`/`Stikkbomb`/
+         `PlasmaGrenade`/`MartialInspiration` dans `_PREDICTION_DAMAGE_NOT_MINMAX_AVERAGE`, ou il
+         MANQUAIT).
+      2. **Un terme FLAT s'ajoute** (`extra`), que le generique ignorait -> il SOUS-evaluait.
+
+    ⚠ **`GetHits` N'EST PAS SURCHARGE** : le natif rappelle `GetHits` (jamais `GetHits2`) et ne
+    touche pas a `nrOfHits`. Aucun `hits_override` ici -- en poser un serait inventer.
+
+    LE PROFIL EST CONDITIONNEL, DONC IL PASSE PAR CE HANDLER ET NON PAR
+    `_PLAYBOOK_PROFILE_OVERRIDE`, qui ne sait porter qu'une CONSTANTE. Le predicat lui-meme n'est
+    PAS re-ecrit : on appelle le foyer de la face COMBAT
+    (`custodes.talons_meet_second_damage_profile_requirement`), deja confronte LIVE par #521 --
+    `HasTrait(Target, Psyker) | HasFaction(<premier ami adjacent non-Steppable/Object>, Custodes)`,
+    ou le volet faction porte sur **UNE** entite, la PREMIERE (mesure #521-r2 : un `any` rendait
+    `DirectDamage` dans les deux regimes du couple `mixte`/`mixte_inv`).
+
+    ⚠ **`ctx.faction_of` DOIT etre cable, sinon `HasFaction` rend `False` EN SILENCE**
+    (`triggers.HasFaction.should_trigger` : `fo = ctx.faction_of ; if fo is None: return False`).
+    Le substrat est le foyer `ai.action_generators._faction` (clef gameconfig `FactionId`), le MEME
+    que `runner/abilities/behaviours/context.py` donne a la face COMBAT -- surtout pas
+    `UnitContext.faction`, qui lit la clef `faction` et rend `None` pour les trois porteurs testes.
+
+    DEGRADATIONS, toutes NOMMEES et toutes du cote du STATU QUO (jamais une valeur devinee) :
+      * `cfg`/`ab` absents -> `{}` : le generique reprend la main ;
+      * `damageProfile_2` absent de la config -> aucun `profile_override` : le natif lui-meme
+         renoncerait (`Nullable<DamageProfile>` vide, cf. la face COMBAT qui rend `None`) ;
+      * substrat DSL incomplet (`scene.units`/`board` vides) -> le predicat rend `False` -> profil
+         `damageProfile`, la branche PAR DEFAUT du natif."""
+    if ab is None or cfg is None:
+        return {}
+    import engine.runner.abilities.custodes as CUSTODES   # FORME B (liaison de MODULE), et le
+    #   differe est CLASSE GRATUIT : charger `custodes` seul ne fait PAS atterrir ce module-ci dans
+    #   `sys.modules` (mesure #974). Hisse en tete, ce serait une arete `playbook -> runner` que la
+    #   couche prediction n'a nulle part ailleurs ; garde ici, il n'entraine aucune cascade au
+    #   chargement. La liaison de MODULE (jamais `from ... import <nom>`) garde le point
+    #   substituable par un patcheur.
+    lvl, mult = ab.level, ab.multiplier
+    # `GetVariableForLevel(0xc)` = `minDmg`, et RIEN d'autre : pas de moyenne min/max.
+    base = cfg.get_variable_for_level("minDmg", lvl, 0, mult)
+    # `GetExtraDamage` = `Multiply( ConfigVar(8 = extraDmg),
+    #                               If(HasEffect(Caster, 0x58c, activeOnly = 0), EffectLevel(...), 0) )`
+    per = cfg.get_variable_for_level("extraDmg", lvl, 0, mult)
+    eff_state = getattr(scene, "eff_state", None)
+    used = 0
+    if eff_state is not None:
+        # `activeOnly = 0` au call-site natif -> `by_unit` BRUT, pas `Scene.effects()` (qui filtre
+        # sur `EffectComponent.IsActive`). Foyer PARTAGE avec la face COMBAT (#974).
+        used = CUSTODES.talons_used_abilities_level_from_effects(
+            eff_state.by_unit.get(int(caster_id), []))
+    out = {"base_override": int(base or 0) + int(per or 0) * int(used)}
+    consts = getattr(cfg, "constants", None) or {}
+    prof_2 = consts.get("damageProfile_2")
+    if prof_2:
+        dctx = _talons_profile_context(scene, caster_id, target_id)
+        if dctx is not None and \
+                CUSTODES.talons_meet_second_damage_profile_requirement().should_trigger(dctx):
+            out["profile_override"] = prof_2
+    return out
+
+
+def _talons_profile_context(scene, caster_id, target_id):
+    """`AbilityEntities` du predicat de profil de 1195 : le natif en construit un NEUF (memset
+    0x128) dont il ne renseigne que `+0x08 = caster`, `+0x10 = target` et
+    `+0x40 = casterPosition.get_MainTile()`.
+
+    Les quatre canaux que le predicat consulte reellement, et leur foyer :
+      * `caster` / `target` / `caster_pos` -- `AdjacentTiles(CasterTile())` ancre sur le CASTER,
+        jamais sur la cible ;
+      * `board` -- sans lui `AdjacentTiles` rend `[]`, donc le volet faction serait muet ;
+      * `has_trait` -- `HasTrait(Target(), Psyker)` ; meme substrat `_entity_traits` que le reste
+        de la face prediction ;
+      * `faction_of` -- `_faction(visualId)` (clef `FactionId`), foyer commun avec la face COMBAT.
+    """
+    units = getattr(scene, "units", None)
+    if not units:
+        return None
+    from engine.ai.action_generators import _faction     # foyer UNIQUE du `FactionId` gameconfig
+    by_id = {u.get("id"): u for u in units}
+    caster, target = by_id.get(caster_id), by_id.get(target_id)
+    if caster is None or target is None:
+        return None
+    return dsl.DslContext(units=units, caster=caster, target=target,
+                          caster_pos=scene.pos(caster_id), board=getattr(scene, "board", None),
+                          elev_by_pos=getattr(scene, "elev_by_pos", None),
+                          has_trait=lambda u, t: _trait_name(t) in _entity_traits(
+                              scene, (u or {}).get("id")),
+                          faction_of=lambda u: _faction((u or {}).get("visualId")))
+
+
 def _crushing_claws_inputs(scene, caster_id, target_id, ab, cfg) -> dict:  # target_id ignore (contrat registre)
     """`IdunBattle.AI.Playbook.Loki.CrushingClawsPlaybook$$MakeDamagePredictions` (tyranTyrantGuard, ability 1105) — la
     PREDICTION ignore le `damageProfile` de l'ability : le playbook passe **`param_8 = null`**
@@ -1138,6 +1248,10 @@ _MAKE_DMG_SELECTOR_ONLY = frozenset({
 # NonComparable) ; ici = les playbooks Comparable qui surchargent juste les INPUTS de GenerateMultiHit.
 _MAKE_DMG_INPUT_OVERRIDES = {
     ActiveAbilityType.MartialInspiration: _martial_inspiration_inputs,            # 1191
+    # #974 -- base `minDmg` SEUL + terme flat `extraDmg x niveau(effet 1420)`, et profil
+    # CONDITIONNEL (`damageProfile_2` si `MeetSecondDamageProfileRequirement`). Le profil passe par
+    # CE registre et non par `_PLAYBOOK_PROFILE_OVERRIDE`, qui ne porte que des constantes.
+    ActiveAbilityType.TalonsOfTheEmperor: _talons_of_the_emperor_inputs,           # 1195
     ActiveAbilityType.CrushingClaws: _crushing_claws_inputs,                      # 1105
     ActiveAbilityType.HellfireShells: _hellfire_shells_inputs,                    # 1080
     ActiveAbilityType.BrazierOfHolyFire: _brazier_of_holy_fire_inputs,            # 1041

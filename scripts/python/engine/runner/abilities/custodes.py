@@ -532,14 +532,32 @@ def talons_used_abilities_level(state: "State", caster_id: int) -> int:
     comme celui de `FuelledByFury_ExtraDamage`. Depuis #521-r1 il AVANCE aussi hors-ligne : la
     triggered 1330 (`triggers/loki/talons_of_the_emperor.py`) l'incremente de +1 a la fermeture de
     toute active alliee qui compte, ce que cette lecture voit puisqu'elle interroge le MEME
-    `EffectsState.by_unit`."""
+    `EffectsState.by_unit`.
+
+    FOYER PARTAGE avec la face DECISION depuis #974 : le corps utile vit dans
+    `talons_used_abilities_level_from_effects` ci-dessous, qui ne prend qu'une LISTE d'effets. La
+    face DECISION (`playbook/prediction/abilities.py::_talons_of_the_emperor_inputs`) l'appelle avec
+    la liste de la `Scene` -- deux substrats, UN seul corps, donc aucun fork possible entre les deux
+    faces de la meme lecture."""
     if getattr(state, "effects", None) is None:
         return 0
+    return talons_used_abilities_level_from_effects(state.effects.by_unit.get(int(caster_id), []))
+
+
+def talons_used_abilities_level_from_effects(effects) -> int:
+    """`EffectLevelFormula$$Calculate` : part de `0` et **ACCUMULE** `EffectComponent+0x68` (`Level`)
+    sur toutes les instances non consommees du type `TOTE_USED_ABILITIES` -- une SOMME, pas un
+    `First`, et pas un `max`.
+
+    ⚠ Le filtre est `consumed` SEUL, jamais `active` : le call-site natif est
+    `HasEffect(Caster, 0x58c, activeOnly = 0, sourceFlags = 6)`, dont le troisieme argument est le
+    LITTERAL `0`. Cote DECISION, cela impose de lire `Scene.eff_state.by_unit` et **PAS**
+    `Scene.effects(uid)`, qui applique le gate `EffectComponent.IsActive @+0x5c`."""
     total = 0
-    for e in state.effects.by_unit.get(int(caster_id), []):
-        if e.consumed or int(e.effect_type) != TOTE_USED_ABILITIES:
+    for e in (effects or []):
+        if getattr(e, "consumed", False) or int(getattr(e, "effect_type", -1)) != TOTE_USED_ABILITIES:
             continue
-        total += int(e.level or 0)
+        total += int(getattr(e, "level", 0) or 0)
     return total
 
 

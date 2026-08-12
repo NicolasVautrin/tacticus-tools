@@ -198,6 +198,15 @@ _PREDICTION_DAMAGE_NOT_MINMAX_AVERAGE = {
     ActiveAbilityType.MartialInspiration:  # 1191
         ("MartialInspirationPlaybook.u003CMakeDamagePredictionsu003Ed__2$$MoveNext",
          "round(minDmg * buff), hits = 1", True),
+    # #974 -- TROU de ce registre, trouve en portant la face DECISION. Le corps appelle
+    # `GetVariableForLevel(cfg, 0xc, ...)` DIRECTEMENT : il n'y a AUCUN `MinMaxDamage` dedans, donc
+    # la base n'est pas la moyenne. S'y ajoute un terme FLAT (`GetExtraDamage`) que le generique
+    # ignorait -- les deux ecarts vont en sens OPPOSES, ce qui les rendait inseparables d'une
+    # mesure scalaire. `nrOfHits`, lui, N'EST PAS surcharge (le natif rappelle `GetHits`).
+    ActiveAbilityType.TalonsOfTheEmperor:  # 1195
+        ("TalonsOfTheEmperorPlaybook.u003CMakeDamagePredictionsu003Ed__2$$MoveNext",
+         "Get(minDmg 0xc) SEUL + GetExtraDamage (flat) ; profil CONDITIONNEL "
+         "(damageProfile_2 si MeetSecondDamageProfileRequirement) ; hits = nrOfHits", True),
     ActiveAbilityType.PlasmaGrenade:       # 1098
         ("PlasmaGrenadePlaybook$$MakeDamagePredictions", "Get(minDmg) SEUL", True),
     # #352 : la lecture « maxDmg SEUL » de #350 etait INCOMPLETE. Le playbook n'appelle pas
@@ -1310,6 +1319,14 @@ _NONCOMPARABLE_ABILITIES: "frozenset[str]" = frozenset({
                           # `AttackWithAttackDamage`) : c'est le PLAYBOOK qui est NonComparable, donc
                           # la DECISION n'est PAS un score de degat -- exactement le cas de 1163
                           # `BlackRage` / 1202 `VigilanceEternal` ci-dessus.
+    # --- #974 : meme forme, et le meme piege. `1198 EuphoricStrikes` PORTE une config de degat
+    # (`minDmg`/`maxDmg`/`damageProfile: Power`/`nrOfHits: 1`), mais son playbook est
+    # `NonComparablePlaybook`1` (base LUE dans `frida/classes.tsv`) et son
+    # `EvaluateNonComparable` score par `GetStat(cible, 5 = Health)` -- il ne construit AUCUNE
+    # prediction d'ability. Sans cette entree, le port fabriquerait un `ProbableDamageEvent`
+    # depuis `minDmg`/`maxDmg` que le natif n'emet jamais.
+    "EuphoricStrikes",    # 1198 IdunBattle.AI.Playbook.Loki.EuphoricStrikesPlaybook$$EvaluateNonComparable
+                          # ; util = PV courants de la cible, VETO `WillNormalAttackKill`
 })
 
 

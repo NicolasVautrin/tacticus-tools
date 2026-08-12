@@ -87,6 +87,7 @@ from .the_quickening import TheQuickeningPlaybook
 from .black_rage import BlackRagePlaybook
 from .vigilance_eternal import VigilanceEternalPlaybook
 from .kill_maim_burn import KillMaimBurnPlaybook
+from .euphoric_strikes import EuphoricStrikesPlaybook   # #974 -- 1198, `emperExultant`
 from .scarab_hive import ScarabHivePlaybook
 from .cord_claw import CordClawPlaybook
 from .poxwalkers import SpawnPoxwalkersPlaybook
@@ -414,6 +415,24 @@ PLAYBOOKS: dict[int, NonComparablePlaybook] = {
         #                                 aucune `.cctor` -> `minUtility.HasValue == false` ->
         #                                 `MIN_UTILITY = -inf` (le 0.0 par defaut aurait tout rejete,
         #                                 l'utilite etant negative par construction).
+        # #974 -- face DECISION d'`EuphoricStrikes`. Base `NonComparablePlaybook`1` LUE dans
+        # `frida/classes.tsv` (son `.ctor` NOMME `ComparablePlaybook<...>`, corps DEDUPLIQUE --
+        # meme piege que #487-r1 / #945 / #957 / #970). Porteur `emperExultant` = HEROS, donc
+        # `ctx.reach_nc` n'est PAS vide et `_PlanTargetPlaybook` est atteint (contraste avec les
+        # deux MoW de #970 juste au-dessus, pour qui ce sweep aurait ete inerte).
+        EuphoricStrikesPlaybook(),      # 1198 (`emperExultant`) -- util = `GetStat(cible,
+        #                                 5 = Health)` NUE, avec VETO `WillNormalAttackKill` EN
+        #                                 TETE de boucle. Meme utilite que `VexillaMagnifica`
+        #                                 (1183), mais l'autre conjoint : la, `HasEffect(Stunned)`
+        #                                 SOUS le calcul ; ici le gate AU-DESSUS -- et ce gate
+        #                                 CONSTRUIT un `ProbableDamageEvent` que l'oracle capte.
+        #                                 A la difference de `KillMaimBurn` (1132), qui porte le
+        #                                 MEME gate, le playbook ne construit AUCUNE prediction
+        #                                 d'ability : sa trace vaut au plus UN event.
+        #                                 ⚠ CONVERGENCE INDEPENDANTE : `DaemonicPatronsPlaybook`
+        #                                 (1203, #969, quelques lignes plus haut) a EXACTEMENT ce
+        #                                 patron -- PV courants + gate `WillNormalAttackKill`. Deux
+        #                                 lectures separees du meme squelette natif.
     )
 }
 
