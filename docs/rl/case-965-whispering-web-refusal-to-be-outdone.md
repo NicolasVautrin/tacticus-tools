@@ -222,9 +222,68 @@ Inventaire des primitives citées par les deux arbres, croisé contre `scripts/p
 |---|---|
 | `IdunBattleLogic.Entities.DSLFormulas$$GetAllPersistentDataCombined` | **ABSENT** — à porter |
 
+Ce recensement s'est révélé **incomplet d'un nœud** à l'écriture, et c'est instructif :
+`AddOrUpdateStaticStatModifierEffect` **apparaissait** dans `git grep` (9 occurrences) mais
+seulement en **prose** — la classe portée est `AddStaticStatModifierEffect`, sans le `OrUpdate`.
+Un recensement par `grep` de NOM compte les mentions, pas les définitions.
+
+| nœud natif | port |
+|---|---|
+| `IdunBattleLogic.Entities.DSLFormulas$$GetAllPersistentDataCombined` | **ABSENT** — porté par cette tranche |
+| `IdunBattleLogic.Entities.DSLBehaviors$$AddOrUpdateStaticStatModifierEffect` | **ABSENT** — porté par cette tranche |
+
 Tout le reste (`GetPersistentData`, `SetPersistentData`, `ClearAllPersistentData`,
-`AddOrUpdateStaticStatModifierEffect`, `AmountIsGreater`, `AmountIsZero`,
-`AmountIsGreaterThanZero`, `PercentageOf`, `Sum`, `Multiply`, `EntityId`, `CurrentDamage`,
-`CurrentHitIndex`, `IsAdjacent`, `AreFriends`, `AreEnemies`, `IsHero`, `HasTrait`,
-`DamageProfileIs`, `IsTurnOf`, `EffectSource`, `EffectsFromUnitSource`, `OwnerOfEffect`,
-`AddBondEffect`, `RemoveEffect`, `ConfigVar`) est déjà porté.
+`AmountIsGreater`, `AmountIsZero`, `AmountIsGreaterThanZero`, `PercentageOf`, `Sum`, `Multiply`,
+`EntityId`, `CurrentDamage`, `CurrentHitIndex`, `IsAdjacent`, `AreFriends`, `AreEnemies`,
+`IsHero`, `HasTrait`, `DamageProfileIs`, `IsTurnOf`, `EffectSource`, `EffectsFromUnitSource`,
+`OwnerOfEffect`, `AddBondEffect`, `RemoveEffect`, `ConfigVar`) était déjà porté.
+
+### Les deux nœuds neufs, et ce que leur lecture a corrigé
+
+**`GetAllPersistentDataCombined$$SumAbilityData`** est une **SOMME** des valeurs **entières**
+rangées sous l'`abilityId`, qui **saute** toute valeur d'un autre type (le natif teste la classe de
+l'objet boxé) et **exclut** les clés listées par l'appelant (`String.op_Equality`). Un
+`excludedKeys` nul n'exclut rien.
+
+**`AddOrUpdateStaticStatModifierEffect`** n'est **pas** un `Add` inconditionnel :
+
+```
+If( op_LogicalNot( AmountIsEqual(amount, CurrentStatModifierAmountFormula(targets, effectType, statType)) ),
+    RemoveEffect(targets, Nullable(effectType)) & AddStaticStatModifierEffect(targets, ...) )
+```
+
+C'est **load-bearing dans les deux sens**. (a) Sans le remove-puis-add, `AddStaticStatModifierEffect`
+seul est un **no-op** sur effet déjà présent (`AddEffectOperation` rend `None`) — la stat resterait
+figée à la première valeur, donc l'Outrage ne monterait jamais. (b) Sans la garde d'idempotence, on
+détruirait et recréerait l'entité-effet à chaque coup, même à montant inchangé.
+
+⚠ Le ctor du nœud conditionnel est étiqueté `IdunBattle.Entities.Behaviours.PerformAIMovementBehaviour$$.ctor`
+par ghidra : corps **dédupliqué par ICF** (ctor à trois champs `cond`/`then`/`else`), le nom désigne
+un propriétaire arbitraire. La nature `If` est établie par la **forme de l'appel**, pas par le nom.
+
+## 6. Co-injection des deux porteurs — l'hypothèse TIENT
+
+Aucun des deux n'est au pool (`rl_duel build --list-pool`, rank 17, 97 unités) : les deux sont des
+`lineup`. Ils s'injectent donc, et `catalog_inject.write_augmented_seed_bc` prend bien une **LISTE**
+d'`unitIds` :
+
+```
+write_augmented_seed_bc(out, ['eldarLhykhis', 'emperExultant'])
+  -> UNITS AJOUTEES   ['eldarLhykhis', 'emperExultant']
+  -> CONFIGS AJOUTEES ['EmpyricAmbush', 'WhisperingWeb', 'EuphoricStrikes', 'RefusalToBeOutdone']
+```
+
+**Deux porteurs de deux factions différentes (Aeldari, EmperorsChildren) entrent dans un seul seed,
+avec leurs quatre configs d'ability (2 actives + 2 passives), en un seul appel.** La faction n'est
+pas un facteur : l'augmentation porte sur le bloc `Units` et sur `BC.Abilities`, ni l'un ni l'autre
+n'étant partitionné par faction. Le montage est donc payé **une fois pour deux items**.
+
+## 7. Ce que la tranche livre, par item
+
+| item | verdict | ce qui est porté |
+|---|---|---|
+| `RefusalToBeOutdone` (1441) | **PORTÉ** (hors branche morte) | les deux classes natives, les trois disjoints de trigger, `RecordHitBehaviour`, les deux formules, les deux poseurs de stat, le reset |
+| `WhisperingWeb` (1554) | **PORTÉ PARTIELLEMENT** | l'ability (pose + retrait mono-cible). La magnitude de l'effet 1579 est le résidu `#965-r2` |
+
+Résidus ouverts : **`#965-r1`** (le vecteur `UnitTransformed` sans émetteur) et **`#965-r2`**
+(le threading de `hit_index` dans le pipeline de dégât).
