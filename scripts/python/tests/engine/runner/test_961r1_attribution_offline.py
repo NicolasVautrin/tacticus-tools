@@ -23,6 +23,34 @@ from pathlib import Path
 
 import pytest
 
+#: Ce qui doit changer pour que ce FICHIER de test puisse changer de verdict (#486-r15).
+#: Trop LARGE est sain, trop ETROIT est un faux vert : ce fichier lit le SOURCE de deux probes et
+#: importe deux modules du pipeline, et il doit se rejouer des que l'un d'eux bouge.
+DECLENCHEUR = {
+    "chemins": (
+        # Le montage dont ce cliquet garde le carre `distance x elevation`.
+        "scripts/python/probe_961_necron_passives.py",
+        # Le probe d'attribution dont il verifie que les foyers substitues existent ENCORE.
+        "scripts/python/probe_961r1_attribution.py",
+        # Les deux modules du pipeline ou vivent ces foyers : un RENOMMAGE ou un deplacement y
+        # rendrait la trace silencieusement incomplete, et c'est precisement le mode de panne
+        # qui a fait conclure a un facteur multiplicatif.
+        "scripts/python/engine/runner/operations/damage_ops/ability.py",
+        "scripts/python/engine/runner/operations/damage.py",
+    ),
+    "toujours": False,
+    # Ce cliquet est PUREMENT STRUCTUREL : il lit un litteral par AST et teste la presence
+    # d'attributs de module. Il ne resout aucun symbole natif et ne lit aucune table de
+    # `data/symbols/**` -- un changement de build ne peut donc pas changer son verdict.
+    "build": False,
+    "raison": ("Garde le SEPARATEUR de l'attribution #961-r1 : le carre `distance x elevation` du "
+               "montage (`range2_flat`, sans lequel les deux axes se re-confondent et l'ecart "
+               "reparait comme un facteur) et l'existence des foyers que le probe d'attribution "
+               "substitue dans les globals de `damage_ops/ability.py`. Il se rejoue donc des que "
+               "l'un des deux probes ou l'un des deux modules de pipeline bouge -- un renommage y "
+               "rendrait la trace silencieusement incomplete."),
+}
+
 PYDIR = Path(__file__).resolve().parents[3]
 if str(PYDIR) not in sys.path:
     sys.path.insert(0, str(PYDIR))

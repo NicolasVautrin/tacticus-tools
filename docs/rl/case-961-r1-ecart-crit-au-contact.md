@@ -73,12 +73,48 @@ Le porteur se lit dans ce qui **distingue** les trois cibles, toutes trois `Hero
 
 | cible | passif | autres traits | delta |
 |---|---|---|---|
-| `orksRuntherd` | **`SquigHound`** | `BeastSlayer` | **579** |
+| `orksRuntherd` | `SquigHound` | `BeastSlayer` | **579** |
 | `orksNob` | `SmashaEad` | `BeastSlayer`, `Unstoppable` | 0 |
 | `orksWarboss` | `LightImUp` | `BigTarget`, `CrushingStrike`, `FinalJustice`, `Mechanical` | 0 |
 
 `GetStuckIn` est porté par les **trois** ⇒ écarté. `BeastSlayer` est porté par `orksNob`, qui est
-bit-exact ⇒ écarté. **Reste `SquigHound`**, le passif du seul porteur divergent.
+bit-exact ⇒ écarté.
+
+⚠ **Le discriminant est l'UNITÉ `orksRuntherd`, pas son passif** — et imputer l'écart à `SquigHound`
+(le seul passif restant) était une **déduction, pas une lecture**. Elle était FAUSSE. Le décompilé a
+tranché : ce qui distingue `orksRuntherd` est sa **RELIQUE**, invisible de la colonne « passifs » —
+`data/seed-bc.json` lui donne `TertiaryAbility = 1475` (`SupaCyborkBody`), **équipée au seed**
+(l'« état 1 » des trois états d'une relique). C'est le rappel exact du CLAUDE.md : un recensement
+qui ne lit pas les cinq voies d'attribution ne prouve rien de ce qu'il ne voit pas.
+
+## 3bis. La cause, LUE au décompilé (build `rnca9r7q6c`)
+
+    IdunBattle.Entities.Effects.Loki.SupaCyborkBody_CritDmgReductionEffect$$CreateCritDamageBonus
+        = EffectBonus.ForSubtraction( DSLTriggers.get_OwnerIsTarget,
+                                      DSLFormulas.Multiply(ConfigVar(0x97 = critDmgReduction),
+                                                           DSLFormulas.EffectLevel) )
+    ...$$CreateActiveCondition = HasAdjacentEnemies(Owner, Tiles(Owner))
+    ...$$GetCalculateLevel     = Count(AdjacentEnemies(Owner))
+
+`critDmgReduction[49] = critDmgReduction[50] = **579**` au gameconfig — **la valeur mesurée, à
+l'unité**. `EffectBonus$$ForSubtraction` remplit `Item2`, et
+`DamagePrediction$$GetCritDamageBonusFromEffects` accumule `Item1 - Item2` ⇒ contribution
+**négative**. `DamagePrediction$$CalculateCriticalDamage` est bien
+`Math.Max(0, GetStat(10) + GetCritDamageBonusFromEffects(...))`, et
+`DamageCalculations$$ApplyCritDamage` est une **addition FLAT** sur la valeur roulée brute — le
+pipeline est donc hors de cause, exactement comme le mesurait le carré.
+
+Le mécanisme explique les cinq cellules sans rien ajouter : la condition et le niveau se lisent sur
+les ennemis **adjacents à la CIBLE**. Au contact, le caster est ce voisin ⇒ `EffectLevel = 1` ⇒
+`max(0, 2082 − 579) = 1503`. À distance 2 ⇒ 0 voisin ⇒ condition fausse ⇒ 2082.
+
+⚠ **`EffectLevel` est un COMPTE, pas un booléen** : deux ennemis au contact de la cible
+retrancheraient **1158**. Figer 579 passerait le cas mesuré et échouerait au suivant.
+
+⚠ **`RangedInMelee` est RÉFUTÉ, et le commentaire du port n'est pas infirmé** :
+`DamageCalculations$$CalculateRangedInMeleeReduction` n'a que des xrefs **DATA**, et aucun des
+quatre appelants de `DamageCalculations$$ShouldApplyRangedInMelee` n'est sur le chemin
+d'`AttackDamageOperation$$ExecuteHit`.
 
 ## 4. ATTRIBUTION — pipeline partagé, PAS le vecteur
 
@@ -87,15 +123,27 @@ C'était la question à trancher, et elle est tranchée :
   * le **vecteur** `LivingLightning` passe au pipeline des bornes JUSTES (`HitDamage(2394, 2992)`,
     tracées) et le bon roll — il est bit-exact dans **quatre** des cinq cellules du carré, y compris
     sur un coup critique ;
-  * l'écart vit dans le **canal CRIT du pipeline de dégât partagé** — `AttackDamageOperation
-    $$ExecuteHit` → `IdunBattle.Core.Services.DamagePrediction$$CalculateCriticalDamage` =
-    `Math.Max(0, GetStat(10) + GetCritDamageBonusFromEffects(...))` — dont le port rend un bonus
-    d'effets de **0** (tracé) là où le natif applique **−579** ;
-  * le porteur de ce bonus est un effet du **DÉFENSEUR** (`SquigHound`), gaté sur l'**adjacence**.
+  * **le pipeline de dégât partagé est HORS DE CAUSE lui aussi**, et c'est LU, pas supposé : son
+    foyer crit (`AttackDamageOperation._crit_params` → `_crit_board` + `_crit_carriers`, balayage
+    board-wide cible comprise) est fidèle au natif et les **trois** vecteurs lui passent bien
+    `state`/`attacker_id`/`target_id`. La formule native
+    (`Math.Max(0, GetStat(10) + GetCritDamageBonusFromEffects(...))`, puis addition FLAT par
+    `DamageCalculations$$ApplyCritDamage`) est celle qu'il mirrore ;
+  * l'écart est **SOUS** ce foyer : le bonus d'effets rendu vaut **0** (tracé) parce que l'instance
+    d'effet qui devrait le porter **n'existe pas dans l'état porté**.
 
-⇒ **Aucun correctif n'est livré ici** : le foyer (`engine/runner/operations/damage.py`,
-`damage_ops/*`) est celui d'une autre tranche en vol, et le porteur d'effet reste à identifier au
-décompilé. Le correctif est ouvert en **`#961-r3`**.
+**La cause racine est un trou de MONTAGE D'ÉTAT, pas de calcul.** Mesuré : `decisionView.effects[]`
+de la capture ne publie, pour la cible, que
+`SquigHound_AdditionalHits (1292)`, `SquigHound_IgnoreBattleFatigue (1078)`,
+`BeastSlayer_ExtraDmg (1516)`, `BeastSlayer_ExtraBlock (1517)` —
+**`SupaCyborkBody_CritDmgReduction` n'y est PAS**, ni actif ni inactif. Le port ne peut donc pas le
+construire, alors que son mirror EXISTE et est enregistré
+(`engine/entities/effects/loki/supa_cybork_body.py`, `entities/effects/factory.py`).
+
+⇒ **Aucun correctif n'est livré ici** : établir si l'effet est absent parce qu'il est CONDITIONNEL
+et inactif à l'instant de la capture (le caster n'est pas encore adjacent — il l'est après le pas,
+qui est justement ce que le vecteur mesure) ou parce que le capteur ne le publie pas, décide de deux
+correctifs très différents. Le correctif est ouvert en **`#961-r3`**.
 
 ## 5. Outillage livré
 
@@ -112,15 +160,20 @@ décompilé. Le correctif est ouvert en **`#961-r3`**.
 
 ## 6. Ce qui n'est PAS couvert
 
-  * **`#961-r3`** — le correctif lui-même : nommer l'`EffectBonus` natif de `SquigHound` sur le slot
-    `IdunBattle.Entities.Effects.BaseEffect$$CritDamageBonus`, sa magnitude (−579 au rank du
-    montage) et son gate d'adjacence, puis le porter. Foyer probable : un module d'effet sous
-    `engine/entities/effects/`, **pas** le pipeline — mais la lecture du décompilé doit le
-    confirmer avant toute écriture.
-  * La valeur **579** n'est pas rattachée à une variable de gameconfig : le balayage des kits des
-    trois unités du montage n'en trouve aucune qui l'égale (à `×1`, `×1,6`, `×1,8`, `×2`). Elle est
-    donc soit calculée, soit portée par un effet de TRAIT (les traits ne sont pas des entrées
-    `GC.ability`).
+  * **`#961-r3`** — le correctif : faire exister l'instance
+    `SupaCyborkBody_CritDmgReduction` dans l'état porté. Le premier étage à trancher est
+    **pourquoi elle est absente de `decisionView.effects`** — effet conditionnel non encore actif à
+    la capture, ou capteur qui ne le publie pas. Si c'est le second, il faut une fenêtre de
+    reinject ; si c'est le premier, le correctif est un montage d'état, sans capteur.
+  * Les **trois autres reliques équipées au seed** (`necroSpyder` 1462, `admecMarshall` /
+    `admecRuststalker` 1457) sont dans le **même angle mort** : si l'instance de 1475 n'est pas
+    montée, rien ne dit que les leurs le soient. Non vérifié ici.
+  * **Le compte, pas la constante** : aucun test de #961-r3 ne doit figer 579 — `EffectLevel` est
+    `Count(AdjacentEnemies(Owner))`, donc deux ennemis au contact de la cible valent **1158**. Le
+    régime à deux voisins n'est pas monté ici.
+  * Le plancher `Math.Max(0, ...)` de `CalculateCriticalDamage` ne doit pas devenir un **gate du
+    tirage** : `RollCritical` ne lit que la CHANCE (gisement #950). Une cible entourée peut pousser
+    le crit sous zéro sans qu'aucun tirage disparaisse.
   * Le témoin « coup non critique à distance 1 » n'a été obtenu qu'en **forçant** `critChance = 0` :
     sur cinq seeds, le coup a critté **5/5** à distance 1 alors que la chance est de 41 %. Ce n'est
     pas expliqué ici, et ça mériterait d'être regardé si le flux MT devait être re-confronté.

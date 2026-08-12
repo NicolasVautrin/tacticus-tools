@@ -326,6 +326,19 @@ def main(argv):
             # le port a lu : c'est ce qui separe << stat differente >> (seeding) de
             # << bonus applique a tort >> (canal d'effets).
             snap = (res.get("cap") or {}).get("snap") or {}
+            # #961-r3 -- LE POINT DE BASCULE : l'effet `SupaCyborkBody_CritDmgReduction` (relique
+            # 1475 EQUIPEE AU SEED sur `orksRuntherd`) est-il PUBLIE par le natif, et CONSTRUIT
+            # cote port ? S'il est publie mais absent des porteurs, le defaut est au montage du
+            # port ; s'il n'est meme pas publie, c'est un trou de CAPTATION (fenetre de reinject).
+            tid = res["ids"].get(P.LL_ENEMY_NEAR)
+            for u in ((res.get("cap") or {}).get("dec") or {}).get("units") or []:
+                if int(u.get("id") or -1) != int(tid or -1):
+                    continue
+                noms = [(e.get("name"), e.get("effectType"), e.get("active"))
+                        for e in (u.get("effects") or [])]
+                print("[961-r1] effets PUBLIES par le natif sur la cible : %s" % noms)
+                print("[961-r1]   SupaCyborkBody publie ? %s"
+                      % any("SupaCybork" in str(n[0]) for n in noms))
             want_ids = {res["ids"].get(P.LL_CARRIER), res["ids"].get(P.LL_ENEMY_NEAR)}
             for u in (snap.get("units") or []):
                 uid = u.get("id", u.get("unitId", u.get("entityId")))
