@@ -561,6 +561,36 @@ def pre_effect_added_triggers(state: State, source_id: Optional[int], target_id:
                                    source_id, target_id, effect_type, removing=False)
 
 
+def effect_added_triggers(state: State, source_id: Optional[int], target_id: Optional[int],
+                          effect_type: int) -> list[dict]:
+    """Vecteur `On(EffectAdded = 0x3e = 62)` -- DEUXIEME des trois events d'
+    `IdunBattle.Operations.AddEffectOperation$$Execute`, publie **APRES** `$$RemoveExistingEffect` et
+    `$$AddNewEffect`, donc APRES la materialisation reelle de l'entite-effet. C'est toute la
+    difference avec son jumeau `On(0x3d = PreEffectAdded)`, emis TOUT EN HAUT (semantique
+    << would have >>) : celui-ci ne fire QUE si la pose a abouti.
+
+    Emplacement LU aux octets, pas deduit : le balayage de l'immediat `0x3e` dans le segment de code
+    ne le trouve qu'a **UN** site d'`IdunBattle.Operations` -- `AddEffectOperation$$Execute+0xd0b`
+    (`mov ecx, 0x50` / `mov r9d, 0x3e` / `call` du meme publieur que le `0x3d` de +0x50d), et la
+    sequence d'appels qui precede est `RemoveExistingEffect` (+0xc25) -> `AddNewEffect` (+0xc4e) ->
+    publication (+0xd37).
+
+    MEME `AbilityEntities` que la pre-pose (le natif la batit UNE fois par `Execute` et la publie
+    trois fois : `0x3d`, `0x3e`, `0x46`), donc MEMES canaux : `actor` = la SOURCE de l'effet, `target`
+    = la cible, et les DEUX slots d'ability portent `AbilityOrEffect(effectType)` (#306) -- ce qui
+    rend `CurrentAbilityIs(<effet>)` ET `TriggeringEffectIs(<effet>)` vrais, indiscernables.
+
+    Consommateurs portes : la branche 1 d'
+    `IdunBattleLogic.Entities.Abilities.Triggered.Loki.EcstaticSlaughterAbility$$CreateTrigger`
+    (`On(0x3e) & CurrentAbilityIs(AbilityOrEffect(EffectType.ThrillSeekers = 0x59a)) &
+    get_OwnerIsTarget`) et `TerminatorArmourActivateOnEffectAdded`, qui etait enregistre sur cet
+    event **sans qu'aucun emetteur n'existe** -- il reste structurellement inerte pour une autre
+    raison (son seul poseur est un `OnOwnerSpecificAbilityInit` one-shot), et son `matches` est gate
+    sur `triggering_effect == 1147`, donc l'emission ne l'arme pas. No-op si rien ne matche."""
+    return _effect_vector_triggers(state, int(EventTriggerType.EffectAdded),
+                                   source_id, target_id, effect_type, removing=False)
+
+
 def pre_effect_removed_triggers(state: State, target_id: Optional[int],
                                 effect_type: int) -> list[dict]:
     """Vecteur `On(PreEffectRemoved=0x3f=63)` — premier des trois events de

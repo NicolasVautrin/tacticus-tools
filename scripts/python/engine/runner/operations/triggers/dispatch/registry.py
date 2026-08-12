@@ -97,6 +97,8 @@ from ..loki.skullsmasher import (SkullsmasherActivateStunAbility,    # #953 (pas
                                  SkullsmasherTriggerStunAbility)     # marqueur de kill + pose du Stun)
 from ..loki.obsessive_annunciation import (                          # #954 (passif emperKakophonist :
     ObsessiveAnnunciationOverkillAbility)                            # armement de l'aura de crit)
+from ..loki.ecstatic_slaughter import (                              # passif emperFlawlessBlade :
+    EcstaticSlaughterOnThrilledAbility, EcstaticSlaughterOnOverkillAbility)   # riposte + taunt
 from ..loki.terrifying_crescendo import (TerrifyingCrescendoOverkillAbility,   # lot POSE (passif
                                         TerrifyingCrescendoSuppressAbility)   # emperNoiseMarine, #204)
 from ..loki.deathwing import DeathwingAbility                          # #932 (passif darkaTerminator)
@@ -692,6 +694,21 @@ ABILITY_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
     # L'AUTRE effet du passif (1432, l'aura de degat) est un owner-effect d'INIT ->
     # `ABILITY_INIT_OWNER_EFFECTS`, pas ce registre.
     "ObsessiveAnnunciation": [ObsessiveAnnunciationOverkillAbility],
+    # EcstaticSlaughter (passif de kit d'`emperFlawlessBlade` << Hascule >>,
+    # `TriggeredAbilityType 0x5c0 = 1472`) : les DEUX branches de l'`op_BitwiseOr` de son
+    # `CreateTrigger`, qui partagent le MEME `CreateBehaviour` (3 coups Eviscerate sur un ennemi
+    # adjacent choisi par `Cache(First(SortUnitsByDamageUtility(Randomize(AdjacentEnemies))))`,
+    # puis `AddBondEffect(0x1b = Taunted_OnlySpecificTargets, bonded = Owner, 1 round)`) :
+    #   * `On(0x3e = EffectAdded) & CurrentAbilityIs(AbilityOrEffect(0x59a = EffectType.
+    #     ThrillSeekers)) & get_OwnerIsTarget` -- Hascule devient *Thrilled* ;
+    #   * `OnDeath(overkill: true, steppable: false) & TargetIsOverkilled() & IsNormalUnit(Target) &
+    #     AreEnemies(Owner, Target, 0) & IsAdjacent(Owner, Target, 0)` -- un ennemi ADJACENT est
+    #     overkill, PAR N'IMPORTE QUI (aucun `get_OwnerIsActor`, comme `ObsessiveAnnunciation`).
+    # Le gate `AmountIsGreaterThanZero(AdjacentEnemies(Owner, unique, sel 3))` est COMMUN aux deux
+    # (l'`op_BitwiseAnd` porte sur le OU, lu aux registres). Cf. loki/ecstatic_slaughter.py.
+    # ⚠ La 1re branche exigeait le vecteur `On(0x3e)`, qui N'EXISTAIT PAS cote port -- ajoute par la
+    # meme tranche (`dispatch/move_death.effect_added_triggers`, emis en fin d'`AddEffectOperation`).
+    "EcstaticSlaughter": [EcstaticSlaughterOnThrilledAbility, EcstaticSlaughterOnOverkillAbility],
     # EchoesFromTheWarp (passif UNIQUE de `thousNpc4Terminator`, npc) = la SECONDE instanciation de
     # `GhostReviveAbility`, parametree `effectType = 1284` -- MEME arbre, seule la branche d'amount
     # du behaviour de l'effet change (`StatAmount(src, Health, Initial)` = « Full Health »).
