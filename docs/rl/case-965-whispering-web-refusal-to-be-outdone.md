@@ -53,15 +53,37 @@ id propre**, montée par la principale — cf. §4.
 | `RefusalToBeOutdone_ResetStatsAbility$$CreateTrigger` branche A | `EventTriggerType.TurnEnd` (`0x17` = 23) | **OUI** — `dispatch/turn.py` |
 | `RefusalToBeOutdone_ResetStatsAbility$$CreateTrigger` branche B | `EventTriggerType.NormalAttack` (`0x26`) | **OUI** |
 
-⚠ **`UnitTransformed` (75) n'a AUCUN émetteur côté port** — balayage de `scripts/python` et
-`frida` : le nom n'apparaît que dans les deux **mirrors d'enum**
-(`engine/dsl/event_trigger_type.py`, `frida/hooks/data/event-trigger-type-names.ts`), jamais dans
-un site d'émission. Aucun trigger porté ne s'y abonne non plus. C'est un **vecteur mort côté
-port**, et il le reste après cette tranche : la branche B est donc portée **structurellement**
-(l'arbre la contient, fidèle au natif) mais **jamais évaluée**. Ce qu'elle ferait — un simple
-REFRESH des deux stat modifiers — est de toute façon refait par la branche A à chaque coup
-enregistré, donc l'absence d'émetteur **ne rend pas le passif faux**, seulement en retard d'un
-refresh dans le régime `UnitTransformed`. Résidu `#965-r1`.
+⚠ **`UnitTransformed` (75) n'a aucun émetteur côté port, et il ne doit pas en avoir : le régime
+qui l'émet côté NATIF est le mode SURVIVAL EVENT, hors de tout ce qu'un runner de duel monte.**
+Résidu `#965-r1` **FERMÉ par #981 — le port est FIDÈLE**, ce n'est pas une dette.
+
+L'émetteur natif est UNIQUE et sa chaîne est lue de bout en bout (build `rnca9r7q6c`) ::
+
+    IdunBattle.ViewLogic.BattleSource.SurvivalEventGameModeSource$$HandleRarityUp   // HUD Survival
+      -> <slot 104 = TransformPlayerToRarity>
+         -> IdunBattle.Operations.TransformPlayerToRarityOperation$$Execute
+            // refuse tout downgrade, écrit `PlayerComponent+0x7c`, puis, pour CHAQUE unité
+            // du joueur telle que `UnitExtensions.HasTrait(unit, 0x10 = UnitTrait.Hero)` :
+            -> <slot 103 = TransformActorToRarity>
+               -> IdunBattle.Operations.TransformActorToConfigIdOperation$$Execute
+                  // UnitNamingConventions.GetUnitIdWithoutRarity -> UnitConfigId(id, rarity)
+                  // UpdateStats / UpdateExistingAbilities / RefreshEffects / AddNewTertiaryAbility
+                  -> AbilityEntities..ctor(entity, entity, entity, ...)
+                  -> <slot 77 = EvaluateAbilities>(entities, 0x4b = UnitTransformed)
+
+**Le piège du voisin de forme, et il a failli jouer** : `IdunBattle.Operations.TransformUnitOperation`
+porte presque le même nom et n'émet **PAS** cet event. Sa table `.cctor` (`StatType ->
+ModStatTransformConfig`) ne contient que **deux** `Nullable<EventTriggerType>` non vides —
+`StatType 0 (ATTACK) -> 0x37 AttackChanged` et `StatType 8 (BLOCK_DAMAGE) -> 0x38
+BlockDamageChanged` — plus un `0x1e` dans la table d'INSTANCE du `.ctor` (`StatType 5 = HEALTH`,
+branche `FillStatTransformConfig`). Aucun `0x4b` nulle part. Trancher par le nom aurait produit un
+émetteur faux, branché sur le chemin de TOUS les stat-mods.
+
+Conséquence pour le port : la branche B (`On(0x4b) & get_OwnerIsTarget` → refresh des deux stat
+modifiers) reste portée **structurellement** et jamais évaluée, et c'est **correct** — nos runners
+ne montent jamais le mode Survival, donc le natif ne l'évaluerait pas davantage. Poser un émetteur
+serait un port spéculatif ; ce qu'elle ferait est de toute façon refait par la branche A à chaque
+coup enregistré.
 
 ## 3. `WhisperingWeb` — RE
 
@@ -285,5 +307,6 @@ n'étant partitionné par faction. Le montage est donc payé **une fois pour deu
 | `RefusalToBeOutdone` (1441) | **PORTÉ** (hors branche morte) | les deux classes natives, les trois disjoints de trigger, `RecordHitBehaviour`, les deux formules, les deux poseurs de stat, le reset |
 | `WhisperingWeb` (1554) | **PORTÉ PARTIELLEMENT** | l'ability (pose + retrait mono-cible). La magnitude de l'effet 1579 est le résidu `#965-r2` |
 
-Résidus ouverts : **`#965-r1`** (le vecteur `UnitTransformed` sans émetteur) et **`#965-r2`**
-(le threading de `hit_index` dans le pipeline de dégât).
+Résidu ouvert : **`#965-r2`**
+(le threading de `hit_index` dans le pipeline de dégât). **`#965-r1` est FERMÉ (#981)** : l'émetteur natif de `UnitTransformed` est `TransformActorToConfigIdOperation`, atteint uniquement par le mode SURVIVAL EVENT (cf. §2) -- le port est FIDÈLE.
+

@@ -78,12 +78,18 @@ il appartient au behaviour, pas au trigger.
 RESIDUS EXPLICITES
 ===================================================================================================
 
-* **`On(0x34 = UnitFled)` : porte comme une classe de registre, mais son VECTEUR n'existe pas
-  (#947-r1).** Le port ne modelise aucune FUITE : aucun `unit_fled_triggers` n'est emis (balayage de
-  `runner/operations/triggers/dispatch/`), et `EventTriggerType.UnitFled` n'apparait que dans des
-  docstrings. La branche est donc INERTE offline -- elle est declaree ici pour ne pas etre reinventee
-  le jour ou la fuite sera modelisee, et parce que l'omettre ferait croire a un trigger a une seule
-  branche. Effet : SOUS-compte possible (jamais un sur-compte).
+* **`On(0x34 = UnitFled)` : VECTEUR AJOUTE, la branche est VIVANTE (#947-r1 FERME par #981).**
+  Elle a longtemps ete portee comme une classe de registre INERTE : le port n'emettait aucun
+  `unit_fled_triggers`. `IdunBattle.Operations.FleeOperation$$Execute` publie en fait DEUX events
+  apres le `UnitFlag 9` -- `On(0x34 = UnitFled)` puis `On(0x36 = UnitDefeated)` -- tous deux avec
+  `actor = caster = triggeringUnit` et `target = la fuyarde` (asymetrie LUE : `On(0x33 =
+  PreUnitFled)`, lui, passe la fuyarde TROIS FOIS). Le `triggeringUnit` vient de
+  `Caster@<DSLSelectors+0x48>`, que `BattleFatigueAbility$$CreateBehaviour` passe en 2e argument de
+  `IdunBattleLogic.Entities.DSLBehaviors$$Flee` -- c'est-a-dire le TUEUR de l'allie dont la mort
+  declenche la fatigue. D'ou le scenario complet : Haarken abat un membre d'escouade, un ennemi
+  adjacent porteur de `BattleFatigue` fuit, et la tete est creditee a Haarken par `get_OwnerIsActor`.
+  Garde d'execution (pas d'inspection de source) :
+  `tests/engine/runner/test_981_vecteurs_de_fuite_offline.py`.
 * **`NOT TriggeringAbilityIs(TriggeredAbilityType.ItsGonnaBlow = 1080)` : gate INERTE**, meme
   constat que `barbed_ovipositor.py` -- aucun poseur d'`ItsGonnaBlow` n'est porte (passif npc de la
   caisse de munitions), et le canal `triggering_ability` du vecteur `On(2)` reste vide. Le port
@@ -225,9 +231,9 @@ class HeadClaimerOnFledAbility(_HeadClaimerAccumulateBase):
     """Branche 2 : `On(0x34 = UnitFled, ownerNeedsToBeAlive: true)`. Un non-ami FUIT le champ de
     bataille -- le natif compte cela comme une tete (l'i2 dit << defeated >>, pas << killed >>).
 
-    ⚠ INERTE OFFLINE (residu #947-r1) : aucun vecteur `On(UnitFled)` n'est emis par le port, qui ne
-    modelise pas la fuite. La classe est enregistree pour que la branche existe le jour ou le
-    vecteur arrive, et pour que le trigger ne se lise pas comme s'il n'avait qu'une branche."""
+    VIVANTE depuis #981 : `FleeOperation.execute` emet le vecteur avec `actor = triggeringUnit`
+    (le `Caster@<DSLSelectors+0x48>` du call-site natif), ce qui est exactement ce que
+    `get_OwnerIsActor` reconnait. Cf. le bloc RESIDUS de l'en-tete pour la chaine complete."""
     event_id = _ON_UNIT_FLED
 
     def matches(self, state: State, ev: TriggerEvent) -> bool:

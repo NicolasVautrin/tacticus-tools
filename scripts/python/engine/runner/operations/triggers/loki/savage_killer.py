@@ -132,12 +132,16 @@ evenements entre `event_id` et `event_ids` est de la PLOMBERIE du dispatch, pas 
 
 RESIDUS EXPLICITES -- chacun est une MESURE, pas une supposition :
 
- * **`On(UnitBecameTargetable = 0x3b)` : AUCUN EMETTEUR cote port.** Aucun site n'construit ce
-   `TriggerEvent` (balayage `EventTriggerType.UnitBecameTargetable` sur `engine/**` : 0 occurrence
-   hors mirror d'enum). La 4e disjonction est donc INATTEIGNABLE, et avec elle les deux seuls
-   consommateurs de `PreviousTile` / `TurnStartTile` de cette ability. L'evenement n'est PAS dans
-   `event_ids` : l'y mettre materialiserait un predicat (`NOT moved`) qu'aucun montage ne peut
-   exercer -- port speculatif. Residu **#929-r1**.
+ * **`On(UnitBecameTargetable = 0x3b)` : ABONNEE, et son predicat est PORTE (#929-r1 FERME par
+   #981).** Elle a longtemps ete laissee hors d'`event_ids` faute d'EMETTEUR : l'y mettre aurait
+   materialise un predicat (`NOT moved`) qu'aucun montage ne pouvait exercer. Les deux conditions
+   sont levees -- le vecteur existe depuis #936
+   (`move_death.unit_became_targetable_triggers`, emis par `remove_effect_instance` sous le gate de
+   type `IdunBattle.Entities.Effects.Common.UntargetableEffect`), et `NOT moved` est porte par
+   `SavageKillerAbility._has_moved`, qui lit les DEUX substrats deja presents
+   (`previous_tiles` = `PositionComponent+0x88`, `current_turn_start_tile` =
+   `UnitComponent+0x18c`). Le gate ne s'applique qu'a CETTE disjonction : etendu aux trois autres,
+   il eteindrait `On(UnitAfterMove)` a coup sur.
  * **`NOT IsReplacedUnit(Target, OnlyAliveAndTargetable)`** (branche `On(UnitAdded)`) =
    `UnitHasSpawnSourceTrigger(unit, SpawnSource.**Replace** = 7, sel)`. Le mirror
    `engine/entities/spawn_source.py` existe, mais **aucune entite du runner ne porte de
@@ -176,7 +180,7 @@ from .....entities.damage_profile_type import DamageProfileType
 from .....entities.selectors.accessors import Target
 from .....entities.traits.unit_trait import UnitTrait
 from .....entities.triggered_ability_type import TriggeredAbilityType
-from ....components import OwnerComponent, UnitComponent
+from ....components import OwnerComponent, UnitComponent, previous_tiles as _previous_tiles
 from ....state import State
 from ....abilities.behaviours.combat import AttackWithAttackDamage
 from ....abilities.behaviours.context import entities_from_state
@@ -195,6 +199,10 @@ _ON_PRE_UNIT_ABILITY = int(EventTriggerType.PreUnitAbility)  # 0x2a = 42
 _ON_AFTER_MOVE = int(EventTriggerType.UnitAfterMove)         # 0x04 = 4
 _ON_DISPLACED = int(EventTriggerType.UnitDisplaced)          # 0x23 = 35
 _ON_UNIT_ADDED = int(EventTriggerType.UnitAdded)             # 0x32 = 50
+#: 4e disjonction de `CreateSummonMoveTrigger`, ABONNEE depuis #981 (residu #929-r1) : son vecteur
+#: existe depuis #936 (`move_death.unit_became_targetable_triggers`, emis par
+#: `remove_effect_instance` sous le gate de type `UntargetableEffect`).
+_ON_UNIT_BECAME_TARGETABLE = int(EventTriggerType.UnitBecameTargetable)   # 0x3b = 59
 #: L'immediat `mov edx, 0x467` du `TriggeringAbilityIs` de `CreateCharacterActiveAbilityTrigger`,
 #: dans l'espace `ActiveAbilityType` (surcharge `op_Implicit` resolue a l'adresse `0x18166a000`).
 _ARMOURED_MIGHT_MOVE = int(ActiveAbilityType.ArmouredMight_Move)          # 0x467 = 1127
@@ -252,7 +260,7 @@ class SavageKillerAbility(TriggeredAbility):
     #: porte `PreUnitAbility` pour que les recenseurs qui lisent ce seul attribut (probe #281) voient
     #: l'abonnement le plus consequent.
     event_id = _ON_PRE_UNIT_ABILITY
-    event_ids = (_ON_AFTER_MOVE, _ON_DISPLACED, _ON_UNIT_ADDED)
+    event_ids = (_ON_AFTER_MOVE, _ON_DISPLACED, _ON_UNIT_ADDED, _ON_UNIT_BECAME_TARGETABLE)
     #: `AbilityOrEffect((TriggeredAbilityType)1159)` -- ce que `BaseTriggeredAbility$$Execute` ecrit
     #: dans `CurrentAbility` (`AbilityEntities+0x60`) AVANT le behaviour.
     TRIGGERED_ABILITY_ID = SAVAGE_KILLER
@@ -292,12 +300,15 @@ class SavageKillerAbility(TriggeredAbility):
                 return False
         elif not self._summon_move_face(state, victim):
             return False
+        elif (int(ev.event_id) == _ON_UNIT_BECAME_TARGETABLE
+                and self._has_moved(state, victim)):        # `NOT moved`, 4e disjonction SEULE
+            return False
         return self._enemy_and_adjacent(state, owner, victim, int(vid))
 
     # ------------------------------------------------------------------------------- face A / B
     @staticmethod
     def _summon_move_face(state: State, victim) -> bool:
-        """Le conjoint PROPRE aux trois branches portees de `CreateSummonMoveTrigger` :
+        """Le conjoint PROPRE aux QUATRE branches de `CreateSummonMoveTrigger` :
         `HasTrait(Target@+0x60, UnitTrait.Summon = 2)`.
 
         Le terme `NOT IsReplacedUnit(Target, 3)` de la branche `On(UnitAdded)` n'est PAS teste :
@@ -305,6 +316,42 @@ class SavageKillerAbility(TriggeredAbility):
         n'est pas non plus reecrit ici en gate approximatif -- un `False` invente eteindrait la
         branche spawn, qui est justement celle que l'i2 nomme (<< or is summoned adjacent >>)."""
         return _SUMMON in _unit_trait_names(state, victim.id)
+
+    @staticmethod
+    def _has_moved(state: State, victim) -> bool:
+        """`moved` = le conjoint PROPRE a la 4e disjonction, et a ELLE SEULE (#981 / residu #929-r1) :
+
+            AmountIsGreaterThanZero( PreviousTile(Target@+0x60) )
+          | AmountIsGreaterThanZero( TurnStartTile(Target@+0x60) )
+
+        La branche entiere est `On(0x3b) & hasSummon & adjacent & enemies & NOT moved` : un summon
+        qui DEVIENT ciblable **sans avoir bouge** -- typiquement une sortie d'`UntargetableEffect`
+        (deep-strike / infiltration) sur place, par opposition a un summon qui s'est deplace jusqu'a
+        Ulf (deja couvert par `On(UnitAfterMove)`, d'ou l'exclusion : sans elle, un meme deplacement
+        pourrait declencher DEUX fois).
+
+        LES DEUX SUBSTRATS SONT DEJA PORTES, et chacun mirroir le `Select` de SON selecteur :
+          * `PreviousTile` -> `runner/components.py::previous_tiles` (mirror de
+            `IdunBattle.Entities.Selectors.PreviousTileSelector$$Select` : `PositionComponent+0x88`,
+            `Nullable` vide -> liste VIDE) ;
+          * `TurnStartTile` -> `UnitComponent.current_turn_start_tile` (mirror du champ
+            `UnitComponent+0x18c` qu'ecrit `IdunBattle.Operations.StartTurnOperation$$Execute` ;
+            `IdunBattle.Entities.Selectors.CurrentTurnStartTileSelector$$Select` rend une liste VIDE
+            quand il vaut 0).
+
+        `AmountIsGreaterThanZero(<selecteur>)` porte donc sur le CARDINAL de la liste rendue : les
+        deux termes sont vrais des que leur selecteur rend au moins une tuile. Le tri-etat de
+        `current_turn_start_tile` (`None` = non mesure OU 0, cf. `snapshot.py`) retombe du bon cote :
+        liste vide -> terme FAUX -> `NOT moved` vrai, exactement ce que rend le natif sur un champ a
+        zero. Degradation PERMISSIVE et NOMMEE : une unite dont le canal n'a pas parle est traitee
+        comme n'ayant pas bouge ce tour."""
+        if victim is None:
+            return False
+        if _previous_tiles(victim):                          # AmountIsGreaterThanZero(PreviousTile)
+            return True
+        uc = victim.get_component(UnitComponent)
+        tile = getattr(uc, "current_turn_start_tile", None) if uc is not None else None
+        return bool(tile)                                    # AmountIsGreaterThanZero(TurnStartTile)
 
     def _active_ability_face(self, state: State, ev: TriggerEvent, caster_id: int) -> bool:
         """Les conjoints PROPRES de `CreateCharacterActiveAbilityTrigger`, hors adjacence/equipe."""

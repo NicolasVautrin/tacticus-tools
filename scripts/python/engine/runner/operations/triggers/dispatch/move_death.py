@@ -278,6 +278,52 @@ def pre_unit_fled_triggers(state: State, unit_id: int, triggering_ability=None) 
     return evaluate_trigger_operation(state, ev)
 
 
+def unit_fled_triggers(state: State, fled_id: int, triggering_unit_id: Optional[int] = None,
+                       triggering_ability=None) -> list[dict]:
+    """Vecteur `On(UnitFled = 0x34 = 52)` — AVANT-DERNIER event d'
+    `IdunBattle.Operations.FleeOperation$$Execute`, LU au decompile (build `rnca9r7q6c`) :
+
+        UnitFlagsComponent.Add(unit, 9 = UnitFlag.Fled)
+        FleeOperation.RemoveEffects(unit, step 1)
+        IOperationProcessor.<slot 81 = EvaluateAbilities>( actor = triggeringUnit,
+                                                           caster = triggeringUnit,
+                                                           target = unit,
+                                                           eventType = 0x34 = UnitFled,
+                                                           abilityOrEffect = triggeringAbilityOrEffect )
+        IOperationProcessor.<slot 81>( ... , eventType = 0x36 = UnitDefeated, ... )   # meme AbilityEntities
+
+    ⚠ **L'ASYMETRIE AVEC `On(PreUnitFled)` EST LUE, PAS SUPPOSEE.** Le premier geste de l'Operation
+    passe la fuyarde TROIS FOIS (`(plVar1, unit, unit, unit, 0x33, ...)` -> actor = caster = target),
+    tandis que CES DEUX events-ci passent `(plVar1, triggeringUnit, triggeringUnit, unit, 0x34/0x36,
+    ...)` : l'ACTEUR est **celui qui a CAUSE la fuite**, la CIBLE est la fuyarde. C'est exactement ce
+    qui rend `HeadClaimerAbility` (`get_OwnerIsActor`) capable de compter une tete sur une fuite --
+    inverser les deux slots rendrait la branche inerte d'une AUTRE facon, sans erreur.
+
+    `triggering_unit_id` = le `triggeringUnit` du call-site. Son SEUL appelant porte le derive du
+    selecteur `Caster@<DSLSelectors+0x48>`, que `BattleFatigueAbility$$CreateBehaviour` passe en 2e
+    argument de `IdunBattleLogic.Entities.DSLBehaviors$$Flee` ::
+
+        DSLBehaviors.Flee( unit          = Owner@<DSLSelectors+0x30>,     // la fuyarde
+                           triggeringUnit= Caster@<DSLSelectors+0x48>,    // <- ce canal
+                           position      = CasterTiles@<DSLSelectors+0x58>,
+                           defendingUnit = Target@<DSLSelectors+0x60>,    // l'allie qui vient de mourir
+                           triggeringAbility = AbilityOrEffect(BattleFatigue),
+                           damageProfile = KillingDamageProfile(Target@+0x60) )
+
+    -- et `FleeBehaviour$$.ctor` range bien ces arguments en `+0x58/+0x60/+0x68/+0x70/+0x78/+0x98`,
+    que `FleeBehaviour$$Execute` re-passe dans CET ordre au slot `0x48 = Flee`.
+
+    `None` = canal non seede -> le vecteur est emis avec `actor = target = la fuyarde`, ce qui FERME
+    `get_OwnerIsActor` pour tout tiers. Degradation RESTRICTIVE assumee : sans caster identifie, on
+    ne CREDITE personne d'une tete qu'on ne peut pas attribuer.
+
+    No-op si aucun trigger ne matche."""
+    actor = int(triggering_unit_id) if triggering_unit_id is not None else int(fled_id)
+    ev = TriggerEvent(EventTriggerType.UnitFled, actor, int(fled_id),
+                      ranged=False, profile=None, triggering_ability=triggering_ability)
+    return evaluate_trigger_operation(state, ev)
+
+
 def arrived_at_final_tile_triggers(state: State, unit_id: int,
                                    gate_already_consumed: bool = False) -> list[dict]:
     """Vecteur `On(ArrivedAtFinalTile = 0x1c = 28)` — « l'unité a terminé son activation ».
@@ -661,12 +707,29 @@ def unit_became_targetable_triggers(state: State, target_id: Optional[int],
                                    None, target_id, effect_type, removing=True)
 
 
-def unit_defeated_triggers(state: State, dying_id: int, killer_id: Optional[int] = None) -> list[dict]:
+def unit_defeated_triggers(state: State, dying_id: int, killer_id: Optional[int] = None,
+                           *, by_flight: bool = False, triggering_ability=None) -> list[dict]:
     """Vecteur `On(UnitDefeated=54=0x36)` (G3) — event NATIF DISTINCT de `PreUnitDeath(1)` : le natif
     `Ambush_SummonAbility` IdunBattleLogic.Entities.Abilities.Triggered.Loki.Ambush_SummonAbility$$CreateTrigger ecoute `On(0x36 = UnitDefeated) & OwnerIsTarget & Not(HasFlag 0xe)`, PAS On(1). Emis
     par le pipeline de mort APRES `after_death_triggers(On 1)` (l'unite est deja alive=False -> l'ability
     fire-on-death voit sa mort). Declenche la pose du decoy Ambush (mort -> decoy) + l'enregistrement de
-    `turn_defeated`. No-op si aucun porteur Ambush ne meurt."""
+    `turn_defeated`. No-op si aucun porteur Ambush ne meurt.
+
+    ⚠ **DEUX Operations natives publient cet event, avec des `AbilityEntities` DIFFERENTS** (#947-r1) :
+
+      * `IdunBattle.Operations.KillUnitOperation$$Execute` -- la MORT. Les canaux `killer_id`
+        (slot 0x158) et `dying_id` (slot 0x178) sont renseignes ;
+      * `IdunBattle.Operations.FleeOperation$$Execute` -- la FUITE, publiee juste APRES
+        `On(0x34 = UnitFled)` et a partir de la MEME struct : `actor = caster = triggeringUnit`,
+        `target = unit`. La fuyarde n'est PAS morte, donc `by_flight=True` laisse `killer_id` et
+        `dying_id` **VIDES** -- les renseigner mentirait sur un mort qui n'existe pas, et
+        `AmbushSummonAbility.matches` retombe deja proprement sur `ev.target_id` quand `dying_id`
+        est `None`. C'est ce que l'i2 de `HeadClaimer` appelle << defeated >> et non << killed >>."""
+    if by_flight:
+        actor = int(killer_id) if killer_id is not None else int(dying_id)
+        ev = TriggerEvent(EventTriggerType.UnitDefeated, actor, int(dying_id),
+                          ranged=False, profile=None, triggering_ability=triggering_ability)
+        return evaluate_trigger_operation(state, ev)
     ev = TriggerEvent(EventTriggerType.UnitDefeated,
                       killer_id if killer_id is not None else dying_id, dying_id,
                       ranged=False, profile=None, killer_id=killer_id, dying_id=dying_id)

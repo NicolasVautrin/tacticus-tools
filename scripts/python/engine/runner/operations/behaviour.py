@@ -105,7 +105,7 @@ class FleeOperation:
 
     @staticmethod
     def execute(state, unit_id: int, movement: int = 3,
-                triggering_ability=None) -> Optional[dict]:
+                triggering_ability=None, triggering_unit=None) -> Optional[dict]:
         e = state.get_entity(unit_id)
         if e is None:
             return None
@@ -131,6 +131,23 @@ class FleeOperation:
         if fl is None:
             fl = e.add_component(UnitFlagsComponent())
         fl.add(UnitFlagsComponent.FLED)                       # UnitFlag 9 = a fui
+        # #947-r1 -- LES DEUX DERNIERS EVENTS DE L'OPERATION, ET ILS MANQUAIENT. Apres le `UnitFlag 9`
+        # (et son `RemoveEffects(step 1)`, non porte), `IdunBattle.Operations.FleeOperation$$Execute`
+        # publie DEUX events consecutifs a partir de la MEME struct :
+        #     <slot 81 = EvaluateAbilities>(triggeringUnit, triggeringUnit, unit, 0x34 = UnitFled,   triggeringAbilityOrEffect)
+        #     <slot 81 = EvaluateAbilities>(triggeringUnit, triggeringUnit, unit, 0x36 = UnitDefeated, triggeringAbilityOrEffect)
+        # -- puis `RemoveEffects(step 2)` et le slot 85 `UnregisterEntityFromTriggers`. Le port
+        # n'emettait NI l'un NI l'autre : `HeadClaimerOnFledAbility` etait au registre et ne pouvait
+        # PAS fire (residu #947-r1), et les consommateurs d'`On(0x36)` (`Ambush_SummonAbility`,
+        # `DaemonicPatrons_FinaleSuccessAbility`) rataient le regime FUITE que le natif leur donne.
+        # ORDRE : les deux events precedent le deplacement approximatif ci-dessous PARCE QUE le natif
+        # n'a AUCUN deplacement a cet endroit (cf. `emit_after_move=False` plus bas) -- un ajout du
+        # port ne doit pas s'intercaler dans une sequence native.
+        fled = move_death.unit_fled_triggers(state, int(unit_id), triggering_unit_id=triggering_unit,
+                                             triggering_ability=triggering_ability)
+        defeated = move_death.unit_defeated_triggers(state, int(unit_id), triggering_unit,
+                                                     by_flight=True,
+                                                     triggering_ability=triggering_ability)
         to = FleeOperation._safest_tile(state, unit_id, movement)
         if to is not None:
             # `emit_after_move=False` : `IdunBattle.Operations.FleeOperation$$Execute` n'appelle NI
@@ -144,7 +161,7 @@ class FleeOperation:
             MoveUnitOperation(unit_id, to, emit_after_move=False,
                               enforce_native_gates=False).execute(state, EventBus())
         return {"fled": unit_id, "to": to, "flag": UnitFlagsComponent.FLED, "retrait": retrait,
-                "pre_unit_fled": pre}
+                "pre_unit_fled": pre, "unit_fled": fled, "unit_defeated": defeated}
 
     @staticmethod
     def _safest_tile(state, unit_id: int, movement: int):
@@ -253,8 +270,16 @@ class BattleFatigueAbility(TriggeredAbility):
         # `FleeOperation$$Execute`, et c'est celui-la que `SummaryExecutionAbility$$CreateTrigger`
         # compare (`TriggeringAbilityIs(0x401 = BattleFatigue)`). Ici l'ability courante EST
         # `BattleFatigue` -- ce foyer est le SEUL appelant porte de `FleeOperation.execute`.
+        # `triggering_unit` : 2e argument d'`IdunBattleLogic.Entities.DSLBehaviors$$Flee`, que
+        # `BattleFatigueAbility$$CreateBehaviour` alimente avec `Caster@<DSLSelectors+0x48>` (relu au
+        # decompile : `pvVar9 = *(void **)(lVar2 + 0x48)`, ou `lVar2` est le `DSLSelectors` du
+        # `factory+0x90`). Sur un vecteur MORT, ce slot est celui que le port expose en
+        # `ev.actor_id` -- c'est-a-dire le TUEUR de l'allie dont la mort declenche la fatigue.
+        # C'est LUI que `HeadClaimerAbility` (`get_OwnerIsActor`) reconnait sur `On(0x34)` : Haarken
+        # abat un membre d'escouade, un ennemi adjacent fuit, et la tete lui est creditee (#947-r1).
         res = FleeOperation.execute(state, self.owner_id,
-                                    triggering_ability=int(TriggeredAbilityType.BattleFatigue))
+                                    triggering_ability=int(TriggeredAbilityType.BattleFatigue),
+                                    triggering_unit=ev.actor_id)
         return {"trait": "BattleFatigue", "owner": self.owner_id, "dying": ev.dying_id,
                 "eligible": True, "flee": res}
 
