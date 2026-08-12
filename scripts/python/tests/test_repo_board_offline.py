@@ -21,6 +21,10 @@ puis remonte son texte.
 DECLENCHEUR = {
     "chemins": (
         "scripts/python/repo_board.py",
+        # `repo_board.py` importe `repo_board_render.page` (import DIFFERE, ligne ~906) :
+        # la fermeture le tire, donc il entre au perimetre. L'omettre rendait
+        # `probe_486r15` ROUGE des l'arrivee de ce fichier sur `master`.
+        "scripts/python/repo_board_render.py",
         "scripts/python/tests/test_repo_board_offline.py",
     ),
     # Aucun test ici ne lit le dump, le gameconfig ni un transcript : les stderr sont

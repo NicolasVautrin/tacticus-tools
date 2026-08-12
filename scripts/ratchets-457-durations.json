@@ -363,6 +363,7 @@
  "tests/test_enum_ordinal_ratchet_offline.py": 128.25,
  "tests/test_expedition_solver_offline.py": 0.093,
  "tests/test_host_inputs_offline.py": 78.446,
+ "tests/test_repo_board_offline.py": 0.038,
  "tests/test_step_ordinal_ratchet_offline.py": 62.173,
  "tests/test_stream_events_offline.py": 0.145,
  "tests/test_symbols_coverage_guard_offline.py": 0.05
