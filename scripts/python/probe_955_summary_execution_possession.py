@@ -40,7 +40,11 @@ SEED = "4321"
 ARCHIMATOS = "blackPossession"
 YARRICK = "astraYarrick"
 SEND_IN_THE_NEXT_WAVE = 1016            # ActiveAbilityType de Yarrick (2 Cadian Guardsmen)
-GUARDSMAN = "astraSmnGuardsman"         # le summon PORTEUR du trait BattleFatigue
+#: L'unitId de CONFIG du summon porteur du trait `BattleFatigue`... et le `visualId` sous lequel
+#: `decisionView` le PUBLIE, qui n'est pas le meme (#895 : 429 unites sur 683 ont
+#: `visualId != id`, toutes `npc` ou `summons`). Mesure : le cast rend `astraNpc1Guardsman`.
+GUARDSMAN = "astraSmnGuardsman"
+GUARDSMAN_VIS = ("astraSmnGuardsman", "astraNpc1Guardsman")
 BLOODLETTER = "blackSmnBloodletter"     # `unitId`   (constante 0) -- kill MELEE
 BLUE_HORROR = "thousSmnBlueHorror"      # `unitId_2` (constante 4) -- kill NON-melee
 
@@ -311,17 +315,129 @@ def volet_possession(rpc, cible):
 
 
 # --------------------------------------------------------------------------- volet SUMMARY
+def _geometrie_summary(board):
+    """`yarrick` au centre, `allie` temoin ADJACENT (il doit etre a portee de tout selecteur qu'on
+    voudrait accuser de geometrie -- le selecteur de `SummaryExecution` n'en a AUCUNE, et c'est
+    justement ce qu'on veut pouvoir affirmer), `cible` a d == 2 (portee de `SendInTheNextWave`),
+    `figurant` loin (maintient la bataille en `Running`). Les tuiles ou les Guardsmen se poseront
+    (rayon 2 autour de la cible) doivent laisser >= 2 places libres."""
+    import hexgeo
+    ids = [t for t in sorted(board.by_id.keys()) if board.walkable(t)]
+    coords = {t: board.coord(t) for t in ids}
+    coords = {t: c for t, c in coords.items() if c is not None}
+    if not coords:
+        return None, "boardGraph sans tuile walkable"
+    cols = [c for c, _ in coords.values()]
+    rows = [r for _, r in coords.values()]
+    mid = ((min(cols) + max(cols)) / 2.0, (min(rows) + max(rows)) / 2.0)
+    par_centre = sorted(coords.items(),
+                        key=lambda kv: abs(kv[1][0] - mid[0]) + abs(kv[1][1] - mid[1]))
+    libres = set(coords.values())
+    for _t, y in par_centre:
+        adj = sorted(c for c in libres if hexgeo.distance(y, c) == 1)
+        d2 = sorted(c for c in libres if hexgeo.distance(y, c) == 2)
+        if not adj or not d2:
+            continue
+        allie, cible = adj[0], d2[0]
+        libre_pres_cible = [c for c in libres
+                            if c not in (y, allie, cible) and hexgeo.distance(cible, c) <= 2]
+        if len(libre_pres_cible) < 2:
+            continue
+        fig = sorted(c for c in libres
+                     if c not in (y, allie, cible)
+                     and min(hexgeo.distance(c, x) for x in (y, allie, cible)) >= 5)
+        if fig:
+            return {"yarrick": y, "allie": allie, "cible": cible, "figurant": fig[-1]}, None
+    return None, "aucune geometrie (yarrick + allie d=1 + cible d=2 + figurant) sur %s" % BOARD
+
+
+def _replay_summary(cap, board, sujets, mutate=None):
+    """Charge l'etat offline et lit la MODIFICATION du stat Attack par-source sur chaque sujet.
+
+    `load_state` appelle `attribute_aura_stat_modifiers` au SEED : la part deja CAPTUREE est
+    re-attribuee sous la cle de l'effet (somme inchangee, mais DROPPABLE). On lit donc la
+    contribution sous la cle d'aura de l'effet 1043, pas le total (qui contiendrait aussi le
+    residu opaque d'une capture non attribuee).
+
+    ⚠ LE MUTANT EST POSE **AVANT** `load_state` (meme raison que le volet possession)."""
+    from engine.runner.snapshot import load_state
+    from engine.runner.components import StatsComponent
+    from engine.entities.effects.factory import EFFECT_CLASSES
+    from engine.entities.effects.loki import summary_execution as SE
+    from engine.entities.stats import StatType
+
+    saved_eff = saved_sel = None
+    if mutate == "m_effet":                        # 1043 n'est plus une classe portee
+        saved_eff = EFFECT_CLASSES.pop("SummaryExecution_BaseEffect", None)
+        assert saved_eff is not None, "MUTANT INOPERANT : EFFECT_CLASSES['SummaryExecution_BaseEffect']"
+    elif mutate == "m_trait":                      # le gate de trait est retire du selecteur
+        saved_sel = SE._ASummaryExecutionAuraEffect.aura_stat_modification_targets
+        SE._ASummaryExecutionAuraEffect.aura_stat_modification_targets = \
+            lambda self, state, owner_id: [int(u) for u in state.entities.keys()]
+    try:
+        st = load_state(cap["dec"], cap["ob"], cap["snap"], board=board)
+        out = {"total": {}, "sous_cle_aura": {}}
+        for quoi, uid in sujets.items():
+            e = st.get_entity(int(uid))
+            sc = e.get_component(StatsComponent) if e is not None else None
+            us = getattr(sc.ctx, "stats", None) if (sc is not None and sc.ctx is not None) else None
+            if us is None:
+                out["total"][quoi] = out["sous_cle_aura"][quoi] = None
+                continue
+            comp = us.components.get(int(StatType.ATTACK))
+            mod = getattr(comp, "modification", None) if comp is not None else None
+            if mod is None:
+                out["total"][quoi] = out["sous_cle_aura"][quoi] = 0
+                continue
+            out["total"][quoi] = int(sum(mod.per_source.values()))
+            # ⚠ LE TOTAL NE DISCRIMINE RIEN : `load_state` seede la modification depuis
+            # `combatSnapshot`, donc la part CAPTUREE y est de toute facon -- sous la cle opaque
+            # `CAPTURED_SOURCE` si rien ne l'attribue. Mesure : les deux mutants laissaient le
+            # total a 400. Ce qui mesure MON port, c'est la part portee par la cle d'AURA, celle
+            # que `attribute_aura_stat_modifiers` (appele au SEED) ne pose QUE si l'effet declare
+            # l'interface `aura_stat_modification_*` ET selectionne cette unite.
+            out["sous_cle_aura"][quoi] = int(sum(
+                v for k, v in mod.per_source.items()
+                if isinstance(k, tuple) and k and k[0] == "aura_statmod"))
+        return out
+    finally:
+        if saved_eff is not None:
+            EFFECT_CLASSES["SummaryExecution_BaseEffect"] = saved_eff
+        if saved_sel is not None:
+            SE._ASummaryExecutionAuraEffect.aura_stat_modification_targets = saved_sel
+
+
 def volet_summary(rpc, allie, cible):
     """Yarrick + un ALLIE temoin (sans `BattleFatigue`) ; Yarrick invoque ses Guardsmen, qui
     PORTENT le trait. On lit la modification du stat Attack PAR SOURCE sur un Guardsman et sur
     l'allie temoin : seul le Guardsman doit recevoir quelque chose."""
     out = {"volet": "summary"}
-    rid, sf, err = _build([YARRICK, allie], [cible, cible],
-                          ["--hp-target", "20000", "--dmg-target", "1"])
+    # La geometrie est POSEE AU BUILD (`--place`/`--a-place`), jamais atteinte par des tours de
+    # marche : `SendInTheNextWave` exige la cible a <= 2 hexes, et un rapprochement pas-a-pas
+    # depend d'un RPC de mouvement dont la forme n'est pas garantie.
+    rid0, _sf0, err = _build([YARRICK], [cible], [])
+    if rid0 is None:
+        return {**out, "erreur": "build sonde KO : %s" % err}
+    try:
+        board = _board(rpc, rid0)
+    finally:
+        rpc("disposeRunner", {"runnerId": rid0}, 60)
+    geo, why = _geometrie_summary(board)
+    if geo is None:
+        return {**out, "erreur": why}
+    out["geometrie"] = {k: list(v) for k, v in geo.items()}
+    rid, sf, err = _build(
+        [YARRICK, allie], [cible, cible],
+        ["--hp-target", "20000", "--dmg-target", "1",
+         "--place", "%s:%d,%d" % (YARRICK, geo["yarrick"][0], geo["yarrick"][1]),
+         "--place", "%s:%d,%d" % (allie, geo["allie"][0], geo["allie"][1]),
+         "--a-place", "%s:%d,%d" % (cible, geo["cible"][0], geo["cible"][1]),
+         "--a-place", "%s:%d,%d" % (cible, geo["figurant"][0], geo["figurant"][1])])
     if rid is None:
         return {**out, "erreur": "build KO : %s" % err}
     out["runner"] = rid
     try:
+        import hexgeo
         dv = _view(rpc, rid)
         y = _by_vis(dv, YARRICK)
         a = _by_vis(dv, allie)
@@ -329,55 +445,61 @@ def volet_summary(rpc, allie, cible):
             return {**out, "erreur": "Yarrick (%d) ou allie (%d) absent" % (len(y), len(a))}
         yid, aid = int(y[0]["id"]), int(a[0]["id"])
         out["yarrick"] = yid
+        out["allie_temoin"] = aid
         out["effets_yarrick_avant"] = _effets(dv, yid)
-        # `SendInTheNextWave` : la cible doit etre a portee 2 ; on prend l'ennemi le plus proche et
-        # on RAPPROCHE Yarrick jusqu'a ce que le cast soit legal (drive, jamais subir).
-        import hexgeo
-        enn = [int(u["id"]) for u in _units(dv) if u.get("visualId") == cible]
+        enn = sorted((hexgeo.distance(_pos(dv, yid), _pos(dv, int(u["id"]))), int(u["id"]))
+                     for u in _units(dv) if u.get("visualId") == cible)
         if not enn:
             return {**out, "erreur": "aucun ennemi monte"}
-        board = _board(rpc, rid)
-        cible_id = enn[0]
-        for _ in range(12):
-            dv = _view(rpc, rid)
-            yp, cp = _pos(dv, yid), _pos(dv, cible_id)
-            if yp is None or cp is None:
-                break
-            if hexgeo.distance(yp, cp) <= 2:
-                break
-            mv = rpc("movablePositions", {"runnerId": rid, "unitId": yid}, 120)
-            cands = [(hexgeo.distance((int(t["col"]), int(t["row"])), cp),
-                      int(t["col"]), int(t["row"]))
-                     for t in (mv.get("positions") or mv.get("tiles") or [])
-                     if t.get("col") is not None]
-            if not cands:
-                break
-            cands.sort()
-            rpc("applyAction", {"runnerId": rid, "action": {
-                "kind": "move", "unitId": yid,
-                "to": {"col": cands[0][1], "row": cands[0][2]}}}, 150)
-            rpc("applyAction", {"runnerId": rid, "action": {"kind": "endturn"}}, 150)
-            rpc("applyAction", {"runnerId": rid, "action": {"kind": "endturn"}}, 150)
-        dv = _view(rpc, rid)
+        cible_id = enn[0][1]
         out["distance_cast"] = hexgeo.distance(_pos(dv, yid), _pos(dv, cible_id))
         res = rpc("applyAction", {"runnerId": rid, "action": {
             "kind": "ability", "casterId": yid, "targetId": cible_id,
             "abilityType": SEND_IN_THE_NEXT_WAVE}, "captureEvents": True}, 220)
         out["cast_ok"] = bool(res.get("ok", True))
+        out["cast_rpc"] = {k: v for k, v in res.items() if k != "actions"}
+        out["abilites_yarrick"] = [(a.get("id"), a.get("kind"), a.get("state"))
+                                   for a in ((_unit(dv, yid) or {}).get("abilities") or [])]
         dv = _view(rpc, rid)
-        gardes = [int(u["id"]) for u in _units(dv) if u.get("visualId") == GUARDSMAN]
+        out["units_apres"] = sorted((int(u["id"]), u.get("visualId")) for u in _units(dv))
+        gardes = [int(u["id"]) for u in _units(dv) if u.get("visualId") in GUARDSMAN_VIS]
         out["guardsmen"] = gardes
         out["effets_yarrick_apres"] = _effets(dv, yid)
         if not gardes:
             return {**out, "erreur": "aucun Guardsman invoque (cast refuse ?)"}
-        mods = {}
-        for uid, quoi in [(gardes[0], "guardsman"), (aid, "allie_temoin"), (yid, "yarrick")]:
+        sujets = {"guardsman": gardes[0], "allie_temoin": aid, "yarrick": yid}
+        natif = {}
+        for quoi, uid in sujets.items():
             try:
                 sm = rpc("statModSources", {"runnerId": rid, "unitId": uid}, 150)
+                u = next((x for x in (sm.get("units") or [])
+                          if int(x.get("entityId", -1)) == int(uid)), {})
+                natif[quoi] = int(((u.get("mods") or {}).get("attack") or {}).get("total") or 0)
             except Exception as exc:
-                sm = {"erreur": type(exc).__name__}
-            mods[quoi] = sm
-        out["stat_mod_sources"] = mods
+                natif[quoi] = "ERREUR %s" % type(exc).__name__
+        out["attack_mod_natif"] = natif
+        # TEMOIN QUI DISCRIMINE : l'allie SANS le trait ne doit RIEN recevoir. S'il recoit la meme
+        # chose que le Guardsman, le selecteur ne mord pas et la mesure ne prouve rien.
+        out["discrimine"] = bool(natif.get("guardsman") and not natif.get("allie_temoin"))
+        cap = {"dec": _view(rpc, rid), "ob": rpc("observeBattle", {"runnerId": rid}, 60),
+               "snap": rpc("combatSnapshot", {"runnerId": rid}, 150)}
+        for m in (None, "m_effet", "m_trait"):
+            try:
+                port = _replay_summary(cap, board, sujets, mutate=m)
+            except Exception as exc:
+                port = {"exception": "%s: %s" % (type(exc).__name__, exc)}
+            out["attack_mod_port" if m is None else ("attack_mod_port_%s" % m)] = port
+        p, pe, pt = (out["attack_mod_port"], out["attack_mod_port_m_effet"],
+                     out["attack_mod_port_m_trait"])
+        out["verdict_port"] = {
+            "total_egal_natif": p.get("total") == natif,
+            # LA mesure de MON port : la part sous la cle d'aura, que seuls MES effets posent.
+            "aura_attribuee": p.get("sous_cle_aura"),
+            "aura_discrimine": bool((p.get("sous_cle_aura") or {}).get("guardsman")
+                                    and not (p.get("sous_cle_aura") or {}).get("allie_temoin")),
+            "mutant_effet_mord": pe.get("sous_cle_aura") != p.get("sous_cle_aura"),
+            "mutant_trait_mord": pt.get("sous_cle_aura") != p.get("sous_cle_aura"),
+        }
         return out
     finally:
         try:
