@@ -227,6 +227,56 @@ MawClaws y est de toute façon muet (`NOCHANNEL` rend le même offline). Résidu
 confronte donc l'**étage TRIGGER** (`get_OwnerIsCaster` avec un compteur PLEIN → bonus `None`), pas
 la salve.
 
+### (b bis) `#920-r1` — l'étage est ISOLÉ et le corps natif est LU (#949, 2026-08-12)
+
+Décomposition par étage du rejeu offline (patch en **forme B** sur le binding de `normal.py` : un
+patch du module source ne mord pas, cf. CLAUDE.md). Les étages amont sont **identiques** :
+
+```
+get_base_damage_fix64(3106)          -> [2485, 3727]     # crit = ATTACK 1106 + critDamage 2000
+apply_pierce_and_modifiers(., p80, armure 0) -> identite  # pct/pctd VIDES, mult = 1.0
+apply_all_modifiers(DEF, round_materialize)  -> identite
+```
+
+Le seul modificateur non trivial est un `EffectBonus(PercentSubtractionCapped, value = 33,
+cap = 1996, native_face = 'defender')` — le `GuardianOrganism_DamageReduction` du défenseur, que
+`#920-r1` disait « probablement hors cause ». **Il EST la cause** : rangé dans `capped_reductions`,
+il est consommé par `capped_reduction_flat` (`engine/services/damage_modifiers.py`), à `D` = centre
+des bornes crit = `(2485 + 3727) / 2` = **3106**.
+
+* **port** : `int(3106 * 33 / 100.0)` = `int(1024.98)` = **1024** (troncature, en float Python) ;
+* **natif** : **1025** — c'est exactement le `DELTA [1, 1, 1, 1]` mesuré.
+
+Et le natif se **lit**, il ne se déduit pas de l'écart.
+`IdunBattle.Entities.Formulas.PercentageOf$$CalculateInternal`, corps LU :
+
+```
+p = Fix64(percentage) ; p = Round(p/100 * 100, 0) / 100
+v = Fix64(finalAmount) * p
+v = Round(v * 100, 0) / 100                     # arrondi au CENTIEME
+return IdunBattle.DSL.AAmountFormula$$RoundFix64Result(v, <this+0x20>)
+```
+
+`RoundFix64Result(., 0)` est le foyer d'arrondi PARTAGÉ de #344 (demi-vers-le-PAIR). Il n'y a
+**aucune troncature** dans cette chaîne : `1024.98` en sort à **1025**. L'arbre au-dessus est
+confirmé par `IdunBattle.Entities.Effects.Loki.GuardianOrganism_DamageReductionEffect$$CreateEffectDamageMalusForDefense`
+= `ForSubtraction(get_OwnerIsTarget, Min(PercentageOf(CurrentDamage, ConfigVar(0x46)),
+ConfigVar(0x12)))`.
+
+**CE QUI RESTE, ET POURQUOI LE CORRECTIF N'EST PAS APPLIQUÉ ICI — deux témoins natifs en TENSION.**
+La docstring de `capped_reduction_flat` revendique l'inverse, sur une mesure live de #91 :
+« `PercentageOf` en Fix64 TRONQUE (confirmé LIVE #91 : D->flat=177=floor, PAS 178=round) ». Or le
+modèle `Round` ci-dessus rendrait **178** pour tout `D` dans `[538, 539]`, et **177** pour
+`D = 537` — c'est-à-dire qu'il est **non discriminant** si le `D` de #91 valait 537, et
+**contredit** la mesure sinon. Les deux témoins ne peuvent pas être vrais ensemble.
+
+Trancher demande **une seule mesure** : le `D` exact du montage #91 (Tyrant Guard, flat 177). S'il
+vaut 537, la conclusion « floor » de #91 a été prise sur un cas où `floor == round` — la prémisse
+tombe, et le correctif est un `_round_fix64(Fraction(D * pct, 100), 0)` d'une ligne. S'il vaut 538
+ou 539, alors `D` du port n'est **pas** le `CurrentDamage` du natif, et c'est la RÉFÉRENCE qu'il
+faut corriger, pas l'arrondi. Fixer l'arrondi sans cette mesure serait un scalaire fitté sur un
+témoin en réparant un bug et en en créant un autre.
+
 ## 11. Cliquets
 
 * `scripts/python/tests/engine/test_920_maw_claws_of_thyrax_offline.py` — **19** étages : ordinaux
