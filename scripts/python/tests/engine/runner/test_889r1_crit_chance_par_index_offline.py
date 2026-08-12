@@ -16,6 +16,28 @@ le toucher.
 """
 from __future__ import annotations
 
+DECLENCHEUR = {
+    "chemins": (
+        # Le foyer de la boucle de coups : il porte `_roll_crit`, le gate `crit_after_index` et la
+        # memoisation. Toute son execution est EXERCEE ici (etages 1 a 3).
+        "scripts/python/engine/runner/operations/damage_hits.py",
+        # Les TROIS vecteurs. Ce fichier les OUVRE et raisonne sur leur AST (etages 4 et 5) --
+        # aucun `import` ne le revele, donc `probe_486r15 --proposer` ne peut pas les deduire.
+        "scripts/python/engine/runner/operations/damage_ops/normal.py",
+        "scripts/python/engine/runner/operations/damage_ops/ability.py",
+        "scripts/python/engine/runner/operations/damage_ops/normal_like.py",
+    ),
+    "build": False,
+    "toujours": False,
+    "raison": "CES chemins et pas d'autres parce que le fichier est mi-EXECUTABLE mi-FORME : il "
+              "joue `_run_hits` sur des cellules DEGENEREES (min == max), donc rien de ce qu'il "
+              "mesure ne depend du gameconfig, du build ni d'un board -- seul le CRIT bouge. Et "
+              "ses deux derniers etages `ast.parse` les trois vecteurs pour garder le CABLAGE et "
+              "la BORNE (couple, jamais triplet). Sa verite depend donc exactement de la source de "
+              "ces quatre modules. `build: False` : aucune adresse, aucun symbole, aucune valeur "
+              "de config n'est lue -- la seule reference native est CITEE en prose.",
+}
+
 import ast
 import pathlib
 
