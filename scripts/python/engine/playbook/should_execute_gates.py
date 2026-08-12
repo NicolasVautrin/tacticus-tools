@@ -91,6 +91,10 @@ from .common import DefaultActiveAbilityPlaybook
 from .prediction._shared import _entity_traits
 from ..entities.active_ability_type import ActiveAbilityType
 from ..entities.traits.unit_trait import UnitTrait
+# `TacticalPrecisionPlaybook.should_execute` : `WillBeCharging` (slot 0xcd) + le comptage
+# d'adjacence. Forme B (le module, pas les noms) -- `engine.battle_query` est une FEUILLE, aucune
+# arete de cycle a fermer, et un binding de module ne se fige pas sous `monkeypatch`.
+from engine import battle_query as _bq
 
 
 class LiteralZeroThresholdPlaybook(DefaultActiveAbilityPlaybook):
@@ -210,6 +214,75 @@ class HadesAutocannonsPlaybook(DefaultActiveAbilityPlaybook):
         return False
 
 
+class TacticalPrecisionPlaybook(DefaultActiveAbilityPlaybook):
+    """`IdunBattle.AI.Playbook.Loki.TacticalPrecisionPlaybook$$ShouldExecute` (1154, `ultraTitus`) --
+    le residu que le tableau d'en-tete listait « requete + `Count > 1` », ferme par #976 :
+
+        entities = AbilityEntities(caster, caster, target, caster, casterTile, ...)
+        if (battleQuery.<slot 0xcd>(caster, casterTile, target)) return true;   // WillBeCharging
+        sel = TacticalPrecisionAbility$$GetNonChargingAttackTargets()
+            = DSLSelectors$$AdjacentEnemies(Caster@+0x48, unique: 1, selectionType: 3)
+        return sel.<ITargetsSelector slot 2 = Count>(entities) > 1;             // STRICT
+
+    DEUX clauses, en COURT-CIRCUIT `||`, et elles ne lisent NI l'utilite NI la tuile autrement que
+    par `WillBeCharging`. Autrement dit : Titus lance si le pas le met AU CONTACT de sa cible
+    (branche mono-cible du cast), ou s'il a DEJA au moins DEUX ennemis adjacents (branche AoE, qui
+    frappe `AdjacentEnemies(Caster)`) -- c'est le gate qui empeche de gaspiller la branche AoE sur
+    un seul ennemi. Le meme couple de branches gouverne `MakeDamagePredictions`
+    (`entities.abilities.active_ability.TacticalPrecisionAbility`) et la face COMBAT
+    (`runner/abilities/ultramarines.py`).
+
+    ⚠ `WillBeCharging` (slot 0xcd, arite **3**) n'est PAS `IsCharging` (arite 2) : le premier
+    compare deux voisinages pour un pas NON JOUE, le second lit `UnitComponent.ChargedUnitIds`, qui
+    est vide tant que le caster n'a pas bouge. Prendre `IsCharging` ici rendrait la 1re clause
+    TOUJOURS FAUSSE au moment ou le playbook s'execute -- un refus silencieux de toute la branche
+    charge. Slot et arite LUS dans `data/symbols/<build>/metadata/interface_slots.tsv`.
+
+    ⚠ L'ANCRE du 2e terme est l'ENTITE caster, donc sa position REELLE -- pas `casterTile`. Le natif
+    passe `Caster@+0x48` au selecteur, et `AdjacentTiles(<entite>)` resout `GetTiles(caster)`. Le
+    sweep de tuiles ne deplace donc PAS ce comptage ; seul le 1er terme lit `casterTile`.
+
+    DEGRADATION : substrat absent (pas de scene, pas de position) -> VRAI, aucun refus invente
+    (meme convention que les quatre gates ci-dessus)."""
+
+    ability_id = int(ActiveAbilityType.TacticalPrecision)       # 0x482 = 1154
+
+    #: `1 < Count(...)` du corps natif -- comparaison STRICTE sur l'ENTIER rendu par le slot 2.
+    MIN_ADJACENT_ENEMIES: int = 1
+
+    def should_execute(self, ctx, caster_tile, target, ability_id, utility) -> bool:
+        sc = getattr(ctx, "scene", None)
+        if sc is None:
+            return True
+        uid = getattr(ctx, "uid", None)
+        cur = sc.pos(uid)
+        if cur is None:
+            return True
+        elev = getattr(sc, "elev_by_pos", None)
+        team = sc.team(uid)
+        # --- 1re clause : `WillBeCharging(caster, casterTile, target)` -------------------------
+        pos_by_id = {}
+        for u in (sc.units or ()):
+            i = u.get("id")
+            p = (u.get("pos") or {}) if isinstance(u.get("pos"), dict) else {}
+            if i is None or i == uid or p.get("col") is None:
+                continue
+            pos_by_id[int(i)] = (p["col"], p["row"])
+        if _bq.will_be_charging(target, cur, caster_tile, pos_by_id, elev, None):
+            return True
+        # --- 2e clause : `Count(AdjacentEnemies(Caster)) > 1`, ancre sur la position REELLE -----
+        if team is None:
+            return True
+        epos = []
+        for u in (sc.units or ()):
+            i = u.get("id")
+            p = (u.get("pos") or {}) if isinstance(u.get("pos"), dict) else {}
+            if i is None or i == uid or p.get("col") is None or u.get("team") == team:
+                continue
+            epos.append((p["col"], p["row"]))
+        return _bq.count_adjacent(cur, epos, elev, None) > self.MIN_ADJACENT_ENEMIES
+
+
 #: Ids dont le gate est `utility > Fix64(0)` LITTERAL **et** dont la route est le generateur
 #: d'attaque Comparable (`_best_attack` -> `calculate_action_utility`). Les quatre autres porteurs de
 #: ce meme corps ont leur gate AILLEURS, et les inscrire serait un port MORT :
@@ -239,6 +312,7 @@ def _register_all() -> None:
     register(ReapingScythePlaybook())
     register(StormOfFlensingBladesPlaybook())
     register(HadesAutocannonsPlaybook())
+    register(TacticalPrecisionPlaybook())        # 1154 (#976) -- WillBeCharging || adj > 1
 
 
 _register_all()

@@ -4004,3 +4004,57 @@ pas d'erreur : il rend **zéro**, et un zéro se lit « rien à signaler ».
   FOYER: scripts/python/engine/playbook/noncomparable/ (module neuf), engine/playbook/nonattack.py
   BLOCAGE: etage
 
+- **#976-r1 : face DECISION `1026 BasiliskBarrage` -- RE COMPLETE, non portee : TROIS batchs
+  d'obus PONDERES sur des POOLS DE TUILES.** `[opus]`
+  `IdunBattle.AI.Playbook.Loki.BasiliskBarragePlaybook` derive de `ComparablePlaybook`1` (LUE
+  dans `frida/classes.tsv`) et son `MakeDamagePredictions` n'emet AUCUN batch `<Target>` : il
+  appelle TROIS fois `GenerateAttackPredictionsForShells`, verbatim --
+  `nMiss = Count(GetNumShellsMiss, entities)` / `nMaybe` / `nGuaranteed` (les TROIS formules
+  sont DEJA portees cote COMBAT : `astramilitarum.basilisk_num_shells`), puis
+  `list.AddRange(Shells(nMiss, GetPossibleTargetTilesMiss))`, `AddRange(Shells(nMaybe,
+  GetPossibleTargetTilesMaybe))`, `AddRange(Shells(nGuaranteed, DSLSelectors.Entity(target)))`.
+  Et `GenerateAttackPredictionsForShells(caster, casterPosition, target, state, numShells, sel)` :
+  `if (numShells < 1) return []` ; `base = StranglethornCannonAbility$$GetDamageAmountMain` (=
+  `MinMaxDamageAverage`, forme (a1) -- 1026 y est deja registree) ; `hits =
+  AActiveAbility$$GetHits` ; `prof = BaseFleshmetalGunsEffect$$GetDamageProfileType` (=
+  `AbilityConfiguration$$GetDamageProfile`) ; `pool = GetEntitiesFromSelector(sel, entities)`
+  ou `entities.targetTiles = GetTiles(target)` ; puis POUR CHAQUE entite du pool
+  `GenerateMultiHitAttackPredictions(..., <entite>, DSLSelectors.Entity(<entite>), base, hits,
+  prof, Nullable(Fix64(numShells) / Fix64(pool.Count)), 0)`.
+  CE QUI BLOQUE, ET C'EST STRUCTUREL : le poids `probability1` du port est DERIVE
+  (`min(1, GetMaxSecondaryTargets / len(aoe))`), alors qu'ici c'est un RATIO EXPLICITE par batch
+  qui peut DEPASSER 1 (aucun clamp au decompile) ; et le domaine des events est la TUILE, pas
+  l'unite -- `ProbableDamageEvent.target` porte une entite-tuile. Les registres actuels
+  (`_MAKE_DMG_INPUT_OVERRIDES` / `_MAKE_DMG_SELECTOR_ONLY` / `_MAKE_DMG_EXTRA_EVENTS`) ne
+  savent exprimer NI l'un NI l'autre : il faut un 4e registre << batchs a poids propre >>, ou une
+  route bespoke comme `plague_wind`. Le pool de tuiles, lui, est deja porte
+  (`basilisk_tiles_at_distance` : anneau 2 pour `miss`, `{cible} u anneau 1` pour `maybe`,
+  `{cible}` pour `guaranteed`), et le playbook ne TIRE PAS AU SORT -- il pondere.
+  Attestation executable : etage 6 de `scripts/python/tests/test_976_lot_astartes_astra_offline.py`.
+  FOYER: scripts/python/engine/playbook/prediction/abilities.py, engine/entities/abilities/active_ability.py
+  BLOCAGE: etage
+
+- **#976-r2 : `1231 TitanhammerSquad` -- `GetUseProbability` et `GetCustomUnitOrderUtility`
+  non portees, et leurs POIDS SONT ABSENTS du BC.** `[opus]`
+  Les deux corps sont LUS (#976).
+  `TitanhammerSquadPlaybook$$GetUseProbability(unit)` =
+  `HasFlag(unit, UnitFlag.ArrivedAtFinalTile) ? Fix64(0)
+  : (GetUtilityValue(<cle A>) + GetUtilityValue(<cle B>) * Count(TitanhammerSquadAbility$$GetCurrentlyAffectedFriends, AbilityEntities(unit))) / Fix64(100)`.
+  `TitanhammerSquadPlaybook$$GetCustomUnitOrderUtility(unit)` =
+  `Fix64(|FilterInPlace(battleQuery.<slot 0x8d = GetAllFriendsOf>(GetOriginalOwnerEntityId(unit)),
+  f => HasTrait(f, 0x40f = UnitTrait.TerminatorArmour))| + 1) * GetUtilityValue(<cle C>)`.
+  MESURE qui BLOQUE : les trois cles `Titanhammer*` sont **ABSENTES** de
+  `BattleConfiguration.Utilities.Default` du seed (`ActiveAbilities` = 18 cles,
+  `UnitOrder` = 10, `UnitSpecificBehaviours` = 3 -- aucune). Portees a `0`, elles rendraient
+  `GetUseProbability = 0`, donc `ShouldEvaluate = False`, donc l'ability DISPARAIT du
+  generateur : porter le terme sans ses poids est STRICTEMENT PIRE que le laisser au `True`
+  constant de `NonComparablePlaybook.should_evaluate` (l'ecart deja assume pour `BlackRage` et
+  `ItItches`). Ce qu'il faut d'abord : etablir si le BC de bataille publie ces cles (le seed est
+  UNE capture) ou si le natif tombe lui aussi sur `0`.
+  ⚠ `IsValidTileForAbility` (= `GetUnitPosition(unit).Equals(position)`) est LU et INERTE tant
+  que la voie d'enumeration est `fromHere` (une seule position) -- il redevient actif si l'on
+  balaie les tuiles de move.
+  ⚠ `initialCooldownTurns = 1` au gameconfig de 1231 : l'ability est ECARTEE du premier tour,
+  comportement NATIF -- un dry-run qui ne voit rien au tour 1 ne prouve aucun trou de port.
+  FOYER: scripts/python/engine/playbook/noncomparable/titanhammer_squad.py, engine/playbook/noncomparable/_base.py
+  BLOCAGE: seeding
