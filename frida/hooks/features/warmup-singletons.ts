@@ -6,6 +6,30 @@
 //
 // Intended usage at session start, after auto-inject, to guarantee that
 // builder_ready is pushed without needing the user to navigate first.
+//
+// POURQUOI CE PILOTAGE D'UI N'EST PAS CONTOURNABLE — #989, tranche le 2026-08-12
+// sur le build `rnca9r7q6c`. Lancer une vraie bataille pour n'en retirer qu'un
+// pointeur, puis battre en retraite, a tout l'air d'un pis-aller : la question
+// « ne peut-on pas simplement RESOUDRE l'instance ? » se repose donc toute seule.
+// La reponse est NON, et elle est structurelle, pas circonstancielle :
+//
+//   - `CampaignGameModeSource` n'a qu'UN SEUL site de creation dans tout le
+//     binaire, `idun.shared.commands.ViewCommandExecutor$$StartCampaignMatch`,
+//     qui alloue (`il2cpp::vm::Object::New`) et appelle le ctor INLINE, puis
+//     enchaine `ViewCommandExecutor$$StartMatch` -> `thor.Loader$$LoadBattle`
+//     sans point de sortie entre les deux. Creer l'instance et lancer la
+//     bataille sont LE MEME GESTE.
+//   - Il n'existe AUCUN conteneur DI dans ce binaire (`Zenject` = 0 symbole), donc
+//     rien a interroger : les 17 dependances du ctor sont des champs du
+//     `ViewCommandExecutor`, qui se passe lui-meme en 9e argument.
+//   - Trois des 17 parametres decrivent LA BATAILLE LANCEE (`campaignId`,
+//     `initialLocationIndex`, `enemyIsAiControlled`) : aucune liaison ne peut les
+//     fournir avant qu'on sache quelle bataille on lance.
+//
+// Consequence pratique : le durcissement de la retraite (#390) est LA bonne
+// reponse au cout de ce cycle, pas un palliatif en attendant mieux. Re-deriver
+// les faisceaux hors ligne : `scripts/python/probe_989_cgms_sans_liaison_di.py`.
+// Detail : `docs/rl/case-989-campaign-game-mode-source-transient.md`.
 
 import { queueOnMainThread } from "../runtime/queue.js";
 import { log } from "../runtime/diag.js";
