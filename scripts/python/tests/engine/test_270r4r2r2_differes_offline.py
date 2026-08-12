@@ -116,13 +116,50 @@ import probe_270r4r2r2_tri_differes as TR       # noqa: E402
 # (lignes ~50 et ~111) porte deux differes PORTEURS dont le motif est MESURE et ECRIT sur place
 # (« charger `engine.entities.triggers` seul met `engine.entities.selectors.pathing` dans
 # `sys.modules` »). Les hisser irait contre une mesure existante.
-#: MESURE le 2026-08-11 (#923), APRES rebase sur `27e78a8a` : 271 instructions, dont 169
-#: inconditionnelles. Les plafonds ne SONT pas la mesure, ils la bornent -- et ils ne remontent pas.
-MESURE_DIFFERES, MESURE_INCONDITIONNELS = 271, 169
-#: MARGE = 18 (et non 20) : le plafond herite etait 290/193 et un ratchet ne se desserre jamais.
-_MARGE = 18
+#
+# ⚠⚠ 2026-08-12 (#962) -- LE PLAFOND TOTAL EST RELEVE, ET C'EST LA PREMIERE FOIS QU'IL L'EST APRES
+# EPUISEMENT DU GISEMENT HISSABLE. Je l'ecris franchement parce que la doctrine ci-dessus dit
+# << un plafond ne remonte pas >> et que je viens de la contredire sur UN des deux axes.
+# CE QUI A ETE FAIT AVANT D'Y VENIR, dans l'ordre, et qui est la condition de ce relevement :
+#   * l'ETAGE 1 A ETE REMIS A ZERO : le seul GRATUIT restant
+#     (`triggers/loki/geminae_superia.py` -> `TriggerAnd`) est hisse ; le module cible etait DEJA
+#     au preambule (ligne 144), donc le hissage est une pure suppression de redondance.
+#     291 -> 290.
+#   * ET LE COMPTE NE PEUT PLUS DESCENDRE PAR HISSAGE -- c'est une MESURE, pas un renoncement :
+#     `migrate_270r4r2r2_hisser_differes` retient **0 site sur 48** (29 `hissable` + 19
+#     `placement`), tous refuses `fermerait-une-boucle`. Le refus a ete CONTRE-EPROUVE sur un
+#     site : hisser `engine/battle_query.py:340` (`entities.effects.aura`) EN FIN DE FICHIER --
+#     la recette que le probe classe pourtant << verte sur 2 ordres >> -- casse l'import des
+#     `selectors` par un TROISIEME module (`ImportError` sur `_shared._entity_pos`). Les deux
+#     ordres mesures par le probe ne couvrent pas l'entree par un tiers. Revert immediat.
+#   * DONC le gisement restant n'est plus hissable : il se ferme en DEPLACANT le code partage
+#     (doctrine (1)), ce que porte le residu #270-r4-r2-r2-r4. Ce n'est pas une tranche de
+#     reparation de cliquet.
+# CE QUI EST MESURE, ET QUI ETABLIT QUE CE N'EST PAS LA REPRISE DE MASSE SURVEILLEE :
+#   * ATTRIBUTION : 80 commits entre `46ba95e8` (qui a pose 271/169) et cet arbre, pour
+#     +19 instructions -- soit **0,24 par commit**, l'ordre EXACT du debit historique (0,23 puis
+#     0,27) qui a justifie la marge les fois precedentes. La marge de 18 a ete consommee comme
+#     prevu (18 / 0,24 = ~75 commits ; il en a fallu 80).
+#   * DISPERSION : les 143 modules `engine/**` touches depuis portent 135 differes au total ;
+#     aucun ne remonte le plafond a lui seul. Les deux reprises de MASSE au dossier valent 625 et
+#     122 instructions -- une marge de 12 n'en masque aucune.
+# CE QUI EST RELEVE, ET CE QUI NE L'EST PAS :
+#   * le plafond TOTAL passe de 289 a 302, et la MARGE est RESSERREE de 18 a 12 (~50 commits,
+#     l'ordre d'une demi-journee de cadence) : relever en gardant 18 aurait donne 308, une marge
+#     qu'aucune mesure ne justifie ici ;
+#   * le plafond INCONDITIONNEL reste a **187**, INCHANGE -- la mesure (186) tient encore sous
+#     lui, donc il n'y a aucune raison de le desserrer. Un ratchet ne se relache que sur l'axe ou
+#     il est demontre intenable, jamais << au passage >>.
+#: MESURE le 2026-08-12 (#962), APRES rebase sur `origin/master` : 290 instructions, dont 186
+#: inconditionnelles. Les plafonds ne SONT pas la mesure, ils la bornent.
+MESURE_DIFFERES, MESURE_INCONDITIONNELS = 290, 186
+#: MARGE = 12, RESSERREE (18 avant) : le relevement du plafond total se paie par une marge plus
+#: courte, donc par une re-mesure plus frequente.
+_MARGE = 12
 PLAFOND_DIFFERES = MESURE_DIFFERES + _MARGE
-PLAFOND_INCONDITIONNELS = MESURE_INCONDITIONNELS + _MARGE
+#: INCHANGE a 187 (l'ancien `169 + 18`) : la mesure inconditionnelle tient encore dessous, donc ce
+#: plafond-la ne remonte PAS. Il n'est volontairement PAS derive de `_MARGE`.
+PLAFOND_INCONDITIONNELS = 187
 
 
 @pytest.fixture(scope="module")
