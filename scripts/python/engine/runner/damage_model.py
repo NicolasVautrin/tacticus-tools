@@ -917,11 +917,27 @@ def defender_modifiers(state: State, unit_id: int, hp: Optional[int],
                                # (`aura_attack_damage_bonus_from_allies`). Les deux autres
                                # conjoints (`att_pos`, `att_team`) etaient DEJA la, poses par
                                # #950 : cette tranche n'a eu qu'a ajouter les traits.
-                               "att_traits": (att_ctx or {}).get("traits")}
+                               "att_traits": (att_ctx or {}).get("traits"),
+                               # #959 : le second membre du `op_BitwiseOr` de
+                               # `PredictiveGuidance_MeleeEffect$$BonusCondition` --
+                               # `HasFaction(Caster@+0x48, 0x14 = LeaguesOfVotann, 3)`. MEME cle,
+                               # MEME source (`FactionId` du gameconfig) et MEME resolveur que le
+                               # canal AURA jumeau cote ATTAQUE et que `build_hits_board` : ce
+                               # n'est pas un nommage neuf. Le PREMIER membre (`IsMechanical`) se
+                               # lit dans `att_traits`, deja pose ci-dessus par #952.
+                               "att_faction": (_unit_gameconfig(state, attacker_id)
+                                               or {}).get("FactionId")}
                               if attacker_id is not None else {}),
                            # `IsMeleeAttack`, 3e conjoint du meme trigger. Tri-etat #106 conserve :
                            # `None` = nature non declaree -> le gate se ferme cote effet.
                            "is_melee": is_melee,
+                           # #959 : `UnitsWith[out]Flag(<aura>, 0 = UnitFlag.Moved, 3)` -- le noeud
+                           # qui PARTITIONNE les deux effets de degat de `PredictiveGuidance` entre
+                           # melee et distance. Il porte sur la CIBLE (l'element du selecteur), pas
+                           # sur l'attaquant : `unit_has_moved` est le LECTEUR UNIQUE du
+                           # `UnitFlagsComponent`, le meme que celui du `has_moved` attaquant.
+                           # Tri-etat : `None` = flag non mesure -> le gate se FERME cote effet.
+                           "tgt_has_moved": unit_has_moved(state, unit_id),
                            # `HasTileStatusEffect`/`EntitiesWithAnyEffect(Tiles(Target), Fire)` --
                            # MEME canal et MEME forme `{(col,row): [noms]}` que celui deja monte
                            # pour `LetTheGalaxyBurnEffect` (`collect_additional_hit_groups`).

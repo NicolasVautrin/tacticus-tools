@@ -274,6 +274,7 @@
  "tests/engine/test_952_hunters_beyond_death_offline.py": 0.692,
  "tests/engine/test_955_summary_execution_possession_offline.py": 4.789,
  "tests/engine/test_957_decision_faces_offline.py": 0.676,
+ "tests/engine/test_959_votann_auras_offline.py": 0.466,
  "tests/engine/test_960_ecstatic_slaughter_armour_shrieking_souls_offline.py": 0.055,
  "tests/engine/test_effect_1582_inertia_binary.py": 1.156,
  "tests/engine/test_fabricator_claw_cap_binary.py": 0.446,
