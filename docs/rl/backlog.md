@@ -3908,3 +3908,91 @@ pas d'erreur : il rend **zéro**, et un zéro se lit « rien à signaler ».
   ventilation des familles `CreateEffect*` du dump courant et rougit si une famille `HealBonus`
   apparait. cf. `docs/rl/case-520-heal-repair-operation.md` sec. 2.
 
+- **#970-r1 : la face DECISION `1201 SquigMine` n'est confrontee qu'au niveau FEUILLE.** `[opus]`
+  Mesure (#970) : la feuille rend `{target: 61, pred: 3.0}` = `1 + 2` ennemis adjacents, utilite
+  NON TRIVIALE sur 58 tuiles candidates. Mais `build_machine` ne publie dans `me.abilities` que
+  les abilities UTILISABLES, et `1201` porte `initialCooldownTurns: 1` -> absente au tour 1, donc
+  le DRIVER (`DefaultMachineTactic`) ne la voit pas et la contre-epreuve est structurellement
+  muette. Ce n'est PAS un trou du port (`AActionGenerator$$CanAbilityBeUsed` cote natif fait de
+  meme) : il manque un montage qui AVANCE d'un round avant de mesurer. Meme montage que
+  `probe_970` (`--p-mow orksRukkatrukk`, board MC1_67) + une bascule de tour.
+  RETOURNEMENT : `probe_970` cesse d'ecrire `NON CONFRONTE AU DRIVER` pour 1201 et rend une
+  contre-epreuve qui MORD, comme elle le fait deja pour 1161.
+  FOYER: scripts/python/probe_970_mow_noncomparable_faces.py
+  BLOCAGE: aucun
+
+- **#970-r2 : face DECISION `1160 HeavyRailRifle` -- RE faite, port BLOQUE sur la config du
+  triggered.** `[opus]`
+  `HeavyRailRiflePlaybook$$EvaluateNonComparable` (RE complete, #970) :
+  `ab = Playbook<T>$$GetAbility<T>(this, 0x4ec)` -> le TRIGGERED `1260 HeavyRailRifle_Attack` ;
+  `profile = ab.GetDamageProfileOrDefault(0x12 = Blast)` ; `hits = ab.GetAttackHits()` =
+  `DSLFormulas.ConfigConst(0x2f = nrOfHits)` lu au slot **1** d'`IAmountFormula` ;
+  `dmg = ab.GetDamage(abilityState)` = `BaseTriggeredAbility$$MinMaxDamage` lu au slot **4**
+  (`CalculateAverage`, TRONCATURE) ; puis par cible :
+  `util = IsMachine(T) ? (ShouldPreferMachine() ? Fix64(int.MaxValue) : 1)
+                       : Playbook<T>$$CalculateUtilityFromDamageEvent(T, dmg, profile, hits)`,
+  ou `ShouldPreferMachine` = `pseudoRNG.<slot 5 = NextBool>(50)` -- un tirage a 50 %.
+  BLOCAGE MESURE : `HeavyRailRifle_Attack` est **ABSENTE du gameconfig** (572 abilities indexees,
+  seul `HeavyRailRifle` y figure), donc ni `minDmg`/`maxDmg` ni `nrOfHits` du TRIGGERED ne sont
+  lisibles offline -- or c'est cette config-la que le playbook evalue, pas celle de l'active.
+  La ligne du call-site EXISTE DEJA dans `TRIGGERED_PREDICTION_AVERAGE_FORM` (`(GetDamage, 4)`)
+  et n'a toujours aucun consommateur ; `_PREDICTION_FORMULA_ON_TRIGGERED_ABILITY` documente deja
+  la paire `1160 -> 1260`. Ce qui manque est la SOURCE des variables du triggered.
+  Second bloqueur, mineur : `IsMachine(cible)` n'a pas de canal cote NCContext (`obs_units`
+  exclut les MoW). RETOURNEMENT : un port de 1160 dont la prediction se confronte a
+  `probe_344 --oracle nc`.
+  FOYER: scripts/python/engine/playbook/noncomparable/ (module neuf), engine/entities/abilities/triggered_ability.py
+  BLOCAGE: seeding
+
+- **#970-r3 : face DECISION `1200 SquigLaunchas` -- RE faite, utilite purement ALEATOIRE.** `[opus]`
+  `SquigLaunchasPlaybook$$EvaluateNonComparable` (RE complete, #970) : par tuile eligible, gate
+  `SquigLaunchasAbility$$FulfillsSummonCriteria` -- un arbre DSL
+  `AmountIsEqualOrGreater(UnitsFromFaction(Friends(NonSteppableOrObjectUnits(AdjacentUnits)), 5),
+  ConfigConst(0x81 = nrOfUnits_3)) | AmountIsEqualOrGreater(Friends(...), ConfigConst(0x82 =
+  nrOfUnits_4))` -- puis `util = Fix64(pseudoRNG.<slot 2 = Next>(1, 10))`. L'utilite ne lit AUCUN
+  etat : elle est un TIRAGE, donc le choix de tuile est indeterminable dans un moteur
+  deterministe. Ce qui reste portable et OBSERVABLE : le GATE, et le fait que `1200` soit
+  `PRIORITY = 1000` (tier `First`, deja dans `NATIVE_PRIORITY`) -- donc qu'elle PRIME sur toute
+  autre action de `orksRukkatrukk` des qu'une tuile passe le gate. Porter cela change le
+  comportement ; porter la tuile ne le peut pas. RETOURNEMENT : un port qui emet 1200 au tier 1000
+  des que le gate passe, et qui NOMME la tuile comme non deterministe.
+  FOYER: scripts/python/engine/playbook/noncomparable/ (module neuf)
+  BLOCAGE: aucun
+
+- **#970-r4 : face DECISION `1159 MacroPlasmaIncinerator` -- RE faite, non portee.** `[opus]`
+  `MacroPlasmaIncineratorPlaybook$$EvaluateNonComparable` (RE complete, #970) :
+  `util = 1 + |zone| + somme sur les tuiles LIBRES de la zone de
+  |GetAdjacentEnemies(t, caster)|` (`IBattleQuery` slot 0x7f, arite 3), gate `IsFreeTile` par
+  tuile, `MIN_UTILITY = 1` (`.cctor`), `PRIORITY = -100` (deja dans `NATIVE_PRIORITY`). La zone
+  est `MacroPlasmaIncineratorAbility$$GetTargetAreaTiles` =
+  `Walkable(TilesOnSameElevation(T, TilesInTriangleShape(T, If(IsPositionMachineForCurrentPlayer(2),
+  Direct(1), Direct(4))), 1))` -- le MEME artefact que la face COMBAT, deja portee
+  (`ultramarines.macro_plasma_incinerator_tree`) et que `1148 DaemonicOrdnance` consomme deja
+  cote DECISION via `blacklegion.daemonic_ordnance_target_area_tiles`. Il manque l'equivalent
+  pour 1159 (une fonction `<x>_target_area_tiles`) et son `DslContext` cote decision.
+  FOYER: scripts/python/engine/playbook/noncomparable/ (module neuf), engine/runner/abilities/ultramarines.py
+  BLOCAGE: etage
+
+- **#970-r5 : face DECISION `1158 DutyEternal` -- RE faite, non portee, et son REFUS est
+  PERIME.** `[opus]`
+  `DutyEternalPlaybook$$EvaluateNonComparable` (RE complete, #970) : cibles =
+  `GetEligibleTargetsSelectable(caster, casterPosition.MainTile)` ; par cible,
+  `util = 1 + somme sur t dans ThreeTileUnitSpawnShape(T) de
+  somme sur u dans GetSurroundingUnits(t, 2) de (10 si GetDistance(u, t) < 2 sinon 1)`
+  (`IBattleQuery` slots 0x75 = 117 arite 4, et 0x6c = 108 `GetDistance`) ; `MIN_UTILITY = 1`.
+  Le gate est le slot **5** `ShouldEvaluate(unit, actionTiles)` via
+  `DutyEternalPlaybook$$GetUseProbability(unit, actionTiles)` =
+  `Fix64.FromIntFraction((GetTurnsFinished(unit) - ConfigConst(0x68 = initialCooldownTurns) + 1) * 33, 100)`
+  -- une RAMPE : `<= 0` refuse, `>= 1` accepte, entre les deux c'est un tirage. Ses deux extremites
+  sont donc DETERMINISTES et portables ; seule la bande 0.33/0.66/0.99 ne l'est pas.
+  ⚠ Le refus ecrit dans `engine/playbook/nonattack.py` (« son porteur est une Machine of War, hors
+  face DECISION ; un crochet sans porteur serait du code speculatif ») est **PERIME** : mesure
+  #970 -- `DefaultMachineTactic$$.ctor` pose `GetDefaultActiveAbilityActionGenerators`, soit les
+  MEMES generateurs NonComparable par tier, `1187` (MoW) est deja portee par cette voie, et
+  `probe_970` a fait sortir `1161` du chemin MoW REEL avec contre-epreuve qui mord. Le crochet
+  n'est pas speculatif ; il n'a simplement pas de consommateur tant que 1158 n'est pas portee.
+  Le substrat `ThreeTileUnitSpawnShape` EXISTE (`engine/services/spawn_tile_shape.py`) mais exige
+  un `board`, absent de `NCContext` : c'est l'adaptateur a ecrire.
+  FOYER: scripts/python/engine/playbook/noncomparable/ (module neuf), engine/playbook/nonattack.py
+  BLOCAGE: etage
+

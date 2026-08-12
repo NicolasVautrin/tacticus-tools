@@ -117,6 +117,8 @@ from .foehammer import FoehammerPlaybook
 from .storm_speeder import DeathOnTheWindPlaybook, HailstrikePlaybook
 from .ordnance_battery import ForwardSpotterPlaybook, MalleusRocketLauncherPlaybook
 from .necro_reanimator import NanoscarabRepairProtocolsPlaybook, ReanimationBeamPlaybook
+from .twin_smart_missile_system import TwinSmartMissileSystemPlaybook
+from .squig_mine import SquigMinePlaybook
 
 
 # Registre abilityType -> instance de playbook (remplace le switch `kind`).
@@ -330,6 +332,23 @@ PLAYBOOKS: dict[int, NonComparablePlaybook] = {
         #                                 PRIORITY = **-1000** (octets `mov eax,0xFFFFFC18 ; ret`)
         #                                 -> 1224 (tier 0) prime TOUJOURS sur elle, par l'ORDRE des
         #                                 generateurs et non par comparaison d'utilites.
+        # #970 -- faces DECISION `NonComparable` de MACHINES OF WAR (base LUE dans
+        # `frida/classes.tsv` : `NonComparablePlaybook`1` pour les deux ; leur `.ctor` NOMME
+        # `ComparablePlaybook<...>`, corps trivial DEDUPLIQUE -- piege de #487-r1 / #945 / #957).
+        # Le refus « porteur MoW => hors face DECISION » (`nonattack.py`) est PERIME :
+        # `DefaultMachineTactic$$.ctor` pose `GetDefaultActiveAbilityActionGenerators`, donc les
+        # MEMES generateurs NC par tier -- et 1187 (`adeptExorcist`, MoW) est deja portee par
+        # cette voie. Corollaire : `ctx.reach_nc == []`, donc AUCUN des deux ne peut heriter
+        # `_PlanTargetPlaybook` (son sweep serait vide) -> `NonComparablePlaybook` + `fromHere`.
+        TwinSmartMissileSystemPlaybook(),  # 1161 (`tauBroadside`) -- utilite CONSTANTE `Fix64(1)`,
+        #                                 cible TIREE AU SORT (`IPseudoRNG` slot 6 `NextElement`),
+        #                                 selecteur `GetEligibleTargetsEntities` (domaine UNITE),
+        #                                 et le SEUL `Bucket` du lot construit SANS borne.
+        SquigMinePlaybook(),            # 1201 (`orksRukkatrukk`) -- util = 1 + |GetAdjacentEnemies
+        #                                 (tuile, caster)| (`IBattleQuery` slot 0x7f, arite 3),
+        #                                 gate `IsFreeTile` DANS le playbook, domaine TUILE.
+        #                                 `PRIORITY = -100` : octets `mov eax,0xFFFFFF9C` cites
+        #                                 dans `NATIVE_PRIORITY`.
     )
 }
 
@@ -409,4 +428,5 @@ __all__ = [
     "DeathOnTheWindPlaybook", "HailstrikePlaybook",
     "ForwardSpotterPlaybook", "MalleusRocketLauncherPlaybook",
     "NanoscarabRepairProtocolsPlaybook", "ReanimationBeamPlaybook",
+    "TwinSmartMissileSystemPlaybook", "SquigMinePlaybook",
 ]

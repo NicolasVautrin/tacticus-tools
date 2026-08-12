@@ -150,9 +150,24 @@ class NonAttackComparablePlaybook(ComparablePlaybook):
         Le slot **5** `ShouldEvaluate(unit, actionTiles)` a la meme forme (via `<vtable +0x208>
         GetUseProbability(unit, actionTiles)`) ; AUCUN membre du registre non-attaque ne l'override
         sur ce build -- son seul overrideur mesure est
-        `IdunBattle.AI.Playbook.Loki.DutyEternalPlaybook$$GetUseProbability`, dont le porteur est une
-        Machine of War (hors face DECISION, cf. `case-27` §VERROUS). Il n'est donc PAS cable ici :
-        un crochet sans porteur serait du code speculatif."""
+        `IdunBattle.AI.Playbook.Loki.DutyEternalPlaybook$$GetUseProbability`. Il n'est pas cable
+        ici, mais **la raison a change** : ce n'est plus « son porteur est une MoW, donc hors face
+        DECISION ».
+
+        ⚠ CETTE RAISON-LA EST PERIMEE, et elle a ete RE-MESUREE (#970). Une MoW A une face
+        DECISION, exercee par le MEME jeu de generateurs : `IdunBattle.AI.Tactics.
+        DefaultMachineTactic$$.ctor` pose `@tactic+0x60 = GetDefaultActiveAbilityActionGenerators`,
+        soit les cinq `NonComparableGenerator` par tier, sans le `MovementActionGenerator`. Trois
+        faits l'etablissent : `1187 ThriceBlessedConflagration` (`adeptExorcist`, MoW) est portee
+        et confrontee par cette voie ; `1161 TwinSmartMissileSystem` (`tauBroadside`, MoW) sort du
+        chemin MoW REEL avec une contre-epreuve qui MORD (`probe_970`) ; et `DutyEternalPlaybook`
+        lui-meme est un `NonComparablePlaybook`1` (base LUE dans `frida/classes.tsv`), donc son
+        crochet ne vivrait de toute facon PAS dans ce registre non-attaque.
+
+        La raison qui SUBSISTE est donc seulement : **1158 n'est pas portee**, faute d'adaptateur
+        pour `ThreeTileUnitSpawnShape` (residu `#970-r5`, qui donne la RE complete du corps et de
+        la rampe `((turnsFinished - initialCooldownTurns + 1) * 33) / 100`). Un crochet sans
+        consommateur, pas un crochet sans porteur."""
         return True
 
     def is_caster_added(self, ctx, caster_tile) -> bool:
