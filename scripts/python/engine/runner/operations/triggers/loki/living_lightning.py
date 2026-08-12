@@ -175,6 +175,7 @@ from .....entities.formulas import If as IfAmount
 from .....entities.selectors.accessors import CasterTile
 from .....entities.selectors.tiles import Caster, UnobscuredTiles
 from .....entities.selectors.accessors import SurroundingTiles
+from .....entities.selectors.geometry import PickRandomly
 from .....entities.selectors.units import AdjacentEnemies, Damageable, Enemies, Units
 from .....entities.triggered_ability_type import TriggeredAbilityType
 from .....entities.triggers import AmountIsGreaterThanZero
@@ -244,6 +245,27 @@ def living_lightning_pool() -> TargetsSelector:
     return Damageable(Enemies(units, selection_type=_SEL_ALIVE_TARGETABLE))
 
 
+def living_lightning_possible_targets() -> TargetsSelector:
+    """`...LivingLightningAbility$$GetPossibleTargets(<DSLFormulas+0x20> = Direct(1))` COMPLET --
+    le pool ci-dessus ENVELOPPE de son `PickRandomly`, tel que le natif le rend :
+
+        PickRandomly(pool, amount: Direct(1), allowDuplicates: 0,
+                     maxDuplicatesAllowed: 0x7fffffff, ignoreForcedTargets: 0)
+
+    ⚠ **C'EST LE GATE DU TRIGGER QUI DOIT L'EVALUER, ET IL CONSOMME UN TIRAGE.** Le natif appelle
+    `GetPossibleTargets` DEUX fois -- une dans `AmountIsZero(...)` du `CreateTrigger`, une dans le
+    `CreateBehaviour` -- et `PickRandomAmountSelector$$Select` TIRE meme sur un pool qui tient deja
+    dans `amount` (loi #130/#215). Un port qui n'evaluerait que le POOL dans son `matches` rendrait
+    la MEME valeur de verite mais laisserait le flux MT en retard d'un cran.
+
+    MESURE (2026-08-12, `probe_961_necron_passives.py --ll`, montage a UNE cible) : `dumpRng` avant
+    et apres le pas rend **6 tirages LIVE contre 5 cote port**, et le degat divergeait a CIBLE
+    IDENTIQUE (live 3967 / port 4097). Le manquant est exactement ce `PickRandomly` du gate."""
+    return PickRandomly(living_lightning_pool(), Const(_ONE),
+                        allow_duplicates=False, max_duplicates=0x7FFFFFFF,
+                        ignore_forced_targets=False)
+
+
 def living_lightning_attack_tree() -> AttackWithAttackDamage:
     """`...LivingLightningAbility$$CreateBehaviour` -- MIRROR 1:1 (cf. §3 de l'en-tete).
 
@@ -280,13 +302,17 @@ class LivingLightningAttackAbility(TriggeredAbility):
         `CanGetAbilityTrigger` du dispatch ; restent `get_OwnerIsActor` et le gate d'existence de
         cible.
 
-        ⚠ Le gate est evalue sur le POOL, pas sur `PickRandomly(pool, 1)` : meme VALEUR, un tirage
-        MT de moins (residu nomme, §7)."""
+        ⚠ Le gate evalue `GetPossibleTargets(Direct(1))` **AU COMPLET**, `PickRandomly` compris --
+        pas seulement le pool. La valeur de verite serait la meme (`PickRandomly(pool, 1)` est vide
+        ssi `pool` l'est), mais le TIRAGE ne le serait pas : mesure `dumpRng` 6 (live) contre 5
+        (port) avant cette correction, et un degat divergent a cible identique. Cf.
+        `living_lightning_possible_targets`."""
         if ev.actor_id is None or int(ev.actor_id) != int(self.owner_id):
             return False                                         # get_OwnerIsActor
         entities = entities_from_state(state, self.owner_id, None)
-        # `op_LogicalNot(AmountIsZero(<cibles>))` = « il existe au moins un candidat ».
-        return bool(living_lightning_pool().evaluate(entities))
+        # `op_LogicalNot(AmountIsZero(GetPossibleTargets(...)))` = « il existe au moins un candidat »
+        # -- et l'evaluation CONSOMME un `genrand_int32`, comme le natif.
+        return bool(living_lightning_possible_targets().evaluate(entities))
 
     def execute_behaviour(self, state: State, ev: TriggerEvent) -> Optional[dict]:
         ectx = ExecutionContext(state=state, rng=state.rng)
