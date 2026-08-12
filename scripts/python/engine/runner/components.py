@@ -345,7 +345,7 @@ class UnitComponent(Component):
                  "tiles_moved_this_battle", "tiles_moved_this_turn", "tiles_moved_last_turn",
                  "blocks_made_this_turn", "blocks_made_this_battle",
                  "turns_with_attacks_made", "units_attacked_this_turn", "attacks_made_this_turn",
-                 "total_attacks_made",
+                 "total_attacks_made", "defeated_units",
                  "movement_target_override")
 
     def __init__(self, visual_id: Optional[str], alive: bool, ai_controlled: bool = False,
@@ -433,6 +433,19 @@ class UnitComponent(Component):
         # +0x20). Ecrit par `register_attack_made`, lu par `unit_total_attacks_made`, seede par
         # `snapshot._apply_actor_stats` (le hook publie deja `totalAttacksMade`).
         self.total_attacks_made = 0
+        # #951 -- `ActorStatisticsComponent @+0xa8` (defaites en MELEE) et `@+0xb0` (les autres),
+        # les deux listes d'ids qu'ecrit `IdunBattle.Entities.Components.ActorStatisticsComponent$$
+        # RegisterDefeatedUnit(id, inMelee)` (`if (inMelee) <+0xa8>.Add(id) else <+0xb0>.Add(id)`).
+        # UNE seule liste ici, et c'est une EQUIVALENCE MESUREE, pas un raccourci : le seul lecteur
+        # porte est `IdunBattle.Entities.Selectors.UnitsDefeatedBySelector$$Select`, qui appelle
+        # `AddUnits(result, <+0xa8>)` PUIS `AddUnits(result, <+0xb0>)` -- l'UNION des deux. La
+        # partition melee/distance n'a donc aucun lecteur porte ; la fabriquer exigerait de deviner
+        # le champ `inMelee` des `KillUnitOptions`, que l'appelant pose et que le port ne thread pas.
+        # Le jour ou `DSLSelectors$$UnitsDefeatedByMeleeAttack` (=> `UnitsDefeatedByMeleeAttack
+        # Selector`) entre au port, cette liste DOIT etre scindee -- residu #951-r1.
+        # ⚠ Ce n'est PAS `units_attacked_this_turn` (+0x40, remis a zero chaque tour) : c'est un
+        # CUMUL DE BATAILLE, que rien ne remet a zero.
+        self.defeated_units: list = []
         # `Nullable<UnitPositionId>` a `+0xa8` du composant que `IdunBattle.Operations.
         # MoveUnitOperation$$Execute` ET `IdunBattle.Operations.OverrideMovementTargetOperation$$
         # Execute` recuperent tous DEUX par la MEME paire de caches (#448-r1) -- la DESTINATION
@@ -1978,6 +1991,64 @@ def unit_extensions_is_displaceable(entity) -> bool:
     if fl is not None and fl.has(UnitFlag.Undisplaceable):
         return False
     return True
+
+
+def register_defeated_unit(state, killer_id, killed_id) -> bool:
+    """#951 -- mirror d'`IdunBattle.Operations.KillUnitOperation$$Execute+0x8b9`, avec SES deux
+    gates, lus a l'ENCODAGE (le pseudo-C les noyait dans la cascade de null-checks) :
+
+        +0x833   if (!EntityExtensions.IsActor(killer))        goto skip;
+        +0x845   if ( UnitExtensions.IsSteppable(killed))      goto skip;
+        +0x88a   var stats = killer.GetComponent<ActorStatisticsComponent>();
+        +0x89e   var id    = killed.Id;
+        +0x8b9   if (stats != null) stats.RegisterDefeatedUnit(id, inMelee: options.inMelee);
+
+    PLACE : entre `KilledThisTurn = true` (@+0x828) et `On(PreUnitDeath_2)` (@+0x9xx), donc AVANT
+    les cinq publications d'evenement de la mort. CONSEQUENCE PORTEE, et elle DECIDE d'un resultat :
+    un consommateur d'`On(UnitDefeated = 0x36)` -- `TrophyTakerAbility` -- compte la victime
+    COURANTE dans son total. Poser cet appel apres l'evenement rendrait `n` au lieu de `n+1`.
+
+    `inMelee` n'est pas porte : cf. le champ `defeated_units` de `UnitComponent` (le seul lecteur
+    porte prend l'UNION des deux listes natives). Rend `True` si l'enregistrement a eu lieu."""
+    if killer_id is None or killed_id is None:
+        return False
+    killer = state.get_entity(int(killer_id))
+    killed = state.get_entity(int(killed_id))
+    if killer is None or killed is None:
+        return False
+    # `EntityExtensions$$IsActor` -- cote port, une entite de `state.entities` porteuse d'un
+    # `UnitComponent` EST un acteur (les tuiles vivent dans `state.board`/`EffectsState`, jamais
+    # dans `state.entities`, cf. `abilities/behaviours/context._tile_entity`).
+    if killer.get_component(UnitComponent) is None:
+        return False
+    if unit_extensions_is_steppable(killed):
+        return False
+    kc = killer.get_component(UnitComponent)
+    kc.defeated_units.append(int(killed_id))
+    return True
+
+
+def units_defeated_by(state, unit_id) -> list:
+    """#951 -- `IdunBattle.Entities.Selectors.UnitsDefeatedBySelector$$Select` restreint a UNE unite
+    source : `AddUnits(result, stats.<+0xa8>)` puis `AddUnits(result, stats.<+0xb0>)`, chaque id
+    etant RESOLU en entite et **ignore s'il ne resout pas** (`if (entity != null) result.Add(...)`).
+    Le resultat natif est un `OrderedSet` : ordre d'insertion, sans doublon.
+
+    Rend les IDS (la resolution en dicts d'unite est faite par le selecteur DSL, qui seul connait
+    l'univers `ctx.units`). Liste VIDE si l'unite n'existe pas -- jamais `None` : le natif rend un
+    `OrderedSet` vide, et un `None` remonterait en `TypeError` chez `Count`."""
+    if unit_id is None:
+        return []
+    e = state.get_entity(int(unit_id))
+    uc = e.get_component(UnitComponent) if e is not None else None
+    if uc is None:
+        return []
+    vus, out = set(), []
+    for i in uc.defeated_units:                    # `OrderedSet` : ordre d'insertion, sans doublon
+        if i not in vus:
+            vus.add(i)
+            out.append(int(i))
+    return out
 
 
 def unit_extensions_is_steppable(entity) -> bool:

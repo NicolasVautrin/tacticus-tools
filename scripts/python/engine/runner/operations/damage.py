@@ -110,6 +110,7 @@ from ..components import UnitComponent, unit_state_for_effects
 from ..components import is_alive_and_not_fled
 from ..components import unit_has_moved, unit_tiles_moved_this_turn
 from ..components import register_attack_made
+from ..components import register_defeated_unit           # #951 (KillUnitOperation$$Execute+0x8b9)
 from ..damage_model import _unit_gameconfig
 from ..damage_model import battle_query_is_charging
 #: FORME B : `probe_429r1r1r1_ability_attack_dead_target.py` substitue
@@ -616,6 +617,12 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
                       if _ent_killed is not None else None)
         if _uc_killed is not None:
             _uc_killed.killed_this_turn = True
+        # `RegisterDefeatedUnit` @`KillUnitOperation$$Execute+0x8b9` (#951) -- inscrit la victime au
+        # compteur du TUEUR, sous ses deux gates natifs (`IsActor(killer)`, `!IsSteppable(killed)`).
+        # ⚠ SA PLACE EST LOAD-BEARING : le natif l'appelle ICI, donc AVANT les cinq publications
+        # d'evenement ci-dessous. `TrophyTakerAbility`, consommateur d'`On(UnitDefeated)`, compte
+        # donc la victime COURANTE -- l'inscrire apres rendrait `n` la ou le natif rend `n+1`.
+        register_defeated_unit(state, attacker_id, target_id)
         # `On(PreUnitDeath_2 = 2)` — vecteur des death-novas Explodes/PutridExplosion. Il PRECEDE
         # tout retrait : c'est pourquoi `ExplodesAbility$$GetDamage` voit encore les effets du mort
         # (`HasEffect(Owner, 1098)` de RammingSpeed, #389).
@@ -1242,6 +1249,17 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
                 # MEME substrat que la cle `hp`/`max_hp` du `unit_state`, pour que la MAGNITUDE et
                 # les `is_active` a seuil de vie ne puissent pas diverger.
                 "unit_health_of": lambda oid: _health_of(state, oid),
+                # #951 -- `StatAmount(Target@DSLSelectors+0x60, StatType.Health = 5,
+                # StatPart.CurrentPct = 1)`, le premier operande du gate
+                # `...TrophyTaker_ExtraCritDamageEffect$$HealthLowerThanPct`. Ce sont les PV de la
+                # CIBLE DU COUP -- deux entites fixes, pas le porteur -> une PAIRE DE VALEURS et
+                # non un callable, contrairement a `unit_health_of` juste au-dessus (qui, lui,
+                # porte sur le PORTEUR que la boucle native reecrit a chaque iteration).
+                # MEMES CLES et MEME substrat (`_unit_hp_and_max`) que le canal DEGAT, qui les
+                # thread deja : les deux canaux du meme effet ne peuvent donc pas diverger sur le
+                # seuil de vie. Tri-etat `(None, None)` = non mesure -> le gate se TAIT.
+                "tgt_hp": _health_of(state, tgt_id)[0] if tgt_id is not None else None,
+                "tgt_hp_max": _health_of(state, tgt_id)[1] if tgt_id is not None else None,
                 "tertiary_ability_state_of":
                     lambda oid, ability: triggered_ability_state(state, int(oid), ability)}
 

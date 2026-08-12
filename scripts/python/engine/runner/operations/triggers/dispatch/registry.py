@@ -92,6 +92,7 @@ from ..loki.despoiled_ground import (DespoiledGroundTileDoT,         # #85 (EnvD
                                     DESPOILED_GROUND_TILE)
 from ..loki.head_claimer import (HeadClaimerOnDeathAbility,          # lot POSE (passif blackHaarken,
                                  HeadClaimerOnFledAbility)           # #947)
+from ..loki.trophy_taker import TrophyTakerOnUnitDefeatedAbility     # #951 (passif worldExecutions)
 from ..loki.terrifying_crescendo import (TerrifyingCrescendoOverkillAbility,   # lot POSE (passif
                                         TerrifyingCrescendoSuppressAbility)   # emperNoiseMarine, #204)
 from ..loki.deathwing import DeathwingAbility                          # #932 (passif darkaTerminator)
@@ -438,6 +439,12 @@ ABILITY_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
     # que TerrifyingCrescendo juste au-dessus. ⚠ La branche `UnitFled` est INERTE offline (aucun
     # vecteur de fuite n'est emis) -- residu #947-r1, declare dans loki/head_claimer.py.
     "HeadClaimer": [HeadClaimerOnDeathAbility, HeadClaimerOnFledAbility],
+    # TrophyTaker (passif `worldExecutions` << Tarvakh >>, #951) -- SEUL le bras `On(UnitDefeated)`
+    # de la disjonction du `CreateTrigger` entre ici. L'autre bras (`<DSLTriggers+0x30>` =
+    # `On(AbilityInit) & OwnerIsActor`) pose l'effet 1289 sur le porteur, et ce canal-la est deja
+    # servi par `decisionView.effects` (l'effet n'a AUCUNE `CreateActiveCondition`, donc il y est
+    # ACTIF) -> pas d'entree `ABILITY_INIT_OWNER_EFFECTS`, cf. `entities/effects/loki/trophy_taker.py`.
+    "TrophyTaker": [TrophyTakerOnUnitDefeatedAbility],
     # FuelledByFury (passif ultraTitus << Titus >>) = ACCUMULATION du stack de l'effet 1323 (magnitude
     # x level portee en meme temps, `entities/effects/loki/extra_damage.py`) : `On(0xe=UnitPostAbility)
     # & AreFriends(Owner, caster) & HasTrait(caster, 0x10=Hero) & !HasTrait(caster, 0x419=MachineOfWar)

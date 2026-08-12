@@ -478,10 +478,40 @@ class Units(TargetsSelector):
         for it in items:
             if isinstance(it, bool):
                 continue
+            if isinstance(it, dict) and it.get("id") is not None and "visualId" in it:
+                # ENTITE-UNITE en entree -> COURT-CIRCUIT, mirror LU de
+                # `IdunBattle.DSL.TargetsSelector$$SelectUnit(entity, selectionType)` :
+                #
+                #     if (IsUnitFoot(entity) || IsTile(entity)) entity = GetUnit(entity, state);
+                #     if (entity != null && IsUnit(entity) && MatchesUnitSelectionType(...))
+                #         return entity;
+                #
+                # La re-resolution par la tuile est SOUS un `IsUnitFoot || IsTile` : une entree qui
+                # est DEJA une unite ne la traverse PAS. Le port, lui, repassait par `_pos` +
+                # `_occupants_by_tile` -- lequel ne garde que les VIVANTS (#57m). L'ecart etait
+                # ecrit dans cette meme docstring (« le filtre VIVANT y reste applique ») et
+                # personne ne l'avait rencontre : il faut une source qui rende des unites MORTES.
+                #
+                # MESURE #951 : `Count(NormalUnits(UnitsDefeatedBy(Owner), Any))` -- le
+                # multiplicateur de `TrophyTakerAbility$$GetCritChanceMultiplier` -- rendait **0**
+                # la ou le natif rend **1** (stat-mod 1288 = 16 mesure live, port = rien). Les
+                # unites vaincues sont MORTES par construction : aucun autre regime ne pouvait
+                # montrer ce trou.
+                #
+                # RAYON DE SOUFFLE, borne par le `selection_type` : les call-sites qui passent
+                # `OnlyAlive` (1) ou `OnlyAliveAndTargetable` (3) -- l'ecrasante majorite --
+                # re-excluent le mort par `_selection_ok` deux lignes plus bas, donc RIEN ne change
+                # pour eux. Seuls `Any` (0) et `OnlyTargetable` (2) voient la difference, et c'est
+                # exactement ce que le natif fait.
+                u = it
+                if u.get("id") in seen:
+                    continue
+                if self.selection_type is not None and not _selection_ok(u, self.selection_type, ctx):
+                    continue
+                seen.add(u.get("id"))
+                out.append(u)
+                continue
             if isinstance(it, dict):
-                # Une ENTITE-unite en entree : le natif la rend telle quelle (`SelectUnit` court-circuite
-                # sur `IsUnit`). Le port passe par sa main tile, qui reindexe sur elle-meme via
-                # `_occupants_by_tile` -- meme resultat, et le filtre VIVANT y reste applique.
                 p = _pos(it)
             elif isinstance(it, int):
                 p = board.coord(it) if (board is not None and it in board.by_id) else None
@@ -938,6 +968,58 @@ class AllDeadUnits(TargetsSelector):
     et `$$GetMaxSummonsFormula` (les deux passent par `Friends(AllDeadUnits, caster@0x48)`)."""
     def select(self, ctx):
         return [u for u in ctx.units if not _is_alive(u)]
+
+
+class UnitsDefeatedBy(TargetsSelector):
+    """`IdunBattleLogic.Entities.DSLSelectors$$UnitsDefeatedBy(unit)` ->
+    `IdunBattle.Entities.Selectors.UnitsDefeatedBySelector$$Select` -- MIRROR du decompile
+    (`rnca9r7q6c`, #951) :
+
+        result = new OrderedSet<IEntity>();
+        foreach (var e in <source>.Select(entities)) {
+            var stats = e.GetComponent<ActorStatisticsComponent>();
+            AddUnits(result, stats.<+0xa8>);      // defaites en MELEE
+            AddUnits(result, stats.<+0xb0>);      // les autres
+        }
+
+    et `$$AddUnits(result, ids)` :
+
+        foreach (var id in ids) { var u = state.GetEntity(id); if (u != null) result.Add(u); }
+
+    Trois consequences LUES, dont deux qu'un port naif aurait perdues :
+      * les DEUX listes sont reunies -- c'est l'UNION, pas les seules defaites en melee (le
+        selecteur qui, lui, ne prend que la melee est `$$UnitsDefeatedByMeleeAttack`, une AUTRE
+        factory et une AUTRE classe : `UnitsDefeatedByMeleeAttackSelector`) ;
+      * les MORTS en font partie -- rien ici ne filtre sur la liveness ; le seul rejet est
+        « l'id ne resout pas en entite » ;
+      * `OrderedSet` : ordre d'inscription, sans doublon.
+
+    Substrat cote port : la cle `defeatedUnits` du dict d'unite (`ActorStatisticsComponent` @+0xa8
+    UNION @+0xb0), alimentee par `components.register_defeated_unit`. `_units_of` normalise la
+    source (un ref-unite SEUL devient `[dict]`), comme partout ailleurs dans ce module.
+
+    Consommateur porte : `IdunBattleLogic.Entities.Abilities.Triggered.Loki.TrophyTakerAbility$$
+    GetCritChanceMultiplier` = `Count(NormalUnits(UnitsDefeatedBy(Owner@+0x30), Any))`."""
+    def __init__(self, source: TargetsSelector):
+        self.source = source
+
+    def select(self, ctx):
+        par_id = {}
+        for u in (ctx.units or ()):
+            if isinstance(u, dict) and u.get("id") is not None:
+                par_id.setdefault(int(u["id"]), u)
+        vus, out = set(), []
+        for src in _units_of(self.source, ctx):
+            if not isinstance(src, dict):
+                continue
+            for i in (src.get("defeatedUnits") or ()):
+                # `if (u != null) result.Add(u)` : un id qui ne resout pas est IGNORE, il ne
+                # devient pas une entree nulle -- sinon `Count` compterait des fantomes.
+                u = par_id.get(int(i))
+                if u is not None and int(i) not in vus:
+                    vus.add(int(i))
+                    out.append(u)
+        return out
 
 
 class DeadUnits(TargetsSelector):

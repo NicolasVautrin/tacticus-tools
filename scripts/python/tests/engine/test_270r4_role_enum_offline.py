@@ -695,8 +695,10 @@ SCALAIRES_ASSUMES = (
     ("engine.runner.prng", "_M", 397),
     ("engine.battle_query", "DISTANCE_UNREACHABLE", 0x7FFFFFFF),
     ("engine.services.movement_query", "INT_MAX", 0x7FFFFFFF),
-    # La VALEUR d'une constante gameconfig, PAS un index d'enum.
-    ("engine.runner.operations.triggers.loki.fire", "FIRE_OF_ABSOLUTION_IGNITE_CHANCE", 30),
+    # (`fire.FIRE_OF_ABSOLUTION_IGNITE_CHANCE = 30` vivait ici -- RETIREE par #951 : le port LIT
+    #  desormais la constante du gameconfig (`fire.fire_of_absolution_ignite_chance()`), comme le
+    #  natif (`GetNumberConstant(AbilityConstantType.chance)`). Plus de litteral au site, donc plus
+    #  rien a figer.)
     ("engine.runner.operations.triggers.effect_triggers",
      "CONTAMINATED_ARMOR_REDUCTION_PCT", 30),
     ("engine.services.damage_modifiers", "ELEVATION_BONUS_PCT", 50),

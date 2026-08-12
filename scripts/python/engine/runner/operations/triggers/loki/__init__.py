@@ -24,7 +24,7 @@ from .psyker import (PsykerExtraAttackAbility, psyker_smite_tree,
 from .fire import (FireTileDoT, env_fire_tile_tree, on_fire_damage_tree, fire_of_absolution_tree,
                    _is_immune_to_fire, OnFireDamageAbility, _fire_of_absolution_after_attack,
                    FIRE_TILE, FIRE_DMG_PCT_KEY, FIRE_IMMUNE_TRAITS, FIRE_PROFILE,
-                   FIRE_OF_ABSOLUTION_IGNITE_CHANCE)
+                   fire_of_absolution_ignite_chance)
 from .act_of_faith import (ActOfFaithAccumulateAbility, ActOfFaithResetAbility,
                            act_of_faith_accumulate_tree, act_of_faith_reset_tree, _reset_act_of_faith,
                            ACTOFFAITH_EFFECT, IMPERIAL_FACTIONS, CRIT_CHANCE_MAX)
@@ -60,7 +60,7 @@ __all__ = [
     "FireTileDoT", "env_fire_tile_tree", "on_fire_damage_tree", "fire_of_absolution_tree",
     "_is_immune_to_fire", "OnFireDamageAbility", "_fire_of_absolution_after_attack",
     "FIRE_TILE", "FIRE_DMG_PCT_KEY", "FIRE_IMMUNE_TRAITS", "FIRE_PROFILE",
-    "FIRE_OF_ABSOLUTION_IGNITE_CHANCE",
+    "fire_of_absolution_ignite_chance",
     # act_of_faith
     "ActOfFaithAccumulateAbility", "ActOfFaithResetAbility",
     "act_of_faith_accumulate_tree", "act_of_faith_reset_tree", "_reset_act_of_faith",

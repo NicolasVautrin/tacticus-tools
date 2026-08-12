@@ -138,6 +138,13 @@ def _unit_dict(state, eid: int, entity=None) -> dict | None:
         # l'ORDRE que `Last(...)`/`AtIndex(..., 1)` consomment.
         "unitsAttackedThisTurn": ([int(i) for i in uc.units_attacked_this_turn]
                                   if uc is not None else []),
+        # #951 -- `ActorStatisticsComponent @+0xa8` UNION `@+0xb0` : les ids que CETTE unite a
+        # vaincus depuis le debut de la bataille, dans l'ordre d'inscription. Lu par le selecteur
+        # `IdunBattle.Entities.Selectors.UnitsDefeatedBySelector$$Select`. MEME raison d'etre dans
+        # `_LIVE_KEYS` que `unitsAttackedThisTurn` : le compteur est allonge par
+        # `KillUnitOperation$$Execute+0x8b9`, donc AVANT `On(UnitDefeated)` -- et c'est justement
+        # cet evenement qui fait relire la liste (TrophyTaker). Fige au seed, il rendrait `n-1`.
+        "defeatedUnits": ([int(i) for i in uc.defeated_units] if uc is not None else []),
         "_traits": traits,
     }
 
@@ -150,7 +157,8 @@ def _unit_dict(state, eid: int, entity=None) -> dict | None:
 #: `unitsAttackedThisTurn` en est pour la MEME raison, et c'est la plus aigue : il est allonge par
 #: CHAQUE maillon de la chaine d'attaque du MEME arbre qui le relit ensuite (`KissOfDeath` #940).
 #: Fige au seed, il rendrait toujours la liste d'AVANT le premier coup.
-_LIVE_KEYS = frozenset({"pos", "hp", "hpMax", "alive", "feet", "unitsAttackedThisTurn"})
+_LIVE_KEYS = frozenset({"pos", "hp", "hpMax", "alive", "feet", "unitsAttackedThisTurn",
+                        "defeatedUnits"})
 
 
 class LiveUnit(dict):

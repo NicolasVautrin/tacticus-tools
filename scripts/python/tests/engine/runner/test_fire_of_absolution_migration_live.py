@@ -26,7 +26,9 @@ from engine.runner.components import StatsComponent, OwnerComponent, UnitCompone
 from engine.runner.operations.damage import AttackDamageOperation
 from engine.runner.operations.effects import AddEffectOperation
 from engine.runner.operations.triggers.loki import _fire_of_absolution_after_attack
-from engine.runner.operations.triggers.loki import FIRE_TILE, FIRE_OF_ABSOLUTION_IGNITE_CHANCE
+# #951 : la chance d ignition est LUE du gameconfig (GetNumberConstant(chance)), elle
+# n est plus une constante figee -- le temoin imperatif ci-dessous lit donc la MEME source.
+from engine.runner.operations.triggers.loki import FIRE_TILE, fire_of_absolution_ignite_chance
 from engine.runner.abilities.base import ability_attack_params
 from engine.runner.abilities.behaviours.context import entities_from_state
 from engine.entities.selectors.accessors import Target, TargetTile
@@ -115,7 +117,7 @@ def _fire_of_absolution_imperative_ref(state, attacker_id, target_id, ranged):
     ignited = []
     if ttile is not None:
         for ntile in state.board.neighbours(ttile):
-            if state.rng.next_bool(FIRE_OF_ABSOLUTION_IGNITE_CHANCE):
+            if state.rng.next_bool(fire_of_absolution_ignite_chance()):
                 if AddEffectOperation.execute(state, source=attacker_id, target=ntile,
                                               effect_type=FIRE_TILE, name="Fire") is not None:
                     ignited.append(ntile)

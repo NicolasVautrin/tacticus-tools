@@ -59,6 +59,7 @@ from .loki.first_among_traitors import FirstAmongTraitorsExtraDmgEffect   # #926
 from .loki.hunters_beyond_death import (                   # #952 (passif spaceHound)
     HuntersBeyondDeathEffect, HuntersBeyondDeathExtraDamageEffect,
     HuntersBeyondDeathPsykerSuppressionEffect)
+from .loki.trophy_taker import TrophyTakerExtraCritDamageEffect   # #951 (passif worldExecutions)
 from .loki.head_claimer import (                           # #947 (passif blackHaarken)
     HeadClaimerExtraDmgEffect, HeadClaimerExtraHitEffect
 )
@@ -806,6 +807,17 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # est NULL). Cf. `loki/head_claimer.py`.
     "HeadClaimer_ExtraDmg": HeadClaimerExtraDmgEffect,
     "HeadClaimer_ExtraHit": HeadClaimerExtraHitEffect,
+    # TrophyTaker (passif triggered 0x4cd=1229 de `worldExecutions` << Tarvakh >>, #951) --
+    # 1289 `...TrophyTaker_ExtraCritDamageEffect` porte DEUX canaux sur la MEME classe, avec le
+    # MEME gate `get_OwnerIsCaster & HealthLowerThanPct()` :
+    #   `$$CreateEffectDamageBonusForAttack` = `ForAddition(<gate>, ConfigVar 0x8  = extraDmg)` ;
+    #   `$$CreateCritDamageBonus`            = `ForAddition(<gate>, ConfigVar 0x42 = extraCritDmg)`.
+    # `HealthLowerThanPct` = `NOT AmountIsEqualOrGreater(StatAmount(Target@+0x60, Health,
+    # StatPart.CurrentPct), Direct(GetNumberConstant 0x12 = hpPct))`, donc `pct < hpPct` STRICT --
+    # une cible a EXACTEMENT 50 % ne donne rien. La 3e face du passif (la +chance de crit) n'est PAS
+    # un effet a comportement : c'est un stat-mod 1288 re-ecrit par le trigger
+    # (`runner/operations/triggers/loki/trophy_taker.py`). Cf. `loki/trophy_taker.py`.
+    "TrophyTaker_ExtraCritDamage": TrophyTakerExtraCritDamageEffect,
     # EnmityForTheUnworthy (passif triggered 0x522=1314 de `darkaCompanion` << Forcas >>, #948) --
     # DEUX effets poses ENSEMBLE a l'init (cf. `ABILITY_INIT_OWNER_EFFECTS`), qui comptent des
     # populations DIFFERENTES autour du porteur :

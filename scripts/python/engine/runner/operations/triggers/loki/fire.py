@@ -16,7 +16,10 @@ from ....components import UnitComponent
 from ....abilities.behaviours.combat import AttackWithAbilityDamage, AttackWithAttackDamage
 from ....abilities.behaviours.context import entities_from_state
 from ....abilities.behaviours.effects import AddEffect, SetOnFire
+from .....entities.ability_constant_type import AbilityConstantType
+from .....entities.effects.magnitude import ability_var
 from .....entities.stats import StatType, StatPart
+from .....entities.unit_selection_type import UnitSelectionType
 from .....entities.traits.unit_trait import UnitTrait, has_any_trait
 from .....entities.damage_trait import DamageTrait
 from .....entities.effect_type import EffectType
@@ -42,7 +45,23 @@ FIRE_IMMUNE_TRAITS = (UnitTrait.Steppable, UnitTrait.Immune)
 FIRE_PROFILE = "Flame"  # profil de degat du DoT feu (perçage = Flame.PiercingRatio=25 ; RE + live-valide net 477)
 
 # --- FireOfAbsolution (adeptRetributor «Vindicta», passive, Active.Loki) ---------------------------
-FIRE_OF_ABSOLUTION_IGNITE_CHANCE = 30   # `GetNumberConstant(0x2a=42=chance)` — 30%/hex adjacent (Maybe)
+FIRE_OF_ABSOLUTION_ID = "FireOfAbsolution"
+#: `AbilityConstantType.chance` (0x2a = 42) -- la cle que `GetNumberConstant` lit dans la CONFIG,
+#: et non la valeur. Le port l'avait figee a `30` (#951) : juste au moment ou elle a ete ecrite,
+#: mais c'etait un HARDCODE silencieux -- il aurait survecu a un rebalancage du gameconfig sans
+#: qu'aucun test ne rougisse, exactement le mode de panne que la doctrine nomme (« inventer/coder
+#: en dur au lieu de mirrorer la source reelle »). Les DEUX autres grandeurs du meme
+#: `CreateBehaviour` etaient deja lues de la config (`dmg` par `min_key`/`max_key`, `nrOfHits` par
+#: le `hits_key` par defaut d'`AttackWithAttackDamage`) : c'etait la seule des trois a ne pas l'etre.
+FIRE_OF_ABSOLUTION_CHANCE_KEY = AbilityConstantType.chance.name        # 0x2a = 42
+
+
+def fire_of_absolution_ignite_chance() -> int:
+    """`GetNumberConstant(AbilityConstantType.chance)` du gameconfig. `0` si la constante manque --
+    le `Maybe` natif tirerait alors contre une probabilite nulle, donc jamais de feu ; c'est le
+    comportement du natif avec une config absente, pas une valeur de repli inventee."""
+    v = ability_var(FIRE_OF_ABSOLUTION_ID, FIRE_OF_ABSOLUTION_CHANCE_KEY, is_constant=True)
+    return int(v or 0)
 
 
 def _is_immune_to_fire(state: State, unit_id: int) -> bool:
@@ -261,14 +280,24 @@ def fire_of_absolution_tree(ignite_chance: int, fire_effect_type: int):
     pas de court-circuit (les trois volets s'executent). PAS d'`AtomicGroup` (natif = `CreateBehaviour` plain,
     PAS `ExecuteAtomic`). Bit-exact BY CONSTRUCTION vs l'ancien corps imperatif (memes Operations/args, meme
     ordre, meme `state.rng`). `ignite_chance`/`fire_effect_type` = passes par l'appelant (constantes
-    `FIRE_OF_ABSOLUTION_IGNITE_CHANCE`/`FIRE_TILE`) pour eviter tout couplage d'import.
+    `fire_of_absolution_ignite_chance()`/`FIRE_TILE`) pour eviter tout couplage d'import.
     ⚠ GAP RNG (flagge, cf. `_fire_of_absolution_after_attack`) : timing du passif vs coups primaires +
     reproductibilite du feu sur hex VIDE (stochastique)."""
     tgt = Target()
     # splash : AdjacentUnits(target) − caster − target (FRIENDLY-FIRE, mirror des 2 op_Subtraction natifs) ;
     # Direct(dmg) = borne min==max via min_key=max_key="dmg" ; multi=True = selecteur -> N cibles (OrderBy id).
+    # #951 : `selection_type` = le 4e argument NATIF d'`AdjacentUnits(origin, unique: false,
+    # selectionType: 3 = OnlyAliveAndTargetable)`, LU aux octets (`xor r8d,r8d` = unique false,
+    # `mov r9d,3`). Le port l'AVALAIT et compensait par un wrapper `Alive(...)` : le volet ALIVE
+    # etait donc porte, le volet TARGETABLE non -- une unite adjacente en DEEP STRIKE
+    # (`UnitFlag.Untargetable`) etait touchee par le port et pas par le natif. Le wrapper est
+    # retire parce qu'il ferait DOUBLE emploi : `_selection_ok(u, 3, ctx)` delegue au foyer
+    # `matches_unit_selection_type`, dont la branche `OnlyAliveAndTargetable` est
+    # `IsAlive && !HasFlag(Untargetable)` -- le meme predicat, plus un.
     splash = AttackWithAttackDamage(
-        Alive(Sub(Sub(AdjacentUnits(TargetTile()), Caster()), Target())),
+        Sub(Sub(AdjacentUnits(TargetTile(),
+                              selection_type=int(UnitSelectionType.OnlyAliveAndTargetable)),
+                Caster()), Target()),
         "FireOfAbsolution", "Flame", is_melee=False, min_key="dmg", max_key="dmg", multi=True)
     # ignite : Maybe(SetOnFire, AdjacentTiles(target), 30) -> Foreach-Maybe (1 next_bool/tuile, ordre board).
     ignite = Foreach(AdjacentTiles(tgt), Maybe(ignite_chance, SetOnFire(fire_effect_type, "Fire")))
@@ -286,10 +315,11 @@ def _fire_of_absolution_after_attack(state: State, attacker_id: int, target_id: 
                                Direct(dmg = GetVariableForLevel 0xb), Flame, nrOfHits = GetNumberConstant 0x2f = 3)
       & Maybe(SetOnFire, AdjacentTiles(target), chance = GetNumberConstant 0x2a = 30)
 
-    `AdjacentUnits(target,·,3) − caster − target` = TOUTES les unités adjacentes à la CIBLE, hors caster/cible,
-    AUCUN filtre d'équipe (FRIENDLY-FIRE ; porté par le SÉLECTEUR DSL `Alive(Sub(Sub(AdjacentUnits(TargetTile()),
-    Caster()), Target())))`, PAS un helper impératif). ⚠ le `3` = flag `UnitsOnTilesSelector`
-    (occupation), PAS un masque d'équipe (prémisse « kind=3 → ennemis » RÉFUTÉE, cf. Stikkbomb #213 :
+    `AdjacentUnits(target, unique: false, 3) − caster − target` = TOUTES les unités adjacentes à la CIBLE,
+    hors caster/cible, AUCUN filtre d'équipe (FRIENDLY-FIRE ; porté par le SÉLECTEUR DSL
+    `Sub(Sub(AdjacentUnits(TargetTile(), selection_type=3), Caster()), Target())`, PAS un helper
+    impératif). ⚠ le `3` est le `UnitSelectionType` (`OnlyAliveAndTargetable`), PAS un masque d'équipe
+    (prémisse « kind=3 → ennemis » RÉFUTÉE, cf. Stikkbomb #213 :
     `AdjacentUnits` BRUT sans wrapper `Enemies(...)`) → alliés du caster adjacents à la cible TOUCHÉS, concordant
     avec l'i2 ci-dessus (« all units adjacent to the target »). `Direct(dmg)` = valeur FIXE (pas
     de spread ; min==max) routée par perçage/armure/mods + crit/block du pipeline d'attaque (≠ le DoT de tuile,
@@ -299,11 +329,29 @@ def _fire_of_absolution_after_attack(state: State, attacker_id: int, target_id: 
     Se déclenche sur TOUTE attaque RANGED de l'unité (arme normale 4x Flame OU actif ArmoriumCherub) → appelé
     depuis `after_hit_normal_attack` (ranged) ET `ArmoriumCherubAbility.execute_behaviour`.
 
-    ⚠ GAP RNG (flaggé, à valider live — cf. #136) : (a) le TIMING exact du passif vs les coups de l'attaque
-    primaire (porté post-attaque ; pas de `CreateTrigger` distinct dumpé pour ce passif) ; (b) l'ordre des
-    tirages `Maybe` (1 `next_bool(30)` par tuile adjacente, APRÈS le splash comme le `&` gauche->droite). Le
-    feu sur hex VIDE (stochastique) n'est donc PAS reproductible bit-exact ; splash + feu sur adjacents
-    OCCUPÉS = déterministe."""
+    ⚠ GAP RNG (flaggé, à valider live — cf. #136) : le TIMING exact du passif vs les coups de l'attaque
+    primaire (porté post-attaque). Le feu sur hex VIDE (stochastique) n'est donc PAS reproductible
+    bit-exact ; splash + feu sur adjacents OCCUPÉS = déterministe.
+
+    ⚠ CORRECTION #951 -- « pas de `CreateTrigger` distinct dumpé pour ce passif » ÉTAIT FAUX, et
+    cette phrase a survécu telle quelle jusqu'ici. Le trigger EXISTE et il est nommé :
+
+        IdunBattleLogic.Entities.Abilities.Active.Loki.FireOfAbsolutionAbility$$CreateTrigger
+            On(EventTriggerType.AttackInAtomicGroup = 0x4a, ownerNeedsToBeAlive: true)
+            & get_OwnerIsActor
+            & IsRangedAttack()                            # surcharge SANS argument (0 arité)
+
+    Les TROIS conjoints sont portés, mais par le VECTEUR et non par une entrée d'`ABILITY_TRIGGERS` :
+    `dispatch/ability.py::evaluate_abilities_for_event` route ce passif sur
+    `int(event) == EventTriggerType.AttackInAtomicGroup`, `dispatch/attack.py` l'appelle sur
+    l'attaque normale, et le gate `ranged` + l'appartenance du passif au kit de l'attaquant tiennent
+    lieu d'`IsRangedAttack()` et de `get_OwnerIsActor`. Ce qui reste NON porté est le seul
+    `ownerNeedsToBeAlive: true` — inobservable sur ce vecteur, l'attaquant étant vivant par
+    construction d'une attaque qu'il vient de porter.
+
+    Conséquence de méthode : l'audit `kit-coverage.md` compte `FireOfAbsolution` comme MANQUANT
+    pour `adeptRetributor` parce qu'il lit les REGISTRES, et que ce passif n'y a pas d'entrée.
+    C'est un FAUX MANQUANT — résidu #951-r2."""
     if not ranged or state.board is None or state.effects is None or state.rng is None:
         return []
     e = state.get_entity(attacker_id)
@@ -319,7 +367,7 @@ def _fire_of_absolution_after_attack(state: State, attacker_id: int, target_id: 
     # upstream de l'arbre). Direct(dmg) : `dmg` = GetVariableForLevel(0xb) scale rarete, min==max (min_key=
     # max_key="dmg" dans la feuille) ; hits=3, pierce/armure + crit/block du pipeline d'attaque ; feu pose #136.
     ectx = ExecutionContext(state=state, rng=state.rng)
-    fire_of_absolution_tree(FIRE_OF_ABSOLUTION_IGNITE_CHANCE, FIRE_TILE).execute(
+    fire_of_absolution_tree(fire_of_absolution_ignite_chance(), FIRE_TILE).execute(
         entities_from_state(state, attacker_id, target_id), ectx)
     splash = [{"target": p["target"], "attack": p["attack"]}
               for n, p in ectx.emitted if n == "AttackWithAttackDamage"]   # id-tries (multi=True OrderBy id)
