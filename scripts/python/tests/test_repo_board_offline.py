@@ -166,3 +166,127 @@ def test_un_rc_non_nul_AVEC_sortie_est_un_succes(monkeypatch):
     etat = _sequence(monkeypatch, [_FauxRun(1, '[{"number": 7}]', "warning")])
     assert RB.sh_retry(["gh", "pr", "list"]) == '[{"number": 7}]'
     assert etat["n"] == 1
+
+
+# ---------------------------------------------------------------------------
+# LE CACHE DE COMMITS (`load_git` incremental)
+# ---------------------------------------------------------------------------
+# Mesure du 2026-08-12 : `load_git` pesait 67 % du run (120 s sur 178). Le `git log
+# --numstat` integral calcule le diff des 3 672 commits de la fenetre a CHAQUE fois ;
+# l'enumeration seule (`rev-list`, sans pathspec) coute 1,3 s. D'ou le decoupage.
+#
+# CE QUI EST CACHABLE ET CE QUI NE L'EST PAS -- tout le sujet, et la raison pour laquelle
+# cette memoisation avait ete tenue en RESERVE : le numstat d'un commit est IMMUABLE, sa
+# CLASSIFICATION ne l'est pas. Un commit pousse direct devient un commit de PR le jour ou
+# une PR merge une branche qui le contient. Cacher les deux ensemble figerait un `direct`
+# qui a cesse d'etre vrai -- regression SILENCIEUSE, le board restant vert.
+#
+# L'equivalence des deux voies est confrontee sur le VRAI depot (168 cellules, temoin de
+# 2 227 shas, aucune divergence, x5,2) ; ici on garde les invariants qui la rendent possible.
+
+def _table(**shas):
+    """{sha: (jour, merge, +, -)} -> la forme cachee. `None` = HORS PERIMETRE."""
+    return {s: (None if v is None else dict(j=v[0], m=v[1], a=v[2], d=v[3]))
+            for s, v in shas.items()}
+
+
+def test_un_MERGE_ne_tombe_dans_aucun_seau():
+    """PR + direct + merges = tous les commits. Compter les merges gonflait le perimetre PR
+    de 174 sur 993 pour ZERO ligne (--numstat ignore leur diff)."""
+    t = _table(a=("2026-08-12", True, 0, 0), b=("2026-08-12", False, 10, 2))
+    r = RB._agreger_commits(["a", "b"], t, keep={"a", "b"})
+    assert r["2026-08-12"]["commits"] == 1, "le merge ne doit pas etre compte"
+    assert r["2026-08-12"]["add"] == 10
+
+
+def test_un_sha_HORS_PERIMETRE_est_ignore_sans_erreur():
+    """`None` = ecarte par le pathspec (ne touche que `data/symbols`). C'est une valeur
+    CACHEE, pas un trou : sans elle le sha serait reinterroge a chaque run."""
+    t = _table(a=None, b=("2026-08-12", False, 5, 1))
+    r = RB._agreger_commits(["a", "b"], t, keep=set())
+    assert r["2026-08-12"]["direct_commits"] == 1
+    assert "commits" not in r["2026-08-12"]
+
+
+def test_la_CLASSIFICATION_n_est_PAS_figee_par_le_cache():
+    """L'INVARIANT QUI JUSTIFIE LE DECOUPAGE. La MEME table mesuree, deux `keep` differents
+    -> deux repartitions differentes. Si ce test tombe, c'est que la classification a ete
+    cachee avec la mesure, et le board affichera un `direct` perime sans rien rougir."""
+    t = _table(x=("2026-08-12", False, 7, 3))
+    avant = RB._agreger_commits(["x"], t, keep=set())
+    apres = RB._agreger_commits(["x"], t, keep={"x"})
+    assert avant["2026-08-12"]["direct_commits"] == 1
+    assert avant["2026-08-12"]["direct_add"] == 7
+    assert apres["2026-08-12"]["commits"] == 1, "le meme sha doit basculer en PR"
+    assert apres["2026-08-12"]["add"] == 7
+    assert "direct_commits" not in apres["2026-08-12"]
+
+
+# --- la boucle incrementale ---------------------------------------------------
+
+#: `b` est HORS PERIMETRE : aucun enregistrement rendu par `git log`, comme le vrai git.
+_LOG = {
+    "a": "C|a|2026-08-12T10:00:00+00:00|p1\n5\t1\tf.py",
+    "c": "C|c|2026-08-12T11:00:00+00:00|p1 p2",      # merge (deux parents)
+}
+
+
+def _faux_git(monkeypatch, shas, appels):
+    """Substitue `RB.sh` : rend rev-list / log / shortstat depuis des donnees figees, et
+    ENREGISTRE chaque `git log --no-walk` pour qu'on puisse compter les mesures reelles."""
+    def faux(args, **k):
+        if args[1] == "rev-list":
+            return "base0000" if "--before" in args else "\n".join(shas)
+        if args[1] == "log":
+            demandes = [a for a in args if a in shas]
+            appels.append(list(demandes))
+            return "\n".join(_LOG[s] for s in demandes if s in _LOG)
+        if args[1] == "diff":
+            return "1 file changed, 1 insertion(+)"
+        return ""
+
+    monkeypatch.setattr(RB, "sh", faux)
+
+
+def test_les_VIDES_sont_RETENUS_donc_le_cache_CONVERGE(monkeypatch):
+    """Un sha ecarte par le pathspec n'a PAS d'enregistrement. Sans marque explicite il
+    repasserait par `git log` a chaque run, indefiniment -- le cache ne convergerait jamais
+    et le gain serait nul sur le depot qui en accumule le plus."""
+    appels = []
+    _faux_git(monkeypatch, ["a", "b", "c"], appels)
+    cache = RB.empty_cache()
+    RB.load_git("2026-07-10", set(), cache)
+    assert cache["stat_commits"] == dict(mesures=3, reutilises=0)
+    assert cache["commits"]["b"] is None, "le vide doit etre RETENU, pas oublie"
+
+    appels.clear()
+    RB.load_git("2026-07-10", set(), cache)
+    assert cache["stat_commits"] == dict(mesures=0, reutilises=3)
+    assert appels == [], "aucun `git log` ne doit repartir a chaud"
+
+
+def test_la_voie_INTEGRALE_et_la_voie_CACHE_concordent(monkeypatch):
+    """Mirror offline de la confrontation menee sur le vrai depot. `cache=None` est
+    l'ORACLE : les deux voies doivent rendre le meme `by_day`."""
+    _faux_git(monkeypatch, ["a", "b", "c"], [])
+    integral, _ = RB.load_git("2026-07-10", {"a"}, None)
+    par_cache, _ = RB.load_git("2026-07-10", {"a"}, RB.empty_cache())
+    assert {j: dict(d) for j, d in integral.items()} == \
+           {j: dict(d) for j, d in par_cache.items()}
+    # ... et le temoin n'est PAS vide : il y a bien quelque chose a comparer.
+    assert integral["2026-08-12"]["commits"] == 1
+    assert integral["2026-08-12"]["add"] == 5
+
+
+def test_la_mesure_est_REUTILISEE_quand_keep_change(monkeypatch):
+    """Bout en bout : deux runs, meme cache, `keep` different. La mesure est reutilisee ET
+    la repartition change -- le scenario reel d'une PR qui merge apres coup."""
+    appels = []
+    _faux_git(monkeypatch, ["a", "b", "c"], appels)
+    cache = RB.empty_cache()
+    r1, _ = RB.load_git("2026-07-10", set(), cache)
+    appels.clear()
+    r2, _ = RB.load_git("2026-07-10", {"a"}, cache)
+    assert appels == [], "la mesure doit etre reutilisee"
+    assert r1["2026-08-12"]["direct_add"] == 5
+    assert r2["2026-08-12"]["add"] == 5 and "direct_add" not in r2["2026-08-12"]

@@ -103,7 +103,7 @@ EXCLUDE = ":(exclude)data/symbols"
 # 2,5 Go de transcripts (874 fichiers) et 2 appels git par PR, soit > 10 min de mur au
 # 2026-08-03. Le cache ramene le run a ce qui a REELLEMENT change depuis la veille.
 CACHE = REPO / "data" / "repo-board-cache.json"
-CACHE_VERSION = 2
+CACHE_VERSION = 3
 
 # Plafond de la liste des PR. Large A DESSEIN, et sature = erreur dure (cf. `load_prs`) :
 # c'est le seul moyen d'apprendre qu'on a depasse la fenetre autrement qu'en voyant un jour
@@ -112,7 +112,8 @@ PR_LIMIT = 3000
 
 
 def empty_cache() -> dict:
-    return dict(version=CACHE_VERSION, days={}, agents={}, merges={}, files={})
+    return dict(version=CACHE_VERSION, days={}, agents={}, merges={}, files={},
+                commits={})
 
 
 def _first_uuid(fp: Path) -> str:
@@ -178,7 +179,7 @@ def load_cache(use: bool = True) -> dict:
         return empty_cache()
     if not isinstance(c.get("days"), dict):
         return empty_cache()
-    for k in ("days", "agents", "merges", "files"):
+    for k in ("days", "agents", "merges", "files", "commits"):
         c.setdefault(k, {})
     if c.get("version") != CACHE_VERSION:
         # Migration ADDITIVE : on garde jours/agents/merges/offsets tels quels. Les cles
@@ -696,39 +697,92 @@ def pr_commits(prs: list[dict], strict: bool, cache: dict) -> dict:
     return owner
 
 
-def load_git(since: str, keep: set) -> tuple[dict, dict]:
+def _agreger_commits(shas: list[str], table: dict, keep: set) -> dict:
+    """Repartit des commits DEJA MESURES en seaux PR / direct. Foyer UNIQUE de la classification.
+
+    C'EST TOUT LE POINT DU DECOUPAGE. Le numstat d'un commit est IMMUABLE, donc cachable ; sa
+    CLASSIFICATION ne l'est pas -- un commit pousse direct devient un commit de PR le jour ou
+    une PR merge une branche qui le contient. Cacher les deux ensemble figerait un `direct` qui
+    a cesse d'etre vrai. On cache la MESURE, on recalcule le VERDICT a chaque run."""
+    by_day = defaultdict(lambda: defaultdict(int))
+    for sha in shas:
+        e = table.get(sha)
+        if not e:
+            continue                    # hors perimetre : ecarte par le pathspec
+        # Un merge ne tombe dans AUCUN des deux seaux, et le test passe AVANT `keep` : une
+        # branche d'agent qui a merge master en cours de route amene ses propres merges, que
+        # `rev-list` rapporte donc comme commits de la PR. Les compter gonflait le perimetre
+        # PR de 174 sur 993 (mesure du 2026-08-01) pour zero ligne -- --numstat ignore leur
+        # diff. La partition doit rester : PR + direct + merges = tous les commits.
+        if e["m"]:
+            continue
+        pfx = "" if sha in keep else "direct_"
+        by_day[e["j"]][pfx + "commits"] += 1
+        by_day[e["j"]][pfx + "add"] += e["a"]
+        by_day[e["j"]][pfx + "del"] += e["d"]
+    return by_day
+
+
+def _mesurer_commits(shas: list[str]) -> dict:
+    """{sha: {j, m, a, d}} -- les shas HORS PERIMETRE en sont ABSENTS.
+
+    ⚠ MESURE, pas deduction : `git log --no-walk ... -- <pathspec>` N'EMET PAS l'en-tete d'un
+    commit que le pathspec ecarte (verifie le 2026-08-12 sur un commit ne touchant que
+    `data/symbols` : 0 ligne rendue). L'appelant DOIT donc marquer lui-meme les shas restes
+    sans enregistrement -- un cache qui ne retient pas ses VIDES ne converge jamais, il
+    reinterroge les memes commits a chaque run en croyant les decouvrir."""
+    out: dict = {}
+    # %P donne les parents SUR LA LIGNE : deux parents = merge. Le demander a `git log` evite un
+    # `rev-parse` par commit -- 1 459 sous-processus sous Windows, plusieurs minutes pour rien.
+    # Lots de 200 : la ligne de commande Windows plafonne a ~32 ko, soit ~780 shas de 41 octets.
+    for i in range(0, len(shas), 200):
+        raw = sh(["git", "log", "--no-walk", "--pretty=format:C|%H|%aI|%P", "--numstat",
+                  *shas[i:i + 200], "--", ".", EXCLUDE])
+        cur = None
+        for ln in raw.splitlines():
+            if ln.startswith("C|"):
+                _, sha, iso, parents = ln.split("|", 3)
+                cur = out.setdefault(sha, dict(j=_ts(iso).astimezone().strftime("%Y-%m-%d"),
+                                               m=len(parents.split()) > 1, a=0, d=0))
+                continue
+            parts = ln.split("\t")
+            if len(parts) != 3 or cur is None or parts[0] == "-" or cur["m"]:
+                continue
+            cur["a"] += int(parts[0])
+            cur["d"] += int(parts[1])
+    return out
+
+
+def load_git(since: str, keep: set, cache: dict | None = None) -> tuple[dict, dict]:
     """Agrege par jour. `commits`/`add` = PR SEULEMENT ; `direct_*` = les pushs hors PR.
 
     Les deux sont retenus : un board qui n'afficherait que le perimetre PR laisserait croire que
     le depot n'a pas d'autre activite, alors que les pushs directs de l'orchestrateur en portent
     plus du tiers.
-    """
-    # %P donne les parents SUR LA LIGNE : deux parents = merge. Le demander a `git log` evite un
-    # `rev-parse` par commit -- 1 459 sous-processus sous Windows, plusieurs minutes pour rien.
-    raw = sh(["git", "log", "--pretty=format:C|%H|%aI|%P", "--numstat",
-              "--since", since, "--", ".", EXCLUDE])
-    by_day = defaultdict(lambda: defaultdict(int))
-    day = None
-    pfx = "direct_"
-    for ln in raw.splitlines():
-        if ln.startswith("C|"):
-            _, sha, iso, parents = ln.split("|", 3)
-            day = _ts(iso).astimezone().strftime("%Y-%m-%d")
-            # Un merge ne tombe dans AUCUN des deux seaux, et le test passe AVANT `keep` : une
-            # branche d'agent qui a merge master en cours de route amene ses propres merges, que
-            # `rev-list` rapporte donc comme commits de la PR. Les compter gonflait le perimetre
-            # PR de 174 sur 993 (mesure du 2026-08-01) pour zero ligne -- --numstat ignore leur
-            # diff. La partition doit rester : PR + direct + merges = tous les commits.
-            merge = len(parents.split()) > 1
-            pfx = None if merge else ("" if sha in keep else "direct_")
-            if pfx is not None:
-                by_day[day][pfx + "commits"] += 1
-            continue
-        parts = ln.split("\t")
-        if len(parts) != 3 or day is None or parts[0] == "-" or pfx is None:
-            continue
-        by_day[day][pfx + "add"] += int(parts[0])
-        by_day[day][pfx + "del"] += int(parts[1])
+
+    INCREMENTAL depuis le 2026-08-12 -- c'etait 67 % du temps de run, et le seul etage lourd
+    qui restait a plein tarif. MESURE sur 3 672 commits : le `git log --numstat` integral coute
+    79 s parce qu'il calcule le diff de CHAQUE commit de la fenetre ; l'enumeration seule
+    (`rev-list`, sans pathspec) en coute 1,3, et le numstat des seuls commits NEUFS ~3 pour 20.
+    On enumere donc a chaque run -- la liste fait foi -- et on ne mesure que l'inconnu.
+
+    `cache=None` force la voie INTEGRALE : c'est ce que fait `--no-cache`, et c'est l'ORACLE du
+    garde d'equivalence. Les deux voies doivent rendre le MEME `by_day` a l'octet, sinon le
+    cache ment -- et un board qui ment est pire qu'un board lent."""
+    shas = sh(["git", "rev-list", "--since", since, "HEAD"]).split()
+    if cache is None:
+        table = _mesurer_commits(shas)
+    else:
+        table = cache.setdefault("commits", {})
+        manquants = [s for s in shas if s not in table]
+        table.update(_mesurer_commits(manquants))
+        # LES VIDES SE RETIENNENT AUSSI : un sha ecarte par le pathspec n'a pas d'enregistrement,
+        # et sans cette marque il repasserait par `git log` a chaque run, indefiniment.
+        for s in manquants:
+            table.setdefault(s, None)
+        cache["stat_commits"] = dict(mesures=len(manquants),
+                                     reutilises=len(shas) - len(manquants))
+    by_day = _agreger_commits(shas, table, keep)
     # croissance NETTE de l'arbre sur la fenetre -- annule le churn de scission de modules
     base = sh(["git", "rev-list", "-1", "--before", "%s 00:00" % since, "HEAD"]).strip()
     net = {}
@@ -788,7 +842,7 @@ def build(since: str, strict: bool = False, use_cache: bool = True,
 
     # L'enumeration des commits de PR vient APRES la jointure d'agent : `--strict-agent` en depend.
     owner = pr_commits(prs, strict, cache)
-    git_day, git_net = load_git(since, set(owner))
+    git_day, git_net = load_git(since, set(owner), cache if use_cache else None)
     # Le cache est valide dans LES DEUX modes : les tokens ignorent `strict`, et le cache de
     # merges est de la donnee git BRUTE par sha (`strict` change seulement QUELLES PR on
     # interroge, pas ce que git repond pour l'une d'elles).
@@ -830,6 +884,7 @@ def build(since: str, strict: bool = False, use_cache: bool = True,
                 cache=dict(tokens=cache.get("stat_tokens", {}),
                            merges=cache.get("stat_merges", {}),
                            metas=cache.get("stat_metas", {}),
+                           commits=cache.get("stat_commits", {}),
                            delivered=cache.get("stat_delivered", {})))
 
 
@@ -893,13 +948,15 @@ def console(data: dict) -> None:
     if data["net"].get("shortstat"):
         print("croissance nette de l'arbre depuis %s : %s" % (data["since"], data["net"]["shortstat"]))
     c, tk = data["cache"], data["cache"]["tokens"]
+    cm = c.get("commits", {})
     print("cache         : %.1f Mo lus (queue de %d fichiers sur %d), merges %d/%d,"
-          " metas %d/%d neufs%s"
+          " metas %d/%d, commits %d/%d neufs%s"
           % (tk.get("mo", 0), tk.get("fichiers", 0), tk.get("total", 0),
              c["merges"].get("interroges", 0),
              c["merges"].get("interroges", 0) + c["merges"].get("reutilises", 0),
              c["metas"].get("lus", 0),
              c["metas"].get("lus", 0) + c["metas"].get("reutilises", 0),
+             cm.get("mesures", 0), cm.get("mesures", 0) + cm.get("reutilises", 0),
              "  [FORK %s -> reconstruction]" % tk["fork"] if tk.get("fork") else ""))
 
 
