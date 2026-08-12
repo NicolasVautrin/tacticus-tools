@@ -322,6 +322,12 @@ RAIL: dict[str, tuple[str, str]] = {
     "LivingLightningMovingRemoveOnArrived":
         (ARRAYSET,
          "IdunBattle.Entities.Effects.Loki.LivingLightning_MovingEffect$$CreateRemoveEffectTrigger"),
+    # #962 (troisieme lot, apporte par le REBASE) -- `HealingBalmsDelayedHeal` (`1508`, #966/#967).
+    # Rail TARGETS : le bloc `methodPointers` d'`IdunBattle.Entities.Effects.Loki.HealingBalmsEffect`
+    # porte `CreateTargetTrigger` ET `CreateTargetTriggerBehaviour` (verifie au binaire), et le port
+    # LIT deja le flag -- c'est la seule des classes de ce lot qui arrivait avec son gate.
+    "HealingBalmsDelayedHeal":
+        (TARGETS, "IdunBattle.Entities.Effects.Loki.HealingBalmsEffect$$CreateTargetTrigger"),
     "HarlequinsPanoplyIgnoreHitsRemove":
         (TARGETS, "IdunBattle.Entities.Effects.Loki.HarlequinsPanoply_IgnoreHitsEffect$$CreateTargetTrigger"),
     # #432 -- 1147 TerminatorArmour_ReduceDmg. La CONSOMMATION vient de `CreateTargetTrigger` (rail
