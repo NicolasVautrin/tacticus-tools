@@ -23,6 +23,46 @@ from .effects.factory import EffectFactory
 AbilityStateTriple = tuple
 
 
+def melee_defeats_from_units(units) -> int:
+    """Compte de base de `IdunBattle.Entities.Effects.Loki.BlessingsOfKhorne_ModifiersEffect$$
+    GetMultiplierBasedOnDefeatedInMelee` = `Count(NormalUnits(UnitsDefeatedByMeleeAttack(AllUnits)))`.
+
+    Flag `UnitComponent.DefeatedByMeleeAttack @0x178` (ecrit par
+    `IdunBattle.Operations.KillUnitOperation$$Execute`), publie sous `decisionView.units[].
+    defeatedByMelee` ; `isDead` requis en mirror de
+    `IdunBattle.Entities.Selectors.UnitsDefeatedByMeleeAttackSelector$$IsValidUnit` (une unite
+    RESSUSCITEE ne compte plus). GLOBAL : les DEUX camps, quel que soit le tueur."""
+    return sum(1 for u in (units or [])
+               if isinstance(u, Mapping) and u.get("defeatedByMelee") and not u.get("alive"))
+
+
+def seed_battle_counters(eff_state, units) -> "int | None":
+    """Pousse le compteur `melee_defeats` sur chaque instance d'effet qui le declare (duck-typing --
+    aucun import `loki` ici). **FOYER PARTAGE PAR LES DEUX FACES** : `playbook/scene.py::
+    _seed_battle_counters` (DECISION) et `runner/snapshot.py::_load_battle_counters` (COMBAT).
+
+    ⚠ POURQUOI LES DEUX -- et ce que ca a coute quand une seule le faisait (#953). La face COMBAT
+    ne posait RIEN : sur un etat RECHARGE, `BlessingsOfKhorneModifiersEffect.melee_defeats` restait
+    `None`, donc `N = 0`, donc le `+3 % x N` de TOUT le degat sortant d'un World Eater DISPARAISSAIT
+    apres le premier kill de melee -- silencieusement, et sans qu'aucun test ne le voie (le regime
+    exige un kill de melee AVANT la mesure). MESURE (`probe_953_954`, bras `sk_stun`, `worldJakhal`
+    apres UN kill) : natif `[1210, 1204, 503]` = 2917, port `[791, 607, 1089]` = 2487 ; en forcant
+    `melee_defeats = 1` le port rend **exactement** `[1210, 1204, 503]`. L'ecart n'est PAS un facteur
+    de 3 % : le bonus deplace `min`/`max`, donc chaque tirage tombe sur un autre entier -- c'est ce
+    qui le rendait illisible comme un simple facteur.
+
+    Rend le compte pose, ou `None` si l'etat d'effets est absent (rien a seeder)."""
+    bu = getattr(eff_state, "by_unit", None) if eff_state is not None else None
+    if not bu:
+        return None
+    n = melee_defeats_from_units(units)
+    for effs in bu.values():
+        for e in effs:
+            if hasattr(e, "melee_defeats"):
+                e.melee_defeats = n
+    return n
+
+
 def baked_ability_state(captured: Mapping, carrier_id: int,
                         carrier_state: tuple,
                         ability_state_by_unit: Mapping | None) -> tuple:

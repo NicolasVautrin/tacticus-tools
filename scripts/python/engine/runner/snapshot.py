@@ -461,6 +461,10 @@ def load_state(decision: dict, observe: dict, snapshot: Optional[dict] = None,
         # MEME nature, MEME rang (elle lit `state.effects`) : le lien PARENT -> ENFANT entre effets
         # composites, cf. `_load_effect_parent_links`.
         _load_effect_parent_links(state)
+        # MEME nature, MEME rang encore (#953) : le COMPTEUR DE BATAILLE `melee_defeats`, que seule
+        # la face DECISION posait -- cf. `_load_battle_counters` pour la mesure de ce que son
+        # absence supprimait.
+        _load_battle_counters(state, decision)
         # APRES les stats : le substrat de traits vit dans `UnitContext.traits`, que
         # `_load_stats_and_effects` vient de construire (unites ET MoW). Meme nature que les deux
         # seeds ci-dessus -- une ENTREE de gate que rien ne peuplait sur un etat recharge, le port
@@ -1106,6 +1110,30 @@ def _load_forced_attack_targets(state: State) -> None:
                 comp = ForcedAttackTargetsComponent()
                 ent.add_component(comp)
             comp.set_from_effect(eff, [int(bonded)])
+
+
+def _load_battle_counters(state: State, decision: dict) -> None:
+    """Pousse le COMPTEUR DE BATAILLE `melee_defeats` sur les effets qui le declarent -- foyer
+    PARTAGE `engine.entities.effects_state.seed_battle_counters`, le MEME que la face DECISION
+    (`playbook/scene.py::_seed_battle_counters`).
+
+    POURQUOI, et ce que son absence a coute (#953). Pendant EXACT de `_load_forced_attack_targets`
+    et de `_load_effect_parent_links` : une ENTREE de gate que **seule la face DECISION** posait.
+    Sur un etat RECHARGE, `BlessingsOfKhorneModifiersEffect.melee_defeats` restait donc `None` ->
+    `N = 0` -> le `+3 % x N` que ce trait verse sur TOUT le degat sortant d'un World Eater
+    DISPARAISSAIT des le premier kill de melee -- silencieusement, et hors de portee de tout test
+    (le regime exige un kill de MELEE avant la mesure).
+
+    MESURE (`probe_953_954_skullsmasher_obsessive_annunciation.py`, bras `sk_stun`, `worldJakhal`
+    apres UN kill de melee) : natif `[1210, 1204, 503]` = 2917, port `[791, 607, 1089]` = 2487 ; en
+    forcant `melee_defeats = 1` sur l'instance, le port rend **exactement** `[1210, 1204, 503]`.
+    L'ecart n'est PAS un facteur de 3 % lisible : le bonus deplace `min`/`max`, donc chaque tirage
+    tombe sur un autre entier.
+
+    Le canal EXISTE et etait deja publie : `decisionView.units[].defeatedByMelee` (mesure :
+    `True` sur l'unite morte en melee, `False` sur les vivantes). Rien a capter, juste a LIRE."""
+    from ..entities.effects_state import seed_battle_counters
+    seed_battle_counters(state.effects, (decision or {}).get("units") or [])
 
 
 def _load_effect_parent_links(state: State) -> None:

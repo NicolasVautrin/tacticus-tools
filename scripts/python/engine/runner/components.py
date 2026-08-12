@@ -25,6 +25,8 @@ from ..entities.effects.loki.kardiocore_galvanus import adjacent_mechanical_frie
 from ..entities.effects.loki.maw_claws_of_thyrax import adjacent_summons_selector
 from ..entities.effects.loki.nether_realm_casket import adjacent_mechanical_units_selector
 from ..entities.effects.loki.supa_cybork_body import adjacent_enemies_selector
+from ..entities.effects.loki.obsessive_annunciation import (   # #954
+    adjacent_enemies_selector as obsessive_annunciation_target_selector)
 from ..entities.pathfinding.board import adjacent_neigh_by_pos, elevations_by_pos
 from ..entities.stats import StatType
 from ..entities.stats import StatPart   # #572-r1 : `FillUpStatComponent$$GetStatPart`
@@ -3094,6 +3096,43 @@ def adjacent_enemies_count(state, unit_id: int) -> Optional[int]:
         return None
     from .abilities.behaviours.context import entities_from_state
     return int(adjacent_enemies_selector().calculate(entities_from_state(state, int(unit_id))))
+
+
+def adjacent_enemy_ids(state, unit_id: int) -> "Optional[frozenset]":
+    """`AdjacentEnemies( Owner@DSLSelectors+0x30, unique: true,
+    UnitSelectionType.OnlyAliveAndTargetable = 3 )` -- les IDS, pas le cardinal (#954).
+
+    C'est le `CreateTargetSelector` PARTAGE des deux effets d'`ObsessiveAnnunciation` (`1432` et
+    `1433`, corps FONDU par l'ICF). Les DEUX canaux qui les consomment interrogent une APPARTENANCE
+    (`get_OwnerIsTarget` = << la cible du coup est-elle l'une des cibles de l'effet ? >>), pas un
+    compte -- d'ou cet accesseur distinct d'`adjacent_enemies_count` juste au-dessus, qui appelle
+    un AUTRE arbre (celui de `supa_cybork_body`, `selection_type` non porte).
+
+    L'ARBRE est celui de la classe d'effet (`entities/effects/loki/obsessive_annunciation.py::
+    adjacent_enemies_selector`, doctrine #149) ; ce qu'on fait ICI, c'est lui donner son
+    `AbilityEntities` -- `entities_from_state(state, unit_id)` pose `caster = owner = le porteur`,
+    `board = state.board` et `has_trait`.
+
+    SUBSTRAT D'ADJACENCE : la LISTE STOCKEE (`dsl/base.py::_within`, `order='adjacent'`, #515), le
+    MEME que tous les ring-1 du depot -- donc AVEC la porte d'elevation du natif
+    (`IdunBattle.Core.Services.TileQuery.u003CIterateAdjacentTilesu003Ed__8$$MoveNext`), et non un
+    `hexgeo.distance == 1` qui SUR-COMPTE au bord d'une marche (#271).
+
+    `None` si le porteur n'a ni equipe ni tuile -- jamais un ensemble VIDE invente, qui ferait
+    passer << non mesure >> pour << aucune cible >> et eteindrait le bonus en silence."""
+    ent = state.get_entity(unit_id)
+    oc = ent.get_component(OwnerComponent) if ent is not None else None
+    pc = ent.get_component(PositionComponent) if ent is not None else None
+    if oc is None or oc.team is None or pc is None:
+        return None
+    from .abilities.behaviours.context import entities_from_state
+    ents = entities_from_state(state, int(unit_id))
+    out = set()
+    for u in (obsessive_annunciation_target_selector().select(ents) or ()):
+        uid = u.get("id") if isinstance(u, dict) else None
+        if uid is not None:
+            out.add(int(uid))
+    return frozenset(out)
 
 
 def adjacent_mechanical_friends_count(state, unit_id: int) -> Optional[int]:

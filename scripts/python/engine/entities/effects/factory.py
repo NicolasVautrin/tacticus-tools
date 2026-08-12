@@ -57,6 +57,10 @@ from .loki.terrors_lament import (                         # #950 (passif eldarJ
     TerrorsLamentDamageReductionEffect, TerrorsLamentHitReductionEffect
 )
 from .loki.tough_to_kill import ToughToKillEffect          # #950 (passif astraDreir, 1472)
+from .loki.obsessive_annunciation import (                 # #954 (passif emperKakophonist)
+    ObsessiveAnnunciationExtraCritDmgEffect, ObsessiveAnnunciationExtraDmgEffect
+)
+from .loki.skullsmasher import SkullsmasherExtraDamageEffect   # #953 (passif worldJakhal, 1263)
 from .loki.first_among_traitors import FirstAmongTraitorsExtraDmgEffect   # #926 (passif blackAbaddon)
 from .loki.hunters_beyond_death import (                   # #952 (passif spaceHound)
     HuntersBeyondDeathEffect, HuntersBeyondDeathExtraDamageEffect,
@@ -1565,6 +1569,50 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # Le SECOND volet du passif (`ToughToKill_HealAbility`, regen au debut de son tour) n'est PAS un
     # effet : il vit dans `ABILITY_TRIGGERS["ToughToKill"]`.
     "ToughToKill": ToughToKillEffect,
+    # 1263 Skullsmasher_ExtraDamage (#953) : owner-effect PERMANENT du passif de kit de
+    # `worldJakhal` << Macer >>, pose a l'init par `Skullsmasher_DamageEffectAbility`
+    # (: `AOwnerEffectTriggeredAbility` d'apres `classes.tsv` ; elle n'override QUE `GetEffectType`,
+    # dont le corps ENTIER est `return 0x4ef` -- l'appariement ability -> effet est LU).
+    #   `$$GetMissingHealthSteps` = Divide( Percent(StatAmount(Owner, Health, Missing),
+    #                                               StatAmount(Owner, Health, Maximum), Default),
+    #                                       ConfigConst(0x12 = hpPct), Floor )
+    #   `$$GetAttackModifier`     = Max( <DSLFormulas+0x18> = Direct(0),
+    #                                    Multiply(GetMissingHealthSteps(), ConfigVar(8 = extraDmg)) )
+    #   `$$CreateActiveCondition` = AmountIsGreaterThanZero( GetMissingHealthSteps() )
+    #                               (surcharge `IAmountFormula` = `0xed52d0`, PAS `ITargetsSelector`)
+    #   `$$CreateEffectDamageBonusForAttack` = ForAddition( get_OwnerIsCaster, GetAttackModifier() )
+    # ⚠ Son `CreateTargetSelector` EXISTE dans le bloc `methodPointers` et vaut le corps par DEFAUT
+    # (`<DSLSelectors+0x30>` = `Owner`, fondu par l'ICF) -> SELF-effect, **pas** une aura. Le
+    # distinguer de son voisin de lot (`ObsessiveAnnunciation`, dont le meme slot pointe sur un
+    # `AdjacentEnemies`) exige de lire le CORPS, pas la seule presence de la methode.
+    # ⚠ `TriggeredAbilityType` 0x4ef = 1263 nomme `ScreamerInvocation` : la CONFIG du passif est la
+    # TRIGGERED 0x4c1 = 1217. Les DEUX autres abilities du passif (le marqueur de kill et la pose du
+    # `Stunned`) sont des vecteurs de COMBAT -> `ABILITY_TRIGGERS["Skullsmasher"]`.
+    "Skullsmasher_ExtraDamage": SkullsmasherExtraDamageEffect,
+    # 1432 ObsessiveAnnunciation_ExtraDmg / 1433 _ExtraCritDmg (#954) : les DEUX AURAS du passif de
+    # kit d'`emperKakophonist` << Adamatar >>. Elles partagent leur `.ctor`, leur
+    # `CreateActiveCondition` (`<DSLTriggers+0x40>` = constante VRAIE) ET leur `CreateTargetSelector`
+    # -- TROIS corps fondus par l'ICF, lus dans le bloc `methodPointers` du PE :
+    #   `$$CreateTargetSelector` (COMMUN) = AdjacentEnemies(Owner@+0x30, unique: true,
+    #                                                       UnitSelectionType 3) -- surcharge
+    #                                        `(unit, unique, selectionType)` = `0xeac220`
+    #   1432 `$$CreateEffectDamageBonusForAttack` = ForAddition( get_OwnerIsTarget & IsRangedAttack
+    #            & AreFriends(EffectSource(Effect@+0x38), Caster@+0x48, ByCurrentTeam, false),
+    #            ConfigVar(8 = extraDmg) )
+    #   1433 `$$CreateCritDamageBonus`             = ForAddition( get_OwnerIsTarget
+    #            & AreFriends(<les memes>) & HasTrait(Caster@+0x48, 0x7ea = Chaos),
+    #            ConfigVar(0x42 = extraCritDmg) )
+    # ⚠ LES DEUX MOITIES N'ONT PAS LE MEME 3e CONJOINT : `IsRangedAttack` cote DEGAT,
+    # `HasTrait(Caster, Chaos)` cote CRIT. Recopier l'une sur l'autre est une faute SILENCIEUSE dans
+    # les deux sens (l'i2 le confirme : << +Damage from RANGED attacks >> contre << +Crit Damage from
+    # ALL attacks by friendly CHAOS units >>).
+    # ⚠ `ForAddition` = `0x1047dc0` des DEUX cotes (et non `ForSubtraction` = `0x1048090`) : c'est
+    # l'ADRESSE qui tranche. Et les DEUX variables sont dans
+    # `VariablesAffectedByUnitRarityMultiplier` (`[8, 66]`), fait qui ne se lit QUE dans la config.
+    # ⚠ `TriggeredAbilityType` 1432/1433 nomment `ArmourOfShriekingSouls` / `EnhancementRegeneration`
+    # -- deux abilities REELLES ; la CONFIG du passif est la TRIGGERED 0x5a3 = 1443.
+    "ObsessiveAnnunciation_ExtraDmg": ObsessiveAnnunciationExtraDmgEffect,
+    "ObsessiveAnnunciation_ExtraCritDmg": ObsessiveAnnunciationExtraCritDmgEffect,
     # 1175 HatefulAssault_AlreadyAttacked (case-366-r1) : MARQUEUR pose par
     # `...HatefulAssaultAbility$$CreateBehaviour` sur l'ennemi qu'il vient de frapper, et LU par le
     # `CreateTrigger` de cette meme ability (`NOT HasEffect(Actor, 0x497, onlyActive=0, Both)`) -- ce
@@ -1698,6 +1746,29 @@ ABILITY_INIT_OWNER_EFFECTS: dict[str, list[str]] = {
     # `InescapableDeath`. `CreateActiveCondition` = `<DSLTriggers+0x70>` = YesTrigger -> l'effet est
     # toujours capte live, le seed est un FILET (idempotent).
     "ToughToKill": ["ToughToKill"],
+    # #953 -- `Skullsmasher_DamageEffectAbility` (parent `IdunBattle.Entities.Abilities.
+    # AOwnerEffectTriggeredAbility`, `classes.tsv`) n'override QUE `GetEffectType` (`return 0x4ef`) :
+    # le reste vient de la base (`CreateTrigger = OnOwnerSpecificAbilityInit(this.AbilityType)`,
+    # `CreateBehaviour = AddEffect(GetEffectType(), AbilityState(Owner), source = Owner,
+    # targets = Owner, turns = <zeroe>)`) -- owner-effect PERMANENT pose a l'init, exactement le
+    # patron `ToughToKill` / `FirstAmongTraitors`.
+    # ⚠ CE SEED N'EST PAS UN FILET, il est NECESSAIRE : la `CreateActiveCondition` de 1263 est
+    # `AmountIsGreaterThanZero(GetMissingHealthSteps())`, donc a PV PLEINS l'effet est INACTIF et le
+    # canal ACTIF-ONLY ne le publie PAS. Sans ce seed, un Macer capte a PV pleins n'a AUCUNE
+    # instance a rallumer quand la simulation lui retire des PV -- meme motif exact
+    # qu'`AnvilShield_BlockChanceBelowHealthCap` / `HammerOfWrath_ConditionalDamage` plus bas.
+    # (Le canal de seed `decision_view_seed_body` passe `includeInactive: true`, donc l'instance
+    # inerte arrive quand meme sur un runner frais : le seed reste idempotent.)
+    "Skullsmasher": ["Skullsmasher_ExtraDamage"],
+    # #954 -- `ObsessiveAnnunciationAbility` (parent `IdunBattle.Entities.Abilities.
+    # AOwnerEffectTriggeredAbility`, `classes.tsv`) n'override QUE `GetEffectType` (`return 0x598`).
+    # MEME patron que `Skullsmasher` ci-dessus, mais l'effet pose est une AURA
+    # (`CreateTargetSelector` = `AdjacentEnemies(Owner)`) : il vit sur ADAMATAR et se projette sur
+    # ses ennemis adjacents. Sa `CreateActiveCondition` est la constante VRAIE -> il est toujours
+    # capte, ce seed-ci EST un filet (idempotent).
+    # ⚠ L'AUTRE effet du passif (1433, l'aura de CRIT) n'est PAS ici : il est pose par un TRIGGER
+    # d'overkill, pour UN TOUR -> `ABILITY_TRIGGERS["ObsessiveAnnunciation"]`.
+    "ObsessiveAnnunciation": ["ObsessiveAnnunciation_ExtraDmg"],
     "BigTarget": ["BigTarget_AdjacentEffect"],   # `IdunBattleLogic.Entities.Abilities.Active.Loki.BigTargetAbility$$CreateBehaviour : AddEffect(0x402)
     # `ShadowInTheWarp_AddEffectAbility` (base `AddEffectAbility.CreateBehaviour`) : AddEffect(0x41d=1053).
     "ShadowInTheWarp": ["ShadowInTheWarp_LessDmg_Effect"],

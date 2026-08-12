@@ -93,6 +93,10 @@ from ..loki.despoiled_ground import (DespoiledGroundTileDoT,         # #85 (EnvD
 from ..loki.head_claimer import (HeadClaimerOnDeathAbility,          # lot POSE (passif blackHaarken,
                                  HeadClaimerOnFledAbility)           # #947)
 from ..loki.trophy_taker import TrophyTakerOnUnitDefeatedAbility     # #951 (passif worldExecutions)
+from ..loki.skullsmasher import (SkullsmasherActivateStunAbility,    # #953 (passif worldJakhal :
+                                 SkullsmasherTriggerStunAbility)     # marqueur de kill + pose du Stun)
+from ..loki.obsessive_annunciation import (                          # #954 (passif emperKakophonist :
+    ObsessiveAnnunciationOverkillAbility)                            # armement de l'aura de crit)
 from ..loki.terrifying_crescendo import (TerrifyingCrescendoOverkillAbility,   # lot POSE (passif
                                         TerrifyingCrescendoSuppressAbility)   # emperNoiseMarine, #204)
 from ..loki.deathwing import DeathwingAbility                          # #932 (passif darkaTerminator)
@@ -651,6 +655,39 @@ ABILITY_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
     #     vecteur de combat, donc il passe par `ABILITY_INIT_OWNER_EFFECTS` + `EFFECT_CLASSES`
     #     (`entities/effects/loki/tough_to_kill.py`), jamais par ce registre.
     "ToughToKill": [ToughToKillHealAbility],
+    # Skullsmasher (passif de kit de `worldJakhal` << Macer >>, `TriggeredAbilityType 0x4c1 = 1217`,
+    # #953) -- MEME forme que `ToughToKill` / `TimeFlux` : le natif derive TROIS triggered-abilities
+    # du MEME passiveAbility, et leurs BASES different (lues dans `frida/classes.tsv`) :
+    #   * `Skullsmasher_ActivateStunAbility` (: `BaseTriggeredAbility`) : `OnDeath(overkill: true,
+    #     steppable: false) & NOT HasTrait(Target@+0x60, 0xd = Object) & get_OwnerIsActor` ->
+    #     `AddEffect(0x4f0 = Skullsmasher_StunEffect, source = Owner, targets = Owner,
+    #     options = <VIDE>)` = un MARQUEUR PERMANENT (aucune duree, type absent de
+    #     `DefaultAmountOfRounds`) ;
+    #   * `Skullsmasher_TriggerStunAbility` (: `BaseTriggeredAbility`) : `On(9 = Attack,
+    #     ownerNeedsToBeAlive: true) & get_OwnerIsActor & HasEffect(Owner, 0x4f0, onlyActive: false,
+    #     Both)` -> `AddEffect(0x48a = Stunned, source = Owner, targets = Target@+0x60,
+    #     options = <VIDE>)` = duree `DefaultAmountOfRounds(Stunned) = 1 round` ;
+    #   * `Skullsmasher_DamageEffectAbility` (: `AOwnerEffectTriggeredAbility`, n'override QUE
+    #     `GetEffectType` = `return 0x4ef`) : owner-effect PERMANENT pose a l'INIT -> ce n'est PAS un
+    #     vecteur de combat, donc il passe par `ABILITY_INIT_OWNER_EFFECTS` + `EFFECT_CLASSES`
+    #     (`entities/effects/loki/skullsmasher.py`), jamais par ce registre.
+    # ⚠ `OnDeath(a, b)` = `OnDeathEvent(0, a, b)` -> l'event est `UnitDeath = 0`, PAS
+    # `PreUnitDeath_2 = 2` (l'ecart avec `HeadClaimer`, qui appelle `OnPreDeath2`). Cf.
+    # loki/skullsmasher.py.
+    "Skullsmasher": [SkullsmasherActivateStunAbility, SkullsmasherTriggerStunAbility],
+    # ObsessiveAnnunciation (passif de kit d'`emperKakophonist` << Adamatar >>,
+    # `TriggeredAbilityType 0x5a3 = 1443`, #954) : `OnDeath(overkill: true, steppable: false) &
+    # TargetIsOverkilled() & NOT HasEffect(Owner@+0x30, 0x599, onlyActive: false, Both)` ->
+    # `AddEffect(0x599 = ObsessiveAnnunciation_ExtraCritDmg, source = Owner, targets = Owner,
+    # turns = <DSLFormulas+0x20> = Direct(1))` -> l'aura de crit est armee pour UN TOUR.
+    # ⚠ Le gate d'overkill apparait DEUX FOIS et les deux ne disent PAS la meme chose : `a = true`
+    # DESARME celui d'`OnDeathEvent`, c'est le `TargetIsOverkilled()` SEPARE qui l'exige.
+    # ⚠ **AUCUN `get_OwnerIsActor`** : n'importe quel overkill du board arme l'aura, y compris celui
+    # d'un adversaire -- l'ecart avec `TerrifyingCrescendoOverkillAbility` et
+    # `HeadClaimerOnDeathAbility`, qui le portent tous deux. Cf. loki/obsessive_annunciation.py.
+    # L'AUTRE effet du passif (1432, l'aura de degat) est un owner-effect d'INIT ->
+    # `ABILITY_INIT_OWNER_EFFECTS`, pas ce registre.
+    "ObsessiveAnnunciation": [ObsessiveAnnunciationOverkillAbility],
     # EchoesFromTheWarp (passif UNIQUE de `thousNpc4Terminator`, npc) = la SECONDE instanciation de
     # `GhostReviveAbility`, parametree `effectType = 1284` -- MEME arbre, seule la branche d'amount
     # du behaviour de l'effet change (`StatAmount(src, Health, Initial)` = « Full Health »).

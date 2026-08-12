@@ -20,6 +20,8 @@ from ...entities.effect_type import EffectType as _EffectType
 # #948 : cles du contexte per-coup d'`EnmityForTheUnworthy` -- un seul foyer de nommage.
 from ...entities.effects.loki.enmity_for_the_unworthy import (
     CTX_ADJACENT_UNITS as _ENMITY_CTX_UNITS, CTX_ADJACENT_DA as _ENMITY_CTX_DA)
+# #953 : meme regle, meme foyer -- la cle du couple de PV du porteur vit dans la classe d'effet.
+from ...entities.effects.loki.skullsmasher import CTX_OWNER_HEALTH as _SKULLSMASHER_CTX_HEALTH
 # `UnitTrait.Summon` (2) : trait lu par le selecteur de 1147 (`UnitsWithTrait(..., 2)`), cote gate ET
 # cote noeud DSL (`ctx.has_trait`, cable dans `make_damage_predictions`).
 from ...entities.traits.unit_trait import (UnitTrait as _UnitTrait, has_trait as _has_trait,
@@ -214,7 +216,21 @@ def generate_multi_hit_attack_prediction(scene, uid, tgt, ability_id, ability_na
                                                                     scene.enmity_adjacent_units(uid),
                                                                 _ENMITY_CTX_DA:
                                                                     scene.enmity_adjacent_dark_angels_friends(
-                                                                        uid)})
+                                                                        uid),
+                                                                # #953 -- le couple de PV du PORTEUR
+                                                                # (`StatAmount(Owner, Health,
+                                                                # {Missing, Maximum})`). Son
+                                                                # `CreateEffectDamageBonusForAttack`
+                                                                # n'a AUCUN gate de nature de coup
+                                                                # (`get_OwnerIsCaster` seul) : ce
+                                                                # vecteur ABILITY y entre comme la
+                                                                # normale -- l'i2 dit << Macer deals
+                                                                # +X Damage >>, sans restriction, et
+                                                                # `JakhalStimms` est une ability.
+                                                                # MEMES cles que la face COMBAT.
+                                                                _SKULLSMASHER_CTX_HEALTH:
+                                                                    (scene.hp(uid),
+                                                                     scene.hpmax(uid))})
     t_pos = scene.pos(tgt)
     _add_positional_and_defender_mods(mods, scene, uid, tgt, is_melee, attack_pos, t_pos,
                                       damage_profile=profile_name, is_normal_attack=False)
