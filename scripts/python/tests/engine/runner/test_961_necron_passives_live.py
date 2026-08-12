@@ -46,6 +46,50 @@ import sys
 
 import pytest
 
+#: Ce qui doit changer pour que ce FICHIER de test puisse changer de verdict (#486-r15).
+DECLENCHEUR = {
+    "chemins": (
+        # SOCLE COMMUN a TOUT fichier de test : la cascade des `conftest.py` et sa fermeture.
+        "scripts/python/conftest.py", "scripts/python/tests/conftest.py",
+        "scripts/python/tests/engine/conftest.py",
+        "scripts/python/tests/engine/runner/conftest.py",
+        "scripts/python/green_skip_guard.py", "scripts/python/declencheur_guard.py",
+        "scripts/python/catalog_inject.py",
+        "scripts/python/gameconfig.py", "scripts/python/enum_maps.py",
+        "scripts/python/host_inputs.py", "scripts/python/rl_collect_batch.py",
+        "scripts/python/rl_duel.py", "scripts/python/hexgeo.py",
+        "scripts/python/stream_events.py", "scripts/python/symbols_layout.py",
+        "scripts/python/engine/runner/snapshot.py",
+        # PROPRE A CE FICHIER, perimetre pris LARGE : les deux passifs tirent le registre de
+        # triggers COMPLET, le pipeline de degat, la couche d'effets et les selecteurs. Foyers
+        # load-bearing : `operations/triggers/loki/timesplinter_mantle.py`,
+        # `operations/triggers/loki/living_lightning.py`,
+        # `operations/triggers/dispatch/registry.py`, `entities/effects/factory.py`,
+        # `entities/effects/loki/damage_reduction.py`, `entities/selectors/units.py`
+        # (`non_steppable_units`) et `entities/selectors/tiles.py` (`UnobscuredTiles`).
+        # Le MONTAGE lui-meme est un declencheur : `probe_961_necron_passives.py`.
+        # ⚠ Les DEUX formes de glob sont necessaires : dans ce matcher `**/` exige un segment.
+        "scripts/python/probe_961_necron_passives.py",
+        "scripts/python/engine/*.py",
+        "scripts/python/engine/**/*.py",
+        # Les magnitudes (`dmgReduction`, `minDmg`/`maxDmg`) et les constantes (`range`,
+        # `nrOfHits`, `damageProfile`) sont des DONNEES du gameconfig ; le catalogue injecte part
+        # du seed BC ; les ordinaux d'enum viennent du dump du build.
+        "data/seed-bc.json",
+        "data/boards/**",
+        "data/symbols/**",
+    ),
+    "build": True,
+    "toujours": False,
+    "raison": "Verdicts figes : la STRUCTURE des deux arbres (les quatre etages de selecteur de "
+              "TimesplinterMantle et les deux branches de rayon de LivingLightning), l'ABSENCE "
+              "d'`IsTurnOf(Owner)` sur `On(0x12)`, le fait que le gate du trigger de "
+              "LivingLightning evalue le `PickRandomly` (donc CONSOMME un tirage MT), et la "
+              "confrontation live du SET couvert, de son retrait par cible, du degat a rayon 2 et "
+              "du silence hors portee. Exige une session Frida (fixtures live) sauf pour les "
+              "quatre cas de structure.",
+}
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(
     os.path.dirname(os.path.abspath(__file__))))))                  # scripts/python
 import probe_961_necron_passives as NP                              # noqa: E402
