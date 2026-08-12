@@ -80,13 +80,16 @@ class EuphoricStrikesPlaybook(_PlanTargetPlaybook):
     PRIORITY = 0        # hors `NATIVE_PRIORITY` (defaut `AbilityPriority.Normal`, sweep #170)
 
     # `should_evaluate` = l'implementation de BASE (`BasePlaybook$$ShouldEvaluate` ->
-    # `GetUseProbability` = `Fix64(1)` -> True constant). ⚠ CE POINT N'EST PAS TRANCHE OFFLINE et
-    # il ne PEUT pas l'etre : le gate de tour `GetStat(unit, 0xc = TurnsStarted) > 1` est un corps
-    # COMDAT unique (`_base._turns_started_gate`, etiquete `AlphaWarriorPlaybook$$ShouldEvaluate`,
-    # refcount 7), donc son absence sous le nom de CETTE classe ne prouve RIEN -- le raisonnement
-    # par nommage qui conclut pour `ShouldExecute` (corps deux a deux distincts) ne vaut PAS ici.
-    # Seule la resolution LIVE du slot 4 de la vtable (RPC `pbGate`) tranche. Residu `#974-r1`.
-    # La degradation est PERMISSIVE et bornee au PREMIER tour du porteur.
+    # `GetUseProbability` = `Fix64(1)` -> True constant), et c'est MESURE, pas suppose.
+    # Ce point ne PEUT pas se trancher offline : le gate de tour `GetStat(unit, 0xc =
+    # TurnsStarted) > 1` est un corps COMDAT unique (`_base._turns_started_gate`, etiquete
+    # `AlphaWarriorPlaybook$$ShouldEvaluate`, refcount 7), donc son absence sous le nom de CETTE
+    # classe ne prouve RIEN -- le raisonnement par nommage qui conclut pour `ShouldExecute` (corps
+    # deux a deux distincts) ne vaut PAS ici.
+    # MESURE LIVE (`probe_974_decision_gates_live.py`, runner MC1_67/seed 777, porteur co-injecte) :
+    # `pbGate(itf=Playbook, slot=4)` sur `emperExultant` rend **True** alors que
+    # `turnsStarted == 1` -- regime ou un playbook PORTEUR du gate rendrait `False`. 1198 n'a donc
+    # AUCUN gate de tour. Residu `#974-r1` FERME par cette mesure.
 
     def evaluate_non_comparable(self, tile, target, ctx: NCContext):
         """`WillNormalAttackKill` -> `continue`, puis `Fix64(GetStat(cible, 5 = Health))`.
