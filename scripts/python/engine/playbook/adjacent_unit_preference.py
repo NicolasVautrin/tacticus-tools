@@ -632,6 +632,7 @@ from .friends_in_range import (AstartesBannerPlaybook,       # noqa: E402  (N13 
 from .geminae_superia import GeminaeSuperiaPlaybook          # noqa: E402  (case-165b : corps propre)
 from .intoxicating_elixir import IntoxicatingElixirPlaybook  # noqa: E402  (#922 : corps propre, PAR EFFET)
 from .legacy_of_combat import LegacyOfCombatPlaybook         # noqa: E402  (#928 : corps propre, ENNEMIS)
+from .obsessive_annunciation import ObsessiveAnnunciationPlaybook   # noqa: E402  (#954 : slot 128)
 from .modified_exoarmour import ModifiedExoarmourPlaybook    # noqa: E402  (#304 : corps propre, PAR TUILE)
 from .savior_protocols import SaviorProtocolsPlaybook        # noqa: E402  (#443-r1 : face MOVE, cf. module)
 from .serene_unifier import SereneUnifierPlaybook            # noqa: E402  (#456-r1 : corps propre, 101/ami)
@@ -741,6 +742,14 @@ TRIGGERED_MOVE_PLAYBOOKS: dict = {
     # aucune cle `DEATHWING*` dans `TriggeredAbilitiesNonOwner`), et ses faces ATTACK / REPAIR sont
     # DEAD (corps herite `yield return Fix64.op_Implicit(0)` de `TriggeredAbilityPlaybook<T>`).
     int(TriggeredAbilityType.Deathwing): DeathwingPlaybook(),                    # 1245 (10 / ami DarkAngels)
+    # #954 -- MEME famille « corps propre » que `LegacyOfCombat` juste au-dessus, et MEME forme de
+    # produit plat, mais la query est la QUATRIEME surcharge de `GetAdjacentEnemies` (**slot 128**,
+    # ancre `UnitPosition` + argument UNITE) et non la troisieme (slot 127, ancre TUILE via
+    # `get_MovementTile`). Le discriminant est le litteral `mov r8d, 0x80` / `0x7f` relu aux OCTETS,
+    # pas le pseudo-C, qui est identique. Aucun filtre, aucun cap : `10 x |ennemis adjacents a la
+    # tuile candidate|`. Sa face ATTAQUE est DEAD (`yield Fix64.op_Implicit(0)` constant).
+    # Porteur POOL-HERO : `emperKakophonist`. Cf. `playbook/obsessive_annunciation.py`.
+    int(TriggeredAbilityType.ObsessiveAnnunciation): ObsessiveAnnunciationPlaybook(),  # 1443 (10 / ennemi adjacent)
 }
 
 

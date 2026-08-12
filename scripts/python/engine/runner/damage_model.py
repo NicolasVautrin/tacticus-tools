@@ -37,11 +37,15 @@ from .components import (StatsComponent, HealthComponent, OwnerComponent, Positi
                          adjacent_taunted_enemies_count,
                          adjacent_dark_angels_friends_count,
                          enmity_adjacent_units_count,
-                         enmity_adjacent_dark_angels_friends_count)
+                         enmity_adjacent_dark_angels_friends_count,
+                         adjacent_enemy_ids)
 # #948 : les cles du contexte per-coup d'`EnmityForTheUnworthy` viennent de la classe d'effet --
 # un seul foyer de nommage pour les DEUX faces (COMBAT ici, PREDICTION dans `playbook/`).
 from ..entities.effects.loki.enmity_for_the_unworthy import (
     CTX_ADJACENT_UNITS as _ENMITY_CTX_UNITS, CTX_ADJACENT_DA as _ENMITY_CTX_DA)
+from ..entities.effects.loki.skullsmasher import CTX_OWNER_HEALTH as _SKULLSMASHER_CTX_HEALTH
+from ..entities.effects.loki.obsessive_annunciation import (
+    CTX_ADJACENT_ENEMY_IDS_OF as _OA_CTX_ADJ_ENEMY_IDS)
 from ..entities.stats import StatType, ARMOR_STAT_TYPES
 from ..services.damage_prediction import get_attack_prediction, apply_pierce_and_modifiers
 from ..services.battle_query import (
@@ -604,6 +608,15 @@ def attacker_modifiers(state: State, unit_id: int, hp: Optional[int], is_ranged:
     # (`None` = pas de contexte de stats), jamais un 0 rabattu -- un 0 ferait disparaitre le terme
     # `%` en silence au lieu de le declarer non mesure.
     att_ctx["owner_block_damage"] = _unit_stat(state, unit_id, int(StatType.BLOCK_DAMAGE))
+    # #953 : `StatAmount(Owner@DSLSelectors+0x30, StatType.Health = 5, {Missing = 4, Maximum = 2})`
+    # de `IdunBattle.Entities.Effects.Loki.Skullsmasher_ExtraDamageEffect$$GetMissingHealthSteps`.
+    # MEME convention que les cinq cles ci-dessus : sur CE canal l'OWNER de chaque effet parcouru
+    # EST l'attaquant (l'agregateur n'itere que SES effets), donc le couple porte bien les PV DU
+    # PORTEUR. Substrat = `HealthComponent` (le MEME foyer `_unit_hp_and_max` que `tgt_hp` /
+    # `HealthPctIsBelowOrEqual` et que `unit_health_of` du canal CRIT) : `GetStat(Health, Current)`
+    # rendrait le PV du SNAPSHOT, pas celui qui vient d'etre entame. Tri-etat `(None, None)`
+    # conserve -- un 0 rabattu ferait passer un porteur a PV pleins pour un porteur exsangue.
+    att_ctx[_SKULLSMASHER_CTX_HEALTH] = _unit_hp_and_max(state, unit_id)
     # #509 : `CurrentAbilityIs(<AbilityOrEffect>)` — l'ability COURANTE du coup
     # (`AbilityEntities+0x60`, lu par `AbilityTypeSelector.CurrentAbilitySelector$$Select`), a NE PAS
     # confondre avec `trigger_ability_type` ci-dessous, qui mirror `TriggeringAbilityIs`
@@ -913,7 +926,18 @@ def defender_modifiers(state: State, unit_id: int, hp: Optional[int],
                            # MEME canal et MEME forme `{(col,row): [noms]}` que celui deja monte
                            # pour `LetTheGalaxyBurnEffect` (`collect_additional_hit_groups`).
                            # `Tiles` = `UnitsMainTilesSelector` -> la MAIN TILE seule (`tp`).
-                           "tile_effects_by_pos": tile_status_effects_by_pos(state, [tp])}):
+                           "tile_effects_by_pos": tile_status_effects_by_pos(state, [tp]),
+                           # #954 -- le `CreateTargetSelector` d'`ObsessiveAnnunciation_ExtraDmg`
+                           # (`AdjacentEnemies(Owner@+0x30, unique: true, UnitSelectionType 3)`).
+                           # CALLABLE et PAR PORTEUR : la boucle native de
+                           # `DamageCalculations$$CalculateDefenderModifiersForPrediction` ecrit
+                           # `AbilityEntities+0x18 (Owner) <- CHAQUE CIBLE de l'effet`, donc
+                           # `get_OwnerIsTarget` y demande une APPARTENANCE a cet ensemble.
+                           # MEME cle, MEME resolveur et MEME semantique que celle posee par
+                           # `_crit_board` pour la moitie CRIT du meme passif -- pas de fork, et
+                           # les deux moities ne peuvent donc pas diverger sur la geometrie.
+                           _OA_CTX_ADJ_ENEMY_IDS:
+                               lambda oid: adjacent_enemy_ids(state, int(oid))}):
             add_modifier(mods, eb)
     return mods, active
 

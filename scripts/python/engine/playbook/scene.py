@@ -36,6 +36,8 @@ from engine.entities.stats import StatType as _ST
 from engine.entities.traits.unit_trait import UnitTrait, trait_names_from_ids
 from ..entities.pathfinding.board import adjacent_neigh_by_pos
 from ..entities.unit_faction import UnitFaction
+from .. import battle_query as _bq       # #954 : ring-1 STOCKE + porte d'elevation
+from . import adjacency as _adj          # foyer PARTAGE multi-tuiles + UnitSelectionType (#954)
 
 #: `UnitFaction.DarkAngels = 0xa` -- le NOM de la valeur d'enum, parce que c'est ce que le natif
 #: compare (`System.Enum.ToString(UnitFaction)` puis `String.Equals` sur `FactionComponent+0x30`),
@@ -745,6 +747,42 @@ class Scene:
     def enmity_adjacent_dark_angels_friends(self, uid) -> "int | None":
         """`..._ExtraDamageEffect$$AdjacentFriendlyDarkaUnitsAmount` -- cf. `_enmity_adjacent`."""
         return self._enmity_adjacent(uid, dark_angels_friends_only=True)
+
+    def adjacent_enemy_ids(self, uid) -> "frozenset | None":
+        """`AdjacentEnemies( Owner@DSLSelectors+0x30, unique: true,
+        UnitSelectionType.OnlyAliveAndTargetable = 3 )` -- face PREDICTION du `CreateTargetSelector`
+        PARTAGE des deux effets d'`ObsessiveAnnunciation` (#954), dont la face COMBAT est
+        `runner.components.adjacent_enemy_ids` (un noeud natif, deux substrats).
+
+        Rend les IDS et non un cardinal : les deux canaux qui le consomment interrogent une
+        APPARTENANCE (`get_OwnerIsTarget` = << la cible du coup est-elle l'une des cibles de
+        l'effet ? >>), la boucle native ecrivant `AbilityEntities+0x18 (Owner) <- CHAQUE CIBLE`.
+
+        L'adjacence passe par le foyer PARTAGE `playbook/adjacency.py` (#419-r1-tr10) et non par
+        `hexgeo.distance == 1` : `unit_in_adjacent_tiles` lit la LISTE STOCKEE **avec** la porte
+        d'elevation de `TileQuery.IterateAdjacentTiles`, et couvre les entites MULTI-TUILES des deux
+        cotes -- c'est le MEME substrat que la face COMBAT, donc les deux faces ne peuvent pas
+        diverger sur la geometrie. `unit_matches` porte le `selectionType 3`
+        (`UnitExtensions$$MatchesUnitSelectionType` = vivante **et** ciblable).
+
+        `None` (equipe ou position du porteur inconnue) => cle ABSENTE => le gate se FERME cote
+        effet (degradation RESTRICTIVE), jamais un ensemble VIDE invente."""
+        team = self.team_by_id.get(uid)
+        if team is None or self.pos(uid) is None:
+            return None
+        neigh = None
+        out = set()
+        for u in (self.units or ()):
+            oid = u.get("id")
+            if oid is None or oid == uid or u.get("team") == team:   # `Enemies(...)`
+                continue
+            if not _adj.unit_matches(self, u):                       # `selectionType = 3`
+                continue
+            if neigh is None:
+                neigh = _bq.neigh_map(self)
+            if _adj.unit_in_adjacent_tiles(self, uid, oid, self.elev_by_pos, neigh):
+                out.add(int(oid))
+        return frozenset(out)
 
     def _camo_cloak_cover_keys(self, uid, out: dict) -> None:
         """Les DEUX membres du `op_BitwiseOr` de `IdunBattle.Entities.Effects.Loki.

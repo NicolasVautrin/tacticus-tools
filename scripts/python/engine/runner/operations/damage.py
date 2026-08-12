@@ -98,9 +98,12 @@ from ...entities.effects import (crit_chance_bonus_from_effects, crit_damage_bon
 from .damage_hits import HitDamage, _DamageHitsMixin
 from .damage_ops import _DamageOpsMixin
 from ...entities.effects import board_effect_carriers
+from ...entities.effects.loki.obsessive_annunciation import (   # #954 -- un seul foyer de nommage
+    CTX_ADJACENT_ENEMY_IDS_OF as _OA_CTX_ADJ_ENEMY_IDS)
 from ...entities.traits.unit_trait import entity_trait_names
 from ..components import (HealthComponent, OwnerComponent, StatsComponent, UnitComponent,
                                   adjacent_enemies_count,
+                                  adjacent_enemy_ids,
                                   adjacent_friendly_mechanical_units_count,
                                   adjacent_friendly_summons_and_decoys_count,
                                   adjacent_mechanical_friends_count,
@@ -1209,6 +1212,15 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
                 # (la boucle native ECRASE `AbilityEntities+0x18` a chaque iteration).
                 "adjacent_enemies_of":
                     lambda oid: adjacent_enemies_count(state, int(oid)),
+                # #954 -- le `CreateTargetSelector` PARTAGE des deux effets d'`ObsessiveAnnunciation`
+                # (`AdjacentEnemies(Owner@+0x30, unique: true, UnitSelectionType 3)`, corps FONDU par
+                # l'ICF entre 1432 et 1433). CALLABLE, et PAR PORTEUR, pour la MEME raison que les
+                # six compteurs ci-dessus : la boucle native ECRASE `AbilityEntities+0x18` (`Owner`)
+                # par CHAQUE CIBLE de l'effet courant, donc `get_OwnerIsTarget` demande une
+                # APPARTENANCE a cet ensemble -- pas un compte, et pas une identite avec le porteur.
+                # C'est la SEULE cle de contexte neuve du lot #953/#954 sur cet axe.
+                _OA_CTX_ADJ_ENEMY_IDS:
+                    lambda oid: adjacent_enemy_ids(state, int(oid)),
                 # `...NetherRealmCasket_CritDamageReductionEffect$$AdjacentMechanicalUnits` (#908) --
                 # le slot virtuel `+0x5f8` que `$$CreateCritDamageBonus` appelle comme 2e facteur de
                 # son `Multiply`, et que `$$CreateActiveCondition` compare a zero. MEME forme

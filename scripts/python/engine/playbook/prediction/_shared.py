@@ -23,6 +23,8 @@ from engine.entities.effects import (
     hits_bonus_from_effects, hits_malus_from_defender_effects, additional_hit_groups,
     aura_additional_hits_from_allies)
 from engine.entities.effects.loki.hits import LIGHT_COVER_TILE_ID
+from engine.entities.effects.loki.obsessive_annunciation import (   # #954 -- un seul foyer de nommage
+    CTX_ADJACENT_ENEMY_IDS_OF as _OA_CTX_ADJ_ENEMY_IDS)
 from engine.entities.traits import attacker_bonus_hits, target_hit_multiplier
 from engine.entities.traits.factory import TraitFactory
 from engine.entities.traits.unit_trait import UnitTrait, entity_trait_names
@@ -638,6 +640,14 @@ def _add_positional_and_defender_mods(mods, scene, att_id, tgt_id, is_melee, att
                             # MEME source que la face COMBAT ; les deux autres conjoints
                             # (`att_pos`, `att_team`) etaient DEJA la, poses par #950.
                             "att_traits": att_ctx.get("traits"),
+                            # #954 -- le `CreateTargetSelector` d'`ObsessiveAnnunciation_ExtraDmg`
+                            # (`AdjacentEnemies(Owner@+0x30, unique: true, UnitSelectionType 3)`).
+                            # CALLABLE et PAR PORTEUR : la boucle native ecrit
+                            # `AbilityEntities+0x18 (Owner) <- CHAQUE CIBLE de l'effet`, donc
+                            # `get_OwnerIsTarget` y demande une APPARTENANCE. MEME cle, MEME
+                            # semantique et MEME foyer d'adjacence (`playbook/adjacency.py`) que la
+                            # face COMBAT (`damage_model.defender_modifiers`) -- pas de fork.
+                            _OA_CTX_ADJ_ENEMY_IDS: scene.adjacent_enemy_ids,
                             "tile_effects_by_pos": scene.tile_effects_by_pos}):
         # #446-r2 : ces auras sortent de la boucle `EffectWithTarget` de
         # `IdunBattle.Core.Services.DamageCalculations$$CalculateDefenderModifiersForPrediction` --

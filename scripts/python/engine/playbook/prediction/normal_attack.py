@@ -17,6 +17,8 @@ from engine.entities.traits.unit_trait import entity_trait_names
 # un seul foyer de nommage pour les DEUX faces (PREDICTION ici, COMBAT dans `runner/damage_model`).
 from engine.entities.effects.loki.enmity_for_the_unworthy import (
     CTX_ADJACENT_UNITS as _ENMITY_CTX_UNITS, CTX_ADJACENT_DA as _ENMITY_CTX_DA)
+# #953 : meme regle, meme foyer -- la cle du couple de PV du porteur vit dans la classe d'effet.
+from engine.entities.effects.loki.skullsmasher import CTX_OWNER_HEALTH as _SKULLSMASHER_CTX_HEALTH
 from engine.services.custom_normal_attack import substitutes_normal_attack
 from engine.runner.abilities.loki.mv71 import pick_tile_scene
 from engine.services.battle_query import get_attack_weapon_for_default_normal_attack
@@ -694,7 +696,14 @@ def make_normal_attack_predictions(scene, att_id, tgt_id, attack_pos, *, meta=Fa
                 # porte en plus l'etage `NonSteppableOrObjectUnits`, et sa face Pct ne filtre NI
                 # l'equipe NI la faction.
                 _ENMITY_CTX_UNITS: scene.enmity_adjacent_units(att_id),
-                _ENMITY_CTX_DA: scene.enmity_adjacent_dark_angels_friends(att_id)}
+                _ENMITY_CTX_DA: scene.enmity_adjacent_dark_angels_friends(att_id),
+                # #953 -- `StatAmount(Owner@DSLSelectors+0x30, Health, {Missing, Maximum})` de
+                # `Skullsmasher_ExtraDamageEffect$$GetMissingHealthSteps`, PATTE SELF comme les cles
+                # ci-dessus (l'OWNER de chaque effet parcouru EST l'attaquant, ce qu'exige son
+                # `get_OwnerIsCaster`). MEME couple et MEME substrat que la face COMBAT
+                # (`damage_model.attacker_modifiers`, `HealthComponent`) : `scene.hp`/`scene.hpmax`
+                # sont alimentes par le MEME `HealthComponent`. Tri-etat `(None, None)` conserve.
+                _SKULLSMASHER_CTX_HEALTH: (scene.hp(att_id), scene.hpmax(att_id))}
     mods = calculate_attacker_modifiers_for_prediction(att_effects, is_ranged=_ranged, has_moved=_hm,
                                                        target_traits=_tgt_traits,
                                                        target_armor_reduced=_tgt_armor_reduced,
