@@ -82,6 +82,13 @@
    "py": [],
    "temoins": []
   },
+  "tests/engine/playbook/test_969_effect_buff_decision_faces_offline.py": {
+   "_at": 1786533730,
+   "_commit": "3f1923e145fbe0366655e66d8d528523c16d594e",
+   "dirs": [],
+   "py": [],
+   "temoins": []
+  },
   "tests/engine/runner/test_120bis_spawn_tile_offline.py": {
    "_at": 1786392144,
    "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",

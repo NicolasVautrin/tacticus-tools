@@ -119,6 +119,11 @@ from .ordnance_battery import ForwardSpotterPlaybook, MalleusRocketLauncherPlayb
 from .necro_reanimator import NanoscarabRepairProtocolsPlaybook, ReanimationBeamPlaybook
 from .twin_smart_missile_system import TwinSmartMissileSystemPlaybook
 from .squig_mine import SquigMinePlaybook
+from .crusade_of_wrath import CrusadeOfWrathPlaybook
+from .daemonic_patrons import DaemonicPatronsPlaybook
+from .death_from_above import DeathFromAbovePlaybook
+from .sternguard_focus import SternguardFocusPlaybook
+from .war_howl import WarHowlPlaybook
 
 
 # Registre abilityType -> instance de playbook (remplace le switch `kind`).
@@ -349,6 +354,39 @@ PLAYBOOKS: dict[int, NonComparablePlaybook] = {
         #                                 gate `IsFreeTile` DANS le playbook, domaine TUILE.
         #                                 `PRIORITY = -100` : octets `mov eax,0xFFFFFF9C` cites
         #                                 dans `NATIVE_PRIORITY`.
+        # #969 -- les CINQ faces DECISION de categorie EFFECT/BUFF dont la face COMBAT etait deja
+        # portee. Base `NonComparablePlaybook`1` LUE dans `frida/classes.tsv` pour les cinq -- et le
+        # `.ctor` NOMME `ComparablePlaybook<...>` pour les CINQ (corps gshared DEDUPLIQUE, piege de
+        # #487-r1 / #945 / #967). La fiche `#893-r1` du backlog avait recopie ce faux nom pour 1049.
+        # Reachability LUE dans `metadata/active_playbook_builders.tsv` : cinq entrees du dict
+        # `active`, une par ability -> aucune n'est du code registered-but-dead. Aucune ne surcharge
+        # `get_Priority` (absentes du sweep exhaustif #170) -> tier 0 pour les cinq.
+        CrusadeOfWrathPlaybook(),       # 1049 (`templHelbrecht`) -- util = #allies que le buff
+        #                                 toucherait DEPUIS la position candidate (le sous-arbre
+        #                                 `crusade_of_wrath_buff_targets` de la face COMBAT, evalue
+        #                                 par tuile) ; cible = le CASTER (self-cast). Le `.cctor`
+        #                                 pose DEUX statiques : `1` (min + facteur) et `0.1`
+        #                                 (facteur de `GetUseProbability`). Gate DETERMINISTE
+        #                                 `maxBuffed > 0`. POSITION-DEPENDANTE -> il se deplace.
+        DaemonicPatronsPlaybook(),      # 1203 (`emperFlawlessBlade`) -- util = PV COURANTS de la
+        #                                 cible ; gate `continue` si `WillNormalAttackKill`. Meme
+        #                                 squelette que `MindControlPlaybook` + le gate de
+        #                                 `KillMaimBurnPlaybook`.
+        DeathFromAbovePlaybook(),       # 1003 (`ultraInceptorSgt`) -- util = #tuiles ou un Inceptor
+        #                                 peut atterrir autour de la cible. ⚠ Le corps appele est
+        #                                 nomme `SpawnTermagantsAbility$$<ExecuteBehaviour>b__1_0`
+        #                                 par ghidra (fusion ICF) : c'est l'arbre de 1003. Surcharge
+        #                                 DIRECTE du slot 4 (`GetBestTarget` + `GetNumSummons`).
+        SternguardFocusPlaybook(),      # 1228 (`darkaSternguard`) -- util = 1 + 10 si un AUTRE Dark
+        #                                 Angel ami est adjacent a la POSITION DU CASTER. ⚠ Terme
+        #                                 calcule DANS la boucle des cibles mais argumente par
+        #                                 `e.CasterPosition` : il departage les POSITIONS, jamais les
+        #                                 cibles -- l'inverse exact du piege de #957.
+        WarHowlPlaybook(),              # 1106 (`spaceBlackmane`) -- util PLATE `Fix64(1)`, cible =
+        #                                 le CASTER (self-cast, RANGE_SELF). Tout le discriminant
+        #                                 est dans `GetUseProbability`, dont le ZERO (le caster n'a
+        #                                 AUCUNE cible d'attaque normale sur toute son aire de move)
+        #                                 fait S'ABSTENIR le natif -- c'est ce zero qui est porte.
     )
 }
 
@@ -429,4 +467,6 @@ __all__ = [
     "ForwardSpotterPlaybook", "MalleusRocketLauncherPlaybook",
     "NanoscarabRepairProtocolsPlaybook", "ReanimationBeamPlaybook",
     "TwinSmartMissileSystemPlaybook", "SquigMinePlaybook",
+    "CrusadeOfWrathPlaybook", "DaemonicPatronsPlaybook", "DeathFromAbovePlaybook",
+    "SternguardFocusPlaybook", "WarHowlPlaybook",
 ]
