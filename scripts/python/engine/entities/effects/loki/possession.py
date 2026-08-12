@@ -86,9 +86,29 @@ class AttemptedPossessionPossessedEffect(BaseEffect):
     premier rang (`Parent(Owner)` vide). Le trigger vit sur l'EFFET, pas sur l'ability : il survit
     donc au `RemoveEffect` de queue pour les enfants poses apres.
     C'est le seul chemin par lequel un `AttemptedPossession_Possessed` dure vraiment `1` tour.
-    NON PORTE : residu `#590-r3` (`BLOCAGE: etage` -- le port n'a pas de canal
-    `CreateHandleTriggerAbilities` sur les effets de bond ; le vecteur `On(UnitAdded)` existe cote
-    triggers mais aucun effet porte ne s'y abonne). Portee de l'ecart : nulle sur `thousSorcerer`
+    NON PORTE : residu `#590-r3`. ⚠ **SON `BLOCAGE: etage` ETAIT PERIME, et c'est cette phrase-ci
+    qui le portait** -- re-mesure #984 sur le commit courant : les trois etages qu'elle declarait
+    manquants EXISTENT tous les trois.
+      * le canal EST porte : `EFFECT_TRIGGERS` (`runner/operations/triggers/dispatch/registry.py`),
+        consomme par `collect_effect_triggers` (`.../dispatch/core.py`), et il porte DEJA des
+        entrees issues d'un `CreateHandleTriggerAbilitiesInternal` (1009 `RangedAutoAttackEffect`,
+        `PhoenixGem_CanReviveEffect`) ;
+      * la BASE `ABondEffect` est DEJA mirroree -- `runner/operations/triggers/bond_removal.py`
+        porte ses trois triggers de retrait ;
+      * le vecteur `On(UnitAdded)` n'est pas seulement present, il est VIVANT : `on_unit_added`
+        (`runner/operations/spawn.py`) a deja des abonnes portes (`GhostRemoveOnUnitAdded`,
+        `ContagionsOfNurgle_AddEffectToNewUnit`, ...).
+    Le travail restant est donc **deux entrees de registre**, pas un etage a ouvrir.
+    ⚠ **SECOND ECART, que le residu ne nommait pas** : `1209` est absent de `EFFECT_TRIGGERS` **ET**
+    de `bond_removal.py` -- il manque donc AUSSI les trois triggers de retrait de bond herites de
+    la base, pas seulement la propagation.
+    ⚠ **CE QUI RESTE NON PROUVE, et qui interdit de porter a l'aveugle** : `<DSLSelectors+0x40>`
+    est une HYPOTHESE ETAYEE (`Actor`), pas une lecture -- `DSLSelectors` expose ses selecteurs
+    partages en CHAMPS, et aucun dump de champs n'existe sous `data/symbols/<build>/`. Et les
+    VALEURS des trois getters de `ABondEffect` (`+0x748`/`+0x728`/`+0x738`) POUR CET EFFET sont
+    inconnues (corps dedupliques, absents de `methods.tsv`), donc lesquels des trois retraits
+    s'arment reellement sur 1209 reste a etablir avant de l'inscrire.
+    Portee de l'ecart : nulle sur `thousSorcerer`
     tant qu'aucune unite possedee n'invoque pendant sa propre action IA -- regime etroit (il
     faudrait que le moteur d'utilite elise une ability de summon, alors que le `customUtility` de
     l'ability CONTRAINT le choix a une attaque normale sur la cible preferee, cf.

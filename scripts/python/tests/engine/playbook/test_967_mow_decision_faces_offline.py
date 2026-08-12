@@ -441,6 +441,13 @@ def test_hailstrike_le_bonus_de_500_domine_le_terme_de_percage():
     assert pb.RANGED_BONUS > pb.PIERCE_BASE + 10, (
         "la domination du bonus n'est plus structurelle -- le residu #967-r3 change de portee")
     assert pb.RNG_TERM == 0.0, "le terme aleatoire doit rester une BORNE, jamais une moyenne"
+    # #984 : la borne HAUTE est LUE, pas estimee -- `IntBasedMersenneTwister$$NextInternal` rend
+    # `min + (g % (max - min))`, borne haute EXCLUE, donc `Next(0, 10)` est dans [0, 9].
+    # Une moyenne (4,5) a cette place serait un FIT ; 9 est une lecture.
+    assert pb.RNG_TERM_MAX == 9.0, (
+        "borne HAUTE de `Next(0, 10)` : 9, LUE au decompile (borne haute exclue), jamais 10 ni 4,5")
+    assert pb.RANGED_BONUS > pb.RNG_TERM_MAX, (
+        "le terme aleatoire doit rester incapable de renverser une classe de bonus")
 
 
 def test_hailstrike_prefere_l_allie_au_plus_faible_percage():
@@ -499,6 +506,105 @@ def test_hailstrike_bonus_overwatch_bascule_la_cible():
     avec = pb._ranged_bonus(ctx, 52, ow)
     assert avec == pb.RANGED_BONUS and avec != sans, (
         "contre-epreuve MUETTE : le bonus Overwatch ne separe pas (%s vs %s)" % (avec, sans))
+
+
+def test_hailstrike_le_regime_a_utilite_nulle_existe_VRAIMENT_dans_le_gameconfig():
+    """#984 -- PREMISSE du test suivant, mesuree et non supposee.
+
+    Le terme aleatoire non porte ne decide de l'EXISTENCE de l'action que si le regime
+    `pierce + bonus == 0` est atteignable par une cible LEGALE de 1214. Ce test derive ce regime
+    du gameconfig au lieu de le postuler : il exige au moins une unite qui (a) n'a aucune arme
+    lisible -> `pierce == 0`, (b) n'a ni `Overwatch` ni arme a distance -> `bonus == 0`, et
+    (c) reste une CIBLE LEGALE du masque `TargetIsFriendly | TargetIsUnit | TargetIsNotAnObject`,
+    c'est-a-dire n'est ni un objet (`Object`) ni une MACHINE (les MoW echouent `TargetIsUnit`,
+    `GetUnit(MoW)` etant nul cote natif).
+
+    Mesure au 2026-08-12 : `darkaSmnWatcher` -- summon de faction DarkAngels, donc allie NATUREL
+    du `darkaStormSpeeder`. Si ce test devient VIDE au prochain build, `#967-r3` change de portee
+    et le seuil ci-dessous doit etre re-arbitre, pas conserve par inertie."""
+    import gameconfig as gc
+    d = gc.all_unit_ids() or {}
+    porteurs = []
+    for uid in list(d.get("summons") or []) + list(d.get("lineup") or []):
+        cfg = gc.unit(uid) or {}
+        if cfg.get("kind") not in ("summons", "lineup"):
+            pass
+        traits = cfg.get("traits") or []
+        ws = cfg.get("weapons") or []
+        if "Object" in traits or "Overwatch" in traits:
+            continue
+        if any(w.get("Range") for w in ws):
+            continue
+        # une MoW n'a pas d'`weapons` NON PLUS, mais elle est exclue par `TargetIsUnit` :
+        # on ne retient donc que ce qui est une UNITE (les summons le sont).
+        if cfg.get("kind") != "summons":
+            continue
+        pierce = 0.0
+        w = next((x for x in ws if x.get("Range")), None) or next((x for x in ws if not x.get("Range")), None)
+        if w is not None and w.get("DamageProfile"):
+            r = (gc.damage_profile(w["DamageProfile"]) or {}).get("PiercingRatio")
+            if r is not None:
+                pierce = 100.0 - float(r)
+        if pierce == 0.0:
+            porteurs.append(uid)
+    assert porteurs, (
+        "regime `pierce + bonus == 0` INTROUVABLE parmi les summons -- #967-r3 change de portee, "
+        "le seuil a la borne HAUTE doit etre re-arbitre")
+    assert "darkaSmnWatcher" in porteurs, (
+        "le porteur MESURE de ce regime a disparu (porteurs trouves : %s)" % (sorted(porteurs)[:8],))
+
+
+def test_hailstrike_le_seuil_est_franchi_par_la_borne_HAUTE_du_terme_aleatoire():
+    """#984 -- `pierce + bonus == 0` : le natif emet ssi `rnd >= 1`, soit **9 fois sur 10** ;
+    trancher par la borne BASSE (`rnd = 0`) supprimerait l'action TOUJOURS.
+
+    C'est le SEUL axe sur lequel le terme aleatoire non porte n'est pas reductible a une
+    constante : sur le CLASSEMENT, toute constante commune aux N cibles est l'identite sur
+    l'argmax. Le port tranche donc par `RNG_TERM_MAX`, valeur **LUE** (`Next(0, 10)` -> [0, 9]).
+
+    CONTRE-EPREUVE dans le meme test : avec la borne remise a 0, l'action DISPARAIT. Sans elle
+    ce test passerait aussi bien sur un port qui ne franchit jamais rien."""
+    pb = NC.PLAYBOOKS[HAILSTRIKE]
+    units = [{"id": 61, "visualId": "darkaSmnWatcher", "pos": {"col": 1, "row": 1}}]
+    ctx = _ctx(HAILSTRIKE, [_unit_entry(61)], units=units)
+
+    # la premisse du regime, verifiee sur le port lui-meme (pas seulement sur le gameconfig)
+    assert pb._pierce_utility("darkaSmnWatcher") == 0.0
+    assert pb._ranged_bonus(ctx, 61, "darkaSmnWatcher") == 0.0
+
+    out = pb.generate_candidates(ctx)
+    assert out and out[0]["target"] == 61, (
+        "le port SUPPRIME une action que le natif propose 9 fois sur 10 (regime pierce+bonus==0)")
+    assert out[0]["pred"] == 0.0, (
+        "le terme aleatoire ne doit PAS entrer dans l'utilite rapportee -- seulement dans le seuil")
+
+    # CONTRE-EPREUVE : borne remise a 0 -> plus rien. Verifie que la mutation a bien mordu.
+    ancien = pb.RNG_TERM_MAX
+    try:
+        pb.RNG_TERM_MAX = 0.0
+        mute = pb.generate_candidates(ctx)
+        assert not mute, (
+            "contre-epreuve MUETTE : l'action survit meme sans la borne haute, "
+            "donc ce test ne garde rien")
+    finally:
+        pb.RNG_TERM_MAX = ancien
+    assert pb.RNG_TERM_MAX == 9.0, "restauration de la borne apres contre-epreuve"
+
+
+def test_hailstrike_la_borne_haute_ne_franchit_PAS_un_seuil_arbitraire():
+    """Garde de PORTEE : la borne haute ne doit pas devenir un passe-partout. Elle vaut 9 ; un
+    `MIN_UTILITY` superieur a 9 doit continuer de REFUSER le regime a utilite nulle."""
+    pb = NC.PLAYBOOKS[HAILSTRIKE]
+    units = [{"id": 61, "visualId": "darkaSmnWatcher", "pos": {"col": 1, "row": 1}}]
+    ctx = _ctx(HAILSTRIKE, [_unit_entry(61)], units=units)
+    ancien = pb.MIN_UTILITY
+    try:
+        pb.MIN_UTILITY = 10.0                      # > RNG_TERM_MAX : aucun tirage ne franchit
+        assert not pb.generate_candidates(ctx), (
+            "la borne haute franchit un seuil que MEME le meilleur tirage natif ne franchirait pas")
+    finally:
+        pb.MIN_UTILITY = ancien
+    assert pb.MIN_UTILITY == 1.0, "restauration du seuil apres contre-epreuve"
 
 
 # --------------------------------------------------------------------------------------------- #
