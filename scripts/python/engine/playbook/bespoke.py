@@ -164,22 +164,41 @@ class CultDemagoguePlaybook:
     Cible = un ENNEMI (<=2 hex) ; cast EN PLACE (pas de sweep : régime Comparable, position caster fixée).
 
     Utilité (par cible éligible) :
-      u = 1 + min(#tuiles_libres autour CASTER r2, nrOfSummons[lvl]) * W
+      u = 1 + min(#tuiles_libres autour CIBLE r2, nrOfSummons[lvl]) * W
             + (#decoys + #neophytes AMIS autour CIBLE r2) * W
     W = `Utilities.Default.ActiveAbilities.CultDemagogue_FriendlyDecoysAndNeophytes` = 20 (MÊME poids pour
     les DEUX termes, DAT_18327dcc8 unique). MIN_UTILITY = `Fix64.FromInt(1)` = 1 (IdunBattle.AI.Playbook.Loki.CultDemagoguePlaybook$$.cctor).
-    Helpers natifs (VA) :
-    - `IdunBattleLogic.Entities.Abilities.Active.Loki.CultDemagogueAbility$$PossibleTilesForDecoys` = `CanAddUnit(SurroundingTiles(caster, range=GetNumberConstant
-      (0x44)=2))` -> tuiles LIBRES placeables <=2 hex du CASTER. `.Count`.
+    Helpers natifs :
+    - `IdunBattleLogic.Entities.Abilities.Active.Loki.CultDemagogueAbility$$PossibleTilesForDecoys` =
+      `CanAddUnit( SurroundingTiles(<DSLSelectors+0x60>, includeCenter: 0,
+                                    range = GetNumberConstant(0x44) = 2, onlyMovable: 0,
+                                    includeNonWalkable: 0),
+                   isSteppable: <DSLTriggers+0x40> )`.
+      ⚠ **`<DSLSelectors+0x60>` est `Target`, PAS `Caster`** (#952). Le port a longtemps compté les
+      tuiles libres autour du CASTER : c'était un FORK avec sa propre face COMBAT, qui dit déjà
+      « tuiles libres ≤ `range` hex de la CIBLE » (`genestealer.SpawnDecoys` ->
+      `_surrounding_free_tiles(state, _pos_of(state, target_id), radius)`), et avec la carte de
+      champs que le reste du port cite partout (`+0x30 = Owner`, `+0x48 = Caster`, `+0x60 = Target`
+      — cf. `HadesAutocannonsAbility`, `MassDriverAcceleratorAbility`, `FragBombAbility$$
+      GetAdjacentTargets`, qui SOUSTRAIT `+0x48` pour retirer le caster).
+      CONSÉQUENCE : ce terme n'est **PAS** constant sur les cibles — il DÉPARTAGE l'argmax, et il le
+      domine (`W = 20`, `min(...)` va de 0 à `nrOfSummons`, quand le terme 2 dépasse rarement 1 ou 2).
     - `IdunBattleLogic.Entities.Abilities.Active.Loki.CultDemagogueAbility$$GetDecoyAmount` = `GetVariableForLevel(0x4f)` = `nrOfSummons` (4->8 selon niveau, NON
       rarity-scaled). i2 : « up to 8 decoys ».
     - `IdunBattleLogic.Entities.Abilities.Active.Loki.CultDemagogueAbility$$FriendlyDecoysAroundTarget` / `IdunBattleLogic.Entities.Abilities.Active.Loki.CultDemagogueAbility$$FriendlyNeophytesAroundTarget` =
-      `SurroundingEnemies(range=2 autour de la CIBLE)` filtré `UnitsWithId(genesSmnDecoy / genesSmnNeophyte)`
-      -> les alliés du CASTER de ce visualId à <=2 hex de la cible. Count via `SelectUniqueUnits` (le param
-      3 = mode SelectUnit, PAS un cap sur le count).
+      `SurroundingEnemies(<DSLSelectors+0x60> = Target, range=GetNumberConstant(0x44)=2, unique: 1,
+      sel: 3)` filtré `UnitsWithId(genesSmnDecoy / genesSmnNeophyte)` -> les alliés du CASTER de ce
+      visualId à <=2 hex de la cible (« ennemis DE LA CIBLE » = alliés du caster). Count via
+      `SelectUniqueUnits` (le param 3 = mode SelectUnit, PAS un cap sur le count).
     L'ÉLIGIBILITÉ (ennemi <=2 hex) est déléguée à `ability_targets` (le RPC applique
-    `IdunBattleLogic.Entities.Abilities.Active.Loki.CultDemagogueAbility$$GetDynamicInvalidTargetReason`). Terme 1 = CONSTANT sur les cibles
-    (dépend du caster) -> n'affecte PAS l'argmax de cible, seulement la magnitude vs autres abilities."""
+    `IdunBattleLogic.Entities.Abilities.Active.Loki.CultDemagogueAbility$$GetDynamicInvalidTargetReason`).
+
+    ⚠ LES DEUX `AbilityEntities` DU CORPS NE SONT PAS LE MÊME, et c'est LU : `PossibleTilesForDecoys`
+    est évalué sur l'`AbilityEntities` COURANTE du `foreach` (celle que
+    `GetEligibleTargetsSelectable` produit pour la cible en cours), tandis que les deux
+    `SelectUniqueUnits` reçoivent un `AbilityEntities` NEUF (`memset` 0x128) dont SEUL `+0x10 =
+    target` est renseigné. Aucun des trois sélecteurs ne lit le champ `caster` (`+0x08`) : les trois
+    ancrent sur `<DSLSelectors+0x60>`, donc le buffer nul suffit."""
 
     ABILITY_ID = int(ActiveAbilityType.CultDemagogue)  # 1179
     W_KEY = "CultDemagogue_FriendlyDecoysAndNeophytes"   # cat ActiveAbilities ; W=20 (seed-bc)
@@ -207,8 +226,6 @@ class CultDemagoguePlaybook:
         w = ctx.wt.sub("ActiveAbilities", self.W_KEY)          # 20
         lvl = ctx.heal_config(ctx.uid)["active"]               # niveau ACTIF du caster
         decoy_amt = int(ability_var("CultDemagogue", "nrOfSummons", lvl) or 0)
-        # Terme 1 (CONSTANT sur les cibles) : min(#tuiles libres <=2 du CASTER, nrOfSummons).
-        term1 = min(self._free_tiles_around(ctx, ctx.origin), decoy_amt) * w
         # decoys/neophytes AMIS positionnés (pour le terme 2, par cible).
         team = me.get("team")
         summons = [(u["pos"]["col"], u["pos"]["row"]) for u in ctx.units
@@ -222,13 +239,16 @@ class CultDemagoguePlaybook:
             if not tp or tp.get("col") is None:
                 continue
             tpos = (tp["col"], tp["row"])
+            # Terme 1 -- PAR CIBLE (#952) : `min(|PossibleTilesForDecoys(TARGET)|, nrOfSummons)`.
+            # L'ancre est `<DSLSelectors+0x60> = Target`, pas le caster (cf. la docstring).
+            term1 = min(self._free_tiles_around(ctx, tpos), decoy_amt) * w
             n_around = sum(1 for s in summons if hexgeo.distance(tpos, s) <= self._RANGE)
             util = 1.0 + term1 + n_around * w
             if best is None or util > best[1]:            # argmax strict (Bucket keep-first au tie)
                 best = (tid, util)
         if ctx.debug:
             import sys
-            print(f"    [dbg CultDemagogue u{ctx.uid}] W={w} decoyAmt={decoy_amt} term1={term1} "
+            print(f"    [dbg CultDemagogue u{ctx.uid}] W={w} decoyAmt={decoy_amt} "
                   f"tgts={sorted(tgt_ids)} best={best}", file=sys.stderr)
         if best is None or best[1] < self.MIN_UTILITY:
             return []
@@ -236,13 +256,22 @@ class CultDemagoguePlaybook:
                  "pred": best[1], "full": best[1]}]
 
     def _free_tiles_around(self, ctx, center) -> int:
-        """`IdunBattleLogic.Entities.Abilities.Active.Loki.CultDemagogueAbility$$PossibleTilesForDecoys` : `CanAddUnit(SurroundingTiles(center, range=2))` = tuiles
-        LIBRES placeables à <=2 hex du CASTER (center=origine). Occupation LIVE = epos u fpos u origine
-        (frais), PAS l'occupantUnitId caché du boardGraph (cf. can_add_unit #116)."""
+        """`IdunBattleLogic.Entities.Abilities.Active.Loki.CultDemagogueAbility$$PossibleTilesForDecoys` :
+        `CanAddUnit(SurroundingTiles(<DSLSelectors+0x60> = Target, includeCenter: 0, range = 2,
+        onlyMovable: 0, includeNonWalkable: 0), isSteppable: <DSLTriggers+0x40>)` = tuiles LIBRES
+        placeables à <=2 hex de la **CIBLE** (#952 : `center` est la position de la cible, pas
+        l'origine du caster). `includeCenter = 0` LU au call-site -> le centre est exclu, et pas
+        seulement parce qu'il est occupé.
+
+        Occupation LIVE = `epos u fpos u origine` (frais), PAS l'`occupantUnitId` caché du boardGraph
+        (cf. `can_add_unit` #116). L'origine du caster est ajoutée EXPLICITEMENT : `ctx.fpos` exclut
+        le mover, et depuis #952 `center` ne l'est plus (il vaut la tuile de la cible, déjà dans
+        `epos`)."""
         if center is None:
             return 0
         occ = set(ctx.epos or []) | set(ctx.fpos or [])
-        occ.add(center)
+        if ctx.origin is not None:
+            occ.add(ctx.origin)                     # le CASTER lui-même (absent de `fpos`)
         return sum(1 for T in (ctx.walkable_by_pos or {})
                    if T != center and hexgeo.distance(center, T) <= self._RANGE
                    and bq.can_add_unit(T, ctx.walkable_by_pos, occ))

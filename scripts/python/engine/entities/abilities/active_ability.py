@@ -917,6 +917,66 @@ class MassDriverAcceleratorAbility(AActiveAbility):
         return self._AOE.evaluate(ctx)
 
 
+class FragBombAbility(AActiveAbility):
+    """`FragBomb` (1017, `astraBullgryn` « Kut Skoden ») — le volet **SPLASH** de sa prédiction (#952).
+
+    `IdunBattle.AI.Playbook.Loki.FragBombPlaybook$$MakeDamagePredictions` émet **DEUX** batchs
+    `IdunBattle.AI.Playbook.ComparablePlaybooku003C__Il2CppFullySharedGenericTypeu003E$$GenerateMultiHitAttackPredictions`,
+    concaténés dans une seule `List<ProbableDamageEvent>` — MÊME forme que
+    `MassDriverAcceleratorPlaybook` :
+
+        damage = <X>Ability$$GetDamageAmountMain(abilityState)      # corps DEDUPLIQUE, etiquete
+                                                                    # `StranglethornCannonAbility$$
+                                                                    #  GetDamageAmountMain`
+        hits   = AActiveAbility$$GetHits()                          # GetNumberConstant(0x2f = nrOfHits)
+        list   = GenerateMultiHitAttackPredictions(caster, casterPosition, target,
+                     <DSLSelectors+0x60 = Target>, damage, hits, param_8 = 0, null, 0)
+        ae     = default(AbilityEntities); ae.<+0x08> = caster; ae.<+0x10> = target
+        hits2  = AActiveAbility$$GetHits2()                         # GetNumberConstant(0x32 = nrOfHits_2)
+        for e in <GetAdjacentTargets>.Select(ae):
+            list.AddRange( GenerateMultiHitAttackPredictions(caster, casterPosition, e,
+                               DSLSelectors$$Entity(e), damage, hits2, param_8 = 0, null, 0) )
+        return list
+
+    QUATRE lectures que le décompilé impose :
+
+    1. **Le SET est `AdjacentUnits` NU — friendly-fire.**
+       `...FragBombAbility$$GetAdjacentTargets` =
+       `AdjacentUnits(<DSLSelectors+0x60> = Target, unique: 0, sel: 3) op_Subtraction
+        <DSLSelectors+0x48> = Caster`.
+       AUCUN wrapper `Enemies(...)` (contraste `MassDriverAccelerator`, qui en a un) : les ALLIÉS du
+       caster adjacents à la tuile ciblée sont prédits eux aussi, et leur event est `friendly` —
+       donc son utilité est NÉGÉE par `CalculateUtilityFromDamageEvent`. C'est le MÊME artefact que
+       la face COMBAT (`runner/abilities/astramilitarum.frag_bomb_tree` :
+       `Sub(Sub(Units(AdjacentTiles(Target())), Target()), Caster())`, mesuré live — l'allié
+       `astraCreed` adjacent à la cible encaisse bien 3 coups).
+       `AdjacentUnits` retire déjà le centre (la cible) par construction.
+    2. **Le splash porte sur l'unité ADJACENTE**, pas sur la cible principale : `param_5` est
+       `DSLSelectors$$Entity(<entité itérée>)`, reconstruit à chaque tour (contraste
+       `Stikkbomb`/`PlasmaGrenade`, qui repassent le sélecteur `Target` — d'où leur quirk « n events
+       identiques sur la cible principale », cf. `prediction.make_secondary_multihit_event`). Chaque
+       event est donc prédit contre les PV / l'armure / les traits de SON unité.
+    3. **Le dégât du splash est celui du batch PRINCIPAL** : `damage` est évalué UNE fois, hors
+       boucle, et repassé en `param_6` aux deux batchs. La config 1017 n'a d'ailleurs AUCUNE variable
+       `_2` (`minDmg_2`/`maxDmg_2` absents) — la plage est partagée, exactement comme côté COMBAT.
+    4. **Seuls les COUPS changent entre les deux batchs**, et `param_8` (le `Nullable<DamageProfile>`)
+       est **0 sur les DEUX** — d'où l'entrée `_PLAYBOOK_PROFILE_OVERRIDE[FragBomb] = "None"`, qui
+       vaut donc pour le principal comme pour le splash (pierce 0, armure PLEINE). Contraste
+       `MassDriverAccelerator`, dont le splash a son PROPRE profil (`GetDamageProfile2`).
+
+    Les entrées per-batch sont fournies par `engine.playbook.prediction.abilities.
+    _frag_bomb_inputs` ; cette classe ne porte que le SET."""
+
+    # `...FragBombAbility$$GetAdjacentTargets` — `AdjacentUnits` NU (aucun filtre d'équipe) moins le
+    # CASTER. `radius = 1` : le natif n'a qu'UNE surcharge d'`AdjacentUnits`
+    # (`(this, origin, unique, selectionType)`), dont le corps est
+    # `Units(AdjacentTiles(origin), …) op_Subtraction origin` — l'anneau 1 exact.
+    _AOE = dsl.Sub(dsl.AdjacentUnits(dsl.TargetTile(), dsl.Const(1)), dsl.Caster())
+
+    def get_aoe_targets(self, ctx):
+        return self._AOE.evaluate(ctx)
+
+
 class HadesAutocannonsAbility(AActiveAbility):
     """`HadesAutocannons` (1147, MoW `blackForgefiend`) — le volet **AoE** de sa prédiction (#359).
 
@@ -1166,6 +1226,7 @@ _SPECIAL_ABILITY_CLASSES: dict[str, type[AActiveAbility]] = {
     "FrenziedFiring": FrenziedFiringAbility,
     "SavageEchoes": SavageEchoesAbility,
     "MassDriverAccelerator": MassDriverAcceleratorAbility,
+    "FragBomb": FragBombAbility,                     # #952 — volet SPLASH (`GetAdjacentTargets`)
 }
 
 
@@ -1237,6 +1298,18 @@ _NONCOMPARABLE_ABILITIES: "frozenset[str]" = frozenset({
     "AlphaWarrior",       # 1112 IdunBattle.AI.Playbook.Loki.AlphaWarriorPlaybook$$EvaluateNonComparable ; util booleenne (le gameconfig de 1112
                           # n'a d'ailleurs ni `minDmg` ni `maxDmg` : l'entree est ici pour que le
                           # DISPATCH soit juste, pas pour corriger un chiffre -- comme MindControl)
+    # --- #952 : les TROIS playbooks `NonComparable` du lot. Base LUE dans `frida/classes.tsv`
+    # (`NonComparablePlaybook`1` pour les trois) ; recensement des corps fait AU BLOC d'adresses de
+    # `ghidra/functions.tsv` -- trois corps CONTIGUS chacune (`EvaluateNonComparable`, `.cctor`,
+    # `.ctor`), AUCUN `Make*Predictions`. Le natif n'emet donc AUCUN `ProbableDamageEvent` pour
+    # elles ; sans ces entrees le port en fabriquerait un depuis leur `minDmg`/`maxDmg` gameconfig.
+    "ExemplarOfHate",     # 1140 IdunBattle.AI.Playbook.Loki.ExemplarOfHatePlaybook$$EvaluateNonComparable ; util = 1 + PV%/100 + 2*(non-Infiltrate) + 1*(Chaos)
+    "FearOfTheUnseen",    # 1115 IdunBattle.AI.Playbook.Loki.FearOfTheUnseenPlaybook$$EvaluateNonComparable ; VETO, util constante Fix64(10) sur SOI
+    "Foehammer",          # 1097 IdunBattle.AI.Playbook.Loki.FoehammerPlaybook$$EvaluateNonComparable ; util = |unites mortes du plateau| (CONSTANTE)
+                          # ⚠ 1097 EST une attaque (son `ExecuteBehaviour` fait bien un
+                          # `AttackWithAttackDamage`) : c'est le PLAYBOOK qui est NonComparable, donc
+                          # la DECISION n'est PAS un score de degat -- exactement le cas de 1163
+                          # `BlackRage` / 1202 `VigilanceEternal` ci-dessus.
 })
 
 
