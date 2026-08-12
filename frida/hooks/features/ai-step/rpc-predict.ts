@@ -8,6 +8,8 @@ import {
     readIl2cppString, s,
 } from "../../il2cpp/helpers.js";
 import { invokeMethod } from "../../il2cpp/invoke.js";
+// #988 — le décodeur d'arbre de bucket : `best` seul ne voit pas la voie à stratégies multiples.
+import { chooseAction, countActions, decodeBucket } from "../../ai-toolkit/bucket-decode.js";
 import { gcRoot } from "../../il2cpp/gc-root.js";
 import { runnerClass, runnerOff } from "../../game/runner.js";
 import { getRunner } from "../../game/runner-registry.js";
@@ -775,15 +777,30 @@ export function registerViewPredict(ctx: Ctx): void {
                     out.push({ pos: [p.col, p.row], cur: p.cur, hvt, bucket: null });
                     continue;
                 }
-                const best = bucket.add(0x20).readPointer();
-                if (best.isNull()) {
-                    out.push({ pos: [p.col, p.row], cur: p.cur, hvt, bucket: "empty" });
+                // ⚠ #988 — lire le SEUL champ `best` rendait « empty » sur un bucket PLEIN.
+                // `IdunBattle.AI.Playbook.NonComparablePlaybook<T>$$GenerateBucketWithMultipleStrategies`
+                // ne passe QUE par `IdunBattle.AI.BucketSystem.Bucket<T>$$AddActionToBucket`, qui
+                // écrit `sub.best` dans un sous-bucket de la `SortedList` — le `best` de la racine
+                // reste nul PAR CONSTRUCTION. On décode l'arbre et on mirrore
+                // `Bucket<T>$$ChooseAction` (lecture pure). Mesuré sur `1043 ThunderousAssault` :
+                // 23 positions rendues « empty » alors que l'action existait.
+                const decoded = decodeBucket(bucket);
+                const chosen = decoded ? chooseAction(decoded) : null;
+                if (!chosen) {
+                    // Vraie vacuité : aucune action dans tout l'arbre, sous-buckets compris.
+                    out.push({ pos: [p.col, p.row], cur: p.cur, hvt, bucket: "empty",
+                        actionCount: decoded ? countActions(decoded) : null,
+                        subCount: decoded ? decoded.subBuckets.length : null });
                     continue;
                 }
                 // BucketAction{action@+0x10, util Fix64@+0x18} ; UnitAction{position@+0x10,
-                // target BEntityId@+0x18, ability@+0x20} (layouts du finish-block @18119a3f0).
-                const utilRaw = best.add(0x18).readS64();
-                const action = best.add(0x10).readPointer();
+                // target BEntityId@+0x18, ability@+0x20} (layouts du finish-block).
+                const utilRaw = new Int64(chosen.utilityRaw);
+                const action = ptr(chosen.content);
+                // D'OÙ vient la valeur : distingue le régime Comparable (`best` de la racine)
+                // du régime à stratégies multiples (un sous-bucket).
+                const via = decoded && decoded.best && decoded.best.ptr === chosen.ptr
+                    ? "best" : "subBuckets";
                 let act: unknown = null;
                 if (!action.isNull()) {
                     act = {
@@ -794,7 +811,9 @@ export function registerViewPredict(ctx: Ctx): void {
                     };
                 }
                 out.push({ pos: [p.col, p.row], cur: p.cur, hvt,
-                    util: utilRaw.toNumber() / 4294967296, action: act });
+                    util: utilRaw.toNumber() / 4294967296, action: act, via,
+                    actionCount: decoded ? countActions(decoded) : null,
+                    subCount: decoded ? decoded.subBuckets.length : null });
             } catch (e) {
                 out.push({ pos: [p.col, p.row], cur: p.cur, hvt,
                     error: (e as Error).message });

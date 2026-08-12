@@ -165,6 +165,7 @@ import { staticFieldProbe } from "./probes/static-field-probe.js";
 // Les DEUX `register` n'arment RIEN : `shouldEvaluateTrace` pose ses `Interceptor` uniquement sur
 // `{action:"arm"}`, et `validTargetsFrom` n'ancre rien du tout (il n'INVOQUE que des queries).
 import { registerShouldEvaluateTrace } from "./probes/should-evaluate-trace.js";
+import { registerPlaybookUtilityTrace } from "./probes/playbook-utility-trace.js";
 import { registerValidTargetsFrom } from "./probes/valid-targets-from.js";
 
 
@@ -395,6 +396,7 @@ export function wireRpc(ctx: Ctx): void {
         staticFieldProbe(args);
     // --- #969-r1 / #975-r1 — capteurs on-demand (aucun hook pose au register).
     registerShouldEvaluateTrace(ctx);
+    registerPlaybookUtilityTrace(ctx);
     registerValidTargetsFrom(ctx);
 
     rlBridge.register(ctx);

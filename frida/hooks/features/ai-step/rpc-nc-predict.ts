@@ -54,6 +54,8 @@ import { state } from "../../game/state.js";
 import { queueOnMainThread } from "../../runtime/queue.js";
 import { abilityName } from "../../data/ability-names.js";
 import { Ctx } from "../../controller.js";
+// #988 — le décodeur d'arbre de bucket : `best` seul ne voit pas la voie à stratégies multiples.
+import { chooseAction, countActions, decodeBucket } from "../../ai-toolkit/bucket-decode.js";
 import {
     extractTilePtrs, getMovableTilesMi, getUnitMainTile, movementQueryOff, readTileCoord,
     unitAbilityTypes,
@@ -445,20 +447,37 @@ export function registerViewNcPredict(ctx: Ctx): void {
             out.listNull = cap.ret.isNull();
             if (dec.error) out.returnedError = dec.error;
         } else if (!cap.ret.isNull()) {
-            // Bucket de la voie NC : `best@+0x20`, `BucketAction{action@+0x10, util Fix64@+0x18}`
-            // (mêmes layouts que `ncEvaluate`) — l'utilité que le natif a réellement attribuée.
+            // Bucket de la voie NC — l'utilité que le natif a réellement attribuée.
+            //
+            // ⚠ #988 : lire le SEUL champ `best` rendait « empty » sur un bucket PLEIN.
+            // `IdunBattle.AI.Playbook.NonComparablePlaybook<T>$$GenerateBucketWithMultipleStrategies`
+            // n'appelle que `Bucket<T>$$AddActionToBucket`, qui écrit `sub.best` dans un
+            // sous-bucket de la `SortedList` — jamais le `best` de la racine, qui reste nul PAR
+            // CONSTRUCTION. On décode donc l'arbre entier et on mirrore `Bucket<T>$$ChooseAction`
+            // (lecture pure : les trois corps natifs ne lisent que des champs).
             try {
-                const best = cap.ret.add(0x20).readPointer();
-                if (best.isNull()) { out.bucket = "empty"; }
-                else {
-                    out.bucketUtil = best.add(0x18).readS64().toNumber() / 4294967296;
-                    const action = best.add(0x10).readPointer();
+                const decoded = decodeBucket(cap.ret);
+                const chosen = decoded ? chooseAction(decoded) : null;
+                if (!chosen) {
+                    // Vraie vacuité : AUCUNE action dans tout l'arbre, sous-buckets compris.
+                    out.bucket = "empty";
+                    out.bucketActionCount = decoded ? countActions(decoded) : null;
+                } else {
+                    out.bucketUtil = chosen.utility;
+                    out.bucketUtilRaw = chosen.utilityRaw;
+                    const action = ptr(chosen.content);
                     if (!action.isNull()) {
                         out.bucketAction = {
                             targetLow: action.add(0x18).readU32(),
                             ability: action.add(0x20).readS32(),
                         };
                     }
+                    // D'OÙ vient la valeur : un lecteur doit pouvoir distinguer le régime
+                    // Comparable (`best` de la racine) du régime à stratégies multiples.
+                    out.bucketVia = decoded && decoded.best
+                        && decoded.best.ptr === chosen.ptr ? "best" : "subBuckets";
+                    out.bucketActionCount = decoded ? countActions(decoded) : null;
+                    out.bucketSubCount = decoded ? decoded.subBuckets.length : null;
                 }
             } catch (e) { out.bucketError = (e as Error).message; }
         }
