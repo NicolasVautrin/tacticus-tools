@@ -36,10 +36,30 @@ Mesure : `probe_977_faces_decision_kit.py`. ASCII only.
 """
 from __future__ import annotations
 
-import sys
-from pathlib import Path
+DECLENCHEUR = {
+    "chemins": (
+        'scripts/python/probe_977_faces_decision_kit.py',
+    ),
+    "build": False,
+    "toujours": False,
+    "raison": "UN seul chemin a declarer, et c'est le probe : `probe_486r15 --proposer` mesure que "
+              "les 585 autres modules de la fermeture d'imports sortent DEJA de la cascade derivee "
+              "du foyer (#531), donc les redeclarer serait du bruit. Le probe, lui, n'est importe "
+              "par aucun module d'`engine/**` -- il porte le MONTAGE (positions `--place`, roster, "
+              "board), les etages de confrontation et la table des contre-epreuves : le toucher "
+              "change ce que la garde MESURE sans toucher au code porte, et rien d'autre ne le "
+              "verrait. `build: False` : aucune valeur n'est figee depuis le binaire -- les "
+              "utilites (3/2/1), le poids `MIGHTFROMBELOW_ExistingAdjacentDecoy` (3) et les bornes "
+              "de degat sont RELEVEES LIVE des deux cotes a chaque passe, jamais comparees a un "
+              "litteral. `toujours: False` : le fichier monte DEUX runners (montage co-injecte + "
+              "montage Decoy) et coute ~170 s -- le rejouer a chaque passe couterait plus que ce "
+              "que borne sa cascade.",
+}
 
-import pytest
+import sys                                                  # noqa: E402
+from pathlib import Path                                    # noqa: E402
+
+import pytest                                               # noqa: E402
 
 PYDIR = Path(__file__).resolve().parents[2]                 # scripts/python
 sys.path.insert(0, str(PYDIR))
