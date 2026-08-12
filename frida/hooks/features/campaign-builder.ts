@@ -490,13 +490,22 @@ async function findUnitProgressionViaHeap(): Promise<NativePointer | null> {
 
 /** Find a live CampaignGameModeSource instance via heap scan with type
  * validation. The instance is what `path 2 (mute mode)` mutates + calls
- * LoadBattle on. Available without user nav as long as the game has
- * created at least one source naturally (which happens early during
- * Tacticus boot — Zenject DI eagerly resolves it).
+ * LoadBattle on.
+ *
+ * #989 — CE SCAN NE TROUVE RIEN AVANT LA PREMIERE BATAILLE, et la phrase
+ * remplacee ici pretendait le contraire (« created naturally early during
+ * Tacticus boot — Zenject DI eagerly resolves it »). Les deux moities etaient
+ * fausses : il n'y a pas de conteneur DI dans le binaire, et l'instance n'existe
+ * pas au boot. Son SEUL site de creation est
+ * `idun.shared.commands.ViewCommandExecutor$$StartCampaignMatch`, qui alloue puis
+ * appelle le ctor inline avant d'enchainer sur le chargement de la bataille.
+ * Un scan qui aboutit prouve donc qu'une bataille de campagne a DEJA ete lancee
+ * dans cette session. Voir
+ * `docs/rl/case-989-campaign-game-mode-source-transient.md`.
  *
  * Validator: heap-scanned instance must have a non-null klass and that
- * klass must be assignable to CampaignGameModeSource (filters DI
- * placeholders that have garbage fields). */
+ * klass must be assignable to CampaignGameModeSource (filters wrong-type or
+ * partially-initialised heap candidates). */
 async function findCampaignGameModeSourceViaHeap(): Promise<NativePointer | null> {
     const cgmsCls = findClass(ASM_BATTLE, NS_BATTLE_SOURCE,
         "CampaignGameModeSource");
@@ -505,12 +514,18 @@ async function findCampaignGameModeSourceViaHeap(): Promise<NativePointer | null
     const start = Date.now();
     // Strict validator. The first heap-scan result was a corrupt
     // partially-initialized instance (locIdx field = stack garbage). To
-    // reliably distinguish the LIVE singleton from DI placeholders/clones,
+    // reliably distinguish the CURRENT source from earlier/partial ones,
     // require:
     //   1. Type assignability to CGMS klass (filters stale/wrong-type heap)
-    //   2. gameConfig pointer matches our captured lastGameConfig (the
-    //      Zenject-resolved gameConfig singleton — only the LIVE source is
-    //      guaranteed to point at the same one)
+    //   2. gameConfig pointer matches our captured lastGameConfig — le
+    //      `IGameConfigData` de longue duree que le `ViewCommandExecutor`
+    //      detient et passe au ctor ; seule une source construite depuis le
+    //      MEME executor pointe dessus.
+    // #989 — « singleton » serait faux : il y a UNE instance PAR BATAILLE
+    // lancee (le ctor n'a qu'un site d'appel, `StartCampaignMatch`), et le
+    // hook ne garde que la plus recente. Un heap scan peut donc voir plusieurs
+    // instances mortes des sessions precedentes — c'est ce que ce validateur
+    // filtre. Voir `docs/rl/case-989-campaign-game-mode-source-transient.md`.
     //   3. currentLocationIndex within sane bounds (0-100; campaigns rarely
     //      have more)
     const found = await findInstanceByHeapScanChunked(cgmsCls, (cand) => {
@@ -732,8 +747,15 @@ export function register(ctx: Ctx): void {
                     },
                     onLeave() {
                         // ctor body finished → all fields (including
-                        // _gameConfig at +0x90, populated by Zenject ctor
-                        // injection) are now valid. Safe to publish.
+                        // _gameConfig at +0x90) are now valid. Safe to publish.
+                        //
+                        // #989 — CE N'EST PAS DE L'INJECTION PAR CONTENEUR, et le
+                        // commentaire qui l'affirmait ici a nourri l'idee qu'un
+                        // `Resolve` pourrait remplacer ce hook. Il n'y a AUCUN
+                        // conteneur DI dans le binaire (`Zenject` = 0 symbole).
+                        // `_gameConfig` est ecrit par le ctor lui-meme, depuis un
+                        // champ du `ViewCommandExecutor` appelant. Voir
+                        // `docs/rl/case-989-campaign-game-mode-source-transient.md`.
                         const self = this.selfPtr as NativePointer;
                         if (!self || self.isNull()) return;
                         const wasNull = campaignGameModeSourcePtr === null;
