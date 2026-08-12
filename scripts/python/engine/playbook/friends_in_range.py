@@ -27,9 +27,16 @@ raisonnement « une aura ne se compte pas elle-meme », qui rend le residu POSIT
 Cette famille se distingue donc d'`AdjacentUnitPreference` sur DEUX axes a la fois (self compte /
 self exclu, disque cube sans porte d'elevation / ring-1 avec porte) : ne PAS les fusionner.
 
-⚠ Et elle n'est pas homogene EN INTERNE non plus : sur les trois membres, DEUX (`AstartesBanner`,
-`Kardiocore`) ne portent NI filtre de trait NI exclusion de self, le troisieme
-(`FirstAmongTraitors`, #926) porte LES DEUX. Lire chaque corps, jamais le recopier.
+⚠ Et elle n'est pas homogene EN INTERNE non plus : sur les QUATRE membres, DEUX (`AstartesBanner`,
+`Kardiocore`) ne portent NI filtre de trait NI exclusion de self, `FirstAmongTraitors` (#926) porte
+LES DEUX, et `GrimEfficiency` (#959-r1) porte l'exclusion de self SANS filtre de trait -- et par un
+TROISIEME mecanisme encore (`ICollection<T>.Remove` sur le resultat de la query, la ou
+`FirstAmongTraitors` ecrit un `!=` dans sa boucle). Lire chaque corps, jamais le recopier.
+
+⚠ La GEOMETRIE non plus n'est pas commune : `AstartesBanner` passe `includeCenter = 1` (l'ami
+DEBOUT SUR la tuile candidate compte), `GrimEfficiency` passe `includeCenter = 0` (il ne compte
+pas). Le flag est un LITTERAL du call-site, different d'un membre a l'autre -- il se lit, il ne se
+suppose pas.
 """
 from __future__ import annotations
 
@@ -133,6 +140,86 @@ class KardiocoreGalvanusPlaybook:
         ctx = ctx or {}
         n = bq.count_adjacent(tile, _friend_positions_including_self(ctx),
                               ctx.get("elev_by_pos"), bq.neigh_map(ctx))
+        return float(w * n)
+
+
+class GrimEfficiencyPlaybook:
+    """`GrimEfficiencyPlaybook` (`IdunBattle.AI.Playbook.Loki.GrimEfficiencyPlaybook$$.ctor` :
+    litteral `0x5d2` = 1490 `GrimEfficiency`, passif du roster Votann) ;
+    `IdunBattle.AI.Playbook.Loki.GrimEfficiencyPlaybook.u003CCalculateMovementUtilityInStepsInternalu003Ed__2$$MoveNext`
+    (remis en C# depuis le decompile, champs de la SM : `<>4__this @+0x20`, `case @+0x28`,
+    `getUtilityVal @+0x30`) :
+
+        range = AbilityConfiguration.GetNumberConstant(playbook.<+0x58>.<+0x20>, 0x16);  // "range"
+        units = IBattleQuery.<slot 0x79 = 121 GetSurroundingFriends>(
+                    actor:         case.unit@0x10,
+                    from:          case.position@0x18,      // le `UnitPosition` du CASE
+                    range:         range,
+                    includeCenter: 0);                      // FAUX -- cf. ci-dessous
+        units.Remove(case.unit);                            // ICollection<T> slot 6
+        yield return Fix64.op_Implicit(
+            getUtilityVal("GrimEfficiency_FriendsInRange") * units.Count);
+
+    ⚠ **DEUX ecarts avec `AstartesBanner`, qui est pourtant sa copie de forme** -- et les deux
+    changent le compte :
+
+      * **`includeCenter = 0`** (AstartesBanner passe `1`). Le flag descend jusqu'a
+        `IdunBattle.Core.Services.TileQuery.u003CIterateSurroundingTilesu003Ed__6$$MoveNext`, donc
+        l'ami DEBOUT SUR la tuile candidate n'est PAS compte. Et l'overload de
+        `IdunBattle.Core.Services.BattleQuery$$GetSurroundingUnits` qui prend une COLLECTION de
+        tuiles (celui qu'atteint `GetSurroundingFriends` via `UnitPosition`) ajoute, quand le flag
+        est faux, un SECOND filtre : `GetMainTile(u) == null || !from.Contains(GetMainTile(u))`.
+        Sur une position mono-tuile les deux coincident ; sur une MoW multi-tuiles le second
+        retire aussi les amis debout sur les AUTRES tuiles de la position.
+      * **`units.Remove(case.unit)`** -- exclusion EXPLICITE du mover. Elle n'est pas redondante
+        avec `includeCenter = 0` : pendant tout le sweep, le mover est encore sur son ORIGINE, qui
+        n'est PAS la tuile candidate. Sans ce `Remove`, il se compterait pour lui-meme des que son
+        origine tombe dans le disque -- exactement ce que font `AstartesBanner`/`Kardiocore`, qui
+        n'ont ni l'un ni l'autre.
+
+    ⚠ Le filtre de camp est `UnitExtensions.IsFriend`, pas `!IsEnemy` : le lambda de
+    `IdunBattle.Core.Services.BattleQuery.u003Cu003Ec__DisplayClass142_0$$u003CGetSurroundingFriendsu003Eb__0`
+    est LITTERALEMENT `return UnitExtensions.IsFriend(u, actor, state)`, applique par
+    `ListExtensions.FilterInPlace` APRES la query. Les deux predicats ne coincident pas sur les
+    neutres/objets, que `!IsEnemy` garderait.
+
+    Poids BC : `Utilities.Default.TriggeredAbilities["GrimEfficiency_FriendsInRange"]` = 5
+    (litteral `"GrimEfficiency_FriendsInRange"` du corps, LU dans
+    `data/symbols/<build>/metadata/string_literals.tsv`).
+
+    Face COMBAT (les deux auras qui partitionnent les stances) : livree par #959, confrontee live a
+    0 ecart. C'est la face DECISION que ce port ajoute."""
+
+    ABILITY_ID = TriggeredAbilityType.GrimEfficiency          # 0x5d2 = 1490
+    #: `AbilityConfiguration.GetNumberConstant(config, 0x16)` -- la CONSTANTE, pas une variable
+    #: de niveau (meme accesseur qu'`AstartesBanner` et `FirstAmongTraitors`).
+    CONST_RANGE = AbilityConstantType.range                   # 0x16 = 22
+    WEIGHT_KEY = "GrimEfficiency_FriendsInRange"
+
+    def get_range(self) -> "int | None":
+        """`AbilityConfiguration.GetNumberConstant(config, 0x16)` = `constants.range`.
+
+        `None` = constante absente -> `GetNumberConstant` LEVE cote natif ; le port rend « aucun
+        terme » plutot que d'inventer un rayon (meme degradation que `FirstAmongTraitors`)."""
+        r = ability_var("GrimEfficiency", self.CONST_RANGE.name, is_constant=True)
+        return None if r is None else int(r)
+
+    def calculate_movement_utility_in_steps(self, tile, ctx: dict, wt) -> float:
+        w = wt.sub("TriggeredAbilities", self.WEIGHT_KEY)
+        if not w:
+            return 0.0
+        rng = self.get_range()
+        if rng is None:
+            return 0.0
+        ctx = ctx or {}
+        # `friend_units` du `tile_leaf_ctx` est DEJA self-exclu : c'est exactement le net du
+        # filtre `IsFriend` de la query PUIS du `units.Remove(case.unit)` du corps. On n'appelle
+        # donc PAS `_friend_positions_including_self` (qui re-injecte l'origine du mover) --
+        # c'est la seule difference de cablage avec `AstartesBanner`, et elle est portee par le
+        # `Remove` du decompile.
+        positions = [u["pos"] for u in (ctx.get("friend_units") or ()) if u.get("pos")]
+        # `includeCenter = 0` : la tuile candidate elle-meme ne compte pas.
+        n = bq.count_surrounding(tile, positions, rng, include_center_tile=False)
         return float(w * n)
 
 
