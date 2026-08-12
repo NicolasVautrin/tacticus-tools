@@ -713,6 +713,161 @@ ARMS_OA = ("oa_aura", "oa_away", "oa_melee", "oa_crit", "oa_crit_ctl", "oa_crit_
 ARMS_SK = ("sk_full", "sk_hurt", "sk_stun", "sk_nostun")
 
 
+# --------------------------------------------------------------------------- facade + verdicts
+
+
+def run(arm: str, mutate: bool = False, verbose: bool = True, seed=SEED, board=BOARD,
+        mutate_effect=None) -> dict:
+    """Facade UNIQUE (le test de garde n'appelle que celle-ci). `mutate_effect` = mutation
+    SELECTIVE par nom d'`EffectType` (aucun trigger, aucun seed touche)."""
+    global MUTATE_ONLY
+    old = MUTATE_ONLY
+    MUTATE_ONLY = list(mutate_effect) if mutate_effect else None
+    if MUTATE_ONLY:
+        mutate = True
+    try:
+        fn = run_oa if arm.startswith("oa_") else run_sk
+        return fn(arm, mutate=mutate, verbose=verbose, seed=seed, board=board)
+    finally:
+        MUTATE_ONLY = old
+
+
+def verdict_geometry(res: dict) -> list:
+    """La geometrie EST le discriminant : si elle n'est pas celle demandee, tout verdict d'aval est
+    VIDE. Elle est verifiee AVANT tout, bras par bras, contre le `boardGraph` LIVE."""
+    f = list((res.get("geo") or {}).get("fail") or [])
+    if res.get("error"):
+        f.append("[geo] %s : %s" % (res.get("arm"), res["error"]))
+    g, arm = res.get("geo") or {}, res.get("arm")
+    if arm in ("oa_aura", "oa_melee", "oa_crit", "oa_crit_ctl", "oa_crit_nonchaos"):
+        if g.get("d_ada_victim") != 1:
+            f.append("[geo] %s : Adamatar doit etre ADJACENT a la victime (d=%s)"
+                     % (arm, g.get("d_ada_victim")))
+    if arm == "oa_away":
+        if (g.get("d_ada_victim") or 0) < 2:
+            f.append("[geo] oa_away : Adamatar doit etre HORS contact de la victime (d=%s)"
+                     % g.get("d_ada_victim"))
+        if g.get("d_ada_att") != 1:
+            f.append("[geo] oa_away : Adamatar doit etre ADJACENT a l'ATTAQUANT -- c'est CE cran "
+                     "qui rend le temoin discriminant (d=%s)" % g.get("d_ada_att"))
+    if arm in ("oa_aura", "oa_away", "oa_crit", "oa_crit_ctl", "oa_crit_nonchaos"):
+        if g.get("d_att_victim") == 1:
+            f.append("[geo] %s : l'attaquant doit tirer A DISTANCE (d=%s)"
+                     % (arm, g.get("d_att_victim")))
+    if arm == "oa_melee" and g.get("d_att_victim") != 1:
+        f.append("[geo] oa_melee : l'attaquant doit etre AU CONTACT (d=%s)" % g.get("d_att_victim"))
+    if arm and arm.startswith("sk_") and g.get("d_macer_victim") != 1:
+        f.append("[geo] %s : Macer doit etre AU CONTACT de sa cible (d=%s)"
+                 % (arm, g.get("d_macer_victim")))
+    evs = {v for v in (g.get("elev") or {}).values() if v is not None}
+    if len(evs) > 1:
+        f.append("[geo] %s : elevations INEGALES %s -- le terme d'elevation separerait les bras"
+                 % (arm, g.get("elev")))
+    return f
+
+
+def verdict_carrier_effects(res: dict) -> list:
+    """Le porteur PORTE bien ses effets -- sans ce cran, un zero de canal ne se distinguerait pas
+    d'un zero de POSE (et le port ne serait pas confronte, juste muet des deux cotes)."""
+    f, arm = [], res.get("arm")
+    if arm and arm.startswith("oa_"):
+        nat, port = res.get("ada_effects") or [], res.get("port_ada_effects") or []
+        if EFF_OA_DMG not in nat:
+            f.append("[pose] %s : Adamatar ne porte PAS 1432 cote natif (%s)" % (arm, nat))
+        if EFF_OA_DMG not in port:
+            f.append("[pose] %s : le port ne materialise PAS 1432 (%s)" % (arm, port))
+        want_crit = arm in ("oa_crit", "oa_crit_nonchaos")
+        if want_crit and EFF_OA_CRIT not in nat:
+            f.append("[pose] %s : l'OVERKILL n'a PAS arme l'aura 1433 cote natif (%s)" % (arm, nat))
+        if want_crit and EFF_OA_CRIT not in port:
+            f.append("[pose] %s : le port ne materialise PAS l'aura 1433 (%s)" % (arm, port))
+        if not want_crit and EFF_OA_CRIT in nat:
+            f.append("[pose] %s : l'aura 1433 est presente alors qu'AUCUN overkill n'a eu lieu (%s)"
+                     % (arm, nat))
+    if arm and arm.startswith("sk_"):
+        nat, port = res.get("macer_effects") or [], res.get("port_macer_effects") or []
+        if EFF_SK_DMG not in nat:
+            f.append("[pose] %s : Macer ne porte PAS 1263 cote natif (%s)" % (arm, nat))
+        if EFF_SK_DMG not in port:
+            f.append("[pose] %s : le port ne materialise PAS 1263 -- c'est le seed "
+                     "`ABILITY_INIT_OWNER_EFFECTS` qui le pose quand la condition est FAUSSE et que "
+                     "le canal ACTIF-ONLY ne le publie donc pas (%s)" % (arm, port))
+        if arm == "sk_stun":
+            if EFF_SK_MARK not in nat:
+                f.append("[pose] sk_stun : le KILL n'a PAS pose le marqueur 1264 cote natif (%s)"
+                         % nat)
+            if EFF_SK_MARK not in port:
+                f.append("[pose] sk_stun : le port ne pose PAS le marqueur 1264 (%s)" % port)
+        if arm == "sk_nostun" and EFF_SK_MARK in nat:
+            f.append("[pose] sk_nostun : le marqueur 1264 est la sans aucun kill (%s)" % nat)
+    return f
+
+
+def verdict_port_matches_native(res: dict) -> list:
+    """Le rejeu OFFLINE egale le natif A L'UNITE, coup par coup."""
+    n, p = res.get("native") or {}, res.get("port") or {}
+    f = []
+    if not n.get("n"):
+        f.append("[port] %s : le NATIF n'a rendu AUCUN coup -- la mesure est VIDE, pas verte"
+                 % res.get("arm"))
+        return f
+    if list(n.get("hits") or []) != list(p.get("per_hit") or []):
+        f.append("[port] %s : natif %s (n=%s, %s) != port %s (n=%s, %s)"
+                 % (res.get("arm"), n.get("hits"), n.get("n"), n.get("total"),
+                    p.get("per_hit"), p.get("n"), p.get("total")))
+    return f
+
+
+def verdict_stun(stun: dict, nostun: dict) -> list:
+    """Le NATIF pose bien `Stunned` sur la cible quand Macer a deja tue, et PAS sinon ; le PORT
+    rend la MEME liste d'effets des deux cotes."""
+    f = []
+    for tag, res, want in (("sk_stun", stun, True), ("sk_nostun", nostun, False)):
+        nat = set((res.get("native") or {}).get("tgt_effects_after") or [])
+        port = set((res.get("port") or {}).get("tgt_effects_after") or [])
+        if (EFF_STUNNED in nat) is not want:
+            f.append("[stun] %s : NATIF %s `Stunned` (%s)"
+                     % (tag, "sans" if want else "avec", sorted(nat)))
+        if nat != port:
+            f.append("[stun] %s : effets de la cible natif=%s != port=%s"
+                     % (tag, sorted(nat), sorted(port)))
+    return f
+
+
+def verdict_aura_discriminant(aura: dict, away: dict) -> list:
+    """Le NATIF dit bien ce qu'on porte : a geometrie d'attaque IDENTIQUE, Adamatar ADJACENT A LA
+    VICTIME fait encaisser STRICTEMENT plus que le meme Adamatar adjacent a l'ATTAQUANT."""
+    f = []
+    na, nw = (aura.get("native") or {}).get("total"), (away.get("native") or {}).get("total")
+    if na is None or nw is None:
+        return ["[natif] mesure absente (aura=%s away=%s)" % (na, nw)]
+    if na <= nw:
+        f.append("[natif] l'aura ne discrimine PAS : oa_aura=%s <= oa_away=%s" % (na, nw))
+    return f
+
+
+def verdict_mutation(base: dict, mut: dict, porteur: bool) -> list:
+    """CONTRE-EPREUVE. Le port NEUTRALISE doit DIVERGER dans un bras porteur et rester EGAL dans un
+    temoin. Premier cran : les deux mesures NATIVES doivent coincider, sans quoi l'A/B n'est pas
+    attribuable (le natif n'a pas bouge entre les deux runs)."""
+    f = []
+    nb, nm = (base.get("native") or {}).get("total"), (mut.get("native") or {}).get("total")
+    if nb != nm:
+        f.append("[mutation] le NATIF differe entre les deux runs (%s vs %s) : l'A/B n'est pas "
+                 "attribuable" % (nb, nm))
+        return f
+    pb, pm = (base.get("port") or {}).get("total"), (mut.get("port") or {}).get("total")
+    if porteur:
+        if pm == pb:
+            f.append("[mutation] %s : port NEUTRALISE mais le rejeu rend TOUJOURS %s -- la mutation "
+                     "NE MORD PAS, le bras ne prouve donc rien" % (base.get("arm"), pm))
+    else:
+        if pm != pb:
+            f.append("[mutation] %s (TEMOIN) : le port neutralise CHANGE le resultat (%s -> %s) -- "
+                     "le port contribuait la ou il ne devrait pas" % (base.get("arm"), pb, pm))
+    return f
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description="#953/#954 -- confrontation live")
     ap.add_argument("--arm", action="append",
@@ -734,6 +889,7 @@ def main(argv=None):
     for arm in arms:
         fn = run_oa if arm.startswith("oa_") else run_sk
         res[arm] = fn(arm, mutate=a.mutate, seed=a.seed, board=a.board)
+    MUTATE_ONLY = None
     if a.json:
         Path(a.json).write_text(json.dumps(res, indent=1, default=str), encoding="utf-8")
     return res
