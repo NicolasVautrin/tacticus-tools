@@ -270,12 +270,17 @@ un ajustement de scalaire.
 
 ## 6. Ce qui n'est PAS couvert
 
-  * **`#961-r1`** — à **distance 1**, le dégât diverge d'un facteur **CONSTANT** : le natif rend
-    **87,27 %** de ce que rend le port (3967/4546 et 5951/6819, deux configurations d'élévation
-    différentes, ratio identique à 5·10⁻⁵ près), alors que la CIBLE et le NOMBRE DE TIRAGES
-    concordent, et que la distance 2 est bit-exacte. Étage NON localisé ; l'hypothèse
-    « classification mêlée/ranged » est **RÉFUTÉE** (forcer `is_melee=True` ne change rien) et
-    l'hypothèse « élévation » aussi (le ratio est le même que le bonus s'applique ou non).
+  * **`#961-r1` — RÉSOLU en ATTRIBUTION** (`docs/rl/case-961-r1-ecart-crit-au-contact.md`), et
+    l'énoncé ci-dessous, qui a tenu quelques heures, était **FAUX sur ses trois affirmations**.
+    Ce n'est PAS un facteur (le ratio va de 0,713 à 0,881 sur des tirages indépendants ; c'est le
+    **DELTA** qui est constant, **579**, 4 seeds sur 4) ; les « deux configurations d'élévation »
+    étaient **la même capture** (l'une est l'autre `×1.5`, des deux côtés), donc il n'y avait aucun
+    témoin d'invariance ; et ce n'est pas la distance seule mais l'**INTERSECTION crit × adjacence**
+    — carré 2×2 complet, les quatre autres cellules bit-exactes, y compris un coup **critique** à
+    distance 2. Le vecteur `LivingLightning` est HORS DE CAUSE (il passe des bornes justes et le bon
+    roll) : l'écart est dans le **canal CRIT du pipeline partagé**, où le natif applique un bonus de
+    crit de **−579** porté par un effet du **DÉFENSEUR** (`SquigHound`, discriminé contre
+    `orksNob`/`orksWarboss`) que le port rend à **0**. Correctif ouvert en **`#961-r3`**.
   * **`#961-r2`** — `necroPlasmancer` est l'UNIQUE entrée d'`rl_collect_batch.UNSPAWNABLE_FALLBACK`.
     RE-MESURE (`probe_961_plasmancer_spawn.py`) : **il SPAWNE** sur ce build — la liste héritée est
     PÉRIMÉE. Elle n'est pas modifiée ici : c'est le substrat de TOUT roster tiré au hasard, et un

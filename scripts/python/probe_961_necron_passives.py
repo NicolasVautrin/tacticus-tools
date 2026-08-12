@@ -511,8 +511,17 @@ def measure_ll(sid, seed, board_id, verbose=True, keep=False, regime="adjacent")
     # `adjacent_low` = MEME distance 1 que `adjacent`, mais sur une tuile d'elevation STRICTEMENT
     # INFERIEURE a la destination : c'est le SEPARATEUR qui distingue << la distance 1 >> de
     # << l'egalite d'elevation >> quand un ecart apparait (cf. le residu nomme dans le rapport).
-    want = {"adjacent": 1, "adjacent_low": 1, "range2": 2, "none": 3}[regime]
+    #
+    # #961-r1 -- LA DISTANCE ET L'ELEVATION ETAIENT CONFONDUES DANS LE MONTAGE D'ORIGINE : la tuile
+    # `near` etant prise comme la PREMIERE libre a la distance voulue, `adjacent` tombait sur une
+    # tuile d'elevation EGALE (aucun bonus) et `range2` sur une tuile PLUS BASSE (bonus x1.5). Les
+    # deux regimes differaient donc par DEUX variables. `range2_flat` (distance 2, elevation EGALE)
+    # et `adjacent_low` (distance 1, elevation INFERIEURE) completent le carre 2x2 et rendent chaque
+    # axe separable.
+    want = {"adjacent": 1, "adjacent_low": 1,
+            "range2": 2, "range2_flat": 2, "none": 3}[regime]
     want_lower = (regime == "adjacent_low")
+    want_equal = (regime == "range2_flat")
     rid = build(seed, board_id, LL_P_UNITS, LL_A_UNITS, STATE_LL, lift_unspawnable=True)
     if rid is None:
         return None
@@ -545,7 +554,10 @@ def measure_ll(sid, seed, board_id, verbose=True, keep=False, regime="adjacent")
                        and hexgeo.distance((t["col"], t["row"]), dest) == want
                        and (not want_lower or (t.get("elevation") is not None
                                                and dest_elev is not None
-                                               and t["elevation"] < dest_elev))), None)
+                                               and t["elevation"] < dest_elev))
+                       and (not want_equal or (t.get("elevation") is not None
+                                               and dest_elev is not None
+                                               and t["elevation"] == dest_elev))), None)
         if near_t is None:
             print("[961-LL] ABORT pas de tuile libre a distance %d de la destination" % want)
             return None
