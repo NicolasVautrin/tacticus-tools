@@ -5413,6 +5413,19 @@
    "py": [],
    "temoins": []
   },
+  "tests/engine/test_966_healing_balms_offline.py": {
+   "_at": 1786527914,
+   "_commit": "1b0df2a14078081fb34ab4600bb46973d10c220b",
+   "dirs": [
+    "scripts/python/engine/runner/abilities/loki"
+   ],
+   "py": [
+    "scripts/python/engine/runner/abilities/loki"
+   ],
+   "temoins": [
+    "scripts/python/engine/runner/abilities/loki/healing_balms.py"
+   ]
+  },
   "tests/engine/test_effect_1582_inertia_binary.py": {
    "_at": 1786392144,
    "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
