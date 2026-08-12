@@ -77,6 +77,7 @@ import html
 import json
 import re
 import subprocess
+import time
 import webbrowser
 from collections import defaultdict
 from datetime import datetime, timezone
@@ -220,6 +221,66 @@ def sh(args: list[str], cwd: Path = REPO) -> str:
     return r.stdout
 
 
+#: Pannes AMONT, qui se re-tentent : la requete est bonne, c'est le service qui a hoquete.
+#: Mesure du 2026-08-12 -- la meme commande rend rc=1 (502) puis rc=0 en 68 s sans qu'on ait
+#: touche a quoi que ce soit, et `--limit 1000` echoue la ou `--limit 3000` passe. Il n'y a
+#: donc PAS de seuil de taille : c'est la PAGINATION qui expose. `gh pr list` decoupe en
+#: pages de 100 ; a 982 PR ca fait ~10 appels GraphQL, et il suffit d'UN 502 pour tout perdre.
+#: Le risque croit donc avec le depot -- ne pas re-tenter condamne l'outil a mesure qu'il grossit.
+TRANSITOIRES = ("502", "503", "504", "bad gateway", "service unavailable",
+                "gateway time-out", "gateway timeout", "timeout awaiting",
+                "connection reset", "unexpected eof", "tls handshake",
+                "temporary failure", "i/o timeout")
+
+#: Pannes de NOTRE COTE : re-tenter n'y changerait rien et masquerait le diagnostic.
+DEFINITIVES = ("authentication", "not logged", "requires authentication", "http 401",
+               "http 403", "http 404", "could not resolve", "unknown flag",
+               "no such host", "rate limit")
+
+
+def _classe_panne(stderr: str) -> str:
+    """`transitoire` / `definitive` / `inconnue` -- et le troisieme n'est PAS le premier.
+
+    Une panne qu'on ne sait pas nommer ne doit pas etre re-tentee en boucle comme si on
+    l'avait reconnue : on la re-tente UNE fois, puis on la remonte avec son texte. Rabattre
+    l'inconnu sur << transitoire >> ferait tourner trois minutes sur une erreur d'usage."""
+    s = (stderr or "").lower()
+    if any(m in s for m in DEFINITIVES):
+        return "definitive"
+    if any(m in s for m in TRANSITOIRES):
+        return "transitoire"
+    return "inconnue"
+
+
+def sh_retry(args: list[str], essais: int = 4, pause: float = 5.0,
+             cwd: Path = REPO) -> str:
+    """`sh`, mais qui re-tente les pannes AMONT -- et SEULEMENT celles-la.
+
+    L'echec final NOMME sa classe et le nombre d'essais : un << gh a echoue >> nu avait deja
+    fait accuser l'auth pour un 502 (cf. `sh`). Ici l'appelant apprend aussi qu'on a insiste."""
+    dernier = ""
+    for i in range(essais):
+        r = subprocess.run(args, cwd=cwd, capture_output=True, text=True,
+                           encoding="utf-8", errors="replace")
+        if r.returncode == 0 or r.stdout.strip():
+            return r.stdout
+        dernier = (r.stderr or "").strip()
+        classe = _classe_panne(dernier)
+        if classe == "definitive":
+            raise SystemExit("%s a echoue (rc=%d, panne DEFINITIVE -- re-tenter n'y "
+                             "changerait rien) : %s" % (args[0], r.returncode, dernier[:300]))
+        reste = essais - i - 1
+        if classe == "inconnue" and i >= 1:
+            break                      # une seule insistance sur ce qu'on ne sait pas nommer
+        if reste:
+            print("  %s : panne %s, nouvel essai dans %.0fs (%d restant) -- %s"
+                  % (args[0], classe, pause, reste, dernier[:120]))
+            time.sleep(pause)
+            pause *= 2
+    raise SystemExit("%s a echoue apres insistance (panne %s) : %s"
+                     % (args[0], _classe_panne(dernier), dernier[:300]))
+
+
 def sh_soft(args: list[str]) -> str:
     """Variante TOLERANTE : rend "" sur echec au lieu de lever.
 
@@ -266,9 +327,11 @@ def load_prs(limit: int = PR_LIMIT) -> list[dict]:
     passe de 28 PR a 16 pendant que le 2026-08-04 en gagnait exactement 12, total fige a
     500. Un rapport qui retrecit en silence est pire qu'un rapport absent.
     """
-    raw = sh(["gh", "pr", "list", "--state", "all", "--limit", str(limit), "--json",
-              "number,title,state,createdAt,mergedAt,closedAt,additions,deletions,"
-              "changedFiles,headRefName,mergeCommit"])
+    # `sh_retry` et pas `sh` : c'est le SEUL appel PAGINE du board (pages de 100), donc le
+    # seul ou un hoquet amont fait perdre tout le run. Deux 502 consecutifs le 2026-08-12.
+    raw = sh_retry(["gh", "pr", "list", "--state", "all", "--limit", str(limit), "--json",
+                    "number,title,state,createdAt,mergedAt,closedAt,additions,deletions,"
+                    "changedFiles,headRefName,mergeCommit"])
     if not raw.strip():
         raise SystemExit("gh n'a rien rendu -- `gh auth status` ?")
     data = json.loads(raw)
