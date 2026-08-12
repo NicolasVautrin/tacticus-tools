@@ -211,6 +211,13 @@ GEOMETRIE_NUE_TOLEREE = {
      "adjacent_friends_including_owner"): "#271/#943-r4",
     ("scripts/python/engine/entities/effects/loki/icon_of_obstinacy.py",
      "create_aura_attack_damage_bonus_for_ally"): "#271/#943-r4",
+    # Entre par #950, DENONCE par l'etape 6 au premier rebase de #943-r4 alors qu'il etait encore
+    # MUET, puis devenu DECLARANT en corrigeant sa prose : sa docstring affirmait
+    # << `IsAdjacent` = ring-1 HEX >>, ce que le decompile REFUTE
+    # (`IsAdjacentAbilityTrigger$$ShouldTrigger` -> slot 0x60 = `AreEntitiesAdjacent`, slot 96).
+    # Meme famille et meme blocage que les deux ci-dessus : le ctx d'aura ne publie aucun board.
+    ("scripts/python/engine/entities/effects/loki/terrors_lament.py",
+     "_adjacent_enemy_melee"): "#271/#943-r7",
 }
 
 # ETAPE 6 -- LE REGISTRE DE CLASSIFICATION, et c'est lui qui a fait cesser le critere de PROSE
@@ -295,6 +302,14 @@ GEOMETRIE_NUE_CLASSEE = {
     ("scripts/python/engine/entities/effects/loki/imperative.py",
      "create_aura_fixed_armor_bonus_for_defense"):
         (LISTE_STOCKEE, "ConquerorImperativeEffect$$CreateTargetSelector -> AdjacentFriends"),
+    # ⚠ `terrors_lament.py::_adjacent_enemy_melee` (entre par #950) N'EST PAS ICI, et le chemin
+    # qu'il a pris vaut d'etre lu : l'etape 6 l'a denonce NON CLASSE au premier rebase, sa docstring
+    # AFFIRMAIT << `IsAdjacent` = ring-1 HEX >>, et c'est REFUTE --
+    # `IsAdjacentAbilityTrigger$$ShouldTrigger` appelle le slot 0x60 = `AreEntitiesAdjacent`
+    # (slot 96) sur chaque paire. Corriger la PROSE l'a rendu DECLARANT : il a donc quitte le
+    # gisement des MUETS pour celui de l'etape 2, et son entree vit dans `GEOMETRIE_NUE_TOLEREE`
+    # ci-dessus. C'est la mecanique voulue, pas un contournement -- nommer son natif fait entrer au
+    # gisement VISIBLE, et les deux registres restent disjoints par construction.
     ("scripts/python/engine/entities/traits/combat.py", "as_attacker_bonus_hits"):
         (LISTE_STOCKEE, "GetStuckInAbility$$GetBonusHitChance -> DSLSelectors$$AdjacentUnits"),
     ("scripts/python/engine/playbook/noncomparable/get_em_runtz.py", "_spawn_tile_count"):

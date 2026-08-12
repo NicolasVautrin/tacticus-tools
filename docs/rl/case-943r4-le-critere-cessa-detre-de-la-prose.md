@@ -209,7 +209,30 @@ identiques.
 accepter `**kw`. L'oubli lève `TypeError` — un échec bruyant, pas un faux vert, mais qui accuse le
 mauvais coupable.
 
-## 8. Ce qui n'est PAS couvert
+## 8. Le rebase a fait travailler le cliquet, en direct
+
+Cinq commits sont arrivés pendant la tranche. Au premier rebase, l'`etape6` a dénoncé **un site
+NON CLASSÉ** entré par **#950** : `entities/effects/loki/terrors_lament.py::_adjacent_enemy_melee`.
+
+Sa docstring affirmait « `IsAdjacent` = ring-1 **HEX** (`IdunBattle.Entities.Triggers.IsAdjacentAbilityTrigger`) ».
+**C'est réfuté par le décompilé** : `IsAdjacentAbilityTrigger$$ShouldTrigger` appelle, pour chaque
+paire (sélecteur1 × sélecteur2), le slot `0x60` d'`IBattleQuery` = slot 96 = `AreEntitiesAdjacent`
+→ `MovementUtil$$AreTilesAdjacent` → `ConnectivityComponent$$IsNeighbour`. C'est le **même** natif
+que `hits.py::aura_selector_covers`, déjà classé `LISTE_STOCKEE`. L'écart est PERMISSIF, donc à
+contre-sens de la conjonction volontairement RESTRICTIVE que ce site construit.
+
+La prose du site est corrigée dans le même commit — laisser une affirmation fausse à côté d'une
+classification qui la contredit rendrait les deux illisibles. **Et corriger la prose a déplacé le
+site de registre** : en nommant `AreEntitiesAdjacent`, il est devenu *déclarant*, donc visible de
+l'`etape2`, donc justiciable de `GEOMETRIE_NUE_TOLEREE` et non plus de `GEOMETRIE_NUE_CLASSEE`.
+C'est la mécanique voulue, pas un contournement : les deux registres restent disjoints par
+construction, et **nommer son natif fait entrer au gisement VISIBLE**.
+
+C'est aussi la démonstration que le cliquet armé fait ce pour quoi il est armé : le site est entré
+il y a quelques heures, aucun test ne le voyait, et le critère de PROSE — celui d'avant — ne
+l'aurait jamais vu, puisque la seule chose que sa docstring nommait était fausse.
+
+## 9. Ce qui n'est PAS couvert
 
 * **Les 19 sites `LISTE_STOCKEE`** (résidu **#943-r7**) : classés, natif LU cité, **non réparés**.
   Ils sont nommément listés dans `GEOMETRIE_NUE_CLASSEE`.

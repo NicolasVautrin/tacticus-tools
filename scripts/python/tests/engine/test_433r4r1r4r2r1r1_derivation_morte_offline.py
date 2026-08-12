@@ -251,19 +251,32 @@ def adjacents(a, b):
 
 
 def test_la_tolerance_MORD_quand_on_la_vide(arbres_reels, monkeypatch):
-    """CONTRE-EPREUVE 2 -- le filtre porte bien sur les DEUX sites reels, et pas sur rien.
+    """CONTRE-EPREUVE 2 -- le filtre porte bien sur les sites REELS, et pas sur rien.
 
     Si `etape2_hors_tolerance` se contentait de recopier `etape2`, le test principal serait vert
-    par accident (il l'etait sur `master`... et rouge). En vidant la liste, les deux sites DOIVENT
-    reapparaitre : c'est ce qui prouve que le vert d'aujourd'hui vient de la tolerance, et non
-    d'une disparition silencieuse du gisement."""
+    par accident (il l'etait sur `master`... et rouge). En vidant la liste, les sites qu'elle
+    NOMME doivent reapparaitre -- c'est ce qui prouve que le vert d'aujourd'hui vient de la
+    tolerance, et non d'une disparition silencieuse du gisement.
+
+    ⚠ CE TEST FIGEAIT L'ENSEMBLE EXACT DES DEUX SITES, ET IL S'EST PERIME AU PREMIER REBASE
+    (#943-r4, mesure du 2026-08-12) : #950 a entre un TROISIEME site declarant a geometrie nue
+    (`terrors_lament.py::_adjacent_enemy_melee`), et ce test a rougi chez l'auteur suivant pour un
+    site qu'il n'avait pas creuse -- la faute exacte que son voisin
+    `test_la_JUSTIFICATION_de_la_tolerance_se_re_mesure` evite en gardant un SEUIL et non un
+    compte. Le critere est donc DERIVE du registre : l'ensemble qui reapparait est exactement
+    celui que la tolerance NOMME, quel que soit son cardinal. Ce qui reste garde a l'identique :
+    la tolerance ne dispense QUE ce qu'elle nomme, et le vert vient bien d'elle."""
+    # ⚠ Le registre est CAPTURE AVANT le patch : le relire apres rendrait `{}`, et l'assertion
+    # serait vraie par vacuite -- un vert qui ne mesure rien.
+    nomme = set(G.GEOMETRIE_NUE_TOLEREE)
+    assert len(nomme) >= 2, "registre trop maigre : ce test ne garde plus rien"
+    avant = {(rel, nom) for (rel, _ln, nom) in G.etape2_hors_tolerance(arbres_reels)[0]}
     monkeypatch.setattr(G, "GEOMETRIE_NUE_TOLEREE", {})
     reapparus = {(rel, nom) for (rel, _ln, nom) in G.etape2_hors_tolerance(arbres_reels)[0]}
-    assert reapparus == {
-        ("scripts/python/engine/entities/effects/aura_selectors.py",
-         "adjacent_friends_including_owner"),
-        ("scripts/python/engine/entities/effects/loki/icon_of_obstinacy.py",
-         "create_aura_attack_damage_bonus_for_ally")}, reapparus
+    assert reapparus - avant == nomme, (
+        "vider la tolerance ne fait pas reapparaitre EXACTEMENT ce qu'elle nomme : "
+        "manquants=%r, en trop=%r"
+        % (sorted(nomme - (reapparus - avant)), sorted((reapparus - avant) - nomme)))
 
 
 # ------------------------------------- #943-r4 : le critere d'entree n'est plus un token de PROSE
