@@ -44,6 +44,33 @@ import pytest
 
 from engine.services.damage_prediction import get_base_damage_fix64
 
+#: Ce qui doit changer pour que ce fichier puisse changer de verdict. Volontairement LARGE :
+#: la garde porte sur le PLACEMENT du crit dans les deux vecteurs, donc sur les deux fichiers
+#: `damage_ops` (lus par AST) ET sur l'etage de spread qu'elle appelle vraiment.
+DECLENCHEUR = {
+    "chemins": (
+        # Les deux foyers LUS par les controles AST -- si l'un bouge, le verdict peut changer.
+        "scripts/python/engine/runner/operations/damage_ops/normal.py",
+        "scripts/python/engine/runner/operations/damage_ops/ability.py",
+        # L'etage de spread REELLEMENT appele par les etages A et C.
+        "scripts/python/engine/services/damage_prediction.py",
+        # La mesure live dont ce fichier est la garde offline.
+        "scripts/python/probe_986_crit_place_vs_spread.py",
+    ),
+    "build": False,     # aucune lecture du binaire ni de `data/symbols/**` : tout est LU au source
+    "toujours": False,
+    "raison": (
+        "Le verdict ne depend que de quatre entrees. Les deux premieres sont lues PAR AST et "
+        "n'apparaissent donc dans AUCUN import : `normal.py` et `ability.py` -- sans elles, les "
+        "etages D seraient un faux vert silencieux (le fichier passerait en ne lisant plus rien). "
+        "La troisieme, `damage_prediction.py`, porte `get_base_damage_fix64`, l'etage de spread que "
+        "les etages A et C appellent REELLEMENT. La quatrieme est le probe qui porte la mesure live "
+        "dont ce fichier est la garde offline : si la mesure est refaite autrement, la garde doit "
+        "etre rejouee. Rien d'autre n'est declare : la fermeture d'imports de ce fichier tient "
+        "entierement dans la cascade DERIVEE par le foyer (#531), qu'on ne redeclare pas."
+    ),
+}
+
 # Le regime de #954-r3, verbatim : base 3000, crit damage 974, spread 20 %.
 BASE, CD, SPREAD = 3000, 974, 20
 OPS = Path(__file__).resolve().parents[2] / "engine" / "runner" / "operations" / "damage_ops"
