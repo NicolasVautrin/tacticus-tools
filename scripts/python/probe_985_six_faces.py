@@ -27,7 +27,46 @@ SIX = [
 ]
 
 
+#: Les 8 Machines of War SPAWNABLES du pool au rank courant (`rl_duel build --list-pool`).
+#: Elles servent de temoin NON VIDE au discriminant ci-dessous.
+MOW_POOL = ("adeptExorcist", "astraOrdnanceBattery", "blackForgefiend", "deathCrawler",
+            "orksRukkatrukk", "tauBroadside", "tyranBiovore", "ultraDreadnought")
+
+
+def machines() -> int:
+    """Le discriminant MACHINE du gameconfig, MESURE -- substrat de `_is_machine` (1160).
+
+    `EntityExtensions$$IsMachine` = `GetEntityType(entity) == EntityType.Machine (6)`, et ce type
+    n'a AUCUN canal cote DECISION. Le port derive donc le predicat du seul champ qui separe les
+    deux populations dans le gameconfig : `mythicAbilities`. Ce n'est utilisable QUE si la mesure
+    montre 0 faux negatif sur les MoW confrontables -- sinon le port prendrait la branche DEGAT
+    sur une Machine.
+    """
+    import gameconfig as GC
+    champ = "mythicAbilities"
+    lineup = GC._index()["lineup"]
+    porte = lambda uid: champ in ((GC.unit(uid) or {}))          # noqa: E731
+    pos = sorted([u for u in lineup if porte(u)])
+    manques = [u for u in MOW_POOL if not porte(u)]
+    print("[985] discriminant MACHINE : le champ `%s` du gameconfig" % champ)
+    print("   lineup portant le champ : %d -> %s" % (len(pos), ", ".join(pos)))
+    print("   MoW du pool spawnable   : %d" % len(MOW_POOL))
+    print("   FAUX NEGATIFS (MoW du pool sans le champ) : %s" % (manques or "aucun"))
+    print("   au-dela du pool         : %s"
+          % (", ".join(u for u in pos if u not in MOW_POOL) or "aucun"))
+    if manques:
+        print("   -> INUTILISABLE : le port prendrait la branche DEGAT sur une Machine.")
+        return 1
+    if not pos:
+        print("   -> temoin VIDE : un discriminant qui ne designe personne ne prouve rien.")
+        return 1
+    print("   -> UTILISABLE : 0 faux negatif, temoin non vide (%d designees)." % len(pos))
+    return 0
+
+
 def main() -> int:
+    if "--machines" in sys.argv:
+        return machines()
     tables = DFV.voies_par_ability()
     att = DFV.attestations()
     print("[985] les SIX faces DECISION, passees au recenseur #979")

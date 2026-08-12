@@ -147,6 +147,7 @@ from .devastating_refrain import DevastatingRefrainPlaybook
 from .duty_eternal import DutyEternalPlaybook
 # #985 -- les dernieres faces DECISION d'active.
 from .silent_death import SilentDeathPlaybook
+from .heavy_rail_rifle import HeavyRailRiflePlaybook
 
 
 # Registre abilityType -> instance de playbook (remplace le switch `kind`).
@@ -560,6 +561,13 @@ PLAYBOOKS: dict[int, NonComparablePlaybook] = {
         #                                 a >= 1 allie A ELLE colle a elle. Le `- origin` est LU
         #                                 dans `DSLSelectors$$AdjacentUnits` : sans lui le gate
         #                                 serait TOUJOURS vrai (la cible est ennemie du caster).
+        HeavyRailRiflePlaybook(),       # 1160 (`tauBroadside`, MoW) -- utilite de DEGAT du
+        #                                 TRIGGERED `1260`, lue au slot 4 (`CalculateAverage`,
+        #                                 TRONCATURE) ; branche `IsMachine(cible)` a tirage 50 %,
+        #                                 dont le port prend la face DETERMINISTE (util 1).
+        #                                 Ferme `#970-r2` : sa premisse (<< config du triggered
+        #                                 illisible >>) est REFUTEE -- le triggered partage
+        #                                 l'`AbilityConfiguration` de l'active.
     )
 }
 
