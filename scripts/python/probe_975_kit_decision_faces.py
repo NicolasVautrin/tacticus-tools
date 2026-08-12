@@ -56,10 +56,18 @@ PLACES = {
               "necroDestroyer": (4, 4), "necroSpyder": (5, 5)},
     },
     "B": {   # contre-epreuve du gate `1 < targets.Count` de 1221 : UN SEUL adjacent au Beserk
+        #   (`tauCrisis` en (3,6)) -- les deux autres voisins sont vides, `necroDestroyer` et
+        #   `necroSpyder` sont renvoyes hors de portee melee.
         "p": {"admecDominus": (1, 3), "admecDestroyer": (1, 6), "votanIronmaster": (5, 2),
               "votanBeserk": (4, 5), "tauShadowsun": (0, 1)},
         "a": {"necroWarden": (2, 3), "orksNob": (3, 3), "tauCrisis": (3, 6),
-              "necroDestroyer": (4, 4), "necroSpyder": (6, 1)},
+              "necroDestroyer": (6, 3), "necroSpyder": (6, 1)},
+    },
+    "C": {   # contre-epreuve du sweep de 1116 : AUCUN ennemi aligne -> les DEUX doivent s'abstenir
+        "p": {"admecDominus": (1, 3), "admecDestroyer": (1, 6), "votanIronmaster": (5, 2),
+              "votanBeserk": (4, 5), "tauShadowsun": (0, 1)},
+        "a": {"necroWarden": (6, 7), "orksNob": (6, 8), "tauCrisis": (3, 6),
+              "necroDestroyer": (6, 3), "necroSpyder": (6, 1)},
     },
 }
 

@@ -76,6 +76,41 @@ TROIS POINTS QUI SE LISENT, ET QU'AUCUN VOISIN NE DONNE
    `base_override` / `profile_override` / `hits_override` de
    `generate_multi_hit_attack_prediction`, puis `calculate_utility_from_damage_event`.
 
+L'ECART MESURE, ET OU IL VIT -- residu `#975-r3`
+-------------------------------------------------
+Confrontation LIVE (`probe_975_kit_decision_faces.py`, banc `MC1_67`/777, cinq porteurs
+co-injectes) : le port rend le MEME argmax de POSITION et la MEME cible que l'oracle `ncEvaluate`,
+et le MEME ordre de preference entre positions --
+
+    pos   (1,5)   (1,6)   (0,4)   (0,5)   autres
+    natif 54.50   45.59   41.76   34.56   28.17
+    port  38.99   32.67   32.11   24.83   21.74
+
+-- mais pas la meme VALEUR. La decomposition par etage (`probe_975_diag1139{,b,c,d}.py`) place
+l'ecart EN AMONT de cette feuille, dans la PREDICTION DE DEGAT, et l'etablit par DEUX voies
+natives independantes :
+
+  * `ncPlaybookPredict --via evaluate` capture les `ProbableDamageEvent` que le playbook NATIF
+    construit : a `(1,6)`, **min 2933 / max 4230, hits 1** -- **IDENTIQUES POUR LES TROIS CIBLES**,
+    dont les armures different (2662 / 2510 / ...). Le port, lui, rend 1670/3798 pour l'une et
+    1184/2886 pour l'autre : ses bornes DEPENDENT de la cible.
+  * le PLAN natif (`computeAttackPlans`, voie qui n'emprunte AUCUN playbook) publie pour les memes
+    couples `dmgMin/dmgMax` = **5984/8436**, **8976/10542**, **7480/8536** la ou le port rend
+    1184/2886, 2004/4557, 1480/3608 -- un facteur ~3 a ~5.
+
+Un balayage de `base_override` montre qu'AUCUNE valeur ne reconcilie : la valeur qui reproduit
+l'utilite native (**4933**) n'est ni `minDmg` (4254), ni `maxDmg` (5318), ni leur moyenne (4786),
+et le RAPPORT max/min differe structurellement (1.44 natif contre 2.05-2.27 port). Ce n'est donc
+pas un choix de variable, c'est la CHAINE de prediction. `1139` n'est d'ailleurs dans AUCUN des
+registres `_PREDICTION_MINMAX_*` d'`entities/abilities/active_ability.py` : sa prediction n'avait
+jamais ete confrontee. Le porteur `admecDestroyer` porte `HeavyWeapon_ExtraDmg` et
+`HeavyGravCannon` -- deux modificateurs de degat que le port applique PARTIELLEMENT.
+
+CONSEQUENCE, ecrite sans la maquiller : l'argmax est conforme quand l'ecart est monotone sur les
+cibles (montage A -- meme position, meme cible, y compris le kill-sure), et il PEUT DIVERGER quand
+il ne l'est pas (montage B -- natif `(1,6)`, port `(1,5)`). La face DECISION est donc portee et
+sa STRUCTURE est verifiee terme a terme ; sa VALEUR reste celle que lui donne l'etage amont.
+
 BORNES DE PORT, nommees
 ------------------------
 * AUCUN gate propre : `ShouldEvaluate` n'est PAS surcharge par 1139 (`frida/methods.tsv` ne lui
