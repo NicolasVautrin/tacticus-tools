@@ -171,6 +171,27 @@ class GuardianOrganismPlaybook(AdjacentToOwnerNonOwnerPlaybook):
         return wt.sub("TriggeredAbilities", "GuardianOrganism_AdjacentFriend")
 
 
+class MedicusMinistorumPlaybook(AdjacentToOwnerNonOwnerPlaybook):
+    """`MedicusMinistorumPlaybook` (`IdunBattle.AI.Playbook.Loki.MedicusMinistorumPlaybook$$.ctor` :
+    ability 0x42d = 1069 MedicusMinistorum -- passif d'`adeptHospitaller` << Isabella >>). Le `.ctor`
+    delegue a `IdunBattle.AI.Playbook.AdjacentToOwnerNonOwnerPlaybook<...>$$.ctor(this, 0x42d, ...)`
+    -- la base est LUE dans `classes.tsv`, pas deduite du nom.
+
+    `IdunBattle.AI.Playbook.Loki.MedicusMinistorumPlaybook$$GetAdjacentFriendUtility` =
+    TriggeredAbilities["MEDICUSMINISTORUM_AdjacentFriend"] -- **LOOKUP PLAT** : le corps ENTIER est
+    l'appel `getUtilityVal(<literal>)` suivi du `return`, et le parametre `friend` n'est lu par
+    AUCUNE instruction (relu au decompile sur `rnca9r7q6c`). La clef est le literal `0x33ca658` de
+    `metadata/string_literals.tsv`, LU et non reconstruit depuis le nom de l'ability -- la casse
+    (`MEDICUSMINISTORUM` en capitales, comme `RITESOFBATTLE` et contrairement a
+    `GuardianOrganism`) n'est pas derivable.
+
+    Aucun `GetAdjacentEnemyUtility` propre (la classe n'a que **2** corps dans `methods.tsv` :
+    `.ctor` et `GetAdjacentFriendUtility`) -> la branche ENNEMIS garde le 0.0 de la base."""
+
+    def get_adjacent_friend_utility(self, unit: dict, wt) -> float:
+        return wt.sub("TriggeredAbilities", "MEDICUSMINISTORUM_AdjacentFriend")
+
+
 class RitesOfBattlePlaybook(AdjacentToOwnerNonOwnerPlaybook):
     """`RitesOfBattlePlaybook` (`..IdunBattle.AI.Playbook.Loki.RitesOfBattlePlaybook$$.ctor` : ability 0x3f6=1014 RitesOfBattle — passif aura
     ultraCalgar). `IdunBattle.AI.Playbook.Loki.RitesOfBattlePlaybook$$GetAdjacentFriendUtility` = TriggeredAbilities
@@ -642,6 +663,10 @@ from .prophetic_sentinel import PropheticSentinelPlaybook    # noqa: E402  (#915
 TRIGGERED_MOVE_PLAYBOOKS: dict = {
     int(TriggeredAbilityType.GuardianOrganism): GuardianOrganismPlaybook(),
     int(TriggeredAbilityType.RitesOfBattle): RitesOfBattlePlaybook(),
+    # 1069 (#958) -- `MedicusMinistorumPlaybook$$.ctor` delegue a `AdjacentToOwnerNonOwnerPlaybook`
+    # avec `0x42d` ; son `GetAdjacentFriendUtility` est un LOOKUP PLAT sur
+    # `MEDICUSMINISTORUM_AdjacentFriend`. Aucune branche ENNEMIS (2 corps propres seulement).
+    int(TriggeredAbilityType.MedicusMinistorum): MedicusMinistorumPlaybook(),
     int(TriggeredAbilityType.MartialApotheosis): MartialApotheosisPlaybook(),   # 1045 (#57i, branche ennemis)
     int(TriggeredAbilityType.FabricatorClawArray): FabricatorClawArrayPlaybook(),  # 1006 (#57i, amis mecaniques)
     int(TriggeredAbilityType.FuryOfTheAncients): FuryOfTheAncientsPlaybook(),   # 1247 (#32)

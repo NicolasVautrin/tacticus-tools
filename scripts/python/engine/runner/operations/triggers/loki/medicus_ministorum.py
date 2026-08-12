@@ -85,7 +85,7 @@ lecture tranche.
 (`dispatch/attack.py`) comme « part SANTE, bouclier deja defalque ». Le gate ci-dessous lit donc
 `health_damage`. Consequence : une attaque qui ne consomme QUE du bouclier (`total > 0`,
 `health == 0`) declenche le soin cote natif et PAS cote port -- divergence RESTRICTIVE, bornee aux
-cibles porteuses d'un bouclier. Residu `#963` (cf. `docs/rl/backlog.md`). Sur tout autre regime les
+cibles porteuses d'un bouclier. Residu `#958-r1` (cf. `docs/rl/backlog.md`). Sur tout autre regime les
 deux canaux sont non-nuls ensemble.
 
 ## Ce qui N'EST PAS dans l'arbre, et vit sous la feuille
