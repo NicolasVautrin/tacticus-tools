@@ -496,10 +496,47 @@ def apply_pierce_and_modifiers(value: int, pierce_pct: int = 100, armor: int = 0
             # NO-OP quand l'une des deux listes est VIDE (`apply_pct_entries([])` rend la valeur
             # INCHANGÉE, sans `Round`) : tous les régimes à UNE face mesurés (#446-r2 `T` et `A`,
             # #462-r4a balayage d'armure, #462-r4d nightshroud, #98) sont donc strictement conservés.
-            d = max(0, apply_pct_entries(d, list(mods.pct_list)))
-            d = max(0, apply_pct_entries(d, list(mods.pct_list_defender)))
-            d = calculate_base_damage_with_modifiers(d, mods.multiplicative)          # étape 3
-            d = calculate_base_damage_with_modifiers(d, mods.multiplicative_defender)  # étape 4
+            # ⚠ #949 — LES QUATRE APPELS SONT REGROUPÉS **PAR FACE**, et c'est la ligne ci-dessus
+            # qui l'exigeait déjà sans que l'ordre la suive. Le port faisait
+            # `(pct_att, pct_def, mult_att, mult_def)` : le multiplicateur de la face ATTAQUANT
+            # s'appliquait donc APRÈS le %-effet de la face DÉFENSEUR, alors que le natif CLÔT la
+            # face attaquant (étape 3) avant d'ouvrir la face défenseur (étape 4). La conséquence
+            # n'est visible que par son ARRONDI, et elle est SYSTÉMATIQUE quand `pct_list` est vide :
+            # `apply_pct_entries([])` rend la valeur INCHANGÉE — SANS `Round` —, si bien que le
+            # %-effet défenseur s'appliquait à la sortie FRACTIONNAIRE du perçage au lieu de la
+            # valeur matérialisée. C'est exactement l'étage que la docstring de
+            # `calculate_base_damage_with_modifiers` décrit depuis #446-r2 (« cet arrondi-là, sur un
+            # multiplicateur NEUTRE, MATÉRIALISE la sortie fractionnaire du perçage avant que le
+            # multiplicateur de l'autre face ne s'applique ») — il manquait simplement quand la face
+            # attaquant portait un `multiplicative` neutre et la face défenseur un %-EFFET.
+            #
+            # MESURE (`probe_949_ltgb_coup_manquant.py --bras isolation`, `blackHaarken` ->
+            # `tauAunShi`, board `MC1_67` / seed 4321, 6 attaques enchaînées, même flux RNG) :
+            # perçage `1106` p80 armure `1608` = **884.8000000515021**, face DÉFENSEUR
+            # `SereneUnifierSenseOfStone` x0.50, face ATTAQUANT sans %-effet :
+            #     natif        : Round(884.8) = 885 ; Round(885 x 0.5) = Round(442.5) = **443**
+            #     port (avant) : Round(884.8 x 0.5) = Round(442.4)     = **442**   (-1)
+            # Le coup `LetTheGalaxyBurn` rend cet écart SYSTÉMATIQUE là où les coups d'arme ne le
+            # montrent qu'au hasard des tirages : sa cellule est DÉGÉNÉRÉE (min == max), donc il
+            # retombe TOUJOURS du même côté du `.5`. L'écart n'est PAS propre à ce descripteur.
+            #
+            # RAYON, dérivé et non supposé — déplacer `apply_pct_entries(d, [])` est un NO-OP PUR
+            # (la fonction rend la valeur inchangée sur liste vide), et un `Round` sur une valeur
+            # DÉJÀ arrondie est l'identité. Ne changent donc RIEN : `pct_list_defender` vide (toute
+            # la face défenseur passe par `multiplicative_defender` — régime #446-r2 stat-mod Thorns,
+            # régime #462-r4a `Terrifying_ExtraDefense` étiqueté face=attacker, #98), et
+            # `pct_list` NON vide (son `Round` a déjà matérialisé — régime #437-r1
+            # `HeavyWeapon_ExtraDmg` x1.25 ATT / `TerminatorArmour_ReduceDmg` x0.25 DÉF). Seul
+            # change le régime « face ATT sans %-effet + face DÉF avec %-effet », que ce probe
+            # confronte et qu'aucune mesure existante n'exerçait.
+            #
+            # Le résidu `#437-r1-r1-r2` est INCHANGÉ : une face portant à la fois un %-effet et un
+            # stat-mod fait toujours DEUX `Round` côté port contre UN natif. Le regroupement ne
+            # fusionne pas les deux conteneurs, il ne fait que rendre les faces CONSÉCUTIVES.
+            d = max(0, apply_pct_entries(d, list(mods.pct_list)))                     # face ATT (a)
+            d = calculate_base_damage_with_modifiers(d, mods.multiplicative)          # face ATT (b)
+            d = max(0, apply_pct_entries(d, list(mods.pct_list_defender)))            # face DÉF (a)
+            d = calculate_base_damage_with_modifiers(d, mods.multiplicative_defender)  # face DÉF (b)
         else:
             d = apply_all_modifiers(d, mods)   # %-list PUIS additif (@+0x10) — APRES percage (§17.7)
     return d

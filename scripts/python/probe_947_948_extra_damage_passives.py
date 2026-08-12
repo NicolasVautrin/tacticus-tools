@@ -268,9 +268,28 @@ def _replay(cap, board, paires, mutate=None, niveaux_de=()):
             h0 = int(hc.hp) if hc is not None else None
             runner.apply(AttackUnitMessage(int(att), int(tgt)))
             last = runner.damage_handler.last or {}
+            # ⚠ #949 -- LE LEDGER COMPLET N'EST **PAS** `last["per_hit"]`. Ce champ ne porte que la
+            # PHASE D'ARME : `damage_ops/normal.py::execute` rend les coups du canal #179 A COTE,
+            # dans `last["additional_hits"]`, et c'est voulu (deux sous-operations natives
+            # distinctes). Les additionner ici n'est donc pas une commodite -- c'est ce qui rend la
+            # comparaison HOMOGENE avec le ledger natif, qui, lui, est un flux d'events unique.
+            # Sans ce recollement, tout attaquant portant un descripteur #179 ACTIF fabrique un faux
+            # ecart de coups : c'est exactement ce qui a fait ecrire << 8 coups natif contre 6 port,
+            # ecart de 66 723 >> au Sec.6 de `docs/rl/case-947-948-passifs-extra-damage.md`, alors
+            # que le port etait bit-exact (mesure : `probe_949_ltgb_coup_manquant.py`, ledger natif
+            # reproduit 6/6, `hp_delta` == somme des coups natifs). L'ecart n'existait que dans le
+            # LECTEUR. `hp_delta` (retrait REEL de PV) est publie a cote comme arbitre : il est
+            # insensible a la facon dont le port ventile ses canaux.
+            ah = last.get("additional_hits") or {}
+            per_hit = list(last.get("per_hit") or []) + list(ah.get("per_hit") or [])
             out.append({"attacker": int(att), "target": int(tgt),
                         "hp_delta": (None if h0 is None else h0 - int(hc.hp)),
-                        "total": last.get("total"), "per_hit": last.get("per_hit")})
+                        "total": int(last.get("total") or 0) + int(ah.get("total") or 0),
+                        "per_hit": per_hit,
+                        # les deux canaux restent lisibles SEPAREMENT : une divergence de compte de
+                        # coups doit pouvoir dire LEQUEL des deux a bouge.
+                        "arme_per_hit": last.get("per_hit"),
+                        "additional_per_hit": ah.get("per_hit")})
         niveaux = {"%s@%s" % (et, u): _port_level(st, int(u), int(et))
                    for u, et in niveaux_de}
         # DIAGNOSTIC : ce que le port a REELLEMENT materialise sur l'attaquant. Sans lui, une
@@ -422,12 +441,23 @@ def _bras_headclaimer(rpc, board_id, seed, mutate, verbose, nom="headclaimer"):
              "--a-place", "%s:%d,%d" % (VICTIME_HERO_2, ring[2][0], ring[2][1]),
              "--unit-stat", "%s:Health=900000,RemainingHealth=900000" % CIBLE_FINALE,
              # ISOLER LA MECANIQUE MESUREE. Haarken porte `LetTheGalaxyBurn` (trait 1058 -> effet
-             # 1477), dont le `CreateAdditionalHits` ajoute un coup a profil PROPRE : sans ce
-             # retrait, le ledger natif porte un 8e coup a ~66 700 pts qui n'a RIEN a voir avec
-             # `HeadClaimer` et qui rendrait la comparaison de COUPS ininterpretable (mesure : 8
-             # coups natif contre 6 port, dont un ecart de 66 723 sur le dernier). `Traits=[]`
-             # retire les traits du KIT ; le natif REPOSE `Hero` de son cote (mesure : le
-             # `combatSnapshot` rend `[16]`), ce qui est SANS effet sur l'attaquant.
+             # 1477), dont le `CreateAdditionalHits` ajoute UN coup ; le retrait garde la
+             # comparaison de COUPS lisible sur le seul `HeadClaimer`. `Traits=[]` retire les traits
+             # du KIT ; le natif REPOSE `Hero` de son cote (mesure : le `combatSnapshot` rend
+             # `[16]`), ce qui est SANS effet sur l'attaquant.
+             #
+             # ⚠ #949 -- CE COMMENTAIRE PORTAIT UNE MESURE FAUSSE, ET ELLE VENAIT DU LECTEUR. Il
+             # annoncait << 8 coups natif contre 6 port, dont un ecart de 66 723 sur le dernier >>.
+             # Re-mesure (`probe_949_ltgb_coup_manquant.py --bras reproduction`) : le `66 723`
+             # n'est PAS un coup -- son tag natif porte `Effect_Type = 1476` (`DespoiledGround`,
+             # le DoT de tuile pose par `LetTheGalaxyBurn_ResetAbility`, non porte : residu deja
+             # nomme dans `runner/operations/triggers/loki/let_the_galaxy_burn.py`). Le ledger de
+             # COUPS natif en compte donc **7**, pas 8 ; et le port en rend 7 lui aussi, bit-exact,
+             # des qu'on lit son canal #179 (cf. `_replay` ci-dessus). L'ecart de coups etait un
+             # ARTEFACT D'OBSERVATION : `_attack` agrege TOUT event portant un `Amount`, canaux
+             # etrangers a l'attaque compris, alors que `_replay` ne lisait que la phase d'arme.
+             # Le retrait des traits reste utile (il garde le bras focalise sur `HeadClaimer`),
+             # mais il ne masque AUCUN bug de port.
              "--unit-stat", "%s:Traits=[]" % HAARKEN]
     rid, _sf, err = _build(seed, board_id, [HAARKEN],
                            [VICTIME_HERO_1, CIBLE_FINALE, VICTIME_HERO_2], place, hp="1")
