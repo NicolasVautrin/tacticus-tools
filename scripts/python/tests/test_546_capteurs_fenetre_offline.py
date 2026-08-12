@@ -120,62 +120,108 @@ def test_les_noms_cites_existent_dans_le_build_courant(build):
 
 # --------------------------------------------------- 2. le cliquet MORD (contre-epreuves)
 #
-# Chaque mutation ecrit une source de hook, rejoue l'etape, puis RESTAURE le texte d'origine.
+# Chaque mutation substitue le TEXTE que l'etape lit, rejoue l'etape, et n'ecrit RIEN.
 # Sans elles, les cinq verts ci-dessus ne prouveraient rien.
+#
+# ⚠ ELLES ECRIVAIENT LA VRAIE SOURCE DE HOOK, ET C'ETAIT LE GISEMENT #956. La mutation etait
+# posee sur `frida/hooks/features/ai-step/*.ts` -- des fichiers VERSIONNES et des ENTREES DE
+# BUILD -- puis restauree dans un `finally`. Deux consequences, toutes deux mesurees :
+#   * pendant la mutation, un SHARD VOISIN de la banque (`probe_457 --jobs N`) qui lit ces
+#     sources (`probe_365`, `probe_480r1`, ce probe-ci depuis un autre shard) voyait un fichier
+#     FAUX. Le verdict de la banque devenait donc fonction de son DECOUPAGE ;
+#   * une interruption entre les deux ecritures laissait la mutation SUR DISQUE, dans un fichier
+#     versionne, sans que rien ne le dise.
+# La substitution porte sur `_lire`, qui est le FOYER UNIQUE de lecture du probe (11 sites, tous
+# passent par lui) : la mutation traverse donc exactement le meme code, sans toucher au disque.
 
-def _muter(chemin: Path, avant: str, apres: str, etape):
-    src = chemin.read_text(encoding="utf-8")
+def _muter(chemin: Path, avant: str, apres: str, etape, monkeypatch):
+    """Substitue le texte rendu par `probe_546._lire` pour CE chemin, et rejoue `etape`.
+
+    TROIS CRANS pour que << la mutation a mordu >> soit un FAIT et non un espoir (feedback
+    `verify_the_mutation_applied` : un VERT suspect vient d'un patch qui ne matche pas) :
+    le motif doit EXISTER dans la source reelle, la substitution doit CHANGER le texte, et
+    `_lire` doit avoir ete REELLEMENT appele sur ce chemin pendant l'etape.
+    """
+    vrai_lire = P._lire
+    src = vrai_lire(chemin)
     assert avant in src, (
         "la contre-epreuve ne peut pas s'installer : `%s` absent de %s -- une mutation qui ne "
         "MORD PAS rendrait ce test vert pour rien" % (avant[:60], chemin.name))
+    mute = src.replace(avant, apres, 1)
+    assert mute != src, "la substitution n'a rien change dans %s" % chemin.name
+    vues = []
+
+    def _lire_mute(p):
+        if Path(p) == Path(chemin):
+            vues.append(p)
+            return mute
+        return vrai_lire(p)
+
+    monkeypatch.setattr(P, "_lire", _lire_mute)
     try:
-        chemin.write_text(src.replace(avant, apres, 1), encoding="utf-8")
-        return etape()
+        ko = etape()
     finally:
-        chemin.write_text(src, encoding="utf-8")
+        monkeypatch.undo()
+    assert vues, ("la mutation N'A PAS MORDU : `_lire(%s)` n'a jamais ete appele par cette "
+                  "etape -- le probe a change de voie de lecture" % chemin.name)
+    return ko
 
 
-def test_mutation_ligne_brouillard_retiree_rougit():
+def test_la_contre_epreuve_n_ECRIT_plus_la_source_de_hook(monkeypatch):
+    """#956 -- LE CRAN QUI EMPECHE LA RECHUTE. La substitution est en MEMOIRE : le fichier
+    versionne doit etre bit-a-bit identique de part et d'autre de la mutation.
+
+    Sans ce test, rien n'interdirait a une contre-epreuve future de revenir au `write_text` --
+    et le defaut serait de nouveau invisible (il ne se voit que depuis un AUTRE shard)."""
+    import hashlib
+    avant = hashlib.sha256(TARGETING.read_bytes()).hexdigest()
+    _muter(TARGETING, "    InFogOfWarBrokenTargetingRule: 1,\n", "",
+           P.etape1_brouillard, monkeypatch)
+    assert hashlib.sha256(TARGETING.read_bytes()).hexdigest() == avant, \
+        "la contre-epreuve a ECRIT %s -- gisement #956 rouvert" % TARGETING
+
+
+def test_mutation_ligne_brouillard_retiree_rougit(monkeypatch):
     ko = _muter(TARGETING, "    InFogOfWarBrokenTargetingRule: 1,\n", "",
-                P.etape1_brouillard)
+                P.etape1_brouillard, monkeypatch)
     assert ko, "retirer la ligne BROUILLARD doit ROUGIR l'etape 1"
     assert any("BROUILLARD" in m for m in ko), ko
 
 
-def test_mutation_offset_de_position_deplace_rougit():
+def test_mutation_offset_de_position_deplace_rougit(monkeypatch):
     ko = _muter(SNAPSHOT,
                 'name: "PreviousPositionThisTurn", fallback: 0x98',
                 'name: "PreviousPositionThisTurn", fallback: 0x88',
-                P.etape4_mouvement)
+                P.etape4_mouvement, monkeypatch)
     assert ko, "deplacer l'offset MESURE doit ROUGIR l'etape 4"
     assert any("previousPositionThisTurn" in m for m in ko), ko
 
 
-def test_mutation_getunit_resolu_par_arite_rougit(build):
+def test_mutation_getunit_resolu_par_arite_rougit(build, monkeypatch):
     ko = _muter(BOARD,
                 'findMethodByParamClasses(unitExtClass, "GetUnit", ["TileEntity", null])',
                 'findMethodByParamCount(unitExtClass, "GetUnit", 2)',
-                lambda: P.etape5_noms_du_build(build))
+                lambda: P.etape5_noms_du_build(build), monkeypatch)
     assert ko, ("resoudre `GetUnit` par l'ARITE doit ROUGIR l'etape 5 : trois surcharges "
                 "d'arite 2 existent sur ce build")
     assert any("surcharges" in m for m in ko), ko
 
 
-def test_mutation_cle_de_tilemeta_retiree_rougit():
+def test_mutation_cle_de_tilemeta_retiree_rougit(monkeypatch):
     ko = _muter(BOARD, "occupantIsPowerUp: occ ? occ.isPowerUp : null,", "",
-                P.etape2_tilemeta)
+                P.etape2_tilemeta, monkeypatch)
     assert ko, "retirer une cle publiee doit ROUGIR l'etape 2"
 
 
-def test_mutation_ventilation_de_effectsall_retiree_rougit():
+def test_mutation_ventilation_de_effectsall_retiree_rougit(monkeypatch):
     ko = _muter(SNAPSHOT,
                 'orphanCount: effects.filter((e) => !e.inOwnerList && !e.removed).length,', "",
-                P.etape3_effectsall)
+                P.etape3_effectsall, monkeypatch)
     assert ko, ("retirer `orphanCount` doit ROUGIR l'etape 3 : sans lui un `count: 0` ne dit "
                 "plus de quoi il est le zero")
 
 
-def test_mutation_disposition_nullable_re_supposee_rougit():
+def test_mutation_disposition_nullable_re_supposee_rougit(monkeypatch):
     """#347-r3 -- LA faute que la fenetre du 2026-08-08 a rendue visible.
 
     Revenir a `off + 8` re-suppose la disposition du `Nullable<T>`. Le cliquet doit le voir,
@@ -184,12 +230,12 @@ def test_mutation_disposition_nullable_re_supposee_rougit():
     ko = _muter(SNAPSHOT,
                 "cp.add(off + lay.hasValueOff).readU8()",
                 "cp.add(off + 8).readU8()",
-                P.etape4_mouvement)
+                P.etape4_mouvement, monkeypatch)
     assert ko, "re-supposer la disposition (`off + 8`) doit ROUGIR l'etape 4"
     assert any("off + 8" in m for m in ko), ko
 
 
-def test_mutation_copie_locale_du_foyer_rougit():
+def test_mutation_copie_locale_du_foyer_rougit(monkeypatch):
     """#347-r3 -- une COPIE locale de `nullableLayoutOf` doit ROUGIR.
 
     Le foyer unique est `internals.ts` (#579-r1, MEME defaut sur `readAbilityState`). La
@@ -199,14 +245,14 @@ def test_mutation_copie_locale_du_foyer_rougit():
                 "const lay = nullableLayoutOf(movementComponentClass, f.name);",
                 "function nullableLayoutOf(k, n) { return null; }\n"
                 "        const lay = nullableLayoutOf(movementComponentClass, f.name);",
-                P.etape4_mouvement)
+                P.etape4_mouvement, monkeypatch)
     assert ko, "une copie locale du foyer doit ROUGIR l'etape 4"
     assert any("COPIE locale" in m for m in ko), ko
 
 
-def test_mutation_cause_de_mutisme_retiree_rougit():
+def test_mutation_cause_de_mutisme_retiree_rougit(monkeypatch):
     """Les quatre causes doivent rester DISTINCTES : `{tiles: null}` pour tout a coute une
     fenetre entiere -- la mesure disait « muet » sans dire de quoi."""
-    ko = _muter(SNAPSHOT, 'decode: "null-list"', 'decode: "ko"', P.etape4_mouvement)
+    ko = _muter(SNAPSHOT, 'decode: "null-list"', 'decode: "ko"', P.etape4_mouvement, monkeypatch)
     assert ko, "effacer une cause nommee doit ROUGIR l'etape 4"
     assert any("null-list" in m for m in ko), ko

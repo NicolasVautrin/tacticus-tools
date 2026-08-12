@@ -478,6 +478,102 @@ def _git(args: list, quoi: str, tolere_rc: bool = False, racine=None):
     return proc
 
 
+def _etat_suivi(racine=None):
+    """`{chemin SUIVI et modifie: empreinte de son CONTENU}`. TRI-ETAT (#471).
+
+    `None` = PAS MESURE (git muet) -- jamais rendu comme un dictionnaire vide, qui se lirait
+    << l'arbre est propre >>. C'est la meme regle que `host_inputs` et `loop_status`.
+
+    POURQUOI L'EMPREINTE DE CONTENU, ET PAS LA SEULE LISTE. Un worktree d'agent est SALE avant la
+    passe -- c'est meme la regle, un worktree propre est auto-supprime. Comparer deux LISTES rend
+    donc invisible le cas le plus dangereux : un artefact DEJA modifie que la passe modifie ENCORE.
+    C'est exactement l'etat dans lequel la confusion de #956 est nee (un arbre principal ou
+    `ratchets-457-footprints.json` etait deja modifie). On ne hache que les fichiers DEJA sales --
+    zero dans un arbre propre, une poignee ailleurs.
+
+    `--no-optional-locks` : sans lui, `git status` RAFRAICHIT l'index, donc prend `index.lock`.
+    Ce capteur tourne dans CHAQUE shard, et `--jobs N` en lance N en meme temps sur le meme
+    checkout : la course sur le lock ferait echouer des mesures au hasard -- c'est-a-dire rendrait
+    le capteur de la dependance au decoupage lui-meme dependant du decoupage.
+
+    NE COMPTE QUE LE SUIVI (`XY` avec X ou Y dans `MADRCU`, et pas `??`). Un fichier NON SUIVI
+    cree pendant une passe est un autre gisement -- celui de #455, ou `probe_440` a rougi parce
+    qu'un voisin faisait apparaitre puis disparaitre des fichiers sous `scripts/python`. Il n'est
+    PAS couvert ici, et le dire fait partie du contrat.
+    """
+    proc = _git(["--no-optional-locks", "status", "--porcelain"],
+                "etat de l'arbre autour de la passe", tolere_rc=True, racine=racine)
+    if proc.returncode != 0:
+        return None
+    import hashlib
+
+    racine = Path(racine) if racine else repo_root()
+    salis = set()
+    for ligne in (proc.stdout or "").splitlines():
+        if len(ligne) < 4 or ligne[:2] == "??":
+            continue
+        chemin = ligne[3:].strip().strip('"')
+        if " -> " in chemin:                      # renommage : les DEUX cotes ont bouge
+            av, ap = chemin.split(" -> ", 1)
+            salis.add(av.strip().strip('"'))
+            salis.add(ap.strip().strip('"'))
+        elif chemin:
+            salis.add(chemin)
+    etat = {}
+    for rel in salis:
+        try:
+            etat[rel] = hashlib.sha1((racine / rel).read_bytes()).hexdigest()
+        except OSError:
+            etat[rel] = "ABSENT"                  # supprime : un etat, pas une panne
+    return etat
+
+
+def _prefixes_neutres() -> tuple:
+    """Les prefixes VERSIONNES dont l'ecriture ne peut PAS changer un verdict. FOYER : #956.
+
+    DELEGUE, jamais recopie. Deux derivations d'un meme critere ouvrent un ecart SILENCIEUX --
+    ici, ce capteur-ci pourrait exempter un artefact que `probe_956` accuse, ou l'inverse.
+    L'import est DIFFERE (PORTEUR : `probe_956` derive son perimetre de `probe_463r1`, et rien ne
+    doit alourdir la cascade d'un module que `loop_status` ne charge deja pas).
+    """
+    try:
+        from probe_956_purete_de_passe import prefixes_neutres
+        return prefixes_neutres()
+    except Exception:                              # pragma: no cover - foyer deplace ou illisible
+        # AUCUNE EXEMPTION PLUTOT QU'UNE DEVINEE : sans le foyer, on ne sait pas ce qui est
+        # neutre. Sur-signaler est SUR (un rouge lisible) ; deviner ne l'est pas.
+        return ()
+
+
+def _salissures(avant, apres):
+    """Les fichiers VERSIONNES que la passe a modifies. TRI-ETAT : `None` = pas mesurable.
+
+    LE GISEMENT (#956). Une passe qui ECRIT dans un fichier versionne rend le verdict de la
+    banque DEPENDANT DE LA COMPOSITION DES SHARDS : un autre fichier de test qui LIT cet artefact
+    (`test_463r1`, `test_465`, `test_486r15`, `test_935r1` en lisent) voit un etat qui depend de
+    qui a tourne avant lui -- donc de `--jobs N` -- et la passe suivante ne part plus du meme
+    arbre. C'est un axe qu'aucun de nos cliquets ne regardait : `probe_547` lit le ledger,
+    `probe_486r15` les declencheurs, `--since` le diff ; AUCUN ne regarde qui ECRIT.
+
+    On compare des ETATS (chemin + empreinte de contenu), donc la salete PREEXISTANTE d'un
+    worktree d'agent s'annule -- ce qui est rendu est ce que CETTE passe a change, jamais l'etat
+    absolu. Un fichier RESTAURE pendant la passe ressort aussi : il a bouge deux fois.
+
+    Ce que ce capteur NE dit PAS : QUI a ecrit. Un `git status` ne l'attribue a personne, et une
+    ecriture defaite AVANT la seconde mesure lui est invisible -- or un shard voisin, lui, a pu
+    lire PENDANT. L'attribution PAR FICHIER DE TEST et les ecritures TRANSITOIRES sont le role de
+    `probe_956_purete_de_passe.py`, qui pose un hook d'audit sur `open`. Les deux sont
+    complementaires, aucun ne subsume l'autre : celui-ci est EXHAUSTIF et quasi gratuit (deux
+    `git status` par shard), l'autre est ATTRIBUANT et cher.
+    """
+    if avant is None or apres is None:
+        return None
+    neutres = _prefixes_neutres()
+    return sorted({rel for rel in set(avant) | set(apres)
+                   if avant.get(rel) != apres.get(rel)
+                   and not rel.startswith(neutres)})
+
+
 def _exiger_cwd() -> str:
     """`""` si le CWD permet de jouer, sinon le message de REFUS (#464).
 
@@ -964,19 +1060,25 @@ def _empreinte_fusionnee(mesures: list, lus_par_test: dict, dossiers, temoins, g
 
 
 def _ecrire_ledger(perimetre: list, joues: list, bilan, horloge, rc: int, n_shards: int,
-                   k_shard: int = 0) -> None:
+                   k_shard: int = 0, salies=None) -> None:
     """Inscrit au LEDGER VERSIONNE le verdict de CHAQUE fichier que CETTE passe a joue (#486-r23).
 
     DECIDE D'ABORD, ECRIT ENSUITE -- meme discipline que `_ecrire_mesure`, et pour la meme raison :
     ce fichier est VERSIONNE, donc une ecriture fausse se propage a tout le monde.
 
-    TROIS REFUS, et chacun ferme un chemin par lequel un FAUX VERT entrerait :
+    QUATRE REFUS, et chacun ferme un chemin par lequel un FAUX VERT entrerait :
 
       1. `rc` d'USAGE / d'interruption (2, 3, 4, 5) -- rien n'a ete joue, donc rien n'est atteste.
          C'est le patron << un echec RENDU se lit comme une mesure >>, deja paye deux fois ici.
       2. `n_shards > 1` SANS JETON DE RUN -- cf. ci-dessous.
       3. AUCUNE base de fraicheur (`git` muet) -- une attestation sans `_depuis` n'est pas
          verifiable, donc `raison_de_rejeu` la rejetterait de toute facon. Autant ne pas l'ecrire.
+      4. LA PASSE A SALI UN FICHIER VERSIONNE (`salies`, #956). Une attestation dit << ce fichier
+         est vert SUR CET ARBRE >> ; si la passe a elle-meme modifie l'arbre, l'attestation ne
+         designe plus un etat que quiconque puisse retrouver, et le vert des fichiers joues APRES
+         l'ecriture a ete gagne dans un etat different de celui de ceux joues AVANT. C'est la
+         forme la plus pure du defaut que #956 ferme -- le verdict depend de l'ORDRE. Le refus
+         NOMME les fichiers salis ; il ne devine pas qui les a ecrits (cf. `_salissures`).
 
     Ce qui n'est PAS un refus : des tests ROUGES. Un rouge est un FAIT sur cet arbre et il
     s'inscrit -- c'est meme la seule facon qu'un rouge cesse d'etre invisible entre deux passes.
@@ -1002,6 +1104,18 @@ def _ecrire_ledger(perimetre: list, joues: list, bilan, horloge, rc: int, n_shar
     if rc in RC_PYTEST_SANS_MESURE:
         print("[457] ledger NON ECRIT : pytest rc=%d -- rien n'a ete joue, rien n'est atteste."
               % rc)
+        return
+    if salies:
+        print("[457] ledger NON ECRIT : la passe a MODIFIE %d fichier(s) VERSIONNE(S) (#956) :"
+              % len(salies))
+        for rel in salies[:8]:
+            print("        %s" % rel)
+        if len(salies) > 8:
+            print("        ... et %d autre(s)" % (len(salies) - 8))
+        print("[457] Un vert atteste sur un arbre que la passe a elle-meme change n'est pas")
+        print("[457] rejouable, et l'ordre des fichiers devient un parametre du verdict.")
+        print("[457] Attribuer l'ecriture a un fichier de test : cd scripts/python ; python "
+              "probe_956_purete_de_passe.py")
         return
     jeton = ledger.jeton_courant()
     if n_shards > 1 and not jeton:
@@ -2588,6 +2702,10 @@ def _run(argv=None) -> int:
     plugin = _DeselectLiveItems()
     bilan = _BilanParFichier()
     horloge = _TimePerFile()
+    # #956 -- L'ETAT DE L'ARBRE, PRIS DE PART ET D'AUTRE DE LA PASSE. Deux `git status` par shard
+    # (cout mesure : ~0,2 s piece), c'est tout ce que coute la garantie que le verdict de cette
+    # banque ne depend PAS de la composition des shards par le canal du DISQUE.
+    avant_arbre = _etat_suivi()
     started = time.time()
     # `-p no:cacheprovider` : aucune ecriture sous `scripts/python/` (#455 -- la banque enumere
     # cet arbre en parallele). `--import-mode=importlib` est deja dans `pytest.ini` ; on ne le
@@ -2595,11 +2713,17 @@ def _run(argv=None) -> int:
     rc = pytest.main(["-q", "-p", "no:cacheprovider", *mine],
                      plugins=[plugin, bilan, horloge])
     elapsed = time.time() - started
+    # La SECONDE mesure AVANT toute ecriture de ce probe : sinon l'instrument se mesurerait
+    # lui-meme (#547-r5), et le ledger qu'il ecrit ressortirait comme une salissure.
+    salies = _salissures(avant_arbre, _etat_suivi())
     # LE LEDGER S'ECRIT ICI, ET PAS DANS `_ecrire_mesure` : celui-ci n'est atteint que par
     # `--measure`, qui rejoue TOUT (976,9 s). Un ledger qui ne se remplirait qu'a la maintenance
     # serait vide en pratique -- c'est la passe ORDINAIRE qui prouve le vert, donc c'est elle qui
     # doit l'inscrire.
-    _ecrire_ledger(perimetre_complet, mine, bilan, horloge, int(rc), n, k)
+    _ecrire_ledger(perimetre_complet, mine, bilan, horloge, int(rc), n, k, salies=salies)
+    if salies is None:
+        print("[457] PURETE DE LA PASSE : NON MESUREE (`git status` muet) -- ni un vert ni un "
+              "rouge sur cet axe (#956).")
 
     print("[457] %d test(s) joue(s) en %.1f s -- pytest rc=%d" % (plugin.kept, elapsed, int(rc)))
     if plugin.dropped_items:
@@ -2628,7 +2752,21 @@ def _run(argv=None) -> int:
     if int(rc) != 0:
         print("[457] VERDICT: FAIL -- au moins un test offline est ROUGE (pytest rc=%d)" % int(rc))
         return 1
-    print("[457] VERDICT: PASS -- tous les tests offline du shard sont verts")
+    if salies:
+        # #956 -- CE N'EST PAS UN TEST ROUGE, ET LE VERDICT LE DIT. Le shard est vert au sens de
+        # pytest ; ce qui est rouge, c'est que la passe a change l'arbre sous elle-meme, donc que
+        # son verdict n'est pas rejouable et depend de l'ordre. Rendre `0` ici ferait exactement
+        # ce que ce cliquet ferme : un vert qui ne veut rien dire hors de la passe qui l'a rendu.
+        print("[457] VERDICT: FAIL -- les tests sont VERTS, mais la passe a MODIFIE %d fichier(s)"
+              % len(salies))
+        print("[457] VERSIONNE(S) : %s" % ", ".join(salies[:5]))
+        print("[457] Un fichier versionne ecrit pendant une passe rend le verdict DEPENDANT DE LA")
+        print("[457] COMPOSITION DES SHARDS -- un autre test qui le LIT voit un etat qui depend de")
+        print("[457] qui a tourne avant lui. Attribuer l'ecriture : cd scripts/python ; python "
+              "probe_956_purete_de_passe.py")
+        return 1
+    print("[457] VERDICT: PASS -- tous les tests offline du shard sont verts, et la passe n'a "
+          "modifie AUCUN fichier versionne")
     return 0
 
 
