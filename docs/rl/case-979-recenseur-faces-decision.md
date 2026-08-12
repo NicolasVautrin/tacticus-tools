@@ -107,7 +107,7 @@ autres lots** sont deux effets distincts, et les mélanger masquerait le premier
 | `c7607567` (#978) | 3 registres | 111 | — | **27** |
 | `c7607567` (#978) | 14 voies + ledger | **117** | **3** | **18** |
 | `f6e2674b` (#975) | 14 voies + ledger | 123 | 3 | 12 |
-| `f6e2674b` + les 2 ports de #979 | 14 voies + ledger | **124** | **3** | **11** |
+| `0798b33d` (#977) + les 2 ports de #979 | 14 voies + ledger | **128** | **3** | **7** |
 
 **À périmètre de commit égal, la seule correction de lecture vaut `27 → 21`** — un sur-comptage
 de **22 %** — et les trois attestations en retirent trois de plus.
