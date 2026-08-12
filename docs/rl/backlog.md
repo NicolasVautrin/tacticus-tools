@@ -1187,6 +1187,22 @@ Remontés par les cases closes ; à promouvoir seulement si un miss d'agreement 
   **FOYER:** `scripts/python/probe_468_collision_numeros.py`,
   `scripts/python/tests/test_468r14_reservation_offline.py` — **BLOCAGE:** `aucun` | `[opus]` |
   `docs/rl/case-468-r14-de-l-observation-a-l-allocation.md` §6 ; `probe_468::lister` |
+- **`#958-r1` — `AmountIsGreaterThanZero(CurrentDamage)` lit `totalDamage`, le port thread
+  `health_damage`.** `IdunBattle.Entities.Formulas.CurrentDamageFormula$$Calculate` =
+  `Nullable<int>.GetValueOrDefault(entities + 0xe8)`, et `AbilityEntities$$.ctor` (33 params nommes)
+  ecrit `*(this + 0xe8) = totalDamage` (`healthDamage` est a `+0xe0`, `initialDamage` a `+0xd8` —
+  l'ordre MEMOIRE n'est pas celui de la DECLARATION). Le `TriggerEvent` du port ne porte pas
+  `totalDamage` : son `health_damage` est documente au site d'emission comme « part SANTE, bouclier
+  deja defalque ». *Consequence chiffree* : une attaque qui ne consomme QUE du bouclier
+  (`total > 0`, `health == 0`) declenche `MedicusMinistorum` cote natif et PAS cote port —
+  divergence RESTRICTIVE, bornee aux cibles porteuses d'un bouclier ; nulle sur tout autre regime,
+  ou les deux canaux sont non nuls ensemble. Threader `total_damage` touche `triggers/base.py` +
+  `dispatch/attack.py` + `damage_ops/normal.py` — trois foyers TRES partages, d'ou le residu plutot
+  qu'un debordement de la tranche #958.
+  **FOYER:** `scripts/python/engine/runner/operations/triggers/base.py`,
+  `scripts/python/engine/runner/operations/triggers/dispatch/attack.py`,
+  `scripts/python/engine/runner/operations/damage_ops/normal.py` — **BLOCAGE:** `seeding` | `[opus]` |
+  `docs/rl/case-958-medicus-ministorum-aggressive-onslaught.md` §5 |
 - **`#480-r2` — `probe_252` ne pèse qu'un SENS de la bijection.** Son verdict est
   `faux or absents` (table -> enum) ; `manquants` (enum -> table) est calculé, **affiché, et ignoré**.
   Les 6 tables étant aujourd'hui en bijection exacte, le faire peser ne produirait **aucun faux
