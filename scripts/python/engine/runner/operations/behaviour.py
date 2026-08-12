@@ -63,6 +63,7 @@ from .remove_unit import RemoveUnitOperation
 from ...services.damage_combat import roll_critical
 from ..events import EventBus
 from .movement import MoveUnitOperation
+from .triggers.dispatch import move_death
 
 IGNORE_BATTLE_FATIGUE = int(EffectType.IgnoreBattleFatigue)  # 1079 (immunite ; posee p.ex. par SquigHound 1078) #158
 # 3e argument d'`DSLTriggers$$IsAdjacent` = `UnitSelectionType`, PAS un rayon (cf. en-tete du module).
@@ -117,7 +118,6 @@ class FleeOperation:
         # `On(0x36)`) est ABANDONNE si un trigger a tue l'unite pendant l'evenement. Le port
         # n'emettait AUCUN `PreUnitFled` : le vecteur n'avait aucun emetteur dans tout `engine/**`,
         # donc `SummaryExecutionAbility` n'aurait jamais pu se poser.
-        from .triggers.dispatch import move_death              # differe : cycle behaviour<->dispatch
         pre = move_death.pre_unit_fled_triggers(state, int(unit_id),
                                                 triggering_ability=triggering_ability)
         uc = e.get_component(UnitComponent)

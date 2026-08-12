@@ -36,6 +36,11 @@ from ..entities.traits.unit_trait import UnitTrait, has_trait
 from ..entities.traits.unit_trait import entity_trait_names, has_any_trait   # #498-r2
 from ..entities.stats import StatType as _ST
 from ..entities.effects.loki.daemonic_patrons import adjacent_taunted_enemies_selector
+# FORME B OBLIGATOIRE (#962) : `migrate_485r1_barils_reexport.py morsure` classe
+# `adjacent_dark_angels_friends_selector` en `HISSAGE_DESARMERAIT` -- il est SUBSTITUE par
+# `test_947_948_extra_damage_passives_offline.py:567` (`monkeypatch.setattr` sur le module SOURCE).
+# Une liaison `from ... import <nom>` la gelerait au chargement et rendrait ce patch INERTE.
+from ..entities.effects.loki import enmity_for_the_unworthy as _enmity
 
 if TYPE_CHECKING:
     from ..entities.unit_context import UnitContext
@@ -3426,8 +3431,8 @@ def enmity_adjacent_units_count(state, unit_id: int) -> Optional[int]:
     if pc is None:
         return None
     from .abilities.behaviours.context import entities_from_state
-    from ..entities.effects.loki.enmity_for_the_unworthy import adjacent_units_selector
-    return int(adjacent_units_selector().calculate(entities_from_state(state, int(unit_id))))
+    return int(_enmity.adjacent_units_selector().calculate(
+        entities_from_state(state, int(unit_id))))
 
 
 def enmity_adjacent_dark_angels_friends_count(state, unit_id: int) -> Optional[int]:
@@ -3448,9 +3453,8 @@ def enmity_adjacent_dark_angels_friends_count(state, unit_id: int) -> Optional[i
     if oc is None or oc.team is None or pc is None:
         return None
     from .abilities.behaviours.context import entities_from_state
-    from ..entities.effects.loki.enmity_for_the_unworthy import (
-        adjacent_dark_angels_friends_selector as _enmity_da_selector)
-    return int(_enmity_da_selector().calculate(entities_from_state(state, int(unit_id))))
+    return int(_enmity.adjacent_dark_angels_friends_selector().calculate(
+        entities_from_state(state, int(unit_id))))
 
 
 class UnitEffectStateView(Mapping):

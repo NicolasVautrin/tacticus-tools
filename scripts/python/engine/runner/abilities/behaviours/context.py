@@ -53,6 +53,8 @@ from ...components import unit_extensions_is_alive
 # `monkeypatch.setattr` sur le foyer MORD toujours.
 from ...operations import active_ability as _aa
 from ...operations.damage_utility import sort_units_by_damage_utility as _subdu
+from ....utilities.damage import composite_fields_from_prediction
+from ...operations.attack_prediction import multi_hit_attack_prediction as _mhap
 
 
 # Trait d'ALLIANCE derive de la GrandAlliance : la resolution CANONIQUE vit desormais dans
@@ -729,8 +731,6 @@ def entities_from_state(state, caster_id: int, target_id: int | None = None,
         `is_normal_attack = False` (le noeud `+0x38 ability` est non nul sur les deux call-sites
         portes, donc le natif ne retombe PAS sur `GetNormalAttackType`).
         Rend le dict de composite (`healthDmgMin/Max`, `kill`, `killSure`) ou `None`."""
-        from ...operations.attack_prediction import multi_hit_attack_prediction as _mhap
-        from ....utilities.damage import composite_fields_from_prediction
         if attacker_id is None or defender_id is None:
             return None
         prof = None if damage_profile is None else str(damage_profile)

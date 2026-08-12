@@ -42,6 +42,7 @@ from ..entities.effects.factory import EffectFactory
 from ..entities.unit_context import UnitContext
 from ..entities.effects.factory import EffectFactory
 from ..entities.effects_state import EffectsState, baked_ability_state
+from ..entities import effects_state as _effects_state   # FORME B (#962) : `seed_battle_counters`
 from ..entities.unit_context import UnitContext
 from ..entities.active_ability_type import ActiveAbilityType
 from ..entities.traits.unit_trait import trait_names_from_ids
@@ -1132,8 +1133,7 @@ def _load_battle_counters(state: State, decision: dict) -> None:
 
     Le canal EXISTE et etait deja publie : `decisionView.units[].defeatedByMelee` (mesure :
     `True` sur l'unite morte en melee, `False` sur les vivantes). Rien a capter, juste a LIRE."""
-    from ..entities.effects_state import seed_battle_counters
-    seed_battle_counters(state.effects, (decision or {}).get("units") or [])
+    _effects_state.seed_battle_counters(state.effects, (decision or {}).get("units") or [])
 
 
 def _load_effect_parent_links(state: State) -> None:

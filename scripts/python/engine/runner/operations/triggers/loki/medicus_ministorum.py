@@ -132,7 +132,7 @@ from .....entities.triggers import AreFriends, IsAdjacent
 from .....entities.unit_selection_type import UnitSelectionType
 from ....abilities.behaviours.context import entities_from_state
 from ....abilities.behaviours.stats import Heal
-from ....components import PositionComponent, UnitComponent
+from ....components import PositionComponent, StatsComponent, UnitComponent
 from ....state import State
 from ..base import TriggeredAbility, TriggerEvent
 
@@ -153,7 +153,6 @@ _ON_ATTACK = int(EventTriggerType.Attack)                              # 0x9 = 9
 def _passive_scaling(state: State, owner_id: int) -> tuple:
     """`(passive_ability_level, ability_variables_multiplier)` du porteur. `MedicusMinistorum` est un
     PASSIF -> le niveau des `GetVariableForLevel` est `passive_ability_level`, JAMAIS l'actif."""
-    from ....components import StatsComponent
     e = state.get_entity(owner_id)
     sc = e.get_component(StatsComponent) if e is not None else None
     ctx = getattr(sc, "ctx", None)
