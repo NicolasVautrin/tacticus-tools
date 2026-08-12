@@ -96,9 +96,14 @@ from ._base import NCContext, _PlanTargetPlaybook, _traits, _unit_cfg
 
 def _visual_id_of(ctx: NCContext, unit_id) -> str | None:
     """`visualId` de l'unite -- `observeBattle.units[].visualId`, le seul canal de `NCContext` qui
-    le porte (`dv.units` ne publie que les abilities)."""
+    le porte (`dv.units` ne publie que les abilities).
+
+    ⚠ LA CLE EST `squadId`, PAS `entityId` : les deux existent sur la meme ligne et designent des
+    choses differentes (l'id d'unite du port vs l'entite ECS). Mesure #975 : `entityId` rendait
+    `None` sur les 10 unites du banc. Ici la consequence aurait ete SILENCIEUSE et PERMISSIVE
+    (repair-type indeterminable -> gate inactif), donc invisible sans la mesure."""
     for u in (ctx.obs_units or []):
-        if u.get("id") == unit_id or u.get("entityId") == unit_id:
+        if u.get("squadId") == unit_id or u.get("id") == unit_id:
             v = u.get("visualId")
             if v:
                 return str(v)

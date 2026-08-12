@@ -102,9 +102,16 @@ from ._base import NCContext, NonComparablePlaybook
 
 def _visual_id_of(ctx: NCContext, unit_id) -> str | None:
     """`visualId` de l'unite -- `observeBattle.units[].visualId`, seul canal de `NCContext` qui le
-    porte."""
+    porte.
+
+    ⚠ LA CLE EST `squadId`, PAS `entityId`. Les deux existent sur la MEME ligne d'`observeBattle`
+    et ne valent PAS la meme chose : `squadId` est l'id d'unite que manipulent `decisionView`,
+    `abilityTargets` et le port (`ctx.uid`), `entityId` est l'entite ECS. Mesure #975 : chercher
+    `entityId` rendait `None` sur les 10 unites du banc, donc `has_enemy_in_range` rendait `False`
+    PARTOUT et le playbook etait ENREGISTRE MAIS INERTE -- exactement le vice que le brief nomme.
+    `hammer_of_wrath._displacement_bonus` lit deja `squadId`, c'est la meme cle."""
     for u in (ctx.obs_units or []):
-        if u.get("id") == unit_id or u.get("entityId") == unit_id:
+        if u.get("squadId") == unit_id or u.get("id") == unit_id:
             v = u.get("visualId")
             if v:
                 return str(v)

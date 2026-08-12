@@ -79,11 +79,13 @@ TROIS POINTS QUI SE LISENT
 
 BORNES DE PORT, toutes nommees
 -------------------------------
-* **AIM depuis l'ORIGINE seule** (`abilityTargets(...).fromHere`, `kind = "tile"`) : le natif
-  balaie AUSSI les tuiles de move. Meme borne, meme raison et meme signe que
-  `DarkTalonStrikePlaybook` -- le sweep est origine-first et `Bucket$$AddAction` ne remplace que
-  sur amelioration STRICTE, donc le port ne peut que RATER un aim meilleur apres deplacement,
-  jamais en inventer un. Residu `#975-r2`.
+* **LE SWEEP COUVRE LES POSITIONS DE MOVE, et il le DOIT** -- mesure #975, banc `MC1_67`/777 :
+  l'oracle `ncEvaluate` rend `bucket: "empty"` a l'origine `(1,3)` et `util = 2` depuis `(1,4)`.
+  Le natif se DEPLACE d'une tuile pour aligner deux ennemis. Un sweep limite a `fromHere` (la borne
+  que porte `DarkTalonStrikePlaybook`) ratait donc le cast ENTIER, pas seulement sa position. La
+  contrainte qui rend le balayage sur, sans rien fabriquer : l'aim est toujours une tuile
+  ADJACENTE a la position de cast (`TargetingRange.CustomRange(1)`, LU dans le `.ctor`), donc on
+  INTERSECTE l'union mesuree (`abilityTargets(...).targets`) avec le voisinage de chaque position.
 * `TotalRepairActionsAmount` rend **0** : le compteur `<component>+0xe8` n'est capte par AUCUN
   canal (residu deja documente sur le noeud `TotalRepairActionsAmount`). La longueur vaut donc
   `1 + turnsStarted(caster)` -- EXACTE tant qu'aucun Mechanic ami n'a soigne, ce qui est le regime
@@ -152,44 +154,76 @@ class RadBombardmentPlaybook(NonComparablePlaybook):
     MIN_UTILITY = 2.0     # `...RadBombardmentPlaybook$$.cctor` : `Fix64$$op_Implicit(2)`
     PRIORITY = 0          # hors `NATIVE_PRIORITY` (defaut `AbilityPriority.Normal`, sweep #170)
 
-    def generate_candidates(self, ctx: NCContext) -> list[dict]:
-        """`ActiveAbilityActionGenerator` + `Bucket$$ChooseAction` pour un cast TILE-TARGET.
+    def _aims(self, ctx: NCContext) -> tuple[list, list]:
+        """`(fromHere, union)` des tuiles d'aim publiees par `abilityTargets(uid, 1116)`.
 
-        Les tuiles d'aim viennent d'`abilityTargets(uid, 1116).fromHere` (`kind = "tile"`) = le
-        mirror de `GetEligibleTargetsSelectable(caster, casterPosition.MainTile)` A L'ORIGINE.
-        `Bucket$$AddAction` ne remplace que sur `>` STRICT -> keep-first au tie, dans l'ordre
-        d'enumeration du selector natif (que `fromHere` preserve, cf. `eligible_target_tiles`)."""
-        if ctx.ability_targets is None or ctx.origin is None:
-            return []
+        `fromHere` = `GetEligibleTargetsSelectable(caster, casterPosition.MainTile)` A L'ORIGINE,
+        dans l'ORDRE du selector natif. `union` = `GetAllValidTargetsFromAllPossibleMovementTiles`,
+        soit l'ensemble des aims atteignables APRES deplacement -- l'ordre y est celui d'aucune
+        position en particulier (cf. `_base.eligible_target_tiles`)."""
+        fh, un = [], []
         at = ctx.ability_targets(ctx.uid, self.ABILITY_ID) or {}
-        aims: list = []
         for u in (at.get("units") or []):
             if u.get("unitId") != ctx.uid:
                 continue
             for a in (u.get("abilities") or []):
                 if a.get("abilityId") != self.ABILITY_ID:
                     continue
-                for t in (a.get("fromHere") or []):
-                    tile = t.get("tile")
-                    if t.get("kind") == "tile" and tile and tile.get("col") is not None:
-                        aims.append((tile.get("col"), tile.get("row")))
-        if not aims:
+                for key, out in (("fromHere", fh), ("targets", un)):
+                    for t in (a.get(key) or []):
+                        tile = t.get("tile")
+                        if t.get("kind") == "tile" and tile and tile.get("col") is not None:
+                            out.append((tile.get("col"), tile.get("row")))
+        return fh, un
+
+    def generate_candidates(self, ctx: NCContext) -> list[dict]:
+        """`ActiveAbilityActionGenerator` + `Bucket$$ChooseAction` pour un cast TILE-TARGET.
+
+        LE SWEEP EST SUR LES POSITIONS, PAS SEULEMENT L'ORIGINE, et c'est ce qui a ete MESURE
+        (#975) : sur le banc `MC1_67`/777, l'oracle `ncEvaluate` rend `bucket: "empty"` a l'origine
+        `(1,3)` et `util = 2` depuis `(1,4)` -- le natif se DEPLACE d'une tuile pour aligner deux
+        ennemis. Un sweep limite a `fromHere` ratait donc le cast en entier, pas seulement sa
+        position.
+
+        Les aims candidats d'une position `P` sont MESURES puis CONTRAINTS :
+          * mesures -- `fromHere` a l'origine (ordre du selector natif), `targets` (l'union sur
+            toutes les tuiles de move) ailleurs ;
+          * contraints -- `...RadBombardmentAbility$$.ctor` pose `TargetingRange.CustomRange(1)`,
+            donc l'aim est TOUJOURS une tuile ADJACENTE a la position de cast. Le voisinage employe
+            est la liste STOCKEE (`ctx.neigh_by_pos`, `IterateAdjacentTiles`) quand elle est
+            publiee, la couronne hex sinon.
+        On ne fabrique donc aucune tuile : on INTERSECTE un ensemble mesure avec une contrainte LUE.
+
+        `Bucket$$AddAction` ne remplace que sur `>` STRICT et le generateur balaie `reach_nc`
+        ORIGINE D'ABORD -> keep-first, l'origine gagne a egalite (`to = None`)."""
+        if ctx.ability_targets is None or ctx.origin is None:
+            return []
+        fh, union = self._aims(ctx)
+        if not fh and not union:
             return []
         n_tiles = affected_tile_amount(ctx)
         enemy_set = {p for p in (ctx.epos or []) if p and p[0] is not None}
-        best_aim, best_c = None, None
-        for T in aims:
-            line = affected_tiles(ctx, ctx.origin, T, n_tiles)
-            c = sum(1 for t in line if t in enemy_set)   # `|Enemies(Units(tiles))|`
-            if best_c is None or c > best_c:             # `>` STRICT : 1re tuile du max gagne
-                best_aim, best_c = T, c
-        if best_aim is None or best_c < self.MIN_UTILITY:
+        neigh = bq.neigh_map(ctx)
+        best = None                       # (aim, position, count)
+        for P in (ctx.reach_nc or [ctx.origin]):        # ORIGINE en tete (ordre natif)
+            pool = fh if P == ctx.origin else union
+            for T in pool:
+                # `TargetingRange.CustomRange(1)` : l'aim est ADJACENT a la position de cast.
+                if not bq.is_adjacent(P, T, ctx.elev_by_pos, neigh):
+                    continue
+                line = affected_tiles(ctx, P, T, n_tiles)
+                c = sum(1 for t in line if t in enemy_set)   # `|Enemies(Units(tiles))|`
+                if best is None or c > best[2]:             # `>` STRICT : le 1er max gagne
+                    best = (T, P, c)
+        if best is None or best[2] < self.MIN_UTILITY:
             return []
-        tile_id = (ctx.tile_id_by_pos or {}).get(best_aim)
+        aim, pos, cnt = best
+        tile_id = (ctx.tile_id_by_pos or {}).get(aim)
         if tile_id is None:
             return []                    # pas d'entite-tuile -> la cible n'est pas emettable
         if ctx.debug:
             import sys
-            print(f"    [dbg NC u{ctx.uid}] RadBombardment aim={best_aim} n={n_tiles} "
-                  f"enemies={best_c} tileId={tile_id}", file=sys.stderr)
-        return [{"target": tile_id, "ability": self.ABILITY_ID, "to": None, "pred": float(best_c)}]
+            print(f"    [dbg NC u{ctx.uid}] RadBombardment aim={aim} from={pos} n={n_tiles} "
+                  f"enemies={cnt} tileId={tile_id}", file=sys.stderr)
+        return [{"target": tile_id, "ability": self.ABILITY_ID,
+                 "to": (pos if pos != ctx.origin else None), "pred": float(cnt)}]
