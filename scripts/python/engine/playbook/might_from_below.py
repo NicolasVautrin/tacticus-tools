@@ -64,7 +64,11 @@ from __future__ import annotations
 
 from .. import battle_query as bq
 from ..entities.active_ability_type import ActiveAbilityType
-from ..entities.traits.unit_trait import UnitTrait, entity_trait_names, has_any_trait
+# Forme B pour le lecteur de traits : une liaison figee au chargement rendrait MUETTE toute
+# contre-epreuve qui substitue le predicat (mesure #977 -- la mutation "trait ignore" ne
+# mordait pas tant que cet import etait en forme A).
+from ..entities.traits import unit_trait as _UT
+from ..entities.traits.unit_trait import UnitTrait
 from .base import register
 from .common import DefaultActiveAbilityPlaybook
 
@@ -121,7 +125,8 @@ class MightFromBelowPlaybook(DefaultActiveAbilityPlaybook):
             if not bq.is_adjacent(caster_tile, pos, ctx.elev_by_pos, neigh):
                 continue                       # `AdjacentFriends` : ring 1 de la tuile de cast
             uctx = scene.ctx(u.get("id")) if scene is not None else None
-            if has_any_trait(entity_trait_names(uctx, u.get("visualId")), (UnitTrait.Decoy,)):
+            if _UT.has_any_trait(_UT.entity_trait_names(uctx, u.get("visualId")),
+                                 (UnitTrait.Decoy,)):
                 n += 1                         # `UnitsWithTrait(., 0x41d = Decoy)`
         return float(n) * float(w)
 

@@ -117,7 +117,10 @@ import engine.playbook.displace_utility as _displace
 import engine.playbook.base as _pbbase
 
 from ._base import NCContext, NonComparablePlaybook
-from ._targets import eligible_units_at_position
+# Forme B : un import from ._targets import <nom> GELERAIT la liaison au chargement -- une contre-epreuve
+# qui substitue le foyer deviendrait MUETTE, en silence (mesure #977 : deux mutations d'ordre
+# n'ont RIEN mordu tant que cet import etait en forme A).
+from . import _targets as _T
 
 #: `Bucket<T>..ctor` a UN argument -> `minUtility.HasValue == false` -> aucun seuil d'admission.
 #: Le defaut `0.0` de `NonComparablePlaybook` tuerait ce playbook (son utilite vaut 0 sur plat).
@@ -137,7 +140,7 @@ class ThunderousAssaultPlaybook(NonComparablePlaybook):
         `(target, diff)` ou `None`. Argmax STRICT sur `diff`, gate `diff > 0` PAR CIBLE (une cible a
         `diff == 0` n'entre jamais dans `best`, meme si aucune autre ne la depasse)."""
         best = None
-        for tgt, _tpos in eligible_units_at_position(ctx, self.ABILITY_ID, P):
+        for tgt, _tpos in _T.eligible_units_at_position(ctx, self.ABILITY_ID, P):
             diff = _displace.target_utility_diff_on_displace(ctx, P, tgt)
             if diff > 0.0 and (best is None or diff > best[1]):
                 best = (tgt, diff)
@@ -164,7 +167,7 @@ class ThunderousAssaultPlaybook(NonComparablePlaybook):
         non vide), celle dont la tuile COURANTE porte la plus haute `Tile(7)` -- evaluee du point de
         vue du CASTER (`UtilityAttackCase.Base(unit, ...)`), pas de la cible. Argmax STRICT."""
         best = None
-        for tgt, tpos in eligible_units_at_position(ctx, self.ABILITY_ID, P):
+        for tgt, tpos in _T.eligible_units_at_position(ctx, self.ABILITY_ID, P):
             if tpos is None:
                 continue
             if len(_displace.pushable_tiles(ctx, P, tgt)) < 1:

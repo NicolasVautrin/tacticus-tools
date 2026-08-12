@@ -43,7 +43,9 @@ consomme la valeur BRUTE.
 from __future__ import annotations
 
 from .. import battle_query as bq
-from ..entities.traits.unit_trait import UnitTrait, entity_trait_names, has_any_trait
+# Forme B (meme raison que `might_from_below` : garder les predicats SUBSTITUABLES).
+from ..entities.traits import unit_trait as _UT
+from ..entities.traits.unit_trait import UnitTrait
 from ..runner.components import NOT_DISPLACEABLE_TRAITS   # foyer UNIQUE de la liste (#498-r4)
 
 from .base import tile_utility_for_unit
@@ -85,8 +87,8 @@ def is_displaceable(ctx, unit: dict) -> bool:
         return False
     scene = getattr(ctx, "scene", None)
     uctx = scene.ctx(unit.get("id")) if scene is not None else None
-    names = entity_trait_names(uctx, unit.get("visualId"))
-    return not has_any_trait(names, NOT_DISPLACEABLE_TRAITS)
+    names = _UT.entity_trait_names(uctx, unit.get("visualId"))
+    return not _UT.has_any_trait(names, NOT_DISPLACEABLE_TRAITS)
 
 
 def pushable_tiles(ctx, caster_tile, target_id) -> list:
@@ -125,7 +127,7 @@ def pushable_tiles(ctx, caster_tile, target_id) -> list:
             keep.append(p)
             continue
         octx = scene.ctx(o.get("id")) if scene is not None else None
-        if has_any_trait(entity_trait_names(octx, o.get("visualId")), (UnitTrait.Steppable,)):
+        if _UT.has_any_trait(_UT.entity_trait_names(octx, o.get("visualId")), (UnitTrait.Steppable,)):
             keep.append(p)
     return keep
 

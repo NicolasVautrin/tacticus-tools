@@ -34,7 +34,10 @@ from engine.entities.active_ability_type import ActiveAbilityType
 
 from ._base import (NCContext, NonComparablePlaybook, _get_num_attack_targets_in_position,
                     _will_normal_attack_kill)
-from ._targets import eligible_units_at_position
+# Forme B : un import from ._targets import <nom> GELERAIT la liaison au chargement -- une contre-epreuve
+# qui substitue le foyer deviendrait MUETTE, en silence (mesure #977 : deux mutations d'ordre
+# n'ont RIEN mordu tant que cet import etait en forme A).
+from . import _targets as _T
 
 
 class JakhalStimmsPlaybook(NonComparablePlaybook):
@@ -127,7 +130,7 @@ class JakhalStimmsPlaybook(NonComparablePlaybook):
         position -- d'ou son existence separee de `generate_candidates` (le generateur, qui
         fusionne les buckets de toutes les positions)."""
         best = None       # (target, util)
-        for tgt, tpos in eligible_units_at_position(ctx, self.ABILITY_ID, P):
+        for tgt, tpos in _T.eligible_units_at_position(ctx, self.ABILITY_ID, P):
             if tpos is None:
                 continue
             n = self.aoe_count(ctx, P, tpos)
@@ -207,7 +210,7 @@ class OverwhelmingWrathPlaybook(NonComparablePlaybook):
     def evaluate_at(self, ctx: NCContext, P: tuple):
         """`EvaluateNonComparable(caster, UnitPosition(P))` -> `(target, util)` ou `None`.
         L'unite de mesure de l'oracle `ncEvaluate` (cf. le jumeau de `JakhalStimmsPlaybook`)."""
-        targets = eligible_units_at_position(ctx, self.ABILITY_ID, P, self_cast=True)
+        targets = _T.eligible_units_at_position(ctx, self.ABILITY_ID, P, self_cast=True)
         if not targets:
             return None                           # `targets.Count > 0` : aucune action
         util = float(len(targets))                # `Fix64(targets.Count)`

@@ -427,6 +427,299 @@ def step3_comparable(rpc, sid, rid: int, carriers: dict, verbose: bool = True) -
     return out
 
 
+# --- etape 4 : les CONTRE-EPREUVES, chacune VERIFIEE MORDANTE ------------------------------------
+
+def _nc_signature(pb, nc) -> str:
+    """Ce que le port RESTITUE pour une ability NC sur TOUT le sweep : la liste
+    `(position, cible, utilite)` plus le candidat retenu. Une mutation est MORDANTE ssi cette
+    signature change."""
+    per_pos = [(P, pb.evaluate_at(nc, P)) for P in (nc.reach_nc or [])]
+    return json.dumps([per_pos, pb.generate_candidates(nc)], default=str, sort_keys=True)
+
+
+def step4_contre_epreuves(rpc, sid, rid: int, carriers: dict, verbose: bool = True) -> dict:
+    """Chaque mutation est jouee, et le probe DIT si elle a mordu. Une mutation MUETTE n'est pas
+    une reussite : c'est un trou de couverture, et elle sort en `mordante: false`."""
+    from engine.playbook import noncomparable as PB
+    from engine.playbook.noncomparable import _targets as T
+    import engine.playbook.displace_utility as D
+    import engine.playbook.noncomparable.worldeaters as WE
+    import engine.playbook.noncomparable.thunderous_assault as TA
+    import engine.playbook.might_from_below as MFB
+
+    ctxs = {}
+    for aid, _n, carrier, _v in CASES:
+        row = carriers.get(carrier)
+        if row and not row.get("isMow"):
+            ctxs[aid] = _nc_ctx(rpc, sid, rid, row["id"])
+
+    out = {}
+
+    def _mute(nom, aid, patch, restore):
+        pb = PB.playbook_for(aid)
+        nc = ctxs[aid][1]
+        before = _nc_signature(pb, nc)
+        patch()
+        try:
+            after = _nc_signature(pb, nc)
+        finally:
+            restore()
+        out[nom] = {"ability": aid, "mordante": before != after}
+        if verbose:
+            print("   %-4s %-58s %s" % (aid, nom, "MORD" if before != after else "MUETTE"))
+
+    if verbose:
+        print("\n[977/4] CONTRE-EPREUVES (une mutation MUETTE est un trou, pas un succes)")
+
+    # --- 1131 : les trois etages de son utilite -------------------------------------------------
+    if 1131 in ctxs:
+        _o = WE.JakhalStimmsPlaybook.aoe_count
+        _mute("1131 aoe_count -> 0 (le splash ne compte plus)", 1131,
+              lambda: setattr(WE.JakhalStimmsPlaybook, "aoe_count", lambda s, c, p, t: 0),
+              lambda: setattr(WE.JakhalStimmsPlaybook, "aoe_count", _o))
+        _e = WE.JakhalStimmsPlaybook.evaluate_at
+        _mute("1131 utilite `n` au lieu de `1 + n` (le plancher saute)", 1131,
+              lambda: setattr(WE.JakhalStimmsPlaybook, "evaluate_at",
+                              lambda s, c, p: (lambda r: r and (r[0], r[1] - 1.0))(_e(s, c, p))),
+              lambda: setattr(WE.JakhalStimmsPlaybook, "evaluate_at", _e))
+        _d = WE.JakhalStimmsPlaybook.is_disallowed_target
+        _mute("1131 IsDisallowedTarget toujours VRAI (le gate mord partout)", 1131,
+              lambda: setattr(WE.JakhalStimmsPlaybook, "is_disallowed_target",
+                              lambda s, c, p, t, n: True),
+              lambda: setattr(WE.JakhalStimmsPlaybook, "is_disallowed_target", _d))
+
+    # --- 1141 : le volet self-cast et l'ORDRE ---------------------------------------------------
+    if 1141 in ctxs:
+        _ev = WE.OverwhelmingWrathPlaybook.evaluate_at
+        _mute("1141 self_cast=False (le caster sort du compte)", 1141,
+              lambda: setattr(WE.OverwhelmingWrathPlaybook, "evaluate_at",
+                              lambda s, c, p: (lambda t: (t[0][0], float(len(t))) if t else None)(
+                                  T.eligible_units_at_position(c, 1141, p, self_cast=False))),
+              lambda: setattr(WE.OverwhelmingWrathPlaybook, "evaluate_at", _ev))
+        _el = T.eligible_units_at_position
+        _mute("1141 caster EN TETE au lieu d'EN DERNIER", 1141,
+              lambda: setattr(T, "eligible_units_at_position",
+                              lambda c, a, p, self_cast=False: (
+                                  lambda L: ([L[-1]] + L[:-1])
+                                  if (self_cast and L and L[-1][0] == c.uid) else L)(
+                                      _el(c, a, p, self_cast=self_cast))),
+              lambda: setattr(T, "eligible_units_at_position", _el))
+        _mute("1141 ordre INVERSE du selecteur", 1141,
+              lambda: setattr(T, "eligible_units_at_position",
+                              lambda c, a, p, self_cast=False: list(
+                                  reversed(_el(c, a, p, self_cast=self_cast)))),
+              lambda: setattr(T, "eligible_units_at_position", _el))
+
+    # --- 1043 : le seuil, le deplacement, l'ordre des strategies ---------------------------------
+    if 1043 in ctxs:
+        # DEUX mutations du MEME champ, et leur ecart est le RESULTAT :
+        #  * `0.0` (le defaut de la classe de base, le piege du brief) est MUET sur ce montage --
+        #    les deux utilites y valent 15 et 10, toutes deux > 0. Le dire est le verdict : le
+        #    montage ne COUVRE PAS le regime ou le defaut tuerait le playbook (utilite nulle sur
+        #    plateau plat) ;
+        #  * `20.0` (au-dessus des deux) MORD, et prouve que le champ est bien LU par le corps --
+        #    sans quoi la premiere mutation serait muette pour une tout autre raison.
+        _mute("1043 MIN_UTILITY = 0.0 (le defaut de la classe de base)", 1043,
+              lambda: setattr(TA.ThunderousAssaultPlaybook, "MIN_UTILITY", 0.0),
+              lambda: setattr(TA.ThunderousAssaultPlaybook, "MIN_UTILITY", TA._NO_MIN_UTILITY))
+        _mute("1043 MIN_UTILITY = 20.0 (au-dessus des utilites mesurees)", 1043,
+              lambda: setattr(TA.ThunderousAssaultPlaybook, "MIN_UTILITY", 20.0),
+              lambda: setattr(TA.ThunderousAssaultPlaybook, "MIN_UTILITY", TA._NO_MIN_UTILITY))
+        _id = D.is_displaceable
+        _mute("1043 IsDisplaceable -> False (plus aucune cible poussable)", 1043,
+              lambda: setattr(D, "is_displaceable", lambda c, u: False),
+              lambda: setattr(D, "is_displaceable", _id))
+        _pt = D.pushable_tiles
+        _mute("1043 GetPushableTiles -> [] (arc arriere vide)", 1043,
+              lambda: setattr(D, "pushable_tiles", lambda c, t, x: []),
+              lambda: setattr(D, "pushable_tiles", _pt))
+        _s1, _s2 = TA.ThunderousAssaultPlaybook.strategy1, TA.ThunderousAssaultPlaybook.strategy2
+        _mute("1043 strategies PERMUTEES (la 2 avant la 1)", 1043,
+              lambda: (setattr(TA.ThunderousAssaultPlaybook, "strategy1", _s2),
+                       setattr(TA.ThunderousAssaultPlaybook, "strategy2", _s1)),
+              lambda: (setattr(TA.ThunderousAssaultPlaybook, "strategy1", _s1),
+                       setattr(TA.ThunderousAssaultPlaybook, "strategy2", _s2)))
+
+    # --- 1165 : le terme de POSITION, a son RANG -------------------------------------------------
+    if 1165 in ctxs:
+        c165 = ctxs[1165][0]
+        pb165 = MFB.MightFromBelowPlaybook
+        pairs = [(ev.get("targetId"), (rk["col"], rk["row"]))
+                 for ev in ((c165.plans.get(c165.uid) or {}).get("evals") or [])
+                 if ev.get("abilityId") == 1165
+                 for rk in (ev.get("ranked") or [])]
+
+        def _sig165():
+            from engine.playbook import get_playbook_or_default   # route Comparable, pas NC
+            p = get_playbook_or_default(1165)
+            return json.dumps([(t, P, (lambda r: None if r is None else round(r["u_full"], 4))(
+                p.calculate_action_utility(c165, P, t, 1165))) for t, P in pairs], default=str)
+
+        _o165 = pb165.calculate_caster_position_utility
+        before = _sig165()
+        pb165.calculate_caster_position_utility = lambda s, c, t, a: 0.0
+        after0 = _sig165()
+        pb165.calculate_caster_position_utility = _o165
+        cpu = {str(P): round(_o165(pb165(), c165, P, 1165), 4)
+               for P in sorted({p for _t, p in pairs})}
+        out["1165 CalculateCasterPositionUtility -> 0 (le terme disparait de u_full)"] = {
+            "ability": 1165, "mordante": before != after0, "cpu_par_tuile": cpu}
+        if verbose:
+            print("   %-4s %-58s %s" % (1165, "cpu -> 0 (le terme disparait de u_full)",
+                                        "MORD" if before != after0 else "MUETTE"))
+            if before == after0:
+                print("        (attendu ICI : aucun allie `Decoy` sur ce montage -> le terme vaut "
+                      "deja 0 partout. Le regime NON DEGENERE est l'etape 5.)")
+    return out
+
+
+# --- etape 5 : le montage DECOY, le seul regime ou `1165` a un terme de position NON NUL ---------
+
+def step5_montage_decoy(rpc, sid, state_file: Path, seed: int, board: str,
+                        verbose: bool = True) -> dict:
+    """`MightFromBelowPlaybook$$CalculateCasterPositionUtility` compte les allies a trait `Decoy`
+    ADJACENTS a la tuile de cast. Or AUCUN `Decoy` n'existe au depart : les deux porteurs du trait
+    (`genesDecoy` npc, `genesSmnDecoy` summon) doivent etre INVOQUES. Le seul invocateur du build
+    est `1179 CultDemagogue` (`constants.unitId = genesSmnDecoy`), porte par `genesPrimus` -- une
+    unite du POOL. Le montage est donc : les deux Genestealer dans la meme equipe, cast NATIF de
+    `1179` par `applyAction` (c'est le jeu qui spawne, pas nous), puis mesure du terme.
+
+    Sans cette etape, la contre-epreuve de l'etape 4 sur `1165` est structurellement MUETTE : le
+    terme vaut 0 partout tant qu'il n'y a pas de leurre."""
+    from engine.playbook import get_playbook_or_default
+    import engine.playbook.might_from_below as MFB
+    state_file.parent.mkdir(parents=True, exist_ok=True)
+    state_file.unlink(missing_ok=True)
+    cmd = [sys.executable, "rl_duel.py", "build", "--seed", str(seed), "--board", board,
+           "--state-file", str(state_file), "--no-ai",
+           "--p-units", "genesPatriarch,genesPrimus", "--a-units", "necroWarden,necroDestroyer",
+           "--place", "genesPatriarch:3,3", "--place", "genesPrimus:3,4",
+           "--a-place", "necroWarden:4,4", "--a-place", "necroDestroyer:5,4"]
+    proc = subprocess.run(cmd, cwd=str(PYDIR), capture_output=True, text=True,
+                          encoding="utf-8", errors="replace")
+    if not state_file.exists():
+        raise RuntimeError("build KO : %s" % ((proc.stderr or proc.stdout or "")[-1200:]))
+    rid = int(json.loads(state_file.read_text())["runnerId"])
+    out = {"runnerId": rid}
+    try:
+        ap = _r(rpc, sid, "applyAction",
+                {"runnerId": rid,
+                 "action": {"kind": "ability", "casterId": 79, "targetId": 81,
+                            "abilityType": 1179}}, 240)
+        out["cast_1179"] = bool(ap.get("ok"))
+        o = _r(rpc, sid, "observeBattle", {"runnerId": rid})
+        dv = _r(rpc, sid, "decisionView", {"runnerId": rid, "allAbilities": True}, 180)
+        decoys = [(u.get("id"), (u.get("pos") or {}).get("col"), (u.get("pos") or {}).get("row"))
+                  for u in (dv.get("units") or [])
+                  if u.get("visualId") == "genesSmnDecoy" and u.get("alive")]
+        out["decoys_vivants"] = decoys
+        c, _nc = _nc_ctx(rpc, sid, rid, 77)
+        pb = get_playbook_or_default(1165)
+        cpu = {str(P): round(pb.calculate_caster_position_utility(c, P, 1165), 4)
+               for P in (c.reach_nc or [])}
+        out["W"] = c.wt.sub("ActiveAbilities", "MIGHTFROMBELOW_ExistingAdjacentDecoy")
+        out["cpu"] = cpu
+        out["cpu_non_nul"] = sorted([k for k, v in cpu.items() if v > 0])
+        # CONTRE-EPREUVE, sur le montage qui la rend possible.
+        pairs = [(ev.get("targetId"), (rk["col"], rk["row"]))
+                 for ev in ((c.plans.get(77) or {}).get("evals") or [])
+                 if ev.get("abilityId") == 1165 for rk in (ev.get("ranked") or [])]
+
+        def _sig():
+            p = get_playbook_or_default(1165)
+            return json.dumps([(t, P, (lambda r: None if r is None else round(r["u_full"], 4))(
+                p.calculate_action_utility(c, P, t, 1165))) for t, P in pairs], default=str)
+        cls = MFB.MightFromBelowPlaybook
+        _o = cls.calculate_caster_position_utility
+        b = _sig()
+        cls.calculate_caster_position_utility = lambda s, cc, t, a: 0.0
+        a0 = _sig()
+        cls.calculate_caster_position_utility = _o
+        out["mutation_cpu_zero_mordante"] = (b != a0)
+        # ... et la MEME mutation sur le PREDICAT (compter tous les allies, pas les `Decoy`).
+        import engine.entities.traits.unit_trait as _UT
+        _ht = _UT.has_any_trait
+        try:
+            _UT.has_any_trait = lambda names, tr: True
+            a1 = _sig()
+        finally:
+            _UT.has_any_trait = _ht
+        out["mutation_trait_ignore_mordante"] = (b != a1)
+        # DECISION : le natif et le port, sur le meme etat.
+        nat = _r(rpc, sid, "aiDryRunAllUnits", {"runnerId": rid}, 300)
+        row = next((u for u in (nat.get("units") or []) if u.get("unitId") == 77), {})
+        prop = row.get("proposed") or []
+        nat_ab = next((m for m in prop if m.get("cls") == "ActiveAbilityMessage"), None)
+        nat_mv = next((m for m in prop if m.get("cls") == "MoveUnitMessage"), None)
+        out["natif"] = {"ability": (nat_ab or {}).get("abilityType"),
+                        "target": (nat_ab or {}).get("targetId"),
+                        "to": ((nat_mv or {}).get("to") or {}).get("col") is not None
+                        and (nat_mv["to"]["col"], nat_mv["to"]["row"]) or None}
+        import engine_validate as EV
+        from engine import weights
+        from engine.playbook import scene as _scene
+        dv2 = _r(rpc, sid, "decisionView",
+                 {"runnerId": rid, "allAbilities": True, "maxRank": 32}, 180)
+        mov = _r(rpc, sid, "aiMovableTiles", {"runnerId": rid}, 60)
+        mbu = {u.get("unitId"): u for u in (mov.get("units") or [])}
+        pr = _scene.build_predictor(lambda m, b2, t: _r(rpc, sid, m, b2, t), rid)
+        d = EV.engine_decide(sid, rid, dv2, mbu, 77, weights.load(), pr)
+        out["port"] = {"ability": d.get("ability"), "target": d.get("target"),
+                       "to": tuple(d["to"]) if d.get("to") else None}
+        out["ok"] = (out["natif"]["ability"] == out["port"]["ability"]
+                     and out["natif"]["target"] == out["port"]["target"]
+                     and out["natif"]["to"] == out["port"]["to"]
+                     and bool(out["cpu_non_nul"]) and out["mutation_cpu_zero_mordante"])
+    finally:
+        try:
+            _r(rpc, sid, "disposeRunner", {"runnerId": rid}, 60)
+        except Exception:
+            pass
+    if verbose:
+        print("\n[977/5] MONTAGE DECOY (1165) -- runner %d" % rid)
+        print("   cast 1179 CultDemagogue : %s | decoys VIVANTS : %s"
+              % (out.get("cast_1179"), out.get("decoys_vivants")))
+        print("   W=%s | tuiles a terme NON NUL : %s" % (out.get("W"), out.get("cpu_non_nul")))
+        print("   contre-epreuve cpu->0            : %s"
+              % ("MORD" if out.get("mutation_cpu_zero_mordante") else "MUETTE"))
+        print("   contre-epreuve trait ignore      : %s"
+              % ("MORD" if out.get("mutation_trait_ignore_mordante") else "MUETTE"))
+        print("   DECISION natif=%s port=%s -> %s"
+              % (out.get("natif"), out.get("port"), "OK" if out.get("ok") else "ECART"))
+    return out
+
+
+def run(state_file: str, seed: int = 777, board: str = "MC1_67",
+        verbose: bool = False) -> dict:
+    """Le verdict COMPLET, consommable par la garde (`tests/engine/test_977_*`). Meme corps que
+    `main`, sans l'impression ni le code de retour -- le test asserte sur la MESURE."""
+    resolve, rpc = _rpc_mod()
+    sid = resolve()
+    sf = Path(state_file).resolve()
+    verdict = {"step0": step0_registres(verbose)}
+    rid = None
+    try:
+        m = step1_montage(sf, seed, board, verbose)
+        rid = m["runnerId"]
+        verdict["step1"] = m
+        co = _co_injection(rpc, sid, rid, verbose)
+        verdict["co_injection"] = co
+        verdict["step2"] = step2_oracle_nc(rpc, sid, rid, co["carriers"], verbose)
+        verdict["step2bis"] = step2bis_ordre_selecteur(rpc, sid, rid, co["carriers"], verbose)
+        verdict["step2ter"] = step2ter_decision(rpc, sid, rid, co["carriers"], verbose)
+        verdict["step3"] = step3_comparable(rpc, sid, rid, co["carriers"], verbose)
+        verdict["step4"] = step4_contre_epreuves(rpc, sid, rid, co["carriers"], verbose)
+        verdict["step5"] = step5_montage_decoy(rpc, sid, sf.with_name(sf.stem + "_decoy.json"),
+                                               seed, board, verbose)
+    finally:
+        if rid is not None:
+            try:
+                _r(rpc, sid, "disposeRunner", {"runnerId": rid}, 60)
+            except Exception:
+                pass
+    return verdict
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--state-file", default=str(PYDIR.parent.parent / "logs" / "probe977.json"))
@@ -455,6 +748,9 @@ def main() -> int:
         verdict["step2bis"] = step2bis_ordre_selecteur(rpc, sid, rid, co["carriers"])
         verdict["step2ter"] = step2ter_decision(rpc, sid, rid, co["carriers"])
         verdict["step3"] = step3_comparable(rpc, sid, rid, co["carriers"])
+        verdict["step4"] = step4_contre_epreuves(rpc, sid, rid, co["carriers"])
+        verdict["step5"] = step5_montage_decoy(
+            rpc, sid, sf.with_name(sf.stem + "_decoy.json"), a.seed, a.board)
     finally:
         if rid is not None and not a.keep:
             try:
