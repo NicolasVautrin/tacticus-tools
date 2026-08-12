@@ -36,13 +36,28 @@
  *  donc une LISTE DE PLAYBOOKS et n'ancre que les leurs. `all:true` existe, mais il faut vouloir
  *  les 163 corps.
  *
- *  Volume attendu, borne par la STRUCTURE du generateur (lue dans
- *  `IdunBattle.AI.ActionGenerators.ActiveAbilityActionGenerator.u003CGenerateActionsu003Ed__7$$MoveNext`) :
- *  `Evaluate` est appele par (unite x ability x POSITION candidate), et `CalculateCustomUtility`
- *  par (position x cible). Pour UN playbook arme, cela se compte en dizaines a quelques centaines
- *  d'appels par tour d'IA — plusieurs ordres de grandeur sous le regime de crash documente (un
- *  getter chaud a 27 000 appels/s). `diag.fires` le CONFIRMERA a la premiere fenetre : c'est une
- *  borne derivee de la structure, pas encore une mesure live.
+ *  ## Le cout, MESURE (et la borne derivee qu'il a corrigee)
+ *
+ *  Cet en-tete portait une borne DERIVEE de la structure du generateur — « dizaines a quelques
+ *  centaines d'appels par tour ». Elle etait SURESTIMEE d'un ordre de grandeur. Mesure live
+ *  (`probe_988r1_cout_capteur.py`, session 71, montage a 8 unites, mediane sur 3 repetitions) :
+ *
+ *      regime                 tour d'IA    surcout        fires/tour   dropped
+ *      desarme                  0,275 s       --              --          --
+ *      arme 1 playbook          0,276 s    +0,001 s (+0,4 %)     4         0
+ *      arme TOUS (163 ancres)   0,348 s    +0,073 s (+26,5 %)   21         0
+ *
+ *  **Aucun des deux axes ne mord.** Sur la LATENCE : 0,348 s au pire cas, quand le regime de crash
+ *  documente est une frame > 960 ms provoquee par ~27 000 appels/s sur un getter chaud — on est
+ *  ~3 ordres de grandeur sous, en frequence comme en duree. Sur le VOLUME : `dropped = 0`, l'anneau
+ *  n'est jamais approche. Le filtrage par adresse reste donc un choix de PROPRETE de la mesure,
+ *  pas une necessite de survie — mais il coute 0,4 % au lieu de 26,5 %, et c'est gratuit.
+ *
+ *  ⚠ PORTEE de ce chiffre : un montage a 8 unites, et `byMethod` n'y a exerce que
+ *  `EvaluateNonComparable` et `CalculateCasterPositionUtility`. Les 26 corps
+ *  `CalculateCustomUtility` n'ont PAS ete exerces — leur cout reste NON MESURE, et un montage qui
+ *  les declenche pourrait deplacer le volume, la boucle etant (position x cible) et non (unite x
+ *  ability). Ne pas citer ce tableau comme une borne universelle : le re-mesurer.
  *
  *  ## Discipline
  *
