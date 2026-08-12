@@ -130,7 +130,54 @@ seuil. Le natif émet s'il **existe** un tirage qui franchit ⇒ le port émet.
   `...InstrumentsOfVengeance_LocationTargetEffect$$.ctor` — soit **deux classes d'effet neuves** en
   plus des six nœuds DSL déjà nommés par le résidu. C'est une tranche à soi seule.
 
-## 4. Validation
+## 4. `#590-r3` — le blocage était PÉRIMÉ, et c'est une citation du port qui le portait
+
+L'arbre du résidu est **confirmé**, et son énoncé **complété** sur quatre points lus :
+`On(0x32 = UnitAdded)` passe par `BaseEffect$$On`, donc `ownerNeedsToBeAlive: false` ; les deux
+`Parent` sont `root: false` (le **summoner immédiat**, via `UnitExtensions$$GetParent` et
+`ParentComponent+0x10` — pas l'équipe, pas le propriétaire) ; la surcharge d'`AddBondEffect` prend
+**six** arguments (l'énoncé en donnait trois — `abilityState = AbilityStateFromEffect(Effect)` et
+`source = BondedEntityFromEffect(Effect)` manquaient), tranchée par `list_xrefs` et non par la
+forme, sa jumelle ayant la **même arité** ; et `0x4b9` est tranché par le **type déclaré** du
+paramètre — `EffectType`, sachant que 1209 nomme `InfernalCannon` dans `ActiveAbilityType` et
+`PoundThemToDust_Attack` dans `TriggeredAbilityType`.
+
+**Mais le résultat qui compte est ailleurs.** Le résidu portait `BLOCAGE: etage`, et la docstring de
+`engine/entities/effects/loki/possession.py` affirmait que « le port n'a pas de canal
+`CreateHandleTriggerAbilities` sur les effets de bond ; le vecteur `On(UnitAdded)` existe côté
+triggers mais aucun effet porté ne s'y abonne ». **Les trois étages déclarés manquants existent
+tous les trois** au commit courant :
+
+| étage déclaré manquant | état réel |
+|---|---|
+| canal `CreateHandleTriggerAbilities` | `EFFECT_TRIGGERS` (`triggers/dispatch/registry.py`) + `collect_effect_triggers` (`.../dispatch/core.py`), portant **déjà** des entrées issues d'un `CreateHandleTriggerAbilitiesInternal` (1009 `RangedAutoAttackEffect`, `PhoenixGem_CanReviveEffect`) |
+| mirror de la base `ABondEffect` | **existe** — `triggers/bond_removal.py` porte ses trois triggers de retrait |
+| abonné à `On(UnitAdded)` | vecteur **vivant** — `on_unit_added` (`operations/spawn.py`) a déjà `GhostRemoveOnUnitAdded`, `ContagionsOfNurgle_AddEffectToNewUnit`, … |
+
+Le travail restant est **deux entrées de registre**, pas un étage à ouvrir. C'est exactement le
+piège du lot : *une citation périmée dans le code avait fait classer le résidu comme bloqué*, et le
+dispatch l'aurait écarté tant qu'aucune fenêtre n'était prévue. La docstring est corrigée dans le
+même commit, et la ligne de backlog passe à `BLOCAGE: aucun`.
+
+**Écart que l'énoncé ne nommait pas** : `1209` est absent de `EFFECT_TRIGGERS` **et** de
+`bond_removal.py` — il manque donc aussi les **trois triggers de retrait de bond hérités** de la
+base, pas seulement la propagation.
+
+**Pourquoi je ne le porte PAS ici** — deux points restent **non prouvés**, et porter à l'aveugle
+écrirait une hypothèse en dur :
+
+1. `<DSLSelectors+0x40>` = `Actor` est une **hypothèse étayée**, pas une lecture. `DSLSelectors`
+   expose ses sélecteurs partagés en **champs**, et aucun dump de champs n'existe sous
+   `data/symbols/<build>/` (`classes.tsv` ne porte que nom/taille/parent). L'argument sémantique
+   est fort (si c'était `Caster`, `AreEqual(Parent(Caster), Owner)` rendrait l'arbre absurde) mais
+   il reste un argument.
+2. Les **valeurs** des trois getters d'`ABondEffect` (`+0x748`/`+0x728`/`+0x738`) **pour cet
+   effet** sont inconnues (corps dédupliqués, absents de `methods.tsv`), donc lesquels des trois
+   retraits s'arment réellement sur 1209 reste à établir avant de l'inscrire.
+
+Le capteur `validTargetsFrom` mis en ligne pendant la tranche ne lève aucun des deux.
+
+## 5. Validation
 
 * `tests/engine/playbook/test_967_mow_decision_faces_offline.py` : **19 → 22**, tous verts.
   Les trois tests neufs sont construits pour ne pas être décoratifs :
@@ -145,7 +192,7 @@ seuil. Le natif émet s'il **existe** un tirage qui franchit ⇒ le port émet.
 * `probe_181_targeting_gaps.py` : 165 abilities, **0 manquante**. `probe_909_decision_actives_kit.py`
   vert.
 
-## 5. Le capteur qui manque, nommé
+## 6. Le capteur qui manque, nommé
 
 Rien dans cette tranche n'était bloqué par un capteur. Le seul qui aurait de la valeur — et qui
 dépasse ce lot — est une trace de l'**utilité playbook par cible**, au point d'ancrage
