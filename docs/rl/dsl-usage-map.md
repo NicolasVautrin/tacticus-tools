@@ -62,6 +62,7 @@ aussi faux qu'un zero silencieux.
 | build sur disque | `u003C__Il2CppFullySharedGenericTypeu003E` nommes (ghidra) | (frida) |
 |---|---:|---:|
 | `gqfc5mff6c` | 2844 | 0 |
+| `kqkbjqfb6c` | 2849 | non mesure |
 | `rnca9r7q6c` | 2830 | 0 |
 
 Sur `rnca9r7q6c`, l'axe UTILITY est donc **PARTIELLEMENT MESURABLE** :
@@ -212,6 +213,26 @@ abilities d'un coup. `n_sites` compte les appels (une ability peut appeler 3 foi
 | 58 | `DSLTriggers$$IsAdjacent` | 37 | 43 | 44 | 0 |
 | 59 | `DSLSelectors$$Get` | 36 | 62 | 119 | 0 |
 | 60 | `DSLFormulas$$ConditionalAmount` | 35 | 36 | 61 | 0 |
+| 61 | `DSLTriggers$$IsNormalAttack` | 35 | 36 | 40 | 0 |
+| 62 | `DSLFormulas$$RandomAmount` | 35 | 35 | 47 | 0 |
+| 63 | `DSLSelectors$$Unique` | 35 | 35 | 43 | 0 |
+| 64 | `DSLTriggers$$IsAlive` | 34 | 37 | 46 | 0 |
+| 65 | `DSLBehaviors$$AddBondEffect` | 34 | 34 | 40 | 0 |
+| 66 | `DSLFactory$$Triggered` | 34 | 34 | 63 | 0 |
+| 67 | `DSLSelectors$$SortByFormula` | 34 | 34 | 44 | 0 |
+| 68 | `DSLSelectors$$UnitsFromFaction` | 33 | 33 | 41 | 0 |
+| 69 | `DSLSelectors$$EntitiesWithAnyEffect` | 32 | 32 | 37 | 0 |
+| 70 | `DSLSelectors$$Randomize` | 32 | 32 | 45 | 0 |
+| 71 | `DSLBehaviors$$Nothing` | 30 | 33 | 49 | 0 |
+| 72 | `DSLTriggers$$AmountIsGreater` | 30 | 31 | 35 | 0 |
+| 73 | `DSLFormulas$$GetPersistentData` | 28 | 30 | 44 | 0 |
+| 74 | `DSLBehaviors$$AtomicGroup` | 28 | 28 | 30 | 0 |
+| 75 | `DSLTriggers$$AmountIsEqual` | 27 | 28 | 34 | 0 |
+| 76 | `DSLBehaviors$$Heal` | 27 | 27 | 30 | 0 |
+| 77 | `DSLSelectors$$SurroundingFriends` | 26 | 30 | 35 | 0 |
+| 78 | `DSLTriggers$$TriggeringAbilityIs` | 26 | 27 | 34 | 0 |
+| 79 | `DSLBehaviors$$Group` | 26 | 26 | 51 | 0 |
+| 80 | `DSLBehaviors$$MoveUnit` | 26 | 26 | 30 | 0 |
 
 ### Par famille
 
@@ -326,4 +347,24 @@ Nombre : **29** / 609.
 | `SabreOfSacrificeAbility` | ability | 21 |
 | `MoreGitzOverEre_ExtraDamagePctEffect` | effect | 20 |
 | `TerminatorArmour_ReduceDmg_Effect` | effect | 20 |
+| `TzeentchsFirestormBaseEffect` | effect | 20 |
+| `ActOfFaithAbility` | ability | 20 |
+| `DaemonicOrdnanceAbility` | ability | 20 |
+| `DeathOnTheWindAbility` | ability | 20 |
+| `DevastatingRefrain_AttackAbility` | ability | 20 |
+| `GeminaeSuperiaAbility` | ability | 20 |
+| `ItItchesAbility` | ability | 20 |
+| `ArcaneShieldAbility` | ability | 20 |
+| `EcstaticSlaughterAbility` | ability | 20 |
+| `GazeOfMagnusAbility` | ability | 20 |
+| `HarlequinsPanoplyAbility` | ability | 20 |
+| `LightImUpAbility` | ability | 20 |
+| `NovaBoost_AttackAbility` | ability | 20 |
+| `SynapticLinchpinAbility` | ability | 20 |
+| `TheWrathOfKhaineUnleashedRework_AttackAbility` | ability | 20 |
+| `LightOfSanguiniusAbility` | ability | 19 |
+| `BattleFatigueAbility` | ability | 19 |
+| `DaGreatWaaaghAbility` | ability | 19 |
+| `DeathToTheFalseEmperorAbility` | ability | 19 |
+| `MassDriverAcceleratorAbility` | ability | 19 |
 
