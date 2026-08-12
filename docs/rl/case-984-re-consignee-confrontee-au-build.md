@@ -107,28 +107,76 @@ seuil. Le natif émet s'il **existe** un tirage qui franchit ⇒ le port émet.
 
 **Verdict** : `#967-r3` **fermé**.
 
-## 3. Ce qui n'est PAS couvert, et pourquoi
+## 3. `#902-r1` — de TROIS classes à UNE
 
-* **`#967-r3`, axe CLASSEMENT** : non couvert, et il ne l'est pas par ce correctif. Fermer
-  exigerait de mirrorer le flux `IPseudoRNG` de l'IA — même classe de problème que les
-  `GetUseProbability` conditionnels. L'indétermination est désormais **écrite** au lieu d'être
-  masquée par un `0`.
-* **Confrontation LIVE du tirage** : NON CONFRONTÉ — fenêtre DRAIN pendant toute la tranche
-  (`GET /api/admin/drain` → `enabled: true`, `liveRunners: null`, aucune session Frida vivante).
-  Le point d'ancrage qui la rendrait mesurable est nommé au §5.
-* **`#966-r4`** : NON PORTÉ — **collision de foyer**. Le canal à ouvrir
-  (`aura_attack_damage_bonus_from_allies` / `create_aura_attack_damage_bonus_for_ally`, dont le
-  `ctx` ne porte pas l'adjacence à la CIBLE) vit dans `engine/entities/effects/base.py` et
-  `engine/entities/effects/loki/extra_damage_aura.py` — **les deux réservés à d'autres lots en
-  vol**. Le porter ici déplacerait une collision au lieu de l'éviter. Le second étage manquant
-  (`DSLBehaviors$$UseNormalAttackIfAble`, cité 12 fois, jamais porté comme feuille) reste ouvert.
-* **`#889-r6`** : NON PORTÉ — ampleur **confirmée au décompilé**, la prémisse tient. Le recensement
-  des symboles rend, pour la seule face COMBAT :
-  `...InstrumentsOfVengeanceAbility$$GetEffectBehavior`,
-  `...InstrumentsOfVengeance_AttackAbility$$AttackLine`, `$$AttackTileBehavior`,
-  `...InstrumentsOfVengeance_PendingAttackEffect$$GetAttackingUnitSelector` et son `.ctor`,
-  `...InstrumentsOfVengeance_LocationTargetEffect$$.ctor` — soit **deux classes d'effet neuves** en
-  plus des six nœuds DSL déjà nommés par le résidu. C'est une tranche à soi seule.
+Le résidu demandait de créer **trois** classes d'effet. Deux tombent, et pour des raisons
+différentes — c'est le résultat le plus rentable de la tranche, puisqu'il évite un fork.
+
+### 3.1 `1545 NanoscarabRepairProtocols` — déjà porté, et une classe serait un FORK
+
+Le résidu affirmait « le +hpToRepair à chaque réparation reçue n'est pas porté ». **Faux.** Preuve
+exécutable : `calculate_repair_modifier_for_prediction([{name: "NanoscarabRepairProtocols",
+level: 50}])` rend `(443, 1.0)` contre `(0, 1.0)` à vide.
+
+Il ne vit simplement pas là où le résidu le cherchait : pas dans `EFFECT_CLASSES`, mais dans le
+foyer unique `engine.predict.calculate_repair_modifier_for_prediction`, que la face COMBAT
+(`runner/operations/repair.py`) **importe et appelle** — vérifié par identité d'objet, pas par grep.
+
+C'est un **arbitrage explicite**, déjà écrit dans `entities/effects/loki/nether_realm_casket.py` :
+les **trois** porteurs natifs du canal `IdunBattle.Entities.Effects.BaseEffect$$RepairBonus` (1545,
+1382 `VoltagheistField_RepairReduction`, 1456 `NetherRealmCasket_LivingMetalBonus`) n'ont **aucun**
+d'eux de classe d'effet, précisément parce qu'en créer une dupliquerait la règle du canal.
+
+⇒ Répondre au résidu en inscrivant 1545 dans `EFFECT_CLASSES` aurait écrit **deux règles pour un
+canal natif unique**, divergentes au premier changement de build. Cliquet posé :
+`tests/engine/test_984_repair_bonus_1545_porte_offline.py` (4 tests).
+
+La RE confirme le chemin natif, maillon par maillon :
+`RepairCalculations$$CalculateRepairModifierForPrediction` → `IEffect` slot 29 = `RepairBonus`
+(`metadata/interface_slots.tsv`) → `BaseEffect$$RepairBonus` → cache alimenté par le virtuel
+slot 83 `CreateEffectRepairBonus` → `RepairModifier$$Add`, qui range un `ForAddition` dans
+l'accumulateur **additif**. Elle apporte une précision que la case-902 n'avait pas : le 3ᵉ argument
+de `EffectBonus$$ForAddition` est `this.SourceAbility`, **pas `null`** (lu au désassemblage, le
+registre R9 n'étant pas suivi par le pseudo-C).
+
+### 3.2 `1546 NanoscarabRepairProtocols_ExtraHp` — la classe N'EXISTE PAS
+
+L'ordinal vit dans `enums.tsv`, mais **aucun symbole ne le porte** — ni `frida/methods.tsv`, ni
+`ghidra/functions.tsv`. Il est posé par `AddDynamicStatModifierEffect(..., effectType = 0x60a,
+statType = 5 Health, ...)` : c'est l'`ADynamicStatModifierEffect` **générique**, pas une classe
+propre. Il n'y a **rien à mirrorer**.
+
+Conséquence directe : **le lien avec `#572-r1` disparaît**. Le résidu conditionnait ce volet à la
+résorption de `#572-r1` (« inobservable tant que `ctx.stats[5]` ne se propage pas ») ; comme il n'y
+a aucune classe à porter, la dépendance n'a jamais eu d'objet.
+
+### 3.3 `1547 ReanimationBeam_Revive` — le seul vrai reste, avec un piège mesuré
+
+Chaîne d'héritage à mirrorer sur **trois** étages, lue dans `classes.tsv` :
+`ReanimationBeam_ReviveEffect` → `IdunBattle.Entities.Effects.ReviveEffect` →
+`PlayerTurnEffect` → `BaseEffect`.
+
+Le `.ctor` : `ReviveEffect..ctor(turnsEnabled = 2 Both, activationFrequency = 0 Automatic,
+sourceAbility = Nullable(AbilityOrEffect(this)), removeEffect = true)`. Le 3ᵉ argument que la
+case-902 notait `null` est en réalité un **enum à 0**, et il est **load-bearing** : `Automatic`
+vide `PlayerTurnEffect$$CreateHandleTriggerAbilitiesInternal`, donc toute la mécanique passe par le
+seul couple slot 70 (`CreateTargetTrigger`) / slot 72 (`CreateTargetTriggerBehaviour`). Câbler quoi
+que ce soit « par tour » serait une invention.
+
+Déclenchement = **la mort du porteur** :
+`OnPreDeath(triggerOnOverkill: false, triggerOnSteppable: false) & CanBeRevived(Target, HealType) &
+CreateTargetFilter()`. Comportement = `Maybe(Revive(caster = Owner, targets = Target,
+hp = Min(Direct(hp[lvl]), StatAmount(Target, Health, Initial))) & RemoveEffect, Target, 100)`.
+
+⚠ **Le piège, et il est silencieux** : `get_HealType` de la feuille vaut **`1 = Mechanical`** alors
+que la base rend **`0 = NonMechanical`**. Le supposer hérité donnerait l'inverse du comportement
+réel — et cette valeur n'est lisible **ni dans `methods.tsv`, ni dans Ghidra** (corps
+ICF-dédupliqué : `mov eax,1 ; ret`), seulement via le metadata et le bloc `methodPointers`. Le
+témoin qui prouve que l'axe discrimine existe :
+`TaintedNarthecium_ReviveEffect$$get_ReviveOnOverkill` vaut `true` là où les autres valent `false`.
+
+**NON PORTÉ ici** : c'est un port à trois étages d'héritage plus un canal `Revive`, hors du budget
+restant de cette tranche. Le résidu passe à `BLOCAGE: aucun`, et son périmètre est divisé par trois.
 
 ## 4. `#590-r3` — le blocage était PÉRIMÉ, et c'est une citation du port qui le portait
 
@@ -177,7 +225,30 @@ base, pas seulement la propagation.
 
 Le capteur `validTargetsFrom` mis en ligne pendant la tranche ne lève aucun des deux.
 
-## 5. Validation
+## 5. Ce qui n'est PAS couvert, et pourquoi
+
+* **`#967-r3`, axe CLASSEMENT** : non couvert, et il ne l'est pas par ce correctif. Fermer
+  exigerait de mirrorer le flux `IPseudoRNG` de l'IA — même classe de problème que les
+  `GetUseProbability` conditionnels. L'indétermination est désormais **écrite** au lieu d'être
+  masquée par un `0`.
+* **Confrontation LIVE du tirage** : NON CONFRONTÉ — fenêtre DRAIN pendant toute la tranche
+  (`GET /api/admin/drain` → `enabled: true`, `liveRunners: null`, aucune session Frida vivante).
+  Le point d'ancrage qui la rendrait mesurable est nommé au §5.
+* **`#966-r4`** : NON PORTÉ — **collision de foyer**. Le canal à ouvrir
+  (`aura_attack_damage_bonus_from_allies` / `create_aura_attack_damage_bonus_for_ally`, dont le
+  `ctx` ne porte pas l'adjacence à la CIBLE) vit dans `engine/entities/effects/base.py` et
+  `engine/entities/effects/loki/extra_damage_aura.py` — **les deux réservés à d'autres lots en
+  vol**. Le porter ici déplacerait une collision au lieu de l'éviter. Le second étage manquant
+  (`DSLBehaviors$$UseNormalAttackIfAble`, cité 12 fois, jamais porté comme feuille) reste ouvert.
+* **`#889-r6`** : NON PORTÉ — ampleur **confirmée au décompilé**, la prémisse tient. Le recensement
+  des symboles rend, pour la seule face COMBAT :
+  `...InstrumentsOfVengeanceAbility$$GetEffectBehavior`,
+  `...InstrumentsOfVengeance_AttackAbility$$AttackLine`, `$$AttackTileBehavior`,
+  `...InstrumentsOfVengeance_PendingAttackEffect$$GetAttackingUnitSelector` et son `.ctor`,
+  `...InstrumentsOfVengeance_LocationTargetEffect$$.ctor` — soit **deux classes d'effet neuves** en
+  plus des six nœuds DSL déjà nommés par le résidu. C'est une tranche à soi seule.
+
+## 6. Validation
 
 * `tests/engine/playbook/test_967_mow_decision_faces_offline.py` : **19 → 22**, tous verts.
   Les trois tests neufs sont construits pour ne pas être décoratifs :
@@ -192,7 +263,7 @@ Le capteur `validTargetsFrom` mis en ligne pendant la tranche ne lève aucun des
 * `probe_181_targeting_gaps.py` : 165 abilities, **0 manquante**. `probe_909_decision_actives_kit.py`
   vert.
 
-## 6. Le capteur qui manque, nommé
+## 7. Le capteur qui manque, nommé
 
 Rien dans cette tranche n'était bloqué par un capteur. Le seul qui aurait de la valeur — et qui
 dépasse ce lot — est une trace de l'**utilité playbook par cible**, au point d'ancrage
