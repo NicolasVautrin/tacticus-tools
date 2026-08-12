@@ -640,6 +640,24 @@ def _add_positional_and_defender_mods(mods, scene, att_id, tgt_id, is_melee, att
                             # MEME source que la face COMBAT ; les deux autres conjoints
                             # (`att_pos`, `att_team`) etaient DEJA la, poses par #950.
                             "att_traits": att_ctx.get("traits"),
+                            # #959 -- `HasFaction(Caster@+0x48, 0x14 = LeaguesOfVotann, 3)`, second
+                            # membre du `op_BitwiseOr` de
+                            # `PredictiveGuidance_MeleeEffect$$BonusCondition`. MEME cle et MEME
+                            # source (`FactionId` du gameconfig) que la face COMBAT
+                            # (`damage_model.defender_modifiers`) -- pas de fork. Le premier membre
+                            # (`IsMechanical`) se lit dans `att_traits`, deja pose par #952.
+                            # Le KIT est la bonne source : `FactionId` est une donnee de
+                            # CONFIGURATION (aucun equivalent d'entite), comme `GrandAllianceId`
+                            # ligne ~528 -- contrairement aux TRAITS (#267-r1).
+                            "att_faction": (GC.unit(scene.vis_by_id.get(att_id))
+                                            or {}).get("FactionId"),
+                            # #959 -- `UnitsWith[out]Flag(<aura>, 0 = UnitFlag.Moved, 3)`, le noeud
+                            # qui PARTITIONNE melee et distance. Il porte sur la CIBLE, qui ne bouge
+                            # PAS pendant une prediction : le terme « tuile simulee » de
+                            # `prediction_has_moved` ne s'applique donc pas ici, on lit le flag REEL
+                            # SEUL (`scene.has_moved`, tri-etat -- `None` = non mesure -> gate
+                            # FERME cote effet).
+                            "tgt_has_moved": scene.has_moved(tgt_id),
                             # #954 -- le `CreateTargetSelector` d'`ObsessiveAnnunciation_ExtraDmg`
                             # (`AdjacentEnemies(Owner@+0x30, unique: true, UnitSelectionType 3)`).
                             # CALLABLE et PAR PORTEUR : la boucle native ecrit

@@ -36,7 +36,7 @@ from __future__ import annotations
 from typing import Optional
 
 from ..state import State
-from ..components import StatsComponent
+from ..components import StatsComponent, unit_state_for_effects
 from ...entities.stats import CAPTURED_SOURCE
 
 
@@ -49,13 +49,29 @@ def aura_stat_mod_key(owner_id: int, eff) -> tuple:
 
 
 def _aura_carriers(state: State):
-    """(owner_id, effet, stat, amount, key) de chaque effet ACTIF qui declare la projection."""
+    """(owner_id, effet, stat, amount, key) de chaque effet ACTIF qui declare la projection.
+
+    ⚠ DEUX lectures de l'activite, et il en faut DEUX (#959) : le FLAG capte (`e.active`, ce que
+    `EffectComponent.IsActive @+0x5c` valait a la capture) ET la `CreateActiveCondition` PORTEE
+    (`is_active`), quand la classe la surcharge. Le natif ne connait qu'une activite -- il la
+    RECALCULE (`IdunBattle.Operations.RefreshEffectsOperation$$RefreshEffect` reecrit le flag a
+    chaque refresh) ; le port, lui, herite d'un flag FIGE au seed. Une instance materialisee par
+    `ABILITY_INIT_OWNER_EFFECTS` arrive `active = True` PAR DEFAUT : sans la seconde lecture, les
+    DEUX auras de `GrimEfficiency` (qui partitionnent les stances de `PrioritisedEfficiency`)
+    s'appliqueraient ENSEMBLE, un facteur 2 silencieux.
+
+    NO-OP STRICT pour les porteurs preexistants : `is_active` n'est surchargee par AUCUN des effets
+    qui declarent cette projection (`LionHelm_ExtraBlock*`, `PathOfCommand_ExtraCrit`,
+    `KustomForceFieldReworked[_Orks]`) -- pour eux `BaseEffect.is_active` rend `True`
+    inconditionnellement, exactement comme avant."""
     if state.effects is None:
         return
     for owner_id, effs in list(state.effects.by_unit.items()):
         for e in (effs or []):
             if e.consumed or e.expired or not e.active:
                 continue
+            if not e.is_active(unit_state_for_effects(state, owner_id)):
+                continue                                 # `CreateActiveCondition` PORTEE (#959)
             stat_fn = getattr(e, "aura_stat_modification_stat", None)
             if stat_fn is None:
                 continue
