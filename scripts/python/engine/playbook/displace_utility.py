@@ -3,7 +3,7 @@
 Les deux corps vivent sur la BASE generique `IdunBattle.AI.Playbook.Playbook`1`, donc un playbook
 Comparable et un playbook NonComparable les appellent tous les deux. Ils etaient portes en un seul
 exemplaire, INLINE dans `loki_custom.MortisRoundPlaybook.calculate_custom_utility` (#27) ; la
-tranche #970 (`1043 ThunderousAssault`, NonComparable) en avait besoin a l'identique. On DEPLACE
+tranche #977 (`1043 ThunderousAssault`, NonComparable) en avait besoin a l'identique. On DEPLACE
 plutot que dupliquer -- l'option (1) de la doctrine « un import differe est un outil a cycle » :
 le module est une FEUILLE (il n'importe que `engine.battle_query`, `engine.playbook.base` et deux
 feuilles d'entites), donc aucun cycle a fermer.
@@ -78,7 +78,7 @@ def is_displaceable(ctx, unit: dict) -> bool:
     STRUCTURELLEMENT inerte (le `unit` vient de `ctx.units`, dont les deux foyers excluent deja les
     MoW). Le gate `alive` en tete, lui, est un ECART RESTRICTIF du port, conserve.
 
-    Corps DEPLACE depuis `loki_custom.MortisRoundPlaybook._is_displaceable` (#970) -- les jumeaux
+    Corps DEPLACE depuis `loki_custom.MortisRoundPlaybook._is_displaceable` (#977) -- les jumeaux
     d'`it_itches` et d'`unstoppable_momentum` restent, eux, sur leur propre substrat (dict `unit`
     d'une autre provenance) : les fusionner sort du perimetre de cette tranche."""
     if not unit or not unit.get("alive"):

@@ -383,7 +383,7 @@ class ComparablePlaybook(BasePlaybook):
         wwn = wireweave_net_first_attack_utility(ctx, caster_tile, target)
         # RANG NATIF : `CalculateCasterPositionUtility` (slot +0x348) est le PREMIER des trois
         # termes positionnels, AVANT la clé `0x37` (`wwn`) et `Tile(7)`. Défaut `Fix64(0)` =>
-        # no-op exact pour tout playbook qui ne l'override pas (#970).
+        # no-op exact pour tout playbook qui ne l'override pas (#977).
         cpu = self.calculate_caster_position_utility(ctx, caster_tile, ability_id)
         return {"u": u, "u_full": u + cpu + wwn + tile_utility(ctx, caster_tile), "wwn": wwn,
                 "cpu": cpu, "pred": main.composite_fields(), "aoe": events[1:], "bk": bk}

@@ -37,7 +37,7 @@ from .prediction.abilities import make_secondary_multihit_event
 from .common import DefaultActiveAbilityPlaybook
 from .base import NO_ACTION, register, tile_utility, tile_utility_for_unit
 from .nonattack import NonAttackComparablePlaybook, register_nonattack
-# #970 : les DEUX corps generiques de deplacement (`Playbook`1$$GetPushableTiles` /
+# #977 : les DEUX corps generiques de deplacement (`Playbook`1$$GetPushableTiles` /
 # `$$GetTargetUtilityDiffOnDisplace`) ont demenage la -- foyer PARTAGE avec `1043 ThunderousAssault`
 # (NonComparable), qui les appelle a l'identique. Forme B : le binding de module reste patchable.
 from . import displace_utility as _displace
@@ -1276,7 +1276,7 @@ class MortisRoundPlaybook(_CustomOnlyPlaybook):
     retiree a tort). Les quatre autres refus (mort, `Hulking`=3, `Immovable`=17, `BigTarget`=1017)
     sont portes.
 
-    ⚠ #970 -- LES DEUX CORPS GENERIQUES ONT DEMENAGE dans `playbook/displace_utility.py`. Ils
+    ⚠ #977 -- LES DEUX CORPS GENERIQUES ONT DEMENAGE dans `playbook/displace_utility.py`. Ils
     vivent sur la BASE `Playbook`1`, donc `1043 ThunderousAssault` (NonComparable) les appelle a
     l'identique ; les dupliquer aurait fait deux exemplaires libres de diverger, exactement le
     gisement que #498-r4 a ferme sur `NOT_DISPLACEABLE_TRAITS`. Ce qui RESTE ici est ce qui
@@ -1310,7 +1310,7 @@ class MortisRoundPlaybook(_CustomOnlyPlaybook):
         """`IdunBattle.Entities.UnitExtensions$$IsDisplaceable(unit)` : vivante, et sans aucun des
         trois traits refusants.
 
-        ⚠ #970 -- LE CORPS EST DANS `playbook/displace_utility.py` (foyer partage avec `1043`). Ce
+        ⚠ #977 -- LE CORPS EST DANS `playbook/displace_utility.py` (foyer partage avec `1043`). Ce
         qui reste ici est l'alias : la docstring ci-dessous est la MESURE, elle ne doit pas se
         dupliquer avec le corps.
 
@@ -1339,7 +1339,7 @@ class MortisRoundPlaybook(_CustomOnlyPlaybook):
 
     def calculate_custom_utility(self, ctx, caster_tile, target, ability_id) -> float:
         # `GetTargetUtilityDiffOnDisplace(caster, casterTile, this.GetPushableTiles, target).<+0x18>`
-        # -- corps GENERIQUE (`Playbook`1`), foyer `playbook/displace_utility.py` (#970).
+        # -- corps GENERIQUE (`Playbook`1`), foyer `playbook/displace_utility.py` (#977).
         best = _displace.target_utility_diff_on_displace(ctx, caster_tile, target)
         # `Fix64$$op_Explicit` (Fix64 -> int) puis `op_Implicit` (int -> Fix64) : TRONCATURE vers
         # zero, pas un arrondi -- et elle appartient a CE corps-ci, pas au generique. `best` est

@@ -96,6 +96,76 @@ def eligible_any(ctx, ability_id: int) -> list[tuple]:
     return out
 
 
+def eligible_units_at_position(ctx, ability_id: int, P: tuple,
+                               self_cast: bool = False) -> list[tuple]:
+    """`GetEligibleTargetsSelectable(caster, P)` POUR UNE POSITION BALAYEE, domaine UNITE, masque
+    `TargetIsEnemy` + `TargetingRange` ADJACENT -> `[(targetId, (col, row)), ...]`, ORDRE NATIF.
+
+    Le pendant de `eligible_units` pour les playbooks qui SWEEPENT les positions du caster (#977 :
+    `1131 JakhalStimms`, `1141 OverwhelmingWrath`, `1043 ThunderousAssault`). L'ecart nomme en tete
+    de module -- « `fromHere` n'enumere que depuis l'ORIGINE » -- n'est PAS inerte pour eux : leurs
+    porteurs sont des unites a `PositionComponent`, donc elles bougent.
+
+    DEUX vues du RPC, et elles ne sont pas interchangeables (meme encadre que
+    `_base.eligible_target_tiles`) :
+      * `P == ctx.origin` -> `fromHere` = `GetValidTargets(unit, position COURANTE, ability)`, donc
+        l'ordre EXACT du selecteur natif a cette position ;
+      * `P != ctx.origin` -> aucune vue par-position n'existe cote RPC : on prend l'UNION
+        (`targets`) et on la RESSERRE par l'adjacence a `P`. L'ENSEMBLE est alors exact -- la portee
+        de ces trois abilities est le ring 1, entierement decidable geometriquement -- seul l'ORDRE
+        est une APPROXIMATION. Ce residu n'est atteignable que si une tuile de MOVE EGALE l'utilite
+        de l'origine, le natif balayant l'origine EN PREMIER et ne remplacant que sur amelioration
+        STRICTE (`Bucket$$AddAction`).
+
+    `self_cast` (mirror de `isSelfCasting = 1`, le cas de `1141`) : le caster n'est garde que s'il
+    reste AU MOINS UNE autre cible -- la branche `else` de
+    `IdunBattle.Core.Services.TargetingQuery$$GetCasterNotAddedReason`
+    (`0x800 AddCasterIfAtLeastOneTarget`). Sa POSITION dans la liste est celle que le RPC lui donne,
+    jamais une place inventee ; s'il n'y figure pas, ce volet est INERTE.
+
+    RPC absent -> `[]`, jamais une liste devinee : sans le selecteur natif on ne sait pas quelles
+    cibles sont ELIGIBLES (deep-strike, decoys, regles dynamiques), et fabriquer « tous les ennemis
+    adjacents » serait permissif a l'endroit exact ou le compte EST l'utilite (`1141`)."""
+    from engine import battle_query as bq          # feuille ; import local = pas de cycle a
+    #                                               `_targets` (module volontairement sans import
+    #                                               `engine.*` au niveau module, cf. son en-tete)
+    a = _ability_entry(ctx, ability_id)
+    if a is None or P is None:
+        return []
+    key = "fromHere" if (ctx.origin is not None and P == ctx.origin) else "targets"
+    pos_by_id = {}
+    for u in (ctx.units or []):
+        p = u.get("pos") or {}
+        if u.get("id") is not None and p.get("col") is not None:
+            pos_by_id[u["id"]] = (p["col"], p["row"])
+    epos = set(ctx.epos or [])
+    neigh = bq.neigh_map(ctx)
+    others: list[tuple] = []
+    caster_at: int | None = None
+    seen: set = set()
+    for t in (a.get(key) or []):
+        if t.get("kind") != "unit":
+            continue
+        tid = t.get("targetId")
+        if tid is None or tid in seen:
+            continue
+        seen.add(tid)
+        if tid == ctx.uid:
+            caster_at = len(others)          # place RPC du caster, au sein des cibles gardees
+            continue
+        src = t.get("pos") or t.get("tile") or {}
+        p = ((src.get("col"), src.get("row")) if src.get("col") is not None
+             else pos_by_id.get(tid))
+        if not p or p[0] is None or p not in epos:
+            continue                          # `TargetIsEnemy` : seul le camp adverse survit
+        if not bq.is_adjacent(P, p, ctx.elev_by_pos, neigh):
+            continue                          # `TargetingRange` ADJACENT (|dElev| < 2 + voisinage natif)
+        others.append((tid, p))
+    if self_cast and caster_at is not None and others:
+        others.insert(min(caster_at, len(others)), (ctx.uid, pos_by_id.get(ctx.uid)))
+    return others
+
+
 def eligible_tiles(ctx, ability_id: int) -> list[tuple]:
     """Cibles TUILE eligibles depuis l'origine -> `[((col, row), tileEntityId | None), ...]`,
     ORDRE NATIF. `tileEntityId` vient de `ctx.tile_id_by_pos` (l'id d'entite-tuile a emettre)."""

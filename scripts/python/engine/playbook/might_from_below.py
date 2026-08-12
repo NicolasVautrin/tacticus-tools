@@ -1,4 +1,4 @@
-"""`MightFromBelowPlaybook` (1165, `genesPatriarch` « The Patriarch », Genestealer Cults) -- #970.
+"""`MightFromBelowPlaybook` (1165, `genesPatriarch` « The Patriarch », Genestealer Cults) -- #977.
 
 ## Ce que la classe native SURCHARGE, et ce qu'elle ne surcharge pas
 
@@ -27,7 +27,7 @@ La classe ne porte que DEUX methodes propres :
 
 * `MightFromBelowPlaybook$$CalculateCasterPositionUtility` -- **le seul delta**, et il etait
   INATTEIGNABLE : le slot +0x348 n'etait sommé nulle part sur la route Comparable d'attaque
-  (residu nomme de `case-27`). #970 pose le crochet sur `ComparablePlaybook`
+  (residu nomme de `case-27`). #977 pose le crochet sur `ComparablePlaybook`
   (`playbook/base.py`, defaut `0.0` = le corps natif de base EXACT) et le somme a son RANG.
 
 ## Le corps, relu VERBATIM
