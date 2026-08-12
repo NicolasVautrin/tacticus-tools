@@ -290,6 +290,45 @@ class GetPersistentData(AAmountFormula):
         return 0 if v is None else int(v)     # `out` par defaut = 0 sur cle absente
 
 
+class GetAllPersistentDataCombined(AAmountFormula):
+    """`IdunBattleLogic.Entities.DSLFormulas$$GetAllPersistentDataCombined(abilityOrEffect, unit,
+    excludedKeys)` -> `IdunBattle.Entities.Triggers.GetAllPersistentDataCombined$$Calculate`, qui
+    delegue a `...$$SumAbilityData` -- MIRROR (#965) :
+
+        entity = this.<+0x28 unitSelector>.SelectSingle(entities)   # null -> return 0
+        id     = AbilityOrEffect.GetPersistentDataId(this.<+0x10..0x20>)
+        return SumAbilityData(entity.GetComponent<...>(), id)       # cf. le mirror du composant
+
+    La SOMMATION elle-meme (somme des valeurs ENTIERES, saut des types non-int, exclusion par
+    `String.op_Equality`) vit dans `runner/components.py::PersistentDataComponent.sum_ability_data`,
+    ou elle est documentee ligne a ligne -- c'est la frontiere #149 : la formule est le NOEUD, le
+    balayage du sac est l'acces au composant.
+
+    ⚠ `excludedKeys` est un `T[]` construit PAR L'APPELANT : `...GetCurrentExtraDmg` alloue un
+    tableau a UN element et y ecrit la cle statique posee par `...RefusalToBeOutdoneAbility$$.cctor`.
+    Sans cette exclusion, le COMPTEUR d'amis Chaos serait somme dans l'Outrage -- l'argument est
+    donc load-bearing, pas decoratif.
+
+    `ctx.persistent_data_all` absent -> 0, meme degradation que `GetPersistentData` (le natif rend
+    0 quand son `TryGetValue(abilityId)` echoue, et cela ne se distingue pas d'un sac vide).
+
+    CONSOMMATEUR PORTE : `...RefusalToBeOutdoneAbility$$GetCurrentExtraDmg` (l'*Outrage* de
+    Laviscus = la somme des plus gros degats de chaque ami sur le tour)."""
+    def __init__(self, ability_or_effect: int, unit: TargetsSelector, excluded_keys=None):
+        self.ability_or_effect = int(ability_or_effect)
+        self.unit = unit
+        self.excluded_keys = tuple(excluded_keys or ())
+
+    def calculate(self, ctx):
+        fn = getattr(ctx, "persistent_data_all", None)
+        if fn is None:
+            return 0
+        u = resolve_unit(self.unit, ctx)
+        if not u:
+            return 0                     # `SelectSingle == null` -> 0
+        return int(fn(u, self.ability_or_effect, self.excluded_keys) or 0)
+
+
 class AngleBetweenLines(AAmountFormula):
     """`IdunBattleLogic.Entities.DSLFactory$$AngleBetweenLines(a1, b1, a2, b2)` ->
     `IdunBattle.Entities.Formulas.AngleBetweenLinesFormula$$Calculate` (MIRROR 1:1) :

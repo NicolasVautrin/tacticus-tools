@@ -88,6 +88,8 @@
  "tests/engine/runner/test_946_counter_attack_offline.py": 0.615,
  "tests/engine/runner/test_961r1_attribution_offline.py": 0.039,
  "tests/engine/runner/test_963_red_rampage_geminae_offline.py": 7.455,
+ "tests/engine/runner/test_965_refusal_to_be_outdone_offline.py": 1.043,
+ "tests/engine/runner/test_965_whispering_web_offline.py": 0.014,
  "tests/engine/runner/test_ability_registry_ratchet.py": 26.198,
  "tests/engine/runner/test_active_ability_counted_as_used_offline.py": 0.013,
  "tests/engine/runner/test_barbed_ovipositor_object_or_steppable_offline.py": 0.085,

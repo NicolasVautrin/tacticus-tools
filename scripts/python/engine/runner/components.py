@@ -1552,6 +1552,49 @@ class PersistentDataComponent(Component):
                   if isinstance(k, tuple) and k and k[0] == aid]:
             self.data.pop(k, None)
 
+    def sum_ability_data(self, ability_or_effect, excluded_keys=None) -> int:
+        """`IdunBattle.Entities.Triggers.GetAllPersistentDataCombined$$SumAbilityData(component,
+        abilityId)` -- MIRROR du decompile (#965) :
+
+            dict = component.<+0x10>.TryGetValue(abilityId)      # absent -> 0
+            sum  = 0
+            foreach kv in dict:
+                if kv.Value n'est pas un `int` BOXE : continue    # test de type explicite
+                if this.<+0x30 excludedKeys> != null
+                   and excludedKeys.Any(k => String.op_Equality(k, kv.Key)) : continue
+                sum += unbox<int>(kv.Value)
+            return sum
+
+        TROIS traits LUS, qui ne se devinent pas :
+          * c'est une **SOMME**, pas un max ni un compte -- `local_res10[0] = (int)uVar8 + iVar1` ;
+          * seules les valeurs **ENTIERES** comptent : le natif teste la classe de l'objet boxe
+            (`*local_a0 == DAT_183651158`) et **saute** toute valeur d'un autre type. Cote port,
+            la variante LISTE range ses `list` dans le MEME sac -> on les saute pareil ;
+          * l'exclusion compare les cles par `System.String$$op_Equality`, et un `excludedKeys`
+            NUL n'exclut rien (le `if (this+0x30 != 0)` garde l'appel a `Any`).
+
+        Le natif somme sur DEUX composants (deux `GetComponent<T>` distincts, chacun garde par le
+        `HasValue` de sa moitie de l'`AbilityOrEffect` union) et ADDITIONNE les deux. Le port n'a
+        qu'UN `PersistentDataComponent` a cle composite aplatie, donc un seul balayage -- meme
+        observable, cf. la note MODELE de `clear_all_persistent_data` ci-dessus.
+
+        CONSOMMATEUR PORTE : `...RefusalToBeOutdoneAbility$$GetCurrentExtraDmg`, ou l'exclusion
+        porte sur la cle COMPTEUR (sans elle, le nombre d'amis Chaos serait somme dans l'Outrage)."""
+        aid = int(ability_or_effect)
+        excl = tuple(excluded_keys or ())
+        total = 0
+        for k, v in self.data.items():
+            if not (isinstance(k, tuple) and k and k[0] == aid):
+                continue
+            # `if (v is boxed int)` -- une `list` (variante LISTE) ou un `str` est SAUTEE.
+            # `bool` est un `int` en Python mais jamais un `Int32` boxe cote natif.
+            if isinstance(v, bool) or not isinstance(v, int):
+                continue
+            if len(k) > 1 and any(k[1] == e for e in excl):    # `String.op_Equality`
+                continue
+            total += int(v)
+        return total
+
     # --- Variante LISTE (#354) : `PersistDataList<T>` / `TryGetPersistDataList<T>` -----------------
     # Le natif range SOUS LA MEME cle composite un `List<T>` au lieu d'un scalaire ; les deux familles
     # de methodes coexistent sur le MEME `Dictionary` @+0x10. Le port les distingue par le TYPE de la
