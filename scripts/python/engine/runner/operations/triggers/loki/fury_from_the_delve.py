@@ -94,7 +94,15 @@ et `hpPct = 50` se confirment mutuellement.
    toujours VRAIE, et l'attaque supplementaire ne partirait JAMAIS). Le port passe par
    `HealthComponent.get_stat_part`, seul foyer de cette ventilation (#572-r1).
 
-⚠ Offsets `DSLSelectors` de ce build : `Owner` 0x30, `Caster` 0x48, `Target` 0x60, `Current` 0x68.
+⚠ Offsets `DSLSelectors` de ce build : `Owner` 0x30, `Caster` 0x48, `Target` 0x60,
+`ActiveTarget` 0x68.
+⚠ **`0x68` disait `Current` ici, et c'etait FAUX** (corrige par #964-r1). Aucun selecteur `Current`
+n'existe, ni au natif ni au port. Le discriminant :
+`IdunBattle.Entities.Selectors.ActiveTargetSelector$$Select` lit `AbilityEntities+0x20` (avec repli
+sur `+0x10`) et `...PreviousActiveTargetSelector$$Select` lit `+0x28` -- et c'est exactement le
+champ `+0x20` qu'`IdunBattle.Entities.Selectors.UnitsWithAnyValidTargetSelector$$Select` ECRIT
+avant chaque evaluation de son selecteur d'ability. Les deux autres citations du depot
+(`runner/abilities/admec.py`, `triggers/loki/synaptic_linchpin.py`) disaient deja `ActiveTarget`.
 
 ## FACE DECISION : ABSENTE, et c'est une MESURE
 
