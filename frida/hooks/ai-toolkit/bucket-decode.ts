@@ -116,7 +116,23 @@ let layout: BucketLayout | null = null;
 let actionLayout: ActionLayout | null = null;
 let resolveError: string | null = null;
 
-/** Enumere (nom, offset, nom-de-classe-du-type) des champs d'INSTANCE d'une classe. */
+/** `FIELD_ATTRIBUTE_STATIC` — le bit qui distingue un champ statique d'un champ d'instance. */
+const FIELD_ATTRIBUTE_STATIC = 0x0010;
+
+const _fieldGetFlags = (() => {
+    try {
+        const mod = Process.findModuleByName("GameAssembly.dll");
+        const p = mod ? mod.findExportByName("il2cpp_field_get_flags") : null;
+        return p ? new NativeFunction(p, "uint32", ["pointer"]) : null;
+    } catch { return null; }
+})();
+
+/** Enumere (nom, offset, nom-de-classe-du-type) des champs d'INSTANCE d'une classe.
+ *
+ *  ⚠ Les champs STATIQUES sont ECARTES. Leur offset ne se compte pas depuis le debut de l'objet :
+ *  le lire comme un champ d'instance produirait une adresse arbitraire, donc un decodage faux SANS
+ *  erreur. Si le drapeau n'est pas lisible sur ce build, on les garde plutot que de tout jeter --
+ *  la resolution PAR TYPE qui suit reste le vrai discriminant. */
 function fieldsOf(klass: NativePointer): Array<{
     name: string; off: number; typeName: string;
 }> {
@@ -125,6 +141,11 @@ function fieldsOf(klass: NativePointer): Array<{
     it.writePointer(ptr(0));
     let f: NativePointer;
     while (!(f = class_get_fields(klass, it) as NativePointer).isNull()) {
+        if (_fieldGetFlags) {
+            try {
+                if (((_fieldGetFlags(f) as number) & FIELD_ATTRIBUTE_STATIC) !== 0) continue;
+            } catch { /* drapeau illisible : on garde le champ */ }
+        }
         let typeName = "?";
         try {
             const t = field_get_type(f) as NativePointer;
