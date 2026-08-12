@@ -139,6 +139,10 @@ from .rad_bombardment import RadBombardmentPlaybook
 from .graviton_rifle import GravitonRiflePlaybook
 from .augmented_assault import AugmentedAssaultPlaybook
 from .exemplar_of_the_kauyon import ExemplarOfTheKauyonPlaybook
+# #977 -- forme B ABSOLUE (jamais `from . import X`, qui passe A TRAVERS le paquet et a deja
+# referme un SCC module-level de 5) : une seule arete par module, et la liaison reste patchable.
+import engine.playbook.noncomparable.worldeaters as _we
+import engine.playbook.noncomparable.thunderous_assault as _ta
 
 
 # Registre abilityType -> instance de playbook (remplace le switch `kind`).
@@ -515,6 +519,22 @@ PLAYBOOKS: dict[int, NonComparablePlaybook] = {
         #                                 toute tuile de teleport qui passe `HasEnemyInRange`
         #                                 (= `GetValidTargets(caster, <la tuile visee>, naType)`).
         #                                 Gate porte en BORNE SUP (capteur absent, residu #975-r1).
+        # #977 -- les trois NonComparable du lot (base LUE dans `frida/classes.tsv`, jamais dans le
+        # nom du corps de `.ctor`, que ghidra etiquette `ComparablePlaybook<T>$$.ctor` pour LES TROIS) :
+        _we.JakhalStimmsPlaybook(),     # 1131 (`worldJakhal`) -- util = `1 + Count(AdjacentUnits(P)
+        #                                 & AdjacentFriends(cible))`, le MEME set d'AoE que la face
+        #                                 COMBAT. Gate `IsDisallowedTarget` a TROIS clauses
+        #                                 CONJOINTES (sure-kill normale ET aucun splash ET <= 1 cible
+        #                                 d'attaque normale depuis la tuile) -- n'en porter qu'une
+        #                                 aurait supprime l'ability en fin de combat.
+        _we.OverwhelmingWrathPlaybook(),  # 1141 (`worldEightbound`) -- util = `Count(cibles
+        #                                 eligibles de la position)`, cible = la PREMIERE
+        #                                 (`Enumerable.First`). Le corps ne BOUCLE PAS sur les cibles.
+        _ta.ThunderousAssaultPlaybook(),  # 1043 (`templSwordBrother`) -- DEUX strategies
+        #                                 (`GenerateBucketWithMultipleStrategies`), la 1re non nulle
+        #                                 gagne. ⚠ `Bucket<T>..ctor` a UN argument + AUCUN `.cctor`
+        #                                 -> `MIN_UTILITY = -inf` : le defaut `0.0` l'aurait TUE en
+        #                                 silence (son utilite vaut 0 sur tout plateau plat).
     )
 }
 
