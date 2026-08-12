@@ -23,7 +23,8 @@ from .dispatch.core import (
 )
 from .dispatch.move_death import (
     after_death_triggers, after_move_triggers, arrived_at_final_tile_triggers, displace_triggers,
-    effect_removed_triggers, pending_death_added_triggers, post_unit_kill_triggers,
+    effect_added_triggers, effect_removed_triggers, pending_death_added_triggers,
+    post_unit_kill_triggers,
     pre_effect_added_triggers, pre_effect_removed_triggers, pre_move_triggers,
     pre_unit_death_2_triggers, unit_death_triggers, unit_defeated_triggers,
     unit_position_changed_1_triggers, unit_position_changed_2_triggers, unit_removed_triggers,
@@ -65,7 +66,7 @@ __all__ = [
     "attack_damage_attack_triggers", "finish_attack_triggers",
     "end_turn_summon_triggers", "unit_defeated_triggers", "unit_death_triggers",
     "unit_resurrected_triggers", "pre_unit_death_2_triggers", "pre_effect_added_triggers",
-    "pre_effect_removed_triggers", "effect_removed_triggers",
+    "effect_added_triggers", "pre_effect_removed_triggers", "effect_removed_triggers",
     "unit_revived_triggers", "pending_death_added_triggers",
     "post_unit_kill_triggers", "arrived_at_final_tile_triggers",
     "pre_move_triggers", "unit_position_changed_1_triggers", "unit_position_changed_2_triggers",

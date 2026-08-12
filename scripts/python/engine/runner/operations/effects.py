@@ -310,6 +310,16 @@ class AddEffectOperation:
         # state.Get(BondedEntityId(effet)))` -- rien avant, rien apres). Le rang relatif aux autres
         # parts est donc INOBSERVABLE ici, et ce commentaire le dit plutot que de le taire.
         AddEffectOperation._apply_owner_override(state, target, eff)
+        # `On(EffectAdded = 0x3e = 62)` -- le SECOND des trois events de
+        # `IdunBattle.Operations.AddEffectOperation$$Execute`, publie **apres** `RemoveExistingEffect`
+        # (+0xc25) et `AddNewEffect` (+0xc4e) : `AddEffectOperation$$Execute+0xd0b` (`mov ecx, 0x50` /
+        # `mov r9d, 0x3e`) puis `call` du meme publieur qu'en +0x50d pour le `0x3d`. Emis ICI, donc a
+        # la MEME place relative : APRES la materialisation, et JAMAIS sur un abandon (cible nulle,
+        # immunite, deja-present -- les trois `return None` au-dessus sortent avant).
+        # Emplacement LU aux octets (balayage de l'immediat sur tout le segment de code : un SEUL
+        # site dans `IdunBattle.Operations`), pas deduit de la symetrie avec le pre-add.
+        from .triggers.dispatch.move_death import effect_added_triggers
+        effect_added_triggers(state, source, target, int(effect_type))
         return eff
 
     @staticmethod

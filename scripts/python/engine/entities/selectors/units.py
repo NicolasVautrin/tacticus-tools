@@ -1344,7 +1344,17 @@ class SortUnitsByDamageUtility(TargetsSelector):
         aid = None
         if self.ability is not None:
             aid = self.ability.evaluate(ctx)
-        ordered = fn([u.get("id") for u in src], int(dmg or 0), int(dmg or 0),
+        # `damage` est un `IAmountFormula` : SCALAIRE pour `NormalAttackDamage(Owner)`
+        # (`StatAmountFormula` -> dmin == dmax), mais `IdunBattle.Entities.Abilities.
+        # BaseTriggeredAbility$$MinMaxDamage` est une PLAGE -- et c'est ce que passe
+        # `IdunBattleLogic.Entities.Abilities.Triggered.Loki.EcstaticSlaughterAbility$$CreateBehaviour`.
+        # Un noeud qui rend `(dmin, dmax)` est donc transmis TEL QUEL au foyer de tri ; tout autre
+        # retour reste dedouble comme avant (aucun call-site anterieur ne rend de couple).
+        if isinstance(dmg, tuple) and len(dmg) == 2:
+            dmin, dmax = int(dmg[0] or 0), int(dmg[1] or 0)
+        else:
+            dmin = dmax = int(dmg or 0)
+        ordered = fn([u.get("id") for u in src], dmin, dmax,
                      None if owner is None else owner.get("id"), n, aid)
         by_id = {u.get("id"): u for u in src}
         return [by_id[i] for i in ordered if i in by_id]

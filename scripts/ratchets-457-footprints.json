@@ -5091,6 +5091,38 @@
     "scripts/python/engine/runner/operations/behaviour.py"
    ]
   },
+  "tests/engine/test_957_decision_faces_offline.py": {
+   "_at": 1786507760,
+   "_commit": "5d7829e5ff9a95ccc148c0ebd326cdcb28304477",
+   "dirs": [],
+   "py": [],
+   "temoins": []
+  },
+  "tests/engine/test_960_ecstatic_slaughter_armour_shrieking_souls_offline.py": {
+   "_at": 1786507760,
+   "_commit": "5d7829e5ff9a95ccc148c0ebd326cdcb28304477",
+   "dirs": [
+    "scripts/python/engine/entities/selectors",
+    "scripts/python/engine/runner/abilities/behaviours",
+    "scripts/python/engine/runner/operations",
+    "scripts/python/engine/runner/operations/triggers/dispatch",
+    "scripts/python/engine/runner/operations/triggers/loki"
+   ],
+   "py": [
+    "scripts/python/engine/entities/selectors",
+    "scripts/python/engine/runner/abilities/behaviours",
+    "scripts/python/engine/runner/operations",
+    "scripts/python/engine/runner/operations/triggers/dispatch",
+    "scripts/python/engine/runner/operations/triggers/loki"
+   ],
+   "temoins": [
+    "scripts/python/engine/entities/selectors/units.py",
+    "scripts/python/engine/runner/abilities/behaviours/combat.py",
+    "scripts/python/engine/runner/operations/effects.py",
+    "scripts/python/engine/runner/operations/triggers/dispatch/move_death.py",
+    "scripts/python/engine/runner/operations/triggers/loki/armour_of_shrieking_souls.py"
+   ]
+  },
   "tests/engine/test_effect_1582_inertia_binary.py": {
    "_at": 1786392144,
    "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
