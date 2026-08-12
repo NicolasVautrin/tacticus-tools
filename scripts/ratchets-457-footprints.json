@@ -5598,6 +5598,20 @@
     "scripts/ratchets-951r2-couverture-attestee.json"
    ]
   },
+  "tests/engine/test_986_crit_place_vs_spread_offline.py": {
+   "_at": 1786557672,
+   "_commit": "354545422d10f89da2788f01af4ff0c3c4fe7ea8",
+   "dirs": [
+    "scripts/python/engine/runner/operations/damage_ops"
+   ],
+   "py": [
+    "scripts/python/engine/runner/operations/damage_ops"
+   ],
+   "temoins": [
+    "scripts/python/engine/runner/operations/damage_ops/ability.py",
+    "scripts/python/engine/runner/operations/damage_ops/normal.py"
+   ]
+  },
   "tests/engine/test_effect_1582_inertia_binary.py": {
    "_at": 1786392144,
    "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
