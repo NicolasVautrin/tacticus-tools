@@ -25,6 +25,7 @@ from ...entities.selectors.units import (AdjacentUnits, And, Enemies, Friends, S
                                          UnitsWithTrait, UnitsWithoutTrait)
 from ...entities.triggers import AreEnemies, HasEffect, is_mechanical
 from ...battle_query import are_entities_adjacent
+from ...entities.pathfinding.board import adjacent_neigh_by_pos, elevations_by_pos
 from .targeting import is_mechanical as is_unit_mechanical    # `UnitExtensions$$IsMechanical`
 from .behaviours.chain import ChainBehaviourGeneric
 from .behaviours.effects import IncreaseEffectLevel
@@ -894,7 +895,18 @@ class ArcScourgeAbility(ActiveAbility):
         ou bien il faut, AU CONTACT de la cible, soit un ennemi (le prochain maillon), soit un
         allie MECANIQUE (le relais). Sans quoi la chaine n'irait nulle part et le cast est refuse.
 
-        N'est consulte que sous le bit `TargetMatchesDynamicRule` (0x2), qui EST pose."""
+        N'est consulte que sous le bit `TargetMatchesDynamicRule` (0x2), qui EST pose.
+
+        LES DEUX CANAUX DE L'ADJACENCE, et ils l'ETAIENT ZERO (#943-r6-r1). Le slot 0x7a est
+        `IdunBattle.Core.Services.BattleQuery$$GetAdjacentUnits(from, 0, 0, 0)`, dont le corps
+        ENTIER est `GetUnitsOnTiles(IterateAdjacentTiles(from, 0, 1, 1), 0, 0, 0)` : le substrat
+        d'enumeration est donc la liste STOCKEE du `ConnectivityComponent`, pas la couronne hex.
+        Les deux canaux se lisent au foyer -- `adjacent_neigh_by_pos` (l'enumeration) et
+        `elevations_by_pos` (la porte `|dElev| < 2`).
+        ⚠ L'ancien `getattr(state.board, "elevation_by_pos", ...)` visait un attribut qui
+        N'EXISTE PAS (`Board` porte `elev_by_pos`, et le foyer est `elevations_by_pos(board)`) :
+        il rendait `None` a TOUS les coups, donc la porte d'elevation etait morte ici aussi. Le
+        seul site du depot a porter ce nom -- mesure du 2026-08-12."""
         if target_id is None:
             return 0
         te = state.get_entity(target_id)
@@ -905,16 +917,23 @@ class ArcScourgeAbility(ActiveAbility):
         tpc = te.get_component(PositionComponent)
         if tpc is None:
             return 0                        # pas de position -> aucun refus INVENTE (permissif)
-        elev = getattr(state.board, "elevation_by_pos", None) if state.board is not None else None
+        board = state.board
+        elev = elevations_by_pos(board)
+        neigh = adjacent_neigh_by_pos(board)
         tpos = (tpc.col, tpc.row)
-        for u in state.units():
-            uid = getattr(u, "entity_id", None)
-            if uid is None or int(uid) == int(target_id):
+        # ⚠ `state.units()` N'EXISTE PAS -- `State` n'expose pas cette methode, et ce site etait le
+        # SEUL du depot a l'appeler : le gate levait `AttributeError` a CHAQUE consultation, et
+        # `targeting.get_invalid_target_reason` l'appelle SANS `try` (#943-r4, trouve en craftant
+        # le scenario de generalisation). La source est `state.entities`, comme aux deux autres
+        # sites qui mirrorent le meme iterateur (`base.py`, `votann.py`). Seule la SOURCE change :
+        # le natif `GetUnitsOnTiles(tiles, null, null, 0)` ne filtre ni equipe ni etat.
+        for uid, u in state.entities.items():
+            if int(uid) == int(target_id):
                 continue
             upc = u.get_component(PositionComponent)
             if upc is None:
                 continue
-            if not are_entities_adjacent(tpos, (upc.col, upc.row), elev):
+            if not are_entities_adjacent(tpos, (upc.col, upc.row), elev, neigh):
                 continue
             if units_are_enemies(state, int(uid), int(caster_id)):
                 return 0

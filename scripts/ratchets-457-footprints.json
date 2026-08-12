@@ -1579,6 +1579,17 @@
    "dirs": [],
    "temoins": []
   },
+  "tests/engine/runner/test_943r4_adjacence_cablee_offline.py": {
+   "_at": 1786497714,
+   "_commit": "08641b65c9253aaf7c2fb359e1f4b8be3f4c9aa8",
+   "dirs": [
+    "data"
+   ],
+   "py": [],
+   "temoins": [
+    "data/seed-bc.json"
+   ]
+  },
   "tests/engine/runner/test_946_counter_attack_offline.py": {
    "_at": 1786493829,
    "_commit": "906b097bcf3be0376a21dde17312c39babd0fe62",
@@ -5037,6 +5048,23 @@
    "dirs": [],
    "py": [],
    "temoins": []
+  },
+  "tests/engine/test_951_trophy_taker_offline.py": {
+   "_at": 1786497714,
+   "_commit": "08641b65c9253aaf7c2fb359e1f4b8be3f4c9aa8",
+   "dirs": [
+    "data/symbols",
+    "data/symbols/rnca9r7q6c/frida",
+    "scripts/python/engine/runner/operations/triggers/loki"
+   ],
+   "py": [
+    "scripts/python/engine/runner/operations/triggers/loki"
+   ],
+   "temoins": [
+    "data/symbols/CURRENT",
+    "data/symbols/rnca9r7q6c/frida/methods.tsv",
+    "scripts/python/engine/runner/operations/triggers/loki/fire.py"
+   ]
   },
   "tests/engine/test_952_hunters_beyond_death_offline.py": {
    "_at": 1786495496,

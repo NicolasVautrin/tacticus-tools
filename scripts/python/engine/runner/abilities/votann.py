@@ -38,6 +38,8 @@ from .behaviours.effects import (AddDynamicStatModifierEffect, AddEffect,
 from .behaviours.movement import MoveUnit
 from .loki import perform_ai_attack_from_current_position
 from ..components import OwnerComponent, StatsComponent, UnitComponent, PositionComponent
+from ...battle_query import is_adjacent
+from ...entities.pathfinding.board import adjacent_neigh_by_pos, elevations_by_pos
 from ...entities.ability_constant_type import AbilityConstantType
 from ...entities.active_ability_type import ActiveAbilityType
 from ...entities.effect_type import EffectType
@@ -366,7 +368,12 @@ def _ancestral_fortune_attack_target(state: "State", caster_id: int) -> Optional
                                          MinMaxDamage(entities, 1), 3 ),
                1 )
 
-    - `AdjacentEnemies(caster, 1)` = ennemis VIVANTS a distance hex 1 du caster.
+    - `AdjacentEnemies(caster, 1)` = ennemis VIVANTS ADJACENTS au caster. Substrat LU
+      (#943-r4) : `DSLSelectors$$AdjacentEnemies(unit, unique, selType)` =
+      `Enemies(unit, Units(AdjacentTiles(unit)) - unit, selType)`, et `AdjacentTiles` descend sur
+      `IterateAdjacentTiles` -- la liste STOCKEE du `ConnectivityComponent`, puis la porte
+      `|dElev| < 2`. Ce n'est PAS la couronne hex, qui la SUR-ATTEINT (4 aretes sur `C1_74`,
+      38 sur `C3_14`, 0 dans l'autre sens) : d'ou les deux canaux ci-dessous.
     - `NormalUnits(sel, 3)` = `FromTrigger(Units(sel, 1, 3), <IsNormalUnit @dsl+0x180>)` : filtre les
       entites non-unites (objets/decor). Offline, `state.entities` ne contient QUE des unites de combat
       -> le filtre est un no-op DOCUMENTE (aucun objet n'y entre).
@@ -380,13 +387,15 @@ def _ancestral_fortune_attack_target(state: "State", caster_id: int) -> Optional
 
     Selecteur AI-target (kind S lourd, chevauche le playbook) -> COLLAPSE imperativement, comme
     `_finaljustice_target`, puis injecte dans l'arbre via `Target()`. None si aucun ennemi adjacent."""
-    import hexgeo
     e = state.get_entity(caster_id)
     pc = e.get_component(PositionComponent) if e is not None else None
     oc = e.get_component(OwnerComponent) if e is not None else None
     sc = e.get_component(StatsComponent) if e is not None else None
     if pc is None or oc is None:
         return None
+    board = getattr(state, "board", None)
+    elev_by_pos = elevations_by_pos(board)
+    neigh_by_pos = adjacent_neigh_by_pos(board)
     src = (pc.col, pc.row)
     cands = []
     for eid, other in state.entities.items():
@@ -399,7 +408,8 @@ def _ancestral_fortune_attack_target(state: "State", caster_id: int) -> Optional
             continue
         if ouc is not None and not ouc.alive:
             continue
-        if hexgeo.distance(src, (opc.col, opc.row)) == 1:          # radius 1
+        # `AdjacentTiles` -> `IterateAdjacentTiles` : liste STOCKEE puis porte d'elevation.
+        if is_adjacent(src, (opc.col, opc.row), elev_by_pos, neigh_by_pos):
             cands.append(eid)
     if not cands:
         return None

@@ -139,11 +139,22 @@ def _adjacent_enemy_melee(owner_pos, owner_team, att_pos, att_team,
     booleen devine -- le regime permissif inverse ferait porter la reduction a des attaques que le
     natif n'y soumet pas.
 
-    `IsAdjacent` = ring-1 HEX (`IdunBattle.Entities.Triggers.IsAdjacentAbilityTrigger`) : meme
-    approximation MONO-TUILE que `BigTargetAdjacentEffect` et `Camouflage` (une unite multi-tuile
-    est reduite a sa main tile). `AreEnemies` = `op_LogicalNot(AreFriendsAbilityTrigger)`, donc
-    equipes DIFFERENTES. `IsMeleeAttack` suit la convention tri-etat #106 : `None` = nature non
-    declaree -> le gate se ferme (meme lecture que `ParryEffect`)."""
+    ⚠ `IsAdjacent` N'EST PAS un ring-1 HEX, et la ligne qui le disait ici est REFUTEE par le
+    decompile (#943-r4, 2026-08-12). `IdunBattle.Entities.Triggers.IsAdjacentAbilityTrigger$$ShouldTrigger`
+    appelle, pour chaque paire (selecteur1 x selecteur2), le slot `0x60` d'`IBattleQuery` = slot 96
+    = `AreEntitiesAdjacent` -> `MovementUtil$$AreTilesAdjacent` -> `ConnectivityComponent$$IsNeighbour` :
+    le substrat est la liste d'adjacence STOCKEE, pas la couronne hex, qui la SUR-ATTEINT (mesure
+    live : 22 aretes sur `MC2_60`, 8 sur `C4_69`, 0 dans l'autre sens). L'ecart est PERMISSIF, donc
+    a contre-sens de la conjonction RESTRICTIVE ci-dessus. Le cablage du canal n'est PAS fait ici --
+    ce ctx d'aura ne publie aucun board -- et le site est NOMMEMENT classe `LISTE_STOCKEE` dans
+    `probe_433r4r1r4r2_neigh_channel_wired.GEOMETRIE_NUE_CLASSEE`, residu **#943-r7** avec les 18
+    autres de la meme famille.
+
+    Ce qui RESTE vrai de la ligne d'origine : l'approximation MONO-TUILE (une unite multi-tuile est
+    reduite a sa main tile), commune a `BigTargetAdjacentEffect` et `Camouflage`.
+    `AreEnemies` = `op_LogicalNot(AreFriendsAbilityTrigger)`, donc equipes DIFFERENTES.
+    `IsMeleeAttack` suit la convention tri-etat #106 : `None` = nature non declaree -> le gate se
+    ferme (meme lecture que `ParryEffect`)."""
     if is_melee is not True:
         return False
     if owner_team is None or att_team is None or owner_team == att_team:

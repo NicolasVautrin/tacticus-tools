@@ -8,8 +8,10 @@ from __future__ import annotations
 from typing import Optional, TYPE_CHECKING
 
 # Les deux registres d'override de flags sont indexes par `ActiveAbilityType` (#270-r1-r1).
+from ...battle_query import is_adjacent
 from ...entities.active_ability_type import ActiveAbilityType
 from ...entities.effects import piercing_bonus_from_effects
+from ...entities.pathfinding.board import adjacent_neigh_by_pos, elevations_by_pos
 from ...entities.effects.magnitude import ability_var
 from ...entities.traits.unit_trait import entity_trait_names
 from ..components import OwnerComponent
@@ -407,9 +409,25 @@ FIGHTING_RETREAT = ActiveAbilityType.FightingRetreat
 
 
 def _fighting_retreat_sets_flags(state: "State", caster_id: int) -> bool:
-    """Mirror IdunBattleLogic.Entities.Abilities.Active.Loki.FightingRetreatAbility$$SetsActiveAbilityUsedFlag : True (pose les flags = tour fini) ssi PAS d'ennemi VIVANT adjacent (dist hex 1)
-    au caster. Ennemi = `team` differente (meme convention que les autres ports, ex. `_nearest_enemy`)."""
-    import hexgeo
+    """Mirror IdunBattleLogic.Entities.Abilities.Active.Loki.FightingRetreatAbility$$SetsActiveAbilityUsedFlag : True (pose les flags = tour fini) ssi PAS d'ennemi VIVANT adjacent
+    au caster. Ennemi = `team` differente (meme convention que les autres ports, ex. `_nearest_enemy`).
+
+    Corps LU :
+
+        var pid = caster.GetComponent<OwnerComponent>().CurrentPlayerEntityId;
+        return Direct( !Enumerable.Any( <slot 0x7d>(caster, pid, ignoreSteppables: 0) ) );
+
+    Le slot `0x7d` est `IBattleQuery` slot 125 = `GetAdjacentEnemies`, dont le corps ENTIER est
+    `GetUnitsOnTiles(IterateAdjacentTiles(from, 0, 1, 1), null, enemiesOf, ignoreSteppables)` : le
+    substrat d'enumeration est donc la liste STOCKEE du `ConnectivityComponent`, avec la porte
+    d'elevation de l'iterateur -- pas la couronne hex.
+
+    ⚠ CE PORT ETAIT LA SEULE DES DEUX FACES A NE PAS LE PORTER (#943-r4). La face DECISION du meme
+    natif, `playbook/noncomparable/fighting_retreat.py`, consomme deja
+    `bq.count_adjacent(tile, ctx.epos, ctx.elev_by_pos, bq.neigh_map(ctx))` -- les deux canaux.
+    Cabler ici RESORBE une divergence de faces au lieu d'en creer une, et c'est ce qui distingue ce
+    site des 19 autres a geometrie nue sur substrat stocke (residu #943-r7), qui sont
+    majoritairement des couples runner/decision a reparer ENSEMBLE."""
     e = state.get_entity(caster_id)
     if e is None:
         return True
@@ -417,6 +435,9 @@ def _fighting_retreat_sets_flags(state: "State", caster_id: int) -> bool:
     pc = e.get_component(PositionComponent)
     if oc is None or pc is None:
         return True
+    board = getattr(state, "board", None)
+    elev_by_pos = elevations_by_pos(board)
+    neigh_by_pos = adjacent_neigh_by_pos(board)
     src = (pc.col, pc.row)
     for oid, other in state.entities.items():
         if oid == caster_id:
@@ -428,7 +449,7 @@ def _fighting_retreat_sets_flags(state: "State", caster_id: int) -> bool:
             continue
         if ouc is not None and not ouc.alive:
             continue
-        if hexgeo.distance(src, (opc.col, opc.row)) == 1:
+        if is_adjacent(src, (opc.col, opc.row), elev_by_pos, neigh_by_pos):
             return False
     return True
 
