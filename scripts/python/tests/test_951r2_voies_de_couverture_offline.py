@@ -170,19 +170,53 @@ def test_chaque_vecteur_declare_est_REELLEMENT_appele_dans_son_module():
 
 
 # --------------------------------------------- [3] CONTRE-EPREUVE : un vrai manquant revient TOUJOURS
-@pytest.mark.parametrize("nom", ["Skullsmasher", "RedRampage", "WhisperingWeb", "MedicusMinistorum"])
+#: Temoins MESURES le 2026-08-12 (#962) par `probe_951r2_faux_manquants.py` : chacun figure dans la
+#: section << AUCUNE TRACE STRUCTURELLE >> -- ni registre, ni symbole dedie dans les 561 modules
+#: `engine.**`, et aucune attestation.
+#:
+#: ⚠ CE PARAMETRAGE PERIME PAR CONSTRUCTION, et c'est le seul entretien qu'il demande : le jour ou
+#: l'un de ces passifs est PORTE, ce test rougit. Le remede est alors de RE-CHOISIR un temoin dans
+#: la liste courante des vrais manquants (`probe_951r2_faux_manquants.py`, section << AUCUNE TRACE
+#: STRUCTURELLE >>, categorie `passif`) -- JAMAIS de retirer le temoin sans le remplacer, ce qui
+#: viderait l'etage load-bearing en silence. Precedent : `Skullsmasher` (#953/#954) et
+#: `MedicusMinistorum` (#955) ont ete portes, et leur ligne est restee ici, rendant `master` rouge.
+TEMOINS_NON_PORTES = ["RedRampage", "WhisperingWeb", "TimesplinterMantle", "RefusalToBeOutdone"]
+
+
+@pytest.mark.parametrize("nom", TEMOINS_NON_PORTES)
 def test_un_passif_reellement_NON_porte_reste_compte_manquant(nom):
     """L'axe dangereux. Ces quatre passifs n'ont AUCUNE trace structurelle dans `engine/**`
     (recensement `probe_951r2_faux_manquants.py` : ni registre, ni symbole dedie) et aucune
     attestation. Si l'un d'eux devient << couvert >>, le predicat est devenu PERMISSIF et l'audit
     fait desormais RENONCER a du travail reel."""
+    # NON-DEGENERESCENCE : un temoin qui aurait disparu du gameconfig rendrait `not covered`
+    # trivialement vrai, et l'etage passerait au vert en ne mesurant plus rien.
+    porteurs = [r["id"] for r in AKC.collect()
+                for p in r["passives"] if p["name"] == nom]
+    assert porteurs, (
+        "TEMOIN DEGENERE : `%s` ne figure dans le passif d'AUCUN kit lineup -- l'assertion "
+        "ci-dessous serait vraie sans rien mesurer. Re-choisir un temoin dans la liste courante "
+        "des vrais manquants (`probe_951r2_faux_manquants.py`)." % nom)
     assert not AKC._passive_covered(nom), (
         "SOUS-COMPTAGE : `%s` est declare couvert alors qu'aucun registre ne le porte. Un audit "
         "qui sous-compte est PIRE qu'un audit qui sur-compte : il fait renoncer au lieu de faire "
-        "perdre du temps." % nom)
+        "perdre du temps. (Si `%s` vient d'etre PORTE, ce test est a JOUR et c'est le TEMOIN qui "
+        "est perime : le remplacer dans `TEMOINS_NON_PORTES`.)" % (nom, nom))
     assert AKC._atteste("passif", nom) is None, (
         "`%s` a recu une attestation : si c'est delibere, ce test doit changer AVEC la mesure qui "
         "l'etablit -- jamais l'inverse." % nom)
+
+
+def test_les_temoins_couvrent_encore_une_part_des_vrais_manquants():
+    """Garde de NON-DEGENERESCENCE de la LISTE elle-meme (et non de chaque temoin) : si la
+    liste devenait vide ou se detachait de l'inventaire courant, l'etage [3] serait vert sans
+    rien garder. Elle doit rester un SOUS-ENSEMBLE des passifs comptes manquants."""
+    manquants = {p["name"] for r in AKC.collect() for p in r["passives"] if not p["covered"]}
+    assert TEMOINS_NON_PORTES, "la liste de temoins est VIDE : l'etage [3] ne mesure plus rien"
+    hors = [n for n in TEMOINS_NON_PORTES if n not in manquants]
+    assert not hors, (
+        "TEMOIN(S) HORS INVENTAIRE : %s ne figure(nt) plus parmi les passifs comptes manquants. "
+        "Soit ils ont ete PORTES (re-choisir), soit le predicat est devenu permissif." % hors)
 
 
 def test_le_predicat_refuse_un_nom_inexistant():
