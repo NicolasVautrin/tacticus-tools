@@ -35,6 +35,7 @@ from ..loki.reality_unbound import (RealityUnboundAbility,            # passif t
                                    RealityUnboundExtraMaxDamageAbility)
 from ..loki.prophetic_sentinel import PropheticSentinelOverwatchAbility  # passif thousSekhetar (volet overwatch)
 from ..loki.time_flux import TimeFluxRegenAbility                     # passif thousTerminator (volet regen)
+from ..loki.tough_to_kill import ToughToKillHealAbility               # passif astraDreir (volet regen)
 from ..loki.ghost_revive import (                                     # #213 + #366-r1
     TimeFluxReviveAbility, EchoesFromTheWarpAbility,                  # les 2 poses (`GhostReviveAbility`)
     TimeFluxGhostEffectRevive, EchoesFromTheWarpGhostEffectRevive,    # les 2 resurrections (`GhostEffect`)
@@ -612,6 +613,18 @@ ABILITY_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
     #     `OwnerIsActor & On(0x1f=PreUnitMove) & OwnerIsCaster` -> `If(<4 gates>, Nothing(),
     #     AddEffect(1186, source=self, targets=CurrentTurnStartTile(self)))` -- loki/ghost_revive.py.
     "TimeFlux": [TimeFluxRegenAbility, TimeFluxReviveAbility],
+    # ToughToKill (passif de kit d'`astraDreir` << Dreir >>) -- MEME forme que `TimeFlux` : le natif
+    # derive DEUX triggered-abilities du MEME passiveAbility, et leurs BASES different (lues dans
+    # `frida/classes.tsv`, jamais dans le nom du `.ctor`) :
+    #   * `ToughToKill_HealAbility` (: `BaseTriggeredAbility`) : `On(0x13 = TurnStart_Other,
+    #     ownerNeedsToBeAlive: 1) & <DSLTriggers+0x28 = IsTurnOf(Owner)>` -> `Heal(Owner,
+    #     Get(GetVariableForLevel(0x20 = hpToHeal)), options = ForRegenerate)` -- SEULE inscrite ici
+    #     (loki/tough_to_kill.py) ;
+    #   * `ToughToKill_CritAbility` (: `AOwnerEffectTriggeredAbility`, n'override QUE
+    #     `GetEffectType` = `return 0x5c0`) : owner-effect PERMANENT pose a l'init -> ce n'est PAS un
+    #     vecteur de combat, donc il passe par `ABILITY_INIT_OWNER_EFFECTS` + `EFFECT_CLASSES`
+    #     (`entities/effects/loki/tough_to_kill.py`), jamais par ce registre.
+    "ToughToKill": [ToughToKillHealAbility],
     # EchoesFromTheWarp (passif UNIQUE de `thousNpc4Terminator`, npc) = la SECONDE instanciation de
     # `GhostReviveAbility`, parametree `effectType = 1284` -- MEME arbre, seule la branche d'amount
     # du behaviour de l'effet change (`StatAmount(src, Health, Initial)` = « Full Health »).

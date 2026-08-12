@@ -51,6 +51,10 @@ from .loki.deathwing import DeathwingEffect                # #932 (passif darkaT
 from .loki.enmity_for_the_unworthy import (                # #948 (passif darkaCompanion)
     EnmityForTheUnworthyExtraDamageEffect, EnmityForTheUnworthyExtraDamagePctEffect
 )
+from .loki.terrors_lament import (                         # #950 (passif eldarJainZar, 1119 + 1120)
+    TerrorsLamentDamageReductionEffect, TerrorsLamentHitReductionEffect
+)
+from .loki.tough_to_kill import ToughToKillEffect          # #950 (passif astraDreir, 1472)
 from .loki.first_among_traitors import FirstAmongTraitorsExtraDmgEffect   # #926 (passif blackAbaddon)
 from .loki.head_claimer import (                           # #947 (passif blackHaarken)
     HeadClaimerExtraDmgEffect, HeadClaimerExtraHitEffect
@@ -1482,6 +1486,38 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # ⚠ CONFIG = la TRIGGERED `0x445 = 1093 Ramshackle`, litteral du `.ctor` relu A L'ASSEMBLEUR
     # (`ba 45 04 00 00`) -- et `EffectType` 1093 est `HolyDuel_DmgReduction`, une AUTRE chose.
     "Ramshackle_DmgReduction": RamshackleDmgReductionEffect,
+    # 1119 TerrorsLament_DamageReduction / 1120 TerrorsLament_HitReduction : les DEUX owner-effects
+    # PERMANENTS du passif de kit d'`eldarJainZar`, poses d'un bloc par
+    # `...TerrorsLamentAbility$$CreateBehaviour` = `AddEffect(0x45f, ..., targets = Owner@+0x30,
+    # turns = null) + AddEffect(0x460, ..., targets = Owner, turns = null)` -- la SURCHARGE
+    # (`0xe9eca0`, 4 parametres, `turns: Nullable<int>`) est tranchee par l'ADRESSE de la cible du
+    # `call`, pas par le pseudo-C. Les deux effets vivent donc sur JAIN ZAR ; ce sont leurs TRIGGERS
+    # qui designent l'ATTAQUANT (`IsAdjacent(Caster, Owner, 3) & AreEnemies(Owner, Caster, 0) &
+    # IsMeleeAttack`), et les deux boucles natives qui les consomment sont BOARD-WIDE.
+    # ⚠ LES DEUX TRIGGERS NE SONT PAS LE MEME : la moitie COUPS ajoute un QUATRIEME conjoint,
+    # `NOT HasTrait(Caster@+0x48, 0x19 = UnitTrait.Immune)`, absent de la moitie DEGAT (relu aux deux
+    # decompiles : trois `op_BitwiseAnd` d'un cote, quatre + un `op_LogicalNot` de l'autre).
+    # ⚠ TROIS enums, et les ordinaux MENTENT : `EffectType` 0x45f/0x460 = 1119/1120 sont CES effets,
+    # mais `TriggeredAbilityType` 1119/1120 nomment `MV71SniperDroneSquad` / `SaviorProtocols` (deux
+    # abilities REELLES -> une confusion ne leverait pas), et la CONFIG des deux effets est la
+    # TRIGGERED `0x45e = 1118 TerrorsLament`.
+    "TerrorsLament_DamageReduction": TerrorsLamentDamageReductionEffect,
+    "TerrorsLament_HitReduction": TerrorsLamentHitReductionEffect,
+    # 1472 ToughToKill : owner-effect PERMANENT du passif de kit d'`astraDreir`, pose a l'init par la
+    # base `AOwnerEffectTriggeredAbility$$CreateBehaviour` de `ToughToKill_CritAbility` -- laquelle
+    # n'override QUE `GetEffectType`, dont le corps ENTIER est `return 0x5c0` (l'appariement
+    # ability -> effet est LU, pas devine).
+    #   `...ToughToKillEffect$$CreateCritChanceBonus` = ForSubtraction(get_OwnerIsTarget,
+    #                                                       ConfigVar(0x98 = critChanceReduction))
+    #   `...ToughToKillEffect$$CreateCritDamageBonus` = ForSubtraction(get_OwnerIsTarget,
+    #                                                       ConfigVar(0x97 = critDmgReduction))
+    # (`$$ForSubtraction` = `0x1048090`, et NON `$$ForAddition` = `0x1047dc0` : c'est l'ADRESSE qui
+    # tranche.) `CreateActiveCondition` = `<DSLTriggers+0x70>` = YesTrigger -> TOUJOURS ACTIF.
+    # ⚠ `TriggeredAbilityType` 0x5c0 = 1472 est `EcstaticSlaughter` (une ability qui EXISTE, donc la
+    # confusion d'enum ne leverait pas) ; la CONFIG du passif est la TRIGGERED 0x5c5 = 1477.
+    # Le SECOND volet du passif (`ToughToKill_HealAbility`, regen au debut de son tour) n'est PAS un
+    # effet : il vit dans `ABILITY_TRIGGERS["ToughToKill"]`.
+    "ToughToKill": ToughToKillEffect,
     # 1175 HatefulAssault_AlreadyAttacked (case-366-r1) : MARQUEUR pose par
     # `...HatefulAssaultAbility$$CreateBehaviour` sur l'ennemi qu'il vient de frapper, et LU par le
     # `CreateTrigger` de cette meme ability (`NOT HasEffect(Actor, 0x497, onlyActive=0, Both)`) -- ce
@@ -1599,6 +1635,22 @@ ABILITY_INIT_OWNER_EFFECTS: dict[str, list[str]] = {
     # (= 1090), donc l'appariement ability -> effet est LU, pas devine. Seul porteur du kit : le
     # summon `orksGrotTank` / npc `orksNpc3GrotTank` (#570-r1).
     "Ramshackle": ["Ramshackle_DmgReduction"],
+    # `TerrorsLamentAbility` (TriggeredAbilityType 0x45e = 1118, parent `IdunBattle.Entities.
+    # Abilities.BaseTriggeredAbility` d'apres `classes.tsv`). Trigger HERITE `<DSLTriggers+0x30>` =
+    # `On(0x21 = AbilityInit) & <Yes@+0x70> & get_OwnerIsActor` ; `$$CreateBehaviour` pose les DEUX
+    # effets sur le PORTEUR (`targets = Owner@DSLSelectors+0x30`) avec `turns = null` -> PERMANENTS.
+    # Leur `CreateActiveCondition` est `<DSLTriggers+0x40>` (constante VRAIE, meme type que le
+    # `YesTrigger` de `+0x70`), donc les deux sont TOUJOURS ACTIFS et donc TOUJOURS captes par
+    # `decisionView.effects` sur un runner frais : ce seed est un FILET (idempotent).
+    "TerrorsLament": ["TerrorsLament_DamageReduction", "TerrorsLament_HitReduction"],
+    # `ToughToKill_CritAbility` (parent `IdunBattle.Entities.Abilities.AOwnerEffectTriggeredAbility`,
+    # `classes.tsv`) n'override QUE `GetEffectType` (`return 0x5c0`) : le reste vient de la base
+    # (`CreateTrigger = OnOwnerSpecificAbilityInit(this.AbilityType)`, `CreateBehaviour =
+    # AddEffect(GetEffectType(), AbilityState(Owner), source = Owner, targets = Owner, turns =
+    # <zeroe>)`) -- owner-effect PERMANENT pose a l'init, exactement le patron `FirstAmongTraitors` /
+    # `InescapableDeath`. `CreateActiveCondition` = `<DSLTriggers+0x70>` = YesTrigger -> l'effet est
+    # toujours capte live, le seed est un FILET (idempotent).
+    "ToughToKill": ["ToughToKill"],
     "BigTarget": ["BigTarget_AdjacentEffect"],   # `IdunBattleLogic.Entities.Abilities.Active.Loki.BigTargetAbility$$CreateBehaviour : AddEffect(0x402)
     # `ShadowInTheWarp_AddEffectAbility` (base `AddEffectAbility.CreateBehaviour`) : AddEffect(0x41d=1053).
     "ShadowInTheWarp": ["ShadowInTheWarp_LessDmg_Effect"],

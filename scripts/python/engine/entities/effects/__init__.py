@@ -413,7 +413,8 @@ def hits_malus_from_defender_effects(effects, is_melee: bool | None = None,
                                      defender_on_cover: bool | None = None,
                                      dist: int | None = None,
                                      block_reduction: bool = False,
-                                     is_normal_attack: bool = True) -> int:
+                                     is_normal_attack: bool = True,
+                                     att_ctx: Mapping | None = None) -> int:
     """Σ des modifications de COUPS des effets actifs de la CIBLE (`create_effect_hits_malus_for_defense`,
     ex. LightCover IdunBattle.Entities.Effects.Loki.LightCoverEffect$$CreateEffectHitsBonusForAttack : -2 ranged ; Parry IdunBattle.Entities.Effects.Loki.ParryEffect$$CreateEffectHitsBonusForAttack : -1 mêlée ;
     Camouflage/Diminutive). Natif = même canal `CreateEffectHitsBonusForAttack` trigger
@@ -430,12 +431,19 @@ def hits_malus_from_defender_effects(effects, is_melee: bool | None = None,
     existe AUSSI cote defense -- `IdunBattle.Entities.Effects.Loki.ShroudPsalmEffect$$
     CreateEffectHitsBonusForAttack` = `get_OwnerIsTarget & IsNormalAttack` (#419-r1-tr9-r4-r1-r2).
     Les quatre autres porteurs de ce canal (LightCover, Parry, Camouflage, Diminutive) n'ont PAS ce
-    noeud : leur reduction porte aussi sur les attaques d'ABILITY."""
+    noeud : leur reduction porte aussi sur les attaques d'ABILITY.
+    `att_ctx` = le `board` COMPLET de la formule, MEME dict que celui deja passe aux canaux
+    ATTAQUANT et AURA -- le natif n'a QU'UN canal (`CreateEffectHitsBonusForAttack`) et passe le MEME
+    `AbilityEntities` a tous les effets de sa boucle, donc rien n'y borne les noeuds lisibles au
+    DEFENSEUR. Premier consommateur : `TerrorsLament_HitReduction`, dont le trigger porte sur
+    l'ATTAQUANT (`IsAdjacent(Caster, Owner) & AreEnemies(Owner, Caster) & !HasTrait(Caster,
+    Immune)`) et non sur la cible. Absent -> ces gates se taisent."""
     total = 0
     for e in _as_effects(effects):
         total += _hits_contribution(
             e.create_effect_hits_malus_for_defense(is_melee, damage_profile, defender_on_cover, dist,
-                                                   is_normal_attack=bool(is_normal_attack)),
+                                                   is_normal_attack=bool(is_normal_attack),
+                                                   att_ctx=att_ctx),
             block_reduction)
     return total
 

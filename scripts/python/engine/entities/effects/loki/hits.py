@@ -1058,7 +1058,8 @@ class LightCoverEffect(BaseEffect):
                                              damage_profile: str | None = None,
                                              defender_on_cover: bool | None = None,
                                              dist: int | None = None,
-                                             is_normal_attack: bool = True) -> EffectBonus | None:
+                                             is_normal_attack: bool = True,
+                                             att_ctx: Mapping | None = None) -> EffectBonus | None:
         # PAS de gate `IsNormalAttack` : le trigger natif n'a QUE `OwnerIsTarget(tuiles egales) &
         # !IsMeleeAttack` -- la reduction porte aussi sur les attaques d'ABILITY.
         if is_melee:                        # trigger natif = !IsMeleeAttack (IdunBattle.Entities.Effects.Loki.LightCoverEffect$$CreateEffectHitsBonusForAttack)
@@ -1082,7 +1083,8 @@ class ParryEffect(BaseEffect):
                                              damage_profile: str | None = None,
                                              defender_on_cover: bool | None = None,
                                              dist: int | None = None,
-                                             is_normal_attack: bool = True) -> EffectBonus | None:
+                                             is_normal_attack: bool = True,
+                                             att_ctx: Mapping | None = None) -> EffectBonus | None:
         # PAS de gate `IsNormalAttack` : le trigger natif n'a QUE `OwnerIsTarget & IsMeleeAttack`.
         if not is_melee:                    # trigger natif = IsMeleeAttack (IdunBattle.Entities.Effects.Loki.ParryEffect$$CreateEffectHitsBonusForAttack)
             return None
@@ -1120,7 +1122,8 @@ class DiminutiveHitReductionEffect(BaseEffect):
                                              damage_profile: str | None = None,
                                              defender_on_cover: bool | None = None,
                                              dist: int | None = None,
-                                             is_normal_attack: bool = True) -> EffectBonus | None:
+                                             is_normal_attack: bool = True,
+                                             att_ctx: Mapping | None = None) -> EffectBonus | None:
         # trigger natif = OwnerIsTarget SEUL (IdunBattle.Entities.Effects.Loki.Diminutive_HitReductionEffect$$CreateEffectHitsBonusForAttack) : AUCUN gate melee/ranged, aucun gate profil, aucun gate IsNormalAttack.
         n = trait_var("Diminutive", "diminutiveHitReduction")   # ConfigConst 0x2c (=1)
         return for_addition(True, -int(n)) if n else None
@@ -1163,7 +1166,8 @@ class CamouflageHitReductionEffect(BaseEffect):
                                              damage_profile: str | None = None,
                                              defender_on_cover: bool | None = None,
                                              dist: int | None = None,
-                                             is_normal_attack: bool = True) -> EffectBonus | None:
+                                             is_normal_attack: bool = True,
+                                             att_ctx: Mapping | None = None) -> EffectBonus | None:
         # PAS de gate `IsNormalAttack` : le trigger natif n'a QUE `OwnerIsTarget & IsRangedAttack`.
         # #122 : trigger `OwnerIsTarget & IsRangedAttack` (LU au decompile) ->
         # `BattleQuery$$IsRangedAttack`, VRAI pour le SEUL `attackRangeType = Ranged` (et pour `Normal`
@@ -2058,7 +2062,8 @@ class ShroudPsalmEffect(BaseEffect):
                                              damage_profile: str | None = None,
                                              defender_on_cover: bool | None = None,
                                              dist: int | None = None,
-                                             is_normal_attack: bool = True) -> EffectBonus | None:
+                                             is_normal_attack: bool = True,
+                                             att_ctx: Mapping | None = None) -> EffectBonus | None:
         # trigger natif = `get_OwnerIsTarget & IsNormalAttack` : le SEUL gate est la nature du
         # VECTEUR (attaque normale vs attaque d'ABILITY). Aucun gate melee/ranged.
         if not is_normal_attack:

@@ -555,7 +555,8 @@ class BaseEffect:
                                              damage_profile: str | None = None,
                                              defender_on_cover: bool | None = None,
                                              dist: int | None = None,
-                                             is_normal_attack: bool = True) -> EffectBonus | None:
+                                             is_normal_attack: bool = True,
+                                             att_ctx: Mapping | None = None) -> EffectBonus | None:
         """Contribution DÉFENSEUR à l'axe COUPS (l'effet est sur la CIBLE, modifie les coups reçus).
         Natif : même canal `CreateEffectHitsBonusForAttack` mais trigger `OwnerIsTarget` (ex.
         `IdunBattle.Entities.Effects.Loki.LightCoverEffect$$CreateEffectHitsBonusForAttack = `ForAdditionWithMinimum(
@@ -572,7 +573,17 @@ class BaseEffect:
         (`CreateEffectHitsBonusForAttack`) et le noeud `IdunBattleLogic.Entities.DSLTriggers$$IsNormalAttack`
         y apparait des DEUX cotes du trigger `OwnerIsTarget`/`OwnerIsCaster`. Porteur cote DEFENSE :
         `IdunBattle.Entities.Effects.Loki.ShroudPsalmEffect$$CreateEffectHitsBonusForAttack`
-        (`get_OwnerIsTarget & IsNormalAttack`). Defaut True = attaque normale."""
+        (`get_OwnerIsTarget & IsNormalAttack`). Defaut True = attaque normale.
+
+        `att_ctx` = le `board` COMPLET de `IdunBattle.Entities.Formulas.AttackHitsWithModifiersFormula`
+        -- LE MEME dict que celui deja passe au canal ATTAQUANT (`create_effect_hits_bonus_for_attack`)
+        et au canal AURA, threade ici parce que le natif n'a QU'UN canal et passe le MEME
+        `AbilityEntities` a tous les effets de sa boucle : rien n'y borne les noeuds lisibles au
+        DEFENSEUR. Premier consommateur : `TerrorsLament_HitReduction`, dont le trigger ne porte NI
+        sur la cible NI sur un selecteur mais sur l'ATTAQUANT (`IsAdjacent(Caster, Owner)`,
+        `AreEnemies(Owner, Caster)`, `HasTrait(Caster, Immune)`) -- ses cles sont `att_id`,
+        `attack_pos`, `team_by_id`, `att_traits`, `t_pos`, `tgt_team`. Absent (appelant historique)
+        -> ces gates se taisent, comme toute cle manquante."""
         return None
 
     def create_aura_hits_malus_for_defense(self, ctx: Mapping | None = None) -> EffectBonus | None:

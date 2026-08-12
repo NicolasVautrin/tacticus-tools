@@ -530,6 +530,16 @@ def _add_positional_and_defender_mods(mods, scene, att_id, tgt_id, is_melee, att
     _ada = scene.adjacent_dark_angels_friends(tgt_id)
     if _ada is not None:
         att_ctx["adjacent_dark_angels_friends"] = int(_ada)
+    # `IsAdjacent(Caster@DSLSelectors+0x48, Owner@DSLSelectors+0x30, 3)` -- les DEUX arguments d'un
+    # noeud GEOMETRIQUE que ce contexte ne portait pas encore. `owner_pos` est la CINQUIEME cle
+    # portee sur l'OWNER de l'effet (= la CIBLE `tgt_id`), meme convention qu'`owner_team` juste
+    # au-dessus ; `att_pos` est la TUILE CANDIDATE de l'attaquant (`attack_pos`), pas sa tuile
+    # courante -- c'est elle que le natif evalue pour une decision balayee. MEMES cles que la face
+    # COMBAT (`damage_model.defender_modifiers`). Consommateur :
+    # `TerrorsLament_DamageReduction`, dont le trigger porte sur la geometrie ATTAQUANT <-> PORTEUR.
+    # Cle absente (position inconnue) -> le gate se FERME cote effet (conjonction).
+    att_ctx["att_pos"] = attack_pos
+    att_ctx["owner_pos"] = t_pos
     # STAT-MODS DEFENSE de la CIBLE (#194/#197) : moitie DEFENSE de `CalculateDefenderModifiersForPrediction
     # IdunBattle.Core.Services.DamageCalculations$$CalculateDefenderModifiersForPrediction` (DefenseComponent stat 3 IdunBattle.Core.Services.DamageCalculations$$CalculateDefenderModifiersForPrediction+0x436 → `IdunBattle.Core.Services.DamageCalculations$$CalculateModifiersFromStatModifications`
     # negate=1 → `1±v/100`). Ex. tuile Thorns −50 → +50 → ×1.5 (GROUND TRUTH C2_19). PORTEE DANS la fonction
@@ -615,6 +625,14 @@ def _add_positional_and_defender_mods(mods, scene, att_id, tgt_id, is_melee, att
                             # porteur de l'effet. MEMES cles, MEME semantique que la face COMBAT
                             # (`damage_model.defender_modifiers`) -- pas de fork.
                             "att_id": att_id, "att_is_unit": att_ctx.get("is_unit"),
+                            # `IsAdjacent(Caster@+0x48, Owner@+0x30, 3)`,
+                            # `AreEnemies(Owner@+0x30, Caster@+0x48, 0)` et `IsMeleeAttack` --
+                            # MEMES cles et MEME semantique que la face COMBAT
+                            # (`damage_model.defender_modifiers`), pas de fork. Consommateur :
+                            # `TerrorsLament_DamageReduction`, dont le trigger porte sur
+                            # l'ATTAQUANT et le PORTEUR, jamais sur la cible.
+                            "att_pos": attack_pos, "att_team": scene.team(att_id),
+                            "is_melee": is_melee,
                             "tile_effects_by_pos": scene.tile_effects_by_pos}):
         # #446-r2 : ces auras sortent de la boucle `EffectWithTarget` de
         # `IdunBattle.Core.Services.DamageCalculations$$CalculateDefenderModifiersForPrediction` --
