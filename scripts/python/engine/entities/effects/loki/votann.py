@@ -55,7 +55,13 @@ from ...triggered_ability_type import TriggeredAbilityType       # #959 (les deu
 from ...traits.unit_trait import UnitTrait                       # #959 (`IsMechanical`)
 from ...unit_faction import UnitFaction                          # #959 (`HasFaction`)
 from ...stats import StatType
-from .. import aura_selectors as ASel                            # FORME B (#485-r1-r1)
+# FORME B (#930) : `surrounding_friends` reste patchable au foyer. Import ABSOLU du MODULE et non
+# `from .. import aura_selectors` (#943) : la forme `from . import x` declare le PAQUET (elle lit
+# son attribut), donc elle refermait le SCC `effects` -> `effects.factory` -> `loki.votann` ->
+# `effects` -- MESURE par `test_270r4r2_cycles_imports_offline`, qui rougissait sur ce cycle exact
+# et redevient vert avec cette forme. `import <module> as N` ne declare que le module, et reste
+# forme B.
+import engine.entities.effects.aura_selectors as ASel            # noqa: E402
 from ....services.effect_bonus import EffectBonus, for_addition
 
 _AUGMENTED_ASSAULT = "AugmentedAssault"       # ActiveAbilityType 0x4c5 = 1221 (votanBeserk / Havyr)
