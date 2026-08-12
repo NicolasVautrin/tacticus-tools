@@ -146,6 +146,38 @@ etablit l'inconditionnalite, pas la mesure.
 - **`CreateRefreshValueTrigger`** de l'effet d'armure (`On(0x38 = BlockDamageChanged) &
   get_OwnerIsActor`) : `On(0x38)` n'est emis par AUCUN site du port -> la magnitude est **figee a la
   pose**. Le natif la recalcule quand le `BlockDamage` de la cible bouge. Residu `#919-r1`.
+
+  ⚠ **L'EMETTEUR NATIF EST IDENTIFIE (#981), et l'obstacle suivant AUSSI.** Le residu demandait
+  « emettre `On(0x38)` au chokepoint qui ecrit la stat 8 » : ce chokepoint est
+  `IdunBattle.Operations.TransformUnitOperation$$Execute`, et **tout** stat-mod y aboutit ::
+
+      IdunBattle.Entities.Effects.AStatModifierEffect$$ApplyModification
+        (ou IdunBattle.Entities.Effects.ADynamicStatModifierEffect$$RefreshValueInternal)
+        -> IdunBattleLogic.Entities.DSLBehaviors$$ChangeStat(targets, statType, mode 4, Direct(amount), Entity(effect))
+           -> IdunBattle.Entities.Behaviours.ChangeStatBehaviour$$Execute      // batit List<StatModifier>
+              -> IdunBattleLogic.Entities.DSLBehaviors$$Transform(unitSelector, statModifiers, ...)
+                 -> <slot 102 = TransformUnit>
+                    -> IdunBattle.Operations.TransformUnitOperation$$Execute
+                       -> UnitExtensions.ApplyStatModifiers(unit, statModifiers)
+                       -> pour chaque StatType touche, SI la table lui associe un event :
+                          <slot 81 = EvaluateAbilities>(unit, unit, unit, <event>, <AbilityOrEffect vide>)
+                       -> <slot 47 = RefreshEffects>
+
+  La table est le `.cctor` (`StatType -> ModStatTransformConfig`, dernier champ =
+  `Nullable<EventTriggerType>`) : **seuls deux StatTypes portent un event** — `0 (ATTACK) -> 0x37
+  AttackChanged` et `8 (BLOCK_DAMAGE) -> 0x38 BlockDamageChanged`. La table d'INSTANCE du `.ctor`
+  (`FillStatTransformConfig`) en ajoute un troisieme, `StatType 5 (HEALTH) -> 0x1e`, sur la branche
+  `statPart not in (5, 6)`. Les DEUX slots sont `actor = caster = target = l'unite dont la stat a
+  change`, ce qui satisfait exactement le `get_OwnerIsActor` du trigger de refresh.
+
+  **CE QUI RESTE BLOQUANT, et ce n'est plus l'emetteur** : le driver de refresh du port
+  (`runner/operations/refresh_effects.py::refresh_stat_modifier_effects`) **SKIPPE par construction**
+  tout effet portant une cle de POSE (`stat_mod_source is not None`) — et `1576` est justement pose
+  par le canal EAGER `AddEffectOperation._apply_stat_mods`. Le brancher sans lever cette garde ne
+  ferait rien ; la lever naivement rouvre le double-compte que la garde documente et qui a deja ete
+  MESURE (`ThrillSeekers` 1434 : +30 CritChance au lieu de +15). La tranche qui fermera `#919-r1`
+  doit donc traiter les DEUX etages, et se confronter avec un poseur de `BlockDamage`
+  (`TitanhammerSquad_ExtraBlockDamage`, qui buffe les MEMES unites Terminator).
 - **`selectionType = 3` = `OnlyAliveAndTargetable`** : le port n'honore que le volet ALIVE. Un
   voisin en Deep Strike (`TeleportStrike_TeleportingIn`) reste selectionne offline alors que le
   natif l'ecarte. Meme limite que toute la famille des selecteurs d'effet.

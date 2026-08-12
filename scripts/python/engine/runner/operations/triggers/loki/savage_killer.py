@@ -132,12 +132,16 @@ evenements entre `event_id` et `event_ids` est de la PLOMBERIE du dispatch, pas 
 
 RESIDUS EXPLICITES -- chacun est une MESURE, pas une supposition :
 
- * **`On(UnitBecameTargetable = 0x3b)` : AUCUN EMETTEUR cote port.** Aucun site n'construit ce
-   `TriggerEvent` (balayage `EventTriggerType.UnitBecameTargetable` sur `engine/**` : 0 occurrence
-   hors mirror d'enum). La 4e disjonction est donc INATTEIGNABLE, et avec elle les deux seuls
-   consommateurs de `PreviousTile` / `TurnStartTile` de cette ability. L'evenement n'est PAS dans
-   `event_ids` : l'y mettre materialiserait un predicat (`NOT moved`) qu'aucun montage ne peut
-   exercer -- port speculatif. Residu **#929-r1**.
+ * **`On(UnitBecameTargetable = 0x3b)` : ABONNEE, et son predicat est PORTE (#929-r1 FERME par
+   #981).** Elle a longtemps ete laissee hors d'`event_ids` faute d'EMETTEUR : l'y mettre aurait
+   materialise un predicat (`NOT moved`) qu'aucun montage ne pouvait exercer. Les deux conditions
+   sont levees -- le vecteur existe depuis #936
+   (`move_death.unit_became_targetable_triggers`, emis par `remove_effect_instance` sous le gate de
+   type `IdunBattle.Entities.Effects.Common.UntargetableEffect`), et `NOT moved` est porte par
+   `SavageKillerAbility._has_moved`, qui lit les DEUX substrats deja presents
+   (`previous_tiles` = `PositionComponent+0x88`, `current_turn_start_tile` =
+   `UnitComponent+0x18c`). Le gate ne s'applique qu'a CETTE disjonction : etendu aux trois autres,
+   il eteindrait `On(UnitAfterMove)` a coup sur.
  * **`NOT IsReplacedUnit(Target, OnlyAliveAndTargetable)`** (branche `On(UnitAdded)`) =
    `UnitHasSpawnSourceTrigger(unit, SpawnSource.**Replace** = 7, sel)`. Le mirror
    `engine/entities/spawn_source.py` existe, mais **aucune entite du runner ne porte de
