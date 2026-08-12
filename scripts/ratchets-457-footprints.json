@@ -7484,6 +7484,41 @@
     "scripts/ratchets-951r2-couverture-attestee.json"
    ]
   },
+  "tests/test_956_purete_de_passe_offline.py": {
+   "_at": 1786500919,
+   "_commit": "e6649ae9368d6c5712a2a0de4172b9ec926ee628",
+   "dirs": [
+    "scripts/python",
+    "scripts/python/tests",
+    "scripts/python/tests/engine",
+    "scripts/python/tests/engine/entities",
+    "scripts/python/tests/engine/entities/pathfinding",
+    "scripts/python/tests/engine/runner"
+   ],
+   "fils": true,
+   "py": [
+    "scripts/python",
+    "scripts/python/tests",
+    "scripts/python/tests/engine",
+    "scripts/python/tests/engine/entities",
+    "scripts/python/tests/engine/entities/pathfinding",
+    "scripts/python/tests/engine/runner"
+   ],
+   "temoins": [
+    "scripts/python/probe_457_offline_tests_green.py",
+    "scripts/python/tests/engine/entities/pathfinding/test_381r3_neighbour_source_offline.py",
+    "scripts/python/tests/engine/entities/pathfinding/test_589r1_tiles_moved_consumers_offline.py",
+    "scripts/python/tests/engine/entities/test_366_r1_turnof_all_offline.py",
+    "scripts/python/tests/engine/entities/test_units_directly_behind_offline.py",
+    "scripts/python/tests/engine/runner/test_120bis_spawn_tile_offline.py",
+    "scripts/python/tests/engine/runner/test_turnflow_endturn_flags.py",
+    "scripts/python/tests/engine/test_116e_chronometron_gates_offline.py",
+    "scripts/python/tests/engine/test_two_man_team_group_cap.py",
+    "scripts/python/tests/test_237_relic_equip_offline.py",
+    "scripts/python/tests/test_symbols_coverage_guard_offline.py",
+    "scripts/python/verdict_cache.py"
+   ]
+  },
   "tests/test_additional_hits_variant_signatures_offline.py": {
    "_at": 1786392144,
    "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
