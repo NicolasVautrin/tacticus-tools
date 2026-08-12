@@ -225,10 +225,21 @@ verdict + section de test).
 
 ## 7. Résidus
 
-* **#952-r1 — le `CreateTargetSelector` de 1190 est LU mais non inscrit.** `UnitsWithTrait(
-  SurroundingEnemies(Owner, OwnerTile, 2, unique, 3), Psyker, 3)`. Aucun lecteur d'`IsEffectTarget`
-  ne le consomme pour 1190 côté port ; l'inscrire serait spéculatif. Il devient nécessaire dès
-  qu'un nœud lira la liste `Targets` de 1190 (affichage, ou un gate natif encore non porté).
+* ~~**#952-r1**~~ — **FERMÉ EN REFUS, et le refus est désormais VÉRIFIABLE.** Prémisse re-mesurée le
+  2026-08-12 : `EFFECT_TARGET_SELECTORS` porte exactement `{1026, 1191}`, et **aucun** consommateur
+  du foyer (`playbook/psyker.py`, `playbook/savior_protocols.py`,
+  `entities/effects/loki/damage_reduction.py`, `runner/operations/movement.py`) n'interroge `1190` —
+  la fiche tient, aucun lecteur n'est apparu. `is_effect_target(_, _, 1190)` rend donc `None`
+  (« non porté »), jamais `False`.
+  Ce qui a été ajouté, c'est le cran contre la confusion que la fiche mettait en garde :
+  `tests/engine/test_952r1_geometrie_non_consommee_offline.py` **INSCRIT réellement** 1190 au
+  registre avec une géométrie qui rendrait tout le monde cible, et vérifie que les **quatre**
+  verdicts du gate du malus sont **inchangés** — parce que le gate re-dérive
+  `MinDistance(EffectSource, Caster@+0x48) <= 2` et porte sur l'**ATTAQUANT**, là où le sélecteur
+  vise les **Psykers ennemis**. Deux sujets, aucun chemin partagé : brancher l'un ne branche pas
+  l'autre. Le fichier grave aussi que le gate MORD dans les deux sens (d = 2 vs d = 3, trait
+  présent vs absent), sans quoi l'étage précédent serait vide de sens.
+  À rouvrir dès qu'un nœud porté lira la liste `Targets` de 1190.
 * **#952-r2 — `GalvanicField` n'a AUCUN filet de spawn.** Ses trois feuilles arrivent par la
   capture ; un `admecManipulus` matérialisé sans capture (spawn offline pur) n'aurait ni le flag ni
   l'échange d'ability. Aucun chemin de spawn ne le produit aujourd'hui (ce n'est ni un summon ni un
