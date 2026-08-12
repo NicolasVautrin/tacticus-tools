@@ -5598,6 +5598,13 @@
     "scripts/ratchets-951r2-couverture-attestee.json"
    ]
   },
+  "tests/engine/test_984_repair_bonus_1545_porte_offline.py": {
+   "_at": 1786558350,
+   "_commit": "7d95ef556ee8613f1608bd5811f4b5f9115a9b21",
+   "dirs": [],
+   "py": [],
+   "temoins": []
+  },
   "tests/engine/test_986_crit_place_vs_spread_offline.py": {
    "_at": 1786557672,
    "_commit": "354545422d10f89da2788f01af4ff0c3c4fe7ea8",
