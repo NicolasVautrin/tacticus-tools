@@ -33,7 +33,7 @@
 
   LEVIER JUMEAU, A CHAUD -- le RPC `renderBudget` (frida/hooks/features/render-budget.ts) fait la
   meme chose sur le process VIVANT, sans le fermer :
-      renderBudget({width:560, height:800, fullScreenMode:3, clampVSync:0, clampFrameRate:30})
+      renderBudget({width:560, height:800, fullScreenMode:3, clampVSync:0, clampFrameRate:60})
   Les deux sont complementaires, pas redondants : ce script regle le DEMARRAGE (persistant), le
   RPC regle la SESSION EN COURS (volatile, perdu au prochain lancement ET a chaque reinject).
 

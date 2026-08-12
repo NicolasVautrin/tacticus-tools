@@ -96,7 +96,16 @@ function callInt(mi: { info: NativePointer } | null): number | null {
 // respire une fois le GPU sorti de saturation.
 //
 // ⚠ Ca ne vaut PAS a n'importe quelle valeur : a 10 fps le plancher passe a 100 ms et depasserait
-// le cout du transport. 30 fps est mesure, en dessous ne l'est pas.
+// le cout du transport. La mesure ci-dessus a ete faite a 30 fps ; en dessous, rien n'est mesure.
+//
+// ⚠ LA VALEUR ARMEE EST 60, PAS 30 -- correction de l'utilisateur, 2026-08-13. La mesure de
+// latence ci-dessus reste vraie telle qu'elle a ete faite, mais elle ne dit RIEN de ce qu'il
+// faut choisir : elle compare 90 Hz a 30 fps sur le seul axe du COUT RPC, et conclut que le
+// bridage ne penalise pas le harnais. Elle n'etablit pas que 30 soit la bonne cadence pour le
+// JEU -- le plancher par RPC y est deux fois plus haut qu'a 60 (33 ms contre 17 ms), pour un gain
+// GPU que la reduction de SURFACE (560x800, cf. `scripts/tacticus-screen-prefs.ps1`) apporte
+// deja. Ne pas << re-optimiser >> vers 30 en citant le tableau ci-dessus : il ne porte pas
+// sur cette question.
 //
 let vsListener: InvocationListener | null = null;
 let fpsListener: InvocationListener | null = null;
@@ -142,7 +151,7 @@ function clampArg0(mi: { ptr: NativePointer } | null, get: () => number | null,
 // `renderBudget` (lecture seule) rend donc `autoArm: {done, attempts, error}` -- un `done:false`
 // avec un `error` se voit d'un coup d'oeil.
 const AUTOARM_VSYNC = 0;    // 0 = vSync desactive (sinon Unity IGNORE targetFrameRate)
-const AUTOARM_FPS = 30;     // valeur MESUREE (cf. plus haut) ; plus bas n'est pas mesure
+const AUTOARM_FPS = 60;     // 2026-08-13, correction utilisateur ; cf. l'avertissement en tete
 const AUTOARM_TRIES = 30;
 
 const autoArm = { done: false, attempts: 0, error: null as string | null };
