@@ -13,9 +13,40 @@ alors que la valeur ECRITE au site, elle, a change. Meme cran que
 """
 from __future__ import annotations
 
-import pytest
+#: Perimetre : le module porteur des cinq classes, les registres qui les font exister, l'accesseur
+#: de magnitude, et TOUS les mirrors d'enum dont un ordinal est fige ci-dessous. `gameconfig.json`
+#: entre au perimetre parce que les DEUX constantes `range` en sortent.
+DECLENCHEUR = {
+    "chemins": (
+        "scripts/python/engine/entities/effects/loki/votann.py",
+        "scripts/python/engine/entities/effects/factory.py",
+        "scripts/python/engine/entities/effects/magnitude.py",
+        "scripts/python/engine/entities/effects/aura_selectors.py",
+        "scripts/python/engine/entities/effect_type.py",
+        "scripts/python/engine/entities/triggered_ability_type.py",
+        "scripts/python/engine/entities/active_ability_type.py",
+        "scripts/python/engine/entities/ability_constant_type.py",
+        "scripts/python/engine/entities/ability_variable_type.py",
+        "scripts/python/engine/entities/unit_faction.py",
+        "scripts/python/engine/entities/traits/unit_trait.py",
+        "scripts/python/engine/entities/stats.py",
+        "scripts/python/engine/runner/operations/triggers/dispatch/registry.py",
+        "data/symbols/*/gameconfig.json",
+    ),
+    "build": True,
+    "toujours": False,
+    "raison": "Offline : fige les ordinaux ECRITS AUX SITES (que `probe_313` ne voit pas -- il "
+              "compare le mirror au build, pas le site), le cablage des DEUX registres, et les "
+              "QUATRE ecarts mesures entre les trois moities de `PredictiveGuidance` (filtre "
+              "`UnitFlag.Moved`, `extraDmg` vs `extraDmg_2`, `IsMechanical` absent d'ExtraHits, "
+              "`ConfigConst` vs `ConfigVar`) -- une recopie d'une moitie sur l'autre les "
+              "effacerait toutes. Il garde aussi que ces passifs ne sont PAS des "
+              "`ABILITY_TRIGGERS` : s'y tromper donne un passif qui ne se pose jamais.",
+}
 
-from engine.entities.ability_constant_type import AbilityConstantType
+import pytest        # noqa: E402  (le DECLENCHEUR doit rester en tete, cf. `probe_486r15`)
+
+from engine.entities.ability_constant_type import AbilityConstantType        # noqa: E402
 from engine.entities.effect_type import EffectType
 from engine.entities.effects import factory as F
 from engine.entities.effects.loki import votann as V

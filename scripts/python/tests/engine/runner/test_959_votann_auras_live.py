@@ -12,11 +12,46 @@ RE + mesures : `docs/rl/case-959-grim-efficiency-predictive-guidance.md`.
 """
 from __future__ import annotations
 
-import subprocess
-import sys
-from pathlib import Path
+#: Perimetre : le probe qui porte les cinq etages, le module des classes, les DEUX registres, et
+#: les TROIS canaux consommateurs -- l'aura stat-mod projetee (etage 3) et les deux faces du canal
+#: aura-DEFENSE (etage 4, COMBAT + PREDICTION), dont le ctx a ete elargi par cette tranche.
+DECLENCHEUR = {
+    "chemins": (
+        "scripts/python/conftest.py", "scripts/python/tests/conftest.py",
+        "scripts/python/tests/engine/conftest.py",
+        "scripts/python/tests/engine/runner/conftest.py",
+        "scripts/python/probe_959_grim_efficiency_predictive_guidance.py",
+        "scripts/python/engine/entities/effects/loki/votann.py",
+        "scripts/python/engine/entities/effects/factory.py",
+        "scripts/python/engine/entities/effects/aura_selectors.py",
+        "scripts/python/engine/runner/operations/aura_stat_mods.py",
+        "scripts/python/engine/runner/damage_model.py",
+        "scripts/python/engine/playbook/prediction/_shared.py",
+        "scripts/python/engine/entities/effects/__init__.py",
+        "scripts/python/catalog_inject.py",
+        "scripts/python/rl_duel.py",
+        # La fermeture d'imports de `rl_duel` : le montage passe par lui (build + dispose).
+        "scripts/python/board.py",
+        "scripts/python/oracle.py",
+        "scripts/python/rl_probe_step.py",
+        "scripts/python/runner_state.py",
+        "data/boards/global/MC1_67.json",
+        "data/symbols/*/gameconfig.json",
+    ),
+    "build": True,
+    "toujours": False,
+    "raison": "Live : les deux porteurs sont HORS POOL, le montage les injecte au catalogue puis "
+              "fabrique la geometrie AU SEED (`--place`/`--a-place`, distances CALCULEES puis "
+              "assertionnees). Oracles NON circulaires : `statModSources` et "
+              "`decisionView.attackPlans`. Les sept mutants gardent la mesure elle-meme -- un "
+              "mutant vert dirait que le temoin est aveugle, pas que le port est bon.",
+}
 
-import pytest
+import subprocess     # noqa: E402  (le DECLENCHEUR doit rester en tete, cf. `probe_486r15`)
+import sys            # noqa: E402
+from pathlib import Path                                                     # noqa: E402
+
+import pytest                                                                # noqa: E402
 
 HERE = Path(__file__).resolve()
 PYDIR = HERE.parents[3]
