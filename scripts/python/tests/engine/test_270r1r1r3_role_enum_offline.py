@@ -848,8 +848,12 @@ SCALAIRES_ASSUMES = (
     ("engine.runner.abilities.behaviours.combat", "ChainLeftOverHitsAttackDamage.MAX_ITERATIONS",
      100),
     ("engine.services.ability_range", "WHOLE_BOARD_REACH", 1_000_000),
-    # La VALEUR d'une constante gameconfig (30 %), PAS son index -- l'index est 42 (`chance`).
-    ("engine.runner.operations.triggers.loki.fire", "FIRE_OF_ABSOLUTION_IGNITE_CHANCE", 30),
+    # (`fire.FIRE_OF_ABSOLUTION_IGNITE_CHANCE = 30` vivait ici -- RETIREE par #951 : la constante
+    #  n'existe plus. Elle FIGEAIT une valeur de gameconfig que le natif LIT
+    #  (`GetNumberConstant(AbilityConstantType.chance)`) ; le port la lit desormais aussi, par
+    #  `fire.fire_of_absolution_ignite_chance()`. Il n'y a donc plus de litteral a garder -- et
+    #  c'est un mode de disparition VALIDE pour une entree de cette liste : le site a cesse
+    #  d'ecrire un nombre, il ne l'a pas renomme.)
     # (`damage_combat.STAT_HEALTH` / `STAT_ARMOR` vivaient ici : RETIREES par #270-r1-r1-r3-r1
     #  apres lecture du decompile -- leurs noms etaient INVERSES. Cf. le test ci-dessous.)
 )

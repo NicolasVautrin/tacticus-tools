@@ -32,6 +32,57 @@ from engine.runner.operations.triggers.loki import fire as FIRE
 from engine.runner.operations.triggers.loki import trophy_taker as TTT
 
 
+DECLENCHEUR = {
+    "chemins": (
+        # Le port de `TrophyTaker` -- ses deux faces et leur cablage.
+        "scripts/python/engine/entities/effects/loki/trophy_taker.py",
+        "scripts/python/engine/entities/effects/factory.py",
+        "scripts/python/engine/runner/operations/triggers/loki/trophy_taker.py",
+        "scripts/python/engine/runner/operations/triggers/dispatch/registry.py",
+        # L'etage natif que la tranche a ajoute (registre des victimes + selecteur qui le lit) et
+        # les deux foyers d'ou il est ecrit/lu.
+        "scripts/python/engine/runner/components.py",
+        "scripts/python/engine/runner/operations/damage.py",
+        "scripts/python/engine/entities/selectors/units.py",
+        "scripts/python/engine/entities/selectors/__init__.py",
+        "scripts/python/engine/runner/abilities/behaviours/context.py",
+        "scripts/python/engine/runner/abilities/behaviours/effects.py",
+        # Les mirrors d'enum et les foyers de magnitude/arrondi que les gardes citent.
+        "scripts/python/engine/entities/effect_type.py",
+        "scripts/python/engine/entities/triggered_ability_type.py",
+        "scripts/python/engine/entities/ability_constant_type.py",
+        "scripts/python/engine/entities/ability_variable_type.py",
+        "scripts/python/engine/entities/unit_selection_type.py",
+        "scripts/python/engine/entities/traits/unit_trait.py",
+        "scripts/python/engine/entities/effects/magnitude.py",
+        "scripts/python/engine/entities/effects/base.py",
+        "scripts/python/engine/entities/formulas.py",
+        "scripts/python/engine/dsl/base.py",
+        "scripts/python/engine/dsl/event_trigger_type.py",
+        "scripts/python/engine/services/effect_bonus.py",
+        "scripts/python/engine/entities/stats.py",
+        # Le second item de la tranche : les trois ecarts corriges sur `FireOfAbsolution`.
+        "scripts/python/engine/runner/operations/triggers/loki/fire.py",
+        "scripts/python/engine/runner/operations/triggers/loki/__init__.py",
+        "scripts/python/engine/runner/abilities/behaviours/combat.py",
+        # Les entrees LUES : le gameconfig (magnitudes, `variablesAffectedByRarityBonus`) et la
+        # table de symboles (l'etage qui verifie que `FireOfAbsolutionAbility$$CreateTrigger` a un
+        # corps PROPRE, donc que la prose corrigee dit vrai).
+        "scripts/python/gameconfig.py",
+        "data/symbols/CURRENT",
+        "data/symbols/rnca9r7q6c/frida/methods.tsv",
+    ),
+    "build": False,
+    "toujours": False,
+    "raison": "Test OFFLINE : il n'ouvre aucun runner. Son perimetre est la chaine du passif "
+              "`TrophyTaker` (effet 1289, trigger du stat-mod 1288, selecteur `UnitsDefeatedBy` et "
+              "le registre de victimes qui l'alimente), plus les trois ecarts corriges sur "
+              "`FireOfAbsolution`. Il LIT le gameconfig et la table de symboles du build : les deux "
+              "sont donc dans le declencheur, faute de quoi un changement de build laisserait le "
+              "garde muet.",
+}
+
+
 class _Ctx:
     """`AbilityEntities` minimal pour executer un SELECTEUR hors runner : `units` (l'univers) et
     `caster` (le slot `Owner@DSLSelectors+0x30` d'un `BaseTriggeredAbility`, owner == caster)."""
