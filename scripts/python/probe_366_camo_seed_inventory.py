@@ -200,6 +200,30 @@ POSE_VECTOR: dict[str, tuple[str, str, str, str]] = {
         "EnmityForTheUnworthyAbility$$CreateBehaviour",
         "AmountIsGreaterThanZero(AdjacentUnitsAmount()) -- "
         "Count(NonSteppableOrObjectUnits(AdjacentUnits(Owner@0x30))), geometrique"),
+    # #962 -- les DEUX auras de `1490 GrimEfficiency` (#959), entrees au registre sans verdict de
+    # pose. `GrimEfficiencyAbility$$CreateBehaviour` est LU verbatim (build `rnca9r7q6c`) :
+    #     AddDynamicStatModifierEffectToOwner(0x5cf = 1487, statType 0x10 = FixedArmor, turns null,
+    #                                         isHidden false)
+    #       op_BitwiseAnd
+    #     AddDynamicStatModifierEffectToOwner(0x5d0 = 1488, statType 0x1a = ExtraPierce, turns null,
+    #                                         isHidden false)
+    # AUCUN `If` -- pose INCONDITIONNELLE ; et son `CreateTrigger` est le corps ICF de
+    # `OnOwnerSpecificAbilityInit(this.AbilityType)`, d'ou l'inscription en
+    # `ABILITY_INIT_OWNER_EFFECTS`. L'absence offline serait donc un TROU.
+    # `flip: sim` -- les deux `CreateActiveCondition` sont
+    # `HasEffect(EffectSource(Effect@+0x38), <marqueur de STANCE>, onlyActive: 0, Both)`, et les
+    # stances du trait `PrioritisedEfficiency` (1059) basculent en cours de partie : les deux auras
+    # les PARTITIONNENT, donc elles ne sont jamais actives ensemble.
+    "GrimEfficiency_ExtraArmor": (
+        "init", "sim",
+        "IdunBattleLogic.Entities.Abilities.Triggered.Loki.GrimEfficiencyAbility$$CreateBehaviour",
+        "HasEffect(EffectSource(Effect@+0x38), 0x5c7 = 1479 "
+        "PrioritisedEfficiency_HostileAcquisition_Stance, onlyActive: 0, targetType 6 = Both)"),
+    "GrimEfficiency_ExtraPierce": (
+        "init", "sim",
+        "IdunBattleLogic.Entities.Abilities.Triggered.Loki.GrimEfficiencyAbility$$CreateBehaviour",
+        "HasEffect(EffectSource(Effect@+0x38), 0x5c8 = 1480 "
+        "PrioritisedEfficiency_FortifyTakeover_Stance, onlyActive: 0, targetType 6 = Both)"),
     "HammerOfWrath_ConditionalDamage": (
         "init", "sim",
         "IdunBattle.Entities.Abilities.AOwnerEffectTriggeredAbility$$CreateBehaviour",

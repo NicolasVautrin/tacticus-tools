@@ -126,6 +126,17 @@ CONDITIONS_PORTEES_ATTESTEES = {
     #     `AmountIsGreaterThanZero(GetMissingHealthSteps())`, qui bascule sur les PV du porteur.
     "EnmityForTheUnworthy_ExtraDamage",
     "EnmityForTheUnworthy_ExtraDamagePct",
+    # #962 (second lot, apporte par le REBASE) -- les DEUX auras de `1490 GrimEfficiency` (#959).
+    # `CreateActiveCondition` LUES et DIFFERENTES : `HasEffect(EffectSource(Effect@+0x38), <stance>,
+    # onlyActive: 0, Both)` sur `0x5c7` (HostileAcquisition) et `0x5c8` (FortifyTakeover). Elles
+    # PARTITIONNENT les stances du trait `PrioritisedEfficiency` (1059), donc elles ne sont jamais
+    # actives ensemble -- c'est le SEUL discriminant entre les deux classes, avec la variable et le
+    # stat. La condition est REELLE et le port la lit : le marqueur de stance est SEEDE depuis
+    # l'etat live (sa pose vit dans un substrat persistent-data absent du port, residu #121), donc
+    # sans cette lecture le flag `active` d'une instance seedee (defaut True) ouvrirait l'aura de
+    # la MAUVAISE stance.
+    "GrimEfficiency_ExtraArmor",
+    "GrimEfficiency_ExtraPierce",
     "HammerOfWrath_ConditionalDamage",
     "InescapableAccuracy_extraCritChance",
     "InescapableAccuracy_extraCritDmg",

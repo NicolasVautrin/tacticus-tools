@@ -305,6 +305,23 @@ RAIL: dict[str, tuple[str, str]] = {
     "ArmourOfShriekingSoulsRemoveOnSourceResurrected":
         (ARRAYSET,
          "IdunBattle.Entities.Effects.Loki.ArmourOfShriekingSoulsEffect$$CreateHandleTriggerAbilitiesInternal"),
+    # #962 (second lot, apporte par le REBASE) -- les trois entrees de #961. Toutes viennent d'un
+    # `$$CreateRemoveEffectTrigger`, que `IdunBattle.Entities.Effects.BaseEffect$$
+    # CreateHandleTriggerAbilities` GREFFE sur le MEME `ArraySet` que les `Triggered()` : rail
+    # ARRAYSET, AUCUN gate `IsActive` natif, donc ils ne doivent PAS le lire (meme forme exacte que
+    # `HatefulAssaultAlreadyAttackedRemove` ci-dessus). Les DEUX classes `TimesplinterMantle*`
+    # partagent un seul corps natif : le natif y exprime une DISJONCTION
+    # (`On(9 = Attack) & get_OwnerIsTarget & IsUnit(Caster@+0x48)` op_BitwiseOr `On(0x17 = TurnEnd)`)
+    # que le port doit scinder, le registre etant indexe par `event_id`.
+    "TimesplinterMantleDamageReductionRemoveOnAttack":
+        (ARRAYSET,
+         "IdunBattle.Entities.Effects.Loki.TimesplinterMantle_DamageReductionEffect$$CreateRemoveEffectTrigger"),
+    "TimesplinterMantleDamageReductionRemoveOnTurnEnd":
+        (ARRAYSET,
+         "IdunBattle.Entities.Effects.Loki.TimesplinterMantle_DamageReductionEffect$$CreateRemoveEffectTrigger"),
+    "LivingLightningMovingRemoveOnArrived":
+        (ARRAYSET,
+         "IdunBattle.Entities.Effects.Loki.LivingLightning_MovingEffect$$CreateRemoveEffectTrigger"),
     "HarlequinsPanoplyIgnoreHitsRemove":
         (TARGETS, "IdunBattle.Entities.Effects.Loki.HarlequinsPanoply_IgnoreHitsEffect$$CreateTargetTrigger"),
     # #432 -- 1147 TerminatorArmour_ReduceDmg. La CONSOMMATION vient de `CreateTargetTrigger` (rail
