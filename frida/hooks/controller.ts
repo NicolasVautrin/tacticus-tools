@@ -161,6 +161,11 @@ import { checkStatsFields } from "./probes/check-stats-fields.js";
 // statique dont la classe n'a pas de `.cctor` nomme.
 import { interfaceSlotProbe, classInterfaces } from "./probes/interface-slot-probe.js";
 import { staticFieldProbe } from "./probes/static-field-probe.js";
+// #969-r1 / #975-r1 — les deux capteurs de ce lot qui exigent VRAIMENT une fenetre de reinject.
+// Les DEUX `register` n'arment RIEN : `shouldEvaluateTrace` pose ses `Interceptor` uniquement sur
+// `{action:"arm"}`, et `validTargetsFrom` n'ancre rien du tout (il n'INVOQUE que des queries).
+import { registerShouldEvaluateTrace } from "./probes/should-evaluate-trace.js";
+import { registerValidTargetsFrom } from "./probes/valid-targets-from.js";
 
 
 
@@ -380,6 +385,17 @@ export function wireRpc(ctx: Ctx): void {
 
     ctx.rpc.searchClass = () => { searchForGlobals(); return { ok: true }; };
     ctx.rpc.inspectPtr = (p: string) => { inspectPtr(p); return { ok: true }; };
+
+    // --- #916-r1 / #590-r2 / #590-r5 — introspection PURE (lecture de pointeurs seule).
+    ctx.rpc.interfaceSlotProbe = (args: Parameters<typeof interfaceSlotProbe>[0]) =>
+        interfaceSlotProbe(args);
+    ctx.rpc.classInterfaces = (args: Parameters<typeof classInterfaces>[0]) =>
+        classInterfaces(args);
+    ctx.rpc.staticFieldProbe = (args: Parameters<typeof staticFieldProbe>[0]) =>
+        staticFieldProbe(args);
+    // --- #969-r1 / #975-r1 — capteurs on-demand (aucun hook pose au register).
+    registerShouldEvaluateTrace(ctx);
+    registerValidTargetsFrom(ctx);
 
     rlBridge.register(ctx);
 

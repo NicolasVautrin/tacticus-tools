@@ -7,8 +7,9 @@ derriere la metadata IL2CPP, donc illisible statiquement ».
 
   * `#916-r1` -- `IdunBattle.Operations.AddEffectOperation$$UpdateExistingEffect` consulte le
     **slot 5** de l'`IEffect` du type et SAUTE (`continue`) les instances pour lesquelles il rend
-    vrai ; si aucune n'est retenue, l'appelant materialise une NOUVELLE entite-effet. C'est la
-    bifurcation que le port encode par `BaseEffect.stacks_stat_mod_on_add`.
+    vrai ; si aucune n'est retenue, l'appelant materialise une NOUVELLE entite-effet. Le residu
+    affirmait que c'est « exactement la bifurcation que le port encode par
+    `BaseEffect.stacks_stat_mod_on_add` ». **CE PROBE LE REFUTE** -- cf. l'encadre ci-dessous.
   * `#590-r2` -- `IdunBattle.Operations.ChangeUnitOwnerOperation$$RemoveEffects` consulte le
     **slot 3** et met l'effet dans la liste de suppression quand il rend FAUX.
 
@@ -45,8 +46,32 @@ slot 0 d'`IEffect`, dans la vtable plate), et on le VERIFIE en exigeant que le n
 corresponde a celui qu'`interface_slots.tsv` annonce. Deux sources independantes qui doivent
 concorder ; sinon, refus.
 
+## ⚠ CE QUE LA MESURE A REFUTE : le slot 5 n'est PAS `stacks_stat_mod_on_add`
+
+Le port pose `stacks_stat_mod_on_add = True` sur trois classes, chacune par une MESURE LIVE
+distincte -- dont `ActOfFaithBuffEffect`, dont l'empilement additif est observe (`145 290 435 ...`
+au lieu de `145 145 145 ...`). Or ce probe mesure que **`ActOfFaithBuffEffect` HERITE de la base**,
+c'est-a-dire `get_AlwaysCreateOneEntityPerEffect == false`.
+
+Les deux notions ne coincident donc pas, et le decompile dit pourquoi : quand
+`UpdateExistingEffect` RETIENT une instance (slot 5 faux), elle ne se contente pas de rafraichir
+une duree -- elle incremente le compteur de stacks `EffectComponent+0x6c` **et** ecrit
+`statModifierValue` sur le composant. L'empilement d'`ActOfFaith` passe donc par CE chemin, pas par
+la creation d'une seconde entite-effet. Le slot 5 signifie « une entite SEPAREE par application »
+(le cas des taunts, des liens et des attaques en attente -- voir la liste des overrides), ce qui
+est une AUTRE question.
+
+⇒ **« Deriver le drapeau des classes d'effet au lieu de le poser a la main » aurait ecrit
+`stacks_stat_mod_on_add = False` sur `ActOfFaith` et casse un comportement live-valide.** Ce probe
+recense un fait natif utile ; il ne remplace PAS les mesures du port.
+
 Lecture PURE : `resolveVtableSlot` ne fait que lire des pointeurs (aucun `Interceptor`, aucune
 invocation, aucun heap scan).
+
+⚠ **Le recensement est PARTIEL et le DIT.** IL2CPP ne remplit la vtable d'une classe qu'a son
+INITIALISATION : une classe d'effet jamais instanciee dans la session rend des slots vides, et le
+probe la range en `NON MESUREE` -- **jamais** en « herite ». Mesure du 2026-08-12 : 244 mesurees
+sur 465. Compter les non-mesurees comme heritantes fabriquerait un faux « aucun override ».
 
 ASCII only (console cp1252).
 """
