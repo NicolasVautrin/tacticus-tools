@@ -182,7 +182,8 @@ def _summon_on_appearance_attack(state: "State", summon_id: int, target_id: int,
 
 def perform_ai_ability_unit_behaviour(state: "State", unit_id: int, allow_move_action: bool,
                                       move_amount: Optional[int],
-                                      allowed_targets: "Optional[set]" = None) -> Optional[dict]:
+                                      allowed_targets: "Optional[set]" = None,
+                                      ability_type: Optional[int] = None) -> Optional[dict]:
     """**L'UNIQUE port du corps natif `IdunBattle.Entities.Behaviours.PerformAIAbilityUnitBehaviour$$Execute`**
     (un acteur), partage par les DEUX noeuds `DSLFactory` qui l'instancient — cf. les deux constructeurs
     homonymes juste en dessous (`perform_ai_attack_from_current_position`, `perform_ai_attack`). Tous les
@@ -327,24 +328,43 @@ def perform_ai_ability_unit_behaviour(state: "State", unit_id: int, allow_move_a
     # `GetEligibleTargetsForNormalAttack` POUR CHAQUE position candidate. On applique donc la cascade
     # sur la tuile COURANTE -- le seul domaine de `...FromCurrentPosition` (`move_amount == 0`) --
     # et on retombe sur le seul volet PORTEE pour les tuiles d'approche de `PerformAIAttack`.
-    _eligible_here = set(int(x) for x in
-                         (_targeting.valid_normal_attack_targets(state, int(unit_id)) or ()))
+    # `ability_type` (#964-r1) = le `Func<IEntity,int>` `+0x68` MATERIALISE. Les quatre noeuds de
+    # cette famille le CACHENT dans leur `<>c` et il vaut alors `GetNormalAttackType(unit)` -- c'est
+    # le `None` par defaut, comportement STRICTEMENT inchange pour les huit appelants d'avant. Seule
+    # la surcharge a SIX arguments de `DSLBehaviors$$PerformAIAbility` le recoit du call-site, et
+    # `IdunBattleLogic.Entities.Abilities.Triggered.Loki.ECogSupportAbility$$CreateBehaviour` y passe
+    # `<>c$$<CreateBehaviour>b__3_0` = `IdunBattle.Entities.UnitExtensions$$GetRepairType(e)`. L'IA
+    # joue donc une REPARATION, pas une attaque.
+    _aid = NORMAL_ATTACK_ID if ability_type is None else int(ability_type)
+    if ability_type is None:
+        _eligible_here = set(int(x) for x in
+                             (_targeting.valid_normal_attack_targets(state, int(unit_id)) or ()))
+    else:
+        # Meme cascade, masque de CETTE ability. `None` (masque non RE-lu) laisse `_eligible_here`
+        # a `None` = « le port ne sait pas » -> on ne fabrique pas un domaine vide.
+        _vt = _targeting.valid_targets_for(state, int(unit_id), _aid)
+        _eligible_here = None if _vt is None else set(int(x) for x in _vt)
 
     def _gate(t, tile):
-        if t is None or not _in_attack_range(state, unit_id, t, from_pos=tile):
+        # ⚠ Le clamp `_in_attack_range` (`TargetingQuery$$GetRange` + `ForcedInMelee`) est le volet
+        # PORTEE DE L'ARME : il n'a de sens que pour l'attaque normale. Sous une ability EXPLICITE,
+        # la portee vit dans le masque de l'ability, donc la cascade seule fait foi.
+        if t is None:
+            return False
+        if ability_type is None and not _in_attack_range(state, unit_id, t, from_pos=tile):
             return False
         tid = t.get("id") if isinstance(t, dict) else t
         if tid is None:
             return False
-        if (_here is not None and tile is not None and tuple(tile) == _here
-                and int(tid) not in _eligible_here):
+        if (_eligible_here is not None and _here is not None and tile is not None
+                and tuple(tile) == _here and int(tid) not in _eligible_here):
             return False
         if allowed_targets is None:
             return True
         return int(tid) in allowed_targets
 
     action = ai_control_execute_ability_action_for(
-        state, unit_id, NORMAL_ATTACK_ID, allow_only_move=bool(allow_move_action),
+        state, unit_id, _aid, allow_only_move=bool(allow_move_action),
         move_amount=move_amount, range_gate=_gate)
     # --- `AiControl$$ApplyAiMessages(msgs)` : 1. `MoveUnitMessage` -----------------------------------
     _e = state.get_entity(unit_id)

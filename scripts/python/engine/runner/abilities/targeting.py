@@ -1305,6 +1305,58 @@ def normal_attack_type_for(state: "State", caster_id: int) -> Optional[int]:
     return int(got) if got is not None else None
 
 
+def normal_repair_type_for(state: "State", unit_id) -> Optional[int]:
+    """`IdunBattle.Entities.UnitExtensions$$GetRepairType(unit)` cote port -- le pendant REPAIR de
+    `normal_attack_type_for` ci-dessus.
+
+    Le natif lit `<ActiveAbilityComponent>+0x2c`, ecrit par la fabrique quand l'unite recoit son
+    ability de REPARATION ; les deux accesseurs ne different que par le champ (`+0x28` / `+0x2c`) et
+    partagent la meme garde `GetEntityType(unit) == 1 Unit` et le meme `return 0` hors-unite.
+
+    Le champ n'est pas expose par les capteurs -- on le DERIVE des abilities REELLEMENT montees sur
+    l'unite, dans cet ordre :
+
+      1. une ability qui REDEFINIT la reparation expose un membre `<nom>_Repair` d'`ActiveAbilityType`
+         (aucun sur ce build -- la branche est ecrite parce que la fabrique la prevoit, symetrique de
+         `<nom>_NormalAttack`, dont 14 membres existent) ;
+      2. sinon, l'ability de reparation GENERIQUE de l'unite, cherchee dans le meme substrat que le
+         registre de triggers consomme (`config_active_abilities` MESUREE quand le canal
+         `unitAbilityStates` a parle, sinon le kit gameconfig) ;
+      3. sinon le TRAIT `Mechanic`, qui est la voie REELLE des porteurs -- et c'est ce qui rend cette
+         fonction non triviale : `votanSmnEcog` a `activeAbilities = []` au gameconfig et repare
+         quand meme. Une derivation par kit seul rendrait `None` sur le seul porteur qui compte.
+
+    `None` = l'unite n'a pas d'ability de reparation -> le `Nullable` VIDE du natif, qui fait SAUTER
+    l'unite dans `UnitsWithAnyValidTargetSelector$$Select`."""
+    if unit_id is None:
+        return None
+    e = state.get_entity(int(unit_id))
+    sc = e.get_component(StatsComponent) if e is not None else None
+    ctx = sc.ctx if sc is not None else None
+    if ctx is None:
+        return None
+    import gameconfig as GC
+    vis = _visual_id(state, int(unit_id))
+    gu = (GC.unit(vis) or {}) if vis else {}
+    measured = getattr(ctx, "config_active_abilities", None)
+    actives = list(measured if measured is not None else (gu.get("activeAbilities") or []))
+    passives = list(getattr(ctx, "passive_abilities", None) or gu.get("passiveAbilities") or [])
+    for nm in list(actives) + list(passives):
+        member = getattr(ActiveAbilityType, f"{nm}_Repair", None)          # (1)
+        if member is not None:
+            return int(member)
+    for nm in actives:                                                    # (2)
+        member = getattr(ActiveAbilityType, str(nm), None)
+        if member is not None and str(nm).startswith("Repair"):
+            return int(member)
+    # (3) `UnitTrait.Mechanic` -> l'ability generique `28 Repair`. Le trait est LU sur le meme
+    # substrat que tous les autres gates de traits du port (`_unit_traits` : mesure live quand elle
+    # existe, kit + grande-alliance sinon).
+    if UnitTrait.Mechanic.name in (_unit_traits(state, int(unit_id)) or ()):
+        return int(ActiveAbilityType.Repair)
+    return None
+
+
 def normal_attack_targeting_options(state: "State", caster_id: int) -> "TargetingOptions":
     """`battleQuery.<slot 0x3e>(GetNormalAttackType(unit))` -- les `TargetingOptions` de l'attaque
     normale DE CETTE UNITE, pas celles d'une constante de module.
@@ -2089,6 +2141,67 @@ def valid_normal_attack_targets(state: "State", caster_id: int, range_override=N
             continue
         if get_invalid_target_reason(state, int(caster_id), int(uid), probe) == 0:
             out.append(int(uid))
+    return out
+
+
+def has_valid_targets(state: "State", unit_id, ability_type) -> Optional[bool]:
+    """`IBattleQuery.<slot 64 = 0x40> HasValidTargets(unit, position, abilityType)` -- le predicat
+    « cette unite a-t-elle au moins une cible legale pour CETTE ability, depuis sa tuile ».
+
+    Slot LU dans `data/symbols/<build>/metadata/interface_slots.tsv`
+    (`IBattleQuery 64 HasValidTargets 3`), et recoupe par ses DEUX consommateurs natifs, qui
+    l'appellent par le meme `<slot 0x40>` :
+
+      * `IdunBattle.Entities.Selectors.HasAnyValidTargetSelector$$Select`, qui passe
+        `(unit, GetUnitPosition(unit), UnitExtensions$$GetNormalAttackType(unit))` -- c'est la
+        surcharge a DEUX arguments de `IdunBattleLogic.Entities.DSLSelectors$$UnitsWithAnyValidTarget`,
+        deja portee ici par `valid_normal_attack_targets` (attaque normale CABLEE) ;
+      * `IdunBattle.Entities.Selectors.UnitsWithAnyValidTargetSelector$$Select`, qui passe
+        `(unit, GetUnitPosition(unit), <ability calculee par un selecteur>.Value)` -- la surcharge a
+        TROIS arguments, ou l'ability est un PARAMETRE. C'est celle qu'appelle
+        `IdunBattleLogic.Entities.Abilities.Triggered.Loki.ECogSupportAbility$$CreateBehaviour`.
+
+    Cette fonction est donc `valid_normal_attack_targets` GENERALISEE a une ability quelconque :
+    meme cascade (`get_invalid_target_reason`), meme domaine d'enumeration, seul le masque change.
+    Elle rend un BOOLEEN (le natif rend `bool`), pas la liste -- les deux appelants natifs ne
+    testent que l'existence.
+
+    TRI-ETAT, et il est LOAD-BEARING : `None` = **le masque de cette ability n'a pas ete RE-lu**
+    (`targeting_options_for` rend `None`, meme convention permissive que partout dans ce module).
+    Un appelant qui rabattrait ce `None` sur `False` FILTRERAIT une unite que le natif garde ; sur
+    `True`, il en garderait une que le natif ecarte. Les deux sont des inventions : le consommateur
+    doit DIRE qu'il ne sait pas."""
+    targets = valid_targets_for(state, unit_id, ability_type)
+    return None if targets is None else bool(targets)
+
+
+def valid_targets_for(state: "State", unit_id, ability_type) -> Optional[list]:
+    """Les cibles LEGALES de `ability_type` pour `unit_id`, depuis sa tuile courante.
+
+    Generalisation EXACTE de `valid_normal_attack_targets` ci-dessus (dont le corps est ce meme
+    balayage avec le masque de l'attaque normale du caster) : c'est le domaine que le natif enumere
+    derriere `IdunBattle.Core.Services.BattleQuery$$GetValidTargets(unit, from, abilityType)` ->
+    slot 6 d'`ITargetingQuery`, la MEME cascade que `get_invalid_target_reason`.
+
+    `None` = masque non RE-lu (tri-etat, cf. `has_valid_targets`). Liste VIDE = mesure reelle
+    « aucune cible »."""
+    if unit_id is None or ability_type is None:
+        return None
+    opts = targeting_options_for(ability_type)
+    if opts is None:
+        return None                       # masque non RE-lu -> le port ne SAIT pas (jamais [])
+    from .handler import ABILITY_CLASSES
+    klass = ABILITY_CLASSES.get(int(ability_type))
+    # Le porteur de masque : la classe d'ability REELLE quand elle est portee (elle apporte sa
+    # `get_dynamic_invalid_target_reason`, que le bit `TargetMatchesDynamicRule` consulte), sinon le
+    # porteur minimal, comme pour l'attaque normale.
+    probe = klass() if klass is not None else _NormalAttackTargeting(opts)
+    uid, out = int(unit_id), []
+    for tid in list(state.entities.keys()):
+        if int(tid) == uid:
+            continue
+        if get_invalid_target_reason(state, uid, int(tid), probe) == 0:
+            out.append(int(tid))
     return out
 
 

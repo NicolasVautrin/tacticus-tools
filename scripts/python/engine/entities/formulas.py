@@ -786,6 +786,53 @@ class UnitNormalAttackType(AAmountFormula):
         return None
 
 
+class UnitNormalRepairType(AAmountFormula):
+    """`IdunBattleLogic.Entities.DSLSelectors$$UnitNormalRepairType(entitySelector)` ->
+    `IdunBattleLogic.Entities.AbilityTypeSelector.UnitNormalRepairAbilitySelector$$Select` : le
+    JUMEAU REPAIR d'`UnitNormalAttackType` ci-dessus. Les deux fabriques sont structurellement
+    identiques au decompile (meme allocation, meme `.ctor(unit, 0)`), et les deux `Select` ne
+    different que par l'accesseur d'`ActiveAbilityComponent` qu'ils appellent :
+
+        UnitExtensions$$GetNormalAttackType(unit)  ->  <ActiveAbilityComponent>+0x28
+        UnitExtensions$$GetRepairType(unit)        ->  <ActiveAbilityComponent>+0x2c
+
+    (les deux corps sont identiques par ailleurs, y compris la garde `GetEntityType(unit) == 1
+    Unit` et le `return 0` hors-unite.)
+
+    ⚠ **ASYMETRIE LUE, ET ELLE N'EST PAS COSMETIQUE** : `UnitNormalRepairAbilitySelector$$Select`
+    GARDE son `SelectSingle` (`if (unit != null) repairType = Nullable(GetRepairType(unit))`) puis
+    rend un `Nullable<AbilityOrEffect>` **VIDE** quand le selecteur d'unite ne resout rien, la ou
+    `UnitNormalAttackAbilitySelector$$Select` appelle `GetNormalAttackType` SANS garde et rend
+    toujours une valeur. C'est ce vide qui fait sauter l'unite dans
+    `IdunBattle.Entities.Selectors.UnitsWithAnyValidTargetSelector$$Select` (son `if
+    (ability.HasValue)`), donc le porter comme un `0` filtrerait sur `ActiveAbilityType 0` au lieu
+    de ne pas filtrer du tout. `None` cote port = le `Nullable` VIDE.
+
+    ⚠ **LE SUBSTRAT N'EST PAS LE KIT GAMECONFIG, ET C'EST MESURE.** Le jumeau `UnitNormalAttackType`
+    ci-dessus derive du `visualId` + gameconfig ; ce raccourci NE MARCHE PAS ici. L'ability de
+    reparation d'une unite ne vient pas de son `activeAbilities` : `votanSmnEcog` a
+    `activeAbilities = []` et repare pourtant -- il la tient de son TRAIT `Mechanic`. Une derivation
+    par kit rendrait donc `None` sur le seul porteur qui compte, c'est-a-dire un filtre TOUJOURS
+    VIDE et un port MUET (aucune erreur, aucune trace).
+
+    On passe donc par un accesseur de CONTEXTE (`ctx.normal_repair_type`), alimente par
+    `entities_from_state` depuis le substrat RUNNER -- meme discipline que
+    `ctx.valid_normal_attack_targets` et `ctx.has_any_valid_target`. Accesseur absent (contexte hors
+    runner : prediction, test de noeud) -> `None`, degradation NOMMEE."""
+    def __init__(self, selector: TargetsSelector):
+        self.selector = selector
+
+    def calculate(self, ctx):
+        u = resolve_unit(self.selector, ctx)
+        # `if (unit != null)` du natif -- le `Nullable` VIDE quand `SelectSingle` ne resout rien.
+        if u is None:
+            return None
+        accessor = getattr(ctx, "normal_repair_type", None)
+        if accessor is None:
+            return None
+        return accessor(u)
+
+
 class ConfigVarForEntity(AAmountFormula):
     """`IdunBattleLogic.Entities.DSLFactory$$ConfigVar(abilityOrEffect, entity, varKey)` → `IdunBattle.Entities.Formulas.ConfigAmount$$Calculate` = `AbilityConfiguration.GetVariableForLevel(varKey, level)` sur la config de l'ability
     `abilityOrEffect`, au NIVEAU de l'`entity` (unité TIERCE, ≠ caster — cf. `ConfigVar` standard qui lit

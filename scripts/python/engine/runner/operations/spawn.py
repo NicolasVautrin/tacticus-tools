@@ -815,12 +815,37 @@ def _seed_ability_owner_effects(state: State, unit_id: int, vid: str, mult: int,
       * `StaticBattleRules.ActiveAbility$$GetEffectToBeAddedToOwnerForAbility` (dict `ActiveAbility` +0x50,
         `ABILITY_OWNER_EFFECTS`) — chemin DIRECT, ex. GravitonRifle -> GravitonRifle_ExtraPierce (#113)."""
     import gameconfig as GC
+    from ...entities.effects.factory import get_owner_flags_added_on_ability_init
     gu = GC.unit(vid) or {}
     abilities = list(gu.get("activeAbilities") or []) + list(gu.get("passiveAbilities") or [])
+    # TROISIEME source de la MEME boucle native (#964-r1) : `<Ability>_InitAbility.CreateBehaviour`
+    # -> `DSLBehaviors$$AddFlag(Owner@+0x30, <UnitFlag>)`. Meme trigger `OnOwnerSpecificAbilityInit`
+    # que les owner-effects ci-dessous, autre mutation. Cf. `ABILITY_INIT_OWNER_FLAGS`.
+    for ab in abilities:
+        for flag in get_owner_flags_added_on_ability_init(ab):
+            _add_owner_flag_on_ability_init(state, unit_id, int(flag))
     return [name for ab in abilities
             for name in (get_owner_effects_added_on_ability_init(ab)
                          + get_effect_to_be_added_to_owner_for_ability(ab))
             if _materialize_owner_effect(state, unit_id, name, mult, ability_level=ability_level)]
+
+
+def _add_owner_flag_on_ability_init(state: State, unit_id: int, flag: int) -> bool:
+    """`IdunBattle.Entities.Behaviours.AddFlagBehaviour$$Execute` -> `UnitFlagsComponent$$Add(flag)`.
+
+    Le `OrderedSet` natif rend l'operation IDEMPOTENTE : re-seeder la meme unite (atterrissage
+    deep-strike, re-chargement d'etat) ne pose pas deux fois le drapeau. Le composant est cree s'il
+    manque -- le natif en a un d'office sur toute entite-unite."""
+    from ..components import UnitFlagsComponent
+    e = state.get_entity(int(unit_id))
+    if e is None:
+        return False
+    c = e.get_component(UnitFlagsComponent)
+    if c is None:
+        c = UnitFlagsComponent()
+        e.add_component(c)
+    c.add(int(flag))
+    return True
 
 
 def initialize_deferred_actor_abilities(state: State, unit_id: int) -> list:

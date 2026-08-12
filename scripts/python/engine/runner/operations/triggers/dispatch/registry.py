@@ -183,6 +183,7 @@ from ..loki.living_lightning import (                          # #961 (1007 + 10
 from ..loki.fury_from_the_delve import (                       # #964 (passif 1528, votanBeserk)
     FuryFromTheDelveCheckTargetHealthAbility, FuryFromTheDelveAttackOrPinAbility,
     FURY_FROM_THE_DELVE)
+from ..loki.ecog_support import ECogSupportAbility, ECOG_SUPPORT   # #964-r1 (passif 1487, votanIronmaster)
 from ..loki.herald_of_the_apocalypse import (HeraldOfTheApocalypseExtraDamageRemove,  # #BL-1020r
                                              HERALD_OF_THE_APOCALYPSE_EFFECT)
 from ..loki.euphoric_strikes import (EuphoricStrikesExtraCritRemove,               # #522 (1198 -> 1429)
@@ -378,6 +379,23 @@ ABILITY_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
     # en attaque supplementaire. Cf. loki/fury_from_the_delve.py. #964.
     FURY_FROM_THE_DELVE: [FuryFromTheDelveCheckTargetHealthAbility,
                           FuryFromTheDelveAttackOrPinAbility],
+    # EcogSupport (passif 0x5cf = 1487 de `votanIronmaster` << Vynn >>, HERO Leagues of Votann) --
+    # DEUX classes natives pour UN nom de kit, mais elles NE SE VENTILENT PAS sur un `triggerType` :
+    # ce sont deux `BaseTriggeredAbility` a `CreateTrigger` DIFFERENTS.
+    #   * `ECogSupportAbility` (ICI) : `On(0x30 = 48 UnitRepaired, ownerNeedsToBeAlive: 1) &
+    #     get_OwnerIsCaster` -> `If(AmountIsGreater(ConfigConst(maxSummons = 3),
+    #     Count(UnitsWithId(Children(Owner), "votanSmnEcog", 3))),
+    #     Spawn(Owner, PickRandomly(CanAddUnit(AdjacentTiles(Owner)), 1), "votanSmnEcog", opts),
+    #     PerformAIAbility(PickRandomly(<E-Cogs adjacents ayant une cible de REPARATION>, 1),
+    #                      getAbilityType = GetRepairType, overrideMovement = Direct(0)))` ;
+    #   * `ECogSupport_InitAbility` : `OnOwnerSpecificAbilityInit(0x5cf)` -> `AddFlag(Owner, 0x18 =
+    #     UnitFlag.CanRepairFullHealthUnits)`. PAS d'entree ici -- c'est un etat pose a l'INIT, il
+    #     vit sur `entities/effects/factory.ABILITY_INIT_OWNER_FLAGS` (meme boucle native
+    #     `InitializeActorAbilitiesOperation$$Execute` que les owner-effects).
+    # ⚠ Le vecteur `On(0x30)` n'existait PAS avant cette tranche (`operations/repair.py` le nommait
+    # parmi ses non-portes) : sans `triggers/dispatch/repair.py`, cette entree serait un
+    # registered-but-dead. Cf. loki/ecog_support.py. #964-r1.
+    ECOG_SUPPORT: [ECogSupportAbility],
     # TheBetrayer = gain-rage-au-kill (mort) + auto-tour (début de tour). Cf. les 2 classes dans loki.py.
     "TheBetrayer": [TheBetrayerAddEffectAbility, TheBetrayerTakeTurnAbility],
     # ArcaneShield (Thaumachus) = bouclier à la FIN DE L'ACTIVATION du porteur : `On(0x1c=

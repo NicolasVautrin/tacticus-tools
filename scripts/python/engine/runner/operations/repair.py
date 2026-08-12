@@ -294,4 +294,12 @@ class RepairUnitOperation:
         # REVEILLE des membres, donc le malus EXTRA_HITS doit etre re-evalue (cf. `heal.py`, #60).
         from ..abilities.loki.swarm import on_group_unit_hp_changed
         on_group_unit_hp_changed(state, int(target_id))
+        # `processor.<slot 0x51>(caster, caster, target, 0x30 UnitRepaired, ...)` -- le vecteur
+        # GENERIQUE, ajoute par #964-r1. Il n'existait pas : la docstring ci-dessus le nommait comme
+        # non porte, au motif qu'un seul consommateur existait et qu'il etait court-circuite. Ce
+        # n'est plus vrai (`ECogSupportAbility$$CreateTrigger`), et le raccourci `Swarm` ci-dessus
+        # n'est PAS double (le trait n'a pas d'entree `event_id == 48` dans `TRAIT_TRIGGERS`).
+        # Place FIDELE : apres la mutation et apres le gate de sortie anticipee.
+        from .triggers.dispatch import repair as _repair_dispatch   # lazy : cycle repair<->triggers
+        _repair_dispatch.unit_repaired_triggers(state, caster_id, int(target_id))
         return filled

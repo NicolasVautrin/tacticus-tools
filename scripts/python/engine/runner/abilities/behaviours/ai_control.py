@@ -259,18 +259,27 @@ class PerformAIAbility(AbilityBehaviour):
 
     Effet PUR (`stop=False`). Journalise `PerformAIAbility` (diag replay-diff)."""
     __slots__ = ("selector", "override_movement", "allow_only_move", "utility_entity",
-                 "custom_utility")
+                 "custom_utility", "get_ability_type")
 
     def __init__(self, selector: TargetsSelector,
                  override_movement: Optional[AAmountFormula] = None,
                  allow_only_move: bool = False,
                  utility_entity: Optional[TargetsSelector] = None,
-                 custom_utility=None):
+                 custom_utility=None,
+                 get_ability_type=None):
         self.selector = selector
         self.override_movement = override_movement
         self.allow_only_move = bool(allow_only_move)
         self.utility_entity = utility_entity
         self.custom_utility = custom_utility
+        # `+0x68` MATERIALISE (#964-r1) -- cf. l'avertissement ci-dessus, qui reste vrai pour 1101 :
+        # son `Func` est le lambda CACHE `GetNormalAttackType`, donc `None` = comportement d'avant,
+        # octet pour octet. `ECogSupportAbility$$CreateBehaviour` en fournit un AUTRE
+        # (`<>c$$<CreateBehaviour>b__3_0` = `UnitExtensions$$GetRepairType`), et le rabattre sur
+        # l'attaque normale ferait ATTAQUER un E-Cog que le natif fait REPARER.
+        # Contrat du port : un callable `(state, unit_id) -> int | None` (`None` = pas d'ability,
+        # l'acteur est saute -- le natif, lui, appellerait l'IA avec un type nul).
+        self.get_ability_type = get_ability_type
 
     @staticmethod
     def _accepte_utility_entity(fn) -> bool:
@@ -330,10 +339,20 @@ class PerformAIAbility(AbilityBehaviour):
                     allowed = self.custom_utility(state, int(uid), ue_id)
                 else:
                     allowed = self.custom_utility(state, int(uid))
+            # `+0x68` evalue PAR ACTEUR : le natif invoque le `Func<IEntity,int>` sur l'acteur
+            # courant (`GetRepairType(e)` pour ECogSupport). `None` = le champ n'est pas fourni ->
+            # l'attaque normale, comme les huit appelants d'avant.
+            aid = None if self.get_ability_type is None else self.get_ability_type(state, int(uid))
+            if self.get_ability_type is not None and aid is None:
+                # Le `Func` n'a rien rendu : l'acteur n'a pas cette ability. On le SAUTE plutot que
+                # de lui faire jouer autre chose.
+                acted.append({"unit": int(uid), "ability_type": None, "result": None})
+                continue
             res = perform_ai_ability_unit_behaviour(
                 state, int(uid), self.allow_only_move, move_amount,
-                allowed_targets=allowed)
+                allowed_targets=allowed, ability_type=aid)
             acted.append({"unit": int(uid), "move_amount": move_amount,
+                          "ability_type": aid,
                           "allowed_targets": (sorted(allowed) if allowed is not None else None),
                           "result": res})
         # `utility_entity` est JOURNALISE : le residu #590-r4 l'annoncait deja comme tel, mais

@@ -287,6 +287,7 @@
  "tests/engine/test_959_votann_auras_offline.py": 0.466,
  "tests/engine/test_960_ecstatic_slaughter_armour_shrieking_souls_offline.py": 0.055,
  "tests/engine/test_964_fury_from_the_delve_offline.py": 0.045,
+ "tests/engine/test_964r1_ecog_support_offline.py": 0.732,
  "tests/engine/test_966_healing_balms_offline.py": 0.628,
  "tests/engine/test_effect_1582_inertia_binary.py": 1.156,
  "tests/engine/test_fabricator_claw_cap_binary.py": 0.446,

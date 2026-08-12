@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
+from ..unit_flag import UnitFlag          # `ABILITY_INIT_OWNER_FLAGS` (feuille enum, aucun cycle)
 from .base import BaseEffect
 from .loki.ability_modifications import ListenUpMaggotsEffect
 from .loki.amulet_of_the_voidwyrm import AmuletOfTheVoidwyrmCritDamageReductionEffect
@@ -2085,6 +2086,40 @@ def get_owner_effects_added_on_ability_init(ability_name: str) -> list[str]:
     """Owner-effects posés par `<Ability>.CreateBehaviour` à l'INIT de l'ability (DSL AddEffect(owner)).
     Ability sans owner-effect-à-l'init porté -> []."""
     return ABILITY_INIT_OWNER_EFFECTS.get(ability_name, [])
+
+
+# `<Ability>_InitAbility.CreateBehaviour` -> `DSLBehaviors$$AddFlag(Owner@+0x30, <UnitFlag>)`.
+#
+# LE PENDANT EXACT d'`ABILITY_INIT_OWNER_EFFECTS` ci-dessus, sur l'autre canal : meme trigger natif
+# (`OnOwnerSpecificAbilityInit(<this.AbilityType>)`), meme boucle consommatrice (`IdunBattle.
+# Operations.InitializeActorAbilitiesOperation$$Execute`), meme moment -- seule la MUTATION differe,
+# un `UnitFlag` au lieu d'un `EffectComponent`. Il vit ici pour que les deux canaux d'init se lisent
+# au meme endroit ; il est consomme par `runner/operations/spawn.py::_seed_ability_owner_effects`.
+#
+# ⚠ **UNE ENTREE ICI N'A DE VALEUR QUE SI LE FLAG A UN LECTEUR PORTE.** Poser un drapeau que
+# personne ne lit est le « mensonge de couverture » que la doctrine interdit : l'audit passerait de
+# GAP a PORTE sans qu'aucun comportement ne change. Chaque entree NOMME donc son lecteur.
+ABILITY_INIT_OWNER_FLAGS: dict[str, list[int]] = {
+    # `IdunBattleLogic.Entities.Abilities.Triggered.Loki.ECogSupport_InitAbility$$CreateTrigger` =
+    # `OnOwnerSpecificAbilityInit(0x5cf = 1487)` ; son `$$CreateBehaviour` = `AddFlag(Owner@+0x30,
+    # 0x18)` -- corps ENTIER, un seul appel (decompile `rnca9r7q6c`).
+    # `UnitFlag 0x18 = 24 = CanRepairFullHealthUnits` (`data/symbols/<build>/frida/enums.tsv`), et
+    # l'i2 de `votanIronmaster` << Vynn >> le dit mot pour mot : « can repair other friendly units
+    # even if they are at full Health ».
+    # LECTEUR PORTE, et c'est ce qui rend cette entree NON INERTE :
+    # `runner/abilities/attack_query.entity_can_be_repaired` teste
+    # `caster != null && UnitExtensions$$HasFlag(caster, 0x18 CanRepairFullHealthUnits)` comme
+    # 4e disjunct de son gate d'eligibilite -- c'est le disjunct qui laisse passer une cible a PV
+    # PLEINS. Le gate lui-meme est appele par `RepairUnitOperation$$Execute` (#299) et par le
+    # ciblage (`RepairAbility`), donc le drapeau MORD sur les deux faces.
+    "EcogSupport": [int(UnitFlag.CanRepairFullHealthUnits)],
+}
+
+
+def get_owner_flags_added_on_ability_init(ability_name: str) -> list[int]:
+    """`UnitFlag`s poses par `<Ability>_InitAbility.CreateBehaviour` a l'INIT (DSL `AddFlag(owner)`).
+    Ability sans flag-a-l'init porte -> []."""
+    return ABILITY_INIT_OWNER_FLAGS.get(ability_name, [])
 
 
 # `idun.Idun.Source.Shared.Battle.StaticBattleRules.StaticBattleRules.ActiveAbility$$GetEffectToBeAddedToOwnerForAbility`

@@ -67,6 +67,10 @@ from .pathing import (  # noqa: F401
     Nearest, ClosestPositionToTarget,
 )
 
+from .valid_targets import (  # noqa: F401
+    UnitsWithAnyValidTarget,
+)
+
 from .composites import (  # noqa: F401
     get_spawn_tile_selector, adjacent_units, attackable_enemies, random_adjacent_free_tile,
 )
@@ -104,4 +108,5 @@ __all__ = [
     "random_adjacent_free_tile",
     "SortTilesByUtility", "PreviousTile",
     "Nearest", "ClosestPositionToTarget",
+    "UnitsWithAnyValidTarget",
 ]
