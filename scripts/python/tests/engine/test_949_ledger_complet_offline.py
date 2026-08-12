@@ -22,6 +22,32 @@ ASCII only.
 """
 from __future__ import annotations
 
+DECLENCHEUR = {
+    "chemins": (
+        # Les QUATRE fichiers que ce test OUVRE (`open`), et qu'aucun `import` ne revele --
+        # `probe_486r15 --proposer` ne voit que les imports, et concluait donc << rien a
+        # declarer >>. Ce sont pourtant les seuls dont une modification peut faire mentir ce
+        # fichier : il lit leur SOURCE et raisonne sur leur AST.
+        "scripts/python/engine/runner/operations/damage_ops/normal.py",   # contrat des 2 canaux
+        "scripts/python/engine/services/damage_prediction.py",            # ordre PAR FACE
+        "scripts/python/probe_947_948_extra_damage_passives.py",          # lecteur a recoller
+        "scripts/python/probe_949_ltgb_coup_manquant.py",                 # lecteur a recoller
+    ),
+    "build": False,
+    "toujours": False,
+    "raison": "CES chemins parce que le fichier est un cliquet de FORME : il n'execute aucune "
+              "bataille et ne fige aucune valeur -- il `ast.parse` deux modules du pipeline de "
+              "degat et grep deux probes. Sa verite depend donc EXACTEMENT de leur source, et de "
+              "rien d'autre ; sa fermeture d'imports (557 modules) tient entierement dans la "
+              "cascade derivee du foyer, qu'on ne redeclare pas (#531). PAS d'autres chemins : "
+              "les valeurs natives (443, 884.8) vivent dans "
+              "`test_446_r2_inter_face_rounding_offline.py`, qui a sa propre declaration -- "
+              "les dupliquer ici ferait rejouer ce fichier pour des changements qu'il ne mesure "
+              "pas. `build: False` : rien n'est lu du binaire ni de `data/symbols/**`. "
+              "`toujours: False` : les quatre chemins bornent le perimetre de facon exhaustive, "
+              "un rejeu inconditionnel n'ajouterait rien.",
+}
+
 import ast
 import os
 import sys
