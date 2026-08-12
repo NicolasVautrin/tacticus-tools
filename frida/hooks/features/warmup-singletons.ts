@@ -73,6 +73,14 @@ const SETTLE_BEFORE_CLICK_MS = 800;
 const CLICK_EFFECT_TIMEOUT_MS = 12000;
 const CLICK_ATTEMPTS = 3;
 
+/** Combien de temps laisser au noeud de campagne apres l'appel `ToCampaign` de la fin de
+ * `retreatToCampaign`. Aligne sur `WEDGE_REMEDY_NAV_WAIT_MS` (= 12 000, lu dans
+ * `warmup-wedge-remedy.ts`), qui borne le MEME invoke sur la MEME scene dans le remede du
+ * cran 8 : deux budgets differents pour un geste identique ne se justifieraient par rien.
+ * Cette valeur y est elle-meme alignee sur `CLICK_EFFECT_TIMEOUT_MS`, mesure pour couvrir
+ * le dechargement/rechargement de scene. */
+const RETREAT_NAV_WAIT_MS = WEDGE_REMEDY_NAV_WAIT_MS;
+
 // --- Helpers ---
 
 function sleep(ms: number): Promise<void> {
@@ -139,6 +147,14 @@ async function clickUntilEffect(
     for (let attempt = 1; attempt <= CLICK_ATTEMPTS; attempt++) {
         const found = await waitFor(() => findButtonByContains(r, frag), 8000);
         if (found === null) {
+            // UN BOUTON QUI A DISPARU EST LA PREUVE QUE LE CLIC A PORTE, pas un echec.
+            // Jusqu'ici cette branche concluait l'inverse et rendait
+            // `<label> a disparu sans que <effet> apparaisse` -- mesure du 2026-08-12 :
+            // c'est EXACTEMENT le message qu'on obtenait 2 fois sur 2 sur la confirmation
+            // de retraite, alors que le popup avait bien ete dismisse. On re-teste donc
+            // l'effet avant de conclure : entre le poll qui l'a vu absent et celui-ci, il
+            // a pu arriver.
+            if (attempt > 1 && expect() !== null) return null;
             return attempt === 1
                 ? `${label} introuvable`
                 : `${label} a disparu sans que ${expectLabel} apparaisse`;
@@ -157,13 +173,42 @@ async function clickUntilEffect(
          + "apparaisse — clic systematiquement avale";
 }
 
-/** `pause -> retraite -> confirmation -> campagne`, chaque clic valide par
- * l'apparition de l'ETAPE SUIVANTE (le dernier par le retour de la campagne).
+/** L'effet du clic de confirmation : le popup de retrait a CEDE LA PLACE. C'est tout ce
+ * qu'on peut affirmer a cet instant, et c'est tout ce dont on a besoin.
+ *
+ * Ne suppose RIEN sur ce qui prend le relais -- ecran intersticiel, campagne, autre chose.
+ * Ne suppose rien non plus sur la scene : un critere du type « `IdunNavigation` est
+ * vivant » parierait sur l'ordre entre l'affichage de la frame suivante et le
+ * dechargement de la scene de bataille, que rien n'etablit.
+ *
+ * Le clic AVALE reste distingue du clic qui porte, ce qui est tout l'enjeu de #332 : un
+ * clic avale laisse le popup EN PLACE, donc rend `null` ici. */
+function confirmPopupReplaced(r: UiRefs): true | null {
+    return findButtonByContains(r, RETREAT_CONFIRM_KEY) === null ? true : null;
+}
+
+/** `pause -> retraite -> confirmation -> UNE AUTRE FRAME`, puis la nav du jeu ramene
+ * la campagne. Chaque clic reste valide par l'apparition de l'etape suivante.
  *
  * UN SEUL exemplaire de cette chaine, appele par les DEUX chemins qui retirent le
  * jeu d'une bataille : l'etape 1bis (ecran herite du cycle precedent) et l'etape 7
  * (menage apres la capture). Les avoir dupliques est ce qui a permis a l'un d'etre
- * corrige et pas l'autre. Rend `null` si la campagne est revenue, sinon le motif. */
+ * corrige et pas l'autre. Rend `null` si la campagne est revenue, sinon le motif.
+ *
+ * POURQUOI LE 3e MAILLON N'ATTEND PLUS LA CAMPAGNE. Il attendait le noeud de campagne
+ * comme effet IMMEDIAT du clic de confirmation. Or un ecran INTERSTICIEL s'intercale par
+ * moments entre les deux : le clic porte (le popup disparait), la campagne n'est pas
+ * encore la, et la chaine rendait `confirmation de retraite a disparu sans que la
+ * campagne apparaisse`. Le maillon confondait donc DEUX questions -- « le popup a-t-il
+ * cede la place ? » (ce que le clic decide, et la seule chose qu'il decide) et « est-on
+ * deja arrive ? » (ce que la frame intermediaire retarde).
+ *
+ * ET LE REMEDE EXISTAIT DEJA, INATTEIGNABLE. Le cran 8 applique `IdunNavigation.ToCampaign`
+ * sur wedge -- le suivi #390 le donne `2/2`. Mais l'etape 7 fait `return fail(...)` avant
+ * lui : un echec ici rendait le remede structurellement hors de portee. On appelle donc la
+ * nav du jeu ICI, ce qui rend l'ecran intersticiel SANS OBJET : rien n'a besoin de savoir
+ * lequel c'est, ni de cliquer au travers. `ToCampaign` est idempotent (no-op si on y est
+ * deja), donc l'appeler sur le chemin nominal ne coute rien. */
 async function retreatToCampaign(r: UiRefs): Promise<string | null> {
     const chain: Array<[string, string, () => unknown | null, string]> = [
         [PAUSE_BUTTON_KEY, "bouton pause",
@@ -171,11 +216,27 @@ async function retreatToCampaign(r: UiRefs): Promise<string | null> {
         [RETREAT_BUTTON_KEY, "bouton retraite",
             () => findButtonByContains(r, RETREAT_CONFIRM_KEY), "la confirmation"],
         [RETREAT_CONFIRM_KEY, "confirmation de retraite",
-            () => findButtonBySuffix(r, NODE_SUFFIX), "la campagne"],
+            () => confirmPopupReplaced(r), "une autre frame"],
     ];
     for (const [frag, label, expect, expectLabel] of chain) {
         const err = await clickUntilEffect(r, frag, label, expect, expectLabel);
         if (err !== null) return err;
+    }
+
+    // Le popup a cede la place. Si la campagne est deja montee, c'est fini ; sinon une
+    // frame s'est intercalee -- on ne l'IDENTIFIE PAS, on demande sa campagne au jeu.
+    if (findButtonBySuffix(r, NODE_SUFFIX) !== null) return null;
+    log("[warmup-singletons] popup de retrait remplace, campagne pas encore montee "
+        + "(frame intersticielle) -- appel de IdunNavigation.ToCampaign");
+    const nav = navOutcomeToRpc(
+        await queueOnMainThread(() => navToCampaignOnMainThread(false)));
+    if (!nav.ok) {
+        return `popup de retrait remplace mais ToCampaign a echoue : ${nav.err}`;
+    }
+    if (await waitFor(() => findButtonBySuffix(r, NODE_SUFFIX),
+                      RETREAT_NAV_WAIT_MS, 250) === null) {
+        return "popup de retrait remplace, ToCampaign invoquee, mais le noeud de "
+             + `campagne n'est pas monte en ${RETREAT_NAV_WAIT_MS} ms`;
     }
     return null;
 }
