@@ -52,7 +52,7 @@
  *  taire jusqu'a rendre zero fire.
  */
 import {
-    class_get_name, class_get_namespace, cstr, findMethod, method_get_param_count,
+    class_get_name, class_get_namespace, findMethod,
     assembly_get_image, domain_get, domain_get_assemblies, image_get_class,
     image_get_class_count, s,
 } from "../il2cpp/helpers.js";
@@ -229,10 +229,6 @@ export function registerPlaybookUtilityTrace(ctx: Ctx): void {
                     const spec = ANCHORS[methName];
                     const mi = findMethod(entry.klass, methName);
                     if (!mi || mi.ptr.isNull()) continue;
-                    let paramCount = -1;
-                    try {
-                        paramCount = method_get_param_count(mi.info) as number;
-                    } catch { /* diagnostic seulement */ }
                     const label = name + "$$" + methName;
                     anchors.push(label);
                     trace.listeners.push(Interceptor.attach(mi.ptr, {
@@ -283,7 +279,6 @@ export function registerPlaybookUtilityTrace(ctx: Ctx): void {
                             }
                         },
                     }));
-                    void paramCount;
                 }
             }
             if (trace.listeners.length === 0) {
