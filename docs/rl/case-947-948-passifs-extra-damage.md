@@ -140,13 +140,37 @@ de conclure si les deux régimes rendent le même total natif. Les niveaux des d
   sur le plateau, donc inattaquables en mêlée. Même population que #942-r1. Le cas est gardé
   OFFLINE, en exécutant le nœud contre un `AbilityEntities` fabriqué.
 
-## 6. Observation HORS PÉRIMÈTRE — #949
+## 6. Observation HORS PÉRIMÈTRE — #949 — **RÉSOLUE, et l'écart était dans le LECTEUR**
 
-Avec ses traits NATIFS, Haarken porte `LetTheGalaxyBurn` (1477). Le ledger natif de l'attaque de
-mesure porte alors **8 coups** — `[1779, 1539, 1713, 1688, 1520, 1885, 1704, 66723]` — là où le
-rejeu offline depuis la MÊME capture en rend **6** pour 10 124 pts. Les coups « normaux »
-coïncident (~1690/coup des deux côtés) : c'est un coup SUPPLÉMENTAIRE, à magnitude propre, que
-`LetTheGalaxyBurnEffect$$CreateAdditionalHits` produit et que le port ne matérialise pas dans ce
-régime. La tranche a **isolé** sa mesure (`--unit-stat "blackHaarken:Traits=[]"`), après quoi le
-bras redevient bit-exact — l'écart est donc réel et PRÉEXISTANT, pas un effet de ce port. Résidu
-**#949**.
+> ⚠ Cette section annonçait : « le ledger natif porte **8 coups** —
+> `[1779, 1539, 1713, 1688, 1520, 1885, 1704, 66723]` — là où le rejeu offline en rend **6** pour
+> 10 124 pts […] un coup SUPPLÉMENTAIRE que le port ne matérialise pas ». **Les trois affirmations
+> sont fausses**, et la re-mesure (#949) les défait une par une. Le texte d'origine est conservé
+> ci-dessus en citation parce qu'il est la prémisse du résidu — pas parce qu'il tient.
+
+Re-mesuré par `scripts/python/probe_949_ltgb_coup_manquant.py` (board `MC1_67` / seed 4321, même
+montage, `blackHaarken` avec ses traits NATIFS) :
+
+1. **Le `66723` n'est pas un coup.** Son tag natif porte `Effect_Type = 1476` = `DespoiledGround`
+   — le DoT de tuile que `LetTheGalaxyBurn_ResetAbility$$CreateBehaviour` pose à la clôture de
+   l'attaque, dont la non-portée est un résidu **déjà nommé** dans
+   `engine/runner/operations/triggers/loki/let_the_galaxy_burn.py`. Le ledger de COUPS natif en
+   compte donc **7**, pas 8. L'ancienne mesure additionnait deux populations d'events : les coups
+   de l'attaque et un canal qui lui est étranger.
+2. **Le port matérialise bien le 7ᵉ coup**, et le gate se comporte comme le décompilé le dit.
+   Trace par étage : le trigger de pose `matches` rend `true`, le `Maybe(33 %)` rend `true`, et
+   `LetTheGalaxyBurnEffect.additional_hit_groups` rend `{count: 1, min: 1106, max: 1106,
+   profile: null}` — que `execute_additional_hits` exécute pour **1704**, la valeur native EXACTE.
+3. **Le « 6 coups » venait du lecteur.** `damage_ops/normal.py::execute` publie la phase d'arme
+   dans `per_hit` et le canal #179 **à côté**, dans `additional_hits` (deux sous-opérations natives
+   distinctes). Le `_replay` de `probe_947_948` ne lisait que le premier. Arbitre décisif :
+   `hp_delta = 11828` = la somme EXACTE des 7 coups natifs. Le bras `Traits=[]` restait bit-exact
+   simplement parce que, sans `LetTheGalaxyBurn`, aucun groupe #179 n'existe.
+
+**Lequel des deux disjoints du gate tenait** (la question ouverte du résidu) : `IsPersistentData`.
+La tuile de la cible ne portait **aucun** status-effect (`TargetHasTileEffect` FAUX, lu live) ;
+c'est le `Maybe(LetTheGalaxyBurnChancePct = 33)` du trigger de pose qui avait armé le flag.
+
+Ce qui restait, **et qui était un vrai bug** : un écart de **1 point** sur ce coup, réparé par
+#949 dans `apply_pierce_and_modifiers` (les quatre appels de modificateurs sont désormais groupés
+PAR FACE). Détail : `docs/rl/case-949-ltgb-coup-manquant.md`.

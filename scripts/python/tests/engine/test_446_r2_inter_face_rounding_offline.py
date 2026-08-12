@@ -89,21 +89,86 @@ def test_face_attaquant_seule_pas_d_arrondi_intermediaire():
     assert fx.to_int(fx.from_number(hi)) == 650, f"MAX attendu 650 (natif), obtenu {float(hi)}"
 
 
-def test_effet_defenseur_reste_dans_la_meme_chaine():
-    """#462-r4a -- LE PENDANT du cas ci-dessus, et il est INDISPENSABLE : une face DEFENSEUR issue
-    d'un EFFET (et non d'une modification de stat) reste dans la LISTE `@0x18`, donc dans la MEME
-    chaine que la face attaquant, SANS `Round` entre les deux.
+def test_effet_face_attaquant_reste_dans_la_meme_chaine():
+    """#462-r4a -- un %-EFFET (et non une modification de stat) reste dans la MEME chaine que le
+    percage, SANS `Round` entre les deux.
 
     Le regime est celui de `Terrifying_ExtraDefense` (`x0.70`) : sur le percage `fix(0.60) x 725`
     du montage #462-r4a, `Round(435.000000068 x 0.70)` = **305** (natif), tandis qu'un arrondi
     intercale rendrait `Round(Round(435.000000068) x 0.70)` = 304. Mesure : 12 bornes sur un
-    balayage d'armure (`probe_462_r4a_terrifying_rounding.py --sweep`)."""
+    balayage d'armure (`probe_462_r4a_terrifying_rounding.py --sweep`).
+
+    ⚠ #949 -- LE MONTAGE EST CORRIGE, LE TEMOIN NATIF NE BOUGE PAS. Ce cran posait `x0.70` dans
+    `pct_list_defender`, c'est-a-dire dans la face que #437-r1-r1-r1 a justement RETIREE a cet
+    effet : le test JUSTE EN DESSOUS enonce depuis lors que `Terrifying_ExtraDefense_Effect` derive
+    de `DamageModifierAbilityEffect`, sort par le forwarder `CreateEffectDamageBonusForAttack`, et
+    est donc etiquete `face=attacker` par le natif -- les deux sources de
+    `probe_437r1r1r1_effect_face_table.py` (port et natif) le rendent `attacker`, concordantes.
+    La prémisse « une face DEFENSEUR issue d'un EFFET » n'etait donc portee par AUCUNE mesure : le
+    seul temoin natif jamais mesure pour ce regime venait d'un effet de face ATTAQUANTE. Le cran
+    reste entier -- meme valeur 305, meme sens (pas d'arrondi entre le percage et un %-effet) --
+    mais sur la face que la mesure lui donne. La face DEFENSEUR REELLE est gardee par le test
+    suivant, sur un effet dont le natif ne declare QUE `CreateEffectDamageMalusForDefense`."""
     m = DamageModifiers()
-    m.pct_list_defender.append((0.7, None))
+    m.pct_list.append((0.7, None))
     lo = apply_pierce_and_modifiers(725, 60, 2208, m, attacker_additive_pre=True)
     assert fx.to_int(fx.from_number(lo)) == 305, (
         f"MIN attendu 305 (natif), obtenu {float(lo)} -- un `Round` s'est glisse entre le percage "
-        f"et la face DEFENSEUR, alors que celle-ci vient d'un EFFET (liste @0x18)")
+        f"et la face ATTAQUANTE, alors que celle-ci vient d'un EFFET (meme chaine)")
+
+
+def test_effet_defenseur_reel_materialise_la_face_attaquant():
+    """#949 -- LA FACE DEFENSEUR **REELLE** : le `Round` de la face ATTAQUANTE (etape 3, a
+    multiplicateur NEUTRE) materialise la sortie fractionnaire du percage AVANT que le %-effet
+    DEFENSEUR ne s'applique. C'est la meme loi que `test_face_defenseur_seule_arrondi_intermediaire`
+    ci-dessus -- qui la mesure sur une modification de STAT --, ici sur un %-EFFET.
+
+    POURQUOI CE TEMOIN-CI ET PAS L'ANCIEN : l'effet est `SereneUnifierSenseOfStone` (1169), dont la
+    classe native `IdunBattle.Entities.Effects.Loki.SereneUnifierSenseOfStoneEffect` ne declare
+    QUE `...$$CreateEffectDamageMalusForDefense` -- le slot DEFENSEUR, sans forwarder d'attaque.
+    Sa face est donc lue, pas supposee, et `probe_437r1r1r1_effect_face_table.py` la rend
+    `defender` des DEUX cotes (port et natif). Ils sont **17** dans ce cas.
+
+    MESURE LIVE (`probe_949_ltgb_coup_manquant.py --bras isolation`, `blackHaarken` -> `tauAunShi`,
+    board `MC1_67` / seed 4321, 6 attaques enchainees, meme flux RNG que le natif) :
+    percage `1106` p80 armure `1608` = **884.8000000515021**, face DEFENSEUR `x0.50` :
+        natif                 : Round(884.8) = 885 ; Round(885 x 0.5) = Round(442.5) = **443**
+        chaine unique (avant) : Round(884.8 x 0.5) = Round(442.4)                    = **442**
+    Le coup additionnel `LetTheGalaxyBurn` rend cet ecart SYSTEMATIQUE (sa cellule est DEGENEREE,
+    min == max, donc il retombe toujours du meme cote du `.5`) ; sur les coups d'ARME le meme
+    ecart n'apparait qu'au hasard des tirages. Ledger natif reproduit 6/6 bit-exact apres correctif.
+    """
+    m = DamageModifiers()
+    m.pct_list_defender.append((0.5, None))
+    lo = apply_pierce_and_modifiers(1106, 80, 1608, m, attacker_additive_pre=True)
+    assert fx.to_int(fx.from_number(lo)) == 443, (
+        f"attendu 443 (natif, mesure #949), obtenu {float(lo)} -- la face ATTAQUANTE ne materialise "
+        f"plus le percage avant le %-effet DEFENSEUR (les quatre appels ne sont plus groupes PAR "
+        f"FACE dans `apply_pierce_and_modifiers`)")
+
+
+def test_percage_949_rend_le_regime_discriminant():
+    """CONTRE-EPREUVE du cran ci-dessus : il ne discrimine QUE si les TROIS faits ci-dessous
+    tiennent. Ils sont MESURES, pas supposes -- sans eux, arrondir avant ou apres la face DEFENSEUR
+    donnerait la meme valeur et le test serait un vert qui ne verrouille rien.
+
+    ⚠ CE REGIME N'EST **PAS** CELUI DE #446-r2, et la difference est le coeur du cran. La-bas le
+    percage tombait a un CHEVEU sous l'entier (`288.99999993`, ecart < 2^-24) et c'est la
+    materialisation qui creait le `.5` ; ici il vaut `884.8`, franchement fractionnaire. Ce qui
+    discrimine n'est donc pas l'etroitesse de l'ecart mais le fait que `Round(884.8) = 885` soit
+    IMPAIR : sa moitie tombe sur un `.5` EXACT, que `AwayFromZero` arrondit vers le HAUT, alors que
+    la moitie de la valeur NON materialisee (`442.4`) descend. Un `.5` recopie de #446-r2 aurait
+    fait passer ce test pour la mauvaise raison."""
+    v = get_damage_with_piercing(1106, 80, 1608)
+    assert fx.to_int(v.raw) == 884, f"partie entiere attendue 884, obtenue {fx.to_int(v.raw)}"
+    assert v.raw < fx.from_int(885), "le percage doit tomber SOUS 885 (sinon rien a materialiser)"
+    # (1) la materialisation MONTE a 885 -- partie fractionnaire > 0.5
+    assert float(calculate_base_damage_with_modifiers(fx.Fix64(v.raw))) == 885.0
+    # (2) 885 est IMPAIR -> sa moitie tombe sur un `.5` EXACT -> `AwayFromZero` fait le +1
+    assert 885 % 2 == 1
+    assert float(calculate_base_damage_with_modifiers(fx.Fix64(fx.from_int(885)), 0.5)) == 443.0
+    # (3) et SANS materialisation la moitie DESCEND : c'est tout l'ecart mesure (443 contre 442)
+    assert float(calculate_base_damage_with_modifiers(fx.Fix64(v.raw), 0.5)) == 442.0
 
 
 def test_chaine_unique_quand_les_deux_faces_sont_non_neutres():
