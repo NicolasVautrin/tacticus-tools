@@ -226,6 +226,9 @@ from ..loki.champion_of_the_feast import ChampionOfTheFeastAbility    # #419-r6-
 from ..loki.fury_of_the_ancients import FuryOfTheAncientsAbility      # #927 (passif bloodMephiston)
 from ..loki.sanguinary_priest import SanguinaryPriestAbility          # #921 (passif bloodSanguinary)
 from ..loki.medicus_ministorum import MedicusMinistorumAbility        # #958 (passif adeptHospitaller)
+from ..loki.aggressive_onslaught import (AggressiveOnslaughtPrepareAbility,   # #958 (passif
+                                         AggressiveOnslaughtSummonAbility,    #  bloodIntercessor,
+                                         AggressiveOnslaughtUnsummonAbility)  #  3 classes natives)
 from ..loki.dawn_blade import DawnBladeHealAbility                     # #317 (relique tauFarsight)
 from ..loki.daemonflesh_plate import (DaemonfleshPlateAbility,        # #916 (relique 1493)
                                       DaemonfleshPlateResetActiveAbility)
@@ -805,6 +808,33 @@ ABILITY_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
     # voisin de forme `SanguinaryPriestAbility$$GetTargets` : elle serait plus STRICTE que le natif.
     # Cf. loki/medicus_ministorum.py.
     "MedicusMinistorum": [MedicusMinistorumAbility],
+    # AggressiveOnslaught (passif de kit `bloodIntercessor` << Mataneo >>, `TriggeredAbilityType`
+    # 0x4e0 = 1248) -- TROIS classes natives pour UN id de kit (forme `LetTheGalaxyBurn`), toutes
+    # base `BaseTriggeredAbility` (lue dans `classes.tsv`) :
+    #   * `_PrepareAbility`  : `On(0x5 = PreAttack) & OwnerIsAlive & OwnerIsCaster`
+    #                          -> `SetPersistentData(Owner, Get("IsCharging"), IsCharging(Caster, Target))` ;
+    #   * `_SummonAbility`   : `(On(0xb = UnitAbility) & OwnerIsAlive & OwnerIsCaster)
+    #                           & (AmountIsGreaterThanZero(GetPersistentData(Owner, "IsCharging"))
+    #                              | IsCharging(Caster, Target))`
+    #                          -> `Spawn(Caster, Cache(First(SortByDistance(CanAddUnit(AdjacentTiles(
+    #                             TargetTiles@+0x78)), Caster@+0x48), nrOfSummons)), "bloodSmnIntercessor",
+    #                             options{OnSpawn = UseNormalAttackIfAble(ActiveTarget@+0x68, Target@+0x60)})` ;
+    #   * `_UnsummonAbility` : `On(0x12 = TurnStart_EffectActivation) & OwnerIsAlive & IsTurnOf(Owner)
+    #                          & AmountIsGreaterThanZero(Children(Owner))` -> `RemoveUnit(Children(Owner))`.
+    # ⚠ Le `Prepare` n'est PAS redondant : `On(0xb)` est emis par `ActiveAbilityOperation$$
+    # ExecuteInternal` APRES le behaviour d'attaque, donc le drapeau capture au `PreAttack` est la
+    # voie NOMINALE ; le `IsCharging` en direct est le SECOND bras du `op_BitwiseOr`.
+    # ⚠ Le spawn est adjacent a la CIBLE (`AdjacentTiles(TargetTiles@+0x78)`) mais TRIE par distance
+    # au CASTER (`SortByDistance(., Caster@+0x48)`) -- deux selecteurs differents, lus tels quels.
+    # ⚠ `First` est la surcharge `PickFirstN` (les N premiers), tranchee par la SIGNATURE que rend
+    # `probe_951_call_targets.py` : `PickAtIndex` aurait spawn 1 summon au lieu de 2.
+    # ⚠ Le desinvoque passe par `ChildrenOf` (les enfants PERSISTANTS lus dans l'etat), JAMAIS par
+    # `Children` (l'accumulateur `ctx.children` du cast courant) : l'Unsummon court a un TOUR
+    # ULTERIEUR du spawn, ou cet accumulateur est vide -- no-op silencieux.
+    # Cf. loki/aggressive_onslaught.py.
+    "AggressiveOnslaught": [AggressiveOnslaughtPrepareAbility,
+                            AggressiveOnslaughtSummonAbility,
+                            AggressiveOnslaughtUnsummonAbility],
     # RelentlessMarch (passif `necroWarden` << Makhotep >>, `TriggeredAbilityType` 0x3ec = 1004 --
     # HOMONYME d'id avec `ActiveAbilityType` 1004 `MortisRound`, #328) :
     # `On(TurnStart_Other=0x13) & <DSLTriggers+0x28 = IsTurnOf(Owner)>` ->
