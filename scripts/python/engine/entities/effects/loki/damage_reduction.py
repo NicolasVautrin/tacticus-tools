@@ -543,6 +543,60 @@ class NightshroudDmgReductionEffect(BaseEffect):
         return for_subtraction(False, abs(int(red)))   # owner=défenseur (effet sur la cible) ; plat PRÉ-perçage (#120)
 
 
+class TimesplinterMantleDamageReductionEffect(BaseEffect):
+    """`IdunBattle.Entities.Effects.Loki.TimesplinterMantle_DamageReductionEffect` (EffectType
+    **1551 = 0x60f**), pose au DEBUT DE CHAQUE TOUR par
+    `IdunBattleLogic.Entities.Abilities.Triggered.Loki.TimesplinterMantleAbility$$CreateBehaviour`
+    sur `necroChronomancer` << Thothmek >> ET ses allies MECANIQUES non-`Steppable` adjacents.
+
+    `...TimesplinterMantle_DamageReductionEffect$$.ctor` =
+    `DamageModifierAbilityEffect..ctor(this, 0x5fe, 0)` -> l'`AbilityOrEffect` de l'effet est le
+    **`TriggeredAbilityType` 1534 = TimesplinterMantle** (c'est de LUI que vient l'indexation des
+    variables), pas un `EffectType`.
+
+    `...$$CreateDamageDefenseModifier` (surcharge tranchee par l'ADRESSE du `call`,
+    `probe_951_call_targets.py`) :
+
+        EffectBonus.ForSubtraction(
+            trigger        = get_OwnerIsTarget  op_BitwiseAnd  IsUnit(Caster@DSLSelectors+0x48),
+            damageSubtraction = ConfigVar(0x12 = dmgReduction, GetAbilityState(effect), config),
+            abilityOrEffect   = AbilityOrEffect(TriggeredAbilityType 1534) )
+
+    => reduction PLATE du degat RECU par le porteur, meme fabrique et meme bac que `Nightshroud`
+    (`flat_reductions`, additif DEFENSEUR @`EffectBonus+0x18`, PRE-percage donc DILUE par
+    perçage/armure). `dmgReduction` est dans `variablesAffectedByRarityBonus` -> multiplier applique ;
+    l'etat d'ability est celui de la SOURCE (Thothmek) puisque le natif lit `GetAbilityState(effect)`
+    = l'`AbilityStateReference` BAKE a la pose (#382, `baked_ability_state`) -- d'ou
+    `scale_from_source=True` au call-site de pose.
+
+    ⚠ AUCUN gate de nature de coup ni de profil (contraste `TerminatorArmour`/`MartialKatah`) : le
+    trigger n'a que les deux noeuds ci-dessus.
+
+    `IsUnit(Caster@+0x48)` -- TAUTOLOGIQUE sur ce canal cote port, et c'est DIT plutot que devine :
+    la boucle `create_effect_damage_malus_for_defense` n'est parcourue que depuis le pipeline
+    d'ATTAQUE (`damage_model.defender_modifiers` / `prediction`), dont l'attaquant est toujours une
+    unite. Le regime qui le discriminerait -- un degat de TUILE/ENVIRONNEMENT recu par un porteur de
+    1551 -- n'est pas atteignable dans un duel de runner sans board a effets de tuile. NON CONFRONTE,
+    residu nomme. Le MEME noeud est, lui, porte EXPLICITEMENT sur le trigger de retrait
+    (`runner/operations/triggers/loki/timesplinter_mantle.py`), ou l'acteur est connu.
+
+    CYCLE DE VIE : `...$$CreateRemoveEffectTrigger` = `(On(9 = Attack) & OwnerIsTarget &
+    IsUnit(Caster)) | On(0x17 = TurnEnd)` -> l'effet est une CHARGE A USAGE UNIQUE consommee par la
+    premiere attaque recue, et de toute facon balayee a la fin du tour courant. Aucune duree n'est
+    posee (`AddEffect` avec des options ZERO et `1551` absent de `DefaultAmountOfRounds`) : le retrait
+    ne peut venir QUE de ces triggers."""
+
+    def create_effect_damage_malus_for_defense(self, is_melee: bool | None = None,
+                                                damage_profile: str | None = None,
+                                                attacker_ctx: Mapping | None = None) -> EffectBonus | None:
+        lvl = self.ability_level if self.ability_level is not None else self.level
+        red = ability_var("TimesplinterMantle", "dmgReduction", lvl,   # ConfigVar 0x12 (rarity-scale)
+                          multiplier_pct=self.ability_variables_multiplier)
+        if not red:
+            return None
+        return for_subtraction(False, abs(int(red)))   # EffectBonus +0x18 = Subtraction (plat PRE-percage)
+
+
 class NeuroparasiteEffect(BaseEffect):
     """`IdunBattle.Entities.Effects.Loki.NeuroparasiteEffect$$CreateEffectDamageMalusForDefense` (passif du Neurothrope
     `Neuroparasite`, EffectType 0x49f=1183, base `ABondEffect` = lien cible<->Neurothrope infecteur).
