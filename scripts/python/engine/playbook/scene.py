@@ -729,7 +729,7 @@ class Scene:
         deux voisins (residu NOMME #948-r1) ; la face COMBAT, elle, mesure la position REELLE au
         moment du coup.
 
-        ⚠ MEME cablage que ses deux voisins (#943-r7), sur le foyer partage djacency : `AdjacentUnits(Owner, 1, 3)` =
+        ⚠ MEME cablage que ses deux voisins (#943-r7), sur le foyer partage `playbook.adjacency` : `AdjacentUnits(Owner, 1, 3)` =
         `Units(AdjacentTiles(Owner)) - Owner`, donc la liste STOCKEE puis `|dElev| < 2`. Les DEUX
         faces COMBAT (`runner.components.enmity_adjacent_units_count` et
         `..._dark_angels_friends_count`) executent les arbres d'`enmity_for_the_unworthy`, dont

@@ -695,6 +695,7 @@ from .savior_protocols import SaviorProtocolsPlaybook        # noqa: E402  (#443
 from .serene_unifier import SereneUnifierPlaybook            # noqa: E402  (#456-r1 : corps propre, 101/ami)
 from .rad_saturation import RadSaturationPlaybook            # noqa: E402  (#477-r29 : corps propre, +10/marshal)
 from .prophetic_sentinel import PropheticSentinelPlaybook    # noqa: E402  (#915 : corps propre, +20/Psyker adjacent)
+from .sanguinary_priest import SanguinaryPriestPlaybook      # noqa: E402  (#921-r1 : corps propre, 5 + 6 si blesse)
 
 TRIGGERED_MOVE_PLAYBOOKS: dict = {
     int(TriggeredAbilityType.GuardianOrganism): GuardianOrganismPlaybook(),
@@ -824,6 +825,15 @@ TRIGGERED_MOVE_PLAYBOOKS: dict = {
     # `FilterInPlace` APRES coup), pas `GetSurroundingUnits` (slot 117, filtre `!IsEnemy` INTERNE).
     # Porteur HORS POOL -> injection catalogue. Cf. `playbook/friends_in_range.py`.
     int(TriggeredAbilityType.GrimEfficiency): GrimEfficiencyPlaybook(),          # 1490 (5 / ami en portee)
+    # #921-r1 -- corps PROPRE (il n'herite PAS de la base de ce module), et la PREMIERE feuille du
+    # registre dont un terme lit les PV d'un voisin : `IsDamagedUnit(u)` =
+    # `GetStat(u, StatType.Health = 5, StatPart.Missing = 4) > 0`. Elle cumule DEUX poids sur un
+    # meme ami (5 + 6), le second `+=` etant IMBRIQUE dans le premier `if` -- un ami Mechanical
+    # sans `AffectedByHealAndRepair` ne rapporte donc RIEN, meme blesse. Elle n'exclut PAS le mover
+    # (aucun `RemoveAll`, et `IsFriend` n'ecarte pas l'egalite), a l'inverse de `SereneUnifier`.
+    # Sa face ATTACK est un `yield Fix64(0)` PROPRE (pas herite) : elle n'a rien a enregistrer.
+    # Porteur POOL-HERO : `bloodSanguinary` << Nicodemus >>. Cf. `playbook/sanguinary_priest.py`.
+    int(TriggeredAbilityType.SanguinaryPriest): SanguinaryPriestPlaybook(),      # 1296 (5 / ami + 6 si blesse)
 }
 
 

@@ -26,6 +26,33 @@ from ...damage_profile_type import DamageProfileType, PROFILE_NAME_BY_INDEX
 from ...effect_type import EffectType
 from ..base import BaseEffect
 from ..magnitude import ability_var
+# #943-r7 -- les deux canaux du substrat d'adjacence NATIF, en FORME B (#485-r1-r1).
+# `pathfinding.board` n'importe RIEN de `engine`, et `engine.battle_query` n'importe que `hexgeo` +
+# `.hex_corner` : aucune de ces deux aretes ne peut refermer le SCC `effects`.
+from ...pathfinding import board as _board
+from .... import battle_query as _bq
+
+
+def _adjacency_channels(ctx):
+    """Les DEUX canaux de l'adjacence NATIVE derives du `board` DEJA porte par le ctx d'aura, en
+    TRI-ETAT (#943-r7). Aucun seeding : `aura_attack_bonus_from_allies` publie deja
+    `ctx["board"] = scene.board` (cf. `playbook/prediction/normal_attack.py`).
+
+    `IdunBattleLogic.Entities.DSLSelectors$$AdjacentUnits(origin, unique, selType)` =
+    `op_Subtraction(Units(AdjacentTiles(origin), ...), origin)`, et
+    `IdunBattle.Entities.Selectors.AdjacentTilesSelector$$Select` ENUMERE
+    `BattleQuery$$GetAdjacentTiles(t)` pour chaque tuile de l'ORIGINE -- la liste STOCKEE du
+    `ConnectivityComponent`, puis la porte `|dElev| < 2` de
+    `IdunBattle.Core.Services.TileQuery.u003CIterateAdjacentTilesu003Ed__8$$MoveNext`.
+
+    La face COMBAT de ce meme selecteur (`entities/selectors/units.py::AdjacentUnits` ->
+    `dsl/base._within(order='adjacent')`) lit DEJA la liste stockee : c'est la face PREDICTION qui
+    divergeait, et la cabler RESORBE l'ecart au lieu d'en creer un.
+
+    Board absent -> `(None, None)`, et `battle_query.is_adjacent` retombe sur son repli geometrique
+    NOMME : le comportement d'avant, jamais un voisinage vide."""
+    b = (ctx or {}).get("board")
+    return _board.elevations_by_pos(b), _board.adjacent_neigh_by_pos(b)
 
 
 class RitesOfBattleExtraDmgEffect(BaseEffect):
@@ -58,8 +85,11 @@ class RitesOfBattleExtraDmgEffect(BaseEffect):
         op, ap = c.get("owner_pos"), c.get("att_pos")
         if not op or not ap:
             return None
-        import hexgeo
-        if hexgeo.distance(op, ap) != 1:                 # AdjacentUnits(range 1) — pure adjacence HEX
+        # #943-r7 : `AdjacentUnits(Owner)` -> `AdjacentTiles(Owner)` -> la liste STOCKEE. La SOURCE
+        # de l'enumeration est le PORTEUR (Calgar) ; une couronne hex nue est symetrique et
+        # sur-atteint la liste stockee (mesure #943-r4 : 22 aretes sur `MC2_60`, 8 sur `C4_69`).
+        elev_by_pos, neigh_by_pos = _adjacency_channels(c)
+        if not _bq.is_adjacent(op, ap, elev_by_pos, neigh_by_pos):
             return None
         # Gate trait 0x1a=26 = grande-alliance Imperial (idun.Idun.Source.Shared.GrandAlliance$$GetTrait : Imperial→26).
         # ABSENT de gameconfig.traits → dérivé de GrandAllianceId. Les 2 effets sont MUTUELLEMENT EXCLUSIFS

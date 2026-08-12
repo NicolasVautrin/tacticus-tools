@@ -146,13 +146,35 @@ class CalibaniteGreatswordPlaybook(NonComparablePlaybook):
     # ---------------------------------------------------------------- gates amont
 
     def _has_excluding_triggered_ability(self, ctx: NCContext) -> bool:
-        """GATE 1. Substrat offline = le KIT du caster (`activeAbilities` + `passiveAbilities` du
-        gameconfig), la conversion se faisant PAR NOM et jamais par ordinal (#270-c). Borne nommee
-        dans l'en-tete : une triggered ability posee en cours de bataille est invisible ici."""
+        """GATE 1. `UnitExtensions$$HasTriggeredAbility(caster, 0x5f2)` interroge l'**ECS**
+        (`TriggeredAbilityComponent`), pas le kit de configuration -- une triggered ability POSEE EN
+        COURS DE BATAILLE y est donc visible.
+
+        DEUX substrats, en UNION et jamais en remplacement (regle N13, celle de
+        `utilities/tile.py::_adjacent_units`) :
+
+          * le kit du caster (`activeAbilities` + `passiveAbilities` du gameconfig), converti PAR NOM
+            et jamais par ordinal (#270-c) ;
+          * le kit DECLENCHE **RUNTIME** (`ctx.triggered_kits`, RPC `unitAbilityStates` -- #945-r2),
+            qui porte des IDS. Canal absent -> le kit gameconfig SEUL, la degradation d'avant.
+
+        L'union interdit qu'une lecture live partielle RETIRE un id que le kit connait ; et le canal
+        runtime ferme la borne que l'en-tete nommait (le port n'abandonnait jamais la ou le natif
+        abandonne)."""
         me = next((u for u in (ctx.units or []) if u.get("id") == ctx.uid), None)
         cfg = _unit_cfg((me or {}).get("visualId"))
         names = (cfg.get("activeAbilities") or []) + (cfg.get("passiveAbilities") or [])
-        return _EXCLUDING_TRIGGERED.name in names
+        if _EXCLUDING_TRIGGERED.name in names:
+            return True
+        fn = getattr(ctx, "triggered_kits", None)
+        if not callable(fn):
+            return False                                  # canal absent : kit gameconfig SEUL
+        try:
+            table = fn() or {}
+        except Exception:
+            return False                                  # RPC muet -> jamais une AFFIRMATION
+        ids = table.get(ctx.uid) or table.get(int(ctx.uid)) or ()
+        return int(_EXCLUDING_TRIGGERED) in {int(x) for x in ids}
 
     def _has_sweep_effect(self, ctx: NCContext) -> bool:
         """`EntityExtensions$$HasEffect(caster, State, 1405, onlyActive: null)`.

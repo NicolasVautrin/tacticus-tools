@@ -43,6 +43,12 @@ import engine.entities.effects.aura_selectors as ASel
 from ..aura_selectors import is_targetable as _is_targetable, surrounding_friends
 from ..base import BaseEffect
 from ..magnitude import ability_var
+# #943-r7 -- les deux canaux du substrat d'adjacence NATIF, en FORME B (#485-r1-r1).
+# `pathfinding.board` n'importe RIEN de `engine` (il ne porte qu'un `from __future__`), et
+# `engine.battle_query` n'importe que `hexgeo` + `.hex_corner` : aucune de ces deux aretes ne peut
+# refermer le SCC `effects`.
+from ...pathfinding import board as _board
+from .... import battle_query as _bq
 from ....entities.effect_type import EffectType   # #270-r1-r1-r3
 from ....entities.stats import StatType   # #270-r1-r1-r3
 
@@ -72,6 +78,23 @@ def _hex_distance(a, b) -> "int | None":
         return None
     import hexgeo
     return hexgeo.distance(tuple(a), tuple(b))
+
+
+def _adjacency_channels(state):
+    """Les DEUX canaux de l'adjacence NATIVE derives du board de l'ECS, en TRI-ETAT (#943-r7).
+
+    `IdunBattleLogic.Entities.DSLSelectors$$AdjacentUnits(origin)` =
+    `Units(AdjacentTiles(origin)) - origin`, et
+    `IdunBattle.Entities.Selectors.AdjacentTilesSelector$$Select` ENUMERE
+    `BattleQuery$$GetAdjacentTiles(t)` pour chaque tuile de l'origine -- donc la liste STOCKEE du
+    `ConnectivityComponent`, puis la porte `|dElev| < 2` de
+    `IdunBattle.Core.Services.TileQuery.u003CIterateAdjacentTilesu003Ed__8$$MoveNext`. Une couronne
+    hex nue SUR-ATTEINT cette liste (mesure #943-r4 : 22 aretes sur `MC2_60`, 8 sur `C4_69`).
+
+    Board absent -> `(None, None)`, et `battle_query.is_adjacent` retombe alors sur son repli
+    geometrique NOMME : le comportement d'avant, jamais un voisinage vide."""
+    b = getattr(state, "board", None)
+    return _board.elevations_by_pos(b), _board.adjacent_neigh_by_pos(b)
 
 
 # ─────────────────────────────────────────────────────────────────────────────────────────────────
@@ -378,6 +401,12 @@ class FearedInterrogatorTargetEffect(BaseEffect):
         if "Stunned" in names or "Pinned" in names:
             return True
         # --- B = AdjacentUnits( UnitsFromFaction(Friends(Owner), DarkAngels) - Owner )
+        # #943-r7 : `AdjacentUnits(origin)` = `Units(AdjacentTiles(origin)) - origin`, et
+        # `AdjacentTilesSelector$$Select` enumere le voisinage des tuiles de l'ORIGINE -- donc
+        # la SOURCE de l'enumeration est l'ami Dark Angel, pas la cible. Une couronne hex nue est
+        # symetrique et ne pouvait pas porter cet axe ; la liste stockee, si.
+        # (`- origin` inerte ici : la cible est un ENNEMI, jamais dans `friends`.)
+        elev_by_pos, neigh_by_pos = _adjacency_channels(state)
         for uid, ent in state.entities.items():
             if uid == owner_id or uid == target_id:
                 continue                                   # « ANOTHER » Dark Angel (op_Subtraction Owner)
@@ -392,7 +421,7 @@ class FearedInterrogatorTargetEffect(BaseEffect):
                 continue                                   # OnlyAliveAndTargetable
             if _faction_of(state, uid) != _FACTION_DARK_ANGELS:
                 continue                                   # UnitsFromFaction(DarkAngels)
-            if _hex_distance((pc.col, pc.row), (tpc.col, tpc.row)) == 1:
+            if _bq.is_adjacent((pc.col, pc.row), (tpc.col, tpc.row), elev_by_pos, neigh_by_pos):
                 return True                                # AdjacentUnits(friends)
         return False
 

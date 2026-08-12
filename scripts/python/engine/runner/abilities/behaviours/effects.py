@@ -5,6 +5,8 @@
 `stat_ops.py`. Namespace natif `Entities.Behaviours.*`."""
 from __future__ import annotations
 
+from dataclasses import replace          # #448-r6 : lier `ActiveTarget` a la cible COURANTE
+
 from ....dsl.base import TargetsSelector, resolve_unit, _units_of
 from ....dsl.effects import AbilityBehaviour, OperationResult
 from ..base import convert_rounds_to_turns
@@ -25,7 +27,12 @@ from ...operations.spawn import _materialize_owner_effect
 from ...operations.stat_ops import apply_change_stat
 
 
-def _resolve_duration(state, duration_rounds, duration_turns):
+def _duration_is_node(duration_turns) -> bool:
+    """`duration_turns` est-il un NOEUD `IAmountFormula` (a evaluer) plutot qu'un scalaire ? (#448-r6)"""
+    return duration_turns is not None and hasattr(duration_turns, "evaluate")
+
+
+def _resolve_duration(state, duration_rounds, duration_turns, entities=None):
     """Unite de la duree passee a `AddEffectOperation` (`param_6.NullableA` natif, en TOURS) :
 
       * `duration_turns` (prioritaire) = duree DEJA en tours -- mirror d'un noeud `Direct(n)@0xc0` ou
@@ -35,7 +42,27 @@ def _resolve_duration(state, duration_rounds, duration_turns):
         (`IdunBattle.Core.Services.BattleQuery$$ConvertRoundsToTurns`).
       * `None` des deux -> pas d'override : la duree vient de `DefaultAmountOfRounds`, convertie DANS
         `AddEffectOperation` (mirror de la branche « pas d'override » du decompile).
-    """
+
+    #448-r6 -- `duration_turns` accepte desormais un NOEUD (`IAmountFormula`), et pas seulement un
+    scalaire. C'est ce qu'EST le champ `AbilityEntities+0x78` cote natif, et l'appelant
+    (`AddEffectBehaviour$$Execute`) l'evalue **DANS SA BOUCLE DE CIBLES**, apres avoir ecrit
+    l'entite courante dans `AbilityEntities+0x20` -- lu VERBATIM au decompile :
+
+        foreach (unit in <cibles>) {
+            if (UnitExtensions.HasFlag(unit, UnitFlag.Dead = 6)) continue;
+            processor[+0x20] = unit;                              // <-- AVANT l'evaluation
+            turns = (entities+0x78 != null) ? Nullable(<+0x78>.Calculate(processor)) : null;
+            ...
+        }
+
+    Un `TurnsUntilUnitOwnerTurn(ActiveTarget)` y vaut donc la valeur de LA cible en cours, PAS le
+    `Max` du set. `entities` doit alors etre le contexte PAR CIBLE (`replace(entities,
+    active_target=<cible>)`) ; l'omettre sur un noeud rendrait `None` plutot qu'une valeur fausse."""
+    if _duration_is_node(duration_turns):
+        if entities is None:
+            return None                              # aucun contexte : on ne DEVINE pas une duree
+        v = duration_turns.evaluate(entities)
+        return None if v is None else int(v)
     if duration_turns is not None:
         return int(duration_turns)
     if duration_rounds is not None:
@@ -292,7 +319,12 @@ class AddEffect(AbilityBehaviour):
         # duration_rounds None -> pas d'override = duree DEFAUT (DefaultAmountOfRounds), mirror de l'arg natif
         # `0` d'AddEffect sans TurnsFromRounds (Pinned CrushingClaws) ; sinon `ConvertRoundsToTurns(rounds)`
         # IdunBattle.Core.Services.BattleQuery$$ConvertRoundsToTurns. `duration_turns` court-circuite (noeud Direct/Nullable natif, deja en TOURS).
-        dur = _resolve_duration(state, self.duration_rounds, self.duration_turns)
+        # #448-r6 : un `duration_turns` NOEUD est evalue PAR CIBLE dans la boucle ci-dessous (le
+        # natif ecrit `processor[+0x20] = unit` AVANT d'evaluer `entities+0x78`) ; un scalaire, lui,
+        # se resout une fois. `_duration_is_node` sépare les deux régimes.
+        _dur_node = _duration_is_node(self.duration_turns)
+        dur = (None if _dur_node
+               else _resolve_duration(state, self.duration_rounds, self.duration_turns))
         lvl = (self.level.evaluate(entities) if hasattr(self.level, "evaluate")
                else self.level)
         # `scale_from_source` porte le 3e argument natif d'`AddEffectBehaviour..ctor`
@@ -320,6 +352,10 @@ class AddEffect(AbilityBehaviour):
                 continue
             if self.source_from_target:                       # selecteur SOURCE natif NULL -> source = cible
                 src = tgt
+            if _dur_node:
+                # `processor[+0x20] = unit` PUIS `<+0x78>.Calculate(processor)` -- l'ordre est LU.
+                dur = _resolve_duration(state, self.duration_rounds, self.duration_turns,
+                                        replace(entities, active_target=elem))
             eff = AddEffectOperation.execute(state, source=src, target=tgt, effect_type=self.effect_type,
                                              name=self.name, duration_override=dur,
                                              level=(None if lvl is None else int(lvl)),
@@ -756,7 +792,10 @@ class AddDynamicStatModifierEffect(AbilityBehaviour):
         src = su.get("id") if isinstance(su, dict) else None
         if src is None:
             return OperationResult.ok()
-        dur = _resolve_duration(state, self.duration_rounds, self.duration_turns)
+        # #448-r6 -- MEME regime que `AddEffect` : un `duration_turns` NOEUD s'evalue PAR CIBLE.
+        _dur_node = _duration_is_node(self.duration_turns)
+        dur = (None if _dur_node
+               else _resolve_duration(state, self.duration_rounds, self.duration_turns))
         # `AbilityStateReference` (+0x88) : l'effet resout ses `ConfigVar` contre l'etat d'ability de sa
         # SOURCE -> on propage niveau/multiplier du poseur (== `scale_from_source` d'`AddEffect`).
         mult, ab_lvl, act_lvl = _source_scaling(state, src)
@@ -764,6 +803,9 @@ class AddDynamicStatModifierEffect(AbilityBehaviour):
             tgt = _add_effect_target_id(elem, state)
             if tgt is None:
                 continue
+            if _dur_node:
+                dur = _resolve_duration(state, self.duration_rounds, self.duration_turns,
+                                        replace(entities, active_target=elem))
             eff = AddEffectOperation.execute(state, source=src, target=tgt,
                                              effect_type=self.effect_type, name=self.name,
                                              duration_override=dur, ability_level=ab_lvl,

@@ -1408,7 +1408,7 @@ def _est_vivante(e) -> bool:
 
 
 def _unit_record(e, uid: int, pc, fx) -> dict:
-    """L'enregistrement `{pos, vis, id, triggered, active, traits, effects}` d'un voisin.
+    """L'enregistrement `{pos, vis, id, triggered, active, traits, effects, hp, hp_max}` d'un voisin.
 
     FOYER UNIQUE des deux regimes (sujet present / SPAWN) : deux constructions separees
     finiraient par diverger de forme, et une feuille lisant une cle absente d'un seul des deux
@@ -1417,16 +1417,26 @@ def _unit_record(e, uid: int, pc, fx) -> dict:
     #456-r1 -- `triggered`/`active`/`traits` sortent du substrat d'ENTITE (`UnitContext`, seede par
     `snapshot._load_triggered_abilities`), plus du kit gameconfig par `visualId` : c'est ce que
     `HasTrait`/`HasActiveAbility` interrogent. Relique, greffe et abilities derivees d'un TRAIT y
-    etaient invisibles."""
-    from ..runner.components import StatsComponent, UnitComponent
+    etaient invisibles.
+
+    #983 -- `hp`/`hp_max` (`HealthComponent`, le substrat de `StatType.Health`). Consommateur :
+    `IdunBattle.Entities.UnitExtensions$$IsDamagedUnit` =
+    `GetStat(u, StatType.Health = 5, StatPart.Missing = 4) > 0`, terme du corps PROPRE de
+    `IdunBattle.AI.Playbook.SanguinaryPriestPlaybook`. TRI-ETAT : composant absent -> `None` des
+    deux cotes, JAMAIS `0` -- un `0` de PV se lirait comme une unite morte, et un `0` de maximum
+    ferait passer toute unite pour intacte."""
+    from ..runner.components import HealthComponent, StatsComponent, UnitComponent
     uc = e.get_component(UnitComponent)
     sc = e.get_component(StatsComponent)
+    hc = e.get_component(HealthComponent)
     vis = uc.visual_id if uc is not None else None
     cx = sc.ctx if sc is not None else None
     return {"pos": (pc.col, pc.row), "vis": vis, "id": uid,
             "triggered": tuple(entity_triggered_ability_ids(cx, vis)),
             "active": tuple(entity_active_ability_ids(cx, vis)),
             "traits": entity_trait_names(cx, vis),
+            "hp": (hc.hp if hc is not None else None),
+            "hp_max": (hc.hp_max if hc is not None else None),
             "effects": tuple(ef.name for ef in ((fx.by_unit.get(int(uid), []) if fx else []))
                              if not ef.consumed and ef.name)}
 
@@ -1533,8 +1543,8 @@ def runner_tile_leaf_ctx(state, unit_id: int | None, parent_id: int | None = Non
     NON produites, donc feuilles muettes ici (résidus nommés, mêmes que côté décision) : `scene` /
     `hpmax_by_id` / `enemies` (→ `FuryOfTheAncientsPlaybook` rend 0), `is_territory_by_pos` et
     `tile_effect_type_ids_by_pos` (le `meta` de ce foyer ne les porte pas non plus)."""
-    from ..runner.components import (OwnerComponent, PositionComponent, StatsComponent,
-                                     UnitComponent)
+    from ..runner.components import (HealthComponent, OwnerComponent, PositionComponent,
+                                     StatsComponent, UnitComponent)
     if unit_id is None:
         # `case.unit == null` : PAS de sujet. `is_spawning` = `get_IsSpawning` = unit null ET parent
         # non nul -- c'est la signature EXACTE du call-site SortTilesByUtilityForSummon (case-205).
@@ -1548,6 +1558,7 @@ def runner_tile_leaf_ctx(state, unit_id: int | None, parent_id: int | None = Non
     muc = me.get_component(UnitComponent)
     moc = me.get_component(OwnerComponent)
     msc = me.get_component(StatsComponent)
+    mhc = me.get_component(HealthComponent)          # #983 -- PV du MOVER, cf. `self_hp` plus bas
     my_team = moc.team if moc is not None else None
     my_vis = muc.visual_id if muc is not None else None
     fx = getattr(state, "effects", None)
@@ -1604,6 +1615,13 @@ def runner_tile_leaf_ctx(state, unit_id: int | None, parent_id: int | None = Non
             # `get_IsSpawning` = `unit == null && parent != null` : ici le sujet EXISTE -> False.
             "is_spawning": False,
             "self_pos": (mpc.col, mpc.row) if mpc is not None else None,
+            # PV du MOVER (#983) -- pendant de `self_pos` sur l'axe des PV, et pour la MEME raison :
+            # `SanguinaryPriestPlaybook` ne fait AUCUN `RemoveAll(u.Id == case.Unit.Id)`, donc le
+            # mover entre dans son propre `GetAdjacentUnits(tile, friendsOf: case.Unit)` -- `IsFriend`
+            # n'ecarte pas l'egalite. Sans ces deux cles son terme DAMAGED serait sous-compte de 1
+            # des que son origine tombe en ring-1 de la tuile candidate. TRI-ETAT (cf. `_unit_record`).
+            "self_hp": (mhc.hp if mhc is not None else None),
+            "self_hp_max": (mhc.hp_max if mhc is not None else None),
             # EFFETS du MOVER (#922) -- pendant EXACT de `self_pos` sur l'axe des effets, et pour la
             # MEME raison : les corps qui ne font aucun `RemoveAll(u.Id == case.Unit.Id)` voient le
             # mover dans leur propre voisinage (il est encore SUR SON ORIGINE pendant tout le sweep).
@@ -1712,6 +1730,10 @@ def scene_tile_leaf_ctx(scene, unit_id: int | None) -> dict:
                # #477-r29 : cf. `runner_tile_leaf_ctx` -- predicat de `RadSaturationPlaybook`.
                "active": tuple(entity_active_ability_ids(scene.ctx(uid), vis)),
                "traits": entity_trait_names(scene.ctx(uid), vis),
+               # #983 -- cf. `_unit_record` : substrat d'`UnitExtensions$$IsDamagedUnit`. `Scene.hp`
+               # et `Scene.hpmax` lisent le MEME `HealthComponent` (`Scene.from_state`), et rendent
+               # deja `None` sur un id hors tables -- le tri-etat est donc porte par le foyer.
+               "hp": scene.hp(uid), "hp_max": scene.hpmax(uid),
                "effects": _effect_names(uid)}
         if my_team is not None and u.get("team") == my_team:
             friends.append(rec)
@@ -1734,6 +1756,8 @@ def scene_tile_leaf_ctx(scene, unit_id: int | None) -> dict:
             "unit_faction": faction_value(my_vis),
             "is_spawning": False,
             "self_pos": scene.pos(unit_id),
+            # PV du MOVER (#983) -- cf. `runner_tile_leaf_ctx`, meme role et meme raison.
+            "self_hp": scene.hp(unit_id), "self_hp_max": scene.hpmax(unit_id),
             # EFFETS du MOVER (#922) -- cf. `runner_tile_leaf_ctx`, meme role et meme forme.
             "self_effects": tuple(_effect_names(unit_id)),
             "friend_units": friends, "enemy_units": enemies, "friend_positions": fpos,
@@ -1768,6 +1792,11 @@ def _adjacent_units(ctx, uid):
     scene = getattr(ctx, "scene", None)
     _kits_fn = getattr(ctx, "live_triggered_kits", None)
     live_kits = _kits_fn() if callable(_kits_fn) else {}
+    # #983 -- cf. `_unit_record`. `hp` vient de `decisionView.units[].hp` (le meme champ que
+    # `AiDecisionContext.hp_cur_by_id`), `hp_max` de `observeBattle` via `ctx.hpmax_by_id`. TRI-ETAT :
+    # une table absente rend `None` par voisin, JAMAIS 0 -- un maximum a 0 ferait passer toute unite
+    # pour intacte, et `IsDamagedUnit` se tairait partout sans que rien ne le signale.
+    _hpmax = getattr(ctx, "hpmax_by_id", None)
     friends, enemies = [], []
     for u in (getattr(ctx, "units", None) or []):
         pos = u.get("pos")
@@ -1790,6 +1819,8 @@ def _adjacent_units(ctx, uid):
                # `playbook.scene._seed_measured_actives`), avec repli kit gameconfig.
                "active": tuple(entity_active_ability_ids(_uctx, u.get("visualId"))),
                "traits": entity_trait_names(_uctx, u.get("visualId")),
+               "hp": u.get("hp"),
+               "hp_max": (_hpmax.get(u.get("id")) if isinstance(_hpmax, dict) else None),
                "effects": tuple(e.get("name") if isinstance(e, dict) else e
                                 for e in (u.get("effects") or ()))}
         if u.get("ctrl"):
@@ -1890,6 +1921,12 @@ def tile_leaf_ctx(ctx) -> dict:
             # `case.unit` : l'unite est encore SUR SON ORIGINE pendant tout le sweep, elle compte
             # donc pour elle-meme des que cette origine tombe dans le voisinage evalue (N13).
             "self_pos": self_pos,
+            # PV du MOVER (#983) -- pendant de `self_pos` sur l'axe des PV, meme raison
+            # (cf. `runner_tile_leaf_ctx`). Substrats : `decisionView.units[].hp` du mover et
+            # `observeBattle` via `ctx.hpmax_by_id`, exactement ceux que `_adjacent_units` lit.
+            "self_hp": me.get("hp"),
+            "self_hp_max": ((getattr(ctx, "hpmax_by_id", None) or {}).get(uid)
+                            if isinstance(getattr(ctx, "hpmax_by_id", None), dict) else None),
             # EFFETS du MOVER (#922) -- pendant de `self_pos` sur l'axe des effets, meme raison
             # (cf. `runner_tile_leaf_ctx`). Substrat : le canal `decisionView.effects` du mover,
             # exactement celui que `_adjacent_units` lit pour ses voisins.

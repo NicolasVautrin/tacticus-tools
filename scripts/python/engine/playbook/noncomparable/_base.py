@@ -511,6 +511,21 @@ class NCContext:
     #                            silence. `None` = NON MESURÉ (le prédicat rend False, comme le natif
     #                            quand la position n'est pas `Bottom`) — jamais une position devinée.
     debug: bool = False
+    # #945-r2 -- le kit DECLENCHE **RUNTIME**, `{unitId: [TriggeredAbilityType]}`, lazy. MEME patron
+    # que `active_levels` / `ability_config` juste au-dessus, et MEME substrat que celui que
+    # `utilities/tile.py::_adjacent_units` consomme deja : le `TriggeredAbilityComponent` lu par le
+    # RPC `unitAbilityStates` (`AiDecisionContext.live_triggered_kits`), pas le kit gameconfig.
+    #
+    # POURQUOI IL EXISTE : le gate d'ouverture de `CalibaniteGreatswordPlaybook$$EvaluateNonComparable`
+    # est un `UnitExtensions$$HasTriggeredAbility(caster, 0x5f2)`, qui interroge l'ECS -- une triggered
+    # ability POSEE EN COURS DE BATAILLE lui est visible. Le kit gameconfig, lui, ne la voit jamais :
+    # le port abandonnait donc moins souvent que le natif (degradation PERMISSIVE).
+    #
+    # ⚠ TRI-ETAT et UNION, jamais remplacement (regle N13, celle de `_adjacent_units`) : `None` =
+    # canal absent (contexte offline / RPC muet) -> le lecteur retombe sur le kit gameconfig SEUL ;
+    # une table presente s'AJOUTE au kit, pour qu'une lecture live partielle ne puisse jamais RETIRER
+    # un id connu.
+    triggered_kits: object = None  # callable() -> {unitId: [TriggeredAbilityType]} (lazy unitAbilityStates)
 
 
 class NonComparablePlaybook:
