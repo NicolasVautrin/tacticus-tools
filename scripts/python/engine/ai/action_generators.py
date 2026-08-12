@@ -208,7 +208,11 @@ class NonComparableGenerator(ActiveAbilityActionGenerator):
             #      `BattleQuery$$IsTurnOfUnit` (prefixe de `CasterHasNotMoved`, #447-r1-r1-r3)
             tile_id_by_pos=ctx.tile_id_by_pos, active_levels=ctx.active_ability_levels,
             ability_config=ctx.heal_config,   # {"active","passive","multiplier"} (ReachedSummonCap #38)
-            units=ctx.units, cast_from_tiles=ctx.cast_from_tiles, scene=ctx.scene, debug=ctx.debug)
+            units=ctx.units, cast_from_tiles=ctx.cast_from_tiles, scene=ctx.scene,
+            # #979 : le MEME callable que porte `AiDecisionContext` (cascade 4 etages, tri-etat) --
+            # `IsPositionMachineForCurrentPlayer(2)` de `DevastatingRefrainAbility$$GetShape`.
+            machine_of_war_position=ctx.machine_of_war_position,
+            debug=ctx.debug)
         bc = playbooks.choose_action((ctx.me or {}).get("abilities") or [], nc_ctx,
                                      priority=self.priority)
         if bc is None:

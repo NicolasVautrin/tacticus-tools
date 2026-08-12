@@ -13,24 +13,13 @@ moteur des deux faces :
                   TROISIEME chemin de port, ni trigger ni ability derivee). L'oublier faisait compter
                   MartialKatah manquant sur ses 4 porteurs Custodes alors que ses DEUX effets sont
                   portes (MartialKatahDmgBonusEffect / MartialKatahDmgReductionEffect).
-  FACE DECISION (scoring) : QUATRE registres, pas un —
-    - `engine.playbook.noncomparable.PLAYBOOKS` (id) : les abilities NON-COMPARABLES, qui ont
-      leur propre voie de scoring ;
-    - `engine.playbook.base.REGISTRY` (id) : les abilities COMPARABLES dotees d'un override
-      `CalculateCustomUtility` (#27) — leur voie generique est commune, seul le terme custom est
-      par-ability. Lire le 1er SEUL faisait ressortir `[--]` (= rien de porte) sur des abilities
-      dont la face DECISION est portee, ex. DoomSiren(1199) alors que `DoomSirenPlaybook` existe.
-    - `entities.abilities.active_ability._SPECIAL_ABILITY_CLASSES` (NOM) : les sous-classes
-      `AActiveAbility` mirrorees PAR ability (formule de coups propre, AoE, degat conditionnel).
-      Consommees uniquement sous `engine/playbook/prediction/` -> face DECISION. Rater ce 3e
-      registre affichait 14 `[-D]` pour 20 reels, et des `[--]` faux (ex. 1191 MartialInspiration).
-    - `engine.playbook.bespoke.BESPOKE_SELFCAST` (id) : les COMPARABLES qui overrident
-      `EvaluateInternal` EN ENTIER (hors du plan `evals`, donc hors de `REGISTRY`), dispatchees par
-      `ai.action_generators._bespoke_candidates`. Rater ce 4e registre rendait **3 faux GAP** dans
-      la section « faces DECISION non portees » : `1175 BloodChalice`, `1179 CultDemagogue` et
-      `1184 MomentShackle`, toutes trois PORTEES -- et `1179` a ete redispatchee sur cette foi
-      (#971). Mesure du 2026-08-12 : les 3 ids de `BESPOKE_SELFCAST` etaient invisibles des trois
-      autres registres.
+  FACE DECISION (scoring) : `decision_face_voies.face_portee` — le FOYER UNIQUE (#979), partage
+    avec `probe_909_decision_actives_kit.py`. Cet audit y est venu apres avoir tenu sa PROPRE liste
+    blanche de registres, qui divergeait de celle du probe (4 ici, 3 la-bas) et qui a rate deux
+    voies MESUREES : `BESPOKE_SELFCAST` (#971 -- 3 faux GAP, dont `1179 CultDemagogue` sur lequel
+    un agent a ete redispatche) puis `_MAKE_DMG_INPUT_OVERRIDES` (#974). Le foyer ne les ENUMERE
+    plus : il PARTITIONNE le perimetre `engine/playbook/**` + `active_ability.py`, de sorte qu'un
+    conteneur neuf y sorte MUET au lieu d'etre tu.
     Le reste de la voie comparable est generique et n'est pas audite ici.
 
     ⚠ `_NONCOMPARABLE_ABILITIES` n'est PAS un 4e registre de couverture : y figurer dit seulement
@@ -80,6 +69,7 @@ if _PYROOT not in sys.path:
     sys.path.insert(0, _PYROOT)
 
 import coverage_attestations as CA
+import decision_face_voies as DFV     # #979 : foyer UNIQUE des voies de face DECISION
 import enum_maps as EM
 import gameconfig as GC
 import unit_map as UM
@@ -119,6 +109,10 @@ VOIES_CONDITIONNELLES = ("mythic", "item")
 #: attestations VALIDES y figurent : `coverage_attestations.validite` est le foyer UNIQUE, et une
 #: attestation perimee n'arrive simplement jamais jusqu'ici -- l'item reste donc compte manquant.
 _ATTESTEES = CA.attestations_valides()
+
+#: Les VOIES de face DECISION, resolues UNE fois (#979). Le foyer PARTITIONNE le perimetre au lieu
+#: d'enumerer des registres : un conteneur neuf y sort MUET, et `probe_909` etape 6 rougit.
+_VOIES = DFV.voies_par_ability()
 
 
 def _has_effect_named_after(name: str) -> bool:
@@ -255,9 +249,14 @@ def collect():
                 # NonComparable) : elle est dispatchee par `_bespoke_candidates`. Les 3 ids qu'il
                 # porte sortaient donc en GAP alors qu'ils sont portes -- et `1179 CultDemagogue`
                 # a ete redispatchee sur cette foi (#971).
-                "decision": (aid in PLAYBOOKS or aid in CUSTOM_PLAYBOOKS
-                             or aid in BESPOKE_SELFCAST
-                             or nm in _SPECIAL_ABILITY_CLASSES or att_d is not None),
+                # #979 : CETTE LISTE A DISPARU. Elle en etait a QUATRE registres quand le probe
+                # frere en lisait TROIS -- deux listes blanches divergentes pour la meme question,
+                # et il en manquait encore. L'appartenance vient desormais de
+                # `decision_face_voies.face_portee` (14 voies PARTITIONNEES, pas enumerees), foyer
+                # UNIQUE partage avec `probe_909`. L'attestation reste sommee ici : une ability
+                # portee HORS registre (generateur bespoke appele en dur) n'a aucun conteneur ou
+                # figurer.
+                "decision": bool(DFV.face_portee(aid, nm, _VOIES)) or att_d is not None,
                 # `_NONCOMPARABLE_ABILITIES` NE COMPTE PAS comme decision portee, et c'est
                 # deliberé : y figurer signifie seulement que le port CLASSE l'ability
                 # NonComparable — ce qui l'empeche de fabriquer un degat depuis minDmg/maxDmg. Son

@@ -500,6 +500,16 @@ class NCContext:
     scene: object = None           # engine.playbook.Scene (predictor+sctx) — HammerOfWrath (#114) score
     #                            son utilité de décision via Σ CalculateUtilityFromDamageEvent (prédiction
     #                            dégât INTERNE, bypass du gate d'affichage #109) sur cible + adjacents.
+    machine_of_war_position: object = None   # callable() -> `MachineOfWarPosition` du joueur COURANT,
+    #                            c.-à-d. le MÊME callable que porte `AiDecisionContext` (cascade de
+    #                            quatre étages, tri-état). C'est ce que compare
+    #                            `IsPositionMachineForPlayerTrigger$$ShouldTrigger`, donc le prédicat
+    #                            `IsPositionMachineForCurrentPlayer(2)` de `DevastatingRefrainAbility
+    #                            $$GetShape` (#979). AVANT : la route NonComparable n'avait aucun
+    #                            canal, `tile_targets.dsl_context_for_tile_target` lisait `None` et le
+    #                            prédicat rendait False d'office -> mauvaise branche du `If`, en
+    #                            silence. `None` = NON MESURÉ (le prédicat rend False, comme le natif
+    #                            quand la position n'est pas `Bottom`) — jamais une position devinée.
     debug: bool = False
 
 

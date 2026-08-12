@@ -143,6 +143,8 @@ from .exemplar_of_the_kauyon import ExemplarOfTheKauyonPlaybook
 # referme un SCC module-level de 5) : une seule arete par module, et la liaison reste patchable.
 import engine.playbook.noncomparable.worldeaters as _we
 import engine.playbook.noncomparable.thunderous_assault as _ta
+from .devastating_refrain import DevastatingRefrainPlaybook
+from .duty_eternal import DutyEternalPlaybook
 
 
 # Registre abilityType -> instance de playbook (remplace le switch `kind`).
@@ -535,6 +537,19 @@ PLAYBOOKS: dict[int, NonComparablePlaybook] = {
         #                                 gagne. ⚠ `Bucket<T>..ctor` a UN argument + AUCUN `.cctor`
         #                                 -> `MIN_UTILITY = -inf` : le defaut `0.0` l'aurait TUE en
         #                                 silence (son utilite vaut 0 sur tout plateau plat).
+        DevastatingRefrainPlaybook(),   # 1188 (`adeptExorcist`, MoW) -- util = **1** + #ennemis du
+        #                                 caster OCCUPANT une tuile de la forme (tuile visee + ses
+        #                                 voisines dans 3 directions hex). La forme est l'artefact
+        #                                 de la face COMBAT (#90-B), appele et non recable ; son
+        #                                 `If(IsPositionMachineForCurrentPlayer(2), ...)` exigeait
+        #                                 un canal que `NCContext` ne portait pas (#979).
+        DutyEternalPlaybook(),          # 1158 (`ultraDreadnought`, MoW) -- util = **1** + Somme sur
+        #                                 les 3 tuiles de `ThreeTileUnitSpawnShape(cible)`, sur les
+        #                                 unites DES DEUX CAMPS a <= 2 tuiles (`friendsOf = null`),
+        #                                 de 10 si adjacente sinon 1. `includeCenter = false` EXCLUT
+        #                                 l'occupant de la tuile, donc le `10` ne vaut que pour
+        #                                 `distance == 1`. Ferme `#970-r5` (son `BLOCAGE: etage`
+        #                                 etait `CtxBoard`, arrive avec #978).
     )
 }
 
@@ -621,4 +636,5 @@ __all__ = [
     "TitanhammerSquadPlaybook",
     "DoomboltPlaybook", "SwoopingHawkPlaybook",
     "AetherStridePlaybook", "InfernalCannonPlaybook", "EmpyricAmbushPlaybook",
+    "DevastatingRefrainPlaybook", "DutyEternalPlaybook",   # #979
 ]

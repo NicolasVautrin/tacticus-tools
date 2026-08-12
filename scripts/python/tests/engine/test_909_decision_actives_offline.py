@@ -18,6 +18,12 @@ DECLENCHEUR = {
     "chemins": (
         # Le probe sous test et la table native qu'il lit.
         "scripts/python/probe_909_decision_actives_kit.py",
+        # #979 : le probe ne teste plus une LISTE BLANCHE de registres -- l'appartenance vient du
+        # foyer `decision_face_voies`, et le TROISIEME etat (CONSTANTE) du ledger. Les deux
+        # entrent donc dans sa fermeture, et changer l'un change directement le compte.
+        "scripts/python/decision_face_voies.py",
+        "scripts/python/coverage_attestations.py",
+        "scripts/ratchets-951r2-couverture-attestee.json",
         "data/symbols/*/metadata/active_playbook_builders.tsv",
         # La table de symboles dont l'etage 4 et l'etage 6 derivent les methodes par classe.
         "data/symbols/*/ghidra/functions.tsv",
