@@ -791,6 +791,18 @@ CONSOMMATEURS: list[Consommateur] = [
                  "ABILITY_OWNER_EFFECTS", ("ActiveAbilityType", "TriggeredAbilityType"),
                  raison="`StaticBattleRules.ActiveAbility$$GetEffectToBeAddedToOwnerForAbility`",
                  noms_sup=lambda: abilities_derivees_de_trait()),
+    # PENDANT EXACT du precedent sur l'autre canal d'init : meme trigger natif
+    # (`OnOwnerSpecificAbilityInit(<this.AbilityType>)`), meme boucle consommatrice
+    # (`IdunBattle.Operations.InitializeActorAbilitiesOperation$$Execute`), meme moment -- seule la
+    # MUTATION differe (`AddFlag(Owner@+0x30, <UnitFlag>)` au lieu d'`AddEffect`). Donc MEMES deux
+    # enums, pour la meme raison : `spawn.py::_seed_ability_owner_effects` boucle sur
+    # `activeAbilities + passiveAbilities`, la voie ne dit pas l'enum.
+    # PAS de `noms_sup` : `TRAIT_DERIVED_ABILITIES` alimente les deux dicts d'EFFETS ci-dessus
+    # (`_seed_derived_ability_owner_effects` -> `get_owner_effects_added_on_ability_init`), pas
+    # celui-ci -- l'elargir sans lecteur accepterait des cles que rien ne consomme.
+    Consommateur("ABILITY_INIT_OWNER_FLAGS", "engine.entities.effects.factory",
+                 "ABILITY_INIT_OWNER_FLAGS", ("ActiveAbilityType", "TriggeredAbilityType"),
+                 raison="`<Ability>_InitAbility.CreateBehaviour` -> `AddFlag(owner)` a l'init"),
 ]
 
 
