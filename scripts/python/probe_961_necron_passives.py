@@ -498,7 +498,21 @@ def _tm_consume(sid, rid, ids, vis_by_id, p_team, verbose=True):
 # ================================================================================================
 # VOLET LivingLightning
 # ================================================================================================
-def measure_ll(sid, seed, board_id, verbose=True, keep=False):
+def measure_ll(sid, seed, board_id, verbose=True, keep=False, regime="adjacent"):
+    """`regime` = la DISTANCE de l'ennemi le plus proche a la DESTINATION du pas, donc la BRANCHE
+    du `If(AmountIsGreaterThanZero(AdjacentEnemies(Caster)), Direct(1), Get(constants.range))` :
+
+      * `adjacent` (1) -- branche THEN, rayon 1. C'est le seul regime que l'i2 decrit.
+      * `range2`   (2) -- branche ELSE, rayon `constants.range` = 2. L'i2 dit << adjacent enemy >>
+                          et le natif frappe QUAND MEME : c'est la branche que le tooltip ne dit
+                          pas, et la recopier aurait rendu l'ability muette ici.
+      * `none`     (>=3) -- CONTRE-EPREUVE NEGATIVE : hors des deux rayons, le gate
+                          `!AmountIsZero(...)` est faux et RIEN ne doit se produire."""
+    # `adjacent_low` = MEME distance 1 que `adjacent`, mais sur une tuile d'elevation STRICTEMENT
+    # INFERIEURE a la destination : c'est le SEPARATEUR qui distingue << la distance 1 >> de
+    # << l'egalite d'elevation >> quand un ecart apparait (cf. le residu nomme dans le rapport).
+    want = {"adjacent": 1, "adjacent_low": 1, "range2": 2, "none": 3}[regime]
+    want_lower = (regime == "adjacent_low")
     rid = build(seed, board_id, LL_P_UNITS, LL_A_UNITS, STATE_LL, lift_unspawnable=True)
     if rid is None:
         return None
@@ -522,11 +536,18 @@ def measure_ll(sid, seed, board_id, verbose=True, keep=False):
         by_id = {t["id"]: t for t in bg["tiles"]}
         # 2) l'ennemi PROCHE sur le ring-1 de la destination, l'ennemi LOIN a distance >= 4.
         dest = (hub["col"], hub["row"])
-        near_t = next((by_id[n] for n in (hub.get("neighbours") or [])
-                       if n in by_id and by_id[n].get("walkable") and not by_id[n].get("isWall")
-                       and by_id[n].get("occupantUnitId") is None), None)
+        # L'ennemi PROCHE est place a la distance EXACTE voulue par le regime -- c'est ce qui
+        # selectionne la branche du `If` (rayon 1 / rayon `range` / hors portee).
+        dest_elev = hub.get("elevation")
+        near_t = next((t for t in bg["tiles"]
+                       if t.get("walkable") and not t.get("isWall")
+                       and t.get("occupantUnitId") is None
+                       and hexgeo.distance((t["col"], t["row"]), dest) == want
+                       and (not want_lower or (t.get("elevation") is not None
+                                               and dest_elev is not None
+                                               and t["elevation"] < dest_elev))), None)
         if near_t is None:
-            print("[961-LL] ABORT pas de tuile libre au ring-1 de la destination")
+            print("[961-LL] ABORT pas de tuile libre a distance %d de la destination" % want)
             return None
         move(sid, rid, ids[LL_ENEMY_NEAR], near_t["col"], near_t["row"])
         bg = _r(sid, "boardGraph", {"runnerId": rid}, 90)
@@ -554,11 +575,30 @@ def measure_ll(sid, seed, board_id, verbose=True, keep=False):
                for t in bg["tiles"] if t.get("occupantUnitId") is not None}
         d_near = hexgeo.distance(pos[ids[LL_ENEMY_NEAR]], dest)
         d_far = hexgeo.distance(pos[ids[LL_ENEMY_FAR]], dest)
+        elev = {(t["col"], t["row"]): t.get("elevation") for t in bg["tiles"]}
         if verbose:
-            print("  destination=%s | %s dist=%d | %s dist=%d | depart=%s"
-                  % (dest, LL_ENEMY_NEAR, d_near, LL_ENEMY_FAR, d_far, pos[ids[LL_CARRIER]]))
-        if d_near != 1 or d_far < 3:
-            print("[961-LL] ABORT geometrie non atteinte (near=%d far=%d)" % (d_near, d_far))
+            for lbl, p in (("dest", dest), ("near", pos[ids[LL_ENEMY_NEAR]]),
+                           ("start", pos[ids[LL_CARRIER]])):
+                rec = next((t for t in bg["tiles"] if (t["col"], t["row"]) == p), {})
+                print("    tuile %-5s %s -> %s" % (lbl, p, {k: v for k, v in rec.items()
+                                                           if k not in ("neighbours",)}))
+        if verbose:
+            print("  regime=%s destination=%s (elev %s) | %s dist=%d (voulu %d, elev %s) | "
+                  "%s dist=%d | depart=%s (elev %s)"
+                  % (regime, dest, elev.get(dest), LL_ENEMY_NEAR, d_near, want,
+                     elev.get(pos[ids[LL_ENEMY_NEAR]]), LL_ENEMY_FAR, d_far,
+                     pos[ids[LL_CARRIER]], elev.get(pos[ids[LL_CARRIER]])))
+        # GEOMETRIE ASSERTIONNEE CONTRE LE `boardGraph` : la distance hexgeo est CONFRONTEE a
+        # l'adjacence STOCKEE du plateau (le rayon 1 du `If` est celui du voisinage, pas d'une
+        # metrique calculee a cote).
+        dest_id = next((t["id"] for t in bg["tiles"] if (t["col"], t["row"]) == dest), None)
+        ring = set(next(t.get("neighbours") or [] for t in bg["tiles"] if t["id"] == dest_id))
+        near_tid = next(t["id"] for t in bg["tiles"]
+                        if t.get("occupantUnitId") == ids[LL_ENEMY_NEAR])
+        in_ring = near_tid in ring
+        if d_near != want or d_far < 4 or in_ring != (want == 1):
+            print("[961-LL] ABORT geometrie non atteinte (near=%d voulu=%d far=%d ring=%s)"
+                  % (d_near, want, d_far, in_ring))
             return None
         # 3bis) UN ROUND COMPLET avant de mesurer. Les `move` de placement sont de VRAIS
         # deplacements du point de vue du natif : ils posent `UnitFlag.ArrivedAtFinalTile` (et
@@ -623,6 +663,24 @@ def measure_ll(sid, seed, board_id, verbose=True, keep=False):
         # tirages est un DECALAGE DE FLUX (le natif evalue `PickRandomly` DEUX fois -- une dans le
         # gate `AmountIsZero` du trigger, une dans le behaviour -- la ou le port ne l'evalue qu'une),
         # pas une erreur de magnitude.
+        # TEMOIN DE MONTAGE : le MEME rejeu SANS la teleportation. Si les deux rendent le meme
+        # degat, la teleportation est INERTE cote port et la comparaison ne mesure pas ce qu'elle
+        # pretend (elle jugerait un tir depuis la tuile de DEPART).
+        st_nt = load_state(cap["dec"], cap["ob"], cap["snap"], board=board)
+        if isinstance(rng0, dict) and rng0.get("mt"):
+            from engine.runner.prng import IntBasedMersenneTwister
+            r2 = IntBasedMersenneTwister()
+            r2.mt, r2.mti = list(rng0["mt"]), rng0["mti"]
+            st_nt.rng = r2
+        arrived_at_final_tile_triggers(st_nt, ids[LL_CARRIER])
+        hp_nt = hp_offline(st_nt)
+        d_nt = {i: hp_nt.get(i, 0) - hp_before.get(i, 0) for i in hp_before}
+        if verbose:
+            ent2 = st.get_entity(ids[LL_CARRIER])
+            pc2 = ent2.get_component(PositionComponent) if ent2 is not None else None
+            print("[961-LL] port : caster @%s (teleporte) | temoin SANS teleport dPV=%s"
+                  % ((pc2.col, pc2.row) if pc2 else None,
+                     {vis_by_id.get(i, i): d_nt[i] for i in sorted(d_nt) if d_nt[i]}))
         draws_live = _mt_draws(rng0, rng1)
         draws_port = _mt_draws(rng0, {"mt": list(st.rng.mt), "mti": st.rng.mti}) \
             if getattr(st, "rng", None) is not None else None
@@ -639,7 +697,10 @@ def measure_ll(sid, seed, board_id, verbose=True, keep=False):
                                                      for f in fired])
         return {"ids": ids, "vis_by_id": vis_by_id, "d_live": d_live, "d_port": d_port,
                 "fired": fired, "hp_before": hp_before, "cap": cap, "dest": dest,
-                "rid": rid, "p_team": p_team}
+                "rid": rid, "p_team": p_team, "regime": regime,
+                "draws_live": draws_live, "draws_port": draws_port,
+                "hit_live": {i: d_live[i] for i in d_live if d_live[i]},
+                "hit_port": {i: d_port[i] for i in d_port if d_port[i]}}
     finally:
         if not keep:
             dispose(sid, rid)
@@ -654,6 +715,8 @@ def main(argv):
     ap.add_argument("--turns", type=int, default=3)
     ap.add_argument("--mutate", action="store_true")
     ap.add_argument("--consume", action="store_true")
+    ap.add_argument("--regimes", default=None,
+                    help="volet LL : liste de regimes (adjacent,range2,none)")
     ap.add_argument("--keep", action="store_true")
     args = ap.parse_args(argv)
     if not (args.tm or args.ll):
@@ -681,12 +744,27 @@ def main(argv):
         print("\n[961-TM] %d boundaries confrontes, %d desaccords" % (len(rows), bad))
         rc |= (0 if bad == 0 else 1)
     if args.ll:
-        out = measure_ll(sid, args.seed, args.board, keep=args.keep)
-        if out is None:
-            return 2
-        agree = all(out["d_live"].get(i) == out["d_port"].get(i) for i in out["hp_before"])
-        print("\n[961-LL] accord live-vs-port sur le delta de PV : %s" % ("OUI" if agree else "NON"))
-        rc |= (0 if agree else 1)
+        # LES TROIS REGIMES : rayon 1 (branche THEN), rayon `range` (branche ELSE, celle que l'i2
+        # ne decrit PAS) et hors portee (contre-epreuve NEGATIVE). Un seul regime rendrait un vert
+        # qui ne distingue pas un port fidele d'un port qui ne fait jamais rien.
+        regimes = args.regimes.split(",") if args.regimes else ["adjacent", "range2", "none"]
+        summary = []
+        for reg in regimes:
+            out = measure_ll(sid, args.seed, args.board, keep=args.keep, regime=reg)
+            if out is None:
+                return 2
+            agree = (all(out["d_live"].get(i) == out["d_port"].get(i) for i in out["hp_before"])
+                     and out["draws_live"] == out["draws_port"])
+            fired = bool(out["hit_live"])
+            expect_fire = (reg != "none")
+            print("[961-LL] regime %-8s : tire=%s (attendu %s) | dPV live=%s port=%s | "
+                  "tirages %s/%s -> %s"
+                  % (reg, fired, expect_fire, out["hit_live"], out["hit_port"],
+                     out["draws_live"], out["draws_port"],
+                     "OK" if (agree and fired == expect_fire) else "DESACCORD"))
+            summary.append(agree and fired == expect_fire)
+        print("\n[961-LL] %d regimes, %d desaccords" % (len(summary), sum(1 for s in summary if not s)))
+        rc |= (0 if all(summary) else 1)
     return rc
 
 
