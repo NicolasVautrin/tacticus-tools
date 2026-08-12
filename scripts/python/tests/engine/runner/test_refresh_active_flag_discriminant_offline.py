@@ -112,6 +112,20 @@ CONDITIONS_PORTEES_ATTESTEES = {
     "DaemonicPatrons_ExtraDamage",
     "DestroyTheWitch_ExtraDamage",
     "DestroyTheWitch_ExtraMove",
+    # #962 -- TROIS classes arrivees les 2026-08-11/12 sans leur ligne, ce qui rendait `master`
+    # ROUGE ici ET sur `test_camo_seed_inventory_offline` (meme couple, meme cause qu'en #943).
+    # Conditions LUES au decompile `rnca9r7q6c`, verdicts de pose inscrits dans
+    # `probe_366_camo_seed_inventory.POSE_VECTOR` par le meme commit :
+    #   * les DEUX de 1314 `EnmityForTheUnworthy` (#948) --
+    #     `..._ExtraDamageEffect$$CreateActiveCondition` =
+    #     `AmountIsGreaterThanZero(AdjacentFriendlyDarkaUnitsAmount())` et
+    #     `..._ExtraDamagePctEffect$$CreateActiveCondition` =
+    #     `AmountIsGreaterThanZero(AdjacentUnitsAmount())` : deux compteurs GEOMETRIQUES distincts
+    #     (avec/sans filtre de faction), donc les deux lignes ne sont pas une redondance ;
+    #   * 1263 `Skullsmasher_ExtraDamage` (#953/#954) --
+    #     `AmountIsGreaterThanZero(GetMissingHealthSteps())`, qui bascule sur les PV du porteur.
+    "EnmityForTheUnworthy_ExtraDamage",
+    "EnmityForTheUnworthy_ExtraDamagePct",
     "HammerOfWrath_ConditionalDamage",
     "InescapableAccuracy_extraCritChance",
     "InescapableAccuracy_extraCritDmg",
@@ -132,6 +146,7 @@ CONDITIONS_PORTEES_ATTESTEES = {
     "ReinforcedHiveNode_ExtraArmor",
     "ReinforcedHiveNode_ExtraBlock",
     "RitesOfMorkai_ExtraDamage",              # #943, cf. le bloc ci-dessus
+    "Skullsmasher_ExtraDamage",               # #962, cf. le bloc ci-dessus
     "StructuralAnalyser_Visual",
     # #547-r6 -- ARRIVEE SANS SA LIGNE, et le cliquet l'a vue : `SupaCyborkBodyCritDmgReduction
     # Effect.is_active` est entree par la PR qui porte `supa_cybork_body.py`, sans inscription ici,

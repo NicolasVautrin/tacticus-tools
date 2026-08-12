@@ -258,6 +258,14 @@ VENTILATION = {
         ("INERTE-VIVANT", "occupant BLOQUANT, gate `hp > 0` juste au-dessus"),
     ("playbook/scene.py", "_enemy_psykers_alive", "getattr(c)", "R"):
         ("INERTE-VIVANT", "`Enemies(...)` + `not u.alive -> continue`"),
+    # #962 -- site arrive avec #948 (`EnmityForTheUnworthy`), non ventile. La lecture porte le
+    # `NonSteppableOrObjectUnits(..., 3)` des deux compteurs d'adjacence ; son sujet est un
+    # ELEMENT de `self.units` que la boucle a deja filtre par `not u.get("alive") -> continue`
+    # (scene.py, juste au-dessus de la lecture). Meme regime exact que `_enemy_psykers_alive`.
+    ("playbook/scene.py", "_enmity_adjacent", "getattr(c)", "R"):
+        ("INERTE-VIVANT", "boucle sur `self.units` avec `not u.alive -> continue` en tete, puis "
+                          "`unit_in_adjacent_tiles` -- le cadavre-au-chargement n'atteint jamais "
+                          "la lecture"),
     ("playbook/scene.py", "traits", "getattr(c)", "R"):
         ("INERTE-VIVANT", "pont `WorldView.traits` face DECISION ; son unique consommateur "
                           "(`effect_targets`) filtre `world.alive(uid)`"),
