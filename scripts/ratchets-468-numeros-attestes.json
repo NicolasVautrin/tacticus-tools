@@ -27,6 +27,7 @@
     "5|case-5-dslcontext-etat-mesure.md": "Meme tache : la case-doc MESURE que l'enonce du S-chantier est PERIME (PR #872 -- LiveUnit et Cache sont deja en place, 26 usages la ou la fiche les disait absents) ; la ligne reste ouverte pour la generalisation cas-par-cas, que la fiche nomme elle-meme.",
     "943r4|case-943r4-le-critere-cessa-detre-de-la-prose.md": "Tranche #943-r4 : le CRITERE est repare (etape6 armee, 26 sites tries au decompile, 3 reparations) et la famille est classee ; la ligne reste OUVERTE pour les DEUX seuls sites DECLARANTS, qui sont sous GEOMETRIE_NUE_TOLEREE et hors du registre de l'etape 6. Les 19 muets LISTE_STOCKEE sont ouverts en #943-r7.",
     "943r7|case-943r7-la-face-jumelle-etait-deja-cablee.md": "MEME tache : la case-doc documente le traitement de 8 des 19 sites ; la ligne backlog reste OUVERTE sur les 11 restants (gisement reduit, pas ferme)",
-    "961r1|case-961-r1-ecart-crit-au-contact.md": "La ligne et la case-doc sont la MEME tranche : #961-r1 est CLOS en attribution (relique SupaCyborkBody_CritDmgReduction, reduction additive 579 a l'unite) et la case-doc en est le compte rendu. Le correctif restant vit en #961-r3, ligne distincte du backlog."
+    "961r1|case-961-r1-ecart-crit-au-contact.md": "La ligne et la case-doc sont la MEME tranche : #961-r1 est CLOS en attribution (relique SupaCyborkBody_CritDmgReduction, reduction additive 579 a l'unite) et la case-doc en est le compte rendu. Le correctif restant vit en #961-r3, ligne distincte du backlog.",
+    "991|case-991-start-campaign-match-invoke-direct.md": "MEME tranche : la ligne ouverte du backlog et la case-doc portent le meme sujet -- le capteur de StartCampaignMatch est livre, l'invoke reste NON CONFRONTE."
   }
 }
