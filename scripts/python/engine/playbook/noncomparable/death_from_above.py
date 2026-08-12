@@ -86,6 +86,23 @@ class DeathFromAbovePlaybook(NonComparablePlaybook):
     TIRAGE, que le moteur deterministe ne modelise pas (ecart assume, cf.
     `NonComparablePlaybook.should_evaluate`). Le porter serait du code mort.
 
+    CONFRONTATION LIVE (`probe_969_contre_epreuve.py`, seed 777 / MC1_67, tour d'IA OBSERVE,
+    mutation temoin VERIFIEE avant d'etre jouee). C'est la SEULE des cinq que le natif a
+    effectivement castee pendant la mesure, et le port la TROUVE :
+
+        pas 5, u85 `ultraInceptorSgt`   natif  ability 1003 sur u77
+                                        SANS le port  attaque normale sur u114   (MISS)
+                                        AVEC le port  ability 1003 sur u114      (MISS)
+
+    L'ability est donc DESORMAIS PROPOSEE -- sans le port elle ne pouvait l'etre par aucune voie
+    (absente des quatre registres). Le MISS a change de nature : ce n'est plus << mauvaise
+    ability >> mais << mauvaise CIBLE >>, et c'est un residu NOMME, `#969-r2`. Deux hypotheses,
+    non departagees : (a) `_spawn_tiles` sur-compte pour `u114` -- `occupied` ne connait que
+    `epos`/`fpos`/l'origine, donc une entite hors de ces canaux (summon non projete, MoW,
+    tuile-objet) laisse une tuile comptee libre a tort ; (b) l'ordre de `fromHere` diverge de
+    celui du selecteur natif pour cette position. Le discriminant est le COMPTE par cible, a
+    relever des deux cotes.
+
     `PRIORITY` reste au defaut `0` (`AbilityPriority.Normal`) : `1003` est ABSENTE de
     `NATIVE_PRIORITY` (22 entrees, sweep #170).
 

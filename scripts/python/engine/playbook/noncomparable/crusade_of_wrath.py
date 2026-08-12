@@ -113,6 +113,25 @@ class CrusadeOfWrathPlaybook(NonComparablePlaybook):
 
     Les trois branches se resument donc a `maxBuffed > 0`, ce que le port ecrit tel quel.
 
+    ⚠ **ET CET ECART A UN PRIX, MESURE (#969-r1).** Le regime intermediaire `1 <= maxBuffed <= 9`
+    est celui qui DOMINE en partie (rayon 2, equipes de trois) : le natif y tire a `0.1 x n`, donc
+    il s'abstient le plus souvent, la ou le port propose TOUJOURS. Confrontation live
+    (`probe_969_contre_epreuve.py`, seed 777 / MC1_67, porteurs `templHelbrecht` +
+    `spaceBlackmane` + `ultraInceptorSgt`, tour d'IA OBSERVE, mutation temoin VERIFIEE avant
+    d'etre jouee) :
+
+        sans le port   ability match 6/7 (85 %)   positioning exact 8/9 (88 %)
+        avec le port   ability match 4/7 (57 %)   positioning exact 6/9 (66 %)
+
+    Les deux MATCH perdus sont `1049` (pas 6) et `1106` (pas 7), ou le natif a joue son ATTAQUE
+    NORMALE : dans les deux cas son `GetUseProbability` etait dans `]0, 1[` et le tirage est tombe
+    contre le cast. `1049` coute en outre une position (pas 1 : le port emet un cast `to = None`
+    la ou le natif se deplace en (3, 2)). Ce n'est PAS un defaut de transcription -- le seul
+    canal qui le fermerait est le tirage natif lui-meme, hors de portee offline. Le port reste
+    PERMISSIF, conformement a `NonComparablePlaybook.should_evaluate` (meme regime que `BlackRage`
+    0.4 et `ItItches`), parce que l'alternative -- refuser -- rendrait l'ability INVISIBLE, ce qui
+    est le defaut le plus cher (#967). Residu `#969-r1`.
+
     `PRIORITY` reste au defaut `0` (`AbilityPriority.Normal`) : `1049` est ABSENTE de
     `NATIVE_PRIORITY` (22 entrees, sweep #170)."""
     ABILITY_ID = int(ActiveAbilityType.CrusadeOfWrath)   # 1049 = 0x419 (argument du ctor natif)

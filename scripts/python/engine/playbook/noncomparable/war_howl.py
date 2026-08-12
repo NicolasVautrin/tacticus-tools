@@ -55,6 +55,15 @@ class WarHowlPlaybook(NonComparablePlaybook):
       * `n == 1` (0.75) et `n in {0, 2}` (0.50) -> tirage RNG. Le moteur est DETERMINISTE : le port
         rend True, ecart assume et deja documente sur `NonComparablePlaybook.should_evaluate`.
 
+    ⚠ **CET ECART A UN PRIX, MESURE (#969-r1).** Confrontation live
+    (`probe_969_contre_epreuve.py`, seed 777 / MC1_67, tour d'IA OBSERVE, mutation temoin VERIFIEE
+    avant d'etre jouee) : `6/7 -> 4/7` de match d'ability quand les cinq faces de #969 entrent au
+    registre. L'un des deux MATCH perdus est CELUI-CI (pas 7) -- le natif a joue son attaque
+    normale sur `u114`, son tirage a `0.50` ou `0.75` etant tombe contre le cast. Le port reste
+    PERMISSIF (meme regime que `BlackRage` 0.4) : refuser rendrait l'ability INVISIBLE, ce qui est
+    le defaut le plus cher (#967). Le seul canal qui fermerait l'ecart est le tirage natif, hors
+    de portee offline. Residu `#969-r1`.
+
     ⚠ **LE COMPTEUR `n` N'EST DONC PAS PORTE, ET C'EST UNE LECTURE, PAS UN OUBLI** : les trois
     valeurs qu'il produit (0.50 / 0.75 / 1.00) sont toutes **strictement positives**, donc aucune ne
     fait rendre False. Porter `n` ne deplacerait AUCUN verdict de `should_evaluate` -- ce serait du
