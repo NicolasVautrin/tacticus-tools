@@ -223,20 +223,53 @@ async function retreatToCampaign(r: UiRefs): Promise<string | null> {
         if (err !== null) return err;
     }
 
-    // Le popup a cede la place. Si la campagne est deja montee, c'est fini ; sinon une
-    // frame s'est intercalee -- on ne l'IDENTIFIE PAS, on demande sa campagne au jeu.
+    // Le popup a cede la place, et l'ECRAN DE SORTIE DE PARTIE s'affiche -- il est
+    // TOUJOURS la. Ensuite vient soit une frame intersticielle, soit directement la
+    // campagne. On laisse donc venir avant d'intervenir.
+    if (await waitFor(() => findButtonBySuffix(r, NODE_SUFFIX),
+                      RETREAT_NAV_WAIT_MS, 250) !== null) {
+        return null;
+    }
+
+    // Toujours pas la : une frame s'est intercalee. On ne l'IDENTIFIE PAS, on demande sa
+    // campagne au jeu.
+    //
+    // ⚠ MAIS `ToCampaign` NE PEUT PAS ETRE APPELEE TOUT DE SUITE, et c'est MESURE, pas
+    // suppose. Premier jet du 2026-08-12 : l'invoke suivait immediatement le remplacement
+    // du popup et rendait `no live IdunNavigation instance`. A cet instant la scene meta
+    // n'est pas rechargee -- l'instance de nav n'existe PAS ENCORE.
+    //
+    // Ce meme resultat REFUTE au passage un critere qui semblait plus solide pour le 3e
+    // maillon : << la nav est vivante >> comme preuve de sortie de bataille. Elle ne l'est
+    // pas a ce moment-la. Le seul fait observable au moment du clic reste celui que teste
+    // `confirmPopupReplaced` -- le popup a cede la place.
+    log("[warmup-singletons] popup de retrait remplace, campagne absente apres "
+        + `${RETREAT_NAV_WAIT_MS} ms (frame intersticielle) -- attente de la nav`);
+    const navBack = await waitFor(() => {
+        try {
+            return findLiveIdunNavigation(ensureNavRefs());
+        } catch {
+            return null;
+        }
+    }, RETREAT_NAV_WAIT_MS, 250);
+    if (navBack === null) {
+        return "popup de retrait remplace, mais NI le noeud de campagne NI une instance "
+             + `IdunNavigation vivante en ${2 * RETREAT_NAV_WAIT_MS} ms -- scene meta non `
+             + "rechargee";
+    }
+
+    // La campagne a pu remonter pendant cette attente : `ToCampaign` est idempotente, mais
+    // ne l'appelons pas pour rien.
     if (findButtonBySuffix(r, NODE_SUFFIX) !== null) return null;
-    log("[warmup-singletons] popup de retrait remplace, campagne pas encore montee "
-        + "(frame intersticielle) -- appel de IdunNavigation.ToCampaign");
     const nav = navOutcomeToRpc(
         await queueOnMainThread(() => navToCampaignOnMainThread(false)));
     if (!nav.ok) {
-        return `popup de retrait remplace mais ToCampaign a echoue : ${nav.err}`;
+        return `nav vivante mais ToCampaign a echoue : ${nav.err}`;
     }
     if (await waitFor(() => findButtonBySuffix(r, NODE_SUFFIX),
                       RETREAT_NAV_WAIT_MS, 250) === null) {
-        return "popup de retrait remplace, ToCampaign invoquee, mais le noeud de "
-             + `campagne n'est pas monte en ${RETREAT_NAV_WAIT_MS} ms`;
+        return "ToCampaign invoquee sur une nav vivante, mais le noeud de campagne n'est "
+             + `pas monte en ${RETREAT_NAV_WAIT_MS} ms`;
     }
     return null;
 }
