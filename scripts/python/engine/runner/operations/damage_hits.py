@@ -305,6 +305,7 @@ class _DamageHitsMixin:
                   crit_allowed0: bool = True,
                   crit_chance_after: Optional[int] = None,
                   crit_enabled_after: Optional[bool] = None,
+                  crit_chance_at=None, crit_after_index: Optional[int] = None,
                   hit_interceptor=None, failed_block0=None,
                   hp_current: Optional[int] = None,
                   hp_floor: Optional[int] = None,
@@ -523,6 +524,12 @@ class _DamageHitsMixin:
         # `SetupHitGroup` depuis `OngoingAttack+0x40` et eteint en fin de coup par la boucle
         # d'`AttackDamageOperation$$ExecuteHits` des qu'un coup ne crite pas (cf. docstring).
         _crit_allowed = [bool(crit_allowed0) if is_attack_damage_op else True]
+        # #889-r1 : memo de `crit_chance_at(idx)` -- le natif RE-EVALUE le canal a chaque coup, mais
+        # rien ne change entre deux coups de MEME index, donc un appel par index distinct suffit.
+        _crit_at_cache: dict = {}
+        # Index auquel l'appelant a MESURE `crit_chance_after`. Defaut = `hit_index0 + 1`, la valeur
+        # que les trois vecteurs passent a `_crit_params` pour leur relecture post-`On(6)`.
+        crit_after_index = int(hit_index0) + 1 if crit_after_index is None else int(crit_after_index)
         # #462-r4e-o : PV RESTANTS, decroissants COUP PAR COUP. Le natif applique un coup a la fois
         # (`DamageAppliedResult` porte un `hitIndex` @+0x14, `IdunBattle.Core.Services.
         # DamageAppliedResult$$.ctor`), donc la borne de `_amount_applied` se resserre a chaque coup.
@@ -572,7 +579,34 @@ class _DamageHitsMixin:
             `None` = inchangees, donc strict no-op pour tout appelant qui ne les passe pas.
             `idx` est l'index CONTINU de l'attaque (`hit_index0 + i`), donc `idx == 0` est
             exactement l'`IsFirstHitInSeries` natif -- un groupe de coups additionnels
-            (`hit_index0 > 0`) est deja au-dela, et prend donc les valeurs d'apres."""
+            (`hit_index0 > 0`) est deja au-dela, et prend donc les valeurs d'apres.
+
+            #889-r1 -- DEUX AXES ETAIENT CONFONDUS DANS UN SEUL MECANISME, et ils sont
+            INDEPENDANTS :
+
+              * axe TEMPOREL (`crit_chance` / `crit_chance_after`) : `On(PreAttackHit = 6)` est
+                emis UNE FOIS, entre le coup 0 et les suivants -- deux etats suffisent, et c'est
+                juste ;
+              * axe INDEX (`crit_chance_at`) : `IdunBattle.Core.Services.DamagePrediction$$
+                RollCritical(this, attaquant, defenseur, abilityOrEffect, **hitIndex**)` passe
+                l'index a `GetCritChanceBonusFromEffects`, qui le pose dans l'`AbilityEntities`
+                qu'il construit -- le noeud `CurrentHitIndex()` le relit donc a CHAQUE coup, avec
+                N valeurs possibles.
+
+            Rabattre l'axe INDEX sur l'axe TEMPOREL n'est exact que pour une serie de 1 ou 2
+            coups. `crit_chance_at(idx)` rend `(chance, enabled)` a l'index demande.
+
+            ⚠ BORNE LUE, qui limite la reparation a la CHANCE : `CalculateCriticalDamage` appelle
+            `GetCritDamageBonusFromEffects(this, attaquant, defenseur, abilityOrEffect)` -- QUATRE
+            arguments, **pas de `hitIndex`**. Le canal crit-DEGAT n'est donc pas index-dependant,
+            et `crit_damage` n'est pas retouche ici.
+
+            Le rappel n'a lieu QUE pour un index que les deux points de mesure ne couvrent PAS :
+            `crit_after_index` est l'index auquel l'appelant a effectivement mesure
+            `crit_chance_after` (`hit_index0 + 1`), et le coup 0 garde `crit_avant`. Toute serie de
+            1 ou 2 coups -- c'est-a-dire tout ce que le corpus mesure -- ne declenche donc AUCUN
+            rappel et reste BIT-IDENTIQUE, surcout compris. Memoise : au plus un appel par index
+            distinct."""
             if force_crit:                      # options+5 -> le natif SAUTE RollCritical
                 return True
             if not crit_gate_open(_crit_allowed[0], is_attack_damage_op):
@@ -583,6 +617,14 @@ class _DamageHitsMixin:
                     cc = crit_chance_after
                 if crit_enabled_after is not None:
                     en = crit_enabled_after
+                if crit_chance_at is not None and idx != crit_after_index:
+                    if idx not in _crit_at_cache:
+                        _crit_at_cache[idx] = crit_chance_at(idx)
+                    _cc_i, _en_i = _crit_at_cache[idx]
+                    if _cc_i is not None:
+                        cc = _cc_i
+                    if _en_i is not None:
+                        en = _en_i
             return roll_critical(rng, cc) if en else False
 
         def _limits_scalar(value: int) -> int:

@@ -167,12 +167,21 @@ class _NormalLike:
                                 profile=damage_profile, is_first_hit=True, ability_type=ability_type)
         # Identites du coup -> `att_ctx` du canal CRIT, bati DANS `_crit_params` (foyer unique, mirror
         # de l'`AbilityEntities` de `GetCritDamageBonusFromEffects`).
-        # `hit_index=1` : valeurs des coups 1+ (cf. `_roll_crit(idx)`) -- MEME limite ecrite que dans
-        # `normal.py` (deux points de mesure, pas un par coup ; residu #889-r1).
+        # `hit_index=1` : valeurs des coups 1+ (cf. `_roll_crit(idx)`) -- au-dela, c'est
+        # `crit_chance_at` ci-dessous qui rend l'index exact (#889-r1, RESOLU).
         crit_chance, crit_damage, crit_enabled = AttackDamageOperation._crit_params(
             ctx, active, state, attacker_id, target_id,
             is_ranged=_ranged, is_normal_attack=False, hit_index=1)   # #112 : ce vecteur porte une SPECIALE
         crit_apres = (crit_chance, crit_damage, crit_enabled)
+
+        def _crit_chance_at(_idx: int):
+            """#889-r1 -- (chance, enabled) du canal CRIT A L'INDEX `_idx` (jumelle de
+            `damage_ops/normal.py`, meme mirror de `RollCritical(..., hitIndex)`). La crit-DEGAT
+            n'est pas relue : `GetCritDamageBonusFromEffects` ne recoit PAS de `hitIndex`."""
+            _cc, _cd, _en = AttackDamageOperation._crit_params(
+                ctx, active, state, attacker_id, target_id,
+                is_ranged=_ranged, is_normal_attack=False, hit_index=int(_idx))
+            return (_cc, _en)
         crit_chance, crit_damage, crit_enabled = crit_avant
         # #922 : `On(6)` tombe ENTRE `RollCritical` (slot 0xa) et `CalculateCriticalDamage`
         # (slot 0xb) dans `AttackDamageOperation$$ExecuteHit` -> la CHANCE du coup 0 est celle
@@ -240,6 +249,8 @@ class _NormalLike:
                                             # #522-r1 : crit chance RELUE apres `On(PreAttackHit)`.
                                             crit_chance_after=crit_apres[0],
                                             crit_enabled_after=crit_apres[2],
+                                            # #889-r1 : axe INDEX (cf. `_roll_crit`).
+                                            crit_chance_at=_crit_chance_at,
                                             shield=shield_total,   # post_roll=None (reduce-then-roll)
                                             hit_interceptor=make_hit_interceptor(
                                                 state, attacker_id, target_id),

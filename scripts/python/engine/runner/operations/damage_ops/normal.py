@@ -505,12 +505,31 @@ class _Normal:
         # `damage_hits.py`, qui bascule sur `crit_chance_after` des que `idx != 0`). Le port n'a que
         # DEUX points de mesure la ou le natif relit `GetCritChanceBonusFromEffects(..., hitIndex)` a
         # CHAQUE coup -- donc un `EffectBonus` qui discrimine un index >= 2 lirait `1` ici. Exact pour
-        # toute serie de 1 ou 2 coups (le porteur du noeud, `TheLionsWrath`, a `nrOfHits = 2`) ;
-        # LIMITE ECRITE au-dela -- residu #889-r1.
+        # toute serie de 1 ou 2 coups (le porteur du noeud, `TheLionsWrath`, a `nrOfHits = 2`) --
+        # AU-DELA, c'est `crit_chance_at` ci-dessous qui rend l'index exact (#889-r1, RESOLU).
         crit_chance, crit_damage, crit_enabled = AttackDamageOperation._crit_params(
             ctx, active, state, attacker_id, target_id,
             is_ranged=_ranged, is_normal_attack=True, hit_index=1)
         crit_apres = (crit_chance, crit_damage, crit_enabled)
+
+        def _crit_chance_at(_idx: int):
+            """#889-r1 -- (chance, enabled) du canal CRIT A L'INDEX `_idx`, mirror de
+            `DamagePrediction$$RollCritical(this, attaquant, defenseur, abilityOrEffect, hitIndex)`
+            qui passe l'index a `GetCritChanceBonusFromEffects` a CHAQUE coup. Le port ne mesurait
+            que deux points (0 et 1) : exact pour 1 ou 2 coups, faux au-dela des qu'un `EffectBonus`
+            discrimine un index >= 2 (noeud `CurrentHitIndex()`).
+
+            Rend UNIQUEMENT la chance et le gate : `CalculateCriticalDamage` appelle
+            `GetCritDamageBonusFromEffects(this, attaquant, defenseur, abilityOrEffect)` **sans**
+            `hitIndex` -- le canal crit-DEGAT n'est pas index-dependant, il n'est donc pas relu ici.
+
+            Etat lu = le MEME que celui de `crit_apres` (post-`On(6)`, `state` non mute pendant
+            `_run_hits`), donc l'appel a l'index de reference rendrait la meme valeur -- c'est
+            pourquoi `_roll_crit` ne l'appelle pas pour cet index-la."""
+            _cc, _cd, _en = AttackDamageOperation._crit_params(
+                ctx, active, state, attacker_id, target_id,
+                is_ranged=_ranged, is_normal_attack=True, hit_index=int(_idx))
+            return (_cc, _en)
         crit_chance, crit_damage, crit_enabled = crit_avant
         # #922 -- LA CRIT CHANCE ET LA CRIT DAMAGE N'ONT PAS LA MEME PLACE DANS `ExecuteHit`, et
         # c'est LU : l'ordre du decompile est slot 0xad (profil) -> `AttackHit..ctor` -> slot 0xa
@@ -633,6 +652,11 @@ class _Normal:
                                             # -> coups 1+ seulement (le coup 0 garde `crit_avant`).
                                             crit_chance_after=crit_apres[0],
                                             crit_enabled_after=crit_apres[2],
+                                            # #889-r1 : axe INDEX (distinct de l'axe TEMPOREL
+                                            # ci-dessus) -- `RollCritical(..., hitIndex)` relit le
+                                            # canal a CHAQUE coup. Appelee seulement pour un index
+                                            # que `crit_apres` ne couvre pas (cf. `_roll_crit`).
+                                            crit_chance_at=_crit_chance_at,
                                             bonus_hit_chance=_gsi, hit_interceptor=_hit_icept,
                                             capped_reductions=def_mods.capped_reductions,
                                             # #67 : etage limites (member-cap/Resilient/bypass Blast) —
