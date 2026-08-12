@@ -43,6 +43,7 @@ DECLENCHEUR = {
         "scripts/python/engine/runner/operations/triggers/dispatch/move_death.py",
         "scripts/python/engine/runner/operations/triggers/dispatch/turn.py",
         "scripts/python/engine/runner/operations/effects.py",
+        "scripts/python/engine/runner/abilities/behaviours/__init__.py",
         "scripts/python/engine/runner/abilities/behaviours/combat.py",
         "scripts/python/engine/entities/selectors/units.py",
         "scripts/python/engine/entities/effect_type.py",
