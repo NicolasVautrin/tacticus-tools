@@ -74,9 +74,15 @@ MACER = "worldJakhal"             # << Macer >>, porteur de `Skullsmasher`
 #:
 #: ⚠ CE N'EST PAS LE PREMIER CHOISI, et le remplacement est une MESURE. `emperNoiseMarine` (r3,
 #: 6 coups) porte QUATRE passifs qui touchent le degat RANGED -- `TerrifyingCrescendo`,
-#: `SuppressiveFire`, `HeavyWeapon`, `ThrillSeekers` -- et le port DIVERGE du natif avec lui
+#: `SuppressiveFire`, `HeavyWeapon`, `ThrillSeekers` -- et le port DIVERGEAIT du natif avec lui
 #: **DANS LE TEMOIN** (`oa_away` : natif 4699, port 6396) comme avec `--mutate` : un ecart
-#: PREEXISTANT, etranger a ce lot, qui rendrait TOUT bras illisible. `thousTzaangor` ne porte que
+#: PREEXISTANT, etranger a ce lot, qui rendrait TOUT bras illisible.
+#: ⚠ **CET ECART EST FERME (#953-r2)** : sa cause etait la PLACE de `On(PreAttack = 5)` dans le
+#: vecteur ATTAQUE NORMALE (le port appliquait le stack de `TerrifyingCrescendo_ExtraDmg` au niveau
+#: d'APRES la montee que l'attaque provoque elle-meme). Le remplacement d'attaquant reste NEANMOINS
+#: le bon choix pour ce probe-ci : `thousTzaangor` rend l'ecart d'aura lisible sur UN seul coup,
+#: la ou les six coups de Shiron le diluent. Detail :
+#: `docs/rl/case-953r2-place-du-preattack-attaque-normale.md`. `thousTzaangor` ne porte que
 #: `RealityUnbound` (+MaxDamage par ennemi ayant subi du PSYCHIQUE ce tour) et `WeaverOfFate`
 #: (max damage si 3+ ennemis ont subi du psychique) : sans aucune source psychique au montage, les
 #: DEUX sont inertes -- et son unique coup rend l'ecart d'aura directement lisible.

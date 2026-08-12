@@ -217,12 +217,17 @@ Le gisement était **inatteignable** avant : aucun bras porté ne tuait en mêl�
   de `critDmgPct` et l'écart observable est +155 sur le coup mesuré. La contribution est confrontée
   et falsifiée séparément (mutation sélective), mais la **conversion** n'est pas décomposée par
   étage — `--armor-target 0` ne l'a pas amplifiée, donc l'atténuation ne vient pas de l'armure.
-* **Un ÉCART PRÉEXISTANT, étranger à ce lot (#953-r2)** : avec `emperNoiseMarine` comme attaquant
-  RANGED, le port SUR-estime le natif **dans le témoin** (`oa_away` : natif 4699, port 6396) — et
-  `--mutate` ne change RIEN à cet écart, donc il ne vient pas de ce port. Ses quatre passifs
-  touchant le dégât ranged (`TerrifyingCrescendo`, `SuppressiveFire`, `HeavyWeapon`,
-  `ThrillSeekers`) sont les suspects. Le probe a **changé d'attaquant** (`thousTzaangor`, kit inerte
-  sans source psychique) plutôt que de mesurer à travers.
+* ~~**Un ÉCART PRÉEXISTANT, étranger à ce lot (#953-r2)**~~ — **FERMÉ**, et la cause était la
+  **PLACE** de `On(PreAttack = 5)`, pas une magnitude. Avec `emperNoiseMarine` en attaquant RANGED,
+  le port sur-estimait le natif dans le témoin (`oa_away` : natif 4699, port 6396) parce qu'il
+  appliquait le `+extraDmg` de `TerrifyingCrescendo_ExtraDmg` au niveau **d'après** la montée que
+  l'attaque provoque elle-même (`SuppressiveFire` → `Pinned` → `On(PreEffectAdded)` → +1), là où le
+  natif applique celui **d'avant**. Le natif exécute l'attaque normale dans un `AtomicGroup`
+  (`ALoki_NormalAttackAbility$$ExecuteNormalAttack` → `AActiveAbility$$ExecuteAtomic`), dont
+  `AtomicGroupOperation$$Execute` diffère la cascade ; `1197`, elle, passe par `Execute` — d'où la
+  mesure INVERSE de #512-r1, qui reste juste. `pre_attack_triggers` redescend sous
+  `attacker_modifiers` **sur le seul vecteur NORMALE**. Détail, contre-épreuves et résidu `#953-r4` :
+  `docs/rl/case-953r2-place-du-preattack-attaque-normale.md`.
 * **Le régime `oa_melee` ne prouve rien sur la face CRIT** : elle n'a pas de gate de nature de coup,
   donc une attaque de mêlée d'un allié Chaos DOIT en bénéficier — ce cas-là n'est pas monté (le bras
   `oa_melee` est joué sans overkill préalable).

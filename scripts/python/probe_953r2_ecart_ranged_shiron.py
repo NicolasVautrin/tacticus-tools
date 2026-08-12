@@ -110,7 +110,8 @@ CANAUX = {
 }
 
 
-def _replay(cap, board, att_id, tgt_id, effets=(), triggers=(), trace=False):
+def _replay(cap, board, att_id, tgt_id, effets=(), triggers=(), trace=False,
+            place_remontee=False):
     """Rejoue l'attaque OFFLINE sur le `State` capte et le flux RNG capte, canaux neutralises.
 
     `trace` : loggue, pour CHAQUE effet actif de l'attaquant, l'`EffectBonus` qu'il verse (le slot
@@ -158,6 +159,16 @@ def _replay(cap, board, att_id, tgt_id, effets=(), triggers=(), trace=False):
             hp0 = int(hc.hp)
             lvl0 = _effect_level(st, att_id, "TerrifyingCrescendo_ExtraDmg")
             runner = Runner(st).install_default_handlers(20)
+            if place_remontee:
+                # CONTRE-EPREUVE : rejoue `On(PreAttack = 5)` AVANT l'attaque, ce qui reconstitue
+                # EXACTEMENT la place d'ou #953-r2 l'a fait redescendre (au-dessus d'
+                # `attacker_modifiers`) : la cascade `SuppressiveFire` -> `Pinned` ->
+                # `On(PreEffectAdded)` -> `TerrifyingCrescendo` monte d'un cran de plus, et les
+                # coups voient donc niveau+1 comme avant le correctif. Aucun tirage `state.rng`
+                # n'est consomme par ce vecteur chez un porteur sans `LetTheGalaxyBurn`, donc le
+                # ledger mute doit valoir l'ANCIEN port a l'unite -- c'est ce que le test assert.
+                from engine.runner.operations.triggers.dispatch.attack import pre_attack_triggers
+                pre_attack_triggers(st, int(att_id), int(tgt_id), ranged=True)
             runner.apply(AttackUnitMessage(int(att_id), int(tgt_id)))
             last = runner.damage_handler.last or {}
             lvl1 = _effect_level(st, att_id, "TerrifyingCrescendo_ExtraDmg")
@@ -209,7 +220,7 @@ def _native_effects(dv, uid):
 
 
 def run(isoler=(), trace=False, seed=SEED, board=BOARD, melee=False, repeats=1,
-        verbose=True) -> dict:
+        place_remontee=False, verbose=True) -> dict:
     g = P.geometry(board)
     att_tile = g["M"] if melee else g["R"]
     ada_tile = g["A2"]                                   # TEMOIN : adjacent a l'ATTAQUANT
@@ -262,7 +273,11 @@ def run(isoler=(), trace=False, seed=SEED, board=BOARD, melee=False, repeats=1,
             dv2 = P._view(rpc, rid, inactive=True)
             port = _replay(cap, bobj, att_id, tgt_id, effets=effets, triggers=triggers,
                            trace=trace)
+            mut = (_replay(cap, bobj, att_id, tgt_id, effets=effets, triggers=triggers,
+                           place_remontee=True) if place_remontee else None)
             passes.append({
+                "mutant": None if mut is None else {"per_hit": mut["per_hit"],
+                                                    "total": mut["total"]},
                 "passe": k,
                 "att_effects_before": before,
                 "att_effects_after": _native_effects(dv2, att_id),
@@ -320,6 +335,10 @@ def _report(r):
             d = int(p["total"]) - int(n["total"])
             print("       ECART  port - natif = %+d (%.1f %%)"
                   % (d, 100.0 * d / max(1, int(n["total"]))))
+        if pas.get("mutant"):
+            m = pas["mutant"]
+            print("       MUTANT (place REMONTEE) total=%-9s hits=%s"
+                  % (m.get("total"), m.get("per_hit")))
         for j in (pas.get("journal") or []):
             print("       [bonus] %-42s type=%-6s level=%-4s %s"
                   % (j["cls"], j["type"], j["level"], j["bonus"]))
@@ -331,6 +350,8 @@ def main(argv=None):
     ap.add_argument("--trace", action="store_true", help="journal des EffectBonus par effet")
     ap.add_argument("--melee", action="store_true", help="bras MELEE (temoin a ecart nul)")
     ap.add_argument("--repeats", type=int, default=1, help="nb d'attaques SUCCESSIVES mesurees")
+    ap.add_argument("--place-remontee", action="store_true",
+                    help="joue AUSSI le rejeu MUTANT (place d'avant #953-r2)")
     ap.add_argument("--seed", default=SEED)
     ap.add_argument("--board", default=BOARD)
     ap.add_argument("--json", action="store_true")
@@ -340,7 +361,7 @@ def main(argv=None):
         if c not in CANAUX:
             raise SystemExit("[953-r2] canal inconnu : %s (connus : %s)" % (c, ",".join(CANAUX)))
     r = run(isoler=iso, trace=a.trace, seed=a.seed, board=a.board, melee=a.melee,
-            repeats=a.repeats, verbose=not a.json)
+            repeats=a.repeats, place_remontee=a.place_remontee, verbose=not a.json)
     if a.json:
         print(json.dumps(r, indent=1, default=str))
     return 0
