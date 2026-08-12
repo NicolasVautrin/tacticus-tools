@@ -199,6 +199,14 @@ angle mort qui a laissé passer **6 rouges sur 13** est un mauvais échange. `pr
 pas livré comme sélecteur : il est livré comme la **mesure qui interdit** de « ré-optimiser » plus
 tard vers `--since` sans traiter d'abord son angle mort (résidu #935-r1).
 
+⚠ **L'angle mort est FERMÉ depuis #935-r1, et la prescription ci-dessus ne bouge PAS.** Les 6
+manqués tombent à 1 (0 avec l'entrée du cas sous-traitant re-mesurée), mais le périmètre moyen
+retenu **monte** de 74,8 % à 79,9 % — ce qui va dans le sens contraire de l'économie. La raison de
+jouer le complet n'était pas seulement l'angle mort : c'est la clôture arrière du graphe d'imports,
+qui remonte de `engine/**` vers presque tout le périmètre. Ce que #935-r1 change, c'est qu'une
+composition `{insélectionnables} ∪ {--since}` n'est plus la seule voie sûre — pas qu'une sélection
+devienne économe.
+
 ⚠ Le câblage de `probe_935` **dans** `impacted_files` a été essayé puis écarté : la
 classification coûte **73,7 s**, à ajouter aux 32,7 s du graphe, pour récupérer 10 % de mur. Le
 rapport coût/gain est contre.
@@ -262,14 +270,21 @@ son diff. C'est l'argument le plus direct pour la prescription du §4 — et ils
 
 ## 5. Ce qui n'est PAS couvert
 
-* La **sur-approximation** de `probe_935` va dans le sens sûr mais reste grossière : un module qui
-  `glob` un répertoire de données avec un motif contenant `.py` est classé balayeur à tort. Le
-  compte des deux classes est imprimé à chaque run, donc une dérive se voit — mais rien ne la
-  rougit. Résidu **#935-r1**.
-* Le **correctif de fond** — apprendre à `impacted_files` que l'empreinte couvre aussi les `.py`
-  balayés — n'est pas livré : il touche un foyer très partagé, et le grain disponible
-  (`dirs`, granularité répertoire) sur-sélectionnerait massivement pour les tests qui *importent*.
-  Résidu **#935-r1**.
+* ~~La **sur-approximation** de `probe_935` ... mais rien ne la rougit.~~ **FERMÉ (#935-r1)** —
+  `probe_935r1_contre_epreuve_classes.py` oppose la classe DÉDUITE à l'empreinte MESURÉE : **19
+  faux négatifs** au premier passage, **0** après extension du critère (`inspect.getsource`, import
+  DYNAMIQUE, `Path(MODULE.__file__).read_text()`). Invariant `faux négatifs == 0` ; la
+  sur-approximation est bornée en **régime** (22,8 % mesurés, plafond 35 %), pas par fichier —
+  un cliquet au compte absolu ferait payer toute PR sans rapport.
+* ~~Le **correctif de fond** ... le grain disponible sur-sélectionnerait massivement pour les tests
+  qui *importent*.~~ **FERMÉ (#935-r1)**, et l'appréhension était **réfutée par la mesure** : en
+  régime préchauffé un import lit le `.pyc` du miroir, **hors du checkout**, donc il n'entre jamais
+  dans l'empreinte — 201 des tests de `tests/engine/` qui importent `engine/**` portent `dirs = 0`.
+  L'empreinte porte un axe `py` distinct (discriminant pris à l'ÉCRITURE, sur la frame appelante),
+  et la mesure sur les mêmes 13 cas témoins rend **6 manqués → 1** (**0** avec l'entrée du cas
+  sous-traitant re-mesurée), périmètre moyen **74,8 % → 79,9 %**. Détail :
+  `docs/rl/case-935-r1-axe-py-de-l-empreinte.md`. Résidu restant : **#935-r2** (l'axe n'est MESURÉ
+  que sur 10 entrées / 336 ; la sous-traitance reste rendue grossièrement).
 * Le trou de couverture `engine/predict.py` est **nommé**, pas résolu : sa cause de fond est le
   résidu **#484-r1** (résoudre une constante importée d'un AUTRE module — l'env du résolveur de
   `probe_366_r1` est PAR MODULE). La perte est bornée et mesurée : le couple
