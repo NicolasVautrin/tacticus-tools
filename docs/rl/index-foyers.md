@@ -21,10 +21,10 @@
 
 | | nombre |
 |---|---|
-| lignes de tableau OUVERTES | 404 |
-| dont ANNOTEES (`FOYER:` + `BLOCAGE:`) | 401 |
+| lignes de tableau OUVERTES | 406 |
+| dont ANNOTEES (`FOYER:` + `BLOCAGE:`) | 403 |
 | dont NON ANNOTEES | 3 |
-| foyers distincts (fichiers/repertoires) | 352 |
+| foyers distincts (fichiers/repertoires) | 354 |
 
 Non annotees restantes : #120bis-spawn, #390-r1, #BL-1020r
 
@@ -43,13 +43,13 @@ Ces residus **ne partent pas ensemble**.
 | `scripts/python/engine/entities/effects/factory.py` | 7 | #888-r1, #889-r6, #902-r1, #922-r1, #924-r1, #927-r2, #952-r2 |
 | `scripts/python/engine/playbook/` | 7 | #419-r1, #419-r2, #433-r4-r3-r2, #893-r1, #909-r2, #909-r4, #940-r2 |
 | `scripts/python/engine/runner/operations/damage.py` | 7 | #508-r2, #521-r8, #889-r1, #920-r1, #951-r1, #954-r2, #955-r1 |
+| `scripts/python/engine/runner/operations/damage_ops/ability.py` | 7 | #488-r2, #489-r1, #512-r3, #605-r1, #889-r1, #953-r4, #961-r1 |
 | `scripts/python/engine/runner/operations/triggers/dispatch/registry.py` | 7 | #419-r1-tr9-r4-r1-r2-r1c, #443-r2-b2, #462-r4b-r1-r1-r1-r1-c-r3-r1-r4-r1, #521-r4, #911-r1, #919-r1, #BL-1029r |
 | `scripts/python/engine/services/ability_range.py` | 7 | #419-r1-tr14-r5-r2-r1-r2-r1-r1-r1, #419-r1-tr14-r5-r2-r1-r2-r1-r1-r2, #419-r1-tr14-r5-r2-r1-r2-r1-r1-r4-r1, #433-r4-r2-r1-r1-b, #433-r4-r2-r1-r2-r2-r1-r1-r1-r3, #433-r4-r2-r1-r2-r2-r1-r1-r1-r4-r1, #447-r1-r1-r1 |
 | `scripts/python/probe_468_collision_numeros.py` | 7 | #468-r1, #468-r13, #468-r2, #468-r3, #468-r7, #468-r8, #486-r4 |
 | `scripts/python/rl_duel.py` | 7 | #419-r1-tr9-r5, #448-r3-r1-r1-r1, #449-r2-r4-r1, #589-r1-r1-r2-r1-r2, #593, #605-r1, #914-r1 |
 | `scripts/python/engine/entities/effects/loki/` | 6 | #433-r4-r1-r1-r1, #521-r9, #890-r3, #894-r3, #895-r4, #902-r1 |
 | `scripts/python/engine/runner/abilities/attack_type.py` | 6 | #888-r1, #890-r3, #894-r2, #894-r3, #907-r1, #931-r1 |
-| `scripts/python/engine/runner/operations/damage_ops/ability.py` | 6 | #488-r2, #489-r1, #512-r3, #605-r1, #889-r1, #953-r4 |
 | `scripts/python/engine/runner/operations/triggers/loki/` | 6 | #462-r4b-r1-r1-r1-r1-c-r3-r1-r4-r1, #521-r4, #895-r4, #911-r1, #946-r3, #BL-1029r |
 | `scripts/ratchets.ps1` | 6 | #430-r1, #430-r2, #434-r3, #457-r6, #469-r2, #486-r4 |
 | `frida/hooks/features/ai-step/` | 5 | #419-r1-tr11-r2, #433-r4-r2-r1-r1-a-r1, #433-r4-r2-r1-r1-b, #433-r4-r2-r1-r1-c-r1, #433-r4-r2-r1-r3 |
@@ -66,6 +66,7 @@ Ces residus **ne partent pas ensemble**.
 | `scripts/python/engine/runner/abilities/**` | 4 | #20, #217, #585-r1, #585-r4 |
 | `scripts/python/engine/runner/abilities/behaviours/ai_control.py` | 4 | #429-r1-r1-r1-r1, #590-r5, #590-r8, #907-r1 |
 | `scripts/python/engine/runner/abilities/behaviours/combat.py` | 4 | #489-r1, #512-r3, #889-r2, #890-r1 |
+| `scripts/python/engine/runner/damage_model.py` | 4 | #521-r9, #920-r1, #924-r2, #961-r1 |
 | `scripts/python/engine/runner/operations/damage_hits.py` | 4 | #419-r4, #433-r4-r1-r1-r1, #889-r1, #889-r2 |
 | `scripts/python/engine/runner/operations/movement.py` | 4 | #448-r1-r1-r3, #448-r1-r2-r1, #462-r4b-r1-r1-r1-r1-c-r3-r1-r5-r5, #462-r4b-r1-r1-r1-r1-c-r3-r1-r6 |
 | `scripts/python/engine/runner/operations/triggers/dispatch/core.py` | 4 | #462-r4b-r1-r1-r1-r1-b-r1-r1-r3-r1-r2-r1, #462-r4b-r1-r1-r1-r1-c-r3-r2, #462-r4b-r1-r1-r1-r1-c-r3-r3, #937-r1 |
@@ -88,7 +89,6 @@ Ces residus **ne partent pas ensemble**.
 | `scripts/python/engine/runner/abilities/loki/attempted_possession.py` | 3 | #287-r11, #590-r6, #590-r9 |
 | `scripts/python/engine/runner/abilities/loki/summon.py` | 3 | #429-r1-r1-r1-r1, #590-r5, #590-r8 |
 | `scripts/python/engine/runner/abilities/tau.py` | 3 | #895-r1, #895-r3, #895-r5 |
-| `scripts/python/engine/runner/damage_model.py` | 3 | #521-r9, #920-r1, #924-r2 |
 | `scripts/python/engine/runner/operations/damage_ops/normal.py` | 3 | #889-r1, #924-r2, #925-r1 |
 | `scripts/python/engine/runner/operations/triggers/dispatch/move_death.py` | 3 | #929-r1, #947-r1, #955-r1 |
 | `scripts/python/engine/runner/operations/triggers/genestealer.py` | 3 | #462-r4b-r1-r1-r1-r1-b-r1-r1-r3-r1-r2-r1, #462-r4b-r1-r1-r1-r1-b-r1-r1-r3-r1-r3-r1, #955-r2 |
@@ -361,7 +361,9 @@ Candidats naturels a un dispatch parallele, sous reserve de croiser leurs autres
 | `scripts/python/probe_939_bio_minefield.py` | #939-r1 | `etage` |
 | `scripts/python/probe_953_954_skullsmasher_obsessive_annunciation.py` | #953-r1 | `aucun` |
 | `scripts/python/probe_956_purete_de_passe.py` | #956-r1 | `aucun` |
+| `scripts/python/probe_961_necron_passives.py` | #961-r1 | `etage` |
 | `scripts/python/prototype_485r1_registre_explicite.py` | #485-r1-r2 | `aucun` |
+| `scripts/python/rl_collect_batch.py` | #961-r2 | `aucun` |
 | `scripts/python/rl_gen_enum_columns.py` | #270-b | `aucun` |
 | `scripts/python/rl_gen_ref_tables.py` | #270-b | `aucun` |
 | `scripts/python/targeting_reason.py` | #447-r2 | `aucun` |
@@ -402,9 +404,9 @@ Un residu `capteur` ne part pas tant qu'aucune fenetre de reinject n'est prevue.
 |---|---|---|
 | `capteur` | 38 | #259-a, #259-b, #273-r, #287-r5-r2, #347-r1, #347-r3, #389-r3, #419-r1-tr11-r2, #419-r1-tr14-r5-r2-r1-r2-r1-r2, #419-r1-tr5-r8, #419-r6-r1-r1, #433-r4-r2-r1-r1-a-r1, #433-r4-r2-r1-r1-b, #433-r4-r2-r1-r1-c-r1, #433-r4-r2-r1-r3, #444-r1, #449-r1, #462-r4b-r1-r1-r1-r1-c-r3-r1-r5-r1, #462-r4e-o-r2-r1-r1-r1-r1, #462-r4e-o-r2-r1-r1-r1-r2, #475-r2, #475-r3, #487-r2, #545-r1, #552-r2, #590-r2, #590-r5, #595-r1, #595-r2, #595-r3, #596, #596-r2, #916-r1, #922-r2, #940-r1, #943-r7, #951-r3, #959-r1 |
 | `seeding` | 27 | #287-r11, #287-r14-r2, #392-r1, #419-r1-tr9-r1, #433-r4-r1-r4-r2-r1-r1-r1-r1, #433-r4-r2-r1-r2-r3, #447-r1-r1-r3-r1, #448-r3-r1-r1-r1, #448-r6, #449-r2-r4-r1, #482-r1, #590-r1, #590-r7, #889-r3, #889-r5-r3, #890-r4, #902-r2, #911-r1, #921-r1, #929-r2, #929-r4, #943-r8, #945-r2, #951-r1, #955-r1, #957-r1, #BF-chance |
-| `etage` | 40 | #116-r, #17, #175-r1, #175-r3, #27-r9, #271-r7, #287-r11-r2-r1-r3, #368-r2, #419-r1-tr12-r2-r1, #419-r4, #433-r3-r2-r1, #433-r4-r1-r1-r1, #433-r4-r1-r1-r2, #433-r4-r1-r3, #433-r4-r3-r1-r2, #443-r2-b2, #444-r2, #462-r4b-r1-r1-r1-r1-b-r1-r1-r3-r1-r2-r1, #462-r4b-r1-r1-r1-r1-b-r1-r1-r3-r1-r3-r1, #508-r2, #577-r2, #590-r3, #590-r6, #590-r8, #889-r2, #889-r6, #893-r1, #894-r2, #895-r4, #902-r1, #907-r1, #919-r1, #924-r1, #924-r2, #929-r1, #939-r1, #940-r2, #946-r1, #946-r4, #947-r1 |
+| `etage` | 41 | #116-r, #17, #175-r1, #175-r3, #27-r9, #271-r7, #287-r11-r2-r1-r3, #368-r2, #419-r1-tr12-r2-r1, #419-r4, #433-r3-r2-r1, #433-r4-r1-r1-r1, #433-r4-r1-r1-r2, #433-r4-r1-r3, #433-r4-r3-r1-r2, #443-r2-b2, #444-r2, #462-r4b-r1-r1-r1-r1-b-r1-r1-r3-r1-r2-r1, #462-r4b-r1-r1-r1-r1-b-r1-r1-r3-r1-r3-r1, #508-r2, #577-r2, #590-r3, #590-r6, #590-r8, #889-r2, #889-r6, #893-r1, #894-r2, #895-r4, #902-r1, #907-r1, #919-r1, #924-r1, #924-r2, #929-r1, #939-r1, #940-r2, #946-r1, #946-r4, #947-r1, #961-r1 |
 | `porteur` | 45 | #366-r1-chaos-friendly-fire, #419-r1-tr12-r2-r2, #419-r1-tr12-r4, #419-r1-tr14-r2, #419-r1-tr14-r4-r3, #419-r1-tr14-r5-r2-r1-r1-r2, #419-r1-tr14-r5-r2-r1-r2-r1-r1-r2, #419-r1-tr14-r5-r2-r1-r2-r1-r1-r4-r1, #419-r1-tr14-r5-r2-r1-r2-r1-r3, #419-r1-tr14-r5-r3, #419-r1-tr9-r4-r1-r2-r2, #419-r2, #419-t6-r1, #425-r1, #433-r4-r1-r2, #433-r4-r2-r1-r2-r2-r1-r1-r1-r3, #433-r4-r2-r1-r2-r2-r1-r1-r1-r4-r2, #437-r1-r1-r2, #445-r1, #446-r3a, #447-r1-r1-r1, #447-r3, #448-r1-r1-r1-r1-r2-r2, #448-r1-r2-r1, #449-r2-r4-r3, #462-r4b-r1-r1-r1-r1-c-r3-r1-r5-r4, #462-r4b-r1-r1-r1-r1-c-r3-r2, #462-r4e-o-r1-r1-r1, #465-r1, #503-r2, #521-r4, #550-r2, #884-r2, #895-r1, #915-r2, #927-r2, #942-r1, #943-r4, #945-r1, #945-r3, #946-r2, #950-r1, #952-r2, #953-r4, #957-r2 |
-| `aucun` | 251 | #20, #202-r1, #217, #254-bc, #254-bc-r1, #270-a, #270-b, #270-r1-r1-r2, #271-r1, #271-r8, #277-r1, #281-r4, #283-r2, #330-r1, #330-r2, #334-r3, #350-r3a-r4-r1, #352-r1, #366-r1-effect-targets, #369, #380-r1, #389-r4, #389-r5, #419-r1, #419-r1-tr10-r2, #419-r1-tr11-r1, #419-r1-tr12-r3, #419-r1-tr14-r5-r2-r1-r1-r1, #419-r1-tr14-r5-r2-r1-r1-r1-r3-r1, #419-r1-tr14-r5-r2-r1-r2-r1-r1-r1, #419-r1-tr14-r5-r2-r1-r2-r2, #419-r1-tr14-r5-r2-r1-r2-r3, #419-r1-tr9-r4-r1-r2-r1a, #419-r1-tr9-r4-r1-r2-r1b, #419-r1-tr9-r4-r1-r2-r1c, #419-r1-tr9-r4-r1-r3, #419-r1-tr9-r4-r3, #419-r1-tr9-r5, #420-r4, #426-r1, #429-r1-r1-r1-r1, #429-r1-r2, #429-r1-r3-r1-r2-r1, #430-r1, #430-r2, #433-r3-r3-r2, #433-r4-r1-r4-r2-r2, #433-r4-r1-r4-r2-r3, #433-r4-r1-r4-r2-r4-r1, #433-r4-r2-r1-r1-c-r2, #433-r4-r2-r1-r2-r2-r1-r1-r1-r4-r1, #433-r4-r2-r3, #433-r4-r2-r4-r1-r1, #433-r4-r3-r1-r1, #433-r4-r3-r1-r3, #433-r4-r3-r2, #433-r4-r3-r3, #434-r3, #437-r1-r1-r1-r1, #437-r1-r1-r3, #438-r1, #447-r1-r1-r2, #447-r2, #447-r4, #448-r1-r1-r1-r1-r2-r1, #448-r1-r1-r3, #449-r2-r1, #449-r2-r3, #449-r2-r4-r2, #449-r2-r4-r4-r1, #449-r3, #455-r1, #455-r2, #455-r4-r1, #456-r2-r1, #457-r6, #462-r1, #462-r2, #462-r3, #462-r4, #462-r4b-r1-r1-r1-r1-c-r3-r1-r4-r1, #462-r4b-r1-r1-r1-r1-c-r3-r1-r4-r2, #462-r4b-r1-r1-r1-r1-c-r3-r1-r5-r2, #462-r4b-r1-r1-r1-r1-c-r3-r1-r5-r3, #462-r4b-r1-r1-r1-r1-c-r3-r1-r5-r5, #462-r4b-r1-r1-r1-r1-c-r3-r1-r6, #462-r4b-r1-r1-r1-r1-c-r3-r3, #462-r4c-r1-r1, #462-r4c-r1-r2, #462-r4c-r2, #462-r4c-r3, #462-r6-r1, #462-r6-r2, #463-r2, #464-r1b, #464-r1c, #467-r1, #467-r3, #467-r4-a, #467-r5, #467-r6-a, #468-r1, #468-r13, #468-r2, #468-r3, #468-r5, #468-r6, #468-r7, #468-r8, #469-r1, #469-r2, #469-r4, #471-r1, #471-r2, #475-r1, #482-r2, #482-r4, #482-r5, #482-r6, #484-r1, #484-r2, #485-r1-r1-r2, #485-r1-r2, #485-r1-r3, #485-r1-r4, #486-r10, #486-r16, #486-r17, #486-r20, #486-r21, #486-r25, #486-r26, #486-r3, #486-r37, #486-r38, #486-r4, #486-r6, #486-r7, #486-r8, #486-r9, #488-r2, #489-r1, #494-r2, #498-r5, #5, #510-r3, #511-r1, #512-r3, #519-r1, #521-r8, #521-r9, #523-r3, #526-r3, #531-r1, #547-r10, #547-r3, #547-r4-r1, #547-r6, #547-r9, #550-r3, #550-r4, #552-r3, #576-r2, #577-r1, #585-r1, #585-r2, #585-r4, #589-r1-r1-r2-r1-r1, #589-r1-r1-r2-r1-r2, #589-r1-r1-r2-r1-r3, #590-r9, #593, #594, #596-r1, #605-r1, #66-r2, #884-r1, #888-r1, #889-r1, #889-r4, #890-r1, #890-r2, #890-r3, #893-r2, #894-r1, #894-r3, #894-r4, #894-r5, #895-r2, #895-r3, #895-r5, #905-r1, #906-r1, #908-r1, #908-r2, #909-r1, #909-r2, #909-r3, #909-r4, #909-r5, #910-r1, #914-r1, #914-r2, #915-r1, #915-r3, #919-r2, #919-r3, #920-r1, #922-r1, #923-r1, #925-r1, #926-r1, #927-r1, #927-r3, #928-r1, #931-r1, #931-r2, #932-r1, #932-r2, #933-r1, #934, #935-r2, #936-r1, #937-r1, #941-r1, #941-r2, #941-r3, #941-r4, #942-r2, #942-r3, #943-r1, #943-r2, #946-r3, #948-r1, #949, #950-r2, #951-r4, #951-r5, #951-r6, #952-r1, #953-r1, #954-r1, #954-r2, #955-r2, #955-r3, #956-r1, #957-r3, #957-r4, #BL-1029r, #haze-ord, #o10-c |
+| `aucun` | 252 | #20, #202-r1, #217, #254-bc, #254-bc-r1, #270-a, #270-b, #270-r1-r1-r2, #271-r1, #271-r8, #277-r1, #281-r4, #283-r2, #330-r1, #330-r2, #334-r3, #350-r3a-r4-r1, #352-r1, #366-r1-effect-targets, #369, #380-r1, #389-r4, #389-r5, #419-r1, #419-r1-tr10-r2, #419-r1-tr11-r1, #419-r1-tr12-r3, #419-r1-tr14-r5-r2-r1-r1-r1, #419-r1-tr14-r5-r2-r1-r1-r1-r3-r1, #419-r1-tr14-r5-r2-r1-r2-r1-r1-r1, #419-r1-tr14-r5-r2-r1-r2-r2, #419-r1-tr14-r5-r2-r1-r2-r3, #419-r1-tr9-r4-r1-r2-r1a, #419-r1-tr9-r4-r1-r2-r1b, #419-r1-tr9-r4-r1-r2-r1c, #419-r1-tr9-r4-r1-r3, #419-r1-tr9-r4-r3, #419-r1-tr9-r5, #420-r4, #426-r1, #429-r1-r1-r1-r1, #429-r1-r2, #429-r1-r3-r1-r2-r1, #430-r1, #430-r2, #433-r3-r3-r2, #433-r4-r1-r4-r2-r2, #433-r4-r1-r4-r2-r3, #433-r4-r1-r4-r2-r4-r1, #433-r4-r2-r1-r1-c-r2, #433-r4-r2-r1-r2-r2-r1-r1-r1-r4-r1, #433-r4-r2-r3, #433-r4-r2-r4-r1-r1, #433-r4-r3-r1-r1, #433-r4-r3-r1-r3, #433-r4-r3-r2, #433-r4-r3-r3, #434-r3, #437-r1-r1-r1-r1, #437-r1-r1-r3, #438-r1, #447-r1-r1-r2, #447-r2, #447-r4, #448-r1-r1-r1-r1-r2-r1, #448-r1-r1-r3, #449-r2-r1, #449-r2-r3, #449-r2-r4-r2, #449-r2-r4-r4-r1, #449-r3, #455-r1, #455-r2, #455-r4-r1, #456-r2-r1, #457-r6, #462-r1, #462-r2, #462-r3, #462-r4, #462-r4b-r1-r1-r1-r1-c-r3-r1-r4-r1, #462-r4b-r1-r1-r1-r1-c-r3-r1-r4-r2, #462-r4b-r1-r1-r1-r1-c-r3-r1-r5-r2, #462-r4b-r1-r1-r1-r1-c-r3-r1-r5-r3, #462-r4b-r1-r1-r1-r1-c-r3-r1-r5-r5, #462-r4b-r1-r1-r1-r1-c-r3-r1-r6, #462-r4b-r1-r1-r1-r1-c-r3-r3, #462-r4c-r1-r1, #462-r4c-r1-r2, #462-r4c-r2, #462-r4c-r3, #462-r6-r1, #462-r6-r2, #463-r2, #464-r1b, #464-r1c, #467-r1, #467-r3, #467-r4-a, #467-r5, #467-r6-a, #468-r1, #468-r13, #468-r2, #468-r3, #468-r5, #468-r6, #468-r7, #468-r8, #469-r1, #469-r2, #469-r4, #471-r1, #471-r2, #475-r1, #482-r2, #482-r4, #482-r5, #482-r6, #484-r1, #484-r2, #485-r1-r1-r2, #485-r1-r2, #485-r1-r3, #485-r1-r4, #486-r10, #486-r16, #486-r17, #486-r20, #486-r21, #486-r25, #486-r26, #486-r3, #486-r37, #486-r38, #486-r4, #486-r6, #486-r7, #486-r8, #486-r9, #488-r2, #489-r1, #494-r2, #498-r5, #5, #510-r3, #511-r1, #512-r3, #519-r1, #521-r8, #521-r9, #523-r3, #526-r3, #531-r1, #547-r10, #547-r3, #547-r4-r1, #547-r6, #547-r9, #550-r3, #550-r4, #552-r3, #576-r2, #577-r1, #585-r1, #585-r2, #585-r4, #589-r1-r1-r2-r1-r1, #589-r1-r1-r2-r1-r2, #589-r1-r1-r2-r1-r3, #590-r9, #593, #594, #596-r1, #605-r1, #66-r2, #884-r1, #888-r1, #889-r1, #889-r4, #890-r1, #890-r2, #890-r3, #893-r2, #894-r1, #894-r3, #894-r4, #894-r5, #895-r2, #895-r3, #895-r5, #905-r1, #906-r1, #908-r1, #908-r2, #909-r1, #909-r2, #909-r3, #909-r4, #909-r5, #910-r1, #914-r1, #914-r2, #915-r1, #915-r3, #919-r2, #919-r3, #920-r1, #922-r1, #923-r1, #925-r1, #926-r1, #927-r1, #927-r3, #928-r1, #931-r1, #931-r2, #932-r1, #932-r2, #933-r1, #934, #935-r2, #936-r1, #937-r1, #941-r1, #941-r2, #941-r3, #941-r4, #942-r2, #942-r3, #943-r1, #943-r2, #946-r3, #948-r1, #949, #950-r2, #951-r4, #951-r5, #951-r6, #952-r1, #953-r1, #954-r1, #954-r2, #955-r2, #955-r3, #956-r1, #957-r3, #957-r4, #961-r2, #BL-1029r, #haze-ord, #o10-c |
 
 ## Foyers qui ne designent AUCUN fichier
 
@@ -437,6 +439,7 @@ POURRI -- `test_603_index_foyers_offline.py` etage 3 le refuse.
 | `**3/3` | #585-r1 |
 | `4/4` | #585-r1 |
 | `AURA/de` | #943-r7 |
+| `data/unspawnable_rank17.json` | #961-r2 |
 | `effects/__init__.py` | #943-r7 |
 | `engine/playbook/sanguinary_priest.py` | #921-r1 |
 | `engine/utilities/devout_push.py` | #907-r1 |
