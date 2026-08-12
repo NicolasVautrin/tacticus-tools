@@ -92,7 +92,11 @@ def dsl_context_for_tile_target(ctx):
     # Sans ce fil, l'arbre de 1148 prendrait TOUJOURS la branche `else` de son `If` -- une
     # degradation SILENCIEUSE qui deplace la zone-triangle (dir 4 au lieu de 1). MESURE : sur
     # `MC1_67`/`SpawnPointSetIndex 1`, le natif vise le triangle `{S, SE}`, donc position 2.
-    mow_pos = ctx.machine_of_war_position() if hasattr(ctx, "machine_of_war_position") else None
+    # #979 : `hasattr` ne suffit PLUS -- `NCContext` porte desormais un CHAMP de meme nom, qui vaut
+    # `None` quand le canal n'a pas ete cable (probes, tests, chemin offline). `None()` aurait leve
+    # `TypeError`. Le test est donc `callable`, et l'absence rend `None` = non mesure.
+    _mow = getattr(ctx, "machine_of_war_position", None)
+    mow_pos = _mow() if callable(_mow) else None
 
     # `HasEffect(<entite-tuile>, 5 = Fire)` -- branche TUILE de
     # `IdunBattle.Entities.EntityExtensions$$HasOneOfEffects`, lue par le `Filter` de

@@ -3,11 +3,32 @@
 CE QUE CE PROBE MESURE, ET POURQUOI IL EXISTE
 ---------------------------------------------
 `audit_kit_coverage.py` calcule deja, par active d'unite `kind == lineup`, un booleen
-`decision` sur TROIS registres (`playbook.noncomparable.PLAYBOOKS`, `playbook.base.REGISTRY`,
-`entities.abilities.active_ability._SPECIAL_ABILITY_CLASSES`). Mais il ne le COMPTE PAS : son
-total `missing` ne retient que la face COMBAT. La face DECISION des actives n'avait donc jamais
-ete chiffree pour elle-meme, et l'audit s'annonce d'ailleurs comme un classement de VOLUME, pas
-comme une preuve de couverture.
+`decision`. Mais il ne le COMPTE PAS : son total `missing` ne retient que la face COMBAT. La face
+DECISION des actives n'avait donc jamais ete chiffree pour elle-meme, et l'audit s'annonce
+d'ailleurs comme un classement de VOLUME, pas comme une preuve de couverture.
+
+#979 -- LA LISTE BLANCHE DE REGISTRES A DISPARU, ET LE COMPTE ETAIT FAUX DE 22 %
+--------------------------------------------------------------------------------
+Ce probe testait TROIS appartenances ECRITES A LA MAIN (`PLAYBOOKS`, `REGISTRY`,
+`_SPECIAL_ABILITY_CLASSES`), et l'audit en testait QUATRE -- deux listes blanches divergentes pour
+la meme question. Elles avaient deja rate deux voies, MESUREES : `BESPOKE_SELFCAST` (#971, 3 faux
+GAP, dont un qui a fait redispatcher un agent) puis `_MAKE_DMG_INPUT_OVERRIDES` (#974, la 5e voie,
+ou vivait deja `1191 MartialInspiration`).
+
+L'appartenance se lit desormais dans `decision_face_voies.py` -- foyer UNIQUE, partage avec
+l'audit, ou les voies ne sont pas ENUMEREES mais PARTITIONNEES : tout conteneur de niveau module
+du perimetre (`engine/playbook/**` + `entities/abilities/active_ability.py`) qui designe des
+`ActiveAbilityType` est INSCRIT ou ECARTE AVEC SA RAISON, et un conteneur NEUF sort MUET (etape 6,
+`rc 1`). C'est le patron de l'etape 7 de `probe_313`, transpose.
+
+L'ETAT EST TERNAIRE, ET LE TROISIEME N'EST PAS DERIVABLE
+---------------------------------------------------------
+`portee / non portee` est un axe FAUX pour une active dont le playbook natif EST le chemin
+generique du port : il n'y a rien a porter, et la compter comme du travail est aussi faux que de
+rater un port. Cet etat -- CONSTANTE -- s'etablit en LISANT le corps natif, donc il est DECLARE
+avec sa source dans le ledger qui existe pour ca (`coverage_attestations.py`, categorie
+`active-decision`). Une attestation PERIMEE remet l'item au compte des manquants : aucun chemin ne
+peut faire disparaitre du travail.
 
 LA FRONTIERE AVEC LES INVENTAIRES EXISTANTS (mesuree, pas supposee)
 -------------------------------------------------------------------
@@ -430,22 +451,21 @@ def lire_table(build: str) -> list:
 # ============================================================================================
 
 def population():
-    """Les actives des unites `kind == lineup`, et leur face DECISION sur les TROIS registres.
+    """Les actives des unites `kind == lineup`, et leur ETAT TERNAIRE de face DECISION.
 
-    Meme predicat que `audit_kit_coverage.collect` -- volontairement, pour que les deux outils ne
-    puissent pas diverger en silence. `_NONCOMPARABLE_ABILITIES` n'est PAS un 4e registre : y
-    figurer dit que le port CLASSE l'ability NonComparable, pas que son utilite est portee.
+    L'appartenance vient de `decision_face_voies` -- le foyer que `audit_kit_coverage` lit AUSSI,
+    pour que les deux outils ne puissent pas diverger en silence (ils divergeaient : 3 registres
+    ici, 4 la-bas, #979). `_NONCOMPARABLE_ABILITIES` n'est PAS une voie : y figurer dit que le port
+    CLASSE l'ability NonComparable, pas que son utilite est portee -- il reste lu pour l'affichage.
     """
+    import decision_face_voies as DFV
     import enum_maps as EM
     import gameconfig as GC
     import unit_map as UM
-    from engine.entities.abilities.active_ability import (
-        _NONCOMPARABLE_ABILITIES, _SPECIAL_ABILITY_CLASSES,
-    )
-    from engine.playbook import REGISTRY as CUSTOM
-    from engine.playbook.noncomparable import PLAYBOOKS
+    from engine.entities.abilities.active_ability import _NONCOMPARABLE_ABILITIES
 
     nom_vers_id = {v: k for k, v in EM.ACTIVE_ABILITY_TYPE.items()}
+    tables, att = DFV.voies_par_ability(), DFV.attestations()
     ecartes = collections.Counter()
     out = {}
     for k in UM.all_kits():
@@ -455,10 +475,9 @@ def population():
         u = GC.unit(k["id"]) or {}
         for nm in (u.get("activeAbilities") or []):
             aid = nom_vers_id.get(nm)
-            via = [r for r, ok in (("PLAYBOOKS", aid in PLAYBOOKS),
-                                   ("REGISTRY", aid in CUSTOM),
-                                   ("SPECIAL", nm in _SPECIAL_ABILITY_CLASSES)) if ok]
-            e = out.setdefault(nm, {"id": aid, "via": via, "porteurs": set(),
+            etat, detail = DFV.etat(aid, nm, tables, att)
+            e = out.setdefault(nm, {"id": aid, "etat": etat, "detail": detail,
+                                    "via": DFV.face_portee(aid, nm, tables), "porteurs": set(),
                                     "nc": nm in _NONCOMPARABLE_ABILITIES})
             e["porteurs"].add(k["id"])
     return out, ecartes
@@ -491,6 +510,8 @@ def main() -> int:
     ap.add_argument("--liste", action="store_true", help="detail par ability")
     args = ap.parse_args()
 
+    import decision_face_voies as DFV
+
     build = build_courant()
     print("[909] build = %s" % build)
 
@@ -522,12 +543,23 @@ def main() -> int:
     natif = {e["cle"]: e["classe"] for e in entrees if e["dict"] == "active"}
 
     pop, ecartes = population()
-    portees = {n: v for n, v in pop.items() if v["via"]}
-    non_portees = {n: v for n, v in pop.items() if not v["via"]}
+    portees = {n: v for n, v in pop.items() if v["etat"] == "PORTEE"}
+    constantes = {n: v for n, v in pop.items() if v["etat"] == "CONSTANTE"}
+    non_portees = {n: v for n, v in pop.items() if v["etat"] == "NON PORTEE"}
     print("\n[909] ETAPE 2 -- la population : actives de kit `lineup`")
     print("   actives distinctes            : %d" % len(pop))
     print("   face DECISION portee          : %d" % len(portees))
+    print("   CONSTANTE (playbook natif = chemin generique ; RIEN a porter) : %d" % len(constantes))
     print("   face DECISION NON portee      : %d" % len(non_portees))
+    for nm, v in sorted(constantes.items()):
+        print("      CONSTANTE %5s %-28s %s" % (v["id"], nm, v["detail"]))
+    par_voie = collections.Counter(r for v in portees.values() for r in v["via"])
+    print("   ventilation des PORTEES par voie (une active peut en avoir plusieurs) :")
+    for r, n in par_voie.most_common():
+        print("      %-34s %3d" % (r, n))
+    hors_reg = sorted(n for n, v in portees.items() if not v["via"])
+    if hors_reg:
+        print("      portees HORS REGISTRE (attestees au ledger) : %s" % ", ".join(hors_reg))
 
     dedans = sum(1 for v in pop.values() if v["id"] in natif)
     print("\n[909] ETAPE 3 -- la ventilation demandee, et pourquoi elle est DEGENEREE")
@@ -623,6 +655,25 @@ def main() -> int:
     if inconnues:
         print("      -> %s" % inconnues)
 
+    print("\n[909] ETAPE 6 -- LE CLIQUET : la PARTITION du perimetre (#979)")
+    print("   Un conteneur de niveau module NEUF, consomme par la chaine de decision, doit entrer")
+    print("   au foyer `decision_face_voies` DANS LE MEME COMMIT. Sans ce cran, le gisement se")
+    print("   rouvre a notre propre cadence : c'est exactement ce qui s'est passe deux fois")
+    print("   (`BESPOKE_SELFCAST` #971, `_MAKE_DMG_INPUT_OVERRIDES` #974).")
+    p = DFV.partition()
+    print("   fichiers visites %d ; conteneurs de niveau module %d"
+          % (len(DFV._fichiers_du_perimetre()), len(DFV.conteneurs_du_perimetre())))
+    print("   INSCRITS %d | ECARTES AVEC RAISON %d | MUETS %d"
+          % (len(p["inscrits"]), len(p["ecartes"]), len(p["muets"])))
+    print("   ECARTES PAR CE FILTRE (aucun element ne designe un ActiveAbilityType) : %d"
+          % len(p["hors_sujet"]))
+    for mod, attr, n_ok, n in p["muets"]:
+        print("      MUET   %s.%s -- %d/%d elements designent une active" % (mod, attr, n_ok, n))
+    for mod, attr in p["fantomes"]:
+        print("      FANTOME %s.%s -- inscrit au foyer, introuvable dans le perimetre"
+              % (mod, attr))
+    rouge = len(p["muets"]) + len(p["fantomes"])
+
     print("\n[909] PORTEE DE LA MESURE -- ce que ce compte N'INCLUT PAS")
     print("   kits ECARTES (kind != lineup) : %d unites -- %s"
           % (sum(ecartes.values()),
@@ -636,6 +687,8 @@ def main() -> int:
     print("      donc une absence dans functions.tsv ne prouve aucune non-surcharge.")
     print("   la FIDELITE des %d faces portees n'est pas evaluee -- seulement leur EXISTENCE."
           % len(portees))
+    print("   l'etat CONSTANTE est DECLARE (ledger #951-r2), pas derive : il s'etablit en LISANT")
+    print("      le corps natif. Une attestation PERIMEE remet l'item au compte des manquants.")
 
     if args.liste:
         print("\n[909] DETAIL -- les %d actives de kit sans face decision portee" % len(detail))
@@ -644,7 +697,10 @@ def main() -> int:
             print("   %-30s %5s  %-40s %s%s"
                   % (nm, aid, court, ",".join(noms_m) or "-",
                      "  [NC classee]" if nc else ""))
-    return 0
+        print("\n[909] DETAIL -- les %d actives de kit PORTEES, et par quelle voie" % len(portees))
+        for nm, v in sorted(portees.items(), key=lambda kv: kv[1]["id"] or 0):
+            print("   %-30s %5s  %s" % (nm, v["id"], ",".join(v["via"]) or v["detail"]))
+    return 1 if rouge else 0
 
 
 def _ids_connus():

@@ -35,6 +35,42 @@
    "porteur": "engine.services.targeting_query:INDIRECT_FIRE_TRAIT",
    "_commit": "1b77085728a7138dc9f83fdc2a77143198efa9b9",
    "_at": 1786000000
+  },
+  "active-decision:LashOfTorment": {
+   "categorie": "active-decision",
+   "nom": "LashOfTorment",
+   "verdict": "RIEN_A_PORTER",
+   "raison": "IdunBattle.AI.Playbook.Loki.LashOfTormentPlaybook$$MakeDamagePredictions fait UN SEUL appel a ComparablePlaybook<T>$$GenerateMultiHitAttackPredictions, avec sel = this@+0x18 (le dsl) ->+0x90 ->+0x60 = DSLSelectors.Target, base = VigilanceEternalAbility$$GetDamage (= MinMaxDamage(state, isPrediction:0), forme (b)), hits = AActiveAbility$$GetHits, prof = Nullable(AActiveAbility$$GetDamageProfile), poids = Nullable VIDE. C'est le chemin GENERIQUE du port, terme pour terme : l'inscrire a un registre d'override serait un port SPECULATIF. Verdict etabli par #974, RELU au decompile par #979.",
+   "source": "docs/rl/case-979-recenseur-faces-decision.md#3",
+   "build": "rnca9r7q6c",
+   "cliquet": "scripts/python/tests/engine/test_974_custodes_emperors_children_decision_offline.py",
+   "porteur": "engine.entities.abilities.active_ability:_PREDICTION_MINMAX_RANDOM_READ",
+   "_commit": "b0b59c3e323dcd0ff2d3b2dd7724c37a13c7d49e",
+   "_at": 1786600000
+  },
+  "active-decision:StrikeFromTheShadows": {
+   "categorie": "active-decision",
+   "nom": "StrikeFromTheShadows",
+   "verdict": "RIEN_A_PORTER",
+   "raison": "IdunBattle.AI.Playbook.Loki.StrikeFromTheShadowsPlaybook$$MakeDamagePredictions fait UN SEUL appel a GenerateMultiHitAttackPredictions ; son selecteur passe par StrikeFromTheShadowsAbility$$GetTarget, dont le corps entier est `return *(*(this+0x30)+0x90)+0x60` = DSLSelectors.Target -- donc PAS un selecteur propre. base/hits/prof = AActiveAbility generiques, poids Nullable VIDE. Verdict etabli par #976, RELU au decompile par #979 (le detour par GetTarget est ce qui pouvait le faire passer pour un override).",
+   "source": "docs/rl/case-979-recenseur-faces-decision.md#3",
+   "build": "rnca9r7q6c",
+   "cliquet": "scripts/python/tests/test_976_lot_astartes_astra_offline.py",
+   "porteur": "engine.entities.abilities.active_ability:_PREDICTION_MINMAX_RANDOM_READ",
+   "_commit": "760b9809f3f366c0027332b4a65f415999b453e6",
+   "_at": 1786600000
+  },
+  "active-decision:ExcruciatingFrequencies": {
+   "categorie": "active-decision",
+   "nom": "ExcruciatingFrequencies",
+   "verdict": "PORTE_HORS_REGISTRE",
+   "raison": "Sa face DECISION est portee par un GENERATEUR bespoke appele EN DUR dans ComparableAbilityGenerator.generate (ligne `cands += excruciating_frequencies_candidates(ctx)`), pas par un registre : le playbook natif cible une TUILE (ligne-AoE) et ses evals ont rankCount=0, donc aucun `plan` ne l'amene. Son gate ShouldExecute (seuil statique Fix64(10)) y vit sous MIN_UTILITY, ce que `static_threshold_gate.NOT_REGISTERED` dit deja de son cote. Aucun conteneur de niveau module ne peut donc l'exprimer -- c'est exactement le cas que ce ledger existe pour porter.",
+   "source": "docs/rl/case-979-recenseur-faces-decision.md#4",
+   "build": "rnca9r7q6c",
+   "cliquet": "scripts/python/tests/engine/test_979_recenseur_faces_decision_offline.py",
+   "porteur": "engine.playbook.excruciating_frequencies:excruciating_frequencies_candidates",
+   "_commit": "760b9809f3f366c0027332b4a65f415999b453e6",
+   "_at": 1786600000
   }
  }
 }

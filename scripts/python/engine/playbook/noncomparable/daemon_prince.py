@@ -38,71 +38,12 @@ import engine.playbook.noncomparable.summon_attack_range as SAR   # FORME B, ABS
 from ._base import NCContext, NonComparablePlaybook, _traits
 
 
-class _CtxBoard:
-    """Adaptateur `NCContext` -> l'API `Board` qu'attend `engine.services.spawn_tile_shape`.
-
-    POURQUOI UN ADAPTATEUR ET PAS UNE REECRITURE. `ThreeUnitSpawnTileShapeSelector$$GetArea` est
-    deja porte, 1:1, dans `spawn_tile_shape` (ordre des six directions compris). Le re-ecrire ici
-    serait un FORK DE FOYER -- la faute exacte que `early_warning_override._ranged_weapon_threshold`
-    documente (`_enemy_max_range`, residu `#433-r4-r2-r2`, qui figeait un seuil). Ce shim ne porte
-    AUCUNE geometrie : il ne fait que republier, sous les quatre noms attendus, des canaux que
-    `NCContext` porte deja.
-
-    Les quatre membres consommes par `spawn_tile_shape` (`correct_area` / `correct_relationship_in_area`) :
-      * `tile_at(col, row)`   -> `{"walkable", "isWall", "isTemporary"}`
-      * `id_at(col, row)`     -> l'id d'entite-tuile (`ctx.tile_id_by_pos`)
-      * `neighbours(tid)`     -> les ids voisins (`ctx.neigh_by_pos`, liste NATIVE stockee)
-      * `elevation(tid)`      -> `ctx.elev_by_pos`
-
-    ⚠ CANAL MUET = REFUS, JAMAIS UNE AIRE INVENTEE. `tile_id_by_pos` ou `neigh_by_pos` vide fait
-    rendre `None`/`[]`, donc `correct_relationship_in_area` rend `False`, donc `get_area` rend `[]`
-    -- l'utilite retombe a `0` et l'ability n'est pas proposee. C'est la degradation CONSERVATRICE
-    (le natif, lui, aurait pu proposer) ; l'inverse fabriquerait un cast sur une empreinte
-    imaginaire."""
-
-    def __init__(self, ctx: NCContext):
-        self._tid = ctx.tile_id_by_pos or {}
-        self._pos = {t: p for p, t in self._tid.items()}
-        self._neigh = bq.neigh_map(ctx) or {}
-        self._elev = ctx.elev_by_pos or {}
-        self._walk = ctx.walkable_by_pos or {}
-        self._wall = ctx.is_wall_by_pos or {}
-        self._temp = ctx.is_temporary_by_pos or {}
-
-    def tile_at(self, col: int, row: int) -> dict | None:
-        p = (col, row)
-        if p not in self._tid and p not in self._walk and p not in self._neigh:
-            return None                       # tuile inconnue de tous les canaux -> hors plateau
-        return {"walkable": self._walk.get(p, True),
-                "isWall": bool(self._wall.get(p, False)),
-                "isTemporary": bool(self._temp.get(p, False))}
-
-    def id_at(self, col: int, row: int):
-        return self._tid.get((col, row))
-
-    def neighbours(self, tid: int) -> list:
-        p = self._pos.get(tid)
-        if p is None:
-            return []
-        return [self._tid[q] for q in (self._neigh.get(p) or []) if q in self._tid]
-
-    def elevation(self, tid: int) -> int:
-        p = self._pos.get(tid)
-        return int(self._elev.get(p, 0) or 0) if p is not None else 0
-
-
-def _occupied(ctx: NCContext) -> set:
-    """Positions OCCUPEES par une unite VIVANTE (le `CanAddUnit(..., allowSteppable)` de
-    `CorrectArea`). `ctx.epos` + `ctx.fpos` -- les deux canaux d'occupation de `NCContext`.
-
-    ECART NOMME, herite de `ctx.fpos` : le CASTER en est exclu. Inerte ici -- le porteur est une
-    MoW sans position, il n'occupe aucune tuile du point de vue de ces canaux."""
-    out = set()
-    for src in (ctx.epos or [], ctx.fpos or []):
-        for p in src:
-            if p and p[0] is not None:
-                out.add((p[0], p[1]))
-    return out
+# #979 -- `_CtxBoard` et `_occupied` sont DEPLACES dans le foyer partage du paquet (`_targets.py`)
+# et re-exposes ici sous leur nom d'origine. Motif : `DutyEternal` (1158) consomme le MEME
+# `ThreeTileUnitSpawnShape` -- ce sont les DEUX SEULES xrefs du selecteur dans le build --, et les
+# recopier aurait fait le FORK DE FOYER que la docstring de `CtxBoard` interdit elle-meme.
+_CtxBoard = TGT.CtxBoard
+_occupied = TGT.occupied
 
 
 class AetherStridePlaybook(NonComparablePlaybook):

@@ -38,6 +38,9 @@ DECLENCHEUR = {
         "scripts/python/audit_kit_coverage.py",
         "scripts/python/audit_combat_ability_coverage.py",
         "scripts/python/coverage_attestations.py",
+        # #979 : `audit_kit_coverage` etablit la face DECISION par ce foyer (14 voies PARTITIONNEES)
+        # au lieu de sa propre liste blanche -- un ajout/retrait y change ses verdicts.
+        "scripts/python/decision_face_voies.py",
         # #962 : l'etage [3bis] LE JOUE en sous-processus -- c'est la SECONDE source du croisement,
         # donc une modification du recenseur peut changer le verdict de ce fichier.
         "scripts/python/probe_951r2_faux_manquants.py",

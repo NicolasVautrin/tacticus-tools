@@ -26,8 +26,8 @@
 - Unites lineup : **127** ; kits COMPLETS (aucun manque detecte) : **124** ; kits avec du travail : **3**
 - Volume total : **3** items manquants (actives no-op + passifs/traits non registres)
 - HORS total — voies conditionnelles : **33** abilities non portees (11 mythiques, 22 reliques equipables)
-- HORS total — faces DECISION non portees : **14** actives sur 138, dont **14** dans des kits declares COMPLETS (13 kits concernes)
-- DECOMPTES par un verdict ATTESTE : **3** (et **0** attestation(s) PERIMEE(S), dont l'item est REDEVENU manquant) — section dediee plus bas, jamais tue
+- HORS total — faces DECISION non portees : **7** actives sur 138, dont **7** dans des kits declares COMPLETS (7 kits concernes)
+- DECOMPTES par un verdict ATTESTE : **6** (et **0** attestation(s) PERIMEE(S), dont l'item est REDEVENU manquant) — section dediee plus bas, jamais tue
 
 ### Priorite par faction (volume decroissant)
 
@@ -57,7 +57,7 @@
 |---|---|---|---|---|
 | thousDaemonPrince | 1 | AetherStride(1208) [-D] NO-OP SUMMON<br>InfernalCannon(1209) [CD] OK | - | - |
 
-## HORS total — faces DECISION non portees dans des kits COMPLETS (14)
+## HORS total — faces DECISION non portees dans des kits COMPLETS (7)
 
 > ⚠ **`missing` NE COMPTE QUE LA FACE COMBAT.** Une ability dont l'execution est
 > portee mais dont l'UTILITE de decision ne l'est pas rend `missing = 0` : le kit
@@ -75,22 +75,15 @@
 
 | unite | ability | id | categorie |
 |---|---|---:|---|
-| astarCyrus | StrikeFromTheShadows | 1225 | DAMAGE(Bolter) |
 | eldarJainZar | SilentDeath | 1068 | DAMAGE(Piercing) |
 | astraOrdnance | BasiliskBarrage | 1026 | DAMAGE(Blast) |
-| custoAtlacoya | TalonsOfTheEmperor | 1195 | DAMAGE(Power) |
-| custoBladeChampion | MartialInspiration | 1191 | DAMAGE(Eviscerate) |
 | deathCrawler | EntropyCannons | 1168 | DAMAGE(Energy) |
-| emperLucius | LashOfTorment | 1196 | DAMAGE(Eviscerate) |
-| emperNoiseMarine | ExcruciatingFrequencies | 1197 | DAMAGE(Blast) |
 | orksRukkatrukk | SquigLaunchas | 1200 | DAMAGE(Physical) |
-| adeptExorcist | DevastatingRefrain | 1188 | DAMAGE(Blast) |
 | spaceWolfPriest | RitesOfMorkai | 1211 | EFFECT/BUFF |
 | tauBroadside | HeavyRailRifle | 1160 | DAMAGE(Piercing) |
-| ultraDreadnought | DutyEternal | 1158 | SUMMON |
 | ultraDreadnought | MacroPlasmaIncinerator | 1159 | DAMAGE(Plasma) |
 
-## Verdicts ATTESTES — decomptes du total, et JAMAIS tus (3 valides, 0 perimees)
+## Verdicts ATTESTES — decomptes du total, et JAMAIS tus (6 valides, 0 perimees)
 
 > Un item peut manquer aux registres pour une raison parfaitement legitime : **le
 > natif n'a rien de propre a porter**, ou le mecanisme est porte par une voie SANS
@@ -114,16 +107,19 @@
 
 | item | verdict | ancrage | source | raison |
 |---|---|---|---|---|
+| active-decision:ExcruciatingFrequencies | PORTE_HORS_REGISTRE | `test_979_recenseur_faces_decision_offline.py` | docs/rl/case-979-recenseur-faces-decision.md#4 | Sa face DECISION est portee par un GENERATEUR bespoke appele EN DUR dans ComparableAbilityGenerator.generate (ligne `cands += excruciating_frequencies_candidates(ctx)`), pas par un registre : le playbook natif cible une TUILE (ligne-AoE) et ses evals ont rankCount=0, donc aucun `plan` ne l'amene. Son gate ShouldExecute (seuil statique Fix64(10)) y vit sous MIN_UTILITY, ce que `static_threshold_gate.NOT_REGISTERED` dit deja de son cote. Aucun conteneur de niveau module ne peut donc l'exprimer -- c'est exactement le cas que ce ledger existe pour porter. |
+| active-decision:LashOfTorment | RIEN_A_PORTER | `test_974_custodes_emperors_children_decision_offline.py` | docs/rl/case-979-recenseur-faces-decision.md#3 | IdunBattle.AI.Playbook.Loki.LashOfTormentPlaybook$$MakeDamagePredictions fait UN SEUL appel a ComparablePlaybook<T>$$GenerateMultiHitAttackPredictions, avec sel = this@+0x18 (le dsl) ->+0x90 ->+0x60 = DSLSelectors.Target, base = VigilanceEternalAbility$$GetDamage (= MinMaxDamage(state, isPrediction:0), forme (b)), hits = AActiveAbility$$GetHits, prof = Nullable(AActiveAbility$$GetDamageProfile), poids = Nullable VIDE. C'est le chemin GENERIQUE du port, terme pour terme : l'inscrire a un registre d'override serait un port SPECULATIF. Verdict etabli par #974, RELU au decompile par #979. |
 | active-decision:LeadingTheCharge | RIEN_A_PORTER | `test_945_loki_decision_faces_offline.py` | docs/rl/case-945-loki-faces-decision.md#7 | IdunBattle.AI.Playbook.Loki.LeadingTheChargePlaybook$$MakeDamagePredictions est STRUCTURELLEMENT identique au corps generique (que des appels DIRECTS aux corps de la classe de base : GetDamage -> AActiveAbility$$MinMaxDamage, GetHits, GetDamageProfile, GenerateMultiHitAttackPredictions). IL2CPP replique le corps de DefaultActiveAbilityPlaybook dans chaque specialisation : compter les symboles ne dit pas ce qui est surcharge. 1204 est deja dans _A_VIA_STAFF_OF_STARS_GET_DAMAGE (#344), qui EST le chemin generique du port. |
+| active-decision:StrikeFromTheShadows | RIEN_A_PORTER | `test_976_lot_astartes_astra_offline.py` | docs/rl/case-979-recenseur-faces-decision.md#3 | IdunBattle.AI.Playbook.Loki.StrikeFromTheShadowsPlaybook$$MakeDamagePredictions fait UN SEUL appel a GenerateMultiHitAttackPredictions ; son selecteur passe par StrikeFromTheShadowsAbility$$GetTarget, dont le corps entier est `return *(*(this+0x30)+0x90)+0x60` = DSLSelectors.Target -- donc PAS un selecteur propre. base/hits/prof = AActiveAbility generiques, poids Nullable VIDE. Verdict etabli par #976, RELU au decompile par #979 (le detour par GetTarget est ce qui pouvait le faire passer pour un override). |
 | passif:GalvanicField | RIEN_A_PORTER | `test_952_hunters_beyond_death_offline.py` | docs/rl/case-952-hunters-beyond-death-et-galvanic-field.md#3 | GalvanicFieldAbility$$CreateBehaviour = AddFlag(0x18 CanRepairFullHealthUnits) & RemoveActiveAbility(0x1c Repair) & AddActiveAbility(0x45f Repair_GalvanicField). Les trois feuilles ont leur consommateur porte (unit_flags -> entity_can_be_repaired ; ABILITY_CLASSES[1119] ; le port ne derive jamais Repair d'un trait, donc rien a retirer), et les deux utilites de GalvanicFieldPlaybook rendent Fix64(0) -- porter le playbook ajouterait un terme nul. |
 | trait:IndirectFire | PORTE_HORS_REGISTRE | `engine.services.targeting_query:INDIRECT_FIRE_TRAIT` | docs/rl/port-roadmap.md#5.1 | Le trait n'a ni trigger, ni ability derivee, ni owner-effect, ni classe d'effet homonyme : il est LU IMPERATIVEMENT par ses deux consommateurs, aux deux volets natifs. (1) elevation -- TargetingQuery$$GetTilesObscuringTerrain teste HasTrait(caster, 0x3ed) avant de poser le volet ObscuringType (services/targeting_query.py, INDIRECT_FIRE_TRAIT ; threade par ability_range._has_indirect_fire). (2) Trench -- le gate IsTrench(attackerTile)+IsNeighbourOf de la reduction (services/damage_modifiers.py, damage_model.py). |
 
 ## Kits lineup COMPLETS (124)
 
-> ⚠ **COMPLET = face COMBAT complete.** 13 de ces kits portent au moins une active
+> ⚠ **COMPLET = face COMBAT complete.** 7 de ces kits portent au moins une active
 > sans face DECISION (section precedente) — ils sont marques `*` ci-dessous.
 
-adeptCanoness, adeptCelestine, adeptExorcist*, adeptHospitaller, adeptMorvenn, adeptRetributor, admecDominus, admecManipulus, admecMarshall, admecRuststalker, astarCyrus*, astarLysander, astraBullgryn, astraCreed, astraDreir, astraOrdnance*, astraOrdnanceBattery, astraPrimarisPsy, astraYarrick, blackAbaddon, blackForgefiend, blackHaarken, blackObliterator, blackPossession, blackTerminator, bloodDante, bloodDeathCompany, bloodIntercessor, bloodMephiston, bloodSanguinary, bloodTerminator, custoAtlacoya*, custoBladeChampion*, custoKyrus, custoTrajann, custoVexilusPraetor, darkaAsmodai, darkaAzrael, darkaCompanion, darkaHellblaster, darkaSternguard, darkaStormSpeeder, darkaTerminator, deathBlightbringer, deathBlightlord, deathCrawler*, deathPutrifier, deathRotbone, deathTyphus, eldarAutarch, eldarFarseer, eldarJainZar*, eldarLhykhis, eldarMauganRa, eldarRanger, emperExultant, emperFlawlessBlade, emperKakophonist, emperLucius*, emperNoiseMarine*, genesBiophagus, genesKelermorph, genesMagus, genesPatriarch, genesPrimus, necroChronomancer, necroDestroyer, necroOverlord, necroPlasmancer, necroReanimator, necroSpyder, necroWarden, orksBigMek, orksKillaKan, orksNob, orksRukkatrukk*, orksRuntherd, orksWarboss, spaceBlackmane, spaceHound, spaceRockfist, spaceStormcaller, spaceWolfPriest*, spaceWulfen, tauAunShi, tauBroadside*, tauCrisis, tauDarkstrider, tauMarksman, tauShadowsun, templAggressor, templAncient, templChampion, templHelbrecht, templSwordBrother, thousAhriman, thousInfernalMaster, thousSekhetar, thousSorcerer, thousTerminator, thousTzaangor, tyranBiovore, tyranDeathleaper, tyranNeurothrope, tyranParasite, tyranTyrantGuard, tyranWingedPrime, ultraApothecary, ultraCalgar, ultraDreadnought*, ultraEliminatorSgt, ultraInceptorSgt, ultraTigurius, ultraTitus, votanBeserk, votanChampion, votanIronmaster, votanMemnyr, votanUthar, worldEightbound, worldExecutions, worldJakhal, worldKharn, worldTerminator
+adeptCanoness, adeptCelestine, adeptExorcist, adeptHospitaller, adeptMorvenn, adeptRetributor, admecDominus, admecManipulus, admecMarshall, admecRuststalker, astarCyrus, astarLysander, astraBullgryn, astraCreed, astraDreir, astraOrdnance*, astraOrdnanceBattery, astraPrimarisPsy, astraYarrick, blackAbaddon, blackForgefiend, blackHaarken, blackObliterator, blackPossession, blackTerminator, bloodDante, bloodDeathCompany, bloodIntercessor, bloodMephiston, bloodSanguinary, bloodTerminator, custoAtlacoya, custoBladeChampion, custoKyrus, custoTrajann, custoVexilusPraetor, darkaAsmodai, darkaAzrael, darkaCompanion, darkaHellblaster, darkaSternguard, darkaStormSpeeder, darkaTerminator, deathBlightbringer, deathBlightlord, deathCrawler*, deathPutrifier, deathRotbone, deathTyphus, eldarAutarch, eldarFarseer, eldarJainZar*, eldarLhykhis, eldarMauganRa, eldarRanger, emperExultant, emperFlawlessBlade, emperKakophonist, emperLucius, emperNoiseMarine, genesBiophagus, genesKelermorph, genesMagus, genesPatriarch, genesPrimus, necroChronomancer, necroDestroyer, necroOverlord, necroPlasmancer, necroReanimator, necroSpyder, necroWarden, orksBigMek, orksKillaKan, orksNob, orksRukkatrukk*, orksRuntherd, orksWarboss, spaceBlackmane, spaceHound, spaceRockfist, spaceStormcaller, spaceWolfPriest*, spaceWulfen, tauAunShi, tauBroadside*, tauCrisis, tauDarkstrider, tauMarksman, tauShadowsun, templAggressor, templAncient, templChampion, templHelbrecht, templSwordBrother, thousAhriman, thousInfernalMaster, thousSekhetar, thousSorcerer, thousTerminator, thousTzaangor, tyranBiovore, tyranDeathleaper, tyranNeurothrope, tyranParasite, tyranTyrantGuard, tyranWingedPrime, ultraApothecary, ultraCalgar, ultraDreadnought*, ultraEliminatorSgt, ultraInceptorSgt, ultraTigurius, ultraTitus, votanBeserk, votanChampion, votanIronmaster, votanMemnyr, votanUthar, worldEightbound, worldExecutions, worldJakhal, worldKharn, worldTerminator
 
 ## HORS total — voies conditionnelles (33 abilities non portees)
 

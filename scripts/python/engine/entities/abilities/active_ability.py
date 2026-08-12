@@ -1474,6 +1474,14 @@ _NONCOMPARABLE_ABILITIES: "frozenset[str]" = frozenset({
     # depuis `minDmg`/`maxDmg` que le natif n'emet jamais.
     "EuphoricStrikes",    # 1198 IdunBattle.AI.Playbook.Loki.EuphoricStrikesPlaybook$$EvaluateNonComparable
                           # ; util = PV courants de la cible, VETO `WillNormalAttackKill`
+    # --- #979 : base `NonComparablePlaybook`1` LUE dans `frida/classes.tsv` (le `.ctor` NOMME
+    # `ComparablePlaybook<...>` -- corps trivial deduplique, meme piege verifie 5/5 par #976). Le
+    # gameconfig de 1188 PORTE `minDmg`/`maxDmg`/`damageProfile: Blast`/`nrOfHits: 1` (c'est la
+    # PHASE 2, le barrage differe), donc sans cette entree `makes_damage_predictions` rendait True
+    # et le port FABRIQUAIT un `ProbableDamageEvent` que le natif n'emet jamais : son playbook n'a
+    # AUCUN `Make*Predictions`, il COMPTE des occupants.
+    "DevastatingRefrain",  # 1188 IdunBattle.AI.Playbook.Loki.DevastatingRefrainPlaybook$$EvaluateNonComparable
+                           # ; util = 1 + #ennemis occupant la forme ancree sur la tuile visee
 })
 
 

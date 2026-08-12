@@ -21,6 +21,9 @@ DECLENCHEUR = {
         # qui l'a fait apparaitre, et `probe_486r15` l'a vu -- un declencheur trop etroit est un
         # FAUX VERT (le fichier ne se rejoue pas quand ce qu'il garde a bouge).
         "scripts/python/coverage_attestations.py",
+        # #979 : `audit_kit_coverage` lit desormais le foyer `decision_face_voies` au lieu de sa
+        # propre liste blanche de registres -- il entre donc dans la meme cascade, par la meme voie.
+        "scripts/python/decision_face_voies.py",
         # les deux ports et leurs registres
         "scripts/python/engine/entities/effects/loki/summary_execution.py",
         "scripts/python/engine/runner/operations/triggers/loki/summary_execution.py",

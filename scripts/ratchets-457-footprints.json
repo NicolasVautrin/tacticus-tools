@@ -5514,6 +5514,44 @@
     "frida/hooks/data/ability-names.ts"
    ]
   },
+  "tests/engine/test_979_ports_decision_offline.py": {
+   "_at": 1786547243,
+   "_commit": "5f71ba1012c6dcbea31083e922f8fbdda8e6a80b",
+   "dirs": [],
+   "py": [],
+   "temoins": []
+  },
+  "tests/engine/test_979_recenseur_faces_decision_offline.py": {
+   "_at": 1786547243,
+   "_commit": "5f71ba1012c6dcbea31083e922f8fbdda8e6a80b",
+   "dirs": [
+    "data",
+    "data/symbols",
+    "scripts",
+    "scripts/python/engine/entities/abilities",
+    "scripts/python/engine/playbook",
+    "scripts/python/engine/playbook/noncomparable",
+    "scripts/python/engine/playbook/prediction"
+   ],
+   "py": [
+    "scripts/python/engine/entities/abilities",
+    "scripts/python/engine/playbook",
+    "scripts/python/engine/playbook/noncomparable",
+    "scripts/python/engine/playbook/prediction"
+   ],
+   "temoins": [
+    "data/i2_en.json",
+    "data/symbols/CURRENT",
+    "scripts/python/engine/entities/abilities/active_ability.py",
+    "scripts/python/engine/playbook/__init__.py",
+    "scripts/python/engine/playbook/noncomparable/__init__.py",
+    "scripts/python/engine/playbook/noncomparable/war_howl.py",
+    "scripts/python/engine/playbook/prediction/__init__.py",
+    "scripts/python/engine/playbook/prediction/ramming_speed.py",
+    "scripts/python/engine/playbook/tile_targets.py",
+    "scripts/ratchets-951r2-couverture-attestee.json"
+   ]
+  },
   "tests/engine/test_effect_1582_inertia_binary.py": {
    "_at": 1786392144,
    "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
@@ -7941,6 +7979,13 @@
     "scripts/python/tests/test_symbols_coverage_guard_offline.py",
     "scripts/python/verdict_cache.py"
    ]
+  },
+  "tests/test_976_lot_astartes_astra_offline.py": {
+   "_at": 1786547243,
+   "_commit": "5f71ba1012c6dcbea31083e922f8fbdda8e6a80b",
+   "dirs": [],
+   "py": [],
+   "temoins": []
   },
   "tests/test_additional_hits_variant_signatures_offline.py": {
    "_at": 1786392144,
