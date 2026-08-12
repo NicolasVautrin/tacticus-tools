@@ -39,7 +39,7 @@ class GeminaeSuperiaPlaybook:
     `IdunBattle.AI.Playbook.Loki.GeminaeSuperiaPlaybook.u003CCalculateMovementUtilityInStepsInternalu003Ed__3$$MoveNext`
     remis en C# depuis le decompile :
 
-        tile = UtilityAttackCase.get_CasterTile(case)                    // la TUILE CANDIDATE
+        tile = IdunBattle.AI.Utilities.UtilityMovementCase$$get_MovementTile(case)  // la TUILE CANDIDATE
         free = CanAddUnit(AdjacentTiles(Get(tile)))
         val  = config["GEMINAESUPERIA_FreeAdjacentHex"] * free.Count(entities)
         if (Count(AdjacentUnits(Get(tile), 1, 3) & Get(case.unit)) == 1)  // = OwnerInAdjacentTile
@@ -51,6 +51,11 @@ class GeminaeSuperiaPlaybook:
 
     Les DEUX cles BC sont dans `Utilities.Default.TriggeredAbilities` :
     `GEMINAESUPERIA_FreeAdjacentHex` = 10, `GEMINAESUPERIA_AdjacentAliveSummon` = 30.
+
+    (⚠ La citation `UtilityAttackCase.get_CasterTile` qui vivait ici jusqu'a #963 etait FAUSSE : le
+    decompile appelle `IdunBattle.AI.Utilities.UtilityMovementCase$$get_MovementTile` -- un
+    `UtilityMovementCase`, pas un `UtilityAttackCase`. Le CODE, lui, etait juste : les TROIS termes
+    ont ete re-confrontes au decompile pour #963 et sont fideles.)
 
     Terme 2 — `IdunBattle.AI.Playbook.Loki.GeminaeSuperiaPlaybook$$OwnerInAdjacentTile` est une
     methode NOMMEE du playbook (meme corps, inline dans l'iterateur) : « l'unite qui evalue est-elle

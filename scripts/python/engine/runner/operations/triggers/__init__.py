@@ -16,7 +16,8 @@ from .dispatch.ability import (pre_unit_ability_triggers, unit_ability_triggers,
                                unit_post_ability_triggers)
 from .dispatch.attack import (
     after_hit_ability_attack, after_hit_normal_attack, attack_damage_attack_triggers,
-    finish_attack_triggers, pre_attack_triggers
+    finish_attack_triggers, pre_attack_triggers,
+    pre_damage_taken_triggers          # #963 -- `On(0x39 = PreDamageTaken)`, sans emetteur avant
 )
 from .dispatch.core import (
     collect_effect_triggers, collect_triggered_abilities, evaluate_trigger_operation
@@ -68,7 +69,7 @@ __all__ = [
     "unit_resurrected_triggers", "pre_unit_death_2_triggers", "pre_effect_added_triggers",
     "effect_added_triggers", "pre_effect_removed_triggers", "effect_removed_triggers",
     "unit_revived_triggers", "pending_death_added_triggers",
-    "post_unit_kill_triggers", "arrived_at_final_tile_triggers",
+    "post_unit_kill_triggers", "arrived_at_final_tile_triggers", "pre_damage_taken_triggers",
     "pre_move_triggers", "unit_position_changed_1_triggers", "unit_position_changed_2_triggers",
     "unit_removed_triggers", "phase_end_triggers",
     "_fire_of_absolution_after_attack", "OnFireDamageAbility", "OnToxicDamageAbility",

@@ -596,6 +596,41 @@ class IconOfObstinacyPlaybook(AdjacentToOwnerNonOwnerPlaybook):
         return float(wt.sub("TriggeredAbilities", self.KEY))
 
 
+class RedRampagePlaybook(AdjacentUnitPreferenceTriggeredAbilityPlaybook):
+    """`RedRampagePlaybook` (`IdunBattle.AI.Playbook.Loki.RedRampagePlaybook` -- passif de kit
+    `RedRampage` 0x60f = 1551 de `bloodTerminator` << Cezare >>, #963).
+
+    ⚠ PARENTE LUE dans `frida/classes.tsv` :
+    `AdjacentUnitPreferenceTriggeredAbilityPlaybook<...RedRampage_AttackAbility>` -- la base
+    DIRECTE, **pas** `AdjacentToOwnerNonOwnerPlaybook` (meme piege de mislabel que `Deathwing` /
+    `IconOfObstinacy`). Et le parametre generique dit lequel des DEUX artefacts natifs du kit porte
+    la face DECISION : `RedRampage_AttackAbility`, jamais `_BuffAbility`.
+
+    `IdunBattle.AI.Playbook.Loki.RedRampagePlaybook$$GetAdjacentEnemyUtility` -- **LOOKUP PLAT**,
+    corps ENTIER relu au decompile :
+
+        return getUtilityVal( <champ statique pose par le .cctor> );
+
+    Le `.cctor` (`RedRampagePlaybook$$.cctor`) ecrit ce champ avec le literal `0x33be408`, LU dans
+    `data/symbols/<build>/metadata/string_literals.tsv` = **`"RedRampage_LikesAdjacentEnemies"`**
+    (poids BC `Utilities.Default.TriggeredAbilities` = **20**). La cle n'est PAS derivable du nom de
+    l'ability : la casse n'est ni celle de `MEDICUSMINISTORUM_` ni celle de `GuardianOrganism` --
+    c'est la lecon de `SPIRITUALLDEADER_` (#212).
+
+    Le parametre `enemy` n'est lu par AUCUNE instruction (aucun gate de faction/trait/profil,
+    contraste `Deathwing`/`FearedInterrogator`/`CursedPlagueBell`).
+
+    AUCUN `GetAdjacentFriendUtility` propre (`methods.tsv` ne donne a cette classe que
+    `GetAdjacentEnemyUtility`, `.ctor` et `.cctor`) -> la branche AMIS garde le 0.0 de la base.
+
+    Terme = 20 x #ennemis a distance 1 de la tuile candidate. Il pousse Cezare a finir son
+    deplacement AU CONTACT du plus d'ennemis possible -- exactement ce que son passif recompense
+    (`RedRampage_AttackAbility` frappe TOUS les ennemis adjacents a l'arrivee)."""
+
+    def get_adjacent_enemy_utility(self, unit: dict, wt) -> float:
+        return wt.sub("TriggeredAbilities", "RedRampage_LikesAdjacentEnemies")
+
+
 class DeathwingPlaybook(AdjacentUnitPreferenceTriggeredAbilityPlaybook):
     """`DeathwingPlaybook` (`IdunBattle.AI.Playbook.Loki.DeathwingPlaybook$$.ctor` : litteral
     `0x4dd` = 1245 `TriggeredAbilityType.Deathwing` -- passif de `darkaTerminator` << Baraqiel >>,
@@ -683,6 +718,10 @@ TRIGGERED_MOVE_PLAYBOOKS: dict = {
     # case-165b — meme famille « corps propre », mais elle compte des TUILES LIBRES (pas des amis) :
     # `10 x |CanAddUnit(AdjacentTiles(tuile))|`. Constante en plein plateau, DECISIVE au bord.
     int(TriggeredAbilityType.GeminaeSuperia): GeminaeSuperiaPlaybook(),         # 1048
+    # #963 -- LOOKUP PLAT sur `RedRampage_LikesAdjacentEnemies` (= 20), branche ENNEMIS, base
+    # DIRECTE (`AdjacentUnitPreferenceTriggeredAbilityPlaybook<RedRampage_AttackAbility>` lu dans
+    # `classes.tsv`). Porteur `bloodTerminator`, HORS POOL -> injection catalogue.
+    int(TriggeredAbilityType.RedRampage): RedRampagePlaybook(),                 # 1551
     # #193c — les deux premiers concrets dont `GetAdjacent*Utility` LIT son argument `unit`.
     # Porteurs POOL-HERO au rank courant (`rl_duel build --list-pool`) : darkaAsmodai, blackTerminator.
     int(TriggeredAbilityType.FearedInterrogator): FearedInterrogatorPlaybook(),  # 1235 (gate faction)

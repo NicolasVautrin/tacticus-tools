@@ -940,8 +940,11 @@ ABILITY_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
     #                     unitFeetTiles = null, selectionType 1 OnlyAlive, ignoreUnitHavingAbility 0)`
     # avec `GetPossibleSpawnTiles` = `CanAddUnit(AdjacentTiles(Owner) op_Subtraction
     # PendingMovingTile(Owner))` et `SummonLimit` = `!AmountIsEqualOrGreater(UnitsWithId(
-    # Children(Owner), GetStringConstant(0), 0 Any), Get(2))` -- le « twice per battle » de l'i2 est
-    # un cap sur les Geminae VIVANTES, pas un compteur d'usages.
+    # Children(Owner), GetStringConstant(0), 0 Any), Get(2))`. ⚠ Le `0` du `UnitsWithId` est
+    # `UnitSelectionType.Any` et `DSLSelectors$$Children` n'a AUCUN filtre `alive` : le cap compte
+    # donc les Geminae POSEES, MORTES COMPRISES -- c'est bien le « twice per battle » de l'i2, pas
+    # « deux vivantes a la fois ». Et `Get(2)` est le LITTERAL 2, ecrit dans l'ability native, pas
+    # une variable de config.
     # ⚠ La face DECISION (`IdunBattle.AI.Playbook.Loki.GeminaeSuperiaPlaybook`) etait DEJA portee
     # depuis case-165b (`engine/playbook/geminae_superia.py`) ; seule la face COMBAT manquait, et
     # DEUX lecteurs de l'effet 1061 l'attendaient (`operations/spawn.py`, `abilities/loki/momentum.py`,

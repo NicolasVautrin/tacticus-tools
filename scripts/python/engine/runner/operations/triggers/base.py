@@ -39,7 +39,7 @@ class TriggerEvent:
                  "killer_id", "dying_id", "player_id", "overkill", "ability_type", "profiles",
                  "triggering_effect", "is_first_hit", "triggering_ability", "dest_tile",
                  "health_damage", "was_block", "is_normal_attack", "movement_steps",
-                 "attack_used_attack_damage")
+                 "attack_used_attack_damage", "is_first_damaging_hit")
 
     def __init__(self, event_id: int, actor_id: int, target_id: int, *,
                  ranged: bool, profile: Optional[str], is_crit: bool = False,
@@ -53,7 +53,8 @@ class TriggerEvent:
                  health_damage: Optional[int] = None, was_block: Optional[bool] = None,
                  is_normal_attack: Optional[bool] = None,
                  movement_steps: Optional[int] = None,
-                 attack_used_attack_damage: Optional[bool] = None):
+                 attack_used_attack_damage: Optional[bool] = None,
+                 is_first_damaging_hit: Optional[bool] = None):
         self.event_id = event_id
         self.actor_id = actor_id
         self.target_id = target_id
@@ -125,6 +126,18 @@ class TriggerEvent:
         # ici = « pas d'index de coup dans cet evenement » = `IsFirstHitInSeries` FAUX. Consommateur :
         # ThrillSeekers (branche 1).
         self.is_first_hit = is_first_hit
+        # `AbilityEntities+0x118` = **`isFirstDamagingHit`** (nom LU verbatim, 29e parametre nomme du
+        # ctor a 32 parametres d'`IdunBattle.Entities.Abilities.AbilityEntities$$.ctor`, juste avant
+        # `movementSteps` @+0x11c). TROISIEME champ de la famille, DISTINCT des deux autres -- et
+        # c'est mesure, pas suppose : `get_IsFirstHit` lit **+0x108**, `get_IsFirstHitGroup` lit
+        # **+0x110**, et `IdunBattle.Entities.Triggers.IsFirstDamagingHitInSeriesTrigger$$
+        # ShouldTrigger` lit **+0x118 DIRECTEMENT**, sans passer par aucun getter.
+        # Canal UNIQUE du noeud `IdunBattleLogic.Entities.DSLTriggers$$IsFirstDamagingHitInSeries`.
+        # TRI-ETAT : `None` = non threade sur cet event (le `Nullable` vide du natif -> le trigger
+        # rend `false`, cf. `IsFirstDamagingHitInSeriesTrigger$$ShouldTrigger`).
+        # SEUL emetteur qui le renseigne : `IdunBattle.Operations.ApplyDamageOperation$$Execute`
+        # (vecteur `pre_damage_taken_triggers`, `On(0x39 = PreDamageTaken)`).
+        self.is_first_damaging_hit = is_first_damaging_hit
         # L'`AbilityOrEffect` de la TRIGGERED-ABILITY dont l'execution a engendre cet evenement.
         #
         # ATTENTION AU NOM (case-292, RE relue sur le build `rnca9r7q6c`) : ce canal mirror en

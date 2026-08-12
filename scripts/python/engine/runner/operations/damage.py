@@ -733,6 +733,30 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
         fl_entry = tgt.get_component(UnitFlagsComponent) if tgt is not None else None
         if fl_entry is not None and fl_entry.has(UnitFlagsComponent.OVERKILLED):
             return None
+        # `On(PreDamageTaken = 0x39)` — #963. PREMIER des TROIS events d'`IdunBattle.Operations.
+        # ApplyDamageOperation$$Execute` (`0x39` -> `0xf` -> `0x10`, LU aux octets : les trois
+        # publications sont aux memes points de sortie du decompile). Il vit ICI, entre le gate
+        # `Overkilled` du SITE (A) ci-dessus et la mutation de PV : la victime est encore a PLEINE
+        # VIE quand il part. Gate natif = `0 < DamageAppliedResult.get_Damage(result)`, donc le
+        # degat de CE coup, pas le degat demande.
+        # ⚠ Ce vecteur n'existait PAS avant ce commit (0 emetteur sur 40 types) : le trigger de
+        # `GeminaeSuperia` y serait entre MORT. Aucun autre consommateur ne l'ecoute -> no-op (et
+        # ZERO conso RNG) pour toute unite non-porteuse.
+        # GRANULARITE : le natif emet PAR COUP, le port a un chokepoint PAR GROUPE -- meme regime,
+        # deja assume, que ses deux freres `On(0xf)` / `On(0x10)`.
+        # lazy : cycle damage<->triggers. Forme MODULE (cf. le meme import quelques lignes plus bas) :
+        # l'attribut est relu a l'appel, donc une substitution posee sur `dispatch.attack` mord.
+        from .triggers.dispatch import attack as attack_dispatch
+        if int(total or 0) > 0:
+            attack_dispatch.pre_damage_taken_triggers(
+                state, attacker_id, target_id, profile=profile,
+                # `isFirstDamagingHit` (`AbilityEntities+0x118`). Le port ne deroule pas les coups
+                # au chokepoint : il rend « CE groupe contient le coup d'index 0 », la MEME
+                # approximation que `is_first_hit` pour `On(0x10)`. ECART NOMME (#963-r2) : si le
+                # coup d'index 0 inflige 0 (bloque entierement), le natif marque le PREMIER coup
+                # damageant suivant, le port n'en marque AUCUN -- degradation RESTRICTIVE, jamais
+                # permissive.
+                is_first_damaging_hit=is_first_hit)
         applied = thc.reduce(total)         # #G6a : clamp au HP-floor Hypersensory, pas de PV<0
         # #462-r4e-o-r1 : `HealthComponent.reduce` a accumule `+0x24` sur le total du GROUPE ; le
         # natif l'accumule PAR COUP et n'appelle pas `Reduce` pour un coup gate par le SITE (A).
@@ -751,7 +775,10 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
         if applied > 0:
             attack_dispatch.damage_taken_triggers(state, attacker_id, target_id, profile=profile)
         # `On(DamageDealt=0x10)` (#85) — le TROISIEME et DERNIER event de
-        # `IdunBattle.Operations.ApplyDamageOperation$$Execute` (sequence `0x3a` -> `0xf` -> `0x10`).
+        # `IdunBattle.Operations.ApplyDamageOperation$$Execute` (sequence `0x39` -> `0xf` -> `0x10`).
+        # (`0x3a` ecrit ici jusqu'a #963 etait une COQUILLE : `0x3a` = `PhaseEnd`, pas
+        # `PreDamageTaken`. Les trois publications ont ete relues aux octets, cf. le bloc `On(0x39)`
+        # ci-dessus.)
         #
         # case-221 : son gate n'est PAS celui de `On(0xf)`. RELECTURE du decompile — les deux emissions
         # vivent dans des blocs DISTINCTS, avec des conditions distinctes :

@@ -137,14 +137,45 @@ class IsFirstHitInSeries(AbilityTrigger):
         return v.HasValue ? v.Value : false;
 
     ou `IdunBattle.Entities.Abilities.AbilityEntities$$get_IsFirstHit` lit le `DamageAppliedResult` du
-    coup courant (champ +0x110) et rend `IdunBattle.Core.Services.DamageAppliedResult$$get_IsFirstHit`
+    coup courant (champ **+0x108**) et rend `IdunBattle.Core.Services.DamageAppliedResult$$get_IsFirstHit`
     = `hitIndex == 0`. Autrement dit : « le coup courant est le PREMIER de la serie de coups ».
 
     Cote port, `ctx.is_first_hit` est pose par le vecteur qui evalue l'arbre (defaut None -> False,
-    mirror du `!HasValue`). Frere de `IsFirstHitGroupInAttack`
-    (`IdunBattleLogic.Entities.DSLFactory$$IsFirstHitGroupInAttack`, champ +0x118), NON porte."""
+    mirror du `!HasValue`).
+
+    ⚠ TROIS champs voisins, RE-MESURES (#963) -- les deux citations d'offset qui vivaient ici etaient
+    FAUSSES, et suivre l'une d'elles faisait porter le mauvais champ :
+      * `get_IsFirstHit`       -> `AbilityEntities+0x108` (et non `+0x110`) ;
+      * `get_IsFirstHitGroup`  -> `AbilityEntities+0x110`, lu par
+        `Idun.Source.IdunBattle.Logic.Entities.Triggers.IsFirstHitGroupInAttackTrigger$$ShouldTrigger`
+        (et non `+0x118`) -- noeud `DSLTriggers$$IsFirstHitGroupInAttack`, toujours NON porte ;
+      * `isFirstDamagingHit`   -> `AbilityEntities+0x118`, 29e parametre NOMME du ctor, lu
+        DIRECTEMENT (sans getter) par `IsFirstDamagingHitInSeriesTrigger$$ShouldTrigger` -- noeud
+        `DSLTriggers$$IsFirstDamagingHitInSeries`, porte depuis #963 (`IsFirstDamagingHitInSeries`
+        ci-dessous)."""
     def should_trigger(self, ctx):
         v = ctx.is_first_hit
+        return bool(v) if v is not None else False   # Nullable<bool> : `HasValue ? Value : false`
+
+
+class IsFirstDamagingHitInSeries(AbilityTrigger):
+    """`IdunBattleLogic.Entities.DSLTriggers$$IsFirstDamagingHitInSeries()` ->
+    `IdunBattle.Entities.Triggers.IsFirstDamagingHitInSeriesTrigger$$ShouldTrigger` (MIRROR 1:1) :
+
+        var v = entities.<+0x118 isFirstDamagingHit>;     // Nullable<bool>, AUCUN getter
+        return v.HasValue ? v.Value : false;
+
+    ⚠ CE N'EST PAS `IsFirstHitInSeries` : ce trigger-la passe par `get_IsFirstHit` (`+0x108` =
+    `hitIndex == 0`), celui-ci lit un champ DISTINCT que seul
+    `IdunBattle.Operations.ApplyDamageOperation$$Execute` renseigne -- « le coup courant est le
+    PREMIER de la serie a infliger effectivement du DEGAT ». Les confondre donnerait un gate qui
+    fire sur un coup entierement bloque.
+
+    Cote port, `ctx.is_first_damaging_hit` est pose par le vecteur `pre_damage_taken_triggers`
+    (`On(0x39 = PreDamageTaken)`, cree par #963 -- il n'avait AUCUN emetteur avant). Defaut None ->
+    False, mirror du `!HasValue`. Consommateur : `GeminaeSuperiaAbility`."""
+    def should_trigger(self, ctx):
+        v = getattr(ctx, "is_first_damaging_hit", None)
         return bool(v) if v is not None else False   # Nullable<bool> : `HasValue ? Value : false`
 
 
