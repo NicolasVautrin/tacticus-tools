@@ -46,6 +46,39 @@ if str(PYDIR) not in sys.path:
 
 import probe_971_summon_decision_faces as P971      # noqa: E402
 
+#: Ce qui doit changer pour que ce fichier puisse changer de verdict. Le perimetre couvre les
+#: TROIS feuilles portees, leur registre, la base NC (`MIN_UTILITY`, `NATIVE_PRIORITY`,
+#: `eligible_target_tiles`), le foyer des positions castables, les deux primitives spatiales dont
+#: les trois utilites dependent (`is_adjacent` / `adjacent_addable_count` / `are_entities_adjacent`
+#: vivent dans `battle_query.py`), le routage caster Machine, et les DEUX probes qui portent le
+#: harnais de montage.
+DECLENCHEUR = {
+    "chemins": ("scripts/python/engine/playbook/noncomparable/waaagh.py",
+                "scripts/python/engine/playbook/noncomparable/spore_mine_launcher.py",
+                "scripts/python/engine/playbook/noncomparable/ironkin_steeljack.py",
+                "scripts/python/engine/playbook/noncomparable/__init__.py",
+                "scripts/python/engine/playbook/noncomparable/_base.py",
+                "scripts/python/engine/ai/cast_positions.py",
+                "scripts/python/engine/ai/context.py",
+                "scripts/python/engine/battle_query.py",
+                "scripts/python/engine_validate.py",
+                "scripts/python/probe_971_summon_decision_faces.py",
+                "scripts/python/probe_r14_mow_decision.py",
+                # Fermeture d'imports du montage : les deux probes tirent `rl_duel` (build du
+                # runner, seed BC, pool) et sa cascade.
+                "scripts/python/rl_duel.py",
+                "scripts/python/board.py",
+                "scripts/python/oracle.py",
+                "scripts/python/rl_probe_step.py",
+                "scripts/python/runner_state.py"),
+    "build": False,
+    "toujours": False,
+    "raison": "Il confronte les trois faces DECISION de categorie SUMMON (1058/1145/1219) a "
+              "l'oracle natif : les trois feuilles, leur registre, la base NC, le foyer des "
+              "positions castables, les primitives spatiales dont les utilites dependent, le "
+              "routage caster Machine, et les deux probes qui portent le montage.",
+}
+
 
 def _sid():
     try:
