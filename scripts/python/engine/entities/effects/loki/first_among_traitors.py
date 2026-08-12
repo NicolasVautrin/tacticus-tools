@@ -223,7 +223,18 @@ class FirstAmongTraitorsExtraDmgEffect(BaseEffect):
         montage `blackTerminator` (Chaos + `TeleportStrike`) a distance 1 d'Abaddon : le port lui
         accorde le bonus et l'oracle NATIF est en ACCORD sur les 25 tuiles candidates. Ajouter le
         gate serait un ecart RESTRICTIF. Cran : `test_926_first_among_traitors_live.py::
-        test_un_ami_NON_CIBLABLE_recoit_quand_meme_le_bonus`."""
+        test_un_ami_NON_CIBLABLE_recoit_quand_meme_le_bonus`.
+
+        ⚠ **ET L'ASYMETRIE N'EST PAS DANS LE SELECTEUR (#926-r1)** : les deux `CreateTargetSelector`
+        ont ete decompiles COTE A COTE et ouvrent sur le MEME
+        `IdunBattleLogic.Entities.DSLSelectors$$SurroundingFriends(Owner@+0x30, <range>, unique = 1,
+        unitSelectionType = 3)` -- celui-ci n'ajoute qu'un `UnitsWithTrait(_, 0x7ea, 3)`. Ce qui
+        differe est la FENETRE de re-evaluation : `...FirstAmongTraitors_ExtraDmgEffect$$GetRefreshTriggers`
+        RESTREINT a `{ UnitsChanged = 5, UnitPositionChanged = 7 }` (ecrit INLINE, donc lisible ;
+        `EffectsChanged = 4` en est ABSENT) la ou les deux `LionHelm_*` ne declarent AUCUNE surcharge
+        -- defaut `null`, que `BaseEffect$$ShouldRefreshForTrigger` traite comme << tout trigger >>.
+        Sur-ensemble STRICT. Le raisonnement complet, la refutation de la cause << flag pas encore
+        visible >>, et ce qui reste ouvert : `entities/effects/aura_selectors.py::is_targetable`."""
         c = ctx or {}
         if c.get("att_id") == c.get("owner_id"):
             return None                                # `- Tiles(Owner)` : le porteur est exclu

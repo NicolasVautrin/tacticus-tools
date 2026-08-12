@@ -219,11 +219,14 @@ class EffectsState:
             if e.one_shot:
                 e.consumed = True
 
-    def on_turn_end(self, unit_id: int, attacked: bool) -> None:
+    def on_turn_end(self, unit_id: int, attacked: bool, state=None) -> list:
         """Fin de tour de l'ENTITÉ PORTEUSE (unité **ou tuile** — cf. ci-dessous) : retrait des effets
         « removed-after-attack » si elle a attaqué, puis décrément des timers, puis RETRAIT des instances
         arrivées à 0, puis CASCADE composite : un effet PARENT disparu (expiré/consommé) retire ses
         ENFANTS (lien `parent_type`).
+
+        Renvoie la liste des `effect_type` retirés PAR ÉCHÉANCE (trace ; la cascade et le
+        `removed_after_attack` n'y sont pas).
 
         DOMAINE — `IdunBattle.Operations.EndTurnOperation$$RefreshEffects` n'itère PAS les unités : il
         énumère **TOUTES les entités-EFFET du state** (la MÊME collection générique que consomme
@@ -253,8 +256,45 @@ class EffectsState:
         Mirror du cycle de vie natif d'un effet composite (ex. Stunned 1162) : à l'expiration du parent,
         `<Effect>.RevertInternal` (IdunBattle.Entities.Effects.Loki.StunnedEffect$$RevertInternal) fait `RemoveEffect` de ses enfants permanents (1166/1167)
         et l'enfant same-turns (1165) expire sur son propre timer synchronisé — NET : toute la famille
-        part ensemble. La cascade `parent_type` reproduit ce NET (et couvre le retrait anticipé du parent)."""
+        part ensemble. La cascade `parent_type` reproduit ce NET (et couvre le retrait anticipé du parent).
+
+        ## `state` — LE RETRAIT PASSE PAR LE FOYER, IL N'EST PAS UNE MARQUE (#936-r1)
+
+        Le décrément et le retrait sont DEUX Operations natives distinctes, et c'est LU :
+        `IdunBattle.Operations.EndTurnOperation$$RefreshEffects` n'appelle que
+        `IdunBattle.Entities.Components.EffectComponent$$RemoveOneTurn` (plus ses events de flux) ;
+        c'est l'appel du slot 0x2f qui SUIT sa boucle (`RefreshEffectOptions(trigger =
+        RefreshEffectTrigger.TurnChanged)`) qui atteint
+        `IdunBattle.Operations.RefreshEffectsOperation$$RefreshEffect`, lequel, sur
+        `EffectComponent$$ShouldBeRemoved`, fait `RefreshEffectsOperation$$DeactivateEffect` PUIS
+        enfile une `System.Action` différée. Cette action est
+        `RefreshEffectsOperation.<>c__DisplayClass9_0$$<RemoveEffect>b__0`, dont le corps ENTIER est
+        le **slot 0x11** de `Core.Services.OperationProcessor` sur l'entité-effet capturée — donc
+        `IdunBattle.Operations.RemoveEffectOperation$$Execute`, le MÊME corps qu'un retrait explicite.
+        ⇒ une expiration par TIMER publie `On(0x3f = PreEffectRemoved)`, `On(0x40 = EffectRemoved)`
+        et, sous son gate de type, `On(0x3b = UnitBecameTargetable)`.
+
+        Le port posait ici `consumed = True` en direct : les trois vecteurs n'étaient émis NULLE PART
+        sur cette voie, et le NOM de l'effet restait collé à l'`EffectsOwnedComponent` du porteur.
+        Quand `state` est fourni, la branche « échéance » route par
+        `runner/operations/remove_effects.py::remove_effect_instance` — le foyer unique du corps natif.
+
+        REPLI `state is None` = `consumed = True`, le comportement strictement antérieur. Il n'est pas
+        une alternative : c'est le régime d'un `EffectsState` SANS `OperationProcessor` (la face
+        DÉCISION n'a pas de `runner.State`, et rien n'y appelle ce tick). Le chemin de production
+        (`runner/operations/turnflow.py`, `EndTurnOperation`) passe TOUJOURS `state`.
+
+        ⚠ ÉCART D'ORDRE NOMMÉ : le natif reverte via `DeactivateEffect` AVANT d'enfiler l'action, donc
+        avant `On(0x3f)` ; `remove_effect_instance` publie `On(0x3f)` puis reverte (c'est l'ordre du
+        corps de `RemoveEffectOperation$$Execute`, où le revert est conditionné par `IsActive`, déjà
+        remis à 0 par le `DeactivateEffect` qui précède). Inobservable tant qu'aucun consommateur porté
+        n'écoute `On(0x3f)` — il n'y en a aucun.
+
+        ⚠ Les ENFANTS d'un composite expiré restent pris par la cascade `parent_type` ci-dessous, qui
+        pose `consumed` sans passer par le foyer : ils ne publient donc pas leurs propres vecteurs.
+        Écart PRÉEXISTANT, hors de cette voie (résidu #936-r1-r1)."""
         lst = self.by_unit.get(int(unit_id), [])
+        due: list = []
         for e in lst:
             if e.removed_after_attack and attacked:
                 e.consumed = True
@@ -262,8 +302,24 @@ class EffectsState:
                 continue                       # gate natif `!Removed && HasTurns`
             if e.remaining_turns > 0:          # `RemoveOneTurn` : décrément CLAMPÉ à 0
                 e.remaining_turns -= 1
-            if e.remaining_turns <= 0:         # `ShouldBeRemoved` -> DeactivateEffect + retrait
-                e.consumed = True
+            if e.remaining_turns <= 0:         # `ShouldBeRemoved` -> DeactivateEffect + RemoveEffect
+                due.append(e)
+        removed: list = []
+        if due:
+            if state is None:
+                for e in due:
+                    e.consumed = True          # REPLI (cf. docstring) : la marque, sans le foyer
+                    removed.append(e.effect_type)
+            else:
+                # Import DIFFÉRÉ **PORTEUR** et forme B (module, pas symbole) : le foyer vit sous
+                # `engine.runner`, dont l'`State` porte ce même `EffectsState` -- hisser fermerait le
+                # cycle `entities.effects_state -> runner.operations.remove_effects -> runner.state
+                # -> entities.effects_state`. Le module reste substituable par `monkeypatch.setattr`.
+                from ..runner.operations import remove_effects as _remove_effects
+                for e in due:
+                    et = e.effect_type
+                    if _remove_effects.remove_effect_instance(state, int(unit_id), e):
+                        removed.append(et)
         # cascade : tant qu'un parent vient de disparaître, consommer ses enfants (point fixe — gère un
         # éventuel chaînage parent->enfant->petit-enfant ; aujourd'hui 1 niveau pour Stunned).
         while True:
@@ -276,3 +332,4 @@ class EffectsState:
                     changed = True
             if not changed:
                 break
+        return removed

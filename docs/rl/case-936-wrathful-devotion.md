@@ -162,13 +162,10 @@ une divergence, même invisible en aval.
 
 ## 6. Résidus
 
-* **`#936-r1` — l'expiration par TIMER n'émet aucun des trois événements de retrait.**
-  `EffectsState.on_turn_end` pose `consumed = True` directement, sans passer par
-  `remove_effect_instance` : ni `On(63)`, ni `On(64)`, ni `On(0x3b)`. Écart **préexistant** du foyer
-  (il valait déjà pour les deux premiers), que l'ajout du troisième rend seulement plus visible.
-  Inatteignable pour `1035` (les trois triggers d'`ATeleportingEffect` le retirent toujours avant
-  l'échéance), **atteignable pour `1238 FearOfTheUnseen_TeleportingIn`**, dont le gate
-  `remaining == 1` peut coïncider avec l'expiration.
+* ~~**`#936-r1`**~~ — **FERMÉ**. L'échéance route désormais par `remove_effect_instance` :
+  `EffectsState.on_turn_end` reçoit le `state` et n'y pose plus `consumed` en direct. Détail et
+  chaîne native re-lue : **§6bis** ci-dessous. Résidu restant : **`#936-r1-r2`** (les ENFANTS d'un
+  composite expiré, encore pris par la cascade `parent_type`).
 * **`stackable: true`** (7ᵉ argument de `CreateShield`) : non modélisé — la feuille du port appelle
   `ShieldComponent.add_or_update_shield`, qui cumule déjà à source et durée égales. Écart
   préexistant du foyer `CreateShield` (`ArcaneShield` est dans le même cas), pas de cette tranche.
@@ -182,6 +179,50 @@ une divergence, même invisible en aval.
 * **`AddEffect(..., targets, ...)` et non `(..., target, ...)`** : le lambda reçoit un `target` mais
   ne s'en sert que pour son `HasEffect` ; l'`AddEffect` porte sur le sélecteur complet capturé par
   le `<>c__DisplayClass1_0`. Transcrit tel quel.
+
+## 6bis. `#936-r1` — l'échéance et le retrait explicite convergent sur UN corps
+
+**La prémisse du résidu a été re-mesurée au décompilé, et elle TIENT — avec une nuance de mécanisme
+qu'elle n'écrivait pas.** Le résidu disait « le natif n'a qu'UN chemin, atteint aussi bien par
+`RefreshEffectsOperation$$RefreshEffect` que par un retrait explicite ». `RefreshEffect` n'appelle en
+fait **rien** : sur `EffectComponent$$ShouldBeRemoved` il fait `RefreshEffectsOperation$$DeactivateEffect`
+(le revert, par `UpdateEffectTargets([])`) puis **enfile une `System.Action` différée** dans la liste
+que `$$GenerateEventGroup` consommera. C'est la lecture de cette action qui ferme la question :
+
+```
+IdunBattle.Operations.RefreshEffectsOperation.<>c__DisplayClass9_0$$<RemoveEffect>b__0(this) =
+    processor.<slot 0x11>(this.effectEntity@+0x18)          // corps ENTIER, tail-call
+```
+
+et le slot 0x11 est celui que `RemoveEffectsOperation$$Execute` appelle déjà — donc
+`IdunBattle.Operations.RemoveEffectOperation$$Execute`. L'échéance publie bien les trois vecteurs.
+
+Le décrément, lui, est **une autre Operation** : `IdunBattle.Operations.EndTurnOperation$$RefreshEffects`
+ne fait que `EffectComponent$$RemoveOneTurn` sous le gate `!Removed@+0x5f && HasTurns@+0x5d`, puis
+appelle le slot 0x2f avec `RefreshEffectOptions(trigger = RefreshEffectTrigger.TurnChanged = 6)`.
+
+**Ce que le port faisait, et ce qu'il fait maintenant.** `on_turn_end` posait `consumed = True` :
+aucun des trois vecteurs, et le NOM restait collé à l'`EffectsOwnedComponent` du porteur (canal LU
+par la couche DÉCISION). Il prend désormais un `state` et route la branche « échéance » par
+`remove_effect_instance` — le foyer unique. `turnflow.EndTurnOperation` le lui passe.
+
+* **REPLI `state is None`** = la marque seule, comportement strictement antérieur. Ce n'est pas une
+  alternative : c'est le régime d'un `EffectsState` sans `OperationProcessor` (la face DÉCISION n'a
+  pas de `runner.State`, et rien n'y appelle ce tick).
+* **Écart d'ordre nommé** : le natif reverte AVANT `On(0x3f)` (le `DeactivateEffect` précède
+  l'action) ; `remove_effect_instance` publie `On(0x3f)` puis reverte — c'est l'ordre du corps de
+  `RemoveEffectOperation$$Execute`, où le revert est de toute façon éteint par `IsActive == 0`.
+  Inobservable : aucun consommateur porté n'écoute `On(0x3f)`.
+* **Rayon de souffle mesuré** : le tick balaye TOUTES les clés de `by_unit`, tuiles comprises.
+  `unregister_name` est no-op sans `EffectsOwnedComponent`, et les trois vecteurs sont des dispatches
+  par ability — une entité-tuile n'en porte aucune. 137 tests offline de régression rejoués verts
+  (`test_448_r2c`, `test_231r1`, `test_seeded_eager_statmod_expiry`, `test_936`, `test_477r22`,
+  `test_462r4eor2r1r1`, `test_287r11r1r1r1r1`, `test_static_statmod_g1_expiry`,
+  `test_shock_assault_buff_expiry`, `test_overwatch_single_shot_per_activation`).
+
+Garde : `tests/engine/runner/test_936r1_expiry_removal_offline.py` — étage binaire (le slot 0x11
+re-dérivé du PE à chaque passe) + les deux contre-épreuves mordantes (avant échéance : le décrément
+mord et rien ne sort ; sans `state` : la marque, et le nom reste collé).
 
 ## 7. Deux réparations de fichiers tiers, exigées par ce merge
 

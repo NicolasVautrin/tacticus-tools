@@ -297,10 +297,23 @@ class DecoysAndMisdirectionBuffFriendsAbility(TriggeredAbility):
 # =====================================================================================================
 
 def _free_tile_or_adjacent(state: State, coord):
-    """`First(FreeTilesOrAdjacentFreeTiles(Tiles(target), constants@0xf8))` (collapse S) : la tuile de `coord`
-    si LIBRE (aucun vivant) et marchable, sinon la 1re tuile libre marchable ADJACENTE (hex, ordre id
-    croissant = First). Renvoie un id de tuile (arg `spawn_decoy`) ou None. Le porteur mourant etant
-    alive=False, sa PROPRE tuile est 'libre' -> le decoy se pose sur la tuile du mort."""
+    """`First(FreeTilesOrAdjacentFreeTiles(Tiles(target), <DSLTriggers>+0x40))` (collapse S) : la
+    tuile de `coord` si LIBRE (aucun vivant) et marchable, sinon la 1re tuile libre marchable
+    ADJACENTE (hex, ordre id croissant = First). Renvoie un id de tuile (arg `spawn_decoy`) ou None.
+    Le porteur mourant etant alive=False, sa PROPRE tuile est 'libre' -> le decoy se pose sur la
+    tuile du mort.
+
+    ⚠ **PAS DE BRANCHE `allowSteppable` ICI, ET C'EST FIDELE** (#955-r2, ferme EN REFUS). Le noeud
+    natif a DEUX surcharges : celle a 3 arguments -- la seule qu'atteignent les DEUX call-sites de
+    cette fonction (`Ambush_SummonAbility$$GetSummonBehaviour` et
+    `HypersensoryAbilitiesAbility_MoveAndSpawnDecoy$$CreateBehaviour`) -- recoit son trigger de
+    l'APPELANT, et les deux passent `<DSLTriggers>+0x40`, LU aux octets (`mov r8, [reg+0x40]`).
+    `DSLTriggers$$.ctor` pose `+0x40` = le trigger NU (`ShouldTrigger` toujours VRAI) et `+0x48` =
+    `op_LogicalNot(<le meme type>)` ; `CanAddUnitTileSelector$$Select` INVERSE ce qu'il recoit
+    (`allowSteppable = !ShouldTrigger`). Donc ici `allowSteppable` est **FAUX** : une tuile occupee
+    par un `Steppable` est OCCUPEE. Seule `PossessionAbility` -- qui passe par la surcharge a DEUX
+    arguments, laquelle lit `+0x48` -- porte `allow_steppable=True`. Garde :
+    `tests/engine/runner/test_955r2_free_tiles_steppable_offline.py`."""
     board = state.board
     if board is None or coord is None:
         return None

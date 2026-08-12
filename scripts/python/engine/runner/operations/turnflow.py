@@ -838,10 +838,17 @@ class EndTurnOperation:
         # Le natif n'inflige AUCUN degat ici : `RefreshEffects` = `EffectComponent.RemoveOneTurn` + events,
         # puis `Core.Services.OperationProcessor$$RefreshEffects` -> `RefreshEffectsOperation$$Execute`
         # (branche de retrait). Les DoT de tuile passent, eux, par les events 0x12/0x14 de StartTurn.
+        # ⚠ `state` EST PASSE, ET C'EST CE QUI REND L'ECHEANCE OBSERVABLE (#936-r1). Sans lui le tick
+        # posait `consumed` en direct : aucun des trois vecteurs de
+        # `IdunBattle.Operations.RemoveEffectOperation$$Execute` (`On(0x3f = PreEffectRemoved)`,
+        # `On(0x40 = EffectRemoved)`, `On(0x3b = UnitBecameTargetable)`) ne sortait sur cette voie,
+        # et le NOM de l'effet restait colle a l'`EffectsOwnedComponent` du porteur. Le natif, lui,
+        # n'a qu'UN corps de retrait, atteint depuis l'echeance par la `System.Action` differee
+        # `RefreshEffectsOperation.<>c__DisplayClass9_0$$<RemoveEffect>b__0` (slot 0x11).
         ticked: list[int] = []
         if state.effects is not None:
             for uid in list(state.effects.by_unit.keys()):
-                state.effects.on_turn_end(uid, attacked=False)
+                state.effects.on_turn_end(uid, attacked=False, state=state)
                 ticked.append(int(uid))
         # `<Effect>.RevertInternal` -> `IdunBattle.Entities.Effects.AStatModifierEffect$$RevertModification`
         # (ChangeStat part 6) : un effet que le tick vient de faire EXPIRER doit SORTIR sa `ValueModification`

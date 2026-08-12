@@ -103,11 +103,13 @@ class ProbeEffects(EffectsState):
         self.at_first_tick = None
         return self
 
-    def on_turn_end(self, unit_id: int, attacked: bool) -> None:
+    def on_turn_end(self, unit_id: int, attacked: bool, state=None) -> list:
         if getattr(self, "at_first_tick", None) is None:
             self.at_first_tick = {"rolls": int(getattr(self._rng, "rolls", 0)),
                                   "entities": len(self._state.entities)}
-        super().on_turn_end(unit_id, attacked)
+        # `state` RELAYE (#936-r1) : sans lui la sonde re-fabriquerait le repli `consumed = True` et
+        # l'echeance redeviendrait muette SOUS la sonde seulement -- un faux vert par instrumentation.
+        return super().on_turn_end(unit_id, attacked, state)
 
 
 def _witness_state(rng, turns_finished=5, remaining=1, n_grots=1):

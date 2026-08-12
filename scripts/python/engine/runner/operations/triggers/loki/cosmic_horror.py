@@ -176,7 +176,16 @@ def _decoy_tile_for_kill(state: State, dying_id: int, caster_id: int):
 
     `Nearest(..., caster)` = tri ASCENDANT par distance hex au Patermine, LINQ donc STABLE (ex aequo
     departages par l'ordre source = ids de tuile croissants) ; `First` prend la tete. Sur le cas
-    nominal l'ensemble est un singleton -> `Nearest` est l'identite."""
+    nominal l'ensemble est un singleton -> `Nearest` est l'identite.
+
+    ⚠ **PAS DE BRANCHE `allowSteppable`, ET C'EST FIDELE** (#955-r2, ferme EN REFUS). Le `@0xf8` de
+    la signature ci-dessus est `<DSLTriggers>+0x40` -- LU aux octets du call-site
+    (`CosmicHorror_OnKillAbility$$CreateBehaviour` : `mov r8, [reg+0x40]`), et c'est le trigger NU.
+    `CanAddUnitTileSelector$$Select` INVERSE (`allowSteppable = !ShouldTrigger`), donc ici
+    `allowSteppable` est **FAUX** : une tuile occupee par un `Steppable` est OCCUPEE. Le `+0x48`
+    voisin, lui, est `op_LogicalNot(<le meme type>)` et donne l'inverse -- c'est le trigger que la
+    surcharge a DEUX arguments lit dans son propre corps, pour `PossessionAbility` seule. Garde :
+    `tests/engine/runner/test_955r2_free_tiles_steppable_offline.py`."""
     board = state.board
     coord = _pos_of(state, dying_id)
     cpos = _pos_of(state, caster_id)

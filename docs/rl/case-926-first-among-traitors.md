@@ -87,6 +87,29 @@ reçoit RIEN). Montage `blackTerminator` (Chaos + `TeleportStrike`) à distance 
 499 et l'oracle NATIF est en **accord sur les 25 tuiles**. Ajouter un gate `is_targetable` ici serait
 un écart **restrictif**. Cran : `test_un_ami_NON_CIBLABLE_recoit_quand_meme_le_bonus`.
 
+> **#926-r1 — ce que la relecture a établi, et ce qui reste.** L'asymétrie **n'est PAS dans le
+> sélecteur** : les deux `CreateTargetSelector` décompilés côte à côte ouvrent sur le MÊME
+> `SurroundingFriends(Owner@+0x30, <range>, unique = 1, unitSelectionType = 3)` — ce fichier-ci
+> n'ajoute qu'un `UnitsWithTrait(_, 0x7ea, 3)`. Fait NEUF, lu :
+> `...FirstAmongTraitors_ExtraDmgEffect$$GetRefreshTriggers` rend `{UnitsChanged = 5,
+> UnitPositionChanged = 7}` — écrit **INLINE** (`arr[0] = 5 ; arr[1] = 7`), donc entièrement
+> lisible, contrairement aux surcharges qui passent par `RuntimeHelpers$$InitializeArray` — et
+> `EffectsChanged = 4` **n'y est pas** ; les deux `LionHelm_*` ne déclarent **aucune** surcharge,
+> donc `null`, que `BaseEffect$$ShouldRefreshForTrigger` traite comme « tout trigger ».
+> **Sur-ensemble strict.** S'y ajoute que `RefreshEffectsOperation$$RefreshEffect` **sort en amont**
+> en SIMULATION quand `StaticBattleRules.Effect$$ShouldRefreshDuringSimulation` est faux : pendant
+> toute la face DÉCISION, `Targets@+0x48` est **figé**.
+> La seconde cause candidate (« le flag `UnitFlag 0x11` n'est pas encore visible ») est **réfutée
+> par structure** : ce flag est un état PARTAGÉ posé sur la CIBLE ; il ne peut pas rendre deux
+> réponses à deux prédicats identiques **au même instant**, seulement à des instants différents.
+> ⇒ **ce qui diffère est la FENÊTRE de ré-évaluation, jamais le prédicat.** Ne pas harmoniser, dans
+> aucun sens ; le verdict est inscrit dans `aura_selectors.py::is_targetable` et dans
+> `create_aura_attack_damage_bonus_for_ally`.
+> **Reste ouvert** : quel `RefreshEffectTrigger` la pose d'un `UntargetableEffect` émet, et
+> l'appartenance de `1063`/`1214` au `HashSet` de simulation. Les deux butent sur le même obstacle
+> d'outillage — le `.cctor` de `StaticBattleRules.Effect` dépasse le budget du décompilateur, et les
+> appels au slot 0x2f de `Core.Services.OperationProcessor` n'ont aucune xref.
+
 **(b) L'attaque d'Abaddon pollue sa cible — et ce n'est PAS ce cas.** Son autre passif
 `LetTheGalaxyBurn` pose l'effet de TUILE `DespoiledGround` (1476) sous la cible ; le volet
 `DespoiledGround_ExtraDamagePct` (1478) n'est **pas porté** (résidu antérieur,
