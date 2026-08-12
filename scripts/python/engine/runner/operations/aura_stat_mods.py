@@ -70,14 +70,17 @@ def _aura_carriers(state: State):
         for e in (effs or []):
             if e.consumed or e.expired or not e.active:
                 continue
-            if not e.is_active(unit_state_for_effects(state, owner_id)):
-                continue                                 # `CreateActiveCondition` PORTEE (#959)
             stat_fn = getattr(e, "aura_stat_modification_stat", None)
             if stat_fn is None:
                 continue
             stat = stat_fn()
             if stat is None:
                 continue
+            # APRES le filtre de projection, jamais avant : `unit_state_for_effects` construit une
+            # vue par PORTEUR, et la poser pour les effets qui ne projettent RIEN serait du travail
+            # pur (la vue est paresseuse mais son instanciation ne l'est pas).
+            if not e.is_active(unit_state_for_effects(state, owner_id)):
+                continue                                 # `CreateActiveCondition` PORTEE (#959)
             amt = e.aura_stat_modification_amount()
             if not amt:
                 continue
