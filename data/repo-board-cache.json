@@ -55,6 +55,12 @@
    "last": "2026-07-02T21:51:47.257000+00:00",
    "turns": 33
   },
+  "a012968d48e1d15e0": {
+   "ctx": 128576833,
+   "first": "2026-08-12T10:04:59.582000+00:00",
+   "last": "2026-08-12T11:50:09.999000+00:00",
+   "turns": 364
+  },
   "a017117cd94685468": {
    "ctx": 3023403,
    "first": "2026-07-18T04:56:34.917000+00:00",
@@ -608,10 +614,10 @@
    "turns": 236
   },
   "a116875ec2786fcef": {
-   "ctx": 11996780,
+   "ctx": 74671110,
    "first": "2026-08-12T08:34:52.668000+00:00",
-   "last": "2026-08-12T09:02:57.310000+00:00",
-   "turns": 69
+   "last": "2026-08-12T10:04:14.028000+00:00",
+   "turns": 225
   },
   "a11a5b73caee46ed8": {
    "ctx": 58746544,
@@ -1280,10 +1286,10 @@
    "turns": 309
   },
   "a23cbc0f0c68b7fbd": {
-   "ctx": 71778178,
+   "ctx": 90064324,
    "first": "2026-08-12T07:43:31.075000+00:00",
-   "last": "2026-08-12T08:59:09.839000+00:00",
-   "turns": 269
+   "last": "2026-08-12T09:16:24.332000+00:00",
+   "turns": 313
   },
   "a2434d6e46d0d4eeb": {
    "ctx": 99719384,
@@ -2095,6 +2101,12 @@
    "last": "2026-07-27T08:04:24.640000+00:00",
    "turns": 210
   },
+  "a3cad162b36f43f18": {
+   "ctx": 4915401,
+   "first": "2026-08-12T11:42:58.894000+00:00",
+   "last": "2026-08-12T11:50:27.580000+00:00",
+   "turns": 41
+  },
   "a3cbd63a0e289bc8f": {
    "ctx": 16896104,
    "first": "2026-08-03T08:12:21.429000+00:00",
@@ -2292,6 +2304,12 @@
    "first": "2026-07-29T21:52:44.777000+00:00",
    "last": "2026-07-29T23:02:11.240000+00:00",
    "turns": 270
+  },
+  "a42ae0cfb4de61be3": {
+   "ctx": 759811,
+   "first": "2026-08-12T11:49:14.358000+00:00",
+   "last": "2026-08-12T11:50:21.511000+00:00",
+   "turns": 19
   },
   "a435bb91825b771b2": {
    "ctx": 11847074,
@@ -2838,6 +2856,12 @@
    "first": "2026-07-27T21:00:02.058000+00:00",
    "last": "2026-07-27T22:00:55.561000+00:00",
    "turns": 302
+  },
+  "a54141434a99b0f0a": {
+   "ctx": 7882958,
+   "first": "2026-08-12T09:10:43.155000+00:00",
+   "last": "2026-08-12T09:18:48.123000+00:00",
+   "turns": 64
   },
   "a5495c47488dffaca": {
    "ctx": 104279734,
@@ -3523,6 +3547,12 @@
    "last": "2026-07-24T08:03:11.947000+00:00",
    "turns": 224
   },
+  "a6a1519ff29a87b8d": {
+   "ctx": 3344277,
+   "first": "2026-08-12T11:44:09.710000+00:00",
+   "last": "2026-08-12T11:50:28.139000+00:00",
+   "turns": 35
+  },
   "a6a42da47e2fdcc0a": {
    "ctx": 1369693,
    "first": "2026-06-27T08:04:51.559000+00:00",
@@ -3961,6 +3991,12 @@
    "last": "2026-08-04T20:39:39.365000+00:00",
    "turns": 374
   },
+  "a7848dc8abe7aa55d": {
+   "ctx": 91935895,
+   "first": "2026-08-12T10:13:26.457000+00:00",
+   "last": "2026-08-12T11:50:13.526000+00:00",
+   "turns": 289
+  },
   "a784afe170b93faa8": {
    "ctx": 89057130,
    "first": "2026-08-03T11:23:59.469000+00:00",
@@ -4117,6 +4153,12 @@
    "last": "2026-07-12T17:18:05.259000+00:00",
    "turns": 99
   },
+  "a7ce350272f83183b": {
+   "ctx": 2652127,
+   "first": "2026-08-12T09:08:44.927000+00:00",
+   "last": "2026-08-12T09:11:11.772000+00:00",
+   "turns": 27
+  },
   "a7ce4ee627d5496a9": {
    "ctx": 90674035,
    "first": "2026-08-01T16:31:48.353000+00:00",
@@ -4212,6 +4254,12 @@
    "first": "2026-07-28T19:01:03.560000+00:00",
    "last": "2026-07-28T21:20:33.525000+00:00",
    "turns": 397
+  },
+  "a7e9f0f3332e38971": {
+   "ctx": 71105062,
+   "first": "2026-08-12T09:49:30.528000+00:00",
+   "last": "2026-08-12T10:50:48.226000+00:00",
+   "turns": 227
   },
   "a7ea228cbe20ade73": {
    "ctx": 67333413,
@@ -4368,6 +4416,12 @@
    "first": "2026-08-11T07:46:56.256000+00:00",
    "last": "2026-08-11T08:53:24.511000+00:00",
    "turns": 288
+  },
+  "a83edf2e70b91d133": {
+   "ctx": 4098801,
+   "first": "2026-08-12T11:43:24.210000+00:00",
+   "last": "2026-08-12T11:49:29.297000+00:00",
+   "turns": 37
   },
   "a83ff260b85a9863c": {
    "ctx": 114883404,
@@ -5102,10 +5156,10 @@
    "turns": 277
   },
   "a9fb14ef959b6e9d5": {
-   "ctx": 22462725,
+   "ctx": 57469218,
    "first": "2026-08-12T08:25:15.301000+00:00",
-   "last": "2026-08-12T09:02:22.057000+00:00",
-   "turns": 109
+   "last": "2026-08-12T09:36:11.317000+00:00",
+   "turns": 203
   },
   "a9fd7f6b6291d0183": {
    "ctx": 79380475,
@@ -6470,10 +6524,10 @@
    "turns": 276
   },
   "ad1646d7607dd25f3": {
-   "ctx": 179188613,
+   "ctx": 395282547,
    "first": "2026-08-12T05:30:11.621000+00:00",
-   "last": "2026-08-12T09:03:12.264000+00:00",
-   "turns": 522
+   "last": "2026-08-12T11:01:30.557000+00:00",
+   "turns": 881
   },
   "ad16fece5bdb13811": {
    "ctx": 66659284,
@@ -6758,10 +6812,10 @@
    "turns": 291
   },
   "ad9e476d7d971ffd9": {
-   "ctx": 38985628,
+   "ctx": 115542113,
    "first": "2026-08-12T08:13:39.722000+00:00",
-   "last": "2026-08-12T09:03:23.706000+00:00",
-   "turns": 163
+   "last": "2026-08-12T09:52:24.892000+00:00",
+   "turns": 330
   },
   "ada13e2337490596d": {
    "ctx": 962829,
@@ -6882,6 +6936,12 @@
    "first": "2026-07-06T22:09:26.079000+00:00",
    "last": "2026-07-06T22:17:06.127000+00:00",
    "turns": 57
+  },
+  "add4a180b62ddd2b4": {
+   "ctx": 3974658,
+   "first": "2026-08-12T09:55:08.866000+00:00",
+   "last": "2026-08-12T10:01:12.813000+00:00",
+   "turns": 43
   },
   "add57692ea211dcfc": {
    "ctx": 62459865,
@@ -7398,6 +7458,12 @@
    "first": "2026-08-06T03:09:11.970000+00:00",
    "last": "2026-08-06T04:09:07.327000+00:00",
    "turns": 275
+  },
+  "aebcdb6a51ebc14f6": {
+   "ctx": 143111293,
+   "first": "2026-08-12T09:50:46.890000+00:00",
+   "last": "2026-08-12T11:37:02.167000+00:00",
+   "turns": 365
   },
   "aec01a33fd56fa400": {
    "ctx": 84058903,
@@ -8270,9 +8336,9 @@
    "turns": 22766
   },
   "2026-08-12": {
-   "agent_ctx": 3539774190,
-   "ctx": 3822349275,
-   "turns": 10549
+   "agent_ctx": 4410748694,
+   "ctx": 4766068236,
+   "turns": 13120
   }
  },
  "delivered": {
@@ -8592,7 +8658,7 @@
   },
   "770b6b08-a8e1-4df4-99e5-9ea0bcf65487.jsonl": {
    "first": "",
-   "offset": 13550878
+   "offset": 13640696
   },
   "85ce3eaa-558f-4617-a07c-53d13aa4a1bc.jsonl": {
    "first": "",
@@ -8641,6 +8707,10 @@
   "agent-a011d963dd7d1cf6a.jsonl": {
    "first": "57954158-f537-4fd5-8dc3-a4516d03571d",
    "offset": 237592
+  },
+  "agent-a012968d48e1d15e0.jsonl": {
+   "first": "7a9a542f-bf2f-4837-9316-68ce9673b47e",
+   "offset": 2373445
   },
   "agent-a017117cd94685468.jsonl": {
    "first": "68a28436-626b-409f-a933-0dbd9b625545",
@@ -9012,7 +9082,7 @@
   },
   "agent-a116875ec2786fcef.jsonl": {
    "first": "0cba51d3-ba63-4108-869d-82917998cb44",
-   "offset": 740858
+   "offset": 1841424
   },
   "agent-a11a5b73caee46ed8.jsonl": {
    "first": "39e0629c-062d-4744-83d4-9ac63f50f067",
@@ -9460,7 +9530,7 @@
   },
   "agent-a23cbc0f0c68b7fbd.jsonl": {
    "first": "714010ab-e43d-435b-b325-a27b5f9a77ab",
-   "offset": 1563521
+   "offset": 1725981
   },
   "agent-a2434d6e46d0d4eeb.jsonl": {
    "first": "cc8b8c2a-3290-445d-9b29-d85798c458d8",
@@ -10002,6 +10072,10 @@
    "first": "0a13cbfe-869a-4347-863b-3d702d4727e0",
    "offset": 1665187
   },
+  "agent-a3cad162b36f43f18.jsonl": {
+   "first": "ede4933d-fefd-44ed-9f6c-95163b34ed65",
+   "offset": 268201
+  },
   "agent-a3cbd63a0e289bc8f.jsonl": {
    "first": "6f2ffcc1-aeb8-4e9c-8edd-81b75f2c33c8",
    "offset": 937311
@@ -10133,6 +10207,10 @@
   "agent-a42a71290a2609cea.jsonl": {
    "first": "6e3e4ce9-b65b-463d-92bc-2266873547ee",
    "offset": 1906924
+  },
+  "agent-a42ae0cfb4de61be3.jsonl": {
+   "first": "61300565-e91c-4a83-8f16-0a4452ed4fe4",
+   "offset": 323480
   },
   "agent-a435bb91825b771b2.jsonl": {
    "first": "b03f9006-faa7-47fa-9243-53ef386b4922",
@@ -10497,6 +10575,10 @@
   "agent-a5412c2e8b1cef0aa.jsonl": {
    "first": "51a33b93-e2ba-4751-b635-4357cf6926e6",
    "offset": 1478713
+  },
+  "agent-a54141434a99b0f0a.jsonl": {
+   "first": "6d171d31-43ca-48d4-b72c-4f5cfd04c470",
+   "offset": 802240
   },
   "agent-a5495c47488dffaca.jsonl": {
    "first": "0d8cd620-64f0-43b6-9d2c-9f91f65194a9",
@@ -10954,6 +11036,10 @@
    "first": "de199cac-17f6-47a1-bffe-37b92ee1bbb5",
    "offset": 1202630
   },
+  "agent-a6a1519ff29a87b8d.jsonl": {
+   "first": "b5827f1c-69bb-4656-9452-e3255461aa47",
+   "offset": 234562
+  },
   "agent-a6a42da47e2fdcc0a.jsonl": {
    "first": "5efc69cd-172e-48af-9c7f-55dd5eea8c03",
    "offset": 239342
@@ -11246,6 +11332,10 @@
    "first": "442b0df0-5ceb-4e8b-8906-ee81bcb9e9d5",
    "offset": 2168181
   },
+  "agent-a7848dc8abe7aa55d.jsonl": {
+   "first": "958c700d-ad2f-4dab-9fa5-d1c61371d7a8",
+   "offset": 1914539
+  },
   "agent-a784afe170b93faa8.jsonl": {
    "first": "2e738b69-18f4-4d45-a6f3-e6e5cb4a1e57",
    "offset": 1878587
@@ -11350,6 +11440,10 @@
    "first": "e8c7394e-c8fa-4dc0-9770-5b1b1a2c11c6",
    "offset": 605651
   },
+  "agent-a7ce350272f83183b.jsonl": {
+   "first": "f1e75970-faff-47ed-ae97-9411e094e9e8",
+   "offset": 174581
+  },
   "agent-a7ce4ee627d5496a9.jsonl": {
    "first": "c4b906b7-0f99-4c7e-b202-34ba27cf1cd4",
    "offset": 2252269
@@ -11413,6 +11507,10 @@
   "agent-a7e933401ae6f8573.jsonl": {
    "first": "a32fb3b7-3d2c-4add-a366-8620d442503f",
    "offset": 2559932
+  },
+  "agent-a7e9f0f3332e38971.jsonl": {
+   "first": "995097b1-af91-4dca-b75a-c08299b7d284",
+   "offset": 1628024
   },
   "agent-a7ea228cbe20ade73.jsonl": {
    "first": "250fa500-0015-490a-a9bd-fbb63a373f09",
@@ -11517,6 +11615,10 @@
   "agent-a83d65815c57facce.jsonl": {
    "first": "13ec245d-7dbc-49a0-8d46-7c9dc771e8af",
    "offset": 2126428
+  },
+  "agent-a83edf2e70b91d133.jsonl": {
+   "first": "5f6c1b63-d383-4371-adcf-b7f46260723e",
+   "offset": 365479
   },
   "agent-a83ff260b85a9863c.jsonl": {
    "first": "3bc5b9ae-5169-4217-ad6b-3dd224822841",
@@ -12008,7 +12110,7 @@
   },
   "agent-a9fb14ef959b6e9d5.jsonl": {
    "first": "7d3e24c1-648c-4fb2-845a-d3dc9067672e",
-   "offset": 1009736
+   "offset": 1624925
   },
   "agent-a9fd7f6b6291d0183.jsonl": {
    "first": "8ce23c99-d3fb-4553-a2ac-6de98560d56f",
@@ -12920,7 +13022,7 @@
   },
   "agent-ad1646d7607dd25f3.jsonl": {
    "first": "5e305fd1-1f8b-43ca-970a-51b4e7015400",
-   "offset": 2570067
+   "offset": 3597211
   },
   "agent-ad16fece5bdb13811.jsonl": {
    "first": "a15db1b0-843d-46f4-ac05-121bd7d227ed",
@@ -13112,7 +13214,7 @@
   },
   "agent-ad9e476d7d971ffd9.jsonl": {
    "first": "9ae5fbc0-42fb-495e-8bd9-d462e0728638",
-   "offset": 1261101
+   "offset": 2491351
   },
   "agent-ada13e2337490596d.jsonl": {
    "first": "e5366206-8f3f-4cd5-88a4-113f41b4bcc6",
@@ -13193,6 +13295,10 @@
   "agent-add1c0546d3c9bb8e.jsonl": {
    "first": "0d4c9df0-3b05-489a-8101-c9f20f765a6d",
    "offset": 619982
+  },
+  "agent-add4a180b62ddd2b4.jsonl": {
+   "first": "f47ac78a-83de-44fa-928d-0168f7e52bd6",
+   "offset": 522518
   },
   "agent-add57692ea211dcfc.jsonl": {
    "first": "9b070b52-4cb6-4a90-af98-114e20139b6c",
@@ -13537,6 +13643,10 @@
   "agent-aebb5624ec2e9e806.jsonl": {
    "first": "3c825a01-1495-49bb-bc31-e05c2e6b8e39",
    "offset": 2261930
+  },
+  "agent-aebcdb6a51ebc14f6.jsonl": {
+   "first": "197669d5-6d9c-4409-8c56-be0dbbd340fa",
+   "offset": 2709594
   },
   "agent-aec01a33fd56fa400.jsonl": {
    "first": "405753fa-2c82-4068-b789-cff794c5951e",
@@ -13952,7 +14062,7 @@
   },
   "b2170732-95be-4660-9594-e3e86a19af08.jsonl": {
    "first": "",
-   "offset": 873137493
+   "offset": 876315253
   },
   "b3ddc32a-7528-4057-9d59-bf4ca0066ab3.jsonl": {
    "first": "",
@@ -14465,6 +14575,13 @@
    ],
    "dele": 94
   },
+  "1167a3e5d23c0f6892f1a417385e4a249cf30b9c": {
+   "add": 1603,
+   "commits": [
+    "1167a3e5d23c0f6892f1a417385e4a249cf30b9c"
+   ],
+   "dele": 82
+  },
   "11864f04584bb66759956c636a54409ecf5874ed": {
    "add": 808,
    "commits": [
@@ -14958,6 +15075,13 @@
    ],
    "dele": 82
   },
+  "2111d8af2289fe89448787b7d4fb88d583f5578d": {
+   "add": 1955,
+   "commits": [
+    "2111d8af2289fe89448787b7d4fb88d583f5578d"
+   ],
+   "dele": 456
+  },
   "211886064627fde158c4ca8ce3c1284f2b67773b": {
    "add": 788,
    "commits": [
@@ -15096,6 +15220,13 @@
     "e5a45455817d35809ebce8470002e586e730af0f"
    ],
    "dele": 75
+  },
+  "261d2a70d9b1e5a8901723696ff0264e773b20c0": {
+   "add": 707,
+   "commits": [
+    "261d2a70d9b1e5a8901723696ff0264e773b20c0"
+   ],
+   "dele": 5
   },
   "26b84f89e5ef64c01053dbec259bace69c91ed9c": {
    "add": 717,
@@ -15562,6 +15693,13 @@
     "363d9b84d7ebbd3e018e72459c7fccb1673e1312"
    ],
    "dele": 25
+  },
+  "36852874541f7c77cba65e30a8c8f73bfcb30192": {
+   "add": 1203,
+   "commits": [
+    "36852874541f7c77cba65e30a8c8f73bfcb30192"
+   ],
+   "dele": 7
   },
   "36c9163042511bfd3bf3076f8cc45c60c9fe1044": {
    "add": 473,
@@ -17815,6 +17953,13 @@
    ],
    "dele": 9
   },
+  "85d559a81670422f39a7321e222fd179dd5c27f4": {
+   "add": 1566,
+   "commits": [
+    "85d559a81670422f39a7321e222fd179dd5c27f4"
+   ],
+   "dele": 24
+  },
   "85eddb73733a09fca86556816347ed23c8c6c26c": {
    "add": 96,
    "commits": [
@@ -17850,6 +17995,13 @@
     "022f896985b691ee262d5011f3e5f0c2acfe6478"
    ],
    "dele": 207
+  },
+  "869b9760ded8062cc8a50dd71ca2deb57ac898e1": {
+   "add": 5997,
+   "commits": [
+    "869b9760ded8062cc8a50dd71ca2deb57ac898e1"
+   ],
+   "dele": 907
   },
   "86bce8af81075a48218fd49d0651cdce0035b6aa": {
    "add": 1625,
@@ -18716,6 +18868,13 @@
     "25fd4e8f43c69b51690844798dc4ae73ed810972"
    ],
    "dele": 19
+  },
+  "9d1c708384de70b99272c1d5ae0d6a06dfe677de": {
+   "add": 1991,
+   "commits": [
+    "9d1c708384de70b99272c1d5ae0d6a06dfe677de"
+   ],
+   "dele": 99
   },
   "9de456ca106c0172d2066bbb779a70291c641235": {
    "add": 1773,
@@ -21666,6 +21825,11 @@
    "name": "Sweep callers RPCs de build runner",
    "type": "Explore"
   },
+  "a012968d48e1d15e0": {
+   "branch": "worktree-agent-a012968d48e1d15e0",
+   "name": "Faces decision SUMMON quatre abilities",
+   "type": "opus-solver"
+  },
   "a017117cd94685468": {
    "branch": "",
    "name": "RE CultDemagogue behaviour tree",
@@ -23366,6 +23530,11 @@
    "name": "TARGETING_OPTIONS DarkAngels+Aeldari+WorldEaters",
    "type": "opus-solver"
   },
+  "a3cad162b36f43f18": {
+   "branch": "worktree-agent-a3cad162b36f43f18",
+   "name": "Rouge master 945 + faces decision Custodes Emperor",
+   "type": "opus-solver"
+  },
   "a3cbd63a0e289bc8f": {
    "branch": "worktree-agent-a3cbd63a0e289bc8f",
    "name": "Inventory unported AreTilesAdjacent consumers",
@@ -23530,6 +23699,11 @@
    "branch": "worktree-agent-a42a71290a2609cea",
    "name": "Port #264 traits load_state",
    "type": "opus-solver"
+  },
+  "a42ae0cfb4de61be3": {
+   "branch": "",
+   "name": "Recenser les cliquets d'import existants",
+   "type": "Explore"
   },
   "a435bb91825b771b2": {
    "branch": "",
@@ -23985,6 +24159,11 @@
    "branch": "worktree-agent-a5412c2e8b1cef0aa",
    "name": "169 scission dispatch et damage_ops",
    "type": "opus-solver"
+  },
+  "a54141434a99b0f0a": {
+   "branch": "",
+   "name": "Recenser ports playbook existants",
+   "type": "Explore"
   },
   "a5495c47488dffaca": {
    "branch": "worktree-agent-a5495c47488dffaca",
@@ -24556,6 +24735,11 @@
    "name": "Port CondemnorStake (Sisterhood)",
    "type": "opus-solver"
   },
+  "a6a1519ff29a87b8d": {
+   "branch": "worktree-agent-a6a1519ff29a87b8d",
+   "name": "Faces decision Astartes et Astra Militarum",
+   "type": "opus-solver"
+  },
   "a6a42da47e2fdcc0a": {
    "branch": "",
    "name": "RE damage/heal formula leaves",
@@ -24921,6 +25105,11 @@
    "name": "is_adjacent vs liste stockee",
    "type": "opus-solver"
   },
+  "a7848dc8abe7aa55d": {
+   "branch": "worktree-agent-a7848dc8abe7aa55d",
+   "name": "Faces decision EFFECT BUFF cinq",
+   "type": "opus-solver"
+  },
   "a784afe170b93faa8": {
    "branch": "worktree-agent-a784afe170b93faa8",
    "name": "Close inert elevation gate on runner",
@@ -25051,6 +25240,11 @@
    "name": "RE poison dynamic-tile family",
    "type": "re-expert"
   },
+  "a7ce350272f83183b": {
+   "branch": "worktree-agent-a7ce350272f83183b",
+   "name": "Six faces decision trois porteurs lot 2",
+   "type": "opus-solver"
+  },
   "a7ce4ee627d5496a9": {
    "branch": "worktree-agent-a7ce4ee627d5496a9",
    "name": "431 chemins DLL build perime",
@@ -25129,6 +25323,11 @@
   "a7e933401ae6f8573": {
    "branch": "worktree-agent-a7e933401ae6f8573",
    "name": "CalculateCustomUtility tranche 2",
+   "type": "opus-solver"
+  },
+  "a7e9f0f3332e38971": {
+   "branch": "worktree-agent-a7e9f0f3332e38971",
+   "name": "Six faces decision orks tau ultra",
    "type": "opus-solver"
   },
   "a7ea228cbe20ade73": {
@@ -25259,6 +25458,11 @@
   "a83d65815c57facce": {
    "branch": "worktree-agent-a83d65815c57facce",
    "name": "Port passif LightImUp",
+   "type": "opus-solver"
+  },
+  "a83edf2e70b91d133": {
+   "branch": "worktree-agent-a83edf2e70b91d133",
+   "name": "Faces decision Thousand Sons et Eldar",
    "type": "opus-solver"
   },
   "a83ff260b85a9863c": {
@@ -27361,6 +27565,11 @@
    "name": "RE all summon active abilities",
    "type": "re-expert"
   },
+  "add4a180b62ddd2b4": {
+   "branch": "",
+   "name": "Recenser l'existant TRIGGERED_PREDICTION",
+   "type": "Explore"
+  },
   "add57692ea211dcfc": {
    "branch": "worktree-agent-add57692ea211dcfc",
    "name": "362 KillMaimBurn playbook NC",
@@ -27789,6 +27998,11 @@
   "aebb5624ec2e9e806": {
    "branch": "worktree-agent-aebb5624ec2e9e806",
    "name": "477-r29 RadSaturation allies ou deux camps",
+   "type": "opus-solver"
+  },
+  "aebcdb6a51ebc14f6": {
+   "branch": "worktree-agent-aebcdb6a51ebc14f6",
+   "name": "EcogSupport et WayOfTheShortBlade ports",
    "type": "opus-solver"
   },
   "aec01a33fd56fa400": {
@@ -28314,17 +28528,17 @@
  },
  "stat_merges": {
   "interroges": 7,
-  "reutilises": 896
+  "reutilises": 903
  },
  "stat_metas": {
-  "lus": 13,
-  "reutilises": 1324
+  "lus": 11,
+  "reutilises": 1337
  },
  "stat_tokens": {
-  "fichiers": 17,
+  "fichiers": 18,
   "fork": "",
-  "mo": 26.1,
-  "total": 1356
+  "mo": 17.8,
+  "total": 1367
  },
  "version": 2
 }
