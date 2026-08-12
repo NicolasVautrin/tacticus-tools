@@ -17,6 +17,43 @@ Trois volets, chacun avec un TEMOIN QUI DISCRIMINE et une CONTRE-EPREUVE PAR MUT
 """
 from __future__ import annotations
 
+DECLENCHEUR = {
+    "chemins": (
+        # Le montage et les trois volets eux-memes.
+        "scripts/python/probe_955_summary_execution_possession.py",
+        "scripts/python/probe_r6_round_materialize.py",
+        "scripts/python/rl_duel.py",
+        # Les ports confrontes.
+        "scripts/python/engine/entities/effects/loki/summary_execution.py",
+        "scripts/python/engine/runner/operations/triggers/loki/summary_execution.py",
+        "scripts/python/engine/runner/operations/triggers/loki/possession.py",
+        "scripts/python/engine/entities/effects/factory.py",
+        "scripts/python/engine/runner/operations/triggers/dispatch/registry.py",
+        # L'etage amont : le vecteur `On(PreUnitFled)` et son emetteur.
+        "scripts/python/engine/runner/operations/triggers/dispatch/move_death.py",
+        "scripts/python/engine/runner/operations/behaviour.py",
+        # La feuille de spawn (et son `ordinal`) + le driver d'aura stat-mod.
+        "scripts/python/engine/runner/abilities/behaviours/summon.py",
+        "scripts/python/engine/runner/operations/spawn.py",
+        "scripts/python/engine/runner/operations/aura_stat_mods.py",
+        # Le rejeu offline depuis capture (etat + flux RNG).
+        "scripts/python/engine/runner/snapshot.py",
+        "scripts/python/engine/runner/prng.py",
+        "scripts/python/engine/runner/runner.py",
+        "scripts/python/engine/runner/operations/damage.py",
+        "scripts/python/conftest.py", "scripts/python/tests/conftest.py",
+        "scripts/python/tests/engine/conftest.py",
+        "scripts/python/tests/engine/runner/conftest.py",
+    ),
+    "build": True,
+    "toujours": False,
+    "raison": "LIVE : trois montages runner (2 bras geometriques discriminants pour `Possession`, "
+              "l'aura 1043 avec temoin sans le trait, et le bras `PreUnitFled` avec ses seeds "
+              "rejouees). Chaque volet compare le PORT au NATIF sur la MEME capture et joue ses "
+              "mutants ; il touche donc au montage, aux deux ports, a l'etage amont de la fuite, "
+              "et a toute la chaine de rejeu offline.",
+}
+
 import pytest
 
 import probe_955_summary_execution_possession as P

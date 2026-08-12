@@ -10,6 +10,56 @@ from __future__ import annotations
 
 import pytest
 
+#: #486-r15 -- perimetre = exactement les foyers que ce fichier lit (aucun runner ; le gameconfig
+#: du build est lu pour les magnitudes et les deux `unitId` -> `build: True`).
+DECLENCHEUR = {
+    "chemins": (
+        "scripts/python/conftest.py", "scripts/python/tests/conftest.py",
+        "scripts/python/tests/engine/conftest.py",
+        # les deux ports et leurs registres
+        "scripts/python/engine/entities/effects/loki/summary_execution.py",
+        "scripts/python/engine/runner/operations/triggers/loki/summary_execution.py",
+        "scripts/python/engine/runner/operations/triggers/loki/possession.py",
+        "scripts/python/engine/entities/effects/factory.py",
+        "scripts/python/engine/runner/operations/triggers/dispatch/registry.py",
+        "scripts/python/engine/runner/operations/triggers/dispatch/move_death.py",
+        "scripts/python/engine/runner/operations/behaviour.py",
+        # les feuilles DSL et les selecteurs que les deux arbres montent
+        "scripts/python/engine/runner/abilities/behaviours/summon.py",
+        "scripts/python/engine/runner/abilities/behaviours/effects.py",
+        "scripts/python/engine/runner/abilities/behaviours/lifecycle.py",
+        "scripts/python/engine/runner/operations/spawn.py",
+        "scripts/python/engine/entities/selectors/units.py",
+        "scripts/python/engine/entities/selectors/tiles.py",
+        "scripts/python/engine/entities/selectors/geometry.py",
+        "scripts/python/engine/entities/selectors/accessors.py",
+        # les enums CITES au site, et le socle des effets
+        "scripts/python/engine/entities/effects/base.py",
+        "scripts/python/engine/entities/effects/magnitude.py",
+        "scripts/python/engine/entities/effect_type.py",
+        "scripts/python/engine/entities/triggered_ability_type.py",
+        "scripts/python/engine/entities/active_ability_type.py",
+        "scripts/python/engine/entities/ability_constant_type.py",
+        "scripts/python/engine/entities/ability_variable_type.py",
+        "scripts/python/engine/entities/unit_selection_type.py",
+        "scripts/python/engine/entities/traits/unit_trait.py",
+        "scripts/python/engine/entities/stats.py",
+        "scripts/python/engine/dsl/event_trigger_type.py",
+        "scripts/python/audit_kit_coverage.py",
+        "scripts/python/audit_combat_ability_coverage.py",   # tire par l'import d'`audit_kit_coverage`
+        "scripts/python/gameconfig.py",
+    ),
+    "build": True,
+    "toujours": False,
+    "raison": "Offline : fige les LITTERAUX lus au bloc `methodPointers` (les deux EffectType, le "
+              "trait, les deux AbilityConstantType, les deux AbilityVariableType, les deux "
+              "TriggeringAbilityIs), la STRUCTURE des deux arbres, le SELECTEUR PARTAGE par 1031 "
+              "et 1043 (fondu par l'ICF -- la face cachee du lot), le couplage ordinal <-> "
+              "constante de `Possession`, et l'etage amont `On(PreUnitFled)` que cette tranche a "
+              "du ajouter a `FleeOperation`. Aucun runner : tout est lisible du code et du "
+              "gameconfig.",
+}
+
 
 # ---------------------------------------------------------------- [1] les ENUMS cites au site
 def test_ids_et_enums_du_lot():

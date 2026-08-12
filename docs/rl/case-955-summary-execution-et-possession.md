@@ -147,3 +147,132 @@ et `UnitsDefeatedByMeleeAttackSelector$$IsValidUnit` exige `<composant>+0x178 !=
   `BA 01 04 00 00` (`mov edx, 0x401`) à `SummaryExecutionAbility$$CreateTrigger+0x11c`, et
   `BA 38 04 00 00` (`mov edx, 0x438`) à `PossessionAbility$$CreateTrigger+0x13a` — le décompilé
   ne montre qu'un `local_28` non initialisé.
+
+## 5. Ce que cette tranche a dû AJOUTER EN AMONT
+
+`EventTriggerType.PreUnitFled` (0x33) **n'avait AUCUN émetteur** dans tout `engine/**` : un
+balayage ne le trouvait que dans le mirror d'enum et dans un commentaire. Le port de
+`FleeOperation$$Execute` (`runner/operations/behaviour.py`) commençait à `RemoveUnit`, alors que
+le natif ouvre sur les deux gestes cités au §2. **Sans eux, `SummaryExecutionAbility` n'aurait
+jamais pu se poser** — et le « executed instead » de l'i2 n'aurait eu aucun mécanisme, puisque
+c'est le `return` sur `IsDead` qui ANNULE la fuite, pas le passif.
+
+Le canal `TriggerEvent.triggering_ability` est seedé par l'**unique appelant porté** de
+`FleeOperation.execute` (`BattleFatigueAbility.execute_behaviour`), qui est précisément l'ability
+que `TriggeringAbilityIs(0x401)` compare. C'est la différence avec le vecteur MORT, où le même
+champ reste vide (résidu #955-r1).
+
+Second ajout : la feuille `Spawn` gagne `stat_key_suffix`, mirror de l'`ordinal` de
+`WithStatsFromConfig{,2}`. Sans lui, les deux summons de `Possession` auraient pris **les mêmes
+stats** — le bon `unitId` avec le mauvais jeu de variables, en silence.
+
+## 6. Validation
+
+**Offline** — `tests/engine/test_955_summary_execution_possession_offline.py`, **15 tests** :
+ids et enums cités au site, les deux registres (et le fait que 1031 n'est PAS dans le registre
+d'INIT), le sélecteur PARTAGÉ, les deux magnitudes, la structure des trois arbres, le couplage
+`ordinal ↔ constante`, et l'étage amont `PreUnitFled` (dont l'ORDRE : l'émission précède le
+retrait du plateau).
+
+**Live** — `probe_955_summary_execution_possession.py` + `tests/engine/runner/…_live.py`, board
+`MC1_67`, seed `4321`, géométrie **calculée** depuis le `boardGraph` puis **assertionnée** contre
+les positions réelles (un bras qui n'obtient pas sa configuration fait ÉCHOUER le test, jamais un
+skip).
+
+| volet | régime | natif | port | écart |
+|---|---|---|---|---|
+| `possession` / `melee` | Archimatos à **d = 1** de sa victime | `blackSmnBloodletter` @(2,3) | idem, **même tuile** | 0 |
+| `possession` / `ranged` | Archimatos à **d = 2** | `thousSmnBlueHorror` @(1,3) | idem, **même tuile** | 0 |
+| `summary` / aura 1043 | Guardsman (trait `BattleFatigue`) | Attack **+400** | +400 | 0 |
+| `summary` / témoin | `tauCrisis`, **sans** le trait | **0** | 0 | 0 |
+| `summary` / porteur | Yarrick lui-même (pas le trait) | **0** | 0 | 0 |
+| `execution` | l'allié adjacent au Guardsman meurt | Guardsman **TUÉ**, Yarrick `[1031, 1043]` | `temoins_fled = []`, `[1031, 1043]`, immunité posée sur l'autre | 0 |
+
+Les deux bras de `possession` **DISCRIMINENT** (summons différents) : le probe REFUSE de conclure
+s'ils rendent le même, parce que c'est exactement ce qu'un port lisant la mauvaise adjacence
+produirait. Le volet `summary` a son propre témoin discriminant — l'allié **sans** le trait, qui
+ne doit rien recevoir.
+
+**Six mutants, tous mordent, chacun sur son axe :**
+
+| mutant | volet | effet mesuré |
+|---|---|---|
+| `m_registre` | possession | 0 summon sur les deux bras |
+| `m_melee` | possession | les deux summons ÉCHANGÉS (le gate melee/ranged est load-bearing) |
+| `m_effet` | summary | la part sous clé d'aura tombe à `0 / 0 / 0` |
+| `m_trait` | summary | `400 / 400 / 400` — le témoin et le porteur reçoivent à tort |
+| `m_registre` | execution | le Guardsman **FUIT** (`temoins_fled = [106]`), pas de 1031, pas d'immunité |
+| `m_vecteur` | execution | idem — c'est la mesure que l'étage `PreUnitFled` est load-bearing |
+
+### Deux observables qui NE DISCRIMINENT PAS, et c'est mesuré
+
+1. **Le TOTAL du stat-mod ne prouve rien.** `load_state` seede la modification depuis
+   `combatSnapshot`, donc la part CAPTURÉE est là de toute façon — sous la clé opaque
+   `CAPTURED_SOURCE` si rien ne l'attribue. Mesure : les **deux** mutants du volet `summary`
+   laissaient le total à **400**. Ce qui mesure le port, c'est la part portée par la **clé
+   d'AURA**, que `attribute_aura_stat_modifiers` ne pose que si l'effet déclare l'interface
+   `aura_stat_modification_*` ET sélectionne cette unité.
+2. **`alive == False` ne sépare pas l'exécution de la fuite.** Une unité ENFUIE est
+   `alive = False` côté port aussi (`FleeOperation$$Execute` appelle `RemoveUnit` AVANT de poser
+   `UnitFlag 9`, #429-r1-r3-r1-r2), donc les deux mutants du volet `execution` la rendaient
+   « morte » comme le nominal. Le discriminant est le **flag `Fled`** et l'effet 1031.
+
+### Trois montages qui ont RATÉ, et ce qu'ils mesurent
+
+* **Deux bras dans la MÊME bataille** : le Bloodletter invoqué au 1ᵉʳ bras est `ai_controlled`
+  (trait `Summon`), donc `PlayAutomaticUnits` le fait jouer au turn-start suivant et il achève la
+  seconde victime — `applyAction` rend `{"ok": false, "error": "stage Finished (need Running)"}`.
+  Un build par bras.
+* **Un seul ennemi** : le tuer finit la bataille et le `decisionView` d'après ne publie plus aucun
+  summon (les deux bras rendaient `summons: []` alors que le même bras melee, joué avec un second
+  ennemi vivant, rend bien `blackSmnBloodletter`). D'où le **figurant** à d ≥ 4.
+* **Guardsmen adjacents entre eux** : ils se posent sur des tuiles libres du rayon 2 autour de la
+  cible, par tirage — 3 essais sur 3 les ont rendus à d = 2 ou 3. Le trigger de `BattleFatigue`
+  exigeant l'adjacence STRICTE, c'est un **allié placé adjacent à la cible** qui fait la victime.
+
+### Ce qui n'est PAS couvert
+
+* Le gate `NOT TriggeringAbilityIs(ItsGonnaBlow)` — écrit, structurellement inerte (#955-r1).
+* La face **PRÉDICTION** des deux auras. Elle est **structurellement satisfaite** et c'était déjà
+  écrit avant cette tranche : `playbook/prediction/normal_attack.py` calcule
+  `attack_base = attack_current − aura_real + aura_cand`, et son commentaire #57a nomme
+  explicitement `SummaryExecution_BaseEffect 1043 : +400 flat aux Friends(UnitsWithTrait),
+  sélecteur SANS nœud d'adjacence`. Le sélecteur n'ayant AUCUNE géométrie, `aura_real == aura_cand`
+  et l'expression se réduit à `attack_current`, qui porte déjà le mod. **Porter
+  `create_aura_attack_bonus` pour ces deux effets serait donc un ajout INERTE** — et le +400 mesuré
+  au live confirme au chiffre près la valeur que ce commentaire annonçait.
+* Le `Maybe(GetFleeChance)` — chance non sourçable offline. Le port FUIT quand éligible ; le probe
+  rejoue plusieurs seeds et échoue franchement si aucune fuite ne se déclenche (« non confronté »
+  est alors un résultat, pas un vert). Mesure : **1 essai sur 1** a suffi.
+* `HasEffect(..., targetType = 6)` : le 4ᵉ argument (`EffectTargetType`) n'a pas de contrepartie
+  portée. Sans conséquence ici — l'effet 1031 est posé sur le porteur, donc présent sous n'importe
+  quelle lecture.
+
+## 7. Résidus
+
+* **#955-r1** — le gate `NOT TriggeringAbilityIs(ItsGonnaBlow)` est ÉCRIT mais ne peut pas mordre :
+  `TriggerEvent.triggering_ability` est inconditionnellement vide sur le vecteur MORT. Dégradation
+  **PERMISSIVE**.
+* **#955-r2** — `FreeTilesOrAdjacentFreeTiles` a quatre consommateurs portés et un seul (celui de
+  cette tranche) porte sa branche `allowSteppable`. Les trois collapses antérieurs sont
+  **RESTRICTIFS**.
+* **#955-r3** — `ApplyInternal` de 1031 n'est joué qu'une fois : un allié qui acquerrait
+  `BattleFatigue` après l'exécution recevrait le stat-mod (le driver ré-évalue) mais pas
+  l'immunité. Aucun montage porté ne produit ce régime.
+
+## 8. Ce que ce lot mesure sur le CRITÈRE de groupement
+
+Recensement par le bloc `methodPointers` : **13 slots / 9 corps propres (69 %)** pour
+`SummaryExecution`, **3 / 2 (67 %)** pour `Possession` — deux proportions **quasi identiques**, et
+pourtant les deux items n'ont pas coûté la même chose : `SummaryExecution` a exigé un **étage
+amont entier** (le vecteur `PreUnitFled` et son annulation, absents de tout `engine/**`) là où
+`Possession` n'a demandé qu'un paramètre à une feuille existante.
+
+⇒ **La proportion de corps propres n'a pas prédit ici**, contrairement à #952. Ce qui a prédit,
+c'est une chose que ni les tables ni le bloc ne portent : **l'événement dont le trigger dépend
+a-t-il un ÉMETTEUR côté port ?** `Possession` s'abonne à `On(PostUnitKill)`, câblé et consommé
+depuis longtemps ; `SummaryExecution` s'abonne à `On(PreUnitFled)`, qui n'existait que dans le
+mirror d'enum. Ce test-là se fait en une commande (`git grep <EventTriggerType> -- engine/`) et il
+départage le port d'une demi-heure du port d'une demi-journée. La face cachée du bloc, elle
+(le `CreateTargetSelector` fondu de 1031), n'a rien coûté **parce qu'elle a été lue** — c'est
+l'omettre qui aurait coûté.
