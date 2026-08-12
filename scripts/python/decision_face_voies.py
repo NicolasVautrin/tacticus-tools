@@ -221,6 +221,11 @@ ECARTES: dict[tuple[str, str], str] = {
         "Cles = `TriggeredAbilityType` NON-OWNER. Meme partage d'ordinaux (2 sur 19).",
     ("engine.playbook.non_owner", "_MECHANICAL_TRAITS"):
         "Elements = `UnitTrait` (5 Mechanical, 1000 LivingMetal, 1029 Vehicle), qualifies au site.",
+    ("engine.playbook.sanguinary_priest", "TRAITS_MECHANICAL"):
+        "Elements = `UnitTrait`, les trois d'`UnitExtensions$$IsMechanical` -- MEME fait natif que "
+        "`non_owner._MECHANICAL_TRAITS` ci-dessus, mirore une SECONDE fois. 2 des 3 ordinaux sont "
+        "aussi des `ActiveAbilityType` valides et nomment autre chose. Le doublon est signale, pas "
+        "resolu ici : deux copies d'un meme fait natif peuvent diverger en silence.",
     ("engine.playbook.noncomparable.exemplar_of_hate", "_GRAND_ALLIANCE_TRAITS"):
         "Elements = traits de grande alliance, pas des abilities.",
     ("engine.playbook.noncomparable.it_itches", "_NOT_DISPLACEABLE"):
