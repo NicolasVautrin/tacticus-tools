@@ -8,6 +8,24 @@ ASCII only.
 """
 from __future__ import annotations
 
+DECLENCHEUR = {
+    "chemins": (),
+    "build": True,
+    "toujours": True,
+    "raison": "`chemins` VIDE : la fermeture d'imports de ce fichier (les registres "
+              "`ABILITY_CLASSES` / `EFFECT_CLASSES` / `EFFECT_TRIGGERS` + les trois modules #966) "
+              "tient entierement dans la cascade derivee du foyer, qu'on ne redeclare pas (#531). "
+              "`toujours: True` parce qu'un perimetre vide avec `toujours: False` ne serait JAMAIS "
+              "rejoue, et que ce fichier est offline et court (5 tests, ~4 s, aucun runner) : le "
+              "cout est negligeable devant ce qu'il garde -- les DEUX gisements que notre propre "
+              "cadence de portage alimente (masque de ciblage et attack-type poses au meme commit) "
+              "et l'ORDRE de l'arbre DSL, dont l'inversion est SILENCIEUSE (elle empile deux "
+              "instances au lieu d'en re-armer une). `build: True` : l'etage 1 FIGE des ordinaux "
+              "MESURES sur `rnca9r7q6c` (1212 / 1502 / 1503 / 1504 / 1508 / 0x8402 / 0x45 / 0x20 / "
+              "0x13 / 0x17), donc il doit rougir au changement de build -- c'est precisement le "
+              "cran qui manque a `probe_313`, qui redevient vert des qu'on regenere le mirror.",
+}
+
 import ast
 import sys
 from pathlib import Path
