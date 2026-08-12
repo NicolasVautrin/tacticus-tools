@@ -112,6 +112,31 @@ CONDITIONS_PORTEES_ATTESTEES = {
     "DaemonicPatrons_ExtraDamage",
     "DestroyTheWitch_ExtraDamage",
     "DestroyTheWitch_ExtraMove",
+    # #962 -- TROIS classes arrivees les 2026-08-11/12 sans leur ligne, ce qui rendait `master`
+    # ROUGE ici ET sur `test_camo_seed_inventory_offline` (meme couple, meme cause qu'en #943).
+    # Conditions LUES au decompile `rnca9r7q6c`, verdicts de pose inscrits dans
+    # `probe_366_camo_seed_inventory.POSE_VECTOR` par le meme commit :
+    #   * les DEUX de 1314 `EnmityForTheUnworthy` (#948) --
+    #     `..._ExtraDamageEffect$$CreateActiveCondition` =
+    #     `AmountIsGreaterThanZero(AdjacentFriendlyDarkaUnitsAmount())` et
+    #     `..._ExtraDamagePctEffect$$CreateActiveCondition` =
+    #     `AmountIsGreaterThanZero(AdjacentUnitsAmount())` : deux compteurs GEOMETRIQUES distincts
+    #     (avec/sans filtre de faction), donc les deux lignes ne sont pas une redondance ;
+    #   * 1263 `Skullsmasher_ExtraDamage` (#953/#954) --
+    #     `AmountIsGreaterThanZero(GetMissingHealthSteps())`, qui bascule sur les PV du porteur.
+    "EnmityForTheUnworthy_ExtraDamage",
+    "EnmityForTheUnworthy_ExtraDamagePct",
+    # #962 (second lot, apporte par le REBASE) -- les DEUX auras de `1490 GrimEfficiency` (#959).
+    # `CreateActiveCondition` LUES et DIFFERENTES : `HasEffect(EffectSource(Effect@+0x38), <stance>,
+    # onlyActive: 0, Both)` sur `0x5c7` (HostileAcquisition) et `0x5c8` (FortifyTakeover). Elles
+    # PARTITIONNENT les stances du trait `PrioritisedEfficiency` (1059), donc elles ne sont jamais
+    # actives ensemble -- c'est le SEUL discriminant entre les deux classes, avec la variable et le
+    # stat. La condition est REELLE et le port la lit : le marqueur de stance est SEEDE depuis
+    # l'etat live (sa pose vit dans un substrat persistent-data absent du port, residu #121), donc
+    # sans cette lecture le flag `active` d'une instance seedee (defaut True) ouvrirait l'aura de
+    # la MAUVAISE stance.
+    "GrimEfficiency_ExtraArmor",
+    "GrimEfficiency_ExtraPierce",
     "HammerOfWrath_ConditionalDamage",
     "InescapableAccuracy_extraCritChance",
     "InescapableAccuracy_extraCritDmg",
@@ -132,6 +157,7 @@ CONDITIONS_PORTEES_ATTESTEES = {
     "ReinforcedHiveNode_ExtraArmor",
     "ReinforcedHiveNode_ExtraBlock",
     "RitesOfMorkai_ExtraDamage",              # #943, cf. le bloc ci-dessus
+    "Skullsmasher_ExtraDamage",               # #962, cf. le bloc ci-dessus
     "StructuralAnalyser_Visual",
     # #547-r6 -- ARRIVEE SANS SA LIGNE, et le cliquet l'a vue : `SupaCyborkBodyCritDmgReduction
     # Effect.is_active` est entree par la PR qui porte `supa_cybork_body.py`, sans inscription ici,

@@ -24,8 +24,8 @@ from __future__ import annotations
 from engine import battle_query as bq
 from engine.entities.active_ability_type import ActiveAbilityType
 
-from . import _targets as TGT                 # FORME B (liaison de MODULE)
-from . import summon_attack_range as SAR      # FORME B -- foyer #967 du slot 195
+import engine.playbook.noncomparable._targets as TGT              # FORME B, ABSOLU (#962)
+import engine.playbook.noncomparable.summon_attack_range as SAR   # FORME B, ABSOLU -- #967 slot 195
 from ._base import NCContext, NonComparablePlaybook
 
 

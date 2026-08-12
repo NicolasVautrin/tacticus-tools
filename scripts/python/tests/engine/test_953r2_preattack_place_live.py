@@ -88,7 +88,8 @@ DECLENCHEUR = {
         # LES MAGNITUDES (relues du gameconfig a chaque appel) et LA GEOMETRIE du board
         "scripts/python/engine/entities/effects/magnitude.py",
         "scripts/python/gameconfig.py",
-        "data/symbols/rnca9r7q6c/gameconfig.json",
+        # (`data/symbols/**` est ajoute par `declencheur_cliquet` DU FAIT de `build: True` --
+        #  ecrire le hash ici le figerait au build du jour, cf. #431 / #962)
         "data/boards/pvp/MC1_67.json",
         "data/boards/global/MC1_67.json",
         "data/seed-bc.json",

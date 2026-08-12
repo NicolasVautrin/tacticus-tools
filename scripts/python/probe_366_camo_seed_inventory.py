@@ -174,6 +174,56 @@ POSE_VECTOR: dict[str, tuple[str, str, str, str]] = {
         "init", "sim",
         "IdunBattleLogic.Entities.Abilities.Triggered.Loki.DestroyTheWitchAbility$$CreateBehaviour",
         "un Psyker ENNEMI est vivant"),
+    # #962 -- les DEUX effets de `1314 EnmityForTheUnworthy` (#948), entres au registre sans verdict
+    # de pose. `EnmityForTheUnworthyAbility$$CreateBehaviour` est LU verbatim (build `rnca9r7q6c`) :
+    #     AddEffect(<DSLBehaviors>, 0x578 = 1400, AbilityStateReference, targets = Owner@<+0x90>+0x30,
+    #               turns = null)
+    #       op_Addition
+    #     AddEffect(<DSLBehaviors>, 0x577 = 1399, AbilityStateReference, targets = Owner, turns = null)
+    # AUCUN `If` n'enveloppe les deux `AddEffect` -- la pose est donc INCONDITIONNELLE, et la classe
+    # n'a AUCUN `CreateTrigger` propre (bloc `methodPointers` : `CreateBehaviour` seul), donc elle
+    # herite `On(AbilityInit) & get_OwnerIsActor` de `BaseTriggeredAbility` -> pose a l'INIT, ce que
+    # l'inscription en `ABILITY_INIT_OWNER_EFFECTS` referme. L'absence offline serait un TROU.
+    # `flip: sim` -- les deux `CreateActiveCondition` sont
+    # `AmountIsGreaterThanZero(<compteur d'adjacents>)`, donc GEOMETRIQUES : elles rebasculent des
+    # qu'une unite bouge ou meurt.
+    "EnmityForTheUnworthy_ExtraDamage": (
+        "init", "sim",
+        "IdunBattleLogic.Entities.Abilities.Triggered.Loki."
+        "EnmityForTheUnworthyAbility$$CreateBehaviour",
+        "AmountIsGreaterThanZero(AdjacentFriendlyDarkaUnitsAmount()) -- "
+        "Count(NonSteppableOrObjectUnits(UnitsFromFaction(AdjacentFriends(Owner@0x30), "
+        "DarkAngels))), geometrique"),
+    "EnmityForTheUnworthy_ExtraDamagePct": (
+        "init", "sim",
+        "IdunBattleLogic.Entities.Abilities.Triggered.Loki."
+        "EnmityForTheUnworthyAbility$$CreateBehaviour",
+        "AmountIsGreaterThanZero(AdjacentUnitsAmount()) -- "
+        "Count(NonSteppableOrObjectUnits(AdjacentUnits(Owner@0x30))), geometrique"),
+    # #962 -- les DEUX auras de `1490 GrimEfficiency` (#959), entrees au registre sans verdict de
+    # pose. `GrimEfficiencyAbility$$CreateBehaviour` est LU verbatim (build `rnca9r7q6c`) :
+    #     AddDynamicStatModifierEffectToOwner(0x5cf = 1487, statType 0x10 = FixedArmor, turns null,
+    #                                         isHidden false)
+    #       op_BitwiseAnd
+    #     AddDynamicStatModifierEffectToOwner(0x5d0 = 1488, statType 0x1a = ExtraPierce, turns null,
+    #                                         isHidden false)
+    # AUCUN `If` -- pose INCONDITIONNELLE ; et son `CreateTrigger` est le corps ICF de
+    # `OnOwnerSpecificAbilityInit(this.AbilityType)`, d'ou l'inscription en
+    # `ABILITY_INIT_OWNER_EFFECTS`. L'absence offline serait donc un TROU.
+    # `flip: sim` -- les deux `CreateActiveCondition` sont
+    # `HasEffect(EffectSource(Effect@+0x38), <marqueur de STANCE>, onlyActive: 0, Both)`, et les
+    # stances du trait `PrioritisedEfficiency` (1059) basculent en cours de partie : les deux auras
+    # les PARTITIONNENT, donc elles ne sont jamais actives ensemble.
+    "GrimEfficiency_ExtraArmor": (
+        "init", "sim",
+        "IdunBattleLogic.Entities.Abilities.Triggered.Loki.GrimEfficiencyAbility$$CreateBehaviour",
+        "HasEffect(EffectSource(Effect@+0x38), 0x5c7 = 1479 "
+        "PrioritisedEfficiency_HostileAcquisition_Stance, onlyActive: 0, targetType 6 = Both)"),
+    "GrimEfficiency_ExtraPierce": (
+        "init", "sim",
+        "IdunBattleLogic.Entities.Abilities.Triggered.Loki.GrimEfficiencyAbility$$CreateBehaviour",
+        "HasEffect(EffectSource(Effect@+0x38), 0x5c8 = 1480 "
+        "PrioritisedEfficiency_FortifyTakeover_Stance, onlyActive: 0, targetType 6 = Both)"),
     "HammerOfWrath_ConditionalDamage": (
         "init", "sim",
         "IdunBattle.Entities.Abilities.AOwnerEffectTriggeredAbility$$CreateBehaviour",
@@ -280,6 +330,23 @@ POSE_VECTOR: dict[str, tuple[str, str, str, str]] = {
         "HasTrait(Owner@0x30, 0x3f6 = 1014 UnitTrait.FinalJustice) op_BitwiseOr "
         "HasEffect(Owner@0x30, 0x5ae = 1454 EffectType.FinalVengeance_UnitEffect, onlyActive: 0, "
         "effectTargetType: 6 = Both)"),
+    # #962 -- `1263 Skullsmasher_ExtraDamage` (#953/#954), entre au registre sans verdict de pose.
+    # `Skullsmasher_DamageEffectAbility` derive d'`AOwnerEffectTriggeredAbility` (`classes.tsv`) et
+    # n'a QU'UN corps propre -- `GetEffectType` (`return 0x4ef`). Son `CreateBehaviour` est donc celui
+    # de la BASE, LU verbatim : `If(<CreateCondition>, AddEffect(<GetEffectType>,
+    # AbilityState(Owner, this), source = Owner, targets = Owner, turns = <zeroe>))` sur
+    # `OnOwnerSpecificAbilityInit`. La `CreateCondition` de base a pour corps ENTIER
+    # `return <DSLTriggers+0x70>` (aucun test) -> pose INCONDITIONNELLE a l'init, MEME vecteur exact
+    # qu'`AmuletOfTheVoidwyrm_CritDamageReduction` / `SupaCyborkBody_CritDmgReduction` ci-dessus.
+    # `flip: sim` -- `CreateActiveCondition = AmountIsGreaterThanZero(GetMissingHealthSteps())`
+    # (decompile), donc elle bascule des que le porteur perd ou regagne des PV.
+    "Skullsmasher_ExtraDamage": (
+        "init", "sim",
+        "IdunBattle.Entities.Abilities.AOwnerEffectTriggeredAbility$$CreateBehaviour"
+        " (Skullsmasher_DamageEffectAbility)",
+        "AmountIsGreaterThanZero(GetMissingHealthSteps()) -- "
+        "Divide(Percent(Health.Missing, Health.Maximum), ConfigConst(hpPct), Floor), donc elle "
+        "bascule au premier degat subi comme au premier soin"),
     "StructuralAnalyser_Visual": (
         "init", "sim",
         "IdunBattleLogic.Entities.Abilities.Triggered.Loki."

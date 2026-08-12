@@ -141,7 +141,8 @@ from .....entities.selectors.tiles import (AdjacentTiles, CanAddUnit, Caster, Ch
                                            PendingMovingTile)
 from .....entities.selectors.units import Sub
 from .....entities.triggered_ability_type import TriggeredAbilityType
-from .....entities.triggers import AmountIsEqualOrGreater, AmountIsGreaterThanZero, Not, OwnerIsTarget
+from .....entities.triggers import (AmountIsEqualOrGreater, AmountIsGreaterThanZero, Not,
+                                    OwnerIsTarget, TriggerAnd)
 from .....entities.unit_selection_type import UnitSelectionType
 from ....abilities.behaviours.context import entities_from_state
 from ....abilities.behaviours.effects import AddEffect
@@ -224,7 +225,6 @@ def geminae_trigger_tree():
 
     ZERO tirage PRNG : aucun `PickRandomly` dans ce sous-arbre (celui du behaviour, lui, en
     consomme un)."""
-    from .....entities.triggers import TriggerAnd
     return TriggerAnd(TriggerAnd(OwnerIsTarget(),
                                  AmountIsGreaterThanZero(Count(geminae_possible_spawn_tiles()))),
                       geminae_summon_limit_tree())

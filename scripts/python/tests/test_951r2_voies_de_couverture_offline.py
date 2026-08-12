@@ -38,6 +38,9 @@ DECLENCHEUR = {
         "scripts/python/audit_kit_coverage.py",
         "scripts/python/audit_combat_ability_coverage.py",
         "scripts/python/coverage_attestations.py",
+        # #962 : l'etage [3bis] LE JOUE en sous-processus -- c'est la SECONDE source du croisement,
+        # donc une modification du recenseur peut changer le verdict de ce fichier.
+        "scripts/python/probe_951r2_faux_manquants.py",
         "scripts/ratchets-951r2-couverture-attestee.json",
         # les VOIES de port que l'audit lit -- toucher l'une d'elles peut rouvrir un faux manquant
         "scripts/python/engine/runner/operations/triggers/dispatch/ability.py",
@@ -170,19 +173,176 @@ def test_chaque_vecteur_declare_est_REELLEMENT_appele_dans_son_module():
 
 
 # --------------------------------------------- [3] CONTRE-EPREUVE : un vrai manquant revient TOUJOURS
-@pytest.mark.parametrize("nom", ["Skullsmasher", "RedRampage", "WhisperingWeb", "MedicusMinistorum"])
-def test_un_passif_reellement_NON_porte_reste_compte_manquant(nom):
-    """L'axe dangereux. Ces quatre passifs n'ont AUCUNE trace structurelle dans `engine/**`
-    (recensement `probe_951r2_faux_manquants.py` : ni registre, ni symbole dedie) et aucune
-    attestation. Si l'un d'eux devient << couvert >>, le predicat est devenu PERMISSIF et l'audit
-    fait desormais RENONCER a du travail reel."""
-    assert not AKC._passive_covered(nom), (
-        "SOUS-COMPTAGE : `%s` est declare couvert alors qu'aucun registre ne le porte. Un audit "
-        "qui sous-compte est PIRE qu'un audit qui sur-compte : il fait renoncer au lieu de faire "
-        "perdre du temps." % nom)
-    assert AKC._atteste("passif", nom) is None, (
-        "`%s` a recu une attestation : si c'est delibere, ce test doit changer AVEC la mesure qui "
-        "l'etablit -- jamais l'inverse." % nom)
+#: LA VOIE, et le PORTEUR par lequel on l'exerce. La cle est le nom du registre, la valeur un
+#: couple `(registre, porteur)` -- `None` = le porteur est DERIVE du registre a l'execution.
+#:
+#: ⚠ POURQUOI CET ETAGE A CHANGE DE SUBSTRAT (#962). Il paramétrait quatre passifs NON PORTES et
+#: exigeait qu'ils le restent. Ca ne pouvait pas tenir, et ce n'est pas une opinion : la population
+#: des non-portes est celle que le projet a pour but de VIDER. Mesure, sur la seule duree de cette
+#: tranche -- `Skullsmasher` (#953/#954) et `MedicusMinistorum` (#955) etaient deja portes a son
+#: lancement ; `TimesplinterMantle`, choisi sur une mesure FRAICHE, a ete porte par #961 pendant
+#: qu'elle courait ; puis `RedRampage` (#963), `WhisperingWeb` et `RefusalToBeOutdone` (#965) --
+#: SIX peremptions, et la population des passifs non couverts est tombee de 12 a 3 en une journee.
+#: Un etage qui rougit a chaque port n'est pas un cliquet, c'est une cadence d'echec.
+#:
+#: LE SENS DE LA MESURE EST DONC INVERSE, et c'est ce qui la rend durable : au lieu d'exiger qu'un
+#: NON-PORTE reste non couvert (population qui tend vers zero), on MUTE la voie d'un PORTE et on
+#: exige que le predicat le remarque (population qui ne fait que croitre). C'est l'idiome
+#: `--mutants` de `probe_547` / #421 : un cliquet dont on n'a pas montre qu'il MORD est un vert qui
+#: ne prouve rien.
+#:
+#: TROIS PROPRIETES, et la troisieme est la raison de ne PAS s'en remettre au seul etage [3bis] :
+#:   * il ne se perime pas -- un port ne se DE-porte pas, et un registre ne se vide pas ;
+#:   * il n'est pas tautologique -- la source est le REGISTRE, qu'on mute, pas `_passive_covered` ;
+#:   * il est INDEPENDANT du recenseur `probe_951r2_faux_manquants.py`. Si celui-ci se cassait en
+#:     rendant assez de noms mais en perdant les bons, [3bis] deviendrait aveugle et CET etage,
+#:     lui, continuerait de mordre. C'etait la seule propriete que les temoins figes apportaient
+#:     et que [3bis] n'a pas ; elle est conservee.
+VOIES_A_MUTER = {
+    # `FireOfAbsolution` et `DawnBlade` sont deja les temoins de l'etage [1] : si leur port
+    # disparaissait, [1] rougirait AVANT celui-ci -- la premisse est donc gardee ailleurs.
+    "IMPERATIVE_ABILITY_VECTORS": (IMPERATIVE_ABILITY_VECTORS, "FireOfAbsolution"),
+    "RELIC_ABILITY_TRIGGERS": (RELIC_ABILITY_TRIGGERS, "DawnBlade"),
+    # DERIVE : le registre principal n'a pas de temoin fige -- on prend son premier nom trie, donc
+    # rien a re-choisir quand il bouge.
+    "ABILITY_TRIGGERS": (ABILITY_TRIGGERS, None),
+}
+
+
+@pytest.mark.parametrize("voie", sorted(VOIES_A_MUTER))
+def test_le_predicat_REMARQUE_le_retrait_d_une_voie_de_port(voie):
+    """L'axe dangereux, mesure par MUTATION. On retire du registre la cle d'un passif REELLEMENT
+    porte, et on exige que `_passive_covered` bascule a False. S'il reste True, il ne LIT plus
+    cette voie -- il est devenu PERMISSIF, et l'audit fera RENONCER a du travail reel.
+
+    Un audit qui sous-compte est PIRE qu'un audit qui sur-compte : il fait renoncer au lieu de
+    faire perdre du temps. La mutation est defaite dans un `finally` -- l'etat du registre est
+    re-verifie APRES, parce qu'un cliquet qui laisse le processus altere contamine ses voisins de
+    shard (le canal MEMOIRE de #956-r1)."""
+    registre, porteur = VOIES_A_MUTER[voie]
+    assert registre, "PREMISSE : le registre `%s` est VIDE -- il n'y a rien a muter" % voie
+    if porteur is None:
+        porteur = sorted(registre)[0]
+    assert porteur in registre, (
+        "PREMISSE : `%s` n'est plus dans `%s`. Si son port a ete retire, c'est l'etage [1] qui "
+        "doit le dire ; ici il n'y a plus rien a mesurer." % (porteur, voie))
+    assert AKC._passive_covered(porteur), (
+        "PREMISSE : `%s` est inscrit dans `%s` mais `_passive_covered` le declare deja NON "
+        "couvert. La mutation ci-dessous ne mesurerait rien -- c'est le predicat qui ne lit pas "
+        "cette voie, et c'est deja le defaut de #951-r2." % (porteur, voie))
+
+    sauve = registre.pop(porteur)
+    try:
+        assert not AKC._passive_covered(porteur), (
+            "PERMISSIVITE : `%s` reste declare COUVERT alors que son entree a ete retiree de "
+            "`%s` -- la SEULE voie qui le portait. `_passive_covered` ne lit donc plus ce "
+            "registre, ou rend `True` par un chemin qui ne depend pas de lui." % (porteur, voie))
+    finally:
+        registre[porteur] = sauve
+    assert AKC._passive_covered(porteur), (
+        "MUTATION NON DEFAITE : `%s` n'est pas redevenu couvert apres restauration de `%s`. Ce "
+        "test vient de laisser le processus dans un etat altere." % (porteur, voie))
+
+
+def test_la_mutation_porte_sur_des_voies_REELLEMENT_DISTINCTES():
+    """NON-DEGENERESCENCE de la table elle-meme : trois entrees qui pointeraient le MEME objet
+    mesureraient une seule voie en se donnant l'air d'en mesurer trois."""
+    ids = {voie: id(reg) for voie, (reg, _p) in VOIES_A_MUTER.items()}
+    assert len(set(ids.values())) == len(ids), (
+        "des entrees de `VOIES_A_MUTER` designent le MEME registre : %r" % ids)
+    assert len(VOIES_A_MUTER) >= 3, (
+        "moins de trois voies mutees : l'etage a perdu de la portee sans que rien ne le dise")
+
+
+# --------------------- [3bis] LE MEME AXE, DERIVE : il ne peut pas se perimer
+#: Memoisation : le recenseur coute ~60 s (il importe les 561 modules `engine.**`) et DEUX tests
+#: le consomment. Le sentinelle distingue << pas encore appele >> de << appele, resultat None >> --
+#: une panne de mesure ne doit pas etre re-tentee en silence ni confondue avec un resultat.
+_SANS_TRACE_CACHE: list = []
+
+
+def _passifs_sans_trace_structurelle() -> list:
+    """Les passifs que le RECENSEUR STRUCTUREL range en << AUCUNE TRACE STRUCTURELLE >>.
+
+    SOURCE INDEPENDANTE, et c'est tout l'interet : `probe_951r2_faux_manquants.py` n'interroge
+    AUCUN registre par son nom -- il importe les 561 modules `engine.**`, visite tout attribut de
+    module qui est un conteneur (donc tout registre, connu ou non, decouvert par sa FORME) et tout
+    symbole defini dont le nom snake_case cite l'item (la voie IMPERATIVE, qui n'a par construction
+    aucun registre). `_passive_covered`, lui, lit une liste de voies. Les confronter n'est donc pas
+    une tautologie : c'est exactement le croisement que #951-r2 a du faire a la main.
+
+    SOUS-PROCESSUS, delibere : le recenseur importe tout `engine.**`, ce qui polluerait
+    `sys.modules` de la passe et rendrait ce fichier dependant de son voisinage de shard
+    (le canal MEMOIRE de #956-r1). Il rend `None` s'il n'a pas pu mesurer -- jamais une liste vide,
+    qui se lirait comme << rien a signaler >>."""
+    import subprocess
+    try:
+        r = subprocess.run([sys.executable, "probe_951r2_faux_manquants.py"],
+                           cwd=_PYROOT, capture_output=True, text=True, timeout=900)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if r.returncode not in (0, 1) or "AUCUNE TRACE STRUCTURELLE" not in (r.stdout or ""):
+        return None
+    dedans, out = False, []
+    for ln in r.stdout.splitlines():
+        if ln.startswith("=== AUCUNE TRACE STRUCTURELLE"):
+            dedans = True
+            continue
+        if dedans and ln.startswith("==="):
+            break
+        if dedans and ln.startswith("[passif] "):
+            out.append(ln[len("[passif] "):].split(" ")[0])
+    return out
+
+
+def _sans_trace_memoise() -> list:
+    """`_passifs_sans_trace_structurelle` appelee UNE fois par passe. `None` (panne de mesure) est
+    memoise comme tel : on ne re-tente pas, et on ne le confond pas avec une liste vide."""
+    if not _SANS_TRACE_CACHE:
+        _SANS_TRACE_CACHE.append(_passifs_sans_trace_structurelle())
+    return _SANS_TRACE_CACHE[0]
+
+
+def test_tout_passif_SANS_TRACE_structurelle_reste_compte_manquant():
+    """L'axe dangereux de l'etage [3], mais sur une population DERIVEE au lieu de quatre noms figes.
+
+    INVARIANT : un passif dont le recenseur structurel ne trouve NI registre NI symbole dedie dans
+    les 561 modules `engine.**`, et qui n'a AUCUNE attestation, DOIT etre compte manquant. Si l'un
+    d'eux devenait << couvert >>, `_passive_covered` serait devenu PERMISSIF -- et l'audit ferait
+    RENONCER a du travail reel, ce qui est pire qu'un audit qui sur-compte.
+
+    Il ne se PERIME pas : quand un passif est porte, il acquiert une trace et SORT de la population
+    tout seul. C'est ce que les quatre temoins figes ci-dessus ne savent pas faire -- mesure de
+    cette tranche : DEUX d'entre eux etaient deja perimes en arrivant, un TROISIEME l'est devenu
+    pendant qu'elle courait."""
+    sans_trace = _sans_trace_memoise()
+    assert sans_trace is not None, (
+        "RECENSEUR MUET : `probe_951r2_faux_manquants.py` n'a pas rendu sa section << AUCUNE TRACE "
+        "STRUCTURELLE >>. Un recenseur qui ne mesure pas ne rend PAS une liste vide -- ce test "
+        "rougit plutot que de passer sur du vide.")
+    # ⚠ CE SEUIL EST A 1, ET C'EST UNE MESURE, PAS UNE INDULGENCE. La population des passifs sans
+    # trace est celle que le projet a pour but de VIDER : 12 au matin du 2026-08-12, 3 le soir.
+    # Le jour ou elle atteindra ZERO, cet etage deviendra inerte PAR CONSTRUCTION -- et c'est
+    # exactement pourquoi l'etage [3] ci-dessus a change de substrat : lui MUTE un PORTE, donc il
+    # se nourrit de la population qui CROIT. Ecrire ici un seuil plus haut ferait rougir la
+    # tranche qui FINIT le portage, ce qui serait absurde.
+    assert len(sans_trace) >= 1, (
+        "POPULATION VIDE : le recenseur ne range plus AUCUN passif sans trace structurelle. Soit "
+        "le portage des passifs est TERMINE -- auquel cas cet etage est inerte et c'est l'etage "
+        "[3] (mutation) qui porte seul la garde de permissivite, il faut le DIRE ici --, soit le "
+        "recenseur est casse.")
+    couverts = [n for n in sans_trace if AKC._passive_covered(n)]
+    assert not couverts, (
+        "SOUS-COMPTAGE : %s declare(nt) couvert(s) alors que le recensement STRUCTUREL ne leur "
+        "trouve ni registre ni symbole dedie dans les 561 modules `engine.**`. Les deux sources "
+        "sont INDEPENDANTES : leur desaccord signale un predicat devenu permissif, ou un port "
+        "reel que le recenseur ne voit pas -- dans les deux cas, il faut le trancher a la main."
+        % sorted(couverts))
+    attestes = [n for n in sans_trace if AKC._atteste("passif", n) is not None]
+    assert not attestes, (
+        "%s : attestation(s) posee(s) sur un passif sans aucune trace structurelle. Si c'est "
+        "delibere (verdict RIEN_A_PORTER), ce test doit changer AVEC la mesure qui l'etablit."
+        % sorted(attestes))
 
 
 def test_le_predicat_refuse_un_nom_inexistant():
@@ -192,14 +352,31 @@ def test_le_predicat_refuse_un_nom_inexistant():
     assert AKC._atteste("passif", "ZzzAbilityQuiNExistePas") is None
 
 
-def test_le_total_ne_s_est_pas_effondre():
-    """Garde de PLANCHER : la reparation retire 3 items du total (FireOfAbsolution, GalvanicField,
-    IndirectFire). Si le total tombait bien plus bas, c'est que le predicat est devenu permissif --
-    la borne dit ce qu'elle borne, et elle ne fige pas le chiffre exact (il bouge a chaque port)."""
+def test_le_total_CONCORDE_avec_le_recensement_structurel():
+    """Ce test etait un PLANCHER (`total >= 10`), et le plancher est mort de sa belle mort : le
+    total est tombe a 5 le 2026-08-12 parce que le portage AVANCE, pas parce que le predicat a
+    derive. Un seuil qui rougit quand le travail progresse fait relever le seuil -- c'est la
+    degradation decrite par `feedback_threshold_guard_decays`, et elle etait ici garantie.
+
+    L'INVARIANT qui le remplace ne se perime pas : le total des items comptes manquants ne peut
+    pas etre INFERIEUR au nombre de passifs que le recensement STRUCTUREL range sans aucune trace.
+    Les deux descendent ensemble quand on porte ; ils DIVERGENT quand le predicat devient
+    permissif -- ce qui est exactement le signal cherche, et sur une borne DERIVEE au lieu d'un
+    chiffre ecrit a la main.
+
+    ⚠ Cet invariant est plus FAIBLE que l'ancien plancher sur un point, et c'est assume : il
+    tolere un total nul si le recensement est vide. La permissivite, elle, reste gardee par
+    l'etage [3] (mutation), qui ne depend d'aucune population decroissante."""
     total = sum(r["missing"] for r in AKC.collect())
-    assert total >= 10, (
-        "SOUS-COMPTAGE : le total d'items manquants est tombe a %d. Trois retraits sont attendus "
-        "(#951-r2) ; un effondrement signale un predicat de couverture devenu permissif." % total)
+    sans_trace = _sans_trace_memoise()
+    assert sans_trace is not None, (
+        "RECENSEUR MUET : impossible de deriver la borne. Ce test rougit plutot que de se rabattre "
+        "sur un plancher ecrit a la main.")
+    assert total >= len(sans_trace), (
+        "SOUS-COMPTAGE : le total d'items comptes manquants (%d) est INFERIEUR au nombre de "
+        "passifs que le recenseur structurel range sans aucune trace (%d : %s). Les deux sources "
+        "sont independantes ; leur divergence signale un predicat de couverture devenu permissif."
+        % (total, len(sans_trace), sorted(sans_trace)))
 
 
 # ----------------------------------- [4] la PEREMPTION d'une attestation REMET l'item au compte

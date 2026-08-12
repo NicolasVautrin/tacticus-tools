@@ -352,6 +352,18 @@ class ArmourOfShriekingSoulsDrainOnTurnStart(EffectTrigger):
     TRIGGERED_ABILITY_ID = ARMOUR_ABILITY
 
     def matches(self, state: State, ev: TriggerEvent) -> bool:
+        # Gate `EffectComponent.IsActive @+0x5c` (#231, pose ici par #962) -- ce trigger vient de
+        # `IdunBattle.Entities.Effects.Loki.ArmourOfShriekingSoulsEffect$$CreateTargetTrigger`
+        # (decompile : `On(0x16, ownerNeedsToBeAlive: 1) op_BitwiseAnd <DSLTriggers+0x28>`), donc du
+        # rail que `IdunBattle.Operations.EvaluateTriggerOperation$$EvaluateEffectTriggerTargets`
+        # gate AVANT d'appeler `ShouldTrigger` : sa boucle PAR CIBLE recharge l'`EffectComponent` et
+        # n'evalue rien `if (*(char *)(<component> + 0x5c) == '\0')`. C'est le gate du rail TARGETS
+        # SEUL -- `EvaluateEffectTriggerEffectAbilities`, la voie des deux `Triggered()` ci-dessous,
+        # n'accede JAMAIS a `+0x5c` (case-229). Sans lui, la victime saignerait encore alors que son
+        # `Elated` est DESACTIVE : ni erreur, ni crash, juste un tick de trop.
+        inst = _elated_instance(state, self.owner_id)
+        if inst is None or not inst.active:
+            return False
         # `IsTurnOf(Owner@+0x30)` -- `start_turn_triggers` porte le JOUEUR dont le tour debute ;
         # `IdunBattle.Entities.Triggers.IsTurnOfTrigger` compare le joueur courant a celui du
         # selecteur. Non threade -> FAUX (on ne fabrique pas un tour).

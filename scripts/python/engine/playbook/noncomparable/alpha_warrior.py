@@ -100,7 +100,7 @@ from __future__ import annotations
 
 from engine.entities.active_ability_type import ActiveAbilityType
 
-from . import summon_attack_range as SAR   # FORME B (liaison de MODULE) : foyer #967 des DEUX
+import engine.playbook.noncomparable.summon_attack_range as SAR   # FORME B, ABSOLU : foyer #967 des DEUX
 #                                            branches du slot 195, substituable par un patcheur.
 from ._base import NCContext, NonComparablePlaybook, _turns_started_gate
 

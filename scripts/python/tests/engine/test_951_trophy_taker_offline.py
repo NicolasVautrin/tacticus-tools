@@ -69,10 +69,11 @@ DECLENCHEUR = {
         # table de symboles (l'etage qui verifie que `FireOfAbsolutionAbility$$CreateTrigger` a un
         # corps PROPRE, donc que la prose corrigee dit vrai).
         "scripts/python/gameconfig.py",
-        "data/symbols/CURRENT",
-        "data/symbols/rnca9r7q6c/frida/methods.tsv",
+        # (`data/symbols/**` -- dont `CURRENT` et `frida/methods.tsv` -- est ajoute par
+        #  `declencheur_cliquet` DU FAIT de `build: True` ci-dessous. Le hash ECRIT ici figeait le
+        #  perimetre au build du jour : au suivant, le garde serait devenu muet. cf. #431 / #962)
     ),
-    "build": False,
+    "build": True,
     "toujours": False,
     "raison": "Test OFFLINE : il n'ouvre aucun runner. Son perimetre est la chaine du passif "
               "`TrophyTaker` (effet 1289, trigger du stat-mod 1288, selecteur `UnitsDefeatedBy` et "

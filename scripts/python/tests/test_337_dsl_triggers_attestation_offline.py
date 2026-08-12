@@ -204,9 +204,21 @@ def test_la_famille_DSLTriggers_est_INTEGRALEMENT_TRANCHEE(tmp_path, capsys):
     # noeud. Une mention documentaire qui devient un PORT change de colonne dans la table
     # d'attestation ET ici, dans le MEME commit -- et l'assertion suivante verifie qu'elle a bien
     # change de colonne, au lieu d'avoir simplement disparu de la table.
+    # `IsPlayerDefeated` vient de #962 : #960 (`ArmourOfShriekingSouls`) l'a CITEE en portant le
+    # gate `If(NOT AmountIsZero(Filter(PlayersByTeam, NOT IsPlayerDefeated)), ...)` de
+    # `$$Resurrect`. Le natif alloue un trigger DEDIE dont le predicat
+    # (`PlayerExtensions$$IsPlayerDefeated`) a TROIS branches, dont le port n'a de substrat que pour
+    # UNE (`_team_has_living_unit`, degradation RESTRICTIF nommee) -- donc NON_PORTE, exactement la
+    # croissance d'inventaire que le paragraphe ci-dessus decrit.
+    # ⚠ `IsFirstHitGroupInAttack` en est SORTIE (#962), et c'est le mouvement SAIN decrit ci-dessus
+    # -- le MEME qu'`ActorHasTriggeredAbility` en #577 : l'HEURISTIQUE l'attribue desormais
+    # elle-meme (`PORTE_ALIAS_FACADE`, noeud `IsFirstHitGroupInAttackTrigger` porte par l'export
+    # `IsFirstHitInSeries`), et une attestation ne s'applique QUE si l'heuristique n'a rien trouve.
+    # Sa ligne du TSV, devenue redondante, est RETIREE dans le meme commit -- et l'assertion
+    # `porte` ci-dessous verifie qu'elle a bien CHANGE DE COLONNE, pas seulement disparu.
     lus = {r[1] for r in trig if r[6].startswith("attestation:") and r[5] == "NON_PORTE"}
-    assert lus == {"Direct", "IsFirstHitGroupInAttack",
-                   "IsInTeamSynapseRange",
+    assert lus == {"Direct",
+                   "IsInTeamSynapseRange", "IsPlayerDefeated",
                    "get_CasterIsCasterTile", "get_OwnerIsTargetTile", "get_OwnerTileIsTarget"}, lus
 
     # Les quatre premiers rangs du classement par levier (#337 les cible nommement).
@@ -218,3 +230,8 @@ def test_la_famille_DSLTriggers_est_INTEGRALEMENT_TRANCHEE(tmp_path, capsys):
     assert "ActorHasTriggeredAbility" in porte, (
         "ActorHasTriggeredAbility n'est plus NON_PORTE mais n'est pas atteste PORTE non plus : "
         "sa ligne a-t-elle ete SUPPRIMEE de `docs/rl/dsl-port-attestations.tsv` ?")
+    # #962 -- MEME cran pour la seconde sortie de `lus`. Sans lui, retirer une ligne du TSV
+    # suffirait a faire taire le rouge sans rien avoir porte.
+    assert "IsFirstHitGroupInAttack" in porte, (
+        "IsFirstHitGroupInAttack est sortie de `lus` mais n'est pas PORTEE : sa ligne a-t-elle "
+        "ete retiree de `docs/rl/dsl-port-attestations.tsv` sans que rien ne la porte ?")

@@ -115,24 +115,28 @@ NON_VERTS_DECLARES: dict[str, str] = {
     # PAS le fait de cette tranche, et leur provenance est MESUREE (`git log -S`), pas supposee :
     # l'un date d'avant son lancement, l'autre est arrive PAR LE REBASE. Ils n'etaient pas
     # visibles parce que le ledger ne portait aucune attestation a jour sur ces fichiers.
-    "tests/test_337_dsl_triggers_attestation_offline.py":
-        "`test_la_famille_DSLTriggers_est_INTEGRALEMENT_TRANCHEE` -- 1 failed / 10 passed. "
-        "<< primitives DSLTriggers encore non tranchees : ['AttackUsedAttackDamage'] >>. La "
-        "primitive entre par `efccc665` (merge #879), soit AVANT le lancement de la tranche "
-        "#547-r7. FOYER : l'attestation DSLTriggers, hors du territoire de cette tranche. "
-        "Residu #547-r10.",
+    # ⚠ DEUX LIGNES SONT SORTIES D'ICI PAR LE CRAN 2 (#962), et les DEUX causes sont differentes --
+    # c'est exactement ce que ce cran existe pour distinguer :
+    #   * `tests/test_337_dsl_triggers_attestation_offline.py` -- REPARE par #962. Sa ligne
+    #     accusait `AttackUsedAttackDamage` (deja reparee par `56250b3d`) alors que le rouge
+    #     COURANT portait sur TROIS autres primitives (`IsHero`, `IsPlayerDefeated`, `OnDeath`) :
+    #     la declaration etait donc a la fois PERIMEE et VRAIE, le pire des deux etats -- elle
+    #     aurait absous n'importe quel rouge futur de ce fichier.
+    #   * `tests/test_480r8_rpc_joignable_offline.py` -- REDEVENU VERT sur `master` (3 passed,
+    #     mesure du 2026-08-12). Personne n'avait retire sa ligne.
     "tests/engine/test_477r24r1_slots_interface_offline.py":
-        "`test_etage3_aucune_citation_fausse` -- 1 failed / 58 passed. << citation(s) au NOM "
-        "faux : `engine/runner/components.py:1128` slot 0x23 : le site nomme Execute, le metadata "
-        "dit FinishUnitTurn >>. Entre par `53d9766b` (merge #886), donc PENDANT cette tranche et "
-        "arrive par son REBASE. FOYER `engine/runner/components.py` : hors du territoire de cette "
-        "tranche. Residu #547-r10.",
-    "tests/test_480r8_rpc_joignable_offline.py":
-        "`test_etage1_tout_rpc_porte_un_canal_nominatif` -- << 12 RPC dont le NOM n'est ecrit "
-        "nulle part hors de son fichier declarant >>, dont les quatre de "
-        "`frida/hooks/features/movement-trace.ts`. Le remede est ECRIT par le probe lui-meme "
-        "(`--catalogue` produit le bloc a coller dans `rpc-api.md`). FOYER `frida/hooks/**` : "
-        "hors du territoire de cette tranche. Residu #547-r6.",
+        "`test_etage3_aucune_citation_fausse` ET "
+        "`test_etage3quater_le_franchissement_de_virgule_APPORTE_sans_rien_perdre` -- 2 failed / "
+        "60 passed. /!\\ LA CAUSE A CHANGE, et l'ancienne ligne (`engine/runner/components.py:1128` "
+        "slot 0x23, entree par le merge #886) est REPAREE : le rouge COURANT est "
+        "`scripts/python/tests/engine/test_953r2_preattack_place_live.py:23` -- << slot 0xa : le "
+        "site nomme EvaluateAbilities, le metadata dit ReAddMachine ; EvaluateAbilities est aux "
+        "slots 0x4d, 0x4e, 0x4f, 0x51, 0x52 >>. La phrase citee est `(slots 20/21 d'IBattleQuery "
+        "puis slot 10, rejoue par IOperationProcessor.EvaluateAbilities slot 78 / "
+        "UnregisterEntityFromTriggers slot 85)` : le franchissement de virgule apparie `slot 10` "
+        "au nom SUIVANT. Entre par `ce81d47e` (#953-r2). Le reparer exige de savoir ce que `slot "
+        "10` DESIGNE, ce qui est la RE de #953-r2 -- deviner un nom serait pire que le rouge. "
+        "FOYER `scripts/python/tests/engine/test_953r2_preattack_place_live.py`. Residu #962-r1.",
     # ⚠ TROIS LIGNES SONT SORTIES D'ICI PAR LE CRAN 2, ET C'EST LA PREMIERE FOIS QU'ELLES SORTENT
     # SUR UNE MESURE FRAICHE (#547-r5). Elles y etaient toutes les trois parce que le ledger ne se
     # rejouait pas -- l'une le DISAIT explicitement (<< elle sortira a la prochaine passe

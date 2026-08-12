@@ -889,7 +889,6 @@ class DirectDamage(AbilityBehaviour):
         self.profile, self.ability_type = profile, ability_type
 
     def execute(self, entities, ectx):
-        from ...operations.damage import AttackDamageOperation
         state = ectx.state
         if state is None:
             ectx.emit("DirectDamage", source=None, target=None, total=None, attack=None)
