@@ -29,7 +29,43 @@ INTERFACE (duck-typed, `getattr` — seuls les effets concernes la portent, meme
   * `aura_stat_modification_stat()   -> int`
   * `aura_stat_modification_amount() -> int | None`
   * `aura_stat_modification_targets(state, owner_id) -> list[entity_id]`
+  * `aura_sub_effects_on_apply()     -> tuple[SubEffectSpec, ...]`   (#955-r3, cf. ci-dessous)
 Aucun effet preexistant ne la porte -> ces deux points de cablage sont des NO-OP stricts hors porteur.
+
+## Le 4e point : `<Effect>$$ApplyInternal` est joue PAR CIBLE, pas une fois (#955-r3)
+
+Ce driver ne portait que la `ValueModification`. Or la chaine native ne s'arrete pas la :
+
+    RefreshEffectsOperation$$UpdateEffectTargets
+        targetsToAdd = GetTargetsToAdd(current, desired)
+        ApplyEffectsForTargets(targetsToAdd, ...)
+            foreach target : effect.<slot 0xe = BaseEffect$$Apply>(owner, target, effectEntity)
+                                 -> <slot 0x548 = <Effect>$$ApplyInternal>(owner, target, effect)
+                                 -> puis l'id de l'entite-effet entre dans la liste buffs/debuffs
+                                    de la CIBLE (`UnitEffectsComponent+0xf8`/`+0x100`)
+
+et `ApplyInternal` peut faire PLUS que le stat-mod de sa base. Cas porte :
+`IdunBattle.Entities.Effects.Loki.SummaryExecutionEffect$$ApplyInternal` =
+`AStatModifierEffect.ApplyInternal(owner, target, effect)` **puis**
+`IdunBattle.Entities.Effects.BaseEffect$$AddSubEffect(effect, target, 0x437 = IgnoreBattleFatigue,
+turns = null)` -- l'immunite est donc posee sur CHAQUE cible du selecteur, et RE-posee des qu'une
+cible ENTRE.
+
+⚠ **LE REGIME EST ATTEIGNABLE, contrairement a ce que le residu #955-r3 disait.** Il concluait
+« aucun montage porte ne le produit -- le trait est statique dans le gameconfig ». C'est le mauvais
+axe : ce qui compte n'est pas qu'une unite ACQUIERE `BattleFatigue`, c'est qu'une unite qui le PORTE
+DEJA entre dans le selecteur APRES la materialisation de 1031. Un SUMMON en est un
+(`genesSmnNeophyte`, `astraSmnGuardsman`, `orksOrkBoys`, `tyranSmnRipperSwarm` portent le trait), et
+`operations/spawn.py` appelle DEJA `refresh_aura_stat_modifiers` -- le stat-mod le suivait donc
+deja, l'immunite non.
+
+⚠ **PAS DE SYMETRIQUE AU RETRAIT, et c'est LU** : `SummaryExecutionEffect` ne declare aucun
+`RevertInternal` (son bloc porte `.ctor`, `ApplyInternal`, `GetDynamicStatModificationAmount`), donc
+`RevertEffectsForTargets` -> `BaseEffect$$Revert` retombe sur `AStatModifierEffect$$RevertInternal`,
+qui ne retire QUE la `ValueModification`. Une cible qui sort du selecteur GARDE son
+`IgnoreBattleFatigue` cote natif ; il ne part qu'avec le parent, par
+`RemoveEffectOperation$$RemoveSubEffects`. Le port fait pareil : `_apply_aura_sub_effects` ne pose,
+il ne retire jamais.
 """
 from __future__ import annotations
 
@@ -93,6 +129,46 @@ def _unit_stats(state: State, unit_id: int):
     return getattr(sc.ctx, "stats", None) if sc is not None else None
 
 
+def _apply_aura_sub_effects(state: State, owner_id: int, eff, targets) -> list:
+    """`RefreshEffectsOperation$$ApplyEffectsForTargets` -> `BaseEffect$$Apply(owner, target,
+    effect)` -> le slot virtuel `<Effect>$$ApplyInternal(owner, target, effect)`, part
+    `AddSubEffect` (#955-r3, cf. l'en-tete de module).
+
+    Le natif ne joue `ApplyInternal` que sur les cibles ENTRANTES (`GetTargetsToAdd` = desired -
+    current). Le port n'a pas la liste `EffectComponent.Targets@+0x48` par instance -- le driver
+    re-evalue le selecteur a chaque reveil -- donc l'entree est derivee de la PRESENCE du
+    sous-effet : `AddEffectOperation.execute` abandonne sur « deja present » (son gate `has_effect`,
+    mirror de la query 0x28 de `AddEffectOperation$$Execute`), ce qui rend la pose IDEMPOTENTE et
+    fait converger les deux formulations.
+
+    AUCUN retrait : `SummaryExecutionEffect` ne declare pas de `RevertInternal`, donc une cible qui
+    sort du selecteur garde son sous-effet cote natif aussi (il ne part qu'avec le parent, via
+    `RemoveEffectOperation$$RemoveSubEffects`).
+
+    RESIDU NOMME : le lien `parent_type` n'est pas pose -- `AddEffectOperation.execute` ne l'expose
+    pas (seul son `_spawn_sub_effects` interne le fait, et il pose sur le PORTEUR de l'instance
+    parente, jamais sur une cible de selecteur). Consequence : la cascade du port ne retirera pas
+    l'immunite quand 1031 partira. Sans effet observable tant que 1031 est PERMANENT et one-shot par
+    bataille (son propre trigger se ferme sur `HasEffect(Owner, 0x407)`).
+
+    Renvoie la liste des `(target_id, effect_type)` REELLEMENT poses (une pose deja faite n'y est
+    pas)."""
+    specs = getattr(eff, "aura_sub_effects_on_apply", None)
+    specs = specs() if specs is not None else ()
+    if not specs:
+        return []
+    from .effects import AddEffectOperation
+    out: list = []
+    for uid in targets:
+        for spec in specs:
+            placed = AddEffectOperation.execute(
+                state, int(owner_id), int(uid), int(spec.effect_type), name=spec.name,
+                duration_override=(spec.turns if isinstance(spec.turns, int) else None))
+            if placed is not None:
+                out.append((int(uid), int(spec.effect_type)))
+    return out
+
+
 def refresh_aura_stat_modifiers(state: State, unit_id: Optional[int] = None) -> list:
     """Mirror `RefreshEffectsOperation` / `UpdateEffectTargets` (volet PROJETE) : re-evalue le selecteur
     de chaque effet-aura a stat-mod et pose (`ApplyModification`) / retire (`RevertModification`) sa
@@ -104,6 +180,10 @@ def refresh_aura_stat_modifiers(state: State, unit_id: Optional[int] = None) -> 
     out: list = []
     for owner_id, eff, stat, amt, key in _aura_carriers(state):
         targets = set(eff.aura_stat_modification_targets(state, owner_id))
+        # `ApplyEffectsForTargets` -> `Apply` -> `ApplyInternal` (#955-r3) : les sous-effets que le
+        # natif pose PAR CIBLE. Avant la boucle de stat-mod, comme dans `UpdateEffectTargets` ou
+        # `ApplyEffectsForTargets` precede l'ecriture de la liste de cibles.
+        _apply_aura_sub_effects(state, owner_id, eff, targets)
         scope = [int(unit_id)] if unit_id is not None else list(state.entities.keys())
         for uid in scope:
             us = _unit_stats(state, uid)
@@ -134,7 +214,12 @@ def attribute_aura_stat_modifiers(state: State) -> list:
     capturee). Une cible hors rayon n'a rien a re-attribuer."""
     out: list = []
     for owner_id, eff, stat, amt, key in _aura_carriers(state):
-        for uid in eff.aura_stat_modification_targets(state, owner_id):
+        cibles = list(eff.aura_stat_modification_targets(state, owner_id))
+        # MEME etage `ApplyInternal` qu'au refresh (#955-r3) : au SEED, une cible peut deja porter
+        # le sous-effet (il est dans la capture) -- la pose est alors un no-op par le gate
+        # « deja present » d'`AddEffectOperation`.
+        _apply_aura_sub_effects(state, owner_id, eff, cibles)
+        for uid in cibles:
             us = _unit_stats(state, uid)
             if us is None:
                 continue

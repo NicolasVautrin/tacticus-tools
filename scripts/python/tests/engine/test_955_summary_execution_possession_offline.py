@@ -219,10 +219,23 @@ def test_l_arbre_du_behaviour_de_summary_execution():
     assert isinstance(kill.subject_sel, Owner)      # le TUEUR impute = le porteur
     assert isinstance(kill.units_sel, Actor)        # la victime = l'ACTEUR de `PreUnitFled`
 
-    sub = SE.summary_execution_ignore_fatigue_tree()
-    assert isinstance(sub, AddEffect)
-    assert sub.effect_type == int(EffectType.IgnoreBattleFatigue)
-    assert sub.duration_rounds is None
+    # `SummaryExecutionEffect$$ApplyInternal` -- le sous-effet ne vit PLUS dans un arbre du trigger
+    # (#955-r3) : il est DECLARE par l'effet et joue PAR CIBLE par le driver d'aura, a chacun de ses
+    # reveils, comme `RefreshEffectsOperation$$ApplyEffectsForTargets` le fait cote natif.
+    from engine.entities.effects.loki.summary_execution import SummaryExecutionEffect
+    from engine.entities.effects.base import SubEffectSpec
+    specs = SummaryExecutionEffect(name="SummaryExecution_Effect").aura_sub_effects_on_apply()
+    assert len(specs) == 1 and isinstance(specs[0], SubEffectSpec)
+    assert specs[0].effect_type == int(EffectType.IgnoreBattleFatigue)
+    assert specs[0].turns is None                                  # `turns = null`
+    assert not hasattr(SE, "summary_execution_ignore_fatigue_tree"), (
+        "le poseur bespoke du trigger est revenu -- il y aurait DEUX foyers de pose pour le meme "
+        "`ApplyInternal`, et celui-ci ne joue qu'une fois (#955-r3)")
+    # ... et l'AUTRE aura du kit n'en pose AUCUN : le natif ne surcharge `ApplyInternal` que sur
+    # 1031. Un `aura_sub_effects_on_apply` herite donnerait l'immunite des le chargement.
+    from engine.entities.effects.loki.summary_execution import SummaryExecutionBaseEffect
+    assert getattr(SummaryExecutionBaseEffect(name="SummaryExecution_BaseEffect"),
+                   "aura_sub_effects_on_apply", None) is None
 
 
 def test_le_verrou_one_shot_est_la_PRESENCE_de_l_effet():

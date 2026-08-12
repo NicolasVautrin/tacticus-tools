@@ -91,7 +91,7 @@ from ...selectors.accessors import Owner
 from ...selectors.tiles import AllAliveUnits
 from ...selectors.units import Friends, UnitsWithTrait
 from ...stats import StatType
-from ..base import BaseEffect
+from ..base import BaseEffect, SubEffectSpec
 from ..magnitude import ability_var
 
 #: L'ability dont les DEUX effets lisent la config (`ConfigVar(0x409, EffectSource, <var>)`).
@@ -172,3 +172,26 @@ class SummaryExecutionEffect(_ASummaryExecutionAuraEffect):
     chacune."""
 
     _VAR = "extraDmg_2"            # `AbilityVariableType` 9
+
+    def aura_sub_effects_on_apply(self) -> tuple:
+        """`IdunBattle.Entities.Effects.Loki.SummaryExecutionEffect$$ApplyInternal`, MIRROR du
+        decompile -- corps ENTIER, deux instructions :
+
+            AStatModifierEffect.ApplyInternal(this, owner, target, effect)
+            BaseEffect.AddSubEffect(this, effect, target, 0x437 = IgnoreBattleFatigue, turns = null)
+
+        Le `target` est la CIBLE SELECTIONNEE (3e argument du slot 0x548, que
+        `RefreshEffectsOperation$$ApplyEffectsForTargets` alimente une cible a la fois), donc le
+        natif pose l'immunite sur CHACUNE -- et la RE-pose des qu'une nouvelle entre dans le
+        selecteur. C'est ce que le driver d'aura joue desormais (#955-r3) ; jusque-la le port ne la
+        posait qu'UNE FOIS, depuis le behaviour du trigger, au moment de la materialisation de 1031.
+
+        `turns = null` -> `SubEffectSpec.turns = None` = `DefaultAmountOfRounds`, mirror du
+        `Nullable<int>` VIDE.
+
+        ⚠ PAS de pendant au RETRAIT, et c'est LU : le bloc de `SummaryExecutionEffect` porte `.ctor`,
+        `ApplyInternal` et `GetDynamicStatModificationAmount` -- aucun `RevertInternal`. Une cible
+        qui sort du selecteur GARDE donc son immunite cote natif ; elle ne part qu'avec le parent,
+        par `IdunBattle.Operations.RemoveEffectOperation$$RemoveSubEffects`."""
+        return (SubEffectSpec(IGNORE_BATTLE_FATIGUE, EffectType.IgnoreBattleFatigue.name,
+                              turns=None),)

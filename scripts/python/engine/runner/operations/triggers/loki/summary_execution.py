@@ -90,7 +90,7 @@ from .....entities.selectors.accessors import Actor, Owner
 from .....entities.stats import StatType
 from .....entities.triggered_ability_type import TriggeredAbilityType
 from ....abilities.behaviours.context import entities_from_state
-from ....abilities.behaviours.effects import AddDynamicStatModifierEffect, AddEffect
+from ....abilities.behaviours.effects import AddDynamicStatModifierEffect
 from ....abilities.behaviours.lifecycle import Kill
 from ....components import OwnerComponent, UnitComponent
 from ....state import State
@@ -123,13 +123,17 @@ def summary_execution_kill_tree() -> Kill:
     return Kill(Owner(), Actor())
 
 
-def summary_execution_ignore_fatigue_tree() -> AddEffect:
-    """`SummaryExecutionEffect$$ApplyInternal` -> `BaseEffect$$AddSubEffect(effect, target,
-    0x437 = IgnoreBattleFatigue, turns = null)`, pose sur CHAQUE cible du selecteur d'aura (le
-    « all other friendly units with the trait **ignore it** » de l'i2). `duration_rounds = None` =
-    `DefaultAmountOfRounds` (mirror du `Nullable<int>` VIDE)."""
-    return AddEffect(IGNORE_BATTLE_FATIGUE, EffectType.IgnoreBattleFatigue.name,
-                     summary_execution_target_selector(), duration_rounds=None)
+def _immunisable_targets(state: State, owner_id: int) -> list:
+    """Les cibles du selecteur d'aura, evaluees contre l'etat courant -- le MEME foyer que le driver
+    (`SummaryExecutionEffect.aura_stat_modification_targets`). Sert de TRACE au retour du behaviour,
+    pas de decision : c'est le driver qui pose."""
+    entities = entities_from_state(state, int(owner_id))
+    out: list = []
+    for u in (summary_execution_target_selector().evaluate(entities) or []):
+        uid = u.get("id") if isinstance(u, dict) else None
+        if uid is not None:
+            out.append(int(uid))
+    return out
 
 
 class SummaryExecutionAbility(TriggeredAbility):
@@ -172,20 +176,25 @@ class SummaryExecutionAbility(TriggeredAbility):
         # d'abord, l'execution ensuite (la victime est elle-meme une cible du selecteur d'aura).
         summary_execution_behaviour_tree().execute(entities, ectx)
         placed = [p for n, p in ectx.emitted if n == "AddDynamicStatModifierEffect"]
-        # `SummaryExecutionEffect$$ApplyInternal` : le sous-effet `IgnoreBattleFatigue` sur chaque
-        # cible du selecteur (cf. residu #955-r3 de l'en-tete). Il n'est pose QUE si l'effet 1031
-        # l'a effectivement ete -- c'est son `ApplyInternal`, pas un geste autonome.
+        # Le driver d'aura (`RefreshEffectsOperation` / `UpdateEffectTargets`) n'est reveille par le
+        # port qu'au SEED, au MOUVEMENT et au SPAWN : l'effet vient d'APPARAITRE, il faut donc le
+        # reveiller ici, comme le natif le fait dans la foulee de `AddEffectOperation`.
+        #
+        # ⚠ IL POSE AUSSI LE SOUS-EFFET, ET C'EST LUI LE FOYER (#955-r3). Ce site jouait
+        # `SummaryExecutionEffect$$ApplyInternal` LUI-MEME, une fois, ce qui laissait sans immunite
+        # toute cible entrant DANS LE SELECTEUR plus tard -- un summon `BattleFatigue` apparu apres
+        # l'execution recevait le stat-mod (le driver re-evalue depuis `spawn.py`) mais pas
+        # l'immunite. Le driver joue desormais l'`ApplyInternal` PAR CIBLE, a chacun de ses reveils,
+        # via `SummaryExecutionEffect.aura_sub_effects_on_apply` -- exactement comme
+        # `ApplyEffectsForTargets` le fait cote natif.
         immunised: list = []
         if any(p.get("placed") for p in placed):
-            summary_execution_ignore_fatigue_tree().execute(entities, ectx)
-            immunised = [p.get("target") for n, p in ectx.emitted
-                         if n == "AddEffect" and p.get("placed")]
-            # Le driver d'aura (`RefreshEffectsOperation` / `UpdateEffectTargets`) n'est reveille
-            # par le port qu'au SEED et au MOUVEMENT : l'effet vient d'APPARAITRE, il faut donc
-            # materialiser sa `ValueModification` sur les cibles ici, comme le natif le fait dans
-            # la foulee de `AddEffectOperation`.
             from ...aura_stat_mods import refresh_aura_stat_modifiers
             refresh_aura_stat_modifiers(state)
+            # Trace : les cibles du selecteur qui portent effectivement l'immunite apres le reveil.
+            immunised = [uid for uid in _immunisable_targets(state, self.owner_id)
+                         if state.effects is not None and state.effects.has_effect(
+                             uid, effect_type=IGNORE_BATTLE_FATIGUE)]
         summary_execution_kill_tree().execute(entities, ectx)
         killed = [p for n, p in ectx.emitted if n == "Kill"]
         return {"passive": ABILITY_ID, "owner": int(self.owner_id), "fleeing": int(fleeing),

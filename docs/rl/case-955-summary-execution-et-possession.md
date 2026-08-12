@@ -254,9 +254,8 @@ ne doit rien recevoir.
   `TriggerEvent.triggering_ability` est inconditionnellement vide sur le vecteur MORT. Dégradation
   **PERMISSIVE**.
 * ~~**#955-r2**~~ — **FERMÉ EN REFUS : le port était juste sur les quatre.** Détail : **§7bis**.
-* **#955-r3** — `ApplyInternal` de 1031 n'est joué qu'une fois : un allié qui acquerrait
-  `BattleFatigue` après l'exécution recevrait le stat-mod (le driver ré-évalue) mais pas
-  l'immunité. Aucun montage porté ne produit ce régime.
+* ~~**#955-r3**~~ — **FERMÉ.** L'`ApplyInternal` est désormais joué **par cible**, à chaque réveil
+  du driver d'aura. Et sa prémisse d'inatteignabilité était fausse : détail **§7ter**.
 
 ## 7bis. `#955-r2` — le résidu était FAUX, et faux d'UN BIT
 
@@ -308,6 +307,52 @@ Garde : `tests/engine/runner/test_955r2_free_tiles_steppable_offline.py` — 3 �
 ctor, les trois call-sites, le quatrième qui n'en charge **aucun** r8) + le port des deux côtés,
 avec sa contre-épreuve mordante sur le **même** état (`allow_steppable=False` rend `[]`,
 `True` rend la tuile du `Steppable`).
+
+## 7ter. `#955-r3` — le 4ᵉ point du driver d'aura, et une inatteignabilité qui n'en était pas une
+
+**La prémisse a été re-mesurée, et elle ne tient PAS.** Le résidu écrivait : « aucun montage porté ne
+produit ce régime — le trait est statique dans le gameconfig, et les seuls porteurs sont des summons
+créés avec ». C'est le **mauvais axe**. Le sélecteur est
+`Friends(Owner, UnitsWithTrait(AllAliveUnits, BattleFatigue))` : ce qui compte n'est pas qu'une unité
+**acquière** le trait, c'est qu'une unité qui le **porte déjà** entre dans `AllAliveUnits` **après**
+la matérialisation de 1031. Un summon fait exactement cela — et `operations/spawn.py` **réveille
+déjà** `refresh_aura_stat_modifiers`. Le stat-mod suivait donc, l'immunité non : régime **atteignable**,
+et silencieux (le symptôme n'apparaît qu'au prochain `BattleFatigue`, où l'unité fuit au lieu d'ignorer).
+
+**Ce qui a été ajouté** — un 4ᵉ point à l'interface duck-typée du driver, mirror de l'étage natif qui
+manquait :
+
+```
+RefreshEffectsOperation$$UpdateEffectTargets
+    ApplyEffectsForTargets(targetsToAdd, ...)
+        foreach target : effect.<slot 0xe = BaseEffect$$Apply>(owner, target, effectEntity)
+                             -> <slot 0x548 = <Effect>$$ApplyInternal>(owner, target, effect)
+```
+
+`aura_sub_effects_on_apply() -> tuple[SubEffectSpec, ...]`, déclaré par `SummaryExecutionEffect`
+seul, joué par `aura_stat_mods._apply_aura_sub_effects` aux **deux** foyers du driver
+(`refresh_aura_stat_modifiers` et `attribute_aura_stat_modifiers`) — donc automatiquement aux
+**quatre** sites de câblage existants (`snapshot.load_state`, `movement`, `spawn`, le behaviour du
+trigger), sans en toucher un seul.
+
+**Le poseur bespoke du behaviour est RETIRÉ** : il y avait sinon deux foyers pour le même
+`ApplyInternal`, dont un qui ne joue qu'une fois. La trace `immunised` du retour est désormais
+**dérivée** de l'état.
+
+* **Idempotence** : le port n'a pas la liste `EffectComponent.Targets@+0x48` par instance (le driver
+  ré-évalue le sélecteur à chaque réveil), donc l'« entrée » est dérivée de la **présence** du
+  sous-effet — le gate « déjà présent » d'`AddEffectOperation`. Trois réveils ⇒ une seule instance.
+* **Aucun symétrique au retrait, et c'est LU** : le bloc de `SummaryExecutionEffect` porte `.ctor`,
+  `ApplyInternal` et `GetDynamicStatModificationAmount` — **pas** de `RevertInternal`. Une cible qui
+  sort du sélecteur garde son immunité côté natif aussi ; elle ne part qu'avec le parent, par
+  `RemoveEffectOperation$$RemoveSubEffects`.
+* **Résidu nommé** : le lien `parent_type` n'est pas posé (`AddEffectOperation.execute` ne l'expose
+  pas). Sans effet observable tant que 1031 est permanent et one-shot par bataille.
+
+Garde : `tests/engine/runner/test_955r3_apply_internal_par_cible_offline.py` — le régime entrant, la
+contre-épreuve mordante (hors sélecteur, jamais), l'idempotence sur trois réveils, et le cran qui
+interdit de hisser l'interface sur la base commune (1043 est posée au **chargement** : l'y mettre
+immuniserait tout le monde dès le premier tour et viderait le passif de son objet).
 
 ## 8. Ce que ce lot mesure sur le CRITÈRE de groupement
 
