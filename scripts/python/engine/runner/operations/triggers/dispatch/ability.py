@@ -16,6 +16,34 @@ from .core import evaluate_trigger_operation
 from ....abilities.attack_type import is_active_ability, is_normal_attack
 
 
+#: 5e VOIE DE COUVERTURE d'un passif (#951-r2) — le canal IMPERATIF de ce module, declare ICI parce
+#: que c'est ICI qu'il vit. Cle = NOM gameconfig du passif (meme cle que `passiveAbilities`, donc
+#: aucune traduction), valeur = le callable REELLEMENT appele par le vecteur.
+#:
+#: ⚠ POURQUOI IL FAUT UN REGISTRE POUR UN APPEL EN DUR. `audit_kit_coverage.py` etablit la couverture
+#: d'un passif en lisant des REGISTRES (`ABILITY_TRIGGERS`, `ABILITY_INIT_OWNER_EFFECTS`,
+#: `CUSTOM_NORMAL_ATTACK_BY_PASSIVE`, `EFFECT_CLASSES`). Un passif joue par un appel IMPERATIF n'a,
+#: par construction, aucune entree a lire : il etait donc compte MANQUANT alors qu'il est PORTE EN
+#: ENTIER — mesure #951 sur `FireOfAbsolution`, et le cout n'est pas cosmetique, c'est un agent
+#: dispatche sur du travail deja fait. La declaration est le SEUL moyen de rendre cette voie
+#: lisible ; le test `test_951r2_voies_de_couverture_offline.py` la rend VERIFIABLE (le callable
+#: doit exister ET etre appele dans ce module — une declaration morte rougit).
+#:
+#: ⚠ DISJONCTION OBLIGATOIRE avec les autres registres de passif. Y inscrire un nom qui figure DEJA
+#: dans `ABILITY_TRIGGERS` ne serait pas une double couverture : ce serait un DOUBLE FIRE — c'est
+#: exactement ce que le parametre `fire_of_absolution=False` d'`evaluate_abilities_for_event` existe
+#: pour empecher sur la voie normale. Le test garde cette disjonction.
+IMPERATIVE_ABILITY_VECTORS: dict[str, object] = {
+    # `IdunBattleLogic.Entities.Abilities.Active.Loki.FireOfAbsolutionAbility$$CreateTrigger` =
+    # `On(0x4a = AttackInAtomicGroup, ownerNeedsToBeAlive: 1) & get_OwnerIsActor & IsRangedAttack()`.
+    # Le `CreateBehaviour` est porte en entier par `fire_of_absolution_tree` ; ce qui manque au
+    # registre est l'INSCRIPTION, pas le corps. Cf. `docs/rl/case-951-trophy-taker-et-fire-of-
+    # absolution.md` §4. Le gate `ownerNeedsToBeAlive` n'est pas modelise sur ce vecteur (residu
+    # `#951-r4`) : inobservable ici, l'attaquant venant de porter son attaque.
+    "FireOfAbsolution": _fire_of_absolution_after_attack,
+}
+
+
 def ability_init_triggers(state: State, unit_id: int) -> list[dict]:
     """Vecteur `On(AbilityInit=0x21=33)` — emis par
     `IdunBattle.Operations.InitializeActorAbilitiesOperation$$Execute` quand les abilities d'une unite

@@ -72,6 +72,7 @@ _REPO = os.path.dirname(os.path.dirname(_PYROOT))
 if _PYROOT not in sys.path:
     sys.path.insert(0, _PYROOT)
 
+import coverage_attestations as CA
 import enum_maps as EM
 import gameconfig as GC
 import unit_map as UM
@@ -85,10 +86,15 @@ from engine.entities.abilities.active_ability import (   # 3e registre de decisi
 from engine.playbook import REGISTRY as CUSTOM_PLAYBOOKS   # comparables a override CalculateCustomUtility
 from engine.playbook.noncomparable import PLAYBOOKS
 from engine.runner.abilities.handler import ABILITY_CLASSES
-from engine.runner.operations.triggers.dispatch.registry import ABILITY_TRIGGERS, TRAIT_TRIGGERS
+from engine.runner.operations.triggers.dispatch.registry import (
+    ABILITY_TRIGGERS, RELIC_ABILITY_TRIGGERS, TRAIT_TRIGGERS,
+)
 # 4e voie de couverture d'un PASSIF (#925) : il substitue l'attaque normale de son porteur au lieu
 # de poser un trigger ou un effet. Cf. `_passive_covered`.
 from engine.services.custom_normal_attack import CUSTOM_NORMAL_ATTACK_BY_PASSIVE
+# 5e voie (#951-r2) : le passif est joue par un APPEL IMPERATIF depuis un vecteur d'event, donc il
+# n'a par construction AUCUNE entree de registre a lire. Declare a son foyer. Cf. `_passive_covered`.
+from engine.runner.operations.triggers.dispatch.ability import IMPERATIVE_ABILITY_VECTORS
 
 OUT = os.path.join(_REPO, "docs", "rl", "kit-coverage.md")
 
@@ -100,6 +106,11 @@ TRAIT_COMMON_MAX = 12
 # `passiveAbilities` (#323). Elles sont CONDITIONNELLES (a debloquer / a equiper) -> comptees a
 # part, jamais fondues dans le total, mais jamais tues non plus.
 VOIES_CONDITIONNELLES = ("mythic", "item")
+
+#: Les VERDICTS attestes (#951-r2), charges UNE fois. Cle = `(categorie, nom)`. Seules les
+#: attestations VALIDES y figurent : `coverage_attestations.validite` est le foyer UNIQUE, et une
+#: attestation perimee n'arrive simplement jamais jusqu'ici -- l'item reste donc compte manquant.
+_ATTESTEES = CA.attestations_valides()
 
 
 def _has_effect_named_after(name: str) -> bool:
@@ -117,10 +128,40 @@ def _has_effect_named_after(name: str) -> bool:
     return any(k == name or k.startswith(pfx) for k in EFFECT_CLASSES)
 
 
+def _atteste(categorie: str, nm: str) -> dict | None:
+    """L'attestation VALIDE de cet item, s'il en a une (#951-r2).
+
+    ⚠ Ce n'est PAS une liste blanche : le foyer `coverage_attestations.validite` exige une raison
+    ECRITE, une source qui EXISTE, le build COURANT, et un ancrage VERIFIABLE (le cliquet qui garde
+    le verdict, et/ou le symbole qui porte le mecanisme). Toute clause qui tombe rend l'attestation
+    PERIMEE, donc REMET l'item au compte -- la peremption ne sait que RAJOUTER du travail."""
+    return _ATTESTEES.get((categorie, nm))
+
+
 def _passive_covered(nm: str) -> bool:
     """Le predicat de couverture d'un item NON-actif (passif, mythique, relique) : un trigger
     d'ability, un owner-effect pose au spawn, une classe d'effet nommee d'apres lui, ou -- QUATRIEME
     voie (#925) -- une ATTAQUE NORMALE SUBSTITUEE.
+
+    ⚠ DEUX VOIES DE PLUS, ajoutees par #951-r2 apres un recensement qui n'a PAS enumere une liste
+    blanche de registres (il a introspecte TOUS les conteneurs de module d'`engine.**` -- la lecon
+    de #323 transposee de l'axe ATTRIBUTION a l'axe PORT) :
+
+      * `RELIC_ABILITY_TRIGGERS` -- registre qui EXISTAIT et que ce predicat ne lisait pas. Il est
+        SEPARE d'`ABILITY_TRIGGERS` a dessein (montage natif distinct : `TertiaryAbility` /
+        `relicAbilities`), et cette separation le rendait invisible ici. Mesure : `DawnBlade`
+        (`tauFarsight`) etait compte manquant alors que `DawnBladeHealAbility` est portee.
+      * `IMPERATIVE_ABILITY_VECTORS` -- le passif est joue par un APPEL EN DUR depuis un vecteur
+        d'event (`dispatch/ability.py::evaluate_abilities_for_event`), donc il n'a AUCUNE entree de
+        registre, quel que soit l'etat du port. Mesure : `FireOfAbsolution` (`adeptRetributor`),
+        porte en entier et compte manquant -- cf. `case-951-trophy-taker-et-fire-of-absolution.md`
+        §4. C'est un faux MANQUANT, pas une approximation : le cout mesure est un agent dispatche
+        sur du travail deja fait.
+
+    L'ATTESTATION (`_atteste`) n'est PAS testee ici : elle est deliberement tenue HORS de ce
+    predicat, parce qu'elle ne dit pas la meme chose. Ce predicat repond a « un registre le
+    porte-t-il ? » ; l'attestation repond a « ce verdict a-t-il ete ETABLI ? ». Les fondre rendrait
+    les deux indiscernables dans le doc, et c'est precisement ce qu'on veut pouvoir lire.
 
     ⚠ LA QUATRIEME VOIE MANQUAIT, et son absence produisait un faux `manque` -- pas une
     approximation, une CONTRE-VERITE. Un passif comme `Boltstorm` (1090, `templAggressor`) n'a NI
@@ -138,6 +179,8 @@ def _passive_covered(nm: str) -> bool:
     d'etre comptes manquants."""
     return (nm in ABILITY_TRIGGERS or nm in ABILITY_INIT_OWNER_EFFECTS
             or nm in CUSTOM_NORMAL_ATTACK_BY_PASSIVE
+            or nm in RELIC_ABILITY_TRIGGERS
+            or nm in IMPERATIVE_ABILITY_VECTORS
             or _has_effect_named_after(nm))
 
 
@@ -158,9 +201,11 @@ def collect_conditionnelles(name2id: dict) -> list[dict]:
     out = []
     for (nm, voie), units in carriers.items():
         aid = name2id.get(nm)
+        att = _atteste("conditionnelle-" + voie, nm)
         out.append({
-            "name": nm, "voie": voie, "id": aid, "carriers": sorted(units),
-            "covered": _passive_covered(nm) or (aid is not None and aid in ABILITY_CLASSES),
+            "name": nm, "voie": voie, "id": aid, "carriers": sorted(units), "atteste": att,
+            "covered": (_passive_covered(nm) or (aid is not None and aid in ABILITY_CLASSES)
+                        or att is not None),
         })
     return sorted(out, key=lambda r: (r["covered"], r["voie"], r["name"]))
 
@@ -181,16 +226,23 @@ def collect():
         actives = []
         for nm in (u.get("activeAbilities") or []):
             aid = name2id.get(nm)
+            att_c, att_d = _atteste("active-combat", nm), _atteste("active-decision", nm)
             actives.append({
                 "name": nm, "id": aid, "cat": _classify(nm),
-                "combat": aid in ABILITY_CLASSES,
+                "combat": aid in ABILITY_CLASSES or att_c is not None,
+                "atteste_combat": att_c, "atteste_decision": att_d,
                 # 3e registre, keye par NOM et non par id : `_SPECIAL_ABILITY_CLASSES` mirror une
                 # sous-classe `AActiveAbility` PAR ability (formule de coups propre, AoE, degat
                 # conditionnel), consommee uniquement sous `engine/playbook/prediction/` — c'est
                 # donc bien de la face DECISION, et l'ignorer produisait des `[--]` faux (mesure :
                 # 14 `[-D]` affiches pour 20 reels).
+                # #951-r2 : une ability dont le playbook natif n'a AUCUN contenu propre est portee
+                # par le chemin GENERIQUE -- il n'y a rien a ecrire, et la compter manquante fait
+                # RE-DISPATCHER un agent (mesure : `1204 LeadingTheCharge`, verdict verrouille par
+                # #945). Ce n'est PAS une exception codee en dur : c'est une attestation VALIDE
+                # (raison + source + build + ancrage), qui PERIME des que le sujet bouge.
                 "decision": (aid in PLAYBOOKS or aid in CUSTOM_PLAYBOOKS
-                             or nm in _SPECIAL_ABILITY_CLASSES),
+                             or nm in _SPECIAL_ABILITY_CLASSES or att_d is not None),
                 # `_NONCOMPARABLE_ABILITIES` NE COMPTE PAS comme decision portee, et c'est
                 # deliberé : y figurer signifie seulement que le port CLASSE l'ability
                 # NonComparable — ce qui l'empeche de fabriquer un degat depuis minDmg/maxDmg. Son
@@ -201,15 +253,19 @@ def collect():
             })
         passives = []
         for nm in (u.get("passiveAbilities") or []):
-            passives.append({"name": nm, "covered": _passive_covered(nm)})
+            att = _atteste("passif", nm)
+            passives.append({"name": nm, "covered": _passive_covered(nm) or att is not None,
+                             "atteste": att})
         kit_traits = []
         for t in (u.get("traits") or []):
             if trait_units[t] > TRAIT_COMMON_MAX:
                 continue                       # trait commun -> couche globale, pas du travail de kit
+            att = _atteste("trait", t)
             kit_traits.append({
-                "name": t, "carriers": trait_units[t],
+                "name": t, "carriers": trait_units[t], "atteste": att,
                 "covered": (t in TRAIT_TRIGGERS or t in TRAIT_DERIVED_ABILITIES
-                            or t in TRAIT_OWNER_EFFECTS or _has_effect_named_after(t)),
+                            or t in TRAIT_OWNER_EFFECTS or _has_effect_named_after(t)
+                            or att is not None),
             })
         missing = (sum(1 for a in actives if not a["combat"])
                    + sum(1 for p in passives if not p["covered"])
@@ -291,8 +347,12 @@ def main():
                     sum(1 for c in cond_open if c["voie"] == "mythic"),
                     sum(1 for c in cond_open if c["voie"] == "item")))
     lines.append("- HORS total — faces DECISION non portees : **%d** actives sur %d, "
-                 "dont **%d** dans des kits declares COMPLETS (%d kits concernes)\n\n"
+                 "dont **%d** dans des kits declares COMPLETS (%d kits concernes)\n"
                  % (len(deci_open), n_actives, len(deci_masquees), len(kits_masques)))
+    n_val, n_per = (len(x) for x in CA.ventiler())
+    lines.append("- DECOMPTES par un verdict ATTESTE : **%d** (et **%d** attestation(s) PERIMEE(S), "
+                 "dont l'item est REDEVENU manquant) — section dediee plus bas, jamais tue\n\n"
+                 % (n_val, n_per))
 
     lines.append("### Priorite par faction (volume decroissant)\n\n")
     lines.append("| faction | kits | items |\n|---|---:|---:|\n")
@@ -331,6 +391,38 @@ def main():
     for r, a in sorted(deci_masquees, key=lambda ra: (ra[0]["faction"], ra[0]["id"], ra[1]["name"])):
         lines.append("| %s | %s | %s | %s |\n"
                      % (r["id"], a["name"], a["id"], a["cat"]))
+
+    val, per = CA.ventiler()
+    lines.append("\n## Verdicts ATTESTES — decomptes du total, et JAMAIS tus (%d valides, %d perimees)\n\n"
+                 % (len(val), len(per)))
+    lines.append("> Un item peut manquer aux registres pour une raison parfaitement legitime : **le\n"
+                 "> natif n'a rien de propre a porter**, ou le mecanisme est porte par une voie SANS\n"
+                 "> registre. Ecrit uniquement dans une case-doc, ce verdict ne survit a aucun outil —\n"
+                 "> `1204 LeadingTheCharge` (prouvee SANS CONTENU PROPRE par #945) et `GalvanicField`\n"
+                 "> (verdict MESURE par #952) etaient recomptes manquants a chaque regeneration, et un\n"
+                 "> agent a failli etre redispatche dessus.\n"
+                 ">\n"
+                 "> Ce ne sont PAS des exceptions codees en dur. Chaque entree de\n"
+                 "> `scripts/ratchets-951r2-couverture-attestee.json` porte sa RAISON, sa SOURCE, son\n"
+                 "> BUILD et un ANCRAGE VERIFIABLE (le cliquet qui garde le verdict, et/ou le symbole\n"
+                 "> qui porte le mecanisme). Foyer UNIQUE de validite :\n"
+                 "> `scripts/python/coverage_attestations.py::validite`.\n"
+                 ">\n"
+                 "> ⚠ **L'asymetrie est INVERSE de celle du ledger #462/#465, et c'est structurel** :\n"
+                 "> ici l'attestation EST le geste permissif (elle RETIRE du travail du compte). Une\n"
+                 "> attestation PERIMEE — build change, cliquet disparu, porteur non resolvable —\n"
+                 "> **REMET son item au compte des manquants**. Aucun chemin ne peut faire disparaitre\n"
+                 "> du travail : la peremption ne sait que EN RAJOUTER. Un audit qui sous-compte fait\n"
+                 "> RENONCER, ce qui est pire qu'un audit qui sur-compte et fait perdre du temps.\n\n")
+    lines.append("| item | verdict | ancrage | source | raison |\n|---|---|---|---|---|\n")
+    for cle, e, _r in val:
+        ancre = e.get("cliquet") or e.get("porteur") or "-"
+        lines.append("| %s | %s | `%s` | %s | %s |\n"
+                     % (cle, e["verdict"], os.path.basename(ancre), e["source"], e["raison"]))
+    if per:
+        lines.append("\n**PERIMEES — ces items sont REDEVENUS des manquants** (%d) :\n\n" % len(per))
+        for cle, _e, r in per:
+            lines.append("* `%s` — %s\n" % (cle, r))
 
     lines.append("\n## Kits lineup COMPLETS (%d)\n\n" % len(done))
     lines.append("> ⚠ **COMPLET = face COMBAT complete.** %d de ces kits portent au moins une active\n"

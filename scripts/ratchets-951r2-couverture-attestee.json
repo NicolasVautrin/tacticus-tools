@@ -1,0 +1,40 @@
+{
+ "_doc": "Ledger des VERDICTS de couverture (#951-r2). Foyer UNIQUE de validite : scripts/python/coverage_attestations.py::validite. Une entree PERIMEE REMET son item au compte des manquants -- la peremption ne sait que RAJOUTER du travail. Format d'une entree : categorie/nom = l'item tel que l'audit le nomme ; verdict RIEN_A_PORTER|PORTE_HORS_REGISTRE ; raison = une ligne LUE, pas devinee ; source = case-doc existante ; build = celui sur lequel le decompile a ete lu ; cliquet et/ou porteur = l'ancrage VERIFIABLE, sans lequel ce serait une liste blanche.",
+ "attestations": {
+  "active-decision:LeadingTheCharge": {
+   "categorie": "active-decision",
+   "nom": "LeadingTheCharge",
+   "verdict": "RIEN_A_PORTER",
+   "raison": "IdunBattle.AI.Playbook.Loki.LeadingTheChargePlaybook$$MakeDamagePredictions est STRUCTURELLEMENT identique au corps generique (que des appels DIRECTS aux corps de la classe de base : GetDamage -> AActiveAbility$$MinMaxDamage, GetHits, GetDamageProfile, GenerateMultiHitAttackPredictions). IL2CPP replique le corps de DefaultActiveAbilityPlaybook dans chaque specialisation : compter les symboles ne dit pas ce qui est surcharge. 1204 est deja dans _A_VIA_STAFF_OF_STARS_GET_DAMAGE (#344), qui EST le chemin generique du port.",
+   "source": "docs/rl/case-945-loki-faces-decision.md#7",
+   "build": "rnca9r7q6c",
+   "cliquet": "scripts/python/tests/engine/test_945_loki_decision_faces_offline.py",
+   "porteur": "engine.entities.abilities.active_ability:_A_VIA_STAFF_OF_STARS_GET_DAMAGE",
+   "_commit": "1b77085728a7138dc9f83fdc2a77143198efa9b9",
+   "_at": 1786000000
+  },
+  "passif:GalvanicField": {
+   "categorie": "passif",
+   "nom": "GalvanicField",
+   "verdict": "RIEN_A_PORTER",
+   "raison": "GalvanicFieldAbility$$CreateBehaviour = AddFlag(0x18 CanRepairFullHealthUnits) & RemoveActiveAbility(0x1c Repair) & AddActiveAbility(0x45f Repair_GalvanicField). Les trois feuilles ont leur consommateur porte (unit_flags -> entity_can_be_repaired ; ABILITY_CLASSES[1119] ; le port ne derive jamais Repair d'un trait, donc rien a retirer), et les deux utilites de GalvanicFieldPlaybook rendent Fix64(0) -- porter le playbook ajouterait un terme nul.",
+   "source": "docs/rl/case-952-hunters-beyond-death-et-galvanic-field.md#3",
+   "build": "rnca9r7q6c",
+   "cliquet": "scripts/python/tests/engine/test_952_hunters_beyond_death_offline.py",
+   "porteur": "engine.runner.abilities.repair:galvanic_field_attack_behavior",
+   "_commit": "1b77085728a7138dc9f83fdc2a77143198efa9b9",
+   "_at": 1786000000
+  },
+  "trait:IndirectFire": {
+   "categorie": "trait",
+   "nom": "IndirectFire",
+   "verdict": "PORTE_HORS_REGISTRE",
+   "raison": "Le trait n'a ni trigger, ni ability derivee, ni owner-effect, ni classe d'effet homonyme : il est LU IMPERATIVEMENT par ses deux consommateurs, aux deux volets natifs. (1) elevation -- TargetingQuery$$GetTilesObscuringTerrain teste HasTrait(caster, 0x3ed) avant de poser le volet ObscuringType (services/targeting_query.py, INDIRECT_FIRE_TRAIT ; threade par ability_range._has_indirect_fire). (2) Trench -- le gate IsTrench(attackerTile)+IsNeighbourOf de la reduction (services/damage_modifiers.py, damage_model.py).",
+   "source": "docs/rl/port-roadmap.md#5.1",
+   "build": "rnca9r7q6c",
+   "porteur": "engine.services.targeting_query:INDIRECT_FIRE_TRAIT",
+   "_commit": "1b77085728a7138dc9f83fdc2a77143198efa9b9",
+   "_at": 1786000000
+  }
+ }
+}
