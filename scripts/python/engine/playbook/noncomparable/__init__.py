@@ -114,6 +114,9 @@ from .calibanite_greatsword import CalibaniteGreatswordPlaybook
 from .exemplar_of_hate import ExemplarOfHatePlaybook
 from .fear_of_the_unseen import FearOfTheUnseenPlaybook
 from .foehammer import FoehammerPlaybook
+from .storm_speeder import DeathOnTheWindPlaybook, HailstrikePlaybook
+from .ordnance_battery import ForwardSpotterPlaybook, MalleusRocketLauncherPlaybook
+from .necro_reanimator import NanoscarabRepairProtocolsPlaybook, ReanimationBeamPlaybook
 
 
 # Registre abilityType -> instance de playbook (remplace le switch `kind`).
@@ -287,6 +290,46 @@ PLAYBOOKS: dict[int, NonComparablePlaybook] = {
         #                                 compte, lui, `UnitsWithTrait(AllDeadOrResurrectedUnits(),
         #                                 Hero)` -- le playbook n'a ni le filtre `Hero` ni la branche
         #                                 « ressuscite ». Ecart NATIF, transcrit tel quel.
+        # #967 -- les SIX faces DECISION des TROIS MACHINES OF WAR dont la face COMBAT etait deja
+        # portee ET confrontee (case-90 / case-117 / #902). Base `NonComparablePlaybook`1` LUE dans
+        # `frida/classes.tsv` pour les six ; reachability LUE dans
+        # `metadata/active_playbook_builders.tsv` (six entrees du dict `active`, une par ability) ;
+        # recensement AU BLOC d'adresses (`probe_967_playbook_blocks.py`) : six blocs CONTIGUS,
+        # rien de fondu dedans. Deux surchargent `get_Priority` (sweep #170) : 1213 = 1000,
+        # 1223 = -1000 ; les quatre autres sont hors table -> tier 0.
+        DeathOnTheWindPlaybook(),       # 1213 (`darkaStormSpeeder`) -- util = #ennemis que le
+        #                                 barrage frapperait ({tuile visee} UNION la ligne de
+        #                                 `nrOfTiles-1` hexes la plus peuplee du ring-1), MIN = **2**
+        #                                 (la seule des six a ne pas valoir 1). ⚠ L'arbre DSL est
+        #                                 bati hors boucle mais EVALUE par `ITargetsSelector.Count`
+        #                                 slot 2 sur le contexte de CHAQUE cible -> le terme n'est
+        #                                 PAS constant sur les cibles. Gate `ShouldEvaluate` PROPRE
+        #                                 (`HasPossibleTarget`), pas le corps folde d'AlphaWarrior.
+        HailstrikePlaybook(),           # 1214 (`darkaStormSpeeder`) -- util = (100 - PiercingRatio
+        #                                 de l'arme de l'allie vise) + `rng.Next(0,10)` + 500 si
+        #                                 (Overwatch ou (arme/ability a distance ET peut attaquer)).
+        #                                 Le terme ALEATOIRE n'est pas portable (#967-r3).
+        MalleusRocketLauncherPlaybook(),  # 1142 (`astraOrdnanceBattery`) -- util = +3/-3 pour
+        #                                 l'occupant de la tuile visee, +1/-1 par unite ADJACENTE
+        #                                 (ennemi/ami) ; gate INLINE `util > 0` en plus du MIN = 1.
+        #                                 `GetAdjacentDamageTargets` ancre sur `Target@+0x60`.
+        ForwardSpotterPlaybook(),       # 1143 (`astraOrdnanceBattery`) -- util = **1** + #tuiles
+        #                                 libres adjacentes a l'allie vise d'ou le Cadian invoque
+        #                                 aurait une cible (slot 195). Le plancher `Fix64(1)` POSE
+        #                                 AVANT la boucle est ce qui separe 1143 d'`AlphaWarrior`
+        #                                 (1112), qui partage le slot mais emet le booleen NU et
+        #                                 devient donc un VETO. Porteur MoW -> branche
+        #                                 `...WithMachineParent` (tous les ennemis), qui ferme #945-r1.
+        NanoscarabRepairProtocolsPlaybook(),  # 1224 (`necroReanimator`) -- util = `GetStat(cible,
+        #                                 0 = ATTACK)`. ⚠ MEME squelette que `MindControlPlaybook`,
+        #                                 qui lit `5 = HEALTH` au MEME emplacement : seul l'ordinal
+        #                                 differe. Ne lit PAS `hpToRepair` (c'est l'EFFET 1545 qui
+        #                                 le lit, #902).
+        ReanimationBeamPlaybook(),      # 1223 (`necroReanimator`) -- util CONSTANTE `Fix64(1)` =
+        #                                 MIN_UTILITY : keep-first sur l'ordre du selecteur.
+        #                                 PRIORITY = **-1000** (octets `mov eax,0xFFFFFC18 ; ret`)
+        #                                 -> 1224 (tier 0) prime TOUJOURS sur elle, par l'ORDRE des
+        #                                 generateurs et non par comparaison d'utilites.
     )
 }
 
@@ -363,4 +406,7 @@ __all__ = [
     "AdaptiveStrategyPlaybook", "StormOfWrathPlaybook", "AlphaWarriorPlaybook",
     "CalibaniteGreatswordPlaybook",
     "ExemplarOfHatePlaybook", "FearOfTheUnseenPlaybook", "FoehammerPlaybook",
+    "DeathOnTheWindPlaybook", "HailstrikePlaybook",
+    "ForwardSpotterPlaybook", "MalleusRocketLauncherPlaybook",
+    "NanoscarabRepairProtocolsPlaybook", "ReanimationBeamPlaybook",
 ]

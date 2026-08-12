@@ -75,7 +75,10 @@ TROIS BRANCHES INERTES POUR CE PORTEUR, et c'est MESURE, pas suppose
   (`IsAdjacentTo` et `CanMeleeAttackOverElevationDifference`) sont donc morts ici. Ils restent
   ECRITS dans `_is_target_in_attack_range_for_summon` : ils vivront si un autre porteur entre.
 * `IsMachine(parent)` : `tyranWingedPrime` est une unite, pas une MACHINE OF WAR. La branche
-  `...WithMachineParent` n'est pas portee -- residu `#945-r1`, nomme et non contourne.
+  `...WithMachineParent` est donc INATTEIGNABLE ICI -- elle etait le residu `#945-r1`, **ferme
+  par #967** : `ForwardSpotter` (1143) la rend obligatoire (porteur `astraOrdnanceBattery`, MoW),
+  et les deux branches vivent desormais dans le foyer `summon_attack_range.py`. Ce playbook-ci
+  passe `machine_parent=False`, ce qui restitue EXACTEMENT le comportement d'avant.
 
 VOIE D'ENUMERATION -- CIBLE TUILE
 ----------------------------------
@@ -95,45 +98,11 @@ AlphaWarrior**. `AlphaWarriorPlaybook` n'evalue donc JAMAIS au premier tour de s
 """
 from __future__ import annotations
 
-import gameconfig as _gc
-import hexgeo
-
-from engine import battle_query as bq
 from engine.entities.active_ability_type import ActiveAbilityType
 
-from ._base import NCContext, NonComparablePlaybook, _turns_started_gate, _unit_cfg
-
-#: `AbilityConfiguration` de 1112 : `constants.unitId` = l'unite que le natif passe au slot 195.
-#: LU dans le gameconfig, jamais code en dur ici (`AlphaWarriorAbility$$GetSummonId` est le corps
-#: DEDUPLIQUE etiquete `SporeMineLauncherAbility$$GetSummonId` : il lit cette meme constante).
-_CONST_SUMMON_ID = "unitId"
-
-#: `GetTilesObscuringTerrain(tile, t, 6, 2)` -- mask 6 (elevation + murs) et seuil 2, les MEMES
-#: arguments que `battle_query.is_target_tile_obscured` porte deja.
-_OBSCURE_MASK = 6
-
-
-def _summon_id(ability_id: int) -> str | None:
-    """`<AlphaWarriorAbility>$$GetSummonId(ability)` = `constants.unitId` de la config."""
-    name = ActiveAbilityType(int(ability_id)).name
-    cfg = _gc.ability(name) or {}
-    v = (cfg.get("constants") or {}).get(_CONST_SUMMON_ID)
-    return str(v) if v else None
-
-
-def _summon_attack_range(summon_id: str | None) -> int | None:
-    """`foreach w in GetUnitConfig(unitId).weapons: range = Max(range, w.Range ?? 1)`.
-
-    ⚠ Le `?? 1` est LU : une arme de melee (pas de `Range`) compte pour **1**, pas pour 0. Une
-    unite sans aucune arme rendrait `range = 0` cote natif ; ici, config introuvable -> `None`,
-    que l'appelant traduit en « non mesure » plutot qu'en 0 (qui refuserait tout)."""
-    if not summon_id:
-        return None
-    cfg = _unit_cfg(summon_id)
-    weapons = cfg.get("weapons")
-    if not weapons:
-        return None
-    return max(int(w.get("Range") or 1) for w in weapons)
+from . import summon_attack_range as SAR   # FORME B (liaison de MODULE) : foyer #967 des DEUX
+#                                            branches du slot 195, substituable par un patcheur.
+from ._base import NCContext, NonComparablePlaybook, _turns_started_gate
 
 
 class AlphaWarriorPlaybook(NonComparablePlaybook):
@@ -150,68 +119,14 @@ class AlphaWarriorPlaybook(NonComparablePlaybook):
         de son porteur. Foyer partage `_base._turns_started_gate` (aucune copie locale)."""
         return _turns_started_gate(ctx)
 
-    def _nearest_enemy(self, ctx: NCContext, frm: tuple):
-        """`BattleQuery$$GetNearestEnemy(caster, position: <la tuile de spawn>)` -- rend
-        `(id, position)` ou `None`.
-
-        Le tie-break natif n'est PAS un simple `min` : `d < bestDist || (adj && !bestAdj)`. Un
-        candidat ADJACENT evince donc un candidat plus proche non adjacent -- configuration
-        impossible en distance hex (adjacent => d == 1 == minimum), mais le natif l'ecrit et le
-        port le transcrit tel quel. `AreEntitiesAdjacent` (court-circuit d'identite + porte
-        d'elevation, cf. #433-r1) et non `is_adjacent` : c'est ce corps-la que le natif appelle.
-
-        `IsIrrelevantObject` n'est pas porte : `ctx.epos`/`ctx.enemies` ne publient pas le trait
-        `Object`. Ecart PERMISSIF nomme (un decor pourrait etre elu « plus proche ennemi »)."""
-        neigh = bq.neigh_map(ctx)
-        best = None            # (id, pos, dist, adj)
-        for e in (ctx.enemies or []):
-            p = e.get("pos") or {}
-            if p.get("col") is None:
-                continue
-            q = (p["col"], p["row"])
-            d = hexgeo.distance(frm, q)
-            adj = bq.are_entities_adjacent(frm, q, ctx.elev_by_pos, neigh)
-            if best is None or d < best[2] or (adj and not best[3]):
-                best = (e.get("id"), q, d, adj)
-        return None if best is None else (best[0], best[1])
-
-    def _is_target_in_attack_range_for_summon(self, ctx: NCContext, tile: tuple,
-                                              rng: int | None, target_pos) -> bool:
-        """`BattleQuery$$IsTargetInAttackRangeForSummon(parent, unitId, tile, target)`, etage par
-        etage (cf. l'en-tete pour le corps natif complet et les trois branches inertes).
-
-        `GetTiles(target)` = la seule tuile principale pour une unite mono-tuile (les seules
-        multi-tuiles sont les plateformes de MoW, jamais elues ici)."""
-        if target_pos is None:
-            return False                       # `target == null` (et `IsTargetable` non porte :
-            #                                     `ctx.enemies` ne publie que des unites vivantes)
-        if rng is None:
-            return False                       # portee non mesurable -> le port ne devine pas
-        if rng == 1 and not bq.is_adjacent(tile, target_pos, ctx.elev_by_pos, bq.neigh_map(ctx)):
-            return False                       # `range == 1 -> IsAdjacentTo(tile, GetTiles(target))`
-        if hexgeo.distance(tile, target_pos) > rng:
-            return False                       # `GetDistance(tile, target) > range`
-        # `movementQuery.GetTilesObscuringTerrain(tile, t, 6, 2)` NON VIDE -> refus.
-        if bq.is_target_tile_obscured(tile, target_pos, ctx.elev_by_pos):
-            return False
-        # `range == 1 && !CanMeleeAttackOverElevationDifference(...)` : INERTE pour `tyranSmnWarrior`
-        # (range 2). Ecrit pour ne pas disparaitre si un autre porteur entre -- meme porte |d|<2.
-        if rng == 1 and ctx.elev_by_pos:
-            ef, et = ctx.elev_by_pos.get(tile), ctx.elev_by_pos.get(target_pos)
-            if ef is not None and et is not None and abs(ef - et) >= 2:
-                return False
-        return True
-
     def has_summon_target_in_attack_range_at_tile(self, ctx: NCContext, tile: tuple) -> bool:
         """`IBattleQuery` slot 195 -- l'utilite booleenne, en clair.
 
-        La branche `IsMachine(parent)` (`...WithMachineParent`) n'est pas portee : le porteur
-        connu de 1112 n'est pas une MoW (residu `#945-r1`)."""
-        rng = _summon_attack_range(_summon_id(self.ABILITY_ID))
-        near = self._nearest_enemy(ctx, tile)
-        if near is None:
-            return False
-        return self._is_target_in_attack_range_for_summon(ctx, tile, rng, near[1])
+        `machine_parent=False` : `tyranWingedPrime` n'est PAS une MoW, donc le natif prend la
+        branche `GetNearestEnemy` + `IsTargetInAttackRangeForSummon`. C'est exactement ce que le
+        foyer rend pour ce drapeau -- le port n'a pas change de comportement en #967."""
+        sid = SAR.summon_id(ActiveAbilityType(self.ABILITY_ID).name)
+        return SAR.has_summon_target_in_attack_range_at_tile(ctx, tile, sid, machine_parent=False)
 
     def generate_candidates(self, ctx: NCContext) -> list[dict]:
         """`ActiveAbilityActionGenerator` + `Bucket$$ChooseAction` pour une cible TUILE.
