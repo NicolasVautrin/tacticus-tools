@@ -456,8 +456,19 @@ class _Normal:
         # bonne PLAGE totale mais de mauvaises valeurs par coup — le modulo dépend de la largeur).
         # CRIT — modèle CONFIRMÉ bit-exact (genrand brut live, necroDestroyer CC=100/CD=500 → 12 tirages
         # /6 coups : 1 crit-roll + 1 spread PAR COUP). Le crit du COMBAT n'est PAS l'`ApplyCritDamage`
-        # post-réduction de la PRÉDICTION : il s'ajoute à la BASE D'ATTAQUE AVANT spread/perçage
-        # (chemin `IdunBattle.Core.Services.DamagePrediction$$GetBaseDamageFix64 param_4=isCrit/param_5=critBonus = +FromInt(critDamage)).
+        # post-réduction de la PRÉDICTION : il s'ajoute à la BASE D'ATTAQUE AVANT spread/perçage.
+        # #986/#954-r3 — CHEMIN LU, et c'est le MÊME point de composition pour les DEUX familles :
+        # `IdunBattle.Operations.AttackDamageOperation$$ExecuteHit` écrit
+        #     `request+0x58 = Nullable<int>(isCrit ? CalculateCriticalDamage(D0) : D0)`
+        # AVANT d'appeler `PredictAttack` (slot 4). `IdunBattle.Core.Services.DamagePrediction$$
+        # PredictAttackRaw` relit ce champ (`Math.Max(0, GetValueOrDefault(request+0x58))`) puis
+        # BRANCHE sur `request+0x6a` (= `AttackDamageOptions[+0x2f]`) :
+        #     drapeau != 0 -> `GetBaseDamageFix64(D)`     # le SPREAD porte sur D, crit COMPRIS
+        #     drapeau == 0 -> `MinMaxDamageFix64(D, D)`   # bornes dégénérées, AUCUN spread
+        # `IdunBattle.Core.HitDamage$$GetDamage` dit lequel est lequel : `min == max -> return min`
+        # (attaque NORMALE : options dégénérées, D0 = la stat d'attaque, aucun tirage) contre
+        # `Next(min, max + 1)` (ABILITY : plage de config, D0 tiré) — d'où le vecteur ability qui
+        # décale ses bornes brutes à plat (pas de spread à traverser), cf. `ability.py`.
         # ⇒ `eff_attack = attack + critDamage` PAR COUP qui crite, puis MÊME pipeline (spread→perçage→mods).
         # Preuve : non-crit spread(906)=181→{725,1087}×0.6=[435,652] ; crit eff=1406, spread=281→
         # {1125,1687}×0.6=[675,1012] (=W338 du solveur, ×1.552=(906+500)/906) ; next_internal(675,1013)
@@ -593,6 +604,11 @@ class _Normal:
             # `param_4 = IdunBattle.Entities.UnitExtensions$$IsAttackMaxOutDamage(...)` et
             # `param_5 = GetStat(attaquant, 0x19)`. Le modele de crit du port (crit ajoute a la BASE,
             # valide bit-exact live) est INCHANGE — seule la citation du symbole etait fausse.
+            # #986 : la citation JUSTE est desormais ecrite plus haut (`request+0x58` pose par
+            # `ExecuteHit`, relu par `PredictAttackRaw`), et le placement est confronte live sur
+            # les DEUX vecteurs par un discriminant SANS PARAMETRE — la LARGEUR de la plage :
+            # `probe_986_crit_place_vs_spread.py` (normale : largeur non-crit 217 -> etendue
+            # critique 1742 ; ability : 154 -> 151). Garde : `test_986_crit_place_vs_spread_offline`.
             _extra_max = int(ctx.stat(StatType.EXTRA_MAX_DAMAGE) or 0) if _ranged else 0
             mm = get_base_damage_fix64(eff_attack, extra_max=_extra_max, spread_pct=spread_pct)
             # UN `Round` PAR FACE (#437-r1) : `CalculateBaseDamageWithAllModifiers` appelle
