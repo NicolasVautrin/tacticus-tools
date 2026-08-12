@@ -443,7 +443,7 @@ PLAYBOOKS: dict[int, NonComparablePlaybook] = {
         #                                 visee| (`GetAdjacentTiles` slot 0x4f o `GetAdjacentEnemies`
         #                                 slot 0x7f, dedoublonne par `PooledHashSet`) ; MIN = 1
         #                                 (`.cctor` = `Fix64(1)`). Domaine TUILE, jumeau de 1201.
-        # #1006 -- les CINQ faces DECISION `NonComparable` Thousand Sons / Eldar. Base LUE dans
+        # #978 -- les CINQ faces DECISION `NonComparable` Thousand Sons / Eldar. Base LUE dans
         # `frida/classes.tsv` pour les cinq (`NonComparablePlaybook`1`) ; leur `.ctor` NOMME
         # `ComparablePlaybook<...>`, corps trivial DEDUPLIQUE -- piege #487-r1 / #945 / #957 / #967.
         # Reachability LUE dans `metadata/active_playbook_builders.tsv` : cinq entrees du dict
@@ -483,7 +483,7 @@ PLAYBOOKS: dict[int, NonComparablePlaybook] = {
         #                                 boucle par le natif). Score de FINISSEUR : l'inverse
         #                                 exact de 1209, et le `statPart` est tout le
         #                                 discriminant. `GetUseProbability` = **0.5** -> tirage RNG
-        #                                 natif NON porte (residu `#1006-r1`).
+        #                                 natif NON porte (residu `#978-r1`).
     )
 }
 

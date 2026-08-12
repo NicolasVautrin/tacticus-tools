@@ -1,4 +1,4 @@
-"""EmpyricAmbushPlaybook -- face DECISION de `1232 EmpyricAmbush` (`eldarLhykhis`). #1006.
+"""EmpyricAmbushPlaybook -- face DECISION de `1232 EmpyricAmbush` (`eldarLhykhis`). #978.
 
 BASE, LUE dans `data/symbols/<build>/frida/classes.tsv` :
 `IdunBattle.AI.Playbook.Loki.EmpyricAmbushPlaybook` -> `IdunBattle.AI.Playbook.NonComparablePlaybook`1`.
@@ -75,7 +75,7 @@ class EmpyricAmbushPlaybook(NonComparablePlaybook):
     C'est EXACTEMENT l'ecart assume que `_base.NonComparablePlaybook.should_evaluate` documente
     pour `BlackRagePlaybook` (0.4) et `ItItchesPlaybook` : le moteur porte est DETERMINISTE, donc
     `should_evaluate` rend `True` et l'ability est TOUJOURS evaluee la ou le natif la saute une
-    fois sur deux. On ne l'invente pas, on le NOMME -- residu `#1006-r1`.
+    fois sur deux. On ne l'invente pas, on le NOMME -- residu `#978-r1`.
     ⚠ Contraste avec `DoomboltPlaybook` de la MEME tranche, dont le `GetUseProbability` surcharge
     rend un POURCENTAGE (33) : la, `prob >= 1` est vrai et le `True` constant est un mirror EXACT.
     Deux surcharges du meme getter, deux regimes opposes -- d'ou l'obligation de lire la VALEUR et

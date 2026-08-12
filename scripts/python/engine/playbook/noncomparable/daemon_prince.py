@@ -1,4 +1,4 @@
-"""Les DEUX faces DECISION de `thousDaemonPrince` (MACHINE OF WAR Thousand Sons) -- #1006.
+"""Les DEUX faces DECISION de `thousDaemonPrince` (MACHINE OF WAR Thousand Sons) -- #978.
 
 `AetherStride` (1208, SUMMON teleporte) et `InfernalCannon` (1209, DAMAGE) partagent leur porteur ;
 leurs utilites n'ont rien en commun -- deux classes, un module (meme decoupage que

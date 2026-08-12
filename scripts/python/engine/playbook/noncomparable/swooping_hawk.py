@@ -1,4 +1,4 @@
-"""SwoopingHawkPlaybook -- face DECISION de `1064 Loki_SwoopingHawk` (`eldarAutarch`). #1006.
+"""SwoopingHawkPlaybook -- face DECISION de `1064 Loki_SwoopingHawk` (`eldarAutarch`). #978.
 
 La face COMBAT est portee et confrontee (`engine/runner/abilities/loki/dive_attack.py` +
 `aeldari.py`, #502 / #507). Ce module porte la face DECISION, et il ferme au passage le RESIDU

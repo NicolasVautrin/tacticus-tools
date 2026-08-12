@@ -1,4 +1,4 @@
-"""DoomboltPlaybook -- face DECISION de `1102 Doombolt` (`thousAhriman`). #1006.
+"""DoomboltPlaybook -- face DECISION de `1102 Doombolt` (`thousAhriman`). #978.
 
 La face COMBAT est portee et confrontee de longue date
 (`engine/runner/abilities/thousandsons.py`, case-psychic-aoe / #494 / #494-r1) ; c'est la face
