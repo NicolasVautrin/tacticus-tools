@@ -212,6 +212,8 @@ from ..loki.reactivate_overwatch import (EarlyWarningOverrideReactivateOverwatch
                                         INESCAPABLE_DEATH_EFFECT)
 from ..loki.cosmic_horror import (CosmicHorrorOnKillAbility,           # passif genesPatriarch (GS Cults)
                                  CosmicHorrorOnMoveAbility)
+from ..loki.possession import PossessionSummonOnKillAbility            # #955 (passif blackPossession)
+from ..loki.summary_execution import SummaryExecutionAbility           # #955 (passif astraYarrick)
 from ..loki.spiritual_leader import SpiritualLeaderAbility             # passif genesMagus (GS Cults)
 from ..loki.barbed_ovipositor import BarbedOvipositorSummonAbility     # passif tyranParasite (Tyranids)
 from ..loki.synaptic_linchpin import SynapticLinchpinAbility           # passif tyranWingedPrime (Tyranids)
@@ -539,6 +541,23 @@ ABILITY_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
     # Cf. loki/cosmic_horror.py (IdunBattleLogic.Entities.Abilities.Triggered.Loki.CosmicHorror_OnKillAbility$$CreateTrigger /
     # ...$$CreateBehaviour / IdunBattleLogic.Entities.Abilities.Triggered.Loki.CosmicHorror_OnMoveAbility$$CreateTrigger).
     "CosmicHorror": [CosmicHorrorOnKillAbility, CosmicHorrorOnMoveAbility],
+    # Possession (passif `blackPossession` << Archimatos >>, `TriggeredAbilityType` 0x40a = 1034),
+    # #955 : `On(0x35 = PostUnitKill, ownerAlive) & OwnerIsActor & AreEnemies(Owner, Target)
+    # & NOT IsObjectOrSteppable(Target) & NOT TriggeringAbilityIs(0x438 = ItsGonnaBlow)` ->
+    # `If(NOT IsDefeatedByMeleeAttack(Target), Spawn(unitId_2, ordinal 2), Spawn(unitId, ordinal 1))`
+    # sur `PickRandomly(FreeTilesOrAdjacentFreeTiles(Tiles(Target)), 1)`. Le passif n'a NI effet NI
+    # playbook -- les classes `AttemptedPossession*` sont celles de l'ACTIVE 1101 de `thousSorcerer`.
+    # Cf. loki/possession.py + docs/rl/case-955-summary-execution-et-possession.md.
+    "Possession": [PossessionSummonOnKillAbility],
+    # SummaryExecution (passif `astraYarrick` << Yarrick >>, `TriggeredAbilityType` 0x409 = 1033),
+    # #955 : `NOT HasEffect(Owner, 0x407 = SummaryExecution_Effect, false, 6) & On(0x33 =
+    # PreUnitFled, ownerAlive) & AreFriends(Owner, Actor) & TriggeringAbilityIs(0x401 =
+    # BattleFatigue)` -> `AddDynamicStatModifierEffectToOwner(0x407, Attack) & Kill(Owner, Actor,
+    # ForDirectKill)`. Le verrou << the FIRST time >> EST la presence de l'effet 1031.
+    # ⚠ La face AURA du kit (1043, posee au chargement) n'est PAS ici : elle a le trigger d'INIT
+    # partage, donc elle vit dans `effects.factory.ABILITY_INIT_OWNER_EFFECTS`.
+    # Cf. loki/summary_execution.py + docs/rl/case-955-summary-execution-et-possession.md.
+    "SummaryExecution": [SummaryExecutionAbility],
     # HaywireMineSteppable (passif du SUMMON `astarSmnHaywireMine` d'`astarCyrus`, et du npc
     # `astarNpc1HaywireMine`) = la MINE QUI EXPLOSE quand on marche dessus, #462-...-c-r3-r1-r3 :
     # `OnPreDeath(ignoreOverkill=1) & OwnerIsTarget & HasDeathReason(Owner, DamageReason.Steppable)

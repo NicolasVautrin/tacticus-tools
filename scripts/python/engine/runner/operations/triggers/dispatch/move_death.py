@@ -245,6 +245,39 @@ def post_unit_kill_triggers(state: State, killed_id: int,
 # par `test_ctx_traits_substrat_ventilation_offline.py`.
 
 
+def pre_unit_fled_triggers(state: State, unit_id: int, triggering_ability=None) -> list[dict]:
+    """Vecteur `On(PreUnitFled = 0x33 = 51)` — le TOUT PREMIER geste d'
+    `IdunBattle.Operations.FleeOperation$$Execute`, LU au decompile (build `rnca9r7q6c`) :
+
+        IOperationProcessor.<slot 81 = EvaluateAbilities>( actor = unit, caster = unit,
+                                                           target = unit,
+                                                           eventType = 0x33 = PreUnitFled,
+                                                           abilityOrEffect = triggeringAbilityOrEffect )
+        if (UnitExtensions.IsDead(unit)) return;        // <- LA FUITE EST ABANDONNEE
+
+    Le slot **81** est celui d'`EvaluateAbilities` (`data/symbols/<build>/metadata/
+    ioperationprocessor_slots.tsv`, champ `slot` du metadata, arite 5). L'`AbilityEntities` natif
+    recoit TROIS FOIS la meme unite -> **actor = caster = target = la fuyarde**.
+
+    C'est ce couple emission/`IsDead` qui porte le « it is executed **instead** » de
+    `SummaryExecution` (#955) : le passif TUE l'unite dans son behaviour, `IsDead` devient vrai, et
+    le natif sort AVANT `RecordFlee`, `RemoveUnit`, `UnitFlag 9`, `On(0x34 = UnitFled)` et
+    `On(0x36 = UnitDefeated)`. Aucun de ces cinq etages n'a lieu.
+
+    `triggering_ability` = l'`AbilityOrEffect` declenchant, que le natif propage depuis le
+    `DSLBehaviors$$Flee` de `BattleFatigueAbility$$CreateBehaviour` -- c'est LUI que
+    `SummaryExecutionAbility$$CreateTrigger` compare (`TriggeringAbilityIs(0x401 = BattleFatigue)`).
+    Le port le fait passer par le champ `TriggerEvent.triggering_ability` : contrairement au vecteur
+    MORT (ou le champ natif `CurrentAbility` n'est pas renseigne), CE vecteur-ci le porte, parce que
+    l'appelant est l'ability elle-meme. `None` = canal non seede -> le gate `TriggeringAbilityIs`
+    d'un consommateur ne peut pas trancher.
+
+    No-op si aucun trigger ne matche."""
+    ev = TriggerEvent(EventTriggerType.PreUnitFled, unit_id, unit_id,
+                      ranged=False, profile=None, triggering_ability=triggering_ability)
+    return evaluate_trigger_operation(state, ev)
+
+
 def arrived_at_final_tile_triggers(state: State, unit_id: int,
                                    gate_already_consumed: bool = False) -> list[dict]:
     """Vecteur `On(ArrivedAtFinalTile = 0x1c = 28)` — « l'unité a terminé son activation ».

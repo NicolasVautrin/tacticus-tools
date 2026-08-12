@@ -55,6 +55,7 @@ from ...dsl.event_trigger_type import EventTriggerType
 from ...entities.effect_type import EffectType
 from ...entities.selectors.accessors import Target
 from ...entities.selectors.tiles import Caster
+from ...entities.triggered_ability_type import TriggeredAbilityType   # #955 : `TriggeringAbilityIs`
 from ...entities.triggers import IsAdjacent, is_object_or_steppable
 from ...entities.unit_selection_type import UnitSelectionType   # #524 : 3e arg d'`IsAdjacent`
 from ...entities.pathfinding.walk_pathfinder import get_movable_positions
@@ -102,10 +103,26 @@ class FleeOperation:
     __slots__ = ()
 
     @staticmethod
-    def execute(state, unit_id: int, movement: int = 3) -> Optional[dict]:
+    def execute(state, unit_id: int, movement: int = 3,
+                triggering_ability=None) -> Optional[dict]:
         e = state.get_entity(unit_id)
         if e is None:
             return None
+        # #955 -- LES DEUX PREMIERS GESTES DU NATIF, ET ILS MANQUAIENT.
+        # `IdunBattle.Operations.FleeOperation$$Execute` ouvre sur
+        #     IOperationProcessor.<slot 81 = EvaluateAbilities>(unit, unit, unit, 0x33 = PreUnitFled,
+        #                                                       triggeringAbilityOrEffect)
+        #     if (UnitExtensions.IsDead(unit)) return;
+        # -- c'est-a-dire que TOUT ce qui suit (retrait du plateau, `UnitFlag 9`, `On(0x34)`,
+        # `On(0x36)`) est ABANDONNE si un trigger a tue l'unite pendant l'evenement. Le port
+        # n'emettait AUCUN `PreUnitFled` : le vecteur n'avait aucun emetteur dans tout `engine/**`,
+        # donc `SummaryExecutionAbility` n'aurait jamais pu se poser.
+        from .triggers.dispatch import move_death              # differe : cycle behaviour<->dispatch
+        pre = move_death.pre_unit_fled_triggers(state, int(unit_id),
+                                                triggering_ability=triggering_ability)
+        uc = e.get_component(UnitComponent)
+        if uc is not None and not uc.alive:                    # `UnitExtensions$$IsDead(unit)`
+            return {"fled": None, "pre_unit_fled": pre, "cancelled_by_death": int(unit_id)}
         # ORDRE NATIF : le retrait du plateau PRECEDE la pose du flag 9. Il pose `Removed` (0x1a),
         # sort l'unite de l'occupation (le collapse porte du pool `AliveUnits`) et publie
         # `On(0x25 = UnitRemoved)`. `remove_effects=False` = le `removeEffects: 0` du call-site.
@@ -126,7 +143,8 @@ class FleeOperation:
             # call-site ne mirroite PAS. Les jouer inventerait un refus que le natif n'a pas.
             MoveUnitOperation(unit_id, to, emit_after_move=False,
                               enforce_native_gates=False).execute(state, EventBus())
-        return {"fled": unit_id, "to": to, "flag": UnitFlagsComponent.FLED, "retrait": retrait}
+        return {"fled": unit_id, "to": to, "flag": UnitFlagsComponent.FLED, "retrait": retrait,
+                "pre_unit_fled": pre}
 
     @staticmethod
     def _safest_tile(state, unit_id: int, movement: int):
@@ -231,7 +249,12 @@ class BattleFatigueAbility(TriggeredAbility):
             if not roll_critical(state.rng, int(chance)):
                 return {"trait": "BattleFatigue", "owner": self.owner_id, "dying": ev.dying_id,
                         "eligible": True, "flee": None, "note": "maybe-flee rate (no flee)"}
-        res = FleeOperation.execute(state, self.owner_id)
+        # `triggering_ability` : le natif propage l'`AbilityOrEffect` COURANT du behaviour dans
+        # `FleeOperation$$Execute`, et c'est celui-la que `SummaryExecutionAbility$$CreateTrigger`
+        # compare (`TriggeringAbilityIs(0x401 = BattleFatigue)`). Ici l'ability courante EST
+        # `BattleFatigue` -- ce foyer est le SEUL appelant porte de `FleeOperation.execute`.
+        res = FleeOperation.execute(state, self.owner_id,
+                                    triggering_ability=int(TriggeredAbilityType.BattleFatigue))
         return {"trait": "BattleFatigue", "owner": self.owner_id, "dying": ev.dying_id,
                 "eligible": True, "flee": res}
 

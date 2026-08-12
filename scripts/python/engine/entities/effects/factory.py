@@ -24,6 +24,8 @@ from .loki.counter_attack import (GrimRetributionCounterAttackEffect,
                                   UnwaveringSentinelCounterAttackEffect,
                                   WireweaveNetCounterAttackEffect)
 from .loki.crit_aura import PathOfCommandExtraCritEffect
+from .loki.summary_execution import (SummaryExecutionBaseEffect,       # #955 (astraYarrick)
+                                     SummaryExecutionEffect)
 from .loki.cursed_plague_bell import CursedPlagueBellExtraMoveEffect
 from .loki.custodes import MomentShackleExtraBlockChanceEffect, MomentShackleExtraBlockDamageEffect
 from .loki.damage_reduction import (
@@ -423,6 +425,16 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # la chance de crit est NULLE n'est PAS cible. Magnitude = extraCritChance[niveau SOURCE].
     # Canal = l'aura stat-mod PROJETEE (`runner/operations/aura_stat_mods.py`), comme LionHelm.
     "PathOfCommand_ExtraCrit": PathOfCommandExtraCritEffect,
+    # #955 -- les DEUX auras de `SummaryExecution` (passif d'`astraYarrick`), toutes deux
+    # `ADynamicStatModifierEffect` PROJETES sur `Friends(Owner, UnitsWithTrait(AllAliveUnits,
+    # BattleFatigue))` avec `statType = 0 = Attack` (litteral des deux
+    # `AddDynamicStatModifierEffectToOwner`). Canal = l'aura stat-mod PROJETEE
+    # (`runner/operations/aura_stat_mods.py`), comme `PathOfCommand_ExtraCrit`.
+    # ⚠ Les DEUX PARTAGENT UN SEUL CORPS de `CreateTargetSelector` (fondu par l'ICF) : 1031 n'a
+    # PAS de selecteur propre, le lire << Owner >> l'aurait rendu inerte. RE :
+    # `entities/effects/loki/summary_execution.py` + docs/rl/case-955-...md.
+    "SummaryExecution_BaseEffect": SummaryExecutionBaseEffect,     # 0x413 = 1043, extraDmg
+    "SummaryExecution_Effect": SummaryExecutionEffect,             # 0x407 = 1031, extraDmg_2
     # Stat-mod +armure (FixedArmor) FLAT, SELF-buff extraArmor[level] (résidu 0 validable ; nom à confirmer).
     "StandVigil_ExtraArmor": StandVigilExtraArmorEffect,
     # Marqueur until-EoT 1197 (#202-C, Abraxas) : arme la triggered 1173 (Screamer sur attaque Psychic
@@ -1696,6 +1708,15 @@ ABILITY_INIT_OWNER_EFFECTS: dict[str, list[str]] = {
     # ground truth live ds_landing : absents au teleport-in, apparaissent au landing -- l'event stream de
     # l'atterrissage porte les DEUX `Effect_Refresh`, dans cet ordre : 1107 puis 1112).
     "PathOfCommand": ["PathOfCommand_ExtraCrit", "PathOfCommand_ExtraDmg"],
+    # #955 -- `SummaryExecutionAddBaseEffectAbility$$CreateBehaviour` =
+    # `AddDynamicStatModifierEffectToOwner(0x413 = SummaryExecution_BaseEffect, statType = 0
+    # = Attack, turns = null, isHidden = false)`, et son `CreateTrigger` est le corps ICF PARTAGE
+    # `<DSLTriggers+0x30>` = `On(0x21 = AbilityInit) & <YesTrigger> & get_OwnerIsActor` -- le meme
+    # que `HuntersBeyondDeathAbility` (#952) et `EnmityForTheUnworthy` (#948). C'est un passif
+    # d'INIT, jamais un `ABILITY_TRIGGERS` : s'y tromper donne un passif qui ne se pose JAMAIS.
+    # L'AUTRE effet du kit (1031) est pose DYNAMIQUEMENT par `SummaryExecutionAbility`, donc il
+    # n'entre PAS ici. Cf. `runner/operations/triggers/loki/summary_execution.py`.
+    "SummaryExecution": ["SummaryExecution_BaseEffect"],
     # #919 -- `IdunBattleLogic.Entities.Abilities.Triggered.Loki.IconOfObstinacy_AddDamageBuffAbility`.
     # Son `CreateTrigger` est un corps FONDU par l'ICF (donc SANS symbole propre : il partage son
     # adresse avec `...WayOfTheShortBlade_InitAbility$$CreateTrigger`) -- il est LU par le bloc
