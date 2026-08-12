@@ -684,6 +684,7 @@ from .adjacent_summons import MawClawsOfThyraxPlaybook       # noqa: E402  (#920
 from .fury_of_the_ancients import FuryOfTheAncientsPlaybook   # noqa: E402  (après les bases)
 from .friends_in_range import (AstartesBannerPlaybook,       # noqa: E402  (N13 : corps propres)
                                FirstAmongTraitorsPlaybook,   # noqa: E402  (#926)
+                               GrimEfficiencyPlaybook,       # noqa: E402  (#959-r1)
                                KardiocoreGalvanusPlaybook)
 from .geminae_superia import GeminaeSuperiaPlaybook          # noqa: E402  (case-165b : corps propre)
 from .intoxicating_elixir import IntoxicatingElixirPlaybook  # noqa: E402  (#922 : corps propre, PAR EFFET)
@@ -814,6 +815,15 @@ TRIGGERED_MOVE_PLAYBOOKS: dict = {
     # tuile candidate|`. Sa face ATTAQUE est DEAD (`yield Fix64.op_Implicit(0)` constant).
     # Porteur POOL-HERO : `emperKakophonist`. Cf. `playbook/obsessive_annunciation.py`.
     int(TriggeredAbilityType.ObsessiveAnnunciation): ObsessiveAnnunciationPlaybook(),  # 1443 (10 / ennemi adjacent)
+    # #959-r1 -- face DECISION de `GrimEfficiency`, la seule des deux passifs d'AURA Votann de #959
+    # a en avoir une (`PredictiveGuidance` n'a AUCUN playbook dans le build : c'est un fait mesure,
+    # pas un oubli). Meme famille « corps propre » qu'`AstartesBanner`, et pourtant DEUX ecarts
+    # LUS au call-site qui changent le compte : `includeCenter = 0` (l'ami sur la tuile candidate
+    # ne compte pas) et `units.Remove(case.unit)` (le mover ne se compte pas lui-meme depuis son
+    # origine). Query = `GetSurroundingFriends` (**slot 121**, filtre `IsFriend` applique par
+    # `FilterInPlace` APRES coup), pas `GetSurroundingUnits` (slot 117, filtre `!IsEnemy` INTERNE).
+    # Porteur HORS POOL -> injection catalogue. Cf. `playbook/friends_in_range.py`.
+    int(TriggeredAbilityType.GrimEfficiency): GrimEfficiencyPlaybook(),          # 1490 (5 / ami en portee)
 }
 
 

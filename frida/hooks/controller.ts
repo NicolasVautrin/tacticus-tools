@@ -155,6 +155,17 @@ import { searchForGlobals } from "./probes/search-class.js";
 import { inspectPtr } from "./probes/inspect-ptr.js";
 import { checkMethodParams } from "./probes/check-method-params.js";
 import { checkStatsFields } from "./probes/check-stats-fields.js";
+// #916-r1 / #590-r2 / #590-r5 — capteurs d'INTROSPECTION PURE (aucun `Interceptor`, aucune
+// invocation, aucun heap scan). Ils repondent aux illisibilites STATIQUES : un slot d'interface
+// que le decompile ne designe que par un `(**(code **)(*plVar + N))()`, et la valeur d'un champ
+// statique dont la classe n'a pas de `.cctor` nomme.
+import { interfaceSlotProbe, classInterfaces } from "./probes/interface-slot-probe.js";
+import { staticFieldProbe } from "./probes/static-field-probe.js";
+// #969-r1 / #975-r1 — les deux capteurs de ce lot qui exigent VRAIMENT une fenetre de reinject.
+// Les DEUX `register` n'arment RIEN : `shouldEvaluateTrace` pose ses `Interceptor` uniquement sur
+// `{action:"arm"}`, et `validTargetsFrom` n'ancre rien du tout (il n'INVOQUE que des queries).
+import { registerShouldEvaluateTrace } from "./probes/should-evaluate-trace.js";
+import { registerValidTargetsFrom } from "./probes/valid-targets-from.js";
 
 
 
@@ -374,6 +385,17 @@ export function wireRpc(ctx: Ctx): void {
 
     ctx.rpc.searchClass = () => { searchForGlobals(); return { ok: true }; };
     ctx.rpc.inspectPtr = (p: string) => { inspectPtr(p); return { ok: true }; };
+
+    // --- #916-r1 / #590-r2 / #590-r5 — introspection PURE (lecture de pointeurs seule).
+    ctx.rpc.interfaceSlotProbe = (args: Parameters<typeof interfaceSlotProbe>[0]) =>
+        interfaceSlotProbe(args);
+    ctx.rpc.classInterfaces = (args: Parameters<typeof classInterfaces>[0]) =>
+        classInterfaces(args);
+    ctx.rpc.staticFieldProbe = (args: Parameters<typeof staticFieldProbe>[0]) =>
+        staticFieldProbe(args);
+    // --- #969-r1 / #975-r1 — capteurs on-demand (aucun hook pose au register).
+    registerShouldEvaluateTrace(ctx);
+    registerValidTargetsFrom(ctx);
 
     rlBridge.register(ctx);
 

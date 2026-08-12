@@ -20,7 +20,13 @@ donc QUE pour deux raisons, toutes deux mesurables :
     mettre a jour et **saute** (`continue`) toute instance dont le predicat de l'`IEffect` (slot 5 de
     l'interface, appele juste apres `EffectsDatabase.Get(effectType)`) est vrai : si aucune instance
     n'est retenue, il rend `false` et l'appelant materialise une NOUVELLE entite-effet. C'est
-    exactement la bifurcation que `stacks_stat_mod_on_add` porte cote port.
+    ⚠ **CETTE LECTURE EST REFUTEE (#982)** : le slot 5 est `IEffect.get_AlwaysCreateOneEntityPerEffect`
+    (`data/symbols/<build>/metadata/interface_slots.tsv`), et `ActOfFaithBuffEffect` -- dont
+    l'empilement est MESURE live -- rend **false**. Les deux notions ne coincident pas : quand
+    `UpdateExistingEffect` retient une instance, elle incremente `EffectComponent+0x6c` et ecrit
+    `statModifierValue`, ce qui EST l'empilement. Le slot 5 signifie « une entite SEPAREE par
+    application » (taunts, liens, attaques en attente). `stacks_stat_mod_on_add` reste donc une
+    MESURE par effet, pas un mirror de ce slot. Recensement : `probe_916r1_effect_slots.py`.
     ⚠ Le NOM de ce slot 5 n'est pas resolu statiquement (valeur runtime derriere la metadata IL2CPP) ;
     le verdict << 1490 empile >> est donc **une MESURE**, cf. `probe_915_daemonflesh_plate_live.py`
     etape 2 (armure du porteur apres k attaques) -- jamais une deduction du nom.
