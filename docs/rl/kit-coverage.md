@@ -23,10 +23,11 @@
 
 ## Bilan
 
-- Unites lineup : **127** ; kits COMPLETS (aucun manque detecte) : **104** ; kits avec du travail : **23**
-- Volume total : **23** items manquants (actives no-op + passifs/traits non registres)
-- HORS total — voies conditionnelles : **34** abilities non portees (11 mythiques, 23 reliques equipables)
-- HORS total — faces DECISION non portees : **55** actives sur 138, dont **42** dans des kits declares COMPLETS (36 kits concernes)
+- Unites lineup : **127** ; kits COMPLETS (aucun manque detecte) : **107** ; kits avec du travail : **20**
+- Volume total : **20** items manquants (actives no-op + passifs/traits non registres)
+- HORS total — voies conditionnelles : **33** abilities non portees (11 mythiques, 22 reliques equipables)
+- HORS total — faces DECISION non portees : **54** actives sur 138, dont **42** dans des kits declares COMPLETS (36 kits concernes)
+- DECOMPTES par un verdict ATTESTE : **3** (et **0** attestation(s) PERIMEE(S), dont l'item est REDEVENU manquant) — section dediee plus bas, jamais tue
 
 ### Priorite par faction (volume decroissant)
 
@@ -34,12 +35,11 @@
 |---|---:|---:|
 | EmperorsChildren | 4 | 4 |
 | LeaguesOfVotann | 4 | 4 |
-| Sisterhood | 3 | 3 |
-| AdeptusMechanicus | 2 | 2 |
 | BloodAngels | 2 | 2 |
 | Necrons | 2 | 2 |
+| Sisterhood | 2 | 2 |
+| AdeptusMechanicus | 1 | 1 |
 | Aeldari | 1 | 1 |
-| AstraMilitarum | 1 | 1 |
 | SpaceWolves | 1 | 1 |
 | Tau | 1 | 1 |
 | ThousandSons | 1 | 1 |
@@ -47,24 +47,17 @@
 
 ## Par faction (kits avec du travail)
 
-### AdeptusMechanicus — 2 kits, 2 items
+### AdeptusMechanicus — 1 kits, 1 items
 
 | unite | manque | actives | passifs manquants | traits de kit manquants |
 |---|---|---|---|---|
 | admecDestroyer | 1 | SentinelDirectives(1139) [C-] OK | - | Vehicle(x8) |
-| admecManipulus | 1 | DefendTheDivineWork(1117) [CD] OK | GalvanicField | - |
 
 ### Aeldari — 1 kits, 1 items
 
 | unite | manque | actives | passifs manquants | traits de kit manquants |
 |---|---|---|---|---|
 | eldarLhykhis | 1 | EmpyricAmbush(1232) [C-] OK | WhisperingWeb | - |
-
-### AstraMilitarum — 1 kits, 1 items
-
-| unite | manque | actives | passifs manquants | traits de kit manquants |
-|---|---|---|---|---|
-| astraOrdnance | 1 | BasiliskBarrage(1026) [C-] OK | - | IndirectFire(x9) |
 
 ### BloodAngels — 2 kits, 2 items
 
@@ -98,13 +91,12 @@
 | necroChronomancer | 1 | Chronometron(1226) [CD] OK | TimesplinterMantle | - |
 | necroPlasmancer | 1 | HarbingerOfDestruction(1008) [CD] OK | LivingLightning | - |
 
-### Sisterhood — 3 kits, 3 items
+### Sisterhood — 2 kits, 2 items
 
 | unite | manque | actives | passifs manquants | traits de kit manquants |
 |---|---|---|---|---|
 | adeptCelestine | 1 | SkyStrike(1025) [CD] OK | GeminaeSuperia | - |
 | adeptHospitaller | 1 | RitesOfRestoration(1039) [CD] OK | MedicusMinistorum | - |
-| adeptRetributor | 1 | ArmoriumCherub(1014) [CD] OK | FireOfAbsolution | - |
 
 ### SpaceWolves — 1 kits, 1 items
 
@@ -154,7 +146,7 @@
 | eldarAutarch | Loki_SwoopingHawk | 1064 | DAMAGE(Piercing) |
 | eldarJainZar | SilentDeath | 1068 | DAMAGE(Piercing) |
 | astraBullgryn | FragBomb | 1017 | DAMAGE(Blast) |
-| astraDreir | LeadingTheCharge | 1204 | DAMAGE(Power) |
+| astraOrdnance | BasiliskBarrage | 1026 | DAMAGE(Blast) |
 | astraOrdnanceBattery | ForwardSpotter | 1143 | SUMMON |
 | astraOrdnanceBattery | MalleusRocketLauncher | 1142 | DAMAGE(Blast) |
 | templHelbrecht | CrusadeOfWrath | 1049 | EFFECT/BUFF |
@@ -191,14 +183,42 @@
 | ultraTitus | TacticalPrecision | 1154 | DAMAGE(Bolter) |
 | worldEightbound | OverwhelmingWrath | 1141 | DAMAGE(Eviscerate) |
 
-## Kits lineup COMPLETS (104)
+## Verdicts ATTESTES — decomptes du total, et JAMAIS tus (3 valides, 0 perimees)
+
+> Un item peut manquer aux registres pour une raison parfaitement legitime : **le
+> natif n'a rien de propre a porter**, ou le mecanisme est porte par une voie SANS
+> registre. Ecrit uniquement dans une case-doc, ce verdict ne survit a aucun outil —
+> `1204 LeadingTheCharge` (prouvee SANS CONTENU PROPRE par #945) et `GalvanicField`
+> (verdict MESURE par #952) etaient recomptes manquants a chaque regeneration, et un
+> agent a failli etre redispatche dessus.
+>
+> Ce ne sont PAS des exceptions codees en dur. Chaque entree de
+> `scripts/ratchets-951r2-couverture-attestee.json` porte sa RAISON, sa SOURCE, son
+> BUILD et un ANCRAGE VERIFIABLE (le cliquet qui garde le verdict, et/ou le symbole
+> qui porte le mecanisme). Foyer UNIQUE de validite :
+> `scripts/python/coverage_attestations.py::validite`.
+>
+> ⚠ **L'asymetrie est INVERSE de celle du ledger #462/#465, et c'est structurel** :
+> ici l'attestation EST le geste permissif (elle RETIRE du travail du compte). Une
+> attestation PERIMEE — build change, cliquet disparu, porteur non resolvable —
+> **REMET son item au compte des manquants**. Aucun chemin ne peut faire disparaitre
+> du travail : la peremption ne sait que EN RAJOUTER. Un audit qui sous-compte fait
+> RENONCER, ce qui est pire qu'un audit qui sur-compte et fait perdre du temps.
+
+| item | verdict | ancrage | source | raison |
+|---|---|---|---|---|
+| active-decision:LeadingTheCharge | RIEN_A_PORTER | `test_945_loki_decision_faces_offline.py` | docs/rl/case-945-loki-faces-decision.md#7 | IdunBattle.AI.Playbook.Loki.LeadingTheChargePlaybook$$MakeDamagePredictions est STRUCTURELLEMENT identique au corps generique (que des appels DIRECTS aux corps de la classe de base : GetDamage -> AActiveAbility$$MinMaxDamage, GetHits, GetDamageProfile, GenerateMultiHitAttackPredictions). IL2CPP replique le corps de DefaultActiveAbilityPlaybook dans chaque specialisation : compter les symboles ne dit pas ce qui est surcharge. 1204 est deja dans _A_VIA_STAFF_OF_STARS_GET_DAMAGE (#344), qui EST le chemin generique du port. |
+| passif:GalvanicField | RIEN_A_PORTER | `test_952_hunters_beyond_death_offline.py` | docs/rl/case-952-hunters-beyond-death-et-galvanic-field.md#3 | GalvanicFieldAbility$$CreateBehaviour = AddFlag(0x18 CanRepairFullHealthUnits) & RemoveActiveAbility(0x1c Repair) & AddActiveAbility(0x45f Repair_GalvanicField). Les trois feuilles ont leur consommateur porte (unit_flags -> entity_can_be_repaired ; ABILITY_CLASSES[1119] ; le port ne derive jamais Repair d'un trait, donc rien a retirer), et les deux utilites de GalvanicFieldPlaybook rendent Fix64(0) -- porter le playbook ajouterait un terme nul. |
+| trait:IndirectFire | PORTE_HORS_REGISTRE | `engine.services.targeting_query:INDIRECT_FIRE_TRAIT` | docs/rl/port-roadmap.md#5.1 | Le trait n'a ni trigger, ni ability derivee, ni owner-effect, ni classe d'effet homonyme : il est LU IMPERATIVEMENT par ses deux consommateurs, aux deux volets natifs. (1) elevation -- TargetingQuery$$GetTilesObscuringTerrain teste HasTrait(caster, 0x3ed) avant de poser le volet ObscuringType (services/targeting_query.py, INDIRECT_FIRE_TRAIT ; threade par ability_range._has_indirect_fire). (2) Trench -- le gate IsTrench(attackerTile)+IsNeighbourOf de la reduction (services/damage_modifiers.py, damage_model.py). |
+
+## Kits lineup COMPLETS (107)
 
 > ⚠ **COMPLET = face COMBAT complete.** 36 de ces kits portent au moins une active
 > sans face DECISION (section precedente) — ils sont marques `*` ci-dessous.
 
-adeptCanoness, adeptExorcist*, adeptMorvenn, admecDominus*, admecMarshall, admecRuststalker, astarCyrus*, astarLysander*, astraBullgryn*, astraCreed, astraDreir*, astraOrdnanceBattery*, astraPrimarisPsy, astraYarrick, blackAbaddon, blackForgefiend, blackHaarken, blackObliterator, blackPossession, blackTerminator, bloodDante, bloodDeathCompany, bloodMephiston, bloodSanguinary*, custoAtlacoya*, custoBladeChampion*, custoKyrus, custoTrajann*, custoVexilusPraetor, darkaAsmodai*, darkaAzrael, darkaCompanion, darkaHellblaster, darkaSternguard*, darkaStormSpeeder*, darkaTerminator, deathBlightbringer, deathBlightlord, deathCrawler*, deathPutrifier, deathRotbone, deathTyphus, eldarAutarch*, eldarFarseer, eldarJainZar*, eldarMauganRa, eldarRanger, emperNoiseMarine*, genesBiophagus, genesKelermorph, genesMagus, genesPatriarch*, genesPrimus*, necroDestroyer, necroOverlord, necroReanimator*, necroSpyder, necroWarden, orksBigMek, orksKillaKan, orksNob, orksRukkatrukk*, orksRuntherd, orksWarboss*, spaceBlackmane*, spaceHound, spaceRockfist*, spaceStormcaller, spaceWulfen, tauAunShi, tauBroadside*, tauCrisis, tauDarkstrider, tauMarksman, tauShadowsun*, templAggressor, templAncient, templChampion, templHelbrecht*, templSwordBrother*, thousAhriman*, thousInfernalMaster, thousSekhetar, thousSorcerer, thousTerminator, thousTzaangor, tyranBiovore*, tyranDeathleaper*, tyranNeurothrope, tyranParasite, tyranTyrantGuard, tyranWingedPrime, ultraApothecary, ultraCalgar, ultraDreadnought*, ultraEliminatorSgt, ultraInceptorSgt*, ultraTigurius, ultraTitus*, votanChampion, worldEightbound*, worldExecutions, worldKharn, worldTerminator
+adeptCanoness, adeptExorcist*, adeptMorvenn, adeptRetributor, admecDominus*, admecManipulus, admecMarshall, admecRuststalker, astarCyrus*, astarLysander*, astraBullgryn*, astraCreed, astraDreir, astraOrdnance*, astraOrdnanceBattery*, astraPrimarisPsy, astraYarrick, blackAbaddon, blackForgefiend, blackHaarken, blackObliterator, blackPossession, blackTerminator, bloodDante, bloodDeathCompany, bloodMephiston, bloodSanguinary*, custoAtlacoya*, custoBladeChampion*, custoKyrus, custoTrajann*, custoVexilusPraetor, darkaAsmodai*, darkaAzrael, darkaCompanion, darkaHellblaster, darkaSternguard*, darkaStormSpeeder*, darkaTerminator, deathBlightbringer, deathBlightlord, deathCrawler*, deathPutrifier, deathRotbone, deathTyphus, eldarAutarch*, eldarFarseer, eldarJainZar*, eldarMauganRa, eldarRanger, emperNoiseMarine*, genesBiophagus, genesKelermorph, genesMagus, genesPatriarch*, genesPrimus*, necroDestroyer, necroOverlord, necroReanimator*, necroSpyder, necroWarden, orksBigMek, orksKillaKan, orksNob, orksRukkatrukk*, orksRuntherd, orksWarboss*, spaceBlackmane*, spaceHound, spaceRockfist*, spaceStormcaller, spaceWulfen, tauAunShi, tauBroadside*, tauCrisis, tauDarkstrider, tauMarksman, tauShadowsun*, templAggressor, templAncient, templChampion, templHelbrecht*, templSwordBrother*, thousAhriman*, thousInfernalMaster, thousSekhetar, thousSorcerer, thousTerminator, thousTzaangor, tyranBiovore*, tyranDeathleaper*, tyranNeurothrope, tyranParasite, tyranTyrantGuard, tyranWingedPrime, ultraApothecary, ultraCalgar, ultraDreadnought*, ultraEliminatorSgt, ultraInceptorSgt*, ultraTigurius, ultraTitus*, votanChampion, worldEightbound*, worldExecutions, worldKharn, worldTerminator
 
-## HORS total — voies conditionnelles (34 abilities non portees)
+## HORS total — voies conditionnelles (33 abilities non portees)
 
 > Une unite `lineup` porte aussi des abilities par deux voies que le kit n'expose
 > pas : `mythic` (`units.<kind>.<id>.mythicAbilities`, a DEBLOQUER) et `item`
@@ -214,7 +234,6 @@ adeptCanoness, adeptExorcist*, adeptMorvenn, admecDominus*, admecMarshall, admec
 | BladeOfTheAncestors | item | 1 | votanUthar |
 | BookOfFate | item | 3 | blackPossession, thousInfernalMaster, thousSorcerer |
 | ChaliceOfBaal | item | 1 | bloodSanguinary |
-| DawnBlade | item | 1 | tauFarsight |
 | Dw02AdvancedBurstCannon | item | 1 | tauCrisis |
 | HeadwoppasKillchoppa | item | 1 | orksWarboss |
 | Helspear | item | 1 | blackHaarken |
@@ -246,4 +265,4 @@ adeptCanoness, adeptExorcist*, adeptMorvenn, admecDominus*, admecMarshall, admec
 | ShieldOfFaith | mythic | 1 | adeptExorcist |
 | WisdomOfTheAncients | mythic | 1 | ultraDreadnought |
 
-Portees (au moins un registre) : **9** — AmuletOfTheVoidwyrm, DaemonfleshPlate, IntoxicatingElixir, KardiocoreGalvanus, MawClawsOfThyrax, NetherRealmCasket, RelicBoltPistol, SupaCyborkBody, TalonOfHorus
+Portees (au moins un registre) : **10** — AmuletOfTheVoidwyrm, DaemonfleshPlate, DawnBlade, IntoxicatingElixir, KardiocoreGalvanus, MawClawsOfThyrax, NetherRealmCasket, RelicBoltPistol, SupaCyborkBody, TalonOfHorus
