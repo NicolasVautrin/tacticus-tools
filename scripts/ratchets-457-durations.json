@@ -296,6 +296,7 @@
  "tests/engine/test_974_custodes_emperors_children_decision_offline.py": 0.399,
  "tests/engine/test_979_ports_decision_offline.py": 0.043,
  "tests/engine/test_979_recenseur_faces_decision_offline.py": 5.693,
+ "tests/engine/test_986_crit_place_vs_spread_offline.py": 0.09,
  "tests/engine/test_effect_1582_inertia_binary.py": 1.156,
  "tests/engine/test_fabricator_claw_cap_binary.py": 0.446,
  "tests/engine/test_lions_wrath_custom_utility.py": 0.013,
