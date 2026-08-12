@@ -345,7 +345,7 @@ class UnitComponent(Component):
                  "tiles_moved_this_battle", "tiles_moved_this_turn", "tiles_moved_last_turn",
                  "blocks_made_this_turn", "blocks_made_this_battle",
                  "turns_with_attacks_made", "units_attacked_this_turn", "attacks_made_this_turn",
-                 "total_attacks_made",
+                 "total_attacks_made", "defeated_units",
                  "movement_target_override")
 
     def __init__(self, visual_id: Optional[str], alive: bool, ai_controlled: bool = False,

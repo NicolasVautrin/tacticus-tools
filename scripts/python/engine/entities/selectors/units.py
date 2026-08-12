@@ -478,10 +478,40 @@ class Units(TargetsSelector):
         for it in items:
             if isinstance(it, bool):
                 continue
+            if isinstance(it, dict) and it.get("id") is not None and "visualId" in it:
+                # ENTITE-UNITE en entree -> COURT-CIRCUIT, mirror LU de
+                # `IdunBattle.DSL.TargetsSelector$$SelectUnit(entity, selectionType)` :
+                #
+                #     if (IsUnitFoot(entity) || IsTile(entity)) entity = GetUnit(entity, state);
+                #     if (entity != null && IsUnit(entity) && MatchesUnitSelectionType(...))
+                #         return entity;
+                #
+                # La re-resolution par la tuile est SOUS un `IsUnitFoot || IsTile` : une entree qui
+                # est DEJA une unite ne la traverse PAS. Le port, lui, repassait par `_pos` +
+                # `_occupants_by_tile` -- lequel ne garde que les VIVANTS (#57m). L'ecart etait
+                # ecrit dans cette meme docstring (« le filtre VIVANT y reste applique ») et
+                # personne ne l'avait rencontre : il faut une source qui rende des unites MORTES.
+                #
+                # MESURE #951 : `Count(NormalUnits(UnitsDefeatedBy(Owner), Any))` -- le
+                # multiplicateur de `TrophyTakerAbility$$GetCritChanceMultiplier` -- rendait **0**
+                # la ou le natif rend **1** (stat-mod 1288 = 16 mesure live, port = rien). Les
+                # unites vaincues sont MORTES par construction : aucun autre regime ne pouvait
+                # montrer ce trou.
+                #
+                # RAYON DE SOUFFLE, borne par le `selection_type` : les call-sites qui passent
+                # `OnlyAlive` (1) ou `OnlyAliveAndTargetable` (3) -- l'ecrasante majorite --
+                # re-excluent le mort par `_selection_ok` deux lignes plus bas, donc RIEN ne change
+                # pour eux. Seuls `Any` (0) et `OnlyTargetable` (2) voient la difference, et c'est
+                # exactement ce que le natif fait.
+                u = it
+                if u.get("id") in seen:
+                    continue
+                if self.selection_type is not None and not _selection_ok(u, self.selection_type, ctx):
+                    continue
+                seen.add(u.get("id"))
+                out.append(u)
+                continue
             if isinstance(it, dict):
-                # Une ENTITE-unite en entree : le natif la rend telle quelle (`SelectUnit` court-circuite
-                # sur `IsUnit`). Le port passe par sa main tile, qui reindexe sur elle-meme via
-                # `_occupants_by_tile` -- meme resultat, et le filtre VIVANT y reste applique.
                 p = _pos(it)
             elif isinstance(it, int):
                 p = board.coord(it) if (board is not None and it in board.by_id) else None
