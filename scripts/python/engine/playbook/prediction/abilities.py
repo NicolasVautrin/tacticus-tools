@@ -30,7 +30,12 @@ from engine.services.damage_prediction import DamagePredictionResult
 from engine.services import current_player as _cp   # forme B (#359-r6) : foyer `current_player_team`
 from engine import battle_query as _bq   # forme B (#485-r1-r1) : foyer des DEUX etages
 #                                          d'`IterateAdjacentTiles` (#943-r7)
-from engine.playbook import adjacency as _adjacency   # foyer PARTAGE multi-tuiles (#954)
+import engine.playbook.adjacency as _adjacency   # foyer PARTAGE multi-tuiles (#954)
+# ⚠ La forme `from engine.playbook import adjacency` declarerait le PAQUET (elle en lit
+# l'attribut), pas le module -- et `engine.playbook` atteint deja ce module par `.base`, donc
+# l'arete refermait un SCC de 16 (`test_270r4r2_cycles_imports_offline` etage 1, MESURE).
+# `import <paquet>.<module> as x` declare le MODULE et garde la forme B (liaison de module,
+# donc un patch mord).
 
 
 def generate_multi_hit_attack_prediction(scene, uid, tgt, ability_id, ability_name, attack_pos=None,
