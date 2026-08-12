@@ -26,6 +26,47 @@ from engine.entities.triggered_ability_type import TriggeredAbilityType
 from engine.runner.components import PersistentDataComponent
 from engine.runner.operations.triggers.loki import refusal_to_be_outdone as RTBO
 
+#: Ce que ce fichier GARDE -- large exprès (un declencheur trop etroit est un FAUX VERT).
+#: Les deux noeuds DSL neufs vivent dans des foyers PARTAGES : un changement de leur semantique
+#: doit rejouer ce fichier, meme s'il vient d'une autre tranche.
+DECLENCHEUR = {
+    "chemins": (
+        "scripts/python/engine/runner/operations/triggers/loki/refusal_to_be_outdone.py",
+        "scripts/python/engine/runner/operations/triggers/dispatch/registry.py",
+        # `sum_ability_data` -- l'etage 1 (somme + exclusion) le mesure directement.
+        "scripts/python/engine/runner/components.py",
+        # `GetAllPersistentDataCombined` (etage 1 et 3).
+        "scripts/python/engine/entities/formulas.py",
+        # `AddOrUpdateStaticStatModifierEffect` (etage 2 et 3).
+        "scripts/python/engine/runner/abilities/behaviours/effects.py",
+        # le canal `ctx.persistent_data_all` qui alimente la formule.
+        "scripts/python/engine/runner/abilities/behaviours/context.py",
+        "scripts/python/engine/dsl/base.py",
+        # les mirrors d'enum dont l'etage 0 fige les ordinaux ECRITS AU SITE.
+        "scripts/python/engine/entities/effect_type.py",
+        "scripts/python/engine/entities/triggered_ability_type.py",
+        "scripts/python/engine/entities/ability_variable_type.py",
+        "scripts/python/engine/entities/traits/unit_trait.py",
+        "scripts/python/engine/entities/stats.py",
+        "scripts/python/engine/dsl/event_trigger_type.py",
+    ),
+    "build": False,
+    "toujours": False,
+    "raison": (
+        "Ces chemins sont les DEUX foyers PARTAGES que la tranche a ouverts (`sum_ability_data` "
+        "dans `components.py`, `GetAllPersistentDataCombined` dans `formulas.py`, "
+        "`AddOrUpdateStaticStatModifierEffect` dans `behaviours/effects.py`, le canal "
+        "`persistent_data_all` dans `dsl/base.py` + `behaviours/context.py`) PLUS les mirrors "
+        "d'enum dont l'etage 0 fige les ordinaux ecrits au site. `probe_486r15 --proposer` dit "
+        "que la fermeture d'imports de ce fichier tient ENTIEREMENT dans la cascade derivee, "
+        "donc une liste vide serait techniquement juste -- on declare quand meme les foyers "
+        "PARTAGES, parce que le risque reel n'est pas qu'un import disparaisse mais qu'une AUTRE "
+        "tranche change la semantique d'un noeud que ce fichier est seul a garder (la garde "
+        "d'idempotence du `AddOrUpdate`, l'exclusion de la somme). Pas de `build` : aucun etage "
+        "ne lit le binaire ni `data/symbols/**` -- les ordinaux sont figes EN DUR ici, "
+        "precisement pour ne pas dependre du dump."),
+}
+
 
 # --- Etage 0 : les ordinaux ECRITS AU SITE ------------------------------------------------------
 # Mesures a la conversion (#965). `probe_313` garde la bijection mirror<->build ; ce cran-ci garde
@@ -196,3 +237,4 @@ def test_etage4_la_branche_unittransformed_n_est_pas_cablee_et_c_est_MESURE():
 
 if __name__ == "__main__":                      # pragma: no cover
     raise SystemExit(pytest.main([__file__, "-q"]))
+

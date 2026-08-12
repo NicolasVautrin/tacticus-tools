@@ -56,6 +56,7 @@ from ..loki.martial_superiority import MartialSuperiorityRiposteAbility  # #133 
 from ..loki.refusal_to_be_outdone import (RefusalToBeOutdoneRecordHitAbility,          # #965
                                           RefusalToBeOutdoneResetOnNormalAttackAbility,
                                           RefusalToBeOutdoneResetOnTurnEndAbility)
+from ..loki.whispering_web import WhisperingWebAbility                # #965 (passif eldarLhykhis)
 from ..loki.wireweave_net import (WireweaveNetCounterAttack,          # #366-r1b (passif eldarRanger)
                                   WireweaveNetActivateOnOwnerTurnEnd,
                                   WireweaveNetDeactivateOnOwnerTurnStart,
@@ -582,6 +583,14 @@ ABILITY_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
     "RefusalToBeOutdone": [RefusalToBeOutdoneRecordHitAbility,
                            RefusalToBeOutdoneResetOnTurnEndAbility,
                            RefusalToBeOutdoneResetOnNormalAttackAbility],
+    # WhisperingWeb (passif `eldarLhykhis`, triggered 0x62a = 1554) -- la TOILE MONO-CIBLE (#965) :
+    # `On(0x26 = NormalAttack) & IsRangedAttack & OwnerIsCaster & AreEnemies(Target, Caster)` ->
+    # `RemoveEffect(<toiles deja posees PAR Lhykhis>) + AddBondEffect(0x62b = 1579, Target)`.
+    # ⚠ Seule l'ABILITY (la pose) est portee. La MAGNITUDE de l'effet 1579
+    # (`ConfigVar(extraDmg) * CurrentHitIndex()`) est un residu #965-r2 : son canal d'accueil
+    # (`create_effect_damage_malus_for_defense`) n'a pas `hit_index` dans son `attacker_ctx`, et
+    # `defender_modifiers` est appele UNE FOIS PAR ATTAQUE, avant la boucle de coups.
+    "WhisperingWeb": [WhisperingWebAbility],
     # ListenUpMaggots (passif `astraSmnKell`, triggered 1063) = `On(AbilityInit=0x21)` : pose l'effet
     # 0x426 sur Kell, qui ecrit `+1 nrOfSummons` / `+3 range` sur son PARENT (Creed) via
     # `AddUnitActiveAbilityModification` -- SEULE source non nulle de `GetAbilityStatModification`.
