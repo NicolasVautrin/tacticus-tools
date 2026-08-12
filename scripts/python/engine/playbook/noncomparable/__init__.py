@@ -111,6 +111,9 @@ from .adaptive_strategy import AdaptiveStrategyPlaybook
 from .storm_of_wrath import StormOfWrathPlaybook
 from .alpha_warrior import AlphaWarriorPlaybook
 from .calibanite_greatsword import CalibaniteGreatswordPlaybook
+from .exemplar_of_hate import ExemplarOfHatePlaybook
+from .fear_of_the_unseen import FearOfTheUnseenPlaybook
+from .foehammer import FoehammerPlaybook
 
 
 # Registre abilityType -> instance de playbook (remplace le switch `kind`).
@@ -262,6 +265,28 @@ PLAYBOOKS: dict[int, NonComparablePlaybook] = {
         #                                 `cond XOR HasEffect(CalibaniteGreatswordSweep)`, et
         #                                 SEULEMENT depuis l'origine (`casterPosition != current`
         #                                 -> bucket vide).
+        # #957 -- les TROIS faces DECISION `NonComparable` du lot (base LUE dans `frida/classes.tsv`
+        # pour les trois ; le `.ctor` NOMME `ComparablePlaybook<...>` pour toutes, corps trivial
+        # DEDUPLIQUE -- piege de #487-r1 / #945). Recensement des methodes fait AU BLOC d'adresses
+        # (`ghidra/functions.tsv`), pas par grep : les trois classes ont exactement trois corps
+        # CONTIGUS, rien n'y est fondu. Aucune ne surcharge `get_Priority` (absentes du sweep
+        # exhaustif #170) -> tier 0.
+        ExemplarOfHatePlaybook(),       # 1140 -- util = 1 + PV%(cible)/100 + 2*(NON Infiltrate)
+        #                                 + 1*(Chaos) ; cible `Object` ECARTEE (`continue`).
+        #                                 `statPart = 1 = CurrentPct` (contraste 1164, qui lit
+        #                                 `Current`) ; `0x7ea` est le PSEUDO-trait de GRANDE-ALLIANCE
+        #                                 Chaos, derive du `GrandAllianceId` -- un `HasTrait` sur les
+        #                                 `traits` gameconfig rendrait la branche MORTE.
+        FearOfTheUnseenPlaybook(),      # 1115 -- VETO : utilite CONSTANTE 10 sur SOI, emise ssi
+        #                                 l'UNION des cibles d'attaque normale (`IBattleQuery` slot
+        #                                 0x45, sur TOUTES les tuiles de move) est VIDE. Aucun appel
+        #                                 a `GetEligibleTargetsSelectable` dans le corps natif.
+        FoehammerPlaybook(),            # 1097 -- util = |unites MORTES du plateau, DEUX camps|
+        #                                 (`IBattleQuery` slot 0x8b, `playerEntityId` NUL),
+        #                                 CONSTANTE. ⚠ QUIRK : `...FoehammerAbility$$ExecuteBehaviour`
+        #                                 compte, lui, `UnitsWithTrait(AllDeadOrResurrectedUnits(),
+        #                                 Hero)` -- le playbook n'a ni le filtre `Hero` ni la branche
+        #                                 « ressuscite ». Ecart NATIF, transcrit tel quel.
     )
 }
 
@@ -337,4 +362,5 @@ __all__ = [
     "MindControlPlaybook", "AttemptedPossessionPlaybook",
     "AdaptiveStrategyPlaybook", "StormOfWrathPlaybook", "AlphaWarriorPlaybook",
     "CalibaniteGreatswordPlaybook",
+    "ExemplarOfHatePlaybook", "FearOfTheUnseenPlaybook", "FoehammerPlaybook",
 ]

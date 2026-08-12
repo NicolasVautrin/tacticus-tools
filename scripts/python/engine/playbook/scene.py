@@ -734,7 +734,14 @@ class Scene:
             if dark_angels_friends_only and \
                     (GC.unit(self.vis_by_id.get(oid)) or {}).get("FactionId") != _DARK_ANGELS:
                 continue                               # UnitsFromFaction(..., DarkAngels, 3)
-            tr = self.traits(oid)                      # NonSteppableOrObjectUnits(..., 3)
+            # `NonSteppableOrObjectUnits(..., 3)`. ⚠ `Scene` n'a PAS de methode `traits` -- ce nom
+            # n'existe que sur `_SceneEffectTargetWorld` (la vue passee aux effets), et l'appeler
+            # ici levait `AttributeError` DES QU'UNE unite vivante etait hex-adjacente au porteur
+            # (rouge de `master` introduit par #947+#948, latent parce que la boucle sort AVANT sur
+            # un board ou personne n'est au contact). Le canal est le meme des deux cotes :
+            # `ctx_by_id[<uid>].traits`, deja publie en NOMS (`trait_names_from_ids`).
+            c = self.ctx(oid)
+            tr = (getattr(c, "traits", None) or ()) if c is not None else ()
             if _TRAIT_STEPPABLE in tr or _TRAIT_OBJECT in tr:
                 continue
             n += 1

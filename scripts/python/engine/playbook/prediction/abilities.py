@@ -798,6 +798,43 @@ def _mass_driver_accelerator_inputs(scene, caster_id, target_id, ab, cfg) -> dic
     return out
 
 
+def _frag_bomb_inputs(scene, caster_id, target_id, ab, cfg) -> dict:  # ids ignores (contrat registre)
+    """`IdunBattle.AI.Playbook.Loki.FragBombPlaybook$$MakeDamagePredictions` (ability 1017,
+    `astraBullgryn` « Kut Skoden ») -- le volet SPLASH **par unite adjacente a la CIBLE**, jamais
+    chiffre jusqu'ici. MEME forme que `_mass_driver_accelerator_inputs`, a DEUX ecarts pres, LUS :
+
+      - le SET n'a AUCUN wrapper `Enemies` (`AdjacentUnits` NU moins le caster) -> FRIENDLY-FIRE.
+        Il vit sur `FragBombAbility._AOE` (`entities/abilities/active_ability.py`), avec sa RE ;
+      - le `param_8` (`Nullable<DamageProfile>`) est **0 sur les DEUX batchs** : il n'y a donc PAS de
+        `profile_override` propre au splash. Le profil VIDE est deja porte pour les deux par
+        `_PLAYBOOK_PROFILE_OVERRIDE[FragBomb] = "None"` (#168, valide live) -- l'ajouter ici le
+        dupliquerait.
+
+    Ce handler ne resout donc que les COUPS :
+
+      - **batch PRINCIPAL** : `hits` = `AActiveAbility$$GetHits` = `GetNumberConstant(0x2f =
+        nrOfHits)` **LITTERAL** (= 6 sur cette config). Le chemin generique passe, lui, par
+        `ab.get_special_hits` = `GetDefaultAttackHits(nrOfHits, ExtraHits[, Melee])`, qui AJOUTE la
+        stat `ExtraHits` du caster -- que ce playbook n'ajoute pas (meme ecart, meme correctif que
+        `_stikkbomb_inputs` / `_mass_driver_accelerator_inputs`). Sans `ExtraHits` les deux
+        coincident, ce qui explique que la mesure #168 ait valide `[6, 6]` sans le voir.
+      - **batch SPLASH** (`aoe_overrides`) : `hits` = `AActiveAbility$$GetHits2` =
+        `GetNumberConstant(0x32 = nrOfHits_2)` (= 3). La BASE n'est PAS surchargee : elle est
+        HERITEE du batch principal, mirror du `param_6` partage (le playbook evalue
+        `GetDamageAmountMain` UNE fois, hors boucle).
+
+    Config absente -> `{}` = chemin generique inchange (aucune sur-prediction inventee)."""
+    consts = (cfg.constants or {}) if cfg is not None else {}
+    hits = int(consts.get("nrOfHits") or 0)          # const 0x2f = nrOfHits (LITTERAL, batch principal)
+    hits2 = int(consts.get("nrOfHits_2") or 0)       # const 0x32 = nrOfHits_2 (batch SPLASH)
+    out: dict = {}
+    if hits:
+        out["hits_override"] = hits
+    if hits2:
+        out["aoe_overrides"] = {"hits_override": hits2}
+    return out
+
+
 def _ramming_speed_inputs(scene, caster_id, target_id, ab, cfg) -> dict:  # ids ignores (contrat registre)
     """`IdunBattle.AI.Playbook.Loki.RammingSpeedPlaybook$$MakeDamagePredictions` (ability 1059) --
     batch de la CIBLE PRINCIPALE. DEUX surcharges, lues au call-site :
@@ -1103,6 +1140,7 @@ _MAKE_DMG_INPUT_OVERRIDES = {
     ActiveAbilityType.PlasmaGrenade: _plasma_grenade_inputs,                      # 1098
     ActiveAbilityType.FragstormGrenadeLauncher: _fragstorm_grenade_launcher_inputs,  # 1048
     ActiveAbilityType.MassDriverAccelerator: _mass_driver_accelerator_inputs,     # 1222
+    ActiveAbilityType.FragBomb: _frag_bomb_inputs,                                # 1017
     ActiveAbilityType.RammingSpeed: _ramming_speed_inputs,                        # 1059
     ActiveAbilityType.PlagueWind: _plague_wind_inputs,                            # 1035
     ActiveAbilityType.MortarionsPlagueWind: _plague_wind_inputs,                  # 1093
