@@ -149,6 +149,19 @@ class Spawn(AbilityBehaviour):
     meme porteur en #462-...-c-r3-r1-r1). `None` (defaut) = comportement anterieur strictement
     inchange (le niveau vient de l'`active_ability_level` du caster).
 
+    `stat_key_suffix` = l'`ordinal` de `IdunBattle.Entities.Behaviours.SpawnUnitOptions$$
+    WithStatsFromConfig(config, abilityState, ordinal, abilitiesLevel, variableMultiplierPercentage)`,
+    exprime cote port par le suffixe des cles gameconfig que `build_summon_context` lit deja
+    (`""` = `summonHp`/`summonDmg`/... ; `"_2"` = `summonHp_2`/`summonDmg_2`/...). Les DEUX helpers
+    a 4 arguments sont des THUNKS vers cette surcharge : `WithStatsFromConfig` passe `ordinal = 1`,
+    `WithStatsFromConfig2` passe `ordinal = 2` (decompile `rnca9r7q6c`, corps entiers). La surcharge
+    appelle `SetStatFromConfig` SEPT fois -- `0x29 summonHp -> StatType 5`, `0x2a summonDmg -> 0`,
+    `0x2b summonArmor -> 0x10`, `0x56 summonBlockChance -> 7`, `0x55 summonBlockDmg -> 8`,
+    `0x54 summonCritChance -> 9`, `0x57 summonCritDmg -> 10` -- et l'ordinal choisit le jeu de
+    variables pour les sept. Consommateur porte : `PossessionAbility$$CreateBehaviour` (#955), qui
+    monte le MEME arbre deux fois, une par ordinal. `""` (defaut) = ordinal 1, comportement
+    anterieur strictement inchange.
+
     `stat_modifier_formulas` = la liste `SpawnUnitOptions+0x28` (`List<StatModifierFormula>`) : des
     OVERRIDES DE STAT dont la valeur est une FORMULE, evaluee par `get_stats_to_override` et
     appliquee PAR-DESSUS les stats de config (cf. la docstring de cette fonction pour l'ordre, qui
@@ -159,14 +172,15 @@ class Spawn(AbilityBehaviour):
     native VIDE = comportement anterieur strictement inchange."""
     __slots__ = ("tile_selector", "summon_ability", "pick_n", "on_appearance",
                  "spawn_as_single_unit", "unit_id_constant", "ability_state",
-                 "stat_modifier_formulas")
+                 "stat_modifier_formulas", "stat_key_suffix")
 
     def __init__(self, tile_selector: TargetsSelector, summon_ability: str, pick_n: int | None = None,
                  on_appearance: AbilityBehaviour | None = None,
                  spawn_as_single_unit: bool = False,
                  unit_id_constant: str = "unitId",
                  ability_state: tuple | None = None,
-                 stat_modifier_formulas: list | None = None):
+                 stat_modifier_formulas: list | None = None,
+                 stat_key_suffix: str = ""):
         self.tile_selector, self.summon_ability = tile_selector, summon_ability
         self.pick_n = pick_n
         self.on_appearance = on_appearance
@@ -174,6 +188,7 @@ class Spawn(AbilityBehaviour):
         self.unit_id_constant = str(unit_id_constant)            # `GetStringConstant(config, <n>)`
         self.ability_state = ability_state                       # 2e arg de `WithStatsFromConfig`
         self.stat_modifier_formulas = stat_modifier_formulas     # `SpawnUnitOptions+0x28`
+        self.stat_key_suffix = str(stat_key_suffix)              # `ordinal` de WithStatsFromConfig
 
     def execute(self, entities, ectx):
         import gameconfig as GC
@@ -231,6 +246,9 @@ class Spawn(AbilityBehaviour):
             gid = _spawn_config_grot(state, vid, tile, self.summon_ability, level, mult,
                                      oc.team if oc is not None else None,
                                      oc.player if oc is not None else None,
+                                     # `ordinal` de `WithStatsFromConfig{,2}` (cf. docstring) : le
+                                     # jeu de variables `summon*` lu pour les SEPT stats.
+                                     key_suffix=self.stat_key_suffix,
                                      parent_id=caster_id,     # `Unit_Parent_Id` (mirror live)
                                      feet_tiles=feet,
                                      # `WithStatsFromConfig(config, abilityState)` : l'unite posee
