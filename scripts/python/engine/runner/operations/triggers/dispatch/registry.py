@@ -99,6 +99,12 @@ from ..loki.obsessive_annunciation import (                          # #954 (pas
     ObsessiveAnnunciationOverkillAbility)                            # armement de l'aura de crit)
 from ..loki.ecstatic_slaughter import (                              # passif emperFlawlessBlade :
     EcstaticSlaughterOnThrilledAbility, EcstaticSlaughterOnOverkillAbility)   # riposte + taunt
+from ..loki.armour_of_shrieking_souls import (                       # passif emperLucius : le tueur
+    ARMOUR_OF_SHRIEKING_SOULS_EFFECT,                                # devient Elated, saigne, et sa
+    ArmourOfShriekingSoulsOnDeathAbility,                            # disparition ramene Lucius
+    ArmourOfShriekingSoulsDrainOnTurnStart,
+    ArmourOfShriekingSoulsResurrectOnRemoved,
+    ArmourOfShriekingSoulsRemoveOnSourceResurrected)
 from ..loki.terrifying_crescendo import (TerrifyingCrescendoOverkillAbility,   # lot POSE (passif
                                         TerrifyingCrescendoSuppressAbility)   # emperNoiseMarine, #204)
 from ..loki.deathwing import DeathwingAbility                          # #932 (passif darkaTerminator)
@@ -709,6 +715,14 @@ ABILITY_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
     # ⚠ La 1re branche exigeait le vecteur `On(0x3e)`, qui N'EXISTAIT PAS cote port -- ajoute par la
     # meme tranche (`dispatch/move_death.effect_added_triggers`, emis en fin d'`AddEffectOperation`).
     "EcstaticSlaughter": [EcstaticSlaughterOnThrilledAbility, EcstaticSlaughterOnOverkillAbility],
+    # ArmourOfShriekingSouls (passif de kit d'`emperLucius`, `TriggeredAbilityType 0x598 = 1432`) :
+    # `OnDeathEvent(0, overKill: true, steppable: false) & get_OwnerIsTarget & IsUnit(Actor@+0x40) &
+    # AreEnemies(Actor, Owner, 0)` -> `If(NOT IsAlive(Actor), Resurrect(Owner sur Tiles(Actor)),
+    # AddEffect(0x58f = ArmourOfShriekingSouls, source = Owner, targets = Actor))`.
+    # ⚠ `IsUnit` est un MISLABEL ICF du pseudo-C (`RequiredByNativeCodeAttribute$$.ctor`) : son
+    # pointeur de classe n'est partage qu'avec `DSLTriggers$$IsUnit`. Les TROIS autres faces vivent
+    # dans `EFFECT_TRIGGERS[0x58f]`. Cf. loki/armour_of_shrieking_souls.py.
+    "ArmourOfShriekingSouls": [ArmourOfShriekingSoulsOnDeathAbility],
     # EchoesFromTheWarp (passif UNIQUE de `thousNpc4Terminator`, npc) = la SECONDE instanciation de
     # `GhostReviveAbility`, parametree `effectType = 1284` -- MEME arbre, seule la branche d'amount
     # du behaviour de l'effet change (`StatAmount(src, Health, Initial)` = « Full Health »).
@@ -1246,6 +1260,19 @@ EFFECT_TRIGGERS: dict[int, list[type[EffectTrigger]]] = {
     # `TerminatorArmour_Visual_Effect$$CreateEffectDamageMalusForDefense` retourne un
     # `Nullable<EffectBonus>` VIDE (zeroe, aucun ctor) -- il ne reduit rien, son etat n'a aucun
     # observable de degat.
+    # 1423 ArmourOfShriekingSouls (l'effet << Elated >> pose sur le TUEUR d'`emperLucius`) : les
+    # TROIS `Triggered()` de son `CreateHandleTriggerAbilitiesInternal` + son couple
+    # `CreateTargetTrigger`/`CreateTargetTriggerBehaviour` :
+    #   * `On(0x16 = TurnStart_Actions) & <DSLTriggers+0x28 = IsTurnOf(Owner)>` -> `DirectDamage(
+    #     EffectSource, Owner, RandomAmount(ConfigVar(minHp), ConfigVar(maxHp)))` -- le saignement ;
+    #   * `On(0x25 = UnitRemoved) & get_OwnerIsTarget & IsDead(Owner)` -> `Resurrect(EffectSource
+    #     sur Tiles(Owner))` -- Lucius revient sur l'hex de sa victime ;
+    #   * `On(0x2e = UnitResurrected) & AreEqual(EffectSource, Target)` -> `RemoveEffect`.
+    # ⚠ `<DSLTriggers+0x28>` est un CHAMP (pose par `DSLTriggers$$InitializeShared`), pas un appel :
+    # son pointeur de classe n'est partage qu'avec `DSLTriggers$$IsTurnOf`.
+    ARMOUR_OF_SHRIEKING_SOULS_EFFECT: [ArmourOfShriekingSoulsDrainOnTurnStart,        # On(0x16)
+                                       ArmourOfShriekingSoulsResurrectOnRemoved,      # On(0x25)
+                                       ArmourOfShriekingSoulsRemoveOnSourceResurrected],  # On(0x2e)
     TERMINATOR_ARMOUR_REDUCE_DMG: [TerminatorArmourDeactivateOnAttack,      # On(9)    -> DeactivateEffect
                                    TerminatorArmourActivateOnTurnStart,     # On(0x12) -> ActivateEffect
                                    TerminatorArmourDeactivateOnTurnEnd,     # On(0x17) -> DeactivateEffect

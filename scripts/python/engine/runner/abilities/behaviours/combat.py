@@ -841,6 +841,81 @@ class AttackWithAbilityDamage(AbilityBehaviour):
         return OperationResult.ok()
 
 
+class DirectDamage(AbilityBehaviour):
+    """`IdunBattleLogic.Entities.DSLBehaviors$$DirectDamage(caster, target, amount, abilityOrEffect,
+    selectionType, options)` -> `IdunBattle.Entities.Behaviours.DirectDamageBehaviour$$.ctor` --
+    la factory qui construit VRAIMENT un `IdunBattle.Operations.DirectDamageOperation`, contrairement
+    a `AttackWithAbilityDamage` dont le nom l'a longtemps laisse croire (cf. sa docstring).
+
+    `DirectDamageBehaviour$$Execute`, lu verbatim :
+
+        caster  = <+0x50>.SelectSingle(entities)        # UNE entite ; nulle -> return (rien)
+        targets = <+0x58>.Select(entities)              # la LISTE des cibles ; nulle -> return
+        foreach (t in targets) {
+            unit = UnitExtensions.GetUnit(t, entities.State)
+            if (unit == null) { <log d'erreur> ; continue }
+            processor.<slot 0x20> = unit                # cible courante
+            if (<+0x60> != null) <+0x60>.Calculate(entities, ...)     # le noeud MONTANT
+            result.Combine( processor.<slot 0x40 = DirectDamage>(
+                                <+0x88..+0xb0 = abilityOrEffect>, <+0x68..+0x78 = options>) )
+        }
+
+    Le slot `0x40` de l'`IOperationProcessor` est `DirectDamage` (arite 6) --
+    `data/symbols/<build>/metadata/ioperationprocessor_slots.tsv`, pas une deduction.
+
+    Cote port, l'Operation est DEJA portee : `AttackDamageOperation.execute_direct`, mirror de
+    `IdunBattle.Core.Services.DamagePrediction$$CalculateDirectDamage` (percage/armure SEULS, mods
+    None, member-cap ; ni crit, ni block, ni bouclier, ni cap Resilient). Elle etait exposee sans
+    consommateur << pour le jour ou une feuille mirrorera vraiment `DirectDamageOperation` >> : c'est
+    ce jour-la, et cette feuille-ci est la premiere.
+
+    ⚠ **AUCUN `damageProfile` dans la signature native** : le profil ne fait partie ni des six
+    arguments de la factory, ni de la struct `options` que le seul call-site porte
+    (`IdunBattle.Entities.Effects.Loki.ArmourOfShriekingSoulsEffect$$CreateTargetTriggerBehaviour`)
+    passe INTEGRALEMENT ZEROEE. `profile=None` cote port -> `profile_pierce(None, None)` =
+    `PiercingRatio` d'un profil introuvable = **0** : le degat est alors integralement soumis a
+    l'armure du defenseur. C'est le mirror LITTERAL de ce que le port sait lire ; la face
+    `CalculateDirectDamage`-sur-profil-nul n'a PAS ete RE-derivee (residu nomme au call-site).
+
+    `source_sel` = `<+0x50>`, resolu en UNE entite (`SelectSingle`) ; `target_sel` = `<+0x58>`,
+    ITERE (le natif boucle, meme si tous les call-sites lus rendent une cible). `amount` = le noeud
+    `IAmountFormula` (`.calculate(ctx)` ou scalaire). `hits` n'existe pas : UNE application par
+    cible. Emet 'DirectDamage' PAR CIBLE. PUR (stop=False)."""
+    __slots__ = ("target_sel", "amount", "source_sel", "profile", "ability_type")
+
+    def __init__(self, target_sel: TargetsSelector, amount, source_sel: TargetsSelector = None,
+                 profile: Optional[str] = None, ability_type=None):
+        self.target_sel, self.amount, self.source_sel = target_sel, amount, source_sel
+        self.profile, self.ability_type = profile, ability_type
+
+    def execute(self, entities, ectx):
+        from ...operations.damage import AttackDamageOperation
+        state = ectx.state
+        if state is None:
+            ectx.emit("DirectDamage", source=None, target=None, total=None, attack=None)
+            return OperationResult.ok()
+        # `<+0x50>.SelectSingle(entities)` -- UNE entite. Nulle -> le natif RETOURNE (aucune cible
+        # n'est traitee), il ne retombe pas sur le caster ambiant.
+        src_u = resolve_unit(self.source_sel, entities) if self.source_sel is not None else entities.caster
+        src = (src_u or {}).get("id")
+        if src is None:
+            ectx.emit("DirectDamage", source=None, target=None, total=None, attack=None)
+            return OperationResult.ok()
+        base = int(self.amount.calculate(entities) if hasattr(self.amount, "calculate")
+                   else (self.amount.evaluate(entities) if hasattr(self.amount, "evaluate")
+                         else self.amount) or 0)
+        pierce = profile_pierce(None, self.profile)     # profil ABSENT de la signature native
+        for u in self.target_sel.evaluate(entities):
+            tgt = u.get("id") if isinstance(u, dict) else None
+            if tgt is None:
+                continue                                 # `GetUnit(t) == null` -> log + continue
+            atk = AttackDamageOperation.execute_direct(state, src, tgt, base, pierce,
+                                                       damage_profile=self.profile)
+            ectx.emit("DirectDamage", source=src, target=tgt,
+                      total=(atk or {}).get("total"), attack=atk)
+        return OperationResult.ok()
+
+
 # Table INVERSE nom -> ordinal de `IdunBattle.Entities.Enum.DamageProfileType`, DERIVEE de l'enum
 # (source unique `PROFILE_NAME_BY_INDEX`) -- jamais une seconde table transcrite a la main.
 _PROFILE_INDEX_BY_NAME: dict[str, int] = {n: i for i, n in PROFILE_NAME_BY_INDEX.items()}
