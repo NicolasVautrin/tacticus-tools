@@ -1,4 +1,4 @@
-"""`FoehammerPlaybook` (0x449 = 1097, `spaceRockfist` « Arjac ») -- face DECISION. #952.
+"""`FoehammerPlaybook` (0x449 = 1097, `spaceRockfist` « Arjac ») -- face DECISION. #957.
 
 REACHABILITY, LUE ET NON SUPPOSEE
 ---------------------------------
@@ -87,7 +87,7 @@ BORNES DE PORT, nommees
   d'entree au registre (l'etat d'avant ce module).
 * Les MACHINES OF WAR sont hors d'`observeBattle.units` (elles vivent dans `.mows`) : une MoW
   detruite ne serait pas comptee. `GetAllDeadUnits` itere, lui, `slot 0x2f(state, includeDead: 1)`
-  -- residu `#952-r1`.
+  -- residu `#957-r1`.
 * `MIN_UTILITY = 1` fait de ce playbook un VETO tant qu'AUCUNE unite n'est morte : avant la
   premiere mort, 1097 n'est jamais proposee par le tier NonComparable, et le fallback Comparable
   reprend la main. Ce n'est pas un artefact du port -- c'est le `.cctor`.

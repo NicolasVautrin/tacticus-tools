@@ -1,4 +1,4 @@
-"""`ExemplarOfHatePlaybook` (0x474 = 1140, `darkaAsmodai` « Asmodai ») -- face DECISION. #952.
+"""`ExemplarOfHatePlaybook` (0x474 = 1140, `darkaAsmodai` « Asmodai ») -- face DECISION. #957.
 
 REACHABILITY, LUE ET NON SUPPOSEE
 ---------------------------------

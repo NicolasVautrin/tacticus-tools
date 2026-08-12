@@ -1,4 +1,4 @@
-"""`FearOfTheUnseenPlaybook` (0x45b = 1115, `tyranDeathleaper`) -- face DECISION. #952.
+"""`FearOfTheUnseenPlaybook` (0x45b = 1115, `tyranDeathleaper`) -- face DECISION. #957.
 
 REACHABILITY, LUE ET NON SUPPOSEE
 ---------------------------------
@@ -42,7 +42,7 @@ quand il n'a PLUS RIEN a frapper.
 
 Slot RESOLU dans `data/symbols/rnca9r7q6c/metadata/interface_slots.tsv` :
 `IBattleQuery 69 (0x45) GetAllValidTargetsFromAllPossibleMovementTiles 3 params`. C'est le MEME
-appel que `ExemplarOfTheMontkaPlaybook$$HasNormalAttackTarget` (#952 le reutilise tel quel).
+appel que `ExemplarOfTheMontkaPlaybook$$HasNormalAttackTarget` (#957 le reutilise tel quel).
 
 Le retour est un `IdunBattle.Entities.Abilities.ValidTargets` (taille 0x20), dont les DEUX champs
 sont lus dans `...ValidTargets$$Merge` et `...ValidTargets$$GetTargetsByPosition` :

@@ -174,7 +174,7 @@ class CultDemagoguePlaybook:
                                     range = GetNumberConstant(0x44) = 2, onlyMovable: 0,
                                     includeNonWalkable: 0),
                    isSteppable: <DSLTriggers+0x40> )`.
-      ⚠ **`<DSLSelectors+0x60>` est `Target`, PAS `Caster`** (#952). Le port a longtemps compté les
+      ⚠ **`<DSLSelectors+0x60>` est `Target`, PAS `Caster`** (#957). Le port a longtemps compté les
       tuiles libres autour du CASTER : c'était un FORK avec sa propre face COMBAT, qui dit déjà
       « tuiles libres ≤ `range` hex de la CIBLE » (`genestealer.SpawnDecoys` ->
       `_surrounding_free_tiles(state, _pos_of(state, target_id), radius)`), et avec la carte de
@@ -213,14 +213,21 @@ class CultDemagoguePlaybook:
             return []
         # cibles ennemies éligibles (RPC applique IdunBattleLogic.Entities.Abilities.Active.Loki.CultDemagogueAbility$$GetDynamicInvalidTargetReason : ennemi <=2 hex).
         at = ctx.ability_targets(ctx.uid, self.ABILITY_ID) or {}
-        tgt_ids = set()
+        # ORDRE PRESERVE (#957) : `IdunBattle.AI.BucketSystem.Bucket<…>$$AddAction` SEED le premier
+        # ajoute puis ne remplace que si STRICTEMENT superieur -- a utilite EGALE, c'est donc la
+        # PREMIERE cible enumeree par `GetEligibleTargetsSelectable` qui gagne. Un `set` Python perd
+        # cet ordre, et l'argmax devenait alors dependant du hachage : le port pouvait rendre deux
+        # cibles differentes d'une execution a l'autre sur un tie. La liste garde l'ordre du RPC,
+        # qui EST celui du selecteur natif.
+        tgt_ids: list = []
         for u in (at.get("units") or []):
             for a in (u.get("abilities") or []):
                 if a.get("abilityId") != self.ABILITY_ID:
                     continue
                 for t in (a.get("targets") or []):
-                    if t.get("kind") == "unit" and t.get("targetId") is not None:
-                        tgt_ids.add(t["targetId"])
+                    tid = t.get("targetId")
+                    if t.get("kind") == "unit" and tid is not None and tid not in tgt_ids:
+                        tgt_ids.append(tid)
         if not tgt_ids:
             return []
         w = ctx.wt.sub("ActiveAbilities", self.W_KEY)          # 20
@@ -239,7 +246,7 @@ class CultDemagoguePlaybook:
             if not tp or tp.get("col") is None:
                 continue
             tpos = (tp["col"], tp["row"])
-            # Terme 1 -- PAR CIBLE (#952) : `min(|PossibleTilesForDecoys(TARGET)|, nrOfSummons)`.
+            # Terme 1 -- PAR CIBLE (#957) : `min(|PossibleTilesForDecoys(TARGET)|, nrOfSummons)`.
             # L'ancre est `<DSLSelectors+0x60> = Target`, pas le caster (cf. la docstring).
             term1 = min(self._free_tiles_around(ctx, tpos), decoy_amt) * w
             n_around = sum(1 for s in summons if hexgeo.distance(tpos, s) <= self._RANGE)
@@ -259,13 +266,13 @@ class CultDemagoguePlaybook:
         """`IdunBattleLogic.Entities.Abilities.Active.Loki.CultDemagogueAbility$$PossibleTilesForDecoys` :
         `CanAddUnit(SurroundingTiles(<DSLSelectors+0x60> = Target, includeCenter: 0, range = 2,
         onlyMovable: 0, includeNonWalkable: 0), isSteppable: <DSLTriggers+0x40>)` = tuiles LIBRES
-        placeables à <=2 hex de la **CIBLE** (#952 : `center` est la position de la cible, pas
+        placeables à <=2 hex de la **CIBLE** (#957 : `center` est la position de la cible, pas
         l'origine du caster). `includeCenter = 0` LU au call-site -> le centre est exclu, et pas
         seulement parce qu'il est occupé.
 
         Occupation LIVE = `epos u fpos u origine` (frais), PAS l'`occupantUnitId` caché du boardGraph
         (cf. `can_add_unit` #116). L'origine du caster est ajoutée EXPLICITEMENT : `ctx.fpos` exclut
-        le mover, et depuis #952 `center` ne l'est plus (il vaut la tuile de la cible, déjà dans
+        le mover, et depuis #957 `center` ne l'est plus (il vaut la tuile de la cible, déjà dans
         `epos`)."""
         if center is None:
             return 0

@@ -918,7 +918,7 @@ class MassDriverAcceleratorAbility(AActiveAbility):
 
 
 class FragBombAbility(AActiveAbility):
-    """`FragBomb` (1017, `astraBullgryn` « Kut Skoden ») — le volet **SPLASH** de sa prédiction (#952).
+    """`FragBomb` (1017, `astraBullgryn` « Kut Skoden ») — le volet **SPLASH** de sa prédiction (#957).
 
     `IdunBattle.AI.Playbook.Loki.FragBombPlaybook$$MakeDamagePredictions` émet **DEUX** batchs
     `IdunBattle.AI.Playbook.ComparablePlaybooku003C__Il2CppFullySharedGenericTypeu003E$$GenerateMultiHitAttackPredictions`,
@@ -1226,7 +1226,7 @@ _SPECIAL_ABILITY_CLASSES: dict[str, type[AActiveAbility]] = {
     "FrenziedFiring": FrenziedFiringAbility,
     "SavageEchoes": SavageEchoesAbility,
     "MassDriverAccelerator": MassDriverAcceleratorAbility,
-    "FragBomb": FragBombAbility,                     # #952 — volet SPLASH (`GetAdjacentTargets`)
+    "FragBomb": FragBombAbility,                     # #957 — volet SPLASH (`GetAdjacentTargets`)
 }
 
 
@@ -1298,7 +1298,7 @@ _NONCOMPARABLE_ABILITIES: "frozenset[str]" = frozenset({
     "AlphaWarrior",       # 1112 IdunBattle.AI.Playbook.Loki.AlphaWarriorPlaybook$$EvaluateNonComparable ; util booleenne (le gameconfig de 1112
                           # n'a d'ailleurs ni `minDmg` ni `maxDmg` : l'entree est ici pour que le
                           # DISPATCH soit juste, pas pour corriger un chiffre -- comme MindControl)
-    # --- #952 : les TROIS playbooks `NonComparable` du lot. Base LUE dans `frida/classes.tsv`
+    # --- #957 : les TROIS playbooks `NonComparable` du lot. Base LUE dans `frida/classes.tsv`
     # (`NonComparablePlaybook`1` pour les trois) ; recensement des corps fait AU BLOC d'adresses de
     # `ghidra/functions.tsv` -- trois corps CONTIGUS chacune (`EvaluateNonComparable`, `.cctor`,
     # `.ctor`), AUCUN `Make*Predictions`. Le natif n'emet donc AUCUN `ProbableDamageEvent` pour

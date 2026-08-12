@@ -265,7 +265,7 @@ PLAYBOOKS: dict[int, NonComparablePlaybook] = {
         #                                 `cond XOR HasEffect(CalibaniteGreatswordSweep)`, et
         #                                 SEULEMENT depuis l'origine (`casterPosition != current`
         #                                 -> bucket vide).
-        # #952 -- les TROIS faces DECISION `NonComparable` du lot (base LUE dans `frida/classes.tsv`
+        # #957 -- les TROIS faces DECISION `NonComparable` du lot (base LUE dans `frida/classes.tsv`
         # pour les trois ; le `.ctor` NOMME `ComparablePlaybook<...>` pour toutes, corps trivial
         # DEDUPLIQUE -- piege de #487-r1 / #945). Recensement des methodes fait AU BLOC d'adresses
         # (`ghidra/functions.tsv`), pas par grep : les trois classes ont exactement trois corps
