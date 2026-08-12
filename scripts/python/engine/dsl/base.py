@@ -430,6 +430,12 @@ class DslContext:
     # attribut `None` = contexte hors runner -> le noeud rend [] et le DIT. Cf.
     # `entities/selectors/valid_targets.py`.
     has_any_valid_target: object | None = None
+    # `normal_repair_type(unit_dict) -> int | None` : mirror d'`IdunBattle.Entities.UnitExtensions
+    # $$GetRepairType` (`<ActiveAbilityComponent>+0x2c`), consomme par le noeud VALEUR
+    # `entities/formulas.UnitNormalRepairType`. Fourni par `entities_from_state` ; la derivation vit
+    # dans `runner/abilities/targeting.normal_repair_type_for`, seul port de cette lecture.
+    # `None` (l'attribut) = contexte hors runner -> la formule rend le `Nullable` VIDE.
+    normal_repair_type: object | None = None
     # Canal d'HONNETETE de `UnitsWithAnyValidTarget` : les `ActiveAbilityType` qu'il a ECARTES faute
     # de masque RE-lu. Ce n'est pas du natif -- c'est ce qui distingue « le natif exclut cette
     # unite » de « le port ne sait pas ». Reste VIDE dans le cas nominal ; `None` = personne ne

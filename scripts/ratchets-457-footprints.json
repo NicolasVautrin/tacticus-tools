@@ -5456,6 +5456,33 @@
    "py": [],
    "temoins": []
   },
+  "tests/engine/test_964r1_ecog_support_offline.py": {
+   "_at": 1786533497,
+   "_commit": "cfc97572ea4d25b5e7221b9d690e1eee2b0f3d5e",
+   "dirs": [
+    "scripts/python/engine/entities",
+    "scripts/python/engine/runner/abilities",
+    "scripts/python/engine/runner/abilities/loki",
+    "scripts/python/engine/runner/operations",
+    "scripts/python/engine/runner/operations/triggers/dispatch"
+   ],
+   "py": [
+    "scripts/python/engine/entities",
+    "scripts/python/engine/runner/abilities",
+    "scripts/python/engine/runner/abilities/loki",
+    "scripts/python/engine/runner/operations",
+    "scripts/python/engine/runner/operations/triggers/dispatch"
+   ],
+   "temoins": [
+    "scripts/python/engine/entities/formulas.py",
+    "scripts/python/engine/runner/abilities/attack_query.py",
+    "scripts/python/engine/runner/abilities/loki/summon.py",
+    "scripts/python/engine/runner/abilities/targeting.py",
+    "scripts/python/engine/runner/operations/repair.py",
+    "scripts/python/engine/runner/operations/spawn.py",
+    "scripts/python/engine/runner/operations/triggers/dispatch/repair.py"
+   ]
+  },
   "tests/engine/test_966_healing_balms_offline.py": {
    "_at": 1786527914,
    "_commit": "1b0df2a14078081fb34ab4600bb46973d10c220b",

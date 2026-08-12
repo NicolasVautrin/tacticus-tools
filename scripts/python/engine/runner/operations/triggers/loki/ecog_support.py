@@ -227,11 +227,11 @@ def _repair_type_of(state: State, unit_id: int) -> Optional[int]:
     """Le `Func<IEntity,int>` `+0x68` = `IdunBattle.Entities.UnitExtensions$$GetRepairType(e)`,
     materialise pour `PerformAIAbility` (point 3 de l'en-tete).
 
-    Meme substrat que le noeud VALEUR `entities/formulas.UnitNormalRepairType` -- une seule lecture
-    du champ, deux points d'appel (le filtre de selection, puis l'ability jouee)."""
-    from ....abilities.behaviours.context import entities_from_state as _efs
-    ents = _efs(state, int(unit_id), None)
-    return UnitNormalRepairType(Owner()).calculate(ents)
+    Meme FOYER que le noeud VALEUR `entities/formulas.UnitNormalRepairType` (qui y arrive par
+    `ctx.normal_repair_type`) : une seule derivation du champ, deux points d'appel -- le filtre de
+    selection, puis l'ability que l'IA joue."""
+    from ....abilities.targeting import normal_repair_type_for
+    return normal_repair_type_for(state, int(unit_id))
 
 
 def ecog_support_tree(max_summons: int, ability_state: tuple | None = None) -> If:

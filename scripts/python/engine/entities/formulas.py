@@ -808,11 +808,17 @@ class UnitNormalRepairType(AAmountFormula):
     (ability.HasValue)`), donc le porter comme un `0` filtrerait sur `ActiveAbilityType 0` au lieu
     de ne pas filtrer du tout. `None` cote port = le `Nullable` VIDE.
 
-    SUBSTRAT : meme resolution que `UnitNormalAttackType` -- le type CONCRET n'est pas un champ de
-    l'etat runner, on le derive du KIT gameconfig du porteur. Une ability qui REDEFINIT la
-    reparation normale expose un membre `<ability>_Repair` d'`ActiveAbilityType` ; a defaut, le
-    generique `28 Repair` est rendu des que l'unite porte une ability de reparation dans son kit.
-    Aucune -> `None` (l'unite n'a rien a reparer avec, elle sort du filtre)."""
+    ⚠ **LE SUBSTRAT N'EST PAS LE KIT GAMECONFIG, ET C'EST MESURE.** Le jumeau `UnitNormalAttackType`
+    ci-dessus derive du `visualId` + gameconfig ; ce raccourci NE MARCHE PAS ici. L'ability de
+    reparation d'une unite ne vient pas de son `activeAbilities` : `votanSmnEcog` a
+    `activeAbilities = []` et repare pourtant -- il la tient de son TRAIT `Mechanic`. Une derivation
+    par kit rendrait donc `None` sur le seul porteur qui compte, c'est-a-dire un filtre TOUJOURS
+    VIDE et un port MUET (aucune erreur, aucune trace).
+
+    On passe donc par un accesseur de CONTEXTE (`ctx.normal_repair_type`), alimente par
+    `entities_from_state` depuis le substrat RUNNER -- meme discipline que
+    `ctx.valid_normal_attack_targets` et `ctx.has_any_valid_target`. Accesseur absent (contexte hors
+    runner : prediction, test de noeud) -> `None`, degradation NOMMEE."""
     def __init__(self, selector: TargetsSelector):
         self.selector = selector
 
@@ -821,32 +827,10 @@ class UnitNormalRepairType(AAmountFormula):
         # `if (unit != null)` du natif -- le `Nullable` VIDE quand `SelectSingle` ne resout rien.
         if u is None:
             return None
-        vis = u.get("visualId")
-        if vis is None:
+        accessor = getattr(ctx, "normal_repair_type", None)
+        if accessor is None:
             return None
-        import gameconfig as GC
-        names = []
-        for _slot, v in (GC.unit_abilities(vis) or {}).items():
-            if isinstance(v, str):
-                names.append(v)
-            elif isinstance(v, dict):
-                names.append(v.get("name") or v.get("id"))
-            elif isinstance(v, list):
-                names += [(x.get("name") if isinstance(x, dict) else x) for x in v]
-        generic = None
-        for nm in names:
-            if not nm:
-                continue
-            member = getattr(ActiveAbilityType, f"{nm}_Repair", None)
-            if member is not None:
-                return int(member)
-            # Le REPAIR generique : l'unite porte une ability de reparation nommee, sans redefinir
-            # le type. `Repair` (28) et `Repair_GalvanicField` (1119) sont les deux ids que le port
-            # connait de ce cote (`ABILITY_CLASSES`), et un E-Cog porte le premier.
-            member = getattr(ActiveAbilityType, str(nm), None)
-            if member is not None and str(nm).startswith("Repair"):
-                generic = int(member)
-        return generic
+        return accessor(u)
 
 
 class ConfigVarForEntity(AAmountFormula):
