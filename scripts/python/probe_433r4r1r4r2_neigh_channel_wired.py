@@ -162,7 +162,14 @@ NATIFS_LISTE_STOCKEE = ("IterateAdjacentTiles", "GetAdjacentUnits", "GetAdjacent
                         #     `return AreEntitiesAdjacent(caster, target)`, alias pur ;
                         #   `BattleQuery$$GetFreeAdjacentTiles(from)` -- `GetAdjacentTiles(from, 1, 1)`
                         #     suivi d'un `ListExtensions$$FilterInPlace`.
-                        "AreEntitiesAdjacent", "AreUnitsInMelee", "GetFreeAdjacentTiles")
+                        "AreEntitiesAdjacent", "AreUnitsInMelee", "GetFreeAdjacentTiles",
+                        # ARME le 2026-08-12 (#943-r7) -- il etait SUSPENDU, et c'est l'etape 5 qui
+                        # a demande son armement : apres le cablage de `make_hammer_wrath_events`
+                        # (son DERNIER foyer), l'armer ne faisait plus rougir personne, donc la
+                        # suspension etait devenue le vice. `DSLSelectors$$AdjacentTiles` ->
+                        # `AdjacentTilesSelector$$Select` = slot 0x50 d'`IBattleQuery`
+                        # (`GetAdjacentTiles(tile, 0, 1, 1)`) moins `SelectTiles(origin)`.
+                        "AdjacentTiles")
 
 # Natifs LUS au decompile comme substrat stocke, mais dont l'ARMEMENT est SUSPENDU : les faire
 # entrer ci-dessus ferait rougir la banque sur un vice OUVERT, hors du perimetre qui les a lus --
@@ -170,10 +177,11 @@ NATIFS_LISTE_STOCKEE = ("IterateAdjacentTiles", "GetAdjacentUnits", "GetAdjacent
 # C'est l'etape 5 qui empeche cette suspension de devenir un oubli : elle RE-MESURE a chaque passe
 # que la suspension est encore justifiee.
 NATIFS_LISTE_STOCKEE_SUSPENDUS = {
-    # `DSLSelectors$$AdjacentTiles` -> `AdjacentTilesSelector$$Select` = slot 0x50 d'`IBattleQuery`
-    # (`GetAdjacentTiles(tile, 0, 1, 1)`) moins `SelectTiles(origin)` ;
     # `DSLSelectors$$AdjacentUnits(origin, unique, selType)` = `Units(AdjacentTiles(origin)) - origin`.
-    "AdjacentTiles": "#433-r4-r1-r4-r2-r1-r1-r1-r1",
+    # DERNIER foyer qui la justifie encore (mesure #943-r7) :
+    # `effects/loki/extra_damage_aura.py::create_aura_attack_bonus`, un ctx d'AURA sans board.
+    # ⚠ `AdjacentTiles` a QUITTE ce registre (#943-r7) : elle est ARMEE ci-dessus, sur demande de
+    # l'etape 5 -- apres le cablage de son dernier foyer, la suspension ne gardait plus rien.
     "AdjacentUnits": "#433-r4-r1-r4-r2-r1-r1-r1-r1",
 }
 
@@ -258,10 +266,49 @@ GEOMETRIE_NUE_TOLEREE = {
 #         `tile` et compare l'id -- liste stockee SANS porte d'elevation ;
 #       - `Triggers.IsAdjacentAbilityTrigger$$ShouldTrigger` = `AreEntitiesAdjacent` (slot 96) sur
 #         chaque paire, donc `MovementUtil$$AreTilesAdjacent` -> `ConnectivityComponent$$IsNeighbour`.
-#     La valeur porte alors le residu qui tient la dette. Ces sites ne sont PAS repares ici : ce
-#     sont majoritairement des FACES JUMELLES (un noeud natif, deux substrats -- l'ECS cote runner,
-#     les tables de `Scene` cote decision, ce que `scene.py` ecrit en toutes lettres), et n'en
-#     cabler qu'une CREE la divergence de faces. La reparation est un deplacement au foyer.
+#     La valeur porte alors le residu qui tient la dette.
+#
+# ⚠ HUIT DES DIX-NEUF `LISTE_STOCKEE` SONT CABLES (#943-r7, 2026-08-12) -- et le critere qui les a
+# separes des onze autres n'est PAS << lequel est facile >>, c'est **L'ETAT DE LA FACE JUMELLE**.
+# La crainte fondatrice (<< n'en cabler qu'un cote CREE la divergence de faces >>) presuppose que
+# les DEUX faces sont nues. MESURE : c'est FAUX pour huit d'entre elles. Toute face COMBAT qui
+# execute un arbre DSL (`AdjacentFriends`/`AdjacentEnemies`/`AdjacentUnits` ->
+# `dsl/base._within(order='adjacent')` -> `_adjacent_tiles_native`, et le tile-selecteur
+# `entities/selectors/tiles.py::AdjacentTiles` -> `board.neighbours_native`) lit **DEJA** la liste
+# stockee. Leur jumelle DECISION, elle, recompose le selecteur A LA MAIN sur les tables de `Scene`
+# (<< `Scene` n'a pas d'`AbilityEntities` pour executer l'arbre >>, ce que ces sites ecrivent
+# eux-memes) -- en couronne hex. La divergence de faces EXISTAIT donc DEJA, et dans l'autre sens :
+# cabler la face nue la **RESORBE**, exactement comme `_fighting_retreat_sets_flags` (#943-r4).
+#
+# Les huit, et ce qui ferme le couple pour chacun :
+#   * `effect_targets.py::_adjacent_friends` -- pas un couple : le FOYER COMMUN. Ses deux substrats
+#     (`_SceneEffectTargetWorld`, `_RunnerEffectTargetWorld`) l'appellent tous les deux, donc une
+#     seule edition deplace les DEUX faces. Le canal entre par le PROTOCOLE (`neigh_by_pos()` /
+#     `elev_by_pos()`), pas par une derivation locale : ce module ne connait aucun board ;
+#   * `scene.py` x4 + `prediction/abilities.py::make_hammer_wrath_events` +
+#     `psyker.py::possible_targets` + `noncomparable/get_em_runtz.py::_spawn_tile_count` -- faces
+#     DECISION dont la jumelle COMBAT est deja sur substrat stocke (le DSL pour six ;
+#     `board.neighbours(ttile)` pour `psyker`). La `Scene` et le `NCContext` PORTENT deja les deux
+#     canaux (`Scene.neigh_by_pos` est une propriete DERIVEE du board), donc aucun seeding requis.
+#
+# ⚠ LES ONZE QUI RESTENT NE SONT PAS UN RELIQUAT DE FATIGUE -- chacun a sa raison, et deux d'entre
+# elles ne sont PAS le blocage de seeding :
+#   * NEUF sont des ctx d'AURA (ou de trait) : des DICTS que l'agregateur remplit
+#     (`effects/__init__.py::aura_*`), sans board ni carte. Les cabler exige de PUBLIER les deux
+#     cartes en amont, dans `damage_model.attacker_modifiers` ET dans la face PREDICTION -- un
+#     foyer partage bien au-dela de l'adjacence. BLOCAGE `seeding` ;
+#   * `triggers/loki/icon_of_obstinacy.py::icon_of_obstinacy_affected_units` -- COUPLE NON
+#     FERMABLE, et c'est le seul cas ou la crainte fondatrice est VERIFIEE. L'AUTRE expression du
+#     MEME `AIconOfObstinacyAbility$$GetAffectedUnits` est
+#     `effects/loki/icon_of_obstinacy.py::create_aura_attack_damage_bonus_for_ally`, un ctx d'aura
+#     (donc sous `GEOMETRIE_NUE_TOLEREE`, et bloque comme les neuf ci-dessus). Cabler le runner
+#     seul ferait diverger le buff d'armure du bonus de degat, que le natif fait coincider ;
+#   * `runner/abilities/loki/momentum.py::_execute_behaviour_step` -- SUBSTRAT DIFFERENT, pas un
+#     blocage de contexte. `TileExtensions$$IsNeighbourOf` enumere `ConnectivityComponent+0x10`
+#     **SANS porte d'elevation** : `is_adjacent` y serait FAUX (il ajouterait la porte), et
+#     `neighbours_native` aussi (le champ capte EST deja `connectivity INTERSECTE {|dElev| < 2}`).
+#     Le canal juste est `Board.neighbours_connectivity`, TRI-ETAT et absent des boards
+#     versionnes -- donc non confrontable offline. BLOCAGE `capteur`.
 #
 # ⚠ CE QUE LA CLE `(chemin, nom)` NE SEPARE PAS, et c'est nomme plutot que corrige :
 # `hits.py` porte DEUX `create_aura_additional_hits_for_ally` (deux classes, deux abilities). Une
@@ -284,8 +331,6 @@ GEOMETRIE_NUE_CLASSEE = {
     ("scripts/python/engine/services/movement_query.py", "is_valid_unit_feet_list"):
         (GEOMETRIQUE, "MovementQuery$$IsValidUnitFeetList -> GetDistance = CubeCoordinate$$Distance"),
     # ---- LISTE_STOCKEE : le natif enumere `ConnectivityComponent+0x10`, le canal MANQUE ----
-    ("scripts/python/engine/entities/effect_targets.py", "_adjacent_friends"):
-        (LISTE_STOCKEE, "BigTargetAdjacentEffect$$CreateTargetSelector -> DSLSelectors$$AdjacentFriends"),
     ("scripts/python/engine/entities/effects/loki/dark_angels_passives.py", "marks_target"):
         (LISTE_STOCKEE, "DSLSelectors$$AdjacentUnits"),
     ("scripts/python/engine/entities/effects/loki/extra_damage_aura.py", "create_aura_attack_bonus"):
@@ -312,20 +357,6 @@ GEOMETRIE_NUE_CLASSEE = {
     # gisement VISIBLE, et les deux registres restent disjoints par construction.
     ("scripts/python/engine/entities/traits/combat.py", "as_attacker_bonus_hits"):
         (LISTE_STOCKEE, "GetStuckInAbility$$GetBonusHitChance -> DSLSelectors$$AdjacentUnits"),
-    ("scripts/python/engine/playbook/noncomparable/get_em_runtz.py", "_spawn_tile_count"):
-        (LISTE_STOCKEE, "GetEmRuntzAbility$$GetSpawnTileSelector -> DSLSelectors$$AdjacentTiles"),
-    ("scripts/python/engine/playbook/prediction/abilities.py", "make_hammer_wrath_events"):
-        (LISTE_STOCKEE, "HammerOfWrathAbility$$ExecuteBehaviour -> DSLSelectors$$AdjacentUnits"),
-    ("scripts/python/engine/playbook/psyker.py", "possible_targets"):
-        (LISTE_STOCKEE, "PsykerExtraAttackAbility$$PossibleTargets -> DSLSelectors$$AdjacentUnits"),
-    ("scripts/python/engine/playbook/scene.py", "_camo_cloak_cover_keys"):
-        (LISTE_STOCKEE, "CamoCloak_DmgReductionEffect$$HasValidEffectTrigger -> AdjacentFriends"),
-    ("scripts/python/engine/playbook/scene.py", "_enmity_adjacent"):
-        (LISTE_STOCKEE, "DSLSelectors$$AdjacentUnits / DSLSelectors$$AdjacentFriends"),
-    ("scripts/python/engine/playbook/scene.py", "adjacent_dark_angels_friends"):
-        (LISTE_STOCKEE, "DeathwingEffect$$GetDoubleEffectCondition -> AdjacentFriends"),
-    ("scripts/python/engine/playbook/scene.py", "adjacent_taunted_enemies"):
-        (LISTE_STOCKEE, "ADaemonicPatronsEffect$$GetNumAdjacentTauntedEnemies -> AdjacentEnemies"),
     ("scripts/python/engine/runner/abilities/loki/momentum.py", "_execute_behaviour_step"):
         (LISTE_STOCKEE, "UnstoppableMomentumReworkedAbility$$ExecuteBehaviourStep -> TileExtensions$$IsNeighbourOf"),
     ("scripts/python/engine/runner/operations/triggers/loki/icon_of_obstinacy.py",

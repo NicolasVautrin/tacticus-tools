@@ -28,6 +28,14 @@ from ...entities.traits.unit_trait import (UnitTrait as _UnitTrait, has_trait as
                                            trait_name as _trait_name)
 from engine.services.damage_prediction import DamagePredictionResult
 from engine.services import current_player as _cp   # forme B (#359-r6) : foyer `current_player_team`
+from engine import battle_query as _bq   # forme B (#485-r1-r1) : foyer des DEUX etages
+#                                          d'`IterateAdjacentTiles` (#943-r7)
+import engine.playbook.adjacency as _adjacency   # foyer PARTAGE multi-tuiles (#954)
+# ⚠ La forme `from engine.playbook import adjacency` declarerait le PAQUET (elle en lit
+# l'attribut), pas le module -- et `engine.playbook` atteint deja ce module par `.base`, donc
+# l'arete refermait un SCC de 16 (`test_270r4r2_cycles_imports_offline` etage 1, MESURE).
+# `import <paquet>.<module> as x` declare le MODULE et garde la forme B (liaison de module,
+# donc un patch mord).
 
 
 def generate_multi_hit_attack_prediction(scene, uid, tgt, ability_id, ability_name, attack_pos=None,
@@ -1458,8 +1466,20 @@ def make_hammer_wrath_events(scene, caster_id, target_id, attack_pos):
         IdunBattleLogic.Entities.Abilities.Active.Loki.HammerOfWrathAbility$$GetMinDamage2), hits=`nrOfHits_2` (const 50, BringerOfDespair.GetHitsToBonusTarget = 1),
         profil=`damageProfile_2` (Physical).
     Le reste du pipeline (spread ±20%, pierce, armure, mods attaquant/positionnels, bouclier) est identique au
-    chemin normal via `generate_multi_hit_attack_prediction` (base/hits/profile override). `[]` si indisponible."""
-    import hexgeo
+    chemin normal via `generate_multi_hit_attack_prediction` (base/hits/profile override). `[]` si indisponible.
+
+    ⚠ L'ADJACENCE DU SECONDARY N'EST PAS LA COURONNE HEX (#943-r7). `AdjacentTiles` descend sur
+    `IdunBattle.Core.Services.TileQuery.u003CIterateAdjacentTilesu003Ed__8$$MoveNext` : ENUMERATION
+    de la liste STOCKEE (`ConnectivityComponent+0x10`) puis porte `|dElev| < 2` INCONDITIONNELLE.
+    La face COMBAT du MEME noeud (`runner/abilities/bloodangels.py::
+    hammer_of_wrath_get_adjacent_targets` = `Enemies(AdjacentUnits(Target(), Const(1)))`) l'execute
+    en DSL, donc par `dsl/base._within(order='adjacent')` -> `_adjacent_tiles_native` : elle lit
+    DEJA la liste stockee. Cabler ici **RESORBE** la divergence de faces au lieu d'en creer une.
+
+    Le predicat passe par le foyer PARTAGE `playbook.adjacency.unit_in_adjacent_tiles` (#954) =
+    `Units(AdjacentTiles(subject), unique, sel).Contains(other)`, qui porte en plus l'axe
+    MULTI-TUILES et se reduit a `is_adjacent(pos(subject), pos(other))` sur des unites a un pied.
+    Canaux tri-etat : absents -> degradation SEULE en couronne hex (comportement d'avant)."""
     ctx0 = scene.ctx(caster_id)
     cfg = AbilityConfiguration.from_gameconfig(_HAMMER_ABILITY_NAME, GC.ability(_HAMMER_ABILITY_NAME))
     if ctx0 is None or cfg is None:
@@ -1489,10 +1509,12 @@ def make_hammer_wrath_events(scene, caster_id, target_id, attack_pos):
     if t_pos is not None:
         # `IdunBattleLogic.Entities.DSLFactory$$AdjacentUnits` = Units(AdjacentTiles(target)) − target : occupation de TUILE
         # → vivants seulement (pos_by_id garde les cadavres ; idiome hp>0 = IsAlive, cf. l.227/276).
+        _elev, _neigh = scene.elev_by_pos, _bq.neigh_map(scene)
         adj = [u for u in scene.pos_by_id
                if u != target_id and scene.team(u) != caster_team
                and (scene.hp(u) or 0) > 0
-               and scene.pos(u) is not None and hexgeo.distance(scene.pos(u), t_pos) == 1]
+               and scene.pos(u) is not None
+               and _adjacency.unit_in_adjacent_tiles(scene, target_id, u, _elev, _neigh)]
         for sid in adj[:_HAMMER_MAX_SECONDARY]:
             sdp = generate_multi_hit_attack_prediction(scene, caster_id, sid,
                                                       int(ActiveAbilityType.HammerOfWrath),

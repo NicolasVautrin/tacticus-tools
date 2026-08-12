@@ -266,6 +266,7 @@
  "tests/engine/test_932_deathwing_offline.py": 29.512,
  "tests/engine/test_933_premisse_regime_offline.py": 12.224,
  "tests/engine/test_937_repeat_node_offline.py": 0.008,
+ "tests/engine/test_943r7_faces_jumelles_adjacence_offline.py": 0.847,
  "tests/engine/test_944_combat_behaviours_offline.py": 1.48,
  "tests/engine/test_945_loki_decision_faces_offline.py": 1.068,
  "tests/engine/test_947_948_extra_damage_passives_offline.py": 0.078,

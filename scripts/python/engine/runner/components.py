@@ -2872,6 +2872,18 @@ class _RunnerEffectTargetWorld:
         ctx = getattr(sc, "ctx", None) if sc is not None else None
         return (getattr(ctx, "traits", None) or ()) if ctx is not None else ()
 
+    def neigh_by_pos(self):
+        """Canal de VOISINAGE NATIF du protocole (#943-r7), derive de l'ECS.
+
+        MEMES foyers que `update_charging` juste au-dessus (`adjacent_neigh_by_pos` /
+        `elevations_by_pos`), qui rendent `None` sur un board absent -> repli GEOMETRIQUE nomme
+        d'`is_adjacent`, c.-a-d. exactement le comportement d'avant le cablage."""
+        return adjacent_neigh_by_pos(getattr(self.state, "board", None))
+
+    def elev_by_pos(self):
+        """Second etage (`|dElev| < 2`) d'`IterateAdjacentTiles`, derive de l'ECS."""
+        return elevations_by_pos(getattr(self.state, "board", None))
+
 
 def is_effect_target(state, unit_id: int, effect_type: int) -> Optional[bool]:
     """`IdunBattleLogic.Entities.DSLTriggers$$IsEffectTarget(sel, effectType)`, face COMBAT.

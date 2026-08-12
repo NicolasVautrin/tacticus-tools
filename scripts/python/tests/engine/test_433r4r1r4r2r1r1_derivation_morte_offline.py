@@ -205,28 +205,38 @@ def test_la_JUSTIFICATION_de_la_tolerance_se_re_mesure(arbres_reels):
     etre vus. C'est un fait du depot, et il peut cesser d'etre vrai -- le jour ou la famille est
     reparee au foyer, la tolerance n'a plus d'objet et doit tomber.
 
-    MESURE au 2026-08-12 : 30 fonctions d'`engine/` comparent une distance hex a 1 ; 2 sont vues par
-    l'etape 2 ; 2 touchent le canal ; 26 sont MUETTES (aucun natif declare dans leur docstring),
-    dont les trois que `case-943` nommait deja (`effect_targets._adjacent_friends`,
-    `imperative.create_aura_attack_damage_bonus_for_ally`, `get_em_runtz._spawn_tile_count`).
+    MESURE au 2026-08-12 (#943-r4) : 30 fonctions d'`engine/` comparaient une distance hex a 1 ;
+    2 vues par l'etape 2 ; 2 touchant le canal ; 26 MUETTES.
 
-    ⚠ LE SEUIL EST A 3, PAS AU COMPTE MESURE, ET C'EST DELIBERE. Le gisement a gagne UN site
-    pendant la duree de cette tranche (25 -> 26 muets, entre la mesure et le rebase) : un test qui
-    figerait le compte exact rougirait chez l'auteur SUIVANT pour un site qu'il n'a pas creuse --
-    la faute que `test_270r4r2r2_differes_offline` a payee trois fois. Ce qui doit tenir ici n'est
-    pas un entier, c'est le FAIT qui fonde la tolerance : une FAMILLE existe, invisible au critere.
-    Les trois foyers nommes ci-dessous, eux, sont gardes NOMMEMENT."""
+    ⚠ RE-MESURE le 2026-08-12 (#943-r7), ET CE TEST A ROUGI POUR LA BONNE RAISON. Le cablage de
+    HUIT des 19 `LISTE_STOCKEE` a fait sortir du lot MUET deux des trois temoins que `case-943` SS5
+    nommait -- `effect_targets._adjacent_friends` (devenu le FOYER COMMUN cable pour les DEUX
+    faces) et `get_em_runtz._spawn_tile_count`. Le test a donc fait EXACTEMENT ce pour quoi il est
+    ecrit : refuser qu'une tolerance soit reconduite alors que sa mesure fondatrice a bouge. Les
+    temoins sont RE-CHOISIS ci-dessous, pas retires -- et deliberement parmi les sites BLOQUES
+    (`seeding`, ctx d'aura sans board), qui sont ceux dont on sait qu'ils ne bougeront pas par
+    inadvertance. Etat apres cablage : 19 geometries nues sans canal, 16 MUETTES, dont 11
+    `LISTE_STOCKEE`.
+
+    ⚠ LE SEUIL RESTE A 3, PAS AU COMPTE MESURE, ET C'EST DELIBERE -- dans les DEUX sens. Le
+    gisement avait gagne un site pendant la tranche precedente (25 -> 26) ; il en a perdu huit
+    pendant celle-ci. Un test qui figerait le compte exact rougirait chez l'auteur suivant pour un
+    site qu'il n'a pas creuse -- la faute que `test_270r4r2r2_differes_offline` a payee trois fois.
+    Ce qui doit tenir ici n'est pas un entier, c'est le FAIT qui fonde la tolerance : une FAMILLE
+    existe, invisible au critere. Les trois foyers nommes, eux, sont gardes NOMMEMENT."""
     muets, total = G.etape6(arbres_reels)
     assert total > 0, "perimetre casse : aucune geometrie nue vue par l'etape 6"
     assert len(muets) >= 3, (
         "seulement %d site(s) MUET(s) a geometrie nue : la tolerance de #943-r4 se justifiait par "
         "l'existence d'une FAMILLE que le critere `docstring` ne voit pas. Si la famille a ete "
         "reparee, la tolerance n'a plus d'objet -- retire-la et arme l'etape 2." % len(muets))
-    # les trois foyers NOMMEMENT cites par `case-943-quinze-rouges-offline.md` SS5 doivent toujours
-    # etre du lot : ce sont eux qui rendent le fork demontrable, pas un compte anonyme.
+    # Les temoins NOMMES du fork. Ils rendent la famille demontrable, la ou un compte anonyme ne le
+    # ferait pas -- et ils sont pris chez les BLOQUES (#943-r7) : trois ctx d'aura / de trait, dont
+    # aucun ne peut etre cable sans publier les cartes en amont (`effects/__init__.py::aura_*`).
     noms = {nom for (_rel, _ln, nom) in muets}
-    for attendu in ("_adjacent_friends", "create_aura_attack_damage_bonus_for_ally",
-                    "_spawn_tile_count"):
+    for attendu in ("create_aura_attack_damage_bonus_for_ally",   # imperative.py (Conqueror)
+                    "create_aura_hits_malus_for_defense",         # hits.py (BigTargetAdjacent)
+                    "as_attacker_bonus_hits"):                    # traits/combat.py (GetStuckIn)
         assert attendu in noms, (
             "`%s` n'est plus un site MUET a geometrie nue -- la mesure qui fonde #943-r4 a change, "
             "re-mesure la tolerance au lieu de la reconduire" % attendu)

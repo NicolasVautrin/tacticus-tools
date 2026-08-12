@@ -622,21 +622,30 @@ class Scene:
         `HasEffect(..., onlyActive: 0)` -> `EffectsState.has_effect`, PAS `active_effects` (le natif
         ne filtre pas sur `IsActive`, et `active_effects` reboucle sur `is_active`).
 
+        ⚠ `AdjacentEnemies` descend sur `AdjacentTiles` -> `TileQuery$$IterateAdjacentTiles`, donc
+        sur la liste STOCKEE puis la porte `|dElev| < 2` -- PAS sur la couronne hex (#943-r7). Le
+        cablage sur `adjacency.unit_in_adjacent_tiles` (le foyer PARTAGE, #954) **RESORBE** une
+        divergence de faces au lieu d'en creer : la face COMBAT
+        (`runner.components.adjacent_taunted_enemies_count`) execute l'arbre
+        `daemonic_patrons.adjacent_taunted_enemies_selector`, dont l'etage `AdjacentEnemies` passe
+        par `dsl/base._within(order='adjacent')` -> `_adjacent_tiles_native` -- elle lit donc DEJA
+        la liste stockee. Canaux tri-etat : absents -> degradation SEULE en couronne hex, c.-a-d.
+        exactement le comportement d'avant.
+
         `None` (equipe ou position du porteur inconnue) => cle ABSENTE => condition degradee en VRAI
         et magnitude inerte -- jamais un 0 invente."""
-        import hexgeo
         team = self.team_by_id.get(uid)
         here = self.pos(uid)
         if team is None or here is None:
             return None
         eff = getattr(self, "eff_state", None)
+        elev, neigh = self.elev_by_pos, self.neigh_by_pos
         n = 0
         for u in (self.units or ()):
             oid = u.get("id")
             if oid == uid or u.get("team") == team or not u.get("alive"):   # AdjacentEnemies(Owner)
                 continue
-            p = self.pos(oid)
-            if p is None or hexgeo.distance(tuple(here), tuple(p)) != 1:
+            if not _adj.unit_in_adjacent_tiles(self, uid, oid, elev, neigh):
                 continue
             if eff is not None and eff.has_effect(
                     int(oid), int(EffectType.Taunted_OnlySpecificTargets)):   # 0x1b = 27
@@ -664,20 +673,26 @@ class Scene:
         `adjacent_taunted_enemies` : un plan qui DEPLACE Baraqiel loin de ses freres predit encore
         le doublement. Residu NOMME ; la face COMBAT, elle, mesure la position REELLE au coup.
 
+        ⚠ MEME cablage que `adjacent_taunted_enemies` ci-dessus, et pour la MEME raison (#943-r7) :
+        `AdjacentFriends(unit, unique, sel)` = `Friends(unit, Units(AdjacentTiles(unit)) - unit,
+        sel)`, donc la liste STOCKEE puis la porte `|dElev| < 2`. La face COMBAT
+        (`runner.components.adjacent_dark_angels_friends_count`) execute l'arbre
+        `deathwing.adjacent_dark_angels_friends_selector`, dont l'`AdjacentFriends` passe par
+        `_within(order='adjacent')` : elle lit DEJA la liste stockee, le cablage RESORBE.
+
         `None` (equipe ou position du porteur inconnue) => cle ABSENTE => disjoint FERME cote effet
         (degradation RESTRICTIVE) -- jamais un 0 invente."""
-        import hexgeo
         team = self.team_by_id.get(uid)
         here = self.pos(uid)
         if team is None or here is None:
             return None
+        elev, neigh = self.elev_by_pos, self.neigh_by_pos
         n = 0
         for u in (self.units or ()):
             oid = u.get("id")
             if oid == uid or u.get("team") != team or not u.get("alive"):   # AdjacentFriends(Owner)
                 continue
-            p = self.pos(oid)
-            if p is None or hexgeo.distance(tuple(here), tuple(p)) != 1:
+            if not _adj.unit_in_adjacent_tiles(self, uid, oid, elev, neigh):
                 continue
             # `UnitsFromFaction(..., UnitFaction.DarkAngels, 3)` : le natif compare le NOM de la
             # valeur d'enum au `FactionComponent+0x30` ; offline, c'est le `FactionId` gameconfig.
@@ -714,13 +729,20 @@ class Scene:
         deux voisins (residu NOMME #948-r1) ; la face COMBAT, elle, mesure la position REELLE au
         moment du coup.
 
+        ⚠ MEME cablage que ses deux voisins (#943-r7), sur le foyer partage djacency : `AdjacentUnits(Owner, 1, 3)` =
+        `Units(AdjacentTiles(Owner)) - Owner`, donc la liste STOCKEE puis `|dElev| < 2`. Les DEUX
+        faces COMBAT (`runner.components.enmity_adjacent_units_count` et
+        `..._dark_angels_friends_count`) executent les arbres d'`enmity_for_the_unworthy`, dont
+        l'etage `AdjacentUnits`/`AdjacentFriends` passe par `_within(order='adjacent')` : elles
+        lisent DEJA la liste stockee, le cablage RESORBE.
+
         `None` (position -- et pour la face DA, equipe -- du porteur inconnue) => cle ABSENTE =>
         aucune contribution cote effet (degradation RESTRICTIVE) -- jamais un 0 invente."""
-        import hexgeo
         here = self.pos(uid)
         team = self.team_by_id.get(uid)
         if here is None or (dark_angels_friends_only and team is None):
             return None
+        elev, neigh = self.elev_by_pos, self.neigh_by_pos
         n = 0
         for u in (self.units or ()):
             oid = u.get("id")
@@ -728,8 +750,7 @@ class Scene:
                 continue
             if dark_angels_friends_only and u.get("team") != team:   # AdjacentFriends(Owner)
                 continue
-            p = self.pos(oid)
-            if p is None or hexgeo.distance(tuple(here), tuple(p)) != 1:
+            if not _adj.unit_in_adjacent_tiles(self, uid, oid, elev, neigh):
                 continue
             if dark_angels_friends_only and \
                     (GC.unit(self.vis_by_id.get(oid)) or {}).get("FactionId") != _DARK_ANGELS:
@@ -800,9 +821,16 @@ class Scene:
         `HasEffect(sel, 1013 LightCover, onlyActive=0, 6)` -> `EffectsState.has_effect` (le natif ne
         filtre PAS sur `IsActive`, et `active_effects` reboucle sur `is_active`).
         `IsEffectTarget(sel, 1026 BigTarget_Adjacent)` -> même sélecteur que
-        `BigTargetAdjacentEffect.create_aura_hits_malus_for_defense` : amis hex-adjacents, porteur
+        `BigTargetAdjacentEffect.create_aura_hits_malus_for_defense` : amis ADJACENTS, porteur
         EXCLU. Clé OMISE quand le substrat manque (pas d'`EffectsState` / pas de position) ⇒
-        `camo_cloak_cover` dégrade en VRAI, jamais en FAUX."""
+        `camo_cloak_cover` dégrade en VRAI, jamais en FAUX.
+
+        ⚠ CE SITE RECOMPOSE `_adjacent_friends`, ET IL DOIT LIRE LE MEME SUBSTRAT QUE LUI (#943-r7).
+        `AdjacentFriends` descend sur `TileQuery$$IterateAdjacentTiles` (liste STOCKEE + porte
+        `|dElev| < 2`), pas sur la couronne hex. Sa face COMBAT
+        (`runner.components.is_target_of_adjacent_friend_aura` -> `is_effect_target` ->
+        `entities.effect_targets._adjacent_friends`) est cablee DANS LE MEME COMMIT : les deux
+        expressions du meme selecteur natif bougent ENSEMBLE, jamais l'une sans l'autre."""
         if self.eff_state is None:
             return
         out["has_effect_light_cover"] = bool(
@@ -810,14 +838,13 @@ class Scene:
         me, team = self.pos_by_id.get(uid), self.team_by_id.get(uid)
         if not me or team is None:
             return
-        import hexgeo
+        elev, neigh = self.elev_by_pos, self.neigh_by_pos
         hit = False
         for u in (self.units or ()):
             oid = u.get("id")
             if oid == uid or u.get("team") != team or not u.get("alive"):
                 continue
-            p = self.pos_by_id.get(oid)
-            if not p or hexgeo.distance(me, p) != 1:
+            if not _adj.unit_in_adjacent_tiles(self, uid, oid, elev, neigh):
                 continue
             if self.eff_state.has_effect(oid, int(EffectType.BigTarget_AdjacentEffect)):
                 hit = True
@@ -995,6 +1022,15 @@ class _SceneEffectTargetWorld:
     def traits(self, uid: int):
         c = self.sc.ctx_by_id.get(uid)
         return (getattr(c, "traits", None) or ()) if c is not None else ()
+
+    def neigh_by_pos(self):
+        """Canal de VOISINAGE NATIF du protocole (#943-r7) -- la `Scene` le DERIVE deja de son
+        board (`adjacent_neigh_by_pos`, memoise). `None` = pas de board -> repli geometrique."""
+        return self.sc.neigh_by_pos
+
+    def elev_by_pos(self):
+        """Second etage (`|dElev| < 2`) -- table `tileMeta` deja portee par la `Scene`."""
+        return self.sc.elev_by_pos
 
 
 # ── SEAM live-feed (RPC) — tables cold + état par-pas. `rpc(method, body, timeout) -> result dict`. ──

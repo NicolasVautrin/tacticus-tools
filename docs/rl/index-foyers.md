@@ -21,10 +21,10 @@
 
 | | nombre |
 |---|---|
-| lignes de tableau OUVERTES | 389 |
-| dont ANNOTEES (`FOYER:` + `BLOCAGE:`) | 386 |
+| lignes de tableau OUVERTES | 403 |
+| dont ANNOTEES (`FOYER:` + `BLOCAGE:`) | 400 |
 | dont NON ANNOTEES | 3 |
-| foyers distincts (fichiers/repertoires) | 336 |
+| foyers distincts (fichiers/repertoires) | 352 |
 
 Non annotees restantes : #120bis-spawn, #390-r1, #BL-1020r
 
@@ -37,11 +37,12 @@ Ces residus **ne partent pas ensemble**.
 | `scripts/python/engine/runner/components.py` | 12 | #287-r5-r2, #419-r1-tr14-r5-r2-r1-r2-r1-r2, #462-r4b-r1-r1-r1-r1-b-r1-r1-r3-r1-r3-r1, #462-r4b-r1-r1-r1-r1-c-r3-r1-r5-r1, #462-r4b-r1-r1-r1-r1-c-r3-r1-r5-r2, #508-r2, #547-r10, #590-r1, #919-r1, #929-r2, #951-r1, #951-r3 |
 | `scripts/python/engine/runner/abilities/targeting.py` | 11 | #287-r11, #419-r1-tr14-r5-r2-r1-r2-r2, #447-r1-r1-r2, #447-r4, #547-r6, #590-r6, #895-r2, #895-r3, #907-r1, #943-r1, #946-r2 |
 | `scripts/python/catalog_inject.py` | 9 | #254-bc, #254-bc-r1, #380-r1, #419-r1-tr12-r2-r1, #419-t6-r1, #433-r4-r3-r1-r3, #448-r3-r1-r1-r1, #889-r3, #914-r1 |
+| `scripts/python/engine/ai/context.py` | 9 | #175-r1, #419-r1-tr11-r1, #419-r1-tr9-r1, #425-r1, #433-r4-r2-r1-r1-a-r1, #433-r4-r2-r1-r1-c-r2, #433-r4-r2-r1-r2-r2-r1-r1-r1-r4-r1, #433-r4-r3-r3, #957-r1 |
 | `scripts/python/engine/runner/abilities/handler.py` | 9 | #116-r, #217, #888-r1, #889-r6, #890-r3, #894-r2, #894-r3, #907-r1, #931-r1 |
-| `scripts/python/engine/ai/context.py` | 8 | #175-r1, #419-r1-tr11-r1, #419-r1-tr9-r1, #425-r1, #433-r4-r2-r1-r1-a-r1, #433-r4-r2-r1-r1-c-r2, #433-r4-r2-r1-r2-r2-r1-r1-r1-r4-r1, #433-r4-r3-r3 |
 | `scripts/python/engine/runner/snapshot.py` | 8 | #287-r14-r2, #287-r5-r2, #448-r3-r1-r1-r1, #545-r1, #889-r3, #889-r5-r3, #922-r1, #951-r3 |
 | `scripts/python/engine/entities/effects/factory.py` | 7 | #888-r1, #889-r6, #902-r1, #922-r1, #924-r1, #927-r2, #952-r2 |
 | `scripts/python/engine/playbook/` | 7 | #419-r1, #419-r2, #433-r4-r3-r2, #893-r1, #909-r2, #909-r4, #940-r2 |
+| `scripts/python/engine/runner/operations/damage.py` | 7 | #508-r2, #521-r8, #889-r1, #920-r1, #951-r1, #954-r2, #955-r1 |
 | `scripts/python/engine/runner/operations/triggers/dispatch/registry.py` | 7 | #419-r1-tr9-r4-r1-r2-r1c, #443-r2-b2, #462-r4b-r1-r1-r1-r1-c-r3-r1-r4-r1, #521-r4, #911-r1, #919-r1, #BL-1029r |
 | `scripts/python/engine/services/ability_range.py` | 7 | #419-r1-tr14-r5-r2-r1-r2-r1-r1-r1, #419-r1-tr14-r5-r2-r1-r2-r1-r1-r2, #419-r1-tr14-r5-r2-r1-r2-r1-r1-r4-r1, #433-r4-r2-r1-r1-b, #433-r4-r2-r1-r2-r2-r1-r1-r1-r3, #433-r4-r2-r1-r2-r2-r1-r1-r1-r4-r1, #447-r1-r1-r1 |
 | `scripts/python/probe_468_collision_numeros.py` | 7 | #468-r1, #468-r13, #468-r2, #468-r3, #468-r7, #468-r8, #486-r4 |
@@ -53,16 +54,14 @@ Ces residus **ne partent pas ensemble**.
 | `frida/hooks/features/ai-step/` | 5 | #419-r1-tr11-r2, #433-r4-r2-r1-r1-a-r1, #433-r4-r2-r1-r1-b, #433-r4-r2-r1-r1-c-r1, #433-r4-r2-r1-r3 |
 | `frida/hooks/features/observe.ts` | 5 | #287-r5-r2, #419-r1-tr14-r5-r2-r1-r2-r1-r2, #462-r4b-r1-r1-r1-r1-c-r3-r1-r5-r1, #462-r4e-o-r2-r1-r1-r1-r1, #595-r3 |
 | `scripts/python/engine/entities/effects/base.py` | 5 | #175-r3, #368-r2, #389-r3, #433-r3-r2-r1, #916-r1 |
-| `scripts/python/engine/entities/effects/loki/hits.py` | 5 | #419-r1-tr9-r4-r1-r2-r1a, #419-r1-tr9-r4-r1-r2-r2, #884-r2, #943-r7, #949 |
+| `scripts/python/engine/entities/effects/loki/hits.py` | 5 | #419-r1-tr9-r4-r1-r2-r1a, #419-r1-tr9-r4-r1-r2-r2, #884-r2, #949, #953-r2 |
 | `scripts/python/engine/runner/abilities/behaviours/effects.py` | 5 | #448-r6, #576-r2, #889-r4, #890-r2, #893-r2 |
-| `scripts/python/engine/runner/operations/damage.py` | 5 | #508-r2, #521-r8, #889-r1, #920-r1, #951-r1 |
 | `scripts/python/engine/runner/operations/damage_ops/ability.py` | 5 | #488-r2, #489-r1, #512-r3, #605-r1, #889-r1 |
 | `scripts/python/engine/runner/operations/spawn.py` | 5 | #589-r1-r1-r2-r1-r1, #908-r2, #922-r1, #929-r2, #952-r2 |
 | `scripts/python/probe_457_offline_tests_green.py` | 5 | #457-r6, #486-r21, #486-r25, #547-r3, #935-r2 |
 | `scripts/python/probe_462_live_tests_status.py` | 5 | #462-r1, #462-r2, #462-r3, #462-r4, #465-r1 |
 | `scripts/python/verdict_cache.py` | 5 | #486-r16, #486-r17, #486-r8, #486-r9, #943-r2 |
 | `scripts/python/` | 4 | #277-r1, #486-r3, #547-r4-r1, #915-r1 |
-| `scripts/python/engine/entities/effects/loki/dark_angels_passives.py` | 4 | #926-r1, #943-r7, #946-r1, #946-r4 |
 | `scripts/python/engine/entities/selectors/tiles.py` | 4 | #287-r11-r2-r1-r3, #462-r4b-r1-r1-r1-r1-c-r3-r1-r5-r3, #550-r4, #895-r1 |
 | `scripts/python/engine/runner/abilities/**` | 4 | #20, #217, #585-r1, #585-r4 |
 | `scripts/python/engine/runner/abilities/behaviours/ai_control.py` | 4 | #429-r1-r1-r1-r1, #590-r5, #590-r8, #907-r1 |
@@ -75,41 +74,44 @@ Ces residus **ne partent pas ensemble**.
 | `scripts/python/engine/utilities/tile.py` | 4 | #175-r1, #271-r7, #921-r1, #922-r2 |
 | `scripts/python/loop_status.py` | 4 | #467-r1, #467-r5, #467-r6-a, #526-r3 |
 | `scripts/python/probe_273_gitignored_inputs.py` | 4 | #464-r1b, #464-r1c, #486-r17, #486-r9 |
+| `scripts/python/tests/engine/` | 4 | #277-r1, #449-r2-r4-r2, #462-r6-r2, #954-r1 |
 | `frida/hooks/features/ai-step/rpc-snapshot.ts` | 3 | #347-r3, #487-r2, #545-r1 |
 | `frida/hooks/features/ui-nav.ts` | 3 | #595-r1, #595-r2, #596 |
-| `scripts/python/engine/entities/effect_targets.py` | 3 | #366-r1-effect-targets, #943-r7, #952-r1 |
+| `scripts/python/engine/entities/abilities/active_ability.py` | 3 | #585-r1, #909-r1, #957-r4 |
 | `scripts/python/engine/entities/effects/aura_selectors.py` | 3 | #433-r3-r2-r1, #926-r1, #943-r4 |
-| `scripts/python/engine/entities/effects/loki/extra_damage_aura.py` | 3 | #419-r1-tr9-r4-r1-r2-r1b, #433-r4-r1-r4-r2-r1-r1-r1-r1, #943-r7 |
+| `scripts/python/engine/entities/effects/loki/dark_angels_passives.py` | 3 | #926-r1, #946-r1, #946-r4 |
 | `scripts/python/engine/entities/formulas.py` | 3 | #448-r6, #894-r2, #895-r1 |
 | `scripts/python/engine/entities/selectors/geometry.py` | 3 | #889-r6, #894-r2, #927-r3 |
 | `scripts/python/engine/playbook/base.py` | 3 | #438-r1, #445-r1, #909-r2 |
 | `scripts/python/engine/playbook/prediction/normal_attack.py` | 3 | #419-r1-tr14-r2, #932-r2, #948-r1 |
-| `scripts/python/engine/playbook/scene.py` | 3 | #932-r2, #943-r7, #948-r1 |
+| `scripts/python/engine/playbook/scene.py` | 3 | #932-r2, #943-r8, #948-r1 |
 | `scripts/python/engine/runner/abilities/loki/attempted_possession.py` | 3 | #287-r11, #590-r6, #590-r9 |
 | `scripts/python/engine/runner/abilities/loki/summon.py` | 3 | #429-r1-r1-r1-r1, #590-r5, #590-r8 |
 | `scripts/python/engine/runner/abilities/tau.py` | 3 | #895-r1, #895-r3, #895-r5 |
 | `scripts/python/engine/runner/damage_model.py` | 3 | #521-r9, #920-r1, #924-r2 |
 | `scripts/python/engine/runner/operations/damage_ops/normal.py` | 3 | #889-r1, #924-r2, #925-r1 |
+| `scripts/python/engine/runner/operations/triggers/dispatch/move_death.py` | 3 | #929-r1, #947-r1, #955-r1 |
+| `scripts/python/engine/runner/operations/triggers/genestealer.py` | 3 | #462-r4b-r1-r1-r1-r1-b-r1-r1-r3-r1-r2-r1, #462-r4b-r1-r1-r1-r1-b-r1-r1-r3-r1-r3-r1, #955-r2 |
 | `scripts/python/engine/runner/operations/triggers/loki/savage_killer.py` | 3 | #929-r1, #929-r2, #929-r4 |
 | `scripts/python/engine/services/ability_caster_gates.py` | 3 | #433-r4-r2-r1-r1-c-r1, #433-r4-r2-r1-r2-r2-r1-r1-r1-r4-r2, #433-r4-r2-r1-r3 |
 | `scripts/python/engine/services/damage_prediction.py` | 3 | #589-r1-r1-r2-r1-r3, #884-r1, #910-r1 |
 | `scripts/python/fingerprint_functions.py` | 3 | #482-r1, #482-r2, #482-r4 |
 | `scripts/python/probe_486r12_declencheurs.py` | 3 | #486-r16, #486-r37, #486-r38 |
-| `scripts/python/tests/engine/` | 3 | #277-r1, #449-r2-r4-r2, #462-r6-r2 |
 | `scripts/python/tests/engine/runner/` | 3 | #503-r2, #914-r2, #922-r2 |
 | `data/seed-bc.json` | 2 | #254-bc, #392-r1 |
 | `docs/**` | 2 | #283-r2, #330-r2 |
 | `docs/rl/dsl-effect-nodes.md` | 2 | #330-r1, #547-r10 |
-| `docs/rl/kit-coverage.md` | 2 | #909-r5, #951-r2 |
+| `docs/rl/kit-coverage.md` | 2 | #909-r5, #951-r6 |
 | `frida/hooks/il2cpp/` | 2 | #259-b, #389-r3 |
 | `scripts/hooks/loop-status.ps1` | 2 | #467-r3, #467-r5 |
-| `scripts/python/audit_kit_coverage.py` | 2 | #909-r5, #951-r2 |
+| `scripts/python/audit_kit_coverage.py` | 2 | #909-r5, #951-r6 |
 | `scripts/python/declencheur_cliquet.py` | 2 | #486-r16, #486-r25 |
 | `scripts/python/engine/` | 2 | #419-r1-tr9-r4-r1-r3, #485-r1-r3 |
 | `scripts/python/engine/ai/action_generators.py` | 2 | #334-r3, #447-r1-r1-r3-r1 |
 | `scripts/python/engine/ai/state_bridge.py` | 2 | #334-r3, #931-r2 |
 | `scripts/python/engine/battle_query.py` | 2 | #433-r4-r1-r1-r2, #894-r2 |
-| `scripts/python/engine/entities/abilities/active_ability.py` | 2 | #585-r1, #909-r1 |
+| `scripts/python/engine/entities/effect_targets.py` | 2 | #366-r1-effect-targets, #952-r1 |
+| `scripts/python/engine/entities/effects/loki/extra_damage_aura.py` | 2 | #419-r1-tr9-r4-r1-r2-r1b, #433-r4-r1-r4-r2-r1-r1-r1-r1 |
 | `scripts/python/engine/entities/effects/loki/icon_of_obstinacy.py` | 2 | #919-r1, #943-r4 |
 | `scripts/python/engine/entities/effects/loki/inescapable_death.py` | 2 | #924-r1, #924-r2 |
 | `scripts/python/engine/entities/pathfinding/base_pathfinder.py` | 2 | #448-r1-r1-r1-r1-r2-r1, #448-r1-r1-r1-r1-r2-r2 |
@@ -121,8 +123,6 @@ Ces residus **ne partent pas ensemble**.
 | `scripts/python/engine/playbook/noncomparable/` | 2 | #906-r1, #909-r3 |
 | `scripts/python/engine/playbook/noncomparable/_base.py` | 2 | #447-r1-r1-r3-r1, #590-r7 |
 | `scripts/python/engine/playbook/prediction/` | 2 | #909-r1, #910-r1 |
-| `scripts/python/engine/playbook/prediction/abilities.py` | 2 | #433-r4-r1-r4-r2-r1-r1-r1-r1, #943-r7 |
-| `scripts/python/engine/playbook/psyker.py` | 2 | #433-r4-r1-r4-r2-r1-r1-r1-r1, #943-r7 |
 | `scripts/python/engine/playbook/savior_protocols.py` | 2 | #433-r4-r3-r3, #456-r2-r1 |
 | `scripts/python/engine/playbook/should_execute_gates.py` | 2 | #419-r1-tr14-r5-r2-r1-r1-r1, #419-r1-tr14-r5-r2-r1-r1-r1-r3-r1 |
 | `scripts/python/engine/runner/abilities/admec.py` | 2 | #894-r2, #894-r3 |
@@ -137,15 +137,12 @@ Ces residus **ne partent pas ensemble**.
 | `scripts/python/engine/runner/operations/remove_effects.py` | 2 | #389-r4, #936-r1 |
 | `scripts/python/engine/runner/operations/summon_ai.py` | 2 | #577-r1, #907-r1 |
 | `scripts/python/engine/runner/operations/triggers/dispatch/ability.py` | 2 | #521-r8, #929-r4 |
-| `scripts/python/engine/runner/operations/triggers/dispatch/move_death.py` | 2 | #929-r1, #947-r1 |
-| `scripts/python/engine/runner/operations/triggers/genestealer.py` | 2 | #462-r4b-r1-r1-r1-r1-b-r1-r1-r3-r1-r2-r1, #462-r4b-r1-r1-r1-r1-b-r1-r1-r3-r1-r3-r1 |
 | `scripts/python/engine/runner/operations/triggers/loki/haywire_mine.py` | 2 | #462-r4b-r1-r1-r1-r1-c-r3-r1-r5-r4, #462-r4b-r1-r1-r1-r1-c-r3-r1-r5-r5 |
 | `scripts/python/engine/services/custom_normal_attack.py` | 2 | #419-r1-tr12-r3, #419-r1-tr14-r5-r3 |
 | `scripts/python/engine/services/damage_config.py` | 2 | #449-r2-r4-r1, #449-r2-r4-r3 |
 | `scripts/python/engine/services/targeting_query.py` | 2 | #433-r4-r2-r1-r2-r3, #444-r2 |
 | `scripts/python/migrate_485r1_barils_reexport.py` | 2 | #485-r1-r3, #923-r1 |
 | `scripts/python/probe_1210_exemplar_of_the_montka.py` | 2 | #942-r1, #942-r2 |
-| `scripts/python/probe_433r4r1r4r2_neigh_channel_wired.py` | 2 | #433-r4-r1-r4-r2-r1-r1-r1-r1, #943-r7 |
 | `scripts/python/probe_449r2_spread_inventory.py` | 2 | #449-r2-r1, #449-r2-r3 |
 | `scripts/python/probe_486r15_declencheurs_tests.py` | 2 | #486-r20, #486-r21 |
 | `scripts/python/probe_486r2_usage_des_probes.py` | 2 | #486-r3, #486-r6 |
@@ -198,9 +195,9 @@ Candidats naturels a un dispatch parallele, sous reserve de croiser leurs autres
 | `scripts/python/engine/entities/effects/loki/amulet_of_the_voidwyrm.py` | #585-r1 | `aucun` |
 | `scripts/python/engine/entities/effects/loki/counter_attack.py` | #946-r3 | `aucun` |
 | `scripts/python/engine/entities/effects/loki/deathwing.py` | #932-r1 | `aucun` |
+| `scripts/python/engine/entities/effects/loki/extra_damage.py` | #953-r2 | `aucun` |
 | `scripts/python/engine/entities/effects/loki/first_among_traitors.py` | #926-r1 | `aucun` |
 | `scripts/python/engine/entities/effects/loki/heal_blocking.py` | #927-r2 | `porteur` |
-| `scripts/python/engine/entities/effects/loki/imperative.py` | #943-r7 | `seeding` |
 | `scripts/python/engine/entities/effects/loki/possession.py` | #590-r3 | `etage` |
 | `scripts/python/engine/entities/effects/loki/status.py` | #175-r3 | `etage` |
 | `scripts/python/engine/entities/effects_state.py` | #936-r1 | `aucun` |
@@ -208,11 +205,12 @@ Candidats naturels a un dispatch parallele, sous reserve de croiser leurs autres
 | `scripts/python/engine/entities/pathfinding/pathfinders.py` | #448-r1-r1-r1-r1-r2-r1 | `aucun` |
 | `scripts/python/engine/entities/selectors/**` | #585-r1 | `aucun` |
 | `scripts/python/engine/entities/stats.py` | #270-r1-r1-r2 | `aucun` |
-| `scripts/python/engine/entities/traits/combat.py` | #943-r7 | `seeding` |
 | `scripts/python/engine/entities/triggers.py` | #927-r1 | `aucun` |
 | `scripts/python/engine/entities/unit_flag.py` | #494-r2 | `aucun` |
 | `scripts/python/engine/playbook/aggressive_onslaught.py` | #287-r11-r2-r1-r3 | `etage` |
+| `scripts/python/engine/playbook/bespoke.py` | #957-r4 | `aucun` |
 | `scripts/python/engine/playbook/common.py` | #419-r1-tr14-r5-r2-r1-r1-r2 | `porteur` |
+| `scripts/python/engine/playbook/excruciating_frequencies.py` | #957-r3 | `aucun` |
 | `scripts/python/engine/playbook/intoxicating_elixir.py` | #922-r2 | `capteur` |
 | `scripts/python/engine/playbook/loki_custom.py` | #27-r9 | `etage` |
 | `scripts/python/engine/playbook/nonattack.py` | #27-r9 | `etage` |
@@ -223,12 +221,17 @@ Candidats naturels a un dispatch parallele, sous reserve de croiser leurs autres
 | `scripts/python/engine/playbook/noncomparable/calibanite_greatsword.py` | #945-r2 | `seeding` |
 | `scripts/python/engine/playbook/noncomparable/early_warning_override.py` | #433-r4-r2-r3 | `aucun` |
 | `scripts/python/engine/playbook/noncomparable/exemplar_of_the_montka.py` | #942-r3 | `aucun` |
-| `scripts/python/engine/playbook/noncomparable/get_em_runtz.py` | #943-r7 | `seeding` |
+| `scripts/python/engine/playbook/noncomparable/fear_of_the_unseen.py` | #957-r2 | `porteur` |
+| `scripts/python/engine/playbook/noncomparable/foehammer.py` | #957-r1 | `seeding` |
 | `scripts/python/engine/playbook/noncomparable/heroic_fusillade.py` | #433-r4-r1-r4-r2-r2 | `aucun` |
 | `scripts/python/engine/playbook/noncomparable/master_of_the_tutelaries.py` | #202-r1 | `aucun` |
 | `scripts/python/engine/playbook/noncomparable/mind_control.py` | #552-r3 | `aucun` |
 | `scripts/python/engine/playbook/noncomparable/poxwalkers.py` | #17 | `etage` |
+| `scripts/python/engine/playbook/obsessive_annunciation.py` | #954-r1 | `aucun` |
+| `scripts/python/engine/playbook/prediction/_shared.py` | #943-r8 | `seeding` |
+| `scripts/python/engine/playbook/prediction/abilities.py` | #433-r4-r1-r4-r2-r1-r1-r1-r1 | `seeding` |
 | `scripts/python/engine/playbook/prophetic_sentinel.py` | #915-r2 | `porteur` |
+| `scripts/python/engine/playbook/psyker.py` | #433-r4-r1-r4-r2-r1-r1-r1-r1 | `seeding` |
 | `scripts/python/engine/runner/abilities/` | #419-r1-tr12-r3 | `aucun` |
 | `scripts/python/engine/runner/abilities/__init__.py` | #485-r1-r4 | `aucun` |
 | `scripts/python/engine/runner/abilities/aeldari.py` | #940-r1 | `capteur` |
@@ -240,7 +243,7 @@ Candidats naturels a un dispatch parallele, sous reserve de croiser leurs autres
 | `scripts/python/engine/runner/abilities/darkangels.py` | #889-r6 | `etage` |
 | `scripts/python/engine/runner/abilities/deathguard.py` | #888-r1 | `aucun` |
 | `scripts/python/engine/runner/abilities/loki/mind_control.py` | #552-r2 | `capteur` |
-| `scripts/python/engine/runner/abilities/loki/momentum.py` | #943-r7 | `seeding` |
+| `scripts/python/engine/runner/abilities/loki/momentum.py` | #943-r7 | `capteur` |
 | `scripts/python/engine/runner/abilities/loki/quickening.py` | #347-r1 | `capteur` |
 | `scripts/python/engine/runner/abilities/loki/wall_of_mirrors.py` | #433-r4-r1-r2 | `porteur` |
 | `scripts/python/engine/runner/abilities/necrons.py` | #116-r | `etage` |
@@ -249,6 +252,7 @@ Candidats naturels a un dispatch parallele, sous reserve de croiser leurs autres
 | `scripts/python/engine/runner/abilities/tyranids.py` | #890-r3 | `aucun` |
 | `scripts/python/engine/runner/messages.py` | #596-r1 | `aucun` |
 | `scripts/python/engine/runner/operations/` | #547-r6 | `aucun` |
+| `scripts/python/engine/runner/operations/aura_stat_mods.py` | #955-r3 | `aucun` |
 | `scripts/python/engine/runner/operations/damage_ops/` | #446-r3a | `porteur` |
 | `scripts/python/engine/runner/operations/damage_ops/__init__.py` | #485-r1-r4 | `aucun` |
 | `scripts/python/engine/runner/operations/damage_ops/normal_like.py` | #889-r1 | `aucun` |
@@ -261,6 +265,7 @@ Candidats naturels a un dispatch parallele, sous reserve de croiser leurs autres
 | `scripts/python/engine/runner/operations/triggers/dispatch/attack.py` | #521-r8 | `aucun` |
 | `scripts/python/engine/runner/operations/triggers/loki/**` | #585-r1 | `aucun` |
 | `scripts/python/engine/runner/operations/triggers/loki/__init__.py` | #485-r1-r2 | `aucun` |
+| `scripts/python/engine/runner/operations/triggers/loki/cosmic_horror.py` | #955-r2 | `aucun` |
 | `scripts/python/engine/runner/operations/triggers/loki/deathwing.py` | #932-r1 | `aucun` |
 | `scripts/python/engine/runner/operations/triggers/loki/fabricator_claw_array.py` | #927-r1 | `aucun` |
 | `scripts/python/engine/runner/operations/triggers/loki/fire.py` | #951-r4 | `aucun` |
@@ -268,10 +273,13 @@ Candidats naturels a un dispatch parallele, sous reserve de croiser leurs autres
 | `scripts/python/engine/runner/operations/triggers/loki/fury_of_the_ancients.py` | #927-r1 | `aucun` |
 | `scripts/python/engine/runner/operations/triggers/loki/grim_retribution.py` | #946-r1 | `etage` |
 | `scripts/python/engine/runner/operations/triggers/loki/head_claimer.py` | #947-r1 | `etage` |
-| `scripts/python/engine/runner/operations/triggers/loki/icon_of_obstinacy.py` | #943-r7 | `seeding` |
 | `scripts/python/engine/runner/operations/triggers/loki/let_the_galaxy_burn.py` | #925-r1 | `aucun` |
+| `scripts/python/engine/runner/operations/triggers/loki/possession.py` | #955-r1 | `seeding` |
+| `scripts/python/engine/runner/operations/triggers/loki/summary_execution.py` | #955-r3 | `aucun` |
 | `scripts/python/engine/runner/operations/triggers/loki/synaptic_linchpin.py` | #937-r1 | `aucun` |
+| `scripts/python/engine/runner/operations/triggers/loki/terrifying_crescendo.py` | #953-r2 | `aucun` |
 | `scripts/python/engine/runner/operations/triggers/pending_attack.py` | #888-r1 | `aucun` |
+| `scripts/python/engine/services/damage_combat.py` | #954-r2 | `aucun` |
 | `scripts/python/engine/services/damage_modifiers.py` | #437-r1-r1-r2 | `porteur` |
 | `scripts/python/engine/services/static_battle_rules.py` | #419-r1-tr9-r4-r1-r2-r1a | `aucun` |
 | `scripts/python/engine/streams/inform_ops.py` | #890-r1 | `aucun` |
@@ -316,6 +324,7 @@ Candidats naturels a un dispatch parallele, sous reserve de croiser leurs autres
 | `scripts/python/probe_429r1r3r1r2_unit_extensions_is_alive.py` | #429-r1-r3-r1-r2-r1 | `aucun` |
 | `scripts/python/probe_433_r4_r2_r4_r1_contre_epreuves.py` | #433-r4-r2-r4-r1-r1 | `aucun` |
 | `scripts/python/probe_433r4r1r4r2_is_adjacent_substrat_live.py` | #433-r4-r1-r4-r2-r3 | `aucun` |
+| `scripts/python/probe_433r4r1r4r2_neigh_channel_wired.py` | #433-r4-r1-r4-r2-r1-r1-r1-r1 | `seeding` |
 | `scripts/python/probe_433r4r1r4r2r4_aval_decision_live.py` | #433-r4-r1-r4-r2-r4-r1 | `aucun` |
 | `scripts/python/probe_437r1_overwatch_offbyone.py` | #437-r1-r1-r3 | `aucun` |
 | `scripts/python/probe_437r1r1r1_effect_face_table.py` | #437-r1-r1-r1-r1 | `aucun` |
@@ -350,6 +359,8 @@ Candidats naturels a un dispatch parallele, sous reserve de croiser leurs autres
 | `scripts/python/probe_915_prophetic_sentinel.py` | #915-r3 | `aucun` |
 | `scripts/python/probe_928_legacy_of_combat.py` | #928-r1 | `aucun` |
 | `scripts/python/probe_939_bio_minefield.py` | #939-r1 | `etage` |
+| `scripts/python/probe_953_954_skullsmasher_obsessive_annunciation.py` | #953-r1 | `aucun` |
+| `scripts/python/probe_956_purete_de_passe.py` | #956-r1 | `aucun` |
 | `scripts/python/prototype_485r1_registre_explicite.py` | #485-r1-r2 | `aucun` |
 | `scripts/python/rl_gen_enum_columns.py` | #270-b | `aucun` |
 | `scripts/python/rl_gen_ref_tables.py` | #270-b | `aucun` |
@@ -371,11 +382,16 @@ Candidats naturels a un dispatch parallele, sous reserve de croiser leurs autres
 | `scripts/python/tests/engine/test_270r4r2r2r3_gardes_du_hissage_offline.py` | #486-r7 | `aucun` |
 | `scripts/python/tests/engine/test_287r4r1_dynamic_target_rules_offline.py` | #941-r1 | `aucun` |
 | `scripts/python/tests/engine/test_477r24r1_slots_interface_offline.py` | #941-r1 | `aucun` |
+| `scripts/python/tests/engine/test_953_954_skullsmasher_obsessive_annunciation_live.py` | #953-r1 | `aucun` |
+| `scripts/python/tests/engine/test_957_decision_faces_offline.py` | #957-r2 | `porteur` |
 | `scripts/python/tests/test_457_r5_perimetre_offline.py` | #463-r2 | `aucun` |
 | `scripts/python/tests/test_465_ledger_validite_offline.py` | #941-r4 | `aucun` |
 | `scripts/python/tests/test_474_optional_locks_offline.py` | #941-r2 | `aucun` |
+| `scripts/python/tests/test_951r2_voies_de_couverture_offline.py` | #951-r5 | `aucun` |
+| `scripts/python/tests/test_956_purete_de_passe_offline.py` | #956-r1 | `aucun` |
 | `scripts/ratchets-457-footprints.json` | #935-r2 | `aucun` |
 | `scripts/ratchets-468-numeros-attestes.json` | #468-r5 | `aucun` |
+| `scripts/ratchets-951r2-couverture-attestee.json` | #951-r5 | `aucun` |
 | `scripts/sql/006_ref_tables.sql` | #270-b | `aucun` |
 
 ## Par BLOCAGE
@@ -384,11 +400,11 @@ Un residu `capteur` ne part pas tant qu'aucune fenetre de reinject n'est prevue.
 
 | blocage | n | residus |
 |---|---|---|
-| `capteur` | 36 | #259-a, #259-b, #273-r, #287-r5-r2, #347-r1, #347-r3, #389-r3, #419-r1-tr11-r2, #419-r1-tr14-r5-r2-r1-r2-r1-r2, #419-r1-tr5-r8, #419-r6-r1-r1, #433-r4-r2-r1-r1-a-r1, #433-r4-r2-r1-r1-b, #433-r4-r2-r1-r1-c-r1, #433-r4-r2-r1-r3, #444-r1, #449-r1, #462-r4b-r1-r1-r1-r1-c-r3-r1-r5-r1, #462-r4e-o-r2-r1-r1-r1-r1, #462-r4e-o-r2-r1-r1-r1-r2, #475-r2, #475-r3, #487-r2, #545-r1, #552-r2, #590-r2, #590-r5, #595-r1, #595-r2, #595-r3, #596, #596-r2, #916-r1, #922-r2, #940-r1, #951-r3 |
-| `seeding` | 25 | #287-r11, #287-r14-r2, #392-r1, #419-r1-tr9-r1, #433-r4-r1-r4-r2-r1-r1-r1-r1, #433-r4-r2-r1-r2-r3, #447-r1-r1-r3-r1, #448-r3-r1-r1-r1, #448-r6, #449-r2-r4-r1, #482-r1, #590-r1, #590-r7, #889-r3, #889-r5-r3, #890-r4, #902-r2, #911-r1, #921-r1, #929-r2, #929-r4, #943-r7, #945-r2, #951-r1, #BF-chance |
+| `capteur` | 37 | #259-a, #259-b, #273-r, #287-r5-r2, #347-r1, #347-r3, #389-r3, #419-r1-tr11-r2, #419-r1-tr14-r5-r2-r1-r2-r1-r2, #419-r1-tr5-r8, #419-r6-r1-r1, #433-r4-r2-r1-r1-a-r1, #433-r4-r2-r1-r1-b, #433-r4-r2-r1-r1-c-r1, #433-r4-r2-r1-r3, #444-r1, #449-r1, #462-r4b-r1-r1-r1-r1-c-r3-r1-r5-r1, #462-r4e-o-r2-r1-r1-r1-r1, #462-r4e-o-r2-r1-r1-r1-r2, #475-r2, #475-r3, #487-r2, #545-r1, #552-r2, #590-r2, #590-r5, #595-r1, #595-r2, #595-r3, #596, #596-r2, #916-r1, #922-r2, #940-r1, #943-r7, #951-r3 |
+| `seeding` | 27 | #287-r11, #287-r14-r2, #392-r1, #419-r1-tr9-r1, #433-r4-r1-r4-r2-r1-r1-r1-r1, #433-r4-r2-r1-r2-r3, #447-r1-r1-r3-r1, #448-r3-r1-r1-r1, #448-r6, #449-r2-r4-r1, #482-r1, #590-r1, #590-r7, #889-r3, #889-r5-r3, #890-r4, #902-r2, #911-r1, #921-r1, #929-r2, #929-r4, #943-r8, #945-r2, #951-r1, #955-r1, #957-r1, #BF-chance |
 | `etage` | 40 | #116-r, #17, #175-r1, #175-r3, #27-r9, #271-r7, #287-r11-r2-r1-r3, #368-r2, #419-r1-tr12-r2-r1, #419-r4, #433-r3-r2-r1, #433-r4-r1-r1-r1, #433-r4-r1-r1-r2, #433-r4-r1-r3, #433-r4-r3-r1-r2, #443-r2-b2, #444-r2, #462-r4b-r1-r1-r1-r1-b-r1-r1-r3-r1-r2-r1, #462-r4b-r1-r1-r1-r1-b-r1-r1-r3-r1-r3-r1, #508-r2, #577-r2, #590-r3, #590-r6, #590-r8, #889-r2, #889-r6, #893-r1, #894-r2, #895-r4, #902-r1, #907-r1, #919-r1, #924-r1, #924-r2, #929-r1, #939-r1, #940-r2, #946-r1, #946-r4, #947-r1 |
-| `porteur` | 43 | #366-r1-chaos-friendly-fire, #419-r1-tr12-r2-r2, #419-r1-tr12-r4, #419-r1-tr14-r2, #419-r1-tr14-r4-r3, #419-r1-tr14-r5-r2-r1-r1-r2, #419-r1-tr14-r5-r2-r1-r2-r1-r1-r2, #419-r1-tr14-r5-r2-r1-r2-r1-r1-r4-r1, #419-r1-tr14-r5-r2-r1-r2-r1-r3, #419-r1-tr14-r5-r3, #419-r1-tr9-r4-r1-r2-r2, #419-r2, #419-t6-r1, #425-r1, #433-r4-r1-r2, #433-r4-r2-r1-r2-r2-r1-r1-r1-r3, #433-r4-r2-r1-r2-r2-r1-r1-r1-r4-r2, #437-r1-r1-r2, #445-r1, #446-r3a, #447-r1-r1-r1, #447-r3, #448-r1-r1-r1-r1-r2-r2, #448-r1-r2-r1, #449-r2-r4-r3, #462-r4b-r1-r1-r1-r1-c-r3-r1-r5-r4, #462-r4b-r1-r1-r1-r1-c-r3-r2, #462-r4e-o-r1-r1-r1, #465-r1, #503-r2, #521-r4, #550-r2, #884-r2, #895-r1, #915-r2, #927-r2, #942-r1, #943-r4, #945-r1, #945-r3, #946-r2, #950-r1, #952-r2 |
-| `aucun` | 242 | #20, #202-r1, #217, #254-bc, #254-bc-r1, #270-a, #270-b, #270-r1-r1-r2, #271-r1, #271-r8, #277-r1, #281-r4, #283-r2, #330-r1, #330-r2, #334-r3, #350-r3a-r4-r1, #352-r1, #366-r1-effect-targets, #369, #380-r1, #389-r4, #389-r5, #419-r1, #419-r1-tr10-r2, #419-r1-tr11-r1, #419-r1-tr12-r3, #419-r1-tr14-r5-r2-r1-r1-r1, #419-r1-tr14-r5-r2-r1-r1-r1-r3-r1, #419-r1-tr14-r5-r2-r1-r2-r1-r1-r1, #419-r1-tr14-r5-r2-r1-r2-r2, #419-r1-tr14-r5-r2-r1-r2-r3, #419-r1-tr9-r4-r1-r2-r1a, #419-r1-tr9-r4-r1-r2-r1b, #419-r1-tr9-r4-r1-r2-r1c, #419-r1-tr9-r4-r1-r3, #419-r1-tr9-r4-r3, #419-r1-tr9-r5, #420-r4, #426-r1, #429-r1-r1-r1-r1, #429-r1-r2, #429-r1-r3-r1-r2-r1, #430-r1, #430-r2, #433-r3-r3-r2, #433-r4-r1-r4-r2-r2, #433-r4-r1-r4-r2-r3, #433-r4-r1-r4-r2-r4-r1, #433-r4-r2-r1-r1-c-r2, #433-r4-r2-r1-r2-r2-r1-r1-r1-r4-r1, #433-r4-r2-r3, #433-r4-r2-r4-r1-r1, #433-r4-r3-r1-r1, #433-r4-r3-r1-r3, #433-r4-r3-r2, #433-r4-r3-r3, #434-r3, #437-r1-r1-r1-r1, #437-r1-r1-r3, #438-r1, #447-r1-r1-r2, #447-r2, #447-r4, #448-r1-r1-r1-r1-r2-r1, #448-r1-r1-r3, #449-r2-r1, #449-r2-r3, #449-r2-r4-r2, #449-r2-r4-r4-r1, #449-r3, #455-r1, #455-r2, #455-r4-r1, #456-r2-r1, #457-r6, #462-r1, #462-r2, #462-r3, #462-r4, #462-r4b-r1-r1-r1-r1-c-r3-r1-r4-r1, #462-r4b-r1-r1-r1-r1-c-r3-r1-r4-r2, #462-r4b-r1-r1-r1-r1-c-r3-r1-r5-r2, #462-r4b-r1-r1-r1-r1-c-r3-r1-r5-r3, #462-r4b-r1-r1-r1-r1-c-r3-r1-r5-r5, #462-r4b-r1-r1-r1-r1-c-r3-r1-r6, #462-r4b-r1-r1-r1-r1-c-r3-r3, #462-r4c-r1-r1, #462-r4c-r1-r2, #462-r4c-r2, #462-r4c-r3, #462-r6-r1, #462-r6-r2, #463-r2, #464-r1b, #464-r1c, #467-r1, #467-r3, #467-r4-a, #467-r5, #467-r6-a, #468-r1, #468-r13, #468-r2, #468-r3, #468-r5, #468-r6, #468-r7, #468-r8, #469-r1, #469-r2, #469-r4, #471-r1, #471-r2, #475-r1, #482-r2, #482-r4, #482-r5, #482-r6, #484-r1, #484-r2, #485-r1-r1-r2, #485-r1-r2, #485-r1-r3, #485-r1-r4, #486-r10, #486-r16, #486-r17, #486-r20, #486-r21, #486-r25, #486-r26, #486-r3, #486-r37, #486-r38, #486-r4, #486-r6, #486-r7, #486-r8, #486-r9, #488-r2, #489-r1, #494-r2, #498-r5, #5, #510-r3, #511-r1, #512-r3, #519-r1, #521-r8, #521-r9, #523-r3, #526-r3, #531-r1, #547-r10, #547-r3, #547-r4-r1, #547-r6, #547-r9, #550-r3, #550-r4, #552-r3, #576-r2, #577-r1, #585-r1, #585-r2, #585-r4, #589-r1-r1-r2-r1-r1, #589-r1-r1-r2-r1-r2, #589-r1-r1-r2-r1-r3, #590-r9, #593, #594, #596-r1, #605-r1, #66-r2, #884-r1, #888-r1, #889-r1, #889-r4, #890-r1, #890-r2, #890-r3, #893-r2, #894-r1, #894-r3, #894-r4, #894-r5, #895-r2, #895-r3, #895-r5, #905-r1, #906-r1, #908-r1, #908-r2, #909-r1, #909-r2, #909-r3, #909-r4, #909-r5, #910-r1, #914-r1, #914-r2, #915-r1, #915-r3, #919-r2, #919-r3, #920-r1, #922-r1, #923-r1, #925-r1, #926-r1, #927-r1, #927-r3, #928-r1, #931-r1, #931-r2, #932-r1, #932-r2, #933-r1, #934, #935-r2, #936-r1, #937-r1, #941-r1, #941-r2, #941-r3, #941-r4, #942-r2, #942-r3, #943-r1, #943-r2, #946-r3, #948-r1, #949, #950-r2, #951-r2, #951-r4, #952-r1, #BL-1029r, #haze-ord, #o10-c |
+| `porteur` | 44 | #366-r1-chaos-friendly-fire, #419-r1-tr12-r2-r2, #419-r1-tr12-r4, #419-r1-tr14-r2, #419-r1-tr14-r4-r3, #419-r1-tr14-r5-r2-r1-r1-r2, #419-r1-tr14-r5-r2-r1-r2-r1-r1-r2, #419-r1-tr14-r5-r2-r1-r2-r1-r1-r4-r1, #419-r1-tr14-r5-r2-r1-r2-r1-r3, #419-r1-tr14-r5-r3, #419-r1-tr9-r4-r1-r2-r2, #419-r2, #419-t6-r1, #425-r1, #433-r4-r1-r2, #433-r4-r2-r1-r2-r2-r1-r1-r1-r3, #433-r4-r2-r1-r2-r2-r1-r1-r1-r4-r2, #437-r1-r1-r2, #445-r1, #446-r3a, #447-r1-r1-r1, #447-r3, #448-r1-r1-r1-r1-r2-r2, #448-r1-r2-r1, #449-r2-r4-r3, #462-r4b-r1-r1-r1-r1-c-r3-r1-r5-r4, #462-r4b-r1-r1-r1-r1-c-r3-r2, #462-r4e-o-r1-r1-r1, #465-r1, #503-r2, #521-r4, #550-r2, #884-r2, #895-r1, #915-r2, #927-r2, #942-r1, #943-r4, #945-r1, #945-r3, #946-r2, #950-r1, #952-r2, #957-r2 |
+| `aucun` | 252 | #20, #202-r1, #217, #254-bc, #254-bc-r1, #270-a, #270-b, #270-r1-r1-r2, #271-r1, #271-r8, #277-r1, #281-r4, #283-r2, #330-r1, #330-r2, #334-r3, #350-r3a-r4-r1, #352-r1, #366-r1-effect-targets, #369, #380-r1, #389-r4, #389-r5, #419-r1, #419-r1-tr10-r2, #419-r1-tr11-r1, #419-r1-tr12-r3, #419-r1-tr14-r5-r2-r1-r1-r1, #419-r1-tr14-r5-r2-r1-r1-r1-r3-r1, #419-r1-tr14-r5-r2-r1-r2-r1-r1-r1, #419-r1-tr14-r5-r2-r1-r2-r2, #419-r1-tr14-r5-r2-r1-r2-r3, #419-r1-tr9-r4-r1-r2-r1a, #419-r1-tr9-r4-r1-r2-r1b, #419-r1-tr9-r4-r1-r2-r1c, #419-r1-tr9-r4-r1-r3, #419-r1-tr9-r4-r3, #419-r1-tr9-r5, #420-r4, #426-r1, #429-r1-r1-r1-r1, #429-r1-r2, #429-r1-r3-r1-r2-r1, #430-r1, #430-r2, #433-r3-r3-r2, #433-r4-r1-r4-r2-r2, #433-r4-r1-r4-r2-r3, #433-r4-r1-r4-r2-r4-r1, #433-r4-r2-r1-r1-c-r2, #433-r4-r2-r1-r2-r2-r1-r1-r1-r4-r1, #433-r4-r2-r3, #433-r4-r2-r4-r1-r1, #433-r4-r3-r1-r1, #433-r4-r3-r1-r3, #433-r4-r3-r2, #433-r4-r3-r3, #434-r3, #437-r1-r1-r1-r1, #437-r1-r1-r3, #438-r1, #447-r1-r1-r2, #447-r2, #447-r4, #448-r1-r1-r1-r1-r2-r1, #448-r1-r1-r3, #449-r2-r1, #449-r2-r3, #449-r2-r4-r2, #449-r2-r4-r4-r1, #449-r3, #455-r1, #455-r2, #455-r4-r1, #456-r2-r1, #457-r6, #462-r1, #462-r2, #462-r3, #462-r4, #462-r4b-r1-r1-r1-r1-c-r3-r1-r4-r1, #462-r4b-r1-r1-r1-r1-c-r3-r1-r4-r2, #462-r4b-r1-r1-r1-r1-c-r3-r1-r5-r2, #462-r4b-r1-r1-r1-r1-c-r3-r1-r5-r3, #462-r4b-r1-r1-r1-r1-c-r3-r1-r5-r5, #462-r4b-r1-r1-r1-r1-c-r3-r1-r6, #462-r4b-r1-r1-r1-r1-c-r3-r3, #462-r4c-r1-r1, #462-r4c-r1-r2, #462-r4c-r2, #462-r4c-r3, #462-r6-r1, #462-r6-r2, #463-r2, #464-r1b, #464-r1c, #467-r1, #467-r3, #467-r4-a, #467-r5, #467-r6-a, #468-r1, #468-r13, #468-r2, #468-r3, #468-r5, #468-r6, #468-r7, #468-r8, #469-r1, #469-r2, #469-r4, #471-r1, #471-r2, #475-r1, #482-r2, #482-r4, #482-r5, #482-r6, #484-r1, #484-r2, #485-r1-r1-r2, #485-r1-r2, #485-r1-r3, #485-r1-r4, #486-r10, #486-r16, #486-r17, #486-r20, #486-r21, #486-r25, #486-r26, #486-r3, #486-r37, #486-r38, #486-r4, #486-r6, #486-r7, #486-r8, #486-r9, #488-r2, #489-r1, #494-r2, #498-r5, #5, #510-r3, #511-r1, #512-r3, #519-r1, #521-r8, #521-r9, #523-r3, #526-r3, #531-r1, #547-r10, #547-r3, #547-r4-r1, #547-r6, #547-r9, #550-r3, #550-r4, #552-r3, #576-r2, #577-r1, #585-r1, #585-r2, #585-r4, #589-r1-r1-r2-r1-r1, #589-r1-r1-r2-r1-r2, #589-r1-r1-r2-r1-r3, #590-r9, #593, #594, #596-r1, #605-r1, #66-r2, #884-r1, #888-r1, #889-r1, #889-r4, #890-r1, #890-r2, #890-r3, #893-r2, #894-r1, #894-r3, #894-r4, #894-r5, #895-r2, #895-r3, #895-r5, #905-r1, #906-r1, #908-r1, #908-r2, #909-r1, #909-r2, #909-r3, #909-r4, #909-r5, #910-r1, #914-r1, #914-r2, #915-r1, #915-r3, #919-r2, #919-r3, #920-r1, #922-r1, #923-r1, #925-r1, #926-r1, #927-r1, #927-r3, #928-r1, #931-r1, #931-r2, #932-r1, #932-r2, #933-r1, #934, #935-r2, #936-r1, #937-r1, #941-r1, #941-r2, #941-r3, #941-r4, #942-r2, #942-r3, #943-r1, #943-r2, #946-r3, #948-r1, #949, #950-r2, #951-r4, #951-r5, #951-r6, #952-r1, #953-r1, #953-r2, #954-r1, #954-r2, #955-r2, #955-r3, #956-r1, #957-r3, #957-r4, #BL-1029r, #haze-ord, #o10-c |
 
 ## Foyers qui ne designent AUCUN fichier
 
@@ -420,8 +436,12 @@ POURRI -- `test_603_index_foyers_offline.py` etage 3 le refuse.
 |---|---|
 | `**3/3` | #585-r1 |
 | `4/4` | #585-r1 |
+| `AURA/de` | #943-r7 |
+| `effects/__init__.py` | #943-r7 |
 | `engine/playbook/sanguinary_priest.py` | #921-r1 |
 | `engine/utilities/devout_push.py` | #907-r1 |
+| `noncomparable/get_em_runtz.py` | #943-r7 |
+| `prediction/abilities.py` | #943-r7 |
 | `scripts/python/engine/entities/effects/loki/the_lantern.py` | #888-r1 |
 | `scripts/python/engine/playbook/noncomparable/war_howl.py` | #585-r2 |
 | `scripts/python/engine/playbook/registry.py` | #585-r2 |
@@ -429,4 +449,6 @@ POURRI -- `test_603_index_foyers_offline.py` etage 3 le refuse.
 | `scripts/python/probe_273_gitignore_inputs.py` | #547-r6 |
 | `scripts/python/probe_419r1tr14r5r2r1r1r1r3_gates.py` | #419-r1-tr14-r5-r2-r1-r1-r1-r3-r1 |
 | `scripts/python/probe_945_adaptive_strategy.py` | #945-r3 |
+| `traits/combat.py` | #943-r7 |
+| `triggers/loki/icon_of_obstinacy.py` | #943-r7 |
 
