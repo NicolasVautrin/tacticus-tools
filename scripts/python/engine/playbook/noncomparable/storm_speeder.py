@@ -367,8 +367,16 @@ class HailstrikePlaybook(NonComparablePlaybook):
     RANGED_BONUS = 500.0
     #: `100 - PiercingRatio` : le `100` du corps natif.
     PIERCE_BASE = 100.0
-    #: `rng.Next(0, 10)` NON PORTE -- borne basse assumee (#967-r3), jamais la moyenne.
+    #: `rng.Next(0, 10)` NON PORTE -- borne BASSE assumee (#967-r3), jamais la moyenne. Sert au
+    #: CLASSEMENT, ou toute constante commune aux N cibles est de toute facon l'identite sur
+    #: l'argmax : ce `0` ne choisit donc rien, il refuse seulement d'inventer un bruit.
     RNG_TERM = 0.0
+    #: Borne HAUTE du meme terme, **LUE** et non estimee :
+    #: `IdunBattle.Utils.PRNG.IntBasedMersenneTwister$$NextInternal` rend `min + (g % (max - min))`,
+    #: borne haute EXCLUE -> `Next(0, 10)` est dans `[0, 9]`. Sert au SEUIL uniquement (cf.
+    #: `generate_candidates`) : c'est la seule chose que le terme aleatoire decide de facon non
+    #: reductible a une constante.
+    RNG_TERM_MAX = 9.0
 
     def _visual_id(self, ctx: NCContext, uid: int):
         for u in (ctx.units or []):
@@ -426,7 +434,15 @@ class HailstrikePlaybook(NonComparablePlaybook):
             scored.append((tid, vid, u))
             if best is None or u > best[1]:               # `AddAction` : remplacement STRICT
                 best = (tid, u)
-        if best is None or best[1] < self.MIN_UTILITY:
+        # SEUIL -- le SEUL endroit ou le terme aleatoire non porte n'est pas reductible a une
+        # constante (cf. l'en-tete de classe, ecart 1). Le natif emet ssi `pierce + rnd + bonus
+        # >= MIN_UTILITY` ; avec `pierce + bonus == 0` il emet donc ssi `rnd >= 1`, soit 9 fois
+        # sur 10. Trancher par la borne BASSE supprimerait l'action TOUJOURS -- c'est le regime
+        # `darkaSmnWatcher` (summon DarkAngels sans arme, qui PASSE le masque de 1214), donc un
+        # allie reel du porteur, pas une hypothese. On tranche par la borne HAUTE **LUE** : emise
+        # des qu'il EXISTE un tirage qui franchit. Meme arbitrage que `DeathOnTheWindPlaybook.
+        # should_evaluate` ci-dessus -- ce qui REFUSE ne refuse jamais sur du non-mesure.
+        if best is None or best[1] + self.RNG_TERM_MAX < self.MIN_UTILITY:
             return []
         if ctx.debug:
             import sys
