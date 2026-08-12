@@ -13,6 +13,9 @@ from dataclasses import dataclass, field
 
 import gameconfig as GC
 from engine.entities.effects_state import EffectsState
+from engine.entities.effects_state import (   # #953 : foyer PARTAGE avec la face COMBAT
+    melee_defeats_from_units as _melee_defeats_from_units,
+    seed_battle_counters as _seed_battle_counters)
 from engine.entities.unit_context import UnitContext
 from ..entities.effect_targets import is_effect_target as _iet
 from ..entities.effect_type import EffectType
@@ -523,22 +526,19 @@ class Scene:
         tuées par une attaque de MÊLÉE. Flag = `UnitComponent.DefeatedByMeleeAttack @0x178` (écrit
         par `KillUnitOperation IdunBattle.Operations.KillUnitOperation$$Execute`, capté #185 dans decisionView.units) ; `isDead` requis en
         mirror du sélecteur `IdunBattle.Entities.Selectors.UnitsDefeatedByMeleeAttackSelector$$IsValidUnit` (une unité RESSUSCITÉE ne compte plus). GLOBAL
-        (les 2 camps, quel que soit le tueur). Units offline (`from_state`) sans le champ -> 0."""
-        return sum(1 for u in (self.units or [])
-                   if u.get("defeatedByMelee") and not u.get("alive"))
+        (les 2 camps, quel que soit le tueur). Units offline (`from_state`) sans le champ -> 0.
+
+        ⚠ FOYER PARTAGE depuis #953 : le corps vit dans
+        `engine.entities.effects_state.melee_defeats_from_units`, que la face COMBAT appelle AUSSI
+        (`runner/snapshot.py::_load_battle_counters`). Elle ne le faisait PAS, et le port perdait
+        alors tout le `+3 % x N` d'un World Eater sur un etat RECHARGE."""
+        return _melee_defeats_from_units(self.units)
 
     def _seed_battle_counters(self) -> None:
-        """Seed les effets dépendants d'un COMPTEUR DE BATAILLE : pousse `melee_defeats` (compte brut)
-        sur chaque instance d'effet qui déclare l'attribut (BlessingsOfKhorneModifiersEffect #185 —
-        duck-typing, pas d'import loki ici). Scene est reconstruite à chaque pas -> compte courant."""
-        bu = getattr(self.eff_state, "by_unit", None) if self.eff_state is not None else None
-        if not bu:
-            return
-        n = self.melee_defeats()
-        for effs in bu.values():
-            for e in effs:
-                if hasattr(e, "melee_defeats"):
-                    e.melee_defeats = n
+        """Seed les effets dépendants d'un COMPTEUR DE BATAILLE — délègue au foyer PARTAGÉ
+        `engine.entities.effects_state.seed_battle_counters` (#185, foyer depuis #953). Scene est
+        reconstruite à chaque pas -> compte courant."""
+        _seed_battle_counters(self.eff_state, self.units)
 
     # ── Accesseurs (mirror des lectures dict de PV) ────────────────────────────────────────────────
     def ctx(self, uid):
