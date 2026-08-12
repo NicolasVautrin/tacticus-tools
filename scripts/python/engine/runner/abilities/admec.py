@@ -921,9 +921,14 @@ class ArcScourgeAbility(ActiveAbility):
         elev = elevations_by_pos(board)
         neigh = adjacent_neigh_by_pos(board)
         tpos = (tpc.col, tpc.row)
-        for u in state.units():
-            uid = getattr(u, "entity_id", None)
-            if uid is None or int(uid) == int(target_id):
+        # ⚠ `state.units()` N'EXISTE PAS -- `State` n'expose pas cette methode, et ce site etait le
+        # SEUL du depot a l'appeler : le gate levait `AttributeError` a CHAQUE consultation, et
+        # `targeting.get_invalid_target_reason` l'appelle SANS `try` (#943-r4, trouve en craftant
+        # le scenario de generalisation). La source est `state.entities`, comme aux deux autres
+        # sites qui mirrorent le meme iterateur (`base.py`, `votann.py`). Seule la SOURCE change :
+        # le natif `GetUnitsOnTiles(tiles, null, null, 0)` ne filtre ni equipe ni etat.
+        for uid, u in state.entities.items():
+            if int(uid) == int(target_id):
                 continue
             upc = u.get_component(PositionComponent)
             if upc is None:

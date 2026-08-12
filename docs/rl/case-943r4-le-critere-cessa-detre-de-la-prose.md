@@ -84,13 +84,24 @@ par LIGNE périmerait à chaque édition — le vice que la tolérance de #943-r
 
 ## 4. Les trois réparations moteur, et pourquoi CELLES-LÀ
 
-**`admec.py::ArcScourgeAbility.get_dynamic_invalid_target_reason` — les DEUX canaux étaient morts.**
+**`admec.py::ArcScourgeAbility.get_dynamic_invalid_target_reason` — TROIS défauts, pas un.**
 Le rouge de l'`etape1`. Le natif appelle le slot `0x7a` = `GetAdjacentUnits(target, 0, 0, 0)`, dont
-le corps entier est `GetUnitsOnTiles(IterateAdjacentTiles(target, 0, 1, 1), …)`. Le port passait
-`are_entities_adjacent(tpos, upos, elev)` — voisinage absent. **Et `elev` valait `None` à tous les
-coups** : il était lu par `getattr(state.board, "elevation_by_pos", None)`, un attribut qui
-**n'existe nulle part** (`Board` porte `elev_by_pos`, et le foyer est `elevations_by_pos(board)`).
-Seul site du dépôt à porter ce nom — donc la porte d'élévation était morte ici aussi, en silence.
+le corps entier est `GetUnitsOnTiles(IterateAdjacentTiles(target, 0, 1, 1), …)`.
+
+1. Le port passait `are_entities_adjacent(tpos, upos, elev)` — **voisinage absent** (le rouge
+   dénoncé par l'`etape1`) ;
+2. **`elev` valait `None` à tous les coups** : il était lu par
+   `getattr(state.board, "elevation_by_pos", None)`, un attribut qui **n'existe nulle part**
+   (`Board` porte `elev_by_pos`, et le foyer est `elevations_by_pos(board)`). Seul site du dépôt à
+   porter ce nom — la porte d'élévation était morte ici aussi, en silence ;
+3. **`state.units()` N'EXISTE PAS.** Trouvé **en craftant le scénario de généralisation**, pas en
+   lisant : `State` n'expose aucune méthode de ce nom, et ce site était le seul du dépôt à
+   l'appeler. Le gate levait donc `AttributeError` à **chaque** consultation, et
+   `targeting.get_invalid_target_reason` l'appelle **sans `try`**. Ce troisième défaut est le seul
+   des trois qui soit BRUYANT — et c'est précisément pour ça qu'aucune des deux lectures
+   précédentes ne l'avait vu : elles cherchaient une dégradation *silencieuse*. La source devient
+   `state.entities`, comme aux deux autres sites qui mirrorent le même itérateur ; seule la SOURCE
+   change (le natif `GetUnitsOnTiles(tiles, null, null, 0)` ne filtre ni équipe ni état).
 
 **`base.py::_fighting_retreat_sets_flags` — la seule des DEUX faces à ne pas porter le canal.**
 Corps lu : `Direct(!Any(<slot 0x7d>(caster, pid, 0)))`, slot 125 = `GetAdjacentEnemies` →
@@ -141,6 +152,45 @@ Sens des écarts, par site :
 Sur un board **plat sans canal capté**, les trois sont des **no-op démontrables** : `is_adjacent`
 dégrade seul en `hexgeo` quand les deux canaux sont `None`.
 
+### L'étage 1 (l'énumération), lui, se mesure LIVE — et il a été mesuré
+
+`probe_433r4r1r4r2_is_adjacent_substrat_live.py --board MC2_60 --board C4_69` (les deux boards que
+la mesure d'élévation ci-dessus désigne comme les plus mordants) :
+
+| board | `|G_gated|` | `|N|` | permissives fermées | restrictives ouvertes | port AVEC canal | port SANS canal |
+|---|---|---|---|---|---|---|
+| `MC2_60` | 192 | 170 | **22** | **0** | **0 désaccord** | **22 désaccords** |
+| `C4_69` | 196 | 188 | **8** | **0** | **0 désaccord** | **8 désaccords** |
+
+Zéro arête one-way, zéro permissive sans réciproque. **Le port AVEC canal est en accord PARFAIT
+avec le natif ; le port SANS canal — celui d'avant, sur les trois sites — en diverge sur toutes les
+arêtes du gisement.** C'est la confirmation directe de ce que les trois réparations changent.
+
+⚠ **Et l'écart mesuré ici n'est PAS la porte d'élévation** : sur les 22 arêtes de `MC2_60`,
+`|dElev|` vaut **0 ou 1** — elles sont fermées par l'ÉNUMÉRATION (`G \ C`), typiquement autour des
+tuiles `Bridge`. Les deux mesures sont donc **complémentaires et disjointes** : 8,9 % des arêtes
+tombent par la porte (offline, 779 boards), et d'autres encore par la liste stockée (live).
+
+### Le scénario de généralisation, et sa contre-épreuve
+
+`tests/engine/runner/test_943r4_adjacence_cablee_offline.py` (12 tests, 100 % offline) monte un
+**vrai `Board`** dont deux tuiles sont hex-voisines **sans** figurer dans la liste stockée l'une de
+l'autre — le régime que la mesure live ci-dessus établit comme réel. Il exerce les **deux étages**
+(énumération, puis porte `|dElev|` paramétrée sur 0/1/2/3), le **tri-état** du canal (`neighbours`
+ABSENT ≠ VIDE, le vice de #381-r3), et porte ses propres prémisses (les positions sont bien
+hex-adjacentes ; sans conducteur, ArcScourge refuse de toute façon).
+
+**Contre-épreuve mesurée**, arbre témoin détaché sur le commit de base (`308f2cea`), même fichier
+de test : **8 des 12 tests ÉCHOUENT**. Les 4 qui passent sont exactement ceux qui doivent passer —
+la prémisse hex, le no-op sans board, la contre-épreuve « liste qui CONFIRME » (verdict inchangé)
+et le tri-état.
+
+⚠ Le montage a dû être corrigé deux fois, et les deux corrections sont des résultats : un
+duck-type réduit à `by_id` suffit aux deux foyers de canal mais **pas** au chemin complet
+(`AncestralFortune` descend dans `damage_model.apply_elevation_bonus`, qui appelle `board.tile_at`)
+— d'où le vrai `Board` ; et un montage à deux unités mesure le refus *par défaut* d'ArcScourge, pas
+son adjacence — d'où la troisième unité, et le test de prémisse qui le dit.
+
 ## 6. #943-r6-r1 — l'`etape1` est câblée, et le rouge qu'elle dénonçait est réparé
 
 Dans **le même commit**, et dans cet ordre : le rouge d'abord (`admec.py`), le câblage ensuite.
@@ -167,10 +217,19 @@ mauvais coupable.
   `icon_of_obstinacy`) restent tolérés : ils sont *déclarants*, donc vus par l'`etape2`, et
   appartiennent à la même famille #271. Ils sont hors du registre de l'étape 6 par construction
   (celle-ci ne rend que les MUETS) — les deux registres sont disjoints.
-* **Aucune confrontation LIVE.** L'écart du premier étage (l'énumération par liste stockée) exige
-  le `boardGraph`, absent des boards versionnés. Les trois sites réparés se confrontent par
-  `AncestralFortune` (`test_votann_lot1_live.py`), `FightingRetreat` (`test_tau_lot1_live.py`) et
-  `1173 ArcScourge` (porteur `admecBossBelisarius`).
+* **Le SUBSTRAT est confronté live, les TROIS ABILITIES ne le sont pas.**
+  `probe_433r4r1r4r2_is_adjacent_substrat_live.py` établit que le port AVEC canal est en accord
+  parfait avec le natif (§5), donc que le prédicat consommé par les trois sites est le bon. Ce qui
+  n'a **pas** été joué, c'est le comportement observable des abilities elles-mêmes en bataille :
+  `test_votann_lot1_live.py` (`AncestralFortune`), `test_tau_lot1_live.py` (`FightingRetreat`) et
+  un porteur de `1173 ArcScourge` (`admecBossBelisarius`). Raison : ces trois montages exigeraient
+  en plus un board où la liste stockée contredit la couronne SOUS les unités concernées — ce que le
+  test offline crafte, mais qu'un runner ne donne pas par construction de spawn.
+* **Les entrées 457 de `test_946_counter_attack_offline.py` et
+  `test_947_948_extra_damage_passives_offline.py`** ont été mesurées en même temps que la mienne
+  (`--measure-missing` ne sait pas cibler un fichier). Ce sont des fichiers d'autres tranches, que
+  `loop_status` signalait déjà comme non mesurés ; la mesure les trouve **verts et offline**, ce qui
+  tranche leur alternative dans le sens (a). Diff : 29 lignes ajoutées, 0 supprimée.
 * **L'écart `are_entities_adjacent` vs `is_adjacent` sur `admec.py`** n'est pas traité : le natif
   passe par `IterateAdjacentTiles` (qui ne rend JAMAIS la tuile source), alors que le port garde
   `are_entities_adjacent`, qui porte le court-circuit d'identité `t1 == t2`. Le port exclut déjà
