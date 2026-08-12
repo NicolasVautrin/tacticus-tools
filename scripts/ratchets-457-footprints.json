@@ -5105,6 +5105,13 @@
    "py": [],
    "temoins": []
   },
+  "tests/engine/test_959_votann_auras_offline.py": {
+   "_at": 1786512045,
+   "_commit": "473fd1b27bea781b65b5dcdd59172d58c73c5faa",
+   "dirs": [],
+   "py": [],
+   "temoins": []
+  },
   "tests/engine/test_960_ecstatic_slaughter_armour_shrieking_souls_offline.py": {
    "_at": 1786507760,
    "_commit": "5d7829e5ff9a95ccc148c0ebd326cdcb28304477",
