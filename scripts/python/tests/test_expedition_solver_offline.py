@@ -45,6 +45,10 @@ DECLENCHEUR = {
         # capteur sont exercees -- mais l'import, lui, a bien lieu, et une rupture
         # d'API de `Hote` casserait le fichier avant le premier assert.
         "scripts/python/gamenav/transport.py",
+        # Le pilote : sa decision PURE `motif_non_partante` est gardee ici (le reste
+        # exige une session vivante). Un motif faux ne casse RIEN -- il fait juste
+        # conclure a l'envers, ce qui est deja arrive.
+        "scripts/python/expedition_run.py",
         "scripts/python/tests/test_expedition_solver_offline.py",
     ),
     # Aucun test ici ne lit le dump ni le gameconfig : les kits sont fabriques a la
@@ -70,6 +74,9 @@ if _PY not in sys.path:
     sys.path.insert(0, _PY)
 
 import expedition_solver as ES  # noqa: E402
+# Le pilote n'ouvre AUCUNE connexion a l'import (tout l'I/O est dans des fonctions) :
+# seule sa decision PURE `motif_non_partante` est exercee ici.
+import expedition_run as ER  # noqa: E402
 
 
 def _kit(uid, faction="Custodes", alliance="Imperial", traits=(), ranged_hits=0,
@@ -647,3 +654,79 @@ def test_deja_parties_retire_operations_et_unites():
     # `status` absent se lit comme DISPONIBLE (un plateau ecrit a la main n'en porte pas).
     libres, prises = ES.deja_parties([{"id": "sans-status", "expeditionId": "s"}])
     assert len(libres) == 1 and prises == []
+
+
+# ---------------------------------------------------------------------------
+# LE MOTIF D'UNE OPERATION QUI NE PART PAS (`expedition_run.motif_non_partante`)
+# ---------------------------------------------------------------------------
+# Le 2026-08-12 le pilote affichait << 106 unites libres au roster >> pour une Mythic
+# dont le pool eligible TOTAL valait 3 pour 5 places. Le compte etait JUSTE et la
+# lecture FAUSSE : il portait sur le roster, pas sur le pool de l'operation, et se
+# lisait << il y a du monde, c'est le bonus qui coince >> -- d'ou la conclusion
+# << attendre le retour des parties >>. Attendre n'y changeait rien.
+#
+# Les trois causes appellent des gestes OPPOSES (monter des raretes / attendre /
+# revoir le plan), donc chacune a son test, et chacun est monte pour ne tomber que
+# sur SA branche : c'est ce qui distingue un garde d'un test decoratif.
+
+def _op_mythic(participants):
+    return {"id": "myth", "expeditionId": "myth", "participants": participants,
+            "rarity": "Mythic", "grandAlliance": "Xenos", "_objs": []}
+
+
+def _roster_mythic(n):
+    """n unites Xenos, rarete Mythic, rang au-dessus du seuil -> toutes eligibles."""
+    kits = {"x%d" % i: _kit("x%d" % i, faction="Necrons", alliance="Xenos")
+            for i in range(n)}
+    return kits, _prog(**{u: (20, 5) for u in kits})
+
+
+def test_motif_pool_INSUFFISANT_EN_SOI_ne_renvoie_pas_a_l_attente():
+    """3 eligibles pour 5 places, AUCUNE partie : attendre ne peut rien changer.
+
+    C'est le cas reel du 2026-08-12 (`xenos_raid_m_03_10`)."""
+    kits, prog = _roster_mythic(3)
+    roster = list(prog)
+    m = ER.motif_non_partante(_op_mythic(5), kits, roster, roster, prog, SEUILS)
+    assert "INSUFFISANT en soi" in m, m
+    assert "3 eligibles au total pour 5 places" in m, m
+    # Et surtout : il ne doit PAS envoyer attendre.
+    assert "attendre leur retour" not in m, m
+
+
+def test_motif_unites_PARTIES_renvoie_a_l_attente():
+    """5 eligibles au total mais 2 libres : la meme operation redeviendra faisable."""
+    kits, prog = _roster_mythic(5)
+    roster = list(prog)
+    libres = roster[:2]
+    m = ER.motif_non_partante(_op_mythic(5), kits, roster, libres, prog, SEUILS)
+    assert "PARTIES" in m and "attendre leur retour" in m, m
+    assert "5 eligibles dont 2 libres" in m, m
+    assert "INSUFFISANT" not in m, m
+
+
+def test_motif_pool_SUFFISANT_n_accuse_ni_la_rarete_ni_l_attente():
+    """Assez d'unites libres eligibles : la cause est ailleurs (bonus / remplissage).
+
+    Sans ce cas, une implementation qui accuserait TOUJOURS le pool passerait les
+    deux tests precedents."""
+    kits, prog = _roster_mythic(6)
+    roster = list(prog)
+    m = ER.motif_non_partante(_op_mythic(5), kits, roster, roster, prog, SEUILS)
+    assert "bonus hors d'atteinte" in m, m
+    assert "INSUFFISANT" not in m and "attendre" not in m, m
+
+
+def test_motif_compte_le_pool_DE_L_OPERATION_et_jamais_le_roster():
+    """Le defaut d'origine, fige : un roster PLETHORIQUE dont presque rien n'est
+    eligible doit rendre << insuffisant >>, pas un grand nombre rassurant."""
+    kits, prog = _roster_mythic(2)                       # 2 Xenos Mythic eligibles
+    for i in range(100):                                 # + 100 Imperiaux inaptes
+        u = "imp%d" % i
+        kits[u] = _kit(u, faction="Ultramarines", alliance="Imperial")
+        prog[u] = {"rank": 20, "rarity": 5, "rarete": ES.RARETES[5]}
+    roster = list(prog)
+    assert len(roster) == 102
+    m = ER.motif_non_partante(_op_mythic(5), kits, roster, roster, prog, SEUILS)
+    assert "2 eligibles au total pour 5 places" in m, m
+    assert "102" not in m, m

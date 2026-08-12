@@ -160,6 +160,33 @@ def lire_seuils(sid: int) -> dict:
     return r["seuils"]
 
 
+def motif_non_partante(op: dict, kits: dict, tout_le_roster: list[str],
+                       libres: list[str], details: dict, seuils: dict) -> str:
+    """Pourquoi cette operation ne part pas -- sur le POOL DE L'OPERATION, JAMAIS sur la
+    taille du roster.
+
+    Le 2026-08-12 le motif affichait << 106 unites libres au roster >> pour une Mythic dont
+    le pool eligible TOTAL vaut 3 pour 5 places. Ca se lit << il y a du monde, c'est le bonus
+    qui coince >> et ca a fait conclure << attendre le retour des parties >>. Or les deux
+    causes appellent des gestes OPPOSES -- attendre, ou monter des raretes -- donc elles sont
+    SEPAREES ici, et chacune publie le compte qui l'etablit.
+
+    `tout_le_roster` = AVANT retrait des immobilisees ; `libres` = apres. Leur ECART est la
+    seule chose qui distingue << parties >> de << pas assez eligibles en soi >>."""
+    besoin = int(op.get("participants") or 0)
+    tous, _ = ES.pool_eligible(op, kits, tout_le_roster, details, seuils)
+    libre, _ = ES.pool_eligible(op, kits, libres, details, seuils)
+    if len(tous) < besoin:
+        return ("pool eligible INSUFFISANT en soi -- attendre ne sert a RIEN "
+                "(%d eligibles au total pour %d places)" % (len(tous), besoin))
+    if len(libre) < besoin:
+        return ("unites eligibles PARTIES -- attendre leur retour "
+                "(%d eligibles dont %d libres, pour %d places)"
+                % (len(tous), len(libre), besoin))
+    return ("bonus hors d'atteinte et remplissage impossible "
+            "(%d eligibles libres pour %d places)" % (len(libre), besoin))
+
+
 def envoyer(sid: int, exp_id: str, unites: list[str]) -> dict:
     """RE-ARME AVANT CHAQUE ENVOI -- le module detache ses portes a l'emission."""
     armer(sid)
@@ -203,6 +230,8 @@ def main(argv=None) -> int:
     #      etaient en expedition -- injouable, et rien ne le disait.
     # Le champ est `units` (mesure) : `dispatchedUnits` existe mais vaut `null`.
     libres, immobilisees = ES.deja_parties(board)
+    tout_le_roster = list(possedes)      # AVANT retrait des immobilisees -- sert a ventiler
+                                         # << parties >> contre << pas assez eligibles >>.
     deja = [o["id"] for o in board if o.get("status")]
     if deja:
         print("DEJA PARTIES, ecartees du plan : %s" % ", ".join(deja))
@@ -241,10 +270,9 @@ def main(argv=None) -> int:
     for p in r["plan"]:
         if p.get("equipe"):
             continue
-        prep = [q for q in ops if q.get("id") == p["op"].get("id")]
-        libre = len([u for u in possedes if u in kits]) if prep else 0
-        print("  %-26s NON PARTANTE : ni bonus couvrable, ni assez d'unites libres "
-              "eligibles (%d unites libres au roster)" % (p["op"].get("id"), libre))
+        print("  %-26s NON PARTANTE : %s"
+              % (p["op"].get("id"),
+                 motif_non_partante(p["op"], kits, tout_le_roster, possedes, details, seuils)))
 
     if not a.envoyer:
         print("\n(plan seul -- relance avec --envoyer pour jouer)")

@@ -59,9 +59,21 @@ optimal, c'est documenté sur place.
 
 ## Quand ça sort NON PARTANTE
 
-Le script nomme toujours la cause. Les deux vraies :
-- **bonus hors d'atteinte** → part quand même pour la base, sauf si…
-- **pas assez d'unités libres éligibles** → rien à faire avant le retour des unités parties.
+Le script nomme toujours la cause, et elle porte sur le **pool éligible de l'opération** —
+jamais sur la taille du roster. Trois causes, **deux gestes opposés** :
+
+| ce qui s'affiche | ce qu'il faut faire |
+|---|---|
+| `pool eligible INSUFFISANT en soi` | **monter des raretés** — attendre ne sert à RIEN |
+| `unites eligibles PARTIES` | attendre leur retour, l'opération redeviendra faisable |
+| `bonus hors d'atteinte` | l'opération part quand même pour sa récompense de base |
+
+⚠ **Ne pas lire un grand nombre d'unités comme une disponibilité.** Le pilote a affiché
+« 106 unités libres au roster » pour une Mythic dont le pool éligible **total** valait **3**
+pour 5 places : le compte était juste, la lecture fausse, et la conclusion (« attendre le
+retour des parties ») l'était aussi. Une opération Mythic exige des unités de **rareté
+Mythic** — le rang n'est que le second filtre, et l'alliance restreint encore.
+Décision gardée par `test_motif_*` dans `tests/test_expedition_solver_offline.py`.
 
 ## Aller plus loin
 
