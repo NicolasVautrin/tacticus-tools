@@ -31,6 +31,31 @@ import engine.predict as predict
 import engine.runner.operations.repair as repair_ops
 
 
+#: Ce qui doit changer pour que ce FICHIER de test puisse changer de verdict (#486-r15).
+DECLENCHEUR = {
+    # VIDE, et c'est un RESULTAT mesure (`probe_486r15 --proposer`) : la fermeture d'imports de ce
+    # fichier -- 598 modules, dont les quatre qui portent vraiment le canal (`engine/predict.py`,
+    # `runner/operations/repair.py`, `entities/effects/loki/nether_realm_casket.py`,
+    # `entities/effects/factory.py`) -- tient ENTIEREMENT dans la cascade que le foyer DERIVE.
+    # Les recopier ici serait la faute #531 : une seconde liste qui se perime en silence.
+    "chemins": (),
+    # VRAI : les magnitudes viennent du gameconfig du build (`ability_var("NanoscarabRepairProtocols",
+    # "hpToRepair", ...)`). Un re-dump qui renommerait la variable ou la cle d'ability ferait
+    # tomber `add` a 0 -- exactement le rouge que ce fichier doit rendre, et il ne le rendrait
+    # jamais si le build ne le declenchait pas.
+    "build": True,
+    "toujours": False,
+    "raison": (
+        "Ce fichier garde UN canal et rien d'autre : que le `RepairBonus` de l'effet 1545 morde, "
+        "et que les DEUX faces partagent son foyer unique au lieu de le forker. Il ne balaie ni "
+        "le parc de tests ni l'arbre, donc son verdict ne depend que de sa propre fermeture "
+        "d'imports (couverte par la cascade) et du gameconfig du build -- d'ou `build: True` et "
+        "aucun chemin propre. Il existe pour empecher que #902-r1 soit rouvert a tort et "
+        "'repare' par une classe d'effet 1545, qui dupliquerait la regle du canal."
+    ),
+}
+
+
 #: `EffectType` 1545, tel que `decisionView.units[].effects[].name` le publie.
 NANOSCARAB = "NanoscarabRepairProtocols"
 #: `EffectType` 1546 -- le nom VOISIN, qui ne doit RIEN contribuer a ce canal (c'est un stat-mod
