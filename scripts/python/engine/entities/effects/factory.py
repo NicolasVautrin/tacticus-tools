@@ -56,6 +56,9 @@ from .loki.terrors_lament import (                         # #950 (passif eldarJ
 )
 from .loki.tough_to_kill import ToughToKillEffect          # #950 (passif astraDreir, 1472)
 from .loki.first_among_traitors import FirstAmongTraitorsExtraDmgEffect   # #926 (passif blackAbaddon)
+from .loki.hunters_beyond_death import (                   # #952 (passif spaceHound)
+    HuntersBeyondDeathEffect, HuntersBeyondDeathExtraDamageEffect,
+    HuntersBeyondDeathPsykerSuppressionEffect)
 from .loki.head_claimer import (                           # #947 (passif blackHaarken)
     HeadClaimerExtraDmgEffect, HeadClaimerExtraHitEffect
 )
@@ -848,6 +851,26 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # FriendlyChaosExtraDamage (ForAddition, gate `AreFriends & HasTrait(Chaos)`, ci-dessous).
     # EffectType 0x4bf=1215 (#366-r1).
     "PsychicStalk_ExtraAttackDamage": PsychicStalkExtraAttackDamageEffect,
+    # HuntersBeyondDeath (passif triggered 1162 de `spaceHound` << Tjark >>, #952) -- les TROIS
+    # effets que `IdunBattleLogic.Entities.Abilities.Triggered.Loki.HuntersBeyondDeathAbility$$
+    # CreateBehaviour` pose sur le PORTEUR a l'init (`AddEffect(0x4a6) + AddEffect(0x494) +
+    # AddEffect(0x4a7)`, op_Addition, source = targets = Owner@+0x30, options par defaut ->
+    # PERMANENTS). Ils etaient CAPTES par `decisionView.effects` (mesure live : les trois figurent
+    # sur u85 des le build) et INERTES, faute d'entree ici.
+    #  * 0x494=1172 face ATTAQUANT : `...HuntersBeyondDeath_ExtraDamageEffect$$
+    #    CreateEffectDamageBonusForAttack` = ForAddition(get_OwnerIsCaster & HasTrait(Target@+0x60,
+    #    0x3ea = Psyker), ConfigVar(8 = extraDmg)). Son `CreateTargetSelector` est DEDUPLIQUE et
+    #    rend `<DSLSelectors+0x30>` = Owner -> effet SELF, pas une aura.
+    #  * 0x4a6=1190 face DEFENSEUR : `...HuntersBeyondDeathEffect$$CreateEffectDamageMalusForDefense`
+    #    = ForSubtraction(NOT AreFriends(EffectSource, Caster@+0x48) & AreFriends(EffectSource,
+    #    Target@+0x60) & HasTrait(Caster@+0x48, Psyker) & NOT AmountIsGreater(MinDistance(
+    #    EffectSource, Caster@+0x48), Direct(2)), ConfigVar(0x12 = dmgReduction)) -> flat_reductions,
+    #    en DEUX pattes disjointes (SELF + AURA), `IsFriend(x, x)` etant VRAI.
+    #  * 0x4a7=1191 : AUCUN canal de degat -- sa seule consequence passe par la liste de cibles que
+    #    lit `IsPsykerAttackSuppressed` (deja portee, `entities/effect_targets.py`, #418-r1).
+    "HuntersBeyondDeath_ExtraDamage": HuntersBeyondDeathExtraDamageEffect,
+    "HuntersBeyondDeath": HuntersBeyondDeathEffect,
+    "HuntersBeyondDeathPsykerSuppression": HuntersBeyondDeathPsykerSuppressionEffect,
     # 3e effet du MEME kit PsychicStalk, canal ATTAQUANT ADDITIF (et non %-list defenseur) :
     # `IdunBattle.Entities.Effects.Loki.PsychicStalk_FriendlyChaosExtraDamageEffect$$
     # CreateEffectDamageBonusForAttack` = ForAddition( AreFriends(Owner@0x30, Caster@0x48)
@@ -1688,6 +1711,16 @@ ABILITY_INIT_OWNER_EFFECTS: dict[str, list[str]] = {
     # targets = Owner)`), donc un owner-effect PERMANENT pose a l'init, exactement le patron
     # `PathOfCommand` / `IconOfObstinacy`. L'appariement ability -> effet est LU (`0x427`), pas devine.
     "FirstAmongTraitors": ["FirstAmongTraitors_ExtraDmg"],
+    # #952 -- `IdunBattleLogic.Entities.Abilities.Triggered.Loki.HuntersBeyondDeathAbility`. Son
+    # `CreateTrigger` est un corps FONDU par l'ICF (il partage son adresse avec
+    # `...Active.Loki.SummaryExecutionAddBaseEffectAbility$$CreateTrigger`) et rend
+    # `<DSLTriggers+0x30>` = le trigger d'INIT partage que `DSLTriggers$$InitializeShared` met en
+    # cache : `On(0x21 = AbilityInit) & <YesTrigger> & get_OwnerIsActor`. C'est donc un OWNER-EFFECT
+    # a l'init, pas un vecteur de combat -> ce registre-ci, jamais `ABILITY_TRIGGERS` (meme
+    # arbitrage qu'`EnmityForTheUnworthy` #948). ORDRE = celui des deux `op_Addition` du behaviour :
+    # 0x4a6 puis 0x494 puis 0x4a7.
+    "HuntersBeyondDeath": ["HuntersBeyondDeath", "HuntersBeyondDeath_ExtraDamage",
+                           "HuntersBeyondDeathPsykerSuppression"],
     # `IdunBattleLogic.Entities.Abilities.Triggered.Loki.HypersensoryAbilitiesAbility$$CreateBehaviour : `AddEffect(0x564=1380, owner, owner)` -> le
     # HP-floor est posé sur le PORTEUR à l'init de l'ability passive (owner-effect self, aucun sélecteur). G6a.
     "HypersensoryAbilities": ["HypersensoryAbilities_MinimalHealth"],
