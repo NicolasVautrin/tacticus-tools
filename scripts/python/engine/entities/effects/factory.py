@@ -36,6 +36,7 @@ from .loki.damage_reduction import (
     HeraldOfTheApocalypseExtraDamageEffect,
     LightOfSanguiniusDmgReductionEffect, MarkerlightEffect,
     MartialKatahDmgReductionEffect, NeuroparasiteEffect, NightshroudDmgReductionEffect,
+    TimesplinterMantleDamageReductionEffect,
     OverwhelmingWrathRangeDmgReductionEffect, PrioritisedEfficiencyDmgReductionEffect,
     PsychicFortressDmgReductionEffect, SereneUnifierSenseOfStoneEffect,
     ShadowInTheWarpLessDmgEffect, SuperchargeExtraPiercingEffect, TerminatorArmourReduceDmgEffect,
@@ -671,6 +672,13 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # ring-1 en debut de tour (defender, ForSubtraction IdunBattle.Entities.Effects.Loki.Nightshroud_DmgReduction_Effect$$CreateDamageDefenseModifier ; SANS gate) = additif defenseur @+0x10
     # PRE-percage (config 499 dilue par armure -> ~155 sante). #111.
     "Nightshroud_DmgReduction": NightshroudDmgReductionEffect,
+    # TimesplinterMantle_DamageReduction (0x60f=1551, passif 1534 de `necroChronomancer` << Thothmek >>)
+    # : JUMEAU STRUCTUREL de Nightshroud -- `...TimesplinterMantle_DamageReductionEffect$$
+    # CreateDamageDefenseModifier` = `ForSubtraction(get_OwnerIsTarget & IsUnit(Caster),
+    # ConfigVar(0x12 = dmgReduction))`, donc `flat_reductions` (additif DEFENSEUR PRE-percage).
+    # Pose CHAQUE debut de tour sur Thothmek + ses allies MECANIQUES non-Steppable adjacents, et
+    # CONSOMMEE par la 1re attaque recue (`On(9)`) ou balayee au `On(0x17 = TurnEnd)`.
+    "TimesplinterMantle_DamageReduction": TimesplinterMantleDamageReductionEffect,
     # MartialKatah (Custodes ex. custoTrajann/custoVexilusPraetor) : -20% degat des ATTAQUES NORMALES
     # recues (defender, gated IsNormalAttack ; IdunBattle.Entities.Effects.Loki.MartialKatah_DmgReductionEffect$$CreateDamageModifier ForPercentDecrease ConfigConst 0x72=
     # martialKatahDmgReductionPct). #105.

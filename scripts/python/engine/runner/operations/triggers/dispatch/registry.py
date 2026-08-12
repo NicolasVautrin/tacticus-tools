@@ -168,6 +168,12 @@ from ..loki.inspired_to_greatness import (InspiredToGreatnessOverrideLevelRemove
                                          ITG_OVERRIDE_LEVEL)
 from ..loki.chronometron import (ChronometronExtraDamageRemove,                    # residu R9
                                 CHRONOMETRON_EXTRA_DAMAGE)
+from ..loki.timesplinter_mantle import (                       # #961 (1534 + effet 1551)
+    TimesplinterMantleAbility, TimesplinterMantleDamageReductionRemoveOnAttack,
+    TimesplinterMantleDamageReductionRemoveOnTurnEnd, MANTLE_EFFECT, TIMESPLINTER_MANTLE)
+from ..loki.living_lightning import (                          # #961 (1007 + 1020 + effet 1020)
+    LivingLightningAttackAbility, LivingLightningMoveEffectAbility,
+    LivingLightningMovingRemoveOnArrived, LIVING_LIGHTNING, LIVING_LIGHTNING_MOVE_EFFECT)
 from ..loki.herald_of_the_apocalypse import (HeraldOfTheApocalypseExtraDamageRemove,  # #BL-1020r
                                              HERALD_OF_THE_APOCALYPSE_EFFECT)
 from ..loki.euphoric_strikes import (EuphoricStrikesExtraCritRemove,               # #522 (1198 -> 1429)
@@ -323,6 +329,29 @@ ABILITY_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
     # aucun spawn ; ses effets 1563/1564 arrivent poses par `load_state`). Cf.
     # loki/special_issue_combi_melta.py. #419-r1-tr11-r4.
     SPECIAL_ISSUE_COMBI_MELTA: [SpecialIssueCombiMeltaAddEffectAbility],
+    # TimesplinterMantle (passif 0x5fe = 1534 de `necroChronomancer` << Thothmek >>, HERO) :
+    # `On(0x12 = TurnStart_EffectActivation, ownerNeedsToBeAlive: 1)` -- UN SEUL noeud, PAS
+    # d'`IsTurnOf(Owner)` (contraste `RelentlessMarch`, l'autre passif Necron turn-start) -> l'effet
+    # est REARME au debut de CHAQUE tour, les deux camps compris.
+    # `Foreach(NonSteppableUnits(MechanicalUnits(Friends(AdjacentUnits(Owner)))) + Owner,
+    #          AddEffect(0x60f = 1551, source = Owner@+0x30, targets = ActiveTarget@+0x68))`.
+    # Cf. loki/timesplinter_mantle.py. #961.
+    TIMESPLINTER_MANTLE: [TimesplinterMantleAbility],
+    # LivingLightning (passif 0x3ef = 1007 de `necroPlasmancer` << Thutmose >>, HERO) -- DEUX classes
+    # natives pour UN nom de kit, forme `LetTheGalaxyBurn` :
+    #   * `LivingLightningAbility` : `On(0x1c = ArrivedAtFinalTile) & OwnerIsActor &
+    #     !AmountIsZero(GetPossibleTargets(1))` -> `AttackWithAttackDamage(1x DirectDamage)` sur UN
+    #     ennemi tire au hasard, rayon `If(<ennemi adjacent>, 1, constants.range = 2)` ;
+    #   * `LivingLightningMoveEffectAbility` (0x3fc = 1020) : `On(0x1f = PreUnitMove) & OwnerIsActor
+    #     & <la DESTINATION a >= 1 ennemi adjacent>` -> `AddEffect(0x3fc)` (marqueur VISUEL).
+    # ⚠ 1020 est monte par `StaticBattleRules.**TriggeredAbility**$$GetDerivedTriggeredAbilities`
+    # (`<statics>+0x88`, DEUX entrees : `0x3ef -> [0x3fc]` et `0x48e -> [0x491]`), un dict DISTINCT
+    # de celui d'`ACTIVE_ABILITY_TRIGGERS` (`<statics>+0x30`, indexe par `ActiveAbilityType`).
+    # Les deux chemins convergent ici sur la MEME cle -- le nom `units.passiveAbilities` --, donc
+    # ecrire les deux classes sous cette entree monte EXACTEMENT l'ensemble natif ; l'ecrire dans
+    # `ACTIVE_ABILITY_TRIGGERS` serait faux (l'active de `necroPlasmancer` est
+    # `HarbingerOfDestruction`). Cf. loki/living_lightning.py. #961.
+    LIVING_LIGHTNING: [LivingLightningAttackAbility, LivingLightningMoveEffectAbility],
     # TheBetrayer = gain-rage-au-kill (mort) + auto-tour (début de tour). Cf. les 2 classes dans loki.py.
     "TheBetrayer": [TheBetrayerAddEffectAbility, TheBetrayerTakeTurnAbility],
     # ArcaneShield (Thaumachus) = bouclier à la FIN DE L'ACTIVATION du porteur : `On(0x1c=
@@ -1349,6 +1378,21 @@ EFFECT_TRIGGERS: dict[int, list[type[EffectTrigger]]] = {
     # qui fait du +degat une CHARGE A USAGE UNIQUE (consommee au 1er coup d'un allie du Chronomancer),
     # et non un buff persistant. Cf. loki/chronometron.py.
     CHRONOMETRON_EXTRA_DAMAGE: [ChronometronExtraDamageRemove],      # 1550 -> retrait On(9)
+    # TimesplinterMantle_DamageReduction (0x60f = 1551, pose CHAQUE debut de tour par le passif 1534
+    # de `necroChronomancer` sur lui-meme + ses allies Mechanical non-Steppable adjacents).
+    # `...TimesplinterMantle_DamageReductionEffect$$CreateRemoveEffectTrigger` est une DISJONCTION --
+    # `(On(9 = Attack) & OwnerIsTarget & IsUnit(Caster)) | On(0x17 = TurnEnd)` -- et le registre du
+    # port etant indexe par `event_id`, il faut UNE entree par disjoint (patron `HeavyWarpFlamer` /
+    # `HaywireMine`). C'est ce couple qui fait de la reduction plate une CHARGE A USAGE UNIQUE
+    # rearmee a chaque tour, et non un buff permanent. Cf. loki/timesplinter_mantle.py. #961.
+    MANTLE_EFFECT: [TimesplinterMantleDamageReductionRemoveOnAttack,     # 1551 -> retrait On(9)
+                    TimesplinterMantleDamageReductionRemoveOnTurnEnd],   # 1551 -> retrait On(0x17)
+    # LivingLightning_MoveEffect (0x3fc = 1020, marqueur pose au PRE-MOVE de `necroPlasmancer` quand
+    # sa destination a un ennemi adjacent). `...LivingLightning_MovingEffect$$
+    # CreateRemoveEffectTrigger` = `On(0x1c = ArrivedAtFinalTile) & OwnerIsActor`. Sans cette entree
+    # le marqueur serait PERMANENT (aucune duree posee, absent de `DefaultAmountOfRounds`).
+    # Cf. loki/living_lightning.py. #961.
+    LIVING_LIGHTNING_MOVE_EFFECT: [LivingLightningMovingRemoveOnArrived],   # 1020 -> retrait On(0x1c)
     # HeraldOfTheApocalypse 1027 (#BL-1020r, effet pose par `HeraldOfTheApocalypseAbility$$Execute
     # Behaviour` de `blackHaarken` sur la cible ET l'ennemi derriere elle). Meme greffe generique --
     # `HeraldOfTheApocalypse_ExtraDamageEffect$$CreateRemoveEffectTrigger` = `On(9) & OwnerIsTarget &

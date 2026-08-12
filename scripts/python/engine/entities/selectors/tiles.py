@@ -578,6 +578,79 @@ class TileUnion(TargetsSelector):
         return out
 
 
+class UnobscuredTiles(TargetsSelector):
+    """`IdunBattleLogic.Entities.DSLSelectors$$UnobscuredTiles(fromAnyTiles, toTiles)` ->
+    `IdunBattle.Entities.Selectors.UnobscuredTilesSelector$$Select` -- MIRROR du decompile.
+
+    `IdunBattle.Entities.Selectors.UnobscuredTilesSelector$$.ctor(state, movementQuery, fromTile,
+    targetTiles)` pose `+0x20 = fromTile` et `+0x18 = targetTiles` (LU, pas interpole : les trois
+    ecritures du ctor sont explicites). `Select` fait alors
+
+        tiles  = <+0x18 targetTiles>.Select(entities);      // la LISTE parcourue
+        caster = <+0x20 fromTile>.SelectUnit(entities);     // le REFERENT de visibilite
+        foreach (t in tiles) if (!IsObscured(caster, t)) result.Add(t);
+
+    et `IdunBattle.Entities.Selectors.UnobscuredTilesSelector$$IsObscured(caster, targetTile)` :
+
+        foreach (c in IterateTiles(caster))                          // TOUTES les tuiles du referent
+            if (<IMovementQuery slot 16>(c, targetTile, 6, 2).Count == 0)  return false;
+        return true;
+
+    => une tuile est GARDEE des qu'UNE SEULE tuile du referent la voit (d'ou le nom `fromAnyTiles`),
+    et la liste source VIDE rend `true` = OBSCURCI => la tuile est RETIREE. Les deux litteraux
+    `6, 2` sont `ObscuringType.All` et `blockingElevationDifference` --
+    `services.targeting_query.OBSCURING_TYPE_ALL` / `BLOCKING_ELEVATION_DIFFERENCE`, le meme couple
+    que la DECISION deja portee (`runner/abilities/loki/mv71.py::_is_obscured_from_tiles`).
+
+    Ce noeud manquait (residu `#287-r11-r2-r1-r3`), et le motif de ce manque etait
+    « aucun SECOND consommateur porte ne peut le justifier » : les trois call-sites natifs sont
+    `MV71SniperDroneSquadAttackAbility$$PickTile`,
+    `IdunBattleLogic.Entities.Abilities.Active.Loki.LivingLightningAbility$$GetPossibleTargets` et
+    `...$$GetEnemiesInRange`. Le port de `LivingLightning` EST ce second consommateur -- le noeud est
+    donc materialise ici et CONSOMME par `runner/operations/triggers/loki/living_lightning.py`.
+    Le REBRANCHEMENT de `mv71.py` (qui garde sa DECISION impérative) reste ouvert, hors de cette
+    tranche : c'est le foyer d'un autre residu.
+
+    `board is None` -> le canal d'elevation n'existe pas -> PASSE-TOUT (aucun retrait invente ;
+    meme convention permissive que `Unobscured` cote unites et que `mv71`)."""
+    def __init__(self, from_tiles: TargetsSelector, to_tiles: TargetsSelector):
+        self.from_tiles, self.to_tiles = from_tiles, to_tiles
+
+    def select(self, ctx):
+        raw = self.to_tiles.evaluate(ctx)                    # `<+0x18>.Select(entities)`
+        tiles = list(raw) if isinstance(raw, (list, tuple)) and not (
+            len(raw) == 2 and all(isinstance(x, int) and not isinstance(x, bool) for x in raw)
+        ) else ([raw] if raw is not None else [])
+        board = ctx.board
+        if board is None:
+            return tiles                                     # pas de canal d'elevation -> passe-tout
+        frm = _tile_positions(self.from_tiles, ctx, board)    # `IterateTiles(<+0x20>.SelectUnit(...))`
+        if not frm:
+            return []                                        # boucle vide -> `return true` = obscurci
+        # DIFFERE **PORTEUR**, classe MESUREE (CLAUDE.md) : en process frais,
+        # `import engine.services.movement_query` charge DEJA `engine.entities.selectors.tiles`
+        # (146 modules `engine.*`) -- un import au niveau module fermerait donc le cycle. Meme
+        # regime que le `is_mechanical` de `MechanicalUnits` (`selectors/units.py`).
+        # FORME B (module, pas symbole) : le binding de module n'est jamais gele.
+        from ...services import movement_query as _mq
+        from ...services.targeting_query import (BLOCKING_ELEVATION_DIFFERENCE,
+                                                 OBSCURING_TYPE_ALL)
+        out = []
+        for t in tiles:
+            tp = _entity_pos(t, board)                       # domaine MIXTE (id / (col,row) / unite)
+            if tp is None:
+                continue
+            obscured = True
+            for f in frm:
+                if not _mq.get_tiles_obscuring_terrain(board, f, tp, OBSCURING_TYPE_ALL,
+                                                       BLOCKING_ELEVATION_DIFFERENCE):
+                    obscured = False                         # une ligne degagee suffit
+                    break
+            if not obscured:
+                out.append(t)                                # DOMAINE PRESERVE (l'element source)
+        return out
+
+
 class FilterTilesIfCanAttackTargetTileFrom(TargetsSelector):
     """`IdunBattle.Entities.Selectors.FilterTilesIfCanAttackTargetTileFromSelector$$Select` --
     « garde les tuiles DEPUIS lesquelles `enemyOf` peut attaquer la tuile cible ». Mirror 1:1 :

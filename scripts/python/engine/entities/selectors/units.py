@@ -953,6 +953,24 @@ def hero_units(source: TargetsSelector, selection_type=None) -> TargetsSelector:
     return UnitsWithTrait(source, int(UnitTrait.Hero), selection_type)          # 0x10
 
 
+def non_steppable_units(source: TargetsSelector, selection_type=None) -> TargetsSelector:
+    """`IdunBattleLogic.Entities.DSLSelectors$$NonSteppableUnits(entities, selectionType)` -- MIRROR
+    du decompile : la factory native N'ALLOUE PAS de selecteur dedie, son corps ENTIER est
+
+        UnitsWithoutTrait(entities, 0x1b, selectionType)  op_BitwiseAnd  <entities>
+
+    (le `op_BitwiseAnd` prend `entities` a GAUCHE au call-site : `op_BitwiseAnd(entities, right)`).
+    `0x1b` = `UnitTrait.Steppable` (27) -- LU dans `frida/enums.tsv`, jamais deduit du nom. On mirror
+    donc la FACTORY (fonction de composition), pas une classe inventee -- meme regime que `hero_units`
+    juste au-dessus.
+
+    L'intersection avec la source est REDONDANTE en valeur (le filtre ne peut qu'enlever), mais elle
+    est ECRITE dans le natif et `And` preserve l'ordre de `a` : on la garde pour que l'arbre porte la
+    meme forme. Consommateur porte :
+    `IdunBattleLogic.Entities.Abilities.Triggered.Loki.TimesplinterMantleAbility$$GetTargets`."""
+    return And(source, UnitsWithoutTrait(source, int(UnitTrait.Steppable), selection_type))   # 0x1b
+
+
 class AllDeadUnits(TargetsSelector):
     """`IdunBattleLogic.Entities.DSLSelectors$$AllDeadUnits` ->
     `IdunBattle.Entities.Selectors.AllDefeatedUnitsSelector$$Select` : les unites DEFAITES du state.
