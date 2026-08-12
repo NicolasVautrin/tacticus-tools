@@ -45,7 +45,11 @@ DECLENCHEUR = {
     # moyenne de #344/#350). Sa fermeture d'import couvre l'essentiel des deux faces.
     # ⚠ Les DEUX formes sont necessaires : `**/` exige un SEGMENT, donc `scripts/python/**/*.py`
     # ne voit PAS `scripts/python/board.py`.
-    "chemins": ("scripts/python/*.py", "scripts/python/**/*.py"),
+    # `frida/hooks/data/ability-names.ts` est la table `id -> nom d'ability` que `GC.ability_name`
+    # lit : les assertions d'ANCRAGE (`GC.ability_name(1195) == "TalonsOfTheEmperor"`) en dependent
+    # DIRECTEMENT, et toute la fiche est indexee sur ces noms.
+    "chemins": ("scripts/python/*.py", "scripts/python/**/*.py",
+                "frida/hooks/data/ability-names.ts"),
     # `build: False` -- aucune valeur n'est figee depuis le binaire : les seuils sont ceux LUS au
     # decompile et les magnitudes viennent du gameconfig, re-derivees a chaque passage.
     "build": False,
