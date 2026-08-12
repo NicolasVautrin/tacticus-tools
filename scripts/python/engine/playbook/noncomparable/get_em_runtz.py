@@ -1,7 +1,8 @@
 """GetEmRuntzPlaybook — summon de grots NonComparable (gate minSummons HP%)."""
 from __future__ import annotations
 
-import hexgeo
+from engine import battle_query as bq   # forme B (#485-r1-r1) : foyer des DEUX etages
+#                                         d'`IterateAdjacentTiles` (#943-r7)
 from engine.entities.active_ability_type import ActiveAbilityType
 
 from ._base import NCContext, NonComparablePlaybook
@@ -31,14 +32,38 @@ class GetEmRuntzPlaybook(NonComparablePlaybook):
         return 1 if pct <= 49 else (2 if pct < 75 else 3)
 
     def _spawn_tile_count(self, ctx: NCContext) -> int:
-        # GetSpawnTileSelector : hex LIBRES adjacents au caster (dist hex 1) ∩ adjacents à >=1 ennemi.
+        """`GetEmRuntzAbility$$GetSpawnTileSelector` -- DECOMPILE RELU (#943-r7) :
+
+            CanAddUnit( AdjacentTiles(Caster@+0x50) )
+          & Unique( AdjacentTiles( UnitsWithoutTrait(Enemies(Caster@+0x48, AllUnits@+0x20, 3),
+                                                     0x1b = Steppable, 3) ) )
+
+        DEUX `AdjacentTiles`, donc les DEUX comparaisons portent le substrat STOCKE -- la premiere
+        sur le voisinage du CASTER, la seconde sur celui de CHAQUE ENNEMI.
+
+        ⚠ LA DIRECTION COMPTE, et la geometrie la masquait. `AdjacentTiles(source)` enumere le
+        voisinage de la tuile SOURCE, et le canal `neighbours` est le champ BRUT (ni trie ni
+        symetrise) : `is_adjacent(a, b)` lit `neigh[a]`, donc l'ordre des arguments n'est PAS
+        indifferent la ou `hexgeo.distance(a, b) == hexgeo.distance(b, a)` l'etait. Le second terme
+        s'ecrit donc `is_adjacent(e, T)` -- voisins de l'ENNEMI -- et non l'inverse.
+
+        La face COMBAT du meme selecteur (`runner/abilities/loki/summon.py`, tile-selecteur DSL
+        `CanAddUnit(AdjacentTiles(self))` -> `entities/selectors/tiles.py::AdjacentTiles` ->
+        `board.neighbours_native`) lit DEJA la liste stockee : cabler ici **RESORBE** la divergence.
+
+        ⚠ NON PORTE ICI, et ce n'est pas de l'adjacence : l'etage `UnitsWithoutTrait(..., 0x1b =
+        Steppable)` du second terme (le port compte TOUT `ctx.epos`) et le `selectionType 3` du
+        `Enemies`. Direction PERMISSIVE, hors perimetre #943-r7 -- releve, pas comble."""
         valid = set(ctx.elev_by_pos.keys()) if ctx.elev_by_pos else set()
         occ = set(ctx.epos) | set(ctx.fpos) | {ctx.origin}
+        elev, neigh = ctx.elev_by_pos, bq.neigh_map(ctx)
         n = 0
         for T in valid:
-            if T in occ or hexgeo.distance(ctx.origin, T) != 1:
+            # `AdjacentTiles(Caster)` : T est un voisin STOCKE de la tuile du caster.
+            if T in occ or not bq.is_adjacent(ctx.origin, T, elev, neigh):
                 continue
-            if any(hexgeo.distance(e, T) == 1 for e in ctx.epos):    # adjacent à un ennemi
+            # `AdjacentTiles(Enemies(...))` : T est un voisin STOCKE d'AU MOINS un ennemi.
+            if any(bq.is_adjacent(e, T, elev, neigh) for e in ctx.epos):
                 n += 1
         return n
 

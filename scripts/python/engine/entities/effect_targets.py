@@ -37,6 +37,8 @@ from typing import Optional
 
 import hexgeo
 
+from .. import battle_query as bq       # forme B (#485-r1-r1) : `battle_query` n'importe que
+#                                        `hexgeo` + `.hex_corner`, donc AUCUN cycle a fermer ici.
 from .effect_type import EffectType
 
 #: `UnitTrait.Psyker` (`0x3ea`) et `UnitTrait.Immune` (`0x19`) -- les deux filtres de trait du
@@ -70,6 +72,24 @@ class EffectTargetWorld:
     def traits(self, uid: int):               # -> sequence[str]
         raise NotImplementedError
 
+    # -- LE CANAL DE VOISINAGE NATIF (#943-r7) -----------------------------------------------
+    # `AdjacentFriends` descend sur `TileQuery$$IterateAdjacentTiles`, dont l'ENUMERATION est la
+    # liste STOCKEE du `ConnectivityComponent` et non la couronne hex (mesure #930 : la couronne
+    # SUR-ATTEINT de 4 aretes sur `C1_74`, 38 sur `C3_14`, 0 dans l'autre sens). Les deux etages
+    # sont des ENTREES du protocole, pas une derivation locale : ce module est le foyer COMMUN aux
+    # deux substrats, donc il ne connait ni `Scene.board` ni `State.board` -- chacun publie le sien.
+    #
+    # TRI-ETAT OBLIGATOIRE : `None` = canal absent -> `battle_query.is_adjacent` garde son repli
+    # GEOMETRIQUE nomme. Un `{}` se lirait << aucune tuile n'a de voisin >> et rendrait le predicat
+    # FAUX partout -- le vice exact de `#381-r3`.
+    def neigh_by_pos(self) -> "dict | None":
+        """`{(col,row): [(col,row), ...]}` -- `boardGraph.neighbours`, la liste STOCKEE."""
+        raise NotImplementedError
+
+    def elev_by_pos(self) -> "dict | None":
+        """`{(col,row): elevation}` -- le second etage (`|dElev| < 2`) d'`IterateAdjacentTiles`."""
+        raise NotImplementedError
+
 
 # --------------------------------------------------------------------------- selecteurs d'effet
 def _adjacent_friends(world, owner_id: int) -> Optional[set]:
@@ -77,16 +97,31 @@ def _adjacent_friends(world, owner_id: int) -> Optional[set]:
     `AdjacentFriends(unit = Owner@DSLSelectors+0x30, unitTile = <+0x50>, unique = 1)`.
 
     ⚠ La signature est `AdjacentFriends(unit, unitTile, unique)` : il n'y a **ni rayon ni
-    includeCenter**. Le porteur est donc EXCLU, et la portee est le ring-1 hex."""
+    includeCenter**. Le porteur est donc EXCLU, et la portee est le ring-1.
+
+    ⚠ LE RING-1 N'EST PAS LA COURONNE HEX (#943-r7). `DSLSelectors$$AdjacentFriends(unit, unique,
+    selType)` = `Friends(unit, Units(AdjacentTiles(unit)) - unit, selType)`, et `AdjacentTiles`
+    descend sur `TileQuery.u003CIterateAdjacentTilesu003Ed__8$$MoveNext` : une ENUMERATION de la
+    liste STOCKEE (`ConnectivityComponent+0x10`) suivie d'une porte `|dElev| < 2` INCONDITIONNELLE.
+    Le port passe donc par `battle_query.is_adjacent`, qui porte les DEUX etages et DEGRADE SEUL en
+    couronne hex quand les canaux sont absents (no-op demontrable sur les montages sans board).
+
+    CE SITE EST LE FOYER DES DEUX FACES -- `_SceneEffectTargetWorld` (decision) et
+    `_RunnerEffectTargetWorld` (combat) l'appellent tous les deux, donc le cablage ne peut pas
+    creer de divergence de faces : il les deplace ENSEMBLE. C'est ce qui l'a fait retenir la ou
+    l'expression JUMELLE du meme selecteur natif (le canal d'aura de `BigTargetAdjacentEffect$$
+    CreateEffectHitsBonusForAttack`, `effects/loki/hits.py`) reste hors de portee -- son ctx est un
+    dict sans board."""
     me, team = world.pos(owner_id), world.team(owner_id)
     if me is None or team is None:
         return None
+    elev, neigh = world.elev_by_pos(), world.neigh_by_pos()
     out = set()
     for uid in world.unit_ids():
         if int(uid) == int(owner_id) or world.team(uid) != team or not world.alive(uid):
             continue
         p = world.pos(uid)
-        if p is not None and hexgeo.distance(me, p) == 1:
+        if p is not None and bq.is_adjacent(me, p, elev, neigh):
             out.add(int(uid))
     return out
 

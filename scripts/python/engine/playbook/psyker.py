@@ -50,6 +50,9 @@ from fractions import Fraction
 import hexgeo
 import gameconfig as GC
 
+from .. import battle_query as bq       # forme B (#485-r1-r1) : foyer des DEUX etages
+#                                        d'`IterateAdjacentTiles` (#943-r7)
+from . import adjacency as _adj        # foyer PARTAGE multi-tuiles (#954), consomme par #943-r7
 from ..entities.effect_type import EffectType
 from ..entities.triggered_ability_type import TriggeredAbilityType
 from ..entities.formulas import _round_fix64
@@ -138,12 +141,27 @@ class PsykerPlaybook:
 
     def possible_targets(self, scene, att_id: int, case_tgt_id: int) -> list[int]:
         """`IdunBattleLogic.Entities.Abilities.Active.Loki.PsykerExtraAttackAbility$$PossibleTargets` = `Damageable(Enemies(caster, AdjacentUnits(CIBLE, 1)))` —
-        ennemis du caster VIVANTS hex-adjacents à la cible du case (mirror du pool runner
-        `_adjacent_damageable_enemies`, ici sur Scene). Adjacence GÉOMÉTRIQUE hex (evenq)."""
+        ennemis du caster VIVANTS adjacents à la cible du case (mirror du pool runner
+        `runner/operations/triggers/base.py::_adjacent_damageable_enemies`, ici sur Scene).
+
+        ⚠ L'ADJACENCE N'EST PAS GÉOMÉTRIQUE, et la ligne qui l'affirmait ici était FAUSSE (#943-r7).
+        `IdunBattleLogic.Entities.DSLFactory$$AdjacentUnits` = `Units(AdjacentTiles(target)) - target`,
+        et `AdjacentTiles` descend sur
+        `IdunBattle.Core.Services.TileQuery.u003CIterateAdjacentTilesu003Ed__8$$MoveNext` : la liste
+        STOCKÉE du `ConnectivityComponent`, puis la porte `|dElev| < 2`. La face COMBAT lit d'ailleurs
+        DÉJÀ un substrat stocké (`board.neighbours(ttile)`), donc la couronne hex faisait de ce site
+        le seul des deux à sur-atteindre.
+
+        Le prédicat passe par le foyer PARTAGÉ `playbook.adjacency.unit_in_adjacent_tiles` (#954),
+        qui est exactement `Units(AdjacentTiles(subject), unique, sel).Contains(other)` : il ajoute
+        l'axe MULTI-TUILES (les deux côtés sont l'union des ring-1 de leurs pieds) et se réduit à
+        `is_adjacent(pos(subject), pos(other))` sur des unités à un pied. Canaux tri-état : absents
+        ⇒ dégradation SEULE en couronne hex, c.-à-d. exactement le comportement d'avant."""
         my_team = scene.team(att_id)
         tpos = scene.pos(case_tgt_id)
         if tpos is None:
             return []
+        elev, neigh = scene.elev_by_pos, bq.neigh_map(scene)
         out = []
         for u in (scene.units or []):
             u_id = u.get("id")
@@ -151,8 +169,7 @@ class PsykerPlaybook:
                 continue
             if u.get("team") == my_team:
                 continue
-            p = scene.pos(u_id)
-            if p is not None and hexgeo.distance(tpos, p) == 1:
+            if _adj.unit_in_adjacent_tiles(scene, case_tgt_id, u_id, elev, neigh):
                 out.append(u_id)
         return out
 
