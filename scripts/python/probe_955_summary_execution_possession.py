@@ -508,15 +508,226 @@ def volet_summary(rpc, allie, cible):
             pass
 
 
+def _replay_execution(cap, board, attaquant, victime, yid, gardes, mutate=None):
+    """Rejoue offline l'attaque qui TUE l'allie, et lit la CASCADE : `BattleFatigue` du Guardsman
+    voisin -> `FleeOperation` -> `On(PreUnitFled)` -> `SummaryExecutionAbility`.
+
+    ⚠ Le port ne tire PAS `Maybe(GetFleeChance)` (chance non sourcable offline) : il FUIT quand
+    eligible. Le rejeu confronte donc la CASCADE une fois la fuite decidee -- ce que le natif vient
+    de nous montrer sur ce meme etat."""
+    from engine.runner.snapshot import load_state
+    from engine.runner.prng import IntBasedMersenneTwister
+    from engine.runner.runner import Runner
+    from engine.runner.messages import AttackUnitMessage
+    from engine.runner.components import UnitComponent, UnitFlagsComponent
+    from engine.runner.operations.triggers.dispatch import registry as REG
+    from engine.runner.operations import behaviour as BEH
+
+    saved_reg = saved_vec = None
+    if mutate == "m_registre":
+        saved_reg = REG.ABILITY_TRIGGERS.pop("SummaryExecution", None)
+        assert saved_reg is not None, "MUTANT INOPERANT : ABILITY_TRIGGERS['SummaryExecution']"
+    elif mutate == "m_vecteur":
+        # le vecteur `On(PreUnitFled)` n'est plus emis -- l'etat du port AVANT cette tranche.
+        from engine.runner.operations.triggers.dispatch import move_death as MD
+        saved_vec = MD.pre_unit_fled_triggers
+        MD.pre_unit_fled_triggers = lambda *a, **k: []
+    try:
+        st = load_state(cap["dec"], cap["ob"], cap["snap"], board=board)
+        rng = IntBasedMersenneTwister()
+        rng.mt = list(cap["rng"]["mt"])
+        rng.mti = cap["rng"]["mti"]
+        st.rng = rng
+        runner = Runner(st).install_default_handlers(20)
+        runner.apply(AttackUnitMessage(int(attaquant), int(victime)))
+        morts, fled, ignore = [], [], []
+        for g in gardes:
+            e = st.get_entity(int(g))
+            if e is None:
+                morts.append(int(g))
+                continue
+            uc = e.get_component(UnitComponent)
+            fl = e.get_component(UnitFlagsComponent)
+            if uc is not None and not uc.alive:
+                morts.append(int(g))
+            if fl is not None and fl.has(UnitFlagsComponent.FLED):
+                fled.append(int(g))
+            if st.effects is not None and st.effects.has_effect(
+                    int(g), effect_type=1079):                # EffectType.IgnoreBattleFatigue
+                ignore.append(int(g))
+        y_eff = ([] if st.effects is None else
+                 sorted({int(x.effect_type) for x in st.effects.by_unit.get(int(yid), [])
+                         if not x.consumed and x.effect_type is not None}))
+        return {"temoins_morts": sorted(morts), "temoins_fled": sorted(fled),
+                "guardsmen_ignorent": sorted(ignore), "effets_yarrick": y_eff,
+                "yarrick_a_1031": EFF_EXEC in y_eff}
+    finally:
+        if saved_reg is not None:
+            REG.ABILITY_TRIGGERS["SummaryExecution"] = saved_reg
+        if saved_vec is not None:
+            from engine.runner.operations.triggers.dispatch import move_death as MD
+            MD.pre_unit_fled_triggers = saved_vec
+
+
+# --------------------------------------------------------------------------- volet EXECUTION
+def volet_execution(rpc, allie, cible, essais=6):
+    """Le bras `PreUnitFled` : un Guardsman voit mourir un Guardsman ALLIE ADJACENT, son trait
+    `BattleFatigue` tire sa chance de fuite, et si elle passe le natif appelle `FleeOperation` --
+    qui emet `On(0x33 = PreUnitFled)` AVANT tout le reste. `SummaryExecutionAbility` y repond en
+    TUANT le fuyard et en posant l'effet 1031 sur Yarrick.
+
+    OBSERVABLE choisi, et il DISCRIMINE : le Guardsman qu'on n'a JAMAIS attaque meurt quand meme,
+    ET Yarrick gagne 1031. Une fuite normale l'aurait laisse vivant (flag `Fled`) et n'aurait rien
+    pose sur Yarrick.
+
+    ⚠ `Maybe(GetFleeChance)` est un TIRAGE (chances internes a la BC, non sourcables offline) :
+    l'evenement n'est donc pas garanti a chaque essai. On rejoue jusqu'a `essais` montages avec des
+    seeds distinctes, et on RAPPORTE le compte -- zero observation est un resultat (pas un skip),
+    et il dit exactement ce qui n'a pas ete confronte."""
+    out = {"volet": "execution", "essais": [], "seeds": []}
+    global SEED
+    seed0 = SEED
+    try:
+        for k in range(essais):
+            SEED = str(int(seed0) + 100 * k)
+            out["seeds"].append(SEED)
+            ligne = _un_essai_execution(rpc, allie, cible)
+            out["essais"].append(ligne)
+            if ligne.get("execution_observee"):
+                break
+    finally:
+        SEED = seed0
+    obs = [e for e in out["essais"] if e.get("execution_observee")]
+    out["execution_observee"] = bool(obs)
+    out["fuites_declenchees"] = sum(1 for e in out["essais"] if e.get("fuite_tentee"))
+    return out
+
+
+def _un_essai_execution(rpc, allie, cible):
+    rid0, _sf0, err = _build([YARRICK], [cible], [])
+    if rid0 is None:
+        return {"erreur": "build sonde KO : %s" % err}
+    try:
+        board = _board(rpc, rid0)
+    finally:
+        rpc("disposeRunner", {"runnerId": rid0}, 60)
+    geo, why = _geometrie_summary(board)
+    if geo is None:
+        return {"erreur": why}
+    # ⚠ Pour CE volet, l'allie temoin est place ADJACENT A LA CIBLE, pas a Yarrick : les Guardsmen
+    # se posent sur des tuiles libres du rayon 2 autour de la cible (tirage), donc c'est LA qu'un
+    # allie a une chance d'etre adjacent a l'un d'eux -- et le trigger de `BattleFatigue` exige
+    # l'adjacence STRICTE avec le mourant. Mesure du montage precedent (allie colle a Yarrick) :
+    # les deux Guardsmen ressortaient a d = 2 ou 3 l'un de l'autre, 3 essais sur 3.
+    import hexgeo as _hg
+    voisins_cible = sorted(c for c in [board.coord(t) for t in board.by_id
+                                       if board.walkable(t)]
+                           if c is not None and _hg.distance(geo["cible"], c) == 1
+                           and c not in (geo["yarrick"], geo["figurant"]))
+    if not voisins_cible:
+        return {"erreur": "aucune tuile libre adjacente a la cible"}
+    allie_pos = voisins_cible[0]
+    rid, _sf, err = _build(
+        [YARRICK, allie], [cible, cible],
+        ["--hp-target", "20000", "--dmg-target", "50000", "--hp-player", "1200",
+         "--place", "%s:%d,%d" % (YARRICK, geo["yarrick"][0], geo["yarrick"][1]),
+         "--place", "%s:%d,%d" % (allie, allie_pos[0], allie_pos[1]),
+         "--a-place", "%s:%d,%d" % (cible, geo["cible"][0], geo["cible"][1]),
+         "--a-place", "%s:%d,%d" % (cible, geo["figurant"][0], geo["figurant"][1])])
+    if rid is None:
+        return {"erreur": "build KO : %s" % err}
+    try:
+        import hexgeo
+        dv = _view(rpc, rid)
+        yid = int((_by_vis(dv, YARRICK) or [{}])[0].get("id"))
+        enn = sorted((hexgeo.distance(_pos(dv, yid), _pos(dv, int(u["id"]))), int(u["id"]))
+                     for u in _units(dv) if u.get("visualId") == cible)
+        cible_id = enn[0][1]
+        rpc("applyAction", {"runnerId": rid, "action": {
+            "kind": "ability", "casterId": yid, "targetId": cible_id,
+            "abilityType": SEND_IN_THE_NEXT_WAVE}, "captureEvents": True}, 220)
+        dv = _view(rpc, rid)
+        gardes = [int(u["id"]) for u in _units(dv) if u.get("visualId") in GUARDSMAN_VIS]
+        aid = int((_by_vis(dv, allie) or [{}])[0].get("id", -1))
+        if not gardes or aid < 0:
+            return {"runner": rid, "erreur": "Guardsmen=%d allie=%d" % (len(gardes), aid)}
+        # Le trigger de `BattleFatigue` est `IsAdjacent(self, dying, 2)` -- adjacence STRICTE. On
+        # exige donc au moins UN Guardsman voisin de l'allie qu'on va faire tuer.
+        ap = _pos(dv, aid)
+        temoins = [g for g in gardes if hexgeo.distance(ap, _pos(dv, g)) == 1]
+        if not temoins:
+            return {"runner": rid, "erreur": "aucun Guardsman adjacent a l'allie (d=%s)"
+                    % [hexgeo.distance(ap, _pos(dv, g)) for g in gardes]}
+        temoin = temoins[0]
+        rpc("applyAction", {"runnerId": rid, "action": {"kind": "endturn"}}, 150)
+        dv = _view(rpc, rid)
+        ab = _normal_attack_id(dv, cible_id)
+        cap = {"dec": dv, "ob": rpc("observeBattle", {"runnerId": rid}, 60),
+               "snap": rpc("combatSnapshot", {"runnerId": rid}, 150),
+               "rng": rpc("dumpRng", {"runnerId": rid}, 30)}
+        res = rpc("applyAction", {"runnerId": rid, "action": {
+            "kind": "ability", "casterId": cible_id, "targetId": aid,
+            "abilityType": ab}, "captureEvents": True}, 220)
+        dv2 = _view(rpc, rid)
+        uv, ut = _unit(dv2, aid), _unit(dv2, temoin)
+        mort = lambda u: bool(u is None or u.get("isDead") or (u.get("hp") or 0) <= 0)
+        eff_y = _effets(dv2, yid)
+        ligne = {"runner": rid, "yarrick": yid, "guardsmen": gardes,
+                 "victime_attaquee": aid, "temoin": temoin,
+                 "victime_morte": mort(uv), "temoin_mort": mort(ut),
+                 "temoin_flags": (ut or {}).get("flags"),
+                 "temoin_hp": (ut or {}).get("hp"),
+                 "effets_yarrick": eff_y,
+                 "fuite_tentee": bool(mort(ut) or EFF_EXEC in eff_y),
+                 "execution_observee": bool(mort(uv) and mort(ut) and EFF_EXEC in eff_y),
+                 "ok_rpc": bool(res.get("ok", True)), "rpc_error": res.get("error")}
+        if ligne["execution_observee"]:
+            for m in (None, "m_registre", "m_vecteur"):
+                try:
+                    port = _replay_execution(cap, board, cible_id, aid, yid, gardes, mutate=m)
+                except Exception as exc:
+                    port = {"exception": "%s: %s" % (type(exc).__name__, exc)}
+                ligne["port" if m is None else ("port_%s" % m)] = port
+            p = ligne["port"]
+            # ⚠ `temoins_morts` NE DISCRIMINE PAS, et c'est mesure : une unite ENFUIE est
+            # `alive = False` cote port aussi (`FleeOperation$$Execute` appelle `RemoveUnit` AVANT
+            # de poser `UnitFlag 9` -- #429-r1-r3-r1-r2), donc les deux mutants la rendaient
+            # « morte » comme le nominal. Ce qui SEPARE l'execution de la fuite, c'est le FLAG
+            # `Fled` (present si elle a fui, absent si elle a ete tuee) et l'effet 1031 sur Yarrick.
+            def _signature(x):
+                return (x.get("temoins_fled"), x.get("yarrick_a_1031"),
+                        x.get("guardsmen_ignorent"))
+            ligne["verdict_port"] = {
+                "temoin_execute": bool(p.get("temoins_morts")),
+                "temoin_pas_enfui": (p.get("temoins_fled") == []),
+                "effet_1031_sur_yarrick": bool(p.get("yarrick_a_1031")),
+                "immunite_posee": bool(p.get("guardsmen_ignorent")),
+                "effets_yarrick_egaux_natif": (p.get("effets_yarrick") == ligne["effets_yarrick"]),
+                "mutant_registre_mord": _signature(ligne["port_m_registre"]) != _signature(p),
+                "mutant_vecteur_mord": _signature(ligne["port_m_vecteur"]) != _signature(p),
+            }
+        return ligne
+    finally:
+        try:
+            rpc("disposeRunner", {"runnerId": rid}, 60)
+        except Exception:
+            pass
+
+
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--volet", choices=("possession", "summary"), required=True)
+    ap.add_argument("--volet", choices=("possession", "summary", "execution"), required=True)
+    ap.add_argument("--essais", type=int, default=6)
     ap.add_argument("--cible", default="eldarRanger")
     ap.add_argument("--allie", default="tauCrisis")
     a = ap.parse_args()
     rpc = _mkrpc()
-    res = (volet_possession(rpc, a.cible) if a.volet == "possession"
-           else volet_summary(rpc, a.allie, a.cible))
+    if a.volet == "possession":
+        res = volet_possession(rpc, a.cible)
+    elif a.volet == "summary":
+        res = volet_summary(rpc, a.allie, a.cible)
+    else:
+        res = volet_execution(rpc, a.allie, a.cible, essais=a.essais)
     print(json.dumps(res, indent=1, ensure_ascii=True))
 
 
