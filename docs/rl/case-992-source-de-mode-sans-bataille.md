@@ -7,10 +7,19 @@
 Aller-retour complet, **zero interaction d'interface** — ni navigation, ni clic de noeud, ni
 clic de *play*, ni menu de pause, ni popup de confirmation :
 
-| geste | duree | verdict |
-|---|---|---|
-| `viewInvoke` -> `ViewCommandExecutor$$StartCampaignMatch("campaign1", 74, Standard, 0x0101)` | **0,49 s** | `IdunMainView$$get_IsBattleActive() -> True` |
-| `retreatInvoke` -> `IdunMainView$$ContinueSurrender()` | **1,59 s** | `get_IsBattleActive() -> False` |
+| geste | verdict |
+|---|---|
+| `ViewCommandExecutor$$StartCampaignMatch("campaign1", 74, Standard, 0x0101)` | en bataille ; **builder complet a froid** |
+| `IdunMainView$$OnBattleSurrender()` | popup de confirmation (`PauseSurrender` **DIFFERE**) |
+| `IdunMainView$$ContinueSurrender()` | retour campagne, **RENDU** (verifie a la capture) |
+
+⚠ **ENTRER PAR LA BONNE PORTE — c'est toute la difference, et je l'ai apprise en cassant.**
+Un premier essai appelait **`ContinueSurrender` SEULE** : la bataille se terminait bien
+(`get_IsBattleActive -> False`) mais le jeu restait **sans aucun ecran rendu**, et il a fallu
+`ToTacticiansMenu()` pour le recuperer. La chaine mesuree disait pourtant laquelle est
+l'entree. Entrer par le milieu donne la FIN sans ce qui la PREPARE.
+⚠ Et **`get_IsBattleActive: False` ne prouve pas qu'on est revenu quelque part** : dans les deux
+cas il rendait `False`. Seule la CAPTURE distingue « sur la campagne » de « ecran noir ».
 
 **~2 s**, contre **19-26 s** pour le meme aller-retour pilote a l'UI. Jeu `Responding: True`
 apres coup, executeur toujours joignable, scene de bataille redechargee.
