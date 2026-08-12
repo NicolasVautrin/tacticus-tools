@@ -12,24 +12,42 @@ alors que la valeur ECRITE au site, elle, a change. Meme cran que
 """
 from __future__ import annotations
 
-import pytest
-
 #: Perimetre du declencheur (#486-r15) : le module porteur, le registre qui le fait exister, les
-#: mirrors d'enum dont un ordinal est fige ci-dessous, et le gameconfig d'ou sortent les quatre
-#: constantes.
+#: mirrors d'enum dont un ordinal est fige ci-dessous, le vecteur d'evenement des deux bras, les
+#: deux feuilles DSL dont les champs sont gardes, et le gameconfig d'ou sortent les constantes.
 DECLENCHEUR = {
     "chemins": (
         "scripts/python/engine/runner/operations/triggers/loki/fury_from_the_delve.py",
         "scripts/python/engine/runner/operations/triggers/dispatch/registry.py",
+        "scripts/python/engine/runner/abilities/behaviours/effects.py",
+        "scripts/python/engine/runner/abilities/behaviours/combat.py",
+        "scripts/python/engine/runner/abilities/handler.py",
         "scripts/python/engine/entities/triggered_ability_type.py",
+        "scripts/python/engine/entities/active_ability_type.py",
         "scripts/python/engine/entities/effect_type.py",
         "scripts/python/engine/entities/ability_constant_type.py",
         "scripts/python/engine/entities/ability_variable_type.py",
         "scripts/python/engine/entities/damage_profile_type.py",
         "scripts/python/engine/entities/stats.py",
-        "data/gameconfig.json",
+        "scripts/python/engine/entities/formulas.py",
+        "scripts/python/engine/entities/triggers.py",
+        "scripts/python/engine/dsl/event_trigger_type.py",
+        "data/symbols/*/gameconfig.json",
     ),
+    "build": True,
+    "toujours": False,
+    "raison": "Offline : fige les ordinaux ECRITS AUX SITES (que `probe_313` ne voit pas -- il "
+              "compare le mirror au build, pas le site), le cablage des DEUX bras dans "
+              "`ABILITY_TRIGGERS` et leurs vecteurs, et surtout la POLARITE du seuil. Le cas "
+              "`PV == hpPct % du max` est le SEUL qui distingue `>` de `>=` et il vaut FAUX : "
+              "l'inverser donnerait un `Pinned` la ou le natif rend une attaque supplementaire, "
+              "sans erreur ni crash. Il garde aussi que les DEUX `StatPart` (Current / Maximum) "
+              "sont reellement lues -- les confondre rend le predicat toujours vrai et tue le "
+              "bras ATTAQUE en silence -- et que ce passif n'entre PAS dans les registres des "
+              "ACTIVES, dont l'ordinal 1528 est partage.",
 }
+
+import pytest        # noqa: E402  (le DECLENCHEUR doit rester en tete, cf. `probe_486r15`)
 
 FURY = "FuryFromTheDelve"
 
