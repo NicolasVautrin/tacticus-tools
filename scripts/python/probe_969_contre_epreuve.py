@@ -49,6 +49,19 @@ _SONDE = (
 )
 
 
+def _lire(chemin: Path) -> str:
+    """Lecture BRUTE (`newline=""`) -- cf. `probe_969_morsure._lire` : `write_text` convertit les
+    `\\n` en `\\r\\n` sous Windows, donc une restauration << a l'identique >> salit l'arbre sans que
+    l'assertion s'en apercoive (la relecture retraduit)."""
+    with open(chemin, "r", encoding="utf-8", newline="") as f:
+        return f.read()
+
+
+def _ecrire(chemin: Path, texte: str) -> None:
+    with open(chemin, "w", encoding="utf-8", newline="") as f:
+        f.write(texte)
+
+
 def _inscrits() -> tuple:
     """Etat du registre lu dans un process FRAIS (jamais depuis un module deja importe ici :
     un cache de `sys.modules` ferait passer la mutation pour inerte)."""
@@ -72,7 +85,7 @@ def main() -> int:
         print("[969] ECHEC : le TEMOIN est deja degenere -- les cinq ne sont pas toutes inscrites")
         return 2
 
-    origine = INIT.read_text(encoding="utf-8")
+    origine = _lire(INIT)
     mute = origine
     for ligne in LIGNES:
         if ligne not in mute:
@@ -82,7 +95,7 @@ def main() -> int:
 
     rc = 0
     try:
-        INIT.write_text(mute, encoding="utf-8")
+        _ecrire(INIT, mute)
         apres = _inscrits()
         print(f"[969] MUTATION inscrits au registre : {sum(apres)}/{len(IDS)}")
         if sum(apres) != 0:
@@ -101,8 +114,8 @@ def main() -> int:
                 print("   " + ligne)
             rc = r.returncode
     finally:
-        INIT.write_text(origine, encoding="utf-8")
-        assert INIT.read_text(encoding="utf-8") == origine, "RESTAURATION RATEE"
+        _ecrire(INIT, origine)
+        assert _lire(INIT) == origine, "RESTAURATION RATEE"
         retabli = _inscrits()
         print(f"[969] RESTAURE inscrits au registre : {sum(retabli)}/{len(IDS)}")
         if sum(retabli) != len(IDS):

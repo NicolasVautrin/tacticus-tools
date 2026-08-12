@@ -50,9 +50,12 @@ INIT = NC / "__init__.py"
 #: (libelle, fichier, texte AVANT, texte APRES)
 MUTATIONS = [
     # ---------------------------------------------------------------- 1049 CrusadeOfWrath
+    # ⚠ AUCUN `\n` dans les ancrages : la lecture est BRUTE, donc un fichier a fins de ligne
+    # CRLF ne contient PAS `...1.0\n`. Un ancrage qui ne matche plus rend la mutation NON JOUEE
+    # -- une sonde qui ne mord pas parce qu'elle a rate sa cible est pire qu'une sonde absente.
     ("1049 : MIN_UTILITY 1 -> 2", COW,
-     "    MIN_UTILITY = 1.0\n",
-     "    MIN_UTILITY = 2.0\n"),
+     "    MIN_UTILITY = 1.0",
+     "    MIN_UTILITY = 2.0"),
     ("1049 : rayon LU -> constante 1", COW,
      "    consts = ((_gc.ability(_ABILITY_NAME) or {}).get(\"constants\") or {})",
      "    return 1   # MUTATION\n"
@@ -114,6 +117,33 @@ MUTATIONS = [
 ]
 
 
+def _lire(chemin: Path) -> str:
+    """Lecture SANS traduction de fin de ligne (`newline=""`).
+
+    ⚠ `Path.read_text` / `Path.write_text` traduisent : sous Windows, `write_text` convertit
+    chaque `\\n` en `\\r\\n`. Une sonde qui lit puis reecrit le MEME texte laisse donc le fichier
+    CONVERTI EN CRLF -- l'arbre est sali, `git status` le voit, et l'assertion de restauration ne
+    l'attrape PAS (la relecture retraduit dans l'autre sens, donc les deux chaines sont egales).
+    Mesure : les deux premiers fichiers mutes par cette sonde sont ressortis modifies. On lit et on
+    ecrit donc en mode BRUT, des deux cotes."""
+    with open(chemin, "r", encoding="utf-8", newline="") as f:
+        return f.read()
+
+
+def _ecrire(chemin: Path, texte: str) -> None:
+    with open(chemin, "w", encoding="utf-8", newline="") as f:
+        f.write(texte)
+
+
+def _eol(texte: str) -> str:
+    """Le separateur de ligne REELLEMENT present dans le fichier, DERIVE et non presume.
+
+    Les ancrages ci-dessus sont ecrits en `\\n` ; l'arbre, lui, peut etre en CRLF (c'est le cas
+    sous Windows, `core.autocrlf`) ou en LF (une CI Linux). Coder l'un des deux en dur ferait
+    manquer la cible sur l'autre -- et une mutation NON JOUEE se lit comme un terme << tenu >>."""
+    return "\r\n" if "\r\n" in texte else "\n"
+
+
 def _jouer() -> int:
     return subprocess.run([sys.executable, "-m", "pytest", TEST, "-q", "-x"],
                           cwd=RACINE, capture_output=True, text=True).returncode
@@ -126,21 +156,25 @@ def main() -> int:
         return 2
 
     muettes = []
-    for libelle, chemin, avant, apres in MUTATIONS:
-        origine = chemin.read_text(encoding="utf-8")
+    for libelle, chemin, avant_lf, apres_lf in MUTATIONS:
+        origine = _lire(chemin)
+        eol = _eol(origine)
+        avant = avant_lf.replace("\n", eol)
+        apres = apres_lf.replace("\n", eol)
         if avant not in origine:
             print(f"[969] ANCRAGE PERDU : {libelle}")
             print(f"       le texte attendu n'est plus dans {chemin.name} -- mutation NON JOUEE")
             muettes.append(libelle + " (ancrage perdu)")
             continue
         try:
-            chemin.write_text(origine.replace(avant, apres, 1), encoding="utf-8")
+            _ecrire(chemin, origine.replace(avant, apres, 1))
             rc = _jouer()
         finally:
-            chemin.write_text(origine, encoding="utf-8")
-            # La restauration est VERIFIEE : une sonde qui laisse le port mute empoisonne tout
-            # ce qui suit, y compris les mesures des autres agents.
-            assert chemin.read_text(encoding="utf-8") == origine, f"RESTAURATION RATEE {chemin}"
+            _ecrire(chemin, origine)
+            # La restauration est VERIFIEE, et en mode BRUT : une sonde qui laisse le port mute
+            # -- ou seulement re-encode ses fins de ligne -- empoisonne tout ce qui suit, y
+            # compris les mesures des autres agents.
+            assert _lire(chemin) == origine, f"RESTAURATION RATEE {chemin}"
         etat = "MORD" if rc != 0 else "MUETTE"
         print(f"[969] {etat:7s} {libelle}")
         if rc == 0:
