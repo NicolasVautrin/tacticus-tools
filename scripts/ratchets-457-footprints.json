@@ -1568,6 +1568,17 @@
     "scripts/python/engine/weights.py"
    ]
   },
+  "tests/engine/runner/test_936r1_expiry_removal_offline.py": {
+   "_at": 1786528523,
+   "_commit": "2d517cabd1306839a3b1b2e3619268b6311b0f0f",
+   "dirs": [
+    "data/symbols/rnca9r7q6c/ghidra"
+   ],
+   "py": [],
+   "temoins": [
+    "data/symbols/rnca9r7q6c/ghidra/functions.tsv"
+   ]
+  },
   "tests/engine/runner/test_939_bio_minefield_offline.py": {
    "_at": 1786478025,
    "_commit": "4f301deeb8ea9711d4db18b78d3e52980394b660",
@@ -1603,6 +1614,24 @@
    "temoins": [
     "scripts/python/engine/runner/operations/triggers/loki/wireweave_net.py"
    ]
+  },
+  "tests/engine/runner/test_955r2_free_tiles_steppable_offline.py": {
+   "_at": 1786528523,
+   "_commit": "2d517cabd1306839a3b1b2e3619268b6311b0f0f",
+   "dirs": [
+    "data/symbols/rnca9r7q6c/ghidra"
+   ],
+   "py": [],
+   "temoins": [
+    "data/symbols/rnca9r7q6c/ghidra/functions.tsv"
+   ]
+  },
+  "tests/engine/runner/test_955r3_apply_internal_par_cible_offline.py": {
+   "_at": 1786528523,
+   "_commit": "2d517cabd1306839a3b1b2e3619268b6311b0f0f",
+   "dirs": [],
+   "py": [],
+   "temoins": []
   },
   "tests/engine/runner/test_961r1_attribution_offline.py": {
    "_at": 1786525131,
@@ -5346,6 +5375,13 @@
   "tests/engine/test_952_hunters_beyond_death_offline.py": {
    "_at": 1786495496,
    "_commit": "910b7235ef7aa61fe1a41ecb86729f162a6296b0",
+   "dirs": [],
+   "py": [],
+   "temoins": []
+  },
+  "tests/engine/test_952r1_geometrie_non_consommee_offline.py": {
+   "_at": 1786528523,
+   "_commit": "2d517cabd1306839a3b1b2e3619268b6311b0f0f",
    "dirs": [],
    "py": [],
    "temoins": []
