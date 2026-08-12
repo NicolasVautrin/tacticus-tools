@@ -192,10 +192,30 @@ def test_l_ordre_natif_0xb_AVANT_0xc_est_tenu_dans_les_DEUX_branches_du_handler(
     assert appels == attendu, appels
 
 
+#: Les consommateurs ATTESTES du vecteur `On(0xb = EventTriggerType.UnitAbility)`. Un ENSEMBLE
+#: nomme, et non le singleton d'origine : #928 a EMIS le vecteur (il ne l'etait pas), et rien
+#: n'empeche -- ni ne doit empecher -- qu'un port ulterieur s'y branche. Ce qui doit rester vrai,
+#: c'est que CHAQUE ecouteur ait ete LU, parce que l'emission est desormais reelle pour tous.
+#:
+#:   * `LegacyOfCombatAdditionalAttackAbility` (#928) -- le consommateur d'origine, celui pour qui
+#:     le vecteur a ete emis.
+#:   * `AggressiveOnslaughtSummonAbility` (#958) -- `AggressiveOnslaught_SummonAbility$$CreateTrigger`
+#:     = `On(0xb = UnitAbility) & <DSLTriggers+0x20 = OwnerIsAlive> & get_OwnerIsCaster`, lu au
+#:     decompile et ecrit verbatim en tete d'`operations/triggers/loki/aggressive_onslaught.py`.
+#:
+#: ⚠ On N'AJOUTE PAS un nom pour faire taire ce test : on l'ajoute avec le `CreateTrigger` natif qui
+#: etablit qu'il ecoute REELLEMENT 0xb. Un ecouteur non lu ferait tirer une ability a chaque cast.
+CONSOMMATEURS_0XB_ATTESTES = {
+    "LegacyOfCombatAdditionalAttackAbility",     # #928
+    "AggressiveOnslaughtSummonAbility",          # #958
+}
+
+
 def test_aucun_AUTRE_consommateur_du_vecteur_0xb_n_a_ete_reveille():
     """Avant #928 le vecteur n'etait PAS emis (`handler.py` : << aucun consommateur porte >>).
-    L'ajouter est un no-op strict pour tout le reste -- a condition qu'aucune autre entree de
-    registre n'ecoute `event_id == 11`. Si une nouvelle entree apparait, ce test la NOMME."""
+    L'ajouter est un no-op strict pour tout le reste -- a condition que TOUTE entree de registre
+    qui ecoute `event_id == 11` ait ete LUE au decompile. Si une entree non attestee apparait, ce
+    test la NOMME."""
     from engine.dsl.event_trigger_type import EventTriggerType
     from engine.runner.operations.triggers.dispatch import registry as R
     ecouteurs = []
@@ -210,7 +230,16 @@ def test_aucun_AUTRE_consommateur_du_vecteur_0xb_n_a_ete_reveille():
                 ev = getattr(cls, "event_id", None)
                 if ev is not None and int(ev) == int(EventTriggerType.UnitAbility):
                     ecouteurs.append((nom, cle, getattr(cls, "__name__", str(cls))))
-    assert [e[2] for e in ecouteurs] == ["LegacyOfCombatAdditionalAttackAbility"], ecouteurs
+    vus = {e[2] for e in ecouteurs}
+    # NON-DEGENERESCENCE : le consommateur d'origine doit TOUJOURS etre la, sans quoi ce fichier
+    # entier garderait un vecteur que plus personne ne lit.
+    assert "LegacyOfCombatAdditionalAttackAbility" in vus, (
+        "le consommateur d'ORIGINE de #928 a disparu du registre : %r" % (ecouteurs,))
+    assert not (vus - CONSOMMATEURS_0XB_ATTESTES), (
+        "consommateur(s) NON ATTESTE(S) du vecteur 0xb : %s. Lire leur `CreateTrigger` au "
+        "decompile, puis les inscrire dans `CONSOMMATEURS_0XB_ATTESTES` DANS LE MEME COMMIT que "
+        "le port -- pas apres coup pour faire taire ce test."
+        % sorted(vus - CONSOMMATEURS_0XB_ATTESTES))
 
 
 # ---------------------------------------------------------------------------------------------

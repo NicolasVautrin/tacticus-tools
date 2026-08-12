@@ -267,6 +267,44 @@ RAIL: dict[str, tuple[str, str]] = {
         (ARRAYSET, "IdunBattle.Entities.Effects.PlayerTurnEffect$$CreateHandleTriggerAbilitiesInternal"),
     "WireweaveNetCounterAttack":
         (TARGETS, "IdunBattle.Entities.Effects.CounterAttackEffect$$CreateTargetTrigger"),
+    # #962 -- les DEUX autres membres portes de la famille CONTRE-ATTAQUE (`GrimRetribution` et
+    # `UnwaveringSentinel`), entres au registre sans rail declare. Rails IDENTIQUES a ceux de
+    # `WireweaveNet` ci-dessus, et ce n'est pas une analogie de nom : `frida/classes.tsv` donne les
+    # trois `<X>_CounterAttackEffect` comme derivant de `CounterAttackEffect`, et leurs blocs
+    # `methodPointers` ne portent AUCUN `CreateTargetTrigger` / `CreateHandleTriggerAbilitiesInternal`
+    # propre (seulement `GetCounterAttackTrigger` / `GetCounterAttackCondition` /
+    # `GetCounterAttackBehaviour`) -- les deux corps viennent donc des BASES.
+    # La riposte est sur le rail TARGETS et LIT le flag (c'est lui qui porte le << une riposte par
+    # tour ennemi >>) ; les deux `Triggered()` de boundary de tour sont sur le rail ARRAYSET et ne
+    # doivent PAS le lire -- ce sont eux qui RE-ARMENT une instance eteinte.
+    "GrimRetributionCounterAttack":
+        (TARGETS, "IdunBattle.Entities.Effects.CounterAttackEffect$$CreateTargetTrigger"),
+    "GrimRetributionActivateOnEnemyTurnStart":
+        (ARRAYSET, "IdunBattle.Entities.Effects.PlayerTurnEffect$$CreateHandleTriggerAbilitiesInternal"),
+    "GrimRetributionDeactivateOnEnemyTurnEnd":
+        (ARRAYSET, "IdunBattle.Entities.Effects.PlayerTurnEffect$$CreateHandleTriggerAbilitiesInternal"),
+    "UnwaveringSentinelCounterAttack":
+        (TARGETS, "IdunBattle.Entities.Effects.CounterAttackEffect$$CreateTargetTrigger"),
+    "UnwaveringSentinelActivateOnEnemyTurnStart":
+        (ARRAYSET, "IdunBattle.Entities.Effects.PlayerTurnEffect$$CreateHandleTriggerAbilitiesInternal"),
+    "UnwaveringSentinelDeactivateOnEnemyTurnEnd":
+        (ARRAYSET, "IdunBattle.Entities.Effects.PlayerTurnEffect$$CreateHandleTriggerAbilitiesInternal"),
+    # #962 -- les TROIS effet-triggers de `1432 ArmourOfShriekingSouls` (#960). Le bloc
+    # `methodPointers` d'`IdunBattle.Entities.Effects.Loki.ArmourOfShriekingSoulsEffect` porte
+    # QUATRE corps propres, dont les deux qui tranchent le rail : `CreateTargetTrigger` (decompile :
+    # `On(0x16 = TurnStart_Actions, ownerNeedsToBeAlive: 1) op_BitwiseAnd <DSLTriggers+0x28 =
+    # IsTurnOf(Owner)>`) pour le SAIGNEMENT, et `CreateHandleTriggerAbilitiesInternal` pour les deux
+    # `Triggered()` (resurrection de Lucius au retrait, retrait de l'effet au retour de Lucius).
+    # ⚠ Le gate `IsActive` du rail TARGETS MANQUAIT au saignement : pose dans le meme commit
+    # (`_elated_instance(...).active`), exactement comme #547-r2 l'avait fait pour `BloodChalice`.
+    "ArmourOfShriekingSoulsDrainOnTurnStart":
+        (TARGETS, "IdunBattle.Entities.Effects.Loki.ArmourOfShriekingSoulsEffect$$CreateTargetTrigger"),
+    "ArmourOfShriekingSoulsResurrectOnRemoved":
+        (ARRAYSET,
+         "IdunBattle.Entities.Effects.Loki.ArmourOfShriekingSoulsEffect$$CreateHandleTriggerAbilitiesInternal"),
+    "ArmourOfShriekingSoulsRemoveOnSourceResurrected":
+        (ARRAYSET,
+         "IdunBattle.Entities.Effects.Loki.ArmourOfShriekingSoulsEffect$$CreateHandleTriggerAbilitiesInternal"),
     "HarlequinsPanoplyIgnoreHitsRemove":
         (TARGETS, "IdunBattle.Entities.Effects.Loki.HarlequinsPanoply_IgnoreHitsEffect$$CreateTargetTrigger"),
     # #432 -- 1147 TerminatorArmour_ReduceDmg. La CONSOMMATION vient de `CreateTargetTrigger` (rail
@@ -435,11 +473,17 @@ ARRAYSET_READS_BY_TREE = {
 EXPECTED_GAPS: set[str] = set()
 
 
-def _scan(tree: ast.AST) -> tuple[bool, bool, set[str]]:
+def _scan(tree: ast.AST) -> tuple[bool, bool, set]:
     """(lit `.active`, lit `.active_effects`, fonctions appelees). Couvre l'acces par attribut
-    ET par `getattr(x, "active", ...)` -- la forme qu'emploie `GhostRemoveOnSourceDeathInactive`."""
+    ET par `getattr(x, "active", ...)` -- la forme qu'emploie `GhostRemoveOnSourceDeathInactive`.
+
+    Le 3e membre melange DEUX formes d'appel, et il le faut : un nom NU (`str`, ex. `_flag_is_set`)
+    et un appel QUALIFIE (`(alias, attribut)`, ex. `_ca.flag_is_set`). La seconde n'etait pas
+    distinguee -- seul l'attribut etait retenu -- donc une delegation vers un FOYER PARTAGE se
+    perdait : `getattr(<module appelant>, "flag_is_set")` n'existe evidemment pas. cf. #962.
+    """
     direct = indirect = False
-    called: set[str] = set()
+    called: set = set()
     for node in ast.walk(tree):
         if isinstance(node, ast.Attribute):
             direct |= node.attr == "active"
@@ -453,6 +497,8 @@ def _scan(tree: ast.AST) -> tuple[bool, bool, set[str]]:
                     indirect |= node.args[1].value == "active_effects"
             elif isinstance(node.func, ast.Attribute):
                 called.add(node.func.attr)
+                if isinstance(node.func.value, ast.Name):
+                    called.add((node.func.value.id, node.func.attr))
     return direct, indirect, called
 
 
@@ -476,20 +522,60 @@ def _reads_active(cls: type) -> str:
     except (OSError, TypeError, SyntaxError):
         return ""
     owner_mod = getattr(fn, "__module__", cls.__module__)
-    mod = sys.modules.get(owner_mod)
-    for name in called:                       # helpers/methodes du MEME module (gates replies)
-        target = getattr(mod, name, None) or getattr(cls, name, None)
-        if not (inspect.isfunction(target) or inspect.ismethod(target)):
-            continue
-        if getattr(target, "__module__", None) != owner_mod:
-            continue
-        try:
-            d, i, _ = _scan(ast.parse(_dedent(inspect.getsource(target))))
-        except (OSError, TypeError, SyntaxError):
-            continue
-        direct |= d
-        indirect |= i
+    file = [(owner_mod, called)]
+    vus: set = set()
+    while file:
+        mod_nom, noms = file.pop()
+        mod = sys.modules.get(mod_nom)
+        for name in noms:
+            target = _resoudre_appele(mod, cls, name)
+            if not (inspect.isfunction(target) or inspect.ismethod(target)):
+                continue
+            cible_mod = getattr(target, "__module__", None)
+            if not _suivable(name, cible_mod, mod_nom):
+                continue
+            cle = (cible_mod, getattr(target, "__qualname__", str(target)))
+            if cle in vus:
+                continue
+            vus.add(cle)
+            try:
+                d, i, c = _scan(ast.parse(_dedent(inspect.getsource(target))))
+            except (OSError, TypeError, SyntaxError):
+                continue
+            direct |= d
+            indirect |= i
+            file.append((cible_mod, c))       # la delegation peut faire plus d'un saut
     return "direct" if direct else ("via active_effects" if indirect else "")
+
+
+def _suivable(name, cible_mod: str | None, mod_nom: str) -> bool:
+    """DEUX regimes, et l'asymetrie est le coeur de ce cliquet (#962).
+
+      * appel NU (`_flag_is_set(...)`) -> le module APPELANT, comme depuis #229. L'elargir a tout
+        `engine.**` fabrique des faux positifs : le `matches` de `PhoenixGemReviveAbility` appelle
+        `can_be_revived`, qui lit le `.active` d'AUTRES effets -- ce n'est pas le gate
+        `EffectComponent.IsActive @+0x5c` de SON instance, et le compter classerait a tort le rail
+        ARRAYSET en << lit le flag >>.
+      * appel QUALIFIE (`_ca.flag_is_set(...)`) -> tout `engine.**`. C'est une DELEGATION EXPLICITE
+        vers un foyer, et depuis #946 les quatre lectures/ecritures de `PlayerTurnEffect` vivent
+        precisement dans un foyer partage (`triggers/loki/counter_attack.py`) parce qu'elles
+        n'appartiennent a aucun des trois membres de la famille. Borner au module appelant
+        interdisait donc tout foyer partage : `WireweaveNetCounterAttack` (rail TARGETS) etait
+        declare SANS gate alors qu'il en a un, et `master` en etait ROUGE.
+    """
+    if isinstance(name, tuple):
+        return (cible_mod or "").startswith("engine.")
+    return cible_mod == mod_nom
+
+
+def _resoudre_appele(mod, cls, name):
+    """Un element de `called` : nom NU (`str`) ou appel QUALIFIE (`(alias, attribut)`). Pour le
+    second, l'alias est resolu sur le module APPELANT (`import <module> as <alias>`, forme B), donc
+    la delegation vers un foyer partage devient suivable."""
+    if isinstance(name, tuple):
+        base = getattr(mod, name[0], None)
+        return getattr(base, name[1], None) if base is not None else None
+    return getattr(mod, name, None) or getattr(cls, name, None)
 
 
 def _dedent(src: str) -> str:
