@@ -31,6 +31,16 @@ from engine.runner.operations.triggers.loki import refusal_to_be_outdone as RTBO
 #: doit rejouer ce fichier, meme s'il vient d'une autre tranche.
 DECLENCHEUR = {
     "chemins": (
+        # Entres par la FERMETURE D'IMPORTS, pas par une lecture explicite du test : les
+        # `__init__.py` des paquets traverses et les deux modules qu'ils tirent. Un declencheur
+        # trop etroit est un FAUX VERT -- le fichier ne se rejoue pas sous `--since` quand ce
+        # qu'il garde a bouge.
+        "scripts/python/engine/entities/abilities/__init__.py",
+        "scripts/python/engine/runner/abilities/behaviours/__init__.py",
+        "scripts/python/engine/runner/caches/__init__.py",
+        "scripts/python/engine/runner/caches/ability_and_effect_cache.py",
+        "scripts/python/engine/streams/__init__.py",
+        "scripts/python/engine/streams/verify_turn_finished.py",
         "scripts/python/engine/runner/operations/triggers/loki/refusal_to_be_outdone.py",
         "scripts/python/engine/runner/operations/triggers/dispatch/registry.py",
         # `sum_ability_data` -- l'etage 1 (somme + exclusion) le mesure directement.
