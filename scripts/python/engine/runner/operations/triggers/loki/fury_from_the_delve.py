@@ -137,7 +137,7 @@ from .....entities.formulas import PercentageOf, StatAmount
 from .....entities.selectors.accessors import Owner, Target
 from .....entities.stats import StatPart, StatType
 from .....entities.triggered_ability_type import TriggeredAbilityType
-from .....entities.triggers import AmountIsGreater
+from .....entities.triggers import AmountIsGreater, AmountIsGreaterThanZero
 from .....dsl.effects import ExecutionContext
 from ....abilities.attack_type import is_normal_attack
 from ....abilities.behaviours.combat import AttackWithAttackDamage
@@ -329,7 +329,12 @@ class FuryFromTheDelveAttackOrPinAbility(TriggeredAbility):
         rounds = _ability_constant(state, int(self.owner_id), _ROUNDS_KEY, 1)
         ents = entities_from_state(state, int(self.owner_id), ev.target_id, actor_id=ev.actor_id)
         ectx = ExecutionContext(state=state, rng=state.rng)
-        tree = If(_StoredFlagIsAboveZero(stored),
+        # `DSLBehaviors.If(formula, ...)` fabrique lui-meme
+        # `DSLTriggers.AmountIsGreaterThanZero(<la formule>)` (en-tete, point 1) : le port ECRIT ce
+        # noeud, il ne le collapse pas en un `bool`. La formule, elle, est deja evaluee -- le sac
+        # persistant est un COMPOSANT ECS, pas une entree du `ctx` DSL, donc `GetPersistentData`
+        # n'a pas de mirror-noeud a interposer ici.
+        tree = If(AmountIsGreaterThanZero(Const(stored)),
                   fury_from_the_delve_pinned_tree(rounds),
                   fury_from_the_delve_attack_tree())
         tree.execute(ents, ectx)
@@ -342,20 +347,3 @@ class FuryFromTheDelveAttackOrPinAbility(TriggeredAbility):
                 "attack": (atks[0].get("attack") if atks else None),
                 "total": sum(int(p.get("total") or 0) for p in atks) if atks else None,
                 "dsl": True}
-
-
-class _StoredFlagIsAboveZero:
-    """`DSLTriggers.AmountIsGreaterThanZero( GetPersistentDataFormula(1528, Owner, key) )` --
-    la condition que la surcharge `If(formula, ...)` fabrique elle-meme (en-tete, point 1).
-
-    La valeur est LUE avant la construction de l'arbre (`try_get_persist_data`) parce que le sac
-    est un composant ECS, pas une entree du `ctx` DSL ; le noeud ne porte donc que la comparaison.
-    Ecrire `Const(stored)` dans un `AmountIsGreaterThanZero` du paquet `entities.triggers` aurait
-    marche aussi -- ce type-ci existe pour que le SITE dise quelle formule est comparee."""
-    __slots__ = ("stored",)
-
-    def __init__(self, stored: int):
-        self.stored = int(stored)
-
-    def should_trigger(self, entities) -> bool:
-        return self.stored > 0
