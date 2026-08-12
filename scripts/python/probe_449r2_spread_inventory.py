@@ -201,6 +201,59 @@ def _attrs_assigned_from(init_fn, param: str):
     return out
 
 
+#: `{(fichier, nom d'appel): {"<base> (n definition(s))", ...}}` -- les classes de base qu'une
+#: derivation n'a PAS su resoudre, remplies par `collect_definitions`. Rendues au rapport pour que
+#: << je n'ai pas suivi cette base >> soit LU, jamais silencieux : c'est la seule difference entre
+#: un doute assume et un angle mort.
+BASES_NON_RESOLUES = {}
+
+
+def _nom_de_base(node):
+    """Le NOM SIMPLE d'une expression de classe de base (`Base`, `mod.Base`), sinon None."""
+    if isinstance(node, ast.Name):
+        return node.id
+    if isinstance(node, ast.Attribute):
+        return node.attr
+    return None                                   # `Generic[T]`, appel, etc. : non resolu
+
+
+def _methodes_heritees(classe: ast.ClassDef, index: dict, ko: list):
+    """Les methodes des classes de BASE de `classe`, remontees TRANSITIVEMENT.
+
+    POURQUOI CE CANAL EXISTE (#956). La derivation d'origine ne cherchait les lectures d'un
+    parametre de `__init__` que dans les autres methodes ECRITES DANS LA MEME `ClassDef`. Un
+    port peut parfaitement mettre le lecteur dans la classe de BASE : mesure du 2026-08-12,
+    `ChainAttackDamage` (`engine/runner/abilities/behaviours/chain.py`) n'a QUE son `__init__`
+    -- il range `amount_spread_pct` dans le sous-objet `self.damage`, et c'est
+    `ChainAbilityDamage.execute` (la base) qui lit `self.damage`. Zero lecture derivee, donc
+    << parametre MORT >>, donc `master` ROUGE sur un port CORRECT.
+
+    LA RESOLUTION EST EXIGEANTE, ET LE SENS DU DOUTE EST CELUI QUI ROUGIT. Un nom de base qui
+    ne designe pas EXACTEMENT UNE `ClassDef` de l'arbre analyse n'est PAS suivi : on ne sait pas
+    de quelle classe il s'agit, et l'inventer ferait COMPTER des lectures qui n'existent
+    peut-etre pas -- c'est-a-dire fabriquer un FAUX NEGATIF, la seule direction dangereuse de ce
+    detecteur. Un doute laisse donc le compte inchange, le cliquet rougit, et un humain lit. Les
+    bases non resolues sont RENDUES (`ko`) pour que le rapport puisse le dire.
+    """
+    out, vues, pile = [], {classe.name}, list(classe.bases)
+    while pile:
+        base = pile.pop()
+        nom = _nom_de_base(base)
+        if nom is None or nom in vues:
+            continue
+        vues.add(nom)
+        candidats = index.get(nom) or []
+        if len(candidats) != 1:
+            ko.append((nom, len(candidats)))
+            continue
+        cd = candidats[0]
+        for sub in cd.body:
+            if isinstance(sub, (ast.FunctionDef, ast.AsyncFunctionDef)) and sub.name != "__init__":
+                out.append(sub)
+        pile.extend(cd.bases)
+    return out
+
+
 def _positive_gates(fn, attrs, local_names=()):
     """Pour chaque LECTURE de la variance dans `fn`, les gates POSITIFS qui la dominent.
 
@@ -280,6 +333,14 @@ def collect_definitions(root: Path):
     `VARIANCE_PARAMS`. Le nom rendu est le NOM D'APPEL (celui d'une classe pour son
     `__init__`, celui de la methode ou de la fonction sinon)."""
     defs = []
+    # INDEX DES CLASSES, prealable a la remontee d'heritage (#956). Une classe est indexee par son
+    # NOM SIMPLE, et une collision de noms rend la resolution AMBIGUE -- donc NON suivie.
+    index: dict = {}
+    for _rel, tree in _iter_modules(root):
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ClassDef):
+                index.setdefault(node.name, []).append(node)
+    BASES_NON_RESOLUES.clear()
     for rel, tree in _iter_modules(root):
         for node in ast.walk(tree):
             if isinstance(node, ast.ClassDef):
@@ -300,10 +361,18 @@ def collect_definitions(root: Path):
                             # GATE d'activation se lit dans le corps, il ne se suppose pas.
                             attrs = _attrs_assigned_from(sub, param)
                             reads = []
-                            for other in node.body:
-                                if isinstance(other, (ast.FunctionDef, ast.AsyncFunctionDef)) \
-                                        and other is not sub:
-                                    reads.extend(_positive_gates(other, attrs))
+                            lecteurs = [o for o in node.body
+                                        if isinstance(o, (ast.FunctionDef, ast.AsyncFunctionDef))
+                                        and o is not sub]
+                            # ... ET CEUX DES CLASSES DE BASE (#956) : le lecteur de l'attribut
+                            # n'est pas tenu de vivre dans la meme `ClassDef`.
+                            ko_bases = []
+                            lecteurs.extend(_methodes_heritees(node, index, ko_bases))
+                            for nom, n in ko_bases:
+                                BASES_NON_RESOLUES.setdefault((rel, call_name), set()).add(
+                                    "%s (%d definition(s) dans l'arbre)" % (nom, n))
+                            for other in lecteurs:
+                                reads.extend(_positive_gates(other, attrs))
                             d.reads = len(reads)
                             if reads:
                                 common = set(reads[0])
@@ -400,6 +469,21 @@ _RAISON_NULLABLE_VIDE = (
     "`IdunBattle.Core.Services.DamagePrediction$$PredictAttackRaw` prend la branche PLATE. "
     "Un defaut non nul appliquerait +-20 % aux porteurs qui OMETTENT le mot-cle.")
 
+_RAISON_NULLABLE_VIDE_CHAIN = (
+    "0 = l'argument `damageOptions` de "
+    "`IdunBattleLogic.Entities.DSLBehaviors$$ChainAttackDamage` -- un "
+    "`Nullable<AttackDamageBehaviourOptions>` de 0x20 octets que la factory recopie TEL QUEL "
+    "dans `IdunBattle.Entities.Behaviours.ChainAttackDamageBehaviour$$.ctor` -- est passe VIDE "
+    "par les DEUX consommateurs lus : "
+    "`IdunBattleLogic.Entities.Abilities.Active.Loki.KissOfDeathAbility$$ExecuteBehaviour` et "
+    "`IdunBattleLogic.Entities.Abilities.Triggered.Loki.FuryOfTheAncientsAbility$$CreateBehaviour` "
+    "mettent les quatre qwords a ZERO juste avant l'appel. L'octet d'aiguillage +6 vaut donc 0 "
+    "et `IdunBattle.Core.Services.DamagePrediction$$PredictAttackRaw` prend la branche PLATE. "
+    "ATTENTION -- CE N'EST PAS LE MEME ARGUMENT que celui de `$$AttackWithAttackDamage` (8e, cf. "
+    "`_RAISON_NULLABLE_VIDE`) : ici la signature native le NOMME et il est en 10e position, "
+    "apres `abilityType` / `extraBehaviour` / `maxTargetsExtra`. Le recopier de la voisine "
+    "aurait cite le mauvais slot.")
+
 _RAISON_SPREAD_BC = (
     "LU_BC = la variance d'arme du canal de l'attaque NORMALE est "
     "`BattleConfiguration.Damage.DamageSpreadPercentage`, et le natif ne la connait QUE par sa "
@@ -438,19 +522,22 @@ _RAISON_REQUIS = (
 EXPECTED_DEFAULT = {
     ("engine/runner/abilities/behaviours/combat.py", "AttackWithAttackDamage",
      "amount_spread_pct"): (0, _RAISON_NULLABLE_VIDE),
+    ("engine/runner/abilities/behaviours/chain.py", "ChainAttackDamage",
+     "amount_spread_pct"): (0, _RAISON_NULLABLE_VIDE_CHAIN),
     ("engine/runner/abilities/behaviours/combat.py", "UseActiveAbility",
      "spread_pct"): ("LU_BC", _RAISON_SPREAD_BC),
-    #: LU au decompile (#935, build courant) et NON recopie du voisin : le corps de
+    #: `UseNormalAttack` N'A PLUS D'ENTREE ICI, et son absence est un RESULTAT, pas un oubli.
+    #: Sa lecture native reste vraie et vit dans le docstring de la classe : le corps de
     #: `IdunBattleLogic.Entities.DSLBehaviors$$UseNormalAttack` alloue
     #: `DSLSelectors$$UnitNormalAttackType(caster)` puis construit
-    #: `IdunBattle.Entities.Behaviours.UseActiveAbilityBehaviour$$.ctor(caster, target, <ce type>,
-    #: parentAbility, triggerAbilityOrEffect, options)` en RECOPIANT les options telles quelles --
-    #: aucun champ n'y est ecrit. Ce sont des `AbilityOptions` (0x14 octets), PAS des
-    #: `AttackDamageBehaviourOptions` : l'octet d'aiguillage plate-vs-spread (`options+6`) n'existe
-    #: pas sur ce chemin, donc rien ici ne peut imposer une variance. Le regime est celui de
-    #: l'attaque NORMALE, et il se lit dans la BC.
-    ("engine/runner/abilities/behaviours/combat.py", "UseNormalAttack",
-     "spread_pct"): ("LU_BC", _RAISON_SPREAD_BC),
+    #: `IdunBattle.Entities.Behaviours.UseActiveAbilityBehaviour$$.ctor(...)` en RECOPIANT les
+    #: options telles quelles -- ce sont des `AbilityOptions` (0x14 octets), PAS des
+    #: `AttackDamageBehaviourOptions`, donc l'octet d'aiguillage `options+6` n'existe pas sur ce
+    #: chemin. Ce que le port en a tire : `UseNormalAttack` ne surcharge PLUS `__init__` et
+    #: HERITE celui d'`UseActiveAbility` -- il n'y a donc plus de SIGNATURE a garder ici, et la
+    #: garde est portee par l'entree `UseActiveAbility` juste au-dessus. Laisser l'entree ferait
+    #: rougir `test_chaque_justification_designe_un_site_reel` (#956), a raison : une
+    #: justification qui ne designe plus rien est une garde qui a survecu a son gisement.
     ("engine/runner/operations/additional_hits.py", "execute_additional_hits",
      "spread_pct"): ("LU_BC", _RAISON_SPREAD_BC),
     ("engine/runner/operations/damage.py", "DamageHandler",
@@ -497,6 +584,18 @@ EXPECTED_ZERO = {
     ("engine/runner/operations/triggers/loki/cursed_plague_bell.py", "AttackWithAttackDamage"):
         "IdunBattleLogic.Entities.Abilities.Active.Loki.CursedPlagueBellAttackAbility$$"
         "CreateBehaviour : meme forme, 8e argument Nullable VIDE (0x28 octets a zero).",
+    ("engine/runner/abilities/aeldari.py", "ChainAttackDamage"):
+        "IdunBattleLogic.Entities.Abilities.Active.Loki.KissOfDeathAbility$$ExecuteBehaviour "
+        "met les quatre qwords de son `Nullable<AttackDamageBehaviourOptions>` a ZERO juste avant "
+        "de le passer en `damageOptions` (10e argument) a "
+        "IdunBattleLogic.Entities.DSLBehaviors$$ChainAttackDamage -- Nullable VIDE, donc octet "
+        "d'aiguillage +6 nul, donc branche PLATE. Le site OMET le mot-cle : c'est le DEFAUT de la "
+        "signature qui porte la decision (cf. EXPECTED_DEFAULT).",
+    ("engine/runner/operations/triggers/loki/fury_of_the_ancients.py", "ChainAttackDamage"):
+        "IdunBattleLogic.Entities.Abilities.Triggered.Loki.FuryOfTheAncientsAbility$$"
+        "CreateBehaviour : meme forme, meme argument `damageOptions` de "
+        "IdunBattleLogic.Entities.DSLBehaviors$$ChainAttackDamage, quatre qwords a ZERO ecrits "
+        "juste avant l'appel. Le site OMET egalement le mot-cle.",
     ("engine/runner/operations/triggers/loki/haze_of_corruption.py", "AttackWithAttackDamage"):
         "IdunBattle.Entities.Effects.Loki.HazeOfCorruption_DamageTransferEffect$$"
         "CreateTargetTriggerBehaviour : chaque feuille est un "
@@ -1017,6 +1116,57 @@ def self_test():
             ko.append("C7ter (NEGATIF) : parametre de @staticmethod declare MORT "
                       "(bug 1 de ce detecteur, tel qu'il s'est produit)")
 
+        # --- C7quater (#956) : le lecteur peut vivre dans la classe de BASE --------------
+        # LE FAUX POSITIF MESURE, tel qu'il s'est produit sur `master`. La derivation ne
+        # cherchait les lectures que dans la MEME `ClassDef`. `ChainAttackDamage` n'a QUE son
+        # `__init__` -- il range la variance dans `self.damage`, et c'est `ChainAbilityDamage.
+        # execute` (la BASE) qui lit `self.damage`. Resultat : 0 lecture, << parametre MORT >>,
+        # sur un port CORRECT.
+        _BASE = ("class Base:\n"
+                 "    def execute(self):\n        return self.damage\n\n")
+        root = arbre({"engine/a.py": _BASE +
+                      "class Chaine(Base):\n"
+                      "    def __init__(self, cible, spread_pct=0):\n"
+                      "        self.cible = cible\n"
+                      "        self.damage = (cible, spread_pct)\n"})
+        d = [x for x in collect_definitions(root) if x.call_name == "Chaine"]
+        if len(d) != 1:
+            ko.append("C7quater : %d definition(s) pour `Chaine`, 1 attendue" % len(d))
+        elif d[0].reads == 0:
+            ko.append("C7quater (NEGATIF) : un parametre lu par une methode HERITEE est declare "
+                      "MORT -- c'est le faux positif #956 (`ChainAttackDamage`)")
+        # ... LA BORNE : sans elle, la remontee d'heritage pourrait degenerer en << tout est lu >>.
+        # Meme arbre, la base ne lit PLUS l'attribut : le parametre redevient MORT.
+        root = arbre({"engine/a.py":
+                      "class Base:\n    def execute(self):\n        return self.cible\n\n"
+                      "class Chaine(Base):\n"
+                      "    def __init__(self, cible, spread_pct=0):\n"
+                      "        self.cible = cible\n"
+                      "        self.damage = (cible, spread_pct)\n"})
+        d = [x for x in collect_definitions(root) if x.call_name == "Chaine"]
+        if len(d) != 1:
+            ko.append("C7quinquies : %d definition(s) pour `Chaine`, 1 attendue" % len(d))
+        elif d[0].reads != 0:
+            ko.append("C7quinquies (BORNE) : la remontee d'heritage compte %r lecture(s) la ou "
+                      "AUCUNE methode ne lit l'attribut" % d[0].reads)
+        # ... et LE DOUTE ROUGIT : un nom de base porte par DEUX classes de l'arbre n'est PAS
+        # suivi. Suivre au hasard fabriquerait un FAUX NEGATIF, la seule direction dangereuse.
+        root = arbre({"engine/a.py": _BASE +
+                      "class Chaine(Base):\n"
+                      "    def __init__(self, cible, spread_pct=0):\n"
+                      "        self.cible = cible\n"
+                      "        self.damage = (cible, spread_pct)\n",
+                      "engine/b.py": "class Base:\n    def autre(self):\n        return 1\n"})
+        d = [x for x in collect_definitions(root) if x.call_name == "Chaine"]
+        if len(d) != 1:
+            ko.append("C7sexies : %d definition(s) pour `Chaine`, 1 attendue" % len(d))
+        elif d[0].reads != 0:
+            ko.append("C7sexies (DOUTE) : une base HOMONYME (2 definitions) a ete suivie quand "
+                      "meme -- %r lecture(s) comptee(s)" % d[0].reads)
+        elif not BASES_NON_RESOLUES:
+            ko.append("C7sexies : la base non resolue n'est RAPPORTEE nulle part -- un doute "
+                      "silencieux est un angle mort")
+
         # --- C8 : defaut NON LITTERAL -> ingardable, donc rouge --------------------------
         root = arbre({"engine/a.py": "SP = 20\ndef porte(base, spread_pct=SP):\n"
                                      "    return base * spread_pct\n"})
@@ -1142,6 +1292,14 @@ def main() -> int:
                  d.default if d.default_kind == "LITTERAL" else d.default_kind,
                  d.pos_index if d.pos_index is not None else "kw",
                  ",".join(sorted(d.gates)) if d.gates else "-"))
+    if BASES_NON_RESOLUES:
+        # LE DOUTE EST DIT (#956). Ces classes ont une base que l'index n'a pas su designer, donc
+        # ses methodes n'ont PAS ete visitees : le compte de lectures y est MINORE, ce qui pousse
+        # vers le rouge (le sens SUR), mais un lecteur doit savoir que la remontee s'est arretee.
+        print("bases NON RESOLUES (heritage non suivi -- lectures possiblement MINOREES) : %d"
+              % len(BASES_NON_RESOLUES))
+        for (rel, nom), bases in sorted(BASES_NON_RESOLUES.items()):
+            print("  %-56s %s <- %s" % (nom, rel, ", ".join(sorted(bases))))
 
     actifs = [s for s in sites if not s["inert"]]
     inertes = [s for s in sites if s["inert"]]
