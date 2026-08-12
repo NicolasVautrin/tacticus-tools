@@ -5038,6 +5038,13 @@
    "py": [],
    "temoins": []
   },
+  "tests/engine/test_952_hunters_beyond_death_offline.py": {
+   "_at": 1786495496,
+   "_commit": "910b7235ef7aa61fe1a41ecb86729f162a6296b0",
+   "dirs": [],
+   "py": [],
+   "temoins": []
+  },
   "tests/engine/test_effect_1582_inertia_binary.py": {
    "_at": 1786392144,
    "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
