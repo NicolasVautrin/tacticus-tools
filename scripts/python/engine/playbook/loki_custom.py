@@ -37,6 +37,10 @@ from .prediction.abilities import make_secondary_multihit_event
 from .common import DefaultActiveAbilityPlaybook
 from .base import NO_ACTION, register, tile_utility, tile_utility_for_unit
 from .nonattack import NonAttackComparablePlaybook, register_nonattack
+# #970 : les DEUX corps generiques de deplacement (`Playbook`1$$GetPushableTiles` /
+# `$$GetTargetUtilityDiffOnDisplace`) ont demenage la -- foyer PARTAGE avec `1043 ThunderousAssault`
+# (NonComparable), qui les appelle a l'identique. Forme B : le binding de module reste patchable.
+from . import displace_utility as _displace
 from .. import battle_query as bq
 from .. import dsl
 from ..entities.active_ability_type import ActiveAbilityType
@@ -1270,7 +1274,14 @@ class MortisRoundPlaybook(_CustomOnlyPlaybook):
     RESIDU nomme : `IsDisplaceable` teste aussi `HasFlag(unit, 0x19)`, un `UnitFlag` que le substrat
     de DECISION (`decisionView`) n'expose pas -> gate INERTE (borne SUPERIEURE, jamais une tuile
     retiree a tort). Les quatre autres refus (mort, `Hulking`=3, `Immovable`=17, `BigTarget`=1017)
-    sont portes."""
+    sont portes.
+
+    ⚠ #970 -- LES DEUX CORPS GENERIQUES ONT DEMENAGE dans `playbook/displace_utility.py`. Ils
+    vivent sur la BASE `Playbook`1`, donc `1043 ThunderousAssault` (NonComparable) les appelle a
+    l'identique ; les dupliquer aurait fait deux exemplaires libres de diverger, exactement le
+    gisement que #498-r4 a ferme sur `NOT_DISPLACEABLE_TRAITS`. Ce qui RESTE ici est ce qui
+    appartient VRAIMENT a `MortisRoundPlaybook$$CalculateCustomUtility` : la TRONCATURE vers `int`
+    (`Fix64$$op_Explicit` puis `op_Implicit`), absente du corps generique."""
     ability_id = int(ActiveAbilityType.MortisRound)  # 1004
 
     def should_execute(self, ctx, caster_tile, target, ability_id, utility) -> bool:
@@ -1292,17 +1303,16 @@ class MortisRoundPlaybook(_CustomOnlyPlaybook):
     # libres de diverger, et c'est le gisement exact que #498-r3 a ferme cote RUNNER.
     _NOT_DISPLACEABLE = NOT_DISPLACEABLE_TRAITS
 
-    @staticmethod
-    def _unit(ctx, entity_id):
-        for u in (ctx.units or []):
-            if u.get("id") == entity_id:
-                return u
-        return None
+    _unit = staticmethod(_displace.unit_of)
 
     @classmethod
     def _is_displaceable(cls, ctx, unit: dict) -> bool:
         """`IdunBattle.Entities.UnitExtensions$$IsDisplaceable(unit)` : vivante, et sans aucun des
         trois traits refusants.
+
+        ⚠ #970 -- LE CORPS EST DANS `playbook/displace_utility.py` (foyer partage avec `1043`). Ce
+        qui reste ici est l'alias : la docstring ci-dessous est la MESURE, elle ne doit pas se
+        dupliquer avec le corps.
 
         DEUX des cinq conditions natives ne sont PAS portees ici, et #498-r4 les a MESUREES plutot
         que supposees -- les deux verdicts sont « ne pas cabler », pour deux raisons DIFFERENTES :
@@ -1325,54 +1335,15 @@ class MortisRoundPlaybook(_CustomOnlyPlaybook):
 
         Le gate `alive` en tete, lui, est un ECART du port : le natif ne teste AUCUNE liveness
         (cf. `runner/components.py::unit_extensions_is_displaceable`). RESTRICTIF, conserve."""
-        if not unit or not unit.get("alive"):
-            return False
-        scene = getattr(ctx, "scene", None)
-        uctx = scene.ctx(unit.get("id")) if scene is not None else None
-        names = entity_trait_names(uctx, unit.get("visualId"))
-        return not has_any_trait(names, cls._NOT_DISPLACEABLE)
+        return _displace.is_displaceable(ctx, unit)
 
     def calculate_custom_utility(self, ctx, caster_tile, target, ability_id) -> float:
-        tu = self._unit(ctx, target)
-        if tu is None or not self._is_displaceable(ctx, tu):
-            return 0.0                       # branche `!IsDisplaceable` -> Fix64(0)
-        tpos = _main_tile_of(ctx, target)
-        if tpos is None:
-            return 0.0
-        walkable_at, elevation_at, tile_exists = bq.tiles_behind_accessors(
-            getattr(ctx, "walkable_by_pos", None), getattr(ctx, "elev_by_pos", None))
-        tiles = bq.get_minimum_tiles_180_behind_from_tile(
-            caster_tile, tpos, walkable_at=walkable_at, elevation_at=elevation_at,
-            tile_exists=tile_exists)
-        if not tiles:
-            return 0.0
-        # `DSLSelectors.EmptyOrHasSteppableUnit` : la tuile doit etre LIBRE, ou portee par une unite
-        # a trait `Steppable` (27) -- l'occupant que le push ecrase au lieu de bloquer.
-        occ = {}
-        for u in (ctx.units or []):
-            p = u.get("pos") or {}
-            if u.get("alive") and p.get("col") is not None and u.get("id") != target:
-                occ[(p["col"], p["row"])] = u
-        scene = getattr(ctx, "scene", None)
-        keep = []
-        for p in tiles:
-            o = occ.get(p)
-            if o is None:
-                keep.append(p)
-                continue
-            octx = scene.ctx(o.get("id")) if scene is not None else None
-            if has_any_trait(entity_trait_names(octx, o.get("visualId")), (UnitTrait.Steppable,)):
-                keep.append(p)
-        if not keep:
-            return 0.0
-        u0 = tile_utility_for_unit(ctx, tu, tpos)
-        best = 0.0
-        for p in keep:
-            diff = u0 - tile_utility_for_unit(ctx, tu, p)
-            if diff > 0.0 and diff > best:
-                best = diff
+        # `GetTargetUtilityDiffOnDisplace(caster, casterTile, this.GetPushableTiles, target).<+0x18>`
+        # -- corps GENERIQUE (`Playbook`1`), foyer `playbook/displace_utility.py` (#970).
+        best = _displace.target_utility_diff_on_displace(ctx, caster_tile, target)
         # `Fix64$$op_Explicit` (Fix64 -> int) puis `op_Implicit` (int -> Fix64) : TRONCATURE vers
-        # zero, pas un arrondi. `best` est >= 0 par construction, donc `int()` suffit.
+        # zero, pas un arrondi -- et elle appartient a CE corps-ci, pas au generique. `best` est
+        # >= 0 par construction, donc `int()` suffit.
         return float(int(best))
 
 

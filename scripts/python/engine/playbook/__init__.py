@@ -32,6 +32,7 @@ from . import daemonic_ordnance  # noqa: F401  (#302 tranche 3) 1148 -> meme rou
 from . import static_threshold_gate  # noqa: F401  (#419-r1-tr14-r5-r2-r1-r1-r1-r2) gate `utility > <static>` x10
 from . import should_execute_gates  # noqa: F401  (#419-r1-tr14-r5-r2-r1-r1-r1) les 4 derniers corps propres portables
 from . import spirit_leech  # noqa: F401  (#419-r1-tr14-r5-r2-r1-r1-r3) 1104 : lifesteal au rang natif
+from . import might_from_below  # noqa: F401  (#970) 1165 : le terme CalculateCasterPositionUtility (+0x348)
 from .noncomparable import (
     choose_action as nc_choose_action, is_noncomp, is_summon, playbook_for as nc_playbook_for
 )

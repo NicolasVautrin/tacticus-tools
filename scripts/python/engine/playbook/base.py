@@ -250,6 +250,28 @@ class ComparablePlaybook(BasePlaybook):
         Drachnyen IdunBattle.AI.Playbook.Loki.DrachnyenPlaybook$$CalculateCustomUtility count>=2, HeraldOfTheApocalypse IdunBattle.AI.Playbook.Loki.HeraldOfTheApocalypsePlaybook$$CalculateCustomUtility, ProperKilly IdunBattle.AI.Playbook.Loki.ProperKilly_NormalAttackPlaybook$$CalculateCustomUtility...)."""
         return 0.0
 
+    def calculate_caster_position_utility(self, ctx, caster_tile, ability_id) -> float:
+        """`CalculateCasterPositionUtility` — **slot de vtable +0x348**, sommé par
+        `IdunBattle.AI.Playbook.ComparablePlaybooku003C__Il2CppFullySharedGenericTypeu003E$$CalculateActionUtility`
+        APRÈS le gate `ShouldExecute` et AVANT la clé `0x37` puis `Tile(7)` — c'est ce RANG-là qui
+        est porté ici, pas une place de commodité.
+
+        DÉFAUT `0.0`, et c'est le corps natif EXACT, pas une convention permissive :
+        `IdunBattle.AI.Playbook.ComparablePlaybooku003C__Il2CppFullySharedGenericTypeu003E$$CalculateCasterPositionUtility`
+        est `return Fix64.op_Implicit(0);` (deux instructions). L'ajout est donc un **no-op mesuré**
+        pour les 100+ membres actuels du registre : aucun ne l'override.
+
+        Le terme ne prend NI la cible NI l'utilité déjà sommée — seulement le caster et sa position
+        candidate (`caster, casterPosition, abilityOrEffect`). Il départage donc les POSITIONS, pas
+        les cibles. Premier overrideur porté : `1165 MightFromBelow`
+        (`playbook/might_from_below.py`) ; `1184 MomentShackle` porte le même slot mais par sa route
+        BESPOKE (`playbook/bespoke.py`), où il est déjà sommé à la main.
+
+        ⚠ La seconde route Comparable (`playbook/nonattack.py::nonattack_candidates`) somme le même
+        terme côté natif ; elle ne l'appelle pas encore — résidu nommé de `case-27`, INERTE tant
+        qu'aucun membre de `NONATTACK_PLAYBOOKS` ne l'override (mesure : 0 sur ce build)."""
+        return 0.0
+
     def should_execute(self, ctx, caster_tile, target, ability_id, utility) -> bool:
         """`ComparablePlaybook<T>.ShouldExecute` — **slot de vtable +0x328**, appelé par
         `IdunBattle.AI.Playbook.ComparablePlaybooku003C__Il2CppFullySharedGenericTypeu003E$$CalculateActionUtility`
@@ -359,8 +381,12 @@ class ComparablePlaybook(BasePlaybook):
             return None
         main = events[0]
         wwn = wireweave_net_first_attack_utility(ctx, caster_tile, target)
-        return {"u": u, "u_full": u + wwn + tile_utility(ctx, caster_tile), "wwn": wwn,
-                "pred": main.composite_fields(), "aoe": events[1:], "bk": bk}
+        # RANG NATIF : `CalculateCasterPositionUtility` (slot +0x348) est le PREMIER des trois
+        # termes positionnels, AVANT la clé `0x37` (`wwn`) et `Tile(7)`. Défaut `Fix64(0)` =>
+        # no-op exact pour tout playbook qui ne l'override pas (#970).
+        cpu = self.calculate_caster_position_utility(ctx, caster_tile, ability_id)
+        return {"u": u, "u_full": u + cpu + wwn + tile_utility(ctx, caster_tile), "wwn": wwn,
+                "cpu": cpu, "pred": main.composite_fields(), "aoe": events[1:], "bk": bk}
 
 
 # Registry AbilityType id -> instance de playbook (Comparable ; les NonComparable ont leur propre
