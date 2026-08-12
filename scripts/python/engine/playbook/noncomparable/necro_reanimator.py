@@ -28,7 +28,7 @@ from __future__ import annotations
 from engine.entities.active_ability_type import ActiveAbilityType
 from engine.entities.stats import StatType
 
-from . import _targets as TGT      # FORME B (liaison de MODULE) : lecture des cibles eligibles.
+import engine.playbook.noncomparable._targets as TGT   # FORME B, en ABSOLU (cf. #962)
 from ._base import NCContext, NonComparablePlaybook, native_priority
 
 

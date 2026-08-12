@@ -36,7 +36,7 @@ from engine.entities.active_ability_type import ActiveAbilityType
 from engine.entities.effects.magnitude import ability_var
 from engine.entities.traits.unit_trait import UnitTrait
 
-from . import _targets as TGT      # FORME B (liaison de MODULE)
+import engine.playbook.noncomparable._targets as TGT   # FORME B, en ABSOLU (cf. #962)
 from ._base import NCContext, NonComparablePlaybook, native_priority, _unit_cfg
 
 

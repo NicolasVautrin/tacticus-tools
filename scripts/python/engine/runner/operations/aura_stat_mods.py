@@ -74,6 +74,7 @@ from typing import Optional
 from ..state import State
 from ..components import StatsComponent, unit_state_for_effects
 from ...entities.stats import CAPTURED_SOURCE
+from .effects import AddEffectOperation
 
 
 def aura_stat_mod_key(owner_id: int, eff) -> tuple:
@@ -157,7 +158,6 @@ def _apply_aura_sub_effects(state: State, owner_id: int, eff, targets) -> list:
     specs = specs() if specs is not None else ()
     if not specs:
         return []
-    from .effects import AddEffectOperation
     out: list = []
     for uid in targets:
         for spec in specs:

@@ -14,13 +14,16 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-BUILD = "rnca9r7q6c"
-
-
 def _tsv() -> Path:
-    here = Path(__file__).resolve()
-    root = here.parents[2]
-    return root / "data" / "symbols" / BUILD / "ghidra" / "functions.tsv"
+    """La table de symboles du build qui FAIT FOI.
+
+    #962 : le chemin etait construit sur `BUILD = "rnca9r7q6c"` EN DUR, ce que
+    `probe_431_build_literals` refuse -- un chemin epingle court-circuite
+    `data/symbols/CURRENT` ET le binaire installe, donc aucune garde de synchronisation ne peut
+    voir la peremption : au prochain build, ce probe lirait en silence la table de l'ANCIEN.
+    `build_pin.functions_tsv()` est le foyer unique qui resout le build courant."""
+    from build_pin import functions_tsv
+    return Path(functions_tsv())
 
 
 def charger() -> list[tuple[int, str]]:

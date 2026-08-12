@@ -65,6 +65,7 @@ from .....entities.effects.magnitude import ability_var
 from ....components import OwnerComponent
 from ...heal import HealUnitOperation
 from ..base import EffectTrigger
+from ...remove_effects import remove_effect_instance
 
 if TYPE_CHECKING:                                        # pragma: no cover
     from ....state import State
@@ -151,5 +152,4 @@ class HealingBalmsDelayedHeal(EffectTrigger):
         l'`EffectsOwnedComponent`."""
         if inst is None:
             return False
-        from ...remove_effects import remove_effect_instance
         return bool(remove_effect_instance(state, int(self.owner_id), inst))
