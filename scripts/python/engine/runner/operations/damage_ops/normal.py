@@ -303,21 +303,6 @@ class _Normal:
                                                 weapon_melee=_melee):
             execute_feeder_tendrils_special(state, attacker_id, target_id)
         ahc = att.get_component(HealthComponent)
-        # `On(PreAttack=5)` (#84) — vecteur natif emis par `IdunBattle.Operations.
-        # StartAttackOperation$$Execute` (`EvaluateAbilitiesImmediately(5, ...)`, slot 80), que
-        # `IdunBattle.Entities.Behaviours.AttackBehaviour$$Execute` declenche (slot 58 `StartAttack`)
-        # AVANT d'executer le behaviour enfant -- donc avant `GetAttackHits` ET avant les mods.
-        #   ⚠ REMONTE (#512-r1) : il etait emis APRES `attacker_modifiers`, ce qui rendait INVISIBLE
-        #   du coup en cours tout bonus de degat ATTAQUANT qu'un consommateur de ce vecteur pose
-        #   (`SuppressiveFire` -> `Pinned` -> `TerrifyingCrescendo_ExtraDmg`). Le natif rebatit les
-        #   mods a CHAQUE `ExecuteHit`, donc il les y voit. Aucun tirage RNG ne separe les deux
-        #   places -> l'ordre `state.rng` est INCHANGE.
-        #   Emis APRES la selection d'arme (le natif connait deja la nature du coup) ; les deux
-        #   consommateurs portes sont `LetTheGalaxyBurnArmAbility` (arme un flag persistant relu par
-        #   le canal de coups plus bas) et `SuppressiveFireAddEffectAbility`.
-        if tp is not None:
-            from ..triggers.dispatch.attack import pre_attack_triggers  # lazy : cycle damage<->triggers
-            pre_attack_triggers(state, attacker_id, target_id, ranged=bool(_ranged), profile=_profile)
         mods, active = attacker_modifiers(state, attacker_id, ahc.hp if ahc else None, is_ranged=_ranged,
                                           target_traits=target_trait_names(state, target_id),
                                           target_id=target_id, damage_profile=_profile,
@@ -338,6 +323,53 @@ class _Normal:
         # #181 : reduction TRENCH (feuille positionnelle soeur de l'elevation dans le meme builder natif) —
         # -50% si la cible porte l'effet Trench + conditions attaquant-tuile (calculate_trench_reduction).
         apply_trench_reduction(state, mods, attacker_id, target_id, _profile)
+        # `On(PreAttack=5)` (#84) — vecteur natif emis par `IdunBattle.Operations.
+        # StartAttackOperation$$Execute` (`EvaluateAbilitiesImmediately(5, ...)`, slot 80), que
+        # `IdunBattle.Entities.Behaviours.AttackBehaviour$$Execute` declenche (slot 58 `StartAttack`)
+        # AVANT d'executer le behaviour enfant. Emis APRES la selection d'arme (le natif connait deja
+        # la nature du coup) ; les deux consommateurs portes sont `LetTheGalaxyBurnArmAbility` (arme
+        # un flag persistant relu par le canal de coups juste dessous) et
+        # `SuppressiveFireAddEffectAbility` (pose `Pinned` -> `On(PreEffectAdded)` ->
+        # `TerrifyingCrescendo_ExtraDmg` monte d'un niveau).
+        #
+        # ⚠ **PLACE REDESCENDUE SOUS `attacker_modifiers` (#953-r2), ET C'EST LE VECTEUR NORMALE
+        # SEUL.** #512-r1 l'avait remontee AU-DESSUS en generalisant une mesure faite sur une
+        # ABILITY (`1197 ExcruciatingFrequencies`). La mesure d'aujourd'hui, sur ce vecteur-ci,
+        # dit l'INVERSE -- `probe_953r2_ecart_ranged_shiron.py`, board `MC1_67` / seed 777,
+        # `emperNoiseMarine` en RANGED, TROIS attaques successives, meme etat et meme flux RNG :
+        #
+        #   passe | niveau 1424 AVANT (natif) | NATIF | PORT avec la place remontee
+        #     0   |            -              | 4699  | 6396  (+36 %)
+        #     1   |            1              | 6301  | 8541  (+35 %)
+        #     2   |            2              | 8230  | 10526 (+28 %)
+        #
+        # Le natif applique donc le niveau D'AVANT l'attaque ; le port appliquait niveau+1. Avec le
+        # seul canal degat de 1424 neutralise, le port rendait le ledger natif COUP PAR COUP sur les
+        # trois passes -- l'ecart entier tient a ce seul cran, et le reste du pipeline etait juste.
+        #
+        # CE QUI SEPARE LES DEUX VOIES, LU AU DECOMPILE (pas deduit de l'ecart) :
+        # `IdunBattleLogic.Entities.Abilities.Active.Loki.ALoki_NormalAttackAbility$$ExecuteNormalAttack`
+        # -- la base de TOUTE attaque normale -- termine par
+        # `IdunBattle.Entities.Abilities.AActiveAbility$$ExecuteAtomic(behaviour, entities, 0x3d)`,
+        # c.-a-d. `IdunBattleLogic.Entities.DSLBehaviors$$AtomicGroup`. Et
+        # `IdunBattle.Operations.AtomicGroupOperation$$Execute` porte une FILE : apres l'action et la
+        # cloture du groupe (slots 20/21 d'`IBattleQuery`), il DEPILE (slot 10) et rejoue chaque
+        # entree par `IOperationProcessor.EvaluateAbilities` (slot 78) ou
+        # `UnregisterEntityFromTriggers` (slot 85). `1197`, lui, passe par `Execute` et NON
+        # `ExecuteAtomic` (case-512 §1) : ses triggers sont immediats, et `probe_512 --regime R1`
+        # reste VERT bit-exact avec la place remontee sur `ability.py`.
+        #
+        # ⚠ Ce que cette place PORTE et ce qu'elle NE porte PAS : le natif emet bien `On(5)` avant
+        # tout, et ce qui est differe est la CASCADE qui en decoule. Le port n'a pas de groupe
+        # atomique ; descendre l'emission sous `attacker_modifiers` rend le MEME observable pour les
+        # deux consommateurs portes (le flag `LetTheGalaxyBurn` est relu par `build_hits_board`, qui
+        # suit ; le bonus de degat `TerrifyingCrescendo` est lu par `attacker_modifiers`, qui
+        # precede) sans toucher l'ordre `state.rng` -- les trois etages sautes
+        # (`attacker_modifiers`, elevation, trench) sont PURS. Un futur consommateur de `On(5)` qui
+        # poserait un effet lu par le canal COUPS serait, lui, mal servi : c'est le residu #953-r4.
+        if tp is not None:
+            from ..triggers.dispatch.attack import pre_attack_triggers  # lazy : cycle damage<->triggers
+            pre_attack_triggers(state, attacker_id, target_id, ranged=bool(_ranged), profile=_profile)
         # Nb de coups : cette execution EST la facade `IdunBattle.Operations.AttackDamageOperation$$GetAttackHits` — elle
         # rassemble les entrees depuis l'ECS puis appelle la FORMULE PARTAGEE `attack_hits_with_modifiers`
         # (`IdunBattle.Entities.Formulas.AttackHitsWithModifiersFormula$$Calculate`, MEME formule que la facade prediction) :
