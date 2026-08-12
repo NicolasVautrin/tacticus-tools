@@ -271,6 +271,7 @@
  "tests/engine/test_947_948_extra_damage_passives_offline.py": 0.078,
  "tests/engine/test_951_trophy_taker_offline.py": 0.284,
  "tests/engine/test_952_hunters_beyond_death_offline.py": 0.692,
+ "tests/engine/test_955_summary_execution_possession_offline.py": 4.789,
  "tests/engine/test_effect_1582_inertia_binary.py": 1.156,
  "tests/engine/test_fabricator_claw_cap_binary.py": 0.446,
  "tests/engine/test_lions_wrath_custom_utility.py": 0.013,
