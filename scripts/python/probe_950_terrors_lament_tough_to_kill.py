@@ -50,6 +50,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import sys
 import uuid
@@ -61,6 +62,7 @@ sys.path.insert(0, str(PYDIR))
 
 import hexgeo                                                     # noqa: E402
 from probe_r6_round_materialize import _mkrpc                     # noqa: E402
+from engine.entities.traits.unit_trait import UnitTrait           # noqa: E402
 
 BOARD = "MC1_67"
 SEED = "777"
@@ -78,6 +80,14 @@ DREIR = "astraDreir"
 #: milieu du ledger d'attaque, et la capture d'apres montre un porteur DEJA soigne (mesure vide).
 #: `CamoCloak` est une reduction de degat SUR LUI-MEME : il n'attaque pas, il n'est pas attaque.
 FILLER = "ultraEliminatorSgt"
+#: ATTAQUANT `Immune` du bras `tl_immune` (#987, residu #950-r1). `darkaBossLion` est le SEUL des
+#: six porteurs `Immune` a arme de melee dont le profil est PUREMENT melee (`4hmp40`) : les cinq
+#: autres portent aussi une arme a distance (`deathBossMortarion` 7hmp20/3hR2p100,
+#: `tyranBossHiveTyrantLeviathan` 5hmp30/2hR2p100, `tauBossRiptide` 3hmp1/3hR3p15) ou ne montent
+#: pas (`admecBossBelisarius` -> `ShroudPsalm inconnu du build`, refus mesure). Palier `:4` (le
+#: vrai boss) et non `:1` : la reduction vaut `dmgReduction[50] x 180 % = 797` par coup, qui doit
+#: rester LISIBLE devant le degat de base.
+BOSS_IMMUNE = "darkaBossLion:4"
 
 TILE_V = (0, 0)
 TILE_A = (0, 1)
@@ -101,6 +111,28 @@ ARMS = {
             "victim_tile": TILE_J_FAR, "target": "carrier", "crit": "100,700"},
     "ttk_ctl": {"carrier": DREIR, "carrier_tile": TILE_J_FAR, "victim": VICTIM,
                 "victim_tile": TILE_V, "target": "victim", "crit": "100,700"},
+    # --- #987 : le conjoint `NOT HasTrait(Caster, 0x19 = Immune)`, PROPRE a la moitie COUPS -------
+    # Attendu : le degat reste reduit (1119 n'a PAS ce conjoint) et le nombre de coups NE l'est PAS.
+    # Voie RETENUE : le trait est GREFFE sur l'attaquant des bras `tl_aura` / `tl_away`. Meme unite,
+    # meme geometrie, meme cible -- SEUL le trait change, donc l'ecart mesure ne peut venir que de
+    # lui. `tl_immune` se compare a `tl_aura` (5 coups) et `tl_immune_away` a `tl_away` (6 coups).
+    "tl_immune": {"carrier": JZ, "carrier_tile": TILE_J_NEAR, "victim": VICTIM,
+                  "victim_tile": TILE_V, "target": "victim", "crit": "0,0",
+                  "graft_trait": "%s:%s" % (ATT, UnitTrait.Immune.name)},
+    "tl_immune_away": {"carrier": JZ, "carrier_tile": TILE_J_FAR, "victim": VICTIM,
+                       "victim_tile": TILE_V, "target": "victim", "crit": "0,0",
+                       "graft_trait": "%s:%s" % (ATT, UnitTrait.Immune.name)},
+    # Voie CORROBORANTE, NATIF SEUL (`native_only`) : un vrai porteur `Immune` du build. Son rejeu
+    # offline est STRUCTURELLEMENT impossible -- `combatSnapshot.unitConfig` rend
+    # `{"error": "config null"}` pour une unite montee par `--explicit-stats` (elle n'a aucune
+    # `UnitConfiguration` cote natif, exactement comme une unite INVOQUEE), donc `UnitContext.
+    # from_snapshot` lit `weapons = []` et le port rend ZERO coup. Residu #987-r1.
+    "tl_immune_boss": {"carrier": JZ, "carrier_tile": TILE_J_NEAR, "victim": VICTIM,
+                       "victim_tile": TILE_V, "target": "victim", "crit": "0,0",
+                       "att": BOSS_IMMUNE, "native_only": True},
+    "tl_immune_boss_away": {"carrier": JZ, "carrier_tile": TILE_J_FAR, "victim": VICTIM,
+                            "victim_tile": TILE_V, "target": "victim", "crit": "0,0",
+                            "att": BOSS_IMMUNE, "native_only": True},
 }
 
 
@@ -112,17 +144,38 @@ def _build(arm_spec, seed=SEED, board=BOARD, rank=17, hp=400000):
     sf.parent.mkdir(parents=True, exist_ok=True)
     cv, ct = arm_spec["carrier"], arm_spec["carrier_tile"]
     vv, vt = arm_spec["victim"], arm_spec["victim_tile"]
+    att = arm_spec.get("att", ATT)
     cmd = [sys.executable, "rl_duel.py", "build", "--seed", str(seed), "--state-file", str(sf),
            "--board", board, "--rank", str(rank),
-           "--p-units", "%s,%s" % (ATT, FILLER), "--a-units", "%s,%s" % (cv, vv),
-           "--place", "%s:%d,%d" % (ATT, TILE_A[0], TILE_A[1]),
+           "--p-units", "%s,%s" % (att, FILLER), "--a-units", "%s,%s" % (cv, vv),
+           "--place", "%s:%d,%d" % (att, TILE_A[0], TILE_A[1]),
            "--place", "%s:%d,%d" % (FILLER, TILE_F[0], TILE_F[1]),
            "--a-place", "%s:%d,%d" % (cv, ct[0], ct[1]),
            "--a-place", "%s:%d,%d" % (vv, vt[0], vt[1]),
            "--hp-target", str(hp), "--crit", arm_spec["crit"],
            "--block-target", "0,0", "--block-player", "0,0", "--no-ai"]
+    env = dict(os.environ)
+    if arm_spec.get("graft_trait"):
+        # `catalog_inject.add_unit_trait` ECRIT `BC.Units[].Traits` -- le canal que
+        # `IdunBattle.Entities.Factories.UnitFactory$$Build` lit reellement (et NON le kit
+        # gameconfig, que le port ne reconstruit plus depuis #264). `replace=False` : on AJOUTE au
+        # jeu de traits existant, sans vider les autres.
+        import catalog_inject as CI
+        bcp = sf.with_name(sf.stem + "-bc.json")
+        _p, reports = CI.write_trait_seed_bc(bcp, [arm_spec["graft_trait"]])
+        for r in reports:
+            print("[950] greffe de trait : %s -> %s (avant=%s)"
+                  % (r["unitId"], r["traitsAfter"], r["traitsBefore"]))
+        cmd += ["--seed-bc", str(bcp)]
+    if ":" in att:
+        # Un ATTAQUANT `unitId:palier` est une entree `units.npc` : `--explicit-stats` cable la
+        # formule `UnitProgression$$GetNpcStats` (la formule HEROS la refuserait). Le garde de
+        # roster rend alors un FAUX ROUGE -- le jeu publie le boss sous un id REMAPPE
+        # (`darkaBossLion` -> `GuildBoss12Boss1DarkaLion`), et le garde compare les deux chaines.
+        cmd += ["--explicit-stats", att]
+        env["TACTICUS_ALLOW_ROSTER_DEFICIT"] = "1"
     proc = subprocess.run(cmd, cwd=str(PYDIR), capture_output=True, text=True,
-                          encoding="utf-8", errors="replace")
+                          encoding="utf-8", errors="replace", env=env)
     if not sf.exists():
         return None, (proc.stderr or proc.stdout or "")[-1200:]
     return int(json.loads(sf.read_text())["runnerId"]), None
@@ -135,6 +188,25 @@ def _view(rpc, rid, inactive=False):
 
 def _by_vis(dv, vis):
     return next((u for u in (dv.get("units") or []) if u.get("visualId") == vis), None)
+
+
+def _resolve_remapped_attacker(dv, spec):
+    """L'ATTAQUANT quand son `visualId` a ete REMAPPE par le jeu (cas BOSS).
+
+    Le montage ne place que TROIS unites : l'attaquant et le `FILLER` dans MON camp, le porteur et
+    la victime en face. On resout donc par ELIMINATION sur la tuile de l'attaquant (`TILE_A`), qui
+    est fixee par `--place` : c'est un critere de POSITION, pas de nom, donc insensible au
+    remappage. Rendre `None` plutot que deviner si la tuile ne porte personne."""
+    for u in (dv.get("units") or []):
+        p = u.get("pos") or {}
+        if p.get("col") is None:
+            continue
+        if (int(p["col"]), int(p["row"])) != TILE_A:
+            continue
+        if u.get("visualId") in (FILLER, spec["carrier"], spec["victim"]):
+            continue
+        return u
+    return None
 
 
 def _unit(dv, uid):
@@ -191,14 +263,20 @@ def _attack(rpc, rid, cid, tid, ab):
 # --------------------------------------------------------------------------- rejeu offline
 
 
-def _replay(cap, board_id, att_id, tgt_id, mutate=False):
+def _replay(cap, board_id, att_id, tgt_id, mutate=False, mutate_immune=False):
     """Rejoue l'attaque OFFLINE sur le `State` capte et le flux RNG capte.
 
     `mutate=True` RETIRE les trois entrees `EFFECT_CLASSES` du registre AVANT `load_state` : les
     effets captes ne sont alors plus materialises par leur classe portee mais par le `BaseEffect`
-    no-op -- c'est EXACTEMENT l'etat d'`origin/master`, ou aucune des trois classes n'existait."""
+    no-op -- c'est EXACTEMENT l'etat d'`origin/master`, ou aucune des trois classes n'existait.
+
+    `mutate_immune=True` est la contre-epreuve CIBLEE de #987 : elle neutralise le SEUL conjoint
+    que la moitie COUPS ajoute (`NOT HasTrait(Caster, 0x19 = Immune)`), en laissant tout le reste
+    intact. Sur le bras `tl_immune` le port doit alors retomber a 5 coups (le regime SANS le
+    trait) ; s'il rend encore 6, c'est que le gate n'est pas LU et le bras vert ne prouve rien."""
     from engine.entities.effects.factory import EFFECT_CLASSES
     from engine.entities.effects.base import BaseEffect
+    from engine.entities.effects.loki import terrors_lament as TL
     from engine.runner.snapshot import load_state
     from engine.runner.prng import IntBasedMersenneTwister
     from engine.runner.components import HealthComponent
@@ -207,10 +285,17 @@ def _replay(cap, board_id, att_id, tgt_id, mutate=False):
     from engine.entities.pathfinding.board import Board as _BoardCls  # noqa: F401
 
     saved = {}
+    saved_immune = None
     if mutate:
         for name in ("TerrorsLament_DamageReduction", "TerrorsLament_HitReduction", "ToughToKill"):
             saved[name] = EFFECT_CLASSES.get(name)
             EFFECT_CLASSES[name] = BaseEffect
+    if mutate_immune:
+        # Le module resout `_caster_is_immune` dans SON propre espace de noms global a chaque
+        # appel : substituer l'attribut du module MORD (contrairement a une liaison `from X import`
+        # posee dans un module TIERS).
+        saved_immune = TL._caster_is_immune
+        TL._caster_is_immune = lambda _traits: False
     try:
         st = load_state(cap["dec"], cap["ob"], cap["snap"], board=board_id)
         rng = IntBasedMersenneTwister()
@@ -230,6 +315,8 @@ def _replay(cap, board_id, att_id, tgt_id, mutate=False):
                 EFFECT_CLASSES.pop(name, None)
             else:
                 EFFECT_CLASSES[name] = cls
+        if saved_immune is not None:
+            TL._caster_is_immune = saved_immune
 
 
 def _replay_regen(cap, board_id, carrier_id, mutate=False):
@@ -261,14 +348,15 @@ def _replay_regen(cap, board_id, carrier_id, mutate=False):
 # --------------------------------------------------------------------------- pilote
 
 
-def run(arm: str, mutate: bool = False, verbose: bool = True, seed=SEED, board=BOARD) -> dict:
+def run(arm: str, mutate: bool = False, verbose: bool = True, seed=SEED, board=BOARD,
+        mutate_immune: bool = False) -> dict:
     spec = ARMS[arm]
     rid, err = _build(spec, seed=seed, board=board)
     if rid is None:
         return {"error": "build KO (%s) : %s" % (arm, err)}
     rpc = _mkrpc()
     try:
-        return _measure(rpc, rid, arm, spec, mutate, verbose, board)
+        return _measure(rpc, rid, arm, spec, mutate, verbose, board, mutate_immune)
     finally:
         try:
             rpc("disposeRunner", {"runnerId": rid}, 60)
@@ -276,19 +364,25 @@ def run(arm: str, mutate: bool = False, verbose: bool = True, seed=SEED, board=B
             pass
 
 
-def _measure(rpc, rid, arm, spec, mutate, verbose, board_id):
+def _measure(rpc, rid, arm, spec, mutate, verbose, board_id, mutate_immune=False):
     from engine.entities.pathfinding.board import Board
 
     bg = rpc("boardGraph", {"runnerId": rid}, 60)
     board = Board(bg["tiles"], adjacency="native_sym")
     dv = _view(rpc, rid, inactive=True)
+    att_vis = spec.get("att", ATT)
     ids = {}
-    for v in (ATT, spec["carrier"], spec["victim"]):
+    for v in (att_vis, spec["carrier"], spec["victim"]):
         u = _by_vis(dv, v)
+        if u is None and v == att_vis:
+            # Un BOSS est publie sous un id REMAPPE (`darkaBossLion` -> `GuildBoss12Boss1DarkaLion`) :
+            # on le retrouve par ELIMINATION dans MON camp -- la seule unite qui n'est ni le FILLER
+            # ni une a-unit. C'est la meme cause que le faux rouge du garde de roster.
+            u = _resolve_remapped_attacker(dv, spec)
         if u is None:
             return {"error": "unite absente du build : %s" % v}
         ids[v] = int(u["id"])
-    att_id = ids[ATT]
+    att_id = ids[att_vis]
     carrier_id = ids[spec["carrier"]]
     tgt_id = carrier_id if spec["target"] == "carrier" else ids[spec["victim"]]
 
@@ -307,7 +401,7 @@ def _measure(rpc, rid, arm, spec, mutate, verbose, board_id):
 
     na = _normal_attack_id(dv, att_id)
     if na is None:
-        return {"error": "id d'attaque normale introuvable pour %s" % ATT}
+        return {"error": "id d'attaque normale introuvable pour %s" % att_vis}
 
     carrier_effects = _effect_types(dv, carrier_id)
 
@@ -316,9 +410,10 @@ def _measure(rpc, rid, arm, spec, mutate, verbose, board_id):
            "rng": rpc("dumpRng", {"runnerId": rid}, 30)}
 
     _res, hits, heals_in_attack = _attack(rpc, rid, att_id, tgt_id, na)
-    port = _replay(cap, board, att_id, tgt_id, mutate=mutate)
+    port = _replay(cap, board, att_id, tgt_id, mutate=mutate, mutate_immune=mutate_immune)
 
-    out = {"arm": arm, "mutate": bool(mutate), "runner": rid, "ids": ids, "geo": geo,
+    out = {"arm": arm, "mutate": bool(mutate), "mutate_immune": bool(mutate_immune),
+           "runner": rid, "ids": ids, "geo": geo,
            "carrier_effects": carrier_effects, "target": tgt_id,
            "heals_in_attack": heals_in_attack,
            "native": {"hits": hits, "n": len(hits), "total": sum(hits)},
@@ -515,13 +610,16 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--arm", default="all", choices=sorted(ARMS) + ["all"])
     ap.add_argument("--mutate", action="store_true")
+    ap.add_argument("--mutate-immune", action="store_true",
+                    help="contre-epreuve CIBLEE #987 : neutralise NOT HasTrait(Caster, Immune)")
     ap.add_argument("--seed", default=SEED)
     ap.add_argument("--board", default=BOARD)
     a = ap.parse_args()
     arms = sorted(ARMS) if a.arm == "all" else [a.arm]
     rc = 0
     for arm in arms:
-        r = run(arm, mutate=a.mutate, seed=a.seed, board=a.board)
+        r = run(arm, mutate=a.mutate, seed=a.seed, board=a.board,
+                mutate_immune=a.mutate_immune)
         if "error" in r:
             print("[950] %s : %s" % (arm, r["error"]))
             rc = 1
