@@ -253,12 +253,61 @@ ne doit rien recevoir.
 * **#955-r1** — le gate `NOT TriggeringAbilityIs(ItsGonnaBlow)` est ÉCRIT mais ne peut pas mordre :
   `TriggerEvent.triggering_ability` est inconditionnellement vide sur le vecteur MORT. Dégradation
   **PERMISSIVE**.
-* **#955-r2** — `FreeTilesOrAdjacentFreeTiles` a quatre consommateurs portés et un seul (celui de
-  cette tranche) porte sa branche `allowSteppable`. Les trois collapses antérieurs sont
-  **RESTRICTIFS**.
+* ~~**#955-r2**~~ — **FERMÉ EN REFUS : le port était juste sur les quatre.** Détail : **§7bis**.
 * **#955-r3** — `ApplyInternal` de 1031 n'est joué qu'une fois : un allié qui acquerrait
   `BattleFatigue` après l'exécution recevrait le stat-mod (le driver ré-évalue) mais pas
   l'immunité. Aucun montage porté ne produit ce régime.
+
+## 7bis. `#955-r2` — le résidu était FAUX, et faux d'UN BIT
+
+**Ce qu'il annonçait** : « quatre consommateurs, un seul porte `allowSteppable` ; les trois
+collapses impératifs sont RESTRICTIFS, le summon se pose une case plus loin ». **Ce que la relecture
+mesure** : les trois collapses sont **fidèles**, et leur ajouter la branche serait un écart
+**PERMISSIF** — l'inverse exact.
+
+**La cause de l'erreur : le nœud a DEUX surcharges, et le résidu a lu la mauvaise.**
+
+```
+DSLSelectors$$FreeTilesOrAdjacentFreeTiles(tiles)                 # 2 args
+    isSteppable = <dsl>.<+0x88 = DSLTriggers>.<+0x48>             #   pris dans SON PROPRE corps
+DSLSelectors$$FreeTilesOrAdjacentFreeTiles(tiles, isSteppable)    # 3 args
+                                                                  #   reçu de l'APPELANT
+```
+
+Le résidu a lu le corps de la surcharge **2 args** — d'où son « `isSteppable = <DSLTriggers+0x48>`,
+donc `allowSteppable` TOUJOURS VRAI » — puis l'a attribué aux call-sites de la surcharge **3 args**.
+Or, **LU aux octets** (`mov r8, [reg+0x40]`, r8 = 3ᵉ argument x64), les trois call-sites portés en
+collapse passent **`+0x40`** :
+
+| call-site natif | surcharge | `isSteppable` | `allowSteppable` | port |
+|---|---|---|---|---|
+| `Ambush_SummonAbility$$GetSummonBehaviour` | 3 args | `+0x40` | **faux** | `genestealer::_free_tile_or_adjacent` |
+| `HypersensoryAbilitiesAbility_MoveAndSpawnDecoy$$CreateBehaviour` | 3 args | `+0x40` | **faux** | idem (2ᵉ call-site) |
+| `CosmicHorror_OnKillAbility$$CreateBehaviour` | 3 args | `+0x40` | **faux** | `cosmic_horror::_decoy_tile_for_kill` |
+| `PossessionAbility$$CreateBehaviour` | 2 args | `+0x48` | **vrai** | `possession_spawn_tree(allow_steppable=True)` |
+
+**Les deux slots sont adjacents, et l'un est la NÉGATION de l'autre** — c'est ce qui rend la
+confusion muette. `IdunBattleLogic.Entities.DSLTriggers$$.ctor`, lu :
+
+```
++0x40 = new <trigger sans champ>(0)                      // NU     -> ShouldTrigger toujours VRAI
++0x48 = AbilityTrigger$$op_LogicalNot( new <même type>(0) )  //      -> toujours FAUX
++0x70 = new <même type>(0)                               // déjà nommé `YesTrigger` par le port
+```
+
+et `IdunBattle.Entities.Selectors.CanAddUnitTileSelector$$Select` **INVERSE** ce qu'il reçoit :
+`allowSteppable = !(<+0x28>.ShouldTrigger(entities, 0x20))`. Donc `+0x40` ⇒ `allowSteppable` **faux**,
+`+0x48` ⇒ **vrai**. Le ctor n'appelle `op_LogicalNot` **qu'une fois**, et range son résultat en
+`+0x48` (`mov [rdi+0x48], rax` immédiatement après le `call`) — c'est le fait qui donne leur sens
+opposé aux deux slots, et l'étage 1 de la garde le re-dérive du PE à chaque passe.
+
+**Ce que ça aurait coûté de « corriger »** : le summon d'Ambush, le decoy de Cosmic Horror et celui
+d'Hypersensory se seraient posés **sur un mur, un décor ou un token** — là où le natif refuse.
+
+Garde : `tests/engine/runner/test_955r2_free_tiles_steppable_offline.py` — 3 étages binaires (le
+ctor, les trois call-sites, le quatrième qui n'en charge **aucun** r8) + le port des deux côtés,
+avec sa contre-épreuve mordante sur le **même** état (`allow_steppable=False` rend `[]`,
+`True` rend la tuile du `Steppable`).
 
 ## 8. Ce que ce lot mesure sur le CRITÈRE de groupement
 

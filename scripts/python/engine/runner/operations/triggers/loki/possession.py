@@ -139,12 +139,26 @@ def possession_spawn_tree(ability_state, ranged_kill: bool) -> Spawn:
 
     `FreeTilesOrAdjacentFreeTiles(tiles)` est DEPLIE en son corps natif --
     `Otherwise(CanAddUnit(tiles, isSteppable), CanAddUnit(AdjacentTiles(tiles), isSteppable))` avec
-    `isSteppable` toujours VRAI a ce call-site (cf. en-tete) -- plutot que collapse imperativement
-    comme les trois consommateurs anterieurs (`triggers/genestealer.py::_free_tile_or_adjacent`,
-    `loki/cosmic_horror.py::_decoy_tile_for_kill`, et le second call-site de genestealer), qui, eux,
-    ne portent PAS la branche `allowSteppable` : chez eux une tuile occupee par un `Steppable` est
-    tenue pour OCCUPEE alors que le natif l'accepte. Ecart RESTRICTIF, hors perimetre de cette
-    tranche -- residu #955-r2.
+    `isSteppable` toujours VRAI a ce call-site (cf. en-tete).
+
+    ⚠ **ET LES TROIS AUTRES CONSOMMATEURS PORTES ONT RAISON DE NE PAS PORTER LA BRANCHE** (#955-r2,
+    ferme EN REFUS -- ce paragraphe annoncait l'inverse). Le noeud natif a **DEUX surcharges**, et
+    elles ne prennent pas leur trigger au meme endroit :
+
+      * `FreeTilesOrAdjacentFreeTiles(tiles)` -- 2 arguments -- le lit dans son PROPRE corps, a
+        `<dsl>.<+0x88 = DSLTriggers>.<+0x48>`. C'est CE call-site-ci ;
+      * `FreeTilesOrAdjacentFreeTiles(tiles, isSteppable)` -- 3 arguments -- le recoit de l'APPELANT,
+        et les trois appelants portes (`Ambush_SummonAbility$$GetSummonBehaviour`,
+        `CosmicHorror_OnKillAbility$$CreateBehaviour`,
+        `HypersensoryAbilitiesAbility_MoveAndSpawnDecoy$$CreateBehaviour`) passent tous
+        `<DSLTriggers>+0x40` -- LU aux octets, `mov r8, [reg+0x40]`.
+
+    Or `IdunBattleLogic.Entities.DSLTriggers$$.ctor` pose `+0x40` = le trigger NU et `+0x48` =
+    `op_LogicalNot(<le meme type>)`, et `CanAddUnitTileSelector$$Select` **INVERSE** ce qu'il recoit
+    (`allowSteppable = !ShouldTrigger`). Donc `+0x40` -> `allowSteppable` **FAUX**, `+0x48` ->
+    **VRAI**. Les trois collapses sont FIDELES ; leur ajouter la branche serait PERMISSIF (le
+    summon/decoy se poserait sur un mur, un decor ou un token). Garde :
+    `tests/engine/runner/test_955r2_free_tiles_steppable_offline.py`.
 
     `PickRandomly(., 1)` est porte par le `pick_n` de la feuille (le tirage vit dans la feuille, qui
     seule voit `ectx.state.rng` -- meme convention que `SupremeCommander`)."""
