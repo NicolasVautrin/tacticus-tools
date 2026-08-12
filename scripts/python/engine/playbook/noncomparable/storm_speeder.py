@@ -26,6 +26,25 @@ Rien de fondu DEDANS pour ni l'une ni l'autre.
 ORDRE activer mes unites », pas a « quelle action prendre ». Son corps est
 `Fix64(vtable[+0x1a8](this, unit) ? -99 : 0)`. Le moteur ne mirrore pas la selection d'unite
 (`toActivate` vient du natif), donc la porter n'aurait aucun consommateur -> residu `#967-r1`.
+
+⚠ **CE « aucun consommateur » etait imprecis, et #984 l'a RE-MESURE au decompile** : le
+consommateur natif EXISTE et se NOMME. C'est
+`IdunBattleLogic.AI.Utilities.UnitPicker.UnitOrderUtility$$Priority`, qui pour chaque ability
+active de l'unite fait `IdunBattle.AI.PlaybookDatabase$$LoadPlaybook(abilityType)` puis ajoute
+`playbook.GetCustomUnitOrderUtility(unit)` a un score de PRIORITE D'ORDRE, agrege avec des
+`IdunBattle.AI.Utilities.BaseUtility$$GetUtilityValue` clefs par unitId, par abilityType et par
+trait. Ce qui manque au port n'est donc pas un lecteur pour une valeur -- c'est l'ETAGE
+`UnitPicker` tout entier, que le natif nous fournit deja (`toActivate`). Ecrire « aucun
+consommateur » laissait croire a du code natif mort ; c'est faux, il est vivant et nous le
+consommons DEJA, cote natif.
+
+⚠ **Et ce terme-ci ne se neutralise PAS par un poids absent** -- contrairement a son homologue
+`...Loki.TitanhammerSquadPlaybook$$GetCustomUnitOrderUtility`, qui MULTIPLIE par un
+`GetUtilityValue("<cle>")` absent du seed (donc 0, donc inerte). Celui de 1213 rend `-99` EN DUR,
+sans lire aucun poids : il MORD toujours cote natif. La difference est LUE, pas supposee.
+
+Le port reste donc FIDELE par ABSENCE D'ETAGE, pas par inertie du natif -- et #967-r1 reste
+ouvert, requalifie : il se ferme le jour ou le port choisit lui-meme l'unite active.
 """
 from __future__ import annotations
 
@@ -282,13 +301,46 @@ class HailstrikePlaybook(NonComparablePlaybook):
 
     TROIS ECARTS, TOUS NOMMES
     -------------------------
-    1. **`rng.Next(0, 10)` N'EST PAS PORTE** -- le port pose ce terme a **0**. Le moteur est
-       deterministe et ne mirrore pas le flux `IPseudoRNG` de l'IA ; c'est le meme arbitrage que
-       pour `GetUseProbability` (`_base.NonComparablePlaybook.should_evaluate`). Poser 0 est une
-       BORNE, pas un ajustement : la moyenne (4,5) serait un fit. Portee de l'ecart, chiffree par
-       la structure du score : le terme vaut au plus 9 (ou 10), la ou le bonus vaut 500 -- il ne
-       peut donc JAMAIS renverser la classe de bonus, seulement departager deux cibles de meme
-       classe dont les `PiercingRatio` different de moins de 10. Residu `#967-r3`.
+    1. **`rng.Next(0, 10)` N'EST PAS PORTE** -- le port pose ce terme a **0** POUR LE CLASSEMENT,
+       et a sa borne HAUTE pour le SEUIL. Le moteur est deterministe et ne mirrore pas le flux
+       `IPseudoRNG` de l'IA ; c'est le meme arbitrage que pour `GetUseProbability`
+       (`_base.NonComparablePlaybook.should_evaluate`). Residu `#967-r3`, RE-MESURE par #984 --
+       et l'enonce d'origine (« il ne departage que deux cibles dont les `PiercingRatio` different
+       de moins de 10 ») etait JUSTE mais INCOMPLET, sur les deux moities :
+
+       (a) **L'INCLUSIVITE est desormais LUE, elle n'est plus « (ou 10) »** :
+           `IdunBattle.Utils.PRNG.IntBasedMersenneTwister$$NextInternal` calcule
+           `range = max - min` puis rend `min + (g % range)` -- borne haute **EXCLUE**. La
+           surcharge d'interface `...IntBasedMersenneTwister$$IdunBattle.Utils.PRNG.IPseudoRNG.Next`
+           (slot **2** d'`IPseudoRNG`, `metadata/interface_slots.tsv`, arite 2 -- celle que le
+           corps appelle) refait la MEME math. Donc `Next(0, 10)` est dans **[0, 9]**, dix valeurs
+           equiprobables, **maximum 9**.
+
+       (b) **Le terme n'agit pas sur UN axe mais sur DEUX, et le second est structurel.** Le
+           tirage est fait **une fois PAR CIBLE** (dans `GetTargetUtility`, appele dans la boucle),
+           donc c'est un bruit INDEPENDANT, pas une constante commune :
+             * **CLASSEMENT** -- il renverse deux cibles de meme classe de bonus des que leur
+               ecart de percage est <= 9. Ce n'est PAS un cas rare : mesure sur le gameconfig
+               (683 unites), les `PiercingRatio` vivent sur une grille de **pas 5**
+               (1,10,15,20,25,30,35,40,50,55,60,65,70,75,80,100), donc l'ecart entre deux valeurs
+               VOISINES est 5 -- inferieur a 9. Irreductible sans mirrorer le flux RNG : le port
+               ne consomme aucun des tirages de l'IA, donc l'etat du Mersenne Twister diverge des
+               le premier. C'est une INDETERMINATION, on la nomme.
+             * **SEUIL** -- `util >= MIN_UTILITY = 1` decide de l'EXISTENCE de l'action. Quand
+               `pierce + bonus == 0`, le natif propose l'ability ssi `rnd >= 1`, soit **9 fois sur
+               10** ; un port a `rnd = 0` la supprime **toujours**. Ce regime est REEL et ATTEIGNABLE
+               (mesure #984) : `darkaSmnWatcher` -- summon de faction **DarkAngels**, donc allie
+               naturel du `darkaStormSpeeder` -- a `weapons = []`, aucun trait `Overwatch`, et
+               aucun trait `Object` ni statut de machine, donc il PASSE le masque
+               (`TargetIsFriendly | TargetIsUnit | TargetIsNotAnObject`).
+
+       **Ce que le choix « 0 ou la moyenne » ne pouvait pas trancher** : sur le CLASSEMENT, toute
+       constante ajoutee aux N cibles est l'IDENTITE sur l'argmax -- `0` et `4,5` y donnent
+       exactement le meme candidat. Le dilemme d'origine etait donc VIDE sur cet axe, et portait
+       en realite tout entier sur le SEUIL, ou aucune moyenne n'est requise : il suffit de la
+       borne HAUTE, **LUE** (9). D'ou le partage ci-dessous -- `RNG_TERM` = 0 (borne basse, jamais
+       une moyenne : le classement reste celui du score sans bruit), `RNG_TERM_MAX` = 9 pour le
+       seul franchissement du seuil.
     2. **`HasRangedAbility(target, query)` n'est pas porte** : le mirror offline n'a pas de lecture
        fiable de « cette unite possede une ability a portee ». Consequence DIRECTIONNELLE : une
        cible sans arme a distance mais avec une ability a distance perd son bonus de 500 dans le
