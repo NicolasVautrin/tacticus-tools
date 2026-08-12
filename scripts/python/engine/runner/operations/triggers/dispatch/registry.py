@@ -53,6 +53,9 @@ from ..loki.cursed_plague_bell import (CursedPlagueBellMovementAbility,   # #224
 from ..loki.martial_apotheosis import MartialApotheosisAttackAbility  # case-220 (passif necroOverlord, Necron)
 from ..loki.light_im_up import LightImUpAbility                       # #419-r1-tr5-r7 (passif orksWarboss, face COMBAT)
 from ..loki.martial_superiority import MartialSuperiorityRiposteAbility  # #133 (passif templChampion)
+from ..loki.refusal_to_be_outdone import (RefusalToBeOutdoneRecordHitAbility,          # #965
+                                          RefusalToBeOutdoneResetOnNormalAttackAbility,
+                                          RefusalToBeOutdoneResetOnTurnEndAbility)
 from ..loki.wireweave_net import (WireweaveNetCounterAttack,          # #366-r1b (passif eldarRanger)
                                   WireweaveNetActivateOnOwnerTurnEnd,
                                   WireweaveNetDeactivateOnOwnerTurnStart,
@@ -567,6 +570,18 @@ ABILITY_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
     # `$$GetInitialTarget`). Si la riposte TUE l'attaquant, le gate acteur-mort POST-`On(0x2a = PreUnitAbility)` de
     # `ActiveAbilityOperation$$ExecuteInternal` annule l'attaque entrante. Cf. loki/martial_superiority.py.
     "MartialSuperiority": [MartialSuperiorityRiposteAbility],
+    # RefusalToBeOutdone (passif `emperExultant` « Laviscus », triggered 0x5a1 = 1441) -- l'OUTRAGE
+    # (#965). TROIS entrees pour DEUX classes natives : le port est indexe par `event_id`, or
+    # `...RefusalToBeOutdoneAbility$$CreateTrigger` et celui de sa sous-ability de reset sont chacun
+    # une DISJONCTION (patron `HeavyWarpFlamer`). `...RefusalToBeOutdone_ResetStatsAbility` n'a
+    # AUCUN ordinal `TriggeredAbilityType` propre (l'enum natif ne porte que 1441 et 1554 pour ces
+    # familles) et `emperExultant` n'a qu'UN passif au gameconfig : c'est une sous-ability montee
+    # par la principale, d'ou la MEME cle de registre et le MEME `AbilityOrEffect` de sac.
+    # La branche `On(0x4b = UnitTransformed) & OwnerIsTarget` n'est PAS cablee : cet event n'a aucun
+    # emetteur cote port (mesure #965) -- residu #965-r1.
+    "RefusalToBeOutdone": [RefusalToBeOutdoneRecordHitAbility,
+                           RefusalToBeOutdoneResetOnTurnEndAbility,
+                           RefusalToBeOutdoneResetOnNormalAttackAbility],
     # ListenUpMaggots (passif `astraSmnKell`, triggered 1063) = `On(AbilityInit=0x21)` : pose l'effet
     # 0x426 sur Kell, qui ecrit `+1 nrOfSummons` / `+3 range` sur son PARENT (Creed) via
     # `AddUnitActiveAbilityModification` -- SEULE source non nulle de `GetAbilityStatModification`.

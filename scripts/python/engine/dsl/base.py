@@ -274,6 +274,14 @@ class DslContext:
     # et ecrit par les feuilles `AddPersistentData` / `ClearPersistentData`. Defaut None -> la formule
     # rend 0, exactement comme le `out` par defaut du `TryGetPersistData` natif sur cle absente.
     persistent_data: object | None = None
+    # SOMME des valeurs ENTIERES de TOUTES les dataKeys d'une ability sur une unite, hors une liste
+    # de cles exclues (`IdunBattle.Entities.Triggers.GetAllPersistentDataCombined$$SumAbilityData`) :
+    # `persistent_data_all(unit, ability_or_effect, excluded_keys)` -> int. MEME `Dictionary` @+0x10
+    # et MEME cle composite que les deux canaux ci-dessus. Lu par la formule
+    # `GetAllPersistentDataCombined`. Defaut None -> la formule rend 0, comme le natif quand le
+    # `TryGetValue(abilityId)` echoue. Le tri-etat ne se distingue pas d'un sac VIDE, et c'est
+    # FIDELE : le natif rend 0 dans les deux cas (#965).
+    persistent_data_all: object | None = None
     # EMPREINTE PRECEDENTE d'une unite (`PositionComponent+0x88`, ecrite par
     # `IdunBattle.Operations.SetUnitPositionOperation$$SavePreviousPosition`) : `previous_tiles(unit)`
     # -> list[(col,row)]. Lu par le selecteur `PreviousTile` (mirror

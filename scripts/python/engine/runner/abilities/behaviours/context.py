@@ -30,6 +30,7 @@ from ....utilities.tile import sort_tiles_by_utility as _stbu, runner_tile_leaf_
 from ...components import UnitComponent as _UC
 from ...components import UnitFlagsComponent
 from ...components import charged_unit_ids
+from ...components import PersistentDataComponent      # #965 : `ctx.persistent_data_all`
 from ...components import persistent_data as _pd
 from ...components import persistent_data_list as _pdl
 from ...components import previous_tiles as _pt
@@ -769,6 +770,16 @@ def entities_from_state(state, caster_id: int, target_id: int | None = None,
         uid = (unit or {}).get("id")
         return _pd(state.get_entity(int(uid)) if uid is not None else None, key)
 
+    def _persistent_data_all(unit, ability_or_effect, excluded_keys=None):
+        """`ctx.persistent_data_all` -- `GetAllPersistentDataCombined$$SumAbilityData` sur le MEME
+        `Dictionary` @+0x10. Composant absent -> 0 (le natif rend 0 quand son `TryGetValue` echoue)."""
+        uid = (unit or {}).get("id")
+        e = state.get_entity(int(uid)) if uid is not None else None
+        c = e.get_component(PersistentDataComponent) if e is not None else None
+        if c is None:
+            return 0
+        return c.sum_ability_data(ability_or_effect, excluded_keys)
+
     def _previous_tiles(unit):
         """`ctx.previous_tiles` -- `PositionComponent+0x88` deplie en coordonnees, ce que rend
         `IdunBattle.Entities.Selectors.PreviousTileSelector$$Select`. `[]` = `Nullable` VIDE."""
@@ -797,6 +808,7 @@ def entities_from_state(state, caster_id: int, target_id: int | None = None,
                       valid_normal_attack_targets=_valid_normal_attack_targets,
                       persistent_data_list=_persistent_data_list,
                       persistent_data=_persistent_data,
+                      persistent_data_all=_persistent_data_all,
                       previous_tiles=_previous_tiles,
                       entity_by_id=_entity_by_id,
                       has_trait=_has_trait, faction_of=_faction_of, get_stat=_get_stat,

@@ -648,6 +648,66 @@ class AddStaticStatModifierEffect(AbilityBehaviour):
         return OperationResult.ok()
 
 
+class AddOrUpdateStaticStatModifierEffect(AbilityBehaviour):
+    """`IdunBattleLogic.Entities.DSLBehaviors$$AddOrUpdateStaticStatModifierEffect(targets,
+    effectType, statType, amount, turns, isHidden)` -- MIRROR du decompile (#965) :
+
+        cur  = CurrentStatModifierAmountFormula(state, targets, effectType, statType)
+        cond = op_LogicalNot( AmountIsEqual(amount, cur) )
+        body = RemoveEffect(targets, Nullable(effectType))
+             & AddStaticStatModifierEffect(targets, effectType, statType, amount, turns, isHidden)
+        return If(cond, body, null)
+
+    DEUX traits LUS, qui ne se devinent pas :
+      * ce n'est PAS un `Add` inconditionnel : le noeud est un **`If` GARDE par un ecart de
+        montant**. Quand le montant recalcule EGALE celui deja en place, le natif ne fait RIEN --
+        pas de remove/add, donc pas de churn d'entite-effet ni de re-declenchement de ce qui
+        observe la pose. C'est l'idempotence qui donne son nom au noeud (`OrUpdate`) ;
+      * le rafraichissement est un **remove-PUIS-add**, pas une mutation en place. C'est ce qui
+        rend le montant correct quand il CHANGE : `AddStaticStatModifierEffect` seul serait un
+        no-op (son `AddEffectOperation` rend `None` sur effet deja present), et la stat resterait
+        figee a la premiere valeur.
+
+    ⚠ Le ctor du noeud conditionnel est etiquete `IdunBattle.Entities.Behaviours.
+    PerformAIMovementBehaviour$$.ctor` par ghidra : c'est un corps DEDUPLIQUE par ICF (ctor a trois
+    champs `cond/then/else`), le nom designe un proprietaire ARBITRAIRE. La nature `If` est etablie
+    par la FORME de l'appel (un trigger + deux behaviours dont le dernier nul), pas par ce nom.
+
+    Se compose sur les DEUX operations deja portees en reutilisant les feuilles `RemoveEffect` et
+    `AddStaticStatModifierEffect` -- aucune logique recablee ici (frontiere #149).
+
+    Emet 'AddOrUpdateStaticStatModifierEffect' (`changed` = False quand la garde d'idempotence a
+    ferme). PUR."""
+    __slots__ = ("unit_sel", "effect_type", "stat_type", "amount", "name",
+                 "duration_rounds", "duration_turns")
+
+    def __init__(self, unit_sel: TargetsSelector, effect_type: int, stat_type: int, amount,
+                 name: str | None = None, duration_rounds=None, duration_turns=None):
+        self.unit_sel, self.effect_type = unit_sel, int(effect_type)
+        self.stat_type, self.amount, self.name = int(stat_type), amount, name
+        self.duration_rounds, self.duration_turns = duration_rounds, duration_turns
+
+    def execute(self, entities, ectx):
+        if ectx.state is None:
+            return OperationResult.ok()
+        amt = int(self.amount.evaluate(entities) if hasattr(self.amount, "evaluate") else self.amount)
+        # `AmountIsEqual(amount, CurrentStatModifierAmount(targets, effectType, statType))` : la
+        # formule est deja portee, on la REUTILISE plutot que de relire le sac a la main.
+        cur = CurrentStatModifierAmount(self.unit_sel, self.effect_type,
+                                        self.stat_type).evaluate(entities)
+        if cur is not None and int(cur) == amt:
+            ectx.emit("AddOrUpdateStaticStatModifierEffect", effect_type=self.effect_type,
+                      stat=self.stat_type, amount=amt, changed=False)
+            return OperationResult.ok()                 # `If` FERME -> aucun effet de bord
+        RemoveEffect(self.effect_type, self.unit_sel).execute(entities, ectx)
+        AddStaticStatModifierEffect(self.unit_sel, self.effect_type, self.stat_type, amt,
+                                    name=self.name, duration_rounds=self.duration_rounds,
+                                    duration_turns=self.duration_turns).execute(entities, ectx)
+        ectx.emit("AddOrUpdateStaticStatModifierEffect", effect_type=self.effect_type,
+                  stat=self.stat_type, amount=amt, changed=True)
+        return OperationResult.ok()
+
+
 class AddDynamicStatModifierEffect(AbilityBehaviour):
     """`IdunBattleLogic.Entities.DSLBehaviors$$AddDynamicStatModifierEffect(targets, source, effectType,
     statType, abilityStateRef, durationNode, …)` — et son jumeau
