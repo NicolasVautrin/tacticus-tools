@@ -16,6 +16,11 @@ DECLENCHEUR = {
     "chemins": (
         "scripts/python/conftest.py", "scripts/python/tests/conftest.py",
         "scripts/python/tests/engine/conftest.py",
+        # Entre dans la fermeture par la CASCADE DES CONFTEST depuis #951-r2. Ce chemin n'existait
+        # pas quand ce fichier a ete ecrit : c'est l'INTERACTION de deux PR mergees le meme jour
+        # qui l'a fait apparaitre, et `probe_486r15` l'a vu -- un declencheur trop etroit est un
+        # FAUX VERT (le fichier ne se rejoue pas quand ce qu'il garde a bouge).
+        "scripts/python/coverage_attestations.py",
         # les deux ports et leurs registres
         "scripts/python/engine/entities/effects/loki/summary_execution.py",
         "scripts/python/engine/runner/operations/triggers/loki/summary_execution.py",
