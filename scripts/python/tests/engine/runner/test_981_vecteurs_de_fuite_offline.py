@@ -41,6 +41,9 @@ DECLENCHEUR = {
         # les consommateurs exerces
         "scripts/python/engine/runner/operations/triggers/loki/head_claimer.py",
         "scripts/python/engine/runner/operations/triggers/genestealer.py",
+        "scripts/python/engine/runner/operations/triggers/loki/savage_killer.py",
+        "scripts/python/engine/runner/operations/triggers/loki/fuelled_by_fury.py",
+        "scripts/python/engine/runner/operations/remove_effects.py",
         # le rail de collecte + le montage d'etat
         "scripts/python/engine/runner/operations/triggers/dispatch/registry.py",
         "scripts/python/engine/runner/operations/triggers/dispatch/core.py",
@@ -303,9 +306,73 @@ def test_battle_fatigue_passe_le_caster_du_decompile():
     assert "triggering_unit" in inspect.signature(BEH.FleeOperation.execute).parameters
 
 
+# ------------------------------------------------------- [6] #929-r1 : la 4e disjonction VIT
+def _state_wulfen():
+    """Ulf (`spaceWulfen`, passif `SavageKiller`) et un SUMMON ennemi ADJACENT."""
+    board = Board(_tiles(), adjacency="evenq")
+    units = [
+        {"id": HAARKEN, "visualId": "spaceWulfen", "alive": True, "team": 1,
+         "owner": 1, "pos": {"col": 2, "row": 2}, "effects": []},
+        {"id": FUYARD, "visualId": "genesSmnGenestealer", "alive": True, "team": 2,
+         "owner": 2, "pos": {"col": 2, "row": 3}, "effects": []},
+    ]
+    decision = {"currentPlayer": 1, "units": units}
+    observe = {"units": [{"squadId": u["id"], "hp": 1000, "hpMax": 1000} for u in units]}
+    import gameconfig as GC
+    st = load_state(decision, observe, board=board)
+    if st.effects is None:
+        st.effects = EffectsState()
+    for u in units:
+        traits = list((GC.unit(u["visualId"]) or {}).get("traits") or [])
+        st.get_entity(u["id"]).add_component(StatsComponent(ctx=UnitContext(
+            entity_id=u["id"], visual_id=u["visualId"], traits=traits,
+            passive_ability_level=50, ability_variables_multiplier=100)))
+    return st
+
+
+def test_929r1_un_summon_qui_devient_ciblable_SANS_avoir_bouge_declenche_savage_killer():
+    """#929-r1 : `On(0x3b) & hasSummon & adjacent & enemies & NOT moved`. Le vecteur existe depuis
+    #936 et la branche est abonnee depuis #981 -- ce test verifie qu'elle est ATTEIGNABLE, pas
+    seulement inscrite (etre au registre ne prouve rien : c'est tout l'objet de ce lot)."""
+    from engine.entities.effect_type import EffectType
+    st = _state_wulfen()
+    out = move_death.unit_became_targetable_triggers(st, FUYARD,
+                                                     int(EffectType.TeleportStrike_TeleportingIn))
+    sk = [d for d in (out or []) if isinstance(d, dict) and d.get("ability") == "SavageKiller"]
+    assert len(sk) == 1, "la 4e disjonction ne fire PAS : %r" % (out,)
+
+
+def test_929r1_temoin_NEGATIF_un_summon_qui_A_bouge_ne_declenche_pas():
+    """Le conjoint `NOT moved` : un summon porteur d'une `PreviousTile` a BOUGE -- son arrivee est
+    deja couverte par `On(UnitAfterMove)`, donc la 4e branche doit se taire (sans quoi un meme
+    deplacement declencherait DEUX fois)."""
+    from engine.entities.effect_type import EffectType
+    from engine.runner.components import save_previous_position
+    st = _state_wulfen()
+    save_previous_position(st, FUYARD, [(2, 4)])          # `PositionComponent+0x88` non vide
+    out = move_death.unit_became_targetable_triggers(st, FUYARD,
+                                                     int(EffectType.TeleportStrike_TeleportingIn))
+    sk = [d for d in (out or []) if isinstance(d, dict) and d.get("ability") == "SavageKiller"]
+    assert sk == [], "`NOT moved` ne mord pas : la branche a fire sur un summon qui a bouge"
+
+
+def test_929r1_temoin_NEGATIF_le_second_substrat_mord_aussi():
+    """L'autre terme de la disjonction `moved` : `TurnStartTile` (`UnitComponent+0x18c`). Sans ce
+    cas, le port pourrait ne lire que `PreviousTile` et rester vert."""
+    from engine.entities.effect_type import EffectType
+    from engine.runner.components import UnitComponent
+    st = _state_wulfen()
+    st.get_entity(FUYARD).get_component(UnitComponent).current_turn_start_tile = 204
+    out = move_death.unit_became_targetable_triggers(st, FUYARD,
+                                                     int(EffectType.TeleportStrike_TeleportingIn))
+    sk = [d for d in (out or []) if isinstance(d, dict) and d.get("ability") == "SavageKiller"]
+    assert sk == [], "le terme `TurnStartTile` de `moved` n'est pas lu"
+
+
 @pytest.mark.parametrize("mod", [
     "engine.runner.operations.behaviour",
     "engine.runner.operations.triggers.dispatch.move_death",
+    "engine.runner.operations.triggers.loki.savage_killer",
 ])
 def test_les_modules_touches_s_importent_SEULS(mod):
     """L'invariant d'import isole : chaque module de `engine/**` s'importe seul en process FRAIS."""

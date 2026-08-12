@@ -134,27 +134,57 @@ def test_ArmouredMight_n_a_aucun_porteur_et_c_est_pourquoi_le_terme_est_inerte()
 
 # ------------------------------------------------------- le foyer PARTAGE (regression #929)
 def test_les_quatre_evenements_natifs_sont_abonnes():
-    """GARDE STRUCTURELLE : le `CreateTrigger` natif est une union de QUATRE disjonctions ; TROIS
-    sont abonnees (`UnitAfterMove`, `UnitDisplaced`, `UnitAdded`) plus `PreUnitAbility`. La 4e
-    (`UnitBecameTargetable`) ne l'est PAS -- residu #929-r1, faute d'emetteur cote port.
+    """GARDE STRUCTURELLE : le `CreateTrigger` natif est une union de QUATRE disjonctions
+    (`UnitAfterMove`, `UnitDisplaced`, `UnitAdded`, `UnitBecameTargetable`) plus la face B
+    `PreUnitAbility` -- soit CINQ evenements, tous abonnes depuis #981.
 
-    Ce test FIGE la repartition : la modifier sans toucher a la RE fait rougir, et retirer un
-    evenement par accident (le plus probable) aussi. Il vit ICI et pas dans le fichier `_live.py`
-    parce qu'il est OFFLINE PUR, et qu'un test offline heberge dans un `_live.py` est invisible des
-    DEUX gardes du parc (`probe_547_ledger_sans_verdict_non_vert.py`)."""
+    ⚠ CE TEST A CHANGE D'ETAT, ET C'EST SON ROLE. Il figeait quatre abonnements et interdisait
+    explicitement le cinquieme : `UnitBecameTargetable` etait INATTEIGNABLE faute d'emetteur, donc
+    l'abonner aurait materialise un predicat qu'aucun montage ne pouvait exercer (port speculatif).
+    Les DEUX conditions qu'il posait sont desormais remplies : le vecteur existe depuis #936
+    (`move_death.unit_became_targetable_triggers`, emis par `remove_effect_instance` sous le gate de
+    type `UntargetableEffect`), et le predicat `NOT (PreviousTile | TurnStartTile)` est porte
+    (`SavageKillerAbility._has_moved`). Residu #929-r1 FERME.
+
+    Il vit ICI et pas dans le fichier `_live.py` parce qu'il est OFFLINE PUR, et qu'un test offline
+    heberge dans un `_live.py` est invisible des DEUX gardes du parc
+    (`probe_547_ledger_sans_verdict_non_vert.py`)."""
     from engine.dsl.event_trigger_type import EventTriggerType
     abonnes = ({int(SK.SavageKillerAbility.event_id)}
                | {int(e) for e in SK.SavageKillerAbility.event_ids})
     assert abonnes == {int(EventTriggerType.PreUnitAbility),
                        int(EventTriggerType.UnitAfterMove),
                        int(EventTriggerType.UnitDisplaced),
-                       int(EventTriggerType.UnitAdded)}, (
-        f"abonnements = {sorted(abonnes)} ; le decompile en veut exactement ces quatre "
-        "(la 5e branche `UnitBecameTargetable` est un residu documente, PAS un oubli)")
-    assert int(EventTriggerType.UnitBecameTargetable) not in abonnes, (
-        "`UnitBecameTargetable` a ete abonne : aucun site du port n'emet cet evenement, donc le "
-        "predicat `NOT (PreviousTile | TurnStartTile)` de cette branche serait NON confrontable "
-        "(port speculatif). Si un emetteur a ete ajoute, porter la branche ET retirer #929-r1.")
+                       int(EventTriggerType.UnitAdded),
+                       int(EventTriggerType.UnitBecameTargetable)}, (
+        f"abonnements = {sorted(abonnes)} ; le decompile en veut exactement ces cinq")
+
+
+def test_le_predicat_not_moved_ne_gate_QUE_la_quatrieme_disjonction():
+    """`NOT (AmountIsGreaterThanZero(PreviousTile) | AmountIsGreaterThanZero(TurnStartTile))` est un
+    conjoint de la SEULE branche `On(0x3b)` au decompile. L'appliquer aux trois autres eteindrait
+    `On(UnitAfterMove)` a coup sur (une unite qui vient de bouger a forcement une `PreviousTile`) --
+    c'est-a-dire exactement la branche que l'i2 nomme en premier."""
+    import inspect
+    assert callable(getattr(SK.SavageKillerAbility, "_has_moved", None)), \
+        "le predicat `NOT moved` de la 4e disjonction n'est pas porte"
+    src = inspect.getsource(SK.SavageKillerAbility.matches)
+    assert "_ON_UNIT_BECAME_TARGETABLE" in src and "_has_moved" in src, \
+        "`_has_moved` n'est pas branche dans `matches`"
+    # le gate est CONDITIONNE a l'event : la garde tombe si quelqu'un le remonte en conjoint commun
+    assert src.index("_ON_UNIT_BECAME_TARGETABLE") < src.index("_has_moved"), \
+        "`_has_moved` doit etre garde par le test d'evenement, pas applique aux quatre branches"
+
+
+def test_not_moved_lit_les_DEUX_substrats_natifs():
+    """Les deux termes de la disjonction `moved` ont chacun leur mirror, et le port doit lire les
+    DEUX : `PreviousTileSelector$$Select` (`PositionComponent+0x88`) et
+    `CurrentTurnStartTileSelector$$Select` (`UnitComponent+0x18c`). N'en lire qu'un laisserait
+    passer la moitie des summons qui ont bouge."""
+    import inspect
+    src = inspect.getsource(SK.SavageKillerAbility._has_moved)
+    assert "_previous_tiles" in src, "le terme `PreviousTile` n'est pas lu"
+    assert "current_turn_start_tile" in src, "le terme `TurnStartTile` n'est pas lu"
 
 
 def test_le_seuil_pre_et_le_defaut_du_foyer_partage():
