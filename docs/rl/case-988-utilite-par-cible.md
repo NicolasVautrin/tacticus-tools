@@ -70,6 +70,31 @@ aucune invocation, donc aucun risque de gel ni d'écriture.
 **4 pushes dont 2 vers un sous-bucket**, d'utilités **15.0** et **10.0**, et `aiDryRunAllUnits`
 propose bien l'ability.
 
+## 3bis. Le piège du gshared transposé aux CHAMPS — trouvé par le garde, pas par relecture
+
+À la première fenêtre de reinject, le correctif a rendu `positions=23 scorees=23 empty=0` : le
+faux « empty » disparaissait. **Et c'était un faux positif.** Le garde de concordance du probe a
+mordu : l'utilité rendue valait `559.7506`, alors que `bucket-audit` avait vu pousser `15.0` et
+`10.0`, et `via` valait `best` partout — impossible sur un playbook à stratégies multiples.
+
+Cause, mesurée : `findClassAnywhere("IdunBattle.AI.BucketSystem", "Bucket\`1")` rend la
+**définition générique**, et sur elle `il2cpp_field_get_offset` rend **`0x0` pour tous les champs**
+— les offsets d'un générique dépendent de `T`, donc IL2CPP ne les calcule que par instanciation.
+Les **noms**, eux, se résolvaient parfaitement (`HighestUtilityAction`, `Buckets`, `MinUtility`),
+ce qui rendait le diagnostic *rassurant*. Le décodeur lisait donc `bucket+0x0` — le **pointeur de
+classe** : jamais nul, d'où un `best` faussement non nul et une utilité lue dans l'en-tête d'objet.
+
+C'est **le piège du gshared transposé de l'axe des MÉTHODES à celui des CHAMPS** : même signature
+(tout se déclare résolu), même issue (une valeur fausse sans la moindre erreur).
+
+Correctif : le layout se résout sur la classe **de l'objet décodé** (`ptr.readPointer()`), avec
+cache par classe — le module ne résout plus **aucune** classe par nom. Garde-fou : un offset
+d'instance **nul** est refusé explicitement, `+0x0` n'étant jamais un champ.
+
+**Ce qui l'a trouvé** : ni une relecture, ni un test d'existence — le contrôle de **concordance**
+avec une valeur connue par un canal indépendant. Un test « le bucket n'est plus vide » aurait été
+**vert**.
+
 ## 4. Deux pièges de méthode rencontrés, et ce qu'ils coûtaient
 
 **Un canal muet ne prouve ni la vacuité, ni sa propre mort.** Sur un premier montage (deux unités
@@ -84,17 +109,36 @@ Ce sont les **positions forcées** (`--place` / `--a-place`) qui ouvrent le rég
 
 ## 5. Ce qui est livré, et ce qui ne l'est pas
 
-Livré : `frida/hooks/ai-toolkit/bucket-decode.ts` (décodeur récursif, offsets résolus au runtime
-**par le type du champ**, aucun offset en dur) ; `frida/hooks/probes/playbook-utility-trace.ts`
-(capteur armable par playbook) ; les deux lecteurs réparés (`rpc-predict.ts` = `ncEvaluate`,
-`rpc-nc-predict.ts`), qui publient désormais `via` (`best` | `subBuckets`), `actionCount` et
-`subCount` ; `scripts/python/probe_988_ancres_utilite_playbook.py`.
+Livré : `frida/hooks/ai-toolkit/bucket-decode.ts` (décodeur récursif ; le layout se résout sur la
+**classe inflatée de l'objet décodé**, jamais par nom de classe, jamais en dur) ;
+`frida/hooks/probes/playbook-utility-trace.ts` (capteur armable par playbook) ; les deux lecteurs
+réparés (`rpc-predict.ts` = `ncEvaluate`, `rpc-nc-predict.ts`), qui publient désormais `via`
+(`best` | `subBuckets`), `actionCount` et `subCount` ;
+`scripts/python/probe_988_ancres_utilite_playbook.py` et `probe_988r1_cout_capteur.py`.
 
-**NON couvert — et c'est le résidu `#988-r1`** : le capteur est **inerte tant qu'il n'est pas
-injecté**, donc son coût réel (fires par tour d'IA) n'est **pas mesuré** — la borne écrite dans
-son en-tête est *dérivée de la structure du générateur*, pas observée. Le témoin APRÈS n'est pas
-non plus posé. Le probe discrimine seul le host patché (champ `via`) et vérifie que les utilités
-rendues **concordent** avec `{10.0, 15.0}` — pas seulement qu'elles sont non vides.
+### Le coût, MESURÉ (session 71, montage 8 unités, médiane sur 3 répétitions)
+
+| régime | tour d'IA | surcoût | fires/tour | dropped |
+|---|---|---|---|---|
+| désarmé | 0,275 s | — | — | — |
+| armé 1 playbook | 0,276 s | +0,001 s (+0,4 %) | **4** | 0 |
+| armé TOUS (163 ancres) | 0,348 s | +0,073 s (+26,5 %) | **21** | 0 |
+
+**Aucun des deux axes ne mord.** Latence : ~3 ordres de grandeur sous le régime de crash documenté
+(27 000 appels/s → frame > 960 ms). Volume : `dropped = 0`, l'anneau n'est jamais approché. Le
+filtrage par adresse reste donc un choix de **propreté de la mesure**, pas de survie — mais il
+coûte 0,4 % au lieu de 26,5 %, donc on le garde.
+
+La borne *dérivée* qu'annonçait l'en-tête (« dizaines à quelques centaines d'appels par tour »)
+était **surestimée d'un ordre de grandeur** ; elle a été remplacée par le chiffre observé.
+
+**NON couvert — résidu `#988-r1`** : le décodeur corrigé (résolution sur classe inflatée) n'a
+**pas** été confronté en live — il exige une **seconde injection**, le bundle de la fenêtre portant
+la version aux offsets nuls. Le témoin APRÈS reste donc à poser, et `probe_988` doit rendre
+`ok: true` avec des utilités concordant avec `{10.0, 15.0}`.
+Portée du coût : les **26** corps `CalculateCustomUtility` n'ont **pas** été exercés par ce montage
+(`byMethod` ne montre que `EvaluateNonComparable` et `CalculateCasterPositionUtility`) — leur coût
+reste non mesuré, et leur boucle est (position × cible), pas (unité × ability).
 
 Non couvert également : les 23 autres consommateurs Python d'`ncEvaluate` n'ont pas été rejoués
 (ils lisent `util`, dont le contrat est inchangé — seules des positions autrefois `empty`
