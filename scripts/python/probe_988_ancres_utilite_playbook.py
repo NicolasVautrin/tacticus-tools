@@ -108,6 +108,15 @@ def ghidra_addresses() -> dict:
     return out
 
 
+#: Offsets des champs de `Bucket<T>`, LUS AU DECOMPILE (donc independants de l'API IL2CPP) :
+#:   `ComparablePlaybook<T>$$EvaluateInternal`   -> `*(bucket + 0x20) = 0`  et  `+0x10`/`+0x18`
+#:   `Bucket<T>$$AddActionToBucket`              -> `*(bucket + 0x28)`  (la SortedList)
+#:   `Bucket<T>$$IsValidAction`                  -> `bucket + 0x10`     (le Nullable<Fix64>)
+#: Ils servent de TEMOIN a l'etage 0 : ce ne sont pas des valeurs que le code utilise, ce sont
+#: celles auxquelles on CONFRONTE ce que l'API resout.
+OFFSETS_DECOMPILE = {"best": 0x20, "subBuckets": 0x28, "minUtility": 0x10}
+
+
 def _rpc_mod():
     from rl_collect_batch import _resolve_session, _rpc          # noqa: E402
     return _resolve_session, _rpc
@@ -115,6 +124,71 @@ def _rpc_mod():
 
 def _r(rpc, sid, m, b, t=90):
     return (rpc(sid, m, [b], timeout=t).get("result") or {})
+
+
+# --- etage 0 ---------------------------------------------------------------------------------
+
+def step0_layout(rpc, sid, verbose: bool = True) -> dict:
+    """Le layout de `Bucket<T>` que le decodeur INJECTE a resolu, confronte au DECOMPILE.
+
+    C'est le garde qui manquait, et son absence a coute une fenetre entiere : le decodeur resolvait
+    ses offsets sur `findClassAnywhere("Bucket`1")`, c'est-a-dire la DEFINITION GENERIQUE, sur
+    laquelle `il2cpp_field_get_offset` rend `0x0` pour TOUS les champs -- les offsets d'un generique
+    dependent de `T`. Les NOMS, eux, se resolvaient parfaitement, donc le rapport de layout etait
+    parfaitement rassurant pendant que le decodeur lisait `bucket+0x0`, le pointeur de classe.
+
+    Un offset d'instance NUL n'est pas une valeur du domaine : `+0x0` est l'en-tete d'objet, jamais
+    un champ. C'est donc un ROUGE, et il se voit AVANT tout montage de runner.
+    """
+    lst = _r(rpc, sid, "playbookUtilityTrace", {"action": "list"}, 300)
+    if not lst.get("ok"):
+        return {"ok": None, "skipped": "RPC `playbookUtilityTrace` indisponible (capteur absent "
+                                       "du bundle injecte)"}
+    lay = lst.get("bucketLayout") or {}
+    out = {"resolved": lay.get("resolved"), "error": lay.get("error"),
+           "pending": lay.get("pending"), "raw": lay.get("bucket")}
+    champs = lay.get("bucket") or {}
+    lus = {}
+    for cle, champ in (("best", "best"), ("subBuckets", "subBuckets"),
+                       ("minUtility", "minUtility")):
+        v = champs.get(champ)
+        if isinstance(v, str) and "@0x" in v:
+            lus[cle] = int(v.split("@0x")[1], 16)
+    out["offsets"] = {k: hex(v) for k, v in lus.items()}
+    nuls = [k for k, v in lus.items() if v == 0]
+    ecarts = {k: (hex(v), hex(OFFSETS_DECOMPILE[k]))
+              for k, v in lus.items()
+              if k in OFFSETS_DECOMPILE and v != OFFSETS_DECOMPILE[k]}
+    out["nuls"] = nuls
+    out["ecarts_vs_decompile"] = ecarts
+
+    if lay.get("pending"):
+        # Le layout ne se resout qu'a partir d'un objet reel : rien decode encore n'est PAS un
+        # echec, et surtout pas un vert.
+        out["ok"] = None
+        out["note"] = "layout PAS ENCORE resolu (aucun bucket decode) -- ni vert ni rouge"
+    elif not lus:
+        out["ok"] = None
+        out["note"] = "aucun offset publie par le capteur -- rien a confronter"
+    elif nuls:
+        out["ok"] = False
+        out["note"] = ("offsets NULS sur %s : signature d'une DEFINITION GENERIQUE non inflatee. "
+                       "Le decodeur lit l'en-tete d'objet a la place des champs." % ", ".join(nuls))
+    elif ecarts:
+        out["ok"] = False
+        out["note"] = ("offsets resolus != decompile : %s (lu, attendu)" % ecarts)
+    else:
+        out["ok"] = True
+        out["note"] = "offsets resolus CONCORDANTS avec le decompile"
+
+    if verbose:
+        print("\n[988/0] LAYOUT de `Bucket<T>` resolu par le decodeur INJECTE")
+        print("   offsets lus : %s" % (out["offsets"] or "<aucun>"))
+        print("   attendus (decompile) : %s"
+              % {k: hex(v) for k, v in OFFSETS_DECOMPILE.items()})
+        marque = {True: "OK", False: "ROUGE", None: "NON CONFRONTE"}[out["ok"]]
+        print("   -> %s : %s" % (marque, out["note"]))
+    return out
 
 
 # --- etage 1 ---------------------------------------------------------------------------------
@@ -373,6 +447,7 @@ def main() -> int:
         print("[988] NON CONFRONTE -- plateforme indisponible : %s" % e)
         return 0
 
+    res["step0"] = step0_layout(rpc, sid, verbose=not a.json)
     res["step1"] = step1_ancres(rpc, sid, verbose=not a.json)
     if a.avec_runner:
         res["step2"] = step2_bucket(rpc, sid, Path(a.state_file), verbose=not a.json)

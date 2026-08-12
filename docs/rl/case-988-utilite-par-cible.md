@@ -95,6 +95,17 @@ d'instance **nul** est refusé explicitement, `+0x0` n'étant jamais un champ.
 avec une valeur connue par un canal indépendant. Un test « le bucket n'est plus vide » aurait été
 **vert**.
 
+**Le garde qui manquait, et qui est vérifié.** `probe_988` étage 0 lit les offsets que le décodeur
+*injecté* a résolus et les confronte à ceux **lus au décompilé** (`best@0x20`, `subBuckets@0x28`,
+`minUtility@0x10` — `EvaluateInternal`, `AddActionToBucket`, `IsValidAction`). Un offset d'instance
+**nul** est un rouge : `+0x0` est l'en-tête d'objet, jamais un champ.
+
+Ce garde est **prouvé mordant, sans attendre de réinjection** : joué contre le bundle porteur de la
+version fautive, il rend `ROUGE — offsets NULS sur best, subBuckets, minUtility` face aux
+`0x20/0x28/0x10` attendus. Il est en lecture pure et s'exécute **avant** tout montage de runner.
+Corollaire : la réparation n'exige plus de fenêtre *dédiée* — le prochain reinject, quel qu'il
+soit, sera tranché automatiquement par cet étage.
+
 ## 4. Deux pièges de méthode rencontrés, et ce qu'ils coûtaient
 
 **Un canal muet ne prouve ni la vacuité, ni sa propre mort.** Sur un premier montage (deux unités
@@ -133,9 +144,11 @@ La borne *dérivée* qu'annonçait l'en-tête (« dizaines à quelques centaines
 était **surestimée d'un ordre de grandeur** ; elle a été remplacée par le chiffre observé.
 
 **NON couvert — résidu `#988-r1`** : le décodeur corrigé (résolution sur classe inflatée) n'a
-**pas** été confronté en live — il exige une **seconde injection**, le bundle de la fenêtre portant
-la version aux offsets nuls. Le témoin APRÈS reste donc à poser, et `probe_988` doit rendre
-`ok: true` avec des utilités concordant avec `{10.0, 15.0}`.
+**pas** tourné en live, le bundle injecté portant la version aux offsets nuls. Ce qui est
+**acquis** : le garde qui tranche cette question est écrit et **vérifié mordant** (étage 0
+ci-dessus). Aucune fenêtre dédiée n'est donc requise — au prochain reinject, `probe_988` doit rendre
+l'étage 0 vert (`0x20/0x28/0x10`) puis l'étage 2 `ok: true` avec des utilités concordant avec
+`{10.0, 15.0}`. Tant qu'il rougit, le décodeur injecté est faux, et c'est dit en 3 secondes.
 Portée du coût : les **26** corps `CalculateCustomUtility` n'ont **pas** été exercés par ce montage
 (`byMethod` ne montre que `EvaluateNonComparable` et `CalculateCasterPositionUtility`) — leur coût
 reste non mesuré, et leur boucle est (position × cible), pas (unité × ability).
