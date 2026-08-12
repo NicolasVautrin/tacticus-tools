@@ -75,7 +75,52 @@ def is_targetable(state, unit_id: int) -> bool:
 
     Le flag natif vient de la BASE `IdunBattle.Entities.Effects.Common.UntargetableEffect`
     (`$$ApplyInternal` -> `UnitFlagsComponent$$Add(0x11)`), pas de l'effet feuille -- d'ou un
-    DOMAINE (`UNTARGETABLE_EFFECT_TYPES`, en tete de module) et non une constante."""
+    DOMAINE (`UNTARGETABLE_EFFECT_TYPES`, en tete de module) et non une constante.
+
+    ## ⚠ NE PAS << HARMONISER >> LES DEUX CANAUX D'AURA (#926-r1)
+
+    Ce gate est appele par `surrounding_friends` / `adjacent_friends_including_owner` (canal
+    STAT-MOD) et **PAS** par `loki/first_among_traitors.py::create_aura_attack_damage_bonus_for_ally`
+    (canal DAMAGE-AURA). Les deux mesures qui l'imposent sont fermes et OPPOSEES -- `darkaTerminator`
+    en `TeleportStrike_TeleportingIn` ne recoit RIEN de `LionHelm` ; `blackTerminator` dans le meme
+    etat RECOIT le bonus de `FirstAmongTraitors`, oracle natif en accord sur 25 tuiles. Ajouter le
+    gate au second, ou le retirer du premier, casserait l'un des deux.
+
+    **L'ASYMETRIE N'EST PAS DANS LE SELECTEUR -- c'est LU, les deux corps ont ete decompiles cote a
+    cote.** `IdunBattle.Entities.Effects.Loki.LionHelm_ExtraBlockDamageEffect$$CreateTargetSelector`
+    et `IdunBattle.Entities.Effects.Loki.FirstAmongTraitors_ExtraDmgEffect$$CreateTargetSelector`
+    ouvrent sur le MEME `IdunBattleLogic.Entities.DSLSelectors$$SurroundingFriends(Owner@+0x30,
+    <range>, unique = 1, unitSelectionType = 3)` ; le second n'ajoute qu'un
+    `UnitsWithTrait(_, 0x7ea = UnitTrait.Chaos, 3)` par-dessus. Meme litteral, meme noeud.
+
+    **CE QUI DIFFERE EST LA FENETRE DE RE-EVALUATION**, et il y a DEUX lectures :
+
+      1. `IdunBattle.Entities.Effects.Loki.FirstAmongTraitors_ExtraDmgEffect$$GetRefreshTriggers`
+         rend `new RefreshEffectTrigger[2] { 5 = UnitsChanged, 7 = UnitPositionChanged }` -- ecrit
+         **INLINE** (`arr[0] = 5 ; arr[1] = 7`), donc entierement lisible, contrairement aux
+         surcharges qui passent par `System.Runtime.CompilerServices.RuntimeHelpers$$InitializeArray`.
+         `EffectsChanged = 4` n'y est **PAS**. Les DEUX `LionHelm_*`, eux, ne declarent AUCUN
+         `GetRefreshTriggers` (aucune des surcharges du build ne leur appartient) -> defaut `null`,
+         et `IdunBattle.Entities.Effects.BaseEffect$$ShouldRefreshForTrigger` traite `null` comme
+         << rafraichir sur TOUT >>. L'ensemble des declencheurs de `LionHelm` est donc un
+         **SUR-ENSEMBLE STRICT** de celui de `FirstAmongTraitors`.
+      2. `IdunBattle.Operations.RefreshEffectsOperation$$RefreshEffect` **SORT EN AMONT** quand
+         l'etat est en SIMULATION et que
+         `idun.Idun.Source.Shared.Battle.StaticBattleRules.StaticBattleRules.Effect$$ShouldRefreshDuringSimulation`
+         rend faux : ni la condition d'activite ni les cibles ne sont rafraichies. Pendant toute la
+         face DECISION/PREDICTION, `EffectComponent.Targets@+0x48` est donc **FIGE**.
+
+    **POURQUOI LA CAUSE << flag pas encore visible >> EST REFUTEE, et ce n'est pas une elimination.**
+    Le flag `UnitFlag 0x11` est pose par `UntargetableEffect$$ApplyInternal` **sur la CIBLE** : c'est
+    un etat PARTAGE, que les deux selecteurs -- identiques -- interrogent de la meme facon. Un etat
+    partage ne peut pas rendre deux reponses differentes a deux predicats identiques **au meme
+    instant** ; il ne le peut que s'ils sont evalues a des instants DIFFERENTS. C'est un argument de
+    structure, et il designe la fenetre, pas le predicat.
+
+    RESTE OUVERT (#926-r1, retreci) : quel `RefreshEffectTrigger` la POSE d'un `UntargetableEffect`
+    emet, et si `1063`/`1214` appartiennent au `HashSet` de simulation (le `.cctor` de
+    `StaticBattleRules.Effect` depasse le budget du decompilateur ; les appels au slot 0x2f de
+    `Core.Services.OperationProcessor` ne sont pas atteignables par xref)."""
     if state.effects is None:
         return True
     for e in state.effects.by_unit.get(int(unit_id), []) or []:
