@@ -563,6 +563,22 @@ class _PlanTargetPlaybook(NonComparablePlaybook):
     def evaluate_non_comparable(self, tile: tuple, target, ctx: NCContext) -> float | None:
         raise NotImplementedError
 
+    def min_eligible_targets(self) -> int:
+        """Cardinal MINIMAL de `BasePlaybook$$GetEligibleTargetsSelectable(caster, casterPosition)`
+        exige AVANT que la boucle native ne tourne, POUR CETTE POSITION.
+
+        DEFAUT 1 = AUCUN gate : le corps natif de la quasi-totalite des NonComparable enumere la
+        liste sans la tester, donc une liste vide ne produit rien et une liste non vide produit
+        tout -- ce qui est exactement ce que rend ce defaut (le compte par position vaut `>= 1` des
+        qu'une paire est castable). Le hook n'existe que pour les corps qui portent un `if` EXPLICITE
+        sur `List._size` (`+0x18`) : `IdunBattle.AI.Playbook.Loki.AugmentedAssaultPlaybook$$
+        EvaluateNonComparable` -> `if (1 < targets.Count)`, donc `2` (#975).
+
+        ⚠ Le gate est PAR POSITION, jamais global : le generateur natif
+        `ActiveAbilityActionGenerator.<GenerateActions>d__7` rappelle `EvaluateNonComparable` pour
+        chaque position candidate, et le selector est re-evalue a chaque fois."""
+        return 1
+
     def damage_predictions(self, tile: tuple, target, ctx: NCContext) -> list:
         """TRACE de construction : la SEQUENCE des `DamagePredictionResult` que ce playbook
         CONSTRUIT pour (position, cible), dans l'ORDRE NATIF, chacune ETIQUETEE par le site natif
@@ -655,10 +671,12 @@ class _PlanTargetPlaybook(NonComparablePlaybook):
         if not pairs:
             return []
         best = None  # (target, tile, util)
+        min_eligible = self.min_eligible_targets()  # `if (1 < targets.Count)` de 1221 -- defaut 1
         for P in ctx.reach_nc:                      # ORIGINE en tete puis moves (ordre natif)
-            for tgt, rset in pairs:
-                if P not in rset:
-                    continue                        # pas de cast (ability,tgt) depuis cette position
+            castable = [(tgt, rset) for tgt, rset in pairs if P in rset]
+            if len(castable) < min_eligible:
+                continue                            # `GetEligibleTargetsSelectable(P)` trop court
+            for tgt, rset in castable:
                 nu = self.evaluate_non_comparable(P, tgt, ctx)
                 if nu is None:
                     continue

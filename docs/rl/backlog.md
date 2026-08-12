@@ -4073,3 +4073,60 @@ pas d'erreur : il rend **zéro**, et un zéro se lit « rien à signaler ».
   Point d'entree : `docs/rl/case-978-faces-decision-thousandsons-eldar.md` §1 et §4.
   FOYER: scripts/python/engine/playbook/noncomparable/_base.py, engine/playbook/noncomparable/empyric_ambush.py
   BLOCAGE: aucun
+- **#975-r1 : le gate HasEnemyInRange de `1087 ExemplarOfTheKauyon` est une BORNE
+  SUPERIEURE -- il manque un CAPTEUR, pas une lecture.** `[opus]`
+  `ExemplarOfTheKauyonPlaybook` HasEnemyInRange = `GetEligibleTargetsForNormalAttack(caster,
+  UnitPosition(<la TUILE VISEE>))` = `<IBattleQuery slot 0x42 = 66 GetValidTargets>(caster,
+  position, GetNormalAttackType(caster))` suivi de `.Count > 0`. Aucun RPC n'expose
+  `GetValidTargets` depuis une position ARBITRAIRE : `abilityTargets` ne repond que pour la
+  position COURANTE (`fromHere`) et pour l'UNION sur les tuiles de MOVE (`targets`), et
+  `castFromTiles` balaie `GetMovableTilesFor`. Or 1087 est un TELEPORT (`RANGE_WHOLE_BOARD`)
+  dont les destinations sont massivement HORS de l'univers movable. Le port mirrore les DEUX etages
+  dominants (portee d'attaque max, `IsTargetTileObscured`) et laisse fog / walkability de la
+  cible / bits du masque -- trois filtres qui ne peuvent que RETIRER des cibles, d'ou une borne
+  SUP (le port peut proposer un saut que le natif ecarte, jamais rater un saut qu'il fait).
+  Fermeture : hooker `IdunBattle.Core.Services.BattleQuery$$GetValidTargets` (surcharge 3 params)
+  avec une `UnitPosition` fabriquee, ou ajouter un parametre `fromTile` au RPC `abilityTargets`.
+  FOYER: frida/hooks/features/ai-step/rpc-targeting.ts, scripts/python/engine/playbook/noncomparable/exemplar_of_the_kauyon.py
+  BLOCAGE: capteur
+
+- **#975-r2 : le sweep d'aim de `1087` part de `fromHere` SEUL.** `[opus]`
+  Le natif balaie aussi les tuiles de move. L'utilite de 1087 etant CONSTANTE (`Fix64(1)` =
+  `MIN_UTILITY`), `Bucket$$AddAction` ne remplace jamais : balayer plus de positions ne
+  changerait QUE la tuile de cast, pas la decision de caster -- l'ecart est donc borne a la
+  position emise. ⚠ Le meme raccourci etait FAUX pour `1116 RadBombardment` et a ete leve dans
+  cette meme tranche : mesure `MC1_67`/777, l'oracle rend `bucket: empty` a l'origine et
+  `util = 2` depuis une tuile de move -- le natif se DEPLACE, et un sweep origine-seule ratait le
+  cast ENTIER. Ne pas reconduire ce raccourci sans mesurer.
+  FOYER: scripts/python/engine/playbook/noncomparable/exemplar_of_the_kauyon.py
+  BLOCAGE: aucun
+
+- **#975-r3 : la PREDICTION DE DEGAT de `1139 SentinelDirectives` diverge du natif d'un facteur
+  3 a 5, et ce n'est PAS la face DECISION.** `[opus]`
+  Le playbook porte rend le MEME argmax de position, la MEME cible et le MEME ordre de preference
+  que l'oracle `ncEvaluate`, mais pas la meme VALEUR (54.50/45.59/41.76/34.56 natif contre
+  38.99/32.67/32.11/24.83 port). DEUX voies natives INDEPENDANTES placent l'ecart en amont :
+  `ncPlaybookPredict --via evaluate` capture `min 2933 / max 4230` **IDENTIQUES pour trois
+  cibles d'armures DIFFERENTES** (le port, lui, fait dependre ses bornes de la cible), et le PLAN
+  natif (`computeAttackPlans`, qui n'emprunte aucun playbook) publie `5984/8436`,
+  `8976/10542`, `7480/8536` la ou le port rend `1184/2886`, `2004/4557`, `1480/3608`.
+  Un balayage de `base_override` ne reconcilie pas : la valeur qui reproduit l'oracle (4933) n'est
+  ni `minDmg` (4254) ni `maxDmg` (5318) ni leur moyenne (4786), et le rapport max/min differe
+  structurellement (1.44 natif contre 2.05-2.27 port). `1139` n'est dans AUCUN registre
+  `_PREDICTION_MINMAX_*` : sa prediction n'avait jamais ete confrontee. Le porteur
+  `admecDestroyer` porte `HeavyWeapon_ExtraDmg` et `HeavyGravCannon`. Consequence : l'argmax
+  est conforme quand l'ecart est monotone sur les cibles, et PEUT DIVERGER sinon (mesure : montage B
+  du banc, natif `(1,6)` contre port `(1,5)`).
+  FOYER: scripts/python/engine/playbook/prediction/abilities.py, scripts/python/engine/entities/abilities/active_ability.py
+  BLOCAGE: aucun
+
+- **#975-r4 : la TUILE VISEE d'un playbook tile-target n'est pas confrontable -- l'oracle ne publie
+  qu'un POINTEUR.** `[opus]`
+  `ncEvaluate` rend `action.targetLow`, le dword bas d'un pointeur d'entite (deja note par
+  `probe_362`), pas un id de tuile. Pour `1087` et `1116`, seules l'UTILITE et la POSITION DE
+  CAST sont opposables : la tuile choisie par le port (`tile_id_by_pos[aim]`) n'a AUCUN pendant
+  natif lisible. Un tie sur l'utilite (le cas nominal de 1087, dont l'utilite est constante) est
+  donc tranche par un ordre d'enumeration que rien ne verifie. Fermeture : resoudre le pointeur en
+  id d'entite cote hook (le RPC a deja la table des entites) et le publier a cote de `targetLow`.
+  FOYER: frida/hooks/features/ai-step/rpc-predict.ts
+  BLOCAGE: capteur

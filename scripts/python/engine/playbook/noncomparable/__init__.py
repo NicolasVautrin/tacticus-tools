@@ -133,6 +133,12 @@ from .daemon_prince import AetherStridePlaybook, InfernalCannonPlaybook
 from .doombolt import DoomboltPlaybook
 from .swooping_hawk import SwoopingHawkPlaybook
 from .empyric_ambush import EmpyricAmbushPlaybook
+# #975 -- les CINQ faces DECISION du lot AdeptusMechanicus / LeaguesOfVotann / T'au.
+from .sentinel_directives import SentinelDirectivesPlaybook
+from .rad_bombardment import RadBombardmentPlaybook
+from .graviton_rifle import GravitonRiflePlaybook
+from .augmented_assault import AugmentedAssaultPlaybook
+from .exemplar_of_the_kauyon import ExemplarOfTheKauyonPlaybook
 
 
 # Registre abilityType -> instance de playbook (remplace le switch `kind`).
@@ -484,6 +490,31 @@ PLAYBOOKS: dict[int, NonComparablePlaybook] = {
         #                                 exact de 1209, et le `statPart` est tout le
         #                                 discriminant. `GetUseProbability` = **0.5** -> tirage RNG
         #                                 natif NON porte (residu `#978-r1`).
+        # #975 -- les CINQ faces DECISION du lot AdeptusMechanicus / LeaguesOfVotann / T'au, dont la
+        # face COMBAT etait deja portee. Base `NonComparablePlaybook`1` LUE dans `frida/classes.tsv`
+        # pour les cinq -- et leur `.ctor` est NOMME `ComparablePlaybook<...>` pour les CINQ (corps
+        # gshared DEDUPLIQUE, piege de #487-r1 / #945 / #957 / #967 / #969). Reachability LUE dans
+        # `metadata/active_playbook_builders.tsv` : cinq entrees du dict `active`, une par ability.
+        # AUCUNE ne surcharge `get_Priority` (absentes du sweep exhaustif #170) -> tier 0.
+        SentinelDirectivesPlaybook(),   # 1139 (`admecDestroyer`) -- util = **1 +** utilite de degat,
+        #                                 avec `minDmg` (var 0xc) SEUL en base -- pas la moyenne
+        #                                 `Half(Sum(minDmg, maxDmg))` du chemin generique. Namespace
+        #                                 natif SANS `.Loki`, seul du lot.
+        RadBombardmentPlaybook(),       # 1116 (`admecDominus`) -- util = |ennemis sur la ligne de
+        #                                 tir| (compte NU) ; `MIN_UTILITY = **2**`, seul du lot.
+        #                                 ⚠ Le « x 2 » qu'annoncait `_NONCOMPARABLE_ABILITIES` est
+        #                                 REFUTE : aucun `op_Multiply` dans le corps.
+        GravitonRiflePlaybook(),        # 1206 (`votanIronmaster`) -- util = PV COURANTS de la cible ;
+        #                                 double gate `ShouldEvaluate` = `!EnemyWillBeKilledWith
+        #                                 NormalAttack && !HasAnyRepairTarget` (Vynn est `Mechanic` :
+        #                                 il REPARE plutot que de tirer).
+        AugmentedAssaultPlaybook(),     # 1221 (`votanBeserk`) -- MEME corps de boucle que 1206, PLUS
+        #                                 un gate PAR POSITION `if (1 < targets.Count)` : au moins
+        #                                 DEUX cibles legales depuis la position evaluee.
+        ExemplarOfTheKauyonPlaybook(),  # 1087 (`tauShadowsun`) -- util CONSTANTE 1 = MIN_UTILITY sur
+        #                                 toute tuile de teleport qui passe `HasEnemyInRange`
+        #                                 (= `GetValidTargets(caster, <la tuile visee>, naType)`).
+        #                                 Gate porte en BORNE SUP (capteur absent, residu #975-r1).
     )
 }
 

@@ -1378,7 +1378,12 @@ _SPECIAL_ABILITY_CLASSES: dict[str, type[AActiveAbility]] = {
 # ─────────────────────────────────────────────────────────────────────────────────────────────
 _NONCOMPARABLE_ABILITIES: "frozenset[str]" = frozenset({
     "RadBombardment",    # RadBombardmentPlaybook : NonComparablePlaybook IdunBattle.AI.Playbook.Loki.RadBombardmentPlaybook$$.ctor ; EvaluateNonComparable
-                         # IdunBattle.AI.Playbook.Loki.RadBombardmentPlaybook$$EvaluateNonComparable = (#ennemis dans GetAffectedTiles) x 2 (AoE différée, Toxic DoT)
+                         # IdunBattle.AI.Playbook.Loki.RadBombardmentPlaybook$$EvaluateNonComparable = (#ennemis dans GetAffectedTiles),
+                         # compte NU. ⚠ Le « x 2 » qui figurait ici jusqu'a #975 etait FAUX : le corps ne
+                         # porte NI `op_Multiply` NI `op_Addition`, seulement `Fix64.op_Implicit(count)`.
+                         # Le `2` reel est le `MIN_UTILITY` du `.cctor` (`Fix64.op_Implicit(2)`), donc un
+                         # PLANCHER de proposition, pas un facteur. Face DECISION portee :
+                         # `engine/playbook/noncomparable/rad_bombardment.py`.
     "BloodyFury",        # BloodyFuryPlaybook : NonComparablePlaybook IdunBattle.AI.Playbook.Loki.BloodyFuryPlaybook$$.ctor ; EvaluateNonComparable
                          # IdunBattle.AI.Playbook.Loki.BloodyFuryPlaybook$$EvaluateNonComparable = 1 + (#ennemis adjacents) x W (heuristique de compte AoE)
     "VexillaMagnifica",  # VexillaMagnificaPlaybook : IdunBattle.AI.Playbook.Loki.VexillaMagnificaPlaybook$$EvaluateNonComparable = allié GetStat(5),
