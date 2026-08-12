@@ -665,10 +665,12 @@ def predict_attack_raw(
                                                  attacker_additive_pre=True)) if rem_lo else 0
     hi = _materialize(apply_pierce_and_modifiers(rem_hi, pierce_pct, armor, mods_pct, hit_mult,
                                                  attacker_additive_pre=True)) if rem_hi else 0
-    # Réduction DÉFENSEUR capée FLAT (GuardianOrganism) : scalaire = min(trunc(pct% × D), cap) avec D=(lo+hi)/2 =
+    # Réduction DÉFENSEUR capée FLAT (GuardianOrganism) : scalaire = min(PercentageOf(D, pct%), cap) avec D=(lo+hi)/2 =
     # CurrentDamage (base/centre du dégât, pré-GO), soustrait des DEUX bornes (mirror pré-évalué natif IdunBattle.Core.Services.DamagePrediction$$CalculateBaseDamageWithAllModifiers ;
-    # HELPER PARTAGÉ avec le COMBAT `capped_reduction_flat` = MÊME formule + troncature Fix64, confirmée bit-exact
-    # #91). AVANT target_limits (ordre natif : CalculateBaseDamageWithAllModifiers -> ApplyTraitDamageLimitsToDamage).
+    # HELPER PARTAGÉ avec le COMBAT `capped_reduction_flat` = MÊME formule, celle du nœud natif
+    # `IdunBattle.Entities.Formulas.PercentageOf$$CalculateInternal` — qui ARRONDIT (demi-vers-le-PAIR), il ne tronque
+    # PAS : cf. #920-r1 et la docstring du helper). AVANT target_limits (ordre natif :
+    # CalculateBaseDamageWithAllModifiers -> ApplyTraitDamageLimitsToDamage).
     if _capped and (lo or hi):
         _flat = capped_reduction_flat((lo + hi) / 2.0, _capped)
         lo = max(0, lo - _flat)

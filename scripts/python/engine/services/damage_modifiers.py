@@ -33,8 +33,15 @@ from __future__ import annotations
 
 import json as _json
 from dataclasses import dataclass, field
+from fractions import Fraction
 
 import engine.services.fix64 as _fx   # module FRERE, pas `from . import` (#270-r4-r2)
+# #920-r1 : foyer d'arrondi PARTAGE `IdunBattle.DSL.AAmountFormula$$RoundFix64Result` (#344), le MEME
+# que consomme le noeud DSL `entities/formulas.py::PercentageOf`. Forme B (`import X` puis `X.foo()`)
+# et NON differe : classe mecaniquement GRATUIT -- `import engine.dsl.base` dans un process FRAIS ne
+# fait PAS atterrir `engine.services.damage_modifiers` dans `sys.modules` (6 modules `engine.*`
+# charges), donc hisser ne ferme aucun cycle.
+import engine.dsl.base as _dsl_base
 from .effect_bonus import EffectBonus
 from .. import weights as _weights
 from .battle_query import are_tiles_adjacent
@@ -373,12 +380,50 @@ def capped_reduction_flat(reference: int, capped_reductions) -> int:
     `CurrentDamage` = D = le CENTRE du dégât post-perçage/mods (= (lo+hi)/2 des bornes réduites) — CONFIRMÉ LIVE
     (#91 : Tyrant Guard, D≈centre -> flat≈178 soustrait IDENTIQUE à chaque coup, PAS 33%×valeur-tirée). Ce flat
     est le MÊME pour tous les coups d'un même type (non-crit/crit) et se soustrait de chaque valeur tirée.
-    `reference` = D (le centre, possiblement fractionnaire .5) ; `PercentageOf` en Fix64 TRONQUE (confirmé LIVE
-    #91 : D->flat=177=floor, PAS 178=round). = Sum min(trunc(pct%×reference), cap). Liste vide -> 0 (combat
-    sans réduction capée = BIT-EXACT inchangé)."""
+    `reference` = D (le centre, possiblement fractionnaire .5). = Sum min(PercentageOf(D, pct), cap).
+    Liste vide -> 0 (combat sans réduction capée = BIT-EXACT inchangé).
+
+    #920-r1 — `PercentageOf` ARRONDIT, il ne tronque pas. Corps de
+    `IdunBattle.Entities.Formulas.PercentageOf$$CalculateInternal` RELU VERBATIM (build `rnca9r7q6c`) :
+
+        p = Fix64(percentage) ; p = Round(p / 100 * 100, 0) / 100
+        v = Fix64(finalAmount) * p
+        v = Round(v * 100, 0) / 100                  # arrondi au CENTIEME
+        return AAmountFormula.RoundFix64Result(v, this@+0x20)
+
+    Il n'y a **AUCUNE troncature** dans cette chaîne : les deux `Round` sont des `Fix64.Round`
+    (demi-vers-le-PAIR), et `RoundFix64Result` retombe sur le même `Fix64.Round` pour tout mode
+    autre que `1`=Ceiling / `2`=Floor. Le mode est **LU**, pas supposé :
+    `GuardianOrganism_DamageReductionEffect$$CreateEffectDamageMalusForDefense` construit
+    `ForSubtraction(get_OwnerIsTarget, Min(PercentageOf(CurrentDamage, ConfigVar(0x46), <mode 0>),
+    ConfigVar(0x12)))` — le `0` est le 4ᵉ argument littéral de `DSLFormulas.PercentageOf`.
+
+    C'est le MÊME foyer d'arrondi que le nœud DSL `entities/formulas.py::PercentageOf`, qui, lui,
+    était déjà fidèle : ce helper SCALAIRE en était la seule copie divergente.
+
+    ⚠ Le témoin qui revendiquait l'inverse (« #91 : D->flat=177=floor, PAS 178=round ») est
+    RETIRÉ : il n'est reproductible NULLE PART dans le dépôt (aucun probe, aucun test, aucune
+    case-doc ne le porte — seule cette docstring l'énonçait), et il se contredisait lui-même deux
+    lignes plus haut (« flat≈178 »). Il est réfuté par une mesure live REPRODUCTIBLE, celle de
+    `#920` (`probe_920_maw_claws_of_thyrax_live.py --n 0 --porteur-defenseur`, `blackHaarken` →
+    `tyranTyrantGuard`) : D = 3106, pct = 33 → natif **1025**, troncature **1024**, d'où le
+    `DELTA [1, 1, 1, 1]` constant sur quatre montants tous différents.
+
+    ⚠ NON TRANCHÉ (résidu #920-r3) : le natif reçoit `finalAmount` en **int32**
+    (`Fix64.op_Implicit(int)` dans le décompilé), alors que les trois call-sites du port passent
+    un centre `(lo + hi) / 2.0` qui peut valoir `.5`. Aucune mesure ne discrimine ce cas — les
+    montages mesurés tombent tous sur un centre ENTIER. La chaîne ci-dessous est donc jouée sur la
+    référence fractionnaire telle quelle, sans pré-arrondi inventé."""
     flat = 0
     for _pct, _cap in capped_reductions:
-        _r = int(reference * _pct / 100.0)          # Fix64 : troncature (PAS round)
+        # `p = Round(pct / 100 * 100, 0) / 100` — neutre pour un `pct` entier, joué quand même
+        # (mirror 1:1) ; `Fraction` représente la chaîne EXACTEMENT, sans erreur binaire.
+        _p = Fraction(_dsl_base._round_fix64(Fraction(_pct), 0), 100)
+        _v = Fraction(reference) * _p
+        # `v = Round(v * 100, 0) / 100` — l'arrondi au CENTIEME. Il n'est PAS neutre quand la
+        # référence est fractionnaire, d'où sa présence explicite.
+        _v = Fraction(_dsl_base._round_fix64(_v * 100, 0), 100)
+        _r = _dsl_base._round_fix64(_v, 0)          # `RoundFix64Result(., mode 0)` = Fix64.Round
         if _cap is not None:
             _r = min(_r, _cap)
         flat += _r

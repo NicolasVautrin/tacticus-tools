@@ -512,6 +512,8 @@ class _DamageHitsMixin:
         # #91 : réduction CAPÉE défenseur (GuardianOrganism) = scalaire FLAT pré-évalué (natif IdunBattle.Core.Services.DamagePrediction$$CalculateBaseDamageWithAllModifiers) où
         # D = CurrentDamage = CENTRE des bornes réduites (post pierce/armure/%-mods) -> soustrait IDENTIQUE à
         # chaque coup, PAS 33%×valeur-tirée (confirmé LIVE #91). Un flat par type de coup (non-crit/crit).
+        # #920-r1 : le helper ARRONDIT (`PercentageOf` demi-vers-le-PAIR), il ne tronque plus — c'était
+        # le `DELTA [1, 1, 1, 1]` du bras `--porteur-defenseur` de `probe_920`.
         _capped_flat_nc = capped_reduction_flat((hit_nc.min + hit_nc.max) / 2.0, capped_reductions) \
             if capped_reductions else 0
         _capped_flat_cr = capped_reduction_flat((hit_cr.min + hit_cr.max) / 2.0, capped_reductions) \
