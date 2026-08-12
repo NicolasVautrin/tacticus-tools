@@ -141,11 +141,22 @@ explicitement sur le vecteur normale — c'est ce que `#954-r3` demande.
   par seuil, qui est l'erreur que j'avais écrite en premier), 4/4 sur le cliquet #963-r2. Le script
   vérifie que la substitution a bien été **appliquée** avant de conclure — un vert sous mutation non
   appliquée ne prouve rien.
-* **Non couvert, et nommé** : aucune confrontation **live** n'a été jouée dans cette tranche. Pour
-  #963-r2, le régime exige une salve d'arme entièrement bloquée + un groupe #179 damageant + un
-  porteur de `On(PreDamageTaken)` (`GeminaeSuperia`) ; pour #889-r1, un porteur à `nrOfHits >= 3`
-  dont le nœud discrimine un index `>= 2` — **il n'en existe aucun** dans le build (d'où le
-  caractère structurel, non observable, de la réparation).
+* **Live : 25 passed / 1 skipped / 0 failed**, sur les 5 fichiers qui gardent les étages touchés.
+  Le plus décisif est `test_guardian_organism_combat_live.py` (**2/2**) : c'est le garde direct de
+  `capped_reduction_flat`, donc la confirmation que le passage troncature → arrondi ne casse pas le
+  témoin live de cet étage. Les quatre autres couvrent le canal crit, qu'`#889-r1` touche :
+  `test_922_intoxicating_elixir_crit_live` **9/9**, `test_crit_multihit_gate_live` **11/11**,
+  `test_runner_attack_live` **2/2**, `test_damage_crit_live` 1 passed + 1 skipped (skip
+  pré-existant, hors slice crit — le fichier n'est donc pas « intégralement skippé » au sens #455).
+
+* **Non couvert, et nommé** — deux régimes qu'aucun montage n'atteint :
+  * **#963-r2** exige une salve d'arme entièrement bloquée **+** un groupe #179 damageant **+** un
+    porteur de `On(PreDamageTaken)` (`GeminaeSuperia`) sur le même attaquant ;
+  * **#889-r1** exige un porteur à `nrOfHits >= 3` dont le nœud discrimine un index `>= 2` — **il
+    n'en existe aucun dans le build** (le seul porteur, `TheLionsWrath` 1217, a `nrOfHits = 2`).
+    C'est ce qui rend cette réparation **structurelle et non observable** : elle ne peut pas être
+    confirmée par une mesure, seulement par la lecture du décompilé et par la garantie, mesurée,
+    qu'elle est bit-identique partout ailleurs.
 
 ## 8. Résidus ouverts
 
