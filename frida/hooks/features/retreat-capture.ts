@@ -1,0 +1,442 @@
+// retreat-capture — le POINT D'INTERCEPTION de la retraite : qui appelle quoi, avec quelle
+// pile, sur quelle instance, et avec quelle valeur de retour.
+//
+// POURQUOI CE MODULE EXISTE
+// -------------------------
+// Le warmup sort de bataille en PILOTANT L'UI (pause -> retraite -> confirmation), et #390-r2
+// a donne un signal FIABLE pour savoir que c'est fini (`GuiId.PauseMenu` retire au
+// `ScreenVisibilityManager`). Ce qui manque est en amont : **provoquer** la retraite sans
+// toucher a l'ecran, comme `fsm-input.ts` le fait deja pour le DEPLOIEMENT -- il parle au FSM
+// en lui DESIGNANT les entites, au lieu de simuler une souris.
+//
+// Le patron de `fsm-input.ts` est repris tel quel, parce qu'il a deja paye :
+//   1. CAPTURER L'INSTANCE A UN ANCRAGE, jamais la chercher. Pas de balayage de tas (proscrit
+//      -- il fige les threads ~10 s et `UnityFreezeDetector` tue le process), pas de
+//      `FindObjectsByType` sur une classe dont on ignore si elle est vivante.
+//   2. L'EPINGLER (`gcRoot.add`) : une `NativePointer` cote Frida n'est pas scannee par le GC.
+//   3. La CONFRONTER avant d'agir -- une instance capturee peut etre PERIMEE.
+//
+// CE QUE LA PILE TRANCHE, ET QU'AUCUNE LECTURE D'XREFS N'A TRANCHE
+// ----------------------------------------------------------------
+// Une lecture d'xrefs avait conclu que `ProcessFinishSurrender` etait « le terminal commun,
+// appele une fois par retraite sur les deux branches ». C'est FAUX, et la faute est
+// instructive : `UNCONDITIONAL_CALL` est le type d'INSTRUCTION chez Ghidra (call direct vs
+// indirect), **pas une propriete du flot**. Dans les deux appelants l'appel est SUR UNE
+// BRANCHE, l'alternative etant `IdunMainView$$ProcessFinishBattle(playerEndReason)`.
+// ⇒ On n'infere plus la chaine : on la LIT. Chaque ancrage note sa pile complete, donc le
+// journal DIT quel appelant a mene la, et quelle branche a ete prise.
+//
+// LES PREDICATS QUI COMMANDENT LA BRANCHE (signatures lues dans `frida/methods.tsv`) :
+//   `AGameModeSource$$PauseSurrender(continueSurrender: System.Action) -> System.Boolean`
+//   `CampaignGameModeSource$$IsSurrenderFromPauseMenuEnabled() -> System.Boolean`
+// Ce ne sont PAS des etapes : ce sont des QUESTIONS. `PauseSurrender` rend un booleen -- il
+// DIFFERE la retraite (il garde le callback pour apres l'ecran intersticiel) ou il laisse
+// passer. D'ou la capture de la VALEUR DE RETOUR et pas seulement du fire : sans elle,
+// « a differe » et « a laisse passer » seraient indiscernables -- exactement le vice qu'on
+// reproche a `uiClick`.
+//
+// COUT
+// ----
+// Chemins FROIDS : ces methodes tirent au plus une fois par bataille. Rien a voir avec les
+// getters d'UI que le depot proscrit de hooker (27 000 appels/s). Les ancrages sont donc poses
+// AU CHARGEMENT et non derriere un `{start:true}` : il faut qu'ils soient deja la quand le
+// warmup se retire, et un armement prealable serait une etape de plus a ne pas oublier.
+
+import {
+    class_get_name, findClassAnywhere, findCtorByParamCount, findMethod,
+    findMethodByParamCount, methodParamClass, s,
+} from "../il2cpp/helpers.js";
+import { invokeMethod } from "../il2cpp/invoke.js";
+import { delegateInerte, lireArdoise } from "../il2cpp/delegate.js";
+import { gcRoot } from "../il2cpp/gc-root.js";
+import { captureStack } from "../ai-toolkit/stack-capture.js";
+import { queueOnMainThread } from "../runtime/queue.js";
+import { Ctx } from "../controller.js";
+
+const NS_VIEW = "idun";
+const CLS_VIEW = "IdunMainView";
+const NS_SOURCE = "IdunBattle.ViewLogic.BattleSource";
+
+/** Un fire observe. */
+interface Fire {
+    n: number;
+    /** `<Classe>$$<Methode>` -- la forme de citation du depot. */
+    quoi: string;
+    /** Classe REELLE de `this`, lue sur l'objet. Peut differer de la classe declarante
+     *  (heritage) : c'est precisement ce qu'on veut voir sur `AGameModeSource`. */
+    classeReelle: string | null;
+    self: string | null;
+    /** Valeur de retour des predicats booleens. `null` = NON MESUREE (methode `void`, ou
+     *  sortie par exception) -- jamais rabattu sur `false`. */
+    retour: boolean | null;
+    /** Pile complete, `rva:0x...` / `abs:0x...`. A resoudre HORS LIGNE contre
+     *  `data/symbols/<build>/frida/methods.tsv` (`ghidra_symbols.py whereis`) : on cite un
+     *  SYMBOLE, jamais une adresse absolue -- les noms sont stables a 97,5 %, les adresses
+     *  changent a 100 % d'un build a l'autre. */
+    pile: string[];
+    ts: number;
+}
+
+const JOURNAL_MAX = 200;
+const journal: Fire[] = [];
+let recus = 0;
+let ecartes = 0;
+
+/** Un ancrage POSE, garde avec de quoi le REPOSER. Cf. `retreatInvoke` : on ne peut pas
+ *  invoquer une methode qu'on ancre sans l'avoir deposee d'abord. */
+interface Ancrage {
+    nom: string;
+    ptr: NativePointer;
+    spec: InvocationListenerCallbacks;
+    listener: InvocationListener | null;
+}
+const ancres: Ancrage[] = [];
+
+/** `null` = ancrages JAMAIS poses (classes introuvables) -- a distinguer d'« poses et 0 fire ».
+ *  Meme discipline tri-etat que `ui-windows.ts`. */
+let ancrages: string[] | null = null;
+let ancragesRates: string[] = [];
+
+/** L'instance vivante d'`IdunMainView`, epinglee. C'est LA reponse a « est-elle joignable ? » :
+ *  on ne la cherche pas, on l'attrape. */
+let mainView: NativePointer | null = null;
+let mainViewVu = 0;
+
+/** L'instance epinglee est-elle ENCORE VIVANTE ?
+ *
+ *  ⚠ MESURE DU 2026-08-12, ET C'EST UN DEFAUT QUE CE MODULE AVAIT. Apres le warmup,
+ *  `retreatStatus` rendait `mainView: 0x231e1c75cf0` alors que `FindObjectsByType` rendait
+ *  **0 instance** : la scene de bataille etait dechargee. Le pointeur EPINGLE survit (c'est le
+ *  role de `gcRoot`), mais l'objet Unity derriere est DETRUIT. Invoquer dessus, c'est appeler
+ *  une methode sur une coquille -- et l'en-tete de ce module PRESCRIVAIT la confrontation sans
+ *  l'implementer : le garde « deja observee » porte sur la METHODE, pas sur l'INSTANCE.
+ *
+ *  On confronte comme le jeu le fait lui-meme : `thor.Loader$$LoadBattle` teste
+ *  `UnityEngine.Object$$op_Inequality(x, null)` -- l'operateur surcharge d'Unity, le seul qui
+ *  distingue « reference nulle » de « objet detruit ». Un `isNull()` cote Frida ne verrait
+ *  ni l'un ni l'autre.
+ *
+ *  `null` = NON MESURE (operateur introuvable) -- jamais rabattu sur « vivant ». */
+function encoreVivant(obj: NativePointer): boolean | null {
+    try {
+        const kObj = findClassAnywhere("UnityEngine", "Object");
+        const mi = kObj ? findMethodByParamCount(kObj, "op_Inequality", 2) : null;
+        if (!mi) return null;
+        const r = invokeMethod(mi.info, null, [obj, ptr(0)]);
+        // Retour BOXE (Boolean est un type valeur) : charge utile a +0x10.
+        return r.isNull() ? false : r.add(0x10).readU8() !== 0;
+    } catch { return null; }
+}
+
+function nomClasseDe(obj: NativePointer): string | null {
+    try {
+        if (obj.isNull()) return null;
+        return s(class_get_name(obj.readPointer()) as NativePointer);
+    } catch { return null; }
+}
+
+function noter(quoi: string, self: NativePointer | null, ctx: CpuContext): number {
+    recus++;
+    if (journal.length >= JOURNAL_MAX) { ecartes++; return -1; }
+    const { frames } = captureStack(ctx);
+    journal.push({
+        n: recus, quoi,
+        classeReelle: self ? nomClasseDe(self) : null,
+        self: self ? self.toString() : null,
+        retour: null, pile: frames, ts: Date.now(),
+    });
+    return journal.length - 1;
+}
+
+/** Epingle l'instance d'`IdunMainView` vue passer, et DEPINGLE la precedente : il en naît une
+ *  par scene, et garder un enracinement mort ferait mentir la confrontation. */
+function retenirMainView(obj: NativePointer): void {
+    try {
+        if (obj.isNull()) return;
+        if (mainView !== null && mainView.equals(obj)) { mainViewVu++; return; }
+        if (mainView !== null) { try { gcRoot.remove(mainView); } catch { /* best effort */ } }
+        gcRoot.add(obj);
+        mainView = obj;
+        mainViewVu++;
+    } catch { /* ne jamais faire tomber une methode du jeu */ }
+}
+
+/** Ancre une methode et note chaque passage. `capteRetour` demande la lecture du booleen rendu
+ *  -- reserve aux methodes dont la SIGNATURE dit `System.Boolean`, jamais devine. */
+function ancrer(
+    klass: NativePointer, methode: string, etiquette: string,
+    opts: { capteRetour?: boolean; arite?: number; estMainView?: boolean } = {},
+): boolean {
+    const mr = opts.arite !== undefined
+        ? findMethodByParamCount(klass, methode, opts.arite)
+        : findMethod(klass, methode);
+    if (!mr) return false;
+    const spec: InvocationListenerCallbacks = {
+        onEnter(args) {
+            try {
+                const self = args[0] as NativePointer;
+                if (opts.estMainView) retenirMainView(self);
+                (this as { idx?: number }).idx = noter(etiquette, self, this.context);
+            } catch { /* jamais throw dans un hook du jeu */ }
+        },
+        onLeave(retval) {
+            if (!opts.capteRetour) return;
+            try {
+                const idx = (this as { idx?: number }).idx;
+                if (idx === undefined || idx < 0 || idx >= journal.length) return;
+                journal[idx].retour = (retval.toInt32() & 0xff) !== 0;
+            } catch { /* best effort */ }
+        },
+    };
+    ancres.push({
+        nom: etiquette, ptr: mr.ptr, spec, listener: Interceptor.attach(mr.ptr, spec),
+    });
+    return true;
+}
+
+function installer(): void {
+    if (ancrages !== null) return;
+    const poses: string[] = [];
+    const rates: string[] = [];
+
+    const kView = findClassAnywhere(NS_VIEW, CLS_VIEW);
+    if (kView) {
+        // L'axe SORTIE. `ProcessFinishBattle` est ancree parce qu'elle est L'ALTERNATIVE de
+        // `ProcessFinishSurrender` dans les deux appelants -- sans elle, une retraite qui passe
+        // par elle se lirait comme « rien ne s'est produit ».
+        for (const m of ["OnBattleSurrender", "ContinueSurrender", "ProcessFinishSurrender",
+                         "ProcessFinishBattle", "OnFinishBattle"]) {
+            const nom = `${CLS_VIEW}$$${m}`;
+            (ancrer(kView, m, nom, { estMainView: true }) ? poses : rates).push(nom);
+        }
+        // Le `.ctor` donnerait l'instance SANS attendre une retraite -- mais il a pu tirer avant
+        // notre chargement (le jeu tourne deja). On l'ancre quand meme : s'il tire, tant mieux ;
+        // le journal dira LEQUEL des ancrages a capture, plutot que de le supposer.
+        const ctor = findCtorByParamCount(kView, 0);
+        const nomCtor = `${CLS_VIEW}$$.ctor`;
+        if (ctor) {
+            const spec: InvocationListenerCallbacks = {
+                onEnter(args) {
+                    try {
+                        retenirMainView(args[0] as NativePointer);
+                        noter(nomCtor, args[0] as NativePointer, this.context);
+                    } catch { /* jamais throw */ }
+                },
+            };
+            ancres.push({
+                nom: nomCtor, ptr: ctor.ptr, spec,
+                listener: Interceptor.attach(ctor.ptr, spec),
+            });
+            poses.push(nomCtor);
+        } else { rates.push(nomCtor); }
+    } else {
+        rates.push(`classe ${NS_VIEW}.${CLS_VIEW} INTROUVABLE`);
+    }
+
+    // Les PREDICATS. On ancre la base `AGameModeSource` ET la concrete `CampaignGameModeSource` :
+    // le mode du warmup est campagne, mais laquelle des deux porte le corps EXECUTE est une
+    // MESURE, pas une deduction -- `classeReelle` le dira.
+    for (const cls of ["AGameModeSource", "CampaignGameModeSource"]) {
+        const k = findClassAnywhere(NS_SOURCE, cls);
+        if (!k) { rates.push(`classe ${NS_SOURCE}.${cls} INTROUVABLE`); continue; }
+        for (const [m, arite, booleen] of [
+            ["PauseSurrender", 1, true],
+            ["IsSurrenderFromPauseMenuEnabled", 0, true],
+            ["HandleOnLeaveBattleWhileGameEventRunning", 1, false],
+        ] as Array<[string, number, boolean]>) {
+            const nom = `${cls}$$${m}`;
+            (ancrer(k, m, nom, { capteRetour: booleen, arite }) ? poses : rates).push(nom);
+        }
+    }
+
+    ancrages = poses;
+    ancragesRates = rates;
+}
+
+/** DEPOSER tous nos ancrages, puis les REPOSER.
+ *
+ *  ⚠ CE N'EST PAS UNE PRECAUTION, C'EST UNE MESURE. « Invoquer une methode qu'on ancre, depuis
+ *  du JS qui tourne sur le main thread, deadlocke a coup sur (3 gels sur 3) : l'appel natif
+ *  retombe dans notre propre trampoline, Frida veut y executer un handler JS, et le runtime est
+ *  deja tenu par ce thread. » (en-tete d'`il2cpp/delegate.ts`,
+ *  `docs/rl/case-600-gel-du-dispatch-natif.md`). Et un gel ne se signale PAS tout seul : il se
+ *  lit comme un RPC qui ne revient pas.
+ *
+ *  On depose TOUT, pas seulement la methode visee : invoquer `OnBattleSurrender` fait entrer le
+ *  jeu dans `PauseSurrender`, `ContinueSurrender`, `ProcessFinishSurrender`... que nous ancrons
+ *  AUSSI. Deposer la seule cible laisserait le piege arme un cran plus bas. */
+function deposerTout(): void {
+    for (const a of ancres) {
+        if (a.listener !== null) {
+            try { a.listener.detach(); } catch { /* best effort */ }
+            a.listener = null;
+        }
+    }
+}
+
+function reposerTout(): void {
+    for (const a of ancres) {
+        if (a.listener === null) {
+            try { a.listener = Interceptor.attach(a.ptr, a.spec); }
+            catch { /* un ancrage perdu se lira dans `retreatStatus` */ }
+        }
+    }
+}
+
+/** Les entrees qu'on s'autorise a INVOQUER, et rien d'autre. Liste blanche explicite :
+ *  `ProcessFinishBattle` prend un `playerEndReason` et `HandleBattleSurrender` en prend NEUF --
+ *  les invoquer demanderait de FABRIQUER des valeurs, donc de deviner. */
+const INVOCABLES = ["OnBattleSurrender", "ContinueSurrender", "ProcessFinishSurrender"] as const;
+
+export function register(ctx: Ctx): void {
+    installer();
+
+    /** L'etat de l'interception : tient-on une instance, quels ancrages sont poses.
+     *
+     *  TRI-ETAT : `ancrages: null` = JAMAIS pose (classes absentes du build) -- a ne pas lire
+     *  comme « pose et silencieux ». `ancragesRates` dit LESQUELS ont echoue, pour qu'une
+     *  peremption de nom se voie au lieu de se traduire par un journal vide. */
+    ctx.rpc.retreatStatus = (): unknown => ({
+        ok: true,
+        ancrages, ancragesRates,
+        posesMaintenant: ancres.filter((a) => a.listener !== null).map((a) => a.nom),
+        mainView: mainView ? mainView.toString() : null,
+        mainViewClasse: mainView ? nomClasseDe(mainView) : null,
+        // ⚠ TRI-ETAT, et ce n'est pas de la coquetterie : `true` = utilisable, `false` = objet
+        // Unity DETRUIT (scene dechargee) donc le pointeur MENT, `null` = pas mesure.
+        mainViewVivant: mainView ? encoreVivant(mainView) : null,
+        mainViewVu,
+        recus, ecartes, journalLen: journal.length,
+        invocables: INVOCABLES,
+    });
+
+    /** Le journal des fires, pile comprise.
+     *
+     *  body: { clear?: true, depuis?: number, max?: number } */
+    ctx.rpc.retreatJournal = (body?: {
+        clear?: boolean; depuis?: number; max?: number;
+    }): unknown => {
+        if (body?.clear) { journal.length = 0; recus = 0; ecartes = 0; }
+        const depuis = Math.max(0, body?.depuis ?? 0);
+        const max = Math.max(1, Math.min(body?.max ?? 100, JOURNAL_MAX));
+        return {
+            ok: true, recus, ecartes, total: journal.length,
+            fires: journal.slice(depuis, depuis + max),
+        };
+    };
+
+    /** DEMANDER au mode de jeu s'il compte DIFFERER la retraite -- sans se retirer.
+     *
+     *  `PauseSurrender(continueSurrender: System.Action) -> Boolean` exige un delegate : passer
+     *  `null` n'est PAS une option (null-check IL2CPP -> `raise_null_reference_exception` +
+     *  `INT 3`, mesure #600). On lui donne donc un delegate INERTE (`il2cpp/delegate.ts`), et on
+     *  relit son ARDOISE apres l'appel : `appels: 0` = le jeu ne l'a pas rappele (il n'a pas
+     *  differe), `appels: 1` = il l'a rappele tout de suite. `null` = ardoise NON FABRIQUEE,
+     *  donc RIEN MESURE -- a ne pas lire comme « pas appele ».
+     *
+     *  ⚠ Ce n'est pas un lecteur passif : le natif peut afficher un popup. D'ou `confirmer`. */
+    ctx.rpc.retreatPauseProbe = (body?: {
+        confirmer?: boolean;
+    }): Promise<unknown> | unknown => {
+        if (body?.confirmer !== true) {
+            return { ok: false, error: "REFUS : `confirmer: true` exige -- `PauseSurrender` "
+                + "n'est pas un lecteur, il peut afficher un ecran." };
+        }
+        const k = findClassAnywhere(NS_SOURCE, "CampaignGameModeSource");
+        if (!k) return { ok: false, error: `classe ${NS_SOURCE}.CampaignGameModeSource introuvable` };
+        const mr = findMethodByParamCount(k, "PauseSurrender", 1);
+        if (!mr) return { ok: false, error: "PauseSurrender/1 introuvable" };
+        const kAction = methodParamClass(mr.info, 0);
+        const { d, err } = delegateInerte(kAction);
+        if (!d) return { ok: false, error: "delegate inerte NON FABRIQUE : " + (err ?? "?") };
+        return { ok: false,
+            error: "NON EXECUTE : il faut l'instance vivante de CampaignGameModeSource "
+                 + "(`lastSource` du warmup), que ce module ne detient pas encore. "
+                 + "Le delegate, lui, est pret.",
+            delegate: d.ptr.toString(), offsets: d.offsets,
+            ardoise: lireArdoise(d.ardoise) };
+    };
+
+    /** PROVOQUER la retraite sans toucher a l'ecran -- le pendant, pour la SORTIE, de ce que
+     *  `fsm-input.ts` fait pour le deploiement.
+     *
+     *  body: { methode: "OnBattleSurrender" | "ContinueSurrender" | "ProcessFinishSurrender",
+     *          confirmer: true }
+     *
+     *  ⚠ TROIS REFUS EXECUTABLES, parce que la prose n'arrete pas un comportement :
+     *
+     *  1. `confirmer: true` OBLIGATOIRE. Ce natif TERMINE une vraie bataille et touche la
+     *     progression du compte. Un appel par inadvertance n'est pas rattrapable.
+     *  2. Une instance EPINGLEE est exigee. Sans elle il n'y a pas de `this`, et invoquer avec
+     *     `null` ecrirait a une adresse arbitraire.
+     *  3. **LA METHODE DOIT AVOIR ETE OBSERVEE** au moins une fois dans ce journal. C'est le
+     *     cran qui compte : il interdit d'invoquer une entree dont on a SUPPOSE qu'elle etait
+     *     la bonne. Le depot a deja paye une chaine d'appels inferee des NOMS et dementie par
+     *     la mesure. Corollaire assume : tant qu'aucune retraite pilotee par l'UI n'a eu lieu
+     *     dans cette session, ce RPC REFUSE -- et c'est le comportement voulu.
+     *
+     *  ⚠ CE QUE CE RPC NE PEUT PAS OBSERVER, ET QU'IL DIT. Nos ancrages sont DEPOSES pendant
+     *  l'invoke (sinon : gel, cf. `deposerTout`). Les fires survenus pendant l'appel ne sont
+     *  donc PAS MESURES -- le champ le nomme, plutot que de rendre une liste vide qui se lirait
+     *  « rien ne s'est produit ». La confirmation se prend AILLEURS : au signal de sortie de
+     *  #390-r2 (`GuiId.PauseMenu` retire), via `uiWindowEvents`. */
+    ctx.rpc.retreatInvoke = (body?: {
+        methode?: string; confirmer?: boolean;
+    }): Promise<unknown> | unknown => {
+        const methode = body?.methode;
+        if (!methode || !(INVOCABLES as readonly string[]).includes(methode)) {
+            return { ok: false, error: "methode manquante ou hors liste blanche -- attendu "
+                + "l'une de " + INVOCABLES.join(", ") + ". Les autres entrees prennent des "
+                + "arguments qu'il faudrait FABRIQUER." };
+        }
+        if (body?.confirmer !== true) {
+            return { ok: false, error: "REFUS : `confirmer: true` exige. " + methode
+                + " termine une VRAIE bataille et touche la progression du compte." };
+        }
+        if (mainView === null) {
+            return { ok: false, error: "REFUS : aucune instance IdunMainView epinglee. Elle se "
+                + "capture a l'un des ancrages (`retreatStatus` les liste) -- pas par balayage "
+                + "de tas, qui fige le jeu et le fait tuer par UnityFreezeDetector." };
+        }
+        const vivant = encoreVivant(mainView);
+        if (vivant !== true) {
+            return { ok: false, error: vivant === false
+                ? "REFUS : l'instance IdunMainView epinglee est DETRUITE (scene de bataille "
+                  + "dechargee). Le pointeur survit par `gcRoot`, l'objet Unity non -- mesure : "
+                  + "apres un warmup, `FindObjectsByType` rend 0 instance alors que le pointeur "
+                  + "est toujours la. Il n'y a pas de bataille a quitter."
+                : "REFUS : vivacite de l'instance NON MESUREE "
+                  + "(UnityEngine.Object$$op_Inequality introuvable) -- on n'invoque pas sur "
+                  + "un objet dont on ne sait pas s'il existe." };
+        }
+        if (!journal.some((f) => f.quoi === `${CLS_VIEW}$$${methode}`)) {
+            return { ok: false, error: "REFUS : " + methode + " n'a JAMAIS ete observee dans ce "
+                + "journal. Tant qu'une retraite pilotee par l'UI ne l'a pas fait tirer, rien "
+                + "n'etablit que c'est l'entree que le jeu emprunte -- et une chaine d'appels "
+                + "deduite des noms a deja ete dementie par la mesure." };
+        }
+        const kView = findClassAnywhere(NS_VIEW, CLS_VIEW);
+        const mr = kView ? findMethodByParamCount(kView, methode, 0) : null;
+        if (!mr) {
+            return { ok: false, error: "surcharge SANS PARAMETRE de " + methode
+                + " introuvable sur " + CLS_VIEW };
+        }
+        const cible = mainView;
+        return queueOnMainThread(() => {
+            deposerTout();
+            try {
+                invokeMethod(mr.info, cible, null);
+            } catch (e) {
+                return { ok: false, error: "invoke a leve : " + (e as Error).message,
+                         firesPendantInvoke: null };
+            } finally {
+                reposerTout();
+            }
+            return { ok: true, methode,
+                     firesPendantInvoke: null,
+                     note: "ancrages DEPOSES pendant l'appel (sinon gel) : les fires de la "
+                         + "chaine ne sont PAS mesures. Confirmer la sortie par "
+                         + "`uiWindowEvents` (retrait de GuiId.PauseMenu, #390-r2)." };
+        });
+    };
+}

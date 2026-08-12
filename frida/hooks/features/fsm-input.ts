@@ -375,7 +375,12 @@ function objetEtat(): { obj: NativePointer; klass: NativePointer } | null {
  *  ⚠ ON NE DEVINE PAS LES TYPES COMPOSÉS. Un `List<T>` ou un tableau exigeraient de
  *  construire un objet managé, donc de choisir une classe : c'est là qu'on écrirait une
  *  conversion plausible et FAUSSE. On REFUSE en le disant — le refus est une réponse. */
-function argIl2cpp(v: unknown): NativePointer | Refus {
+/** ⚠ EXPORTEE (#992) pour `features/view-command.ts`, qui invoque des commandes du jeu et a
+ *  besoin EXACTEMENT de la meme coercition. La recopier aurait fait diverger en silence deux
+ *  tables d'arguments -- le depot proscrit de recopier le voisin de forme.
+ *  RESIDU : sa place est dans `il2cpp/`, pas dans un module de FEATURE. Le deplacement touche
+ *  un fichier partage, il se fera dans une tranche qui n'a pas une fenetre en attente. */
+export function argIl2cpp(v: unknown): NativePointer | Refus {
     if (v === null || v === undefined) return ptr(0);
     if (typeof v === "string") return createManagedString(v);
     if (typeof v === "boolean") {
@@ -386,7 +391,10 @@ function argIl2cpp(v: unknown): NativePointer | Refus {
         const p = Memory.alloc(4); p.writeFloat(v); return p;
     }
     if (typeof v === "object") {
-        const o = v as { entityId?: number; float?: number; long?: number };
+        const o = v as {
+            entityId?: number; float?: number; long?: number;
+            brut?: string; octets?: number;
+        };
         if (typeof o.entityId === "number") {
             const e = entiteParId(o.entityId);
             if (e === "absente") {
@@ -400,9 +408,44 @@ function argIl2cpp(v: unknown): NativePointer | Refus {
         if (typeof o.long === "number") {
             const p = Memory.alloc(8); p.writeS64(o.long); return p;
         }
+        // `{brut: "0x0101", octets: 2}` — un TYPE VALEUR passe TEL QUEL.
+        //
+        // ⚠ POURQUOI CETTE FORME EXISTE (#992). `il2cpp_runtime_invoke` attend, pour un type
+        // valeur, un POINTEUR VERS LA VALEUR BRUTE -- pas un objet boxe. Les formes ci-dessus
+        // couvrent les primitives, mais pas un `Nullable<T>` ni un petit `struct` : les
+        // fabriquer demanderait de savoir OU est `hasValue`, donc de deviner une disposition.
+        // Mesure : `ViewCommandExecutor$$StartCampaignMatch` prend
+        // `enemyIsAiControlled : Nullable<Boolean>` et l'UI y passe `0x0101` -- les deux octets
+        // a 1, donc les deux lectures possibles CONCORDENT et la disposition reste NON TRANCHEE.
+        // On transporte donc les octets OBSERVES tels quels, au lieu de les reconstruire depuis
+        // une hypothese : c'est « rejouer une valeur mesuree », pas « composer une valeur
+        // plausible ». Le jour ou un `0x0001` sera observe, la disposition se lira sans que ce
+        // code change.
+        if (typeof o.brut === "string") {
+            const n = typeof o.octets === "number" ? o.octets : 0;
+            if (n < 1 || n > 32) {
+                return { ok: false, error: "`brut` exige `octets` entre 1 et 32 (recu : "
+                    + String(o.octets) + ") -- la largeur ne se devine pas depuis la chaine" };
+            }
+            const hex = o.brut.replace(/^0x/i, "");
+            if (!/^[0-9a-fA-F]+$/.test(hex) || hex.length !== n * 2) {
+                return { ok: false, error: "`brut` doit etre exactement " + (n * 2)
+                    + " chiffres hexadecimaux pour " + n + " octet(s) -- recu "
+                    + JSON.stringify(o.brut) + ". Un remplissage implicite ecrirait des octets "
+                    + "que personne n'a mesures." };
+            }
+            const p = Memory.alloc(n);
+            // Petit-boutiste : `0x0101` decrit les octets DANS L'ORDRE OU LE CAPTEUR LES A LUS,
+            // donc on ecrit du poids fort vers le poids faible, a l'envers.
+            for (let i = 0; i < n; i++) {
+                p.add(n - 1 - i).writeU8(parseInt(hex.substr(i * 2, 2), 16));
+            }
+            return p;
+        }
     }
     return { ok: false, error: "type d'argument non supporte : " + JSON.stringify(v)
-        + " (acceptes : chaine, booleen, entier, {float}, {long}, {entityId}, null). "
+        + " (acceptes : chaine, booleen, entier, {float}, {long}, {entityId}, "
+        + "{brut,octets}, null). "
         + "Les types COMPOSES (List<T>, tableaux) sont refuses volontairement : les "
         + "construire demanderait de choisir une classe, donc de deviner." };
 }
@@ -418,7 +461,7 @@ function argIl2cpp(v: unknown): NativePointer | Refus {
  *  valeur (charge utile à +0x10, cf. l'en-tête de 0x10 sur tout ValueType) ; les types que
  *  la table ci-dessous ne couvre pas sortent en `decode: false` avec leur nom de type et le
  *  pointeur brut. Inventer une lecture plausible serait pire que de ne rien rendre. */
-function decoderRetour(mi: NativePointer, res: NativePointer): Record<string, unknown> {
+export function decoderRetour(mi: NativePointer, res: NativePointer): Record<string, unknown> {
     let nom = "?";
     let estValeur = false;
     // ⚠ `method_get_return_type` et `class_is_valuetype` sont des exports POSSIBLEMENT NULS
