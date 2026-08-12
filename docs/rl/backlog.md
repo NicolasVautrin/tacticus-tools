@@ -3936,8 +3936,23 @@ pas d'erreur : il rend **zéro**, et un zéro se lit « rien à signaler ».
   FOYER: scripts/python/probe_970_mow_noncomparable_faces.py
   BLOCAGE: aucun
 
-- **#970-r2 : face DECISION `1160 HeavyRailRifle` -- RE faite, port BLOQUE sur la config du
-  triggered.** `[opus]`
+- ~~**#970-r2 : face DECISION `1160 HeavyRailRifle`**~~ -- **FERME par #985.** Portee dans
+  `engine/playbook/noncomparable/heavy_rail_rifle.py`. Le `BLOCAGE: seeding` reposait sur une
+  premisse FAUSSE, et c'est la mesure qui l'a dit (`probe_985_config_du_triggered.py`, 4 etages) :
+  `HeavyRailRifle_Attack` est bien ABSENTE des DEUX substrats (gameconfig ET seed BC, qui n'a meme
+  aucune section `TriggeredAbilities`), mais le triggered n'a pas de config PROPRE -- il partage
+  l'`AbilityConfiguration` de son active parente. Preuve : `HeavyRailRifle_AttackAbility$$GetFinalUnitDamageAmount`
+  lit `ConfigConst(0x4c)` et `ConfigConst(0xf)` = `dmgPctReduction` et `extraDmgPct`, deux
+  constantes qui coexistent dans **UNE SEULE** des 572 abilities -- `HeavyRailRifle` (6 et 8
+  porteuses prises separement). L'appariement est UNIQUE, pas une concordance vague ; l'etage qui
+  le mesure est ce qui rend l'argument non circulaire, et un test le garde
+  (`test_985_faces_decision_offline.py`). La ligne du call-site existait DEJA dans
+  `TRIGGERED_PREDICTION_AVERAGE_FORM` sans consommateur : ce module la consomme. Le second
+  bloqueur, lui, est REEL et contourne : `IsMachine` (= `EntityType == 6`) n'a aucun canal cote
+  DECISION, et le port le derive de `mythicAbilities` (11 designees = exactement le compte de MoW
+  du build, 0 faux negatif sur les 8 du pool). Reste l'ECART assume : `ShouldPreferMachine` est un
+  tirage a 50 % dont le port prend la face DETERMINISTE. Fiche d'origine conservee ci-dessous.
+  `[opus]`
   `HeavyRailRiflePlaybook$$EvaluateNonComparable` (RE complete, #970) :
   `ab = Playbook<T>$$GetAbility<T>(this, 0x4ec)` -> le TRIGGERED `1260 HeavyRailRifle_Attack` ;
   `profile = ab.GetDamageProfileOrDefault(0x12 = Blast)` ; `hits = ab.GetAttackHits()` =
@@ -3957,6 +3972,31 @@ pas d'erreur : il rend **zéro**, et un zéro se lit « rien à signaler ».
   exclut les MoW). RETOURNEMENT : un port de 1160 dont la prediction se confronte a
   `probe_344 --oracle nc`.
   FOYER: scripts/python/engine/playbook/noncomparable/ (module neuf), engine/entities/abilities/triggered_ability.py
+  BLOCAGE: seeding
+
+- **#985-r1 : face DECISION `1211 RitesOfMorkai` -- RE COMPLETE, port BLOQUE sur le RAYON de
+  `GetSurroundingFriends`.** `[opus]`
+  `RitesOfMorkaiPlaybook$$EvaluateNonComparable` (RE complete, #985 -- base LUE
+  `NonComparablePlaybook`1`, le `.ctor` etant mislabel `ComparablePlaybook<...>$$.ctor` ;
+  `.cctor` -> `MIN_UTILITY = Fix64(1)` ; `PRIORITY = 0`, hors `NATIVE_PRIORITY`) :
+  gate AMONT `ShouldEvaluate(unit, position, possiblePositions)` = `adj = battleQuery.<slot 123 =
+  GetAdjacentUnits>(position, null, false, ...)` puis `adj.Any(u => IsFriend(u, unit)) &&
+  adj.Any(u => IsEnemy(u, unit))` -- un gate a DEUX clauses CONJOINTES (au moins un ami ET au
+  moins un ennemi adjacents) ; puis, par cible de `GetEligibleTargetsSelectable` :
+  `if battleQuery.<slot 128 = GetAdjacentEnemies>(casterPosition, caster, false).Count > 0`
+  alors `util = 1 + 100 * |{ f in battleQuery.<slot 121 = GetSurroundingFriends>(caster,
+  casterPosition, ability.GetMovementRange(), false) : f != caster }|`.
+  Deux lectures qui ne se devinent pas : l'utilite ne depend **PAS de la cible** (toutes les
+  cibles eligibles recoivent la MEME valeur -- le tie se resout donc par l'ordre d'enumeration),
+  et le predicat du `Count` est `f != caster` (`<EvaluateNonComparable>b__0`), donc le caster
+  s'exclut lui-meme du comptage de ses propres amis.
+  BLOCAGE MESURE : `NCContext.fpos` est le voisinage ADJACENT (rayon 1) ; ici le rayon est
+  `GetMovementRange()` de l'ability, VARIABLE. `engine/battle_query.py` a bien
+  `count_surrounding(tile, positions, radius)`, mais aucun canal ne publie le rayon de mouvement
+  de l'ability cote decision -- et le porteur `spaceWolfPriest` est HORS POOL (il y entre par
+  injection catalogue, `case-92` §6). RETOURNEMENT : un port dont l'utilite se confronte a
+  `ncEvaluate` sur un montage `spaceWolfPriest` injecte, a deux rayons distincts.
+  FOYER: scripts/python/engine/playbook/noncomparable/ (module neuf), engine/playbook/noncomparable/_base.py
   BLOCAGE: seeding
 
 - **#970-r3 : face DECISION `1200 SquigLaunchas` -- RE faite, utilite purement ALEATOIRE.** `[opus]`

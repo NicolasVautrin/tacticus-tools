@@ -5605,6 +5605,23 @@
    "py": [],
    "temoins": []
   },
+  "tests/engine/test_985_faces_decision_offline.py": {
+   "_at": 1786559343,
+   "_commit": "0ef1865f51d64a0b78b471404fa2f89baac96069",
+   "dirs": [
+    "data/symbols",
+    "scripts",
+    "scripts/python/engine/playbook/noncomparable"
+   ],
+   "py": [
+    "scripts/python/engine/playbook/noncomparable"
+   ],
+   "temoins": [
+    "data/symbols/CURRENT",
+    "scripts/python/engine/playbook/noncomparable/heavy_rail_rifle.py",
+    "scripts/ratchets-951r2-couverture-attestee.json"
+   ]
+  },
   "tests/engine/test_986_crit_place_vs_spread_offline.py": {
    "_at": 1786557672,
    "_commit": "354545422d10f89da2788f01af4ff0c3c4fe7ea8",

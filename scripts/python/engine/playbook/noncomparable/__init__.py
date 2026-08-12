@@ -145,6 +145,9 @@ import engine.playbook.noncomparable.worldeaters as _we
 import engine.playbook.noncomparable.thunderous_assault as _ta
 from .devastating_refrain import DevastatingRefrainPlaybook
 from .duty_eternal import DutyEternalPlaybook
+# #985 -- les dernieres faces DECISION d'active.
+from .silent_death import SilentDeathPlaybook
+from .heavy_rail_rifle import HeavyRailRiflePlaybook
 
 
 # Registre abilityType -> instance de playbook (remplace le switch `kind`).
@@ -550,6 +553,21 @@ PLAYBOOKS: dict[int, NonComparablePlaybook] = {
         #                                 l'occupant de la tuile, donc le `10` ne vaut que pour
         #                                 `distance == 1`. Ferme `#970-r5` (son `BLOCAGE: etage`
         #                                 etait `CtxBoard`, arrive avec #978).
+        # #985 -- les dernieres faces DECISION d'active.
+        SilentDeathPlaybook(),          # 1068 (`eldarJainZar`) -- utilite PLATE `Fix64(1)` : ce
+        #                                 playbook FILTRE les cibles au lieu de les classer. Gate
+        #                                 discriminant = `Enemies(of: caster,
+        #                                 AdjacentUnits(cible) - cible)` non vide, c.-a-d. la cible
+        #                                 a >= 1 allie A ELLE colle a elle. Le `- origin` est LU
+        #                                 dans `DSLSelectors$$AdjacentUnits` : sans lui le gate
+        #                                 serait TOUJOURS vrai (la cible est ennemie du caster).
+        HeavyRailRiflePlaybook(),       # 1160 (`tauBroadside`, MoW) -- utilite de DEGAT du
+        #                                 TRIGGERED `1260`, lue au slot 4 (`CalculateAverage`,
+        #                                 TRONCATURE) ; branche `IsMachine(cible)` a tirage 50 %,
+        #                                 dont le port prend la face DETERMINISTE (util 1).
+        #                                 Ferme `#970-r2` : sa premisse (<< config du triggered
+        #                                 illisible >>) est REFUTEE -- le triggered partage
+        #                                 l'`AbilityConfiguration` de l'active.
     )
 }
 
