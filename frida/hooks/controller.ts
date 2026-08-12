@@ -41,6 +41,7 @@ import * as expeditionBoard from "./features/expedition-board.js";
 import * as rosterOwned from "./features/roster-owned.js";
 import * as expeditionDispatch from "./features/expedition-dispatch.js";
 import * as gcRendezvous from "./probes/gc-rendezvous.js";
+import * as startCampaignMatchCapture from "./probes/start-campaign-match-capture.js";
 import * as uiMutations from "./features/ui-mutations.js";
 import * as initTrace from "./features/init-trace.js";
 import * as winnerCapture from "./features/winner-capture.js";
@@ -429,7 +430,7 @@ export function wireRpc(ctx: Ctx): void {
      // `gc-rendezvous` n'INSTALLE RIEN : il expose un RPC qui force une collecte, et qui
      // PEUT geler le jeu -- c'est ce qu'il mesure (#600). Il ne touche pas au compte.
      netCapture, wsCapture, expeditionBoard, rosterOwned, expeditionDispatch, uiMutations,
-     gcRendezvous,
+     gcRendezvous, startCampaignMatchCapture,
      // messageTrace AVANT winnerCapture — il SET `state.scoringRunnerId` / `state.applySeq`,
      // que winnerCapture LIT pour estampiller son event. (Le troisieme lecteur, move-options,
      // est parti avec le nettoyage : sa surface RPC etait morte et son register inerte.)

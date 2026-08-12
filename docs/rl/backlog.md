@@ -4188,3 +4188,20 @@ pas d'erreur : il rend **zéro**, et un zéro se lit « rien à signaler ».
   id d'entite cote hook (le RPC a deja la table des entites) et le publier a cote de `targetLow`.
   FOYER: frida/hooks/features/ai-step/rpc-predict.ts
   BLOCAGE: capteur
+
+- **#991 : l'invoke direct de `StartCampaignMatch` n'est pas CONFRONTE -- capteur livre, pas encore
+  arme.** `[opus]`
+  Point d'entree : `docs/rl/case-991-start-campaign-match-invoke-direct.md`. La RE offline est faite
+  et deux mesures live acquises : `ViewCommandExecutor` n'est PAS un MonoBehaviour (parent
+  `System.Object`), mais `idun.UI.IdunNavigation._viewCommandExecutor` (offset `0x248`, type
+  `IViewCommandExecutor`, mesure `classFields` du 2026-08-12) le porte, et `IdunNavigation` est deja
+  resolue par le depot. Les deux preconditions de `ShowCampaignBattlePreviewPopupCommand$$OnPlayBattleTapped`
+  sont lues (slots `0x21`/`0x23` d'`ICampaignProgression` = noeud atteint / stamina), et
+  `LoadCampaignMatch` atteint le MEME slot `0x126` sans en evaluer aucune. Restent TROIS choses :
+  armer `startCampaignMatchCaptureArm` sur un warmup nominal pour observer les 4 arguments REELS
+  (dont les 2 octets du `Nullable<bool>`, publies bruts et non tranches), confronter
+  `viewCommandExecutorReach` au `this` capture, et etablir si `IdunMainView` (champ `+0xd0`) recoit
+  bien le `IGameModeSource` par le slot statique qu'ecrit `ViewCommandExecutor$$StartMatch` -- sans
+  quoi on saurait ENTRER dans une bataille sans savoir en SORTIR.
+  FOYER: frida/hooks/probes/start-campaign-match-capture.ts, frida/hooks/features/warmup-singletons.ts
+  BLOCAGE: capteur
