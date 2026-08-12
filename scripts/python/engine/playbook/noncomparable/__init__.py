@@ -129,6 +129,10 @@ from .waaagh import WaaaghPlaybook
 from .spore_mine_launcher import SporeMineLauncherPlaybook
 from .ironkin_steeljack import IronkinSteeljackPlaybook
 from .titanhammer_squad import TitanhammerSquadPlaybook
+from .daemon_prince import AetherStridePlaybook, InfernalCannonPlaybook
+from .doombolt import DoomboltPlaybook
+from .swooping_hawk import SwoopingHawkPlaybook
+from .empyric_ambush import EmpyricAmbushPlaybook
 
 
 # Registre abilityType -> instance de playbook (remplace le switch `kind`).
@@ -439,6 +443,47 @@ PLAYBOOKS: dict[int, NonComparablePlaybook] = {
         #                                 visee| (`GetAdjacentTiles` slot 0x4f o `GetAdjacentEnemies`
         #                                 slot 0x7f, dedoublonne par `PooledHashSet`) ; MIN = 1
         #                                 (`.cctor` = `Fix64(1)`). Domaine TUILE, jumeau de 1201.
+        # #978 -- les CINQ faces DECISION `NonComparable` Thousand Sons / Eldar. Base LUE dans
+        # `frida/classes.tsv` pour les cinq (`NonComparablePlaybook`1`) ; leur `.ctor` NOMME
+        # `ComparablePlaybook<...>`, corps trivial DEDUPLIQUE -- piege #487-r1 / #945 / #957 / #967.
+        # Reachability LUE dans `metadata/active_playbook_builders.tsv` : cinq entrees du dict
+        # `active`, une par ability. Slots resolus dans `metadata/interface_slots.tsv` (131, 170,
+        # 195) et, pour les deux appels de vtable de CLASSE, dans le `global-metadata.dat` via
+        # `il2cpp_metadata.type_methods` (`TargetsSelector` slot 23 = `Select`, slot 24 = `Count`)
+        # -- recoupes par `ITargetsSelector` (slots 0 et 2), deux sources concordantes.
+        DoomboltPlaybook(),             # 1102 (`thousAhriman`) -- util = #ennemis du rayon
+        #                                 `SurroundingEnemies(casterTile, ConfigConst(range))`,
+        #                                 INDEPENDANTE de la cible (l'arbre est ancre sur le
+        #                                 CASTER) mais DEPENDANTE de la position -> Ahriman se
+        #                                 deplace pour maximiser sa nappe. ⚠ Quirk transcrit : le
+        #                                 disque part de la tuile CANDIDATE, l'`Unobscured` de la
+        #                                 tuile REELLE.
+        SwoopingHawkPlaybook(),         # 1064 (`eldarAutarch`) -- util = (#ennemis traverses par
+        #                                 la vague de 3 tuiles alignees derriere la cible) - 1.
+        #                                 SEUL playbook du lot dont le `Fix64(1)` du Bucket est
+        #                                 construit INLINE (aucun `.cctor`) -- la borne vaut 1
+        #                                 quand meme. Ferme le residu nomme de `dive_attack.py`
+        #                                 (`GetTargetUnitsSelector` non porte).
+        AetherStridePlaybook(),         # 1208 (`thousDaemonPrince`, MoW) -- VETO booleen : util 1
+        #                                 ssi l'empreinte `ThreeTileUnitSpawnShape(cible)` a
+        #                                 (a) un allie PSYKER adjacent a l'une de ses tuiles ET
+        #                                 (b) une tuile d'ou le summon aurait une cible (slot 195,
+        #                                 branche `...WithMachineParent`). Les deux predicats ne
+        #                                 partagent PAS leur tuile.
+        InfernalCannonPlaybook(),       # 1209 (`thousDaemonPrince`, MoW) -- util = 1 + PV
+        #                                 **MAXIMUM** de la cible ennemie. ⚠ `statPart = 2 =
+        #                                 Maximum`, la ou 1164 lit `Current` et 1140 `CurrentPct`
+        #                                 au MEME emplacement. `PRIORITY = -100` (table mesuree
+        #                                 #170) -> le tier 0 d'`AetherStride`, porte par la MEME
+        #                                 unite, est evalue AVANT : seul couple de la tranche ou
+        #                                 l'ordre des generateurs est reellement exerce.
+        EmpyricAmbushPlaybook(),        # 1232 (`eldarLhykhis`) -- util = Max(hi - PV COURANTS de
+        #                                 la cible, 1), `hi` = slot 170
+        #                                 `GetHighestMaxHealthFromNoneBossConfig` (hisse hors
+        #                                 boucle par le natif). Score de FINISSEUR : l'inverse
+        #                                 exact de 1209, et le `statPart` est tout le
+        #                                 discriminant. `GetUseProbability` = **0.5** -> tirage RNG
+        #                                 natif NON porte (residu `#978-r1`).
     )
 }
 
@@ -523,4 +568,6 @@ __all__ = [
     "SternguardFocusPlaybook", "WarHowlPlaybook",
     "WaaaghPlaybook", "SporeMineLauncherPlaybook", "IronkinSteeljackPlaybook",   # #971
     "TitanhammerSquadPlaybook",
+    "DoomboltPlaybook", "SwoopingHawkPlaybook",
+    "AetherStridePlaybook", "InfernalCannonPlaybook", "EmpyricAmbushPlaybook",
 ]

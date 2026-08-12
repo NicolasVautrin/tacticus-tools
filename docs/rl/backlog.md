@@ -4058,3 +4058,18 @@ pas d'erreur : il rend **zéro**, et un zéro se lit « rien à signaler ».
   comportement NATIF -- un dry-run qui ne voit rien au tour 1 ne prouve aucun trou de port.
   FOYER: scripts/python/engine/playbook/noncomparable/titanhammer_squad.py, engine/playbook/noncomparable/_base.py
   BLOCAGE: seeding
+
+- **#978-r1 : le tirage RNG a 50 % d'`EmpyricAmbush` (1232) n'est pas porte.** `[opus]`
+  `IdunBattle.AI.Playbook.Loki.EmpyricAmbushPlaybook$$GetUseProbability` rend `<FixMath.NET.Fix64
+  statics>+0x30`, que `FixMath.NET.Fix64$$.cctor` ecrit comme `op_Division(0x100000000,
+  0x200000000)` = `Fix64(1)/Fix64(2)` = **0.5**. `BasePlaybook$$ShouldEvaluate` teste alors
+  `0.5 >= 1` (faux) puis `0.5 <= 0` (faux) -> **tirage RNG autobot**, une fois sur deux.
+  Le moteur porte est DETERMINISTE : `should_evaluate` rend `True` et l'ability est TOUJOURS
+  evaluee. Ecart identique a `BlackRagePlaybook` (0.4) et `ItItchesPlaybook`, deja assume par
+  `_base.NonComparablePlaybook.should_evaluate`.
+  ⚠ Ce n'est PAS une regle generale du lot : `DoomboltPlaybook` surcharge le MEME getter et rend
+  un POURCENTAGE (`round(nrOfHits/9*100)` = 33), donc `prob >= 1` est vrai et le `True`
+  constant y est un mirror EXACT. Lire la VALEUR, jamais se contenter de constater la surcharge.
+  Point d'entree : `docs/rl/case-978-faces-decision-thousandsons-eldar.md` §1 et §4.
+  FOYER: scripts/python/engine/playbook/noncomparable/_base.py, engine/playbook/noncomparable/empyric_ambush.py
+  BLOCAGE: aucun
