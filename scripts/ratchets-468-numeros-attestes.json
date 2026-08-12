@@ -24,6 +24,7 @@
     "585r1|case-585r1-releve-seconde-passe.md": "2e passe du MEME releve : 58 call-sites de plus (28 -> 86 sur 195). La ligne reste OUVERTE parce que 109 sites restent muets ; le reliquat est ouvert sous #585-r4.",
     "594|case-594-litteraux-au-site-dappel.md": "la MESURE est banquee, la TRANCHE est ouverte : la case-doc porte la structure etablie (135/139 sur une seule arete) et DEUX hypotheses refutees, que re-deriver coute ~9 min de ghidra ; l'extracteur, lui, reste a ecrire",
     "596|case-596-fsm-entree-par-entite.md": "la ligne de backlog EST la tranche decrite par la fiche : meme mesure du 2026-08-08, meme FOYER, la fiche est son point d entree",
-    "5|case-5-dslcontext-etat-mesure.md": "Meme tache : la case-doc MESURE que l'enonce du S-chantier est PERIME (PR #872 -- LiveUnit et Cache sont deja en place, 26 usages la ou la fiche les disait absents) ; la ligne reste ouverte pour la generalisation cas-par-cas, que la fiche nomme elle-meme."
+    "5|case-5-dslcontext-etat-mesure.md": "Meme tache : la case-doc MESURE que l'enonce du S-chantier est PERIME (PR #872 -- LiveUnit et Cache sont deja en place, 26 usages la ou la fiche les disait absents) ; la ligne reste ouverte pour la generalisation cas-par-cas, que la fiche nomme elle-meme.",
+    "943r4|case-943r4-le-critere-cessa-detre-de-la-prose.md": "Tranche #943-r4 : le CRITERE est repare (etape6 armee, 26 sites tries au decompile, 3 reparations) et la famille est classee ; la ligne reste OUVERTE pour les DEUX seuls sites DECLARANTS, qui sont sous GEOMETRIE_NUE_TOLEREE et hors du registre de l'etape 6. Les 19 muets LISTE_STOCKEE sont ouverts en #943-r7."
   }
 }

@@ -213,6 +213,127 @@ GEOMETRIE_NUE_TOLEREE = {
      "create_aura_attack_damage_bonus_for_ally"): "#271/#943-r4",
 }
 
+# ETAPE 6 -- LE REGISTRE DE CLASSIFICATION, et c'est lui qui a fait cesser le critere de PROSE
+# (#943-r4, 2026-08-12). Cle = `(chemin, nom de fonction)`, comme la tolerance ci-dessus.
+#
+# ⚠ CE QU'IL REPARE. Les etapes 2 et 4 n'entrent au gisement que si la docstring NOMME un natif de
+# `NATIFS_LISTE_STOCKEE` : leur critere d'entree est un token de PROSE, pas une propriete du CODE.
+# Mesure de la tranche precedente : **30 fonctions comparent une distance hex a 1 ; 2 vues, 2 avec
+# canal, 26 MUETTES**. Le cas d'ecole etait nomme -- `imperative.create_aura_attack_damage_bonus_
+# for_ally` applique EXACTEMENT le meme `hexgeo.distance != 1` que son jumeau `icon_of_obstinacy`,
+# sans le nommer : l'un invisible, l'autre rouge. Reparer les visibles laissait 26 sites divergents.
+#
+# Le critere d'entree est desormais le CONTENU (une distance hex comparee a 1, aucun acces au
+# canal) et l'entree au registre exige une LECTURE : la valeur porte le natif LU, verbatim. Un site
+# a geometrie nue qui n'est pas ici fait ROUGIR -- il ne peut donc plus etre invisible parce qu'il
+# ne nomme pas son natif ; au pire il est NON CLASSE, ce qui se voit.
+#
+# DEUX classes, et la premiere est un RESULTAT, pas une dispense :
+#   * `GEOMETRIQUE` -- le natif mirrore fait LUI-MEME de la geometrie hex. La geometrie nue du port
+#     est alors le mirror EXACT, et le cabler serait une REGRESSION. Substrats lus :
+#       - `BattleQuery.u003CIterateSurroundingTilesu003Ed__6$$MoveNext` balaie le CUBE
+#         `[c-d, c+d]^3` sous `x+y+z == 0` puis `StateExtensions$$GetTileAt(axial)` -- aucune liste
+#         stockee, aucune porte d'elevation. C'est le substrat de `DSLSelectors$$SurroundingTiles`,
+#         donc de `SurroundingUnits/Friends/Enemies` ;
+#       - `MovementQuery$$GetDistance` = `min(CubeCoordinate$$Distance(pieds, pieds))` ;
+#       - `MovementQuery$$u003CGetTilesObscuringTerrainu003Eg__DetermineBlockingTiles|40_0` lit deux
+#         LISTES DE COORDONNEES a l'index donne et fait `GetTileAt` -- une ligne hex, pas un
+#         voisinage.
+#   * `LISTE_STOCKEE` -- le natif enumere la liste stockee du `ConnectivityComponent`, le port
+#     DEVRAIT porter le canal. Substrats lus :
+#       - `DSLSelectors$$AdjacentFriends(unit, unique, selType)` =
+#         `Friends(unit, Units(AdjacentTiles(unit)) - unit, selType)`, et `AdjacentEnemies` le
+#         pendant exact avec `Enemies` -- les DEUX passent donc par `AdjacentTiles` ;
+#       - `BattleQuery$$GetAdjacentUnits(from, ...)` (slots 122-124) =
+#         `GetUnitsOnTiles(IterateAdjacentTiles(from, 0, 1, 1), ...)`, et `GetAdjacentEnemies`
+#         (slots 125-126) de meme ;
+#       - `TileExtensions$$IsNeighbourOf(tile, other)` enumere `ConnectivityComponent+0x10` de
+#         `tile` et compare l'id -- liste stockee SANS porte d'elevation ;
+#       - `Triggers.IsAdjacentAbilityTrigger$$ShouldTrigger` = `AreEntitiesAdjacent` (slot 96) sur
+#         chaque paire, donc `MovementUtil$$AreTilesAdjacent` -> `ConnectivityComponent$$IsNeighbour`.
+#     La valeur porte alors le residu qui tient la dette. Ces sites ne sont PAS repares ici : ce
+#     sont majoritairement des FACES JUMELLES (un noeud natif, deux substrats -- l'ECS cote runner,
+#     les tables de `Scene` cote decision, ce que `scene.py` ecrit en toutes lettres), et n'en
+#     cabler qu'une CREE la divergence de faces. La reparation est un deplacement au foyer.
+#
+# ⚠ CE QUE LA CLE `(chemin, nom)` NE SEPARE PAS, et c'est nomme plutot que corrige :
+# `hits.py` porte DEUX `create_aura_additional_hits_for_ally` (deux classes, deux abilities). Une
+# seule entree les couvre, donc la disparition de l'UNE ne perime pas l'entree tant que l'AUTRE
+# vit. Une cle par ligne perimerait a chaque edition -- le vice que la tolerance ci-dessus evite.
+GEOMETRIQUE = "GEOMETRIQUE"          # le natif fait lui-meme de la geometrie hex -> port EXACT
+LISTE_STOCKEE = "LISTE_STOCKEE"      # le natif enumere la liste stockee -> le canal MANQUE
+
+GEOMETRIE_NUE_CLASSEE = {
+    # ---- GEOMETRIQUE : le natif mirrore est geometrique, la geometrie nue est le port EXACT ----
+    ("scripts/python/engine/battle_query.py", "is_target_tile_obscured"):
+        (GEOMETRIQUE, "MovementQuery$$u003CGetTilesObscuringTerrainu003Eg__DetermineBlockingTiles|40_0"),
+    ("scripts/python/engine/entities/effects/loki/damage_reduction.py",
+     "create_aura_defense_damage_malus_for_ally"):
+        (GEOMETRIQUE, "DSLSelectors$$SurroundingUnits -> SurroundingTiles -> IterateSurroundingTiles"),
+    ("scripts/python/engine/entities/effects/loki/extra_damage.py", "get_hexes_increasing_damage"):
+        (GEOMETRIQUE, "LordOfTempests_ExtraDamageEffect$$GetHexesIncreasingDamage -> SurroundingTiles"),
+    ("scripts/python/engine/entities/selectors/units.py", "select"):
+        (GEOMETRIQUE, "DSLSelectors$$UnitsDirectlyBehind -> SurroundingTiles(target, 1, 1)"),
+    ("scripts/python/engine/services/movement_query.py", "is_valid_unit_feet_list"):
+        (GEOMETRIQUE, "MovementQuery$$IsValidUnitFeetList -> GetDistance = CubeCoordinate$$Distance"),
+    # ---- LISTE_STOCKEE : le natif enumere `ConnectivityComponent+0x10`, le canal MANQUE ----
+    ("scripts/python/engine/entities/effect_targets.py", "_adjacent_friends"):
+        (LISTE_STOCKEE, "BigTargetAdjacentEffect$$CreateTargetSelector -> DSLSelectors$$AdjacentFriends"),
+    ("scripts/python/engine/entities/effects/loki/dark_angels_passives.py", "marks_target"):
+        (LISTE_STOCKEE, "DSLSelectors$$AdjacentUnits"),
+    ("scripts/python/engine/entities/effects/loki/extra_damage_aura.py", "create_aura_attack_bonus"):
+        (LISTE_STOCKEE, "RitesOfBattleAbility$$CreateBehaviour -> DSLSelectors$$AdjacentUnits"),
+    ("scripts/python/engine/entities/effects/loki/hits.py", "aura_selector_covers"):
+        (LISTE_STOCKEE, "DSLSelectors$$AdjacentEnemies + DSLTriggers$$IsAdjacent -> AreEntitiesAdjacent"),
+    ("scripts/python/engine/entities/effects/loki/hits.py", "create_aura_hits_malus_for_defense"):
+        (LISTE_STOCKEE, "BigTargetAdjacentEffect$$CreateEffectHitsBonusForAttack -> AdjacentFriends"),
+    ("scripts/python/engine/entities/effects/loki/hits.py", "create_aura_additional_hits_for_ally"):
+        (LISTE_STOCKEE, "DSLSelectors$$AdjacentFriends"),
+    ("scripts/python/engine/entities/effects/loki/imperative.py",
+     "create_aura_attack_damage_bonus_for_ally"):
+        (LISTE_STOCKEE, "ConquerorImperativeEffect$$CreateTargetSelector -> AdjacentFriends"),
+    ("scripts/python/engine/entities/effects/loki/imperative.py",
+     "create_aura_fixed_armor_bonus_for_defense"):
+        (LISTE_STOCKEE, "ConquerorImperativeEffect$$CreateTargetSelector -> AdjacentFriends"),
+    ("scripts/python/engine/entities/traits/combat.py", "as_attacker_bonus_hits"):
+        (LISTE_STOCKEE, "GetStuckInAbility$$GetBonusHitChance -> DSLSelectors$$AdjacentUnits"),
+    ("scripts/python/engine/playbook/noncomparable/get_em_runtz.py", "_spawn_tile_count"):
+        (LISTE_STOCKEE, "GetEmRuntzAbility$$GetSpawnTileSelector -> DSLSelectors$$AdjacentTiles"),
+    ("scripts/python/engine/playbook/prediction/abilities.py", "make_hammer_wrath_events"):
+        (LISTE_STOCKEE, "HammerOfWrathAbility$$ExecuteBehaviour -> DSLSelectors$$AdjacentUnits"),
+    ("scripts/python/engine/playbook/psyker.py", "possible_targets"):
+        (LISTE_STOCKEE, "PsykerExtraAttackAbility$$PossibleTargets -> DSLSelectors$$AdjacentUnits"),
+    ("scripts/python/engine/playbook/scene.py", "_camo_cloak_cover_keys"):
+        (LISTE_STOCKEE, "CamoCloak_DmgReductionEffect$$HasValidEffectTrigger -> AdjacentFriends"),
+    ("scripts/python/engine/playbook/scene.py", "_enmity_adjacent"):
+        (LISTE_STOCKEE, "DSLSelectors$$AdjacentUnits / DSLSelectors$$AdjacentFriends"),
+    ("scripts/python/engine/playbook/scene.py", "adjacent_dark_angels_friends"):
+        (LISTE_STOCKEE, "DeathwingEffect$$GetDoubleEffectCondition -> AdjacentFriends"),
+    ("scripts/python/engine/playbook/scene.py", "adjacent_taunted_enemies"):
+        (LISTE_STOCKEE, "ADaemonicPatronsEffect$$GetNumAdjacentTauntedEnemies -> AdjacentEnemies"),
+    ("scripts/python/engine/runner/abilities/loki/momentum.py", "_execute_behaviour_step"):
+        (LISTE_STOCKEE, "UnstoppableMomentumReworkedAbility$$ExecuteBehaviourStep -> TileExtensions$$IsNeighbourOf"),
+    ("scripts/python/engine/runner/operations/triggers/loki/icon_of_obstinacy.py",
+     "icon_of_obstinacy_affected_units"):
+        (LISTE_STOCKEE, "AIconOfObstinacyAbility$$GetAffectedUnits -> DSLSelectors$$AdjacentFriends"),
+}
+
+#: Le residu qui porte la dette des sites `LISTE_STOCKEE` non repares (#943-r7).
+RESIDU_LISTE_STOCKEE = "#271/#943-r7"
+
+#: Les substrats LUS AU DECOMPILE, par classe -- c'est ce qui rend `GEOMETRIE_NUE_CLASSEE`
+#: VERIFIABLE au lieu de declaratif. Une entree doit citer un substrat de SA classe et AUCUN de
+#: l'autre : sans ce cran, << j'ai lu >> se reduirait a << j'ai ecrit un nom >>, et un site a liste
+#: stockee pourrait etre range en `GEOMETRIQUE` d'un trait de plume -- exactement la dispense que
+#: ce registre existe pour interdire. Le cran est garde par
+#: `test_433r4r1r4r2r1r1_derivation_morte_offline.py`, contre-epreuve dans les deux sens comprise.
+SUBSTRATS_LUS = {
+    GEOMETRIQUE: ("IterateSurroundingTiles", "SurroundingTiles", "CubeCoordinate$$Distance",
+                  "DetermineBlockingTiles"),
+    LISTE_STOCKEE: ("AdjacentTiles", "AdjacentUnits", "AdjacentFriends", "AdjacentEnemies",
+                    "IterateAdjacentTiles", "IsNeighbourOf", "AreEntitiesAdjacent"),
+}
+
 # Les foyers qui rougiraient, PAR natif suspendu, remplis par `etape5` a chaque passe et imprimes
 # par `main`. Ils ne pesent sur AUCUN verdict -- c'est du CONTEXTE.
 #
@@ -392,30 +513,36 @@ def etape2(arbres) -> tuple[list, int]:
     return manquants, total
 
 
-def etape2_hors_tolerance(arbres) -> tuple[list, int]:
+def etape2_hors_tolerance(arbres, brut=None) -> tuple[list, int]:
     """`etape2` PRIVEE des sites nommement toleres (`GEOMETRIE_NUE_TOLEREE`).
 
     C'est CETTE version qui pese sur le verdict ; `etape2` reste la mesure BRUTE du gisement, parce
     qu'un cliquet doit pouvoir dire ce qu'il tolere ET combien. Un site tolere qui DISPARAIT ou qui
     est RENOMME cesse simplement d'etre soustrait -- la liste ne peut donc pas dispenser un site
-    qu'elle ne designe plus."""
-    manquants, total = etape2(arbres)
+    qu'elle ne designe plus.
+
+    `brut` = le resultat d'`etape2` deja calcule, pour ne pas re-balayer les 438 arbres. C'est un
+    parametre de COUT, jamais de comportement : sans lui le calcul est identique."""
+    manquants, total = etape2(arbres) if brut is None else brut
     return ([m for m in manquants if (m[0], m[2]) not in GEOMETRIE_NUE_TOLEREE], total)
 
 
 def etape6(arbres) -> tuple[list, int]:
-    """HORS VERDICT -- le gisement COMPLET des geometries nues, docstring ou pas.
+    """MESURE BRUTE -- le gisement COMPLET des geometries nues, docstring ou pas.
 
     Les etapes 2 et 4 gardent les mirrors qui DECLARENT mirrorer le substrat stocke : leur critere
     d'entree est un token de PROSE. Cette etape-ci enleve ce filtre et ne garde que le CONTENU (une
     distance hex comparee a 1, aucun acces au canal) -- elle mesure donc ce que les deux autres ne
-    peuvent PAS voir, et c'est exactement ce qui justifie la tolerance ci-dessus : sans elle,
-    << 2 sites rouges >> se lit comme l'ampleur du gisement, alors que c'en est la part DOCUMENTEE.
+    peuvent PAS voir, et c'est ce qui justifie la tolerance ci-dessus : sans elle, << 2 sites
+    rouges >> se lit comme l'ampleur du gisement, alors que c'en est la part DOCUMENTEE.
 
-    Elle ne rend AUCUN verdict, et c'est deliberé : la geometrie hex est legitime partout ou le
-    natif mirrore est lui-meme geometrique (`IterateSurroundingTiles`, une portee, un rayon). Coter
-    ces 25 sites sans les avoir LUS un par un ferait exactement l'erreur que ce cliquet reproche aux
-    ports -- decider sans lire. Le compte est publie pour etre re-derive, pas pour etre cru.
+    ⚠ ELLE NE RENDAIT AUCUN VERDICT, ET C'ETAIT LE FOND DU RESIDU (#943-r4). << Coter ces sites sans
+    les avoir LUS un par un ferait l'erreur que ce cliquet reproche aux ports -- decider sans lire >>
+    etait vrai, et restait vrai TANT QUE personne ne les avait lus. Ils le sont : les 26 muets ont
+    ete tries au decompile, natif par natif, et le resultat est `GEOMETRIE_NUE_CLASSEE`. Le verdict
+    est desormais porte par `etape6_non_classee` ci-dessous -- non pas << toute geometrie est un
+    vice >> (5 sites sur 26 mirrorent un natif GEOMETRIQUE, les cabler serait une regression), mais
+    << toute geometrie doit avoir ete LUE >>.
 
     Rend `(sites MUETS, total des geometries nues sans canal)`."""
     exclus = {p for p, tree in arbres.items()
@@ -435,6 +562,27 @@ def etape6(arbres) -> tuple[list, int]:
             if not any(nat in doc for nat in NATIFS_LISTE_STOCKEE):
                 muets.append((p.relative_to(ROOT).as_posix(), fn.lineno, fn.name))
     return muets, total
+
+
+def etape6_non_classee(arbres, brut=None) -> tuple[list, int]:
+    """Rend `(geometries nues MUETTES et NON CLASSEES, total des muettes)`. PESE SUR LE VERDICT.
+
+    C'est ce qui fait cesser le critere de PROSE (#943-r4) : `etape6` reste la mesure BRUTE du
+    gisement -- exactement comme `etape2` reste la mesure brute sous sa tolerance -- et CELLE-CI
+    porte le verdict. Un site a geometrie nue non inscrit a `GEOMETRIE_NUE_CLASSEE` rougit, quelle
+    que soit sa docstring : il ne peut donc plus etre invisible pour la raison qu'il ne nomme pas
+    son natif. Au pire il est NON CLASSE -- et ca, ca se voit.
+
+    ⚠ LE REGISTRE N'EST PAS UNE DISPENSE : `GEOMETRIQUE` est un RESULTAT (le natif fait lui-meme de
+    la geometrie, cabler serait une REGRESSION), `LISTE_STOCKEE` est une DETTE NOMMEE (le canal
+    manque, le residu est cite). Les deux exigent d'avoir LU le natif, et la valeur le porte.
+
+    Le second membre est le total des MUETTES (pas des geometries nues) : c'est le perimetre que
+    cette etape-ci garde, et un zero de ce total dirait que le balayage ne garde rien.
+
+    `brut` = le resultat d'`etape6` deja calcule -- parametre de COUT, jamais de comportement."""
+    muets, _total = etape6(arbres) if brut is None else brut
+    return ([m for m in muets if (m[0], m[2]) not in GEOMETRIE_NUE_CLASSEE], len(muets))
 
 
 # --------------------------------------------------------------------------------------------
@@ -775,7 +923,7 @@ def etape4(arbres) -> tuple[list, int]:
     return manquants, total
 
 
-def etape5(arbres) -> tuple[list, int]:
+def etape5(arbres, reference=None) -> tuple[list, int]:
     """Rend `(suspensions PERIMEES, total des natifs suspendus)`.
 
     Le critere est INVERSE de celui des autres etapes, et c'est tout son objet : un natif du
@@ -813,7 +961,10 @@ def etape5(arbres) -> tuple[list, int]:
     #: HORS TOLERANCE des deux cotes : la question est << armer ce natif ferait-il rougir le
     #: VERDICT ? >>, or un site nommement tolere ne le fait pas rougir. Compter la mesure brute
     #: ferait passer pour justifiee une suspension dont le seul foyer est deja excuse.
-    reference = set(etape2_hors_tolerance(arbres)[0]) | {tuple(f) for f in etape4(arbres)[0]}
+    #: `reference` = ce couple deja calcule -- parametre de COUT, jamais de comportement.
+    if reference is None:
+        reference = (etape2_hors_tolerance(arbres)[0], etape4(arbres)[0])
+    reference = set(reference[0]) | {tuple(f) for f in reference[1]}
     for nat, residu in sorted(NATIFS_LISTE_STOCKEE_SUSPENDUS.items()):
         try:
             NATIFS_LISTE_STOCKEE = base + (nat,)
@@ -864,13 +1015,25 @@ def main() -> int:
                 arbres[p] = ast.parse(fh.read())
         except (OSError, SyntaxError):
             continue
+    # ⚠ Les resultats BRUTS sont calcules UNE fois et passes aux etapes qui les FILTRENT : sans ca,
+    # `main()` re-balaie les 438 arbres plusieurs fois de trop (les etapes 2 et 4 sont les plus
+    # cheres, et l'etape 5 les rejoue une fois par natif suspendu). Ce sont des parametres de COUT
+    # -- le verdict est identique avec ou sans.
+    # ⚠ CONTRAINTE POUR QUI SUBSTITUE UNE ETAPE : `etape2_hors_tolerance`, `etape5` et
+    # `etape6_non_classee` sont appelees ici avec un ARGUMENT NOMME en plus des arbres. Une
+    # substitution de test doit donc accepter `**kw` (`lambda arbres, **kw: ...`), sans quoi elle
+    # leve `TypeError` au lieu de mesurer -- un echec BRUYANT, pas un faux vert, mais un echec qui
+    # accuse le mauvais coupable.
     m1, t1 = etape1(arbres)
-    m2, t2 = etape2_hors_tolerance(arbres)
-    m2_brut, _ = etape2(arbres)
+    brut2 = etape2(arbres)
+    m2_brut, _ = brut2
+    m2, t2 = etape2_hors_tolerance(arbres, brut=brut2)
     m3, t3 = etape3(arbres)
     m4, t4 = etape4(arbres)
-    m5, t5 = etape5(arbres)
-    m6, t6 = etape6(arbres)
+    m5, t5 = etape5(arbres, reference=(m2, m4))
+    brut6 = etape6(arbres)
+    m6, t6 = brut6
+    m6nc, t6nc = etape6_non_classee(arbres, brut=brut6)
     print("== #433-r4-r1-r4-r2 -- substrat de voisinage natif")
     print("-- etape 1 : invariant de COUPLE sur les call-sites (imports RESOLUS)")
     print("   call-sites gates par l'elevation : %d" % t1)
@@ -911,15 +1074,27 @@ def main() -> int:
         print("      %s : %d foyer(s) le justifient encore" % (nat, len(foyers)))
         for (rel, ln, name) in foyers:
             print("         %s:%d  %s" % (rel, ln, name))
-    # HORS VERDICT -- l'AMPLEUR reelle du gisement, celle que le critere << docstring >> ne peut pas
-    # voir. C'est la mesure qui JUSTIFIE `GEOMETRIE_NUE_TOLEREE` : sans elle, le compte de l'etape 2
-    # se lirait comme l'ampleur du gisement alors qu'il n'en est que la part DOCUMENTEE.
-    print("-- etape 6 (HORS VERDICT) : ampleur reelle de la geometrie nue (#943-r4)")
+    # L'AMPLEUR reelle du gisement, celle que le critere << docstring >> ne peut pas voir. Elle
+    # JUSTIFIE `GEOMETRIE_NUE_TOLEREE` (sans elle le compte de l'etape 2 se lirait comme l'ampleur
+    # du gisement alors qu'il n'en est que la part DOCUMENTEE) -- et depuis #943-r4 elle PESE, par
+    # `etape6_non_classee` : chaque muette doit avoir ete LUE et classee.
+    print("-- etape 6 : ampleur reelle de la geometrie nue, et sa CLASSIFICATION (#943-r4)")
     print("   fonctions a geometrie nue SANS acces au canal : %d" % t6)
     print("   dont MUETTES (aucun natif declare)            : %d -- invisibles aux etapes 2 et 4"
-          % len(m6))
+          % t6nc)
+    print("   dont NON CLASSEES (natif jamais lu)           : %d (attendu 0)" % len(m6nc))
+    _classes = {}
     for (rel, ln, name) in m6:
-        print("      %s:%d  %s" % (rel, ln, name))
+        cl = GEOMETRIE_NUE_CLASSEE.get((rel, name))
+        _classes[cl[0] if cl else "NON CLASSEE"] = _classes.get(
+            cl[0] if cl else "NON CLASSEE", 0) + 1
+        print("      [%s] %s:%d  %s%s"
+              % (cl[0] if cl else "NON CLASSEE", rel, ln, name,
+                 ("  <- %s" % cl[1]) if cl else ""))
+    print("   ventilation : %s" % ", ".join("%s=%d" % kv for kv in sorted(_classes.items())))
+    for (rel, ln, name) in m6nc:
+        print("      %s:%d  %s -- geometrie nue JAMAIS LUE : classe-la (natif LU) ou cable le canal"
+              % (rel, ln, name))
     if "--inventaire" in sys.argv:
         inv = inventaire(arbres)
         print("-- inventaire HORS VERDICT : geometrie nue + canal, natif NON declare")
@@ -927,12 +1102,12 @@ def main() -> int:
         for (rel, ln, name, nues) in inv:
             print("      %s:%d  %s -- geometrie(s) non gardee(s) ligne(s) %s"
                   % (rel, ln, name, ",".join(str(x) for x in nues)))
-    if t1 == 0 or t3 == 0:
+    if t1 == 0 or t3 == 0 or t6nc == 0:
         # Un zero de TOTAL n'est pas un vert : le balayage n'a rien vu, donc il ne garde rien.
-        print("ECART: un perimetre est VIDE (etape 1 : %d, etape 3 : %d)"
-              " -- le cliquet ne garde rien (perimetre casse ?)" % (t1, t3))
+        print("ECART: un perimetre est VIDE (etape 1 : %d, etape 3 : %d, etape 6 : %d)"
+              " -- le cliquet ne garde rien (perimetre casse ?)" % (t1, t3, t6nc))
         return 1
-    n = len(m1) + len(m2) + len(m3) + len(m4) + len(m5)
+    n = len(m1) + len(m2) + len(m3) + len(m4) + len(m5) + len(m6nc)
     print("VERDICT: %s" % ("PASS" if not n else "FAIL (%d)" % n))
     return 0 if not n else 1
 

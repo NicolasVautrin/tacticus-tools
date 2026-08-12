@@ -40,6 +40,8 @@ BQ = "scripts/python/engine/battle_query.py"
 COMPOSANTS = "scripts/python/engine/runner/components.py"
 SERVICES_BQ = "scripts/python/engine/services/battle_query.py"
 DEGATS = "scripts/python/engine/runner/damage_model.py"
+BASE_ABILITES = "scripts/python/engine/runner/abilities/base.py"
+VOTANN = "scripts/python/engine/runner/abilities/votann.py"
 
 
 # ------------------------------------------------------------------ montage
@@ -101,6 +103,36 @@ def test_arbre_courant_vert_et_perimetres_non_vides(arbres_reels):
     assert t4 > 0, "etape 4 : aucun mirror declare avec canal -- perimetre casse"
     assert m3 == [], "derivations mortes : %r" % (m3,)
     assert m4 == [], "geometries non gardees : %r" % (m4,)
+
+
+# --------------------------------------- #943-r6-r1 : l'etape 1 n'etait JOUEE PAR PERSONNE
+# --------------------------------------- (un garde que rien ne convoque n'existe pas)
+
+def test_etape1_arbre_courant_vert_et_perimetre_non_vide(arbres_reels):
+    """L'INVARIANT DE COUPLE, sur l'arbre courant -- et c'est la premiere fois qu'un test le joue.
+
+    ⚠ POURQUOI CE TEST EXISTE (#943-r6-r1). Les quatre etapes NEUVES (2/3/4/5) avaient chacune leur
+    test de cablage ; l'ANCIENNE, non. Mesure du 2026-08-12 : ce fichier est le SEUL de la banque a
+    importer le probe, et il appelait `etape2/3/4/5`, jamais `etape1` -- qui etait ROUGE sur
+    `engine/runner/abilities/admec.py` (`are_entities_adjacent` : elevation fournie, voisinage
+    omis), sans que rien de la banque ne le voie. Un garde que rien ne convoque est un garde qui
+    n'existe pas.
+
+    Le zero ne vaut que sur un perimetre NON VIDE : c'est la meme regle que pour les etapes 3 et 4,
+    et `main()` la porte deja pour l'etape 1 (`t1 == 0` -> `ECART`)."""
+    m1, t1 = G.etape1(arbres_reels)
+    assert t1 > 0, "etape 1 : aucun call-site gate par l'elevation -- perimetre casse"
+    assert m1 == [], (
+        "call-site(s) a moitie branches (elevation fournie, voisinage MANQUANT) : %r" % (m1,))
+
+
+def test_etape1_est_CABLEE_au_verdict(monkeypatch):
+    """Le critere le plus juste ne vaut rien s'il n'est pas COMPTE (#430).
+
+    `main()` comptait deja `etape1`, mais AUCUN test ne le prouvait -- et c'est bien la partie
+    << personne ne le joue >> qui a laisse le rouge vivre, pas la partie << ce n'est pas compte >>."""
+    monkeypatch.setattr(G, "etape1", lambda arbres: ([("f.py", 1, "is_adjacent")], 1))
+    assert G.main() == 1
 
 
 def test_les_deux_replis_legitimes_sont_dans_le_perimetre_de_letape4(arbres_reels):
@@ -234,6 +266,154 @@ def test_la_tolerance_MORD_quand_on_la_vide(arbres_reels, monkeypatch):
          "create_aura_attack_damage_bonus_for_ally")}, reapparus
 
 
+# ------------------------------------- #943-r4 : le critere d'entree n'est plus un token de PROSE
+# ------------------------------------- (etape 6 ARMEE : toute geometrie nue doit avoir ete LUE)
+
+def test_etape6_toute_geometrie_nue_est_CLASSEE(arbres_reels):
+    """LE FOND DE #943-r4 : plus aucun site n'est invisible parce qu'il ne NOMME pas son natif.
+
+    Les etapes 2 et 4 n'entrent au gisement que si la docstring cite un `NATIFS_LISTE_STOCKEE` --
+    une propriete de la PROSE. Mesure de la tranche precedente : 30 fonctions comparent une distance
+    hex a 1, 2 vues, 2 avec canal, 26 MUETTES. L'etape 6 balaie par le CONTENU et EXIGE desormais
+    une classification, donc une LECTURE du natif.
+
+    Le zero ne vaut que sur un perimetre NON VIDE (meme regle que les etapes 1/3/4)."""
+    m6nc, t6nc = G.etape6_non_classee(arbres_reels)
+    assert t6nc > 0, "etape 6 : aucune geometrie nue muette vue -- perimetre casse"
+    assert m6nc == [], (
+        "%d site(s) a geometrie nue NON CLASSE(S) : %r -- lis le natif qu'il mirrore, puis "
+        "classe-le (`GEOMETRIQUE` = le natif est lui-meme geometrique, `LISTE_STOCKEE` = le canal "
+        "manque) ou cable le canal" % (len(m6nc), m6nc))
+
+
+def test_etape6_est_CABLEE_au_verdict(monkeypatch):
+    """Un rouge de l'etape 6 doit sortir par `main()` -- sinon la classification est decorative."""
+    monkeypatch.setattr(G, "etape6_non_classee", lambda arbres, **kw: ([("f.py", 1, "f")], 1))
+    assert G.main() == 1
+
+
+def test_etape6_perimetre_VIDE_nest_pas_un_vert(monkeypatch):
+    """CONTRE-EPREUVE du garde-perimetre : un balayage qui ne voit RIEN ne garde rien.
+
+    Sans ce cran, casser le critere d'entree (une `_compare_distance_a_un` qui ne matche plus)
+    rendrait l'etape 6 verte en ne visitant aucun site -- le mode de defaillance exact que
+    `main()` previent deja pour les etapes 1 et 3."""
+    monkeypatch.setattr(G, "etape6_non_classee", lambda arbres, **kw: ([], 0))
+    assert G.main() == 1
+
+
+def test_le_registre_de_classification_ne_contient_aucune_entree_PERIMEE(arbres_reels):
+    """Meme mode de defaillance que la tolerance et que la suspension de l'etape 5.
+
+    Une entree qui ne designe plus aucun site du gisement dispense un site que plus personne n'a lu.
+    ⚠ La cle `(chemin, nom)` ne separe PAS les homonymes -- `hits.py` porte DEUX
+    `create_aura_additional_hits_for_ally` -- donc une entree survit tant que l'UNE des deux vit.
+    C'est nomme dans le registre plutot que corrige : une cle par LIGNE perimerait a chaque
+    edition, le vice que la tolerance evite deja."""
+    vus = {(rel, nom) for (rel, _ln, nom) in G.etape6(arbres_reels)[0]}
+    perimees = sorted(k for k in G.GEOMETRIE_NUE_CLASSEE if k not in vus)
+    assert not perimees, (
+        "%d entree(s) de GEOMETRIE_NUE_CLASSEE ne designent plus aucun site a geometrie nue : "
+        "%r -- retire-les" % (len(perimees), perimees))
+
+
+def test_chaque_classification_CITE_un_substrat_LU_de_sa_classe(arbres_reels):
+    """CE QUI REND LA CLASSIFICATION VERIFIABLE au lieu de declarative.
+
+    Sans ce cran, ranger un site en `GEOMETRIQUE` couterait un trait de plume, et le registre
+    serait la dispense qu'il existe pour interdire. On exige donc que le natif cite contienne un
+    substrat LU de SA classe, et AUCUN de l'autre.
+
+    Les deux jeux de substrats sont les corps effectivement decompiles (#943-r4) :
+    `IterateSurroundingTiles` balaie le cube et n'a pas de porte d'elevation ; `AdjacentTiles` /
+    `GetAdjacentUnits` / `GetAdjacentEnemies` / `IsNeighbourOf` / `AreEntitiesAdjacent` descendent
+    tous sur `ConnectivityComponent+0x10`."""
+    assert G.GEOMETRIE_NUE_CLASSEE, "registre vide : ce test ne garde plus rien"
+    assert set(G.SUBSTRATS_LUS) == {G.GEOMETRIQUE, G.LISTE_STOCKEE}
+    for (cle, valeur) in sorted(G.GEOMETRIE_NUE_CLASSEE.items()):
+        assert isinstance(valeur, tuple) and len(valeur) == 2, (cle, valeur)
+        classe, natif = valeur
+        assert classe in G.SUBSTRATS_LUS, "classe inconnue pour %r : %r" % (cle, classe)
+        autre = G.LISTE_STOCKEE if classe == G.GEOMETRIQUE else G.GEOMETRIQUE
+        assert any(s in natif for s in G.SUBSTRATS_LUS[classe]), (
+            "%r est classe %s mais ne cite AUCUN substrat lu de cette classe : %r"
+            % (cle, classe, natif))
+        assert not any(s in natif for s in G.SUBSTRATS_LUS[autre]), (
+            "%r est classe %s mais cite un substrat de l'autre classe : %r" % (cle, classe, natif))
+
+
+@pytest.mark.parametrize("classe,natif", [
+    (G.GEOMETRIQUE, "DSLSelectors$$AdjacentFriends"),      # substrat de l'AUTRE classe
+    (G.LISTE_STOCKEE, "DSLSelectors$$SurroundingTiles"),   # idem, en miroir
+    (G.GEOMETRIQUE, "UnNatifQueNulNaLu$$Machin"),          # aucun substrat lu du tout
+])
+def test_une_classification_NON_ETAYEE_est_REFUSEE(monkeypatch, arbres_reels, classe, natif):
+    """CONTRE-EPREUVE du test ci-dessus, DANS LES DEUX SENS.
+
+    Un test qui verifie seulement que le registre courant passe ne prouve pas qu'il pourrait
+    echouer -- c'est le faux vert que l'etape 5 a paye (#943)."""
+    faux = dict(G.GEOMETRIE_NUE_CLASSEE)
+    faux[("scripts/python/engine/battle_query.py", "is_target_tile_obscured")] = (classe, natif)
+    monkeypatch.setattr(G, "GEOMETRIE_NUE_CLASSEE", faux)
+    with pytest.raises(AssertionError):
+        test_chaque_classification_CITE_un_substrat_LU_de_sa_classe(arbres_reels)
+
+
+def test_le_registre_ne_dispense_QUE_les_sites_quil_NOMME():
+    """CONTRE-EPREUVE 1 de l'etape 6 -- une geometrie nue NEUVE rougit, docstring ou pas.
+
+    C'est exactement ce que le critere de PROSE ne savait pas faire : cette fonction-ci ne cite
+    AUCUN natif, donc les etapes 2 et 4 ne la voient pas -- et pourtant elle decide une adjacence
+    a la couronne hex."""
+    arbres = _synthetique(faux="""
+import hexgeo
+
+
+def adjacents_muet(a, b):
+    \"\"\"Aucun natif declare -- invisible aux etapes 2 et 4, par construction.\"\"\"
+    return hexgeo.distance(a, b) == 1
+""")
+    assert G.etape2(arbres) == ([], 0), "l'etape 2 ne doit PAS voir un site muet"
+    assert _noms(G.etape6_non_classee(arbres)[0]) == {"adjacents_muet"}, (
+        "une geometrie nue NEUVE et muette ne rougit plus : le critere est redevenu de la PROSE")
+
+
+def test_le_registre_MORD_quand_on_le_vide(arbres_reels, monkeypatch):
+    """CONTRE-EPREUVE 2 -- le vert d'aujourd'hui vient du REGISTRE, pas d'un gisement disparu.
+
+    Si `etape6_non_classee` se contentait de recopier `etape6`, le test principal serait vert par
+    accident. En vidant le registre, TOUS les muets doivent reapparaitre."""
+    muets = {(rel, nom) for (rel, _ln, nom) in G.etape6(arbres_reels)[0]}
+    monkeypatch.setattr(G, "GEOMETRIE_NUE_CLASSEE", {})
+    reapparus = {(rel, nom) for (rel, _ln, nom) in G.etape6_non_classee(arbres_reels)[0]}
+    assert reapparus == muets and len(muets) >= 3, (len(muets), sorted(muets)[:5])
+
+
+def test_les_deux_sites_REPARES_ont_quitte_le_gisement_par_le_HAUT(arbres_reels):
+    """Les deux reparations de #943-r4 sortent du gisement parce qu'elles CONSOMMENT le canal.
+
+    `base.py::_fighting_retreat_sets_flags` (`GetAdjacentEnemies` slot 125 ->
+    `GetUnitsOnTiles(IterateAdjacentTiles(...))`) et
+    `votann.py::_ancestral_fortune_attack_target` (`DSLSelectors$$AdjacentEnemies` ->
+    `AdjacentTiles`) etaient MUETS et a geometrie nue. Ce test verifie qu'ils n'y sont plus par la
+    porte du HAUT -- plus aucune comparaison de distance a 1 -- et non parce qu'une entree de
+    registre les excuse : ils ne sont volontairement PAS au registre.
+
+    L'etape 3 les voit desormais (elles touchent le canal), donc leur derivation est gardee
+    CONSOMMEE par `test_arbre_courant_vert_et_perimetres_non_vides`."""
+    for (chemin, nom) in ((BASE_ABILITES, "_fighting_retreat_sets_flags"),
+                          (VOTANN, "_ancestral_fortune_attack_target")):
+        p = next(x for x in arbres_reels if x.as_posix().endswith(chemin.split("engine/", 1)[1]))
+        fns = [f for f in G._fonctions_racine(arbres_reels[p]) if f.name == nom]
+        assert len(fns) == 1, "%s introuvable ou duplique : %d" % (nom, len(fns))
+        assert not G._compare_distance_a_un(fns[0]), (
+            "%s compare encore une distance a 1" % nom)
+        assert G._noms_du_corps(fns[0]) & set(G.ACCES_CANAL), (
+            "%s ne touche pas le canal de voisinage" % nom)
+        assert (chemin, nom) not in G.GEOMETRIE_NUE_CLASSEE, (
+            "%s est REPARE : il n'a rien a faire au registre de classification" % nom)
+
+
 def test_les_natifs_SUSPENDUS_le_sont_pour_une_raison_qui_se_MESURE(arbres_reels):
     """Le registre suspendu n'est pas une echappatoire : sa justification se re-mesure.
 
@@ -268,8 +448,10 @@ def test_etape5_ROUGIT_sur_une_suspension_perimee(arbres_reels, monkeypatch):
 
 
 def test_etape5_est_CABLEE_au_verdict(monkeypatch):
-    """Le critere le plus juste ne vaut rien s'il n'est pas COMPTE (#430)."""
-    monkeypatch.setattr(G, "etape5", lambda arbres: ([("X", "#000")], 1))
+    """Le critere le plus juste ne vaut rien s'il n'est pas COMPTE (#430).
+
+    `**kw` : `main()` passe a l'etape 5 la reference deja calculee (parametre de COUT)."""
+    monkeypatch.setattr(G, "etape5", lambda arbres, **kw: ([("X", "#000")], 1))
     assert G.main() == 1
 
 
