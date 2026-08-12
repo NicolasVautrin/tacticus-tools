@@ -4,7 +4,8 @@
   "data/seed-bc.json",
   "data/symbols/CURRENT",
   "scripts/python/pytest.ini",
-  "scripts/ratchets-486r15-dette-declencheurs.txt"
+  "scripts/ratchets-486r15-dette-declencheurs.txt",
+  "scripts/ratchets-951r2-couverture-attestee.json"
  ],
  "_regime": "bytecode PRECHAUFFE avant la mesure -- aucune lecture GLOBALE ne provient d'un import (garde de regime #464-r2)",
  "par_test": {
@@ -7462,6 +7463,25 @@
     "scripts/python/verdict_cache.py",
     "scripts/ratchets-457-durations.json",
     "scripts/ratchets-457-footprints.json"
+   ]
+  },
+  "tests/test_951r2_voies_de_couverture_offline.py": {
+   "_at": 1786501201,
+   "_commit": "e3c6c2a804bf42326fc4a1bd8bdcc7651c2125a1",
+   "dirs": [
+    "data",
+    "data/symbols",
+    "scripts",
+    "scripts/python/engine/runner/operations/triggers/dispatch"
+   ],
+   "py": [
+    "scripts/python/engine/runner/operations/triggers/dispatch"
+   ],
+   "temoins": [
+    "data/i2_en.json",
+    "data/symbols/CURRENT",
+    "scripts/python/engine/runner/operations/triggers/dispatch/ability.py",
+    "scripts/ratchets-951r2-couverture-attestee.json"
    ]
   },
   "tests/test_additional_hits_variant_signatures_offline.py": {

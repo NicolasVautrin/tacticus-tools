@@ -31,6 +31,42 @@ _PYROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _PYROOT not in sys.path:
     sys.path.insert(0, _PYROOT)
 
+DECLENCHEUR = {
+    "chemins": (
+        "scripts/python/conftest.py", "scripts/python/tests/conftest.py",
+        # les deux auditeurs et le foyer de validite
+        "scripts/python/audit_kit_coverage.py",
+        "scripts/python/audit_combat_ability_coverage.py",
+        "scripts/python/coverage_attestations.py",
+        "scripts/ratchets-951r2-couverture-attestee.json",
+        # les VOIES de port que l'audit lit -- toucher l'une d'elles peut rouvrir un faux manquant
+        "scripts/python/engine/runner/operations/triggers/dispatch/ability.py",
+        "scripts/python/engine/runner/operations/triggers/dispatch/registry.py",
+        "scripts/python/engine/entities/effects/factory.py",
+        "scripts/python/engine/services/custom_normal_attack.py",
+        "scripts/python/engine/entities/abilities/active_ability.py",
+        "scripts/python/engine/playbook/noncomparable/__init__.py",
+        "scripts/python/engine/runner/abilities/handler.py",
+        # les ANCRAGES des attestations livrees : si l'un disparait, l'attestation doit PERIMER
+        "scripts/python/engine/services/targeting_query.py",
+        "scripts/python/engine/runner/abilities/repair.py",
+        "scripts/python/tests/engine/test_945_loki_decision_faces_offline.py",
+        "scripts/python/tests/engine/test_952_hunters_beyond_death_offline.py",
+        "scripts/python/unit_map.py", "scripts/python/gameconfig.py",
+        "scripts/python/enum_maps.py",
+        # lu par `unit_map` en amont du recensement des kits (libelles i2)
+        "data/i2_en.json",
+    ),
+    "build": True,
+    "toujours": False,
+    "raison": "Offline : garde les DEUX mecanismes de faux manquant de #951-r2 (une voie de port "
+              "non lue ; un verdict etabli que rien ne memorise) et, surtout, l'axe DANGEREUX -- "
+              "qu'un item reellement non porte REVIENNE toujours, et qu'une attestation perimee "
+              "REMETTE son item au compte. Lit le gameconfig du build (kits lineup, traits, "
+              "voies d'attribution) et `data/symbols/CURRENT` (clause de peremption) -> "
+              "`build: True`.",
+}
+
 import audit_kit_coverage as AKC                     # noqa: E402
 import coverage_attestations as CA                   # noqa: E402
 import enum_maps as EM                               # noqa: E402

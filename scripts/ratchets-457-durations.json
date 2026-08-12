@@ -330,6 +330,7 @@
  "tests/test_547r7_ledger_multi_shard_offline.py": 0.173,
  "tests/test_579r1_nullable_layout_offline.py": 0.009,
  "tests/test_935r1_axe_py_offline.py": 30.604,
+ "tests/test_951r2_voies_de_couverture_offline.py": 8.614,
  "tests/test_additional_hits_variant_signatures_offline.py": 23.606,
  "tests/test_enum_maps_ratchet_offline.py": 0.036,
  "tests/test_enum_mirror_ratchet_offline.py": 8.427,
