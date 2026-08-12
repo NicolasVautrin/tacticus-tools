@@ -212,7 +212,10 @@ class NonComparableGenerator(ActiveAbilityActionGenerator):
             # #979 : le MEME callable que porte `AiDecisionContext` (cascade 4 etages, tri-etat) --
             # `IsPositionMachineForCurrentPlayer(2)` de `DevastatingRefrainAbility$$GetShape`.
             machine_of_war_position=ctx.machine_of_war_position,
-            debug=ctx.debug)
+            # #945-r2 -- le kit DECLENCHE RUNTIME (`unitAbilityStates`), MEME canal que celui que
+            # `utilities/tile.py::_adjacent_units` consomme deja. `getattr` : un contexte de test qui
+            # ne porte pas la methode laisse le champ a `None`, donc le repli kit gameconfig.
+            triggered_kits=getattr(ctx, "live_triggered_kits", None), debug=ctx.debug)
         bc = playbooks.choose_action((ctx.me or {}).get("abilities") or [], nc_ctx,
                                      priority=self.priority)
         if bc is None:

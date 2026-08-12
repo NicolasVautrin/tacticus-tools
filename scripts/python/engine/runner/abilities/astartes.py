@@ -22,7 +22,8 @@ from ...entities.active_ability_type import ActiveAbilityType
 from ...entities.behaviours import op_and
 from ...entities.effect_type import EffectType
 from ...entities.effects.magnitude import ability_var
-from ...entities.formulas import Get, StatAmount, TurnsUntilUnitOwnerTurn
+from ...entities.formulas import Get, StatAmount, Sum, TurnsUntilUnitOwnerTurn   # `Sum` : #448-r6
+from ...dsl.base import Const                                                    # `Direct(n)` natif
 from ...entities.selectors.accessors import ActiveTarget, Owner, Target
 from ...entities.selectors.tiles import Caster
 from ...entities.selectors.units import Filter, SurroundingFriends, Union
@@ -358,8 +359,15 @@ def titanhammer_squad_tree(state: "State", entities, heal_amount: int):
     # ne modelise ni `modificationEntity` ni `selectionType` (tous deux nuls/Any ici).
     blockers = Filter(group, AmountIsGreaterThanZero(
         StatAmount(ActiveTarget(), int(StatType.BLOCK_CHANCE), 0)))
-    dur_b = (int(TurnsUntilUnitOwnerTurn(blockers).evaluate(entities))
-             + convert_rounds_to_turns(state, 1))                          # `Sum(..., TurnsFromRounds(1))`
+    # #448-r6 -- le noeud `turns` est passe TEL QUEL, et il est evalue PAR CIBLE par le behaviour
+    # (`AddEffectBehaviour$$Execute` ecrit `processor[+0x20] = unit` AVANT `<+0x78>.Calculate`).
+    # `TurnsUntilUnitOwnerTurn(ActiveTarget)` y vaut donc la valeur de LA cible en cours, pas le
+    # `Max` du set -- les deux ne coincident que sur un set HOMOGENE.
+    # Le second terme `TurnsFromRounds(1)` est resolu AU MONTAGE : `ConvertRoundsToTurns` ne lit que
+    # le `state` (nombre de joueurs), invariant sur la boucle de cibles -- le sortir du noeud ne
+    # deplace donc AUCUNE valeur, et evite de porter un `TurnsFromRounds` state-dependant en DSL.
+    dur_b = Sum(TurnsUntilUnitOwnerTurn(ActiveTarget()),
+                Const(convert_rounds_to_turns(state, 1)))                  # `Sum(..., TurnsFromRounds(1))`
     b3 = AddDynamicStatModifierEffect(
         blockers, Caster(), THS_EXTRA_BLOCK_DAMAGE, int(StatType.BLOCK_DAMAGE),
         name=EffectType.TitanhammerSquad_ExtraBlockDamage.name,
@@ -369,7 +377,9 @@ def titanhammer_squad_tree(state: "State", entities, heal_amount: int):
     # `DSLTriggers$$HasFlag(unit, flag)` est le predicat UNIT-FLAG (`HasUnitFlag` cote port), PAS le
     # `HasFlag` scalaire du contexte : `1` = `UnitFlag.ArrivedAtFinalTile`.
     teleporters = Filter(group, Not(HasUnitFlag(ActiveTarget(), int(UnitFlag.ArrivedAtFinalTile))))
-    dur_c = int(TurnsUntilUnitOwnerTurn(teleporters).evaluate(entities)) + 1
+    # #448-r6 -- meme regime que `b3`. Ici le second terme est `<DSLFormulas+0x20 = Direct(1)>`,
+    # deja en TOURS (pas un `TurnsFromRounds`), d'ou la constante NUE.
+    dur_c = Sum(TurnsUntilUnitOwnerTurn(ActiveTarget()), Const(1))          # `Sum(..., Direct(1))`
     b4 = AddEffect(THS_TELEPORTING_IN, EffectType.TitanhammerSquad_TeleportingIn.name, teleporters,
                    source_ref=Caster(), duration_rounds=None, duration_turns=dur_c)
 

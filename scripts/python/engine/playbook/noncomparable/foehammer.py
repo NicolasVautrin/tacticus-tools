@@ -50,6 +50,26 @@ Et `IdunBattle.Core.Services.BattleQuery$$GetAllDeadUnits(playerEntityId)` filtr
 **seulement si le `Nullable` a une valeur** -- ici il est NUL. Donc : **toutes les unites mortes du
 plateau, les DEUX camps confondus**.
 
+⚠ ET LE POOL QU'IL ITERE EXCLUT LES MACHINES OF WAR -- c'est LU, pas suppose (#983). Le corps est
+`MatchState$$GetPool(<EntityPool>)` puis `UnitExtensions$$IsDead(entity, state)` par element, et
+l'argument est un membre d'`IdunBattle.Entities.Enum.EntityPool` :
+
+    GetAllDeadUnits     -> GetPool(EntityPool.DefeatedUnits = 1)
+    GetAllUnits         -> GetPool(EntityPool.AllUnits      = 8)
+    GetAllAliveMachines -> GetPool(EntityPool.AliveMachines = 6)
+
+`EntityPool` = `0=AliveUnits, 1=DefeatedUnits, 3=PlayingEffects, 4=EffectsToSimulate, 5=Tiles,
+6=AliveMachines, 7=MachinePlatforms, 8=AllUnits, 9=DestroyedMachines` (`frida/enums.tsv`). Les
+machines ont donc leurs DEUX pools PROPRES (`6` / `9`), disjoints de ceux des unites : une MoW
+detruite entre dans `DestroyedMachines`, JAMAIS dans `DefeatedUnits`. Cote entites c'est le meme
+fait -- `EntityType.Machine = 6` n'est pas `EntityType.Unit = 1`.
+
+⇒ le substrat du port (`observeBattle.units[].isDead`, MoW exclues -- elles vivent dans `.mows`)
+est **le mirror EXACT** de ce pool, et non une approximation. Le residu `#957-r1`, qui affirmait
+l'inverse, est REFUTE : il lisait le litteral `1` comme un `includeDead: true` alors que c'est
+`EntityPool.DefeatedUnits` -- exactement la faute que la regle << un entier qui DESIGNE quelque
+chose passe par un ENUM >> existe pour rendre visible.
+
 ⚠ ET C'EST UN QUIRK : LE PLAYBOOK NE COMPTE PAS CE QUE L'ABILITY UTILISE
 ------------------------------------------------------------------------
 `IdunBattleLogic.Entities.Abilities.Active.Loki.FoehammerAbility$$ExecuteBehaviour` construit son
@@ -85,9 +105,10 @@ BORNES DE PORT, nommees
   `RitesOfRestorationPlaybook`). Canal muet -> `0` mort, donc utilite `0 < MIN_UTILITY` -> aucun
   candidat : le port S'ABSTIENT au lieu de proposer, degradation du meme sens que l'absence
   d'entree au registre (l'etat d'avant ce module).
-* Les MACHINES OF WAR sont hors d'`observeBattle.units` (elles vivent dans `.mows`) : une MoW
-  detruite ne serait pas comptee. `GetAllDeadUnits` itere, lui, `slot 0x2f(state, includeDead: 1)`
-  -- residu `#957-r1`.
+* Les MACHINES OF WAR sont hors d'`observeBattle.units` (elles vivent dans `.mows`), et **c'est
+  CONFORME** : le natif itere `GetPool(EntityPool.DefeatedUnits = 1)`, pool disjoint de
+  `DestroyedMachines = 9` (cf. l'en-tete). Ce n'est donc PAS une borne du port -- residu `#957-r1`
+  REFUTE le 2026-08-12.
 * `MIN_UTILITY = 1` fait de ce playbook un VETO tant qu'AUCUNE unite n'est morte : avant la
   premiere mort, 1097 n'est jamais proposee par le tier NonComparable, et le fallback Comparable
   reprend la main. Ce n'est pas un artefact du port -- c'est le `.cctor`.

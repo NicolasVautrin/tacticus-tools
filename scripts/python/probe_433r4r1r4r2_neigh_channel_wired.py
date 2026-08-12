@@ -169,7 +169,21 @@ NATIFS_LISTE_STOCKEE = ("IterateAdjacentTiles", "GetAdjacentUnits", "GetAdjacent
                         # suspension etait devenue le vice. `DSLSelectors$$AdjacentTiles` ->
                         # `AdjacentTilesSelector$$Select` = slot 0x50 d'`IBattleQuery`
                         # (`GetAdjacentTiles(tile, 0, 1, 1)`) moins `SelectTiles(origin)`.
-                        "AdjacentTiles")
+                        "AdjacentTiles",
+                        # ARME le 2026-08-12 (#983) -- meme mecanique que `AdjacentTiles` un cran
+                        # plus tot : l'etape 5 l'a DEMANDE. Apres le cablage de ses deux derniers
+                        # foyers (`dark_angels_passives::marks_target` et
+                        # `extra_damage_aura::create_aura_attack_bonus`), l'armer ne faisait plus
+                        # rougir personne. `DSLSelectors$$AdjacentUnits(origin, unique, selType)` =
+                        # `op_Subtraction(Units(AdjacentTiles(origin), unique, selType), origin)`,
+                        # LU au decompile -- donc `AdjacentTiles`, donc la liste stockee.
+                        "AdjacentUnits",
+                        # ARME le 2026-08-12 (#983) -- il etait en SILENCE TOTAL (ni arme ni
+                        # suspendu) alors qu'il est LU. L'inscrire au registre suspendu a fait
+                        # parler l'etape 5 : 0 foyer HORS TOLERANCE ne le justifie, donc la
+                        # suspension serait PERIMEE d'avance. `DSLSelectors$$AdjacentEnemies` =
+                        # `Enemies(unit, Units(AdjacentTiles(unit)) - unit, selType)`.
+                        "AdjacentEnemies")
 
 # Natifs LUS au decompile comme substrat stocke, mais dont l'ARMEMENT est SUSPENDU : les faire
 # entrer ci-dessus ferait rougir la banque sur un vice OUVERT, hors du perimetre qui les a lus --
@@ -177,12 +191,22 @@ NATIFS_LISTE_STOCKEE = ("IterateAdjacentTiles", "GetAdjacentUnits", "GetAdjacent
 # C'est l'etape 5 qui empeche cette suspension de devenir un oubli : elle RE-MESURE a chaque passe
 # que la suspension est encore justifiee.
 NATIFS_LISTE_STOCKEE_SUSPENDUS = {
-    # `DSLSelectors$$AdjacentUnits(origin, unique, selType)` = `Units(AdjacentTiles(origin)) - origin`.
-    # DERNIER foyer qui la justifie encore (mesure #943-r7) :
-    # `effects/loki/extra_damage_aura.py::create_aura_attack_bonus`, un ctx d'AURA sans board.
-    # ⚠ `AdjacentTiles` a QUITTE ce registre (#943-r7) : elle est ARMEE ci-dessus, sur demande de
-    # l'etape 5 -- apres le cablage de son dernier foyer, la suspension ne gardait plus rien.
-    "AdjacentUnits": "#433-r4-r1-r4-r2-r1-r1-r1-r1",
+    # ⚠ `AdjacentTiles` (#943-r7) puis `AdjacentUnits` (#983) ont QUITTE ce registre par la porte
+    # du haut -- l'etape 5, une fois leur DERNIER foyer cable. Le registre ne s'est pas vide pour
+    # autant, et c'est une MESURE de #983 : les DEUX natifs ci-dessous etaient LUS (ils figurent
+    # dans `SUBSTRATS_LUS[LISTE_STOCKEE]` et dans les valeurs de `GEOMETRIE_NUE_CLASSEE`) et
+    # pourtant NI armes NI suspendus -- donc en SILENCE TOTAL, exactement ce que la suspension
+    # existe pour interdire. Les inscrire ne DEGRADE rien : ca les rend re-mesures a chaque passe.
+    #
+    # `DSLSelectors$$AdjacentFriends(unit, unique, selType)` =
+    # `Friends(unit, Units(AdjacentTiles(unit)) - unit, selType)` -- donc `AdjacentTiles`, donc la
+    # liste stockee. L'armer ferait rougir SIX foyers, dont trois hors tolerance
+    # (`imperative.py` x2, `triggers/loki/icon_of_obstinacy.py`), tous bloques par #943-r7.
+    "AdjacentFriends": "#271/#943-r7",
+    # ⚠ `AdjacentEnemies`, son pendant exact avec `Enemies`, a fait le chemin INVERSE dans la MEME
+    # tranche : inscrit ici, l'etape 5 l'a immediatement declare PERIME (0 foyer HORS TOLERANCE ne
+    # le justifie -- ses trois foyers sont deja nommes dans `GEOMETRIE_NUE_TOLEREE`), donc il est
+    # ARME ci-dessus. C'est la mecanique qui tranche, pas la symetrie des noms.
 }
 
 # TOLERANCE NOMMEE de l'etape 2 -- les mirrors declares dont la geometrie nue est un ECART ASSUME,
@@ -331,10 +355,12 @@ GEOMETRIE_NUE_CLASSEE = {
     ("scripts/python/engine/services/movement_query.py", "is_valid_unit_feet_list"):
         (GEOMETRIQUE, "MovementQuery$$IsValidUnitFeetList -> GetDistance = CubeCoordinate$$Distance"),
     # ---- LISTE_STOCKEE : le natif enumere `ConnectivityComponent+0x10`, le canal MANQUE ----
-    ("scripts/python/engine/entities/effects/loki/dark_angels_passives.py", "marks_target"):
-        (LISTE_STOCKEE, "DSLSelectors$$AdjacentUnits"),
-    ("scripts/python/engine/entities/effects/loki/extra_damage_aura.py", "create_aura_attack_bonus"):
-        (LISTE_STOCKEE, "RitesOfBattleAbility$$CreateBehaviour -> DSLSelectors$$AdjacentUnits"),
+    # ⚠ DEUX entrees ont QUITTE ce registre le 2026-08-12 (#983), CABLEES et non dispensees :
+    # `dark_angels_passives.py::marks_target` (canal derive de `state.board`, face MONO -- aucune
+    # jumelle DECISION : `marked_effect_types_for_target` n'a qu'un appelant, `damage_model`) et
+    # `extra_damage_aura.py::create_aura_attack_bonus` (canal derive du `board` que le ctx d'aura
+    # PORTAIT DEJA -- `aura_attack_bonus_from_allies` publie `ctx["board"] = scene.board`, donc
+    # AUCUN seeding n'etait requis : le blocage ecrit ici etait plus large que le fait).
     ("scripts/python/engine/entities/effects/loki/hits.py", "aura_selector_covers"):
         (LISTE_STOCKEE, "DSLSelectors$$AdjacentEnemies + DSLTriggers$$IsAdjacent -> AreEntitiesAdjacent"),
     ("scripts/python/engine/entities/effects/loki/hits.py", "create_aura_hits_malus_for_defense"):
