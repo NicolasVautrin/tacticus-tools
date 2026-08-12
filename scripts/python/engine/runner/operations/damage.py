@@ -682,7 +682,8 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
                                hits_result: Optional[dict] = None,
                                is_force_overkill: bool = False,
                                is_first_hit: Optional[bool] = None,
-                               triggering_effect: Optional[int] = None) -> Optional[list]:
+                               triggering_effect: Optional[int] = None,
+                               is_first_damaging_hit: Optional[bool] = None) -> Optional[list]:
         """#202 : CHOKEPOINT post-resolution PARTAGE des 4 vecteurs de degat — mirror du pipeline natif
         unique qui suit toute application de degat : `ApplyDamageOperation` (mutation HP, clamp HP-floor)
         -> OnDeathEvent (`_fire_death_if_killed`) -> compteurs per-tour (`_record_attacked`, attaques
@@ -750,13 +751,26 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
         if int(total or 0) > 0:
             attack_dispatch.pre_damage_taken_triggers(
                 state, attacker_id, target_id, profile=profile,
-                # `isFirstDamagingHit` (`AbilityEntities+0x118`). Le port ne deroule pas les coups
-                # au chokepoint : il rend « CE groupe contient le coup d'index 0 », la MEME
-                # approximation que `is_first_hit` pour `On(0x10)`. ECART NOMME (#963-r2) : si le
-                # coup d'index 0 inflige 0 (bloque entierement), le natif marque le PREMIER coup
-                # damageant suivant, le port n'en marque AUCUN -- degradation RESTRICTIVE, jamais
-                # permissive.
-                is_first_damaging_hit=is_first_hit)
+                # `isFirstDamagingHit` (`AbilityEntities+0x118`, 29e parametre nomme du ctor
+                # `IdunBattle.Entities.Abilities.AbilityEntities$$.ctor` ; lu SANS getter par
+                # `IdunBattle.Entities.Triggers.IsFirstDamagingHitInSeriesTrigger$$ShouldTrigger`,
+                # qui teste `HasValue` puis `get_Value` -> un Nullable vide vaut FAUX).
+                #
+                # #963-r2 -- L'ENONCE DU RESIDU ETAIT PARTIELLEMENT FAUX, et le re-mesurer a
+                # DEPLACE le trou. Il disait : « si le coup d'index 0 inflige 0, le port ne marque
+                # AUCUN groupe ». C'est inexact -- le gate d'emission est `total > 0` sur le GROUPE,
+                # donc un groupe dont le coup 0 est bloque mais dont un coup suivant damage emet
+                # DEJA avec le flag vrai. Le seul regime qui divergeait est plus etroit d'un cran :
+                # le groupe portant l'index 0 entierement a ZERO (tous ses coups bloques, donc
+                # AUCUNE emission), suivi d'un groupe qui damage -- ce second groupe ne contient pas
+                # l'index 0, et rendait donc FAUX la ou le natif marque le premier coup damageant.
+                #
+                # D'ou un flag PROPRE, threade comme `crit_allowed` et `failed_block` : « aucun
+                # degat n'a encore ete inflige dans CETTE attaque ». `None` = appelant qui ne le
+                # thread pas -> repli sur l'ancien `is_first_hit` (rigoureusement l'ancien
+                # comportement, pour les vecteurs qui n'ont pas de sous-operations).
+                is_first_damaging_hit=(is_first_hit if is_first_damaging_hit is None
+                                       else is_first_damaging_hit))
         applied = thc.reduce(total)         # #G6a : clamp au HP-floor Hypersensory, pas de PV<0
         # #462-r4e-o-r1 : `HealthComponent.reduce` a accumule `+0x24` sur le total du GROUPE ; le
         # natif l'accumule PAR COUP et n'appelle pas `Reduce` pour un coup gate par le SITE (A).

@@ -176,7 +176,8 @@ def execute_additional_hits(state: State, attacker_id: int, target_id: int, tgt,
                             extra_pierce: int = 0, bonus_hit_chance: "Optional[int]" = None,
                             hit_index0: int = 0, crit_allowed0: bool = True,
                             attack_profile: "Optional[str]" = None,
-                            hit_interceptor=None, failed_block0=None) -> "Optional[dict]":
+                            hit_interceptor=None, failed_block0=None,
+                            damaging_done0: bool = False) -> "Optional[dict]":
     """#202-B : face COMBAT du canal #179 — mirror `ExecuteAdditionalHitsWithDamageProfileType
     IdunBattle.Operations.ExecuteAdditionalHitsWithDamageProfileTypeOperation$$Execute` (schedule : `OperationProcessor.ExecuteAdditionalHitsWith
     DamageProfileType Core.Services.OperationProcessor$$ExecuteAdditionalHitsWithDamageProfileType`) : chaque groupe qualifie execute ses coups comme SOUS-OPERATION
@@ -309,6 +310,11 @@ def execute_additional_hits(state: State, attacker_id: int, target_id: int, tgt,
     # #407 : `OngoingAttack+0x48` (`FailedBlockIds`) -- JUMEAU BLOCK de `crit_allowed`, meme portee
     # (l'ATTAQUE) et meme threading. La liste est PARTAGEE PAR REFERENCE avec `OngoingHitGroup+0x60`.
     failed_block = set(failed_block0 or ())
+    # #963-r2 : `isFirstDamagingHit` -- TROISIEME etat de portee ATTAQUE, threade comme les deux
+    # ci-dessus. `damaging_done0` = « la phase d'arme a deja inflige du degat », mesure par
+    # l'appelant sur SON total. Sans lui, un premier groupe entierement bloque ferait porter le flag
+    # a AUCUN groupe suivant.
+    _damaging_done = bool(damaging_done0)
     # #227 ORDRE DES DEUX CALL-SITES NATIFS. Un descripteur dont le `profileType` est un
     # `Nullable<DamageProfileType>` NULL (`EffectAdditionalHits$$Create(param_5 = -1)`, ex.
     # `LetTheGalaxyBurnEffect`) n'est PAS execute par la meme fonction que les autres :
@@ -426,7 +432,15 @@ def execute_additional_hits(state: State, attacker_id: int, target_id: int, tgt,
             # son compteur `+0x30`, threade par `hit_index0`). Il ne contient le coup d'index 0 que si
             # la phase d'arme n'a rien emis avant lui -> `IsFirstHitInSeries` FAUX dans le cas usuel,
             # et donc AUCUN tirage 1203 sur ces coups (mirror du court-circuit natif).
-            is_first_hit=g_first_hit)
+            is_first_hit=g_first_hit,
+            # #963-r2 : `isFirstDamagingHit` (`AbilityEntities+0x118`) -- l'etat « aucun degat
+            # inflige jusqu'ici dans CETTE attaque », threade comme `crit_allowed`/`failed_block`.
+            # Distinct de `g_first_hit`, qui ne parle QUE de l'index de coup : un groupe qui ne
+            # porte pas l'index 0 est tout de meme le PREMIER a damager si la phase d'arme et les
+            # groupes precedents ont ete entierement bloques.
+            is_first_damaging_hit=(not _damaging_done))
+        if int(r["total"] or 0) > 0:
+            _damaging_done = True
         death = death or d
         out["groups"] += 1
         # coups REELLEMENT EXECUTES (R6-b' : un succes du `Maybe` defere un coup bonus DANS ce
@@ -441,4 +455,5 @@ def execute_additional_hits(state: State, attacker_id: int, target_id: int, tgt,
     out["next_hit_index"] = hit_index
     out["crit_allowed"] = crit_allowed
     out["failed_block"] = failed_block      # #407 : etat block de l'ATTAQUE en sortie
+    out["damaging_done"] = _damaging_done   # #963-r2 : etat `isFirstDamagingHit` en sortie
     return out if out["groups"] else None
