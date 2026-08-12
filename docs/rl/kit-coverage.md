@@ -23,20 +23,20 @@
 
 ## Bilan
 
-- Unites lineup : **127** ; kits COMPLETS (aucun manque detecte) : **119** ; kits avec du travail : **8**
-- Volume total : **8** items manquants (actives no-op + passifs/traits non registres)
+- Unites lineup : **127** ; kits COMPLETS (aucun manque detecte) : **120** ; kits avec du travail : **7**
+- Volume total : **7** items manquants (actives no-op + passifs/traits non registres)
 - HORS total — voies conditionnelles : **33** abilities non portees (11 mythiques, 22 reliques equipables)
-- HORS total — faces DECISION non portees : **50** actives sur 138, dont **42** dans des kits declares COMPLETS (36 kits concernes)
+- HORS total — faces DECISION non portees : **50** actives sur 138, dont **43** dans des kits declares COMPLETS (37 kits concernes)
 - DECOMPTES par un verdict ATTESTE : **3** (et **0** attestation(s) PERIMEE(S), dont l'item est REDEVENU manquant) — section dediee plus bas, jamais tue
 
 ### Priorite par faction (volume decroissant)
 
 | faction | kits | items |
 |---|---:|---:|
-| LeaguesOfVotann | 2 | 2 |
 | AdeptusMechanicus | 1 | 1 |
 | Aeldari | 1 | 1 |
 | EmperorsChildren | 1 | 1 |
+| LeaguesOfVotann | 1 | 1 |
 | SpaceWolves | 1 | 1 |
 | Tau | 1 | 1 |
 | ThousandSons | 1 | 1 |
@@ -61,11 +61,10 @@
 |---|---|---|---|---|
 | emperExultant | 1 | EuphoricStrikes(1198) [C-] OK | RefusalToBeOutdone | - |
 
-### LeaguesOfVotann — 2 kits, 2 items
+### LeaguesOfVotann — 1 kits, 1 items
 
 | unite | manque | actives | passifs manquants | traits de kit manquants |
 |---|---|---|---|---|
-| votanBeserk | 1 | AugmentedAssault(1221) [C-] OK | FuryFromTheDelve | - |
 | votanIronmaster | 1 | GravitonRifle(1206) [C-] OK | EcogSupport | - |
 
 ### SpaceWolves — 1 kits, 1 items
@@ -86,7 +85,7 @@
 |---|---|---|---|---|
 | thousDaemonPrince | 1 | AetherStride(1208) [--] NO-OP SUMMON<br>InfernalCannon(1209) [C-] OK | - | - |
 
-## HORS total — faces DECISION non portees dans des kits COMPLETS (42)
+## HORS total — faces DECISION non portees dans des kits COMPLETS (43)
 
 > ⚠ **`missing` NE COMPTE QUE LA FACE COMBAT.** Une ability dont l'execution est
 > portee mais dont l'UTILITE de decision ne l'est pas rend `missing = 0` : le kit
@@ -127,6 +126,7 @@
 | emperNoiseMarine | ExcruciatingFrequencies | 1197 | DAMAGE(Blast) |
 | genesPatriarch | MightFromBelow | 1165 | DAMAGE(Psychic) |
 | genesPrimus | CultDemagogue | 1179 | SUMMON |
+| votanBeserk | AugmentedAssault | 1221 | DAMAGE(Eviscerate) |
 | votanMemnyr | IronkinSteeljack | 1219 | SUMMON |
 | necroReanimator | NanoscarabRepairProtocols | 1224 | REPAIR |
 | necroReanimator | ReanimationBeam | 1223 | REPAIR |
@@ -175,12 +175,12 @@
 | passif:GalvanicField | RIEN_A_PORTER | `test_952_hunters_beyond_death_offline.py` | docs/rl/case-952-hunters-beyond-death-et-galvanic-field.md#3 | GalvanicFieldAbility$$CreateBehaviour = AddFlag(0x18 CanRepairFullHealthUnits) & RemoveActiveAbility(0x1c Repair) & AddActiveAbility(0x45f Repair_GalvanicField). Les trois feuilles ont leur consommateur porte (unit_flags -> entity_can_be_repaired ; ABILITY_CLASSES[1119] ; le port ne derive jamais Repair d'un trait, donc rien a retirer), et les deux utilites de GalvanicFieldPlaybook rendent Fix64(0) -- porter le playbook ajouterait un terme nul. |
 | trait:IndirectFire | PORTE_HORS_REGISTRE | `engine.services.targeting_query:INDIRECT_FIRE_TRAIT` | docs/rl/port-roadmap.md#5.1 | Le trait n'a ni trigger, ni ability derivee, ni owner-effect, ni classe d'effet homonyme : il est LU IMPERATIVEMENT par ses deux consommateurs, aux deux volets natifs. (1) elevation -- TargetingQuery$$GetTilesObscuringTerrain teste HasTrait(caster, 0x3ed) avant de poser le volet ObscuringType (services/targeting_query.py, INDIRECT_FIRE_TRAIT ; threade par ability_range._has_indirect_fire). (2) Trench -- le gate IsTrench(attackerTile)+IsNeighbourOf de la reduction (services/damage_modifiers.py, damage_model.py). |
 
-## Kits lineup COMPLETS (119)
+## Kits lineup COMPLETS (120)
 
-> ⚠ **COMPLET = face COMBAT complete.** 36 de ces kits portent au moins une active
+> ⚠ **COMPLET = face COMBAT complete.** 37 de ces kits portent au moins une active
 > sans face DECISION (section precedente) — ils sont marques `*` ci-dessous.
 
-adeptCanoness, adeptCelestine, adeptExorcist*, adeptHospitaller, adeptMorvenn, adeptRetributor, admecDominus*, admecManipulus, admecMarshall, admecRuststalker, astarCyrus*, astarLysander*, astraBullgryn, astraCreed, astraDreir, astraOrdnance*, astraOrdnanceBattery*, astraPrimarisPsy, astraYarrick, blackAbaddon, blackForgefiend, blackHaarken, blackObliterator, blackPossession, blackTerminator, bloodDante, bloodDeathCompany, bloodIntercessor, bloodMephiston, bloodSanguinary*, bloodTerminator, custoAtlacoya*, custoBladeChampion*, custoKyrus, custoTrajann*, custoVexilusPraetor, darkaAsmodai, darkaAzrael, darkaCompanion, darkaHellblaster, darkaSternguard*, darkaStormSpeeder*, darkaTerminator, deathBlightbringer, deathBlightlord, deathCrawler*, deathPutrifier, deathRotbone, deathTyphus, eldarAutarch*, eldarFarseer, eldarJainZar*, eldarMauganRa, eldarRanger, emperFlawlessBlade*, emperKakophonist, emperLucius*, emperNoiseMarine*, genesBiophagus, genesKelermorph, genesMagus, genesPatriarch*, genesPrimus*, necroChronomancer, necroDestroyer, necroOverlord, necroPlasmancer, necroReanimator*, necroSpyder, necroWarden, orksBigMek, orksKillaKan, orksNob, orksRukkatrukk*, orksRuntherd, orksWarboss*, spaceBlackmane*, spaceHound, spaceRockfist, spaceStormcaller, spaceWulfen, tauAunShi, tauBroadside*, tauCrisis, tauDarkstrider, tauMarksman, tauShadowsun*, templAggressor, templAncient, templChampion, templHelbrecht*, templSwordBrother*, thousAhriman*, thousInfernalMaster, thousSekhetar, thousSorcerer, thousTerminator, thousTzaangor, tyranBiovore*, tyranDeathleaper, tyranNeurothrope, tyranParasite, tyranTyrantGuard, tyranWingedPrime, ultraApothecary, ultraCalgar, ultraDreadnought*, ultraEliminatorSgt, ultraInceptorSgt*, ultraTigurius, ultraTitus*, votanChampion, votanMemnyr*, votanUthar, worldEightbound*, worldExecutions, worldJakhal*, worldKharn, worldTerminator
+adeptCanoness, adeptCelestine, adeptExorcist*, adeptHospitaller, adeptMorvenn, adeptRetributor, admecDominus*, admecManipulus, admecMarshall, admecRuststalker, astarCyrus*, astarLysander*, astraBullgryn, astraCreed, astraDreir, astraOrdnance*, astraOrdnanceBattery*, astraPrimarisPsy, astraYarrick, blackAbaddon, blackForgefiend, blackHaarken, blackObliterator, blackPossession, blackTerminator, bloodDante, bloodDeathCompany, bloodIntercessor, bloodMephiston, bloodSanguinary*, bloodTerminator, custoAtlacoya*, custoBladeChampion*, custoKyrus, custoTrajann*, custoVexilusPraetor, darkaAsmodai, darkaAzrael, darkaCompanion, darkaHellblaster, darkaSternguard*, darkaStormSpeeder*, darkaTerminator, deathBlightbringer, deathBlightlord, deathCrawler*, deathPutrifier, deathRotbone, deathTyphus, eldarAutarch*, eldarFarseer, eldarJainZar*, eldarMauganRa, eldarRanger, emperFlawlessBlade*, emperKakophonist, emperLucius*, emperNoiseMarine*, genesBiophagus, genesKelermorph, genesMagus, genesPatriarch*, genesPrimus*, necroChronomancer, necroDestroyer, necroOverlord, necroPlasmancer, necroReanimator*, necroSpyder, necroWarden, orksBigMek, orksKillaKan, orksNob, orksRukkatrukk*, orksRuntherd, orksWarboss*, spaceBlackmane*, spaceHound, spaceRockfist, spaceStormcaller, spaceWulfen, tauAunShi, tauBroadside*, tauCrisis, tauDarkstrider, tauMarksman, tauShadowsun*, templAggressor, templAncient, templChampion, templHelbrecht*, templSwordBrother*, thousAhriman*, thousInfernalMaster, thousSekhetar, thousSorcerer, thousTerminator, thousTzaangor, tyranBiovore*, tyranDeathleaper, tyranNeurothrope, tyranParasite, tyranTyrantGuard, tyranWingedPrime, ultraApothecary, ultraCalgar, ultraDreadnought*, ultraEliminatorSgt, ultraInceptorSgt*, ultraTigurius, ultraTitus*, votanBeserk*, votanChampion, votanMemnyr*, votanUthar, worldEightbound*, worldExecutions, worldJakhal*, worldKharn, worldTerminator
 
 ## HORS total — voies conditionnelles (33 abilities non portees)
 

@@ -174,6 +174,9 @@ from ..loki.timesplinter_mantle import (                       # #961 (1534 + ef
 from ..loki.living_lightning import (                          # #961 (1007 + 1020 + effet 1020)
     LivingLightningAttackAbility, LivingLightningMoveEffectAbility,
     LivingLightningMovingRemoveOnArrived, LIVING_LIGHTNING, LIVING_LIGHTNING_MOVE_EFFECT)
+from ..loki.fury_from_the_delve import (                       # #964 (passif 1528, votanBeserk)
+    FuryFromTheDelveCheckTargetHealthAbility, FuryFromTheDelveAttackOrPinAbility,
+    FURY_FROM_THE_DELVE)
 from ..loki.herald_of_the_apocalypse import (HeraldOfTheApocalypseExtraDamageRemove,  # #BL-1020r
                                              HERALD_OF_THE_APOCALYPSE_EFFECT)
 from ..loki.euphoric_strikes import (EuphoricStrikesExtraCritRemove,               # #522 (1198 -> 1429)
@@ -355,6 +358,20 @@ ABILITY_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
     # `ACTIVE_ABILITY_TRIGGERS` serait faux (l'active de `necroPlasmancer` est
     # `HarbingerOfDestruction`). Cf. loki/living_lightning.py. #961.
     LIVING_LIGHTNING: [LivingLightningAttackAbility, LivingLightningMoveEffectAbility],
+    # FuryFromTheDelve (passif 0x5f8 = 1528 de `votanBeserk` << Grimnyr Berserker >>, HERO Leagues of
+    # Votann) -- DEUX classes pour UN nom de kit, forme `LetTheGalaxyBurn` : le `CreateTrigger` natif
+    # est une DISJONCTION `op_BitwiseOr` et le `CreateBehaviour` se ventile sur son `triggerType`.
+    #   * `FuryFromTheDelveCheckTargetHealthAbility` : `On(0x2a = PreUnitAbility) & IsNormalAttack &
+    #     OwnerIsActor` -> `SetPersistentData(1528, Owner, "TARGET_HEALTH_ABOVE_HALF",
+    #     AmountIsGreater(Health.Current(Target), PercentageOf(Health.Maximum(Target), hpPct = 50)))` ;
+    #   * `FuryFromTheDelveAttackOrPinAbility` : `On(0x26 = NormalAttack) & OwnerIsActor &
+    #     IsAlive(Target)` -> `If(<le flag> > 0, AddEffect(0x429 = 1065 Pinned, nrOfRounds = 1),
+    #     AttackWithAttackDamage(nrOfHits = 2, Eviscerate, minDmg/maxDmg))`.
+    # ⚠ Les DEUX classes sont necessaires : sans la premiere, la cle reste absente,
+    # `GetPersistentDataFormula$$Calculate` rend `default(T)` = 0, et la seconde partirait TOUJOURS
+    # en attaque supplementaire. Cf. loki/fury_from_the_delve.py. #964.
+    FURY_FROM_THE_DELVE: [FuryFromTheDelveCheckTargetHealthAbility,
+                          FuryFromTheDelveAttackOrPinAbility],
     # TheBetrayer = gain-rage-au-kill (mort) + auto-tour (début de tour). Cf. les 2 classes dans loki.py.
     "TheBetrayer": [TheBetrayerAddEffectAbility, TheBetrayerTakeTurnAbility],
     # ArcaneShield (Thaumachus) = bouclier à la FIN DE L'ACTIVATION du porteur : `On(0x1c=
