@@ -187,8 +187,19 @@ def _replay_trace(cap, board, paires):
     from engine.runner.operations.damage_ops import normal as NRM
     o_exec_ah = NRM.execute_additional_hits
 
-    def _eah(state, attacker_id, target_id, tgt, thc, groups, *a, **k):
-        r = o_exec_ah(state, attacker_id, target_id, tgt, thc, groups, *a, **k)
+    # SIGNATURE COMPLETE, et pas un `*a, **k` apres les six premiers (#962) : le cliquet
+    # `test_additional_hits_variant_signatures_offline` retient toute fonction dont les parametres
+    # COMMENCENT par ceux du port, puis exige qu'elle les porte TOUS -- un hybride fige l'ordre des
+    # six premiers tout en masquant les quatorze suivants, donc un parametre ajoute au port ne
+    # leverait ici qu'a la prochaine passe LIVE de ce harnais. Defauts recopies du port
+    # (`engine/runner/operations/additional_hits.py::execute_additional_hits`).
+    def _eah(state, attacker_id, target_id, tgt, thc, groups, mods, def_mods, armor, hit_mult,
+             block_sources, shc, spread_pct=None, extra_pierce=0, bonus_hit_chance=None,
+             hit_index0=0, crit_allowed0=True, attack_profile=None, hit_interceptor=None,
+             failed_block0=None):
+        r = o_exec_ah(state, attacker_id, target_id, tgt, thc, groups, mods, def_mods, armor,
+                      hit_mult, block_sources, shc, spread_pct, extra_pierce, bonus_hit_chance,
+                      hit_index0, crit_allowed0, attack_profile, hit_interceptor, failed_block0)
         trace.setdefault("canal", []).append(
             {"groupes_recus": list(groups or []),
              "retour": (None if r is None else {"groups": r.get("groups"), "hits": r.get("hits"),
