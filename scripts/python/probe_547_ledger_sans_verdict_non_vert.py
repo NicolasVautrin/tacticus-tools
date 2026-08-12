@@ -127,7 +127,7 @@ NON_VERTS_DECLARES: dict[str, str] = {
     "tests/engine/test_477r24r1_slots_interface_offline.py":
         "`test_etage3_aucune_citation_fausse` ET "
         "`test_etage3quater_le_franchissement_de_virgule_APPORTE_sans_rien_perdre` -- 2 failed / "
-        "60 passed. ⚠ LA CAUSE A CHANGE, et l'ancienne ligne (`engine/runner/components.py:1128` "
+        "60 passed. /!\\ LA CAUSE A CHANGE, et l'ancienne ligne (`engine/runner/components.py:1128` "
         "slot 0x23, entree par le merge #886) est REPAREE : le rouge COURANT est "
         "`scripts/python/tests/engine/test_953r2_preattack_place_live.py:23` -- << slot 0xa : le "
         "site nomme EvaluateAbilities, le metadata dit ReAddMachine ; EvaluateAbilities est aux "
