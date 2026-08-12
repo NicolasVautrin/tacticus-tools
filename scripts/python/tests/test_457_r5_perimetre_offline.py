@@ -35,6 +35,11 @@ from __future__ import annotations
 #: (#486-r15). Meme contrat que les cliquets de la banque (`declencheur_cliquet.py`).
 DECLENCHEUR = {
     "chemins": (
+        # Entre dans la FERMETURE par l'import-graph de `probe_457` depuis #956. Un
+        # declencheur trop etroit est un FAUX VERT : le fichier ne se rejoue pas sous
+        # `--since` quand ce qu'il garde a bouge.
+        "scripts/python/probe_956_purete_de_passe.py",
+        "scripts/python/verdict_cache.py",
         # SOCLE COMMUN a TOUT fichier de test : la cascade des deux `conftest.py` et sa
         # fermeture. Aucun test ne les IMPORTE -- c'est de la semantique pytest -- et ils
         # portent le `green_skip_guard` de #455 plus trois fixtures `autouse`, dont le

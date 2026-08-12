@@ -30,6 +30,11 @@ import probe_547_ledger_sans_verdict_non_vert as G  # noqa: E402
 #: DECLENCHEUR -- ce qui doit changer pour que ce fichier puisse changer de verdict.
 DECLENCHEUR = {
     "chemins": (
+        # Entre dans la FERMETURE par l'import-graph de `probe_457` depuis #956. Un
+        # declencheur trop etroit est un FAUX VERT : le fichier ne se rejoue pas sous
+        # `--since` quand ce qu'il garde a bouge.
+        "scripts/python/probe_956_purete_de_passe.py",
+        "scripts/python/verdict_cache.py",
         "scripts/python/probe_547_ledger_sans_verdict_non_vert.py",
         "scripts/python/ledger_vert_offline.py",
         # ⚠ NI DERIVE NI DERIVABLE PAR IMPORT : l'artefact que le cliquet MESURE. Aucun `import`

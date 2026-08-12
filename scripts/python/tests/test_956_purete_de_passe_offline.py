@@ -36,6 +36,10 @@ ASCII only (console cp1252).
 #: Ce qui doit changer pour que ce FICHIER de test puisse changer de verdict (#486-r15).
 DECLENCHEUR = {
     "chemins": (
+        # Entre dans la FERMETURE par l'import-graph de `probe_457` depuis #956. Un
+        # declencheur trop etroit est un FAUX VERT : le fichier ne se rejoue pas sous
+        # `--since` quand ce qu'il garde a bouge.
+        "scripts/python/ledger_vert_offline.py",
         "scripts/python/probe_956_purete_de_passe.py",
         # Le cliquet lit son perimetre dans ce foyer, et l'etage 6 lit le SOURCE de `probe_457`.
         "scripts/python/probe_463r1_ecart_empreinte_offline.py",

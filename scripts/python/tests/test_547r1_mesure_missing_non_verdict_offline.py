@@ -34,6 +34,11 @@ import probe_547r1_mesure_missing_non_verdict as G  # noqa: E402
 #: DECLENCHEUR -- ce qui doit changer pour que ce fichier puisse changer de verdict.
 DECLENCHEUR = {
     "chemins": (
+        # Entre dans la FERMETURE par l'import-graph de `probe_457` depuis #956. Un
+        # declencheur trop etroit est un FAUX VERT : le fichier ne se rejoue pas sous
+        # `--since` quand ce qu'il garde a bouge.
+        "scripts/python/probe_956_purete_de_passe.py",
+        "scripts/python/verdict_cache.py",
         "scripts/python/probe_547r1_mesure_missing_non_verdict.py",
         "scripts/python/probe_457_offline_tests_green.py",
         # ⚠ NI DERIVE NI DERIVABLE PAR IMPORT : le cliquet CHOISIT sa cible dans ce fichier de
