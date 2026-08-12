@@ -58,6 +58,8 @@ from .loki.terrors_lament import (                         # #950 (passif eldarJ
     TerrorsLamentDamageReductionEffect, TerrorsLamentHitReductionEffect
 )
 from .loki.tough_to_kill import ToughToKillEffect          # #950 (passif astraDreir, 1472)
+from .loki.healing_balms import (HealingBalmsExtraCritDamageEffect,   # #966 (spaceWolfPriest, 1503)
+                                 HealingBalmsExtraCritChanceEffect)   # #966 (spaceWolfPriest, 1504)
 from .loki.obsessive_annunciation import (                 # #954 (passif emperKakophonist)
     ObsessiveAnnunciationExtraCritDmgEffect, ObsessiveAnnunciationExtraDmgEffect
 )
@@ -1083,6 +1085,16 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     "FuryOfTheAncients": FuryOfTheAncientsEffect,
     "AugmentedAssault_ReduceArmor": AugmentedAssaultReduceArmorEffect,
     "AncestralFortune_ExtraCritChance": AncestralFortuneExtraCritChanceEffect,
+    # HealingBalms (passif `spaceWolfPriest` "Baldr", TriggeredAbilityType 1502) -- les DEUX
+    # stat-mods poses sur la CIBLE du soin par l'active substituee `1212 HealingBalms_Heal`
+    # (`...HealingBalms_HealAbility$$ExecuteBehaviour` : `AddDynamicStatModifierEffect(targets =
+    # Target@+0x60, source = Owner@+0x30, ...)` x2, joints par `op_Addition`). L'appariement
+    # effectType <-> statType est LU au call-site : 1503 porte CriticalDamage(10), 1504 porte
+    # CriticalChance(9) -- les intervertir ne leverait AUCUNE erreur. Duree = TurnsFromRounds(
+    # ConfigConst(HealingBalms, nrOfRounds)). Le TROISIEME effet du kit (1508, le soin RETARDE)
+    # n'est PAS ici : c'est un couple trigger/behaviour -> `EFFECT_TRIGGERS`. #966
+    "HealingBalms_ExtraCritDamage": HealingBalmsExtraCritDamageEffect,   # 0x5df = 1503
+    "HealingBalms_ExtraCritChance": HealingBalmsExtraCritChanceEffect,   # 0x5e0 = 1504
     "AncestralFortune_ExtraBlockChance": AncestralFortuneExtraBlockChanceEffect,
     # 0x56f=1391 \ 0x570=1392 (case-231) : MEME patron GENERIQUE que le trio ci-dessus. Lambdas
     # `EffectsDatabase...b__14_400` / `...b__14_401` -> ability 1184 MomentShackle, vars 0x15=21

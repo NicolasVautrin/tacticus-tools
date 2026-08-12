@@ -36,6 +36,8 @@ from ..loki.reality_unbound import (RealityUnboundAbility,            # passif t
 from ..loki.prophetic_sentinel import PropheticSentinelOverwatchAbility  # passif thousSekhetar (volet overwatch)
 from ..loki.time_flux import TimeFluxRegenAbility                     # passif thousTerminator (volet regen)
 from ..loki.tough_to_kill import ToughToKillHealAbility               # passif astraDreir (volet regen)
+from ..loki.healing_balms import (HealingBalmsDelayedHeal,            # #966 (effet 1508, spaceWolfPriest)
+                                  HEALING_BALMS_EFFECT)
 from ..loki.ghost_revive import (                                     # #213 + #366-r1
     TimeFluxReviveAbility, EchoesFromTheWarpAbility,                  # les 2 poses (`GhostReviveAbility`)
     TimeFluxGhostEffectRevive, EchoesFromTheWarpGhostEffectRevive,    # les 2 resurrections (`GhostEffect`)
@@ -1343,6 +1345,15 @@ EFFECT_TRIGGERS: dict[int, list[type[EffectTrigger]]] = {
     # `$$CreatePiercingBonusForAttack`) n'est PAS un trigger : il vit dans
     # `entities/effects/loki/blood_chalice.py`.
     BLOOD_CHALICE_HEAL_ON_ATTACK: [BloodChaliceHealOnMeleeAttack],    # On(9) -> Heal
+    # HealingBalms 0x5e4=1508 (pose par l'active substituee `1212 HealingBalms_Heal`, #966) : le
+    # SOIN RETARDE. `...HealingBalmsEffect$$CreateTargetTrigger` = `On(0x13 = TurnStart_Other, 1) &
+    # <DSLTriggers+0x28 = IsTurnOf(Owner)>` -> `$$CreateTargetTriggerBehaviour` =
+    # `Heal(EffectSource, Owner@0x30, ConfigVar(0x20 hpToHeal), ForHeal) op_Addition
+    # GetRemoveEffectBehaviour(this)`. Le second terme est ce qui rend le soin ONE-SHOT ; sans lui
+    # l'effet soignerait a CHAQUE debut de tour du porteur jusqu'a expiration -- degradation
+    # PERMISSIVE, aucune erreur. Les DEUX autres effets du kit (1503/1504) sont des stat-mods sans
+    # trigger -> `EFFECT_CLASSES`, pas ici.
+    HEALING_BALMS_EFFECT: [HealingBalmsDelayedHeal],                  # On(0x13) -> Heal + Remove
     # HazeOfCorruption_DamageTransfer 0x435=1077 (case-209, bond pose par le target-finder de #207) :
     # `IdunBattle.Entities.Effects.Loki.HazeOfCorruption_DamageTransferEffect$$CreateTargetTrigger` =
     # `(OnDeath & (TriggeringAbilityIs(0x435) | AreEqual(Actor, bonded)) | On(0x2d = UnitRevived) | On(0x34 = UnitFled))
