@@ -39,6 +39,37 @@ from engine.runner.operations.triggers.dispatch import registry as REG
 from engine.runner.operations.triggers.loki import geminae_superia as GEM
 from engine.runner.operations.triggers.loki import red_rampage as RR
 
+#: Ce qui doit changer pour que ce FICHIER de test puisse changer de verdict (#486-r15).
+DECLENCHEUR = {
+    "chemins": (
+        # SOCLE COMMUN a TOUT fichier de test : la cascade des `conftest.py` et sa fermeture.
+        "scripts/python/conftest.py", "scripts/python/tests/conftest.py",
+        "scripts/python/tests/engine/conftest.py",
+        "scripts/python/tests/engine/runner/conftest.py",
+        "scripts/python/green_skip_guard.py", "scripts/python/declencheur_guard.py",
+        "scripts/python/gameconfig.py", "scripts/python/enum_maps.py",
+        # PROPRE A CE FICHIER, perimetre pris LARGE et pour une raison MESUREE : l'etage 2
+        # (`_types_emis`) BALAIE `engine/**` par `ast` pour recenser les emetteurs -- n'importe
+        # quel module d'`engine` peut donc faire basculer son verdict, y compris un module que ce
+        # fichier n'importe pas. L'etage 3 lit le SOURCE de `operations/damage.py`.
+        # ⚠ Les DEUX formes de glob sont necessaires : dans ce matcher `**/` exige un segment.
+        "scripts/python/engine/*.py",
+        "scripts/python/engine/**/*.py",
+        # Les constantes de l'etage 6 viennent du GAMECONFIG, et les ordinaux de l'etage 5 du dump.
+        "data/symbols/**",
+    ),
+    "build": True,
+    "toujours": False,
+    "raison": "Verdicts figes : l'EXISTENCE de l'emetteur `On(0x39 = PreDamageTaken)` (absent des "
+              "40 types emis avant #963, ce qui aurait fait entrer `GeminaeSuperia` "
+              "registered-but-dead), sa PLACE dans le pipeline (avant la mutation de PV), la "
+              "DISTINCTION `IsFirstDamagingHitInSeries` / `IsFirstHitInSeries` (trois champs "
+              "voisins, deux citations d'offset du depot etaient fausses), le cap MORTS COMPRIS de "
+              "`GeminaeSuperia` (confronte live) et les ordinaux mesures a la conversion. Le "
+              "gameconfig porte les constantes (`nrOfHits`, `extraMovement`, `unitId`) et le dump "
+              "les ordinaux : les deux sont dans le perimetre.",
+}
+
 
 # --------------------------------------------------------------------------------------------
 # ETAGE 1 -- les deux passifs sont INSCRITS, avec le bon nombre de classes natives
