@@ -13,7 +13,7 @@ moteur des deux faces :
                   TROISIEME chemin de port, ni trigger ni ability derivee). L'oublier faisait compter
                   MartialKatah manquant sur ses 4 porteurs Custodes alors que ses DEUX effets sont
                   portes (MartialKatahDmgBonusEffect / MartialKatahDmgReductionEffect).
-  FACE DECISION (scoring) : TROIS registres, pas un —
+  FACE DECISION (scoring) : QUATRE registres, pas un —
     - `engine.playbook.noncomparable.PLAYBOOKS` (id) : les abilities NON-COMPARABLES, qui ont
       leur propre voie de scoring ;
     - `engine.playbook.base.REGISTRY` (id) : les abilities COMPARABLES dotees d'un override
@@ -24,6 +24,13 @@ moteur des deux faces :
       `AActiveAbility` mirrorees PAR ability (formule de coups propre, AoE, degat conditionnel).
       Consommees uniquement sous `engine/playbook/prediction/` -> face DECISION. Rater ce 3e
       registre affichait 14 `[-D]` pour 20 reels, et des `[--]` faux (ex. 1191 MartialInspiration).
+    - `engine.playbook.bespoke.BESPOKE_SELFCAST` (id) : les COMPARABLES qui overrident
+      `EvaluateInternal` EN ENTIER (hors du plan `evals`, donc hors de `REGISTRY`), dispatchees par
+      `ai.action_generators._bespoke_candidates`. Rater ce 4e registre rendait **3 faux GAP** dans
+      la section « faces DECISION non portees » : `1175 BloodChalice`, `1179 CultDemagogue` et
+      `1184 MomentShackle`, toutes trois PORTEES -- et `1179` a ete redispatchee sur cette foi
+      (#971). Mesure du 2026-08-12 : les 3 ids de `BESPOKE_SELFCAST` etaient invisibles des trois
+      autres registres.
     Le reste de la voie comparable est generique et n'est pas audite ici.
 
     ⚠ `_NONCOMPARABLE_ABILITIES` n'est PAS un 4e registre de couverture : y figurer dit seulement
@@ -84,6 +91,7 @@ from engine.entities.abilities.active_ability import (   # 3e registre de decisi
     _NONCOMPARABLE_ABILITIES, _SPECIAL_ABILITY_CLASSES,
 )
 from engine.playbook import REGISTRY as CUSTOM_PLAYBOOKS   # comparables a override CalculateCustomUtility
+from engine.playbook.bespoke import BESPOKE_SELFCAST       # 4e registre : override TOTAL d'EvaluateInternal
 from engine.playbook.noncomparable import PLAYBOOKS
 from engine.runner.abilities.handler import ABILITY_CLASSES
 from engine.runner.operations.triggers.dispatch.registry import (
@@ -241,7 +249,14 @@ def collect():
                 # RE-DISPATCHER un agent (mesure : `1204 LeadingTheCharge`, verdict verrouille par
                 # #945). Ce n'est PAS une exception codee en dur : c'est une attestation VALIDE
                 # (raison + source + build + ancrage), qui PERIME des que le sujet bouge.
+                # 4e registre : `BESPOKE_SELFCAST` (`engine/playbook/bespoke.py`). Une COMPARABLE
+                # qui override `EvaluateInternal` EN ENTIER n'entre NI dans `REGISTRY` (elle n'a pas
+                # d'override `CalculateCustomUtility`) NI dans `PLAYBOOKS` (elle n'est pas
+                # NonComparable) : elle est dispatchee par `_bespoke_candidates`. Les 3 ids qu'il
+                # porte sortaient donc en GAP alors qu'ils sont portes -- et `1179 CultDemagogue`
+                # a ete redispatchee sur cette foi (#971).
                 "decision": (aid in PLAYBOOKS or aid in CUSTOM_PLAYBOOKS
+                             or aid in BESPOKE_SELFCAST
                              or nm in _SPECIAL_ABILITY_CLASSES or att_d is not None),
                 # `_NONCOMPARABLE_ABILITIES` NE COMPTE PAS comme decision portee, et c'est
                 # deliberé : y figurer signifie seulement que le port CLASSE l'ability

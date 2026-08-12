@@ -124,6 +124,9 @@ from .daemonic_patrons import DaemonicPatronsPlaybook
 from .death_from_above import DeathFromAbovePlaybook
 from .sternguard_focus import SternguardFocusPlaybook
 from .war_howl import WarHowlPlaybook
+from .waaagh import WaaaghPlaybook
+from .spore_mine_launcher import SporeMineLauncherPlaybook
+from .ironkin_steeljack import IronkinSteeljackPlaybook
 
 
 # Registre abilityType -> instance de playbook (remplace le switch `kind`).
@@ -387,6 +390,30 @@ PLAYBOOKS: dict[int, NonComparablePlaybook] = {
         #                                 est dans `GetUseProbability`, dont le ZERO (le caster n'a
         #                                 AUCUNE cible d'attaque normale sur toute son aire de move)
         #                                 fait S'ABSTENIR le natif -- c'est ce zero qui est porte.
+        # #971 -- les trois faces DECISION de categorie SUMMON du lot. Base
+        # `NonComparablePlaybook`1` LUE dans `frida/classes.tsv` pour les trois (le `.ctor` est le
+        # corps gshared NOMME `ComparablePlaybook<...>` -- meme piege que #487-r1 / #945), et les
+        # trois sont ENREGISTREES (`metadata/active_playbook_builders.tsv`).
+        WaaaghPlaybook(),               # 1058 -- util = |unites deja buffees| (CONSTANTE, ancree
+        #                                 sur l'ORIGINE : l'`AbilityEntities` de
+        #                                 `GetNumExistingUnitsBuffed` ne pose AUCUN casterTile)
+        #                                 + min(nrOfSummons, |tuiles libres adjacentes a la POSITION
+        #                                 CANDIDATE|). Aucun terme ne lit la cible -> la cible EST
+        #                                 le 1er element du selecteur. `GetUseProbability` surcharge
+        #                                 (0.05*turnsStarted*nBuffed) : porte ALEATOIRE, residu #971-r2.
+        SporeMineLauncherPlaybook(),    # 1145 -- cible TUILE (portee PLATEAU ENTIER) ; util =
+        #                                 1 + |ennemis a distance EXACTEMENT 2| (`IBattleQuery` slot
+        #                                 0x73 `GetUnitsAtDistance` = RING, pas disque),
+        #                                 MIN_UTILITY = 1. Position-INDEPENDANTE -> to=None.
+        #                                 ⚠ 1145 = `ActiveAbilityType.SporeMineLauncher` ici, PAS le
+        #                                 `TriggeredAbilityType.SereneUnifier` de meme ordinal.
+        IronkinSteeljackPlaybook(),     # 1219 -- cible TUILE ring-1 libre ; util = -distance de la
+        #                                 tuile de spawn a l'ennemi le plus proche (slots 0x4a
+        #                                 `GetNearestEnemy` / 0x6c `GetDistance`). ⚠ SEUL playbook du
+        #                                 registre SANS borne : ctor de Bucket a DEUX arguments +
+        #                                 aucune `.cctor` -> `minUtility.HasValue == false` ->
+        #                                 `MIN_UTILITY = -inf` (le 0.0 par defaut aurait tout rejete,
+        #                                 l'utilite etant negative par construction).
     )
 }
 
@@ -469,4 +496,5 @@ __all__ = [
     "TwinSmartMissileSystemPlaybook", "SquigMinePlaybook",
     "CrusadeOfWrathPlaybook", "DaemonicPatronsPlaybook", "DeathFromAbovePlaybook",
     "SternguardFocusPlaybook", "WarHowlPlaybook",
+    "WaaaghPlaybook", "SporeMineLauncherPlaybook", "IronkinSteeljackPlaybook",   # #971
 ]
