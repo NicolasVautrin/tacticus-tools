@@ -91,7 +91,7 @@ def ids_by_visual(dec) -> dict:
 def build() -> int:
     _LOGS.mkdir(parents=True, exist_ok=True)
     import catalog_inject as CI
-    CI.write_augmented_seed_bc([CARRIER_GE, CARRIER_PG], str(SEED_BC))
+    CI.write_augmented_seed_bc(str(SEED_BC), [CARRIER_GE, CARRIER_PG])
     argv = ["build", "--seed", str(SEED), "--board", BOARD,
             "--state-file", str(STATE), "--seed-bc", str(SEED_BC),
             "--p-units", ",".join(P_PLACE), "--a-units", ",".join(v for v, _ in A_PLACE)]
