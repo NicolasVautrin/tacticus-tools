@@ -154,6 +154,36 @@ def is_at_range(att_pos, t_pos, expected: int) -> bool:
     return hexgeo.distance(tuple(att_pos), tuple(t_pos)) == int(expected)
 
 
+def min_distance_at_most(a_pos, b_pos, max_distance: int) -> bool:
+    """Noeud composite `NOT AmountIsGreater(DSLFormulas$$MinDistance(a, b), Direct(n))` -- foyer
+    UNIQUE du gate de PORTEE `<=` des effets (#952). A ne pas confondre avec `is_at_range` juste
+    au-dessus, qui mirroire `IsAtRange` et est une EGALITE.
+
+    DEUX lectures, faites et non deduites :
+
+    * `IdunBattleLogic.Entities.DSLFormulas$$MinDistance(a, b)` construit une formule dont le
+      `Calculate` passe par `IdunBattle.Core.Services.BattleQuery$$GetMinDistance(tilesA, tilesB)` :
+      un MIN de `BattleQuery$$GetDistance` sur le PRODUIT des deux jeux de tuiles -- distance
+      HEXAGONALE, aucun pathfinding. Cote port, `hexgeo.distance` sur les MAIN TILES : meme
+      approximation multi-hex que `is_at_range` (residu `#419-r1-tr11-r1`).
+    * `IdunBattle.Entities.Conditions.AmountIsGreaterAbilityTrigger$$ShouldTrigger` finit
+      litteralement sur `return minAmount < amount` -- comparaison STRICTE. Le `op_LogicalNot` du
+      call-site donne donc `d <= n`, borne INCLUSE. C'est aussi le garde-fou contre le mislabel ICF
+      signale par `battle_query.py` (un `.ctor` nomme `AmountIsGreater...` qui est en realite
+      `AmountIsEqualOrGreater`) : ici c'est le CORPS du trigger qui a ete relu, pas son nom.
+
+    POSITION MANQUANTE -> **FAUX**, jamais permissif (meme convention que `is_at_range`).
+
+    ⚠ ECART NOMME avec le natif dans UN seul regime : `GetMinDistance` seede a `int.MaxValue` et
+    rend **-1** quand aucune paire de tuiles n'existe (selecteur VIDE), ce qui fait passer
+    `NOT (-1 > n)` a VRAI. Ce regime n'a pas de substrat cote port (une unite sans position n'est
+    pas placee), et le rendre VRAI ici ouvrirait un gate sur une inconnue -- on ferme."""
+    if a_pos is None or b_pos is None:
+        return False
+    import hexgeo
+    return hexgeo.distance(tuple(a_pos), tuple(b_pos)) <= int(max_distance)
+
+
 def tiles_moved_this_turn(att_ctx) -> "int | None":
     """Nœud DSL `IdunBattleLogic.Entities.DSLFormulas$$TilesMovedThisTurn(Self)` — foyer UNIQUE du
     canal `att_ctx["tiles_moved_this_turn"]` (case-322).

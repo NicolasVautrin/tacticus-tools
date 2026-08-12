@@ -633,6 +633,11 @@ def _add_positional_and_defender_mods(mods, scene, att_id, tgt_id, is_melee, att
                             # l'ATTAQUANT et le PORTEUR, jamais sur la cible.
                             "att_pos": attack_pos, "att_team": scene.team(att_id),
                             "is_melee": is_melee,
+                            # #952 : le TROISIEME conjoint du gate d'`HuntersBeyondDeathEffect` sur
+                            # l'attaquant -- `HasTrait(Caster@+0x48, 0x3ea = Psyker)`. MEME nom et
+                            # MEME source que la face COMBAT ; les deux autres conjoints
+                            # (`att_pos`, `att_team`) etaient DEJA la, poses par #950.
+                            "att_traits": att_ctx.get("traits"),
                             "tile_effects_by_pos": scene.tile_effects_by_pos}):
         # #446-r2 : ces auras sortent de la boucle `EffectWithTarget` de
         # `IdunBattle.Core.Services.DamageCalculations$$CalculateDefenderModifiersForPrediction` --

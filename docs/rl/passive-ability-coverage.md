@@ -42,7 +42,7 @@ Sinon, trois verdicts NEGATIFS distincts :
 
 Mesure de ce run : un `substring` brut du nom sur `engine/**/*.py` rend **211/211 presents, 0 manquant**. La cause n'est pas que tout est porte : `engine/entities/triggered_ability_type.py` est un **mirror 1:1 de l'enum natif `TriggeredAbilityType`** (573 membres), ou le nom de CHAQUE passif figure comme membre. **Un catalogue n'est pas un cablage.**
 
-Le signal code de cet audit est donc derive de l'**AST** et exclut les **definitions** de membres d'enum (2632 assignations ecartees dans 544 fichiers `engine/**/*.py`) tout en gardant les **usages** (`TriggeredAbilityType.X` = `ast.Attribute` -> compte). Il separe en outre le CODE (12171 symboles distincts) de la PROSE (9501 ko de commentaires + docstrings, invisibles a l'AST, lus via `tokenize`). Le rapprochement est CamelCase-aware : `HeavyGravCannon` matche `HeavyGravCannonEffect`, `Guard` ne matche ni `Guardsman` ni `RoyalGuard` (ni, pour `Possession`, l'unitId `blackPossession`).
+Le signal code de cet audit est donc derive de l'**AST** et exclut les **definitions** de membres d'enum (2632 assignations ecartees dans 545 fichiers `engine/**/*.py`) tout en gardant les **usages** (`TriggeredAbilityType.X` = `ast.Attribute` -> compte). Il separe en outre le CODE (12182 symboles distincts) de la PROSE (9521 ko de commentaires + docstrings, invisibles a l'AST, lus via `tokenize`). Le rapprochement est CamelCase-aware : `HeavyGravCannon` matche `HeavyGravCannonEffect`, `Guard` ne matche ni `Guardsman` ni `RoyalGuard` (ni, pour `Possession`, l'unitId `blackPossession`).
 
 Chaque reference est en outre ATTRIBUEE A SA ZONE du moteur (`__init__, ai, battle_query, dsl, effects, entities, hex_corner, hex_edge, move, playbook, predict, runner, services, streams, utilities, weights`), parce qu'une reference dans `playbook/`/`ai/`/`utilities/` (face DECISION) ne prouve RIEN sur l'execution combat. C'est ce qui separe **B** (litteral exact sous `runner/`) de **R**.
 
@@ -65,12 +65,12 @@ La colonne `kind` de gameconfig MENT sur la spawnabilite -> le pool vient de la 
 ## Bilan
 
 - Passifs distincts dans le parc (lineup 127 / npc 491 / summons 65) : **211**
-- **PORTES** (>=1 canal structurel) : **111** (53 %)
-- **ZONE-GRISE** (direct-read hors registre, a trancher) : **21**
-- **GAPS** (mention seule + absent) : **79** = 36 mention + 43 absent
-- Passifs portes par >=1 unite **confrontable** : **134** ; parmi eux, **23 gaps** et **11 zone-grise** -> c'est la FILE reelle.
+- **PORTES** (>=1 canal structurel) : **112** (53 %)
+- **ZONE-GRISE** (direct-read hors registre, a trancher) : **20**
+- **GAPS** (mention seule + absent) : **79** = 37 mention + 42 absent
+- Passifs portes par >=1 unite **confrontable** : **134** ; parmi eux, **23 gaps** et **10 zone-grise** -> c'est la FILE reelle.
 
-Ventilation des canaux qui portent (un passif peut en cumuler) : **T**=51, **O**=18, **E**=74, **G**=9, **X**=0, **B**=8
+Ventilation des canaux qui portent (un passif peut en cumuler) : **T**=51, **O**=19, **E**=75, **G**=9, **X**=0, **B**=8
 
 ## Tableaux par valeur
 
@@ -104,12 +104,11 @@ Tri : nombre de porteurs spawnables SANS AMENAGEMENT (`L+`+`M`) decroissant, pui
 | RefusalToBeOutdone | L~=1 | emperExultant | GAP-MENTION | **.** | - | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.RefusalToBeOutdoneAbility$$CreateBehaviour` |
 | WhisperingWeb | L~=1 | eldarLhykhis | GAP-MENTION | **.** | - | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.WhisperingWebAbility$$CreateBehaviour` |
 
-### ZONE-GRISE confrontable -- reference en code hors registre, couverture a TRANCHER (11)
+### ZONE-GRISE confrontable -- reference en code hors registre, couverture a TRANCHER (10)
 
 | passif | porteurs | spawnables (ex.) | verdict | canal | zones engine/ | symbole natif (a confirmer) |
 |---|---|---|---|---|---|---|
 | AggressiveOnslaught | L+=1 | bloodIntercessor | ZONE-GRISE | **R** | playbook | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.AggressiveOnslaught_SummonAbility$$CreateBehaviour` |
-| HuntersBeyondDeath | L+=1 | spaceHound | ZONE-GRISE | **R** | entities, playbook, runner | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.HuntersBeyondDeathAbility$$CreateBehaviour` |
 | OptimizedGait | L+=1 N=5 | admecRuststalker | ZONE-GRISE | **R** | runner, services | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.OptimizedGaitAbility$$CreateBehaviour` |
 | SaviorProtocols | S+=3 N=3 | tauSmnDroneCommandLink, tauSmnDroneShield, tauSmnDroneSniper | ZONE-GRISE | **R** | playbook, runner, utilities | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.SaviorProtocolsAbility$$CreateBehaviour` |
 | AncientFury | S+=1 | ultraSmnDreadnought | ZONE-GRISE | **R** | runner, services | `IdunBattleLogic.Entities.Abilities.Active.Loki.AncientFury_NormalAttackAbility` |
@@ -126,7 +125,7 @@ Tri : nombre de porteurs spawnables SANS AMENAGEMENT (`L+`+`M`) decroissant, pui
 |---|---|---|---|---|---|
 | AllIsDust | S?=1 N=1 | - | GAP-ABSENT | - | - |
 | ArchContaminator | N=1 | - | GAP-MENTION | **.** | - |
-| BattleFocus | S?=1 N=1 | - | GAP-ABSENT | - | - |
+| BattleFocus | S?=1 N=1 | - | GAP-MENTION | **.** | - |
 | BossEndFightUndefeated | N=2 | - | GAP-MENTION | **.** | - |
 | CallInReinforcements | S?=1 N=1 | - | GAP-MENTION | **.** | - |
 | CloudOfFlies | N=1 | - | GAP-MENTION | **.** | - |
@@ -196,7 +195,7 @@ Tri : nombre de porteurs spawnables SANS AMENAGEMENT (`L+`+`M`) decroissant, pui
 | WatchedOver | S?=1 N=1 | - | ZONE-GRISE | **R** | playbook, runner |
 | Wraithcannon | N=2 | - | ZONE-GRISE | **R** | runner, services |
 
-### PORTES (111)
+### PORTES (112)
 
 | passif | porteurs | spawnables (ex.) | verdict | canal | zones engine/ |
 |---|---|---|---|---|---|
@@ -238,6 +237,7 @@ Tri : nombre de porteurs spawnables SANS AMENAGEMENT (`L+`+`M`) decroissant, pui
 | HazeOfCorruption | L+=1 N=4 | deathBlightlord | PORTE | **T**=HazeOfCorruptionTargetFinderAbility,HazeCorruptionBonusHitAbility | runner |
 | HeadClaimer | L+=1 N=5 | blackHaarken | PORTE | **T**=HeadClaimerOnDeathAbility,HeadClaimerOnFledAbility **E**=HeadClaimer_ExtraDmg,HeadClaimer_ExtraHit | effects, runner |
 | HeavyGravCannon | L+=1 N=3 | admecDestroyer | PORTE | **E**=HeavyGravCannon | effects |
+| HuntersBeyondDeath | L+=1 | spaceHound | PORTE | **O**=HuntersBeyondDeath,HuntersBeyondDeath_ExtraDamage **E**=HuntersBeyondDeath,HuntersBeyondDeath_ExtraDamage | effects, entities, playbook, runner |
 | HypersensoryAbilities | L+=1 N=4 | genesKelermorph | PORTE | **T**=HypersensoryMoveAndSpawnDecoyAbility **O**=HypersensoryAbilities_MinimalHealth **E**=HypersensoryAbilities_MinimalHealth | effects, runner |
 | InescapableAccuracy | L+=1 N=5 | eldarMauganRa | PORTE | **E**=InescapableAccuracy_extraCritChance,InescapableAccuracy_extraCritDmg | effects |
 | InescapableDeath | L+=1 N=5 | necroDestroyer | PORTE | **O**=InescapableDeath_Effect **E**=InescapableDeath_Effect **G**=InescapableDeath_Effect | effects, runner |

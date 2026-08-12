@@ -753,8 +753,13 @@ def defender_modifiers(state: State, unit_id: int, hp: Optional[int],
     # noeud GEOMETRIQUE que ce contexte ne portait pas encore. `owner_pos` est la CINQUIEME cle
     # portee sur l'OWNER de l'effet (= la CIBLE `unit_id`), meme convention qu'`owner_team`
     # ci-dessus ; `att_pos` est posee plus bas avec les autres cles du CASTER. MEMES cles que la face
-    # PREDICTION (`playbook/prediction/_shared.py`) -- pas de fork. Consommateur :
-    # `TerrorsLament_DamageReduction`. Position inconnue -> cle a None -> le gate se FERME.
+    # PREDICTION (`playbook/prediction/_shared.py`) -- pas de fork. Position inconnue -> cle a None
+    # -> le gate se FERME. DEUX consommateurs, arrives par deux tranches et sur le MEME couple :
+    #   * `TerrorsLament_DamageReduction` (#950) -- `IsAdjacent(Caster, Owner, 3)` ;
+    #   * `HuntersBeyondDeathEffect` (#952) -- `NOT AmountIsGreater(MinDistance(EffectSource,
+    #     Caster@+0x48), Direct(2))`, ou le porteur EST la source (`AddEffect(..., source = Owner,
+    #     targets = Owner)`). Le second n'a rien eu a ajouter ici : le premier avait deja pose les
+    #     deux bouts sous ces noms-la.
     _own_pos = _unit_pos(state, unit_id)
     if _own_pos is not None:
         att_ctx = dict(att_ctx or {})
@@ -791,6 +796,11 @@ def defender_modifiers(state: State, unit_id: int, hp: Optional[int],
             _aoc = _ae.get_component(OwnerComponent) if _ae is not None else None
             att_ctx["team"] = _aoc.team if _aoc is not None else None
             att_ctx["traits"] = target_trait_names(state, attacker_id)
+            # #952 : POSITION de l'attaquant -- membre DROIT du `MinDistance(EffectSource,
+            # Caster@+0x48)`. Meme nommage que le couple `team`/`owner_team` juste au-dessus :
+            # sans prefixe = l'ATTAQUANT, prefixe `owner_` = le porteur de l'effet.
+            _apc = _ae.get_component(PositionComponent) if _ae is not None else None
+            att_ctx["pos"] = (_apc.col, _apc.row) if _apc is not None else None
             # #932 : `HasTrait(Actor@DSLSelectors+0x40, 0x7ea)` -- la grande-alliance de l'ATTAQUANT.
             # Elle N'EST PAS dans `traits` juste au-dessus : le trait d'alliance est DERIVE du
             # `GrandAllianceId` par `idun.Idun.Source.Shared.GrandAlliance$$GetTrait` et ajoute par
@@ -887,7 +897,14 @@ def defender_modifiers(state: State, unit_id: int, hp: Optional[int],
                                # Consommateur : `TerrorsLament_DamageReduction`, dont le trigger ne
                                # porte NI sur la cible NI sur un `CreateTargetSelector`.
                                "att_pos": _unit_pos(state, attacker_id),
-                               "att_team": (att_ctx or {}).get("team")}
+                               "att_team": (att_ctx or {}).get("team"),
+                               # #952 : le TROISIEME conjoint du gate d'`HuntersBeyondDeathEffect`
+                               # sur l'attaquant -- `HasTrait(Caster@+0x48, 0x3ea = Psyker)`. MEME
+                               # nom et MEME resolveur que l'agregateur FRERE
+                               # (`aura_attack_damage_bonus_from_allies`). Les deux autres
+                               # conjoints (`att_pos`, `att_team`) etaient DEJA la, poses par
+                               # #950 : cette tranche n'a eu qu'a ajouter les traits.
+                               "att_traits": (att_ctx or {}).get("traits")}
                               if attacker_id is not None else {}),
                            # `IsMeleeAttack`, 3e conjoint du meme trigger. Tri-etat #106 conserve :
                            # `None` = nature non declaree -> le gate se ferme cote effet.
