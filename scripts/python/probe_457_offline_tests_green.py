@@ -739,13 +739,47 @@ class _FilesPerTest:
     merge, et **le geste meme d'attester invalidait toutes les attestations**. Le seau ferme au
     bon moment supprime la CAUSE ; il ne retranche RIEN de ce qu'une collecte, un import de
     module ou un `conftest` a ouvert -- tout cela precede `pytest_sessionfinish`.
+
+    ⚠ TROISIEME SEAU -- LES `.py` LUS APPLICATIVEMENT (#935-r1). Un `.py` du depot est ouvert pour
+    DEUX raisons qui n'ont rien a voir : parce qu'on l'IMPORTE (le graphe d'imports le couvre
+    deja), ou parce qu'un test-BALAYAGE le lit comme DONNEE (`ast.parse` d'un inventaire) -- et
+    celle-la n'est couverte par RIEN. `impacted_files` ne consultait l'empreinte que pour les
+    changements HORS-`.py`, donc un cliquet qui balaie n'avait AUCUNE arete vers le fichier qu'il
+    accuse : mesure de #935, `--since <merge>~1` manque **6 des 13** cas rouges connus, dont un a
+    **90 %** de perimetre retenu.
+
+    LE DISCRIMINANT EST LA FRAME APPELANTE, ET IL DOIT ETRE PRIS ICI. Le commentaire de #464-r2
+    disait deja pourquoi : << rien ne distingue, dans une empreinte deja ecrite, la lecture
+    d'IMPORT de la lecture APPLICATIVE [...] le regime est garanti a l'ECRITURE, ou l'information
+    existe encore >>. A l'ecriture, elle existe litteralement : la machinerie d'import lit ses
+    sources depuis `<frozen importlib._bootstrap_external>.get_data`, tout le reste vient du code
+    applicatif. Le sens du doute est SUR -- une frame non reconnue compte comme APPLICATIVE, donc
+    sur-selectionne, jamais l'inverse.
+
+    ⚠ ET LE SOUS-TRAITANCE EST UN TRI-ETAT, PAS UN ZERO. Un test qui lance un PROCESSUS FILS
+    (`test_host_inputs_offline.py` joue `probe_273` en entier) n'ouvre RIEN lui-meme : son
+    empreinte mesuree est `dirs: []`, `temoins: []`, ce qui se lit << il ne depend de rien >>.
+    L'audit hook ne franchit pas la frontiere de process -- on ne peut donc pas MESURER cet axe
+    pour lui. On le DIT (`fils: true`), et `impacted_files` le rejoue sur tout changement `.py`.
     """
+
+    #: Ou vit le code qui ouvre une SOURCE parce qu'on l'IMPORTE. `co_filename` d'abord (c'est ce
+    #: que CPython pose sur les modules geles), `__name__` en second, pour un interpreteur qui
+    #: chargerait `importlib` depuis ses `.py` plutot que depuis les frozen.
+    _FICHIERS_D_IMPORT = frozenset(("<frozen importlib._bootstrap_external>",
+                                    "<frozen importlib._bootstrap>"))
+    _MODULES_D_IMPORT = frozenset(("_frozen_importlib_external", "_frozen_importlib",
+                                   "importlib._bootstrap_external", "importlib._bootstrap"))
 
     def __init__(self, root) -> None:
         self.root = str(root).replace("\\", "/").rstrip("/") + "/"
         self._prefixe = self.root.lower()
         self._n = len(self.root)
         self.par_test: dict = {}
+        #: Les `.py` lus APPLICATIVEMENT pendant un test -- sous-ensemble de `par_test`.
+        self.py_par_test: dict = {}
+        #: Les tests qui ont lance un PROCESSUS FILS : leur axe `.py` n'est PAS mesurable.
+        self.fils: set = set()
         self.globales: set = set()
         self.courant = None
         #: Le seau GLOBAL est-il ferme ? Voir la docstring : apres la fin de session, ce que ce
@@ -756,6 +790,10 @@ class _FilesPerTest:
     def _hook(self, event, args):
         # Chemin CHAUD : appele a chaque `open` du process. Sortir au plus vite.
         if event != "open":
+            # RARE, et deliberement teste APRES `open` : un test qui sous-traite le fait quelques
+            # fois, un test qui lit ouvre des milliers de fois.
+            if event == "subprocess.Popen" and self.courant is not None:
+                self.fils.add(self.courant)
             return
         p = args[0]
         if type(p) is not str or len(p) <= self._n:
@@ -770,6 +808,25 @@ class _FilesPerTest:
             self.globales.add(rel)
         else:
             self.par_test.setdefault(self.courant, set()).add(rel)
+            if rel.endswith(".py") and not self._vient_d_un_import():
+                self.py_par_test.setdefault(self.courant, set()).add(rel)
+
+    def _vient_d_un_import(self) -> bool:
+        """La frame qui a appele `open` est-elle celle de la machinerie d'import ?
+
+        `sys._getframe(2)` : 0 = cette methode, 1 = `_hook`, 2 = l'appelant REEL de `open`. On ne
+        remonte PAS plus haut, et c'est le point : un balayage declenche depuis un import de module
+        (un `conftest` qui inventorie l'arbre a la collecte) a bien une frame d'import PLUS HAUT
+        dans sa pile, et le compter comme import EFFACERAIT une dependance reelle. Seule la frame
+        IMMEDIATE prouve que c'est le chargeur qui lit."""
+        try:
+            f = sys._getframe(2)
+        except ValueError:                                    # pragma: no cover - pile trop courte
+            return False
+        if f is None:                                         # pragma: no cover - defensif
+            return False
+        return (f.f_code.co_filename in self._FICHIERS_D_IMPORT
+                or f.f_globals.get("__name__") in self._MODULES_D_IMPORT)
 
     def pytest_runtest_logstart(self, nodeid, location):               # noqa: D102
         self.courant = str(nodeid).split("::")[0].replace("\\", "/")
@@ -817,7 +874,8 @@ def _temoins(chemins, versionnable) -> list:
 
 
 def _empreinte_fusionnee(mesures: list, lus_par_test: dict, dossiers, temoins, globales: list,
-                         commit, complete: bool, mods: dict, perimetre=None) -> dict:
+                         commit, complete: bool, mods: dict, perimetre=None,
+                         py_par_test=None, fils=()) -> dict:
     """L'empreinte a ECRIRE : les entrees de CETTE passe, fusionnees dans celle du disque (#486-r15).
 
     LA REGLE, ET ELLE TIENT EN UNE LIGNE : cette passe n'ecrit QUE ce qu'elle a mesure, et ne
@@ -846,6 +904,18 @@ def _empreinte_fusionnee(mesures: list, lus_par_test: dict, dossiers, temoins, g
     RISQUE et de meme forme que `ledger_vert_offline.fusionner` : elle ne peut qu'OTER l'entree
     d'un fichier que la selection ne jouera de toute facon jamais. `perimetre=None` (appelant qui
     ne le connait pas) laisse le comportement d'avant, plutot que de deviner.
+
+    L'AXE `py` (#935-r1) : les REPERTOIRES des `.py` lus APPLICATIVEMENT, ecrits pour CHAQUE entree
+    mesuree, liste VIDE comprise. C'est un TRI-ETAT de plus, et le meme que `dirs` : la CLE ABSENTE
+    veut dire << cet axe n'a pas ete mesure >> (entree ecrite par une version anterieure), jamais
+    << ce test ne balaie rien >>. `fils` n'est ecrit que s'il est VRAI -- une entree qui porte `py`
+    et pas `fils` atteste donc les deux faits a la fois.
+
+    Le FORMAT reste **2**, et c'est deliberate : ces cles sont ADDITIVES. Un lecteur ancien les
+    ignore et se comporte exactement comme avant ; un lecteur neuf lit l'absence comme un
+    non-mesure et retombe sur les temoins. Le bumper aurait rendu l'empreinte ENTIERE illisible
+    (`TOUT rejoue`) jusqu'a une passe complete de 763 s -- une degradation bien plus grande que
+    l'angle mort qu'on ferme.
     """
     ancien = _footprints()
     ancien_pt = ancien.get("par_test") if ancien.get("_format") == FORMAT_EMPREINTE else {}
@@ -854,10 +924,12 @@ def _empreinte_fusionnee(mesures: list, lus_par_test: dict, dossiers, temoins, g
                                  and (perimetre is None or r in set(perimetre))}
 
     maintenant = int(time.time())
+    py_par_test = py_par_test or {}
+    fils = set(fils or ())
     neuves = {}
     for rel in sorted(mesures):
         lus = lus_par_test.get(rel, ())
-        neuves[rel] = {
+        entree = {
             "_at": maintenant,
             "_commit": commit,
             # LES DEPS SONT DES REPERTOIRES, et le diff fait foi : on les APPARIE aux chemins que
@@ -865,8 +937,22 @@ def _empreinte_fusionnee(mesures: list, lus_par_test: dict, dossiers, temoins, g
             # meme MIEUX qu'un fichier -- un fichier NEUF qui y apparait est couvert sans que
             # l'empreinte bouge, et c'est exactement ce qu'un test-balayage exige.
             "dirs": dossiers(lus),
+            # MEME GRANULARITE, AUTRE AXE : ces repertoires-la ne s'apparient qu'aux `.py` du diff.
+            # Les tenir SEPARES de `dirs` n'est pas de la cosmetique -- `dirs` melange les deux
+            # natures, donc un test qui ne lit que `scripts/python/pytest.ini` y porte
+            # `scripts/python` et serait retenu par TOUT changement Python du depot.
+            #
+            # SA PROPRE SOURCE EST RETIREE, et ce n'est pas une commodite : pytest lit le source
+            # d'un test QUI TOMBE pour en composer la traceback. Sans ce retrait, un test ROUGE
+            # gagnerait dans son axe le repertoire de tous ses voisins de test -- une dependance
+            # qu'il n'a pas, fabriquee par son propre echec. Il reste couvert par la cause `diff`
+            # (un fichier de test MODIFIE est toujours retenu), donc rien n'est perdu.
+            "py": dossiers(x for x in py_par_test.get(rel, ()) if not x.endswith("/" + rel)),
             "temoins": temoins(lus),
         }
+        if rel in fils:
+            entree["fils"] = True
+        neuves[rel] = entree
 
     anciennes_glob = ancien.get("_globales") or []
     return {
@@ -1314,7 +1400,9 @@ def _ecrire_mesure(perimetre: list, joues: list, horloge, empreinte, rc: int,
                 commit=(tete.stdout or "").strip() or None,
                 complete=complete,
                 mods=modules,
-                perimetre=perimetre)
+                perimetre=perimetre,
+                py_par_test=getattr(empreinte, "py_par_test", None),
+                fils=getattr(empreinte, "fils", ()))
             emp_path.write_text(json.dumps(emp, indent=1, sort_keys=True) + "\n",
                                 encoding="utf-8")
 
@@ -1327,6 +1415,20 @@ def _ecrire_mesure(perimetre: list, joues: list, horloge, empreinte, rc: int,
                   % (emp_path, len(emp["par_test"]),
                      "REECRITE en entier" if complete else "FUSION partielle",
                      len(mesures), len(emp["_globales"]), len(hors_py), len(hors_py_test)))
+            # L'AXE `.py` (#935-r1), DIT A CHAQUE ECRITURE : c'est le seul endroit ou l'on voit si
+            # la sur-approximation de `probe_935` derive, et si le discriminant d'import mord.
+            # `getattr` : ce compte-rendu ne doit JAMAIS faire tomber une mesure deja ecrite. Un
+            # appelant qui fournit une empreinte SANS ces seaux (un double de test) est legitime --
+            # `_empreinte_fusionnee` les prend deja en optionnels, et une `AttributeError` ici
+            # rendrait un `--measure` reussi comme un plantage.
+            py_par_test = getattr(empreinte, "py_par_test", None) or {}
+            fils = set(getattr(empreinte, "fils", ()) or ())
+            balayeurs = sorted(r for r in mesures if py_par_test.get(r))
+            py_lus = {x for v in py_par_test.values() for x in v}
+            print("[457] axe `.py` APPLICATIF : %d fichier(s) de test sur %d en lisent au moins un "
+                  "(%d `.py` distincts) ; %d SOUS-TRAITENT a un processus fils (axe NON mesurable)"
+                  % (len(balayeurs), len(mesures), len(py_lus),
+                     len([r for r in mesures if r in fils])))
     else:
         print("[457] empreinte NON INSTRUMENTEE par cette passe -- fichier versionne INCHANGE.")
 
@@ -1548,8 +1650,16 @@ def _pyc_dans_l_arbre() -> int:
     return sum(1 for _ in _PYDIR.rglob("*.pyc"))
 
 
-def _measure(perimetre: list, seulement_manquants: bool = False) -> int:
-    """Chronometre le perimetre (ou ses seuls fichiers SANS poids) et reecrit les poids. ASCII only."""
+def _measure(perimetre: list, seulement_manquants: bool = False, seulement=None) -> int:
+    """Chronometre le perimetre (ou ses seuls fichiers SANS poids) et reecrit les poids. ASCII only.
+
+    `seulement` (#935-r1) : la LISTE EXPLICITE des fichiers a re-mesurer. Elle existe parce qu'un
+    AXE NEUF de l'empreinte perime toutes les entrees d'un coup, et que sans elle le seul geste
+    capable de les rafraichir est la passe COMPLETE (763 s mesures). `--measure-missing` ne peut
+    pas servir : son critere est l'ABSENCE d'entree, et ces entrees-la existent. C'est exactement
+    l'incitation que #547-r6 nomme -- << un rouge qu'on ne peut eteindre qu'en payant la passe
+    complete >> est la forme qui fait desarmer un cliquet.
+    """
     if not perimetre:
         # Un perimetre vide n'est pas une mesure a zero : c'est un effondrement de perimetre
         # (`git ls-files` muet, checkout partiel). Le DIRE, et n'ecrire RIEN.
@@ -1557,14 +1667,31 @@ def _measure(perimetre: list, seulement_manquants: bool = False) -> int:
         print("[457] rc=%d -- aucun verdict sur le depot." % EX_NON_MESURE)
         return EX_NON_MESURE
 
-    poids_connus = _weights() if seulement_manquants else {}
+    partiel = bool(seulement_manquants or seulement)
+    poids_connus = _weights() if partiel else {}
     # LES POIDS SONT-ILS ABSENTS, OU LES FICHIERS SONT-ILS SANS POIDS ? (#463-r1). Deux etats que
     # `poids_connus == {}` confondait, et c'est le tri-etat que ce depot tient partout ailleurs :
     # un fichier de poids absent ne dit pas << 235 fichiers neufs >>, il dit << je n'ai pas
     # mesure les poids >>. Le regime qui le rendait PERMANENT (poids sous `logs/`, gitignore,
     # donc jamais dans un worktree) est ferme par #457-r10 ; le cran, lui, reste.
-    poids_absents = seulement_manquants and not _weights_path().exists()
-    if seulement_manquants:
+    poids_absents = partiel and not _weights_path().exists()
+    if seulement:
+        connus = set(perimetre)
+        inconnus = sorted(r for r in seulement if r not in connus)
+        if inconnus:
+            # REFUS D'USAGE, pas un verdict : un chemin hors perimetre ne se mesure pas, et
+            # l'ignorer en silence ferait croire a une entree rafraichie qui ne l'est pas.
+            print("[457] --measure-only : %d chemin(s) HORS du perimetre offline -- rien n'a ete "
+                  "joue :" % len(inconnus))
+            for rel in inconnus[:5]:
+                print("        %s" % rel)
+            print("[457] le perimetre est DERIVE (`candidate_files`) : nodeid relatif a %s, "
+                  "suffixe `_live.py` exclu." % _PYDIR)
+            return 2
+        joues = [rel for rel in perimetre if rel in set(seulement)]
+        print("[457] --measure-only : %d fichier(s) RE-MESURE(S) sur %d ; les %d autres gardent "
+              "leur entree TELLE QUELLE" % (len(joues), len(perimetre), len(perimetre) - len(joues)))
+    elif seulement_manquants:
         # DEUX criteres, et c'est le sens du mode : un fichier neuf n'a NI poids NI entree
         # d'empreinte. L'ABSENCE d'entree est detectable sans le graphe ; la PEREMPTION d'une
         # entree, elle, n'est PAS chassee ici -- une entree perimee fait simplement rejouer son
@@ -1624,7 +1751,7 @@ def _measure(perimetre: list, seulement_manquants: bool = False) -> int:
     elapsed = time.time() - started
 
     return _ecrire_mesure(perimetre, joues, horloge, empreinte, int(rc), elapsed, poids_connus,
-                          complete=not seulement_manquants, ecrire_poids=not poids_absents)
+                          complete=not partiel, ecrire_poids=not poids_absents)
 
 
 #: ---------------------------------------------------------------------------------------------
@@ -1632,6 +1759,13 @@ def _measure(perimetre: list, seulement_manquants: bool = False) -> int:
 #: STRICT : le graphe d'imports couvre l'axe `import` (tout `.py` du domaine), l'empreinte couvre
 #: ce qu'aucun import ne revele -- un test qui lit `data/symbols/...`, `docs/...` ou
 #: `frida/hooks/*.ts`.
+#:
+#: ⚠ CE PARTAGE LAISSAIT UN TROU, ET IL ETAIT ECRIT ICI SANS ETRE COMBLE (#935-r1) : un `.py` peut
+#: etre lu SANS etre importe -- un test-BALAYAGE qui `ast.parse` l'arbre. Le graphe ne le voit pas
+#: (aucune arete), et l'empreinte ne servait QUE hors-`.py`. Mesure de #935 : `--since <merge>~1`
+#: manquait **6 des 13** cas rouges connus, dont un a **90 %** de perimetre retenu. L'empreinte
+#: porte donc un TROISIEME axe, `py`, ecrit a la mesure (ou l'on sait encore d'ou vient le `open`)
+#: et apparie aux `.py` du diff.
 #:
 #: Le hook d'audit, lui, voyait AUSSI ce que la MACHINE fait faire a l'import : des `.pyc` quand le
 #: cache est chaud, les SOURCES `.py` quand il est froid. Ni l'un ni l'autre n'est une information
@@ -1991,6 +2125,13 @@ def impacted_files(perimetre: list, ref: str) -> tuple:
       * MESUREE   -- graphe d'imports + empreinte des fichiers reellement ouverts. Elle voit ce
         que la declaration oublie, et c'est elle qui decide pour tout fichier NON declare.
 
+    LA MOITIE MESUREE PORTE TROIS AXES, ET LE TROISIEME EST NEUF (#935-r1) : le GRAPHE pour les
+    `.py` IMPORTES, `dirs` pour les changements HORS-`.py`, et `py` pour les `.py` lus
+    APPLICATIVEMENT (un test-balayage qui ouvre le code comme donnee). Sans ce dernier, un cliquet
+    qui balaie n'avait AUCUNE arete vers le fichier qu'il accuse. Une entree ecrite avant cet axe
+    n'en porte pas la cle : elle retombe sur les `.py` de ses `temoins`, ce qui SUR-selectionne et
+    le DIT, jamais sur << ne balaie rien >>.
+
     Le graphe est PARESSEUX : il n'est calcule que s'il reste au moins un fichier non declare.
     C'est la ou passe le cout (32,7 s d'`ast.parse` sur 2 096 modules), et c'est ce que la
     generalisation des declarations doit faire disparaitre."""
@@ -2082,6 +2223,31 @@ def impacted_files(perimetre: list, ref: str) -> tuple:
 
     dirs_changes = {c.rsplit("/", 1)[0] for c in hors_py if "/" in c} | set(hors_py)
 
+    # L'AXE `.py` APPLICATIF (#935-r1) -- LE PENDANT EXACT DE LA LIGNE CI-DESSUS, SUR LES SOURCES.
+    # `dirs` ne s'appariait qu'aux changements HORS-`.py`, donc un cliquet qui BALAIE des `.py`
+    # sans les importer n'avait aucune arete vers le fichier qu'il accuse : mesure de #935,
+    # `--since <merge>~1` manquait **6 des 13** cas rouges connus, dont un a **90 %** de perimetre
+    # retenu -- ce n'etait donc pas une question d'etroitesse mais d'AXE ABSENT.
+    dirs_py_changes = {c.rsplit("/", 1)[0] for c in changes if c in mods and "/" in c}
+    py_par_test, repli_temoins = {}, set()
+    for t, entree in par_test.items():
+        if not isinstance(entree, dict):
+            continue
+        axe = entree.get("py")
+        if axe is None:
+            # AXE NON MESURE (entree ecrite avant #935-r1) -> REPLI NOMME sur les `.py` presents
+            # dans les TEMOINS. Ce repli ne peut pas distinguer import et lecture applicative ;
+            # il SUR-selectionne donc, ce qui est le sens sur, et il s'eteint entree par entree
+            # des qu'une passe les remesure. Rabattre l'absence sur << ne balaie rien >> serait
+            # l'exact faux vert que ce residu ferme ; la rabattre sur << rejoue toujours >>
+            # couterait le perimetre entier jusqu'a une passe complete de 763 s.
+            # `not t2.endswith("/" + t)` : meme retrait qu'a l'ecriture -- la traceback d'un test
+            # qui TOMBE fait lire sa propre source, et cette lecture-la n'est pas une dependance.
+            axe = [t2.rsplit("/", 1)[0] for t2 in (entree.get("temoins") or ())
+                   if t2.endswith(".py") and "/" in t2 and not t2.endswith("/" + t)]
+            repli_temoins.add(t)
+        py_par_test[t] = set(axe)
+
     # NORMALISATION : `perimetre` et les cles de `par_test` sont relatifs a `scripts/python`
     # (nodeid pytest), `changes`/`touches`/`mods` sont relatifs au DEPOT. Comparer les deux formes
     # sans les ramener l'une a l'autre ne matcherait JAMAIS -- selection vide, donc faux vert.
@@ -2092,7 +2258,8 @@ def impacted_files(perimetre: list, ref: str) -> tuple:
     declares, _ecartes = declencheurs_du_perimetre(perimetre, racine)
     retenus = []
     causes = {"declare": 0, "diff": 0, "graphe": 0, "jamais mesure": 0,
-              "empreinte perimee": 0, "hors .py": 0}
+              "empreinte perimee": 0, "hors .py": 0, "balayage .py": 0,
+              "balayage .py (repli temoins)": 0, "sous-traite": 0}
     a_mesurer = []
     for rel in perimetre:
         globs = declares.get(rel)
@@ -2141,14 +2308,30 @@ def impacted_files(perimetre: list, ref: str) -> tuple:
             if dirs_par_test[rel] & dirs_changes:
                 retenus.append(rel)
                 causes["hors .py"] += 1
+                continue
+            if entree.get("fils"):
+                # SOUS-TRAITANCE (#935-r1) : ce test a lance un PROCESSUS FILS, dont l'audit hook
+                # n'a rien vu. Son axe `.py` n'est pas VIDE, il est NON MESURABLE -- et un capteur
+                # muet ne fabrique jamais une selection plus etroite. Il ne se declenche que sur un
+                # changement `.py` : un diff purement documentaire ne le retient toujours pas.
+                if dirs_py_changes:
+                    retenus.append(rel)
+                    causes["sous-traite"] += 1
+                continue
+            if py_par_test.get(rel, ()) & dirs_py_changes:
+                retenus.append(rel)
+                causes["balayage .py" if rel not in repli_temoins
+                       else "balayage .py (repli temoins)"] += 1
 
     # L'ordre du perimetre est CONSERVE : la partition en shards est deterministe, et deux shards
     # d'un meme run doivent voir exactement la meme liste.
     rang = {rel: i for i, rel in enumerate(perimetre)}
     retenus.sort(key=lambda r: rang[r])
+    axe_mesure = len(a_mesurer) - len([r for r in a_mesurer if r in repli_temoins])
     raison = ("%d/%d fichier(s) impactes par %d changement(s) depuis %s "
-              "[%d declare(s), %d mesure(s) ; %s]"
+              "[%d declare(s), %d mesure(s) dont %d a l'axe `.py` MESURE ; %s]"
               % (len(retenus), len(perimetre), len(changes), ref, len(declares), len(a_mesurer),
+                 axe_mesure,
                  ", ".join("%s %d" % (k, v) for k, v in causes.items() if v) or "aucun"))
     return retenus, raison
 
@@ -2205,11 +2388,19 @@ def _run(argv=None) -> int:
                          "mediane 0-1 fichier offline neuf par PR). Depuis #486-r15 le tampon de "
                          "fraicheur vit dans l'ENTREE : cette passe rafraichit exactement ce "
                          "qu'elle a joue et ne pretend RIEN sur le reste.")
+    ap.add_argument("--measure-only", default=None, dest="measure_only",
+                    help="RE-mesure les seuls fichiers NOMMES (nodeids relatifs a scripts/python, "
+                         "separes par des virgules) et FUSIONNE. `--measure-missing` ne sait pas "
+                         "le faire : son critere est l'ABSENCE d'entree. A employer quand une "
+                         "entree EXISTANTE est perimee sur un AXE -- sans lui le seul geste qui "
+                         "la rafraichit est la passe complete (763 s mesures).")
     args = ap.parse_args(argv)
 
-    if args.measure and args.measure_missing:
-        print("[457] --measure et --measure-missing s'excluent : le premier rejoue TOUT, le "
-              "second complete.")
+    modes = [m for m in ("measure", "measure_missing", "measure_only") if getattr(args, m)]
+    if len(modes) > 1:
+        print("[457] les modes de MESURE s'excluent (%s) : `--measure` rejoue TOUT, "
+              "`--measure-missing` complete, `--measure-only` RE-mesure une liste."
+              % ", ".join("--" + m.replace("_", "-") for m in modes))
         return 2
     if args.jobs and args.shard != "0/1":
         print("[457] --jobs et --shard s'excluent : `--jobs N` EST le partitionnement (il lance "
@@ -2218,8 +2409,7 @@ def _run(argv=None) -> int:
     if args.jobs and args.jobs < 1:
         print("[457] --jobs attend un entier >= 1 (recu %d)." % args.jobs)
         return 2
-    if args.jobs and (args.measure or args.measure_missing or args.list
-                      or args.consolider_ledger):
+    if args.jobs and (modes or args.list or args.consolider_ledger):
         print("[457] --jobs ne se combine qu'avec `--since` / `--depuis-ledger` : les modes de "
               "MESURE et de LISTE sont mono-process par construction.")
         return 2
@@ -2288,8 +2478,11 @@ def _run(argv=None) -> int:
             print(refus)
             return EX_NON_MESURE
 
-    if args.measure or args.measure_missing:
-        return _measure(candidate_files(), seulement_manquants=args.measure_missing)
+    if modes:
+        seulement = ([r.strip().replace("\\", "/") for r in args.measure_only.split(",")
+                      if r.strip()] if args.measure_only else None)
+        return _measure(candidate_files(), seulement_manquants=args.measure_missing,
+                        seulement=seulement)
 
     if args.consolider_ledger:
         # LE PERIMETRE COMPLET, comme en mono-shard : c'est lui que `fusionner` prend pour

@@ -37,14 +37,23 @@ ECARTEE -- le taux de retention median de `--since` sur les 11 merges vaut **90 
 classification coute a elle seule 73,7 s. Le geste a chaque merge est le COMPLET
 (`probe_457 --jobs 8`, mur mesure **763 s** pour 323 fichiers).
 
-Ce probe est donc la MESURE QUI INTERDIT de << re-optimiser >> vers `--since` sans traiter d'abord
-son angle mort (residu #935-r1). Un jour ou le complet deviendrait trop cher, la composition sure
-est `{ce que rend ce probe} UNION {selection --since}` -- jamais la selection seule.
+⚠ L'ANGLE MORT QUE CE PROBE MESURAIT EST FERME (#935-r1). `impacted_files` porte desormais un
+TROISIEME axe : l'empreinte enregistre les `.py` lus APPLICATIVEMENT (discriminant pris a
+l'ECRITURE, sur la frame appelante) et les apparie aux `.py` du diff. Mesure sur les memes 13 cas
+temoins : **6 manques -> 1**, et **0** une fois l'entree du cas SOUS-TRAITANT re-mesuree ; perimetre
+moyen retenu **74,8 % -> 79,9 %**. Ce probe garde donc son role de MESURE de la classe -- et il est
+lui-meme CONFRONTE, cf. ci-dessous. Detail : `docs/rl/case-935-r1-axe-py-de-l-empreinte.md`.
 
 ⚠ SUR-APPROXIMATION ASSUMEE, et dans le sens SUR : un module qui appelle `glob` sur un repertoire
 de DONNEES (pas de `.py`) est classe balayeur alors que l'empreinte le couvrirait. Le prix est du
-temps de test ; le prix de l'erreur inverse est un rouge de `master` que personne ne voit. Le
-compte des deux classes est imprime a chaque run, donc une derive de l'approximation se voit.
+temps de test ; le prix de l'erreur inverse est un rouge de `master` que personne ne voit.
+⚠ ET LE COMPTE IMPRIME N'ETAIT PAS UN GARDE-FOU. Cette doc disait << une derive de l'approximation
+se voit >> : personne ne lisait le compte, et rien ne rougissait -- le vice exact de `probe_181`
+avant #430. La CONTRE-EPREUVE vit depuis #935-r1 dans `probe_935r1_contre_epreuve_classes.py`, qui
+oppose cette classe DEDUITE a l'empreinte MESUREE. Elle a trouve **19 faux negatifs** a son premier
+passage (17 `inspect.getsource`, 1 import DYNAMIQUE qui cassait la cloture, 1
+`Path(MODULE.__file__).read_text()`) -- tous couverts depuis, la classe passant de 160/175 a
+180/155.
 
 Usage (depuis `scripts/python`) :
 
@@ -57,6 +66,7 @@ from __future__ import annotations
 
 import argparse
 import ast
+import functools
 import sys
 from pathlib import Path
 
@@ -83,12 +93,29 @@ _APPELS_DE_BALAYAGE = {"rglob", "glob", "iglob", "walk", "iterdir", "scandir"}
 #: ni graphe d'imports, ni empreinte (elle n'instrumente que le process du test).
 _APPELS_DE_SOUS_PROCESSUS = {"run", "Popen", "check_output", "check_call", "call"}
 
+#: LIRE LE SOURCE D'UN OBJET DEJA IMPORTE (#935-r1). Aucune ENUMERATION n'est en jeu, donc les
+#: criteres ci-dessus etaient structurellement aveugles -- et c'est la forme la plus REPANDUE du
+#: gisement : la contre-epreuve (`probe_935r1_contre_epreuve_classes.py`) a trouve **19** faux
+#: negatifs a son premier passage, dont **17** de cette seule forme (`inspect.getsource(...)`).
+#: L'arete est reelle : le test change d'avis quand le CORPS de la fonction lue change, ce qu'aucun
+#: `import` ne dit -- il dit seulement que le module est charge.
+_APPELS_DE_LECTURE_DE_SOURCE = {"getsource", "getsourcelines", "getsourcefile", "findsource",
+                                "getfile", "getmodule", "unparse"}
+
+#: Appels qui LISENT un fichier NOMME. Retenus SEULEMENT si un litteral de l'appel porte `.py` --
+#: sans ce filtre, tout `read_text` de donnees contaminerait la classe (meme arbitrage que
+#: `_enumere_des_sources`).
+_APPELS_DE_LECTURE = {"read_text", "read_bytes", "open", "read"}
+
 #: La marque d'un balayage delegue a git plutot qu'au systeme de fichiers.
 _MARQUEURS_GIT = ("ls-files",)
 
 
+@functools.lru_cache(maxsize=None)
 def _module_local(nom: str) -> Path | None:
-    """Le fichier de `scripts/python/**` que designe ce nom de module importe, ou `None`."""
+    """Le fichier de `scripts/python/**` que designe ce nom de module importe, ou `None`.
+
+    MEMOISE : deux `stat` par nom, et les memes noms reviennent a chaque test de la cloture."""
     bouts = nom.split(".")
     direct = _PYDIR.joinpath(*bouts).with_suffix(".py")
     if direct.is_file():
@@ -98,6 +125,12 @@ def _module_local(nom: str) -> Path | None:
 
 
 def _imports_locaux(arbre: ast.Module) -> set[str]:
+    """Les noms de modules que ce fichier charge -- `import`, `from`, ET `import_module` (#935-r1).
+
+    L'import DYNAMIQUE cassait la cloture en silence : `test_519_comptes_derives_offline.py` charge
+    `probe_519_comptes_de_table` par `importlib.import_module("...")`, donc la remontee s'arretait
+    la et le balayage du probe restait invisible. C'est un faux negatif trouve par la
+    contre-epreuve, pas une precaution."""
     out: set[str] = set()
     for n in ast.walk(arbre):
         if isinstance(n, ast.Import):
@@ -105,7 +138,34 @@ def _imports_locaux(arbre: ast.Module) -> set[str]:
         elif isinstance(n, ast.ImportFrom) and n.module and not n.level:
             out.add(n.module)
             out.update("%s.%s" % (n.module, a.name) for a in n.names)
+        elif isinstance(n, ast.Call):
+            f = n.func
+            nom = f.attr if isinstance(f, ast.Attribute) else getattr(f, "id", "")
+            if nom in ("import_module", "__import__") and n.args:
+                a0 = n.args[0]
+                if isinstance(a0, ast.Constant) and isinstance(a0.value, str):
+                    out.add(a0.value)
     return out
+
+
+#: MEMOISATION DE L'ARBRE PARSE (#935-r1). `classer` remonte la cloture d'imports de CHAQUE test :
+#: `_cause_du_fichier` etait deja cachee, mais l'`ast.parse` du meme module etait REFAIT une fois
+#: par test qui l'atteint. Mesure : 79,0 s -> 6,3 s sur le perimetre entier (335 fichiers), soit
+#: 12,5x. C'est la lecon de #941-r2 : le discriminant n'est pas << combien de VERDICTS >> mais
+#: << combien d'APPELS >>. Cle = le chemin RESOLU ; la valeur ne depend que du CONTENU du fichier,
+#: donc le cache ne fige aucun verdict -- il fige un parse.
+_IMPORTS_CACHE: dict = {}
+
+
+def _imports_du_fichier(chemin: Path) -> set[str]:
+    """Les noms de modules importes par ce fichier, MEMOISES par chemin."""
+    cle = str(chemin)
+    if cle not in _IMPORTS_CACHE:
+        try:
+            _IMPORTS_CACHE[cle] = _imports_locaux(ast.parse(chemin.read_text(encoding="utf-8")))
+        except (OSError, SyntaxError, UnicodeDecodeError):
+            _IMPORTS_CACHE[cle] = set()
+    return _IMPORTS_CACHE[cle]
 
 
 def _cause_du_fichier(chemin: Path) -> str | None:
@@ -116,6 +176,7 @@ def _cause_du_fichier(chemin: Path) -> str | None:
     except (OSError, SyntaxError, UnicodeDecodeError):
         #: illisible => on ne peut RIEN affirmer, donc on le joue (sens sur, et on le dit).
         return "source illisible -- aucune classification possible"
+    noms_py = _noms_lies_a_un_py(arbre)
     for n in ast.walk(arbre):
         if not isinstance(n, ast.Call):
             continue
@@ -129,6 +190,13 @@ def _cause_du_fichier(chemin: Path) -> str | None:
             if racine in ("subprocess", "sp"):
                 return ("SOUS-PROCESSUS (`%s.%s`) : ce que le fils ouvre n'est trace ni par le "
                         "graphe ni par l'empreinte" % (racine, nom))
+        if nom in _APPELS_DE_LECTURE_DE_SOURCE and isinstance(f, ast.Attribute):
+            if getattr(f.value, "id", "") in ("inspect", "ast", "insp"):
+                return ("LECTURE DE SOURCE (`%s`) : le verdict depend du CORPS lu, pas de "
+                        "l'import" % nom)
+        if nom in _APPELS_DE_LECTURE and _lit_un_py_nomme(n, noms_py):
+            return ("LECTURE D'UN `.py` NOMME (`%s`) : le fichier est ouvert comme DONNEE, aucun "
+                    "import ne le revele" % nom)
         if _balaye_par_git(n):
             return "BALAYAGE PAR GIT (`ls-files`) : meme angle mort que `rglob`"
     return None
@@ -154,6 +222,41 @@ def _enumere_des_sources(appel, nom: str) -> bool:
     if nom in ("walk", "iterdir", "scandir"):
         return True                      # sans motif : on ne peut pas exclure les `.py`
     return any(".py" in s for s in _litteraux(appel))
+
+
+def _noms_lies_a_un_py(arbre) -> set:
+    """Les variables dont la VALEUR porte un litteral de chemin `.py`.
+
+    Le chemin et sa lecture sont presque toujours DEUX instructions -- `p = _PYDIR / "engine" /
+    ... / "normal.py"` puis `p.read_text(...)`. Un critere qui exige le litteral DANS l'appel les
+    rate tous les deux, et c'est un faux negatif mesure (`test_419r1tr14r4r2r1r1`). On ne fait pas
+    de dataflow : une liaison SIMPLE de nom suffit a couvrir la forme reelle."""
+    out: set = set()
+    for n in ast.walk(arbre):
+        if not isinstance(n, (ast.Assign, ast.AnnAssign)) or n.value is None:
+            continue
+        if not any(isinstance(c, ast.Constant) and isinstance(c.value, str)
+                   and c.value.endswith(".py") for c in ast.walk(n.value)):
+            continue
+        cibles = n.targets if isinstance(n, ast.Assign) else [n.target]
+        out.update(t.id for t in cibles if isinstance(t, ast.Name))
+    return out
+
+
+def _lit_un_py_nomme(appel, noms_py: set) -> bool:
+    """`True` si cette lecture porte sur un `.py` DESIGNE -- litteral, nom lie, ou `__file__`.
+
+    `Path(MODULE.__file__).read_text()` est la troisieme forme, et elle ne porte AUCUN litteral :
+    le chemin vient du module deja importe. L'arete reste invisible du graphe -- importer un module
+    ne dit pas qu'on depend de son TEXTE."""
+    if any(s.endswith(".py") for s in _litteraux(appel)):
+        return True
+    for sous in ast.walk(appel):
+        if isinstance(sous, ast.Attribute) and sous.attr == "__file__":
+            return True
+        if isinstance(sous, ast.Name) and sous.id in noms_py:
+            return True
+    return False
 
 
 def _balaye_par_git(appel) -> bool:
@@ -191,11 +294,11 @@ def classer(perimetre=None) -> tuple[dict, list]:
             if cache[f] is not None:
                 cause, accuse = cache[f], f
                 break
-            try:
-                arbre = ast.parse(f.read_text(encoding="utf-8"))
-            except (OSError, SyntaxError, UnicodeDecodeError):
-                continue
-            for nom in _imports_locaux(arbre):
+            # `sorted` : `_imports_locaux` rend un SET, dont l'ordre d'iteration depend de
+            # `PYTHONHASHSEED`. La CLASSE ne changeait pas, mais le module ACCUSE oui -- mesure du
+            # 2026-08-12, 20 lignes sur 160 designaient un autre module d'un run a l'autre. Un
+            # probe dont la sortie bouge sans que rien ne bouge n'est pas confrontable.
+            for nom in sorted(_imports_du_fichier(f)):
                 cible = _module_local(nom)
                 if cible is not None and cible not in vus:
                     pile.append(cible)
