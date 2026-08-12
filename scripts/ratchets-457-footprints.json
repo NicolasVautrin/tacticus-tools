@@ -75,6 +75,13 @@
    "dirs": [],
    "temoins": []
   },
+  "tests/engine/playbook/test_967_mow_decision_faces_offline.py": {
+   "_at": 1786529212,
+   "_commit": "7d10bdd2260e061d4df4d49f7f58dff3eebf9921",
+   "dirs": [],
+   "py": [],
+   "temoins": []
+  },
   "tests/engine/runner/test_120bis_spawn_tile_offline.py": {
    "_at": 1786392144,
    "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
