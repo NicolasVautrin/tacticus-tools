@@ -73,6 +73,7 @@ DECLENCHEUR = {
         # LE VECTEUR des deux triggers (mort, attaque) et l'Operation qu'ils appellent
         "scripts/python/engine/runner/operations/triggers/dispatch/move_death.py",
         "scripts/python/engine/runner/operations/triggers/dispatch/attack.py",
+        "scripts/python/engine/runner/operations/triggers/dispatch/phase.py",
         "scripts/python/engine/runner/operations/effects.py",
         "scripts/python/engine/runner/abilities/behaviours/effects.py",
         # LE PIPELINE de degat traverse par le rejeu offline
