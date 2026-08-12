@@ -49,6 +49,8 @@ import {
     runWedgeRemedy, NavOutcome, WedgeRemedyReason,
     WEDGE_REMEDY_ATTEMPTS, WEDGE_REMEDY_NAV_WAIT_MS, WEDGE_REMEDY_POPUP_WAIT_MS,
 } from "./warmup-wedge-remedy.js";
+import { runRetreatToCampaign, RetreatResult } from "./warmup-retreat-signal.js";
+import { ecouterTransitions } from "./ui-windows.js";
 
 // --- Constants describing the in-game button paths we drive through ---
 
@@ -97,13 +99,10 @@ const SETTLE_BEFORE_CLICK_MS = 800;
 const CLICK_EFFECT_TIMEOUT_MS = 12000;
 const CLICK_ATTEMPTS = 3;
 
-/** Combien de temps laisser au noeud de campagne apres l'appel `ToCampaign` de la fin de
- * `retreatToCampaign`. Aligne sur `WEDGE_REMEDY_NAV_WAIT_MS` (= 12 000, lu dans
- * `warmup-wedge-remedy.ts`), qui borne le MEME invoke sur la MEME scene dans le remede du
- * cran 8 : deux budgets differents pour un geste identique ne se justifieraient par rien.
- * Cette valeur y est elle-meme alignee sur `CLICK_EFFECT_TIMEOUT_MS`, mesure pour couvrir
- * le dechargement/rechargement de scene. */
-const RETREAT_NAV_WAIT_MS = WEDGE_REMEDY_NAV_WAIT_MS;
+// Le budget de la fin de `retreatToCampaign` ne vit plus ici : depuis #390-r2 la sortie de
+// bataille est detectee par SIGNAL (`warmup-retreat-signal.ts`), et le seul temps encore
+// borne la-bas est un FILET -- `RETREAT_SIGNAL_WAIT_MS`, dimensionne sur un chargement de
+// scene, jamais paye sur le chemin nominal.
 
 // --- Helpers ---
 
@@ -211,29 +210,10 @@ function confirmPopupReplaced(r: UiRefs): true | null {
     return findButtonByContains(r, RETREAT_CONFIRM_KEY) === null ? true : null;
 }
 
-/** `pause -> retraite -> confirmation -> UNE AUTRE FRAME`, puis la nav du jeu ramene
- * la campagne. Chaque clic reste valide par l'apparition de l'etape suivante.
- *
- * UN SEUL exemplaire de cette chaine, appele par les DEUX chemins qui retirent le
- * jeu d'une bataille : l'etape 1bis (ecran herite du cycle precedent) et l'etape 7
- * (menage apres la capture). Les avoir dupliques est ce qui a permis a l'un d'etre
- * corrige et pas l'autre. Rend `null` si la campagne est revenue, sinon le motif.
- *
- * POURQUOI LE 3e MAILLON N'ATTEND PLUS LA CAMPAGNE. Il attendait le noeud de campagne
- * comme effet IMMEDIAT du clic de confirmation. Or un ecran INTERSTICIEL s'intercale par
- * moments entre les deux : le clic porte (le popup disparait), la campagne n'est pas
- * encore la, et la chaine rendait `confirmation de retraite a disparu sans que la
- * campagne apparaisse`. Le maillon confondait donc DEUX questions -- « le popup a-t-il
- * cede la place ? » (ce que le clic decide, et la seule chose qu'il decide) et « est-on
- * deja arrive ? » (ce que la frame intermediaire retarde).
- *
- * ET LE REMEDE EXISTAIT DEJA, INATTEIGNABLE. Le cran 8 applique `IdunNavigation.ToCampaign`
- * sur wedge -- le suivi #390 le donne `2/2`. Mais l'etape 7 fait `return fail(...)` avant
- * lui : un echec ici rendait le remede structurellement hors de portee. On appelle donc la
- * nav du jeu ICI, ce qui rend l'ecran intersticiel SANS OBJET : rien n'a besoin de savoir
- * lequel c'est, ni de cliquer au travers. `ToCampaign` est idempotent (no-op si on y est
- * deja), donc l'appeler sur le chemin nominal ne coute rien. */
-async function retreatToCampaign(r: UiRefs): Promise<string | null> {
+/** Les TROIS clics : `pause -> retraite -> confirmation`. Chacun reste valide par
+ * l'apparition de l'etape suivante -- un clic AVALE se lit sinon exactement comme un clic
+ * reussi (#332). Rend `null` si les trois ont porte, sinon le motif du premier echec. */
+async function clicsDeRetraite(r: UiRefs): Promise<string | null> {
     const chain: Array<[string, string, () => unknown | null, string]> = [
         [PAUSE_BUTTON_KEY, "bouton pause",
             () => findButtonByContains(r, RETREAT_BUTTON_KEY), "le menu pause"],
@@ -246,56 +226,56 @@ async function retreatToCampaign(r: UiRefs): Promise<string | null> {
         const err = await clickUntilEffect(r, frag, label, expect, expectLabel);
         if (err !== null) return err;
     }
-
-    // Le popup a cede la place, et l'ECRAN DE SORTIE DE PARTIE s'affiche -- il est
-    // TOUJOURS la. Ensuite vient soit une frame intersticielle, soit directement la
-    // campagne. On laisse donc venir avant d'intervenir.
-    if (await waitFor(() => findButtonBySuffix(r, NODE_SUFFIX),
-                      RETREAT_NAV_WAIT_MS, 250) !== null) {
-        return null;
-    }
-
-    // Toujours pas la : une frame s'est intercalee. On ne l'IDENTIFIE PAS, on demande sa
-    // campagne au jeu.
-    //
-    // ⚠ MAIS `ToCampaign` NE PEUT PAS ETRE APPELEE TOUT DE SUITE, et c'est MESURE, pas
-    // suppose. Premier jet du 2026-08-12 : l'invoke suivait immediatement le remplacement
-    // du popup et rendait `no live IdunNavigation instance`. A cet instant la scene meta
-    // n'est pas rechargee -- l'instance de nav n'existe PAS ENCORE.
-    //
-    // Ce meme resultat REFUTE au passage un critere qui semblait plus solide pour le 3e
-    // maillon : << la nav est vivante >> comme preuve de sortie de bataille. Elle ne l'est
-    // pas a ce moment-la. Le seul fait observable au moment du clic reste celui que teste
-    // `confirmPopupReplaced` -- le popup a cede la place.
-    log("[warmup-singletons] popup de retrait remplace, campagne absente apres "
-        + `${RETREAT_NAV_WAIT_MS} ms (frame intersticielle) -- attente de la nav`);
-    const navBack = await waitFor(() => {
-        try {
-            return findLiveIdunNavigation(ensureNavRefs());
-        } catch {
-            return null;
-        }
-    }, RETREAT_NAV_WAIT_MS, 250);
-    if (navBack === null) {
-        return "popup de retrait remplace, mais NI le noeud de campagne NI une instance "
-             + `IdunNavigation vivante en ${2 * RETREAT_NAV_WAIT_MS} ms -- scene meta non `
-             + "rechargee";
-    }
-
-    // La campagne a pu remonter pendant cette attente : `ToCampaign` est idempotente, mais
-    // ne l'appelons pas pour rien.
-    if (findButtonBySuffix(r, NODE_SUFFIX) !== null) return null;
-    const nav = navOutcomeToRpc(
-        await queueOnMainThread(() => navToCampaignOnMainThread(false)));
-    if (!nav.ok) {
-        return `nav vivante mais ToCampaign a echoue : ${nav.err}`;
-    }
-    if (await waitFor(() => findButtonBySuffix(r, NODE_SUFFIX),
-                      RETREAT_NAV_WAIT_MS, 250) === null) {
-        return "ToCampaign invoquee sur une nav vivante, mais le noeud de campagne n'est "
-             + `pas monte en ${RETREAT_NAV_WAIT_MS} ms`;
-    }
     return null;
+}
+
+/** `pause -> retraite -> confirmation`, puis LE SIGNAL de sortie de bataille.
+ *
+ * UN SEUL exemplaire de cette chaine, appele par les DEUX chemins qui retirent le jeu d'une
+ * bataille : l'etape 1bis (ecran herite du cycle precedent) et l'etape 7 (menage apres la
+ * capture). Les avoir dupliques est ce qui a permis a l'un d'etre corrige et pas l'autre.
+ *
+ * ⚠ CE QUI A CHANGE AU #390-r2 : LE MECANISME DE DETECTION, PAS LE RESULTAT. La chaine
+ * demandait a l'UI toutes les 250 ms « le noeud de campagne est-il la ? », puis « une nav
+ * est-elle vivante ? », sur deux budgets de 12 s tires au jugement -- et un warmup VERT ne
+ * disait rien de ce qui s'etait passe entre les deux. Elle ECOUTE desormais
+ * `idun.ui.ScreenVisibilityManager` et attend le RETRAIT de l'ecran de pause
+ * (`GuiId.PauseMenu`), symetrique exact de son inscription a l'entree en bataille. La RE, la
+ * mesure (deux cycles a 28 transitions identiques) et les deux criteres que cette mesure
+ * REFUTE vivent dans `warmup-retreat-signal.ts` -- c'est la que ca se lit.
+ *
+ * L'ECOUTE EST OUVERTE AVANT LE PREMIER CLIC : une transition emise entre le clic et
+ * l'abonnement serait perdue, et c'est precisement celle qui compte. Elle est FERMEE dans un
+ * `finally` -- un abonne oublie continuerait de faire lire le `GuiId` a chaque transition. */
+async function retreatToCampaign(r: UiRefs): Promise<RetreatResult> {
+    const ecoute = ecouterTransitions();
+    try {
+        return await runRetreatToCampaign({
+            clicsDeRetraite: () => clicsDeRetraite(r),
+            ecoute,
+            // UNE lecture, pas un sondage.
+            noeudCampagnePresent: async () => await queueOnMainThread(
+                () => findButtonBySuffix(r, NODE_SUFFIX)) !== null,
+            // FILET seulement -- ces deux attentes ne sont atteintes que si le signal n'a
+            // pas joue. C'est aussi ici que se lit la mesure de #390 : juste apres le
+            // remplacement du popup, `IdunNavigation` n'est PAS vivant, donc on ne peut pas
+            // invoquer `ToCampaign` sans avoir attendu la scene meta.
+            attendreNavVivante: async (ms) => await waitFor(() => {
+                try {
+                    return findLiveIdunNavigation(ensureNavRefs());
+                } catch {
+                    return null;
+                }
+            }, ms, 250) !== null,
+            navToCampaign: () => queueOnMainThread(
+                () => navToCampaignOnMainThread(false)),
+            attendreNoeudCampagne: async (ms) => await waitFor(
+                () => findButtonBySuffix(r, NODE_SUFFIX), ms, 250) !== null,
+            log,
+        });
+    } finally {
+        ecoute.fermer();
+    }
 }
 
 /** Find a button whose path ends with `suffix`, on the next main-thread tick.
@@ -617,13 +597,14 @@ async function warmupGameSingletons(
         log("[warmup-singletons] ecran de bataille herite detecte "
             + "(ni noeud de campagne, ni IdunNavigation vivant) — retraite");
 
-        // Chaine PARTAGEE avec l'etape 7 (`retreatToCampaign`) : chaque clic est valide
-        // par l'apparition de l'ETAPE SUIVANTE, le dernier par le retour de la campagne.
-        const err = await retreatToCampaign(r);
-        if (err !== null) return fail("recover-from-battle", err);
+        // Chaine PARTAGEE avec l'etape 7 (`retreatToCampaign`) : chaque clic est valide par
+        // l'apparition de l'ETAPE SUIVANTE, la sortie par le SIGNAL de retrait de l'ecran
+        // de pause. L'`info` DIT la branche prise et NOMME les frames traversees.
+        const out = await retreatToCampaign(r);
+        if (out.err !== null) return fail("recover-from-battle", out.err);
         steps.push({
             step: "recover-from-battle", ok: true,
-            info: "retraite depuis l'ecran de bataille herite, campagne remontee",
+            info: `ecran de bataille herite -- ${out.reason} : ${out.info}`,
         });
     }
 
@@ -776,9 +757,18 @@ async function warmupGameSingletons(
     // campagne wedge » (61,2 s / `ok:false`), et donc parquer le jeu sur la bataille.
     // La parade existait depuis le 2026-07-30 mais UNIQUEMENT dans l'etape 1bis, en
     // closure locale : c'est la duplication qui a permis de n'en corriger qu'une.
-    const retreatErr = await retreatToCampaign(r);
-    if (retreatErr !== null) return fail("retreat-to-campaign", retreatErr);
-    steps.push({ step: "retreat-to-campaign", ok: true });
+    //
+    // ⚠ ET LE STEP DIT DESORMAIS CE QUI S'EST PASSE (#390-r2). Il etait pousse SANS `info` :
+    // sur un warmup vert, personne ne pouvait dire si la campagne etait remontee seule ou si
+    // une frame s'etait intercalee. `out.reason` nomme la BRANCHE (signal recu / filet), et
+    // `out.info` NOMME les frames traversees par leur membre `idun.tracking.GuiId` et la
+    // classe reelle de l'objet.
+    const retreat = await retreatToCampaign(r);
+    if (retreat.err !== null) return fail("retreat-to-campaign", retreat.err);
+    steps.push({
+        step: "retreat-to-campaign", ok: true,
+        info: `${retreat.reason} : ${retreat.info}`,
+    });
 
     // 8. Verify the post-retreat transition actually COMPLETES (battle scene
     //    unloaded, campaign screen re-mounted with its level nodes). Without
