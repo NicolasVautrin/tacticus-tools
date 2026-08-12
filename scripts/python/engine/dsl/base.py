@@ -421,6 +421,20 @@ class DslContext:
     # cascade de ciblage). Defaut None -> le selecteur `ValidNormalAttackTargets` rend [] (contexte
     # hors runner : la cascade n'est pas evaluable sans `State`), degradation documentee par noeud.
     valid_normal_attack_targets: object | None = None
+    # `has_any_valid_target(unit_dict, ability_type) -> bool | None` : mirror du slot
+    # `IBattleQuery.<64 = 0x40> HasValidTargets(unit, position, abilityType)`, le predicat que
+    # `IdunBattle.Entities.Selectors.UnitsWithAnyValidTargetSelector$$Select` appelle PAR UNITE.
+    # Fourni par `entities_from_state` ; le filtre vit dans `runner/abilities/targeting.py`, seul
+    # port de la cascade de ciblage -- surtout pas un 2e filtre cote noeud.
+    # TRI-ETAT : `None` (le rendu, pas l'attribut) = le masque de CETTE ability n'a pas ete RE-lu ;
+    # attribut `None` = contexte hors runner -> le noeud rend [] et le DIT. Cf.
+    # `entities/selectors/valid_targets.py`.
+    has_any_valid_target: object | None = None
+    # Canal d'HONNETETE de `UnitsWithAnyValidTarget` : les `ActiveAbilityType` qu'il a ECARTES faute
+    # de masque RE-lu. Ce n'est pas du natif -- c'est ce qui distingue « le natif exclut cette
+    # unite » de « le port ne sait pas ». Reste VIDE dans le cas nominal ; `None` = personne ne
+    # collecte (l'information est alors simplement perdue, jamais transformee en verdict).
+    unknown_ability_types: object | None = None
     # `has_taken_damage_of_profile_this_turn(unit, damage_profile_id) -> bool` : mirror de
     # `IdunBattle.Entities.UnitExtensions$$HasTakenDamageOfDamageProfileThisTurn`, dont le corps
     # RELU est un `ContainsKey(ActorStatisticsComponent+0x80, damageProfileType)` -- PRESENCE de la

@@ -643,6 +643,19 @@ def entities_from_state(state, caster_id: int, target_id: int | None = None,
         return [_by_id[t] for t in _vnat(state, int(cid), range_override=range_override)
                 if t in _by_id]
 
+    # `ctx.has_any_valid_target` (slot `IBattleQuery.<64 = 0x40> HasValidTargets(unit, position,
+    # abilityType)`, lu PAR UNITE par `IdunBattle.Entities.Selectors.
+    # UnitsWithAnyValidTargetSelector$$Select`) : DELEGUE au mirror generique de la cascade
+    # (`abilities/targeting.has_valid_targets`), dont `valid_normal_attack_targets` ci-dessus est le
+    # cas particulier « ability = l'attaque normale du caster ». TRI-ETAT conserve TEL QUEL : `None`
+    # = masque non RE-lu, et le noeud DOIT le voir pour ecarter en le disant plutot que d'inventer.
+    def _has_any_valid_target(unit, ability_type):
+        from ..targeting import has_valid_targets as _hvt
+        uid = (unit or {}).get("id")
+        if uid is None or ability_type is None:
+            return None
+        return _hvt(state, int(uid), int(ability_type))
+
     # `ctx.entity_can_be_repaired` (slot 0x13 d'`IAttackQuery`, lu par
     # `IdunBattle.Entities.Selectors.RepairableUnitsSelector$$Select`) : DELEGUE a l'unique mirror du
     # predicat (`abilities/attack_query.entity_can_be_repaired`) avec `caster_id = None` -- la
@@ -806,6 +819,8 @@ def entities_from_state(state, caster_id: int, target_id: int | None = None,
                       units_damaged_this_phase=_units_damaged_this_phase,
                       charged_units=_charged_units,
                       valid_normal_attack_targets=_valid_normal_attack_targets,
+                      has_any_valid_target=_has_any_valid_target,
+                      unknown_ability_types=set(),
                       persistent_data_list=_persistent_data_list,
                       persistent_data=_persistent_data,
                       persistent_data_all=_persistent_data_all,

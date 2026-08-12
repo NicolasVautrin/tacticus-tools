@@ -786,6 +786,69 @@ class UnitNormalAttackType(AAmountFormula):
         return None
 
 
+class UnitNormalRepairType(AAmountFormula):
+    """`IdunBattleLogic.Entities.DSLSelectors$$UnitNormalRepairType(entitySelector)` ->
+    `IdunBattleLogic.Entities.AbilityTypeSelector.UnitNormalRepairAbilitySelector$$Select` : le
+    JUMEAU REPAIR d'`UnitNormalAttackType` ci-dessus. Les deux fabriques sont structurellement
+    identiques au decompile (meme allocation, meme `.ctor(unit, 0)`), et les deux `Select` ne
+    different que par l'accesseur d'`ActiveAbilityComponent` qu'ils appellent :
+
+        UnitExtensions$$GetNormalAttackType(unit)  ->  <ActiveAbilityComponent>+0x28
+        UnitExtensions$$GetRepairType(unit)        ->  <ActiveAbilityComponent>+0x2c
+
+    (les deux corps sont identiques par ailleurs, y compris la garde `GetEntityType(unit) == 1
+    Unit` et le `return 0` hors-unite.)
+
+    ⚠ **ASYMETRIE LUE, ET ELLE N'EST PAS COSMETIQUE** : `UnitNormalRepairAbilitySelector$$Select`
+    GARDE son `SelectSingle` (`if (unit != null) repairType = Nullable(GetRepairType(unit))`) puis
+    rend un `Nullable<AbilityOrEffect>` **VIDE** quand le selecteur d'unite ne resout rien, la ou
+    `UnitNormalAttackAbilitySelector$$Select` appelle `GetNormalAttackType` SANS garde et rend
+    toujours une valeur. C'est ce vide qui fait sauter l'unite dans
+    `IdunBattle.Entities.Selectors.UnitsWithAnyValidTargetSelector$$Select` (son `if
+    (ability.HasValue)`), donc le porter comme un `0` filtrerait sur `ActiveAbilityType 0` au lieu
+    de ne pas filtrer du tout. `None` cote port = le `Nullable` VIDE.
+
+    SUBSTRAT : meme resolution que `UnitNormalAttackType` -- le type CONCRET n'est pas un champ de
+    l'etat runner, on le derive du KIT gameconfig du porteur. Une ability qui REDEFINIT la
+    reparation normale expose un membre `<ability>_Repair` d'`ActiveAbilityType` ; a defaut, le
+    generique `28 Repair` est rendu des que l'unite porte une ability de reparation dans son kit.
+    Aucune -> `None` (l'unite n'a rien a reparer avec, elle sort du filtre)."""
+    def __init__(self, selector: TargetsSelector):
+        self.selector = selector
+
+    def calculate(self, ctx):
+        u = resolve_unit(self.selector, ctx)
+        # `if (unit != null)` du natif -- le `Nullable` VIDE quand `SelectSingle` ne resout rien.
+        if u is None:
+            return None
+        vis = u.get("visualId")
+        if vis is None:
+            return None
+        import gameconfig as GC
+        names = []
+        for _slot, v in (GC.unit_abilities(vis) or {}).items():
+            if isinstance(v, str):
+                names.append(v)
+            elif isinstance(v, dict):
+                names.append(v.get("name") or v.get("id"))
+            elif isinstance(v, list):
+                names += [(x.get("name") if isinstance(x, dict) else x) for x in v]
+        generic = None
+        for nm in names:
+            if not nm:
+                continue
+            member = getattr(ActiveAbilityType, f"{nm}_Repair", None)
+            if member is not None:
+                return int(member)
+            # Le REPAIR generique : l'unite porte une ability de reparation nommee, sans redefinir
+            # le type. `Repair` (28) et `Repair_GalvanicField` (1119) sont les deux ids que le port
+            # connait de ce cote (`ABILITY_CLASSES`), et un E-Cog porte le premier.
+            member = getattr(ActiveAbilityType, str(nm), None)
+            if member is not None and str(nm).startswith("Repair"):
+                generic = int(member)
+        return generic
+
+
 class ConfigVarForEntity(AAmountFormula):
     """`IdunBattleLogic.Entities.DSLFactory$$ConfigVar(abilityOrEffect, entity, varKey)` → `IdunBattle.Entities.Formulas.ConfigAmount$$Calculate` = `AbilityConfiguration.GetVariableForLevel(varKey, level)` sur la config de l'ability
     `abilityOrEffect`, au NIVEAU de l'`entity` (unité TIERCE, ≠ caster — cf. `ConfigVar` standard qui lit
