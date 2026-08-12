@@ -58,6 +58,12 @@ TRANSITOIRES_REELS = [
     "HTTP 504: Gateway Time-out (https://api.github.com/graphql)",
     "Post \"https://api.github.com/graphql\": read tcp: connection reset by peer",
     "unexpected EOF",
+    # RENDU PAR LE TRI-ETAT lui-meme le 2026-08-12 : la 3e tentative d'un run a echoue
+    # sur ce texte, classe `inconnue`, remonte tel quel -- et c'est ainsi qu'on a su
+    # qu'il fallait le classer. Une liste << transitoire par defaut >> l'aurait avale
+    # sans jamais le montrer, une liste << definitive par defaut >> aurait fait renoncer.
+    "stream error: stream ID 1; CANCEL; received from peer",
+    "http2: server sent GOAWAY and closed the connection",
 ]
 
 DEFINITIVES_REELLES = [

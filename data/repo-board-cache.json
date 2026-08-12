@@ -1040,10 +1040,10 @@
    "turns": 218
   },
   "a1c5299c3df00b679": {
-   "ctx": 15262056,
+   "ctx": 36530636,
    "first": "2026-08-12T16:21:09.256000+00:00",
-   "last": "2026-08-12T16:56:46.760000+00:00",
-   "turns": 96
+   "last": "2026-08-12T17:27:58.761000+00:00",
+   "turns": 168
   },
   "a1ca7916c514113da": {
    "ctx": 96154948,
@@ -1472,10 +1472,10 @@
    "turns": 247
   },
   "a29084b50230e7da8": {
-   "ctx": 11251701,
+   "ctx": 25276237,
    "first": "2026-08-12T16:21:15.613000+00:00",
-   "last": "2026-08-12T16:58:19.261000+00:00",
-   "turns": 86
+   "last": "2026-08-12T17:16:35.569000+00:00",
+   "turns": 139
   },
   "a293bbbbd2bf3e1d4": {
    "ctx": 2300894,
@@ -2876,10 +2876,10 @@
    "turns": 94
   },
   "a539c2d8d8eb7c706": {
-   "ctx": 40112378,
+   "ctx": 97824956,
    "first": "2026-08-12T16:08:29.544000+00:00",
-   "last": "2026-08-12T16:59:14.102000+00:00",
-   "turns": 190
+   "last": "2026-08-12T17:50:16.086000+00:00",
+   "turns": 344
   },
   "a539dc3e631eefc60": {
    "ctx": 619242,
@@ -5234,10 +5234,10 @@
    "turns": 786
   },
   "aa04e6bca2ca5c00e": {
-   "ctx": 87430450,
+   "ctx": 170621063,
    "first": "2026-08-12T15:19:26.570000+00:00",
-   "last": "2026-08-12T16:59:07.661000+00:00",
-   "turns": 315
+   "last": "2026-08-12T17:57:52.428000+00:00",
+   "turns": 473
   },
   "aa065aa47e88b64df": {
    "ctx": 138466298,
@@ -5665,6 +5665,12 @@
    "last": "2026-07-23T14:58:00.651000+00:00",
    "turns": 82
   },
+  "ab06d6960fea1e142": {
+   "ctx": 75374098,
+   "first": "2026-08-12T17:12:18.755000+00:00",
+   "last": "2026-08-12T18:38:55.028000+00:00",
+   "turns": 269
+  },
   "ab0811e8983dc7aa9": {
    "ctx": 113250821,
    "first": "2026-08-08T01:33:48.731000+00:00",
@@ -5804,10 +5810,10 @@
    "turns": 81
   },
   "ab4896ea394a0380e": {
-   "ctx": 12341675,
+   "ctx": 58308264,
    "first": "2026-08-12T16:32:53.458000+00:00",
-   "last": "2026-08-12T16:56:02.184000+00:00",
-   "turns": 72
+   "last": "2026-08-12T17:49:31.419000+00:00",
+   "turns": 211
   },
   "ab52a9742c4515100": {
    "ctx": 54919132,
@@ -5924,10 +5930,10 @@
    "turns": 237
   },
   "ab956639c71f61114": {
-   "ctx": 12524695,
+   "ctx": 102222020,
    "first": "2026-08-12T16:34:58.257000+00:00",
-   "last": "2026-08-12T16:59:15.200000+00:00",
-   "turns": 85
+   "last": "2026-08-12T18:28:48.337000+00:00",
+   "turns": 368
   },
   "ab95ef0638aa43645": {
    "ctx": 133327712,
@@ -7400,10 +7406,10 @@
    "turns": 347
   },
   "ae73260c28d2efb4b": {
-   "ctx": 16315232,
+   "ctx": 110905369,
    "first": "2026-08-12T16:30:26.839000+00:00",
-   "last": "2026-08-12T16:59:07.041000+00:00",
-   "turns": 104
+   "last": "2026-08-12T18:39:23.709000+00:00",
+   "turns": 386
   },
   "ae7446d7ce8420822": {
    "ctx": 58328781,
@@ -8035,6 +8041,12 @@
    "last": "2026-08-12T01:29:26.133000+00:00",
    "turns": 380
   },
+  "af853bc3eb0b8221f": {
+   "ctx": 8312438,
+   "first": "2026-08-12T17:16:36.542000+00:00",
+   "last": "2026-08-12T17:23:43.825000+00:00",
+   "turns": 56
+  },
   "af868ebe1fc31c1b6": {
    "ctx": 146108697,
    "first": "2026-07-25T21:33:46.911000+00:00",
@@ -8444,9 +8456,9 @@
    "turns": 22766
   },
   "2026-08-12": {
-   "agent_ctx": 5995956172,
-   "ctx": 6524070142,
-   "turns": 18462
+   "agent_ctx": 6486093066,
+   "ctx": 7060231776,
+   "turns": 20118
   }
  },
  "delivered": {
@@ -8766,7 +8778,7 @@
   },
   "770b6b08-a8e1-4df4-99e5-9ea0bcf65487.jsonl": {
    "first": "",
-   "offset": 13831103
+   "offset": 13936670
   },
   "85ce3eaa-558f-4617-a07c-53d13aa4a1bc.jsonl": {
    "first": "",
@@ -9474,7 +9486,7 @@
   },
   "agent-a1c5299c3df00b679.jsonl": {
    "first": "62cb4bf9-81f3-4a82-9810-d8fe205b99a6",
-   "offset": 648101
+   "offset": 1213918
   },
   "agent-a1ca7916c514113da.jsonl": {
    "first": "9d99b4b7-508f-4f1d-b0a4-f401ec934b2d",
@@ -9762,7 +9774,7 @@
   },
   "agent-a29084b50230e7da8.jsonl": {
    "first": "44bc5936-f2fb-4989-a22e-93fa33a9a0ca",
-   "offset": 606148
+   "offset": 951492
   },
   "agent-a293bbbbd2bf3e1d4.jsonl": {
    "first": "174b4850-6bcb-4017-8270-64373307e8b5",
@@ -10698,7 +10710,7 @@
   },
   "agent-a539c2d8d8eb7c706.jsonl": {
    "first": "d3755a4c-be51-47cf-abb1-5e414089d9ab",
-   "offset": 1096363
+   "offset": 1793730
   },
   "agent-a539dc3e631eefc60.jsonl": {
    "first": "d581f05d-e6ff-439d-82cc-2ac0962f0152",
@@ -12270,7 +12282,7 @@
   },
   "agent-aa04e6bca2ca5c00e.jsonl": {
    "first": "0f375baf-a5c7-4468-8182-8c21130e3963",
-   "offset": 1926796
+   "offset": 2730104
   },
   "agent-aa065aa47e88b64df.jsonl": {
    "first": "e6dc9ca2-d3d8-4a26-9b50-640874bd0e22",
@@ -12556,6 +12568,10 @@
    "first": "270a54e1-cccb-4977-8f41-134f71b57086",
    "offset": 1181138
   },
+  "agent-ab06d6960fea1e142.jsonl": {
+   "first": "47fd911f-aa86-4c55-bd96-677219425cd7",
+   "offset": 1479810
+  },
   "agent-ab0811e8983dc7aa9.jsonl": {
    "first": "011c6676-ff15-4e78-ac10-b2dda4d75371",
    "offset": 2399644
@@ -12650,7 +12666,7 @@
   },
   "agent-ab4896ea394a0380e.jsonl": {
    "first": "4475f4c2-49d9-4b16-914b-82606ea0b8ab",
-   "offset": 569617
+   "offset": 1368041
   },
   "agent-ab52a9742c4515100.jsonl": {
    "first": "457e3e78-488e-4077-b8fa-60a860299614",
@@ -12730,7 +12746,7 @@
   },
   "agent-ab956639c71f61114.jsonl": {
    "first": "23a61272-d3be-4bb3-88e9-161dcd885f43",
-   "offset": 440169
+   "offset": 1839895
   },
   "agent-ab95ef0638aa43645.jsonl": {
    "first": "c6229d1c-dd1e-4821-946f-c771a0293a4b",
@@ -13714,7 +13730,7 @@
   },
   "agent-ae73260c28d2efb4b.jsonl": {
    "first": "6a4294d4-44ef-4712-9d2c-15bde28e0c70",
-   "offset": 538113
+   "offset": 1879150
   },
   "agent-ae7446d7ce8420822.jsonl": {
    "first": "fa53d9d4-f2a3-46de-a1cc-65ce4b2638e1",
@@ -14136,6 +14152,10 @@
    "first": "66775194-a938-497b-b0fb-4f516d5dc1d5",
    "offset": 2373885
   },
+  "agent-af853bc3eb0b8221f.jsonl": {
+   "first": "2c891e7c-9874-4a1a-aae2-12b7424c6c4d",
+   "offset": 913936
+  },
   "agent-af868ebe1fc31c1b6.jsonl": {
    "first": "8ddde2a6-a485-49ad-967c-86efb286eda9",
    "offset": 2993133
@@ -14242,7 +14262,7 @@
   },
   "b2170732-95be-4660-9594-e3e86a19af08.jsonl": {
    "first": "",
-   "offset": 885281493
+   "offset": 888600125
   },
   "b3ddc32a-7528-4057-9d59-bf4ca0066ab3.jsonl": {
    "first": "",
@@ -14986,6 +15006,13 @@
    ],
    "dele": 2
   },
+  "16f995ce75b274a06576e83e1acc3f6813f57cb6": {
+   "add": 1190,
+   "commits": [
+    "16f995ce75b274a06576e83e1acc3f6813f57cb6"
+   ],
+   "dele": 14
+  },
   "17172be68b5174e285f918bb023f2446160861c8": {
    "add": 540,
    "commits": [
@@ -15361,6 +15388,13 @@
     "b5bbff3548cd39a3c4de5f002df3fd7e23f56fda"
    ],
    "dele": 42
+  },
+  "227c967986aead8f5f6299fd87418d608dd2fefe": {
+   "add": 823,
+   "commits": [
+    "227c967986aead8f5f6299fd87418d608dd2fefe"
+   ],
+   "dele": 20
   },
   "22c90131f4de9f67ac6156ae284c3b164ccb0885": {
    "add": 2373,
@@ -20692,6 +20726,13 @@
    ],
    "dele": 18
   },
+  "d1592f2103e055b0152703479051121be7d37707": {
+   "add": 613,
+   "commits": [
+    "d1592f2103e055b0152703479051121be7d37707"
+   ],
+   "dele": 19
+  },
   "d170607563e9c604185370d2d92d8e2331abcfdf": {
    "add": 1621,
    "commits": [
@@ -21102,6 +21143,13 @@
     "dd12921647e843ed8bd16403493232e0622e8c94"
    ],
    "dele": 12
+  },
+  "dd289fbef36089009c9459dc4846938a2054b381": {
+   "add": 549,
+   "commits": [
+    "dd289fbef36089009c9459dc4846938a2054b381"
+   ],
+   "dele": 7
   },
   "dd6fd6eb214809f0f3b1d53a77bf938d5213513c": {
    "add": 863,
@@ -21991,6 +22039,13 @@
     "72c956f6a1405017e5f5cdaddfe728d32e42675c"
    ],
    "dele": 33
+  },
+  "fe7fe5366b3b8e9e2f13da4e8e571ab87ad88179": {
+   "add": 1152,
+   "commits": [
+    "fe7fe5366b3b8e9e2f13da4e8e571ab87ad88179"
+   ],
+   "dele": 63
   },
   "ff1d83084ad45894ef15d95d5d35ea0fcdde5cab": {
    "add": 832,
@@ -26764,6 +26819,11 @@
    "name": "Classifier P2 Custodes",
    "type": "re-expert"
   },
+  "ab06d6960fea1e142": {
+   "branch": "worktree-agent-ab06d6960fea1e142",
+   "name": "Capteur utilite par cible",
+   "type": "opus-solver"
+  },
   "ab0811e8983dc7aa9": {
    "branch": "worktree-agent-ab0811e8983dc7aa9",
    "name": "Six residus etage d emission",
@@ -28744,6 +28804,11 @@
    "name": "26 sites de geometrie muette",
    "type": "opus-solver"
   },
+  "af853bc3eb0b8221f": {
+   "branch": "",
+   "name": "Inventaire canaux utilite existants",
+   "type": "Explore"
+  },
   "af868ebe1fc31c1b6": {
    "branch": "worktree-agent-af868ebe1fc31c1b6",
    "name": "Port DarkAngels lot 2",
@@ -28881,18 +28946,18 @@
   "reutilises": 60
  },
  "stat_merges": {
-  "interroges": 12,
-  "reutilises": 910
+  "interroges": 5,
+  "reutilises": 922
  },
  "stat_metas": {
-  "lus": 18,
-  "reutilises": 1348
+  "lus": 2,
+  "reutilises": 1366
  },
  "stat_tokens": {
-  "fichiers": 26,
+  "fichiers": 11,
   "fork": "",
-  "mo": 38.3,
-  "total": 1385
+  "mo": 11.2,
+  "total": 1387
  },
  "version": 2
 }

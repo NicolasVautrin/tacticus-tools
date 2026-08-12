@@ -230,7 +230,13 @@ def sh(args: list[str], cwd: Path = REPO) -> str:
 TRANSITOIRES = ("502", "503", "504", "bad gateway", "service unavailable",
                 "gateway time-out", "gateway timeout", "timeout awaiting",
                 "connection reset", "unexpected eof", "tls handshake",
-                "temporary failure", "i/o timeout")
+                "temporary failure", "i/o timeout",
+                # Coupures HTTP/2 -- `gh` parle GraphQL en h2 et le serveur annule le
+                # flux quand il sature. Rendu VERBATIM par le tri-etat le 2026-08-12
+                # (<< stream error: stream ID 1; CANCEL; received from peer >>) : c'est
+                # l'inconnu qui a livre son texte au lieu de boucler, et voila le texte.
+                "stream error", "received from peer", "http2", "goaway",
+                "server sent goaway")
 
 #: Pannes de NOTRE COTE : re-tenter n'y changerait rien et masquerait le diagnostic.
 DEFINITIVES = ("authentication", "not logged", "requires authentication", "http 401",
