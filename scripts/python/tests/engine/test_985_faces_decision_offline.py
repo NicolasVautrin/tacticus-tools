@@ -31,6 +31,13 @@ DECLENCHEUR = {
         # Le recenseur de faces DECISION et le ledger d'attestations qu'il consulte (etage 1).
         "scripts/python/decision_face_voies.py",
         "scripts/python/coverage_attestations.py",
+        # Le ledger VERSIONNE lui-meme : une attestation qui se perime remet un item au compte
+        # des manquants, donc peut faire basculer l'etage 1. Trouve par `probe_486r15` -- il
+        # etait LU sans etre declare, ce qui est exactement le faux vert que le cliquet chasse.
+        "scripts/ratchets-951r2-couverture-attestee.json",
+        # Le pointeur de build que `gameconfig` resout : changer de build change les 572
+        # abilities indexees, donc l'unicite mesuree a l'etage 3.
+        "data/symbols/CURRENT",
         # Le registre des formes de moyenne et le foyer de config (etage 3).
         "scripts/python/engine/entities/abilities/triggered_ability.py",
         "scripts/python/engine/entities/abilities/ability_configuration.py",
