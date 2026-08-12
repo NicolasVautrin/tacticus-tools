@@ -21,10 +21,10 @@
 
 | | nombre |
 |---|---|
-| lignes de tableau OUVERTES | 403 |
-| dont ANNOTEES (`FOYER:` + `BLOCAGE:`) | 400 |
+| lignes de tableau OUVERTES | 404 |
+| dont ANNOTEES (`FOYER:` + `BLOCAGE:`) | 401 |
 | dont NON ANNOTEES | 3 |
-| foyers distincts (fichiers/repertoires) | 350 |
+| foyers distincts (fichiers/repertoires) | 352 |
 
 Non annotees restantes : #120bis-spawn, #390-r1, #BL-1020r
 
@@ -200,6 +200,7 @@ Candidats naturels a un dispatch parallele, sous reserve de croiser leurs autres
 | `scripts/python/engine/entities/effects/loki/heal_blocking.py` | #927-r2 | `porteur` |
 | `scripts/python/engine/entities/effects/loki/possession.py` | #590-r3 | `etage` |
 | `scripts/python/engine/entities/effects/loki/status.py` | #175-r3 | `etage` |
+| `scripts/python/engine/entities/effects/loki/votann.py` | #959-r1 | `capteur` |
 | `scripts/python/engine/entities/effects_state.py` | #936-r1 | `aucun` |
 | `scripts/python/engine/entities/pathfinding/fly_pathfinder.py` | #448-r1-r1-r1-r1-r2-r2 | `porteur` |
 | `scripts/python/engine/entities/pathfinding/pathfinders.py` | #448-r1-r1-r1-r1-r2-r1 | `aucun` |
@@ -211,6 +212,7 @@ Candidats naturels a un dispatch parallele, sous reserve de croiser leurs autres
 | `scripts/python/engine/playbook/bespoke.py` | #957-r4 | `aucun` |
 | `scripts/python/engine/playbook/common.py` | #419-r1-tr14-r5-r2-r1-r1-r2 | `porteur` |
 | `scripts/python/engine/playbook/excruciating_frequencies.py` | #957-r3 | `aucun` |
+| `scripts/python/engine/playbook/friends_in_range.py` | #959-r1 | `capteur` |
 | `scripts/python/engine/playbook/intoxicating_elixir.py` | #922-r2 | `capteur` |
 | `scripts/python/engine/playbook/loki_custom.py` | #27-r9 | `etage` |
 | `scripts/python/engine/playbook/nonattack.py` | #27-r9 | `etage` |
@@ -398,7 +400,7 @@ Un residu `capteur` ne part pas tant qu'aucune fenetre de reinject n'est prevue.
 
 | blocage | n | residus |
 |---|---|---|
-| `capteur` | 37 | #259-a, #259-b, #273-r, #287-r5-r2, #347-r1, #347-r3, #389-r3, #419-r1-tr11-r2, #419-r1-tr14-r5-r2-r1-r2-r1-r2, #419-r1-tr5-r8, #419-r6-r1-r1, #433-r4-r2-r1-r1-a-r1, #433-r4-r2-r1-r1-b, #433-r4-r2-r1-r1-c-r1, #433-r4-r2-r1-r3, #444-r1, #449-r1, #462-r4b-r1-r1-r1-r1-c-r3-r1-r5-r1, #462-r4e-o-r2-r1-r1-r1-r1, #462-r4e-o-r2-r1-r1-r1-r2, #475-r2, #475-r3, #487-r2, #545-r1, #552-r2, #590-r2, #590-r5, #595-r1, #595-r2, #595-r3, #596, #596-r2, #916-r1, #922-r2, #940-r1, #943-r7, #951-r3 |
+| `capteur` | 38 | #259-a, #259-b, #273-r, #287-r5-r2, #347-r1, #347-r3, #389-r3, #419-r1-tr11-r2, #419-r1-tr14-r5-r2-r1-r2-r1-r2, #419-r1-tr5-r8, #419-r6-r1-r1, #433-r4-r2-r1-r1-a-r1, #433-r4-r2-r1-r1-b, #433-r4-r2-r1-r1-c-r1, #433-r4-r2-r1-r3, #444-r1, #449-r1, #462-r4b-r1-r1-r1-r1-c-r3-r1-r5-r1, #462-r4e-o-r2-r1-r1-r1-r1, #462-r4e-o-r2-r1-r1-r1-r2, #475-r2, #475-r3, #487-r2, #545-r1, #552-r2, #590-r2, #590-r5, #595-r1, #595-r2, #595-r3, #596, #596-r2, #916-r1, #922-r2, #940-r1, #943-r7, #951-r3, #959-r1 |
 | `seeding` | 27 | #287-r11, #287-r14-r2, #392-r1, #419-r1-tr9-r1, #433-r4-r1-r4-r2-r1-r1-r1-r1, #433-r4-r2-r1-r2-r3, #447-r1-r1-r3-r1, #448-r3-r1-r1-r1, #448-r6, #449-r2-r4-r1, #482-r1, #590-r1, #590-r7, #889-r3, #889-r5-r3, #890-r4, #902-r2, #911-r1, #921-r1, #929-r2, #929-r4, #943-r8, #945-r2, #951-r1, #955-r1, #957-r1, #BF-chance |
 | `etage` | 40 | #116-r, #17, #175-r1, #175-r3, #27-r9, #271-r7, #287-r11-r2-r1-r3, #368-r2, #419-r1-tr12-r2-r1, #419-r4, #433-r3-r2-r1, #433-r4-r1-r1-r1, #433-r4-r1-r1-r2, #433-r4-r1-r3, #433-r4-r3-r1-r2, #443-r2-b2, #444-r2, #462-r4b-r1-r1-r1-r1-b-r1-r1-r3-r1-r2-r1, #462-r4b-r1-r1-r1-r1-b-r1-r1-r3-r1-r3-r1, #508-r2, #577-r2, #590-r3, #590-r6, #590-r8, #889-r2, #889-r6, #893-r1, #894-r2, #895-r4, #902-r1, #907-r1, #919-r1, #924-r1, #924-r2, #929-r1, #939-r1, #940-r2, #946-r1, #946-r4, #947-r1 |
 | `porteur` | 45 | #366-r1-chaos-friendly-fire, #419-r1-tr12-r2-r2, #419-r1-tr12-r4, #419-r1-tr14-r2, #419-r1-tr14-r4-r3, #419-r1-tr14-r5-r2-r1-r1-r2, #419-r1-tr14-r5-r2-r1-r2-r1-r1-r2, #419-r1-tr14-r5-r2-r1-r2-r1-r1-r4-r1, #419-r1-tr14-r5-r2-r1-r2-r1-r3, #419-r1-tr14-r5-r3, #419-r1-tr9-r4-r1-r2-r2, #419-r2, #419-t6-r1, #425-r1, #433-r4-r1-r2, #433-r4-r2-r1-r2-r2-r1-r1-r1-r3, #433-r4-r2-r1-r2-r2-r1-r1-r1-r4-r2, #437-r1-r1-r2, #445-r1, #446-r3a, #447-r1-r1-r1, #447-r3, #448-r1-r1-r1-r1-r2-r2, #448-r1-r2-r1, #449-r2-r4-r3, #462-r4b-r1-r1-r1-r1-c-r3-r1-r5-r4, #462-r4b-r1-r1-r1-r1-c-r3-r2, #462-r4e-o-r1-r1-r1, #465-r1, #503-r2, #521-r4, #550-r2, #884-r2, #895-r1, #915-r2, #927-r2, #942-r1, #943-r4, #945-r1, #945-r3, #946-r2, #950-r1, #952-r2, #953-r4, #957-r2 |
