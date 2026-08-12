@@ -56,8 +56,10 @@ CAS = {
     1145: {"name": "SporeMineLauncher", "carrier": "tyranBiovore", "inject": False, "mow": True,
            "p_units": "tyranNeurothrope,tyranParasite",
            "a_units": "ultraTitus,ultraApothecary,necroWarden"},
+    # `votanChampion` n'est PAS dans le pool : les allies sont pris DANS le pool
+    # (`rl_duel build --list-pool`), seul le PORTEUR est injecte.
     1219: {"name": "IronkinSteeljack", "carrier": "votanMemnyr", "inject": True, "mow": False,
-           "p_units": "votanMemnyr,votanChampion",
+           "p_units": "votanMemnyr,orksNob",
            "a_units": "ultraTitus,ultraApothecary,necroWarden"},
 }
 
@@ -186,19 +188,20 @@ def port_ctx(sid, rid, uid, mow: bool):
         tile_id_by_pos=tid), dv
 
 
-def port_utility_at(pb, ctx, aid, pos):
-    """L'utilite que le PORT attribue a `pos` -- terme a terme, sans passer par l'argmax.
+def port_at_position(pb, ctx, pos):
+    """Ce que le PORT attribue A CETTE POSITION -- `(utilite, cible)` ou `(None, None)`.
 
-    C'est la decomposition PAR ETAGE : comparer les argmax seuls laisserait passer une formule
-    fausse qui se trouve maximiser la meme position."""
-    if aid == 1058:
-        occ = set(ctx.epos or []) | set(ctx.fpos or [])
-        if ctx.origin is not None:
-            occ.add(ctx.origin)
-        nb = pb.num_existing_units_buffed(ctx)
-        ns = pb.num_summons(ctx, pos, occ)
-        return float(nb + ns), {"nBuffed": nb, "nSummons": ns}
-    return None, {}
+    On restreint le sweep du port a la seule position `pos` (`reach_nc = [pos]`) et on relance
+    `generate_candidates` : c'est EXACTEMENT ce que le natif calcule dans un appel
+    `EvaluateNonComparable(caster, <cette position>)`, donc c'est le bon grain de comparaison.
+    Comparer les seuls ARGMAX GLOBAUX laisserait passer une formule fausse qui se trouve maximiser
+    la meme position -- la decomposition par etage est ce qui l'interdit."""
+    import dataclasses
+    sub = dataclasses.replace(ctx, reach_nc=[pos])
+    c = pb.generate_candidates(sub)
+    if not c:
+        return None, None
+    return c[0].get("pred"), c[0].get("target")
 
 
 def confront(sid, rid, uid, aid, cas, as_json=False):
@@ -223,40 +226,68 @@ def confront(sid, rid, uid, aid, cas, as_json=False):
                  (p.get("action") or {}).get("targetLow")))
     print("   PORT should_evaluate=%s candidats=%s"
           % (pb.should_evaluate(ctx), cands))
-    # Etage : utilite par position (quand le port sait la rendre isolement).
-    for p in positions:
-        pos = tuple(p.get("pos"))
-        u, det = port_utility_at(pb, ctx, aid, pos)
-        if u is not None:
-            print("   ETAGE pos=%s natif=%s port=%s %s  %s"
-                  % (pos, p.get("util"), u, det, "OK" if abs(u - p["util"]) < 1e-6 else "ECART"))
-            rec.setdefault("etages", []).append(
-                {"pos": list(pos), "natif": p.get("util"), "port": u, "detail": det})
-    # NON-DEGENERESCENCE
     if not positions:
         print("   NON CONFRONTE : aucune position ne rend d'utilite (bucket vide partout)")
         rec["verdict"] = "NON_CONFRONTE"
         return rec, 2
+    # ETAGE 1 -- l'utilite, POSITION PAR POSITION.
+    ecarts = []
+    nat_cls: dict = {}          # ptr natif -> [positions]
+    port_cls: dict = {}         # cible portee -> [positions]
+    for p in positions:
+        pos = tuple(p.get("pos"))
+        u, tgt = port_at_position(pb, ctx, pos)
+        ok_u = (u is not None) and abs(u - p["util"]) < 1e-6
+        pos_of_tile = {v: k for k, v in (ctx.tile_id_by_pos or {}).items()}
+        print("   ETAGE pos=%s natif=%s port=%s tuile-portee=%s%s  %s"
+              % (pos, p.get("util"), u, tgt, pos_of_tile.get(tgt, ""),
+                 "OK" if ok_u else "ECART"))
+        rec.setdefault("etages", []).append(
+            {"pos": list(pos), "natif": p.get("util"), "port": u, "ok": ok_u})
+        if not ok_u:
+            ecarts.append((pos, p.get("util"), u))
+        nat_cls.setdefault((p.get("action") or {}).get("targetLow"), []).append(pos)
+        port_cls.setdefault(tgt, []).append(pos)
+    # ETAGE 2 -- la CIBLE. `ncEvaluate` rend `action+0x18` en U32 : sur ces playbooks c'est le bas
+    # d'un POINTEUR d'entite, pas un `BEntityId` -- il n'est donc PAS comparable a l'id de tuile
+    # que le port emet. Ce qui l'est, et qui est un invariant fort : la PARTITION des positions
+    # induite par la cible. Deux positions ou le natif retient la MEME entite doivent etre deux
+    # positions ou le port retient la MEME tuile, et reciproquement.
+    nat_part = sorted(sorted(v) for v in nat_cls.values())
+    port_part = sorted(sorted(v) for v in port_cls.values())
+    same_part = nat_part == port_part
+    print("   PARTITION des positions par cible : natif=%s" % (nat_part,))
+    print("                                       port =%s  -> %s"
+          % (port_part, "OK" if same_part else "ECART"))
+    rec["partition"] = {"natif": nat_part, "port": port_part, "identique": same_part}
+    # NON-DEGENERESCENCE : le montage doit DEPARTAGER.
     utils = {round(p["util"], 6) for p in positions}
     rec["utilsDistincts"] = sorted(utils)
-    # Argmax natif = keep-first sur la liste (position courante en tete, remplacement STRICT).
-    best = None
+    best = None                 # argmax natif = keep-first (position courante en tete, `>` strict)
     for p in positions:
         if best is None or p["util"] > best["util"]:
             best = p
-    rec["nativeBest"] = {"pos": best.get("pos"), "util": best.get("util"),
-                         "target": (best.get("action") or {}).get("targetLow")}
-    print("   natif BEST pos=%s util=%s tgt=%s"
-          % (best.get("pos"), best.get("util"), (best.get("action") or {}).get("targetLow")))
-    if len(utils) == 1:
-        print("   AVERTISSEMENT : une SEULE valeur d'utilite sur %d positions -- rien n'est"
-              " departage, le montage ne discrimine pas l'argmax" % len(positions))
+    rec["nativeBest"] = {"pos": best.get("pos"), "util": best.get("util")}
+    print("   natif BEST pos=%s util=%s | port to=%s pred=%s"
+          % (best.get("pos"), best.get("util"),
+             (cands[0].get("to") if cands else None),
+             (cands[0].get("pred") if cands else None)))
+    degenere = (len(utils) == 1 or len(positions) < 2 or len(nat_cls) < 2)
+    if degenere:
+        print("   NON CONFRONTE : le montage ne DEPARTAGE pas (%d position(s), %d utilite(s)"
+              " distincte(s), %d cible(s) distincte(s))"
+              % (len(positions), len(utils), len(nat_cls)))
+        rec["verdict"] = "NON_CONFRONTE_DEGENERE"
         rec["degenere"] = True
-    ok = bool(cands) and cands[0].get("target") == rec["nativeBest"]["target"]
+        return rec, 2
+    port_best_pos = (tuple(cands[0]["to"]) if (cands and cands[0].get("to"))
+                     else (ctx.origin if cands else None))
+    ok_argmax = bool(cands) and (list(port_best_pos or ()) == list(best.get("pos") or ()))
+    ok = (not ecarts) and same_part and ok_argmax
     rec["verdict"] = "OK" if ok else "DESACCORD"
-    print("   VERDICT cible : natif=%s port=%s -> %s"
-          % (rec["nativeBest"]["target"],
-             (cands[0].get("target") if cands else None), rec["verdict"]))
+    print("   VERDICT : etages=%s partition=%s argmax=%s -> %s"
+          % ("OK" if not ecarts else ("ECART %s" % (ecarts,)),
+             "OK" if same_part else "ECART", "OK" if ok_argmax else "ECART", rec["verdict"]))
     if as_json:
         print(json.dumps(rec, default=str))
     return rec, (0 if ok else 1)

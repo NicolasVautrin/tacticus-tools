@@ -78,9 +78,27 @@ TargetTileIsFree`, `onlyAdjacent = RangedBool.True` -- le MEME ctor, octet pour 
 `|dElev| < 2`), pas d'un filtre du playbook : la re-projection de l'union sur la position
 candidate T EST `bq.is_adjacent(T, ST)`. Chaine detaillee : `GrotTankPlaybook` (#616).
 
+L'ORDRE PAR POSITION EST DERIVABLE, ET IL N'EST PAS CELUI DE L'UNION
+--------------------------------------------------------------------
 `eligible_target_tiles` rend `(fromHere, union)` : `fromHere` porte l'ORDRE NATIF du selecteur a
-la position d'origine, `union` l'agregat sur toutes les tuiles de move (le RPC n'a pas de vue
-par position). Ecart NOMME, identique a GrotTank/MasterOfTheTutelaries.
+la position d'ORIGINE, `union` l'agregat sur toutes les tuiles de move -- et l'ordre de l'union
+n'est celui d'AUCUNE position. Or l'utilite ne departage PAS toujours : plusieurs tuiles de spawn
+d'une meme position peuvent etre a la MEME distance du plus proche ennemi, et `AddAction` est
+alors keep-first. L'ORDRE **EST** la decision, exactement comme pour `CultDemagogue` (#957).
+
+Le port ne se contente donc pas de l'union : pour une position `T`, il enumere les tuiles
+eligibles **dans l'ordre de `ctx.neigh_by_pos[T]`**, c'est-a-dire la liste d'adjacence STOCKEE du
+`ConnectivityComponent` -- celle-la meme que parcourt la chaine native
+`TargetingQuery$$GetTilesInRange` (`onlyAdjacent`) -> slot `GetAdjacentTiles` ->
+`BattleQuery$$IterateAdjacentTiles`, dont `TargetingQuery$$GetValidTargets` preserve l'ordre dans
+son `OrderedSet`. C'est le MEME substrat que celui qu'`AdjacentTilesSelector$$Select` consomme
+cote COMBAT (`engine/entities/selectors/tiles.py::AdjacentTiles`, « ORDRE (R28-1) »).
+
+MESURE (#971, board `MC1_67`, seed 4242, oracle `ncEvaluate`, 13 positions) : l'ordre de l'UNION
+donne **11 classes natives contre 10 portees** -- les positions `(0,1)` et `(1,1)` retiennent la
+MEME tuile cote port et DEUX tuiles distinctes cote natif, toutes deux a utilite `-8`. L'ordre du
+voisinage stocke referme cet ecart. `neigh_by_pos` absent (canal muet) -> repli sur l'ordre de
+l'union, et le port le DIT plutot que de rendre un ordre invente.
 
 RESIDU NOMME `#971-r1` : `GetNearestEnemy` est mirrore ICI pour la TROISIEME fois
 (`noncomparable/alpha_warrior.py::_nearest_enemy`, ancre sur la tuile de spawn, rend `(id, pos)` ;
@@ -151,6 +169,29 @@ class IronkinSteeljackPlaybook(NonComparablePlaybook):
                 best = (q, d, adj)
         return None if best is None else best[0]
 
+    def _tiles_in_native_order(self, ctx: NCContext, T: tuple, from_here: list, union: list,
+                               eligibles: set, neigh) -> list:
+        """Les tuiles de spawn eligibles DEPUIS `T`, dans l'ORDRE que le natif enumere.
+
+        A l'ORIGINE : `fromHere`, qui EST la reponse par-position du RPC -- rien a deriver.
+        Ailleurs : l'ordre de `ctx.neigh_by_pos[T]` (liste d'adjacence STOCKEE), restreint aux
+        tuiles que le RPC declare eligibles. C'est la chaine `GetTilesInRange` (`onlyAdjacent`) ->
+        `GetAdjacentTiles` -> `IterateAdjacentTiles`, dont `GetValidTargets` preserve l'ordre.
+
+        Canal `neigh_by_pos` MUET -> repli sur l'ordre de l'union, NOMME : on ne fabrique pas un
+        ordre, on dit qu'on ne l'a pas."""
+        if T == ctx.origin and from_here:
+            return list(from_here)
+        ring = (ctx.neigh_by_pos or {}).get((T[0], T[1]))
+        if not ring:
+            return list(union)
+        ordered = [p for p in ((p[0], p[1]) for p in ring) if p in eligibles]
+        # Toute tuile eligible ADJACENTE que la liste stockee ne porte pas resterait invisible :
+        # on la remet EN QUEUE plutot que de la perdre (le natif, lui, ne l'aurait pas vue -- mais
+        # une perte silencieuse serait pire qu'un ordre de queue explicite).
+        reste = [p for p in union if p in eligibles and p not in ordered]
+        return ordered + reste
+
     def generate_candidates(self, ctx: NCContext) -> list[dict]:
         """Mirror du sweep natif : positions candidates (origine d'abord) x tuiles de spawn ring-1.
 
@@ -168,9 +209,10 @@ class IronkinSteeljackPlaybook(NonComparablePlaybook):
         if not from_here and not union:
             return []
         neigh = bq.neigh_map(ctx)
+        eligibles = set(from_here) | set(union)
         best = None                       # (tuile de spawn ST, position T, utilite)
         for T in (ctx.reach_nc or []):    # origine d'abord (Bucket keep-first au tie)
-            tiles = from_here if (T == ctx.origin and from_here) else union
+            tiles = self._tiles_in_native_order(ctx, T, from_here, union, eligibles, neigh)
             for ST in tiles:
                 if not bq.is_adjacent(T, ST, ctx.elev_by_pos, neigh):
                     continue              # spawn = hex ADJACENT a T, au sens du SELECTEUR
