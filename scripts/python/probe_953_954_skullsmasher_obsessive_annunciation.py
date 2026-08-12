@@ -69,9 +69,18 @@ SEED = "777"
 
 ADA = "emperKakophonist"          # << Adamatar >>, porteur d'`ObsessiveAnnunciation`
 MACER = "worldJakhal"             # << Macer >>, porteur de `Skullsmasher`
-#: attaquant RANGED **CHAOS** (portee 3, 6 coups `Eviscerate`) : allie d'Adamatar, donc
+#: attaquant RANGED **CHAOS** (portee 2, 1 coup `HeavyRound`) : allie d'Adamatar, donc
 #: `AreFriends(EffectSource, Caster)` VRAI, et `HasTrait(Caster, Chaos)` VRAI.
-ATT_CHAOS = "emperNoiseMarine"
+#:
+#: ⚠ CE N'EST PAS LE PREMIER CHOISI, et le remplacement est une MESURE. `emperNoiseMarine` (r3,
+#: 6 coups) porte QUATRE passifs qui touchent le degat RANGED -- `TerrifyingCrescendo`,
+#: `SuppressiveFire`, `HeavyWeapon`, `ThrillSeekers` -- et le port DIVERGE du natif avec lui
+#: **DANS LE TEMOIN** (`oa_away` : natif 4699, port 6396) comme avec `--mutate` : un ecart
+#: PREEXISTANT, etranger a ce lot, qui rendrait TOUT bras illisible. `thousTzaangor` ne porte que
+#: `RealityUnbound` (+MaxDamage par ennemi ayant subi du PSYCHIQUE ce tour) et `WeaverOfFate`
+#: (max damage si 3+ ennemis ont subi du psychique) : sans aucune source psychique au montage, les
+#: DEUX sont inertes -- et son unique coup rend l'ecart d'aura directement lisible.
+ATT_CHAOS = "thousTzaangor"
 #: attaquant RANGED **NON-CHAOS** (Imperial) : meme role, mais le gate `HasTrait(Caster, Chaos)`
 #: de la moitie CRIT tombe -- c'est le TEMOIN du 3e conjoint.
 ATT_IMPERIAL = "ultraEliminatorSgt"
@@ -80,6 +89,11 @@ ATT_IMPERIAL = "ultraEliminatorSgt"
 VICTIM = "orksNob"
 #: SACRIFICE : l'unite qu'on OVERKILL pour armer l'aura de crit (bras `oa_crit`). PV forces a 1.
 SACRIFICE = "astraBullgryn"
+#: TUEUR DEDIE des bras CRIT : il OVERKILL le sacrifice LOIN de la zone de mesure, dans le MEME
+#: tour que l'attaque mesuree (l'aura 1433 ne dure qu'UN tour). Son kit n'entre dans aucune mesure :
+#: il n'attaque jamais la victime et ne projette rien (`TerrifyingCrescendo` est un bonus OFFENSIF
+#: sur SES propres attaques ranged, `SuppressiveFire` frappe la cible qu'il tue).
+KILLER = "emperNoiseMarine"
 
 #: PV forces de Macer (`--hp-player`) -- cf. le commentaire de `run_sk` : la magnitude compte des
 #: PALIERS de 10 % de PV MANQUANTS, donc le porteur doit pouvoir en perdre une FRACTION VISIBLE.
@@ -214,6 +228,13 @@ _MUTATED_TRIGGERS = ("Skullsmasher", "ObsessiveAnnunciation")
 _MUTATED_SEEDS = ("Skullsmasher", "ObsessiveAnnunciation")
 
 
+#: MUTATION SELECTIVE : ne neutraliser QU'UN effet (et aucun trigger). Sans elle, `--mutate`
+#: neutralise 1432 ET 1433 a la fois, et l'ecart du bras `oa_crit` MELANGE les deux faces (l'aura
+#: de DEGAT s'y applique aussi, l'attaque etant RANGED et Adamatar adjacent a la victime) -- la
+#: face CRIT n'y serait alors pas falsifiable SEULE.
+MUTATE_ONLY: "list | None" = None
+
+
 class _Mutation:
     """Neutralise le port DANS LES TROIS REGISTRES a la fois. Un seul suffirait a faire diverger le
     bras `oa_aura`, mais pas le bras `sk_stun` (dont le vecteur est un TRIGGER) ni le seed de 1263
@@ -230,9 +251,11 @@ class _Mutation:
         from engine.entities.effects.factory import EFFECT_CLASSES, ABILITY_INIT_OWNER_EFFECTS
         from engine.entities.effects.base import BaseEffect
         from engine.runner.operations.triggers.dispatch.registry import ABILITY_TRIGGERS
-        for n in _MUTATED_EFFECTS:
+        for n in (MUTATE_ONLY or _MUTATED_EFFECTS):
             self._eff[n] = EFFECT_CLASSES.get(n)
             EFFECT_CLASSES[n] = BaseEffect
+        if MUTATE_ONLY:                      # mutation SELECTIVE : aucun trigger, aucun seed touche
+            return self
         for n in _MUTATED_TRIGGERS:
             if n in ABILITY_TRIGGERS:
                 self._trg[n] = ABILITY_TRIGGERS.pop(n)
@@ -337,11 +360,30 @@ def run_oa(arm: str, mutate=False, verbose=True, seed=SEED, board=BOARD) -> dict
     p_units = [ADA, att]
     a_units = [VICTIM, SACRIFICE]
     places_p = [(ADA, ada_tile), (att, att_tile)]
-    places_a = [(VICTIM, g["V"]), (SACRIFICE, g["SAC"])]
+    # Le SACRIFICE est LOIN par defaut : un ennemi ADJACENT a l'attaquant RANGED reduit son
+    # `fromHere` a ce SEUL ennemi (mesure : la victime a 2 hex disparait de `fromHere` et le bras
+    # rendait `n=0` cote natif). Seul `oa_crit` le met au contact -- et il y MEURT au premier coup,
+    # donc l'attaque MESUREE qui suit retrouve sa portee.
+    places_a = [(VICTIM, g["V"]), (SACRIFICE, g["SACFAR"])]
     extra = ["--hp-target", "400000", "--hp-player", "400000"]
-    if arm == "oa_crit":
-        # Le SACRIFICE doit pouvoir etre OVERKILL : PV a 1, place au CONTACT de l'attaquant.
-        extra = ["--hp-player", "400000",
+    if arm in ("oa_crit", "oa_crit_nonchaos"):
+        # ⚠ L'AURA 1433 NE DURE QU'UN TOUR (`turns = <DSLFormulas+0x20> = Direct(1)`) : l'overkill
+        # et l'attaque MESUREE doivent tomber dans le MEME tour. Un `endturn` entre les deux la
+        # ferait EXPIRER -- mesure : `[1432, 1433]` juste apres le kill, `[1432]` apres le passage
+        # de tour, et le bras rendait alors un TEMOIN deguise en bras. D'ou un TUEUR DEDIE (une 3e
+        # unite de mon camp), loin de la zone de mesure, plutot qu'un passage de tour.
+        # Le SACRIFICE a `Health = 1` : `DamagePrediction$$IsOverkill` compare
+        # `(healthDamage - initialHealth) / initialHealth x 100` au seuil `overkillDmgPctOfHealth`,
+        # donc un coup de plusieurs milliers sur 1 PV le franchit largement (MESURE : `[1432, 1433]`
+        # a `Health = 1`, `[1432]` seul a `Health = 2000`, ou la cible SURVIT).
+        p_units = [ADA, att, KILLER]
+        places_p = [(ADA, ada_tile), (att, att_tile), (KILLER, g["KILLER"])]
+        places_a = [(VICTIM, g["V"]), (SACRIFICE, g["SACFAR"])]
+        # `--armor-target 0` : sans lui l'ARMURE de la victime reste celle du rank (les PV sont
+        # forces par `--unit-stat`, qui ne la touche pas, la ou `--hp-target` la met a zero) et
+        # elle ECRASE la contribution CRIT -- mesure : l'ecart de la face crit tombe a 155 points
+        # avec armure, la face DEGAT restant a 974 (elle est versee APRES l'etage armure).
+        extra = ["--hp-player", "400000", "--armor-target", "0",
                  "--unit-stat", "%s:Health=1,RemainingHealth=1" % SACRIFICE,
                  "--unit-stat", "%s:Health=400000,RemainingHealth=400000" % VICTIM]
     crit = "100,700" if crit_arm else "0,0"
@@ -355,7 +397,7 @@ def run_oa(arm: str, mutate=False, verbose=True, seed=SEED, board=BOARD) -> dict
         from engine.entities.pathfinding.board import Board
         bobj = Board(geo["bg"]["tiles"], adjacency="native_sym")
         dv = _view(rpc, rid, inactive=True)
-        ids = {v: int(_by_vis(dv, v)["id"]) for v in (ADA, att, VICTIM, SACRIFICE)
+        ids = {v: int(_by_vis(dv, v)["id"]) for v in (ADA, att, VICTIM, SACRIFICE, KILLER)
                if _by_vis(dv, v) is not None}
         out = {"arm": arm, "mutate": bool(mutate), "runner": rid, "ids": ids, "tiles": g,
                "geo": {"pos": geo["pos"], "elev": geo["elev"], "fail": geo["fail"]}}
@@ -369,12 +411,16 @@ def run_oa(arm: str, mutate=False, verbose=True, seed=SEED, board=BOARD) -> dict
         if na is None:
             out["error"] = "id d'attaque normale introuvable pour %s" % att
             return _done(out, verbose)
-        # --- OVERKILL prealable, seulement pour le bras `oa_crit` ------------------------------
-        if arm == "oa_crit":
-            sac = ids.get(SACRIFICE)
-            _res, sac_hits = _attack(rpc, rid, att_id, sac, na)
-            out["overkill"] = {"sacrifice": sac, "hits": sac_hits,
-                               "turns": _ensure_can_act(rpc, rid, att_id),
+        # --- OVERKILL prealable : les DEUX bras qui exercent la face CRIT -----------------------
+        # `oa_crit_nonchaos` le fait AUSSI : sans lui, son temoin serait ambigu (aucune aura 1433
+        # posee du tout), alors qu'on veut isoler le SEUL gate `HasTrait(Caster, Chaos)`.
+        # C'est le TUEUR DEDIE qui frappe -- l'attaquant mesure garde son activation, et l'aura
+        # d'UN TOUR est encore la quand il tire.
+        if arm in ("oa_crit", "oa_crit_nonchaos"):
+            sac, kid = ids.get(SACRIFICE), ids.get(KILLER)
+            kna = _normal_attack_id(dv, kid)
+            _res, sac_hits = _attack(rpc, rid, kid, sac, kna)
+            out["overkill"] = {"sacrifice": sac, "killer": kid, "hits": sac_hits,
                                "ada_effects_after": _effect_types(
                                    _view(rpc, rid, inactive=True), ids[ADA])}
         out["ada_effects"] = _effect_types(_view(rpc, rid, inactive=True), ids[ADA])
@@ -511,7 +557,15 @@ def _board(board_id):
     raise SystemExit("[953] board dump introuvable : %s (python dump_boards.py)" % board_id)
 
 
-def geometry(board_id) -> dict:
+#: Distance V<->R du montage RANGED. Elle est MESUREE, pas lue dans le gameconfig : la portee
+#: `r3` affichee par `gameconfig.py` pour `emperNoiseMarine` ne rend PAS la victime castable
+#: `fromHere` a 3 hex (`abilityTargets` : elle est dans `targets`, superset MOVE inclus, et ABSENTE
+#: de `fromHere`). A 2 hex, elle l'est. On prend donc la plus grande distance REELLEMENT castable
+#: qui laisse `d(A1,R) >= 2` -- sans quoi le TEMOIN cesserait de discriminer.
+RANGED_DIST = 2
+
+
+def geometry(board_id, dist=None) -> dict:
     """CALCULE le montage, il ne le devine pas. Cinq tuiles, toutes JOUABLES et **A LA MEME
     ELEVATION** (sans quoi le terme d'elevation de
     `DamageCalculations$$CalculateAttackerModifiersForPrediction` separerait les bras au lieu de
@@ -529,23 +583,34 @@ def geometry(board_id) -> dict:
     ⚠ L'adjacence vient de `Board.neighbors` (liste STOCKEE du dump), la distance de
     `hexgeo.distance` (la portee d'arme, elle, est une distance hex). Les DEUX sont ensuite
     ASSERTIONNEES LIVE contre le `boardGraph` du runner (`_geo_assert`)."""
-    if board_id in _GEO_CACHE:
-        return _GEO_CACHE[board_id]
+    dist = RANGED_DIST if dist is None else int(dist)
+    key = (board_id, dist)
+    if key in _GEO_CACHE:
+        return _GEO_CACHE[key]
     bd = _board(board_id)
     def elev(p):
         t = bd.tile(p[0], p[1])
         return None if not t else t.get("elevation")
-    cells = [(c, r) for c in range(bd.width) for r in range(bd.height) if bd.is_playable(c, r)]
+    def _ok(c, r):
+        """JOUABLE **et** franchissable. ⚠ `Board.is_playable` rend VRAI sur une tuile `Block`
+        (elle ne lit que `ForceUnplayable`) -- MESURE : `--place` sur `(0,8)` de `MC1_67`
+        (`TileId = Block`) ne LEVE PAS, l'unite est simplement ABSENTE du build, et le bras se lit
+        alors comme une geometrie ratee. Le `TileId` est donc filtre ICI."""
+        t = bd.tile(c, r)
+        return bool(t) and bd.is_playable(c, r) and t.get("tileId") != "Block"
+
+    cells = [(c, r) for c in range(bd.width) for r in range(bd.height) if _ok(c, r)]
     for v in cells:
         ev = elev(v)
         if ev is None:
             continue
-        same = lambda p: bd.is_playable(p[0], p[1]) and elev(p) == ev            # noqa: E731
+        same = lambda p: _ok(p[0], p[1]) and elev(p) == ev                       # noqa: E731
         nv = [tuple(x) for x in bd.neighbors(*v) if same(tuple(x))]
         if len(nv) < 2:
             continue
         for r_ in cells:
-            if not same(r_) or hexgeo.distance(v, r_) != 3:
+            # `has_los` : une attaque RANGED exige la ligne de vue (le board porte des `Block`).
+            if not same(r_) or hexgeo.distance(v, r_) != dist or not bd.has_los(v, r_):
                 continue
             nr = [tuple(x) for x in bd.neighbors(*r_) if same(tuple(x))]
             for a1 in nv:
@@ -568,11 +633,32 @@ def geometry(board_id) -> dict:
                                      and tuple(x) not in (v, a1, a2, r_, m, sac)), None)
                         if sacm is None:
                             continue
+                        # `SACFAR` : le figurant ennemi des bras SANS overkill. Il doit etre LOIN
+                        # de l'attaquant RANGED -- MESURE : un ennemi ADJACENT a l'attaquant reduit
+                        # son `fromHere` a CE SEUL ennemi (l'attaque normale ne peut plus viser la
+                        # victime a 2 hex), et le bras rendait alors `n=0` cote natif.
+                        far = next((p for p in cells
+                                    if same(p) and min(hexgeo.distance(p, q)
+                                                       for q in (v, a1, a2, r_, m)) >= 3), None)
+                        if far is None:
+                            continue
+                        # `KILLER` : la tuile du TUEUR d'`oa_crit`, AU CONTACT de `SACFAR` et loin
+                        # de la zone de mesure. L'overkill et l'attaque mesuree doivent tomber dans
+                        # le MEME tour (l'aura 1433 ne dure qu'UN tour) : il faut donc DEUX unites
+                        # de mon camp, pas un passage de tour.
+                        killer = next((tuple(x) for x in bd.neighbors(*far)
+                                       if same(tuple(x))
+                                       and min(hexgeo.distance(tuple(x), q)
+                                               for q in (v, a1, a2, r_, m)) >= 2), None)
+                        if killer is None:
+                            continue
                         g = {"V": v, "A1": a1, "A2": a2, "R": r_, "M": m, "SAC": sac,
-                             "SACM": sacm, "elev": ev, "board": board_id}
-                        _GEO_CACHE[board_id] = g
+                             "SACM": sacm, "SACFAR": far, "KILLER": killer,
+                             "elev": ev, "board": board_id, "dist": dist}
+                        _GEO_CACHE[key] = g
                         return g
-    raise SystemExit("[953] aucune geometrie a elevation CONSTANTE trouvee sur %s" % board_id)
+    raise SystemExit("[953] aucune geometrie a elevation CONSTANTE trouvee sur %s (dist=%d)"
+                     % (board_id, dist))
 
 
 # --------------------------------------------------------------------------- sortie
@@ -632,10 +718,17 @@ def main(argv=None):
     ap.add_argument("--arm", action="append",
                     help="bras a jouer (defaut : tous). %s" % (ARMS_OA + ARMS_SK,))
     ap.add_argument("--mutate", action="store_true", help="contre-epreuve : port NEUTRALISE")
+    ap.add_argument("--mutate-effect", action="append",
+                    help="mutation SELECTIVE : ne neutraliser QUE ces EffectType (par nom), et "
+                         "aucun trigger ni seed -- pour falsifier UNE face a la fois")
     ap.add_argument("--board", default=BOARD)
     ap.add_argument("--seed", default=SEED)
     ap.add_argument("--json", help="ecrit le resultat brut dans ce fichier")
     a = ap.parse_args(argv)
+    global MUTATE_ONLY
+    MUTATE_ONLY = list(a.mutate_effect) if a.mutate_effect else None
+    if MUTATE_ONLY:
+        a.mutate = True
     arms = a.arm or list(ARMS_OA + ARMS_SK)
     res = {}
     for arm in arms:
