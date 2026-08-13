@@ -26,8 +26,8 @@ from ...entities.selectors.accessors import ActiveTarget, CasterTile, Owner, Tar
 from ...entities.selectors.geometry import PickRandomly
 from ...entities.selectors.tiles import Caster
 from ...entities.selectors.units import (AdjacentEnemies, AllDeadOrResurrectedUnits, And, Damageable,
-                                         Friends, SortByFormula, Sub, SurroundingEnemies,
-                                         SurroundingUnits, ValidNormalAttackTargets,
+                                         DeadUnits, Friends, SortByFormula, Sub, SurroundingEnemies,
+                                         SurroundingUnits, Tiles, ValidNormalAttackTargets,
                                          units_with_traits)
 from ...entities.stats import StatType
 from ...entities.traits.unit_trait import UnitTrait
@@ -35,11 +35,19 @@ from ...entities.triggers import AmountIsEqualOrGreater, AmountIsGreaterThanZero
 from ..components import StatsComponent
 from ..operations.damage_prediction_sort import SortTargetsByDamagePrediction
 from .base import ActiveAbility, ability_attack_params
+from .behaviours.ai_control import PerformAIMovement
 from .behaviours.combat import (AttackWithAttackDamage, ChainLeftOverHitsAttackDamage, InformWeapon,
                                 UseActiveAbility)
 from .behaviours.context import entities_from_state
 from .behaviours.effects import AddBondEffect, AddEffect, AddStaticStatModifierEffect
+from .behaviours.lifecycle import Kill
 from .behaviours.stats import ChangeStat
+from ...utilities.utility_type import UtilityType
+# INSCRIPTION AU REGISTRE `UTILITY_BY_TYPE` par EFFET DE BORD (patron `engine/utilities/
+# sworn_protector.py`) : la feuille 53 doit etre enregistree AVANT que `PerformAIMovement` de 1053
+# ne la demande a `utilities_database`. Ce module est le SEUL consommateur, et il est charge par
+# `abilities/handler.py` avant tout cast.
+from ...utilities import devout_push as _devout_push_utility     # noqa: F401  (#996-r1)
 from .targeting import (RANGE_ADJACENT, RANGE_FROM_CONFIG, RANGED_BOOL_FALSE, RANGED_BOOL_TRUE,
                         TargetingOptions)
 from .targeting_rule import TargetingRule as TR
@@ -1109,3 +1117,193 @@ class UnbreakableDutyAbility(ActiveAbility):
 # `(70)` nomme `summonId` -- trois cles sans aucun rapport.
 assert int(AbilityVariableType.extraHp) == 0x1E and int(AbilityVariableType.extraDmg) == 0x08
 assert int(AbilityVariableType.dmgReductionPct) == 0x46   # relu par l'entite-effet 1097
+
+
+# =================================================================================================== #
+# DevoutPush (1053, `templNpc1Initiate` npc / `templInitiate` SUMMON -- Black Templars)     #996-r1 #
+#
+# `IdunBattleLogic.Entities.Abilities.Active.Loki.DevoutPushAbility$$ExecuteBehaviour` (MIRROR du
+# DECOMPILE, build `rnca9r7q6c`, RELU pour cette tranche) :
+#
+#   [A] atk  = DSLBehaviors.UseActiveAbility(
+#                  caster            = Caster@DSLSelectors+0x48,
+#                  target            = Target@DSLSelectors+0x60,
+#                  activeAbilityType = DSLSelectors.UnitNormalAttackType(Caster@+0x48),
+#                  parentAbility     = Nullable(AbilityOrEffect(this+0x10)),   # HasValue = 1
+#                  triggerAbilityOrEffect = ZEROEE, options = ZEROEES)
+#   [B] kill = DSLBehaviors.Kill(
+#                  killer  = Caster@+0x48,
+#                  targets = DSLSelectors.DeadUnits( DSLSelectors.Tiles(Target@+0x60) ),
+#                  options = 0)
+#   [C] move = DSLBehaviors.PerformAIMovement(
+#                  unit            = Caster@+0x48,
+#                  range           = DSLFormulas.Direct(1),
+#                  overrideUtility = this+0xf0)          # construit au `.ctor`, cf. ci-dessous
+#
+#   AActiveAbility.Execute( entities, this, ([A] op_Addition [B]) op_Addition [C] )
+#
+# ⚠ La SURCHARGE d'`UseActiveAbility` est celle a SELECTEUR (`activeAbilityType:ITargetsSelector`),
+# tranchee par ses XREFS ENTRANTES (`list_xrefs` place `DevoutPushAbility$$ExecuteBehaviour` sur
+# CETTE adresse et pas sur l'autre) -- l'autre surcharge prend un `ActiveAbilityType` ENTIER et
+# l'emballe dans un `DirectAbilitySelector` (c'est celle de `1015 PrecisionShot`). Les deux ont sept
+# parametres et le MEME nom affiche : le pseudo-C ne les distingue pas.
+#
+# i2 mot a mot : « Executes a normal melee attack on a single target, then gets to move 1 additional
+# hex. » -- appariement : [A] = l'attaque normale, [C] = le +1 hex. [B] n'apparait pas dans l'i2 :
+# c'est la FINALISATION de la mort si l'attaque a tue (le natif libere ainsi la tuile AVANT [C]).
+#
+# LA CATEGORIE ANNONCEE EST FAUSSE SUR LES DEUX AXES. `docs/rl/combat-ability-coverage.md` classe
+# 1053 en `EFFECT/BUFF` : l'arbre ne pose AUCUN effet et n'applique AUCUN buff. Il FRAPPE (par
+# l'attaque NORMALE de l'unite, dont le profil vient de l'ARME -- `Chain`, 2 coups) puis DEPLACE.
+# La config 1053 n'a NI `variables`, NI `constants`, NI `attackRangeType` : `{upgrades, variables}`
+# vides, la config la plus pauvre du lot. La colonne derive du `damageProfile` de l'ARME du porteur,
+# pas du behaviour (residu #491-r2).
+#
+# `this+0xf0` -- le `UtilityDefinition` construit par `...DevoutPushAbility$$.ctor` :
+#     new UtilityBucket[1]
+#     UtilityBucket..ctor(bucket, utilityType = 0x35, minUtilityDifference = <struct ZERO>)
+#                                       # 0x35 = 53 = UtilityType.DevoutPush_AdjacentRangedEnemies
+#     buckets[0] = bucket ; this+0xf0 = new UtilityDefinition(buckets)
+#     puis AActiveAbility..ctor(this, &<preset +0x40>, 0)
+# La feuille 53 est PORTEE PAR CETTE TRANCHE (`engine/utilities/devout_push.py`) : sans elle le
+# scoring serait plat, l'argmax keep-first garderait la position courante, et [C] n'emettrait AUCUN
+# `MoveUnitOperation` -- le << port a moitie fidele >> que #907 avait refuse.
+#
+# ORDRE LOAD-BEARING ([A] puis [B] puis [C], `op_Addition` evalue a GAUCHE d'abord) : la cible doit
+# etre morte ET finalisee pour que sa tuile soit libre au moment ou le caster avance. Une
+# permutation [C] avant [A] deplacerait le caster AVANT de frapper (portee de l'attaque changee).
+# =================================================================================================== #
+
+DEVOUT_PUSH_ID = "DevoutPush"
+
+#: Le `UtilityDefinition` range a `<ability>+0xf0` par `DevoutPushAbility$$.ctor` : UN bucket, UNE
+#: utilite, `0x35` = 53 = `UtilityType.DevoutPush_AdjacentRangedEnemies`. Elle REMPLACE le playbook
+#: de mouvement par defaut (le natif construit son `UtilityMovementCase` avec l'utilite passee), elle
+#: ne s'y ajoute pas. MEME forme que `BIO_MINEFIELD_MOVE_UTILITY` (`loki/bio_minefield.py`).
+DEVOUT_PUSH_MOVE_UTILITY = (int(UtilityType.DevoutPush_AdjacentRangedEnemies),)      # 53
+
+#: `DSLFormulas$$Direct(1)` du 2e argument de `PerformAIMovement` : le budget de deplacement, UNE
+#: tuile -- le « 1 additional hex » de l'i2.
+DEVOUT_PUSH_MOVE_RANGE = 1
+
+
+def devout_push_dead_units_on_target_tiles():
+    """`DSLSelectors$$DeadUnits( DSLSelectors$$Tiles(Target@DSLSelectors+0x60) )` -- MIRROR 1:1.
+
+    LES DEUX SELECTEURS PRENNENT `UnitSelectionType.Any` (**0**), LU AUX SLOTS D'INTERFACE, et c'est
+    load-bearing : `IdunBattle.Entities.Selectors.UnitsMainTilesSelector$$Select` appelle le slot
+    **3** (`SelectAllUnits`, arite 2) avec `selectionType = 0`, et
+    `IdunBattle.Entities.Selectors.DeadUnitsSelector$$Select` le slot **4** (`SelectUniqueUnits`)
+    avec `selectionType = 0` (table `data/symbols/<build>/metadata/interface_slots.tsv`). Un `3`
+    (`OnlyAliveAndTargetable`) recopie par symetrie du reste du module aurait VIDE la source : la
+    cible qu'on vient de tuer n'est plus vivante, donc `Tiles` ne rendrait AUCUNE tuile. Meme
+    contre-exemple que `unbreakable_duty_dead_imperial_heroes` ci-dessus.
+
+    ⚠ **CE SOUS-ARBRE EST INERTE COTE PORT, POUR DEUX RAISONS INDEPENDANTES, ET AUCUNE N'EST UNE
+    DEGRADATION SILENCIEUSE.**
+      1. La MORT EST DEJA FINALISEE quand [B] s'evalue : le pipeline de degat porte applique
+         `UnitComponent.alive = False` INLINE (`runner/operations/damage.py`, garde de revive
+         comprise), la ou le natif passe par une file. C'est exactement la raison pour laquelle
+         `KillDeadUnits` est deja un no-op structurel cote port (cf. sa docstring dans
+         `behaviours/lifecycle.py`) -- et `Kill` refuse de toute facon une unite dont
+         `uc.alive == False`.
+      2. Le mirror `Tiles` du port rend des POSITIONS `(col, row)`, et `DeadUnits` ne garde que des
+         dicts d'unite : la chaine rend `[]`. Le natif, lui, resout la tuile en son OCCUPANT par le
+         slot `SelectUniqueUnits`. C'est un TROU du mirror `DeadUnits` (source tile-domain non
+         resolue), pas de cette ability -- residu **#996-r1-r1**.
+    CE QUI REND L'INERTIE VERIFIABLE : la tuile de la cible morte est bien LIBRE pour [C], parce que
+    l'occupation du port se derive des unites VIVANTES (`state_bridge`, `(u is None or u.alive)`).
+    Le mouvement peut donc y entrer, exactement comme apres le `Kill` natif."""
+    return DeadUnits(Tiles(Target()))
+
+
+def devout_push_tree():
+    """Arbre de `...DevoutPushAbility$$ExecuteBehaviour` -- MIRROR 1:1 du bloc ci-dessus :
+
+        op_Addition( op_Addition( UseActiveAbility(Caster, Target),
+                                  Kill(Caster, DeadUnits(Tiles(Target))) ),
+                     PerformAIMovement(Caster, Direct(1), <UtilityDefinition du ctor>) )
+
+    - `UseActiveAbility(Caster(), Target())` = la feuille deja portee, specialisee au dispatch
+      d'ATTAQUE NORMALE (`UnitNormalAttackType(Caster)` -> `AttackDamageOperation.execute`,
+      resolveur d'arme par distance). MEME noeud que `HolyDuel` 1050 et `UnbreakableDuty` 1061.
+    - `Kill(...)` : cf. `devout_push_dead_units_on_target_tiles` -- present pour le MIRROR, inerte.
+    - `PerformAIMovement(Caster(), Const(1), DEVOUT_PUSH_MOVE_UTILITY)` -> le mutateur
+      `ComputerMovementActionOperation` (slot `IOperationProcessor` 54), qui ne decide QU'UN
+      DEPLACEMENT (aucune composante attaque)."""
+    atk = UseActiveAbility(Caster(), Target())          # UnitNormalAttackType(Caster@+0x48)
+    kill = Kill(Caster(), devout_push_dead_units_on_target_tiles())
+    move = PerformAIMovement(Caster(), Const(DEVOUT_PUSH_MOVE_RANGE),
+                             override_utility=DEVOUT_PUSH_MOVE_UTILITY)
+    return op_add(op_add(atk, kill), move)
+
+
+class DevoutPushAbility(ActiveAbility):
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.DevoutPushAbility$$ExecuteBehaviour` (id 1053)
+    -- cf. le bloc de commentaire.
+
+    PORTEURS, ventiles (`unit_map.py find --ability DevoutPush`) : `templNpc1Initiate` (NPC,
+    `--explicit-stats templNpc1Initiate:<rank>`) et `templInitiate` (SUMMON d'ENVIRONNEMENT, invoque
+    par `EnvFactionSummons:BlackTemplars` / `:SpaceWolves`, `constants.unitId`). AUCUN hero ne la
+    porte. Le montage de confrontation retenu est le NPC, comme pour `1044 IncendiaryShells` (#907).
+
+    DEUX mecaniques observables : (1) une attaque NORMALE sur la cible du message -- profil et coups
+    viennent de l'ARME du porteur, PAS d'une config d'ability (1053 n'a ni `minDmg`/`maxDmg`, ni
+    `nrOfHits`, ni `damageProfile`) ; (2) un DEPLACEMENT d'UNE tuile decide par l'IA avec l'utilite
+    53 IMPOSEE, qui prefere les tuiles adjacentes a des ennemis (50 par tireur, 30 par melee) et
+    penalise de 10 le fait de rester sur place.
+
+    Face DECISION deja portee (`IdunBattle.AI.Playbook.Loki.DevoutPushPlaybook` -> registre
+    `metadata/active_playbook_builders.tsv` ligne `active 1053`) ; CE port est la face EXECUTION, qui
+    etait un NO-OP SILENCIEUX (1053 absente d'`ABILITY_CLASSES` : le visiteur l'ignorait -- 0 degat,
+    0 mouvement, aucune erreur).
+
+    Renvoie {ability, caster, target, attack, killed, move, dsl}. Termine le tour (1053 hors des
+    frozensets de `base.py`)."""
+
+    __slots__ = ()
+    ABILITY_TYPE = int(ActiveAbilityType.DevoutPush)    # 1053
+    ABILITY_ID = DEVOUT_PUSH_ID
+
+    # GATE DE CIBLE. `...Active.Loki.DevoutPushAbility$$.ctor` est de la forme **STATIC-COPY** : il
+    # n'appelle AUCUN `IdunBattle.Core.Services.TargetingOptions$$.ctor`. Il recopie les 0x40 octets
+    # du champ STATIQUE `IdunBattle.Core.Services.TargetingOptions` statics `+0x40` puis
+    #     AActiveAbility..ctor(this, &opts, 0)          # 3e arg = 0 = DirectTargetAttack
+    # Preset `+0x40`, LU dans `IdunBattle.Core.Services.TargetingOptions$$.cctor` :
+    #     +0x40 isSelfCasting    = 0
+    #     +0x48 range            <- `TargetingRange` statics `+0x30` = RANGE_ADJACENT
+    #     +0x60 forceMeleeTarget = 1 = `RangedBool.False`
+    #     +0x68 rules            = 0x4000 = `TargetIsEnemy` SEUL
+    # Decomposition EXHAUSTIVE : `0x4000 TargetIsEnemy` -- aucun bit residuel, et en particulier PAS
+    # de `TargetMatchesDynamicRule` (0x2) : 1053 ne surcharge pas `GetDynamicInvalidTargetReason`.
+    # MEME preset que `HolyDuel` 1050 / `Drachnyen` 1029 / `KissOfDeath` 1108 du meme registre --
+    # mais ceux-la passent en plus par la surcharge PRESET+FLAGS (`0x200000000`) et valent donc
+    # `0x200004000`. Ici la copie est PURE : recopier le masque du voisin de preset aurait ajoute un
+    # `TargetIsNotAnObject` que le natif ne pose pas.
+    # CONFIRMATION INDEPENDANTE (mesure LIVE, pas ghidra) : `docs/rl/case-302-4/
+    # tile-target-population.json` ligne 1053 -> `form=static-copy`, `preset=64` (= 0x40),
+    # `rules=16384` (= 0x4000).
+    # Valeur RELUE au decompile a la migration : bit-identique a celle qui vivait dans
+    # `TARGETING_OPTIONS_UNPORTED` (`targeting.py`), d'ou elle est RETIREE par le contrat de
+    # disjonction (une ability portee tient son masque sur SA classe).
+    TARGETING_OPTIONS = TargetingOptions(rules=TR.TargetIsEnemy, self_cast=False,
+                                         range=RANGE_ADJACENT,
+                                         force_melee_target=RANGED_BOOL_FALSE)
+
+    # `AbilityAttackType` = 3e argument d'`IdunBattle.Entities.Abilities.AActiveAbility$$.ctor` = le
+    # litteral `0` (`DirectTargetAttack`), LU au ctor (`xor r8d, r8d`) -> transcrit dans la table
+    # `ABILITY_ATTACK_TYPE` (`abilities/attack_type.py`), qui est le registre de cette donnee.
+    # TRANSCRIT, jamais deduit : l'arbre n'attaque PAS « en direct » (il dispatche l'attaque NORMALE
+    # via `UseActiveAbility`), exactement comme `HolyDuel` 1050 -- et le litteral vaut quand meme 0.
+
+    def execute_behaviour(self, state: "State", caster_id: int,
+                          target_id: Optional[int]) -> Optional[dict]:
+        if target_id is None or state.get_entity(caster_id) is None:
+            return None
+        ectx = ExecutionContext(state=state, rng=state.rng)
+        devout_push_tree().execute(entities_from_state(state, caster_id, target_id), ectx)
+        atk = next((p for n, p in ectx.emitted if n == "UseActiveAbility"), None)
+        killed = next((p for n, p in ectx.emitted if n == "Kill"), None)
+        move = next((p for n, p in ectx.emitted if n == "PerformAIMovement"), None)
+        return {"ability": DEVOUT_PUSH_ID, "caster": caster_id, "target": target_id,
+                "attack": atk, "killed": killed, "move": move, "dsl": True}
