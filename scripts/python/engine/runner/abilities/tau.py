@@ -2121,9 +2121,13 @@ class NovaChargeAbility(ActiveAbility):
 
         = « la tuile visee doit toucher EXACTEMENT UNE tuile du caster ». Sur une empreinte
         hexagonale de sept tuiles (centre + couronne), cela ne laisse que les six tuiles du ring 2
-        ALIGNEES sur un axe du centre : les six « milieux d'arete » en touchent DEUX. C'est le
-        meme ensemble que celui sur lequel `direction_to` rend une direction non vide -- les deux
-        etages se repondent, et c'est ce qui garantit que `GetLineTiles` n'est jamais vide.
+        ALIGNEES sur un axe du centre : les six « milieux d'arete » en touchent DEUX.
+
+        ⚠ L'ensemble accepte est INCLUS dans celui ou `direction_to` normalise, il ne lui est PAS
+        egal -- mesure de `test_1032_...::test_etage5_...`, qui a refute l'hypothese inverse :
+        `direction_to` rend une arete sur **10 des 12** tuiles du ring 2. Ce qui compte, et qui
+        est garde, c'est l'INCLUSION : toute cible legale porte une direction, donc
+        `GetLineTiles` n'est jamais vide sur un cast que le natif accepte.
 
         Le code de refus est le `TargetingRule` brut `0x2` (`TargetMatchesDynamicRule`), comme dans
         tous les gates dynamiques du port. N'est consulte que sous ce meme bit, qui EST pose."""
@@ -2131,10 +2135,11 @@ class NovaChargeAbility(ActiveAbility):
         if board is None or target_id is None:
             return 0
         tpos = _nova_charge_tile_pos(state, board, target_id)
-        caster = state.get_entity(caster_id) if caster_id is not None else None
-        if tpos is None or caster is None:
+        if tpos is None or caster_id is None:
             return 0
-        feet = {(int(p[0]), int(p[1])) for p in get_unit_feet(caster)}
+        feet = {(int(p[0]), int(p[1])) for p in get_unit_feet(state, caster_id)}
+        if not feet:
+            return 0
         touching = 0
         for q in hexgeo.neighbors(tpos[0], tpos[1]):
             tid = board.id_at(q[0], q[1])
@@ -2166,8 +2171,5 @@ def _nova_charge_tile_pos(state, board, entity_id):
     if entity_id in board.by_id:
         c = board.coord(entity_id)
         return (int(c[0]), int(c[1]))
-    e = state.get_entity(entity_id)
-    if e is None:
-        return None
-    feet = get_unit_feet(e)
+    feet = get_unit_feet(state, entity_id)
     return (int(feet[0][0]), int(feet[0][1])) if feet else None

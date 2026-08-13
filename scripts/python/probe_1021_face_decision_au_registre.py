@@ -141,6 +141,12 @@ DETTE: dict[int, tuple[str, str]] = {
     1032: ("SANS_VERDICT",
            "CatalystPlaybook -- EvaluateNonComparable, GetUseProbability. COMBAT : CatalystAbility "
            "(tyranids). 1 porteur (npc)."),
+    1052: ("SANS_VERDICT",
+           "CallRipperSwarmsPlaybook -- EvaluateNonComparable, GetMaxSummons. COMBAT : "
+           "CallRipperSwarmsAbility (tyranids, #1032). 1 porteur (npc, "
+           "tyranBossHiveTyrantLeviathan). L'utilite du corps natif est CONSTANTE (le statique du "
+           "`.cctor`), la seule variable etant l'enumeration de `GetEligibleTargetsSelectable` -- "
+           "residu #1032-r1."),
     # 1076 `MV71SniperDroneSquadAttack` -- TRANCHE par #1021, ligne RETIREE (et non passee a
     # `TRANCHE`) : le retrait est ce qui la fait tomber sous le CRAN A, donc ce qui la protege
     # DESORMAIS. Attestation `RIEN_A_PORTER` au ledger (c'est une attaque NORMALE concrete, dont le
@@ -171,6 +177,12 @@ DETTE: dict[int, tuple[str, str]] = {
     1186: ("SANS_VERDICT",
            "WallOfMirrorsPlaybook -- EvaluateNonComparable, GetUseProbability. COMBAT : "
            "WallOfMirrorsAbility (wall_of_mirrors). 2 porteurs (npc, summons)."),
+    1193: ("SANS_VERDICT",
+           "NovaChargePlaybook -- EvaluateNonComparable, GetUseProbability, ResetCaches, "
+           "ShouldEvaluate. COMBAT : NovaChargeAbility (tau, #1032). 1 porteur (npc, "
+           "tauBossRiptide). L'utilite du corps natif est `100 * CountEnemiesOnTiles(GetLineTiles) "
+           "+ Count(GetLineTiles)` -- elle REUTILISE `NovaChargeAbility$$GetLineTiles`, que la "
+           "face COMBAT vient de porter (`tau.nova_charge_line_tiles`) ; residu #1032-r1."),
     1200: ("SANS_VERDICT",
            "SquigLaunchasPlaybook -- EvaluateNonComparable. COMBAT : SquigLaunchasAbility (orks). "
            "2 porteurs (lineup, npc). Sa CLASSE est deja citee dans `docs/rl/backlog.md`."),

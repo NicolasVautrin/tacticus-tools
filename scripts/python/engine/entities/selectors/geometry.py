@@ -257,11 +257,17 @@ def direction_to(a: tuple, b: tuple):
         l'EGALITE bascule, ce qui est exactement l'effet voulu par le natif.
 
     Consequence GEOMETRIQUE, et elle est LOAD-BEARING pour `NovaCharge` : une seule composante est
-    annulee, celle qui est STRICTEMENT la plus petite. Quand il n'y en a pas (ex. cube `(2,-1,-1)`,
-    une « diagonale » du ring 2), les trois signes survivent, le code n'est aucune des six
-    constantes, et le natif rend VIDE. Seules les tuiles ALIGNEES sur un axe du centre produisent
-    donc une direction -- ce que le gate dynamique de `NovaCharge`
-    (`...NovaChargeAbility$$IsValidLineStartTile`) selectionne precisement.
+    annulee, celle qui est STRICTEMENT la plus petite. Quand il n'y en a pas, les trois signes
+    survivent, le code n'est aucune des six constantes, et le natif rend VIDE. C'est le cas du
+    delta cube `(+-2, -+1, -+1)` -- deux des six « diagonales » du ring 2 -- ou `|dx|` vaut 2 et
+    les deux autres 1 : le tie-break ne mord pas (il exige `|nx| == |ny|` ou `|nx| == |nz|`) et
+    aucune composante n'est strictement minimale. Les QUATRE autres diagonales, elles, passent
+    bien par le tie-break et rendent une arete.
+    ⚠ Donc **10 des 12 tuiles du ring 2 normalisent, pas 6** : c'est MESURE
+    (`test_1032_novacharge_callripperswarms_offline::test_etage5_...`), et cela REFUTE l'idee
+    intuitive que seules les tuiles alignees produiraient une direction. Ce qui reste vrai est une
+    INCLUSION : les six tuiles que le gate dynamique de `NovaCharge`
+    (`...NovaChargeAbility$$IsValidLineStartTile`) accepte en font partie.
 
     `a == b` -> `len == 0` -> division par zero cote natif ; le port rend `None` (aucun call-site
     ne l'atteint : les deux selecteurs designent des tuiles distinctes). Retour : `int` membre
