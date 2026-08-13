@@ -73,9 +73,9 @@ class HeavyRailRiflePlaybook(NonComparablePlaybook):
         ab = Playbook<T>$$GetAbility<T>(this, 0x4ec)          # le TRIGGERED 1260
         profile  = BaseTriggeredAbility$$GetDamageProfileOrDefault(ab, 0x12 = Blast)
         hitsNode = HeavyRailRifle_AttackAbility$$GetAttackHits(ab)
-        hits     = <IAmountFormula slot 1 = Calculate>(hitsNode)
+        hits     = hitsNode.<IAmountFormula slot 1 = Calculate>(...)
         dmgNode  = HeavyRailRifle_AttackAbility$$GetDamage(ab, abilityState)
-        dmg      = <IAmountFormula slot 4 = CalculateAverage>(dmgNode)      # TRONCATURE
+        dmg      = dmgNode.<IAmountFormula slot 4 = CalculateAverage>(...)  # TRONCATURE
         foreach target in BasePlaybook$$GetEligibleTargetsSelectable(caster, casterPosition):
             utility = Fix64(1)
             if !EntityExtensions.IsMachine(target):
@@ -83,6 +83,16 @@ class HeavyRailRiflePlaybook(NonComparablePlaybook):
             elif HeavyRailRiflePlaybook$$ShouldPreferMachine(this):
                 utility = Fix64(0x7fffffff)
             bucket.AddAction(GenerateAction(casterPosition, target, utility))
+
+    ⚠ LES DEUX APPELS DE FORMULE ONT LEUR RECEVEUR DEVANT, ET LEURS ARGUMENTS ELIDES (#1031).
+    Ils s'ecrivaient `<IAmountFormula slot 1 = Calculate>(hitsNode)` -- le NOEUD dans la
+    parenthese. Or `hitsNode` est le RECEVEUR : la signature est
+    `Calculate(entities: AbilityEntities, result: OperationResult)`, **deux** parametres, lus
+    dans `data/symbols/<build>/frida/methods.tsv`. La convention du depot (mesuree : 43/43 avec
+    receveur colle, 59/61 sans) est << la parenthese porte les ARGUMENTS >>, donc la citation
+    d'origine annoncait une arite de 1 pour une methode qui en prend 2. Le slot et le nom,
+    eux, etaient JUSTES. Les arguments restent ELIDES parce que ce corps-la n'a pas ete relu :
+    `(...)` DIT qu'on ne les enumere pas, plutot que de les deviner depuis la signature.
 
     Les deux corps `GetAttackHits` / `GetDamage` sont etiquetes par Ghidra
     `VisionsOfHeresy_AttackAbility$$GetAttackHits` et `MassiveScythingTalonsAbility$$GetDamage` :

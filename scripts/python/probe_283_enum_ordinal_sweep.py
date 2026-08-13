@@ -1525,7 +1525,8 @@ _FUN_LIT = re.compile(r"^(0x[0-9a-fA-F]+|\d{1,3})$")
 _ON_MEMBRE_NU = re.compile(r"\bOn\(\s*([A-Za-z_][A-Za-z0-9_]*)\s*\)")
 
 
-def annotation_de_ligne(ligne: str, v: int, ref: dict, old: dict) -> tuple:
+def annotation_de_ligne(ligne: str, v: int, ref: dict, old: dict,
+                        n_ancres: int = 1, quoi: str = "FUN") -> tuple:
     """(etat, membre) pour une ancre de valeur `v` posee sur `ligne`.
 
     Etats, dans l'ordre ou ils sont cherches -- le premier qui s'applique gagne, et c'est ce
@@ -1536,17 +1537,63 @@ def annotation_de_ligne(ligne: str, v: int, ref: dict, old: dict) -> tuple:
                  PROUVE que le gate 4bis : le nombre cite est l'ordinal d'AVANT du membre que
                  l'auteur a nomme, ce qui n'a aucune autre explication qu'une citation
                  recopiee d'un build perime ;
+      `ambigue`  la ligne porte PLUSIEURS ancres nues pour UNE annotation (cf. `n_ancres`) ;
       `nue`      la ligne ne porte aucun `On(<Membre>)` qui soit un membre d'EventTriggerType.
 
     Un membre annote qui n'est NI courant NI archive pour cette valeur est ignore (il ne dit
-    rien de `v`) : on ne rougit pas sur une annotation qu'on ne comprend pas."""
-    membres = [m for m in _ON_MEMBRE_NU.findall(ligne) if m in ref or m in old]
+    rien de `v`) : on ne rougit pas sur une annotation qu'on ne comprend pas.
+
+    ⚠ `n_ancres` -- LES DEUX ETATS N'ONT PAS LA MEME FORCE, ET C'EST CE QUI TRANCHE (#1031).
+    `ancree` est CONFIRME par la valeur (`ref[m] == v` : le membre nomme vaut CE nombre
+    aujourd'hui) ; il reste donc sur meme si la ligne porte dix ancres. `perimee`, lui, est une
+    INFERENCE -- << aucun membre nomme ne vaut `v` aujourd'hui, mais l'un le valait avant, DONC
+    la citation est recopiee >>. Cette inference suppose que l'annotation se rapporte a CETTE
+    ancre-la. Des que la ligne porte plus d'ancres nues que d'annotations, c'est faux.
+
+    Mesure (le rouge de `master`) -- `test_981_vecteurs_de_fuite_offline.py:136` ecrit :
+
+        `On(PreUnitFled)` passe la fuyarde TROIS FOIS (...) ; `On(0x34)` et `On(0x36)` passent ...
+
+    UNE annotation, DEUX ancres nues -- et la phrase les OPPOSE. `0x34` est `UnitFled` et `0x36`
+    est `UnitDefeated` (le meme fichier les FIGE quatre lignes plus haut) ; ni l'un ni l'autre
+    n'est `PreUnitFled`. Le gate accusait donc le depot d'une peremption que le depot n'a pas
+    ecrite. Le probe le disait pourtant lui-meme deux paragraphes plus haut : << un gate ne se
+    fonde pas sur ce qu'un texte porte PRES, mais sur ce qu'un auteur a DECLARE >> -- une
+    annotation pour deux ancres ne DECLARE rien sur laquelle des deux.
+
+    L'etat rendu est `ambigue` et NON `nue` : ce qui est ecarte doit etre COMPTE et IMPRIME,
+    sinon c'est une exemption muette -- exactement ce que ce probe existe pour interdire.
+
+    ⚠ `quoi` -- L'ANNOTATION N'ANNOTE QUE LES QUOTES, ET C'EST LA RAISON MEME DE SA CREATION.
+    #420-r5 l'a introduite pour un manque PRECIS : << une quote verbatim ne peut pas porter son
+    membre DEDANS sans cesser d'etre verbatim ; le membre se pose donc A COTE >>. Une ancre
+    `On(<n>)`, elle, n'a pas ce manque -- sa voie declarative propre est la forme NOMMEE
+    `On(<n> = <Membre>)`, que l'etape 4 confronte, et c'est celle que #420 a posee sur 220 sites.
+    Etendre l'annotation aux ancres `On(<n>)` revient donc a apparier DEUX MENTIONS d'un meme
+    motif dans une phrase -- du VOISINAGE, que ce probe s'interdit explicitement deux
+    paragraphes plus haut.
+
+    MESURE DU 2026-08-13, ET ELLE TOMBE DES DEUX COTES. Le depot ne portait que DEUX ancres
+    `On(<n>)` appariees a un `On(<Membre>)` de la meme ligne, toutes deux en prose NARRATIVE :
+
+      `martial_apotheosis.py:34`  << Vecteur porte = ... (`On(TurnStart_Actions)`). `On(0x16)`
+                                     verifie : ... >>            -> `ancree`, JUSTE par accident
+      `test_981_vecteurs_de_fuite_offline.py:136`
+                                  << `On(PreUnitFled)` passe la fuyarde TROIS FOIS ; `On(0x34)`
+                                     et `On(0x36)` passent ... >> -> `perimee`, FAUX par accident
+
+    Ni l'une ni l'autre n'est une annotation : ce sont deux SUJETS de phrase. Un mecanisme dont
+    la moitie des verdicts est un accident ne garde rien -- il tire a pile ou face, et c'est le
+    rouge de `master`. Les 23 autres ancrees sont toutes des quotes `FUN_`, ou l'annotation est
+    bien ce que l'auteur a pose POUR elles."""
+    membres = ([m for m in _ON_MEMBRE_NU.findall(ligne) if m in ref or m in old]
+               if quoi == "FUN" else [])
     for m in membres:
         if ref.get(m) == v:
             return "ancree", m
     for m in membres:
         if old.get(m) == v and ref.get(m) != v:
-            return "perimee", m
+            return ("perimee", m) if n_ancres <= 1 else ("ambigue", m)
     return "nue", None
 
 
@@ -1593,13 +1640,14 @@ def step_on(verbose: bool, racine: str = "scripts/python") -> tuple:
         _ON_CACHE[racine] = res
     cur, prev = current_build(), previous_build()
     stables = res[0]
-    decales, ancrees, fails = [list(x) for x in res[1:]]
+    decales, ancrees, fails, ambigues = [list(x) for x in res[1:]]
     n_on = sum(1 for d in decales if d[5] == "On")
     n_anc_fun = sum(1 for a in ancrees if a[4] == "FUN")
     print("[283] etape 5 : ordinaux NUS en prose de %s (ancres `On(` et quote de publication) "
           "-- %d stables, %d ANCRES par annotation (%d quote `FUN_`), %d AMBIGUS "
-          "(%d `On(`, %d quote `FUN_`)"
-          % (racine, stables, len(ancrees), n_anc_fun, len(decales), n_on, len(decales) - n_on))
+          "(%d `On(`, %d quote `FUN_`), %d NON ATTRIBUABLES"
+          % (racine, stables, len(ancrees), n_anc_fun, len(decales), n_on,
+             len(decales) - n_on, len(ambigues)))
     print("       ambigu = l'ordinal a change de proprietaire ; sans le NOM accole, on ne peut")
     print("       pas savoir de quel build vient la citation. NON corrige (residu #283-r1).")
     print("       ancre  = la ligne porte `On(<Membre>)` et le membre vaut CE nombre sur le")
@@ -1623,7 +1671,14 @@ def step_on(verbose: bool, racine: str = "scripts/python") -> tuple:
         print("   FAIL %s:%d  %s(%s) annote `On(%s)` -- %s valait %s sur %s et vaut %s sur %s"
               % (rel, ln, "On" if quoi == "On" else "FUN_...", s, membre, membre, anc,
                  prev or "-", courant, cur))
-    return stables, decales, ancrees, fails
+    #: COMPTE ET IMPRIME, jamais muet : une annotation qui ne peut pas etre attribuee est un
+    #: ECART, pas un vert. Si ce compte enfle, c'est que le depot ecrit des lignes ou plusieurs
+    #: evenements se disputent une seule annotation -- il faut alors les separer, pas relacher.
+    for rel, ln, s, membre, n, quoi in sorted(ambigues):
+        print("   AMBIGU %s:%d  %s(%s) : la ligne porte %d ancres pour l'annotation `On(%s)` "
+              "-- non attribuable, l'ancre reste un COMPTEUR"
+              % (rel, ln, "On" if quoi == "On" else "FUN_...", s, n, membre))
+    return stables, decales, ancrees, fails, ambigues
 
 
 #: Le releve de l'etape 5, par racine balayee. Des TUPLES : ce qui est retenu est immuable, et
@@ -1635,12 +1690,12 @@ _ON_CACHE: dict = {}
 def _balayer_step_on(racine: str) -> tuple:
     """Le BALAYAGE de l'etape 5, sans une seule impression. Foyer unique, appele par `step_on`.
 
-    Rend `(stables, decales, ancrees, fails)`, les trois derniers en TUPLE."""
+    Rend `(stables, decales, ancrees, fails, ambigues)`, les quatre derniers en TUPLE."""
     cur, prev = current_build(), previous_build()
     new = enum_map(cur, ENUMS["EventTriggerType"])
     old = enum_map(prev, ENUMS["EventTriggerType"]) if prev else {}
     ref_n, old_n = _by_name(new), _by_name(old)
-    stables, decales, ancrees, fails = 0, [], [], []
+    stables, decales, ancrees, fails, ambigues = 0, [], [], [], []
     for suf in (".py", ".md"):
         # Lecture PARALLELE (#457-r6), mode BRUT (`newline=""`) comme l'etape 4.
         a_lire = [p for p in sorted((REPO / racine).rglob("*" + suf))
@@ -1657,6 +1712,11 @@ def _balayer_step_on(racine: str) -> tuple:
             if zones is None:
                 continue
             lignes = src.split("\n")
+            #: ⚠ LE COMPTE DES ANCRES SE FAIT SUR TOUT LE FICHIER, PAS PAR ZONE (#1031). Une
+            #: meme ligne peut etre couverte par plusieurs zones de prose (docstring + un `#`
+            #: de fin de ligne) ; compter par zone sous-estimerait la pluralite et rendrait
+            #: le gate a l'inference qu'on vient de lui retirer.
+            releve = []
             for base, txt in zones:
                 ancres = [(g.start(1), g.group(1), "On")
                           for g in _ON_NU.finditer(txt)
@@ -1672,23 +1732,30 @@ def _balayer_step_on(racine: str) -> tuple:
                     if dernier is not None:
                         ancres.append((dernier[0], dernier[1], "FUN"))
                 for pos, s, quoi in ancres:
-                    v = int(s, 16) if s.lower().startswith("0x") else int(s)
-                    ln = _ligne_de(src, base + pos)
                     # La LIGNE du fichier, pas le token : une quote vit dans une docstring
                     # (un seul token pour des dizaines de lignes) et son annotation est sur
                     # SA ligne. Meme raison que `_historique`.
-                    etat, membre = annotation_de_ligne(
-                        lignes[ln - 1] if 0 < ln <= len(lignes) else "", v, ref_n, old_n)
-                    if etat == "perimee":
-                        fails.append((rel, ln, s, membre, old_n.get(membre),
-                                      ref_n.get(membre), quoi))
-                    elif etat == "ancree":
-                        ancrees.append((rel, ln, s, membre, quoi))
-                    elif old.get(v) == new.get(v):
-                        stables += 1   # sous le point de decalage : le meme sur les 2 builds
-                    else:
-                        decales.append((rel, ln, s, old.get(v), new.get(v), quoi))
-    return stables, tuple(decales), tuple(ancrees), tuple(fails)
+                    releve.append((_ligne_de(src, base + pos), s, quoi))
+            par_ligne: dict = {}
+            for ln, _s, _quoi in releve:
+                par_ligne[ln] = par_ligne.get(ln, 0) + 1
+            for ln, s, quoi in releve:
+                v = int(s, 16) if s.lower().startswith("0x") else int(s)
+                etat, membre = annotation_de_ligne(
+                    lignes[ln - 1] if 0 < ln <= len(lignes) else "", v, ref_n, old_n,
+                    par_ligne[ln], quoi)
+                if etat == "perimee":
+                    fails.append((rel, ln, s, membre, old_n.get(membre),
+                                  ref_n.get(membre), quoi))
+                elif etat == "ancree":
+                    ancrees.append((rel, ln, s, membre, quoi))
+                elif etat == "ambigue":
+                    ambigues.append((rel, ln, s, membre, par_ligne[ln], quoi))
+                elif old.get(v) == new.get(v):
+                    stables += 1   # sous le point de decalage : le meme sur les 2 builds
+                else:
+                    decales.append((rel, ln, s, old.get(v), new.get(v), quoi))
+    return stables, tuple(decales), tuple(ancrees), tuple(fails), tuple(ambigues)
 
 
 # ------------------------------------------------------------------------------------------

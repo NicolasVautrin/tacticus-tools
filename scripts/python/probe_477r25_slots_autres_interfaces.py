@@ -87,7 +87,7 @@ import il2cpp_metadata                                                  # noqa: 
 #:   lookbehind, faute de quoi un nom QUALIFIE est invisible et le gisement sous-compte de 48 %).
 #:   La ventilation de ce probe (#477-r42) nait avec ce motif-la, jamais avec une copie.
 from probe_477r24r1_slots_interface import (                             # noqa: E402
-    _appel, _entre, _regex_noms, _RENVOIS, ceder_aux_locaux, PROFONDEUR_APPEL)
+    _appel, _compter_args, _entre, _regex_noms, _RENVOIS, ceder_aux_locaux, PROFONDEUR_APPEL)
 from symbols_layout import build_dir, current_build                     # noqa: E402
 
 import repo_read                                                        # noqa: E402
@@ -146,6 +146,47 @@ INTERFACES: tuple[tuple[str, str, tuple[str, ...]], ...] = (
     ("IdunBattle.Entities.Abilities", "IActiveAbility",
      ("IActiveAbility", "AActiveAbility")),
 )
+
+#: DES TABLES QU'ON LIT SANS EN FAIRE DES RECEPTEURS (#1031). Un type entre ici quand le depot
+#: CITE ses slots mais qu'en faire un recepteur rendrait FAUSSES des citations JUSTES.
+#:
+#: `IdunBattle.DSL.TargetsSelector` est le cas mesure. Le depot ecrit ses slots dans DEUX
+#: referentiels a la fois, et les deux sont EXACTS (lus au `global-metadata.dat` de
+#: `rnca9r7q6c`) :
+#:
+#:   vtable de la CLASSE   `TargetsSelector`  : Select = 23, Count = 24, SelectTile = 16
+#:   table de l'INTERFACE  `ITargetsSelector` : Select =  0, Count =  2, SelectTile = 12
+#:
+#: `case-978-faces-decision-thousandsons-eldar.md:37` cite les DEUX sur une ligne (<< slot 23 =
+#: `Select`, slot 24 = `Count`, recoupes par `ITargetsSelector` (slots 0 et 2) >>), et c'est
+#: exactement ce qu'il faut ecrire : les deux appels sont des `klass+0x2b8` / `klass+0x2a8`.
+#: Le probe, lui, rattachait 23 et 24 a la seule interface NOMMEE sur la ligne, et rendait
+#: FAUSSE une citation JUSTE -- le vice deja mesure pour `AActiveAbility` juste au-dessus.
+#:
+#: ⚠ MAIS LE REMEDE D'`AActiveAbility` (un ALIAS de recepteur) EST REFUSE ICI, MESURE A L'APPUI.
+#: Le depot qualifie majoritairement par le nom de CLASSE une methode dont il cite le slot
+#: d'INTERFACE -- `backlog.md:438` << le slot de vtable 12 du selecteur EST
+#: `IdunBattle.DSL.TargetsSelector$$SelectTile` >> (12 = interface ; la classe dit 16) et
+#: `backlog.md:690` << `slot 1` = `IdunBattle.DSL.TargetsSelector$$SelectFirst` >> (1 =
+#: interface ; la classe dit 5). Faire de `TargetsSelector` un recepteur retournerait ces DEUX
+#: citations JUSTES en rouge : on aurait deplace la faute, pas ferme le gisement.
+#:
+#: D'ou ce troisieme etat, qui est celui que le probe sait deja rendre : le couple part en
+#: `autre_iface` -- << JUSTE, mais sur TargetsSelector (le site ecrit ITargetsSelector) >> --
+#: donc ni vert ni rouge, et LISTE. C'est le seul verdict que la mesure autorise.
+REFERENTIELS: tuple[tuple[str, str], ...] = (
+    ("IdunBattle.DSL", "TargetsSelector"),
+)
+
+
+def types_lus() -> tuple[tuple[str, str], ...]:
+    """(namespace, nom) de TOUT type dont on lit la table -- interfaces PUIS referentiels.
+
+    Foyer unique : la derivation, l'ecriture du TSV et le controle croise doivent porter sur le
+    MEME ensemble. Les enumerer separement a trois endroits est precisement ce qui laisse une
+    table derivee sans etre ecrite, ou ecrite sans etre controlee."""
+    return tuple((ns, nom) for ns, nom, _ in INTERFACES) + REFERENTIELS
+
 
 #: L'interface deja gardee par `probe_477r24r1_slots_interface.py`. Ses citations sont
 #: ECARTEES ICI et comptees : les garder deux fois n'ajouterait aucune couverture.
@@ -376,13 +417,19 @@ def _deriver_vraiment(meta_path: Path, methods_tsv: Path) -> tuple[dict, list[st
     lay = reader.locate_types(ancres)
     out: dict[str, dict[int, tuple[str, int, int]]] = {}
     refus: list[str] = []
-    for ns, nom, _ in INTERFACES:
+    for ns, nom in types_lus():
         try:
             table = reader.type_methods(ns, nom)
         except il2cpp_metadata.MetadataRefused as exc:
             refus.append("%s : %s" % (nom, str(exc).splitlines()[0]))
             continue
-        out[nom] = {m.slot: (m.name, m.param_count, m.flags) for m in table}
+        #: ⚠ LES SLOTS `65535` SONT ECARTES, et seulement pour les REFERENTIELS de CLASSE.
+        #: Une classe declare aussi des methodes NON VIRTUELLES (`.ctor`, `op_BitwiseAnd`,
+        #: surcharges non-slottees) : le metadata leur donne `slot = 0xffff`, qui n'indexe
+        #: rien. Les garder ecraserait la table sur une cle unique et fabriquerait un couple
+        #: (65535, <derniere lue>) qu'aucun site ne cite. Une INTERFACE n'en porte pas.
+        out[nom] = {m.slot: (m.name, m.param_count, m.flags)
+                    for m in table if m.slot != 0xFFFF}
     return out, refus, (lay.step, lay.off_method_start, lay.off_method_count, len(lay.ancres))
 
 
@@ -421,9 +468,11 @@ def ecrire_tsv(tables: dict[str, dict[int, tuple[str, int, int]]]) -> Path:
         "# (`ioperationprocessor_slots.tsv`, #477-r24-r1).",
         "# Entree VERSIONNEE : c'est ce qui rend la garde jouable sans le jeu installe.",
         "# Regenerer : python scripts/python/probe_477r25_slots_autres_interfaces.py --regenerer",
+        "# Les types de `REFERENTIELS` (classes) y figurent aussi : ils sont LUS pour dire",
+        "# << juste, mais sur cette table-la >>, JAMAIS apparies a un recepteur (#1031).",
         "#interface\tslot\tmethode\tparam_count\tflags",
     ]
-    for _, iface, _ in INTERFACES:
+    for _, iface in types_lus():
         for slot in sorted(tables.get(iface, {})):
             nom, nargs, flags = tables[iface][slot]
             lignes.append("%s\t%d\t%s\t%d\t0x%04x" % (iface, slot, nom, nargs, flags))
@@ -715,31 +764,10 @@ def _cause_ecartee(ligne: str, autour: str, rx_noms: re.Pattern[str] | None) -> 
     return "numero_sans_aucun_nom"
 
 
-def _compter_args(texte: str) -> int | None:
-    """Nombre d'arguments du premier appel parenthese, ou None s'il n'y en a pas.
-
-    ⚠ `(...)` et `(…)` rendent `None`, pas `1` : l'ellipse DIT que les arguments ne sont pas
-    detailles. Les compter pour un ferait rougir une citation qui ne pretend rien sur l'arite.
-    """
-    ouvre = texte.find("(")
-    if ouvre < 0:
-        return None
-    ferme = texte.find(")", ouvre)
-    if 0 < ferme and texte[ouvre + 1:ferme].strip(". …") == "":
-        return None
-    prof, arg, vus = 0, 0, False
-    for ch in texte[ouvre:]:
-        if ch in "([<{":
-            prof += 1
-        elif ch in ")]>}":
-            prof -= 1
-            if prof == 0:
-                return arg + 1 if vus else 0
-        elif ch == "," and prof == 1:
-            arg += 1
-        elif prof == 1 and not ch.isspace():
-            vus = True
-    return None
+#: ⚠ `_compter_args` N'EST PLUS RECOPIE ICI (#1031) -- il est IMPORTE du foyer, comme `_appel`,
+#: `_entre` et `_regex_noms` juste au-dessus. Les deux copies portaient le meme cran d'elision, et
+#: c'est precisement ce qui a fait manquer sa correction des DEUX cotes : l'elision PARTIELLE
+#: (`(..., hitIndex)`) etait invisible ici comme la-bas. Un cran duplique se corrige a moitie.
 
 
 def _blocs(lignes: list[str], fenetre: int):

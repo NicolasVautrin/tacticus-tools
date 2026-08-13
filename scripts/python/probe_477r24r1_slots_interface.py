@@ -797,31 +797,57 @@ def _id_appel(fenetre: int, traverse: bool, relaches: tuple[str, ...], historiqu
         "+r:" + ",".join(sorted(relaches)) if relaches else "")
 
 
+#: Ce qu'un auteur ecrit pour dire << je n'enumere pas les arguments >>. Les trois formes vivent
+#: dans l'arbre : ASCII `..` et `...`, et l'ellipse UNICODE `…` (le depot en porte, cf.
+#: `probe_283._FUN_PUB`). Un segment qui ne contient QUE ces caracteres est une ELISION.
+_ELISION = re.compile(r"\A[.…]{1,3}\Z")
+
+
 def _compter_args(texte: str, apres: int = 0) -> int | None:
     """Nombre d'arguments du premier appel parenthese apres `apres`, ou None s'il n'y en a pas.
 
-    ⚠ `(...)` et `(...)` en ellipse rendent `None`, pas `1` : l'ellipse DIT que les arguments ne
-    sont pas detailles. Les compter pour un ferait rougir une citation qui ne pretend rien sur
-    l'arite (cran repris de #477-r25).
+    ⚠ UNE ELLIPSE, MEME EN POSITION D'UN SEUL ARGUMENT, REND `None` (#1031). L'ellipse DIT que
+    les arguments ne sont pas detailles ; les compter ferait rougir une citation qui ne pretend
+    RIEN sur l'arite.
+
+    Le cran existait deja pour l'elision TOTALE (`(...)`), et c'est ce qui laissait passer
+    l'elision PARTIELLE -- la forme reellement ecrite dans l'arbre, ou l'auteur elide le debut
+    et NOMME ce qui l'interesse. Mesure du 2026-08-13, le rouge de `master` :
+
+        transfer_damage.py:11   -> Core.Services.OperationProcessor$$TransferDamage(..., hitIndex)
+
+    lue comme << 2 arguments >>, confrontee aux 6 de la signature, donc rouge. Or la citation
+    dit exactement l'inverse de ce qu'on lui reproche : elle DECLARE ne pas les enumerer, et
+    ne nomme `hitIndex` que parce que la ligne du dessus vient d'expliquer d'ou il sort.
+    C'est la meme lecture que `probe_283._FUN_PUB`, qui accepte `FUN_...(0x50, …, 0x3d)`.
+
+    ⚠ AUCUN TROU OUVERT : un site qui ecrit TOUS ses arguments reste confronte a la signature.
+    Seul celui qui declare une elision sort du gate -- il ne peut pas mentir sur ce qu'il
+    n'affirme pas.
     """
     ouvre = texte.find("(", apres)
     if ouvre < 0:
         return None
-    ferme = texte.find(")", ouvre)
-    if 0 < ferme and texte[ouvre + 1:ferme].strip(". …") == "":
-        return None
-    prof, arg, vus = 0, 0, False
+    prof, segs, cur = 0, [], []
     for ch in texte[ouvre:]:
         if ch in "([<{":
             prof += 1
+            if prof == 1:
+                continue
         elif ch in ")]>}":
             prof -= 1
             if prof == 0:
-                return arg + 1 if vus else 0
+                segs.append("".join(cur))
+                if any(_ELISION.match(s.strip()) for s in segs):
+                    return None
+                utiles = [s for s in segs if s.strip()]
+                return len(segs) if utiles else 0
         elif ch == "," and prof == 1:
-            arg += 1
-        elif prof == 1 and not ch.isspace():
-            vus = True
+            segs.append("".join(cur))
+            cur = []
+            continue
+        if prof >= 1:
+            cur.append(ch)
     return None
 
 
