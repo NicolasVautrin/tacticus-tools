@@ -88,7 +88,17 @@ SNAP_TARGETING_UNPORTED = (
     (1216, (32788, True, (1, False, False, 0, False), 1)),
     (1217, (16384, False, (0, False, False, 1, False), 1)),
     (1093, (16386, False, (1, True, False, None, False), 1)),
-    (1215, (32772, True, None, 1)),
+    # ⚠ 1215 -- DEUXIEME valeur du snapshot qui change, et c'est la MEME correction que 1216
+    # ci-dessus, un cran plus tard (#943-r1). `#943` avait RE-LU le preset et ECRIT la lecture dans
+    # ce fichier meme (le bloc de 1216), mais avait laisse `1215` a `None` -- deliberement, pour ne
+    # pas resserrer un gate dans une tranche 100 % offline. Or les deux abilities recopient le MEME
+    # preset `<TargetingOptions statics>+0x280` : `IdunBattleLogic.Entities.Abilities.Active.Loki.
+    # InstrumentsOfVengeanceAbility$$.ctor` est une STATIC-COPY de ce preset (aucun appel de
+    # `TargetingOptions$$.ctor`), exactement comme celui de 1216 modulo `additionalRules = 0x10`.
+    # Deux STATIC-COPY du meme preset ne peuvent pas avoir deux portees : la portee de 1215 EST
+    # `RANGE_SELF`, et le `None` etait un aveu de non-lecture (`get_range() -> None` = AUCUN gate,
+    # degradation PERMISSIVE).
+    (1215, (32772, True, (1, False, False, 0, False), 1)),
     (1005, (1026, True, (0, False, False, 1, False), 1)),
     # 1019 StormOfWrath RETIREE (#499) : sa face COMBAT est portee (`ChainAbilityDamage`), donc son
     # masque a MIGRE sur `StormOfWrathAbility.TARGETING_OPTIONS` -- meme mouvement que

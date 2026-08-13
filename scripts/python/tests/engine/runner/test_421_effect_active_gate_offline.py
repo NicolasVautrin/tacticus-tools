@@ -231,6 +231,20 @@ def test_the_probe_rail_covers_the_whole_registry():
     from probe_229_effect_triggers_active import RAIL, EXPECTED_GAPS, ARRAYSET_READS_BY_TREE
     from engine.runner.operations.triggers.dispatch.registry import EFFECT_TRIGGERS
     registered = {c.__name__ for classes in EFFECT_TRIGGERS.values() for c in classes}
+    # ⚠ LE NON-VIDE D'ABORD (#941-r3). Les quatre assertions qui suivent ne savent dire qu'une
+    # chose : « cette DIFFERENCE d'ensembles est vide ». Deux ensembles VIDES la rendent vide
+    # aussi -- un `EFFECT_TRIGGERS` effondre (import casse, registre vide) plus un `RAIL` vide
+    # feraient passer les quatre. Le second test de ce bloc est PIRE : `missing == EXPECTED_GAPS`
+    # avec les deux a `[]` est un vert PUR. Les bornes sont MESUREES le 2026-08-13
+    # (47 types / 90 classes / 90 entrees RAIL) et ecrites BASSES : elles gardent l'effondrement,
+    # pas la cadence -- le registre ne fait que croitre.
+    assert len(EFFECT_TRIGGERS) >= 40 and len(registered) >= 80, (
+        "population effondree : %d types d'effet / %d classes inscrites -- les differences "
+        "d'ensembles ci-dessous seraient vides SANS RIEN AVOIR VISITE"
+        % (len(EFFECT_TRIGGERS), len(registered)))
+    assert len(RAIL) >= 80, (
+        "`probe_229.RAIL` est tombe a %d entrees -- le cliquet compare le registre a un rail "
+        "vide, donc il ne compare rien" % len(RAIL))
     assert not (registered - set(RAIL)), \
         "classe(s) inscrite(s) sans rail declare dans probe_229.RAIL : %s" % sorted(
             registered - set(RAIL))
@@ -252,14 +266,29 @@ def test_no_targets_rail_trigger_is_left_without_its_gate():
     import probe_229_effect_triggers_active as p
     from engine.runner.operations.triggers.dispatch.registry import EFFECT_TRIGGERS
     missing, extra = [], []
+    vus = 0
     for etype, classes in EFFECT_TRIGGERS.items():
         for cls in classes:
             rail, _sym = p.RAIL.get(cls.__name__, ("?", "?"))
             reads = p._reads_active(cls)
+            if rail in (p.TARGETS, p.APPLY_REVERT):
+                vus += 1
             if rail in (p.TARGETS, p.APPLY_REVERT) and not reads:
                 missing.append((etype, cls.__name__))
             if rail == p.ARRAYSET and reads and cls.__name__ not in p.ARRAYSET_READS_BY_TREE:
                 extra.append((etype, cls.__name__))
+    # ⚠ LE NON-VIDE, ET C'EST ICI QU'IL EST LE PLUS NECESSAIRE (#941-r3) : `EXPECTED_GAPS` est
+    # VIDE, donc l'assertion qui suit s'ecrit `[] == []` des que la boucle ne visite RIEN. Un
+    # registre effondre, ou un `RAIL` dont plus aucune entree ne porte le rail TARGETS, rendrait
+    # ce test VERT sans avoir evalue un seul gate.
+    # ⚠ LA BORNE EST MESUREE, PAS SUPPOSEE, et la premiere valeur ecrite ici (60) etait FAUSSE --
+    # elle venait d'un « la plupart des 90 », pas d'un comptage. Ventilation REELLE du
+    # 2026-08-13 : ARRAYSET 77, TARGETS 17, ENV_ABILITY 2, APPLY_REVERT 1 -- soit **18** classes
+    # sur le rail garde ici, et non 86. La borne est ecrite BASSE (12) : elle garde
+    # l'effondrement, pas la cadence.
+    assert vus >= 12, (
+        "la boucle n'a visite que %d classe(s) du rail TARGETS/APPLY_REVERT -- `missing == "
+        "EXPECTED_GAPS` serait alors `[] == []`, un vert qui n'a rien mesure" % vus)
     assert sorted(n for _e, n in missing) == sorted(p.EXPECTED_GAPS), \
         "gate(s) `IsActive` manquant(s) sur le rail TARGETS : %s" % sorted(missing)
     assert not extra, \

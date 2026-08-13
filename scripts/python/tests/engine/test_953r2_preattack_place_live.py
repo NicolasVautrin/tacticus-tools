@@ -20,8 +20,13 @@ la base de TOUTE attaque normale -- termine par
 `IdunBattle.Entities.Abilities.AActiveAbility$$ExecuteAtomic(behaviour, entities, 0x3d)`, donc par
 `IdunBattleLogic.Entities.DSLBehaviors$$AtomicGroup` ; et
 `IdunBattle.Operations.AtomicGroupOperation$$Execute` porte une FILE, depilee APRES la cloture du
-groupe (slots 20/21 d'`IBattleQuery` puis slot 10, rejoue par `IOperationProcessor.EvaluateAbilities`
-slot 78 / `UnregisterEntityFromTriggers` slot 85). `1197 ExcruciatingFrequencies`, elle, passe par
+groupe. Les trois slots du groupe sont ceux de `Core.Services.IMatchState`, PAS d'`IBattleQuery` :
+`IMatchState.IncreaseAtomicModeCounter` slot 20 ouvre, `IMatchState.DecreaseAtomicModeCounter`
+slot 21 ferme, et c'est APRES cette cloture que `IMatchState.TryDequeueBattleEvent` slot 10 depile
+-- chaque entree etant rejouee par `IOperationProcessor.EvaluateAbilities` slot 78 ou
+`UnregisterEntityFromTriggers` slot 85. Les cinq couples sont LUS dans les deux entrees
+versionnees `data/symbols/rnca9r7q6c/metadata/interface_slots.tsv` (IMatchState) et
+`.../ioperationprocessor_slots.tsv`. `1197 ExcruciatingFrequencies`, elle, passe par
 `Execute` et NON `ExecuteAtomic` (case-512 §1) : ses triggers sont immediats, et
 `probe_512 --regime R1` reste VERT bit-exact avec la place remontee sur la voie ABILITY.
 

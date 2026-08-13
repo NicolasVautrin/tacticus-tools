@@ -125,18 +125,17 @@ NON_VERTS_DECLARES: dict[str, str] = {
     #   * `tests/test_480r8_rpc_joignable_offline.py` -- REDEVENU VERT sur `master` (3 passed,
     #     mesure du 2026-08-12). Personne n'avait retire sa ligne.
     "tests/engine/test_477r24r1_slots_interface_offline.py":
-        "`test_etage3_aucune_citation_fausse` ET "
-        "`test_etage3quater_le_franchissement_de_virgule_APPORTE_sans_rien_perdre` -- 2 failed / "
-        "60 passed. /!\\ LA CAUSE A CHANGE, et l'ancienne ligne (`engine/runner/components.py:1128` "
-        "slot 0x23, entree par le merge #886) est REPAREE : le rouge COURANT est "
-        "`scripts/python/tests/engine/test_953r2_preattack_place_live.py:23` -- << slot 0xa : le "
-        "site nomme EvaluateAbilities, le metadata dit ReAddMachine ; EvaluateAbilities est aux "
-        "slots 0x4d, 0x4e, 0x4f, 0x51, 0x52 >>. La phrase citee est `(slots 20/21 d'IBattleQuery "
-        "puis slot 10, rejoue par IOperationProcessor.EvaluateAbilities slot 78 / "
-        "UnregisterEntityFromTriggers slot 85)` : le franchissement de virgule apparie `slot 10` "
-        "au nom SUIVANT. Entre par `ce81d47e` (#953-r2). Le reparer exige de savoir ce que `slot "
-        "10` DESIGNE, ce qui est la RE de #953-r2 -- deviner un nom serait pire que le rouge. "
-        "FOYER `scripts/python/tests/engine/test_953r2_preattack_place_live.py`. Residu #962-r1.",
+        "REPARE par #962-r1 -- le fichier rend 59 passed / 0 failed (mesure du 2026-08-13). Cette "
+        "ligne ne subsiste que parce que l'ATTESTATION du ledger, elle, date d'avant : elle porte "
+        "encore `ROUGE {'passed': 57, 'failed': 2}`, et le CRAN 1 rougirait sans elle. Elle DOIT "
+        "sortir au premier `probe_457` qui rejoue ce fichier -- c'est le CRAN 2 qui l'y forcera. "
+        "CE QUI A ETE REPARE : la phrase de "
+        "`scripts/python/tests/engine/test_953r2_preattack_place_live.py` nommait `IBattleQuery` "
+        "pour les trois slots du groupe atomique ; ce sont ceux de `Core.Services.IMatchState` "
+        "(10 `TryDequeueBattleEvent`, 20 `IncreaseAtomicModeCounter`, 21 "
+        "`DecreaseAtomicModeCounter`), LUS dans "
+        "`data/symbols/rnca9r7q6c/metadata/interface_slots.tsv`. Aucun nom devine : le triplet "
+        "tombe sur la MEME interface et sa semantique concorde avec le decompile. Residu #962-r1.",
     # ⚠ TROIS LIGNES SONT SORTIES D'ICI PAR LE CRAN 2, ET C'EST LA PREMIERE FOIS QU'ELLES SORTENT
     # SUR UNE MESURE FRAICHE (#547-r5). Elles y etaient toutes les trois parce que le ledger ne se
     # rejouait pas -- l'une le DISAIT explicitement (<< elle sortira a la prochaine passe

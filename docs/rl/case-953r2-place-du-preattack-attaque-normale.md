@@ -56,10 +56,23 @@ IdunBattleLogic.Entities.Abilities.Active.Loki.ALoki_NormalAttackAbility$$Execut
 ```
 
 `IdunBattle.Operations.AtomicGroupOperation$$Execute` porte une **FILE** : il ouvre le groupe
-(slot 20 d'`IBattleQuery`), émet `Events.StartGroup`, exécute l'action, émet `Events.EndGroup`,
-ferme le groupe (slot 21) — **puis** dépile (slot 10) et rejoue chaque entrée par
-`IOperationProcessor.EvaluateAbilities` (slot **78**) ou `UnregisterEntityFromTriggers` (slot
-**85**). Les slots sont LUS dans `data/symbols/rnca9r7q6c/metadata/ioperationprocessor_slots.tsv`.
+(`IMatchState.IncreaseAtomicModeCounter` slot 20), émet `Events.StartGroup`, exécute l'action,
+émet `Events.EndGroup`, ferme le groupe (`IMatchState.DecreaseAtomicModeCounter` slot 21) —
+**puis** dépile (`IMatchState.TryDequeueBattleEvent` slot 10) et rejoue chaque entrée par
+`IOperationProcessor.EvaluateAbilities` (slot **78**) ou `UnregisterEntityFromTriggers`
+(slot **85**).
+
+⚠ **Les trois slots du groupe sont ceux d'`IMatchState`, pas d'`IBattleQuery`** — cette phrase a
+porté `IBattleQuery` pendant neuf jours, et c'est ce qui rendait `master` ROUGE (#962-r1 :
+`test_477r24r1_slots_interface_offline` et `test_477r25_slots_autres_interfaces_offline`). Le
+receveur est le `state`, pas la requête : `runner-engine.md` §1.5bis l'écrivait déjà
+(« ouvre le groupe (`state.BeginAtomic` slot+0x14) … mini-drain FIFO local au groupe (`state`
+dequeue slot+10) »), sans le nommer. Les cinq couples sont LUS dans les deux entrées versionnées :
+`data/symbols/rnca9r7q6c/metadata/interface_slots.tsv` (`IMatchState` 10 `TryDequeueBattleEvent`,
+20 `IncreaseAtomicModeCounter`, 21 `DecreaseAtomicModeCounter`) et
+`.../ioperationprocessor_slots.tsv` (78 `EvaluateAbilities`, 85 `UnregisterEntityFromTriggers`).
+Aucun nom n'est deviné : le triplet 10/20/21 tombe sur la **même** interface et sa sémantique
+concorde mot pour mot avec ce que le décompilé fait (compteur de mode atomique, puis dépilement).
 
 L'émission elle-même est bien en amont, et ce n'est pas contesté :
 `IdunBattle.Entities.Behaviours.AttackBehaviour$$Execute` pousse `StartAttack` (slot 58) →
