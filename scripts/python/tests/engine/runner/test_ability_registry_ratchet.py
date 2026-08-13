@@ -580,6 +580,50 @@ def _balayer_ciblage(racine: Path = PY_ROOT) -> tuple:
     return tuple(constantes), tuple(bits)
 
 
+def test_le_corpus_REEL_du_balayage_est_NON_VIDE_et_porte_ses_temoins():
+    """#941-r3 -- LE CRAN SANS LEQUEL LES DEUX TESTS SUIVANTS SONT DES VERTS QUI MENTENT.
+
+    Les deux tests ci-dessous ne savent dire qu'une chose : « la liste des fautifs est vide ». Ils
+    la tirent de `_balayer_ciblage()`, qui balaie `_sources_python()` = `PY_ROOT.rglob("*.py")`.
+    **Si cette racine cessait de designer quoi que ce soit** -- un `parents[3]` de trop apres un
+    deplacement du fichier, un renommage de `scripts/python`, un `rglob` qui ne descend plus --
+    la liste des fautifs serait vide et les deux tests VERTS. Rien, dans le fichier, ne l'aurait
+    dit : c'est le patron « un recenseur ne peut pas rendre zero sur ce qu'il ne visite pas »,
+    applique au CORPUS au lieu du critere.
+
+    #486-r5 etage 1 exerce bien `_balayer_ciblage(tmp_path)` sur un corpus SYNTHETIQUE (le
+    detecteur voit encore) -- mais un detecteur qui voit, braque sur le vide, rend zero.
+
+    TROIS crans, et le troisieme est celui qui distingue « non vide » de « le BON corpus » :
+      1. le corpus reel est NON VIDE, et d'un ordre de grandeur qui ne peut pas etre un accident ;
+      2. la racine EST `scripts/python` -- verifie par son NOM, pas par un compte ;
+      3. des TEMOINS NOMMES y sont, dont le module que les deux tests confrontent
+         (`engine/runner/abilities/targeting.py`, ou vivaient les 31 constantes supprimees) et le
+         fichier de test COURANT. Une racine juste-mais-decalee (un cran trop haut : la racine du
+         depot ; un cran trop bas : `tests/`) rend un corpus non vide et RATE ces temoins.
+
+    COUT MESURE : un `rglob` de plus, soit ~0,9 s -- et il est paye UNE fois, le cache
+    `_RELEVES_CACHE` n'etant pas concerne (ce test ne lit aucun fichier)."""
+    chemins = _sources_python()
+    assert PY_ROOT.name == "python" and PY_ROOT.parent.name == "scripts", (
+        "la racine du balayage ne designe plus `scripts/python` mais `%s` -- les deux tests qui "
+        "suivent balaieraient autre chose, et leur `assert not fautifs` serait un VERT VACUEUX "
+        "(mesure #941-r3 : sur une racine effondree, un fautif PLANTE reste invisible et les deux "
+        "tests rendent VERT)" % PY_ROOT)
+    assert len(chemins) > 1000, (
+        "le corpus REEL du balayage est tombe a %d fichiers -- les deux tests qui suivent "
+        "rendraient VERT sans avoir rien visite. Racine : %s" % (len(chemins), PY_ROOT))
+    noms = {p.relative_to(PY_ROOT).as_posix() for p in chemins}
+    temoins = {"engine/runner/abilities/targeting.py",
+               "tests/engine/runner/test_ability_registry_ratchet.py"}
+    assert temoins <= noms, (
+        "le corpus reel ne porte pas ses temoins -- la racine designe autre chose que "
+        "`scripts/python` : manquants %s" % sorted(temoins - noms))
+    assert MODULE_GENERE.relative_to(PY_ROOT).as_posix() not in noms, (
+        "le module GENERE doit rester EXCLU du corpus -- sinon ses propres declarations "
+        "`TargetingRule.<Nom> = <ordinal>` seraient comptees comme des fautifs")
+
+
 def test_aucune_constante_de_ciblage_declaree_hors_du_module_genere():
     """UNE seule source de noms de bits : `engine/runner/abilities/targeting_rule.py`, GENERE par
     `scripts/python/gen_targeting_rule.py` depuis `data/symbols/<build>/frida/enums.tsv`.
