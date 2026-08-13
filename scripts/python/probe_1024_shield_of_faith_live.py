@@ -161,13 +161,23 @@ def main() -> int:
             return 2
 
         print()
-        print("=== ETAGE 3 : l'attaque (normale, auto-resolue depuis attackPlans) ===")
+        print("=== ETAGE 3 : l'attaque NORMALE ===")
+        # #411-r2 : l'ability d'attaque normale est un id CONCRET, PAR UNITE -- jamais un defaut.
+        # `_normal_ability_map` est le mirror deja porte de ce choix ; s'en remettre a
+        # l'auto-resolution ferait jouer l'ACTIVE (ici `ArmoriumCherub`), en silence.
+        na = R._normal_ability_map(dv0).get(att)
+        print("  ability d'attaque normale de u%s : %s" % (att, na))
+        if na is None:
+            print("  ATTAQUE NORMALE NON RESOLUE -- rien n'est conclu")
+            return 2
         act = rpc("applyAction", {"runnerId": rid,
-                                  "action": {"kind": "ability", "unitId": att,
-                                             "targetUnitId": cib}}, 120) or {}
-        crit_vu = json.dumps(act).count('"didCrit":true')
+                                  "action": {"kind": "ability", "casterId": att,
+                                             "targetId": cib, "abilityType": na}}, 120) or {}
+        blob = json.dumps(act)
         print("  mutated=%s eventCount=%s  occurrences didCrit=true : %d"
-              % (act.get("mutated"), act.get("eventCount"), crit_vu))
+              % (act.get("mutated"), act.get("eventCount"), blob.count('"didCrit":true')))
+        print("  ShieldOfFaith cite dans les events : %s ; CreateShield/AddOrUpdateShield : %s"
+              % ("ShieldOfFaith" in blob, ("Shield" in blob)))
 
         cs1 = rpc("combatSnapshot", {"runnerId": rid}, 90) or {}
         sh1 = _shields_par_entite(cs1)
