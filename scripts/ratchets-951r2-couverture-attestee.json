@@ -71,6 +71,17 @@
    "porteur": "engine.playbook.excruciating_frequencies:excruciating_frequencies_candidates",
    "_commit": "760b9809f3f366c0027332b4a65f415999b453e6",
    "_at": 1786600000
+  },
+  "active-decision:MV71SniperDroneSquadAttack": {
+   "categorie": "active-decision",
+   "nom": "MV71SniperDroneSquadAttack",
+   "verdict": "RIEN_A_PORTER",
+   "raison": "1076 est une ATTAQUE NORMALE concrete, pas une active de kit, et son playbook natif ne surcharge RIEN -- il n'y a donc aucun contenu PROPRE a porter. Trois sources independantes, l'absence d'une methode dans les tables ne prouvant rien (dedup IL2CPP). (a) Ghidra : `search_symbols_by_name` sur `IdunBattle.AI.Playbook.Loki.MV71SniperDroneSquadAttackPlaybook` rend UN SEUL symbole, son `.ctor`, qui appelle `IdunBattle.AI.Playbook.Loki.ALoki_NormalAttackPlaybooku003C__Il2CppFullySharedGenericTypeu003E$$.ctor(this, 0x434 = 1076)`. (b) `frida/classes.tsv`, source DISTINCTE du dump : le parent de la classe d'ABILITY est `IdunBattleLogic.Entities.Abilities.Active.Loki.ALoki_NormalAttackAbility` -- celle que le CLAUDE.md nomme pour l'attaque normale -- et la chaine du playbook est `ALoki_NormalAttackPlaybook<T>` -> `ComparablePlaybook<T>` -> `Playbook<T>` -> `BasePlaybook`. (c) gameconfig : 1076 n'apparait dans AUCUNE cle de kit, ni par NOM ni par ORDINAL (balayage exhaustif), ce qui est exactement le regime d'une attaque normale, attribuee au runtime par `NormalAttackType@0x28`. TEMOIN DE FAMILLE : `ALoki_NormalAttackPlaybook<T>` compte 17 classes derivees, dont 15 coquilles sans methode propre, TOUTES les 17 NON PORTEE, et une seule au registre COMBAT -- celle-ci ; `Loki_NormalAttackPlaybook` (id 69, l'attaque normale generique) y est coquille et non portee. CE QUI RESTE, ET QUI N'EST PAS PROPRE A 1076 : la BASE porte `CalculateCustomUtility` = `Fix64(1)` et `ShouldExecute` = `if (IdunBattle.Entities.UnitExtensions$$HasTriggeredAbility(unit, 0x48 = 72 Explosive)) return false; return utility > Fix64(0);`. Ce gate est un fait de la BASE, commun aux 17, il ne se porte pas 17 fois -- residu #1021-r1.",
+   "source": "docs/rl/case-1021-cran-face-decision-au-registre.md#4",
+   "build": "rnca9r7q6c",
+   "cliquet": "scripts/python/tests/engine/test_1021_face_decision_au_registre_offline.py",
+   "_commit": "7d3a80dd5f1b4960a1dde97701c468e4ebf3d435",
+   "_at": 1786600000
   }
  }
 }

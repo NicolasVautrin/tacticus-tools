@@ -319,6 +319,35 @@ def test_etage10_toute_ligne_de_dette_porte_un_etat_admis_et_une_raison():
             "id %d de la dette n'est pas un membre du mirror `ACTIVE_ABILITY_TYPE`" % aid)
 
 
+def test_etage10b_un_item_TRANCHE_et_RETIRE_rougit_si_son_verdict_tombe(mesure, monkeypatch):
+    """INVARIANT -- le progres est IRREVERSIBLE, et c'est ce qui fait de la dette un cliquet.
+
+    Retirer la ligne de dette d'un item tranche n'est pas un nettoyage cosmetique : c'est le geste
+    qui le fait tomber sous le CRAN A. Sans lui, un item solde puis re-casse resterait couvert par
+    sa vieille ligne, en silence -- une amnistie permanente.
+
+    On le mesure sur `1076 MV71SniperDroneSquadAttack`, tranche par #1021 (attestation
+    `RIEN_A_PORTER` : c'est une attaque NORMALE concrete dont le playbook ne surcharge rien) et
+    RETIRE de la dette dans le meme commit. On perime son verdict a la source (build faux, qui
+    perime TOUTE attestation par `coverage_attestations.validite`) et on exige qu'il ROUGISSE.
+    """
+    import coverage_attestations as CA
+    cible = 1076
+    assert cible not in P.DETTE, (
+        "1076 est revenu dans la dette : il a ete tranche par #1021, sa ligne doit rester retiree "
+        "-- sinon le CRAN A ne le protege plus")
+    assert mesure[cible]["etat"] == "CONSTANTE", (
+        "1076 devrait etre CONSTANTE (attestation `RIEN_A_PORTER` du ledger), etat = %s. Si son "
+        "verdict a change, relire `docs/rl/case-1021-cran-face-decision-au-registre.md` #4 avant "
+        "d'adapter ce test" % mesure[cible]["etat"])
+
+    monkeypatch.setattr(CA, "build_courant", lambda: "buildquinexistepas")
+    k = P.crans(P.mesurer())
+    assert cible in k["A"], (
+        "l'attestation de 1076 est perimee et le CRAN A ne le voit PAS (A=%s) : le retrait de sa "
+        "ligne de dette n'aurait alors rien protege" % k["A"])
+
+
 def test_etage11_probe_909_propage_le_verdict_du_cran():
     """INVARIANT -- le robinet nomme reste ferme.
 

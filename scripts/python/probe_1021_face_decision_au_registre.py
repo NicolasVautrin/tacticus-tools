@@ -141,11 +141,11 @@ DETTE: dict[int, tuple[str, str]] = {
     1032: ("SANS_VERDICT",
            "CatalystPlaybook -- EvaluateNonComparable, GetUseProbability. COMBAT : CatalystAbility "
            "(tyranids). 1 porteur (npc)."),
-    1076: ("SANS_VERDICT",
-           "MV71SniperDroneSquadAttackPlaybook -- AUCUNE methode propre listee dans "
-           "`ghidra/functions.tsv`, et l'absence ne prouve rien (dedup IL2CPP). 0 porteur par "
-           "`activeAbilities` : cette entree ne sort d'AUCUN inventaire de kit, seul le registre "
-           "COMBAT la montre. COMBAT : MV71SniperDroneSquadAttackAbility (mv71)."),
+    # 1076 `MV71SniperDroneSquadAttack` -- TRANCHE par #1021, ligne RETIREE (et non passee a
+    # `TRANCHE`) : le retrait est ce qui la fait tomber sous le CRAN A, donc ce qui la protege
+    # DESORMAIS. Attestation `RIEN_A_PORTER` au ledger (c'est une attaque NORMALE concrete, dont le
+    # playbook ne surcharge rien) -- si elle perime, l'item rougit au lieu d'etre couvert par une
+    # vieille ligne de dette. C'est la trajectoire attendue de chacune des lignes ci-dessous.
     1091: ("SANS_VERDICT",
            "SlashingDivePlaybook -- EvaluateNonComparable. COMBAT : SlashingDiveAbility "
            "(thousandsons). 3 porteurs (npc, summons)."),
