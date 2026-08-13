@@ -1,0 +1,245 @@
+"""#1022 -- MESURE LIVE de la face COMBAT d'`AetherStride` (1208) : natif vs port.
+
+CRITERE : « quand le natif execute 1208, RETIRE-T-IL la machine et POSE-T-IL une unite a 3 pieds
+portant `Stationary` -- et l'arbre porte rend-il la MEME aire, le MEME summon, le MEME trait ? »
+
+PORTEUR ET MONTAGE. Le seul porteur du build est `thousNpcMowDaemonPrince` (npc, ABSENT de
+`BC.Units` du seed -- verifie). La confrontation passe donc par la GREFFE (case-92 §5bis) :
+`BC.Units["ultraDreadnought"].ActiveAbilities = [1208]` dans une COPIE du seed BC. La condition de
+greffe est VERIFIEE au decompile, pas supposee :
+  * le natif charge le playbook PAR ABILITY (`PlaybookDatabase.LoadPlaybook(abilityType)`) ;
+  * `IdunBattleLogic.Entities.Abilities.Active.Loki.AetherStrideAbility$$ExecuteBehaviour` ne lit
+    du caster NI stat NI trait -- seulement `Caster@DSLSelectors+0x48` (`RemoveMachine` + owner du
+    spawn) et `Owner@DSLSelectors+0x30` (predicat `ActorHasTriggeredAbility`) ;
+  * le porteur de greffe `ultraDreadnought` est une MoW du POOL et le porteur natif de
+    `DutyEternal` (1158), dont le `.ctor` produit un masque de ciblage IDENTIQUE OCTET POUR OCTET
+    (`...AetherStrideAbility$$.ctor` et `...DutyEternalAbility$$.ctor` compares cote a cote) --
+    la greffe ne deplace donc AUCUN gate.
+Le summon vise, `thousSmnDaemonPrince`, est deja dans `BC.Units` du seed (verifie).
+
+LEVIERS : `MachineOfWarAmmo` (le seed part a 0 -> aucune MoW ne caste, meme levier que probe_129) ;
+1208 a `munitionsCost = 1` et `initialCooldownTurns = 1` (gameconfig).
+
+CANAUX -- tous EXISTANTS, aucun hook neuf :
+  * `decisionView.mows[]`               -> la MoW deployee, son `casterId`, l'etat de son ability ;
+  * `abilityReason`                     -> `GetInvalidTargetReason` natif, tuile par tuile ;
+  * `applyAction.actions[].events[]`    -> tags `Unit_Foot_Tile_Id_1..3` du spawn ;
+  * `observeBattle.units[]`             -> UNE LIGNE PAR PIED (`squadId` = l'unite) ;
+  * `boardGraph.tiles[].occupantUnitId` -> l'occupation native.
+
+Usage : python probe_1022_aether_stride.py [--board MC1_67] [--seed 777]
+ASCII only.
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import subprocess
+import sys
+import uuid
+from pathlib import Path
+
+import oracle_targeting as O
+from engine.entities.pathfinding.board import Board
+from engine.services import spawn_tile_shape as STS
+from rl_collect_batch import _rpc, _resolve_session
+
+PYDIR = Path(__file__).resolve().parent
+ROOT = PYDIR.parents[1]
+MOW = "ultraDreadnought"                 # porteur de GREFFE (MoW du pool)
+AETHER_STRIDE = 1208
+SUMMON = "thousSmnDaemonPrince"          # `constants.unitId` de 1208, lu au gameconfig
+STATIONARY = 1048                        # `UnitTrait.Stationary` = le `0x418` d'`AddTrait`
+#: Nombre de tuiles interrogees pour confronter la REGLE DYNAMIQUE. Le board entier serait 1 RPC
+#: par tuile ; l'echantillon en tete d'ordre de balayage porte les DEUX verdicts, ce que le probe
+#: VERIFIE au lieu de le supposer.
+DYNAMIC_RULE_SAMPLE = 24
+
+
+def rpc(sid, method, args, timeout=120):
+    r = _rpc(sid, method, [args], timeout=timeout)
+    return r.get("result", r) if isinstance(r, dict) else r
+
+
+def graft_seed_bc(ammo: int = 9) -> Path:
+    """LE MONTAGE, nomme et reutilisable : seed BC + munitions de MoW + greffe de 1208 sur `MOW`.
+
+    Ecrit sous `logs/` -- JAMAIS sous `data/`, qui ne porte que des ENTREES versionnees."""
+    bc = json.loads((ROOT / "data" / "seed-bc.json").read_text(encoding="utf-8"))
+    for _pid, p in ((bc.get("Player") or {}).get("Players") or {}).items():
+        if isinstance(p, dict) and p.get("PlayerType") != 2:        # Environment exclu
+            p["MachineOfWarAmmo"] = ammo
+    grafted = [u for u in bc["Units"] if u.get("Id") == MOW]
+    if not grafted:
+        raise SystemExit("[1022] %s absent de BC.Units -- greffe impossible" % MOW)
+    for u in grafted:
+        u["ActiveAbilities"] = [AETHER_STRIDE]
+    out = ROOT / "logs" / "runners" / ("bc-1022-%s.json" % uuid.uuid4().hex[:8])
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps(bc), encoding="utf-8")
+    return out
+
+
+def build(seed: str, board: str, bc: Path):
+    state = ROOT / "logs" / "runners" / ("st-1022-%s.json" % uuid.uuid4().hex[:8])
+    state.parent.mkdir(parents=True, exist_ok=True)
+    p = subprocess.run(
+        [sys.executable, "rl_duel.py", "build", "--seed", seed, "--board", board,
+         "--seed-bc", str(bc), "--state-file", str(state), "--no-ai",
+         "--p-units", "ultraTitus,ultraCalgar", "--a-units", "necroWarden,necroSpyder",
+         "--p-mow", MOW],
+        cwd=str(PYDIR), capture_output=True, text=True, encoding="utf-8", errors="replace")
+    if not state.exists():
+        print("BUILD KO:", (p.stderr or p.stdout or "")[-900:])
+        return None, state
+    return json.loads(state.read_text())["runnerId"], state
+
+
+def occupants(sid, rid) -> set:
+    g = rpc(sid, "boardGraph", {"runnerId": rid})
+    return {(t["col"], t["row"]) for t in g["tiles"] if t.get("occupantUnitId") is not None}
+
+
+def feet_from_events(actions, board) -> list:
+    """L'ORDRE natif des pieds : tags `Unit_Foot_Tile_Id_1..N` de l'event de spawn -- reconnu par
+    ses TAGS, jamais par un ordinal de `IdunBattle.Streams.StepType` (qui a deja glisse d'un cran
+    entre deux builds)."""
+    for a in actions:
+        for ev in (a.get("events") or []):
+            try:
+                tags = json.loads(ev.get("tags") or "{}")
+            except ValueError:
+                continue
+            ids = [tags[k] for k in sorted(tags) if k.startswith("Unit_Foot_Tile_Id_")]
+            if ids:
+                return [board.coord(int(i)) for i in ids]
+    return []
+
+
+def native_feet(sid, rid, squad_id) -> list:
+    rows = [(u.get("entityId") or 0, (u["col"], u["row"]))
+            for u in (rpc(sid, "observeBattle", {"runnerId": rid}).get("units") or [])
+            if u.get("squadId") == squad_id and u.get("col") is not None]
+    return [t for _e, t in sorted(rows, key=lambda x: x[0])]
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--board", default="MC1_67")
+    ap.add_argument("--seed", default="777")
+    ap.add_argument("--keep", action="store_true")
+    a = ap.parse_args()
+
+    sid = _resolve_session()
+    bc = graft_seed_bc()
+    print("[1022] seed BC greffe : %s (%s.ActiveAbilities = [%d])" % (bc.name, MOW, AETHER_STRIDE))
+    rid, _state = build(a.seed, a.board, bc)
+    if rid is None:
+        return 2
+    print("[build] runner=%s board=%s" % (rid, a.board))
+    try:
+        view = rpc(sid, "decisionView", {"runnerId": rid, "allAbilities": True})
+        mows = [m for m in (view.get("mows") or []) if m.get("visualId") == MOW]
+        if not mows:
+            print("PAS MESURE : %s absente de decisionView.mows" % MOW)
+            return 2
+        caster, owner = mows[0]["casterId"], mows[0].get("owner")
+        ids = [x.get("id") for x in (mows[0].get("abilities") or [])]
+        print("[greffe] casterId=%s abilities exposees par le natif = %s" % (caster, ids))
+        if AETHER_STRIDE not in ids:
+            print("PAS MESURE : la greffe n'a pas pris -- le natif n'expose pas 1208 sur la MoW")
+            return 2
+
+        board = Board(rpc(sid, "boardGraph", {"runnerId": rid})["tiles"])
+
+        # Attendre que 1208 soit castable ET que ce soit le tour du proprietaire.
+        # `for ... else` OBLIGATOIRE : sans lui, une boucle qui EXPIRE laisserait la mesure partir
+        # a travers un oracle court-circuite.
+        ab = None
+        for _ in range(16):
+            v = rpc(sid, "decisionView", {"runnerId": rid, "allAbilities": True})
+            ab = next((x for x in (v["mows"][0].get("abilities") or [])
+                       if x.get("id") == AETHER_STRIDE), None)
+            ready = (ab and ab.get("usable") and ab.get("hasAmmo", True)
+                     and not (ab.get("cooldown") or 0))
+            if ready and (owner is None or v.get("currentPlayer") == owner):
+                break
+            rpc(sid, "applyAction", {"runnerId": rid, "action": {"kind": "endturn"}})
+        else:
+            print("PAS MESURE : 1208 jamais castable en 16 fins de tour (dernier etat : %s)"
+                  % json.dumps(ab))
+            return 2
+
+        # LE CRAN D'ORACLE (#287-r9) : `decisionView.usable` n'est PAS l'oracle. Seul `casterReason`
+        # dit si la cascade ATTEINT la regle dynamique, et il est INDEPENDANT de la cible.
+        def _rpc3(method, body, timeout=90000):
+            return rpc(sid, method, body, timeout=max(30, int(timeout) // 1000))
+
+        empeche = O.debloquer_oracle(_rpc3, rid, caster, AETHER_STRIDE, jouer_adverse=False)
+        if empeche:
+            print("PAS MESURE (oracle court-circuite en AMONT) : %s" % empeche)
+            return 2
+
+        # --- ETAGE A : `GetDynamicInvalidTargetReason` natif vs `spawn_tile_shape.get_area` -------
+        occ = occupants(sid, rid)
+        rows, desac = [], 0
+        for tid in sorted(board.by_id)[:DYNAMIC_RULE_SAMPLE]:
+            pos = board.coord(tid)
+            predit = len(STS.get_area(board, occ, pos)) == 3
+            r = rpc(sid, "abilityReason", {"runnerId": rid, "unitId": caster,
+                                           "abilityId": AETHER_STRIDE, "targetId": tid})
+            natif = int(r.get("reason") or 0) == 0
+            rows.append((tid, pos, predit, natif, r.get("reason")))
+            desac += int(predit != natif)
+        ok_a = sum(1 for _t, _p, pr, na, _r in rows if pr and na)
+        ko_a = sum(1 for _t, _p, pr, na, _r in rows if (not pr) and (not na))
+        print("[A] regle dynamique : %d tuile(s) | accord=%d | DESACCORD=%d"
+              % (len(rows), len(rows) - desac, desac))
+        print("    ventilation : aire valide ET acceptee=%d ; aire absente ET refusee=%d" % (ok_a, ko_a))
+        if ok_a == 0 or ko_a == 0:
+            print("    ATTENTION REGIME DEGENERE : un seul verdict present dans l'echantillon "
+                  "-> l'accord ne prouve rien. Elargir DYNAMIC_RULE_SAMPLE.")
+        for t, pos, pr, na, raw in rows:
+            if pr != na:
+                print("    ECART tuile %s %s : port=%s natif=%s reason=%s" % (t, pos, pr, na, raw))
+
+        # --- ETAGE B : le CAST -------------------------------------------------------------------
+        cible = next((t for t, _p, pr, na, _r in rows if pr and na), None)
+        if cible is None:
+            print("PAS MESURE : aucune tuile acceptee par les DEUX cotes -- rien a caster")
+            return 2
+        avant = {u.get("squadId") for u in (rpc(sid, "observeBattle", {"runnerId": rid})
+                                           .get("units") or [])}
+        pred_area = STS.get_area(board, occ, board.coord(cible))
+        res = rpc(sid, "applyAction", {"runnerId": rid, "action": {
+            "kind": "ability", "unitId": caster, "abilityId": AETHER_STRIDE, "targetId": cible}})
+        actions = res.get("actions") or []
+        pieds = feet_from_events(actions, board)
+        obs = rpc(sid, "observeBattle", {"runnerId": rid}).get("units") or []
+        neufs = [u for u in obs if u.get("squadId") not in avant]
+        squads = sorted({u.get("squadId") for u in neufs})
+        print("[B] cast 1208 sur la tuile %s %s" % (cible, board.coord(cible)))
+        print("    aire PREDITE par le port          : %s" % (pred_area,))
+        print("    pieds NATIFS (tags Unit_Foot_...) : %s" % (pieds,))
+        print("    squads neufs : %s" % (squads,))
+        for s in squads:
+            f = native_feet(sid, rid, s)
+            vid = next((u.get("visualId") for u in neufs if u.get("squadId") == s), None)
+            traits = next((u.get("traits") for u in neufs if u.get("squadId") == s), None)
+            print("      squad %s visualId=%s pieds=%s traits=%s" % (s, vid, f, traits))
+        mows2 = [m for m in (rpc(sid, "decisionView", {"runnerId": rid, "allAbilities": True})
+                             .get("mows") or []) if m.get("visualId") == MOW]
+        print("    MoW encore dans decisionView.mows apres le cast : %s" % bool(mows2))
+        print("PROBE OK")
+        return 0
+    finally:
+        if rid and not a.keep:
+            try:
+                rpc(sid, "disposeRunner", {"runnerId": rid}, timeout=30)
+                print("[1022] runner %s dispose" % rid)
+            except Exception as exc:                                # noqa: BLE001
+                print("[1022] dispose KO : %s" % exc)
+
+
+if __name__ == "__main__":
+    sys.exit(main())
