@@ -34,11 +34,12 @@ from .behaviours.stats import (
 from .behaviours.summon import PerformAIAttack, Spawn
 from .behaviours.turnflow import FinishTurn, ResetTurn
 from .targeting import (RANGE_ADJACENT, RANGE_FROM_CONFIG, RANGE_SELF, RANGE_WHOLE_BOARD,
-                        RANGED_BOOL_FALSE, TargetingOptions,
-                        _dynamic_rule_exemplar_of_the_kauyon)
+                        RANGED_BOOL_FALSE, RANGED_BOOL_TRUE, TargetingOptions,
+                        _dynamic_rule_exemplar_of_the_kauyon, _dynamic_rule_forward_observers)
 from .targeting_rule import TargetingRule as TR
 from ...dsl.base import Const
 from ...dsl.effects import ExecutionContext
+from ...entities.ability_constant_type import AbilityConstantType
 from ...entities.active_ability_type import ActiveAbilityType
 from ...entities.behaviours import Foreach, op_add, op_and, If as IfBehaviour
 from ...entities.effect_type import EffectType
@@ -1806,3 +1807,119 @@ class NovaBoostAbility(ActiveAbility):
                 "posed": [{"target": p.get("target"), "effect": p.get("effect_type")}
                           for n, p in ectx.emitted if n in ("AddEffect", "AddBondEffect")],
                 "dsl": True}
+
+
+# ================ ForwardObservers (1185, `tauNpc5StealthSuit` / `tauSmnStealthSuit`) ================
+# Lot #996 -- « six no-op silencieuses » (docs/rl/case-996-six-no-op-silencieuses-reconnaissance.md).
+#
+# `IdunBattleLogic.Entities.Abilities.Active.Loki.ForwardObserversAbility$$ExecuteBehaviour`
+# (MIRROR 1:1 du DECOMPILE) :
+#
+#   [1] AddEffect( 0x462 = 1122 Markerlight, AbilityStateReference,
+#                  source = Owner@+0x30, targets = Target@+0x60,
+#                  DSLFormulas$$TurnsFromRounds( GetNumberConstant(config@0x60, 0x45 = nrOfRounds) ) )
+#   [2] AddEffect( 0x575 = 1397 ForwardObservers_DamageReduction, AbilityStateReference,
+#                  source = Owner@+0x30, targets = Owner@+0x30,
+#                  DSLFormulas$$TurnsFromRounds( GetNumberConstant(config@0x60, 0x77 = nrOfRounds_2) ) )
+#   AActiveAbility$$Execute( op_Addition([1], [2]) )
+#
+# CATEGORIE ANNONCEE PAR L'AUDIT = EFFECT/BUFF -> **CONFIRMEE**. Cette colonne derive du
+# `damageProfile` de l'ARME du porteur, pas du behaviour : elle ne vaut rien tant que
+# l'`ExecuteBehaviour` n'a pas ete lu. Ici elle tombe juste ; ce n'est PAS le cas general (4 des 6
+# no-op du lot #996 la portaient FAUSSE).
+#
+# LE POINT DE FIDELITE = LES DEUX DUREES SONT DISTINCTES. `nrOfRounds` (0x45) = 2 rounds pour le
+# `Markerlight` pose sur la CIBLE ; `nrOfRounds_2` (0x77) = 1 round pour la reduction de degats
+# posee sur SOI. Le natif lit DEUX constantes differentes du meme kit -- les confondre serait le
+# premier ecart, et rien dans le nom ne le signale.
+#
+# LES DEUX CIBLES SONT DIFFERENTES AUSSI : `Target@+0x60` pour [1], `Owner@+0x30` pour [2]
+# (`DSLSelectors+0x30` = Owner = `factory+0x148`, `DSLSelectors+0x60` = Target = `factory+0x178` --
+# ecart constant de 0x118 entre les deux bases, cf. la docstring de `Owner`). Le buff defensif ne
+# part PAS sur la cible.
+
+FORWARD_OBSERVERS_ID = "ForwardObservers"
+CONST_FO_ROUNDS = AbilityConstantType.nrOfRounds        # GetNumberConstant(0x45) -> "nrOfRounds"   = 2
+CONST_FO_ROUNDS_2 = AbilityConstantType.nrOfRounds_2    # GetNumberConstant(0x77) -> "nrOfRounds_2" = 1
+FORWARD_OBSERVERS_DMG_REDUCTION = int(EffectType.ForwardObservers_DamageReduction)   # 0x575 = 1397
+
+
+def forward_observers_tree(state: "State"):
+    """Arbre de `...ForwardObserversAbility$$ExecuteBehaviour` (MIRROR 1:1, cf. le bloc ci-dessus) :
+
+        op_Addition( AddEffect(1122 Markerlight -> Target, TurnsFromRounds(nrOfRounds)),
+                     AddEffect(1397 ForwardObservers_DamageReduction -> Owner,
+                               TurnsFromRounds(nrOfRounds_2)) )
+
+    Les deux durees passent par `duration_rounds` = le mirror DIRECT du noeud `TurnsFromRounds(n)`
+    (`_resolve_duration` applique `IdunBattle.Core.Services.BattleQuery$$ConvertRoundsToTurns`) --
+    surtout pas `duration_turns`, qui court-circuiterait la conversion."""
+    rounds = int(ability_var(FORWARD_OBSERVERS_ID, CONST_FO_ROUNDS.name, is_constant=True) or 0)
+    rounds_2 = int(ability_var(FORWARD_OBSERVERS_ID, CONST_FO_ROUNDS_2.name, is_constant=True) or 0)
+    mark = AddEffect(MARKERLIGHT, EffectType.Markerlight.name, Target(), duration_rounds=rounds)
+    self_buff = AddEffect(FORWARD_OBSERVERS_DMG_REDUCTION,
+                          EffectType.ForwardObservers_DamageReduction.name,
+                          Owner(), duration_rounds=rounds_2)
+    return op_add(mark, self_buff)
+
+
+class ForwardObserversAbility(ActiveAbility):
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.ForwardObserversAbility$$ExecuteBehaviour`
+    (id 1185, `tauNpc5StealthSuit` npc + `tauSmnStealthSuit` SUMMON -- Tau). Cast UNIT-TARGET.
+
+    Kit gameconfig 1185 : `range=3`, `dmgPctReduction=50`, `nrOfRounds=2`, `nrOfRounds_2=1` -- que
+    des CONSTANTES, aucune variable de niveau, aucun profil de degats. Le cast NE FRAPPE PAS.
+
+    OBSERVABLE porte : (1) `Markerlight` (1122) pose sur la CIBLE pour `ConvertRoundsToTurns(2)` ;
+    (2) `ForwardObservers_DamageReduction` (1397) pose sur le CASTER pour `ConvertRoundsToTurns(1)`.
+
+    RESIDU NOMME -- la MAGNITUDE de (2) n'est pas portee : `dmgPctReduction=50` est lu par
+    `IdunBattle.Entities.Effects.Loki.ForwardObservers_DamageReductionEffect$$CreateEffectDamageMalusForDefense`,
+    c'est-a-dire par l'EFFET, pas par cet `ExecuteBehaviour`. L'effet est donc POSE (visible,
+    duree juste) mais INERTE sur le calcul de degats tant que cet artefact-la n'est pas porte.
+    `Markerlight`, lui, est deja CONSOMME cote port (`twin_smart_missile_system_attack_targets`).
+
+    Flags de tour : defauts base (1185 absent des tables d'override)."""
+    __slots__ = ()
+    ABILITY_TYPE = int(ActiveAbilityType.ForwardObservers)   # 1185
+    ABILITY_ID = FORWARD_OBSERVERS_ID
+
+    # GATE DE CIBLE + PORTEE -- forme de ctor = **FLAGS DIRECTS** (la 1re des trois : le litteral
+    # du ctor EST le masque). `...ForwardObserversAbility$$.ctor` :
+    #     TargetingOptions..ctor(&opts, isSelfCasting=0, range=<TargetingRange statics+0x18>,
+    #                            forceMeleeTarget=0, rules=0x200004002, 0, 0)
+    #     AActiveAbility..ctor(this, &opts, 2)   # 3e arg = 2 = AbilityAttackType.Others
+    #
+    # Decomposition EXHAUSTIVE -- 0x2 + 0x4000 + 0x200000000 = 0x200004002, aucun bit residuel :
+    #     0x2          (bit  1) TargetMatchesDynamicRule -> PORTE : la delegue est le slot VIRTUEL
+    #                  `...ForwardObserversAbility$$GetDynamicInvalidTargetReason` (les deux champs
+    #                  delegues du ctor sont NULS), mirrore par `_dynamic_rule_forward_observers`
+    #                  et surcharge ci-dessous : refus si la cible porte DEJA `Markerlight`.
+    #     0x4000       (bit 14) TargetIsEnemy            -> PORTE (refus sur un allie / sur soi).
+    #     0x200000000  (bit 33) TargetIsNotAnObject      -> regle NON portee -> PERMISSIF.
+    # PORTEE : `TargetingRange statics+0x18` = `RANGE_FROM_CONFIG` -> `AActiveAbility$$SetConfig
+    # ValuesInTargetingOptions` y injecte la constante `range` du kit (= 3).
+    # `forceMeleeTarget` = 0 = `RangedBool.True`.
+    TARGETING_OPTIONS = TargetingOptions(
+        rules=TR.TargetMatchesDynamicRule | TR.TargetIsEnemy | TR.TargetIsNotAnObject,
+        self_cast=False, range=RANGE_FROM_CONFIG, force_melee_target=RANGED_BOOL_TRUE)
+
+    def get_dynamic_invalid_target_reason(self, state: "State", caster_id: int,
+                                          target_id: Optional[int]) -> int:
+        """`...ForwardObserversAbility$$GetDynamicInvalidTargetReason` -- le mirror UNIQUE vit dans
+        `targeting.py` (`_dynamic_rule_forward_observers`, deja ecrit et deja enregistre du temps ou
+        1185 n'etait pas portee) ; cette surcharge ne fait que le rebrancher sur la classe."""
+        return _dynamic_rule_forward_observers(state, caster_id, target_id)
+
+    def execute_behaviour(self, state: "State", caster_id: int,
+                          target_id: Optional[int]) -> Optional[dict]:
+        if target_id is None:
+            return None
+        ectx = ExecutionContext(state=state, rng=state.rng)
+        forward_observers_tree(state).execute(
+            entities_from_state(state, caster_id, target_id), ectx)
+        posed = [{"target": p.get("target"), "effect": p.get("effect_type"),
+                  "placed": p.get("placed")}
+                 for n, p in ectx.emitted if n == "AddEffect"]
+        return {"ability": FORWARD_OBSERVERS_ID, "caster": caster_id, "target": target_id,
+                "posed": posed, "dsl": True}
