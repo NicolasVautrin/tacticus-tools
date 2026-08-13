@@ -1184,16 +1184,22 @@ SA_LINE_CHECK_WALKABLE = True
 SA_LINE_UPDATE_REFERENCE = True
 
 
-def solar_atomizer_target_tiles() -> "Sub":
-    """`SolarAtomizerAbility$$GetTargetTiles` -- MIRROR 1:1 (cf. le bloc ci-dessus)."""
+def solar_atomizer_target_tiles(target=None) -> "Sub":
+    """`SolarAtomizerAbility$$GetTargetTiles` -- MIRROR 1:1 (cf. le bloc ci-dessus).
+
+    `target` = le vehicule du slot `Target@+0x60`. `None` -> le noeud `Target()` (face COMBAT, ou
+    la cible est posee dans l'`AbilityEntities`) ; la face DECISION passe un `FixedTileIds([tid])`,
+    parce que le contexte DSL du port porte des dicts d'UNITE et qu'une entite-TUILE n'en est pas
+    une -- c'est le vehicule de collapse deja employe par `playbook.tile_targets`."""
+    Target_ = (lambda: target) if target is not None else Target
     caster_tiles = CasterTile(as_ids=True)          # `<DSLSelectors+0x58> = CasterTiles`
-    adj = AdjacentTiles(Target())                   # `AdjacentTiles(Target@+0x60)`
-    direction = DirectionTo(And(adj, Tiles(CasterTile(), as_ids=True)), Target())
-    others = Sub(AdjacentTiles(Target()), caster_tiles)
+    adj = AdjacentTiles(Target_())                  # `AdjacentTiles(Target@+0x60)`
+    direction = DirectionTo(And(adj, Tiles(CasterTile(), as_ids=True)), Target_())
+    others = Sub(AdjacentTiles(Target_()), caster_tiles)
     score = Count(And(AdjacentTiles(ActiveTarget()), CasterTile(as_ids=True)))
     second = PickFirstN(SortByFormula(others, score, ascending=False), 1)
-    line1 = Union(Target(), TilesBehindInLine(
-        Target(), TileFromVector(Target(), direction),
+    line1 = Union(Target_(), TilesBehindInLine(
+        Target_(), TileFromVector(Target_(), direction),
         check_walkable=SA_LINE_CHECK_WALKABLE, update_reference=SA_LINE_UPDATE_REFERENCE))
     line2 = Union(second, TilesBehindInLine(
         second, TileFromVector(second, direction),
