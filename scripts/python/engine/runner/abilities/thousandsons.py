@@ -1146,9 +1146,18 @@ class InfernalCannonAbility(ActiveAbility):
 #   2. `AetherStride` porte un SECOND terme absent de 1158 : `If(Count(psykers adjacents) > 0,
 #      PerformAIAttack(le summon))` -- le Daemon Prince attaque IMMEDIATEMENT s'il apparait au
 #      contact d'un allie Psyker.
-#   3. LES DEUX OPERATEURS DE JOINTURE DIFFERENT ET C'EST LISIBLE : `op_BitwiseAnd` entre `grant` et
-#      `carry` (sequence a COURT-CIRCUIT), puis `op_Addition` pour agreger `strike` (les deux termes
-#      s'executent). Ne pas uniformiser : `Seq` porte le flag.
+#   3. LES DEUX OPERATEURS DE JOINTURE DIFFERENT AU NATIF : `op_BitwiseAnd` entre `grant` et
+#      `carry`, puis `op_Addition` pour agreger `strike`. `IdunBattle.DSL.AbilityBehaviour$$
+#      op_BitwiseAnd` et `$$op_Addition` ont le MEME corps (`+0x50 = left`, `+0x58 = right`) mais
+#      allouent DEUX POINTEURS DE CLASSE DISTINCTS (decompiles compares) -- ce sont deux classes de
+#      behaviour, pas un alias.
+#      ⚠ LE PORT LES COLLAPSE EN UN SEUL `Seq`, et c'est un ECART ANTERIEUR A CETTE TRANCHE, assume
+#      et documente sur `entities/behaviours.py::Seq` (« sequence gauche->droite avec COURT-CIRCUIT ;
+#      deux effets PURS -> flag 0 -> les deux s'executent »). Il est INERTE ICI, et la raison se
+#      verifie : les trois termes de cet arbre (`AddTrait`, les deux `If`) sont PURS, donc aucun ne
+#      pose le flag qui ferait court-circuiter la jointure de gauche. On ecrit quand meme `op_and`
+#      puis `op_add` aux bons endroits : le jour ou le port separera les deux classes, le site n'a
+#      pas a etre relu.
 #
 # QUALIFICATION DES ORDINAUX (regle « un entier qui DESIGNE passe par un ENUM ») :
 #   * `0x418` = 1048 est ici un **`UnitTrait`** (`Stationary`) -- 1048 est AUSSI un
