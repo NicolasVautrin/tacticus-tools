@@ -896,8 +896,18 @@ def thrice_blessed_get_tiles_in_best_line():
     Le `Subject()` de la formule est la tuile d'anneau COURANTE (binding `SortByFormula`) ; le
     `FilterContinuous` interne re-lie le sujet PAR TUILE DE LIGNE, mais APRES resolution de
     `TilesBehindInLine` (qui lit le sujet d'anneau) -- meme ordre d'evaluation que le natif, donc
-    aucune collision de binding."""
-    ring = SurroundingTiles(Target(), Const(1))
+    aucune collision de binding.
+
+    #967-r2 -- `include_non_walkable=False` : le natif ecrit ici `SurroundingTiles(dsl, Target,
+    includeCenter: 0, range: 1, onlyMovable: 0, **includeNonWalkable: 0**), et le `0` final ARME le
+    filtre de marchabilite (`...SurroundingTilesSelector$$Select` appelle le slot d'`IBattleQuery`
+    avec `checkWalkable = (this+0x29 == 0)`). Sans lui, cette face COMBAT admettait comme direction
+    de beam des tuiles NON MARCHABLES -- alors que sa propre face DECISION
+    (`playbook/noncomparable/thrice_blessed_conflagration.py::_best_line_direction`) posait DEJA
+    `check_walkable=True` : un FORK prediction/combat, du cote PERMISSIF pour le combat.
+    ⚠ Contraste LU, pas suppose : `DeathOnTheWindAbility$$GetMachineAttackTiles` (1213) passe `1`
+    au meme argument -> elle, garde le defaut (aucun filtre)."""
+    ring = SurroundingTiles(Target(), Const(1), include_non_walkable=False)
     key = Count(thrice_blessed_get_tiles_in_line(Subject()))
     best = PickFirstN(SortByFormula(ring, key, ascending=False), 1)
     return Union(Target(), Units(thrice_blessed_get_tiles_in_line(best)))
