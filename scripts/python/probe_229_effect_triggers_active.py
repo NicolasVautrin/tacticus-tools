@@ -161,6 +161,19 @@ RAIL: dict[str, tuple[str, str]] = {
         (ARRAYSET, "IdunBattle.Entities.Effects.Loki.NeuroparasiteEffect$$CreateHandleTriggerAbilitiesInternal"),
     "NeuroparasiteIncreaseLevelOnPinned":
         (ARRAYSET, "IdunBattle.Entities.Effects.Loki.NeuroparasiteEffect$$CreateHandleTriggerAbilitiesInternal"),
+    # #590-r3 (merge `19e1746d`, 2026-08-13) -- la PROPAGATION de `1209 AttemptedPossession_Possessed`.
+    # ⚠ ENTREE AU REGISTRE SANS SON RAIL : `master` en est reste ROUGE
+    # (`test_421_effect_active_gate_offline::test_the_probe_rail_covers_the_whole_registry`,
+    # « classe(s) inscrite(s) sans rail declare »), trouve au REBASE par #934. C'est le gisement que
+    # notre propre cadence de portage alimente, et ce rail-ci n'est PAS deduit par parente : l'en-tete
+    # de `engine/runner/operations/triggers/loki/attempted_possession.py` le LIT et le NOMME --
+    # « `CreateHandleTriggerAbilitiesInternal`, donc du rail `ArraySet` que
+    # `EvaluateTriggerOperation$$EvaluateEffectTriggerEffectAbilities` sert », par opposition a
+    # `EvaluateEffectTriggerTargets` (celui de `CreateTargetTrigger`) qui porte le gate.
+    # Rail ARRAYSET => AUCUN gate `IsActive` natif => le port ne doit PAS lire le flag.
+    "AttemptedPossessionPropagate":
+        (ARRAYSET, "IdunBattle.Entities.Effects.Loki.AttemptedPossession_PossessedEffect$$"
+                   "CreateHandleTriggerAbilitiesInternal"),
     # #462-r4b-r1-r1-r1-r1 -- le RETRAIT (a) herite d'`ABondEffect`, PARTAGE par toutes ses
     # derivees (une seule classe portee, N effectTypes inscrits : 1218 `Neuroparasite`, 1077
     # `HazeOfCorruption_DamageTransfer`). Rail ARRAYSET : c'est la BASE qui l'ajoute a l'`ArraySet`,
