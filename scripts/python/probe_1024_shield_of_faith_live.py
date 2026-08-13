@@ -91,6 +91,14 @@ def main() -> int:
     ap.add_argument("--board", default=BOARD)
     ap.add_argument("--state-file", default=None)
     ap.add_argument("--keep", action="store_true")
+    ap.add_argument("--rarity-attaquant", type=int, default=None,
+                    help="ECRIT `BC.Units[<attaquant>].Rarity` APRES la normalisation. Sert la "
+                         "SEULE separation qui exerce `HasRarity(Attacker, Mythic)` : "
+                         "`buildNormalizedBC` recoit `targetRarity = 5` (`rl_collect_batch."
+                         "_TARGET_RARITY`), donc TOUTE unite normalisee est Mythic et le gate est "
+                         "uniformement VRAI. Poser 4 (Legendary) doit ETEINDRE le bouclier -- et "
+                         "c'est aussi ce qui etablit que `UnitConfiguration.Rarity` atteint bien "
+                         "`BaseUnitComponent.Rarity` (le montage n'est pas MUET).")
     ap.add_argument("--palier-tronque", action="store_true",
                     help="CONTRE-EPREUVE du palier 2 : tronque les paliers a l'ENTIER avant de "
                          "les ecrire au BC. Le palier 2 de `shieldPct` vaut 32.5 au gameconfig, et "
@@ -128,6 +136,8 @@ def main() -> int:
             "--state-file", sf]
     if a.bras != "sans-mythique":
         argv[-2:-2] = ["--equip-mythic", "%s:%s:%d" % (PORTEUR, ABILITY, a.level)]
+    if a.rarity_attaquant is not None:
+        argv[-2:-2] = ["--unit-stat", "%s:Rarity=%d" % (ATTAQUANT_VIS, a.rarity_attaquant)]
 
     if a.palier_tronque:
         # Substitution en FORME B : `equip_mythic` resout `synthesize_ability` par son nom de
@@ -219,6 +229,18 @@ def main() -> int:
 
         print()
         print("=== VERDICT (%s) ===" % a.bras)
+        if a.rarity_attaquant is not None and a.rarity_attaquant != 5:
+            # CONTRE-EPREUVE DE RARETE : verdict INVERSE. Un bouclier ici voudrait dire que le
+            # gate `HasRarity(Attacker, Mythic)` n'est pas exerce -- soit parce que `Rarity`
+            # n'atteint pas `BaseUnitComponent`, soit parce qu'on a mal lu le gate.
+            if boucliers:
+                print("  CONTRE-EPREUVE ROUGE : attaquant Rarity=%d et le bouclier est POSE (%s)"
+                      % (a.rarity_attaquant, boucliers))
+                return 1
+            print("  CONTRE-EPREUVE VERTE : attaquant Rarity=%d -> aucun bouclier. Le gate"
+                  " `HasRarity(Attacker, Mythic)` est EXERCE, et `BC.Units[].Rarity` atteint"
+                  " bien `BaseUnitComponent.Rarity`." % a.rarity_attaquant)
+            return 0
         if a.bras != "mythique":
             if boucliers:
                 print("  CONTRE-EPREUVE ROUGE : un bouclier est apparu sur l'attaquant (%s)"

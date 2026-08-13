@@ -129,6 +129,22 @@ def main() -> int:
     ap.add_argument("--board", default=BOARD)
     ap.add_argument("--state-file", default=None)
     ap.add_argument("--keep", action="store_true")
+    ap.add_argument("--rarity-amis", type=int, default=None,
+                    help="ECRIT `BC.Units[<amis>].Rarity` APRES la normalisation. Exerce la "
+                         "branche `UnitsWithRarity(Friends(Owner, HeroUnits), Mythic, 3)` du "
+                         "SELECTEUR : `buildNormalizedBC` recoit `targetRarity = 5` "
+                         "(`rl_collect_batch._TARGET_RARITY`), donc tout ami normalise est Mythic "
+                         "et la branche est uniformement VRAIE. Poser 4 doit ETEINDRE l'aure -- "
+                         "et cela prouve du meme coup que l'aure ne vient PAS de la branche "
+                         "`UnitsWithVisualId(astraSmnGuardsman)`, qu'aucune unite du montage ne "
+                         "satisfait. Verdict INVERSE.")
+    ap.add_argument("--rarity-attaquant", type=int, default=None,
+                    help="ECRIT la `Rarity` du SEUL attaquant a distance. SEPARE les DEUX usages "
+                         "de la rarete dans cette ability : l'ANCRE reste Mythic, donc l'aure "
+                         "TIENT (le selecteur est satisfait), mais `HasRarity(Caster, Mythic)` du "
+                         "bonus tombe -> la prediction doit RETOMBER a la base alors que l'effet "
+                         "est TOUJOURS sur la cible. Sans ce bras, `--rarity-amis` eteint les "
+                         "deux d'un coup et ne les distingue pas.")
     a = ap.parse_args()
 
     # La geometrie est PILOTEE : on l'assertionne plutot que de la subir.
@@ -169,6 +185,12 @@ def main() -> int:
             "--state-file", sf]
     if a.bras != "sans-mythique":
         argv[-2:-2] = ["--equip-mythic", "%s:%s:%d" % (PORTEUR, ABILITY, a.level)]
+    if a.rarity_attaquant is not None:
+        argv[-2:-2] = ["--unit-stat", "%s:Rarity=%d" % (ATTAQUANT_VIS, a.rarity_attaquant)]
+    if a.rarity_amis is not None:
+        argv[-2:-2] = ["--unit-stat",
+                       ";".join("%s:Rarity=%d" % (v, a.rarity_amis)
+                                for v in (ATTAQUANT_VIS, ANCRE_VIS, MELEE_VIS))]
 
     print()
     print("=== ETAGE 1 : build ===")
@@ -232,6 +254,27 @@ def main() -> int:
 
         print()
         print("=== VERDICT (%s) ===" % a.bras)
+        if a.rarity_attaquant is not None and a.rarity_attaquant != 5:
+            if not a_proche:
+                print("  REGIME NON SEPARANT : l'aure s'est eteinte, donc ce bras ne mesure PAS"
+                      " le gate `HasRarity(Caster, Mythic)` du BONUS mais celui du SELECTEUR.")
+                return 1
+            print("  L'AURE TIENT (l'ancre est restee Mythic) et l'attaquant est Rarity=%d :"
+                  " la prediction ci-dessus doit etre la valeur de BASE (comparer au bras"
+                  " `sans-mythique`). C'est le gate `HasRarity(Caster, Mythic)` du BONUS,"
+                  " isole du selecteur." % a.rarity_attaquant)
+            return 0
+        if a.rarity_amis is not None and a.rarity_amis != 5:
+            if a_proche or a_loin:
+                print("  CONTRE-EPREUVE ROUGE : amis Rarity=%d et l'aure vise encore %s -- la"
+                      " branche `UnitsWithRarity(..., Mythic)` n'est donc pas ce qu'on mesure."
+                      % (a.rarity_amis, sorted(vises)))
+                return 1
+            print("  CONTRE-EPREUVE VERTE : amis Rarity=%d -> l'effet %d ne vise PLUS personne."
+                  " La branche MYTHIC du selecteur est EXERCEE, et l'autre branche"
+                  " (`UnitsWithVisualId(astraSmnGuardsman)`) ne contribue rien ici."
+                  % (a.rarity_amis, EFFECT_TYPE))
+            return 0
         if a.bras == "sans-mythique":
             if a_proche or a_loin:
                 print("  CONTRE-EPREUVE ROUGE : l'effet %d existe SANS --equip-mythic -- le bras"
