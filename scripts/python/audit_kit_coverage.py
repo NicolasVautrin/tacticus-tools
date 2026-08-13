@@ -96,9 +96,18 @@ from engine.runner.operations.triggers.dispatch.ability import IMPERATIVE_ABILIT
 
 OUT = os.path.join(_REPO, "docs", "rl", "kit-coverage.md")
 
-# Au-dela de ce nombre de porteurs, un trait est presume couvert par les couches globales
-# (stats/mouvement/legalite) et n'est pas compte comme travail de kit.
-TRAIT_COMMON_MAX = 12
+# ⚠ `TRAIT_COMMON_MAX` A DISPARU (#1015). C'etait un SEUIL DE FREQUENCE (12 porteurs) qui ECARTAIT
+# 22 traits du compte en les declarant « presumes couverts par les couches globales ». Un trait
+# frequent n'est pas un trait couvert : la mesure a rendu **3 des 22 presumes** LUS NULLE PART dans
+# `engine/**` -- `InstinctiveBehaviour` (23 porteurs), `Healer` (18), `CloseCombatWeakness` (16) --
+# alors que les trois portent une mecanique de combat explicite. Le seuil ne mesurait rien, il
+# supposait ; et comme tout seuil, il se degradait en silence a mesure que le travail avancait.
+#
+# Ce qui l'a remplace : `trait_channels.canaux()`, un foyer qui PARTITIONNE. Tout trait porte y sort
+# dans exactement un etat, avec le CANAL qui l'y met et les SITES qui l'etablissent ; un canal
+# inconnu sortirait sous son nom au lieu d'etre absorbe en « non couvert ». Le compte n'ecarte plus
+# personne -- il repond, trait par trait, a « le port sait-il l'evaluer, et par quel canal ? ».
+import trait_channels as TC
 
 # Voies d'attribution qui touchent une unite `lineup` sans figurer sur `activeAbilities` /
 # `passiveAbilities` (#323). Elles sont CONDITIONNELLES (a debloquer / a equiper) -> comptees a
@@ -272,14 +281,15 @@ def collect():
                              "atteste": att})
         kit_traits = []
         for t in (u.get("traits") or []):
-            if trait_units[t] > TRAIT_COMMON_MAX:
-                continue                       # trait commun -> couche globale, pas du travail de kit
+            # AUCUN ECART (#1015) : le seuil de frequence est retire, tout trait porte est compte et
+            # rend son CANAL. Un trait tres repandu qui n'est evalue nulle part est desormais VISIBLE
+            # au lieu d'etre presume couvert -- c'etait le cas de 3 des 22 qu'ecartait le seuil.
             att = _atteste("trait", t)
+            cx = TC.canaux(t)
             kit_traits.append({
                 "name": t, "carriers": trait_units[t], "atteste": att,
-                "covered": (t in TRAIT_TRIGGERS or t in TRAIT_DERIVED_ABILITIES
-                            or t in TRAIT_OWNER_EFFECTS or _has_effect_named_after(t)
-                            or att is not None),
+                "canaux": cx, "sites": len(TC.sites(t)),
+                "covered": bool(cx) or att is not None,
             })
         missing = (sum(1 for a in actives if not a["combat"])
                    + sum(1 for p in passives if not p["covered"])

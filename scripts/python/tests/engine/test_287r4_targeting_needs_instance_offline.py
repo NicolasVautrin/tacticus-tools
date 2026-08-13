@@ -55,7 +55,8 @@ from engine.entities.active_ability_type import ActiveAbilityType               
 from engine.runner.abilities.base import ActiveAbility                             # noqa: E402
 from engine.runner.abilities.handler import ABILITY_CLASSES                        # noqa: E402
 from engine.runner.abilities.targeting import (                                    # noqa: E402
-    TARGETING_OPTIONS_UNPORTED, TargetingOptions, targeting_options_for,
+    TARGETING_OPTIONS_UNPORTED, TargetingOptions, UnportedAbilityTargeting,
+    targeting_options_for,
 )
 from engine.runner.abilities.targeting_rule import TargetingRule as TR             # noqa: E402
 from engine.runner.state import State                                              # noqa: E402
@@ -165,17 +166,56 @@ def _regle_dynamique_est_liee(obj) -> bool:
 # Etage 0 -- le recensement, et son propre NON-VIDE
 # ------------------------------------------------------------------------------------------------
 
+def ids_non_portes_du_bit() -> list:
+    """Les ids posant le bit que la voie NON PORTEE sert REELLEMENT (porteur =
+    `UnportedAbilityTargeting`). VIDE aujourd'hui -- et c'est une MESURE, pas un oubli (#1015)."""
+    classes = {a for a in _ids_portant_le_bit()
+               if getattr(ABILITY_CLASSES.get(a), "TARGETING_OPTIONS", None) is not None}
+    return [a for a in _ids_portant_le_bit() if a not in classes]
+
+
+def porteurs_a_confronter() -> list:
+    """Les porteurs que les etages 1-2 doivent traverser : ceux de PRODUCTION, plus un porteur
+    TEMOIN pour toute voie qu'aucun id n'emprunte plus (#1015).
+
+    C'EST LA REPARATION DU TROISIEME ROUGE, ET C'EST LA MEME QUE POUR LES DEUX AUTRES. L'etage 0
+    exigeait que la voie non portee soit PEUPLEE ; elle ne l'est plus, parce que les 80 ids qui
+    posent `TargetMatchesDynamicRule` ont TOUS acquis une classe portee avec masque. Exiger un
+    peuplement, c'est faire dependre une garde de la cadence de portage -- elle expire alors par le
+    travail accompli, en silence. Ce qui doit rester vrai est que les DEUX FACES du defaut de
+    #287-r4 restent EXERCEES : la face `TypeError` (porteur = une CLASSE au lieu d'une instance) et
+    la face `AttributeError` (porteur sans `get_dynamic_invalid_target_reason`). Un porteur temoin
+    les exerce sans rien devoir a la population."""
+    out = [(aid, _porteur_de(aid)) for aid in _ids_portant_le_bit()]
+    if not ids_non_portes_du_bit():
+        # Aucun id ne passe plus par la voie non portee : on la confronte quand meme, sur le porteur
+        # que le site FABRIQUERAIT. Meme construction que `turnflow._has_valid_targets`.
+        temoin = int(ActiveAbilityType.PsychicMaelstrom)
+        out.append((temoin, UnportedAbilityTargeting(temoin, targeting_options_for(temoin))))
+    return out
+
+
 def test_le_recensement_du_bit_dynamique_n_est_pas_vide():
     """Un recensement vide rendrait TOUS les etages suivants vrais par vacuite -- un vert qui ment.
-    On assertionne donc son non-vide, et la presence des DEUX voies (classe / non portee) : c'est
-    ce qui garantit que les deux faces du defaut restent couvertes."""
+    On assertionne donc son non-vide, et le fait que les DEUX voies restent EXERCEES.
+
+    ⚠ « EXERCEES », ET NON PLUS « PEUPLEES » (#1015). Cette assertion exigeait
+    `assert non_portes` -- que des ids empruntent encore la voie non portee. Mesure du 2026-08-13 :
+    il n'y en a plus AUCUN sur les 80 qui posent le bit, tous ayant acquis une classe portee. La
+    premisse etait devenue structurellement infaisable, et `master` en restait rouge. Le peuplement
+    d'une voie suit la cadence de portage ; ce qui se garde est que les deux FACES du defaut
+    d'origine restent traversees, ce dont `porteurs_a_confronter()` se charge par un temoin."""
     ids = _ids_portant_le_bit()
     assert ids, "aucun id ne porte TargetMatchesDynamicRule -- le recensement ne visite rien"
     classes = [a for a in ids
                if getattr(ABILITY_CLASSES.get(a), "TARGETING_OPTIONS", None) is not None]
-    non_portes = [a for a in ids if a not in set(classes)]
     assert classes, "voie 'classe du registre' VIDE -- la face TypeError n'est plus couverte"
-    assert non_portes, "voie 'non portee' VIDE -- la face AttributeError n'est plus couverte"
+    # La face AttributeError est exercee soit par la production, soit par le temoin -- jamais par
+    # personne. On le verifie sur les porteurs REELLEMENT confrontes, pas sur une population.
+    types = {type(ab).__name__ for _a, ab in porteurs_a_confronter() if ab is not None}
+    assert "UnportedAbilityTargeting" in types, (
+        "la face AttributeError n'est plus couverte : aucun porteur confronte n'est un "
+        "`UnportedAbilityTargeting`, ni en production ni par temoin. Types vus : %r" % sorted(types))
 
 
 # ------------------------------------------------------------------------------------------------
@@ -206,8 +246,9 @@ def test_le_porteur_passe_a_la_cascade_est_une_instance_a_regle_liee():
     """EXHAUSTIF sur les 65 : l'espion court-circuite la cascade, donc aucun id n'echappe a la
     mesure parce que l'etat minimal l'aurait fait sortir plus tot."""
     mauvais = []
-    for aid in _ids_portant_le_bit():
-        ab = _porteur_de(aid)
+    # `porteurs_a_confronter` et non `_ids_portant_le_bit` (#1015) : la voie non portee n'a plus
+    # aucun id en production, et la balayer seule laissait la face `AttributeError` non exercee.
+    for aid, ab in porteurs_a_confronter():
         if ab is None:
             mauvais.append((aid, _nom(aid), "aucun porteur construit"))
         elif not _est_instance_de_classe_nommee(ab):
