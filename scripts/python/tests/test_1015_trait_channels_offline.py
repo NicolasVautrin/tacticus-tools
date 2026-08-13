@@ -36,6 +36,34 @@ import gameconfig as GC                                                   # noqa
 import trait_channels as TC                                               # noqa: E402
 from engine.entities.traits.unit_trait import UnitTrait                   # noqa: E402
 
+#: Ce qui doit faire REJOUER ce fichier. Le foyer (`trait_channels`) et son consommateur
+#: (`audit_kit_coverage`) evidemment ; mais AUSSI les trois registres de trait et le mirror
+#: `UnitTrait` -- une entree ajoutee a l'un d'eux change le canal d'un trait, et le cliquet des NON
+#: COUVERTS doit alors etre reconsidere. `engine/**` entier serait le perimetre exact (le balayage
+#: AST le lit en totalite) ; on declare les foyers qui le decident, pas les 622 fichiers qu'il lit.
+DECLENCHEUR = {
+    "chemins": (
+        "scripts/python/trait_channels.py",
+    ),
+    "build": False,
+    "toujours": True,
+    "raison": (
+        "`toujours: True`, et c'est un RESULTAT mesure, pas un aveu. Ce fichier garde un recenseur "
+        "dont le perimetre est TOUT `engine/**` : `trait_channels._balayage()` lit les 622 fichiers "
+        "du paquet par `rglob`, et une simple LECTURE (`UnitTrait.Healer` ajoute dans n'importe "
+        "quel module) suffit a faire basculer un trait de NON COUVERT a COUVERT. Or `rglob` ne "
+        "laisse AUCUNE trace dans la fermeture d'imports : `--proposer` ne voit qu'un seul chemin "
+        "(`trait_channels.py`), et une declaration reduite a lui serait le FAUX VERT que ce garde "
+        "existe pour attraper -- le port pourrait porter `Healer` sans que le cliquet des cinq "
+        "non couverts ne se rejoue. Les trois registres de trait "
+        "(`effects/factory.TRAIT_DERIVED_ABILITIES`/`TRAIT_OWNER_EFFECTS`, "
+        "`triggers/dispatch/registry.TRAIT_TRIGGERS`) et le mirror `entities/traits/unit_trait.py` "
+        "sont dans le meme cas, et ne sont pas listes ici pour cette raison : ils sont deja "
+        "couverts par `toujours`. S'y ajoute le gameconfig, qui decide la POPULATION des 61 traits "
+        "portes et n'est atteint par aucun import (il est lu depuis `data/`)."
+    ),
+}
+
 #: Les traits SANS AUCUN canal, mesures au 2026-08-13 sur le build `rnca9r7q6c`. Les cinq portent
 #: une semantique de combat (gameconfig), donc AUCUN n'est « sans objet » -- residu #1015-r1.
 NON_COUVERTS_MESURES = {
