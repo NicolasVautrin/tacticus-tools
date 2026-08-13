@@ -180,9 +180,17 @@ obligatoire, qui doit reproduire `abilityTargets.fromHere`.
 
 ## 5. Résidus ouverts
 
-`#982-r4` (port du gate `KeepOnChangeOwner`), `#982-r5` (port du `UnitFlag` + `EntityCanBeHealed`),
-`#982-r6` (recensement partiel : 221/465 classes non initialisées).
-Détail : `docs/rl/backlog.md`.
+`#982-r6` (recensement partiel : 221/465 classes non initialisées). Détail : `docs/rl/backlog.md`.
+
+`#982-r4` et `#982-r5` sont **FERMÉS** (cf. §2). ⚠ `#982-r5` a survécu **une tranche de trop** dans
+`docs/rl/backlog.md` : le commit qui l'a résolu (`#966-r1 FERME (POSITIF LU) + #982-r5`) a livré le
+cliquet et corrigé les trois proses, mais **n'a pas retiré la ligne** — elle a donc été
+re-dispatchée telle quelle, et le solveur suivant a re-mesuré une réparation déjà en place.
+Re-vérification (2026-08-13) : `entity_can_be_healed` est bit-pour-bit le décompilé
+d'`IdunBattle.Core.Services.AttackQuery$$EntityCanBeHealed` relu indépendamment, et son cliquet est
+**adversarial pour de vrai** — retirer le 3ᵉ disjoint le fait rougir sur
+`le 3e disjoint d'EntityCanBeHealed ne mord PAS : caster AVEC le flag CanHealFullHealthUnits ->
+False (attendu True)`. **Fermer un résidu, c'est retirer sa ligne dans le MÊME commit.**
 
 ⚠ Les numéros sont **r4/r5/r6, pas r1/r2/r3** : `probe_468 --suggere 982` a compté r1–r3 comme
 PRIS parce que ce fichier même les citait déjà quand l'allocation a eu lieu. Le corpus lit
