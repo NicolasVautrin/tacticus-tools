@@ -318,6 +318,22 @@ BOND_REMOVAL_GATES: dict[int, BondRemovalGates] = {
     int(EffectType.MindControl_Taunter): BondRemovalGates(
         "Idun.Source.IdunBattle.Logic.Entities.Effects.Loki.MindControl_TaunterEffect",
         True, 1, False),
+    # Pose par `IdunBattleLogic.Entities.Abilities.Active.Loki.AttemptedPossessionAbility$$ExecuteBehaviour`
+    # (1101, `thousSorcerer` << Thaumachus >>, #590) sur la cible ET ses enfants vivants, avec
+    # `bondedEntity` = le CASTER (`Caster@0x48` en 3e ET 5e argument d'`AddBondEffect`) -- et
+    # desormais AUSSI par le trigger de PROPAGATION de l'effet lui-meme (#590-r3,
+    # `triggers/loki/possession.py`), qui repose le MEME `EffectType` sur les summons qui
+    # apparaissent pendant la possession, bondes au MEME caster.
+    # `EffectType` ETABLI par le 2e argument LITTERAL de l'`AddBondEffect` (`0x4b9`) apparie au NOM
+    # de la classe native, seule du binaire a le porter.
+    # Les TROIS virtuels sont MESURES (`probe_462_r4b_r1_r1_r1_r1_bond_removal.py --step declared`,
+    # 2026-08-13) : `get_Range` = OWN=none (PAS de (b)), `get_Adjacent` = OWN=false (PAS de (c)),
+    # `get_RemoveOnBondedEntityDeath` = OWN=true (le (a) ARME). Consequence portee : la possession
+    # tombe quand le CASTER meurt ou quitte le plateau -- et elle NE tombe ni a la distance ni a la
+    # rupture d'adjacence, ce qui est coherent avec l'arbre du cast, qui envoie la proie ATTAQUER
+    # (donc s'eloigner de Thaumachus) dans le meme souffle.
+    int(EffectType.AttemptedPossession_Possessed): BondRemovalGates(
+        "IdunBattle.Entities.Effects.Loki.AttemptedPossession_PossessedEffect", True, None, False),
 }
 
 

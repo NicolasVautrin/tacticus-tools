@@ -79,6 +79,8 @@ from ..loki.tainted_narthecium import TaintedNartheciumReviveAbility  # case-66 
 from ..loki.narthecium import NartheciumReviveAbility                 # #79 (passif ultraApothecary, revive)
 from ..loki.rites_of_morkai import (RitesOfMorkaiReviveTrigger,       # #79 (effet 1502 pose par Baldr)
                                    RITES_OF_MORKAI_EFFECT)
+from ..loki.attempted_possession import (AttemptedPossessionPropagate,   # #590-r3 (effet 1209, thousSorcerer)
+                                         POSSESSED as POSSESSED_EFFECT)
 from ..loki.reanimation_beam import (ReanimationBeamReviveTrigger,    # #79 (effet 1547, MoW necroReanimator)
                                     REANIMATION_BEAM_EFFECT)
 from ..loki.phoenix_gem import (PhoenixGemReviveAbility,              # #79 (relic, marqueur 1451)
@@ -1468,6 +1470,16 @@ EFFECT_TRIGGERS: dict[int, list[type[EffectTrigger]]] = {
     # ReviveEffect, filtre IdunBattle.Entities.Effects.Loki.ReanimationBeam_ReviveEffect$$CreateTargetFilter = AreFriends & HasTrait(Mechanical=5) & HasEffect(1545
     # NanoscarabRepairProtocols) ; IdunBattle.Entities.Effects.Loki.ReanimationBeam_ReviveEffect$$.ctor removeEffect=TRUE -> one-shot.
     REANIMATION_BEAM_EFFECT: [ReanimationBeamReviveTrigger],         # 1547 (allie Mechanical nanoscarabe)
+    # AttemptedPossession_Possessed (#590-r3, effet 1209 pose par l'active 1101 de `thousSorcerer`) --
+    # le trigger de PROPAGATION greffe par
+    # `IdunBattle.Entities.Effects.Loki.AttemptedPossession_PossessedEffect$$CreateHandleTriggerAbilitiesInternal` :
+    # `On(0x32 UnitAdded) & AmountIsZero(Count(Parent(Owner))) & AreEqual(Parent(Actor), Owner)` ->
+    # `AddBondEffect(0x4b9, targets = Actor, bondedEntity = BondedEntityFromEffect(Effect), turns = 1)`.
+    # Tout summon qui apparait sous la coupe de l'unite possedee est possede a son tour, 1 tour, bonde
+    # au MEME caster. Rail `ArraySet` -> AUCUN gate `IsActive` (case-229).
+    # Les TROIS retraits HERITES d'`ABondEffect` sont, eux, DERIVES de `BOND_REMOVAL_GATES` par la
+    # boucle `bond_removal_registry_entries()` plus bas -- 1209 y arme le seul gate (a).
+    POSSESSED_EFFECT: [AttemptedPossessionPropagate],                 # 1209 (propagation aux summons)
     # PhoenixGem (#79, relic d'eldarAutarch) : PAS un ReviveEffect -- `PhoenixGem_ReviveAbility`
     # (IdunBattleLogic.Entities.Abilities.Triggered.Loki.PhoenixGem_ReviveAbility$$CreateTrigger/IdunBattleLogic.Entities.Abilities.Triggered.Loki.PhoenixGem_ReviveAbility$$CreateBehaviour) enregistree par l'effet-marqueur `PhoenixGem_CanReviveEffect` 1451
     # (IdunBattle.Entities.Effects.Loki.PhoenixGem_CanReviveEffect$$CreateHandleTriggerAbilitiesInternal). Self-revive INCONDITIONNEL (pas de Maybe), **even if Overkilled**, one-shot par
