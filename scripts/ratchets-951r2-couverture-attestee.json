@@ -82,6 +82,17 @@
    "cliquet": "scripts/python/tests/engine/test_1021_face_decision_au_registre_offline.py",
    "_commit": "7d3a80dd5f1b4960a1dde97701c468e4ebf3d435",
    "_at": 1786600000
+  },
+  "active-decision:DevoutPush": {
+   "categorie": "active-decision",
+   "nom": "DevoutPush",
+   "verdict": "RIEN_A_PORTER",
+   "raison": "IdunBattle.AI.Playbook.Loki.DevoutPushPlaybook ne declare AUCUNE methode propre : son corps ENTIER est `ALoki_NormalAttackPlaybook<T>..ctor(this, 0x41d = 1053)`. Il n'y a donc rien de PROPRE a porter. TROIS sources independantes, l'absence d'une methode dans les tables ne prouvant rien (dedup IL2CPP). (a) Ghidra : `search_symbols_by_name` sur `IdunBattle.AI.Playbook.Loki.DevoutPushPlaybook` rend UN SEUL symbole, son `.ctor`, et son decompile est ce seul appel. (b) `ghidra/functions.tsv` par la voie de `probe_909.methodes_par_classe` : la classe porte `('.ctor', 64 octets)` et RIEN d'autre, la ou `ALoki_NormalAttackPlaybook<T>` porte `CalculateCustomUtility`, `MakeDamagePredictions` et `ShouldExecute` -- et la ou ses voisines `PrecisionShot_AimPlaybook` / `PrecisionShot_AttackPlaybook` portent `EvaluateNonComparable` + `ShouldEvaluate`, ce qui montre que la mesure SAIT voir une surcharge quand il y en a une. (c) `frida/classes.tsv`, source DISTINCTE du dump : parent = `IdunBattle.AI.Playbook.Loki.ALoki_NormalAttackPlaybook`1`, et l'instance inflatee `ALoki_NormalAttackPlaybook<IdunBattleLogic.Entities.Abilities.Active.Loki.DevoutPushAbility>` y figure -- meme famille que les 17 autres derivees, dont `MV71SniperDroneSquadAttackPlaybook`, deja attestee ici pour la MEME raison. PARTICULARITE MESUREE, ET ELLE N'EST PAS COUVERTE PAR CETTE ATTESTATION : sur les 18 derivees d'`ALoki_NormalAttackPlaybook`1`, 1053 est la SEULE dont le parametre de type n'est PAS une `*_NormalAttackAbility` -- c'est une ACTIVE DE KIT. Le corps de la BASE (`MakeDamagePredictions` = UN `ProbableDamageEvent` bati sur le slot 0x22 d'`IBattleQuery`, `CalculateCustomUtility` = Fix64(1), `ShouldExecute`) est donc load-bearing pour elle d'une facon qu'il n'est pour aucune autre. Ce corps est un fait de la BASE, commun aux 18, il ne se porte pas 18 fois -- residus #1021-r1 (deja ouvert) et #996-r1-r2 (la particularite 1053).",
+   "source": "docs/rl/case-996-r1-precisionshot-devoutpush.md#2",
+   "build": "rnca9r7q6c",
+   "cliquet": "scripts/python/tests/engine/test_1021_face_decision_au_registre_offline.py",
+   "_commit": "b40724cf5d2fa59c60af7afbdd3cb055dfbbb1ea",
+   "_at": 1786800000
   }
  }
 }

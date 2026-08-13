@@ -21,6 +21,10 @@ from engine.utilities.heal import HEAL_UTILITY
 from engine.utilities.repair import REPAIR_UTILITY
 from engine.utilities.effect import ADDED_EFFECT_UTILITY
 from engine.utilities.utility_type import UtilityType
+# Forme B (module + acces attributaire) : `utilities_database` et `tile_leaf_ctx` sont substituables
+# par un probe, ce qu'une liaison `from X import f` au niveau module gelerait (CLAUDE.md, morsure).
+# Aucun cout de cascade : `engine.utilities.tile` est deja importe juste au-dessus.
+import engine.utilities.tile as _tile_db
 
 
 class DislikeStartingTilesUtility(BaseUtility):
@@ -153,4 +157,24 @@ def get_movement_utility(ctx, pos, utility_type: int) -> float:
         return tile_utility(ctx, pos)
     if utility_type == UtilityType.DislikeStartingTilesUtility:
         return _DISLIKE_STARTING_TILES.evaluate(ctx, pos)
+    # FEUILLES DE `UtilityMovementCase` a signature TILE (#996-r1) -- meme adaptateur que Tile(7)
+    # ci-dessus, sans le `meta` par-tuile (`elevation`, `effects`, `is_temporary`), qu'aucun appelant
+    # de CETTE branche ne construit. Le natif ne fait aucune distinction : toutes ces feuilles sont
+    # des `EvaluateMovementInSteps(UtilityMovementCase)` que `ComposedUtility.EvaluateMovement`
+    # appelle de la meme facon ; c'est le PORT qui avait deux signatures et n'en dispatchait qu'une.
+    #
+    # RAYON DE SOUFFLE, MESURE : `get_movement_utility` n'a que TROIS appelants
+    # (`action_generators.movement_action_with_override`, `playbook/loki_custom.py`,
+    # `playbook/noncomparable/nova_shield.py`) et les DEUX derniers ne passent que `Tile(7)` /
+    # `DislikeStartingTiles`, tranches AVANT d'arriver ici. Reste le premier, dont l'unique producteur
+    # est le behaviour DSL `PerformAIMovement` : ses call-sites portes sont `1144 BioMinefield`
+    # (`UtilityType.BioMinefield_MoveTowardsTarget` = 62, **ABSENTE** d'`UTILITY_BY_TYPE` -> `None`
+    # -> 0.0, exactement comme avant) et `1053 DevoutPush` (53, celle que cette tranche ajoute).
+    # Le comportement mesure de #939 est donc inchange au bit pres.
+    leaf = _tile_db.utilities_database(int(utility_type))
+    if leaf is not None:
+        wt = getattr(ctx, "wt", None)
+        if wt is None:
+            return 0.0                      # poids BC non lus : on ne fabrique aucun score
+        return float(leaf.evaluate(pos, None, _tile_db.tile_leaf_ctx(ctx), wt) or 0.0)
     return 0.0

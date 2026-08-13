@@ -751,16 +751,16 @@ TARGETING_OPTIONS_UNPORTED: "dict[int, TargetingOptions]" = {
     #     PAS des faits de RE -- ils bougent a chaque face COMBAT portee, et c'est pour ca
     #     qu'aucun d'eux n'est ecrit a la main.
     #
-    #     len(TARGETING_OPTIONS_UNPORTED) ......... 3
+    #     len(TARGETING_OPTIONS_UNPORTED) ......... 2
     #       dont hors-bloc (tete de table) ..... 1
-    #       dont bloc du pool (#433-r4) ........ 2
+    #       dont bloc du pool (#433-r4) ........ 1
     #
     #     VENTILATION PAR FORME DE CTOR (dict ENTIER, hors-bloc compris) :
     #       FLAGS-DIRECTS  ..................... 0
     #       PRESET+FLAGS   ..................... 2
     #       PRESET-SEUL    ..................... 0
-    #       STATIC-COPY    ..................... 1
-    #       (somme = 3)
+    #       STATIC-COPY    ..................... 0
+    #       (somme = 2)
     # <<< FIN COMPTES DERIVES
     #
     # LES 16 PRESETS, RELUS A LA SOURCE dans `IdunBattle.Core.Services.TargetingOptions$$.cctor`
@@ -1143,10 +1143,15 @@ TARGETING_OPTIONS_UNPORTED: "dict[int, TargetingOptions]" = {
     # 1080 HellfireShells -- MIGRE (#605) sur `runner/abilities/ultramarines.py::
     #   HellfireShellsAbility.TARGETING_OPTIONS` avec sa face COMBAT. Le masque y est RELU au
     #   decompile (meme preset `+0x140`) et il CONCORDE avec celui qui vivait ici.
-    # 1053 DevoutPush  -- `...Active.Loki.DevoutPushAbility$$.ctor`, preset `+0x40`.
-    #   `*(statics+0x68)` = 0x4000 = `TargetIsEnemy` SEUL ; `+0x60` = 1 = `RangedBool.False` ;
-    #   range = `<TargetingRange statics+0x30>` = RANGE_ADJACENT. Meme preset que 1064/1068/1132/
-    #   1165/1191/1195 -- et que `DiveAttackAbilityBase$$.ctor`.
+    # 1053 DevoutPush -- MIGRE (#996-r1) sur `runner/abilities/blacktemplars.py::DevoutPushAbility.
+    #   TARGETING_OPTIONS` avec sa face COMBAT. Le ctor a ete RELU au decompile par la tranche de
+    #   portage (meme preset STATIC-COPY `+0x40`) et il CONCORDE champ pour champ avec la valeur qui
+    #   vivait ici : `*(statics+0x68)` = 0x4000 = `TargetIsEnemy` SEUL ; `+0x60` = 1 =
+    #   `RangedBool.False` ; range = `<TargetingRange statics+0x30>` = RANGE_ADJACENT. Meme preset
+    #   que 1064/1068/1132/1165/1191/1195 -- et que `DiveAttackAbilityBase$$.ctor`.
+    #   CONTRAT DE DISJONCTION -- laisser la ligne ici rendrait `test_targeting_options_sources`
+    #   ROUGE pendant que `probe_181` resterait VERT (garde d'EXISTENCE, aveugle a la DOUBLE
+    #   declaration -- cf. 1108 juste en dessous, qui a fait exactement cette faute).
     # 1108 KissOfDeath -- MIGRE (#940) sur `runner/abilities/aeldari.py::KissOfDeathAbility.
     #   TARGETING_OPTIONS` avec sa face COMBAT, qui a RELU le meme preset `+0x40`. La valeur qui
     #   vivait ici est CONFIRMEE champ pour champ (comparaison exercee : les deux objets sont
@@ -1154,8 +1159,6 @@ TARGETING_OPTIONS_UNPORTED: "dict[int, TargetingOptions]" = {
     #   `test_512_excruciating_frequencies_offline` ROUGE sur `master` pendant que `probe_181`
     #   restait VERT : ce dernier est un garde d'EXISTENCE (chaque entree du registre A un masque),
     #   structurellement aveugle a la DOUBLE declaration.
-    ActiveAbilityType.DevoutPush: TargetingOptions(rules=TR.TargetIsEnemy, self_cast=False, range=RANGE_ADJACENT,  # 1053
-                           force_melee_target=RANGED_BOOL_FALSE),
 }
 
 

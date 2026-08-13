@@ -10,9 +10,9 @@ Le runner combat route chaque ability choisie via `ActiveAbilityMessage` -> `Abi
 
 - Noms distincts en `activeAbilities` (gameconfig) : **175**
 - dont resolus en `ActiveAbilityType` : **174** ; **HORS `ActiveAbilityType`** : **1** (cf. la section dediee -- ni portes ni no-op)
-- **PORTED** (dans `ABILITY_CLASSES`) : **170**
-- **NO-OP silencieux** (a porter) : **4**
-- Ventilation NO-OP : **DAMAGE**=3, **EFFECT/BUFF**=1
+- **PORTED** (dans `ABILITY_CLASSES`) : **171**
+- **NO-OP silencieux** (a porter) : **3**
+- Ventilation NO-OP : **DAMAGE**=3
 
 ## Priorisation & templates de port
 
@@ -44,16 +44,15 @@ Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 |---|---|---|---|---|
 | ? | Maugetar | TriggeredAbilityType(1498) PORTEE via `RELIC_ABILITY_TRIGGERS` [kit: DAMAGE(DirectDamage)] | 1 | N |
 
-## NO-OP SILENCIEUX en combat (a porter, tries categorie puis frequence) (4)
+## NO-OP SILENCIEUX en combat (a porter, tries categorie puis frequence) (3)
 
 | id | ability | categorie | #units | kinds |
 |---|---|---|---|---|
 | 1015 | PrecisionShot | DAMAGE(Energy) | 2 | NS |
 | 1215 | InstrumentsOfVengeance | DAMAGE(HeavyRound) | 1 | N |
 | 1094 | TheLantern | DAMAGE(Energy) | 1 | N |
-| 1053 | DevoutPush | EFFECT/BUFF | 2 | NS |
 
-## PORTED (registry) (170)
+## PORTED (registry) (171)
 
 | id | ability | categorie | #units | kinds |
 |---|---|---|---|---|
@@ -183,6 +182,7 @@ Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 | 1049 | CrusadeOfWrath | EFFECT/BUFF | 3 | LN |
 | 1140 | ExemplarOfHate | EFFECT/BUFF | 3 | LN |
 | 1010 | StormOfFlensingBlades | EFFECT/BUFF | 3 | N |
+| 1053 | DevoutPush | EFFECT/BUFF | 2 | NS |
 | 1185 | ForwardObservers | EFFECT/BUFF | 2 | NS |
 | 1228 | SternguardFocus | EFFECT/BUFF | 2 | LN |
 | 1186 | WallOfMirrors | EFFECT/BUFF | 2 | NS |

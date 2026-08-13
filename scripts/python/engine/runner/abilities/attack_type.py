@@ -194,6 +194,13 @@ ABILITY_ATTACK_TYPE: dict[int, int] = {
     # configuration que Drachnyen ci-dessus : TRANSCRIT bien que l'arbre n'attaque pas « en
     # direct » (il dispatche l'attaque NORMALE via `UseActiveAbility`).
     ActiveAbilityType.HolyDuel: AbilityAttackType.DirectTargetAttack,  # 1050
+    # DevoutPush (1053) : `...Active.Loki.DevoutPushAbility$$.ctor` est de forme STATIC-COPY (aucun
+    # `TargetingOptions$$.ctor` appele) -- il recopie les 0x40 octets du preset statique
+    # `<TargetingOptions statics>+0x40` puis `AActiveAbility..ctor(this, &opts, 0)`, ou le 3e
+    # argument est le litteral `0` (`xor r8d, r8d`). MEME configuration que Drachnyen et HolyDuel
+    # ci-dessus : TRANSCRIT bien que l'arbre n'attaque pas « en direct » (il dispatche l'attaque
+    # NORMALE via `UseActiveAbility`, puis DEPLACE via `PerformAIMovement`). (#996-r1)
+    ActiveAbilityType.DevoutPush: AbilityAttackType.DirectTargetAttack,  # 1053
     ActiveAbilityType.FlailSwing: AbilityAttackType.DirectTargetAttack,  # 1042
     # StrikeFromTheShadows (1225) : `...Active.Loki.StrikeFromTheShadowsAbility$$.ctor` recopie les
     # 0x40 octets du preset statique `<TargetingOptions statics>+0x140` puis appelle
