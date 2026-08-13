@@ -18,6 +18,7 @@ from .loki.maw_claws_of_thyrax import MawClawsOfThyraxExtraCritDmgEffect
 from .loki.nether_realm_casket import NetherRealmCasketCritDamageReductionEffect
 from .loki.ramshackle import RamshackleDmgReductionEffect
 from .loki.supa_cybork_body import SupaCyborkBodyCritDmgReductionEffect
+from .loki.talisman_of_rage import TalismanOfRageCritDamageReductionEffect
 from .loki.blood_chalice import BloodChaliceExtraPiercingEffect, BloodChaliceHealOnAttackEffect
 from .loki.champion_of_the_feast import ChampionOfTheFeastReduceArmorEffect
 from .loki.heal_blocking import FuryOfTheAncientsEffect
@@ -1403,6 +1404,26 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # foyer `triggered_ability_state` de #357 : `ability_level` (le passif, 50 en runner normalise)
     # rendrait TOUJOURS le dernier palier.
     "AmuletOfTheVoidwyrm_CritDamageReduction": AmuletOfTheVoidwyrmCritDamageReductionEffect,
+    # 1453 TalismanOfRage_CritDamageReduction (#998) : owner-effect PERMANENT de la RELIQUE
+    # `TalismanOfRage`, meme POSE que 1460 juste au-dessus (base `AOwnerEffectTriggeredAbility$$
+    # CreateBehaviour` sur `OnOwnerSpecificAbilityInit`) et meme CANAL `ForSubtraction` :
+    #   `...TalismanOfRage_CritDamageReductionEffect$$CreateCritDamageBonus`
+    #       = ForSubtraction(get_OwnerIsTarget,            <- trigger NU, aucun op_BitwiseAnd
+    #                        Multiply(ConfigVar(0x97 = critDmgReduction),
+    #                                 BlessingsOfKhorne_ModifiersEffect$$
+    #                                     GetMultiplierBasedOnDefeatedInMelee()))
+    # ⚠ LE SECOND FACTEUR N'EST PAS UNE METHODE DE CETTE CLASSE : le decompile appelle NOMMEMENT le
+    # multiplicateur du TRAIT `BlessingsOfKhorne` (1046) -- deja porte et deja consomme par DEUX
+    # autres canaux. Le port ne le duplique pas : foyer unique
+    # `loki/status.py::multiplier_based_on_defeated_in_melee`.
+    # ⚠ TROIS enums : `EffectType` 0x5ad = 1453 est CET effet, sa CONFIG est la TRIGGERED 0x5b4 =
+    # **1460** `TalismanOfRage` (`.ctor` = `AOwnerEffectSpecificTriggeredAbility$$.ctor(this, 0x5b4)`,
+    # qui ecrit `this+0x60`, le champ que relit `CreateTrigger`) -- tandis que `EffectType` 1460 est
+    # `AmuletOfTheVoidwyrm_CritDamageReduction`, l'effet de la ligne precedente. Confondre les deux
+    # lirait les paliers de l'AUTRE relique ([390..579] au lieu de [295..438]).
+    # ⚠ PAS de `CreateActiveCondition` propre (contrairement a 1460) -> le flag capte fait foi, et
+    # `active_condition_ported` reste a son defaut `False`.
+    "TalismanOfRage_CritDamageReduction": TalismanOfRageCritDamageReductionEffect,
     # 1468 SupaCyborkBody_CritDmgReduction (#503-r4) : owner-effect du passif `SupaCyborkBody`, JUMEAU
     # DE FORME de 1460 juste au-dessus -- meme canal `CreateCritDamageBonus`, meme `ForSubtraction`,
     # meme trigger `get_OwnerIsTarget` NU, meme cle `ConfigVar(0x97 = critDmgReduction)` :

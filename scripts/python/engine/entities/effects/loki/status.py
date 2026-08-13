@@ -13,6 +13,10 @@ from ..base import BaseEffect, SubEffectSpec, SAME_TURNS, is_melee_attack
 from ..magnitude import ability_var, bc_effect_config, global_value, trait_var
 from ...traits.unit_trait import UnitTrait, has_any_trait, has_trait
 from ...effect_type import EffectType   # #270-r3 : cles de `ContagionsOfNurgle...CTOR_ARGS`
+# #998 : le litteral 0x5b4 teste par `ActorHasTriggeredAbility` dans le multiplicateur
+# `GetMultiplierBasedOnDefeatedInMelee` est un `TriggeredAbilityType`, PAS un `EffectType`
+# (1460 y nomme `AmuletOfTheVoidwyrm_CritDamageReduction` -- deux objets, meme ordinal).
+from ...triggered_ability_type import TriggeredAbilityType
 # `StatType` etait importe UNIQUEMENT dans le corps de quelques methodes ; `630fb33e`
 # (#270-r1-r1-r3) a converti des litteraux en `StatType.<MEMBRE>` dans des methodes qui n'ont PAS
 # cet import local -> `NameError` a l'appel. Le lecteur est `get_stat_modification_stat`, appele au
@@ -466,6 +470,61 @@ class MasterOfTheTutelariesEffect(BaseEffect):
     Marqueur pur : aucune stat-mod."""
 
 
+#: `TriggeredAbilityType 0x5b4 = 1460` -- le litteral que teste `ActorHasTriggeredAbility` dans
+#: `BlessingsOfKhorne_ModifiersEffect$$GetMultiplierBasedOnDefeatedInMelee`. Nomme (jamais l'ordinal
+#: nu) : `EffectType` 1460 est `AmuletOfTheVoidwyrm_CritDamageReduction`, un AUTRE objet.
+_TALISMAN_OF_RAGE = int(TriggeredAbilityType.TalismanOfRage)
+
+
+def multiplier_based_on_defeated_in_melee(melee_defeats: "int | None", *,
+                                          self_kills: "int | None" = None,
+                                          owner_has_talisman: bool = False) -> int:
+    """FOYER UNIQUE du mirror d'`IdunBattle.Entities.Effects.Loki.BlessingsOfKhorne_ModifiersEffect$$
+    GetMultiplierBasedOnDefeatedInMelee`. Relu noeud par noeud (#998) :
+
+        base   = Count( NormalUnits( UnitsDefeatedByMeleeAttack(AllUnits, 0, 1), 0 ) )
+        mine   = Count( Filter( <les MEMES entites>,
+                                AreEqual( Killer(<DSLSelectors+0x68>), Owner@DSLSelectors+0x30 ) ) )
+        extra  = If( ActorHasTriggeredAbility(Owner@+0x30, 0x5b4 = TalismanOfRage),
+                     mine, <DSLFormulas+0x18> = Direct(0) )
+        return   Min( Sum(base, extra), ConfigConst(0x4c0 = BlessingsOfKhorne, 0x43 = MaxDefeatedUnits) )
+
+    TROIS lecteurs portes, et c'est ce qui en fait un foyer : les deux value-modifications de
+    `BlessingsOfKhorneModifiersEffect` (malus PSYCHIQUE en defense, bonus de degat en attaque) et le
+    canal crit-DEGAT de la relique `TalismanOfRage` (`loki/talisman_of_rage.py`).
+
+    ## LA BRANCHE `extra` ETAIT DECLAREE MORTE, ET ELLE NE L'EST PAS (#998)
+
+    Le port portait : « INERTE-PAR-ROSTER : AUCUN unit du gameconfig courant ne porte TalismanOfRage
+    (verifie unit_map) -- non codee ». **Re-mesure** : `unit_map.py find --ability TalismanOfRage`
+    rend **6** unites -- `worldEightbound`, `worldExecutions`, `worldJakhal` (kind `lineup`, voie
+    `item` = relique EQUIPABLE, les trois porteurs de `catalog_inject.py --list-relics`) et trois
+    bosses npc LHE (voie `relic`, ability CABLEE AU KIT). Le verdict venait de l'angle mort **#323** :
+    `unit_map` lisait alors 2 voies d'attribution sur 5 et etait **AVEUGLE AUX RELIQUES**. Les trois
+    `lineup` sont exactement les World Eaters qui portent le trait `BlessingsOfKhorne` -- donc les
+    deux termes se rencontrent sur la MEME unite, ce qui est le regime ou la branche mord.
+
+    ## TRI-ETAT SUR LES DEUX COMPTEURS -- `None` = non mesure, JAMAIS 0
+
+    * `melee_defeats is None` (aucune source de comptage) -> `0`, effet inerte : c'est le
+      comportement anterieur, conserve a l'identique.
+    * `self_kills is None` alors que la branche est ARMEE (`owner_has_talisman`) -> on rend le
+      `base` SEUL et on ne devine rien. Ce n'est pas un repli neutre, c'est une SOUS-estimation
+      nommee : le natif ajouterait un terme positif. Le substrat existe pourtant
+      (`decisionView.units[].killerId`, publie par `frida/hooks/.../projection.ts`), donc ce chemin
+      ne doit se produire que chez un appelant qui ne seede pas -- pas en production.
+
+    ⚠ `Sum` PUIS `Min` : le cap s'applique a la SOMME, pas a chaque terme. Un porteur qui a tue 5
+    unites en melee sur 6 defaites totales rend `Min(6 + 5, 8) = 8`, pas `Min(6,8) + Min(5,8)`.
+    Les deux differaient des que la somme depasse le cap -- c'est le cas discriminant du test."""
+    if melee_defeats is None:
+        return 0
+    base = int(melee_defeats)
+    extra = int(self_kills) if (owner_has_talisman and self_kills is not None) else 0
+    cap = trait_var("BlessingsOfKhorne", "blessingsOfKhorneMaxDefeatedUnits")  # ConfigConst 0x43 (=8)
+    return min(base + extra, int(cap) if cap else 8)                          # Sum PUIS Min
+
+
 class BlessingsOfKhorneModifiersEffect(BaseEffect):
     """`BlessingsOfKhorne_ModifiersEffect` (EffectType 0x4ee=1262, nom capté "BlessingsOfKhorne" ;
     config-owner TriggeredAbilityType 0x4c0=1216) — trait BlessingsOfKhorne (1046), TOUTE la faction
@@ -485,8 +544,13 @@ class BlessingsOfKhorneModifiersEffect(BaseEffect):
     flag `UnitComponent.DefeatedByMeleeAttack @0x178` écrit par `KillUnitOperation IdunBattle.Operations.KillUnitOperation$$Execute`,
     capté #185 dans decisionView.units). La branche self-kills (`ActorHasTriggeredAbility(owner,
     1460=TalismanOfRage)` → double-compte des kills mêlée du porteur, killer = `DeathReason.KillerId`
-    capté) est INERTE-PAR-ROSTER : AUCUN unit du gameconfig courant ne porte TalismanOfRage
-    (vérifié unit_map) — non codée, à activer si un carrier apparaît (killerId déjà capté).
+    capté) est désormais PORTÉE — cf. `multiplier_based_on_defeated_in_melee` ci-dessus.
+
+    ⚠ ELLE ÉTAIT DÉCLARÉE « INERTE-PAR-ROSTER : AUCUN unit ne porte TalismanOfRage (vérifié
+    unit_map) », ET C'ÉTAIT FAUX (#998) : `unit_map find --ability TalismanOfRage` rend **6** unités
+    (3 `lineup` par voie `item`, 3 bosses npc par voie `relic`), et les trois `lineup` sont
+    précisément des World Eaters — donc porteurs de CE trait. Le verdict venait de l'angle mort
+    **#323**, où `unit_map` lisait 2 voies d'attribution sur 5 et était aveugle aux reliques.
 
     `melee_defeats` = compte BRUT (non cappé) seedé par `Scene._seed_battle_counters()` depuis
     `scene.melee_defeats()` (decisionView.units) ; None (runner offline sans tracking, #185
@@ -496,13 +560,20 @@ class BlessingsOfKhorneModifiersEffect(BaseEffect):
 
     # Compte BRUT de melee-defeats (seedé par Scene ; None = pas de source -> inerte).
     melee_defeats: "int | None" = None
+    #: #998 — kills de MÊLÉE imputables AU PORTEUR (`Filter(..., AreEqual(Killer(u), Owner))`).
+    #: Même tri-état : `None` = non mesuré, jamais 0. Seedé par le même foyer partagé.
+    melee_defeats_by_owner: "int | None" = None
+    #: #998 — `ActorHasTriggeredAbility(Owner@+0x30, 0x5b4)` : le porteur porte-t-il TalismanOfRage ?
+    #: C'est ce booléen SEUL qui arme la branche `extra` ; faux -> le natif verse `Direct(0)`.
+    owner_has_talisman_of_rage: bool = False
 
     def _n(self) -> int:
-        """`IdunBattle.Entities.Effects.Loki.BlessingsOfKhorne_ModifiersEffect$$GetMultiplierBasedOnDefeatedInMelee` : Min(count, MaxDefeatedUnits=8)."""
-        if self.melee_defeats is None:
-            return 0
-        cap = trait_var("BlessingsOfKhorne", "blessingsOfKhorneMaxDefeatedUnits")   # ConfigConst 0x43 (=8)
-        return min(int(self.melee_defeats), int(cap) if cap else 8)
+        """`IdunBattle.Entities.Effects.Loki.BlessingsOfKhorne_ModifiersEffect$$GetMultiplierBasedOnDefeatedInMelee`,
+        via le foyer PARTAGÉ (mirror complet, branche `ActorHasTriggeredAbility` comprise — #998)."""
+        return multiplier_based_on_defeated_in_melee(
+            self.melee_defeats,
+            self_kills=self.melee_defeats_by_owner,
+            owner_has_talisman=bool(self.owner_has_talisman_of_rage))
 
     def create_effect_damage_malus_for_defense(self, is_melee: bool | None = None,
                                                damage_profile: str | None = None,

@@ -18,9 +18,17 @@ from dataclasses import dataclass, field
 
 from .effects.base import BaseEffect
 from .effects.factory import EffectFactory
+# #998 : feuille d'enum (aucune cascade -- `entities/triggered_ability_type.py` n'importe rien
+# d'`engine`). Le litteral 0x5b4 est un `TriggeredAbilityType` ; en `EffectType` il nomme
+# `AmuletOfTheVoidwyrm_CritDamageReduction`, un AUTRE objet.
+from .triggered_ability_type import TriggeredAbilityType
 
 #: `(multiplier %, abilityLevel, activeAbilityLevel)` — l'`AbilityState` applique a UN effet.
 AbilityStateTriple = tuple
+
+#: `TriggeredAbilityType 0x5b4 = 1460` -- l'ability testee par `ActorHasTriggeredAbility` dans
+#: `BlessingsOfKhorne_ModifiersEffect$$GetMultiplierBasedOnDefeatedInMelee`.
+_TALISMAN_OF_RAGE = int(TriggeredAbilityType.TalismanOfRage)
 
 
 def melee_defeats_from_units(units) -> int:
@@ -34,6 +42,56 @@ def melee_defeats_from_units(units) -> int:
     RESSUSCITEE ne compte plus). GLOBAL : les DEUX camps, quel que soit le tueur."""
     return sum(1 for u in (units or [])
                if isinstance(u, Mapping) and u.get("defeatedByMelee") and not u.get("alive"))
+
+
+def melee_defeats_by_killer(units) -> dict:
+    """#998 -- le terme `mine` de `IdunBattle.Entities.Effects.Loki.BlessingsOfKhorne_ModifiersEffect$$
+    GetMultiplierBasedOnDefeatedInMelee` :
+
+        Count( Filter( NormalUnits(UnitsDefeatedByMeleeAttack(AllUnits, 0, 1), 0),
+                       AreEqual( Killer(<DSLSelectors+0x68>), Owner@DSLSelectors+0x30 ) ) )
+
+    Le `Filter` porte sur les MEMES entites que le compte de base -- donc les memes deux gates
+    (`defeatedByMelee` ET mort) -- et n'y ajoute QUE l'egalite du tueur avec l'Owner. On rend donc
+    `{killer_id: nombre de ses defaites de MELEE}`, et l'appelant y lit son porteur.
+
+    `killerId` = `UnitComponent.DeathReason` -> `DamageSource$$get_KillerId`, publie sous
+    `decisionView.units[].killerId` (`frida/hooks/features/.../projection.ts`). Une unite defaite
+    dont le `killerId` est `null` (mort sans tueur imputable) n'entre dans AUCUNE case -- elle reste
+    comptee par le terme de base, jamais par le terme `mine`."""
+    out: dict = {}
+    for u in (units or []):
+        if not (isinstance(u, Mapping) and u.get("defeatedByMelee") and not u.get("alive")):
+            continue
+        k = u.get("killerId")
+        if k is None:
+            continue
+        try:
+            k = int(k)
+        except (TypeError, ValueError):
+            continue
+        out[k] = out.get(k, 0) + 1
+    return out
+
+
+def units_with_triggered_ability(units, ability_id: int) -> set:
+    """#998 -- mirror de `IdunBattleLogic.Entities.DSLTriggers$$ActorHasTriggeredAbility(unit, id)`,
+    evalue en MASSE sur la capture : rend l'ensemble des ids d'unite qui portent `ability_id`.
+
+    `decisionView.units[].triggered` est la collection d'ids de `TriggeredAbilityType` du composant
+    `TriggeredAbilityComponent` -- la MEME que lit `playbook/savior_protocols.py`. Elle porte les
+    passifs de kit ET la relique (hierarchie 3), ce qui est exactement le point : c'est le seul
+    canal ou une relique EQUIPEE devient visible sans relire le BC."""
+    aid, out = int(ability_id), set()
+    for u in (units or []):
+        if not isinstance(u, Mapping):
+            continue
+        uid = u.get("id")
+        if uid is None:
+            continue
+        if aid in {int(t) for t in (u.get("triggered") or ()) if isinstance(t, int)}:
+            out.add(int(uid))
+    return out
 
 
 def seed_battle_counters(eff_state, units) -> "int | None":
@@ -51,15 +109,31 @@ def seed_battle_counters(eff_state, units) -> "int | None":
     de 3 % : le bonus deplace `min`/`max`, donc chaque tirage tombe sur un autre entier -- c'est ce
     qui le rendait illisible comme un simple facteur.
 
+    ## #998 -- DEUX compteurs de plus, et ils sont PAR PORTEUR
+
+    Le multiplicateur natif porte un second terme, conditionne a
+    `ActorHasTriggeredAbility(Owner@+0x30, 0x5b4 = TalismanOfRage)` : le nombre de defaites de MELEE
+    imputables AU PORTEUR. Contrairement a `melee_defeats`, qui est GLOBAL, ces deux-la dependent de
+    l'unite qui porte l'effet -- d'ou l'iteration sur `bu.items()` (l'uid etait deja la, seulement
+    ignore). Toujours en duck-typing : **aucun import `loki` ici**.
+
     Rend le compte pose, ou `None` si l'etat d'effets est absent (rien a seeder)."""
     bu = getattr(eff_state, "by_unit", None) if eff_state is not None else None
     if not bu:
         return None
     n = melee_defeats_from_units(units)
-    for effs in bu.values():
+    # Les deux tables du terme `mine` ne sont calculees QU'UNE FOIS pour toute la passe.
+    by_killer = melee_defeats_by_killer(units)
+    porteurs = units_with_triggered_ability(units, _TALISMAN_OF_RAGE)
+    for uid, effs in bu.items():
+        uid = int(uid)
         for e in effs:
             if hasattr(e, "melee_defeats"):
                 e.melee_defeats = n
+            if hasattr(e, "melee_defeats_by_owner"):
+                e.melee_defeats_by_owner = by_killer.get(uid, 0)
+            if hasattr(e, "owner_has_talisman_of_rage"):
+                e.owner_has_talisman_of_rage = uid in porteurs
     return n
 
 

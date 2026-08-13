@@ -4194,3 +4194,114 @@ pas d'erreur : il rend **zéro**, et un zéro se lit « rien à signaler ».
   quoi on saurait ENTRER dans une bataille sans savoir en SORTIR.
   FOYER: frida/hooks/probes/start-campaign-match-capture.ts, frida/hooks/features/warmup-singletons.ts
   BLOCAGE: capteur
+
+- **#998-r6 : `TalismanOfRage` est porte et garde OFFLINE, jamais CONFRONTE live.** `[opus]`
+  Point d'entree : `docs/rl/case-998-talisman-of-rage-et-la-branche-declaree-morte.md` §5. Le port
+  du canal crit (`ForSubtraction(get_OwnerIsTarget, Multiply(ConfigVar(0x97), <multiplicateur
+  melee>))`) tient sur 14 bras offline et 7/7 mutations vues rouges, mais AUCUNE salve n'a ete
+  opposee au natif. Le montage est ECRIT et disponible (etat 2 de #237) : `rl_duel build --board
+  MC1_67 --equip-relic "worldJakhal:TalismanOfRage:<n>" --crit 100,<grand>`. Le regime a monter
+  exige un KILL DE MELEE avant la mesure (sinon `N = 0` et le canal est muet des deux cotes --
+  accord en regime DEGENERE, zero preuve) ; c'est exactement le montage de
+  `probe_953_954`, bras `sk_stun`. Deux cas discriminants a jouer : `N=1` vs `N=2` (le produit), et
+  le NIVEAU de relique (contre-epreuve `PASSIF` du rail #357).
+  FOYER: scripts/python/probe_998_talisman_of_rage_live.py, scripts/python/tests/engine/runner/test_998_talisman_of_rage_live.py
+  BLOCAGE: aucun
+
+- **#998-r7 : on ignore si `decisionView.units[].triggered` publie les abilities TERTIAIRES.** `[opus]`
+  La branche `extra` de `GetMultiplierBasedOnDefeatedInMelee` est armee, cote `BlessingsOfKhorne`,
+  par `units_with_triggered_ability(units, 1460)` -- qui lit `units[].triggered`. Si ce canal ne
+  porte que les passifs de KIT (hierarchie 2) et pas la relique EQUIPEE (hierarchie 3, cf. #237
+  §1), la branche restera muette sur un World Eater qui a *equipe* `TalismanOfRage`, et mordra
+  seulement sur les trois bosses npc qui la portent au kit. Degradation SILENCIEUSE : `N` vaut le
+  base seul, aucune erreur. Mesure a faire : `unitAbilityStates` (hierarchie 3 lisible, cf. #237
+  §6bis) vs le `triggered` publie, sur le MEME porteur monte. Le port de la relique elle-meme n'en
+  depend PAS (son Owner est le porteur par construction).
+  FOYER: scripts/python/engine/entities/effects_state.py
+  BLOCAGE: seeding
+
+- **#998-r4 : `RelicPowerFist` (1466) -- `Maybe(AddEffect(Pinned)) & Maybe(AddEffect(Stunned))`, le
+  moins cher des cinq restants.** `[opus]`
+  Point d'entree : `docs/rl/case-998-...` §4. `CreateTrigger` = `On(0x9 = Attack, true) &
+  get_OwnerIsCaster & CurrentAttackDamageProfilesContain(0xe = Power, true)`. `CreateBehaviour` =
+  `Maybe(AddEffect(0x429 = Pinned, stateRef, targets = <DSLSelectors+0x30>, turns =
+  <DSLSelectors+0x60>), c1) & Maybe(AddEffect(0x48a = Stunned, ...), c2)` avec `cN =
+  ConditionalAmount(IsSpecialActiveAbility, Double(ConfigVar(0x3a/0x3b = chance/chance_2)),
+  ConfigVar(...))`. Les DEUX effets sont deja portes ; le travail est le noeud `Maybe` (probabilite)
+  et le doublement conditionnel. ⚠ VERIFIER la signature reelle de `DSLBehaviors$$AddEffect` a 6
+  arguments avant de porter : `<+0x30>` et `<+0x60>` sont des champs de `DSLSelectors`, donc le 5e
+  argument n'est PAS un nombre de tours au sens naif. Porteurs : `bloodIntercessor`,
+  `darkaTerminator`, `templAggressor` (etat 2 de #237).
+  FOYER: scripts/python/engine/runner/operations/triggers/loki/, scripts/python/engine/entities/effects/factory.py
+  BLOCAGE: etage
+
+- **#998-r5 : `Maugetar` (1498) -- DEUX abilities + l'effet additional-hits 1497.** `[opus]`
+  Point d'entree : `docs/rl/case-998-...` §4. `Maugetar_AddEffectAbility` = `On(0x12 =
+  TurnStart_EffectActivation, true) & <DSLTriggers+0x28>` -> `AddEffect(0x5d9 =
+  Maugetar_HasNotMoved, stateRef, Owner, 0)` ; `Maugetar_ResetMovementAbility$$CreateBehaviour` =
+  `If(HasEffect(Owner, 0x5d9, null, 6), ResetMovement(Owner))` ; l'effet porte
+  `CreateRemoveEffectTrigger = On(0x1f = PreUnitMove, true) & get_OwnerIsActor` et
+  `CreateAdditionalHits = EffectAdditionalHits.Create(get_OwnerIsCaster & AttackDamageIsCritical,
+  GetMinMaxDamage(false), 0, <damageProfile de la config>, ConfigConst(0x2f = nrOfHits),
+  GetMinMaxDamage(true))`. Classe a poser dans `effects/loki/hits.py` (canal `additional_hit_groups`,
+  #179 -- BI-CANAL roll/display). Gameconfig : `nrOfHits = 1`, `damageProfile = DirectDamage`,
+  `minDmg`/`maxDmg` a 10 paliers. Porteur unique : `eldarMauganRa`. Ferme AUSSI le gisement
+  `combat-ability-coverage` (no-op silencieuse DAMAGE), et la categorie annoncee est ICI CONFIRMEE
+  au decompile. ⚠ Reste a lire : `<DSLTriggers+0x28>`, le second conjoint du trigger.
+  FOYER: scripts/python/engine/entities/effects/loki/hits.py, scripts/python/engine/entities/effects/factory.py
+  BLOCAGE: etage
+
+- **#998-r2 : `OrbsOfDecay` (1465) -- une ATTAQUE secondaire filtree par l'armure reduite, plus un
+  effet additional-hits.** `[opus]`
+  Point d'entree : `docs/rl/case-998-...` §4. `CreateTrigger` = `On(0x4a = AttackInAtomicGroup,
+  true) & get_OwnerIsCaster & IsMeleeAttack`. `CreateBehaviour` = `AttackWithAttackDamage(targets =
+  Filter(AdjacentEnemies(<sel+0x30>, <sel+0x78>, unique=1), <trigger>), MinMaxDamage,
+  GetDamageProfile, GetHits, ...) & AddEffect(0x4dc = Contaminated, stateRef, <sel+0x78>, 0)`, ou
+  `<trigger> = AmountIsGreaterThanZero(StatAmount(<sel+0x68>, 0x10, 3, 0)) &
+  AmountIsGreater(Divide(Multiply(StatNegativeModification(<sel+0x68>, 0x10), <formulas+0x30>),
+  StatAmount(...)), ConfigConst(0x83 = armorReductionPct))` -- soit « les ennemis adjacents dont
+  l'armure est reduite de plus de 30 % ». Le meme trigger est extrait dans
+  `OrbsOfDecayAbility$$GetTriggerForAttack`, que reutilise l'effet 1463
+  (`OrbsOfDecay_AdditionalHits`, `EffectAdditionalHits.Create(..., param_4 = 1, ...)`). Gameconfig :
+  `nrOfHits = 2`, `damageProfile = Toxic`, `armorReductionPct = 30`. Porteurs : `deathBlightbringer`,
+  `deathPutrifier`, `deathRotbone`. ⚠ Qualifier `0x10` (StatType) et `<formulas+0x30>` (la constante
+  du produit, vraisemblablement 100) AVANT de porter.
+  FOYER: scripts/python/engine/entities/effects/loki/hits.py, scripts/python/engine/runner/operations/triggers/loki/
+  BLOCAGE: etage
+
+- **#998-r3 : `RelicOfLostCadia` (1459) -- buff des summons IMPERIAUX + une ability de summon.** `[opus]`
+  Point d'entree : `docs/rl/case-998-...` §4. `CreateTrigger` = `On(0x4 = UnitAfterMove) | (On(0x32
+  = UnitAdded) & IsAlive(<sel+0x40>)) | On(0x3b = UnitBecameTargetable) | On(0x2d = UnitRevived) |
+  OnOwnerSpecificAbilityInit(<compte>)`. `CreateBehaviour` = `If(get_OwnerIsCaster,
+  AddEffect(0x5ae, stateRef, source = Owner, targets = IsImperialAndSummon(SurroundingFriends(Owner,
+  <formulas+0x20>, unique=1, 3))), If(AreFriends(Owner, <sel+0x48>) & IsInRange(Owner, <sel+0x48>,
+  <formulas+0x20>), AddEffect(0x5ae, ..., targets = IsImperialAndSummon(<sel+0x48>))))`, ou
+  `IsImperialAndSummon(t) = UnitsWithTraits(t, [0x1a = Imperial, 0x2 = Summon], 3)`. Gameconfig :
+  `summonHp`/`summonDmg`/`summonArmor` + `unitId = astraSmnGuardsman`, et
+  `RelicOfLostCadiaAbility_SummonUnit` est une SECONDE ability. Porteurs : `astraBullgryn`,
+  `astraOrdnance`, `astraPrimarisPsy`.
+  ⚠ POINT OUVERT AVANT TOUT PORT : `0x5ae = 1454` se lit `FinalVengeance_UnitEffect` dans le mirror
+  `EffectType` -- qui est pourtant en bijection avec le build (`probe_313`). Soit l'effet est
+  reellement partage, soit le littéral est lu de travers. TRANCHER d'abord.
+  FOYER: scripts/python/engine/entities/effects/factory.py, scripts/python/engine/runner/operations/triggers/loki/
+  BLOCAGE: etage
+
+- **#998-r1 : `BookOfFate` (1461) -- le plus cher des six, trois branches de selecteurs chainees par
+  `Otherwise` et une ACTION FORCEE.** `[opus]`
+  Point d'entree : `docs/rl/case-998-...` §4. `CreateTrigger` = `<trigger 0x26 construit a la main>
+  & <DSLTriggers+0x20> & get_OwnerIsCaster & IsAlive(Owner) &
+  AmountIsGreaterThanZero(UnitsWithTrait(AdjacentFriends(Owner, 1, 3), 0x2 = Summon, 3))`.
+  `CreateBehaviour` construit `valides = UnitsWithAnyValidTarget(UnitsWithTrait(AdjacentFriends(
+  Owner, 1, 3), Summon, 3))` puis TROIS sous-ensembles -- `UnitsWithId(valides,
+  ConfigConstString(0x8c = affectedUnitId))`, `UnitsWithTrait(valides, 0x3fb = Daemon)`,
+  `UnitsWithoutTrait(valides, Daemon)` -- chacun passe par `Randomize -> Cache(1) ->
+  SortByFormula(UnitLevel(<sel+0x68>), 0) -> First(1, 0)`, puis chaines par
+  `TargetsSelector$$Otherwise` (priorite stricte). Enfin `AddStaticStatModifierEffect(
+  UnitsWithTrait(<le choisi>, Daemon), 0x5ac = BookOfFate_DaemonBuff, null,
+  Get(GetVariableForLevel(8 = extraDmg)), null, true) & Group(PerformAIAttackFromCurrentPosition(
+  <le choisi>), <le choisi>, 0x20) & RemoveEffect(<le choisi>, 0x5ac)`. Gameconfig : `extraDmg` (10
+  paliers), `affectedUnitId = thousSmnDaemonPrince`. Porteurs : `blackPossession`,
+  `thousInfernalMaster`, `thousSorcerer`. Exige `Randomize`/`Cache`/`SortByFormula`/`Otherwise` et
+  le noeud d'action forcee -- verifier lesquels sont deja portes AVANT de s'engager.
+  FOYER: scripts/python/engine/runner/operations/triggers/loki/, scripts/python/engine/entities/selectors/units.py
+  BLOCAGE: etage
