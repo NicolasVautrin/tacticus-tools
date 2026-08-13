@@ -44,6 +44,10 @@ from .components import (StatsComponent, HealthComponent, OwnerComponent, Positi
 from ..entities.effects.loki.enmity_for_the_unworthy import (
     CTX_ADJACENT_UNITS as _ENMITY_CTX_UNITS, CTX_ADJACENT_DA as _ENMITY_CTX_DA)
 from ..entities.effects.loki.skullsmasher import CTX_OWNER_HEALTH as _SKULLSMASHER_CTX_HEALTH
+# #1011 : memes deux cles pour les DEUX faces de `NornCrownEffect` -- un seul foyer de nommage.
+from ..entities.effects.loki.norn_crown import (
+    CTX_TGT_EFFECT_NAMES as _NORN_CTX_TGT_EFFECTS,
+    CTX_TEAM_SYNAPSE_POSITIONS as _NORN_CTX_SYNAPSE)
 from ..entities.effects.loki.obsessive_annunciation import (
     CTX_ADJACENT_ENEMY_IDS_OF as _OA_CTX_ADJ_ENEMY_IDS)
 from ..entities.stats import StatType, ARMOR_STAT_TYPES
@@ -334,7 +338,25 @@ def _apply_ally_attack_damage_auras(state: State, att_id: int, mods, is_ranged: 
            # #926 -- `TotalAttacksMade(EffectSource)` de `FirstAmongTraitors_ExtraDmgEffect`. MEME
            # cle et MEME semantique que la face PREDICTION (`_shared._apply_ally_attack_dmg_bonus`,
            # qui la remplit par `scene.total_attacks_made`) -- pas de fork.
-           "owner_total_attacks_made": owner_total_attacks}
+           "owner_total_attacks_made": owner_total_attacks,
+           # #1011 -- les TROIS canaux de `NornCrownEffect` (relique de `tyranNeurothrope`).
+           # 1. `HasEffect(Target@DSLSelectors+0x60, 0x4c2 = 1218 Neuroparasite, onlyActive: false,
+           #    6 = Both)` : les noms d'effets NON CONSOMMES de la CIBLE. `onlyActive: false` ->
+           #    aucune lecture d'`IsActive`, donc `by_unit` et pas `active_effects` (le MEME
+           #    substrat que `_neuroparasite_instance` du trigger de pose). Tri-etat : cible
+           #    absente / pas de store d'effets -> `None`, et le gate se TAIT.
+           _NORN_CTX_TGT_EFFECTS: _target_effect_names(state, target_id),
+           # 2. `IsInTeamSynapseRange(It@+0x68, Owner@+0x30)` -> `IsInAuraRangeTrigger(0x41c)` ->
+           #    `BattleQuery$$GetInRangeAuraAmount`, qui balaye les unites de l'EQUIPE portant le
+           #    trait rendu par `SynapseEffect$$GetTrait` (`return 0x7e8` = 2024 `Synapse`) et
+           #    compare `GetDistance(unit, target)` a la portee de l'aura. La map est par EQUIPE
+           #    parce que le natif prend l'equipe COURANTE du selecteur `team`, pas le porteur.
+           _NORN_CTX_SYNAPSE: _team_synapse_positions(state),
+           # 3. `GetAbilityState(effect)` (#357) : le couple (niveau, multiplicateur) sous lequel
+           #    l'ability est MONTEE sur le porteur -- TERTIAIRE pour une relique EQUIPEE. MEME cle
+           #    et MEME foyer que le canal CRIT (`AttackDamageOperation._crit_board`), donc les deux
+           #    canaux d'une meme relique ne peuvent pas diverger de niveau.
+           "tertiary_ability_state_of": _tertiary_ability_state_fn(state)}
     # `PsychicStalk_FriendlyChaosExtraDamage` (#366-r1, effet 1435) -- PATTE AURA : son conjoint
     # `GetTargetIsOnFireTileCondition` lit `EntitiesWithAnyEffect(Tiles(Target@0x60), Fire)`, donc
     # les effets de la MAIN TILE de la cible. MEME canal / MEME forme `{(col,row): [noms]}` que
@@ -344,6 +366,74 @@ def _apply_ally_attack_damage_auras(state: State, att_id: int, mods, is_ranged: 
         ctx["tile_effects_by_pos"] = tile_status_effects_by_pos(state, [ctx["t_pos"]])
     for eb in aura_attack_damage_bonus_from_allies(carriers, ctx):
         add_modifier(mods, eb)
+
+
+def _target_effect_names(state: State, target_id: Optional[int]):
+    """Noms des effets NON CONSOMMES portes par la CIBLE du coup -- substrat de
+    `IdunBattleLogic.Entities.DSLTriggers$$HasEffect(entity, effectType, onlyActive, targetType)`
+    quand `onlyActive = false` (#1011, `NornCrownEffect`).
+
+    `onlyActive: false` -> aucune lecture d'`IsActive`, donc le store BRUT `by_unit` filtre sur le
+    seul `consumed`, PAS `active_effects` : c'est exactement le substrat que lit deja
+    `runner/operations/triggers/loki/neuroparasite.py::_neuroparasite_instance`, dont le gate natif
+    porte le meme `onlyActive: 0`.
+
+    ⚠ La cle `tgt_effect_names` est HOMONYME de celle du ctx d'`additional_hits` / de la face
+    PREDICTION, qui la batissent depuis les effets ACTIFS : le nom est le meme, la SEMANTIQUE est
+    plus large ici, et c'est ce que demande le litteral natif. Les deux dicts sont disjoints.
+
+    TRI-ETAT : `None` = NON MESURE (pas de cible, ou pas de store d'effets) -> le gate se TAIT."""
+    eff = getattr(state, "effects", None)
+    if eff is None or target_id is None:
+        return None
+    return frozenset(n for n in (getattr(e, "name", None)
+                                 for e in (eff.by_unit.get(int(target_id)) or [])
+                                 if not getattr(e, "consumed", False)) if n)
+
+
+def _team_synapse_positions(state: State):
+    """`{team: ((col, row), ...)}` des unites VIVANTES portant le trait `Synapse` -- substrat de
+    `IdunBattleLogic.Entities.DSLTriggers$$IsInTeamSynapseRange(target, team)` (#1011).
+
+    Le natif descend `IsInAuraRangeTrigger(state, query, 0x41c = 1052 Synapse_Effect, target, team)`
+    -> `IBattleQuery` slot 148 `IsInTeamAuraRange` -> `BattleQuery$$GetInRangeAuraAmount`, qui :
+      * resout l'implementation d'EFFET de `0x41c` (`IdunBattle.Entities.Effects.Loki.SynapseEffect`)
+        et lit son `$$GetTrait`, dont le corps ENTIER est `return 0x7e8` (= 2024 `UnitTrait.Synapse`)
+        -- c'est bien le TRAIT qui est teste (`UnitExtensions$$HasTrait`), pas la presence de l'effet ;
+      * ne retient que les unites dont `EntityExtensions$$GetCurrentTeamId` vaut l'equipe demandee ;
+      * compare `BattleQuery$$GetDistance(unit, target)` a la portee de l'aura
+        (`SynapseEffect$$GetNextTurnRange` = `Direct(2)`).
+    La comparaison de distance reste chez le consommateur (`norn_crown._in_team_synapse_range`) :
+    seule la POSITION des emetteurs depend de l'etat.
+
+    Traits lus sur le substrat d'ENTITE (`target_trait_names`, #264), pas sur le kit gameconfig."""
+    out: dict = {}
+    for uid, ent in state.entities.items():
+        oc = ent.get_component(OwnerComponent)
+        pc = ent.get_component(PositionComponent)
+        if oc is None or pc is None:
+            continue
+        hc = ent.get_component(HealthComponent)
+        if hc is not None and hc.hp is not None and hc.hp <= 0:
+            continue
+        if UnitTrait.Synapse.name not in target_trait_names(state, int(uid)):
+            continue
+        out.setdefault(oc.team, []).append((pc.col, pc.row))
+    return {t: tuple(ps) for t, ps in out.items()}
+
+
+def _tertiary_ability_state_fn(state: State):
+    """`(owner_id, ability_name) -> (level, multiplier)` -- mirror de
+    `IdunBattle.Entities.Effects.BaseEffect$$GetAbilityState`, delegue au foyer UNIQUE
+    `runner/operations/triggers/base.py::triggered_ability_state` (#357). MEME cle et MEME
+    semantique que le canal CRIT (`AttackDamageOperation._crit_board`), qui l'expose deja.
+
+    Import DIFFERE et PORTEUR (classe MESUREE : charger `engine.runner.operations.triggers.base`
+    seul dans un process frais fait atterrir `engine.runner.damage_model` dans `sys.modules`, donc
+    hisser fermerait un cycle). MEME forme que les trois sites existants
+    (`operations/damage.py`, `operations/repair.py`, `abilities/base.py`)."""
+    from .operations.triggers.base import triggered_ability_state
+    return lambda oid, ability: triggered_ability_state(state, int(oid), ability)
 
 
 def _unit_pos(state: State, unit_id: Optional[int]):

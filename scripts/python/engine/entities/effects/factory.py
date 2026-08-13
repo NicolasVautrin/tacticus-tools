@@ -16,6 +16,7 @@ from .loki.intoxicating_elixir import IntoxicatingElixirEffect
 from .loki.kardiocore_galvanus import KardiocoreGalvanusExtraCritDmgEffect
 from .loki.maw_claws_of_thyrax import MawClawsOfThyraxExtraCritDmgEffect
 from .loki.nether_realm_casket import NetherRealmCasketCritDamageReductionEffect
+from .loki.norn_crown import NornCrownEffect
 from .loki.ramshackle import RamshackleDmgReductionEffect
 from .loki.supa_cybork_body import SupaCyborkBodyCritDmgReductionEffect
 from .loki.talisman_of_rage import TalismanOfRageCritDamageReductionEffect
@@ -1515,6 +1516,26 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # sans le trait d'alliance le bonus vaut `cv`, il ne disparait pas.
     "RelicBoltPistol_ExtraPierce": RelicBoltPistolExtraPierceEffect,
     "RelicBoltPistol_ExtraCritDamage": RelicBoltPistolExtraCritDamageEffect,
+    # #1011 -- `NornCrown` (`EffectType` 0x5d4 = 1492), owner-effect PERMANENT de la relique
+    # `NornCrown` (`TriggeredAbilityType` 0x5d7 = 1495, seul porteur `tyranNeurothrope`). Pose par
+    # le corps de BASE `IdunBattle.Entities.Abilities.AOwnerEffectTriggeredAbility$$CreateBehaviour`
+    # (`NornCrownAbility` n'override QUE `$$GetEffectType`, dont le corps ENTIER est `return 0x5d4`
+    # -- l'appariement ability -> effet est LU, pas devine), d'ou l'entree
+    # `ABILITY_INIT_OWNER_EFFECTS["NornCrown"]` plus bas.
+    # ⚠ TROIS enums sur le chemin : `EffectType` 0x5d7 = 1495 est `HunterOfSouls_ExtraDamage`, rien
+    # a voir avec la relique ; et `EffectType.NornCrown` (1492) n'est PAS `TriggeredAbilityType.
+    # NornCrown` (1495) malgre le nom identique.
+    # `IdunBattle.Entities.Effects.Loki.NornCrownEffect$$CreateTargetSelector` =
+    # `Filter(AllUnits@+0x20, AreFriends(Owner@+0x30, It@+0x68, ByCurrentTeam, false)
+    #         & IsInTeamSynapseRange(It@+0x68, Owner@+0x30)
+    #         & (HasTrait(It, 0x3ea = Psyker) | HasTrait(It, 0x2 = Summon)))` -- le PORTEUR n'est
+    # PAS exclu (`BattleQuery$$AreFriends` -> `UnitExtensions$$IsFriend`, qui n'ecarte pas
+    # l'egalite), d'ou les DEUX pattes disjointes de la classe (self + aura), meme arbitrage que
+    # `DestroyTheWitch_ExtraDamage` et `IconOfObstinacy_ExtraDmg`.
+    # `...NornCrownEffect$$CreateEffectDamageBonusForAttack` = `ForAddition(get_OwnerIsCaster
+    # & HasEffect(Target@+0x60, 0x4c2 = 1218 Neuroparasite, onlyActive: false, 6 = Both),
+    # ConfigVar(0x8 = extraDmg, GetAbilityState(effect)))` -> canal additif ATTAQUANT.
+    "NornCrown": NornCrownEffect,
     # 1455 NetherRealmCasket_CritDamageReduction (#908) : TROISIEME implementeur de l'axe REDUCTION
     # du canal crit-DEGAT, meme forme que les deux ci-dessus. Owner-effect PERMANENT de la RELIQUE
     # `NetherRealmCasket` (`TriggeredAbilityType` 0x5b6 = 1462, `allowedUnits = [necroWarden,
@@ -1886,6 +1907,20 @@ ABILITY_INIT_OWNER_EFFECTS: dict[str, list[str]] = {
     # live l'effet est de toute facon capte par `decisionView.effects` (sa `CreateActiveCondition`
     # est celle de la base, toujours vraie), donc le seed y est idempotent.
     "Vitarus": ["Vitarus"],
+    # #1011 -- `NornCrownAbility` (parent `IdunBattle.Entities.Abilities.
+    # AOwnerEffectTriggeredAbility`, `frida/classes.tsv`) n'override QUE `$$GetEffectType`, dont le
+    # corps ENTIER est `return 0x5d4` (= 1492 `EffectType.NornCrown`) : l'appariement ability ->
+    # effet est LU, pas devine. Le reste vient de la base (`CreateTrigger =
+    # OnOwnerSpecificAbilityInit(this.AbilityType)`, `CreateBehaviour = If(CreateCondition(...),
+    # AddEffect(GetEffectType(), AbilityState(Owner), source = Owner, targets = Owner,
+    # options = <Nullable ZERO-initialise>))`) -- owner-effect PERMANENT pose a l'init, exactement
+    # le patron `Vitarus` ci-dessus.
+    # ⚠ MEME REMARQUE QUE POUR `Vitarus` : la relique arrive par la voie TERTIAIRE, donc ce seed
+    # depend de la lecture de `ctx.tertiary_ability` par `_seed_ability_owner_effects` (acquise
+    # depuis #1005). Sur un runner live l'effet est de toute facon capte par `decisionView.effects`
+    # (sa `CreateActiveCondition` est celle de la base, toujours vraie), donc le seed y est
+    # idempotent -- c'est un FILET pour les chemins purement offline.
+    "NornCrown": ["NornCrown"],
     # #953 -- `Skullsmasher_DamageEffectAbility` (parent `IdunBattle.Entities.Abilities.
     # AOwnerEffectTriggeredAbility`, `classes.tsv`) n'override QUE `GetEffectType` (`return 0x4ef`) :
     # le reste vient de la base (`CreateTrigger = OnOwnerSpecificAbilityInit(this.AbilityType)`,
