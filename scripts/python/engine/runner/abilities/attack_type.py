@@ -331,6 +331,13 @@ ABILITY_ATTACK_TYPE: dict[int, int] = {
     ActiveAbilityType.HadesAutocannons: AbilityAttackType.DirectTargetAttack,  # 1147
     ActiveAbilityType.DaemonicOrdnance: AbilityAttackType.DirectTargetAttack,  # 1148
     ActiveAbilityType.PlasmaCannon: AbilityAttackType.DirectTargetAttack,  # 1150
+    # #997 -- litteral TRANSCRIT du 3e argument d'`AActiveAbility..ctor(this, &opts, 0)`, jamais
+    # deduit du nom ni du profil de degat.
+    # `IdunBattleLogic.Entities.Abilities.Active.Loki.ExplosivePresentsAbility$$.ctor` -> `0`.
+    ActiveAbilityType.ExplosivePresents: AbilityAttackType.DirectTargetAttack,  # 1170
+    # `IdunBattleLogic.Entities.Abilities.Active.BlightGrenadesAbility$$.ctor` (namespace SANS `Loki`)
+    # -> `0`, apres les DEUX ctors de `TargetingOptions` (preset inline puis PRESET+FLAGS).
+    ActiveAbilityType.BlightGrenades: AbilityAttackType.DirectTargetAttack,  # 1176
     ActiveAbilityType.HeavyRailRifle: AbilityAttackType.DirectTargetAttack,  # 1160
     ActiveAbilityType.TwinSmartMissileSystem: AbilityAttackType.DirectTargetAttack,  # 1161
     # MightFromBelow (1165) : `MightFromBelowAbility$$.ctor` recopie le preset statique

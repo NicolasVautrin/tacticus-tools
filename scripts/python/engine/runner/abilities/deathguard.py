@@ -35,8 +35,8 @@ from ...entities.selectors.composites import adjacent_units
 from ...entities.selectors.geometry import Cache
 from ...entities.selectors.tiles import AdjacentTiles, Caster
 from ...entities.selectors.units import (
-    AdjacentUnits, Enemies, Filter, Friends, Sub, Union, Unique, Units, UnitsWithTrait,
-    UnitsWithoutTrait
+    AdjacentUnits, Enemies, Filter, Friends, Sub, Union, Unique, Units, UnitsDirectlyBehind,
+    UnitsWithTrait, UnitsWithoutTrait
 )
 from ...entities.selectors.units import AdjacentFriends
 from ...entities.triggers import (AmountIsGreaterThanZero, HasNegativeModifier, HasTrait,
@@ -54,10 +54,10 @@ from ...entities.unit_selection_type import UnitSelectionType
 SELECTION = int(UnitSelectionType.OnlyAliveAndTargetable)     # 3
 from ...entities.active_ability_type import ActiveAbilityType
 from ...entities.effects.magnitude import ability_var
-from ..components import PositionComponent, StatsComponent, UnitComponent
+from ..components import PositionComponent, StatsComponent, UnitComponent, get_unit_feet
 from .base import ActiveAbility
 from .targeting import (custom_range_func, RANGE_ADJACENT, RANGE_FROM_CONFIG, RANGE_WHOLE_BOARD,
-                        RANGED_BOOL_FALSE, TargetingOptions)
+                        RANGED_BOOL_FALSE, RANGED_BOOL_TRUE, TargetingOptions)
 from .targeting_rule import TargetingRule as TR
 from .behaviours.combat import AttackWithAbilityDamage, AttackWithAttackDamage, InformWeapon
 from .behaviours.context import entities_from_state, main_tile_id
@@ -1608,3 +1608,150 @@ class ReapingScytheAbility(ActiveAbility):
                 for n, p in ectx.emitted if n == "AttackWithAttackDamage"]
         return {"ability": REAPING_SCYTHE_ID, "caster": caster_id, "target": target_id,
                 "attacks": atks, "dsl": True}
+
+
+# =================================================================================================== #
+# BlightGrenades (1176, `deathNpc2PlagueMarine` -- npc) -- #997.
+#
+# ⚠ Namespace natif SANS `Loki` : `IdunBattleLogic.Entities.Abilities.Active.BlightGrenadesAbility`
+# (contraste tout le reste de ce module). Range ici par FACTION du porteur, comme le module l'annonce.
+#
+# L'audit de couverture l'annoncait `DAMAGE(Toxic)` en derivant la categorie du `damageProfile` de
+# l'ARME du porteur (residu #491-r2) ; ici c'est **CONFIRME** par le decompile -- le cast frappe.
+# Cf. `docs/rl/case-997-six-noop-la-categorie-annoncee-ment-4-fois-sur-6.md`.
+# =================================================================================================== #
+
+BLIGHT_GRENADES_ID = "BlightGrenades"
+#: `PickRandomly(., amount=2, ...)` -- LITTERAL du corps natif, PAS une constante gameconfig (la
+#: config 1176 ne porte ni `nrOfTargets` ni `nrOfHits_2`). Corrobore par l'i2 : « up to two enemy
+#: units behind the target ».
+BG_BEHIND_TARGETS = 2
+BG_CONTAMINATED = int(EffectType.Contaminated)     # 0x4dc = 1244 -- l'effet de tuile du gate dynamique
+
+
+def blight_grenades_tree() -> AtomicGroup:
+    """Arbre de `IdunBattleLogic.Entities.Abilities.Active.BlightGrenadesAbility$$ExecuteBehaviour`
+    (id 1176, `deathNpc2PlagueMarine`) -- MIRROR du DECOMPILE :
+
+        behind = PickRandomly( UnitsDirectlyBehind(caster@0x48, target@0x60),
+                               2, allowRepeat:0, maxRepeats:0x7fffffff, skipForced:false )
+        ExecuteAtomic( op_BitwiseAnd(
+            AttackWithAbilityDamage(caster, target, MinMaxDamage(abilityState), GetDamageProfile(),
+                                    GetHits(), this, 2),                                   # [MAIN]
+            AttackWithAbilityDamage(caster, behind, MinMaxDamage(abilityState), GetDamageProfile(),
+                                    GetHits(), this, 2) )                                  # [DERRIERE]
+          , 0x2a )
+
+    ⚠ PLAGE ET COUPS IDENTIQUES sur les DEUX volets -- et ce n'est pas une hypothese de symetrie :
+    le corps natif appelle DEUX FOIS `AActiveAbility$$MinMaxDamage(this, abilityState, 0)` et DEUX
+    FOIS `AActiveAbility$$GetHits(this)`, sans jamais toucher a un index secondaire. La config 1176
+    n'a d'ailleurs ni `minDmg_2`/`maxDmg_2` ni `nrOfHits_2`. C'est le CONTRASTE du patron splash
+    habituel (`loki/splash.py`), ou le volet secondaire lit `nrOfHits_2` (0x32) -- recopier ce
+    template ici ecrirait un nombre de coups FAUX.
+
+    SELECTEUR DERRIERE = `UnitsDirectlyBehind(caster, target)` : ennemis-du-caster VIVANTS sur
+    l'anneau R1 de la cible, du COTE OPPOSE au caster (`MinDistance(caster, cand) > MinDistance(caster,
+    target)`, comparateur STRICT -- la laterale a distance EGALE est EXCLUE, case #48), meme elevation
+    a +-1 pres. Deja porte et confronte live (PlasmaCannon 1150). Le `PickRandomly(., 2)` est FOLDE
+    dans la feuille via `pick_n=2` : le natif tire `min(len(pool), 2)` fois MEME quand le pool tient
+    dans 2 (#130, `_pick_randomly_n`) -- court-circuiter desaligne tout le flux RNG aval.
+
+    FACTORY NATIVE = `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage` (symbole resolu
+    tel quel dans le corps decompile) -> `native_factory="ability"` = `AbilityDamageOperation` = 1
+    tirage/coup, PAS les 2 tirages/coup de `DSLFactory$$AttackWithAttackDamage` (piege rngcrit-1202 :
+    PlasmaCannon, dont cet arbre est le jumeau STRUCTUREL, est de l'autre famille).
+    RANGED (`attackRangeType: Ranged`, `constants.range` = 2), profil Toxic, `nrOfHits` = 1.
+
+    `op_BitwiseAnd` = `CombinedBehaviour` (effets PURS -> les deux volets s'executent) ;
+    `ExecuteAtomic(., 0x2a)` -> `AtomicGroup` (inline #201, cf. #209). Ordre = MAIN puis DERRIERE."""
+    tgt = Target()
+    main = AttackWithAttackDamage(tgt, BLIGHT_GRENADES_ID, "Toxic", is_melee=False,
+                                  native_factory="ability")                     # MinMaxDamage/GetHits
+    behind = AttackWithAttackDamage(UnitsDirectlyBehind(), BLIGHT_GRENADES_ID, "Toxic",
+                                    is_melee=False, multi=True, pick_n=BG_BEHIND_TARGETS,
+                                    native_factory="ability")                   # MEME plage, MEMES coups
+    return AtomicGroup(op_and(main, behind))
+
+
+class BlightGrenadesAbility(ActiveAbility):
+    """`IdunBattleLogic.Entities.Abilities.Active.BlightGrenadesAbility$$ExecuteBehaviour`
+    (id 1176, `deathNpc2PlagueMarine` -- npc ; faction Death Guard).
+
+    Deux volets d'attaque a plage ET coups IDENTIQUES : la cible, puis jusqu'a 2 ennemis tires au
+    hasard directement DERRIERE elle (cf. `blight_grenades_tree`).
+
+    CONFRONTABILITE : porteur `deathNpc2PlagueMarine`, npc -- montable par `--explicit-stats` (toute
+    entree `units.npc` porte une table `stats[]`). « npc-only » n'implique pas « non confrontable »."""
+    __slots__ = ()
+    ABILITY_TYPE = int(ActiveAbilityType.BlightGrenades)   # 1176
+    ABILITY_ID = BLIGHT_GRENADES_ID
+
+    # GATE DE CIBLE (#115) -- forme (B) PRESET + FLAGS, DEUX ctors enchaines.
+    # `IdunBattleLogic.Entities.Abilities.Active.BlightGrenadesAbility$$.ctor` :
+    #     TargetingOptions..ctor(&preset, 0, &<TargetingRange statics+0x18>, 0, 0x4002, 0, 0)
+    #     TargetingOptions..ctor(&opts, &preset, 0x2000000)      <- surcharge PRESET+FLAGS
+    #     AActiveAbility..ctor(this, &opts, 0)
+    # Cette surcharge recopie le preset champ par champ SAUF `Rules`, qu'elle **COMBINE**
+    # (`dst+0x28 = flags | preset+0x28`). Le masque effectif n'est donc NI `0x4002` NI `0x2000000` :
+    # c'est leur OU = `0x2004002`. Lire le seul litteral visible donnerait un masque FAUX.
+    # Decomposition EXHAUSTIVE de 0x2004002 (aucun bit residuel) :
+    #     0x2         (bit 1)  TargetMatchesDynamicRule       -> consulte
+    #                          `get_dynamic_invalid_target_reason` ci-dessous (PORTEE)
+    #     0x4000      (bit 14) TargetIsEnemy                  -> refus sur soi-meme / un allie
+    #     0x2000000   (bit 25) AllowObscuredTargetByElevation -> l'elevation n'obscurcit pas
+    # C'est le MEME masque effectif que 1048 `FragstormGrenadeLauncher` (preset statique `+0x180` =
+    # `0x4002` + les memes flags `0x2000000`) -- mais par une AUTRE forme : ici le preset est
+    # construit INLINE par un premier ctor, pas recopie d'un champ statique.
+    # PORTEE : `TargetingRange` statique `+0x18` = `useRangeFromConfig` -> `constants.range` = 2 ;
+    # `forceMeleeTarget = 0` = `RangedBool.True` (l'enum natif est INVERSE).
+    TARGETING_OPTIONS = TargetingOptions(
+        rules=TR.TargetMatchesDynamicRule | TR.TargetIsEnemy | TR.AllowObscuredTargetByElevation,
+        self_cast=False, range=RANGE_FROM_CONFIG, force_melee_target=RANGED_BOOL_TRUE)
+
+    def get_dynamic_invalid_target_reason(self, state: "State", caster_id: int, target_id) -> int:
+        """`IdunBattleLogic.Entities.Abilities.Active.BlightGrenadesAbility$$GetDynamicInvalidTargetReason`
+        -- la regle-delegue posee a `options+0x38`, consultee parce que le masque porte
+        `TargetMatchesDynamicRule`. Corps natif, LU (5 parametres `caster, casterTiles, target,
+        targetTiles`) :
+
+            for (i = 0; i < targetTiles.Count; i++)
+                if (EntityExtensions.IsOnTileWithEffect(targetTiles[i], 0x4dc, this.state))
+                    return 2
+            return 0
+
+        => la cible est REFUSEE (raison 2) des qu'UNE de ses tuiles porte
+        `EffectType.Contaminated` (1244). L'i2 le dit mot pour mot : « to an enemy unit within range
+        **that is not on a hex with Contamination** ». C'est un gate EXISTENTIEL sur les pieds, pas
+        sur la seule main tile -- `IsOnTileWithEffect` itere `EntityExtensions$$IterateTiles`.
+
+        Le predicat par-tuile est le MEME que celui de `UnitsOnTilesWithEffect` cote DSL :
+        `state.effects.has_effect(<tile-id>, effect_type)`, avec la meme cle tile-id que la pose
+        `AddEffectOperation` (case-35). Sans `board` ou sans `state.effects` -> 0 (permissif), ce qui
+        est la degradation fidele : le port ne fabrique pas un refus sur une donnee qu'il n'a pas.
+
+        NB `Contaminated` n'a, a ce jour, aucun POSEUR porte cote runner : ce gate rend donc 0 dans
+        tout montage actuel. Il est porte quand meme -- une regle dynamique absente rend `0` par le
+        chemin de repli, ce qui est la MEME valeur mais pour une MAUVAISE raison, et cesserait d'etre
+        juste des que l'effet 1244 entrera au port."""
+        board = getattr(state, "board", None)
+        effects = getattr(state, "effects", None)
+        if board is None or effects is None or target_id is None:
+            return 0
+        for pos in get_unit_feet(state, int(target_id)):          # IterateTiles(target) -- EXISTENTIEL
+            tid = board.id_at(pos[0], pos[1])
+            if tid is not None and effects.has_effect(int(tid), effect_type=BG_CONTAMINATED):
+                return 2
+        return 0
+
+    def execute_behaviour(self, state: "State", caster_id: int,
+                          target_id: Optional[int]) -> Optional[dict]:
+        if target_id is None:
+            return None
+        ectx = ExecutionContext(state=state, rng=state.rng)
+        blight_grenades_tree().execute(entities_from_state(state, caster_id, target_id), ectx)
+        atks = [p for n, p in ectx.emitted if n == "AttackWithAttackDamage"]
+        main = next((p["attack"] for p in atks if p.get("target") == target_id), None)
+        behind = [{"target": p["target"], "attack": p["attack"]}
+                  for p in atks if p.get("target") != target_id]
+        return {"ability": BLIGHT_GRENADES_ID, "caster": caster_id, "target": target_id,
+                "main_attack": main, "behind": behind, "dsl": True}
