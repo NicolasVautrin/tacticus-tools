@@ -31,6 +31,35 @@ from probe_1022_aether_stride import (AETHER_STRIDE, MOW, SUMMON, feet_from_even
 
 DYNAMIC_RULE_SAMPLE = 24
 
+#: Ce qui doit changer pour que ce fichier puisse changer de verdict (contrat `declencheur_cliquet`).
+#: Pris LARGE volontairement : un declencheur trop etroit est un FAUX VERT (le fichier ne se rejoue
+#: pas sous `--since` quand ce qu'il garde a bouge). Les DEUX registres sont dedans parce que le
+#: premier test garde precisement l'entree de 1208 dans l'un ET dans l'autre.
+DECLENCHEUR = {
+    "chemins": (
+        "scripts/python/engine/runner/abilities/thousandsons.py",       # l'arbre porte
+        "scripts/python/engine/runner/abilities/handler.py",            # ABILITY_CLASSES
+        "scripts/python/engine/runner/abilities/attack_type.py",        # ABILITY_ATTACK_TYPE
+        "scripts/python/engine/runner/abilities/targeting.py",          # le masque et ses gates
+        "scripts/python/engine/services/spawn_tile_shape.py",           # ThreeTileUnitSpawnShape
+        "scripts/python/engine/services/movement_query.py",             # le gate HasTrait(0x418)
+        "scripts/python/engine/runner/abilities/behaviours/summon.py",  # Spawn / PerformAIAttack
+        "scripts/python/engine/runner/abilities/behaviours/grants.py",  # AddTrait / AddTriggeredAbility
+        "scripts/python/engine/runner/abilities/behaviours/lifecycle.py",   # RemoveMachine
+        "scripts/python/engine/entities/selectors/units.py",            # AdjacentFriends / UnitsWithTrait
+        "scripts/python/engine/entities/triggers.py",                   # ActorHasTriggeredAbility
+        "scripts/python/engine/entities/behaviours.py",                 # If / Seq (op_and, op_add)
+        "scripts/python/probe_1022_aether_stride.py",                   # le MONTAGE (greffe) partage
+        "scripts/python/catalog_inject.py",                             # graft_active_ability
+    ),
+    "build": True,       # confronte le NATIF : runner live + gameconfig du build installe
+    "toujours": False,
+    "raison": ("la face COMBAT de 1208 est un arbre DSL dont chaque feuille est nommee ci-dessus ; "
+               "le montage (greffe MoW + config d'ability) vit dans le probe et dans "
+               "`catalog_inject`. `build: True` parce que les etages A/B confrontent le natif "
+               "tuile par tuile et que la config d'ability est relue au gameconfig installe."),
+}
+
 
 def _occupied(rpc, rid) -> set:
     return {(t["col"], t["row"]) for t in rpc("boardGraph", {"runnerId": rid})["tiles"]
