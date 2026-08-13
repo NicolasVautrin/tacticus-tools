@@ -89,6 +89,13 @@
    "py": [],
    "temoins": []
   },
+  "tests/engine/runner/test_1002_reliques_astra_offline.py": {
+   "_at": 1786613126,
+   "_commit": "dcc427445bbdf614d68084aabd10dd80711469ca",
+   "dirs": [],
+   "py": [],
+   "temoins": []
+  },
   "tests/engine/runner/test_120bis_spawn_tile_offline.py": {
    "_at": 1786392144,
    "_commit": "fda03f7b6eb1cb2e02ac585f34ef87897b708754",
