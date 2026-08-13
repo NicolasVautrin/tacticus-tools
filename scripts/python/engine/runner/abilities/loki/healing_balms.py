@@ -42,12 +42,26 @@ C'est le trigger d'INIT partagé que `DSLTriggers$$InitializeShared` met en cach
 le livre DÉJÀ fait : le runner natif exécute `AbilityInit` au spawn, donc `decisionView` publie sur
 Baldr l'active `1212` et PAS `18` -- c'est exactement ce que `#27-4d` a confronté live (la face
 DÉCISION de 1212 atteint `_heal_candidates` sans qu'aucun swap soit porté). Le rejouer côté port
-serait un no-op au mieux, une double-pose au pire. Ce qui RESTE non porté du behaviour est le
-`AddFlag(CanHealFullHealthUnits)` : le port n'a pas de substrat `UnitFlag` persistant sur l'entité,
-et **aucun consommateur porté ne le lit** -- `...HealingBalms_HealAbility$$GetDynamicInvalidTargetReason`
-(ci-dessous) ne teste QUE `IsAffectedByHealType`, donc le « même à PV pleins » est déjà obtenu par
-l'ABSENCE du gate, pas par la présence du flag. Résidu #966-r2 (le flag est lu par le `18 Heal`
-GÉNÉRIQUE, lui-même hors `ABILITY_CLASSES` -- résidu #931-r1).
+serait un no-op au mieux, une double-pose au pire.
+
+⚠ **LE `AddFlag(CanHealFullHealthUnits)` EST DANS LE MÊME CAS, ET C'EST CE PARAGRAPHE QUI ÉTAIT
+FAUX (#982-r5).** Il affirmait « le port n'a pas de substrat `UnitFlag` persistant » et « aucun
+consommateur porté ne le lit » : les DEUX sont RÉFUTÉS, mesurés (build `rnca9r7q6c`, `MC1_67`,
+seed 777, `spaceWolfPriest` injecté au catalogue). Le substrat EXISTE
+(`runner/components.UnitFlagsComponent`, seedé par `runner/snapshot._load_unit_flags` depuis
+`combatSnapshot.units[].unitFlags` -- relevé `[23]` sur Baldr, `[]` sur les trois autres unités), et
+le consommateur porté est `runner/abilities/attack_query.entity_can_be_healed` (disjonction
+`HasFlag(caster, 0x17)`), atteint à l'EXÉCUTION par
+`IdunBattle.Operations.HealUnitOperation$$Execute` -- donc par la feuille `Heal` de l'arbre §ACTIVE
+ci-dessous. Sur une cible à PLEINS PV le port rend `True` pour `caster = Baldr` et `False` pour tout
+autre caster : la règle mord, avec témoin.
+
+Ce qui reste vrai : `...HealingBalms_HealAbility$$GetDynamicInvalidTargetReason` ne consulte PAS ce
+gate. Le « même à PV pleins » a donc DEUX étages natifs -- l'ABSENCE du gate au CIBLAGE **et** le
+flag au GATE D'EXÉCUTION -- pas un seul. Et le lecteur n'est pas le `18 Heal` générique : c'est
+`IdunBattle.Core.Services.AttackQuery$$EntityCanBeHealed`. Le résidu #931-r1 (le `18 Heal`
+générique hors `ABILITY_CLASSES`) reste ouvert, mais il n'a rien à voir avec ce flag.
+Cliquet : `tests/engine/test_982r5_can_heal_full_health_offline.py`.
 
 ## §ACTIVE -- `...HealingBalms_HealAbility$$ExecuteBehaviour`, MIRROR feuille par feuille
 
@@ -281,9 +295,14 @@ class HealingBalms_HealAbility(ActiveAbility):
             return 0;
 
         `0x100` = `TargetingRule.TargetMatchesDynamicRule`-échoué tel que le natif le rend (même
-        littéral que `TwistedScience_HealAbility`). ⚠ AUCUN appel à `AttackQuery.EntityCanBeHealed` :
-        c'est l'ABSENCE de ce gate qui réalise le « can heal friendly units even if they are at full
-        Health » de l'i2 -- le flag `CanHealFullHealthUnits` posé par le passif n'est PAS lu ici."""
+        littéral que `TwistedScience_HealAbility`). ⚠ AUCUN appel à `AttackQuery.EntityCanBeHealed`
+        ICI, et c'est le PREMIER des DEUX étages du « can heal friendly units even if they are at
+        full Health » de l'i2 : au CIBLAGE, il vient de l'ABSENCE du gate. Le SECOND est à
+        l'EXÉCUTION -- la feuille `Heal` passe par `IdunBattle.Operations.HealUnitOperation$$Execute`,
+        dont le gate en tête EST `EntityCanBeHealed`, et là c'est bien le flag
+        `CanHealFullHealthUnits` posé par le passif (mesuré `unitFlags = [23]` sur Baldr, #982-r5)
+        qui rend éligible une cible pleine. N'en lire qu'un seul est exactement ce qui a produit le
+        verdict faux de #966-r2."""
         if target_id is None:
             return 0
         # `IsAffectedByHealType(target, 0)` -- le `0` est le littéral du call-site (`HealType`
