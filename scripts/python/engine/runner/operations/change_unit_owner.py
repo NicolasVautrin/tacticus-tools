@@ -15,7 +15,7 @@ STRUCTURE NATIVE LUE (build `rnca9r7q6c`), `ChangeUnitOwnerOperation$$Execute(ta
     if (UnitExtensions.IsOwnerOverridden(target)) {            // deja possede
         Logger.Log("... already overridden ..."); return;      // NO-OP, aucune mutation
     }
-    if (!state.<slot 11>)  RemoveEffects(this, target);        // cf. `_remove_effects_on_owner_change`
+    if (!state.<slot 11>)  RemoveEffects(this, target);        // PORTE (#982-r4), cf. plus bas
     newOwnerId = OwnerComponent(referenceUnit).CurrentPlayerEntityId
     oc         = OwnerComponent(target)
     oldOwnerId = oc.<+0x10 OwnerPlayerEntityId>
@@ -50,6 +50,12 @@ enfants -- laisserait une unite definitivement retournee.
 operations pour sauter leurs events). Le port n'a pas de mode simulation cote runner : la branche
 `RemoveEffects` est donc TOUJOURS prise et les events ne sont pas emis (le port n'a pas ce bus).
 ECART NOMME, sans observable ici.
+
+⚠ **`Execute` NE FAIT RIEN D'AUTRE DES EFFETS.** Relu en entier (#982-r4, build `rnca9r7q6c`) : le
+seul geste sur les effets est l'appel a `RemoveEffects` **AVANT** la lecture du nouveau
+proprietaire et l'ecriture du slot d'override. Il n'y a **aucun re-`Apply`** des effets CONSERVES
+sur le nouveau proprietaire -- la question restait ouverte dans l'enonce de `#982-r4`, elle est
+tranchee : rien a porter de ce cote.
 
 ⚠ **`PlayerComponent+0x40` / `+0x48` NE SONT PAS PORTES** : ce sont deux listes d'ids sur l'entite
 PLAYER (celle du nouveau proprietaire recoit l'unite en `+0x48`, celle de l'ancien la recoit en
@@ -134,28 +140,55 @@ class ResetUnitOwnerOperation:
 def _remove_effects_on_owner_change(state: "State", unit_id: int) -> None:
     """`IdunBattle.Operations.ChangeUnitOwnerOperation$$RemoveEffects(unit)` -- MIRROR, terme a terme :
 
-        garder = new List<int>()
+        aRetirer = new List<int>()
         foreach (effectId in unit.GetComponent<EffectsComponent>().ActiveEffectIds) {
             effet  = state.Get(effectId)
             config = EffectsDatabase.GetEffect( effet.EffectComponent.Type@+0x58 )
-            if (!config.<slot 3>)  garder.Add(effectId)     // <- NOTE : le sens du test
+            if (!config.<IEffect slot 3 = get_KeepOnChangeOwner>)  aRetirer.Add(effectId)
         }
-        foreach (id in garder)  processor.RemoveEffect(state.Get(id))
+        foreach (id in aRetirer)  processor.<slot 0x11 RemoveEffect>(state.Get(id))
 
-    Donc : a la prise de controle, le natif PURGE les effets portes par l'unite dont la config
-    repond FAUX au slot 3 de l'interface d'effet -- pratiquement, tout ce qui ne survit pas a un
-    changement de camp (les taunts, les marquages de ciblage, les buffs lies a l'ancien
-    proprietaire).
+    Donc : a la prise de controle, le natif PURGE les effets dont le getter rend **FAUX** -- noter
+    le sens du test, c'est la seule chose qui distingue une purge d'une conservation.
 
-    ⚠ **CE FILTRE N'EST PAS PORTE, ET LE PORT NE PURGE DONC RIEN.** Le discriminant est le slot 3
-    de l'interface de CONFIGURATION d'effet (`DAT_18334e8f0`), qui n'est dans aucune des deux
-    tables de slots versionnees (`interface_slots.tsv` couvre `IEffect`, pas cette interface-la) :
-    le NOM du predicat n'est pas lisible offline, et le port ne devine pas quels effets tombent.
-    Purger << tout >> serait strictement pire (on retirerait des effets que le natif garde), ne
-    rien purger est la degradation CONSERVATRICE.
+    ⚠ **DEUX BOUCLES, ET C'EST LOAD-BEARING** : la liste est constituee AVANT le premier retrait.
+    Le port materialise donc son domaine (`list(...)`) avant d'appeler
+    `remove_effect_instance`, qui mute la liste du porteur (`ActiveEffectIds.Remove`) et peut en
+    retirer d'autres par cascade (`RemoveSubEffects`). Filtrer a la volee ferait sauter des entrees.
 
-    Portee reelle de l'ecart pour `1101`, mesuree sur la duree de vie de la possession : l'arbre
-    pose et retire l'effet DANS LE MEME CAST, donc les effets non purges vivent une fenetre qui ne
-    contient qu'une action IA. Residu `#590-r2` (`BLOCAGE: capteur` -- trancher le predicat demande
-    d'enumerer les methodes d'une interface de config a l'execution)."""
+    ⚠ **LE GATE PORTE SUR LA CONFIG DU TYPE, PAS SUR L'INSTANCE.** Cote port, l'instance EST celle
+    de la classe d'effet du type (materialisee par `entities/effects/factory.py`), donc
+    `eff.keep_on_change_owner` est le meme predicat. Un type NON PORTE retombe sur `BaseEffect`,
+    dont le defaut est `True` (= le corps `b0 01 c3` de la base) : il est CONSERVE, ce qui est
+    exactement ce que fait le natif pour toute classe qui n'a pas surcharge.
+
+    #982-r4 -- CE QUI A CHANGE, et pourquoi la note d'avant etait FAUSSE. Elle disait << le NOM du
+    predicat n'est pas lisible offline >> : il l'etait, et depuis longtemps.
+    `data/symbols/<build>/metadata/interface_slots.tsv` porte `IEffect 3 get_KeepOnChangeOwner`.
+    Restait la VALEUR par classe concrete, elle aussi derivable OFFLINE (declaration dans le
+    `global-metadata.dat`, octets du corps dans le bloc `methodPointers`) --
+    `probe_982r4_keep_on_change_owner.py` : **465** classes couvertes, **0 INCONNU**, **2** a FAUX
+    (`IdunBattle.Entities.Effects.TauntedEffect` et
+    `IdunBattle.Entities.Effects.Loki.HolyDuel_TauntEffect`). Le correctif tient donc en un predicat
+    a deux classes, pas en une purge generale -- purger << tout >> aurait retire 463 effets que le
+    natif garde."""
+    # DIFFERE **PORTEUR**, et la classe est MESUREE (protocole du CLAUDE.md : charger la cible seule
+    # dans un process frais et regarder si le module courant y atterrit) : charger
+    # `engine.runner.operations.remove_effects` charge `engine.runner.operations.change_unit_owner`
+    # -- hisser cet import fermerait donc un cycle. Le symetrique existe deja et pour la meme
+    # raison : `remove_effects.remove_effect_instance` differe `ResetUnitOwnerOperation`.
+    from .remove_effects import remove_effect_instance
+
+    eff_state = getattr(state, "effects", None)
+    if eff_state is None:
+        return None
+    uid = int(unit_id)
+    # 1re boucle : le DOMAINE, fige avant tout retrait (cf. l'encadre ci-dessus).
+    a_retirer = [e for e in list(eff_state.by_unit.get(uid, ()) or ())
+                 if not getattr(e, "consumed", False)
+                 and not getattr(e, "keep_on_change_owner", True)]
+    # 2e boucle : `processor.<slot 0x11>` = `RemoveEffectOperation$$Execute`, deja porte -- donc
+    # avec ses `On(0x3f)`/`On(0x40)`, ses reverts de stat-mods et sa cascade d'enfants.
+    for e in a_retirer:
+        remove_effect_instance(state, uid, e)
     return None

@@ -33,7 +33,7 @@ from typing import Optional, TYPE_CHECKING
 import gameconfig as GC
 
 from .base import ActiveAbility, active_ability_state, convert_rounds_to_turns
-from .behaviours.combat import AttackWithAttackDamage
+from .behaviours.combat import AttackWithAttackDamage, InformWeapon
 from .behaviours.context import entities_from_state
 from .behaviours.effects import AddEffect, AddStaticStatModifierEffect
 from .behaviours.lifecycle import (
@@ -1332,7 +1332,7 @@ class CatalystAbility(ActiveAbility):
 #     hits2     = GetNumberConstant(config@0x60, 0x32 = 50 nrOfHits_2)        # 1
 #     adj       = DSLSelectors.AdjacentUnits(gs@0x60 = Target, unique = 1, 3)
 #     ExecuteAtomic( op_BitwiseAnd( op_BitwiseAnd(
-#           DSLBehaviors.InformWeapon(Nullable<DamageProfileType>(), null, null),
+#           DSLBehaviors.InformWeapon(Nullable(profile), isMelee: 0, useSpecial: 0),
 #           DSLBehaviors.AttackWithAttackDamage(gs@0x48 = Caster, gs@0x60 = Target, mainDmg,
 #                                               Nullable(profile), hits, AbilityOrEffect(this), ., 2) ),
 #           DSLBehaviors.AttackWithAttackDamage(gs@0x48 = Caster, adj,            adjDmg,
@@ -1355,11 +1355,16 @@ class CatalystAbility(ActiveAbility):
 #  * Le `selectionType = 3` (`OnlyAliveAndTargetable`) est porte PAR le selecteur -- c'est le SEUL
 #    filtre de l'ensemble splash, faute de wrapper. On ne rajoute donc PAS d'`Alive(...)` : le natif
 #    le fait deja, ici, a l'interieur du noeud.
-#  * `InformWeapon` (1er terme du `op_BitwiseAnd`) N'EST PAS materialise en feuille : c'est le noeud
-#    qui pousse les TAGS d'arme dans le stream (`engine/streams/inform_ops.py`), aval deja porte et
-#    consomme par `AttackWithAttackDamage` (`get_inform_weapon_tags`). Aucune Operation d'etat.
-#    RESIDU NOMME `#890-r1` : le port n'emet pas l'event `InformWeapon` propre, donc une cascade
-#    live comparee event-a-event portera un groupe de moins.
+#  * `InformWeapon` (1er terme du `op_BitwiseAnd`) EST MATERIALISE en feuille depuis #890-r1. Son
+#    `Nullable` n'est PAS VIDE, contrairement a ce que cette note affirmait : le decompile construit
+#    `Nullable__ctor(&local_210, local_res8)` sur le MEME `local_res8` que les deux
+#    `AttackWithAttackDamage`, c'est-a-dire la VALEUR du profil (`GetDamageProfile(config@0x60)
+#    .Value`). L'ecart comptait : un Nullable vide aurait fait ecrire `Attack_Weapon_DamageProfile =
+#    -1` (`DamageProfileType.None_`) la ou le natif ecrit `Blast` -- MESURE live : `18`.
+#    Les deux autres arguments sont des litteraux `0` -> `Attack_Weapon_IsMelee = 0`, et
+#    `Attack_Weapon_Use_Special` ABSENT (le natif ne pose cette 3e cle que si `useSpecial != 0`).
+#    Le noeud est COMBAT-INERTE (aucune Operation d'etat, aucun tirage) : il n'altere pas l'ordre
+#    `state.rng` de l'attaque qui le suit.
 STRANGLETHORN_ID = "StranglethornCannon"
 #: `GetDamageProfile(config@0x60)` -> `StranglethornCannon.constants.damageProfile` = `Blast`.
 STRANGLETHORN_PROFILE = "Blast"
@@ -1376,12 +1381,16 @@ STRANGLETHORN_IS_MELEE = None
 def stranglethorn_cannon_tree() -> AtomicGroup:
     """Arbre de `...StranglethornCannonAbility$$ExecuteBehaviour` (MIRROR ; cf. le bloc en tete) :
 
-        AtomicGroup( op_and(
-            AttackWithAttackDamage(Target(),                    minDmg  /maxDmg  , nrOfHits  ),   # MAIN
+        AtomicGroup( op_and( op_and(
+            InformWeapon(profile, isMelee: 0, useSpecial: 0),                                     # TAGS
+            AttackWithAttackDamage(Target(),                    minDmg  /maxDmg  , nrOfHits  ) ), # MAIN
             AttackWithAttackDamage(AdjacentUnits(Target(), 3),  minDmg_2/maxDmg_2, nrOfHits_2) ) ) # SPLASH
 
-    ORDRE : main PUIS splash -- c'est l'ordre du `op_BitwiseAnd` natif, donc l'ordre de consommation
-    de `state.rng`. Un splash joue avant le coup principal desynchroniserait tous les tirages.
+    ORDRE : inform PUIS main PUIS splash -- c'est l'ASSOCIATION du natif,
+    `op_and(op_and(inform, main), splash)`, donc l'ordre de consommation de `state.rng`. Un splash
+    joue avant le coup principal desynchroniserait tous les tirages ; `InformWeapon`, lui, est
+    COMBAT-INERTE (0 tirage, 0 mutation), donc sa presence en tete ne DEPLACE aucun tirage --
+    l'attaque reste bit-exacte (#890-r1).
 
     `multi=True` sur le splash folde l'`OrderBy` de
     `IdunBattle.Entities.Behaviours.AttackBehaviour$$Execute` (tri par id = ordre de lecture natif).
@@ -1400,7 +1409,11 @@ def stranglethorn_cannon_tree() -> AtomicGroup:
                                     is_melee=STRANGLETHORN_IS_MELEE,
                                     min_key="minDmg_2", max_key="maxDmg_2", hits_key="nrOfHits_2",
                                     multi=True, native_factory="attack", ability_type=ability_type)
-    return AtomicGroup(op_and(main, splash))
+    # `InformWeapon(Nullable(profile), isMelee: 0, useSpecial: 0)` -- les DEUX derniers sont des
+    # litteraux `0` LUS au call-site, jamais deduits du profil ni de `STRANGLETHORN_IS_MELEE` (qui
+    # est `None` et repond, lui, a une AUTRE question : la nature du COUP, pas le tag d'arme).
+    inform = InformWeapon(STRANGLETHORN_PROFILE, is_melee=False, use_special=False)
+    return AtomicGroup(op_and(op_and(inform, main), splash))
 
 
 class StranglethornCannonAbility(ActiveAbility):

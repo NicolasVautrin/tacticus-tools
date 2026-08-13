@@ -100,6 +100,16 @@ def _unit_dict(state, eid: int, entity=None) -> dict | None:
     return {
         "id": eid,
         "team": oc.team if oc is not None else None,
+        # EQUIPE D'ORIGINE (#963-r1) -- ce que rend `IdunBattle.Entities.EntityExtensions$$
+        # GetOriginalPlayer` la ou `team` rend `GetCurrentPlayer`. Les deux ne different que sous
+        # OWNER-SWAP (`IdunBattle.Operations.ChangeUnitOwnerOperation$$Execute`, effet `1209
+        # AttemptedPossession_Possessed`) : `OwnerComponent.overridden_from` porte alors le couple
+        # `(team, player)` D'ORIGINE, `None` sinon (cf. `runner/components.py`).
+        # LU par `entities/unit_team_selection_type.py::team_for_selection`, donc par les noeuds
+        # `AreEnemies`/`AreFriends` quand leur call-site passe `UnitTeamSelectionType.ByOriginalTeam`
+        # -- le seul du build etant `RedRampage_BuffAbility$$CreateTrigger`.
+        "originalTeam": ((oc.overridden_from[0] if oc.overridden_from is not None else oc.team)
+                         if oc is not None else None),
         "player": oc.player if oc is not None else None,
         "pos": {"col": pc.col, "row": pc.row} if pc is not None else None,
         # EMPREINTE (#R30/#91) — `IdunBattle.Entities.EntityExtensions$$GetTiles` = les tuiles des
