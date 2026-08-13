@@ -18,7 +18,7 @@ from ..services.movement_query import get_distance
 from .active_ability_type import ActiveAbilityType
 from .effects.aura import aura_trait, aura_current_range, aura_next_turn_range
 from .effects.magnitude import ability_var
-from .selectors._shared import _tile_positions
+from .selectors._shared import _entity_pos, _tile_positions
 from .stats import StatType
 
 
@@ -1018,6 +1018,93 @@ class MinDistance(AAmountFormula):
         ta = [f for u in _units_of(self.a, ctx) if isinstance(u, dict) for f in _feet(u)]
         tb = [f for u in _units_of(self.b, ctx) if isinstance(u, dict) for f in _feet(u)]
         return get_distance(ta, tb)                           # meme seed `int.MaxValue`
+
+
+# `IdunBattle.Core.Services.BattleQuery$$GetAverageDistance(tilesA, tilesB, defaultValue)` : le
+# `defaultValue` que la formule DSL lui passe, LU au decompile d'
+# `IdunBattle.Entities.Formulas.AverageDistanceFormula$$Calculate` (l'immediat `10000` du call de
+# slot 112). C'est ce que rend la formule quand AUCUNE paire n'est mesurable -- pas 0, pas
+# `int.MaxValue` : un « tres loin » fini, qui trie donc APRES toute distance reelle en ordre
+# croissant et AVANT en ordre decroissant. Le seed de `MinDistance` ci-dessus est un AUTRE sentinel
+# (`int.MaxValue`), et les confondre changerait le classement.
+AVERAGE_DISTANCE_EMPTY = 10000
+
+
+def _select_tiles_positions(sel: TargetsSelector, ctx) -> list:
+    """`IdunBattle.DSL.TargetsSelector$$SelectTiles` (slot 10) en domaine POSITION : liste PLATE des
+    tuiles de toutes les entites selectionnees. Domaine MIXTE assume -- une UNITE materialise son
+    EMPREINTE (`EntityExtensions$$IterateTiles`, `_feet`), une TUILE (id / position) se materialise
+    elle-meme (`_entity_pos`). `MinDistance` ci-dessus ne couvre que la branche UNITE, ce qui suffit
+    a ses call-sites ; les call-sites de `AverageDistance` melangent les deux (une TUILE candidate
+    d'un cote, des UNITES de l'autre)."""
+    board = getattr(ctx, "board", None)
+    v = sel.evaluate(ctx) if hasattr(sel, "evaluate") else sel
+    if v is None:
+        return []
+    if isinstance(v, tuple) and len(v) == 2 and all(isinstance(x, int) for x in v):
+        items = [v]
+    elif isinstance(v, (dict, int)):
+        items = [v]
+    else:
+        items = list(v)
+    out = []
+    for it in items:
+        if isinstance(it, dict):
+            out.extend((int(p[0]), int(p[1])) for p in _feet(it) if p is not None)
+            continue
+        p = _entity_pos(it, board)
+        if p is not None:
+            out.append((int(p[0]), int(p[1])))
+    return out
+
+
+class AverageDistance(AAmountFormula):
+    """`IdunBattleLogic.Entities.DSLFormulas$$AverageDistance(a, b)` ->
+    `IdunBattle.Entities.Formulas.AverageDistanceFormula$$Calculate` -- MIRROR du decompile :
+
+        tilesA = <a @+0x10>.SelectTiles(entities)      # slot 10
+        tilesB = <b @+0x18>.SelectTiles(entities)      # slot 10
+        return <query @+0x20>.GetAverageDistance(tilesA, tilesB, defaultValue: 10000)   # slot 112
+
+    et `IdunBattle.Core.Services.BattleQuery$$GetAverageDistance` (MIRROR, lu terme a terme) :
+
+        count = 0 ; sum = 0
+        foreach (ea in tilesA)
+            foreach (eb in tilesB)
+                count++ ;  sum += PositionComponent.Distance(eb.Position, ea.Position)
+        return count == 0 ? defaultValue : sum / count        # division ENTIERE, troncature
+
+    Trois consequences que le port reproduit telles quelles :
+      * la division est ENTIERE (`(longlong)sum / (longlong)count`, troncature vers zero) -- une
+        moyenne de 7/2 vaut **3**, pas 3.5 ;
+      * `count` s'incremente pour CHAQUE paire, y compris quand la distance est nulle -- c'est un
+        produit cartesien `|A| x |B|`, pas une moyenne par entite ;
+      * une source VIDE d'UN SEUL cote suffit a rendre `defaultValue` (le `count == 0` couvre les
+        deux : boucle externe qui ne tourne pas, ou interne qui ne tourne jamais).
+
+    `PositionComponent$$Distance` = `CubeCoordinate$$Distance` = `Max(|dx|,|dy|,|dz|)`, la distance
+    hex NUE -- meme chemin que `MinDistance` ci-dessus, donc `hexgeo.distance` (foyer
+    `services.movement_query.get_distance` pour le MIN ; ici la somme est faite sur place, la
+    moyenne n'ayant pas de foyer partage).
+
+    Consommateur porte : `IdunBattleLogic.Entities.Abilities.Active.Loki.
+    CallRipperSwarmsAbility$$ExecuteBehaviour` (`AverageDistance(ActiveTarget@+0x68, enemies)`,
+    la cle du `SortByFormula` qui classe les tuiles de spawn)."""
+    def __init__(self, a: TargetsSelector, b: TargetsSelector):
+        self.a, self.b = a, b
+
+    def calculate(self, ctx):
+        ta = _select_tiles_positions(self.a, ctx)
+        tb = _select_tiles_positions(self.b, ctx)
+        count = 0
+        total = 0
+        for pa in ta:
+            for pb in tb:
+                count += 1
+                total += hexgeo.distance(pb, pa)      # `PositionComponent$$Distance(eb, ea)`
+        if count == 0:
+            return AVERAGE_DISTANCE_EMPTY
+        return int(total // count) if total >= 0 else -int((-total) // count)
 
 
 class AuraEffectRange(AAmountFormula):
