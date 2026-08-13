@@ -353,7 +353,7 @@ def stage(h, bras: str, level: int):
             "snapshot": h.snapshot()}
 
 
-def attendus(bras: str, ep: int, nr: int, n: int, socle: int = 0):
+def attendus(bras: str, ep: int, nr: int, n: int, socle: int = 0, active_armee: bool = True):
     """Les DEUX sequences ATTENDUES, DERIVEES du RE -- foyer partage probe/cliquet.
 
     PERCAGE : `socle + k x extraPierceRatio` pour `k = 1..N-1`, puis `socle` a la N-ieme action (la
@@ -367,12 +367,23 @@ def attendus(bras: str, ep: int, nr: int, n: int, socle: int = 0):
     qui prend la branche THEN) et le reste. ⚠ Contrairement a `DaemonfleshPlate`, le re-armement est
     IMMEDIAT : il n'y a ni marqueur ni `On(0x3a = PhaseEnd)`.
 
-    Bras SPECTATEUR : le gate `get_OwnerIsCaster` ferme le canal -> percage CONSTANT au socle."""
+    Bras SPECTATEUR : le gate `get_OwnerIsCaster` ferme le canal -> percage CONSTANT au socle, ET
+    active JAMAIS re-armee (le compteur du porteur ne monte pas, donc la branche THEN n'est jamais
+    prise). Ce second canal est un observable A PART ENTIERE du bras : le percage seul ne dirait rien
+    d'un port qui aurait perdu le gate SUR LA SEULE FEUILLE `ResetActiveAbility`.
+
+    `active_armee = False` (le cast de l'active a ete refuse) -> le canal ACTIVE n'est pas mesure et
+    l'attendu est `None`, jamais une sequence fabriquee."""
+    if not active_armee:
+        active = None
+    elif bras == "SPECTATEUR":
+        active = [False] * n
+    else:
+        active = [False] * (nr - 1) + [True] * (n - nr + 1)
     if bras == "SPECTATEUR":
-        return [socle] * n, None
+        return [socle] * n, active
     pierce = ([socle + ep * k for k in range(1, nr)] + [socle]
               + [socle + ep * k for k in range(1, n - nr + 1)])
-    active = [False] * (nr - 1) + [True] * (n - nr + 1)
     return pierce, active
 
 
@@ -546,7 +557,12 @@ def mutants_pour(bras: str, level: int, p_pierce: list, p_atk: list, active_arme
     donc AUCUN mutant ne peut y mordre : les attentes de ce canal sont rabattues a False, et le
     probe l'annonce."""
     if bras == "SPECTATEUR":
-        return [("OWNERISCASTER_OFF", True, False)]
+        # ⚠ Le canal ACTIVE MORD ici, et c'est DERIVE : le porteur a bien consomme son active dans
+        # `stage`, donc en neutralisant `get_OwnerIsCaster` son compteur monte sur les attaques du
+        # TIERS et la branche THEN finit par re-armer l'active. C'est l'inverse de #916, dont le bras
+        # SPECTATEUR n'arme PAS ce canal (son cast d'active EST une attaque, donc il ne peut pas etre
+        # joue hors serie).
+        return [("OWNERISCASTER_OFF", True, bool(active_armee))]
     passif_deplace_le_reset = (p_atk[level - 1] != p_atk[-1])
     passif_change_la_magnitude = (p_pierce[level - 1] != p_pierce[-1])
     table = [("SEUIL_N", True, True), ("NOCLEAR", True, False), ("INCREMENT_2", True, True),
@@ -580,7 +596,8 @@ def run_bras(a, rpc, Board, bras: str, level: int, p_pierce: list, p_atk: list) 
             print("[%s/l%d] REFUS : %s" % (bras, level, e))
             return 2
 
-        att_p, att_us = attendus(bras, ep, nr, n, socle=rec["pierce0"])
+        att_p, att_us = attendus(bras, ep, nr, n, socle=rec["pierce0"],
+                                 active_armee=rec["active_armee"])
         off_p, off_u = serie_offline(h.board, rec, n)
         accord = (off_p == percages)
         conforme = (percages == att_p)
@@ -591,13 +608,13 @@ def run_bras(a, rpc, Board, bras: str, level: int, p_pierce: list, p_atk: list) 
         print("   percage port   : %s   accord=%s" % (off_p, accord))
         print("   percage attendu: %s   conforme=%s" % (att_p, conforme))
 
-        if bras != "SPECTATEUR" and rec["active_armee"]:
+        if att_us is not None:
             ok_live = (usables == att_us)
             ok_port = (off_u == att_us)
             rc |= 0 if (ok_live and ok_port) else 1
             print("   active natif  : %s   conforme=%s" % (usables, ok_live))
             print("   active port   : %s   conforme=%s" % (off_u, ok_port))
-        elif bras != "SPECTATEUR":
+        else:
             print("   active : CANAL NON ARME (le cast de %d a ete refuse ou l'active etait deja "
                   "consommee) -- ce volet n'est PAS mesure dans ce bras" % ACTIVE_OF_CARRIER)
 
