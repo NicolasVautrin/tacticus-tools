@@ -223,6 +223,12 @@ ALLOWLIST = {
     "scripts/python/tests/test_enum_ordinal_ratchet_offline.py":
         "le cliquet : ses citations `On(0x2b = PreUnitAbility)` sont les DONNEES qui prouvent "
         "que le detecteur mord -- les corriger desarmerait le test",
+    "scripts/python/tests/test_1031_appariements_de_sondes_offline.py":
+        "meme raison que la ligne au-dessus, pour les crans de #1031 : ses echantillons "
+        "PORTENT une quote perimee (`FUN_...(0x4d, .., 0x2b)` + `On(PreUnitAbility)`) et une "
+        "ligne a DEUX ancres pour une annotation. Ce sont les DONNEES qui prouvent que le gate "
+        "mord ENCORE apres restriction aux quotes, et que le cran d'ambiguite n'est pas inerte "
+        "-- les corriger desarmerait les deux contre-epreuves",
     "scripts/python/probe_443r1c_ordinal_index_perime.py":
         "meme raison : sa docstring REPRODUIT la ligne fautive de #443-r1c "
         "(`leaves.get(8)  # 8=Elevation`) et son echantillon d'auto-test la PORTE -- les "
