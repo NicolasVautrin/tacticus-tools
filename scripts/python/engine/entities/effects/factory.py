@@ -43,7 +43,8 @@ from .loki.damage_reduction import (
     OverwhelmingWrathRangeDmgReductionEffect, PrioritisedEfficiencyDmgReductionEffect,
     PsychicFortressDmgReductionEffect, SereneUnifierSenseOfStoneEffect,
     ShadowInTheWarpLessDmgEffect, SuperchargeExtraPiercingEffect, TerminatorArmourReduceDmgEffect,
-    TerrifyingExtraDefenseEffect, VexillaMagnificaDmgReductionEffect
+    TerrifyingExtraDefenseEffect, VexillaMagnificaDmgReductionEffect,
+    WhipcoilBodyReduceDmgEffect                            # #1016 (passif necron 1009, effet 1118)
 )
 from .loki.daemonic_patrons import (
     DaemonicPatronsDmgReductionEffect, DaemonicPatronsExtraDamageEffect
@@ -1837,6 +1838,17 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # L'ability existe au gameconfig mais a **0 porteur** sur les 5 voies (`unit_map find --ability
     # KanOpener` = 0 unites) : aucun effet ne peut donc apparaitre dans `decisionView.effects`, et une
     # inscription serait un port qu'aucun montage n'exerce. Cf. `docs/rl/case-371-g1-static-stat-modifier.md`.
+    # #1016 -- 1118 WhipcoilBody_ReduceDmg : owner-effect PERMANENT du passif de kit `WhipcoilBody`
+    # (`TriggeredAbilityType` **1009**), pose a l'init par
+    # `IdunBattleLogic.Entities.Abilities.Triggered.Loki.WhipcoilBodyAbility` -- laquelle n'override
+    # QUE `$$GetEffectType` (corps ENTIER `return 0x45e`), tout le reste venant de sa base
+    # `IdunBattle.Entities.Abilities.AOwnerEffectTriggeredAbility` (bloc `methodPointers` du PE :
+    # [GetEffectType, .ctor], exactement la forme de `ToughToKill_CritAbility` / `Ramshackle`).
+    # ⚠ QUATRE enums, le meme entier : `EffectType 1118` = CET effet, mais `TriggeredAbilityType
+    # 1118` = `TerrorsLament` (qui porte AUSSI un `dmgReduction` -> une confusion ne leverait pas,
+    # elle rendrait la mauvaise magnitude), `TriggeredAbilityType 1009` = `WhipcoilBody` (la CONFIG)
+    # et `ActiveAbilityType 1009` = `ResurrectionOrb` (deja portee, `runner/abilities/necrons.py`).
+    "WhipcoilBody_ReduceDmg": WhipcoilBodyReduceDmgEffect,
 }
 
 
@@ -2258,6 +2270,21 @@ ABILITY_INIT_OWNER_EFFECTS: dict[str, list[str]] = {
     # exhaustif de l'immediat, cf. `loki/martial_superiority.py`) : materialiser l'instance quand le
     # canal de capture ne l'a pas vue n'apporte AUCUN observable, et exposerait au piege #312
     # (le seed lit les passives du KIT gameconfig, pas de la MESURE).
+    #
+    # #1016 -- `WhipcoilBodyAbility` (parent `IdunBattle.Entities.Abilities.
+    # AOwnerEffectTriggeredAbility`, `frida/classes.tsv`) n'override QUE `$$GetEffectType`, dont le
+    # corps ENTIER est `return 0x45e` (= 1118 `EffectType.WhipcoilBody_ReduceDmg`) : l'appariement
+    # ability -> effet est LU dans le bloc `methodPointers` du PE ([GetEffectType, .ctor], cadre par
+    # le bloc CONTIGU de l'effet), pas devine. Le reste vient de la base (`CreateTrigger =
+    # OnOwnerSpecificAbilityInit(this.AbilityType)`, `CreateBehaviour = If(<DSLTriggers+0x70> = Yes,
+    # AddEffect(GetEffectType(), AbilityState(Owner), source = Owner, targets = Owner,
+    # turns = <zeroe>))`) -- owner-effect PERMANENT pose a l'init, patron `ToughToKill` /
+    # `Ramshackle` / `Skullsmasher`.
+    # `CreateActiveCondition` de l'effet = `<DSLTriggers+0x40>` (constante VRAIE) -> TOUJOURS ACTIF,
+    # donc toujours capte par `decisionView.effects` : ce seed est un FILET (idempotent). Il porte
+    # neanmoins, car le SEUL porteur non-npc est le summon `necroSmnDestroyer`, dont la confrontation
+    # passe par la GREFFE du passif sur une unite du pool.
+    "WhipcoilBody": ["WhipcoilBody_ReduceDmg"],
 }
 
 

@@ -4498,3 +4498,26 @@ pas d'erreur : il rend **zéro**, et un zéro se lit « rien à signaler ».
   `catalog_inject.augment` ne gere pas). Reparer `catalog_inject` d'abord, ou ecrire NON CONFRONTE.
   FOYER: scripts/python/catalog_inject.py, engine/runner/abilities/admec.py, engine/entities/effects/loki/, engine/runner/abilities/handler.py
   BLOCAGE: porteur
+
+- **#1016-r1 : `ReanimationProtocols` (1008) est PORTE et garde offline, mais SON REVIVE N'A PAS ETE
+  VU EN BATAILLE -- et ce qui bloque est le PILOTAGE du summoner, pas le porteur.** `[opus]`
+  Point d'entree : `scripts/python/probe_1016_necrons_live.py` (en-tete, section << CE QUI A ETE
+  MESURE >>) + `engine/runner/operations/triggers/loki/reanimation_protocols.py`.
+  Le port est complet, mirror 1:1 du decompile, et 22 tests offline le gardent (dont les six gates
+  un par un et le `>` STRICT d'`AmountIsEqualOrGreater`). Le volet WhipcoilBody du meme lot, LUI, est
+  confronte live (effet 1118 publie `active/permanent/source==target` sur un porteur greffe).
+  CE QUI RESTE A VOIR : le natif ressuscite-t-il vraiment a 35 % / 25 % de la PV INITIALE, et
+  refuse-t-il sur le DERNIER congenere (branche FAUSSE, deterministe) ?
+  ETABLI, donc a ne pas re-mesurer : `necroSmnSwarm` (porteur, SUMMON) arrive par `necroSpyder`
+  (`kind = lineup`, AU POOL) ; `ScarabHive` = `ActiveAbilityType` **1007** ; l'i2 dit << Summons 2
+  Scarab Swarms next to the target >> -- DEUX summons d'un coup, donc `count > 1` satisfait par
+  construction ; `necroSmnWarrior.visualId == "necroNpc1Warrior"` (un summon et le npc homonyme se
+  comptent MUTUELLEMENT).
+  CE QUI A BLOQUE, mesure : mis cote adverse, l'IA native ne caste pas `ScarabHive` en 3 tours ;
+  mis cote joueur, `abilityTargets` rend `targetCount=0` au spawn puis `targetCount=1 /
+  fromHereCount=0` -- il faut BOUGER -- mais `act move --to` rend `rc=0` sans que le summoner quitte
+  sa tuile, et `play --auto aggressive` ne deplace pas (`spec VIDE`) faute d'attaque a portee.
+  Premier etage a mesurer : POURQUOI le `move` ne mord pas (c'est un trou d'outillage de pilotage,
+  et il gene tout montage qui doit approcher avant de caster).
+  FOYER: scripts/python/probe_1016_necrons_live.py
+  BLOCAGE: aucun
