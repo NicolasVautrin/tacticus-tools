@@ -21,7 +21,7 @@ differe. C'est la doctrine « DECIDER != EXECUTER ».
 
 - Unites `npc` : **491** ; kits sans manque : **377** ; kits avec du travail : **114**
 - Actives distinctes : **147** — `[--]` **9** · `[-D]` **1** · `[C-]` **14** · `[CD]` **123**
-- Passifs distincts : **177** — portes **108**, non portes **69**
+- Passifs distincts : **177** — portes **109**, non portes **68**
 - Traits de kit distincts (AUCUN ecarte — le seuil de frequence a disparu avec #1015) :
   **58** — couverts **53**, non couverts **5**
 - **Voies inversees** (nom absent d'`ActiveAbilityType`) : **1** — `Maugetar`
@@ -95,7 +95,6 @@ l'unite. La colonne `porteurs` dit l'exposition.
 | passif | MultiTracker | 1 | tauBossRiptide |
 | passif | NoHidingFromTheWatchers | 1 | darkaNpc4Watcher |
 | passif | OiWatchIt | 1 | orksNpc5LootGrotTeam |
-| passif | OmnissiahsBlessing | 1 | admecNpc2Techpriest |
 | passif | PileIn | 1 | orksNpc1Grot |
 | passif | PowerUp_Armor | 1 | powupArmor |
 | passif | PowerUp_Bomb | 1 | powupBomb |
@@ -212,7 +211,7 @@ sont des **faces** absentes d'items presents.
 | unite | manque | actives (face) | passifs non portes | traits non couverts | autres voies |
 |---|---:|---|---|---|---|
 | admecBossBelisarius | 4 | InvocationOfMachineVengeance(1172)[--]<br>ArcScourge(1173)[C-]<br>SolarAtomizer(1174)[--] | SelfRepairMechanismReworked, PreCalibratedPurgeSolution | - | - |
-| admecNpc2Techpriest | 2 | - | VengeanceForTheOmnissiah, OmnissiahsBlessing | - | - |
+| admecNpc2Techpriest | 1 | - | VengeanceForTheOmnissiah | - | - |
 | admecBossDestroyer | 0 | SentinelDirectives(1139)[CD] | - | - | relic:KardiocoreGalvanus |
 | admecBossDestroyerCE | 0 | SentinelDirectives(1139)[CD] | - | - | relic:KardiocoreGalvanus |
 | admecBossDestroyerLHE | 0 | SentinelDirectives(1139)[CD] | - | - | relic:KardiocoreGalvanus |
