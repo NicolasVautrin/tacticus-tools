@@ -482,6 +482,12 @@ class _AbilityAttack:
         # VALEUR est court-circuité par min==max — get_damage — mais le resolve slot-8 consomme TOUJOURS
         # 1 tirage/coup, désormais mirroré par `_one_hit` ; puis post_roll reduit le max, roll-then-reduce).
         hit_nc, hit_cr = AttackDamageOperation._apply_max_out(state, attacker_id, hit_nc, hit_cr)
+        # #1013 : SECONDE branche d'`IdunBattle.Entities.UnitExtensions$$IsAttackMaxOutDamage`
+        # (`HasTriggeredAbility(1494 ParagonSpear)`), gatee PAR COUP sur `isCritical` -> elle ne
+        # peut pas degenerer les bornes en amont ; on la transmet a `_run_hits`. Le predicat lit
+        # le KIT DECLENCHE de l'ATTAQUANT, pas l'ability qui frappe : TOUT coup critique du
+        # porteur de la lance est maxe, son attaque normale comprise.
+        _max_out_crit = AttackDamageOperation._max_out_on_crit(state, attacker_id)
         # #61 CANAL DE COUPS DU VECTEUR ABILITY. `hits` recu ici = la valeur du noeud `hits` du DSL
         # (champ +0x80 du `AttackDamageBehaviour`, evalue en `Nullable<int>` de l'AttackData par
         # `IdunBattle.Entities.Behaviours.AttackDamageBehaviour$$ExecuteTarget`) = la BASE, pas le total.
@@ -596,6 +602,7 @@ class _AbilityAttack:
         r = AttackDamageOperation._run_hits(state.rng, hit_nc, hit_cr, crit_chance,
                                             crit_enabled, hits, block_sources, shield=shield_total,
                                             # #522-r1 : crit chance RELUE apres `On(PreAttackHit)`.
+                                            max_out_on_crit=_max_out_crit,
                                             crit_chance_after=crit_apres[0],
                                             crit_enabled_after=crit_apres[2],
                                             # #889-r1 : axe INDEX (cf. `_roll_crit`).

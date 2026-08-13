@@ -548,8 +548,15 @@ def is_attack_max_out_damage(attacker_effects) -> bool:
     confondus offline) -> degats MAX sans tirage. FOYER UNIQUE cote prediction, evalue DANS
     `predict_attack_raw` comme le natif l'evalue DANS `PredictAttackRaw` (wrapper `DamagePrediction.
     IdunBattle.Core.Services.DamagePrediction$$IsAttackMaxOutDamage`, call site IdunBattle.Core.Services.DamagePrediction$$PredictAttackRaw+0x1b0a) — les appelants passent les EFFETS de
-    l'attaquant (scene.effects / active ECS), pas un flag pre-calcule. La branche
-    `HasTriggeredAbility(1494 ParagonSpear)` n'est PAS mirroree (porteur hors kit — residu case-202 §6).
+    l'attaquant (scene.effects / active ECS), pas un flag pre-calcule.
+
+    ⚠ LA SECONDE BRANCHE DU MEME NATIF N'EST PAS ICI, ET CE N'EST PAS UN OUBLI.
+    `HasTriggeredAbility(1494 ParagonSpear)` est portee cote COMBAT depuis #1013
+    (`triggers/loki/weaver_of_fate.is_attack_max_out_damage_on_crit`), parce que le natif y rend le
+    champ `isCritical` de l'`AbilityEntities` : elle se decide PAR COUP. Ce foyer-ci, lui, sert a
+    `predict_attack_raw`, qui calcule une PREVISION sans coup ni crit tire -- il n'a pas de
+    `isCritical` a lire. Residu NOMME `#1013-r1` : ce que la prediction doit rendre pour un porteur
+    de la lance (le max sur la seule branche crit de la prevision, ou rien) n'est pas mesure.
     (Le COMBAT runner a son mirror jumeau sur l'EffectsState ECS : `weaver_of_fate.
     is_attack_max_out_damage` — meme fonction native, deux stores.)"""
     return any(getattr(e, "name", None) == "WeaverOfFate_MaxOutDamage"

@@ -954,11 +954,35 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
           consommation RNG bit-exacte preservee (IdunBattle.Core.Services.DamagePrediction$$RandomlyResolveMinMaxDamage sans gate).
         La branche crit d'`IdunBattle.Operations.AttackDamageOperation$$ExecuteHit` prend aussi le max comme base (uVar26 = struct.max) —
         couvert par la degenerescence de `hit_cr`. No-op (retourne les bornes inchangees) si l'attaquant
-        n'a pas l'effet 1185 (cas courant)."""
+        n'a pas l'effet 1185 (cas courant).
+
+        ⚠ CE FOYER NE PORTE QUE LA BRANCHE EFFET. La SECONDE branche du meme natif
+        (`HasTriggeredAbility(1494 ParagonSpear)`, #1013) n'a PAS la meme portee : elle rend le champ
+        `isCritical` de l'`AbilityEntities`, donc elle ne vaut QUE pour un coup CRITIQUE et se decide
+        PAR COUP. La degenerer ici serait faux dans les deux sens -- degenerer `hit_nc` maxerait les
+        coups NON critiques (que la mesure live montre VARIABLES et deja bit-exacts), et degenerer
+        `hit_cr` seul ne maxe rien du tout, `hit_cr` ne servant que de SHIFT (`hit_cr - hit_nc`).
+        Elle vit donc dans `damage_hits._run_hits(max_out_on_crit=...)`, au point exact ou
+        `IdunBattle.Operations.AttackDamageOperation$$ExecuteHit` l'intercale : apres le tirage et
+        le crit-roll, avant `CalculateCriticalDamage`."""
         from .triggers.loki.weaver_of_fate import is_attack_max_out_damage   # lazy : cycle damage<->triggers
         if not is_attack_max_out_damage(state, attacker_id):
             return hit_nc, hit_cr
         return HitDamage(hit_nc.max, hit_nc.max), HitDamage(hit_cr.max, hit_cr.max)
+
+    @staticmethod
+    def _max_out_on_crit(state: State, attacker_id: int) -> bool:
+        """#1013 -- pendant PAR COUP d'`_apply_max_out` : la branche
+        `HasTriggeredAbility(1494 ParagonSpear)` d'
+        `IdunBattle.Entities.UnitExtensions$$IsAttackMaxOutDamage`, que le natif gate sur le champ
+        `isCritical` de l'`AbilityEntities`. Les trois vecteurs d'attaque la transmettent a
+        `damage_hits._run_hits(max_out_on_crit=...)`, qui l'applique au point exact ou
+        `IdunBattle.Operations.AttackDamageOperation$$ExecuteHit` l'intercale.
+
+        Meme import LAZY que `_apply_max_out` ci-dessus, et pour la MEME raison mesuree (cycle
+        `damage <-> triggers`) -- pas un idiome recopie."""
+        from .triggers.loki.weaver_of_fate import is_attack_max_out_damage_on_crit  # lazy : idem
+        return is_attack_max_out_damage_on_crit(state, attacker_id)
 
     @staticmethod
     def _record_attacked(state: State, target_id: int) -> None:

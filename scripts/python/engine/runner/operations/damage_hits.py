@@ -302,6 +302,12 @@ class _DamageHitsMixin:
                   is_attack_damage_op: bool = True, force_overkill: bool = False,
                   prevent_overkill: bool = False,
                   force_crit: bool = False, hit_index0: int = 0,
+                  # #1013 : branche `HasTriggeredAbility(1494 ParagonSpear)` d'
+                  # `IdunBattle.Entities.UnitExtensions$$IsAttackMaxOutDamage`. Le max-out y est
+                  # gate par le champ `isCritical` de l'`AbilityEntities` -> il s'applique PAR
+                  # COUP et seulement quand ce coup CRITE, contrairement au max-out de l'effet
+                  # 1185 (`_apply_max_out`, bornes degenerees en amont). Defaut False = inchange.
+                  max_out_on_crit: bool = False,
                   crit_allowed0: bool = True,
                   crit_chance_after: Optional[int] = None,
                   crit_enabled_after: Optional[bool] = None,
@@ -853,6 +859,16 @@ class _DamageHitsMixin:
                     _crit_allowed[0] = False      # `ExecuteHits` : recalcul -> Any(null) = false
                 crits.append(crit)
                 if crit:
+                    # #1013 : `ExecuteHit` intercale ICI, et SEULEMENT sur un coup critique,
+                    #   if (IsAttackMaxOutDamage(attacker, entities, state)) damage = <max> ;
+                    # `IdunBattle.Entities.UnitExtensions$$IsAttackMaxOutDamage` rend, pour un
+                    # porteur de `1494 ParagonSpear`, le champ `isCritical` de l'`AbilityEntities`
+                    # -- d'ou le gate `if crit` et non un max-out inconditionnel (celui de l'effet
+                    # `1185 WeaverOfFate_MaxOutDamage`, lui, passe par `_apply_max_out` en amont et
+                    # degenere DEJA les deux jeux de bornes). Le tirage a bien eu lieu et reste
+                    # consomme : le natif l'ECRASE, il ne l'evite pas.
+                    if max_out_on_crit:
+                        raw = int(hit_nc.max)
                     # `IdunBattle.Core.Services.DamagePrediction$$CalculateCriticalDamage` -> `IdunBattle.Core.Services.DamageCalculations$$ApplyCritDamage` : critBonus
                     # FLAT sur la valeur ROULÉE, PRE-reduce. Le montant = le SHIFT des bornes crit
                     # (hit_cr = bornes + critDamage, largeurs égales -> même modulo => numériquement ==

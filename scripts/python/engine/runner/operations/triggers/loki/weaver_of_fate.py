@@ -36,17 +36,25 @@ from typing import Optional
 from .....entities.effect_type import EffectType
 from .....entities.damage_profile_type import DamageProfileType
 from .....dsl.event_trigger_type import EventTriggerType
+from .....entities.triggered_ability_type import (TriggeredAbilityType,
+                                                  entity_triggered_ability_ids)
 from ....state import State
-from ....components import UnitComponent, OwnerComponent
+from ....components import StatsComponent, UnitComponent, OwnerComponent
 from ..base import TriggeredAbility, TriggerEvent
 from ...effects import AddEffectOperation
 
 WEAVER_MAXOUT = int(EffectType.WeaverOfFate_MaxOutDamage)      # 1185 (0x4a1)
+#: SECONDE branche d'`IdunBattle.Entities.UnitExtensions$$IsAttackMaxOutDamage` (#1013) -- la
+#: relique `custoKyrus`. `TriggeredAbilityType`, PAS `EffectType` : le natif teste
+#: `HasTriggeredAbility`, une lecture du KIT DECLENCHE.
+PARAGON_SPEAR = int(TriggeredAbilityType.ParagonSpear)         # 1494 (0x5d6)
 _PSYCHIC = int(DamageProfileType.Psychic)                      # 13 (0xd) — arg du selecteur natif
 _THRESHOLD = 3                                                 # DSLFactory.Get(3) — constante EN DUR
-# 2e branche de `IdunBattle.Entities.UnitExtensions$$IsAttackMaxOutDamage` : `HasTriggeredAbility(unit, 0x5d6=1494
-# ParagonSpear)` -> appel conditionnel INLINE (mange par ghidra). Porteur DISTINCT (hors kit
-# Abraxas) — NON mirrore ici (residu case-202 §6 : a porter avec le kit ParagonSpear).
+# 2e branche de `IdunBattle.Entities.UnitExtensions$$IsAttackMaxOutDamage` :
+# `HasTriggeredAbility(unit, 0x5d6 = 1494 ParagonSpear)`. Porteur DISTINCT (hors kit Abraxas), et
+# elle EST mirroree depuis #1013 -- `is_attack_max_out_damage_on_crit` ci-dessous. Le motif qui la
+# tenait ouverte (<< porteur hors kit >>, residu case-202 §6) etait PERIME : c'est une RELIQUE, et
+# `custoKyrus` est DANS le pool rank 17 -> confrontable par `--equip-relic` seul (#237/#357).
 
 
 def units_that_taken_damage_this_turn(state: State, unit_ids, profile_id: int) -> list[int]:
@@ -132,8 +140,55 @@ def is_attack_max_out_damage(state: State, attacker_id: int) -> bool:
     """Mirror `IdunBattle.Entities.UnitExtensions$$IsAttackMaxOutDamage` (branche effet) :
     `IsOwnerOfEffect(unit, 1185) || IsTargetOfEffect(unit, 1185)` — offline les deux roles
     coincident (effet self-cast stocke par-porteur dans EffectsState.by_unit) -> presence de
-    l'effet 1185 ACTIF sur l'attaquant. La branche `HasTriggeredAbility(1494 ParagonSpear)`
-    n'est PAS mirroree (porteur hors kit — residu case-202 §6)."""
+    l'effet 1185 ACTIF sur l'attaquant.
+
+    La SECONDE branche du meme natif (`HasTriggeredAbility(1494 ParagonSpear)`) vit dans
+    `is_attack_max_out_damage_on_crit` ci-dessous : elle est gatee sur le coup CRITIQUE, celle-ci
+    ne l'est pas -- deux predicats, deux portees."""
     if state.effects is None:
         return False
     return bool(state.effects.has_effect(attacker_id, effect_type=WEAVER_MAXOUT))
+
+
+def is_attack_max_out_damage_on_crit(state: State, attacker_id: int) -> bool:
+    """SECONDE branche d'`IdunBattle.Entities.UnitExtensions$$IsAttackMaxOutDamage` (#1013) :
+
+        if (IsOwnerOfEffect(attacker, 0x4a1) || IsTargetOfEffect(attacker, 0x4a1)) return true;
+        if (UnitExtensions.HasTriggeredAbility(attacker, 0x5d6))                 // 1494 ParagonSpear
+            return <entities+0xf8>;                                              // = isCritical
+        return false;
+
+    Le natif rend, pour un porteur de `ParagonSpear`, le champ `isCritical` de l'`AbilityEntities`
+    que l'appelant vient de batir -- donc **le max-out ne vaut QUE pour un coup CRITIQUE**, la ou
+    la branche effet 1185 vaut inconditionnellement. Ce champ est LU au site :
+    `IdunBattle.Operations.AttackDamageOperation$$ExecuteHit` construit son `AbilityEntities` avec
+    le resultat de `RollCritical` en 23e argument, et n'appelle `IsAttackMaxOutDamage` que sous
+    `if (isCritical != 0)`.
+
+    ⚠ CE PREDICAT NE REGARDE PAS QUELLE ABILITY FRAPPE : `HasTriggeredAbility` lit le KIT du
+    porteur. Tout coup critique de `custoKyrus` equipe de la lance est maximise -- son attaque
+    normale et `VigilanceEternal` comprises, pas seulement la lance elle-meme.
+
+    MESURE (#1013, `probe_1013_paragon_spear.py`, flux RNG PROUVE aligne -- meme `mti`, meme
+    tableau MT final) : `custoKyrus` + relique niveau 1, `CritChance = 100`, cible sans reduction,
+    natif = **11292 sur TROIS seeds** alors que les tirages different, soit
+    `2 x (maxDmg[1] + CritDamage) = 2 x (2940 + 2706)`. La loi a ete CONFIRMEE PAR PREDICTION aux
+    niveaux 3 et 5 (11926 et 12562, tous deux atteints). En `CritChance = 0`, le natif VARIE avec
+    la seed et le port l'egalait deja bit-exact : c'est bien le crit, et lui seul, qui maxe.
+
+    Le motif qui justifiait de ne pas la porter (« porteur hors kit — residu case-202 §6 ») etait
+    PERIME : `ParagonSpear` est une RELIQUE, et son porteur `custoKyrus` est DANS le pool rank 17
+    -- confrontable par `--equip-relic` seul depuis #237/#357."""
+    ctx = _unit_ctx(state, attacker_id)
+    if ctx is None:
+        return False                       # canal absent -> on ne fabrique pas un max-out
+    return PARAGON_SPEAR in entity_triggered_ability_ids(ctx, getattr(ctx, "visual_id", None))
+
+
+def _unit_ctx(state: State, unit_id: int):
+    """`StatsComponent.ctx` de l'unite, ou None. Le kit DECLENCHE se lit la (foyer unique
+    `entities/triggered_ability_type.entity_triggered_ability_ids`), jamais du gameconfig : une
+    RELIQUE equipee n'est visible que par ce canal (#357)."""
+    e = state.get_entity(unit_id) if state is not None else None
+    sc = e.get_component(StatsComponent) if e is not None else None
+    return getattr(sc, "ctx", None) if sc is not None else None

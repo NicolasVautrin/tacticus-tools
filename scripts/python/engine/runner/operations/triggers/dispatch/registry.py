@@ -286,6 +286,7 @@ from ..loki.helspear import (HelspearBuffActiveAbility,               # #1008 (r
 from ..loki.dw02_advanced_burst_cannon import (                       # #1012 (relique 1476, tauCrisis)
     Dw02AdvancedBurstCannonAbility)
 from ..loki.relic_power_fist import RelicPowerFistAbility             # #1009 (relique 1466, 3 factions)
+from ..loki.paragon_spear import ParagonSpearAbility                   # #1013 (relique 1494, custoKyrus)
 from ..loki.relentless_march import RelentlessMarchAbility             # #328 (passif necroWarden)
 from ..loki.my_will_be_done_overlord import (MyWillBeDoneOverlordAttackAbility,   # #354 (necroOverlord)
                                              MyWillBeDoneOverlordClearAbility)
@@ -1493,6 +1494,17 @@ RELIC_ABILITY_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
     # enfant, `CombinedBehaviour` execute gauche puis droite) : les fusionner decalerait la sequence
     # PRNG de toute la bataille. Cf. loki/relic_power_fist.py.
     "RelicPowerFist": [RelicPowerFistAbility],
+    # ParagonSpear (relique `R_Crit_ParagonSpear`, `TriggeredAbilityType` 0x5d6 = 1494 ; UN porteur,
+    # `custoKyrus`, DANS le pool rank 17 -> `--equip-relic` suffit, aucune injection). UNE classe
+    # native, UN vecteur : `On(0x16 = TurnStart_Actions, ownerNeedsToBeAlive: 1) &
+    # <DSLTriggers+0x28 = IsTurnOf(Owner@+0x30)> & AmountIsGreaterThanZero(GetPossibleTargets())`
+    # -> `AttackWithAttackDamage(First(SortByDistance(Randomize(GetPossibleTargets()), Owner), 1),
+    # nrOfHits = 2 coups profil Bolter, bornes minDmg/maxDmg au niveau TERTIAIRE)`.
+    # `GetPossibleTargets` = `If(AmountIsGreaterThanZero(adjacents), adjacents, distants)` : les
+    # ennemis damageable ADJACENTS s'il y en a, sinon ceux du rayon `range` en vue DEGAGEE.
+    # ⚠ `level_slot="tertiary"` : lire le niveau des PASSIFS clamperait au dernier palier (50 dans
+    # tout runner normalise), SILENCIEUSEMENT. Cf. loki/paragon_spear.py. #1013.
+    "ParagonSpear": [ParagonSpearAbility],
 }
 
 # --- Registre : abilities GLOBALES (aucun owner) ---------------------------------------------------

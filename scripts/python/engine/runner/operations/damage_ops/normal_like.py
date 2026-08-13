@@ -239,6 +239,12 @@ class _NormalLike:
         # #202 WeaverOfFate : attaquant max-out (effet 1185) -> bornes degenerees a (max, max) — le
         # splash Psyker / smite passe par `IdunBattle.Entities.Behaviours.AbilityDamageBehaviour$$GetDamage` (meme gate).
         hit_nc, hit_cr = AttackDamageOperation._apply_max_out(state, attacker_id, hit_nc, hit_cr)
+        # #1013 : SECONDE branche d'`IdunBattle.Entities.UnitExtensions$$IsAttackMaxOutDamage`
+        # (`HasTriggeredAbility(1494 ParagonSpear)`), gatee PAR COUP sur `isCritical` -> elle ne
+        # peut pas degenerer les bornes en amont ; on la transmet a `_run_hits`. Le predicat lit
+        # le KIT DECLENCHE de l'ATTAQUANT, pas l'ability qui frappe : TOUT coup critique du
+        # porteur de la lance est maxe, son attaque normale comprise.
+        _max_out_crit = AttackDamageOperation._max_out_on_crit(state, attacker_id)
         hits = max(1, int(hits))
         shc, shield_total = AttackDamageOperation._target_shield(tgt)      # bouclier shield-first
         # #366-r1 : intercepteur per-coup (`ExecuteHit` etape 5 = flag `discard` ; `On(0x3c = UnitBlocked)` +
@@ -247,6 +253,7 @@ class _NormalLike:
         r = AttackDamageOperation._run_hits(state.rng, hit_nc, hit_cr, crit_chance,
                                             crit_enabled, hits, block_sources,
                                             # #522-r1 : crit chance RELUE apres `On(PreAttackHit)`.
+                                            max_out_on_crit=_max_out_crit,
                                             crit_chance_after=crit_apres[0],
                                             crit_enabled_after=crit_apres[2],
                                             # #889-r1 : axe INDEX (cf. `_roll_crit`).
