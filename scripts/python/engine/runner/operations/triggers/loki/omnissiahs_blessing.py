@@ -53,11 +53,20 @@ CINQ LECTURES QUI NE SE DEVINENT PAS
    itere l'`EffectsOwnedComponent` et compare `EffectComponent.Type @+0x58`), d'ou le filtre
    `consumed` SEUL cote port.
 
-2. **L'ORDRE DES DEUX BEHAVIOURS EST LOAD-BEARING.** `op_BitwiseAnd(b1, b2)` =
-   `IdunBattle.DSL.CombinedBehaviour` -- gauche PUIS droite. Le transfert lit le niveau AVANT que
-   `RemoveEffect` ne vide la pile de l'Owner. Inverser rendrait un transfert de **0** niveau, sans
-   erreur et sans qu'aucun compte global ne bouge : la pile disparaitrait, purement et simplement.
-   Le port fige cet ordre (`Seq`) et le garde par un test dedie.
+2. **L'ORDRE DES DEUX BEHAVIOURS EST LOAD-BEARING, et le port a du RENONCER AU COLLAPSE POUR LE
+   GARDER.** `op_BitwiseAnd(b1, b2)` = `IdunBattle.DSL.CombinedBehaviour` -- gauche PUIS droite. Le
+   transfert lit le niveau AVANT que `RemoveEffect` ne vide la pile de l'Owner ; inverser rendrait
+   un transfert de **0**, sans erreur et sans qu'aucun compte global ne bouge -- la pile
+   disparaitrait, purement et simplement.
+   Le COLLAPSE V habituel d'`EffectLevel(EffectFromOwner(...))` (resoudre le niveau en SCALAIRE
+   avant l'arbre, cf. `runner/abilities/custodes.py::talons_used_abilities_level` et
+   `triggers/loki/red_rampage.py::_remaining_turns_of_extra_movement`) est ici INTERDIT, et c'est
+   MESURE : sous un scalaire, le mutant << ordre inverse >> reste **VERT** -- le niveau etant deja
+   fige, l'inversion ne change plus rien. Le port passe donc un NOEUD VALEUR paresseux
+   (`MachineVengeanceLevelOfOwner`), evalue par `AddEffectOrIncreaseLevel` au moment ou il
+   s'execute -- exactement comme le natif. Le mutant devient alors ROUGE.
+   Ce que ce choix coute : le noeud CAPTURE le `state`, faute d'accesseur de NIVEAU d'effet sur le
+   `DslContext` (`ctx.has_effect` n'est qu'un booleen).
 
 3. **`maxLevel = NULL` -> AUCUN cap.** Contraste `TerrifyingCrescendoAbility$$CreateBehaviour`, qui
    passe `Direct(GetNumberConstant(0x62 = buffMaxLevel))`. Le plafond de `MachineVengeance` qui
@@ -113,7 +122,7 @@ from ....state import State
 from ....components import UnitComponent
 from ....abilities.behaviours.context import entities_from_state
 from ....abilities.behaviours.effects import RemoveEffect, add_effect_or_increase_level
-from .....dsl.base import Const
+from .....dsl.base import AAmountFormula, resolve_unit
 from .....dsl.effects import ExecutionContext
 from .....dsl.event_trigger_type import EventTriggerType
 from .....entities.behaviours import Seq
@@ -170,9 +179,36 @@ def machine_vengeance_level(state: State, unit_id: int) -> int:
     return total
 
 
-def omnissiahs_blessing_transfer_tree(level: int):
+class MachineVengeanceLevelOfOwner(AAmountFormula):
+    """`DSLFormulas.EffectLevel( DSLSelectors.EffectFromOwner(Owner@+0x30, 0x555) )` -- noeud VALEUR
+    **PARESSEUX**, evalue par `AddEffectOrIncreaseLevel` au moment ou il s'execute.
+
+    ⚠ C'EST UN ECART DELIBERE AU COLLAPSE V DU DEPOT, et il est MESURE (cf. la lecture 2 de
+    l'en-tete) : `custodes.py::talons_used_abilities_level` et
+    `red_rampage.py::_remaining_turns_of_extra_movement` resolvent ce meme motif en SCALAIRE avant
+    l'arbre, parce que rien, chez eux, ne REECRIT l'effet lu dans le meme arbre. Ici si -- le
+    `RemoveEffect` qui suit vide la pile -- donc un scalaire figerait la lecture et rendrait
+    l'ORDRE des deux behaviours INOBSERVABLE (mutant << ordre inverse >> VERT).
+
+    Le `state` est capture au constructeur : le `DslContext` n'expose aucun accesseur de NIVEAU
+    d'effet (`ctx.has_effect` est un booleen), et `entities/selectors/geometry.py::EffectFromOwner`
+    rend `[]` hors-ligne (domaine entite-effet non materialise). Le corps de la lecture reste
+    `machine_vengeance_level`, foyer UNIQUE partage avec `execute_behaviour`."""
+    __slots__ = ("state", "unit_sel")
+
+    def __init__(self, state: State, unit_sel=None):
+        self.state = state
+        self.unit_sel = Owner() if unit_sel is None else unit_sel
+
+    def calculate(self, ctx):
+        u = resolve_unit(self.unit_sel, ctx)
+        uid = u.get("id") if isinstance(u, dict) else None
+        return 0 if uid is None else machine_vengeance_level(self.state, int(uid))
+
+
+def omnissiahs_blessing_transfer_tree(state: State):
     """`AddEffectOrIncreaseLevel( 0x555, AbilityStateReference, source = Owner@+0x30,
-    targets = Target@+0x60, level = <lvl>, maxLevel = NULL )`.
+    targets = Target@+0x60, level = EffectLevel(EffectFromOwner(Owner, 0x555)), maxLevel = NULL )`.
 
     FACTORY native (elle alloue `Foreach(targets, If(HasEffect, IncreaseEffectLevel, AddEffect))`)
     -> portee comme un ARBRE via `behaviours/effects.py::add_effect_or_increase_level`, jamais comme
@@ -185,7 +221,7 @@ def omnissiahs_blessing_transfer_tree(level: int):
     son propre porteur)."""
     return add_effect_or_increase_level(
         MACHINE_VENGEANCE, MACHINE_VENGEANCE_NAME, Target(),
-        amount=Const(int(level)), max_level=None)
+        amount=MachineVengeanceLevelOfOwner(state), max_level=None)
 
 
 def omnissiahs_blessing_clear_tree():
@@ -198,10 +234,11 @@ def omnissiahs_blessing_clear_tree():
     return RemoveEffect(MACHINE_VENGEANCE, Owner())
 
 
-def omnissiahs_blessing_tree(level: int) -> Seq:
+def omnissiahs_blessing_tree(state: State) -> Seq:
     """`op_BitwiseAnd( AddEffectOrIncreaseLevel(...), RemoveEffect(...) )` -- l'arbre ENTIER, dans
-    l'ORDRE natif : on TRANSFERE, PUIS on vide la pile du porteur. Cf. la lecture 2 de l'en-tete."""
-    return Seq(omnissiahs_blessing_transfer_tree(level), omnissiahs_blessing_clear_tree())
+    l'ORDRE natif : on TRANSFERE, PUIS on vide la pile du porteur. Cf. la lecture 2 de l'en-tete --
+    c'est ce `Seq` qui porte l'invariant, et le noeud paresseux qui le rend OBSERVABLE."""
+    return Seq(omnissiahs_blessing_transfer_tree(state), omnissiahs_blessing_clear_tree())
 
 
 class OmnissiahsBlessingAbility(TriggeredAbility):
@@ -244,14 +281,17 @@ class OmnissiahsBlessingAbility(TriggeredAbility):
         """`op_BitwiseAnd( AddEffectOrIncreaseLevel(0x555, ..., Target@+0x60, lvl, NULL),
         RemoveEffect(Owner@+0x30, Nullable(0x555)) )`.
 
-        Le NIVEAU est resolu AVANT l'arbre (`machine_vengeance_level`) : le natif l'evalue lui aussi
-        au moment ou `AddEffectOrIncreaseLevel` s'execute, donc AVANT le `RemoveEffect` qui suit."""
+        Le NIVEAU n'est PAS pre-resolu : il est porte par le noeud paresseux
+        `MachineVengeanceLevelOfOwner`, que `AddEffectOrIncreaseLevel` evalue au moment ou il
+        s'execute -- donc AVANT le `RemoveEffect` qui suit dans le `Seq`, exactement comme le natif.
+        Le `level` rendu dans le payload est une LECTURE de journal (avant l'arbre), pas l'entree du
+        calcul."""
         if state.effects is None:
             return None
         level = machine_vengeance_level(state, int(self.owner_id))
         entities = entities_from_state(state, int(self.owner_id), ev.target_id)
         ectx = ExecutionContext(state=state, rng=state.rng)
-        omnissiahs_blessing_tree(level).execute(entities, ectx)
+        omnissiahs_blessing_tree(state).execute(entities, ectx)
         transferred = [p for n, p in ectx.emitted if n in ("AddEffect", "IncreaseEffectLevel")
                        and int(p.get("effect_type", -1)) == MACHINE_VENGEANCE]
         removed = sum(int(p.get("removed", 0) or 0) for n, p in ectx.emitted
