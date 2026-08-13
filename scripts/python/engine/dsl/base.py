@@ -225,6 +225,15 @@ class DslContext:
     # `EffectComponent.SourceUnit` == `source_unit`). Défaut None -> sélecteur dégradé [] (documenté par
     # nœud). Fourni par la couche runner (`entities_from_state`, lit `state.effects`).
     effects_from_source: object | None = None
+    # Acces aux INSTANCES d'effet par PORTEUR -- mirror de l'AUTRE surcharge de la meme famille,
+    # `IdunBattleLogic.Entities.DSLSelectors$$EffectFromOwner(effectTarget, effectType)` (celle a
+    # DEUX arguments : `effectTarget` est un SELECTEUR d'unites, pas l'owner implicite du contexte).
+    # `effects_of_units(unit, effectType) -> list[{"effect_type", "owner_id", "level"}]`, une entree
+    # par instance PORTEE par `unit`. `level` est le champ que somme
+    # `IdunBattle.Entities.Formulas.EffectLevelFormula$$Calculate` (`EffectComponent+0x68`).
+    # Defaut None -> selecteur degrade [] (documente au noeud `EffectsOfUnits`). Fourni par la couche
+    # runner (`entities_from_state`, lit `state.effects`).
+    effects_of_units: object | None = None
     # `SortUnitsByDamageUtilitySelector$$Select` PAR APPEL -- `sort_units_by_damage_utility(
     # candidate_ids, dmin, dmax, owner_id, hits, ability_type) -> list[id]` (les candidats TRIES par
     # utilite Damage DECROISSANTE). Le `$$Select` complet vit dans `runner/operations/damage_utility`

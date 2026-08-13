@@ -938,6 +938,36 @@ class EffectLevel(AAmountFormula):
         return _effect_field(ctx.effect, "level", 0)
 
 
+class EffectLevelOf(AAmountFormula):
+    """`IdunBattleLogic.Entities.DSLFormulas$$EffectLevel(effects)` -- l'AUTRE surcharge, celle qui
+    prend un SELECTEUR d'entites-effet, mirror de
+    `IdunBattle.Entities.Formulas.EffectLevelFormula$$Calculate` :
+
+        sel = this+0x10;                                   // le selecteur d'effets
+        effects = sel.<slot 0xd>(entities);
+        total = 0;
+        foreach (e in effects)  total += GetComponent<EffectComponent>(e).<+0x68>;   // le NIVEAU
+        return total;
+
+    C'est une **SOMME**, pas un premier ni un max -- et c'est ce qui realise le « Transfers ALL
+    levels of Machine Vengeance » de `SolarAtomizer` : chaque instance portee par chaque allie
+    mecanique ajoute son niveau. Selecteur vide -> `0` (l'accumulateur natif part de 0 et la boucle
+    ne tourne pas).
+
+    A NE PAS confondre avec `EffectLevel` ci-dessus (`DSLFactory$$EffectLevel`, SANS argument), qui
+    lit le niveau de l'effet COURANT du contexte d'application."""
+    def __init__(self, effects: TargetsSelector):
+        self.effects = effects
+
+    def calculate(self, ctx):
+        v = self.effects.evaluate(ctx)
+        if not v:
+            return 0
+        if isinstance(v, dict):                 # accesseur mono-entite -> sequence d'un element
+            v = [v]
+        return sum(int(_effect_field(e, "level", 0) or 0) for e in v)
+
+
 # ---- Le couple de formules du predicat d'AURA (`IsInUnit<X>Aura`), cf. `triggers.IsInUnitAura` ----
 
 # `IdunBattle.Entities.Formulas.MinDistanceFormula$$Calculate` rend `int.MaxValue` quand une des deux
