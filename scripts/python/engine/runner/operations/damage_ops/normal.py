@@ -645,6 +645,12 @@ class _Normal:
         # #202 WeaverOfFate : attaquant max-out (effet 1185) -> bornes degenerees a (max, max), mirror
         # HitDamage(max, null) de `IdunBattle.Entities.Behaviours.AttackDamageBehaviour$$GetDamage` (cf. _apply_max_out).
         hit_nc, hit_cr = AttackDamageOperation._apply_max_out(state, attacker_id, hit_nc, hit_cr)
+        # #1013 : SECONDE branche d'`IdunBattle.Entities.UnitExtensions$$IsAttackMaxOutDamage`
+        # (`HasTriggeredAbility(1494 ParagonSpear)`), gatee PAR COUP sur `isCritical` -> elle ne
+        # peut pas degenerer les bornes en amont ; on la transmet a `_run_hits`. Le predicat lit
+        # le KIT DECLENCHE de l'ATTAQUANT, pas l'ability qui frappe : TOUT coup critique du
+        # porteur de la lance est maxe, son attaque normale comprise.
+        _max_out_crit = AttackDamageOperation._max_out_on_crit(state, attacker_id)
         clean_min = hit_nc.min * hits          # référence affichée = plage non-crit (× hits)
         clean_max = hit_nc.max * hits
         # BOUCLIER cible : absorbe le coup réduit AVANT les PV (CalculateDamageOperation shield-first) ;
@@ -666,6 +672,7 @@ class _Normal:
                                             crit_enabled, hits, block_sources, shield=shield_total,
                                             # #522-r1 : crit chance RELUE apres `On(PreAttackHit)`
                                             # -> coups 1+ seulement (le coup 0 garde `crit_avant`).
+                                            max_out_on_crit=_max_out_crit,
                                             crit_chance_after=crit_apres[0],
                                             crit_enabled_after=crit_apres[2],
                                             # #889-r1 : axe INDEX (distinct de l'axe TEMPOREL
