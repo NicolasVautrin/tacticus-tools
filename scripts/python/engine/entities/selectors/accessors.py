@@ -263,10 +263,53 @@ class SurroundingTiles(TargetsSelector):
     `SurroundingTiles(origin, includeCenter: 1, ...) op_Subtraction Tiles(origin)`, et `Tiles` =
     `IdunBattle.Entities.Selectors.UnitsMainTilesSelector$$Select` = `GetMainTile` PAR ENTITE. On ne
     retranche donc QUE la main tile : les pieds SECONDAIRES d'une origine multi-hex RESTENT dans
-    l'anneau. Retrancher toute l'empreinte serait une seconde erreur, pas une correction."""
-    def __init__(self, center: TargetsSelector, radius: TargetsSelector, include_center: bool = False):
+    l'anneau. Retrancher toute l'empreinte serait une seconde erreur, pas une correction.
+
+    `include_non_walkable` (#967-r2) = le **5e argument** (hors `this`) de
+    `IdunBattleLogic.Entities.DSLSelectors$$SurroundingTiles`, dont Ghidra donne la signature
+    nommee `(this, origin, includeCenter, range, onlyMovable, includeNonWalkable)`. Il etait LU par
+    le natif et NON MAPPE ici. Sa chaine, relue VERBATIM sur `rnca9r7q6c` :
+
+        `...DSLSelectors$$SurroundingTiles`      -> `SurroundingTilesSelector$$.ctor(..., range,
+                                                     onlyMovable, includeNonWalkable)`
+        `...SurroundingTilesSelector$$.ctor`     : `this+0x29 = includeNonWalkable`
+        `...SurroundingTilesSelector$$Select`    : appelle le slot de `IBattleQuery` avec
+                                                   `checkWalkable = (this+0x29 == 0)`
+
+    -> **`includeNonWalkable == 1` DESARME le filtre de marchabilite ; `== 0` l'ARME.** Les deux
+    valeurs existent aux call-sites, c'est ce qui ouvrait le residu :
+      * `DeathOnTheWindAbility$$GetMachineAttackTiles` (1213) passe `1` -> AUCUN filtre ;
+      * `ThriceBlessedConflagrationAbility$$GetTilesInBestLine` (1187) passe `0` -> filtre ARME.
+
+    Le defaut est `True` (aucun filtre) = le comportement de ce noeud AVANT #967-r2 : poser le
+    parametre ne peut donc rien changer a un call-site qui ne le nomme pas. Chaque call-site qui
+    passe `False` doit avoir son litteral `0` LU au decompile -- jamais deduit du nom de l'ability.
+
+    ⚠ RESIDU DISTINCT, et il n'est PAS ferme ici : la premiere ligne d'
+    `IdunBattle.Core.Services.TileUtil$$IsTileValidForList` rejette les MURS (`tileComponent+0x41`)
+    **quelle que soit** `checkWalkable`. Ce noeud ne filtre toujours pas les murs, pour AUCUNE
+    valeur du parametre -- corriger ce point-la toucherait les 7 call-sites portes d'un coup, donc
+    il se mesure separement."""
+    def __init__(self, center: TargetsSelector, radius: TargetsSelector, include_center: bool = False,
+                 include_non_walkable: bool = True):
         self.center, self.radius = center, radius
         self.include_center = bool(include_center)
+        self.include_non_walkable = bool(include_non_walkable)
+
+    def _walkable(self, board, tid) -> bool:
+        """Branche `checkWalkable` d'`IdunBattle.Core.Services.TileUtil$$IsTileValidForList`.
+
+        Substrat ABSENT (board sans `walkable`, tuile inconnue) -> `True` : le gate est INERTE, donc
+        l'ensemble reste celui d'avant. Un `False` fabrique depuis une NON-MESURE retirerait une
+        direction que le natif garde -- la degradation permissive est la meme que celle que
+        `battle_query.is_tile_valid_for_list` documente pour ses accesseurs injectes."""
+        fn = getattr(board, "walkable", None)
+        if fn is None:
+            return True
+        try:
+            return bool(fn(tid))
+        except Exception:
+            return True
 
     def select(self, ctx):
         board = getattr(ctx, "board", None)
@@ -296,9 +339,13 @@ class SurroundingTiles(TargetsSelector):
             for c in feet:
                 for (col, row) in hexgeo.disk(c[0], c[1], r):
                     t = board.id_at(col, row)
-                    if t is not None and t not in seen:
-                        seen.add(t)
-                        out.append((t, (col, row)))
+                    if t is None or t in seen:
+                        continue
+                    # `checkWalkable = (includeNonWalkable == 0)` -- cf. l'en-tete de classe.
+                    if not self.include_non_walkable and not self._walkable(board, t):
+                        continue
+                    seen.add(t)
+                    out.append((t, (col, row)))
         return [t for (t, p) in out if p not in excluded]
 
 

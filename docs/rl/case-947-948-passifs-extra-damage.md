@@ -174,3 +174,51 @@ c'est le `Maybe(LetTheGalaxyBurnChancePct = 33)` du trigger de pose qui avait ar
 Ce qui restait, **et qui était un vrai bug** : un écart de **1 point** sur ce coup, réparé par
 #949 dans `apply_pierce_and_modifiers` (les quatre appels de modificateurs sont désormais groupés
 PAR FACE). Détail : `docs/rl/case-949-ltgb-coup-manquant.md`.
+
+## #948-r1 — FERMÉ : le natif DÉPLACE réellement l'unité, et ce n'est pas `RefreshSimulatedEffects`
+
+**L'énoncé était juste, sa citation ne l'était pas.** Le résidu attribuait la ré-évaluation par
+tuile à `IdunBattle.Operations.SimulateEffectsOperation$$RefreshSimulatedEffects`. Relu verbatim
+sur `rnca9r7q6c`, ce corps-là ne fait que re-poser les effets entité par entité — il ne
+repositionne rien. Le déplacement est **dans son appelant**,
+`IdunBattle.Operations.SimulateEffectsOperation$$DoActionInSimulatedTile` :
+
+```
+if (!UnitExtensions.IsDead(unit, state)) {
+    originalTiles = EntityExtensions.GetTiles(unit, state)      // sauvegarde
+    flags.Add(1) ; SetMovedFlag(unit, state)
+    processor->slot(+0x65)(processor, unit, tile, &out)         // L'UNITE EST POSEE SUR `tile`
+    added = SimulateMoveUnitTriggers(this, unit, node, tile)
+    RefreshSimulatedEffects(this)                               // les effets sont re-poses
+    action.Invoke(...)                                          // LA PREDICTION S'EXECUTE ICI
+    ResetAddedEffects(this, added) ; <restauration complete>
+}
+```
+
+L'entité est donc **physiquement** sur la tuile candidate pendant l'action, et `AdjacentUnits(Owner)`
+descend sur `EntityExtensions$$IterateTiles(owner)` : il lit la tuile **candidate**. La distinction
+compte — citer `RefreshSimulatedEffects` aurait fait chercher la ré-évaluation dans l'étage des
+effets, où elle n'est pas.
+
+**Fix** : `playbook/adjacency.py::subject_tiles_at` substitue les pieds du sujet ;
+`Scene._enmity_adjacent` accepte `at_pos` ; **les deux** vecteurs de prédiction (attaque normale et
+ability) le threadent — n'en câbler qu'un déplacerait le fork au lieu de le supprimer.
+
+**Garde** — `tests/engine/test_948r1_tuile_candidate_offline.py`, 5 étages, deux géométries
+(contact **rompu** par le déplacement, contact **créé**), témoin non nul exigé sur chacune. Vue
+ROUGE par deux mutations :
+
+| mutation | rouge |
+|---|---|
+| C — le compteur ignore `at_pos` | `A : le compteur ne bouge PAS (courant=2 candidat=2)` |
+| D — le vecteur NORMALE ne threade plus | `enmity_adjacent_units(att_id) ne threade pas la tuile candidate` |
+
+**Non-régression** : 107 tests offline (faces jumelles d'adjacence #943-r7, adjacence câblée
+#943-r4, Deathwing #932, foyer d'adjacence #433-r4-r2, élévation #515, deux formes de pieds
+#419-r1-tr10-r2, et les passifs #947/#948 eux-mêmes).
+
+**Ce qui n'est PAS couvert** : `#948-r3` (un porteur MULTI-TUILES garde ses pieds réels) et les
+**deux voisins de forme**, `Scene.adjacent_taunted_enemies` (#911) et
+`Scene.adjacent_dark_angels_friends` (#932), qui relèvent du même gisement et restent à la position
+courante. La lecture ci-dessus vaut pour eux — leur câblage est mécaniquement identique — mais ils
+ont leur propre porteur à confronter, donc leur propre tranche.

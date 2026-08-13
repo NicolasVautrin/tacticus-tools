@@ -145,5 +145,55 @@ disparu de `PLAYBOOKS`), et le registre restauré ensuite.
   voie est l'injection catalogue. **#967-r5**.
 - **1142 n'a pas tiré** sur le régime monté (`munitions` manquantes au tour 1, bataille finie avant
   recharge) : elle est dans le même sac que les quatre ci-dessus.
-- `GetCustomUnitOrderUtility` (**#967-r1**), le 5ᵉ argument de `SurroundingTiles` (**#967-r2**), le
-  terme aléatoire de 1214 (**#967-r3**), `HasRangedAbility` (**#967-r4**).
+- `GetCustomUnitOrderUtility` (**#967-r1**), le terme aléatoire de 1214 (**#967-r3**),
+  `HasRangedAbility` (**#967-r4**).
+
+## #967-r2 — FERMÉ : le 5ᵉ argument est `includeNonWalkable`, et il désarmait un filtre
+
+**La chaîne, relue verbatim sur `rnca9r7q6c`.** Ghidra nomme la surcharge à 6 paramètres, ce qui
+tranche l'ambiguïté que le résidu laissait ouverte :
+
+```
+IdunBattleLogic.Entities.DSLSelectors$$SurroundingTiles(this, origin, includeCenter, range,
+                                                        onlyMovable, includeNonWalkable)
+  -> IdunBattle.Entities.Selectors.SurroundingTilesSelector$$.ctor : this+0x29 = includeNonWalkable
+  -> IdunBattle.Entities.Selectors.SurroundingTilesSelector$$Select :
+         slot(query, tile, range, 0, /* checkWalkable */ (this+0x29 == 0), onlyMovable, 1)
+```
+
+Le 5ᵉ argument **hors `this`** est donc `includeNonWalkable`, et il est **inversé** en chemin :
+`includeNonWalkable == 1` ⇒ `checkWalkable = false` ⇒ **aucun filtre de marchabilité** ;
+`== 0` ⇒ filtre **armé**. C'est ce qui explique les deux littéraux du résidu —
+`DeathOnTheWindAbility$$GetMachineAttackTiles` (1213) passe `1`,
+`ThriceBlessedConflagrationAbility$$GetTilesInBestLine` (1187) passe `0`.
+
+**L'écart n'était ni inerte ni masqué : c'était un FORK entre les deux faces de 1187.** La face
+DÉCISION posait déjà le filtre en dur (`_best_line_direction` appelle
+`bq.get_surrounding_tiles(..., check_walkable=True, ...)`) ; la face COMBAT
+(`runner/abilities/sisterhood.py::thrice_blessed_get_tiles_in_best_line`) passait par le nœud DSL,
+qui construit un `hexgeo.disk` **pur**. Le combat admettait donc comme direction de beam des tuiles
+que sa propre prédiction refusait — du côté **permissif**, donc silencieux.
+
+**Fix** : le nœud porte `include_non_walkable`, défaut `True` = le comportement d'avant (les 7
+call-sites qui ne le nomment pas sont inchangés, étage 2 de la garde) ; `sisterhood.py` pose
+`False`, le littéral LU. 1213 garde le défaut, littéral LU aussi.
+
+**Garde** — `tests/engine/test_967r2_include_non_walkable_offline.py`, 4 étages, vue ROUGE par deux
+mutations adversariales :
+
+| mutation | étages rouges |
+|---|---|
+| A — retirer `include_non_walkable=False` du call-site 1187 | 3 et 4 |
+| B — désarmer le filtre dans le nœud | 1 et 4 |
+
+⚠ **L'étage 4 a d'abord été un FAUX VERT, et c'est la mutation qui l'a montré.** Il reconstruisait
+son propre nœud `SurroundingTiles(..., include_non_walkable=False)` : sous la mutation A il restait
+**vert** alors qu'il est précisément l'étage censé voir le fork. Il extrait désormais le nœud de
+l'arbre **réel** de 1187. Un étage qui fabrique son sujet ne garde que lui-même.
+
+**Non-régression** : 159 tests offline (ring, wall-of-mirrors, sélecteur de spawn, first-among-traitors,
+kustom-force-field, collapses impératifs, faces décision #957/#979/#967, règles de ciblage #287-r11-r1).
+
+**Résidu ouvert** : **#967-r10** — le filtre **MUR** (`tileComponent+0x41`, première ligne
+d'`IsTileValidForList`, indépendante de `checkWalkable`) n'est porté pour **aucune** valeur du
+paramètre. Il toucherait les 7 call-sites d'un coup, donc il se mesure séparément.
