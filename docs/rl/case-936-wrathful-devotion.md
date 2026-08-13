@@ -237,3 +237,28 @@ déclencheurs **trop étroits**, tous deux **latents** jusque-là :
 
 Sans ces deux lignes, `master` serait devenu rouge **au merge** — le scénario exact que la doc de
 `probe_486r15` décrit (PR #832, commit `18edd540`).
+
+## 6ter. `#936-r1-r2` — prémisse RE-MESURÉE (2026-08-13), et elle est CONFIRMÉE en plus étroit
+
+Le résidu se déclarait lui-même **INOBSERVABLE**. Re-mesuré sur l'arbre courant, il l'est —
+mais deux de ses chiffres avaient bougé, et le second RÉTRÉCIT le résidu :
+
+1. **`On(0x3b = UnitBecameTargetable)` a désormais DEUX consommateurs portés, pas un** :
+   `SavageKillerAbility` (entré depuis) **et** `WrathfulDevotionAbility`. Le premier comptage
+   ne voyait qu'un canal de souscription — la plomberie du dispatch teste `event_id` **puis**
+   `event_ids`, et `SavageKiller` s'abonne par le second. `On(0x3f = PreEffectRemoved)` et
+   `On(0x40 = EffectRemoved)` restent, eux, à **0** consommateur porté.
+2. **Aucun parent porté ne déclare d'enfant PERMANENT.** Sur les **236** classes d'effet du
+   registre, les `sub_effects_on_apply` déclarent **9** types ENFANTS ; **0** est `Untargetable`
+   (les trois `*_TeleportingIn` d'`UNTARGETABLE_EFFECT_TYPES`) et **0** est posé sans
+   `SAME_TURNS`. Or un enfant same-turns arrive à échéance dans la MÊME boucle que son parent et
+   passe donc, lui, par le foyer.
+
+⇒ le résidu ne porte plus que sur les enfants dont le lien parent est **reconstruit à
+l'hydratation** (`snapshot._load_effect_parent_links`), ceux que `_remove_sub_effects` ne voit
+pas. L'exercer demande un **seed** où un `*_TeleportingIn` est enfant d'un composite — d'où le
+`BLOCAGE: seeding` désormais porté par la ligne du backlog (il n'en portait aucun de substantiel).
+
+Re-dériver plutôt que citer : balayage du registre de `triggers/dispatch/registry.py` sur
+`event_id` ∪ `event_ids`, et des `sub_effects_on_apply` de `EFFECT_CLASSES` croisés avec
+`UNTARGETABLE_EFFECT_TYPES`.
