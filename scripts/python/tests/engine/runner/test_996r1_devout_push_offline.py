@@ -38,6 +38,35 @@ from engine.utilities.tile import UTILITY_BY_TYPE, utilities_database
 from engine.utilities.utility_type import UtilityType
 from engine.weights import load as load_weights
 
+#: #486-r15 -- ce que ce fichier LIT, donc ce qui peut changer son verdict. Volontairement LARGE sur
+#: les trois foyers PARTAGES que la tranche a touches (`engine/ai/`, `engine/utilities/`,
+#: `engine/runner/abilities/`) : trop large est sain, trop etroit est un faux vert.
+DECLENCHEUR = {
+    "chemins": (
+        "scripts/python/conftest.py", "scripts/python/tests/conftest.py",
+        "scripts/python/tests/engine/conftest.py",
+        "scripts/python/tests/engine/runner/conftest.py",
+        "scripts/python/green_skip_guard.py", "scripts/python/declencheur_guard.py",
+        "scripts/python/gameconfig.py", "scripts/python/enum_maps.py",
+        "scripts/python/engine/entities/",
+        "scripts/python/engine/runner/abilities/",
+        "scripts/python/engine/ai/",
+        "scripts/python/engine/utilities/",
+        "scripts/python/engine/weights.py",
+    ),
+    "build": False,
+    "toujours": False,
+    "raison": "cliquet OFFLINE du port 1053 -- registre + masque + AbilityAttackType, structure de "
+              "l'arbre, formule de la feuille 53, route du dispatcher de mouvement et propagation "
+              "de l'override de portee. Il lit des REGISTRES en memoire (`ABILITY_CLASSES`, "
+              "`ABILITY_ATTACK_TYPE`, `TARGETING_OPTIONS_UNPORTED`, `UTILITY_BY_TYPE`) et la SOURCE "
+              "de deux fonctions (`PerformAIMovement.execute`, `build_from_state`), donc son "
+              "declencheur est la fermeture d'import de `engine.runner.abilities.handler`, de "
+              "`engine.ai.*` et de `engine.utilities.*` -- prise au REPERTOIRE, un import indirect "
+              "pouvant atteindre n'importe quel module. `build: False` : aucune valeur du dump n'y "
+              "entre (les poids viennent du BC, les ordinaux des mirrors d'enum).",
+}
+
 ID = int(ActiveAbilityType.DevoutPush)          # 1053
 U53 = int(UtilityType.DevoutPush_AdjacentRangedEnemies)
 
