@@ -39,10 +39,11 @@ import sys
 import uuid
 from pathlib import Path
 
+import catalog_inject as CI
 import oracle_targeting as O
 from engine.entities.pathfinding.board import Board
 from engine.services import spawn_tile_shape as STS
-from rl_collect_batch import _rpc, _resolve_session
+from rl_collect_batch import _load_seed_bc, _rpc, _resolve_session
 
 PYDIR = Path(__file__).resolve().parent
 ROOT = PYDIR.parents[1]
@@ -64,16 +65,26 @@ def rpc(sid, method, args, timeout=120):
 def graft_seed_bc(ammo: int = 9) -> Path:
     """LE MONTAGE, nomme et reutilisable : seed BC + munitions de MoW + greffe de 1208 sur `MOW`.
 
+    ⚠ LA GREFFE EST **DEUX** ECRITURES, ET LA SECONDE ECHOUE EN SILENCE SI ON L'OUBLIE -- c'est
+    pourquoi elle passe par `catalog_inject.graft_active_ability` et JAMAIS par un
+    `u["ActiveAbilities"] = [aid]` a la main :
+      1. `BC.Units[<greffon>].ActiveAbilities` <- l'`ActiveAbilityType` ;
+      2. `BC.Abilities.ActiveAbilities["AetherStride"]` <- la CONFIG (variables/constantes).
+    MESURE du 2026-08-13 : `_load_seed_bc` re-synthetise bien `BC.Abilities`, mais SEULEMENT pour
+    les abilities DEJA presentes -- `AetherStride` n'y figure pas (131 cles, clé absente), la
+    capture ne portant aucune unite qui la possede. Sans l'ecriture 2, la greffe passe TOUS les
+    gates (`casterReason` et `targetReason` valent `0x0`, `decisionView` la dit `usable`) et le cast
+    rend **« system error » en CONSOMMANT le tour** (`actionConsumed: true`, `spawned: 0`,
+    `UnitStats_ActionsAvailable: 0`) : verrou #226. Ce symptome est INDISCERNABLE du bug qu'on
+    cherche -- « l'IA choisit, le moteur n'execute rien » -- et l'aurait donc CONFIRME a tort.
+
     Ecrit sous `logs/` -- JAMAIS sous `data/`, qui ne porte que des ENTREES versionnees."""
-    bc = json.loads((ROOT / "data" / "seed-bc.json").read_text(encoding="utf-8"))
+    bc = _load_seed_bc(None)
     for _pid, p in ((bc.get("Player") or {}).get("Players") or {}).items():
         if isinstance(p, dict) and p.get("PlayerType") != 2:        # Environment exclu
             p["MachineOfWarAmmo"] = ammo
-    grafted = [u for u in bc["Units"] if u.get("Id") == MOW]
-    if not grafted:
-        raise SystemExit("[1022] %s absent de BC.Units -- greffe impossible" % MOW)
-    for u in grafted:
-        u["ActiveAbilities"] = [AETHER_STRIDE]
+    rap = CI.graft_active_ability(bc, MOW, "AetherStride", replace=True)
+    print("[1022] greffe : %s" % json.dumps(rap)[:300])
     out = ROOT / "logs" / "runners" / ("bc-1022-%s.json" % uuid.uuid4().hex[:8])
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(bc), encoding="utf-8")
@@ -186,10 +197,16 @@ def main() -> int:
         for tid in sorted(board.by_id)[:DYNAMIC_RULE_SAMPLE]:
             pos = board.coord(tid)
             predit = len(STS.get_area(board, occ, pos)) == 3
-            r = rpc(sid, "abilityReason", {"runnerId": rid, "unitId": caster,
-                                           "abilityId": AETHER_STRIDE, "targetId": tid})
-            natif = int(r.get("reason") or 0) == 0
-            rows.append((tid, pos, predit, natif, r.get("reason")))
+            # ⚠ LES CLES SONT `casterId`/`abilityType`, ET LE VERDICT EST DANS `targetReason`, PAS
+            # A LA RACINE (meme piege que #287-r9 sur probe_91 : lu a cote, le canal « accepte »
+            # TOUTE tuile et l'accord ne prouve rien). `O._hex_de` rend le masque effectif.
+            r = rpc(sid, "abilityReason", {"runnerId": rid, "casterId": caster,
+                                           "abilityType": AETHER_STRIDE, "targetId": tid})
+            tr = (r or {}).get("targetReason") or {}
+            masque = O._hex_de(tr)
+            natif = masque == 0
+            noms = ",".join(str(x) for x in (tr.get("reasons") or [])) or "-"
+            rows.append((tid, pos, predit, natif, "%s %s" % (hex(masque), noms)))
             desac += int(predit != natif)
         ok_a = sum(1 for _t, _p, pr, na, _r in rows if pr and na)
         ko_a = sum(1 for _t, _p, pr, na, _r in rows if (not pr) and (not na))
@@ -211,9 +228,27 @@ def main() -> int:
         avant = {u.get("squadId") for u in (rpc(sid, "observeBattle", {"runnerId": rid})
                                            .get("units") or [])}
         pred_area = STS.get_area(board, occ, board.coord(cible))
+        anc = board.coord(cible)
+        dv = rpc(sid, "decisionView", {"runnerId": rid, "allAbilities": True})
+        m0 = next((m for m in (dv.get("mows") or []) if m.get("casterId") == caster), None)
+        print("    ETAT AVANT CAST : currentPlayer=%s owner=%s mow=%s"
+              % (dv.get("currentPlayer"), owner, json.dumps((m0 or {}).get("abilities") or [])[:300]))
+        cr = rpc(sid, "abilityReason", {"runnerId": rid, "casterId": caster,
+                                        "abilityType": AETHER_STRIDE, "targetId": cible})
+        print("    casterReason=%s / targetReason=%s"
+              % (json.dumps(cr.get("casterReason"))[:200], json.dumps(cr.get("targetReason"))[:200]))
+        # ⚠ Un cast de MoW TILE-TARGET se pose par `casterId`/`abilityType`/`to`, PAS par
+        # `unitId`/`abilityId`/`targetId` : avec les mauvaises cles le RPC rend `ok` sans rien
+        # muter -- un NO-OP qui se lit comme « le natif n'a rien fait » (mesure du 2026-08-13).
         res = rpc(sid, "applyAction", {"runnerId": rid, "action": {
-            "kind": "ability", "unitId": caster, "abilityId": AETHER_STRIDE, "targetId": cible}})
+            "kind": "ability", "casterId": caster, "abilityType": AETHER_STRIDE,
+            "to": {"col": anc[0], "row": anc[1]}}})
         actions = res.get("actions") or []
+        print("    reponse applyAction : ok=%s mutated=%s spawned=%s"
+              % (res.get("ok"), actions[0].get("mutated") if actions else None,
+                 actions[0].get("spawned") if actions else None))
+        if not res.get("ok"):
+            print("    REFUS BRUT : %s" % json.dumps(res)[:600])
         pieds = feet_from_events(actions, board)
         obs = rpc(sid, "observeBattle", {"runnerId": rid}).get("units") or []
         neufs = [u for u in obs if u.get("squadId") not in avant]
