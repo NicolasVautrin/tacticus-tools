@@ -304,6 +304,7 @@ from ..loki.haywire_mine import (HaywireMineSteppableAbility,          # #462-..
                                  HaywireMinePlaceOnTurnEndAbility,
                                  HaywireMineResetAbility,
                                  HAYWIRE_MINE_ID)
+from ..loki.savior_protocols import SaviorProtocolsAbility            # #1020 (passif drones T'au)
 
 
 # --- Registre : trait → ability-trigger(s) accordée(s) --------------------------------------------
@@ -1056,6 +1057,27 @@ ABILITY_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
     # Cf. loki/geminae_superia.py (IdunBattleLogic.Entities.Abilities.Active.Loki.GeminaeSuperiaAbility$$CreateTrigger /
     # ...$$CreateBehaviour / ...$$GetPossibleSpawnTiles / ...$$SummonLimit).
     "GeminaeSuperia": [GeminaeSuperiaAbility],
+    # SaviorProtocols (passif des SIX drones T'au -- 3 npc `tauNpc*Drone*` + 3 SUMMONS
+    # `tauSmn*Drone*` --, `TriggeredAbilityType` 0x460 = 1120 ; #1020) :
+    #   `On(0x39 = PreDamageTaken, ownerNeedsToBeAlive = 0) & TargetIsValidTrigger()
+    #    & IsAdjacent(Owner@+0x30, Target@+0x60, 0) & !TriggeringAbilityIs(A)
+    #    & !TriggeringAbilityIs(B)`
+    #   -> `If(Maybe(ConfigConst(0x2a = chance, abilityState)),
+    #          TransferDamage(caster = Caster@+0x48, originalTarget = Target@+0x60,
+    #                         transferTarget = Owner@+0x30, <+0x88>, <+0x90>), null)`
+    # avec `TargetIsValidTrigger` = `AreFriends(Target, Owner) & HasFaction(Target, 9 = Tau, 3)
+    # & !ActorHasTriggeredAbility(Target, 0x460) & !AreEqual(Target, Owner)`.
+    # ⚠ Le `Maybe` est la surcharge **PREDICAT** (`DSLTriggers$$Maybe` -> `MaybeTrigger`), pas le
+    # noeud EFFET homonyme : c'est la CONDITION de l'`If`, pas un enveloppeur de behaviour.
+    # ⚠ `TransferDamage` **CONSOMME** le `Nullable<DamageAppliedResult>` de `FillUpStatComponent
+    # +0x64` (`TransferDamageOperation$$GetDamage` y ecrit le zero) : le degat est DEPLACE, pas
+    # duplique. C'est l'etage #1020 (`damage.py::_pre_damage_taken_per_hit`) qui rend ce canal
+    # existant -- avant lui le retour du dispatch etait jete et rien ne pouvait annuler le degat.
+    # ⚠ La face DECISION (`IdunBattle.AI.Playbook.Loki.SaviorProtocolsPlaybook`, volets ATTACK et
+    # MOVE) etait deja portee (#443 / #443-r1, `engine/playbook/savior_protocols.py`).
+    # Cf. loki/savior_protocols.py (IdunBattleLogic.Entities.Abilities.Triggered.Loki.SaviorProtocolsAbility$$CreateTrigger /
+    # ...$$CreateBehaviour / ...$$TargetIsValidTrigger).
+    "SaviorProtocols": [SaviorProtocolsAbility],
     # RelentlessMarch (passif `necroWarden` << Makhotep >>, `TriggeredAbilityType` 0x3ec = 1004 --
     # HOMONYME d'id avec `ActiveAbilityType` 1004 `MortisRound`, #328) :
     # `On(TurnStart_Other=0x13) & <DSLTriggers+0x28 = IsTurnOf(Owner)>` ->

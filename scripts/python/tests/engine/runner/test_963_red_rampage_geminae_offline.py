@@ -162,15 +162,42 @@ def test_le_pipeline_de_degat_appelle_le_vecteur():
         "operations/damage.py n'APPELLE pas pre_damage_taken_triggers en instruction nue "
         f"(appels nus vus : {sorted(appels_nus)})")
 
-    # PLACE : l'appel doit PRECEDER la mutation de PV -- c'est ce qui fait que la victime est encore
-    # a pleine vie quand la Geminae apparait (lu aux octets dans `ApplyDamageOperation$$Execute`).
-    i_pre = appels_nus["pre_damage_taken_triggers"]
-    lignes = src.splitlines()
-    i_reduce = next(i for i, l in enumerate(lignes, 1) if "applied = thc.reduce(total)" in l)
-    assert i_pre < i_reduce, "On(0x39) doit etre emis AVANT la mutation de PV"
     # ORDRE des trois events de la MEME operation native : 0x39 -> 0xf -> 0x10.
+    i_pre = appels_nus["pre_damage_taken_triggers"]
     assert i_pre < appels_nus["damage_taken_triggers"] < appels_nus["damage_dealt_triggers"], \
         "ordre natif 0x39 -> 0xf -> 0x10 non respecte"
+
+
+def test_le_vecteur_precede_la_mutation_de_PV():
+    """PLACE de l'emission -- c'est ce qui fait que la victime est encore A PLEINE VIE quand la
+    Geminae apparait (lu aux octets dans `IdunBattle.Operations.ApplyDamageOperation$$Execute` :
+    la publication de `On(0x39)` precede `FillUpStatComponent$$Reduce`).
+
+    ⚠ CETTE ASSERTION A ETE REECRITE (#1020). Elle cherchait la CHAINE `applied = thc.reduce(total)`
+    dans le source et comparait des NUMEROS DE LIGNE -- une approximation qui a rougi des que le
+    chokepoint a reduit `kept_health` (le pending RELU) au lieu de `total`, alors que l'ordre etait
+    intact. Pire : deux appels peuvent etre dans le bon ordre TEXTUEL et le mauvais ordre
+    D'EXECUTION. On confronte donc le COMPORTEMENT : au moment ou l'event part, les PV de la cible
+    n'ont pas bouge."""
+    from engine.runner.components import HealthComponent
+    from engine.runner.operations.damage import AttackDamageOperation
+
+    class _Espion:
+        def __init__(self, thc):
+            self.thc, self.hp_vus = thc, []
+
+        def pre_damage_taken_triggers(self, state, source_id, target_id, profile=None,
+                                      is_first_damaging_hit=None):
+            self.hp_vus.append(self.thc.hp)
+            return []
+
+    thc = HealthComponent(hp=1000, hp_max=1000)
+    esp = _Espion(thc)
+    AttackDamageOperation._pre_damage_taken_per_hit(
+        None, 1, 2, thc, 550, 0, "Physical",
+        {"per_hit_pending": [(300, 0), (250, 0)]}, esp, is_first_damaging_hit=True)
+    assert esp.hp_vus == [1000, 1000], (
+        "la victime avait deja perdu des PV quand `On(0x39)` est parti (PV vus : %r)" % (esp.hp_vus,))
 
 
 # --------------------------------------------------------------------------------------------
