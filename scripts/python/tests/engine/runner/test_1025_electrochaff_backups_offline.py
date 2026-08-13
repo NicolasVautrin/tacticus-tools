@@ -51,6 +51,36 @@ from engine.runner.operations.triggers.loki.electrochaff_backups import (  # noq
     ELECTROCHAFF_BACKUPS, ELECTROCHAFF_BACKUPS_ID, ELECTROCHAFF_EFFECT, MARKERLIGHT,
     electrochaff_rounds)
 
+#: Ce qui doit changer pour que ce FICHIER de test puisse changer de verdict (#486-r15).
+DECLENCHEUR = {
+    "chemins": (
+        # Les deux faces portees par #1025 et leurs registres.
+        "scripts/python/engine/runner/operations/triggers/loki/electrochaff_backups.py",
+        "scripts/python/engine/runner/operations/triggers/dispatch/registry.py",
+        "scripts/python/engine/entities/effects/factory.py",
+        "scripts/python/engine/runner/operations/spawn.py",
+        # Les primitives MIRRORS que les etages lisent : la duree, le refresh, les gates.
+        "scripts/python/engine/runner/operations/effects.py",
+        "scripts/python/engine/runner/abilities/base.py",
+        "scripts/python/engine/runner/abilities/behaviours/effects.py",
+        "scripts/python/engine/runner/operations/triggers/base.py",
+        "scripts/python/engine/entities/traits/unit_trait.py",
+        # Les mirrors d'enum dont les ordinaux sont FIGES au site par l'etage 0.
+        "scripts/python/engine/entities/effect_type.py",
+        "scripts/python/engine/entities/triggered_ability_type.py",
+        "scripts/python/engine/entities/ability_constant_type.py",
+        # Le VERROU que l'etage 6 garde : le jour ou ce champ apparait, il faut relire.
+        "scripts/python/engine/entities/unit_context.py",
+    ),
+    "build": True,
+    "toujours": True,
+    "raison": "Un etage lit le GAMECONFIG (`ElectrochaffBackups.constants.nrOfRounds`), qui se "
+              "perime SEPAREMENT du build ; trois etages figent des ORDINAUX au site (1454 / 1446 "
+              "/ 1122 / 1449 / 1456), qu'un renumerotage rendrait faux sans toucher aucun des "
+              "chemins ci-dessus ; et l'etage 6 garde une ABSENCE (`UnitContext.rarity`), donc un "
+              "ajout n'importe ou dans le port peut le concerner.",
+}
+
 COLS, ROWS = 6, 6
 OWNER_ID, ENEMY_FAR_ID, ENEMY_NEAR_ID, FRIEND_ID, STEPPABLE_ID = 10, 20, 30, 40, 50
 HP = 50000

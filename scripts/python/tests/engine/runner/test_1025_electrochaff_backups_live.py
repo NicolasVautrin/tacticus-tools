@@ -36,6 +36,33 @@ from pathlib import Path
 
 import pytest
 
+#: Ce qui doit changer pour que ce FICHIER de test puisse changer de verdict (#486-r15).
+DECLENCHEUR = {
+    "chemins": (
+        "scripts/python/engine/runner/operations/triggers/loki/electrochaff_backups.py",
+        "scripts/python/engine/runner/operations/triggers/dispatch/registry.py",
+        "scripts/python/engine/runner/operations/triggers/dispatch/core.py",
+        "scripts/python/engine/runner/operations/triggers/dispatch/attack.py",
+        "scripts/python/engine/runner/operations/triggers/dispatch/move_death.py",
+        "scripts/python/probe_1025_electrochaff_port.py",
+        # Le MONTAGE de la mythique (voie TERTIAIRE) et le rail qui la publie au port.
+        "scripts/python/rl_duel.py",
+        "scripts/python/catalog_inject.py",
+        "scripts/python/engine/runner/snapshot.py",
+        # Le pipeline de degat PARTAGE : c'est lui qui emet `On(0x0f = DamageTaken)`.
+        "scripts/python/engine/runner/operations/damage.py",
+        "scripts/python/engine/runner/operations/damage_ops/*.py",
+        "scripts/python/engine/runner/operations/effects.py",
+    ),
+    "build": True,
+    "toujours": True,
+    "raison": "Ce fichier confronte au LIVE le TRIGGER d'une ability montee par une voie de "
+              "SEED (`--equip-mythic` -> `BC.Units[].TertiaryAbility`) : le verdict depend du "
+              "gameconfig (`nrOfRounds`), du seed BC, du board `MC1_67` et du nombre de joueurs "
+              "(`ConvertRoundsToTurns`), c'est-a-dire de donnees qui vivent HORS de tout chemin "
+              "de code enumerable.",
+}
+
 ELECTROCHAFF = 1446                  # EffectType.ElectrochaffBackups_DamageReductionPct (0x5a6)
 MARKERLIGHT = 1122                   # EffectType.Markerlight (0x462)
 MOW = "tauBroadside"                 # MoW porteuse, DANS le pool rank 17

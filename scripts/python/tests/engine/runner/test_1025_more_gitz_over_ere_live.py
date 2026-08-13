@@ -41,6 +41,27 @@ from pathlib import Path
 
 import pytest
 
+#: Ce qui doit changer pour que ce FICHIER de test puisse changer de verdict (#486-r15).
+DECLENCHEUR = {
+    "chemins": (
+        "scripts/python/engine/entities/effects/factory.py",
+        "scripts/python/engine/runner/operations/spawn.py",
+        "scripts/python/engine/runner/snapshot.py",
+        # Le MONTAGE de la mythique (voie TERTIAIRE).
+        "scripts/python/rl_duel.py",
+        "scripts/python/catalog_inject.py",
+        # Le mirror d'enum dont l'ordinal 1449 est fige au site.
+        "scripts/python/engine/entities/effect_type.py",
+    ),
+    "build": True,
+    "toujours": True,
+    "raison": "Le verdict depend du SEED BC et du gameconfig (`orksRukkatrukk.mythicAbilities`), "
+              "pas seulement des chemins ci-dessus ; et il MESURE une pose native que le port "
+              "recoit par DEUX canaux (capture + seed) -- un changement de l'un ou l'autre le "
+              "concerne, mesure : ce test passe encore SANS l'entree `ABILITY_INIT_OWNER_EFFECTS` "
+              "(c'est le cliquet OFFLINE qui la garde).",
+}
+
 MORE_GITZ = 1449                     # EffectType.MoreGitzOverEre_ExtraDamagePct (0x5a9)
 MOW = "orksRukkatrukk"               # MoW porteuse, DANS les 8 MoW spawnables du pool rank 17
 PYDIR = Path(__file__).resolve().parents[3]            # scripts/python
