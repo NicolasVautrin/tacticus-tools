@@ -70,7 +70,15 @@ class TransferDamage(AbilityBehaviour):
             return OperationResult.ok()
         src = (src_u or {}).get("id")
         hit_index = getattr(entities, "hit_index", None)     # `AbilityEntities+0x108`
-        for u in self.transfer_targets_sel.evaluate(entities):
+        # NORMALISATION du selecteur -- mirror du contrat natif `TargetsSelector` (IEnumerable) :
+        # un selecteur MONO-ENTITE (`Owner()`/`Caster()`/`Target()`) rend un DICT d'unite, et
+        # l'iterer donnerait ses CLES. Meme piege, meme parade que `entities/behaviours.py::Foreach`.
+        # `SaviorProtocols` passe justement `Owner@<DSLSelectors+0x30>` en `transferTargets` : sans
+        # cette normalisation, la boucle ne voit AUCUNE cible et le transfert est un no-op SILENCIEUX
+        # (mesure live #1020 : le trigger matchait, le behaviour s'executait, et rien ne partait).
+        raw = self.transfer_targets_sel.evaluate(entities)
+        cibles = [] if raw is None else ([raw] if isinstance(raw, dict) else list(raw))
+        for u in cibles:
             tid = u.get("id") if isinstance(u, dict) else None
             if tid is None:
                 continue
