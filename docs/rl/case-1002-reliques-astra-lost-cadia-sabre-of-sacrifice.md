@@ -104,6 +104,91 @@ Multiply( Count( Filter( AllUnits(),
           Get( Config.GetVariableForLevel(0x1b = 27 extraArmor, abilityState, null) ) )
 ```
 
-## 3. Etat de la tranche
+## 3. Ce que le port ajoute, et ou
 
-RE faite. Port et confrontation live en cours.
+| quoi | ou |
+|---|---|
+| les deux `TriggeredAbility` de `SabreOfSacrifice` | `engine/runner/operations/triggers/loki/sabre_of_sacrifice.py` |
+| les deux `TriggeredAbility` de `RelicOfLostCadia` | `engine/runner/operations/triggers/loki/relic_of_lost_cadia.py` |
+| inscription (cle = NOM d'ability) | `.../triggers/dispatch/registry.py` -> `RELIC_ABILITY_TRIGGERS` |
+| noeuds T `IsNormalUnit` / `HasBeenDefeated` | `engine/entities/triggers.py` (DEPLACES depuis `leading_the_charge.py`) |
+| slot `Owner` threade | `engine/runner/abilities/behaviours/context.py` -> `entities_from_state(..., owner_id=)` |
+| site `AllUnits` pool-8 declare | `probe_514_allunits_rayon_de_souffle.py` -> `SITES_POOL8` |
+| mesure LIVE | `probe_1002_reliques_astra_live.py` (3 bras) |
+| garde OFFLINE | `tests/engine/runner/test_1002_reliques_astra_offline.py` (12 tests) |
+
+Ni `ABILITY_CLASSES`, ni `TARGETING_OPTIONS`, ni `ABILITY_ATTACK_TYPE` : les deux sont des
+`TriggeredAbilityType`, aucune n'est une active.
+
+### 3.a Trois reparations que la tranche a rendues necessaires
+
+1. **`IsNormalUnit` / `HasBeenDefeated` etaient des helpers PRIVES** de
+   `runner/abilities/loki/leading_the_charge.py`. `SabreOfSacrificeAbility$$GetCurrentExtraArmor`
+   construit le MEME filtre que `LeadingTheChargeAbility$$GetExtraPierceRatio` (meme heros,
+   `astraDreir`) : les deux corps sont **deplaces** au foyer des noeuds T et l'ancien site
+   **delegue** (aucun call-site ni patch desarme).
+2. **Le slot `Owner` n'etait threade NULLE PART** : `entities_from_state` ne posait pas
+   `ctx.owner`, donc `Owner()` retombait TOUJOURS sur `ctx.caster`. C'est exact pour la quasi-
+   totalite des triggered-abilities (`Owner == Caster`), mais FAUX pour la branche Death Rider de
+   `SabreOfSacrifice`, ou le caster est le summon et l'owner reste Dreir. Parametre `owner_id=`
+   ajoute, defaut `None` = comportement inchange pour les ~459 autres appelants.
+3. **`IsUnitWithVisualId` comparait deux substrats differents.** Le champ `visualId` du dict
+   d'unite porte l'id de CONFIG pour une unite spawnee offline (`astraSmnDeathRider`) et l'id
+   VISUEL pour une unite seedee live (`astraNpc5DeathRider`) ; le natif lit TOUJOURS l'id visuel.
+   Le noeud resout desormais la forme portee avant de comparer. Rayon de souffle MESURE au moment
+   du changement : **0 consommateur EXECUTABLE** (les 4 autres occurrences du depot sont des
+   citations de decompile). Le residu etait deja nomme par la docstring d'`UnitsWithIds`.
+
+## 4. Ce que la MESURE LIVE a rendu (2026-08-13, build `rnca9r7q6c`, board `MC1_67`)
+
+`probe_1002_reliques_astra_live.py`, trois bras, tous VERTS **sur le natif** :
+
+| bras | montage | mesure |
+|---|---|---|
+| `SABRE_CHARGE` | Dreir part d'une tuile NON adjacente, se deplace au contact, attaque ; UN allie normal a ete abattu avant | `Pinned` sur la cible, `SabreOfSacrifice_ExtraArmor` sur Dreir, `fixedArmor` **0 -> 1018** = `extraArmor[10] x 1` |
+| `SABRE_SANS_CHARGE` | Dreir DEJA adjacent, n'a pas bouge (`chargedUnitIds` VIDE), attaque | **aucun** des deux effets, `fixedArmor` inchange |
+| `CADIA_MORT` | le porteur est abattu | `astraNpc1Guardsman` apparait **dans SON hex**, **dans SON camp**, stats **5817 / 3492 / 1166** |
+
+Les trois stats du Guardsman sont EXACTEMENT `summonHp[10]` / `summonDmg[10]` / `summonArmor[10]`
+du gameconfig -- c'est la signature de `WithStatsFromConfig(config, abilityState)` avec
+l'`AbilityState` **TERTIAIRE**, pas l'`active_ability_level` du porteur.
+
+### 4.a Quatre pieges de MONTAGE, tous mesures, aucun devine
+
+* **Le regime DEGENERE.** Le premier jet du bras `SABRE_CHARGE` ne faisait mourir personne :
+  `Multiply(Count(vaincus) = 0, extraArmor)` rend **0**, l'effet est pose mais ne contribue a rien,
+  et `fixedArmor` ne bouge pas. Le bras rendait donc « rien ne se passe » -- ce qu'un port ABSENT
+  rendrait aussi. Un allie sacrifiable est desormais abattu AVANT la charge.
+* **`--unit-stat X:Health=N` ne suffit pas** : `--hp-player` ecrit `Health` **ET**
+  `RemainingHealth`. Ne patcher que le premier laisse l'unite a 900000 PV courants -- 30 coups sans
+  la tuer.
+* **Il n'existe pas de `kind: "attack"`** : l'attaque normale EST une `ability` dont
+  l'`abilityType` est le `NormalAttackType` **per-unit**. Le host REFUSE l'action (et le dit), donc
+  aucune mesure n'etait produite.
+* **Les effets ne sont PAS a la racine du `decisionView`** mais sous `units[].effects`. Lire la
+  racine rend `None` -> liste vide -> « aucun effet », pour toute unite.
+
+## 5. Verdicts, et ce qui n'est PAS couvert
+
+* **`SabreOfSacrifice` 1478 : PORTEE et CONFRONTEE LIVE**, branche `get_OwnerIsCaster`
+  (Dreir charge lui-meme), y compris la contre-epreuve du gate `IsCharging`.
+  ⚠ La branche **Death Rider** (`Parent(Caster) == Owner & IsUnitWithVisualId & IsAdjacent`) est
+  PORTEE et gardee OFFLINE (slot `Owner` distinct), **pas confrontee live** : elle exige de faire
+  caster `LeadingTheCharge` puis de faire CHARGER un summon, ce que le harnais n'a pas joue ici.
+* **`RelicOfLostCadia` 1459, volet `_SummonUnit` : PORTE et CONFRONTE LIVE** (hex, camp, et les
+  trois stats au niveau tertiaire).
+* **`RelicOfLostCadia` 1459, volet AURA** (pose de `1454 FinalVengeance_UnitEffect` sur les summons
+  imperiaux adjacents) : **PORTE, NON CONFRONTE LIVE** -> residu **`#1002-r2`**.
+* **`1454 FinalVengeance_UnitEffect` n'a PAS de classe d'effet** : le port le pose, mais il est
+  materialise en `BaseEffect` nu, donc INERTE -> residu **`#1002-r1`**.
+* **Porteurs non confrontes de `RelicOfLostCadia`** : `astraBullgryn` et `astraPrimarisPsy`
+  (l'ability est UNE, confrontee sur `astraOrdnance`). ⚠ `astraBullgryn` s'est revele
+  **non abattable** par le harnais : `applyAction` rend `ok:true, changes:[]` et ses PV ne bougent
+  pas, sur 30 coups au contact. Cause non elucidee (trait `BigTarget` ?) ; ce n'est pas un fait sur
+  la relique, c'est un fait sur le MONTAGE.
+* **Pas de classe d'effet pour `1473 SabreOfSacrifice_ExtraArmor`, et c'est DELIBERE.** La voie
+  native est `AddStaticStatModifierEffect`, dont le port applique le stat-mod A LA POSE
+  (`apply_change_stat` + `stat_mod_source`/`reverted_stats` poses sur l'instance) : la classe
+  d'effet n'est pas le canal. Precedent du MEME heros : `LeadingTheCharge_ExtraPierce` n'est pas
+  davantage dans `EFFECT_CLASSES`. La regle « il en faut DEUX » (#1004) vaut pour les effets poses
+  par `AddEffect` (patron `DaemonfleshPlate`), pas pour cette voie-la.
