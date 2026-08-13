@@ -99,6 +99,11 @@ SITES_POOL8 = {
         "IdunBattleLogic.Entities.Abilities.Active.Loki.WaaaghAbility$$GetAttackBehaviour",
     ("engine/runner/abilities/loki/leading_the_charge.py", "leading_the_charge_defeated_friends_selector"):
         "IdunBattleLogic.Entities.Abilities.Active.Loki.LeadingTheChargeAbility$$GetExtraPierceRatio",
+    # #1002 : la RELIQUE du meme heros (`astraDreir`) construit le MEME filtre pool-8 que son
+    # active -- meme predicat `HasBeenDefeated`, donc meme exigence de source MORTS INCLUS.
+    ("engine/runner/operations/triggers/loki/sabre_of_sacrifice.py",
+     "sabre_of_sacrifice_defeated_friends_selector"):
+        "IdunBattleLogic.Entities.Abilities.Triggered.Loki.SabreOfSacrificeAbility$$GetCurrentExtraArmor",
     # Le probe et sa GARDE se testent EUX-MEMES sur les deux primitives : ce ne sont pas des
     # mirrors de call-sites natifs, mais les crans qui figent la semantique.
     ("probe_514_allunits_rayon_de_souffle.py", "etape_4"): "<auto-test de l'etape 4>",
