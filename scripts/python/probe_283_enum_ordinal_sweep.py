@@ -644,40 +644,57 @@ def _signatures_positionnelles(arbres: dict) -> dict:
     un `EventTriggerType` fige, et le VERDICT tombait a FAIL. Un nom n'entre donc dans la table
     que si TOUTES ses definitions du perimetre s'accordent sur le meme (index, enum)."""
     vus: dict = {}
-    for rel, tree in arbres.items():
-        # UNE SEULE passe de `ast.walk` (#486-r5) : il y en avait DEUX, la premiere ne servant
-        # qu'a construire `classe_de`. Sur ce corpus (2090 fichiers, 3,9 M de noeuds), le walk
-        # complet coute ~7 s -- soit ~11 s des 22,3 s de cette fonction, mesure du 2026-08-06.
-        # Les `def` sont accumules puis traites APRES la boucle : le resultat ne depend donc
-        # d'AUCUNE hypothese sur l'ordre de parcours de `ast.walk`.
-        classe_de, defs = {}, []
-        for m in ast.walk(tree):
-            if isinstance(m, ast.ClassDef):
-                for st in m.body:
-                    classe_de[id(st)] = m.name
-            elif isinstance(m, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                defs.append(m)
-        for n in defs:
-            args = [a.arg for a in (n.args.posonlyargs + n.args.args)]
-            lie = 1 if (args and args[0] in ("self", "cls")) else 0
-            # un ctor s'appelle par le nom de la CLASSE, et `self` ne compte pas
-            nom = classe_de.get(id(n)) if n.name == "__init__" else n.name
-            if not nom:
-                continue
-            spec = None
-            for i, a in enumerate(args):
-                bas = a.lower()
-                court = next((c for c, racines in _ROOTS.items()
-                              if any(r in bas for r in racines)), None)
-                if court is None:
-                    continue
-                if i - lie >= 0:
-                    spec = (i - lie, court)
-                break
-            vus.setdefault(nom, set()).add(spec)
+    for _rel, tree in arbres.items():
+        for nom, specs in contribs_signatures(tree).items():
+            vus.setdefault(nom, set()).update(tuple(s) if s is not None else None
+                                              for s in specs)
     # un nom AMBIGU (plusieurs definitions qui ne s'accordent pas, `None` compris) est ecarte
     return {nom: next(iter(s)) for nom, s in vus.items()
             if len(s) == 1 and next(iter(s)) is not None}
+
+
+def contribs_signatures(tree) -> dict:
+    """`{nom: [spec, ...]}` pour UN SEUL arbre -- la contribution de ce fichier a la table globale.
+
+    EXTRAITE de `_signatures_positionnelles` (#1029) pour la rendre CACHABLE PAR FICHIER : la
+    table finale n'est qu'un MERGE de ces contributions, donc chacune ne depend QUE de son propre
+    fichier. La reconciliation -- un nom dont les definitions ne s'accordent pas est ecarte --
+    reste GLOBALE, dans la fonction ci-dessus : c'est elle qui a besoin de tout le perimetre, pas
+    l'extraction.
+
+    UNE SEULE passe de `ast.walk` (#486-r5) : il y en avait DEUX, la premiere ne servant qu'a
+    construire `classe_de`. Sur ce corpus (2090 fichiers, 3,9 M de noeuds), le walk complet coute
+    ~7 s -- soit ~11 s des 22,3 s de cette fonction, mesure du 2026-08-06. Les `def` sont accumules
+    puis traites APRES la boucle : le resultat ne depend donc d'AUCUNE hypothese sur l'ordre de
+    parcours de `ast.walk`.
+    """
+    classe_de, defs = {}, []
+    for m in ast.walk(tree):
+        if isinstance(m, ast.ClassDef):
+            for st in m.body:
+                classe_de[id(st)] = m.name
+        elif isinstance(m, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            defs.append(m)
+    out: dict = {}
+    for n in defs:
+        args = [a.arg for a in (n.args.posonlyargs + n.args.args)]
+        lie = 1 if (args and args[0] in ("self", "cls")) else 0
+        # un ctor s'appelle par le nom de la CLASSE, et `self` ne compte pas
+        nom = classe_de.get(id(n)) if n.name == "__init__" else n.name
+        if not nom:
+            continue
+        spec = None
+        for i, a in enumerate(args):
+            bas = a.lower()
+            court = next((c for c, racines in _ROOTS.items()
+                          if any(r in bas for r in racines)), None)
+            if court is None:
+                continue
+            if i - lie >= 0:
+                spec = (i - lie, court)
+            break
+        out.setdefault(nom, []).append(spec)
+    return out
 
 
 class _ExecSweep(ast.NodeVisitor):
@@ -810,45 +827,115 @@ class _ExecSweep(ast.NodeVisitor):
         self.generic_visit(node)
 
 
+_CACHE_283: dict = {}
+
+
+def _cache_283(cur: str, prev):
+    """Le cache PAR FICHIER de `step_exec` (#1029), un par couple de builds.
+
+    ⚠ LE CONTEXTE PORTE LES DEUX BUILDS, et c'est ce qui rend le cache sur : `step_exec` compare
+    les litteraux aux ordinaux du build COURANT **et** du PRECEDENT (`refs` et `olds`). Un cache
+    servi sous un autre couple attesterait une comparaison faite contre d'autres tables -- le meme
+    vice que partager un verdict entre deux ancrages de grille.
+    """
+    cle = "%s|%s" % (cur, prev or "-")
+    if cle not in _CACHE_283:
+        import verdict_cache
+        ici = Path(__file__).resolve().parent
+        # LES BUILDS VONT DANS LE CONTEXTE, PAS DANS LE NOM DE FICHIER. Un nom qui les porte
+        # laisserait un ORPHELIN versionne a chaque mise a jour du jeu ; dans le contexte, un
+        # couple different vide simplement le cache -- meme forme que `probe_313`.
+        _CACHE_283[cle] = verdict_cache.CacheCliquet(
+            "probe_283_step_exec",
+            contexte=verdict_cache.sha_texte(
+                verdict_cache.sha_fichiers_texte(ici / "probe_283_enum_ordinal_sweep.py")
+                + "|" + cle),
+            notes=("# DEUX appels par fichier : `sigs` (contribution a la table des signatures,",
+                   "# cle = sha du fichier SEUL) et `hits` (cle = sha du fichier COMPOSE avec celui",
+                   "# de la table globale, dont les hits dependent). Un port ordinaire ne change",
+                   "# aucune signature, donc `sha_sigs` est stable et les fichiers inchanges",
+                   "# restent chauds."))
+    return _CACHE_283[cle]
+
+
 def step_exec(verbose: bool) -> list:
     cur, prev = current_build(), previous_build()
     refs = {court: _by_name(enum_map(cur, fq)) for court, fq in ENUMS.items()}
     olds = {c: _by_name(enum_map(prev, fq)) for c, fq in ENUMS.items()} if prev else {}
     fails, infos, oks, hors = [], [], [], []
-    # Une seule passe de parse : les signatures sont GLOBALES au perimetre (un appel peut
-    # preceder la `def` d'un autre fichier), donc elles se derivent avant toute visite.
-    sources, arbres = {}, {}
     # Lecture PARALLELE (#457-r6) : l'ouverture pese ~7 ms par fichier sous `scripts/`, soit
     # ~13 s des ~37 s de cette etape. L'ordre du rapport ne change pas -- il vient du
-    # `sorted(arbres.items())` plus bas, pas de l'ordre de lecture.
+    # `sorted(...)` plus bas, pas de l'ordre de lecture. La lecture RESTE inconditionnelle : c'est
+    # elle qui donne le sha, donc la cle du cache -- pas de mtime, pas de taille (heuristiques que
+    # `verdict_cache` proscrit).
     a_lire = [p for p in sorted((REPO / "scripts" / "python").rglob("*.py"))
               if _ignore(p) is not None]
+    octets = {}
     for p, data in zip(a_lire, repo_read.read_bytes_many(a_lire)):
-        if data is None:
-            continue
-        rel = _ignore(p)
-        try:
-            src = data.decode("utf-8").replace("\r\n", "\n").replace("\r", "\n")
-            arbres[rel] = ast.parse(src, filename=rel)
-            sources[rel] = src
-        except (SyntaxError, UnicodeDecodeError):
-            continue
-    sigs = _signatures_positionnelles(arbres)
+        if data is not None:
+            octets[_ignore(p)] = data
+
+    import verdict_cache
+    cache = _cache_283(cur, prev)
+    shas = {rel: verdict_cache.sha_texte(repr(data)) for rel, data in octets.items()}
+    arbres, sources = {}, {}
+
+    def _arbre(rel):
+        """Parse A LA DEMANDE : un fichier dont les DEUX entrees sont chaudes n'est jamais parse."""
+        if rel not in arbres:
+            try:
+                src = octets[rel].decode("utf-8").replace("\r\n", "\n").replace("\r", "\n")
+                arbres[rel] = ast.parse(src, filename=rel)
+                sources[rel] = src
+            except (SyntaxError, UnicodeDecodeError):
+                arbres[rel] = None
+        return arbres[rel]
+
+    # PASSE 1 -- les CONTRIBUTIONS de signatures. Elles ne dependent QUE du fichier, donc leur cle
+    # est son seul sha. La table globale est le MERGE ; elle a besoin de tout le perimetre, mais
+    # plus de tous les ARBRES.
+    contribs = {}
+    for rel in sorted(octets):
+        v = cache.obtenir(rel, "sigs", shas[rel])
+        if v is verdict_cache.MANQUE:
+            tree = _arbre(rel)
+            v = contribs_signatures(tree) if tree is not None else {}
+            cache.poser(rel, "sigs", shas[rel], v)
+        contribs[rel] = v
+    vus: dict = {}
+    for c in contribs.values():
+        for nom, specs in c.items():
+            vus.setdefault(nom, set()).update(tuple(s) if s is not None else None for s in specs)
+    sigs = {nom: next(iter(s)) for nom, s in vus.items()
+            if len(s) == 1 and next(iter(s)) is not None}
     if verbose:
         print("   (signatures positionnelles derivees : %d appelable(s))" % len(sigs))
         for nom in sorted(sigs):
             print("      %-42s arg#%d = %s" % (nom, sigs[nom][0], sigs[nom][1]))
-    for rel, tree in sorted(arbres.items()):
+
+    # PASSE 2 -- les HITS. Ils dependent du fichier ET de la table globale : la cle compose donc les
+    # deux shas. Un port ordinaire ne change AUCUNE signature -> `sha_sigs` est stable -> tous les
+    # fichiers inchanges restent chauds.
+    sha_sigs = verdict_cache.sha_texte(repr(sorted(sigs.items())))
+    for rel in sorted(octets):
         if rel in ALLOWLIST:
             continue
-        src = sources[rel]
-        sw = _ExecSweep(_prose_par_ligne(src), refs, sigs, olds)
-        sw.visit(tree)
-        for lineno, enum, quoi, v, nom_courant, membre, attendu, ok in sw.hits:
-            row = (rel, lineno, enum, quoi, v, nom_courant, membre, attendu, ok)
+        cle = verdict_cache.sha_texte(shas[rel] + "|" + sha_sigs)
+        v = cache.obtenir(rel, "hits", cle)
+        if v is verdict_cache.MANQUE:
+            tree = _arbre(rel)
+            if tree is None:
+                continue
+            sw = _ExecSweep(_prose_par_ligne(sources[rel]), refs, sigs, olds)
+            sw.visit(tree)
+            v = {"hits": [list(h) for h in sw.hits], "hors": [list(h) for h in sw.hors]}
+            cache.poser(rel, "hits", cle, v)
+        for lineno, enum, quoi, val, nom_courant, membre, attendu, ok in v["hits"]:
+            row = (rel, lineno, enum, quoi, val, nom_courant, membre, attendu, ok)
             (fails if ok is False else oks if ok is True else infos).append(row)
-        for lineno, enum, quoi, v in sw.hors:
-            hors.append((rel, lineno, enum, quoi, v))
+        for lineno, enum, quoi, val in v["hors"]:
+            hors.append((rel, lineno, enum, quoi, val))
+    cache.enregistrer()
     print("[283] etape 2 : litteraux EXECUTABLES en contexte enum -- %d FAUX aujourd'hui, "
           "%d justes-mais-figes, %d a lire (+%d hors plage, NON comptes)"
           % (len(fails), len(oks), len(infos), len(hors)))
