@@ -175,11 +175,16 @@ def test_le_montage_exerce_bien_le_fold(fx, request):
 
 @pytest.mark.parametrize("fx", ["case", "case_rr"])
 def test_le_port_egale_la_ventilation_native_coup_par_coup(fx, request):
-    """(3) Le VERDICT. Il porte sur la suite des `Amount` natifs de la cible primaire, PAS sur le
-    total de PV : ce montage reveille une divergence TIERCE (le port attribue le +1 coup de
-    `LetTheGalaxyBurn` a la cible PRIMAIRE la ou le natif l'attribue a une cible du CLEAVE, residu
-    `#925-r1`), et elle subsiste dans les DEUX regimes du port -- donc elle est etrangere au fold.
-    La coherence du NATIF est assertionnee juste en dessous, ce qui autorise cette separation."""
+    """(3) Le VERDICT. Il porte sur la suite des `Amount` natifs de la cible primaire.
+
+    ⚠ PREMISSE PERIMEE, corrigee par `#925-r1` : ce test disait << PAS sur le total de PV >>, parce
+    qu'a l'ecriture de #925 le montage reveillait une divergence TIERCE (port 4134 contre 3508
+    natif sur la primaire). Sa cause a ete trouvee et corrigee -- le FOLD, feuille NUE, rejouait le
+    canal #179, qui est un VOLET FRERE du `Attack(...)` et non un enfant de la feuille. Le total de
+    PV est desormais EXACT lui aussi ; il fait verdict dans
+    `tests/engine/test_925r1_ltgb_attribution_live.py`, qui le garde par cible. Ici, la ventilation
+    par coup reste le verdict PROPRE au drapeau `fold_emits_pre_attack`, et la coherence du NATIF
+    est assertionnee juste en dessous."""
     case = request.getfixturevalue(fx)
     r, corr = case["r"], case["corr"]
     nat = list(r["nat_primaire_hits"])

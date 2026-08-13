@@ -53,9 +53,26 @@ HEAL_TYPE_NON_MECHANICAL = 0
 HEAL_TYPE_MECHANICAL = 1
 
 # `IdunBattle.Entities.Enum.UnitFlag` -- les deux flags du CASTER qui ELARGISSENT l'eligibilite :
-# ils rendent legale une cible a PLEINS PV. Aucun chemin du port ne les pose (meme situation que le
-# flag 0x11 de `is_targetable`) ; le mirror est ecrit pour que la regle s'active d'elle-meme le jour
-# ou le canal les exposera, et pour que le lecteur voie que ce n'est pas un oubli.
+# ils rendent legale une cible a PLEINS PV.
+#
+# ⚠ CES DEUX DISJONCTIONS MORDENT (#982-r5). La phrase qui vivait ici -- « aucun chemin du port ne
+# les pose ; le mirror est ecrit pour le jour ou le canal les exposera » -- est PERIMEE, et l'avoir
+# laissee a produit DEUX verdicts faux d'affilee : #966-r2 (« aucun consommateur porte ne le lit »)
+# puis #982-r5 (« le port n'est pas ecrit »). Le port ne POSE toujours pas ces flags, et il n'a pas
+# a le faire : `IdunBattle.Entities.Behaviours.AddFlagBehaviour$$Execute` a deja joue COTE NATIF
+# avant la capture, et `runner/snapshot._load_unit_flags` recopie `combatSnapshot.units[].unitFlags`
+# dans le `UnitFlagsComponent`. La disjonction lit donc une valeur MESUREE, pas un substrat vide.
+#
+# MESURE (#982-r5, build `rnca9r7q6c`, board `MC1_67`, seed 777, `spaceWolfPriest` injecte au
+# catalogue) : `combatSnapshot.unitFlagTypes.CanHealFullHealthUnits = 23` ; `unitFlags = [23]` sur
+# `spaceWolfPriest`, `[]` sur les trois autres unites (temoin NON degenere) ; et cote port, sur une
+# cible a PLEINS PV, `entity_can_be_healed(caster = spaceWolfPriest) = True` contre `False` pour un
+# caster sans le flag ET pour `caster = None`. Le pendant `0x18` a ete mesure de meme sur
+# `admecManipulus` (#952, `unitFlags = [24]`).
+# ⚠ PIEGE DE MESURE : `combatSnapshot.units[].entityId` est le `squadId` d'`observeBattle`, PAS son
+# `entityId`. Un probe qui apparie par `observeBattle.entityId` lit `flags = None` sur TOUTES les
+# unites et conclut faussement que rien n'est seede.
+# Cliquet : `tests/engine/test_982r5_can_heal_full_health_offline.py`.
 UNIT_FLAG_CAN_HEAL_FULL_HEALTH = UnitFlag.CanHealFullHealthUnits      # CanHealFullHealthUnits
 UNIT_FLAG_CAN_REPAIR_FULL_HEALTH = UnitFlag.CanRepairFullHealthUnits    # CanRepairFullHealthUnits
 

@@ -643,6 +643,31 @@ def _stikkbomb_inputs(scene, caster_id, target_id, ab, cfg) -> dict:  # target_i
     return out
 
 
+def _excruciating_frequencies_inputs(scene, caster_id, target_id, ab, cfg) -> dict:  # target_id ignore (contrat registre)
+    """`IdunBattle.AI.Playbook.Loki.ExcruciatingFrequenciesPlaybook$$MakeDamagePredictions`
+    (ability 1197, `emperNoiseMarine`) -- UNE seule surcharge des entrees generiques : les HITS.
+
+    Le call-site passe `IdunBattle.Entities.Abilities.AActiveAbility$$GetHits()` =
+    `GetNumberConstant(0x2f = nrOfHits)` **BRUT** au 7e argument de
+    `IdunBattle.AI.Playbook.ComparablePlaybooku003C__Il2CppFullySharedGenericTypeu003E$$GenerateMultiHitAttackPredictions`.
+    Le chemin GENERIQUE du port passe, lui, par `AActiveAbility.get_special_hits` =
+    `GetDefaultAttackHits(nrOfHits, ExtraHits[, Melee])`, qui AJOUTE la stat `ExtraHits` du caster --
+    que ce playbook n'ajoute pas. Les deux coincident tant qu'`ExtraHits = 0`, et c'est pourquoi
+    rien ne le signalait. MEME ecart, MEME correctif que `_stikkbomb_inputs`,
+    `_mass_driver_accelerator_inputs` et `_frag_bomb_inputs` (#957-r3).
+
+    Ce qui n'est PAS surcharge, et c'est LU au meme call-site : la BASE
+    (`IdunBattleLogic.Entities.Abilities.Active.BlightGrenadesAbility$$GetDamageFormula` =
+    `MinMaxDamage(avg minDmg/maxDmg)` = exactement le generique) et le PROFIL
+    (`GetDamageProfile(config)` -> `Nullable` NON vide, Blast).
+
+    ⚠ `nrOfHits` est lu dans les CONSTANTES (`GetNumberConstant`), pas dans les variables : le
+    generique, lui, le lit par `get_variable_for_level`. C'est la meme lecture que
+    `_stikkbomb_inputs`."""
+    hits = int((cfg.constants or {}).get("nrOfHits") or 0)         # const 0x2f = nrOfHits (LITTERAL)
+    return {"hits_override": hits} if hits else {}
+
+
 def _plasma_grenade_inputs(scene, caster_id, target_id, ab, cfg) -> dict:  # target_id ignore (contrat registre)
     """`IdunBattle.AI.Playbook.Loki.PlasmaGrenadePlaybook$$MakeDamagePredictions` (ability 1098,
     `eldarSmnGuardian` / `eldarNpc1Guardian`) — event PRINCIPAL. MEME mold que `_stikkbomb_inputs`
@@ -1321,6 +1346,11 @@ _MAKE_DMG_INPUT_OVERRIDES = {
     ActiveAbilityType.FrenziedFiring: _frenzied_firing_inputs,                    # 1036
     ActiveAbilityType.SavageEchoes: _savage_echoes_inputs,                        # 1230
     ActiveAbilityType.Stikkbomb: _stikkbomb_inputs,                               # 1051
+    # #957-r3 -- `nrOfHits` LITTERAL (le playbook ne passe PAS par `GetDefaultAttackHits`, donc
+    # n'ajoute PAS la stat `ExtraHits` du caster). Route BESPOKE cote decision
+    # (`engine/playbook/excruciating_frequencies.py`), qui appelle `make_damage_predictions` : elle
+    # traverse donc CE registre comme les autres.
+    ActiveAbilityType.ExcruciatingFrequencies: _excruciating_frequencies_inputs,  # 1197
     ActiveAbilityType.PlasmaGrenade: _plasma_grenade_inputs,                      # 1098
     ActiveAbilityType.FragstormGrenadeLauncher: _fragstorm_grenade_launcher_inputs,  # 1048
     ActiveAbilityType.MassDriverAccelerator: _mass_driver_accelerator_inputs,     # 1222

@@ -307,15 +307,24 @@ def main() -> int:
         else:
             print("  [etage 3] a_mordu = True (le mutant s'ecarte de la ventilation native)")
 
-        # --- RAPPORT (non verdictif) : la divergence TIERCE, nommee et attestee
+        # --- PV : la divergence TIERCE que ce montage revelait est FERMEE (#925-r1)
+        # A l'ecriture de #925, le port rendait 4134 sur la primaire pour 3508 natifs et 1129 sur
+        # `necroDestroyer` pour 1654 -- rapporte, hors verdict, comme residu `#925-r1`. Cause
+        # trouvee depuis : le FOLD, feuille NUE, rejouait le canal #179
+        # (`ExecuteAdditionalHitsWithDamageProfileType`), qui est un VOLET FRERE du `Attack(...)`
+        # dans `ALoki_NormalAttackAbility$$GetAttackDamageBehaviour`, jamais un enfant de la
+        # feuille. Le PV est donc EXACT des deux cotes desormais, et ce cran le GARDE au lieu de
+        # l'imprimer. Detail : `docs/rl/case-925r1-ltgb-coup-hors-ventilation.md`.
         s_nat = sum(int(x) for x in nat)
-        print(f"  [rapport #925-r1] PV primaire  natif {r['nat_primaire']} (somme des coups "
-              f"{s_nat}) | corrige {corr['primaire']} (somme {sum(int(x) for x in got)})")
-        print(f"                    PV addts     natif {r['nat_addts']} | corrige {corr['addts']}")
-        # La divergence est presente dans les DEUX regimes du port -> elle n'est PAS un effet du
-        # drapeau teste. C'est ce qui autorise a la sortir du verdict au lieu de la taire.
-        print(f"                    MUTANT primaire {mut['primaire']} addts {mut['addts']} "
-              f"-- l'ecart de PV subsiste dans les DEUX regimes, donc il est ETRANGER au fold")
+        print(f"  [PV] primaire natif {r['nat_primaire']} (somme des coups {s_nat}) | corrige "
+              f"{corr['primaire']} (somme {sum(int(x) for x in got)})")
+        print(f"       addts    natif {r['nat_addts']} | corrige {corr['addts']}")
+        print(f"       MUTANT primaire {mut['primaire']} addts {mut['addts']}")
+        if corr["primaire"] != r["nat_primaire"] or corr["addts"] != r["nat_addts"]:
+            bad.append(f"etage 2ter (#925-r1) : PV -- port corrige primaire {corr['primaire']} "
+                       f"addts {corr['addts']} != natif primaire {r['nat_primaire']} addts "
+                       f"{r['nat_addts']}. Le canal #179 est rejoue par une feuille NUE, ou un "
+                       f"autre coup part hors ventilation.")
         if s_nat != int(r["nat_primaire"]):
             bad.append(f"etage 2bis : le NATIF est INCOHERENT (somme des coups {s_nat} != delta de "
                        f"PV {r['nat_primaire']}) -- la ventilation ne peut pas servir de verdict")

@@ -42,15 +42,45 @@ unité). Ordinaux LUS dans `data/symbols/<build>/frida/enums.tsv`, jamais devin�
 `ability_var` n'applique le multiplicateur qu'aux variables listées, donc passer `multiplier_pct`
 dans les deux cas reste correct PAR CONSTRUCTION (même arbitrage qu'`AncestralFortune` #votann).
 
-⚠ **SIGNE -- NON LU AU DÉCOMPILÉ, et c'est dit** : `isNegative` vit dans la lambda
-`EffectsDatabase.<InitializeEffects>b__14_*` qui enregistre 1503/1504 ; ni la recherche littérale
-`0x5df`/`1503` dans le pseudo-C (2 résultats, aucun n'est une lambda d'enregistrement) ni les xrefs
-n'en exposent le corps sur ce build. Le signe POSITIF retenu ici s'appuie sur trois indices
-concordants et AUCUN décompilé : (a) l'i2 écrit `+` pour les deux ; (b) les variables gameconfig
-s'appellent `extraCritChance` / `extraCritDmg` ; (c) le jumeau structurel
-`AncestralFortune_ExtraCritChance` (0x5cd = 1485, `entities/effects/loki/votann.py`) est POSITIF.
-Résidu #966-r1 -- fermer = lire la lambda d'enregistrement, jamais inférer d'une mesure de dégât
-(un crit-damage négatif de même magnitude produirait un écart, pas une erreur).
+**SIGNE -- LU AU DÉCOMPILÉ : POSITIF pour les DEUX** (#966-r1 FERMÉ). Le signe n'est ni dans
+l'ability ni dans le behaviour : il est figé à l'ENREGISTREMENT, par le 3ᵉ argument `isNegative` d'
+`IdunBattle.Entities.Effects.DynamicStatModifierEffect$$.ctor`
+(`.ctor(AbilityType, AbilityVariableType, bool isNegative, bool canBeImmuneTo)`). Les deux fabriques
+sont `IdunBattle.Core.Services.EffectsDatabase.u003Cu003Ec$$u003CInitializeEffectsu003Eb__14_498`
+(EffectType 1503) et `...b__14_497` (1504) ; toutes deux, verbatim :
+
+    mov edx, 0x5de ; call AbilityType$$op_Implicit   -> set_TriggeredAbility (HealingBalms 1502)
+    xor r9d, r9d                        ; isNegative = FALSE
+    mov r8d, 0x42 (= 66 extraCritDmg) | 0x41 (= 65 extraCritChance)
+    mov byte ptr [rsp+0x20], 0          ; canBeImmuneTo = false
+    call DynamicStatModifierEffect$$.ctor
+
+⚠ **POURQUOI LA RECHERCHE DE `1503`/`0x5df` NE POUVAIT RIEN RENDRE, et l'énoncé du résidu se
+trompait de cause** : `_effectsBuilder` est un `Dictionary<EffectType, Func<IEffect>>` -- la CLÉ vit
+chez l'appelant, **la lambda ne porte JAMAIS l'EffectType**. C'est `0x5de` (l'ABILITY) qu'il fallait
+chercher. Et `IdunBattle.Core.Services.EffectsDatabase$$InitializeEffects` fait **20 205
+instructions**, donc le pseudo-C ne la rend pas -- d'où le faux constat « l'inscription passe par
+une table de données ». L'appariement effectType <-> fabrique se lit dans cette fonction, par
+l'offset du cache de délégué `u003Cu003E9__14_N` (= `8 + 8*N`) : clé `0x5df` -> `+0xf98` -> `N=498`
+(`extraCritDmg`) ; clé `0x5e0` -> `+0xf90` -> `N=497` (`extraCritChance`). Chaque clé n'apparaît
+qu'UNE fois dans les 607 entrées, et l'auto-cohérence nom <-> variable valide la formule d'index.
+
+**TÉMOIN NÉGATIF -- le flag n'est pas inerte** : sur les **14** fabriques `DynamicStatModifierEffect`
+du build, **13 posent `xor r9d, r9d` (false) et UNE SEULE `mov r9b, 1` (true)** --
+`...u003CInitializeEffectsu003Eb__14_533` -> clé `0x605` = 1541 `AugmentedAssault_ReduceArmor`
+(`variableType = 48 armorReduction`). Les deux enregistrements sont structurellement IDENTIQUES :
+seul `r9` change. Un accord sans ce témoin ne prouverait rien.
+
+**APPLICATION -- foyer UNIQUE** `IdunBattle.Entities.Effects.DynamicStatModifierEffect$$GetDynamicStatModificationAmount` :
+`neg eax` puis `cmp byte ptr [rbx+0x4a4], 0` / `cmove eax, esi` -> `_isNegative == 0` garde le
+POSITIF. L'ORDRE des arguments est figé par le ctor lui-même (`_abilityType` `+0x490`,
+`_variableType` `+0x4a0`, `_isNegative` `+0x4a4` écrit depuis `r9b`) : `canBeImmuneTo`, lui, transite
+par la pile -- toute confusion entre les deux booléens est exclue.
+
+Lus au même endroit et CONFORMES au port : `abilityType` = `TriggeredAbilityType` (les variables
+sont donc bien lues dans la config du PASSIF `HealingBalms`, cf. `HEALING_BALMS` plus bas, qui
+cesse d'être une inférence) ; `isMultiply = false` (stat-mod ADDITIF) ; `keepOnRevive = true` ;
+`canBeImmuneTo = false`.
 
 ASCII only.
 """
@@ -121,7 +151,7 @@ class HealingBalmsExtraCritDamageEffect(BaseEffect):
         amt = ability_var(HEALING_BALMS, EXTRA_CRIT_DMG_KEY, lvl, multiplier_pct=mult)
         if not amt:
             return []
-        return [(int(StatType.CRIT_DAMAGE), int(amt))]       # signe : cf. en-tête, résidu #966-r1
+        return [(int(StatType.CRIT_DAMAGE), int(amt))]       # POSITIF LU : isNegative = false au ctor (cf. en-tete)
 
     def reverted_stats(self) -> "list":
         return [StatType.CRIT_DAMAGE]
@@ -143,7 +173,7 @@ class HealingBalmsExtraCritChanceEffect(BaseEffect):
         amt = ability_var(HEALING_BALMS, EXTRA_CRIT_CHANCE_KEY, lvl, multiplier_pct=mult)
         if not amt:
             return []
-        return [(int(StatType.CRIT_CHANCE), int(amt))]       # signe : cf. en-tête, résidu #966-r1
+        return [(int(StatType.CRIT_CHANCE), int(amt))]       # POSITIF LU : isNegative = false au ctor (cf. en-tete)
 
     def reverted_stats(self) -> "list":
         return [StatType.CRIT_CHANCE]

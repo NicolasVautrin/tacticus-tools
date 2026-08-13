@@ -186,7 +186,22 @@ class HealUnitOperation:
         stat-mod EXTRA_HITS du trait `Swarm`
         (`IdunBattleLogic.Entities.Abilities.Active.Loki.SwarmAbility$$CreateTrigger`, bras
         `On(UnitHealed=43)`), deja cable par l'appel direct a `on_group_unit_hp_changed` ci-dessous
-        -- MEME raccourci que `RepairUnitOperation`, et deja valide live (`probe_203_swarm.py`)."""
+        -- MEME raccourci que `RepairUnitOperation`, et deja valide live (`probe_203_swarm.py`) ;
+      * la PORTE DE RESULTAT VIDE de QUEUE (#982-r5, LUE sur `rnca9r7q6c`) :
+
+            if (!wasWounded && healed < 1 && removedNegativeUnitEffects < 1
+                && !UnitExtensions.HasFlag(caster, 0x17 CanHealFullHealthUnits))  return this;
+
+        C'est le SECOND usage natif du flag `CanHealFullHealthUnits`, et il est lu SUR LE CASTER :
+        il empeche le natif de rendre un resultat VIDE quand rien n'a ete soigne. Le premier usage
+        est le gate d'entree `IdunBattle.Core.Services.AttackQuery$$EntityCanBeHealed`, lui PORTE
+        (cf. `entity_can_be_healed` plus bas) et MORDANT (cliquet
+        `tests/engine/test_982r5_can_heal_full_health_offline.py`). Le port, lui, sort sur
+        `healed <= 0` sans consulter le flag : l'ecart ne porte QUE sur les sorties listees
+        ci-dessus (event, statistiques, triggers, `RefreshEffects`), JAMAIS sur les PV -- `FillUp`
+        rend 0 sur une cible pleine dans les deux regimes. NOMME plutot que tu : sans cette ligne,
+        un lecteur conclut que le flag 23 est integralement porte, alors que seul son etage de GATE
+        l'est."""
     __slots__ = ()
 
     @staticmethod
