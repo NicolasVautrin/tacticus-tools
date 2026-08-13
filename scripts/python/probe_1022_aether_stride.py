@@ -225,8 +225,9 @@ def main() -> int:
         if cible is None:
             print("PAS MESURE : aucune tuile acceptee par les DEUX cotes -- rien a caster")
             return 2
-        avant = {u.get("squadId") for u in (rpc(sid, "observeBattle", {"runnerId": rid})
-                                           .get("units") or [])}
+        pre_dv = rpc(sid, "decisionView", {"runnerId": rid, "allAbilities": True})
+        pre_ob = rpc(sid, "observeBattle", {"runnerId": rid})
+        avant = {u.get("squadId") for u in (pre_ob.get("units") or [])}
         pred_area = STS.get_area(board, occ, board.coord(cible))
         anc = board.coord(cible)
         dv = rpc(sid, "decisionView", {"runnerId": rid, "allAbilities": True})
@@ -265,6 +266,30 @@ def main() -> int:
         mows2 = [m for m in (rpc(sid, "decisionView", {"runnerId": rid, "allAbilities": True})
                              .get("mows") or []) if m.get("visualId") == MOW]
         print("    MoW encore dans decisionView.mows apres le cast : %s" % bool(mows2))
+
+        # --- ETAGE C : le PORT rejoue le MEME cast sur l'etat PRE-cast -------------------------
+        from engine.runner.abilities.thousandsons import AetherStrideAbility
+        from engine.entities.traits.unit_trait import UnitTrait, has_trait
+        from engine.runner.components import MachineComponent, StatsComponent
+        from engine.runner.snapshot import load_state
+        from engine.services import movement_query as MQ
+        st = load_state(pre_dv, pre_ob, board=board)
+        diag = AetherStrideAbility().execute_behaviour(st, caster, cible)
+        print("[C] port : tile=%s spawned=%s removed_machine=%s traits=%s carried=%s"
+              % (diag.get("tile"), diag.get("spawned"), diag.get("removed_machine"),
+                 diag.get("traits"), diag.get("carried")))
+        pieds_port = list(diag.get("feet") or [])
+        if diag.get("spawned"):
+            sid0 = diag["spawned"][0]
+            sc = st.get_entity(sid0).get_component(StatsComponent)
+            stat = has_trait(sc.ctx.traits, UnitTrait.Stationary) if sc is not None else None
+            mv = MQ.get_movable_positions_for(board, st, sid0, [board.coord(cible)])
+            print("    pieds PORTES = %s | Stationary=%s | positions mobiles=%s"
+                  % (pieds_port, stat, mv))
+        mc = st.get_entity(caster).get_component(MachineComponent) if st.get_entity(caster) else None
+        print("    MachineComponent.removed cote port = %s" % (getattr(mc, "removed", None),))
+        accord_c = (sorted(pieds_port) == sorted(pieds)) and bool(pieds)
+        print("[C] VERDICT empreinte natif vs port : %s" % ("ACCORD" if accord_c else "DESACCORD"))
         print("PROBE OK")
         return 0
     finally:

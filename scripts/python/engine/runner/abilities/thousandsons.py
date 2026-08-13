@@ -105,7 +105,7 @@ from ...entities.triggered_ability_type import TriggeredAbilityType  # #1022 (Ae
 from ...entities.effects.magnitude import ability_var
 from ...entities.triggers import (ActorHasTriggeredAbility, AmountIsGreaterThanZero,
                                   HasTakenDamageOfDamageProfileThisTurn)
-from ..components import StatsComponent
+from ..components import StatsComponent, get_unit_feet   # `get_unit_feet` : #1022 (AetherStride)
 from ..operations.damage_prediction_sort import SortTargetsByDamagePrediction
 from ..operations.damage_utility import sort_units_by_damage_utility
 from .base import ActiveAbility, ability_attack_params
@@ -1190,6 +1190,9 @@ class InfernalCannonAbility(ActiveAbility):
 AETHER_STRIDE_ID = "AetherStride"
 #: `0x5d8` -- le `TriggeredAbilityType` LU aux deux sites de l'arbre (predicat + grant).
 AETHER_STRIDE_CARRIED_ABILITY = TriggeredAbilityType.CabalOfSorcerers   # 1496
+#: `GetStringConstant(config, 0 = AbilityConstantType.unitId)` -- l'unite POSEE. Diag seulement :
+#: la feuille `Spawn` relit elle-meme la constante du gameconfig, elle ne prend pas cette valeur.
+AETHER_STRIDE_SUMMON = "thousSmnDaemonPrince"
 
 
 def aether_stride_on_appearance() -> AtomicGroup:
@@ -1322,9 +1325,14 @@ class AetherStrideAbility(ActiveAbility):
         ectx = ExecutionContext(state=state, rng=state.rng)
         entities = entities_from_state(state, caster_id, target_id)
         aether_stride_tree(tile_id).execute(entities, ectx)
-        spawned = [p.get("unit") for n, p in ectx.emitted if n == "Spawn"]
-        return {"tile": tile_id, "spawned": spawned,
-                "machine_removed": any(n == "RemoveMachine" for n, _ in ectx.emitted),
+        # ⚠ L'ETIQUETTE EMISE PAR LA FEUILLE EST `SpawnUnit`, PAS `Spawn` (`behaviours/summon.py`).
+        # Lire `Spawn` rend une liste VIDE alors que le spawn a bien eu lieu -- un diag muet qui se
+        # lit comme « le port n'a rien pose » (mesure du 2026-08-13, avant correction).
+        spawned = [p["unit"] for n, p in ectx.emitted if n == "SpawnUnit"]
+        removed = [p["machine"] for n, p in ectx.emitted if n == "RemoveMachine"]
+        return {"summon": AETHER_STRIDE_SUMMON, "tile": tile_id, "spawned": spawned,
+                "feet": get_unit_feet(state, spawned[0]) if spawned else [],
+                "removed_machine": removed,
                 "traits": [{"unit": p.get("unit"), "trait": p.get("trait")}
                            for n, p in ectx.emitted if n == "AddTrait"],
                 "carried": [p.get("ability") for n, p in ectx.emitted
