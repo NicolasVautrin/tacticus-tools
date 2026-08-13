@@ -282,6 +282,8 @@ from ..loki.relic_of_lost_cadia import (RelicOfLostCadiaAbility,       # #1002 (
 from ..loki.book_of_fate import BookOfFateAbility                     # #1008 (relique 1461, BL)
 from ..loki.helspear import (HelspearBuffActiveAbility,               # #1008 (relique 1558,
                              HelspearResetActiveAbility)              #  blackHaarken)
+from ..loki.dw02_advanced_burst_cannon import (                       # #1012 (relique 1476, tauCrisis)
+    Dw02AdvancedBurstCannonAbility)
 from ..loki.relentless_march import RelentlessMarchAbility             # #328 (passif necroWarden)
 from ..loki.my_will_be_done_overlord import (MyWillBeDoneOverlordAttackAbility,   # #354 (necroOverlord)
                                              MyWillBeDoneOverlordClearAbility)
@@ -1439,6 +1441,21 @@ RELIC_ABILITY_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
     # COMMIT, mais sa magnitude n'atteint pas le calcul (residu `#1008-r2`, BLOCAGE `etage`).
     # Cf. loki/helspear.py.
     "Helspear": [HelspearBuffActiveAbility, HelspearResetActiveAbility],
+    # Dw02AdvancedBurstCannon (relique `R_Crit_Dw02AdvancedBurstCannon`, `TriggeredAbilityType`
+    # 0x5c4 = 1476 ; UN porteur autorise : `tauCrisis` << Re'vas >>, HERO du pool rank 17). #1012.
+    # UNE classe native, dont les DEUX corps sont dans les tables :
+    # `On(9 = Attack, alive) & get_OwnerIsCaster & NOT IsSpecialActiveAbility` ->
+    # `If(compteur >= nrOfAttacks - 1,
+    #     (RemoveEffect(0x5be) & ResetActiveAbility(allowUseless)) & ClearPersistentData,
+    #     AddStaticStatModifierEffect(Caster, 0x5be, 0x1a = ExtraPierce, ConfigVar(extraPierceRatio))
+    #       & AddPersistentData(+1))`.
+    # ⚠ Le `If` est la RACINE du corps (patron `DaemonfleshPlate`), donc le seuil porte sur le
+    # compteur AVANT increment -- l'INVERSE de `VolummsMasterArtifice` ci-dessus.
+    # Le re-armement de l'active est IMMEDIAT (pas de marqueur + `PhaseEnd`), d'ou l'absence de
+    # seconde classe. L'EFFET 1470 est inscrit dans le MEME commit (`EFFECT_CLASSES`) : sans lui la
+    # pile serait un `BaseEffect` nu, qui ne modifie aucune stat.
+    # Cf. loki/dw02_advanced_burst_cannon.py.
+    "Dw02AdvancedBurstCannon": [Dw02AdvancedBurstCannonAbility],
 }
 
 # --- Registre : abilities GLOBALES (aucun owner) ---------------------------------------------------

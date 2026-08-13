@@ -149,6 +149,9 @@ from .loki.prophetic_sentinel import (
     PropheticSentinelExtraBlockDamageEffect
 )
 from .loki.daemonflesh_plate import DaemonfleshPlateExtraArmorEffect
+from .loki.dw02_advanced_burst_cannon import (   # #1012 (relique 1476, tauCrisis)
+    Dw02AdvancedBurstCannonExtraPierceRatioEffect
+)
 from .loki.reality_unbound import (
     RealityUnboundExtraMaxDamageEffect, RealityUnboundMovementEffect, RealityUnboundRangeEffect
 )
@@ -682,6 +685,15 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # (`stacks_stat_mod_on_add`), sans quoi le gate << deja-present >> d'`AddEffectOperation`
     # plafonnerait le bonus a un seul cran. Cf. `entities/effects/loki/daemonflesh_plate.py`.
     "DaemonfleshPlate_ExtraArmor": DaemonfleshPlateExtraArmorEffect,  # 1490 : +extraArmor, EMPILABLE
+    # Dw02AdvancedBurstCannon (relique `R_Crit_Dw02AdvancedBurstCannon`, `TriggeredAbilityType`
+    # 1476) : la pile de PERCAGE posee a CHAQUE attaque du porteur qui n'est pas une active. MEME
+    # motif que 1490 -- EMPILABLE (`stacks_stat_mod_on_add`), sans quoi le gate << deja-present >>
+    # d'`AddEffectOperation` plafonnerait le bonus a un seul cran.
+    # ⚠ `EffectType` 1470 = `Dw02AdvancedBurstCannon_ExtraPierceRatio`, mais `TriggeredAbilityType`
+    # 1470 = `Vitarus` : le membre NOMME est obligatoire des deux cotes.
+    # Cf. `entities/effects/loki/dw02_advanced_burst_cannon.py`. #1012.
+    "Dw02AdvancedBurstCannon_ExtraPierceRatio":
+        Dw02AdvancedBurstCannonExtraPierceRatioEffect,   # 1470 : +extraPierceRatio, EMPILABLE
     # Tyrant Guard (CrushingClaws) :
     "Taunted_OnlySpecificTargets": TauntedEffect,  # COMPOSITE 27 → enfants 25/26/1237 (bond cible↔tauntant)
     # HolyDuel (1050, templChampion « Brother Jaeger ») — `entities/effects/loki/holy_duel.py`.
