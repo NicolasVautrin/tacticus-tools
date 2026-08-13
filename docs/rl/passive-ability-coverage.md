@@ -42,7 +42,7 @@ Sinon, trois verdicts NEGATIFS distincts :
 
 Mesure de ce run : un `substring` brut du nom sur `engine/**/*.py` rend **211/211 presents, 0 manquant**. La cause n'est pas que tout est porte : `engine/entities/triggered_ability_type.py` est un **mirror 1:1 de l'enum natif `TriggeredAbilityType`** (573 membres), ou le nom de CHAQUE passif figure comme membre. **Un catalogue n'est pas un cablage.**
 
-Le signal code de cet audit est donc derive de l'**AST** et exclut les **definitions** de membres d'enum (2632 assignations ecartees dans 634 fichiers `engine/**/*.py`) tout en gardant les **usages** (`TriggeredAbilityType.X` = `ast.Attribute` -> compte). Il separe en outre le CODE (13232 symboles distincts) de la PROSE (10837 ko de commentaires + docstrings, invisibles a l'AST, lus via `tokenize`). Le rapprochement est CamelCase-aware : `HeavyGravCannon` matche `HeavyGravCannonEffect`, `Guard` ne matche ni `Guardsman` ni `RoyalGuard` (ni, pour `Possession`, l'unitId `blackPossession`).
+Le signal code de cet audit est donc derive de l'**AST** et exclut les **definitions** de membres d'enum (2632 assignations ecartees dans 637 fichiers `engine/**/*.py`) tout en gardant les **usages** (`TriggeredAbilityType.X` = `ast.Attribute` -> compte). Il separe en outre le CODE (13265 symboles distincts) de la PROSE (10863 ko de commentaires + docstrings, invisibles a l'AST, lus via `tokenize`). Le rapprochement est CamelCase-aware : `HeavyGravCannon` matche `HeavyGravCannonEffect`, `Guard` ne matche ni `Guardsman` ni `RoyalGuard` (ni, pour `Possession`, l'unitId `blackPossession`).
 
 Chaque reference est en outre ATTRIBUEE A SA ZONE du moteur (`__init__, ai, battle_query, dsl, effects, entities, hex_corner, hex_edge, move, playbook, predict, runner, services, streams, utilities, weights`), parce qu'une reference dans `playbook/`/`ai/`/`utilities/` (face DECISION) ne prouve RIEN sur l'execution combat. C'est ce qui separe **B** (litteral exact sous `runner/`) de **R**.
 
@@ -65,12 +65,12 @@ La colonne `kind` de gameconfig MENT sur la spawnabilite -> le pool vient de la 
 ## Bilan
 
 - Passifs distincts dans le parc (lineup 127 / npc 491 / summons 65) : **211**
-- **PORTES** (>=1 canal structurel) : **136** (64 %)
-- **ZONE-GRISE** (direct-read hors registre, a trancher) : **16**
+- **PORTES** (>=1 canal structurel) : **137** (65 %)
+- **ZONE-GRISE** (direct-read hors registre, a trancher) : **15**
 - **GAPS** (mention seule + absent) : **59** = 24 mention + 35 absent
-- Passifs portes par >=1 unite **confrontable** : **134** ; parmi eux, **7 gaps** et **4 zone-grise** -> c'est la FILE reelle.
+- Passifs portes par >=1 unite **confrontable** : **134** ; parmi eux, **7 gaps** et **3 zone-grise** -> c'est la FILE reelle.
 
-Ventilation des canaux qui portent (un passif peut en cumuler) : **T**=69, **O**=25, **E**=86, **G**=10, **X**=0, **B**=8
+Ventilation des canaux qui portent (un passif peut en cumuler) : **T**=70, **O**=25, **E**=86, **G**=10, **X**=0, **B**=8
 
 ## Tableaux par valeur
 
@@ -88,12 +88,11 @@ Tri : nombre de porteurs spawnables SANS AMENAGEMENT (`L+`+`M`) decroissant, pui
 | RedThirst | S+=1 N=1 | bloodSmnIntercessor | GAP-ABSENT | - | - | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.RedThirstAbility` |
 | Split | S+=1 S?=1 N=1 | thousSmnPinkHorror | GAP-MENTION | **.** | - | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.SplitAbility$$CreateBehaviour` |
 
-### ZONE-GRISE confrontable -- reference en code hors registre, couverture a TRANCHER (4)
+### ZONE-GRISE confrontable -- reference en code hors registre, couverture a TRANCHER (3)
 
 | passif | porteurs | spawnables (ex.) | verdict | canal | zones engine/ | symbole natif (a confirmer) |
 |---|---|---|---|---|---|---|
 | OptimizedGait | L+=1 N=5 | admecRuststalker | ZONE-GRISE | **R** | runner, services | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.OptimizedGaitAbility$$CreateBehaviour` |
-| SaviorProtocols | S+=3 N=3 | tauSmnDroneCommandLink, tauSmnDroneShield, tauSmnDroneSniper | ZONE-GRISE | **R** | playbook, runner, utilities | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.SaviorProtocolsAbility$$CreateBehaviour` |
 | AncientFury | S+=1 | ultraSmnDreadnought | ZONE-GRISE | **R** | runner, services | `IdunBattleLogic.Entities.Abilities.Active.Loki.AncientFury_NormalAttackAbility` |
 | FloatingDeath | S+=1 N=1 | tyranSmnSporeMine | ZONE-GRISE | **R** | runner, services | `IdunBattleLogic.Entities.Abilities.Triggered.Loki.FloatingDeath_InitAbility$$CreateBehaviour` |
 
@@ -171,7 +170,7 @@ Tri : nombre de porteurs spawnables SANS AMENAGEMENT (`L+`+`M`) decroissant, pui
 | WatchedOver | S?=1 N=1 | - | ZONE-GRISE | **R** | playbook, runner |
 | Wraithcannon | N=2 | - | ZONE-GRISE | **R** | runner, services |
 
-### PORTES (136)
+### PORTES (137)
 
 | passif | porteurs | spawnables (ex.) | verdict | canal | zones engine/ |
 |---|---|---|---|---|---|
@@ -271,6 +270,7 @@ Tri : nombre de porteurs spawnables SANS AMENAGEMENT (`L+`+`M`) decroissant, pui
 | VisionsOfHeresy | L+=1 | bloodDeathCompany | PORTE | **O**=VisionsOfHeresy_ExtraPierceMelee,VisionsOfHeresy_ExtraPierceRanged **E**=VisionsOfHeresy_ExtraPierceMelee,VisionsOfHeresy_ExtraPierceRanged | effects |
 | WireweaveNet | L+=1 N=4 | eldarRanger | PORTE | **E**=WireweaveNet_CounterAttack **G**=WireweaveNet_CounterAttack | effects, runner, utilities |
 | WrathfulDevotion | L+=1 N=1 | worldTerminator | PORTE | **T**=WrathfulDevotionAbility | runner |
+| SaviorProtocols | S+=3 N=3 | tauSmnDroneCommandLink, tauSmnDroneShield, tauSmnDroneSniper | PORTE | **T**=SaviorProtocolsAbility | playbook, runner, utilities |
 | HungeringSwarm | S+=2 N=4 | tyranNpc1Hormagaunt, tyranSmnHormagaunt | PORTE | **E**=HungeringSwarm_ExtraHits | effects |
 | ReanimationProtocols | S+=2 S?=1 N=6 | necroSmnSwarm, necroSmnWarrior | PORTE | **T**=ReanimationProtocolsAbility | runner |
 | ListenUpMaggots | S+=1 | astraSmnKell | PORTE | **T**=ListenUpMaggotsAddEffectAbility | effects, runner |
