@@ -9,9 +9,9 @@ Le runner combat route chaque ability choisie via `ActiveAbilityMessage` -> `Abi
 ## Bilan
 
 - ActiveAbilityType castables par les unites : **175** distinct
-- **PORTED** (dans `ABILITY_CLASSES`) : **159**
-- **NO-OP silencieux** (a porter) : **16**
-- Ventilation NO-OP : **DAMAGE**=8, **EFFECT/BUFF**=5, **SUMMON**=3
+- **PORTED** (dans `ABILITY_CLASSES`) : **161**
+- **NO-OP silencieux** (a porter) : **14**
+- Ventilation NO-OP : **DAMAGE**=6, **EFFECT/BUFF**=5, **SUMMON**=3
 
 ## Priorisation & templates de port
 
@@ -30,13 +30,11 @@ Le runner combat route chaque ability choisie via `ActiveAbilityMessage` -> `Abi
 
 Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 
-## NO-OP SILENCIEUX en combat (a porter, tries categorie puis frequence) (16)
+## NO-OP SILENCIEUX en combat (a porter, tries categorie puis frequence) (14)
 
 | id | ability | categorie | #units | kinds |
 |---|---|---|---|---|
 | 1015 | PrecisionShot | DAMAGE(Energy) | 2 | NS |
-| 1176 | BlightGrenades | DAMAGE(Toxic) | 1 | N |
-| 1170 | ExplosivePresents | DAMAGE(Blast) | 1 | N |
 | 1215 | InstrumentsOfVengeance | DAMAGE(HeavyRound) | 1 | N |
 | ? | Maugetar | DAMAGE(DirectDamage) | 1 | N |
 | 1193 | NovaCharge | DAMAGE(Particle) | 1 | N |
@@ -51,7 +49,7 @@ Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 | 1052 | CallRipperSwarms | SUMMON | 1 | N |
 | 1172 | InvocationOfMachineVengeance | SUMMON | 1 | N |
 
-## PORTED (registry) (159)
+## PORTED (registry) (161)
 
 | id | ability | categorie | #units | kinds |
 |---|---|---|---|---|
@@ -133,10 +131,12 @@ Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 | 1207 | AncestralFortune | DAMAGE(Plasma) | 1 | L |
 | 1173 | ArcScourge | DAMAGE(Particle) | 1 | N |
 | 1221 | AugmentedAssault | DAMAGE(Eviscerate) | 1 | L |
+| 1176 | BlightGrenades | DAMAGE(Toxic) | 1 | N |
 | 1199 | DoomSiren | DAMAGE(DirectDamage) | 1 | L |
 | 1232 | EmpyricAmbush | DAMAGE(Eviscerate) | 1 | L |
 | 1198 | EuphoricStrikes | DAMAGE(Power) | 1 | L |
 | 1197 | ExcruciatingFrequencies | DAMAGE(Blast) | 1 | L |
+| 1170 | ExplosivePresents | DAMAGE(Blast) | 1 | N |
 | 1097 | Foehammer | DAMAGE(Power) | 1 | L |
 | 1090 | GrapnelLauncher | DAMAGE(Physical) | 1 | L |
 | 1206 | GravitonRifle | DAMAGE(Physical) | 1 | L |

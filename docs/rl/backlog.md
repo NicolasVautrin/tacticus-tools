@@ -4194,3 +4194,57 @@ pas d'erreur : il rend **zéro**, et un zéro se lit « rien à signaler ».
   quoi on saurait ENTRER dans une bataille sans savoir en SORTIR.
   FOYER: frida/hooks/probes/start-campaign-match-capture.ts, frida/hooks/features/warmup-singletons.ts
   BLOCAGE: capteur
+
+- **#997-r1 : `1215 InstrumentsOfVengeance` -- le cast ARME, il ne frappe pas ; sa TRIGGERED et ses
+  effets manquent.** `[opus]`
+  Point d'entree : `docs/rl/case-997-six-noop-la-categorie-annoncee-ment-4-fois-sur-6.md` Sec.1.
+  `...InstrumentsOfVengeanceAbility$$ExecuteBehaviour` = `If(Maybe(0x32=50), A, B)` sur QUATRE
+  `$$GetEffectBehavior(<n>, <bool>)` (n = 1/5 et 2/4), puis `AddBondEffect(1519
+  InstrumentsOfVengeance_PendingAttack)`, puis `If(!HasAdjacentEnemies) ActivateEffect(1009
+  Overwatch_AutoAttack)`. AUCUN `AttackWith*`. Le degat vit dans
+  `...Triggered.Loki.InstrumentsOfVengeance_AttackAbility` (`$$AttackLine`, `$$AttackTileBehavior`)
+  et `...Effects.Loki.InstrumentsOfVengeance_PendingAttackEffect`. Porter le seul `ExecuteBehaviour`
+  poserait un effet que personne ne consomme : la tranche DOIT inclure la triggered. ATTENTION, son
+  masque vit deja dans `targeting.py` (face DECISION portee) -> CONTRAT DE DISJONCTION a honorer au
+  moment de l'inscrire dans `ABILITY_CLASSES`. Porteur `darkaBossLion` (boss, montable par
+  `--explicit-stats`).
+  FOYER: engine/runner/abilities/darkangels.py, engine/entities/effects/loki/, engine/runner/abilities/targeting.py, engine/runner/abilities/handler.py
+  BLOCAGE: etage
+
+- **#997-r2 : `1193 NovaCharge` -- buff NonComparable a effets differes, PAS une attaque.** `[opus]`
+  Point d'entree : `docs/rl/case-997-six-noop-la-categorie-annoncee-ment-4-fois-sur-6.md` Sec.1.
+  `...NovaChargeAbility$$ExecuteBehaviour` = `AddBondEffect(1411 NovaCharge_PendingAttack)` &
+  `AddEffect(1412 NovaCharge_PendingTarget_Line, Cache(GetLineTiles()))` & `AddEffect(1413
+  NovaCharge_PendingTarget_Single, GetAdditionalMarkedTiles(line))`. Le `damageProfile: Particle` du
+  kit est celui de l'ARME de `tauBossRiptide` ; `NovaChargePlaybook$$EvaluateNonComparable` le
+  corrobore cote DECISION. Les deux helpers `$$GetLineTiles` et `$$GetAdditionalMarkedTiles` sont a
+  porter avec les trois effets. Porteur `tauBossRiptide` (boss, MONTE live -- mesure du 2026-08-11).
+  FOYER: engine/runner/abilities/tau.py, engine/entities/effects/loki/, engine/runner/abilities/handler.py
+  BLOCAGE: etage
+
+- **#997-r3 : `1094 TheLantern` -- trois `AddEffect`, dont UN seul est deja porte.** `[opus]`
+  Point d'entree : `docs/rl/case-997-six-noop-la-categorie-annoncee-ment-4-fois-sur-6.md` Sec.1.
+  `...TheLanternAbility$$ExecuteBehaviour` = `AddEffect(1195 TheLantern_PendingTarget, <zone>)` &
+  `AddEffect(1065 Pinned, Enemies(caster, zone))` & `AddEffect(1194 TheLantern_PendingAttack,
+  caster)`. La zone = `Unique( target + SurroundingTiles(target, r=1) + (SurroundingTiles(target,
+  r=2) & SurroundingTiles(sel@0x58, r=1)) )` -- l'accesseur `+0x58` reste A IDENTIFIER (ce n'est ni
+  `+0x48` Caster ni `+0x60` Target). C'est le MOINS CHER des quatre : `1065 Pinned` est deja porte
+  (`loki/splash.py`), donc seul volet immediat et observable du cast. Porteur `deathBossMortarion`
+  (boss, MONTE live -- mesure du 2026-08-11).
+  FOYER: engine/runner/abilities/deathguard.py, engine/entities/effects/loki/, engine/runner/abilities/handler.py
+  BLOCAGE: etage
+
+- **#997-r4 : `1174 SolarAtomizer` -- siphon de charge par persistent-data, et son porteur REFUSE de
+  monter.** `[opus]`
+  Point d'entree : `docs/rl/case-997-six-noop-la-categorie-annoncee-ment-4-fois-sur-6.md` Sec.1.
+  `...SolarAtomizerAbility$$ExecuteBehaviour` = `AddPersistentData` & `RemoveEffect(<allies charges>,
+  1365 MachineVengeance)` & `If(AmountIsGreater(GetPersistentData, Zero),
+  AddEffectOrIncreaseLevel(1365, caster, <niveau lu>))` & `SetPersistentData(Zero)` & `AddEffect(1371
+  SolarAtomizer_PendingAttack)` & `AddEffect(1372 SolarAtomizer_PendingTarget, GetTargetTiles())`.
+  Exige `AddPersistentData`/`GetPersistentData`/`SetPersistentData` cote DSL et l'effet 1365.
+  BLOQUE EN AMONT : `admecBossBelisarius` est le SEUL porteur et le SEUL refus de montage mesure --
+  `--explicit-stats` leve `TriggeredAbilityType.ShroudPsalm inconnu du build courant` (inversion de
+  voie : `ShroudPsalm` en `passiveAbilities` est un `ActiveAbilityType` 1181, que
+  `catalog_inject.augment` ne gere pas). Reparer `catalog_inject` d'abord, ou ecrire NON CONFRONTE.
+  FOYER: scripts/python/catalog_inject.py, engine/runner/abilities/admec.py, engine/entities/effects/loki/, engine/runner/abilities/handler.py
+  BLOCAGE: porteur
