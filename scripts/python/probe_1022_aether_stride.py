@@ -40,6 +40,8 @@ import uuid
 from pathlib import Path
 
 import catalog_inject as CI
+import gameconfig as GC
+import hexgeo
 import oracle_targeting as O
 from engine.entities.pathfinding.board import Board
 from engine.services import spawn_tile_shape as STS
@@ -91,13 +93,13 @@ def graft_seed_bc(ammo: int = 9) -> Path:
     return out
 
 
-def build(seed: str, board: str, bc: Path):
+def build(seed: str, board: str, bc: Path, p_units: str = "ultraTigurius,ultraCalgar"):
     state = ROOT / "logs" / "runners" / ("st-1022-%s.json" % uuid.uuid4().hex[:8])
     state.parent.mkdir(parents=True, exist_ok=True)
     p = subprocess.run(
         [sys.executable, "rl_duel.py", "build", "--seed", seed, "--board", board,
          "--seed-bc", str(bc), "--state-file", str(state), "--no-ai",
-         "--p-units", "ultraTitus,ultraCalgar", "--a-units", "necroWarden,necroSpyder",
+         "--p-units", p_units, "--a-units", "necroWarden,necroSpyder",
          "--p-mow", MOW],
         cwd=str(PYDIR), capture_output=True, text=True, encoding="utf-8", errors="replace")
     if not state.exists():
@@ -139,12 +141,16 @@ def main() -> int:
     ap.add_argument("--board", default="MC1_67")
     ap.add_argument("--seed", default="777")
     ap.add_argument("--keep", action="store_true")
+    ap.add_argument("--psyker", choices=("on", "off"), default="on",
+                    help="`off` = CONTRE-EPREUVE : meme montage sans deplacer d'allie Psyker au "
+                         "contact de l'empreinte -> le terme `PerformAIAttack` doit rester INERTE")
+    ap.add_argument("--p-units", default="ultraTigurius,ultraCalgar")
     a = ap.parse_args()
 
     sid = _resolve_session()
     bc = graft_seed_bc()
     print("[1022] seed BC greffe : %s (%s.ActiveAbilities = [%d])" % (bc.name, MOW, AETHER_STRIDE))
-    rid, _state = build(a.seed, a.board, bc)
+    rid, _state = build(a.seed, a.board, bc, a.p_units)
     if rid is None:
         return 2
     print("[build] runner=%s board=%s" % (rid, a.board))
@@ -225,6 +231,71 @@ def main() -> int:
         if cible is None:
             print("PAS MESURE : aucune tuile acceptee par les DEUX cotes -- rien a caster")
             return 2
+
+        # --- ETAGE D (amont) : CRAFTER l'adjacence PSYKER ----------------------------------------
+        # Le terme `If(Count(UnitsWithTrait(AdjacentFriends(ActiveTarget,1,3), Psyker, 3)) > 0,
+        # PerformAIAttack(ActiveTarget))` est le SEUL etage qui separe 1208 de son voisin de forme
+        # 1158. Sans allie Psyker au contact de l'empreinte, il est INERTE et l'accord natif/port
+        # ne prouverait rien de lui. On DEPLACE donc une unite plutot que de subir la geometrie de
+        # spawn. `--psyker off` sert de CONTRE-EPREUVE (meme montage, rail retire).
+        def _voisines(aire):
+            """Les tuiles a distance 1 de l'empreinte, empreinte exclue. `Board.neighbours` prend
+            un ID de tuile, pas un `(col,row)`."""
+            out = set()
+            for f in aire:
+                fid = board.id_at(f[0], f[1])
+                for nid in (board.neighbours(fid) if fid is not None else ()):
+                    out.add(board.coord(nid))
+            return out - set(aire)
+
+        psyker_pose = None
+        if a.psyker != "off":
+            # Les traits ne sont PAS publies par `decisionView.units[]` (verifie : le champ est
+            # absent) -> on les lit au GAMECONFIG par `visualId`, ce qui est de toute facon la
+            # source que le natif lit lui-meme pour la config d'unite.
+            mine = [u for u in (rpc(sid, "decisionView", {"runnerId": rid, "allAbilities": True})
+                                .get("units") or [])
+                    if u.get("ctrl") and u.get("alive") and u.get("pos")
+                    and "Psyker" in set((GC.unit(u.get("visualId")) or {}).get("traits") or [])]
+            mv = rpc(sid, "aiMovableTiles", {"runnerId": rid}) or {}
+            atteignables = {e.get("unitId"): {(t["col"], t["row"]) for t in (e.get("tiles") or [])}
+                            for e in (mv.get("units") or [])}
+            print("[D] psykers CONTROLES : %s"
+                  % [(u["id"], u.get("visualId"), len(atteignables.get(u["id"]) or ()))
+                     for u in mine])
+            # LA CIBLE SE CHOISIT POUR LE SCENARIO, pas l'inverse : on balaie TOUTES les tuiles
+            # acceptees et on retient celle dont l'empreinte a une voisine ATTEIGNABLE par un
+            # psyker. « bloque par la geometrie de spawn » n'est pas une conclusion recevable.
+            # PREFERENCE FORTE : une empreinte qui touche AUSSI un ennemi -- sans cible a portee,
+            # `PerformAIAttack` s'execute mais n'attaque personne, et l'accord natif/port a 0 degat
+            # serait un accord en REGIME DEGENERE.
+            ennemis = {(u["col"], u["row"]) for u in (rpc(sid, "observeBattle", {"runnerId": rid})
+                                                     .get("units") or [])
+                       if u.get("col") is not None and u.get("team") is not None
+                       and u.get("team") != (mine[0].get("team") if mine else None)}
+            couples = []
+            for tid in sorted(board.by_id):
+                ar = STS.get_area(board, occ, board.coord(tid))
+                if len(ar) != 3:
+                    continue
+                vs = _voisines(ar) - occ
+                proche = any(hexgeo.distance(f, e) <= 1 for f in ar for e in ennemis)
+                for u in mine:
+                    cand = sorted((atteignables.get(u["id"]) or set()) & vs)
+                    if cand:
+                        couples.append((0 if proche else 1, tid, u, cand[0]))
+            for _rang, tid, u, dest in sorted(couples, key=lambda x: (x[0], x[1])):
+                r = rpc(sid, "applyAction", {"runnerId": rid, "action": {
+                    "kind": "move", "unitId": u["id"],
+                    "to": {"col": dest[0], "row": dest[1]}}})
+                if r.get("ok"):
+                    psyker_pose = (u["id"], u.get("visualId"), dest, "ennemi au contact"
+                                   if _rang == 0 else "aucun ennemi au contact")
+                    cible, occ = tid, occupants(sid, rid)
+                    break
+        aire = STS.get_area(board, occ, board.coord(cible))
+        print("[D] adjacence Psyker CRAFTEE : %s -> cible retenue %s %s (aire=%s)"
+              % (psyker_pose, cible, board.coord(cible), aire))
         pre_dv = rpc(sid, "decisionView", {"runnerId": rid, "allAbilities": True})
         pre_ob = rpc(sid, "observeBattle", {"runnerId": rid})
         avant = {u.get("squadId") for u in (pre_ob.get("units") or [])}
@@ -290,6 +361,26 @@ def main() -> int:
         print("    MachineComponent.removed cote port = %s" % (getattr(mc, "removed", None),))
         accord_c = (sorted(pieds_port) == sorted(pieds)) and bool(pieds)
         print("[C] VERDICT empreinte natif vs port : %s" % ("ACCORD" if accord_c else "DESACCORD"))
+
+        # --- ETAGE D (aval) : le terme PSYKER a-t-il MORDU ? --------------------------------------
+        # Cote PORT : `ai_attacks` non vide <=> `Count(psykers adjacents) > 0`. Cote NATIF : une
+        # attaque du summon apparait dans les `changes` du cast (PV d'une unite ADVERSE qui bougent).
+        pv_avant = {u.get("squadId"): u.get("hp") for u in (pre_ob.get("units") or [])}
+        pv_apres = {u.get("squadId"): u.get("hp") for u in obs}
+        touches = sorted(s for s in pv_avant
+                         if s in pv_apres and pv_apres[s] is not None and pv_avant[s] is not None
+                         and pv_apres[s] < pv_avant[s])
+        # ⚠ `observeBattle.units[]` NE PUBLIE PAS les traits -> les lire au GAMECONFIG par
+        # `visualId`. Un `u.get("traits") or []` rend `[]` pour TOUTE unite et fait conclure
+        # « aucun psyker adjacent » meme quand il y en a un (mesure du 2026-08-13).
+        adj_psy = [u for u in (pre_ob.get("units") or [])
+                   if u.get("col") is not None
+                   and "Psyker" in set((GC.unit(u.get("visualId")) or {}).get("traits") or [])
+                   and any(hexgeo.distance((u["col"], u["row"]), f) == 1 for f in pieds)]
+        print("[D] psykers a distance 1 d'un pied (canal observeBattle) : %s"
+              % [(u.get("squadId"), u.get("visualId")) for u in adj_psy])
+        print("[D] port : ai_attacks=%s" % json.dumps(diag.get("ai_attacks"))[:400])
+        print("[D] natif : unites ayant PERDU des PV pendant le cast = %s" % (touches,))
         print("PROBE OK")
         return 0
     finally:
