@@ -1844,7 +1844,7 @@ CONST_FO_ROUNDS_2 = AbilityConstantType.nrOfRounds_2    # GetNumberConstant(0x77
 FORWARD_OBSERVERS_DMG_REDUCTION = int(EffectType.ForwardObservers_DamageReduction)   # 0x575 = 1397
 
 
-def forward_observers_tree(state: "State"):
+def forward_observers_tree():
     """Arbre de `...ForwardObserversAbility$$ExecuteBehaviour` (MIRROR 1:1, cf. le bloc ci-dessus) :
 
         op_Addition( AddEffect(1122 Markerlight -> Target, TurnsFromRounds(nrOfRounds)),
@@ -1916,7 +1916,7 @@ class ForwardObserversAbility(ActiveAbility):
         if target_id is None:
             return None
         ectx = ExecutionContext(state=state, rng=state.rng)
-        forward_observers_tree(state).execute(
+        forward_observers_tree().execute(
             entities_from_state(state, caster_id, target_id), ectx)
         posed = [{"target": p.get("target"), "effect": p.get("effect_type"),
                   "placed": p.get("placed")}
