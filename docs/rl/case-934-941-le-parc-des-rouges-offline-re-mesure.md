@@ -222,6 +222,52 @@ Le second fichier de #933-r1, `test_heroic_fusillade_migration_live.py`, reste *
 distance **2** de la cible au lieu de 1. Cause **différente** de celle de panoply, non tranchée
 ici — résidu **#933-r2**.
 
+### #933-r2 — l'assertion mesurait la position FINALE, l'ability n'en répond que jusqu'à sa destination (RÉSOLU)
+
+**Les deux pistes du résidu sont RÉFUTÉES**, et la cause est une troisième que personne n'avait
+nommée. Diagnostic instrumenté (build `--p-units genesKelermorph --a-units
+necroWarden,necroDestroyer`, seed 777, board `evenq`) :
+
+```
+T = (0,0) tile 12, voisins marchables (0,1) (1,0) (1,1)   -> n_nbrs = 3
+judh = (0,2), e2 = (1,0)
+surrounding_free(T,1) = [13, 22] = [(0,1), (1,1)]         <- piste (a) REFUTEE : le montage laisse deux tuiles libres
+charge_candidates    = [13, 22]                            <- l'intersection avec MovableTilesInRange n'en retire aucune
+dest choisie          = (0,1)                              <- piste (b) REFUTEE : le pool est bien autour de la CIBLE
+res["move"]           = {'moved': True, 'to': (0,1), 'after_move': [...]}
+position finale       = (1,2)
+```
+
+Entre `to` et la position finale, **la cascade after-move**. La feuille DSL `MoveUnit` à options
+nulles **ne supprime pas** `On(4 = UnitAfterMove)` (`MoveUnitOptions+0x14 = isInterimStep = 0`, cf.
+`runner/operations/triggers/dispatch/move_death.after_move_triggers`) : l'**overwatch** de
+`necroDestroyer` part, et le `finish_attack` de ce tir déclenche le passif de Judh
+`HypersensoryAbilities_MoveAndSpawnDecoy`, qui le **relocalise en (1,2)** et laisse un leurre.
+Le port a donc raison **une deuxième fois contre le montage** — même forme que #933-r1, autre
+mécanisme.
+
+⚠ La prose du port entretenait la confusion : le docstring de `heroic_fusillade_tree` affirme
+encore « MoveUnit options NULL → **AUCUN** after-move crush/overwatch ». Cette phrase est
+**périmée** — elle a été réfutée par #448-r1-r1-r2-r1, qui a porté la coupure exacte
+(`if (isInterimStep) return;` **avant** `On(4)`), et `runner/operations/triggers/genestealer.py`
+le dit déjà en toutes lettres. Elle est corrigée ici.
+
+Réparation, en trois crans qui rendent le test **plus** fort qu'avant :
+
+1. l'assertion porte sur `res["move"]["to"]` — **ce que l'ability a décidé et exécuté** ;
+2. la position finale ne peut différer que par une relocalisation after-move **nommée**
+   (`_after_move_relocations`, descente **récursive** : la profondeur de la cascade n'est pas
+   connue d'avance, un chemin écrit en dur s'invaliderait en silence au maillon suivant) ;
+3. `nbFree` n'est plus la formule `n_nbrs - 2` mais une **mesure sur un état témoin**
+   (`_replay_move_only` : même montage, même RNG, seul le membre GAUCHE du `op_Addition` racine est
+   exécuté). La formule codait en dur une occupation que la cascade dément — c'est la même
+   famille de faute que le scalaire gravé de #933-r4.
+
+Vu ROUGE par mutation, message verbatim : pool de charge bâti autour du **caster** (la piste (b) du
+résidu) → `destination CHOISIE pas adjacente a la cible: (0, 3) vs (0, 0)` ; `nb_free + 1` →
+`crit_bonus 598 != extraCritDmg 299 x nbFree 1`. `test_heroic_fusillade_migration_live` :
+**1 failed / 2 passed → 3 passed**.
+
 ## 3bis. Deux rouges LIVE de plus, et ils n'ont qu'UNE cause : la bascule BiS
 
 Signalés en cours de tranche (rencontrés par une autre tranche, qui a correctement refusé de se les
