@@ -91,6 +91,12 @@ def main() -> int:
     ap.add_argument("--board", default=BOARD)
     ap.add_argument("--state-file", default=None)
     ap.add_argument("--keep", action="store_true")
+    ap.add_argument("--palier-tronque", action="store_true",
+                    help="CONTRE-EPREUVE du palier 2 : tronque les paliers a l'ENTIER avant de "
+                         "les ecrire au BC. Le palier 2 de `shieldPct` vaut 32.5 au gameconfig, et "
+                         "c'est le SEUL non entier des 11 mythiques ; le seed BC, lui, porte "
+                         "39043 valeurs de variable dont 0 non entiere. Si le bouclier REVIENT "
+                         "avec ce drapeau, la cause est bien la VALEUR ECRITE, pas le palier.")
     a = ap.parse_args()
 
     assert hexgeo.distance(POS_ATTAQUANT, POS_CIBLE) == 1, "geometrie de montage non adjacente"
@@ -122,6 +128,29 @@ def main() -> int:
             "--state-file", sf]
     if a.bras != "sans-mythique":
         argv[-2:-2] = ["--equip-mythic", "%s:%s:%d" % (PORTEUR, ABILITY, a.level)]
+
+    if a.palier_tronque:
+        # Substitution en FORME B : `equip_mythic` resout `synthesize_ability` par son nom de
+        # MODULE a chaque appel, donc reaffecter l'attribut MORD (cf. CLAUDE.md, les trois formes).
+        _orig = catalog_inject.synthesize_ability
+
+        def _tronque(nom, *args, **kw):
+            cfg = _orig(nom, *args, **kw)
+            if nom != ABILITY:          # PORTEE MINIMALE : on ne touche qu'a l'ability mesuree
+                return cfg
+            for k, vals in (cfg.get("Variables") or {}).items():
+                out = []
+                for v in vals:
+                    try:                # une variable peut etre une LISTE ("36,28,20") : intacte
+                        out.append(str(int(float(v))))
+                    except (TypeError, ValueError):
+                        out.append(v)
+                cfg["Variables"][k] = out
+            return cfg
+
+        catalog_inject.synthesize_ability = _tronque
+        print("  [contre-epreuve] paliers tronques a l'entier : %s"
+              % (_tronque(ABILITY).get("Variables"),))
 
     print()
     print("=== ETAGE 1 : build ===")
