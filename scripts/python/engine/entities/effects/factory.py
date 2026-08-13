@@ -79,6 +79,7 @@ from .loki.trophy_taker import TrophyTakerExtraCritDamageEffect   # #951 (passif
 from .loki.head_claimer import (                           # #947 (passif blackHaarken)
     HeadClaimerExtraDmgEffect, HeadClaimerExtraHitEffect
 )
+from .loki.hungering_swarm import HungeringSwarmExtraHitsEffect   # #1018 (passif Hormagaunt/Ripper)
 from .loki.kustom_force_field import (                                    # #930 (passif orksBigMek)
     KustomForceFieldReworkedEffect, KustomForceFieldReworkedOrksEffect
 )
@@ -894,6 +895,16 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # est NULL). Cf. `loki/head_claimer.py`.
     "HeadClaimer_ExtraDmg": HeadClaimerExtraDmgEffect,
     "HeadClaimer_ExtraHit": HeadClaimerExtraHitEffect,
+    # HungeringSwarm (passif triggered 0x411=1041 des Hormagaunts/Ripper Swarms tyranides, #1018) --
+    # 1041 `...HungeringSwarmExtraHitsEffect$$CreateEffectHitsBonusForAttack` =
+    #      `ForAddition(get_OwnerIsActor & IsMeleeAttack,
+    #                   Multiply(Direct(GetNumberConstant 0x2b=extraHit),
+    #                            Count(UnitsWithIds(Friends(Owner, AdjacentUnits(Target, 3)
+    #                                                       op_Subtraction Caster, 3),
+    #                                               GetStringArrayConstant 0x37=unitIds))))`.
+    # L'ability est un `AOwnerEffectTriggeredAbility` (elle pose SEULE son effet sur l'owner) : il
+    # n'y a NI `CreateBehaviour` NI `CreateTrigger` a porter. Cf. `loki/hungering_swarm.py`.
+    "HungeringSwarm_ExtraHits": HungeringSwarmExtraHitsEffect,
     # TrophyTaker (passif triggered 0x4cd=1229 de `worldExecutions` << Tarvakh >>, #951) --
     # 1289 `...TrophyTaker_ExtraCritDamageEffect` porte DEUX canaux sur la MEME classe, avec le
     # MEME gate `get_OwnerIsCaster & HealthLowerThanPct()` :

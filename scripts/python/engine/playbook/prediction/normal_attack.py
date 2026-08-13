@@ -754,6 +754,11 @@ def make_normal_attack_predictions(scene, att_id, tgt_id, attack_pos, *, meta=Fa
              "team_by_id": scene.team_by_id,
              # faction par unite — gate GetBonusHitChance de GetStuckIn (orks_adj>=2, IdunBattleLogic.Entities.Abilities.Triggered.Loki.GetStuckInAbility$$GetBonusHitChance, #98)
              "faction_by_id": {uid: scene.faction(uid) for uid in _alive_ids},
+             # `vid_by_id` (#1018) = l'id d'unite que `IdunBattle.Entities.UnitExtensions$$HasUnitId`
+             # compare, donc le substrat du noeud `IdunBattleLogic.Entities.DSLSelectors$$UnitsWithIds`.
+             # PENDANT EXACT du board COMBAT (`runner/damage_model.py::build_hits_board`), sur les
+             # MEMES unites vivantes. Consommateur : `HungeringSwarm_ExtraHits` (1041).
+             "vid_by_id": {uid: (scene.vis_by_id or {}).get(uid) for uid in _alive_ids},
              # `IsCharging` (case-ischarging-hits) sur le canal COUPS — MEME valeur que celle deja calculee pour
              # le canal DEGAT (`_att_ctx` ci-dessus) : un seul appel a `_prediction_is_charging` par
              # candidat, donc un seul mirror d'`UpdateCharging` sur la tuile evaluee. Consommateur :

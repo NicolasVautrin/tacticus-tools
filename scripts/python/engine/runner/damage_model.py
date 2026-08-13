@@ -1292,6 +1292,8 @@ def build_hits_board(state: State, att_id: int, tgt_id: int,
     # `HasUsedActiveAbilityThisTurn` (`HasFlag(unit, 2)`) -- substrat du selecteur d'aura de
     # `LegendaryCommander_ExtraHits` (#419-r1-tr9-r4-r1-r2-r1), sur les MEMES unites vivantes.
     used_active_by_id: dict = {}
+    # `UnitComponent.visual_id` par unite vivante -- substrat du noeud `UnitsWithIds` (#1018).
+    vid_by_id: dict = {}
     aura_sources = []
     target_effects: list = []
     for uid, e in state.entities.items():
@@ -1311,6 +1313,7 @@ def build_hits_board(state: State, att_id: int, tgt_id: int,
         if _uc is not None:
             parent_by_id[uid] = getattr(_uc, "parent_id", None)
             used_active_by_id[uid] = unit_has_used_active_ability(state, uid)
+            vid_by_id[uid] = getattr(_uc, "visual_id", None)
         _sc = e.get_component(StatsComponent)
         if _sc is not None:
             turns_started_by_id[uid] = int(_sc.ctx.stat(StatType.TURNS_STARTED) or 0)
@@ -1348,6 +1351,13 @@ def build_hits_board(state: State, att_id: int, tgt_id: int,
              "rng": state.rng,
              "marked_effect_types": marked_effect_types_for_target(state, att_id, tgt_id),
              "tgt_grand_alliance": grand_alliance_of(state, tgt_id),
+             # `vid_by_id` (#1018) -- l'id d'unite que `IdunBattle.Entities.UnitExtensions$$HasUnitId`
+             # compare (`GetUnitIdWithoutRarity(GetUnitId(unit))`), donc le substrat du noeud
+             # `IdunBattleLogic.Entities.DSLSelectors$$UnitsWithIds`. MEME source et MEME nom de champ
+             # que le dict d'unite DSL du runner (`runner/abilities/behaviours/context.py::_unit_dict`
+             # -> `UnitComponent.visual_id`), sur les MEMES unites VIVANTES que `pos_by_id`.
+             # Consommateur : `HungeringSwarm_ExtraHits` (1041).
+             "vid_by_id": vid_by_id,
              # `IsCharging` (case-ischarging-hits) sur le canal COUPS : MEME cle et MEME foyer que le canal
              # DEGAT (`attacker_modifiers`), pose ICI parce que `build_hits_board` est la facade
              # COMBAT PARTAGEE des DEUX vecteurs d'attaque (normale `damage_ops/normal.py` et
