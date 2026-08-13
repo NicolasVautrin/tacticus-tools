@@ -700,7 +700,8 @@ class Scene:
                 n += 1
         return n
 
-    def _enmity_adjacent(self, uid, *, dark_angels_friends_only: bool) -> "int | None":
+    def _enmity_adjacent(self, uid, *, dark_angels_friends_only: bool,
+                         at_pos=None) -> "int | None":
         """Les DEUX compteurs d'`EnmityForTheUnworthy` (#948) -- face PREDICTION des MEMES arbres que
         `runner.components.enmity_adjacent_units_count` /
         `..enmity_adjacent_dark_angels_friends_count` (un noeud natif, deux substrats : l'ECS cote
@@ -725,9 +726,15 @@ class Scene:
         pour executer l'arbre) -- MEME regime qu'`adjacent_taunted_enemies` /
         `adjacent_dark_angels_friends` ci-dessus.
 
-        ⚠ EVALUE A LA POSITION COURANTE, pas a la TUILE CANDIDATE -- meme contraste assume que ses
-        deux voisins (residu NOMME #948-r1) ; la face COMBAT, elle, mesure la position REELLE au
-        moment du coup.
+        ⚠ EVALUE A LA TUILE CANDIDATE quand l'appelant la threade (`at_pos`), a la position
+        COURANTE sinon. #948-r1 a TRANCHE ce que le residu laissait ouvert, par LECTURE :
+        `IdunBattle.Operations.SimulateEffectsOperation$$DoActionInSimulatedTile` DEPLACE
+        REELLEMENT l'unite (slot du processor) avant d'executer l'action de prediction, appelle
+        `$$SimulateMoveUnitTriggers` puis `$$RefreshSimulatedEffects`, PUIS invoque l'action, et
+        restaure ensuite. `AdjacentUnits(Owner)` -> `EntityExtensions$$IterateTiles(owner)` lit
+        donc la tuile CANDIDATE, l'entite y ayant ete posee dans l'etat simule. Le contraste que
+        les deux voisins (#911, #932) assument encore n'est donc pas un choix : c'est le meme
+        gisement, non ferme pour eux.
 
         ⚠ MEME cablage que ses deux voisins (#943-r7), sur le foyer partage `playbook.adjacency` : `AdjacentUnits(Owner, 1, 3)` =
         `Units(AdjacentTiles(Owner)) - Owner`, donc la liste STOCKEE puis `|dElev| < 2`. Les DEUX
@@ -743,6 +750,10 @@ class Scene:
         if here is None or (dark_angels_friends_only and team is None):
             return None
         elev, neigh = self.elev_by_pos, self.neigh_by_pos
+        # Pieds du porteur REPOSITIONNES sur la tuile candidate (#948-r1). `None` = pieds reels,
+        # soit parce qu'aucune tuile n'est threadee, soit parce que le porteur est MULTI-TUILES
+        # (degradation nommee dans `subject_tiles_at`).
+        sujet = _adj.subject_tiles_at(self, uid, at_pos)
         n = 0
         for u in (self.units or ()):
             oid = u.get("id")
@@ -750,7 +761,7 @@ class Scene:
                 continue
             if dark_angels_friends_only and u.get("team") != team:   # AdjacentFriends(Owner)
                 continue
-            if not _adj.unit_in_adjacent_tiles(self, uid, oid, elev, neigh):
+            if not _adj.unit_in_adjacent_tiles(self, uid, oid, elev, neigh, sujet):
                 continue
             if dark_angels_friends_only and \
                     (GC.unit(self.vis_by_id.get(oid)) or {}).get("FactionId") != _DARK_ANGELS:
@@ -768,13 +779,17 @@ class Scene:
             n += 1
         return n
 
-    def enmity_adjacent_units(self, uid) -> "int | None":
-        """`..._ExtraDamagePctEffect$$AdjacentUnitsAmount` -- cf. `_enmity_adjacent`."""
-        return self._enmity_adjacent(uid, dark_angels_friends_only=False)
+    def enmity_adjacent_units(self, uid, at_pos=None) -> "int | None":
+        """`..._ExtraDamagePctEffect$$AdjacentUnitsAmount` -- cf. `_enmity_adjacent`.
 
-    def enmity_adjacent_dark_angels_friends(self, uid) -> "int | None":
-        """`..._ExtraDamageEffect$$AdjacentFriendlyDarkaUnitsAmount` -- cf. `_enmity_adjacent`."""
-        return self._enmity_adjacent(uid, dark_angels_friends_only=True)
+        `at_pos` = la TUILE CANDIDATE du plan (#948-r1). Absente -> position courante."""
+        return self._enmity_adjacent(uid, dark_angels_friends_only=False, at_pos=at_pos)
+
+    def enmity_adjacent_dark_angels_friends(self, uid, at_pos=None) -> "int | None":
+        """`..._ExtraDamageEffect$$AdjacentFriendlyDarkaUnitsAmount` -- cf. `_enmity_adjacent`.
+
+        `at_pos` = la TUILE CANDIDATE du plan (#948-r1). Absente -> position courante."""
+        return self._enmity_adjacent(uid, dark_angels_friends_only=True, at_pos=at_pos)
 
     def adjacent_enemy_ids(self, uid) -> "frozenset | None":
         """`AdjacentEnemies( Owner@DSLSelectors+0x30, unique: true,

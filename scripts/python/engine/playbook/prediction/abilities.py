@@ -224,11 +224,21 @@ def generate_multi_hit_attack_prediction(scene, uid, tgt, ability_id, ability_na
                                                                 # vecteur ABILITY y entre comme la
                                                                 # normale. MEMES cles que la face
                                                                 # COMBAT -- pas de fork.
+                                                                # ⚠ #948-r1 -- a la TUILE
+                                                                # CANDIDATE (`attack_pos`), comme
+                                                                # le vecteur NORMALE : le natif
+                                                                # DEPLACE l'unite avant d'evaluer
+                                                                # (`SimulateEffectsOperation$$
+                                                                # DoActionInSimulatedTile`). Cabler
+                                                                # un seul des deux vecteurs
+                                                                # creerait un fork interne a la
+                                                                # prediction.
                                                                 _ENMITY_CTX_UNITS:
-                                                                    scene.enmity_adjacent_units(uid),
+                                                                    scene.enmity_adjacent_units(
+                                                                        uid, attack_pos),
                                                                 _ENMITY_CTX_DA:
                                                                     scene.enmity_adjacent_dark_angels_friends(
-                                                                        uid),
+                                                                        uid, attack_pos),
                                                                 # #953 -- le couple de PV du PORTEUR
                                                                 # (`StatAmount(Owner, Health,
                                                                 # {Missing, Maximum})`). Son

@@ -142,14 +142,44 @@ def adjacent_positions(scene, uid, neigh=None) -> set:
     return out
 
 
-def is_adjacent_to_entity(scene, subject_uid, pos, elev=None, neigh=None) -> bool:
+def subject_tiles_at(scene, subject_uid, at_pos) -> "list|None":
+    """Les pieds du sujet REPOSITIONNE sur `at_pos` -- le substrat de la tuile CANDIDATE (#948-r1).
+
+    POURQUOI CE MECANISME EXISTE, et il est LU : `IdunBattle.Operations.SimulateEffectsOperation$$
+    DoActionInSimulatedTile` DEPLACE REELLEMENT l'unite avant d'executer l'action de prediction --
+    il appelle le slot du processor qui la pose sur la tuile, puis
+    `$$SimulateMoveUnitTriggers`, puis `$$RefreshSimulatedEffects`, PUIS invoque l'action, et
+    restaure tout ensuite. Un selecteur `AdjacentUnits(Owner)` evalue pendant l'action part donc de
+    `EntityExtensions$$IterateTiles(owner)` -- c'est-a-dire de la tuile CANDIDATE, puisque l'entite
+    y a ete physiquement deplacee dans l'etat simule.
+
+    `at_pos is None` -> `None` : l'appelant garde les pieds REELS (aucun changement).
+
+    ⚠ **MONO-PIED SEULEMENT, et c'est une DEGRADATION NOMMEE.** Reconstruire l'empreinte d'une
+    entite MULTI-TUILES a une position d'arrivee demanderait de connaitre son orientation et sa
+    forme a cette tuile, qu'aucun canal offline ne publie. Un sujet multi-pieds rend donc `None`
+    (= pieds reels), ce qui est exactement le comportement d'avant : jamais une empreinte
+    INVENTEE, qui compterait des voisins que le natif ne voit pas. Residu #948-r3."""
+    if at_pos is None:
+        return None
+    reels = iterate_tiles(scene, subject_uid)
+    if len(reels) != 1:
+        return None                      # multi-tuiles (MoW) -> pieds REELS, cf. l'avertissement
+    return [(at_pos[0], at_pos[1])]
+
+
+def is_adjacent_to_entity(scene, subject_uid, pos, elev=None, neigh=None,
+                          subject_tiles=None) -> bool:
     """`pos` appartient-elle a `AdjacentTiles(subject)` ? = il existe un pied du sujet dont `pos`
     est voisine au sens NATIF (`battle_query.is_adjacent`, qui porte la porte d'elevation
     `|delta| < 2`), et `pos` n'est pas elle-meme un pied du sujet.
 
     Sur une unite a UN pied, c'est exactement `is_adjacent(scene.pos(subject), pos)` -- le port
-    d'avant. Le seul delta est le sujet MULTI-TUILES."""
-    tiles = iterate_tiles(scene, subject_uid)
+    d'avant. Le seul delta est le sujet MULTI-TUILES.
+
+    `subject_tiles` (#948-r1) SUBSTITUE les pieds du sujet -- la tuile CANDIDATE d'un plan, cf.
+    `subject_tiles_at`. `None` = pieds reels, le comportement d'avant."""
+    tiles = subject_tiles if subject_tiles is not None else iterate_tiles(scene, subject_uid)
     if not tiles:
         return False
     p = (pos[0], pos[1])
@@ -160,7 +190,8 @@ def is_adjacent_to_entity(scene, subject_uid, pos, elev=None, neigh=None) -> boo
     return any(bq.is_adjacent(t, p, ev, nm) for t in tiles)
 
 
-def unit_in_adjacent_tiles(scene, subject_uid, other_uid, elev=None, neigh=None) -> bool:
+def unit_in_adjacent_tiles(scene, subject_uid, other_uid, elev=None, neigh=None,
+                           subject_tiles=None) -> bool:
     """`Units(AdjacentTiles(subject), unique, sel).Contains(other)` -- la question que posent les
     trois comptages, une fois developpees leurs primitives.
 
@@ -176,8 +207,9 @@ def unit_in_adjacent_tiles(scene, subject_uid, other_uid, elev=None, neigh=None)
         return False
     nm = neigh if neigh is not None else bq.neigh_map(scene)
     ev = elev if elev is not None else getattr(scene, "elev_by_pos", None)
-    return any(is_adjacent_to_entity(scene, subject_uid, p, ev, nm) for p in others)
+    return any(is_adjacent_to_entity(scene, subject_uid, p, ev, nm, subject_tiles)
+               for p in others)
 
 
 __all__ = ["iterate_tiles", "is_targetable", "unit_matches", "adjacent_positions",
-           "is_adjacent_to_entity", "unit_in_adjacent_tiles"]
+           "is_adjacent_to_entity", "unit_in_adjacent_tiles", "subject_tiles_at"]

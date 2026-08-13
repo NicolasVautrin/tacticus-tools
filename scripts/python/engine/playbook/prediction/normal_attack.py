@@ -695,8 +695,17 @@ def make_normal_attack_predictions(scene, att_id, tgt_id, attack_pos, *, meta=Fa
                 # ⚠ DISTINCTS d'`adjacent_dark_angels_friends` juste au-dessus : l'arbre d'Enmity
                 # porte en plus l'etage `NonSteppableOrObjectUnits`, et sa face Pct ne filtre NI
                 # l'equipe NI la faction.
-                _ENMITY_CTX_UNITS: scene.enmity_adjacent_units(att_id),
-                _ENMITY_CTX_DA: scene.enmity_adjacent_dark_angels_friends(att_id),
+                # ⚠ #948-r1 -- EVALUES A LA TUILE CANDIDATE, comme `tiles_moved_this_turn` et
+                # `is_charging` au-dessus, et PAS a la position courante comme leurs deux voisins
+                # `adjacent_taunted_enemies` / `adjacent_dark_angels_friends`. Ce n'est pas une
+                # divergence de traitement mais une LECTURE : `IdunBattle.Operations.
+                # SimulateEffectsOperation$$DoActionInSimulatedTile` DEPLACE reellement l'unite
+                # (slot du processor + `SimulateMoveUnitTriggers` + `RefreshSimulatedEffects`)
+                # AVANT d'invoquer l'action de prediction, puis restaure. `AdjacentUnits(Owner)`
+                # descend sur `EntityExtensions$$IterateTiles(owner)`, donc sur la tuile ou
+                # l'entite a ete posee. Les deux voisins relevent du MEME gisement, non ferme.
+                _ENMITY_CTX_UNITS: scene.enmity_adjacent_units(att_id, attack_pos),
+                _ENMITY_CTX_DA: scene.enmity_adjacent_dark_angels_friends(att_id, attack_pos),
                 # #953 -- `StatAmount(Owner@DSLSelectors+0x30, Health, {Missing, Maximum})` de
                 # `Skullsmasher_ExtraDamageEffect$$GetMissingHealthSteps`, PATTE SELF comme les cles
                 # ci-dessus (l'OWNER de chaque effet parcouru EST l'attaquant, ce qu'exige son
