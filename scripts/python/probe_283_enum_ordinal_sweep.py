@@ -630,6 +630,33 @@ def _root_of(node) -> "str | None":
     return None
 
 
+def _membre_enum_du_code(node, court: str) -> "str | None":
+    """Le membre `<court>.<Membre>` ECRIT DANS LE CODE de `node`, ou `None`.
+
+    ⚠ CE N'EST PAS UN DOUBLON DE `_membre_vise`, ET LA DIFFERENCE EST TOUT LE SUJET (#1031).
+    `_membre_vise` lit la PROSE de la ligne (tokens COMMENT/STRING), et c'est volontaire : une
+    ANNOTATION est du commentaire. Mais le depot ecrit aussi le motif inverse -- le membre est
+    dans le CODE, en EGALITE avec le littéral :
+
+        assert BOF.BookOfFateAbility.event_id == 38 == int(EventTriggerType.NormalAttack)
+
+    Ce site n'est PAS un ordinal en dur : c'est le FIGEAGE que la doctrine EXIGE (<< le registre
+    ne suffit pas -- il faut aussi FIGER l'ordinal ECRIT AU SITE >>, le cran que `probe_313` ne
+    peut pas voir puisqu'il redevient vert des qu'on regenere le mirror). Le convertir le rendrait
+    TAUTOLOGIQUE (`int(E.X) == int(E.X)`), donc inerte -- on detruirait le cliquet en croyant
+    l'appliquer. Mesure du 2026-08-13 : 3 des 4 sites que l'etape 2 reclamait sont de cette forme.
+
+    La chaine ENTIERE est visitee (`ast.walk`), pas les deux cotes d'un `op` : `a == 38 ==
+    int(E.X)` a trois operandes et `visit_Compare` s'arrete au premier couple qui mord.
+    Restreint au nom PLEIN de l'enum : un alias (`E.X`) ne prouve pas de quel enum il s'agit,
+    et deviner ici, c'est exactement la faute que ce probe existe pour empecher."""
+    for n in ast.walk(node):
+        if isinstance(n, ast.Attribute) and isinstance(n.value, ast.Name) \
+                and n.value.id == court:
+            return n.attr
+    return None
+
+
 def _prose_par_ligne(src: str) -> dict:
     """{lineno: texte des tokens COMMENT/STRING commencant sur cette ligne}.
 
@@ -752,6 +779,10 @@ class _ExecSweep(ast.NodeVisitor):
                         for c, r in refs.items()}
         self.hits: list = []
         self.hors: list = []
+        #: Les littéraux CONFRONTES au membre nomme dans le CODE (#1031) -- comptes et imprimes,
+        #: jamais rendus au verdict : ce sont des CLIQUETS, pas des defauts. Cf.
+        #: `_membre_enum_du_code`. Un figeage qui MENT, lui, part en `hits` avec `ok = False`.
+        self.confrontes: list = []
 
     def _membre_vise(self, lineno: int, enum: "str | None"):
         """(enum, membre) cite par la PROSE de la ligne, ou (None, None)."""
@@ -769,13 +800,27 @@ class _ExecSweep(ast.NodeVisitor):
                 return enum, max(cands, key=len)
         return None, None
 
-    def _check(self, lineno: int, vals: list, court: "str | None", quoi: str):
+    def _check(self, lineno: int, vals: list, court: "str | None", quoi: str,
+               membre_code: "str | None" = None):
         e_cite, membre = self._membre_vise(lineno, court)
         enum = court or e_cite
         if enum is None:
             return
         ref = self.refs.get(enum, {})
         inv = {o: n for n, o in ref.items()}
+        #: ⚠ LE FIGEAGE CONFRONTE PASSE AVANT TOUT LE RESTE (#1031), et il n'est un vert QUE
+        #: parce qu'il est VERIFIE : le membre ecrit dans le code doit valoir EXACTEMENT le
+        #: littéral sur le build COURANT. S'il ne le vaut pas, la ligne fige un ordinal que le
+        #: nom qu'elle porte ne designe plus -- c'est un FAIL, et le plus grave des trois
+        #: (le site se croit garde). On ne se contente donc jamais de la PRESENCE du membre.
+        if membre_code is not None and membre_code in ref:
+            for v in vals:
+                if ref[membre_code] == v:
+                    self.confrontes.append((lineno, enum, quoi, v, membre_code))
+                else:
+                    self.hits.append((lineno, enum, quoi, v, inv.get(v, "?"),
+                                      membre_code, ref[membre_code], False))
+            return
         for v in vals:
             if v not in self.connues.get(enum, set()):
                 # HORS PLAGE : aucun membre ne porte cette valeur, ni sur le build courant ni
@@ -798,7 +843,11 @@ class _ExecSweep(ast.NodeVisitor):
                 court = _root_of(a)
                 vals = _lit(b)
                 if court and vals:
-                    self._check(node.lineno, vals, court, "compare")
+                    #: Le membre est cherche sur la chaine ENTIERE, pas sur le couple qui a
+                    #: mordu : `x == 38 == int(E.NormalAttack)` place le membre au 3e operande,
+                    #: que la boucle ci-dessus n'atteint jamais (elle `break` au premier couple).
+                    self._check(node.lineno, vals, court, "compare",
+                                _membre_enum_du_code(node, court))
                     break
         self.generic_visit(node)
 
@@ -893,7 +942,7 @@ def step_exec(verbose: bool) -> list:
     cur, prev = current_build(), previous_build()
     refs = {court: _by_name(enum_map(cur, fq)) for court, fq in ENUMS.items()}
     olds = {c: _by_name(enum_map(prev, fq)) for c, fq in ENUMS.items()} if prev else {}
-    fails, infos, oks, hors = [], [], [], []
+    fails, infos, oks, hors, confrontes = [], [], [], [], []
     # Lecture PARALLELE (#457-r6) : l'ouverture pese ~7 ms par fichier sous `scripts/`, soit
     # ~13 s des ~37 s de cette etape. L'ordre du rapport ne change pas -- il vient du
     # `sorted(...)` plus bas, pas de l'ordre de lecture. La lecture RESTE inconditionnelle : c'est
@@ -959,17 +1008,27 @@ def step_exec(verbose: bool) -> list:
                 continue
             sw = _ExecSweep(_prose_par_ligne(sources[rel]), refs, sigs, olds)
             sw.visit(tree)
-            v = {"hits": [list(h) for h in sw.hits], "hors": [list(h) for h in sw.hors]}
+            v = {"hits": [list(h) for h in sw.hits], "hors": [list(h) for h in sw.hors],
+                 "confrontes": [list(c) for c in sw.confrontes]}
             cache.poser(rel, "hits", cle, v)
         for lineno, enum, quoi, val, nom_courant, membre, attendu, ok in v["hits"]:
             row = (rel, lineno, enum, quoi, val, nom_courant, membre, attendu, ok)
             (fails if ok is False else oks if ok is True else infos).append(row)
         for lineno, enum, quoi, val in v["hors"]:
             hors.append((rel, lineno, enum, quoi, val))
+        #: `.get` : une entree de cache ECRITE AVANT #1031 ne porte pas cette cle. Le contexte du
+        #: cache compose deja le sha de CE fichier, donc le cas ne peut pas survenir en service --
+        #: mais un appelant qui repointe le cache ne doit pas lever, il doit compter zero.
+        for lineno, enum, quoi, val, membre in v.get("confrontes", []):
+            confrontes.append((rel, lineno, enum, quoi, val, membre))
     cache.enregistrer()
     print("[283] etape 2 : litteraux EXECUTABLES en contexte enum -- %d FAUX aujourd'hui, "
-          "%d justes-mais-figes, %d a lire (+%d hors plage, NON comptes)"
-          % (len(fails), len(oks), len(infos), len(hors)))
+          "%d justes-mais-figes, %d a lire (+%d hors plage, NON comptes) "
+          "(+%d CONFRONTES au membre ecrit dans le code, NON comptes)"
+          % (len(fails), len(oks), len(infos), len(hors), len(confrontes)))
+    for rel, ln, enum, quoi, v, membre in (confrontes if verbose else confrontes[:6]):
+        print("   CONF %s:%d  %s [%s] = %s == %s.%s -- FIGEAGE confronte dans le code, "
+              "le cliquet que probe_313 ne voit pas" % (rel, ln, quoi, enum, v, enum, membre))
     for rel, ln, enum, quoi, v in (hors if verbose else hors[:6]):
         print("   hors %s:%d  %s [%s] = %s -- aucun membre ne porte cette valeur (sentinelle)"
               % (rel, ln, quoi, enum, v))
