@@ -27,6 +27,39 @@ ASCII only (console Windows cp1252).
 """
 from __future__ import annotations
 
+#: Ce qui doit changer pour que ce FICHIER de test puisse changer de verdict (#486-r15).
+#:
+#: ⚠ `build: True` N'EST PAS DE LA MARGE, C'EST LE SUJET. Les quatre crans gardes ici sont
+#: confrontes a des ORDINAUX et a des SLOTS lus dans les tables du build : les etages 1-2 tirent
+#: `EventTriggerType` de `data/symbols/<build>/frida/enums.tsv` (les fixtures `ett` et `_ann` ne
+#: figent AUCUNE valeur en dur -- elles la LISENT, precisement pour que ce fichier suive un
+#: renumerotage), et l'etage 4 lit `data/symbols/<build>/metadata/interface_slots.tsv`. Un
+#: re-dump fait donc basculer ce verdict SANS qu'une ligne de code ait change -- c'est
+#: litteralement le gisement que #283 et #477-r25 gardent.
+#:
+#: Les trois probes sont cites parce que ce fichier MUTE leurs internes (`_ELISION`,
+#: `annotation_de_ligne`, `_ExecSweep`, `REFERENTIELS`, `_RECEPTEURS`) : un renommage ou un
+#: changement de signature chez eux rend ces mutations INERTES, et une contre-epreuve inerte
+#: passe pour mordante. `heavy_rail_rifle.py` y entre aussi -- l'etage 3 garde la forme de
+#: citation que #1031 y a corrigee.
+DECLENCHEUR = {
+    "chemins": (
+        "scripts/python/probe_283_enum_ordinal_sweep.py",
+        "scripts/python/probe_477r24r1_slots_interface.py",
+        "scripts/python/probe_477r25_slots_autres_interfaces.py",
+        "scripts/python/engine/playbook/noncomparable/heavy_rail_rifle.py",
+        "scripts/python/symbols_layout.py",
+        "scripts/python/verdict_cache.py",
+        "scripts/python/repo_read.py",
+    ),
+    "build": True,
+    "toujours": False,
+    "raison": "Les quatre crans sont confrontes aux tables du build (`frida/enums.tsv` pour "
+              "EventTriggerType, `metadata/interface_slots.tsv` pour les slots), et ce fichier "
+              "MUTE les internes des trois probes : un renommage chez eux rendrait les mutants "
+              "inertes sans qu'aucun test ne rougisse. Il ne lit ni `docs/**` ni `frida/**`.",
+}
+
 import sys
 from pathlib import Path
 
