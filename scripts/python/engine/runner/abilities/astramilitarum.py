@@ -948,13 +948,21 @@ def basilisk_tiles_at_distance(state: "State", pos: tuple, distance: int) -> lis
 
     ⚠ FILTRE DU POOL = `isWall`, **PAS** `walkable`. `IsTileValidForList(tile, ref, checkWalkable=0, 0)`
     se reduit, dans cette branche, a `TileComponent+0x41 == 0 && TileComponent+0x40 == 0` : ni la porte
-    `IsWalkable` (occupation + mur) ni la porte d'elevation ne s'appliquent. `+0x40` est le champ que
-    `IdunBattle.Entities.TileExtensions$$IsWalkable` lit comme MUR -> substrat offline = `isWall` du
-    `boardGraph` (`walkable`, lui, est `BattleQuery.IsWalkableTile` = mur **ET** occupation : trop
-    restrictif ici). GROUND TRUTH : board `C3_01` a 14 tuiles `walkable=false` / `isWall=false`, et le
+    `IsWalkable` (occupation + mur) ni la porte d'elevation ne s'appliquent.
+
+    ⚠ ATTRIBUTION DES DEUX OCTETS CORRIGEE (#967-r10) -- elle etait INVERSEE ici, et le comportement
+    ci-dessous (filtrer `isWall`) etait juste par ailleurs : c'est la PROSE qui designait le mauvais
+    champ. Les deux octets sont adjacents, donc les confondre ne leve rien ; ils ont ete LUS :
+      * `+0x41` = **IsWall** -- `IdunBattle.Entities.Pathfinding.FlyPathfinder$$IsAnyAdjacentTileWall`
+        rend `true` sur `*(char*)(comp+0x41) != 0`, et rien d'autre. C'est DONC lui que la cle
+        `isWall` du `boardGraph` alimente, et lui que ce filtre porte.
+      * `+0x40` = **IsInFogOfWar** -- `IdunBattle.Entities.TileExtensions$$IsInFogOfWar` rend
+        EXACTEMENT `*(byte*)(comp+0x40)`. Celui-la n'est PAS filtre ici (residu #967-r11).
+    (`walkable`, lui, est `BattleQuery.IsWalkableTile` = mur **ET** occupation : trop restrictif ici.)
+
+    GROUND TRUTH : board `C3_01` a 14 tuiles `walkable=false` / `isWall=false`, et le
     LIVE fait tomber un obus sur l'une d'elles (tuile 41, ring-1 de la cible) -- un filtre `walkable`
-    l'excluait du pool et DESYNCHRONISAIT tout le tirage. RESIDU : `+0x41` (2e drapeau de tuile) n'a
-    aucun substrat offline distinct -> non filtre."""
+    l'excluait du pool et DESYNCHRONISAIT tout le tirage."""
     board = state.board
     if board is None or pos is None:
         return []
