@@ -39,6 +39,10 @@ from engine.services.damage_modifiers import (
     TRENCH_PCT, _TRENCH_IGNORED_PROFILES)
 from engine.services.battle_query import select_weapon_pierce, are_tiles_adjacent
 from engine.battle_query import is_charging as bq_is_charging, newly_adjacent_ids
+# #1019 -- `AdjacentUnits(Target@<+0x60>, 1, 3)` du noeud `IsValidAttackForBonus` de
+# `WayOfTheShortBladeEffect` : adjacence NATIVE (liste stockee + porte `|dElev| < 2`), #943-r7.
+from engine.battle_query import is_adjacent as bq_is_adjacent
+from engine.entities.pathfinding import board as _pf_board
 from engine.entities.effects.magnitude import ability_var
 from engine.dsl.base import _round_fix64
 from fractions import Fraction
@@ -763,6 +767,32 @@ def prediction_block_damage(scene, uid) -> "int | None":
     return int(c.get_stat(int(StatType.BLOCK_DAMAGE), int(StatPart.CURRENT)) or 0)
 
 
+def _friend_heroes_adjacent_to(scene, tgt_id, team):
+    """#1019 -- face PREDICTION du foyer `damage_model._friend_heroes_adjacent_to` :
+    `UnitsWithTrait( Friends(Owner, AdjacentUnits(Target@<+0x60>, 1, 3), 3), 0x10 = Hero, 3 )`,
+    COMPTE. MEMES trois criteres (equipe du beneficiaire, trait `Hero`, adjacence NATIVE), MEME
+    tri-etat : `None` = question NON POSEE (pas de cible / pas de position / equipe inconnue),
+    jamais `0` -- le lecteur FERME son gate sur `None`."""
+    if tgt_id is None or team is None:
+        return None
+    tp = scene.pos(tgt_id)
+    if not tp:
+        return None
+    elev = _pf_board.elevations_by_pos(scene.board)
+    neigh = _pf_board.adjacent_neigh_by_pos(scene.board)
+    n = 0
+    for uid in scene.pos_by_id:
+        if uid == tgt_id:
+            continue                                       # AdjacentUnits exclut l'origine
+        if scene.team(uid) != team or (scene.hp(uid) or 0) <= 0:
+            continue                                       # Friends(Owner, ...)
+        if UnitTrait.Hero.name not in (_entity_traits(scene, uid) or frozenset()):
+            continue                                       # UnitsWithTrait(0x10 = Hero)
+        if bq_is_adjacent(tp, scene.pos(uid), elev, neigh):
+            n += 1
+    return n
+
+
 def _apply_ally_attack_dmg_bonus(mods, scene, att_id, att_pos, is_melee, tgt_armor_reduced, carriers=None,
                                  tgt_id=None, is_normal_attack=None, damage_profile=None):
     """AURA ALLIEE +degat FLAT projetee sur l'ATTAQUANT par les effets `create_aura_attack_damage_bonus_for_ally`
@@ -808,6 +838,9 @@ def _apply_ally_attack_dmg_bonus(mods, scene, att_id, att_pos, is_melee, tgt_arm
            # `None` (appelant sans cible) reste DISTINCT de `frozenset()` : ces gates rendent None
            # au lieu de conclure « la cible n'a pas le trait ».
            "tgt_traits": _entity_traits(scene, tgt_id) if tgt_id is not None else None,
+           # #1019 -- cf. `_friend_heroes_adjacent_to` ci-dessus (foyer PREDICTION). TRI-ETAT.
+           "friend_heroes_adjacent_to_target": _friend_heroes_adjacent_to(
+               scene, tgt_id, scene.team(att_id)),
            # `PsychicStalk_FriendlyChaosExtraDamage` (#366-r1, effet 1435) : son conjoint
            # `GetTargetIsOnFireTileCondition` lit `EntitiesWithAnyEffect(Tiles(Target@0x60), Fire)`.
            # MEME cle / MEME forme `{(col,row): [noms]}` que celle deja threadee a l'agregateur

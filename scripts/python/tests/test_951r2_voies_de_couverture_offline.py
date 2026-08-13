@@ -329,11 +329,31 @@ def test_tout_passif_SANS_TRACE_structurelle_reste_compte_manquant():
     # exactement pourquoi l'etage [3] ci-dessus a change de substrat : lui MUTE un PORTE, donc il
     # se nourrit de la population qui CROIT. Ecrire ici un seuil plus haut ferait rougir la
     # tranche qui FINIT le portage, ce qui serait absurde.
-    assert len(sans_trace) >= 1, (
-        "POPULATION VIDE : le recenseur ne range plus AUCUN passif sans trace structurelle. Soit "
-        "le portage des passifs est TERMINE -- auquel cas cet etage est inerte et c'est l'etage "
-        "[3] (mutation) qui porte seul la garde de permissivite, il faut le DIRE ici --, soit le "
-        "recenseur est casse.")
+    if not sans_trace:
+        # LE JOUR PREDIT PAR LE PARAGRAPHE CI-DESSUS EST ARRIVE : 2026-08-13, `WayOfTheShortBlade`
+        # (#1019) etait le DERNIER passif sans trace structurelle, et la population est tombee a
+        # ZERO. La consigne ecrite dans l'ancien message d'echec etait << il faut le DIRE ici >> :
+        # c'est ce que fait cette branche. Le seuil `>= 1` faisait rougir la tranche qui FINIT le
+        # portage -- exactement ce que son propre commentaire qualifiait d'absurde. C'est le
+        # CINQUIEME seuil de la journee a rougir sur le PROGRES (apres les trois de #1015 et celui
+        # du merge de #1011).
+        #
+        # L'etage est desormais INERTE PAR CONSTRUCTION, et son inertie est SANS DANGER a une
+        # condition : que la garde de permissivite n'ait pas de fenetre. On la verifie donc ici
+        # DIRECTEMENT, par un TEMOIN -- un nom FABRIQUE, hors enum et hors ledger, que
+        # `_passive_covered` doit refuser. C'est litteralement l'enonce que cet etage protegeait
+        # (<< le predicat n'est pas devenu permissif >>), et il ne doit RIEN a la population : il
+        # reste vrai que la liste compte 12 passifs, 3, ou zero.
+        temoin = "TemoinPassifQuiNExisteDansAucunRegistre951r2"
+        assert not AKC._passive_covered(temoin), (
+            "PREDICAT PERMISSIF : `_passive_covered` rend VRAI sur un nom FABRIQUE (`%s`). La "
+            "population des passifs sans trace est vide, donc cet etage ne peut plus rien "
+            "attraper par elle -- ce temoin est ce qui reste, et il vient de tomber." % temoin)
+        assert AKC._atteste("passif", temoin) is None, (
+            "le ledger d'attestations rend une entree pour un nom FABRIQUE (`%s`)" % temoin)
+        print("[951r2] passifs SANS TRACE structurelle : 0 -- etage INERTE par construction, "
+              "garde de permissivite tenue par le temoin et par l'etage [3] (mutation).")
+        return
     couverts = [n for n in sans_trace if AKC._passive_covered(n)]
     assert not couverts, (
         "SOUS-COMPTAGE : %s declare(nt) couvert(s) alors que le recensement STRUCTUREL ne leur "

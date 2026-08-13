@@ -65,6 +65,10 @@ from ..entities.effects import (
 from ..entities.traits.combat import GetStuckInTrait, min_distance
 from ..entities.effects.magnitude import trait_var
 from ..battle_query import is_charging as _bq_is_charging
+# #1019 -- `AdjacentUnits(Target@<+0x60>, 1, 3)` du noeud `IsValidAttackForBonus` de
+# `WayOfTheShortBladeEffect` : l'adjacence NATIVE (liste stockee + porte `|dElev| < 2`), pas une
+# couronne hex nue -- meme foyer que `#943-r7`.
+from ..battle_query import is_adjacent as _bq_is_adjacent
 from ..entities.effect_type import EffectType
 from ..entities.effects.loki.dark_angels_passives import grand_alliance_of
 from ..entities.effects.magnitude import bc_effect_config
@@ -254,6 +258,46 @@ def marked_effect_types_for_target(state: State, att_id: int, target_id: Optiona
     return frozenset(out)
 
 
+def _friend_heroes_adjacent_to(state: State, target_id: Optional[int],
+                               team) -> Optional[int]:
+    """#1019 -- `UnitsWithTrait( Friends(Owner, AdjacentUnits(Target@<+0x60>, 1, 3), 3), 0x10, 3 )`,
+    COMPTE. Foyer UNIQUE cote COMBAT du noeud discriminant d'`IdunBattle.Entities.Effects.Loki.
+    WayOfTheShortBladeEffect$$IsValidAttackForBonus` ; la face PREDICTION a le sien
+    (`playbook/prediction/_shared.py`), sur les memes trois criteres.
+
+    TRI-ETAT : `None` quand la question n'a PAS ETE POSEE (aucune cible, cible sans position,
+    equipe inconnue) -- jamais `0`, qui voudrait dire « mesure, et vide ». Le lecteur
+    (`WayOfTheShortBladeDamageBuffEffect`) FERME son gate sur `None`.
+
+    L'adjacence est celle du natif (`battle_query.is_adjacent` : liste stockee du
+    `ConnectivityComponent` + porte `|dElev| < 2`), pas `hexgeo.distance == 1` (#271/#943-r7).
+    `AdjacentUnits` exclut l'origine, donc la cible elle-meme n'est jamais comptee -- et elle est
+    de toute facon dans l'autre camp sur tous les chemins cables."""
+    if target_id is None or team is None:
+        return None
+    tp = _unit_pos(state, target_id)
+    if not tp:
+        return None
+    elev = elevations_by_pos(state.board)
+    neigh = adjacent_neigh_by_pos(state.board)
+    n = 0
+    for uid, ent in state.entities.items():
+        if uid == target_id:
+            continue                                       # AdjacentUnits exclut l'origine
+        oc = ent.get_component(OwnerComponent)
+        pc = ent.get_component(PositionComponent)
+        if oc is None or pc is None or oc.team != team:
+            continue                                       # Friends(Owner, ...)
+        hc = ent.get_component(HealthComponent)
+        if hc is not None and hc.hp is not None and hc.hp <= 0:
+            continue
+        if UnitTrait.Hero.name not in (target_trait_names(state, uid) or frozenset()):
+            continue                                       # UnitsWithTrait(0x10 = Hero)
+        if _bq_is_adjacent(tp, (pc.col, pc.row), elev, neigh):
+            n += 1
+    return n
+
+
 def _apply_ally_attack_damage_auras(state: State, att_id: int, mods, is_ranged: Optional[bool],
                                     target_armor_reduced: Optional[bool],
                                     damage_profile: Optional[str] = None,
@@ -308,6 +352,14 @@ def _apply_ally_attack_damage_auras(state: State, att_id: int, mods, is_ranged: 
         return
     is_melee = (not is_ranged) if is_ranged is not None else None
     att_gu = _unit_gameconfig(state, att_id) or {}
+    # #1019 -- `AmountIsGreaterThanZero( UnitsWithTrait( Friends(Owner, AdjacentUnits(Target)),
+    # 0x10 = Hero ) )`, le noeud DISCRIMINANT d'`IdunBattle.Entities.Effects.Loki.
+    # WayOfTheShortBladeEffect$$IsValidAttackForBonus` (« against enemies that are adjacent to a
+    # friendly Character »). Le ctx d'aura ne publiait AUCUN canal sur le voisinage de la CIBLE :
+    # sans cette cle le gate serait FERME en permanence, donc l'effet inerte. Cle SCALAIRE (un
+    # COMPTE, pas un booleen -- le natif ecrit `AmountIsGreaterThanZero`), ADDITIVE : aucune classe
+    # existante ne la lit. `None` = NON MESURE (pas de cible / pas de position), jamais rendu 0.
+    friend_heroes_adj = _friend_heroes_adjacent_to(state, target_id, aoc.team)
     ctx = {"att_id": att_id, "att_pos": (apc.col, apc.row), "att_team": aoc.team,
            "att_traits": target_trait_names(state, att_id),
            "att_grand_alliance": att_gu.get("GrandAllianceId"),
@@ -332,6 +384,8 @@ def _apply_ally_attack_damage_auras(state: State, att_id: int, mods, is_ranged: 
            "tgt_traits": target_traits,
            "t_pos": _unit_pos(state, target_id),
            "tgt_team": _unit_team(state, target_id),
+           # #1019 -- cf. `_friend_heroes_adjacent_to` ci-dessus. TRI-ETAT (`None` = non mesure).
+           "friend_heroes_adjacent_to_target": friend_heroes_adj,
            # #919 -- cf. la construction de la map ci-dessus. Cle par PORTEUR ; l'effet la resout
            # avec le `owner_id` que l'agregateur pose dans son ctx par-carrier.
            "owner_stat_block_damage": owner_block_damage,
