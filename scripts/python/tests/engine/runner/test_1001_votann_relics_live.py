@@ -24,10 +24,35 @@ incomptable. La greffe est declaree (`declare_graft`). ASCII only.
 """
 from __future__ import annotations
 
-import pytest
+#: LIVE : le verdict depend du NATIF, donc de la session et du build -- aucun ensemble de chemins du
+#: depot ne le determine. `toujours: True` est ici un RESULTAT, pas un aveu : ce fichier doit se
+#: rejouer des qu'une session tourne, y compris quand rien du port n'a bouge (un changement de build
+#: peut renumeroter les paliers ou deplacer un gate natif). Les chemins listes sont ceux dont une
+#: modification SUFFIT a changer le verdict sans changer le natif.
+DECLENCHEUR = {
+    "chemins": (
+        "scripts/python/probe_1001_votann_relics.py",
+        "scripts/python/engine/runner/operations/triggers/loki/blade_of_the_ancestors.py",
+        "scripts/python/engine/runner/operations/triggers/loki/volumms_master_artifice.py",
+        "scripts/python/engine/entities/effects/loki/votann.py",
+        "scripts/python/engine/entities/effects/factory.py",
+        "scripts/python/engine/runner/operations/triggers/dispatch/registry.py",
+        "scripts/python/engine/runner/operations/triggers/dispatch/pending.py",
+        "scripts/python/engine/runner/operations/triggers/dispatch/repair.py",
+        "scripts/python/catalog_inject.py",
+        "data/symbols/*/gameconfig.json",
+    ),
+    "build": True,
+    "toujours": True,
+    "raison": "Confrontation AU NATIF : les deux reliques sont montees par injection catalogue + "
+              "`--equip-relic`, et les verdicts (delta de stats crit, rang et montant du soin) "
+              "sortent du jeu, pas du depot. Se rejoue donc a chaque passe live.",
+}
 
-import probe_1001_votann_relics as P
-from engine.entities.effects.magnitude import ability_var
+import pytest        # noqa: E402  (le DECLENCHEUR doit rester en tete, cf. `probe_486r15`)
+
+import probe_1001_votann_relics as P                                          # noqa: E402
+from engine.entities.effects.magnitude import ability_var                     # noqa: E402
 
 LEVEL = 3
 
