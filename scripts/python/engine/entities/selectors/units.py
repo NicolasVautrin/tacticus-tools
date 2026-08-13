@@ -14,6 +14,11 @@ from ...dsl.base import (TargetsSelector, Const, _pos, _feet, _within, _is_alive
                          _effect_field, resolve_unit, _tile_enum_rank, _occupants_by_tile,
                          _origin_tiles, _main_tile)
 from ._shared import _entity_pos, _tile_positions
+# `AllAliveUnits` = le champ PARTAGE `<DSLSelectors>+0x20`, source LUE de `TilesWithEnemies` (et de
+# tous les `Enemies`/`Friends` natifs). Import EN TETE, forme B interdite ici (c'est une CLASSE de
+# noeud, pas une fonction patchable) : l'arete `units -> tiles` est NEUVE et ACYCLIQUE -- `tiles.py`
+# n'importe pas `units.py` (verifie), et les deux modules restent importables SEULS en process frais.
+from .tiles import AllAliveUnits
 # #270-r4 : les deux litteraux de ce module DESIGNENT, et leur enum est LU au decompile --
 # `UnitsWithTrait(source, 0x10)` (le parametre `trait` de `DSLFactory$$UnitsWithTrait`) et
 # `has_unit_flag(u, 0xe)` (le parametre `flag` d'`UnitExtensions$$HasFlag`).
@@ -169,17 +174,33 @@ class Enemies(TargetsSelector):
     `DSLSelectors$$Enemies(this, of, entities, onlyAlive)` se re-appelle avec
     `(onlyAlive & 0xff) + 2`, donc `false -> OnlyTargetable`, `true -> OnlyAliveAndTargetable`
     (cf. `entities/unit_selection_type.selection_type_from_only_alive`). Un call-site qui emprunte
-    la surcharge booleenne ne vaut donc JAMAIS `Any` -- ne pas y lire << pas de filtre >>."""
-    def __init__(self, inner: TargetsSelector, selection_type=None):
-        self.inner = inner
+    la surcharge booleenne ne vaut donc JAMAIS `Any` -- ne pas y lire << pas de filtre >>.
+
+    `reference` = le 1er argument NATIF (`of`), STRICTEMENT le pendant de celui de `Friends`
+    ci-dessous -- meme classe native, meme role, seul le flag `+0x28` differe. `None` (defaut) = le
+    CASTER, comportement HISTORIQUE de tous les call-sites deja portes, qui passent bien
+    `Caster@+0x48`. `IdunBattleLogic.Entities.DSLSelectors$$TilesWithEnemies` est le premier a
+    passer autre chose (`Owner@+0x30`) : le referent y est ce que l'appelant lui donne, et
+    l'ecraser par le caster serait faux des que les deux divergent (effet pose par un tiers,
+    ability greffee)."""
+    def __init__(self, inner: TargetsSelector, reference: TargetsSelector | None = None,
+                 selection_type=None):
+        self.inner, self.reference = inner, reference
         self.selection_type = selection_type
 
     def select(self, ctx):
-        ct = (ctx.caster or {}).get("team")
+        ref = resolve_unit(self.reference, ctx) if self.reference is not None else ctx.caster
+        ct = (ref or {}).get("team")
         st = self.selection_type
-        return [u for u in _units_of(self.inner, ctx)
-                if isinstance(u, dict) and u.get("team") != ct
-                and (st is None or _selection_ok(u, st, ctx))]
+        out = []
+        for e in _entities_of(self.inner, ctx):
+            u = unit_or_machine(e, ctx)          # `UnitExtensions$$GetUnitOrMachine(entity, state)`
+            if u is None or u.get("team") == ct:
+                continue
+            if st is not None and not _selection_ok(u, st, ctx):
+                continue
+            out.append(e)                        # `result.Add(entity)` : l'ENTITE SOURCE, pas `u`
+        return out
 
 
 class Damageable(TargetsSelector):
@@ -611,13 +632,91 @@ class Tiles(TargetsSelector):
         self.units, self.as_ids = units, bool(as_ids)
 
     def select(self, ctx):
-        pos = [p for p in (_pos(u) for u in _units_of(self.units, ctx)) if p is not None]
+        # `GetMainTile(entity)` est DOMAINE MIXTE : il rend la tuile d'une UNITE **comme d'une
+        # TUILE** (`_entity_pos`, dont c'est la docstring). Le port lisait `_pos`, qui ne resout
+        # qu'un dict -> `Tiles(<des ids de tuile>)` rendait VIDE, alors que le natif est l'IDENTITE
+        # sur ce domaine. Le call-site qui l'exige est `Tiles(Enemies(Owner, <TUILES>, 3))` de
+        # `...NovaChargeAbility$$GetAdditionalMarkedTiles`. Inchange pour un dict (`_entity_pos`
+        # y delegue a `_pos`).
+        board = getattr(ctx, "board", None)
+        pos = [p for p in (_entity_pos(u, board) for u in _entities_of(self.units, ctx))
+               if p is not None]
         if not self.as_ids:
             return pos
         board = getattr(ctx, "board", None)
         if board is None:
             return []
         return [t for t in (board.id_at(p[0], p[1]) for p in pos) if t is not None]
+
+
+def _entities_of(node, ctx) -> list:
+    """Normalise un operande en liste d'ENTITES du domaine MIXTE (dict d'unite / id de tuile /
+    position `(col,row)`). C'est `_units_of` PLUS la garde du tuple-position : `list((c, r))` rend
+    `[c, r]`, deux entiers qui seraient relus comme deux ids de tuile. Meme garde que
+    `_add_effect_targets` et `_tile_positions`, et meme motif que le « iterer un dict nu rendrait
+    ses CLES » deja documente sur `Enemies`/`Tiles`."""
+    v = node.evaluate(ctx)
+    if v is None:
+        return []
+    if isinstance(v, dict):
+        return [v]
+    if (isinstance(v, tuple) and len(v) == 2
+            and all(isinstance(x, int) and not isinstance(x, bool) for x in v)):
+        return [v]
+    return list(v)
+
+
+def unit_or_machine(elem, ctx):
+    """`IdunBattle.Entities.UnitExtensions$$GetUnitOrMachine(entity, state)` -- le pont ENTITE ->
+    UNITE que `IdunBattle.Entities.Selectors.UnitsByTeamSelector$$CountOrAdd` applique a CHAQUE
+    element avant de tester l'appartenance d'equipe. Une UNITE se rend elle-meme ; une TUILE rend
+    son OCCUPANT (`TileContentComponent`) ; tout le reste rend `null`.
+
+    C'est ce maillon qui rend sensee la lecture `Enemies(Owner, <des TUILES>, 3)` de
+    `...NovaChargeAbility$$GetAdditionalMarkedTiles` -- sans lui, un selecteur d'equipe applique a
+    un domaine TUILE rendrait vide. Le port lit l'EMPREINTE (`_feet`), pas la seule main tile :
+    une unite multi-hex occupe toutes ses tuiles, exactement comme le `TileContentComponent`
+    natif (meme lecture que `tiles.py::CanAddUnit`).
+
+    ⚠ Le natif ajoute ensuite `entity` (l'element SOURCE), jamais `u` -- un filtre d'equipe sur des
+    tuiles rend donc des TUILES. Les 58 call-sites unit-domain deja portes sont inchanges
+    (`GetUnitOrMachine(unit) == unit`, et `Add(entity) == Add(unit)`)."""
+    if isinstance(elem, dict):
+        return elem
+    p = _entity_pos(elem, getattr(ctx, "board", None))
+    if p is None:
+        return None
+    p = (int(p[0]), int(p[1]))
+    for u in (ctx.units or ()):
+        if not isinstance(u, dict) or not _is_alive(u):
+            continue
+        if p in [(int(f[0]), int(f[1])) for f in _feet(u)]:
+            return u
+    return None
+
+
+class TilesWithEnemies(TargetsSelector):
+    """`IdunBattleLogic.Entities.DSLSelectors$$TilesWithEnemies(of)` -- le noeud n'a PAS de
+    selecteur a lui : son corps natif tient en DEUX lignes, et le port les mirrore telles quelles.
+
+        entities = DSLSelectors.Enemies(of, <this+0x20 = AllAliveUnits>, 3)
+        return     DSLSelectors.Tiles(entities)
+
+    Donc : les tuiles occupees par les unites ENNEMIES DU REFERENT `of`. Les trois pieces sont
+    LUES, pas choisies -- la source est le champ PARTAGE `AllAliveUnits@+0x20` (pas `AllUnits`,
+    cf. #514), le `selectionType` est le litteral `3 = OnlyAliveAndTargetable`, et le referent est
+    l'ARGUMENT (`Owner@+0x30` chez son unique consommateur porte,
+    `...NovaChargeAbility$$GetAdditionalMarkedTiles`) -- surtout pas le caster par defaut.
+
+    `Tiles` = `UnitsMainTilesSelector` = la MAIN TILE par entite (pas l'empreinte). `as_ids` a la
+    meme semantique que sur `Tiles` ci-dessus : positions par defaut, ids sur demande."""
+    def __init__(self, of: TargetsSelector, as_ids: bool = False):
+        self.of, self.as_ids = of, bool(as_ids)
+
+    def select(self, ctx):
+        enemies = Enemies(AllAliveUnits(), reference=self.of,
+                          selection_type=int(UnitSelectionType.OnlyAliveAndTargetable))
+        return Tiles(enemies, as_ids=self.as_ids).evaluate(ctx)
 
 
 class First(TargetsSelector):
@@ -640,8 +739,12 @@ class Unique(TargetsSelector):
 
     def select(self, ctx):
         seen, out = set(), []
-        for u in self.source.evaluate(ctx):
-            k = u.get("id")
+        for u in _entities_of(self.source, ctx):
+            # `Distinct()` porte sur l'IDENTITE D'ENTITE. Un dict d'unite la porte dans sa cle
+            # `id` ; une TUILE, elle, EST son identite (id de tuile, ou position) -- le `u.get`
+            # inconditionnel levait `AttributeError` sur le domaine TUILE, ce qu'exige le call-site
+            # `Unique(<tuiles>)` de `...NovaChargeAbility$$GetAdditionalMarkedTiles`.
+            k = u.get("id") if isinstance(u, dict) else u
             if k is None or k not in seen:
                 if k is not None:
                     seen.add(k)

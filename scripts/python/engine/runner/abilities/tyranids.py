@@ -35,7 +35,7 @@ import gameconfig as GC
 from .base import ActiveAbility, active_ability_state, convert_rounds_to_turns
 from .behaviours.combat import AttackWithAttackDamage, InformWeapon
 from .behaviours.context import entities_from_state
-from .behaviours.effects import AddEffect, AddStaticStatModifierEffect
+from .behaviours.effects import AddBondEffect, AddEffect, AddStaticStatModifierEffect
 from .behaviours.lifecycle import (
     Kill, RemoveAllForcedAttackTargets, RemoveUnitFromItsTiles, TriggerAbility
 )
@@ -54,11 +54,12 @@ from ...entities.behaviours import AtomicGroup, Group, If as IfBehaviour, op_add
 from ...entities.effect_type import EffectType
 from ...entities.effects.magnitude import ability_var
 from ...entities.selectors.accessors import (ActiveTarget, CasterTile, FixedTileIds, Owner, Target)
-from ...entities.selectors.geometry import Cache, Entity
-from ...entities.selectors.tiles import (AdjacentTiles, AllAliveUnits, CanAddUnit, Caster,
+from ...entities.formulas import AverageDistance
+from ...entities.selectors.geometry import Cache, Entity, PickFirstN
+from ...entities.selectors.tiles import (AdjacentTiles, AllAliveUnits, AllTiles, CanAddUnit, Caster,
                                          TileIntersect, TileUnion)
-from ...entities.selectors.units import (AdjacentUnits, DeadUnits, Enemies, Friends, Sub,
-                                         SurroundingUnits, Tiles, Units, UnitsFromFaction,
+from ...entities.selectors.units import (AdjacentUnits, DeadUnits, Enemies, Friends, SortByFormula,
+                                         Sub, SurroundingUnits, Tiles, Units, UnitsFromFaction,
                                          non_steppable_or_object_units)
 from ...entities.stats import StatType
 from ...entities.triggers import HasUnitFlag, IsInTeamAura, Not
@@ -1475,4 +1476,151 @@ class StranglethornCannonAbility(ActiveAbility):
                   for p in atks if p.get("target") != target_id]
         return {"ability": STRANGLETHORN_ID, "caster": caster_id, "target": target_id,
                 "main_attack": main, "splash": splash, "dsl": True}
+
+
+# ============ CallRipperSwarms (`tyranBossHiveTyrantLeviathan`, NPC boss, actif 1052) ============
+#
+# `IdunBattleLogic.Entities.Abilities.Active.Loki.CallRipperSwarmsAbility$$ExecuteBehaviour` --
+# MIRROR 1:1 du DECOMPILE. Le cast ne SPAWNE RIEN : il pose UN SEUL behaviour, un effet-BOND de
+# summon EN ATTENTE sur des tuiles choisies. Meme decoupe 2-PHASES que `TunnelingHorror` 1011
+# (`runner/abilities/necrons.py`) et que les trois `Nova*` du Riptide (`tau.py`).
+#
+#   n       = AbilityConfiguration.GetNumberConstant(config@this+0x60, 0x10 = nrOfSummons)
+#   enemies = DSLSelectors.Enemies( of = Caster@DSLSelectors+0x48,
+#                                   entities = AllAliveUnits@+0x20,
+#                                   selectionType = 3 = OnlyAliveAndTargetable )
+#   tiles   = DSLSelectors.First(
+#               DSLSelectors.SortByFormula(
+#                   DSLSelectors.CanAddUnit(AllTiles@+0x18),                # surcharge 2-ARGS
+#                   DSLFormulas.AverageDistance(ActiveTarget@+0x68, enemies),
+#                   ascending: FALSE ),
+#               amount = n, ignoreForcedTargets: false )
+#   Execute( DSLBehaviors.AddBondEffect( 0x446 = 1094 CallRipperSwarms_PendingSummon,
+#                                        AbilityStateReference,
+#                                        source       = Caster@+0x48,
+#                                        targets      = tiles,
+#                                        bondedEntity = Caster@+0x48,
+#                                        options      = <struct 0x20 octets ZERO> ) )
+#
+# ⚠ `CanAddUnit` est la surcharge a DEUX arguments (`DSLSelectors$$CanAddUnit(this, tiles)`), qui
+# construit `CanAddUnitTileSelector(state, tiles, parent = <DirectSelector null>,
+# isSteppable = <DSLTriggers+0x48>)`. Ce slot de trigger est `op_LogicalNot(<le trigger SANS
+# operande>)`, donc `ShouldTrigger` y est TOUJOURS FAUX, donc
+# `CanAddUnitTileSelector$$Select`, qui l'INVERSE (`allowSteppable = !ShouldTrigger(...)`), tourne
+# TOUJOURS en `allowSteppable = true` -> `allow_steppable=True` cote port. La surcharge a TROIS
+# arguments, elle, laisse l'appelant choisir. La difference est INVISIBLE au nom de la fonction et
+# se lit uniquement a l'ARITE du call-site (meme piege que l'arite d'`AddEffect` sur les `Nova*`).
+#
+# ⚠ Le tri est DESCENDANT (`ascending = false`, le 3e argument litteral). La cle est la distance
+# MOYENNE de la tuile candidate aux ENNEMIS DU CASTER -- le caster etant le boss, ses ennemis sont
+# l'equipe du joueur. Le natif fait donc apparaitre les rippers sur les tuiles les PLUS ELOIGNEES
+# du joueur, pas les plus proches. C'est contre-intuitif et c'est LU, pas deduit :
+# `IdunBattle.Entities.Selectors.SortByFormulaSelector$$Select` prend `OrderByDescending` quand le
+# flag est 0. Une tuile sans aucun ennemi mesurable rend `AVERAGE_DISTANCE_EMPTY` = 10000 et passe
+# donc EN TETE de ce tri -- comportement natif, pas une degradation du port.
+#
+# PHASE 2, HORS de ce port : `IdunBattle.Entities.Effects.Loki.CallRipperSwarms_PendingSummonEffect`
+# (`CreateHandleTriggerAbilitiesInternal` = deux `DSLFactory.Triggered` --
+# `On(0x15) & IsTurnOf(bonded)` et `On(0x1f) & OwnerIsTargetTile`, tous deux vers
+# `If(IsCanAddUnit(Owner), TriggerAbility(<GetSpawnAbilityType>)) & GetRemoveEffectBehaviour()`),
+# puis `IdunBattleLogic.Entities.Abilities.Triggered.Loki.CallRipperSwarms_SpawnAbility$$
+# CreateBehaviour` (`Spawn(Caster, Target, GetStringConstant(0 = unitId),
+# SpawnUnitOptions.WithStatsFromConfig(...).onAppearance = PerformAIAttack(...))`).
+
+CALL_RIPPER_SWARMS_ID = "CallRipperSwarms"
+CALL_RIPPER_SWARMS_PENDING_SUMMON = int(EffectType.CallRipperSwarms_PendingSummon)   # 0x446 = 1094
+
+
+def call_ripper_swarms_spawn_tiles(amount):
+    """Le SELECTEUR de tuiles de `...CallRipperSwarmsAbility$$ExecuteBehaviour` (MIRROR) :
+
+        First( SortByFormula( CanAddUnit(AllTiles@+0x18),
+                              AverageDistance(ActiveTarget@+0x68, Enemies(Caster, AllAliveUnits, 3)),
+                              ascending: false ),
+               amount = nrOfSummons )
+
+    `ActiveTarget()` est le slot que `SortByFormulaSelector$$Select` ecrit AVANT chaque evaluation
+    de la cle (`AbilityEntities+0x20`, cf. `selectors/units.py::SortByFormula`) : la formule voit
+    donc la TUILE CANDIDATE courante, pas la cible du cast. `Enemies(...)`, lui, ne depend d'aucun
+    element courant et se re-evalue a l'identique a chaque comparaison -- le natif le construit
+    UNE fois, hors du tri, et le port fait de meme (le noeud est partage par toutes les cles)."""
+    enemies = Enemies(AllAliveUnits(), selection_type=SELECTION)
+    return PickFirstN(SortByFormula(CanAddUnit(AllTiles(), allow_steppable=True),
+                                    AverageDistance(ActiveTarget(), enemies),
+                                    ascending=False),
+                      amount)
+
+
+def call_ripper_swarms_tree():
+    """Arbre de `...CallRipperSwarmsAbility$$ExecuteBehaviour` (MIRROR 1:1) : UNE feuille.
+
+    `nrOfSummons` (`AbilityConstantType.nrOfSummons` = 0x10) est un `GetNumberConstant`, donc une
+    CONSTANTE de kit (pas un `GetVariableForLevel`) -- le natif la lit AVANT de batir l'arbre et la
+    passe en `int` a la surcharge `First(entities, amount: int, ignoreForcedTargets)`, qui la
+    re-enveloppe en `Direct(n)`. Le port collapse ce `Direct` en scalaire, comme le natif l'a
+    lui-meme aplati. Kit `CallRipperSwarms` : `nrOfSummons = 4`.
+
+    Duree de l'effet-BOND : le 7e argument natif est une struct de 0x20 octets ZERO-initialisee
+    (pas un `TurnsFromRounds(n)`) -> duree DEFAUT de l'effet (`DefaultAmountOfRounds`), meme
+    regime que `NovaShield_PendingAttack` (`tau.py`) et `ValkyrieStrike` 1022."""
+    n = int(ability_var(CALL_RIPPER_SWARMS_ID, "nrOfSummons", is_constant=True) or 0)
+    return AddBondEffect(CALL_RIPPER_SWARMS_PENDING_SUMMON,
+                         EffectType.CallRipperSwarms_PendingSummon.name,
+                         Caster(), call_ripper_swarms_spawn_tiles(n),
+                         duration_rounds=None, bonded_ref=Caster())
+
+
+class CallRipperSwarmsAbility(ActiveAbility):
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.CallRipperSwarmsAbility$$ExecuteBehaviour`
+    (id 1052, `tyranBossHiveTyrantLeviathan` -- Tyranids, **NPC boss de guilde**). Cast SELF.
+
+    OBSERVABLE DU CAST : l'effet-BOND 1094 `CallRipperSwarms_PendingSummon` sur `nrOfSummons` = 4
+    TUILES (les plus eloignees en moyenne de l'equipe adverse, parmi celles ou une unite peut etre
+    ajoutee), source ET bonded = le caster, duree DEFAUT. AUCUN spawn, AUCUN degat, AUCUN
+    deplacement au cast -- le ripper apparait en PHASE 2 (cf. le bloc ci-dessus).
+
+    La face DECISION (`IdunBattle.AI.Playbook.Loki.CallRipperSwarmsPlaybook$$EvaluateNonComparable`,
+    `$$GetMaxSummons`) est un AUTRE artefact, hors de ce port COMBAT.
+
+    Flags de tour : defauts base (1052 absent des tables d'override `NO_END_TURN_ABILITY_TYPES` /
+    `NO_ABILITY_USED_FLAG_ABILITY_TYPES`) -> l'ability termine le tour + pose ActiveAbilityUsed."""
+    __slots__ = ()
+    ABILITY_TYPE = int(ActiveAbilityType.CallRipperSwarms)     # 1052
+    ABILITY_ID = CALL_RIPPER_SWARMS_ID
+
+    # GATE DE CIBLE (#115) + PORTEE (#241) -- forme de ctor = **PRESET STATIQUE COPIE** (la 3e des
+    # trois formes) : `...CallRipperSwarmsAbility$$.ctor` n'appelle AUCUN
+    # `IdunBattle.Core.Services.TargetingOptions$$.ctor`. Il recopie les 0x40 octets du champ
+    # STATIQUE de `TargetingOptions` a l'offset **`+0x280`** du bloc `<class>+0xb8`, puis :
+    #     AActiveAbility..ctor(this, &opts, 2)   # 3e arg = 2 = AbilityAttackType.Others
+    # Le preset lu EN ENTIER dans `IdunBattle.Core.Services.TargetingOptions$$.cctor` :
+    #     <preset>+0x00 = *(statics+0x280) = 1                -> isSelfCasting = TRUE
+    #     <preset>+0x08 = copie de `TargetingRange` statics+0x60 -> **RANGE_SELF**
+    #                     (`overrideRange = Nullable(0)`)
+    #     <preset>+0x20 = *(statics+0x2a0) = 1                -> forceMeleeTarget = RangedBool.False
+    #     <preset>+0x28 = *(statics+0x2a8) = **0x8004**       -> le masque
+    #     <preset>+0x30/+0x38 = 0                             -> ecrases par `AActiveAbility$$.ctor`
+    #
+    # Decomposition EXHAUSTIVE -- 0x4 + 0x8000 = 0x8004, aucun bit residuel :
+    #     0x4     (bit  2) CasterMatchesDynamicRule  -> la regle dynamique du CASTER ; la classe
+    #             native ne surcharge PAS `GetDynamicInvalidCasterReason` (son bloc de
+    #             `methodPointers` ne porte que `ExecuteBehaviour` et `.ctor`), donc le delegue
+    #             reste le DEFAUT d'`AActiveAbility`, qui ne refuse rien.
+    #     0x8000  (bit 15) CasterIsPossibleTarget    -> le caster est une cible legale (self-cast).
+    # AUCUNE regle de CAMP ni de TUILE : le cast ne vise que lui-meme.
+    # C'est le MEME preset que celui d'`ExemplarOfTheMontkaAbility` (`tau.py`) -- deux lectures
+    # independantes du meme bloc du `.cctor`, memes quatre champs.
+    TARGETING_OPTIONS = TargetingOptions(
+        rules=TR.CasterMatchesDynamicRule | TR.CasterIsPossibleTarget,
+        self_cast=True, range=RANGE_SELF, force_melee_target=RANGED_BOOL_FALSE)
+
+    def execute_behaviour(self, state: "State", caster_id: int,
+                          target_id: Optional[int]) -> Optional[dict]:
+        entities = entities_from_state(state, caster_id, target_id)
+        ectx = ExecutionContext(state=state, rng=state.rng)
+        call_ripper_swarms_tree().execute(entities, ectx)
+        return {"ability": CALL_RIPPER_SWARMS_ID, "caster": caster_id, "target": target_id,
+                "pending": [{"target": p.get("target"), "bonded": p.get("bonded")}
+                            for n, p in ectx.emitted if n == "AddBondEffect"],
+                "dsl": True}
 

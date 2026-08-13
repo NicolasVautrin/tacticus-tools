@@ -10,9 +10,9 @@ Le runner combat route chaque ability choisie via `ActiveAbilityMessage` -> `Abi
 
 - Noms distincts en `activeAbilities` (gameconfig) : **175**
 - dont resolus en `ActiveAbilityType` : **174** ; **HORS `ActiveAbilityType`** : **1** (cf. la section dediee -- ni portes ni no-op)
-- **PORTED** (dans `ABILITY_CLASSES`) : **168**
-- **NO-OP silencieux** (a porter) : **6**
-- Ventilation NO-OP : **DAMAGE**=4, **EFFECT/BUFF**=1, **SUMMON**=1
+- **PORTED** (dans `ABILITY_CLASSES`) : **170**
+- **NO-OP silencieux** (a porter) : **4**
+- Ventilation NO-OP : **DAMAGE**=3, **EFFECT/BUFF**=1
 
 ## Priorisation & templates de port
 
@@ -44,18 +44,16 @@ Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 |---|---|---|---|---|
 | ? | Maugetar | TriggeredAbilityType(1498) PORTEE via `RELIC_ABILITY_TRIGGERS` [kit: DAMAGE(DirectDamage)] | 1 | N |
 
-## NO-OP SILENCIEUX en combat (a porter, tries categorie puis frequence) (6)
+## NO-OP SILENCIEUX en combat (a porter, tries categorie puis frequence) (4)
 
 | id | ability | categorie | #units | kinds |
 |---|---|---|---|---|
 | 1015 | PrecisionShot | DAMAGE(Energy) | 2 | NS |
 | 1215 | InstrumentsOfVengeance | DAMAGE(HeavyRound) | 1 | N |
-| 1193 | NovaCharge | DAMAGE(Particle) | 1 | N |
 | 1094 | TheLantern | DAMAGE(Energy) | 1 | N |
 | 1053 | DevoutPush | EFFECT/BUFF | 2 | NS |
-| 1052 | CallRipperSwarms | SUMMON | 1 | N |
 
-## PORTED (registry) (168)
+## PORTED (registry) (170)
 
 | id | ability | categorie | #units | kinds |
 |---|---|---|---|---|
@@ -157,6 +155,7 @@ Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 | 1184 | MomentShackle | DAMAGE(Bolter) | 1 | L |
 | 1093 | MortarionsPlagueWind | DAMAGE(Psychic) | 1 | N |
 | 1192 | NovaBoost | DAMAGE(Particle) | 1 | N |
+| 1193 | NovaCharge | DAMAGE(Particle) | 1 | N |
 | 1194 | NovaShield | DAMAGE(Particle) | 1 | N |
 | 1095 | ReapingScythe | DAMAGE(Chain) | 1 | N |
 | 1174 | SolarAtomizer | DAMAGE(Melta) | 1 | N |
@@ -225,5 +224,6 @@ Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 | 1158 | DutyEternal | SUMMON | 2 | LN |
 | 1143 | ForwardSpotter | SUMMON | 2 | LN |
 | 1145 | SporeMineLauncher | SUMMON | 2 | LN |
+| 1052 | CallRipperSwarms | SUMMON | 1 | N |
 | 1172 | InvocationOfMachineVengeance | SUMMON | 1 | N |
 | 1219 | IronkinSteeljack | SUMMON | 1 | L |

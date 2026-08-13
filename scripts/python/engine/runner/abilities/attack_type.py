@@ -803,6 +803,13 @@ ActiveAbilityType.SolarAtomizer: AbilityAttackType.Others,  # 1174
     #   `...WarConstructAbility$$.ctor`     -> `AActiveAbility..ctor(this, &opts, 2)`
     ActiveAbilityType.ForwardObservers: AbilityAttackType.Others,  # 1185
     ActiveAbilityType.WarConstruct: AbilityAttackType.Others,  # 1133
+    # #1032 -- les deux no-op silencieuses 2-PHASES du lot boss. Litteraux RELUS au decompile :
+    #   `...CallRipperSwarmsAbility$$.ctor` -> `AActiveAbility..ctor(this, &opts, 2)`
+    #   `...NovaChargeAbility$$.ctor`       -> `AActiveAbility..ctor(this, &opts, 2)`
+    # 1193 est le TROISIEME `Nova*` du Riptide : meme regime que 1192/1194 ci-dessus (le kit dit
+    # `DAMAGE(Particle)`, le ctor dit `2`, et le degat vit dans `NovaCharge_Attack` 1324).
+    ActiveAbilityType.CallRipperSwarms: AbilityAttackType.Others,  # 1052
+    ActiveAbilityType.NovaCharge: AbilityAttackType.Others,  # 1193
 }
 # COUVERTURE : la table couvre l'INTEGRALITE du registre `ABILITY_CLASSES` (garde-fou :
 # `probe_120_pre_unit_ability_fork.py` etape 0). Une ability AJOUTEE au registre sans son litteral de

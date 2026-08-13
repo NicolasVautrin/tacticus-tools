@@ -34,7 +34,7 @@ from .behaviours.stats import (
 from .behaviours.summon import PerformAIAttack, Spawn
 from .behaviours.turnflow import FinishTurn, ResetTurn
 from .targeting import (RANGE_ADJACENT, RANGE_FROM_CONFIG, RANGE_SELF, RANGE_WHOLE_BOARD,
-                        RANGED_BOOL_FALSE, RANGED_BOOL_TRUE, TargetingOptions,
+                        RANGED_BOOL_FALSE, RANGED_BOOL_TRUE, TargetingOptions, custom_range,
                         _dynamic_rule_exemplar_of_the_kauyon, _dynamic_rule_forward_observers)
 from .targeting_rule import TargetingRule as TR
 from ...dsl.base import Const
@@ -44,11 +44,14 @@ from ...entities.active_ability_type import ActiveAbilityType
 from ...entities.behaviours import Foreach, op_add, op_and, If as IfBehaviour
 from ...entities.effect_type import EffectType
 from ...entities.selectors.accessors import (ActiveTarget, CasterTile, FixedTileIds, Owner,
-                                             OwnerTile, Subject, Target)
-from ...entities.selectors.geometry import EntitiesWithAnyEffect, Randomize
+                                             OwnerTile, Subject, SurroundingTiles, Target)
+from ...entities.selectors.geometry import (Cache, CenterTiles, DirectionTo, EntitiesWithAnyEffect,
+                                            NextTileClockwise, NextTileInLine, Randomize,
+                                            TileFromVector, TilesBehindInLine)
 from ...entities.selectors.tiles import AllAliveUnits, AllTiles, Caster
 from ...entities.selectors.units import (
-    AdjacentEnemies, AdjacentFriends, Enemies, Filter, Friends, SortByDistance, Sub, Union,
+    AdjacentEnemies, AdjacentFriends, And, Enemies, Filter, Friends, NormalUnits, SortByDistance,
+    Sub, Tiles, TilesWithEnemies, Union, Unique,
     UnitsThatCanHaveActiveAbilityReset, UnitsWithRangedWeapons, UnitsWithTrait,
     non_steppable_or_object_units
 )
@@ -60,7 +63,9 @@ from ...entities.triggers import (AmountIsGreater, HasEffect, HasTrait, IsRepair
 from ...entities.effects.magnitude import ability_var
 from ...entities.selectors.geometry import PickFirstN
 from ...entities.selectors.tiles import AdjacentTiles, CanAddUnit
-from ..components import ActiveAbilitiesComponent, StatsComponent
+import hexgeo                      # `GetAdjacentTiles` du gate dynamique de `NovaCharge`
+
+from ..components import ActiveAbilitiesComponent, StatsComponent, get_unit_feet
 from ..components import StatsComponent
 from ..operations.ability_reset import entity_can_have_active_ability_reset
 from .targeting import entity_tiles, get_adjacent_enemies, get_adjacent_friends
@@ -1923,3 +1928,248 @@ class ForwardObserversAbility(ActiveAbility):
                  for n, p in ectx.emitted if n == "AddEffect"]
         return {"ability": FORWARD_OBSERVERS_ID, "caster": caster_id, "target": target_id,
                 "posed": posed, "dsl": True}
+
+
+# ---------------- NovaCharge (`tauBossRiptide`, NPC, actif 1193) ----------------
+#
+# LE TROISIEME `Nova*` DU RIPTIDE, et le meme patron 2-PHASES que ses deux freres ci-dessus : le
+# cast ne frappe PAS, il MARQUE. `IdunBattleLogic.Entities.Abilities.Active.Loki.
+# NovaChargeAbility$$ExecuteBehaviour` -- MIRROR 1:1 (les trois feuilles, dans l'ordre des deux
+# `IdunBattle.DSL.AbilityBehaviour$$op_BitwiseAnd`) :
+#
+#   lineTiles = DSLSelectors.Cache( NovaChargeAbility$$GetLineTiles(), matchAbilityEntities: TRUE )
+#   marked    = NovaChargeAbility$$GetAdditionalMarkedTiles(lineTiles)
+#   pending  = DSLBehaviors.AddBondEffect( 0x583 = 1411 NovaCharge_PendingAttack,
+#                                          AbilityStateReference, source = Caster@+0x48,
+#                                          targets = Caster@+0x48, bondedEntity = Owner@+0x30,
+#                                          options = <struct 0x20 octets ZERO> )
+#   markLine = DSLBehaviors.AddEffect( 0x584 = 1412 NovaCharge_PendingTarget_Line,
+#                                      AbilityStateReference, source = Caster@+0x48,
+#                                      targets = lineTiles, <options ZERO> )      # surcharge 6-ARGS
+#   markOne  = DSLBehaviors.AddEffect( 0x585 = 1413 NovaCharge_PendingTarget_Single,
+#                                      AbilityStateReference, source = Caster@+0x48,
+#                                      targets = marked,    <options ZERO> )      # surcharge 6-ARGS
+#   Execute( (pending & markLine) & markOne )
+#
+# Les deux `AddEffect` passent SIX arguments avec `Caster@+0x48` en source -- c'est ce que dit
+# l'ARITE du call-site, et c'est ce qui les distingue de la surcharge 5-args de `NovaShield` (ou
+# chaque tuile est sa propre source). Le degat est en PHASE 2 : `IdunBattleLogic.Entities.Abilities.
+# Triggered.Loki.NovaCharge_AttackAbility$$CreateBehaviour` (`TriggeredAbilityType` 1324) attaque
+# `Enemies(EntitiesWithAnyEffect(AllTiles, 1412))` et `...(1413)` puis RETIRE les deux marqueurs --
+# HORS de ce port, comme `NovaShield_Attack` / `NovaBoost_Attack`.
+
+NOVA_CHARGE_ID = "NovaCharge"
+NOVA_CHARGE_PENDING_ATTACK = int(EffectType.NovaCharge_PendingAttack)                # 0x583 = 1411
+NOVA_CHARGE_PENDING_TARGET_LINE = int(EffectType.NovaCharge_PendingTarget_Line)      # 0x584 = 1412
+NOVA_CHARGE_PENDING_TARGET_SINGLE = int(EffectType.NovaCharge_PendingTarget_Single)  # 0x585 = 1413
+
+
+def nova_charge_line_tiles():
+    """`...NovaChargeAbility$$GetLineTiles` (MIRROR du decompile) -- TROIS lignes paralleles :
+
+        center = CenterTiles(CasterTile@DSLSelectors+0x58)
+        dir    = DSLFormulas.DirectionTo(center, Target@+0x60)             # IVectorFormula
+        next1  = NextTileInLine(center, dir)
+        cw     = NextTileClockwise(fromTile = Target@+0x60, aroundTile = center)
+        dir2   = DSLFormulas.DirectionTo(next1, cw)
+        next2  = NextTileInLine(cw, dir2)
+        s      = <TilesBehindInLineSettings NEUF : +0x10 = 0 (ECRIT), +0x11 = 0>
+        lines  = ( Target@+0x60 + TilesBehindInLine(Target@+0x60, dir, s, maxAmount: NULL) )
+               + ( cw           + TilesBehindInLine(cw,           dir, s, maxAmount: NULL) )
+               + ( next2        + TilesBehindInLine(next2,        dir, s, maxAmount: NULL) )
+        return Filter( lines op_Subtraction CasterTile@+0x58,
+                       op_LogicalNot( DSLTriggers.IsTrenchTile(ActiveTarget@+0x68) ) )
+
+    Les trois `TilesBehindInLine` partagent la MEME direction `dir` (pas `dir2`) : le faisceau est
+    donc bien PARALLELE, large de trois, et les trois origines (`Target`, `cw`, `next2`) sont les
+    trois tetes de ligne. `maxAmount = null` -> on prolonge jusqu'au bord du plateau, et le meme
+    objet `settings` sert aux trois (`check_walkable = False`, `update_reference = False`).
+
+    Le port exprime la variante IVectorFormula de `TilesBehindInLine` par la composition que le
+    natif fait lui-meme dans `...TilesBehindInLineSelector$$Select` (`to = GetTileInDirection(
+    origin, vector)`), c'est-a-dire `TileFromVector` -- le meme vehicule que
+    `SolarAtomizerAbility$$GetTargetTiles` deja porte dans `admec.py`.
+
+    ⚠ CE QUI REND CETTE GEOMETRIE POSSIBLE : `DirectionTo` NORMALISE (cf.
+    `selectors/geometry.py::direction_to`), il ne se limite pas aux tuiles adjacentes -- `center`
+    est a distance 2 de `Target` pour un caster a sept tuiles. Et il ne rend une direction que sur
+    un AXE : c'est exactement l'ensemble que le gate dynamique ci-dessous laisse passer."""
+    center = CenterTiles(CasterTile(as_ids=True))
+    direction = DirectionTo(center, Target())
+    next1 = NextTileInLine(center, direction)
+    cw = NextTileClockwise(Target(), center)
+    next2 = NextTileInLine(cw, DirectionTo(next1, cw))
+    line_a = Union(Target(), TilesBehindInLine(Target(), TileFromVector(Target(), direction)))
+    line_b = Union(cw, TilesBehindInLine(cw, TileFromVector(cw, direction)))
+    line_c = Union(next2, TilesBehindInLine(next2, TileFromVector(next2, direction)))
+    lines = Union(Union(line_a, line_b), line_c)
+    return Filter(Sub(lines, CasterTile(as_ids=True)), Not(IsTrenchTile(ActiveTarget())))
+
+
+def nova_charge_additional_marked_tiles(line_tiles):
+    """`...NovaChargeAbility$$GetAdditionalMarkedTiles(lineTiles)` (MIRROR du decompile) :
+
+        n       = DSLFormulas.ConfigConst(0x11 = nrOfTargets, config@this+0x60)
+        rest    = Randomize( Filter( (AllTiles@+0x18 - lineTiles) - CasterTile@+0x58,
+                                     op_LogicalNot(IsTrenchTile(ActiveTarget@+0x68)) ) )
+        enemies = DSLSelectors.Enemies( of = Owner@+0x30, entities = rest, 3 )
+        prio    = Tiles(NormalUnits(enemies, 3))  op_Addition  Tiles(enemies)
+                  op_Addition  ( rest op_BitwiseAnd SurroundingTiles(TilesWithEnemies(Owner@+0x30),
+                                     includeCenter: TRUE, range: 2, onlyMovable: FALSE,
+                                     includeNonWalkable: FALSE) )
+        return First( Unique(prio) op_BitwiseAnd rest, amount = n, ignoreForcedTargets: false )
+
+    Les quatre litteraux de `SurroundingTiles` sont LUS AUX OCTETS (`r8b = 1`, `r9d = 2`,
+    `[rsp+0x20] = 0`, `[rsp+0x28] = 0`), ghidra ne resolvant ni le 5e ni le 6e argument.
+    `includeNonWalkable = 0` ARME le filtre de marchabilite (cf. `SurroundingTiles`, #967-r2).
+
+    ⚠ `Enemies(Owner, <des TUILES>, 3)` n'est PAS une faute de lecture :
+    `IdunBattle.Entities.Selectors.UnitsByTeamSelector$$CountOrAdd` applique
+    `UnitExtensions$$GetUnitOrMachine(entity, state)` a CHAQUE element -- une tuile rend son
+    OCCUPANT -- puis ajoute l'ENTITE SOURCE au resultat. Le noeud rend donc les TUILES dont
+    l'occupant est ennemi du referent. C'est ce maillon qui a manque au port jusqu'ici
+    (`selectors/units.py::unit_or_machine`).
+
+    La sortie est un ORDRE de priorite que `First(n)` tronque : d'abord les tuiles a occupant
+    ennemi NORMAL, puis les tuiles a occupant ennemi, puis les tuiles de `rest` a portee 2 du ring
+    des ennemis -- le tout deduplique et re-intersecte avec `rest`. `Randomize` en amont rend
+    l'ordre a l'interieur de chaque strate NON DETERMINISTE (mirror `PickRandomAmountSelector`)."""
+    n = int(ability_var(NOVA_CHARGE_ID, "nrOfTargets", is_constant=True) or 0)
+    rest = Randomize(Filter(Sub(Sub(AllTiles(), line_tiles), CasterTile(as_ids=True)),
+                            Not(IsTrenchTile(ActiveTarget()))))
+    enemies = Enemies(rest, reference=Owner(),
+                      selection_type=int(UnitSelectionType.OnlyAliveAndTargetable))
+    near = And(rest, SurroundingTiles(TilesWithEnemies(Owner(), as_ids=True), 2,
+                                      include_center=True, include_non_walkable=False))
+    prio = Union(Union(Tiles(NormalUnits(enemies,
+                                         int(UnitSelectionType.OnlyAliveAndTargetable)),
+                             as_ids=True),
+                       Tiles(enemies, as_ids=True)),
+                 near)
+    return PickFirstN(And(Unique(prio), rest), n)
+
+
+def nova_charge_tree():
+    """Arbre de `...NovaChargeAbility$$ExecuteBehaviour` (MIRROR 1:1, cf. le bloc ci-dessus).
+
+    `Cache(..., matchAbilityEntities: true)` est PARTAGE entre les deux consommateurs natifs
+    (`GetAdditionalMarkedTiles`, qui le RETRANCHE d'`AllTiles`, et la feuille `AddEffect` 1412) :
+    une SEULE instance de noeud, donc une SEULE evaluation -- ce qui importe, le sous-arbre
+    contenant un `Randomize`. Les trois durees sont la struct d'options ZERO (duree DEFAUT)."""
+    line_tiles = Cache(nova_charge_line_tiles())
+    marked = nova_charge_additional_marked_tiles(line_tiles)
+    pending = AddBondEffect(NOVA_CHARGE_PENDING_ATTACK,
+                            EffectType.NovaCharge_PendingAttack.name,
+                            Caster(), Caster(), duration_rounds=None, bonded_ref=Owner())
+    mark_line = AddEffect(NOVA_CHARGE_PENDING_TARGET_LINE,
+                          EffectType.NovaCharge_PendingTarget_Line.name,
+                          line_tiles, duration_rounds=None, source_ref=Caster())
+    mark_one = AddEffect(NOVA_CHARGE_PENDING_TARGET_SINGLE,
+                         EffectType.NovaCharge_PendingTarget_Single.name,
+                         marked, duration_rounds=None, source_ref=Caster())
+    return op_and(op_and(pending, mark_line), mark_one)
+
+
+class NovaChargeAbility(ActiveAbility):
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.NovaChargeAbility$$ExecuteBehaviour` (id 1193,
+    `tauBossRiptide` -- Tau, **NPC boss de guilde**). Cast TILE-TARGET.
+
+    OBSERVABLE DU CAST : (1) l'effet-BOND 1411 `NovaCharge_PendingAttack` sur le caster, bonde a
+    `Owner` ; (2) l'effet 1412 `NovaCharge_PendingTarget_Line` sur les tuiles des TROIS lignes
+    paralleles issues du caster vers la tuile visee (trenches et tuiles du caster exclues) ;
+    (3) l'effet 1413 `NovaCharge_PendingTarget_Single` sur jusqu'a `nrOfTargets` = 8 tuiles
+    supplementaires, prioritairement celles qui portent un ennemi. AUCUN degat au cast.
+
+    Flags de tour : defauts base (1193 absent des tables d'override) -> termine le tour + pose
+    ActiveAbilityUsed."""
+    __slots__ = ()
+    ABILITY_TYPE = int(ActiveAbilityType.NovaCharge)    # 1193
+    ABILITY_ID = NOVA_CHARGE_ID
+
+    # GATE DE CIBLE (#115) + PORTEE (#241) -- forme de ctor = **FLAGS DIRECTS** (la 1re des trois
+    # formes), contrairement a ses deux freres 1192/1194 qui recopient un preset :
+    #     TargetingRange.CustomRange(1)                                  # `mov edx, 1` avant le call
+    #     TargetingOptions..ctor(&opts, isSelfCasting: 0, &range, forceMeleeTarget: 1,
+    #                            rules: 0x2000000042, 0, 0)              # `mov rax, 0x2000000042`
+    #     AActiveAbility..ctor(this, &opts, 2)                           # = AbilityAttackType.Others
+    # Les trois litteraux sont LUS AUX OCTETS (ghidra perd l'immediat de `CustomRange` derriere son
+    # buffer de retour, et range le masque dans un `mov rax, imm64` recopie sur la pile).
+    #
+    # Decomposition EXHAUSTIVE -- 0x2 + 0x40 + 0x2000000000, aucun bit residuel :
+    #     0x2           (bit  1) TargetMatchesDynamicRule -> PORTE, cf.
+    #                   `get_dynamic_invalid_target_reason` ci-dessous.
+    #     0x40          (bit  6) TargetIsTile             -> regle de DOMAINE : la cible EST une
+    #                   tuile (`TargetingOptions.is_tile_targeting`).
+    #     0x2000000000  (bit 37) CasterHas7Tiles          -> le caster doit occuper SEPT tuiles.
+    #                   C'est la signature du `tauBossRiptide` ; NON PORTE (aucun gate de cardinal
+    #                   d'empreinte cote port) -> degradation PERMISSIVE, nommee.
+    # AUCUNE regle de CAMP : 1193 vise n'importe quelle TUILE.
+    TARGETING_OPTIONS = TargetingOptions(
+        rules=TR.TargetMatchesDynamicRule | TR.TargetIsTile | TR.CasterHas7Tiles,
+        self_cast=False, range=custom_range(1), force_melee_target=RANGED_BOOL_FALSE)
+
+    def get_dynamic_invalid_target_reason(self, state: "State", caster_id: int,
+                                          target_id: Optional[int]) -> int:
+        """`...NovaChargeAbility$$GetDynamicInvalidTargetReason` -- MIRROR du decompile, dont le
+        corps est celui de `...NovaChargeAbility$$IsValidLineStartTile` repris INLINE (les deux
+        fonctions ne different que par leur valeur de retour) :
+
+            adj = query.<slot 79 = GetAdjacentTiles>(target, onlyEmptyOrSteppable: 0,
+                                                     onlyWalkableTiles: 1, allowTemporary: 1)
+            ListExtensions.FilterInPlace(adj, casterTiles.Contains)
+            return Count(adj) == 1 ? 0 : 2
+
+        = « la tuile visee doit toucher EXACTEMENT UNE tuile du caster ». Sur une empreinte
+        hexagonale de sept tuiles (centre + couronne), cela ne laisse que les six tuiles du ring 2
+        ALIGNEES sur un axe du centre : les six « milieux d'arete » en touchent DEUX.
+
+        ⚠ L'ensemble accepte est INCLUS dans celui ou `direction_to` normalise, il ne lui est PAS
+        egal -- mesure de `test_1032_...::test_etage5_...`, qui a refute l'hypothese inverse :
+        `direction_to` rend une arete sur **10 des 12** tuiles du ring 2. Ce qui compte, et qui
+        est garde, c'est l'INCLUSION : toute cible legale porte une direction, donc
+        `GetLineTiles` n'est jamais vide sur un cast que le natif accepte.
+
+        Le code de refus est le `TargetingRule` brut `0x2` (`TargetMatchesDynamicRule`), comme dans
+        tous les gates dynamiques du port. N'est consulte que sous ce meme bit, qui EST pose."""
+        board = getattr(state, "board", None)
+        if board is None or target_id is None:
+            return 0
+        tpos = _nova_charge_tile_pos(state, board, target_id)
+        if tpos is None or caster_id is None:
+            return 0
+        feet = {(int(p[0]), int(p[1])) for p in get_unit_feet(state, caster_id)}
+        if not feet:
+            return 0
+        touching = 0
+        for q in hexgeo.neighbors(tpos[0], tpos[1]):
+            tid = board.id_at(q[0], q[1])
+            if tid is None or not board.walkable(tid):     # `onlyWalkableTiles: 1`
+                continue
+            if (int(q[0]), int(q[1])) in feet:             # `casterTiles.Contains`
+                touching += 1
+        return 0 if touching == 1 else int(TR.TargetMatchesDynamicRule)
+
+    def execute_behaviour(self, state: "State", caster_id: int,
+                          target_id: Optional[int]) -> Optional[dict]:
+        # #287-r14 : masque `TargetIsTile` -> le role `target` du natif est TOUJOURS l'entite-TUILE.
+        target_id = self.get_actual_target(state, caster_id, target_id)
+        if target_id is None:
+            return None
+        ectx = ExecutionContext(state=state, rng=state.rng)
+        nova_charge_tree().execute(entities_from_state(state, caster_id, target_id), ectx)
+        return {"ability": NOVA_CHARGE_ID, "caster": caster_id, "target": target_id,
+                "posed": [{"target": p.get("target"), "effect": p.get("effect_type")}
+                          for n, p in ectx.emitted if n in ("AddEffect", "AddBondEffect")],
+                "dsl": True}
+
+
+def _nova_charge_tile_pos(state, board, entity_id):
+    """Position `(col,row)` de l'entite-TUILE `entity_id` -- la cible d'un cast `TargetIsTile` est
+    deja resolue en tuile par `GetActualTarget`, mais le gate dynamique peut etre appele AVANT
+    (chemin RPC/prediction). On accepte donc les deux : un id de TUILE (`board.by_id`) ou une
+    UNITE, dont on prend la MainTile (`EntityExtensions$$GetMainTile`)."""
+    if entity_id in board.by_id:
+        c = board.coord(entity_id)
+        return (int(c[0]), int(c[1]))
+    feet = get_unit_feet(state, entity_id)
+    return (int(feet[0][0]), int(feet[0][1])) if feet else None

@@ -213,12 +213,87 @@ class DirectionTo(AAmountFormula):
         b = _tile_positions(self.to, ctx, board)
         if not a or not b:                      # `a == null || b == null` -> Nullable VIDE
             return None
-        ax, _ay, az = hexgeo.to_cube(int(a[0][0]), int(a[0][1]))
-        bx, _by, bz = hexgeo.to_cube(int(b[0][0]), int(b[0][1]))
-        try:
-            return int(_CUBE_DIRECTIONS.index((bx - ax, bz - az)))
-        except ValueError:
-            return None                         # hors des six aretes -> `Nullable` VIDE
+        return direction_to(a[0], b[0])
+
+
+# `IdunBattle.Utils.Hex.CubeDirections$$EdgeToNeighbor(diff)` -- MIRROR LITTERAL du decompile : le
+# natif encode le vecteur cube ARRONDI en `code = 100*x + 10*y + z` et le compare a SIX constantes ;
+# tout autre code rend un `Nullable` VIDE (branche `return 0`). La table est donc EXHAUSTIVE, et
+# c'est elle qui fixe l'ordinal `IdunBattle.Utils.Hex.Edge` de chaque vecteur unitaire.
+# ⚠ Recoupement avec `_CUBE_DIRECTIONS` ci-dessus (deux lectures independantes, meme resultat) :
+# l'INDEX de ce tuple EST l'ordinal `Edge`. Ex. index 0 = (dx=0, dz=1) = cube (0,-1,1) -> code -9,
+# et la table dit bien `Edge` 0. Les six concordent.
+_EDGE_BY_CUBE_CODE = {-99: 5, -90: 4, -9: 0, 9: 3, 90: 1, 99: 2}
+
+
+def direction_to(a: tuple, b: tuple):
+    """`IdunBattle.Utils.Hex.AxialCoordinate$$DirectionTo(this, neighbor)` -- MIRROR du decompile,
+    et **il ne se restreint PAS aux tuiles ADJACENTES** : il NORMALISE le vecteur cube `b - a` vers
+    l'une des six aretes. Le corps natif, terme a terme (arithmetique `FixMath.NET.Fix64`) :
+
+        (dx, dy, dz) = cube(b) - cube(a)
+        len = Sqrt(|dx|^2 + |dy|^2 + |dz|^2)
+        (nx, ny, nz) = (dx, dy, dz) / len
+        if (|nx| == |ny| || |nx| == |nz|)   nx *= (Fix64.One + 1/100)      # tie-break, x FAVORISE
+        if      (|nx| < |ny| && |nx| < |nz|)  nx = Fix64.Zero              # goto arrondi
+        else if (|ny| < |nx| && |ny| < |nz|)  ny = Fix64.Zero              # goto arrondi
+        else if (|nz| < |nx| && |nz| < |ny|)  nz = Fix64.Zero
+        chaque composante : 0 -> 0 ; > 0 -> Ceiling ; < 0 -> Floor
+        return CubeDirections.EdgeToNeighbor(x, y, z)                      # VIDE hors des six
+
+    `Fix64.One` = `<Fix64 statics>+0x20` et `Fix64.Zero` = `+0x28` -- offsets LUS (le decompile
+    n'a que les offsets ; les noms viennent du dump de champs, ordre `MaxValue/MinValue/One/Zero`).
+
+    LE PORT EST EN ENTIERS, ET C'EST EXACT, pas une approximation :
+      * la division par `len` est un facteur COMMUN strictement positif -- elle preserve l'ordre ET
+        les egalites entre `|dx|, |dy|, |dz|`, donc les cinq comparaisons se font sur les entiers ;
+      * l'arrondi vers l'exterieur se reduit a `sign()` : apres normalisation `|n_i| <= 1`, et
+        `|n_i| == 1` exigerait les deux autres composantes nulles, impossible avec `dx+dy+dz == 0`
+        pour un vecteur non nul. Le facteur de tie-break ne le casse pas non plus -- le maximum de
+        `|dx|/len` sous cette contrainte est `sqrt(2/3) ~ 0,8165`, et `x 1,01` reste `< 1` ;
+      * le tie-break `x 1,01` se code en comparant `100*|d|` (et `101*|dx|` en cas d'egalite) :
+        pour des entiers `<= 100` -- tout board l'est tres largement -- aucun autre entier ne peut
+        se glisser entre `|dx|` et `1,01*|dx|`, donc l'ordre STRICT est inchange et seule
+        l'EGALITE bascule, ce qui est exactement l'effet voulu par le natif.
+
+    Consequence GEOMETRIQUE, et elle est LOAD-BEARING pour `NovaCharge` : une seule composante est
+    annulee, celle qui est STRICTEMENT la plus petite. Quand il n'y en a pas, les trois signes
+    survivent, le code n'est aucune des six constantes, et le natif rend VIDE. C'est le cas du
+    delta cube `(+-2, -+1, -+1)` -- deux des six « diagonales » du ring 2 -- ou `|dx|` vaut 2 et
+    les deux autres 1 : le tie-break ne mord pas (il exige `|nx| == |ny|` ou `|nx| == |nz|`) et
+    aucune composante n'est strictement minimale. Les QUATRE autres diagonales, elles, passent
+    bien par le tie-break et rendent une arete.
+    ⚠ Donc **10 des 12 tuiles du ring 2 normalisent, pas 6** : c'est MESURE
+    (`test_1032_novacharge_callripperswarms_offline::test_etage5_...`), et cela REFUTE l'idee
+    intuitive que seules les tuiles alignees produiraient une direction. Ce qui reste vrai est une
+    INCLUSION : les six tuiles que le gate dynamique de `NovaCharge`
+    (`...NovaChargeAbility$$IsValidLineStartTile`) accepte en font partie.
+
+    `a == b` -> `len == 0` -> division par zero cote natif ; le port rend `None` (aucun call-site
+    ne l'atteint : les deux selecteurs designent des tuiles distinctes). Retour : `int` membre
+    d'`Edge` (== index de `_CUBE_DIRECTIONS`), ou `None`."""
+    ax, ay, az = hexgeo.to_cube(int(a[0]), int(a[1]))
+    bx, by, bz = hexgeo.to_cube(int(b[0]), int(b[1]))
+    dx, dy, dz = bx - ax, by - ay, bz - az
+    if dx == 0 and dy == 0 and dz == 0:
+        return None                             # `len == 0` : le natif diviserait par zero
+    kx, ky, kz = abs(dx) * 100, abs(dy) * 100, abs(dz) * 100
+    if kx == ky or kx == kz:                    # `nx *= (One + 1/100)`
+        kx = abs(dx) * 101
+    if kx < ky and kx < kz:
+        dx = 0
+    elif ky < kx and ky < kz:
+        dy = 0
+    elif kz < kx and kz < ky:
+        dz = 0
+    code = 100 * _sign(dx) + 10 * _sign(dy) + _sign(dz)     # `EdgeToNeighbor` : 100x + 10y + z
+    return _EDGE_BY_CUBE_CODE.get(code)         # hors des six -> `Nullable` VIDE
+
+
+def _sign(v: int) -> int:
+    """`Ceiling` (v > 0) / `Floor` (v < 0) / `Zero` (v == 0) sur une composante NORMALISEE, dont la
+    valeur absolue est toujours dans `]0, 1[` -- cf. la demonstration dans `direction_to`."""
+    return 0 if v == 0 else (1 if v > 0 else -1)
 
 
 class Walkable(TargetsSelector):
@@ -694,6 +769,148 @@ class TilesBehindInLine(TargetsSelector):
             elevation_at=lambda p: board.elevation(board.id_at(p[0], p[1])),
             tile_exists=lambda p: board.id_at(p[0], p[1]) is not None)
         return [board.id_at(p[0], p[1]) for p in positions]
+
+
+class NextTileInLine(TargetsSelector):
+    """`IdunBattleLogic.Entities.DSLSelectors$$NextTileInLine(origin: ITargetsSelector,
+    direction: IVectorFormula)` -- MIRROR du decompile. Le noeud n'a PAS de selecteur a lui : il
+    construit le MEME `IdunBattle.Entities.Selectors.TilesBehindInLineSelector` que
+    `TilesBehindInLine` ci-dessus, dans sa variante **IVectorFormula**, avec :
+
+        settings  = <TilesBehindInLineSettings NEUF>   -> `+0x10 = 0`, `+0x11 = 0`
+        maxAmount = <DSLFormulas>+0x20 = `Direct(1)`   (champ partage, deja LU par #505)
+
+    et `IdunBattle.Entities.Selectors.TilesBehindInLineSelector$$Select` traite cette variante en
+    MATERIALISANT la tuile d'arrivee AVANT de marcher :
+
+        to = query.<slot 95 = GetTileInDirection>(origin, direction.Calculate(entities))
+        return query.<slot 84 = GetTilesBehind>(origin, to, settings+0x10, settings+0x11, maxAmount)
+
+    et `IdunBattle.Core.Services.BattleQuery$$GetTileInDirection(startTile, vector)` boucle
+    `vector.amount` fois sur `PositionComponent$$NeighbourAt(vector.direction)` -- or le SEUL
+    producteur de vecteur porte (`DSLFormulas$$DirectionTo`) fige `amount = 1`. `to` est donc la
+    VOISINE de `origin` dans la direction, ce que rend exactement `TileFromVector`.
+
+    `maxAmount = 1` et « la 1re tuile rendue EST `to` » (cf. `TilesBehindInLine`) : le noeud rend
+    donc AU PLUS UNE tuile -- la voisine -- et RIEN quand elle sort du plateau (`GetTileInDirection`
+    rend null -> le natif rend une liste VIDE) ou quand elle echoue au gate `IsTileValidForList`.
+    C'est une COMPOSITION de deux noeuds deja portes, exactement comme le natif compose deux appels
+    de service : aucune geometrie n'est reecrite ici."""
+    def __init__(self, origin: TargetsSelector, direction):
+        self.origin, self.direction = origin, direction
+
+    def select(self, ctx):
+        return TilesBehindInLine(self.origin, TileFromVector(self.origin, self.direction),
+                                 max_count=1).evaluate(ctx)
+
+
+class NextTileClockwise(TargetsSelector):
+    """`IdunBattleLogic.Entities.DSLSelectors$$NextTileClockwise(fromTile, aroundTile)` ->
+    `IdunBattle.Entities.Selectors.NextTileInCircleSelector$$Select` -- MIRROR du decompile :
+
+        around = <aroundTile @+0x20>.<slot 12 = SelectSingle>(entities)
+        result = new List()
+        if (from != null && from.Any() && around != null)
+            foreach (e in <fromTile @+0x18>.<slot 10>(entities))
+                d = AxialCoordinate.DirectionTo(around.Position, e.Position).Value
+                d = EdgeExtensions.Next(d, <+0x28 direction>)
+                d = EdgeExtensions.Next(d, <+0x28 direction>)          # DEUX fois, meme argument
+                t = query.<slot 95 = GetTileInDirection>(around, new Vector(d, 1))
+                if (t != null) result.Add(t)
+        return result
+
+    et `IdunBattle.Utils.Hex.EdgeExtensions$$Next(edge, direction)` =
+    `(edge + (direction != 0 ? -1 : +1)) mod 6` (le natif rattrape les deux debordements a la main).
+
+    `<+0x28>` est le 5e argument du ctor `NextTileInCircleSelector..ctor(state, battleQuery,
+    fromTile, aroundTile, direction: IdunBattle.Utils.Hex.RotationDirection)`, et
+    `DSLSelectors$$NextTileClockwise` le passe a **0** -- LU AUX OCTETS (`xor eax, eax` puis
+    `mov [rsp+0x28], eax` juste avant le `call`, ghidra ne resolvant pas cet immediat).
+    `RotationDirection.Clockwise = 0` (`data/symbols/<build>/frida/enums.tsv`), d'ou le nom du
+    noeud, et `Next` avance donc de **+1 par appel, soit +2 crans au total** (120 degres).
+
+    Le noeud rend la voisine d'`aroundTile` dans la direction `(around -> e) + 2` : pour chaque
+    element de `fromTile`, UNE tuile du ring 1 d'`aroundTile`. Domaine de sortie : ids de tuile.
+
+    DEGRADATION NOMMEE : le natif appelle `Nullable.get_Value` sur la direction, donc il LEVERAIT
+    si `DirectionTo` rendait vide (deux tuiles dont le vecteur cube ne normalise sur aucune arete,
+    cf. `direction_to`). Le port SAUTE l'element au lieu de lever -- aucun call-site porte ne
+    l'atteint (`NovaCharge` passe par le gate `IsValidLineStartTile`, qui ne laisse que des tuiles
+    ALIGNEES sur un axe du centre)."""
+    def __init__(self, from_tile: TargetsSelector, around_tile: TargetsSelector):
+        self.from_tile, self.around_tile = from_tile, around_tile
+
+    def select(self, ctx):
+        board = getattr(ctx, "board", None)
+        if board is None:
+            return []
+        around = _tile_positions(self.around_tile, ctx, board)      # `SelectSingle`
+        if not around:
+            return []
+        origin = around[0]
+        out = []
+        for p in _tile_positions(self.from_tile, ctx, board):
+            d = direction_to(origin, p)
+            if d is None:                       # cf. DEGRADATION NOMMEE ci-dessus
+                continue
+            d = (int(d) + 1) % 6                # `EdgeExtensions.Next(d, Clockwise)`
+            d = (d + 1) % 6                     # ... appele une SECONDE fois
+            t = board.id_at(*neighbour_at(origin[0], origin[1], d))
+            if t is not None:
+                out.append(t)
+        return out
+
+
+class CenterTiles(TargetsSelector):
+    """`IdunBattleLogic.Entities.DSLSelectors$$CenterTiles(entities)` ->
+    `IdunBattle.Entities.Selectors.CenterTilesSelector$$Select` -> `IBattleQuery` slot **93**
+    `IdunBattle.Core.Services.BattleQuery$$GetCenterTiles(tiles)` -- MIRROR du decompile :
+
+        best = new OrderedSet() ; y = Fix64.MaxValue          # `<Fix64 statics>+0x10`
+        foreach (e in tiles)
+            d = GetAverageDistance(<liste a un element : e>, tiles, defaultValue: 0)
+            if (d < y)  { y = d ; best.Clear() }
+            if (d <= y) best.Add(e)
+        return best
+
+    = les tuiles de la source dont la distance MOYENNE a TOUTE la source est minimale, c'est-a-dire
+    son (ou ses) CENTRE(S) geometrique(s). `OrderedSet` -> dedupliquees, ordre d'insertion.
+
+    ⚠ La moyenne est celle de `BattleQuery$$GetAverageDistance`, donc a DIVISION ENTIERE -- des
+    tuiles differentes peuvent partager la meme moyenne tronquee et sortir ENSEMBLE. Le
+    `defaultValue` vaut **0** ici (et non `10000` comme dans `AverageDistance`) : il n'est atteint
+    que si la source est vide, auquel cas la boucle ne tourne pas de toute facon.
+
+    Unique consommateur porte : `IdunBattleLogic.Entities.Abilities.Active.Loki.
+    NovaChargeAbility$$GetLineTiles` (`CenterTiles(CasterTile@DSLSelectors+0x58)` = la tuile
+    CENTRALE d'un caster multi-hex -- `tauBossRiptide` en occupe sept). Domaine : ids de tuile."""
+    def __init__(self, source: TargetsSelector):
+        self.source = source
+
+    def select(self, ctx):
+        board = getattr(ctx, "board", None)
+        if board is None:
+            return []
+        tiles = _tile_positions(self.source, ctx, board)
+        best_avg = None
+        out = []
+        for p in tiles:
+            if not tiles:
+                continue
+            total = sum(hexgeo.distance(q, p) for q in tiles)
+            avg = total // len(tiles)           # `GetAverageDistance`, division ENTIERE
+            if best_avg is None or avg < best_avg:
+                best_avg = avg
+                out = []
+            if avg <= best_avg:
+                out.append(p)
+        seen, ids = set(), []                   # `OrderedSet` : dedup, ordre d'insertion
+        for p in out:
+            t = board.id_at(p[0], p[1])
+            if t is not None and t not in seen:
+                seen.add(t)
+                ids.append(t)
+        return ids
 
 
 class FilterContinuous(TargetsSelector):
