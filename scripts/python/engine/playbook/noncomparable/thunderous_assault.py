@@ -70,9 +70,12 @@ Ici la valeur est consommee BRUTE -- la troncature vers `int` appartient a
 
     GetHighestTileUtilityUnitCanMoveTo(unit):
         best = Fix64(0);
-        foreach (p in battleQuery.<slot itf 0xb>(unit, null))
+        // slot itf `0x0b` = `GetMovableTilesFor` -- RESOLU (#977-r1), pas suppose : le movable
+        // SEUL, sans la position courante (c'est `0x0e` qui la seed). Les elements sont des
+        // TUILES, donc aucun `.MainTile` n'est applique.
+        foreach (t in battleQuery.GetMovableTilesFor(unit, ignoreFlags: false, options: default))
             best = max(best, GetUtility(Tile).EvaluateAttack(
-                                 UtilityAttackCase.Base(unit, p.MainTile, p.MainTile, aoe)));
+                                 UtilityAttackCase.Base(unit, t, t, aoe)));
         return best;                                   // strict `>`, plancher Fix64(0)
 
     GetPushableTargetOnHighestUtilityTile(unit, actionTile):
@@ -95,13 +98,23 @@ commodite : les feuilles Tile(7) recopient le champ `unit` du case dans
 `UtilityMovementCase+0x10` avant de le passer a `HasTrait(case.unit, ...)` / `HasFaction(...)` et
 aux comptes d'adjacence.
 
+## Le `MIN_UTILITY = -inf` est FIDELE, mais INDISCERNABLE du defaut -- mesure #977-r4
+
+`-inf` est le mirror exact du `Bucket<T>..ctor` a UN argument. Mais l'affirmation « le defaut
+`0.0` aurait TUE ce playbook en silence » est **FAUSSE**, et elle l'etait deja quand elle a ete
+ecrite : le gate du port est `if util < MIN_UTILITY: return None`, donc STRICT -- une utilite
+`0.0` passe les DEUX seuils. Le natif est identique (`Bucket$$AddAction` admet `util >= min`).
+
+Les deux valeurs ne divergent que pour `util < 0`, et ce regime est **INATTEIGNABLE** : la
+strategie 1 gate chaque cible a `diff > 0`, et la strategie 2 n'emet que si
+`r.Value >= highest`, ou `highest` part de `Fix64(0)` et ne fait que croitre. Toute action de ce
+playbook porte donc `util >= 0`.
+
+⇒ `MIN_UTILITY` reste `-inf` **par FIDELITE**, pas parce qu'un montage l'exigerait ; et le
+regime que `#977-r4` cherchait a exercer n'existe pas. Garde : `test_977r4_min_utility_offline.py`.
+
 ## Ce que le port NE tranche PAS (residus nommes)
 
-* **`battleQuery.<slot itf 0xb>`** : le port l'approxime par `ctx.reach_nc` (position COURANTE +
-  tuiles de move, le slot `0xe` `GetCurrentAndMovablePositionsFor`). Le nom natif dit « can move
-  to », donc `0xb` est probablement le movable SEUL. L'ecart ne mord que si l'ORIGINE porte
-  strictement la plus haute utilite de tuile ; il rend alors `highest` TROP GRAND, donc la
-  strategie 2 trop severe. Direction NOMMEE : RESTRICTIVE. Residu `#977-r1`.
 * **`GetTargetIfWillPush`** est un membre de la classe qu'AUCUN des deux corps ci-dessus n'appelle
   (relu : `b__1_0` construit son delegue sur `GetPushableTiles`, dont la signature a DEUX arguments
   correspond a l'invocation de `GetTargetUtilityDiffOnDisplace` ; `GetTargetIfWillPush` en a
@@ -148,14 +161,33 @@ class ThunderousAssaultPlaybook(NonComparablePlaybook):
 
     # ---- strategie 2 : `GenerateStrategy2Action` (order 1) ---------------------------------------
     def highest_tile_utility_unit_can_move_to(self, ctx: NCContext) -> float:
-        """`GetHighestTileUtilityUnitCanMoveTo(unit)` = max de `Tile(7)` sur les positions
-        atteignables du CASTER, plancher `Fix64(0)` (le seed), comparaison STRICTE.
+        """`GetHighestTileUtilityUnitCanMoveTo(unit)` = max de `Tile(7)` sur les tuiles de MOVE du
+        CASTER -- **l'ORIGINE EXCLUE** -- plancher `Fix64(0)` (le seed), comparaison STRICTE.
 
-        Substrat : `ctx.reach_nc`. ECART NOMME (`#977-r1`) : le natif interroge le slot `0xb`, dont
-        le nom (« can move to ») suggere les tuiles de MOVE SEULES, quand `reach_nc` porte AUSSI
-        l'origine (slot `0xe`). Direction : RESTRICTIVE (`highest` ne peut qu'etre plus grand)."""
+        SUBSTRAT, TRANCHE (#977-r1). Le slot d'interface est RESOLU, plus suppose :
+        `IBattleQuery` slot **`0x0b` = `GetMovableTilesFor`** (3 parametres), mesure au runtime par
+        le RPC `interfaceSlotProbe` sur `IdunBattle.Core.Services.IBattleQuery` -- table CALEE par
+        trois ancres concordantes (`0x0d = GetMovablePositionsFor`,
+        `0x0e = GetCurrentAndMovablePositionsFor`, `0x40 = HasValidTargets`, `0x42 = GetValidTargets`).
+        Le corps le confirme : `GetHighestTileUtilityUnitCanMoveTo` invoque ce slot avec
+        `(unit, ignoreFlags: 0, options: default)` -- 48 octets a zero -- puis evalue
+        `UtilityAttackCase.Base(unit, tile, tile, aoe)` sur CHAQUE element, SANS `.MainTile` (les
+        elements SONT deja des tuiles, d'ou le nom `...TilesFor`).
+
+        C'est donc le movable SEUL. `ctx.reach_nc` (slot `0x0e`,
+        `GetCurrentAndMovablePositionsFor`) y ajoute la position COURANTE en tete -- ce seed est
+        precisement ce qui distingue les deux slots. L'inclure faisait rendre un `highest` >= au
+        vrai, donc rendait la strategie 2 (`r.Value >= highest`) trop SEVERE : elle refusait des
+        actions que le natif emet, des que l'ORIGINE portait strictement la plus haute utilite de
+        tuile de l'univers atteignable.
+
+        BORNE NOMMEE, qui reste : `GetMovableTilesFor` rend des TUILES et `GetMovablePositionsFor`
+        des `UnitPosition` (footprint). Le port ne modelise qu'une tuile par unite -- exact pour
+        toute unite mono-tuile, ce que sont toutes celles du pool."""
         best = 0.0
         for p in (ctx.reach_nc or []):
+            if ctx.origin is not None and p == ctx.origin:
+                continue                      # slot 0x0b : l'ORIGINE n'est pas dans le movable
             v = _pbbase.tile_utility(ctx, p)
             if v > best:
                 best = v
