@@ -1,4 +1,4 @@
-"""`RelicPowerFist` -- relique `R_Crit_RelicPowerFist` (`TriggeredAbilityType` 0x5b2 = **1466**).
+"""`RelicPowerFist` -- relique `R_Crit_RelicPowerFist` (`TriggeredAbilityType` 0x5ba = **1466**).
 #1009.
 
 i2 `Abilities/RelicPowerFist_CurrentLevelDescription` :
@@ -116,7 +116,7 @@ from ..base import TriggeredAbility, TriggerEvent, triggered_ability_state
 #: Cle du registre `RELIC_ABILITY_TRIGGERS` = le NOM gameconfig de l'ability (item
 #: `R_Crit_RelicPowerFist`, `abilityId = RelicPowerFist`).
 ABILITY_ID = "RelicPowerFist"
-RELIC_POWER_FIST = int(TriggeredAbilityType.RelicPowerFist)     # 0x5b2 = 1466
+RELIC_POWER_FIST = int(TriggeredAbilityType.RelicPowerFist)     # 0x5ba = 1466
 
 #: `AbilityVariableType` 0x3a = 58 (`chance`) et 0x3b = 59 (`chance_2`) -- DEUX variables
 #: distinctes, resolues par leur NOM (`frida/enums.tsv`).
