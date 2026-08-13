@@ -77,6 +77,8 @@ ECOG_SUPPORT_ID = 1487               # `TriggeredAbilityType.EcogSupport`, le pa
 
 KILLER = "eldarRanger"               # HERO du pool -> `HasTrait(Actor@+0x40, 0x10 = Hero)`
 VICTIM = "necroWarden"               # unite NORMALE -> `IsNormalUnit(Targets@+0x60)`
+SURVIVOR = "orksNob"                 # 2e cible, PV PLEINS : Uthar la frappe SANS la tuer (volet reset)
+SURVIVOR_HP = 900000
 REPAIR_ALLY = "necroSpyder"          # allie MECANIQUE, cible de la reparation de Vynn
 FOE = "necroWarden"
 
@@ -136,13 +138,25 @@ def seed_bc_path(blade_level: int, volumm_level: int, no_ecog: bool = False) -> 
     return Path(p)
 
 
-def build_args_blade(level: int, seed_bc: Path) -> list[str]:
+def build_args_blade(level: int, seed_bc: Path, reset: bool = False) -> list[str]:
+    """`reset = False` -- volet POSE : Uthar a `CritChance = 0`, donc il ne peut PAS criter et son
+    `BladeOfTheAncestors_RemoveEffectAbility` reste muet ; le delta de stats ne porte QUE la pose.
+
+    `reset = True` -- volet RESET : Uthar a `CritChance = 100`, il crite a coup sur. La CHANCE de
+    crit est alors PLAFONNEE (`GetClampedValue`), donc seul `critDamage` reste lisible -- et c'est
+    lui qu'on suit. La 2e cible (`SURVIVOR`, PV PLEINS) existe pour qu'Uthar ait quelqu'un a
+    frapper SANS le tuer : un kill par Uthar ajouterait une pile (branche 2 du `CreateTrigger`) en
+    plus du reset, et melangerait les deux mesures.
+
+    ⚠ On n'utilise PAS `--hp-target 1` (qui mettrait TOUTES les cibles a 1 PV, `SURVIVOR` compris) :
+    la victime est fragilisee PAR UNITE."""
     return ["--board", BOARD, "--seed-bc", str(seed_bc), "--no-ai",
-            "--p-units", "%s,%s" % (UTHAR, KILLER), "--a-units", VICTIM,
+            "--p-units", "%s,%s" % (UTHAR, KILLER), "--a-units", "%s,%s" % (VICTIM, SURVIVOR),
             "--equip-relic", "%s:%s:%d" % (UTHAR, BLADE, level),
-            "--hp-target", "1", "--dmg-target", "1",
-            # cf. l'en-tete : sans ce zero, un crit d'Uthar enfilerait SON PROPRE reset.
-            "--unit-stat", "%s:CritChance=0" % (UTHAR,)]
+            "--dmg-target", "1",
+            "--unit-stat", "%s:RemainingHealth=1" % (VICTIM,),
+            "--unit-stat", "%s:Health=%d,RemainingHealth=%d" % (SURVIVOR, SURVIVOR_HP, SURVIVOR_HP),
+            "--unit-stat", "%s:CritChance=%d" % (UTHAR, 100 if reset else 0)]
 
 
 def build_args_volumm(level: int, seed_bc: Path) -> list[str]:
@@ -301,7 +315,7 @@ def _by_vis(state, vis):
     return None
 
 
-def _port_blade(dv, ob, snap, board, ability_states, mutate=None) -> dict:
+def _port_blade(dv, ob, snap, board, ability_states, mutate=None, with_reset=False) -> dict:
     """Rejoue `On(0 = UnitDeath)` OFFLINE sur la capture, victime marquee MORTE, `actor` = le tueur.
 
     `ability_states=False` = le canal #357 REFUSE -> le rail ne voit pas la relique (l'etat d'avant).
@@ -339,9 +353,35 @@ def _port_blade(dv, ob, snap, board, ability_states, mutate=None) -> dict:
     if state.effects is not None:
         n_eff = sum(1 for e in (state.effects.by_unit.get(int(car)) or [])
                     if not e.consumed and int(e.effect_type) == BLADE_EFFECT)
-    return {"events": len(ev), "stacks": n_eff,
-            "cc_delta": sc.ctx.stat(int(StatType.CRIT_CHANCE)) - cc0,
-            "cd_delta": sc.ctx.stat(int(StatType.CRIT_DAMAGE)) - cd0,
+    cc1 = sc.ctx.stat(int(StatType.CRIT_CHANCE))
+    cd1 = sc.ctx.stat(int(StatType.CRIT_DAMAGE))
+    reset = None
+    if with_reset:
+        # LE RESET, bout en bout et par les VECTEURS DU PORT : `On(9 = Attack)` avec `WasCrit`
+        # (`finish_attack_triggers`) ENFILE, et c'est le drain de `state.pending_triggered_abilities`
+        # -- la borne du message top-level, `process_pending_triggered_abilities` -- qui execute la
+        # branche `Custom`. Un `RemoveEffect` immediat serait un COLLAPSE INLINE, pas ce port.
+        from engine.runner.operations.triggers.dispatch.attack import finish_attack_triggers
+        from engine.runner.operations.triggers.dispatch.pending import (
+            process_pending_triggered_abilities)
+        tgt = _by_vis(state, SURVIVOR)
+        queued = finish_attack_triggers(state, car, tgt if tgt is not None else vic,
+                                        ranged=False, is_crit=True) or []
+        drained = process_pending_triggered_abilities(state) or []
+        left = 0
+        if state.effects is not None:
+            left = sum(1 for e in (state.effects.by_unit.get(int(car)) or [])
+                       if not e.consumed and int(e.effect_type) == BLADE_EFFECT)
+        reset = {"queued": [q for q in queued if isinstance(q, dict) and q.get("relic") == BLADE],
+                 "drained": [d for d in drained if isinstance(d, dict) and d.get("relic") == BLADE],
+                 "stacks_left": left,
+                 "cc_delta": sc.ctx.stat(int(StatType.CRIT_CHANCE)) - cc1,
+                 "cd_delta": sc.ctx.stat(int(StatType.CRIT_DAMAGE)) - cd1,
+                 "cc_back_to_base": sc.ctx.stat(int(StatType.CRIT_CHANCE)) == cc0,
+                 "cd_back_to_base": sc.ctx.stat(int(StatType.CRIT_DAMAGE)) == cd0}
+    return {"events": len(ev), "stacks": n_eff, "reset": reset,
+            "cc_delta": cc1 - cc0,
+            "cd_delta": cd1 - cd0,
             "tertiary": getattr(sc.ctx, "tertiary_ability", None),
             "level": getattr(sc.ctx, "tertiary_ability_level", None),
             "mult": getattr(sc.ctx, "tertiary_ability_variables_multiplier", None),
@@ -387,11 +427,13 @@ def _port_volumm(dv, ob, snap, board, ability_states, repairs: int, mutate=None)
 
 # --------------------------------------------------------------------------- volets
 
-def run_blade(rpc, level: int = 3, keep: bool = False, build_runner=None) -> dict:
+def run_blade(rpc, level: int = 3, keep: bool = False, build_runner=None,
+              reset: bool = False) -> dict:
     from engine.entities.effects.magnitude import ability_var
     from engine.entities.pathfinding.board import Board
 
-    out: dict = {"volet": "blade", "level": level, "ok": False, "why": None}
+    out: dict = {"volet": "reset" if reset else "blade", "level": level, "reset": bool(reset),
+                 "ok": False, "why": None}
     out["expected"] = {
         "cc": int(ability_var(BLADE, "extraCritChance", level, multiplier_pct=100) or 0),
         "cd": int(ability_var(BLADE, "extraCritDmg", level, multiplier_pct=100) or 0)}
@@ -401,9 +443,9 @@ def run_blade(rpc, level: int = 3, keep: bool = False, build_runner=None) -> dic
 
     sbc = seed_bc_path(level, 10)
     if build_runner is not None:
-        rid = build_runner(SEED, extra=build_args_blade(level, sbc))["rid"]
+        rid = build_runner(SEED, extra=build_args_blade(level, sbc, reset))["rid"]
     else:
-        rid, _st = _build_subprocess(build_args_blade(level, sbc))
+        rid, _st = _build_subprocess(build_args_blade(level, sbc, reset))
     out["rid"] = rid
     try:
         bg = rpc("boardGraph", {"runnerId": rid}, 60)
@@ -440,7 +482,7 @@ def run_blade(rpc, level: int = 3, keep: bool = False, build_runner=None) -> dic
         uas = rpc("unitAbilityStates", {"runnerId": rid}, 60)
 
         # --- PORT : trois lectures de la MEME capture, c'est leur CONTRASTE qui prouve -----------
-        out["port"] = _port_blade(dv, ob, snap, board, uas)
+        out["port"] = _port_blade(dv, ob, snap, board, uas, with_reset=reset)
         out["port_no_rail"] = _port_blade(dv, ob, snap, board, False)
         out["port_passive_level"] = _port_blade(dv, ob, snap, board, uas, mutate="passive-level")
 
@@ -470,6 +512,38 @@ def run_blade(rpc, level: int = 3, keep: bool = False, build_runner=None) -> dic
         out["native_effects"] = [e for u in (dv2.get("units") or [])
                                  if int(u.get("id", -1)) == int(sq[UTHAR])
                                  for e in (u.get("effects") or [])]
+
+        # --- volet RESET : Uthar CRITE sur une cible qui SURVIT -> le buff doit tomber ------------
+        if reset:
+            if SURVIVOR not in sq:
+                out["why"] = "%s absent du live -- pas de cible a criter" % SURVIVOR
+                return out
+            st = board.id_at(U[sq[SURVIVOR]]["col"], U[sq[SURVIVOR]]["row"])
+            if not _drive_adjacent(rpc, rid, board, sq[UTHAR], st):
+                out["why"] = "%s ne peut pas atteindre le contact de %s" % (UTHAR, SURVIVOR)
+                return out
+            dv3 = rpc("decisionView", {"runnerId": rid, "maxRank": 1, "allAbilities": True}, 90)
+            nat_u = _normal_attack_type(dv3, sq[UTHAR])
+            if nat_u is None:
+                out["why"] = "%s n'expose aucune attaque normale" % UTHAR
+                return out
+            stats_pre = _snap_stats(rpc, rid)
+            act2 = rpc("applyAction", {"runnerId": rid, "action": {
+                "kind": "ability", "casterId": sq[UTHAR], "targetId": sq[SURVIVOR],
+                "abilityType": nat_u}}, 120)
+            out["crit_ack"] = {k: act2.get(k) for k in ("ok", "error")} \
+                if isinstance(act2, dict) else {"raw": str(act2)[:200]}
+            post2 = _live_units(rpc, rid)
+            out["survivor_alive"] = sq[SURVIVOR] in post2
+            stats_post = _snap_stats(rpc, rid)
+            bb, aa = stats_pre.get(UTHAR) or {}, stats_post.get(UTHAR) or {}
+            out["reset_delta"] = {
+                "cc": int(aa.get("critChance", 0)) - int(bb.get("critChance", 0)),
+                "cd": int(aa.get("critDamage", 0)) - int(bb.get("critDamage", 0))}
+            out["stats_reset"] = {"before": bb, "after": aa}
+            base = _snap_stats(rpc, rid)
+            out["cd_back_to_base"] = (int((base.get(UTHAR) or {}).get("critDamage", 0))
+                                      == int((stats0.get(UTHAR) or {}).get("critDamage", 0)))
         out["ok"] = True
         return out
     finally:
@@ -608,7 +682,7 @@ def run_volumm(rpc, level: int = 10, repairs: int = 1, keep: bool = False,
 
 def main() -> int:
     ap = argparse.ArgumentParser(description="#1001 -- les deux reliques Votann")
-    ap.add_argument("--volet", choices=("blade", "volumm"), default="blade")
+    ap.add_argument("--volet", choices=("blade", "reset", "volumm"), default="blade")
     ap.add_argument("--level", type=int, default=None)
     ap.add_argument("--repairs", type=int, default=1)
     ap.add_argument("--keep", action="store_true")
@@ -622,8 +696,9 @@ def main() -> int:
     def rpc(method, body=None, timeout=90):
         return _unwrap(R._rpc(sid, method, [body] if body is not None else [], timeout=timeout))
 
-    if a.volet == "blade":
-        r = run_blade(rpc, level=(3 if a.level is None else a.level), keep=a.keep)
+    if a.volet in ("blade", "reset"):
+        r = run_blade(rpc, level=(3 if a.level is None else a.level), keep=a.keep,
+                      reset=(a.volet == "reset"))
         print("runner=%s level=%s ok=%s why=%s" % (r.get("rid"), r.get("level"), r.get("ok"),
                                                    r.get("why")))
         print("attendu  = %s   (palier clampe, ce que le niveau PASSIF rendrait = %s)"
@@ -641,6 +716,11 @@ def main() -> int:
         print("[PORT niveau PASSIF] cc=%s cd=%s"
               % (r["port_passive_level"].get("cc_delta"),
                  r["port_passive_level"].get("cd_delta")))
+        if r.get("reset"):
+            print("[NATIF reset] ack=%s survivant=%s delta apres crit = %s | retour a la base = %s"
+                  % (r.get("crit_ack"), r.get("survivor_alive"), r.get("reset_delta"),
+                     r.get("cd_back_to_base")))
+            print("[PORT  reset] %s" % (r["port"].get("reset"),))
         return 0
 
     r = run_volumm(rpc, level=(10 if a.level is None else a.level), repairs=a.repairs,
