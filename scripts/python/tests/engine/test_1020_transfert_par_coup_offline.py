@@ -44,6 +44,54 @@ from engine.runner.components import HealthComponent, PendingDamage, UnitCompone
 from engine.runner.operations.damage import AttackDamageOperation                   # noqa: E402
 from engine.runner.state import State                                               # noqa: E402
 
+#: Ce qui doit changer pour que ce FICHIER de test puisse changer de verdict (#486-r15).
+#: PRIS LARGE VOLONTAIREMENT : trop etroit serait un FAUX VERT (le fichier ne se rejouerait pas
+#: sous `--since` quand ce qu'il garde a bouge). On liste les DEUX etages qu'il confronte -- le
+#: chokepoint et le transfert -- plus tout ce dont ils lisent la forme.
+DECLENCHEUR = {
+    "chemins": (
+        # L'ETAGE : le chokepoint partage et sa decomposition par coup.
+        "scripts/python/engine/runner/operations/damage.py",
+        "scripts/python/engine/runner/operations/damage_hits.py",
+        # Le CANAL : `PendingDamage` et le champ `HealthComponent.pending_damage`
+        # (`FillUpStatComponent+0x64`) -- l'etage 1 et l'etage 5 en dependent tous les deux.
+        "scripts/python/engine/runner/components.py",
+        # Le TRANSFERT : l'Operation, la feuille DSL, la TriggeredAbility, et le registre qui
+        # l'apparie a son nom gameconfig (etage 6).
+        "scripts/python/engine/runner/operations/transfer_damage.py",
+        "scripts/python/engine/runner/abilities/behaviours/transfer.py",
+        "scripts/python/engine/runner/operations/triggers/loki/savior_protocols.py",
+        "scripts/python/engine/runner/operations/triggers/dispatch/registry.py",
+        # La STRUCTURE de l'arbre (etage 6) : `If` et le PREDICAT `MaybeTrigger` -- confondre ce
+        # dernier avec le noeud EFFET homonyme est precisement ce que l'etage garde.
+        "scripts/python/engine/entities/behaviours.py",
+        "scripts/python/engine/entities/triggers.py",
+        # Le sens des ordinaux cites (`AbilityConstantType.chance` = 0x2a,
+        # `TriggeredAbilityType.SaviorProtocols` = 0x460).
+        "scripts/python/engine/entities/ability_constant_type.py",
+        "scripts/python/engine/entities/triggered_ability_type.py",
+        # Le gameconfig sert `constants.chance` (etage 6, volet valeur).
+        "scripts/python/gameconfig.py",
+    ),
+    # `build: True` -- l'etage 6 LIT `constants.chance` du gameconfig et compare deux ordinaux
+    # d'enum (`AbilityConstantType.chance` = 0x2a, `TriggeredAbilityType.SaviorProtocols` = 0x460).
+    # Un changement de build peut donc faire basculer ce verdict SANS qu'un seul fichier du depot
+    # bouge -- c'est exactement ce que ce drapeau veut dire.
+    "build": True,
+    # `toujours: False` -- les chemins ci-dessus bornent VRAIMENT le verdict : les six autres
+    # etages sont purement structurels (ils n'appellent que `_pre_damage_taken_per_hit`,
+    # `transfer_damage_operation` et la feuille DSL, tous listes). Le doute a ete resolu du cote
+    # LARGE partout ou il en restait un (les deux modules d'enum, `gameconfig.py`, `behaviours.py`
+    # et `triggers.py` y sont alors qu'aucun etage n'en lit le CORPS).
+    "toujours": False,
+    "raison": ("garde l'etage `On(0x39 = EventTriggerType.PreDamageTaken)` (emission PAR COUP, "
+               "retour LU par le champ pendant `FillUpStatComponent+0x64`) et le transfert de "
+               "degat qui le consomme (`IdunBattle.Operations.TransferDamageOperation`) : les "
+               "chemins couvrent le chokepoint, sa decomposition par coup, le canal pendant, les "
+               "trois pieces du transfert, le registre qui les apparie, et la structure d'arbre "
+               "que l'etage 6 confronte."),
+}
+
 
 class _Dispatch:
     """Substitut du module `triggers.dispatch.attack`. `_pre_damage_taken_per_hit` le recoit en
