@@ -169,7 +169,25 @@ trois soins de 6509 en huit actions, rang non attribuable.
   gate `EntityCanHaveActiveAbilityReset`).
 * **`unitSelectionType = 3`** de `TriggerAbilityDelayed` et **`isHidden`** : tracés, jamais lus.
 
-## 6. Où ça vit
+## 6. Effet de bord mesuré : le seuil `borne < 1000` de #468 a EXPIRÉ
+
+`tests/test_468_collision_numeros_offline.py::test_sur_le_depot_REEL_le_numero_suggere_n_apparait_NULLE_PART`
+portait `assert borne < 1000, "la borne a absorbé un identifiant qui n'est pas une tâche"`. Prémisse :
+aucun numéro de **tâche** n'atteint 1000, donc une borne ≥ 1000 ne peut venir que d'une case-doc
+nommée d'après un **id d'ability** (`case-1014-*`, `case-1203-*`, `case-1547-*`).
+
+Cette prémisse est tombée : `probe_468 --suggere` a rendu **#1001** (borne 996, 997..1000 déjà pris).
+Le premier agent qui écrit une case-doc `case-1001-*` rend donc `master` **ROUGE** — et quatre autres
+tranches de reliques allouent au même moment.
+
+Réparation faite ici : le seuil magique est remplacé par l'**invariant** qu'il approximait — la borne
+doit être **DÉFINIE dans `backlog.md`** (1ʳᵉ cellule d'une ligne, racine ou résidu), pas seulement
+portée par une case-doc. `#1001` passe (ligne `#1001-r1`) ; les trois contaminants ne passeraient pas,
+et un second bras **assertionne son propre non-vide** pour que le test ne devienne pas un vert qui
+ment le jour où ces case-docs disparaissent. Un seuil plus haut n'aurait fait que reporter la même
+péremption.
+
+## 7. Où ça vit
 
 | | |
 |---|---|

@@ -59,6 +59,7 @@ DECLENCHEUR = {
 import ast
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -1132,5 +1133,29 @@ def test_sur_le_depot_REEL_le_numero_suggere_n_apparait_NULLE_PART():
     assert str(n) not in pris
     assert n > borne, "la suggestion doit rester au-dessus de la borne (monotonie)"
     # Et la borne ne doit pas avoir ete contaminee par un id d'ability.
-    assert borne < 1000, "la borne (%d) a absorbe un identifiant qui n'est pas une tache" % borne
+    #
+    # ⚠ LE SEUIL QUI TENAIT CE ROLE (`borne < 1000`) A EXPIRE, et il a rougi `master` (#1001,
+    # 2026-08-13) : l'espace des TACHES a franchi 1000 -- `--suggere` a rendu `#1001` alors que la
+    # borne valait 996 et que 997..1000 etaient deja pris. Un seuil plus haut ne ferait que
+    # reporter la meme peremption ; c'est le mode de panne que la doctrine appelle << une garde en
+    # SEUIL se degrade en silence >>.
+    #
+    # L'INVARIANT qu'il approximait : la borne doit etre ADOSSEE AU BACKLOG -- le numero doit y
+    # etre DEFINI (1re cellule d'une ligne, racine ou residu), pas seulement porte par une
+    # case-doc NOMMEE d'apres un id d'ability. C'est exactement ce qui separe `#1001` (defini par
+    # la ligne `#1001-r1`) des trois contaminants que `borne_des_taches` documente :
+    # `case-1014-*`, `case-1203-*`, `case-1547-*`, dont AUCUNE racine n'est definie au backlog
+    # (verifie par le second bras ci-dessous, qui rendrait ce test vide s'il n'y en avait plus).
+    racines_backlog = {m.group(1)
+                       for d in p468.definitions_du_backlog(p468._lignes_backlog())
+                       for m in [re.match(r"^(\d+)", d.cle)] if m}
+    assert str(borne) in racines_backlog, (
+        "la borne (%d) n'est DEFINIE nulle part dans backlog.md : elle a absorbe un identifiant "
+        "qui n'est pas une tache (typiquement une case-doc nommee d'apres un id d'ability)" % borne)
+    contaminants = {m.group(1)
+                    for d in p468.definitions_des_case_docs(p468._fichiers_case_docs())
+                    for m in [re.match(r"^(\d+)", d.cle)] if m} - racines_backlog
+    assert contaminants, (
+        "aucune case-doc n'est nommee d'apres un id hors backlog : le bras ci-dessus ne separe "
+        "plus rien -- verifier que `borne_des_taches` filtre encore ces identifiants")
 
