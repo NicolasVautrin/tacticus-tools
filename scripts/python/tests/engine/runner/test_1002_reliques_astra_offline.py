@@ -280,17 +280,22 @@ def test_le_selecteur_de_zone_exige_les_DEUX_traits(montage):
     `DSLSelectors$$UnitsWithTraits` est une INTERSECTION (decompile : `result op_BitwiseAnd
     UnitsWithTrait(...)` par trait). Un `Imperial` qui n'est pas `Summon` ne doit PAS entrer."""
     from engine.runner.abilities.behaviours.context import entities_from_state
-    from engine.entities.selectors.tiles import AllUnits
+    # ⚠ `AllAliveUnits` (pool 0), PAS `AllUnits` (pool 8) : le natif ne passe JAMAIS un pool a
+    # `IsImperialAndSummon` -- il lui donne `SurroundingFriends(...)` ou `Caster@+0x48`. La source
+    # n'est ici qu'une COMMODITE de garde, et prendre le pool-8 ferait ecrire a ce test un site
+    # `AllUnits(` non attribuable a un call-site natif (le cliquet `probe_514` etape 3 le refuse,
+    # a juste titre).
+    from engine.entities.selectors.tiles import AllAliveUnits
     # ⚠ ALLIE VIVANT : le `selectionType: 3` du site est `OnlyAliveAndTargetable` -- une unite morte
     # est ecartee AVANT meme le test de traits, et le bras ne mesurerait plus l'intersection.
     st = montage(allie_vaincu=False)
     st.get_entity(ALLIE).get_component(StatsComponent).ctx.traits = [UnitTrait.Imperial.name]
     ctx = entities_from_state(st, PORTEUR, CIBLE, owner_id=PORTEUR)
-    assert [u["id"] for u in is_imperial_and_summon(AllUnits()).evaluate(ctx)] == []
+    assert [u["id"] for u in is_imperial_and_summon(AllAliveUnits()).evaluate(ctx)] == []
     st.get_entity(ALLIE).get_component(StatsComponent).ctx.traits = [
         UnitTrait.Imperial.name, UnitTrait.Summon.name]
     ctx = entities_from_state(st, PORTEUR, CIBLE, owner_id=PORTEUR)
-    assert [u["id"] for u in is_imperial_and_summon(AllUnits()).evaluate(ctx)] == [ALLIE]
+    assert [u["id"] for u in is_imperial_and_summon(AllAliveUnits()).evaluate(ctx)] == [ALLIE]
 
 
 # ------------------------------------------------------------- 6. le slot OWNER, threade a part
