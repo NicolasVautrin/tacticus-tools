@@ -219,15 +219,30 @@ def phase_graviton(sid, args):
 
 
 def phase_fortune(sid, args):
-    # Un heros FRAIS a critChance/blockChance de BASE = 0 (ces stats viennent des ITEMS, que la
-    # normalisation strippe) -> les DEUX gates natifs `CanAddCritChance`/`CanAddBlockChance`
-    # (`StatAmount(self, 9|7, INITIAL) > 0`) sont FAUX et AUCUN buff n'est pose. `--crit`/`--block-player`
-    # restaurent ces bases sur le TEMPLATE Unit -> on exerce les gates dans les DEUX sens.
+    # Les DEUX gates natifs `CanAddCritChance` / `CanAddBlockChance` (`StatAmount(self, 9|7,
+    # INITIAL) > 0`) se lisent sur la BASE de l'unite. Pour les exercer dans les DEUX sens, il faut
+    # donc un montage a base NULLE et un montage a base POSITIVE -- et c'est le montage qui doit
+    # l'ETABLIR, jamais une premisse ecrite (#914-r2, cran de #933/#914).
+    #
+    # ⚠ PREMISSE PERIMEE, corrigee ici : ce bloc disait << un heros FRAIS a critChance/blockChance
+    # de BASE = 0, ces stats viennent des ITEMS que la normalisation strippe >>. C'etait vrai a
+    # l'ecriture ; depuis #419-r5/-r6 `_normalize_and_extract_pool` EQUIPE les items Best-In-Slot
+    # PAR DEFAUT (mesure sur le seed BC au rank 17 : `could_crit` 0/106 -> 98/106, `could_block`
+    # 0/106 -> 46/106). Sans drapeau, la base n'est donc PLUS nulle : le gate etait VRAI des deux
+    # cotes et la phase mesurait DEUX FOIS le meme sens en croyant les opposer.
+    #
+    # Le sens NEGATIF se CONSTRUIT desormais (`--unit-stat`), il ne se suppose plus. Pas
+    # `TACTICUS_BIS_ITEMS=0`, qui deshabille tout le roster : c'est l'instrument de DIAGNOSTIC,
+    # jamais le remede (#914 §3.3).
     extra = []
     if args.crit:
         extra += ["--crit", args.crit]
+    else:
+        extra += ["--unit-stat", "%s:CritChance=0,CritDamage=0" % UTHAR]
     if args.block:
         extra += ["--block-player", args.block]
+    else:
+        extra += ["--unit-stat", "%s:BlockChance=0,BlockDamage=0" % UTHAR]
     rid = build(args.state, f"{UTHAR},{SPARE}", FOE_MECH, extra=extra)
     print(f"[fortune] runner {rid} extra={extra}")
     drive(sid, rid, UTHAR, FOE_MECH, 1)
