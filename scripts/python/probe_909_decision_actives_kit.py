@@ -21,6 +21,17 @@ du perimetre (`engine/playbook/**` + `entities/abilities/active_ability.py`) qui
 `ActiveAbilityType` est INSCRIT ou ECARTE AVEC SA RAISON, et un conteneur NEUF sort MUET (etape 6,
 `rc 1`). C'est le patron de l'etape 7 de `probe_313`, transpose.
 
+#1021 -- CE PROBE COMPTAIT SANS MORDRE, ET C'EST FERME
+-------------------------------------------------------
+Le compte des actives sans face DECISION sortait sous `rc=0` : un inventaire deguise en
+garde-fou, le defaut exact de `probe_181` avant #430. Le CRAN vit desormais dans
+`probe_1021_face_decision_au_registre` -- << une active qui entre dans `ABILITY_CLASSES` porte son
+VERDICT de face DECISION >> -- et son verdict est PROPAGE au `rc` d'ici (etape 7). Sa population
+est PLUS LARGE que celle de l'etape 2 : `ABILITY_CLASSES` (171) inclut les porteurs npc et summon
+que ce probe ECARTE, et deux de ses 16 sans-verdict (`1076 MV71SniperDroneSquadAttack`,
+`1211 RitesOfMorkai`) ne sortaient d'AUCUN inventaire de kit. La dette est FIGEE : le cran rougit
+sur une entree NOUVELLE, se tait sur le progres.
+
 L'ETAT EST TERNAIRE, ET LE TROISIEME N'EST PAS DERIVABLE
 ---------------------------------------------------------
 `portee / non portee` est un axe FAUX pour une active dont le playbook natif EST le chemin
@@ -673,6 +684,38 @@ def main() -> int:
         print("      FANTOME %s.%s -- inscrit au foyer, introuvable dans le perimetre"
               % (mod, attr))
     rouge = len(p["muets"]) + len(p["fantomes"])
+
+    print("\n[909] ETAPE 7 -- LE CLIQUET D'ENTREE AU REGISTRE (#1021)")
+    print("   Ce probe COMPTAIT les actives sans verdict de face DECISION et rendait `rc=0` sur ce")
+    print("   compte : un inventaire deguise en garde-fou, le meme defaut que `probe_181` avant")
+    print("   #430. Le cran vit dans `probe_1021_face_decision_au_registre` -- il porte sur")
+    print("   `ABILITY_CLASSES` (le registre de la face COMBAT), population PLUS LARGE que les")
+    print("   actives de kit `lineup` d'ici : elle inclut les porteurs npc et summon, que l'etape 2")
+    print("   ECARTE. Son verdict est propage au `rc` de ce probe.")
+    import probe_1021_face_decision_au_registre as C1021
+    mes = C1021.mesurer()
+    k = C1021.crans(mes)
+    print("   ABILITY_CLASSES %d ; sans verdict %d ; dette declaree %d"
+          % (len(mes), len(k["manque"]), len(C1021.DETTE)))
+    print("   CRAN A (aucun sans-verdict hors dette) %s | CRAN B (les TRANCHE le restent) %s | "
+          "CRAN C (mesure non vide) %s"
+          % ("OK" if not k["A"] else "FAUTE(%d)" % len(k["A"]),
+             "OK" if not k["B"] else "FAUTE(%d)" % len(k["B"]),
+             "OK" if not k["C"] else "FAUTE(%d)" % len(k["C"])))
+    for aid in k["A"]:
+        print("      MANQUANT %-6d %-30s %s -- entree au registre COMBAT sans verdict de face "
+              "DECISION" % (aid, mes[aid]["nom"], mes[aid]["classe"]))
+    for aid in k["B"]:
+        print("      REGRESSION %-6d declare TRANCHE, etat mesure %s"
+              % (aid, mes.get(aid, {}).get("etat", "ABSENT")))
+    for m in k["C"]:
+        print("      %s" % m)
+    if k["progres"]:
+        print("   DETTE REDUCTIBLE : %d id(s) ont acquis leur verdict -- retirer leur ligne. Ce"
+              % len(k["progres"]))
+        print("   n'est PAS un rouge : une dette qui descend est un succes.")
+    print("   detail complet : python scripts/python/probe_1021_face_decision_au_registre.py")
+    rouge += len(k["A"]) + len(k["B"]) + len(k["C"])
 
     print("\n[909] PORTEE DE LA MESURE -- ce que ce compte N'INCLUT PAS")
     print("   kits ECARTES (kind != lineup) : %d unites -- %s"
