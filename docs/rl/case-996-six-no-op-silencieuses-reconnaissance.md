@@ -176,6 +176,65 @@ d'interrogation). Croisé avec `rl_duel.py build --list-pool`.
 Aucune des six n'est « non confrontable ». Le pool courant ne contient pas `thousDaemonPrince` ;
 absent du pool != non confrontable.
 
+## Ce qui a été PORTÉ, et comment c'est confronté
+
+**Trois des six** sont portées, inscrites à `ABILITY_CLASSES` avec leur `TARGETING_OPTIONS` **et**
+leur littéral `ABILITY_ATTACK_TYPE`, dans le même commit ; leurs deux entrées de
+`TARGETING_OPTIONS_UNPORTED` (1010, 1185) sont **retirées** (contrat de disjonction) après
+re-lecture du ctor — concordance champ pour champ, deux lectures indépendantes.
+
+| id | fichier | masque (forme de ctor) | `AbilityAttackType` |
+|---|---|---|---|
+| 1010 | `engine/runner/abilities/necrons.py` | `0x4010` FLAGS-DIRECTS, `RANGE_ADJACENT` | `0` DirectTargetAttack |
+| 1133 | `engine/runner/abilities/aeldari.py` | `0x8000` FLAGS-DIRECTS, `RANGE_SELF`, self-cast | `2` Others |
+| 1185 | `engine/runner/abilities/tau.py` | `0x200004002` FLAGS-DIRECTS, `RANGE_FROM_CONFIG`, `forceMeleeTarget = RangedBool.True` | `2` Others |
+
+**Confrontation LIVE, les trois vertes** (`probe_996_no_op_silencieuses.py`, board `MC1_67`,
+seed 777, porteurs npc RÉELS via `--explicit-stats` — pas une greffe) :
+
+| id | natif | port | verdict |
+|---|---|---|---|
+| 1133 | pose `WarConstruct_CounterAttack` + `IgnoreUsedAbilityInOverwatch` sur le caster | idem | **accord exact** |
+| 1185 | pose `Markerlight` sur la cible + `ForwardObservers_DamageReduction` sur le caster | idem | **accord exact** |
+| 1010 | PV cible 10542 -> 8882 | émet **2** attaques normales sur la même cible | **accord structurel** (montant non confronté) |
+
+### Deux pièges de MONTAGE, mesurés, qui faisaient rendre un faux « non confrontable »
+
+1. **`abilityTargets` n'est PAS l'oracle.** Il rend `fromHere = []` pour 1010 et 1185 alors que le
+   cast passe. C'est un préfiltre de preview ; l'oracle est ce que le natif FAIT quand on lui
+   envoie le cast.
+2. **`ok: True` ne veut pas dire « cast exécuté ».** Un cast refusé par
+   `IdunBattle.Operations.ActiveAbilityOperation$$ExecuteInternal` rend `ok: True`,
+   `mutated: False`, `changes: []`, `actionConsumed: False` — **et ouvre quand même** un événement
+   `group` portant le nom de l'ability. Le discriminant est `actionConsumed`.
+3. **La grille est odd-Q, pas odd-R.** Une conversion cube écrite à la main dans le probe rendait
+   `dist((5,7),(6,8)) = 1` là où `hexgeo.to_cube` (`z = row - (col + (col & 1)) // 2`) lit `2`.
+   L'approche s'arrêtait donc à une case NON adjacente, le cast était refusé pour PORTÉE
+   (`TargetIsInRange`), et le probe rapportait « aucune cible légale » — un montage muet qui se
+   lit comme un verdict. **Ne jamais réécrire une métrique que le moteur porte déjà.**
+
+## Résidus ouverts
+
+* **`#996-r1`** — les **trois** abilities du lot NON portées : `1015 PrecisionShot` (le cast est un
+  `UseActiveAbility(Caster, Caster, 1012 PrecisionShot_Aim)` : porter 1015 sans 1012 déplace le
+  no-op d'un cran), `1053 DevoutPush` (attaque normale + `Kill(DeadUnits(Tiles(Target)))` +
+  `PerformAIMovement(Caster, Direct(1), <UtilityBucket 0x35 DevoutPush_AdjacentRangedEnemies>)` —
+  le sélecteur `DSLSelectors$$DeadUnits` n'a pas de mirror, et l'utilité 53 est probablement
+  inerte comme la 62 de BioMinefield, cf. `#175-r`), `1208 AetherStride` (`Spawn` sur
+  `ThreeTileUnitSpawnShape` **&** `RemoveMachine(Caster)`).
+* **`#996-r2`** — les effets sont POSÉS et INERTES : `1286 WarConstruct_CounterAttack` (tout son
+  appareil est dans `IdunBattle.Entities.Effects.Loki.WarConstruct_CounterAttackEffect$$GetCounterAttackBehaviour`
+  / `$$GetCounterAttackTrigger` / `$$GetCounterAttackCondition` / `$$GetDamage`),
+  `1302 IgnoreUsedAbilityInOverwatch`, et la magnitude `dmgPctReduction = 50` de
+  `1397 ForwardObservers_DamageReduction`
+  (`...ForwardObservers_DamageReductionEffect$$CreateEffectDamageMalusForDefense`).
+* **`#996-r3`** — `IdunBattle.Entities.Behaviours.UseActiveAbilityBehaviourOptions` n'est pas
+  modélisée par le port (`InvalidTargetPolicy@+0x00`, `SkipEndTurnFlag@+0x08`,
+  `SkipAbilityFlag@+0x09`, `SkipAtomicCheck@+0x0a`, `SkipAliveCheck@+0x0b`). 1010 est le **premier**
+  call-site à options non nulles : `SkipEndTurnFlag = (i == 0)`, `SkipAtomicCheck = true`. L'écart
+  est inerte ici (la feuille ne pose aucun flag de tour côté port) ; il cessera de l'être au
+  premier call-site où `SkipEndTurnFlag` discrimine.
+
 ## Ce que cette fiche ne tranche PAS
 
 - La 3ᵉ structure d'options de `UseActiveAbility` (1010) : quel champ porte le flag `(i == 0)`.
