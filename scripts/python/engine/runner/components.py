@@ -607,6 +607,44 @@ class PositionComponent(Component):
         self.previous = list(previous) if previous else None
 
 
+class PendingDamage:
+    """#1020 -- mirror des trois champs LUS d'`IdunBattle.Core.Services.DamageAppliedResult`, la
+    valeur que `IdunBattle.Operations.ApplyDamageOperation$$Execute` depose dans
+    `FillUpStatComponent+0x64` (`Nullable<DamageAppliedResult>`) AVANT d'emettre
+    `On(0x39 = EventTriggerType.PreDamageTaken)`, et qu'il **RELIT** juste apres pour decider ce
+    qu'il applique reellement.
+
+    Champs (offsets LUS dans `IdunBattle.Core.Services.DamageAppliedResult$$.ctor`) :
+    `+0x00 damageProfileType`, `+0x04 healthDamage`, `+0x08 shieldDamage`. Le port ne porte que
+    ces trois-la : ce sont les seuls que le pipeline relit apres l'emission
+    (`FillUpStatComponent$$Reduce(hp, pending.healthDamage)` et
+    `ApplyDamageOperation$$ReduceShield(.., pending.shieldDamage)`), et le seul que consomme
+    `IdunBattle.Operations.TransferDamageOperation$$GetDamage`
+    (`DamageAppliedResult$$get_Damage` = `+0x08 + +0x04`, mirror `total()` ci-dessous).
+
+    ⚠ **CE N'EST PAS UN BONUS, C'EST UNE CONSOMMATION.** Un consommateur de
+    `On(0x39)` qui pose `HealthComponent.pending_damage = None` **retire** le degat a la victime :
+    la relecture native est un `System.Nullable<T>$$GetValueOrDefault`, donc un pending vide rend
+    la struct ZERO et `Reduce(0)` n'enleve rien. C'est ce qui fait de `SaviorProtocols` un
+    DEPLACEMENT de degat et non une duplication."""
+
+    __slots__ = ("profile", "health", "shield")
+
+    def __init__(self, profile: Optional[str], health: int, shield: int = 0):
+        self.profile = profile
+        self.health = int(health or 0)
+        self.shield = int(shield or 0)
+
+    def total(self) -> int:
+        """`IdunBattle.Core.Services.DamageAppliedResult$$get_Damage` -- LU VERBATIM :
+
+            return *(int *)(this + 8) + *(int *)(this + 4);      // shieldDamage + healthDamage
+
+        C'est le montant que `TransferDamageOperation$$GetDamage` empaquette dans le
+        `IdunBattle.Core.Damage` rendu, donc **le montant transfere** : bouclier COMPRIS."""
+        return int(self.health) + int(self.shield)
+
+
 class HealthComponent(Component):
     """PV — `HealthComponent` IdunBattle.Entities.Components.HealthComponent$$.ctor. `hp` courant, `hp_max` plafond.
 
@@ -675,7 +713,7 @@ class HealthComponent(Component):
     `+0x14 = +0x10 = value`), mais sa LECTURE traverse desormais les modifications."""
 
     __slots__ = ("hp", "max_initial", "max_base", "max_modification", "max_override",
-                 "minimal_health", "over_reduce")
+                 "minimal_health", "over_reduce", "pending_damage")
 
     #: `Math.Min(0x7fffffff - initial, ...)` de `get_CurrentMaximumValue` -- borne `int.MaxValue`
     #: du natif, un vrai scalaire (elle ne designe rien).
@@ -686,6 +724,11 @@ class HealthComponent(Component):
                  max_modification: Optional[ValueModification] = None,
                  max_override: Optional[ValueOverride] = None):
         self.hp = hp
+        # #1020 : `FillUpStatComponent+0x64` -- le `Nullable<DamageAppliedResult>` PENDANT.
+        # HORS du seed (jamais serialise) : il ne vit qu'entre l'ecriture et la relecture d'UN
+        # coup, a l'interieur d'`IdunBattle.Operations.ApplyDamageOperation$$Execute`. Cf.
+        # `PendingDamage` ci-dessous.
+        self.pending_damage: Optional["PendingDamage"] = None
         # `Initialize(v)` pose `+0x10 = +0x14 = v` : sans capture separee du `+0x10`, le seed les
         # egalise -- c'est l'etat de deploiement du natif, et le seul que le canal publie.
         self.max_base = hp_max

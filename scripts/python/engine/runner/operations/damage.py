@@ -91,6 +91,7 @@ from ...entities.stats import StatType
 from ..prng import IntBasedMersenneTwister
 from ..state import State
 from ..components import (UnitComponent, ShieldComponent, UnitFlagsComponent, HealthComponent,
+                          PendingDamage,
                           StatsComponent, unit_is_dead, can_be_overkilled, unit_prevents_overkill)
 from ...services.trait_damage_limits import unit_is_overkill
 from ...entities.effects import (crit_chance_bonus_from_effects, crit_damage_bonus_from_effects,
@@ -674,6 +675,85 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
         on_group_unit_hp_changed(state, target_id)
 
     @staticmethod
+    def _pre_damage_taken_per_hit(state: State, attacker_id: int, target_id: int, thc,
+                                  total: int, shield_dmg: int, profile: Optional[str],
+                                  hits_result: Optional[dict], attack_dispatch,
+                                  *, is_first_damaging_hit) -> tuple:
+        """#1020 -- l'etage `On(0x39 = EventTriggerType.PreDamageTaken)`, PAR COUP et A RETOUR LU.
+
+        MIRROR de la sequence d'`IdunBattle.Operations.ApplyDamageOperation$$Execute`, relue aux
+        octets (l'operation native est appelee UNE FOIS PAR COUP, par
+        `IdunBattle.Core.Services.OperationProcessor$$ApplyDamage`) :
+
+            healthComp[+0x64] = Nullable<DamageAppliedResult>(result);      // ECRITURE du pending
+            ...
+            if (0 < DamageAppliedResult.get_Damage(&result))                // le GATE d'emission
+                <publish 0x39>                                             // les triggers ont la main
+            ...
+            GetValueOrDefault(healthComp[+0x64], &pending);                 // RELECTURE
+            local_7dc = FillUpStatComponent.Reduce(hp, pending.healthDamage);
+            ReduceShield(.., pending.shieldDamage);
+
+        **LE CANAL DE DETOURNEMENT N'EST PAS LE RETOUR DU DISPATCH -- c'est le CHAMP PENDANT.**
+        `IdunBattle.Operations.TransferDamageOperation$$GetDamage` lit `healthComp[+0x64]`, en tire
+        `DamageAppliedResult$$get_Damage`, puis ECRIT `*(qword*)(comp+0x64) = 0` et
+        `*(qword*)(comp+0x6c) = 0` : la valeur pendante est **CONSOMMEE**. La relecture native etant
+        un `System.Nullable<T>$$GetValueOrDefault`, un pending vide rend la struct ZERO et le
+        `Reduce` qui suit n'enleve RIEN. C'est ce qui fait de `SaviorProtocols` un DEPLACEMENT de
+        degat et non un bonus : confondre les deux DOUBLE le degat au lieu de le deplacer.
+
+        GRANULARITE. `hits_result["per_hit_pending"]` (#1020, `damage_hits.py`) porte le
+        `(healthDamage, shieldDamage)` de chaque coup qui atteint le point d'ecriture -- meme
+        population que `per_hit`, donc deja filtree par le SITE (A) (`overkill_hit_emits` : le natif
+        `return` AVANT de poser le pending). Absent (`None`) = vecteur SANS decomposition par coup
+        (DoT, knockback, degat direct) : le natif n'y appelle `ApplyDamageOperation` qu'une fois,
+        donc le groupe EST le coup et la liste degenere a un seul element -- rigoureusement le
+        comportement d'avant ce commit.
+
+        `isFirstDamagingHit` (`DamageAppliedResult+0x18`) est PROPRE AU COUP : seul le PREMIER coup
+        damageant de la serie le porte. Le flag threade en argument dit « aucun degat n'a encore ete
+        inflige dans CETTE attaque » ; on le consomme au premier coup qui emet, les suivants
+        recoivent FAUX. Effet mesure sur `GeminaeSuperia` (#963, seul consommateur porte du
+        vecteur) : AUCUN -- son `matches` commence par `if not ev.is_first_damaging_hit: return
+        False`, donc les coups 2..N sortent avant toute evaluation de `SummonLimit` ou de
+        `GetPossibleSpawnTiles`. Le passage par-groupe -> par-coup ne lui ajoute ni spawn, ni
+        evaluation, ni tirage.
+
+        Rend `(kept_health, kept_shield, transfers)`. Sans aucun consommateur qui consomme le
+        pending, `kept_health == total` et `kept_shield == shield_dmg` A L'IDENTIQUE -- c'est
+        l'invariant de non-regression du chokepoint des QUATRE vecteurs de degat.
+
+        RESIDU NOMME (`#1020-r1`) : le bouclier. Le natif annule AUSSI `ReduceShield` sur un coup
+        transfere (il lit `pending.shieldDamage`, donc 0) ; le port, lui, deplete le bouclier dans
+        `_deplete_shield`, appele par les APPELANTS **avant** ce chokepoint. `kept_shield` est donc
+        juste pour les etages en aval (`RegisterDamage`, `lastHitDamageTaken`) mais la depletion
+        du `ShieldComponent`, elle, a deja eu lieu. Regime d'exercice : victime portant un
+        `ShieldComponent` non nul au moment d'un coup transfere. Non atteint par les porteurs de
+        `SaviorProtocols` (cibles T'au sans bouclier)."""
+        pend = (hits_result or {}).get("per_hit_pending")
+        if not pend:
+            pend = [(int(total or 0), int(shield_dmg or 0))]
+        kept_h = kept_s = 0
+        transfers = 0
+        first_dmg = bool(is_first_damaging_hit)
+        for (h, s) in pend:
+            # `healthComp[+0x64] = Nullable<DamageAppliedResult>(result)` -- AVANT toute emission.
+            thc.pending_damage = PendingDamage(profile, int(h), int(s))
+            if int(h) + int(s) > 0:            # `0 < DamageAppliedResult.get_Damage(&result)`
+                attack_dispatch.pre_damage_taken_triggers(
+                    state, attacker_id, target_id, profile=profile,
+                    is_first_damaging_hit=first_dmg)
+                first_dmg = False              # `+0x18` du coup SUIVANT : plus le premier damageant
+            after = thc.pending_damage         # `GetValueOrDefault` : Nullable vide -> struct ZERO
+            if after is None:
+                transfers += 1
+            else:
+                kept_h += int(after.health)
+                kept_s += int(after.shield)
+            thc.pending_damage = None          # le pending ne survit pas au coup (portee = `Execute`)
+        return kept_h, kept_s, transfers
+
+    @staticmethod
     def _apply_damage_pipeline(state: State, target_id: int, attacker_id: int, tgt, thc,
                                total: int, profile: Optional[str],
                                shield_dmg: int = 0, armor_dmg: int = 0,
@@ -748,30 +828,38 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
         # lazy : cycle damage<->triggers. Forme MODULE (cf. le meme import quelques lignes plus bas) :
         # l'attribut est relu a l'appel, donc une substitution posee sur `dispatch.attack` mord.
         from .triggers.dispatch import attack as attack_dispatch
-        if int(total or 0) > 0:
-            attack_dispatch.pre_damage_taken_triggers(
-                state, attacker_id, target_id, profile=profile,
-                # `isFirstDamagingHit` (`AbilityEntities+0x118`, 29e parametre nomme du ctor
-                # `IdunBattle.Entities.Abilities.AbilityEntities$$.ctor` ; lu SANS getter par
-                # `IdunBattle.Entities.Triggers.IsFirstDamagingHitInSeriesTrigger$$ShouldTrigger`,
-                # qui teste `HasValue` puis `get_Value` -> un Nullable vide vaut FAUX).
-                #
-                # #963-r2 -- L'ENONCE DU RESIDU ETAIT PARTIELLEMENT FAUX, et le re-mesurer a
-                # DEPLACE le trou. Il disait : « si le coup d'index 0 inflige 0, le port ne marque
-                # AUCUN groupe ». C'est inexact -- le gate d'emission est `total > 0` sur le GROUPE,
-                # donc un groupe dont le coup 0 est bloque mais dont un coup suivant damage emet
-                # DEJA avec le flag vrai. Le seul regime qui divergeait est plus etroit d'un cran :
-                # le groupe portant l'index 0 entierement a ZERO (tous ses coups bloques, donc
-                # AUCUNE emission), suivi d'un groupe qui damage -- ce second groupe ne contient pas
-                # l'index 0, et rendait donc FAUX la ou le natif marque le premier coup damageant.
-                #
-                # D'ou un flag PROPRE, threade comme `crit_allowed` et `failed_block` : « aucun
-                # degat n'a encore ete inflige dans CETTE attaque ». `None` = appelant qui ne le
-                # thread pas -> repli sur l'ancien `is_first_hit` (rigoureusement l'ancien
-                # comportement, pour les vecteurs qui n'ont pas de sous-operations).
-                is_first_damaging_hit=(is_first_hit if is_first_damaging_hit is None
-                                       else is_first_damaging_hit))
-        applied = thc.reduce(total)         # #G6a : clamp au HP-floor Hypersensory, pas de PV<0
+        # #1020 -- L'EMISSION EST DESORMAIS PAR COUP, ET SON RETOUR EST LU.
+        # `isFirstDamagingHit` (`AbilityEntities+0x118`, 29e parametre nomme du ctor
+        # `IdunBattle.Entities.Abilities.AbilityEntities$$.ctor` ; lu SANS getter par
+        # `IdunBattle.Entities.Triggers.IsFirstDamagingHitInSeriesTrigger$$ShouldTrigger`,
+        # qui teste `HasValue` puis `get_Value` -> un Nullable vide vaut FAUX).
+        #
+        # #963-r2 -- L'ENONCE DU RESIDU ETAIT PARTIELLEMENT FAUX, et le re-mesurer a
+        # DEPLACE le trou. Il disait : « si le coup d'index 0 inflige 0, le port ne marque
+        # AUCUN groupe ». C'est inexact -- le gate d'emission etait `total > 0` sur le GROUPE,
+        # donc un groupe dont le coup 0 est bloque mais dont un coup suivant damage emettait
+        # DEJA avec le flag vrai. Le seul regime qui divergeait est plus etroit d'un cran :
+        # le groupe portant l'index 0 entierement a ZERO (tous ses coups bloques, donc
+        # AUCUNE emission), suivi d'un groupe qui damage -- ce second groupe ne contient pas
+        # l'index 0, et rendait donc FAUX la ou le natif marque le premier coup damageant.
+        #
+        # D'ou un flag PROPRE, threade comme `crit_allowed` et `failed_block` : « aucun
+        # degat n'a encore ete inflige dans CETTE attaque ». `None` = appelant qui ne le
+        # thread pas -> repli sur l'ancien `is_first_hit` (rigoureusement l'ancien
+        # comportement, pour les vecteurs qui n'ont pas de sous-operations).
+        kept_health, kept_shield, transfers = AttackDamageOperation._pre_damage_taken_per_hit(
+            state, attacker_id, target_id, thc, int(total or 0), int(shield_dmg or 0), profile,
+            hits_result, attack_dispatch,
+            is_first_damaging_hit=(is_first_hit if is_first_damaging_hit is None
+                                   else is_first_damaging_hit))
+        # `FillUpStatComponent$$Reduce(hp, pending.healthDamage)` : le natif reduit ce que le
+        # PENDING RELU porte, pas le degat calcule. Sans consommateur, `kept_health == total`
+        # (mesure du no-op : voir `probe_1020_pipeline_par_coup.py` etage 1).
+        applied = thc.reduce(kept_health)   # #G6a : clamp au HP-floor Hypersensory, pas de PV<0
+        # Les etages EN AVAL lisent le pending relu, pas le calcule : tout ce qui suit consomme
+        # `kept_*`. Egalite stricte avec l'ancien code des qu'aucun trigger ne consomme.
+        total = kept_health
+        shield_dmg = kept_shield
         # #462-r4e-o-r1 : `HealthComponent.reduce` a accumule `+0x24` sur le total du GROUPE ; le
         # natif l'accumule PAR COUP et n'appelle pas `Reduce` pour un coup gate par le SITE (A).
         # Quand la decomposition existe, on repose la valeur EXACTE calculee coup par coup.

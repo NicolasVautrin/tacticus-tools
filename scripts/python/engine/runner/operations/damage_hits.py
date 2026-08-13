@@ -506,6 +506,13 @@ class _DamageHitsMixin:
         # doit savoir A QUEL COUP la cible tombe a 0 PV pour compter les coups GASPILLES sur le cadavre
         # (`ApplyDamageOperation.AddLeftoverHit`). PUREMENT ADDITIF (aucune branche modifiee).
         per_hit_health: list[int] = []
+        # #1020 : le couple `(healthDamage, shieldDamage)` DEMANDE de chaque coup qui atteint le
+        # point d'ecriture du pending -- c.-a-d. les memes coups que `per_hit` (gate SITE (A) :
+        # le natif `return` AVANT de poser `FillUpStatComponent+0x64`). C'est ce que
+        # `_apply_damage_pipeline` re-deroule pour emettre `On(0x39 = PreDamageTaken)` PAR COUP,
+        # comme le natif, au lieu d'une fois par groupe. Index-aligne sur `per_hit`.
+        # PUREMENT ADDITIF : aucune branche existante ne le lit.
+        per_hit_pending: list[tuple] = []
         # #R33 : `deniedDamage` du natif = le `previousHitsDeniedDamage` d'`ApplyTraitDamageLimitsTo
         # Damage`, c.-a-d. le rogne cumule AVANT le coup courant. `IdunBattle.Core.Services.
         # DamagePrediction$$IsOverkill` (surcharge d'instance) l'AJOUTE au degat compare aux PV de depart
@@ -715,6 +722,12 @@ class _DamageHitsMixin:
                 _hp_entry = _hp_left[0]           # PV restants AVANT ce coup (arg d'`IsOverkill`)
                 _or_entry = _over_reduce[0]       # `+0x24` AVANT le `Reduce` de ce coup
                 per_hit.append(_amount_applied(dmg))  # `Amount` de l'event = retraits REELS (borne PV)
+                # #1020 -- le pending POSE par ce coup : les champs `+0x04 healthDamage` /
+                # `+0x08 shieldDamage` du `DamageAppliedResult` que le natif ecrit dans
+                # `FillUpStatComponent+0x64`. Le DEMANDE, pas l'applique : le natif construit le
+                # resultat AVANT `Reduce`, et c'est ce montant-la que `TransferDamageOperation$$
+                # GetDamage` empaquette quand il le consomme.
+                per_hit_pending.append((int(dmg.health), int(dmg.shield)))
                 # `UnitFlagsComponent$$Add(flags, 8)` : `dar.didOverkill && CanBeOverkilled(target)`.
                 if not _overkilled[0] and overkill_flag_posted_by_hit(
                         dmg.health, denied_before[-1] if denied_before else 0,
@@ -1006,6 +1019,9 @@ class _DamageHitsMixin:
         return {"total": total, "shield_dmg": shield_dmg, "armor_dmg": armor_dmg,
                 "did_crit": did_crit, "did_block": did_block, "did_evade": did_evade,
                 "crits": crits, "rolls": rolls, "per_hit": per_hit,
+                # #1020 : `(healthDamage, shieldDamage)` par coup ATTEIGNANT le point d'ecriture du
+                # pending `FillUpStatComponent+0x64` -- meme population que `per_hit`.
+                "per_hit_pending": per_hit_pending,
                 "per_hit_health": per_hit_health, "denied_before": denied_before,
                 "bonus_hits": base_bonus,
                 # #462-r4e-o-r1 -- le compte de coups EXECUTES (un par tour de `ExecuteHits`, coups
