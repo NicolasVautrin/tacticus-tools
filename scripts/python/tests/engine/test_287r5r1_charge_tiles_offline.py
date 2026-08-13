@@ -119,11 +119,16 @@ def test_les_trois_ids_sont_evaluables_chacun_par_son_canal():
     `tests/engine/runner/test_508_leading_the_charge_offline.py::test_1204_est_au_registre_et_a_UNE
     _seule_source_de_masque` -- on ne le duplique pas ici."""
     for aid in TRIO:
-        assert P.evaluabilite(aid) != "aucune", (
-            "%d n'est plus EVALUABLE : sa regle dynamique a disparu des DEUX canaux (ni surcharge "
-            "de classe, ni entree de `DYNAMIC_TARGET_RULE_UNPORTED`). Le bit "
-            "`TargetMatchesDynamicRule` de son masque est alors un gate DESARME, et la degradation "
-            "est PERMISSIVE -- le moteur accepterait des cibles que le natif refuse." % aid)
+        # `in ETATS_EVALUABLES`, et non `!= "aucune"` (#1015) : depuis que la partition nomme ses
+        # DEFAUTS, `perdue` designe justement une regle mirroree que plus rien n'appelle. Un critere
+        # « different de aucune » la laisserait passer pour evaluable -- alors que c'est exactement
+        # la degradation permissive que cette assertion a pour but d'interdire.
+        assert P.evaluabilite(aid) in P.ETATS_EVALUABLES, (
+            "%d n'est plus EVALUABLE (%s) : sa regle dynamique a disparu des DEUX canaux (ni "
+            "surcharge de classe, ni entree de `DYNAMIC_TARGET_RULE_UNPORTED`), ou bien elle y est "
+            "ecrite sans etre appelee. Le bit `TargetMatchesDynamicRule` de son masque est alors un "
+            "gate DESARME, et la degradation est PERMISSIVE -- le moteur accepterait des cibles que "
+            "le natif refuse." % (aid, P.evaluabilite(aid)))
     assert LEADING in P.ids_portant_le_bit(), (
         "1204 ne porte plus `TargetMatchesDynamicRule` dans son masque effectif : ce fichier ne "
         "mesure alors plus rien sur elle.")
@@ -311,9 +316,68 @@ def test_le_noeud_movable_tiles_in_range_n_emet_pas_le_depart():
 # NON-REGRESSION : les entrees deja portees n'ont pas bouge
 # ================================================================================================
 
-def test_le_recensement_reste_bi_canal_et_non_vide():
-    portees = [a for a in P.ids_portant_le_bit() if P.evaluabilite(a) != "aucune"]
-    assert len(portees) >= 25, "recensement des regles evaluables : %d" % len(portees)
-    assert all(a in portees for a in TRIO)
-    assert any(P.evaluabilite(a) == "table" for a in portees)
-    assert any(P.evaluabilite(a) == "surcharge" for a in portees)
+def test_le_recensement_partitionne_et_chaque_canal_PEUPLE_est_EXERCE():
+    """CE QUE CETTE GARDE A REMPLACE, ET POURQUOI (#1015).
+
+    Elle exigeait `any(evaluabilite(a) == "table")` -- un recensement BI-CANAL. Ce critere a expire
+    PARCE QUE LE TRAVAIL A ETE FAIT : #996 (`b061a916`) a porte la face COMBAT de `1185
+    ForwardObservers`, dernier occupant de `DYNAMIC_TARGET_RULE_UNPORTED`, et le canal `table` est
+    tombe a zero. `master` en est reste rouge. Remonter le seuil, ou nommer un autre id, n'aurait
+    fait que reporter la meme peremption : le peuplement d'un canal SUIT la cadence de portage, il
+    ne peut pas etre un invariant.
+
+    L'INVARIANT QU'ELLE APPROXIMAIT tient en trois points, tous independants de la cadence :
+
+      (a) le recensement est une PARTITION -- tout id posant le bit sort dans exactement un `ETATS`,
+          et la somme des etats redonne le tout. Un etat inconnu sort sous son nom, jamais
+          silencieusement en « non couvert » ;
+      (b) les canaux sont DISJOINTS -- aucun id n'est declare dans les deux a la fois (`ambigu`), et
+          aucune regle mirroree n'est rendue inatteignable par une classe qui ne surcharge pas
+          (`perdue`). C'est le defaut REEL que le seuil masquait : 1185 etait dans les deux canaux,
+          et `evaluabilite` l'absorbait par priorite silencieuse ;
+      (c) tout canal PEUPLE est EXERCE par au moins un bras de mesure, et reciproquement. C'est ce
+          que « bi-canal » voulait dire : que la mesure ne cesse pas de voir un canal vivant. A table
+          vide, `canaux_peuples` et `canaux_exerces` perdent `table` ENSEMBLE et l'egalite tient ;
+          si la table se REPEUPLAIT sans qu'aucun bras ne l'exerce, elle rougirait.
+
+    ⚠ ET LE TEST ASSERTIONNE SON PROPRE NON-VIDE. Une egalite entre deux ensembles VIDES serait verte
+    pour rien -- c'est la faute exacte deja mesuree ailleurs dans ce depot (un test « les ordinaux
+    communs nomment autre chose » rendu vert par un ensemble vide). On exige donc que les deux
+    ensembles soient non vides AVANT de les comparer."""
+    ids = P.ids_portant_le_bit()
+    assert ids, "recensement VIDE : un recenseur qui ne visite rien ne peut rien rendre"
+    etats = {a: P.evaluabilite(a) for a in ids}
+
+    # (a) PARTITION -- exhaustive, et sans etat hors nomenclature.
+    inconnus = sorted({e for e in etats.values()} - set(P.ETATS))
+    assert inconnus == [], (
+        "etats hors de la partition `P.ETATS` : %r -- un canal inconnu doit sortir sous son nom, "
+        "jamais etre absorbe dans un etat voisin" % inconnus)
+    par_etat = {e: [a for a, v in etats.items() if v == e] for e in P.ETATS}
+    assert sum(len(v) for v in par_etat.values()) == len(ids)
+
+    # (b) DISJONCTION -- les deux etats de DEFAUT sont vides.
+    assert par_etat["ambigu"] == [], (
+        "ids declares dans les DEUX canaux : %r. L'entree de `DYNAMIC_TARGET_RULE_UNPORTED` y est "
+        "INATTEIGNABLE (le porteur est la classe), donc c'est un second mirror du meme corps natif, "
+        "que rien ne consulte et qui divergera au premier correctif applique d'un seul cote."
+        % par_etat["ambigu"])
+    assert par_etat["perdue"] == [], (
+        "ids dont la regle mirroree est PERDUE : %r. Une entree de table existe, mais la classe "
+        "portee capture le porteur SANS surcharger -> le mirror n'est jamais appele et l'id devient "
+        "PERMISSIF en silence." % par_etat["perdue"])
+
+    # Les trois ids de ce fichier restent evaluables (le canal, lui, peut migrer).
+    for aid in TRIO:
+        assert etats[aid] in P.ETATS_EVALUABLES, (
+            "%d n'est plus EVALUABLE (%s)" % (aid, etats[aid]))
+
+    # (c) canaux PEUPLES == canaux EXERCES, les deux non vides.
+    peuples = {e for e in ("surcharge", "table") if par_etat[e]}
+    exerces = P.canaux_exerces() & {"surcharge", "table"}
+    assert peuples, "aucun canal de portage peuple : plus AUCUNE regle n'est evaluable"
+    assert exerces, "aucun bras de `P.CAS` n'exerce un canal de portage : la mesure est vide"
+    assert peuples == exerces, (
+        "canaux PEUPLES %r != canaux EXERCES par les bras de mesure %r. Un canal peuple mais non "
+        "exerce peut se vider sans qu'aucune bascule ne tombe ; un canal exerce mais non peuple "
+        "signale un bras qui porte sur un id ayant migre." % (sorted(peuples), sorted(exerces)))

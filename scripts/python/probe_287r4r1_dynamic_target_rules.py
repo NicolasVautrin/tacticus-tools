@@ -166,18 +166,58 @@ def ids_portant_le_bit() -> list:
     return out
 
 
+# La PARTITION rendue par `evaluabilite`. Les deux etats du milieu sont des DEFAUTS ; ils existent
+# pour etre VUS, pas pour etre tolerés -- cf. la docstring ci-dessous.
+ETATS = ("surcharge", "table", "ambigu", "perdue", "aucune")
+#: Les etats ou le port SAIT evaluer le corps natif. `ambigu` en fait partie : le verdict effectif
+#: est bien rendu (par la surcharge), c'est la PROPRETE qui est en cause, pas la mecanique.
+ETATS_EVALUABLES = ("surcharge", "table", "ambigu")
+
+
 def evaluabilite(aid: int) -> str:
-    """`surcharge` (classe portee) / `table` (`DYNAMIC_TARGET_RULE_UNPORTED`) / `aucune`.
+    """PARTITION -- tout id sort dans EXACTEMENT un des cinq `ETATS`, jamais implicitement.
 
     ⚠ Ce critere n'est PAS celui de `probe_287r4` (qui ventile par VOIE de fabrication du porteur).
     Une classe portee peut ne PAS surcharger, et une ability sans classe peut avoir sa regle : les
-    deux axes sont independants, et c'est celui-ci qui dit ce que le port sait EVALUER."""
+    deux axes sont independants, et c'est celui-ci qui dit ce que le port sait EVALUER.
+
+    ⚠ ELLE PRESUMAIT, ELLE MESURE (#1015). La version d'avant testait la classe D'ABORD et rendait
+    `table` dans le seul `else` : une entree de table doublee d'une classe portee etait donc
+    INVISIBLE -- masquee par une priorite silencieuse. C'est exactement l'etat dans lequel #996 a
+    laisse `1185 ForwardObservers` (entree conservee alors que sa classe la surchargeait), et
+    personne ne pouvait le voir. Les deux etats de DEFAUT ci-dessous sont la reponse : la
+    contradiction sort sous un libelle, au lieu d'etre absorbee.
+
+    Les deux booleens qui decident sont MESURES, pas supposes :
+
+      `voie_classe` -- `_porteur(aid)` rendra-t-il la CLASSE ? C'est la meme condition, mot pour mot
+        (`klass.TARGETING_OPTIONS is not None`). Quand elle est vraie, `UnportedAbilityTargeting`
+        n'est JAMAIS construit pour cet id, donc l'entree de table est INATTEIGNABLE.
+      `en_table`    -- l'id a-t-il une entree dans `DYNAMIC_TARGET_RULE_UNPORTED` ?
+
+    Les cinq etats, et ce que chacun signifie :
+
+      `surcharge` -- la classe portee surcharge. Canal nominal des behaviours portees.
+      `table`     -- pas de classe portee ; le porteur non porte lit la table. Canal nominal de la
+                     voie NON portee.
+      `ambigu`    -- DEFAUT : les deux canaux declarent la regle. Le verdict vient de la surcharge,
+                     l'entree de table est du code MORT -- deux mirrors du meme corps natif, dont un
+                     seul est consulte, qui divergeront au premier correctif applique d'un seul cote.
+      `perdue`    -- DEFAUT GRAVE : une entree de table existe, mais la classe portee capture le
+                     porteur SANS surcharger. Le mirror est ecrit et jamais appele : l'id devient
+                     PERMISSIF en silence, la degradation exacte que #287-r4-r1 avait pour but de
+                     supprimer.
+      `aucune`    -- le port n'evalue rien (le `0` permissif, dette nommee du residu #287-r5)."""
     klass = ABILITY_CLASSES.get(int(aid))
-    if klass is not None and getattr(klass, "TARGETING_OPTIONS", None) is not None:
-        base = ActiveAbility.get_dynamic_invalid_target_reason
-        return "surcharge" if getattr(
-            klass, "get_dynamic_invalid_target_reason", None) is not base else "aucune"
-    return "table" if int(aid) in DYNAMIC_TARGET_RULE_UNPORTED else "aucune"
+    voie_classe = klass is not None and getattr(klass, "TARGETING_OPTIONS", None) is not None
+    en_table = int(aid) in DYNAMIC_TARGET_RULE_UNPORTED
+    if not voie_classe:
+        return "table" if en_table else "aucune"
+    surcharge = (getattr(klass, "get_dynamic_invalid_target_reason", None)
+                 is not ActiveAbility.get_dynamic_invalid_target_reason)
+    if en_table:
+        return "ambigu" if surcharge else "perdue"
+    return "surcharge" if surcharge else "aucune"
 
 
 # ================================================================================================
@@ -255,11 +295,16 @@ def _cas_forward_observers():
     """1185 -- `ForwardObserversAbility$$GetDynamicInvalidTargetReason` : `HasEffect(target, 0x462 =
     EffectType.Markerlight, onlyActive: false)` -> on ne RE-marque pas une cible deja marquee.
 
-    ⚠ C'EST LE SEUL BRAS QUI EXERCE LE CANAL `TABLE`. Les cinq autres sont tous en SURCHARGE de
-    classe depuis les migrations #488/#500/#508/#510/#512/#576/#577 : sans ce bras, les etages
-    BASCULE et MUTANTS ne mesuraient plus qu'UN des deux canaux, et `DYNAMIC_TARGET_RULE_UNPORTED`
-    -- pourtant la voie de tous les ids NON portes -- pouvait se vider sans qu'aucune bascule ne
-    tombe."""
+    ⚠ CE BRAS A CHANGE DE CANAL, ET C'EST LA CAUSE DU ROUGE DE `master` (#1015). Il etait le SEUL a
+    exercer le canal `table` ; #996 (`b061a916`) a porte la face COMBAT de 1185, donc `_porteur(1185)`
+    rend desormais `tau.ForwardObserversAbility` et ce bras exerce le canal `surcharge`, comme les
+    cinq autres. La table est du coup VIDE -- ce qui a fait tomber les gardes ecrites en « les deux
+    canaux sont PEUPLES ».
+
+    Le peuplement de `table` n'est donc PAS une propriete a garder ici : il suit la cadence de
+    portage et retombera a zero chaque fois qu'on aura fini de porter. Ce qui se garde, c'est que le
+    cablage soit ARME -- teste a table vide par une entree TEMOIN
+    (`test_287r4r1_dynamic_target_rules_offline::test_le_cablage_de_la_table_est_ARME`)."""
     from engine.entities.effects_state import EffectsState
     refuse = substrat([(CASTER, "tauNpc5StealthSuit", 1, 0, 0, []),
                        (CIBLE, "tauCrisis", 2, 1, 0, [])])
@@ -347,6 +392,79 @@ class desarme:
         return False
 
 
+def ids_sans_regle_portee() -> list:
+    """Les ids qui posent le bit et dont AUCUN canal ne porte la regle (etat `aucune`).
+
+    DERIVE, jamais ecrit en dur : c'est la lecon du rouge de #883-r1 (un id cite en dur dans un test
+    avait migre de canal, et le test accusait un regime qui n'existait plus)."""
+    return [a for a in ids_portant_le_bit() if evaluabilite(a) == "aucune"]
+
+
+def ids_servis_par_la_voie_non_portee() -> list:
+    """Les ids posant le bit pour lesquels `_porteur` rend REELLEMENT un `UnportedAbilityTargeting`
+    -- les seuls qui puissent LIRE `DYNAMIC_TARGET_RULE_UNPORTED` en production.
+
+    ⚠ IL EST VIDE AUJOURD'HUI, ET C'EST UN RESULTAT MESURE, PAS UN OUBLI (#1015). Les 80 ids qui
+    posent `TargetMatchesDynamicRule` ont TOUS une classe portee avec son masque ; les 3 entrees
+    restantes de `TARGETING_OPTIONS_UNPORTED` n'en posent aucune. Le canal `table` est donc
+    doublement vide : sans entree, et sans lecteur. Il redevient atteignable des qu'un masque
+    portant ce bit est lu AVANT que la behaviour soit portee -- le regime normal d'une reconnaissance
+    de kit, et la raison pour laquelle le cablage se garde par une entree TEMOIN plutot que par le
+    peuplement (cf. `entree_temoin`)."""
+    return [a for a in ids_portant_le_bit()
+            if isinstance(_porteur(a), UnportedAbilityTargeting)]
+
+
+REFUS_TEMOIN = int(TR.TargetMatchesDynamicRule)
+
+
+class entree_temoin:
+    """Injecte une regle TEMOIN dans `DYNAMIC_TARGET_RULE_UNPORTED`, pour exercer le CABLAGE de la
+    voie non portee QUAND LA TABLE EST VIDE (#1015).
+
+    POURQUOI CE MECANISME EXISTE. Le canal `table` se vide par le travail accompli : chaque behaviour
+    portee fait migrer sa regle en surcharge, et les huit qui y ont vecu sont toutes parties. Une
+    garde ecrite « la table est PEUPLEE » expire donc toute seule -- c'est litteralement ce qui a
+    rendu `master` rouge. Mais le cablage, lui, doit rester ARME : le jour ou un corps du residu
+    #287-r5 sera mirrore sans que sa classe le soit, il entrera par ici, et personne ne re-testera
+    la plomberie a ce moment-la.
+
+    ⚠ CE QUE L'ID EST ICI, ET CE QU'IL N'EST PAS. Il ne sert qu'a INDEXER : le sujet mesure est le
+    CABLAGE (`UnportedAbilityTargeting.get_dynamic_invalid_target_reason` lit-elle la table par son
+    `ABILITY_TYPE` ?), et l'appelant construit ce porteur EXPLICITEMENT. On ne pretend donc pas que
+    la voie non portee serve cet id en production -- `ids_servis_par_la_voie_non_portee()` mesure
+    qu'elle n'en sert AUCUN aujourd'hui, et une premiere ecriture de cette docstring l'affirmait a
+    tort. L'id est seulement pris dans `ids_sans_regle_portee()`, ce qui garantit le seul fait dont
+    la mesure a besoin : aucune vraie regle n'est masquee par le temoin."""
+
+    def __init__(self, aid: int, refus: int = REFUS_TEMOIN):
+        self.aid = int(aid)
+        self.refus = int(refus)
+        self.vue = []          # les (state, caster, target) que la regle temoin a reellement recus
+
+    def _regle(self, state, caster_id, target_id) -> int:
+        self.vue.append((state, caster_id, target_id))
+        return self.refus
+
+    def __enter__(self):
+        assert self.aid not in DYNAMIC_TARGET_RULE_UNPORTED, (
+            "%d a DEJA une entree : le temoin masquerait une vraie regle" % self.aid)
+        DYNAMIC_TARGET_RULE_UNPORTED[self.aid] = self._regle
+        return self
+
+    def __exit__(self, *exc):
+        DYNAMIC_TARGET_RULE_UNPORTED.pop(self.aid, None)
+        return False
+
+
+def canaux_exerces() -> set:
+    """Les canaux d'evaluabilite que les bras de `CAS` exercent REELLEMENT.
+
+    C'est le pendant mesure de `canaux_peuples` : les gardes confrontent les deux ensembles, au lieu
+    d'exiger d'un canal nomme en dur qu'il soit peuple."""
+    return {evaluabilite(aid) for aid, _l, _f in CAS}
+
+
 def mesurer_mutants() -> list:
     """Rend [(aid, libelle, a_morde, avant, apres)].
 
@@ -391,7 +509,7 @@ def main() -> int:
     args = ap.parse_args()
 
     ids = ids_portant_le_bit()
-    par_etat = {"surcharge": [], "table": [], "aucune": []}
+    par_etat = {e: [] for e in ETATS}
     for aid in ids:
         par_etat[evaluabilite(aid)].append(aid)
     print("[287-r4-r1] RECENSEMENT -- la regle dynamique est-elle EVALUABLE ?")
@@ -399,9 +517,23 @@ def main() -> int:
     print("  surcharge dans la classe portee     : %d" % len(par_etat["surcharge"]))
     print("  entree de DYNAMIC_TARGET_RULE_UNPORTED : %d" % len(par_etat["table"]))
     print("  AUCUNE (0 permissif, residu #287-r5)   : %d" % len(par_etat["aucune"]))
+    # La somme est imprimee comme PARTITION : un etat oublie se verrait ici, pas dans un total juste
+    # par accident (meme discipline que le recenseur d'enums, cf. CLAUDE.md).
+    print("  --- partition : %d = %s"
+          % (sum(len(v) for v in par_etat.values()),
+             " + ".join("%s %d" % (e, len(par_etat[e])) for e in ETATS)))
     if not ids:
         print("  ECHEC : recensement VIDE -- un probe qui ne visite rien ne mesure rien.")
         return 1
+
+    # Les DEUX etats de DEFAUT (#1015). Ils ne sont pas des categories a tolerer : chacun nomme une
+    # contradiction entre les deux canaux, et le verdict les compte comme des FAUTES.
+    for aid in par_etat["ambigu"]:
+        print("  AMBIGU %-6d %-28s la classe SURCHARGE **et** l'entree de table subsiste : deux "
+              "mirrors du meme corps, un seul consulte" % (aid, _nom(aid)))
+    for aid in par_etat["perdue"]:
+        print("  PERDUE %-6d %-28s entree de table PRESENTE mais la classe portee capture le "
+              "porteur SANS surcharger -> id PERMISSIF en silence" % (aid, _nom(aid)))
 
     avec_symbole = [a for a in par_etat["aucune"] if SYMBOLE_NATIF.get(a)]
     print("[287-r4-r1] RESIDU #287-r5 -- corps natifs NON portes")
@@ -442,6 +574,7 @@ def main() -> int:
 
     ok = (all(b[4] for b in bascules) and not morts
           and tem["tous_heros"] is False and tem["un_non_heros"] is True
+          and not par_etat["ambigu"] and not par_etat["perdue"]
           and len(par_etat["surcharge"]) + len(par_etat["table"]) > 0)
     print("[287-r4-r1] VERDICT : %s" % ("OK" if ok else "FAUTES"))
     return 0 if ok else 1

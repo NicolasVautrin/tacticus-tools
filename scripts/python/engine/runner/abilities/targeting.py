@@ -1529,6 +1529,16 @@ class _NormalAttackTargeting:
 # chaque corps natif NON porte est RECENSE avec son symbole dans
 # `docs/rl/case-287r4r1-regles-dynamiques-de-ciblage.md` (residu ouvert #287-r5). Une entree de cette
 # table est un mirror 1:1 d'UN corps natif NOMME, jamais une regle deduite d'un nom d'ability.
+#
+# ⚠ ELLE EST VIDE AUJOURD'HUI, ET CE N'EST PAS DU DEAD CODE (#1015). Les huit regles qui y ont vecu
+# ont toutes MIGRE en surcharge a mesure que leur behaviour etait portee (#488/#500/#508/#510/#512/
+# #576/#577, puis 1185 par #996). Le canal reste le POINT D'ACCUEIL de la voie NON portee : les 33
+# ids qui posent le bit sans regle evaluable (residu #287-r5) y entreront des que leur corps sera
+# mirrore sans que leur classe le soit. Ce que les gardes exigent n'est donc PAS que cette table
+# soit PEUPLEE -- un tel critere expire par le travail accompli, et c'est exactement ce qui a rendu
+# `master` rouge -- mais que le cablage soit ARME : `UnportedAbilityTargeting` lit ce qu'on y met, et
+# un porteur construit pour un AUTRE id n'en herite pas. Cela se garde a table vide, par une entree
+# TEMOIN injectee le temps du test (`test_287r4r1_dynamic_target_rules_offline`).
 
 def _dynamic_rule_adaptive_strategy(state: "State", caster_id: int, target_id) -> int:
     """`IdunBattleLogic.Entities.Abilities.Active.Loki.AdaptiveStrategyAbility$$GetDynamicInvalidTargetReason`
@@ -2014,7 +2024,13 @@ DYNAMIC_TARGET_RULE_UNPORTED: "dict[int, object]" = {
     # 1005 AdaptiveStrategy : RETIREE (#577) -- meme forme que les cinq ci-dessous,
     # `necrons.AdaptiveStrategyAbility` SURCHARGE desormais `get_dynamic_invalid_target_reason` et
     # APPELLE `_dynamic_rule_adaptive_strategy` ci-dessus, qui reste l'UNIQUE mirror du corps natif.
-    ActiveAbilityType.ForwardObservers: _dynamic_rule_forward_observers,      # 1185
+    # 1185 ForwardObservers : RETIREE (#1015) -- #996 (`b061a916`) a porte sa face COMBAT et retire
+    # son masque de `TARGETING_OPTIONS_UNPORTED`, mais a OUBLIE cette entree-ci : l'id se retrouvait
+    # dans les DEUX canaux a la fois. L'entree etait INATTEIGNABLE et c'est MESURE -- `_porteur(1185)`
+    # rend `ForwardObserversAbility` (elle a son `TARGETING_OPTIONS`), jamais `UnportedAbilityTargeting`
+    # qui est le SEUL lecteur de cette table ; verdicts identiques avec et sans elle (`refuse=2`,
+    # `passe=0`). `tau.ForwardObserversAbility` SURCHARGE et appelle `_dynamic_rule_forward_observers`
+    # ci-dessus, qui reste l'UNIQUE mirror du corps natif.
     # 1175 BloodChalice : RETIREE (#576) -- meme forme que 1177/1087/1038, `BloodChaliceAbility`
     # SURCHARGE `get_dynamic_invalid_target_reason` et appelle `_dynamic_rule_blood_chalice`
     # ci-dessus, qui reste l'UNIQUE mirror du corps natif.
