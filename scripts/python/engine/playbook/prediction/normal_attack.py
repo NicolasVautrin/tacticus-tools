@@ -759,6 +759,11 @@ def make_normal_attack_predictions(scene, att_id, tgt_id, attack_pos, *, meta=Fa
              # PENDANT EXACT du board COMBAT (`runner/damage_model.py::build_hits_board`), sur les
              # MEMES unites vivantes. Consommateur : `HungeringSwarm_ExtraHits` (1041).
              "vid_by_id": {uid: (scene.vis_by_id or {}).get(uid) for uid in _alive_ids},
+             # SANTE (#1018) -- sans elle `engine/dsl/base.py::_is_alive` classe l'unite MORTE
+             # (degradation NOMMEE << `hpMax` ABSENT du dict -> MORT >>) et tout selecteur
+             # d'occupation rend l'ensemble VIDE. Meme source que `_alive_ids` ci-dessus.
+             "hp_by_id": {uid: scene.hp(uid) for uid in _alive_ids},
+             "hpmax_by_id": {uid: scene.hpmax(uid) for uid in _alive_ids},
              # `IsCharging` (case-ischarging-hits) sur le canal COUPS — MEME valeur que celle deja calculee pour
              # le canal DEGAT (`_att_ctx` ci-dessus) : un seul appel a `_prediction_is_charging` par
              # candidat, donc un seul mirror d'`UpdateCharging` sur la tuile evaluee. Consommateur :

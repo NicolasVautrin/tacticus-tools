@@ -101,8 +101,11 @@ from collections.abc import Mapping
 from ....dsl.base import DslContext
 from ....services.effect_bonus import EffectBonus, for_addition
 from ...ability_constant_type import AbilityConstantType
-from ...formulas import Count, Get, Multiply
-from ...selectors import AdjacentUnits, Caster, Friends, Owner, Sub, Target, UnitsWithIds
+# Sous-modules, JAMAIS le baril `...selectors` : meme forme que `loki/summary_execution.py`, le
+# precedent de ce paquet pour un effet qui construit un arbre de selecteurs.
+from ...selectors.accessors import Owner, Target
+from ...selectors.tiles import Caster
+from ...selectors.units import AdjacentUnits, Friends, Sub, UnitsWithIds
 from ...unit_selection_type import UnitSelectionType
 from ..base import BaseEffect
 from ..magnitude import ability_var
@@ -145,7 +148,13 @@ def _dsl_context_from_board(c: Mapping) -> "DslContext | None":
     """
     att_id, tgt_id = c.get("att_id"), c.get("tgt_id")
     pos, team, vid = c.get("pos_by_id"), c.get("team_by_id"), c.get("vid_by_id")
-    if att_id is None or tgt_id is None or not pos or not team or vid is None:
+    # SANTE : `engine/dsl/base.py::_is_alive` (que `_within` applique a CHAQUE unite) classe MORT
+    # tout dict sans `hp > 0` ni `hpMax`. Sans ces deux tables, `AdjacentUnits` rend l'ensemble
+    # VIDE -- mesure #1018, premier etage divergent du port. Elles sont LUES (jamais un `hp = 1`
+    # invente), donc leur absence est un contexte INCOMPLET : on ne contribue pas.
+    hp, hpmax = c.get("hp_by_id"), c.get("hpmax_by_id")
+    if att_id is None or tgt_id is None or not pos or not team or vid is None \
+            or hp is None or hpmax is None:
         return None
     # `attack_pos` = la tuile HYPOTHETIQUE d'ou l'attaque part (face DECISION balayee) ; elle prime
     # sur la position courante de l'attaquant, comme partout ailleurs sur ce canal. La cible, elle,
@@ -159,8 +168,12 @@ def _dsl_context_from_board(c: Mapping) -> "DslContext | None":
         # `alive: True` n'est pas une invention : les DEUX constructeurs de ce board
         # (`runner/damage_model.py::build_hits_board` et `playbook/prediction/normal_attack.py`)
         # n'y mettent QUE des unites vivantes (#57m -- << le board natif = OCCUPATION DE TUILE >>).
+        # `hp`/`hpMax` sont LUS, eux : ils portent la 3e branche de
+        # `IdunBattle.Entities.Components.HealthComponent$$IsAlive` (`hp <= 0` ET `max <= 0` ->
+        # VIVANT), que `genesSmnDecoy` exerce reellement.
         u = {"id": uid, "pos": {"col": int(pp[0]), "row": int(pp[1])},
-             "team": team.get(uid), "visualId": vid.get(uid), "alive": True}
+             "team": team.get(uid), "visualId": vid.get(uid), "alive": True,
+             "hp": hp.get(uid), "hpMax": hpmax.get(uid)}
         units.append(u)
         by_id[uid] = u
     att, tgt = by_id.get(att_id), by_id.get(tgt_id)
@@ -192,8 +205,17 @@ class HungeringSwarmExtraHitsEffect(BaseEffect):
         ctx = _dsl_context_from_board(c)
         if ctx is None:
             return None
-        cnt = Count(hungering_swarm_selector(ids)).evaluate(ctx)         # DSLFormulas$$Count
-        total = Multiply(Get(int(n)), Get(int(cnt))).evaluate(ctx)       # Multiply(Direct(n), Count)
+        # DIFFERE, et c'est un differe PORTEUR -- MESURE, pas redoute (#1018) : hisser cet import
+        # ferme le cycle `entities.formulas -> services.movement_query -> runner.components ->
+        # entities.effects.__init__ -> effects.factory -> CE MODULE -> entities.formulas`, et
+        # `import engine.entities.formulas` en process FRAIS leve alors `ImportError` (le module
+        # ne s'importe plus seul -- l'invariant << 430/430 >> tombe). Les SELECTEURS, eux, sont en
+        # tete : `import engine.entities.selectors.units` seul ne tire PAS ce module (mesure).
+        # Forme B (module lie, appels attributaires) : un `monkeypatch.setattr` sur ces noeuds mord.
+        import engine.entities.formulas as _F
+        cnt = _F.Count(hungering_swarm_selector(ids)).evaluate(ctx)      # DSLFormulas$$Count
+        total = _F.Multiply(_F.Get(int(n)),                              # Multiply(Direct(n), Count)
+                            _F.Get(int(cnt))).evaluate(ctx)
         return for_addition(True, int(total)) if total else None
 
 
