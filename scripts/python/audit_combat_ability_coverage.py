@@ -71,6 +71,50 @@ def _bucket(cl: str) -> str:
     return "DAMAGE" if cl.startswith("DAMAGE") else cl
 
 
+#: #1033 -- LES ENUMS OU CHERCHER UN NOM D'`activeAbilities` QUE `ActiveAbilityType` NE CONNAIT PAS.
+#: Ordre = celui du diagnostic, pas une preference : `TriggeredAbilityType` d'abord parce que les
+#: DEUX inversions de voie mesurees (#270-c) y vivent.
+_AUTRES_ENUMS = (("TriggeredAbilityType", EM.PASSIVE_ABILITY_TYPE),
+                 ("EffectType", EM.EFFECT_TYPE))
+
+
+def _hors_active(nm: str) -> "tuple[str, str] | None":
+    """Le nom vit-il dans un AUTRE enum que `ActiveAbilityType` ? -> `(enum, ordinal)` ou `None`.
+
+    C'est la question que l'audit ne posait PAS, et son absence fabriquait un faux no-op : un nom
+    d'`activeAbilities` introuvable dans `ActiveAbilityType` rendait `aid = None`, donc
+    `None in ABILITY_CLASSES` = `False`, donc « NO-OP silencieux ». Or un no-op silencieux est un
+    id d'`ActiveAbilityType` ABSENT du registre -- pas un nom qui n'est d'AUCUN `ActiveAbilityType`.
+    Les deux sont des choses differentes, et la seconde n'est pas portable : il n'existe aucune
+    cle a inscrire dans `ABILITY_CLASSES`."""
+    for libelle, table in _AUTRES_ENUMS:
+        for ordinal, nom in table.items():
+            if nom == nm:
+                return (libelle, str(ordinal))
+    return None
+
+
+def _triggered_portee(nm: str) -> "str | None":
+    """Par QUEL registre de triggers ce NOM est-il monte ? -> le nom du registre, ou `None`.
+
+    Repond a « et alors, c'est grave ? » pour une inversion de voie : le port monte ces abilities
+    par `collect_triggered_abilities`, dont les registres sont indexes par NOM, pas par ordinal.
+
+    ⚠ LES REGISTRES SONT **DERIVES** DU MODULE, PAS ENUMERES -- et cette fonction a d'abord ete
+    ecrite avec le seul `ABILITY_TRIGGERS`, ce qui lui faisait rendre « NON PORTEE » pour
+    `Maugetar`, dont les deux triggered vivent dans `RELIC_ABILITY_TRIGGERS` (c'est une RELIQUE,
+    `R_Crit_Maugetar`). Une liste blanche ne peut pas montrer le registre qu'elle a oublie : on
+    balaie donc TOUT dict majuscule du module dont les cles sont des chaines."""
+    from engine.runner.operations.triggers.dispatch import registry as REG
+    for attr in sorted(dir(REG)):
+        if not attr.isupper():
+            continue
+        d = getattr(REG, attr)
+        if isinstance(d, dict) and d.get(nm):
+            return attr
+    return None
+
+
 def collect():
     name2id = {v: k for k, v in EM.ACTIVE_ABILITY_TYPE.items()}
     registered = set(ABILITY_CLASSES.keys())
@@ -84,8 +128,21 @@ def collect():
     rows = []
     for nm, rec in active_by_name.items():
         aid = name2id.get(nm)
-        ported = aid in registered
         cl = _classify(nm)
+        if aid is None:
+            # #1033 -- le nom n'est PAS un `ActiveAbilityType`. Ce n'est donc NI porte NI un no-op :
+            # aucune cle ne peut entrer dans `ABILITY_CLASSES`. On dit dans QUEL enum il vit.
+            ou = _hors_active(nm)
+            if ou is None:
+                etat, cl = "INCONNU", "%s [nom d'AUCUN enum]" % cl
+            else:
+                etat = "HORS-ACTIVE"
+                reg = _triggered_portee(nm)
+                cl = "%s(%s) %s [kit: %s]" % (
+                    ou[0], ou[1], ("PORTEE via `%s`" % reg) if reg else "NON PORTEE", cl)
+            rows.append((aid, nm, etat, cl, len(rec["units"]), rec["kinds"]))
+            continue
+        ported = aid in registered
         mes = CATEGORIE_MESUREE.get(aid)
         if mes:
             # La MESURE ecrase la derivation du kit, et garde la valeur du kit entre parentheses :
@@ -110,6 +167,7 @@ def main():
     rows = collect()
     unported = [r for r in rows if r[2] == "NO-OP"]
     ported = [r for r in rows if r[2] == "PORTED"]
+    hors = [r for r in rows if r[2] in ("HORS-ACTIVE", "INCONNU")]
     cat = Counter(_bucket(r[3]) for r in unported)
 
     lines = []
@@ -126,7 +184,10 @@ def main():
                  "\"DECIDER != EXECUTER\". Durcissement : `AbilityHandler.unported` accumule les casts tombes "
                  "sur no-op ; les tests d'execution assert `last['ported'] is True`.\n\n")
     lines.append("## Bilan\n\n")
-    lines.append("- ActiveAbilityType castables par les unites : **%d** distinct\n" % len(rows))
+    lines.append("- Noms distincts en `activeAbilities` (gameconfig) : **%d**\n" % len(rows))
+    lines.append("- dont resolus en `ActiveAbilityType` : **%d** ; **HORS `ActiveAbilityType`** : "
+                 "**%d** (cf. la section dediee -- ni portes ni no-op)\n"
+                 % (len(rows) - len(hors), len(hors)))
     lines.append("- **PORTED** (dans `ABILITY_CLASSES`) : **%d**\n" % len(ported))
     lines.append("- **NO-OP silencieux** (a porter) : **%d**\n" % len(unported))
     lines.append("- Ventilation NO-OP : " + ", ".join("**%s**=%d" % (k, n)
@@ -176,6 +237,26 @@ def main():
     lines.append("4. **EFFECT/BUFF** -> `AddEffectOperation` (+ stat-mods) ; certains deja modelises cote "
                  "prediction (NonComparable) mais pas executes.\n\n")
     lines.append("Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.\n")
+    if hors:
+        lines.append("\n> ⚠ **UN NOM D'`activeAbilities` QUI N'EST PAS UN `ActiveAbilityType` "
+                     "N'EST PAS UN NO-OP -- ET CET AUDIT L'A COMPTE COMME TEL (#1033).** Le "
+                     "generateur resolvait le nom dans le SEUL `ACTIVE_ABILITY_TYPE` ; un nom "
+                     "absent rendait `aid = None`, donc `None in ABILITY_CLASSES` = `False`, donc "
+                     "« NO-OP silencieux » -- avec un id affiche `?`, seule trace du probleme. Or "
+                     "les deux etats sont DIFFERENTS : un no-op silencieux est un id "
+                     "d'`ActiveAbilityType` **absent du registre** (portable : il suffit d'y "
+                     "inscrire une classe) ; un nom hors enum n'a **aucune cle a inscrire**, et "
+                     "aucun `ActiveAbilityMessage` ne peut le designer. Le porter etait "
+                     "impossible, pas difficile.\n>\n"
+                     "> La cause est l'**INVERSION DE VOIE** documentee au CLAUDE.md : le "
+                     "gameconfig range certains noms dans la mauvaise liste. La colonne dit donc "
+                     "l'enum REEL (lu par NOM, jamais par la voie ni par l'ordinal -- "
+                     "`TriggeredAbilityType` partage 233 ordinaux avec `ActiveAbilityType`, dont "
+                     "231 nomment autre chose) et si cette face-la est PORTEE, ce qui est la vraie "
+                     "question de couverture.\n>\n"
+                     "> L'etat **`INCONNU`** (nom d'AUCUN enum) reste, lui, un signal a "
+                     "investiguer : il voudrait dire que le gameconfig et le build ont diverge.\n\n")
+        _table(lines, "HORS `ActiveAbilityType` -- inversions de voie (NI portees NI no-op)", hors)
     _table(lines, "NO-OP SILENCIEUX en combat (a porter, tries categorie puis frequence)", unported)
     _table(lines, "PORTED (registry)", ported)
 
