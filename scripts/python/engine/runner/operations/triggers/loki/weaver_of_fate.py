@@ -50,9 +50,11 @@ WEAVER_MAXOUT = int(EffectType.WeaverOfFate_MaxOutDamage)      # 1185 (0x4a1)
 PARAGON_SPEAR = int(TriggeredAbilityType.ParagonSpear)         # 1494 (0x5d6)
 _PSYCHIC = int(DamageProfileType.Psychic)                      # 13 (0xd) — arg du selecteur natif
 _THRESHOLD = 3                                                 # DSLFactory.Get(3) — constante EN DUR
-# 2e branche de `IdunBattle.Entities.UnitExtensions$$IsAttackMaxOutDamage` : `HasTriggeredAbility(unit, 0x5d6=1494
-# ParagonSpear)` -> appel conditionnel INLINE (mange par ghidra). Porteur DISTINCT (hors kit
-# Abraxas) — NON mirrore ici (residu case-202 §6 : a porter avec le kit ParagonSpear).
+# 2e branche de `IdunBattle.Entities.UnitExtensions$$IsAttackMaxOutDamage` :
+# `HasTriggeredAbility(unit, 0x5d6 = 1494 ParagonSpear)`. Porteur DISTINCT (hors kit Abraxas), et
+# elle EST mirroree depuis #1013 -- `is_attack_max_out_damage_on_crit` ci-dessous. Le motif qui la
+# tenait ouverte (<< porteur hors kit >>, residu case-202 §6) etait PERIME : c'est une RELIQUE, et
+# `custoKyrus` est DANS le pool rank 17 -> confrontable par `--equip-relic` seul (#237/#357).
 
 
 def units_that_taken_damage_this_turn(state: State, unit_ids, profile_id: int) -> list[int]:

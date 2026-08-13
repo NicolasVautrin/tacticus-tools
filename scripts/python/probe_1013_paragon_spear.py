@@ -57,9 +57,16 @@ _ROOT = _PYDIR.parents[1]
 CARRIER = "custoKyrus"            # ETAT 2 : DANS le pool rank 17 -> `--equip-relic` seul
 RELIC = "ParagonSpear"            # `TriggeredAbilityType` 0x5d6 = 1494
 RELIC_ID = 1494
-VICTIMS = "orksNob,orksRuntherd"  # deux victimes : le `First(1)` doit n'en frapper QU'UNE
+#: DEUX victimes : le `First(1)` doit n'en frapper QU'UNE. Le couple est choisi pour que
+#: l'`endturn` BASCULE (cf. la garde `turn.switched` dans `run`) -- `orksNob` en tete garde la main
+#: au camp joueur sur ce board, et le releve rendrait alors « natif 0 » sans divergence reelle.
+VICTIMS = "templAggressor,orksRuntherd"
 BOARD = "MC1_67"
 SEED = "777"
+#: Seeds ESSAYEES DANS L'ORDRE par `run_any` : `rl_duel build` joue le debut de bataille, donc si
+#: une victime spawne deja dans le rayon le turn-start du porteur a lieu AVANT toute capture et
+#: l'`endturn` d'apres ne le rejoue pas. On ne SUBIT pas ce tirage : on change de bataille.
+SEEDS = ("777", "31337", "4321", "1234", "555", "9090")
 HP_PLAYER = 500000                # les victimes SURVIVENT aux 2 coups -> delta de PV non tronque
 TERTIARY_HIERARCHY = 3            # `AddConfiguredAbilities` : `TryAdd(id, tertiaryState, 3)`
 
@@ -86,10 +93,10 @@ def build_args(level: int) -> list[str]:
             "--hp-player", str(HP_PLAYER)]
 
 
-def _build_subprocess(level: int) -> int:
+def _build_subprocess(level: int, seed: str | None = None) -> int:
     state = _out_dir() / "runner.json"
     state.unlink(missing_ok=True)
-    argv = [sys.executable, "rl_duel.py", "build", "--seed", SEED,
+    argv = [sys.executable, "rl_duel.py", "build", "--seed", (seed or SEED),
             "--state-file", str(state), *build_args(level)]
     p = subprocess.run(argv, cwd=str(_PYDIR), capture_output=True, text=True,
                        encoding="utf-8", errors="replace")
@@ -258,22 +265,41 @@ def _port_pool(dv, ob, snap, board, ability_states, carrier_vis: str) -> dict:
             "branch": ("adjacent" if adj else ("ranged" if far else "vide"))}
 
 
+def run_any(rpc, dist: int = 1, level: int = 1, mutate: str | None = None, build_runner=None,
+            keep: bool = False, seeds=SEEDS) -> dict:
+    """`run` essaye sur PLUSIEURS batailles, et rend la PREMIERE dont le montage tient.
+
+    Le seul motif de re-essai est un montage impossible sur CETTE bataille (turn-start deja joue au
+    build, pas de tuile libre a la distance voulue, moins de deux ennemis) -- jamais un desaccord
+    de mesure : un releve `ok` est rendu tel quel, meme s'il est rouge. C'est la difference entre
+    « changer de bataille » et « chercher celle qui arrange »."""
+    last = None
+    for seed in seeds:
+        r = run(rpc, dist=dist, level=level, mutate=mutate, build_runner=build_runner,
+                keep=keep, seed=seed)
+        last = r
+        if r.get("ok"):
+            return r
+    return last or {"ok": False, "why": "aucune seed essayee"}
+
+
 def run(rpc, dist: int = 1, level: int = 1, mutate: str | None = None, build_runner=None,
-        keep: bool = False) -> dict:
+        keep: bool = False, seed: str | None = None) -> dict:
     """Monte le regime, mesure le natif ET le port, rend le releve. Ne LEVE pas -- l'appelant juge."""
     assert mutate in (None,) + MUTATIONS, "mutation inconnue : %s" % (mutate,)
     import hexgeo
     from engine.entities.effects.magnitude import ability_var
     from engine.entities.pathfinding.board import Board
 
-    out: dict = {"dist": dist, "level": level, "mutate": mutate, "ok": False, "why": None}
+    out: dict = {"dist": dist, "level": level, "mutate": mutate, "seed": (seed or SEED),
+                 "ok": False, "why": None}
     out["bounds"] = [int(ability_var(RELIC, "minDmg", level, multiplier_pct=100) or 0),
                      int(ability_var(RELIC, "maxDmg", level, multiplier_pct=100) or 0)]
     out["bounds_clamped"] = [int(ability_var(RELIC, "minDmg", 50, multiplier_pct=100) or 0),
                              int(ability_var(RELIC, "maxDmg", 50, multiplier_pct=100) or 0)]
 
-    rid = (build_runner(SEED, extra=build_args(level))["rid"] if build_runner is not None
-           else _build_subprocess(level))
+    rid = (build_runner((seed or SEED), extra=build_args(level))["rid"] if build_runner is not None
+           else _build_subprocess(level, seed))
     out["rid"] = rid
     try:
         bg = rpc("boardGraph", {"runnerId": rid}, 60)
@@ -310,6 +336,22 @@ def run(rpc, dist: int = 1, level: int = 1, mutate: str | None = None, build_run
         U = live()
         if oid not in U:
             out["why"] = "porteur absent d'observeBattle"
+            return out
+        # LE TURN-START DU PORTEUR A-T-IL DEJA EU LIEU ? `rl_duel build` joue le debut de bataille :
+        # si une victime spawne DEJA dans le rayon, le natif tire AVANT toute capture, et l'`endturn`
+        # d'apres ne rejouera pas ce turn-start -- le releve montrerait alors « natif 0 » contre un
+        # port qui frappe, c'est-a-dire une divergence FABRIQUEE. On le DIT au lieu de le subir :
+        # l'etat MT neuf d'un runner vaut 624 (bloc non encore consomme).
+        rng_pre = rpc("dumpRng", {"runnerId": rid}, 30) or {}
+        out["rng_pristine"] = (rng_pre.get("mti") == 624)
+        hurt = [s for s, u in U.items()
+                if u.get("hpMax") is not None and u.get("hp") is not None
+                and int(u["hp"]) < int(u["hpMax"])]
+        out["already_hurt"] = hurt
+        if not out["rng_pristine"]:
+            out["why"] = ("le turn-start du porteur a DEJA eu lieu au build (mti=%s, blessees=%s) : "
+                          "l'`endturn` ne le rejouera pas -- montage a refaire, PAS une divergence"
+                          % (rng_pre.get("mti"), hurt))
             return out
         opos = (U[oid]["col"], U[oid]["row"])
         foes = [s for s, u in U.items() if u.get("teamId") != U[oid].get("teamId")]
@@ -369,8 +411,39 @@ def run(rpc, dist: int = 1, level: int = 1, mutate: str | None = None, build_run
 
         # --- ETAGE 2 : le NATIF, delta de PV des ennemis sur CE seul turn-start --------------------
         hp0 = {s: u["hp"] for s, u in U.items()}
-        ack = rpc("applyAction", {"runnerId": rid, "action": {"kind": "endturn"},
-                                  "captureEvents": True}, 120)
+        # `endturn` TERMINE L'UNITE COURANTE, pas l'equipe : il en faut autant que le camp joueur
+        # a d'unites encore a finir avant que la main passe au porteur. On BOUCLE donc jusqu'a la
+        # bascule au lieu d'en jouer un seul et de lire « natif 0 ». Aucun de ces tours ne fait
+        # AGIR une unite du joueur (on ne lui demande rien), donc le seul degat de la sequence
+        # reste celui du turn-start du porteur -- ce que le releve `rng` verifie ensuite.
+        ack = None
+        for _ in range(8):
+            ack = rpc("applyAction", {"runnerId": rid, "action": {"kind": "endturn"},
+                                      "captureEvents": True}, 120)
+            cur = (rpc("decisionView", {"runnerId": rid, "maxRank": 1}, 120) or {}).get("currentPlayer")
+            out["turn_hops"] = int(out.get("turn_hops", 0)) + 1
+            if cur == oplayer:
+                break
+        # LE TOUR A-T-IL BASCULE SUR LE PORTEUR ? Sans ce controle, un `endturn` qui ne rend PAS la
+        # main a l'adversaire se lit comme « le natif n'a rien inflige » -- une divergence
+        # FABRIQUEE par le montage. Mesure #1013 : quand la victime spawne DEJA dans le rayon, le
+        # turn-start du porteur a lieu AU BUILD (avant toute capture), et l'`endturn` suivant ne
+        # rejoue pas ce meme turn-start.
+        dv2 = rpc("decisionView", {"runnerId": rid, "maxRank": 1}, 120)
+        out["turn"] = {"player_before": dv0.get("currentPlayer"),
+                       "player_after": dv2.get("currentPlayer"), "carrier_player": oplayer,
+                       "switched": dv2.get("currentPlayer") == oplayer}
+        if not out["turn"]["switched"]:
+            # MESURE #1013 : un `endturn` qui ne bascule pas (le camp joueur garde la main) rend
+            # « natif 0 » -- indiscernable d'un trigger qui refuse, alors que le turn-start du
+            # porteur n'a tout simplement PAS eu lieu. Vu en vrai : meme board, meme seed, meme
+            # geometrie, seule la composition du camp joueur change (`orksNob` ne bascule pas,
+            # `templAggressor` oui) et le verdict passe de ECART a ACCORD BIT-EXACT. On REFUSE le
+            # montage au lieu d'en tirer une divergence.
+            out["why"] = ("l'`endturn` n'a pas rendu la main au porteur (joueur %s -> %s, porteur "
+                          "%s) : le turn-start natif n'a PAS eu lieu -- montage a refaire, PAS une "
+                          "divergence" % (dv0.get("currentPlayer"), dv2.get("currentPlayer"), oplayer))
+            return out
         # DECOMPOSITION du cote NATIF : les events du turn-start, coup par coup. Un total qui ne
         # colle pas se localise ici (nombre de coups, crit, armure) au lieu d'etre un scalaire.
         evs = (ack or {}).get("events") if isinstance(ack, dict) else None
