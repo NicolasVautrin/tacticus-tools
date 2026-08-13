@@ -261,6 +261,11 @@ from ..loki.geminae_superia import GeminaeSuperiaAbility              # #963 (pa
 from ..loki.dawn_blade import DawnBladeHealAbility                     # #317 (relique tauFarsight)
 from ..loki.daemonflesh_plate import (DaemonfleshPlateAbility,        # #916 (relique 1493)
                                       DaemonfleshPlateResetActiveAbility)
+from ..loki.blade_of_the_ancestors import (                           # #1001 (relique 1491, votanUthar)
+    BladeOfTheAncestorsAbility, BladeOfTheAncestorsRemoveEffectAbility,
+    BladeOfTheAncestorsCustomRemoveEffectAbility, BLADE_OF_THE_ANCESTORS)
+from ..loki.volumms_master_artifice import (                          # #1001 (relique 1488, votanIronmaster)
+    VolummsMasterArtificeAbility)
 from ..loki.relentless_march import RelentlessMarchAbility             # #328 (passif necroWarden)
 from ..loki.my_will_be_done_overlord import (MyWillBeDoneOverlordAttackAbility,   # #354 (necroOverlord)
                                              MyWillBeDoneOverlordClearAbility)
@@ -1277,6 +1282,27 @@ RELIC_ABILITY_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
     #     -> `ResetActiveAbility(Owner, true) + RemoveEffect(1491)`.
     # Cf. loki/daemonflesh_plate.py.
     "DaemonfleshPlate": [DaemonfleshPlateAbility, DaemonfleshPlateResetActiveAbility],
+    # BladeOfTheAncestors (relique `R_Crit_BladeOfTheAncestors`, `TriggeredAbilityType` 0x5d3 =
+    # 1491 ; UN porteur autorise : `votanUthar` << Uthar >>, HERO hors pool -> injection catalogue).
+    # DEUX classes natives pour UNE cle (patron `DaemonfleshPlate`), toutes deux sous le namespace
+    # `...Abilities.**Active**.Loki` alors que la base LUE est `BaseTriggeredAbility` :
+    #   * `BladeOfTheAncestorsAbility` -- `On(0 = UnitDeath) & AreFriends(Targets@+0x60, Owner) &
+    #     HasTrait(Targets@+0x60, Hero)` | `... & AreFriends(Actor@+0x40, Owner) &
+    #     HasTrait(Actor@+0x40, Hero) & IsNormalUnit(Targets@+0x60)` -> `AddEffect(0x5d1 = 1489)` ;
+    #   * `BladeOfTheAncestors_RemoveEffectAbility` -- `On(9 = Attack) & OwnerIsCaster & WasCrit &
+    #     HasEffect(Owner, 0x5d1)` -> `TriggerAbilityDelayed(Owner, 0x5d3, 3)` (le retrait tombe au
+    #     DRAIN, branche `Custom` : cf. `CUSTOM_TRIGGERED_ABILITIES[1491]`).
+    # L'EFFET 1489 est inscrit dans le MEME commit (`EFFECT_CLASSES`, #1004) : l'ability seule
+    # poserait un `BaseEffect` nu, qui ne change aucune stat. Cf. loki/blade_of_the_ancestors.py.
+    "BladeOfTheAncestors": [BladeOfTheAncestorsAbility, BladeOfTheAncestorsRemoveEffectAbility],
+    # VolummsMasterArtifice (relique `R_Crit_VolummsMasterArtifice`, `TriggeredAbilityType` 0x5d0 =
+    # 1488 ; UN porteur autorise : `votanIronmaster` << Vynn >>, HERO hors pool). UNE classe :
+    # `On(0x30 = 48 UnitRepaired) & (AreEqual(Parent(Caster@+0x48), Owner@+0x30) | OwnerIsCaster)`
+    # -> `AddPersistentData(+1) & If(compteur >= nrOfRepairs, Heal(hpToHeal) & ResetActiveAbility &
+    # SetPersistentData(0))`. Le vecteur `UnitRepaired` existe depuis #964-r1
+    # (`dispatch/repair.py`), donc l'inscription n'est PAS registered-but-dead.
+    # Cf. loki/volumms_master_artifice.py.
+    "VolummsMasterArtifice": [VolummsMasterArtificeAbility],
 }
 
 # --- Registre : abilities GLOBALES (aucun owner) ---------------------------------------------------
@@ -1343,6 +1369,14 @@ CUSTOM_TRIGGERED_ABILITIES: dict[int, list[type[TriggeredAbility]]] = {
     # `IdunBattle.Operations.TriggerTriggeredAbilityOperation$$TriggerAbility`), pas deduit.
     # cf. loki/unwavering_sentinel.py.
     UNWAVERING_SENTINEL_ABILITY: [UnwaveringSentinelCustomAbility],
+    # 1491 BladeOfTheAncestors (#1001) : la branche `triggerType == 0x20 = Custom` de
+    # `BladeOfTheAncestors_RemoveEffectAbility$$CreateBehaviour` = `RemoveEffect(Owner@+0x30,
+    # Nullable(0x5d1 = 1489))` -- LE RESET du buff crit. Armee par le `TriggerAbilityDelayed(Owner,
+    # 0x5d3, 3)` de la branche `!= Custom` de la MEME classe, sur `On(9) & OwnerIsCaster & WasCrit`.
+    # ⚠ L'AUTRE classe de 1491, `BladeOfTheAncestorsAbility`, a elle aussi une branche `Custom` --
+    # et elle vaut `DSLBehaviors$$Nothing()`. Le natif l'appelle au drain et elle ne fait RIEN :
+    # l'inscrire ici serait un mensonge de couverture (une classe de no-op), pas une fidelite.
+    BLADE_OF_THE_ANCESTORS: [BladeOfTheAncestorsCustomRemoveEffectAbility],
 }
 
 # --- Registre : effectType → effet-trigger(s) ------------------------------------------------------

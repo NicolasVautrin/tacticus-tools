@@ -41,6 +41,10 @@ canal `BlockHitsReduction`, cf. `PurgeResponseEffect` en bas de module.
 SIXIEME et SEPTIEME (#959) : les DEUX passifs d'AURA du roster, `GrimEfficiency` (1490, `votanUthar`)
 et `PredictiveGuidance` (1525, `votanMemnyr`) -- cf. les deux blocs en bas de module et
 `docs/rl/case-959-grim-efficiency-predictive-guidance.md`.
+
+HUITIEME (#1001) : `BladeOfTheAncestorsBuffEffect` (0x5d1 = 1489), le buff crit EMPILABLE de la
+RELIQUE `R_Crit_BladeOfTheAncestors` (`votanUthar`) -- cf. le bloc en bas de module et
+`docs/rl/case-1001-reliques-votann.md`.
 """
 from __future__ import annotations
 
@@ -64,6 +68,7 @@ from ...stats import StatType
 import engine.entities.effects.aura_selectors as ASel            # noqa: E402
 from ....services.effect_bonus import EffectBonus, for_addition
 
+_BLADE_OF_THE_ANCESTORS = "BladeOfTheAncestors"   # TriggeredAbilityType 0x5d3 = 1491 (relique de votanUthar)
 _AUGMENTED_ASSAULT = "AugmentedAssault"       # ActiveAbilityType 0x4c5 = 1221 (votanBeserk / Havyr)
 _ANCESTRAL_FORTUNE = "AncestralFortune"       # ActiveAbilityType 0x4b7 = 1207 (votanUthar / Uthar)
 _GRAVITON_RIFLE = "GravitonRifle"             # ActiveAbilityType 0x4b6 = 1206 (votanIronmaster / Vynn)
@@ -726,3 +731,134 @@ class PredictiveGuidanceExtraHitsEffect(BaseEffect):
         if not n:
             return None
         return for_addition(True, int(n))              # ForAddition POSITIF (+1 coup)
+
+
+# =================================================================================================
+#  #1001 -- `BladeOfTheAncestors` (relique `R_Crit_BladeOfTheAncestors`, `TriggeredAbilityType`
+#           0x5d3 = 1491, porteur `votanUthar` << Uthar >>) : le BUFF, cote effet.
+# =================================================================================================
+#
+#  `IdunBattle.Entities.Effects.Loki.BladeOfTheAncestorsBuffEffect` (`EffectType` 0x5d1 = 1489
+#  `BladeOfTheAncestors_Effect`). Base LUE dans `frida/classes.tsv` :
+#  `IdunBattle.Entities.Effects.BaseEffect` -- ce n'est PAS un `AStatModifierEffect`, la classe
+#  construit ses `ChangeStat` ELLE-MEME.
+#
+#  `...BladeOfTheAncestorsBuffEffect$$.ctor` (litteral relu a l'assembleur -- le pseudo-C le perd,
+#  il part par `edx` : `mov edx,0x5d3` juste avant le `call` a
+#  `IdunBattle.Core.AbilityOrEffect$$op_Implicit`) :
+#      BaseEffect( hasAutomaticActivation = 1, Nullable<...>(0), Nullable(AbilityOrEffect(0x5d3)) )
+#  -> la config lue par ses `GetVariableForLevel` est celle de l'ABILITY 1491, jamais celle de
+#  l'effet. Corroboration independante : `extraCritDmg` n'existe que dans le gameconfig de
+#  `BladeOfTheAncestors` (`AncestralFortune`, l'autre porteur d'`extraCritChance` du roster, n'a que
+#  `extraCritChance` + `extraBlockChance`).
+#
+#  `...BladeOfTheAncestorsBuffEffect$$ApplyModification(target, effect)` -- MIRROR :
+#      ChangeStat( Entity(target), Stat(9  = CritChance, 5 = Modification), mode 4,
+#                  Direct( GetVariableForLevel(cfg, 0x41 = extraCritChance, GetAbilityState(this)) ),
+#                  Entity(effect), 3 = OnlyAliveAndTargetable, 0, 0 )
+#      ChangeStat( Entity(target), Stat(10 = CritDamage,  5 = Modification), mode 4,
+#                  Get(    GetVariableForLevel(cfg, 0x42 = extraCritDmg,    GetAbilityState(this)) ),
+#                  Entity(effect), 3, 0, 0 )
+#  (`Direct` au premier, `Get` au second : deux fabriques de constante d'`IdunBattleLogic.Entities.
+#  DSLFormulas`, meme signature `(amount: Int32) -> IAmountFormula`. L'asymetrie est LUE, elle n'a
+#  aucune consequence de valeur -- les deux enveloppent le meme entier.)
+#
+#  `...BladeOfTheAncestorsBuffEffect$$RevertInternal(owner, target, effect)` : les MEMES deux
+#  `ChangeStat`, avec `Stat(<9|10>, 6 = ResetModification)` et `<DSLFormulas+0x18> = Direct(0)`.
+#  -> exactement le couple `applied_stat_mods` / `reverted_stats` du port.
+#
+#  `...BladeOfTheAncestorsBuffEffect$$UpdateInternal(owner, target, effect)` = `ApplyModification`
+#  NU (un increment de plus par re-pose) ; `...$$RefreshValueInternal` = le slot 0x578 puis
+#  `ApplyModification` x `BaseEffect$$GetTimesApplied(effect)`. Les deux disent la MEME chose :
+#  l'effet EMPILE de facon ADDITIVE, il ne se rafraichit pas. D'ou `stacks_stat_mod_on_add = True`
+#  (patron `ActOfFaithBuffEffect` / `RealityUnbound_ExtraMaxDamage`), qui reproduit l'observable
+#  par N instances plutot que par le compteur `TimesApplied` -- meme choix, meme raison qu'ActOfFaith.
+#
+#  ⚠ CE N'EST PAS `ActOfFaith`, ET LA DIFFERENCE EST NUMERIQUE. `ActOfFaithBuffEffect` pose
+#  `Ceiling(GetStat(CritDamage, part 3 = Initial) x actOfFaithExtraCritDmgPct%)`, un POURCENTAGE de
+#  la crit-dmg de base. Ici les DEUX montants sont des variables de niveau PLATES
+#  (`extraCritChance[10] = 10`, `extraCritDmg[10] = 877`), ce que l'i2 dit mot pour mot :
+#  << gains +10% Crit Chance and deals +877 Crit Damage >>. Recopier le voisin de forme aurait
+#  ecrit un pourcentage la ou le natif lit une constante de config.
+
+
+def _relic_ability_state(stats_ctx, ability_name: str) -> "tuple":
+    """`(level, multiplier)` de l'`AbilityState` sous lequel `ability_name` est MONTEE sur le
+    porteur dont on tient le `StatsComponent.ctx`.
+
+    MEME tri que `engine.runner.operations.triggers.base.triggered_ability_state` (mirror de la
+    distribution des trois `AbilityState` par `IdunBattle.Entities.Factories.UnitFactory$$Build`),
+    mais depuis le CONTEXTE seul : `applied_stat_mods` ne recoit pas le `State`. La duplication est
+    assumee et bornee a ces quatre lignes -- hisser le helper ici ferait dependre `entities/` de
+    `runner/`, l'arete que le paquet n'a pas.
+
+    POURQUOI LE CTX DU PORTEUR EST LE BON : `BladeOfTheAncestorsAbility$$CreateBehaviour` pose
+    `AddEffect(0x5d1, AbilityStateReference, Owner@DSLSelectors+0x30, turns = null)` -- SOURCE et
+    CIBLE sont le MEME `Owner`. Le `GetAbilityState(this)` que lit `ApplyModification` est donc
+    l'etat d'ability du PORTEUR lui-meme ; lire le ctx de la cible n'est pas une approximation, la
+    source et la cible sont la meme unite par construction.
+
+    Sans ce tri, une relique montee au niveau 8 lirait `passive_ability_level` (50 sur tout runner
+    normalise), donc le DERNIER palier -- un ecart de magnitude SILENCIEUX."""
+    if stats_ctx is None:
+        return (None, 100)
+    if getattr(stats_ctx, "tertiary_ability", None) == ability_name:
+        return (int(getattr(stats_ctx, "tertiary_ability_level", 0) or 0),
+                int(getattr(stats_ctx, "tertiary_ability_variables_multiplier", 100) or 100))
+    return (getattr(stats_ctx, "passive_ability_level", None),
+            int(getattr(stats_ctx, "ability_variables_multiplier", 100) or 100))
+
+
+class BladeOfTheAncestorsBuffEffect(BaseEffect):
+    """`IdunBattle.Entities.Effects.Loki.BladeOfTheAncestorsBuffEffect` (`EffectType` 0x5d1 = 1489).
+
+    Buff crit EMPILABLE d'Uthar : `+extraCritChance` `CritChance` et `+extraCritDmg` `CritDamage`
+    par pile. Pose par `BladeOfTheAncestorsAbility` (mort ou kill d'un HERO allie), retire -- TOUTES
+    piles -- par `BladeOfTheAncestors_RemoveEffectAbility` au crit du porteur. Le RE des cinq corps
+    natifs est dans le bloc ci-dessus."""
+
+    #: `AbilityOrEffect(0x5d3)` du `.ctor` : la config lue est celle de l'ABILITY, pas de l'effet.
+    ABILITY_ID = _BLADE_OF_THE_ANCESTORS
+
+    #: `AbilityVariableType` 0x41 = 65 / 0x42 = 66 -- les deux `GetVariableForLevel` d'`ApplyModification`.
+    EXTRA_CRIT_CHANCE_KEY = "extraCritChance"
+    EXTRA_CRIT_DMG_KEY = "extraCritDmg"
+
+    cc_delta: int = 0   # delta crit-chance de CETTE pile (info/report, patron ActOfFaith)
+    cd_delta: int = 0   # delta crit-damage de CETTE pile (info/report)
+    stat_mod_source = None   # cle de source ChangeStat (revert par-source via la feuille RemoveEffect)
+    # `UpdateInternal` = `ApplyModification` nu, `RefreshValueInternal` = `ApplyModification` x
+    # `GetTimesApplied` : l'empilement est ADDITIF, pas un refresh. Cf. le bloc de RE.
+    stacks_stat_mod_on_add = True
+
+    def applied_stat_mods(self, stats_ctx) -> "list":
+        """`...BladeOfTheAncestorsBuffEffect$$ApplyModification` -- les DEUX `ChangeStat`
+        (`StatPart` 5 = MODIFICATION, donc ADDITIF), part DATA cote `entities/`. La couche runner
+        (`AddEffectOperation._apply_stat_mods`) les EXECUTE via `apply_change_stat`, keyees par une
+        source unique par instance -> revert par-source exact.
+
+        `extraCritChance` et `extraCritDmg` sont des VARIABLES DE NIVEAU du gameconfig de l'ability
+        1491, indexees par le couple TERTIAIRE quand la relique est equipee (cf.
+        `_relic_ability_state`). Aucune des deux n'est dans `variablesAffectedByRarityBonus` -> le
+        multiplicateur ne mord pas ; on le passe quand meme, parce que c'est `ability_var` (mirror de
+        `GetVariableForLevel`) qui en decide, pas nous.
+
+        Variable illisible / relique non seedee -> montant 0, donc AUCUN stat-mod pose (le port
+        refuse d'inventer un palier)."""
+        lvl, mult = _relic_ability_state(stats_ctx, self.ABILITY_ID)
+        cc = int(ability_var(self.ABILITY_ID, self.EXTRA_CRIT_CHANCE_KEY, lvl,
+                             multiplier_pct=mult) or 0)
+        cd = int(ability_var(self.ABILITY_ID, self.EXTRA_CRIT_DMG_KEY, lvl,
+                             multiplier_pct=mult) or 0)
+        out = []
+        if cc:
+            out.append((int(StatType.CRIT_CHANCE), cc))     # Stat(9, 5) <- Direct(extraCritChance)
+        if cd:
+            out.append((int(StatType.CRIT_DAMAGE), cd))     # Stat(10, 5) <- Get(extraCritDmg)
+        return out
+
+    def reverted_stats(self) -> "list":
+        """`...BladeOfTheAncestorsBuffEffect$$RevertInternal` = les MEMES deux stats, `StatPart`
+        6 = RESET_MODIFICATION. Lues par la feuille `RemoveEffect` pour `revert_change_stat(...,
+        stat_mod_source)` par-source."""
+        return [StatType.CRIT_CHANCE, StatType.CRIT_DAMAGE]
