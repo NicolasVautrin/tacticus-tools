@@ -493,11 +493,50 @@ def test_aucune_attestation_ne_contredit_un_registre():
             "trigger. L'un des deux ment." % cle)
 
 
-def test_les_voies_conditionnelles_restent_non_vides():
+def test_la_lecture_des_voies_conditionnelles_reste_DISCRIMINANTE():
     """Contre-garde d'inventaire, heritee de #341 : la lecture de `RELIC_ABILITY_TRIGGERS` ne doit
-    pas vider la section conditionnelle de sa substance."""
-    cond = AKC.collect_conditionnelles({v: k for k, v in EM.ACTIVE_ABILITY_TYPE.items()})
+    pas vider la section conditionnelle de sa substance.
+
+    CE QUE CETTE GARDE A REMPLACE, ET POURQUOI. Elle exigeait `len(ouvertes) >= 20` -- un PLANCHER
+    DE POPULATION. Ce critere ne mesure pas ce que la docstring annonce : il tombe quand le travail
+    AVANCE (mesure du 2026-08-13 : le port de `NornCrown` a fait passer la section de 20 a 19, donc
+    `master` serait devenu rouge POUR AVOIR PORTE UNE ABILITY), et il resterait VERT si le predicat
+    devenait reellement permissif tant qu'il reste 20 items. Il rougit sur le progres et se tait sur
+    la regression -- l'exact inverse de son intention. Meme forme que les trois seuils remplaces par
+    #1015, et que celui de #1008 avant eux.
+
+    L'INVARIANT QU'IL APPROXIMAIT est que la lecture DISCRIMINE, et il se garde par un TEMOIN, donc
+    sans rien devoir a la cadence de portage :
+      (a) le recensement VISITE quelque chose (son propre non-vide) ;
+      (b) un nom qui n'est dans AUCUN registre revient `covered = False`. C'est litteralement
+          << la lecture n'est pas permissive >>, et c'est vrai que la section compte 20 items
+          ouverts ou zero ;
+      (c) la partition est exhaustive -- `covered` est un booleen sur CHAQUE entree, aucune ne peut
+          rester muette.
+    Le compte d'ouvertes reste IMPRIME (il descend a mesure qu'on porte, c'est le but), il ne fait
+    plus office de critere."""
+    name2id = {v: k for k, v in EM.ACTIVE_ABILITY_TYPE.items()}
+    cond = AKC.collect_conditionnelles(name2id)
+
+    # (a) le recensement visite quelque chose -- sinon tout ce qui suit serait vrai par vacuite.
+    assert cond, ("recensement conditionnel VIDE : plus aucune ability n'atteint une unite `lineup` "
+                  "par `mythicAbilities` ou par une relique equipable. Un recenseur qui ne visite "
+                  "rien ne peut rien rendre.")
+
+    # (c) partition exhaustive : chaque entree porte un verdict booleen, aucune n'est muette.
+    muettes = [c["name"] for c in cond if not isinstance(c.get("covered"), bool)]
+    assert muettes == [], "entrees conditionnelles sans verdict booleen : %r" % muettes
+
+    # (b) LE TEMOIN -- un nom fabrique, absent de tout registre et de tout ledger. Si la lecture le
+    # declare couvert, elle est devenue permissive, et ce constat ne depend d'AUCUNE population.
+    temoin = "TemoinNomQuiNExistePasDansAucunRegistre951r2"
+    assert temoin not in name2id, "le temoin doit rester un nom FABRIQUE, hors enum"
+    assert not AKC._passive_covered(temoin), (
+        "LECTURE PERMISSIVE : `_passive_covered` rend VRAI sur un nom fabrique (`%s`) qui n'est "
+        "dans aucun registre. Toute la section conditionnelle serait alors declaree couverte, et le "
+        "compte d'ouvertes tomberait a zero pour une raison qui n'est pas du travail fait." % temoin)
+    assert AKC._atteste("conditionnelle-item", temoin) is None, (
+        "le ledger d'attestations rend une entree pour un nom fabrique (`%s`)" % temoin)
+
     ouvertes = [c for c in cond if not c["covered"]]
-    assert len(ouvertes) >= 20, (
-        "la section conditionnelle est tombee a %d abilities ouvertes : la lecture des nouveaux "
-        "registres est devenue permissive." % len(ouvertes))
+    print("[951r2] voies conditionnelles : %d entrees, %d ouvertes" % (len(cond), len(ouvertes)))
