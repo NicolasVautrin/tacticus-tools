@@ -481,7 +481,7 @@ class RemoveEffect(AbilityBehaviour):
         state = ectx.state
         if state is None or state.effects is None:
             return OperationResult.ok()
-        # DOMAINE MIXTE (#1010) : le natif itere des `IEntity` INDIFFERENCIEES, exactement comme
+        # DOMAINE MIXTE (#1005) : le natif itere des `IEntity` INDIFFERENCIEES, exactement comme
         # `AddEffectBehaviour` -- une UNITE (dict) ou une TUILE. Le port ne routait que les unites,
         # donc `RemoveEffect(Fire, Tiles(Target()))` -- le disjoint « on ETEINT » de
         # `IdunBattleLogic.Entities.Abilities.Triggered.Loki.VitarusAbility$$CreateBehaviour` --

@@ -618,7 +618,7 @@ class APsychicStalkEffect(BaseEffect):
         le canal deja monte pour `LetTheGalaxyBurnEffect`). Canal ABSENT -> False : le natif ne
         devine pas non plus, et « present != applique ».
 
-        DELEGUE au foyer `effects/base.py::target_is_on_fire_tile` depuis #1010 : `VitarusEffect`
+        DELEGUE au foyer `effects/base.py::target_is_on_fire_tile` depuis #1005 : `VitarusEffect`
         pose la MEME question par un autre noeud (`Any(Tiles(Target), HasEffect(<element>, Fire,
         onlyActive: false, EffectTargetType.Both))`), et une TROISIEME ecriture aurait fait un
         fork."""
@@ -968,5 +968,5 @@ class PsychicStalkVisualEffect(BaseEffect):
             return False
         # EntitiesWithAnyEffect(Tiles(...), Fire = 5, effectTarget = 6) -- MEME noeud, MEME canal
         # offline (noms de `tileMeta.tiles[].effects[]`) que `GetTargetIsOnFireTileCondition`,
-        # donc MEME foyer (`effects/base.py::target_is_on_fire_tile`, #1010).
+        # donc MEME foyer (`effects/base.py::target_is_on_fire_tile`, #1005).
         return _target_is_on_fire_tile(ctx)

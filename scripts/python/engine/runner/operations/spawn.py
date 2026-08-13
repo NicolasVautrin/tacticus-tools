@@ -818,6 +818,19 @@ def _seed_ability_owner_effects(state: State, unit_id: int, vid: str, mult: int,
     from ...entities.effects.factory import get_owner_flags_added_on_ability_init
     gu = GC.unit(vid) or {}
     abilities = list(gu.get("activeAbilities") or []) + list(gu.get("passiveAbilities") or [])
+    # QUATRIEME source de la MEME boucle native (#1005) : l'ability TERTIAIRE, c.-a-d. l'item
+    # RELIQUE EQUIPE. `IdunBattle.Entities.Factories.UnitFactory$$AddConfiguredAbilities` la monte
+    # par `TriggeredAbilityComponent$$TryAdd(id, tertiaryState, 3)` -- elle est donc DANS la boucle
+    # d'`InitializeActorAbilitiesOperation$$Execute` au meme titre que les deux autres, et son
+    # `<X>_InitAbility` pose son owner-effect comme n'importe quel passif (`Vitarus` -> 1466).
+    # La lire dans le gameconfig par `visualId` serait FAUX : une relique n'est PAS dans le kit,
+    # elle vit dans `BC.Units[].TertiaryAbility` -> `ctx.tertiary_ability` (canal
+    # `unitAbilityStates`, #357). `None` = aucune relique -> rien a ajouter.
+    _e = state.get_entity(int(unit_id))
+    _sc = _e.get_component(StatsComponent) if _e is not None else None
+    _tertiary = getattr(getattr(_sc, "ctx", None), "tertiary_ability", None)
+    if _tertiary:
+        abilities.append(str(_tertiary))
     # TROISIEME source de la MEME boucle native (#964-r1) : `<Ability>_InitAbility.CreateBehaviour`
     # -> `DSLBehaviors$$AddFlag(Owner@+0x30, <UnitFlag>)`. Meme trigger `OnOwnerSpecificAbilityInit`
     # que les owner-effects ci-dessous, autre mutation. Cf. `ABILITY_INIT_OWNER_FLAGS`.
