@@ -36,6 +36,31 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+#: Ce qui doit changer pour que ce FICHIER de test puisse changer de verdict (#486-r15).
+#: Pris LARGE : l'etage 4 lit la SOURCE des deux vecteurs de prediction, donc le fichier change de
+#: verdict des que l'un des deux bouge -- le limiter a `scene.py` serait un FAUX VERT.
+DECLENCHEUR = {
+    "chemins": (
+        # Le mecanisme de substitution des pieds (etages 1, 5, 5bis).
+        "scripts/python/engine/playbook/adjacency.py",
+        # Les compteurs eux-memes (tous les etages).
+        "scripts/python/engine/playbook/scene.py",
+        # Les DEUX vecteurs de prediction, dont l'etage 4 lit la source.
+        "scripts/python/engine/playbook/prediction/normal_attack.py",
+        "scripts/python/engine/playbook/prediction/abilities.py",
+        # Le predicat d'adjacence natif sur lequel `unit_in_adjacent_tiles` descend.
+        "scripts/python/engine/battle_query.py",
+    ),
+    # Aucun artefact du build : les cinq etages tournent sur une `Scene` synthetique. La lecture
+    # de `DoActionInSimulatedTile` justifie le port, elle n'est pas relue a l'execution.
+    "build": False,
+    "toujours": False,
+    "raison": "Le mecanisme de substitution des pieds, les deux compteurs, les DEUX vecteurs de "
+              "prediction dont l'etage 4 lit la source, et le predicat d'adjacence natif sur "
+              "lequel ils descendent. Pris LARGE a dessein : cabler un seul des deux vecteurs "
+              "deplacerait le fork, donc le fichier doit se rejouer si l'un des deux bouge.",
+}
+
 PYDIR = Path(__file__).resolve().parents[2]
 if str(PYDIR) not in sys.path:
     sys.path.insert(0, str(PYDIR))

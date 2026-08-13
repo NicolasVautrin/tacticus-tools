@@ -26,6 +26,34 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+#: Ce qui doit changer pour que ce FICHIER de test puisse changer de verdict (#486-r15).
+#: Pris LARGE volontairement : l'etage 4 confronte les DEUX faces de 1187, donc il change de
+#: verdict des que l'un OU l'autre bouge -- un declencheur limite au seul noeud DSL serait un
+#: FAUX VERT (le fichier ne se rejouerait pas sous `--since` quand la face DECISION change).
+DECLENCHEUR = {
+    "chemins": (
+        # Le noeud porteur du parametre `include_non_walkable` (etages 1, 2, 4).
+        "scripts/python/engine/entities/selectors/accessors.py",
+        # Le call-site COMBAT de 1187, dont l'etage 3 lit le litteral et l'etage 4 l'arbre.
+        "scripts/python/engine/runner/abilities/sisterhood.py",
+        # Le foyer de la face DECISION, auquel l'etage 4 confronte la face COMBAT.
+        "scripts/python/engine/battle_query.py",
+        "scripts/python/engine/playbook/noncomparable/thrice_blessed_conflagration.py",
+        # Le substrat de marchabilite que `_walkable` interroge par duck-typing.
+        "scripts/python/engine/entities/pathfinding/board.py",
+    ),
+    # Le verdict ne depend d'AUCUN artefact du build du jeu : les quatre etages tournent sur un
+    # board synthetique et sur l'arbre DSL construit en memoire. Le litteral `includeNonWalkable`
+    # vient du decompile, mais il est FIGE dans le code sous test, pas relu ici.
+    "build": False,
+    "toujours": False,
+    "raison": "Le noeud DSL qui porte `include_non_walkable`, le call-site COMBAT de 1187 dont "
+              "l'etage 3 lit le litteral et l'etage 4 l'arbre, le foyer de la face DECISION "
+              "auquel l'etage 4 la confronte, et le board dont `_walkable` lit la marchabilite. "
+              "Pris LARGE a dessein : l'etage 4 compare DEUX faces, donc il change de verdict "
+              "des que l'une OU l'autre bouge.",
+}
+
 PYDIR = Path(__file__).resolve().parents[2]
 if str(PYDIR) not in sys.path:
     sys.path.insert(0, str(PYDIR))
