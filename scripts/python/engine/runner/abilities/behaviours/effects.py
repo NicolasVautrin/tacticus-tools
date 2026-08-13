@@ -481,8 +481,15 @@ class RemoveEffect(AbilityBehaviour):
         state = ectx.state
         if state is None or state.effects is None:
             return OperationResult.ok()
-        for tu in _units_of(self.target_sel, entities):     # natif : ITERE le selecteur-cible
-            tgt = tu.get("id") if isinstance(tu, dict) else None
+        # DOMAINE MIXTE (#1010) : le natif itere des `IEntity` INDIFFERENCIEES, exactement comme
+        # `AddEffectBehaviour` -- une UNITE (dict) ou une TUILE. Le port ne routait que les unites,
+        # donc `RemoveEffect(Fire, Tiles(Target()))` -- le disjoint « on ETEINT » de
+        # `IdunBattleLogic.Entities.Abilities.Triggered.Loki.VitarusAbility$$CreateBehaviour` --
+        # etait un NO-OP SILENCIEUX. Meme normalisation et MEME resolveur d'id que l'`AddEffect`
+        # d'en face (`_add_effect_targets` / `_add_effect_target_id`), pour que la pose et le
+        # retrait ne puissent pas diverger de cle.
+        for tu in _add_effect_targets(self.target_sel.evaluate(entities)):
+            tgt = _add_effect_target_id(tu, state)
             if tgt is None:
                 continue
             removed = 0

@@ -16,9 +16,10 @@ from ....services.effect_bonus import (EffectBonus, for_addition, for_percent_de
                                        for_percent_increase)
 from ...active_ability_type import ActiveAbilityType
 from ...damage_trait import DamageTrait
+from ...triggered_ability_type import TriggeredAbilityType
 from ...traits.unit_trait import UnitTrait
 from ..base import (BaseEffect, is_at_range as _is_at_range, is_melee_attack, is_not_charging,
-                    is_ranged_attack, tiles_moved_this_turn)
+                    is_ranged_attack, target_is_on_fire_tile, tiles_moved_this_turn)
 from ..magnitude import ability_var, global_value, trait_var
 
 
@@ -1237,3 +1238,137 @@ class HeavyGravCannonEffect(BaseEffect):
         amt = ability_var("HeavyGravCannon", "extraPierceRatio", lvl,
                           multiplier_pct=self.ability_variables_multiplier)   # hors rarityBonus -> mult inerte
         return int(amt) if amt else None
+
+
+class ChaliceOfBaalExtraDmgEffect(BaseEffect):
+    """`IdunBattle.Entities.Effects.Loki.ChaliceOfBaalEffect$$CreateEffectDamageBonusForAttack`
+    (`EffectType.ChaliceOfBaal_ExtraDmg` = 0x621 = **1569**) -- MIRROR du decompile :
+
+        EffectBonus.ForAddition( get_OwnerIsActor & IsMeleeAttack & IsNormalAttack,
+                                 DSLFormulas$$ConfigVar(AbilityVariableType.extraDmg = 8,
+                                                        GetAbilityState(this), <effet+0x60>) )
+
+    Le `ForAddition` est INLINE (le compilo l'a fondu : le `ConfigVar` est ecrit au champ additif
+    `+0x10` de la struct, meme layout que `IdunBattle.Entities.Effects.EffectBonus$$ForAddition`) ->
+    canal `additive` de `IdunBattle.Core.Services.DamageModifiers$$Add`, applique POST-percage par
+    `IdunBattle.Core.Services.DamagePrediction$$CalculateBaseDamageWithAllModifiers`.
+
+    `IdunBattle.Entities.Effects.Loki.ChaliceOfBaalEffect$$.ctor` = `BaseEffect(AbilityOrEffect(
+    TriggeredAbilityType.ChaliceOfBaal = 0x60e), true)` -- `mov edx, 0x60e` LU AUX OCTETS, et le
+    `call` resout sur `IdunBattle.Core.AbilityOrEffect$$op_Implicit(triggeredAbility:
+    TriggeredAbilityType)`, PAS sur les surcharges `ActiveAbilityType` / `EffectType` (les trois
+    enums partagent des centaines d'ordinaux, l'ordinal seul n'aurait rien tranche). Le `ConfigVar`
+    lit donc l'entree gameconfig **`ChaliceOfBaal`** (`variables.extraDmg`, 10 paliers de RELIQUE).
+
+    POSE : `...ChaliceOfBaalAbility$$CreateBehaviour` -> `AddEffect(0x621, AbilityStateReference,
+    source = Owner@DSLSelectors+0x30, targets, turns = <DSLFormulas+0x20> = Direct(1))` sur le
+    porteur + ses allies adjacents NON MECANIQUES, pour UN TOUR
+    (`runner/operations/triggers/loki/chalice_of_baal.py`).
+
+    GATES, lus et pas devines :
+      * `get_OwnerIsActor` -- ce canal n'est appele QUE pour les attaques du PORTEUR de l'effet
+        (`_attacker_effect_bonuses` n'itere que les effets de l'attaquant) -> implicitement VRAI,
+        comme pour `SmashaEad` / `CondemnorStake` ;
+      * `IsMeleeAttack` -- tri-etat #106 (`is_ranged is None` = nature non prouvee -> gate FERME) ;
+      * `IsNormalAttack` -- le noeud evalue FAUX en contexte de PREDICTION D'AFFICHAGE (meme
+        verdict que `SmashaEad`, #71 : l'`AbilityIsNormalAttackTrigger` n'a aucune ability dans le
+        contexte), d'ou le `if is_prediction: return None`.
+
+    `extraDmg` n'est PAS dans un `variablesAffectedByRarityBonus` pour cette entree (la cle est
+    absente du gameconfig de `ChaliceOfBaal`) -> `ability_var` rend le multiplicateur inerte ; on le
+    passe quand meme, c'est le natif qui decide.
+
+    ⚠ NIVEAU -- le natif resout son `ConfigVar` contre l'`AbilityState` que l'`AddEffect` lui a
+    passe, c.-a-d. celui du PORTEUR DE LA RELIQUE (`scale_from_source=True` cote port le propage a
+    la pose). `_source_scaling` lit le couple ACTIF/PASSIF de la source, pas son couple TERTIAIRE :
+    sur un runner normalise les deux valent 50 et `ability_var` clampe au dernier des 10 paliers,
+    donc les deux lectures coincident ; elles divergeraient sur une relique de bas niveau. Meme
+    residu que `DawnBlade` avant #357."""
+
+    def create_effect_damage_bonus_for_attack(self, is_ranged: bool | None = None,
+                                              has_moved: bool | None = None,
+                                              target_traits: "frozenset[str] | None" = None,
+                                              is_prediction: bool = False,
+                                              is_normal_attack: bool | None = True,
+                                              target_armor_reduced: bool | None = None,
+                                              att_ctx=None) -> EffectBonus | None:
+        if not is_melee_attack(is_ranged):            # IsMeleeAttack (tri-etat #106)
+            return None
+        if is_normal_attack is False:                 # IsNormalAttack
+            return None
+        if is_prediction:                             # cf. docstring (#71, jumeau SmashaEad)
+            return None
+        lvl = (self.active_ability_level if self.active_ability_level is not None
+               else (self.ability_level if self.ability_level is not None else self.level))
+        amt = ability_var("ChaliceOfBaal", "extraDmg", lvl,
+                          multiplier_pct=self.ability_variables_multiplier)
+        return for_addition(True, amt) if amt else None
+
+
+class VitarusEffect(BaseEffect):
+    """`IdunBattle.Entities.Effects.Loki.VitarusEffect$$CreateEffectDamageBonusForAttack`
+    (`EffectType.Vitarus` = 0x5ba = **1466**) -- MIRROR du decompile :
+
+        EffectBonus.ForAddition(
+              Any( Tiles(Target@DSLSelectors+0x60),
+                   HasEffect(<element@+0x68>, EffectType.Fire = 5, onlyActive: false,
+                             EffectTargetType.Both = 6) )
+            & get_OwnerIsCaster
+            & IsMeleeAttack
+            & (   IsNormalAttack(CurrentAbility@<DSLSelectors+0x88>)
+                | AreEqual(CurrentAbility@<+0x88>,
+                           AbilityOrEffect(TriggeredAbilityType.FuryOfTheAncients = 0x4df = 1247)) ),
+            DSLFormulas$$ConfigVar(AbilityVariableType.extraDmg = 8, GetAbilityState(this),
+                                   <effet+0x60>) )
+
+    `IdunBattle.Entities.Effects.Loki.VitarusEffect$$.ctor` = `BaseEffect(AbilityOrEffect(
+    TriggeredAbilityType.Vitarus = 0x5be), true)` (`mov edx, 0x5be` LU aux octets, `call` resolu sur
+    la surcharge `TriggeredAbilityType` d'`op_Implicit`) -> le `ConfigVar` lit l'entree gameconfig
+    **`Vitarus`** (`variables.extraDmg`, 10 paliers de RELIQUE).
+
+    L'effet est pose sur son porteur A L'INIT par `Vitarus_InitAbility` (parent
+    `IdunBattle.Entities.Abilities.AOwnerEffectTriggeredAbility`, dont le seul override est
+    `$$GetEffectType` = `return 0x5ba`) -- canal `ABILITY_INIT_OWNER_EFFECTS["Vitarus"]`.
+
+    LE COUPLE EST UN VA-ET-VIENT : la MEME condition gouverne le `CreateBehaviour` de
+    `VitarusAbility`, qui ETEINT le feu quand il etait la et le POSE sinon
+    (`runner/operations/triggers/loki/vitarus.py`). L'ordre est structurel : ce bonus est calcule
+    PENDANT le coup (`damage_model.attacker_modifiers`), le feu est mute APRES l'attaque
+    (`On(9 = Attack)`) -- donc « feu present -> +extraDmg PUIS extinction », « feu absent ->
+    pas de bonus PUIS ignition ».
+
+    GATES :
+      * la tuile de la cible en feu -> foyer PARTAGE `effects/base.py::target_is_on_fire_tile`
+        (`t_pos` + `tile_effects_by_pos`, le meme canal que `PsychicStalk`) ;
+      * `get_OwnerIsCaster` -- implicitement VRAI sur ce canal (effets de l'ATTAQUANT) ;
+      * `IsMeleeAttack` -- tri-etat #106 ;
+      * `IsNormalAttack | CurrentAbilityIs(1247)` -- `att_ctx["ability_type"]` porte
+        `CurrentAbilityIs` (`None` = voie NORMALE). ⚠ MEME residu que l'ability : le
+        `ChainAttackDamage` de `FuryOfTheAncients` n'annonce pas son kind, donc il entre par le
+        premier disjoint ; observable identique, cf. `triggers/loki/vitarus.py`.
+      * `is_prediction` -- **AUCUN** `if is_prediction: return None` ici, et c'est LU : le natif
+        n'a pas de gate de prediction, et son `IsNormalAttack` est VRAI pour l'attaque normale du
+        porteur (qui EST dans `decisionView`). Recopier le gate de `SmashaEad` serait la faute
+        inverse (cf. `TwistedScience` / `PrimarchOfTheFirstLegion` dans ce meme module)."""
+
+    def create_effect_damage_bonus_for_attack(self, is_ranged: bool | None = None,
+                                              has_moved: bool | None = None,
+                                              target_traits: "frozenset[str] | None" = None,
+                                              is_prediction: bool = False,
+                                              is_normal_attack: bool | None = True,
+                                              target_armor_reduced: bool | None = None,
+                                              att_ctx=None) -> EffectBonus | None:
+        if not is_melee_attack(is_ranged):            # IsMeleeAttack (tri-etat #106)
+            return None
+        # `IsNormalAttack(CurrentAbility@+0x88) | AreEqual(CurrentAbility@+0x88, 1247)` -- UN SEUL
+        # canal, les deux disjoints lisant le MEME selecteur.
+        cur = (att_ctx or {}).get("ability_type")
+        if cur is not None and int(cur) != int(TriggeredAbilityType.FuryOfTheAncients):
+            return None
+        if not target_is_on_fire_tile(att_ctx):       # Any(Tiles(Target), HasEffect(Fire))
+            return None
+        lvl = (self.active_ability_level if self.active_ability_level is not None
+               else (self.ability_level if self.ability_level is not None else self.level))
+        amt = ability_var("Vitarus", "extraDmg", lvl,
+                          multiplier_pct=self.ability_variables_multiplier)
+        return for_addition(True, amt) if amt else None

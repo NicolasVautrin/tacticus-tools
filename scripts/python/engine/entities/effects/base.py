@@ -21,6 +21,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 
 from ...services.effect_bonus import EffectBonus
+from ..effect_type import EffectType
 from ..traits.unit_trait import UnitTrait, has_trait
 
 # Sentinelle de durée d'un sous-effet : MÊME nombre de tours que le parent (mirror natif
@@ -77,6 +78,27 @@ def is_not_charging(att_ctx) -> bool:
     clé ABSENTE (contexte d'attaque sans cible — prédictions internes type FinalJustice) laisse
     passer, comme le faisait `has_moved=None`. Seul un `False` EXPLICITE ferme le gate."""
     return (att_ctx or {}).get("is_charging") is False
+
+
+def target_is_on_fire_tile(att_ctx) -> bool:
+    """`EntitiesWithAnyEffect( Tiles(Target@DSLSelectors+0x60), EffectType.Fire = 5,
+    effectTarget = 6 )` -- « la MAIN TILE de la cible du coup porte-t-elle l'effet `Fire` ? »
+
+    FOYER UNIQUE du predicat cote canal MODIFIER. Il etait ecrit DEUX fois dans
+    `loki/extra_damage_aura.py` (`APsychicStalkEffect$$GetTargetIsOnFireTileCondition` et son
+    jumeau `1216`) ; l'ecrire une TROISIEME fois pour `VitarusEffect` (dont la condition natif est
+    `Any(Tiles(Target@+0x60), HasEffect(<element>, Fire, onlyActive: false, EffectTargetType.Both
+    = 6))` -- meme question, autre noeud) aurait fait un fork. `Tiles` =
+    `IdunBattle.Entities.Selectors.UnitsMainTilesSelector` -> UNE tuile, pas l'empreinte complete.
+
+    Contexte : `t_pos` (position de la cible) + `tile_effects_by_pos` (`{(col,row): [noms]}`),
+    tous deux poses par `runner/damage_model.py::attacker_modifiers` et par la face PREDICTION.
+    Canal ABSENT -> False : le natif ne devine pas non plus, et « present != applique »."""
+    c = att_ctx or {}
+    tfx, tp = c.get("tile_effects_by_pos"), c.get("t_pos")
+    if tfx is None or tp is None:
+        return False
+    return EffectType.Fire.name in set((tfx or {}).get(tuple(tp)) or ())
 
 
 def is_charging_attack(att_ctx) -> bool:
