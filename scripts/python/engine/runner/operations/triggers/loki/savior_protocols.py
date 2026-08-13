@@ -1,0 +1,211 @@
+"""`IdunBattleLogic.Entities.Abilities.Triggered.Loki.SaviorProtocolsAbility` -- face **COMBAT** du
+passif `SaviorProtocols` (`TriggeredAbilityType` `0x460` = 1120), #1020.
+
+La face DECISION est portee depuis #443 / #443-r1 (`engine/playbook/savior_protocols.py`, les deux
+volets ATTACK et MOVE). Ce module-ci porte ce qui manquait : **l'EXECUTION**.
+
+PORTEURS (six, tous hors pool, ventiles) : `tauNpc2DroneSniper`, `tauNpc3DroneShield`,
+`tauNpc4DroneCommandLink` (npc) et `tauSmnDroneSniper`, `tauSmnDroneShield`,
+`tauSmnDroneCommandLink` (**summons**). Le chemin confrontable est le SUMMON : on spawne le
+summoner (`tauMarksman`, au pool) et le drone arrive dans son equipe.
+
+---
+
+## L'artefact natif, RE-CONFRONTE au decompile (build `rnca9r7q6c`)
+
+    SaviorProtocolsAbility$$CreateTrigger =
+        On(0x39 = EventTriggerType.PreDamageTaken, ownerNeedsToBeAlive = 0)
+          & TargetIsValidTrigger()
+          & IsAdjacent(Owner@<DSLSelectors+0x30>, Target@<+0x60>, 0 = UnitSelectionType.Any)
+          & !TriggeringAbilityIs(<AbilityOrEffect A>)
+          & !TriggeringAbilityIs(<AbilityOrEffect B>)
+
+    SaviorProtocolsAbility$$TargetIsValidTrigger =            // PARTAGE avec la face MOVE
+        AreFriends(Target@<+0x60>, Owner@<+0x30>)
+          & HasFaction(Target@<+0x60>, 9 = UnitFaction.Tau, 3)
+          & !ActorHasTriggeredAbility(Target@<+0x60>, 0x460 = 1120 SaviorProtocols)
+          & !AreEqual(Target@<+0x60>, Owner@<+0x30>)
+
+    SaviorProtocolsAbility$$CreateBehaviour =
+        If( Maybe( ConfigConst(0x2a = AbilityConstantType.chance, abilityState) ),   // gameconfig : 50
+            TransferDamage( caster         = Caster@<+0x48>,      // la SOURCE du degat
+                            originalTarget = Target@<+0x60>,      // la VICTIME
+                            transferTarget = Owner@<+0x30>,       // le DRONE
+                            transferAbility = <DSLSelectors+0x88>,
+                            attackAbility   = <DSLSelectors+0x90> ),
+            null )
+
+## Ce qui fait la mecanique, et le piege
+
+`IdunBattle.Operations.TransferDamageOperation$$GetDamage` **CONSOMME** le
+`Nullable<DamageAppliedResult>` pose par `IdunBattle.Operations.ApplyDamageOperation$$Execute` dans
+`FillUpStatComponent+0x64` : il en lit `DamageAppliedResult$$get_Damage` puis ecrit
+`*(qword*)(comp+0x64) = 0`. La relecture native etant un `System.Nullable<T>$$GetValueOrDefault`,
+le `FillUpStatComponent$$Reduce(hp, pending.healthDamage)` qui suit n'enleve **plus rien**.
+
+**Ce n'est donc PAS un bonus, c'est un DEPLACEMENT.** Un port qui ajouterait le degat au drone sans
+le retirer a la victime DOUBLERAIT le degat total. Le canal de retrait est
+`_pre_damage_taken_per_hit` (#1020, `operations/damage.py`), le canal d'ajout
+`transfer_damage_operation` (`operations/transfer_damage.py`).
+
+## Le predicat est mirrore DEUX FOIS, et ce n'est pas un fork
+
+`TargetIsValidTrigger` existe deja en version SCALAIRE dans `playbook/savior_protocols.py`
+(`_target_is_valid_trigger`), parce que le substrat du playbook est un contexte tile-leaf sans
+`AbilityEntities` -- il n'y a aucun arbre DSL a evaluer la-bas. Ici le substrat EST un
+`AbilityEntities` (on est dans un dispatch de trigger), donc le mirror est l'ARBRE, noeud pour
+noeud, comme l'exige la doctrine #149. Les deux lisent le meme decompile ; ils ne se recopient pas.
+
+## RESIDUS
+
+* **`#1020-r3` -- les deux `!TriggeringAbilityIs(<AbilityOrEffect>)` ne sont PAS LUS.** Le
+  decompile perd l'argument de `IdunBattle.Core.AbilityOrEffect$$op_Implicit` (seul le buffer de
+  retour est visible) et `read_bytes` plafonne a 32 octets par appel. Le port les OMET, ce qui est
+  PERMISSIF -- mais la recursion drone -> drone, le seul regime dangereux, est deja fermee par
+  `!ActorHasTriggeredAbility(Target, 1120)` de `TargetIsValidTrigger` : un drone porteur ne peut
+  jamais etre la VICTIME d'un transfert. Ecart residuel possible : un transfert qui devrait etre
+  refuse pour une source de degat particuliere.
+* **`#1020-r1`** (dans `_pre_damage_taken_per_hit`) : le bouclier de la victime n'est pas restitue
+  sur un coup transfere. Non atteint ici (cibles T'au sans `ShieldComponent`).
+"""
+from __future__ import annotations
+
+from typing import Optional
+
+from .....dsl.effects import ExecutionContext
+from .....dsl.event_trigger_type import EventTriggerType
+from .....entities.ability_constant_type import AbilityConstantType
+from .....entities.behaviours import If
+from .....entities.selectors.accessors import Actor, Target
+from .....entities.selectors.tiles import Caster
+from .....entities.triggered_ability_type import TriggeredAbilityType
+from .....entities.triggers import (ActorHasTriggeredAbility, AreEqual, AreFriends, HasFaction,
+                                    IsAdjacent, MaybeTrigger, Not, TriggerAnd)
+from .....entities.unit_faction import UnitFaction
+from .....entities.unit_selection_type import UnitSelectionType
+from ....abilities.behaviours.context import entities_from_state
+from ....abilities.behaviours.transfer import TransferDamage
+from ..base import TriggeredAbility, TriggerEvent
+from ....state import State
+
+ABILITY_ID = "SaviorProtocols"
+#: `0x460` = 1120 -- l'argument du `ActorHasTriggeredAbility` du gate ET l'id de l'ability.
+SAVIOR_PROTOCOLS = TriggeredAbilityType.SaviorProtocols
+#: `HasFaction(Target, 9, 3)` -- `9` est `UnitFaction.Tau`, `3` le `UnitSelectionType` du selecteur.
+TAU = UnitFaction.Tau
+FACTION_SELECTION = UnitSelectionType.OnlyAliveAndTargetable          # = 3
+#: `IsAdjacent(Owner, Target, 0)` -- le 3e argument va aux SELECTEURS, pas au predicat (#433-r3).
+ADJACENCY_SELECTION = UnitSelectionType.Any                           # = 0
+#: `ConfigConst(0x2a, abilityState)` -- `AbilityConstantType.chance`, `constants.chance` du gameconfig.
+CHANCE_CONSTANT = AbilityConstantType.chance
+
+_ON_PRE_DAMAGE_TAKEN = int(EventTriggerType.PreDamageTaken)           # 0x39 = 57
+
+
+def target_is_valid_trigger_tree():
+    """`SaviorProtocolsAbility$$TargetIsValidTrigger` -- les quatre noeuds, dans l'ordre du
+    decompile, chacun avec son selecteur natif :
+
+        AreFriends(Target@<+0x60>, Owner@<+0x30>)
+          & HasFaction(Target@<+0x60>, 9 = UnitFaction.Tau, 3)
+          & !ActorHasTriggeredAbility(Target@<+0x60>, 0x460 = 1120)
+          & !AreEqual(Target@<+0x60>, Owner@<+0x30>)
+
+    `Owner@<DSLSelectors+0x30>` est rendu par `Caster()` cote port : pour une
+    `BaseTriggeredAbility`, `Owner == Caster` (meme convention que `geminae_superia.py`)."""
+    t = TriggerAnd(AreFriends(Target(), Caster()),
+                   HasFaction(Target(), int(TAU)))
+    t = TriggerAnd(t, Not(ActorHasTriggeredAbility(Target(), int(SAVIOR_PROTOCOLS))))
+    return TriggerAnd(t, Not(AreEqual(Target(), Caster())))
+
+
+def savior_trigger_tree():
+    """`SaviorProtocolsAbility$$CreateTrigger`, moins le volet `On(0x39)` que porte le DISPATCH et
+    moins les deux `!TriggeringAbilityIs` non lus (residu `#1020-r3`) :
+
+        TargetIsValidTrigger() & IsAdjacent(Owner@<+0x30>, Target@<+0x60>, 0)
+
+    ⚠ `ownerNeedsToBeAlive` vaut **0** (2e argument d'`On`), comme `GeminaeSuperia` -- le gate
+    « owner vivant » du dispatch (`CanGetAbilityTrigger`) reste celui du port, residu PARTAGE.
+
+    ZERO tirage PRNG : le `Maybe` est dans le BEHAVIOUR, pas dans le trigger. Un drone dont le gate
+    ferme ne consomme donc aucun tirage -- point load-bearing pour le flux RNG."""
+    return TriggerAnd(target_is_valid_trigger_tree(),
+                      IsAdjacent(Caster(), Target(), int(ADJACENCY_SELECTION)))
+
+
+def savior_chance() -> int:
+    """`IdunBattleLogic.Entities.DSLFormulas$$ConfigConst(0x2a = AbilityConstantType.chance,
+    abilityState)` = `gameconfig.abilities.SaviorProtocols.constants.chance`.
+
+    C'est une CONSTANTE d'ability (pas une variable de niveau) : elle ne depend ni du rang du
+    porteur ni du niveau du passif -- d'ou `constants`, et non `variables`. Cle absente -> `0`,
+    donc `Maybe(0)` ne declenche jamais (degradation SURE : on n'invente pas un transfert)."""
+    import gameconfig as GC
+    v = ((GC.ability(ABILITY_ID) or {}).get("constants") or {}).get(CHANCE_CONSTANT.name)
+    try:
+        return int(v)
+    except (TypeError, ValueError):
+        return 0
+
+
+def savior_behaviour_tree(rng):
+    """`SaviorProtocolsAbility$$CreateBehaviour` -- LU VERBATIM :
+
+        transfer = DSLBehaviors.TransferDamage(<+0x78>, sel+0x48, sel+0x60, sel+0x30,
+                                               sel+0x88, sel+0x90)
+        chance   = DSLFormulas.ConfigConst(0x2a, this+0x20)
+        maybe    = DSLTriggers.Maybe(chance)                    // <-- DSL**Triggers**, un PREDICAT
+        return     DSLBehaviors.If(maybe, transfer, 0)
+
+    ⚠ **`Maybe` est ici la surcharge PREDICAT** (`IdunBattleLogic.Entities.DSLTriggers$$Maybe`,
+    `IdunBattle.Entities.Triggers.MaybeTrigger`), PAS le noeud EFFET homonyme
+    (`IdunBattle.Entities.Behaviours.MaybeBehaviour`). Le confondre changerait la STRUCTURE de
+    l'arbre (un behaviour enveloppant au lieu d'une condition d'`If`) pour un resultat en apparence
+    identique -- exactement le genre de recopie de voisin que la doctrine interdit.
+
+    UN tirage `NextBool(chance)`, consomme AVANT de savoir si le transfert aboutira : tout drone
+    dont le TRIGGER a passe le consomme, meme si le pending est deja vide. Le RNG est un CHAMP de
+    l'instance native (`MaybeTrigger+0x18`), d'ou son passage au CONSTRUCTEUR ici.
+
+    La branche `else` est le 4e argument natif, ici `(void *)0x0` -> ABSENTE.
+
+    Les selecteurs : `Caster@<+0x48>` = la SOURCE du degat = `Actor()` cote port (le vecteur
+    `pre_damage_taken_triggers` pose `caster == actor == la source`, cf. sa docstring) ;
+    `Target@<+0x60>` = la VICTIME ; `Owner@<+0x30>` = le DRONE = `Caster()` cote port."""
+    return If(MaybeTrigger(rng, savior_chance()),
+              TransferDamage(caster_sel=Actor(),
+                             original_target_sel=Target(),
+                             transfer_targets_sel=Caster()),
+              None)
+
+
+class SaviorProtocolsAbility(TriggeredAbility):
+    """`SaviorProtocolsAbility` -- cf. l'en-tete du module pour la chaine native et les residus.
+
+    `On(0x39 = PreDamageTaken) & AreFriends(Target, Owner) & HasFaction(Target, Tau)
+     & !ActorHasTriggeredAbility(Target, 1120) & !AreEqual(Target, Owner)
+     & IsAdjacent(Owner, Target)`
+    -> `If(Maybe(chance = 50), TransferDamage(source, victime, DRONE))`."""
+
+    event_id = _ON_PRE_DAMAGE_TAKEN
+    TRIGGERED_ABILITY_ID = int(TriggeredAbilityType.SaviorProtocols)      # 0x460 = 1120
+
+    def matches(self, state: State, ev: TriggerEvent) -> bool:
+        """`CreateTrigger` moins le volet `On(0x39)` du dispatch.
+
+        Le porteur (`self.owner_id`) est l'`Owner@<+0x30>` ; `ev.target_id` la victime ;
+        `ev.actor_id` la source du degat."""
+        entities = entities_from_state(state, self.owner_id, ev.target_id, actor_id=ev.actor_id)
+        return bool(savior_trigger_tree().evaluate(entities))
+
+    def execute_behaviour(self, state: State, ev: TriggerEvent) -> Optional[dict]:
+        ectx = ExecutionContext(state=state, rng=state.rng)
+        entities = entities_from_state(state, self.owner_id, ev.target_id, actor_id=ev.actor_id)
+        savior_behaviour_tree(state.rng).execute(entities, ectx)
+        transfers = [p for (n, p) in ectx.emitted if n == "TransferDamage"]
+        return {"passive": ABILITY_ID, "owner": int(self.owner_id),
+                "chance": savior_chance(),
+                "transfers": transfers,
+                "transferred": bool(transfers and any(t.get("result") for t in transfers)),
+                "dsl": True}
