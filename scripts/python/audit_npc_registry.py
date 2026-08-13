@@ -14,7 +14,9 @@ propre liste de registres rate ceux qu'il ne connait pas, et rend un faux MANQUA
   - passifs              -> `audit_kit_coverage._passive_covered` (SIX canaux, dont l'attaque
                             normale substituee -- celui qui m'avait fait compter `TalonOfHorus`
                             manquante alors qu'elle est portee)
-  - traits               -> les trois registres trait->X + effet homonyme, comme l'audit lineup
+  - traits               -> `trait_channels.canaux()`, le foyer PARTITIONNANT, comme l'audit
+                            lineup depuis #1015 (il testait encore les trois registres trait->X,
+                            approximation qui ignore le canal `lecture` -- cf. `_trait_couvert`)
 
 CE QUI N'EST PAS DERIVABLE ICI, et le document le DIT au lieu de rendre un zero (lecon #323) :
 les voies `trait` (mapping natif hors gameconfig), `liveevent`, `summon` et `tile`. Un kit
@@ -41,14 +43,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import decision_face_voies as DFV
 import gameconfig as GC
+import trait_channels as TC
 import unit_map as UM
-from audit_kit_coverage import (
-    _atteste, _has_effect_named_after, _passive_covered,
-)
+from audit_kit_coverage import _atteste, _passive_covered
 from engine.entities.active_ability_type import ActiveAbilityType
-from engine.entities.effects.factory import TRAIT_DERIVED_ABILITIES, TRAIT_OWNER_EFFECTS
 from engine.runner.abilities.handler import ABILITY_CLASSES
-from engine.runner.operations.triggers.dispatch.registry import TRAIT_TRIGGERS
 
 RACINE = Path(__file__).resolve().parents[2]
 SORTIE = RACINE / "docs" / "rl" / "npc-registry.md"
@@ -64,9 +63,29 @@ VOIES_ABSENTES = UM.VOIES_NON_COUVERTES
 
 
 def _trait_couvert(t: str) -> bool:
-    """Meme predicat que l'audit lineup, sur les memes registres."""
-    return (t in TRAIT_TRIGGERS or t in TRAIT_DERIVED_ABILITIES
-            or t in TRAIT_OWNER_EFFECTS or _has_effect_named_after(t))
+    """MEME predicat que l'audit lineup -- et cette fois c'est VRAI (#1022-r4).
+
+    Il DELEGUE a `trait_channels.canaux()`, exactement comme `audit_kit_coverage` depuis #1015
+    (`covered = bool(cx) or att is not None`). Avant, il testait l'appartenance a trois registres
+    (`TRAIT_TRIGGERS`, `TRAIT_DERIVED_ABILITIES`, `TRAIT_OWNER_EFFECTS`) plus un nom d'effet -- une
+    approximation qui ignore les autres canaux qu'un trait peut emprunter (`lecture`, notamment).
+
+    ⚠ CE QUI REND LA REPARATION URGENTE, ET LA FORME EXACTE DE LA FAUTE : sa docstring DISAIT DEJA
+    << meme predicat que l'audit lineup >>, et #1022 a ajoute plus haut un commentaire annoncant que
+    ce predicat << delegue a `trait_channels` >>. Ni l'un ni l'autre n'etait vrai : `trait_channels`
+    n'apparaissait NULLE PART dans ce fichier hors de ce commentaire. Tant que le seuil de frequence
+    ecartait les traits repandus, l'ecart restait invisible ; en le retirant (a raison), #1022 a
+    expose le predicat perime a toute la population.
+
+    MESURE, a code moteur CONSTANT -- items TRAIT manquants cote npc :
+        avant #1022 (seuil actif, predicat de registres) :  50
+        #1022       (seuil retire, predicat de registres) : 963   <- sur-comptage x18,9
+        ici         (seuil retire, `canaux()`)            :  51
+    Les 25 traits declares manquants a tort etaient les plus repandus, `Hero` (323 npc),
+    `Mechanical` (98) et `Flying` (94) en tete -- l'artefact publiait << kits sans manque : 5 >> sur
+    491 et ouvrait sa table du travail restant sur << porter le trait `Hero` >>.
+    """
+    return bool(TC.canaux(t))
 
 
 def collecter(kind: str) -> list[dict]:
@@ -106,8 +125,10 @@ def collecter(kind: str) -> list[dict]:
             # ne pouvait plus etre regenere (constate en le regenerant, #1022). Le seuil ECARTAIT
             # du compte tout trait porte par plus de 12 unites en le declarant « presume couvert » ;
             # la mesure de #1015 a rendu 3 des 22 presumes LUS NULLE PART dans `engine/**`. On ne le
-            # retablit donc pas : on n'ecarte PLUS personne, et `_trait_couvert` (qui delegue a
-            # `trait_channels`) repond trait par trait.
+            # retablit donc pas : on n'ecarte PLUS personne, et `_trait_couvert` repond trait par
+            # trait. ⚠ Ce commentaire ANNONCAIT cette delegation avant qu'elle existe (#1022) : le
+            # predicat testait encore trois registres, et retirer le seuil l'a expose a toute la
+            # population -- 963 manquants au lieu de 51. Retabli par #1022-r4.
             att = _atteste("trait", t)
             traits.append({"name": t, "carriers": porteurs_trait[t],
                            "covered": _trait_couvert(t) or att is not None})
