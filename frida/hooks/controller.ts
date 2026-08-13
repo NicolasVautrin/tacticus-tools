@@ -45,6 +45,7 @@ import * as expeditionBoard from "./features/expedition-board.js";
 import * as rosterOwned from "./features/roster-owned.js";
 import * as expeditionDispatch from "./features/expedition-dispatch.js";
 import * as gcRendezvous from "./probes/gc-rendezvous.js";
+import * as gameLoader from "./game/loader.js";
 import * as startCampaignMatchCapture from "./probes/start-campaign-match-capture.js";
 import * as uiMutations from "./features/ui-mutations.js";
 import * as initTrace from "./features/init-trace.js";
@@ -436,6 +437,10 @@ export function wireRpc(ctx: Ctx): void {
      // PEUT geler le jeu -- c'est ce qu'il mesure (#600). Il ne touche pas au compte.
      netCapture, wsCapture, expeditionBoard, rosterOwned, expeditionDispatch, uiMutations,
      gcRendezvous, startCampaignMatchCapture,
+     // `game/loader` n'INSTALLE RIEN : il LIT une statique de `thor.Loader` par la voie nommee.
+     // Son RPC repond « un changement de scene est-il en cours ? », question qui conditionne
+     // TOUT geste de changement de scene -- pas seulement le warmup (#993).
+     gameLoader,
      // messageTrace AVANT winnerCapture — il SET `state.scoringRunnerId` / `state.applySeq`,
      // que winnerCapture LIT pour estampiller son event. (Le troisieme lecteur, move-options,
      // est parti avec le nettoyage : sa surface RPC etait morte et son register inerte.)

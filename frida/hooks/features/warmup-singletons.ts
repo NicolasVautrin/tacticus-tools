@@ -1,108 +1,112 @@
-// High-level orchestration: warm up CampaignGameModeSource without any
-// human in-game click. Drives the existing ui-nav primitives through the
-// full chain (campaign node → battle preview → play → ctor capture →
-// pause → retreat → confirm) and leaves the game back at the campaign
-// screen. Idempotent: if campaign-builder already holds campaignGameModeSourcePtr, no-op.
+// Le WARMUP : capturer `CampaignGameModeSource` pour armer le builder, SANS UN SEUL CLIC.
 //
-// Intended usage at session start, after auto-inject, to guarantee that
-// builder_ready is pushed without needing the user to navigate first.
+// TROIS APPELS NATIFS, et c'est tout le cycle (#993, build `rnca9r7q6c`) :
 //
-// POURQUOI CE PILOTAGE D'UI N'EST PAS CONTOURNABLE — #989, tranche le 2026-08-12
-// sur le build `rnca9r7q6c`. Lancer une vraie bataille pour n'en retirer qu'un
-// pointeur, puis battre en retraite, a tout l'air d'un pis-aller : la question
-// « ne peut-on pas simplement RESOUDRE l'instance ? » se repose donc toute seule.
-// La reponse est NON, et elle est structurelle, pas circonstancielle :
+//     ViewCommandExecutor$$StartCampaignMatch(campaignId, locationIndex, type, nullable)
+//     IdunMainView$$OnBattleSurrender()      -> popup de confirmation (PauseSurrender DIFFERE)
+//     IdunMainView$$ContinueSurrender()      -> fin de bataille, retour au meta
 //
-//   - `CampaignGameModeSource` n'a qu'UN SEUL site de creation dans tout le
-//     binaire, `idun.shared.commands.ViewCommandExecutor$$StartCampaignMatch`,
-//     qui alloue (`il2cpp::vm::Object::New`) et appelle le ctor INLINE, puis
-//     enchaine `ViewCommandExecutor$$StartMatch` -> `thor.Loader$$LoadBattle`
-//     sans point de sortie entre les deux. Creer l'instance et lancer la
-//     bataille sont LE MEME GESTE.
-//   - Il n'existe AUCUN conteneur DI dans ce binaire (`Zenject` = 0 symbole), donc
-//     rien a interroger : les 17 dependances du ctor sont des champs du
-//     `ViewCommandExecutor`, qui se passe lui-meme en 9e argument.
-//   - Trois des 17 parametres decrivent LA BATAILLE LANCEE (`campaignId`,
-//     `initialLocationIndex`, `enemyIsAiControlled`) : aucune liaison ne peut les
-//     fournir avant qu'on sache quelle bataille on lance.
+// ZERO stamina : on se retire AVANT le deploiement, ce que le natif nomme lui-meme
+// `hasSurrenderedBeforeDeployment`. Mesure a froid : la capture tombe a **2,1 s** apres l'invoke,
+// et `campaignBuilderStatus` rend alors `hasGameConfig` + `hasUnitProgression` + `hasInstance`.
 //
-// Consequence pratique : le durcissement de la retraite (#390) est LA bonne
-// reponse au cout de ce cycle, pas un palliatif en attendant mieux. Re-deriver
-// les faisceaux hors ligne : `scripts/python/probe_989_cgms_sans_liaison_di.py`.
-// Detail : `docs/rl/case-989-campaign-game-mode-source-transient.md`.
+// LE PILOTAGE D'UI A ETE RETIRE, IL N'EN RESTE PAS DE REPLI. Ce n'est pas un oubli : un repli
+// silencieux aurait rendu la voie native INVERIFIABLE -- le jour ou elle cesserait de porter, le
+// warmup resterait VERT en repayant les clics, et personne ne le saurait. Si les trois appels
+// echouent, le warmup est ROUGE et son motif est nomme.
+//
+// ⚠ POURQUOI LE VERDICT « NON CONTOURNABLE » DE #989 ETAIT FAUX, ET EN QUOI IL AVAIT RAISON.
+// #989 avait etabli, correctement, que `CampaignGameModeSource` n'a qu'UN SEUL site de creation
+// (`ViewCommandExecutor$$StartCampaignMatch`, qui alloue et appelle le ctor INLINE puis enchaine
+// sur `thor.Loader$$LoadBattle` sans point de sortie), qu'aucun conteneur DI n'existe dans ce
+// binaire (`Zenject` = 0 symbole), et que trois des 17 parametres du ctor DECRIVENT la bataille
+// lancee. Conclusion tiree : « creer l'instance et lancer la bataille sont LE MEME GESTE, donc le
+// pilotage d'UI n'est pas contournable ». La premisse tient toujours ; la conclusion ne s'en
+// deduisait pas. La question posee etait « peut-on RESOUDRE l'instance sans bataille ? » (non),
+// alors que la bonne etait « peut-on APPELER la methode que les clics appellent ? » (oui).
+//
+// CE QUI RESTE DE L'UI ICI, ET CE QUE C'EST : DES SIGNAUX, JAMAIS DES GESTES.
+// Le cycle ne clique plus rien -- il n'y a pas un seul appel de clic dans ce fichier. Il LIT
+// trois choses, et chacune parce qu'aucune lecture native equivalente n'est etablie :
+//   - la POSE de la scene de bataille (trois objets d'UI de deploiement) ;
+//   - la presence du popup de confirmation, seul effet observable d'`OnBattleSurrender` (les
+//     fires de la chaine ne sont pas mesurables pendant l'invoke : il faut deposer les ancrages
+//     sous peine de GEL).
+// La troisieme lecture, elle, est NATIVE : `IdunNavigation` vivante = scene meta remontee.
+//
+// ⚠ ET LE CYCLE NE DIT PAS AU JEU OU SE RETROUVER. Le cran final exigeait le noeud de campagne ;
+// mesure du 2026-08-13 : la retraite rend la main sur `Idun_UI_Navigation` (131 boutons), pas sur
+// la campagne. On charge une bataille, on en sort, et on verifie seulement qu'un ecran est
+// remonte. Le remede qui rappelait `ToCampaign` a ete retire avec ce critere : il ne pouvait
+// reparer que « pas sur la campagne », qui n'est plus une panne.
 
 import { queueOnMainThread } from "../runtime/queue.js";
 import { log } from "../runtime/diag.js";
 import { Ctx } from "../controller.js";
-import { ensureRefs, enumerateButtons, clickByPath, ButtonRow, UiRefs }
-    from "./ui-nav.js";
+import { getCampaignGameModeSourcePtr } from "./campaign-builder.js";
+// LE SIGNAL, et pas un balayage de boutons : `ui-windows.ts` ancre les cinq points de
+// `idun.ui.ScreenVisibilityManager` et pousse chaque transition NOMMEE a ses abonnes.
+import { ecouterTransitions, EcouteTransitions } from "./ui-windows.js";
 import {
-    getCampaignGameModeSourcePtr, getUnitProgressionPtr, tryActiveDiscoveryOfSources,
-} from "./campaign-builder.js";
-import {
-    findClassAnywhere, findMethod, class_get_methods, method_get_name,
-    method_get_param_count, methodEntry, s as cstr, getSystemType,
-    MethodRef,
+    findClassAnywhere, class_get_methods, method_get_name,
+    method_get_param_count, methodEntry, s as cstr, getSystemType, MethodRef,
 } from "../il2cpp/helpers.js";
-import { invokeMethod, createManagedString } from "../il2cpp/invoke.js";
+import { invokeMethod } from "../il2cpp/invoke.js";
 import {
-    runWedgeRemedy, NavOutcome, WedgeRemedyReason,
-    WEDGE_REMEDY_ATTEMPTS, WEDGE_REMEDY_NAV_WAIT_MS, WEDGE_REMEDY_POPUP_WAIT_MS,
-} from "./warmup-wedge-remedy.js";
-import { runRetreatToCampaign, RetreatResult } from "./warmup-retreat-signal.js";
-import { ecouterTransitions } from "./ui-windows.js";
+    runEntreeProgrammatique, EntreeProgDeps, EffetDeSurrender, SortieMethode,
+} from "./warmup-programmatique.js";
+// Les TROIS appels natifs. On importe les FOYERS, on ne les recopie pas : `invoquerCommande`
+// porte la resolution de cible et la coercition d'arguments, `provoquerRetraite` porte les trois
+// refus et le depot d'ancrages sans lequel l'invoke GELE.
+import { invoquerCommande } from "./view-command.js";
+import { enBataille, provoquerRetraite, sortieJoignable } from "./retreat-capture.js";
+// ⚠ Un `feature` qui importe un `probe`, et c'est VOULU : ce probe ANCRE `StartCampaignMatch`,
+// que nous INVOQUONS. « Ne jamais ancrer la methode qu'on invoque » (3 gels sur 3) ne s'applique
+// pas par une phrase mais par un depot d'ancrage -- cet import EST le desarmement.
+import { deposerCapteur, reposerCapteur } from "../probes/start-campaign-match-capture.js";
+// L'ETAT DU CHARGEUR DE SCENES. Le seul signal qui separe un cycle qui marche d'un cycle qui
+// bloque le jeu -- et il ne concerne pas que le warmup : `thor.Loader$$LoadScene` refuse en
+// silence pour TOUT changement de scene. D'ou une lib, pas un helper local (`game/loader.ts`).
+import { chargementEnCours } from "../game/loader.js";
 
-// --- Constants describing the in-game button paths we drive through ---
+// --- Ce que le cycle vise dans le jeu ---
 
-// idun.UI.IdunNavigation.ToCampaign signature (4 params):
-//   ToCampaign(bool animated, CampaignType type, string campaignId,
-//              Nullable<CampaignAddress> address)
-// Calling this directly bypasses the UI tile maze (Home → GameModesScreen →
-// Indomitus tile) — one IL2CPP invoke replaces 2-3 fragile clicks. The Indomitus
-// campaign is CampaignType.Standard (=0) with campaignId "campaign1".
 const CAMPAIGN_TYPE_INDOMITUS = 0; // Idun.Shared.CampaignType.Standard
 const CAMPAIGN_ID_INDOMITUS = "campaign1";
 
-const NODE_SUFFIX = "/Idun_CampaignScreenLevelButton(Clone)";
+/** LE NOEUD QUE LE CYCLE LANCE -- et d'ou vient ce nombre.
+ *
+ * ⚠ VALEUR OBSERVEE, PAS CHOISIE, et c'est toute la difference. C'est le `locationIndex` que
+ * L'UI ELLE-MEME passait a `ViewCommandExecutor$$StartCampaignMatch` pendant un warmup nominal,
+ * relu par le capteur `startCampaignMatchCaptures` (#991, build `rnca9r7q6c`). On REJOUE une
+ * valeur mesuree ; on ne compose pas une valeur plausible -- meme discipline que la forme
+ * d'argument `{brut, octets}` ci-dessous.
+ *
+ * ⚠ CE QU'ELLE NE GARANTIT PAS. Un invoke direct court-circuite les deux preconditions que
+ * l'appelant UI evaluait (`IsLocationReached`, `HasStaminaToPlayCampaignBattle` -- cf. #991 §3),
+ * donc rien ici ne verifie que ce noeud est atteint sur un AUTRE compte. Le jeu, lui, atteint
+ * deja `StartCampaignMatch` sans ces gardes par son propre chemin de retour de raid
+ * (`ShowCampaignBattlePreviewPopupCommand$$LoadCampaignMatch`) : le regime n'est pas inconnu du
+ * binaire. Si le noeud ne charge pas, `prog-capture` rougit et le warmup echoue en le DISANT. */
+const PROG_LOCATION_INDEX = 74;
 
-// Generic popup pattern: any active root canvas under SafeCanvas whose name
-// matches /Popup\b/ (case-insensitive). Dismissal path: append `/Blocker`
-// (transparent fullscreen click-catcher used to "click outside to close").
-const POPUP_NAME_REGEX = /Popup/i;
-const PLAY_BUTTON_KEY = "/Idun_BattlePreviewPopup(Clone)/" +
-    "CanvasGroup/Scale/popup/buttons_container/play_button";
-const PAUSE_BUTTON_KEY = "/Idun_UI_Game_HUD(Clone)/PauseButton";
-const RETREAT_BUTTON_KEY = "/UI_PauseMenu(Clone)/" +
-    "CanvasGroup/Test/Popup/Container - Popup/Buttons/button_retreat";
-const RETREAT_CONFIRM_KEY = "/GenericMessagePopup(Clone)/" +
-    "CanvasGroup/Scale/Popup/Buttons /Button1";
+/** `enemyIsAiControlled : System.Nullable<System.Boolean>` -- les DEUX octets OBSERVES.
+ *
+ * L'UI passe `0x0101`, donc `hasValue` et `value` valent tous deux 1 et les deux lectures
+ * possibles CONCORDENT : la disposition de `Nullable<T>` reste NON TRANCHEE, et la forme
+ * `{brut, octets}` transporte les octets tels quels plutot que de les recomposer depuis une
+ * hypothese sur l'ordre des champs. */
+const PROG_ENEMY_AI_BRUT = { brut: "0101", octets: 2 } as const;
 
-// Deployment-phase stability signals — all three must be present + interactable
-// before it's safe to hit Pause+Retreat. PauseButton mounts as soon as the
-// battle HUD canvas is built, well before the scene is actually loaded; using
-// it alone as a "ready" signal led to retreating mid-transition and freezing
-// the renderer (cf. observed broken-state screenshot).
-const DEPLOYMENT_HUD_KEY = "/UnitDeploymentHud(Clone)/";
-const START_BATTLE_KEY = "/StartBattleContainer";
-
-/** Repos entre « le bouton est trouve interactable » et le clic effectif.
- * `interactable == true` arrive AVANT la fin du fondu du popup, et un clic emis
- * dans cette fenetre est AVALE en rapportant `ok:true` — indiscernable d'un succes.
- * Mesure du 2026-07-30 : clics enchaines sans repos -> la campagne ne remonte
- * jamais ; les memes clics espaces de ~2 s -> retour en moins de 5 s. 800 ms couvre
- * l'animation avec de la marge, sans rallonger sensiblement le cycle. */
-const SETTLE_BEFORE_CLICK_MS = 800;
-
-/** Combien de fois recliquer quand l'effet attendu ne vient pas, et combien de temps
- * lui laisser. 12 s couvre le dechargement/rechargement de scene du dernier clic
- * (mesure : < 5 s) ; 3 tentatives suffisent pour une perte due a une animation. */
-const CLICK_EFFECT_TIMEOUT_MS = 12000;
-const CLICK_ATTEMPTS = 3;
-
-// Le budget de la fin de `retreatToCampaign` ne vit plus ici : depuis #390-r2 la sortie de
-// bataille est detectee par SIGNAL (`warmup-retreat-signal.ts`), et le seul temps encore
-// borne la-bas est un FILET -- `RETREAT_SIGNAL_WAIT_MS`, dimensionne sur un chargement de
-// scene, jamais paye sur le chemin nominal.
+/** LE POPUP DE CONFIRMATION DE RETRAITE, tel que `ScreenVisibilityManager` le NOMME.
+ *
+ * Mesure du 2026-08-13 (journal `uiWindowEvents`, entree + retraite completes) : la classe reelle
+ * est `GenericMessagePopup` et son `idun.tracking.GuiId` est `MessagePopup`. Les deux sont
+ * confrontes -- le `GuiId` peut rendre `Unknown` sur certains ecrans (mesure : c'est le cas de
+ * `BlurredBackgroundScreen`, qui accompagne ce popup), donc s'y fier seul raterait le signal. */
+function estLePopupDeConfirmation(t: { classe: string | null; gui: { nom: string | null } }): boolean {
+    return t.classe === "GenericMessagePopup" || t.gui.nom === "MessagePopup";
+}
 
 // --- Helpers ---
 
@@ -110,11 +114,10 @@ function sleep(ms: number): Promise<void> {
     return new Promise<void>((r) => { setTimeout(r, ms); });
 }
 
-/** Poll a queueOnMainThread predicate at `intervalMs` until it returns
- * non-null or `timeoutMs` elapses. Resolves with the value or null.
- * Default interval 100ms — fine-grained enough to track popup animations
- * (~300-500ms) without round-trip waste, since each poll is one main-thread
- * frame (~16ms at 60fps). */
+/** Attend un SIGNAL : sonde `fn` toutes les `intervalMs` jusqu'a ce qu'il rende non-null, au plus
+ * tard apres `timeoutMs`. Les budgets sont des PLAFONDS, jamais des attentes -- le chemin nominal
+ * rend la main des que le signal arrive. Il n'y a aucun repos fixe dans ce fichier : rien n'est
+ * accorde « pour laisser le temps », tout est attendu jusqu'a etre VU. */
 async function waitFor<T>(
     fn: () => T | null,
     timeoutMs: number,
@@ -129,185 +132,10 @@ async function waitFor<T>(
     return null;
 }
 
-/** Poll until a button matching `frag` appears, then CLICK IT in the same
- * main-thread tick — saves one round-trip compared to waitFor + click.
- * Returns the click result + the matched path, or null on timeout. */
-async function waitForAndClick(
-    r: UiRefs, frag: string, timeoutMs: number, intervalMs = 100,
-): Promise<{ ok: boolean; path: string; err?: string } | null> {
-    const start = Date.now();
-    while (Date.now() - start < timeoutMs) {
-        const result = await queueOnMainThread(() => {
-            const btn = findButtonByContains(r, frag);
-            if (!btn) return null;
-            const click = clickByPath(r, btn.path);
-            return { ok: click.ok, path: btn.path, err: click.err };
-        });
-        if (result !== null) return result;
-        await sleep(intervalMs);
-    }
-    return null;
-}
-
-/** Cliquer, puis VERIFIER QUE LE CLIC A PRIS — et recliquer sinon.
- *
- * Verifier la PRESENCE du bouton avant de cliquer ne sert a rien : elle etait deja
- * verifiee (bouton trouve, actif, `interactable`) le jour ou les trois clics de la
- * retraite se sont perdus. Un clic avale est indiscernable d'un clic reussi du cote
- * de l'emetteur — la seule preuve qu'il a porte est SON EFFET.
- *
- * On attend donc l'effet attendu (`expect`), et s'il ne vient pas on remet un clic.
- * Le repos avant le clic evite la plupart des pertes, mais il n'est plus ce sur quoi
- * on COMPTE : c'est la boucle qui garantit.
- *
- * Rendu MODULE-LEVEL le 2026-07-31 (#332) : cette parade n'existait qu'en closure
- * LOCALE de l'etape 1bis, si bien que l'etape 7 — celle qui ramene a la campagne
- * apres la capture — tournait encore sur `waitForAndClick`, le mecanisme REFUTE. */
-async function clickUntilEffect(
-    r: UiRefs, frag: string, label: string,
-    expect: () => unknown | null, expectLabel: string,
-): Promise<string | null> {
-    for (let attempt = 1; attempt <= CLICK_ATTEMPTS; attempt++) {
-        const found = await waitFor(() => findButtonByContains(r, frag), 8000);
-        if (found === null) {
-            // UN BOUTON QUI A DISPARU EST LA PREUVE QUE LE CLIC A PORTE, pas un echec.
-            // Jusqu'ici cette branche concluait l'inverse et rendait
-            // `<label> a disparu sans que <effet> apparaisse` -- mesure du 2026-08-12 :
-            // c'est EXACTEMENT le message qu'on obtenait 2 fois sur 2 sur la confirmation
-            // de retraite, alors que le popup avait bien ete dismisse. On re-teste donc
-            // l'effet avant de conclure : entre le poll qui l'a vu absent et celui-ci, il
-            // a pu arriver.
-            if (attempt > 1 && expect() !== null) return null;
-            return attempt === 1
-                ? `${label} introuvable`
-                : `${label} a disparu sans que ${expectLabel} apparaisse`;
-        }
-        await sleep(SETTLE_BEFORE_CLICK_MS);
-        const click = await queueOnMainThread(() => clickByPath(r, found.path));
-        if (!click.ok) return click.err ?? `${label} non cliquable`;
-        // LA verification : l'effet, pas le retour du clic.
-        if (await waitFor(expect, CLICK_EFFECT_TIMEOUT_MS, 250) !== null) {
-            return null;
-        }
-        log(`[warmup-singletons] clic sur ${label} sans effet `
-            + `(${expectLabel} absent) — tentative ${attempt}/${CLICK_ATTEMPTS}`);
-    }
-    return `${label} clique ${CLICK_ATTEMPTS} fois sans que ${expectLabel} `
-         + "apparaisse — clic systematiquement avale";
-}
-
-/** L'effet du clic de confirmation : le popup de retrait a CEDE LA PLACE. C'est tout ce
- * qu'on peut affirmer a cet instant, et c'est tout ce dont on a besoin.
- *
- * Ne suppose RIEN sur ce qui prend le relais -- ecran intersticiel, campagne, autre chose.
- * Ne suppose rien non plus sur la scene : un critere du type « `IdunNavigation` est
- * vivant » parierait sur l'ordre entre l'affichage de la frame suivante et le
- * dechargement de la scene de bataille, que rien n'etablit.
- *
- * Le clic AVALE reste distingue du clic qui porte, ce qui est tout l'enjeu de #332 : un
- * clic avale laisse le popup EN PLACE, donc rend `null` ici. */
-function confirmPopupReplaced(r: UiRefs): true | null {
-    return findButtonByContains(r, RETREAT_CONFIRM_KEY) === null ? true : null;
-}
-
-/** Les TROIS clics : `pause -> retraite -> confirmation`. Chacun reste valide par
- * l'apparition de l'etape suivante -- un clic AVALE se lit sinon exactement comme un clic
- * reussi (#332). Rend `null` si les trois ont porte, sinon le motif du premier echec. */
-async function clicsDeRetraite(r: UiRefs): Promise<string | null> {
-    const chain: Array<[string, string, () => unknown | null, string]> = [
-        [PAUSE_BUTTON_KEY, "bouton pause",
-            () => findButtonByContains(r, RETREAT_BUTTON_KEY), "le menu pause"],
-        [RETREAT_BUTTON_KEY, "bouton retraite",
-            () => findButtonByContains(r, RETREAT_CONFIRM_KEY), "la confirmation"],
-        [RETREAT_CONFIRM_KEY, "confirmation de retraite",
-            () => confirmPopupReplaced(r), "une autre frame"],
-    ];
-    for (const [frag, label, expect, expectLabel] of chain) {
-        const err = await clickUntilEffect(r, frag, label, expect, expectLabel);
-        if (err !== null) return err;
-    }
-    return null;
-}
-
-/** `pause -> retraite -> confirmation`, puis LE SIGNAL de sortie de bataille.
- *
- * UN SEUL exemplaire de cette chaine, appele par les DEUX chemins qui retirent le jeu d'une
- * bataille : l'etape 1bis (ecran herite du cycle precedent) et l'etape 7 (menage apres la
- * capture). Les avoir dupliques est ce qui a permis a l'un d'etre corrige et pas l'autre.
- *
- * ⚠ CE QUI A CHANGE AU #390-r2 : LE MECANISME DE DETECTION, PAS LE RESULTAT. La chaine
- * demandait a l'UI toutes les 250 ms « le noeud de campagne est-il la ? », puis « une nav
- * est-elle vivante ? », sur deux budgets de 12 s tires au jugement -- et un warmup VERT ne
- * disait rien de ce qui s'etait passe entre les deux. Elle ECOUTE desormais
- * `idun.ui.ScreenVisibilityManager` et attend le RETRAIT de l'ecran de pause
- * (`GuiId.PauseMenu`), symetrique exact de son inscription a l'entree en bataille. La RE, la
- * mesure (deux cycles a 28 transitions identiques) et les deux criteres que cette mesure
- * REFUTE vivent dans `warmup-retreat-signal.ts` -- c'est la que ca se lit.
- *
- * L'ECOUTE EST OUVERTE AVANT LE PREMIER CLIC : une transition emise entre le clic et
- * l'abonnement serait perdue, et c'est precisement celle qui compte. Elle est FERMEE dans un
- * `finally` -- un abonne oublie continuerait de faire lire le `GuiId` a chaque transition. */
-async function retreatToCampaign(r: UiRefs): Promise<RetreatResult> {
-    const ecoute = ecouterTransitions();
-    try {
-        return await runRetreatToCampaign({
-            clicsDeRetraite: () => clicsDeRetraite(r),
-            ecoute,
-            // UNE lecture, pas un sondage.
-            noeudCampagnePresent: async () => await queueOnMainThread(
-                () => findButtonBySuffix(r, NODE_SUFFIX)) !== null,
-            // FILET seulement -- ces deux attentes ne sont atteintes que si le signal n'a
-            // pas joue. C'est aussi ici que se lit la mesure de #390 : juste apres le
-            // remplacement du popup, `IdunNavigation` n'est PAS vivant, donc on ne peut pas
-            // invoquer `ToCampaign` sans avoir attendu la scene meta.
-            attendreNavVivante: async (ms) => await waitFor(() => {
-                try {
-                    return findLiveIdunNavigation(ensureNavRefs());
-                } catch {
-                    return null;
-                }
-            }, ms, 250) !== null,
-            navToCampaign: () => queueOnMainThread(
-                () => navToCampaignOnMainThread(false)),
-            attendreNoeudCampagne: async (ms) => await waitFor(
-                () => findButtonBySuffix(r, NODE_SUFFIX), ms, 250) !== null,
-            log,
-        });
-    } finally {
-        ecoute.fermer();
-    }
-}
-
-/** Find a button whose path ends with `suffix`, on the next main-thread tick.
- * Only considers active & interactable buttons. */
-function findButtonBySuffix(r: UiRefs, suffix: string): ButtonRow | null {
-    const rows = enumerateButtons(r, false);
-    return rows.find((b) => b.path.endsWith(suffix)) ?? null;
-}
-
-/** Find a button whose path *contains* `frag` (anywhere). Active+interactable. */
-function findButtonByContains(r: UiRefs, frag: string): ButtonRow | null {
-    const rows = enumerateButtons(r, false);
-    return rows.find((b) => b.path.indexOf(frag) >= 0) ?? null;
-}
-
-/** Return `true` when every fragment in `frags` is matched by at least one
- * active+interactable button. Used to detect composite stability signals
- * like "deployment phase is fully ready" (HUD + StartBattle + Pause all up). */
-function allFragmentsPresent(r: UiRefs, frags: string[]): true | null {
-    const rows = enumerateButtons(r, false);
-    for (const f of frags) {
-        if (!rows.some((b) => b.path.indexOf(f) >= 0)) return null;
-    }
-    return true;
-}
-
-// --- IdunNavigation direct invoke (bypasses UI tile clicks) ---
+// --- IdunNavigation : le signal « la scene meta est chargee » ---
 
 interface IdunNavRefs {
-    navKlass: NativePointer;
     findObjectsByType: MethodRef;
-    toCampaign: MethodRef;
     navSystemType: NativePointer;
 }
 let _navRefs: IdunNavRefs | null = null;
@@ -335,142 +163,34 @@ function ensureNavRefs(): IdunNavRefs {
     if (!navKlass) throw new Error("IdunNavigation class not found");
     const objK = findClassAnywhere("UnityEngine", "Object");
     if (!objK) throw new Error("UnityEngine.Object not found");
-    const findObjectsByType = findMethodByParamCount(
-        objK, "FindObjectsByType", 2);
+    const findObjectsByType = findMethodByParamCount(objK, "FindObjectsByType", 2);
     if (!findObjectsByType) {
         throw new Error("Object.FindObjectsByType(Type,Mode) not found");
     }
-    const toCampaign = findMethodByParamCount(navKlass, "ToCampaign", 4);
-    if (!toCampaign) {
-        throw new Error("IdunNavigation.ToCampaign(4 params) not found");
-    }
-    _navRefs = {
-        navKlass, findObjectsByType, toCampaign,
-        navSystemType: getSystemType(navKlass),
-    };
+    _navRefs = { findObjectsByType, navSystemType: getSystemType(navKlass) };
     return _navRefs;
 }
 
-/** Locate the live IdunNavigation singleton in the scene. Uses the non-generic
- * Object.FindObjectsByType(Type, SortMode) — the generic FindFirstObjectByType<T>
- * cannot be invoked via il2cpp_runtime_invoke (raises a CPU exception). */
-function findLiveIdunNavigation(n: IdunNavRefs): NativePointer | null {
-    const sortMode = Memory.alloc(4).writeS32(0); // SortMode.None
-    const arr = invokeMethod(
-        n.findObjectsByType.info, null, [n.navSystemType, sortMode]);
-    if (arr.isNull()) return null;
-    const len = arr.add(0x18).readS32();
-    if (len <= 0) return null;
-    const inst = arr.add(0x20).readPointer();
-    return inst.isNull() ? null : inst;
-}
-
-/** Invoke IdunNavigation.ToCampaign(animated, type, campaignId, nullable-address).
- * Returns the instance pointer used, or throws on managed exception. */
-function invokeToCampaign(
-    n: IdunNavRefs, navInstance: NativePointer,
-    animated: boolean, campaignType: number, campaignId: string,
-): void {
-    const argAnimated = Memory.alloc(1).writeU8(animated ? 1 : 0);
-    const argType = Memory.alloc(4).writeS32(campaignType);
-    const argId = createManagedString(campaignId);
-    // Nullable<CampaignAddress>: zero-filled buffer ⇒ HasValue=false (null).
-    // CampaignAddress is 0x28 bytes; 64-byte buffer covers any padding/layout.
-    const argNullable = Memory.alloc(64);
-    for (let i = 0; i < 64; i += 4) argNullable.add(i).writeU32(0);
-    invokeMethod(n.toCampaign.info, navInstance,
-        [argAnimated, argType, argId, argNullable]);
-}
-
-/** FOYER UNIQUE de « resoudre la nav vivante et l'envoyer sur la campagne Indomitus ».
- * A executer sur le MAIN THREAD (queueOnMainThread).
+/** Une `idun.UI.IdunNavigation` vivante = LA SCENE META EST CHARGEE.
  *
- * DEUX appelants, un seul corps : l'etape 2 du cycle (`animated: true`, on veut la
- * transition normale) et le remede automatique du cran 8 (`animated: false` — il n'y a
- * rien a montrer, on veut l'ecran). Il y en avait TROIS : le RPC de secours
- * `navToCampaign` a ete retire le 2026-08-07 (cf. `register` en fin de fichier).
- * C'est la lecon de #332 transposee : la chaine de retraite existait en DEUX copies, l'une
- * a ete corrigee et l'autre a continue de tourner sur le mecanisme refute. Trois copies
- * du triplet `ensureNavRefs` + `findLiveIdunNavigation` + `invokeToCampaign`
- * divergeraient de la meme facon.
+ * Signal NATIF, et le seul qui distingue « sorti de bataille » de « ecran noir » : mesure du
+ * 2026-08-12, `get_IsBattleActive()` rend `false` dans les deux cas. Dans le run qui a wedge, la
+ * reponse ici etait « aucune instance vivante » ; dans celui qui a rendu la main sur un ecran
+ * complet, `navInstances: 1`.
  *
- * Rend un `NavOutcome` a TROIS cas et non un booleen : « pas d'instance vivante » n'est
- * pas une panne du remede, c'est le regime « scene meta non chargee » — cf.
- * `thor.Loader$$LoadScene`, qui refuse en silence quand un chargement est deja en cours.
- * Le confondre avec une levee ferait diagnostiquer la mauvaise cause. */
-function navToCampaignOnMainThread(animated: boolean): NavOutcome {
+ * Passe par la surcharge NON generique `FindObjectsByType(Type, SortMode)` -- la generique
+ * `FindFirstObjectByType<T>` leve une exception CPU sous `il2cpp_runtime_invoke`. */
+function metaChargee(): boolean {
     try {
         const n = ensureNavRefs();
-        const inst = findLiveIdunNavigation(n);
-        if (inst === null) return { kind: "no-nav-instance" };
-        invokeToCampaign(n, inst, animated,
-            CAMPAIGN_TYPE_INDOMITUS, CAMPAIGN_ID_INDOMITUS);
-        return { kind: "ok", navInstance: inst.toString() };
-    } catch (e) {
-        return { kind: "error", err: (e as Error).message };
+        const sortMode = Memory.alloc(4).writeS32(0); // SortMode.None
+        const arr = invokeMethod(
+            n.findObjectsByType.info, null, [n.navSystemType, sortMode]);
+        if (arr.isNull()) return false;
+        return arr.add(0x18).readS32() > 0;
+    } catch {
+        return false;
     }
-}
-
-/** Le libelle historique de l'absence d'instance. Conserve mot pour mot : c'est ce que
- * les commentaires de l'etape 1bis citent comme symptome connu. */
-const NO_NAV_INSTANCE_ERR = "no live IdunNavigation instance";
-
-/** Aplatit un `NavOutcome` vers la forme `{ ok, err?, navInstance? }`. C'etait la forme
- * publiee par le RPC `navToCampaign`, retire le 2026-08-07 ; l'etape 2 du cycle continue
- * de la consommer pour distinguer « pas d'instance vivante » d'une vraie levee. */
-function navOutcomeToRpc(
-    o: NavOutcome,
-): { ok: boolean; err?: string; navInstance?: string } {
-    if (o.kind === "ok") return { ok: true, navInstance: o.navInstance };
-    if (o.kind === "no-nav-instance") return { ok: false, err: NO_NAV_INSTANCE_ERR };
-    return { ok: false, err: o.err };
-}
-
-/** Walk active+interactable buttons, build the set of SafeCanvas roots
- * whose name matches the popup pattern. Returns one Blocker path per popup
- * (deduplicated by root) so the caller can click each in turn to dismiss. */
-function findPopupBlockerPaths(r: UiRefs): string[] {
-    const rows = enumerateButtons(r, false);
-    const blockersByRoot: Record<string, string> = {};
-    for (const b of rows) {
-        // Path layout: UI_Canvas_*/Canvas/Viewport/SafeCanvas/<root>/...
-        const seg = b.path.split("/");
-        if (seg.length < 5) continue;
-        const root = seg[4];
-        if (!POPUP_NAME_REGEX.test(root)) continue;
-        if (b.path.endsWith("/Blocker")) {
-            blockersByRoot[root] = b.path;
-        }
-    }
-    return Object.values(blockersByRoot);
-}
-
-/** Ferme les popups modaux ouverts et rend les noms de ceux qui l'ont ete.
- *
- * UN SEUL exemplaire, appele par l'etape 1 du cycle (a l'ENTREE) et par le remede du
- * cran 8 (a la SORTIE). C'est le meme geste dans les deux cas, et le dupliquer serait
- * refaire l'erreur de #332.
- *
- * Boucle jusqu'a POPUP_DISMISS_ROUNDS fois : fermer un popup peut en reveler un second
- * (interstitiel puis message systeme). Sortie anticipee des qu'il n'y a plus rien a
- * fermer, donc le chemin nominal ne coute qu'un balayage. */
-const POPUP_DISMISS_ROUNDS = 3;
-async function dismissOpenPopups(r: UiRefs): Promise<string[]> {
-    const dismissed: string[] = [];
-    for (let i = 0; i < POPUP_DISMISS_ROUNDS; i++) {
-        const blockers = await queueOnMainThread(() => findPopupBlockerPaths(r));
-        if (blockers.length === 0) break;
-        for (const path of blockers) {
-            const c = await queueOnMainThread(() => clickByPath(r, path));
-            if (c.ok) {
-                dismissed.push(
-                    path.split("/SafeCanvas/")[1]?.split("/")[0] ?? path);
-            }
-        }
-        // Give the popup animations time to tear down.
-        await sleep(200);
-    }
-    return dismissed;
 }
 
 // --- Step types for traceable status reporting ---
@@ -487,17 +207,121 @@ interface WarmupResult {
     capturedAt?: string;
     steps?: StepLog[];
     err?: string;
-    /** #390 — RENSEIGNE UNIQUEMENT quand le cycle a du se rattraper d'un wedge.
-     *
-     * Le remede rend le cycle autonome, mais il ne doit pas rendre le wedge INVISIBLE :
-     * un `ok: true` muet apres rattrapage transformerait un incident visible en succes
-     * silencieux, ce qui est exactement le vice qu'un retry non borne introduit. Ce
-     * champ porte le motif NOMME du remede qui a porte, et il est absent sur le chemin
-     * nominal — donc sa seule presence est le signal. */
-    recovered?: WedgeRemedyReason;
 }
 
 // --- Orchestration ---
+
+/** L'ENTREE, LA CAPTURE ET LA RETRAITE, par les trois appels natifs.
+ *
+ * Ne porte QUE le cablage : l'ordre des appels, les gardes et les bornes vivent dans le module
+ * PUR `warmup-programmatique.ts`, exerce hors Frida par
+ * `frida/tools/probe-993-warmup-programmatique.ts`. Ici, rien que des effets. */
+async function entreeCaptureRetraite(
+    ecoute: EcouteTransitions, steps: StepLog[], opts?: { stopAfterCapture?: boolean },
+): Promise<{ captured: NativePointer } | { err: string }> {
+    const deps: EntreeProgDeps = {
+        enBataille: () => queueOnMainThread(() => enBataille()),
+
+        // `get_IsActive` -- le garde que `StartMatch(checkIfAlreadyRunning)` teste, et qui n'est
+        // PAS `get_IsBattleActive`. Les deux sont statiques et se lisent sans instance.
+        gardeDejaEnCours: async () => {
+            const brut = await invoquerCommande({
+                cible: "statique", methode: "get_IsActive", confirmer: true,
+            }) as { ok?: boolean; retour?: { decode?: boolean; valeur?: unknown } };
+            if (brut?.ok !== true || brut.retour?.decode !== true) return null;
+            return brut.retour.valeur === true;
+        },
+
+        desarmerGarde: async () => {
+            const brut = await invoquerCommande({
+                cible: "statique", methode: "SetBattleNotRunning", confirmer: true,
+            }) as { ok?: boolean; error?: string };
+            return { ok: brut?.ok === true, err: brut?.error };
+        },
+
+        lancerBataille: async () => {
+            // ⚠ NE JAMAIS ANCRER LA METHODE QU'ON INVOQUE — 3 gels sur 3. Le capteur #991
+            // ancre precisement `StartCampaignMatch` ; il ne s'arme pas tout seul, mais un
+            // operateur a pu l'armer. On le DEPOSE, et on ne le repose que s'il etait pose.
+            const aReposer = await queueOnMainThread(() => deposerCapteur());
+            try {
+                const res = await invoquerCommande({
+                    cible: "executor", methode: "StartCampaignMatch",
+                    args: [CAMPAIGN_ID_INDOMITUS, PROG_LOCATION_INDEX,
+                           CAMPAIGN_TYPE_INDOMITUS, PROG_ENEMY_AI_BRUT],
+                    confirmer: true,
+                }) as { ok?: boolean; error?: string };
+                return { ok: res?.ok === true, err: res?.error };
+            } finally {
+                if (aReposer) await queueOnMainThread(() => reposerCapteur());
+            }
+        },
+
+        attendreCapture: async (ms) => {
+            const p = await waitFor(() => getCampaignGameModeSourcePtr(), ms, 300);
+            return p === null ? null : p.toString();
+        },
+
+        // LE SIGNAL DECISIF, et il est CAUSAL : tant que `thor.Loader` charge, tout changement de
+        // scene est refuse EN SILENCE -- donc la retraite terminerait la bataille sans jamais
+        // ramener le meta. Aucun repos ici : on attend que l'etape retombe a 0.
+        attendreChargementTermine: async (ms) =>
+            await waitFor(() => (chargementEnCours() === false ? true : null), ms, 300) !== null,
+
+        attendrePorteDeSortie: async (ms) =>
+            await waitFor(() => (sortieJoignable() ? true : null), ms, 300) !== null,
+
+        invoquerSortie: async (m: SortieMethode) => {
+            const brut = await provoquerRetraite({ methode: m, confirmer: true });
+            const res = brut as { ok?: boolean; error?: string };
+            return { ok: res?.ok === true, err: res?.error };
+        },
+
+        // TROIS issues, et la premiere est un SIGNAL POUSSE : `montre-fin` sur le popup de
+        // confirmation. On ne cherche AUCUN bouton -- « le bouton existe » arrive des
+        // `montre-debut`, et agir la laisse le jeu bloque sur le popup (mesure #993).
+        // L'autre branche legitime (`PauseSurrender` ne differe pas, la bataille se termine
+        // seule) reste sondee sur l'etat NATIF, en course avec le signal.
+        attendreEffetDeSurrender: async (ms) => {
+            const signal = ecoute.attendre(
+                (t) => t.quoi === "montre-fin" && estLePopupDeConfirmation(t), ms)
+                .then((t): EffetDeSurrender | null => (t === null ? null : "popup-de-confirmation"));
+            const fin = waitFor(() => (enBataille() === false ? true : null), ms, 300)
+                .then((v): EffetDeSurrender | null => (v === null ? null : "bataille-terminee"));
+            const gagnant = await Promise.race([
+                signal, fin,
+                // La course ne doit pas se resoudre sur le premier `null` venu : les deux bras
+                // partagent le meme plafond, donc on laisse le second repondre.
+                Promise.all([signal, fin]).then(([a, b]) => a ?? b),
+            ]);
+            return gagnant ?? "rien";
+        },
+
+        // L'EFFET de `ContinueSurrender` : `cache-debut` sur le meme popup. C'est ce qui separe
+        // « la confirmation a porte » de l'etat wedge, ou le popup restait a l'ecran.
+        attendreDisparitionDuPopup: async (ms) =>
+            await ecoute.attendre(
+                (t) => t.quoi === "cache-debut" && estLePopupDeConfirmation(t), ms) !== null,
+
+        attendreFinDeBataille: async (ms) =>
+            await waitFor(() => (enBataille() === false ? true : null), ms, 300) !== null,
+
+        attendreMetaChargee: async (ms) =>
+            await waitFor(() => (metaChargee() ? true : null), ms, 300) !== null,
+
+        log,
+    };
+
+    const res = await runEntreeProgrammatique(
+        deps, { stopAfterCapture: opts?.stopAfterCapture === true });
+    for (const s of res.steps) steps.push(s);
+
+    if (!res.ok || res.capturedAt === null) {
+        log(`[warmup-singletons] FAIL : ${res.reason}`);
+        return { err: res.reason };
+    }
+    return { captured: ptr(res.capturedAt) };
+}
 
 async function warmupGameSingletons(
     opts?: { force?: boolean; stopAfterCapture?: boolean },
@@ -519,355 +343,45 @@ async function warmupGameSingletons(
 
     // NOTE: tempting to drop a heap-scan fast path here, but a full heap scan
     // for GameConfigDto can take ~15s on Tacticus PC — UnityFreezeDetector
-    // kills the process before we recover. The 8ms "cache hit" measured
-    // earlier was already-resolved ptrs (auto-boot or earlier session), not
-    // a cold scan. UI nav is slower (~30s) but safe.
-    // `tryActiveDiscoveryOfSources()` remains available as an *explicit*
-    // user-triggered fallback (e.g. from dumpCampaignCatalog allowHeapScan).
+    // kills the process before we recover. `tryActiveDiscoveryOfSources()`
+    // remains available as an *explicit* user-triggered fallback (e.g. from
+    // dumpCampaignCatalog allowHeapScan).
 
     const steps: StepLog[] = [];
-    const fail = (step: string, err: string): WarmupResult => {
-        steps.push({ step, ok: false, info: err });
-        log(`[warmup-singletons] FAIL at ${step}: ${err}`);
-        return { ok: false, err: `${step}: ${err}`, steps };
-    };
 
-    const r = ensureRefs();
-
-    // 1. Dismiss any blocking modal popup before doing anything else.
-    //    Examples observed: Idun_UI_LiveEventInterstitialPopup (random ad),
-    //    GenericMessagePopup (system message). They disable everything behind
-    //    them so we can't find/click anything until they're gone.
-    const dismissed = await dismissOpenPopups(r);
-    steps.push({
-        step: "dismiss-popups", ok: true,
-        info: dismissed.length === 0 ? "none" : dismissed.join(","),
-    });
-
-    // 1bis. RECUPERATION — sortir d'un ecran de BATAILLE herite du cycle precedent.
-    //
-    // CE QUE CECI REPARE. Depuis que `stopAfterCapture` est le defaut (2026-07-25),
-    // le cycle laisse VOLONTAIREMENT le jeu sur l'ecran de bataille : c'est ce qui a
-    // supprime le wedge (61,2 s / ok:false -> 3,9 s / ok:true, cf. l'etape 5bis). Mais
-    // pendant une bataille `IdunNavigation` n'est pas instancie — donc le warmup
-    // SUIVANT echouait a `to-campaign` sur « no live IdunNavigation instance », et il
-    // fallait qu'un HUMAIN ramene le jeu sur la campagne. Autrement dit le warmup
-    // n'etait autonome qu'UNE FOIS SUR DEUX : le premier passait, le second exigeait
-    // une main. Mesure du 2026-07-30 : deux echecs consecutifs sur cette exacte etape.
-    //
-    // 1bis. RECUPERATION — sortir d'un ecran de BATAILLE herite du cycle precedent.
-    //
-    // CE QUE CECI REPARE. Depuis que `stopAfterCapture` est le defaut (2026-07-25), le
-    // cycle laisse VOLONTAIREMENT le jeu sur l'ecran de bataille. Or pendant une
-    // bataille `IdunNavigation` n'est pas instancie : le warmup SUIVANT echouait donc a
-    // `to-campaign` sur « no live IdunNavigation instance », et il fallait qu'un HUMAIN
-    // ramene le jeu sur la campagne. Le warmup n'etait autonome qu'UNE FOIS SUR DEUX.
-    //
-    // POURQUOI IL FAUT LAISSER RESPIRER ENTRE LES CLICS — mesure du 2026-07-30.
-    // Une premiere version enchainait les trois clics via `waitForAndClick`, qui clique
-    // des que le bouton est trouve actif ET interactable. Resultat : les trois clics
-    // rapportent `ok:true`, puis la campagne ne remonte JAMAIS (45 s d'attente pour
-    // rien). Interprete a tort comme « la transition bataille -> campagne wedge », au
-    // point d'ouvrir une tache de RE pour lui chercher une voie non-UI.
-    //
-    // C'ETAIT FAUX. La MEME sequence de trois clics, rejouee a la main sur le MEME
-    // ecran avec ~2 s entre chaque, ramene la campagne en MOINS DE 5 SECONDES. La
-    // transition n'a jamais ete en cause : `interactable == true` arrive AVANT que le
-    // popup ait fini de s'animer, et le clic emis dans cette fenetre est perdu — sans
-    // que rien ne le signale, puisque `clickByPath` a bien trouve un bouton cliquable
-    // et invoque son `onClick`. Un clic AVALE se lit exactement comme un clic REUSSI.
-    //
-    // D'ou `settleThenClick` : on attend le bouton, on laisse passer l'animation, PUIS
-    // on clique. Meme raison que la grace period de l'etape 6 (`sleep(500)` apres
-    // `wait-deployment-stable`), a un autre endroit de la meme UI.
-    //
-    // CONDITIONNEL, ce qui borne le risque : on ne declenche que si les DEUX signaux
-    // concordent — aucun noeud de campagne visible ET aucun IdunNavigation vivant. Sur
-    // le chemin nominal (deja sur la campagne) le bloc ne s'execute pas du tout.
-    const campaignVisible = await queueOnMainThread(
-        () => findButtonBySuffix(r, NODE_SUFFIX) !== null);
-    const navAlive = await queueOnMainThread(() => {
-        try {
-            return findLiveIdunNavigation(ensureNavRefs()) !== null;
-        } catch {
-            return false;
-        }
-    });
-    if (!campaignVisible && !navAlive) {
-        log("[warmup-singletons] ecran de bataille herite detecte "
-            + "(ni noeud de campagne, ni IdunNavigation vivant) — retraite");
-
-        // Chaine PARTAGEE avec l'etape 7 (`retreatToCampaign`) : chaque clic est valide par
-        // l'apparition de l'ETAPE SUIVANTE, la sortie par le SIGNAL de retrait de l'ecran
-        // de pause. L'`info` DIT la branche prise et NOMME les frames traversees.
-        const out = await retreatToCampaign(r);
-        if (out.err !== null) return fail("recover-from-battle", out.err);
-        steps.push({
-            step: "recover-from-battle", ok: true,
-            info: `ecran de bataille herite -- ${out.reason} : ${out.info}`,
-        });
+    // L'ECOUTE EST OUVERTE AVANT LE PREMIER APPEL, et fermee dans un `finally`. Une transition
+    // emise entre l'invoke et l'abonnement serait perdue -- et c'est precisement celle qui
+    // compte. Un abonne oublie, lui, ferait lire le `GuiId` a chaque transition pour rien.
+    const ecoute = ecouterTransitions();
+    let entree: { captured: NativePointer } | { err: string };
+    try {
+        // ENTREE -> CAPTURE -> RETRAITE, en trois appels natifs. Rien avant, rien apres : aucun
+        // popup a fermer (aucun ne bloque un invoke), aucun ecran d'arrivee a exiger -- le
+        // module pur verifie que la scene meta est remontee, et c'est tout ce qui est exigible.
+        entree = await entreeCaptureRetraite(ecoute, steps, opts);
+    } finally {
+        ecoute.fermer();
+    }
+    if ("err" in entree) {
+        return { ok: false, err: entree.err, steps };
     }
 
-    // 2. Navigate to the Indomitus campaign screen. If we're already there,
-    //    no-op. Otherwise call IdunNavigation.ToCampaign() directly via IL2CPP
-    //    — the same method the game uses internally for its own nav. Replaces
-    //    the previous multi-hop UI tile chase (BattleButton → GameModesScreen
-    //    → Indomitus tile), which was fragile because FindObjectsByType doesn't
-    //    guarantee ordering and the "first" /RegularContainer/Button could land
-    //    on a sibling campaign that crashes on click without proper context.
-    // Invoke IdunNavigation.ToCampaign UNCONDITIONALLY to normalize the view to
-    // the Indomitus campaign OVERVIEW. Even when level nodes are already present
-    // in the hierarchy, the screen can be left zoomed into a sub-part (e.g.
-    // CampaignScreen_Part_1_5) whose first-found node isn't launchable, so the
-    // BattlePreview popup never mounts and click-play fails. The old code
-    // short-circuited ToCampaign on "already-on-campaign", trusting that stale
-    // zoomed view. ToCampaign is the game's own idempotent nav ("if already
-    // there, no-op" — see below), so resetting is safe and re-centers on a
-    // launchable node. Best-effort: if the nav instance can't be resolved but
-    // nodes are already present, fall back to the current view (no regression).
-    const onCampaignAlready = await queueOnMainThread(
-        () => findButtonBySuffix(r, NODE_SUFFIX) !== null);
-
-    const navResult = navOutcomeToRpc(
-        await queueOnMainThread(() => navToCampaignOnMainThread(true)));
-    if (!navResult.ok) {
-        if (!onCampaignAlready) {
-            return fail("to-campaign", navResult.err ?? "ToCampaign failed");
-        }
-        // Couldn't reset the view, but nodes are present -> proceed with the
-        // current campaign screen (exactly the pre-fix behaviour, no regression).
-        steps.push({
-            step: "to-campaign", ok: true,
-            info: `no-reset (${navResult.err}); nodes-already-present`,
-        });
-    } else {
-        // Wait for the campaign screen with its level nodes to (re)mount after
-        // the reset.
-        const ready = await waitFor(
-            () => findButtonBySuffix(r, NODE_SUFFIX), 5000);
-        if (ready === null) {
-            return fail("to-campaign",
-                "no level nodes appeared 5s after ToCampaign invoke");
-        }
-        steps.push({
-            step: "to-campaign", ok: true,
-            info: `reset-via-idun-nav (@${navResult.navInstance})`,
-        });
-    }
-
-    // 3. Find + click a level node (one main-thread tick).
-    const nodeClick = await queueOnMainThread(() => {
-        const node = findButtonBySuffix(r, NODE_SUFFIX);
-        if (!node) return null;
-        const click = clickByPath(r, node.path);
-        return { path: node.path, ok: click.ok, err: click.err };
-    });
-    if (nodeClick === null) {
-        return fail("click-node", "no level node available after to-campaign");
-    }
-    if (!nodeClick.ok) return fail("click-node", nodeClick.err ?? "?");
-    steps.push({ step: "click-node", ok: true, info: nodeClick.path });
-
-    // 2. Wait for the popup to appear AND click play_button in one go.
-    const playClick = await waitForAndClick(r, PLAY_BUTTON_KEY, 5000);
-    if (playClick === null) {
-        return fail("click-play",
-            "BattlePreview popup did not show within 5s");
-    }
-    if (!playClick.ok) return fail("click-play", playClick.err ?? "?");
-    steps.push({ step: "click-play", ok: true, info: playClick.path });
-
-    // 5. Wait for the ctor hook to capture CampaignGameModeSource.
-    //    Battle loading can be slow on cold boot — up to 20s.
-    const captured = await waitFor(() => getCampaignGameModeSourcePtr(), 20000, 300);
-    if (captured === null) {
-        return fail("wait-ctor",
-            "CampaignGameModeSource..ctor did not fire within 20s");
-    }
-    steps.push({
-        step: "wait-ctor", ok: true, info: captured.toString(),
-    });
-    log(`[warmup-singletons] CGMS captured @ ${captured}`);
-
-    // 5bis. `stopAfterCapture` — sortie AVANT le retour campagne. N'EST PLUS LE DEFAUT.
-    //
-    // HISTORIQUE, parce que le chiffre qui a justifie ce defaut ne mesurait pas ce qu'on
-    // croyait. Le 2026-07-25, la sortie anticipee devient le defaut sur :
-    //     cycle complet    61,2 s  ok:false (9/10)  UI figee, relance du jeu obligatoire
-    //     sortie ici        3,9 s  ok:true          jeu utilisable
-    // conclusion tiree : « la transition bataille -> campagne wedge ». Le 2026-07-30
-    // (`97ebf7ac`, #297) cette conclusion est REFUTEE : les MEMES trois clics rejoues a la
-    // main sur le MEME ecran, espaces de ~2 s, ramenent la campagne en MOINS DE 5 s. La
-    // cause n'etait pas la transition mais un clic AVALE — `interactable == true` precede
-    // la fin de l'animation du popup. Depuis que la chaine valide l'EFFET de chaque clic
-    // et reclique (`retreatToCampaign`), le cycle complet rend `ok:true` en ~7,3 s.
-    //
-    // Le defaut est donc REVENU au cycle complet le 2026-07-31 (#332) : le warmup rend la
-    // main sur l'ECRAN CAMPAGNE. C'est ce qu'on veut, et c'est aussi ce qui evite de
-    // laisser le jeu dans l'etat depuis lequel le warmup SUIVANT devait se rattraper.
-    //
-    // `stopAfterCapture: true` reste disponible pour l'appelant qui veut explicitement
-    // economiser les ~3 s de menage : le but fonctionnel du warmup (capture faite, builder
-    // arme, runners isoles utilisables) est bien ATTEINT a cette ligne — `dumpCampaignCatalog`
-    // rend les memes 1 230 459 octets qu'apres un cycle complet. Le prix est que le jeu reste
-    // sur l'ecran de bataille : l'etape 1bis du warmup suivant devra l'en sortir.
-    if (opts?.stopAfterCapture === true) {
-        steps.push({
-            step: "stop-after-capture", ok: true,
-            info: "menage d'ecran saute SUR DEMANDE EXPLICITE — le jeu reste en bataille",
-        });
-        log("[warmup-singletons] stopAfterCapture:true demande — cycle arrete apres la "
-            + "capture, le jeu reste sur l'ecran de bataille");
-        return { ok: true, capturedAt: captured.toString(), steps };
-    }
-
-    // 6. Wait for the deployment phase to be FULLY stable before pausing.
-    //    PauseButton alone mounts way too early (with the HUD canvas, while
-    //    the scene is still loading). Retreating then leaves Unity in a
-    //    half-rendered state. The reliable signal is the combination of:
-    //      - UnitDeploymentHud(Clone) present (deploy UI mounted)
-    //      - StartBattleContainer present (only interactable when deploy is ready)
-    //      - PauseButton present (HUD ready)
-    //    All three together + a small grace period for animations.
-    const stable = await waitFor(
-        () => allFragmentsPresent(r, [
-            DEPLOYMENT_HUD_KEY, START_BATTLE_KEY, PAUSE_BUTTON_KEY,
-        ]),
-        30000,
-        300,
-    );
-    if (stable === null) {
-        return fail("wait-deployment-stable",
-            "deployment phase did not stabilize within 30s — aborting " +
-            "without retreat to avoid corrupting the UI state");
-    }
-    steps.push({ step: "wait-deployment-stable", ok: true });
-    // Grace period: let camera-fly-in / unit-pop-in animations finish.
-    // 500ms is enough — StartBattleContainer interactable already implies
-    // the major animations are done.
-    await sleep(500);
-
-    // 7. Pause -> retraite -> confirmation, via la chaine PARTAGEE avec l'etape 1bis.
-    //
-    // Cette etape tournait sur `waitForAndClick` jusqu'au 2026-07-31 (#332), c'est-a-dire
-    // sur le mecanisme REFUTE : elle cliquait un bouton trouve interactable et concluait
-    // du retour du clic qu'il avait porte. Or `interactable == true` precede la fin de
-    // l'animation du popup, et le clic emis dans cette fenetre est AVALE en rapportant
-    // `ok:true`. C'est ce qui avait fait conclure a tort que « la transition bataille ->
-    // campagne wedge » (61,2 s / `ok:false`), et donc parquer le jeu sur la bataille.
-    // La parade existait depuis le 2026-07-30 mais UNIQUEMENT dans l'etape 1bis, en
-    // closure locale : c'est la duplication qui a permis de n'en corriger qu'une.
-    //
-    // ⚠ ET LE STEP DIT DESORMAIS CE QUI S'EST PASSE (#390-r2). Il etait pousse SANS `info` :
-    // sur un warmup vert, personne ne pouvait dire si la campagne etait remontee seule ou si
-    // une frame s'etait intercalee. `out.reason` nomme la BRANCHE (signal recu / filet), et
-    // `out.info` NOMME les frames traversees par leur membre `idun.tracking.GuiId` et la
-    // classe reelle de l'objet.
-    const retreat = await retreatToCampaign(r);
-    if (retreat.err !== null) return fail("retreat-to-campaign", retreat.err);
-    steps.push({
-        step: "retreat-to-campaign", ok: true,
-        info: `${retreat.reason} : ${retreat.info}`,
-    });
-
-    // 8. Verify the post-retreat transition actually COMPLETES (battle scene
-    //    unloaded, campaign screen re-mounted with its level nodes). Without
-    //    this gate the cycle reported ok right after click-confirm; a hung
-    //    transition (frozen screen, ZERO clickable buttons anywhere) went
-    //    unnoticed — observed 2026-07-20: engine kept pumping (RPCs fine) but
-    //    the UI was dead until a game relaunch. 45s: scene unload+reload can
-    //    exceed 30s on a busy frame budget.
-    //
-    // CE QUE CE CRAN MESURE VRAIMENT DEPUIS #332 — et le message qu'il rendait etait
-    // FAUX. Son predicat (`findButtonBySuffix(r, NODE_SUFFIX)`) est EXACTEMENT celui qui
-    // valide deja le dernier clic de l'etape 7 (`retreatToCampaign`, maillon
-    // `RETREAT_CONFIRM_KEY` -> `expect: la campagne`). Atteindre cette ligne implique
-    // donc que le noeud de campagne A ETE VU quelques millisecondes plus tot. Le cran ne
-    // peut plus signaler « la campagne n'est jamais remontee » — ce regime-la est
-    // desormais attrape par l'etape 7, sous le nom `retreat-to-campaign`. Il ne reste
-    // qu'un seul regime possible ici : le noeud est revenu puis a CESSE d'etre
-    // actif+interactable, et il l'est reste pendant 45 s pleines (un seul poll positif
-    // suffirait a passer). D'ou le message reecrit ci-dessous.
-    const backHome = await waitFor(
-        () => findButtonBySuffix(r, NODE_SUFFIX), 45000, 500);
-    if (backHome === null) {
-        // #390 — LE CYCLE APPLIQUE SON PROPRE REMEDE.
-        //
-        // Ce bloc rendait un echec dont le message disait « try rpc navToCampaign, else
-        // relaunch the game » : il NOMMAIT le remede et attendait qu'un humain le tape,
-        // alors que le RPC en question est enregistre vingt lignes plus bas. Le suivi de
-        // tache porte `navToCampaign 2/2` — il a debloque les deux fois ou il a ete
-        // essaye. Le cycle le tente donc lui-meme, en deux volets ordonnes et BORNES
-        // (cf. `warmup-wedge-remedy.ts` pour la RE qui l'autorise et le budget exact).
-        //
-        // CE QUI RESTE VISIBLE. Un remede qui reussit ne rend pas le wedge muet : le
-        // step `wait-back-to-campaign` reste a `ok: false`, les steps `wedge-remedy-*`
-        // tracent chaque volet, et `recovered` porte le motif. Un lecteur distingue donc
-        // trois etats, la ou il n'y en avait qu'un :
-        //   - aucun step `wedge-remedy-*`            -> remede NON TENTE
-        //   - steps presents + `ok: false`           -> remede tente et sans effet
-        //   - steps presents + `recovered` renseigne -> remede tente et il a porte
-        steps.push({
-            step: "wait-back-to-campaign", ok: false,
-            info: "noeud de campagne absent pendant 45 s apres retreat-confirm, alors "
-                + "que l'etape 7 l'avait vu -- il a donc DISPARU, pas jamais remonte",
-        });
-        log("[warmup-singletons] WEDGE post-retraite -- application du remede "
-            + `(max ${WEDGE_REMEDY_ATTEMPTS} tentatives, `
-            + `${WEDGE_REMEDY_POPUP_WAIT_MS} ms apres popup, `
-            + `${WEDGE_REMEDY_NAV_WAIT_MS} ms apres nav)`);
-
-        const remedy = await runWedgeRemedy({
-            dismissPopups: () => dismissOpenPopups(r),
-            navToCampaign: () => queueOnMainThread(
-                () => navToCampaignOnMainThread(false)),
-            campaignVisible: async (timeoutMs: number) =>
-                await waitFor(() => findButtonBySuffix(r, NODE_SUFFIX),
-                              timeoutMs, 500) !== null,
-            log,
-        });
-        for (const s of remedy.steps) steps.push(s);
-
-        if (remedy.recovered) {
-            log(`[warmup-singletons] wedge rattrape : ${remedy.reason}`);
-            return {
-                ok: true, capturedAt: captured.toString(), steps,
-                recovered: remedy.reason,
-            };
-        }
-        return {
-            ok: false, capturedAt: captured.toString(), steps,
-            err: `wait-back-to-campaign: le noeud de campagne a disparu apres le `
-                + `retreat-confirm et n'est pas revenu ; remede applique `
-                + `(${remedy.attempts}/${WEDGE_REMEDY_ATTEMPTS} tentative(s)) `
-                + `sans succes : ${remedy.reason}`
-                + (remedy.reason === "scene-meta-absente"
-                    ? " -- la scene meta n'est pas chargee, relancer le jeu est le "
-                      + "seul recours"
-                    : " -- relancer le jeu si l'UI reste morte"),
-        };
-    }
-    steps.push({ step: "wait-back-to-campaign", ok: true });
-
-    log("[warmup-singletons] cycle complete — builder ready, game retreated");
-    return { ok: true, capturedAt: captured.toString(), steps };
+    log(`[warmup-singletons] cycle complete — CGMS @ ${entree.captured}, builder ready`);
+    return { ok: true, capturedAt: entree.captured.toString(), steps };
 }
 
 export function register(ctx: Ctx): void {
     ctx.rpc.warmupGameSingletons = (
         opts?: { force?: boolean; stopAfterCapture?: boolean },
     ) => warmupGameSingletons(opts);
-    // LE RPC `navToCampaign` A ETE RETIRE (2026-08-07). Le cycle applique le remede
-    // lui-meme sur wedge detecte (cran 8) ; l'exposer en plus comme levier manuel
-    // entretenait l'idee qu'un warmup rouge se rattrape a la main.
+    // LE RPC `navToCampaign` A ETE RETIRE (2026-08-07), et son FOYER avec lui (#993).
     //
-    // IL NE SE RATTRAPE PAS, et c'est mesure : le levier repare l'ECRAN, jamais le
-    // VERDICT. Joue quatre fois de suite ce jour-la, il a bien ramene la campagne a
-    // chaque coup -- pendant que `warm-gate` continuait de refuser toute creation de
-    // runner, puisque le RPC de warmup, lui, rendait toujours `ok:false`. Un levier qui
-    // rend l'ecran conforme sans rendre la session utilisable est pire qu'absent : il
-    // donne l'apparence de la reparation.
+    // Le levier reparait l'ECRAN, jamais le VERDICT : joue quatre fois de suite le jour ou il a
+    // ete mesure, il a bien ramene la campagne a chaque coup -- pendant que `warm-gate`
+    // continuait de refuser toute creation de runner, puisque le RPC de warmup rendait toujours
+    // `ok:false`. Un levier qui rend l'ecran conforme sans rendre la session utilisable est pire
+    // qu'absent.
     //
-    // Le foyer `navToCampaignOnMainThread` RESTE -- il sert l'etape 2 du cycle et le
-    // remede du cran 8. C'est l'exposition qui part, pas le corps.
+    // Le foyer lui-meme est parti avec le cran qui exigeait la campagne : le cycle ne dit plus au
+    // jeu ou se retrouver, donc « pas sur la campagne » n'est plus une panne a reparer.
 }

@@ -178,6 +178,30 @@ function disarm(): { ok: boolean; armed: boolean } {
     return { ok: true, armed: false };
 }
 
+/** DEPOSER notre ancrage le temps d'un invoke, et dire s'il etait pose. Rend `true` s'il faudra
+ *  le REPOSER apres.
+ *
+ *  ⚠ CE N'EST PAS UNE PRECAUTION, C'EST UNE MESURE. Invoquer une methode qu'on ancre, depuis du JS
+ *  qui tourne sur le main thread, deadlocke a coup sur -- 3 gels sur 3 (en-tete d'`il2cpp/delegate.ts`,
+ *  `docs/rl/case-600-gel-du-dispatch-natif.md`) : l'appel natif retombe dans notre propre
+ *  trampoline, Frida veut y executer un handler JS, et le runtime est deja tenu par ce thread. Et
+ *  un gel ne se signale PAS : il se lit comme un RPC qui ne revient pas.
+ *
+ *  Ce module ne s'arme pas tout seul, donc le chemin nominal ne depose RIEN. Mais rien n'empeche
+ *  un operateur d'armer la capture puis de lancer un warmup : c'est exactement le regime ou le
+ *  cycle programmatique (#993) invoque `StartCampaignMatch`. Le piege existe, il est donc DESARME
+ *  par du code, pas par une phrase. */
+export function deposerCapteur(): boolean {
+    if (!listener) return false;
+    disarm();
+    return true;
+}
+
+/** Reposer ce que `deposerCapteur` a depose. A n'appeler que s'il a rendu `true`. */
+export function reposerCapteur(): { ok: boolean; err?: string; armed?: boolean } {
+    return arm();
+}
+
 /** LA QUESTION 1, MESUREE -- et sans rien invoquer sur `ViewCommandExecutor`.
  *
  *  Trois faits rendus, chacun independamment falsifiable :

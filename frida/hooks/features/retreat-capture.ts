@@ -44,7 +44,7 @@
 
 import {
     class_get_name, findClassAnywhere, findCtorByParamCount, findMethod,
-    findMethodByParamCount, methodParamClass, s,
+    findMethodByParamCount, getSystemType, methodParamClass, s,
 } from "../il2cpp/helpers.js";
 import { invokeMethod } from "../il2cpp/invoke.js";
 import { delegateInerte, lireArdoise } from "../il2cpp/delegate.js";
@@ -132,8 +132,12 @@ function encoreVivant(obj: NativePointer): boolean | null {
  *  sans instance et sans UI.
  *
  *  C'est la comptabilite du JEU, pas un proxy : le harnais deduisait jusqu'ici cet etat de
- *  l'etat des ECRANS. `null` = NON MESURE (methode introuvable), jamais rabattu sur `false`. */
-function enBataille(): boolean | null {
+ *  l'etat des ECRANS. `null` = NON MESURE (methode introuvable), jamais rabattu sur `false`.
+ *
+ *  EXPORTEE depuis #993 : le cycle de warmup s'en sert comme etat initial ET comme signal de fin
+ *  de retraite. Le corps reste ICI -- c'est le module qui detient la RE de la chaine de sortie,
+ *  et deux lectures de `get_IsBattleActive` divergeraient en silence. */
+export function enBataille(): boolean | null {
     try {
         const k = findClassAnywhere(NS_VIEW, CLS_VIEW);
         const mi = k ? findMethodByParamCount(k, "get_IsBattleActive", 0) : null;
@@ -141,6 +145,68 @@ function enBataille(): boolean | null {
         const r = invokeMethod(mi.info, null, null);   // statique : pas d'instance
         return r.isNull() ? false : r.add(0x10).readU8() !== 0;
     } catch { return null; }
+}
+
+/** RESOUDRE l'instance d'`IdunMainView` quand AUCUN ancrage n'a tire.
+ *
+ *  ⚠ CE REPLI N'EST PAS UN ASSOUPLISSEMENT, C'EST UNE REPARATION MESUREE (2026-08-13). Les
+ *  ancrages de ce module capturent l'instance au `.ctor` ou a une methode de sortie -- donc
+ *  seulement si l'un d'eux TIRE APRES notre chargement. Sur une session FRAICHE ouverte alors
+ *  qu'une bataille tourne deja (reinject en cours de bataille), le `.ctor` a tire AVANT
+ *  l'injection et aucune sortie n'a encore eu lieu : `mainView` reste NUL POUR TOUJOURS, et la
+ *  retraite devient impossible sur la seule bataille qu'on ait besoin de quitter. Mesure :
+ *  `bataille-heritee-non-quittee` / `porte-de-sortie-absente`, sur une bataille bien vivante.
+ *
+ *  ⚠ ET CE N'EST PAS UN BALAYAGE DE TAS -- l'interdit du depot porte sur `Memory.scan` /
+ *  `enumerateRanges`, qui figent les threads ~10 s et font tuer le process par
+ *  `UnityFreezeDetector`. Ici c'est l'API d'Unity, sur une classe qui EST un `MonoBehaviour`
+ *  (chaine `IdunMainView -> MonoBehaviour -> Behaviour -> Component -> Object`, mesuree par
+ *  `viewSurface`). `view-command.ts` la resout deja par cette voie.
+ *
+ *  ⚠ SURCHARGE A 3 ARGUMENTS (`FindObjectsInactive.Include = 1`) : celle a 2 EXCLUT les
+ *  inactifs, et rendait **0 ecran** dans `ui-windows.ts` sur une classe qui resout parfaitement.
+ */
+function resoudreParEnumeration(): NativePointer | null {
+    try {
+        const kView = findClassAnywhere(NS_VIEW, CLS_VIEW);
+        const kObj = findClassAnywhere("UnityEngine", "Object");
+        if (!kView || !kObj) return null;
+        const mi3 = findMethodByParamCount(kObj, "FindObjectsByType", 3);
+        const mi2 = findMethodByParamCount(kObj, "FindObjectsByType", 2);
+        const tri = Memory.alloc(4); tri.writeS32(0);          // SortMode.None
+        const inclure = Memory.alloc(4); inclure.writeS32(1);  // FindObjectsInactive.Include
+        const t = getSystemType(kView);
+        const arr = mi3 ? invokeMethod(mi3.info, null, [t, inclure, tri])
+                        : (mi2 ? invokeMethod(mi2.info, null, [t, tri]) : ptr(0));
+        if (arr.isNull() || arr.add(0x18).readS32() <= 0) return null;
+        const inst = arr.add(0x20).readPointer();
+        return inst.isNull() ? null : inst;
+    } catch { return null; }
+}
+
+/** L'instance courante : celle qu'un ancrage a capturee, sinon celle que la scene porte.
+ *  Epingle ce qu'elle trouve, pour que la confrontation qui suit porte sur un pointeur valide. */
+function mainViewCourante(): NativePointer | null {
+    if (mainView !== null && encoreVivant(mainView) === true) return mainView;
+    const trouve = resoudreParEnumeration();
+    if (trouve === null) return null;
+    retenirMainView(trouve);
+    return mainView;
+}
+
+/** LA PORTE DE SORTIE EST-ELLE OUVERTE ? -- une instance d'`IdunMainView` CAPTUREE a l'un de nos
+ *  ancrages, et CONFRONTEE vivante.
+ *
+ *  Les deux conditions sont distinctes et toutes deux necessaires : `mainView !== null` dit qu'un
+ *  ancrage a tire, `encoreVivant` dit que l'objet Unity derriere existe encore. Mesure du
+ *  2026-08-12 : apres un warmup, le pointeur epingle survit alors que `FindObjectsByType` rend
+ *  **0 instance**. Un predicat qui ne testerait que le premier rendrait `true` sur une coquille.
+ *
+ *  Rend `false` (et non `null`) quand la vivacite n'est pas mesurable : ici l'appelant ATTEND que
+ *  la porte s'ouvre, et « je ne sais pas » ne doit jamais faire passer pour ouverte. Le tri-etat
+ *  reste publie par `retreatStatus.mainViewVivant`, dont c'est le role. */
+export function sortieJoignable(): boolean {
+    return mainViewCourante() !== null;
 }
 
 function nomClasseDe(obj: NativePointer): string | null {
@@ -303,6 +369,96 @@ function reposerTout(): void {
  *  les invoquer demanderait de FABRIQUER des valeurs, donc de deviner. */
 const INVOCABLES = ["OnBattleSurrender", "ContinueSurrender", "ProcessFinishSurrender"] as const;
 
+/** PROVOQUER la retraite sans toucher a l'ecran -- LE FOYER, dont `retreatInvoke` n'est que
+ *  l'exposition.
+ *
+ *  EXTRAIT DU RPC AU #993, et l'extraction est le point : le cycle de warmup a besoin d'appeler
+ *  exactement ce corps-la, avec ses trois refus et son depot d'ancrages. Le recopier ailleurs
+ *  ferait exister deux chaines de retraite dont une seule serait corrigee -- c'est litteralement
+ *  ce qui est arrive a la chaine de CLICS (#332), corrigee dans l'etape 1bis et laissee intacte
+ *  dans l'etape 7 pendant deux jours.
+ *
+ *  Les gardes et leur justification sont dans la docstring du RPC ci-dessous. */
+export function provoquerRetraite(body?: {
+    methode?: string; confirmer?: boolean;
+}): Promise<unknown> | unknown {
+    const methode = body?.methode;
+    if (!methode || !(INVOCABLES as readonly string[]).includes(methode)) {
+        return { ok: false, error: "methode manquante ou hors liste blanche -- attendu "
+            + "l'une de " + INVOCABLES.join(", ") + ". Les autres entrees prennent des "
+            + "arguments qu'il faudrait FABRIQUER." };
+    }
+    if (body?.confirmer !== true) {
+        return { ok: false, error: "REFUS : `confirmer: true` exige. " + methode
+            + " termine une VRAIE bataille et touche la progression du compte." };
+    }
+    const cible = mainViewCourante();
+    if (cible === null) {
+        return { ok: false, error: "REFUS : aucune instance IdunMainView -- ni capturee a un "
+            + "ancrage (`retreatStatus` les liste), ni trouvee par FindObjectsByType. Il n'y a "
+            + "pas de scene de bataille montee." };
+    }
+    const vivant = encoreVivant(cible);
+    if (vivant !== true) {
+        return { ok: false, error: vivant === false
+            ? "REFUS : l'instance IdunMainView epinglee est DETRUITE (scene de bataille "
+              + "dechargee). Le pointeur survit par `gcRoot`, l'objet Unity non -- mesure : "
+              + "apres un warmup, `FindObjectsByType` rend 0 instance alors que le pointeur "
+              + "est toujours la. Il n'y a pas de bataille a quitter."
+            : "REFUS : vivacite de l'instance NON MESUREE "
+              + "(UnityEngine.Object$$op_Inequality introuvable) -- on n'invoque pas sur "
+              + "un objet dont on ne sait pas s'il existe." };
+    }
+    // ⚠ CE GARDE A REMPLACE << la methode doit avoir ete OBSERVEE dans ce journal >>, et le
+    // remplacement est une REPARATION, pas un assouplissement.
+    //
+    // L'ancien exigeait qu'une retraite PILOTEE PAR L'UI ait deja fait tirer la methode dans
+    // LA SESSION COURANTE. Il avait sa raison : avant #992, la chaine de retraite etait
+    // DEDUITE DES NOMS, et cette deduction a ete dementie par la mesure. Il fallait donc
+    // forcer une observation avant tout appel.
+    //
+    // Cette observation a EU LIEU (case-992) : les piles montrent que l'UI passe par
+    // `OnBattleSurrender` -> `PauseSurrender` (qui rend `true`, donc DIFFERE) puis, par un
+    // UnityEvent du bouton de CONFIRMATION, par `ContinueSurrender`. La liste blanche
+    // `INVOCABLES` EST ce resultat mesure. Exiger en plus un fire dans la session rendait le
+    // chemin NON AUTOSUFFISANT A FROID -- mesure du 2026-08-12, session 77 : le RPC refusait,
+    // et le jeu restait bloque en bataille apres un lancement programmatique.
+    //
+    // Le nouveau garde est PLUS FORT, pas plus faible : il verifie la PRECONDITION REELLE --
+    // y a-t-il une bataille a quitter -- en interrogeant la comptabilite du jeu, et il est
+    // disponible des la premiere seconde d'une session froide.
+    const bataille = enBataille();
+    if (bataille !== true) {
+        return { ok: false, error: bataille === false
+            ? "REFUS : `IdunMainView$$get_IsBattleActive()` rend FALSE -- il n'y a aucune "
+              + "bataille a quitter. Appeler " + methode + " ici n'aurait pas de cible."
+            : "REFUS : etat de bataille NON MESURE (get_IsBattleActive introuvable) -- on "
+              + "ne quitte pas une bataille dont on ne sait pas si elle existe." };
+    }
+    const kView = findClassAnywhere(NS_VIEW, CLS_VIEW);
+    const mr = kView ? findMethodByParamCount(kView, methode, 0) : null;
+    if (!mr) {
+        return { ok: false, error: "surcharge SANS PARAMETRE de " + methode
+            + " introuvable sur " + CLS_VIEW };
+    }
+    return queueOnMainThread(() => {
+        deposerTout();
+        try {
+            invokeMethod(mr.info, cible, null);
+        } catch (e) {
+            return { ok: false, error: "invoke a leve : " + (e as Error).message,
+                     firesPendantInvoke: null };
+        } finally {
+            reposerTout();
+        }
+        return { ok: true, methode,
+                 firesPendantInvoke: null,
+                 note: "ancrages DEPOSES pendant l'appel (sinon gel) : les fires de la "
+                     + "chaine ne sont PAS mesures. Confirmer la sortie par "
+                     + "`uiWindowEvents` (retrait de GuiId.PauseMenu, #390-r2)." };
+    });
+}
+
 export function register(ctx: Ctx): void {
     installer();
 
@@ -397,81 +553,5 @@ export function register(ctx: Ctx): void {
      *  #390-r2 (`GuiId.PauseMenu` retire), via `uiWindowEvents`. */
     ctx.rpc.retreatInvoke = (body?: {
         methode?: string; confirmer?: boolean;
-    }): Promise<unknown> | unknown => {
-        const methode = body?.methode;
-        if (!methode || !(INVOCABLES as readonly string[]).includes(methode)) {
-            return { ok: false, error: "methode manquante ou hors liste blanche -- attendu "
-                + "l'une de " + INVOCABLES.join(", ") + ". Les autres entrees prennent des "
-                + "arguments qu'il faudrait FABRIQUER." };
-        }
-        if (body?.confirmer !== true) {
-            return { ok: false, error: "REFUS : `confirmer: true` exige. " + methode
-                + " termine une VRAIE bataille et touche la progression du compte." };
-        }
-        if (mainView === null) {
-            return { ok: false, error: "REFUS : aucune instance IdunMainView epinglee. Elle se "
-                + "capture a l'un des ancrages (`retreatStatus` les liste) -- pas par balayage "
-                + "de tas, qui fige le jeu et le fait tuer par UnityFreezeDetector." };
-        }
-        const vivant = encoreVivant(mainView);
-        if (vivant !== true) {
-            return { ok: false, error: vivant === false
-                ? "REFUS : l'instance IdunMainView epinglee est DETRUITE (scene de bataille "
-                  + "dechargee). Le pointeur survit par `gcRoot`, l'objet Unity non -- mesure : "
-                  + "apres un warmup, `FindObjectsByType` rend 0 instance alors que le pointeur "
-                  + "est toujours la. Il n'y a pas de bataille a quitter."
-                : "REFUS : vivacite de l'instance NON MESUREE "
-                  + "(UnityEngine.Object$$op_Inequality introuvable) -- on n'invoque pas sur "
-                  + "un objet dont on ne sait pas s'il existe." };
-        }
-        // ⚠ CE GARDE A REMPLACE << la methode doit avoir ete OBSERVEE dans ce journal >>, et le
-        // remplacement est une REPARATION, pas un assouplissement.
-        //
-        // L'ancien exigeait qu'une retraite PILOTEE PAR L'UI ait deja fait tirer la methode dans
-        // LA SESSION COURANTE. Il avait sa raison : avant #992, la chaine de retraite etait
-        // DEDUITE DES NOMS, et cette deduction a ete dementie par la mesure. Il fallait donc
-        // forcer une observation avant tout appel.
-        //
-        // Cette observation a EU LIEU (case-992) : les piles montrent que l'UI passe par
-        // `OnBattleSurrender` -> `PauseSurrender` (qui rend `true`, donc DIFFERE) puis, par un
-        // UnityEvent du bouton de CONFIRMATION, par `ContinueSurrender`. La liste blanche
-        // `INVOCABLES` EST ce resultat mesure. Exiger en plus un fire dans la session rendait le
-        // chemin NON AUTOSUFFISANT A FROID -- mesure du 2026-08-12, session 77 : le RPC refusait,
-        // et le jeu restait bloque en bataille apres un lancement programmatique.
-        //
-        // Le nouveau garde est PLUS FORT, pas plus faible : il verifie la PRECONDITION REELLE --
-        // y a-t-il une bataille a quitter -- en interrogeant la comptabilite du jeu, et il est
-        // disponible des la premiere seconde d'une session froide.
-        const bataille = enBataille();
-        if (bataille !== true) {
-            return { ok: false, error: bataille === false
-                ? "REFUS : `IdunMainView$$get_IsBattleActive()` rend FALSE -- il n'y a aucune "
-                  + "bataille a quitter. Appeler " + methode + " ici n'aurait pas de cible."
-                : "REFUS : etat de bataille NON MESURE (get_IsBattleActive introuvable) -- on "
-                  + "ne quitte pas une bataille dont on ne sait pas si elle existe." };
-        }
-        const kView = findClassAnywhere(NS_VIEW, CLS_VIEW);
-        const mr = kView ? findMethodByParamCount(kView, methode, 0) : null;
-        if (!mr) {
-            return { ok: false, error: "surcharge SANS PARAMETRE de " + methode
-                + " introuvable sur " + CLS_VIEW };
-        }
-        const cible = mainView;
-        return queueOnMainThread(() => {
-            deposerTout();
-            try {
-                invokeMethod(mr.info, cible, null);
-            } catch (e) {
-                return { ok: false, error: "invoke a leve : " + (e as Error).message,
-                         firesPendantInvoke: null };
-            } finally {
-                reposerTout();
-            }
-            return { ok: true, methode,
-                     firesPendantInvoke: null,
-                     note: "ancrages DEPOSES pendant l'appel (sinon gel) : les fires de la "
-                         + "chaine ne sont PAS mesures. Confirmer la sortie par "
-                         + "`uiWindowEvents` (retrait de GuiId.PauseMenu, #390-r2)." };
-        });
-    };
+    }): Promise<unknown> | unknown => provoquerRetraite(body);
 }

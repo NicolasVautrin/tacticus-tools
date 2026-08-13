@@ -204,6 +204,72 @@ function objetVise(
     return { obj: inst, klass: k, nom: c.cls };
 }
 
+/** APPELER une commande -- LE FOYER, dont `viewInvoke` n'est que l'exposition.
+ *
+ *  body: { cible, surPointeur?, methode, args?: unknown[], confirmer: true }
+ *
+ *  `cible: "statique"` invoque SANS instance (`obj = null`) -- la voie des 7 statiques
+ *  d'`IdunMainView`, dont `get_IsBattleActive`.
+ *
+ *  ⚠ La surcharge est choisie PAR ARITE, jamais par nom seul : mesure de `fsm-input.ts`,
+ *  `Menu<T>` porte `Get()` ET `Get(Transform)`, et `findMethod` rend la PREMIERE trouvee --
+ *  la mauvaise une fois sur deux.
+ *
+ *  ⚠ La valeur de retour est DECODEE et le decodeur DIT ce qu'il ne sait pas lire. Jeter le
+ *  retour rendrait « a refuse » et « a marche » indiscernables.
+ *
+ *  EXTRAIT DU RPC AU #993 : le cycle de warmup lance sa bataille par
+ *  `ViewCommandExecutor$$StartCampaignMatch`, et doit passer par CE corps -- avec sa resolution
+ *  de cible, sa coercition d'arguments et son refus inconditionnel de `Cheat*`. Une seconde
+ *  table de coercition divergerait en silence, comme le rappelle deja l'import d'`argIl2cpp`. */
+export function invoquerCommande(body?: {
+    cible?: string; surPointeur?: string; methode?: string;
+    args?: unknown[]; confirmer?: boolean;
+}): Promise<unknown> | unknown {
+    const methode = body?.methode;
+    if (!methode) return { ok: false, error: "`methode` manquante" };
+    if (estTricheur(methode)) {
+        return { ok: false, error: "REFUS INCONDITIONNEL : la famille `Cheat*` mute le "
+            + "COMPTE. Aucun `confirmer` ne l'ouvre -- une garde qu'un drapeau desarme "
+            + "n'est pas une garde." };
+    }
+    if (body?.confirmer !== true) {
+        return { ok: false, error: "REFUS : `confirmer: true` exige. Ce n'est pas un "
+            + "lecteur mais un EXECUTEUR DE COMMANDES : selon la methode, l'appel lance "
+            + "une vraie bataille, en termine une, ou desarme un garde. Utilise `viewList` "
+            + "pour OBSERVER d'abord." };
+    }
+    const v = objetVise(body?.cible, body?.surPointeur);
+    if (estRefus(v)) return v;
+    const k = v.klass;
+
+    const bruts = body?.args ?? [];
+    const args: NativePointer[] = [];
+    for (const brut of bruts) {
+        const a = argIl2cpp(brut);
+        if (estRefus(a)) return a;
+        args.push(a as NativePointer);
+    }
+    const mr = findMethodByParamCount(k, methode, args.length);
+    if (!mr) {
+        return { ok: false, error: "aucune surcharge de " + JSON.stringify(methode)
+            + " a " + args.length + " parametre(s) sur " + v.nom
+            + " -- `viewList` avec un `filtre` liste ce qui existe et son arite." };
+    }
+    const obj = v.obj;
+    return queueOnMainThread(() => {
+        let res: NativePointer;
+        try {
+            res = invokeMethod(mr.info, obj, args.length ? args : null);
+        } catch (e) {
+            return { ok: false, error: "invoke a leve : " + (e as Error).message };
+        }
+        return { ok: true, sur: v.nom, statique: obj === null,
+                 methode, arite: args.length,
+                 retour: decoderRetour(mr.info, res) };
+    });
+}
+
 export function register(ctx: Ctx): void {
 
     /** LIRE un chemin de champs NOMMES, et rendre le pointeur + la classe REELLE de l'arrivee.
@@ -300,64 +366,10 @@ export function register(ctx: Ctx): void {
         return { ok: true, classe: v.nom, total, rendues: methodes.length, methodes };
     };
 
-    /** APPELER une commande.
-     *
-     *  body: { cible, methode, args?: unknown[], confirmer: true }
-     *
-     *  `cible: "statique"` invoque SANS instance (`obj = null`) -- la voie des 7 statiques
-     *  d'`IdunMainView`, dont `get_IsBattleActive`.
-     *
-     *  ⚠ La surcharge est choisie PAR ARITE, jamais par nom seul : mesure de `fsm-input.ts`,
-     *  `Menu<T>` porte `Get()` ET `Get(Transform)`, et `findMethod` rend la PREMIERE trouvee --
-     *  la mauvaise une fois sur deux.
-     *
-     *  ⚠ La valeur de retour est DECODEE et le decodeur DIT ce qu'il ne sait pas lire. Jeter le
-     *  retour rendrait « a refuse » et « a marche » indiscernables. */
+    /** APPELER une commande. Corps dans `invoquerCommande` -- ce n'est ici qu'une exposition,
+     *  parce que le cycle de warmup appelle le MEME corps (#993). */
     ctx.rpc.viewInvoke = (body?: {
         cible?: string; surPointeur?: string; methode?: string;
         args?: unknown[]; confirmer?: boolean;
-    }): Promise<unknown> | unknown => {
-        const methode = body?.methode;
-        if (!methode) return { ok: false, error: "`methode` manquante" };
-        if (estTricheur(methode)) {
-            return { ok: false, error: "REFUS INCONDITIONNEL : la famille `Cheat*` mute le "
-                + "COMPTE. Aucun `confirmer` ne l'ouvre -- une garde qu'un drapeau desarme "
-                + "n'est pas une garde." };
-        }
-        if (body?.confirmer !== true) {
-            return { ok: false, error: "REFUS : `confirmer: true` exige. Ce n'est pas un "
-                + "lecteur mais un EXECUTEUR DE COMMANDES : selon la methode, l'appel lance "
-                + "une vraie bataille, en termine une, ou desarme un garde. Utilise `viewList` "
-                + "pour OBSERVER d'abord." };
-        }
-        const v = objetVise(body?.cible, body?.surPointeur);
-        if (estRefus(v)) return v;
-        const k = v.klass;
-
-        const bruts = body?.args ?? [];
-        const args: NativePointer[] = [];
-        for (const v of bruts) {
-            const a = argIl2cpp(v);
-            if (estRefus(a)) return a;
-            args.push(a as NativePointer);
-        }
-        const mr = findMethodByParamCount(k, methode, args.length);
-        if (!mr) {
-            return { ok: false, error: "aucune surcharge de " + JSON.stringify(methode)
-                + " a " + args.length + " parametre(s) sur " + v.nom
-                + " -- `viewList` avec un `filtre` liste ce qui existe et son arite." };
-        }
-        const obj = v.obj;
-        return queueOnMainThread(() => {
-            let res: NativePointer;
-            try {
-                res = invokeMethod(mr.info, obj, args.length ? args : null);
-            } catch (e) {
-                return { ok: false, error: "invoke a leve : " + (e as Error).message };
-            }
-            return { ok: true, sur: v.nom, statique: obj === null,
-                     methode, arite: args.length,
-                     retour: decoderRetour(mr.info, res) };
-        });
-    };
+    }): Promise<unknown> | unknown => invoquerCommande(body);
 }
