@@ -86,31 +86,56 @@ def _weights():
     return _load()
 
 
-def _granted_abilities(vid: str) -> list:
+@functools.lru_cache(maxsize=None)
+def _granted_abilities(vid: str, passive_abilities: tuple | None = None) -> tuple:
     """Abilities ACTIVES accordees au runtime par un `passiveAbilities` de l'unite (absentes de
     `activeAbilities` — le natif les peuple dans l'ActiveAbilityComponent VIA le passive). DERIVEES DU PASSIVE
     (aucune table hardcodee) : le natif nomme la classe accordee `<Passive>_HealAbility` = membre d'enum
     `Heal_<Passive>` (ex. passive `TwistedScience` -> `TwistedScience_HealAbility$$IdunBattleLogic.Entities.Abilities.Active.Loki.TwistedScience_HealAbility$$ExecuteBehaviour`
     = enum `Heal_TwistedScience` 1167). Donc pour chaque passive P on resout l'enum `Heal_<P>` s'il existe.
     C'est le PASSIVE (donnee jeu) + la convention de nommage NATIVE (enum) qui donnent l'ability — pas un
-    mapping invente. (Couvre les grants HEAL ; d'autres familles de grant = extension a confirmer.)"""
+    mapping invente. (Couvre les grants HEAL ; d'autres familles de grant = extension a confirmer.)
+
+    SUBSTRAT — TRI-ETAT (#931-r2), meme discipline que `services.custom_normal_attack` :
+      * `passive_abilities` = un TUPLE (fut-il VIDE) -> c'est la MESURE de l'entite
+        (`UnitContext.passive_abilities`, hierarchie 2 du `TriggeredAbilityComponent`, cf.
+        `runner.snapshot.PASSIVE_HIERARCHY`) : elle prime, sans exception ;
+      * `None` -> canal MUET, repli sur le KIT gameconfig (`GC.unit(vid).passiveAbilities`).
+
+    POURQUOI. Le natif fait le swap depuis `UnitConfiguration.PassiveAbilities`
+    (`...TwistedScienceAbility$$CreateBehaviour`, `On(AbilityInit) & OwnerIsActor`), c'est-a-dire un
+    fait d'ENTITE — `BC.Units[].PassiveAbilities`. Le KIT gameconfig coincide tant que personne ne
+    touche a la liste, et DIVERGE des qu'un montage la modifie : tout bras
+    `catalog_inject.write_grafted_seed_bc(..., replace=True)` REMPLACE la liste, donc une unite
+    greffee de `TwistedScience` recevrait `1167` cote natif et pas cote face DECISION (et
+    symetriquement pour une unite dont le passif est retire). Meme vice de substrat que
+    #264 / #366-r1 / #419-r1-tr14-r5.
+
+    Le tuple est exige (et non une liste) parce que ce foyer est `lru_cache` : une entree non
+    hashable leverait, et une entree MUABLE ferait servir un cache pour une valeur qui a change."""
     import enum_maps as EM
     rev = {v: k for k, v in EM.ACTIVE_ABILITY_TYPE.items()}
+    source = (passive_abilities if passive_abilities is not None
+              else ((GC.unit(vid) or {}).get("passiveAbilities") or []))
     out: list = []
-    for p in ((GC.unit(vid) or {}).get("passiveAbilities") or []):
+    for p in source:
         nm = f"Heal_{p}"
         aid = rev.get(nm)
         if aid is not None:
             out.append((int(aid), nm))
-    return out
+    return tuple(out)
 
 
 @functools.lru_cache(maxsize=None)
-def _abilities_of(vid: str) -> tuple:
+def _abilities_of(vid: str, passive_abilities: tuple | None = None) -> tuple:
     """Abilities de l'unite reconstruites depuis gameconfig : l'attaque normale (id synthetique 17 si l'unite a
     une arme) + `activeAbilities` (nom == membre d'enum -> id via reverse ACTIVE_ABILITY_TYPE) + les abilities
     ACCORDEES par un passive (`_granted_abilities`, DERIVEES du passive, ex. TwistedScience -> Heal 1167). Une
-    active dont le nom n'est pas dans l'enum est ignoree."""
+    active dont le nom n'est pas dans l'enum est ignoree.
+
+    `passive_abilities` : le TRI-ETAT de `_granted_abilities` (mesure d'entite / `None` = repli kit).
+    Seule la part ACCORDEE en depend -- l'attaque normale et les `activeAbilities` restent du kit,
+    faute d'un canal d'entite qui les publie (borne NOMMEE, pas un oubli)."""
     import enum_maps as EM
     rev = {v: k for k, v in EM.ACTIVE_ABILITY_TYPE.items()}
     gu = GC.unit(vid) or {}
@@ -121,10 +146,20 @@ def _abilities_of(vid: str) -> tuple:
         aid = rev.get(key)
         if aid is not None:
             out.append((int(aid), key))
-    for (aid, name) in _granted_abilities(vid):        # actives accordees par passive (derivees du passive)
+    for (aid, name) in _granted_abilities(vid, passive_abilities):   # accordees par passive
         if not any(a[0] == aid for a in out):
             out.append((int(aid), name))
     return tuple(out)
+
+
+def measured_passive_abilities(ctx) -> tuple | None:
+    """Le TRI-ETAT `UnitContext.passive_abilities`, rendu HASHABLE pour les foyers `lru_cache`.
+
+    `None` = canal MUET (pas de `UnitContext`, ou l'attribut jamais seede) -> les appelants
+    retombent sur le KIT. Un tuple VIDE est une MESURE (« cette entite ne porte aucun passif »),
+    et surtout PAS un `or ()` de repli : les deux se lisent differemment."""
+    pas = getattr(ctx, "passive_abilities", None) if ctx is not None else None
+    return None if pas is None else tuple(pas)
 
 
 def _max_attack_range(vid: str) -> int:
@@ -387,18 +422,62 @@ def _refuses_all_enemy_targets(ability_id: int) -> bool:
 
 
 def _is_attack_ability(ability_id: int, cfg: dict) -> bool:
-    """ATTAQUE (produit du degat, ciblee sur un ENNEMI) ssi le masque natif ne l'interdit pas ET
-    `constants.damageProfile` present ET l'ability n'est PAS deja routee vers un playbook
-    NonComparable (NovaBoost/NovaShield portent un damageProfile mais sont buff/tile).
+    """ROUTE d'ATTAQUE : cette ability entre-t-elle dans `attackPlans` / `_best_attack` ? ssi le
+    masque natif ne l'interdit pas ET `constants.damageProfile` present ET l'ability n'est PAS deja
+    routee vers un playbook NonComparable (NovaBoost/NovaShield portent un damageProfile mais sont
+    buff/tile).
 
     Le masque natif passe AVANT la signature gameconfig : `damageProfile` dit « cette ability produit
     du degat », il ne dit RIEN du camp de la cible. 1100 SorcerousFacade porte un `damageProfile`
-    (Psychic) et cible pourtant un ALLIE Psyker (`SorcerousFacadeAbility$$.ctor`, rules=0x402)."""
-    if _refuses_all_enemy_targets(ability_id):
-        return False
-    if not (cfg.get("constants") or {}).get("damageProfile"):
+    (Psychic) et cible pourtant un ALLIE Psyker (`SorcerousFacadeAbility$$.ctor`, rules=0x402).
+
+    ⚠ C'est un predicat de ROUTE, PAS de DOMAINE, et les confondre a coute 29 abilities (#977-r5) :
+    la clause `not is_noncomp` repond a « quel GENERATEUR sert cette ability »
+    (`IdunBattle.AI.Tactics.ABaseAiActorTactic$$InitAbilityTypeLists` range par `get_IsComparable` du
+    playbook), pas a « quelles cibles le natif enumere ». Le domaine, lui, est
+    `_enumerates_both_camps` ci-dessous. Ne PAS reintroduire cet appel dans `_ability_kind`."""
+    if not _enumerates_enemy_units(ability_id, cfg):
         return False
     return not is_noncomp(int(ability_id))
+
+
+def _enumerates_enemy_units(ability_id: int, cfg: dict) -> bool:
+    """DOMAINE : l'enumeration native peut-elle rendre des unites ENNEMIES ? (independant de la ROUTE)
+
+    Les deux termes sont ceux de `_is_attack_ability` MOINS la clause de route : le VETO de camp
+    RE-lu du masque, et la presence d'un `constants.damageProfile` (le seul signal gameconfig qui
+    dise « cette ability vise une UNITE et lui fait du degat »)."""
+    if _refuses_all_enemy_targets(ability_id):
+        return False
+    return bool((cfg.get("constants") or {}).get("damageProfile"))
+
+
+def _enumerates_both_camps(ability_id: int, cfg: dict) -> bool:
+    """`IdunBattle.Core.Services.TargetingQuery$$GetPossibleTargetsForOptions` n'applique AUCUN
+    filtre de CAMP -- LU sur le corps (`rnca9r7q6c`), et c'est ce qui fonde le kind `any`.
+
+    Le corps enchaine : `GetUnitsInRange` (ou `GetTilesInRange` si le bit `TargetIsTile` est pose,
+    ou si l'appelant force `onlyTiles`), l'ajout du caster sous `CasterIsPossibleTarget` (bit 15) ou
+    le bit 57, puis TROIS `RemoveWhere` -- `<GetPossibleTargetsForOptions>b__0` (retire les entites
+    mortes / `HasSteppableUnit`), `b__1` (retire les NON-amis que du terrain obscurcit :
+    `IsFriend(target, caster) -> false`, donc un ami n'est JAMAIS retire par ce prédicat), et
+    `b__2` sous le bit 1 (la regle dynamique de l'ability). AUCUN de ces trois ne lit le camp pour
+    l'exclure. Le camp n'est tranche qu'ENSUITE, par la cascade
+    `IdunBattle.Core.Services.TargetingQuery$$GetInvalidTargetReason` -- exactement les deux regles
+    que `refuses_all_enemy_targets` reconnait.
+
+    ⇒ un masque LU qui ne porte NI `TargetIsFriendly` NI `TargetIsCaster` laisse survivre les DEUX
+    camps. Le port rendait `self` (le caster SEUL) pour 29 abilities dans ce cas -- une degradation
+    RESTRICTIVE et silencieuse (`CordClawPlaybook._eligible_ids` filtrait alors TOUS les ennemis).
+
+    `TargetIsTile` est EXCLU ici : sous ce bit le natif rend des TUILES (`GetTilesInRange`), pas des
+    unites -- et l'enumerateur de tuiles offline est le patron SUMMON (ring-1 des tuiles-caster),
+    pas le patron AIM a portee. Ces 10 abilities restent donc hors de cette branche (residu #977-r7).
+    Masque NON LU -> `False` : on ne fabrique pas un domaine depuis une non-mesure."""
+    if not _enumerates_enemy_units(ability_id, cfg):
+        return False
+    opts = targeting_options_for(ability_id)
+    return opts is not None and not opts.has(_TR.TargetIsTile)
 
 
 def _ability_reach(vid: str, ability_id: int, cfg: dict) -> int:
@@ -415,7 +494,15 @@ def _ability_reach(vid: str, ability_id: int, cfg: dict) -> int:
 
 def _ability_kind(ability_id: int, name: str, cfg: dict) -> str:
     """KIND de cible derive offline : 'enemy' (attaque) / 'ally' (heal) / 'machine' (repair) / 'tile' (summon)
-    / 'self' (residuel). Cf. §2(c) de la RE : exact pour les 4 premieres, defaut self pour le reste.
+    / 'any' (les DEUX camps) / 'self' (residuel). Cf. §2(c) de la RE : exact pour les 4 premieres,
+    defaut self pour le reste.
+
+    ⚠ C'est le DOMAINE de cible, PAS la ROUTE de decision (#977-r5). La branche 'enemy' teste
+    `_is_attack_ability`, qui porte en plus la clause de route `not is_noncomp` -- une ability
+    NonComparable ne peut donc pas y entrer, et tombait AUTREFOIS sur le 'self' residuel : mesure,
+    29 abilities a `damageProfile` et SANS aucun veto de camp y etaient rabattues, si bien que
+    `ability_targets_offline` n'emettait plus que le CASTER. La branche 'any' (`_enumerates_both_camps`)
+    les rattrape SANS toucher a la route -- et l'ensemble emis est strictement ELARGI, jamais reduit.
 
     Le masque natif RE-lu PRIME quand il porte `TargetIsFriendly` : c'est le camp que la cascade
     `IdunBattle.Core.Services.TargetingQuery$$GetInvalidTargetReason` impose (tout non-allie rompt),
@@ -437,17 +524,22 @@ def _ability_kind(ability_id: int, name: str, cfg: dict) -> str:
         return "machine"
     if c.get("unitId") and not c.get("damageProfile"):
         return "tile"
+    if _enumerates_both_camps(ability_id, cfg):
+        return "any"
     return "self"
 
 
-def _attack_abilities(vid: str, has_normal: bool = True) -> list:
+def _attack_abilities(vid: str, has_normal: bool = True,
+                      passive_abilities: tuple | None = None) -> list:
     """[(ability_id, reach)] des abilities d'ATTAQUE de l'unite : l'attaque normale (17, portee=max arme) + chaque
     active a `damageProfile` (non-NonComparable), portee = `_ability_reach`.
 
     `has_normal=False` (#419-r1-tr14-r5-r4) : l'unite porte `Erratic`/`Harmless`, donc la fabrique
-    ne lui a POSE aucune attaque normale -- il ne faut pas en planifier une. Cf. le call-site."""
+    ne lui a POSE aucune attaque normale -- il ne faut pas en planifier une. Cf. le call-site.
+
+    `passive_abilities` : le TRI-ETAT d'entite de `_granted_abilities` (#931-r2), propage tel quel."""
     out = [(NORMAL_ATTACK_ID, _max_attack_range(vid))] if has_normal else []
-    for aid, _name in _abilities_of(vid):
+    for aid, _name in _abilities_of(vid, passive_abilities):
         if aid == NORMAL_ATTACK_ID:
             continue
         _n, cfg = _resolve_ability(aid)
@@ -457,7 +549,8 @@ def _attack_abilities(vid: str, has_normal: bool = True) -> list:
 
 
 def _plans_for_unit(uid: int, vid: str, origin: tuple | None, move_tiles: list,
-                    enemies: list, has_normal: bool = True) -> dict:
+                    enemies: list, has_normal: bool = True,
+                    passive_abilities: tuple | None = None) -> dict:
     """Enumere le `plan` d'attaque de `uid` : pour chaque (ability d'ATTAQUE, ennemi), le SET de tuiles-caster
     (origine + tuiles de move) d'ou l'attaque est legale (dist hex <= portee de l'ability). Forme mirroir de
     `decisionView.attackPlans[uid]` REDUITE a ce que le spine lit (`_best_attack` : abilityId/targetId/rankCount/
@@ -482,7 +575,7 @@ def _plans_for_unit(uid: int, vid: str, origin: tuple | None, move_tiles: list,
     cand_tiles = [] if origin is None else [origin]
     cand_tiles += [t for t in ((x["col"], x["row"]) for x in move_tiles) if t != origin]
     evals: list = []
-    for (aid, reach) in _attack_abilities(vid, has_normal):
+    for (aid, reach) in _attack_abilities(vid, has_normal, passive_abilities):
         for en in enemies:
             ep = en.get("pos")
             if not ep:
@@ -530,7 +623,8 @@ def ability_targets_offline(state, uid: int, ability_id: int) -> dict:
     origin = (pc.col, pc.row) if pc is not None else None
     name, cfg = _resolve_ability(ability_id)
     kind = _ability_kind(ability_id, name, cfg)
-    reach = _ability_reach(vid, ability_id, cfg) if kind in ("enemy", "ally", "machine") else 1
+    reach = (_ability_reach(vid, ability_id, cfg)
+             if kind in ("enemy", "ally", "machine", "any") else 1)
     reach_tiles = [(t["col"], t["row"]) for t in _move_tiles(state, uid, vid, my_team, origin)]
     if origin is not None:
         reach_tiles.append(origin)
@@ -539,7 +633,7 @@ def ability_targets_offline(state, uid: int, ability_id: int) -> dict:
     if kind == "self":
         targets.append({"kind": "unit", "targetId": uid,
                         "tile": {"col": origin[0], "row": origin[1]} if origin else None})
-    elif kind in ("enemy", "ally", "machine"):
+    elif kind in ("enemy", "ally", "machine", "any"):
         for eid, e in state.entities.items():
             u = e.get_component(UnitComponent)
             o = e.get_component(OwnerComponent)
@@ -547,6 +641,8 @@ def ability_targets_offline(state, uid: int, ability_id: int) -> dict:
             if u is None or not u.alive or o is None or p is None:
                 continue
             is_ally = (o.team == my_team)
+            # `any` = AUCUN filtre de camp -- `GetPossibleTargetsForOptions` n'en pose aucun, et le
+            # masque de ces abilities ne porte ni `TargetIsFriendly` ni `TargetIsCaster` (#977-r5).
             if kind == "enemy" and is_ally:
                 continue
             if kind in ("ally", "machine") and not is_ally:
@@ -692,7 +788,11 @@ def build_from_state(state, uid: int, debug: bool = False, max_distance: int | N
     # substrat -- et son repli kit, quand l'entite n'a pas de `UnitContext`, reste une BORNE.
     _me_sc = me_ent.get_component(StatsComponent)
     has_normal = has_normal_attack(entity_trait_names(getattr(_me_sc, "ctx", None), vid))
-    _me_abilities = [(aid, nm) for (aid, nm) in _abilities_of(vid or "")
+    # #931-r2 -- MEME forme de substrat, sur l'autre liste de la `UnitConfiguration` : les abilities
+    # ACCORDEES par un passif viennent de `BC.Units[].PassiveAbilities` (fait d'ENTITE), pas du KIT.
+    # `measured_passive_abilities` rend le TRI-ETAT ; `None` = canal muet -> repli kit, BORNE nommee.
+    _me_passives = measured_passive_abilities(getattr(_me_sc, "ctx", None))
+    _me_abilities = [(aid, nm) for (aid, nm) in _abilities_of(vid or "", _me_passives)
                      if has_normal or aid != NORMAL_ATTACK_ID]
     abilities = [{"id": aid, "name": nm, "usable": True} for (aid, nm) in _me_abilities]
     ab_name_by_id = {aid: nm for (aid, nm) in _me_abilities}
@@ -757,7 +857,8 @@ def build_from_state(state, uid: int, debug: bool = False, max_distance: int | N
     # Plans d'ATTAQUE : ne cibler que les ennemis CIBLABLES (exclut les deep-strike teleporting-in, non-ciblables
     # jusqu'a l'atterrissage). `enemies` reste complet pour le positionnement (ils occupent le board).
     tgt_enemies = [e for e in enemies if not _is_untargetable(state, e.get("id"))]
-    plans = {uid: _plans_for_unit(uid, vid or "", origin, move_tiles, tgt_enemies, has_normal)}
+    plans = {uid: _plans_for_unit(uid, vid or "", origin, move_tiles, tgt_enemies, has_normal,
+                                  _me_passives)}
 
     def _rpc(method, body, timeout=0):
         """Seam RPC offline (SLICE 2) : `abilityTargets` -> enumerateur offline (heal/repair/summon/Nova) ;

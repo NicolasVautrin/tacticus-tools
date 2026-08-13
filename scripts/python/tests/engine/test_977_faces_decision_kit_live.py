@@ -136,16 +136,37 @@ def test_co_injection_des_cinq_porteurs(v977):
 
 @pytest.mark.parametrize("aid", _NC)
 def test_utilite_par_position_exacte(v977, aid):
-    """L'utilite NATIVE, position par position, contre celle du port. `1043` est NON CONFRONTE ici
-    -- et le probe doit le DIAGNOSTIQUER (`capteurAveugle`), pas le subir."""
+    """L'utilite NATIVE, position par position, contre celle du port.
+
+    ⚠ `1043` N'EST PLUS NON CONFRONTE, et ce test l'exigeait encore -- ROUGE DE `master`, trouve en
+    jouant la tranche #977-r1/-r4 et ATTRIBUE avant d'etre corrige (il tombe a l'identique sur
+    l'arbre SANS le fix). Ce fichier gardait le verdict de #977 (« le capteur
+    `ncEvaluate` est STRUCTURELLEMENT aveugle a ce playbook : `GenerateBucketWithMultipleStrategies`
+    range l'action dans un SOUS-bucket de la `SortedList` a `+0x28`, jamais dans le `best` de la
+    racine a `+0x20` »), verdict que **#988 a ferme** : `rpc-nc-predict.ts` decode desormais l'arbre
+    entier et mirrore `Bucket<T>$$ChooseAction` (`bucketVia = "subBuckets"`). Mesure a la reprise :
+    `capteurAveugle = False`, `toutesBucketsVides = False`, `ok = True`, **23** positions comparees.
+
+    Le test est donc RENFORCE, pas assoupli : il exige desormais l'ACCORD pour les trois abilities.
+    La branche `capteurAveugle` reste lue -- si le capteur redevenait muet, on veut le DIAGNOSTIC,
+    pas un faux vert -- mais elle ne peut plus etre le verdict ATTENDU."""
     rec = v977["step2"][aid]
-    if aid == 1043:
-        assert rec["ok"] is None and rec["capteurAveugle"] is True, rec
-        assert rec["toutesBucketsVides"] is True, rec
-        return
+    if rec.get("capteurAveugle") is True:
+        pytest.fail("le capteur ncEvaluate est redevenu AVEUGLE sur %d (regression #988) : %r"
+                    % (aid, rec))
     assert rec["ok"] is True, rec
     assert rec["utilOk"] == rec["nComparees"] >= 4, rec
-    assert rec["nScoredNatif"] >= 3, "montage DEGENERE : trop peu de positions scorees natif"
+    # TEMOIN NON DEGENERE. Le seuil `>= 3` a ete ecrit pour les playbooks du patron ORDINAIRE
+    # (`EvaluateNonComparable` score CHAQUE position candidate). `1043` passe par
+    # `NonComparablePlaybook<T>$$GenerateBucketWithMultipleStrategies`, qui `break` des que la
+    # PREMIERE strategie rend une action non nulle : le natif ne SCORE alors qu'une poignee de
+    # positions (mesure : **2** sur 23 comparees, accord 23/23). Comparer les deux patrons sur le
+    # meme seuil ferait rougir un montage sain. Ce qui reste exige pour lui, c'est le NON-VIDE --
+    # et l'invariant fort (`utilOk == nComparees >= 4`) est deja assertionne juste au-dessus.
+    minimum = 1 if aid == 1043 else 3
+    assert rec["nScoredNatif"] >= minimum, (
+        "montage DEGENERE : %d position(s) scoree(s) natif (minimum %d pour %d)"
+        % (rec["nScoredNatif"], minimum, aid))
 
 
 @pytest.mark.parametrize("aid", _NC)
