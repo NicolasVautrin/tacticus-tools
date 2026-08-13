@@ -186,6 +186,8 @@ from ..loki.fury_from_the_delve import (                       # #964 (passif 15
     FuryFromTheDelveCheckTargetHealthAbility, FuryFromTheDelveAttackOrPinAbility,
     FURY_FROM_THE_DELVE)
 from ..loki.ecog_support import ECogSupportAbility, ECOG_SUPPORT   # #964-r1 (passif 1487, votanIronmaster)
+from ..loki.omnissiahs_blessing import (                    # #1023 (passif 1299, admecSmnTechpriest)
+    OmnissiahsBlessingAbility, OMNISSIAHS_BLESSING)
 from ..loki.herald_of_the_apocalypse import (HeraldOfTheApocalypseExtraDamageRemove,  # #BL-1020r
                                              HERALD_OF_THE_APOCALYPSE_EFFECT)
 from ..loki.euphoric_strikes import (EuphoricStrikesExtraCritRemove,               # #522 (1198 -> 1429)
@@ -424,6 +426,19 @@ ABILITY_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
     # parmi ses non-portes) : sans `triggers/dispatch/repair.py`, cette entree serait un
     # registered-but-dead. Cf. loki/ecog_support.py. #964-r1.
     ECOG_SUPPORT: [ECogSupportAbility],
+    # OmnissiahsBlessing (passif 0x513 = 1299 d'`admecSmnTechpriest` << Tech-Priest Enginseer >>,
+    # SUMMON d'`InvocationOfMachineVengeance` ; aussi `admecNpc2Techpriest`). UNE classe :
+    #   `On(0x30 = 48 UnitRepaired, ownerNeedsToBeAlive: 1) & get_OwnerIsCaster
+    #    & HasEffect(Owner@+0x30, 0x555 = 1365 MachineVengeance, onlyActive: 0, targetType: 6)
+    #    & NOT get_OwnerIsTarget`
+    #   -> `AddEffectOrIncreaseLevel(0x555, stateRef, source = Owner@+0x30, targets = Target@+0x60,
+    #       level = EffectLevel(EffectFromOwner(Owner@+0x30, 0x555)), maxLevel = NULL)
+    #      op_BitwiseAnd RemoveEffect(Owner@+0x30, Nullable(0x555), NULL)`
+    # -- le TRANSFERT integral de la pile au repare, puis son retrait chez le porteur. L'ORDRE des
+    # deux behaviours est load-bearing (inverse, le transfert lirait 0). Le vecteur `On(0x30)`
+    # existe depuis #964-r1 (`dispatch/repair.py`), donc l'inscription n'est PAS registered-but-dead.
+    # Cf. loki/omnissiahs_blessing.py. #1023.
+    OMNISSIAHS_BLESSING: [OmnissiahsBlessingAbility],
     # TheBetrayer = gain-rage-au-kill (mort) + auto-tour (début de tour). Cf. les 2 classes dans loki.py.
     "TheBetrayer": [TheBetrayerAddEffectAbility, TheBetrayerTakeTurnAbility],
     # ArcaneShield (Thaumachus) = bouclier à la FIN DE L'ACTIVATION du porteur : `On(0x1c=
