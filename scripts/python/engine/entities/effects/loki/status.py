@@ -743,6 +743,10 @@ class TauntedEffect(BaseEffect):
     puisque tout cela vit dans l'`ApplyInternal` du parent."""
 
     can_be_immune_to = True                          # `get_CanBeImmuneTo` -> `b0 01 c3`
+    # #982-r4 -- `IEffect` slot 3 `get_KeepOnChangeOwner` -> `32 c0 c3` (`xor al,al ; ret`) = FAUX.
+    # `TauntedEffect` est l'une des DEUX SEULES classes du build (sur 465) a surcharger ce getter :
+    # a la prise de controle, `ChangeUnitOwnerOperation$$RemoveEffects` PURGE le taunt.
+    keep_on_change_owner = False
 
     def sub_effects_on_apply(self) -> list[SubEffectSpec]:
         return [

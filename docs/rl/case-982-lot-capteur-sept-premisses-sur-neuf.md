@@ -89,6 +89,43 @@ mesurées, **2** rendent faux — `TauntedEffect` et `HolyDuel_TauntEffect`.
 ⇒ « ne rien purger » (le port actuel) est correct pour tout le reste ; la dégradation est bien plus
 petite qu'annoncée, et le correctif tient en deux classes.
 
+#### `#590-r2` / `#982-r4` — **PORTÉ**, et la mesure a dû changer de SOURCE en chemin
+
+Les « 244 classes mesurées » venaient de la **vtable RUNTIME** (`probe_916r1_effect_slots.py`).
+Re-jouée le 2026-08-13, la même mesure rend **53 classes sur 465** et **« AUCUN override »** — un
+**faux zéro**, parce qu'IL2CPP ne remplit la vtable qu'à l'**initialisation** de la classe et
+qu'aucun taunt n'avait été posé dans cette session. Le probe le dit et range les autres en
+`NON MESURÉE` ; il n'empêche que le verdict aurait été « rien à purger ».
+
+La dérivation qui conclut est donc **OFFLINE et complète** — celle de `probe_175r2_can_be_immune_to`,
+qui répond à la même forme de question pour l'autre slot d'`IEffect` :
+
+* **QUI DÉCLARE** ← la table des méthodes du type dans `global-metadata.dat`. C'est la seule source
+  qui distingue « la classe surcharge » de « le corps est dédupliqué » : `get_KeepOnChangeOwner`
+  n'apparaît **nulle part** dans `frida/methods.tsv` (indexée par ADRESSE), et son absence ne
+  prouvait rien.
+* **QUELLE VALEUR** ← les **OCTETS** du corps dans le bloc `methodPointers` : `b0 01 c3`
+  (`mov al,1 ; ret`) = vrai, `32 c0 c3` (`xor al,al ; ret`) = faux.
+
+Résultat : **465** classes couvertes, **0 INCONNU**, **3 déclarants** — `BaseEffect` (vrai) et
+exactement `IdunBattle.Entities.Effects.TauntedEffect` + `IdunBattle.Entities.Effects.Loki.HolyDuel_TauntEffect`
+(tous deux **faux**). Le chiffre du résidu est donc **confirmé**, par une route qui n'exige ni
+session chaude ni vtable. Probe : `scripts/python/probe_982r4_keep_on_change_owner.py`.
+
+**La question laissée ouverte est tranchée** : `ChangeUnitOwnerOperation$$Execute` a été relu en
+entier — `RemoveEffects` court **AVANT** la lecture du nouveau propriétaire et l'écriture du slot
+d'override, et il n'y a **aucun re-`Apply`** des effets conservés. Rien de plus à porter.
+
+Port : `_remove_effects_on_owner_change` matérialise le domaine **avant** le premier retrait (le
+natif fait deux boucles, et le retrait mute la liste du porteur), puis passe par
+`remove_effect_instance` = `RemoveEffectOperation$$Execute` — donc avec `On(0x3f)`/`On(0x40)`, les
+reverts et la cascade des enfants. Mesuré : les trois sous-effets du taunt (`25`/`26`/`1237`)
+partent avec lui, `Stunned` et ses trois enfants restent.
+
+Garde : `tests/engine/test_982r4_keep_on_change_owner_offline.py` (5 tests). **Vue ROUGE** en
+retirant la surcharge de `TauntedEffect` : 4 tests tombent, dont
+`temoin : l'effet purgeable doit avoir ete REPOSE`.
+
 ### `#966-r2` — le canal existe, et le résidu se trompe de lecteur
 `combatSnapshot` publie `unitFlagTypes` (dont **`CanHealFullHealthUnits: 23`**) et un canal
 `unitFlags` par unité — mesuré en live. « Ni `combatSnapshot` ni `decisionView` ne publient les

@@ -1248,6 +1248,24 @@ class BaseEffect:
     # have its Armour, hits, Movement or Range reduced ».
     can_be_immune_to = False
 
+    # ── survie au CHANGEMENT DE PROPRIETAIRE (#982-r4) ──────────────────────────────────────────────
+    # `IEffect` slot **3** = `get_KeepOnChangeOwner` (nom LU dans
+    # `data/symbols/<build>/metadata/interface_slots.tsv`, jamais deduit). Le corps de la BASE est
+    # `b0 01 c3` (`mov al,1 ; ret`) ⇒ **True par defaut** : un effet SURVIT au changement de camp.
+    # C'est ce que consulte `IdunBattle.Operations.ChangeUnitOwnerOperation$$RemoveEffects`, qui met
+    # l'effet dans la liste de SUPPRESSION quand le getter rend **FAUX** (noter le sens du test).
+    #
+    # INVENTAIRE, derive OFFLINE sur la FERMETURE TRANSITIVE de `BaseEffect` — **465** classes,
+    # **0 INCONNU** (`probe_982r4_keep_on_change_owner.py`, qui reutilise la machinerie de
+    # `probe_175r2_can_be_immune_to.py` : DECLARATION lue dans le `global-metadata.dat`, VALEUR lue
+    # par les OCTETS du corps dans le bloc `methodPointers`). **DEUX** classes declarent, et les deux
+    # rendent `32 c0 c3` (`xor al,al ; ret`) : `IdunBattle.Entities.Effects.TauntedEffect` et
+    # `IdunBattle.Entities.Effects.Loki.HolyDuel_TauntEffect`. Les 463 autres HERITENT du `true`.
+    # ⚠ Une derivation par la VTABLE RUNTIME ne suffit PAS ici : IL2CPP ne remplit la vtable qu'a
+    # l'INITIALISATION de la classe, et une session ou aucun taunt n'a ete pose ne mesure que
+    # **53** classes sur 465 -- elle rend alors << AUCUN override >>, c'est-a-dire un faux zero.
+    keep_on_change_owner = True
+
     def entity_is_immune_to_effect(self, trait_names: "list | None" = None) -> bool:
         """`IdunBattle.Entities.Effects.BaseEffect$$EntityIsImmuneToEffect` — mirror 1:1 (octets relus) :
 

@@ -127,6 +127,13 @@ class HolyDuelTauntEffect(BaseEffect):
     d'immunite est porte par le composite `27` lui-meme, qui le SURCHARGE a `true` (#175-r2), donc
     une unite `Immune` refuse de toute facon les deux `Taunted` et leurs enfants."""
 
+    # #982-r4 -- `IEffect` slot 3 `get_KeepOnChangeOwner` -> `32 c0 c3` (`xor al,al ; ret`) = FAUX.
+    # Ici la DECLARATION est LUE dans le `global-metadata.dat` (et la valeur dans les octets du
+    # corps), pas deduite d'une absence : `methods.tsv` est indexee par ADRESSE et IL2CPP DEDUPLIQUE
+    # les corps triviaux -- c'est exactement le faux negatif que la note ci-dessus decrit pour
+    # `get_CanBeImmuneTo`. Cette classe est l'une des DEUX SEULES du build (sur 465) a surcharger.
+    keep_on_change_owner = False
+
     def sub_effects_on_apply(self) -> list[SubEffectSpec]:
         return [
             # b__0 : sur le PORTEUR (l'ennemi), bonde a `ctx.<+0x18>` = le champion.
