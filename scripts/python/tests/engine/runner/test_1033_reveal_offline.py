@@ -45,6 +45,45 @@ from engine.runner.abilities.targeting_rule import TargetingRule as TR
 from engine.runner.components import OwnerComponent, StatsComponent, UnitComponent
 from engine.runner.state import State
 
+#: Ce qui doit changer pour que ce FICHIER de test puisse changer de verdict (#486-r15).
+#: Pris LARGE a dessein -- un declencheur trop etroit est un FAUX VERT : le fichier ne se rejoue
+#: pas sous `--since` quand ce qu'il garde a bouge. Il garde QUATRE choses (le port de 1107, l'effet
+#: 1219, les trois registres, et le generateur d'audit), donc les quatre foyers y figurent.
+DECLENCHEUR = {
+    "chemins": (
+        # LE PORT et son effet.
+        "scripts/python/engine/runner/abilities/loki/reveal.py",
+        "scripts/python/engine/entities/effects/loki/revealed.py",
+        # LES TROIS REGISTRES -- une entree retiree/deplacee doit rougir ici.
+        "scripts/python/engine/runner/abilities/handler.py",
+        "scripts/python/engine/runner/abilities/attack_type.py",
+        "scripts/python/engine/entities/effects/factory.py",
+        # LE GENERATEUR D'AUDIT : l'etage 6 confronte `collect()` en direct.
+        "scripts/python/audit_combat_ability_coverage.py",
+        # LES SUBSTRATS LUS PAR LE GATE ET PAR L'EFFET (masque, amitie, magnitude, registres
+        # de triggers) -- une bascule chez eux change le verdict sans toucher au port.
+        "scripts/python/engine/runner/abilities/targeting.py",
+        "scripts/python/engine/runner/abilities/targeting_rule.py",
+        "scripts/python/engine/entities/effects/magnitude.py",
+        "scripts/python/engine/services/effect_bonus.py",
+        "scripts/python/engine/runner/operations/triggers/dispatch/registry.py",
+        # LES MIRRORS D'ENUM dont les ordinaux sont FIGES aux etages 0 et 6.
+        "scripts/python/engine/entities/active_ability_type.py",
+        "scripts/python/engine/entities/effect_type.py",
+        "scripts/python/enum_maps.py",
+    ),
+    # Les etages 0 et 6 figent des ORDINAUX (`1107`, `1219`, `1498`) et le compte des membres
+    # d'enum : ce sont des valeurs du BUILD. Un changement de build peut donc les faire bouger
+    # sans qu'aucun fichier Python n'ait change.
+    "build": True,
+    "toujours": False,
+    "raison": "Le fichier LIT le port de 1107 et l'effet 1219, les trois registres qui les "
+              "portent, le generateur `audit_combat_ability_coverage`, et les substrats que le "
+              "gate et l'effet consultent (masque de ciblage, amitie, magnitude, registres de "
+              "triggers, mirrors d'enum). Les etages 0/6 figent en plus des ordinaux du BUILD, "
+              "d'ou `build: True`. Le perimetre est pris LARGE : trop etroit ferait un FAUX VERT.",
+}
+
 #: L'ORDINAL FIGE A LA CONVERSION (#270-r1-r1-r3) : `probe_313` compare le MIRROR au BUILD, donc il
 #: redevient vert des qu'on regenere le mirror apres un renumerotage -- alors que la valeur ECRITE
 #: au site, elle, aurait change. Ce couple-ci est le cran du dessous.
