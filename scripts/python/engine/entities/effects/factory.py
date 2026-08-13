@@ -195,6 +195,9 @@ from .loki.votann import (
 )
 from .loki.wall_of_mirrors import WallOfMirrorsEffect
 from .loki.war_howl import WarHowlExtraDamageUnstoppableEffect
+from .loki.way_of_the_short_blade import (
+    WayOfTheShortBladeAdditionalAttackMarkerEffect, WayOfTheShortBladeDamageBuffEffect
+)
 from .loki.exemplar_of_the_montka import ExemplarOfTheMontkaEffect
 
 # Registre nom d'EffectType (`decisionView.effects[].name`) → classe d'effet. À ÉTENDRE au roster.
@@ -402,6 +405,18 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # RANGED non-Psychic des amis SOIT adjacents (toute faction) SOIT T'au dans range 2 (IdunBattle.Entities.Effects.Loki.DefenderOfTheGreaterGood_ExtraDmgEffect$$CreateDamageModifier, selector
     # IdunBattleLogic.Entities.Abilities.Triggered.Loki.DefenderOfTheGreaterGoodAbility$$GetBaseBuffTargetSelector = (AdjacentFriends(1)-owner) + UnitsFromFaction(SurroundingFriends(2), Tau=9)). extraDmg[L65]=364.
     "DefenderOfTheGreaterGood_ExtraDmg": DefenderOfTheGreaterGoodExtraDmgEffect,
+    # #1019 -- `WayOfTheShortBlade` (passif de `tauFarsight`) : les DEUX effets sont poses sur le
+    # PORTEUR par `IdunBattleLogic.Entities.Abilities.Triggered.Loki.WayOfTheShortBlade_InitAbility
+    # $$CreateBehaviour` (`AddEffect(0x5db) & AddEffect(0x5dc)`, `targets = Owner@<+0x30>`) et se
+    # projettent chacun par SON `CreateTargetSelector` -- canal AURA cote SOURCE, meme patron que
+    # `DefenderOfTheGreaterGood` ci-dessus. CONFIRME LIVE : les deux effets n'apparaissent que sur
+    # `tauFarsight` dans `decisionView.effects`, jamais sur les T'au a portee.
+    # 1499 = canal POURCENT (`ForPercentIncrease(IsValidAttackForBonus(), ConfigVar(0xa =
+    # extraDmgPct))`) ; 1500 n'a AUCUN canal de degat (son comportement est
+    # `WayOfTheShortBlade_AttackAbility`, residu `#1019-r2`). RE :
+    # `docs/rl/case-1019-way-of-the-short-blade.md`.
+    "WayOfTheShortBlade_DamageBuff": WayOfTheShortBladeDamageBuffEffect,
+    "WayOfTheShortBlade_AdditionalAttackMarker": WayOfTheShortBladeAdditionalAttackMarkerEffect,
     # #372 — l'axe COUPS de la MEME ability (1183) et les TROIS jumeaux drone. UNE SEULE classe
     # native par axe, parametree : `..._Extra{Dmg,Hits}Effect$$.ctor(this, isDrone)` ecrit `isDrone`
     # a `this+0x480` ; la branche `isDrone` du selecteur ajoute `EntitiesIsNotTargetOfEffect(sel,
