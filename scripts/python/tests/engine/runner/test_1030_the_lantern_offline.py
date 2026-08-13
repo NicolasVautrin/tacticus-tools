@@ -245,25 +245,35 @@ def test_e3_trois_poses_et_aucun_degat():
 
 
 def test_e3_contre_epreuve_enemies_sans_resolution_de_tuile():
-    """CONTRE-EPREUVE de la reparation d'`Enemies` (#1030) : sans la resolution
-    `SelectUniqueUnits` -> `SelectUnit` (tuile -> occupant), le `Pinned` ne se pose sur PERSONNE.
+    """CONTRE-EPREUVE de la reparation d'`Enemies` : sans la resolution
+    `IdunBattle.Entities.UnitExtensions$$GetUnitOrMachine(entity, state)` que
+    `IdunBattle.Entities.Selectors.UnitsByTeamSelector$$CountOrAdd` applique a CHAQUE entite
+    iteree, le `Pinned` ne se pose sur PERSONNE.
 
     Vu ROUGE avant la reparation. C'est la faute qui rendait le port MUET sur ce volet : `[]`, sans
-    erreur."""
+    erreur.
+
+    ⚠ **LE DOMAINE DE RETOUR N'EST PAS CELUI QUE CETTE TRANCHE AVAIT ECRIT, et le decompile
+    tranche pour l'AUTRE lecture.** `CountOrAdd` fait `System.Collections.Generic.List<T>.Add(
+    result, entity)` -- **l'ENTITE ITEREE** (`enumerator.get_Current()`), pas l'unite resolue ;
+    `other = GetUnitOrMachine(entity, this+0x10)` ne sert qu'au `IsFriend(unit, other, state)` dont
+    le resultat est compare au flag `this+0x28` (0 = `Enemies`, 1 = `Friends`). Le premier jet de
+    #1030 rendait l'unite resolue : meme bug ferme, domaine de retour FAUX. La forme gardee est
+    celle de `master`, et ce test la garde."""
     from engine.entities.selectors import units as U
     zone = _zone_attendue()
     st = _state({20: sorted(zone - {TARGET_POS})[0]})
-    ancien = U._select_units_resolving_tiles
+    ancien = U.unit_or_machine
     try:
-        # Le comportement d'AVANT : `_units_of` puis « on jette tout ce qui n'est pas un dict ».
-        U._select_units_resolving_tiles = lambda node, ctx: [
-            u for u in U._units_of(node, ctx) if isinstance(u, dict)]
+        # Le comportement d'AVANT : aucune resolution -- une entite-TUILE (id `int`) ne rendait
+        # aucune unite, donc l'ensemble sortait VIDE, sans erreur.
+        U.unit_or_machine = lambda e, ctx: (e if isinstance(e, dict) else None)
         st2 = _state({20: sorted(zone - {TARGET_POS})[0]})
         _cast(st2, _tid(*TARGET_POS))
         pinned_mute = [e for e in st2.effects.by_unit.get(20, [])
                        if not e.consumed and int(e.effect_type) == PINNED]
     finally:
-        U._select_units_resolving_tiles = ancien
+        U.unit_or_machine = ancien
     _cast(st, _tid(*TARGET_POS))
     pinned_ok = [e for e in st.effects.by_unit.get(20, [])
                  if not e.consumed and int(e.effect_type) == PINNED]
