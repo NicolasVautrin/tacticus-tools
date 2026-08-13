@@ -85,22 +85,27 @@ import gameconfig as GC
 
 from ...dsl.base import Const
 from ...dsl.effects import ExecutionContext
-from ...entities.behaviours import op_add, AtomicGroup
+from ...entities.behaviours import op_add, op_and, AtomicGroup
+from ...entities.behaviours import If as IfBehaviour     # `DSLBehaviors$$If` (#1022, AetherStride)
 from ...entities.damage_profile_type import DamageProfileType
 from ...entities.selectors.accessors import (ActiveTarget, CasterTile, FixedTileIds, Owner,
                                              Target)
-from ...entities.selectors.geometry import EntitiesWithAnyEffect
+from ...entities.selectors.geometry import EntitiesWithAnyEffect, ThreeTileUnitSpawnShape
 from ...entities.selectors.tiles import AllAliveUnits, AllTiles, Caster
 from ...entities.selectors.units import (AdjacentFriends, And, Damageable, Enemies, Filter,
                                          SurroundingEnemies, Union, Unique, UnitSet, Unobscured,
-                                         UnitsOnTilesWithEffect, non_steppable_or_object_units)
+                                         UnitsOnTilesWithEffect, UnitsWithTrait,
+                                         non_steppable_or_object_units)
 from ...entities.formulas import Count, Difference, GetPersistentData, Min, Sum
 from ...entities.effect_type import EffectType
 from ...entities.active_ability_type import ActiveAbilityType
 from ...entities.ability_constant_type import AbilityConstantType
+from ...entities.traits.unit_trait import UnitTrait                  # #1022 (AetherStride)
+from ...entities.triggered_ability_type import TriggeredAbilityType  # #1022 (AetherStride)
 from ...entities.effects.magnitude import ability_var
-from ...entities.triggers import HasTakenDamageOfDamageProfileThisTurn
-from ..components import StatsComponent
+from ...entities.triggers import (ActorHasTriggeredAbility, AmountIsGreaterThanZero,
+                                  HasTakenDamageOfDamageProfileThisTurn)
+from ..components import StatsComponent, get_unit_feet   # `get_unit_feet` : #1022 (AetherStride)
 from ..operations.damage_prediction_sort import SortTargetsByDamagePrediction
 from ..operations.damage_utility import sort_units_by_damage_utility
 from .base import ActiveAbility, ability_attack_params
@@ -108,6 +113,9 @@ from .behaviours.combat import (AttackWithAttackDamage, ChainLeftOverHitsAttackD
                                 SortedAttackSeries)
 from .behaviours.context import entities_from_state
 from .behaviours.effects import AddEffect
+from .behaviours.grants import AddTrait, AddTriggeredAbility        # #1022 (AetherStride)
+from .behaviours.lifecycle import RemoveMachine                     # #1022 (AetherStride)
+from .behaviours.summon import PerformAIAttack, Spawn               # #1022 (AetherStride)
 # `DiveAttackAbilityBase` vit dans le namespace natif `...Active.Loki` : le mirror y reste, et les
 # deux heritieres (1091 ici, 1064 sur `aeldari.py`) l'importent -- jamais l'une l'autre.
 from .loki.dive_attack import DiveAttackAbility, dive_attack_profile
@@ -1081,3 +1089,262 @@ class InfernalCannonAbility(ActiveAbility):
                 "tested_profile": teste, "inflicted_profile": inflige,
                 "targets": [a["target"] for a in attacks], "attacks": attacks,
                 "fire_placed": bool((feu or {}).get("placed")), "dsl": True}
+
+
+# ============ AetherStride (thousNpcMowDaemonPrince, actif 1208) -- #1022 =========================
+#
+# `IdunBattleLogic.Entities.Abilities.Active.Loki.AetherStrideAbility$$ExecuteBehaviour` -- arbre
+# `DSLFactory` PUR, MIRROR du DECOMPILE (`rnca9r7q6c`), remis en C# :
+#
+#     opts    = SpawnUnitOptions$$WithStatsFromConfig( config@this+0x60, abilityState, 0, 0 )
+#     grant   = DSLBehaviors$$AddTrait( ActiveTarget@DSLSelectors+0x68, 0x418, null )
+#     carry   = DSLBehaviors$$If(
+#                   DSLTriggers$$ActorHasTriggeredAbility( Owner@DSLSelectors+0x30, 0x5d8 ),
+#                   DSLBehaviors$$AddTriggeredAbility(
+#                       ActiveTarget@DSLSelectors+0x68, 0x5d8,
+#                       DSLSelectors$$AbilityState( Owner@DSLSelectors+0x30,
+#                                                   AbilityType$$op_Implicit(abilityState) ) ),
+#                   null )
+#     psykers = DSLFormulas$$Count(
+#                   DSLSelectors$$UnitsWithTrait(
+#                       DSLSelectors$$AdjacentFriends( ActiveTarget@DSLSelectors+0x68,
+#                                                      unique: true, selectionType: 3 ),
+#                       0x3ea, selectionType: 3 ) )
+#     strike  = DSLBehaviors$$If( psykers,
+#                   DSLBehaviors$$PerformAIAttack( ActiveTarget@DSLSelectors+0x68,
+#                                                  allowOnlyMove: 0,
+#                                                  overrideMovement: DSLFormulas+0x18,
+#                                                  utilityEntity: null, customUtility: null ),
+#                   null )
+#     opts.<+0x18> = AbilityBehaviour$$op_Addition( AbilityBehaviour$$op_BitwiseAnd(grant, carry),
+#                                                   strike )
+#     opts.<+0x50> = UnitExtensions$$GetQuestUnitId( caster )
+#     opts.<+0x60> = 1                          # <- UNE unite sur TOUTES les tuiles (multi-hex)
+#     return AActiveAbility$$Execute( entities, this,
+#                AbilityBehaviour$$op_BitwiseAnd(
+#                    DSLBehaviors$$RemoveMachine( Caster@DSLSelectors+0x48 ),
+#                    DSLBehaviors$$Spawn( Caster@DSLSelectors+0x48,
+#                                         DSLSelectors$$ThreeTileUnitSpawnShape(
+#                                             Target@DSLSelectors+0x60 ),
+#                                         AbilityConfiguration$$GetStringConstant( config, 0 ),
+#                                         opts ) ) )
+#
+# CE N'EST PAS `DutyEternal` (1158), MEME SI LES DEUX DERNIERES LIGNES SONT MOT POUR MOT LES MEMES.
+# Les deux abilities sont le patron « MoW multi-hex qui se transforme » (`RemoveMachine & Spawn(
+# ThreeTileUnitSpawnShape)`, `spawn_as_single_unit`, `AddTrait(Stationary)` on-appearance), et les
+# recopier l'une sur l'autre etait le piege. Trois divergences, toutes LUES, aucune deduite :
+#
+#   1. LE TRANSFERT DE TRIGGERED ABILITY N'EST PAS LE MEME NOEUD. `DutyEternal` LIT le caster A LA
+#      CONSTRUCTION (reflection sur le `TriggeredAbilityComponent`, `if (coll.Count > 0)` puis
+#      `Enumerable.First`) et transfere l'id TROUVE via la surcharge `AddTriggeredAbility(sel, id,
+#      levelInfo)`. `AetherStride` ne lit RIEN a la construction : c'est un `If(<trigger>, ...)` DSL
+#      sur un id FIXE `0x5d8`, et il appelle l'AUTRE surcharge, `AddTriggeredAbility(sel, type,
+#      abilityStateSelector)` -- tranchee par les XREFS ENTRANTES (l'appel de
+#      `...AetherStrideAbility$$ExecuteBehaviour` vise la surcharge dont le 4e parametre est
+#      `abilityStateSelector`, pas celle a `levelInfo`), jamais par le pseudo-C, qui affiche le meme
+#      nom pour les deux.
+#   2. `AetherStride` porte un SECOND terme absent de 1158 : `If(Count(psykers adjacents) > 0,
+#      PerformAIAttack(le summon))` -- le Daemon Prince attaque IMMEDIATEMENT s'il apparait au
+#      contact d'un allie Psyker.
+#   3. LES DEUX OPERATEURS DE JOINTURE DIFFERENT AU NATIF : `op_BitwiseAnd` entre `grant` et
+#      `carry`, puis `op_Addition` pour agreger `strike`. `IdunBattle.DSL.AbilityBehaviour$$
+#      op_BitwiseAnd` et `$$op_Addition` ont le MEME corps (`+0x50 = left`, `+0x58 = right`) mais
+#      allouent DEUX POINTEURS DE CLASSE DISTINCTS (decompiles compares) -- ce sont deux classes de
+#      behaviour, pas un alias.
+#      ⚠ LE PORT LES COLLAPSE EN UN SEUL `Seq`, et c'est un ECART ANTERIEUR A CETTE TRANCHE, assume
+#      et documente sur `entities/behaviours.py::Seq` (« sequence gauche->droite avec COURT-CIRCUIT ;
+#      deux effets PURS -> flag 0 -> les deux s'executent »). Il est INERTE ICI, et la raison se
+#      verifie : les trois termes de cet arbre (`AddTrait`, les deux `If`) sont PURS, donc aucun ne
+#      pose le flag qui ferait court-circuiter la jointure de gauche. On ecrit quand meme `op_and`
+#      puis `op_add` aux bons endroits : le jour ou le port separera les deux classes, le site n'a
+#      pas a etre relu.
+#
+# QUALIFICATION DES ORDINAUX (regle « un entier qui DESIGNE passe par un ENUM ») :
+#   * `0x418` = 1048 est ici un **`UnitTrait`** (`Stationary`) -- 1048 est AUSSI un
+#     `TriggeredAbilityType` (`GeminaeSuperia`) et un `ActiveAbilityType`
+#     (`FragstormGrenadeLauncher`). C'est le 3e argument d'`AddTrait`, donc un trait, et rien
+#     d'autre.
+#   * `0x5d8` = 1496 est un **`TriggeredAbilityType`** (`CabalOfSorcerers`) aux DEUX sites (le
+#     predicat `ActorHasTriggeredAbility` et le grant `AddTriggeredAbility`) : c'est le MEME id, lu
+#     deux fois, pas une coincidence d'ordinal.
+#   * `0x3ea` = 1002 est un **`UnitTrait`** (`Psyker`), 3e argument d'`UnitsWithTrait` -- 1002 est
+#     aussi un `TriggeredAbilityType` (`ShockAssault`) et un `ActiveAbilityType`
+#     (`CombatRestoratives`).
+#   * `3` = `UnitSelectionType.OnlyAliveAndTargetable`, aux DEUX etages d'`AdjacentFriends`
+#     (variante A, cf. ci-dessous) et sur `UnitsWithTrait`.
+#   * `0` de `GetStringConstant(config, 0)` = `AbilityConstantType.unitId` (le port le mirrore par
+#     `Spawn(unit_id_constant="unitId")`, qui relit `GC.ability("AetherStride")["constants"]`).
+#
+# `AdjacentFriends` -- LA VARIANTE EST TRANCHEE PAR LES XREFS, PAS PAR L'ARITE : les deux surcharges
+# du build ont l'arite 4 et le meme nom affiche. L'appel de `...AetherStrideAbility$$ExecuteBehaviour`
+# vise `IdunBattleLogic.Entities.DSLSelectors$$AdjacentFriends(this, unit, unique, selectionType)`
+# (variante A) = `Friends( reference = unit, Units(AdjacentTiles(unit), unique, selectionType) - unit,
+# selectionType )`. La REFERENCE D'EQUIPE est donc `ActiveTarget` -- le summon --, PAS le caster : le
+# port passe `reference=ActiveTarget()` EXPLICITEMENT. Le collapse historique (`reference=None` ->
+# `ctx.caster.team`) serait ici un pari sur l'equipe d'une MoW que le meme arbre vient de retirer par
+# `RemoveMachine`.
+#
+# `PerformAIAttack` -- `DSLBehaviors$$PerformAIAttack(unit, allowOnlyMove: 0, overrideMovement:
+# DSLFormulas+0x18, null, null)`. `DSLFormulas$$.ctor` construit `+0x18` comme la formule CONSTANTE
+# `0` (`<ctor>(0)` ; ses voisins sont `+0x20 = 1`, `+0x28 = 2`, `+0x30 = 100`, `+0x38 = -1`), et
+# `DSLBehaviors$$PerformAIAttackFromCurrentPosition` construit son `PerformAIAbilityUnitBehaviour`
+# avec EXACTEMENT `allowOnlyMove = 0` et `overrideMovement = <DSLFormulas+0x18>`. Les deux noeuds
+# posent donc ici les MEMES `+0x70` / `+0x78` : le call-site d'`AetherStride`, bien qu'il passe par
+# la fabrique « generale », est le regime « DEPUIS LA POSITION COURANTE » -- c'est-a-dire les DEFAUTS
+# de la feuille portee (`allow_move_action=False`, `move_amount=0`). Ne PAS lui donner
+# `allow_move_action=True` sous pretexte que la fabrique s'appelle `PerformAIAttack` : ce serait le
+# regime de `ForwardSpotterAbility`, qui passe `allowOnlyMove = 1`.
+# =================================================================================================
+
+AETHER_STRIDE_ID = "AetherStride"
+#: `0x5d8` -- le `TriggeredAbilityType` LU aux deux sites de l'arbre (predicat + grant).
+AETHER_STRIDE_CARRIED_ABILITY = TriggeredAbilityType.CabalOfSorcerers   # 1496
+#: `GetStringConstant(config, 0 = AbilityConstantType.unitId)` -- l'unite POSEE. Diag seulement :
+#: la feuille `Spawn` relit elle-meme la constante du gameconfig, elle ne prend pas cette valeur.
+AETHER_STRIDE_SUMMON = "thousSmnDaemonPrince"
+
+
+def aether_stride_on_appearance() -> AtomicGroup:
+    """Le sous-behaviour `SpawnUnitOptions+0x18` de `...AetherStrideAbility$$ExecuteBehaviour`,
+    MIRROR 1:1 -- fire PAR SUMMON juste apres la pose, son slot d'acteur etant `ActiveTarget@+0x68` :
+
+        op_Addition( op_BitwiseAnd( AddTrait(ActiveTarget, 0x418),
+                                    If(ActorHasTriggeredAbility(Owner, 0x5d8),
+                                       AddTriggeredAbility(ActiveTarget, 0x5d8, AbilityState(...))) ),
+                     If( Count(UnitsWithTrait(AdjacentFriends(ActiveTarget, 1, 3), 0x3ea, 3)),
+                         PerformAIAttack(ActiveTarget) ) )
+
+    `DSLBehaviors$$If(formula, then, else)` (la surcharge dont le 1er argument est une FORMULE, celle
+    que vise la xref du second `If` de cet arbre) n'est pas un noeud distinct : son corps est
+    litteralement `If( DSLTriggers$$AmountIsGreaterThanZero(formula), then, else )`. Le port ecrit
+    donc le predicat EXPLICITEMENT -- ce qui rend visible que le seuil est `> 0`, et non `>= 1`
+    ecrit ailleurs ni un `Count` compare a une variable de config.
+
+    LE 4e ARGUMENT D'`AddTriggeredAbility` N'EST PAS PORTE, et c'est un ECART NOMME : le natif passe
+    `DSLSelectors$$AbilityState(Owner@+0x30, AbilityType(abilityState))`, c.-a-d. l'entite d'ETAT
+    d'ability de la MoW pour 1208, que `AddTriggeredAbilityBehaviour` reporte sur l'ability
+    transferee (niveau / cooldown herites). La feuille portee (`behaviours/grants.py::
+    AddTriggeredAbility`) n'expose que `(units_sel, ability_id)` : elle inscrit l'id dans le
+    `TriggeredAbilityComponent` sans etat associe. L'ecart est INERTE tant qu'aucun consommateur
+    porte ne lit le niveau d'une triggered ability transferee ; il est documenté comme residu
+    `#1022-r1` plutot que devine."""
+    grant = AddTrait(ActiveTarget(), UnitTrait.Stationary)                     # 0x418
+    carry = IfBehaviour(ActorHasTriggeredAbility(Owner(), AETHER_STRIDE_CARRIED_ABILITY),
+                        AddTriggeredAbility(ActiveTarget(), AETHER_STRIDE_CARRIED_ABILITY))
+    psykers = Count(UnitsWithTrait(
+        AdjacentFriends(ActiveTarget(), reference=ActiveTarget(),
+                        selection_type=UnitSelectionType.OnlyAliveAndTargetable),
+        UnitTrait.Psyker,                                                     # 0x3ea
+        selection_type=UnitSelectionType.OnlyAliveAndTargetable))
+    strike = IfBehaviour(AmountIsGreaterThanZero(psykers), PerformAIAttack(ActiveTarget()))
+    return op_add(op_and(grant, carry), strike)
+
+
+def aether_stride_tree(tile_id):
+    """Arbre COMPLET de `...AetherStrideAbility$$ExecuteBehaviour` (cf. l'en-tete de section).
+
+    ORDRE lu, pas devine : `op_BitwiseAnd(RemoveMachine, Spawn)` -- la MoW quitte la bataille AVANT
+    que le Daemon Prince ne se pose, exactement comme `DutyEternalAbility`.
+
+    `spawn_as_single_unit=True` = `*(opts + 0x60) = 1` : `SpawnUnitBehaviour$$Execute` prend sa
+    branche `GetTileIds(tiles)` -> UN SEUL `AddUnit(config, <les 3 tuiles>)` -> une unite a 3 PIEDS.
+
+    NON PORTE (comme sur 1158) : `opts+0x50 = GetQuestUnitId(caster)`, champ de quete sans aucun
+    consommateur de combat."""
+    spawn = Spawn(ThreeTileUnitSpawnShape(FixedTileIds([tile_id])), AETHER_STRIDE_ID,
+                  on_appearance=aether_stride_on_appearance(), spawn_as_single_unit=True)
+    return op_and(RemoveMachine(Caster()), spawn)
+
+
+class AetherStrideAbility(ActiveAbility):
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.AetherStrideAbility$$ExecuteBehaviour` (id
+    1208, `thousNpcMowDaemonPrince`, ThousandSons MachineOfWar npc). Cast TILE-TARGET.
+
+    RE (ghidra `rnca9r7q6c`) :
+    - `...AetherStrideAbility$$ExecuteBehaviour` : cf. `aether_stride_tree` (mirror 1:1).
+    - `...AetherStrideAbility$$.ctor` -- FORME « FLAGS DIRECTS » (le litteral EST le masque
+      effectif ; aucune recopie de preset statique, aucun overload PRESET+FLAGS) :
+        TargetingOptions..ctor(&opts, 0, &<TargetingRange statics>+0x48, 1, 0x20000040000042, 0, 0)
+          isSelfCasting    = 0
+          range            = `TargetingRange` statics+0x48 = RANGE_WHOLE_BOARD
+          forceMeleeTarget = 1 = RangedBool.False
+          rules            = 0x20000040000042 = TargetMatchesDynamicRule | TargetIsTile
+                                              | AllowNullCasterTile | CasterIsMachine
+      puis `AActiveAbility..ctor(this, &opts, 2)` -> `AbilityAttackType.Others`.
+      ⚠ Ce ctor est OCTET POUR OCTET celui de `DutyEternalAbility$$.ctor` (meme pointeur de classe
+      statique, meme offset `+0x48`, meme litteral de flags, meme `2`) -- les deux decompiles ont ete
+      compares cote a cote plutot que l'un deduit de l'autre. C'est le profil MoW : `CasterIsMachine`
+      (bit 53) et `AllowNullCasterTile` (bit 30), une Machine of War n'ayant pas de tuile de caster.
+    - `...AetherStrideAbility$$GetDynamicInvalidTargetReason` : cf. la methode homonyme ci-dessous.
+
+    PORTEUR npc : `thousNpcMowDaemonPrince`. La face COMBAT se confronte par GREFFE de l'ability sur
+    une MoW du pool (`--p-mow` + `catalog_inject`), le natif chargeant le playbook PAR ABILITY et cet
+    arbre ne lisant du caster NI stat NI trait -- il ne lit que `Caster@+0x48` (pour `RemoveMachine`
+    et l'owner du spawn) et `Owner@+0x30` (pour le predicat de triggered ability).
+
+    `target_id` = id de TUILE (cast tile-target). Un `target_id` qui n'est pas une tuile du board ->
+    no-op (diag `spawned: []`)."""
+    __slots__ = ()
+    ABILITY_TYPE = int(ActiveAbilityType.AetherStride)   # 1208
+    ABILITY_ID = AETHER_STRIDE_ID
+    TARGETING_OPTIONS = TargetingOptions(rules=(
+          TR.TargetMatchesDynamicRule
+        | TR.TargetIsTile
+        | TR.AllowNullCasterTile
+        | TR.CasterIsMachine),
+        range=RANGE_WHOLE_BOARD, force_melee_target=RANGED_BOOL_FALSE)
+
+    def get_dynamic_invalid_target_reason(self, state: "State", caster_id: int,
+                                          target_id: Optional[int]) -> int:
+        """`...AetherStrideAbility$$GetDynamicInvalidTargetReason` -- MIRROR du decompile :
+
+            shape = DSLSelectors$$ThreeTileUnitSpawnShape( Target@DSLSelectors+0x60 );
+            <AbilityEntities{ caster, casterTiles, target ?? targetTiles.FirstOrDefault(),
+                              targetTiles }>                       // memset 0x128 puis 4 champs
+            tiles = shape.Select(entities);
+            return (tiles == null || Count(tiles) <= 0) ? 2 : 0;
+
+        = « la tuile visee est legale SSI une aire triangulaire de 3 tuiles existe autour d'elle »,
+        pendant exact du bit `TargetMatchesDynamicRule` de son masque. La raison litterale est `2`
+        = `TargetingRule.TargetMatchesDynamicRule`. Une cible qui n'est pas une tuile du board rend
+        `2` aussi (le selecteur ne resout aucune ancre -> liste vide).
+
+        ⚠ La branche `target == null -> targetTiles.FirstOrDefault()` du natif n'a pas d'equivalent
+        cote port : `AbilityHandler` resout toujours UNE cible avant d'appeler, et le collapse
+        `FixedTileIds([tile_id])` presente deja la tuile resolue. `DutyEternalAbility` n'a PAS cette
+        branche -- c'est la seule difference entre les deux corps, et elle est sans effet ici."""
+        board = state.board
+        tile_id = target_id if (board is not None and target_id in board.by_id) else None
+        if tile_id is None:
+            return int(TR.TargetMatchesDynamicRule)
+        entities = entities_from_state(state, caster_id)
+        tiles = ThreeTileUnitSpawnShape(FixedTileIds([tile_id])).evaluate(entities)
+        return 0 if tiles else int(TR.TargetMatchesDynamicRule)
+
+    def execute_behaviour(self, state: "State", caster_id: int,
+                          target_id: Optional[int]) -> Optional[dict]:
+        # `IdunBattle.Core.Services.TargetingQuery$$GetActualTarget` (slot 16 d'`IActiveAbility`) :
+        # pour un masque `TargetIsTile`, le role `target` du natif est TOUJOURS l'entite-TUILE.
+        # IDEMPOTENT -> inerte quand `AbilityHandler` a deja resolu, mordant sur tout appel DIRECT.
+        target_id = self.get_actual_target(state, caster_id, target_id)
+        board = state.board
+        tile_id = target_id if (board is not None and target_id in board.by_id) else None
+        if tile_id is None:
+            return {"tile": None, "spawned": [], "dsl": True}
+        ectx = ExecutionContext(state=state, rng=state.rng)
+        entities = entities_from_state(state, caster_id, target_id)
+        aether_stride_tree(tile_id).execute(entities, ectx)
+        # ⚠ L'ETIQUETTE EMISE PAR LA FEUILLE EST `SpawnUnit`, PAS `Spawn` (`behaviours/summon.py`).
+        # Lire `Spawn` rend une liste VIDE alors que le spawn a bien eu lieu -- un diag muet qui se
+        # lit comme « le port n'a rien pose » (mesure du 2026-08-13, avant correction).
+        spawned = [p["unit"] for n, p in ectx.emitted if n == "SpawnUnit"]
+        removed = [p["machine"] for n, p in ectx.emitted if n == "RemoveMachine"]
+        return {"summon": AETHER_STRIDE_SUMMON, "tile": tile_id, "spawned": spawned,
+                "feet": get_unit_feet(state, spawned[0]) if spawned else [],
+                "removed_machine": removed,
+                "traits": [{"unit": p.get("unit"), "trait": p.get("trait")}
+                           for n, p in ectx.emitted if n == "AddTrait"],
+                "carried": [p.get("ability") for n, p in ectx.emitted
+                            if n == "AddTriggeredAbility"],
+                "ai_attacks": [p for n, p in ectx.emitted if n == "PerformAIAttack"],
+                "dsl": True}

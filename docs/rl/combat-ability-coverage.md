@@ -9,9 +9,9 @@ Le runner combat route chaque ability choisie via `ActiveAbilityMessage` -> `Abi
 ## Bilan
 
 - ActiveAbilityType castables par les unites : **175** distinct
-- **PORTED** (dans `ABILITY_CLASSES`) : **164**
-- **NO-OP silencieux** (a porter) : **11**
-- Ventilation NO-OP : **DAMAGE**=6, **SUMMON**=3, **EFFECT/BUFF**=2
+- **PORTED** (dans `ABILITY_CLASSES`) : **165**
+- **NO-OP silencieux** (a porter) : **10**
+- Ventilation NO-OP : **DAMAGE**=6, **SUMMON**=2, **EFFECT/BUFF**=2
 
 ## Priorisation & templates de port
 
@@ -30,7 +30,7 @@ Le runner combat route chaque ability choisie via `ActiveAbilityMessage` -> `Abi
 
 Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 
-## NO-OP SILENCIEUX en combat (a porter, tries categorie puis frequence) (11)
+## NO-OP SILENCIEUX en combat (a porter, tries categorie puis frequence) (10)
 
 | id | ability | categorie | #units | kinds |
 |---|---|---|---|---|
@@ -42,11 +42,10 @@ Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 | 1094 | TheLantern | DAMAGE(Energy) | 1 | N |
 | 1053 | DevoutPush | EFFECT/BUFF | 2 | NS |
 | 1107 | Reveal | EFFECT/BUFF | 1 | N |
-| 1208 | AetherStride | SUMMON | 2 | LN |
 | 1052 | CallRipperSwarms | SUMMON | 1 | N |
 | 1172 | InvocationOfMachineVengeance | SUMMON | 1 | N |
 
-## PORTED (registry) (164)
+## PORTED (registry) (165)
 
 | id | ability | categorie | #units | kinds |
 |---|---|---|---|---|
@@ -209,6 +208,7 @@ Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 | 1179 | CultDemagogue | SUMMON | 4 | LN |
 | 1040 | Poxwalkers | SUMMON | 4 | LN |
 | 1047 | ScarabSummon | SUMMON | 3 | NS |
+| 1208 | AetherStride | SUMMON | 2 | LN |
 | 1144 | BioMinefield | SUMMON | 2 | LN |
 | 1158 | DutyEternal | SUMMON | 2 | LN |
 | 1143 | ForwardSpotter | SUMMON | 2 | LN |

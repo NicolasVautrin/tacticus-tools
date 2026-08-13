@@ -656,6 +656,14 @@ ABILITY_ATTACK_TYPE: dict[int, int] = {
     # degat : elle retire la MoW et pose un summon a 3 pieds). Le `&opts` y est un litteral INLINE
     # (forme « flags directs », masque 0x20000040000042) -> ses `TARGETING_OPTIONS` sont posees.
     ActiveAbilityType.DutyEternal: AbilityAttackType.Others,  # 1158
+    # AetherStride (1208, `thousNpcMowDaemonPrince` ThousandSons MoW npc), #1022. Litteral RELU au
+    # decompile de `IdunBattleLogic.Entities.Abilities.Active.Loki.AetherStrideAbility$$.ctor` =
+    # `AActiveAbility..ctor(this, &opts, 2)` -> 3e argument = 2 = Others. Ce ctor est OCTET POUR
+    # OCTET celui de 1158 ci-dessus (meme classe statique, meme `+0x48`, meme masque
+    # 0x20000040000042, meme `2`) -- les deux decompiles ont ete COMPARES, le litteral n'est pas
+    # deduit de la parente des deux arbres. Forme « flags directs » -> `TARGETING_OPTIONS` posees
+    # sur la classe.
+    ActiveAbilityType.AetherStride: AbilityAttackType.Others,  # 1208
     ActiveAbilityType.BlackRage: AbilityAttackType.Others,  # 1163
     ActiveAbilityType.AberrantHypermorph: AbilityAttackType.Others,  # 1166
     ActiveAbilityType.CultDemagogue: AbilityAttackType.Others,  # 1179

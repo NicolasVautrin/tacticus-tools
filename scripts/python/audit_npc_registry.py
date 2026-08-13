@@ -43,7 +43,7 @@ import decision_face_voies as DFV
 import gameconfig as GC
 import unit_map as UM
 from audit_kit_coverage import (
-    TRAIT_COMMON_MAX, _atteste, _has_effect_named_after, _passive_covered,
+    _atteste, _has_effect_named_after, _passive_covered,
 )
 from engine.entities.active_ability_type import ActiveAbilityType
 from engine.entities.effects.factory import TRAIT_DERIVED_ABILITIES, TRAIT_OWNER_EFFECTS
@@ -101,8 +101,13 @@ def collecter(kind: str) -> list[dict]:
             passifs.append({"name": nm, "covered": _passive_covered(nm) or att is not None})
         traits = []
         for t in k["traits"]:
-            if porteurs_trait[t] > TRAIT_COMMON_MAX:
-                continue
+            # #1015 a SUPPRIME `audit_kit_coverage.TRAIT_COMMON_MAX` -- ce module l'importait
+            # encore, donc il ETAIT INEXECUTABLE sur `master` (`ImportError`), et `npc-registry.tsv`
+            # ne pouvait plus etre regenere (constate en le regenerant, #1022). Le seuil ECARTAIT
+            # du compte tout trait porte par plus de 12 unites en le declarant « presume couvert » ;
+            # la mesure de #1015 a rendu 3 des 22 presumes LUS NULLE PART dans `engine/**`. On ne le
+            # retablit donc pas : on n'ecarte PLUS personne, et `_trait_couvert` (qui delegue a
+            # `trait_channels`) repond trait par trait.
             att = _atteste("trait", t)
             traits.append({"name": t, "carriers": porteurs_trait[t],
                            "covered": _trait_couvert(t) or att is not None})
@@ -181,9 +186,9 @@ def rendre(lignes: list[dict], kind: str) -> str:
       % (len(act), " · ".join("`[%s]` **%d**" % (f, c) for f, c in sorted(faces.items()))))
     A("- Passifs distincts : **%d** — portes **%d**, non portes **%d**\n"
       % (len(pas), sum(1 for v in pas.values() if v), sum(1 for v in pas.values() if not v)))
-    A("- Traits de kit distincts (hors traits communs, > %d porteurs) : **%d** — couverts **%d**,\n"
-      "  non couverts **%d**\n"
-      % (TRAIT_COMMON_MAX, len(tra), sum(1 for v in tra.values() if v),
+    A("- Traits de kit distincts (AUCUN ecarte — le seuil de frequence a disparu avec #1015) :\n"
+      "  **%d** — couverts **%d**, non couverts **%d**\n"
+      % (len(tra), sum(1 for v in tra.values() if v),
          sum(1 for v in tra.values() if not v)))
     if inversees:
         A("- **Voies inversees** (nom absent d'`ActiveAbilityType`) : **%d** — %s\n"

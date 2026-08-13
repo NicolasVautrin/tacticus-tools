@@ -19,11 +19,11 @@ differe. C'est la doctrine « DECIDER != EXECUTER ».
 
 ## Bilan
 
-- Unites `npc` : **491** ; kits sans manque : **366** ; kits avec du travail : **125**
-- Actives distinctes : **147** — `[--]` **9** · `[-D]` **2** · `[C-]` **14** · `[CD]` **122**
-- Passifs distincts : **177** — portes **104**, non portes **73**
-- Traits de kit distincts (hors traits communs, > 12 porteurs) : **20** — couverts **9**,
-  non couverts **11**
+- Unites `npc` : **491** ; kits sans manque : **5** ; kits avec du travail : **486**
+- Actives distinctes : **147** — `[--]` **9** · `[-D]` **1** · `[C-]` **14** · `[CD]` **123**
+- Passifs distincts : **177** — portes **108**, non portes **69**
+- Traits de kit distincts (AUCUN ecarte — le seuil de frequence a disparu avec #1015) :
+  **58** — couverts **28**, non couverts **30**
 - **Voies inversees** (nom absent d'`ActiveAbilityType`) : **1** — `Maugetar`
 
 ## Ce que ce registre NE VOIT PAS
@@ -49,19 +49,34 @@ l'unite. La colonne `porteurs` dit l'exposition.
 
 | type | item | porteurs | exemples |
 |---|---|---:|---|
+| trait | Hero | 323 | adeptBossCanoness, adeptBossCanonessLHE, adeptBossCelestine |
+| trait | Mechanical | 98 | adeptBossMorvenn, adeptBossMorvennLHE, adeptNpcMorvenn |
+| trait | Flying | 94 | adeptBossCelestine, adeptBossCelestineCE, adeptBossCelestineLHE |
+| trait | Resilient | 42 | admecNpc3Electropriest, admecNpc3ElectropriestSurv, astraBossYarrick |
+| trait | Infiltrate | 36 | admecBossRuststalker, admecBossRuststalkerCE, admecBossRuststalkerLEG |
+| trait | Overwatch | 35 | admecBossDestroyer, admecBossDestroyerCE, admecBossDestroyerLHE |
+| trait | BattleFatigue | 28 | astraNpc1Guardsman, astraNpc2Lascannon, astraNpc3Voxcaster |
+| trait | Object | 28 | LootObj_AmmoBox, LootObj_Crate_Cha, LootObj_Crate_Imp |
+| trait | Immune | 27 | adeptBossCelestineCE, admecBossBelisarius, darkaBossLion |
+| trait | Synapse | 27 | genesBossPatriarch, genesBossPatriarchLHE, genesNpcPatriarch |
+| trait | Steppable | 25 | LootObj_Blackstone, LootObj_CoinCrate, LootObj_XPBook |
+| trait | TeleportStrike | 22 | adeptNpc2Zephyrim, blackBossTerminator, blackBossTerminatorLEG |
+| trait | Mechanic | 21 | admecBossDominus, admecBossDominusCE, admecBossDominusLEG |
+| trait | GetStuckIn | 20 | orksBossBigMek, orksBossBigMekLEG, orksBossBigMekLHE |
+| trait | Invincible | 20 | powupArmor, powupBomb, powupDamage |
+| trait | Unstoppable | 19 | admecBossRuststalker, admecBossRuststalkerCE, admecBossRuststalkerLEG |
+| trait | InstinctiveBehaviour | 18 | tyranNpc1Hormagaunt, tyranNpc1HormagauntGorgon, tyranNpc1HormagauntKronos |
+| trait | CloseCombatWeakness | 16 | tauBossCrisis, tauBossCrisisInc, tauBossCrisisLHE |
+| trait | MkXGravis | 14 | templBossAggressor, templBossAggressorCamp, templBossAggressorLEG |
 | trait | Healer | 12 | adeptBossHospitaller, adeptBossHospitallerLHE, adeptNpcHospitaller |
 | trait | MachineOfWar | 11 | adeptNpcMoWExorcist, astraNpcMowOrdnanceBattery, blackNpcMowForgefiend |
-| passif | ReanimationProtocols | 6 | necroNpc1Warrior, necroNpc1WarriorSurv, necroNpc2FlayedOne |
 | trait | Boss | 6 | adeptBossCelestineCE, admecBossBelisarius, darkaBossLion |
 | passif | AdrenalGlands | 5 | tyranNpc1Hormagaunt, tyranNpc1HormagauntGorgon, tyranNpc1HormagauntKronos |
 | passif | HailOfLivingAmmunition | 5 | tyranNpc3Termagant, tyranNpc3TermagantGorgon, tyranNpc3TermagantKronos |
-| passif | HungeringSwarm | 5 | tyranNpc1Hormagaunt, tyranNpc1HormagauntGorgon, tyranNpc1HormagauntKronos |
-| passif | WayOfTheShortBlade | 5 | tauBossFarsight, tauBossFarsightInc, tauBossFarsightLHE |
 | trait | Vehicle | 5 | admecBossDestroyer, admecBossDestroyerCE, admecBossDestroyerLHE |
 | trait | TwoManTeam | 4 | astraNpc2Lascannon, astraNpc4Mortar, astraNpc4MortarSurv |
 | passif | RapidFire | 3 | ultraNpc3Intercessor, ultraNpc4HeavyIntercessor, ultraNpc4HeavyIntercessorSurv |
 | passif | SaviorProtocols | 3 | tauNpc2DroneSniper, tauNpc3DroneShield, tauNpc4DroneCommandLink |
-| passif | WhipcoilBody | 3 | necroNpc4Destroyer, necroNpc4DestroyerLHE, necroNpc4DestroyerSurv |
 | trait | Emplacement | 3 | astraNpc2Lascannon, astraNpc4Mortar, astraNpc4MortarSurv |
 | trait | Impervious | 3 | LootObj_Strongbox_Cha, LootObj_Strongbox_Imp, LootObj_Strongbox_Xen |
 | passif | BossEndFightUndefeated | 2 | darkaBossLion, deathBossMortarion |
@@ -70,7 +85,6 @@ l'unite. La colonne `porteurs` dit l'exposition.
 | passif | SynapticInsight | 2 | tyranNpc5Barbgaunt, tyranNpc5BarbgauntSurv |
 | trait | NonAttacking | 2 | orksNpc4AmmoGrot, orksNpc5LootGrotTeam |
 | trait | PermaDeath | 2 | darkaNpc4Watcher, tyranNpc6SporeMine |
-| active | AetherStride | 1 | thousNpcMowDaemonPrince |
 | active | CallRipperSwarms | 1 | tyranBossHiveTyrantLeviathan |
 | active | DevoutPush | 1 | templNpc1Initiate |
 | active | InstrumentsOfVengeance | 1 | darkaBossLion |
@@ -155,599 +169,599 @@ sont des **faces** absentes d'items presents.
 
 ## Inventaire complet, par faction
 
-### ? — 51 unites, 25 avec du travail
+### ? — 51 unites, 51 avec du travail
 
 | unite | manque | actives (face) | passifs non portes | traits non couverts | autres voies |
 |---|---:|---|---|---|---|
-| LootObj_AmmoBox | 1 | - | Volatile | - | - |
-| LootObj_ExplOilDrum | 1 | - | Explosive | - | - |
-| LootObj_Strongbox_Cha | 1 | - | - | Impervious | - |
-| LootObj_Strongbox_Imp | 1 | - | - | Impervious | - |
-| LootObj_Strongbox_Xen | 1 | - | - | Impervious | - |
-| powupArmor | 1 | - | PowerUp_Armor | - | - |
-| powupBomb | 1 | - | PowerUp_Bomb | - | - |
-| powupDamage | 1 | - | PowerUp_Damage | - | - |
-| powupHealing | 1 | - | PowerUp_Healing | - | - |
-| powupHealth | 1 | - | PowerUp_Health | - | - |
-| powupHeroSpawn_BladeChampion | 1 | - | PowerUp_HeroSpawn_BladeChampion | - | - |
-| powupHeroSpawn_Uthar | 1 | - | PowerUp_HeroSpawn_Uthar | - | - |
-| powupHeroSpawn_VexilusPraeto | 1 | - | PowerUp_HeroSpawn_VexilusPraetor | - | - |
-| powupHits | 1 | - | PowerUp_Hits | - | - |
-| powupMeleeHits | 1 | - | PowerUp_MeleeHits | - | - |
-| powupReactivateAbility | 1 | - | PowerUp_ReactivateAbility | - | - |
-| powupReinforcement | 1 | - | PowerUp_Reinforcement | - | - |
-| powupReinforcementShield | 1 | - | PowerUp_ReinforcementShield | - | - |
-| powupResurrect | 1 | - | PowerUp_Resurrect | - | - |
-| powupSummonSpawn_bloodSmnIntercessor | 1 | - | PowerUp_SummonSpawn_bloodSmnIntercessor | - | - |
-| powupSummonSpawn_darkaSmnHellblaster | 1 | - | PowerUp_SummonSpawn_darkaSmnHellblaster | - | - |
-| powupSummonSpawn_darkaSmnTerminator | 1 | - | PowerUp_SummonSpawn_darkaSmnTerminator | - | - |
-| powupSummonSpawn_templSmnAggressor | 1 | - | PowerUp_SummonSpawn_templSmnAggressor | - | - |
-| powupSummonSpawn_ultraSmnHeavyIntercessor | 1 | - | PowerUp_SummonSpawn_ultraSmnHeavyIntercessor | - | - |
-| powupSummonSpawn_ultraSmnInceptor | 1 | - | PowerUp_SummonSpawn_ultraSmnInceptor | - | - |
-| LootObj_Blackstone | 0 | - | - | - | - |
-| LootObj_CoinCrate | 0 | - | - | - | - |
-| LootObj_Crate_Cha | 0 | - | - | - | - |
-| LootObj_Crate_Imp | 0 | - | - | - | - |
-| LootObj_Crate_Xen | 0 | - | - | - | - |
-| LootObj_FancyBox | 0 | - | - | - | - |
-| LootObj_OilDrum | 0 | - | - | - | - |
-| LootObj_Pod_Common_Cha | 0 | - | - | - | - |
-| LootObj_Pod_Common_Imp | 0 | - | - | - | - |
-| LootObj_Pod_Common_Xen | 0 | - | - | - | - |
-| LootObj_Pod_Epic_Cha | 0 | - | - | - | - |
-| LootObj_Pod_Epic_Imp | 0 | - | - | - | - |
-| LootObj_Pod_Epic_Xen | 0 | - | - | - | - |
-| LootObj_Pod_Legendary_Cha | 0 | - | - | - | - |
-| LootObj_Pod_Legendary_Imp | 0 | - | - | - | - |
-| LootObj_Pod_Legendary_Xen | 0 | - | - | - | - |
-| LootObj_Pod_Mythic_Cha | 0 | - | - | - | - |
-| LootObj_Pod_Mythic_Imp | 0 | - | - | - | - |
-| LootObj_Pod_Mythic_Xen | 0 | - | - | - | - |
-| LootObj_Pod_Rare_Cha | 0 | - | - | - | - |
-| LootObj_Pod_Rare_Imp | 0 | - | - | - | - |
-| LootObj_Pod_Rare_Xen | 0 | - | - | - | - |
-| LootObj_Pod_Uncommon_Cha | 0 | - | - | - | - |
-| LootObj_Pod_Uncommon_Imp | 0 | - | - | - | - |
-| LootObj_Pod_Uncommon_Xen | 0 | - | - | - | - |
-| LootObj_XPBook | 0 | - | - | - | - |
+| powupArmor | 4 | - | PowerUp_Armor | Steppable, Invincible, Immune | - |
+| powupBomb | 4 | - | PowerUp_Bomb | Steppable, Invincible, Immune | - |
+| powupDamage | 4 | - | PowerUp_Damage | Steppable, Invincible, Immune | - |
+| powupHealing | 4 | - | PowerUp_Healing | Steppable, Invincible, Immune | - |
+| powupHealth | 4 | - | PowerUp_Health | Steppable, Invincible, Immune | - |
+| powupHeroSpawn_BladeChampion | 4 | - | PowerUp_HeroSpawn_BladeChampion | Steppable, Invincible, Immune | - |
+| powupHeroSpawn_Uthar | 4 | - | PowerUp_HeroSpawn_Uthar | Steppable, Invincible, Immune | - |
+| powupHeroSpawn_VexilusPraeto | 4 | - | PowerUp_HeroSpawn_VexilusPraetor | Steppable, Invincible, Immune | - |
+| powupHits | 4 | - | PowerUp_Hits | Steppable, Invincible, Immune | - |
+| powupMeleeHits | 4 | - | PowerUp_MeleeHits | Steppable, Invincible, Immune | - |
+| powupReactivateAbility | 4 | - | PowerUp_ReactivateAbility | Steppable, Invincible, Immune | - |
+| powupReinforcement | 4 | - | PowerUp_Reinforcement | Steppable, Invincible, Immune | - |
+| powupReinforcementShield | 4 | - | PowerUp_ReinforcementShield | Steppable, Invincible, Immune | - |
+| powupResurrect | 4 | - | PowerUp_Resurrect | Steppable, Invincible, Immune | - |
+| powupSummonSpawn_bloodSmnIntercessor | 4 | - | PowerUp_SummonSpawn_bloodSmnIntercessor | Steppable, Invincible, Immune | - |
+| powupSummonSpawn_darkaSmnHellblaster | 4 | - | PowerUp_SummonSpawn_darkaSmnHellblaster | Steppable, Invincible, Immune | - |
+| powupSummonSpawn_darkaSmnTerminator | 4 | - | PowerUp_SummonSpawn_darkaSmnTerminator | Steppable, Invincible, Immune | - |
+| powupSummonSpawn_templSmnAggressor | 4 | - | PowerUp_SummonSpawn_templSmnAggressor | Steppable, Invincible, Immune | - |
+| powupSummonSpawn_ultraSmnHeavyIntercessor | 4 | - | PowerUp_SummonSpawn_ultraSmnHeavyIntercessor | Steppable, Invincible, Immune | - |
+| powupSummonSpawn_ultraSmnInceptor | 4 | - | PowerUp_SummonSpawn_ultraSmnInceptor | Steppable, Invincible, Immune | - |
+| LootObj_AmmoBox | 2 | - | Volatile | Object | - |
+| LootObj_ExplOilDrum | 2 | - | Explosive | Object | - |
+| LootObj_Strongbox_Cha | 2 | - | - | Object, Impervious | - |
+| LootObj_Strongbox_Imp | 2 | - | - | Object, Impervious | - |
+| LootObj_Strongbox_Xen | 2 | - | - | Object, Impervious | - |
+| LootObj_Blackstone | 1 | - | - | Steppable | - |
+| LootObj_CoinCrate | 1 | - | - | Steppable | - |
+| LootObj_Crate_Cha | 1 | - | - | Object | - |
+| LootObj_Crate_Imp | 1 | - | - | Object | - |
+| LootObj_Crate_Xen | 1 | - | - | Object | - |
+| LootObj_FancyBox | 1 | - | - | Object | - |
+| LootObj_OilDrum | 1 | - | - | Object | - |
+| LootObj_Pod_Common_Cha | 1 | - | - | Object | - |
+| LootObj_Pod_Common_Imp | 1 | - | - | Object | - |
+| LootObj_Pod_Common_Xen | 1 | - | - | Object | - |
+| LootObj_Pod_Epic_Cha | 1 | - | - | Object | - |
+| LootObj_Pod_Epic_Imp | 1 | - | - | Object | - |
+| LootObj_Pod_Epic_Xen | 1 | - | - | Object | - |
+| LootObj_Pod_Legendary_Cha | 1 | - | - | Object | - |
+| LootObj_Pod_Legendary_Imp | 1 | - | - | Object | - |
+| LootObj_Pod_Legendary_Xen | 1 | - | - | Object | - |
+| LootObj_Pod_Mythic_Cha | 1 | - | - | Object | - |
+| LootObj_Pod_Mythic_Imp | 1 | - | - | Object | - |
+| LootObj_Pod_Mythic_Xen | 1 | - | - | Object | - |
+| LootObj_Pod_Rare_Cha | 1 | - | - | Object | - |
+| LootObj_Pod_Rare_Imp | 1 | - | - | Object | - |
+| LootObj_Pod_Rare_Xen | 1 | - | - | Object | - |
+| LootObj_Pod_Uncommon_Cha | 1 | - | - | Object | - |
+| LootObj_Pod_Uncommon_Imp | 1 | - | - | Object | - |
+| LootObj_Pod_Uncommon_Xen | 1 | - | - | Object | - |
+| LootObj_XPBook | 1 | - | - | Steppable | - |
 
-### AdeptusAstartes — 2 unites, 0 avec du travail
-
-| unite | manque | actives (face) | passifs non portes | traits non couverts | autres voies |
-|---|---:|---|---|---|---|
-| astarCyrus_LHE | 0 | StrikeFromTheShadows(1225)[CD] | - | - | - |
-| astarNpc1HaywireMine | 0 | - | - | - | - |
-
-### AdeptusMechanicus — 29 unites, 5 avec du travail
+### AdeptusAstartes — 2 unites, 2 avec du travail
 
 | unite | manque | actives (face) | passifs non portes | traits non couverts | autres voies |
 |---|---:|---|---|---|---|
-| admecBossBelisarius | 5 | InvocationOfMachineVengeance(1172)[--]<br>ArcScourge(1173)[C-]<br>SolarAtomizer(1174)[--] | SelfRepairMechanismReworked, PreCalibratedPurgeSolution | Boss | - |
-| admecNpc2Techpriest | 2 | - | VengeanceForTheOmnissiah, OmnissiahsBlessing | - | - |
-| admecBossDestroyer | 1 | SentinelDirectives(1139)[CD] | - | Vehicle | relic:KardiocoreGalvanus |
-| admecBossDestroyerCE | 1 | SentinelDirectives(1139)[CD] | - | Vehicle | relic:KardiocoreGalvanus |
-| admecBossDestroyerLHE | 1 | SentinelDirectives(1139)[CD] | - | Vehicle | relic:KardiocoreGalvanus |
-| admecBossDominus | 0 | RadBombardment(1116)[CD] | - | - | - |
-| admecBossDominusCE | 0 | RadBombardment(1116)[CD] | - | - | - |
-| admecBossDominusLEG | 0 | RadBombardment(1116)[CD] | - | - | - |
-| admecBossDominusLHE | 0 | RadBombardment(1116)[CD] | - | - | - |
-| admecBossDominusSurv | 0 | RadBombardment(1116)[CD] | - | - | - |
-| admecBossManipulus | 0 | DefendTheDivineWork(1117)[CD] | - | - | - |
-| admecBossManipulusCE | 0 | DefendTheDivineWork(1117)[CD] | - | - | - |
-| admecBossManipulusLEG | 0 | DefendTheDivineWork(1117)[CD] | - | - | - |
-| admecBossManipulusLHE | 0 | DefendTheDivineWork(1117)[CD] | - | - | - |
-| admecBossManipulusSurv | 0 | DefendTheDivineWork(1117)[CD] | - | - | - |
-| admecBossMarshall | 0 | DoctrinaImperatives(1118)[CD] | - | - | relic:KardiocoreGalvanus |
-| admecBossMarshallCE | 0 | DoctrinaImperatives(1118)[CD] | - | - | relic:KardiocoreGalvanus |
-| admecBossMarshallLEG | 0 | DoctrinaImperatives(1118)[CD] | - | - | relic:KardiocoreGalvanus |
-| admecBossMarshallLHE | 0 | DoctrinaImperatives(1118)[CD] | - | - | relic:KardiocoreGalvanus |
-| admecBossMarshallSurv | 0 | DoctrinaImperatives(1118)[CD] | - | - | relic:KardiocoreGalvanus |
-| admecBossRuststalker | 0 | CordClaw(1122)[CD] | - | - | relic:KardiocoreGalvanus |
-| admecBossRuststalkerCE | 0 | CordClaw(1122)[CD] | - | - | relic:KardiocoreGalvanus |
-| admecBossRuststalkerLEG | 0 | CordClaw(1122)[CD] | - | - | relic:KardiocoreGalvanus |
-| admecBossRuststalkerLHE | 0 | CordClaw(1122)[CD] | - | - | relic:KardiocoreGalvanus |
-| admecBossRuststalkerSurv | 0 | CordClaw(1122)[CD] | - | - | relic:KardiocoreGalvanus |
-| admecNpc1Vanguard | 0 | - | - | - | - |
-| admecNpc1VanguardSurv | 0 | - | - | - | - |
-| admecNpc3Electropriest | 0 | - | - | - | - |
-| admecNpc3ElectropriestSurv | 0 | - | - | - | - |
+| astarCyrus_LHE | 2 | StrikeFromTheShadows(1225)[CD] | - | Hero, Infiltrate | - |
+| astarNpc1HaywireMine | 1 | - | - | Steppable | - |
 
-### Aeldari — 26 unites, 4 avec du travail
+### AdeptusMechanicus — 29 unites, 29 avec du travail
 
 | unite | manque | actives (face) | passifs non portes | traits non couverts | autres voies |
 |---|---:|---|---|---|---|
+| admecBossBelisarius | 7 | InvocationOfMachineVengeance(1172)[--]<br>ArcScourge(1173)[C-]<br>SolarAtomizer(1174)[--] | SelfRepairMechanismReworked, PreCalibratedPurgeSolution | Boss, Immune, Mechanical | - |
+| admecBossDestroyer | 4 | SentinelDirectives(1139)[CD] | - | Hero, Mechanical, Overwatch, Vehicle | relic:KardiocoreGalvanus |
+| admecBossDestroyerCE | 4 | SentinelDirectives(1139)[CD] | - | Hero, Mechanical, Overwatch, Vehicle | relic:KardiocoreGalvanus |
+| admecBossDestroyerLHE | 4 | SentinelDirectives(1139)[CD] | - | Hero, Mechanical, Overwatch, Vehicle | relic:KardiocoreGalvanus |
+| admecBossManipulus | 4 | DefendTheDivineWork(1117)[CD] | - | Hero, Mechanical, Mechanic, Flying | - |
+| admecBossManipulusCE | 4 | DefendTheDivineWork(1117)[CD] | - | Hero, Mechanical, Mechanic, Flying | - |
+| admecBossManipulusLEG | 4 | DefendTheDivineWork(1117)[CD] | - | Hero, Mechanical, Mechanic, Flying | - |
+| admecBossManipulusLHE | 4 | DefendTheDivineWork(1117)[CD] | - | Hero, Mechanical, Mechanic, Flying | - |
+| admecBossManipulusSurv | 4 | DefendTheDivineWork(1117)[CD] | - | Hero, Mechanical, Mechanic, Flying | - |
+| admecBossRuststalker | 4 | CordClaw(1122)[CD] | - | Hero, Mechanical, Infiltrate, Unstoppable | relic:KardiocoreGalvanus |
+| admecBossRuststalkerCE | 4 | CordClaw(1122)[CD] | - | Hero, Mechanical, Infiltrate, Unstoppable | relic:KardiocoreGalvanus |
+| admecBossRuststalkerLEG | 4 | CordClaw(1122)[CD] | - | Hero, Mechanical, Infiltrate, Unstoppable | relic:KardiocoreGalvanus |
+| admecBossRuststalkerLHE | 4 | CordClaw(1122)[CD] | - | Hero, Mechanical, Infiltrate, Unstoppable | relic:KardiocoreGalvanus |
+| admecBossRuststalkerSurv | 4 | CordClaw(1122)[CD] | - | Hero, Mechanical, Infiltrate, Unstoppable | relic:KardiocoreGalvanus |
+| admecNpc2Techpriest | 4 | - | VengeanceForTheOmnissiah, OmnissiahsBlessing | Mechanical, Mechanic | - |
+| admecBossDominus | 3 | RadBombardment(1116)[CD] | - | Hero, Mechanical, Mechanic | - |
+| admecBossDominusCE | 3 | RadBombardment(1116)[CD] | - | Hero, Mechanical, Mechanic | - |
+| admecBossDominusLEG | 3 | RadBombardment(1116)[CD] | - | Hero, Mechanical, Mechanic | - |
+| admecBossDominusLHE | 3 | RadBombardment(1116)[CD] | - | Hero, Mechanical, Mechanic | - |
+| admecBossDominusSurv | 3 | RadBombardment(1116)[CD] | - | Hero, Mechanical, Mechanic | - |
+| admecBossMarshall | 2 | DoctrinaImperatives(1118)[CD] | - | Hero, Mechanical | relic:KardiocoreGalvanus |
+| admecBossMarshallCE | 2 | DoctrinaImperatives(1118)[CD] | - | Hero, Mechanical | relic:KardiocoreGalvanus |
+| admecBossMarshallLEG | 2 | DoctrinaImperatives(1118)[CD] | - | Hero, Mechanical | relic:KardiocoreGalvanus |
+| admecBossMarshallLHE | 2 | DoctrinaImperatives(1118)[CD] | - | Hero, Mechanical | relic:KardiocoreGalvanus |
+| admecBossMarshallSurv | 2 | DoctrinaImperatives(1118)[CD] | - | Hero, Mechanical | relic:KardiocoreGalvanus |
+| admecNpc3Electropriest | 2 | - | - | Mechanical, Resilient | - |
+| admecNpc3ElectropriestSurv | 2 | - | - | Mechanical, Resilient | - |
+| admecNpc1Vanguard | 1 | - | - | Mechanical | - |
+| admecNpc1VanguardSurv | 1 | - | - | Mechanical | - |
+
+### Aeldari — 26 unites, 26 avec du travail
+
+| unite | manque | actives (face) | passifs non portes | traits non couverts | autres voies |
+|---|---:|---|---|---|---|
+| eldarBossAutarch | 3 | Loki_SwoopingHawk(1064)[CD] | - | Hero, Flying, TeleportStrike | relic:PhoenixGem |
+| eldarBossAutarchCamp | 3 | Loki_SwoopingHawk(1064)[CD] | - | Hero, Flying, TeleportStrike | relic:PhoenixGem |
+| eldarBossAutarchLHE | 3 | Loki_SwoopingHawk(1064)[CD] | - | Hero, Flying, TeleportStrike | relic:PhoenixGem |
+| eldarBossMauganRaUltra | 3 | Maugetar[--]! | - | Hero, Overwatch | relic:Maugetar |
+| eldarNpc3Harlequin | 3 | KissOfDeath(1108)[C-] | HarlequinsPanoply | Infiltrate, Unstoppable | - |
+| eldarBossJainZar | 2 | SilentDeath(1068)[CD] | - | Hero, Infiltrate | - |
+| eldarBossJainZarCamp | 2 | SilentDeath(1068)[CD] | - | Hero, Infiltrate | - |
+| eldarBossJainZarLEG | 2 | SilentDeath(1068)[CD] | - | Hero, Infiltrate | - |
+| eldarBossJainZarLHE | 2 | SilentDeath(1068)[CD] | - | Hero, Infiltrate | - |
+| eldarBossMauganRa | 2 | HarvesterOfSouls(1067)[CD] | - | Hero, Overwatch | relic:Maugetar |
+| eldarBossMauganRaCamp | 2 | HarvesterOfSouls(1067)[CD] | - | Hero, Overwatch | relic:Maugetar |
+| eldarBossMauganRaLEG | 2 | HarvesterOfSouls(1067)[CD] | - | Hero, Overwatch | relic:Maugetar |
+| eldarBossMauganRaLHE | 2 | HarvesterOfSouls(1067)[CD] | - | Hero, Overwatch | relic:Maugetar |
+| eldarBossRanger | 2 | FireAndReposition(1063)[CD] | - | Hero, Overwatch | - |
+| eldarBossRangerCamp | 2 | FireAndReposition(1063)[CD] | - | Hero, Overwatch | - |
+| eldarBossRangerLHE | 2 | FireAndReposition(1063)[CD] | - | Hero, Overwatch | - |
+| eldarBossRangerSurv | 2 | FireAndReposition(1063)[CD] | - | Hero, Overwatch | - |
+| eldarNpc1Guardian | 2 | PlasmaGrenade(1098)[CD] | BattleFocus | BattleFatigue | - |
 | eldarNpc2Warlock | 2 | Reveal(1107)[--] | Conceal | - | - |
-| eldarBossMauganRaUltra | 1 | Maugetar[--]! | - | - | relic:Maugetar |
-| eldarNpc1Guardian | 1 | PlasmaGrenade(1098)[CD] | BattleFocus | - | - |
-| eldarNpc3Harlequin | 1 | KissOfDeath(1108)[C-] | HarlequinsPanoply | - | - |
-| eldarBossAutarch | 0 | Loki_SwoopingHawk(1064)[CD] | - | - | relic:PhoenixGem |
-| eldarBossAutarchCamp | 0 | Loki_SwoopingHawk(1064)[CD] | - | - | relic:PhoenixGem |
-| eldarBossAutarchLHE | 0 | Loki_SwoopingHawk(1064)[CD] | - | - | relic:PhoenixGem |
-| eldarBossFarseer | 0 | Executioner(1066)[CD] | - | - | - |
-| eldarBossFarseerCamp | 0 | Executioner(1066)[CD] | - | - | - |
-| eldarBossFarseerLEG | 0 | Executioner(1066)[CD] | - | - | - |
-| eldarBossFarseerLHE | 0 | Executioner(1066)[CD] | - | - | - |
-| eldarBossFarseerSurv | 0 | Executioner(1066)[CD] | - | - | - |
-| eldarBossJainZar | 0 | SilentDeath(1068)[CD] | - | - | - |
-| eldarBossJainZarCamp | 0 | SilentDeath(1068)[CD] | - | - | - |
-| eldarBossJainZarLEG | 0 | SilentDeath(1068)[CD] | - | - | - |
-| eldarBossJainZarLHE | 0 | SilentDeath(1068)[CD] | - | - | - |
-| eldarBossMauganRa | 0 | HarvesterOfSouls(1067)[CD] | - | - | relic:Maugetar |
-| eldarBossMauganRaCamp | 0 | HarvesterOfSouls(1067)[CD] | - | - | relic:Maugetar |
-| eldarBossMauganRaLEG | 0 | HarvesterOfSouls(1067)[CD] | - | - | relic:Maugetar |
-| eldarBossMauganRaLHE | 0 | HarvesterOfSouls(1067)[CD] | - | - | relic:Maugetar |
-| eldarBossRanger | 0 | FireAndReposition(1063)[CD] | - | - | - |
-| eldarBossRangerCamp | 0 | FireAndReposition(1063)[CD] | - | - | - |
-| eldarBossRangerLHE | 0 | FireAndReposition(1063)[CD] | - | - | - |
-| eldarBossRangerSurv | 0 | FireAndReposition(1063)[CD] | - | - | - |
-| eldarNpc4Wraithguard | 0 | WarConstruct(1133)[C-] | - | - | - |
-| eldarNpc4WraithguardSurv | 0 | WarConstruct(1133)[C-] | - | - | - |
+| eldarBossFarseer | 1 | Executioner(1066)[CD] | - | Hero | - |
+| eldarBossFarseerCamp | 1 | Executioner(1066)[CD] | - | Hero | - |
+| eldarBossFarseerLEG | 1 | Executioner(1066)[CD] | - | Hero | - |
+| eldarBossFarseerLHE | 1 | Executioner(1066)[CD] | - | Hero | - |
+| eldarBossFarseerSurv | 1 | Executioner(1066)[CD] | - | Hero | - |
+| eldarNpc4Wraithguard | 1 | WarConstruct(1133)[C-] | - | Overwatch | - |
+| eldarNpc4WraithguardSurv | 1 | WarConstruct(1133)[C-] | - | Overwatch | - |
 
-### AstraMilitarum — 31 unites, 6 avec du travail
+### AstraMilitarum — 31 unites, 31 avec du travail
 
 | unite | manque | actives (face) | passifs non portes | traits non couverts | autres voies |
 |---|---:|---|---|---|---|
-| astraNpc4Mortar | 3 | - | Shrapnel | Emplacement, TwoManTeam | - |
-| astraNpc4MortarSurv | 3 | - | Shrapnel | Emplacement, TwoManTeam | - |
-| astraNpc2Lascannon | 2 | - | - | Emplacement, TwoManTeam | - |
-| astraNpc3Voxcaster | 1 | ValkyrieStrike(1018)[C-] | CallInReinforcements | - | - |
-| astraNpc5DeathRider | 1 | - | FragLance | - | - |
+| astraNpc2Lascannon | 4 | - | - | Emplacement, BattleFatigue, TwoManTeam, Overwatch | - |
+| astraNpc4Mortar | 4 | - | Shrapnel | Emplacement, BattleFatigue, TwoManTeam | - |
+| astraNpc4MortarSurv | 4 | - | Shrapnel | Emplacement, BattleFatigue, TwoManTeam | - |
+| astraNpcDreir | 3 | LeadingTheCharge(1204)[CD] | - | Hero, Resilient, Unstoppable | relic:SabreOfSacrifice |
+| astraBossYarrick | 2 | SendInTheNextWave(1016)[CD] | - | Hero, Resilient | - |
+| astraBossYarrickLEG | 2 | SendInTheNextWave(1016)[CD] | - | Hero, Resilient | - |
+| astraBossYarrickLHE | 2 | SendInTheNextWave(1016)[CD] | - | Hero, Resilient | - |
+| astraBossYarrickSurv | 2 | SendInTheNextWave(1016)[CD] | - | Hero, Resilient | - |
+| astraNpc3Voxcaster | 2 | ValkyrieStrike(1018)[C-] | CallInReinforcements | BattleFatigue | - |
+| astraNpc5DeathRider | 2 | - | FragLance | Unstoppable | - |
+| astraNpcYarrick | 2 | SendInTheNextWave(1016)[CD] | - | Hero, Resilient | - |
+| astraYarrick_LHE | 2 | SendInTheNextWave(1016)[CD] | - | Hero, Resilient | - |
+| astraBossBullgryn | 1 | FragBomb(1017)[CD] | - | Hero | relic:RelicOfLostCadia |
+| astraBossBullgrynLEG | 1 | FragBomb(1017)[CD] | - | Hero | relic:RelicOfLostCadia |
+| astraBossBullgrynLHE | 1 | FragBomb(1017)[CD] | - | Hero | relic:RelicOfLostCadia |
+| astraBossCreed | 1 | SupremeCommander(1028)[CD] | - | Hero | - |
+| astraBossCreedLEG | 1 | SupremeCommander(1028)[CD] | - | Hero | - |
+| astraBossCreedLHE | 1 | SupremeCommander(1028)[CD] | - | Hero | - |
+| astraBossCreedSurv | 1 | SupremeCommander(1028)[CD] | - | Hero | - |
+| astraBossOrdnance | 1 | BasiliskBarrage(1026)[C-] | - | Hero | relic:RelicOfLostCadia |
+| astraBossOrdnanceLEG | 1 | BasiliskBarrage(1026)[C-] | - | Hero | relic:RelicOfLostCadia |
+| astraBossOrdnanceLHE | 1 | BasiliskBarrage(1026)[C-] | - | Hero | relic:RelicOfLostCadia |
+| astraBossPrimarisPsy | 1 | PsychicMaelstrom(1027)[CD] | - | Hero | relic:RelicOfLostCadia |
+| astraBossPrimarisPsyLHE | 1 | PsychicMaelstrom(1027)[CD] | - | Hero | relic:RelicOfLostCadia |
+| astraBossPrimarisPsySurv | 1 | PsychicMaelstrom(1027)[CD] | - | Hero | relic:RelicOfLostCadia |
+| astraNpc1Guardsman | 1 | - | - | BattleFatigue | - |
+| astraNpcBullgryn | 1 | FragBomb(1017)[CD] | - | Hero | relic:RelicOfLostCadia |
+| astraNpcCreed | 1 | SupremeCommander(1028)[CD] | - | Hero | - |
 | astraNpcMowOrdnanceBattery | 1 | MalleusRocketLauncher(1142)[CD]<br>ForwardSpotter(1143)[CD] | - | MachineOfWar | mythic:OnMyPosition |
-| astraBossBullgryn | 0 | FragBomb(1017)[CD] | - | - | relic:RelicOfLostCadia |
-| astraBossBullgrynLEG | 0 | FragBomb(1017)[CD] | - | - | relic:RelicOfLostCadia |
-| astraBossBullgrynLHE | 0 | FragBomb(1017)[CD] | - | - | relic:RelicOfLostCadia |
-| astraBossCreed | 0 | SupremeCommander(1028)[CD] | - | - | - |
-| astraBossCreedLEG | 0 | SupremeCommander(1028)[CD] | - | - | - |
-| astraBossCreedLHE | 0 | SupremeCommander(1028)[CD] | - | - | - |
-| astraBossCreedSurv | 0 | SupremeCommander(1028)[CD] | - | - | - |
-| astraBossOrdnance | 0 | BasiliskBarrage(1026)[C-] | - | - | relic:RelicOfLostCadia |
-| astraBossOrdnanceLEG | 0 | BasiliskBarrage(1026)[C-] | - | - | relic:RelicOfLostCadia |
-| astraBossOrdnanceLHE | 0 | BasiliskBarrage(1026)[C-] | - | - | relic:RelicOfLostCadia |
-| astraBossPrimarisPsy | 0 | PsychicMaelstrom(1027)[CD] | - | - | relic:RelicOfLostCadia |
-| astraBossPrimarisPsyLHE | 0 | PsychicMaelstrom(1027)[CD] | - | - | relic:RelicOfLostCadia |
-| astraBossPrimarisPsySurv | 0 | PsychicMaelstrom(1027)[CD] | - | - | relic:RelicOfLostCadia |
-| astraBossYarrick | 0 | SendInTheNextWave(1016)[CD] | - | - | - |
-| astraBossYarrickLEG | 0 | SendInTheNextWave(1016)[CD] | - | - | - |
-| astraBossYarrickLHE | 0 | SendInTheNextWave(1016)[CD] | - | - | - |
-| astraBossYarrickSurv | 0 | SendInTheNextWave(1016)[CD] | - | - | - |
-| astraNpc1Guardsman | 0 | - | - | - | - |
-| astraNpcBullgryn | 0 | FragBomb(1017)[CD] | - | - | relic:RelicOfLostCadia |
-| astraNpcCreed | 0 | SupremeCommander(1028)[CD] | - | - | - |
-| astraNpcDreir | 0 | LeadingTheCharge(1204)[CD] | - | - | relic:SabreOfSacrifice |
-| astraNpcOrdnance | 0 | BasiliskBarrage(1026)[C-] | - | - | relic:RelicOfLostCadia |
-| astraNpcPrimarisPsy | 0 | PsychicMaelstrom(1027)[CD] | - | - | relic:RelicOfLostCadia |
-| astraNpcYarrick | 0 | SendInTheNextWave(1016)[CD] | - | - | - |
-| astraYarrick_LHE | 0 | SendInTheNextWave(1016)[CD] | - | - | - |
+| astraNpcOrdnance | 1 | BasiliskBarrage(1026)[C-] | - | Hero | relic:RelicOfLostCadia |
+| astraNpcPrimarisPsy | 1 | PsychicMaelstrom(1027)[CD] | - | Hero | relic:RelicOfLostCadia |
 
-### BlackLegion — 29 unites, 4 avec du travail
+### BlackLegion — 29 unites, 28 avec du travail
 
 | unite | manque | actives (face) | passifs non portes | traits non couverts | autres voies |
 |---|---:|---|---|---|---|
-| blackNpc2Terminator | 1 | - | DrawFire | - | - |
-| blackNpc3TraitorGuardsman | 1 | - | CrazedFocus | - | - |
-| blackNpc4Havoc | 1 | - | FiringPosition | - | - |
+| blackBossAbaddon | 2 | Drachnyen(1029)[CD] | - | Hero, Resilient | relic:TalonOfHorus |
+| blackBossAbaddonCamp | 2 | Drachnyen(1029)[CD] | - | Hero, Resilient | relic:TalonOfHorus |
+| blackBossAbaddonLEG | 2 | Drachnyen(1029)[CD] | - | Hero, Resilient | relic:TalonOfHorus |
+| blackBossAbaddonLHE | 2 | Drachnyen(1029)[CD] | - | Hero, Resilient | relic:TalonOfHorus |
+| blackBossHaarken | 2 | HeraldOfTheApocalypse(1020)[CD] | - | Hero, Flying | relic:Helspear |
+| blackBossHaarkenCamp | 2 | HeraldOfTheApocalypse(1020)[CD] | - | Hero, Flying | relic:Helspear |
+| blackBossHaarkenLEG | 2 | HeraldOfTheApocalypse(1020)[CD] | - | Hero, Flying | relic:Helspear |
+| blackBossHaarkenLHE | 2 | HeraldOfTheApocalypse(1020)[CD] | - | Hero, Flying | relic:Helspear |
+| blackBossTerminator | 2 | BringerOfDespair(1022)[CD] | - | Hero, TeleportStrike | relic:DaemonfleshPlate |
+| blackBossTerminatorLEG | 2 | BringerOfDespair(1022)[CD] | - | Hero, TeleportStrike | relic:DaemonfleshPlate |
+| blackBossTerminatorLHE | 2 | BringerOfDespair(1022)[CD] | - | Hero, TeleportStrike | relic:DaemonfleshPlate |
+| blackNpc2Terminator | 2 | - | DrawFire | TeleportStrike | - |
+| blackNpc3TraitorGuardsman | 2 | - | CrazedFocus | BattleFatigue | - |
+| blackNpc4Havoc | 2 | - | FiringPosition | Overwatch | - |
+| blackNpcAbaddon | 2 | Drachnyen(1029)[CD] | - | Hero, Resilient | relic:TalonOfHorus |
+| blackNpcHaarken | 2 | HeraldOfTheApocalypse(1020)[CD] | - | Hero, Flying | relic:Helspear |
+| blackNpcTerminator | 2 | BringerOfDespair(1022)[CD] | - | Hero, TeleportStrike | relic:DaemonfleshPlate |
+| blackBossObliterator | 1 | FrenziedFiring(1036)[CD] | - | Hero | - |
+| blackBossObliteratorCamp | 1 | FrenziedFiring(1036)[CD] | - | Hero | - |
+| blackBossObliteratorLEG | 1 | FrenziedFiring(1036)[CD] | - | Hero | - |
+| blackBossObliteratorLHE | 1 | FrenziedFiring(1036)[CD] | - | Hero | - |
+| blackBossObliteratorSurv | 1 | FrenziedFiring(1036)[CD] | - | Hero | - |
+| blackBossPossession | 1 | Incursion(1021)[CD] | - | Hero | relic:BookOfFate |
+| blackBossPossessionLEG | 1 | Incursion(1021)[CD] | - | Hero | relic:BookOfFate |
+| blackBossPossessionLHE | 1 | Incursion(1021)[CD] | - | Hero | relic:BookOfFate |
+| blackBossPossessionSurv | 1 | Incursion(1021)[CD] | - | Hero | relic:BookOfFate |
 | blackNpcMowForgefiend | 1 | HadesAutocannons(1147)[CD]<br>DaemonicOrdnance(1148)[CD] | - | MachineOfWar | mythic:ContemptuousDisregard |
-| blackBossAbaddon | 0 | Drachnyen(1029)[CD] | - | - | relic:TalonOfHorus |
-| blackBossAbaddonCamp | 0 | Drachnyen(1029)[CD] | - | - | relic:TalonOfHorus |
-| blackBossAbaddonLEG | 0 | Drachnyen(1029)[CD] | - | - | relic:TalonOfHorus |
-| blackBossAbaddonLHE | 0 | Drachnyen(1029)[CD] | - | - | relic:TalonOfHorus |
-| blackBossHaarken | 0 | HeraldOfTheApocalypse(1020)[CD] | - | - | relic:Helspear |
-| blackBossHaarkenCamp | 0 | HeraldOfTheApocalypse(1020)[CD] | - | - | relic:Helspear |
-| blackBossHaarkenLEG | 0 | HeraldOfTheApocalypse(1020)[CD] | - | - | relic:Helspear |
-| blackBossHaarkenLHE | 0 | HeraldOfTheApocalypse(1020)[CD] | - | - | relic:Helspear |
-| blackBossObliterator | 0 | FrenziedFiring(1036)[CD] | - | - | - |
-| blackBossObliteratorCamp | 0 | FrenziedFiring(1036)[CD] | - | - | - |
-| blackBossObliteratorLEG | 0 | FrenziedFiring(1036)[CD] | - | - | - |
-| blackBossObliteratorLHE | 0 | FrenziedFiring(1036)[CD] | - | - | - |
-| blackBossObliteratorSurv | 0 | FrenziedFiring(1036)[CD] | - | - | - |
-| blackBossPossession | 0 | Incursion(1021)[CD] | - | - | relic:BookOfFate |
-| blackBossPossessionLEG | 0 | Incursion(1021)[CD] | - | - | relic:BookOfFate |
-| blackBossPossessionLHE | 0 | Incursion(1021)[CD] | - | - | relic:BookOfFate |
-| blackBossPossessionSurv | 0 | Incursion(1021)[CD] | - | - | relic:BookOfFate |
-| blackBossTerminator | 0 | BringerOfDespair(1022)[CD] | - | - | relic:DaemonfleshPlate |
-| blackBossTerminatorLEG | 0 | BringerOfDespair(1022)[CD] | - | - | relic:DaemonfleshPlate |
-| blackBossTerminatorLHE | 0 | BringerOfDespair(1022)[CD] | - | - | relic:DaemonfleshPlate |
+| blackNpcObliterator | 1 | FrenziedFiring(1036)[CD] | - | Hero | - |
 | blackNpc1Bloodletter | 0 | - | - | - | - |
-| blackNpcAbaddon | 0 | Drachnyen(1029)[CD] | - | - | relic:TalonOfHorus |
-| blackNpcHaarken | 0 | HeraldOfTheApocalypse(1020)[CD] | - | - | relic:Helspear |
-| blackNpcObliterator | 0 | FrenziedFiring(1036)[CD] | - | - | - |
-| blackNpcTerminator | 0 | BringerOfDespair(1022)[CD] | - | - | relic:DaemonfleshPlate |
 
-### BlackTemplars — 21 unites, 2 avec du travail
+### BlackTemplars — 21 unites, 20 avec du travail
 
 | unite | manque | actives (face) | passifs non portes | traits non couverts | autres voies |
 |---|---:|---|---|---|---|
+| templBossAggressor | 2 | FragstormGrenadeLauncher(1048)[CD] | - | Hero, MkXGravis | relic:RelicPowerFist |
+| templBossAggressorCamp | 2 | FragstormGrenadeLauncher(1048)[CD] | - | Hero, MkXGravis | relic:RelicPowerFist |
+| templBossAggressorLEG | 2 | FragstormGrenadeLauncher(1048)[CD] | - | Hero, MkXGravis | relic:RelicPowerFist |
+| templBossAggressor_LHE | 2 | FragstormGrenadeLauncher(1048)[CD] | - | Hero, MkXGravis | relic:RelicPowerFist |
+| templBossAncient | 1 | UnbreakableDuty(1061)[CD] | - | Hero | - |
+| templBossAncientCamp | 1 | UnbreakableDuty(1061)[CD] | - | Hero | - |
+| templBossAncient_LHE | 1 | UnbreakableDuty(1061)[CD] | - | Hero | - |
+| templBossChampion | 1 | HolyDuel(1050)[CD] | - | Hero | - |
+| templBossChampionCamp | 1 | HolyDuel(1050)[CD] | - | Hero | - |
+| templBossChampionLEG | 1 | HolyDuel(1050)[CD] | - | Hero | - |
+| templBossChampion_LHE | 1 | HolyDuel(1050)[CD] | - | Hero | - |
+| templBossChampion_Surv | 1 | HolyDuel(1050)[CD] | - | Hero | - |
+| templBossHelbrecht | 1 | CrusadeOfWrath(1049)[CD] | - | Hero | - |
+| templBossHelbrecht_LHE | 1 | CrusadeOfWrath(1049)[CD] | - | Hero | - |
+| templBossSwordBrother | 1 | ThunderousAssault(1043)[CD] | - | Hero | relic:RelicBoltPistol |
+| templBossSwordBrotherCamp | 1 | ThunderousAssault(1043)[CD] | - | Hero | relic:RelicBoltPistol |
+| templBossSwordBrother_LHE | 1 | ThunderousAssault(1043)[CD] | - | Hero | relic:RelicBoltPistol |
 | templNpc1Initiate | 1 | DevoutPush(1053)[--] | - | - | - |
 | templNpc3InitiatePyreblaster | 1 | - | Pyreblaster | - | - |
-| templBossAggressor | 0 | FragstormGrenadeLauncher(1048)[CD] | - | - | relic:RelicPowerFist |
-| templBossAggressorCamp | 0 | FragstormGrenadeLauncher(1048)[CD] | - | - | relic:RelicPowerFist |
-| templBossAggressorLEG | 0 | FragstormGrenadeLauncher(1048)[CD] | - | - | relic:RelicPowerFist |
-| templBossAggressor_LHE | 0 | FragstormGrenadeLauncher(1048)[CD] | - | - | relic:RelicPowerFist |
-| templBossAncient | 0 | UnbreakableDuty(1061)[CD] | - | - | - |
-| templBossAncientCamp | 0 | UnbreakableDuty(1061)[CD] | - | - | - |
-| templBossAncient_LHE | 0 | UnbreakableDuty(1061)[CD] | - | - | - |
-| templBossChampion | 0 | HolyDuel(1050)[CD] | - | - | - |
-| templBossChampionCamp | 0 | HolyDuel(1050)[CD] | - | - | - |
-| templBossChampionLEG | 0 | HolyDuel(1050)[CD] | - | - | - |
-| templBossChampion_LHE | 0 | HolyDuel(1050)[CD] | - | - | - |
-| templBossChampion_Surv | 0 | HolyDuel(1050)[CD] | - | - | - |
-| templBossHelbrecht | 0 | CrusadeOfWrath(1049)[CD] | - | - | - |
-| templBossHelbrecht_LHE | 0 | CrusadeOfWrath(1049)[CD] | - | - | - |
-| templBossSwordBrother | 0 | ThunderousAssault(1043)[CD] | - | - | relic:RelicBoltPistol |
-| templBossSwordBrotherCamp | 0 | ThunderousAssault(1043)[CD] | - | - | relic:RelicBoltPistol |
-| templBossSwordBrother_LHE | 0 | ThunderousAssault(1043)[CD] | - | - | relic:RelicBoltPistol |
+| templNpc4Aggressor | 1 | Fragstorm(1078)[CD] | - | MkXGravis | - |
 | templNpc2Neophyte | 0 | IncendiaryShells(1044)[CD] | - | - | - |
-| templNpc4Aggressor | 0 | Fragstorm(1078)[CD] | - | - | - |
 
-### BloodAngels — 2 unites, 1 avec du travail
-
-| unite | manque | actives (face) | passifs non portes | traits non couverts | autres voies |
-|---|---:|---|---|---|---|
-| bloodNpc1Intercessor | 1 | - | RedThirst | - | - |
-| bloodTerminator_LHE | 0 | SavageEchoes(1230)[CD] | - | - | - |
-
-### DarkAngels — 17 unites, 4 avec du travail
+### BloodAngels — 2 unites, 2 avec du travail
 
 | unite | manque | actives (face) | passifs non portes | traits non couverts | autres voies |
 |---|---:|---|---|---|---|
-| darkaBossLion | 4 | InstrumentsOfVengeance(1215)[-D]<br>MartialExemplar(1216)[CD]<br>TheLionsWrath(1217)[CD] | TheEmperorsShield, BossEndFightUndefeated | Boss | - |
-| darkaNpc4Watcher | 3 | - | NoHidingFromTheWatchers, WatchedOver | PermaDeath | - |
-| darkaNpc3Terminator | 1 | - | DeathwingKnight | - | - |
+| bloodNpc1Intercessor | 3 | - | RedThirst | TeleportStrike, Flying | - |
+| bloodTerminator_LHE | 2 | SavageEchoes(1230)[CD] | - | Hero, TeleportStrike | - |
+
+### DarkAngels — 17 unites, 16 avec du travail
+
+| unite | manque | actives (face) | passifs non portes | traits non couverts | autres voies |
+|---|---:|---|---|---|---|
+| darkaBossLion | 6 | InstrumentsOfVengeance(1215)[-D]<br>MartialExemplar(1216)[CD]<br>TheLionsWrath(1217)[CD] | TheEmperorsShield, BossEndFightUndefeated | Boss, Immune, Overwatch | - |
+| darkaNpc4Watcher | 4 | - | NoHidingFromTheWatchers, WatchedOver | Immune, PermaDeath | - |
+| darkaBossAzraelLHE | 2 | DarkTalonStrike(1092)[CD] | - | Hero, Overwatch | - |
+| darkaBossHellblasterLHE | 2 | Supercharge(1103)[CD] | - | Hero, Overwatch | relic:RelicBoltPistol |
+| darkaBossSternguardLHE | 2 | SternguardFocus(1228)[CD] | - | Hero, Overwatch | - |
+| darkaBossTerminatorLHE | 2 | PlasmaCannon(1150)[CD] | - | Hero, TeleportStrike | relic:RelicPowerFist |
+| darkaNpc1Infiltrator | 2 | - | - | Infiltrate, Overwatch | - |
+| darkaNpc3Terminator | 2 | - | DeathwingKnight | TeleportStrike | - |
+| darkaNpcAzrael | 2 | DarkTalonStrike(1092)[CD] | - | Hero, Overwatch | - |
+| darkaNpcHellblaster | 2 | Supercharge(1103)[CD] | - | Hero, Overwatch | relic:RelicBoltPistol |
+| darkaNpcTerminator | 2 | PlasmaCannon(1150)[CD] | - | Hero, TeleportStrike | relic:RelicPowerFist |
+| darkaBossAsmodaiLHE | 1 | ExemplarOfHate(1140)[CD] | - | Hero | - |
+| darkaBossCompanionLHE | 1 | CalibaniteGreatsword(1189)[CD] | - | Hero | relic:MonsterSlayerOfCaliban |
+| darkaNpcAsmodai | 1 | ExemplarOfHate(1140)[CD] | - | Hero | - |
+| darkaNpcCompanion | 1 | CalibaniteGreatsword(1189)[CD] | - | Hero | relic:MonsterSlayerOfCaliban |
 | darkaNpcMowStormSpeeder | 1 | DeathOnTheWind(1213)[CD]<br>Hailstrike(1214)[CD] | - | MachineOfWar | mythic:MastersOfManoeuvre |
-| darkaBossAsmodaiLHE | 0 | ExemplarOfHate(1140)[CD] | - | - | - |
-| darkaBossAzraelLHE | 0 | DarkTalonStrike(1092)[CD] | - | - | - |
-| darkaBossCompanionLHE | 0 | CalibaniteGreatsword(1189)[CD] | - | - | relic:MonsterSlayerOfCaliban |
-| darkaBossHellblasterLHE | 0 | Supercharge(1103)[CD] | - | - | relic:RelicBoltPistol |
-| darkaBossSternguardLHE | 0 | SternguardFocus(1228)[CD] | - | - | - |
-| darkaBossTerminatorLHE | 0 | PlasmaCannon(1150)[CD] | - | - | relic:RelicPowerFist |
-| darkaNpc1Infiltrator | 0 | - | - | - | - |
 | darkaNpc2Hellblaster | 0 | - | - | - | - |
-| darkaNpcAsmodai | 0 | ExemplarOfHate(1140)[CD] | - | - | - |
-| darkaNpcAzrael | 0 | DarkTalonStrike(1092)[CD] | - | - | - |
-| darkaNpcCompanion | 0 | CalibaniteGreatsword(1189)[CD] | - | - | relic:MonsterSlayerOfCaliban |
-| darkaNpcHellblaster | 0 | Supercharge(1103)[CD] | - | - | relic:RelicBoltPistol |
-| darkaNpcTerminator | 0 | PlasmaCannon(1150)[CD] | - | - | relic:RelicPowerFist |
 
-### DeathGuard — 23 unites, 8 avec du travail
+### DeathGuard — 23 unites, 23 avec du travail
 
 | unite | manque | actives (face) | passifs non portes | traits non couverts | autres voies |
 |---|---:|---|---|---|---|
-| deathBossMortarion | 5 | MortarionsPlagueWind(1093)[CD]<br>TheLantern(1094)[--]<br>ReapingScythe(1095)[CD] | BossEndFightUndefeated, ArchContaminator, HostOfPlagues | Boss | - |
-| deathBossRotbone | 1 | RevitalizingMalignancy(1037)[CD] | - | Healer | relic:OrbsOfDecay |
-| deathBossRotboneLHE | 1 | RevitalizingMalignancy(1037)[CD] | - | Healer | relic:OrbsOfDecay |
+| deathBossMortarion | 7 | MortarionsPlagueWind(1093)[CD]<br>TheLantern(1094)[--]<br>ReapingScythe(1095)[CD] | BossEndFightUndefeated, ArchContaminator, HostOfPlagues | Boss, Immune, Flying | - |
+| deathBossRotbone | 3 | RevitalizingMalignancy(1037)[CD] | - | Hero, Resilient, Healer | relic:OrbsOfDecay |
+| deathBossRotboneLHE | 3 | RevitalizingMalignancy(1037)[CD] | - | Hero, Resilient, Healer | relic:OrbsOfDecay |
+| deathNpcRotbone | 3 | RevitalizingMalignancy(1037)[CD] | - | Hero, Resilient, Healer | relic:OrbsOfDecay |
+| deathBossBlightbringer | 2 | Poxwalkers(1040)[CD] | - | Hero, Resilient | relic:OrbsOfDecay |
+| deathBossBlightbringerLHE | 2 | Poxwalkers(1040)[CD] | - | Hero, Resilient | relic:OrbsOfDecay |
+| deathBossBlightlord | 2 | FlailSwing(1042)[CD] | - | Hero, Resilient | relic:DaemonfleshPlate |
+| deathBossBlightlordLHE | 2 | FlailSwing(1042)[CD] | - | Hero, Resilient | relic:DaemonfleshPlate |
+| deathBossPutrifier | 2 | FoulInfusion(1038)[CD] | - | Hero, Resilient | relic:OrbsOfDecay |
+| deathBossPutrifierLHE | 2 | FoulInfusion(1038)[CD] | - | Hero, Resilient | relic:OrbsOfDecay |
+| deathBossTyphus | 2 | PlagueWind(1035)[CD] | - | Hero, Resilient | relic:Lakrimae |
+| deathBossTyphusLEG | 2 | PlagueWind(1035)[CD] | - | Hero, Resilient | relic:Lakrimae |
+| deathBossTyphusLHE | 2 | PlagueWind(1035)[CD] | - | Hero, Resilient | relic:Lakrimae |
+| deathBossTyphusSurv | 2 | PlagueWind(1035)[CD] | - | Hero, Resilient | relic:Lakrimae |
+| deathNpc2PlagueMarine | 2 | BlightGrenades(1176)[CD] | CloudOfFlies | Resilient | - |
+| deathNpc3Nurglings | 2 | - | MischiefMakers | TeleportStrike | - |
+| deathNpcBlightbringer | 2 | Poxwalkers(1040)[CD] | - | Hero, Resilient | relic:OrbsOfDecay |
+| deathNpcBlightlord | 2 | FlailSwing(1042)[CD] | - | Hero, Resilient | relic:DaemonfleshPlate |
+| deathNpcPutrifier | 2 | FoulInfusion(1038)[CD] | - | Hero, Resilient | relic:OrbsOfDecay |
+| deathNpcTyphus | 2 | PlagueWind(1035)[CD] | - | Hero, Resilient | relic:Lakrimae |
 | deathNpc1Poxwalker | 1 | - | CursedOfTheWalkingPox | - | - |
-| deathNpc2PlagueMarine | 1 | BlightGrenades(1176)[CD] | CloudOfFlies | - | - |
-| deathNpc3Nurglings | 1 | - | MischiefMakers | - | - |
+| deathNpc4BlightlordTerminator | 1 | - | - | Resilient | - |
 | deathNpcMoWCrawler | 1 | EntropyCannons(1168)[C-]<br>PlagueburstMortar(1169)[CD] | - | MachineOfWar | mythic:BlightedLand |
-| deathNpcRotbone | 1 | RevitalizingMalignancy(1037)[CD] | - | Healer | relic:OrbsOfDecay |
-| deathBossBlightbringer | 0 | Poxwalkers(1040)[CD] | - | - | relic:OrbsOfDecay |
-| deathBossBlightbringerLHE | 0 | Poxwalkers(1040)[CD] | - | - | relic:OrbsOfDecay |
-| deathBossBlightlord | 0 | FlailSwing(1042)[CD] | - | - | relic:DaemonfleshPlate |
-| deathBossBlightlordLHE | 0 | FlailSwing(1042)[CD] | - | - | relic:DaemonfleshPlate |
-| deathBossPutrifier | 0 | FoulInfusion(1038)[CD] | - | - | relic:OrbsOfDecay |
-| deathBossPutrifierLHE | 0 | FoulInfusion(1038)[CD] | - | - | relic:OrbsOfDecay |
-| deathBossTyphus | 0 | PlagueWind(1035)[CD] | - | - | relic:Lakrimae |
-| deathBossTyphusLEG | 0 | PlagueWind(1035)[CD] | - | - | relic:Lakrimae |
-| deathBossTyphusLHE | 0 | PlagueWind(1035)[CD] | - | - | relic:Lakrimae |
-| deathBossTyphusSurv | 0 | PlagueWind(1035)[CD] | - | - | relic:Lakrimae |
-| deathNpc4BlightlordTerminator | 0 | - | - | - | - |
-| deathNpcBlightbringer | 0 | Poxwalkers(1040)[CD] | - | - | relic:OrbsOfDecay |
-| deathNpcBlightlord | 0 | FlailSwing(1042)[CD] | - | - | relic:DaemonfleshPlate |
-| deathNpcPutrifier | 0 | FoulInfusion(1038)[CD] | - | - | relic:OrbsOfDecay |
-| deathNpcTyphus | 0 | PlagueWind(1035)[CD] | - | - | relic:Lakrimae |
 
-### Genestealers — 21 unites, 5 avec du travail
+### Genestealers — 21 unites, 21 avec du travail
 
 | unite | manque | actives (face) | passifs non portes | traits non couverts | autres voies |
 |---|---:|---|---|---|---|
-| genesBossBiophagus | 1 | AberrantHypermorph(1166)[CD] | - | Healer | relic:AmuletOfTheVoidwyrm |
-| genesBossBiophagusLHE | 1 | AberrantHypermorph(1166)[CD] | - | Healer | relic:AmuletOfTheVoidwyrm |
-| genesDecoy | 1 | - | - | Decoy | - |
-| genesNpc1Aberrant | 1 | - | Hypermorph | - | - |
-| genesNpcBiophagus | 1 | AberrantHypermorph(1166)[CD] | - | Healer | relic:AmuletOfTheVoidwyrm |
-| genesBossKelermorph | 0 | HeroicFusillade(1180)[CD] | - | - | relic:AmuletOfTheVoidwyrm |
-| genesBossKelermorphLHE | 0 | HeroicFusillade(1180)[CD] | - | - | relic:AmuletOfTheVoidwyrm |
-| genesBossKelermorphSurv | 0 | HeroicFusillade(1180)[CD] | - | - | relic:AmuletOfTheVoidwyrm |
-| genesBossMagus | 0 | MindControl(1164)[CD] | - | - | - |
-| genesBossMagusLHE | 0 | MindControl(1164)[CD] | - | - | - |
-| genesBossMagusSurv | 0 | MindControl(1164)[CD] | - | - | - |
-| genesBossPatriarch | 0 | MightFromBelow(1165)[CD] | - | - | relic:MawClawsOfThyrax |
-| genesBossPatriarchLHE | 0 | MightFromBelow(1165)[CD] | - | - | relic:MawClawsOfThyrax |
-| genesBossPrimus | 0 | CultDemagogue(1179)[CD] | - | - | relic:AmuletOfTheVoidwyrm |
-| genesBossPrimusLHE | 0 | CultDemagogue(1179)[CD] | - | - | relic:AmuletOfTheVoidwyrm |
-| genesNpc2Genestealer | 0 | - | - | - | - |
-| genesNpc3Neophyte | 0 | - | - | - | - |
-| genesNpcKelermorph | 0 | HeroicFusillade(1180)[CD] | - | - | relic:AmuletOfTheVoidwyrm |
-| genesNpcMagus | 0 | MindControl(1164)[CD] | - | - | - |
-| genesNpcPatriarch | 0 | MightFromBelow(1165)[CD] | - | - | relic:MawClawsOfThyrax |
-| genesNpcPrimus | 0 | CultDemagogue(1179)[CD] | - | - | relic:AmuletOfTheVoidwyrm |
+| genesBossPatriarch | 4 | MightFromBelow(1165)[CD] | - | Hero, Infiltrate, Synapse, Unstoppable | relic:MawClawsOfThyrax |
+| genesBossPatriarchLHE | 4 | MightFromBelow(1165)[CD] | - | Hero, Infiltrate, Synapse, Unstoppable | relic:MawClawsOfThyrax |
+| genesNpcPatriarch | 4 | MightFromBelow(1165)[CD] | - | Hero, Infiltrate, Synapse, Unstoppable | relic:MawClawsOfThyrax |
+| genesBossBiophagus | 2 | AberrantHypermorph(1166)[CD] | - | Hero, Healer | relic:AmuletOfTheVoidwyrm |
+| genesBossBiophagusLHE | 2 | AberrantHypermorph(1166)[CD] | - | Hero, Healer | relic:AmuletOfTheVoidwyrm |
+| genesDecoy | 2 | - | - | Steppable, Decoy | - |
+| genesNpc1Aberrant | 2 | - | Hypermorph | Resilient | - |
+| genesNpc2Genestealer | 2 | - | - | Infiltrate, Unstoppable | - |
+| genesNpcBiophagus | 2 | AberrantHypermorph(1166)[CD] | - | Hero, Healer | relic:AmuletOfTheVoidwyrm |
+| genesBossKelermorph | 1 | HeroicFusillade(1180)[CD] | - | Hero | relic:AmuletOfTheVoidwyrm |
+| genesBossKelermorphLHE | 1 | HeroicFusillade(1180)[CD] | - | Hero | relic:AmuletOfTheVoidwyrm |
+| genesBossKelermorphSurv | 1 | HeroicFusillade(1180)[CD] | - | Hero | relic:AmuletOfTheVoidwyrm |
+| genesBossMagus | 1 | MindControl(1164)[CD] | - | Hero | - |
+| genesBossMagusLHE | 1 | MindControl(1164)[CD] | - | Hero | - |
+| genesBossMagusSurv | 1 | MindControl(1164)[CD] | - | Hero | - |
+| genesBossPrimus | 1 | CultDemagogue(1179)[CD] | - | Hero | relic:AmuletOfTheVoidwyrm |
+| genesBossPrimusLHE | 1 | CultDemagogue(1179)[CD] | - | Hero | relic:AmuletOfTheVoidwyrm |
+| genesNpc3Neophyte | 1 | - | - | BattleFatigue | - |
+| genesNpcKelermorph | 1 | HeroicFusillade(1180)[CD] | - | Hero | relic:AmuletOfTheVoidwyrm |
+| genesNpcMagus | 1 | MindControl(1164)[CD] | - | Hero | - |
+| genesNpcPrimus | 1 | CultDemagogue(1179)[CD] | - | Hero | relic:AmuletOfTheVoidwyrm |
 
-### LeaguesOfVotann — 2 unites, 1 avec du travail
-
-| unite | manque | actives (face) | passifs non portes | traits non couverts | autres voies |
-|---|---:|---|---|---|---|
-| votanNpc1Ecog | 1 | - | RepairEnthusiast | - | - |
-| votanNpc2Steeljack | 0 | - | - | - | - |
-
-### Necrons — 43 unites, 10 avec du travail
+### LeaguesOfVotann — 2 unites, 2 avec du travail
 
 | unite | manque | actives (face) | passifs non portes | traits non couverts | autres voies |
 |---|---:|---|---|---|---|
-| necroNpc3Deathmark | 2 | PrecisionShot(1015)[--] | ReanimationProtocols | - | - |
-| necroNpc1Warrior | 1 | - | ReanimationProtocols | - | - |
-| necroNpc1WarriorSurv | 1 | - | ReanimationProtocols | - | - |
-| necroNpc2FlayedOne | 1 | StormOfFlensingBlades(1010)[CD] | ReanimationProtocols | - | - |
-| necroNpc4Destroyer | 1 | TunnelingHorror(1011)[C-] | WhipcoilBody | - | - |
-| necroNpc4DestroyerLHE | 1 | TunnelingHorror(1011)[C-] | WhipcoilBody | - | - |
-| necroNpc4DestroyerSurv | 1 | TunnelingHorror(1011)[C-] | WhipcoilBody | - | - |
-| necroNpc5Swarm | 1 | ScarabSummon(1047)[CD] | ReanimationProtocols | - | - |
-| necroNpcLHESwarm | 1 | ScarabSummon(1047)[CD] | ReanimationProtocols | - | - |
+| votanNpc1Ecog | 4 | - | RepairEnthusiast | Flying, Mechanical, Mechanic | - |
+| votanNpc2Steeljack | 2 | - | - | Mechanical, Overwatch | - |
+
+### Necrons — 43 unites, 43 avec du travail
+
+| unite | manque | actives (face) | passifs non portes | traits non couverts | autres voies |
+|---|---:|---|---|---|---|
+| necroBossC1Spyder | 4 | ScarabHive(1007)[CD] | - | Hero, Mechanical, Flying, Mechanic | relic:NetherRealmCasket |
+| necroBossSpyder | 4 | ScarabHive(1007)[CD] | - | Hero, Mechanical, Flying, Mechanic | relic:NetherRealmCasket |
+| necroBossSpyderLEG | 4 | ScarabHive(1007)[CD] | - | Hero, Mechanical, Flying, Mechanic | relic:NetherRealmCasket |
+| necroBossSpyderLHE | 4 | ScarabHive(1007)[CD] | - | Hero, Mechanical, Flying, Mechanic | relic:NetherRealmCasket |
+| necroNpcSpyder | 4 | ScarabHive(1007)[CD] | - | Hero, Mechanical, Flying, Mechanic | relic:NetherRealmCasket |
+| necroBossC1Destroyer | 3 | MultiThreatEliminator(1006)[CD] | - | Hero, Overwatch, Mechanical | relic:NetherRealmCasket |
+| necroBossC1Overlord | 3 | ResurrectionOrb(1009)[CD] | - | Hero, Mechanical, Resilient | relic:PhasalSubjugator |
+| necroBossC1Plasmancer | 3 | HarbingerOfDestruction(1008)[CD] | - | Hero, Mechanical, Flying | - |
+| necroBossChronomancerLHE | 3 | Chronometron(1226)[CD] | - | Hero, Mechanical, Flying | - |
+| necroBossChronomancerSurv | 3 | Chronometron(1226)[CD] | - | Hero, Mechanical, Flying | - |
+| necroBossDestroyer | 3 | MultiThreatEliminator(1006)[CD] | - | Hero, Overwatch, Mechanical | relic:NetherRealmCasket |
+| necroBossDestroyerLEG | 3 | MultiThreatEliminator(1006)[CD] | - | Hero, Overwatch, Mechanical | relic:NetherRealmCasket |
+| necroBossDestroyerLHE | 3 | MultiThreatEliminator(1006)[CD] | - | Hero, Overwatch, Mechanical | relic:NetherRealmCasket |
+| necroBossOverlord | 3 | ResurrectionOrb(1009)[CD] | - | Hero, Mechanical, Resilient | relic:PhasalSubjugator |
+| necroBossOverlordLEG | 3 | ResurrectionOrb(1009)[CD] | - | Hero, Mechanical, Resilient | relic:PhasalSubjugator |
+| necroBossOverlordLHE | 3 | ResurrectionOrb(1009)[CD] | - | Hero, Mechanical, Resilient | relic:PhasalSubjugator |
+| necroBossPlasmancer | 3 | HarbingerOfDestruction(1008)[CD] | - | Hero, Mechanical, Flying | - |
+| necroBossPlasmancerLEG | 3 | HarbingerOfDestruction(1008)[CD] | - | Hero, Mechanical, Flying | - |
+| necroBossPlasmancerLHE | 3 | HarbingerOfDestruction(1008)[CD] | - | Hero, Mechanical, Flying | - |
+| necroChronomancer_LHE | 3 | Chronometron(1226)[CD] | - | Hero, Mechanical, Flying | - |
+| necroNpcChronomancer | 3 | Chronometron(1226)[CD] | - | Hero, Mechanical, Flying | - |
+| necroNpcDestroyer | 3 | MultiThreatEliminator(1006)[CD] | - | Hero, Overwatch, Mechanical | relic:NetherRealmCasket |
+| necroNpcOverlord | 3 | ResurrectionOrb(1009)[CD] | - | Hero, Mechanical, Resilient | relic:PhasalSubjugator |
+| necroNpcPlasmancer | 3 | HarbingerOfDestruction(1008)[CD] | - | Hero, Mechanical, Flying | - |
+| necroBossC1Warden | 2 | AdaptiveStrategy(1005)[CD] | - | Hero, Mechanical | relic:NetherRealmCasket |
+| necroBossWarden | 2 | AdaptiveStrategy(1005)[CD] | - | Hero, Mechanical | relic:NetherRealmCasket |
+| necroBossWardenLEG | 2 | AdaptiveStrategy(1005)[CD] | - | Hero, Mechanical | relic:NetherRealmCasket |
+| necroBossWardenLHE | 2 | AdaptiveStrategy(1005)[CD] | - | Hero, Mechanical | relic:NetherRealmCasket |
+| necroNpc3Deathmark | 2 | PrecisionShot(1015)[--] | - | Mechanical | - |
+| necroNpc5Swarm | 2 | ScarabSummon(1047)[CD] | - | Mechanical, Flying | - |
+| necroNpcLHESwarm | 2 | ScarabSummon(1047)[CD] | - | Mechanical, Flying | - |
+| necroNpcWarden | 2 | AdaptiveStrategy(1005)[CD] | - | Hero, Mechanical | relic:NetherRealmCasket |
+| necroNpc1TutWarrior | 1 | - | - | Mechanical | - |
+| necroNpc1TutWarriorFTUEtest | 1 | - | - | Mechanical | - |
+| necroNpc1Warrior | 1 | - | - | Mechanical | - |
+| necroNpc1WarriorSurv | 1 | - | - | Mechanical | - |
+| necroNpc2FlayedOne | 1 | StormOfFlensingBlades(1010)[CD] | - | Mechanical | - |
+| necroNpc2TutFlayedOne | 1 | StormOfFlensingBlades(1010)[CD] | - | Mechanical | - |
+| necroNpc2TutFlayedOneFTUEtest | 1 | StormOfFlensingBlades(1010)[CD] | - | Mechanical | - |
+| necroNpc4Destroyer | 1 | TunnelingHorror(1011)[C-] | - | Mechanical | - |
+| necroNpc4DestroyerLHE | 1 | TunnelingHorror(1011)[C-] | - | Mechanical | - |
+| necroNpc4DestroyerSurv | 1 | TunnelingHorror(1011)[C-] | - | Mechanical | - |
 | necroNpcMoWReanimator | 1 | ReanimationBeam(1223)[CD]<br>NanoscarabRepairProtocols(1224)[CD] | - | MachineOfWar | mythic:GuardianConstruct |
-| necroBossC1Destroyer | 0 | MultiThreatEliminator(1006)[CD] | - | - | relic:NetherRealmCasket |
-| necroBossC1Overlord | 0 | ResurrectionOrb(1009)[CD] | - | - | relic:PhasalSubjugator |
-| necroBossC1Plasmancer | 0 | HarbingerOfDestruction(1008)[CD] | - | - | - |
-| necroBossC1Spyder | 0 | ScarabHive(1007)[CD] | - | - | relic:NetherRealmCasket |
-| necroBossC1Warden | 0 | AdaptiveStrategy(1005)[CD] | - | - | relic:NetherRealmCasket |
-| necroBossChronomancerLHE | 0 | Chronometron(1226)[CD] | - | - | - |
-| necroBossChronomancerSurv | 0 | Chronometron(1226)[CD] | - | - | - |
-| necroBossDestroyer | 0 | MultiThreatEliminator(1006)[CD] | - | - | relic:NetherRealmCasket |
-| necroBossDestroyerLEG | 0 | MultiThreatEliminator(1006)[CD] | - | - | relic:NetherRealmCasket |
-| necroBossDestroyerLHE | 0 | MultiThreatEliminator(1006)[CD] | - | - | relic:NetherRealmCasket |
-| necroBossOverlord | 0 | ResurrectionOrb(1009)[CD] | - | - | relic:PhasalSubjugator |
-| necroBossOverlordLEG | 0 | ResurrectionOrb(1009)[CD] | - | - | relic:PhasalSubjugator |
-| necroBossOverlordLHE | 0 | ResurrectionOrb(1009)[CD] | - | - | relic:PhasalSubjugator |
-| necroBossPlasmancer | 0 | HarbingerOfDestruction(1008)[CD] | - | - | - |
-| necroBossPlasmancerLEG | 0 | HarbingerOfDestruction(1008)[CD] | - | - | - |
-| necroBossPlasmancerLHE | 0 | HarbingerOfDestruction(1008)[CD] | - | - | - |
-| necroBossSpyder | 0 | ScarabHive(1007)[CD] | - | - | relic:NetherRealmCasket |
-| necroBossSpyderLEG | 0 | ScarabHive(1007)[CD] | - | - | relic:NetherRealmCasket |
-| necroBossSpyderLHE | 0 | ScarabHive(1007)[CD] | - | - | relic:NetherRealmCasket |
-| necroBossWarden | 0 | AdaptiveStrategy(1005)[CD] | - | - | relic:NetherRealmCasket |
-| necroBossWardenLEG | 0 | AdaptiveStrategy(1005)[CD] | - | - | relic:NetherRealmCasket |
-| necroBossWardenLHE | 0 | AdaptiveStrategy(1005)[CD] | - | - | relic:NetherRealmCasket |
-| necroChronomancer_LHE | 0 | Chronometron(1226)[CD] | - | - | - |
-| necroNpc1TutWarrior | 0 | - | - | - | - |
-| necroNpc1TutWarriorFTUEtest | 0 | - | - | - | - |
-| necroNpc2TutFlayedOne | 0 | StormOfFlensingBlades(1010)[CD] | - | - | - |
-| necroNpc2TutFlayedOneFTUEtest | 0 | StormOfFlensingBlades(1010)[CD] | - | - | - |
-| necroNpcChronomancer | 0 | Chronometron(1226)[CD] | - | - | - |
-| necroNpcDestroyer | 0 | MultiThreatEliminator(1006)[CD] | - | - | relic:NetherRealmCasket |
-| necroNpcOverlord | 0 | ResurrectionOrb(1009)[CD] | - | - | relic:PhasalSubjugator |
-| necroNpcPlasmancer | 0 | HarbingerOfDestruction(1008)[CD] | - | - | - |
-| necroNpcSpyder | 0 | ScarabHive(1007)[CD] | - | - | relic:NetherRealmCasket |
-| necroNpcWarden | 0 | AdaptiveStrategy(1005)[CD] | - | - | relic:NetherRealmCasket |
 
-### Orks — 30 unites, 8 avec du travail
+### Orks — 30 unites, 30 avec du travail
 
 | unite | manque | actives (face) | passifs non portes | traits non couverts | autres voies |
 |---|---:|---|---|---|---|
-| orksNpc5LootGrotTeam | 4 | - | OiWatchIt, RunsAway | TwoManTeam, NonAttacking | - |
-| orksNpc4AmmoGrot | 3 | - | ItsGonnaBlow, RunsAround | NonAttacking | - |
-| orksNpc1Grot | 1 | - | PileIn | - | - |
-| orksNpc3GrotTank | 1 | - | - | Vehicle | - |
+| orksNpc5LootGrotTeam | 5 | - | OiWatchIt, RunsAway | BattleFatigue, TwoManTeam, NonAttacking | - |
+| orksNpc4AmmoGrot | 4 | - | ItsGonnaBlow, RunsAround | BattleFatigue, NonAttacking | - |
+| orksBossBigMek | 3 | GrotTank(1057)[CD] | - | Hero, GetStuckIn, Mechanic | relic:SupaCyborkBody |
+| orksBossBigMekLEG | 3 | GrotTank(1057)[CD] | - | Hero, GetStuckIn, Mechanic | relic:SupaCyborkBody |
+| orksBossBigMekLHE | 3 | GrotTank(1057)[CD] | - | Hero, GetStuckIn, Mechanic | relic:SupaCyborkBody |
+| orksBossKillaKan | 3 | DakkaDakkaDakka(1171)[CD] | - | Hero, GetStuckIn, Mechanical | - |
+| orksBossKillaKanLEG | 3 | DakkaDakkaDakka(1171)[CD] | - | Hero, GetStuckIn, Mechanical | - |
+| orksBossKillaKanLHE | 3 | DakkaDakkaDakka(1171)[CD] | - | Hero, GetStuckIn, Mechanical | - |
+| orksBossNob | 3 | UnstoppableMomentumReworked(1152)[CD] | - | Hero, GetStuckIn, Unstoppable | relic:SupaCyborkBody |
+| orksBossNobLEG | 3 | UnstoppableMomentumReworked(1152)[CD] | - | Hero, GetStuckIn, Unstoppable | relic:SupaCyborkBody |
+| orksBossNobLHE | 3 | UnstoppableMomentumReworked(1152)[CD] | - | Hero, GetStuckIn, Unstoppable | relic:SupaCyborkBody |
+| orksBossWarboss | 3 | Waaagh(1058)[CD] | - | Hero, GetStuckIn, Mechanical | relic:HeadwoppasKillchoppa |
+| orksBossWarbossLHE | 3 | Waaagh(1058)[CD] | - | Hero, GetStuckIn, Mechanical | relic:HeadwoppasKillchoppa |
+| orksNpc3GrotTank | 3 | - | - | Mechanical, BattleFatigue, Vehicle | - |
+| orksNpcBigMek | 3 | GrotTank(1057)[CD] | - | Hero, GetStuckIn, Mechanic | relic:SupaCyborkBody |
+| orksNpcKillaKan | 3 | DakkaDakkaDakka(1171)[CD] | - | Hero, GetStuckIn, Mechanical | - |
+| orksNpcNob | 3 | UnstoppableMomentumReworked(1152)[CD] | - | Hero, GetStuckIn, Unstoppable | relic:SupaCyborkBody |
+| orksNpcWarboss | 3 | Waaagh(1058)[CD] | - | Hero, GetStuckIn, Mechanical | relic:HeadwoppasKillchoppa |
+| orksNpcWarbossSurv | 3 | Waaagh(1058)[CD] | - | Hero, GetStuckIn, Mechanical | relic:HeadwoppasKillchoppa |
+| orksRedGobbo | 3 | ExplosivePresents(1170)[C-] | DaRevolushun | Hero, Resilient | - |
+| orksBossRuntherd | 2 | GetEmRuntz(1045)[CD] | - | Hero, GetStuckIn | relic:SupaCyborkBody |
+| orksBossRuntherdLEG | 2 | GetEmRuntz(1045)[CD] | - | Hero, GetStuckIn | relic:SupaCyborkBody |
+| orksBossRuntherdLHE | 2 | GetEmRuntz(1045)[CD] | - | Hero, GetStuckIn | relic:SupaCyborkBody |
+| orksNpc1Grot | 2 | - | PileIn | BattleFatigue | - |
+| orksNpcRuntherd | 2 | GetEmRuntz(1045)[CD] | - | Hero, GetStuckIn | relic:SupaCyborkBody |
+| orksNpc2OrkBoy | 1 | Stikkbomb(1051)[CD] | - | BattleFatigue | - |
+| orksNpc6Stormboy | 1 | - | - | Flying | - |
 | orksNpc7Squig | 1 | - | Bounce | - | - |
 | orksNpc7SquigSurv | 1 | - | Bounce | - | - |
 | orksNpcMoWRukkatrukk | 1 | SquigLaunchas(1200)[C-]<br>SquigMine(1201)[CD] | - | MachineOfWar | mythic:MoreGitzOverEre |
-| orksRedGobbo | 1 | ExplosivePresents(1170)[C-] | DaRevolushun | - | - |
-| orksBossBigMek | 0 | GrotTank(1057)[CD] | - | - | relic:SupaCyborkBody |
-| orksBossBigMekLEG | 0 | GrotTank(1057)[CD] | - | - | relic:SupaCyborkBody |
-| orksBossBigMekLHE | 0 | GrotTank(1057)[CD] | - | - | relic:SupaCyborkBody |
-| orksBossKillaKan | 0 | DakkaDakkaDakka(1171)[CD] | - | - | - |
-| orksBossKillaKanLEG | 0 | DakkaDakkaDakka(1171)[CD] | - | - | - |
-| orksBossKillaKanLHE | 0 | DakkaDakkaDakka(1171)[CD] | - | - | - |
-| orksBossNob | 0 | UnstoppableMomentumReworked(1152)[CD] | - | - | relic:SupaCyborkBody |
-| orksBossNobLEG | 0 | UnstoppableMomentumReworked(1152)[CD] | - | - | relic:SupaCyborkBody |
-| orksBossNobLHE | 0 | UnstoppableMomentumReworked(1152)[CD] | - | - | relic:SupaCyborkBody |
-| orksBossRuntherd | 0 | GetEmRuntz(1045)[CD] | - | - | relic:SupaCyborkBody |
-| orksBossRuntherdLEG | 0 | GetEmRuntz(1045)[CD] | - | - | relic:SupaCyborkBody |
-| orksBossRuntherdLHE | 0 | GetEmRuntz(1045)[CD] | - | - | relic:SupaCyborkBody |
-| orksBossWarboss | 0 | Waaagh(1058)[CD] | - | - | relic:HeadwoppasKillchoppa |
-| orksBossWarbossLHE | 0 | Waaagh(1058)[CD] | - | - | relic:HeadwoppasKillchoppa |
-| orksNpc2OrkBoy | 0 | Stikkbomb(1051)[CD] | - | - | - |
-| orksNpc6Stormboy | 0 | - | - | - | - |
-| orksNpcBigMek | 0 | GrotTank(1057)[CD] | - | - | relic:SupaCyborkBody |
-| orksNpcKillaKan | 0 | DakkaDakkaDakka(1171)[CD] | - | - | - |
-| orksNpcNob | 0 | UnstoppableMomentumReworked(1152)[CD] | - | - | relic:SupaCyborkBody |
-| orksNpcRuntherd | 0 | GetEmRuntz(1045)[CD] | - | - | relic:SupaCyborkBody |
-| orksNpcWarboss | 0 | Waaagh(1058)[CD] | - | - | relic:HeadwoppasKillchoppa |
-| orksNpcWarbossSurv | 0 | Waaagh(1058)[CD] | - | - | relic:HeadwoppasKillchoppa |
 
-### Sisterhood — 19 unites, 6 avec du travail
+### Sisterhood — 19 unites, 18 avec du travail
 
 | unite | manque | actives (face) | passifs non portes | traits non couverts | autres voies |
 |---|---:|---|---|---|---|
-| adeptBossCelestineCE | 1 | SkyStrike(1025)[CD] | - | Boss | - |
-| adeptBossHospitaller | 1 | RitesOfRestoration(1039)[CD] | - | Healer | - |
-| adeptBossHospitallerLHE | 1 | RitesOfRestoration(1039)[CD] | - | Healer | - |
-| adeptNpc2Zephyrim | 1 | - | EmbodiedProphecy | - | - |
-| adeptNpcHospitaller | 1 | RitesOfRestoration(1039)[CD] | - | Healer | - |
+| adeptBossCelestineCE | 3 | SkyStrike(1025)[CD] | - | Boss, Immune, Flying | - |
+| adeptNpc2Zephyrim | 3 | - | EmbodiedProphecy | Flying, TeleportStrike | - |
+| adeptBossCelestine | 2 | SkyStrike(1025)[CD] | - | Hero, Flying | relic:TheArdentBlade |
+| adeptBossCelestineLHE | 2 | SkyStrike(1025)[CD] | - | Hero, Flying | relic:TheArdentBlade |
+| adeptBossHospitaller | 2 | RitesOfRestoration(1039)[CD] | - | Hero, Healer | - |
+| adeptBossHospitallerLHE | 2 | RitesOfRestoration(1039)[CD] | - | Hero, Healer | - |
+| adeptBossMorvenn | 2 | SanctorumMissile(1062)[CD] | - | Hero, Mechanical | - |
+| adeptBossMorvennLHE | 2 | SanctorumMissile(1062)[CD] | - | Hero, Mechanical | - |
+| adeptNpcCelestine | 2 | SkyStrike(1025)[CD] | - | Hero, Flying | relic:TheArdentBlade |
+| adeptNpcHospitaller | 2 | RitesOfRestoration(1039)[CD] | - | Hero, Healer | - |
+| adeptNpcMorvenn | 2 | SanctorumMissile(1062)[CD] | - | Hero, Mechanical | - |
+| adeptBossCanoness | 1 | BrazierOfHolyFire(1041)[CD] | - | Hero | - |
+| adeptBossCanonessLHE | 1 | BrazierOfHolyFire(1041)[CD] | - | Hero | - |
+| adeptBossRetributor | 1 | ArmoriumCherub(1014)[CD] | - | Hero | - |
+| adeptBossRetributorLHE | 1 | ArmoriumCherub(1014)[CD] | - | Hero | - |
+| adeptNpcCanoness | 1 | BrazierOfHolyFire(1041)[CD] | - | Hero | - |
 | adeptNpcMoWExorcist | 1 | ThriceBlessedConflagration(1187)[CD]<br>DevastatingRefrain(1188)[CD] | - | MachineOfWar | mythic:ShieldOfFaith |
-| adeptBossCanoness | 0 | BrazierOfHolyFire(1041)[CD] | - | - | - |
-| adeptBossCanonessLHE | 0 | BrazierOfHolyFire(1041)[CD] | - | - | - |
-| adeptBossCelestine | 0 | SkyStrike(1025)[CD] | - | - | relic:TheArdentBlade |
-| adeptBossCelestineLHE | 0 | SkyStrike(1025)[CD] | - | - | relic:TheArdentBlade |
-| adeptBossMorvenn | 0 | SanctorumMissile(1062)[CD] | - | - | - |
-| adeptBossMorvennLHE | 0 | SanctorumMissile(1062)[CD] | - | - | - |
-| adeptBossRetributor | 0 | ArmoriumCherub(1014)[CD] | - | - | - |
-| adeptBossRetributorLHE | 0 | ArmoriumCherub(1014)[CD] | - | - | - |
+| adeptNpcRetributor | 1 | ArmoriumCherub(1014)[CD] | - | Hero | - |
 | adeptNpc1BattleSister | 0 | - | - | - | - |
-| adeptNpcCanoness | 0 | BrazierOfHolyFire(1041)[CD] | - | - | - |
-| adeptNpcCelestine | 0 | SkyStrike(1025)[CD] | - | - | relic:TheArdentBlade |
-| adeptNpcMorvenn | 0 | SanctorumMissile(1062)[CD] | - | - | - |
-| adeptNpcRetributor | 0 | ArmoriumCherub(1014)[CD] | - | - | - |
 
-### SpaceWolves — 1 unites, 0 avec du travail
+### SpaceWolves — 1 unites, 1 avec du travail
 
 | unite | manque | actives (face) | passifs non portes | traits non couverts | autres voies |
 |---|---:|---|---|---|---|
-| spaceStormcaller_LHE | 0 | Stormcaller(1113)[CD] | - | - | - |
+| spaceStormcaller_LHE | 2 | Stormcaller(1113)[CD] | - | Hero, Unstoppable | - |
 
-### Tau — 33 unites, 11 avec du travail
+### Tau — 33 unites, 33 avec du travail
 
 | unite | manque | actives (face) | passifs non portes | traits non couverts | autres voies |
 |---|---:|---|---|---|---|
-| tauBossRiptide | 5 | NovaBoost(1192)[CD]<br>NovaCharge(1193)[--]<br>NovaShield(1194)[CD] | MultiTracker, TargetLock | Boss, Vehicle | - |
-| tauNpcFarsight | 2 | ExemplarOfTheMontka(1210)[CD] | WayOfTheShortBlade | BeastSnagga | relic:DawnBlade |
-| tauBossFarsight | 1 | ExemplarOfTheMontka(1210)[CD] | WayOfTheShortBlade | - | relic:DawnBlade |
-| tauBossFarsightInc | 1 | ExemplarOfTheMontka(1210)[CD] | WayOfTheShortBlade | - | relic:DawnBlade |
-| tauBossFarsightLHE | 1 | ExemplarOfTheMontka(1210)[CD] | WayOfTheShortBlade | - | relic:DawnBlade |
-| tauBossFarsightSurv | 1 | ExemplarOfTheMontka(1210)[CD] | WayOfTheShortBlade | - | relic:DawnBlade |
-| tauNpc2DroneSniper | 1 | - | SaviorProtocols | - | - |
-| tauNpc3DroneShield | 1 | - | SaviorProtocols | - | - |
-| tauNpc4DroneCommandLink | 1 | - | SaviorProtocols | - | - |
-| tauNpc6Carnivore | 1 | - | HuntersInstincts | - | - |
+| tauBossRiptide | 8 | NovaBoost(1192)[CD]<br>NovaCharge(1193)[--]<br>NovaShield(1194)[CD] | MultiTracker, TargetLock | Boss, Immune, Flying, Vehicle, Mechanical | - |
+| tauBossCrisis | 4 | EarlyWarningOverride(1077)[CD] | - | Hero, CloseCombatWeakness, Flying, Mechanical | relic:Dw02AdvancedBurstCannon |
+| tauBossCrisisInc | 4 | EarlyWarningOverride(1077)[CD] | - | Hero, CloseCombatWeakness, Flying, Mechanical | relic:Dw02AdvancedBurstCannon |
+| tauBossCrisisLHE | 4 | EarlyWarningOverride(1077)[CD] | - | Hero, CloseCombatWeakness, Flying, Mechanical | relic:Dw02AdvancedBurstCannon |
+| tauBossShadowsun | 4 | ExemplarOfTheKauyon(1087)[CD] | - | Hero, CloseCombatWeakness, Flying, Infiltrate | - |
+| tauBossShadowsunInc | 4 | ExemplarOfTheKauyon(1087)[CD] | - | Hero, CloseCombatWeakness, Flying, Infiltrate | - |
+| tauBossShadowsunLHE | 4 | ExemplarOfTheKauyon(1087)[CD] | - | Hero, CloseCombatWeakness, Flying, Infiltrate | - |
+| tauNpcCrisis | 4 | EarlyWarningOverride(1077)[CD] | - | Hero, CloseCombatWeakness, Flying, Mechanical | relic:Dw02AdvancedBurstCannon |
+| tauNpcFarsight | 4 | ExemplarOfTheMontka(1210)[CD] | - | Hero, BeastSnagga, Flying, Mechanical | relic:DawnBlade |
+| tauNpcShadowsun | 4 | ExemplarOfTheKauyon(1087)[CD] | - | Hero, CloseCombatWeakness, Flying, Infiltrate | - |
+| tauBossDarkstrider | 3 | FightingRetreat(1081)[CD] | - | Hero, CloseCombatWeakness, Infiltrate | - |
+| tauBossDarkstriderInc | 3 | FightingRetreat(1081)[CD] | - | Hero, CloseCombatWeakness, Infiltrate | - |
+| tauBossDarkstriderLHE | 3 | FightingRetreat(1081)[CD] | - | Hero, CloseCombatWeakness, Infiltrate | - |
+| tauBossFarsight | 3 | ExemplarOfTheMontka(1210)[CD] | - | Hero, Flying, Mechanical | relic:DawnBlade |
+| tauBossFarsightInc | 3 | ExemplarOfTheMontka(1210)[CD] | - | Hero, Flying, Mechanical | relic:DawnBlade |
+| tauBossFarsightLHE | 3 | ExemplarOfTheMontka(1210)[CD] | - | Hero, Flying, Mechanical | relic:DawnBlade |
+| tauBossFarsightSurv | 3 | ExemplarOfTheMontka(1210)[CD] | - | Hero, Flying, Mechanical | relic:DawnBlade |
+| tauNpc2DroneSniper | 3 | - | SaviorProtocols | Flying, Mechanical | - |
+| tauNpc3DroneShield | 3 | - | SaviorProtocols | Flying, Mechanical | - |
+| tauNpc4DroneCommandLink | 3 | - | SaviorProtocols | Flying, Mechanical | - |
+| tauNpcDarkstrider | 3 | FightingRetreat(1081)[CD] | - | Hero, CloseCombatWeakness, Infiltrate | - |
+| tauBossMarksman | 2 | SeekerMissileFrequencyLock(1069)[CD] | - | Hero, CloseCombatWeakness | - |
+| tauBossMarksmanInc | 2 | SeekerMissileFrequencyLock(1069)[CD] | - | Hero, CloseCombatWeakness | - |
+| tauBossMarksmanLHE | 2 | SeekerMissileFrequencyLock(1069)[CD] | - | Hero, CloseCombatWeakness | - |
+| tauNpc5StealthSuit | 2 | ForwardObservers(1185)[CD]<br>WallOfMirrors(1186)[C-] | - | Infiltrate, Flying | - |
+| tauNpc6Carnivore | 2 | - | HuntersInstincts | Infiltrate | - |
+| tauNpcMarksman | 2 | SeekerMissileFrequencyLock(1069)[CD] | - | Hero, CloseCombatWeakness | - |
+| tauBossAunShi | 1 | InspiredToGreatness(1082)[CD] | - | Hero | - |
+| tauBossAunShiInc | 1 | InspiredToGreatness(1082)[CD] | - | Hero | - |
+| tauBossAunShiLHE | 1 | InspiredToGreatness(1082)[CD] | - | Hero | - |
+| tauNpc1FireWarrior | 1 | - | - | Overwatch | - |
+| tauNpcAunShi | 1 | InspiredToGreatness(1082)[CD] | - | Hero | - |
 | tauNpcMoWBroadside | 1 | HeavyRailRifle(1160)[CD]<br>TwinSmartMissileSystem(1161)[CD] | - | MachineOfWar | mythic:ElectrochaffBackups |
-| tauBossAunShi | 0 | InspiredToGreatness(1082)[CD] | - | - | - |
-| tauBossAunShiInc | 0 | InspiredToGreatness(1082)[CD] | - | - | - |
-| tauBossAunShiLHE | 0 | InspiredToGreatness(1082)[CD] | - | - | - |
-| tauBossCrisis | 0 | EarlyWarningOverride(1077)[CD] | - | - | relic:Dw02AdvancedBurstCannon |
-| tauBossCrisisInc | 0 | EarlyWarningOverride(1077)[CD] | - | - | relic:Dw02AdvancedBurstCannon |
-| tauBossCrisisLHE | 0 | EarlyWarningOverride(1077)[CD] | - | - | relic:Dw02AdvancedBurstCannon |
-| tauBossDarkstrider | 0 | FightingRetreat(1081)[CD] | - | - | - |
-| tauBossDarkstriderInc | 0 | FightingRetreat(1081)[CD] | - | - | - |
-| tauBossDarkstriderLHE | 0 | FightingRetreat(1081)[CD] | - | - | - |
-| tauBossMarksman | 0 | SeekerMissileFrequencyLock(1069)[CD] | - | - | - |
-| tauBossMarksmanInc | 0 | SeekerMissileFrequencyLock(1069)[CD] | - | - | - |
-| tauBossMarksmanLHE | 0 | SeekerMissileFrequencyLock(1069)[CD] | - | - | - |
-| tauBossShadowsun | 0 | ExemplarOfTheKauyon(1087)[CD] | - | - | - |
-| tauBossShadowsunInc | 0 | ExemplarOfTheKauyon(1087)[CD] | - | - | - |
-| tauBossShadowsunLHE | 0 | ExemplarOfTheKauyon(1087)[CD] | - | - | - |
-| tauNpc1FireWarrior | 0 | - | - | - | - |
-| tauNpc5StealthSuit | 0 | ForwardObservers(1185)[CD]<br>WallOfMirrors(1186)[C-] | - | - | - |
-| tauNpcAunShi | 0 | InspiredToGreatness(1082)[CD] | - | - | - |
-| tauNpcCrisis | 0 | EarlyWarningOverride(1077)[CD] | - | - | relic:Dw02AdvancedBurstCannon |
-| tauNpcDarkstrider | 0 | FightingRetreat(1081)[CD] | - | - | - |
-| tauNpcMarksman | 0 | SeekerMissileFrequencyLock(1069)[CD] | - | - | - |
-| tauNpcShadowsun | 0 | ExemplarOfTheKauyon(1087)[CD] | - | - | - |
 
-### ThousandSons — 27 unites, 3 avec du travail
+### ThousandSons — 27 unites, 26 avec du travail
 
 | unite | manque | actives (face) | passifs non portes | traits non couverts | autres voies |
 |---|---:|---|---|---|---|
-| thousNpcMowDaemonPrince | 2 | AetherStride(1208)[-D]<br>InfernalCannon(1209)[CD] | - | MachineOfWar | mythic:CabalOfSorcerers |
+| thousBossAhriman | 2 | Doombolt(1102)[CD] | - | Hero, Flying | - |
+| thousBossAhrimanCamp | 2 | Doombolt(1102)[CD] | - | Hero, Flying | - |
+| thousBossAhrimanLHE | 2 | Doombolt(1102)[CD] | - | Hero, Flying | - |
+| thousBossSorcerer | 2 | AttemptedPossession(1101)[CD] | - | Hero, Flying | relic:BookOfFate |
+| thousBossSorcererCamp | 2 | AttemptedPossession(1101)[CD] | - | Hero, Flying | relic:BookOfFate |
+| thousBossSorcererLHE | 2 | AttemptedPossession(1101)[CD] | - | Hero, Flying | relic:BookOfFate |
+| thousBossTzaangor | 2 | SorcerousFacade(1100)[CD] | - | Hero, Flying | - |
+| thousBossTzaangorCamp | 2 | SorcerousFacade(1100)[CD] | - | Hero, Flying | - |
+| thousBossTzaangorLHE | 2 | SorcerousFacade(1100)[CD] | - | Hero, Flying | - |
+| thousNpcAhriman | 2 | Doombolt(1102)[CD] | - | Hero, Flying | - |
+| thousNpcSorcerer | 2 | AttemptedPossession(1101)[CD] | - | Hero, Flying | relic:BookOfFate |
+| thousNpcTzaangor | 2 | SorcerousFacade(1100)[CD] | - | Hero, Flying | - |
+| thousBossInfernalMaster | 1 | MasterOfTheTutelaries(1096)[CD] | - | Hero | relic:BookOfFate |
+| thousBossInfernalMasterCamp | 1 | MasterOfTheTutelaries(1096)[CD] | - | Hero | relic:BookOfFate |
+| thousBossInfernalMasterLHE | 1 | MasterOfTheTutelaries(1096)[CD] | - | Hero | relic:BookOfFate |
+| thousBossInfernalMasterSurv | 1 | MasterOfTheTutelaries(1096)[CD] | - | Hero | relic:BookOfFate |
+| thousBossTerminator | 1 | HellfyreMissileRack(1088)[CD] | - | Hero | relic:DaemonfleshPlate |
+| thousBossTerminatorCamp | 1 | HellfyreMissileRack(1088)[CD] | - | Hero | relic:DaemonfleshPlate |
+| thousBossTerminatorLHE | 1 | HellfyreMissileRack(1088)[CD] | - | Hero | relic:DaemonfleshPlate |
+| thousBossTerminatorSurv | 1 | HellfyreMissileRack(1088)[CD] | - | Hero | relic:DaemonfleshPlate |
 | thousNpc1PinkHorror | 1 | - | Split | - | - |
+| thousNpc2Screamer | 1 | SlashingDive(1091)[C-] | - | Flying | - |
 | thousNpc3RubricMarine | 1 | - | AllIsDust | - | - |
-| thousBossAhriman | 0 | Doombolt(1102)[CD] | - | - | - |
-| thousBossAhrimanCamp | 0 | Doombolt(1102)[CD] | - | - | - |
-| thousBossAhrimanLHE | 0 | Doombolt(1102)[CD] | - | - | - |
-| thousBossInfernalMaster | 0 | MasterOfTheTutelaries(1096)[CD] | - | - | relic:BookOfFate |
-| thousBossInfernalMasterCamp | 0 | MasterOfTheTutelaries(1096)[CD] | - | - | relic:BookOfFate |
-| thousBossInfernalMasterLHE | 0 | MasterOfTheTutelaries(1096)[CD] | - | - | relic:BookOfFate |
-| thousBossInfernalMasterSurv | 0 | MasterOfTheTutelaries(1096)[CD] | - | - | relic:BookOfFate |
-| thousBossSorcerer | 0 | AttemptedPossession(1101)[CD] | - | - | relic:BookOfFate |
-| thousBossSorcererCamp | 0 | AttemptedPossession(1101)[CD] | - | - | relic:BookOfFate |
-| thousBossSorcererLHE | 0 | AttemptedPossession(1101)[CD] | - | - | relic:BookOfFate |
-| thousBossTerminator | 0 | HellfyreMissileRack(1088)[CD] | - | - | relic:DaemonfleshPlate |
-| thousBossTerminatorCamp | 0 | HellfyreMissileRack(1088)[CD] | - | - | relic:DaemonfleshPlate |
-| thousBossTerminatorLHE | 0 | HellfyreMissileRack(1088)[CD] | - | - | relic:DaemonfleshPlate |
-| thousBossTerminatorSurv | 0 | HellfyreMissileRack(1088)[CD] | - | - | relic:DaemonfleshPlate |
-| thousBossTzaangor | 0 | SorcerousFacade(1100)[CD] | - | - | - |
-| thousBossTzaangorCamp | 0 | SorcerousFacade(1100)[CD] | - | - | - |
-| thousBossTzaangorLHE | 0 | SorcerousFacade(1100)[CD] | - | - | - |
-| thousNpc2Screamer | 0 | SlashingDive(1091)[C-] | - | - | - |
+| thousNpcInfernalMaster | 1 | MasterOfTheTutelaries(1096)[CD] | - | Hero | relic:BookOfFate |
+| thousNpcMowDaemonPrince | 1 | AetherStride(1208)[CD]<br>InfernalCannon(1209)[CD] | - | MachineOfWar | mythic:CabalOfSorcerers |
+| thousNpcTerminator | 1 | HellfyreMissileRack(1088)[CD] | - | Hero | relic:DaemonfleshPlate |
 | thousNpc4Terminator | 0 | - | - | - | - |
-| thousNpcAhriman | 0 | Doombolt(1102)[CD] | - | - | - |
-| thousNpcInfernalMaster | 0 | MasterOfTheTutelaries(1096)[CD] | - | - | relic:BookOfFate |
-| thousNpcSorcerer | 0 | AttemptedPossession(1101)[CD] | - | - | relic:BookOfFate |
-| thousNpcTerminator | 0 | HellfyreMissileRack(1088)[CD] | - | - | relic:DaemonfleshPlate |
-| thousNpcTzaangor | 0 | SorcerousFacade(1100)[CD] | - | - | - |
 
-### Tyranids — 54 unites, 15 avec du travail
+### Tyranids — 54 unites, 54 avec du travail
 
 | unite | manque | actives (face) | passifs non portes | traits non couverts | autres voies |
 |---|---:|---|---|---|---|
-| tyranBossHiveTyrantLeviathan | 4 | CallRipperSwarms(1052)[--]<br>Catalyst(1032)[C-]<br>StranglethornCannon(1056)[CD] | PrehensilePincerTail, SynapticImperative | Boss | - |
-| tyranNpc1Hormagaunt | 2 | - | AdrenalGlands, HungeringSwarm | - | - |
-| tyranNpc1HormagauntGorgon | 2 | - | AdrenalGlands, HungeringSwarm | - | - |
-| tyranNpc1HormagauntKronos | 2 | - | AdrenalGlands, HungeringSwarm | - | - |
-| tyranNpc1Hormagaunt_SyncPvp_Gorgon | 2 | - | AdrenalGlands, HungeringSwarm | - | - |
-| tyranNpc1Hormagaunt_SyncPvp_Kronos | 2 | - | AdrenalGlands, HungeringSwarm | - | - |
-| tyranNpc3Termagant | 1 | - | HailOfLivingAmmunition | - | - |
-| tyranNpc3TermagantGorgon | 1 | - | HailOfLivingAmmunition | - | - |
-| tyranNpc3TermagantKronos | 1 | - | HailOfLivingAmmunition | - | - |
-| tyranNpc3Termagant_SyncPvp_Gorgon | 1 | - | HailOfLivingAmmunition | - | - |
-| tyranNpc3Termagant_SyncPvp_Kronos | 1 | - | HailOfLivingAmmunition | - | - |
-| tyranNpc5Barbgaunt | 1 | - | SynapticInsight | - | - |
-| tyranNpc5BarbgauntSurv | 1 | - | SynapticInsight | - | - |
-| tyranNpc6SporeMine | 1 | - | - | PermaDeath | - |
+| tyranBossHiveTyrantLeviathan | 7 | CallRipperSwarms(1052)[--]<br>Catalyst(1032)[C-]<br>StranglethornCannon(1056)[CD] | PrehensilePincerTail, SynapticImperative | Boss, Synapse, Flying, Immune | - |
+| tyranBossDeathleaper | 3 | FearOfTheUnseen(1115)[CD] | - | Hero, TeleportStrike, Infiltrate | - |
+| tyranBossDeathleaperCE | 3 | FearOfTheUnseen(1115)[CD] | - | Hero, TeleportStrike, Infiltrate | - |
+| tyranBossDeathleaperLHE | 3 | FearOfTheUnseen(1115)[CD] | - | Hero, TeleportStrike, Infiltrate | - |
+| tyranBossDeathleaperSurv | 3 | FearOfTheUnseen(1115)[CD] | - | Hero, TeleportStrike, Infiltrate | - |
+| tyranBossNeurothrope | 3 | SpiritLeech(1104)[CD] | - | Hero, Flying, Synapse | relic:NornCrown |
+| tyranBossNeurothropeCE | 3 | SpiritLeech(1104)[CD] | - | Hero, Flying, Synapse | relic:NornCrown |
+| tyranBossNeurothropeLHE | 3 | SpiritLeech(1104)[CD] | - | Hero, Flying, Synapse | relic:NornCrown |
+| tyranBossNeurothropeSurv | 3 | SpiritLeech(1104)[CD] | - | Hero, Flying, Synapse | relic:NornCrown |
+| tyranBossParasite | 3 | ItItches(1121)[CD] | - | Hero, Flying, Synapse | relic:MawClawsOfThyrax |
+| tyranBossParasiteCE | 3 | ItItches(1121)[CD] | - | Hero, Flying, Synapse | relic:MawClawsOfThyrax |
+| tyranBossParasiteLHE | 3 | ItItches(1121)[CD] | - | Hero, Flying, Synapse | relic:MawClawsOfThyrax |
+| tyranBossParasiteSurv | 3 | ItItches(1121)[CD] | - | Hero, Flying, Synapse | relic:MawClawsOfThyrax |
+| tyranBossWingedPrime | 3 | AlphaWarrior(1112)[CD] | - | Hero, Synapse, Flying | relic:MawClawsOfThyrax |
+| tyranBossWingedPrimeCE | 3 | AlphaWarrior(1112)[CD] | - | Hero, Synapse, Flying | relic:MawClawsOfThyrax |
+| tyranBossWingedPrimeLEG | 3 | AlphaWarrior(1112)[CD] | - | Hero, Synapse, Flying | relic:MawClawsOfThyrax |
+| tyranBossWingedPrimeLHE | 3 | AlphaWarrior(1112)[CD] | - | Hero, Synapse, Flying | relic:MawClawsOfThyrax |
+| tyranBossWingedPrimeSurv | 3 | AlphaWarrior(1112)[CD] | - | Hero, Synapse, Flying | relic:MawClawsOfThyrax |
+| tyranNpc1Hormagaunt | 3 | - | AdrenalGlands | InstinctiveBehaviour, BattleFatigue | - |
+| tyranNpc1HormagauntGorgon | 3 | - | AdrenalGlands | InstinctiveBehaviour, BattleFatigue | - |
+| tyranNpc1HormagauntKronos | 3 | - | AdrenalGlands | InstinctiveBehaviour, BattleFatigue | - |
+| tyranNpc1Hormagaunt_SyncPvp_Gorgon | 3 | - | AdrenalGlands | InstinctiveBehaviour, BattleFatigue | - |
+| tyranNpc1Hormagaunt_SyncPvp_Kronos | 3 | - | AdrenalGlands | InstinctiveBehaviour, BattleFatigue | - |
+| tyranNpc3Termagant | 3 | - | HailOfLivingAmmunition | InstinctiveBehaviour, BattleFatigue | - |
+| tyranNpc3TermagantGorgon | 3 | - | HailOfLivingAmmunition | InstinctiveBehaviour, BattleFatigue | - |
+| tyranNpc3TermagantKronos | 3 | - | HailOfLivingAmmunition | InstinctiveBehaviour, BattleFatigue | - |
+| tyranNpc3Termagant_SyncPvp_Gorgon | 3 | - | HailOfLivingAmmunition | InstinctiveBehaviour, BattleFatigue | - |
+| tyranNpc3Termagant_SyncPvp_Kronos | 3 | - | HailOfLivingAmmunition | InstinctiveBehaviour, BattleFatigue | - |
+| tyranNpc6SporeMine | 3 | - | - | InstinctiveBehaviour, Flying, PermaDeath | - |
+| tyranNpcDeathleaper | 3 | FearOfTheUnseen(1115)[CD] | - | Hero, TeleportStrike, Infiltrate | - |
+| tyranNpcNeurothrope | 3 | SpiritLeech(1104)[CD] | - | Hero, Flying, Synapse | relic:NornCrown |
+| tyranNpcOSDeathleaper | 3 | FearOfTheUnseen(1115)[CD] | - | Hero, TeleportStrike, Infiltrate | - |
+| tyranNpcOSNeurothrope | 3 | SpiritLeech(1104)[CD] | - | Hero, Flying, Synapse | relic:NornCrown |
+| tyranNpcOSParasite | 3 | ItItches(1121)[CD] | - | Hero, Flying, Synapse | relic:MawClawsOfThyrax |
+| tyranNpcOSWingedPrime | 3 | AlphaWarrior(1112)[CD] | - | Hero, Synapse, Flying | relic:MawClawsOfThyrax |
+| tyranNpcParasite | 3 | ItItches(1121)[CD] | - | Hero, Flying, Synapse | relic:MawClawsOfThyrax |
+| tyranNpcWingedPrime | 3 | AlphaWarrior(1112)[CD] | - | Hero, Synapse, Flying | relic:MawClawsOfThyrax |
+| tyranNpc2RipperSwarm | 2 | Burrowers(1023)[C-] | - | InstinctiveBehaviour, BattleFatigue | - |
+| tyranNpc2RipperSwarmGorgon | 2 | Burrowers(1023)[C-] | - | InstinctiveBehaviour, BattleFatigue | - |
+| tyranNpc2RipperSwarmKronos | 2 | Burrowers(1023)[C-] | - | InstinctiveBehaviour, BattleFatigue | - |
+| tyranNpc2RipperSwarm_SyncPvp_Gorgon | 2 | Burrowers(1023)[C-] | - | InstinctiveBehaviour, BattleFatigue | - |
+| tyranNpc2RipperSwarm_SyncPvp_Kronos | 2 | Burrowers(1023)[C-] | - | InstinctiveBehaviour, BattleFatigue | - |
+| tyranNpc5Barbgaunt | 2 | - | SynapticInsight | InstinctiveBehaviour | - |
+| tyranNpc5BarbgauntSurv | 2 | - | SynapticInsight | InstinctiveBehaviour | - |
+| tyranBossTyrantGuard | 1 | CrushingClaws(1105)[CD] | - | Hero | relic:MawClawsOfThyrax |
+| tyranBossTyrantGuardCE | 1 | CrushingClaws(1105)[CD] | - | Hero | relic:MawClawsOfThyrax |
+| tyranBossTyrantGuardLHE | 1 | CrushingClaws(1105)[CD] | - | Hero | relic:MawClawsOfThyrax |
+| tyranNpc4Warrior | 1 | ScythingTalons(1065)[CD] | - | Synapse | - |
+| tyranNpc4WarriorCE2Gorgon | 1 | ScythingTalons(1065)[CD] | - | Synapse | - |
+| tyranNpc4WarriorCE2Kronos | 1 | ScythingTalons(1065)[CD] | - | Synapse | - |
+| tyranNpc4WarriorSurv | 1 | ScythingTalons(1065)[CD] | - | Synapse | - |
 | tyranNpcMowBiovore | 1 | BioMinefield(1144)[CD]<br>SporeMineLauncher(1145)[CD] | - | MachineOfWar | mythic:HyperCorrosiveAcid |
-| tyranBossDeathleaper | 0 | FearOfTheUnseen(1115)[CD] | - | - | - |
-| tyranBossDeathleaperCE | 0 | FearOfTheUnseen(1115)[CD] | - | - | - |
-| tyranBossDeathleaperLHE | 0 | FearOfTheUnseen(1115)[CD] | - | - | - |
-| tyranBossDeathleaperSurv | 0 | FearOfTheUnseen(1115)[CD] | - | - | - |
-| tyranBossNeurothrope | 0 | SpiritLeech(1104)[CD] | - | - | relic:NornCrown |
-| tyranBossNeurothropeCE | 0 | SpiritLeech(1104)[CD] | - | - | relic:NornCrown |
-| tyranBossNeurothropeLHE | 0 | SpiritLeech(1104)[CD] | - | - | relic:NornCrown |
-| tyranBossNeurothropeSurv | 0 | SpiritLeech(1104)[CD] | - | - | relic:NornCrown |
-| tyranBossParasite | 0 | ItItches(1121)[CD] | - | - | relic:MawClawsOfThyrax |
-| tyranBossParasiteCE | 0 | ItItches(1121)[CD] | - | - | relic:MawClawsOfThyrax |
-| tyranBossParasiteLHE | 0 | ItItches(1121)[CD] | - | - | relic:MawClawsOfThyrax |
-| tyranBossParasiteSurv | 0 | ItItches(1121)[CD] | - | - | relic:MawClawsOfThyrax |
-| tyranBossTyrantGuard | 0 | CrushingClaws(1105)[CD] | - | - | relic:MawClawsOfThyrax |
-| tyranBossTyrantGuardCE | 0 | CrushingClaws(1105)[CD] | - | - | relic:MawClawsOfThyrax |
-| tyranBossTyrantGuardLHE | 0 | CrushingClaws(1105)[CD] | - | - | relic:MawClawsOfThyrax |
-| tyranBossWingedPrime | 0 | AlphaWarrior(1112)[CD] | - | - | relic:MawClawsOfThyrax |
-| tyranBossWingedPrimeCE | 0 | AlphaWarrior(1112)[CD] | - | - | relic:MawClawsOfThyrax |
-| tyranBossWingedPrimeLEG | 0 | AlphaWarrior(1112)[CD] | - | - | relic:MawClawsOfThyrax |
-| tyranBossWingedPrimeLHE | 0 | AlphaWarrior(1112)[CD] | - | - | relic:MawClawsOfThyrax |
-| tyranBossWingedPrimeSurv | 0 | AlphaWarrior(1112)[CD] | - | - | relic:MawClawsOfThyrax |
-| tyranNpc2RipperSwarm | 0 | Burrowers(1023)[C-] | - | - | - |
-| tyranNpc2RipperSwarmGorgon | 0 | Burrowers(1023)[C-] | - | - | - |
-| tyranNpc2RipperSwarmKronos | 0 | Burrowers(1023)[C-] | - | - | - |
-| tyranNpc2RipperSwarm_SyncPvp_Gorgon | 0 | Burrowers(1023)[C-] | - | - | - |
-| tyranNpc2RipperSwarm_SyncPvp_Kronos | 0 | Burrowers(1023)[C-] | - | - | - |
-| tyranNpc4Warrior | 0 | ScythingTalons(1065)[CD] | - | - | - |
-| tyranNpc4WarriorCE2Gorgon | 0 | ScythingTalons(1065)[CD] | - | - | - |
-| tyranNpc4WarriorCE2Kronos | 0 | ScythingTalons(1065)[CD] | - | - | - |
-| tyranNpc4WarriorSurv | 0 | ScythingTalons(1065)[CD] | - | - | - |
-| tyranNpcDeathleaper | 0 | FearOfTheUnseen(1115)[CD] | - | - | - |
-| tyranNpcNeurothrope | 0 | SpiritLeech(1104)[CD] | - | - | relic:NornCrown |
-| tyranNpcOSDeathleaper | 0 | FearOfTheUnseen(1115)[CD] | - | - | - |
-| tyranNpcOSNeurothrope | 0 | SpiritLeech(1104)[CD] | - | - | relic:NornCrown |
-| tyranNpcOSParasite | 0 | ItItches(1121)[CD] | - | - | relic:MawClawsOfThyrax |
-| tyranNpcOSTyrantGuard | 0 | CrushingClaws(1105)[CD] | - | - | relic:MawClawsOfThyrax |
-| tyranNpcOSWingedPrime | 0 | AlphaWarrior(1112)[CD] | - | - | relic:MawClawsOfThyrax |
-| tyranNpcParasite | 0 | ItItches(1121)[CD] | - | - | relic:MawClawsOfThyrax |
-| tyranNpcTyrantGuard | 0 | CrushingClaws(1105)[CD] | - | - | relic:MawClawsOfThyrax |
-| tyranNpcWingedPrime | 0 | AlphaWarrior(1112)[CD] | - | - | relic:MawClawsOfThyrax |
+| tyranNpcOSTyrantGuard | 1 | CrushingClaws(1105)[CD] | - | Hero | relic:MawClawsOfThyrax |
+| tyranNpcTyrantGuard | 1 | CrushingClaws(1105)[CD] | - | Hero | relic:MawClawsOfThyrax |
 
-### Ultramarines — 25 unites, 7 avec du travail
+### Ultramarines — 25 unites, 25 avec du travail
 
 | unite | manque | actives (face) | passifs non portes | traits non couverts | autres voies |
 |---|---:|---|---|---|---|
-| ultraBossApothecary | 1 | CombatRestoratives(1002)[CD] | - | Healer | - |
-| ultraBossApothecaryLHE | 1 | CombatRestoratives(1002)[CD] | - | Healer | - |
+| ultraBossEliminatorSgt | 3 | MortisRound(1004)[CD] | - | Hero, Overwatch, Infiltrate | - |
+| ultraBossEliminatorSgtCamp | 3 | MortisRound(1004)[CD] | - | Hero, Overwatch, Infiltrate | - |
+| ultraBossEliminatorSgtLHE | 3 | MortisRound(1004)[CD] | - | Hero, Overwatch, Infiltrate | - |
+| ultraBossInceptorSgt | 3 | DeathFromAbove(1003)[CD] | - | Hero, Flying, MkXGravis | relic:RelicBoltPistol |
+| ultraBossInceptorSgtLHE | 3 | DeathFromAbove(1003)[CD] | - | Hero, Flying, MkXGravis | relic:RelicBoltPistol |
+| ultraNpcEliminatorSgt | 3 | MortisRound(1004)[CD] | - | Hero, Overwatch, Infiltrate | - |
+| ultraNpcInceptorSgt | 3 | DeathFromAbove(1003)[CD] | - | Hero, Flying, MkXGravis | relic:RelicBoltPistol |
+| ultraBossApothecary | 2 | CombatRestoratives(1002)[CD] | - | Hero, Healer | - |
+| ultraBossApothecaryLHE | 2 | CombatRestoratives(1002)[CD] | - | Hero, Healer | - |
+| ultraBossCalgar | 2 | GauntletsOfUltramar(1000)[CD] | - | Hero, MkXGravis | - |
+| ultraBossCalgarLHE | 2 | GauntletsOfUltramar(1000)[CD] | - | Hero, MkXGravis | - |
+| ultraNpc1Inceptor | 2 | - | - | Flying, MkXGravis | - |
+| ultraNpc4HeavyIntercessor | 2 | HellfireShells(1080)[CD] | RapidFire | MkXGravis | - |
+| ultraNpc4HeavyIntercessorSurv | 2 | HellfireShells(1080)[CD] | RapidFire | MkXGravis | - |
+| ultraNpcApothecary | 2 | CombatRestoratives(1002)[CD] | - | Hero, Healer | - |
+| ultraNpcCalgar | 2 | GauntletsOfUltramar(1000)[CD] | - | Hero, MkXGravis | - |
+| ultraBossTigurius | 1 | StormOfWrath(1019)[CD] | - | Hero | - |
+| ultraBossTiguriusLHE | 1 | StormOfWrath(1019)[CD] | - | Hero | - |
+| ultraBossTitus | 1 | TacticalPrecision(1154)[CD] | - | Hero | relic:RelicBoltPistol |
+| ultraBossTitusLHE | 1 | TacticalPrecision(1154)[CD] | - | Hero | relic:RelicBoltPistol |
+| ultraBossTitusSurv | 1 | TacticalPrecision(1154)[CD] | - | Hero | relic:RelicBoltPistol |
+| ultraNpc2Eliminator | 1 | - | - | Overwatch | - |
 | ultraNpc3Intercessor | 1 | - | RapidFire | - | - |
-| ultraNpc4HeavyIntercessor | 1 | HellfireShells(1080)[CD] | RapidFire | - | - |
-| ultraNpc4HeavyIntercessorSurv | 1 | HellfireShells(1080)[CD] | RapidFire | - | - |
-| ultraNpcApothecary | 1 | CombatRestoratives(1002)[CD] | - | Healer | - |
 | ultraNpcMoWDreadnought | 1 | DutyEternal(1158)[CD]<br>MacroPlasmaIncinerator(1159)[C-] | - | MachineOfWar | mythic:WisdomOfTheAncients |
-| ultraBossCalgar | 0 | GauntletsOfUltramar(1000)[CD] | - | - | - |
-| ultraBossCalgarLHE | 0 | GauntletsOfUltramar(1000)[CD] | - | - | - |
-| ultraBossEliminatorSgt | 0 | MortisRound(1004)[CD] | - | - | - |
-| ultraBossEliminatorSgtCamp | 0 | MortisRound(1004)[CD] | - | - | - |
-| ultraBossEliminatorSgtLHE | 0 | MortisRound(1004)[CD] | - | - | - |
-| ultraBossInceptorSgt | 0 | DeathFromAbove(1003)[CD] | - | - | relic:RelicBoltPistol |
-| ultraBossInceptorSgtLHE | 0 | DeathFromAbove(1003)[CD] | - | - | relic:RelicBoltPistol |
-| ultraBossTigurius | 0 | StormOfWrath(1019)[CD] | - | - | - |
-| ultraBossTiguriusLHE | 0 | StormOfWrath(1019)[CD] | - | - | - |
-| ultraBossTitus | 0 | TacticalPrecision(1154)[CD] | - | - | relic:RelicBoltPistol |
-| ultraBossTitusLHE | 0 | TacticalPrecision(1154)[CD] | - | - | relic:RelicBoltPistol |
-| ultraBossTitusSurv | 0 | TacticalPrecision(1154)[CD] | - | - | relic:RelicBoltPistol |
-| ultraNpc1Inceptor | 0 | - | - | - | - |
-| ultraNpc2Eliminator | 0 | - | - | - | - |
-| ultraNpcCalgar | 0 | GauntletsOfUltramar(1000)[CD] | - | - | - |
-| ultraNpcEliminatorSgt | 0 | MortisRound(1004)[CD] | - | - | - |
-| ultraNpcInceptorSgt | 0 | DeathFromAbove(1003)[CD] | - | - | relic:RelicBoltPistol |
-| ultraNpcTigurius | 0 | StormOfWrath(1019)[CD] | - | - | - |
+| ultraNpcTigurius | 1 | StormOfWrath(1019)[CD] | - | Hero | - |
 
-### WorldEaters — 5 unites, 0 avec du travail
+### WorldEaters — 5 unites, 5 avec du travail
 
 | unite | manque | actives (face) | passifs non portes | traits non couverts | autres voies |
 |---|---:|---|---|---|---|
-| worldBossEightboundLHE | 0 | OverwhelmingWrath(1141)[CD] | - | - | relic:TalismanOfRage |
-| worldBossExecutionsLHE | 0 | MurderousSwing(1137)[CD] | - | - | relic:TalismanOfRage |
-| worldBossJakhalLHE | 0 | JakhalStimms(1131)[CD] | - | - | relic:TalismanOfRage |
-| worldBossKharnLHE | 0 | KillMaimBurn(1132)[CD] | - | - | - |
-| worldBossTerminatorLHE | 0 | BloodyFury(1129)[CD] | - | - | relic:DaemonfleshPlate |
+| worldBossEightboundLHE | 3 | OverwhelmingWrath(1141)[CD] | - | Hero, Resilient, Unstoppable | relic:TalismanOfRage |
+| worldBossTerminatorLHE | 3 | BloodyFury(1129)[CD] | - | Hero, TeleportStrike, Unstoppable | relic:DaemonfleshPlate |
+| worldBossJakhalLHE | 2 | JakhalStimms(1131)[CD] | - | Hero, Resilient | relic:TalismanOfRage |
+| worldBossExecutionsLHE | 1 | MurderousSwing(1137)[CD] | - | Hero | relic:TalismanOfRage |
+| worldBossKharnLHE | 1 | KillMaimBurn(1132)[CD] | - | Hero | - |
 
