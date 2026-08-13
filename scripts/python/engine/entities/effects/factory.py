@@ -186,7 +186,8 @@ from .loki.votann import (
     AugmentedAssaultReduceArmorEffect, GravitonRifleExtraPierceEffect, PurgeResponseEffect,
     GrimEfficiencyExtraArmorEffect, GrimEfficiencyExtraPierceEffect,            # #959
     PredictiveGuidanceExtraHitsEffect, PredictiveGuidanceMeleeEffect,           # #959
-    PredictiveGuidanceRangedEffect                                              # #959
+    PredictiveGuidanceRangedEffect,                                             # #959
+    BladeOfTheAncestorsBuffEffect                                               # #1001
 )
 from .loki.wall_of_mirrors import WallOfMirrorsEffect
 from .loki.war_howl import WarHowlExtraDamageUnstoppableEffect
@@ -1113,6 +1114,15 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     "HealingBalms_ExtraCritDamage": HealingBalmsExtraCritDamageEffect,   # 0x5df = 1503
     "HealingBalms_ExtraCritChance": HealingBalmsExtraCritChanceEffect,   # 0x5e0 = 1504
     "AncestralFortune_ExtraBlockChance": AncestralFortuneExtraBlockChanceEffect,
+    # 0x5d1 = 1489 `BladeOfTheAncestors_Effect` (#1001) -- le buff crit EMPILABLE de la RELIQUE
+    # `R_Crit_BladeOfTheAncestors` (`votanUthar`). Classe d'effet NATIVE bespoke (base
+    # `IdunBattle.Entities.Effects.BaseEffect`, LUE dans `frida/classes.tsv`) : elle construit
+    # elle-meme ses DEUX `ChangeStat` (CritChance 9 / CritDamage 10, `StatPart` 5), et son
+    # `UpdateInternal`/`RefreshValueInternal` disent l'EMPILEMENT additif. Sans cette entree, la
+    # feuille `AddEffect` du trigger materialiserait un `BaseEffect` NU : l'ability firerait et ne
+    # changerait AUCUNE stat -- exactement le mode de panne #1004 (« l'ability seule = un
+    # `BaseEffect` nu qui n'agit pas »). Cf. entities/effects/loki/votann.py.
+    "BladeOfTheAncestors_Effect": BladeOfTheAncestorsBuffEffect,
     # 0x56f=1391 \ 0x570=1392 (case-231) : MEME patron GENERIQUE que le trio ci-dessus. Lambdas
     # `EffectsDatabase...b__14_400` / `...b__14_401` -> ability 1184 MomentShackle, vars 0x15=21
     # blockChance / 0x14=20 blockDmg, isNegative=0 -> stats 7 BlockChance / 8 BlockDamage sur le

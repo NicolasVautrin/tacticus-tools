@@ -132,6 +132,7 @@
  "tests/engine/runner/test_trigger_ability_channels.py": 0.018,
  "tests/engine/runner/test_triggered_ability_component.py": 0.008,
  "tests/engine/runner/test_turnflow_endturn_flags.py": 0.014,
+ "tests/engine/test_1001_votann_relics_offline.py": 0.786,
  "tests/engine/test_116e_chronometron_gates_offline.py": 0.014,
  "tests/engine/test_218_amulet_custom_utility_vtable.py": 0.395,
  "tests/engine/test_270d_catalog_traits_enum.py": 0.017,
