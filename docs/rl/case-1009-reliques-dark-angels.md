@@ -115,10 +115,29 @@ du cache de metadata les distingue, et ce slot est **non résoluble à froid** �
 `il2cpp_codegen_initialize_runtime_metadata`, et il est **propre à chaque méthode**, donc la
 comparaison inter-méthodes ne tranche rien non plus (contrôle fait : les DAT de
 `DSLTriggers$$IsNormalAttack` sont différents de ceux d'`IsSpecialActiveAbility` alors que la
-classe pourrait être la même). Ce qui EST lu : la FORME `A & !B` sur le canal d'ability, le NOM de
-la méthode DSL, et le fait qu'`IsActiveAbilityTrigger$$ShouldTrigger` **rend `false` sur un
-`Nullable` vide** (branche `if (*pcVar13 == '\0')`). Le port évalue donc `ctx.attack_ability_type` :
-`None` → faux, `NORMAL_ATTACK_KIND` → faux, sinon vrai. Résidu `#1009-r3`.
+classe pourrait être la même).
+
+**LA SÉMANTIQUE, ELLE, EST TRANCHÉE — par l'AUTRE call-site (#1012).** Le prédicat n'a que DEUX
+xrefs dans le binaire : `...Dw02AdvancedBurstCannonAbility$$CreateTrigger` (`NOT
+IsSpecialActiveAbility`) et le `CreateBehaviour` de CETTE relique, dont l'i2 dit mot pour mot
+« These chances are doubled **if the attack is an active ability** ». Donc
+`IsSpecialActiveAbility` = « l'ability déclenchante est une ACTIVE **autre que** l'attaque
+normale ». Seul le NOM PROPRE de `<A>` reste ouvert (résidu `#1009-r3`) — `<B>`, lui, est la classe
+qu'allouent aussi `$$IsNormalAttackOrHealOrRepair` et `$$IsActiveAbilityCountedAsUsed`.
+
+Le port évalue donc TROIS étages, et ce sont **exactement** ceux du foyer impératif d'#1012
+(`dw02_advanced_burst_cannon._is_special_active_ability`) — deux consommateurs du même artefact
+natif ne peuvent pas diverger, l'un déclaratif (le natif met le prédicat dans l'ARBRE ici), l'autre
+impératif (il est dans le TRIGGER là-bas) :
+
+1. canal vide → **faux**, et c'est la réponse NATIVE :
+   `IsActiveAbilityTrigger$$ShouldTrigger` rend `0` sur un `Nullable` vide (branche
+   `if (*pcVar13 == '\0')`). C'est aussi la voie NORMALE du port ;
+2. `NORMAL_ATTACK_KIND` (0x3f5) → **faux**, par le `!` de `<B>` ;
+3. `<A>` exige une **ACTIVE**, pas un id non nul — et **l'ordinal seul ne tranche rien**
+   (`TriggeredAbilityType` et `ActiveAbilityType` partagent 233 valeurs). Le port le lit sur les
+   actives RÉELLEMENT MONTÉES du caster (`UnitContext.active_ability_levels`) ; canal non mesuré →
+   dégradation PERMISSIVE nommée.
 
 ## 4. LE BUG TROUVÉ : le couple TERTIAIRE n'atteignait PAS les owner-effects captés LIVE
 

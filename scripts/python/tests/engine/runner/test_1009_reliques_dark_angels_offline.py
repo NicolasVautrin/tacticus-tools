@@ -195,10 +195,28 @@ def test_les_deux_variables_sont_lues_separement():
 @pytest.mark.parametrize("kind,attendu", [
     (None, False),                       # canal VIDE -> `IsActiveAbilityTrigger` rend false
     (int(NORMAL_ATTACK_KIND), False),    # `& !<TypeB>(sel)` : l'attaque NORMALE n'est pas speciale
-    (1234, True),                        # une active quelconque
+    (1234, True),                        # canal `active_ids` NON MESURE -> permissif (nomme)
 ])
-def test_is_special_active_ability(kind, attendu):
+def test_is_special_active_ability_sans_canal_actives(kind, attendu):
     assert IsSpecialActiveAbility().should_trigger(DslContext(attack_ability_type=kind)) is attendu
+
+
+@pytest.mark.parametrize("kind,attendu", [
+    (None, False),
+    (int(NORMAL_ATTACK_KIND), False),
+    (1150, True),                        # `PlasmaCannon`, MONTEE sur le caster -> `<A>` VRAI
+    (1234, False),                       # id non nul mais PAS une active montee -> `<A>` FAUX
+])
+def test_is_special_active_ability_avec_canal_actives(kind, attendu):
+    """ETAGE `<A>` -- le predicat exige une ACTIVE, pas un id non nul, et **l'ORDINAL SEUL ne
+    tranche rien** (`TriggeredAbilityType` et `ActiveAbilityType` partagent 233 valeurs).
+
+    MEME semantique et MEME substrat (`UnitContext.active_ability_levels`) que le foyer imperatif
+    d'`operations/triggers/loki/dw02_advanced_burst_cannon.py::_is_special_active_ability` (#1012),
+    l'AUTRE des deux seuls call-sites natifs du predicat : deux consommateurs du meme artefact ne
+    peuvent pas diverger."""
+    noeud = IsSpecialActiveAbility(active_ids={1150})
+    assert noeud.should_trigger(DslContext(attack_ability_type=kind)) is attendu
 
 
 # ---------------------------------------------------------------------------------------------

@@ -1602,25 +1602,50 @@ class IsSpecialActiveAbility(AbilityTrigger):
     tranche rien non plus. C'est un RESULTAT de lecture, pas un renoncement : ce qui est LU, c'est
     la FORME `A & !B` sur le canal d'ability, et le NOM de la methode DSL.
 
-    Ce que le port evalue, et pourquoi c'est le seul choix qui ne devine rien :
-      * canal VIDE (`None`) -> **False**. `IdunBattle.Entities.Triggers.IsActiveAbilityTrigger$$
-        ShouldTrigger` resout son selecteur en `Nullable<AbilityOrEffect>` et **rend 0 quand le
-        Nullable est vide** (branche `if (*pcVar13 == '\\0')` du decompile) -- l'absence de canal
-        n'est donc PAS un tri-etat a signaler, c'est la reponse NATIVE.
-      * canal == `NORMAL_ATTACK_KIND` (le marqueur d'attaque normale, 0x3f5) -> **False**, par le
-        `!` du second conjoint : une attaque NORMALE n'est jamais une active << speciale >>.
-      * sinon -> **True**.
+    **CE QUI TRANCHE LA SEMANTIQUE EST L'AUTRE CALL-SITE, ET C'EST UNE MESURE (#1012).** Le
+    predicat n'a que DEUX xrefs dans le binaire : `...Dw02AdvancedBurstCannonAbility$$CreateTrigger`
+    (`NOT IsSpecialActiveAbility`) et `...RelicPowerFistAbility$$CreateBehaviour`, dont l'i2 dit mot
+    pour mot << These chances are doubled **if the attack is an active ability**. >>
+    => `IsSpecialActiveAbility` = << l'ability declenchante est une ACTIVE **autre que** l'attaque
+    normale >>. `<B>` est par ailleurs la classe qu'allouent aussi `$$IsNormalAttackOrHealOrRepair`
+    et `$$IsActiveAbilityCountedAsUsed` (meme slot de metadata) ; `<A>` n'est alloue QUE par cette
+    fonction, donc son NOM PROPRE reste un residu (`#1009-r3`).
 
-    Cote port, `ctx.attack_ability_type` est le MEME canal que celui d'`IsNormalAttack` ci-dessus.
+    Ce que le port evalue -- MEME semantique et MEMES trois degradations que le foyer imperatif
+    d'`operations/triggers/loki/dw02_advanced_burst_cannon.py::_is_special_active_ability`, dont
+    ce noeud est le pendant DECLARATIF (le natif met le predicat DANS l'arbre du behaviour ici, et
+    dans le trigger la-bas) :
+      1. canal VIDE (`None`) -> **False**, et ce n'est PAS un tri-etat a signaler mais la reponse
+         NATIVE : `IdunBattle.Entities.Triggers.IsActiveAbilityTrigger$$ShouldTrigger` resout son
+         selecteur en `Nullable<AbilityOrEffect>` et **rend 0 quand le Nullable est vide** (branche
+         `if (*pcVar13 == '\\0')`). C'est aussi la voie NORMALE du port (`dispatch/attack.py` ne
+         thread `ability_type` que sur la voie ABILITY) ;
+      2. canal == `NORMAL_ATTACK_KIND` (0x3f5) -> **False**, par le `!` de `<B>` ;
+      3. `<A>` demande que ce soit une **ACTIVE**, pas seulement un id non nul -- et l'ORDINAL SEUL
+         ne tranche rien (`TriggeredAbilityType` et `ActiveAbilityType` partagent 233 valeurs). Le
+         port le lit donc sur les actives REELLEMENT MONTEES du caster (`active_ids`, seede depuis
+         `UnitContext.active_ability_levels`). `active_ids = None` = canal NON MESURE -> le noeud
+         ne PROUVE pas que c'en est une, et se degrade en `!= NORMAL_ATTACK_KIND` : PERMISSIF,
+         exactement comme la degradation 3 du foyer imperatif.
+
     Consommateur : `...RelicPowerFistAbility$$CreateBehaviour` (#1009), qui DOUBLE ses deux chances
-    quand ce trigger est vrai -- exactement le << These chances are doubled if the attack is an
-    active ability >> de l'i2."""
+    quand ce trigger est vrai."""
+
+    def __init__(self, active_ids=None):
+        #: `{ActiveAbilityType}` REELLEMENT montees sur le caster (etage 3 ci-dessus). `None` =
+        #: canal non mesure -> degradation PERMISSIVE nommee, jamais un blocage invente.
+        self.active_ids = None if active_ids is None else {int(a) for a in active_ids}
+
     def should_trigger(self, ctx):
         from ..runner.abilities.attack_type import NORMAL_ATTACK_KIND
         kind = getattr(ctx, "attack_ability_type", None)
         if kind is None:
-            return False                       # `Nullable` vide -> `IsActiveAbilityTrigger` = false
-        return int(kind) != int(NORMAL_ATTACK_KIND)     # `& !<TypeB>(sel)`
+            return False                       # 1. `Nullable` vide -> `IsActiveAbilityTrigger` faux
+        if int(kind) == int(NORMAL_ATTACK_KIND):
+            return False                       # 2. `& !<TypeB>(sel)`
+        if self.active_ids is None:
+            return True                        # 3. canal non mesure -> permissif (nomme)
+        return int(kind) in self.active_ids    # 3. `<TypeA>(sel)` : c'est bien une ACTIVE montee
 
 
 class IsAdjacent(AbilityTrigger):

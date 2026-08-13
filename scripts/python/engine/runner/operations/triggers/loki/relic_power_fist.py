@@ -131,7 +131,7 @@ PINNED = int(EffectType.Pinned)        # 0x429 = 1065 (<< Suppress >> cote i2)
 STUNNED = int(EffectType.Stunned)      # 0x48a = 1162
 
 
-def relic_power_fist_behaviour_tree(chance: int, chance_2: int):
+def relic_power_fist_behaviour_tree(chance: int, chance_2: int, active_ids=None):
     """`...RelicPowerFistAbility$$CreateBehaviour` -- MIRROR 1:1 (cf. l'en-tete du module).
 
     `chance` / `chance_2` = les deux `ConfigVar`, resolus par l'appelant contre l'`AbilityState`
@@ -141,8 +141,12 @@ def relic_power_fist_behaviour_tree(chance: int, chance_2: int):
 
     Le `ConditionalAmount(IsSpecialActiveAbility(), Double(c), c)` reste un NOEUD : le doublement
     ne se pre-calcule pas cote appelant, parce que sa condition depend de l'EVENEMENT (le canal
-    `attack_ability_type` du `DslContext`), pas de l'`AbilityState`."""
-    special = IsSpecialActiveAbility()
+    `attack_ability_type` du `DslContext`), pas de l'`AbilityState`.
+
+    `active_ids` = les `ActiveAbilityType` REELLEMENT montees sur le porteur -- l'etage `<A>` du
+    predicat, cf. sa docstring. `None` = canal non mesure -> degradation PERMISSIVE nommee, la
+    MEME que celle du foyer imperatif d'`dw02_advanced_burst_cannon._is_special_active_ability`."""
+    special = IsSpecialActiveAbility(active_ids)
     a_final = ConditionalAmount(special, Double(Const(int(chance))), Const(int(chance)))
     b_final = ConditionalAmount(special, Double(Const(int(chance_2))), Const(int(chance_2)))
     return op_and(
@@ -204,17 +208,39 @@ class RelicPowerFistAbility(TriggeredAbility):
         # `entities_from_state` : le foyer est PARTAGE par toutes les feuilles, et ce canal n'est
         # lu que par ce noeud-ci.
         entities = _with_attack_ability_type(entities, ev.ability_type)
-        relic_power_fist_behaviour_tree(chance, chance_2).execute(entities, ectx)
+        relic_power_fist_behaviour_tree(chance, chance_2,
+                                        active_ids=_active_ability_ids(state, self.owner_id)
+                                        ).execute(entities, ectx)
         posees = [p for n, p in ectx.emitted if n == "AddEffect"]
         if not posees:
             return None
         return {"relic": ABILITY_ID, "owner": int(self.owner_id),
                 "target": (int(ev.target_id) if ev.target_id is not None else None),
                 "chance": int(chance), "chance_2": int(chance_2),
-                "special": bool(IsSpecialActiveAbility().should_trigger(entities)),
+                "special": bool(IsSpecialActiveAbility(
+                    _active_ability_ids(state, self.owner_id)).should_trigger(entities)),
                 "effects": [{"type": p.get("effect_type"), "name": p.get("name"),
                              "target": p.get("target"), "placed": p.get("placed")}
                             for p in posees]}
+
+
+def _active_ability_ids(state: State, owner_id):
+    """Les `ActiveAbilityType` REELLEMENT montees sur le porteur -- l'etage `<A>` du predicat
+    `IsSpecialActiveAbility` (cf. sa docstring dans `entities/triggers.py`).
+
+    Substrat : `UnitContext.active_ability_levels` (`{ActiveAbilityType: (level, mult)}`), seede
+    par `snapshot._load_active_ability_levels` depuis le canal `unitAbilityStates`. C'est le MEME
+    substrat que le foyer imperatif d'`dw02_advanced_burst_cannon._is_special_active_ability` --
+    les deux consommateurs du MEME predicat natif ne peuvent donc pas diverger.
+
+    `None` = canal NON MESURE (`State` nu, capture rejouee sans transport) -> le noeud se degrade
+    en `!= NORMAL_ATTACK_KIND`, PERMISSIF et nomme."""
+    from ....components import StatsComponent
+    ent = state.get_entity(int(owner_id)) if owner_id is not None else None
+    sc = ent.get_component(StatsComponent) if ent is not None else None
+    ctx = getattr(sc, "ctx", None) if sc is not None else None
+    levels = getattr(ctx, "active_ability_levels", None) if ctx is not None else None
+    return set(levels) if levels else None
 
 
 def _with_attack_ability_type(entities, ability_type):
