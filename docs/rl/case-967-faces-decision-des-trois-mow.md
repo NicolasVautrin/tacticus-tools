@@ -197,3 +197,94 @@ kustom-force-field, collapses impératifs, faces décision #957/#979/#967, règl
 **Résidu ouvert** : **#967-r10** — le filtre **MUR** (`tileComponent+0x41`, première ligne
 d'`IsTileValidForList`, indépendante de `checkWalkable`) n'est porté pour **aucune** valeur du
 paramètre. Il toucherait les 7 call-sites d'un coup, donc il se mesure séparément.
+→ **FERMÉ**, section suivante.
+
+## #967-r10 — FERMÉ : le mur est filtré AVANT `checkWalkable`, et les deux octets voisins ne sont pas ceux qu'on croyait
+
+**La chaîne, relue maillon par maillon** — l'énoncé du résidu ne citait que le *dernier*, et une
+citation qui saute un étage est exactement ce qui a fait porter #948-r1 sur le mauvais symbole :
+
+```
+IdunBattle.Entities.Selectors.SurroundingTilesSelector$$Select
+  -> slot 102 d'IBattleQuery = IterateSurroundingTiles   (metadata/interface_slots.tsv)
+     avec checkWalkable = (this+0x29 == 0)               <- le mapping d'includeNonWalkable (#967-r2)
+  -> IdunBattle.Core.Services.BattleQuery.u003CIterateSurroundingTilesu003Ed__117$$MoveNext
+  -> ITileQuery
+  -> IdunBattle.Core.Services.TileQuery.u003CIterateSurroundingTilesu003Ed__6$$MoveNext
+     (triple boucle cube ascendante ; IsTileValidForList(tile, originTile, checkWalkability,
+      checkElevation: 0))
+  -> IdunBattle.Core.Services.TileUtil$$IsTileValidForList
+```
+
+et le corps du maillon terminal :
+
+```
+if (tileComponent+0x41 != '\0')   return false            # MUR — avant tout test de walkability
+if (checkWalkability == '\0')     return tileComponent+0x40 == '\0'
+else                              IsWalkable(tile, checkFog: 1) && ...
+```
+
+**L'IDENTITÉ DES DEUX OCTETS a dû être LUE, pas déduite** — ils sont adjacents, donc les confondre
+ne lève rien, et le dépôt les avait **inversés** :
+
+| octet | ce qu'il est | fonction qui le PROUVE |
+|---|---|---|
+| `+0x41` | `IsWall` | `IdunBattle.Entities.Pathfinding.FlyPathfinder$$IsAnyAdjacentTileWall` rend `true` sur `*(char*)(comp+0x41) != 0`, et rien d'autre |
+| `+0x40` | `IsInFogOfWar` | `IdunBattle.Entities.TileExtensions$$IsInFogOfWar` rend **exactement** `*(byte*)(comp+0x40)` |
+
+`engine/runner/abilities/astramilitarum.py` écrivait l'inverse (« `+0x40` est le champ que
+`TileExtensions$$IsWalkable` lit comme MUR », et en résidu « `+0x41` n'a aucun substrat offline
+distinct »). Son **comportement** était juste — il filtre `isWall`, qui *est* `+0x41` — mais sa
+prose désignait le mauvais octet ; prose corrigée, code inchangé.
+
+**Le fix** : `_is_wall` dans le nœud, appliqué **inconditionnellement**, en amont du gate
+walkable. Substrat = la clé `isWall` du `boardGraph` (`match-state.ts`, `COMP_FIELD.tileIsWall`).
+
+**Pourquoi PAS `Board.is_wall()`**, dont le repli documenté est `not walkable` : ce repli **fond
+les deux axes**. Mesuré — `C3_01` porte **14** tuiles `walkable=False` / `isWall=False`
+(Block/Water), et `C6_06` en porte **5** : l'emprunter les aurait retirées du disque, alors que le
+natif les **garde** sous `includeNonWalkable = 1`. Clé absente ⇒ gate **inerte**, jamais un `False`
+fabriqué depuis une non-mesure.
+
+**Témoin NON NUL** (`probe_967r10_murs_du_disque.py`, 4 boards, boardGraph live) :
+
+| board | tuiles | `isWall & !walkable` | `isWall & walkable` | `!isWall & !walkable` | r=1 centres/retirées | r=2 |
+|---|---|---|---|---|---|---|
+| MC1_67 | 63 | 0 | 0 | 1 | 0/0 | 0/0 |
+| C3_01 | 63 | 0 | 0 | **14** | 0/0 | 0/0 |
+| C1_74 | 63 | 0 | 0 | 3 | 0/0 | 0/0 |
+| **C6_06** | 63 | **13** | 0 | 5 | **36/72** | **54/206** |
+
+Les murs ne vivent que sur les boards **Space Hulk** : `HulkWall` = **168** tuiles réparties sur
+**17** boards `C6_*` dans la BC (`data/boards/`), zéro ailleurs. Une mesure faite sur les boards
+usuels (`MC1_67`, `C3_01`, `C1_74`) rend donc un **témoin nul parfaitement crédible** — c'est ce
+qui a failli faire conclure « inerte ».
+
+**Ce qui reste NON COUVERT, et c'est le point honnête de cette fermeture.** L'écart de **72 tuiles
+sur 36 disques** est mesuré **au nœud**. En aval, la plupart des consommateurs le **neutralisent**
+déjà : `CanAddUnit` filtre `walkable` (donc les 13 murs de `C6_06`, tous `walkable=False`) —
+c'est le cas d'`orks`/SquigMine et des deux `wall_of_mirrors` ; `Units(tiles)` ne peut rendre
+aucune unité posée sur un mur (`living_lightning`) ; et `sisterhood`/1187 arme déjà le gate
+walkable. **Le seul call-site où l'écart est observable est `darkangels`/1213
+`DeathOnTheWindAbility$$GetMachineAttackTiles`** : son `ring` alimente
+`SortByFormula → PickFirstN(1)`, c'est-à-dire le **choix de direction** de la ligne d'attaque, sans
+aucun filtre walkable en aval — et 1213 est précisément celui qui passe `includeNonWalkable = 1`.
+Une tuile mur pouvait donc **gagner le tri** et faire tirer la ligne dans une direction que le
+natif refuse.
+
+**Montage exact pour la confronter** (non joué, budget) : `C6_06` (13 murs), MoW dark angels,
+cible placée adjacente à au moins un `HulkWall`, et une géométrie où ce mur maximise
+`Count(Enemies(Units(GetTilesInLine())))` — le discriminant est la **direction retenue**, relevée
+des deux côtés, jamais un total.
+
+**Garde** : `tests/engine/entities/test_967r10_surrounding_tiles_walls_offline.py`, 7 étages, vue
+ROUGE avant fix sur 4 discriminants (mur sous chacune des deux valeurs d'`includeNonWalkable`,
+indépendance des deux axes, centre mur). Deux étages sont là pour empêcher la *sur*-correction :
+`test_les_deux_axes_sont_independants_non_walkable_reste` (Block/Water restent) et
+`test_gate_inerte_si_le_board_ne_publie_pas_iswall`.
+
+**Résidu ouvert** : **#967-r11** — le **FOG** (`+0x40`), testé par les **deux** branches du natif
+(`return tileComponent+0x40 == 0` quand `checkWalkability == 0`, `IsWalkable(tile, checkFog: 1)`
+sinon), donc coupant lui aussi quelle que soit la valeur d'`includeNonWalkable`. La clé `isInFog`
+existe côté hook (`rpc-board.ts`) et est lue par `engine/ai/context.py`, mais `Board` ne l'expose
+par aucun accesseur et elle n'est pas confrontée ici : gate inerte, dit comme tel.

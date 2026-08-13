@@ -285,16 +285,51 @@ class SurroundingTiles(TargetsSelector):
     parametre ne peut donc rien changer a un call-site qui ne le nomme pas. Chaque call-site qui
     passe `False` doit avoir son litteral `0` LU au decompile -- jamais deduit du nom de l'ability.
 
-    ⚠ RESIDU DISTINCT, et il n'est PAS ferme ici : la premiere ligne d'
-    `IdunBattle.Core.Services.TileUtil$$IsTileValidForList` rejette les MURS (`tileComponent+0x41`)
-    **quelle que soit** `checkWalkable`. Ce noeud ne filtre toujours pas les murs, pour AUCUNE
-    valeur du parametre -- corriger ce point-la toucherait les 7 call-sites portes d'un coup, donc
-    il se mesure separement."""
+    ⚠ Le filtre MUR est un axe SEPARE, et il est INCONDITIONNEL (#967-r10, ferme) : la premiere
+    ligne d'`IdunBattle.Core.Services.TileUtil$$IsTileValidForList` rejette `tileComponent+0x41`
+    **avant** le test `checkWalkable`, donc `includeNonWalkable` ne le desarme PAS. Voir
+    `_is_wall` ci-dessous pour l'identite LUE des deux octets voisins (`+0x41` = `IsWall`,
+    `+0x40` = `IsInFogOfWar`) et pour le substrat.
+
+    ⚠ RESIDU encore OUVERT sur ce meme maillon : le FOG (`tileComponent+0x40`). Le natif le teste
+    dans les DEUX branches -- `return tileComponent+0x40 == 0` quand `checkWalkability == 0`, et
+    `IsWalkable(tile, checkFog: 1)` sinon. Aucun substrat n'est lu ici (la cle `isInFog` existe
+    cote hook mais n'est pas confrontee), donc ce gate reste INERTE."""
     def __init__(self, center: TargetsSelector, radius: TargetsSelector, include_center: bool = False,
                  include_non_walkable: bool = True):
         self.center, self.radius = center, radius
         self.include_center = bool(include_center)
         self.include_non_walkable = bool(include_non_walkable)
+
+    def _is_wall(self, board, tid) -> bool:
+        """PREMIERE ligne d'`IdunBattle.Core.Services.TileUtil$$IsTileValidForList` (#967-r10) :
+
+            if (*(char *)(tileComponent + 0x41) != '\\0')  return false      # MUR
+
+        Elle est en AMONT du test `checkWalkability`, donc le filtre MUR est **INCONDITIONNEL** :
+        `includeNonWalkable = 1` desarme la marchabilite (`_walkable` ci-dessous), JAMAIS le mur.
+        C'est ce que le disque `hexgeo.disk` PUR d'avant ignorait, pour les 6 call-sites portes.
+
+        `+0x41` est bien `IsWall`, LU et non deduit du voisinage des deux octets :
+        `IdunBattle.Entities.Pathfinding.FlyPathfinder$$IsAnyAdjacentTileWall` rend `true` sur
+        `*(char*)(comp+0x41) != 0` et rien d'autre. L'octet VOISIN `+0x40`, lui, est
+        `IsInFogOfWar` (`IdunBattle.Entities.TileExtensions$$IsInFogOfWar` rend EXACTEMENT ce
+        byte) -- il est teste par les DEUX branches du natif et n'a pas de substrat ici : residu
+        distinct, non porte.
+
+        Substrat = la cle `isWall` du `boardGraph` (`frida/hooks/game/match-state.ts`, champ
+        `COMP_FIELD.tileIsWall`), DISTINCTE de `walkable`. On ne passe PAS par `Board.is_wall()`,
+        dont le repli documente est `not walkable` : ce repli FOND les deux axes, et l'emprunter
+        retirerait des tuiles `Block`/`Water` (`walkable=False`, `isWall=False`) que le natif
+        GARDE -- le GROUND TRUTH d'`engine/runner/abilities/astramilitarum.py` le mesure (board
+        `C3_01`, 14 tuiles dans ce cas, dont une recoit un obus en live).
+
+        Cle ABSENTE -> `False` (gate INERTE) : jamais un `True` fabrique depuis une NON-MESURE,
+        meme doctrine que `_walkable`."""
+        t = board.by_id.get(tid) if hasattr(board, "by_id") else None
+        if not isinstance(t, dict) or "isWall" not in t:
+            return False
+        return bool(t["isWall"])
 
     def _walkable(self, board, tid) -> bool:
         """Branche `checkWalkable` d'`IdunBattle.Core.Services.TileUtil$$IsTileValidForList`.
@@ -340,6 +375,10 @@ class SurroundingTiles(TargetsSelector):
                 for (col, row) in hexgeo.disk(c[0], c[1], r):
                     t = board.id_at(col, row)
                     if t is None or t in seen:
+                        continue
+                    # `if (tileComponent+0x41 != 0) return false` -- INCONDITIONNEL, en AMONT du
+                    # test `checkWalkability` (#967-r10).
+                    if self._is_wall(board, t):
                         continue
                     # `checkWalkable = (includeNonWalkable == 0)` -- cf. l'en-tete de classe.
                     if not self.include_non_walkable and not self._walkable(board, t):
