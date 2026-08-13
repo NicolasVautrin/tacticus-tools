@@ -419,9 +419,24 @@ def attempted_possession_custom_utility(state: "State", caster_id: int):
 
     ⚠ `input+0` = l'ACTEUR (l'unite possedee) et `input+8` = le CASTER : c'est l'ordre du
     `AbilityEntities` que le behaviour construit par acteur. Les intervertir ferait chercher la
-    cible preferee DU CASTER pour chaque possede."""
-    def _utility(st, actor_id):
-        tgt = attempted_possession_preferred_target(st, int(caster_id), int(actor_id))
+    cible preferee DU CASTER pour chaque possede.
+
+    ⚠ **`input+8` VIENT DU CANAL `utilityEntity`, PAS DE LA FERMETURE (#590-r9).** Le natif ne
+    capture rien : `input` est le `ValueTuple(Item1 = acteur, Item2 = <utilityEntity resolu>)` que
+    `IdunBattle.Entities.Behaviours.PerformAIAbilityUnitBehaviour$$Execute` construit depuis le
+    champ `+0x80` de la feuille (resolu UNE fois par le slot 1 d'`ITargetsSelector`). Ce corps
+    declare donc un TROISIEME parametre -- c'est ce que `PerformAIAbility._accepte_utility_entity`
+    teste pour alimenter le canal (#590-r4). Le `caster_id` capture au call-site n'est plus la
+    SOURCE, seulement le **repli nomme** quand le canal rend `None` (aucun selecteur `+0x80`, ou
+    selecteur qui ne resout sur aucune unite) : sans lui ce corps rendrait `None`, donc AUCUNE
+    contrainte de cible -- une degradation PERMISSIVE, exactement ce qu'on ne veut pas.
+    ⚠ **Aucun temoin ne peut distinguer les deux regimes sur `1101`** : son arbre cable
+    `utilityEntity = Owner@sel+0x30`, qui resout au caster -- la reparation est VALUE-PRESERVANTE
+    sur le seul call-site porte, et c'est une reparation de CANAL, pas de valeur. Elle deviendrait
+    observable le jour ou un call-site passerait autre chose que l'owner en `+0x80`."""
+    def _utility(st, actor_id, utility_entity_id=None):
+        ref = caster_id if utility_entity_id is None else utility_entity_id
+        tgt = attempted_possession_preferred_target(st, int(ref), int(actor_id))
         return None if tgt is None else {int(tgt)}
     return _utility
 

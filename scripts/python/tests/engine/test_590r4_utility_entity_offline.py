@@ -219,3 +219,63 @@ def test_le_call_site_1101_passe_Owner_et_son_consommateur_le_recoit_en_caster()
            if type(f).__name__ == "PerformAIAbility"]
     assert len(ais) == 1, "un seul `PerformAIAbility` dans l'arbre de 1101"
     assert isinstance(ais[0].utility_entity, Owner), "utilityEntity = Owner@sel+0x30"
+
+
+# ------------------- etage 5 : le consommateur de 1101 LIT le canal (#590-r9)
+def test_le_consommateur_1101_declare_le_TROISIEME_parametre():
+    """Sans ce parametre, la feuille appelle a DEUX arguments (`_accepte_utility_entity` rend
+    `False`) et le canal `+0x80` reste POSE et NON LU -- le court-circuit que #590-r9 nomme."""
+    from engine.runner.abilities.behaviours.ai_control import PerformAIAbility
+    from engine.runner.abilities.loki.attempted_possession import (
+        attempted_possession_custom_utility)
+
+    cu = attempted_possession_custom_utility(state=None, caster_id=7)
+    assert PerformAIAbility._accepte_utility_entity(cu), \
+        "le delegue `+0x90` de 1101 doit accepter `Item2` du ValueTuple"
+
+
+def test_le_consommateur_1101_prend_son_caster_DANS_le_canal_pas_dans_sa_fermeture(monkeypatch):
+    """`GetPreferredAttackTarget(this, input+8, input+0)` : `input+8` est l'`utilityEntity` RESOLU,
+    pas une valeur capturee. La fermeture ne doit plus etre la SOURCE."""
+    import engine.runner.abilities.loki.attempted_possession as ap
+
+    vus = []
+    monkeypatch.setattr(ap, "attempted_possession_preferred_target",
+                        lambda st, caster_id, possessed_id: vus.append((caster_id, possessed_id)))
+
+    cu = ap.attempted_possession_custom_utility(state=None, caster_id=7)
+    cu(object(), 11, 42)
+    assert vus == [(42, 11)], \
+        "le `caster` vient du canal (42), pas du `caster_id` capture au call-site (7)"
+
+
+def test_le_repli_sur_la_fermeture_est_NOMME_et_ne_s_arme_que_sur_None(monkeypatch):
+    """Degradation NOMMEE : aucun `utilityEntity` resolu -> on retombe sur le caster du call-site.
+    Rendre `None` ferait sauter TOUTE contrainte de cible (degradation PERMISSIVE)."""
+    import engine.runner.abilities.loki.attempted_possession as ap
+
+    vus = []
+    monkeypatch.setattr(ap, "attempted_possession_preferred_target",
+                        lambda st, caster_id, possessed_id: vus.append((caster_id, possessed_id)))
+
+    cu = ap.attempted_possession_custom_utility(state=None, caster_id=7)
+    cu(object(), 11, None)
+    assert vus == [(7, 11)], "canal muet -> repli sur le caster capture, jamais un abandon"
+
+
+def test_le_canal_traverse_la_feuille_jusqu_au_consommateur_de_1101(feuille, monkeypatch):
+    """Garde de BOUT EN BOUT : c'est la composition feuille + consommateur qui etait cassee, pas
+    l'une des deux moities. La feuille resout `+0x80` et le consommateur en fait son `caster`."""
+    import engine.runner.abilities.loki.attempted_possession as ap
+
+    vus = []
+    monkeypatch.setattr(ap, "attempted_possession_preferred_target",
+                        lambda st, caster_id, possessed_id: vus.append((caster_id, possessed_id)))
+
+    acteurs = [{"id": 11}, {"id": 12}]
+    noeud = feuille.PerformAIAbility(
+        _SelFixe(acteurs), utility_entity=_SelFixe({"id": 42}),
+        custom_utility=ap.attempted_possession_custom_utility(state=None, caster_id=7))
+    noeud.execute(_Ctx(acteurs), _Ectx(state=object()))
+    assert vus == [(42, 11), (42, 12)], \
+        "chaque acteur interroge le MEME utilityEntity resolu, pas le caster capture"
