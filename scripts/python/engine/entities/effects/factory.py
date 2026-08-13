@@ -18,6 +18,7 @@ from .loki.maw_claws_of_thyrax import MawClawsOfThyraxExtraCritDmgEffect
 from .loki.nether_realm_casket import NetherRealmCasketCritDamageReductionEffect
 from .loki.norn_crown import NornCrownEffect
 from .loki.ramshackle import RamshackleDmgReductionEffect
+from .loki.revealed import RevealedEffect                    # #1033 (1219, pose par 1107 Reveal)
 from .loki.supa_cybork_body import SupaCyborkBodyCritDmgReductionEffect
 from .loki.talisman_of_rage import TalismanOfRageCritDamageReductionEffect
 from .loki.blood_chalice import BloodChaliceExtraPiercingEffect, BloodChaliceHealOnAttackEffect
@@ -548,6 +549,17 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # attaques RANGED d'un attaquant T'AU (IdunBattle.Entities.Effects.Loki.MarkerlightEffect$$CreateDamageModifier ForPercentIncrease, gates OwnerIsTarget &
     # HasFaction(T'au) & IsRangedAttack). Retrait au heal/repair NON porté (flag). #61bis.
     "Markerlight": MarkerlightEffect,
+    # Revealed (1219, pose sur la CIBLE par l'active 1107 `Reveal` d'`eldarNpc2Warlock`) :
+    # +extraDmgPct% (=33, CONSTANTE de config, aucun niveau a resoudre) au degat RECU des attaques
+    # d'un attaquant AELDARI **ennemi du porteur** -- `IdunBattle.Entities.Effects.Loki.
+    # RevealedEffect$$CreateEffectDamageMalusForDefense` = `ForPercentIncrease(get_OwnerIsTarget &
+    # AreEnemies(Owner@+0x30, Actor@+0x40, 0) & HasFaction(Actor@+0x40, 8 = Aeldari, 3),
+    # GetNumberConstant(0xf))`. AUCUN gate de nature de coup (contraste Markerlight, qui exige
+    # `IsRangedAttack`). Face NATIVE = **defender** (base `BaseEffect`, slot 0x1a implemente
+    # DIRECTEMENT) -- l'INVERSE de Markerlight, qui passe par le forwarder de
+    # `DamageModifierAbilityEffect`. Canal COUPS (`ForReset`, « ignore hit reductions ») NON porte,
+    # residu `#1033-r1`. #1033.
+    "Revealed": RevealedEffect,
     # MV71SniperDroneSquad (Sho'syl, #61bis) — paire posée sur le DRONE par l'ability 1076 :
     # InitialDmg (1132) = OVERRIDE des 4 stats du drone (ATTACK/CRIT_CHANCE/CRIT_DAMAGE/EXTRA_HITS) aux
     # valeurs CURRENT du PARENT (IdunBattle.Entities.Effects.Loki.MV71SniperDroneSquad_InitialDmgEffect$$ApplyInternal, part 7 SetOverride modifiable) ; ResetInitialDmg (1133) =

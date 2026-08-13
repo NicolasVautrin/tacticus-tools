@@ -545,6 +545,13 @@ ABILITY_ATTACK_TYPE: dict[int, int] = {
     # `TARGETING_OPTIONS` sur la classe du registre) puis finit par
     # `AActiveAbility..ctor(this, &opts, 2)` -> 3e argument = 2 = Others. TRANSCRIT.
     ActiveAbilityType.ExemplarOfTheMontka: AbilityAttackType.Others,  # 1210
+    # Reveal (1107, `eldarNpc2Warlock`). Litteral LU aux OCTETS du ctor, jamais deduit du fait que
+    # le cast ne frappe personne : `IdunBattleLogic.Entities.Abilities.Active.Loki.RevealAbility$$
+    # .ctor` recopie le PRESET `<TargetingOptions statics>+0x180` puis appelle la surcharge
+    # PRESET+FLAGS `TargetingOptions..ctor(&opts, &preset, 0x6000002)` (masque EFFECTIF `0x6004002`,
+    # `TARGETING_OPTIONS` sur la classe du registre) et finit par
+    # `AActiveAbility..ctor(this, &opts, 2)` -> 3e argument = 2 = Others. TRANSCRIT. (#1033)
+    ActiveAbilityType.Reveal: AbilityAttackType.Others,  # 1107
     ActiveAbilityType.Repair: AbilityAttackType.Others,  # 28 RepairAbility (derivee du trait Mechanic)
     # Heal (18, derivee du trait `Healer`) -- #931-r1. Litteral RELU sur son ctor, jamais deduit du
     # voisin `28 Repair` ni du fait que le cast ne frappe personne :

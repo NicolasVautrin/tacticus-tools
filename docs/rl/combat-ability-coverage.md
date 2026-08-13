@@ -8,10 +8,11 @@ Le runner combat route chaque ability choisie via `ActiveAbilityMessage` -> `Abi
 
 ## Bilan
 
-- ActiveAbilityType castables par les unites : **175** distinct
-- **PORTED** (dans `ABILITY_CLASSES`) : **167**
-- **NO-OP silencieux** (a porter) : **8**
-- Ventilation NO-OP : **DAMAGE**=5, **EFFECT/BUFF**=2, **SUMMON**=1
+- Noms distincts en `activeAbilities` (gameconfig) : **175**
+- dont resolus en `ActiveAbilityType` : **174** ; **HORS `ActiveAbilityType`** : **1** (cf. la section dediee -- ni portes ni no-op)
+- **PORTED** (dans `ABILITY_CLASSES`) : **168**
+- **NO-OP silencieux** (a porter) : **6**
+- Ventilation NO-OP : **DAMAGE**=4, **EFFECT/BUFF**=1, **SUMMON**=1
 
 ## Priorisation & templates de port
 
@@ -30,20 +31,31 @@ Le runner combat route chaque ability choisie via `ActiveAbilityMessage` -> `Abi
 
 Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 
-## NO-OP SILENCIEUX en combat (a porter, tries categorie puis frequence) (8)
+> ⚠ **UN NOM D'`activeAbilities` QUI N'EST PAS UN `ActiveAbilityType` N'EST PAS UN NO-OP -- ET CET AUDIT L'A COMPTE COMME TEL (#1033).** Le generateur resolvait le nom dans le SEUL `ACTIVE_ABILITY_TYPE` ; un nom absent rendait `aid = None`, donc `None in ABILITY_CLASSES` = `False`, donc « NO-OP silencieux » -- avec un id affiche `?`, seule trace du probleme. Or les deux etats sont DIFFERENTS : un no-op silencieux est un id d'`ActiveAbilityType` **absent du registre** (portable : il suffit d'y inscrire une classe) ; un nom hors enum n'a **aucune cle a inscrire**, et aucun `ActiveAbilityMessage` ne peut le designer. Le porter etait impossible, pas difficile.
+>
+> La cause est l'**INVERSION DE VOIE** documentee au CLAUDE.md : le gameconfig range certains noms dans la mauvaise liste. La colonne dit donc l'enum REEL (lu par NOM, jamais par la voie ni par l'ordinal -- `TriggeredAbilityType` partage 233 ordinaux avec `ActiveAbilityType`, dont 231 nomment autre chose) et si cette face-la est PORTEE, ce qui est la vraie question de couverture.
+>
+> L'etat **`INCONNU`** (nom d'AUCUN enum) reste, lui, un signal a investiguer : il voudrait dire que le gameconfig et le build ont diverge.
+
+
+## HORS `ActiveAbilityType` -- inversions de voie (NI portees NI no-op) (1)
+
+| id | ability | categorie | #units | kinds |
+|---|---|---|---|---|
+| ? | Maugetar | TriggeredAbilityType(1498) PORTEE via `RELIC_ABILITY_TRIGGERS` [kit: DAMAGE(DirectDamage)] | 1 | N |
+
+## NO-OP SILENCIEUX en combat (a porter, tries categorie puis frequence) (6)
 
 | id | ability | categorie | #units | kinds |
 |---|---|---|---|---|
 | 1015 | PrecisionShot | DAMAGE(Energy) | 2 | NS |
 | 1215 | InstrumentsOfVengeance | DAMAGE(HeavyRound) | 1 | N |
-| ? | Maugetar | DAMAGE(DirectDamage) | 1 | N |
 | 1193 | NovaCharge | DAMAGE(Particle) | 1 | N |
 | 1094 | TheLantern | DAMAGE(Energy) | 1 | N |
 | 1053 | DevoutPush | EFFECT/BUFF | 2 | NS |
-| 1107 | Reveal | EFFECT/BUFF | 1 | N |
 | 1052 | CallRipperSwarms | SUMMON | 1 | N |
 
-## PORTED (registry) (167)
+## PORTED (registry) (168)
 
 | id | ability | categorie | #units | kinds |
 |---|---|---|---|---|
@@ -179,6 +191,7 @@ Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 | 1163 | BlackRage | EFFECT/BUFF | 1 | L |
 | 1032 | Catalyst | EFFECT/BUFF | 1 | N |
 | 1203 | DaemonicPatrons | EFFECT/BUFF | 1 | L |
+| 1107 | Reveal | EFFECT/BUFF | 1 | N |
 | 1211 | RitesOfMorkai | EFFECT/BUFF | 1 | L |
 | 1151 | TheQuickening | EFFECT/BUFF | 1 | L |
 | 1106 | WarHowl | EFFECT/BUFF | 1 | L |
