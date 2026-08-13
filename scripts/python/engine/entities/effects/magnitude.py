@@ -147,6 +147,11 @@ def ability_var(ability_id: str, var_key: str, level: int | None = None,
     a = _GC.ability(ability_id) or {}
     if is_constant:
         v = _lookup_config_key(a.get("constants") or {}, var_key)
+        # ⚠ Axe NUMERIQUE : une constante de type CHAINE (`affectedUnitId`, `affectedUnitIds`...)
+        # leve `ValueError` ici, et c'est VOULU -- `ability_const_str` est l'accesseur a utiliser.
+        # Le natif a lui aussi DEUX foyers distincts (`IdunBattle.Configuration.
+        # AbilityConfiguration$$GetNumberConstant` / `$$GetStringConstant`), lus par DEUX noeuds DSL
+        # distincts (`IdunBattleLogic.Entities.DSLFormulas$$ConfigConst` / `$$ConfigConstString`).
         return int(v) if v is not None else None
     arr = _lookup_config_key(a.get("variables") or {}, var_key)
     if arr is None:
@@ -164,3 +169,25 @@ def ability_var(ability_id: str, var_key: str, level: int | None = None,
             and var_key in (a.get("variablesAffectedByRarityBonus") or []):
         return round(base * multiplier_pct / 100)
     return base
+
+
+def ability_const_str(ability_id: str, const_key: str) -> "str | None":
+    """Constante d'ability de type CHAINE -- l'axe que `ability_var` ne couvre PAS.
+
+    Mirror d'`IdunBattle.Configuration.AbilityConfiguration$$GetStringConstant`, le foyer que le
+    noeud `IdunBattleLogic.Entities.DSLFormulas$$ConfigConstString` appelle (a distinguer de
+    `$$ConfigConst`, qui passe par `$$GetNumberConstant` -- deux methodes natives DIFFERENTES,
+    deux noeuds DSL DIFFERENTS).
+
+    ⚠ **AUCUN niveau, AUCUN multiplicateur** : une constante n'est pas indexee par palier, et le
+    scaling de rarete ne s'applique qu'aux `variables` listees dans `variablesAffectedByRarityBonus`.
+    Premier consommateur : `BookOfFate` (`affectedUnitId = "thousSmnDaemonPrince"`, #1008) -- avant
+    lui, appeler `ability_var(..., is_constant=True)` sur une constante-chaine levait un
+    `ValueError` au lieu de rendre la chaine (trouve par le test offline de la tranche)."""
+    try:
+        import gameconfig as _GC
+    except Exception:
+        return None
+    a = _GC.ability(ability_id) or {}
+    v = _lookup_config_key(a.get("constants") or {}, const_key)
+    return None if v is None else str(v)

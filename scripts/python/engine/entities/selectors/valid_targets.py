@@ -14,10 +14,33 @@ surcharges allouent des classes DIFFERENTES (decompile `rnca9r7q6c`) :
     UnitsWithAnyValidTarget(units, ability)   -> IdunBattle.Entities.Selectors.UnitsWithAnyValidTargetSelector
 
 La PREMIERE cable l'attaque normale : son `Select` appelle
-`IdunBattle.Entities.UnitExtensions$$GetNormalAttackType(unit)` LUI-MEME. Elle est DEJA portee,
-sous un autre nom et sous une autre forme -- `runner/abilities/targeting.valid_normal_attack_targets`
-(fonction) et le noeud `ValidNormalAttackTargets` (`selectors/units.py`). Ce module ne la re-ecrit
-donc PAS.
+`IdunBattle.Entities.UnitExtensions$$GetNormalAttackType(unit)` LUI-MEME.
+
+⚠ **CE PARAGRAPHE DISAIT « DEJA PORTEE », ET C'ETAIT FAUX -- corrige par #1008.** Il renvoyait vers
+`runner/abilities/targeting.valid_normal_attack_targets` et le noeud `ValidNormalAttackTargets`
+(`selectors/units.py`). Ces deux-la portent bien le PREDICAT, mais pas le SELECTEUR : ils rendent
+**les cibles d'UNE unite**, la ou `HasAnyValidTargetSelector` **FILTRE un ENSEMBLE d'unites** sur
+« en a-t-elle au moins une ». Les deux domaines sont disjoints -- l'un rend des cibles, l'autre des
+attaquants. Le premier consommateur reel
+(`IdunBattleLogic.Entities.Abilities.Triggered.Loki.BookOfFateAbility$$CreateBehaviour`, qui
+appelle la surcharge a UN argument sur les summons adjacents) n'avait donc AUCUN noeud a monter.
+`HasAnyValidTarget` ci-dessous est ce mirror ; il reutilise `ctx.has_any_valid_target`, le MEME
+predicat que la seconde surcharge -- aucun 2e port de la cascade.
+
+## `IdunBattle.Entities.Selectors.HasAnyValidTargetSelector$$Select` -- MIRROR du decompile
+
+    result = new List<IEntity>()
+    foreach (unit in Select(this.units@+0x20, entities, UnitSelectionType 3)) {
+        pos     = EntityExtensions.GetUnitPosition(unit, this.state@+0x10)
+        atkType = UnitExtensions.GetNormalAttackType(unit)
+        if (this.battleQuery@+0x18.<slot 0x40> HasValidTargets(unit, pos, atkType))
+            result.Add(unit)
+    }
+    return result
+
+DEUX differences LUES avec la surcharge a deux arguments, et elles comptent :
+  * l'ability n'est PAS un selecteur : c'est `GetNormalAttackType(unit)`, derive de l'unite courante ;
+  * **il n'y a AUCUNE ecriture d'`entities+0x20`** -- le contexte n'est pas mute (rien ne le lit ici).
 
 La SECONDE prend l'ability en PARAMETRE, sous la forme d'un selecteur-de-type evalue PAR UNITE.
 C'est celle qu'appelle `IdunBattleLogic.Entities.Abilities.Triggered.Loki.ECogSupportAbility$$
@@ -114,6 +137,50 @@ class UnitsWithAnyValidTarget(TargetsSelector):
             verdict = probe(u, int(ability))
             if verdict is None:              # masque non RE-lu -> on ECARTE et on le DIT
                 _declare_unknown(ctx, int(ability))
+                continue
+            if verdict:
+                out.append(u)
+        return out
+
+
+class HasAnyValidTarget(TargetsSelector):
+    """`IdunBattleLogic.Entities.DSLSelectors$$UnitsWithAnyValidTarget(units)` (surcharge a UN
+    argument) -> `IdunBattle.Entities.Selectors.HasAnyValidTargetSelector$$Select`. Arbre natif et
+    ecarts avec la surcharge a deux arguments : en-tete du module.
+
+    Garde les unites de `source` qui ont AU MOINS une cible legale a leur ATTAQUE NORMALE, depuis
+    leur position COURANTE. L'ability testee est `GetNormalAttackType(unit)` -- derivee de CHAQUE
+    unite, jamais un selecteur ; le contexte n'est PAS mute (pas d'`ActiveTarget`).
+
+    Les deux accesseurs sont TRI-ETAT et le noeud le respecte :
+      * `ctx.normal_attack_type(unit)` -> `None` = l'unite n'a pas d'attaque normale resoluble : le
+        natif passerait cette valeur au predicat, qui ne peut pas rendre vrai -> on ECARTE ;
+      * `ctx.has_any_valid_target(unit, atk)` -> `None` = masque non RE-lu : on ECARTE **et on le
+        DECLARE** (`unknown_ability_types`), meme canal d'honnetete que `UnitsWithAnyValidTarget`.
+    Sans accesseur du tout (contexte hors runner), le noeud rend `[]` -- degradation NOMMEE."""
+    def __init__(self, source: TargetsSelector,
+                 selection_type: int = int(UnitSelectionType.OnlyAliveAndTargetable)):
+        self.source = source
+        self.selection_type = int(selection_type)
+
+    def select(self, ctx):
+        probe = getattr(ctx, "has_any_valid_target", None)
+        attack_type = getattr(ctx, "normal_attack_type", None)
+        if probe is None or attack_type is None:
+            return []                     # contexte hors runner -- meme degradation que le jumeau
+        out = []
+        for u in _units_of(self.source, ctx):
+            if not isinstance(u, dict):
+                continue
+            # `Select(this.units, entities, 3)` -- le filtre est passe a la SOURCE, comme le jumeau.
+            if not selection_ok_from_ctx(u, self.selection_type, ctx):
+                continue
+            atk = attack_type(u)          # `UnitExtensions.GetNormalAttackType(unit)`
+            if atk is None:
+                continue
+            verdict = probe(u, int(atk))
+            if verdict is None:           # masque non RE-lu -> on ECARTE et on le DIT
+                _declare_unknown(ctx, int(atk))
                 continue
             if verdict:
                 out.append(u)

@@ -68,7 +68,7 @@ from .pathing import (  # noqa: F401
 )
 
 from .valid_targets import (  # noqa: F401
-    UnitsWithAnyValidTarget,
+    UnitsWithAnyValidTarget, HasAnyValidTarget,
 )
 
 from .composites import (  # noqa: F401

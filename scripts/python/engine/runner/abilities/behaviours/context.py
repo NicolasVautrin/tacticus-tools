@@ -699,6 +699,14 @@ def entities_from_state(state, caster_id: int, target_id: int | None = None,
         uid = (unit or {}).get("id")
         return None if uid is None else _nrt(state, int(uid))
 
+    # `ctx.normal_attack_type` (`IdunBattle.Entities.UnitExtensions$$GetNormalAttackType`, lu PAR
+    # UNITE par `IdunBattle.Entities.Selectors.HasAnyValidTargetSelector$$Select`) : DELEGUE a
+    # l'unique derivation portee, exactement comme `_normal_repair_type` ci-dessus.
+    def _normal_attack_type(unit):
+        from ..targeting import normal_attack_type_for as _nat
+        uid = (unit or {}).get("id")
+        return None if uid is None else _nat(state, int(uid))
+
     # `ctx.entity_can_be_repaired` (slot 0x13 d'`IAttackQuery`, lu par
     # `IdunBattle.Entities.Selectors.RepairableUnitsSelector$$Select`) : DELEGUE a l'unique mirror du
     # predicat (`abilities/attack_query.entity_can_be_repaired`) avec `caster_id = None` -- la
@@ -865,6 +873,7 @@ def entities_from_state(state, caster_id: int, target_id: int | None = None,
                       valid_normal_attack_targets=_valid_normal_attack_targets,
                       has_any_valid_target=_has_any_valid_target,
                       normal_repair_type=_normal_repair_type,
+                      normal_attack_type=_normal_attack_type,
                       unknown_ability_types=set(),
                       persistent_data_list=_persistent_data_list,
                       persistent_data=_persistent_data,
