@@ -289,6 +289,9 @@ from ..loki.dw02_advanced_burst_cannon import (                       # #1012 (r
     Dw02AdvancedBurstCannonAbility)
 from ..loki.relic_power_fist import RelicPowerFistAbility             # #1009 (relique 1466, 3 factions)
 from ..loki.paragon_spear import ParagonSpearAbility                   # #1013 (relique 1494, custoKyrus)
+from ..loki.electrochaff_backups import (                             # #1025 (MYTHIQUE 1454, MoW
+    ElectrochaffBackupsOnMarkerlightAbility,                          #  tauBroadside : voie
+    ElectrochaffBackupsOnRangedDamageAbility)                         #  TERTIAIRE, cf. le registre)
 from ..loki.relentless_march import RelentlessMarchAbility             # #328 (passif necroWarden)
 from ..loki.my_will_be_done_overlord import (MyWillBeDoneOverlordAttackAbility,   # #354 (necroOverlord)
                                              MyWillBeDoneOverlordClearAbility)
@@ -1520,6 +1523,31 @@ RELIC_ABILITY_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
     # ⚠ `level_slot="tertiary"` : lire le niveau des PASSIFS clamperait au dernier palier (50 dans
     # tout runner normalise), SILENCIEUSEMENT. Cf. loki/paragon_spear.py. #1013.
     "ParagonSpear": [ParagonSpearAbility],
+    # ElectrochaffBackups (#1025) -- ability **MYTHIQUE** de MACHINE OF WAR, pas une relique, et
+    # pourtant elle entre ICI : la voie de registration COTE COMBAT est la MEME, et c'est LU, pas
+    # suppose. `IdunMetaLogic.UserProgress.TertiaryAbilities$$GetTertiaryAbility` (le foyer META qui
+    # REMPLIT `BC.Units[].TertiaryAbility`) branche sur item-relique OU mythique et ecrit le MEME
+    # champ ; `IdunBattle.Entities.Factories.UnitFactory$$AddConfiguredAbilities` fait ensuite
+    # l'UNIQUE `TriggeredAbilityComponent$$TryAdd(id, tertiaryAbilityState, 3)`. Le natif de combat
+    # ne distingue donc PAS les deux, et un registre `MYTHIC_*` separe serait un artefact du port.
+    # Substrat cote port : `UnitContext.tertiary_ability` (montage `rl_duel build --equip-mythic`,
+    # ou `catalog_inject.equip_mythic`). Le gameconfig, lui, la range sous `mythicAbilities` --
+    # cle META que `collect_triggered_abilities` ne lit PAS, exactement comme le natif.
+    # `TriggeredAbilityType` 0x5ae = 1454 ; DEUX porteurs : `tauBroadside` (lineup) et
+    # `tauNpcMoWBroadside` (npc). UNE classe native, un `CreateTrigger` DISJONCTIF (`op_BitwiseOr`)
+    # -> DEUX classes portees, une par `On()` (patron `FuryFromTheDelve`) :
+    #   * `On(0x3e = EffectAdded) & <commun> & TriggeringEffectIs(0x462 = Markerlight)` ;
+    #   * `On(0x0f = DamageTaken) & <commun> & IsRangedAttack()` ;
+    # avec `<commun> = AreEnemies(Owner@+0x30, Target@+0x60) & IsNormalUnit(Target@+0x60)`.
+    # Behaviour UNIQUE : `If(HasEffect(Target, 0x5a6, onlyActive: 0, 6),
+    #                       ChangeEffectTurns(Target, 0x5a6, turns, ChangeType.Set),
+    #                       AddEffect(0x5a6, stateRef, Owner, Target, turns))`.
+    # ⚠ L'EFFET 0x5a6 = 1446 n'entre PAS dans `EFFECT_CLASSES`, et c'est DELIBERE : son
+    # `CreateDamageModifier` ouvre sur `HasRarity(Target, 5 = Mythic)`, qui lit
+    # `GetBaseUnitComponent(e)+0x74` -- canal ABSENT du port (residu `#1025-r1`, BLOCAGE capteur).
+    # L'inscrire sans ce gate serait un terme PERMISSIF. Cf. loki/electrochaff_backups.py.
+    "ElectrochaffBackups": [ElectrochaffBackupsOnMarkerlightAbility,
+                            ElectrochaffBackupsOnRangedDamageAbility],
 }
 
 # --- Registre : abilities GLOBALES (aucun owner) ---------------------------------------------------

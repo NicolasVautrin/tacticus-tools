@@ -1983,6 +1983,32 @@ ABILITY_INIT_OWNER_EFFECTS: dict[str, list[str]] = {
     # (sa `CreateActiveCondition` est celle de la base, toujours vraie), donc le seed y est
     # idempotent -- c'est un FILET pour les chemins purement offline.
     "NornCrown": ["NornCrown"],
+    # #1025 -- `MoreGitzOverEreAbility` (ability **MYTHIQUE** de la MoW `orksRukkatrukk` /
+    # `orksNpcMoWRukkatrukk`, `TriggeredAbilityType` 0x5b0 = 1456). `frida/classes.tsv` : parent
+    # `IdunBattle.Entities.Abilities.AOwnerEffectTriggeredAbility`, et la classe n'override QUE
+    # `$$GetEffectType`, dont le corps ENTIER est `return 0x5a9` (= 1449
+    # `EffectType.MoreGitzOverEre_ExtraDamagePct`) : l'appariement ability -> effet est LU, pas
+    # devine. Le reste vient de la base, RELUE au decompile pour cette tranche :
+    #   `$$CreateTrigger`   = OnOwnerSpecificAbilityInit(this.AbilityType)
+    #   `$$CreateBehaviour` = If( CreateCondition(abilityState),
+    #                             AddEffect(GetEffectType(),
+    #                                       AbilityState(Owner@<DSLSelectors+0x30>, AbilityType(this)),
+    #                                       source = Owner, targets = Owner, options = <Nullable ZERO>) )
+    # -> owner-effect PERMANENT pose a l'init, exactement le patron `Vitarus` / `NornCrown`.
+    # ⚠ MEME VOIE que ces deux-la : la mythique arrive par le champ TERTIAIRE
+    # (`BC.Units[].TertiaryAbility`, montage `rl_duel build --equip-mythic`), donc ce seed depend de
+    # la lecture de `ctx.tertiary_ability` par `_seed_ability_owner_effects` (acquise depuis #1005).
+    # Sur un runner live l'effet est capte par `decisionView.effects` (la `CreateActiveCondition` de
+    # 1449 est le corps PARTAGE de la base, toujours vraie) -> ce seed est un FILET pour les chemins
+    # purement offline.
+    # ⚠ L'EFFET 1449 n'entre PAS dans `EFFECT_CLASSES`, et c'est DELIBERE : ses DEUX faces
+    # (`$$CreateEffectDamageBonusForAttack` et `$$CreateTargetSelector`) sont gatees sur la RARETE
+    # -- `HasRarity(Caster@+0x48, 5 = Mythic)` pour le bonus, `UnitsWithRarity(..., 5)` pour la
+    # seconde branche du selecteur -- et ce canal N'EXISTE PAS cote port (`HasRarity` lit
+    # `GetBaseUnitComponent(e)+0x74` ; le gameconfig porte `BaseRarity = "Common"` pour la MoW, donc
+    # il ne repond pas). L'inscrire sans le gate serait un terme PERMISSIF. Residu `#1025-r1`,
+    # BLOCAGE capteur. Cf. `docs/rl/case-1025-mythiques-mow-verrou-rarete.md`.
+    "MoreGitzOverEre": ["MoreGitzOverEre_ExtraDamagePct"],
     # #1009 -- `MonsterSlayerofCalibanAbility` (parent `IdunBattle.Entities.Abilities.
     # BaseTriggeredAbility`, `frida/classes.tsv`) : UNE seule classe native pour la cle 1527, et
     # elle DECLARE ses deux methodes (pas d'heritage `AOwnerEffect*` ici).
