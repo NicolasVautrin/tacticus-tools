@@ -228,6 +228,26 @@ def _premisses(path: Path, src: str) -> list[dict]:
         return out
     lignes = src.splitlines()
 
+    # (C) LE SCALAIRE GRAVE -- le gisement que ce recenseur ne pouvait pas voir (#933-r4).
+    # `NEURO_ATTACK2 = 4448` puis `assert port == NEURO_ATTACK2` : la comparaison porte sur un
+    # `ast.Name`, pas sur un `ast.Constant`, donc ni le role `valeur-en-dur` ni la lecture de PROSE
+    # ne l'attrapaient -- et le fichier restait VERT au cliquet alors qu'il etait ROUGE en regime
+    # nominal. Une ATTESTATION CHIFFREE mesuree sous un regime EST une premisse de regime, qu'une
+    # phrase l'accompagne ou non ; c'est meme la forme la plus repandue, parce qu'elle se lit comme
+    # une constante de code et non comme une hypothese.
+    _scalaires: dict[str, int] = {}
+    for n in arbre.body:                                   # NIVEAU MODULE seulement
+        if not isinstance(n, (ast.Assign, ast.AnnAssign)):
+            continue
+        val = n.value
+        if not (isinstance(val, ast.Constant) and isinstance(val.value, int)
+                and not isinstance(val.value, bool)):
+            continue
+        cibles = n.targets if isinstance(n, ast.Assign) else [n.target]
+        for c in cibles:
+            if isinstance(c, ast.Name):
+                _scalaires[c.id] = int(val.value)
+
     # LES COMPARAISONS QUI GARDENT UN `assert` (ou un `skip`) -- le patron le plus dangereux, et
     # celui qui a effectivement mordu : `if cc == 0: assert port_ph == live_hits` de
     # `test_savage_echoes_live.py`. Le caster porte desormais `CritChance = 20` : la garde SAUTE,
@@ -265,6 +285,12 @@ def _premisses(path: Path, src: str) -> list[dict]:
             elif isinstance(op, ast.Eq) and isinstance(comp, ast.Constant) \
                     and isinstance(comp.value, int) and not isinstance(comp.value, bool):
                 role = "valeur-en-dur"
+            elif isinstance(op, ast.Eq) and isinstance(comp, ast.Name) \
+                    and comp.id in _scalaires:
+                role = "constante-de-module"          # (C) le SCALAIRE GRAVE (#933-r4)
+            elif isinstance(op, ast.Eq) and isinstance(n.left, ast.Name) \
+                    and n.left.id in _scalaires:
+                role = "constante-de-module"          # ... et dans l'autre sens
             if role is None:
                 continue
             if id(n) in gardiennes and role in ("premisse-zero", "attendu-non-nul",
@@ -383,6 +409,7 @@ def recenser(racine: "Path | None" = None) -> dict:
     vus = {"fichiers": 0, "offline": 0, "live": 0, "live_sans_lecture": 0, "live_lecteur": 0}
     roles: Counter = Counter()
     par_fichier: dict[str, dict] = {}
+    scalaires: dict[str, list] = {}
     for p in fichiers:
         src = p.read_text(encoding="utf-8", errors="replace")
         rel = str(p.relative_to(racine)).replace("\\", "/")
@@ -393,6 +420,19 @@ def recenser(racine: "Path | None" = None) -> dict:
             continue
         vus["live"] += 1
         lectures = _lit_stats(src)
+        # (C) LE SCALAIRE GRAVE SE RECENSE **HORS** DE LA PORTE `_lit_stats` (#933-r4).
+        # Les deux rouges qui ont ouvert ce residu -- `test_462_..._neuroparasite_pose_live` et
+        # `test_462_..._tile_owner_gate_live` -- ne NOMMENT aucune des quatre stats a zero ouvert :
+        # leur dependance au regime passe par la `FixedArmor` (que ce probe imprime deja comme
+        # « bouge sans passer par 0 ») et par un TOTAL de degat. Ils n'etaient donc PAS visites, et
+        # le role (C) seul n'y changeait rien -- l'angle mort etait la PORTE, pas le critere.
+        # Un test LIVE qui compare une valeur mesuree a une CONSTANTE DE MODULE est regime-dependant
+        # PAR CONSTRUCTION, quelle que soit la stat qu'il lit : la constante a ete gravee sous UN
+        # regime. C'est un gisement DISTINCT (aucune neutralisation de stat ne le repare -- le
+        # remede est de re-mesurer et d'ECRIRE le regime a cote de la valeur), donc un bucket a part.
+        graves = [e for e in _premisses(p, src) if e["role"] == "constante-de-module"]
+        if graves:
+            scalaires[rel] = graves
         if not lectures:
             vus["live_sans_lecture"] += 1
             continue
@@ -403,11 +443,15 @@ def recenser(racine: "Path | None" = None) -> dict:
         if prem:
             par_fichier[rel] = {"premisses": prem, "neutralise": c["neutralise"],
                                 "lectures": lectures, "partielles": c.get("partielles") or []}
-    return {"vus": vus, "roles": roles, "par_fichier": par_fichier}
+    return {"vus": vus, "roles": roles, "par_fichier": par_fichier, "scalaires": scalaires}
 
 
 _ROLES_PERIMABLES = ("premisse-zero", "attendu-positif", "attendu-non-nul", "valeur-en-dur",
-                     "premisse-en-prose", "garde-qui-protege-un-assert")
+                     "premisse-en-prose", "garde-qui-protege-un-assert",
+                     # (C) #933-r4 : `assert port == NEURO_ATTACK2` avec `NEURO_ATTACK2 = 4448` au
+                     # module. Angle mort STRUCTUREL des deux premiers criteres, et probablement la
+                     # forme la plus repandue -- une attestation chiffree ne porte pas de phrase.
+                     "constante-de-module")
 
 
 def _suspects(rec: dict) -> dict[str, list[dict]]:
@@ -638,6 +682,17 @@ def main(argv=None) -> int:
               % (len(part), (" -- " + ", ".join("%s [%s]" % (r.rsplit("/", 1)[-1], ",".join(v))
                                                 for r, v in sorted(part.items())))
                  if part else ""))
+        # (C) LE GISEMENT DES SCALAIRES GRAVES -- recense HORS de la porte `_lit_stats` (#933-r4).
+        sc = rec.get("scalaires") or {}
+        hors = sorted(set(sc) - set(rec["par_fichier"]))
+        print("  SCALAIRES GRAVES -- fichiers LIVE comparant une valeur a une CONSTANTE DE MODULE :"
+              " %d fichier(s), %d comparaison(s)" % (len(sc), sum(len(v) for v in sc.values())))
+        print("    dont INVISIBLES a la porte `_lit_stats` (ne nomment aucune stat a zero ouvert) :"
+              " %d" % len(hors))
+        print("    ^ gisement DISTINCT : aucune neutralisation de stat ne le repare -- le remede est"
+              " de RE-MESURER et d'ECRIRE le regime a cote de la valeur.")
+        for rel in hors:
+            print("      %s  lignes %s" % (rel, [e["ligne"] for e in sc[rel]]))
         print("  --- CE QUE CE BALAYAGE NE COUVRE PAS ---")
         print("   * une stat lue SANS que son nom soit ecrit (helper opaque, index numerique,")
         print("     deballage `*u`) : le rapprochement est une HEURISTIQUE DE NOM ;")
