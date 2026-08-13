@@ -56,22 +56,38 @@ DYNAMIC_TARGET_RULE_UNPORTED = P.DYNAMIC_TARGET_RULE_UNPORTED
 
 # ------------------------------------------------------------------ 1. RECENSEMENT
 
-def test_recensement_est_non_vide_et_les_deux_canaux_sont_peuples():
-    """Le probe visite quelque chose, et les DEUX canaux de portage sont vivants.
+def test_recensement_est_non_vide_et_la_partition_est_SAINE():
+    """Le probe visite quelque chose, et les canaux de portage sont DISJOINTS.
 
     Assertionner son propre NON-VIDE est ce qui separe « aucune faute » de « rien n'a ete visite » --
-    un recenseur ne peut pas rendre zero sur ce qu'il ne visite pas."""
+    un recenseur ne peut pas rendre zero sur ce qu'il ne visite pas.
+
+    ⚠ CE TEST EXIGEAIT `assert tables` -- « la voie non portee a perdu ses regles » (#1015). C'etait
+    un SEUIL deguise en invariant : le canal `table` se vide par le travail accompli (chaque
+    behaviour portee fait migrer sa regle en surcharge), et #996 en a sorti le dernier occupant
+    (`1185 ForwardObservers`). `master` en est reste rouge, ici comme dans
+    `test_287r5r1_charge_tiles_offline`. Ce qui se garde n'est pas le PEUPLEMENT d'un canal mais la
+    SANTE de la partition ; que le cablage de la table reste arme est garde separement, a table vide
+    (`test_le_cablage_de_la_table_est_ARME` plus bas)."""
     ids = P.ids_portant_le_bit()
     assert len(ids) > 0, "recensement VIDE : le probe ne visite rien, son vert ne prouve rien"
     etats = {a: P.evaluabilite(a) for a in ids}
-    surcharges = [a for a, e in etats.items() if e == "surcharge"]
-    tables = [a for a, e in etats.items() if e == "table"]
-    assert surcharges, "aucune regle portee en SURCHARGE de classe -- ce canal a disparu"
-    assert tables, "aucune regle portee en TABLE -- la voie non portee a perdu ses regles"
-    # Les cinq bras de mesure portent sur des ids REELLEMENT evaluables : sans cela, la bascule
+    inconnus = sorted(set(etats.values()) - set(P.ETATS))
+    assert inconnus == [], "etats hors partition : %r" % inconnus
+    assert [a for a, e in etats.items() if e == "surcharge"], (
+        "aucune regle portee en SURCHARGE de classe -- ce canal a disparu")
+    # Les DEUX etats de DEFAUT de la partition : un id ne peut pas etre declare dans les deux canaux.
+    for defaut, explication in (
+            ("ambigu", "l'entree de table y est INATTEIGNABLE (le porteur est la classe) : second "
+                       "mirror du meme corps natif, que rien ne consulte"),
+            ("perdue", "la classe portee capture le porteur SANS surcharger, alors qu'une entree de "
+                       "table existe : le mirror n'est jamais appele, l'id est PERMISSIF")):
+        coupables = sorted(a for a, e in etats.items() if e == defaut)
+        assert coupables == [], "ids en etat %s : %r -- %s" % (defaut, coupables, explication)
+    # Les bras de mesure portent sur des ids REELLEMENT evaluables : sans cela, la bascule
     # mesurerait le defaut permissif et serait verte pour la mauvaise raison.
     for aid, libelle, _f in P.CAS:
-        assert etats.get(aid) in ("surcharge", "table"), (
+        assert etats.get(aid) in P.ETATS_EVALUABLES, (
             "le bras '%s' porte sur l'id %d, dont la regle n'est PAS evaluable (%s)"
             % (libelle, aid, etats.get(aid)))
 
@@ -240,10 +256,11 @@ def test_le_porteur_non_porte_consulte_bien_la_table():
     la QUESTION (« le porteur non porte consulte-t-il la table ? »), elle, ne migre pas."""
     from engine.runner.abilities.targeting import targeting_options_for
     en_table = sorted(set(DYNAMIC_TARGET_RULE_UNPORTED))
-    assert en_table, (
-        "`DYNAMIC_TARGET_RULE_UNPORTED` est VIDE : ce test n'a plus de sujet. Ce n'est pas un vert "
-        "-- soit toutes les regles ont migre en surcharge (alors ce cablage est DEAD CODE et doit "
-        "etre retire), soit la table a ete perdue.")
+    if not en_table:
+        pytest.skip(
+            "`DYNAMIC_TARGET_RULE_UNPORTED` est VIDE -- toutes les regles ont migre en surcharge "
+            "(#1015). Ce test-ci mesure la table PEUPLEE ; le cablage lui-meme reste garde a table "
+            "vide par `test_le_cablage_de_la_table_est_ARME`, qui n'a PAS de condition de montage.")
     bras = {aid: fab for aid, _l, fab in P.CAS}
     testables = [a for a in en_table if a in bras]
     assert testables, (
@@ -264,6 +281,84 @@ def test_le_porteur_non_porte_consulte_bien_la_table():
             "%d : le porteur refuse le substrat ACCEPTANT -- la regle lue ne discrimine pas" % aid)
         assert int(faux.get_dynamic_invalid_target_reason(st_refuse, P.CASTER, P.CIBLE) or 0) == 0, (
             "un porteur construit pour %d herite de la regle de %d" % (autre, aid))
+
+
+def test_le_cablage_de_la_table_est_ARME():
+    """L'INVARIANT QUI SURVIT AU VIDAGE DE LA TABLE (#1015), et la raison d'etre de ce test.
+
+    Les gardes de ce fichier et de `test_287r5r1` exigeaient que `DYNAMIC_TARGET_RULE_UNPORTED` soit
+    PEUPLEE. C'est un critere qui expire par le travail accompli : chaque behaviour portee fait
+    migrer sa regle vers la surcharge de sa classe, et #996 (`b061a916`) en a sorti le dernier
+    occupant, `1185 ForwardObservers` -- laissant `master` rouge sur deux fichiers.
+
+    Or ce qui compte n'a jamais ete le PEUPLEMENT : c'est que la plomberie MORDE le jour ou un corps
+    du residu #287-r5 sera mirrore sans que sa classe le soit. On l'exerce donc a table vide, avec
+    une entree TEMOIN, sur un id que la voie non portee sert REELLEMENT. Trois faits mesures :
+
+      1. la regle temoin est APPELEE (elle enregistre ce qu'elle recoit) et son refus est RENDU ;
+      2. un porteur construit pour un AUTRE id n'en herite pas (pas de consultation par defaut) ;
+      3. l'entree DISPARAIT a la sortie du contexte, et le porteur redevient permissif -- sans quoi
+         ce test laisserait derriere lui une regle fantome que les suivants prendraient pour vraie.
+
+    L'id est DERIVE (`P.ids_sans_regle_portee()`), jamais ecrit en dur : la lecon du rouge de
+    #883-r1, ou un id cite en dur avait migre de canal et le test accusait un regime disparu. Il ne
+    sert qu'a INDEXER -- le porteur est construit explicitement, et c'est lui le sujet.
+
+    ⚠ ET LE TEST PUBLIE L'ETAT DE LA POPULATION AU LIEU DE LE SUPPOSER. Mesure du 2026-08-13 : AUCUN
+    des 80 ids posant le bit n'est servi par `UnportedAbilityTargeting` en production (tous ont une
+    classe portee avec masque). Le canal est donc doublement vide -- sans entree ET sans lecteur.
+    C'est un fait, pas un defaut ; il est assertionne ici pour qu'un futur repeuplement soit VU (la
+    garde change de bras et exige alors que le lecteur reel soit exerce), plutot que de rester une
+    hypothese tacite dans une docstring."""
+    from engine.runner.abilities.targeting import targeting_options_for
+    servis = P.ids_servis_par_la_voie_non_portee()
+    if servis:
+        # Regime REPEUPLE : le cablage a de vrais lecteurs -> on les exerce EUX, le temoin devient
+        # superflu comme sujet et l'invariant se mesure sur la production.
+        for aid in servis:
+            assert P.evaluabilite(aid) in ("table", "aucune"), (
+                "%d est servi par la voie non portee ET declare par une classe : etat %s"
+                % (aid, P.evaluabilite(aid)))
+    candidats = P.ids_sans_regle_portee()
+    assert candidats, (
+        "aucun id ne pose le bit sans regle portee : ce test n'a plus de sujet. Ce n'est pas un vert "
+        "-- soit le residu #287-r5 est entierement resorbe (et alors la voie non portee est "
+        "reellement morte, ce qui se DECIDE, pas se constate), soit le recensement est casse.")
+    aid = candidats[0]
+    autre = candidats[-1]
+    assert autre != aid, (
+        "un SEUL id sans regle portee : le bras negatif (« un porteur d'un autre id n'herite pas ») "
+        "n'a pas de second sujet et ne discriminerait rien.")
+
+    st_refuse, _st_passe = P._cas_adaptive_strategy()      # substrat quelconque : la regle temoin
+    #                                                       ne le lit pas, elle enregistre.
+    porteur = UnportedAbilityTargeting(aid, targeting_options_for(aid))
+    voisin = UnportedAbilityTargeting(autre, targeting_options_for(autre))
+
+    # AVANT : rien dans la table -> permissif. Sans cette mesure, le `2` d'apres pourrait venir
+    # d'ailleurs et le test serait vert pour la mauvaise raison.
+    assert int(porteur.get_dynamic_invalid_target_reason(st_refuse, P.CASTER, P.CIBLE) or 0) == 0
+
+    with P.entree_temoin(aid) as temoin:
+        rendu = int(porteur.get_dynamic_invalid_target_reason(st_refuse, P.CASTER, P.CIBLE) or 0)
+        herite = int(voisin.get_dynamic_invalid_target_reason(st_refuse, P.CASTER, P.CIBLE) or 0)
+    assert temoin.vue, (
+        "la regle TEMOIN n'a jamais ete APPELEE : `UnportedAbilityTargeting` ne consulte plus "
+        "`DYNAMIC_TARGET_RULE_UNPORTED`. La voie non portee est un gate DESARME -- tout futur port "
+        "de regle sur cette voie serait un no-op silencieux.")
+    assert temoin.vue[0][1:] == (P.CASTER, P.CIBLE), (
+        "la regle recoit %r au lieu de (caster, cible) : le cablage passe les mauvais arguments"
+        % (temoin.vue[0][1:],))
+    assert rendu == int(TR.TargetMatchesDynamicRule), (
+        "le refus de la regle temoin n'est pas REMONTE : rendu %r" % rendu)
+    assert herite == 0, (
+        "un porteur construit pour %d herite de la regle de %d -- la table est consultee par "
+        "defaut au lieu de l'etre par `ABILITY_TYPE`" % (autre, aid))
+
+    # APRES : le contexte a bien retire l'entree, et l'etat de la partition est restaure.
+    assert aid not in DYNAMIC_TARGET_RULE_UNPORTED
+    assert P.evaluabilite(aid) == "aucune"
+    assert int(porteur.get_dynamic_invalid_target_reason(st_refuse, P.CASTER, P.CIBLE) or 0) == 0
 
 
 def test_un_id_MIGRE_en_surcharge_sort_de_la_table_sans_perdre_sa_regle():
