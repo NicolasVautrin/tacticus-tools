@@ -276,6 +276,9 @@ from ..loki.maugetar import (MaugetarAddEffectAbility,                # #1006 (r
                              MaugetarResetMovementAbility,
                              MaugetarHasNotMovedRemoveOnMove,
                              MAUGETAR_HAS_NOT_MOVED)
+from ..loki.sabre_of_sacrifice import SabreOfSacrificeAbility          # #1002 (relique 1478)
+from ..loki.relic_of_lost_cadia import (RelicOfLostCadiaAbility,       # #1002 (relique 1459)
+                                        RelicOfLostCadiaSummonUnitAbility)
 from ..loki.relentless_march import RelentlessMarchAbility             # #328 (passif necroWarden)
 from ..loki.my_will_be_done_overlord import (MyWillBeDoneOverlordAttackAbility,   # #354 (necroOverlord)
                                              MyWillBeDoneOverlordClearAbility)
@@ -1377,6 +1380,32 @@ RELIC_ABILITY_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
     # Le RETRAIT de l'effet (`On(0x1f = PreUnitMove) & get_OwnerIsActor`) est un trigger PROPRE de
     # l'effet -> `EFFECT_TRIGGERS[1497]`, pas ici. Cf. loki/maugetar.py.
     "Maugetar": [MaugetarAddEffectAbility, MaugetarResetMovementAbility],
+    # SabreOfSacrifice (`TriggeredAbilityType` 0x5c6 = 1478 ; UN porteur `lineup`, `astraDreir`,
+    # DANS le pool rank 17 -> montage `--equip-relic` seul). UNE classe native, UN seul `On()` :
+    # `On(9 = Attack) & IsCharging(Caster, Target) & (OwnerIsCaster | (Parent(Caster) == Owner &
+    # IsUnitWithVisualId(Caster, "astraNpc5DeathRider") & IsAdjacent(Owner, Caster, 3)))` ->
+    # `AddEffect(1065 Pinned, source = Owner, targets = Target, duree PAR DEFAUT) &
+    #  AddStaticStatModifierEffect(Caster, 1473 SabreOfSacrifice_ExtraArmor, 16 FixedArmor,
+    #  Multiply(Count(allies normaux vaincus), Get(extraArmor)), TurnsFromRounds(1))`.
+    # ⚠ La disjonction est INTERNE a la conjonction (elle porte sur le PORTEUR du coup, pas sur
+    # l'evenement) -> UNE seule classe, pas la ventilation `FuryFromTheDelve`.
+    # ⚠ SEUL call-site porte du depot ou OWNER != CASTER (branche Death Rider summon) : le slot
+    # `Owner` est threade explicitement. Cf. loki/sabre_of_sacrifice.py. #1002.
+    "SabreOfSacrifice": [SabreOfSacrificeAbility],
+    # RelicOfLostCadia (`TriggeredAbilityType` 0x5b3 = 1459 ; TROIS porteurs `lineup` Astra, tous
+    # dans le pool rank 17 : astraBullgryn / astraOrdnance / astraPrimarisPsy). DEUX classes
+    # natives pour UNE cle (patron `LetTheGalaxyBurn` / `DaemonfleshPlate`) :
+    #   * `RelicOfLostCadiaAbility` -- CINQ vecteurs (`On(4 UnitAfterMove) | (On(0x32 UnitAdded) &
+    #     IsAlive(Actor)) | On(0x3b UnitBecameTargetable) | On(0x2d UnitRevived) |
+    #     OnOwnerSpecificAbilityInit(1459)`) -> pose 1454 `FinalVengeance_UnitEffect` sur les
+    #     summons IMPERIAUX allies adjacents. La disjonction d'`On()` se ventile en `event_ids` ;
+    #     le vecteur `OnOwnerSpecificAbilityInit` n'est PAS un trigger -> il ne peut PAS passer par
+    #     `ABILITY_INIT_OWNER_EFFECTS` (qui pose sur l'OWNER, or la cible est le VOISINAGE) et
+    #     reste couvert par `On(0x32 UnitAdded)`, qui refait le meme balayage au spawn.
+    #   * `RelicOfLostCadiaAbility_SummonUnit` -- `On(0 = UnitDeath, alive: 0) & OwnerIsTarget` ->
+    #     `Spawn(astraSmnGuardsman)` dans l'hex du porteur mort.
+    # Cf. loki/relic_of_lost_cadia.py. #1002.
+    "RelicOfLostCadia": [RelicOfLostCadiaAbility, RelicOfLostCadiaSummonUnitAbility],
 }
 
 # --- Registre : abilities GLOBALES (aucun owner) ---------------------------------------------------

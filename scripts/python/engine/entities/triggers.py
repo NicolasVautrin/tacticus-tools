@@ -36,6 +36,9 @@ from .unit_team_selection_type import UnitTeamSelectionType, team_for_selection 
 # d'entree distincts (`probe_270r4r2_import_en_premier.py`), et il passait DEJA avant la coupe
 # des deux SCC. Un differe dont la cause a disparu (ou n'a jamais existe) est du camouflage.
 from .traits.unit_trait import UnitTrait
+# #1002 : les deux flags que `IdunBattleLogic.Entities.DSLTriggers$$HasBeenDefeated` teste
+# (`Fled`, `Resurrected`). Feuille enum, aucune cascade.
+from .unit_flag import UnitFlag
 from ..battle_query import is_target_tile_obscured
 from ..services.battle_query import are_entities_adjacent
 from ..services.movement_query import get_min_distance
@@ -982,15 +985,41 @@ class IsUnitWithVisualId(AbilityTrigger):
     resolue par `unit` porte-t-elle le `visualId` rendu par la formule ? Le call-site porte
     (`IdunBattleLogic.Entities.Abilities.Triggered.Loki.MyWillBeDoneOverlordAbility$$GetTargetFriend`)
     nourrit la formule par `VisualUnitIdFromUnitId(ConfigConstString(<config>, 0))`, donc une CHAINE.
-    Entite absente / formule nulle -> False (degradation fidele)."""
+    Entite absente / formule nulle -> False (degradation fidele).
+
+    ⚠ LE PORT DE LA SURCHARGE `id:System.String` A DEUX SUBSTRATS, ET UN SEUL EST L'ID VISUEL
+    (#1002). Le champ `visualId` du dict d'unite porte l'id de CONFIG pour une unite SPAWNEE
+    offline (`build_summon_context(visual_id=constants['unitId'])`, ex. `astraSmnDeathRider`) et
+    l'id VISUEL pour une unite seedee depuis le live (ex. `astraNpc5DeathRider`). Le natif, lui,
+    lit TOUJOURS l'id visuel. Une comparaison brute rendait donc FAUX cote port ce que le natif
+    rend VRAI, sur le regime meme du test (le port spawne, le natif spawne, on compare) -- panne
+    SILENCIEUSE, aucun message.
+    On resout donc la forme portee vers son id visuel gameconfig avant de comparer
+    (`GC.unit(x)["visualId"] or x`) : les DEUX substrats convergent, et l'operation est l'identite
+    sur un id deja visuel. Le residu etait deja nomme par la docstring d'`UnitsWithIds`
+    (« un futur consommateur qui ne listerait qu'une seule forme demanderait un id de config
+    par-unite dans le State ») -- c'est ce consommateur-la. Rayon de souffle MESURE au moment du
+    changement : **0 consommateur EXECUTABLE** (les 4 autres occurrences du depot sont des
+    citations de decompile ; le terme de `MyWillBeDoneOverlord` est explicitement OMIS du port).
+    """
     def __init__(self, unit: AbilityTrigger, visual_id):
         self.unit, self.visual_id = unit, visual_id
+
+    @staticmethod
+    def _visual_id_of(u) -> object:
+        """Id VISUEL de l'unite, quelle que soit la forme que le port lui a posee (cf. la note
+        ci-dessus). Import paresseux de `gameconfig` : meme idiome que `magnitude.py`."""
+        vid = (u or {}).get("visualId")
+        if not isinstance(vid, str):
+            return vid
+        import gameconfig as GC
+        return ((GC.unit(vid) or {}).get("visualId")) or vid
 
     def should_trigger(self, ctx):
         vid = self.visual_id.evaluate(ctx) if hasattr(self.visual_id, "evaluate") else self.visual_id
         if vid is None:
             return False
-        return any((u or {}).get("visualId") == vid for u in _units_of(self.unit, ctx))
+        return any(self._visual_id_of(u) == vid for u in _units_of(self.unit, ctx))
 
 
 class IsInPersistentDataList(AbilityTrigger):
@@ -1810,3 +1839,53 @@ class OwnerIsActor(AbilityTrigger):
     (`ctx.actor` défaut → `ctx.caster`)."""
     def should_trigger(self, ctx):
         return _same_entity(ctx.owner or ctx.caster, ctx.actor or ctx.caster)
+
+
+# --------------------------------------------------------------------------------------------
+# Deux FABRIQUES natives (#1002). Le natif ne construit pas de classe dediee : les deux methodes
+# de `DSLTriggers` COMPOSENT des noeuds existants et rendent l'arbre. Une fonction-fabrique est
+# donc le mirror EXACT -- pas une classe.
+#
+# HISTORIQUE : les deux vivaient en helpers PRIVES de `runner/abilities/loki/leading_the_charge.py`
+# (`_is_normal_unit_trigger` / `_has_been_defeated_trigger`), donc inutilisables ailleurs. Elles
+# sont ici parce que c'est le foyer des noeuds T, et parce qu'un SECOND consommateur existe :
+# `IdunBattleLogic.Entities.Abilities.Triggered.Loki.SabreOfSacrificeAbility$$GetCurrentExtraArmor`
+# construit le MEME filtre que `...LeadingTheChargeAbility$$GetExtraPierceRatio`. Les deux helpers
+# de `leading_the_charge` DELEGUENT desormais ici (aucun call-site ni patch desarme).
+# --------------------------------------------------------------------------------------------
+
+def IsNormalUnit(unit: TargetsSelector) -> AbilityTrigger:      # noqa: N802 (nom NATIF)
+    """`IdunBattleLogic.Entities.DSLTriggers$$IsNormalUnit(unit)` -> le predicat
+    `IdunBattle.Entities.UnitExtensions$$IsNormalUnit`, MIRROR :
+
+        !HasTrait(unit, 0xd  = UnitTrait.Object)
+        && !HasTrait(unit, 0x1b = UnitTrait.Steppable)
+
+    ⚠ Il n'exclut PAS les summons : `UnitTrait.Summon` (2) n'est pas dans le predicat, donc un
+    Death Rider ou un Cadian Guardsman le PASSE. Ce qu'il ecarte, ce sont les objets de plateau
+    (`Object`) et les jetons marchables (`Steppable` : decoys, spore-mines).
+
+    Pendant sur les NOMS de traits (meme predicat, autre substrat) :
+    `entities/traits/unit_trait.is_normal_unit`."""
+    return TriggerAnd(Not(HasTrait(unit, int(UnitTrait.Object))),
+                      Not(HasTrait(unit, int(UnitTrait.Steppable))))
+
+
+def HasBeenDefeated(unit: TargetsSelector) -> AbilityTrigger:   # noqa: N802 (nom NATIF)
+    """`IdunBattleLogic.Entities.DSLTriggers$$HasBeenDefeated(unit)` -- MIRROR du decompile :
+
+        op_LogicalNot( IsAlive(unit) )
+        op_BitwiseOr HasFlagAbilityTrigger(unit, 9  = UnitFlag.Fled,        hasFlag: true)
+        op_BitwiseOr HasFlagAbilityTrigger(unit, 14 = UnitFlag.Resurrected, hasFlag: true)
+
+    Les DEUX flags sont transcrits meme si le port n'a aucun producteur de `Fled` aujourd'hui :
+    `UnitFlagsComponent` existe, donc le test est REEL et non un placeholder.
+
+    ⚠ Le port n'a AUCUN registre << vaincu pendant cette bataille >> -- et le natif non plus. Le
+    predicat filtre le POOL des unites, cadavres COMPRIS, ce qui exige que la source soit
+    `AllUnits()` (pool 8 `EntityPool.AllUnits`) et jamais `AllAliveUnits` (pool 0), sans quoi le
+    compte est structurellement NUL, sans erreur. Une unite RESSUSCITEE reste comptee (le flag
+    `Resurrected` survit a `remove_turn_flags`)."""
+    return TriggerOr(TriggerOr(Not(IsAlive(unit)),
+                               HasUnitFlag(unit, int(UnitFlag.Fled))),
+                     HasUnitFlag(unit, int(UnitFlag.Resurrected)))

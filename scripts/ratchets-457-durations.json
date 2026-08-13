@@ -10,6 +10,7 @@
  "tests/engine/entities/test_units_directly_behind_offline.py": 0.005,
  "tests/engine/playbook/test_967_mow_decision_faces_offline.py": 0.508,
  "tests/engine/playbook/test_969_effect_buff_decision_faces_offline.py": 0.508,
+ "tests/engine/runner/test_1002_reliques_astra_offline.py": 0.68,
  "tests/engine/runner/test_120bis_spawn_tile_offline.py": 0.398,
  "tests/engine/runner/test_1210_exemplar_of_the_montka_offline.py": 0.864,
  "tests/engine/runner/test_231r1_master_tutelaries_expiry_offline.py": 0.012,

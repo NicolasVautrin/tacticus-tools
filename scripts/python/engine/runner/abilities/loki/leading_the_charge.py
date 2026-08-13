@@ -186,9 +186,7 @@ from ....entities.selectors.tiles import (AdjacentTiles, AllUnits, CanAddUnit, C
 from ....entities.selectors.units import Filter, Union
 from ....entities.stats import StatType
 from ....entities.traits.unit_trait import UnitTrait, has_any_trait
-from ....entities.unit_flag import UnitFlag
-from ....entities.triggers import (AreFriends, HasTrait, HasUnitFlag, IsAlive, Not, TriggerAnd,
-                                   TriggerOr)
+from ....entities.triggers import (AreFriends, HasBeenDefeated, IsAlive, IsNormalUnit, TriggerAnd)
 from ....utilities.decider import UtilityBucket, UtilityDefinition, WeightedUtility
 from ....utilities.tile import first_tile_by_utility, sort_tiles_by_utility
 from ....utilities.utility_type import UtilityType
@@ -268,26 +266,23 @@ def leading_the_charge_move_tile(state: "State", caster_id: int, target_id: int,
 
 
 def _is_normal_unit_trigger():
-    """`IdunBattle.Entities.UnitExtensions$$IsNormalUnit` = `!HasTrait(Object 0xd) &&
-    !HasTrait(Steppable 0x1b)` -- le predicat du `IsNormalUnitTrigger` que `GetExtraPierceRatio`
-    compose en tete de son filtre. Sujet = l'element LIE par le `Filter` (slot natif `+0x180`)."""
-    return TriggerAnd(Not(HasTrait(Subject(), int(UnitTrait.Object))),
-                      Not(HasTrait(Subject(), int(UnitTrait.Steppable))))
+    """`IdunBattle.Entities.UnitExtensions$$IsNormalUnit` -- le predicat du `IsNormalUnitTrigger`
+    que `GetExtraPierceRatio` compose en tete de son filtre. Sujet = l'element LIE par le `Filter`
+    (slot natif `+0x180`).
+
+    Le corps a ete DEPLACE au foyer des noeuds T (`entities/triggers.IsNormalUnit`, #1002) : un
+    SECOND consommateur natif construit le meme predicat
+    (`...SabreOfSacrificeAbility$$GetCurrentExtraArmor`). Ce helper reste comme point d'entree
+    NOMME du call-site local -- il delegue, il ne duplique pas."""
+    return IsNormalUnit(Subject())
 
 
 def _has_been_defeated_trigger():
-    """`IdunBattleLogic.Entities.DSLTriggers$$HasBeenDefeated(unit)` -- MIRROR du decompile :
+    """`IdunBattleLogic.Entities.DSLTriggers$$HasBeenDefeated(unit)` applique au sujet du `Filter`.
 
-        op_LogicalNot( IsAlive(unit) )
-        op_BitwiseOr HasFlagAbilityTrigger(unit, 9  = UnitFlag.Fled,        hasFlag: true)
-        op_BitwiseOr HasFlagAbilityTrigger(unit, 14 = UnitFlag.Resurrected, hasFlag: true)
-
-    Les DEUX flags sont transcrits, meme si le port n'a aucun producteur de `Fled` aujourd'hui :
-    `UnitFlagsComponent` existe (cf. `UnstoppableMomentumReworked`), donc le test est REEL et non un
-    placeholder -- il rendra `True` des qu'un porteur posera le flag."""
-    return TriggerOr(TriggerOr(Not(IsAlive(Subject())),
-                               HasUnitFlag(Subject(), int(UnitFlag.Fled))),
-                     HasUnitFlag(Subject(), int(UnitFlag.Resurrected)))
+    Corps DEPLACE au foyer des noeuds T (`entities/triggers.HasBeenDefeated`, #1002), pour la
+    meme raison que `_is_normal_unit_trigger` juste au-dessus. Delegation, pas duplication."""
+    return HasBeenDefeated(Subject())
 
 
 def leading_the_charge_defeated_friends_selector():

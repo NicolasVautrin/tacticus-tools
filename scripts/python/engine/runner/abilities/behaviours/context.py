@@ -248,7 +248,7 @@ def _tile_entity(state, eid) -> dict | None:
 
 
 def entities_from_state(state, caster_id: int, target_id: int | None = None,
-                        actor_id: int | None = None) -> DslContext:
+                        actor_id: int | None = None, owner_id: int | None = None) -> DslContext:
     """Construit l'`AbilityEntities` (= `DslContext`) lu par les selecteurs d'un behaviour, depuis le
     `State` runner : `units` = `LiveUnit` (vues live-by-ref, pos/hp/alive re-lus du `state` a chaque acces
     -> mirror `AbilityEntities+0x40` ; permet la re-eval de predicat post-mutation, Voie A), `caster`
@@ -264,6 +264,7 @@ def entities_from_state(state, caster_id: int, target_id: int | None = None,
     caster = None
     target = None
     actor = None
+    owner = None
     for eid, e in state.entities.items():
         u = LiveUnit(state, eid, e)                   # vue LIVE (pos/hp/alive re-lus a chaque acces)
         units.append(u)
@@ -273,6 +274,20 @@ def entities_from_state(state, caster_id: int, target_id: int | None = None,
             target = u
         if actor_id is not None and eid == actor_id:
             actor = u
+        # `owner_id` (#1002) : le slot **Owner** (`DSLSelectors+0x30` = `factory+0x148`), DISTINCT
+        # du caster. Il ne se thread que quand le natif les separe reellement -- ce qui est rare :
+        # pour la quasi-totalite des triggered-abilities, `BaseTriggeredAbility$$Execute` s'execute
+        # sur son propre porteur, donc `Owner == Caster` et le repli documente de
+        # `entities/selectors/accessors.Owner` (`ctx.owner or ctx.caster`) est EXACT.
+        # Le premier call-site qui les separe est
+        # `IdunBattleLogic.Entities.Abilities.Triggered.Loki.SabreOfSacrificeAbility$$CreateBehaviour` :
+        # la relique de `astraDreir` se declenche AUSSI quand un Death Rider SUMMON charge -- le
+        # CASTER est alors le Death Rider et l'OWNER reste Dreir. Sans ce slot, la source de
+        # l'effet `Pinned` et le referent d'`AreFriends(Owner, ...)` designeraient le mauvais
+        # porteur, SILENCIEUSEMENT.
+        # `None` (defaut) = comportement d'avant, INCHANGE pour les ~459 autres appelants.
+        if owner_id is not None and eid == owner_id:
+            owner = u
 
     # CASTER NON-UNITE (entite TUILE). `IdunBattle.Entities.Behaviours.AttackBehaviour$$Execute`
     # resout son champ +0x50 (le caster) en UNE **entite**, pas forcement une unite : le DoT de tuile
@@ -839,7 +854,8 @@ def entities_from_state(state, caster_id: int, target_id: int | None = None,
         except (TypeError, ValueError):
             return None
 
-    return DslContext(units=units, caster=caster, target=target, actor=actor, board=state.board,
+    return DslContext(units=units, caster=caster, target=target, actor=actor, owner=owner,
+                      board=state.board,
                       # `TurnComponent.CurrentPlayer` -> noeud `IsTurnOf` (#85). Le runner le tient
                       # dans `state.current_player_id` (pose par `ChangeTurnOperation.execute`).
                       current_player_id=getattr(state, "current_player_id", None),
