@@ -113,11 +113,56 @@ d'écrire le couple à la main : un montage qui poserait `originalTeam` directem
 Elle assertionne **son propre non-vide** (`team != originalTeam`) — sans quoi les deux hypothèses
 rendraient le même résultat et le fichier ne conclurait rien.
 
-## 7. Résidu ouvert
+## 7. Résidu `#963-r4` — RÉSOLU (2026-08-13), et l'énoncé portait une CITATION FAUSSE
 
-| # | quoi |
+L'écart était réel et la réparation est celle que le résidu demandait, mais **le symbole qu'il
+citait n'existe pas** : il n'y a aucun `SelectSingle` dans le build. Ce que le décompilé dit :
+
+| ce que #963-r1 écrivait | ce que la relecture mesure |
 |---|---|
-| `#963-r4` | `AreFriendsAbilityTrigger$$ShouldTrigger` résout chaque opérande par **`SelectSingle`** et rend FAUX si l'un est nul ; le port garde son `any` sur le produit des deux listes, et rend FAUX des deux côtés là où `AreEnemies` (= `Not(AreFriends)`) rendrait **VRAI**. Autre axe que le paramètre d'équipe |
+| `<sel>.SelectSingle(entities)` | slot **8** d'`ITargetsSelector` = `IdunBattle.DSL.TargetsSelector$$SelectActor(entities, selectionType)` (table VERSIONNÉE `data/symbols/<build>/metadata/interface_slots.tsv`) |
+| — (2ᵉ argument non vu) | `UnitSelectionType.Any` — **invisible au pseudo-C**, écrit par `mov [rsp+0x20], edi` après la boucle de copie de l'`AbilityEntities`, dont `edi` sort à `0` (`sub rdi,1 ; jne`). **Lu à l'assembleur.** |
+| « le 4ᵉ argument `anyEntity` n'est pas modélisé » | `anyEntity` choisit la **CLASSE** : `false` → `AreFriendsAbilityTrigger` (slot 8, `SelectActor`) ; `true` → `IdunBattle.Entities.Triggers.AreEntityFriendsAbilityTrigger`, corps identique au slot **1** = `SelectFirst`. Les deux passent par le **même** `$$.ctor` — corps trivial DÉDUPLIQUÉ, jamais une identité de classe. |
+
+`SelectActor(entities, Any)` = premier élément d'ordre de `Select(entities)` qui **résout** en unité
+(`SelectUnit(e, Any)` résout aussi un pied ou une TUILE en son occupant, via
+`IdunBattle.Entities.UnitExtensions$$GetUnit`) ou, à défaut, qui est une MACHINE. Le port n'a qu'un
+domaine d'unité sur ce nœud : `_select_actor` prend le **premier dict** de la liste évaluée.
+
+`IdunBattleLogic.Entities.DSLTriggers$$AreEnemies` enveloppe **toujours** la variante
+`anyEntity = false` dans `IdunBattle.DSL.NegatedAbilityTrigger`, dont le `ShouldTrigger` est une
+négation **nue** (`return inner.ShouldTrigger(entities) ^ 1`, aucune garde) — d'où le VRAI sur
+opérande nul.
+
+**Le piège de la bascule, et il n'était pas dans l'énoncé.** Nier `AreFriends` tel quel aurait
+fabriqué un VRAI à partir d'un **trou du port** : `team_for_selection` rend `None` quand le
+substrat ne publie pas l'équipe, ce qui n'est PAS le `return false` natif. Le foyer
+`_are_friends_tristate` rend donc **trois** valeurs — `False` (mesuré), `True`, `None` (non mesuré)
+— et les deux nœuds traduisent `None` en FAUX, **fermé des deux côtés**, exactement le régime
+d'avant.
+
+**Inertie sur les call-sites portés, MESURÉE et non supposée** : les 9 instanciations de
+`engine/**` (4 `AreFriends`, 5 `AreEnemies`) sont toutes gardées en amont — `HasUnit(subject) &`
+pour `dark_talon`/`thrice_blessed`, `Not(HasUnit(tile)) |` pour l'arbre `Get(GetHits)`, et des
+sélecteurs mono-unité toujours résolus (`Caster`, `Owner`, `Actor`, `Target`, `ActiveTarget`)
+ailleurs. `tests/engine/test_963r4_areenemies_null_operand_offline.py` §5 l'évalue sur l'arbre RÉEL
+de `DarkTalonStrikeAbility$$GetTilesInLine`, board **non dégénéré** (une tuile occupée **et** une
+tuile vide) : le terme `AreEnemies` seul BASCULE sur la tuile vide, le prédicat complet reste FAUX.
+
+Gardes vues ROUGES par mutation (retour au `any` sur le produit, morsure vérifiée par grep) :
+**6 tests sur 9**, messages verbatim `le noeud doit comparer le PREMIER de chaque operande…`,
+`AVANT #963-r4 le port rendait FAUX des deux cotes ; le natif nie un FAUX **mesure**`,
+`sur une tuile VIDE, AreEnemies seul rend desormais VRAI (operande nul, negation NUE)`.
+
+Re-joué vert après le fix : 18 fichiers offline + `test_dark_talon_strike_live.py`,
+`test_synaptic_linchpin_live.py`, `test_act_of_faith_second_stack_live.py`.
+
+**Reste NON couvert, et nommé** : la variante `anyEntity = true`
+(`AreEntityFriendsAbilityTrigger`, slot 1 `SelectFirst`) n'a aucun call-site porté et n'est pas
+modélisée ; la résolution TUILE → occupant à l'intérieur de `SelectActor` non plus (aucun opérande
+tile-domain n'est passé — ils passent `Units(...)`, qui a déjà résolu) ; et la confrontation
+**LIVE** du régime `MindControl × RedRampage` reste due (montage : `1101 AttemptedPossession` +
+un porteur `RedRampage` + achever la victime possédée).
 
 Non couvert et **nommé** : le 4ᵉ argument `anyEntity` d'`AreFriends` (2 sites natifs, aucun porté) ;
 et la confrontation **LIVE** du régime `MindControl × RedRampage` — le montage exige `1101

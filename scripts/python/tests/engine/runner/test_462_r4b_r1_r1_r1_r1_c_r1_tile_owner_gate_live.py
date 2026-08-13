@@ -226,12 +226,17 @@ def test_le_gate_d_owner_reste_entier_sur_la_face_ABILITY():
 
 # ─────────────────────────────────────────────── le bras qui MORD : un effet de tuile REEL
 
-def _tuile_occupee(state: State):
-    """`(tile_id, unit_id)` d'une unite VIVANTE posee sur une tuile du board. `(None, None)` si
-    l'etat charge n'en offre aucune (traite comme un ECHEC par l'appelant, jamais un skip)."""
+def _tuiles_occupees(state: State):
+    """TOUS les couples `(tile_id, unit_id)` d'unites VIVANTES posees sur une tuile du board.
+
+    ⚠ Rendre le PREMIER (ce que faisait `_tuile_occupee`) revenait a choisir l'occupant par l'ordre
+    d'iteration de `state.entities` -- un ordre qui n'a aucun rapport avec la question posee, et qui
+    peut tomber sur une unite trop ARMUREE pour brûler (#933-r4). L'appelant balaye et garde le
+    premier qui prend effectivement le DoT."""
     board = state.board
     if board is None:
-        return None, None
+        return []
+    out = []
     for uid, e in state.entities.items():
         pc = e.get_component(PositionComponent)
         hc = e.get_component(HealthComponent)
@@ -239,8 +244,8 @@ def _tuile_occupee(state: State):
             continue
         tid = board.id_at(pc.col, pc.row)
         if tid is not None:
-            return int(tid), int(uid)
-    return None, None
+            out.append((int(tid), int(uid)))
+    return out
 
 
 def _dot_dispatche(state: State, tile_id: int) -> int:
@@ -269,12 +274,37 @@ def etat_avec_tuile_en_feu(rpc, build_runner):
     ob = rpc("observeBattle", {"runnerId": rid}, 40)
     snap = rpc("combatSnapshot", {"runnerId": rid}, 60)
     tm = rpc("tileMeta", {"runnerId": rid}, 60)
-    st = load_state(dec, ob, snap, board=board, tiles=tm)
-    tile_id, uid = _tuile_occupee(st)
-    assert tile_id is not None, "aucune unite posee sur une tuile du board -- montage non installe"
+
+    def _neuf():
+        """Un etat FRAIS depuis les MEMES payloads RPC (aucun appel de plus)."""
+        return load_state(dec, ob, snap, board=board, tiles=tm)
+
+    # ⚠ L'OCCUPANT SE CHOISIT PAR CE QU'IL BRULE, PAS PAR L'ORDRE D'ITERATION (#933-r4).
+    # `_tuile_occupee` rendait la PREMIERE unite trouvee ; or le DoT de tuile est un degat DIRECT
+    # (`damage_ops/normal_like.execute_direct`), reduit par la `FixedArmor` du defenseur, et il rend
+    # `None` des que `dmg <= 0`. En regime BiS l'occupant tire porte l'armure de ses items et absorbe
+    # INTEGRALEMENT les 20 % de PV max : le montage ne brulait plus, et l'echec se lisait comme une
+    # regression du GATE d'owner alors que le DoT n'etait meme pas calcule. La correction n'est pas de
+    # baisser une armure -- c'est de CHOISIR un porteur qui brule, et de le mesurer.
+    tile_id = uid = None
+    essais = []
+    for cand_tile, cand_uid in _tuiles_occupees(_neuf()):
+        sonde = _neuf()
+        sonde.effects.add_effect(cand_tile, EffectFactory.create(
+            {"name": "Fire", "effectType": int(FIRE_TILE), "level": 1, "remaining": 4}, 100, None, None))
+        dot = _dot_dispatche(sonde, cand_tile)
+        essais.append((cand_tile, cand_uid, dot))
+        if dot > 0:
+            tile_id, uid = cand_tile, cand_uid
+            break
+    assert tile_id is not None, (
+        "AUCUN occupant du board ne prend le DoT du feu (20 %% des PV max, reduit par la FixedArmor) "
+        "-- le montage est inexploitable, ce n'est pas un verdict sur le gate. Essais : %s" % essais)
+    st = _neuf()
     st.effects.add_effect(tile_id, EffectFactory.create(
         {"name": "Fire", "effectType": int(FIRE_TILE), "level": 1, "remaining": 4}, 100, None, None))
-    return {"state": st, "tile": tile_id, "unit": uid, "rid": rid, "tiles": tm}
+    return {"state": st, "tile": tile_id, "unit": uid, "rid": rid, "tiles": tm,
+            "essais": essais}
 
 
 def test_le_dot_du_feu_survit_a_la_perte_de_owner_is_tile_live(etat_avec_tuile_en_feu, monkeypatch):

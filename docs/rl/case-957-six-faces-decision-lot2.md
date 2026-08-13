@@ -203,9 +203,52 @@ deux pistes de montage.
 | `Nullable(GetDamageProfile())` NON vide | profil `Blast` de la config, aucun override | ✔ |
 | `ShouldExecute` = `attackHealUtility > <1er static>` | `STATIC_UTILITY_THRESHOLD = 10.0` | ✔ |
 
-Un seul écart, non couvert : `hits` = `AActiveAbility$$GetHits` = `GetNumberConstant(0x2f)`
-**LITTÉRAL**, là où le chemin générique passe par `GetDefaultAttackHits(nrOfHits + ExtraHits)`.
-Inerte tant que `ExtraHits = 0`. Résidu `#957-r3`.
+Un seul écart : `hits` = `AActiveAbility$$GetHits` = `GetNumberConstant(0x2f)` **LITTÉRAL**, là où
+le chemin générique passe par `GetDefaultAttackHits(nrOfHits + ExtraHits)`. Inerte tant que
+`ExtraHits = 0`. Résidu `#957-r3` — **RÉSOLU et CONFRONTÉ LIVE (2026-08-13)**.
+
+### `#957-r3` — le régime discriminant EXISTE, et le levier proposé n'était pas le bon
+
+Le résidu proposait « `--unit-stat` sur la stat 17 ». **Faux** : l'entrée BC d'une unité porte
+**38** champs et **aucun** ne s'appelle `ExtraHits` (`probe_957r3_excruciating_hits.py
+--montrer-bc`). `ExtraHits` est une stat de BATAILLE, à 0 par défaut, et le build `rnca9r7q6c` n'a
+que **deux** producteurs :
+
+| producteur | signe | voie d'attribution | atteint le caster de 1197 ? |
+|---|---|---|---|
+| `IdunBattle.Entities.Effects.Loki.Swarm_HitReductionEffect` (1021) | **négatif** (`-min(nrOfMembers - 1, membres morts)`) | trait `Swarm` | **OUI**, par montage |
+| `DoomSiren_ExtraHit` (1431, `AddStaticStatModifierEffect`) | +1, permanent | branche OVERKILL de `1199` | non (`emperKakophonist` porte 1199, pas 1197) |
+
+Le premier est atteignable parce que ses **trois** entrées sont des champs BC — `Traits`,
+`NumberOfMembers` et `RemainingHealth` (qui fait les membres morts) — donc `--unit-stat` sur
+chacune. Montage mesuré :
+
+```
+--unit-stat emperNoiseMarine:NumberOfMembers=5
+--unit-stat emperNoiseMarine:Traits=[...,"Swarm"]
+--unit-stat emperNoiseMarine:RemainingHealth=800     (Health = 8533 -> 4 membres morts)
+    statModSources : extraHits = -4
+    litteral  = nrOfHits                              = 1
+    generique = GetDefaultAttackHits(1, -4, 0, False) = max(1 - 4, 0) = 0
+    aiPlaybookPredict -> appliedHits = 1 sur 4 evenements
+```
+
+⇒ **le natif prédit le LITTÉRAL** : l'override est CONFIRMÉ live, dans un régime où les deux
+candidats sont séparés de façon maximale (1 contre 0).
+
+⚠ Deux pièges de montage, tous deux mesurés : **`--hp-player` ne marche pas** (il aligne `Health`
+sur `RemainingHealth`, donc 0 membre mort, donc `ExtraHits = 0` — accord dégénéré) ; et
+**`aiPlaybookPredict`/`statModSources` veulent le `squadId`** d'`observeBattle`, pas son
+`entityId` (sinon `unit 82 not found (unit/machine)`) — même piège que celui déjà nommé sur
+`combatSnapshot.units[].entityId` par #982-r5. S'y ajoute la **géométrie** : 1197 est une ability
+de LIGNE, et au placement de spawn le caster n'est aligné avec personne — le playbook rend alors
+zéro événement, ce qui se lirait à tort comme « pas de prédiction ». Le probe aligne
+explicitement (`--place emperNoiseMarine:6,6`).
+
+Garde : `tests/engine/runner/test_957r3_excruciating_hits_live.py` (3 tests, dont un **témoin de
+régime armé joué AVANT le verdict**). Vue ROUGE par mutation (l'override rend le générique) :
+`le port surcharge None coups la ou le natif en applique [1]` côté live, et
+`hits_override = None, attendu le litteral de config 1` côté offline.
 
 ## 8. `1017 FragBomb` — le volet SPLASH manquait
 
@@ -284,7 +327,10 @@ fichier de test).
 
 * la confrontation native de `1115` (résidu `#957-r2`) — cause mesurée au §6 ;
 * les MoW dans le comptage de morts de `1097` (`observeBattle.units` ne les porte pas) — `#957-r1` ;
-* le `hits` littéral de `1197` (`ExtraHits` non retranché) — `#957-r3` ;
+* ~~le `hits` littéral de `1197`~~ — `#957-r3` **RÉSOLU** (§7) ; reste hors couverture : le
+  producteur **POSITIF** d'`ExtraHits` (`DoomSiren_ExtraHit`, +1 par overkill), qui exigerait de
+  greffer 1197 sur `emperKakophonist` **et** de lui faire jouer un overkill — le montage `Swarm`
+  couvre le signe négatif, pas le positif ;
 * le splash de `1017` et le fix d'ancre de `1179` **NON CONFRONTÉS LIVE** — `#957-r4`. Les deux
   portent leur cliquet offline avec mutation, mais aucun montage n'a été joué : `astraBullgryn` et
   `genesPrimus` n'étaient dans aucun des trois runners ;

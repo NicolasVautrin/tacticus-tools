@@ -23,8 +23,10 @@ CE QU'IL GARDE (offline pur) :
   4. **LA SOURCE EST LA BONNE** -- `nrOfHits` est lu dans les CONSTANTES (`GetNumberConstant`),
      comme `_stikkbomb_inputs`, pas dans les variables par niveau.
 
-⚠ NON CONFRONTE LIVE : ce fichier garde la FORME de l'override, pas l'accord avec le natif sur un
-porteur reel (`emperNoiseMarine` avec un `+ExtraHits`). Cf. le rapport de tranche.
+CONFRONTE LIVE depuis #957-r3 : ce fichier garde la FORME de l'override ; l'ACCORD avec le natif
+sur le porteur reel est garde par `tests/engine/runner/test_957r3_excruciating_hits_live.py`
+(montage `probe_957r3_excruciating_hits.py --bras swarm` : `ExtraHits = -4` -> litteral 1 contre
+generique 0, et `aiPlaybookPredict` rend **1**).
 
 ASCII only. Point d'entree : `docs/rl/case-957-six-faces-decision-lot2.md` SS7.
 """

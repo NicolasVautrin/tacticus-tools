@@ -15,13 +15,17 @@ FINDINGS DECOMPILE (au-dela du verdict RE) :
     `includeCenter=0` (exclut la cible). Porte = `Union(Target(), Alive(SurroundingEnemies(TargetTile(), 1)))`.
   - "surrounding radius" = DslContext @+0xc0 = 1 (adjacence, i2 « surrounding hex »), DISTINCT du `range`
     config = 2 (`GetNumberConstant(0x16)`, portee de MOUVEMENT `MovableTilesInRange`).
-  - MoveUnit options NULL (decompile `local_1b8..local_188 = 0`) -> AUCUN after-move crush/overwatch (feuille
-    MoveUnit fidele, cf. tache #4). Le verdict RE « declenche crush/overwatch » etait imprecis.
+  - ⚠ MoveUnit options NULL n'eteint PAS l'after-move (#933-r2, REFUTANT la phrase qui vivait ici) : la
+    coupure native est `publish On(0x24) ; if (isInterimStep) return ; publish On(4) ; publish On(0x1d)`, et
+    `isInterimStep` = `MoveUnitOptions+0x14` = `MoveUnitBehaviour+0x80`, DEFAUT 0 -> l'OVERWATCH part. Seul
+    `+0x10` est inverse (`^0x101`) -> ni flag `ArrivedAtFinalTile` ni `On(0x1c)`. Sur ce montage, le tir
+    d'overwatch declenche le passif `HypersensoryAbilities_MoveAndSpawnDecoy` de Judh, qui le RELOCALISE.
   - crit `mag = extraCritDmg[level] x nbFree`, nbFree compte POST-move (Cache 1re eval = ChangeStat(Add)).
 
 VALIDATION : deterministe-sur-etat-live (comme G2/G4). On BUILD un runner (Judh + 2 ennemis), on capture
 l'etat LIVE (units/teams/board/stats), on DRIVE les positions (cluster controle) sur l'etat charge, on execute
-le PORT et on asserte le WIRING : (1) move sur un hex libre adjacent a la cible ; (2) splash = cible +
+le PORT et on asserte le WIRING : (1) move sur un hex libre adjacent a la cible -- la DESTINATION CHOISIE par
+l'ability, la position FINALE pouvant differer par la cascade after-move, qui doit alors l'EXPLIQUER ; (2) splash = cible +
 ennemi voisin (les deux subissent des degats) ; (3) `crit_bonus == extraCritDmg x nbFree` ; (4) CRIT_DAMAGE
 du caster RESTAURE (revert net-nul) ; (5) gate : deja-adjacent -> pas de move ; (6) OBSERVABILITE du buff crit
 au roll (CC force 100 : l'ability inflige PLUS que la meme attaque SANS le buff, meme seed). ASCII-only.
@@ -210,6 +214,68 @@ def g5_state(rpc, build_runner):
     return {"build_state": build_state, "board": board}
 
 
+# ------------------------------------------------------------------ cascade after-move (#933-r2)
+
+def _after_move_relocations(payload):
+    """Toutes les RELOCALISATIONS trouvees dans un payload `after_move`, sous la forme
+    `[(nom_de_l_ability, (col, row)), ...]`.
+
+    Le vecteur after-move est une CASCADE : `MoveUnitOperation` publie `On(4 = UnitAfterMove)`,
+    l'overwatch adverse tire, et le `finish_attack` de CE tir peut a son tour deplacer la cible
+    (`HypersensoryAbilities_MoveAndSpawnDecoy` sur Judh). La profondeur n'est donc pas connue
+    d'avance -- on descend recursivement plutot que d'ecrire un chemin, qu'un maillon de plus
+    invaliderait en silence."""
+    out = []
+
+    def _walk(x):
+        if isinstance(x, dict):
+            mt = x.get("moved_to")
+            if isinstance(mt, (tuple, list)) and len(mt) == 2:
+                out.append((x.get("ability") or x.get("effect"), (int(mt[0]), int(mt[1]))))
+            for v in x.values():
+                _walk(v)
+        elif isinstance(x, (list, tuple)):
+            for v in x:
+                _walk(v)
+
+    _walk(payload)
+    return out
+
+
+def _replay_move_only(g5_state, clus):
+    """Rejoue le MEME montage sur un etat TEMOIN et n'execute QUE le membre GAUCHE du `op_Addition`
+    racine de `heroic_fusillade_tree` -- c'est-a-dire le volet MOVE, cascade after-move comprise.
+
+    Rend `(nb_tuiles_libres_autour_de_T, destination_choisie, position_finale_de_Judh)`.
+
+    POURQUOI un temoin plutot qu'une formule : `_hf_crit_mag` compte les tuiles libres a l'instant
+    du `ChangeStat(Add)`, qui suit le MOVE **et** sa cascade (relocalisation du caster + pose d'un
+    leurre). Une expression comme `n_nbrs - 2` code en dur une occupation que la cascade dement, et
+    c'est exactement ce genre de constante gravee qui fait accuser le port a la place du montage.
+    L'etat temoin est reconstruit par `build_state()` (meme RNG initial) : la passe est
+    deterministe, et la position finale des deux passes est comparee dans le test."""
+    from engine.runner.abilities.behaviours.context import entities_from_state
+    from engine.runner.abilities.genestealer import heroic_fusillade_tree, _surrounding_free_tiles
+    from engine.dsl.effects import ExecutionContext
+
+    st = g5_state["build_state"]()
+    board = g5_state["board"]
+    judh = _find_by_vis(st, JUDH_VIS)
+    enemies = _enemies_of(st, judh)
+    t_coord, judh_coord, e2_coord, _n = clus
+    target, e2 = enemies[0], enemies[1]
+    _park_others(st, board, {judh, target, e2}, t_coord)
+    _set_pos(st, target, *t_coord)
+    _set_pos(st, e2, *e2_coord)
+    _set_pos(st, judh, *judh_coord)
+    tree = heroic_fusillade_tree(st, judh, target, SURROUND_RADIUS, MOVE_RANGE)
+    ectx = ExecutionContext(state=st, rng=st.rng)
+    tree.left.execute(entities_from_state(st, judh, target), ectx)     # UNIQUEMENT le volet MOVE
+    mv = next((p for n, p in ectx.emitted if n == "MoveUnit"), None)
+    return (len(_surrounding_free_tiles(st, t_coord, SURROUND_RADIUS)),
+            (mv or {}).get("to"), _pos(st, judh))
+
+
 # ------------------------------------------------------------------ tests
 
 def test_g5_move_splash_crit_wiring(g5_state):
@@ -235,21 +301,52 @@ def test_g5_move_splash_crit_wiring(g5_state):
     _set_pos(state, e2, *e2_coord)
     _set_pos(state, judh, *judh_coord)
 
-    # crit_bonus attendu = extraCritDmg[level] x nbFree, nbFree = voisins marchables de T LIBRES post-move.
-    # Post-move : e2 occupe 1 voisin, Judh se pose sur 1 autre -> nbFree = n_nbrs - 2.
+    # crit_bonus attendu = extraCritDmg[level] x nbFree. `_hf_crit_mag` collapse
+    # `Count(CanAddUnit(SurroundingTiles(target, 1)))` au `ChangeStat(Add)`, donc APRES le MOVE **et
+    # apres sa cascade after-move**. On le MESURE sur un etat TEMOIN (meme montage, meme RNG, seul
+    # le volet MOVE de l'arbre est execute) au lieu de le DEDUIRE d'une formule de geometrie :
+    # `n_nbrs - 2` supposait que seuls e2 et Judh occupent des voisins de T, ce que la cascade
+    # dement (cf. le bloc (1) ci-dessous).
     level, mult = _level_mult(state, judh)
     extra = int(ability_var("HeroicFusillade", "extraCritDmg", level, multiplier_pct=mult) or 0)
-    expected_nbfree = n_nbrs - 2
+    expected_nbfree, temoin_dest, temoin_final = _replay_move_only(g5_state, clus)
+    assert 0 < expected_nbfree <= n_nbrs, \
+        f"temoin ABSURDE : nbFree={expected_nbfree} hors ]0, {n_nbrs}] -- le montage temoin n'a pas joue"
 
     cd0 = _stat(state, judh, StatType.CRIT_DAMAGE)
     hp_t0, hp_e0 = _hp(state, target), _hp(state, e2)
     res = HeroicFusilladeAbility().execute_behaviour(state, judh, target)
     assert res is not None and res.get("dsl") is True, f"port non execute: {res}"
 
-    # (1) MOVE : Judh a bien bouge et est desormais adjacent a la cible
+    # (1) MOVE : l'ability POSE Judh sur un hex libre ADJACENT a la cible.
+    #
+    # ⚠ ON ASSERTE LA DESTINATION CHOISIE (`res["move"]["to"]`), PAS LA POSITION FINALE, et c'est ce
+    # que le rouge #933-r2 confondait (« Judh pas adjacent a la cible post-move: (1, 2) vs (0, 0) »,
+    # `2 == 1`). Entre les deux, `MoveUnitOperation` joue son vecteur after-move : la feuille DSL a
+    # options nulles ne SUPPRIME PAS `On(4 = UnitAfterMove)` (`MoveUnitOptions+0x14 = isInterimStep
+    # = 0`, cf. `runner/operations/triggers/dispatch/move_death.after_move_triggers`) -- l'OVERWATCH
+    # de l'ennemi part donc, et le passif de Judh `HypersensoryAbilities_MoveAndSpawnDecoy` le
+    # RELOCALISE en laissant un leurre sur la tuile qu'il quitte. La cascade est FIDELE ; c'est
+    # l'assertion qui mesurait au mauvais instant.
     assert res["move"] is not None and res["move"].get("moved") is True, f"Judh n'a pas bouge: {res['move']}"
-    assert hexgeo.distance(_pos(state, judh), t_coord) == 1, \
-        f"Judh pas adjacent a la cible post-move: {_pos(state, judh)} vs {t_coord}"
+    dest = res["move"].get("to")
+    assert dest is not None and hexgeo.distance(dest, t_coord) == 1, \
+        f"destination CHOISIE pas adjacente a la cible: {dest} vs {t_coord}"
+    # ... et la position FINALE ne peut differer de `dest` QUE par une relocalisation after-move
+    # NOMMEE. Sans ce second volet, le test cesserait de voir un port qui deplacerait Judh ailleurs.
+    final = _pos(state, judh)
+    reloc = _after_move_relocations(res["move"].get("after_move"))
+    assert final == dest or final in [p for _a, p in reloc], (
+        f"Judh a fini en {final} alors que l'ability l'a pose en {dest}, et AUCUNE relocalisation "
+        f"after-move ne l'explique (relocalisations vues : {reloc})")
+    assert final == temoin_final, \
+        f"le temoin et la passe reelle divergent sur la position finale: {temoin_final} vs {final}"
+    # TEMOIN NON NUL de la cascade : sur CE montage l'overwatch adverse part et relocalise Judh. Si
+    # ce jour-la il ne partait plus, l'assertion `final == dest` ci-dessus deviendrait triviale et
+    # le test cesserait d'observer le vecteur after-move sans le dire.
+    assert reloc, (
+        "la cascade after-move n'a RELOCALISE personne : le montage n'exerce plus `On(4 = "
+        f"UnitAfterMove)` (after_move = {res['move'].get('after_move')})")
 
     # (2) SPLASH = cible + voisin, les deux subissent des degats
     assert res["main_attack"] is not None, "pas d'attaque principale sur la cible"

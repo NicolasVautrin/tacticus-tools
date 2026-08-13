@@ -94,6 +94,13 @@ DECLENCHEUR = {
 
 # --- BLOC GENERE (`probe_933_premisses_regime.py --attester`) -- ne pas tenir a la main -------
 _ATTESTES = (
+    # ⚠ ENTRE AU REBASE DE #933-r4, exactement comme `test_928_legacy_of_combat_live.py` avant lui :
+    # il est arrive par un merge pendant la tranche (`#966-r3`, `1212 HealingBalms`), il LIT
+    # `critchance`/`critdamage` et neutralise `Armor`/`FixedArmor`/`Health` mais AUCUNE des quatre
+    # stats a zero ouvert -- et il est suspect AVEC comme SANS le critere (C) ajoute par #933-r4
+    # (mesure : `attendu-positif`, `attendu-non-nul`, `valeur-en-dur` suffisent). Il n'a donc PAS
+    # ete mesure ici, et l'inscrire ne dit rien de la tenue de sa premisse.
+    "engine/test_966r3_execution_du_cast_live.py",
     "engine/runner/test_448r2dr2_titanhammer_active_live.py",
     "engine/runner/test_499_storm_of_wrath_live.py",
     "engine/runner/test_503r1_overwhelming_wrath_phase2_live.py",

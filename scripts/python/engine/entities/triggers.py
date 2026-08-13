@@ -733,6 +733,52 @@ class IsTurnOf(AbilityTrigger):
         return all((u or {}).get("player") == cur for u in _units_of(self.unit, ctx))
 
 
+def _select_actor(node, ctx):
+    """Mirror -- au domaine d'unite du port -- d'`IdunBattle.DSL.TargetsSelector$$SelectActor(
+    entities, UnitSelectionType.Any)`, le slot **8** d'`ITargetsSelector` par lequel
+    `IdunBattle.Entities.Triggers.AreFriendsAbilityTrigger$$ShouldTrigger` resout CHACUN de ses deux
+    operandes (#963-r4).
+
+    Le natif itere `Select(entities)` DANS L'ORDRE et rend le PREMIER element qui resout en unite
+    (`SelectUnit(e, Any)`) ou, a defaut, qui est une machine ; `null` si aucun. Le port n'ayant
+    qu'un domaine d'unite ici (des dicts -- les tuiles y sont des `int`), c'est le PREMIER dict de
+    la liste evaluee, et `None` s'il n'y en a aucun.
+
+    C'est la difference de FORME avec un `any` sur le produit des deux listes : le natif ne compare
+    QU'UN couple, et rend FAUX des qu'un operande ne resout rien."""
+    for u in _units_of(node, ctx):
+        if isinstance(u, dict):
+            return u
+    return None
+
+
+def _are_friends_tristate(a_node, b_node, selection_type, ctx):
+    """FOYER UNIQUE des deux noeuds d'amitie -- il rend TROIS valeurs, et le troisieme etat est ce
+    qui empeche `AreEnemies` de fabriquer un VRAI sur une donnee que le port n'a pas (#963-r4) :
+
+    * `False` = le natif rend FAUX, **mesure** -- un operande ne resout aucune entite
+      (`SelectActor` -> `null`), ou les deux equipes sont LUES et DIFFERENTES. `AreEnemies` en est
+      la negation NUE (`NegatedAbilityTrigger$$ShouldTrigger`), donc VRAI.
+    * `True`  = les deux equipes sont LUES et EGALES.
+    * `None`  = **equipe NON MESUREE** (`team_for_selection` rend `None` : le substrat ne publie pas
+      l'equipe, ou le `selectionType` est hors des deux membres). Ce n'est PAS le `return false`
+      natif : c'est un trou du port. Les DEUX noeuds le traduisent en FAUX -- degradation FERMEE
+      des deux cotes, exactement le regime d'avant #963-r4, et la seule qui n'invente rien.
+      L'ecart natif correspondant est deja nomme dans `entities/unit_team_selection_type.py` (le
+      natif rabat un joueur absent sur `teamId = 0`, donc y voit deux AMIS)."""
+    a = _select_actor(a_node, ctx)
+    if a is None:
+        return False                       # `if (a == null) return false;`
+    b = _select_actor(b_node, ctx)
+    if b is None:
+        return False                       # `if (b == null) return false;`
+    x = team_for_selection(a, selection_type)
+    y = team_for_selection(b, selection_type)
+    if x is None or y is None:
+        return None
+    return x == y
+
+
 class AreFriends(AbilityTrigger):
     """`IdunBattleLogic.Entities.DSLTriggers$$AreFriends(unit1, unit2, comparisonType, anyEntity)` :
     les deux entités sont-elles ALLIÉES (MÊME équipe) ?
@@ -742,8 +788,8 @@ class AreFriends(AbilityTrigger):
         DSLTriggers.AreFriends(u1, u2, comparisonType, anyEntity)
             -> new AreFriendsAbilityTrigger(u1, u2, battleQuery, comparisonType)   // champ +0x28
         AreFriendsAbilityTrigger.ShouldTrigger(entities)
-            a = <sel@+0x10>.SelectSingle(entities);  if (a == null) return false;
-            b = <sel@+0x18>.SelectSingle(entities);  if (b == null) return false;
+            a = <sel@+0x10>.SelectActor(entities, Any);  if (a == null) return false;
+            b = <sel@+0x18>.SelectActor(entities, Any);  if (b == null) return false;
             return battleQuery.<slot 0x92>(a, b, <+0x28>)          // = BattleQuery.AreFriends
         BattleQuery.AreFriends(a, b, selectionType)
             -> UnitExtensions.IsFriend(a, b, selectionType, this.State)            // cf. le foyer
@@ -754,24 +800,51 @@ class AreFriends(AbilityTrigger):
     natif. Défaut `ByCurrentTeam` : c'est ce que passent tous les call-sites natifs d'`AreFriends`
     recensés (#963-r1), jamais une convention du port.
 
-    ⚠ ÉCART NOMMÉ (résidu `#963-r1-r1`) : le natif résout chaque opérande par **`SelectSingle`** et
-    rend FAUX si l'un est nul ; le port garde son `any` sur le produit des deux listes. Identique
-    tant que les sélecteurs rendent AU PLUS une unité (le cas de tous les call-sites portés) ; plus
-    permissif sinon. Non touché ici : ce serait un autre axe que le paramètre d'équipe, sur un nœud
-    lu par une vingtaine de call-sites déjà validés.
+    RÉSOLUTION DES OPÉRANDES (#963-r4, re-lue au décompile ET à l'ASSEMBLEUR) : chaque opérande est
+    résolu à **UNE SEULE entité**, et un opérande NUL fait rendre FAUX -- ce n'est PAS un `any` sur
+    le produit des deux listes. Le slot d'interface est **8 d'`ITargetsSelector`** (table
+    `data/symbols/<build>/metadata/interface_slots.tsv`), c'est-à-dire
+    `IdunBattle.DSL.TargetsSelector$$SelectActor(entities, selectionType)`, et NON un « SelectSingle »
+    (aucun symbole de ce nom n'existe dans le build) :
 
-    None d'un côté → False. [⚠ le 4e argument natif `anyEntity` (choix de la classe de trigger)
-    n'est pas modélisé.]"""
+        a = <sel@+0x10>.SelectActor(entities, UnitSelectionType.Any);  if (a == null) return false;
+        b = <sel@+0x18>.SelectActor(entities, UnitSelectionType.Any);  if (b == null) return false;
+        return battleQuery.<slot 0x92>(a, b, <+0x28>)
+
+    ⚠ Le 2e argument (`selectionType`) est **INVISIBLE au pseudo-C** : Ghidra n'affiche que quatre
+    arguments au trampoline d'invocation d'interface. Il est écrit dans le slot de pile par
+    `mov [rsp+0x20], edi` juste après la boucle de copie de l'`AbilityEntities`, dont `edi` est le
+    compteur -- et cette boucle finit par `sub rdi,1 ; jne`, donc `edi == 0` =
+    `UnitSelectionType.Any`. Lu à l'assembleur, jamais au pseudo-C.
+
+    `SelectActor(entities, sel)` = premier élément d'ordre de `Select(entities)` qui **résout** en
+    unité (`SelectUnit(e, sel)` -- lui-même résout un pied d'unité ou une TUILE en son occupant via
+    `IdunBattle.Entities.UnitExtensions$$GetUnit`) ou, à défaut, qui est une MACHINE
+    (`IdunBattle.Entities.EntityExtensions$$IsMachine`). Le port n'a qu'un domaine d'unité (des
+    dicts) sur ce nœud : `_select_actor` prend donc le PREMIER dict de la liste évaluée. Ce qui
+    n'est PAS modélisé, et qui est nommé plutôt que deviné : la résolution TUILE -> occupant (aucun
+    call-site porté ne passe un opérande tile-domain -- ils passent `Units(...)`, qui a déjà
+    résolu), et le filtre `UnitSelectionType`, inerte à `Any`.
+
+    ⚠ **Le 4e argument natif `anyEntity` choisit la CLASSE du trigger**, et les deux classes ne
+    résolvent pas leurs opérandes de la même façon (`IdunBattleLogic.Entities.DSLTriggers$$AreFriends`) :
+    `anyEntity == false` -> `IdunBattle.Entities.Triggers.AreFriendsAbilityTrigger` (slot 8 =
+    `SelectActor`, ci-dessus) ; `anyEntity == true` ->
+    `IdunBattle.Entities.Triggers.AreEntityFriendsAbilityTrigger`, dont le `ShouldTrigger` est le
+    MÊME corps au slot **1** = `SelectFirst(entities)` (première entité NON NULLE, tuile ou effet
+    compris). Les deux appellent le MÊME `$$.ctor` -- corps trivial DÉDUPLIQUÉ par IL2CPP, à ne
+    jamais lire comme une identité de classe. Le port modélise la variante `anyEntity == false`,
+    celle que passent les call-sites portés (`empyric_ambush`, `extra_damage_aura`,
+    `medicus_ministorum`) et celle que `$$AreEnemies` construit TOUJOURS.
+
+    Opérande nul (liste vide, ou aucun dict dedans) → False."""
     def __init__(self, a: AbilityTrigger, b: AbilityTrigger,
                  selection_type=UnitTeamSelectionType.ByCurrentTeam):
         self.a, self.b = a, b
         self.selection_type = int(selection_type)
 
     def should_trigger(self, ctx):
-        st = self.selection_type
-        ta = [team_for_selection(u, st) for u in _units_of(self.a, ctx) if isinstance(u, dict)]
-        tb = [team_for_selection(u, st) for u in _units_of(self.b, ctx) if isinstance(u, dict)]
-        return any(x is not None and x == y for x in ta for y in tb)
+        return _are_friends_tristate(self.a, self.b, self.selection_type, ctx) is True
 
 
 class HasGrandAlliance(AbilityTrigger):
@@ -1047,9 +1120,14 @@ class AreEnemies(AbilityTrigger):
     Les deux operandes sont normalises par `_units_of` (un ref-unite seul compte pour 1). None d'un
     cote -> False.
 
-    ⚠ ECART NOMME (residu `#963-r1-r1`) : parce que le natif est `Not(AreFriends)`, un operande que
-    `SelectSingle` rend NUL fait rendre FAUX a `AreFriends` donc **VRAI** a `AreEnemies` ; le port
-    rend FAUX des deux cotes. Meme axe que l'ecart `SelectSingle`/`any` nomme sur `AreFriends`.
+    ⚠ **UN OPERANDE NUL REND VRAI** (#963-r4, ecart FERME) : `IdunBattle.DSL.NegatedAbilityTrigger$$
+    ShouldTrigger` est une negation NUE (`return inner.ShouldTrigger(entities) ^ 1`, aucune garde
+    sur un operande absent), et `AreFriends` rend FAUX des qu'un de ses deux `SelectActor` rend
+    `null`. Donc `AreEnemies` rend **VRAI** sur un operande vide -- la ou le port rendait FAUX des
+    deux cotes. Les quatre call-sites portes sont tous GARDES en amont (`HasUnit(subject) &` pour
+    `darkangels`/`sisterhood`, `Not(HasUnit(tile)) |` pour l'arbre `Get(GetHits)`, et
+    `Caster()`/`Target()` toujours resolus pour `red_rampage`) : la bascule est inerte sur eux, ce
+    qui est mesure, pas suppose (`tests/engine/test_963r4_areenemies_null_operand_offline.py`).
 
     Consommateur porte : `IdunBattleLogic.Entities.Abilities.Active.Loki.ThriceBlessedConflagrationAbility$$GetTilesInLine`
     (`HasUnit(subject) & AreEnemies(Owner@0x148, Units(subject))`)."""
@@ -1059,10 +1137,10 @@ class AreEnemies(AbilityTrigger):
         self.selection_type = int(selection_type)
 
     def should_trigger(self, ctx):
-        st = self.selection_type
-        ta = [team_for_selection(u, st) for u in _units_of(self.a, ctx) if isinstance(u, dict)]
-        tb = [team_for_selection(u, st) for u in _units_of(self.b, ctx) if isinstance(u, dict)]
-        return any(x is not None and y is not None and x != y for x in ta for y in tb)
+        # `op_LogicalNot(new AreFriendsAbilityTrigger(...))` : le MEME foyer que `AreFriends`, dont
+        # on nie le verdict MESURE ; l'etat `None` (equipe non mesuree) reste FERME des deux cotes.
+        r = _are_friends_tristate(self.a, self.b, self.selection_type, ctx)
+        return False if r is None else (not r)
 
 
 class HasNegativeModifier(AbilityTrigger):

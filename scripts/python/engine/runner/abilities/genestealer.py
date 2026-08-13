@@ -597,10 +597,17 @@ def heroic_fusillade_tree(state: "State", caster_id: int, target_id: int,
                   ChangeStat(caster, CRIT_DAMAGE=10, mode=3=Sub, mag) ) ) )                            # buff crit (retire)
     - MOVE : `Not(IsSurrounding(caster, target, radius=1))` = move SEULEMENT si la cible n'entoure pas deja
       le caster. dest = `_hf_move_dest_tile` (pool `_charge_candidate_tiles` + tri `Tile(7)` du foyer
-      `first_tile_by_utility`, #165 -- le collapse « plus proche » a ete REFUTE). MoveUnit options NULL (decompile
-      `local_1b8..local_188 = 0`) -> AUCUN after-move crush/overwatch (feuille `MoveUnit` fidele, cf. tache
-      #4 + ThunderousAssault ; le verdict re-expert « declenche crush/overwatch » etait imprecis, corrige au
-      decompile).
+      `first_tile_by_utility`, #165 -- le collapse « plus proche » a ete REFUTE).
+      ⚠ MoveUnit options NULL n'eteint PAS l'after-move, et la phrase qui vivait ici (« -> AUCUN after-move
+      crush/overwatch ») etait PERIMEE : elle a ete refutee par #448-r1-r1-r2-r1, qui a porte la coupure
+      exacte lue au decompile d'`IdunBattle.Operations.MoveUnitOperation$$EvaluateAfterMoveTriggers` --
+      `publish On(0x24) ; if (isInterimStep) return ; publish On(4 = UnitAfterMove) ; publish On(0x1d)`.
+      L'octet `MoveUnitOptions+0x14` vaut `MoveUnitBehaviour+0x80`, dont le DEFAUT est 0 : une feuille DSL a
+      options nulles laisse donc partir `On(4)`, donc **l'OVERWATCH**. Seul `MoveUnitOptions+0x10` est
+      inverse par `MoveUnitBehaviour$$Execute` (`^ 0x101`) -> pas de flag `ArrivedAtFinalTile`, pas de
+      `On(0x1c)` (c'est le `arrive_at_final_tile=False` du port). MESURE (#933-r2, seed 777,
+      `necroWarden,necroDestroyer`) : le move de Judh en (0,1) declenche l'overwatch adverse, dont le
+      `finish_attack` joue `HypersensoryAbilities_MoveAndSpawnDecoy` et RELOCALISE Judh en (1,2).
     - SPLASH : natif `Unobscured(Enemies(SurroundingUnits(target, radius, includeCenter=1)))`. Le
       `includeCenter=1` (IdunBattleLogic.Entities.DSLSelectors$$SurroundingUnits -> `IdunBattleLogic.Entities.DSLSelectors$$SurroundingTiles(target, includeCenter=1, radius) = disk INCLUANT la tuile cible -- contraste MOVE `includeCenter=0` = ring exclu-centre) ->
       la CIBLE est dans l'ensemble (i2 « 6x ... to the target AND all other enemies surrounding it »). Porte
