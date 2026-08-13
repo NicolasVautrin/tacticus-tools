@@ -37,7 +37,14 @@ from engine.runner.operations.triggers.loki.harlequins_panoply import (
     HARLEQUINS_PANOPLY_IGNORE_HITS, make_hit_interceptor)
 
 GRAFT = "astraBullgryn"          # greffon (a-units) : PV eleves -> survit aux 6 coups de la contre-epreuve
-ATTACKER = "necroDestroyer"      # p-units : 6 coups de MELEE (`unit_map` : 6hmp60), pierce 60
+#: ⚠ `necroDestroyer` porte DEUX armes, et l'entete de ce fichier n'en citait qu'UNE (#933-r1) :
+#: `unit_map melee-multihit` rend `6hmp60/6hR2p60` -- 6 coups de MELEE (portee 1) **et** 6 coups de
+#: TIR de portee **2**, meme pierce. La distance de montage est bornee par la SECONDE : au-dela de
+#: 2, `FindAttackWeapon` (slot 0xaf d'`IBattleQuery`) ne rend AUCUNE arme, et
+#: `IdunBattleLogic.Entities.Abilities.Active.Loki.ALoki_NormalAttackAbility$$ExecuteBehaviour`
+#: sort AVANT `ExecuteNormalAttack` -- le port le mirrore depuis #419-r1-tr14-r1-r1
+#: (`damage_ops/normal.py` : « PAS D'ARME UTILISABLE = PAS D'ATTAQUE »).
+ATTACKER = "necroDestroyer"      # p-units : 6hmp60 (melee) / 6hR2p60 (tir, portee 2)
 ABILITY = "HarlequinsPanoply"
 
 
@@ -132,10 +139,25 @@ def _hexdist(st, a, b):
     return hexgeo.distance(_pos(st, a), _pos(st, b))
 
 
+#: LA DISTANCE DE MONTAGE, et elle est bornee DES DEUX COTES (#933-r1) :
+#:   * `>= 2` -- le gate natif du deplacement est `NOT IsAdjacent(Owner@+0x30, Caster@+0x48, 3)` :
+#:     au contact, l'arbre refuse et le porteur ne bouge pas (c'est `test_no_move_when_already_
+#:     adjacent` qui garde ce bord) ;
+#:   * `<= 2` -- la portee de la SECONDE arme de `necroDestroyer` (`6hR2p60`). A 3, aucune arme
+#:     n'est utilisable, `AttackDamageOperation.execute` rend `None`, et les deux tests ci-dessous
+#:     tombaient en `TypeError: 'NoneType' object is not subscriptable` / `assert []`.
+#: Les deux bornes se rejoignent sur UNE valeur : 2. Elle etait a 3 depuis #406, et c'est le gate
+#: d'arme entre par #419-r1-tr14-r1-r1 qui l'a rendue injouable -- le PORT avait raison contre le
+#: montage, pas l'inverse : mesure du 2026-08-13, meme etat, distance 2 -> l'attaque rend son dict,
+#: distance 3 -> `None`, alors que stats, PV et gates de mort sont tous SAINS des deux cotes.
+DIST_MONTAGE = 2
+
+
 def _place_at_distance(st, attacker, defender, want):
     """DEPLACE l'attaquant sur une tuile LIBRE a distance hex `want` du defenseur -- et ASSERTE si
     aucune n'existe (jamais « bloque par la geometrie de spawn »). Le montage du DEPLACEMENT exige
-    `want >= 2` : le gate natif est `NOT IsAdjacent(Owner, Caster, 3)`."""
+    `want >= 2` (gate natif `NOT IsAdjacent(Owner, Caster, 3)`) ET `want <= 2` (portee d'arme du
+    caster) : cf. `DIST_MONTAGE`."""
     import hexgeo
     board = st.board
     dpos = _pos(st, defender)
@@ -288,7 +310,7 @@ def test_block_only_queues_the_move_it_does_not_move(rpc, build_runner, grafted_
     from engine.runner.operations.triggers.loki.harlequins_panoply import HARLEQUINS_PANOPLY_ABILITY
     rid = build_runner("31337", extra=_extra(grafted_bc))["rid"]
     st, att, dfd = _state(rpc, rid)
-    _place_at_distance(st, att, dfd, 3)
+    _place_at_distance(st, att, dfd, DIST_MONTAGE)
     before = _pos(st, dfd)
     assert st.pending_triggered_abilities == []
     r = _attack(st, att, dfd)
@@ -309,7 +331,7 @@ def test_drain_moves_the_holder_one_hex_closer(rpc, build_runner, grafted_bc):
         process_pending_triggered_abilities)
     rid = build_runner("31337", extra=_extra(grafted_bc))["rid"]
     st, att, dfd = _state(rpc, rid)
-    _place_at_distance(st, att, dfd, 3)
+    _place_at_distance(st, att, dfd, DIST_MONTAGE)
     before, d0 = _pos(st, dfd), _hexdist(st, att, dfd)
     _attack(st, att, dfd)
     out = process_pending_triggered_abilities(st)
@@ -352,7 +374,7 @@ def test_runner_apply_drains_the_queue(rpc, build_runner, grafted_bc):
     from engine.dsl.event_trigger_type import EventTriggerType
     rid = build_runner("31337", extra=_extra(grafted_bc))["rid"]
     st, att, dfd = _state(rpc, rid)
-    _place_at_distance(st, att, dfd, 3)
+    _place_at_distance(st, att, dfd, DIST_MONTAGE)
     d0 = _hexdist(st, att, dfd)
     add_pending_triggered_ability(st, dfd, HARLEQUINS_PANOPLY_ABILITY,
                                   TriggerEvent(int(EventTriggerType.Custom), att, dfd,
