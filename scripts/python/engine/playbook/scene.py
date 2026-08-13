@@ -479,7 +479,29 @@ class Scene:
             ablvl_by_id=predictor.get("ablvl_by_id") or {}, vis_by_id=predictor.get("vis_by_id") or {},
             units=sctx.get("units") or [], hp_by_id=sctx.get("hp_by_id") or {},
             pos_by_id=sctx.get("pos_by_id") or {}, team_by_id=sctx.get("team_by_id") or {},
-            eff_state=sctx.get("eff_state"), hpmax_by_id=sctx.get("hpmax_by_id") or {},
+            # #953-r1 -- `hpmax_by_id` etait STRUCTURELLEMENT VIDE sur cette voie : `step_context`
+            # ne le produit pas, et il ne le PEUT pas -- `decisionView.units[]` ne publie aucune
+            # cle de PV max (mesure : ses 17 cles sont `abilities, alive, ctrl, defeatedByMelee,
+            # effects, feet, hasAction, hp, id, killerId, owner, parentId, parentMeasured, pos,
+            # ranged, team, visualId`). `scene.hpmax` rendait donc `None` pour TOUTE unite sur la
+            # voie PREDICTION-LIVE, alors que `Scene.from_state` (voie offline/combat) le remplit
+            # depuis `HealthComponent.hp_max`. Fork de SUBSTRAT, pas de logique -- et SILENCIEUX,
+            # parce que chaque consommateur degrade proprement sur `None`.
+            #
+            # La source est `predictor["hpmax_eff_by_id"]` = `combatSnapshot.healthMax` =
+            # `GetStat(e, 5, part = Maximum)`, c.-a-d. exactement le `Maximum` que lit
+            # `StatAmount(Owner@DSLSelectors+0x30, Health, {Missing, Maximum})` dans
+            # `IdunBattle.Entities.Effects.Loki.Skullsmasher_ExtraDamageEffect$$GetMissingHealthSteps`
+            # -- base + modifications, clampe. `observeBattle.hpMax` (base SEULE) serait le repli
+            # historique, moins fidele : on ne le prend pas.
+            #
+            # MESURE (#953-r1, `worldJakhal` << Macer >> a 9 474 / 20 000 PV, build `rnca9r7q6c`) :
+            # 5 paliers de `floor(52,63 % / hpPct = 10)` x `extraDmg = 300` = 1 500 par coup, soit
+            # +4 500 sur une tuile a 3 coups et +3 000 sur une tuile a 2 coups. Le natif les
+            # publiait, le port rendait EXACTEMENT la prediction du porteur INTACT sur les 5 tuiles
+            # candidates. `sctx` reste prioritaire s'il porte un jour la cle.
+            eff_state=sctx.get("eff_state"),
+            hpmax_by_id=(sctx.get("hpmax_by_id") or predictor.get("hpmax_eff_by_id") or {}),
             feet_by_id=sctx.get("feet_by_id") or {},
             elev_by_pos=elev_by_pos if elev_by_pos is not None else predictor.get("elev_by_pos"),
             tile_effects_by_pos=tile_effects_by_pos,
