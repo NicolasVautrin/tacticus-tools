@@ -507,6 +507,28 @@ def entities_from_state(state, caster_id: int, target_id: int | None = None,
                     out.append({"effect_type": int(effect_type), "source": int(sid), "owner_id": int(uid)})
         return out
 
+    # `ctx.effects_of_units` -- l'AUTRE surcharge de la meme famille de selecteurs d'effet :
+    # `IdunBattleLogic.Entities.DSLSelectors$$EffectFromOwner(effectTarget, effectType)`, celle a DEUX
+    # arguments, dont `effectTarget` est un SELECTEUR D'UNITES (et non l'owner implicite). Rend les
+    # INSTANCES portees, avec leur `level` -- c'est ce champ (`EffectComponent+0x68`) que somme
+    # `IdunBattle.Entities.Formulas.EffectLevelFormula$$Calculate`.
+    # MEME cle `by_unit` et MEME filtre `consumed` que `_effects_from_source` juste au-dessus ; PAS de
+    # filtre `is_active` : le natif de `EffectLevelFormula` enumere le selecteur SANS gate d'activite
+    # (contraste `HasEffect`, dont le 4e argument `activeOnly` est explicite au call-site).
+    def _effects_of_units(unit, effect_type):
+        if state.effects is None:
+            return []
+        uid = (unit or {}).get("id")
+        if uid is None:
+            return []
+        out = []
+        for e in state.effects.by_unit.get(int(uid), []):
+            if e.consumed or e.expired or e.effect_type != int(effect_type):
+                continue
+            out.append({"effect_type": int(effect_type), "owner_id": int(uid),
+                        "level": int(getattr(e, "level", 0) or 0)})
+        return out
+
     # `ctx.current_player_machine_position` (predicat `IsPositionMachineForCurrentPlayer`, mirror
     # `IsPositionMachineForPlayerTrigger IdunBattle.Entities.Triggers.IsPositionMachineForPlayerTrigger$$ShouldTrigger`).
     # ⚠ RESIDU NOMME (#302 tranche 3) : le natif ne lit PAS une machine deployee, il lit
@@ -885,7 +907,8 @@ def entities_from_state(state, caster_id: int, target_id: int | None = None,
                       has_unit_flag=_has_unit_flag,
                       has_taken_damage_of_profile_this_turn=_has_taken_damage_of_profile_this_turn,
                       get_ability_level=_get_ability_level, tile_has_effect=_tile_has_effect,
-                      has_effect=_has_effect, effects_from_source=_effects_from_source, children=[],
+                      has_effect=_has_effect, effects_from_source=_effects_from_source,
+        effects_of_units=_effects_of_units, children=[],
                       has_negative_modifier=_has_negative_modifier,
                       negative_stat_modification=_negative_stat_modification,
                       is_in_team_aura=_is_in_team_aura,

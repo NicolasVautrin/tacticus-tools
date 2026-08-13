@@ -14,13 +14,20 @@ from typing import Optional, TYPE_CHECKING
 
 from ...dsl.base import Const
 from ...dsl.effects import ExecutionContext
-from ...entities.behaviours import AtomicGroup, Foreach, If, Inform, op_add
+from ...entities.behaviours import AtomicGroup, Foreach, If, Inform, op_add, op_and
 from ...entities.formulas import (Const as _AmountConst, GetPersistentData, RoundsStarted, Sum,
                                   TotalRepairActionsAmount)
 from ...entities.selectors.accessors import (ActiveTarget, CasterTile, FixedTileIds, SelectTile,
                                              Subject, Target)
-from ...entities.selectors.geometry import Blocking, Otherwise, SortReverse, TilesBehindInLine
-from ...entities.selectors.tiles import AllAliveUnits, Caster
+from ...entities.selectors.geometry import (Blocking, Cache, DirectionTo, EffectsOfUnits,
+                                            EntitiesWithAnyEffect, Otherwise, PickFirstN, SortByRow,
+                                            SortReverse, TileFromVector, TilesBehindInLine)
+from ...entities.selectors.tiles import AdjacentTiles, AllAliveUnits, AllTiles, AllUnits, CanAddUnit, Caster
+from ...entities.selectors.units import MechanicalUnits, SortByFormula, Tiles
+from ...entities.formulas import ConditionalAmount, Count, EffectLevelOf, Get
+from ...entities.triggers import AmountIsGreater, HasTrait
+from .behaviours.summon import Spawn
+from .behaviours.effects import RemoveEffect, add_effect_or_increase_level
 from ...entities.selectors.units import (AdjacentUnits, And, Enemies, Friends, Sub, Union, Units,
                                          UnitsWithTrait, UnitsWithoutTrait)
 from ...entities.triggers import AreEnemies, HasEffect, is_mechanical
@@ -37,7 +44,7 @@ from ...entities.traits.unit_trait import UnitTrait
 from ...entities.effects.magnitude import ability_var
 from ..components import StatsComponent
 from .base import ActiveAbility
-from .targeting import (RANGE_ADJACENT, RANGE_FROM_CONFIG, RANGED_BOOL_FALSE, RANGED_BOOL_TRUE,
+from .targeting import (RANGE_ADJACENT, RANGE_FROM_CONFIG, RANGE_SELF, RANGED_BOOL_FALSE, RANGED_BOOL_TRUE,
                         TargetingOptions, custom_range)
 from .targeting_rule import TargetingRule as TR
 from .behaviours.combat import AttackWithAttackDamage, InformWeapon
@@ -45,6 +52,7 @@ from .behaviours.context import entities_from_state
 from .behaviours.effects import AddEffect
 from .behaviours.stats import Repair
 from ...entities.ability_variable_type import AbilityVariableType   # #270-r1-r1-r3
+from ...entities.ability_constant_type import AbilityConstantType   # #1027 (GetNumberConstant/GetStringConstant)
 from ..components import PositionComponent
 from .targeting import units_are_enemies, valid_normal_attack_targets
 from .attack_query import entity_can_be_repaired, is_affected_by_heal_type
@@ -955,3 +963,385 @@ class ArcScourgeAbility(ActiveAbility):
               and p.get("effect_type") == AS_MACHINE_VENGEANCE]
         return {"ability": ARC_SCOURGE_ID, "caster": caster_id, "target": target_id,
                 "chain_hits": hits, "stunned": stunned, "machine_vengeance": mv, "dsl": True}
+
+
+# =================================================================================================== #
+# InvocationOfMachineVengeance (1172, `admecBossBelisarius` -- Belisarius Cawl, BOSS npc) -- #1027
+#
+# `IdunBattleLogic.Entities.Abilities.Active.InvocationOfMachineVengeanceAbility$$ExecuteBehaviour`
+# (MIRROR du DECOMPILE, dans l'ordre de lecture). Le NOM ne dit pas ce qu'elle fait et l'i2 non
+# plus a lui seul : ce n'est NI une attaque NI un simple buff -- c'est un SPAWN suivi d'un buff
+# d'equipe. Le litteral `AbilityAttackType` LU au ctor est **2 = Others**, pas un type d'attaque.
+#
+#   nb      = Get( GetVariableForLevel(config, 0x4f = nrOfSummons, abilityState, 0) )
+#   unitId  = GetStringConstant(config, 0 = unitId)                     # "admecSmnTechpriest"
+#   trig    = HasTrait( Units(ActiveTarget@+0x68, unique: 1, sel: 3), 0x1b = Steppable )
+#   extra   = ConditionalAmount( trig, <DSLFormulas+0x20> = Const(1), <DSLFormulas+0x18> = Const(0) )
+#   tiles   = First( SortByRow( CanAddUnit(AllTiles@+0x18),
+#                               sameColumnIsRandom: 1, additionalSorting: extra, ascending: 1 ),
+#                    nb, ignoreForcedTargets: 0 )
+#   opts    = SpawnUnitOptions.WithStatsFromConfig(config, abilityState, 0, 0)
+#   spawn   = Spawn( parentSelector = Caster@+0x48, tiles, unitId, opts )
+#   mech    = MechanicalUnits( Friends(Caster@+0x48, AllUnits, sel: 3), sel: 3 )
+#   lvl     = Get( GetNumberConstant(config, 0x73 = effectLevel) )      # = 1
+#   addEff  = AddEffectOrIncreaseLevel( 0x555 = 1365 MachineVengeance, AbilityStateReference,
+#                                       source = Owner@+0x30, targets = mech, amount = lvl, max: 0 )
+#   Execute( spawn op_BitwiseAnd addEff, entities )                     # plain Execute, PAS Atomic
+#
+# CARTE DES SLOTS `DSLSelectors` employes, tous ancres sur `IdunBattleLogic.Entities.DSLSelectors$$
+# InitializeShared` + la carte `DSLFactory` (`engine/dsl/base.py`, decalage constant 0x118 :
+# `+0x30 Owner`, `+0x48 Caster`, `+0x60 Target`, `+0x68 ActiveTarget`) :
+#   `+0x18` = `AllTilesSelector` -- LU DIRECTEMENT dans `InitializeShared`, le seul slot dont le
+#             ctor est nomme (`IdunBattle.Entities.Selectors.AllTilesSelector$$.ctor(this, state, 0)`).
+#
+# LE TRI EST LA MECANIQUE : `SortByRow(ascending: 1)` = row CROISSANTE, ce que l'i2 appelle « at the
+# bottom of the map ». Le critere SECONDAIRE (`additionalSorting`) vaut 1 quand la tuile porte une
+# unite `Steppable` et 0 sinon -> `ThenBy` ascendant = les tuiles LIBRES d'abord, les tuiles
+# occupees par une unite franchissable ensuite. `CanAddUnit` accepte en effet les deux (cf.
+# `tiles.py`), donc sans ce critere le natif poserait des summons sur des tuiles franchissables
+# alors qu'il en avait de vraiment libres.
+# RESIDU `#1027-r1` : le natif ajoute un 3e `ThenBy(pseudoRng)` (`sameColumnIsRandom: 1`) que le
+# port ne tire pas -- il departage des ex aequo, cf. la docstring de `SortByRow`.
+# =================================================================================================== #
+
+INVOCATION_OF_MACHINE_VENGEANCE_ID = "InvocationOfMachineVengeance"
+#: `GetStringConstant(config, 0 = unitId)`. Le natif LIT la config, le port aussi (`Spawn` resout
+#: `unit_id_constant` contre `GC.ability(...)["constants"]`) -- rien n'est fige ici.
+IMV_UNIT_ID_CONSTANT = AbilityConstantType.unitId.name          # "unitId" -> admecSmnTechpriest
+
+
+def _imv_const(name: str) -> int:
+    """`AbilityConfiguration$$GetNumberConstant` sur la config d'`InvocationOfMachineVengeance`.
+    `effectLevel` = 0x73 (ordinal `IdunBattle.Configuration.AbilityConstantType`, resolu contre
+    `enums.tsv` du build)."""
+    return int(((GC.ability(INVOCATION_OF_MACHINE_VENGEANCE_ID) or {}).get("constants") or {})
+               .get(name) or 0)
+
+
+def invocation_of_machine_vengeance_tree(nb_summons: int, effect_level: int) -> "op_and":
+    """Arbre complet -- `Execute( Spawn(...) op_BitwiseAnd AddEffectOrIncreaseLevel(...) )`.
+
+    `nb_summons` = `GetVariableForLevel(0x4f nrOfSummons)` et `effect_level` =
+    `GetNumberConstant(0x73 effectLevel)` sont resolus par la CLASSE (comme `SupremeCommander`
+    resout son `nrOfSummons`), parce que le port n'a pas de noeud-valeur qui lise la config
+    d'ability par niveau depuis l'interieur d'un arbre."""
+    steppable = HasTrait(Units(ActiveTarget(), selection_type=SELECTION),
+                         int(UnitTrait.Steppable))          # `HasTrait(.., 0x1b)`
+    extra = ConditionalAmount(steppable, _AmountConst(1), _AmountConst(0))   # +0x20 / +0x18
+    tiles = PickFirstN(SortByRow(CanAddUnit(AllTiles()), same_column_is_random=True,
+                                 additional_sorting=extra, ascending=True), nb_summons)
+    spawn = Spawn(tiles, INVOCATION_OF_MACHINE_VENGEANCE_ID,
+                  unit_id_constant=IMV_UNIT_ID_CONSTANT)
+    mech = MechanicalUnits(Friends(AllUnits(), Caster(), selection_type=SELECTION),
+                           selection_type=SELECTION)
+    add_eff = add_effect_or_increase_level(AS_MACHINE_VENGEANCE, EffectType.MachineVengeance.name,
+                                           mech, _AmountConst(effect_level), duration_rounds=None)
+    return op_and(spawn, add_eff)
+
+
+class InvocationOfMachineVengeanceAbility(ActiveAbility):
+    """`IdunBattleLogic.Entities.Abilities.Active.InvocationOfMachineVengeanceAbility$$ExecuteBehaviour`
+    (id 1172, `admecBossBelisarius` « Belisarius Cawl », BOSS npc AdeptusMechanicus) -- cf. le bloc
+    de commentaire ci-dessus pour l'arbre LU noeud par noeud.
+
+    Retour : {spawned, machine_vengeance, nb_summons, effect_level, dsl}."""
+    __slots__ = ()
+    ABILITY_TYPE = int(ActiveAbilityType.InvocationOfMachineVengeance)     # 1172
+    ABILITY_ID = INVOCATION_OF_MACHINE_VENGEANCE_ID
+
+    # GATE DE CIBLE (#1027) -- FORME 1 « FLAGS DIRECTS ».
+    # `IdunBattleLogic.Entities.Abilities.Active.InvocationOfMachineVengeanceAbility$$.ctor` :
+    #     <24 octets recopies de `<TargetingRange statics>+0x60`>
+    #     TargetingOptions..ctor(&opts, isSelfCasting = 1, range = &<statics+0x60>,
+    #                            forceMeleeTarget = 1, rules = 0x8000, 0, 0)
+    #     AActiveAbility..ctor(this, &opts, 2)          # 3e arg = 2 = AbilityAttackType.Others
+    # La SURCHARGE est tranchee par la SIGNATURE que Ghidra rend pour ce call-site :
+    # `TargetingOptions$$.ctor(this, isSelfCasting, range, forceMeleeTarget, rules,
+    # getDynamicInvalidCasterReason, getDynamicInvalidTargetReason)` -- des trois `..ctor`, les deux
+    # autres sont des COPIES (`template` seul ; `template + additionalRules`). Le litteral EST donc
+    # le masque, aucun OU avec un preset.
+    # Decomposition EXHAUSTIVE de 0x8000, aucun bit residuel :
+    #     0x8000  CasterIsPossibleTarget   (1 << 15)
+    # PORTEE : `<TargetingRange statics>+0x60`, ecrit par `IdunBattle.Core.Services.TargetingRange$$
+    # .cctor` = `{onlyAdjacent = RangedBool.False (1), overrideRange = Nullable(0), getRange = null}`
+    # -> `RANGE_SELF`, portee NULLE : le cast ne porte que sur la propre tuile du caster. C'est le
+    # MEME champ statique que `SupremeCommanderAbility` (astramilitarum.py), et le meme
+    # `isSelfCasting = 1` -- mais PAS le meme masque (0x208000 la-bas), ce qui interdit de recopier
+    # le voisin : `CasterHasFreeAdjacentTile` n'est PAS pose ici, et c'est coherent avec l'arbre
+    # (les summons vont EN BAS DE CARTE, pas au contact du caster).
+    # `forceMeleeTarget` = 1 = `RangedBool.False` -> jamais de rabattement en melee.
+    TARGETING_OPTIONS = TargetingOptions(
+        rules=TR.CasterIsPossibleTarget, self_cast=True,
+        range=RANGE_SELF, force_melee_target=RANGED_BOOL_FALSE)
+
+    def _nb_summons(self, state: "State", caster_id: int) -> int:
+        """`AbilityConfiguration$$GetVariableForLevel(config, 0x4f = nrOfSummons, abilityState, 0)`.
+        `abilityState` est le couple (niveau, multiplicateur) de l'ACTIVE du caster, lu au
+        `StatsComponent` -- meme voie que `_hp_to_repair` de `DefendTheDivineWork` ci-dessus."""
+        ce = state.get_entity(caster_id)
+        sc = ce.get_component(StatsComponent) if ce is not None else None
+        cctx = sc.ctx if sc is not None else None
+        level = getattr(cctx, "active_ability_level", None)
+        mult = int(getattr(cctx, "ability_variables_multiplier", 100) or 100)
+        return int(ability_var(self.ABILITY_ID, AbilityVariableType.nrOfSummons.name, level,
+                               multiplier_pct=mult) or 0)
+
+    def execute_behaviour(self, state: "State", caster_id: int,
+                          target_id: Optional[int]) -> Optional[dict]:
+        if state.get_entity(caster_id) is None:
+            return None
+        nb = self._nb_summons(state, caster_id)
+        lvl = _imv_const(AbilityConstantType.effectLevel.name)
+        ectx = ExecutionContext(state=state, rng=state.rng)
+        entities = entities_from_state(state, caster_id, target_id)
+        invocation_of_machine_vengeance_tree(nb, lvl).execute(entities, ectx)
+        spawned = [p for n, p in ectx.emitted if n == "Spawn"]
+        mv = [p for n, p in ectx.emitted
+              if n in ("AddEffect", "IncreaseEffectLevel")
+              and p.get("effect_type") == AS_MACHINE_VENGEANCE]
+        return {"ability": INVOCATION_OF_MACHINE_VENGEANCE_ID, "caster": caster_id,
+                "target": target_id, "spawned": spawned, "machine_vengeance": mv,
+                "nb_summons": nb, "effect_level": lvl, "dsl": True}
+
+
+# =================================================================================================== #
+# SolarAtomizer (1174, `admecBossBelisarius`) -- #1027
+#
+# `IdunBattleLogic.Entities.Abilities.Active.SolarAtomizerAbility$$ExecuteBehaviour` (MIRROR du
+# DECOMPILE). ⚠ LE NOM MENT : l'active NE FRAPPE PAS. Elle (a) TRANSFERE au caster tous les niveaux
+# de `MachineVengeance` portes par les AUTRES allies mecaniques, puis (b) MARQUE une bande de deux
+# lignes hex. Le degat vient au tour SUIVANT, par la triggered `1297 SolarAtomizer_PendingAttack`
+# (hors perimetre). Consequences LUES, pas deduites : aucune feuille `AttackWith*` dans l'arbre, et
+# `AActiveAbility..ctor(this, &opts, 2)` = `AbilityAttackType.Others`. Les `minDmg`/`maxDmg` du
+# gameconfig 1174 alimentent la TRIGGERED, pas ce cast.
+#
+#   cached  = Cache( EntitiesWithAnyEffect( Friends(Caster@+0x48, AllUnits - Caster@+0x48, sel: 3),
+#                                           0x555 = MachineVengeance, effectTarget: 6 ),
+#                    matchAbilityEntities: 1 )
+#   KEY     = Get("AccumulatedEffectLevel")        # string literal #3759 du build `rnca9r7q6c`
+#   addPD   = AddPersistentData( AbilityOrEffect(0x496 = 1174), Caster@+0x48, KEY,
+#                                EffectLevel( EffectFromOwner(cached, 0x555) ) )
+#   rmEff   = RemoveEffect( cached, Nullable<EffectType>(0x555), 0 )
+#   pd      = GetPersistentData( AbilityOrEffect(1174), Caster@+0x48, KEY )
+#   addOrIn = AddEffectOrIncreaseLevel( 0x555, AbilityStateReference, source = Caster@+0x48,
+#                                       targets = Caster@+0x48, amount = pd, max: 0 )
+#   setPD   = SetPersistentData( AbilityOrEffect(1174), Caster@+0x48, KEY, <DSLFormulas+0x18> = 0 )
+#   ifGt    = If( AmountIsGreater(pd, <DSLFormulas+0x18> = 0), addOrIn, null )
+#   mark1   = AddEffect( 0x55b = 1371 SolarAtomizer_PendingAttack, AbilityStateReference,
+#                        source = Caster@+0x48, targets = Caster@+0x48, options ZEROEES )
+#   mark2   = AddEffect( 0x55c = 1372 SolarAtomizer_PendingTarget, AbilityStateReference,
+#                        source = Caster@+0x48, targets = GetTargetTiles(), options ZEROEES )
+#   Execute( ((((addPD & rmEff) & ifGt) & setPD) & mark1) & mark2, entities )
+#
+# LES TROIS `AbilityOrEffect.op_Implicit` PORTENT 0x496 = 1174 -- LU AUX OCTETS (`mov edx, 0x496`
+# avant chacun des trois appels), pas deduit : la donnee persistante est donc keyee sur CETTE
+# ability, et ne peut pas collisionner avec le compteur d'`ArcScourge` (0x495) meme si les deux
+# vivent sur le meme caster. Les DEUX cles sont d'ailleurs des string literals DISTINCTS --
+# #3759 "AccumulatedEffectLevel" ici, #7679 "EffectLevel" pour 1173 -- resolus par
+# `data/symbols/rnca9r7q6c/metadata/string_literals.tsv` (le slot de cache `0x33d9730` n'a que
+# CETTE fonction pour xref).
+#
+# `EffectLevel(effects)` est une **SOMME** (`EffectLevelFormula$$Calculate` accumule
+# `EffectComponent+0x68` sur tout le selecteur) -- c'est le « Transfers ALL levels » de l'i2.
+# `AmountIsGreater(pd, 0)` est STRICT : rien a transferer -> aucun effet pose sur le caster (mais
+# `RemoveEffect` a deja tourne, et `SetPersistentData(0)` remet le compteur a zero dans tous les cas).
+#
+# `GetTargetTiles` (`SolarAtomizerAbility$$GetTargetTiles`) -- la BANDE DE DEUX LIGNES :
+#   dir    = DirectionTo( AdjacentTiles(Target@+0x60) op_BitwiseAnd Tiles(CasterTiles@+0x58),
+#                         Target@+0x60 )
+#   others = AdjacentTiles(Target@+0x60) op_Subtraction CasterTiles@+0x58
+#   score  = Count( AdjacentTiles(ActiveTarget@+0x68) op_BitwiseAnd CasterTiles@+0x58 )
+#   second = First( SortByFormula(others, score, ascending: 0), 1, 0 )
+#   opts   = new <LineSettings>() ; *(u16*)(opts+0x10) = 0x101     # checkWalkable=1, updateRef=1
+#   L1     = Target@+0x60 op_Addition TilesBehindInLine(Target@+0x60, dir, opts, maxAmount: null)
+#   L2     = second       op_Addition TilesBehindInLine(second,       dir, opts, maxAmount: null)
+#   return (L1 op_Addition L2) op_Subtraction CasterTiles@+0x58
+#
+# `SortByFormula(..., ascending: 0)` = DECROISSANT -> `second` est le voisin de la cible qui a le
+# PLUS de tuiles du caster adjacentes, c'est-a-dire la colonne parallele COTE CASTER : c'est ce qui
+# fait la largeur 2 de l'i2 (« marks all hexes in a straight line 2 hexes wide »).
+#
+# EQUIVALENCE DE SURCHARGE, et c'est ce qui evite un noeud neuf pour L1 : le natif appelle ici
+# `DSLSelectors$$TilesBehindInLine(origin, direction, settings, maxAmount)`, dont
+# `TilesBehindInLineSelector$$Select` resout `to = IBattleQuery slot 0x5f = GetTileInDirection(
+# origin, (dir, 1))` puis retombe sur le MEME `IBattleQuery slot 0x54 = GetTilesBehind(origin, to,
+# checkWalkable, updateRef, maxAmount)` que la surcharge `(from, to)` deja portee. Le port compose
+# donc `TilesBehindInLine(frm = <origine>, to = TileFromVector(<origine>, dir))` -- `TileFromVector`
+# EST `AxialCoordinate$$NeighbourAt`, c'est-a-dire exactement le corps de `GetTileInDirection` pour
+# `amount = 1` (le seul montant que `DirectionToFormula` produit).
+# =================================================================================================== #
+
+SOLAR_ATOMIZER_ID = "SolarAtomizer"
+SA_PENDING_ATTACK = int(EffectType.SolarAtomizer_PendingAttack)    # 0x55b = 1371 -- sur le CASTER
+SA_PENDING_TARGET = int(EffectType.SolarAtomizer_PendingTarget)    # 0x55c = 1372 -- sur les TUILES
+#: Cle de donnee persistante, LUE : string literal #3759 du build (`"AccumulatedEffectLevel"`),
+#: passee a `DSLFormulas$$Get(s: System.String)` puis aux trois noeuds `*PersistentData`. DISTINCTE
+#: de l'`"EffectLevel"` (#7679) d'`ArcScourge` -- deux slots de cache differents au decompile.
+SA_PD_KEY = "AccumulatedEffectLevel"
+#: Les DEUX bools de la struct `settings` allouee par `GetTargetTiles` (`*(u16*)(opts+0x10) = 0x101`
+#: -> `+0x10 = 1`, `+0x11 = 1`), relayes a `BattleQuery$$GetTilesBehind`.
+SA_LINE_CHECK_WALKABLE = True
+SA_LINE_UPDATE_REFERENCE = True
+
+
+def solar_atomizer_target_tiles(target=None) -> "Sub":
+    """`SolarAtomizerAbility$$GetTargetTiles` -- MIRROR 1:1 (cf. le bloc ci-dessus).
+
+    `target` = le vehicule du slot `Target@+0x60`. `None` -> le noeud `Target()` (face COMBAT, ou
+    la cible est posee dans l'`AbilityEntities`) ; la face DECISION passe un `FixedTileIds([tid])`,
+    parce que le contexte DSL du port porte des dicts d'UNITE et qu'une entite-TUILE n'en est pas
+    une -- c'est le vehicule de collapse deja employe par `playbook.tile_targets`."""
+    Target_ = (lambda: target) if target is not None else Target
+    caster_tiles = CasterTile(as_ids=True)          # `<DSLSelectors+0x58> = CasterTiles`
+    adj = AdjacentTiles(Target_())                  # `AdjacentTiles(Target@+0x60)`
+    direction = DirectionTo(And(adj, Tiles(CasterTile(), as_ids=True)), Target_())
+    others = Sub(AdjacentTiles(Target_()), caster_tiles)
+    score = Count(And(AdjacentTiles(ActiveTarget()), CasterTile(as_ids=True)))
+    second = PickFirstN(SortByFormula(others, score, ascending=False), 1)
+    line1 = Union(Target_(), TilesBehindInLine(
+        Target_(), TileFromVector(Target_(), direction),
+        check_walkable=SA_LINE_CHECK_WALKABLE, update_reference=SA_LINE_UPDATE_REFERENCE))
+    line2 = Union(second, TilesBehindInLine(
+        second, TileFromVector(second, direction),
+        check_walkable=SA_LINE_CHECK_WALKABLE, update_reference=SA_LINE_UPDATE_REFERENCE))
+    return Sub(Union(line1, line2), caster_tiles)
+
+
+def solar_atomizer_tree() -> "op_and":
+    """Arbre complet -- `Execute( ((((addPD & rmEff) & ifGt) & setPD) & mark1) & mark2 )`."""
+    others = Sub(AllUnits(), Caster())                                  # `AllUnits - Caster@+0x48`
+    cached = Cache(EntitiesWithAnyEffect(Friends(others, Caster(), selection_type=SELECTION),
+                                         [AS_MACHINE_VENGEANCE]))
+    add_pd = AddPersistentData(int(ActiveAbilityType.SolarAtomizer), Caster(), SA_PD_KEY,
+                               EffectLevelOf(EffectsOfUnits(cached, AS_MACHINE_VENGEANCE)))
+    rm_eff = RemoveEffect(AS_MACHINE_VENGEANCE, cached)
+    pd = GetPersistentData(int(ActiveAbilityType.SolarAtomizer), Caster(), SA_PD_KEY)
+    add_or_inc = add_effect_or_increase_level(
+        AS_MACHINE_VENGEANCE, EffectType.MachineVengeance.name, Caster(), pd, duration_rounds=None)
+    set_pd = SetPersistentData(int(ActiveAbilityType.SolarAtomizer), Caster(), SA_PD_KEY,
+                               _AmountConst(0))
+    if_gt = If(AmountIsGreater(pd, _AmountConst(0)), add_or_inc, None)
+    mark1 = AddEffect(SA_PENDING_ATTACK, EffectType.SolarAtomizer_PendingAttack.name, Caster(),
+                      duration_rounds=None)
+    mark2 = AddEffect(SA_PENDING_TARGET, EffectType.SolarAtomizer_PendingTarget.name,
+                      solar_atomizer_target_tiles(), duration_rounds=None)
+    return op_and(op_and(op_and(op_and(op_and(add_pd, rm_eff), if_gt), set_pd), mark1), mark2)
+
+
+class SolarAtomizerAbility(ActiveAbility):
+    """`IdunBattleLogic.Entities.Abilities.Active.SolarAtomizerAbility$$ExecuteBehaviour` (id 1174,
+    `admecBossBelisarius` « Belisarius Cawl », BOSS npc AdeptusMechanicus) -- cf. le bloc de
+    commentaire ci-dessus pour l'arbre LU noeud par noeud.
+
+    Retour : {machine_vengeance, marks, target_tiles, dsl}."""
+    __slots__ = ()
+    ABILITY_TYPE = int(ActiveAbilityType.SolarAtomizer)          # 1174
+    ABILITY_ID = SOLAR_ATOMIZER_ID
+
+    # GATE DE CIBLE (#1027) -- FORME 1 « FLAGS DIRECTS ».
+    # `IdunBattleLogic.Entities.Abilities.Active.SolarAtomizerAbility$$.ctor` :
+    #     range = TargetingRange$$CustomRange(2)     # `mov edx, 2` avant le call, LU AUX OCTETS
+    #     TargetingOptions..ctor(&opts, isSelfCasting = 0, range = &range,
+    #                            forceMeleeTarget = 1, rules = 0x1000100042, 0, 0)
+    #     AActiveAbility..ctor(this, &opts, 2)          # 3e arg = 2 = AbilityAttackType.Others
+    # `TargetingRange$$CustomRange` a DEUX surcharges (`range` int / `getRange` delegue) ; celle
+    # appelee ici est resolue par l'ADRESSE du `call` (rel32 depuis le site) et son corps ecrit
+    # `{onlyAdjacent = RangedBool.False (1), overrideRange = Nullable(<le int>), getRange = null}`.
+    # Le `int` est `2`, charge dans `edx` juste avant -> `custom_range(2)`, PAS `custom_range_func()`.
+    # Decomposition EXHAUSTIVE de 0x1000100042, aucun bit residuel :
+    #     0x0000000002  TargetMatchesDynamicRule (1 << 1)  -> arme `GetDynamicInvalidTargetReason`
+    #     0x0000000040  TargetIsTile             (1 << 6)  -> la cible est une ENTITE-TUILE
+    #     0x0000100000  AllowSteppableUnit       (1 << 20)
+    #     0x1000000000  CasterHas3Tiles          (1 << 36) -> Belisarius est un boss 3 hex
+    # Les deux delegues passes au ctor sont NULS : c'est l'OVERRIDE virtuel
+    # `SolarAtomizerAbility$$GetDynamicInvalidTargetReason` qui porte la regle, et c'est le bit
+    # `TargetMatchesDynamicRule` qui le fait consulter.
+    TARGETING_OPTIONS = TargetingOptions(
+        rules=(TR.TargetMatchesDynamicRule | TR.TargetIsTile | TR.AllowSteppableUnit
+               | TR.CasterHas3Tiles),
+        range=custom_range(2), force_melee_target=RANGED_BOOL_FALSE)
+
+    def get_dynamic_invalid_target_reason(self, state: "State", caster_id: int,
+                                          target_id: Optional[int]) -> int:
+        """`SolarAtomizerAbility$$GetDynamicInvalidTargetReason` -- MIRROR du decompile :
+
+            return IsValidLineStartTile(this, casterTile, target) ? 0 : 2;
+
+        et `SolarAtomizerAbility$$IsValidLineStartTile(casterTiles, target)` :
+
+            adj = <this+0x20 = IBattleQuery>.<slot 0x4f = GetAdjacentTiles>(target, 0, 1, 1);
+            ListExtensions.FilterInPlace(adj, t => casterTiles.Contains(t));
+            return adj.Any();
+
+        LA REGLE, EN CLAIR : la tuile visee doit etre ADJACENTE A UNE TUILE DU CASTER. C'est ce qui
+        donne son sens a la bande : `GetTargetTiles` derive sa direction de
+        `AdjacentTiles(Target) & Tiles(CasterTiles)` -- si cette intersection est vide, la direction
+        est le `Nullable` VIDE et la bande se reduirait a la cible seule. Le gate refuse donc en
+        amont exactement le cas ou l'arbre serait degenere.
+
+        `2` = `TargetMatchesDynamicRule`, le bit POSE au masque -- donc ce gate EST consulte.
+
+        Le slot `0x4f` est resolu par `data/symbols/<build>/metadata/interface_slots.tsv` :
+        `IBattleQuery` slot 79 = `GetAdjacentTiles` (4 parametres). Les DEUX canaux de l'adjacence
+        (voisinage NATIF stocke + porte d'elevation) passent par le foyer partage
+        `are_entities_adjacent`, comme dans `ArcScourgeAbility` ci-dessus."""
+        if target_id is None:
+            return 0
+        board = state.board
+        tpos = _sa_tile_pos(state, board, target_id)
+        if tpos is None:
+            return 0                        # cible non resolvable -> aucun refus INVENTE (permissif)
+        ce = state.get_entity(caster_id)
+        cpc = ce.get_component(PositionComponent) if ce is not None else None
+        if cpc is None:
+            return 0
+        elev = elevations_by_pos(board)
+        neigh = adjacent_neigh_by_pos(board)
+        for f in _sa_caster_feet(ce, cpc):
+            if are_entities_adjacent(tpos, f, elev, neigh):
+                return 0
+        return int(TR.TargetMatchesDynamicRule)
+
+    def execute_behaviour(self, state: "State", caster_id: int,
+                          target_id: Optional[int]) -> Optional[dict]:
+        if target_id is None or state.get_entity(caster_id) is None:
+            return None
+        ectx = ExecutionContext(state=state, rng=state.rng)
+        entities = entities_from_state(state, caster_id, target_id)
+        tiles = solar_atomizer_target_tiles().evaluate(entities)
+        solar_atomizer_tree().execute(entities, ectx)
+        mv = [p for n, p in ectx.emitted
+              if n in ("AddEffect", "IncreaseEffectLevel")
+              and p.get("effect_type") == AS_MACHINE_VENGEANCE]
+        marks = [p for n, p in ectx.emitted
+                 if n == "AddEffect" and p.get("effect_type") in (SA_PENDING_ATTACK,
+                                                                  SA_PENDING_TARGET)]
+        return {"ability": SOLAR_ATOMIZER_ID, "caster": caster_id, "target": target_id,
+                "machine_vengeance": mv, "marks": marks, "target_tiles": list(tiles or []),
+                "dsl": True}
+
+
+def _sa_tile_pos(state, board, target_id):
+    """Position `(col, row)` de la cible de `SolarAtomizer` -- la cible est une ENTITE-TUILE
+    (`TargetIsTile` au masque), mais le harnais peut aussi passer un id d'unite : les deux domaines
+    sont resolus, comme au natif (`GetAdjacentTiles` prend une `IEntity`)."""
+    te = state.get_entity(target_id)
+    if te is not None:
+        pc = te.get_component(PositionComponent)
+        if pc is not None:
+            return (pc.col, pc.row)
+    if board is not None:
+        c = board.coord(int(target_id)) if hasattr(board, "coord") else None
+        if c is not None:
+            return (int(c[0]), int(c[1]))
+    return None
+
+
+def _sa_caster_feet(ce, cpc) -> list:
+    """`EntityExtensions$$GetTiles(caster)` = l'EMPREINTE du caster (Belisarius occupe 3 hex, cf.
+    le bit `CasterHas3Tiles` du masque). Repli sur la tuile principale quand l'empreinte n'est pas
+    portee par le composant -- meme repli documente que `CasterTile` du DSL."""
+    feet = getattr(cpc, "feet", None)
+    if feet:
+        return [(int(f[0]), int(f[1])) for f in feet]
+    return [(cpc.col, cpc.row)]

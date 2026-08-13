@@ -761,6 +761,14 @@ ABILITY_ATTACK_TYPE: dict[int, int] = {
     # `AttackWithAttackDamage` par maillon ennemi), ce qui aurait pu faire pencher pour
     # `DirectTargetAttack` -- et le litteral vaut quand meme `Others`.
     ActiveAbilityType.ArcScourge: AbilityAttackType.Others,  # 1173
+# InvocationOfMachineVengeance (1172) et SolarAtomizer (1174), `admecBossBelisarius`, #1027 :
+# `IdunBattleLogic.Entities.Abilities.Active.InvocationOfMachineVengeanceAbility$$.ctor` et
+# `...SolarAtomizerAbility$$.ctor` finissent tous DEUX par `AActiveAbility..ctor(this, &opts, 2)`
+# -- le 3e argument est le litteral `AbilityAttackType`, LU au decompile (jamais deduit du nom :
+# `SolarAtomizer` sonne comme une attaque mais son arbre ne porte AUCUNE feuille `AttackWith*`,
+# le degat est differe d'un tour par la triggered 1297).
+ActiveAbilityType.InvocationOfMachineVengeance: AbilityAttackType.Others,  # 1172
+ActiveAbilityType.SolarAtomizer: AbilityAttackType.Others,  # 1174
     # RadBombardment (1116), lot #128 : `IdunBattleLogic.Entities.Abilities.Active.Loki.
     # RadBombardmentAbility$$.ctor` = `AActiveAbility..ctor(this, &opts, 2, 0)` -> 2 = Others.
     # (Ici le `&opts` EST un litteral inline : `TargetingOptions..ctor(&opts, 0, CustomRange(1), 1,

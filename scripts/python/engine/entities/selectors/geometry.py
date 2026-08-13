@@ -12,8 +12,8 @@ import hexgeo
 from ... import battle_query          # mirror UNIQUE de GetTilesBehind/IsTileValidForList (#117/#124)
 from ...hex_corner import Corner      # `IdunBattleLogic.Utils.Hex.Corner` (#270-r1 volet 2)
 from ...hex_edge import Edge          # `IdunBattle.Utils.Hex.Edge` (#270-r1-r1)
-from ...dsl.base import (TargetsSelector, Const, _pos, _feet, _within, _is_alive, _units_of,
-                         _effect_field, resolve_unit)
+from ...dsl.base import (AAmountFormula, TargetsSelector, Const, _pos, _feet, _within, _is_alive,
+                         _units_of, _effect_field, resolve_unit)
 from ._shared import _entity_pos, _tile_positions
 # Foyer UNIQUE du filtre `UnitSelectionType` (mirror `IdunBattle.Entities.UnitExtensions$$
 # MatchesUnitSelectionType`), lu par `UnitsWithId` : surtout pas un 2e port du predicat. Feuille
@@ -174,6 +174,53 @@ class TileFromVector(TargetsSelector):
         return out
 
 
+class DirectionTo(AAmountFormula):
+    """`IdunBattleLogic.Entities.DSLFormulas$$DirectionTo(from, to)` ->
+    `IdunBattleLogic.Entities.VectorFormulas.DirectionToFormula$$Calculate` -- MIRROR du decompile :
+
+        a = <from>.Select(entities).<slot 1 = premier>;      // FUN_180025bf0(1, ...)
+        b = <to>.Select(entities).<slot 1 = premier>;
+        if (a == null || b == null)              return Nullable<Vector>();   // VIDE
+        d = AxialCoordinate.DirectionTo(GetPosition(a), GetPosition(b));      // Nullable<Edge>
+        if (!d.HasValue)                         return Nullable<Vector>();   // VIDE
+        return Nullable<Vector>( new Vector(d.Value, amount: 1) );
+
+    Le natif rend donc un COUPLE `(Edge, amount)` -- c'est ce que consomme
+    `IdunBattle.Core.Services.BattleQuery$$GetTileInDirection(startTile, vector)`, qui boucle
+    `vector.amount` fois sur `PositionComponent$$NeighbourAt(vector.direction)`. Le port n'exprime
+    que la composante `Edge` : le SEUL producteur de ce noeud (`DSLFormulas$$DirectionTo`) fige
+    `amount = 1`, et le seul consommateur porte (`TileFromVector`, meme `NeighbourAt`) fait le pas
+    unitaire. Retour : `int` membre d'`Edge`, ou `None` (le `Nullable` VIDE du natif) -- surtout
+    pas `0`, qui est `Edge.South` et ferait fabriquer une direction la ou le natif abandonne.
+
+    ⚠ Les deux selecteurs sont reduits a LEUR PREMIER element (slot 1), pas a leur union : le
+    natif appelle deux fois le meme helper mono-entite. Sur `SolarAtomizerAbility$$GetTargetTiles`
+    le `from` est `AdjacentTiles(Target) & Tiles(CasterTiles)`, qui peut porter PLUSIEURS tuiles
+    quand le caster est multi-hex (Belisarius) -- la premiere gagne, comme au natif.
+
+    `AxialCoordinate$$DirectionTo` rend un `Nullable` VIDE des que le delta n'est pas une des six
+    aretes (deux tuiles non adjacentes en general) : c'est exactement le regime porte par
+    `engine.entities.pathfinding.fly_pathfinder.direction_to`, dont ce noeud partage la restriction
+    au PAS UNITAIRE. Hors de ce regime -> `None`."""
+    def __init__(self, frm: TargetsSelector, to: TargetsSelector):
+        self.frm, self.to = frm, to
+
+    def calculate(self, ctx):
+        board = getattr(ctx, "board", None)
+        if board is None:
+            return None
+        a = _tile_positions(self.frm, ctx, board)
+        b = _tile_positions(self.to, ctx, board)
+        if not a or not b:                      # `a == null || b == null` -> Nullable VIDE
+            return None
+        ax, _ay, az = hexgeo.to_cube(int(a[0][0]), int(a[0][1]))
+        bx, _by, bz = hexgeo.to_cube(int(b[0][0]), int(b[0][1]))
+        try:
+            return int(_CUBE_DIRECTIONS.index((bx - ax, bz - az)))
+        except ValueError:
+            return None                         # hors des six aretes -> `Nullable` VIDE
+
+
 class Walkable(TargetsSelector):
     """`IdunBattleLogic.Entities.DSLFactory$$Walkable` : garde les tuiles WALKABLE (`BattleQuery.IsWalkableTile` =
     `TileExtensions.IsWalkable`, expose par `Board.walkable`). N'exige PAS que la tuile soit LIBRE
@@ -247,10 +294,21 @@ class SortByRow(TargetsSelector):
     silencieusement jetee -- le natif, lui, n'a pas ce cas (il travaille sur des entites-tuiles
     deja resolues).
 
-    Les deux options non exercees par le call-site porte sont MIRRORISEES mais REFUSEES a
-    l'evaluation plutot que devinees : `same_column_is_random` demande le `pseudoRng` du match
-    (flux RNG partage, cf. `PickRandomly`), et `additional_sorting` une formule `ThenBy`. Les poser
-    sans substrat produirait un ordre INVENTE -- on leve, on ne degrade pas."""
+    `additional_sorting` EST porte depuis #1027 -- son premier call-site est
+    `IdunBattleLogic.Entities.Abilities.Active.InvocationOfMachineVengeanceAbility$$ExecuteBehaviour`
+    (`SortByRow(CanAddUnit(AllTiles@+0x18), sameColumnIsRandom: 1, additionalSorting: <formule>,
+    ascending: 1)`) : deux `sort` STABLES successifs realisent `OrderBy(row).ThenBy(f)` a
+    l'identique, et l'element courant est lie au slot `AbilityEntities+0x20` (`Subject`/
+    `ActiveTarget`), comme chez `SortByFormula`.
+
+    ⚠ `same_column_is_random` reste un RESIDU NOMME (`#1027-r1`), et le noeud NE LEVE PLUS quand on
+    le pose : le natif l'applique en DERNIER (`ThenBy(pseudoRng)`), donc il ne peut departager que
+    des elements DEJA ex aequo sur (row, additionalSorting). Ne pas tirer rend alors *un* des ordres
+    que le natif peut rendre -- l'ordre source, stable -- et non un ordre INVENTE. Le substrat
+    manquant est le `pseudoRng` du match : `ctx.pick_randomly` existe mais mirrore
+    `PickRandomAmountSelector` (tirer N elements), pas une CLE de tri par element. Consequence
+    observable, bornee : quand plusieurs tuiles partagent row ET cle secondaire, le port prend
+    toujours la premiere du selecteur source la ou le natif tire."""
     def __init__(self, source: TargetsSelector, same_column_is_random: bool = False,
                  additional_sorting=None, ascending: bool = False):
         self.source = source
@@ -263,15 +321,27 @@ class SortByRow(TargetsSelector):
         if v is None:
             return []
         items = list(v)
-        if self.additional_sorting is not None or self.same_column_is_random:
-            raise NotImplementedError(
-                "SortByRow : `additionalSortingFormula`/`sameColumnIsRandom` ne sont exerces par "
-                "aucun call-site porte et n'ont pas de substrat (formule ThenBy / pseudoRng du "
-                "match). Les porter demande de LIRE le decompile du call-site qui les pose.")
         board = getattr(ctx, "board", None)
         rows = [(_entity_pos(it, board) or (None, None))[1] for it in items]
         # Les non-classables restent en QUEUE, dans l'ordre source (cf. docstring).
         classables = [(r, i) for i, r in enumerate(rows) if r is not None]
+        if self.additional_sorting is not None:
+            # `ThenBy(ordered, <additionalSortingFormula>)` -- SECOND critere. `sort` de Python est
+            # STABLE, donc `OrderBy(row).ThenBy(f)` se realise en triant D'ABORD par la CLE
+            # SECONDAIRE puis par la PRIMAIRE : l'ordre inverse (primaire d'abord) rendrait la
+            # formule PRIORITAIRE sur la row, ce qui est un autre tri (mesure a l'etage 6 de
+            # `test_1027_belisarius_actives_offline` : `[2, 3, 1]` au lieu de `[2, 1, 3]`).
+            # L'element courant est lie au
+            # slot `AbilityEntities+0x20`, celui-la meme que lisent `Subject()`/`ActiveTarget()`
+            # -- meme binding que `SortByFormula` de `selectors/units.py`, et c'est ce que lit le
+            # `Units(ActiveTarget@+0x68)` du call-site
+            # `IdunBattleLogic.Entities.Abilities.Active.InvocationOfMachineVengeanceAbility$$
+            # ExecuteBehaviour`. `ThenBy` est TOUJOURS ascendant (le natif n'expose pas de sens ici).
+            def _key(ri):
+                it = items[ri[1]]
+                w = self.additional_sorting.evaluate(replace(ctx, subject=it, active_target=it))
+                return int(w or 0)
+            classables.sort(key=_key)
         classables.sort(key=lambda ri: ri[0], reverse=not self.ascending)   # +0x38 ascending
         out = [items[i] for _, i in classables]
         out.extend(items[i] for i, r in enumerate(rows) if r is None)
@@ -849,6 +919,38 @@ class EffectsFromUnitSource(TargetsSelector):
             return []
         et = self.effect_type.evaluate(ctx) if hasattr(self.effect_type, "evaluate") else self.effect_type
         return list(fn(src, int(et)) or [])
+
+
+class EffectsOfUnits(TargetsSelector):
+    """`IdunBattleLogic.Entities.DSLSelectors$$EffectFromOwner(effectTarget, effectType)` --
+    la surcharge a DEUX arguments (signature LUE au decompile :
+    `EffectFromOwner(void *this, void *effectTarget, void *effectType)`), ou `effectTarget` est un
+    SELECTEUR D'UNITES et non l'owner implicite du contexte. A NE PAS confondre avec
+    `EffectFromOwner` ci-dessous, qui mirrore `DSLFactory$$EffectFromOwner(effectType)` (owner
+    implicite, non captable offline -> `[]`).
+
+    Domaine de sortie = ENTITES-EFFET, comme `EffectsFromUnitSource` : dicts
+    `{"effect_type", "owner_id", "level"}`, une entree PAR INSTANCE portee. C'est ce domaine que
+    consomme `EffectLevelOf` (`DSLFormulas$$EffectLevel(effects)`), qui SOMME les `level`.
+
+    Seul call-site porte : `IdunBattleLogic.Entities.Abilities.Active.SolarAtomizerAbility$$
+    ExecuteBehaviour` -- `EffectLevel(EffectFromOwner(<cache des allies mecaniques>, 0x555))`, le
+    total de `MachineVengeance` transfere a Belisarius.
+
+    Accesseur `ctx.effects_of_units` absent -> `[]` (degradation fidele « present != applique », la
+    meme que ses deux freres de ce module)."""
+    def __init__(self, targets: TargetsSelector, effect_type):
+        self.targets, self.effect_type = targets, effect_type
+
+    def select(self, ctx):
+        fn = getattr(ctx, "effects_of_units", None)
+        if fn is None:
+            return []
+        et = self.effect_type.evaluate(ctx) if hasattr(self.effect_type, "evaluate") else self.effect_type
+        out = []
+        for u in _units_of(self.targets, ctx):
+            out.extend(fn(u, int(et)) or [])
+        return out
 
 
 class OwnerOfEffect(TargetsSelector):

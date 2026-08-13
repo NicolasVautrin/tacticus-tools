@@ -54,13 +54,14 @@ from .accessors import (  # noqa: F401
 
 from .geometry import (  # noqa: F401
     neighbour_at, TilesInTriangleShape, ThreeTileUnitSpawnShape, TileFromVector, Walkable,
+    DirectionTo,
     Blocking, SortReverse, SortByRow,
     TilesOnSameElevation,
     EntitiesWithoutEffects, EntitiesWithAnyEffect, PickFirstN, PickRandomly, Randomize, Otherwise,
     TilesBehindInLine,
     FilterContinuous, UnitsWithVisualId, UnitsWithId, Cache, Entity, Nothing, Null, SelectIf,
     AtIndex, ConditionalSelector,
-    EffectSource, EffectFromOwner, EffectsFromUnitSource, OwnerOfEffect,
+    EffectSource, EffectFromOwner, EffectsFromUnitSource, EffectsOfUnits, OwnerOfEffect,
 )
 
 from .pathing import (  # noqa: F401
@@ -97,13 +98,13 @@ __all__ = [
     "SelectTile", "Actor",
     "Target", "ActiveTarget", "SurroundingTiles", "_center_pos", "neighbour_at",
     "TilesInTriangleShape", "ThreeTileUnitSpawnShape", "TileFromVector", "Walkable", "Blocking",
-    "SortReverse", "SortByRow",
+    "DirectionTo", "SortReverse", "SortByRow",
     "TilesOnSameElevation",
     "EntitiesWithoutEffects", "EntitiesWithAnyEffect", "PickFirstN", "Otherwise",
     "TilesBehindInLine", "FilterContinuous", "UnitsWithVisualId", "UnitsWithId", "Cache",
     "Entity", "Nothing", "Null", "SelectIf", "AtIndex", "ConditionalSelector",
     "TileBehindTargetFromSourceDirection", "EffectSource", "EffectFromOwner",
-    "EffectsFromUnitSource",
+    "EffectsFromUnitSource", "EffectsOfUnits",
     "OwnerOfEffect", "get_spawn_tile_selector", "adjacent_units", "attackable_enemies",
     "random_adjacent_free_tile",
     "SortTilesByUtility", "PreviousTile",

@@ -70,6 +70,8 @@ from .fire_and_reposition import FireAndRepositionPlaybook
 from .aberrant_hypermorph import AberrantHypermorphPlaybook
 from .nova_boost import NovaBoostPlaybook
 from .nova_shield import NovaShieldPlaybook
+from .invocation_of_machine_vengeance import InvocationOfMachineVengeancePlaybook   # 1172 (#1027)
+from .solar_atomizer import SolarAtomizerPlaybook                                    # 1174 (#1027)
 from .heals import (
     RitesOfRestorationPlaybook, CombatRestorativesPlaybook, DefendTheDivineWorkPlaybook,
     RevitalizingMalignancyPlaybook, InspiredToGreatnessPlaybook
@@ -162,6 +164,8 @@ PLAYBOOKS: dict[int, NonComparablePlaybook] = {
         AberrantHypermorphPlaybook(),
         NovaBoostPlaybook(),
         NovaShieldPlaybook(),
+        InvocationOfMachineVengeancePlaybook(),   # 1172 admecBossBelisarius -- util = 1 + (position != origine) ; tier -1000
+        SolarAtomizerPlaybook(),                  # 1174 admecBossBelisarius -- util = 1 + |bande| + 20*|ennemis de la bande| ; tier 100
         RitesOfRestorationPlaybook(),
         CombatRestorativesPlaybook(),
         DefendTheDivineWorkPlaybook(),
@@ -628,6 +632,7 @@ __all__ = [
     "choose_action", "BloodyFuryPlaybook", "VexillaMagnificaPlaybook", "FightingRetreatPlaybook",
     "FireAndRepositionPlaybook", "UnbreakableDutyPlaybook", "ExemplarOfTheMontkaPlaybook",
     "AberrantHypermorphPlaybook", "NovaBoostPlaybook", "NovaShieldPlaybook",
+    "InvocationOfMachineVengeancePlaybook", "SolarAtomizerPlaybook",
     "RitesOfRestorationPlaybook", "CombatRestorativesPlaybook", "DefendTheDivineWorkPlaybook",
     "RevitalizingMalignancyPlaybook", "InspiredToGreatnessPlaybook", "ScarabSummonPlaybook",
     "GetEmRuntzPlaybook", "GrotTankPlaybook", "GauntletsOfUltramarPlaybook",
