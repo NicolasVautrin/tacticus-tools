@@ -42,7 +42,7 @@ Sinon, trois verdicts NEGATIFS distincts :
 
 Mesure de ce run : un `substring` brut du nom sur `engine/**/*.py` rend **211/211 presents, 0 manquant**. La cause n'est pas que tout est porte : `engine/entities/triggered_ability_type.py` est un **mirror 1:1 de l'enum natif `TriggeredAbilityType`** (573 membres), ou le nom de CHAQUE passif figure comme membre. **Un catalogue n'est pas un cablage.**
 
-Le signal code de cet audit est donc derive de l'**AST** et exclut les **definitions** de membres d'enum (2632 assignations ecartees dans 590 fichiers `engine/**/*.py`) tout en gardant les **usages** (`TriggeredAbilityType.X` = `ast.Attribute` -> compte). Il separe en outre le CODE (12670 symboles distincts) de la PROSE (10134 ko de commentaires + docstrings, invisibles a l'AST, lus via `tokenize`). Le rapprochement est CamelCase-aware : `HeavyGravCannon` matche `HeavyGravCannonEffect`, `Guard` ne matche ni `Guardsman` ni `RoyalGuard` (ni, pour `Possession`, l'unitId `blackPossession`).
+Le signal code de cet audit est donc derive de l'**AST** et exclut les **definitions** de membres d'enum (2632 assignations ecartees dans 613 fichiers `engine/**/*.py`) tout en gardant les **usages** (`TriggeredAbilityType.X` = `ast.Attribute` -> compte). Il separe en outre le CODE (12935 symboles distincts) de la PROSE (10497 ko de commentaires + docstrings, invisibles a l'AST, lus via `tokenize`). Le rapprochement est CamelCase-aware : `HeavyGravCannon` matche `HeavyGravCannonEffect`, `Guard` ne matche ni `Guardsman` ni `RoyalGuard` (ni, pour `Possession`, l'unitId `blackPossession`).
 
 Chaque reference est en outre ATTRIBUEE A SA ZONE du moteur (`__init__, ai, battle_query, dsl, effects, entities, hex_corner, hex_edge, move, playbook, predict, runner, services, streams, utilities, weights`), parce qu'une reference dans `playbook/`/`ai/`/`utilities/` (face DECISION) ne prouve RIEN sur l'execution combat. C'est ce qui separe **B** (litteral exact sous `runner/`) de **R**.
 
@@ -164,7 +164,7 @@ Tri : nombre de porteurs spawnables SANS AMENAGEMENT (`L+`+`M`) decroissant, pui
 |---|---|---|---|---|---|
 | Bounce | N=2 | - | ZONE-GRISE | **R** | streams |
 | ElectroShock | S?=1 N=2 | - | ZONE-GRISE | **R** | playbook, runner, services |
-| Explosive | N=1 | - | ZONE-GRISE | **R** | effects, entities, playbook |
+| Explosive | N=1 | - | ZONE-GRISE | **R** | effects, entities, playbook, runner |
 | HeavyBoltPistol | S?=1 N=1 | - | ZONE-GRISE | **R** | playbook, runner, services |
 | ItsGonnaBlow | N=1 | - | ZONE-GRISE | **R** | runner |
 | Lifewards | S?=1 | - | ZONE-GRISE | **R** | runner |
@@ -249,7 +249,7 @@ Tri : nombre de porteurs spawnables SANS AMENAGEMENT (`L+`+`M`) decroissant, pui
 | RighteousRepugnance | L+=1 N=3 | adeptMorvenn | PORTE | **B**=litteral exact sous engine/runner/ | playbook, runner, services |
 | RitesOfBattle | L+=1 N=3 | ultraCalgar | PORTE | **E**=RitesOfBattle_ExtraDmgBasic,RitesOfBattle_ExtraDmgImperial | effects, playbook |
 | SagaOfTheWarriorBorn | L+=1 | spaceBlackmane | PORTE | **E**=SagaOfTheWarriorBorn_OtherSpaceWolves,SagaOfTheWarriorBorn_Owner | effects |
-| SanguinaryPriest | L+=1 | bloodSanguinary | PORTE | **T**=SanguinaryPriestAbility | runner |
+| SanguinaryPriest | L+=1 | bloodSanguinary | PORTE | **T**=SanguinaryPriestAbility | playbook, runner |
 | SavageKiller | L+=1 | spaceWulfen | PORTE | **T**=SavageKillerAbility | runner |
 | SereneUnifier | L+=1 N=4 | tauAunShi | PORTE | **T**=SereneUnifierRotationAbility | effects, playbook, runner |
 | ShockAssault | L+=1 N=3 | ultraInceptorSgt | PORTE | **E**=ShockAssault_Buff **G**=ShockAssault_Buff | effects, runner |
@@ -287,7 +287,7 @@ Tri : nombre de porteurs spawnables SANS AMENAGEMENT (`L+`+`M`) decroissant, pui
 | EcstaticSlaughter | L~=1 | emperFlawlessBlade | PORTE | **T**=EcstaticSlaughterOnThrilledAbility,EcstaticSlaughterOnOverkillAbility | runner |
 | FuryFromTheDelve | L~=1 | votanBeserk | PORTE | **T**=FuryFromTheDelveCheckTargetHealthAbility,FuryFromTheDelveAttackOrPinAbility | runner |
 | GeminaeSuperia | L~=1 N=4 | adeptCelestine | PORTE | **T**=GeminaeSuperiaAbility | playbook, runner |
-| GrimEfficiency | L~=1 | votanUthar | PORTE | **O**=GrimEfficiency_ExtraArmor,GrimEfficiency_ExtraPierce **E**=GrimEfficiency_ExtraArmor,GrimEfficiency_ExtraPierce | effects |
+| GrimEfficiency | L~=1 | votanUthar | PORTE | **O**=GrimEfficiency_ExtraArmor,GrimEfficiency_ExtraPierce **E**=GrimEfficiency_ExtraArmor,GrimEfficiency_ExtraPierce | effects, playbook |
 | HaywireMine | L~=1 N=1 | astarCyrus | PORTE | **T**=HaywireMinePlaceOnMoveAbility,HaywireMinePlaceOnTurnEndAbility | playbook, runner |
 | HealingBalms | L~=1 | spaceWolfPriest | PORTE | **E**=HealingBalms_ExtraCritChance,HealingBalms_ExtraCritDamage | ai, effects, playbook, runner |
 | IconOfObstinacy | L~=1 | astarLysander | PORTE | **T**=IconOfObstinacyAddArmourBuffAbility **O**=IconOfObstinacy_ExtraDmg **E**=IconOfObstinacy_ExtraArmor,IconOfObstinacy_ExtraDmg | effects, playbook, runner |
