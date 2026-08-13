@@ -101,6 +101,30 @@ def target_is_on_fire_tile(att_ctx) -> bool:
     return EffectType.Fire.name in set((tfx or {}).get(tuple(tp)) or ())
 
 
+def relic_ability_state(att_ctx, relic_ability: str):
+    """Le couple `(niveau, multiplicateur)` de l'ability TERTIAIRE de l'ATTAQUANT quand c'est bien
+    `relic_ability` qui est equipee -- sinon `(None, None)`.
+
+    POURQUOI CE CANAL EXISTE (#1005, MESURE, pas suppose). Un effet de RELIQUE resout son
+    `ConfigVar` contre l'`AbilityState` que l'`AddEffect` natif lui a passe, c.-a-d.
+    `DSLSelectors$$AbilityState(Owner, <l'ability courante>)` = l'etat **TERTIAIRE**. Or ce couple
+    n'est PAS celui des passifs : RPC `unitAbilityStates` sur `bloodMephiston` porteur de
+    `Vitarus` -- `TriggeredAbilityComponent` `raw = [1470, .., level = 1, mult = 100, ..,
+    hierarchie = 3, ..]`, tandis que ses passifs portent `level = 50, mult = 180`. Cote port,
+    `EffectFactory.create` recoit le couple PASSIF de l'unite porteuse (canal de seed
+    `decisionView.effects` comme voie offline), donc `Vitarus.extraDmg` serait lu a l'indice
+    clampe (`extraDmg[10] = 728`) au lieu d'`extraDmg[1] = 490` : **+238 par coup, en silence**.
+
+    `att_ctx` porte les trois cles depuis `runner/damage_model.py::attacker_modifiers` (canal
+    ATTAQUANT, le seul qu'empruntent les deux effets de relique portes). Cles absentes ou relique
+    differente -> `(None, None)`, et l'appelant retombe sur ses champs d'effet -- degradation
+    NOMMEE, jamais un niveau devine."""
+    c = att_ctx or {}
+    if not relic_ability or c.get("att_tertiary_ability") != relic_ability:
+        return (None, None)
+    return (c.get("att_tertiary_level"), c.get("att_tertiary_mult"))
+
+
 def is_charging_attack(att_ctx) -> bool:
     """Forme POSITIVE du même gate : le coup est-il PROUVÉ en charge (case-ischarging-hits) ?
 

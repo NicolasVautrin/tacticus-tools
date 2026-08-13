@@ -828,7 +828,8 @@ def _seed_ability_owner_effects(state: State, unit_id: int, vid: str, mult: int,
     # `unitAbilityStates`, #357). `None` = aucune relique -> rien a ajouter.
     _e = state.get_entity(int(unit_id))
     _sc = _e.get_component(StatsComponent) if _e is not None else None
-    _tertiary = getattr(getattr(_sc, "ctx", None), "tertiary_ability", None)
+    _ctx = getattr(_sc, "ctx", None)
+    _tertiary = getattr(_ctx, "tertiary_ability", None)
     if _tertiary:
         abilities.append(str(_tertiary))
     # TROISIEME source de la MEME boucle native (#964-r1) : `<Ability>_InitAbility.CreateBehaviour`
@@ -837,10 +838,24 @@ def _seed_ability_owner_effects(state: State, unit_id: int, vid: str, mult: int,
     for ab in abilities:
         for flag in get_owner_flags_added_on_ability_init(ab):
             _add_owner_flag_on_ability_init(state, unit_id, int(flag))
+    # ⚠ LE COUPLE (niveau, multiplicateur) D'UNE RELIQUE N'EST PAS CELUI DES PASSIFS, et c'est
+    # MESURE (#1005, RPC `unitAbilityStates` sur `bloodMephiston` porteur de `Vitarus`) : son
+    # `TriggeredAbilityComponent` porte `raw = [1470, .., level = 1, mult = 100, .., hierarchie = 3,
+    # ..]` la ou ses passifs portent `level = 50, mult = 180`. Le natif resout le `ConfigVar` de
+    # l'owner-effet contre l'`AbilityState` que l'`AddEffect` lui a passe -- `AbilityState(Owner,
+    # <l'ability courante>)`, donc l'etat TERTIAIRE. `Vitarus.extraDmg[1] = 490` contre
+    # `extraDmg[10] = 728` apres clamp : passer le couple passif sur-appliquerait +238 par coup,
+    # en silence. MEME lecture que `triggers/base.py::triggered_ability_state`.
+    def _couple(ab: str):
+        if _tertiary and str(ab) == str(_tertiary):
+            return (int(getattr(_ctx, "tertiary_ability_variables_multiplier", 100) or 100),
+                    getattr(_ctx, "tertiary_ability_level", None))
+        return (mult, ability_level)
     return [name for ab in abilities
             for name in (get_owner_effects_added_on_ability_init(ab)
                          + get_effect_to_be_added_to_owner_for_ability(ab))
-            if _materialize_owner_effect(state, unit_id, name, mult, ability_level=ability_level)]
+            if _materialize_owner_effect(state, unit_id, name, _couple(ab)[0],
+                                         ability_level=_couple(ab)[1])]
 
 
 def _add_owner_flag_on_ability_init(state: State, unit_id: int, flag: int) -> bool:

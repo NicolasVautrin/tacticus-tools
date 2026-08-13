@@ -19,7 +19,8 @@ from ...damage_trait import DamageTrait
 from ...triggered_ability_type import TriggeredAbilityType
 from ...traits.unit_trait import UnitTrait
 from ..base import (BaseEffect, is_at_range as _is_at_range, is_melee_attack, is_not_charging,
-                    is_ranged_attack, target_is_on_fire_tile, tiles_moved_this_turn)
+                    is_ranged_attack, relic_ability_state, target_is_on_fire_tile,
+                    tiles_moved_this_turn)
 from ..magnitude import ability_var, global_value, trait_var
 
 
@@ -1298,10 +1299,17 @@ class ChaliceOfBaalExtraDmgEffect(BaseEffect):
             return None
         if is_prediction:                             # cf. docstring (#71, jumeau SmashaEad)
             return None
-        lvl = (self.active_ability_level if self.active_ability_level is not None
-               else (self.ability_level if self.ability_level is not None else self.level))
-        amt = ability_var("ChaliceOfBaal", "extraDmg", lvl,
-                          multiplier_pct=self.ability_variables_multiplier)
+        # `ConfigVar(extraDmg, GetAbilityState(this), <config ChaliceOfBaal>)` -- l'etat d'ability
+        # est le TERTIAIRE du PORTEUR DE LA RELIQUE (cf. `relic_ability_state`). Repli sur les
+        # champs de l'effet quand le canal ne l'annonce pas : c'est le cas d'un ALLIE buffe, qui
+        # n'equipe pas la relique -- residu NOMME (le niveau du poseur n'est pas propage aux
+        # allies ; sur un runner normalise les deux clampent au meme palier).
+        r_lvl, r_mult = relic_ability_state(att_ctx, "ChaliceOfBaal")
+        lvl = r_lvl if r_lvl is not None else (
+            self.active_ability_level if self.active_ability_level is not None
+            else (self.ability_level if self.ability_level is not None else self.level))
+        mult = r_mult if r_mult is not None else self.ability_variables_multiplier
+        amt = ability_var("ChaliceOfBaal", "extraDmg", lvl, multiplier_pct=mult)
         return for_addition(True, amt) if amt else None
 
 
@@ -1367,8 +1375,14 @@ class VitarusEffect(BaseEffect):
             return None
         if not target_is_on_fire_tile(att_ctx):       # Any(Tiles(Target), HasEffect(Fire))
             return None
-        lvl = (self.active_ability_level if self.active_ability_level is not None
-               else (self.ability_level if self.ability_level is not None else self.level))
-        amt = ability_var("Vitarus", "extraDmg", lvl,
-                          multiplier_pct=self.ability_variables_multiplier)
+        # `ConfigVar(extraDmg, GetAbilityState(this), <config Vitarus>)` : l'etat d'ability est le
+        # TERTIAIRE du porteur -- MESURE `level = 1, mult = 100` contre `50 / 180` pour ses passifs
+        # (cf. `relic_ability_state`). Cet effet ne vit QUE sur le porteur de la relique, donc la
+        # cle est toujours la sur le canal ATTAQUANT ; le repli couvre les appelants historiques.
+        r_lvl, r_mult = relic_ability_state(att_ctx, "Vitarus")
+        lvl = r_lvl if r_lvl is not None else (
+            self.active_ability_level if self.active_ability_level is not None
+            else (self.ability_level if self.ability_level is not None else self.level))
+        mult = r_mult if r_mult is not None else self.ability_variables_multiplier
+        amt = ability_var("Vitarus", "extraDmg", lvl, multiplier_pct=mult)
         return for_addition(True, amt) if amt else None
