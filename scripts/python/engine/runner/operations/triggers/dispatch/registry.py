@@ -162,6 +162,7 @@ from ..loki import full_throttle as _full_throttle                  # noqa: F401
 from ..loki import seeker_missile_attack as _seeker_missile_attack  # noqa: F401
 from ..loki import overwhelming_wrath_attack as _overwhelming_wrath_attack  # noqa: F401
 from ..loki import lions_wrath_attack as _lions_wrath_attack        # noqa: F401  (#889, phase 2 de 1217)
+from ..loki import the_lantern_attack as _the_lantern_attack        # noqa: F401  (#1030, phase 2 de 1094)
 from ..loki.thrill_seekers import (ThrillSeekersFullHealthTargetAbility,   # trait ThrillSeekers 1056
                                   ThrillSeekersDamageTakenAbility)        # (x5 Emperor's Children)
 from ..loki.hailstrike import HailstrikeAttackAbility                 # case-117 ph.2 (1214 -> 1507)

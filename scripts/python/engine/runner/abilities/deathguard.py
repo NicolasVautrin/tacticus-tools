@@ -29,8 +29,9 @@ from ...dsl.base import Const
 from ...dsl.effects import ExecutionContext
 from ...entities.behaviours import op_add, op_and, AtomicGroup, Group
 from ...entities.selectors.accessors import (
-    ActiveTarget, Actor, CasterTile, FixedTileIds, Subject, Target
+    ActiveTarget, Actor, CasterTile, FixedTileIds, Subject, SurroundingTiles, Target
 )
+from ...entities.selectors.tiles import TileIntersect, TileUnion, TileUnique
 from ...entities.selectors.composites import adjacent_units
 from ...entities.selectors.geometry import Cache
 from ...entities.selectors.tiles import AdjacentTiles, Caster
@@ -56,8 +57,8 @@ from ...entities.active_ability_type import ActiveAbilityType
 from ...entities.effects.magnitude import ability_var
 from ..components import PositionComponent, StatsComponent, UnitComponent, get_unit_feet
 from .base import ActiveAbility
-from .targeting import (custom_range_func, RANGE_ADJACENT, RANGE_FROM_CONFIG, RANGE_WHOLE_BOARD,
-                        RANGED_BOOL_FALSE, RANGED_BOOL_TRUE, TargetingOptions)
+from .targeting import (custom_range, custom_range_func, RANGE_ADJACENT, RANGE_FROM_CONFIG,
+                        RANGE_WHOLE_BOARD, RANGED_BOOL_FALSE, RANGED_BOOL_TRUE, TargetingOptions)
 from .targeting_rule import TargetingRule as TR
 from .behaviours.combat import AttackWithAbilityDamage, AttackWithAttackDamage, InformWeapon
 from .behaviours.context import entities_from_state, main_tile_id
@@ -1755,3 +1756,193 @@ class BlightGrenadesAbility(ActiveAbility):
                   for p in atks if p.get("target") != target_id]
         return {"ability": BLIGHT_GRENADES_ID, "caster": caster_id, "target": target_id,
                 "main_attack": main, "behind": behind, "dsl": True}
+
+
+# ============ TheLantern (1094, `deathBossMortarion` « Mortarion », GuildBoss) -- #1030 =========
+#
+# PHASE 1 du patron 2-PHASES, et **LE CAST NE FRAPPE PAS**. La colonne `DAMAGE(Energy)` de l'audit
+# de couverture derive du `damageProfile` de la CONFIG, pas du behaviour : celui-ci pose TROIS
+# effets et zero degat. La PHASE 2 (la triggered 1167) vit dans
+# `runner/operations/triggers/loki/the_lantern_attack.py`, avec les triggers -- meme emplacement et
+# meme cause que les phases 2 de 1069, 1141 et 1217 (#503-r3).
+#
+#: `EffectType.TheLantern_PendingTarget` -- la MARQUE, posee sur une ZONE DE TUILES.
+TL_PENDING_TARGET = int(EffectType.TheLantern_PendingTarget)        # 0x4ab = 1195
+#: `EffectType.Pinned` -- le MEME effet 27-like que posent CrushingClaws/ThunderousAssault.
+TL_PINNED = int(EffectType.Pinned)                                  # 0x429 = 1065
+#: `EffectType.TheLantern_PendingAttack` -- l'ARMEMENT de la phase 2, pose sur le CASTER.
+TL_PENDING_ATTACK = int(EffectType.TheLantern_PendingAttack)        # 0x4aa = 1194
+THE_LANTERN_ID = ActiveAbilityType.TheLantern.name                  # "TheLantern"
+
+
+def the_lantern_area_selector(target_tile_id: int) -> TileUnique:
+    """La ZONE de `IdunBattleLogic.Entities.Abilities.Active.Loki.TheLanternAbility$$ExecuteBehaviour`
+    -- MIRROR 1:1, et la MEME chaine que republie
+    `...TheLanternAbility$$GetTilesForTargetAreaFromTargetTile` (la face que lit le ciblage) :
+
+        ring1  = SurroundingTiles(<+0x60> = Target, includeCenter = 0, range = 1,
+                                  onlyMovable = 0, includeNonWalkable = 0)
+        ring2  = SurroundingTiles(<+0x60>,          includeCenter = 0, range = 2, 0, 0)
+        cring1 = SurroundingTiles(<+0x58> = CasterTiles, includeCenter = 0, range = 1, 0, 0)
+        area   = Unique( (<+0x60> op_Addition ring1) op_Addition (ring2 op_BitwiseAnd cring1) )
+
+    Le disque de rayon 1 autour de la TUILE CIBLEE, etendu aux tuiles a distance 2 de la cible qui
+    sont ADJACENTES a l'empreinte du caster -- le « pont » entre Mortarion et la zone.
+
+    TROIS points de transcription :
+
+    * **`Target@+0x60` est ICI une TUILE** (le masque porte `TargetIsTile`) -> vehicule
+      `FixedTileIds([target_tile_id])`, comme `SquigMineAbility` et `FragBomb`. `Target()` (domaine
+      UNITE) rendrait `None` sur un cast tile-target.
+    * **`includeNonWalkable = 0` ARME le filtre de marchabilite** (`checkWalkable =
+      (includeNonWalkable == 0)`, cf. `SurroundingTiles`). Les deux booleens de queue sont LUS a la
+      forme meme du decompile : l'octet bas des deux registres est mis a zero au call-site
+      (`... << 8` / `... & 0xffffffffffffff00`), donc `onlyMovable = false` ET
+      `includeNonWalkable = false`. Ce n'est PAS le defaut du noeud porte (`True`), et l'ecrire au
+      defaut elargirait la zone aux tuiles non marchables.
+    * **`Unique` est ici le PENDANT TILE** (`TileUnique`) : le natif n'a qu'un `DSLSelectors$$Unique`,
+      le port en a deux ecritures parce que le domaine n'est pas type cote port -- `units.Unique`
+      dedoublonne par id d'ENTITE et rendrait n'importe quoi sur des ids de tuile. Idem pour
+      `op_Addition` (`TileUnion`) et `op_BitwiseAnd` (`TileIntersect`)."""
+    tgt = FixedTileIds([int(target_tile_id)])                    # `<DSLSelectors+0x60>` = la TUILE
+    ring1 = SurroundingTiles(tgt, Const(1), include_center=False, include_non_walkable=False)
+    ring2 = SurroundingTiles(tgt, Const(2), include_center=False, include_non_walkable=False)
+    cring1 = SurroundingTiles(CasterTile(as_ids=True), Const(1),
+                              include_center=False, include_non_walkable=False)
+    return TileUnique(TileUnion(TileUnion(tgt, ring1), TileIntersect(ring2, cring1)))
+
+
+def the_lantern_tree(target_tile_id: int):
+    """Arbre de `...TheLanternAbility$$ExecuteBehaviour` -- MIRROR 1:1 du DECOMPILE
+    (build `rnca9r7q6c`) :
+
+        area = <cf. `the_lantern_area_selector`>
+        foes = DSLSelectors$$Enemies( of = <+0x48> = Caster, entities = area, selectionType = 3 )
+        b1 = DSLBehaviors$$AddEffect( 0x4ab = 1195 TheLantern_PendingTarget,
+                                      AActiveAbility$$get_AbilityStateReference(this),
+                                      source = Caster@+0x48, targets = area,
+                                      options = <Nullable ZEROEE> )
+        b2 = DSLBehaviors$$AddEffect( 0x429 = 1065 Pinned, AbilityStateReference,
+                                      source = Caster@+0x48, targets = foes,
+                                      options = <Nullable ZEROEE> )
+        b3 = DSLBehaviors$$AddEffect( 0x4aa = 1194 TheLantern_PendingAttack, AbilityStateReference,
+                                      source = Caster@+0x48, targets = Caster@+0x48,
+                                      options = <Nullable ZEROEE> )
+        AActiveAbility$$Execute( (b1 op_BitwiseAnd b2) op_BitwiseAnd b3 )
+
+    ZERO ATTAQUE : la surcharge appelee est
+    `AddEffect(effectType, abilityState, source, targets, options)` (5 parametres, `options` =
+    32 octets ZEROES sur la pile -- pas la surcharge `turns:IAmountFormula`), donc **aucune duree
+    explicite** -> `duration_rounds=None` = `DefaultAmountOfRounds` de chaque effet, exactement
+    comme le `Pinned` de `CrushingClaws`.
+
+    `source_ref=Caster()` transcrit le 4e argument natif. Il coincide ici avec le defaut du port
+    (`source = entities.caster`), mais on l'ecrit : c'est ce qui rend la ligne re-verifiable, et
+    c'est ce champ que la PHASE 2 relit (`GetAttackingUnitSelector` surchargee en
+    `EffectSource(Effect)`, cf. `triggers/pending_attack.py`).
+
+    `scale_from_source` reste FAUX sur les trois : aucun des trois effets ne lit de `ConfigVar` cote
+    port (1195 et 1194 sont des marqueurs, 1065 `Pinned` est un statut sans magnitude). Le degat,
+    lui, est lu au tour SUIVANT par la phase 2, sur l'etat courant de l'attaquant.
+
+    ⚠ **L'ORDRE `b1 & b2` EST LOAD-BEARING** : `foes` = `Enemies(Caster, area)` est evalue au
+    moment ou `b2` s'execute, donc APRES que `b1` a pose la marque -- mais `area` est un selecteur
+    GEOMETRIQUE, pas un `EntitiesWithAnyEffect` : les deux ensembles sont independants. Ce qui
+    compte, et que le port preserve, c'est que `b2` frappe les ENNEMIS DU CASTER presents dans la
+    zone AU CAST, la ou la phase 2 relira les occupants COURANTS des tuiles marquees."""
+    area = the_lantern_area_selector(target_tile_id)
+    foes = Enemies(area, selection_type=SELECTION)
+    b1 = AddEffect(TL_PENDING_TARGET, EffectType.TheLantern_PendingTarget.name, area,
+                   duration_rounds=None, source_ref=Caster())
+    b2 = AddEffect(TL_PINNED, EffectType.Pinned.name, foes,
+                   duration_rounds=None, source_ref=Caster())
+    b3 = AddEffect(TL_PENDING_ATTACK, EffectType.TheLantern_PendingAttack.name, Caster(),
+                   duration_rounds=None, source_ref=Caster())
+    return op_and(op_and(b1, b2), b3)
+
+
+class TheLanternAbility(ActiveAbility):
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.TheLanternAbility$$ExecuteBehaviour`
+    (id 1094, `deathBossMortarion` « Mortarion » -- GUILD BOSS Death Guard, kind `npc`).
+    Arbre DSL `the_lantern_tree`.
+
+    ROUGE MESURE AVANT CE PORT : 1094 etait ABSENTE d'`ABILITY_CLASSES` -> `AbilityHandler`
+    acceptait le cast, posait les flags de tour, et n'executait RIEN. Zero effet, zero degat, zero
+    erreur -- un NO-OP SILENCIEUX, dont la face DECISION peut pourtant choisir l'ability.
+
+    LE CAST NE FRAPPE PAS. Il pose `1195 TheLantern_PendingTarget` sur une ZONE DE TUILES,
+    `1065 Pinned` sur les ennemis qui s'y trouvent, et `1194 TheLantern_PendingAttack` sur le
+    CASTER. Le DEGAT appartient a la phase 2 (`1167 TheLantern_Attack`), qui part au debut du tour
+    SUIVANT du caster et frappe les occupants COURANTS des tuiles marquees -- une unite qui sort de
+    la zone y echappe, une unite qui y entre la prend.
+
+    CONFRONTABILITE : porteur `npc`, monte comme ses deux voisins de kit (1093/1095) par
+    `rl_duel build --explicit-stats "deathBossMortarion:<palier>"`.
+
+    Turn-flags = defauts base (1094 ABSENT des overrides `NO_END_TURN_ABILITY_TYPES` /
+    `NO_ABILITY_USED_FLAG_ABILITY_TYPES`) -> le cast termine le tour et pose `ActiveAbilityUsed`.
+
+    Diag : `{posed: [...], area: [...], dsl: True}`."""
+    __slots__ = ()
+    ABILITY_TYPE = int(ActiveAbilityType.TheLantern)   # 1094
+    ABILITY_ID = THE_LANTERN_ID
+
+    # GATE DE CIBLE (#115) + PORTEE (#241) -- forme **FLAGS DIRECTS** : le litteral EST le masque.
+    # `...TheLanternAbility$$.ctor` appelle la surcharge a 6 parametres
+    # `IdunBattle.Core.Services.TargetingOptions$$.ctor(isSelfCasting, range, forceMeleeTarget,
+    # rules, getDynamicInvalidCasterReason, getDynamicInvalidTargetReason)` -- signature LUE dans
+    # `frida/methods.tsv`, forme tranchee par les XREFS ENTRANTES :
+    #     TargetingOptions..ctor(&opts, 0, &CustomRange(2), 1, 0x2000100042, 0, 0)
+    #     AActiveAbility..ctor(this, &opts, 2)                    // AbilityAttackType.Others
+    # Decomposition du masque (COMPLETE : la somme des quatre bits REND le litteral) :
+    #     0x2            TargetMatchesDynamicRule -> consulte `GetDynamicInvalidTargetReason`, que
+    #                    la classe SURCHARGE (avec `$$IsValidCenterTileForTargetArea`).
+    #                    **NON PORTE -- residu #1030-r1, degradation PERMISSIVE NOMMEE.** Ce qui est
+    #                    LU du corps natif, et qui ne suffit pas a l'ecrire :
+    #                        A = battleQuery.<slot 0x51 GetAdjacentTiles>(casterTiles, 0, 1, 1)
+    #                        B = battleQuery.<slot 0x4f GetAdjacentTiles>(targetTile, 0, 1, 1)
+    #                        A.<ISet<T> slot 1>(B) ; return (A.Count == 1) ? 0 : 2
+    #                    Les deux slots sont NOMMES par `metadata/interface_slots.tsv` (entree
+    #                    VERSIONNEE, derivee du `global-metadata.dat`), et
+    #                    `$$GetDynamicInvalidTargetReason` a EXACTEMENT le meme corps que
+    #                    `$$IsValidCenterTileForTargetArea` a l'encodage du retour pres. Ce qui reste
+    #                    OUVERT est le SLOT 1 d'`ISet<T>` : l'ordre metadata de l'interface n'est pas
+    #                    mesure ici, donc `ExceptWith` / `IntersectWith` ne sont pas departagees --
+    #                    et les deux donnent des ensembles differents. Ecrire l'une des deux serait
+    #                    un FIT ; ne rien ecrire laisse le gate PERMISSIF (`ActiveAbility.
+    #                    get_dynamic_invalid_target_reason` de base rend `0`), du meme cote que la
+    #                    degradation de tout ce module. Aucune entree dans
+    #                    `DYNAMIC_TARGET_RULE_UNPORTED` : cette table n'est lue que par
+    #                    `UnportedAbilityTargeting`, donc INATTEIGNABLE pour une ability PORTEE
+    #                    (mesure ecrite a l'entree 1185 de `targeting.py`).
+    #     0x40           TargetIsTile             -> cast TILE-TARGET (`target_id` = id de TUILE)
+    #     0x100000       AllowSteppableUnit       -> permissif
+    #     0x2000000000   CasterHas7Tiles          -> Mortarion occupe 7 tuiles
+    # `range` : `TargetingRange$$CustomRange(int range)` -- surcharge INT tranchee par XREF
+    # ENTRANTE (`...TheLanternAbility$$.ctor` est appelante de la surcharge `range:System.Int32`,
+    # ABSENTE de la liste des appelants de la surcharge `getRange:GetRange`), littéral **2** relu
+    # aux octets du call-site (`mov edx, 2` juste avant le `call`).
+    # `forceMeleeTarget = 1` = `RangedBool.False` (l'enum natif est INVERSE : True=0, False=1)
+    # -> aucun clamp RangedInMelee.
+    TARGETING_OPTIONS = TargetingOptions(
+        rules=(TR.TargetMatchesDynamicRule | TR.TargetIsTile | TR.AllowSteppableUnit
+               | TR.CasterHas7Tiles),
+        self_cast=False, range=custom_range(2), force_melee_target=RANGED_BOOL_FALSE)
+
+    def execute_behaviour(self, state: "State", caster_id: int,
+                          target_id: Optional[int]) -> Optional[dict]:
+        if target_id is None:
+            return None
+        ectx = ExecutionContext(state=state, rng=state.rng)
+        entities = entities_from_state(state, caster_id, target_id)
+        tree = the_lantern_tree(int(target_id))
+        tree.execute(entities, ectx)
+        posed = [{"effect": p.get("effect_type"), "target": p.get("target"),
+                  "source": p.get("source"), "placed": p.get("placed")}
+                 for n, p in ectx.emitted if n == "AddEffect"]
+        return {"ability": self.ABILITY_ID, "caster": caster_id, "target": target_id,
+                "posed": posed,
+                "area": [p.get("target") for p in posed
+                         if p.get("effect") == TL_PENDING_TARGET],
+                "pinned": [p.get("target") for p in posed if p.get("effect") == TL_PINNED],
+                "dsl": True}

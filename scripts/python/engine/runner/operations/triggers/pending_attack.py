@@ -121,16 +121,39 @@ from ....entities.triggered_ability_type import TriggeredAbilityType
 from .base import EffectTrigger, TriggerEvent
 
 
+#: `<klass+0x758> GetAttackingUnitSelector` = `ABondEffect$$BondedEntitySelector` =
+#: `BondedEntityFromEffect(Effect@DSLSelectors+0x38)`. C'est le corps HERITE d'`APendingAttackEffect`.
+ATTACKER_BONDED = "bonded"
+#: `<klass+0x758> GetAttackingUnitSelector` SURCHARGE en `DSLSelectors$$EffectSource(Effect@+0x38)` --
+#: la SOURCE de l'entite-effet (`EffectComponent.SourceUnit @+0x10`), pas l'entite bondee.
+ATTACKER_EFFECT_SOURCE = "effect_source"
+
+
 class PendingAttackSpec(NamedTuple):
-    """Ce que la classe d'effet NATIVE rend a ses deux virtuels, LU au decompile.
+    """Ce que la classe d'effet NATIVE rend a ses virtuels, LU au decompile.
 
     `native` = le nom de la classe native VERBATIM : c'est lui qui rend la ligne re-verifiable, et
     la seule chose qui relie une valeur a sa lecture (meme discipline que `BondRemovalGates`).
     `triggered_ability` = `<klass+0x768> GetTriggeredAbilityType` -- un **`TriggeredAbilityType`**,
     jamais un `EffectType` : les deux enums partagent des centaines d'ordinaux (0x467 vaut
-    `SeekerMissileFrequencyLock_Attack` ici et `AnnihilatorBeam_PendingAttack` la-bas)."""
+    `SeekerMissileFrequencyLock_Attack` ici et `AnnihilatorBeam_PendingAttack` la-bas).
+
+    `attacker` = `<klass+0x758> GetAttackingUnitSelector`, l'entite que le `Triggered()` de la base
+    passe a la fois au gate `IsTurnOf(...)` et au `TriggerAbility(entity, caster, actor, ...)`.
+    DEUX corps existent dans le build (#1030), et l'ICF les fond : `ghidra/functions.tsv` comme
+    `frida/methods.tsv` n'en publient que DEUX lignes pour les 20 derivees --
+    `IdunBattle.Entities.Effects.Loki.ValkyrieStrikeEffect$$GetAttackingUnitSelector`
+    (= `ABondEffect$$BondedEntitySelector(this)`, le corps de la BASE) et
+    `Idun.Source.IdunBattle.Logic.Entities.Effects.Loki.InstrumentsOfVengeance_PendingAttackEffect$$
+    GetAttackingUnitSelector` (= `DSLSelectors$$EffectSource(Effect@+0x38)`, corps INLINE identique a
+    `IdunBattleLogic.Entities.DSLSelectors$$EffectSource`). Le nom du proprietaire ne dit RIEN de
+    l'appelant : c'est le `global-metadata.dat` qui etablit QUI DECLARE la surcharge (les trois
+    classes citees la declarent toutes, slot 98), et c'est le VECTEUR DE POSE qui tranche laquelle
+    des deux elle porte -- un effet pose par `AddEffect` (sans `bondedEntity`) n'a AUCUN composant de
+    bond, donc `BondedEntityFromEffect` y rendrait une liste VIDE."""
     native: str
     triggered_ability: int
+    attacker: str = ATTACKER_BONDED
 
 
 PENDING_ATTACK_EFFECTS: dict[int, PendingAttackSpec] = {
@@ -180,6 +203,27 @@ PENDING_ATTACK_EFFECTS: dict[int, PendingAttackSpec] = {
     int(EffectType.TheLionsWrath_PendingAttack): PendingAttackSpec(
         "IdunBattle.Entities.Effects.Loki.TheLionsWrath_PendingAttackEffect",
         int(TriggeredAbilityType.TheLionsWrath_PendingAttack)),
+    # Pose par `IdunBattleLogic.Entities.Abilities.Active.Loki.TheLanternAbility$$ExecuteBehaviour`
+    # (1094, #1030) : `AddEffect(0x4aa, AbilityStateReference, source = Caster@DSLSelectors+0x48,
+    # targets = Caster@+0x48, options = <Nullable ZEROEE>)`. La derivation d'`APendingAttackEffect`
+    # est LUE : `...TheLantern_PendingAttackEffect$$.ctor` a pour corps entier
+    # `APendingAttackEffect..ctor(this, Nullable(AbilityOrEffect(...)))`, et son
+    # `$$GetTriggeredAbilityType` a pour corps entier `return 0x48f`.
+    #
+    # ⚠ **C'EST LE SEUL DE LA TABLE QUI SOIT POSE PAR `AddEffect`, ET C'EST CE QUI IMPOSE
+    # `ATTACKER_EFFECT_SOURCE`.** `IdunBattle.Entities.Behaviours.AddEffectBehaviour$$Execute` ne
+    # porte AUCUN selecteur `bondedEntity` (ses champs sont `+0x60` source, `+0x68` cibles, `+0x78`
+    # turns, `+0x80` niveau) -- seul `AddBondEffect` en passe un, et le builder de bond n'est choisi
+    # que si l'id resolu est non nul. L'instance n'a donc PAS de composant de bond, et le corps
+    # herite (`BondedEntityFromEffect`) rendrait une liste VIDE : `IsTurnOf(<vide>)` firerait au
+    # tour de N'IMPORTE QUEL joueur (`IsTurnOfUnitTrigger$$ShouldTrigger` est un ALL, et son ALL sur
+    # vide rend TRUE -- corps LU : la sortie de boucle sur `MoveNext == 0` fait `return 1`) et le
+    # `TriggerAbility` ne declencherait RIEN. La surcharge `EffectSource(Effect)` rend, elle, le
+    # CASTER -- qui est aussi le porteur ici, l'effet etant pose sur `Caster@+0x48`.
+    int(EffectType.TheLantern_PendingAttack): PendingAttackSpec(
+        "IdunBattle.Entities.Effects.Loki.TheLantern_PendingAttackEffect",
+        int(TriggeredAbilityType.TheLantern_Attack),
+        ATTACKER_EFFECT_SOURCE),
 }
 
 
@@ -225,6 +269,29 @@ def _pending_instance(state: State, owner_id: int):
     return None
 
 
+def _attacking_unit(inst) -> Optional[int]:
+    """`<klass+0x758> GetAttackingUnitSelector` sur l'INSTANCE -- l'unite ATTAQUANTE.
+
+    Deux corps natifs, tranches PAR CLASSE dans `PENDING_ATTACK_EFFECTS` (cf. `PendingAttackSpec`) :
+
+      * `ATTACKER_BONDED` = `ABondEffect$$BondedEntitySelector` ->
+        `BondedEntityFromEffect(Effect@DSLSelectors+0x38)` -> `BaseEffect.bonded` (le champ `+0x10`
+        du composant de bond). C'est le corps de la BASE, et le cas des trois effets poses par
+        `AddBondEffect`.
+      * `ATTACKER_EFFECT_SOURCE` = `DSLSelectors$$EffectSource(Effect@+0x38)` -> la SOURCE de
+        l'entite-effet (`EffectComponent.SourceUnit @+0x10`) -> `BaseEffect.source`. C'est le cas de
+        `1194 TheLantern_PendingAttack`, pose par `AddEffect` -- donc SANS composant de bond.
+
+    `None` = l'entite n'est pas lisible sur l'instance. Le port le DIT (le trigger ne fire pas)
+    plutot que de retomber sur le porteur : ce serait exactement l'erreur d'attribution que la
+    mesure du Sec.1 refute."""
+    et = int(getattr(inst, "effect_type", -1))
+    spec = PENDING_ATTACK_EFFECTS.get(et)
+    champ = "source" if (spec is not None and spec.attacker == ATTACKER_EFFECT_SOURCE) else "bonded"
+    v = getattr(inst, champ, None)
+    return None if v is None else int(v)
+
+
 class PendingAttackOnAttackersTurn(EffectTrigger):
     """Le `Triggered()` d'`IdunBattle.Entities.Effects.APendingAttackEffect$$
     CreateHandleTriggerAbilitiesInternal` -- l'attaque DIFFEREE qui part au debut du tour de l'unite
@@ -260,7 +327,7 @@ class PendingAttackOnAttackersTurn(EffectTrigger):
         inst = _pending_instance(state, int(self.owner_id))
         if inst is None:
             return False
-        bonded = getattr(inst, "bonded", None)
+        bonded = _attacking_unit(inst)
         if bonded is None:
             # `BondedEntityFromEffect` rend une liste VIDE quand le composant de bond n'a pas d'id
             # (`SelectBondedEntityFromEffectSelector$$Select`), donc `IsTurnOf` sur un ensemble vide
@@ -278,7 +345,7 @@ class PendingAttackOnAttackersTurn(EffectTrigger):
         inst = _pending_instance(state, int(self.owner_id))
         if inst is None:
             return None
-        bonded = getattr(inst, "bonded", None)
+        bonded = _attacking_unit(inst)
         if bonded is None:
             return None
         et = int(inst.effect_type)

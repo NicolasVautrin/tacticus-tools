@@ -440,9 +440,20 @@ class Friends(TargetsSelector):
         ref = resolve_unit(self.reference, ctx) if self.reference is not None else ctx.caster
         rt = (ref or {}).get("team")
         st = self.selection_type
-        return [u for u in self.inner.evaluate(ctx)
-                if u.get("team") == rt
-                and (st is None or _selection_ok(u, st, ctx))]
+        # MEME classe native, MEME corps qu'`Enemies` (`UnitsByTeamSelector$$CountOrAdd`, flag
+        # `this+0x28` = 1 au lieu de 0) -> MEME forme, y compris le domaine de RETOUR (#1030) :
+        # la resolution `GetUnitOrMachine` sert au seul test de camp, et `result.Add(entity)`
+        # reinjecte l'ENTITE SOURCE. Le port ne reparait `Enemies` que cote #1030 ; `Friends`
+        # portait le meme trou (une source en domaine TUILE rendait `[]`).
+        out = []
+        for e in _entities_of(self.inner, ctx):
+            u = unit_or_machine(e, ctx)          # `UnitExtensions$$GetUnitOrMachine(entity, state)`
+            if u is None or u.get("team") != rt:
+                continue
+            if st is not None and not _selection_ok(u, st, ctx):
+                continue
+            out.append(e)                        # `result.Add(entity)` : l'ENTITE SOURCE, pas `u`
+        return out
 
 
 def _est_entite_tuile(d: dict, board) -> bool:
