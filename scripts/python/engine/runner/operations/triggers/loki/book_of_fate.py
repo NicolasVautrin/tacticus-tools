@@ -128,7 +128,7 @@ from .....entities.stats import StatType
 from .....entities.traits.unit_trait import UnitTrait
 from .....entities.triggered_ability_type import TriggeredAbilityType
 from .....entities.unit_selection_type import UnitSelectionType
-from .....entities.effects.magnitude import ability_var
+from .....entities.effects.magnitude import ability_const_str, ability_var
 from ....abilities.behaviours.context import entities_from_state
 from ....abilities.behaviours.effects import AddStaticStatModifierEffect, RemoveEffect
 from ....abilities.behaviours.summon import PerformAIAttack
@@ -199,7 +199,7 @@ def book_of_fate_tree(extra_dmg: int, affected_unit_id: str | None):
     internes garantissent qu'il ne se re-randomise pas entre les trois."""
     sel = book_of_fate_target_selector(affected_unit_id)
     daemon_only = UnitsWithTrait(sel, int(UnitTrait.Daemon), selection_type=_SEL)
-    b1 = AddStaticStatModifierEffect(daemon_only, DAEMON_BUFF_EFFECT, int(StatType.Attack),
+    b1 = AddStaticStatModifierEffect(daemon_only, DAEMON_BUFF_EFFECT, int(StatType.ATTACK),
                                      int(extra_dmg), name=DAEMON_BUFF_EFFECT_NAME)
     b3 = Group(PerformAIAttack(sel), group_id=_GROUP_ABILITY_ATTACK, targets_sel=sel)
     b2 = RemoveEffect(DAEMON_BUFF_EFFECT, sel)
@@ -215,12 +215,15 @@ def relic_vars(state: State, owner_id: int) -> "tuple[int, str | None]":
     ferait lire le DERNIER palier (clamp de `TryGetVariableArrayForLevel`), en silence : c'est
     exactement la faute mesuree par #1007.
 
-    `affectedUnitId` est une CONSTANTE (`GetNumberConstant`/`ConfigConstString`), donc sans niveau :
-    `ability_var(..., is_constant=True)`."""
+    `affectedUnitId` est une constante de type CHAINE : elle passe par
+    `IdunBattle.Configuration.AbilityConfiguration$$GetStringConstant` (noeud
+    `IdunBattleLogic.Entities.DSLFormulas$$ConfigConstString`), pas par `$$GetNumberConstant`.
+    L'accesseur du port est donc `ability_const_str`, PAS `ability_var(..., is_constant=True)` --
+    ce dernier force un `int()` et levait `ValueError` sur cette valeur (trouve par le test offline
+    de la tranche : les deux axes natifs sont DEUX methodes, le port n'en avait qu'une)."""
     lvl, mult = triggered_ability_state(state, owner_id, ABILITY_ID)
     extra = ability_var(ABILITY_ID, EXTRA_DMG_KEY, lvl, multiplier_pct=mult) or 0
-    affected = ability_var(ABILITY_ID, AFFECTED_UNIT_ID_KEY, is_constant=True)
-    return (int(extra), None if affected is None else str(affected))
+    return (int(extra), ability_const_str(ABILITY_ID, AFFECTED_UNIT_ID_KEY))
 
 
 class BookOfFateAbility(TriggeredAbility):
