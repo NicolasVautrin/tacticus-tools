@@ -686,7 +686,26 @@ def _add_positional_and_defender_mods(mods, scene, att_id, tgt_id, is_melee, att
         mods.armor_penetration += _tmp.armor_penetration
         mods.ignore_armor = mods.ignore_armor or _tmp.ignore_armor
         mods.capped_reductions.extend(_tmp.capped_reductions)
-        mods.flat_reductions.extend(_tmp.flat_reductions)
+        # #950-r2 : les reductions PLATES d'une aura se CONSOMMENT ici, exactement comme celles de
+        # la patte SELF quinze lignes plus haut (`mods.additive -= sum(def_mods.flat_reductions)`).
+        # Elles etaient VERSEES dans `mods.flat_reductions` -- un bac que le pipeline de PREDICTION
+        # ne vide JAMAIS : seuls le COMBAT
+        # (`AttackDamageOperation._apply_defender_flat_reductions`) et la patte SELF le font. La
+        # perte etait donc SILENCIEUSE, et n'affectait que les auras a reduction PLATE.
+        #
+        # C'est le MEME placement que la patte SELF parce que c'est la MEME boucle native : le port
+        # scinde en deux pattes (Owner == cible / Owner != cible) un univers que
+        # `IdunBattle.Core.Services.DamageCalculations$$CalculateDefenderModifiersForPrediction`
+        # parcourt d'un seul tenant (effets x cibles, BOARD-WIDE, sans scope) et verse dans UN seul
+        # accumulateur. Deux pattes du port, un accumulateur natif -> une seule consommation.
+        #
+        # MESURE (#950-r2, `TerrorsLament_DamageReduction` sur le carre aura/away de #950, build
+        # `rnca9r7q6c`) : sur la tuile candidate d'ou l'attaquant est adjacent a Jain Zar, oracle
+        # natif (2045, 5055) contre port (6030, 9040) -- ecart +3985 sur les DEUX bornes, soit
+        # exactement `5 coups x 797` de `ConfigVar(0x12 = dmgReduction)`. Les quatre autres tuiles
+        # et les six du temoin concordaient deja a l'unite.
+        if _tmp.flat_reductions:
+            mods.additive -= sum(_tmp.flat_reductions)
         mods.details.extend(_tmp.details)
 
 
