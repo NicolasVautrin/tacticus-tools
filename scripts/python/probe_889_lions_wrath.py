@@ -373,6 +373,21 @@ def main() -> int:
     ap.add_argument("--hp-target", default=None,
                     help="PV de la cible adverse (contre-epreuve : sans kill, les deux coups et "
                          "la phase 2 redeviennent observables)")
+    # ⚠ `#889-r4` PROPOSAIT << un `endturn` NU des deux cotes (`--no-ai`) >> comme montage qui
+    # tranche. **CE MONTAGE EST UN NO-OP, et c'est LU** (2026-08-13) :
+    #   * `--no-ai` est un drapeau de `rl_duel play`, PAS de `build` -- et ce probe n'appelle jamais
+    #     `play`. Le passer au `build` serait accepte par le parser GLOBAL et strictement inerte ;
+    #   * l'`endturn` de ce probe est `applyAction {kind: "endturn"}`, que le bundle traduit en
+    #     `runner.Apply(EndTurnMessage)` -- << message moteur, PAS IA >>
+    #     (`frida/hooks/features/ai-step/internals.ts`). Le tour IA natif exige un
+    #     `CheatRunAIMessage` explicite (`rl_duel _ai_turn`), qui n'est POSE NULLE PART ici.
+    # Donc l'`endturn` intercalaire est DEJA nu : la cause candidate (b) << l'IA adverse a consomme
+    # les effets >> est structurellement ECARTEE, et le montage propose n'aurait rien change.
+    # Reste (a) la duree, et une TROISIEME hypothese que le residu ne nommait pas : (c) le coup
+    # DIFFERE part cote natif au tour de l'ADVERSAIRE, la ou le port le route sur le tour du Lion
+    # (`delayed_attack_triggers(state, joueur_adverse)` au pas [C] contre `mon_joueur` en phase 2).
+    # C'est exactement la forme de l'observable rapporte (<< le coup differe natif ne part jamais,
+    # le port le tire >>). Le montage qui tranche (a) contre (c) reste a ecrire.
     a = ap.parse_args()
 
     extra = ["--hp-target", str(a.hp_target)] if a.hp_target else []
