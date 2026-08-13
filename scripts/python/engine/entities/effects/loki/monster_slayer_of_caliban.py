@@ -124,9 +124,16 @@ MONSTER_TARGET_TRAITS = frozenset({UnitTrait.Vehicle.name, UnitTrait.BigTarget.n
 
 
 class MonsterSlayerOfCalibanExtraDmgEffect(BaseEffect):
-    """`IdunBattle.Entities.Effects.Loki.MonsterSlayerofCaliban_ExtraDmgEffect` (`EffectType`
-    0x603 = 1539, nom capte `MonsterSlayerOfCaliban_ExtraDmg`) -- owner-effect PERMANENT pose a
-    l'init de la relique sur Forcas. Cf. l'en-tete du module pour l'arbre natif.
+    """`IdunBattle.Entities.Effects.Loki.MonsterSlayerofCaliban_ExtraDmgEffect$$CreateDamageModifier`
+    (`EffectType` 0x603 = 1539, nom capte `MonsterSlayerOfCaliban_ExtraDmg`) -- owner-effect
+    PERMANENT pose a l'init de la relique sur Forcas. Cf. l'en-tete du module pour l'arbre natif.
+
+    ⚠ **LE SYMBOLE NATIF ECRIT `MonsterSlayerof` (o MINUSCULE), LE NOM D'EFFET `MonsterSlayerOf`
+    (O MAJUSCULE).** Ce n'est pas une coquille du port : `frida/classes.tsv` porte
+    `...Loki.MonsterSlayerofCaliban_ExtraDmgEffect` et `frida/enums.tsv`
+    `EffectType.MonsterSlayerOfCaliban_ExtraDmg`. La citation ci-dessus est VERBATIM, et c'est
+    elle -- pas le nom -- qui apparie la classe du port a la classe native pour
+    `probe_437r1r1r1_effect_face_table.py` (la voie NOM echoue par construction sur ce couple).
 
     OBSERVABLE : chaque coup de Forcas contre une cible `Vehicle` ou `BigTarget` porte
     `+extraDmg[niveau de relique]` en FLAT (canal additif attaquant)."""
