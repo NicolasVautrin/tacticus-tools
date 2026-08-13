@@ -42,6 +42,23 @@ from engine.runner.components import OwnerComponent, PositionComponent, UnitComp
 from engine.runner.state import State
 
 #: Porteurs `lineup` LUS par `unit_map.py find --ability` (voie `active`).
+#: Ce qui doit changer pour que ce FICHIER puisse changer de verdict (#486-r15). Il garde le
+#: DOMAINE de cible offline : le foyer, le registre NonComparable qui en fournit la
+#: population, et la table de masques d'ou vient le veto de camp. `toujours: True` en plus,
+#: et sa raison : la population est DERIVEE du gameconfig, qui n'est pas un chemin du depot.
+DECLENCHEUR = {
+    # RIEN hors de la cascade DERIVEE par le foyer (#531) : la fermeture d'imports de ce
+    # fichier (605 modules, mesuree par `--proposer`) y tient entierement -- `state_bridge`,
+    # le registre NonComparable et la table de masques en font partie.
+    "chemins": (),
+    "build": False,
+    "toujours": True,
+    "raison": "la POPULATION gardee (les NonComparable a `damageProfile` sans veto de camp) "
+              "est DERIVEE du gameconfig, qui n'est pas un chemin du depot : un ajout "
+              "d'ability ou un changement de masque cote JEU change le verdict sans qu'aucun "
+              "fichier bouge.",
+}
+
 CASTER_VID = "admecRuststalker"      # porte `1122 CordClaw`
 FOE_VID = "templSwordBrother"
 CORD_CLAW = int(ActiveAbilityType.CordClaw)              # 1122

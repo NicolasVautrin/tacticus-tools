@@ -33,6 +33,18 @@ from engine.runner.components import (OwnerComponent, PositionComponent, StatsCo
                                       UnitComponent)
 from engine.runner.state import State
 
+#: Ce qui doit changer pour que ce FICHIER puisse changer de verdict (#486-r15). Il garde le
+#: substrat des abilities ACCORDEES : le foyer, le mirror d'enum qui nomme `Heal_<passif>`,
+#: et le `UnitContext` qui porte la mesure d'entite.
+DECLENCHEUR = {
+    "chemins": (),   # tout est dans la cascade derivee par le foyer (#531)
+    "build": False,
+    "toujours": True,
+    "raison": "les porteurs du grant (`passiveAbilities` du kit) et les membres `Heal_*` de "
+              "`ActiveAbilityType` viennent du gameconfig et du dump : hors depot. Un membre "
+              "de plus elargirait la population sans qu'un chemin change.",
+}
+
 PASSIF = "TwistedScience"
 ACCORDEE = int(ActiveAbilityType.Heal_TwistedScience)      # 1167
 KIT_PORTEUR = "genesBiophagus"        # son KIT porte `TwistedScience`

@@ -41,6 +41,17 @@ if str(PYDIR) not in sys.path:
 
 from rl_collect_batch import _resolve_session, _rpc            # noqa: E402
 
+#: Ce qui doit changer pour que ce FICHIER puisse changer de verdict (#486-r15). Il est LIVE :
+#: son verdict depend du JEU, pas seulement du depot -- d'ou `toujours: True`.
+DECLENCHEUR = {
+    "chemins": (),   # tout est dans la cascade derivee par le foyer (#531)
+    "build": False,
+    "toujours": True,
+    "raison": "test LIVE : il confronte le moteur NATIF via le runner, et AUCUN chemin du "
+              "depot ne rend compte de ce que le jeu fait. Un changement de build peut "
+              "changer le verdict sans qu'un fichier bouge.",
+}
+
 CASTER_VIS = "spaceWolfPriest"
 ALLIE_VIS = "spaceBlackmane"
 HEAL_ABILITY = 1212

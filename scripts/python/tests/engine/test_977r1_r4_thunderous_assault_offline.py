@@ -37,6 +37,20 @@ import engine.playbook.noncomparable._targets as _T
 from engine.playbook.noncomparable._base import NCContext
 from engine.playbook.noncomparable.thunderous_assault import ThunderousAssaultPlaybook
 
+#: Ce qui doit changer pour que ce FICHIER puisse changer de verdict (#486-r15). Il garde le
+#: playbook `1043` et les TROIS foyers qu'il interroge -- ceux-la memes que la contre-epreuve
+#: substitue. Un declencheur qui les oublierait serait un FAUX VERT.
+DECLENCHEUR = {
+    "chemins": (),   # tout est dans la cascade derivee par le foyer (#531)
+    "build": False,
+    "toujours": False,
+    "raison": "100 %% OFFLINE et DETERMINISTE : les trois foyers interroges "
+              "(`playbook.base.tile_utility`, `noncomparable._targets`, "
+              "`playbook.displace_utility`) sont SUBSTITUES par la fixture, et la carte "
+              "d'utilite est CHOISIE. Rien hors de la cascade ne peut faire varier ce "
+              "verdict -- ni le gameconfig, ni le build.",
+}
+
 ORIGIN = (0, 0)
 MOVES = [(1, 0), (2, 0)]
 CIBLE = 201
