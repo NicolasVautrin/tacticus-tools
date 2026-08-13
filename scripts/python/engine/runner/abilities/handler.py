@@ -106,6 +106,7 @@ from .worldeaters import (BloodyFuryAbility, JakhalStimmsAbility, KillMaimBurnAb
 from .admec import (SentinelDirectivesAbility, RadBombardmentAbility,
                     DefendTheDivineWorkAbility, ArcScourgeAbility)
 from .repair import RepairAbility, Repair_GalvanicFieldAbility
+from .heal import HealAbility                                   # #931-r1 (18, trait `Healer`)
 from .astramilitarum import (SupremeCommanderAbility, SendInTheNextWaveAbility,
                              MalleusRocketLauncherAbility, ForwardSpotterAbility,
                              FragBombAbility, BasiliskBarrageAbility)
@@ -312,6 +313,13 @@ ABILITY_CLASSES: dict[int, type[ActiveAbility]] = {
     # `idun...StaticBattleRules.ActiveAbility$$IsRegularRepair`.
     RepairAbility.ABILITY_TYPE: RepairAbility,                         # 28 (ability DERIVEE du trait `Mechanic`, donc ABSENTE du gameconfig et multi-factions : admecDominus / admecManipulus / necroSpyder / orksBigMek / votanIronmaster ; `Repair(Caster, ActiveTarget, Attack x Max(WeaponHighestHits,1), ForRepair)` -> `RepairUnitOperation`)
     Repair_GalvanicFieldAbility.ABILITY_TYPE: Repair_GalvanicFieldAbility,  # 1119 (admecManipulus, passif `GalvanicField` : la reparation HERITEE de 28 & volet attaque -- AddStatOverrideEffect(1242 ATTACK = Min(maxDmg, Attack_Initial x dmgPct)) & PerformAIAttackFromCurrentPosition & RemoveEffect, patron TheQuickening)
+    # --- #931-r1 : le SOIN GENERIQUE, jumeau EXACT de 28 sur l'axe formule (`Attack x Max(hits,1)`)
+    # et sur l'axe origine (une ability DERIVEE D'UN TRAIT, ici `Healer`), et pourtant DEUX classes
+    # natives distinctes. La voie de specialisation n'est PAS un heritage (contrairement a 1119, qui
+    # fait `return RepairAbility..ctor(this)`) mais un SWAP DSL : `TwistedScience` et `HealingBalms`
+    # font `RemoveActiveAbility(Owner, 18) & AddActiveAbility(Owner, 1167 / 1212)`, et leurs deux
+    # classes derivent d'`AActiveAbility`. Porter 1167 (#931) et 1212 (#966) ne portait donc PAS 18.
+    HealAbility.ABILITY_TYPE: HealAbility,                             # 18 (ability DERIVEE du trait `Healer`, donc ABSENTE du gameconfig et multi-factions : adeptHospitaller / bloodSanguinary / deathRotbone / ultraApothecary au pool, plus genesBiophagus et spaceWolfPriest qui la PERDENT au swap ; `Heal(Caster, ActiveTarget, Attack x Max(WeaponHighestHits,1), ForHeal)` -> `HealUnitOperation` ; masque `0x8500` STATIQUE -- `TargetIsHealable | TargetIsFriendly | CasterIsPossibleTarget` -- et NON `0x8002` comme 28, qui delegue tout a sa regle dynamique)
     # --- case-317 §5 tranche 2 : face COMBAT de 1117 (la face DECISION etait deja portee, playbook
     # NonComparable). MEME porteur qu'au-dessus (`admecManipulus`), et il REUTILISE litteralement
     # `Repair_GalvanicFieldAbility$$CreateAttackBehavior` -- avec un `actingUnits` DIFFERENT.

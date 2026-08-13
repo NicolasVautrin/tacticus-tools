@@ -533,6 +533,14 @@ ABILITY_ATTACK_TYPE: dict[int, int] = {
     # `AActiveAbility..ctor(this, &opts, 2)` -> 3e argument = 2 = Others. TRANSCRIT.
     ActiveAbilityType.ExemplarOfTheMontka: AbilityAttackType.Others,  # 1210
     ActiveAbilityType.Repair: AbilityAttackType.Others,  # 28 RepairAbility (derivee du trait Mechanic)
+    # Heal (18, derivee du trait `Healer`) -- #931-r1. Litteral RELU sur son ctor, jamais deduit du
+    # voisin `28 Repair` ni du fait que le cast ne frappe personne :
+    # `IdunBattleLogic.Entities.Abilities.Active.Common.HealAbility$$.ctor` recopie les 0x40 octets
+    # du preset `<TargetingOptions statics>+0x100` (forme STATIC-COPY, masque `0x8500`) puis finit
+    # par `ADeprecatedActiveAbility..ctor(this, &opts, 2)` -> 3e argument = 2 = Others. Coherent :
+    # l'arbre de son `$$CreateBehaviour` est la feuille `Heal` NUE (aucun noeud d'attaque), et 18
+    # n'a AUCUNE entree gameconfig, donc aucun `damageProfile`.
+    ActiveAbilityType.Heal: AbilityAttackType.Others,  # 18 Common.HealAbility (derivee du trait Healer)
     ActiveAbilityType.Repair_GalvanicField: AbilityAttackType.Others,  # 1119 (passif GalvanicField)
     # `DefendTheDivineWorkAbility$$.ctor` -> `AActiveAbility..ctor(this, &opts, 2)` : le litteral EST
     # `2`, relu au decompile (et NON deduit du fait que l'ability ne fait pas de degat direct -- le

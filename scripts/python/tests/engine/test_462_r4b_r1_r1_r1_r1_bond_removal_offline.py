@@ -71,6 +71,15 @@ _MEASURED = {
     int(EffectType.MindControl_Taunter): (
         "Idun.Source.IdunBattle.Logic.Entities.Effects.Loki.MindControl_TaunterEffect",
         True, 1, False, None),
+    # #590-r3 -- l'effet 1209 pose par `AttemptedPossessionAbility$$ExecuteBehaviour` (1101,
+    # `thousSorcerer`) ET repose par son PROPRE trigger de propagation
+    # (`triggers/loki/attempted_possession.py`). `EffectType` etabli par le 2e argument LITTERAL de
+    # l'`AddBondEffect` (`0x4b9`) apparie au NOM de la classe native, seule du binaire a le porter.
+    # Les trois virtuels MESURES le 2026-08-13 par `--step declared` : `get_Range` OWN=none,
+    # `get_Adjacent` OWN=false, `get_RemoveOnBondedEntityDeath` OWN=true. Un SEUL retrait s'arme.
+    int(EffectType.AttemptedPossession_Possessed): (
+        "IdunBattle.Entities.Effects.Loki.AttemptedPossession_PossessedEffect",
+        True, None, False, None),
 }
 
 
