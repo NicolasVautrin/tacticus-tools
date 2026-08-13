@@ -729,6 +729,18 @@ def cmd_build(sid: int, a) -> int:
         except ValueError as e:
             print(f"[error] --equip-relic: {e}", file=sys.stderr)
             return 2
+    # --equip-mythic (#999) : la mythique d'une Machine of War. MEME voie tertiaire que la relique
+    # cote bataille (`UnitFactory$$AddConfiguredAbilities` n'en a qu'UNE), donc meme ordre --
+    # `catalog_inject.equip_mythic` APRES la normalisation. UNE difference de montage, et elle est
+    # structurelle : plusieurs MoW porteuses sont HORS du pool du seed BC, donc on injecte le
+    # porteur au catalogue AVANT la normalisation, sans quoi `equip_mythic` leve `KeyError`.
+    mythic_specs = []
+    for spec in (getattr(a, "equip_mythic", None) or []):
+        try:
+            mythic_specs.append(catalog_inject.parse_mythic_spec(spec))
+        except ValueError as e:
+            print(f"[error] --equip-mythic: {e}", file=sys.stderr)
+            return 2
     # --explicit-stats (#419-r1-tr12-r2) : porteurs NPC / SUMMON. La formule heros
     # `IStatsFormula.StatsUsingProgressionIndexFor` LEVE sur eux (pas de table de progression de
     # heros) -> `skipped`, jamais au pool. On injecte l'entree si elle manque, puis on calcule les
@@ -764,6 +776,20 @@ def cmd_build(sid: int, a) -> int:
                   f"fixedArmor={rep['fields'].get('FixedArmor')}"
                   + ("   [MONTAGE: le jeu ecrit 0 au catalogue pour un summon,"
                      " ces valeurs sont celles du SPAWN]" if src == "summon-spawn" else ""))
+    # --equip-mythic : injection catalogue du porteur AVANT la normalisation (cf. bloc plus haut).
+    if mythic_specs:
+        have = {x.get("Id") for x in (seed_bc.get("Units") or [])}
+        missing_m = sorted({u for u, _a, _l in mythic_specs if u not in have})
+        if missing_m:
+            try:
+                seed_bc, added, added_ab, unresolved = catalog_inject.augment(
+                    seed_bc, missing_m, rank=a.rank)
+            except KeyError as e:
+                print(f"[error] --equip-mythic: {e}", file=sys.stderr)
+                return 2
+            print(f"[mythic] catalogue: +{len(added)} unites {added} "
+                  f"+{len(added_ab)} configs d'ability"
+                  + (f" | sans config (marqueurs): {unresolved}" if unresolved else ""))
     # --board fixe : swap au moment de la normalisation (buildNormalizedBC boardJson+spawnPointSetIndex).
     template_bc, pool, pool_mow = _normalize_and_extract_pool(
         sid, seed_bc, a.rank, board_dump=fixed_board_dump,
@@ -780,6 +806,19 @@ def cmd_build(sid: int, a) -> int:
         clamp = (f"  [clamp] {lvl} > {rep['levelsAvailable']} paliers -> dernier"
                  if rep["clamped"] else "")
         print(f"[relic] {uid} <- {ability} (TriggeredAbilityType={rep['abilityId']}) "
+              f"TertiaryAbilityLevel={lvl} "
+              f"config{'+' if rep['configAdded'] else '='}BC{clamp}")
+    for uid, ability, lvl in mythic_specs:
+        try:
+            rep = catalog_inject.equip_mythic(
+                template_bc, uid, ability, lvl,
+                allow_unlisted=bool(getattr(a, "allow_unlisted_mythic", False)))
+        except (ValueError, KeyError) as e:
+            print(f"[error] --equip-mythic {uid}:{ability}:{lvl} -> {e}", file=sys.stderr)
+            return 2
+        clamp = (f"  [clamp] {lvl} > {rep['levelsAvailable']} paliers -> dernier"
+                 if rep["clamped"] else "")
+        print(f"[mythic] {uid} <- {ability} (TriggeredAbilityType={rep['abilityId']}) "
               f"TertiaryAbilityLevel={lvl} "
               f"config{'+' if rep['configAdded'] else '='}BC{clamp}")
     bad_u, bad_mow = _load_unspawnable(a.rank)
@@ -2886,6 +2925,20 @@ def main(argv: list[str]) -> int:
                          "`python catalog_inject.py --list-relics`.")
     ap.add_argument("--allow-unlisted-relic", action="store_true",
                     help="build: --equip-relic sur un porteur hors allowedUnits (greffe assumee)")
+    ap.add_argument("--equip-mythic", action="append", default=None,
+                    help="build: DEBLOQUE la mythique d'une Machine of War (#999) — "
+                         "'unitId[:AbilityName[:level]]', repetable ; l'ability est DERIVEE du "
+                         "porteur si elle est omise (chaque MoW n'en porte qu'une). MEME voie "
+                         "tertiaire que --equip-relic cote bataille (UnitFactory$$"
+                         "AddConfiguredAbilities n'a qu'UNE tertiaire) : pose TertiaryAbility + "
+                         "TertiaryAbilityLevel (>=1 OBLIGATOIRE) et injecte la config dans "
+                         "BC.Abilities.PassiveAbilities — les 11 mythiques sont TOUTES absentes du "
+                         "seed capture. Le porteur est injecte au catalogue s'il manque (plusieurs "
+                         "MoW mythiques sont hors pool). Porteurs : "
+                         "`python catalog_inject.py --list-mythics`.")
+    ap.add_argument("--allow-unlisted-mythic", action="store_true",
+                    help="build: --equip-mythic sur une unite dont mythicAbilities ne porte pas "
+                         "cette ability (greffe assumee)")
     ap.add_argument("--armor-target", type=int, default=None,
                     help="build: force Armor+FixedArmor des a-units a la valeur donnee (pendant "
                          "de --hp-target, qui les met a 0). HAUTE = la branche PERCAGE du plancher "

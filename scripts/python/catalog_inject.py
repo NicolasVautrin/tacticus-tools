@@ -1157,6 +1157,193 @@ def write_relic_seed_bc(out_path, specs, *, seed_bc: dict | None = None,
     return p, reports
 
 
+# ------------------------------------------------- 4e catalogue : la MYTHIQUE de MoW (#999)
+#
+# CE QUI A ETE ETABLI, ET QUI N'ETAIT ECRIT NULLE PART. Le depot documentait le montage d'une
+# RELIQUE (bloc #237 ci-dessus) et recensait 11 `mythicAbilities` comme une voie d'ATTRIBUTION
+# (`unit_map.py`, case-323 §2), mais AUCUNE recette ne disait comment en amener une en bataille.
+# La reponse tient en une phrase : **il n'y a PAS de voie mythique cote BATAILLE**. La mythique
+# emprunte la voie TERTIAIRE, celle de la relique, au meme champ et avec les memes trois verrous.
+#
+# LA LECTURE QUI LE PROUVE -- `IdunMetaLogic.UserProgress.TertiaryAbilities$$GetTertiaryAbility`.
+# Ce foyer (cote META, celui qui REMPLIT `BC.Units[].TertiaryAbility`) branche sur un unique test
+# « ce porteur est-il une Machine of War ? » :
+#
+#     if (<test MoW>)  ->  GetMythicAbilityForMachineOfWar(progression, unitId, progressionData)
+#     else             ->  <chemin RELIQUE : lit l'item equipe, progressionData+0x18>
+#
+# et **les DEUX branches ecrivent le MEME `Nullable` de retour**, celui qui devient
+# `TertiaryAbility`. Le pendant du niveau, `TertiaryAbilities$$GetTertiaryAbilityLevelFromProgression
+# Data`, a EXACTEMENT la meme forme : meme test, `Idun.Shared.Level$$.ctor(1)` du cote mythique,
+# `GetAbilityLevel(<item>)` du cote relique. Cote BATAILLE, enfin,
+# `IdunBattle.Entities.Factories.UnitFactory$$AddConfiguredAbilities` ne connait que TROIS voies --
+# actives (liste), passives (dictionnaire), et **une seule tertiaire** (`Nullable`, `TryAdd(id,
+# tertiaryAbilityState, 3)`). Aucune quatrieme. Le natif de combat ne sait donc PAS, et n'a aucun
+# moyen de savoir, si la tertiaire qu'il monte vient d'une relique ou d'une mythique.
+#
+# CE QUI CHANGE MALGRE TOUT, ET POURQUOI CETTE FONCTION EXISTE AU LIEU D'UN `allow_unlisted=True` :
+# la GARDE. `relic_carriers` derive de `items[*].allowedUnits` et rend **[] pour les 11 mythiques**
+# (mesure : `probe_M_mythic_config.py` etage 2) -- donc `equip_relic` accepterait n'importe quel
+# couple sans rien verifier, la garde etant desarmee par son propre `if carriers and ...`. La
+# mythique a sa PROPRE source d'attribution, `units.<kind>.<id>.mythicAbilities`, et c'est elle qui
+# doit refuser un montage incoherent. Une garde qui ne garde rien est pire que pas de garde.
+#
+# LES TROIS ECRITURES SONT LES MEMES, ET LES MEMES DEUX ECHOUENT EN SILENCE :
+#   1. `BC.Units[].TertiaryAbility` = id `TriggeredAbilityType` (les 11 mythiques en sont, 11/11) ;
+#   2. `BC.Abilities.PassiveAbilities[<nom>]` = la config -- **les 11 sont absentes du seed BC**
+#      (mesure : `probe_M_mythic_seed.py` etage 3, `PassiveAbilities` = 194 entrees, 0 mythique),
+#      donc cette ecriture-la n'est JAMAIS optionnelle pour une mythique, contrairement aux 3
+#      reliques deja equipees au seed ;
+#   3. `TertiaryAbilityLevel >= 1` (`Idun.Shared.Level$$ToZeroBasedIndex` leve sur <= 0).
+#      Les 11 mythiques ont **4 paliers** chacune (et non 10 comme les reliques) : un niveau 50,
+#      ce qu'ecrit `buildNormalizedBC`, est donc clampe au palier 4 par
+#      `IdunBattle.Configuration.AbilityConfiguration$$TryGetVariableArrayForLevel`.
+#
+# LE PORTEUR. Les 11 sont portees par un couple (MoW `lineup`, MoW `npc`) -- 22 unites, 11
+# abilities. Le `lineup` est le porteur legitime ; plusieurs sont HORS du pool du seed BC et
+# exigent donc l'injection catalogue (`augment`) AVANT le montage, comme un heros hors pool.
+
+def mythic_carriers(ability_name: str) -> list:
+    """unitIds dont le gameconfig accorde `ability_name` par `mythicAbilities`.
+
+    Pendant EXACT de `relic_carriers`, sur l'autre source d'attribution. Rend les DEUX membres du
+    couple (MoW `lineup` et MoW `npc`) : c'est `buildNormalizedBC` qui refuse les npc, pas nous --
+    les lister ici permet de dire au montage POURQUOI il refuse, au lieu de rendre une liste vide
+    qui se lirait « cette ability n'a pas de porteur ».
+    """
+    out: set = set()
+    for entries in (G._cfg().get("units") or {}).values():
+        if not isinstance(entries, dict):
+            continue
+        for uid, u in entries.items():
+            if isinstance(u, dict) and ability_name in (u.get("mythicAbilities") or []):
+                out.add(uid)
+    return sorted(out)
+
+
+def mythic_abilities() -> dict:
+    """`{abilityName: [unitIds]}` des mythiques du gameconfig (11 au build `rnca9r7q6c`).
+
+    DERIVE, jamais code en dur : la liste bouge au changement de build, et une liste figee
+    ecrirait un « 0 porteur » faux (exactement le vice de #323).
+    """
+    out: dict = {}
+    for entries in (G._cfg().get("units") or {}).values():
+        if not isinstance(entries, dict):
+            continue
+        for uid, u in entries.items():
+            if not isinstance(u, dict):
+                continue
+            for name in (u.get("mythicAbilities") or []):
+                out.setdefault(name, []).append(uid)
+    return {k: sorted(v) for k, v in sorted(out.items())}
+
+
+def equip_mythic(bc: dict, unit_id: str, ability_name: str, level: int = 1,
+                 *, allow_unlisted: bool = False) -> dict:
+    """DEBLOQUE la mythique d'une Machine of War DANS `bc` (mute en place). Rend un rapport.
+
+    Les trois ecritures du bloc ci-dessus, faites ensemble. Cote BATAILLE c'est le montage de la
+    relique -- meme champ `TertiaryAbility`, meme `TryAdd(..., 3)` -- parce que le natif n'a
+    qu'UNE voie tertiaire (`UnitFactory$$AddConfiguredAbilities`). Ce qui differe est la GARDE :
+    l'attribution vient de `units.<kind>.<id>.mythicAbilities`, pas d'`items[*].allowedUnits`.
+
+    `level` DOIT etre >= 1 (`Idun.Shared.Level$$ToZeroBasedIndex` leve sinon). Un niveau au-dela
+    des paliers (4 pour les 11 mythiques) est ACCEPTE et signale : le natif le clampe.
+    """
+    if level < 1:
+        raise ValueError(
+            f"TertiaryAbilityLevel={level} : le natif exige >= 1 "
+            f"(Idun.Shared.Level$$ToZeroBasedIndex leve InvalidOperationException sur <= 0)")
+    carriers = mythic_carriers(ability_name)
+    if not carriers:
+        raise ValueError(
+            f"{ability_name!r} n'est accordee par AUCUNE unite via mythicAbilities. "
+            f"Verifier le nom contre catalog_inject.mythic_abilities().")
+    if unit_id.split(":")[0] not in carriers and not allow_unlisted:
+        raise ValueError(
+            f"{unit_id!r} ne porte pas la mythique {ability_name!r} "
+            f"(porteurs : {carriers}). Passer allow_unlisted=True pour GREFFER quand meme.")
+    aid = triggered_ability_id(ability_name)
+    hits = [u for u in (bc.get("Units") or []) if u.get("Id") == unit_id]
+    if not hits:
+        raise KeyError(f"{unit_id!r} absent de BC.Units -- injecter d'abord le porteur "
+                       f"(write_augmented_seed_bc) ; plusieurs MoW mythiques sont hors du pool")
+    node = bc.setdefault("Abilities", {}).setdefault("PassiveAbilities", {})
+    config_added = False
+    if ability_name not in node:
+        node[ability_name] = synthesize_ability(ability_name)
+        config_added = True
+    for u in hits:
+        u["TertiaryAbility"] = aid
+        u["TertiaryAbilityLevel"] = level
+    declare_graft("mythic", unit_id, ability_name)          # meme raison qu'`equip_relic`
+    n_lvl = ability_level_count(ability_name)
+    return {
+        "unitId": unit_id, "ability": ability_name, "abilityId": aid,
+        "level": level, "levelsAvailable": n_lvl,
+        "clamped": bool(n_lvl and level > n_lvl),
+        "configAdded": config_added, "unitsPatched": len(hits),
+        "carriers": carriers,
+    }
+
+
+def parse_mythic_spec(spec: str) -> tuple[str, str, int]:
+    """`'unitId:AbilityName[:level]'` -> `(unitId, ability, level)`. Niveau par defaut 1.
+
+    Accepte aussi `'unitId'` SEUL : la mythique du porteur est alors DERIVEE de son
+    `mythicAbilities` -- il n'y en a jamais qu'une (mesure : 22 unites, 1 chacune), donc la
+    nommer est une redondance qu'on n'impose pas a l'appelant.
+    """
+    parts = [p.strip() for p in spec.split(":")]
+    if len(parts) == 1 and parts[0]:
+        uid = parts[0]
+        names = (G.unit(uid) or {}).get("mythicAbilities") or []
+        if len(names) != 1:
+            raise ValueError(
+                f"spec mythique {spec!r} : {uid!r} porte {len(names)} mythique(s) {names} -- "
+                f"nommer laquelle ('unitId:Ability[:level]')")
+        return uid, names[0], 1
+    if len(parts) == 2:
+        uid, ability = parts
+        level = 1
+    elif len(parts) == 3:
+        uid, ability, lvl = parts
+        level = int(lvl)
+    else:
+        raise ValueError(f"spec mythique invalide {spec!r} -- attendu 'unitId[:Ability[:level]]'")
+    if not uid or not ability:
+        raise ValueError(f"spec mythique invalide {spec!r} -- attendu 'unitId[:Ability[:level]]'")
+    return uid, ability, level
+
+
+def write_mythic_seed_bc(out_path, specs, *, seed_bc: dict | None = None,
+                         rank: int = 17, ability_level: int = 50,
+                         allow_unlisted: bool = False):
+    """FIXTURE : ecrit un seed BC ou chaque `spec` debloque sa mythique. Rend `(Path, rapports)`.
+
+    `specs` = iterable de `'unitId[:AbilityName[:level]]'` (ou de tuples deja parses). Le porteur
+    est injecte au catalogue s'il en manque (`augment`) -- ce qui est le cas COURANT ici, plusieurs
+    MoW mythiques etant hors du pool du seed -- puis equipe (`equip_mythic`).
+
+    ORDRE ET NIVEAU : identiques a `write_relic_seed_bc`. Ce fichier repasse par
+    `buildNormalizedBC`, qui REECRIT `TertiaryAbilityLevel = targetAbilityLevel` (50) des que
+    `TertiaryAbility` est non nul. Les mythiques n'ayant que 4 paliers, ce 50 est clampe au
+    palier 4 -- le MAXIMUM, donc le regime le plus lisible. Pour un niveau EXACT, patcher le BC
+    NORMALISE (`rl_duel build --equip-mythic`, qui re-pose le couple APRES la normalisation).
+    """
+    parsed = [parse_mythic_spec(s) if isinstance(s, str) else tuple(s) for s in specs]
+    seed = seed_bc if seed_bc is not None else _load_seed(None)
+    bc, _added, _added_ab, _unres = augment(seed, [u for u, _a, _l in parsed], rank,
+                                            ability_level)
+    reports = [equip_mythic(bc, uid, ability, lvl, allow_unlisted=allow_unlisted)
+               for uid, ability, lvl in parsed]
+    p = host_inputs.reject_data_output(out_path, "write_mythic_seed_bc(out_path=...)")
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(json.dumps(bc), encoding="utf-8")
+    return p, reports
+
+
 # --------------------------------------------- #366-r1 : GREFFER un PASSIF sur une unite du pool
 #
 # POURQUOI. `case-92` §5bis donne la recette de greffe pour une ability ACTIVE (remplacer
@@ -1911,6 +2098,8 @@ def main(argv: list[str]) -> int:
                     help="ventile les TROIS etats de la gate relique sur le seed BC")
     ap.add_argument("--list-relics", action="store_true",
                     help="liste les reliques du gameconfig (ability, paliers, porteurs)")
+    ap.add_argument("--list-mythics", action="store_true",
+                    help="liste les mythiques de MoW (ability, paliers, porteurs, presence au BC)")
     ap.add_argument("--explicit-stats", default=None, metavar="UNITID",
                     help="chemin de stats EXPLICITE d'un porteur npc/summon (#419-r1-tr12-r2) : "
                          "mirror de UnitProgression$$GetNpcStats / $$GetSummonStats")
@@ -1954,6 +2143,23 @@ def main(argv: list[str]) -> int:
             in_bc = "config-in-BC" if ability in seed_pa else "CONFIG ABSENTE du BC"
             print(f"  {ability:26s} id={aid} paliers={ability_level_count(ability):2d} "
                   f"{in_bc:22s} porteurs={carriers}")
+        return 0
+
+    if a.list_mythics:
+        myth = mythic_abilities()
+        seed_pa = (seed.get("Abilities") or {}).get("PassiveAbilities") or {}
+        have = {u.get("Id") for u in (seed.get("Units") or [])}
+        print(f"[mythics] {len(myth)} abilities mythiques (voie units.<kind>.<id>.mythicAbilities)")
+        for ability in sorted(myth):
+            carriers = myth[ability]
+            try:
+                aid = triggered_ability_id(ability)
+            except Exception:                              # pragma: no cover - diagnostic
+                aid = None
+            in_bc = "config-in-BC" if ability in seed_pa else "CONFIG ABSENTE du BC"
+            au_seed = sorted(u for u in carriers if u in have)
+            print(f"  {ability:24s} id={aid} paliers={ability_level_count(ability):2d} "
+                  f"{in_bc:22s} porteurs={carriers} au-seed={au_seed or 'AUCUN (augment requis)'}")
         return 0
 
     if a.relic_state:
