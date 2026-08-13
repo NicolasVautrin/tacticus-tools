@@ -149,6 +149,18 @@ DETTE: dict[int, tuple[str, str]] = {
     1091: ("SANS_VERDICT",
            "SlashingDivePlaybook -- EvaluateNonComparable. COMBAT : SlashingDiveAbility "
            "(thousandsons). 3 porteurs (npc, summons)."),
+    1107: ("SANS_VERDICT",
+           "RevealPlaybook -- EvaluateNonComparable (+ .ctor, .cctor). COMBAT : RevealAbility "
+           "(loki/reveal.py), entree au registre par #1033. 1 porteur (npc `eldarNpc2Warlock`). "
+           "RE DEJA FAITE, residu `#1033-r2` : le corps est COURT et son utilite est CONSTANTE -- "
+           "`bucket = Bucket(0, <statics[0]>)` ; `foreach t in BasePlaybook$$"
+           "GetEligibleTargetsSelectable(caster, casterPosition.MainTile)` ; "
+           "`if (BasePlaybook$$WillNormalAttackKill(caster, t, casterPosition.MainTile)) continue;` "
+           "-- on ECARTE les cibles qu'une attaque normale tuerait -- ; "
+           "`bucket.AddAction(BasePlaybook$$GenerateAction(casterPosition, t, Fix64(1)))`. "
+           "Le `.ctor` passe `0x453` (= 1107) a `ComparablePlaybook<T>..ctor`, mais la methode "
+           "propre est `EvaluateNonComparable` -> registre vise "
+           "`playbook.noncomparable.PLAYBOOKS` (derivation de `probe_909` etape 4)."),
     1108: ("SANS_VERDICT",
            "KissOfDeathPlaybook -- EvaluateNonComparable. COMBAT : KissOfDeathAbility (aeldari). "
            "2 porteurs (npc, summons)."),
