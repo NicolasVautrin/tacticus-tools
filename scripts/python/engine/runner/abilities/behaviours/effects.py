@@ -647,7 +647,30 @@ class AddStaticStatModifierEffect(AbilityBehaviour):
     de classe seulement si l'appelant lit la LISTE -- ici `RemoveEffect` appelle `eff.reverted_stats()`, donc
     on installe un callable). L'EXPIRATION du timer passe, elle, par
     `revert_stat_mods_of_removed_effects` (mirror `AStatModifierEffect$$RevertModification`, cf.
-    `runner/operations/effects.py`). Emet 'AddStaticStatModifierEffect'. PUR."""
+    `runner/operations/effects.py`). Emet 'AddStaticStatModifierEffect'. PUR.
+
+    SOURCE DE L'ENTITE-EFFET = **LA CIBLE**, pas le caster (#890-r2). Lu au decompile, en deux
+    temps -- c'est le meme couple `+0x58 SOURCE` / `+0x60 TARGETS` que documente deja
+    `AddDynamicStatModifierEffect` ci-dessous, sauf que la voie STATIQUE ne le remplit pas :
+
+      * `IdunBattle.Entities.Behaviours.AddStatModifierEffectBehaviour$$Execute` fait
+        `src = <sel@+0x58>.SelectSingle(entities)` puis, PAR CIBLE,
+        `source = (src != null) ? src : <la cible courante>` avant l'appel a l'Operation ;
+      * `IdunBattleLogic.Entities.DSLBehaviors$$AddStaticStatModifierEffect(targets, effectType,
+        statType, amount, turns, isHidden)` construit le behaviour avec
+        `.ctor(logger, isDynamic = 0, source = NULL, targets, ...)` -- le 3e argument du ctor est un
+        **litteral nul**. Donc `+0x58 == null` pour TOUT call-site de cette factory, et la source
+        retenue est LA CIBLE.
+      * `...$$AddStaticStatModifierEffectToOwner` passe, lui, `source = targets = DSLSelectors+0x30`
+        (Owner) -- meme entite des deux cotes, donc meme resultat.
+
+    Le port passait `entities.caster`. INOBSERVABLE sur les call-sites dont la magnitude est figee
+    par un noeud `DSLFormulas$$Direct` (aucun `scale_from_source`), mais le champ est LU par
+    `IdunBattle.Entities.Effects.BaseEffect$$GetAbilityState` : un effet a magnitude `ConfigVar`
+    resolue contre la SOURCE lirait le mauvais `AbilityState`.
+
+    ⚠ `abilityState` (`+0x88`) est lui aussi un **litteral nul** sur cette voie -- le port ne le
+    modelise pas, et il n'y a donc rien a y propager."""
     __slots__ = ("unit_sel", "effect_type", "stat_type", "amount", "name",
                  "duration_rounds", "duration_turns")
 
@@ -659,7 +682,6 @@ class AddStaticStatModifierEffect(AbilityBehaviour):
 
     def execute(self, entities, ectx):
         state = ectx.state
-        src = (entities.caster or {}).get("id")
         if state is None or state.effects is None:
             return OperationResult.ok()
         amt = int(self.amount.evaluate(entities) if hasattr(self.amount, "evaluate") else self.amount)
@@ -670,7 +692,10 @@ class AddStaticStatModifierEffect(AbilityBehaviour):
             uid = u.get("id") if isinstance(u, dict) else None
             if uid is None:
                 continue
-            eff = AddEffectOperation.execute(state, source=src, target=uid,
+            # `source = (<sel@+0x58>.SelectSingle(...) != null) ? ... : LA CIBLE` -- et le selecteur
+            # `+0x58` est un litteral NUL sur cette voie (#890-r2). Ce n'est donc pas << faute de
+            # mieux >> : c'est la branche que le natif prend, toujours.
+            eff = AddEffectOperation.execute(state, source=uid, target=uid,
                                              effect_type=self.effect_type, name=self.name,
                                              duration_override=dur, value=amt)
             if eff is None:                          # deja present (gate `deja-present` de l'operation)

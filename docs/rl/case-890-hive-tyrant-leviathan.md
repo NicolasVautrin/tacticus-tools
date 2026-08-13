@@ -235,6 +235,50 @@ python scripts/python/rl_duel.py build --board CE2_boss --seed 777 \
 
 ---
 
+## 6bis. `#890-r2` — FERMÉ : la source de l'entité-effet est **la CIBLE**, et le décompilé le dit deux fois
+
+Le résidu tenait sur **une** mesure live (`ReceiveEffect e=92 Effect_SourceId=92`). Le décompilé la
+confirme, et il la rend structurelle plutôt qu'observationnelle :
+
+```
+IdunBattle.Entities.Behaviours.AddStatModifierEffectBehaviour$$Execute
+    src = <sel@+0x58>.SelectSingle(entities)
+    foreach (cible in <sel@+0x60>.Select(entities))
+        source = (src != null) ? src : cible            <-- LE DÉFAUT EST LA CIBLE
+
+IdunBattle.Entities.Behaviours.AddStatModifierEffectBehaviour$$.ctor
+    (this, logger, isDynamic, source, targets, effectType, statType, amount, turns, isHidden,
+     abilityState)  ->  +0x50 / +0x58 / +0x60 / +0x68 / +0x6c / +0x70 / +0x78 / +0x80 / +0x88 / +0x90
+
+IdunBattleLogic.Entities.DSLBehaviors$$AddStaticStatModifierEffect(targets, effectType, statType,
+                                                                   amount, turns, isHidden)
+    -> .ctor(logger, isDynamic = 0, source = NULL, targets, ...)    <-- LITTÉRAL NUL
+```
+
+⇒ `+0x58 == null` pour **tout** call-site de la factory statique : la branche prise est **toujours**
+« la cible ». Le variant `…$$AddStaticStatModifierEffectToOwner` passe
+`source = targets = DSLSelectors+0x30` — même entité des deux côtés, même résultat.
+
+⚠ **Le jumeau DYNAMIQUE n'a PAS ce vice et ne doit PAS être aligné** :
+`…$$AddDynamicStatModifierEffect(targets, source, …)` porte un vrai sélecteur `+0x58`, que le port
+lit déjà (`AddDynamicStatModifierEffect.source_sel`). Uniformiser les deux feuilles « pour la
+cohérence » casserait la voie dynamique — le test l'interdit explicitement.
+
+⚠ `abilityState` (`+0x88`) est lui aussi un **littéral nul** sur la voie statique : il n'y a rien à
+y propager, et le port n'a donc pas à le modéliser ici.
+
+**Rayon de souffle mesuré** : la feuille est partagée par `BloodChalice`, `CrusadeOfWrath`,
+`UnbreakableDuty`, `MassDriver`, `Catalyst`, `NovaShield`, `Waaagh`, `RedRampage` et le lot
+crit-chance de `blacklegion`. Rejoués — 11 fichiers offline (153 tests) et 11 fichiers live.
+Deux ROUGES trouvés, **tous deux PRÉ-EXISTANTS sur `master` `28429702`** (vérifié en restaurant le
+foyer à `HEAD` et en rejouant) : `test_statmod_captured_channel_offline.py::test_no_unclassified_
+ability_state_rederivation_in_the_registry` (`HealingBalms_ExtraCritChance` /
+`HealingBalms_ExtraCritDamage` non classées) et `test_893_crusade_of_wrath_live.py::
+test_arbre_offline` (`UseActiveAbility` n'a plus d'attribut `subject_sel`).
+
+Garde : `scripts/python/tests/engine/runner/test_890r2_statmod_source_offline.py`. **Vue ROUGE** en
+remettant `source = caster` : `assert 11 == 22`, `AVANT #890-r2 le port inscrivait le CASTER (11)`.
+
 ## 7. Fichiers
 
 * Port : `scripts/python/engine/runner/abilities/tyranids.py` (`CatalystAbility`,
