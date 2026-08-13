@@ -235,6 +235,38 @@ python scripts/python/rl_duel.py build --board CE2_boss --seed 777 \
 
 ---
 
+## 6ante. `#890-r1` — FERMÉ : la feuille EXISTAIT, et le `Nullable` n'était PAS vide
+
+Deux prémisses tombent d'un coup.
+
+**(a) « le nœud n'est pas matérialisé en feuille » est PÉRIMÉ.** La feuille
+`runner/abilities/behaviours/combat.py::InformWeapon` existe et deux autres arbres l'utilisent
+(`admec`, `blacktemplars`). Ce qui manquait, c'est le **câblage** dans l'arbre `1056`.
+
+**(b) La note du port lisait le call-site à l'envers.** Elle écrivait
+`InformWeapon(Nullable<DamageProfileType>(), null, null)` — un `Nullable` **VIDE**. Relu,
+`StranglethornCannonAbility$$ExecuteBehaviour` fait `Nullable__ctor(&local_210, local_res8)` sur le
+**MÊME** `local_res8` que les deux `AttackWithAttackDamage` — c'est-à-dire la **valeur** de
+`GetDamageProfile(config@0x60)`. Et l'écart comptait, parce que `DSLBehaviors$$InformWeapon` écrit
+
+```
+tags[0x93 Attack_Weapon_DamageProfile] = damageProfileType.HasValue ? (int)value : -1
+tags[0x92 Attack_Weapon_IsMelee]       = isMelee                       // INCONDITIONNEL
+if (useSpecial != 0) tags[0x94 Attack_Weapon_Use_Special] = useSpecial // CONDITIONNEL
+```
+
+⇒ un `Nullable` vide aurait fait écrire `-1` (`DamageProfileType.None_`) là où le natif écrit
+`Blast` — et la mesure live du même case (`= 18`) l'aurait contredit. Porter la note telle quelle
+aurait donc introduit un **faux** que rien n'aurait rattrapé côté état (le nœud est combat-inerte).
+
+Câblage livré : `op_and(op_and(inform, main), splash)` — l'association du natif. Le nœud ne consomme
+aucun tirage, donc l'attaque reste **bit-exacte** ; `test_890_hive_tyrant_live.py` (10 tests) rejoué
+vert. `is_melee=False` ici ne contredit pas `STRANGLETHORN_IS_MELEE = None` : le **tag d'arme** du
+flux et la **nature du coup** (`attackRangeType`, absent pour `1056`) sont deux questions distinctes.
+
+Garde : `tests/engine/test_890r1_inform_weapon_offline.py` (4 tests). **Vue ROUGE** en dé-câblant :
+`l'arbre doit porter TROIS feuilles (inform, main, splash) : ['AttackWithAttackDamage', 'AttackWithAttackDamage']`.
+
 ## 6bis. `#890-r2` — FERMÉ : la source de l'entité-effet est **la CIBLE**, et le décompilé le dit deux fois
 
 Le résidu tenait sur **une** mesure live (`ReceiveEffect e=92 Effect_SourceId=92`). Le décompilé la
