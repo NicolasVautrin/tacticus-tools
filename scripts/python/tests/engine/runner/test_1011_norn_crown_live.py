@@ -303,4 +303,6 @@ def test_effet_1492_hors_registre_retomberait_sur_BaseEffect(env):
     """Garde de NON-REGRESSION du registre : `BaseEffect` n'a AUCUNE des deux pattes -- si l'entree
     disparait, l'aura s'eteint sans une erreur."""
     assert not hasattr(BaseEffect, "_amount")
-    assert BaseEffect().create_aura_attack_damage_bonus_for_ally({}) is None
+    nu = BaseEffect(EffectType.NornCrown.name)
+    assert nu.create_aura_attack_damage_bonus_for_ally({}) is None
+    assert nu.create_effect_damage_bonus_for_attack() is None
