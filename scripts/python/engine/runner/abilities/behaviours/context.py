@@ -524,6 +524,17 @@ def entities_from_state(state, caster_id: int, target_id: int | None = None,
         us = getattr(sc.ctx, "stats", None) if sc is not None else None
         return bool(us.has_negative_modifier(stat_types)) if us is not None else False
 
+    # `ctx.negative_stat_modification` (`IdunBattle.Entities.Formulas.
+    # NegativeStatModificationFormula$$Calculate`) : le PENDANT QUANTITATIF du precedent -- somme des
+    # valeurs ABSOLUES des modifications per-source < 0 de CETTE stat. Meme substrat
+    # (`UnitStats`, dictionnaire per-source), donc meme resolution d'unite ; stats absentes -> 0.
+    def _negative_stat_modification(unit, stat_type):
+        uid = (unit or {}).get("id")
+        e = state.get_entity(uid) if uid is not None else None
+        sc = e.get_component(StatsComponent) if e is not None else None
+        us = getattr(sc.ctx, "stats", None) if sc is not None else None
+        return int(us.negative_stat_modification(stat_type)) if us is not None else 0
+
     # `ctx.is_in_team_aura` (`IdunBattle.Entities.Triggers.IsInAuraRangeTrigger$$ShouldTrigger` ->
     # slot `IdunBattle.Core.Services.BattleQuery$$IsInTeamAuraRange`) : `unit` est-elle dans la portee
     # d'une aura `effect_type` portee par une unite de l'EQUIPE de `team_reference` ?
@@ -851,6 +862,7 @@ def entities_from_state(state, caster_id: int, target_id: int | None = None,
                       get_ability_level=_get_ability_level, tile_has_effect=_tile_has_effect,
                       has_effect=_has_effect, effects_from_source=_effects_from_source, children=[],
                       has_negative_modifier=_has_negative_modifier,
+                      negative_stat_modification=_negative_stat_modification,
                       is_in_team_aura=_is_in_team_aura,
                       has_triggered_ability=_has_triggered_ability,
                       can_have_active_ability_reset=_can_have_active_ability_reset,

@@ -434,6 +434,36 @@ class UnitStats:
                 return True
         return False
 
+    def negative_stat_modification(self, stat_type: int) -> int:
+        """`IdunBattle.Entities.Formulas.NegativeStatModificationFormula$$Calculate` -- la SOMME des
+        VALEURS ABSOLUES des modifications per-source strictement NEGATIVES d'UNE stat (donc un
+        nombre >= 0). Corps natif, transcrit :
+
+            total = 0
+            for (source, modifier) in GetStatComponent(unit, statType).Modifications:
+                if modifier.<amount> < 0:  total -= modifier.<amount>
+            return total
+
+        C'est le PENDANT QUANTITATIF d'`has_negative_modifier` ci-dessus (qui est le predicat
+        `IdunBattle.Entities.Triggers.HasNegativeModifier$$ShouldTrigger`) : MEME dictionnaire
+        per-source, MEME signe teste, mais on ACCUMULE au lieu de rendre `true` au premier. Les deux
+        lisent `ValueModification.per_source`, jamais `total` -- une stat dont les mods se compensent
+        (`-40` + `+40`, total 0) rend bien `40` ici, comme le natif.
+
+        ⚠ Le natif LEVE quand `GetStatComponent` rend null (`FUN_1801f51f0` = le throw IL2CPP) ; le
+        port rend 0, comme partout ailleurs dans ce module (`get_stat` mirrore le `default -> 0` du
+        switch natif). Un arbre valide n'interroge cette formule que sur une stat qui existe.
+
+        Consommateur porte : `IdunBattleLogic.Entities.Abilities.Triggered.Loki.OrbsOfDecayAbility$$
+        GetTriggerForAttack` (#1003), qui en fait un RATIO contre `StatAmount(part Initial)`."""
+        comp = self.components.get(int(stat_type))
+        if comp is None:
+            return 0
+        mod = getattr(comp, "modification", None)
+        if mod is None:
+            return 0
+        return sum(-int(v) for v in mod.per_source.values() if int(v) < 0)
+
     def increment_base(self, stat_type: int, by: int = 1, base_if_absent: int = 0) -> None:
         """Incrémente la valeur de BASE (Initial) d'un stat-compteur BRUT. Mirror du bump inline de
         `IdunBattle.Operations.StartTurnOperation$$Execute` : `*(int*)(unitComp+0x58) += 1` par unité du joueur

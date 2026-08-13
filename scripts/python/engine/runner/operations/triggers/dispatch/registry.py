@@ -261,6 +261,8 @@ from ..loki.geminae_superia import GeminaeSuperiaAbility              # #963 (pa
 from ..loki.dawn_blade import DawnBladeHealAbility                     # #317 (relique tauFarsight)
 from ..loki.daemonflesh_plate import (DaemonfleshPlateAbility,        # #916 (relique 1493)
                                       DaemonfleshPlateResetActiveAbility)
+from ..loki.orbs_of_decay import OrbsOfDecayAbility                    # #1003 (relique 1465, DG)
+from ..loki.lakrimae import LakrimaeAddContaminationAbility            # #1003 (relique 1541, DG)
 from ..loki.relentless_march import RelentlessMarchAbility             # #328 (passif necroWarden)
 from ..loki.my_will_be_done_overlord import (MyWillBeDoneOverlordAttackAbility,   # #354 (necroOverlord)
                                              MyWillBeDoneOverlordClearAbility)
@@ -1277,6 +1279,28 @@ RELIC_ABILITY_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
     #     -> `ResetActiveAbility(Owner, true) + RemoveEffect(1491)`.
     # Cf. loki/daemonflesh_plate.py.
     "DaemonfleshPlate": [DaemonfleshPlateAbility, DaemonfleshPlateResetActiveAbility],
+    # OrbsOfDecay (relique Death Guard, `TriggeredAbilityType` 0x5b9 = 1465 ; 3 porteurs `lineup`
+    # TOUS dans le pool : deathBlightbringer / deathPutrifier / deathRotbone). #1003.
+    # `On(0x4a = AttackInAtomicGroup) & get_OwnerIsCaster & IsMeleeAttack` -- SANS `IsNormalAttack`,
+    # contrairement a 1316 sur le meme evenement -> `AttackWithAttackDamage(Toxic, nrOfHits)` contre
+    # les ennemis ADJACENTS a la tuile de la cible dont l'armure est reduite de PLUS de
+    # `armorReductionPct` % de sa BASE, plus `AddEffect(1244 Contaminated)` sur la tuile de la cible.
+    # La CIBLE elle-meme n'est PAS dans ce selecteur (`AdjacentTiles` exclut ses origines) : le
+    # « on the target's hex » de l'i2 vit dans la 2e classe native du meme id
+    # (`OrbsOfDecay_AdditionalHitsAbility` -> effet 1463, canal `additional_hit_groups`), NON portee
+    # -- residu `#1003-r1`, qui rejoint `#884-r2`. Cf. loki/orbs_of_decay.py.
+    "OrbsOfDecay": [OrbsOfDecayAbility],
+    # Lakrimae (relique Death Guard, `TriggeredAbilityType` 0x605 = 1541 ; porteur `deathTyphus`,
+    # dans le pool). #1003. DEUX classes natives pour UNE cle, comme `DaemonfleshPlate` :
+    #   * `Lakrimae_AddContamination_Ability` -- `On(0x26 = NormalAttack) & get_OwnerIsActor &
+    #     IsMeleeAttack & IsNormalAttack` -> `AddEffect(1244 Contaminated, source = Owner@+0x30,
+    #     targets = TargetTiles@+0x78)`   <- PORTEE ;
+    #   * `Lakrimae_SummonPoxwalker_Ability` -- `On(0x35 = PostUnitKill)` + 8 conjoints ->
+    #     `Spawn(deathPoxwalker)` : NON portee, residu `#462-r4b-r1-r1-r1-r1-c-r3-r1-r4-r1` (etages
+    #     `ContagionsOfNurgleRange(.., 1, ..)` / `IsUnitWithVisualId` / `FreeTilesOrAdjacentFreeTiles`
+    #     non portes). L'inscrire vide serait un mensonge de couverture.
+    # Cf. loki/lakrimae.py.
+    "Lakrimae": [LakrimaeAddContaminationAbility],
 }
 
 # --- Registre : abilities GLOBALES (aucun owner) ---------------------------------------------------

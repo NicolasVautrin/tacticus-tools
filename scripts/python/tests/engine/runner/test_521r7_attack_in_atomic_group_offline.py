@@ -152,9 +152,20 @@ def test_521r7_rayon_du_vecteur():
         f"peut rien garder")
 
     atteignables = sorted(by_ev.get(int(EventTriggerType.AttackInAtomicGroup), []))
+    # MESURE du 2026-08-13 (#1003), a la SECONDE entree de ce vecteur -- ce que ce garde exige :
+    #   * `1316 CalibaniteGreatsword_NormalAttackAdditionalDamage` (#521-r4) ;
+    #   * `1465 OrbsOfDecay` (relique Death Guard), qui porte `On(0x4a) & get_OwnerIsCaster &
+    #     IsMeleeAttack` -- et SANS `IsNormalAttack`, contrairement a 1316.
+    # LE RAYON SUPPLEMENTAIRE OUVERT PAR `OrbsOfDecay` EST **VIDE**, et c'est derive, pas suppose :
+    # les DEUX seuls call-sites du noeud DSL `EvaluateAbilities(AttackInAtomicGroup)` du port sont
+    # dans `abilities/loki/strike.py` (`ArmoriumCherub`), et ils passent tous deux `ranged=True` ->
+    # le gate `IsMeleeAttack` d'`OrbsOfDecay` (`not ev.ranged`) les REFUSE. Seconde raison,
+    # INDEPENDANTE : `get_OwnerIsCaster` exigerait que le porteur de la relique SOIT le caster
+    # d'`ArmoriumCherub` (une active `admec`), ce qu'aucune unite ne peut etre.
     assert atteignables == [("PASSIVE_HELPER_ABILITY_TRIGGERS",
-                             "CalibaniteGreatswordNormalAttackAdditionalDamageAbility")], (
-        f"le RAYON de l'elargissement n'est plus le seul `1316` : {atteignables}. Ce n'est pas un "
+                             "CalibaniteGreatswordNormalAttackAdditionalDamageAbility"),
+                            ("RELIC_ABILITY_TRIGGERS", "OrbsOfDecayAbility")], (
+        f"le RAYON de l'elargissement a CHANGE : {atteignables}. Ce n'est pas un "
         f"echec en soi -- c'est un RESULTAT a lire (chaque entree devient joignable depuis la voie "
         f"d'attaque normale ET depuis `ArmoriumCherub`), mais il doit etre MESURE, pas subi")
 

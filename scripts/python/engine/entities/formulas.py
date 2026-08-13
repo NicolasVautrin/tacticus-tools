@@ -749,6 +749,38 @@ class StatAmount(AAmountFormula):
         return sum(gs(u, self.stat_type, self.variant, lvl) for u in _units_of(self.selector, ctx))
 
 
+class StatNegativeModification(AAmountFormula):
+    """`IdunBattleLogic.Entities.DSLFormulas$$StatNegativeModification(unit, statType)` ->
+    `IdunBattle.Entities.Formulas.NegativeStatModificationFormula$$Calculate` : SOMME, sur les unites
+    du selecteur, des VALEURS ABSOLUES des modifications per-source strictement NEGATIVES de
+    `statType`. Toujours >= 0.
+
+    ⚠ CE N'EST PAS `StatAmount(..., StatPart.MODIFICATION)` : ce dernier rend le TOTAL SIGNE (donc
+    `-40 + 40 = 0`), la ou cette formule ne retient QUE les contributions negatives et les rend en
+    valeur absolue. C'est le meme dictionnaire per-source des DEUX cotes, et c'est ce qui les rend
+    confondables au premier coup d'oeil.
+
+    Le 3e argument du ctor natif (`3`) est le `selectionType` du selecteur (comme le `+0x1c` de
+    `StatAmountFormula`), pas un `StatPart` : cette formule N'A PAS de `StatPart` -- elle ne lit que
+    les modifications.
+
+    Substrat : `ctx.negative_stat_modification(unit, statType)` (pose par `entities_from_state` ->
+    `UnitStats.negative_stat_modification`). Accesseur ABSENT -> **0**, degradation fidele : le
+    gate consommateur (`AmountIsGreater(ratio, armorReductionPct)`) devient alors FAUX, donc
+    RESTRICTIF -- jamais permissif.
+
+    Consommateurs natifs (les DEUX seuls du build `rnca9r7q6c`, mesure `dsl-usage-edges.tsv`) :
+    `...OrbsOfDecayAbility$$CreateBehaviour` et `...OrbsOfDecayAbility$$GetTriggerForAttack`."""
+    def __init__(self, selector: TargetsSelector, stat_type: int):
+        self.selector, self.stat_type = selector, int(stat_type)
+
+    def calculate(self, ctx):
+        fn = getattr(ctx, "negative_stat_modification", None)
+        if fn is None:
+            return 0
+        return sum(int(fn(u, self.stat_type)) for u in _units_of(self.selector, ctx))
+
+
 class UnitNormalAttackType(AAmountFormula):
     """`IdunBattleLogic.Entities.DSLFactory$$UnitNormalAttackType(entitySelector)` → value-provider lisant le
     `ActiveAbilityComponent.NormalAttackType@0x28` de l'unité = son ActiveAbilityType d'attaque normale
