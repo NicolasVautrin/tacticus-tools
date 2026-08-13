@@ -4239,21 +4239,54 @@ pas d'erreur : il rend **zéro**, et un zéro se lit « rien à signaler ».
   FOYER: scripts/python/engine/runner/operations/triggers/loki/, scripts/python/engine/entities/effects/factory.py
   BLOCAGE: etage
 
-- **#998-r5 : `Maugetar` (1498) -- DEUX abilities + l'effet additional-hits 1497.** `[opus]`
-  Point d'entree : `docs/rl/case-998-...` §4. `Maugetar_AddEffectAbility` = `On(0x12 =
-  TurnStart_EffectActivation, true) & <DSLTriggers+0x28>` -> `AddEffect(0x5d9 =
-  Maugetar_HasNotMoved, stateRef, Owner, 0)` ; `Maugetar_ResetMovementAbility$$CreateBehaviour` =
-  `If(HasEffect(Owner, 0x5d9, null, 6), ResetMovement(Owner))` ; l'effet porte
-  `CreateRemoveEffectTrigger = On(0x1f = PreUnitMove, true) & get_OwnerIsActor` et
-  `CreateAdditionalHits = EffectAdditionalHits.Create(get_OwnerIsCaster & AttackDamageIsCritical,
-  GetMinMaxDamage(false), 0, <damageProfile de la config>, ConfigConst(0x2f = nrOfHits),
-  GetMinMaxDamage(true))`. Classe a poser dans `effects/loki/hits.py` (canal `additional_hit_groups`,
-  #179 -- BI-CANAL roll/display). Gameconfig : `nrOfHits = 1`, `damageProfile = DirectDamage`,
-  `minDmg`/`maxDmg` a 10 paliers. Porteur unique : `eldarMauganRa`. Ferme AUSSI le gisement
-  `combat-ability-coverage` (no-op silencieuse DAMAGE), et la categorie annoncee est ICI CONFIRMEE
-  au decompile. ⚠ Reste a lire : `<DSLTriggers+0x28>`, le second conjoint du trigger.
-  FOYER: scripts/python/engine/entities/effects/loki/hits.py, scripts/python/engine/entities/effects/factory.py
-  BLOCAGE: etage
+- ~~**#998-r5 : `Maugetar` (1498) -- DEUX abilities + l'effet additional-hits 1497.**~~ **LIVRE
+  (#1006, 2026-08-13)** : les trois artefacts sont portes et confrontes live (`--equip-relic`, 17
+  tests, 8/8 mutants vus). Le `<DSLTriggers+0x28>` qui restait a lire = `IsTurnOf(Owner)`, et le
+  `CreateTrigger` de `Maugetar_ResetMovementAbility` -- absent des tables, fondu par l'ICF -- a ete
+  lu slot a slot dans `methodPointers` : `On(0xe = UnitPostAbility) & get_OwnerIsCaster`. Le
+  `BLOCAGE: etage` annonce est LEVE (le porteur est au pool, la relique se monte). Detail :
+  `docs/rl/case-1006-reliques-aeldari-maugetar-phoenixgem.md`.
+
+- **#1006-r1 : `combat-ability-coverage.md` classe `Maugetar` en ACTIVE non portee, et c'est un
+  artefact de la VOIE.** `[opus]` La ligne `| ? | Maugetar | DAMAGE(DirectDamage) | 1 | N |`
+  survit au portage : `audit_combat_ability_coverage.py` enumere les `activeAbilities` du
+  gameconfig, or `Maugetar` y figure par le npc `eldarBossMauganRaUltra` alors que c'est un
+  `TriggeredAbilityType` 1498 (INVERSION DE VOIE mesuree, #270-c). L'id `?` de la colonne EST le
+  symptome : le recenseur ne trouve pas le nom dans `ActiveAbilityType`. Correctif candidat :
+  quand un nom d'`activeAbilities` ne resout PAS dans `ActiveAbilityType` mais resout dans
+  `TriggeredAbilityType`, l'audit doit le SORTIR du recensement des actives et le DIRE, jamais le
+  compter en no-op. ⚠ Ne pas rabattre sur une liste blanche : il y a DEUX inversions connues
+  (`ShroudPsalm` dans l'autre sens) et le gisement se rouvre a chaque build.
+  Point d'entree : `docs/rl/case-1006-reliques-aeldari-maugetar-phoenixgem.md` §1.
+  FOYER: scripts/python/audit_combat_ability_coverage.py
+  BLOCAGE: aucun
+
+- **#1006-r2 : `audit_kit_coverage._passive_covered` ne lit PAS `EFFECT_TRIGGERS`, donc
+  `PhoenixGem` compte comme NON PORTEE alors qu'elle l'est.** `[opus]` L'audit lit six canaux tous
+  indexes par NOM d'ability ; l'ability de revive de `PhoenixGem` (1458) est inscrite par son EFFET
+  (`EFFECT_TRIGGERS[1451]`, mirror de `PhoenixGem_CanReviveEffect$$CreateHandleTriggerAbilities
+  Internal`), donc aucun canal ne la voit. Meme forme exacte que le trou `TalonOfHorus` que le
+  recenseur avait deja paye une fois. Mesure : `Portees (au moins un registre) : 12` apres #1006,
+  `PhoenixGem` absente de la liste. Correctif candidat : ajouter le canal EFFET, en resolvant
+  `nom d'ability -> effet(s) que son `*_InitAbility` pose` (le `GetEffectType` litteral).
+  Point d'entree : `docs/rl/case-1006-reliques-aeldari-maugetar-phoenixgem.md` §5.
+  FOYER: scripts/python/audit_kit_coverage.py
+  BLOCAGE: aucun
+
+- **#1006-r3 : `ABILITY_INIT_OWNER_EFFECTS` est AVEUGLE a la voie TERTIAIRE (relique equipee).**
+  `[opus]` `PhoenixGem_InitAbility` (base `AOwnerEffectTriggeredAbility`, `GetEffectType` =
+  `return 0x5ab`) pose l'effet 1451 a l'init -- c'est exactement le patron du registre. Mais
+  `spawn.py::_seed_ability_owner_effects` derive sa liste d'abilities de
+  `gameconfig.units[<vid>].{activeAbilities,passiveAbilities}` : une relique arrive par
+  `BC.Units[].TertiaryAbility`, donc l'entree serait INERTE et poser un registre inerte est un
+  mensonge de couverture. Sans consequence sur un runner CAPTURE (le natif pose l'effet, le port le
+  lit), mais un etat construit HORS capture -- greffe, seed synthetique -- n'a AUCUN marqueur 1451,
+  donc aucun revive. Correctif candidat : joindre `UnitContext.tertiary_ability` a la liste, mirror
+  de la branche tertiaire d'`UnitFactory$$AddConfiguredAbilities`. ⚠ Verifier l'ORDRE de seeding :
+  `_load_tertiary_abilities` doit avoir couru AVANT `_seed_ability_owner_effects`.
+  Point d'entree : `docs/rl/case-1006-reliques-aeldari-maugetar-phoenixgem.md` §5.
+  FOYER: scripts/python/engine/runner/operations/spawn.py, scripts/python/engine/entities/effects/factory.py
+  BLOCAGE: aucun
 
 - ~~**#998-r2 : `OrbsOfDecay` (1465) -- une ATTAQUE secondaire filtree par l'armure reduite, plus un
   effet additional-hits.**~~ **VOLET ABILITY LIVRE (#1003, 2026-08-13)** :

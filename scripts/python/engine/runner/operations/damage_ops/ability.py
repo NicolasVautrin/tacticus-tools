@@ -733,7 +733,11 @@ class _AbilityAttack:
                     tile_effects_by_pos=_ltgb_tfx, persistent_data=_ltgb_pd,
                     # #204 `MasterAnnihilator_AdditionalHitEffect` : noeud
                     # `AreEqual(CurrentAttackDamageProfile, 0xd = Psychic)` du gate.
-                    damage_profile=damage_profile),
+                    damage_profile=damage_profile,
+                    # #1006 `AttackDamageIsCritical` -- STRICTEMENT le cablage de
+                    # `damage_ops/normal.py` : `hitGroup+0x3d` du groupe d'ARME qu'on vient de
+                    # resoudre, recopie par le natif dans l'`AbilityEntities` du canal #179.
+                    attack_had_critical=any(r.get("crits") or ())),
                 mods, def_mods, armor, _tgt_hit_mult, block_sources, shc,
                 extra_pierce=ctx.extra_pierce,
                 attack_profile=damage_profile,

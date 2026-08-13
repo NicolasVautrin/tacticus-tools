@@ -196,10 +196,13 @@ def _replay_trace(cap, board, paires):
     def _eah(state, attacker_id, target_id, tgt, thc, groups, mods, def_mods, armor, hit_mult,
              block_sources, shc, spread_pct=None, extra_pierce=0, bonus_hit_chance=None,
              hit_index0=0, crit_allowed0=True, attack_profile=None, hit_interceptor=None,
-             failed_block0=None):
+             failed_block0=None, damaging_done0=False):
+        # #963-r2 : `damaging_done0` (`isFirstDamagingHit`) est TRANSMIS tel quel -- cette
+        # substitution est un OBSERVATEUR, elle ne fait varier aucun etage.
         r = o_exec_ah(state, attacker_id, target_id, tgt, thc, groups, mods, def_mods, armor,
                       hit_mult, block_sources, shc, spread_pct, extra_pierce, bonus_hit_chance,
-                      hit_index0, crit_allowed0, attack_profile, hit_interceptor, failed_block0)
+                      hit_index0, crit_allowed0, attack_profile, hit_interceptor, failed_block0,
+                      damaging_done0)
         trace.setdefault("canal", []).append(
             {"groupes_recus": list(groups or []),
              "retour": (None if r is None else {"groups": r.get("groups"), "hits": r.get("hits"),

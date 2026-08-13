@@ -272,6 +272,10 @@ from ..loki.blade_of_the_ancestors import (                           # #1001 (r
     BladeOfTheAncestorsCustomRemoveEffectAbility, BLADE_OF_THE_ANCESTORS)
 from ..loki.volumms_master_artifice import (                          # #1001 (relique 1488, votanIronmaster)
     VolummsMasterArtificeAbility)
+from ..loki.maugetar import (MaugetarAddEffectAbility,                # #1006 (relique 1498)
+                             MaugetarResetMovementAbility,
+                             MaugetarHasNotMovedRemoveOnMove,
+                             MAUGETAR_HAS_NOT_MOVED)
 from ..loki.relentless_march import RelentlessMarchAbility             # #328 (passif necroWarden)
 from ..loki.my_will_be_done_overlord import (MyWillBeDoneOverlordAttackAbility,   # #354 (necroOverlord)
                                              MyWillBeDoneOverlordClearAbility)
@@ -1359,6 +1363,20 @@ RELIC_ABILITY_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
     # (`dispatch/repair.py`), donc l'inscription n'est PAS registered-but-dead.
     # Cf. loki/volumms_master_artifice.py.
     "VolummsMasterArtifice": [VolummsMasterArtificeAbility],
+    # Maugetar (relique `R_Crit_Maugetar` d'`eldarMauganRa`, `TriggeredAbilityType` 0x5da = 1498 --
+    # `Maugetar` figure aussi dans les `activeAbilities` d'un npc : c'est une INVERSION DE VOIE
+    # mesuree, pas une active). DEUX classes natives pour UNE cle, meme patron que `DaemonfleshPlate`
+    # ci-dessus :
+    #   * `Maugetar_AddEffectAbility` -- `On(0x12 = TurnStart_EffectActivation) & IsTurnOf(Owner)`
+    #     -> `AddEffect(1497 Maugetar_HasNotMoved, stateRef, Owner, turns = null)` ;
+    #   * `Maugetar_ResetMovementAbility` -- `On(0xe = UnitPostAbility) & get_OwnerIsCaster`
+    #     -> `If(HasEffect(Owner, 1497, onlyActive: false, 6), ResetMovement(Owner))`.
+    #     ⚠ Son `CreateTrigger` est INVISIBLE des tables (corps fondu par l'ICF avec
+    #     `...DaemonicOrdnance_RemoveCritChance$$CreateTrigger`) : appartenance etablie slot a slot
+    #     dans le bloc `methodPointers` du PE.
+    # Le RETRAIT de l'effet (`On(0x1f = PreUnitMove) & get_OwnerIsActor`) est un trigger PROPRE de
+    # l'effet -> `EFFECT_TRIGGERS[1497]`, pas ici. Cf. loki/maugetar.py.
+    "Maugetar": [MaugetarAddEffectAbility, MaugetarResetMovementAbility],
 }
 
 # --- Registre : abilities GLOBALES (aucun owner) ---------------------------------------------------
@@ -1576,6 +1594,13 @@ EFFECT_TRIGGERS: dict[int, list[type[EffectTrigger]]] = {
     # bataille. Le `IdunBattle.Entities.Effects.Loki.PhoenixGem_CanReviveEffect$$CreateHandleTriggerAbilitiesInternal` de l'effet enregistre en plus les
     # DEUX triggers de RETRAIT du marqueur (case-89 volet B3) : `On(0x2d=UnitRevived) & OwnerIsTarget &
     # CurrentAbilityIs(PhoenixGem=0x5b2)` et `On(0x2e=UnitResurrected) & OwnerIsTarget`.
+    # #1006 -- `Maugetar_HasNotMovedEffect$$CreateRemoveEffectTrigger` = `On(0x1f = PreUnitMove,
+    # ownerNeedsToBeAlive: true) & get_OwnerIsActor` -> `RemoveEffect(EffectSelf)`. C'est le SEUL
+    # trigger propre de l'effet 1497 ; son autre canal (`$$CreateAdditionalHits`) est un descripteur
+    # du canal #179, pas un trigger d'evenement -> `EFFECT_CLASSES["Maugetar_HasNotMoved"]`.
+    # ⚠ L'ABILITY seule laisserait un `BaseEffect` NU qui ne se retire jamais ; l'EFFET seul ne
+    # serait jamais (re)pose. Les DEUX registres, dans le MEME commit.
+    MAUGETAR_HAS_NOT_MOVED: [MaugetarHasNotMovedRemoveOnMove],       # 1497 -> retrait au PRE-move
     PHOENIX_GEM_CAN_REVIVE: [PhoenixGemReviveAbility,                # 1451 (self-revive, even-if-overkill)
                              PhoenixGemRemoveMarkerOnRevive,         # On(0x2d = UnitRevived) -> RemoveEffect(1451)
                              PhoenixGemRemoveMarkerOnResurrect],     # On(0x2e = UnitResurrected) -> RemoveEffect(1451)

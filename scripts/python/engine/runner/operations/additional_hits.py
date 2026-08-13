@@ -77,7 +77,8 @@ def collect_additional_hit_groups(state: State, attacker_id: int, target_id: int
                                   t_pos: "Optional[tuple]" = None,
                                   tile_effects_by_pos: "Optional[dict]" = None,
                                   persistent_data=None,
-                                  damage_profile: "Optional[str]" = None) -> list:
+                                  damage_profile: "Optional[str]" = None,
+                                  attack_had_critical: "Optional[bool]" = None) -> list:
     """#202-B : mirror `IdunBattle.Operations.AdditionalHitsFromEffects$$GetAdditionalHitsFromEffectsInternal`
     cote ECS — enumeration GLOBALE des effets declarant des coups additionnels HETEROGENES (canal
     #179) : (a) effets du PORTEUR (`additional_hit_groups`, ex. SquigHound/CordClaw/FoulInfusion) ;
@@ -110,6 +111,9 @@ def collect_additional_hit_groups(state: State, attacker_id: int, target_id: int
     second le noeud `AreEqual(CurrentAttackDamageProfile, 0xd=Psychic)`. `attack_hit_damage` y est
     aussi relaye : `FirstHitInCurrentAttackDamageRange` ne depend pas de QUI porte l'effet."""
     import gameconfig as GC
+    # DIFFERE PORTEUR : `triggers.base` importe `..components` / `..state`, qui re-entrent ce paquet
+    # d'operations -- meme forme que le differe du meme foyer dans `damage.py::_positional_att_ctx`.
+    from .triggers.base import triggered_ability_state as _triggered_ability_state
     att = state.get_entity(attacker_id)
     ap = att.get_component(PositionComponent) if att is not None else None
     aoc = att.get_component(OwnerComponent) if att is not None else None
@@ -134,7 +138,32 @@ def collect_additional_hit_groups(state: State, attacker_id: int, target_id: int
               # PREDICTION thread, lui, la tuile CANDIDATE). Absente -> le gate rend FAUX.
               "att_pos": (ap.col, ap.row),
               "tile_effects_by_pos": tile_effects_by_pos,
-              "persistent_data": persistent_data}
+              "persistent_data": persistent_data,
+              # #1006 -- IDENTITE des deux slots que la boucle native ecrit dans l'`AbilityEntities`
+              # qu'elle passe a chaque descripteur : `Owner@+0x18` et `Caster@+0x48`. Sur CETTE
+              # branche le porteur EST l'attaquant (le natif enumere globalement et laisse la
+              # condition du descripteur trancher ; ici l'enumeration est deja restreinte a
+              # `att_active`), donc les deux valent `attacker_id`. Sans elles, tout gate
+              # `get_OwnerIsCaster` -- et surtout toute lecture d'`AbilityState` PAR PORTEUR --
+              # etait inevaluable sur cette branche, alors que le canal AURA les portait deja.
+              "owner_id": attacker_id, "att_id": attacker_id,
+              # #1006 -- `IdunBattleLogic.Entities.DSLTriggers$$AttackDamageIsCritical`. Le natif
+              # l'evalue sur l'`AbilityEntities` que
+              # `IdunBattle.Operations.AttackDamageOperation$$ExecuteAdditionalHitsWithoutDamage
+              # ProfileType` remplit AVANT d'appeler `GetAdditionalHitsFromEffectsInternal` : il y
+              # recopie `hitGroup+0x3d` (le groupe de coups d'ARME qui vient d'etre resolu) juste
+              # apres `currentAttack+0x50`. C'est donc un etat de PORTEE ATTAQUE (« cette attaque
+              # contient-elle un crit ? »), pas un tirage per-coup -- ce que dit aussi l'i2 de
+              # `Maugetar` (« his attacks that CONTAIN a Crit »). Tri-etat : `None` = NON MESURE
+              # (appelant qui ne thread pas), et le descripteur rend alors FAUX, jamais permissif.
+              "attack_had_critical": attack_had_critical,
+              # #1006 -- `IdunBattle.Entities.Effects.BaseEffect$$GetAbilityState`, delegue au foyer
+              # UNIQUE `triggered_ability_state` (#357) : etat TERTIAIRE pour une relique EQUIPEE,
+              # etat PASSIF pour un kit npc. MESURE (probe_959) : l'instance d'effet captee publie
+              # `ability_level = 50` quel que soit le niveau de la relique -- sans ce callable, un
+              # descripteur de relique lirait TOUJOURS le dernier palier.
+              "tertiary_ability_state_of":
+                  lambda oid, ability: _triggered_ability_state(state, int(oid), ability)}
     groups = list(additional_hit_groups(att_active, ah_ctx))
     carriers = []
     for uid, e in state.entities.items():
