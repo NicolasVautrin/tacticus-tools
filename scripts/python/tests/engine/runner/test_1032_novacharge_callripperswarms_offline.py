@@ -36,23 +36,27 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..",
 #: FAUX VERT (le vice que `probe_486r15` nomme).
 DECLENCHEUR = {
     "chemins": (
-        "scripts/python/engine/runner/abilities/tau.py",
-        "scripts/python/engine/runner/abilities/tyranids.py",
-        "scripts/python/engine/runner/abilities/handler.py",
-        "scripts/python/engine/runner/abilities/attack_type.py",
-        "scripts/python/engine/runner/abilities/targeting.py",
-        "scripts/python/engine/runner/abilities/targeting_rule.py",
-        "scripts/python/engine/entities/selectors/geometry.py",
-        "scripts/python/engine/entities/selectors/units.py",
-        "scripts/python/engine/entities/selectors/tiles.py",
-        "scripts/python/engine/entities/selectors/accessors.py",
-        "scripts/python/engine/entities/formulas.py",
-        "scripts/python/engine/entities/effect_type.py",
-        "scripts/python/engine/entities/active_ability_type.py",
-        "scripts/python/hexgeo.py",
+        # VIDE, et c'est MESURE (`probe_486r15 --proposer` : 660 modules de fermeture, 661
+        # chemins deja DERIVES par la cascade du foyer, « RIEN A DECLARER hors de la cascade »).
+        # Les quatorze chemins que ce fichier lit vraiment -- les deux modules d'ability, les
+        # deux registres, les quatre selecteurs/formules repares, `hexgeo` -- y sont TOUS, parce
+        # qu'ils entrent par des imports statiques. Les recopier ici serait de la duplication que
+        # #531 interdit, pas une precaution.
     ),
-    "raison": ("garde le port COMBAT de 1052/1193 ET les quatre noeuds partages que la meme "
-               "tranche a repares (direction_to, Enemies, Tiles, Unique)"),
+    "build": False,     # aucune lecture du binaire ni de `data/symbols/**` : les masques, les
+    #                     ids d'effet et les ordinaux d'`Edge` sont ECRITS ici, en constantes,
+    #                     precisement pour que le test soit un CLIQUET sur ce qui a ete lu une
+    #                     fois au decompile -- pas une re-lecture qui suivrait un re-dump.
+    "toujours": False,
+    "raison": ("Ce fichier prouve quatre choses qui se degradent en SILENCE : (1) les deux ids "
+               "sont au registre COMBAT avec leurs DEUX donnees obligatoires a leur VALEUR lue "
+               "(un masque absent ne leve rien, il ouvre le gate) ; (2) le cast ne frappe ni ne "
+               "spawne -- l'audit classe 1193 `DAMAGE(Particle)` d'apres le KIT, donc un port qui "
+               "inventerait le degat passerait pour vert partout ailleurs ; (3) `direction_to` "
+               "NORMALISE hors adjacence, sans quoi `GetLineTiles` serait vide ; (4) le gate "
+               "dynamique de 1193 et son INCLUSION dans le domaine de `direction_to`. Tout cela "
+               "entre par les imports, d'ou `chemins` vide ; `toujours` serait TROP LARGE ici "
+               "(le fichier ne lit ni le harnais ni la livraison)."),
 }
 
 from engine.entities.active_ability_type import ActiveAbilityType          # noqa: E402
