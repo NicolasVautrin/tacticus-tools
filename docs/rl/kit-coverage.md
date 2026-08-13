@@ -14,7 +14,10 @@
 > **Ce que le total compte** : les items du kit INTRINSEQUE (`activeAbilities`,
 > `passiveAbilities`, traits de kit). **Ce qu'il ne compte pas** : les voies
 > CONDITIONNELLES (mythique a debloquer, relique a equiper) — elles ont leur propre
-> section, chiffree, en fin de document. Les voies `trait`/`liveevent`/`summon`/`tile`
+> section, chiffree, en fin de document. ⚠ CONDITIONNEL vaut pour le JEU, pas pour le
+> HARNAIS : les deux voies se MONTENT en runner (`--equip-relic` #237,
+> `--equip-mythic` #999) et 2 des 11 mythiques sont confrontees en live (#1024).
+> Les voies `trait`/`liveevent`/`summon`/`tile`
 > ne sont derivables d'aucune source offline (`case-323-unit-map-attribution-voies.md`).
 >
 > Sections detaillees ordonnees par NOM de faction (ordre stable, pour qu'une
