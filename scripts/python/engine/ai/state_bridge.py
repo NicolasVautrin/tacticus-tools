@@ -255,16 +255,30 @@ def _board_fog_map(board) -> dict:
     return {(t["col"], t["row"]): bool(t.get("isInFog")) for t in tiles}
 
 
-def _move_tiles(state, uid: int, vid: str, my_team: int, origin: tuple | None) -> list:
+def _move_tiles(state, uid: int, vid: str, my_team: int, origin: tuple | None,
+                override_range: int | None = None) -> list:
     """Tuiles d'ARRET atteignables de `uid` (mirror `aiMovableTiles`) = `WalkPathfinder.get_movable_positions`
-    a portee `Movement`. [] si pas de board / origine / Movement=0. Forme `[{col,row}]` (comme le RPC)."""
+    a portee `Movement`. [] si pas de board / origine / Movement=0. Forme `[{col,row}]` (comme le RPC).
+
+    `override_range` (#996-r1) = le `MovementOptions.overrideRange` (`Nullable<int>` a `options+0x04`)
+    que `IdunBattle.Core.Services.BattleQuery$$GetCurrentAndMovablePositionsFor` remplit depuis le 3e
+    argument de `ABaseAiUnitTactic$$GenerateActionTiles`. VERBATIM du decompile
+    (`IdunBattle.Core.Services.MovementQuery$$FindAnyOrAllMoveableTiles`) :
+
+        range = options.overrideRange.HasValue ? options.overrideRange.Value
+                                               : StatComponent.get_CurrentValue(<stat Movement>);
+
+    -- l'override REMPLACE la portee, il ne l'annule pas. `0` reduit donc l'ensemble a la seule
+    graine de l'`OrderedSet` (la tuile courante), et c'est un CAS PARTICULIER de la meme formule,
+    pas une regle a part."""
     board = state.board
     if board is None or origin is None:
         return []
     otile = board.id_at(origin[0], origin[1])
     me = state.get_entity(uid)
     sc = me.get_component(StatsComponent) if me is not None else None
-    depth = _move_range(sc.ctx if sc is not None else None, vid)
+    depth = (_move_range(sc.ctx if sc is not None else None, vid) if override_range is None
+             else int(override_range))
     if otile is None or depth <= 0:
         return []
     # Selection du pathfinder = `IdunBattle.Core.Services.MovementQuery$$GetPathfinderTypeForUnit`,
@@ -750,12 +764,19 @@ def build_from_state(state, uid: int, debug: bool = False, max_distance: int | N
     `max_distance` = le 3e argument d'`IdunBattle.AI.Tactics.ABaseAiUnitTactic$$GenerateActionTiles(unit,
     ignoreFlags, overrideRange)`, propage jusqu'au slot `IBattleQuery+0xe` =
     `IdunBattle.Core.Services.BattleQuery$$GetCurrentAndMovablePositionsFor(unit, ignoreUnitFlags, options)`
-    -> `MovementQuery$$GetMovablePositionsFor`. `None` (defaut) = plage de deplacement NORMALE de l'unite
-    (le seul regime de `CalculateNextActionForUnit`). **`0` = portee de deplacement NULLE** : l'ensemble se
-    reduit a la graine de l'`OrderedSet`, c.-a-d. la tuile COURANTE seule -- c'est litteralement le
+    -> `MovementQuery$$GetMovablePositionsFor` -> `MovementQuery$$FindAnyOrAllMoveableTiles`, dont le
+    corps LU tranche : `range = options.overrideRange.HasValue ? options.overrideRange.Value :
+    StatComponent.get_CurrentValue(<stat Movement>)`. L'override est donc une PROFONDEUR DE
+    FLOOD-FILL, pas un interrupteur.
+
+    `None` (defaut) = plage de deplacement NORMALE de l'unite (le regime de
+    `CalculateNextActionForUnit`). **`0` = portee de deplacement NULLE** : l'ensemble se reduit a la
+    graine de l'`OrderedSet`, c.-a-d. la tuile COURANTE seule -- c'est litteralement le
     « FromCurrentPosition » du noeud `IdunBattleLogic.Entities.DSLBehaviors$$PerformAIAttackFromCurrentPosition`
-    (`behaviour+0x78 = Direct(0)`). Seules ces DEUX valeurs ont un call-site natif ; toute autre valeur
-    entiere est traitee comme `0` faute d'override de portee porte dans le pathfinder (aucun appelant)."""
+    (`behaviour+0x78 = Direct(0)`). **`N > 0` = flood-fill a `N` tuiles** : le regime de
+    `DSLBehaviors$$PerformAIMovement`, dont les DEUX call-sites portes passent `DSLFormulas$$Direct(1)`
+    (`1144 BioMinefield`, `1053 DevoutPush`). ⚠ Ce dernier regime etait rabattu sur `0` jusqu'a
+    #996-r1, sous la premisse « aucun appelant » -- premisse deja fausse a l'ecriture."""
 
     me_ent = state.get_entity(uid)
     if me_ent is None:
@@ -802,9 +823,15 @@ def build_from_state(state, uid: int, debug: bool = False, max_distance: int | N
     if me is not None:
         me["abilities"] = abilities
 
-    # `GenerateActionTiles(unit, true, overrideRange)` : override `0` -> AUCUNE tuile mobile (la graine
-    # de l'`OrderedSet`, la tuile courante, reste seule). `None` -> plage normale.
-    move_tiles = [] if max_distance is not None else _move_tiles(state, uid, vid or "", my_team, origin)
+    # `GenerateActionTiles(unit, true, overrideRange)` -> `GetCurrentAndMovablePositionsFor` ->
+    # `MovementQuery$$FindAnyOrAllMoveableTiles`, ou l'override REMPLACE la stat `Movement` comme
+    # profondeur de flood-fill (`range = overrideRange.HasValue ? .Value : Movement.CurrentValue`).
+    # ⚠ CE SITE RENDAIT `[]` POUR **TOUTE** VALEUR NON NULLE (#996-r1) -- la premisse ecrite ici
+    # (« seules `None` et `0` ont un call-site natif ») etait FAUSSE AU MOMENT MEME OU ELLE A ETE
+    # ECRITE : `1144 BioMinefield` passe deja `Direct(1)` (`PerformAIMovement`), et `1053 DevoutPush`
+    # aussi. Le `1` etait donc traite comme `0` -> une seule candidate (la tuile courante) ->
+    # keep-first -> AUCUN mouvement, sans erreur.
+    move_tiles = _move_tiles(state, uid, vid or "", my_team, origin, override_range=max_distance)
     # `tiles` du tactic natif (`ABaseAiUnitTactic$$GenerateActionTiles` -> `IBattleQuery`+0xe =
     # `BattleQuery$$GetCurrentAndMovablePositionsFor`) : ORIGINE EN TETE puis les tuiles de move.
     # MEME helper que la couture LIVE `context.build` -> meme ensemble ET meme ORDRE de sweep.

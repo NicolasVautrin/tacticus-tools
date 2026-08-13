@@ -25,7 +25,7 @@ from typing import Optional
 
 import inspect
 
-from ....dsl.base import AAmountFormula, TargetsSelector, resolve_unit
+from ....dsl.base import AAmountFormula, TargetsSelector, resolve_unit, _units_of
 from ....dsl.effects import AbilityBehaviour, OperationResult
 from ...operations.summon_ai import ComputerActionOperation
 # FORME B (`import <module>` puis `<module>.<nom>`) -- `ComputerMovementActionOperation` etait
@@ -147,8 +147,17 @@ class PerformAIMovement(AbilityBehaviour):
         rng = None
         if self.range is not None:
             rng = int(self.range.evaluate(entities))
-        units = self.selector.evaluate(entities) or []
-        uids = [u.get("id") for u in units if isinstance(u, dict) and u.get("id") is not None]
+        # `_units_of` et NON `.evaluate()` NU (#996-r1) : le natif appelle `this.unit.Select(...)`,
+        # dont le type de RETOUR est une LISTE quel que soit le selecteur ; cote port, un accesseur
+        # unit-domain comme `Caster()` rend un dict NU (`ctx.caster`, cf. sa docstring). Itérer ce
+        # dict rendait ses CLES -- des chaines -- que le filtre `isinstance(u, dict)` jetait
+        # ensuite : `units = []`, AUCUN `ComputerMovementAction`, et pas la moindre erreur.
+        # Le gisement etait invisible tant que l'UNIQUE call-site porte (1144 BioMinefield) passait
+        # `EntitiesWithoutEffects(...)`, qui rend une liste ; `1053 DevoutPush` passe `Caster@0x48`.
+        # `_units_of` est le normaliseur DEJA utilise par `Kill`, `UseActiveAbility` et les feuilles
+        # d'effet -- aucun fork.
+        uids = [u.get("id") for u in _units_of(self.selector, entities)
+                if isinstance(u, dict) and u.get("id") is not None]
         moved = []
         for uid in uids:
             moved.append(summon_ai.ComputerMovementActionOperation.execute(
