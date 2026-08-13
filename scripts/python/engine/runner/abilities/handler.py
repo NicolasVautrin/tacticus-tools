@@ -60,14 +60,15 @@ from .genestealer import (CultDemagogueAbility, HeroicFusilladeAbility, Vigilanc
                           TwistedScience_HealAbility)
 from .deathguard import (RevitalizingMalignancyAbility, FlailSwingAbility, SpawnPoxwalkersAbility,
                          EntropyCannonsAbility, PlagueburstMortarAbility, PlagueWindAbility,
-                         MortarionsPlagueWindAbility, ReapingScytheAbility)
+                         MortarionsPlagueWindAbility, ReapingScytheAbility,
+                         BlightGrenadesAbility)
 from .thousandsons import (DoomboltAbility, HeavyWarpFlamerAbility, HellfyreMissileRackAbility,
                            SlashingDiveAbility, InfernalCannonAbility)
 from .blacklegion import (BringerOfDespairAbility, IncursionAbility, HadesAutocannonsAbility,
                           DaemonicOrdnanceAbility, FrenziedFiringAbilityCombat,
                           DrachnyenAbility, HeraldOfTheApocalypseAbility)
 from .orks import (WaaaghAbility, SquigLaunchasAbility, SquigMineAbility, DakkaDakkaDakkaAbility,
-                   RammingSpeedAbility, GrotTankAbility)
+                   RammingSpeedAbility, GrotTankAbility, ExplosivePresentsAbility)
 from .darkangels import (PlasmaCannonAbility, DarkTalonStrikeAbility, DeathOnTheWindAbility,
                          HailstrikeAbility, SuperchargeAbility, ExemplarOfHateAbility,
                          CalibaniteGreatswordAbility, TheLionsWrathAbility,
@@ -282,6 +283,8 @@ ABILITY_CLASSES: dict[int, type[ActiveAbility]] = {
     # --- Famille PSYCHIC (case-psychic-aoe) : deux AoE Psychic HERO, jusqu'ici NO-OP offline. ---
     PlagueWindAbility.ABILITY_TYPE: PlagueWindAbility,                 # 1035 (deathTyphus Typhus DeathGuard : AoE CONCENTRIQUE 3 bandes ancree cible -- cible (minDmg/maxDmg) + adjacents-cible (minDmg_2/maxDmg_2) + adjacents-d'un-secondaire moins cible/secondaires (minDmg_3/maxDmg_3), 1 coup chacune, native_factory ABILITY, ExecuteAtomic 0x4a + 3 Group 0x4b/4c/4d)
     MortarionsPlagueWindAbility.ABILITY_TYPE: MortarionsPlagueWindAbility,  # 1093 (deathBossMortarion « Mortarion » GUILD BOSS, npc : JUMEAU de 1035 -- memes trois bandes concentriques ancrees cible (range 2), MAIS degat DETERMINISTE (`MinMaxDamage{,2,3}Average`, aucun tirage) et chaque bande DOUBLEE quand la CIBLE PRINCIPALE porte `Summon` (`If(HasTrait(Target@0x60, 2), Multiply(avg, <DSLFormulas+0x28>=Direct(2)), avg)`) ; degat CROISSANT par bande, a l'inverse de 1035 ; native_factory ABILITY, ExecuteAtomic 0x5c + 3 Group 0x5d/0x5e/0x5f ; masque 0x4002 MIGRE depuis `TARGETING_OPTIONS_UNPORTED`)
+    BlightGrenadesAbility.ABILITY_TYPE: BlightGrenadesAbility,         # 1176 (deathNpc2PlagueMarine, npc -- #997 : DEUX `AttackWithAbilityDamage` a plage ET coups IDENTIQUES (le natif rappelle `MinMaxDamage`/`GetHits`, PAS de `*_2`), volet 2 = `PickRandomly(UnitsDirectlyBehind(caster, target), 2)` ; `ExecuteAtomic(op_BitwiseAnd(..), 0x2a)` ; masque `0x2004002` = preset inline `0x4002` OU flags `0x2000000` (surcharge PRESET+FLAGS) ; regle dynamique = refus si une tuile de la cible porte `Contaminated` 1244)
+    ExplosivePresentsAbility.ABILITY_TYPE: ExplosivePresentsAbility,   # 1170 (orksRedGobbo, npc -- #997 : UN SEUL `AttackWithAbilityDamage` sur `(Target + AdjacentUnits(TargetTile)) - Caster` (friendly-fire, `AdjacentUnits` BRUT), plage/coups partages ; `ExecuteAtomic(., 0x2a)` ; masque `0x200000000002` = `TargetMatchesDynamicRule | TargetIsUnit` -- AUCUN `TargetIsEnemy`, le filtrage de camp vit dans la regle dynamique, qui EXEMPTE l'unite `constants.unitId` = `orksGrot`)
     ReapingScytheAbility.ABILITY_TYPE: ReapingScytheAbility,           # 1095 (deathBossMortarion « Mortarion » GUILD BOSS, npc : Execute(AttackWithAttackDamage(Caster@0x48, Target@0x60 op_Addition AdjacentFriends(Target@0x60, 1, 3), MinMaxDamage, Chain, GetHits()=nrOfHits=7, options Nullable VIDE)) -- PAS d'ExecuteAtomic, aucun groupe. L'`AdjacentFriends` est ANCRE SUR LA CIBLE (variante A, reference = le centre) : ce sont les allies DE LA CIBLE, donc les ennemis du caster autour d'elle ; famille ATTACK (crit/block actifs) ; masque = preset TargetingOptions statics+0x40 TEL QUEL = 0x4000 TargetIsEnemy + RANGE_ADJACENT)
     DoomboltAbility.ABILITY_TYPE: DoomboltAbility,                     # 1102 (thousAhriman Ahriman ThousandSons : Min(nrOfHits + Count(hexes en Feu), 9) coups Psychic REPARTIS par division entiere sur les ennemis <=range non obscurcis, tries SortUnitsByDamageUtility avec la CIBLE forcee en tete ; native_factory ATTACK, ExecuteAtomic 0x61)
     HeavyWarpFlamerAbility.ABILITY_TYPE: HeavyWarpFlamerAbility,       # 1227 (thousSekhetar « Sekhetar Robot » ThousandSons : ChainLeftOverHitsAttackDamage de GetNumTotalHits = Sum(nrOfHits, Min(GetPersistentData(1227, Owner, "PSYCHIC_ATTACKS_KEY"), maxNrOfHits - nrOfHits)) coups Flame sur la cible, extraHits NULL, report des coups gaspilles sur And(Damageable(AdjacentFriends(Target)), SurroundingEnemies(Caster, range 2)) trie par SortTargetsByDamagePredictionSelector (hits=1) ; porteur hors seed BC -> catalog_inject ; #523)

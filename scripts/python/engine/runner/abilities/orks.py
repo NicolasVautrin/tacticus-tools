@@ -14,15 +14,16 @@ import hexgeo
 
 from .base import ActiveAbility, convert_rounds_to_turns
 from .targeting import (RANGE_ADJACENT, RANGE_FROM_CONFIG, RANGE_WHOLE_BOARD, RANGED_BOOL_FALSE,
-                        RANGED_BOOL_TRUE, TargetingOptions, entity_tiles, has_steppable_unit)
+                        RANGED_BOOL_IF_RANGED_CASTER, RANGED_BOOL_TRUE, TargetingOptions,
+                        entity_tiles, has_steppable_unit, units_are_friendly)
 from .targeting_rule import TargetingRule as TR
-from ..components import (HealthComponent, PositionComponent, StatsComponent,
+from ..components import (HealthComponent, PositionComponent, StatsComponent, UnitComponent,
                           has_effect_of_type)   # #484 : hisse
 from ...services.battle_query import are_entities_adjacent
 from ...dsl.base import Const
 from ...dsl.effects import ExecutionContext
 from ...entities.active_ability_type import ActiveAbilityType
-from ...entities.behaviours import If, SetCache, op_add, op_and
+from ...entities.behaviours import AtomicGroup, If, SetCache, op_add, op_and
 from ...entities.effect_type import EffectType
 from ...entities.formulas import Count, Get, Multiply, RoundsStarted, Sum, VisualUnitIdFromUnitId
 from ...entities.selectors.accessors import (
@@ -35,7 +36,7 @@ from ...entities.selectors.tiles import (
     tiles_unit_can_move_to_charge_target
 )
 from ...entities.selectors.units import (
-    AdjacentFriends, AdjacentUnits, Damageable, Friends, SurroundingEnemies, Union, Unique,
+    AdjacentFriends, AdjacentUnits, Damageable, Friends, Sub, SurroundingEnemies, Union, Unique,
     UnitSet, UnitsFromFaction, Unobscured, non_steppable_or_object_units
 )
 from ...entities.stats import StatType
@@ -1538,3 +1539,144 @@ class GrotTankAbility(ActiveAbility):
         return {"ability": GROT_TANK_ID, "caster": caster_id, "target": target_id, "tile": tile_id,
                 "summon": summon_vid, "spawned": spawned, "tank_hp": tank_hp,
                 "attacks": attacks, "dsl": True}
+
+
+# =================================================================================================== #
+# ExplosivePresents (1170, `orksRedGobbo` -- Da Red Gobbo, npc) -- #997.
+#
+# L'audit de couverture l'annoncait `DAMAGE(Blast)` en derivant la categorie du `damageProfile` de
+# l'ARME du porteur (residu #491-r2). Ici la categorie annoncee est **CONFIRMEE** par le decompile :
+# le cast frappe pour de vrai (contraste les quatre autres de la meme tranche, qui posent des effets
+# `*_Pending*` et dont le degat appartient a une TRIGGERED -- cf.
+# `docs/rl/case-997-six-noop-la-categorie-annoncee-ment-4-fois-sur-6.md`).
+# =================================================================================================== #
+
+EXPLOSIVE_PRESENTS_ID = "ExplosivePresents"
+EP_CONST_UNIT_ID = AbilityConstantType.unitId       # GetStringConstant(0) -> "unitId" = orksGrot
+
+
+def explosive_presents_tree() -> AtomicGroup:
+    """Arbre de `IdunBattleLogic.Entities.Abilities.Active.Loki.ExplosivePresentsAbility$$ExecuteBehaviour`
+    (id 1170, `orksRedGobbo`) -- MIRROR du DECOMPILE :
+
+        targets = op_Subtraction( op_Addition( target@0x60,
+                                               AdjacentUnits(target@0x60, unique:1, 3) ),
+                                  caster@0x48 )
+        ExecuteAtomic(
+            AttackWithAbilityDamage(caster@0x48, targets, MinMaxDamage(abilityState),
+                                    GetDamageProfile(), GetHits(), this, 2)
+          , 0x2a )
+
+    UN SEUL volet d'attaque (contraste tout le patron splash main+secondaire de `loki/splash.py`) :
+    le natif passe un selecteur MULTI directement a UN `AttackWithAbilityDamage`, donc la CIBLE et
+    ses adjacents partagent la MEME plage (`minDmg`/`maxDmg`) et le MEME nombre de coups
+    (`nrOfHits`) -- il n'y a ni `minDmg_2` ni `nrOfHits_2` dans la config 1170.
+    `IdunBattle.Entities.Behaviours.AttackBehaviour$$Execute` resout la liste, l'`OrderBy` par id,
+    puis attaque chaque cible -> porte via `multi=True`.
+
+    FRIENDLY-FIRE, et c'est le decompile qui le dit : le selecteur est `AdjacentUnits` BRUT, SANS
+    wrapper `Enemies(...)` -- meme forme que `StikkbombAbility$$ExecuteBehaviour` (#213). Les ALLIES
+    du caster adjacents a la cible sont donc touches. Le SEUL retrait est le CASTER lui-meme, par un
+    `op_Subtraction(., caster@0x48)` explicite.
+
+    `selectionType = 3` (`OnlyAliveAndTargetable`) est LU au 4e argument du `DSLSelectors$$AdjacentUnits`
+    natif -- la surcharge unique `(this, origin, unique, selectionType)`. Sans wrapper de camp c'est
+    le SEUL filtre de l'ensemble, d'ou son poids ici.
+
+    FACTORY NATIVE = `IdunBattleLogic.Entities.DSLBehaviors$$AttackWithAbilityDamage` (le symbole est
+    resolu tel quel dans le corps decompile) -> `native_factory="ability"` = `AbilityDamageOperation`
+    = **1 tirage/coup**, PAS les 2 tirages/coup de `DSLFactory$$AttackWithAttackDamage` (piege
+    rngcrit-1202). RANGED : la config 1170 n'a AUCUN `attackRangeType`, donc `AttackRangeType.None`
+    (0) != `Melee` -> `is_melee=False` (convention du port, cf. `fury_of_the_ancients`).
+
+    `ExecuteAtomic(., 0x2a)` -> `AtomicGroup` (inline #201 ; `0x2a` = id du groupe atomique, aucun
+    `EvaluateAbilities` implicite, cf. #209)."""
+    # `op_Addition(target, AdjacentUnits(target))` puis `op_Subtraction(., caster)`. Le premier
+    # operande est la CIBLE dans le domaine UNITE (`Target()`) ; le centre geometrique du second est
+    # sa tuile (`TargetTile()`, convention Stikkbomb/PlasmaGrenade : le natif passe un selecteur
+    # d'unite et `AdjacentTiles` en resout les pieds).
+    targets = Sub(Union(Target(), AdjacentUnits(TargetTile(), selection_type=SELECTION)),
+                  Caster())
+    return AtomicGroup(AttackWithAttackDamage(targets, EXPLOSIVE_PRESENTS_ID, "Blast",
+                                              is_melee=False, multi=True,
+                                              native_factory="ability"))
+
+
+class ExplosivePresentsAbility(ActiveAbility):
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.ExplosivePresentsAbility$$ExecuteBehaviour`
+    (id 1170, `orksRedGobbo` -- Da Red Gobbo, npc ; faction Orks).
+
+    UN volet d'attaque AoE : la cible ET ses unites adjacentes (friendly-fire, cf.
+    `explosive_presents_tree`), moins le caster. Plage et coups PARTAGES par toutes les cibles.
+
+    CONFRONTABILITE : porteur `orksRedGobbo`, npc -- montable par `--explicit-stats` (toute entree
+    `units.npc` porte une table `stats[]`). « npc-only » n'implique pas « non confrontable »."""
+    __slots__ = ()
+    ABILITY_TYPE = int(ActiveAbilityType.ExplosivePresents)   # 1170
+    ABILITY_ID = EXPLOSIVE_PRESENTS_ID
+
+    # GATE DE CIBLE (#115) -- forme (A) FLAGS DIRECTS, la seule ou la lecture naive du litteral est
+    # juste. `IdunBattleLogic.Entities.Abilities.Active.Loki.ExplosivePresentsAbility$$.ctor` :
+    #     TargetingOptions..ctor(&opts, 0, &<TargetingRange statics+0x18>, 2, 0x200000000002, 0, 0)
+    #     AActiveAbility..ctor(this, &opts, 0)
+    # UN SEUL appel de ctor, aucune copie de preset statique, aucune surcharge PRESET+FLAGS
+    # derriere -- le 5e argument EST le masque.
+    # Decomposition EXHAUSTIVE de 0x200000000002 (aucun bit residuel) :
+    #     0x2               (bit 1)  TargetMatchesDynamicRule -> consulte
+    #                                `get_dynamic_invalid_target_reason` ci-dessous (PORTEE)
+    #     0x200000000000    (bit 45) TargetIsUnit             -> la cible est une UNITE
+    # ⚠ AUCUN `TargetIsEnemy` : le masque n'exclut PAS les allies. C'est la REGLE DYNAMIQUE qui les
+    # refuse, et elle a une exception (l'unite de quete) -- rabattre le gate sur `TargetIsEnemy`
+    # serait plus restrictif que le natif.
+    # PORTEE : `TargetingRange` statique `+0x18` = `useRangeFromConfig` -> `constants.range` = 2 ;
+    # `forceMeleeTarget = 2` = `RangedBool.IfRangedCaster` (l'enum natif est INVERSE).
+    TARGETING_OPTIONS = TargetingOptions(
+        rules=TR.TargetMatchesDynamicRule | TR.TargetIsUnit, self_cast=False,
+        range=RANGE_FROM_CONFIG, force_melee_target=RANGED_BOOL_IF_RANGED_CASTER)
+
+    def get_dynamic_invalid_target_reason(self, state: "State", caster_id: int, target_id) -> int:
+        """`IdunBattleLogic.Entities.Abilities.Active.Loki.ExplosivePresentsAbility$$GetDynamicInvalidTargetReason`
+        -- la regle-delegue posee a `options+0x38`, consultee parce que le masque porte
+        `TargetMatchesDynamicRule`. Corps natif, LU (5 parametres `caster, casterTiles, target,
+        targetTiles`) :
+
+            questUnitId = <gameconfig>.GetUnit( GetStringConstant(config, 0 = unitId) ).Id
+            if (target != null && UnitExtensions.GetQuestUnitId(target) == questUnitId) return 0
+            return UnitExtensions.IsFriend(target, caster, state) ? 2 : 0
+
+        Autrement dit : **l'unite designee par `constants.unitId` reste TOUJOURS une cible valide,
+        meme amie** (config 1170 : `orksGrot` -- Da Red Gobbo offre ses cadeaux a ses propres
+        Grots), et **hors elle les amis sont refuses** (raison 2). C'est ce qui explique l'absence
+        de `TargetIsEnemy` dans le masque : le filtrage de camp vit ICI, avec son exception.
+
+        `GetQuestUnitId(unit)` = `BaseUnitComponent+0x18` s'il est non vide, SINON
+        `UnitExtensions$$GetVisualUnitId(unit)`. Le port n'a pas de champ `questUnitId` distinct :
+        il lit `UnitComponent.visual_id`, c'est-a-dire la BRANCHE DE REPLI du natif -- exacte pour
+        toute unite dont le `questUnitId` est vide, ce qui est le cas de tout ce qui entre dans un
+        runner (aucun montage n'ecrit ce champ). ECART NOMME, pas un oubli.
+
+        `IsFriend(target, caster, state)` compare `GetCurrentPlayer` des deux ; offline l'equivalent
+        est `units_are_friendly` (meme `OwnerComponent.team`, la convention d'equipe du port).
+        Un caster ou une cible introuvable -> `IsFriend` faux -> 0 (permissif, == le natif dont les
+        deux `GetCurrentPlayer` se rabattent alors sur 0... et deviennent EGAUX ; le port refuse ici
+        de fabriquer un refus sur une entite absente)."""
+        quest_unit_id = ((GC.ability(EXPLOSIVE_PRESENTS_ID) or {}).get("constants")
+                         or {}).get(EP_CONST_UNIT_ID.name)
+        te = state.get_entity(int(target_id)) if target_id is not None else None
+        uc = te.get_component(UnitComponent) if te is not None else None
+        if uc is not None and quest_unit_id and uc.visual_id == quest_unit_id:
+            return 0                                  # l'unite de quete est TOUJOURS ciblable
+        return 2 if units_are_friendly(state, target_id, caster_id) else 0
+
+    def execute_behaviour(self, state: "State", caster_id: int,
+                          target_id: Optional[int]) -> Optional[dict]:
+        if target_id is None:
+            return None
+        ectx = ExecutionContext(state=state, rng=state.rng)
+        explosive_presents_tree().execute(entities_from_state(state, caster_id, target_id), ectx)
+        atks = [p for n, p in ectx.emitted if n == "AttackWithAttackDamage"]
+        main = next((p["attack"] for p in atks if p.get("target") == target_id), None)
+        splash = [{"target": p["target"], "attack": p["attack"]}
+                  for p in atks if p.get("target") != target_id]
+        return {"ability": EXPLOSIVE_PRESENTS_ID, "caster": caster_id, "target": target_id,
+                "main_attack": main, "splash": splash, "dsl": True}
