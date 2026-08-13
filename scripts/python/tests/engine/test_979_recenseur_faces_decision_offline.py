@@ -220,15 +220,38 @@ def test_etage4_les_CONSTANTES_sont_declarees_avec_leur_source(aid, verdict):
         "source introuvable : %s" % e["source"]
 
 
-def test_etage4_ExcruciatingFrequences_est_portee_HORS_registre():
-    """`1197` est portee depuis #56-t3b par un GENERATEUR bespoke appele EN DUR dans
-    `ComparableAbilityGenerator.generate` -- son playbook natif cible une TUILE et ses evals ont
-    `rankCount = 0`, donc aucun `plan` ne l'amene. AUCUN conteneur de niveau module ne peut
-    l'exprimer : c'est le verdict `PORTE_HORS_REGISTRE`, dont le `porteur` est RESOLVABLE."""
+def test_etage4_ExcruciatingFrequences_est_portee_par_DEUX_canaux():
+    """`1197` est portee par un GENERATEUR bespoke appele EN DUR dans
+    `ComparableAbilityGenerator.generate` (#56-t3b) -- son playbook natif cible une TUILE et ses
+    evals ont `rankCount = 0`, donc aucun `plan` ne l'amene. C'est le verdict
+    `PORTE_HORS_REGISTRE`, dont le `porteur` est RESOLVABLE.
+
+    ⚠ CE TEMOIN A ETE PERIME PAR NOTRE PROPRE CADENCE, et c'est le fait a graver (#1021). Il
+    exigeait `not face_portee(1197)` -- << AUCUN conteneur de niveau module ne peut l'exprimer >>.
+    Faux depuis `4e712818` (#957-r3), qui a inscrit `1197` dans `_MAKE_DMG_INPUT_OVERRIDES` pour
+    son `nrOfHits` LITTERAL. Les deux canaux ne disent PAS la meme chose et coexistent -- le site
+    de `prediction/abilities.py` l'ecrit noir sur blanc (<< Route BESPOKE cote decision [...] qui
+    appelle `make_damage_predictions` : elle traverse donc CE registre comme les autres >>) :
+
+        le GENERATEUR bespoke porte le CHOIX de l'ability (elle n'entre dans aucun `plan`) ;
+        la VOIE de registre porte une ENTREE de sa prediction de degat (les hits).
+
+    `DFV.etat` fait PRIMER la voie -- c'est ecrit dans son docstring, et c'est le bon sens : si le
+    port a fini par ecrire quelque chose de propre, c'est ce qu'il faut lire. L'attestation reste
+    au ledger parce qu'elle NOMME le porteur du choix et le tient resolvable ; elle a simplement
+    cesse d'etre DECOMPTANTE. Ce test grave les deux, pour qu'aucun des deux ne disparaisse sans
+    qu'on le voie.
+    """
     etat, detail = DFV.etat(EXCRU, _nom(EXCRU))
-    assert etat == "PORTEE", "1197 doit etre PORTEE (hors registre), etat = %s" % etat
-    assert not DFV.face_portee(EXCRU, _nom(EXCRU)), \
-        "1197 n'a AUCUN conteneur qui la porte -- si elle en a un, l'attestation est a retirer"
+    assert etat == "PORTEE", "1197 doit etre PORTEE, etat = %s" % etat
+    voies = DFV.face_portee(EXCRU, _nom(EXCRU))
+    assert voies == ["_MAKE_DMG_INPUT_OVERRIDES"], (
+        "1197 est portee par %s. Le seul conteneur attendu est `_MAKE_DMG_INPUT_OVERRIDES` "
+        "(#957-r3, `nrOfHits` litteral). Un conteneur EN PLUS ou EN MOINS change ce que ce test "
+        "dit : le relire avant de l'adapter." % voies)
+    assert detail == "_MAKE_DMG_INPUT_OVERRIDES", (
+        "la VOIE doit PRIMER sur l'attestation dans `etat` (detail = %r) -- sinon un port ecrit "
+        "resterait masque par une attestation devenue redondante" % detail)
     e = DFV.attestations()[_nom(EXCRU)]
     assert e["verdict"] == "PORTE_HORS_REGISTRE"
     mod, _, sym = e["porteur"].partition(":")
@@ -238,18 +261,30 @@ def test_etage4_ExcruciatingFrequences_est_portee_HORS_registre():
 
 
 def test_etage4_contre_epreuve_une_attestation_PERIMEE_remet_le_travail():
-    """Mutation JOUEE : on perime les trois attestations en leur donnant un build faux. Les trois
-    CONSTANTES doivent redevenir NON PORTEE, et `1197` aussi. Le sens de la degradation est
-    CHOISI : la peremption ne sait que RAJOUTER du travail."""
+    """Mutation JOUEE : on perime les attestations en leur donnant un build faux. Les trois
+    CONSTANTES doivent redevenir NON PORTEE. Le sens de la degradation est CHOISI : la peremption
+    ne sait que RAJOUTER du travail.
+
+    ⚠ `1197` N'EST PLUS DANS CETTE LISTE, et l'omission est un RESULTAT, pas un oubli (#1021) :
+    depuis `4e712818` une VOIE de registre la porte, et une voie ne perime pas avec le build. La
+    laisser ici exigerait qu'elle redevienne du travail alors qu'un port ECRIT la couvre -- ce
+    serait demander au cliquet de mentir. Le cas est verifie explicitement ci-dessous, dans
+    l'autre sens.
+    """
     vrai = CA.build_courant
     try:
         CA.build_courant = lambda: "buildquinexistepas"
         att = DFV.attestations()
         assert not att, "MUTATION NON MORDANTE : le build faux doit tout perimer"
-        for aid in (LTC, LASH, SFS, EXCRU):
+        for aid in (LTC, LASH, SFS):
             etat, _d = DFV.etat(aid, _nom(aid), att=att)
             assert etat == "NON PORTEE", \
                 "%s doit REDEVENIR du travail quand son attestation perime" % _nom(aid)
+        etat, _d = DFV.etat(EXCRU, _nom(EXCRU), att=att)
+        assert etat == "PORTEE", (
+            "1197 est portee par une VOIE de registre (`_MAKE_DMG_INPUT_OVERRIDES`), qui ne perime "
+            "PAS avec le build : perimer son attestation ne doit RIEN changer a son etat, etat = %s"
+            % etat)
     finally:
         CA.build_courant = vrai
     assert DFV.etat(LTC, _nom(LTC))[0] == "CONSTANTE", "etat NON restaure"
