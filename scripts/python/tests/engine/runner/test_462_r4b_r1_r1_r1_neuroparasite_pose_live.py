@@ -43,7 +43,20 @@ import probe_462_r4b_r1_r1_r1_neuroparasite_pose as PB
 
 NEUROPARASITE = 1218               # l'EFFET (1183 est le `TriggeredAbilityType` homonyme)
 PINNED = 1065                      # `EffectType.Pinned` -- pose par le trait `SuppressiveFire`
-NEURO_ATTACK2 = 4448               # degat de la 2e attaque, ATTESTE par #462-r4b-r1-r1 (PR #553)
+#: Degat de la 2e attaque. ⚠ CE SCALAIRE DEPEND DU REGIME D'EQUIPEMENT, et il a ete regrave --
+#: mesure du 2026-08-13, sur le MEME arbre, meme montage, seule la bascule change :
+#:
+#:     TACTICUS_BIS_ITEMS defaut (items Best-In-Slot)  ->  port 4677 == live 4677
+#:     TACTICUS_BIS_ITEMS=0       (regime DEGENERE)    ->  port 4448 == live 4448   (7 passed)
+#:
+#: `4448` etait la valeur ATTESTEE par #462-r4b-r1-r1 (PR #553), ecrite AVANT la bascule #419-r5 --
+#: c'est le vice de #914-r2 (« toute premisse de montage ecrite AVANT cette bascule est suspecte »),
+#: sous sa forme SCALAIRE. Ce que le rouge accusait n'etait donc PAS le port : `port == live` dans
+#: les DEUX regimes, l'accord n'a jamais ete rompu. Re-graver le nombre est la reparation ; faire
+#: diverger le port pour satisfaire une attestation morte aurait ete la faute.
+#: ⚠ Le cliquet `tests/engine/test_933_premisse_regime_offline.py` ne voit PAS cette forme : il
+#: cherche une premisse de regime ECRITE dans une docstring, pas un SCALAIRE grave. Residu #933-r3.
+NEURO_ATTACK2 = 4677               # regime BiS (defaut), mesure 2026-08-13 ; 4448 = regime BIS=0
 BUFF_MAX_LEVEL_50 = 15             # `ConfigVar(0x4c = buffMaxLevel)` au niveau de passif 50
 
 
@@ -158,12 +171,19 @@ def test_le_cap_GetMaximumLevel_vaut_buffMaxLevel(pose_case):
 
 
 def test_la_pose_portee_ne_deplace_PAS_la_magnitude_attestee(pose_case):
-    """NON-REGRESSION la plus forte du lot : la 2e attaque doit rendre EXACTEMENT ce que #553 a
-    atteste (port 4448 == natif 4448). Le parasite y est encore au niveau 1 au moment ou l'additif
-    est lu -- la montee a 2 n'a lieu qu'a la CLOTURE (`On(9)`), APRES le degat.
+    """NON-REGRESSION la plus forte du lot : la 2e attaque doit rendre EXACTEMENT `NEURO_ATTACK2`.
+    Le parasite y est encore au niveau 1 au moment ou l'additif est lu -- la montee a 2 n'a lieu
+    qu'a la CLOTURE (`On(9)`), APRES le degat.
 
-    Si ce test rougissait a 8896 (= 2 x 4448), le port aurait monte le niveau AVANT de resoudre le
-    degat : une inversion d'ordre que seul ce chiffre revele."""
+    Si ce test rougissait au DOUBLE (`2 x NEURO_ATTACK2`), le port aurait monte le niveau AVANT de
+    resoudre le degat : une inversion d'ordre que seul ce chiffre revele. C'est pour ce cran que la
+    valeur est ecrite en dur et non re-derivee -- mais elle depend du REGIME D'EQUIPEMENT, d'ou les
+    deux mesures citees sur `NEURO_ATTACK2`.
+
+    ⚠ LA PREMIERE ASSERTION EST CE QUI SEPARE LES DEUX ACCUSES. `port == live` dit que le port suit
+    le natif ; c'est seulement APRES elle que la seconde confronte le nombre GRAVE. Un rouge de la
+    seconde SEULE accuse l'attestation, jamais le port -- c'est exactement ce qui est arrive le
+    2026-08-13 (`port=4677 live=4677 attendu 4448`)."""
     m = pose_case
     assert m["port_attack2_per_hit"] == m["live_attack2_per_hit"], (
         "ledger PAR COUP divergent\n  port=%s\n  live=%s"
