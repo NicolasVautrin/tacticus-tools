@@ -284,6 +284,7 @@ from ..loki.helspear import (HelspearBuffActiveAbility,               # #1008 (r
                              HelspearResetActiveAbility)              #  blackHaarken)
 from ..loki.dw02_advanced_burst_cannon import (                       # #1012 (relique 1476, tauCrisis)
     Dw02AdvancedBurstCannonAbility)
+from ..loki.relic_power_fist import RelicPowerFistAbility             # #1009 (relique 1466, 3 factions)
 from ..loki.relentless_march import RelentlessMarchAbility             # #328 (passif necroWarden)
 from ..loki.my_will_be_done_overlord import (MyWillBeDoneOverlordAttackAbility,   # #354 (necroOverlord)
                                              MyWillBeDoneOverlordClearAbility)
@@ -1456,6 +1457,20 @@ RELIC_ABILITY_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
     # pile serait un `BaseEffect` nu, qui ne modifie aucune stat.
     # Cf. loki/dw02_advanced_burst_cannon.py.
     "Dw02AdvancedBurstCannon": [Dw02AdvancedBurstCannonAbility],
+    # RelicPowerFist (relique `R_Crit_RelicPowerFist`, `TriggeredAbilityType` 0x5ba = 1466 ; #1009).
+    # ⚠ TROIS porteurs autorises, sur TROIS factions : `templAggressor` (Black Templars),
+    # `bloodIntercessor` (Blood Angels), `darkaTerminator` (Dark Angels, celui que #1009 confronte).
+    # UNE classe native :
+    #   `On(9 = Attack, alive) & get_OwnerIsCaster
+    #    & CurrentAttackDamageProfilesContain(0xe = Power, includeNotApplied = true)`
+    #   -> `Maybe(AddEffect(0x429 = 1065 Pinned,  source = Owner@+0x30, targets = Target@+0x60),
+    #             ConditionalAmount(IsSpecialActiveAbility, Double(chance),   chance))
+    #    &  Maybe(AddEffect(0x48a = 1162 Stunned, source = Owner@+0x30, targets = Target@+0x60),
+    #             ConditionalAmount(IsSpecialActiveAbility, Double(chance_2), chance_2))`
+    # ⚠ DEUX tirages `next_bool` INDEPENDANTS, Pinned PUIS Stunned (`MaybeBehaviour` tire AVANT son
+    # enfant, `CombinedBehaviour` execute gauche puis droite) : les fusionner decalerait la sequence
+    # PRNG de toute la bataille. Cf. loki/relic_power_fist.py.
+    "RelicPowerFist": [RelicPowerFistAbility],
 }
 
 # --- Registre : abilities GLOBALES (aucun owner) ---------------------------------------------------

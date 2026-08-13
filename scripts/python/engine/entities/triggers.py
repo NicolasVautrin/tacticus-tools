@@ -1585,6 +1585,44 @@ class IsNormalAttack(AbilityTrigger):
         return ctx.attack_ability_type == NORMAL_ATTACK_KIND
 
 
+class IsSpecialActiveAbility(AbilityTrigger):
+    """`IdunBattleLogic.Entities.DSLTriggers$$IsSpecialActiveAbility` -- MIRROR de sa STRUCTURE,
+    lue au decompile (build `rnca9r7q6c`) :
+
+        sel = <DSLSelectors+0x90>                       # le selecteur d'ABILITY, celui-la meme que
+                                                        # `$$TriggeringAbilityIs` prend
+        return <TypeA>(sel) & op_LogicalNot( <TypeB>(sel) )
+
+    Les DEUX conjoints sont des `AbilityTrigger` construits sur le MEME selecteur, avec un `.ctor`
+    trivial FONDU par l'ICF (ghidra affiche `UnityEngine.Scripting.RequiredByNativeCodeAttribute$$
+    .ctor` pour les deux) : la seule chose qui les distingue est le `Il2CppClass*` du cache de
+    metadata, **non resoluble a froid** (les slots sont remplis par
+    `il2cpp_codegen_initialize_runtime_metadata`) et propre a CETTE methode -- deux methodes qui
+    instancient la meme classe ont des slots DIFFERENTS, donc la comparaison inter-methodes ne
+    tranche rien non plus. C'est un RESULTAT de lecture, pas un renoncement : ce qui est LU, c'est
+    la FORME `A & !B` sur le canal d'ability, et le NOM de la methode DSL.
+
+    Ce que le port evalue, et pourquoi c'est le seul choix qui ne devine rien :
+      * canal VIDE (`None`) -> **False**. `IdunBattle.Entities.Triggers.IsActiveAbilityTrigger$$
+        ShouldTrigger` resout son selecteur en `Nullable<AbilityOrEffect>` et **rend 0 quand le
+        Nullable est vide** (branche `if (*pcVar13 == '\\0')` du decompile) -- l'absence de canal
+        n'est donc PAS un tri-etat a signaler, c'est la reponse NATIVE.
+      * canal == `NORMAL_ATTACK_KIND` (le marqueur d'attaque normale, 0x3f5) -> **False**, par le
+        `!` du second conjoint : une attaque NORMALE n'est jamais une active << speciale >>.
+      * sinon -> **True**.
+
+    Cote port, `ctx.attack_ability_type` est le MEME canal que celui d'`IsNormalAttack` ci-dessus.
+    Consommateur : `...RelicPowerFistAbility$$CreateBehaviour` (#1009), qui DOUBLE ses deux chances
+    quand ce trigger est vrai -- exactement le << These chances are doubled if the attack is an
+    active ability >> de l'i2."""
+    def should_trigger(self, ctx):
+        from ..runner.abilities.attack_type import NORMAL_ATTACK_KIND
+        kind = getattr(ctx, "attack_ability_type", None)
+        if kind is None:
+            return False                       # `Nullable` vide -> `IsActiveAbilityTrigger` = false
+        return int(kind) != int(NORMAL_ATTACK_KIND)     # `& !<TypeB>(sel)`
+
+
 class IsAdjacent(AbilityTrigger):
     """`IdunBattleLogic.Entities.DSLTriggers$$IsAdjacent(a, b, selectionType)` ->
     `IdunBattle.Entities.Triggers.IsAdjacentAbilityTrigger$$ShouldTrigger` -- MIRROR 1:1 du
