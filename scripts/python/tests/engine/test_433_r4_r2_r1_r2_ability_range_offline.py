@@ -74,38 +74,73 @@ def test_config_range_only_when_use_range_from_config():
     assert ar.ability_range_value(1204, CHARGE) is None     # LeadingTheCharge (whole board)
 
 
+#: Override synthetique du cobaye ci-dessous. Aucune ability ne porte les DEUX ingredients (c'est
+#: ecrit dans la docstring d'origine) : la garde protege l'ORDRE, pas un cas reel.
+_OVERRIDE_SYNTHETIQUE = 2
+
+
+def _cobayes_de_l_ordre() -> list:
+    """Abilities utilisables comme hote de la garde d'ordre : `[(id, constants.range)]`.
+
+    SUBSTRAT = LE GAMECONFIG, et c'est tout le point. Une ability y porte son `constants.range`
+    qu'elle soit portee ou non -- cette population ne bouge donc pas quand nous portons. Mesure du
+    2026-08-13 : 260 membres, **72** avec un `constants.range` > 0, **28** apres le filtre
+    discriminant ci-dessous.
+
+    ⚠ FILTRE DISCRIMINANT, pas cosmetique : on ECARTE les abilities dont la portee de config vaut
+    deja l'override synthetique. Sur celles-la les deux bras du test rendraient le MEME nombre, et
+    la garde passerait au vert sans rien separer -- un accord en regime degenere.
+    """
+    out = []
+    for m in ActiveAbilityType:                 # MEMBRE, jamais un ordinal nu (#270-r1 volet 2)
+        v = ar._config_range(int(m))
+        if isinstance(v, int) and v > 0 and v != _OVERRIDE_SYNTHETIQUE:
+            out.append((int(m), v))
+    return sorted(out)                          # trie : le cobaye ne depend pas d'un ordre d'iteration
+
+
 def test_override_range_wins_over_config():
     """L'ORDRE natif : `SetConfigValues...` ne pose la config que si `OverrideRange` est encore
-    vide, donc un override du ctor GAGNE. On le prouve sur un `TargetingRange` synthetique qui
-    porte les DEUX (aucune ability du lot ne le fait -- la garde protege l'ordre, pas un cas)."""
-    both = TargetingRange(use_range_from_config=True, override_range=2)
-    import dataclasses
-    # ⚠ LE COBAYE SE DERIVE, IL NE SE FIGE PAS. Il etait ecrit en dur (`1069
-    # SeekerMissileFrequencyLock`) : le jour ou cette ability a ete PORTEE (#491), elle a quitte
-    # `TARGETING_OPTIONS_UNPORTED` -- disjointe d'`ABILITY_CLASSES` -- et ce test est tombe en
-    # `KeyError` sur `master`, pour une cause qui n'a RIEN a voir avec ce qu'il garde (l'ORDRE
-    # override-avant-config). Un cobaye fige dans une table qui RETRECIT a chaque port est une
-    # peremption programmee ; on prend donc la premiere entree VIVANTE qui porte les deux
-    # ingredients du montage. (Repare depuis #488, qui a fait sortir 1087 de la meme table.)
-    # MEMBRE et non ordinal nu (#270-r1 volet 2) : toute ECRITURE sur cette table porte un membre --
-    # les cles de la table EN SONT deja, donc iterer dessus le garantit.
-    cle = next((k for k, o in TARGETING_OPTIONS_UNPORTED.items()
-                if o.range is not None and getattr(o.range, "use_range_from_config", False)
-                and isinstance(ar._config_range(int(k)), int) and ar._config_range(int(k)) > 0),
-               None)
-    assert cle is not None, (
-        "plus AUCUNE entree de `TARGETING_OPTIONS_UNPORTED` ne porte `use_range_from_config` avec "
-        "un `constants.range` lisible : ce test a perdu son substrat, pas sa raison d'etre")
-    aid = int(cle)
-    assert ar._config_range(aid) > 0, "montage : l'ability doit bien porter un constants.range"
-    prev = TARGETING_OPTIONS_UNPORTED[cle]
-    try:
-        TARGETING_OPTIONS_UNPORTED[cle] = dataclasses.replace(prev, range=both)
-        ar._REACH_CACHE.clear()
-        assert ar.ability_range_value(aid, RANGED) == 2
-    finally:
-        TARGETING_OPTIONS_UNPORTED[cle] = prev
-        ar._REACH_CACHE.clear()
+    vide, donc un override du ctor GAGNE.
+
+    ⚠ TROISIEME PEREMPTION DU MEME COBAYE, ET LA DERNIERE -- parce que cette fois on change de
+    SOURCE, pas de cobaye. Historique : ecrit en dur sur `1069 SeekerMissileFrequencyLock`, tombe en
+    `KeyError` quand #491 l'a PORTEE ; re-derive sur la premiere entree vivante de
+    `TARGETING_OPTIONS_UNPORTED`, re-tombe a #488 ; puis ROUGE sur `master` le 2026-08-13 quand cette
+    table est descendue a **3 entrees dont 0** avec un `constants.range` lisible. Le defaut n'est
+    aucune de ces trois fois le choix du cobaye : c'est d'aller le chercher dans une table qui
+    RETRECIT A CHAQUE PORT, donc dont le vide est notre PROGRES. Relacher le filtre n'aurait rien
+    sauve -- la table s'eteint.
+
+    CE QUE LA GARDE EXERCE DESORMAIS : `_range_terms`, qui EST le site de l'ordre (`ov =
+    rng.override_range` puis `if ov is None and rng.use_range_from_config`). Elle n'injecte plus rien
+    dans aucun registre -- l'ancienne version mutait `TARGETING_OPTIONS_UNPORTED` sous un `try/
+    finally` pour emprunter un hote. Un invariant se teste sur la fonction qui le porte, pas a
+    travers la plomberie qui l'appelle.
+
+    ET ELLE EST PLUS FORTE QU'AVANT : elle porte maintenant les DEUX bras. Sans le second, un
+    `_range_terms` qui ignorerait purement la config resterait VERT.
+    """
+    cobayes = _cobayes_de_l_ordre()
+    assert cobayes, (
+        "aucune ability du gameconfig ne porte un `constants.range` > 0 different de %d : la garde "
+        "d'ordre n'a plus d'hote. Contrairement aux trois peremptions precedentes, celle-ci NE PEUT "
+        "PAS venir de nos ports -- ce serait un changement de BUILD ou une regression de "
+        "`_config_range`." % _OVERRIDE_SYNTHETIQUE)
+    aid, cfg = cobayes[0]
+
+    # BRAS 1 -- l'override du ctor est pose : il GAGNE, la config n'est jamais consultee.
+    both = TargetingRange(use_range_from_config=True, override_range=_OVERRIDE_SYNTHETIQUE)
+    assert ar._range_terms(both, aid, RANGED)[0] == _OVERRIDE_SYNTHETIQUE, (
+        "override du ctor + use_range_from_config : l'override doit gagner (ability %d)" % aid)
+
+    # BRAS 2, LA CONTRE-EPREUVE -- sans override, c'est la config qui parle. `cfg != override` par
+    # construction du filtre, donc les deux bras rendent des nombres DIFFERENTS : le bras 1 prouve
+    # quelque chose.
+    sans = TargetingRange(use_range_from_config=True)
+    assert ar._range_terms(sans, aid, RANGED)[0] == cfg, (
+        "sans override, `_range_terms` doit rendre le `constants.range` (%d) de l'ability %d"
+        % (cfg, aid))
 
 
 def test_only_adjacent_collapses_the_range_to_one():
