@@ -166,8 +166,98 @@ def _decoupe(plein: str) -> tuple[str, str]:
     return ns, court
 
 
+#: Le cache de verdict de la DERIVATION (#1029). Contexte = le source des deux modules qui la
+#: gouvernent : ce fichier (l'algorithme) et `probe_982r4`, qui repositionne `GETTER`. Un seul
+#: caractere change dans l'un des deux vide le cache.
+_CACHES: dict = {}
+
+
+def _cache(getter: str):
+    """Le `CacheCliquet` de CE getter, monte a la demande.
+
+    ⚠ UN FICHIER PAR GETTER, ET C'EST STRUCTUREL, pas cosmetique : `enregistrer()` reecrit le
+    fichier avec EXACTEMENT les entrees vues par le run -- c'est ce qui fait son menage. Or le meme
+    deriveur sert DEUX cliquets sur deux slots (`#175-r2` -> `get_CanBeImmuneTo`, `#982-r4` ->
+    `get_KeepOnChangeOwner`), dans deux PROCESSUS separes. Un fichier commun ferait donc evincer
+    l'entree de l'autre a chaque run, et le cache serait toujours froid -- une optimisation qui
+    n'optimise rien, et qu'aucun test n'aurait vue.
+    """
+    if getter not in _CACHES:
+        import verdict_cache
+        ici = Path(__file__).resolve().parent
+        _CACHES[getter] = verdict_cache.CacheCliquet(
+            "probe_175r2_derivation_%s" % getter,
+            contexte=verdict_cache.sha_fichiers_texte(
+                ici / "probe_175r2_can_be_immune_to.py",
+                ici / "probe_982r4_keep_on_change_owner.py"),
+            notes=("# Cle de validation = sha256 des ENTREES DU BUILD (global-metadata.dat,",
+                   "# GameAssembly.dll, frida/methods.tsv, ghidra/functions.tsv), PAS d'un fichier",
+                   "# du depot : ce verdict ne depend QUE du build, donc il ne peut bouger qu'a une",
+                   "# mise a jour du jeu -- l'invalidation est une CLE, pas une heuristique."))
+    return _CACHES[getter]
+
+
+def _sha_des_entrees(build: str) -> str | None:
+    """Empreinte des QUATRE entrees du build. `None` = PAS MESURABLE, jamais un sha.
+
+    TRI-ETAT OBLIGATOIRE : sans le jeu installe, on ne sait pas de quel build on parle -- servir
+    une entree cachee reviendrait a attester une derivation qu'on n'a pas pu faire. On rend `None`,
+    l'appelant recalcule (et refusera lui-meme de conclure, comme avant ce cache)."""
+    import verdict_cache
+    from symbols_layout import build_dir
+    try:
+        meta = Path(build_pin.global_metadata())
+    except build_pin.BuildPinRefused:
+        return None
+    dll = meta.parents[3] / "GameAssembly.dll"
+    d = build_dir(build)
+    return verdict_cache.sha_gros_fichiers(meta, dll,
+                                           d / "frida" / "methods.tsv",
+                                           d / "ghidra" / "functions.tsv")
+
+
 def deriver() -> dict | None:
-    """`{classe: {parent, declare, valeur_propre, valeur_effective, corps, source}}` ou `None`."""
+    """`{classe: {parent, declare, valeur_propre, valeur_effective, corps, source}}` ou `None`.
+
+    MESURE : 80,4 s sans cache, et c'etait le test le plus lent du parc -- a lui seul plus que les
+    1 500 autres de son lot. Le cache est LEGITIME ici parce que la derivation ne lit QUE le build
+    (`global-metadata.dat`, `GameAssembly.dll`, `frida/methods.tsv`, `ghidra/functions.tsv`) : son
+    resultat ne peut pas changer tant qu'aucun de ces quatre fichiers ne change, et l'invalidation
+    est donc EXACTE -- une cle, pas une heuristique.
+
+    ⚠ CE QUI SERAIT UN VERT QUI MENT, et que les deux gardes ci-dessous ecartent : servir une
+    entree quand on ne sait PAS de quel build on parle (jeu non installe -> `_sha_des_entrees` rend
+    `None` -> aucune lecture ni ecriture de cache), et servir une entree calculee par un ALGORITHME
+    different (le `contexte` porte le sha des deux sources ; les modifier vide le cache).
+
+    Le run A FROID reste accessible sans supprimer l'artefact versionne :
+    `TACTICUS_SANS_CACHE_CLIQUET=1` (nom VERIFIE dans `verdict_cache.ENV_SANS_CACHE` -- j'avais
+    d'abord ecrit `TACTICUS_SANS_CACHE` ici, et la contre-epreuve a rendu 3,8 s au lieu de 100 s :
+    une echappatoire au mauvais nom ne desarme rien et se lit comme un run a froid reussi).
+    """
+    build = build_pin.current_build()
+    sha = _sha_des_entrees(build)
+    if sha is None:
+        return _deriver_brut()
+    import verdict_cache
+    cache = _cache(GETTER)
+    rel, appel = "data/symbols/%s" % build, "deriver:%s" % GETTER
+    vu = cache.obtenir(rel, appel, sha)
+    if vu is not verdict_cache.MANQUE:
+        return vu
+    table = _deriver_brut()
+    # ON N'ECRIT JAMAIS UN REFUS. `_deriver_brut` rend `None` quand une etape a REFUSE de conclure
+    # (jeu absent, DLL manquante, alignement refuse). Cacher ce `None` figerait un << pas mesure >>
+    # jusqu'au prochain changement de build : le cliquet se tairait ensuite sur un vrai probleme,
+    # sans que rien ne le signale. C'est le seul chemin par lequel ce cache pourrait rendre un vert
+    # qui ment, et il est ferme ici.
+    if table is not None:
+        cache.poser(rel, appel, sha, table)
+        cache.enregistrer()
+    return table
+
+
+def _deriver_brut() -> dict | None:
     try:
         meta_path = Path(build_pin.global_metadata())
     except build_pin.BuildPinRefused:
