@@ -1216,7 +1216,6 @@ class CamoCloakDmgReductionEffect(BaseEffect):
 
     def is_active(self, unit_state: Mapping | None = None) -> bool:
         return camo_cloak_cover(unit_state)          # CreateActiveCondition = HasValidEffectTrigger(Owner)
-
     def create_effect_damage_malus_for_defense(self, is_melee: bool | None = None,
                                                damage_profile: str | None = None,
                                                attacker_ctx: Mapping | None = None) -> EffectBonus | None:
@@ -1236,3 +1235,151 @@ class CamoCloakDmgReductionEffect(BaseEffect):
     # accumulateurs avant `CalculateBaseDamageWithAllModifiers` (RE #462-r4b-r1) -> les deux
     # attributions predisent le meme nombre. Posee parce qu'elle est LUE.
     DEFENSE_MALUS_NATIVE_FACE = "attacker"
+
+
+#: Nom gameconfig du PASSIF -- la CONFIG que `ConfigVar(config@+0x60)` indexe. C'est le NOM, jamais
+#: l'ordinal : `EffectType 1118` et `TriggeredAbilityType 1118` nomment deux choses differentes, et
+#: la config du passif est la TRIGGERED **1009** (cf. l'en-tete de `WhipcoilBodyReduceDmgEffect`).
+_WHIPCOIL_ABILITY_ID = "WhipcoilBody"
+#: `AbilityVariableType 0x12 = 18` (`frida/enums.tsv`), DANS `variablesAffectedByRarityBonus`.
+_WHIPCOIL_DMG_VAR_KEY = "dmgReduction"
+
+
+class WhipcoilBodyReduceDmgEffect(BaseEffect):
+    """`WhipcoilBody_ReduceDmg` (`EffectType` 0x45e = **1118**) -- owner-effect PERMANENT du passif de
+    kit `WhipcoilBody` : le PORTEUR subit `-dmgReduction` de degat PLAT sur toute attaque de MELEE
+    dont il est la cible. #1016.
+
+    i2 : << This unit takes -{[dmgReduction]} Damage from melee attacks. >> (509 au dernier des
+    65 paliers) -- l'i2 ne mentionne NI adjacence NI camp de l'attaquant, et le decompile non plus.
+
+    ## LES DEUX ARTEFACTS NATIFS, ET CE QU'ILS N'OVERRIDENT PAS
+
+        IdunBattleLogic.Entities.Abilities.Triggered.Loki.WhipcoilBodyAbility
+            : IdunBattle.Entities.Abilities.AOwnerEffectTriggeredAbility        (`frida/classes.tsv`)
+        IdunBattleLogic.Entities.Abilities.Triggered.Loki.WhipcoilBody_ReduceDmgEffect
+            : IdunBattle.Entities.Effects.BaseEffect                            (`frida/classes.tsv`)
+
+    Blocs `methodPointers` du PE, LUS (les corps dedupliques par l'ICF resolus par leur ADRESSE,
+    jamais par le nom que ghidra leur donne) -- deux blocs CONTIGUS, ce qui les cadre l'un l'autre :
+
+        WhipcoilBody_ReduceDmgEffect : [ .ctor,
+                                         CreateActiveCondition  = <DSLTriggers+0x40>,
+                                         CreateTargetSelector   = <DSLSelectors+0x30> = Owner,
+                                         CreateEffectDamageMalusForDefense ]
+        WhipcoilBodyAbility          : [ GetEffectType, .ctor ]
+
+    `WhipcoilBodyAbility` n'override donc QUE `$$GetEffectType`, dont le corps ENTIER est
+    `return 0x45e` : l'appariement ability -> effet est **LU**, pas devine (meme forme exacte que
+    `ToughToKill_CritAbility` / `Ramshackle` / `Skullsmasher`). Tout le reste vient de la base :
+
+        IdunBattle.Entities.Abilities.AOwnerEffectTriggeredAbility$$CreateTrigger
+            = OnOwnerSpecificAbilityInit(this.AbilityType@+0x10)
+        IdunBattle.Entities.Abilities.AOwnerEffectTriggeredAbility$$CreateCondition
+            = <DSLTriggers+0x70> = YesTrigger
+        IdunBattle.Entities.Abilities.AOwnerEffectTriggeredAbility$$CreateBehaviour
+            = If( CreateCondition(abilityState),
+                  AddEffect( GetEffectType(), AbilityState(Owner@DSLSelectors+0x30, abilityType),
+                             targets = Owner@+0x30, source = Owner@+0x30, turns = <zeroe> ),
+                  null )
+
+    -> owner-effect PERMANENT pose a l'init du porteur. `CreateActiveCondition` de l'effet est
+    `<DSLTriggers+0x40>`, la constante VRAIE (meme type que le `YesTrigger` de `+0x70`, `+0x48` en
+    etant l'`op_LogicalNot`) : l'effet est TOUJOURS ACTIF, donc TOUJOURS publie par
+    `decisionView.effects` (canal ACTIF-ONLY) -- pas d'`active_condition_ported`, et le seed
+    `ABILITY_INIT_OWNER_EFFECTS["WhipcoilBody"]` n'est qu'un FILET (idempotent).
+
+    ## LE CANAL, LU EN ENTIER
+
+        IdunBattleLogic.Entities.Abilities.Triggered.Loki.WhipcoilBody_ReduceDmgEffect$$
+        CreateEffectDamageMalusForDefense =
+            EffectBonus.ForSubtraction(
+                get_OwnerIsTarget & IsMeleeAttack,
+                ConfigVar(0x12 = dmgReduction, GetAbilityState(effet), config@+0x60) )
+
+    * **DEUX conjoints, pas quatre.** C'est le contraste a ne PAS rater avec le voisin de forme
+      `IdunBattleLogic.Entities.Abilities.Triggered.Loki.TerrorsLament_DamageReductionEffect$$
+      CreateEffectDamageMalusForDefense`, qui enchaine `IsAdjacent(Caster@+0x48, Owner@+0x30, 3)
+      & AreEnemies(Owner@+0x30, Caster@+0x48, 0) & IsMeleeAttack` : celui-ci n'a **ni** `IsAdjacent`
+      **ni** `AreEnemies`, et son premier operande est `get_OwnerIsTarget`. Recopier le trigger du
+      voisin restreindrait la reduction aux seuls attaquants adjacents et ennemis -- une faute
+      silencieuse, qui ne leve pas.
+    * **AUCUNE patte AURA, et ce n'est pas un oubli.** `get_OwnerIsTarget` =
+      `AreEqual(Owner@DSLSelectors+0x30, Target@DSLSelectors+0x60)` : des que le porteur n'est pas
+      la cible du coup, le trigger est FAUX. La moitie `Owner != cible` de la boucle
+      `effets x cibles` de `IdunBattle.Core.Services.DamageCalculations$$
+      CalculateDefenderModifiersForPrediction` ne peut donc rien produire -> pas de
+      `create_aura_defense_damage_malus_for_ally` (contraste, la encore, avec `TerrorsLament`, dont
+      le trigger porte sur `(Caster, Owner)` et accorde donc les deux pattes).
+    * **`ForSubtraction`, pas `ForAddition`** : tranche par l'ADRESSE de la cible du `call`
+      (`IdunBattle.Entities.Effects.EffectBonus$$ForSubtraction`, qui ecrit le montant au champ
+      `+0x18` de la struct `EffectBonus`) -> reduction PLATE versee dans `flat_reductions`, additif
+      DEFENSEUR pre-percage. Meme canal que `Nightshroud_DmgReduction` et
+      `TerrorsLament_DamageReduction`.
+    * PAS de `DEFENSE_MALUS_NATIVE_FACE` : l'effet derive de `BaseEffect` (pas de
+      `DamageModifierAbilityEffect`) et implemente DIRECTEMENT
+      `CreateEffectDamageMalusForDefense` -- la contribution sort donc bien par la face DEFENSEUR,
+      contrairement a `Terrifying_ExtraDefense_Effect` / `MarkerlightEffect`, dont le forwarder
+      `IdunBattle.Entities.Effects.DamageModifierAbilityEffect$$CreateEffectDamageBonusForAttack`
+      la verse cote attaquant.
+
+    ## ⚠ QUATRE ENUMS, LE MEME ENTIER
+
+        EffectType            0x45e = 1118 = WhipcoilBody_ReduceDmg   <- CE qu'on lit ici
+        TriggeredAbilityType  0x45e = 1118 = TerrorsLament            <- une AUTRE ability, REELLE
+        TriggeredAbilityType         1009  = WhipcoilBody             <- la CONFIG du passif
+        ActiveAbilityType            1009  = ResurrectionOrb          <- deja portee, necrons.py:723
+
+    Lire `1118` comme une `TriggeredAbilityType` chercherait la config de `TerrorsLament` : elle
+    existe et porte elle aussi un `dmgReduction`, donc l'erreur ne leverait PAS -- elle rendrait la
+    mauvaise magnitude, en silence. C'est pourquoi la cle de config est le NOM `"WhipcoilBody"`.
+
+    ## PORTEURS (`unit_map find --ability WhipcoilBody`, voie `passive`) -- 4, dont 1 summon
+
+    `necroNpc4Destroyer`, `necroNpc4DestroyerLHE`, `necroNpc4DestroyerSurv` (npc) et
+    `necroSmnDestroyer` (SUMMON). ⚠ `necroSmnDestroyer` est un summon **SANS invocateur d'unite** :
+    la seule ability du gameconfig qui le declare est `EnvFactionSummons:Necrons`, qu'AUCUNE unite
+    ne porte (meme constat que `necrons.py` pour `TunnelingHorror`). La confrontation live passe
+    donc par la GREFFE du passif sur une unite du pool (`case-92` sec.5bis), et la condition de
+    greffe est VERIFIEE au decompile : cet arbre ne lit NI stat NI trait du porteur -- seulement
+    `ConfigVar(dmgReduction)` de la config `WhipcoilBody` et le fait que le porteur soit la cible
+    d'un coup de melee.
+
+    ASCII only.
+    """
+
+    def _amount(self) -> "int | None":
+        """`ConfigVar(0x12 = dmgReduction, GetAbilityState(effet), config@+0x60)`.
+
+        `AbilityVariableType 0x12 = 18 = dmgReduction` (`frida/enums.tsv`) -- et NON
+        `AbilityConstantType 0x12 = hpPct`, l'autre lecture possible du meme ordinal : c'est
+        `IdunBattleLogic.Entities.DSLFormulas$$ConfigVar` (-> `GetVariableForLevel`) qui tranche,
+        pas `GetNumberConstant`. `WhipcoilBody.variables.dmgReduction` a **65 paliers** (7 -> 509)
+        et figure dans `variablesAffectedByRarityBonus` -> le multiplicateur de rarete MORD.
+
+        `AOwnerEffectTriggeredAbility$$CreateBehaviour` bake `AbilityState(Owner, abilityType)` --
+        l'etat du PASSIF du porteur -> `ability_level` de l'instance (jamais
+        `active_ability_level`), pose par le seed comme par la capture `decisionView.effects`."""
+        lvl = self.ability_level if self.ability_level is not None else self.level
+        v = ability_var(_WHIPCOIL_ABILITY_ID, _WHIPCOIL_DMG_VAR_KEY, lvl,
+                        multiplier_pct=int(self.ability_variables_multiplier or 100))
+        return int(v) if v else None
+
+    def create_effect_damage_malus_for_defense(self, is_melee: bool | None = None,
+                                               damage_profile: str | None = None,
+                                               attacker_ctx: Mapping | None = None) -> EffectBonus | None:
+        """PATTE SELF, et la SEULE -- cf. l'en-tete de la classe.
+
+        `get_OwnerIsTarget` est COLLAPSE dans le canal lui-meme : cet agregateur n'est appele que
+        pour l'effet du DEFENSEUR courant (`damage_model.defender_modifiers` /
+        `playbook.prediction._shared`), donc `Owner == Target` par construction du site d'appel.
+        Il ne reste qu'`IsMeleeAttack` a evaluer.
+
+        `is_melee` suit la convention tri-etat #106 : `None` = nature de l'attaque NON DECLAREE ->
+        le gate se FERME (degradation RESTRICTIVE, meme lecture que `ParryEffect` et
+        `TerrorsLamentDamageReductionEffect`). Le regime permissif inverse ferait porter la
+        reduction a des attaques a distance, que le natif n'y soumet pas."""
+        if is_melee is not True:                     # gate IsMeleeAttack (None = nature inconnue)
+            return None
+        v = self._amount()
+        return for_subtraction(False, v) if v else None   # owner = le DEFENSEUR -> flat_reductions
