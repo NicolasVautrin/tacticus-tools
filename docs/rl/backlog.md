@@ -4305,3 +4305,38 @@ pas d'erreur : il rend **zéro**, et un zéro se lit « rien à signaler ».
   le noeud d'action forcee -- verifier lesquels sont deja portes AVANT de s'engager.
   FOYER: scripts/python/engine/runner/operations/triggers/loki/, scripts/python/engine/entities/selectors/units.py
   BLOCAGE: etage
+
+- **#996-r1** — les TROIS no-op silencieuses du lot #996 NON portees : `1015 PrecisionShot`, `1053
+  DevoutPush`, `1208 AetherStride`. Point d'entree : `docs/rl/case-996-six-no-op-silencieuses-reconnaissance.md`
+  (leur `ExecuteBehaviour` y est lu et transcrit). 1015 est un `UseActiveAbility(Caster, Caster,
+  1012 PrecisionShot_Aim)` : le porter SANS 1012 deplace le no-op d'un cran au lieu de le fermer.
+  1053 demande deux mirrors neufs -- le selecteur `IdunBattleLogic.Entities.DSLSelectors$$DeadUnits`
+  (DISTINCT de `DownedUnits`, qui l'enveloppe dans un `UnitsWithFlagSelector(0xf)`) et l'utilite
+  `UtilityType.DevoutPush_AdjacentRangedEnemies` (53), probablement inerte comme la 62 de
+  BioMinefield (cf. #175-r). 1208 est le plus lourd : `Spawn(ThreeTileUnitSpawnShape(Target))` **&**
+  `RemoveMachine(Caster)` -- la MoW DISPARAIT, un port qui n'emettrait que le `Spawn` laisserait
+  Z'Kar sur le plateau.
+  FOYER: engine/runner/abilities/necrons.py, engine/runner/abilities/blacktemplars.py, engine/runner/abilities/thousandsons.py, engine/entities/selectors/units.py
+  BLOCAGE: aucun
+- **#996-r2** — les effets poses par #996 sont INERTES : seule leur POSE est portee. `1286
+  WarConstruct_CounterAttack` porte tout son appareil dans l'EFFET
+  (`IdunBattle.Entities.Effects.Loki.WarConstruct_CounterAttackEffect$$GetCounterAttackBehaviour`,
+  `$$GetCounterAttackTrigger`, `$$GetCounterAttackCondition`, `$$GetDamage`,
+  `$$CreateActiveCondition`) ; `1302 IgnoreUsedAbilityInOverwatch` se joue dans le gate d'overwatch ;
+  et la magnitude `dmgPctReduction = 50` de `1397 ForwardObservers_DamageReduction` vit dans
+  `...ForwardObservers_DamageReductionEffect$$CreateEffectDamageMalusForDefense`. Les trois sont
+  poses avec la bonne duree et confrontes live (accord exact), donc c'est bien l'ETAGE EFFET qui
+  manque, pas la pose.
+  FOYER: engine/entities/effects/loki/, engine/entities/effects/factory.py
+  BLOCAGE: etage
+- **#996-r3** — `IdunBattle.Entities.Behaviours.UseActiveAbilityBehaviourOptions` n'est pas modelisee
+  par le port (`InvalidTargetPolicy@+0x00`, `SkipEndTurnFlag@+0x08`, `SkipAbilityFlag@+0x09`,
+  `SkipAtomicCheck@+0x0a`, `SkipAliveCheck@+0x0b`, `TempData@+0x0c` -- layout LU dans
+  `sources_win/IdunBattle/Entities/Behaviours/UseActiveAbilityBehaviourOptions.cs`). `1010
+  StormOfFlensingBlades` est le PREMIER call-site a options non nulles : `SkipEndTurnFlag = (i == 0)`
+  (la 1re des deux attaques ne clot pas le tour, la 2e si) et `SkipAtomicCheck = true`. L'ecart est
+  INERTE aujourd'hui -- la feuille ne pose aucun flag de tour cote port, ce sont les tables
+  d'override du handler qui le font pour l'ability PARENTE -- et il cessera de l'etre au premier
+  call-site ou `SkipEndTurnFlag` discrimine.
+  FOYER: engine/runner/abilities/behaviours/combat.py
+  BLOCAGE: aucun

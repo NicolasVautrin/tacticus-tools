@@ -140,6 +140,12 @@ ABILITY_ATTACK_TYPE: dict[int, int] = {
     ActiveAbilityType.MultiThreatEliminator: AbilityAttackType.DirectTargetAttack,  # 1006
     ActiveAbilityType.HarbingerOfDestruction: AbilityAttackType.DirectTargetAttack,  # 1008
     ActiveAbilityType.ArmoriumCherub: AbilityAttackType.DirectTargetAttack,  # 1014
+    # StormOfFlensingBlades (1010, lot #996) : `...StormOfFlensingBladesAbility$$.ctor` ->
+    # `AActiveAbility..ctor(this, &opts, 0)` -- le 3e argument est le litteral `0`. TRANSCRIT, et il
+    # tombe juste ici : le cast rejoue DEUX FOIS l'attaque NORMALE du porteur sur la cible. C'est
+    # l'audit qui se trompait en l'annoncant EFFECT/BUFF (colonne derivee du `damageProfile` de
+    # l'ARME, cf. residu #491-r2).
+    ActiveAbilityType.StormOfFlensingBlades: AbilityAttackType.DirectTargetAttack,  # 1010
     # StormOfWrath (1019) : `...Active.Loki.StormOfWrathAbility$$.ctor` ->
     # `AActiveAbility..ctor(this, &opts, 0)` -- le 3e argument est le litteral `0`. TRANSCRIT, pas
     # deduit : le behaviour n'attaque PAS « en direct » (c'est une CHAINE `ChainAbilityDamage` de
@@ -761,6 +767,12 @@ ABILITY_ATTACK_TYPE: dict[int, int] = {
     # pas au cast. On transcrit le 3e argument du ctor, jamais le profil de degat du kit.
     ActiveAbilityType.NovaBoost: AbilityAttackType.Others,  # 1192
     ActiveAbilityType.NovaShield: AbilityAttackType.Others,  # 1194
+    # Lot #996 (« six no-op silencieuses ») -- les DEUX poseuses d'effets du lot. Litteraux RELUS au
+    # decompile, jamais deduits du kit :
+    #   `...ForwardObserversAbility$$.ctor` -> `AActiveAbility..ctor(this, &opts, 2)`
+    #   `...WarConstructAbility$$.ctor`     -> `AActiveAbility..ctor(this, &opts, 2)`
+    ActiveAbilityType.ForwardObservers: AbilityAttackType.Others,  # 1185
+    ActiveAbilityType.WarConstruct: AbilityAttackType.Others,  # 1133
 }
 # COUVERTURE : la table couvre l'INTEGRALITE du registre `ABILITY_CLASSES` (garde-fou :
 # `probe_120_pre_unit_ability_fork.py` etape 0). Une ability AJOUTEE au registre sans son litteral de

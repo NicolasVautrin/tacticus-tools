@@ -82,19 +82,21 @@ from .bloodangels import (SavageEchoesAbility, HammerOfWrathAbility, LightOfSang
 from .necrons import (AdaptiveStrategyAbility, HarbingerOfDestructionAbility,
                       ResurrectionOrbAbility, ChronometronAbility,
                       MultiThreatEliminatorAbility, TunnelingHorrorAbility,
-                      NanoscarabRepairProtocolsAbility, ReanimationBeamAbility)
+                      NanoscarabRepairProtocolsAbility, ReanimationBeamAbility,
+                      StormOfFlensingBladesAbility)
 from .sisterhood import (SanctorumMissileAbility, SkyStrikeAbility, DevastatingRefrainAbility,
                          ThriceBlessedConflagrationAbility, BrazierOfHolyFireAbility,
                          RitesOfRestorationAbility)
 from .tau import (HeavyRailRifleAbility, TwinSmartMissileSystemAbility, FightingRetreatAbility,
                   EarlyWarningOverrideAbility, InspiredToGreatnessAbility,
                   SeekerMissileFrequencyLockAbility, ExemplarOfTheKauyonAbility,
-                  ExemplarOfTheMontkaAbility, NovaShieldAbility, NovaBoostAbility)
+                  ExemplarOfTheMontkaAbility, NovaShieldAbility, NovaBoostAbility,
+                  ForwardObserversAbility)
 from .votann import (IronkinSteeljackAbility, AugmentedAssaultAbility, GravitonRifleAbility,
                      AncestralFortuneAbility, MassDriverAcceleratorAbility)
 from .aeldari import (EmpyricAmbushAbility, ExecutionerAbility, FireAndRepositionAbility,
                       HarvesterOfSoulsAbility, KissOfDeathAbility, SilentDeathAbility,
-                      SwoopingHawkAbility)
+                      SwoopingHawkAbility, WarConstructAbility)
 from .spacewolves import RitesOfMorkaiAbility                        # 1211 (spaceWolfPriest Baldr)
 from .spacewolves import (GreatFrostAxeAbility, FoehammerAbility, GrapnelLauncherAbility,
                           WarHowlAbility)
@@ -338,6 +340,13 @@ ABILITY_CLASSES: dict[int, type[ActiveAbility]] = {
     # `entities/abilities/active_ability.py`, `MakeDamagePredictions` = GenerateMultiHitAttackPredictions).
     # Porteur HORS pool (`astarCyrus`) -> confronte par `catalog_inject`, comme son passif HaywireMine.
     StrikeFromTheShadowsAbility.ABILITY_TYPE: StrikeFromTheShadowsAbility,  # 1225 (astarCyrus « Cyrus » Adeptus Astartes : (AttackWithAttackDamage(Caster@0x48, Target@0x60, MinMaxDamage, Bolter, GetHits, selectionType 2) + AddEffect(0x60d StrikeFromTheShadows -> Target, source Caster, Sum(TurnsFromRounds(1), Direct(1)) TOURS)) + ResetMovement(Owner@0x30) ; l'attaque part D'ABORD, le mouvement est rendu EN DERNIER ; l'effet 0x60d est numeriquement INERTE (EffectBonus a trigger seul, six slots de magnitude a ZERO) ; PAS d'ExecuteAtomic)
+    # --- #996 : trois des SIX no-op silencieuses du lot (docs/rl/case-996-six-no-op-silencieuses-
+    # reconnaissance.md). La colonne « categorie » de l'audit derive du `damageProfile` de l'ARME du
+    # porteur (residu #491-r2) : elle etait FAUSSE pour 1010, JUSTE pour 1133 et 1185. Les trois
+    # sont npc-only ou summon -> confrontees par GREFFE (case-92 §5bis) / via leur summoner.
+    ForwardObserversAbility.ABILITY_TYPE: ForwardObserversAbility,   # 1185 (`tauNpc5StealthSuit` npc + `tauSmnStealthSuit` SUMMON, Tau : EFFECT/BUFF CONFIRMEE -- op_Addition( AddEffect(0x462 = 1122 Markerlight, absRef, source Owner@0x30, targets Target@0x60, TurnsFromRounds(GetNumberConstant(0x45 nrOfRounds) = 2)), AddEffect(0x575 = 1397 ForwardObservers_DamageReduction, absRef, source Owner@0x30, targets Owner@0x30, TurnsFromRounds(GetNumberConstant(0x77 nrOfRounds_2) = 1)) ) ; DEUX durees DISTINCTES et DEUX cibles distinctes ; la face DECISION etait deja portee (`playbook/loki_custom.py`) et la face COMBAT etait un NO-OP)
+    WarConstructAbility.ABILITY_TYPE: WarConstructAbility,           # 1133 (`eldarNpc4Wraithguard` + `eldarNpc4WraithguardSurv` npc Aeldari : EFFECT/BUFF CONFIRMEE -- cast SELF (`isSelfCasting = 1`), op_Addition( AddEffect(0x506 = 1286 WarConstruct_CounterAttack -> Target@0x60, TurnsFromRounds(1)), AddEffect(0x516 = 1302 IgnoreUsedAbilityInOverwatch -> Owner@0x30, TurnsFromRounds(1)) ) ; les deux durees sont le LITTERAL 1, le kit 1133 ne porte NI constants NI variables ; la MECANIQUE des deux effets vit dans l'EFFET (`WarConstruct_CounterAttackEffect$$GetCounterAttackBehaviour`), hors port -> effets POSES et INERTES)
+    StormOfFlensingBladesAbility.ABILITY_TYPE: StormOfFlensingBladesAbility,  # 1010 (`necroNpc2FlayedOne` + 2 Flayed One de tutoriel, npc Necrons : categorie annoncee EFFECT/BUFF **FAUSSE** -- c'est une DOUBLE ATTAQUE NORMALE. `ExecuteBehaviour` ne construit AUCUN arbre : `DSLBehaviors$$AtomicGroup(0x3e = GroupType.StormOfFlensingBlades_Attacks, <delegue>, null)` surcharge 4-args (executee par le PROCESSOR), et le delegue `<>c__DisplayClass1_0$$<ExecuteBehaviour>b__0` boucle DEUX fois sur `Execute(UseActiveAbility(Caster@0x48, Target@0x60, UnitNormalAttackType(Caster@0x48), options{SkipEndTurnFlag = (i == 0), SkipAtomicCheck = 1}))` ; kit 1010 = `attackRangeType=Melee` SEUL, aucun profil de degats propre)
     TitanhammerSquadAbility.ABILITY_TYPE: TitanhammerSquadAbility,  # 1231 (astarLysander « Lysander » Adeptus Astartes/ImperialFists, TILE-TARGET : ((AddEffect(0x623 _TargetTile -> Target@0x60 la TUILE, source Caster@0x48, Sum(TurnsUntilUnitOwnerTurn(groupe), Direct(1)) TOURS) & Heal(Caster@0x48, groupe, Get(GetVariableForLevel(0x20 hpToHeal)), ForHeal)) & AddDynamicStatModifierEffect(Filter(groupe, AmountIsGreaterThanZero(StatAmount(ActiveTarget@0x68, 7 BlockChance, 0 Current))), Caster@0x48, 0x624 _ExtraBlockDamage, stat 8 BlockDamage, Sum(TurnsUntilUnitOwnerTurn(ActiveTarget@0x68), TurnsFromRounds(1)))) & AddEffect(0x625 _TeleportingIn -> Filter(groupe, NOT HasFlag(ActiveTarget@0x68, 1 ArrivedAtFinalTile)), source Caster@0x48, Sum(TurnsUntilUnitOwnerTurn(ActiveTarget@0x68), Direct(1)) TOURS) ; groupe = Caster@0x48 + Filter(SurroundingFriends(Caster@0x48, GetNumberConstant(0x16 range), unique, 3 OnlyAliveAndTargetable), HasTrait(ActiveTarget@0x68, 0x40f TerminatorArmour)) ; l'audit la classait HEAL, le soin n'est que le 2e des QUATRE volets ; PAS d'ExecuteAtomic)
 }
 

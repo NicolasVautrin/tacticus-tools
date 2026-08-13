@@ -32,7 +32,7 @@ from typing import Optional, TYPE_CHECKING
 from ...dsl.base import AAmountFormula, Const, TargetsSelector
 from ...dsl.effects import ExecutionContext
 from ...dsl.event_trigger_type import EventTriggerType
-from ...entities.behaviours import Foreach, If as IfBehaviour, Seq, op_add, op_and
+from ...entities.behaviours import AtomicGroup, Foreach, If as IfBehaviour, Seq, op_add, op_and
 from ...entities.formulas import Count, Min, RandomAmount, StatAmount, Sum
 from ...entities.selectors.accessors import ActiveTarget, CasterTile, FixedTileIds, Target
 from ...entities.selectors.tiles import AdjacentTiles, AllAliveUnits, CanAddUnit, Caster
@@ -62,7 +62,8 @@ from .targeting import (RANGE_ADJACENT, RANGE_FROM_CONFIG, RANGE_SELF, RANGE_WHO
                         _dynamic_rule_adaptive_strategy)
 from .targeting_rule import TargetingRule as TR
 from .behaviours.ai_control import PerformAIAction
-from .behaviours.combat import AttackWithAttackDamage, ChainLeftOverHitsAttackDamage
+from .behaviours.combat import (AttackWithAttackDamage, ChainLeftOverHitsAttackDamage,
+                                UseActiveAbility)
 from .behaviours.context import entities_from_state
 from .behaviours.effects import AddBondEffect, AddEffect, RemoveEffect
 from .behaviours.lifecycle import (RemoveAllForcedAttackTargets, RemoveUnitFromItsTiles,
@@ -1634,3 +1635,121 @@ class ReanimationBeamAbility(ActiveAbility):
             return 0
         return int(TR.TargetMatchesDynamicRule)
 
+
+
+# ===== StormOfFlensingBlades (1010, `necroNpc2FlayedOne` + les deux Flayed One de tutoriel) ========
+# Lot #996 -- « six no-op silencieuses » (docs/rl/case-996-six-no-op-silencieuses-reconnaissance.md).
+#
+# `IdunBattleLogic.Entities.Abilities.Active.Loki.StormOfFlensingBladesAbility$$ExecuteBehaviour`
+# ne construit AUCUN arbre : il appelle la surcharge 4-arguments
+#
+#   DSLBehaviors$$AtomicGroup( groupType = 0x3e = GroupType.StormOfFlensingBlades_Attacks,
+#                              behaviour = <delegue>, initialTarget = null )
+#
+# qui passe par le PROCESSOR (slot virtuel) -- donc EXECUTION, pas construction de noeud. Le corps
+# reel est le delegue
+# `...StormOfFlensingBladesAbility.u003Cu003Ec__DisplayClass1_0$$u003CExecuteBehaviouru003Eb__0`,
+# une BOUCLE IMPERATIVE de DEUX tours (`i = 0, 1`) qui, a chaque tour, fait :
+#
+#   AActiveAbility$$Execute( ability@this+0x10,
+#       DSLBehaviors$$UseActiveAbility( subject     = Caster@+0x48,
+#                                       targets     = Target@+0x60,
+#                                       abilityType = DSLSelectors$$UnitNormalAttackType(Caster@+0x48),
+#                                       parentAbility = Nullable<AbilityOrEffect>(op_Implicit(this)),
+#                                       triggerAbilityOrEffect = <ZERO>,
+#                                       options = { SkipEndTurnFlag = (i == 0), SkipAbilityFlag = 0,
+#                                                   SkipAtomicCheck = 1, SkipAliveCheck = 0 } ) )
+#
+# CATEGORIE ANNONCEE PAR L'AUDIT = EFFECT/BUFF -> **FAUSSE**. Il n'y a NI effet NI buff dans ce
+# cast : c'est une DOUBLE ATTAQUE NORMALE. L'audit derive sa colonne du `damageProfile` de l'ARME du
+# porteur et le declare lui-meme (residu #491-r2) -- pour une ability non portee, personne ne
+# connait son `ExecuteBehaviour`, donc la colonne ne peut pas etre derivee.
+#
+# L'ATTAQUE EST L'ATTAQUE **NORMALE** DE L'UNITE, pas une attaque d'ability : le type est
+# `UnitNormalAttackType(Caster)`, resolu par distance, et le kit gameconfig 1010 ne porte NI
+# `minDmg`/`maxDmg` NI `nrOfHits` NI `damageProfile` -- seulement `attackRangeType = Melee`. Fabriquer
+# un profil de degats ici serait une invention pure.
+#
+# LES OPTIONS SONT LUES, ET ELLES NE SONT PAS PORTEES -- residu NOMME. La struct est
+# `IdunBattle.Entities.Behaviours.UseActiveAbilityBehaviourOptions` (`InvalidTargetPolicy@+0x00`,
+# `SkipEndTurnFlag@+0x08`, `SkipAbilityFlag@+0x09`, `SkipAtomicCheck@+0x0a`, `SkipAliveCheck@+0x0b`,
+# `TempData@+0x0c`) ; le decompile ecrit `CONCAT12(1, (ushort)(i == 0))` a `+0x08`, soit
+# `SkipEndTurnFlag = (i == 0)` et `SkipAtomicCheck = true`. Le port de `UseActiveAbility` ne
+# modelise AUCUN de ces champs (14 call-sites, tous a options ZERO avant celui-ci) et l'ecart est
+# INERTE ici : la feuille ne pose aucun flag de fin de tour -- ce sont les tables d'override du
+# handler qui le font, pour l'ability PARENTE. La premiere attaque ne doit pas clore le tour, la
+# seconde si : c'est exactement ce que le port obtient en ne posant rien depuis la feuille.
+
+STORM_OF_FLENSING_BLADES_ID = "StormOfFlensingBlades"
+STORM_OF_FLENSING_BLADES_ATTACKS = 2      # les DEUX tours de la boucle du delegue (i = 0, 1)
+
+
+def storm_of_flensing_blades_tree():
+    """Arbre de `...StormOfFlensingBladesAbility$$ExecuteBehaviour` (MIRROR, cf. le bloc ci-dessus) :
+
+        AtomicGroup( GroupType.StormOfFlensingBlades_Attacks,
+                     UseActiveAbility(Caster, Target, UnitNormalAttackType(Caster))
+                     PUIS le MEME, une seconde fois )
+
+    DEUX NOEUDS DISTINCTS, PAS UN `Repeat` : le natif n'utilise pas
+    `IdunBattleLogic.Entities.DSLBehaviors$$Repeat` -- c'est une boucle C# dans un lambda, et les
+    OPTIONS different entre les deux tours (`SkipEndTurnFlag = (i == 0)`). Un `Repeat` reutiliserait
+    le MEME noeud et effacerait cette difference du mirror.
+
+    `op_add` (= `Seq`) COURT-CIRCUITE sur `stop`, la boucle native NON. L'ecart est inerte :
+    `UseActiveAbility.execute` rend `OperationResult.ok()` sur ses TROIS chemins de sortie, donc
+    aucun `stop` ne peut naitre du premier coup.
+
+    `UseActiveAbility(Caster(), Target())` = la feuille deja portee, specialisee au dispatch
+    d'ATTAQUE NORMALE (`UnitNormalAttackType(Caster)` -> `AttackDamageOperation.execute`, resolveur
+    d'arme par distance)."""
+    first = UseActiveAbility(Caster(), Target())        # i = 0, SkipEndTurnFlag = true
+    second = UseActiveAbility(Caster(), Target())       # i = 1, SkipEndTurnFlag = false
+    return AtomicGroup(op_add(first, second))           # GroupType.StormOfFlensingBlades_Attacks
+
+
+class StormOfFlensingBladesAbility(ActiveAbility):
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.StormOfFlensingBladesAbility$$ExecuteBehaviour`
+    (id 1010, `necroNpc2FlayedOne` « Flayed One » + `necroNpc2TutFlayedOne` /
+    `necroNpc2TutFlayedOneFTUEtest`, npc Necrons). Cast UNIT-TARGET.
+
+    Kit gameconfig 1010 : `attackRangeType = Melee` et RIEN d'autre -- aucune variable de niveau,
+    aucune constante, aucun profil de degats. Cette absence CONFIRME que le cast n'a pas de degat
+    propre : il rejoue deux fois l'attaque NORMALE du porteur.
+
+    OBSERVABLE porte : DEUX attaques normales du caster sur la cible, dans cet ordre, dans un
+    groupe atomique. Aucun effet, aucun buff (l'audit annoncait EFFECT/BUFF -- categorie FAUSSE).
+
+    Flags de tour : defauts base (1010 absent des tables d'override)."""
+    __slots__ = ()
+    ABILITY_TYPE = int(ActiveAbilityType.StormOfFlensingBlades)   # 1010
+    ABILITY_ID = STORM_OF_FLENSING_BLADES_ID
+
+    # GATE DE CIBLE + PORTEE -- forme de ctor = **FLAGS DIRECTS** (le litteral du ctor EST le
+    # masque ; aucun preset recopie, aucun OR de flags).
+    # `...StormOfFlensingBladesAbility$$.ctor` :
+    #     TargetingOptions..ctor(&opts, isSelfCasting=0, range=<TargetingRange statics+0x30>,
+    #                            forceMeleeTarget=1, rules=0x4010, 0, 0)
+    #     AActiveAbility..ctor(this, &opts, 0)   # 3e arg = 0 = AbilityAttackType.DirectTargetAttack
+    #
+    # Decomposition EXHAUSTIVE -- 0x10 + 0x4000 = 0x4010, aucun bit residuel :
+    #     0x10    (bit  4) CasterHasNotMoved -> volet CASTER, PORTE (`get_invalid_caster_reason`) :
+    #             le cast est REFUSE si le caster a deja bouge ce tour.
+    #     0x4000  (bit 14) TargetIsEnemy     -> PORTE (refus sur un allie / sur soi).
+    # PORTEE : `TargetingRange statics+0x30` = `RANGE_ADJACENT` (`onlyAdjacent = RangedBool.True`
+    # + `overrideRange = 1`) -> cible ADJACENTE obligatoire, coherent avec `attackRangeType=Melee`.
+    # `forceMeleeTarget` = 1 = `RangedBool.False`.
+    TARGETING_OPTIONS = TargetingOptions(rules=TR.CasterHasNotMoved | TR.TargetIsEnemy,
+                                         self_cast=False, range=RANGE_ADJACENT,
+                                         force_melee_target=RANGED_BOOL_FALSE)
+
+    def execute_behaviour(self, state: "State", caster_id: int,
+                          target_id: Optional[int]) -> Optional[dict]:
+        if target_id is None:
+            return None
+        ectx = ExecutionContext(state=state, rng=state.rng)
+        storm_of_flensing_blades_tree().execute(
+            entities_from_state(state, caster_id, target_id), ectx)
+        attacks = [p for n, p in ectx.emitted if n == "UseActiveAbility"]
+        return {"ability": STORM_OF_FLENSING_BLADES_ID, "caster": caster_id, "target": target_id,
+                "attacks": attacks, "dsl": True}

@@ -751,16 +751,16 @@ TARGETING_OPTIONS_UNPORTED: "dict[int, TargetingOptions]" = {
     #     PAS des faits de RE -- ils bougent a chaque face COMBAT portee, et c'est pour ca
     #     qu'aucun d'eux n'est ecrit a la main.
     #
-    #     len(TARGETING_OPTIONS_UNPORTED) ......... 5
+    #     len(TARGETING_OPTIONS_UNPORTED) ......... 3
     #       dont hors-bloc (tete de table) ..... 1
-    #       dont bloc du pool (#433-r4) ........ 4
+    #       dont bloc du pool (#433-r4) ........ 2
     #
     #     VENTILATION PAR FORME DE CTOR (dict ENTIER, hors-bloc compris) :
-    #       FLAGS-DIRECTS  ..................... 2
-    #       PRESET+FLAGS   ..................... 1
+    #       FLAGS-DIRECTS  ..................... 0
+    #       PRESET+FLAGS   ..................... 2
     #       PRESET-SEUL    ..................... 0
-    #       STATIC-COPY    ..................... 2
-    #       (somme = 5)
+    #       STATIC-COPY    ..................... 1
+    #       (somme = 3)
     # <<< FIN COMPTES DERIVES
     #
     # LES 16 PRESETS, RELUS A LA SOURCE dans `IdunBattle.Core.Services.TargetingOptions$$.cctor`
@@ -1069,12 +1069,15 @@ TARGETING_OPTIONS_UNPORTED: "dict[int, TargetingOptions]" = {
     #     quatre ctors (celles des surcharges `(template, additionalRules)` et `(template)` ne les
     #     citent pas). Le litteral EST le masque : ce corps ecrit `this+0x28 <- rules`, sans `|`.
     # --------------------------------------------------------------------------------------------
-    # 1010 StormOfFlensingBlades -- `...Active.Loki.StormOfFlensingBladesAbility$$.ctor` :
-    #   `.ctor(&opts, 0, &<TargetingRange statics+0x30>, 1, 0x4010, 0, 0)` -> 0x4010 =
-    #   `CasterHasNotMoved` (0x10) | `TargetIsEnemy` (0x4000). `TargetingRange statics+0x30` =
-    #   RANGE_ADJACENT (`.cctor` : `+0x30 = 0` -> onlyAdjacent = True, `+0x38 = Nullable(1)`).
-    ActiveAbilityType.StormOfFlensingBlades: TargetingOptions(rules=TR.CasterHasNotMoved | TR.TargetIsEnemy, self_cast=False,  # 1010
-                           range=RANGE_ADJACENT, force_melee_target=RANGED_BOOL_FALSE),
+    # `1010 StormOfFlensingBlades` N'EST PLUS ICI (#996) -- MEME migration que 1144/1204/1195 : sa
+    #   face COMBAT est desormais portee (`engine/runner/abilities/necrons.py::
+    #   StormOfFlensingBladesAbility`), donc son masque vit sur SA classe et le laisser ici romprait
+    #   le contrat de disjonction. Le ctor a ete RELU par la tranche de portage --
+    #   `.ctor(&opts, 0, &<TargetingRange statics+0x30>, 1, 0x4010, 0, 0)`, forme FLAGS-DIRECTS --
+    #   et il CONCORDE champ pour champ avec ce que le registre porte : `rules = 0x4010` =
+    #   `CasterHasNotMoved` (0x10) | `TargetIsEnemy` (0x4000), `isSelfCasting = 0`,
+    #   `range = <TargetingRange statics+0x30>` = RANGE_ADJACENT, `forceMeleeTarget = 1` =
+    #   `RangedBool.False`. Deux lectures independantes, meme resultat.
     # `1144 BioMinefield` N'EST PLUS ICI (#939) -- MEME migration que 1204 et 1195 : sa face COMBAT
     #   est desormais portee (`engine/runner/abilities/loki/bio_minefield.py::BioMinefieldAbility`),
     #   donc son masque vit sur SA classe et le laisser ici romprait le contrat de disjonction.
@@ -1087,15 +1090,13 @@ TARGETING_OPTIONS_UNPORTED: "dict[int, TargetingOptions]" = {
     #   Le bit `AllowNullCasterTile` reste la SIGNATURE d'une MoW (une machine n'a aucune tuile, cf.
     #   `get_invalid_caster_reason` clause 4a) -- son porteur `tyranBiovore` EST une MoW du pool.
     #   `targeting_options_for(1144)` continue de rendre ce masque : elle lit les DEUX sources.
-    # 1185 ForwardObservers -- `...Active.Loki.ForwardObserversAbility$$.ctor` :
-    #   `.ctor(&opts, 0, &<TargetingRange statics+0x18>, 0, 0x200004002, 0, 0)` -> 0x200004002 =
-    #   `TargetMatchesDynamicRule` (0x2) | `TargetIsEnemy` (0x4000) | `TargetIsNotAnObject`
-    #   (0x200000000). ⚠ `forceMeleeTarget = 0` = `RangedBool.True` -- le SEUL des quatre dans ce
-    #   regime. `statics+0x18` = RANGE_FROM_CONFIG (`.cctor` : `+0x1c = 1`).
-    ActiveAbilityType.ForwardObservers: TargetingOptions(rules=TR.TargetMatchesDynamicRule | TR.TargetIsEnemy  # 1185
-                                 | TR.TargetIsNotAnObject,
-                           self_cast=False, range=RANGE_FROM_CONFIG,
-                           force_melee_target=RANGED_BOOL_TRUE),
+    # `1185 ForwardObservers` N'EST PLUS ICI NON PLUS (#996) : sa face COMBAT est portee
+    #   (`engine/runner/abilities/tau.py::ForwardObserversAbility`) -- contrat de disjonction.
+    #   Ctor RELU par la tranche : `.ctor(&opts, 0, &<TargetingRange statics+0x18>, 0,
+    #   0x200004002, 0, 0)`, forme FLAGS-DIRECTS, et il CONCORDE : `TargetMatchesDynamicRule` (0x2)
+    #   | `TargetIsEnemy` (0x4000) | `TargetIsNotAnObject` (0x200000000), `isSelfCasting = 0`,
+    #   `range = <statics+0x18>` = RANGE_FROM_CONFIG. ⚠ `forceMeleeTarget = 0` = `RangedBool.True`,
+    #   le seul du lot dans ce regime -- c'est ce champ-la qu'une recopie de voisin aurait rate.
     # `1186 WallOfMirrors` N'EST PAS ICI NON PLUS, et pour la raison INVERSE de 1091 : sa face
     # COMBAT est portee depuis (`engine.runner.abilities.loki.wall_of_mirrors`), donc son masque
     # vit dans `ABILITY_CLASSES` et l'ajouter ici violerait le contrat de disjonction. Son ctor a

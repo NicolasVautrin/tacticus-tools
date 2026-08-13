@@ -281,8 +281,8 @@ from .behaviours.movement import FlyUnit, MoveUnit, ResetMovement
 # deux heritieres (1064 ici, 1091 sur `thousandsons.py`) l'importent -- jamais l'une l'autre.
 from .loki.dive_attack import DiveAttackAbility, dive_attack_profile
 from .targeting import (RANGE_ADJACENT, RANGE_ADJACENT_IF_MELEE_CASTER, RANGE_FROM_CONFIG,
-                        RANGE_WHOLE_BOARD, RANGED_BOOL_FALSE, RANGED_BOOL_IF_RANGED_CASTER,
-                        RANGED_BOOL_TRUE, TargetingOptions)
+                        RANGE_SELF, RANGE_WHOLE_BOARD, RANGED_BOOL_FALSE,
+                        RANGED_BOOL_IF_RANGED_CASTER, RANGED_BOOL_TRUE, TargetingOptions)
 from .targeting_rule import TargetingRule as TR
 from ...entities.effects.magnitude import ability_var, ability_var_array
 from ...entities.unit_selection_type import UnitSelectionType
@@ -1322,3 +1322,100 @@ class KissOfDeathAbility(ActiveAbility):
                 "attacks": [a.get("attack") for a in attacks],
                 "move": fly, "dsl": True,
                 "emitted": [n for n, _ in ectx.emitted]}
+
+
+# ============ WarConstruct (1133, `eldarNpc4Wraithguard` / `eldarNpc4WraithguardSurv`) =============
+# Lot #996 -- « six no-op silencieuses » (docs/rl/case-996-six-no-op-silencieuses-reconnaissance.md).
+#
+# `IdunBattleLogic.Entities.Abilities.Active.Loki.WarConstructAbility$$ExecuteBehaviour`
+# (MIRROR 1:1 du DECOMPILE) :
+#
+#   [1] AddEffect( 0x516 = 1302 IgnoreUsedAbilityInOverwatch, AbilityStateReference,
+#                  targets = Owner@+0x30,  DSLFormulas$$TurnsFromRounds(1) )
+#   [2] AddEffect( 0x506 = 1286 WarConstruct_CounterAttack, AbilityStateReference,
+#                  targets = Target@+0x60, DSLFormulas$$TurnsFromRounds(1) )
+#   AActiveAbility$$Execute( op_Addition([2], [1]) )     # <- l'ordre EST celui-la au decompile
+#
+# CATEGORIE ANNONCEE PAR L'AUDIT = EFFECT/BUFF -> **CONFIRMEE**. Le cast ne frappe pas : aucun
+# `AttackWith*`, aucun `UseActiveAbility`, aucune stat touchee. (Cette colonne derive du
+# `damageProfile` de l'ARME du porteur et ne vaut rien tant que l'`ExecuteBehaviour` n'a pas ete lu
+# -- 4 des 6 no-op du lot #996 la portaient FAUSSE.)
+#
+# LES DEUX DUREES SONT LE LITTERAL `1`, PAS UNE CONSTANTE DE CONFIG : le kit gameconfig 1133 ne
+# porte NI `constants` NI `variables`, et le decompile passe `(void *)0x1` a `TurnsFromRounds` aux
+# deux volets. Aller chercher un `nrOfRounds` inexistant rendrait `None`.
+#
+# CAST SELF -- `Target@+0x60` EST le caster ici : le ctor pose `isSelfCasting = 1`, donc
+# `IdunBattle.Core.Services.TargetingQuery$$GetActualTarget` rend `caster` quelle que soit la cible
+# demandee (mirror `actual_target`). Les deux selecteurs sont ecrits SEPAREMENT quand meme, parce
+# que c'est ce que le natif ecrit -- les rabattre sur un seul perdrait la structure.
+
+WAR_CONSTRUCT_ID = "WarConstruct"
+IGNORE_USED_ABILITY_IN_OVERWATCH = int(EffectType.IgnoreUsedAbilityInOverwatch)   # 0x516 = 1302
+WAR_CONSTRUCT_COUNTER_ATTACK = int(EffectType.WarConstruct_CounterAttack)         # 0x506 = 1286
+WAR_CONSTRUCT_ROUNDS = 1              # `TurnsFromRounds(1)` -- LITTERAL du decompile, pas un kit
+
+
+def war_construct_tree():
+    """Arbre de `...WarConstructAbility$$ExecuteBehaviour` (MIRROR 1:1, cf. le bloc ci-dessus) :
+
+        op_Addition( AddEffect(1286 WarConstruct_CounterAttack -> Target, TurnsFromRounds(1)),
+                     AddEffect(1302 IgnoreUsedAbilityInOverwatch -> Owner, TurnsFromRounds(1)) )
+    """
+    counter = AddEffect(WAR_CONSTRUCT_COUNTER_ATTACK, EffectType.WarConstruct_CounterAttack.name,
+                        Target(), duration_rounds=WAR_CONSTRUCT_ROUNDS)
+    overwatch = AddEffect(IGNORE_USED_ABILITY_IN_OVERWATCH,
+                          EffectType.IgnoreUsedAbilityInOverwatch.name,
+                          Owner(), duration_rounds=WAR_CONSTRUCT_ROUNDS)
+    return op_add(counter, overwatch)
+
+
+class WarConstructAbility(ActiveAbility):
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.WarConstructAbility$$ExecuteBehaviour`
+    (id 1133, `eldarNpc4Wraithguard` + `eldarNpc4WraithguardSurv`, npc Aeldari). Cast SELF.
+
+    Kit gameconfig 1133 : NI `constants` NI `variables` -- rien a lire, tout est litteral.
+
+    OBSERVABLE porte : deux effets poses pour `ConvertRoundsToTurns(1)` --
+    `WarConstruct_CounterAttack` (1286) et `IgnoreUsedAbilityInOverwatch` (1302), tous deux sur le
+    caster (cast SELF).
+
+    RESIDU NOMME -- la MECANIQUE des deux effets n'est pas portee, seule leur POSE l'est. Tout
+    l'appareil natif de la contre-attaque vit dans l'EFFET, hors de cet `ExecuteBehaviour` :
+    `IdunBattle.Entities.Effects.Loki.WarConstruct_CounterAttackEffect$$GetCounterAttackBehaviour`,
+    `$$GetCounterAttackTrigger`, `$$GetCounterAttackCondition`, `$$GetDamage`,
+    `$$CreateActiveCondition`. Idem pour 1302, dont le sens (« l'overwatch ignore le fait qu'une
+    ability ait ete utilisee ») se joue dans le gate d'overwatch. Les deux effets sont donc POSES
+    (visibles, duree juste) et INERTES tant que ces artefacts-la ne sont pas portes.
+
+    Flags de tour : defauts base (1133 absent des tables d'override)."""
+    __slots__ = ()
+    ABILITY_TYPE = int(ActiveAbilityType.WarConstruct)   # 1133
+    ABILITY_ID = WAR_CONSTRUCT_ID
+
+    # GATE DE CIBLE + PORTEE -- forme de ctor = **FLAGS DIRECTS** (le litteral du ctor EST le
+    # masque ; aucun preset recopie, aucun OR de flags). `...WarConstructAbility$$.ctor` :
+    #     TargetingOptions..ctor(&opts, isSelfCasting=1, range=<TargetingRange statics+0x60>,
+    #                            forceMeleeTarget=1, rules=0x8000, 0, 0)
+    #     AActiveAbility..ctor(this, &opts, 2)   # 3e arg = 2 = AbilityAttackType.Others
+    #
+    # Decomposition EXHAUSTIVE -- 0x8000 SEUL, aucun bit residuel :
+    #     0x8000  (bit 15) CasterIsPossibleTarget -> flag DECLARATIF (preview / IA), deja mirrore
+    #             (`TargetingOptions.can_target_caster`). AUCUN bit `TargetIsEnemy`/`TargetIsFriendly`
+    #             n'est pose : le domaine de cible est fixe par `isSelfCasting`, pas par le masque.
+    # PORTEE : `TargetingRange statics+0x60` = `RANGE_SELF` (`overrideRange = 0`), et la constante
+    # `range` du kit n'est PAS consultee (elle n'existe pas). `forceMeleeTarget` = 1 =
+    # `RangedBool.False`.
+    TARGETING_OPTIONS = TargetingOptions(rules=TR.CasterIsPossibleTarget, self_cast=True,
+                                         range=RANGE_SELF, force_melee_target=RANGED_BOOL_FALSE)
+
+    def execute_behaviour(self, state: "State", caster_id: int,
+                          target_id: Optional[int]) -> Optional[dict]:
+        ectx = ExecutionContext(state=state, rng=state.rng)
+        war_construct_tree().execute(
+            entities_from_state(state, caster_id, target_id), ectx)
+        posed = [{"target": p.get("target"), "effect": p.get("effect_type"),
+                  "placed": p.get("placed")}
+                 for n, p in ectx.emitted if n == "AddEffect"]
+        return {"ability": WAR_CONSTRUCT_ID, "caster": caster_id, "target": target_id,
+                "posed": posed, "dsl": True}
