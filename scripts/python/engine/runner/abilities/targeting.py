@@ -652,13 +652,27 @@ TARGETING_OPTIONS_UNPORTED: "dict[int, TargetingOptions]" = {
     # C'est le MEME preset que 1216, SANS le `additionalRules = 0x10` : 1215 n'a donc PAS
     # `CasterHasNotMoved` -- elle reste castable apres deplacement, la ou 1216 ne l'est pas.
     # `isSelfCasting` = `<preset>+0x00` = 1 ; `forceMeleeTarget` = `<preset>+0x20` = 1 = RangedBool.False.
-    # `range` = `None` DELIBERE (meme raison que 1216 : le bloc `<preset>+0x08..0x1f` vient d'un champ
-    # statique de `TargetingRange` non resolu -> aucun gate de portee invente).
+    # `range` = `RANGE_SELF` (#943-r1) -- il a porte `None` jusqu'ici, et ce `None` etait un AVEU DE
+    # NON-LECTURE, pas une propriete du natif. Le bloc `<preset>+0x08..0x1f` n'est pas un champ
+    # "non resolu" : `IdunBattle.Core.Services.TargetingOptions$$.cctor` le remplit en COPIANT
+    # `<TargetingRange statics>+0x60..0x77`, et `IdunBattle.Core.Services.TargetingRange$$.cctor`
+    # pose ce bloc a `{+0x60 = 1 (onlyAdjacent = RangedBool.False), +0x68 = Nullable(0)
+    # (overrideRange), +0x70 = null (overrideRangeFunc)}` -- c'est-a-dire exactement `RANGE_SELF`.
+    # ⚠ LE PRESET EST LE MEME QUE CELUI DE 1216 (`<TargetingOptions statics>+0x280`, cf. le bloc
+    # @FORME PRESET+FLAGS ci-dessus) : 1216 en a tire `RANGE_SELF` par #923 (`46ba95e8`) apres cette
+    # MEME lecture, et 1192 avant elle. Deux abilities qui recopient le MEME preset ne peuvent pas
+    # avoir deux portees differentes -- seul le `additionalRules = 0x10` les separe (1215 n'a PAS
+    # `CasterHasNotMoved`).
+    # CE QUE LE `None` COUTAIT : `get_range()` rendait `None`, donc AUCUN gate de portee, donc le
+    # moteur acceptait des casts que le natif REFUSE (`range.Value(0) < d` -> `TargetIsInRange`) --
+    # une degradation PERMISSIVE, silencieuse.
     # MESURE (probe_27_r6_instruments_of_vengeance.py) : `abilityTargets(1215)` rend UNE cible, le
     # caster lui-meme (CasterIsPossibleTarget), et elle SURVIT au deplacement du caster (absence de
-    # CasterHasNotMoved) -- c'est la contre-epreuve qui separe ce masque de celui de 1216.
+    # CasterHasNotMoved) -- c'est la contre-epreuve qui separe ce masque de celui de 1216, et elle
+    # CONCORDE avec `RANGE_SELF` (`overrideRange = 0` : seule la tuile du caster, a distance 0,
+    # passe le gate). Le `None` d'avant, lui, ne pouvait PAS rendre cette unique cible par le gate.
     ActiveAbilityType.InstrumentsOfVengeance: TargetingOptions(rules=TR.CasterIsPossibleTarget | TR.CasterMatchesDynamicRule,  # 1215
-                           self_cast=True, range=None, force_melee_target=RANGED_BOOL_FALSE),
+                           self_cast=True, range=RANGE_SELF, force_melee_target=RANGED_BOOL_FALSE),
 
     # ============================================================================================
     # LES ABILITIES ACTIVES DU POOL SPAWNABLE HORS REGISTRE (#433-r4-r2-r1-r2-r2-r1-r1)
