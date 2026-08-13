@@ -583,8 +583,12 @@ def test_etage6_la_PORTEE_de_la_mesure_est_CHIFFREE() -> None:
 def test_etage4_derivation_concorde_avec_lentree_versionnee(tables, lecteur) -> None:
     """Si le jeu est installe, la table versionnee doit etre CELLE du metadata."""
     reader, _ = lecteur
-    for ns, iface, _ in P.INTERFACES:
-        lu = {m.slot: (m.name, m.param_count, m.flags) for m in reader.type_methods(ns, iface)}
+    #: ⚠ `types_lus()` ET NON `INTERFACES` (#1031). Les REFERENTIELS de classe entrent dans la
+    #: table versionnee ; les omettre ici les laisserait deriver sans qu'aucun controle ne les
+    #: confronte -- une entree qui n'est comparee a rien n'est plus une mesure.
+    for ns, iface in P.types_lus():
+        lu = {m.slot: (m.name, m.param_count, m.flags)
+              for m in reader.type_methods(ns, iface) if m.slot != 0xFFFF}
         assert lu == tables[iface], "%s diverge du metadata" % iface
 
 

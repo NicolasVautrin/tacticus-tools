@@ -223,6 +223,12 @@ ALLOWLIST = {
     "scripts/python/tests/test_enum_ordinal_ratchet_offline.py":
         "le cliquet : ses citations `On(0x2b = PreUnitAbility)` sont les DONNEES qui prouvent "
         "que le detecteur mord -- les corriger desarmerait le test",
+    "scripts/python/tests/test_1031_appariements_de_sondes_offline.py":
+        "meme raison que la ligne au-dessus, pour les crans de #1031 : ses echantillons "
+        "PORTENT une quote perimee (`FUN_...(0x4d, .., 0x2b)` + `On(PreUnitAbility)`) et une "
+        "ligne a DEUX ancres pour une annotation. Ce sont les DONNEES qui prouvent que le gate "
+        "mord ENCORE apres restriction aux quotes, et que le cran d'ambiguite n'est pas inerte "
+        "-- les corriger desarmerait les deux contre-epreuves",
     "scripts/python/probe_443r1c_ordinal_index_perime.py":
         "meme raison : sa docstring REPRODUIT la ligne fautive de #443-r1c "
         "(`leaves.get(8)  # 8=Elevation`) et son echantillon d'auto-test la PORTE -- les "
@@ -630,6 +636,33 @@ def _root_of(node) -> "str | None":
     return None
 
 
+def _membre_enum_du_code(node, court: str) -> "str | None":
+    """Le membre `<court>.<Membre>` ECRIT DANS LE CODE de `node`, ou `None`.
+
+    ⚠ CE N'EST PAS UN DOUBLON DE `_membre_vise`, ET LA DIFFERENCE EST TOUT LE SUJET (#1031).
+    `_membre_vise` lit la PROSE de la ligne (tokens COMMENT/STRING), et c'est volontaire : une
+    ANNOTATION est du commentaire. Mais le depot ecrit aussi le motif inverse -- le membre est
+    dans le CODE, en EGALITE avec le littéral :
+
+        assert BOF.BookOfFateAbility.event_id == 38 == int(EventTriggerType.NormalAttack)
+
+    Ce site n'est PAS un ordinal en dur : c'est le FIGEAGE que la doctrine EXIGE (<< le registre
+    ne suffit pas -- il faut aussi FIGER l'ordinal ECRIT AU SITE >>, le cran que `probe_313` ne
+    peut pas voir puisqu'il redevient vert des qu'on regenere le mirror). Le convertir le rendrait
+    TAUTOLOGIQUE (`int(E.X) == int(E.X)`), donc inerte -- on detruirait le cliquet en croyant
+    l'appliquer. Mesure du 2026-08-13 : 3 des 4 sites que l'etape 2 reclamait sont de cette forme.
+
+    La chaine ENTIERE est visitee (`ast.walk`), pas les deux cotes d'un `op` : `a == 38 ==
+    int(E.X)` a trois operandes et `visit_Compare` s'arrete au premier couple qui mord.
+    Restreint au nom PLEIN de l'enum : un alias (`E.X`) ne prouve pas de quel enum il s'agit,
+    et deviner ici, c'est exactement la faute que ce probe existe pour empecher."""
+    for n in ast.walk(node):
+        if isinstance(n, ast.Attribute) and isinstance(n.value, ast.Name) \
+                and n.value.id == court:
+            return n.attr
+    return None
+
+
 def _prose_par_ligne(src: str) -> dict:
     """{lineno: texte des tokens COMMENT/STRING commencant sur cette ligne}.
 
@@ -752,6 +785,10 @@ class _ExecSweep(ast.NodeVisitor):
                         for c, r in refs.items()}
         self.hits: list = []
         self.hors: list = []
+        #: Les littéraux CONFRONTES au membre nomme dans le CODE (#1031) -- comptes et imprimes,
+        #: jamais rendus au verdict : ce sont des CLIQUETS, pas des defauts. Cf.
+        #: `_membre_enum_du_code`. Un figeage qui MENT, lui, part en `hits` avec `ok = False`.
+        self.confrontes: list = []
 
     def _membre_vise(self, lineno: int, enum: "str | None"):
         """(enum, membre) cite par la PROSE de la ligne, ou (None, None)."""
@@ -769,13 +806,27 @@ class _ExecSweep(ast.NodeVisitor):
                 return enum, max(cands, key=len)
         return None, None
 
-    def _check(self, lineno: int, vals: list, court: "str | None", quoi: str):
+    def _check(self, lineno: int, vals: list, court: "str | None", quoi: str,
+               membre_code: "str | None" = None):
         e_cite, membre = self._membre_vise(lineno, court)
         enum = court or e_cite
         if enum is None:
             return
         ref = self.refs.get(enum, {})
         inv = {o: n for n, o in ref.items()}
+        #: ⚠ LE FIGEAGE CONFRONTE PASSE AVANT TOUT LE RESTE (#1031), et il n'est un vert QUE
+        #: parce qu'il est VERIFIE : le membre ecrit dans le code doit valoir EXACTEMENT le
+        #: littéral sur le build COURANT. S'il ne le vaut pas, la ligne fige un ordinal que le
+        #: nom qu'elle porte ne designe plus -- c'est un FAIL, et le plus grave des trois
+        #: (le site se croit garde). On ne se contente donc jamais de la PRESENCE du membre.
+        if membre_code is not None and membre_code in ref:
+            for v in vals:
+                if ref[membre_code] == v:
+                    self.confrontes.append((lineno, enum, quoi, v, membre_code))
+                else:
+                    self.hits.append((lineno, enum, quoi, v, inv.get(v, "?"),
+                                      membre_code, ref[membre_code], False))
+            return
         for v in vals:
             if v not in self.connues.get(enum, set()):
                 # HORS PLAGE : aucun membre ne porte cette valeur, ni sur le build courant ni
@@ -798,7 +849,11 @@ class _ExecSweep(ast.NodeVisitor):
                 court = _root_of(a)
                 vals = _lit(b)
                 if court and vals:
-                    self._check(node.lineno, vals, court, "compare")
+                    #: Le membre est cherche sur la chaine ENTIERE, pas sur le couple qui a
+                    #: mordu : `x == 38 == int(E.NormalAttack)` place le membre au 3e operande,
+                    #: que la boucle ci-dessus n'atteint jamais (elle `break` au premier couple).
+                    self._check(node.lineno, vals, court, "compare",
+                                _membre_enum_du_code(node, court))
                     break
         self.generic_visit(node)
 
@@ -893,7 +948,7 @@ def step_exec(verbose: bool) -> list:
     cur, prev = current_build(), previous_build()
     refs = {court: _by_name(enum_map(cur, fq)) for court, fq in ENUMS.items()}
     olds = {c: _by_name(enum_map(prev, fq)) for c, fq in ENUMS.items()} if prev else {}
-    fails, infos, oks, hors = [], [], [], []
+    fails, infos, oks, hors, confrontes = [], [], [], [], []
     # Lecture PARALLELE (#457-r6) : l'ouverture pese ~7 ms par fichier sous `scripts/`, soit
     # ~13 s des ~37 s de cette etape. L'ordre du rapport ne change pas -- il vient du
     # `sorted(...)` plus bas, pas de l'ordre de lecture. La lecture RESTE inconditionnelle : c'est
@@ -959,17 +1014,27 @@ def step_exec(verbose: bool) -> list:
                 continue
             sw = _ExecSweep(_prose_par_ligne(sources[rel]), refs, sigs, olds)
             sw.visit(tree)
-            v = {"hits": [list(h) for h in sw.hits], "hors": [list(h) for h in sw.hors]}
+            v = {"hits": [list(h) for h in sw.hits], "hors": [list(h) for h in sw.hors],
+                 "confrontes": [list(c) for c in sw.confrontes]}
             cache.poser(rel, "hits", cle, v)
         for lineno, enum, quoi, val, nom_courant, membre, attendu, ok in v["hits"]:
             row = (rel, lineno, enum, quoi, val, nom_courant, membre, attendu, ok)
             (fails if ok is False else oks if ok is True else infos).append(row)
         for lineno, enum, quoi, val in v["hors"]:
             hors.append((rel, lineno, enum, quoi, val))
+        #: `.get` : une entree de cache ECRITE AVANT #1031 ne porte pas cette cle. Le contexte du
+        #: cache compose deja le sha de CE fichier, donc le cas ne peut pas survenir en service --
+        #: mais un appelant qui repointe le cache ne doit pas lever, il doit compter zero.
+        for lineno, enum, quoi, val, membre in v.get("confrontes", []):
+            confrontes.append((rel, lineno, enum, quoi, val, membre))
     cache.enregistrer()
     print("[283] etape 2 : litteraux EXECUTABLES en contexte enum -- %d FAUX aujourd'hui, "
-          "%d justes-mais-figes, %d a lire (+%d hors plage, NON comptes)"
-          % (len(fails), len(oks), len(infos), len(hors)))
+          "%d justes-mais-figes, %d a lire (+%d hors plage, NON comptes) "
+          "(+%d CONFRONTES au membre ecrit dans le code, NON comptes)"
+          % (len(fails), len(oks), len(infos), len(hors), len(confrontes)))
+    for rel, ln, enum, quoi, v, membre in (confrontes if verbose else confrontes[:6]):
+        print("   CONF %s:%d  %s [%s] = %s == %s.%s -- FIGEAGE confronte dans le code, "
+              "le cliquet que probe_313 ne voit pas" % (rel, ln, quoi, enum, v, enum, membre))
     for rel, ln, enum, quoi, v in (hors if verbose else hors[:6]):
         print("   hors %s:%d  %s [%s] = %s -- aucun membre ne porte cette valeur (sentinelle)"
               % (rel, ln, quoi, enum, v))
@@ -1466,7 +1531,8 @@ _FUN_LIT = re.compile(r"^(0x[0-9a-fA-F]+|\d{1,3})$")
 _ON_MEMBRE_NU = re.compile(r"\bOn\(\s*([A-Za-z_][A-Za-z0-9_]*)\s*\)")
 
 
-def annotation_de_ligne(ligne: str, v: int, ref: dict, old: dict) -> tuple:
+def annotation_de_ligne(ligne: str, v: int, ref: dict, old: dict,
+                        n_ancres: int = 1, quoi: str = "FUN") -> tuple:
     """(etat, membre) pour une ancre de valeur `v` posee sur `ligne`.
 
     Etats, dans l'ordre ou ils sont cherches -- le premier qui s'applique gagne, et c'est ce
@@ -1477,17 +1543,63 @@ def annotation_de_ligne(ligne: str, v: int, ref: dict, old: dict) -> tuple:
                  PROUVE que le gate 4bis : le nombre cite est l'ordinal d'AVANT du membre que
                  l'auteur a nomme, ce qui n'a aucune autre explication qu'une citation
                  recopiee d'un build perime ;
+      `ambigue`  la ligne porte PLUSIEURS ancres nues pour UNE annotation (cf. `n_ancres`) ;
       `nue`      la ligne ne porte aucun `On(<Membre>)` qui soit un membre d'EventTriggerType.
 
     Un membre annote qui n'est NI courant NI archive pour cette valeur est ignore (il ne dit
-    rien de `v`) : on ne rougit pas sur une annotation qu'on ne comprend pas."""
-    membres = [m for m in _ON_MEMBRE_NU.findall(ligne) if m in ref or m in old]
+    rien de `v`) : on ne rougit pas sur une annotation qu'on ne comprend pas.
+
+    ⚠ `n_ancres` -- LES DEUX ETATS N'ONT PAS LA MEME FORCE, ET C'EST CE QUI TRANCHE (#1031).
+    `ancree` est CONFIRME par la valeur (`ref[m] == v` : le membre nomme vaut CE nombre
+    aujourd'hui) ; il reste donc sur meme si la ligne porte dix ancres. `perimee`, lui, est une
+    INFERENCE -- << aucun membre nomme ne vaut `v` aujourd'hui, mais l'un le valait avant, DONC
+    la citation est recopiee >>. Cette inference suppose que l'annotation se rapporte a CETTE
+    ancre-la. Des que la ligne porte plus d'ancres nues que d'annotations, c'est faux.
+
+    Mesure (le rouge de `master`) -- `test_981_vecteurs_de_fuite_offline.py:136` ecrit :
+
+        `On(PreUnitFled)` passe la fuyarde TROIS FOIS (...) ; `On(0x34)` et `On(0x36)` passent ...
+
+    UNE annotation, DEUX ancres nues -- et la phrase les OPPOSE. `0x34` est `UnitFled` et `0x36`
+    est `UnitDefeated` (le meme fichier les FIGE quatre lignes plus haut) ; ni l'un ni l'autre
+    n'est `PreUnitFled`. Le gate accusait donc le depot d'une peremption que le depot n'a pas
+    ecrite. Le probe le disait pourtant lui-meme deux paragraphes plus haut : << un gate ne se
+    fonde pas sur ce qu'un texte porte PRES, mais sur ce qu'un auteur a DECLARE >> -- une
+    annotation pour deux ancres ne DECLARE rien sur laquelle des deux.
+
+    L'etat rendu est `ambigue` et NON `nue` : ce qui est ecarte doit etre COMPTE et IMPRIME,
+    sinon c'est une exemption muette -- exactement ce que ce probe existe pour interdire.
+
+    ⚠ `quoi` -- L'ANNOTATION N'ANNOTE QUE LES QUOTES, ET C'EST LA RAISON MEME DE SA CREATION.
+    #420-r5 l'a introduite pour un manque PRECIS : << une quote verbatim ne peut pas porter son
+    membre DEDANS sans cesser d'etre verbatim ; le membre se pose donc A COTE >>. Une ancre
+    `On(<n>)`, elle, n'a pas ce manque -- sa voie declarative propre est la forme NOMMEE
+    `On(<n> = <Membre>)`, que l'etape 4 confronte, et c'est celle que #420 a posee sur 220 sites.
+    Etendre l'annotation aux ancres `On(<n>)` revient donc a apparier DEUX MENTIONS d'un meme
+    motif dans une phrase -- du VOISINAGE, que ce probe s'interdit explicitement deux
+    paragraphes plus haut.
+
+    MESURE DU 2026-08-13, ET ELLE TOMBE DES DEUX COTES. Le depot ne portait que DEUX ancres
+    `On(<n>)` appariees a un `On(<Membre>)` de la meme ligne, toutes deux en prose NARRATIVE :
+
+      `martial_apotheosis.py:34`  << Vecteur porte = ... (`On(TurnStart_Actions)`). `On(0x16)`
+                                     verifie : ... >>            -> `ancree`, JUSTE par accident
+      `test_981_vecteurs_de_fuite_offline.py:136`
+                                  << `On(PreUnitFled)` passe la fuyarde TROIS FOIS ; `On(0x34)`
+                                     et `On(0x36)` passent ... >> -> `perimee`, FAUX par accident
+
+    Ni l'une ni l'autre n'est une annotation : ce sont deux SUJETS de phrase. Un mecanisme dont
+    la moitie des verdicts est un accident ne garde rien -- il tire a pile ou face, et c'est le
+    rouge de `master`. Les 23 autres ancrees sont toutes des quotes `FUN_`, ou l'annotation est
+    bien ce que l'auteur a pose POUR elles."""
+    membres = ([m for m in _ON_MEMBRE_NU.findall(ligne) if m in ref or m in old]
+               if quoi == "FUN" else [])
     for m in membres:
         if ref.get(m) == v:
             return "ancree", m
     for m in membres:
         if old.get(m) == v and ref.get(m) != v:
-            return "perimee", m
+            return ("perimee", m) if n_ancres <= 1 else ("ambigue", m)
     return "nue", None
 
 
@@ -1534,13 +1646,14 @@ def step_on(verbose: bool, racine: str = "scripts/python") -> tuple:
         _ON_CACHE[racine] = res
     cur, prev = current_build(), previous_build()
     stables = res[0]
-    decales, ancrees, fails = [list(x) for x in res[1:]]
+    decales, ancrees, fails, ambigues = [list(x) for x in res[1:]]
     n_on = sum(1 for d in decales if d[5] == "On")
     n_anc_fun = sum(1 for a in ancrees if a[4] == "FUN")
     print("[283] etape 5 : ordinaux NUS en prose de %s (ancres `On(` et quote de publication) "
           "-- %d stables, %d ANCRES par annotation (%d quote `FUN_`), %d AMBIGUS "
-          "(%d `On(`, %d quote `FUN_`)"
-          % (racine, stables, len(ancrees), n_anc_fun, len(decales), n_on, len(decales) - n_on))
+          "(%d `On(`, %d quote `FUN_`), %d NON ATTRIBUABLES"
+          % (racine, stables, len(ancrees), n_anc_fun, len(decales), n_on,
+             len(decales) - n_on, len(ambigues)))
     print("       ambigu = l'ordinal a change de proprietaire ; sans le NOM accole, on ne peut")
     print("       pas savoir de quel build vient la citation. NON corrige (residu #283-r1).")
     print("       ancre  = la ligne porte `On(<Membre>)` et le membre vaut CE nombre sur le")
@@ -1564,7 +1677,14 @@ def step_on(verbose: bool, racine: str = "scripts/python") -> tuple:
         print("   FAIL %s:%d  %s(%s) annote `On(%s)` -- %s valait %s sur %s et vaut %s sur %s"
               % (rel, ln, "On" if quoi == "On" else "FUN_...", s, membre, membre, anc,
                  prev or "-", courant, cur))
-    return stables, decales, ancrees, fails
+    #: COMPTE ET IMPRIME, jamais muet : une annotation qui ne peut pas etre attribuee est un
+    #: ECART, pas un vert. Si ce compte enfle, c'est que le depot ecrit des lignes ou plusieurs
+    #: evenements se disputent une seule annotation -- il faut alors les separer, pas relacher.
+    for rel, ln, s, membre, n, quoi in sorted(ambigues):
+        print("   AMBIGU %s:%d  %s(%s) : la ligne porte %d ancres pour l'annotation `On(%s)` "
+              "-- non attribuable, l'ancre reste un COMPTEUR"
+              % (rel, ln, "On" if quoi == "On" else "FUN_...", s, n, membre))
+    return stables, decales, ancrees, fails, ambigues
 
 
 #: Le releve de l'etape 5, par racine balayee. Des TUPLES : ce qui est retenu est immuable, et
@@ -1576,12 +1696,12 @@ _ON_CACHE: dict = {}
 def _balayer_step_on(racine: str) -> tuple:
     """Le BALAYAGE de l'etape 5, sans une seule impression. Foyer unique, appele par `step_on`.
 
-    Rend `(stables, decales, ancrees, fails)`, les trois derniers en TUPLE."""
+    Rend `(stables, decales, ancrees, fails, ambigues)`, les quatre derniers en TUPLE."""
     cur, prev = current_build(), previous_build()
     new = enum_map(cur, ENUMS["EventTriggerType"])
     old = enum_map(prev, ENUMS["EventTriggerType"]) if prev else {}
     ref_n, old_n = _by_name(new), _by_name(old)
-    stables, decales, ancrees, fails = 0, [], [], []
+    stables, decales, ancrees, fails, ambigues = 0, [], [], [], []
     for suf in (".py", ".md"):
         # Lecture PARALLELE (#457-r6), mode BRUT (`newline=""`) comme l'etape 4.
         a_lire = [p for p in sorted((REPO / racine).rglob("*" + suf))
@@ -1598,6 +1718,11 @@ def _balayer_step_on(racine: str) -> tuple:
             if zones is None:
                 continue
             lignes = src.split("\n")
+            #: ⚠ LE COMPTE DES ANCRES SE FAIT SUR TOUT LE FICHIER, PAS PAR ZONE (#1031). Une
+            #: meme ligne peut etre couverte par plusieurs zones de prose (docstring + un `#`
+            #: de fin de ligne) ; compter par zone sous-estimerait la pluralite et rendrait
+            #: le gate a l'inference qu'on vient de lui retirer.
+            releve = []
             for base, txt in zones:
                 ancres = [(g.start(1), g.group(1), "On")
                           for g in _ON_NU.finditer(txt)
@@ -1613,23 +1738,30 @@ def _balayer_step_on(racine: str) -> tuple:
                     if dernier is not None:
                         ancres.append((dernier[0], dernier[1], "FUN"))
                 for pos, s, quoi in ancres:
-                    v = int(s, 16) if s.lower().startswith("0x") else int(s)
-                    ln = _ligne_de(src, base + pos)
                     # La LIGNE du fichier, pas le token : une quote vit dans une docstring
                     # (un seul token pour des dizaines de lignes) et son annotation est sur
                     # SA ligne. Meme raison que `_historique`.
-                    etat, membre = annotation_de_ligne(
-                        lignes[ln - 1] if 0 < ln <= len(lignes) else "", v, ref_n, old_n)
-                    if etat == "perimee":
-                        fails.append((rel, ln, s, membre, old_n.get(membre),
-                                      ref_n.get(membre), quoi))
-                    elif etat == "ancree":
-                        ancrees.append((rel, ln, s, membre, quoi))
-                    elif old.get(v) == new.get(v):
-                        stables += 1   # sous le point de decalage : le meme sur les 2 builds
-                    else:
-                        decales.append((rel, ln, s, old.get(v), new.get(v), quoi))
-    return stables, tuple(decales), tuple(ancrees), tuple(fails)
+                    releve.append((_ligne_de(src, base + pos), s, quoi))
+            par_ligne: dict = {}
+            for ln, _s, _quoi in releve:
+                par_ligne[ln] = par_ligne.get(ln, 0) + 1
+            for ln, s, quoi in releve:
+                v = int(s, 16) if s.lower().startswith("0x") else int(s)
+                etat, membre = annotation_de_ligne(
+                    lignes[ln - 1] if 0 < ln <= len(lignes) else "", v, ref_n, old_n,
+                    par_ligne[ln], quoi)
+                if etat == "perimee":
+                    fails.append((rel, ln, s, membre, old_n.get(membre),
+                                  ref_n.get(membre), quoi))
+                elif etat == "ancree":
+                    ancrees.append((rel, ln, s, membre, quoi))
+                elif etat == "ambigue":
+                    ambigues.append((rel, ln, s, membre, par_ligne[ln], quoi))
+                elif old.get(v) == new.get(v):
+                    stables += 1   # sous le point de decalage : le meme sur les 2 builds
+                else:
+                    decales.append((rel, ln, s, old.get(v), new.get(v), quoi))
+    return stables, tuple(decales), tuple(ancrees), tuple(fails), tuple(ambigues)
 
 
 # ------------------------------------------------------------------------------------------

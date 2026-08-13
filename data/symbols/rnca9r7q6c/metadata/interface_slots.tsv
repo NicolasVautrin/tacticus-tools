@@ -5,6 +5,8 @@
 # (`ioperationprocessor_slots.tsv`, #477-r24-r1).
 # Entree VERSIONNEE : c'est ce qui rend la garde jouable sans le jeu installe.
 # Regenerer : python scripts/python/probe_477r25_slots_autres_interfaces.py --regenerer
+# Les types de `REFERENTIELS` (classes) y figurent aussi : ils sont LUS pour dire
+# << juste, mais sur cette table-la >>, JAMAIS apparies a un recepteur (#1031).
 #interface	slot	methode	param_count	flags
 IBattleQuery	0	InitLogger	1	0x05c6
 IBattleQuery	1	IsAttack	1	0x05c6
@@ -519,3 +521,21 @@ IActiveAbility	26	ExecuteOn	2	0x05c6
 IActiveAbility	27	PredictAttack	2	0x05c6
 IActiveAbility	28	GetLocalizationData	2	0x05c6
 IActiveAbility	29	GetShowLocalizationDataWhenDisabled	1	0x05c6
+TargetsSelector	5	SelectFirst	1	0x01e6
+TargetsSelector	7	SelectAllUnits	2	0x01e6
+TargetsSelector	8	SelectUniqueUnits	2	0x01e6
+TargetsSelector	9	SelectAllActors	2	0x01e6
+TargetsSelector	10	SelectUniqueActors	2	0x01e6
+TargetsSelector	11	SelectUnit	2	0x01e6
+TargetsSelector	12	SelectActor	2	0x01e6
+TargetsSelector	13	SelectMachine	2	0x01e6
+TargetsSelector	14	SelectTiles	1	0x01e6
+TargetsSelector	15	SelectUniqueTiles	1	0x01e6
+TargetsSelector	16	SelectTile	1	0x01e6
+TargetsSelector	17	SelectEffects	1	0x01e6
+TargetsSelector	19	get_ReturnsOnlyTiles	0	0x09c6
+TargetsSelector	20	get_ReturnsOnlyUnits	0	0x09c6
+TargetsSelector	21	get_ReturnsOnlyActors	0	0x09c6
+TargetsSelector	22	get_ReturnsOnlyUnique	0	0x09c6
+TargetsSelector	23	Select	1	0x05c6
+TargetsSelector	24	Count	1	0x01c6

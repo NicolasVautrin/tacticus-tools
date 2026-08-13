@@ -83,7 +83,11 @@ def test_ordinaux_ecrits_aux_sites():
     assert OB.OMNISSIAHS_BLESSING_ID == 1299
     assert OB.MACHINE_VENGEANCE == 1365
     assert OB.MACHINE_VENGEANCE_NAME == "MachineVengeance"
-    assert OB.OmnissiahsBlessingAbility.event_id == 48
+    #: ⚠ LE MEMBRE EST SUR LA LIGNE, PAS QUATRE LIGNES PLUS HAUT (#1031). La ligne 82 fige bien
+    #: `UnitRepaired == 48`, mais ce site-ci ecrivait `== 48` NU : rien sur la ligne ne disait
+    #: QUEL membre ce 48 designe, et un renumerotage l'aurait laisse pointer ailleurs pendant
+    #: que la ligne 82, elle, rougissait. Patron canonique du depot (cf. `test_1008`).
+    assert OB.OmnissiahsBlessingAbility.event_id == 48 == int(EventTriggerType.UnitRepaired)
     assert OB.OmnissiahsBlessingAbility.TRIGGERED_ABILITY_ID == 1299
     # La cle du registre EST le nom gameconfig de la `passiveAbilities`, pas un id.
     assert OB.OMNISSIAHS_BLESSING == "OmnissiahsBlessing"

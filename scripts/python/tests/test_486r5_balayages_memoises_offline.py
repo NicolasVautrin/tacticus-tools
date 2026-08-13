@@ -482,9 +482,14 @@ def test_le_cache_de_step_on_283_EVITE_le_second_balayage_ET_RE_CONSTRUIT(monkey
     import probe_283_enum_ordinal_sweep as SW
 
     appels = []
+    #: 5e position depuis #1031 : les ancres dont l'annotation n'est PAS attribuable (plusieurs
+    #: ancres nues pour une seule annotation sur la ligne). Elle entre ICI parce que le contrat
+    #: garde par ce test est << CHAQUE releve est re-construit >> -- un releve neuf qui resterait
+    #: partage fuirait exactement comme les trois autres, sans que rien ne le dise.
     fige = (7, (("a.py", 1, "0x2b", "X", "Y", "On"),),
             (("b.py", 2, "0x2a", "PreUnitAbility", "FUN"),),
-            (("c.py", 3, "0x2b", "PreUnitAbility", 43, 42, "FUN"),))
+            (("c.py", 3, "0x2b", "PreUnitAbility", 43, 42, "FUN"),),
+            (("d.py", 4, "0x34", "PreUnitFled", 2, "On"),))
 
     monkeypatch.setattr(SW, "_balayer_step_on", lambda racine: (appels.append(racine), fige)[1])
     monkeypatch.setattr(SW, "_ON_CACHE", {})
@@ -492,7 +497,7 @@ def test_le_cache_de_step_on_283_EVITE_le_second_balayage_ET_RE_CONSTRUIT(monkey
     b = SW.step_on(verbose=False)
     assert len(appels) == 1, "le balayage a ete refait %d fois pour 2 appels" % len(appels)
     assert a[0] == b[0] == 7
-    for i in (1, 2, 3):
+    for i in (1, 2, 3, 4):
         assert list(a[i]) == list(fige[i]), (i, a[i])
         assert a[i] is not b[i], "les releves sont PARTAGES -- une mutation fuirait (position %d)" % i
     a[3].append(("MUTATION-941r2",))

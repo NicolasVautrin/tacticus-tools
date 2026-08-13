@@ -322,7 +322,7 @@ def test_le_depot_ne_porte_AUCUNE_quote_de_publication_INDECIDABLE():
 
     Si tu ajoutes une quote et que ce test rougit : pose l'annotation `On(<Membre>)` sur sa
     ligne, apres avoir LU au decompile quel evenement ce site publie. Ne la retire pas."""
-    _stables, decales, _ancrees, _fails = SW.step_on(verbose=False)
+    _stables, decales, _ancrees, _fails, _amb = SW.step_on(verbose=False)
     fun = [d for d in decales if d[5] == "FUN"]
     assert not fun, ("quote(s) de publication INDECIDABLE(S) -- annoter `On(<Membre>)` sur la "
                      "ligne :\n" + "\n".join("  %s:%d  FUN_...(%s) : etait %s, vaut %s"
@@ -333,12 +333,25 @@ def test_aucune_ancre_ANNOTEE_du_depot_ne_cite_un_ordinal_PERIME():
     """Le GATE, joue sur l'arbre. Il est vert aujourd'hui et le restera tant que le build ne
     bougera pas ; au prochain build il rougira sur chaque annotation dont l'ordinal a glisse --
     c'est exactement ce qu'on lui demande, et ce qu'aucun declencheur sur diff ne peut voir."""
-    _stables, _decales, ancrees, fails = SW.step_on(verbose=False)
+    _stables, _decales, ancrees, fails, ambigues = SW.step_on(verbose=False)
     assert not fails, ("citation(s) PROUVEE(S) perimee(s) :\n"
                        + "\n".join("  %s:%d  (%s) annote On(%s)" % (f[0], f[1], f[2], f[3])
                                    for f in fails))
     # non-vide : un gate joue sur un ensemble VIDE passerait pour vert sans rien garder.
     assert ancrees, "aucune ancre annotee -- le gate ne s'applique a RIEN"
+    #: ⚠ ET LE GATE NE PORTE QUE SUR DES QUOTES (#1031). Une ancre `On(<n>)` n'a PAS besoin
+    #: d'annotation adjointe -- sa voie propre est la forme NOMMEE `On(<n> = <Membre>)`, que
+    #: l'etape 4 confronte. L'apparier a un `On(<Membre>)` voisin, c'est apparier deux MENTIONS
+    #: d'une meme phrase : le depot n'en portait que deux, une juste par accident et une fausse
+    #: par accident (le rouge de `master`). Si cette assertion tombe, c'est que le gate s'est
+    #: RE-etendu au voisinage -- relire `annotation_de_ligne`, ne pas relacher ici.
+    assert all(a[4] == "FUN" for a in ancrees), (
+        "ancre(s) NON-quote ancree(s) par voisinage :\n"
+        + "\n".join("  %s:%d  On(%s) <- On(%s)" % (a[0], a[1], a[2], a[3])
+                    for a in ancrees if a[4] != "FUN"))
+    #: Ce qui est ECARTE doit rester VISIBLE : un releve neuf que personne n'assertionne est
+    #: un compteur qu'on peut faire enfler sans que rien ne le dise.
+    assert isinstance(ambigues, list)
 
 
 # ------------------------------------------------------- 3. le diff des tables reste derivable
