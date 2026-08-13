@@ -1,0 +1,955 @@
+unite	faction	alliance	rarete	type	item	id	face_combat	face_decision
+LootObj_AmmoBox	?	?	None	passif	Volatile		0	
+LootObj_ExplOilDrum	?	?	None	passif	Explosive		0	
+LootObj_Strongbox_Cha	?	?	None	trait	Impervious		0	
+LootObj_Strongbox_Imp	?	?	None	trait	Impervious		0	
+LootObj_Strongbox_Xen	?	?	None	trait	Impervious		0	
+adeptBossCanoness	Sisterhood	Imperial	None	active	BrazierOfHolyFire	1041	1	1
+adeptBossCanoness	Sisterhood	Imperial	None	passif	CondemnorStake		1	
+adeptBossCanonessLHE	Sisterhood	Imperial	None	active	BrazierOfHolyFire	1041	1	1
+adeptBossCanonessLHE	Sisterhood	Imperial	None	passif	CondemnorStake		1	
+adeptBossCelestine	Sisterhood	Imperial	None	active	SkyStrike	1025	1	1
+adeptBossCelestine	Sisterhood	Imperial	None	passif	GeminaeSuperia		1	
+adeptBossCelestineCE	Sisterhood	Imperial	None	active	SkyStrike	1025	1	1
+adeptBossCelestineCE	Sisterhood	Imperial	None	passif	GeminaeSuperia		1	
+adeptBossCelestineCE	Sisterhood	Imperial	None	trait	Boss		0	
+adeptBossCelestineLHE	Sisterhood	Imperial	None	active	SkyStrike	1025	1	1
+adeptBossCelestineLHE	Sisterhood	Imperial	None	passif	GeminaeSuperia		1	
+adeptBossHospitaller	Sisterhood	Imperial	None	active	RitesOfRestoration	1039	1	1
+adeptBossHospitaller	Sisterhood	Imperial	None	passif	MedicusMinistorum		1	
+adeptBossHospitaller	Sisterhood	Imperial	None	trait	Healer		0	
+adeptBossHospitallerLHE	Sisterhood	Imperial	None	active	RitesOfRestoration	1039	1	1
+adeptBossHospitallerLHE	Sisterhood	Imperial	None	passif	MedicusMinistorum		1	
+adeptBossHospitallerLHE	Sisterhood	Imperial	None	trait	Healer		0	
+adeptBossMorvenn	Sisterhood	Imperial	None	active	SanctorumMissile	1062	1	1
+adeptBossMorvenn	Sisterhood	Imperial	None	passif	RighteousRepugnance		1	
+adeptBossMorvennLHE	Sisterhood	Imperial	None	active	SanctorumMissile	1062	1	1
+adeptBossMorvennLHE	Sisterhood	Imperial	None	passif	RighteousRepugnance		1	
+adeptBossRetributor	Sisterhood	Imperial	None	active	ArmoriumCherub	1014	1	1
+adeptBossRetributor	Sisterhood	Imperial	None	passif	FireOfAbsolution		1	
+adeptBossRetributorLHE	Sisterhood	Imperial	None	active	ArmoriumCherub	1014	1	1
+adeptBossRetributorLHE	Sisterhood	Imperial	None	passif	FireOfAbsolution		1	
+adeptNpc2Zephyrim	Sisterhood	Imperial	None	passif	EmbodiedProphecy		0	
+adeptNpcCanoness	Sisterhood	Imperial	None	active	BrazierOfHolyFire	1041	1	1
+adeptNpcCanoness	Sisterhood	Imperial	None	passif	CondemnorStake		1	
+adeptNpcCelestine	Sisterhood	Imperial	None	active	SkyStrike	1025	1	1
+adeptNpcCelestine	Sisterhood	Imperial	None	passif	GeminaeSuperia		1	
+adeptNpcHospitaller	Sisterhood	Imperial	None	active	RitesOfRestoration	1039	1	1
+adeptNpcHospitaller	Sisterhood	Imperial	None	passif	MedicusMinistorum		1	
+adeptNpcHospitaller	Sisterhood	Imperial	None	trait	Healer		0	
+adeptNpcMoWExorcist	Sisterhood	Imperial	None	active	ThriceBlessedConflagration	1187	1	1
+adeptNpcMoWExorcist	Sisterhood	Imperial	None	active	DevastatingRefrain	1188	1	1
+adeptNpcMoWExorcist	Sisterhood	Imperial	None	trait	MachineOfWar		0	
+adeptNpcMorvenn	Sisterhood	Imperial	None	active	SanctorumMissile	1062	1	1
+adeptNpcMorvenn	Sisterhood	Imperial	None	passif	RighteousRepugnance		1	
+adeptNpcRetributor	Sisterhood	Imperial	None	active	ArmoriumCherub	1014	1	1
+adeptNpcRetributor	Sisterhood	Imperial	None	passif	FireOfAbsolution		1	
+admecBossBelisarius	AdeptusMechanicus	Imperial	None	active	InvocationOfMachineVengeance	1172	0	0
+admecBossBelisarius	AdeptusMechanicus	Imperial	None	active	ArcScourge	1173	1	0
+admecBossBelisarius	AdeptusMechanicus	Imperial	None	active	SolarAtomizer	1174	0	0
+admecBossBelisarius	AdeptusMechanicus	Imperial	None	passif	SelfRepairMechanismReworked		0	
+admecBossBelisarius	AdeptusMechanicus	Imperial	None	passif	ShroudPsalm		1	
+admecBossBelisarius	AdeptusMechanicus	Imperial	None	passif	PreCalibratedPurgeSolution		0	
+admecBossBelisarius	AdeptusMechanicus	Imperial	None	trait	Boss		0	
+admecBossDestroyer	AdeptusMechanicus	Imperial	None	active	SentinelDirectives	1139	1	1
+admecBossDestroyer	AdeptusMechanicus	Imperial	None	passif	HeavyGravCannon		1	
+admecBossDestroyer	AdeptusMechanicus	Imperial	None	trait	Vehicle		0	
+admecBossDestroyerCE	AdeptusMechanicus	Imperial	None	active	SentinelDirectives	1139	1	1
+admecBossDestroyerCE	AdeptusMechanicus	Imperial	None	passif	HeavyGravCannon		1	
+admecBossDestroyerCE	AdeptusMechanicus	Imperial	None	trait	Vehicle		0	
+admecBossDestroyerLHE	AdeptusMechanicus	Imperial	None	active	SentinelDirectives	1139	1	1
+admecBossDestroyerLHE	AdeptusMechanicus	Imperial	None	passif	HeavyGravCannon		1	
+admecBossDestroyerLHE	AdeptusMechanicus	Imperial	None	trait	Vehicle		0	
+admecBossDominus	AdeptusMechanicus	Imperial	None	active	RadBombardment	1116	1	1
+admecBossDominus	AdeptusMechanicus	Imperial	None	passif	MasterAnnihilator		1	
+admecBossDominusCE	AdeptusMechanicus	Imperial	None	active	RadBombardment	1116	1	1
+admecBossDominusCE	AdeptusMechanicus	Imperial	None	passif	MasterAnnihilator		1	
+admecBossDominusLEG	AdeptusMechanicus	Imperial	None	active	RadBombardment	1116	1	1
+admecBossDominusLEG	AdeptusMechanicus	Imperial	None	passif	MasterAnnihilator		1	
+admecBossDominusLHE	AdeptusMechanicus	Imperial	None	active	RadBombardment	1116	1	1
+admecBossDominusLHE	AdeptusMechanicus	Imperial	None	passif	MasterAnnihilator		1	
+admecBossDominusSurv	AdeptusMechanicus	Imperial	None	active	RadBombardment	1116	1	1
+admecBossDominusSurv	AdeptusMechanicus	Imperial	None	passif	MasterAnnihilator		1	
+admecBossManipulus	AdeptusMechanicus	Imperial	None	active	DefendTheDivineWork	1117	1	1
+admecBossManipulus	AdeptusMechanicus	Imperial	None	passif	GalvanicField		1	
+admecBossManipulusCE	AdeptusMechanicus	Imperial	None	active	DefendTheDivineWork	1117	1	1
+admecBossManipulusCE	AdeptusMechanicus	Imperial	None	passif	GalvanicField		1	
+admecBossManipulusLEG	AdeptusMechanicus	Imperial	None	active	DefendTheDivineWork	1117	1	1
+admecBossManipulusLEG	AdeptusMechanicus	Imperial	None	passif	GalvanicField		1	
+admecBossManipulusLHE	AdeptusMechanicus	Imperial	None	active	DefendTheDivineWork	1117	1	1
+admecBossManipulusLHE	AdeptusMechanicus	Imperial	None	passif	GalvanicField		1	
+admecBossManipulusSurv	AdeptusMechanicus	Imperial	None	active	DefendTheDivineWork	1117	1	1
+admecBossManipulusSurv	AdeptusMechanicus	Imperial	None	passif	GalvanicField		1	
+admecBossMarshall	AdeptusMechanicus	Imperial	None	active	DoctrinaImperatives	1118	1	1
+admecBossMarshall	AdeptusMechanicus	Imperial	None	passif	ControlEdict		1	
+admecBossMarshallCE	AdeptusMechanicus	Imperial	None	active	DoctrinaImperatives	1118	1	1
+admecBossMarshallCE	AdeptusMechanicus	Imperial	None	passif	ControlEdict		1	
+admecBossMarshallLEG	AdeptusMechanicus	Imperial	None	active	DoctrinaImperatives	1118	1	1
+admecBossMarshallLEG	AdeptusMechanicus	Imperial	None	passif	ControlEdict		1	
+admecBossMarshallLHE	AdeptusMechanicus	Imperial	None	active	DoctrinaImperatives	1118	1	1
+admecBossMarshallLHE	AdeptusMechanicus	Imperial	None	passif	ControlEdict		1	
+admecBossMarshallSurv	AdeptusMechanicus	Imperial	None	active	DoctrinaImperatives	1118	1	1
+admecBossMarshallSurv	AdeptusMechanicus	Imperial	None	passif	ControlEdict		1	
+admecBossRuststalker	AdeptusMechanicus	Imperial	None	active	CordClaw	1122	1	1
+admecBossRuststalker	AdeptusMechanicus	Imperial	None	passif	OptimizedGait		1	
+admecBossRuststalkerCE	AdeptusMechanicus	Imperial	None	active	CordClaw	1122	1	1
+admecBossRuststalkerCE	AdeptusMechanicus	Imperial	None	passif	OptimizedGait		1	
+admecBossRuststalkerLEG	AdeptusMechanicus	Imperial	None	active	CordClaw	1122	1	1
+admecBossRuststalkerLEG	AdeptusMechanicus	Imperial	None	passif	OptimizedGait		1	
+admecBossRuststalkerLHE	AdeptusMechanicus	Imperial	None	active	CordClaw	1122	1	1
+admecBossRuststalkerLHE	AdeptusMechanicus	Imperial	None	passif	OptimizedGait		1	
+admecBossRuststalkerSurv	AdeptusMechanicus	Imperial	None	active	CordClaw	1122	1	1
+admecBossRuststalkerSurv	AdeptusMechanicus	Imperial	None	passif	OptimizedGait		1	
+admecNpc1Vanguard	AdeptusMechanicus	Imperial	None	passif	RadSaturation		1	
+admecNpc1VanguardSurv	AdeptusMechanicus	Imperial	None	passif	RadSaturation		1	
+admecNpc2Techpriest	AdeptusMechanicus	Imperial	None	passif	VengeanceForTheOmnissiah		0	
+admecNpc2Techpriest	AdeptusMechanicus	Imperial	None	passif	OmnissiahsBlessing		0	
+admecNpc3Electropriest	AdeptusMechanicus	Imperial	None	passif	VoltagheistField		1	
+admecNpc3Electropriest	AdeptusMechanicus	Imperial	None	passif	ElectroShock		1	
+admecNpc3ElectropriestSurv	AdeptusMechanicus	Imperial	None	passif	VoltagheistField		1	
+admecNpc3ElectropriestSurv	AdeptusMechanicus	Imperial	None	passif	ElectroShock		1	
+astarCyrus_LHE	AdeptusAstartes	Imperial	None	active	StrikeFromTheShadows	1225	1	1
+astarCyrus_LHE	AdeptusAstartes	Imperial	None	passif	HaywireMine		1	
+astarNpc1HaywireMine	AdeptusAstartes	Imperial	None	passif	HaywireMineSteppable		1	
+astraBossBullgryn	AstraMilitarum	Imperial	None	active	FragBomb	1017	1	1
+astraBossBullgryn	AstraMilitarum	Imperial	None	passif	AvalancheOfMuscle		1	
+astraBossBullgrynLEG	AstraMilitarum	Imperial	None	active	FragBomb	1017	1	1
+astraBossBullgrynLEG	AstraMilitarum	Imperial	None	passif	AvalancheOfMuscle		1	
+astraBossBullgrynLHE	AstraMilitarum	Imperial	None	active	FragBomb	1017	1	1
+astraBossBullgrynLHE	AstraMilitarum	Imperial	None	passif	AvalancheOfMuscle		1	
+astraBossCreed	AstraMilitarum	Imperial	None	active	SupremeCommander	1028	1	1
+astraBossCreed	AstraMilitarum	Imperial	None	passif	SwornProtector		1	
+astraBossCreedLEG	AstraMilitarum	Imperial	None	active	SupremeCommander	1028	1	1
+astraBossCreedLEG	AstraMilitarum	Imperial	None	passif	SwornProtector		1	
+astraBossCreedLHE	AstraMilitarum	Imperial	None	active	SupremeCommander	1028	1	1
+astraBossCreedLHE	AstraMilitarum	Imperial	None	passif	SwornProtector		1	
+astraBossCreedSurv	AstraMilitarum	Imperial	None	active	SupremeCommander	1028	1	1
+astraBossCreedSurv	AstraMilitarum	Imperial	None	passif	SwornProtector		1	
+astraBossOrdnance	AstraMilitarum	Imperial	None	active	BasiliskBarrage	1026	1	0
+astraBossOrdnance	AstraMilitarum	Imperial	None	passif	SpotterReworked		1	
+astraBossOrdnance	AstraMilitarum	Imperial	None	trait	IndirectFire		1	
+astraBossOrdnanceLEG	AstraMilitarum	Imperial	None	active	BasiliskBarrage	1026	1	0
+astraBossOrdnanceLEG	AstraMilitarum	Imperial	None	passif	SpotterReworked		1	
+astraBossOrdnanceLEG	AstraMilitarum	Imperial	None	trait	IndirectFire		1	
+astraBossOrdnanceLHE	AstraMilitarum	Imperial	None	active	BasiliskBarrage	1026	1	0
+astraBossOrdnanceLHE	AstraMilitarum	Imperial	None	passif	SpotterReworked		1	
+astraBossOrdnanceLHE	AstraMilitarum	Imperial	None	trait	IndirectFire		1	
+astraBossPrimarisPsy	AstraMilitarum	Imperial	None	active	PsychicMaelstrom	1027	1	1
+astraBossPrimarisPsy	AstraMilitarum	Imperial	None	passif	Nightshroud		1	
+astraBossPrimarisPsyLHE	AstraMilitarum	Imperial	None	active	PsychicMaelstrom	1027	1	1
+astraBossPrimarisPsyLHE	AstraMilitarum	Imperial	None	passif	Nightshroud		1	
+astraBossPrimarisPsySurv	AstraMilitarum	Imperial	None	active	PsychicMaelstrom	1027	1	1
+astraBossPrimarisPsySurv	AstraMilitarum	Imperial	None	passif	Nightshroud		1	
+astraBossYarrick	AstraMilitarum	Imperial	None	active	SendInTheNextWave	1016	1	1
+astraBossYarrick	AstraMilitarum	Imperial	None	passif	SummaryExecution		1	
+astraBossYarrickLEG	AstraMilitarum	Imperial	None	active	SendInTheNextWave	1016	1	1
+astraBossYarrickLEG	AstraMilitarum	Imperial	None	passif	SummaryExecution		1	
+astraBossYarrickLHE	AstraMilitarum	Imperial	None	active	SendInTheNextWave	1016	1	1
+astraBossYarrickLHE	AstraMilitarum	Imperial	None	passif	SummaryExecution		1	
+astraBossYarrickSurv	AstraMilitarum	Imperial	None	active	SendInTheNextWave	1016	1	1
+astraBossYarrickSurv	AstraMilitarum	Imperial	None	passif	SummaryExecution		1	
+astraNpc2Lascannon	AstraMilitarum	Imperial	None	trait	Emplacement		0	
+astraNpc2Lascannon	AstraMilitarum	Imperial	None	trait	TwoManTeam		0	
+astraNpc3Voxcaster	AstraMilitarum	Imperial	None	active	ValkyrieStrike	1018	1	0
+astraNpc3Voxcaster	AstraMilitarum	Imperial	None	passif	CallInReinforcements		0	
+astraNpc4Mortar	AstraMilitarum	Imperial	None	passif	Shrapnel		0	
+astraNpc4Mortar	AstraMilitarum	Imperial	None	trait	Emplacement		0	
+astraNpc4Mortar	AstraMilitarum	Imperial	None	trait	TwoManTeam		0	
+astraNpc4Mortar	AstraMilitarum	Imperial	None	trait	IndirectFire		1	
+astraNpc4MortarSurv	AstraMilitarum	Imperial	None	passif	Shrapnel		0	
+astraNpc4MortarSurv	AstraMilitarum	Imperial	None	trait	Emplacement		0	
+astraNpc4MortarSurv	AstraMilitarum	Imperial	None	trait	TwoManTeam		0	
+astraNpc4MortarSurv	AstraMilitarum	Imperial	None	trait	IndirectFire		1	
+astraNpc5DeathRider	AstraMilitarum	Imperial	None	passif	FragLance		0	
+astraNpcBullgryn	AstraMilitarum	Imperial	None	active	FragBomb	1017	1	1
+astraNpcBullgryn	AstraMilitarum	Imperial	None	passif	AvalancheOfMuscle		1	
+astraNpcCreed	AstraMilitarum	Imperial	None	active	SupremeCommander	1028	1	1
+astraNpcCreed	AstraMilitarum	Imperial	None	passif	SwornProtector		1	
+astraNpcDreir	AstraMilitarum	Imperial	None	active	LeadingTheCharge	1204	1	1
+astraNpcDreir	AstraMilitarum	Imperial	None	passif	ToughToKill		1	
+astraNpcMowOrdnanceBattery	AstraMilitarum	Imperial	None	active	MalleusRocketLauncher	1142	1	1
+astraNpcMowOrdnanceBattery	AstraMilitarum	Imperial	None	active	ForwardSpotter	1143	1	1
+astraNpcMowOrdnanceBattery	AstraMilitarum	Imperial	None	trait	MachineOfWar		0	
+astraNpcOrdnance	AstraMilitarum	Imperial	None	active	BasiliskBarrage	1026	1	0
+astraNpcOrdnance	AstraMilitarum	Imperial	None	passif	SpotterReworked		1	
+astraNpcOrdnance	AstraMilitarum	Imperial	None	trait	IndirectFire		1	
+astraNpcPrimarisPsy	AstraMilitarum	Imperial	None	active	PsychicMaelstrom	1027	1	1
+astraNpcPrimarisPsy	AstraMilitarum	Imperial	None	passif	Nightshroud		1	
+astraNpcYarrick	AstraMilitarum	Imperial	None	active	SendInTheNextWave	1016	1	1
+astraNpcYarrick	AstraMilitarum	Imperial	None	passif	SummaryExecution		1	
+astraYarrick_LHE	AstraMilitarum	Imperial	None	active	SendInTheNextWave	1016	1	1
+astraYarrick_LHE	AstraMilitarum	Imperial	None	passif	SummaryExecution		1	
+blackBossAbaddon	BlackLegion	Chaos	None	active	Drachnyen	1029	1	1
+blackBossAbaddon	BlackLegion	Chaos	None	passif	FirstAmongTraitors		1	
+blackBossAbaddonCamp	BlackLegion	Chaos	None	active	Drachnyen	1029	1	1
+blackBossAbaddonCamp	BlackLegion	Chaos	None	passif	FirstAmongTraitors		1	
+blackBossAbaddonLEG	BlackLegion	Chaos	None	active	Drachnyen	1029	1	1
+blackBossAbaddonLEG	BlackLegion	Chaos	None	passif	FirstAmongTraitors		1	
+blackBossAbaddonLHE	BlackLegion	Chaos	None	active	Drachnyen	1029	1	1
+blackBossAbaddonLHE	BlackLegion	Chaos	None	passif	FirstAmongTraitors		1	
+blackBossHaarken	BlackLegion	Chaos	None	active	HeraldOfTheApocalypse	1020	1	1
+blackBossHaarken	BlackLegion	Chaos	None	passif	HeadClaimer		1	
+blackBossHaarkenCamp	BlackLegion	Chaos	None	active	HeraldOfTheApocalypse	1020	1	1
+blackBossHaarkenCamp	BlackLegion	Chaos	None	passif	HeadClaimer		1	
+blackBossHaarkenLEG	BlackLegion	Chaos	None	active	HeraldOfTheApocalypse	1020	1	1
+blackBossHaarkenLEG	BlackLegion	Chaos	None	passif	HeadClaimer		1	
+blackBossHaarkenLHE	BlackLegion	Chaos	None	active	HeraldOfTheApocalypse	1020	1	1
+blackBossHaarkenLHE	BlackLegion	Chaos	None	passif	HeadClaimer		1	
+blackBossObliterator	BlackLegion	Chaos	None	active	FrenziedFiring	1036	1	1
+blackBossObliterator	BlackLegion	Chaos	None	passif	FleshmetalGuns		1	
+blackBossObliterator	BlackLegion	Chaos	None	trait	Daemon		1	
+blackBossObliteratorCamp	BlackLegion	Chaos	None	active	FrenziedFiring	1036	1	1
+blackBossObliteratorCamp	BlackLegion	Chaos	None	passif	FleshmetalGuns		1	
+blackBossObliteratorCamp	BlackLegion	Chaos	None	trait	Daemon		1	
+blackBossObliteratorLEG	BlackLegion	Chaos	None	active	FrenziedFiring	1036	1	1
+blackBossObliteratorLEG	BlackLegion	Chaos	None	passif	FleshmetalGuns		1	
+blackBossObliteratorLEG	BlackLegion	Chaos	None	trait	Daemon		1	
+blackBossObliteratorLHE	BlackLegion	Chaos	None	active	FrenziedFiring	1036	1	1
+blackBossObliteratorLHE	BlackLegion	Chaos	None	passif	FleshmetalGuns		1	
+blackBossObliteratorLHE	BlackLegion	Chaos	None	trait	Daemon		1	
+blackBossObliteratorSurv	BlackLegion	Chaos	None	active	FrenziedFiring	1036	1	1
+blackBossObliteratorSurv	BlackLegion	Chaos	None	passif	FleshmetalGuns		1	
+blackBossObliteratorSurv	BlackLegion	Chaos	None	trait	Daemon		1	
+blackBossPossession	BlackLegion	Chaos	None	active	Incursion	1021	1	1
+blackBossPossession	BlackLegion	Chaos	None	passif	Possession		1	
+blackBossPossessionLEG	BlackLegion	Chaos	None	active	Incursion	1021	1	1
+blackBossPossessionLEG	BlackLegion	Chaos	None	passif	Possession		1	
+blackBossPossessionLHE	BlackLegion	Chaos	None	active	Incursion	1021	1	1
+blackBossPossessionLHE	BlackLegion	Chaos	None	passif	Possession		1	
+blackBossPossessionSurv	BlackLegion	Chaos	None	active	Incursion	1021	1	1
+blackBossPossessionSurv	BlackLegion	Chaos	None	passif	Possession		1	
+blackBossTerminator	BlackLegion	Chaos	None	active	BringerOfDespair	1022	1	1
+blackBossTerminator	BlackLegion	Chaos	None	passif	HatefulAssault		1	
+blackBossTerminatorLEG	BlackLegion	Chaos	None	active	BringerOfDespair	1022	1	1
+blackBossTerminatorLEG	BlackLegion	Chaos	None	passif	HatefulAssault		1	
+blackBossTerminatorLHE	BlackLegion	Chaos	None	active	BringerOfDespair	1022	1	1
+blackBossTerminatorLHE	BlackLegion	Chaos	None	passif	HatefulAssault		1	
+blackNpc1Bloodletter	BlackLegion	Chaos	None	passif	UnstoppableFerocity		1	
+blackNpc1Bloodletter	BlackLegion	Chaos	None	trait	Daemon		1	
+blackNpc2Terminator	BlackLegion	Chaos	None	passif	DrawFire		0	
+blackNpc3TraitorGuardsman	BlackLegion	Chaos	None	passif	CrazedFocus		0	
+blackNpc4Havoc	BlackLegion	Chaos	None	passif	FiringPosition		0	
+blackNpcAbaddon	BlackLegion	Chaos	None	active	Drachnyen	1029	1	1
+blackNpcAbaddon	BlackLegion	Chaos	None	passif	FirstAmongTraitors		1	
+blackNpcHaarken	BlackLegion	Chaos	None	active	HeraldOfTheApocalypse	1020	1	1
+blackNpcHaarken	BlackLegion	Chaos	None	passif	HeadClaimer		1	
+blackNpcMowForgefiend	BlackLegion	Chaos	None	active	HadesAutocannons	1147	1	1
+blackNpcMowForgefiend	BlackLegion	Chaos	None	active	DaemonicOrdnance	1148	1	1
+blackNpcMowForgefiend	BlackLegion	Chaos	None	trait	MachineOfWar		0	
+blackNpcObliterator	BlackLegion	Chaos	None	active	FrenziedFiring	1036	1	1
+blackNpcObliterator	BlackLegion	Chaos	None	passif	FleshmetalGuns		1	
+blackNpcObliterator	BlackLegion	Chaos	None	trait	Daemon		1	
+blackNpcTerminator	BlackLegion	Chaos	None	active	BringerOfDespair	1022	1	1
+blackNpcTerminator	BlackLegion	Chaos	None	passif	HatefulAssault		1	
+bloodNpc1Intercessor	BloodAngels	Imperial	None	passif	RedThirst		0	
+bloodTerminator_LHE	BloodAngels	Imperial	None	active	SavageEchoes	1230	1	1
+bloodTerminator_LHE	BloodAngels	Imperial	None	passif	RedRampage		1	
+darkaBossAsmodaiLHE	DarkAngels	Imperial	None	active	ExemplarOfHate	1140	1	1
+darkaBossAsmodaiLHE	DarkAngels	Imperial	None	passif	FearedInterrogator		1	
+darkaBossAzraelLHE	DarkAngels	Imperial	None	active	DarkTalonStrike	1092	1	1
+darkaBossAzraelLHE	DarkAngels	Imperial	None	passif	LionHelm		1	
+darkaBossCompanionLHE	DarkAngels	Imperial	None	active	CalibaniteGreatsword	1189	1	1
+darkaBossCompanionLHE	DarkAngels	Imperial	None	passif	EnmityForTheUnworthy		1	
+darkaBossHellblasterLHE	DarkAngels	Imperial	None	active	Supercharge	1103	1	1
+darkaBossHellblasterLHE	DarkAngels	Imperial	None	passif	GrimRetribution		1	
+darkaBossLion	DarkAngels	Imperial	None	active	InstrumentsOfVengeance	1215	0	1
+darkaBossLion	DarkAngels	Imperial	None	active	MartialExemplar	1216	1	1
+darkaBossLion	DarkAngels	Imperial	None	active	TheLionsWrath	1217	1	1
+darkaBossLion	DarkAngels	Imperial	None	passif	PrimarchOfTheFirstLegion		1	
+darkaBossLion	DarkAngels	Imperial	None	passif	Fealty		1	
+darkaBossLion	DarkAngels	Imperial	None	passif	TheEmperorsShield		0	
+darkaBossLion	DarkAngels	Imperial	None	passif	BossEndFightUndefeated		0	
+darkaBossLion	DarkAngels	Imperial	None	trait	Boss		0	
+darkaBossSternguardLHE	DarkAngels	Imperial	None	active	SternguardFocus	1228	1	1
+darkaBossSternguardLHE	DarkAngels	Imperial	None	passif	SpecialIssueCombiMelta		1	
+darkaBossTerminatorLHE	DarkAngels	Imperial	None	active	PlasmaCannon	1150	1	1
+darkaBossTerminatorLHE	DarkAngels	Imperial	None	passif	Deathwing		1	
+darkaNpc3Terminator	DarkAngels	Imperial	None	passif	DeathwingKnight		0	
+darkaNpc4Watcher	DarkAngels	Imperial	None	passif	NoHidingFromTheWatchers		0	
+darkaNpc4Watcher	DarkAngels	Imperial	None	passif	WatchedOver		0	
+darkaNpc4Watcher	DarkAngels	Imperial	None	trait	PermaDeath		0	
+darkaNpcAsmodai	DarkAngels	Imperial	None	active	ExemplarOfHate	1140	1	1
+darkaNpcAsmodai	DarkAngels	Imperial	None	passif	FearedInterrogator		1	
+darkaNpcAzrael	DarkAngels	Imperial	None	active	DarkTalonStrike	1092	1	1
+darkaNpcAzrael	DarkAngels	Imperial	None	passif	LionHelm		1	
+darkaNpcCompanion	DarkAngels	Imperial	None	active	CalibaniteGreatsword	1189	1	1
+darkaNpcCompanion	DarkAngels	Imperial	None	passif	EnmityForTheUnworthy		1	
+darkaNpcHellblaster	DarkAngels	Imperial	None	active	Supercharge	1103	1	1
+darkaNpcHellblaster	DarkAngels	Imperial	None	passif	GrimRetribution		1	
+darkaNpcMowStormSpeeder	DarkAngels	Imperial	None	active	DeathOnTheWind	1213	1	1
+darkaNpcMowStormSpeeder	DarkAngels	Imperial	None	active	Hailstrike	1214	1	1
+darkaNpcMowStormSpeeder	DarkAngels	Imperial	None	trait	MachineOfWar		0	
+darkaNpcTerminator	DarkAngels	Imperial	None	active	PlasmaCannon	1150	1	1
+darkaNpcTerminator	DarkAngels	Imperial	None	passif	Deathwing		1	
+deathBossBlightbringer	DeathGuard	Chaos	None	active	Poxwalkers	1040	1	1
+deathBossBlightbringer	DeathGuard	Chaos	None	passif	CursedPlagueBell		1	
+deathBossBlightbringerLHE	DeathGuard	Chaos	None	active	Poxwalkers	1040	1	1
+deathBossBlightbringerLHE	DeathGuard	Chaos	None	passif	CursedPlagueBell		1	
+deathBossBlightlord	DeathGuard	Chaos	None	active	FlailSwing	1042	1	1
+deathBossBlightlord	DeathGuard	Chaos	None	passif	HazeOfCorruption		1	
+deathBossBlightlordLHE	DeathGuard	Chaos	None	active	FlailSwing	1042	1	1
+deathBossBlightlordLHE	DeathGuard	Chaos	None	passif	HazeOfCorruption		1	
+deathBossMortarion	DeathGuard	Chaos	None	active	MortarionsPlagueWind	1093	1	1
+deathBossMortarion	DeathGuard	Chaos	None	active	TheLantern	1094	0	0
+deathBossMortarion	DeathGuard	Chaos	None	active	ReapingScythe	1095	1	1
+deathBossMortarion	DeathGuard	Chaos	None	passif	BossEndFightUndefeated		0	
+deathBossMortarion	DeathGuard	Chaos	None	passif	ArchContaminator		0	
+deathBossMortarion	DeathGuard	Chaos	None	passif	HostOfPlagues		0	
+deathBossMortarion	DeathGuard	Chaos	None	trait	Boss		0	
+deathBossMortarion	DeathGuard	Chaos	None	trait	Daemon		1	
+deathBossPutrifier	DeathGuard	Chaos	None	active	FoulInfusion	1038	1	1
+deathBossPutrifier	DeathGuard	Chaos	None	passif	ExplosiveMaladies		1	
+deathBossPutrifier	DeathGuard	Chaos	None	trait	PutridExplosion		1	
+deathBossPutrifierLHE	DeathGuard	Chaos	None	active	FoulInfusion	1038	1	1
+deathBossPutrifierLHE	DeathGuard	Chaos	None	passif	ExplosiveMaladies		1	
+deathBossPutrifierLHE	DeathGuard	Chaos	None	trait	PutridExplosion		1	
+deathBossRotbone	DeathGuard	Chaos	None	active	RevitalizingMalignancy	1037	1	1
+deathBossRotbone	DeathGuard	Chaos	None	passif	TaintedNarthecium		1	
+deathBossRotbone	DeathGuard	Chaos	None	trait	Healer		0	
+deathBossRotboneLHE	DeathGuard	Chaos	None	active	RevitalizingMalignancy	1037	1	1
+deathBossRotboneLHE	DeathGuard	Chaos	None	passif	TaintedNarthecium		1	
+deathBossRotboneLHE	DeathGuard	Chaos	None	trait	Healer		0	
+deathBossTyphus	DeathGuard	Chaos	None	active	PlagueWind	1035	1	1
+deathBossTyphus	DeathGuard	Chaos	None	passif	DestroyerHive		1	
+deathBossTyphusLEG	DeathGuard	Chaos	None	active	PlagueWind	1035	1	1
+deathBossTyphusLEG	DeathGuard	Chaos	None	passif	DestroyerHive		1	
+deathBossTyphusLHE	DeathGuard	Chaos	None	active	PlagueWind	1035	1	1
+deathBossTyphusLHE	DeathGuard	Chaos	None	passif	DestroyerHive		1	
+deathBossTyphusSurv	DeathGuard	Chaos	None	active	PlagueWind	1035	1	1
+deathBossTyphusSurv	DeathGuard	Chaos	None	passif	DestroyerHive		1	
+deathNpc1Poxwalker	DeathGuard	Chaos	None	passif	CursedOfTheWalkingPox		0	
+deathNpc2PlagueMarine	DeathGuard	Chaos	None	active	BlightGrenades	1176	1	1
+deathNpc2PlagueMarine	DeathGuard	Chaos	None	passif	CloudOfFlies		0	
+deathNpc3Nurglings	DeathGuard	Chaos	None	passif	MischiefMakers		0	
+deathNpc3Nurglings	DeathGuard	Chaos	None	trait	Daemon		1	
+deathNpc3Nurglings	DeathGuard	Chaos	None	trait	PutridExplosion		1	
+deathNpc3Nurglings	DeathGuard	Chaos	None	trait	Swarm		1	
+deathNpc4BlightlordTerminator	DeathGuard	Chaos	None	passif	HazeOfCorruption		1	
+deathNpcBlightbringer	DeathGuard	Chaos	None	active	Poxwalkers	1040	1	1
+deathNpcBlightbringer	DeathGuard	Chaos	None	passif	CursedPlagueBell		1	
+deathNpcBlightlord	DeathGuard	Chaos	None	active	FlailSwing	1042	1	1
+deathNpcBlightlord	DeathGuard	Chaos	None	passif	HazeOfCorruption		1	
+deathNpcMoWCrawler	DeathGuard	Chaos	None	active	EntropyCannons	1168	1	0
+deathNpcMoWCrawler	DeathGuard	Chaos	None	active	PlagueburstMortar	1169	1	1
+deathNpcMoWCrawler	DeathGuard	Chaos	None	trait	MachineOfWar		0	
+deathNpcPutrifier	DeathGuard	Chaos	None	active	FoulInfusion	1038	1	1
+deathNpcPutrifier	DeathGuard	Chaos	None	passif	ExplosiveMaladies		1	
+deathNpcPutrifier	DeathGuard	Chaos	None	trait	PutridExplosion		1	
+deathNpcRotbone	DeathGuard	Chaos	None	active	RevitalizingMalignancy	1037	1	1
+deathNpcRotbone	DeathGuard	Chaos	None	passif	TaintedNarthecium		1	
+deathNpcRotbone	DeathGuard	Chaos	None	trait	Healer		0	
+deathNpcTyphus	DeathGuard	Chaos	None	active	PlagueWind	1035	1	1
+deathNpcTyphus	DeathGuard	Chaos	None	passif	DestroyerHive		1	
+eldarBossAutarch	Aeldari	Xenos	None	active	Loki_SwoopingHawk	1064	1	1
+eldarBossAutarch	Aeldari	Xenos	None	passif	PathOfCommand		1	
+eldarBossAutarchCamp	Aeldari	Xenos	None	active	Loki_SwoopingHawk	1064	1	1
+eldarBossAutarchCamp	Aeldari	Xenos	None	passif	PathOfCommand		1	
+eldarBossAutarchLHE	Aeldari	Xenos	None	active	Loki_SwoopingHawk	1064	1	1
+eldarBossAutarchLHE	Aeldari	Xenos	None	passif	PathOfCommand		1	
+eldarBossFarseer	Aeldari	Xenos	None	active	Executioner	1066	1	1
+eldarBossFarseer	Aeldari	Xenos	None	passif	Doom		1	
+eldarBossFarseerCamp	Aeldari	Xenos	None	active	Executioner	1066	1	1
+eldarBossFarseerCamp	Aeldari	Xenos	None	passif	Doom		1	
+eldarBossFarseerLEG	Aeldari	Xenos	None	active	Executioner	1066	1	1
+eldarBossFarseerLEG	Aeldari	Xenos	None	passif	Doom		1	
+eldarBossFarseerLHE	Aeldari	Xenos	None	active	Executioner	1066	1	1
+eldarBossFarseerLHE	Aeldari	Xenos	None	passif	Doom		1	
+eldarBossFarseerSurv	Aeldari	Xenos	None	active	Executioner	1066	1	1
+eldarBossFarseerSurv	Aeldari	Xenos	None	passif	Doom		1	
+eldarBossJainZar	Aeldari	Xenos	None	active	SilentDeath	1068	1	1
+eldarBossJainZar	Aeldari	Xenos	None	passif	TerrorsLament		1	
+eldarBossJainZarCamp	Aeldari	Xenos	None	active	SilentDeath	1068	1	1
+eldarBossJainZarCamp	Aeldari	Xenos	None	passif	TerrorsLament		1	
+eldarBossJainZarLEG	Aeldari	Xenos	None	active	SilentDeath	1068	1	1
+eldarBossJainZarLEG	Aeldari	Xenos	None	passif	TerrorsLament		1	
+eldarBossJainZarLHE	Aeldari	Xenos	None	active	SilentDeath	1068	1	1
+eldarBossJainZarLHE	Aeldari	Xenos	None	passif	TerrorsLament		1	
+eldarBossMauganRa	Aeldari	Xenos	None	active	HarvesterOfSouls	1067	1	1
+eldarBossMauganRa	Aeldari	Xenos	None	passif	InescapableAccuracy		1	
+eldarBossMauganRaCamp	Aeldari	Xenos	None	active	HarvesterOfSouls	1067	1	1
+eldarBossMauganRaCamp	Aeldari	Xenos	None	passif	InescapableAccuracy		1	
+eldarBossMauganRaLEG	Aeldari	Xenos	None	active	HarvesterOfSouls	1067	1	1
+eldarBossMauganRaLEG	Aeldari	Xenos	None	passif	InescapableAccuracy		1	
+eldarBossMauganRaLHE	Aeldari	Xenos	None	active	HarvesterOfSouls	1067	1	1
+eldarBossMauganRaLHE	Aeldari	Xenos	None	passif	InescapableAccuracy		1	
+eldarBossMauganRaUltra	Aeldari	Xenos	None	active	Maugetar		0	0
+eldarBossMauganRaUltra	Aeldari	Xenos	None	passif	InescapableAccuracy		1	
+eldarBossRanger	Aeldari	Xenos	None	active	FireAndReposition	1063	1	1
+eldarBossRanger	Aeldari	Xenos	None	passif	WireweaveNet		1	
+eldarBossRangerCamp	Aeldari	Xenos	None	active	FireAndReposition	1063	1	1
+eldarBossRangerCamp	Aeldari	Xenos	None	passif	WireweaveNet		1	
+eldarBossRangerLHE	Aeldari	Xenos	None	active	FireAndReposition	1063	1	1
+eldarBossRangerLHE	Aeldari	Xenos	None	passif	WireweaveNet		1	
+eldarBossRangerSurv	Aeldari	Xenos	None	active	FireAndReposition	1063	1	1
+eldarBossRangerSurv	Aeldari	Xenos	None	passif	WireweaveNet		1	
+eldarNpc1Guardian	Aeldari	Xenos	None	active	PlasmaGrenade	1098	1	1
+eldarNpc1Guardian	Aeldari	Xenos	None	passif	BattleFocus		0	
+eldarNpc2Warlock	Aeldari	Xenos	None	active	Reveal	1107	0	0
+eldarNpc2Warlock	Aeldari	Xenos	None	passif	Conceal		0	
+eldarNpc3Harlequin	Aeldari	Xenos	None	active	KissOfDeath	1108	1	0
+eldarNpc3Harlequin	Aeldari	Xenos	None	passif	HarlequinsPanoply		0	
+eldarNpc4Wraithguard	Aeldari	Xenos	None	active	WarConstruct	1133	1	0
+eldarNpc4Wraithguard	Aeldari	Xenos	None	passif	Wraithcannon		1	
+eldarNpc4WraithguardSurv	Aeldari	Xenos	None	active	WarConstruct	1133	1	0
+eldarNpc4WraithguardSurv	Aeldari	Xenos	None	passif	Wraithcannon		1	
+genesBossBiophagus	Genestealers	Xenos	None	active	AberrantHypermorph	1166	1	1
+genesBossBiophagus	Genestealers	Xenos	None	passif	TwistedScience		1	
+genesBossBiophagus	Genestealers	Xenos	None	trait	Healer		0	
+genesBossBiophagusLHE	Genestealers	Xenos	None	active	AberrantHypermorph	1166	1	1
+genesBossBiophagusLHE	Genestealers	Xenos	None	passif	TwistedScience		1	
+genesBossBiophagusLHE	Genestealers	Xenos	None	trait	Healer		0	
+genesBossKelermorph	Genestealers	Xenos	None	active	HeroicFusillade	1180	1	1
+genesBossKelermorph	Genestealers	Xenos	None	passif	HypersensoryAbilities		1	
+genesBossKelermorphLHE	Genestealers	Xenos	None	active	HeroicFusillade	1180	1	1
+genesBossKelermorphLHE	Genestealers	Xenos	None	passif	HypersensoryAbilities		1	
+genesBossKelermorphSurv	Genestealers	Xenos	None	active	HeroicFusillade	1180	1	1
+genesBossKelermorphSurv	Genestealers	Xenos	None	passif	HypersensoryAbilities		1	
+genesBossMagus	Genestealers	Xenos	None	active	MindControl	1164	1	1
+genesBossMagus	Genestealers	Xenos	None	passif	SpiritualLeader		1	
+genesBossMagusLHE	Genestealers	Xenos	None	active	MindControl	1164	1	1
+genesBossMagusLHE	Genestealers	Xenos	None	passif	SpiritualLeader		1	
+genesBossMagusSurv	Genestealers	Xenos	None	active	MindControl	1164	1	1
+genesBossMagusSurv	Genestealers	Xenos	None	passif	SpiritualLeader		1	
+genesBossPatriarch	Genestealers	Xenos	None	active	MightFromBelow	1165	1	1
+genesBossPatriarch	Genestealers	Xenos	None	passif	CosmicHorror		1	
+genesBossPatriarchLHE	Genestealers	Xenos	None	active	MightFromBelow	1165	1	1
+genesBossPatriarchLHE	Genestealers	Xenos	None	passif	CosmicHorror		1	
+genesBossPrimus	Genestealers	Xenos	None	active	CultDemagogue	1179	1	1
+genesBossPrimus	Genestealers	Xenos	None	passif	DecoysAndMisdirection		1	
+genesBossPrimusLHE	Genestealers	Xenos	None	active	CultDemagogue	1179	1	1
+genesBossPrimusLHE	Genestealers	Xenos	None	passif	DecoysAndMisdirection		1	
+genesDecoy	Genestealers	Xenos	None	trait	Decoy		0	
+genesNpc1Aberrant	Genestealers	Xenos	None	passif	Hypermorph		0	
+genesNpcBiophagus	Genestealers	Xenos	None	active	AberrantHypermorph	1166	1	1
+genesNpcBiophagus	Genestealers	Xenos	None	passif	TwistedScience		1	
+genesNpcBiophagus	Genestealers	Xenos	None	trait	Healer		0	
+genesNpcKelermorph	Genestealers	Xenos	None	active	HeroicFusillade	1180	1	1
+genesNpcKelermorph	Genestealers	Xenos	None	passif	HypersensoryAbilities		1	
+genesNpcMagus	Genestealers	Xenos	None	active	MindControl	1164	1	1
+genesNpcMagus	Genestealers	Xenos	None	passif	SpiritualLeader		1	
+genesNpcPatriarch	Genestealers	Xenos	None	active	MightFromBelow	1165	1	1
+genesNpcPatriarch	Genestealers	Xenos	None	passif	CosmicHorror		1	
+genesNpcPrimus	Genestealers	Xenos	None	active	CultDemagogue	1179	1	1
+genesNpcPrimus	Genestealers	Xenos	None	passif	DecoysAndMisdirection		1	
+necroBossC1Destroyer	Necrons	Xenos	None	active	MultiThreatEliminator	1006	1	1
+necroBossC1Destroyer	Necrons	Xenos	None	passif	InescapableDeath		1	
+necroBossC1Overlord	Necrons	Xenos	None	active	ResurrectionOrb	1009	1	1
+necroBossC1Overlord	Necrons	Xenos	None	passif	MyWillBeDoneOverlord		1	
+necroBossC1Plasmancer	Necrons	Xenos	None	active	HarbingerOfDestruction	1008	1	1
+necroBossC1Plasmancer	Necrons	Xenos	None	passif	LivingLightning		1	
+necroBossC1Spyder	Necrons	Xenos	None	active	ScarabHive	1007	1	1
+necroBossC1Spyder	Necrons	Xenos	None	passif	FabricatorClawArray		1	
+necroBossC1Warden	Necrons	Xenos	None	active	AdaptiveStrategy	1005	1	1
+necroBossC1Warden	Necrons	Xenos	None	passif	RelentlessMarch		1	
+necroBossChronomancerLHE	Necrons	Xenos	None	active	Chronometron	1226	1	1
+necroBossChronomancerLHE	Necrons	Xenos	None	passif	TimesplinterMantle		1	
+necroBossChronomancerSurv	Necrons	Xenos	None	active	Chronometron	1226	1	1
+necroBossChronomancerSurv	Necrons	Xenos	None	passif	TimesplinterMantle		1	
+necroBossDestroyer	Necrons	Xenos	None	active	MultiThreatEliminator	1006	1	1
+necroBossDestroyer	Necrons	Xenos	None	passif	InescapableDeath		1	
+necroBossDestroyerLEG	Necrons	Xenos	None	active	MultiThreatEliminator	1006	1	1
+necroBossDestroyerLEG	Necrons	Xenos	None	passif	InescapableDeath		1	
+necroBossDestroyerLHE	Necrons	Xenos	None	active	MultiThreatEliminator	1006	1	1
+necroBossDestroyerLHE	Necrons	Xenos	None	passif	InescapableDeath		1	
+necroBossOverlord	Necrons	Xenos	None	active	ResurrectionOrb	1009	1	1
+necroBossOverlord	Necrons	Xenos	None	passif	MyWillBeDoneOverlord		1	
+necroBossOverlordLEG	Necrons	Xenos	None	active	ResurrectionOrb	1009	1	1
+necroBossOverlordLEG	Necrons	Xenos	None	passif	MyWillBeDoneOverlord		1	
+necroBossOverlordLHE	Necrons	Xenos	None	active	ResurrectionOrb	1009	1	1
+necroBossOverlordLHE	Necrons	Xenos	None	passif	MyWillBeDoneOverlord		1	
+necroBossPlasmancer	Necrons	Xenos	None	active	HarbingerOfDestruction	1008	1	1
+necroBossPlasmancer	Necrons	Xenos	None	passif	LivingLightning		1	
+necroBossPlasmancerLEG	Necrons	Xenos	None	active	HarbingerOfDestruction	1008	1	1
+necroBossPlasmancerLEG	Necrons	Xenos	None	passif	LivingLightning		1	
+necroBossPlasmancerLHE	Necrons	Xenos	None	active	HarbingerOfDestruction	1008	1	1
+necroBossPlasmancerLHE	Necrons	Xenos	None	passif	LivingLightning		1	
+necroBossSpyder	Necrons	Xenos	None	active	ScarabHive	1007	1	1
+necroBossSpyder	Necrons	Xenos	None	passif	FabricatorClawArray		1	
+necroBossSpyderLEG	Necrons	Xenos	None	active	ScarabHive	1007	1	1
+necroBossSpyderLEG	Necrons	Xenos	None	passif	FabricatorClawArray		1	
+necroBossSpyderLHE	Necrons	Xenos	None	active	ScarabHive	1007	1	1
+necroBossSpyderLHE	Necrons	Xenos	None	passif	FabricatorClawArray		1	
+necroBossWarden	Necrons	Xenos	None	active	AdaptiveStrategy	1005	1	1
+necroBossWarden	Necrons	Xenos	None	passif	RelentlessMarch		1	
+necroBossWardenLEG	Necrons	Xenos	None	active	AdaptiveStrategy	1005	1	1
+necroBossWardenLEG	Necrons	Xenos	None	passif	RelentlessMarch		1	
+necroBossWardenLHE	Necrons	Xenos	None	active	AdaptiveStrategy	1005	1	1
+necroBossWardenLHE	Necrons	Xenos	None	passif	RelentlessMarch		1	
+necroChronomancer_LHE	Necrons	Xenos	None	active	Chronometron	1226	1	1
+necroChronomancer_LHE	Necrons	Xenos	None	passif	TimesplinterMantle		1	
+necroNpc1Warrior	Necrons	Xenos	None	passif	ReanimationProtocols		0	
+necroNpc1WarriorSurv	Necrons	Xenos	None	passif	ReanimationProtocols		0	
+necroNpc2FlayedOne	Necrons	Xenos	None	active	StormOfFlensingBlades	1010	1	1
+necroNpc2FlayedOne	Necrons	Xenos	None	passif	ReanimationProtocols		0	
+necroNpc2TutFlayedOne	Necrons	Xenos	None	active	StormOfFlensingBlades	1010	1	1
+necroNpc2TutFlayedOneFTUEtest	Necrons	Xenos	None	active	StormOfFlensingBlades	1010	1	1
+necroNpc3Deathmark	Necrons	Xenos	None	active	PrecisionShot	1015	0	0
+necroNpc3Deathmark	Necrons	Xenos	None	passif	ReanimationProtocols		0	
+necroNpc4Destroyer	Necrons	Xenos	None	active	TunnelingHorror	1011	1	0
+necroNpc4Destroyer	Necrons	Xenos	None	passif	WhipcoilBody		0	
+necroNpc4DestroyerLHE	Necrons	Xenos	None	active	TunnelingHorror	1011	1	0
+necroNpc4DestroyerLHE	Necrons	Xenos	None	passif	WhipcoilBody		0	
+necroNpc4DestroyerSurv	Necrons	Xenos	None	active	TunnelingHorror	1011	1	0
+necroNpc4DestroyerSurv	Necrons	Xenos	None	passif	WhipcoilBody		0	
+necroNpc5Swarm	Necrons	Xenos	None	active	ScarabSummon	1047	1	1
+necroNpc5Swarm	Necrons	Xenos	None	passif	ReanimationProtocols		0	
+necroNpc5Swarm	Necrons	Xenos	None	trait	Swarm		1	
+necroNpcChronomancer	Necrons	Xenos	None	active	Chronometron	1226	1	1
+necroNpcChronomancer	Necrons	Xenos	None	passif	TimesplinterMantle		1	
+necroNpcDestroyer	Necrons	Xenos	None	active	MultiThreatEliminator	1006	1	1
+necroNpcDestroyer	Necrons	Xenos	None	passif	InescapableDeath		1	
+necroNpcLHESwarm	Necrons	Xenos	None	active	ScarabSummon	1047	1	1
+necroNpcLHESwarm	Necrons	Xenos	None	passif	ReanimationProtocols		0	
+necroNpcLHESwarm	Necrons	Xenos	None	trait	Swarm		1	
+necroNpcMoWReanimator	Necrons	Xenos	None	active	ReanimationBeam	1223	1	1
+necroNpcMoWReanimator	Necrons	Xenos	None	active	NanoscarabRepairProtocols	1224	1	1
+necroNpcMoWReanimator	Necrons	Xenos	None	trait	MachineOfWar		0	
+necroNpcOverlord	Necrons	Xenos	None	active	ResurrectionOrb	1009	1	1
+necroNpcOverlord	Necrons	Xenos	None	passif	MyWillBeDoneOverlord		1	
+necroNpcPlasmancer	Necrons	Xenos	None	active	HarbingerOfDestruction	1008	1	1
+necroNpcPlasmancer	Necrons	Xenos	None	passif	LivingLightning		1	
+necroNpcSpyder	Necrons	Xenos	None	active	ScarabHive	1007	1	1
+necroNpcSpyder	Necrons	Xenos	None	passif	FabricatorClawArray		1	
+necroNpcWarden	Necrons	Xenos	None	active	AdaptiveStrategy	1005	1	1
+necroNpcWarden	Necrons	Xenos	None	passif	RelentlessMarch		1	
+orksBossBigMek	Orks	Xenos	None	active	GrotTank	1057	1	1
+orksBossBigMek	Orks	Xenos	None	passif	KustomForceFieldReworked		1	
+orksBossBigMekLEG	Orks	Xenos	None	active	GrotTank	1057	1	1
+orksBossBigMekLEG	Orks	Xenos	None	passif	KustomForceFieldReworked		1	
+orksBossBigMekLHE	Orks	Xenos	None	active	GrotTank	1057	1	1
+orksBossBigMekLHE	Orks	Xenos	None	passif	KustomForceFieldReworked		1	
+orksBossKillaKan	Orks	Xenos	None	active	DakkaDakkaDakka	1171	1	1
+orksBossKillaKan	Orks	Xenos	None	passif	PowerTrip		1	
+orksBossKillaKanLEG	Orks	Xenos	None	active	DakkaDakkaDakka	1171	1	1
+orksBossKillaKanLEG	Orks	Xenos	None	passif	PowerTrip		1	
+orksBossKillaKanLHE	Orks	Xenos	None	active	DakkaDakkaDakka	1171	1	1
+orksBossKillaKanLHE	Orks	Xenos	None	passif	PowerTrip		1	
+orksBossNob	Orks	Xenos	None	active	UnstoppableMomentumReworked	1152	1	1
+orksBossNob	Orks	Xenos	None	passif	SmashaEad		1	
+orksBossNobLEG	Orks	Xenos	None	active	UnstoppableMomentumReworked	1152	1	1
+orksBossNobLEG	Orks	Xenos	None	passif	SmashaEad		1	
+orksBossNobLHE	Orks	Xenos	None	active	UnstoppableMomentumReworked	1152	1	1
+orksBossNobLHE	Orks	Xenos	None	passif	SmashaEad		1	
+orksBossRuntherd	Orks	Xenos	None	active	GetEmRuntz	1045	1	1
+orksBossRuntherd	Orks	Xenos	None	passif	SquigHound		1	
+orksBossRuntherdLEG	Orks	Xenos	None	active	GetEmRuntz	1045	1	1
+orksBossRuntherdLEG	Orks	Xenos	None	passif	SquigHound		1	
+orksBossRuntherdLHE	Orks	Xenos	None	active	GetEmRuntz	1045	1	1
+orksBossRuntherdLHE	Orks	Xenos	None	passif	SquigHound		1	
+orksBossWarboss	Orks	Xenos	None	active	Waaagh	1058	1	1
+orksBossWarboss	Orks	Xenos	None	passif	LightImUp		1	
+orksBossWarbossLHE	Orks	Xenos	None	active	Waaagh	1058	1	1
+orksBossWarbossLHE	Orks	Xenos	None	passif	LightImUp		1	
+orksNpc1Grot	Orks	Xenos	None	passif	PileIn		0	
+orksNpc1Grot	Orks	Xenos	None	trait	Diminutive		1	
+orksNpc2OrkBoy	Orks	Xenos	None	active	Stikkbomb	1051	1	1
+orksNpc3GrotTank	Orks	Xenos	None	passif	Ramshackle		1	
+orksNpc3GrotTank	Orks	Xenos	None	trait	Vehicle		0	
+orksNpc4AmmoGrot	Orks	Xenos	None	passif	ItsGonnaBlow		0	
+orksNpc4AmmoGrot	Orks	Xenos	None	passif	RunsAround		0	
+orksNpc4AmmoGrot	Orks	Xenos	None	trait	Diminutive		1	
+orksNpc4AmmoGrot	Orks	Xenos	None	trait	NonAttacking		0	
+orksNpc5LootGrotTeam	Orks	Xenos	None	passif	OiWatchIt		0	
+orksNpc5LootGrotTeam	Orks	Xenos	None	passif	RunsAway		0	
+orksNpc5LootGrotTeam	Orks	Xenos	None	trait	Diminutive		1	
+orksNpc5LootGrotTeam	Orks	Xenos	None	trait	TwoManTeam		0	
+orksNpc5LootGrotTeam	Orks	Xenos	None	trait	NonAttacking		0	
+orksNpc6Stormboy	Orks	Xenos	None	passif	StormboyzStrike		1	
+orksNpc6Stormboy	Orks	Xenos	None	passif	FullThrottle		1	
+orksNpc7Squig	Orks	Xenos	None	passif	Bounce		0	
+orksNpc7SquigSurv	Orks	Xenos	None	passif	Bounce		0	
+orksNpcBigMek	Orks	Xenos	None	active	GrotTank	1057	1	1
+orksNpcBigMek	Orks	Xenos	None	passif	KustomForceFieldReworked		1	
+orksNpcKillaKan	Orks	Xenos	None	active	DakkaDakkaDakka	1171	1	1
+orksNpcKillaKan	Orks	Xenos	None	passif	PowerTrip		1	
+orksNpcMoWRukkatrukk	Orks	Xenos	None	active	SquigLaunchas	1200	1	0
+orksNpcMoWRukkatrukk	Orks	Xenos	None	active	SquigMine	1201	1	1
+orksNpcMoWRukkatrukk	Orks	Xenos	None	trait	MachineOfWar		0	
+orksNpcNob	Orks	Xenos	None	active	UnstoppableMomentumReworked	1152	1	1
+orksNpcNob	Orks	Xenos	None	passif	SmashaEad		1	
+orksNpcRuntherd	Orks	Xenos	None	active	GetEmRuntz	1045	1	1
+orksNpcRuntherd	Orks	Xenos	None	passif	SquigHound		1	
+orksNpcWarboss	Orks	Xenos	None	active	Waaagh	1058	1	1
+orksNpcWarboss	Orks	Xenos	None	passif	LightImUp		1	
+orksNpcWarbossSurv	Orks	Xenos	None	active	Waaagh	1058	1	1
+orksNpcWarbossSurv	Orks	Xenos	None	passif	LightImUp		1	
+orksRedGobbo	Orks	Xenos	None	active	ExplosivePresents	1170	1	0
+orksRedGobbo	Orks	Xenos	None	passif	DaRevolushun		0	
+powupArmor	?	?	None	passif	PowerUp_Armor		0	
+powupBomb	?	?	None	passif	PowerUp_Bomb		0	
+powupDamage	?	?	None	passif	PowerUp_Damage		0	
+powupHealing	?	?	None	passif	PowerUp_Healing		0	
+powupHealth	?	?	None	passif	PowerUp_Health		0	
+powupHeroSpawn_BladeChampion	?	?	None	passif	PowerUp_HeroSpawn_BladeChampion		0	
+powupHeroSpawn_Uthar	?	?	None	passif	PowerUp_HeroSpawn_Uthar		0	
+powupHeroSpawn_VexilusPraeto	?	?	None	passif	PowerUp_HeroSpawn_VexilusPraetor		0	
+powupHits	?	?	None	passif	PowerUp_Hits		0	
+powupMeleeHits	?	?	None	passif	PowerUp_MeleeHits		0	
+powupReactivateAbility	?	?	None	passif	PowerUp_ReactivateAbility		0	
+powupReinforcement	?	?	None	passif	PowerUp_Reinforcement		0	
+powupReinforcementShield	?	?	None	passif	PowerUp_ReinforcementShield		0	
+powupResurrect	?	?	None	passif	PowerUp_Resurrect		0	
+powupSummonSpawn_bloodSmnIntercessor	?	?	None	passif	PowerUp_SummonSpawn_bloodSmnIntercessor		0	
+powupSummonSpawn_darkaSmnHellblaster	?	?	None	passif	PowerUp_SummonSpawn_darkaSmnHellblaster		0	
+powupSummonSpawn_darkaSmnTerminator	?	?	None	passif	PowerUp_SummonSpawn_darkaSmnTerminator		0	
+powupSummonSpawn_templSmnAggressor	?	?	None	passif	PowerUp_SummonSpawn_templSmnAggressor		0	
+powupSummonSpawn_ultraSmnHeavyIntercessor	?	?	None	passif	PowerUp_SummonSpawn_ultraSmnHeavyIntercessor		0	
+powupSummonSpawn_ultraSmnInceptor	?	?	None	passif	PowerUp_SummonSpawn_ultraSmnInceptor		0	
+spaceStormcaller_LHE	SpaceWolves	Imperial	None	active	Stormcaller	1113	1	1
+spaceStormcaller_LHE	SpaceWolves	Imperial	None	passif	LordOfTempests		1	
+tauBossAunShi	Tau	Xenos	None	active	InspiredToGreatness	1082	1	1
+tauBossAunShi	Tau	Xenos	None	passif	SereneUnifier		1	
+tauBossAunShiInc	Tau	Xenos	None	active	InspiredToGreatness	1082	1	1
+tauBossAunShiInc	Tau	Xenos	None	passif	SereneUnifier		1	
+tauBossAunShiLHE	Tau	Xenos	None	active	InspiredToGreatness	1082	1	1
+tauBossAunShiLHE	Tau	Xenos	None	passif	SereneUnifier		1	
+tauBossCrisis	Tau	Xenos	None	active	EarlyWarningOverride	1077	1	1
+tauBossCrisis	Tau	Xenos	None	passif	CyclicIonBlaster		1	
+tauBossCrisisInc	Tau	Xenos	None	active	EarlyWarningOverride	1077	1	1
+tauBossCrisisInc	Tau	Xenos	None	passif	CyclicIonBlaster		1	
+tauBossCrisisLHE	Tau	Xenos	None	active	EarlyWarningOverride	1077	1	1
+tauBossCrisisLHE	Tau	Xenos	None	passif	CyclicIonBlaster		1	
+tauBossDarkstrider	Tau	Xenos	None	active	FightingRetreat	1081	1	1
+tauBossDarkstrider	Tau	Xenos	None	passif	StructuralAnalyser		1	
+tauBossDarkstriderInc	Tau	Xenos	None	active	FightingRetreat	1081	1	1
+tauBossDarkstriderInc	Tau	Xenos	None	passif	StructuralAnalyser		1	
+tauBossDarkstriderLHE	Tau	Xenos	None	active	FightingRetreat	1081	1	1
+tauBossDarkstriderLHE	Tau	Xenos	None	passif	StructuralAnalyser		1	
+tauBossFarsight	Tau	Xenos	None	active	ExemplarOfTheMontka	1210	1	1
+tauBossFarsight	Tau	Xenos	None	passif	WayOfTheShortBlade		0	
+tauBossFarsightInc	Tau	Xenos	None	active	ExemplarOfTheMontka	1210	1	1
+tauBossFarsightInc	Tau	Xenos	None	passif	WayOfTheShortBlade		0	
+tauBossFarsightLHE	Tau	Xenos	None	active	ExemplarOfTheMontka	1210	1	1
+tauBossFarsightLHE	Tau	Xenos	None	passif	WayOfTheShortBlade		0	
+tauBossFarsightSurv	Tau	Xenos	None	active	ExemplarOfTheMontka	1210	1	1
+tauBossFarsightSurv	Tau	Xenos	None	passif	WayOfTheShortBlade		0	
+tauBossMarksman	Tau	Xenos	None	active	SeekerMissileFrequencyLock	1069	1	1
+tauBossMarksman	Tau	Xenos	None	passif	MV71SniperDroneSquad		1	
+tauBossMarksmanInc	Tau	Xenos	None	active	SeekerMissileFrequencyLock	1069	1	1
+tauBossMarksmanInc	Tau	Xenos	None	passif	MV71SniperDroneSquad		1	
+tauBossMarksmanLHE	Tau	Xenos	None	active	SeekerMissileFrequencyLock	1069	1	1
+tauBossMarksmanLHE	Tau	Xenos	None	passif	MV71SniperDroneSquad		1	
+tauBossRiptide	Tau	Xenos	None	active	NovaBoost	1192	1	1
+tauBossRiptide	Tau	Xenos	None	active	NovaCharge	1193	0	0
+tauBossRiptide	Tau	Xenos	None	active	NovaShield	1194	1	1
+tauBossRiptide	Tau	Xenos	None	passif	MultiTracker		0	
+tauBossRiptide	Tau	Xenos	None	passif	TargetLock		0	
+tauBossRiptide	Tau	Xenos	None	trait	Boss		0	
+tauBossRiptide	Tau	Xenos	None	trait	IndirectFire		1	
+tauBossRiptide	Tau	Xenos	None	trait	Vehicle		0	
+tauBossShadowsun	Tau	Xenos	None	active	ExemplarOfTheKauyon	1087	1	1
+tauBossShadowsun	Tau	Xenos	None	passif	DefenderOfTheGreaterGood		1	
+tauBossShadowsunInc	Tau	Xenos	None	active	ExemplarOfTheKauyon	1087	1	1
+tauBossShadowsunInc	Tau	Xenos	None	passif	DefenderOfTheGreaterGood		1	
+tauBossShadowsunLHE	Tau	Xenos	None	active	ExemplarOfTheKauyon	1087	1	1
+tauBossShadowsunLHE	Tau	Xenos	None	passif	DefenderOfTheGreaterGood		1	
+tauNpc1FireWarrior	Tau	Xenos	None	trait	RangedSpecialist		1	
+tauNpc2DroneSniper	Tau	Xenos	None	passif	SaviorProtocols		0	
+tauNpc2DroneSniper	Tau	Xenos	None	trait	RangedSpecialist		1	
+tauNpc3DroneShield	Tau	Xenos	None	passif	SaviorProtocols		0	
+tauNpc4DroneCommandLink	Tau	Xenos	None	passif	SaviorProtocols		0	
+tauNpc4DroneCommandLink	Tau	Xenos	None	passif	DefenderOfTheGreaterGood		1	
+tauNpc5StealthSuit	Tau	Xenos	None	active	ForwardObservers	1185	1	1
+tauNpc5StealthSuit	Tau	Xenos	None	active	WallOfMirrors	1186	1	0
+tauNpc5StealthSuit	Tau	Xenos	None	trait	RangedSpecialist		1	
+tauNpc6Carnivore	Tau	Xenos	None	passif	HuntersInstincts		0	
+tauNpcAunShi	Tau	Xenos	None	active	InspiredToGreatness	1082	1	1
+tauNpcAunShi	Tau	Xenos	None	passif	SereneUnifier		1	
+tauNpcCrisis	Tau	Xenos	None	active	EarlyWarningOverride	1077	1	1
+tauNpcCrisis	Tau	Xenos	None	passif	CyclicIonBlaster		1	
+tauNpcDarkstrider	Tau	Xenos	None	active	FightingRetreat	1081	1	1
+tauNpcDarkstrider	Tau	Xenos	None	passif	StructuralAnalyser		1	
+tauNpcFarsight	Tau	Xenos	None	active	ExemplarOfTheMontka	1210	1	1
+tauNpcFarsight	Tau	Xenos	None	passif	WayOfTheShortBlade		0	
+tauNpcFarsight	Tau	Xenos	None	trait	BeastSnagga		0	
+tauNpcMarksman	Tau	Xenos	None	active	SeekerMissileFrequencyLock	1069	1	1
+tauNpcMarksman	Tau	Xenos	None	passif	MV71SniperDroneSquad		1	
+tauNpcMoWBroadside	Tau	Xenos	None	active	HeavyRailRifle	1160	1	1
+tauNpcMoWBroadside	Tau	Xenos	None	active	TwinSmartMissileSystem	1161	1	1
+tauNpcMoWBroadside	Tau	Xenos	None	trait	MachineOfWar		0	
+tauNpcShadowsun	Tau	Xenos	None	active	ExemplarOfTheKauyon	1087	1	1
+tauNpcShadowsun	Tau	Xenos	None	passif	DefenderOfTheGreaterGood		1	
+templBossAggressor	BlackTemplars	Imperial	None	active	FragstormGrenadeLauncher	1048	1	1
+templBossAggressor	BlackTemplars	Imperial	None	passif	Boltstorm		1	
+templBossAggressorCamp	BlackTemplars	Imperial	None	active	FragstormGrenadeLauncher	1048	1	1
+templBossAggressorCamp	BlackTemplars	Imperial	None	passif	Boltstorm		1	
+templBossAggressorLEG	BlackTemplars	Imperial	None	active	FragstormGrenadeLauncher	1048	1	1
+templBossAggressorLEG	BlackTemplars	Imperial	None	passif	Boltstorm		1	
+templBossAggressor_LHE	BlackTemplars	Imperial	None	active	FragstormGrenadeLauncher	1048	1	1
+templBossAggressor_LHE	BlackTemplars	Imperial	None	passif	Boltstorm		1	
+templBossAncient	BlackTemplars	Imperial	None	active	UnbreakableDuty	1061	1	1
+templBossAncient	BlackTemplars	Imperial	None	passif	AstartesBanner		1	
+templBossAncientCamp	BlackTemplars	Imperial	None	active	UnbreakableDuty	1061	1	1
+templBossAncientCamp	BlackTemplars	Imperial	None	passif	AstartesBanner		1	
+templBossAncient_LHE	BlackTemplars	Imperial	None	active	UnbreakableDuty	1061	1	1
+templBossAncient_LHE	BlackTemplars	Imperial	None	passif	AstartesBanner		1	
+templBossChampion	BlackTemplars	Imperial	None	active	HolyDuel	1050	1	1
+templBossChampion	BlackTemplars	Imperial	None	passif	MartialSuperiority		1	
+templBossChampionCamp	BlackTemplars	Imperial	None	active	HolyDuel	1050	1	1
+templBossChampionCamp	BlackTemplars	Imperial	None	passif	MartialSuperiority		1	
+templBossChampionLEG	BlackTemplars	Imperial	None	active	HolyDuel	1050	1	1
+templBossChampionLEG	BlackTemplars	Imperial	None	passif	MartialSuperiority		1	
+templBossChampion_LHE	BlackTemplars	Imperial	None	active	HolyDuel	1050	1	1
+templBossChampion_LHE	BlackTemplars	Imperial	None	passif	MartialSuperiority		1	
+templBossChampion_Surv	BlackTemplars	Imperial	None	active	HolyDuel	1050	1	1
+templBossChampion_Surv	BlackTemplars	Imperial	None	passif	MartialSuperiority		1	
+templBossHelbrecht	BlackTemplars	Imperial	None	active	CrusadeOfWrath	1049	1	1
+templBossHelbrecht	BlackTemplars	Imperial	None	passif	DestroyTheWitch		1	
+templBossHelbrecht_LHE	BlackTemplars	Imperial	None	active	CrusadeOfWrath	1049	1	1
+templBossHelbrecht_LHE	BlackTemplars	Imperial	None	passif	DestroyTheWitch		1	
+templBossSwordBrother	BlackTemplars	Imperial	None	active	ThunderousAssault	1043	1	1
+templBossSwordBrother	BlackTemplars	Imperial	None	passif	ChampionOfTheFeast		1	
+templBossSwordBrotherCamp	BlackTemplars	Imperial	None	active	ThunderousAssault	1043	1	1
+templBossSwordBrotherCamp	BlackTemplars	Imperial	None	passif	ChampionOfTheFeast		1	
+templBossSwordBrother_LHE	BlackTemplars	Imperial	None	active	ThunderousAssault	1043	1	1
+templBossSwordBrother_LHE	BlackTemplars	Imperial	None	passif	ChampionOfTheFeast		1	
+templNpc1Initiate	BlackTemplars	Imperial	None	active	DevoutPush	1053	0	0
+templNpc1Initiate	BlackTemplars	Imperial	None	passif	HeavyBoltPistol		1	
+templNpc2Neophyte	BlackTemplars	Imperial	None	active	IncendiaryShells	1044	1	1
+templNpc3InitiatePyreblaster	BlackTemplars	Imperial	None	passif	Pyreblaster		0	
+templNpc4Aggressor	BlackTemplars	Imperial	None	active	Fragstorm	1078	1	1
+thousBossAhriman	ThousandSons	Chaos	None	active	Doombolt	1102	1	1
+thousBossAhriman	ThousandSons	Chaos	None	passif	PsychicStalk		1	
+thousBossAhrimanCamp	ThousandSons	Chaos	None	active	Doombolt	1102	1	1
+thousBossAhrimanCamp	ThousandSons	Chaos	None	passif	PsychicStalk		1	
+thousBossAhrimanLHE	ThousandSons	Chaos	None	active	Doombolt	1102	1	1
+thousBossAhrimanLHE	ThousandSons	Chaos	None	passif	PsychicStalk		1	
+thousBossInfernalMaster	ThousandSons	Chaos	None	active	MasterOfTheTutelaries	1096	1	1
+thousBossInfernalMaster	ThousandSons	Chaos	None	passif	InfernalPacts		1	
+thousBossInfernalMasterCamp	ThousandSons	Chaos	None	active	MasterOfTheTutelaries	1096	1	1
+thousBossInfernalMasterCamp	ThousandSons	Chaos	None	passif	InfernalPacts		1	
+thousBossInfernalMasterLHE	ThousandSons	Chaos	None	active	MasterOfTheTutelaries	1096	1	1
+thousBossInfernalMasterLHE	ThousandSons	Chaos	None	passif	InfernalPacts		1	
+thousBossInfernalMasterSurv	ThousandSons	Chaos	None	active	MasterOfTheTutelaries	1096	1	1
+thousBossInfernalMasterSurv	ThousandSons	Chaos	None	passif	InfernalPacts		1	
+thousBossSorcerer	ThousandSons	Chaos	None	active	AttemptedPossession	1101	1	1
+thousBossSorcerer	ThousandSons	Chaos	None	passif	ArcaneShield		1	
+thousBossSorcererCamp	ThousandSons	Chaos	None	active	AttemptedPossession	1101	1	1
+thousBossSorcererCamp	ThousandSons	Chaos	None	passif	ArcaneShield		1	
+thousBossSorcererLHE	ThousandSons	Chaos	None	active	AttemptedPossession	1101	1	1
+thousBossSorcererLHE	ThousandSons	Chaos	None	passif	ArcaneShield		1	
+thousBossTerminator	ThousandSons	Chaos	None	active	HellfyreMissileRack	1088	1	1
+thousBossTerminator	ThousandSons	Chaos	None	passif	TimeFlux		1	
+thousBossTerminatorCamp	ThousandSons	Chaos	None	active	HellfyreMissileRack	1088	1	1
+thousBossTerminatorCamp	ThousandSons	Chaos	None	passif	TimeFlux		1	
+thousBossTerminatorLHE	ThousandSons	Chaos	None	active	HellfyreMissileRack	1088	1	1
+thousBossTerminatorLHE	ThousandSons	Chaos	None	passif	TimeFlux		1	
+thousBossTerminatorSurv	ThousandSons	Chaos	None	active	HellfyreMissileRack	1088	1	1
+thousBossTerminatorSurv	ThousandSons	Chaos	None	passif	TimeFlux		1	
+thousBossTzaangor	ThousandSons	Chaos	None	active	SorcerousFacade	1100	1	1
+thousBossTzaangor	ThousandSons	Chaos	None	passif	RealityUnbound		1	
+thousBossTzaangorCamp	ThousandSons	Chaos	None	active	SorcerousFacade	1100	1	1
+thousBossTzaangorCamp	ThousandSons	Chaos	None	passif	RealityUnbound		1	
+thousBossTzaangorLHE	ThousandSons	Chaos	None	active	SorcerousFacade	1100	1	1
+thousBossTzaangorLHE	ThousandSons	Chaos	None	passif	RealityUnbound		1	
+thousNpc1PinkHorror	ThousandSons	Chaos	None	passif	Split		0	
+thousNpc1PinkHorror	ThousandSons	Chaos	None	trait	Daemon		1	
+thousNpc2Screamer	ThousandSons	Chaos	None	active	SlashingDive	1091	1	0
+thousNpc2Screamer	ThousandSons	Chaos	None	trait	Daemon		1	
+thousNpc3RubricMarine	ThousandSons	Chaos	None	passif	AllIsDust		0	
+thousNpc4Terminator	ThousandSons	Chaos	None	passif	EchoesFromTheWarp		1	
+thousNpcAhriman	ThousandSons	Chaos	None	active	Doombolt	1102	1	1
+thousNpcAhriman	ThousandSons	Chaos	None	passif	PsychicStalk		1	
+thousNpcInfernalMaster	ThousandSons	Chaos	None	active	MasterOfTheTutelaries	1096	1	1
+thousNpcInfernalMaster	ThousandSons	Chaos	None	passif	InfernalPacts		1	
+thousNpcMowDaemonPrince	ThousandSons	Chaos	None	active	AetherStride	1208	0	1
+thousNpcMowDaemonPrince	ThousandSons	Chaos	None	active	InfernalCannon	1209	1	1
+thousNpcMowDaemonPrince	ThousandSons	Chaos	None	trait	MachineOfWar		0	
+thousNpcSorcerer	ThousandSons	Chaos	None	active	AttemptedPossession	1101	1	1
+thousNpcSorcerer	ThousandSons	Chaos	None	passif	ArcaneShield		1	
+thousNpcTerminator	ThousandSons	Chaos	None	active	HellfyreMissileRack	1088	1	1
+thousNpcTerminator	ThousandSons	Chaos	None	passif	TimeFlux		1	
+thousNpcTzaangor	ThousandSons	Chaos	None	active	SorcerousFacade	1100	1	1
+thousNpcTzaangor	ThousandSons	Chaos	None	passif	RealityUnbound		1	
+tyranBossDeathleaper	Tyranids	Xenos	None	active	FearOfTheUnseen	1115	1	1
+tyranBossDeathleaper	Tyranids	Xenos	None	passif	FeederTendrils		1	
+tyranBossDeathleaperCE	Tyranids	Xenos	None	active	FearOfTheUnseen	1115	1	1
+tyranBossDeathleaperCE	Tyranids	Xenos	None	passif	FeederTendrils		1	
+tyranBossDeathleaperLHE	Tyranids	Xenos	None	active	FearOfTheUnseen	1115	1	1
+tyranBossDeathleaperLHE	Tyranids	Xenos	None	passif	FeederTendrils		1	
+tyranBossDeathleaperSurv	Tyranids	Xenos	None	active	FearOfTheUnseen	1115	1	1
+tyranBossDeathleaperSurv	Tyranids	Xenos	None	passif	FeederTendrils		1	
+tyranBossHiveTyrantLeviathan	Tyranids	Xenos	None	active	CallRipperSwarms	1052	0	0
+tyranBossHiveTyrantLeviathan	Tyranids	Xenos	None	active	Catalyst	1032	1	0
+tyranBossHiveTyrantLeviathan	Tyranids	Xenos	None	active	StranglethornCannon	1056	1	1
+tyranBossHiveTyrantLeviathan	Tyranids	Xenos	None	passif	PrehensilePincerTail		0	
+tyranBossHiveTyrantLeviathan	Tyranids	Xenos	None	passif	SynapticImperative		0	
+tyranBossHiveTyrantLeviathan	Tyranids	Xenos	None	trait	Boss		0	
+tyranBossHiveTyrantLeviathan	Tyranids	Xenos	None	trait	ShadowInTheWarp		1	
+tyranBossNeurothrope	Tyranids	Xenos	None	active	SpiritLeech	1104	1	1
+tyranBossNeurothrope	Tyranids	Xenos	None	passif	Neuroparasite		1	
+tyranBossNeurothrope	Tyranids	Xenos	None	trait	RangedSpecialist		1	
+tyranBossNeurothrope	Tyranids	Xenos	None	trait	ShadowInTheWarp		1	
+tyranBossNeurothropeCE	Tyranids	Xenos	None	active	SpiritLeech	1104	1	1
+tyranBossNeurothropeCE	Tyranids	Xenos	None	passif	Neuroparasite		1	
+tyranBossNeurothropeCE	Tyranids	Xenos	None	trait	RangedSpecialist		1	
+tyranBossNeurothropeCE	Tyranids	Xenos	None	trait	ShadowInTheWarp		1	
+tyranBossNeurothropeLHE	Tyranids	Xenos	None	active	SpiritLeech	1104	1	1
+tyranBossNeurothropeLHE	Tyranids	Xenos	None	passif	Neuroparasite		1	
+tyranBossNeurothropeLHE	Tyranids	Xenos	None	trait	RangedSpecialist		1	
+tyranBossNeurothropeLHE	Tyranids	Xenos	None	trait	ShadowInTheWarp		1	
+tyranBossNeurothropeSurv	Tyranids	Xenos	None	active	SpiritLeech	1104	1	1
+tyranBossNeurothropeSurv	Tyranids	Xenos	None	passif	Neuroparasite		1	
+tyranBossNeurothropeSurv	Tyranids	Xenos	None	trait	RangedSpecialist		1	
+tyranBossNeurothropeSurv	Tyranids	Xenos	None	trait	ShadowInTheWarp		1	
+tyranBossParasite	Tyranids	Xenos	None	active	ItItches	1121	1	1
+tyranBossParasite	Tyranids	Xenos	None	passif	BarbedOvipositor		1	
+tyranBossParasiteCE	Tyranids	Xenos	None	active	ItItches	1121	1	1
+tyranBossParasiteCE	Tyranids	Xenos	None	passif	BarbedOvipositor		1	
+tyranBossParasiteLHE	Tyranids	Xenos	None	active	ItItches	1121	1	1
+tyranBossParasiteLHE	Tyranids	Xenos	None	passif	BarbedOvipositor		1	
+tyranBossParasiteSurv	Tyranids	Xenos	None	active	ItItches	1121	1	1
+tyranBossParasiteSurv	Tyranids	Xenos	None	passif	BarbedOvipositor		1	
+tyranBossTyrantGuard	Tyranids	Xenos	None	active	CrushingClaws	1105	1	1
+tyranBossTyrantGuard	Tyranids	Xenos	None	passif	GuardianOrganism		1	
+tyranBossTyrantGuardCE	Tyranids	Xenos	None	active	CrushingClaws	1105	1	1
+tyranBossTyrantGuardCE	Tyranids	Xenos	None	passif	GuardianOrganism		1	
+tyranBossTyrantGuardLHE	Tyranids	Xenos	None	active	CrushingClaws	1105	1	1
+tyranBossTyrantGuardLHE	Tyranids	Xenos	None	passif	GuardianOrganism		1	
+tyranBossWingedPrime	Tyranids	Xenos	None	active	AlphaWarrior	1112	1	1
+tyranBossWingedPrime	Tyranids	Xenos	None	passif	SynapticLinchpin		1	
+tyranBossWingedPrimeCE	Tyranids	Xenos	None	active	AlphaWarrior	1112	1	1
+tyranBossWingedPrimeCE	Tyranids	Xenos	None	passif	SynapticLinchpin		1	
+tyranBossWingedPrimeLEG	Tyranids	Xenos	None	active	AlphaWarrior	1112	1	1
+tyranBossWingedPrimeLEG	Tyranids	Xenos	None	passif	SynapticLinchpin		1	
+tyranBossWingedPrimeLHE	Tyranids	Xenos	None	active	AlphaWarrior	1112	1	1
+tyranBossWingedPrimeLHE	Tyranids	Xenos	None	passif	SynapticLinchpin		1	
+tyranBossWingedPrimeSurv	Tyranids	Xenos	None	active	AlphaWarrior	1112	1	1
+tyranBossWingedPrimeSurv	Tyranids	Xenos	None	passif	SynapticLinchpin		1	
+tyranNpc1Hormagaunt	Tyranids	Xenos	None	passif	AdrenalGlands		0	
+tyranNpc1Hormagaunt	Tyranids	Xenos	None	passif	HungeringSwarm		0	
+tyranNpc1HormagauntGorgon	Tyranids	Xenos	None	passif	AdrenalGlands		0	
+tyranNpc1HormagauntGorgon	Tyranids	Xenos	None	passif	HungeringSwarm		0	
+tyranNpc1HormagauntKronos	Tyranids	Xenos	None	passif	AdrenalGlands		0	
+tyranNpc1HormagauntKronos	Tyranids	Xenos	None	passif	HungeringSwarm		0	
+tyranNpc1Hormagaunt_SyncPvp_Gorgon	Tyranids	Xenos	None	passif	AdrenalGlands		0	
+tyranNpc1Hormagaunt_SyncPvp_Gorgon	Tyranids	Xenos	None	passif	HungeringSwarm		0	
+tyranNpc1Hormagaunt_SyncPvp_Kronos	Tyranids	Xenos	None	passif	AdrenalGlands		0	
+tyranNpc1Hormagaunt_SyncPvp_Kronos	Tyranids	Xenos	None	passif	HungeringSwarm		0	
+tyranNpc2RipperSwarm	Tyranids	Xenos	None	active	Burrowers	1023	1	0
+tyranNpc2RipperSwarm	Tyranids	Xenos	None	trait	Swarm		1	
+tyranNpc2RipperSwarmGorgon	Tyranids	Xenos	None	active	Burrowers	1023	1	0
+tyranNpc2RipperSwarmGorgon	Tyranids	Xenos	None	trait	Swarm		1	
+tyranNpc2RipperSwarmKronos	Tyranids	Xenos	None	active	Burrowers	1023	1	0
+tyranNpc2RipperSwarmKronos	Tyranids	Xenos	None	trait	Swarm		1	
+tyranNpc2RipperSwarm_SyncPvp_Gorgon	Tyranids	Xenos	None	active	Burrowers	1023	1	0
+tyranNpc2RipperSwarm_SyncPvp_Gorgon	Tyranids	Xenos	None	trait	Swarm		1	
+tyranNpc2RipperSwarm_SyncPvp_Kronos	Tyranids	Xenos	None	active	Burrowers	1023	1	0
+tyranNpc2RipperSwarm_SyncPvp_Kronos	Tyranids	Xenos	None	trait	Swarm		1	
+tyranNpc3Termagant	Tyranids	Xenos	None	passif	HailOfLivingAmmunition		0	
+tyranNpc3TermagantGorgon	Tyranids	Xenos	None	passif	HailOfLivingAmmunition		0	
+tyranNpc3TermagantKronos	Tyranids	Xenos	None	passif	HailOfLivingAmmunition		0	
+tyranNpc3Termagant_SyncPvp_Gorgon	Tyranids	Xenos	None	passif	HailOfLivingAmmunition		0	
+tyranNpc3Termagant_SyncPvp_Kronos	Tyranids	Xenos	None	passif	HailOfLivingAmmunition		0	
+tyranNpc4Warrior	Tyranids	Xenos	None	active	ScythingTalons	1065	1	1
+tyranNpc4Warrior	Tyranids	Xenos	None	passif	ReinforcedHiveNode		1	
+tyranNpc4Warrior	Tyranids	Xenos	None	trait	ShadowInTheWarp		1	
+tyranNpc4WarriorCE2Gorgon	Tyranids	Xenos	None	active	ScythingTalons	1065	1	1
+tyranNpc4WarriorCE2Gorgon	Tyranids	Xenos	None	passif	ReinforcedHiveNode		1	
+tyranNpc4WarriorCE2Gorgon	Tyranids	Xenos	None	trait	ShadowInTheWarp		1	
+tyranNpc4WarriorCE2Kronos	Tyranids	Xenos	None	active	ScythingTalons	1065	1	1
+tyranNpc4WarriorCE2Kronos	Tyranids	Xenos	None	passif	ReinforcedHiveNode		1	
+tyranNpc4WarriorCE2Kronos	Tyranids	Xenos	None	trait	ShadowInTheWarp		1	
+tyranNpc4WarriorSurv	Tyranids	Xenos	None	active	ScythingTalons	1065	1	1
+tyranNpc4WarriorSurv	Tyranids	Xenos	None	passif	ReinforcedHiveNode		1	
+tyranNpc4WarriorSurv	Tyranids	Xenos	None	trait	ShadowInTheWarp		1	
+tyranNpc5Barbgaunt	Tyranids	Xenos	None	passif	SynapticInsight		0	
+tyranNpc5BarbgauntSurv	Tyranids	Xenos	None	passif	SynapticInsight		0	
+tyranNpc6SporeMine	Tyranids	Xenos	None	passif	FloatingDeath		1	
+tyranNpc6SporeMine	Tyranids	Xenos	None	trait	PermaDeath		0	
+tyranNpcDeathleaper	Tyranids	Xenos	None	active	FearOfTheUnseen	1115	1	1
+tyranNpcDeathleaper	Tyranids	Xenos	None	passif	FeederTendrils		1	
+tyranNpcMowBiovore	Tyranids	Xenos	None	active	BioMinefield	1144	1	1
+tyranNpcMowBiovore	Tyranids	Xenos	None	active	SporeMineLauncher	1145	1	1
+tyranNpcMowBiovore	Tyranids	Xenos	None	trait	MachineOfWar		0	
+tyranNpcNeurothrope	Tyranids	Xenos	None	active	SpiritLeech	1104	1	1
+tyranNpcNeurothrope	Tyranids	Xenos	None	passif	Neuroparasite		1	
+tyranNpcNeurothrope	Tyranids	Xenos	None	trait	RangedSpecialist		1	
+tyranNpcNeurothrope	Tyranids	Xenos	None	trait	ShadowInTheWarp		1	
+tyranNpcOSDeathleaper	Tyranids	Xenos	None	active	FearOfTheUnseen	1115	1	1
+tyranNpcOSDeathleaper	Tyranids	Xenos	None	passif	FeederTendrils		1	
+tyranNpcOSNeurothrope	Tyranids	Xenos	None	active	SpiritLeech	1104	1	1
+tyranNpcOSNeurothrope	Tyranids	Xenos	None	passif	Neuroparasite		1	
+tyranNpcOSNeurothrope	Tyranids	Xenos	None	trait	RangedSpecialist		1	
+tyranNpcOSNeurothrope	Tyranids	Xenos	None	trait	ShadowInTheWarp		1	
+tyranNpcOSParasite	Tyranids	Xenos	None	active	ItItches	1121	1	1
+tyranNpcOSParasite	Tyranids	Xenos	None	passif	BarbedOvipositor		1	
+tyranNpcOSTyrantGuard	Tyranids	Xenos	None	active	CrushingClaws	1105	1	1
+tyranNpcOSTyrantGuard	Tyranids	Xenos	None	passif	GuardianOrganism		1	
+tyranNpcOSWingedPrime	Tyranids	Xenos	None	active	AlphaWarrior	1112	1	1
+tyranNpcOSWingedPrime	Tyranids	Xenos	None	passif	SynapticLinchpin		1	
+tyranNpcParasite	Tyranids	Xenos	None	active	ItItches	1121	1	1
+tyranNpcParasite	Tyranids	Xenos	None	passif	BarbedOvipositor		1	
+tyranNpcTyrantGuard	Tyranids	Xenos	None	active	CrushingClaws	1105	1	1
+tyranNpcTyrantGuard	Tyranids	Xenos	None	passif	GuardianOrganism		1	
+tyranNpcWingedPrime	Tyranids	Xenos	None	active	AlphaWarrior	1112	1	1
+tyranNpcWingedPrime	Tyranids	Xenos	None	passif	SynapticLinchpin		1	
+ultraBossApothecary	Ultramarines	Imperial	None	active	CombatRestoratives	1002	1	1
+ultraBossApothecary	Ultramarines	Imperial	None	passif	Narthecium		1	
+ultraBossApothecary	Ultramarines	Imperial	None	trait	Healer		0	
+ultraBossApothecaryLHE	Ultramarines	Imperial	None	active	CombatRestoratives	1002	1	1
+ultraBossApothecaryLHE	Ultramarines	Imperial	None	passif	Narthecium		1	
+ultraBossApothecaryLHE	Ultramarines	Imperial	None	trait	Healer		0	
+ultraBossCalgar	Ultramarines	Imperial	None	active	GauntletsOfUltramar	1000	1	1
+ultraBossCalgar	Ultramarines	Imperial	None	passif	RitesOfBattle		1	
+ultraBossCalgarLHE	Ultramarines	Imperial	None	active	GauntletsOfUltramar	1000	1	1
+ultraBossCalgarLHE	Ultramarines	Imperial	None	passif	RitesOfBattle		1	
+ultraBossEliminatorSgt	Ultramarines	Imperial	None	active	MortisRound	1004	1	1
+ultraBossEliminatorSgt	Ultramarines	Imperial	None	passif	CamoCloak		1	
+ultraBossEliminatorSgtCamp	Ultramarines	Imperial	None	active	MortisRound	1004	1	1
+ultraBossEliminatorSgtCamp	Ultramarines	Imperial	None	passif	CamoCloak		1	
+ultraBossEliminatorSgtLHE	Ultramarines	Imperial	None	active	MortisRound	1004	1	1
+ultraBossEliminatorSgtLHE	Ultramarines	Imperial	None	passif	CamoCloak		1	
+ultraBossInceptorSgt	Ultramarines	Imperial	None	active	DeathFromAbove	1003	1	1
+ultraBossInceptorSgt	Ultramarines	Imperial	None	passif	ShockAssault		1	
+ultraBossInceptorSgtLHE	Ultramarines	Imperial	None	active	DeathFromAbove	1003	1	1
+ultraBossInceptorSgtLHE	Ultramarines	Imperial	None	passif	ShockAssault		1	
+ultraBossTigurius	Ultramarines	Imperial	None	active	StormOfWrath	1019	1	1
+ultraBossTigurius	Ultramarines	Imperial	None	passif	PsychicFortress		1	
+ultraBossTiguriusLHE	Ultramarines	Imperial	None	active	StormOfWrath	1019	1	1
+ultraBossTiguriusLHE	Ultramarines	Imperial	None	passif	PsychicFortress		1	
+ultraBossTitus	Ultramarines	Imperial	None	active	TacticalPrecision	1154	1	1
+ultraBossTitus	Ultramarines	Imperial	None	passif	FuelledByFury		1	
+ultraBossTitusLHE	Ultramarines	Imperial	None	active	TacticalPrecision	1154	1	1
+ultraBossTitusLHE	Ultramarines	Imperial	None	passif	FuelledByFury		1	
+ultraBossTitusSurv	Ultramarines	Imperial	None	active	TacticalPrecision	1154	1	1
+ultraBossTitusSurv	Ultramarines	Imperial	None	passif	FuelledByFury		1	
+ultraNpc2Eliminator	Ultramarines	Imperial	None	passif	CamoCloak		1	
+ultraNpc3Intercessor	Ultramarines	Imperial	None	passif	RapidFire		0	
+ultraNpc4HeavyIntercessor	Ultramarines	Imperial	None	active	HellfireShells	1080	1	1
+ultraNpc4HeavyIntercessor	Ultramarines	Imperial	None	passif	RapidFire		0	
+ultraNpc4HeavyIntercessorSurv	Ultramarines	Imperial	None	active	HellfireShells	1080	1	1
+ultraNpc4HeavyIntercessorSurv	Ultramarines	Imperial	None	passif	RapidFire		0	
+ultraNpcApothecary	Ultramarines	Imperial	None	active	CombatRestoratives	1002	1	1
+ultraNpcApothecary	Ultramarines	Imperial	None	passif	Narthecium		1	
+ultraNpcApothecary	Ultramarines	Imperial	None	trait	Healer		0	
+ultraNpcCalgar	Ultramarines	Imperial	None	active	GauntletsOfUltramar	1000	1	1
+ultraNpcCalgar	Ultramarines	Imperial	None	passif	RitesOfBattle		1	
+ultraNpcEliminatorSgt	Ultramarines	Imperial	None	active	MortisRound	1004	1	1
+ultraNpcEliminatorSgt	Ultramarines	Imperial	None	passif	CamoCloak		1	
+ultraNpcInceptorSgt	Ultramarines	Imperial	None	active	DeathFromAbove	1003	1	1
+ultraNpcInceptorSgt	Ultramarines	Imperial	None	passif	ShockAssault		1	
+ultraNpcMoWDreadnought	Ultramarines	Imperial	None	active	DutyEternal	1158	1	1
+ultraNpcMoWDreadnought	Ultramarines	Imperial	None	active	MacroPlasmaIncinerator	1159	1	0
+ultraNpcMoWDreadnought	Ultramarines	Imperial	None	trait	MachineOfWar		0	
+ultraNpcTigurius	Ultramarines	Imperial	None	active	StormOfWrath	1019	1	1
+ultraNpcTigurius	Ultramarines	Imperial	None	passif	PsychicFortress		1	
+votanNpc1Ecog	LeaguesOfVotann	Xenos	None	passif	RepairEnthusiast		0	
+votanNpc2Steeljack	LeaguesOfVotann	Xenos	None	passif	PurgeResponse		1	
+votanNpc2Steeljack	LeaguesOfVotann	Xenos	None	trait	PrioritisedEfficiency		1	
+worldBossEightboundLHE	WorldEaters	Chaos	None	active	OverwhelmingWrath	1141	1	1
+worldBossEightboundLHE	WorldEaters	Chaos	None	passif	BeaconOfRage		1	
+worldBossEightboundLHE	WorldEaters	Chaos	None	trait	BlessingsOfKhorne		1	
+worldBossEightboundLHE	WorldEaters	Chaos	None	trait	Daemon		1	
+worldBossExecutionsLHE	WorldEaters	Chaos	None	active	MurderousSwing	1137	1	1
+worldBossExecutionsLHE	WorldEaters	Chaos	None	passif	TrophyTaker		1	
+worldBossExecutionsLHE	WorldEaters	Chaos	None	trait	BlessingsOfKhorne		1	
+worldBossJakhalLHE	WorldEaters	Chaos	None	active	JakhalStimms	1131	1	1
+worldBossJakhalLHE	WorldEaters	Chaos	None	passif	Skullsmasher		1	
+worldBossJakhalLHE	WorldEaters	Chaos	None	trait	BlessingsOfKhorne		1	
+worldBossKharnLHE	WorldEaters	Chaos	None	active	KillMaimBurn	1132	1	1
+worldBossKharnLHE	WorldEaters	Chaos	None	passif	TheBetrayer		1	
+worldBossKharnLHE	WorldEaters	Chaos	None	trait	BlessingsOfKhorne		1	
+worldBossTerminatorLHE	WorldEaters	Chaos	None	active	BloodyFury	1129	1	1
+worldBossTerminatorLHE	WorldEaters	Chaos	None	passif	WrathfulDevotion		1	
+worldBossTerminatorLHE	WorldEaters	Chaos	None	trait	BlessingsOfKhorne		1	
