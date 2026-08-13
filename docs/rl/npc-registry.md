@@ -21,7 +21,7 @@ differe. C'est la doctrine « DECIDER != EXECUTER ».
 
 - Unites `npc` : **491** ; kits sans manque : **5** ; kits avec du travail : **486**
 - Actives distinctes : **147** — `[--]` **9** · `[-D]` **1** · `[C-]` **14** · `[CD]` **123**
-- Passifs distincts : **177** — portes **107**, non portes **70**
+- Passifs distincts : **177** — portes **108**, non portes **69**
 - Traits de kit distincts (AUCUN ecarte — le seuil de frequence a disparu avec #1015) :
   **58** — couverts **28**, non couverts **30**
 - **Voies inversees** (nom absent d'`ActiveAbilityType`) : **1** — `Maugetar`
@@ -73,7 +73,6 @@ l'unite. La colonne `porteurs` dit l'exposition.
 | trait | Boss | 6 | adeptBossCelestineCE, admecBossBelisarius, darkaBossLion |
 | passif | AdrenalGlands | 5 | tyranNpc1Hormagaunt, tyranNpc1HormagauntGorgon, tyranNpc1HormagauntKronos |
 | passif | HailOfLivingAmmunition | 5 | tyranNpc3Termagant, tyranNpc3TermagantGorgon, tyranNpc3TermagantKronos |
-| passif | HungeringSwarm | 5 | tyranNpc1Hormagaunt, tyranNpc1HormagauntGorgon, tyranNpc1HormagauntKronos |
 | trait | Vehicle | 5 | admecBossDestroyer, admecBossDestroyerCE, admecBossDestroyerLHE |
 | trait | TwoManTeam | 4 | astraNpc2Lascannon, astraNpc4Mortar, astraNpc4MortarSurv |
 | passif | RapidFire | 3 | ultraNpc3Intercessor, ultraNpc4HeavyIntercessor, ultraNpc4HeavyIntercessorSurv |
@@ -672,11 +671,6 @@ sont des **faces** absentes d'items presents.
 | unite | manque | actives (face) | passifs non portes | traits non couverts | autres voies |
 |---|---:|---|---|---|---|
 | tyranBossHiveTyrantLeviathan | 7 | CallRipperSwarms(1052)[--]<br>Catalyst(1032)[C-]<br>StranglethornCannon(1056)[CD] | PrehensilePincerTail, SynapticImperative | Boss, Synapse, Flying, Immune | - |
-| tyranNpc1Hormagaunt | 4 | - | AdrenalGlands, HungeringSwarm | InstinctiveBehaviour, BattleFatigue | - |
-| tyranNpc1HormagauntGorgon | 4 | - | AdrenalGlands, HungeringSwarm | InstinctiveBehaviour, BattleFatigue | - |
-| tyranNpc1HormagauntKronos | 4 | - | AdrenalGlands, HungeringSwarm | InstinctiveBehaviour, BattleFatigue | - |
-| tyranNpc1Hormagaunt_SyncPvp_Gorgon | 4 | - | AdrenalGlands, HungeringSwarm | InstinctiveBehaviour, BattleFatigue | - |
-| tyranNpc1Hormagaunt_SyncPvp_Kronos | 4 | - | AdrenalGlands, HungeringSwarm | InstinctiveBehaviour, BattleFatigue | - |
 | tyranBossDeathleaper | 3 | FearOfTheUnseen(1115)[CD] | - | Hero, TeleportStrike, Infiltrate | - |
 | tyranBossDeathleaperCE | 3 | FearOfTheUnseen(1115)[CD] | - | Hero, TeleportStrike, Infiltrate | - |
 | tyranBossDeathleaperLHE | 3 | FearOfTheUnseen(1115)[CD] | - | Hero, TeleportStrike, Infiltrate | - |
@@ -694,6 +688,11 @@ sont des **faces** absentes d'items presents.
 | tyranBossWingedPrimeLEG | 3 | AlphaWarrior(1112)[CD] | - | Hero, Synapse, Flying | relic:MawClawsOfThyrax |
 | tyranBossWingedPrimeLHE | 3 | AlphaWarrior(1112)[CD] | - | Hero, Synapse, Flying | relic:MawClawsOfThyrax |
 | tyranBossWingedPrimeSurv | 3 | AlphaWarrior(1112)[CD] | - | Hero, Synapse, Flying | relic:MawClawsOfThyrax |
+| tyranNpc1Hormagaunt | 3 | - | AdrenalGlands | InstinctiveBehaviour, BattleFatigue | - |
+| tyranNpc1HormagauntGorgon | 3 | - | AdrenalGlands | InstinctiveBehaviour, BattleFatigue | - |
+| tyranNpc1HormagauntKronos | 3 | - | AdrenalGlands | InstinctiveBehaviour, BattleFatigue | - |
+| tyranNpc1Hormagaunt_SyncPvp_Gorgon | 3 | - | AdrenalGlands | InstinctiveBehaviour, BattleFatigue | - |
+| tyranNpc1Hormagaunt_SyncPvp_Kronos | 3 | - | AdrenalGlands | InstinctiveBehaviour, BattleFatigue | - |
 | tyranNpc3Termagant | 3 | - | HailOfLivingAmmunition | InstinctiveBehaviour, BattleFatigue | - |
 | tyranNpc3TermagantGorgon | 3 | - | HailOfLivingAmmunition | InstinctiveBehaviour, BattleFatigue | - |
 | tyranNpc3TermagantKronos | 3 | - | HailOfLivingAmmunition | InstinctiveBehaviour, BattleFatigue | - |
