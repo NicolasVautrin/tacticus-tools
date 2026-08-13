@@ -309,6 +309,14 @@ class DslContext:
     # stat_types)->bool` = l'unite porte >=1 modification per-source <0 sur l'un des StatTypes du filtre.
     # Defaut None -> False (degradation fidele). Fourni par `entities_from_state` (UnitStats.has_negative_modifier).
     has_negative_modifier: object | None = None
+    # PENDANT QUANTITATIF du precedent (formule `StatNegativeModification`, mirror
+    # `IdunBattle.Entities.Formulas.NegativeStatModificationFormula$$Calculate`) :
+    # `negative_stat_modification(unit, statType)->int` = SOMME des VALEURS ABSOLUES des
+    # modifications per-source < 0 de CETTE stat (>= 0). Meme dictionnaire per-source que
+    # `has_negative_modifier`, mais accumule au lieu de rendre `true` au premier. Defaut None -> 0
+    # (degradation RESTRICTIVE : le gate `AmountIsGreater(ratio, seuil)` d'OrbsOfDecay devient faux).
+    # Fourni par `entities_from_state` (`UnitStats.negative_stat_modification`).
+    negative_stat_modification: object | None = None
     # Portee d'AURA d'EQUIPE (`IsInAuraRangeTrigger`, ex. `IsInTeamContagionsOfNurgleAura`) :
     # `is_in_team_aura(unit, effectType, teamReference)->bool` = mirror de
     # `IdunBattle.Core.Services.BattleQuery$$IsInTeamAuraRange` (case-224 ; le port vit dans

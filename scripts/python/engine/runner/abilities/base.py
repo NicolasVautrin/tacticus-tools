@@ -46,7 +46,9 @@ def ability_attack_params(state: "State", caster_id: int, ability_id: str,
     absente → +0 (le natif `GetNumberConstant` d'un index manquant rend 0, pas 1).
 
     `level_slot` = SOURCE du niveau qui indexe `minDmg`/`maxDmg` : `"active"` (défaut, ability ACTIVE =
-    `ctx.active_ability_level`) ou `"passive"` (ability PASSIVE/TRIGGERED = `ctx.passive_ability_level` —
+    `ctx.active_ability_level`), `"tertiary"` (ability de RELIQUE, hiérarchie 3 — le couple
+    {`TertiaryAbilityLevel`, `TertiaryAbilityVariablesMultiplierPercentage`} résolu par
+    `triggered_ability_state`, cf. le corps) ou `"passive"` (ability PASSIVE/TRIGGERED = `ctx.passive_ability_level` —
     l'`AbilityConfiguration` d'un passif est résolue au niveau de la PASSIVE, cf. `scene.py`/`extra_damage`
     côté DÉCISION). Un `MartialApotheosis` (passif necroOverlord) attaque au `passive_ability_level` ; dans
     un runner rank-based `active == passive` (vérifié live necroOverlord 50/50) → observationnellement égal,
@@ -54,13 +56,31 @@ def ability_attack_params(state: "State", caster_id: int, ability_id: str,
     e = state.get_entity(caster_id)
     sc = e.get_component(StatsComponent) if e is not None else None
     ctx = sc.ctx if sc is not None else None
+    mult = ctx.ability_variables_multiplier if ctx is not None else 100
     if ctx is None:
         level = 0
+    elif level_slot == "tertiary":
+        # `"tertiary"` = la RELIQUE (hierarchie 3). Le couple {niveau, multiplicateur} n'est PAS
+        # celui des passifs : `IdunBattle.Entities.Factories.UnitFactory$$Build` fabrique un
+        # `tertiaryAbilityState` PROPRE (`config+0xc0 TertiaryAbilityLevel`, `config+0x78`), et c'est
+        # LUI que `AbilityConfiguration$$GetVariableForLevel` consomme pour une ability montee par
+        # `BC.Units[].TertiaryAbility`. Sans ce slot, une relique de niveau 4 lirait le niveau des
+        # PASSIFS du porteur (50 dans tout runner normalise) -> dernier palier, ecart SILENCIEUX.
+        # FOYER UNIQUE de cette regle : `triggered_ability_state` (il porte AUSSI le repli PASSIF
+        # quand la relique est cablee en dur sur un npc, ou quand le canal tertiaire est absent).
+        # DIFFERE et PORTEUR (mesure du 2026-08-13, process frais) : importer
+        # `engine.runner.operations.triggers.base` charge `engine.runner.abilities.base` (382 modules
+        # `engine.*`), l'inverse ne charge PAS `triggers.base` -- hisser cet import FERMERAIT donc un
+        # cycle. Les deux paliers prescrits en amont ont ete ecartes par la mesure : DEPLACER le foyer
+        # touche `triggers/base.py`, importe par ~40 modules de triggers (fichier partage, 4 agents en
+        # vol), et l'`__init__` du paquet n'est pas en cause ici (l'arete est directe).
+        from ..operations.triggers.base import triggered_ability_state
+        lvl, mult = triggered_ability_state(state, caster_id, ability_id)
+        level = lvl
     elif level_slot == "passive":
         level = ctx.passive_ability_level if ctx.passive_ability_level is not None else ctx.active_ability_level
     else:
         level = ctx.active_ability_level
-    mult = ctx.ability_variables_multiplier if ctx is not None else 100
     bmin = ability_var(ability_id, min_key, level, multiplier_pct=mult) or 0
     bmax = ability_var(ability_id, max_key, level, multiplier_pct=mult) or 0
     hits = ability_var(ability_id, hits_key, is_constant=True) or 1
