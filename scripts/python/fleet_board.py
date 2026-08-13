@@ -121,6 +121,10 @@ def scan(path: Path) -> dict:
     says: list[str] = []
     tools = 0
     brief = ""
+    # DERNIER etat du dialogue, pour le marqueur `rendu` (cf. `est_vif`). On garde le role et le
+    # `stop_reason` du DERNIER enregistrement porteur d'un message, quel qu'il soit -- pas seulement
+    # des lignes a `usage`, sans quoi un `tool_result` final passerait inapercu.
+    dernier_role = dernier_stop = None
     for ln in path.open(encoding="utf-8", errors="replace"):
         if '"usage"' not in ln and '"tool_use"' not in ln and '"user"' not in ln:
             continue
@@ -129,6 +133,8 @@ def scan(path: Path) -> dict:
         except Exception:
             continue                       # ligne tronquee (transcript en cours d'ecriture)
         msg = rec.get("message") or {}
+        if isinstance(msg, dict) and msg.get("role"):
+            dernier_role, dernier_stop = msg.get("role"), msg.get("stop_reason")
         # Le BRIEF n'est PAS dans le meta.json (qui ne porte que agentType / description /
         # worktree* / toolUseId / spawnDepth) : c'est le PREMIER message `user` du transcript.
         # Les suivants sont les relances par SendMessage -- on ne garde que le premier.
@@ -156,7 +162,9 @@ def scan(path: Path) -> dict:
             first, first_ts = sz, t
         last, last_ts = sz, t or last_ts
     return dict(first=first, last=last, first_ts=first_ts, last_ts=last_ts,
-                says=says, tools=tools, brief=brief)
+                says=says, tools=tools, brief=brief,
+                # RENDU = le dialogue s'arrete sur une reponse FINALE de l'agent. Cf. `est_vif`.
+                rendu=(dernier_role == "assistant" and dernier_stop == "end_turn"))
 
 
 # Un agent qui TRAVAILLE ecrit dans son transcript a chaque aller-retour d'outil. Au-dela de ce
@@ -264,8 +272,32 @@ RANG = {"vif": 0, "attente": 1, "fini": 2}
 DERNIERE_PORTEE_WT = None
 
 
-def est_vif(last_ts) -> tuple[bool, float]:
-    """VIF = a ecrit recemment dans son transcript. Rend (vif, minutes de silence).
+def est_vif(last_ts, rendu: bool = False) -> tuple[bool, float]:
+    """VIF = travaille encore. Rend (vif, minutes de silence).
+
+    DEUX CRITERES, et le PREMIER est une PREUVE -- pas un delai.
+
+    1. `rendu` : le transcript s'arrete sur une reponse FINALE de l'agent (dernier enregistrement =
+       `assistant` avec `stop_reason == "end_turn"`). Un agent qui travaille est TOUJOURS pris en
+       plein cycle : soit un `tool_use` qui attend son resultat, soit un `tool_result` qui attend le
+       tour suivant. Une reponse finale est donc son message de fin -- il ne tient plus de creneau.
+    2. A defaut, le silence, avec le seuil ci-dessous. C'est un REPLI, jamais une mesure.
+
+    PORTEE DU CRITERE 1, MESUREE (2026-08-13, 1 594 transcripts) -- il est A SENS UNIQUE :
+        vivants (silence < 2 min)   : 7 / 7 en plein cycle, AUCUN `rendu`  -> 0 faux positif
+        termines (silence > 30 min) : 1 303 `rendu`, mais 284 EN PLEIN CYCLE
+    Donc `rendu` PROUVE qu'un agent a fini ; son absence ne prouve RIEN (les 284 sont des agents
+    INTERROMPUS, morts sans jamais rendre). C'est exactement le sens utile ici : le biais du seuil
+    est UNIQUEMENT le sur-comptage (cf. le bloc `SILENCE_MORT_MIN`), donc un critere qui ne sait que
+    retirer des fantomes ne peut pas creer de sous-comptage.
+
+    ⚠ CE QUI A FAIT RENONCER AU CORRECTIF PENDANT TROIS JOURS : le commentaire de `SILENCE_MORT_MIN`
+    concluait « aucun marqueur structurel ne separe les deux [...] seul le harnais sait, et un script
+    Python n'y a pas acces » -- sur QUATRE echantillons. Sa donnee montrait pourtant `end_turn` sur
+    les termines et `None` sur les vivants ; c'est la GENERALITE qui etait fausse, pas l'observation.
+    Le corpus complet donne raison aux deux : le marqueur ne separe pas (284 contre-exemples), ET il
+    prouve la fin. Une conclusion binaire (« separe » / « ne separe pas ») sur un critere ASYMETRIQUE
+    fait jeter la moitie utile.
 
     NE PAS revenir au `git worktree lock` : mesure du 2026-07-27, 0 verrou pose sur 15 agents
     dont 8 travaillaient. Le verrou n'est pose qu'au LANCEMENT (outil Agent) ; une reprise par
@@ -276,6 +308,8 @@ def est_vif(last_ts) -> tuple[bool, float]:
     if last_ts is None:
         return False, float("inf")
     silence = (datetime.now(timezone.utc) - last_ts).total_seconds() / 60.0
+    if rendu:
+        return False, silence
     return silence < SILENCE_MORT_MIN, silence
 
 
@@ -364,7 +398,7 @@ def collect(include_done: bool, only_alive: bool = False) -> list[dict]:
         s = scan(p)
         if not s["first"]:
             continue
-        alive, silence = est_vif(s["last_ts"])
+        alive, silence = est_vif(s["last_ts"], s.get("rendu", False))
         # ET le worktree doit EXISTER. Un transcript reste sur disque pour toujours ; son worktree,
         # lui, est supprime au nettoyage -- c'est ce qui separe un agent d'aujourd'hui d'un agent
         # d'il y a trois jours dont l'horodatage serait mal lu. Piege : `Path("")` vaut `Path(".")`,
@@ -477,9 +511,27 @@ def console(rows) -> None:
           % ("agent", "etat", "contexte", "base sys", "travail", "min", "tok/min", "%fen", "sature"))
     for r in rows:
         e = eta(r)
+        # `+-` = SOUS-AGENT (`spawnDepth >= 2`), lance PAR un solveur : il est AFFICHE (il consomme
+        # du pump et de la fenetre) mais il ne prend AUCUN creneau de flotte -- cf. le compte plus bas.
+        nom = ("+- " + r["name"]) if r.get("depth", 1) >= 2 else r["name"]
         print("%-34s %-8s %9d %9d %9d %7.0f %9.0f %6.1f %8s"
-              % (r["name"][:34], ETIQ[r["state"]], r["ctx"], r["base"], r["work"],
+              % (nom[:34], ETIQ[r["state"]], r["ctx"], r["base"], r["work"],
                  r["mins"], r["rate"], r["pct"], "--" if e is None else hm(e)))
+    # LE COMPTE QUI DECIDE D'UN REFILL NE PORTE QUE LES AGENTS DE TETE. Mesure du 2026-08-13 : le
+    # board annoncait « 7 en vol » la ou 6 creneaux seulement etaient pris -- le 7e etait un
+    # sous-agent (`spawnDepth` 2) lance par un solveur. La parente etait DEJA collectee (`depth`,
+    # ecrite par le harnais), elle n'etait simplement soustraite nulle part : les trois sorties du
+    # nombre (table, ligne finale, `__N__` du HTML) comptaient tout le monde. Le cout n'est pas
+    # cosmetique -- ce nombre decide s'il reste un creneau, donc un sur-comptage fait RENONCER a un
+    # dispatch, et un sous-comptage en fait lancer un de trop.
+    # ⚠ LISTES, jamais masques : un sous-agent consomme le pump partage et le budget de runners.
+    # L'ecarter du compte de FLOTTE n'est pas le rendre invisible.
+    sous = [r for r in rows if r["alive"] and r.get("depth", 1) >= 2]
+    if sous:
+        print("\n%d sous-agent(s) HORS FLOTTE -- lance(s) par un solveur, aucun creneau consomme :"
+              % len(sous))
+        for r in sous:
+            print("   %-34s parent %s" % (r["name"][:34], r["parent"] or "(non ecrit)"))
     # LES ORPHELINS D'ABORD : ce sont les seuls sur lesquels une DECISION peut encore etre
     # perdue. Un agent classe << fini >> parce que son worktree a disparu proprement n'appelle
     # rien ; un agent dont le repertoire est reste sans entree admin peut porter du travail non
@@ -792,7 +844,9 @@ def render(rows) -> str:
             # __N__ = les VIFS, pas `len(cards)` : avec `--all` les cartes portent tout l'historique
             # des transcripts (394 mesures le 2026-07-27), et le titre annoncait donc « 394 agents
             # en vol ». Le total, lui, est __TOT__.
-            .replace("__N__", str(sum(1 for r in rows if r["alive"])))
+            # __N__ = LA FLOTTE, donc les vifs de TETE (`depth < 2`) : la page dit « agents isoles »,
+            # or un sous-agent n'a precisement pas de worktree a lui. Meme soustraction qu'en console.
+            .replace("__N__", str(sum(1 for r in rows if r["alive"] and r.get("depth", 1) < 2)))
             .replace("__ATT__", str(sum(1 for r in rows if r["state"] == "attente")))
             .replace("__TOT__", str(len(cards)))
             .replace("__MED__", ("%.1f" % med).replace(".", ","))
@@ -817,11 +871,17 @@ def main() -> None:
     out = Path(a.out)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(render(rows), encoding="utf-8")
-    alive = sum(1 for r in rows if r["alive"])
+    # LA FLOTTE = les vifs de TETE. Le total des vifs reste dit, entre parentheses, parce qu'il
+    # repond a une AUTRE question (ce qui tire sur le pump partage) -- mais ce n'est pas lui qui
+    # decide d'un refill, et c'etait lui qu'on lisait.
+    flotte = sum(1 for r in rows if r["alive"] and r.get("depth", 1) < 2)
+    sous = sum(1 for r in rows if r["alive"] and r.get("depth", 1) >= 2)
     # URI `file:///` ENTRE PARENTHESES : c'est la seule forme cliquable dans Claude Code, et elle
     # evite d'avoir a recopier un chemin Windows a la main pour ouvrir la page.
     uri = out.resolve().as_uri()
-    print("\n%d agents (%d en vol) -> (%s)" % (len(rows), alive, uri))
+    print("\n%d agents ; FLOTTE = %d en vol%s -> (%s)"
+          % (len(rows), flotte,
+             (" (+%d sous-agent(s) hors flotte)" % sous) if sous else "", uri))
     if a.open:
         import webbrowser
         webbrowser.open(uri)
