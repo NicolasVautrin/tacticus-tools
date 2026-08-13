@@ -27,6 +27,10 @@ from .effect_target_type import EffectTargetType
 # #524 : le 3e argument d'`IdunBattleLogic.Entities.DSLTriggers$$IsAdjacent`. Type DECLARE du
 # parametre `selectionType`, LU dans `frida/methods.tsv` -- jamais deduit de l'ordinal.
 from .unit_selection_type import UnitSelectionType, selection_ok_from_ctx  # noqa: F401
+# #963-r1 : le 3e argument d'`IdunBattleLogic.Entities.DSLTriggers$$AreEnemies` / `$$AreFriends`.
+# Type DECLARE du parametre, LU dans `frida/methods.tsv` -- jamais deduit de l'ordinal. Feuille pure
+# (`enum` + une fonction sans import `engine.*`) : l'importer ici n'allonge la cascade d'aucun module.
+from .unit_team_selection_type import UnitTeamSelectionType, team_for_selection  # noqa: F401
 # #270-r4-r2 : les DEUX lectures de `UnitTrait` etaient DIFFEREES, avec pour motif ecrit une
 # « garde anti-circulaire ». MESURE : la garde etait VIDE -- le hissage passe depuis 8 ordres
 # d'entree distincts (`probe_270r4r2_import_en_premier.py`), et il passait DEJA avant la coupe
@@ -730,18 +734,43 @@ class IsTurnOf(AbilityTrigger):
 
 
 class AreFriends(AbilityTrigger):
-    """`DSLFactory.AreFriends(a, b) @...` : les deux entités sont-elles ALLIÉES (MÊME équipe) ? Mirror du
-    test `_friendly_imperial` impératif du `matches` ActOfFaith (`oc.team == oown.team`, live-validé) —
-    utilisé par le behaviour accumulate IdunBattleLogic.Entities.Abilities.Active.Loki.ActOfFaithAbility$$CreateBehaviour (`AreFriends(killer@0x158, owner@0x148)`). Compare
-    l'équipe des unités résolues par les deux sélecteurs (any paire même-équipe) ; None d'un côté → False.
-    [⚠ flags natifs résiduels (args `0`/bool/`0` de la factory : includeSelf/aliveOnly ?) non modélisés —
-    à confirmer à l'agreement ; le NET même-équipe est prouvé par le matches déjà live-validé.]"""
-    def __init__(self, a: AbilityTrigger, b: AbilityTrigger):
+    """`IdunBattleLogic.Entities.DSLTriggers$$AreFriends(unit1, unit2, comparisonType, anyEntity)` :
+    les deux entités sont-elles ALLIÉES (MÊME équipe) ?
+
+    CHAÎNE NATIVE, relue en entier (#963-r1, build `rnca9r7q6c`) :
+
+        DSLTriggers.AreFriends(u1, u2, comparisonType, anyEntity)
+            -> new AreFriendsAbilityTrigger(u1, u2, battleQuery, comparisonType)   // champ +0x28
+        AreFriendsAbilityTrigger.ShouldTrigger(entities)
+            a = <sel@+0x10>.SelectSingle(entities);  if (a == null) return false;
+            b = <sel@+0x18>.SelectSingle(entities);  if (b == null) return false;
+            return battleQuery.<slot 0x92>(a, b, <+0x28>)          // = BattleQuery.AreFriends
+        BattleQuery.AreFriends(a, b, selectionType)
+            -> UnitExtensions.IsFriend(a, b, selectionType, this.State)            // cf. le foyer
+
+    `selection_type` = le 3e argument, un `UnitTeamSelectionType` : `ByCurrentTeam` (0) compare
+    l'équipe COURANTE, `ByOriginalTeam` (1) l'équipe D'ORIGINE. Le port le lit par le foyer
+    `entities/unit_team_selection_type.py::team_for_selection` — mirror de la SEULE bifurcation du
+    natif. Défaut `ByCurrentTeam` : c'est ce que passent tous les call-sites natifs d'`AreFriends`
+    recensés (#963-r1), jamais une convention du port.
+
+    ⚠ ÉCART NOMMÉ (résidu `#963-r1-r1`) : le natif résout chaque opérande par **`SelectSingle`** et
+    rend FAUX si l'un est nul ; le port garde son `any` sur le produit des deux listes. Identique
+    tant que les sélecteurs rendent AU PLUS une unité (le cas de tous les call-sites portés) ; plus
+    permissif sinon. Non touché ici : ce serait un autre axe que le paramètre d'équipe, sur un nœud
+    lu par une vingtaine de call-sites déjà validés.
+
+    None d'un côté → False. [⚠ le 4e argument natif `anyEntity` (choix de la classe de trigger)
+    n'est pas modélisé.]"""
+    def __init__(self, a: AbilityTrigger, b: AbilityTrigger,
+                 selection_type=UnitTeamSelectionType.ByCurrentTeam):
         self.a, self.b = a, b
+        self.selection_type = int(selection_type)
 
     def should_trigger(self, ctx):
-        ta = [u.get("team") for u in _units_of(self.a, ctx) if isinstance(u, dict)]
-        tb = [u.get("team") for u in _units_of(self.b, ctx) if isinstance(u, dict)]
+        st = self.selection_type
+        ta = [team_for_selection(u, st) for u in _units_of(self.a, ctx) if isinstance(u, dict)]
+        tb = [team_for_selection(u, st) for u in _units_of(self.b, ctx) if isinstance(u, dict)]
         return any(x is not None and x == y for x in ta for y in tb)
 
 
@@ -1002,17 +1031,37 @@ def _units_on(tiles: AbilityTrigger, ctx) -> list:
 
 
 class AreEnemies(AbilityTrigger):
-    """`IdunBattleLogic.Entities.DSLFactory$$AreEnemies(a, b, mode)` : symetrique exact d'`AreFriends` (equipes
-    DIFFERENTES). `IdunBattle.Entities.UnitExtensions$$IsFriend` == false pour au moins une paire resolue.
-    Les deux operandes sont normalises par `_units_of` (un ref-unite seul compte pour 1). None d'un cote ->
-    False. Consommateur porte : `IdunBattleLogic.Entities.Abilities.Active.Loki.ThriceBlessedConflagrationAbility$$GetTilesInLine`
+    """`IdunBattleLogic.Entities.DSLTriggers$$AreEnemies(unit1, unit2, selectionType)` : symetrique
+    exact d'`AreFriends` (equipes DIFFERENTES).
+
+    Le natif ne construit PAS de classe dediee -- il alloue le MEME
+    `IdunBattle.Entities.Triggers.AreFriendsAbilityTrigger` (avec le meme `selectionType` au champ
+    `+0x28`) et l'enveloppe dans `IdunBattle.DSL.AbilityTrigger$$op_LogicalNot`. Toute la lecture
+    d'equipe est donc celle d'`AreFriends` ci-dessus, negation comprise.
+
+    `selection_type` = 3e argument, un `UnitTeamSelectionType`, lu par le foyer
+    `entities/unit_team_selection_type.py::team_for_selection`. Defaut `ByCurrentTeam` = ce que
+    passent 52 des 53 call-sites natifs recenses (#963-r1) ; le SEUL a passer `ByOriginalTeam` est
+    `IdunBattleLogic.Entities.Abilities.Triggered.Loki.RedRampage_BuffAbility$$CreateTrigger`.
+
+    Les deux operandes sont normalises par `_units_of` (un ref-unite seul compte pour 1). None d'un
+    cote -> False.
+
+    ⚠ ECART NOMME (residu `#963-r1-r1`) : parce que le natif est `Not(AreFriends)`, un operande que
+    `SelectSingle` rend NUL fait rendre FAUX a `AreFriends` donc **VRAI** a `AreEnemies` ; le port
+    rend FAUX des deux cotes. Meme axe que l'ecart `SelectSingle`/`any` nomme sur `AreFriends`.
+
+    Consommateur porte : `IdunBattleLogic.Entities.Abilities.Active.Loki.ThriceBlessedConflagrationAbility$$GetTilesInLine`
     (`HasUnit(subject) & AreEnemies(Owner@0x148, Units(subject))`)."""
-    def __init__(self, a: AbilityTrigger, b: AbilityTrigger):
+    def __init__(self, a: AbilityTrigger, b: AbilityTrigger,
+                 selection_type=UnitTeamSelectionType.ByCurrentTeam):
         self.a, self.b = a, b
+        self.selection_type = int(selection_type)
 
     def should_trigger(self, ctx):
-        ta = [u.get("team") for u in _units_of(self.a, ctx) if isinstance(u, dict)]
-        tb = [u.get("team") for u in _units_of(self.b, ctx) if isinstance(u, dict)]
+        st = self.selection_type
+        ta = [team_for_selection(u, st) for u in _units_of(self.a, ctx) if isinstance(u, dict)]
+        tb = [team_for_selection(u, st) for u in _units_of(self.b, ctx) if isinstance(u, dict)]
         return any(x is not None and y is not None and x != y for x in ta for y in tb)
 
 

@@ -137,12 +137,12 @@ RESIDUS NOMMES :
     propre a ce port.
   * `isHidden = false` d'`AddStaticStatModifierEffect` : la feuille portee n'expose pas ce champ
     (elle materialise toujours un effet VISIBLE). Inerte offline (aucun lecteur du flag).
-  * `UnitTeamSelectionType.ByOriginalTeam = 1` (3e argument d'`AreEnemies`) : le noeud `AreEnemies`
-    porte (`entities/triggers.py`) compare `u["team"]`, c'est-a-dire l'equipe **COURANTE**. Le
-    natif, lui, lit l'equipe d'ORIGINE. L'ecart n'est observable que sur une victime dont l'equipe
-    courante differe de son equipe d'origine (`MindControl` et assimiles) -- residu PARTAGE par
-    tous les call-sites d'`AreEnemies`/`AreFriends` du port, pas propre a celui-ci. Ouvert en
-    `#963-r1`.
+  * `UnitTeamSelectionType.ByOriginalTeam = 1` (3e argument d'`AreEnemies`) : **FERME par #963-r1**.
+    Le noeud `AreEnemies` (`entities/triggers.py`) expose desormais son 3e argument, et le lit par
+    le foyer `entities/unit_team_selection_type.py::team_for_selection` ; le substrat runner publie
+    l'equipe d'ORIGINE sous `originalTeam` (`OwnerComponent.overridden_from`). Ce call-site est le
+    SEUL du build a passer `ByOriginalTeam` -- recensement des 53 call-sites d'`AreEnemies` et des
+    79 d'`AreFriends` dans `docs/rl/case-963r1-unit-team-selection-type.md`.
 """
 from __future__ import annotations
 
@@ -174,7 +174,7 @@ ABILITY_ID = "RedRampage"
 DAMAGE_PROFILE = "Power"                        # `constants.damageProfile` (gameconfig)
 EXTRA_MOVEMENT = AbilityConstantType.extraMovement          # `GetNumberConstant(0xe)` -> "1"
 EXTRA_MOVEMENT_EFFECT = EffectType.RedRampage_ExtraMovement  # 0x622 = 1570
-# 3e argument litteral d'`AreEnemies` au decompile. Le noeud porte ne l'expose pas (residu en-tete).
+# 3e argument litteral d'`AreEnemies` au decompile, passe au noeud depuis #963-r1.
 TEAM_SELECTION = UnitTeamSelectionType.ByOriginalTeam        # = 1
 # 4e argument litteral de `HasEffect(Owner, 0x622, onlyActive, targetType)` : le natif passe 0.
 HAS_EFFECT_ACTIVE_ONLY = False
@@ -282,9 +282,10 @@ def red_rampage_buff_trigger_tree():
           & get_OwnerIsActor
 
     `Target@+0x60` sur `On(UnitDefeated)` = la VICTIME (`unit_defeated_triggers` threade
-    `target = dying_id`, `actor = killer_id`). Le litteral `TEAM_SELECTION` du natif n'est pas
-    exposable au noeud porte -- residu nomme en en-tete."""
-    return TriggerAnd(TriggerAnd(IsTurnOf(Caster()), AreEnemies(Caster(), Target())),
+    `target = dying_id`, `actor = killer_id`). Le litteral `TEAM_SELECTION` est passe au noeud
+    depuis #963-r1 (le noeud `AreEnemies` expose son 3e argument)."""
+    return TriggerAnd(TriggerAnd(IsTurnOf(Caster()),
+                                 AreEnemies(Caster(), Target(), TEAM_SELECTION)),
                       OwnerIsActor())
 
 
