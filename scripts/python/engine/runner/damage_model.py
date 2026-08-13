@@ -628,6 +628,20 @@ def attacker_modifiers(state: State, unit_id: int, hp: Optional[int], is_ranged:
     # est FERME, jamais « inconnu = vrai ».
     if ability_type is not None:
         att_ctx["ability_type"] = int(ability_type)
+    # #1005 -- l'`AbilityState` **TERTIAIRE** de l'attaquant (la RELIQUE equipee). Un effet de
+    # relique resout son `ConfigVar` contre l'etat que l'`AddEffect` natif lui a passe, et cet etat
+    # n'est PAS celui des passifs : MESURE (`unitAbilityStates`, `bloodMephiston` / `Vitarus`)
+    # `level = 1, mult = 100` contre `level = 50, mult = 180` pour ses passifs. Sans ces trois
+    # cles, `Vitarus.extraDmg` serait lu clampe (`[10] = 728`) au lieu d'`[1] = 490`. Foyer de
+    # lecture : `entities/effects/base.py::relic_ability_state`. Cles ABSENTES quand l'attaquant
+    # n'a pas de relique -> les deux effets concernes retombent sur leurs champs, en le disant.
+    _ae = state.get_entity(int(unit_id))
+    _asc = _ae.get_component(StatsComponent) if _ae is not None else None
+    _actx = getattr(_asc, "ctx", None)
+    if getattr(_actx, "tertiary_ability", None):
+        att_ctx["att_tertiary_ability"] = str(_actx.tertiary_ability)
+        att_ctx["att_tertiary_level"] = getattr(_actx, "tertiary_ability_level", None)
+        att_ctx["att_tertiary_mult"] = getattr(_actx, "tertiary_ability_variables_multiplier", None)
     # Branche `| HasFlag(Self@0x148, 0xc = Teleported)` du trigger de
     # `IdunBattle.Entities.Effects.Loki.HeavyWeapon_ExtraDmgEffect$$CreateDamageModifier` : le +25%
     # ranged survit a un deplacement qui etait un TELEPORT. Threade dans `att_ctx` (le contexte

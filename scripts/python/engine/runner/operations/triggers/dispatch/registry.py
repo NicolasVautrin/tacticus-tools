@@ -263,6 +263,10 @@ from ..loki.daemonflesh_plate import (DaemonfleshPlateAbility,        # #916 (re
                                       DaemonfleshPlateResetActiveAbility)
 from ..loki.orbs_of_decay import OrbsOfDecayAbility                    # #1003 (relique 1465, DG)
 from ..loki.lakrimae import LakrimaeAddContaminationAbility            # #1003 (relique 1541, DG)
+from ..loki.chalice_of_baal import (ChaliceOfBaalAbility,             # #1005 (relique 1550,
+                                    ChaliceOfBaalResetAbility)        #  bloodSanguinary)
+from ..loki.vitarus import VitarusAbility                              # #1005 (relique 1470,
+                                                                       #  bloodMephiston)
 from ..loki.relentless_march import RelentlessMarchAbility             # #328 (passif necroWarden)
 from ..loki.my_will_be_done_overlord import (MyWillBeDoneOverlordAttackAbility,   # #354 (necroOverlord)
                                              MyWillBeDoneOverlordClearAbility)
@@ -1301,6 +1305,34 @@ RELIC_ABILITY_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
     #     non portes). L'inscrire vide serait un mensonge de couverture.
     # Cf. loki/lakrimae.py.
     "Lakrimae": [LakrimaeAddContaminationAbility],
+    # ChaliceOfBaal (relique `R_Health_ChaliceOfBaal`, `TriggeredAbilityType` 0x60e = 1550 ;
+    # porteur `bloodSanguinary` << Nicodemus >>, HERO du pool). DEUX classes natives pour UNE cle
+    # -- et c'est LU, pas suppose : `IdunBattle.Core.Services.AbilitiesDatabase.u003Cu003Ec$$
+    # u003CInitializeTriggeredAbilitiesu003Eb__28_426` construit `ChaliceOfBaalAbility` PUIS
+    # `ChaliceOfBaal_ResetAbility` et les range dans LA MEME liste (patron `LetTheGalaxyBurn` /
+    # `HaywireMine` / `DaemonfleshPlate`) :
+    #   * `ChaliceOfBaalAbility` -- `On(0 = UnitDeath, alive) & NOT HasTrait(Target, Steppable)
+    #     & IsAdjacent(Owner, Target, Any) & NOT HasTriggeredThisTurn()` -> `Heal(Owner, Owner +
+    #     AdjacentFriends filtres NonMechanical, Get(hp)) & AddEffect(0x621 = 1569
+    #     ChaliceOfBaal_ExtraDmg, turns = Direct(1)) & SetPersistentData("ChaliceOfBaalTriggered")`.
+    #     ⚠ AUCUN `get_OwnerIsActor` : le porteur n'a pas a etre le TUEUR (contraste `DawnBlade`).
+    #   * `ChaliceOfBaal_ResetAbility` -- `On(0x17 = TurnEnd, alive) & HasTriggeredThisTurn()` ->
+    #     `ClearAllPersistentData(1550, Owner)`. Son `CreateBehaviour` est un corps FONDU par l'ICF,
+    #     partage avec `NoHidingFromTheWatchers_EndPhaseAbility$$CreateBehaviour`.
+    # Cf. loki/chalice_of_baal.py. #1005.
+    "ChaliceOfBaal": [ChaliceOfBaalAbility, ChaliceOfBaalResetAbility],
+    # Vitarus (relique `R_Crit_Vitarus`, `TriggeredAbilityType` 0x5be = 1470 ; porteur
+    # `bloodMephiston`, HERO du pool). DEUX classes natives, dont UNE SEULE est un vecteur de
+    # combat :
+    #   * `VitarusAbility` (ici) -- `On(9 = Attack, alive) & get_OwnerIsCaster & IsMeleeAttack
+    #     & (IsNormalAttack | CurrentAbilityIs(0x4df = 1247 FuryOfTheAncients))` ->
+    #     `If(la tuile de la cible est en Feu, Inform(Is_Modified) + RemoveEffect(Fire),
+    #         AddEffect(Fire))` ;
+    #   * `Vitarus_InitAbility` -- `AOwnerEffectTriggeredAbility` dont le SEUL override est
+    #     `$$GetEffectType` (`return 0x5ba` = 1466) : owner-effect PERMANENT pose a l'init, donc
+    #     `ABILITY_INIT_OWNER_EFFECTS["Vitarus"]`, PAS une entree ici (patron `ToughToKill`).
+    # Cf. loki/vitarus.py. #1005.
+    "Vitarus": [VitarusAbility],
 }
 
 # --- Registre : abilities GLOBALES (aucun owner) ---------------------------------------------------

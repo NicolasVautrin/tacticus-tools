@@ -24,7 +24,7 @@ from collections.abc import Mapping
 from ....services.effect_bonus import EffectBonus, for_addition, for_percent_increase
 from ...damage_profile_type import DamageProfileType, PROFILE_NAME_BY_INDEX
 from ...effect_type import EffectType
-from ..base import BaseEffect
+from ..base import BaseEffect, target_is_on_fire_tile as _target_is_on_fire_tile
 from ..magnitude import ability_var
 # #943-r7 -- les deux canaux du substrat d'adjacence NATIF, en FORME B (#485-r1-r1).
 # `pathfinding.board` n'importe RIEN de `engine`, et `engine.battle_query` n'importe que `hexgeo` +
@@ -616,12 +616,13 @@ class APsychicStalkEffect(BaseEffect):
 
         Contexte : `t_pos` (position de la cible) + `tile_effects_by_pos` (`{(col,row): [noms]}`,
         le canal deja monte pour `LetTheGalaxyBurnEffect`). Canal ABSENT -> False : le natif ne
-        devine pas non plus, et « present != applique »."""
-        c = ctx or {}
-        tfx, tp = c.get("tile_effects_by_pos"), c.get("t_pos")
-        if tfx is None or tp is None:
-            return False
-        return FIRE_TILE_EFFECT_NAME in set((tfx or {}).get(tuple(tp)) or ())
+        devine pas non plus, et « present != applique ».
+
+        DELEGUE au foyer `effects/base.py::target_is_on_fire_tile` depuis #1005 : `VitarusEffect`
+        pose la MEME question par un autre noeud (`Any(Tiles(Target), HasEffect(<element>, Fire,
+        onlyActive: false, EffectTargetType.Both))`), et une TROISIEME ecriture aurait fait un
+        fork."""
+        return _target_is_on_fire_tile(ctx)
 
     def attack_has_valid_damage_profile(self, ctx: Mapping | None = None) -> bool:
         """`APsychicStalkEffect$$GetAttackHasValidDamageProfileCondition` (MIRROR 1:1) :
@@ -965,9 +966,7 @@ class PsychicStalkVisualEffect(BaseEffect):
             return False                                  # Enemies(of = Owner@0x30)
         if c.get("tgt_alive") is False:                   # onlyAlive = 1 -> selectionType 3
             return False
-        tfx, tp = c.get("tile_effects_by_pos"), c.get("t_pos")
-        if tfx is None or tp is None:
-            return False
         # EntitiesWithAnyEffect(Tiles(...), Fire = 5, effectTarget = 6) -- MEME noeud, MEME canal
-        # offline (noms de `tileMeta.tiles[].effects[]`) que `GetTargetIsOnFireTileCondition`.
-        return FIRE_TILE_EFFECT_NAME in set((tfx or {}).get(tuple(tp)) or ())
+        # offline (noms de `tileMeta.tiles[].effects[]`) que `GetTargetIsOnFireTileCondition`,
+        # donc MEME foyer (`effects/base.py::target_is_on_fire_tile`, #1005).
+        return _target_is_on_fire_tile(ctx)

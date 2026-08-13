@@ -86,6 +86,7 @@ from .loki.empyric_ambush import EmpyricAmbushEffect
 from .loki.euphoric_strikes import EuphoricStrikesExtraCritEffect
 from .loki.extra_damage import (
     AvalancheOfMuscleExtraDamageEffect, BeaconOfRageExtraDamageEffect, BeastSlayerExtraDmgEffect,
+    ChaliceOfBaalExtraDmgEffect, VitarusEffect,
     CondemnorStakeExtraDmgEffect, CrushingStrikeEffect, DecoysAndMisdirectionExtraDamageEffect,
     FeederTendrilsExtraDamageEffect, FuelledByFuryExtraDamageEffect, HeavyGravCannonEffect,
     HeavyWeaponExtraDmgEffect, LordOfTempestsExtraDamageEffect, MartialKatahDmgBonusEffect,
@@ -528,6 +529,20 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # SmashaEad (orksNob "Tanksmasha") : +extraDmg[level]×mult FLAT au dégât des attaques NORMALES
     # (effet posé quand le porteur a traversé ≥2 hexes ce tour ; IdunBattle.Entities.Effects.Loki.SmashaEadEffect$$CreateEffectDamageBonusForAttack ForAddition). #68.
     "SmashaEad": SmashaEadExtraDamageEffect,
+    # ChaliceOfBaal_ExtraDmg (effet 0x621 = 1569, relique 1550 de `bloodSanguinary` -- #1005) :
+    # `ForAddition(get_OwnerIsActor & IsMeleeAttack & IsNormalAttack, ConfigVar(8 = extraDmg))`
+    # (`IdunBattle.Entities.Effects.Loki.ChaliceOfBaalEffect$$CreateEffectDamageBonusForAttack`),
+    # pose UN TOUR sur le porteur + ses allies adjacents NON MECANIQUES par le volet ACTIF de la
+    # relique (`RELIC_ABILITY_TRIGGERS["ChaliceOfBaal"]`). Sans cette entree l'effet serait pose et
+    # INERTE -- le vice que la mesure des relique-triggers nomme (« l'effet seul = ability jamais
+    # declenchee ; l'ability seule = un `BaseEffect` nu qui n'agit pas »).
+    "ChaliceOfBaal_ExtraDmg": ChaliceOfBaalExtraDmgEffect,
+    # Vitarus (effet 0x5ba = 1466, relique 1470 de `bloodMephiston` -- #1005) : `ForAddition(la
+    # tuile de la cible est en Feu & get_OwnerIsCaster & IsMeleeAttack & (IsNormalAttack |
+    # CurrentAbilityIs(1247 FuryOfTheAncients)), ConfigVar(8 = extraDmg))`
+    # (`IdunBattle.Entities.Effects.Loki.VitarusEffect$$CreateEffectDamageBonusForAttack`). Pose a
+    # l'INIT sur le porteur par `Vitarus_InitAbility` -> cf. `ABILITY_INIT_OWNER_EFFECTS` plus bas.
+    "Vitarus": VitarusEffect,
     # FeederTendrils (Deathleaper, effet 0x4ad=1197) : jumeau SmashaEad + gate IsCharging (IdunBattle.Entities.Effects.Loki.FeederTendrils_ExtraDamageEffect$$CreateEffectDamageBonusForAttack
     # ForAddition). +extraDmg[level]xmult FLAT PRE-percage sur l'attaque NORMALE de CHARGE melee ;
     # multiplier GLOBAL (pas per-ability #68, car c'est l'attaque normale de l'unite). #176.
@@ -1816,6 +1831,22 @@ ABILITY_INIT_OWNER_EFFECTS: dict[str, list[str]] = {
     # `InescapableDeath`. `CreateActiveCondition` = `<DSLTriggers+0x70>` = YesTrigger -> l'effet est
     # toujours capte live, le seed est un FILET (idempotent).
     "ToughToKill": ["ToughToKill"],
+    # #1005 -- `Vitarus_InitAbility` (parent `IdunBattle.Entities.Abilities.
+    # AOwnerEffectTriggeredAbility`, `frida/classes.tsv`) n'override QUE `$$GetEffectType`, dont le
+    # corps ENTIER est `return 0x5ba` (= 1466 `EffectType.Vitarus`) : l'appariement ability -> effet
+    # est LU, pas devine. Le reste vient de la base (`CreateTrigger =
+    # OnOwnerSpecificAbilityInit(this.AbilityType)`, `CreateBehaviour = AddEffect(GetEffectType(),
+    # AbilityState(Owner), source = Owner, targets = Owner, turns = <zeroe>)`) -- owner-effect
+    # PERMANENT pose a l'init, exactement le patron `ToughToKill` / `Skullsmasher` / `Ramshackle`.
+    # ⚠ C'est la SECONDE classe native de la cle 1470 : la premiere, `VitarusAbility`, est un
+    # vecteur de combat et vit dans `RELIC_ABILITY_TRIGGERS["Vitarus"]`. S'y tromper donnerait soit
+    # un passif qui ne se pose JAMAIS, soit un effet nu qui n'agit pas.
+    # ⚠ CE SEED N'EST PAS QU'UN FILET : la relique arrive par la voie TERTIAIRE, donc
+    # `_seed_ability_owner_effects` doit lire `ctx.tertiary_ability` en plus des
+    # `activeAbilities`/`passiveAbilities` du gameconfig (fait dans le meme commit). Sur un runner
+    # live l'effet est de toute facon capte par `decisionView.effects` (sa `CreateActiveCondition`
+    # est celle de la base, toujours vraie), donc le seed y est idempotent.
+    "Vitarus": ["Vitarus"],
     # #953 -- `Skullsmasher_DamageEffectAbility` (parent `IdunBattle.Entities.Abilities.
     # AOwnerEffectTriggeredAbility`, `classes.tsv`) n'override QUE `GetEffectType` (`return 0x4ef`) :
     # le reste vient de la base (`CreateTrigger = OnOwnerSpecificAbilityInit(this.AbilityType)`,

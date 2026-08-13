@@ -25,7 +25,7 @@
 
 - Unites lineup : **127** ; kits COMPLETS (aucun manque detecte) : **124** ; kits avec du travail : **3**
 - Volume total : **3** items manquants (actives no-op + passifs/traits non registres)
-- HORS total — voies conditionnelles : **30** abilities non portees (11 mythiques, 19 reliques equipables)
+- HORS total — voies conditionnelles : **28** abilities non portees (11 mythiques, 17 reliques equipables)
 - HORS total — faces DECISION non portees : **5** actives sur 138, dont **5** dans des kits declares COMPLETS (5 kits concernes)
 - DECOMPTES par un verdict ATTESTE : **6** (et **0** attestation(s) PERIMEE(S), dont l'item est REDEVENU manquant) — section dediee plus bas, jamais tue
 
@@ -119,7 +119,7 @@
 
 adeptCanoness, adeptCelestine, adeptExorcist, adeptHospitaller, adeptMorvenn, adeptRetributor, admecDominus, admecManipulus, admecMarshall, admecRuststalker, astarCyrus, astarLysander, astraBullgryn, astraCreed, astraDreir, astraOrdnance*, astraOrdnanceBattery, astraPrimarisPsy, astraYarrick, blackAbaddon, blackForgefiend, blackHaarken, blackObliterator, blackPossession, blackTerminator, bloodDante, bloodDeathCompany, bloodIntercessor, bloodMephiston, bloodSanguinary, bloodTerminator, custoAtlacoya, custoBladeChampion, custoKyrus, custoTrajann, custoVexilusPraetor, darkaAsmodai, darkaAzrael, darkaCompanion, darkaHellblaster, darkaSternguard, darkaStormSpeeder, darkaTerminator, deathBlightbringer, deathBlightlord, deathCrawler*, deathPutrifier, deathRotbone, deathTyphus, eldarAutarch, eldarFarseer, eldarJainZar, eldarLhykhis, eldarMauganRa, eldarRanger, emperExultant, emperFlawlessBlade, emperKakophonist, emperLucius, emperNoiseMarine, genesBiophagus, genesKelermorph, genesMagus, genesPatriarch, genesPrimus, necroChronomancer, necroDestroyer, necroOverlord, necroPlasmancer, necroReanimator, necroSpyder, necroWarden, orksBigMek, orksKillaKan, orksNob, orksRukkatrukk*, orksRuntherd, orksWarboss, spaceBlackmane, spaceHound, spaceRockfist, spaceStormcaller, spaceWolfPriest*, spaceWulfen, tauAunShi, tauBroadside, tauCrisis, tauDarkstrider, tauMarksman, tauShadowsun, templAggressor, templAncient, templChampion, templHelbrecht, templSwordBrother, thousAhriman, thousInfernalMaster, thousSekhetar, thousSorcerer, thousTerminator, thousTzaangor, tyranBiovore, tyranDeathleaper, tyranNeurothrope, tyranParasite, tyranTyrantGuard, tyranWingedPrime, ultraApothecary, ultraCalgar, ultraDreadnought*, ultraEliminatorSgt, ultraInceptorSgt, ultraTigurius, ultraTitus, votanBeserk, votanChampion, votanIronmaster, votanMemnyr, votanUthar, worldEightbound, worldExecutions, worldJakhal, worldKharn, worldTerminator
 
-## HORS total — voies conditionnelles (30 abilities non portees)
+## HORS total — voies conditionnelles (28 abilities non portees)
 
 > Une unite `lineup` porte aussi des abilities par deux voies que le kit n'expose
 > pas : `mythic` (`units.<kind>.<id>.mythicAbilities`, a DEBLOQUER) et `item`
@@ -134,7 +134,6 @@ adeptCanoness, adeptCelestine, adeptExorcist, adeptHospitaller, adeptMorvenn, ad
 |---|---|---:|---|
 | BladeOfTheAncestors | item | 1 | votanUthar |
 | BookOfFate | item | 3 | blackPossession, thousInfernalMaster, thousSorcerer |
-| ChaliceOfBaal | item | 1 | bloodSanguinary |
 | Dw02AdvancedBurstCannon | item | 1 | tauCrisis |
 | HeadwoppasKillchoppa | item | 1 | orksWarboss |
 | Helspear | item | 1 | blackHaarken |
@@ -148,7 +147,6 @@ adeptCanoness, adeptCelestine, adeptExorcist, adeptHospitaller, adeptMorvenn, ad
 | RelicPowerFist | item | 3 | bloodIntercessor, darkaTerminator, templAggressor |
 | SabreOfSacrifice | item | 1 | astraDreir |
 | TheArdentBlade | item | 1 | adeptCelestine |
-| Vitarus | item | 1 | bloodMephiston |
 | VolummsMasterArtifice | item | 1 | votanIronmaster |
 | WyrdmakersHelm | item | 1 | spaceWolfPriest |
 | BlightedLand | mythic | 1 | deathCrawler |
@@ -163,4 +161,4 @@ adeptCanoness, adeptCelestine, adeptExorcist, adeptHospitaller, adeptMorvenn, ad
 | ShieldOfFaith | mythic | 1 | adeptExorcist |
 | WisdomOfTheAncients | mythic | 1 | ultraDreadnought |
 
-Portees (au moins un registre) : **13** — AmuletOfTheVoidwyrm, DaemonfleshPlate, DawnBlade, IntoxicatingElixir, KardiocoreGalvanus, Lakrimae, MawClawsOfThyrax, NetherRealmCasket, OrbsOfDecay, RelicBoltPistol, SupaCyborkBody, TalismanOfRage, TalonOfHorus
+Portees (au moins un registre) : **15** — AmuletOfTheVoidwyrm, ChaliceOfBaal, DaemonfleshPlate, DawnBlade, IntoxicatingElixir, KardiocoreGalvanus, Lakrimae, MawClawsOfThyrax, NetherRealmCasket, OrbsOfDecay, RelicBoltPistol, SupaCyborkBody, TalismanOfRage, TalonOfHorus, Vitarus

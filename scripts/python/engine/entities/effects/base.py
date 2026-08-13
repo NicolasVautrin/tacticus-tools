@@ -21,6 +21,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 
 from ...services.effect_bonus import EffectBonus
+from ..effect_type import EffectType
 from ..traits.unit_trait import UnitTrait, has_trait
 
 # Sentinelle de durée d'un sous-effet : MÊME nombre de tours que le parent (mirror natif
@@ -77,6 +78,51 @@ def is_not_charging(att_ctx) -> bool:
     clé ABSENTE (contexte d'attaque sans cible — prédictions internes type FinalJustice) laisse
     passer, comme le faisait `has_moved=None`. Seul un `False` EXPLICITE ferme le gate."""
     return (att_ctx or {}).get("is_charging") is False
+
+
+def target_is_on_fire_tile(att_ctx) -> bool:
+    """`EntitiesWithAnyEffect( Tiles(Target@DSLSelectors+0x60), EffectType.Fire = 5,
+    effectTarget = 6 )` -- « la MAIN TILE de la cible du coup porte-t-elle l'effet `Fire` ? »
+
+    FOYER UNIQUE du predicat cote canal MODIFIER. Il etait ecrit DEUX fois dans
+    `loki/extra_damage_aura.py` (`APsychicStalkEffect$$GetTargetIsOnFireTileCondition` et son
+    jumeau `1216`) ; l'ecrire une TROISIEME fois pour `VitarusEffect` (dont la condition natif est
+    `Any(Tiles(Target@+0x60), HasEffect(<element>, Fire, onlyActive: false, EffectTargetType.Both
+    = 6))` -- meme question, autre noeud) aurait fait un fork. `Tiles` =
+    `IdunBattle.Entities.Selectors.UnitsMainTilesSelector` -> UNE tuile, pas l'empreinte complete.
+
+    Contexte : `t_pos` (position de la cible) + `tile_effects_by_pos` (`{(col,row): [noms]}`),
+    tous deux poses par `runner/damage_model.py::attacker_modifiers` et par la face PREDICTION.
+    Canal ABSENT -> False : le natif ne devine pas non plus, et « present != applique »."""
+    c = att_ctx or {}
+    tfx, tp = c.get("tile_effects_by_pos"), c.get("t_pos")
+    if tfx is None or tp is None:
+        return False
+    return EffectType.Fire.name in set((tfx or {}).get(tuple(tp)) or ())
+
+
+def relic_ability_state(att_ctx, relic_ability: str):
+    """Le couple `(niveau, multiplicateur)` de l'ability TERTIAIRE de l'ATTAQUANT quand c'est bien
+    `relic_ability` qui est equipee -- sinon `(None, None)`.
+
+    POURQUOI CE CANAL EXISTE (#1005, MESURE, pas suppose). Un effet de RELIQUE resout son
+    `ConfigVar` contre l'`AbilityState` que l'`AddEffect` natif lui a passe, c.-a-d.
+    `DSLSelectors$$AbilityState(Owner, <l'ability courante>)` = l'etat **TERTIAIRE**. Or ce couple
+    n'est PAS celui des passifs : RPC `unitAbilityStates` sur `bloodMephiston` porteur de
+    `Vitarus` -- `TriggeredAbilityComponent` `raw = [1470, .., level = 1, mult = 100, ..,
+    hierarchie = 3, ..]`, tandis que ses passifs portent `level = 50, mult = 180`. Cote port,
+    `EffectFactory.create` recoit le couple PASSIF de l'unite porteuse (canal de seed
+    `decisionView.effects` comme voie offline), donc `Vitarus.extraDmg` serait lu a l'indice
+    clampe (`extraDmg[10] = 728`) au lieu d'`extraDmg[1] = 490` : **+238 par coup, en silence**.
+
+    `att_ctx` porte les trois cles depuis `runner/damage_model.py::attacker_modifiers` (canal
+    ATTAQUANT, le seul qu'empruntent les deux effets de relique portes). Cles absentes ou relique
+    differente -> `(None, None)`, et l'appelant retombe sur ses champs d'effet -- degradation
+    NOMMEE, jamais un niveau devine."""
+    c = att_ctx or {}
+    if not relic_ability or c.get("att_tertiary_ability") != relic_ability:
+        return (None, None)
+    return (c.get("att_tertiary_level"), c.get("att_tertiary_mult"))
 
 
 def is_charging_attack(att_ctx) -> bool:
