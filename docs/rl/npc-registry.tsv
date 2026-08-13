@@ -127,9 +127,9 @@ adeptNpcRetributor	Sisterhood	Imperial	None	passif	FireOfAbsolution		1
 adeptNpcRetributor	Sisterhood	Imperial	None	trait	Hero		1	
 adeptNpcRetributor	Sisterhood	Imperial	None	trait	ActOfFaith		1	
 adeptNpcRetributor	Sisterhood	Imperial	None	trait	HeavyWeapon		1	
-admecBossBelisarius	AdeptusMechanicus	Imperial	None	active	InvocationOfMachineVengeance	1172	0	0
+admecBossBelisarius	AdeptusMechanicus	Imperial	None	active	InvocationOfMachineVengeance	1172	1	1
 admecBossBelisarius	AdeptusMechanicus	Imperial	None	active	ArcScourge	1173	1	0
-admecBossBelisarius	AdeptusMechanicus	Imperial	None	active	SolarAtomizer	1174	0	0
+admecBossBelisarius	AdeptusMechanicus	Imperial	None	active	SolarAtomizer	1174	1	1
 admecBossBelisarius	AdeptusMechanicus	Imperial	None	passif	SelfRepairMechanismReworked		0	
 admecBossBelisarius	AdeptusMechanicus	Imperial	None	passif	ShroudPsalm		1	
 admecBossBelisarius	AdeptusMechanicus	Imperial	None	passif	PreCalibratedPurgeSolution		0	
@@ -1638,14 +1638,14 @@ tauBossShadowsunLHE	Tau	Xenos	None	trait	Infiltrate		1
 tauNpc1FireWarrior	Tau	Xenos	None	trait	RangedSpecialist		1	
 tauNpc1FireWarrior	Tau	Xenos	None	trait	Overwatch		1	
 tauNpc1FireWarrior	Tau	Xenos	None	trait	SuppressiveFire		1	
-tauNpc2DroneSniper	Tau	Xenos	None	passif	SaviorProtocols		0	
+tauNpc2DroneSniper	Tau	Xenos	None	passif	SaviorProtocols		1	
 tauNpc2DroneSniper	Tau	Xenos	None	trait	Flying		1	
 tauNpc2DroneSniper	Tau	Xenos	None	trait	Mechanical		1	
 tauNpc2DroneSniper	Tau	Xenos	None	trait	RangedSpecialist		1	
-tauNpc3DroneShield	Tau	Xenos	None	passif	SaviorProtocols		0	
+tauNpc3DroneShield	Tau	Xenos	None	passif	SaviorProtocols		1	
 tauNpc3DroneShield	Tau	Xenos	None	trait	Flying		1	
 tauNpc3DroneShield	Tau	Xenos	None	trait	Mechanical		1	
-tauNpc4DroneCommandLink	Tau	Xenos	None	passif	SaviorProtocols		0	
+tauNpc4DroneCommandLink	Tau	Xenos	None	passif	SaviorProtocols		1	
 tauNpc4DroneCommandLink	Tau	Xenos	None	passif	DefenderOfTheGreaterGood		1	
 tauNpc4DroneCommandLink	Tau	Xenos	None	trait	Flying		1	
 tauNpc4DroneCommandLink	Tau	Xenos	None	trait	Mechanical		1	

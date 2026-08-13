@@ -19,9 +19,9 @@ differe. C'est la doctrine « DECIDER != EXECUTER ».
 
 ## Bilan
 
-- Unites `npc` : **491** ; kits sans manque : **377** ; kits avec du travail : **114**
-- Actives distinctes : **147** — `[--]` **9** · `[-D]` **1** · `[C-]` **14** · `[CD]` **123**
-- Passifs distincts : **177** — portes **109**, non portes **68**
+- Unites `npc` : **491** ; kits sans manque : **380** ; kits avec du travail : **111**
+- Actives distinctes : **147** — `[--]` **7** · `[-D]` **1** · `[C-]` **14** · `[CD]` **125**
+- Passifs distincts : **177** — portes **110**, non portes **67**
 - Traits de kit distincts (AUCUN ecarte — le seuil de frequence a disparu avec #1015) :
   **58** — couverts **53**, non couverts **5**
 - **Voies inversees** (nom absent d'`ActiveAbilityType`) : **1** — `Maugetar`
@@ -56,7 +56,6 @@ l'unite. La colonne `porteurs` dit l'exposition.
 | passif | HailOfLivingAmmunition | 5 | tyranNpc3Termagant, tyranNpc3TermagantGorgon, tyranNpc3TermagantKronos |
 | trait | TwoManTeam | 4 | astraNpc2Lascannon, astraNpc4Mortar, astraNpc4MortarSurv |
 | passif | RapidFire | 3 | ultraNpc3Intercessor, ultraNpc4HeavyIntercessor, ultraNpc4HeavyIntercessorSurv |
-| passif | SaviorProtocols | 3 | tauNpc2DroneSniper, tauNpc3DroneShield, tauNpc4DroneCommandLink |
 | passif | BossEndFightUndefeated | 2 | darkaBossLion, deathBossMortarion |
 | passif | Bounce | 2 | orksNpc7Squig, orksNpc7SquigSurv |
 | passif | Shrapnel | 2 | astraNpc4Mortar, astraNpc4MortarSurv |
@@ -64,12 +63,10 @@ l'unite. La colonne `porteurs` dit l'exposition.
 | active | CallRipperSwarms | 1 | tyranBossHiveTyrantLeviathan |
 | active | DevoutPush | 1 | templNpc1Initiate |
 | active | InstrumentsOfVengeance | 1 | darkaBossLion |
-| active | InvocationOfMachineVengeance | 1 | admecBossBelisarius |
 | active | Maugetar | 1 | eldarBossMauganRaUltra |
 | active | NovaCharge | 1 | tauBossRiptide |
 | active | PrecisionShot | 1 | necroNpc3Deathmark |
 | active | Reveal | 1 | eldarNpc2Warlock |
-| active | SolarAtomizer | 1 | admecBossBelisarius |
 | active | TheLantern | 1 | deathBossMortarion |
 | passif | AllIsDust | 1 | thousNpc3RubricMarine |
 | passif | ArchContaminator | 1 | deathBossMortarion |
@@ -210,7 +207,7 @@ sont des **faces** absentes d'items presents.
 
 | unite | manque | actives (face) | passifs non portes | traits non couverts | autres voies |
 |---|---:|---|---|---|---|
-| admecBossBelisarius | 4 | InvocationOfMachineVengeance(1172)[--]<br>ArcScourge(1173)[C-]<br>SolarAtomizer(1174)[--] | SelfRepairMechanismReworked, PreCalibratedPurgeSolution | - | - |
+| admecBossBelisarius | 2 | InvocationOfMachineVengeance(1172)[CD]<br>ArcScourge(1173)[C-]<br>SolarAtomizer(1174)[CD] | SelfRepairMechanismReworked, PreCalibratedPurgeSolution | - | - |
 | admecNpc2Techpriest | 1 | - | VengeanceForTheOmnissiah | - | - |
 | admecBossDestroyer | 0 | SentinelDirectives(1139)[CD] | - | - | relic:KardiocoreGalvanus |
 | admecBossDestroyerCE | 0 | SentinelDirectives(1139)[CD] | - | - | relic:KardiocoreGalvanus |
@@ -570,7 +567,7 @@ sont des **faces** absentes d'items presents.
 |---|---:|---|---|---|---|
 | spaceStormcaller_LHE | 0 | Stormcaller(1113)[CD] | - | - | - |
 
-### Tau — 33 unites, 22 avec du travail
+### Tau — 33 unites, 19 avec du travail
 
 | unite | manque | actives (face) | passifs non portes | traits non couverts | autres voies |
 |---|---:|---|---|---|---|
@@ -587,9 +584,6 @@ sont des **faces** absentes d'items presents.
 | tauBossShadowsun | 1 | ExemplarOfTheKauyon(1087)[CD] | - | CloseCombatWeakness | - |
 | tauBossShadowsunInc | 1 | ExemplarOfTheKauyon(1087)[CD] | - | CloseCombatWeakness | - |
 | tauBossShadowsunLHE | 1 | ExemplarOfTheKauyon(1087)[CD] | - | CloseCombatWeakness | - |
-| tauNpc2DroneSniper | 1 | - | SaviorProtocols | - | - |
-| tauNpc3DroneShield | 1 | - | SaviorProtocols | - | - |
-| tauNpc4DroneCommandLink | 1 | - | SaviorProtocols | - | - |
 | tauNpc6Carnivore | 1 | - | HuntersInstincts | - | - |
 | tauNpcCrisis | 1 | EarlyWarningOverride(1077)[CD] | - | CloseCombatWeakness | relic:Dw02AdvancedBurstCannon |
 | tauNpcDarkstrider | 1 | FightingRetreat(1081)[CD] | - | CloseCombatWeakness | - |
@@ -604,6 +598,9 @@ sont des **faces** absentes d'items presents.
 | tauBossFarsightLHE | 0 | ExemplarOfTheMontka(1210)[CD] | - | - | relic:DawnBlade |
 | tauBossFarsightSurv | 0 | ExemplarOfTheMontka(1210)[CD] | - | - | relic:DawnBlade |
 | tauNpc1FireWarrior | 0 | - | - | - | - |
+| tauNpc2DroneSniper | 0 | - | - | - | - |
+| tauNpc3DroneShield | 0 | - | - | - | - |
+| tauNpc4DroneCommandLink | 0 | - | - | - | - |
 | tauNpc5StealthSuit | 0 | ForwardObservers(1185)[CD]<br>WallOfMirrors(1186)[C-] | - | - | - |
 | tauNpcAunShi | 0 | InspiredToGreatness(1082)[CD] | - | - | - |
 | tauNpcMoWBroadside | 0 | HeavyRailRifle(1160)[CD]<br>TwinSmartMissileSystem(1161)[CD] | - | - | mythic:ElectrochaffBackups |
