@@ -248,6 +248,7 @@ from ..loki.spiritual_leader import SpiritualLeaderAbility             # passif 
 from ..loki.barbed_ovipositor import BarbedOvipositorSummonAbility     # passif tyranParasite (Tyranids)
 from ..loki.synaptic_linchpin import SynapticLinchpinAbility           # passif tyranWingedPrime (Tyranids)
 from ..loki.fabricator_claw_array import FabricatorClawArrayAbility    # #303 (passif necroSpyder, N20)
+from ..loki.reanimation_protocols import ReanimationProtocolsAbility  # #1016 (passif necron 1008)
 from ..loki.champion_of_the_feast import ChampionOfTheFeastAbility    # #419-r6-r2 (passif templSwordBrother)
 from ..loki.fury_of_the_ancients import FuryOfTheAncientsAbility      # #927 (passif bloodMephiston)
 from ..loki.sanguinary_priest import SanguinaryPriestAbility          # #921 (passif bloodSanguinary)
@@ -1145,6 +1146,27 @@ ABILITY_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
     # decide de l'abonnement. Verdict grave par `test_936_wrathful_devotion_offline.py`.
     # Cf. loki/wrathful_devotion.py + `docs/rl/case-936-wrathful-devotion.md`.
     "WrathfulDevotion": [WrathfulDevotionAbility],
+    # #1016 -- `IdunBattleLogic.Entities.Abilities.Active.Loki.ReanimationProtocolsAbility`
+    # (: `IdunBattle.Entities.Abilities.BaseTriggeredAbility` d'apres `frida/classes.tsv` -- le
+    # NAMESPACE `Abilities.Active.Loki` ment, c'est une TRIGGERED, `TriggeredAbilityType` 0x3f0 =
+    # **1008**, et `unit_map` la classe `voie: passive`). LE passif de faction Necron, et l'item le
+    # plus porte de la dette de kit : 9 porteurs (6 npc + les summons `necroSmnSwarm` /
+    # `necroSmnWarrior` / `necroSmnDeathmark`).
+    #   CreateTrigger   = OnPreDeath(overkill: 0, steppable: 0) & get_OwnerIsTarget
+    #                   & AmountIsEqualOrGreater(Friends(Target, UnitsWithSameVisualId(Target, 1), 3),
+    #                                            Direct(1))
+    #   CreateBehaviour = Maybe(() => Revive(Owner, Target,
+    #                                        PercentageOf(StatAmount(Owner, Health, Initial),
+    #                                                     Direct(hpPct)),
+    #                                        healType: 1 = Mechanical, AbilityOrEffect(1008),
+    #                                        targetsTile: null, priority: 0),
+    #                           Owner, chance)
+    # ⚠ `AmountIsEqualOrGreater` est MAL NOMME : `AmountIsGreaterAbilityTrigger$$ShouldTrigger` rend
+    # `evaluate(minAmount@+0x20) < amount` et AUCUN des deux `.ctor` ne decremente -> `>` STRICT,
+    # donc << au moins UNE AUTRE >> unite du meme visualId, ce que l'i2 dit mot pour mot.
+    # ⚠ AUCUN gate once-per-turn / once-per-battle dans l'arbre : la resurrection est REPETABLE.
+    # Cf. loki/reanimation_protocols.py pour la RE complete.
+    "ReanimationProtocols": [ReanimationProtocolsAbility],
 }
 
 # --- Registre : ability ACTIVE → triggered-ability(s) DERIVEE(s) ----------------------------------
