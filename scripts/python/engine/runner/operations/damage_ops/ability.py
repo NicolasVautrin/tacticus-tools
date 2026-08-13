@@ -31,6 +31,28 @@ from ..damage_hits import HitDamage, attack_state_out as _attack_state_out
 from ._channel import hits_channel_is_melee
 
 
+def leaf_executes_additional_hits(is_outside_attack: bool) -> bool:
+    """#925-r1 -- une feuille NUE joue-t-elle le canal #179 ?
+
+    NON. `IdunBattleLogic.Entities.DSLBehaviors$$ExecuteAdditionalHitsWithDamageProfileType` est
+    un VOLET du `Attack(...)`, FRERE de la feuille de coups, jamais son enfant :
+    `IdunBattleLogic.Entities.Abilities.Active.Loki.ALoki_NormalAttackAbility$$GetAttackDamageBehaviour`
+    monte `Attack(b1 & b2 & b3)` ou `b1` = les coups d'ARME
+    (`IdunBattleLogic.Entities.DSLBehaviors$$AttackDamage`), `b2` = le FOLD
+    (`$$GetCustomNormalAttackBehaviour`, une feuille NUE) et `b3` = ce canal. Une feuille NUE
+    (`is_outside_attack = False`) est composee DANS un `Attack(...)` deja ouvert par un autre
+    noeud, qui porte donc deja son `b3` : la rejouer la doublerait.
+
+    C'est le PENDANT exact de `additional_targets.fold_emits_pre_attack` (#925) sur l'axe COUPS :
+    meme litteral natif (`isOutsideAttack`, 8e argument d'`$$AttackDamage`), meme raison (une
+    feuille nue n'ouvre pas d'attaque), autre volet du meme `Attack(...)`.
+
+    POINT DE MUTATION de la contre-epreuve : l'appel se resout dans les globals de CE module, donc
+    `setattr(engine.runner.operations.damage_ops.ability, "leaf_executes_additional_hits", ...)`
+    mord (`probe_925r1_ltgb_attribution.py --contre-epreuve`)."""
+    return bool(is_outside_attack)
+
+
 class _AbilityAttack:
     """Vecteur d'attaque d'ABILITY. Sans etat (staticmethod) ; agrege par `_DamageOpsMixin`."""
     __slots__ = ()
@@ -662,10 +684,32 @@ class _AbilityAttack:
         # HeavyRound de l'arbre, 2 coups au profil du cycle (Melta ~2000/coup) SUR CHAQUE cible touchee
         # -- absents du port, qui s'arretait aux coups d'arme.
         # GATE FAMILLE : la famille ABILITY (`IdunBattle.Operations.AbilityDamageOperation$$Execute`) est
-        # une Operation DISTINCTE, qui n'appelle PAS ce canal -> `is_attack_damage_op` seul (meme gate que
+        # une Operation DISTINCTE, qui n'appelle PAS ce canal -> `is_attack_damage_op` (meme gate que
         # les mods attaquant / le crit ci-dessus). Aucun groupe qualifie -> no-op strict, 0 conso RNG.
+        #
+        # #925-r1 SECOND GATE -- `leaf_executes_additional_hits(is_outside_attack)`. Le canal #179 est
+        # un VOLET DU `Attack(...)`, pas de la feuille : `IdunBattleLogic.Entities.Abilities.Active.
+        # Loki.ALoki_NormalAttackAbility$$GetAttackDamageBehaviour` monte UN SEUL
+        # `IdunBattleLogic.Entities.DSLBehaviors$$Attack` autour de TROIS volets FRERES --
+        # `b1 = DSLBehaviors$$AttackDamage(...)` (les coups d'ARME), `b2 = <vslot 0x4e8>` (=
+        # `$$GetCustomNormalAttackBehaviour`, le FOLD) et
+        # `b3 = DSLBehaviors$$ExecuteAdditionalHitsWithDamageProfileType(...)` (CE canal). Le FOLD est
+        # donc un FRERE de b3, jamais son parent : il n'a aucun titre a le rejouer.
+        # MESURE qui l'etablit (`probe_925r1_ltgb_attribution.py`, board `MC1_67` / seed 4463111,
+        # `templAggressor` + trait `LetTheGalaxyBurn` greffe) -- le natif applique UN coup
+        # `LetTheGalaxyBurn` sur la cible primaire (`Amount 542`, `Active_Ability_Type 1128`, canal
+        # #179 de l'attaque normale), le port en appliquait DEUX : `542` par la facade NORMALE
+        # (branche `IsPersistentData`) puis `626` par le FOLD, qualifie par l'AUTRE branche du gate
+        # d'`IdunBattle.Entities.Effects.Loki.LetTheGalaxyBurnEffect$$CreateAdditionalHits`
+        # (`TargetHasTileEffect`) -- le `DespoiledGround` que le `LetTheGalaxyBurn_ResetAbility`
+        # vient de poser au `On(Attack = 9)` de l'attaque primaire. Le tirage surnumeraire deplacait
+        # ensuite tout le flux `state.rng` : le coup `LetTheGalaxyBurn` que le natif porte sur la
+        # cible du CLEAVE `necroDestroyer` (3 coups, 1654) n'y partait plus (2 coups, 1129).
+        # C'est le MEME litteral natif que celui qui pilote `On(PreAttack = 5)` ci-dessus, et pour la
+        # MEME raison : une feuille NUE n'ouvre pas d'attaque, donc elle ne porte aucun des volets
+        # que le `Attack(...)` englobant porte deja.
         _ah = None
-        if is_attack_damage_op:
+        if is_attack_damage_op and leaf_executes_additional_hits(is_outside_attack):
             _ah = execute_additional_hits(
                 state, attacker_id, target_id, tgt, thc,
                 collect_additional_hit_groups(
