@@ -9,9 +9,9 @@ Le runner combat route chaque ability choisie via `ActiveAbilityMessage` -> `Abi
 ## Bilan
 
 - ActiveAbilityType castables par les unites : **175** distinct
-- **PORTED** (dans `ABILITY_CLASSES`) : **164**
-- **NO-OP silencieux** (a porter) : **11**
-- Ventilation NO-OP : **DAMAGE**=6, **SUMMON**=3, **EFFECT/BUFF**=2
+- **PORTED** (dans `ABILITY_CLASSES`) : **166**
+- **NO-OP silencieux** (a porter) : **9**
+- Ventilation NO-OP : **DAMAGE**=5, **SUMMON**=2, **EFFECT/BUFF**=2
 
 ## Priorisation & templates de port
 
@@ -30,7 +30,7 @@ Le runner combat route chaque ability choisie via `ActiveAbilityMessage` -> `Abi
 
 Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 
-## NO-OP SILENCIEUX en combat (a porter, tries categorie puis frequence) (11)
+## NO-OP SILENCIEUX en combat (a porter, tries categorie puis frequence) (9)
 
 | id | ability | categorie | #units | kinds |
 |---|---|---|---|---|
@@ -38,15 +38,13 @@ Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 | 1215 | InstrumentsOfVengeance | DAMAGE(HeavyRound) | 1 | N |
 | ? | Maugetar | DAMAGE(DirectDamage) | 1 | N |
 | 1193 | NovaCharge | DAMAGE(Particle) | 1 | N |
-| 1174 | SolarAtomizer | DAMAGE(Melta) | 1 | N |
 | 1094 | TheLantern | DAMAGE(Energy) | 1 | N |
 | 1053 | DevoutPush | EFFECT/BUFF | 2 | NS |
 | 1107 | Reveal | EFFECT/BUFF | 1 | N |
 | 1208 | AetherStride | SUMMON | 2 | LN |
 | 1052 | CallRipperSwarms | SUMMON | 1 | N |
-| 1172 | InvocationOfMachineVengeance | SUMMON | 1 | N |
 
-## PORTED (registry) (164)
+## PORTED (registry) (166)
 
 | id | ability | categorie | #units | kinds |
 |---|---|---|---|---|
@@ -150,6 +148,7 @@ Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 | 1192 | NovaBoost | DAMAGE(Particle) | 1 | N |
 | 1194 | NovaShield | DAMAGE(Particle) | 1 | N |
 | 1095 | ReapingScythe | DAMAGE(Chain) | 1 | N |
+| 1174 | SolarAtomizer | DAMAGE(Melta) | 1 | N |
 | 1056 | StranglethornCannon | DAMAGE(Blast) | 1 | N |
 | 1195 | TalonsOfTheEmperor | DAMAGE(Power) | 1 | L |
 | 1217 | TheLionsWrath | DAMAGE(Power) | 1 | N |
@@ -213,4 +212,5 @@ Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 | 1158 | DutyEternal | SUMMON | 2 | LN |
 | 1143 | ForwardSpotter | SUMMON | 2 | LN |
 | 1145 | SporeMineLauncher | SUMMON | 2 | LN |
+| 1172 | InvocationOfMachineVengeance | SUMMON | 1 | N |
 | 1219 | IronkinSteeljack | SUMMON | 1 | L |

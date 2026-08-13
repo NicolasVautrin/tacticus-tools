@@ -325,11 +325,13 @@ class SortByRow(TargetsSelector):
         rows = [(_entity_pos(it, board) or (None, None))[1] for it in items]
         # Les non-classables restent en QUEUE, dans l'ordre source (cf. docstring).
         classables = [(r, i) for i, r in enumerate(rows) if r is not None]
-        classables.sort(key=lambda ri: ri[0], reverse=not self.ascending)   # +0x38 ascending
         if self.additional_sorting is not None:
-            # `ThenBy(ordered, <additionalSortingFormula>)` -- SECOND critere, applique APRES le
-            # tri par row. `sort` de Python est STABLE, donc deux tris successifs (row puis
-            # formule) realisent exactement `OrderBy(row).ThenBy(f)`. L'element courant est lie au
+            # `ThenBy(ordered, <additionalSortingFormula>)` -- SECOND critere. `sort` de Python est
+            # STABLE, donc `OrderBy(row).ThenBy(f)` se realise en triant D'ABORD par la CLE
+            # SECONDAIRE puis par la PRIMAIRE : l'ordre inverse (primaire d'abord) rendrait la
+            # formule PRIORITAIRE sur la row, ce qui est un autre tri (mesure a l'etage 6 de
+            # `test_1027_belisarius_actives_offline` : `[2, 3, 1]` au lieu de `[2, 1, 3]`).
+            # L'element courant est lie au
             # slot `AbilityEntities+0x20`, celui-la meme que lisent `Subject()`/`ActiveTarget()`
             # -- meme binding que `SortByFormula` de `selectors/units.py`, et c'est ce que lit le
             # `Units(ActiveTarget@+0x68)` du call-site
@@ -340,6 +342,7 @@ class SortByRow(TargetsSelector):
                 w = self.additional_sorting.evaluate(replace(ctx, subject=it, active_target=it))
                 return int(w or 0)
             classables.sort(key=_key)
+        classables.sort(key=lambda ri: ri[0], reverse=not self.ascending)   # +0x38 ascending
         out = [items[i] for _, i in classables]
         out.extend(items[i] for i, r in enumerate(rows) if r is None)
         return out
