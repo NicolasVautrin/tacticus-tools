@@ -43,6 +43,11 @@ from ..entities.unit_context import UnitContext
 from ..entities.effects.factory import EffectFactory
 from ..entities.effects_state import EffectsState, baked_ability_state
 from ..entities import effects_state as _effects_state   # FORME B (#962) : `seed_battle_counters`
+# FORME B (#1009) : `get_owner_effects_added_on_ability_init`, lu par le re-bake du couple TERTIAIRE.
+# Le module est DEJA importe ci-dessus (ligne `EffectFactory`), donc cascade INCHANGEE ; et le
+# differe qui vivait au site etait GRATUIT (mesure : charger `engine.entities.effects.factory` seul
+# en process FRAIS ne fait PAS atterrir `engine.runner.snapshot` dans `sys.modules`).
+from ..entities.effects import factory as _effects_factory
 from ..entities.unit_context import UnitContext
 from ..entities.active_ability_type import ActiveAbilityType
 from ..entities.traits.unit_trait import trait_names_from_ids
@@ -515,6 +520,12 @@ def load_state(decision: dict, observe: dict, snapshot: Optional[dict] = None,
                                      "seededActives": seeded_act,
                                      "seededConfigActives": seeded_cfg,
                                      "seededActiveLevels": seeded_lvl}
+        # APRES `_load_tertiary_abilities` -- ET C'EST TOUT L'ENJEU (#1009) : ce re-bake LIT
+        # `ctx.tertiary_ability`, que la passe ci-dessus vient d'ecrire. Place dans
+        # `_load_stats_and_effects` (donc AVANT), il voyait `None` sur toutes les unites et ne
+        # mordait sur RIEN -- mesure, pas hypothese.
+        state.ability_states_seed["rebakedTertiaryOwnerEffects"] = \
+            _rebake_tertiary_owner_effects(state)
     else:
         state.ability_states_seed = {"source": source, "seeded": None, "seededPassives": None,
                                      "seededTriggeredKits": None, "seededActives": None}
@@ -2386,6 +2397,59 @@ def _load_stats_and_effects(state: State, decision: dict, snapshot: dict,
         _seed_ability_owner_effects(state, eid, uc.visual_id,
                                     int(getattr(sc.ctx, "ability_variables_multiplier", 100) or 100),
                                     ability_level=getattr(sc.ctx, "passive_ability_level", None))
+
+
+def _rebake_tertiary_owner_effects(state: State) -> int:
+    """RE-BAKE du couple `(niveau, multiplicateur)` des owner-effects d'une relique EQUIPEE (#1009).
+
+    `IdunBattle.Entities.Behaviours.AddEffectBehaviour$$DefaultEffectBuilder(id, abilityState)`
+    **BAKE** l'`AbilityStateReference` de l'ability QUI POSE dans `EffectComponent+0x18`, et
+    `IdunBattle.Entities.Effects.BaseEffect$$GetAbilityStateReference` relit ce champ et RIEN
+    d'autre. Pour un owner-effect pose par une ability TERTIAIRE (une relique equipee), cet etat
+    est celui que `IdunBattle.Entities.Factories.UnitFactory$$Build` a fabrique depuis
+    `config+0xc0 TertiaryAbilityLevel` / `config+0x78` -- MESURE `level 1..10 / mult 100`, la ou
+    les passifs du MEME porteur portent `50 / 180` (#1005).
+
+    LE PORT DIVERGEAIT DE LUI-MEME, et c'est ce qui rend cette passe necessaire :
+      * la voie OFFLINE (`runner/operations/spawn.py::_seed_ability_owner_effects`) passe deja le
+        couple TERTIAIRE quand l'ability est `ctx.tertiary_ability` (#1005/#1007) ;
+      * la voie LIVE (`decisionView.effects` -> `EffectsState.seed`) est clee par PORTEUR et ne
+        connait que le couple PASSIF -- or c'est ELLE qui gagne, parce que `_materialize_owner_effect`
+        est idempotent (`has_effect` -> no-op des que l'effet est deja capte).
+    Sur un runner live, un owner-effect de relique arrivait donc TOUJOURS avec le niveau des
+    passifs, c.-a-d. le dernier palier apres clamp (`ToZeroBasedIndex` clampe `idx >= len`) :
+    mesure #1009 -- `MonsterSlayerOfCaliban.extraDmg[3] = 543` lu **728**, et
+    `blockDmg[3] = 1629` lu **2184**.
+
+    PORTEE STRICTE, et c'est ce qui borne le rayon : la passe ne touche QUE les effets dont le NOM
+    figure dans `ABILITY_INIT_OWNER_EFFECTS[<ability TERTIAIRE de CETTE unite>]`. Une unite sans
+    relique equipee (`tertiary_ability` nul, ou `tertiary_ability_level <= 0`) n'est pas visitee ;
+    un effet pose par un passif ou par un tiers n'est jamais reecrit. Elle est donc INERTE partout
+    ou le canal `unitAbilityStates` (#357/#363) n'est pas lie.
+
+    Rend le nombre d'instances re-bakees (0 = aucune relique equipee dans la capture)."""
+    if state.effects is None:
+        return 0
+    n = 0
+    for uid, ent in state.entities.items():
+        sc = ent.get_component(StatsComponent)
+        ctx = getattr(sc, "ctx", None) if sc is not None else None
+        tert = getattr(ctx, "tertiary_ability", None) if ctx is not None else None
+        if not tert:
+            continue
+        lvl = int(getattr(ctx, "tertiary_ability_level", 0) or 0)
+        if lvl <= 0:                       # `0` = verrouille (`Level$$CreateValidOrLockedLevel`)
+            continue
+        noms = set(_effects_factory.get_owner_effects_added_on_ability_init(str(tert)) or ())
+        if not noms:
+            continue
+        mult = int(getattr(ctx, "tertiary_ability_variables_multiplier", 100) or 100)
+        for eff in (state.effects.by_unit.get(uid) or ()):
+            if getattr(eff, "name", None) in noms:
+                eff.ability_level = lvl
+                eff.ability_variables_multiplier = mult
+                n += 1
+    return n
 
 
 def _source_ability_state(state: State, source_id) -> Tuple[int, Optional[int], Optional[int]]:

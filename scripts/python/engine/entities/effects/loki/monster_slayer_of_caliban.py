@@ -104,7 +104,7 @@ from ....services.damage_combat import BlockSource
 from ....services.effect_bonus import EffectBonus, for_addition
 from ...effect_type import EffectType          # #270-r1-r1-r3 : cles nommees, jamais l'ordinal
 from ...traits.unit_trait import UnitTrait
-from ..base import BaseEffect
+from ..base import BaseEffect, relic_ability_state
 from ..magnitude import ability_var
 
 #: Cle gameconfig de l'ability -- la config qu'indexent `ConfigVar` / `GetVariableForLevel`.
@@ -149,10 +149,19 @@ class MonsterSlayerOfCalibanExtraDmgEffect(BaseEffect):
         applique », meme degradation que `BeastSlayer`)."""
         if not target_traits or MONSTER_TARGET_TRAITS.isdisjoint(target_traits):
             return None                       # ni Vehicle ni BigTarget -> le `op_BitwiseOr` est FAUX
-        if self.ability_level is None:
+        # `ConfigVar(extraDmg, GetAbilityState(this), config@this+0x60)` : l'`AbilityState` est le
+        # TERTIAIRE du porteur (`level 1..10 / mult 100`), jamais celui de ses passifs
+        # (`50 / 180` en runner normalise) -- meme canal et meme justification que `VitarusEffect`
+        # (#1005). Cet effet ne vit QUE sur le porteur de la relique, donc la cle est toujours la
+        # sur le canal ATTAQUANT ; le repli couvre les appelants historiques ET les captures
+        # re-bakees par `snapshot._rebake_tertiary_owner_effects` (#1009), qui posent deja le bon
+        # couple sur l'instance.
+        r_lvl, r_mult = relic_ability_state(att_ctx, ABILITY_ID)
+        lvl = r_lvl if r_lvl is not None else self.ability_level
+        if lvl is None:
             return None                       # `ConfigVar` sans `AbilityState` -> inerte
-        amount = ability_var(ABILITY_ID, VAR_EXTRA_DMG, self.ability_level,
-                             multiplier_pct=self.ability_variables_multiplier)
+        mult = r_mult if r_mult is not None else self.ability_variables_multiplier
+        amount = ability_var(ABILITY_ID, VAR_EXTRA_DMG, lvl, multiplier_pct=mult)
         return for_addition(True, int(amount)) if amount else None
 
 
