@@ -116,8 +116,8 @@ from .loki.hits import (
     FleshmetalGunsFocusedMaliceEffect, FleshmetalGunsRuinousSalvoEffect,
     FleshmetalGunsWarpHailEffect, FoulInfusionExtraHitsEffect, InfernalPactsAdditionalHitsEffect,
     KanOpenerEffect, LegendaryCommanderExtraHitsEffect, LetTheGalaxyBurnEffect, LightCoverEffect,
-    MasterAnnihilatorAdditionalHitEffect, ParryEffect, PowerTripFullHealthEffect,
-    PowerTripIgnoreArmorEffect, PsychicFortressExtraBlockEffect, SagaOfTheWarriorBornOwnerEffect,
+    MasterAnnihilatorAdditionalHitEffect, MaugetarHasNotMovedEffect, ParryEffect,
+    PowerTripFullHealthEffect, PowerTripIgnoreArmorEffect, PsychicFortressExtraBlockEffect, SagaOfTheWarriorBornOwnerEffect,
     ShroudPsalmEffect, SorcerousFacadeAdditionalHitsEffect,
     SpecialIssueCombiMeltaAdditionalHitsEffect, SquigHoundAdditionalHitsEffect,
     Swarm_HitReductionEffect, UnstoppableFerocityOwnerEffect, VoltagheistFieldExtraHitEffect
@@ -239,6 +239,13 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     "TwistedScience_ExtraHp": TwistedScienceExtraHpEffect,
     "RapidAssault_ExtraDamage": RapidAssaultExtraDamageEffect,
     "SquigHound_AdditionalHits": SquigHoundAdditionalHitsEffect,   # #179 : 2 coups hetero [minDmg,maxDmg] Physical
+    # #1006 -- `Maugetar_HasNotMovedEffect` (1497), relique unique `R_Crit_Maugetar` d'`eldarMauganRa`.
+    # Canal #179 gate sur le CRIT DU GROUPE D'ARME (`AttackDamageIsCritical` = `hitGroup+0x3d`, cle
+    # de ctx `attack_had_critical`). C'etait l'un des TROIS descripteurs `Average` recenses NON
+    # PORTES par #884 SS2 ; sans cette entree l'effet se materialisait en `BaseEffect` NU (fallback
+    # silencieux de `EffectFactory`) et ne rendait AUCUN groupe, alors que le natif le POSE
+    # (mesure live `probe_959_reliques_aeldari.py`). Cf. `loki/hits.py`.
+    "Maugetar_HasNotMoved": MaugetarHasNotMovedEffect,
     # SpecialIssueCombiMelta (`darkaSternguard` « Ramus », npc `darkaBossSternguardLHE` ; ability
     # TriggeredAbilityType 1545) -- FACE COMBAT, #419-r1-tr11-r3. Les DEUX effets sont poses ensemble
     # par `SpecialIssueCombiMelta_InitAbility$$CreateBehaviour` (`AddEffect(0x61b) & AddEffect(0x61c)`

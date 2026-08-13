@@ -81,7 +81,7 @@ def no_thread_variant(port=None):
     def _exec(state, attacker_id, target_id, tgt, thc, groups, mods, def_mods, armor, hit_mult,
               block_sources, shc, spread_pct=20, extra_pierce=0,
               bonus_hit_chance=None, hit_index0=0, crit_allowed0=True, attack_profile=None,
-              hit_interceptor=None, failed_block0=None):
+              hit_interceptor=None, failed_block0=None, damaging_done0=False):
         # MEME ordre que le port : groupes sans profil d'abord (#227), tri STABLE.
         ordered = ([g for g in groups if g.get("profile") is None]
                    + [g for g in groups if g.get("profile") is not None])
@@ -94,7 +94,10 @@ def no_thread_variant(port=None):
                       extra_pierce=extra_pierce, bonus_hit_chance=bonus_hit_chance,
                       hit_index0=hit_index, crit_allowed0=crit_allowed,
                       attack_profile=attack_profile, hit_interceptor=hit_interceptor,
-                      failed_block0=None)          # <-- LA VARIABLE : etat block JAMAIS threade
+                      failed_block0=None,          # <-- LA VARIABLE : etat block JAMAIS threade
+                      # #963-r2 : `isFirstDamagingHit`. TRANSMIS tel quel -- ce n'est PAS la
+                      # variable de ce contrefactuel, et l'avaler ferait diverger un SECOND etage.
+                      damaging_done0=damaging_done0)
             if r is None:
                 continue
             hit_index, crit_allowed = r["next_hit_index"], r["crit_allowed"]

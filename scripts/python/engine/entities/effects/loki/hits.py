@@ -2327,3 +2327,108 @@ class LegendaryCommanderExtraHitsEffect(BaseEffect):
         n = ability_var("LegendaryCommander", "nrOfHits", self.ability_level,
                         multiplier_pct=self.ability_variables_multiplier)   # ConfigVar 0x2f
         return for_addition(True, int(n)) if n else None
+
+
+#: `TriggeredAbilityType` 0x5da = 1498 -- la CONFIG que lit l'effet 1497 (relique `R_Crit_Maugetar`,
+#: `allowedUnits = ['eldarMauganRa']`). Le nom est le SEUL discriminant : l'ordinal 1498 nomme
+#: `ExemplarOfTheMontka` dans `EffectType`, et `Maugetar` apparait en `activeAbilities` d'un npc --
+#: c'est une INVERSION DE VOIE, pas une active (#270-c).
+_MAUGETAR_ABILITY = "Maugetar"
+#: callable `(owner_id, ability_name) -> (level, multiplier)` -- mirror de
+#: `IdunBattle.Entities.Effects.BaseEffect$$GetAbilityState`, pose par `collect_additional_hit_groups`.
+MAUGETAR_CTX_ABILITY_STATE_OF = "tertiary_ability_state_of"
+#: cle du ctx du canal #179 : « le groupe de coups d'ARME de cette attaque contient-il un CRIT ? »
+#: -- mirror de `hitGroup+0x3d`, que
+#: `IdunBattle.Operations.AttackDamageOperation$$ExecuteAdditionalHitsWithoutDamageProfileType`
+#: recopie dans l'`AbilityEntities` qu'il passe a `GetAdditionalHitsFromEffectsInternal`.
+MAUGETAR_CTX_ATTACK_HAD_CRITICAL = "attack_had_critical"
+
+
+class MaugetarHasNotMovedEffect(BaseEffect):
+    """`Maugetar_HasNotMovedEffect` (effet 0x5d9 = 1497 `Maugetar_HasNotMoved`, relique unique de
+    `eldarMauganRa`) -- tant que Maugan Ra n'a pas bouge, ses attaques qui CONTIENNENT un crit
+    portent `nrOfHits` coup(s) additionnel(s) [minDmg, maxDmg] au profil `damageProfile`.
+
+    i2 : « During his turn, if Maugan Ra has not moved, he can move after attacking and his attacks
+    that contain a Crit deal an additional 1x 2622-3492 Direct Damage. When Overwatching, Crits deal
+    this additional hit if he has not moved in his last turn. »
+
+    Natif : `IdunBattle.Entities.Effects.Loki.Maugetar_HasNotMovedEffect$$CreateAdditionalHits` ->
+    `IdunBattle.Entities.Effects.EffectAdditionalHits$$Create` {
+        trigger        = `IdunBattleLogic.Entities.DSLTriggers$$get_OwnerIsCaster`
+                       & `IdunBattleLogic.Entities.DSLTriggers$$AttackDamageIsCritical`,
+        damageFormula  = `IdunBattle.Entities.Effects.BaseEffect$$GetMinMaxDamage(this, 0)` (ROLL),
+        additionalHitsType = null,
+        damageProfileType  = `IdunBattle.Configuration.AbilityConfiguration$$GetDamageProfile(cfg)`
+                             (defaut 0xf quand le `Nullable` est vide),
+        hitsFormula    = `IdunBattleLogic.Entities.DSLFormulas$$ConfigConst(0x2f =
+                          AbilityConstantType.nrOfHits)`,
+        forceOverkill  = false,
+        maxDamage      = `BaseEffect$$GetMinMaxDamage(this, 1)` = noeud DISPLAY (`Average`) }
+
+    Le descripteur etait l'un des TROIS `Average` recenses NON PORTES par #884 SS2 (residu `#884-r2`,
+    annonce `BLOCAGE: porteur`) -- ce blocage est LEVE : `eldarMauganRa` est au pool rank 17 et la
+    relique se monte par `rl_duel build --equip-relic "eldarMauganRa:Maugetar[:lvl]"` (#237). Mesure :
+    l'effet 1497 est bien POSE par le natif et capte par `decisionView.effects`.
+
+    ⚠ LE NIVEAU NE SE LIT PAS SUR L'INSTANCE. Mesure (probe_959, deux runners `--equip-relic` a
+    niveau 1 puis 10) : l'instance publie `ability_level = 50` (l'etat PASSIF du porteur) dans LES
+    DEUX cas. `minDmg`/`maxDmg` ont **10 paliers** (1765-2350 au niveau 1, 2622-3492 au niveau 10,
+    soit x1,49) : lire l'instance clamperait TOUJOURS au dernier palier. On passe donc par le foyer
+    UNIQUE `triggered_ability_state` (#357), expose au ctx sous
+    `MAUGETAR_CTX_ABILITY_STATE_OF` -- exactement le motif de `RelicBoltPistol*Effect`.
+
+    ⚠ `variablesAffectedByRarityBonus` est ABSENT de la config de `Maugetar` -> le multiplicateur de
+    rarete ne s'applique pas (`ability_var` gate dessus). On le passe quand meme : c'est le natif qui
+    decide, pas nous."""
+
+    def _ability_state(self, ctx: "Mapping | None") -> tuple:
+        """`BaseEffect$$GetAbilityState` -> `(level, multiplier)` de l'`AbilityState` bake a la pose.
+
+        `Maugetar_AddEffectAbility$$CreateBehaviour` bake `AbilityStateReference` et pose l'effet sur
+        `Owner@DSLSelectors+0x30` : source == porteur, donc le couple se relit sur le porteur.
+        Callable absent (ctx de probe / test offline) -> repli sur ce que l'instance porte, comme
+        toutes les autres classes d'effet."""
+        c = ctx or {}
+        fn, oid = c.get(MAUGETAR_CTX_ABILITY_STATE_OF), c.get("owner_id")
+        if fn is not None and oid is not None:
+            lvl, mult = fn(oid, _MAUGETAR_ABILITY)
+            if lvl is not None:
+                return int(lvl), int(mult if mult is not None else 100)
+        lvl = self.ability_level if self.ability_level is not None else self.level
+        return lvl, int(self.ability_variables_multiplier or 100)
+
+    def additional_hit_groups(self, ctx: "Mapping | None" = None) -> "list[dict] | None":
+        c = ctx or {}
+        # `AttackDamageIsCritical` : le natif l'evalue sur `AbilityEntities+0xf8`, que
+        # `ExecuteAdditionalHitsWithoutDamageProfileType` recopie depuis `hitGroup+0x3d` -- l'etat du
+        # groupe de coups d'ARME qui vient d'etre resolu, pas un tirage per-coup. Cle ABSENTE = NON
+        # MESUREE -> le noeud rend FAUX (jamais permissif) : hors face COMBAT, aucun groupe.
+        if not c.get(MAUGETAR_CTX_ATTACK_HAD_CRITICAL):
+            return None
+        # `get_OwnerIsCaster` : cet agregateur n'est appele QUE sur les effets de l'ATTAQUANT (branche
+        # PORTEUR de `collect_additional_hit_groups`), donc l'identite est structurelle. On la
+        # re-verifie quand le ctx la porte, jamais on ne la suppose absente-donc-vraie.
+        oid, aid = c.get("owner_id"), c.get("att_id")
+        if oid is not None and aid is not None and oid != aid:
+            return None
+        lvl, mult = self._ability_state(c)
+        mn = ability_var(_MAUGETAR_ABILITY, "minDmg", lvl, multiplier_pct=mult)      # ConfigVar 0xc
+        mx = ability_var(_MAUGETAR_ABILITY, "maxDmg", lvl, multiplier_pct=mult)      # ConfigVar 0xd
+        count = ability_var(_MAUGETAR_ABILITY, "nrOfHits", is_constant=True)         # ConfigConst 0x2f
+        if mn is None or mx is None or not count or count <= 0:
+            return None
+        try:
+            import gameconfig as _GC
+            profile = ((_GC.ability(_MAUGETAR_ABILITY) or {}).get("constants") or {}) \
+                .get("damageProfile") or "DirectDamage"
+        except Exception:
+            profile = "DirectDamage"
+        # BI-CANAL ROLL / DISPLAY (#884) : le 8e argument du `Create` natif vaut
+        # `GetMinMaxDamage(this, 1)` = `DSLFormulas$$Average(minNode, maxNode)`, donc la cellule de
+        # PREDICTION est DEGENEREE a la moyenne ARRONDIE (`RoundFix64Result(., 0)`, demi-vers-le-PAIR),
+        # alors que la face COMBAT lit `min`/`max` du noeud ROLL. Publier les deux DES le premier
+        # commit : c'est le gisement que notre propre cadence de portage rouvre.
+        return [{"count": int(count),
+                 "amount": _round_fix64(_Fraction(int(mn) + int(mx), 2), 0),
+                 "min": int(mn), "max": int(mx), "profile": profile}]

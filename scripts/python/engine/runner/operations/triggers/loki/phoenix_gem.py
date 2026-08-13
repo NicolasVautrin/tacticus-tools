@@ -39,8 +39,16 @@ Artefact natif (RE ghidra gqfc5mff6c, VA citees) :
 
 PORTEUR / VOIE : PhoenixGem est un **UniqueRelic** (cf. `PowerCalculationPlatformIntegrationTest$$
 Loki.Tests.PlatformIntegrationTests.Tests.PowerCalculationPlatformIntegrationTest$$UniqueRelicPhoenixGem`), PAS une ability du kit d'`eldarAutarch` (dont les abilities sont
-`Loki_SwoopingHawk` / `PathOfCommand`). L'unite EST dans le pool runner, mais le relic ne se pose pas
-depuis `rl_duel build` -> l'effet 1451 n'est pas posable. Port MIRROR valide OFFLINE (effet injecte).
+`Loki_SwoopingHawk` / `PathOfCommand`). Item `R_Booster_Block_PhoenixGem`,
+`allowedUnits = ['eldarAutarch']`.
+
+⚠ LA LIGNE QUI VIVAIT ICI DISAIT « le relic ne se pose pas depuis `rl_duel build` -> l'effet 1451
+n'est pas posable » : c'est PERIME depuis le montage #237, et c'est MESURE (#1006). `eldarAutarch` est
+au pool rank 17 et `rl_duel build --equip-relic "eldarAutarch:PhoenixGem[:lvl]"` monte la relique ;
+le natif POSE alors l'effet 1451, que `decisionView.effects` publie (`probe_1006_reliques_aeldari.py`).
+C'est l'etat 2 des TROIS d'une ability de relique, pas un « non confrontable ». La consequence
+n'etait pas seulement documentaire : personne ne pouvant monter la relique, personne n'avait vu que
+`_level` lisait le mauvais slot (cf. la docstring de `_level`).
 """
 from __future__ import annotations
 
@@ -51,7 +59,7 @@ from .....dsl.effects import ExecutionContext
 from .....dsl.event_trigger_type import EventTriggerType
 from .....entities.selectors.tiles import Caster
 from ...effects import BaseEffect  # noqa: F401  (documente le type materialise dans state.effects)
-from ..base import EffectTrigger, TriggerEvent
+from ..base import EffectTrigger, TriggerEvent, triggered_ability_state
 from ..revive_effect import Revive, RemoveReviveEffect, can_be_revived
 from ....abilities.behaviours.context import entities_from_state
 from .....entities.effects.magnitude import ability_var
@@ -120,8 +128,26 @@ class PhoenixGemReviveAbility(EffectTrigger):
                 "revives": revives}
 
     def _level(self, state: State):
-        """`GetVariableForLevel(config@0x20, 0x1d='hp', abilityState)` : le niveau vient de l'AbilityState
-        du RELIC porte par l'effet 1451 (pas du passif de l'unite)."""
+        """`GetVariableForLevel(config@0x20, 0x1d='hp', abilityState)` : le niveau vient de
+        l'`AbilityState` du RELIC porte, PAS du passif de l'unite.
+
+        ⚠ CE NIVEAU NE SE LIT PAS SUR L'INSTANCE D'EFFET, et c'est MESURE (#1006,
+        `probe_1006_reliques_aeldari.py` sur deux runners `--equip-relic "eldarAutarch:PhoenixGem:1"`
+        puis `:10`) : l'instance 1451 captee publie `ability_level = 50` -- l'etat PASSIF du porteur
+        sur tout runner normalise -- dans LES DEUX cas. Or `hp` a **10 paliers** (3915 au niveau 1,
+        5817 au niveau 10, soit x1,49) : lire l'instance clampait TOUJOURS au dernier palier, un
+        ecart SILENCIEUX de +49 % de PV rendus. C'est exactement le residu que #357 avait ferme pour
+        `DawnBlade`, resté ouvert ici parce que la prose de l'epoque tenait la relique pour non
+        montable.
+
+        On passe donc par le foyer UNIQUE `triggered_ability_state` (#357), qui arbitre : couple
+        TERTIAIRE (`TertiaryAbilityLevel`, `TertiaryAbilityVariablesMultiplierPercentage`) quand la
+        relique est EQUIPEE, couple PASSIF quand `PhoenixGem` est cablee au kit d'un npc -- ou quand
+        le canal tertiaire n'a pas ete fourni au chargement. Repli sur l'instance quand le foyer ne
+        connait pas l'unite : c'est le comportement d'avant, jamais un zero fabrique."""
+        lvl, mult = triggered_ability_state(state, int(self.owner_id), ABILITY_ID)
+        if lvl is not None:
+            return int(lvl), int(mult if mult is not None else 100)
         eff = getattr(state, "effects", None)
         if eff is not None:
             for e in (eff.by_unit.get(int(self.owner_id)) or []):
@@ -160,7 +186,7 @@ class PhoenixGemRemoveMarkerOnRevive(_PhoenixGemRemoveMarker):
     CurrentAbilityIs(AbilityOrEffect(0x5b2=1458))` -> `RemoveEffect(1451)`. Le gate `CurrentAbilityIs`
     est essentiel : un revive de PhoenixGem consomme le marqueur, un revive venu d'AILLEURS (Narthecium
     d'un allie, ...) le LAISSE en place."""
-    event_id = EventTriggerType.UnitRevived                    # 0x2e = 46
+    event_id = EventTriggerType.UnitRevived                    # 0x2d = 45
 
     def matches(self, state: State, ev: TriggerEvent) -> bool:
         if not self._owner_is_target(ev):
@@ -172,7 +198,7 @@ class PhoenixGemRemoveMarkerOnResurrect(_PhoenixGemRemoveMarker):
     """2e entree de l'`ArraySet IdunBattle.Entities.Effects.Loki.PhoenixGem_CanReviveEffect$$CreateHandleTriggerAbilitiesInternal` : `On(0x2e=UnitResurrected) & OwnerIsTarget` ->
     `RemoveEffect(1451)`. AUCUN `CurrentAbilityIs` ici (lu au decompile) : toute RESURRECTION
     (`ResurrectUnitOperation` IdunBattle.Operations.ResurrectUnitOperation$$Execute, ambush) consomme aussi le marqueur."""
-    event_id = EventTriggerType.UnitResurrected                # 0x2f = 47
+    event_id = EventTriggerType.UnitResurrected                # 0x2e = 46
 
     def matches(self, state: State, ev: TriggerEvent) -> bool:
         return self._owner_is_target(ev)

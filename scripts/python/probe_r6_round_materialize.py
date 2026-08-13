@@ -375,7 +375,10 @@ def additional_hits_variant(order, force_round, is_attack_op=True):
     def _exec(state, attacker_id, target_id, tgt, thc, groups, mods, def_mods, armor, hit_mult,
               block_sources, shc, spread_pct=20, extra_pierce=0,
               bonus_hit_chance=None, hit_index0=0, crit_allowed0=True, attack_profile=None,
-              hit_interceptor=None, failed_block0=None):
+              hit_interceptor=None, failed_block0=None, damaging_done0=False):
+        # #963-r2 : `damaging_done0` (`isFirstDamagingHit`) fait partie de la signature du port.
+        # Cette variante REIMPLEMENTE la materialisation et ne modelise pas cet etat -- le
+        # parametre est donc accepte et NON LU, comme `failed_block0` juste avant.
         import gameconfig as GC
         from engine.runner.operations.damage import AttackDamageOperation, HitDamage
         from engine.entities.damage_trait import DamageTrait

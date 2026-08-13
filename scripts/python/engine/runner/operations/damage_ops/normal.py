@@ -728,7 +728,15 @@ class _Normal:
                 tile_effects_by_pos=_ltgb_tfx, persistent_data=_ltgb_pd,
                 # #204 `MasterAnnihilator_AdditionalHitEffect` : noeud
                 # `AreEqual(CurrentAttackDamageProfile, 0xd = Psychic)` du gate.
-                damage_profile=_profile),
+                damage_profile=_profile,
+                # #1006 `Maugetar_HasNotMovedEffect` : `AttackDamageIsCritical`. Le natif recopie
+                # `hitGroup+0x3d` dans l'`AbilityEntities` juste avant d'appeler
+                # `GetAdditionalHitsFromEffectsInternal` (cf.
+                # `IdunBattle.Operations.AttackDamageOperation$$ExecuteAdditionalHitsWithoutDamage
+                # ProfileType`) -- c'est l'etat du groupe d'ARME qu'on vient de resoudre, donc il
+                # se lit sur `r`, JAMAIS sur un tirage a venir. `r["crits"]` est index-aligne sur
+                # les coups EXECUTES (`damage_hits.py`), coups bonus compris.
+                attack_had_critical=any(r.get("crits") or ())),
             mods, def_mods, armor, _tgt_hit_mult, block_sources, shc,
             spread_pct=spread_pct, extra_pierce=ctx.extra_pierce,
             # profil de l'ATTAQUE : ce qu'emprunte un groupe dont le `profileType` est NULL.

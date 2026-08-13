@@ -335,6 +335,14 @@ RAIL: dict[str, tuple[str, str]] = {
     "LivingLightningMovingRemoveOnArrived":
         (ARRAYSET,
          "IdunBattle.Entities.Effects.Loki.LivingLightning_MovingEffect$$CreateRemoveEffectTrigger"),
+    # #1006 -- `1497 Maugetar_HasNotMoved`, relique unique d'`eldarMauganRa`. MEME forme exacte que
+    # les trois entrees ci-dessus : un `$$CreateRemoveEffectTrigger` (`On(0x1f = PreUnitMove,
+    # ownerNeedsToBeAlive: true) & get_OwnerIsActor`) que `IdunBattle.Entities.Effects.BaseEffect$$
+    # CreateHandleTriggerAbilities` GREFFE sur le MEME `ArraySet` que les `Triggered()` -> rail
+    # ARRAYSET, AUCUN gate `IsActive` natif, donc le port ne doit PAS lire le flag.
+    "MaugetarHasNotMovedRemoveOnMove":
+        (ARRAYSET,
+         "IdunBattle.Entities.Effects.Loki.Maugetar_HasNotMovedEffect$$CreateRemoveEffectTrigger"),
     # #962 (troisieme lot, apporte par le REBASE) -- `HealingBalmsDelayedHeal` (`1508`, #966/#967).
     # Rail TARGETS : le bloc `methodPointers` d'`IdunBattle.Entities.Effects.Loki.HealingBalmsEffect`
     # porte `CreateTargetTrigger` ET `CreateTargetTriggerBehaviour` (verifie au binaire), et le port
