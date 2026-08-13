@@ -66,6 +66,9 @@ from .loki.obsessive_annunciation import (                 # #954 (passif emperK
     ObsessiveAnnunciationExtraCritDmgEffect, ObsessiveAnnunciationExtraDmgEffect
 )
 from .loki.skullsmasher import SkullsmasherExtraDamageEffect   # #953 (passif worldJakhal, 1263)
+from .loki.monster_slayer_of_caliban import (              # #1009 (relique darkaCompanion, 1527)
+    MonsterSlayerOfCalibanExtraBlockEffect, MonsterSlayerOfCalibanExtraDmgEffect
+)
 from .loki.first_among_traitors import FirstAmongTraitorsExtraDmgEffect   # #926 (passif blackAbaddon)
 from .loki.hunters_beyond_death import (                   # #952 (passif spaceHound)
     HuntersBeyondDeathEffect, HuntersBeyondDeathExtraDamageEffect,
@@ -1713,6 +1716,27 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # TRIGGERED 0x4c1 = 1217. Les DEUX autres abilities du passif (le marqueur de kill et la pose du
     # `Stunned`) sont des vecteurs de COMBAT -> `ABILITY_TRIGGERS["Skullsmasher"]`.
     "Skullsmasher_ExtraDamage": SkullsmasherExtraDamageEffect,
+    # 1539 MonsterSlayerOfCaliban_ExtraDmg / 1540 _ExtraBlock (#1009) : les DEUX effets de la
+    # relique `R_Crit_MonsterSlayerOfCaliban` (`TriggeredAbilityType` 0x5f7 = 1527), posés ENSEMBLE
+    # sur `darkaCompanion` << Forcas >> a l'init (`ABILITY_INIT_OWNER_EFFECTS` plus bas).
+    #   1539 `$$CreateDamageModifier` = ForAddition( get_OwnerIsCaster
+    #            & ( HasTrait(Target@+0x60, 0x405 = Vehicle) | HasTrait(Target@+0x60,
+    #                0x3f9 = BigTarget) ),
+    #            ConfigVar(8 = extraDmg, GetAbilityState(this), config@this+0x60) )
+    #   1540 : AUCUNE classe d'effet dediee dans le build -- c'est le
+    #          `MultiValueStatEntryEffect` generique que pose `AddExtraBlockEffectToOwner(0x604,
+    #          blockChance : Direct(GetVariableForLevel(0x15)),
+    #          blockDamage : Direct(GetVariableForLevel(0x14)), turns : null)`.
+    # ⚠ Le contraste avec `BeastSlayer_ExtraDmg` (meme paire de traits cible) est ENTIER : celui-la
+    # porte `IsMeleeAttack` et un `ForPercentIncrease`, celui-ci n'a AUCUN gate de nature et un
+    # `ForAddition`. Recopier le voisin de forme aurait eteint le bonus sur les abilities et change
+    # un flat en pourcentage.
+    # ⚠ Les MEMES ordinaux vivent dans `TriggeredAbilityType` et y nomment AUTRE CHOSE
+    # (1539 = `PowerUp_SummonSpawn_darkaSmnTerminator`, 1540 = `PowerUp_SummonSpawn_templSmnAggressor`)
+    # -- deux membres qui EXISTENT, donc une confusion d'enum ne leverait pas ; la CONFIG de la
+    # relique, elle, est la TRIGGERED 0x5f7 = 1527.
+    "MonsterSlayerOfCaliban_ExtraDmg": MonsterSlayerOfCalibanExtraDmgEffect,
+    "MonsterSlayerOfCaliban_ExtraBlock": MonsterSlayerOfCalibanExtraBlockEffect,
     # 1432 ObsessiveAnnunciation_ExtraDmg / 1433 _ExtraCritDmg (#954) : les DEUX AURAS du passif de
     # kit d'`emperKakophonist` << Adamatar >>. Elles partagent leur `.ctor`, leur
     # `CreateActiveCondition` (`<DSLTriggers+0x40>` = constante VRAIE) ET leur `CreateTargetSelector`
@@ -1886,6 +1910,26 @@ ABILITY_INIT_OWNER_EFFECTS: dict[str, list[str]] = {
     # live l'effet est de toute facon capte par `decisionView.effects` (sa `CreateActiveCondition`
     # est celle de la base, toujours vraie), donc le seed y est idempotent.
     "Vitarus": ["Vitarus"],
+    # #1009 -- `MonsterSlayerofCalibanAbility` (parent `IdunBattle.Entities.Abilities.
+    # BaseTriggeredAbility`, `frida/classes.tsv`) : UNE seule classe native pour la cle 1527, et
+    # elle DECLARE ses deux methodes (pas d'heritage `AOwnerEffect*` ici).
+    #   `$$CreateTrigger`   = OnOwnerSpecificAbilityInit(0x5f7 = 1527)     -> canal INIT
+    #   `$$CreateBehaviour` = op_BitwiseAnd(
+    #        AddEffect(0x603 = 1539, AbilityStateReference, targets = Owner@<DSLSelectors+0x30>,
+    #                  turns : Nullable<int>(null)),
+    #        AddExtraBlockEffectToOwner(0x604 = 1540, blockChance : Direct(GetVariableForLevel(0x15)),
+    #                                   blockDamage : Direct(GetVariableForLevel(0x14)), turns : null) )
+    # ⚠ L'ORDRE DE LA LISTE EST L'ORDRE D'EXECUTION, ET IL EST L'INVERSE DE L'ORDRE DE CONSTRUCTION
+    # du pseudo-C : le natif CONSTRUIT l'`AddExtraBlockEffectToOwner` d'abord, mais compose
+    # `op_BitwiseAnd(AddEffect, AddExtraBlock)` -- et `CombinedBehaviour` execute GAUCHE puis DROITE.
+    # Ici les deux poses sont independantes et idempotentes, donc sans observable ; l'ordre est ecrit
+    # parce qu'il est LU (c'est la faute exacte que `VolummsMasterArtifice` a payee, #1001).
+    # ⚠ Voie TERTIAIRE comme `Vitarus` : `_seed_ability_owner_effects` lit `ctx.tertiary_ability` et
+    # passe le couple TERTIAIRE (level 1..10 / mult 100), PAS celui des passifs -- `extraDmg[1] = 490`
+    # contre `extraDmg[10] = 728` apres clamp du palier 50.
+    # ⚠ `MonsterSlayerofCaliban_ExtraDmgEffect$$.ctor` = `DamageModifierAbilityEffect..ctor(this,
+    # 0x5f7, 0)` : la config indexee est bien celle de la TRIGGERED 1527 -- LU, pas deduit du nom.
+    "MonsterSlayerOfCaliban": ["MonsterSlayerOfCaliban_ExtraDmg", "MonsterSlayerOfCaliban_ExtraBlock"],
     # #953 -- `Skullsmasher_DamageEffectAbility` (parent `IdunBattle.Entities.Abilities.
     # AOwnerEffectTriggeredAbility`, `classes.tsv`) n'override QUE `GetEffectType` (`return 0x4ef`) :
     # le reste vient de la base (`CreateTrigger = OnOwnerSpecificAbilityInit(this.AbilityType)`,
