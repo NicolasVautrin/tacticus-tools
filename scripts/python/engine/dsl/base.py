@@ -444,6 +444,14 @@ class DslContext:
     # dans `runner/abilities/targeting.normal_repair_type_for`, seul port de cette lecture.
     # `None` (l'attribut) = contexte hors runner -> la formule rend le `Nullable` VIDE.
     normal_repair_type: object | None = None
+    # `normal_attack_type(unit_dict) -> int | None` : mirror d'`IdunBattle.Entities.UnitExtensions
+    # $$GetNormalAttackType`, que `IdunBattle.Entities.Selectors.HasAnyValidTargetSelector$$Select`
+    # appelle PAR UNITE (la surcharge SANS ability de `UnitsWithAnyValidTarget`, cf.
+    # `entities/selectors/valid_targets.py`). Symetrique exact de `normal_repair_type` ci-dessus :
+    # la derivation vit dans `runner/abilities/targeting.normal_attack_type_for`, seul port de cette
+    # lecture -- surtout pas une 2e derivation cote noeud.
+    # `None` (l'attribut) = contexte hors runner -> le noeud rend [] et le DIT.
+    normal_attack_type: object | None = None
     # Canal d'HONNETETE de `UnitsWithAnyValidTarget` : les `ActiveAbilityType` qu'il a ECARTES faute
     # de masque RE-lu. Ce n'est pas du natif -- c'est ce qui distingue « le natif exclut cette
     # unite » de « le port ne sait pas ». Reste VIDE dans le cas nominal ; `None` = personne ne

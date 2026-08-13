@@ -248,6 +248,42 @@ class Count(AAmountFormula):
         return len(_units_of(self.selector, ctx))
 
 
+class UnitLevel(AAmountFormula):
+    """`IdunBattleLogic.Entities.DSLFormulas$$UnitLevel(unit)` ->
+    `IdunBattle.Entities.Formulas.UnitLevelFormula$$Calculate` -- MIRROR du decompile :
+
+        total = 0
+        foreach (u in Select(this.unit@+0x10, entities, UnitSelectionType 0))
+            total += GetComponent<...>(u).<+0x70>          # le NIVEAU de l'unite
+        return total
+
+    C'est une SOMME sur le selecteur (pas un `SelectSingle`), et le `selectionType` est **0**, pas
+    `3` -- une unite morte ou non ciblable compte quand meme.
+
+    ⚠ **DEGRADATION NOMMEE : le port n'a PAS de substrat de NIVEAU par unite.** Le dict d'unite que
+    `entities_from_state` construit ne porte aucune cle `level` (verifie sur `rnca9r7q6c` : le
+    `State` du runner ne seede que rank/stats, jamais le niveau d'unite du profil joueur). La
+    formule rend donc **0** pour toute unite sans cette cle -- et le DIT ici plutot que d'inventer
+    une derivation.
+
+    Consequence pour l'unique consommateur porte
+    (`IdunBattleLogic.Entities.Abilities.Triggered.Loki.BookOfFateAbility$$CreateBehaviour`, qui
+    l'utilise en cle de `SortByFormula`) : le tri devient INERTE et l'ordre reste celui du
+    `Randomize` amont, parce que `sorted` est STABLE. C'est exactement le comportement natif quand
+    tous les niveaux coincident -- ce qui est le regime d'une bataille normalisee au meme rank --
+    mais ce n'est PAS une preuve que le natif y soit inerte : si un jour deux summons de niveaux
+    differents cohabitent, le port choisira un autre element. Residu explicite `#1008-r1`."""
+    def __init__(self, unit: TargetsSelector):
+        self.unit = unit
+
+    def calculate(self, ctx):
+        total = 0
+        for u in _units_of(self.unit, ctx):
+            if isinstance(u, dict):
+                total += int(u.get("level") or 0)
+        return total
+
+
 class GetPersistentData(AAmountFormula):
     """`IdunBattleLogic.Entities.DSLFormulas$$GetPersistentData(abilityOrEffect, unit, dataKey)` ->
     `IdunBattle.Entities.Triggers.GetPersistentDataFormula$$Calculate` -- MIRROR du decompile :
