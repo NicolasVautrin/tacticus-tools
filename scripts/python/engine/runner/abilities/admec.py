@@ -1306,6 +1306,13 @@ class SolarAtomizerAbility(ActiveAbility):
                           target_id: Optional[int]) -> Optional[dict]:
         if target_id is None or state.get_entity(caster_id) is None:
             return None
+        # `TargetIsTile` (bit 6 du masque, cf. la decomposition ci-dessus) : ce que le moteur publie
+        # comme cible est l'ENTITE-TUILE, pas l'unite qui l'occupe. Le foyer resout l'une vers
+        # l'autre, et il doit etre appele EN TETE -- avant tout `entities_from_state`, qui fige les
+        # slots DSL `Target`. Ajoute au merge (#1027) : le port etait livre sans, et
+        # `test_287r14r1::test_TOUTES_les_tile_target_resolvent_leur_cible` a rougi dessus, seul de
+        # son espece sur 1 646 tests. C'est le cliquet qu'un port `TargetIsTile` doit jouer A LA MAIN.
+        target_id = self.get_actual_target(state, caster_id, target_id)
         ectx = ExecutionContext(state=state, rng=state.rng)
         entities = entities_from_state(state, caster_id, target_id)
         tiles = solar_atomizer_target_tiles().evaluate(entities)
