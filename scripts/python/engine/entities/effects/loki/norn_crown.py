@@ -173,6 +173,15 @@ def _in_team_synapse_range(team, pos, ctx: "Mapping | None") -> "bool | None":
     """`IdunBattleLogic.Entities.DSLTriggers$$IsInTeamSynapseRange(target = <pos>, team = <team>)`,
     decompose jusqu'au scalaire dans l'en-tete du module.
 
+    ⚠ **LE SUJET N'EST JAMAIS SON PROPRE EMETTEUR**, et c'est un litteral LU, pas une deduction :
+    `BattleQuery$$GetInRangeAuraAmount` balaye
+    `GetSurroundingUnits(target, <range>, friendsOf: null, includeCenter: FALSE)` -- l'octet bas du
+    5e argument est mis a zero au site d'appel. La tuile CENTRALE (celle du sujet) est donc hors du
+    balayage : une unite `Synapse` seule sur le plateau n'est PAS dans sa propre bulle. C'est
+    exactement ce que la mesure live #1011 a montre (patte SELF a **0** avec le Neurothrope pour
+    seul porteur `Synapse`, puis a **+extraDmg** des qu'un SECOND porteur est a portee) -- et c'est
+    la raison mecanique du mot << Other >> de l'i2, qu'aucune exclusion du selecteur ne portait.
+
     Rend `None` quand le canal n'est pas fourni (`team_synapse_positions` absent, equipe ou
     position inconnue) : le gate appelant se TAIT alors, il ne conclut jamais « hors bulle ».
     C'est la meme discipline tri-etat que `is_ranged` (#106) et `tgt_traits` (#267-r1)."""
@@ -181,7 +190,12 @@ def _in_team_synapse_range(team, pos, ctx: "Mapping | None") -> "bool | None":
         return None
     import hexgeo
     for p in (by_team.get(team) or ()):
-        if p and hexgeo.distance(p, pos) <= SYNAPSE_RANGE:      # GetDistance(unit, target) <= range
+        if not p:
+            continue
+        d = hexgeo.distance(p, pos)
+        # `includeCenter: false` -> `d == 0` (le sujet lui-meme) n'est pas un emetteur ;
+        # `GetDistance(unit, target) <= <range>` pour les autres.
+        if 0 < d <= SYNAPSE_RANGE:
             return True
     return False
 

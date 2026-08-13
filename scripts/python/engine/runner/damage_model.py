@@ -804,6 +804,22 @@ def attacker_modifiers(state: State, unit_id: int, hp: Optional[int], is_ranged:
         # ⚠ `has_moved` reste threade tel quel — il porte l'AUTRE predicat natif, `HasFlag(Moved)`
         # (HeavyWeapon_ExtraDmg, CrushingStrike) : les deux existent, ne pas les confondre.
         att_ctx["is_charging"] = battle_query_is_charging(state, unit_id, target_id)
+        # #1011 -- PATTE SELF de `NornCrownEffect` : le PORTEUR de la relique est dans son propre
+        # selecteur (`AreFriends` n'ecarte pas l'egalite), donc les MEMES trois canaux que le canal
+        # AURA (`_apply_ally_attack_damage_auras`) doivent etre lisibles ici -- MEMES CLES, MEME
+        # semantique, pas de fork. L'attaquant EST le porteur sur ce canal, d'ou `att_*`.
+        # ⚠ MESURE #1011 : le porteur n'entre dans la bulle Synapse QUE s'il existe un AUTRE
+        # emetteur `Synapse` a portee (`GetSurroundingUnits(..., includeCenter: false)`), donc ces
+        # clefs ne suffisent pas a allumer le bonus -- elles le rendent EVALUABLE.
+        # `setdefault` sur `att_pos` : `_positional_att_ctx` a pu y poser la tuile d'attaque EVALUEE
+        # (qui n'est pas forcement la tuile courante) -- on ne l'ECRASE jamais.
+        att_ctx["att_id"] = int(unit_id)
+        att_ctx.setdefault("att_pos", _unit_pos(state, unit_id))
+        att_ctx["att_team"] = _unit_team(state, unit_id)
+        att_ctx.setdefault("att_traits", target_trait_names(state, unit_id))
+        att_ctx[_NORN_CTX_TGT_EFFECTS] = _target_effect_names(state, target_id)
+        att_ctx[_NORN_CTX_SYNAPSE] = _team_synapse_positions(state)
+        att_ctx.setdefault("tertiary_ability_state_of", _tertiary_ability_state_fn(state))
     mods = build_attacker_modifiers_from_effects(active, is_ranged, is_normal_attack=is_normal_attack,
                                                  has_moved=has_moved, target_traits=target_traits,
                                                  target_armor_reduced=tar, att_ctx=att_ctx)
