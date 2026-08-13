@@ -1280,9 +1280,19 @@ def build_hits_board(state: State, att_id: int, tgt_id: int,
     (positions/teams/effets REELS). `board` = {att_id, tgt_id, attack_pos, t_pos, tgt_team, is_melee,
     pos_by_id, team_by_id} (base_hits posé par la Formule) ; `aura_sources` = [(owner_id, pos, team, effets)]
     des unités != cible (porteurs d'auras de coups type BigTarget) ; `target_effects` = effets actifs de la
-    cible (LightCover/Parry). Identité = **entity_id**, team = **OwnerComponent.team** (instance-safe). PAS
-    de `faction_of`/visual_id : le comptage par faction de GetStuckIn est retiré, aucun consommateur ne le
-    lit — et `visual_id` ne distinguerait pas 2 instances du même type en miroir (danger connu)."""
+    cible (LightCover/Parry). Identité = **entity_id**, team = **OwnerComponent.team** (instance-safe).
+
+    ⚠ `vid_by_id` EST DE RETOUR (#1018), et la phrase qu'il remplace disait vrai sur son propre axe :
+    « `visual_id` ne distinguerait pas 2 instances du même type en miroir » vise l'usage de
+    `visual_id` comme **IDENTITÉ**, et cet usage-là reste proscrit — l'identité est l'`entity_id`,
+    partout. Ce champ sert l'usage INVERSE, un **prédicat de TYPE** : le nœud
+    `IdunBattleLogic.Entities.DSLSelectors$$UnitsWithIds` filtre par
+    `IdunBattle.Entities.UnitExtensions$$HasUnitId(unit, id)` =
+    `GetUnitIdWithoutRarity(GetUnitId(unit)) == id`, où deux instances du même type DOIVENT être
+    indiscernables. Aucun consommateur ne compare deux unités entre elles par ce champ.
+    `hp_by_id`/`hpmax_by_id` (#1018) portent la santé LUE : sans elle,
+    `engine/dsl/base.py::_is_alive` classe MORT tout dict d'unité et les sélecteurs d'occupation
+    rendent l'ensemble VIDE, sans erreur."""
     pos_by_id: dict = {}
     team_by_id: dict = {}
     # #372 — substrat d'ENTITÉ du canal AURA de COUPS : `UnitTurnsStarted` = `GetStat(., 0xc)` et
@@ -1292,6 +1302,15 @@ def build_hits_board(state: State, att_id: int, tgt_id: int,
     # `HasUsedActiveAbilityThisTurn` (`HasFlag(unit, 2)`) -- substrat du selecteur d'aura de
     # `LegendaryCommander_ExtraHits` (#419-r1-tr9-r4-r1-r2-r1), sur les MEMES unites vivantes.
     used_active_by_id: dict = {}
+    # `UnitComponent.visual_id` par unite vivante -- substrat du noeud `UnitsWithIds` (#1018).
+    vid_by_id: dict = {}
+    # SANTE par unite vivante (#1018) -- `HealthComponent.hp` / `.hp_max`, MEME source que le dict
+    # d'unite DSL du runner (`runner/abilities/behaviours/context.py::_unit_dict`). Sans elle,
+    # `engine/dsl/base.py::_is_alive` classe l'unite MORTE (sa degradation NOMMEE : << `hpMax`
+    # ABSENT du dict -> MORT >>) et TOUT selecteur d'occupation rend l'ensemble VIDE, sans erreur.
+    # Mesure #1018 : `AdjacentUnits` rendait `[]` sur un board pourtant peuple.
+    hp_by_id: dict = {}
+    hpmax_by_id: dict = {}
     aura_sources = []
     target_effects: list = []
     for uid, e in state.entities.items():
@@ -1311,6 +1330,11 @@ def build_hits_board(state: State, att_id: int, tgt_id: int,
         if _uc is not None:
             parent_by_id[uid] = getattr(_uc, "parent_id", None)
             used_active_by_id[uid] = unit_has_used_active_ability(state, uid)
+            vid_by_id[uid] = getattr(_uc, "visual_id", None)
+        _hc = e.get_component(HealthComponent)
+        if _hc is not None:
+            hp_by_id[uid] = _hc.hp
+            hpmax_by_id[uid] = _hc.hp_max
         _sc = e.get_component(StatsComponent)
         if _sc is not None:
             turns_started_by_id[uid] = int(_sc.ctx.stat(StatType.TURNS_STARTED) or 0)
@@ -1348,6 +1372,15 @@ def build_hits_board(state: State, att_id: int, tgt_id: int,
              "rng": state.rng,
              "marked_effect_types": marked_effect_types_for_target(state, att_id, tgt_id),
              "tgt_grand_alliance": grand_alliance_of(state, tgt_id),
+             # `vid_by_id` (#1018) -- l'id d'unite que `IdunBattle.Entities.UnitExtensions$$HasUnitId`
+             # compare (`GetUnitIdWithoutRarity(GetUnitId(unit))`), donc le substrat du noeud
+             # `IdunBattleLogic.Entities.DSLSelectors$$UnitsWithIds`. MEME source et MEME nom de champ
+             # que le dict d'unite DSL du runner (`runner/abilities/behaviours/context.py::_unit_dict`
+             # -> `UnitComponent.visual_id`), sur les MEMES unites VIVANTES que `pos_by_id`.
+             # Consommateur : `HungeringSwarm_ExtraHits` (1041).
+             "vid_by_id": vid_by_id,
+             "hp_by_id": hp_by_id,
+             "hpmax_by_id": hpmax_by_id,
              # `IsCharging` (case-ischarging-hits) sur le canal COUPS : MEME cle et MEME foyer que le canal
              # DEGAT (`attacker_modifiers`), pose ICI parce que `build_hits_board` est la facade
              # COMBAT PARTAGEE des DEUX vecteurs d'attaque (normale `damage_ops/normal.py` et
