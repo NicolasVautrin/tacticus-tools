@@ -124,7 +124,7 @@ from .....entities.selectors.tiles import Caster
 from .....entities.selectors.units import (AdjacentFriends, First, SortByFormula,
                                            UnitsWithTrait, UnitsWithoutTrait)
 from .....entities.selectors.valid_targets import HasAnyValidTarget
-from .....entities.stat_type import StatType
+from .....entities.stats import StatType
 from .....entities.traits.unit_trait import UnitTrait
 from .....entities.triggered_ability_type import TriggeredAbilityType
 from .....entities.unit_selection_type import UnitSelectionType

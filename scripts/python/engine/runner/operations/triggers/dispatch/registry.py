@@ -279,6 +279,9 @@ from ..loki.maugetar import (MaugetarAddEffectAbility,                # #1006 (r
 from ..loki.sabre_of_sacrifice import SabreOfSacrificeAbility          # #1002 (relique 1478)
 from ..loki.relic_of_lost_cadia import (RelicOfLostCadiaAbility,       # #1002 (relique 1459)
                                         RelicOfLostCadiaSummonUnitAbility)
+from ..loki.book_of_fate import BookOfFateAbility                     # #1008 (relique 1461, BL)
+from ..loki.helspear import (HelspearBuffActiveAbility,               # #1008 (relique 1558,
+                             HelspearResetActiveAbility)              #  blackHaarken)
 from ..loki.relentless_march import RelentlessMarchAbility             # #328 (passif necroWarden)
 from ..loki.my_will_be_done_overlord import (MyWillBeDoneOverlordAttackAbility,   # #354 (necroOverlord)
                                              MyWillBeDoneOverlordClearAbility)
@@ -1406,6 +1409,36 @@ RELIC_ABILITY_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
     #     `Spawn(astraSmnGuardsman)` dans l'hex du porteur mort.
     # Cf. loki/relic_of_lost_cadia.py. #1002.
     "RelicOfLostCadia": [RelicOfLostCadiaAbility, RelicOfLostCadiaSummonUnitAbility],
+    # BookOfFate (relique `R_Booster_Crit_BookOfFate`, `TriggeredAbilityType` 0x5b5 = 1461 ; TROIS
+    # porteurs autorises LUS dans `items/.../allowedUnits` : `blackPossession` (Black Legion, pool
+    # rank 17), `thousInfernalMaster` et `thousSorcerer` (Thousand Sons)). UNE classe native. #1008.
+    # `On(0x26 = NormalAttack) & get_OwnerIsCaster & IsAlive(Owner) & AmountIsGreaterThanZero(
+    #  <summons amis adjacents>)` -> un summon adjacent AYANT une cible attaque depuis sa position,
+    # choisi par une cascade `Otherwise` a TROIS etages (le `thousSmnDaemonPrince` nomme par
+    # `AbilityConstantType.affectedUnitId` > un Daemon quelconque > un non-Daemon), et s'il est
+    # `Daemon` il porte `+extraDmg` d'Attack LE TEMPS DE CE COUP (l'ordre `(buff & attaque) & retrait`
+    # est LU au dernier `op_BitwiseAnd`). L'effet 1452 n'a AUCUNE classe native dediee : c'est le
+    # `StaticStatModifierEffect` generique que monte `AddStaticStatModifierEffect` -- rien a inscrire
+    # dans `EFFECT_CLASSES`. Cf. loki/book_of_fate.py.
+    "BookOfFate": [BookOfFateAbility],
+    # Helspear (relique `R_Crit_Helspear`, `TriggeredAbilityType` 0x616 = 1558 ; UN porteur autorise :
+    # `blackHaarken` << Haarken Worldclaimer >>, HERO du pool rank 17). DEUX classes natives pour UNE
+    # cle (patron `DaemonfleshPlate` / `ChaliceOfBaal`). #1008. ⚠ AUCUNE description i2 n'existe pour
+    # cette relique -- le decompile est la seule source.
+    #   * `Helspear_BuffActiveAbility` -- `On(9 = Attack, alive) & get_OwnerIsCaster &
+    #     CurrentAbilityIs(ActiveAbilityType.HeraldOfTheApocalypse = 0x3fc)` ->
+    #     `AddEffect(0x62f = 1583 Helspear_IgnoreArmor, targets = Target@+0x60)
+    #      + AddEffect(0x5c4 = 1476 DespoiledGround, targets = Tiles(Target@+0x60))` (`op_Addition`) ;
+    #   * `Helspear_ResetActiveAbility` -- `On(0x36 = UnitDefeated, alive) & get_OwnerIsActor &
+    #     NOT IsSteppableUnit(Target) & NOT AreFriends(Owner, Target, ByCurrentTeam, false) &
+    #     NOT TriggeringAbilityIs(0x3fc) & <DSLTriggers+0x58>` ->
+    #     `AddPersistentData(+1) + If(compteur >= nrOfUnits, ResetActiveAbility(allowUseless) +
+    #      ClearPersistentData)`. L'INCREMENT est a GAUCHE -> seuil sur le compteur DEJA incremente.
+    # ⚠ Le SIXIEME conjoint du reset (`<DSLTriggers+0x58>`) n'est PAS identifie et n'est PAS porte :
+    # residu `#1008-r3`, BLOCAGE `capteur`. L'EFFET 1583 entre dans `EFFECT_CLASSES` DANS CE MEME
+    # COMMIT, mais sa magnitude n'atteint pas le calcul (residu `#1008-r2`, BLOCAGE `etage`).
+    # Cf. loki/helspear.py.
+    "Helspear": [HelspearBuffActiveAbility, HelspearResetActiveAbility],
 }
 
 # --- Registre : abilities GLOBALES (aucun owner) ---------------------------------------------------

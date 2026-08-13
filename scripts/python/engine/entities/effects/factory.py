@@ -159,6 +159,7 @@ from .loki.relentless_march import RelentlessMarchExtraMoveEffect
 from .loki.relic_bolt_pistol import (
     RelicBoltPistolExtraCritDamageEffect, RelicBoltPistolExtraPierceEffect
 )
+from .loki.helspear import HelspearIgnoreArmorEffect          # #1008 (relique 1583, blackHaarken)
 from .loki.rites_of_morkai import RitesOfMorkaiExtraDamageEffect
 from .loki.serene_unifier import SereneUnifierStormOfFireEffect
 from .loki.shock_assault import ShockAssaultBuffEffect
@@ -1079,6 +1080,15 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # tile-effect pose par `FleshMetalGuns_TileEffectAbility` soit une VRAIE instance (nom capte, duree
     # `DefaultAmountOfRounds(0x5c4)=2` rounds -> tours, expiration par `on_turn_end`).
     "DespoiledGround": DespoiledGroundEffect,
+    # Helspear_IgnoreArmor (0x62f=1583, #1008) : marqueur pose par `Helspear_BuffActiveAbility` sur
+    # la CIBLE de `HeraldOfTheApocalypse`. AUCUNE classe native `..._DaemonBuff`-like a cote : celle-ci
+    # EST dediee (`IdunBattle.Entities.Effects.Loki.Helspear_IgnoreArmorEffect`, 1152 octets), et son
+    # `CreateEffectDamageMalusForDefense` est un `EffectBonus` CONDITION-SEULE a valeur nulle -- la
+    # magnitude vit dans le slot `IgnoreArmor` (corps FONDU avec `WayOfTheShortBladeEffect$$IgnoreArmor`).
+    # ⚠ Cette magnitude n'atteint PAS le calcul : le canal `get_armor_penetration` du port est
+    # ATTAQUANT-side alors que le porteur est le DEFENSEUR. Residu `#1008-r2`, BLOCAGE `etage` --
+    # detail et point d'ancrage dans `entities/effects/loki/helspear.py`.
+    "Helspear_IgnoreArmor": HelspearIgnoreArmorEffect,
     # DespoiledGround_ExtraDamagePct (0x5c6=1478) : le buff +15 % degat (BC `DespoiledGroundExtraDmgPct`)
     # pose sur l'unite CHAOS qui demarre son tour sur une tuile DespoiledGround, actif contre les cibles
     # Xenos (1006) ou Imperial (26). Nom capte = effect-type-names.ts.
