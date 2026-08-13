@@ -513,12 +513,39 @@ def _echappe(nom: str) -> str:
     return nom[:-1] if nom == "None_" else nom
 
 
+_CACHE_MIRROR = None
+
+
+def _cache_mirror():
+    """Cache PAR FICHIER de l'EXTRACTION de `step_mirror` (#1029).
+
+    ⚠ SON CONTEXTE NE PORTE PAS LE BUILD, et c'est deliberé : ce qu'on cache est
+    `_int_enum_classes(tree)` -- les membres qu'un fichier DECLARE -- une fonction pure de son
+    contenu. La confrontation aux tables du build se fait APRES, hors cache. Un changement de build
+    fait donc bouger le VERDICT sans invalider une seule entree, ce qui est exact : le fichier n'a
+    pas change. Mettre le build au contexte aurait vide le cache a chaque re-dump, pour rien.
+    """
+    global _CACHE_MIRROR
+    if _CACHE_MIRROR is None:
+        import verdict_cache
+        ici = Path(__file__).resolve().parent
+        _CACHE_MIRROR = verdict_cache.CacheCliquet(
+            "probe_283_step_mirror",
+            contexte=verdict_cache.sha_fichiers_texte(ici / "probe_283_enum_ordinal_sweep.py"),
+            notes=("# On cache l'EXTRACTION (`_int_enum_classes` restreinte aux 4 enums), PAS le",
+                   "# verdict : elle ne depend que du contenu du fichier. La comparaison aux tables",
+                   "# du build reste hors cache, donc un re-dump ne perime AUCUNE entree."))
+    return _CACHE_MIRROR
+
+
 def step_mirror(verbose: bool) -> list:
     """Confronte chaque mirror Python d'un des 4 enums, MEMBRE PAR MEMBRE, a `enums.tsv`."""
     cur = current_build()
     refs = {court: _by_name(enum_map(cur, fq)) for court, fq in ENUMS.items()}
     bad, vus = [], []
     textes = _sources(".py")
+    import verdict_cache
+    cache = _cache_mirror()
     for p in _fichiers_du_depot(".py"):
         rel = _ignore(p)
         if rel is None:
@@ -526,13 +553,16 @@ def step_mirror(verbose: bool) -> list:
         src = textes.get(p)
         if src is None:
             continue
-        try:
-            tree = ast.parse(src, filename=rel)
-        except SyntaxError:
-            continue
-        for cls, membres in _int_enum_classes(tree).items():
-            if cls not in ENUMS:
-                continue
+        declares = cache.obtenir(rel, "mirror", verdict_cache.sha_texte(src))
+        if declares is verdict_cache.MANQUE:
+            try:
+                tree = ast.parse(src, filename=rel)
+            except SyntaxError:
+                declares = {}
+            else:
+                declares = {c: m for c, m in _int_enum_classes(tree).items() if c in ENUMS}
+            cache.poser(rel, "mirror", verdict_cache.sha_texte(src), declares)
+        for cls, membres in declares.items():
             ref = refs[cls]
             faux = [(m, v, ref.get(_echappe(m))) for m, v in sorted(membres.items())
                     if ref.get(_echappe(m)) != v]
@@ -548,6 +578,7 @@ def step_mirror(verbose: bool) -> list:
     for rel, cls, m, v, attendu in bad:
         print("   FAIL %s : %s.%s = %s ; le build %s dit %s"
               % (rel, cls, m, v, cur, attendu if attendu is not None else "MEMBRE ABSENT"))
+    cache.enregistrer()
     return bad
 
 
