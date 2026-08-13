@@ -578,3 +578,74 @@ def read(path: Path) -> MetadataReader:
         return MetadataReader(path.read_bytes())
     except OSError as exc:                                              # noqa: BLE001
         raise MetadataRefused("NON MESURE : metadata illisible (%s)" % exc) from exc
+
+
+# ------------------------------------------------------------------------------------------------
+# LES NOMS DECLARES PAR UN TYPE, MIS EN CACHE PAR LE BUILD (#1029)
+#
+# Le cout n'est pas la lecture d'un type : c'est le MONTAGE du lecteur (`read` + `locate` +
+# `locate_types`), qui re-derive la grille du metadata a chaque appel. Mesure sur
+# `test_932_deathwing_offline` : 19,2 s pour interroger DEUX types.
+#
+# Ce montage ne depend QUE du build (`global-metadata.dat` et `frida/methods.tsv`), donc son
+# resultat ne peut bouger qu'a une mise a jour du jeu -- l'invalidation est une CLE, pas une
+# heuristique.
+_CACHE_NOMS = None
+
+
+def _cache_noms():
+    global _CACHE_NOMS
+    if _CACHE_NOMS is None:
+        import verdict_cache
+        ici = Path(__file__).resolve().parent
+        _CACHE_NOMS = verdict_cache.CacheCliquet(
+            "il2cpp_noms_declares",
+            contexte=verdict_cache.sha_fichiers_texte(ici / "il2cpp_metadata.py"),
+            notes=("# Cle de validation = sha256 de `global-metadata.dat` (hors depot) et de",
+                   "# `frida/methods.tsv`. `appel` porte les ANCRES et le TYPE demande : deux",
+                   "# appelants qui n'ancrent pas la grille au meme endroit ne partagent pas",
+                   "# leur verdict -- ce serait servir une lecture faite sur une AUTRE grille."))
+    return _CACHE_NOMS
+
+
+def noms_declares(meta: Path, methods_tsv: Path, ancres, types) -> dict | None:
+    """`{(ns, nom): [noms de methodes declarees]}` pour `types`, ou `None` si NON MESURABLE.
+
+    `ancres` = les `(ns, nom)` qui servent a caler la grille ; `types` = ceux qu'on interroge.
+
+    ⚠ LES ANCRES ENTRENT DANS LA CLE. Un appelant qui cale la grille sur d'autres ancres lit
+    potentiellement d'autres offsets : partager le verdict entre deux ancrages differents
+    reviendrait a servir une lecture faite sur une AUTRE grille, sans que rien ne le signale.
+
+    ⚠ ON NE CACHE PAS UN REFUS. Un `MetadataRefused` (jeu absent, alignement refuse) rend `None`
+    et n'ecrit rien : figer un << pas mesure >> jusqu'au prochain build ferait taire l'appelant
+    sur un vrai probleme.
+    """
+    import verdict_cache
+    sha = verdict_cache.sha_gros_fichiers(meta, methods_tsv)
+    ancres = tuple(tuple(a) for a in ancres)
+    types = tuple(tuple(t) for t in types)
+    appel = "noms|ancres=%s|types=%s" % (
+        ",".join("%s.%s" % a for a in ancres), ",".join("%s.%s" % t for t in types))
+    cle_rel = str(meta.name)
+    if sha is not None:
+        cache = _cache_noms()
+        vu = cache.obtenir(cle_rel, appel, sha)
+        if vu is not verdict_cache.MANQUE:
+            return {tuple(k.split("|", 1)): v for k, v in vu.items()}
+    try:
+        rd = read(meta)
+        ordre: list = []
+        for ns, nm in ancres:
+            ordre.extend(class_method_order(methods_tsv, "%s.%s" % (ns, nm)))
+        rd.locate(ordre)
+        rd.locate_types(tuple((ns, nm, class_method_order(methods_tsv, "%s.%s" % (ns, nm)))
+                              for ns, nm in ancres))
+        table = {(ns, nm): [m.name for m in rd.type_methods(ns, nm)] for ns, nm in types}
+    except MetadataRefused:
+        return None
+    if sha is not None:
+        cache.poser(cle_rel, appel, sha,
+                    {"%s|%s" % k: v for k, v in table.items()})
+        cache.enregistrer()
+    return table

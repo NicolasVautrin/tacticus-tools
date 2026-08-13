@@ -107,9 +107,62 @@ def load_functions(build: str):
     return syms
 
 
+_CACHE_INV = None
+
+
+def _cache_inv():
+    """Cache de verdict de l'inventaire natif (#1029), monte a la demande.
+
+    ⚠ L'ENCODEUR EST OBLIGATOIRE ICI : les cles de `native_primitives` sont des TUPLES
+    `(famille, nom)`, que JSON ne sait pas ecrire. On serialise la LISTE des entrees -- chacune
+    porte deja `family` et `name`, donc la cle se reconstruit sans rien deviner. Une serialisation
+    qui aplatirait la cle en chaine aurait introduit une ambiguite sur un nom contenant le
+    separateur.
+    """
+    global _CACHE_INV
+    if _CACHE_INV is None:
+        from pathlib import Path                          # ce module ne l'importe pas en tete
+        import verdict_cache
+        ici = Path(__file__).resolve().parent
+        _CACHE_INV = verdict_cache.CacheCliquet(
+            "probe_326_inventaire_natif",
+            contexte=verdict_cache.sha_fichiers_texte(ici / "probe_326_dsl_primitive_inventory.py"),
+            encoder=lambda v, _a: [v[k] for k in sorted(v)],
+            decoder=lambda v, _a: {(e["family"], e["name"]): e for e in v},
+            notes=("# Cle de validation = sha256 des DEUX tables du build (`frida/methods.tsv`,",
+                   "# `ghidra/functions.tsv`), toutes deux VERSIONNEES sous `data/symbols/<build>/`.",
+                   "# L'inventaire ne depend que d'elles : il ne peut bouger qu'a un re-dump."))
+    return _CACHE_INV
+
+
 def native_primitives(build: str):
     """{(famille, nom) -> dict} depuis les DEUX tables. `famille` = suffixe de la classe-factory
-    (`Behaviors`/`Selectors`/`Formulas`/`Triggers`/`Factory`)."""
+    (`Behaviors`/`Selectors`/`Formulas`/`Triggers`/`Factory`).
+
+    MESURE (#1029) : 6,1 s a froid pour balayer `frida/methods.tsv` (22,9 Mo), a chaque passe, pour
+    un resultat qui ne depend QUE de deux tables versionnees. Cache par leur sha -- invalidation
+    EXACTE, pas heuristique. Run a froid : `TACTICUS_SANS_CACHE_CLIQUET=1`.
+    """
+    import verdict_cache
+    from symbols_layout import build_dir
+    d = build_dir(build)
+    sha = verdict_cache.sha_gros_fichiers(d / "frida" / "methods.tsv",
+                                          d / "ghidra" / "functions.tsv")
+    if sha is not None:
+        cache = _cache_inv()
+        vu = cache.obtenir("data/symbols/%s" % build, "native_primitives", sha)
+        if vu is not verdict_cache.MANQUE:
+            return vu
+    prim = _native_primitives_brut(build)
+    # On n'ecrit RIEN si l'inventaire est vide : ce serait figer un << tables absentes >> jusqu'au
+    # prochain re-dump, et l'appelant se tairait ensuite sur une vraie disparition.
+    if sha is not None and prim:
+        cache.poser("data/symbols/%s" % build, "native_primitives", sha, prim)
+        cache.enregistrer()
+    return prim
+
+
+def _native_primitives_brut(build: str):
     prim = {}
 
     for p in load_methods(build):

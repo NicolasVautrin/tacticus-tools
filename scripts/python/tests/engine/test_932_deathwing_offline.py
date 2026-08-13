@@ -169,17 +169,18 @@ def test_e1bis_metadata_ne_declare_que_les_deux_accesseurs():
               ("IdunBattle.Core.Services", "MovementQuery"),
               ("IdunBattle.Core.Services", "DamageCalculations"),
               ("IdunBattle.Core", "MatchState"))
-    rd = MD.read(meta)
-    ordre = []
-    for ns, nm in ancres:
-        ordre.extend(MD.class_method_order(METHODS_TSV, f"{ns}.{nm}"))
-    rd.locate(ordre)
-    rd.locate_types(tuple((ns, nm, MD.class_method_order(METHODS_TSV, f"{ns}.{nm}"))
-                          for ns, nm in ancres))
-    noms = [m.name for m in rd.type_methods("IdunBattle.AI.Playbook.Loki", "DeathwingPlaybook")]
+    # MONTAGE DE LA GRILLE MIS EN CACHE PAR LE BUILD (#1029) : c'est lui qui coutait 19,2 s, pas la
+    # lecture des deux types. `noms_declares` rend `None` si la mesure est impossible -- on SKIP
+    # alors, comme avant, au lieu de conclure.
+    types = (("IdunBattle.AI.Playbook.Loki", "DeathwingPlaybook"),
+             ("IdunBattle.Entities.Effects.Loki", "DeathwingEffect"))
+    table = MD.noms_declares(meta, METHODS_TSV, ancres, types)
+    if table is None:
+        pytest.skip("metadata non alignable sur ce build -- derivation REFUSEE, rien devine")
+    noms = table[("IdunBattle.AI.Playbook.Loki", "DeathwingPlaybook")]
     assert sorted(noms) == sorted([".ctor", "GetAdjacentFriendUtility", "GetAdjacentEnemyUtility"]), \
         f"declarations de DeathwingPlaybook : {sorted(noms)}"
-    eff = [m.name for m in rd.type_methods("IdunBattle.Entities.Effects.Loki", "DeathwingEffect")]
+    eff = table[("IdunBattle.Entities.Effects.Loki", "DeathwingEffect")]
     assert sorted(eff) == sorted([".ctor", "CreateActiveCondition", "CreateTargetSelector",
                                   "CreateEffectDamageBonusForAttack",
                                   "CreateEffectDamageMalusForDefense",

@@ -1,0 +1,11 @@
+# format=1	contexte=be02bb31afaad80b60ec655de41a62a859d53f21091bc8d37476a68dc3ea6de6	cliquet=il2cpp_noms_declares
+# CACHE DE VERDICT PAR FICHIER (#486-r1) -- artefact GENERE ET VERSIONNE.
+# Cle de validation = sha256 du CONTENU : une entree perimee MANQUE, elle ne
+# ment pas. En cas de conflit de merge : NE PAS FUSIONNER, REGENERER en
+# rejouant le cliquet (python scripts/python/il2cpp_noms_declares.py).
+# Cle de validation = sha256 de `global-metadata.dat` (hors depot) et de
+# `frida/methods.tsv`. `appel` porte les ANCRES et le TYPE demande : deux
+# appelants qui n'ancrent pas la grille au meme endroit ne partagent pas
+# leur verdict -- ce serait servir une lecture faite sur une AUTRE grille.
+# rel	appel	sha256	valeur
+global-metadata.dat	noms|ancres=Core.Services.OperationProcessor,IdunBattle.Core.Services.BattleQuery,IdunBattle.Core.Services.AttackQuery,IdunBattle.Core.Services.MovementQuery,IdunBattle.Core.Services.DamageCalculations,IdunBattle.Core.MatchState|types=IdunBattle.AI.Playbook.Loki.DeathwingPlaybook,IdunBattle.Entities.Effects.Loki.DeathwingEffect	2867918942357a4c8c2efc55016559c38924095f66cf8787450eb180c5db9b97	{"IdunBattle.AI.Playbook.Loki|DeathwingPlaybook":[".ctor","GetAdjacentFriendUtility","GetAdjacentEnemyUtility"],"IdunBattle.Entities.Effects.Loki|DeathwingEffect":[".ctor","CreateActiveCondition","CreateTargetSelector","CreateEffectDamageBonusForAttack","CreateEffectDamageMalusForDefense","GetEffectAmount","GetDoubleEffectCondition"]}
