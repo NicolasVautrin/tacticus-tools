@@ -19,7 +19,11 @@ Hooking Frida de **WH40K Tacticus** (Windows PC build, Unity 6 IL2CPP) — monor
   (`frida/data/`, `scripts/python/data/`) sont des sorties runtime, eux ignorés.
   ⚠ Un fichier laissé non suivi sous `data/` n'est protégé par RIEN : `git clean` et un
   `worktree remove --force` l'effacent sans trace. L'indexer est ce qui le sauve.
-- `sources_win/` — décompilation Ghidra de `GameAssembly.dll` — gitignored
+- `sources_win/` — **PAS une décompilation Ghidra** : c'est un `dump.cs` d'**Il2CppDumper**
+  éclaté en 26 382 fichiers, **daté du 2026-05-20** (donc un AUTRE build), et **tous les corps
+  de méthode y sont VIDES** (`{ }`). Mesuré le 2026-08-13, après qu'un agent y a cherché du
+  code. Utile pour les **signatures, champs et offsets** (stables à ~97,5 % par nom) ; **pour
+  lire un CORPS, c'est `mcp__ghidra__decompile_function`, jamais ce répertoire.** gitignored
 - `STATUS.md` — **instantané HISTORIQUE du 2026-05-03** (ère « Tacticus Builder » : pipeline
   d'injection et de build de nœud). **Ce n'est pas l'état du projet** — ne pas s'y fier.
 
@@ -48,7 +52,8 @@ Hooking Frida de **WH40K Tacticus** (Windows PC build, Unity 6 IL2CPP) — monor
 Tacticus stocke chaque build dans `C:\Users\nicolasv\AppData\Local\tacticus\games\<HASH>\`
 où `<HASH>` (ex. `nb3o9lmt6c`, `uu2fr8mv6c`, …) **change à chaque mise à jour**
 du jeu. Toutes les RVAs IL2CPP, le dump `data/il2cpp_full.json` et ses TSV,
-la table `data/symbols/<HASH>/` et les décompilations Ghidra (`sources_win/`) sont
+la table `data/symbols/<HASH>/` et le projet Ghidra du build (cf. `sources_win/` ci-dessus,
+qui n'en est PAS un) sont
 **spécifiques à ce hash**. Une RVA résolue contre le mauvais dump donne un
 nom de méthode incohérent — symptôme classique : la stack pointe vers une
 méthode qui n'existe pas dans le binaire actif (typique : `findMethod` retourne
