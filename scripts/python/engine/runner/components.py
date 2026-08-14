@@ -3533,6 +3533,44 @@ def adjacent_dark_angels_friends_count(state, unit_id: int) -> Optional[int]:
                .calculate(entities_from_state(state, int(unit_id))))
 
 
+def synaptic_insight_adjacent_tyranid(state, owner_id: int, target_id) -> "Optional[bool]":
+    """`Any( AdjacentFriends(unit = Owner@<DSLSelectors+0x30>, unitTile = Target@<DSLSelectors+0x60>,
+    unique: true), HasFaction(It@<DSLSelectors+0x68>, UnitFaction.Tyranids = 0xc, 3) )` -- le PREMIER
+    disjoint de `IdunBattle.Entities.Effects.Loki.SynapticInsight_ExtraHitsEffect$$
+    CreateEffectHitsBonusForAttack`, evalue pour le couple (PORTEUR, CIBLE DU COUP) (#1073).
+
+    L'ARBRE est celui de la classe d'effet (`entities/effects/loki/synaptic_insight.py::
+    adjacent_tyranid_friend_trigger`, doctrine #149 : l'artefact natif est un SELECTEUR sous un
+    trigger existentiel) ; ce qu'on fait ICI, c'est lui donner son `AbilityEntities` --
+    `entities_from_state(state, owner_id, target_id)` pose `caster = owner = le porteur`
+    (le repli documente d'`entities/selectors/accessors.Owner` est EXACT ici, le trigger natif
+    portant `get_OwnerIsCaster`), `target = la cible du coup`, `board = state.board` et `faction_of`.
+
+    ⚠ **L'ANCRE GEOMETRIQUE EST LA CIBLE**, pas le porteur -- c'est la variante B d'`AdjacentFriends`
+    (`unit`, `unitTile`, `unique`), tranchee par la CIBLE du `call rel32` et non par l'arite (les
+    deux surcharges en ont la meme). Ce contraste avec `adjacent_dark_angels_friends_count`
+    ci-dessus, qui ancre sur le PORTEUR, est la raison d'etre du second parametre.
+
+    ⚠ Le PORTEUR n'est pas exclu de l'ensemble : le natif ne soustrait que `unitTile` (la cible).
+    Un porteur Tyranide adjacent a sa propre cible arme donc le disjoint tout seul -- LU, pas deduit.
+
+    `None` si le porteur ou la cible n'a ni equipe ni tuile (le selecteur est GEOMETRIQUE **et** par
+    equipe) -- jamais un `False` invente, qui fermerait le disjoint en silence et ferait passer un
+    bonus reel pour son absence (meme tri-etat que les compteurs voisins)."""
+    if target_id is None:
+        return None
+    for uid in (owner_id, target_id):
+        ent = state.get_entity(int(uid))
+        oc = ent.get_component(OwnerComponent) if ent is not None else None
+        pc = ent.get_component(PositionComponent) if ent is not None else None
+        if oc is None or oc.team is None or pc is None:
+            return None
+    from .abilities.behaviours.context import entities_from_state
+    from ..entities.effects.loki.synaptic_insight import adjacent_tyranid_friend_trigger
+    return bool(adjacent_tyranid_friend_trigger()
+                .evaluate(entities_from_state(state, int(owner_id), int(target_id))))
+
+
 def enmity_adjacent_units_count(state, unit_id: int) -> Optional[int]:
     """`Count( NonSteppableOrObjectUnits( AdjacentUnits(Owner, unique: 1, selectionType: 3), 3 ) )`
     -- `IdunBattle.Entities.Effects.Loki.EnmityForTheUnworthy_ExtraDamagePctEffect$$

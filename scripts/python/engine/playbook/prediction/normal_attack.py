@@ -22,6 +22,12 @@ from engine.entities.effects.loki.skullsmasher import CTX_OWNER_HEALTH as _SKULL
 # #1015-r1 : meme foyer de nommage que la face COMBAT (`runner/damage_model.py`).
 from engine.entities.effects.loki.close_combat_weakness import (
     CTX_ADJACENT_ENEMIES as _CCW_CTX_ADJACENT_ENEMIES)
+# #1073 : meme regle, memes deux cles que la face COMBAT -- le canal COUPS de `SynapticInsight`
+# (`CTX_ADJACENT_TYRANID`) et le substrat de synapse partage avec `NornCrownEffect` (#1011).
+from engine.entities.effects.loki.synaptic_insight import (
+    CTX_ADJACENT_TYRANID as _SI_CTX_ADJACENT_TYRANID)
+from engine.entities.effects.loki.norn_crown import (
+    CTX_TEAM_SYNAPSE_POSITIONS as _NORN_CTX_SYNAPSE, SYNAPSE_TRAIT as _SYNAPSE_TRAIT)
 from engine.services.custom_normal_attack import substitutes_normal_attack
 from engine.runner.abilities.loki.mv71 import pick_tile_scene
 from engine.services.battle_query import get_attack_weapon_for_default_normal_attack
@@ -782,6 +788,17 @@ def make_normal_attack_predictions(scene, att_id, tgt_id, attack_pos, *, meta=Fa
     # sont plus : ni compte GetStuckIn (IdunBattleLogic.Entities.Abilities.Triggered.Loki.GetStuckInAbility$$GetBonusHitChance), ni porteur d'aura (idiome hp>0, cf. l.227/276).
     _alive_ids = [uid for uid in scene.pos_by_id
                   if uid in (att_id, tgt_id) or (scene.hp(uid) or 0) > 0]
+    # #1073 -- `{team: ((col, row), ...)}` des unites VIVANTES portant le trait `Synapse`, substrat
+    # d'`IsInTeamSynapseRange`. Pendant EXACT de `runner/damage_model.py::_team_synapse_positions`
+    # (MEME critere : trait lu sur le substrat d'ENTITE, unites vivantes, position courante), monte
+    # ICI parce que le trait n'est lisible que par `_entity_traits`, que `Scene` n'importe pas.
+    _synapse_by_team: dict = {}
+    for _uid in _alive_ids:
+        if _SYNAPSE_TRAIT not in _entity_traits(scene, _uid):
+            continue
+        _p, _t = scene.pos(_uid), scene.team(_uid)
+        if _p is not None and _t is not None:
+            _synapse_by_team.setdefault(_t, []).append(tuple(_p))
     board = {"att_id": att_id, "tgt_id": tgt_id, "attack_pos": attack_pos, "t_pos": t_pos,
              "tgt_team": scene.team(tgt_id), "is_melee": is_melee,
              "pos_by_id": {uid: scene.pos_by_id[uid] for uid in _alive_ids},
@@ -834,7 +851,23 @@ def make_normal_attack_predictions(scene, att_id, tgt_id, attack_pos, *, meta=Fa
              # celle deja calculee pour le canal DEGAT ci-dessus (`prediction_has_moved` : flag ECS
              # OU tuile candidate != tuile courante), pas un 2e read. Consommateur :
              # `InescapableAccuracy_overrideHits` (1117).
-             "has_moved": _hm}
+             "has_moved": _hm,
+             # #1073 -- les DEUX disjoints de `SynapticInsight_ExtraHitsEffect$$
+             # CreateEffectHitsBonusForAttack`. Pendant EXACT du board COMBAT
+             # (`runner/damage_model.py::build_hits_board`), MEMES cles, MEME semantique :
+             #  * `Any(AdjacentFriends(Owner@+0x30, Target@+0x60, unique), HasFaction(It@+0x68,
+             #    Tyranids, 3))` -- recompose depuis les tables de `Scene` (elle n'a pas
+             #    d'`AbilityEntities` pour executer l'arbre), MEME cablage d'adjacence que ses deux
+             #    voisins `adjacent_taunted_enemies` / `adjacent_dark_angels_friends`. TRI-ETAT.
+             #  * `IsInTeamSynapseRange(Target@+0x60, Owner@+0x30)` -- la POSITION des emetteurs
+             #    `Synapse` par equipe ; la comparaison de distance reste chez le consommateur
+             #    (`norn_crown._in_team_synapse_range`, foyer UNIQUE, #1011). Les traits viennent du
+             #    substrat d'ENTITE (`_entity_traits`), jamais du kit gameconfig.
+             #  ⚠ Ces deux cles n'entrent QUE dans le board COUPS : le ctx du canal DEGAT de la
+             #    prediction ne les porte pas, et `NornCrownEffect` (canal DEGAT) reste donc
+             #    exactement dans l'etat ou #1011 l'a laisse.
+             _SI_CTX_ADJACENT_TYRANID: scene.synaptic_insight_adjacent_tyranid(att_id, tgt_id),
+             _NORN_CTX_SYNAPSE: {t: tuple(ps) for t, ps in _synapse_by_team.items()}}
     tgt_effects = scene.effects(tgt_id)
     aura_sources = [(uid, scene.pos(uid), scene.team(uid), scene.effects(uid))
                     for uid in _alive_ids if uid != tgt_id]

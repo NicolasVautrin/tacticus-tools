@@ -65,6 +65,8 @@ from .loki.dark_angels_passives import (
 from .loki.darkangels import HailstrikeExtraPierceEffect
 from .loki.deathwing import (DeathwingEffect,              # #932 (passif darkaTerminator)
                              DeathwingKnightEffect)        # #1073 (passif darkaSmnTerminator)
+from .loki.synaptic_insight import (                       # #1073 (passif tyranSmnBarbgaunt)
+    SynapticInsightExtraHitsEffect)
 from .loki.enmity_for_the_unworthy import (                # #948 (passif darkaCompanion)
     EnmityForTheUnworthyExtraDamageEffect, EnmityForTheUnworthyExtraDamagePctEffect
 )
@@ -937,6 +939,16 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # `ForAddition(get_OwnerIsCaster & IsNormalAttack, Get(ConfigConst 0x2b))`) -- jumeau structurel
     # de `PowerTrip_FullHealth`. #419-r1-tr9-r4-r1-r2.
     "VoltagheistField_ExtraHit": VoltagheistFieldExtraHitEffect,
+    # #1073 -- `EffectType 0x4cf = 1231 SynapticInsight_ExtraHits`, l'owner-effect PERMANENT du
+    # passif `TriggeredAbilityType 0x4a9 = 1193 SynapticInsight` (summon `tyranSmnBarbgaunt` + npc
+    # `tyranNpc5Barbgaunt` / `tyranNpc5BarbgauntSurv`). Canal COUPS (`CreateEffectHitsBonusForAttack`
+    # = `ForAddition`), trigger `get_OwnerIsCaster & IsRangedAttack & (Any(AdjacentFriends(Owner,
+    # Target, unique), HasFaction(It, Tyranids, 3)) | IsInTeamSynapseRange(Target, Owner))`,
+    # magnitude = `ConfigConst(0x2b = extraHit)` = 2 (CONSTANTE, ni niveau ni rarete).
+    # ⚠ AUCUN noeud `IsNormalAttack` -- contraste ses trois voisins de forme du meme canal
+    # (`PowerTrip_FullHealth`, `VoltagheistField_ExtraHit`, `Waaagh_ExtraHits`).
+    # Cf. `entities/effects/loki/synaptic_insight.py`.
+    "SynapticInsight_ExtraHits": SynapticInsightExtraHitsEffect,
     # LegendaryCommander_ExtraHits (effet 0x573=1395, pose SUR custoTrajann par
     # `IdunBattleLogic.Entities.Abilities.Triggered.Loki.LegendaryCommanderAbility$$CreateBehaviour`
     # = `AddEffect(0x572, .., Owner, Owner) & AddEffect(0x573, .., Owner, Owner)`) : AURA source-side
@@ -2267,6 +2279,21 @@ ABILITY_INIT_OWNER_EFFECTS: dict[str, list[str]] = {
     # summon `thousSmnRubricMarine`, que le seed live ne capte pas forcement avec son effet -> ce
     # seed n'est pas un filet, c'est le SEUL chemin offline pour un porteur spawne.
     "AllIsDust": ["AllIsDust"],
+    # #1073 -- `SynapticInsightAbility$$CreateBehaviour` = `AddEffect(0x4cf = 1231
+    # SynapticInsight_ExtraHits, AbilityStateReference, targets = Owner@<DSLSelectors+0x30>,
+    # turns = null)` (surcharge tranchee par la CIBLE du `call rel32`, pas par l'arite :
+    # `AddEffect(effectType, abilityState, targets, turns: System.Nullable<System.Int32>)`), sous le
+    # trigger d'INIT partage `<DSLTriggers+0x30>` = `On(0x21 = AbilityInit, ownerNeedsToBeAlive:
+    # false) & get_OwnerIsActor`. Corps DEDUPLIQUE par ICF avec
+    # `SummaryExecutionAddBaseEffectAbility$$CreateTrigger` ; appartenance etablie slot a slot dans
+    # le bloc `methodPointers` du PE (la classe declare exactement `[CreateTrigger (26),
+    # CreateBehaviour (28), .ctor]`). Owner-effect PERMANENT.
+    # ⚠ FILET, pas seul chemin : la `CreateActiveCondition` de l'effet est `<DSLTriggers+0x40>`
+    # (constante VRAIE), donc l'effet est toujours capte par `decisionView.effects` -- le seed est
+    # idempotent. Porteurs : summon `tyranSmnBarbgaunt` (invoque par l'ability d'ENVIRONNEMENT
+    # `EnvFactionSummons:Tyranids`, portee par AUCUNE unite) et ses jumeaux npc
+    # `tyranNpc5Barbgaunt` / `tyranNpc5BarbgauntSurv`.
+    "SynapticInsight": ["SynapticInsight_ExtraHits"],
     # #1015-r1 -- `InstinctiveBehaviour_InitAbility` (parent `IdunBattle.Entities.Abilities.
     # AOwnerEffectSpecificTriggeredAbility`, `frida/classes.tsv`) n'override QUE `$$GetEffectType`,
     # dont le corps ENTIER est `return 0x4d3` (= 1235 `InstinctiveBehaviour_BlockMovement`) :

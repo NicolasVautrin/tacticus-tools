@@ -47,6 +47,9 @@ from . import adjacency as _adj          # foyer PARTAGE multi-tuiles + UnitSele
 #: compare (`System.Enum.ToString(UnitFaction)` puis `String.Equals` sur `FactionComponent+0x30`),
 #: et non l'ordinal. Consommateur : `Scene.adjacent_dark_angels_friends` (#932).
 _DARK_ANGELS = UnitFaction.DarkAngels.name
+#: `UnitFaction.Tyranids = 0xc` -- meme regle de comparaison que `_DARK_ANGELS` ci-dessus.
+#: Consommateur : `Scene.synaptic_insight_adjacent_tyranid` (#1073).
+_TYRANIDS = UnitFaction.Tyranids.name
 #: `UnitTrait.Steppable = 0x1b` et `UnitTrait.Object = 0xd` -- les DEUX traits que
 #: `IdunBattleLogic.Entities.DSLSelectors$$NonSteppableOrObjectUnits` retire (`UnitsWithoutTrait`
 #: x2, intersectes). `Scene.traits` publie des NOMS (`trait_names_from_ids`), d'ou `.name` : c'est
@@ -762,6 +765,49 @@ class Scene:
             if (GC.unit(self.vis_by_id.get(oid)) or {}).get("FactionId") == _DARK_ANGELS:
                 n += 1
         return n
+
+    def synaptic_insight_adjacent_tyranid(self, owner_uid, target_uid) -> "bool | None":
+        """`Any( AdjacentFriends(unit = Owner@<DSLSelectors+0x30>, unitTile = Target@<DSLSelectors
+        +0x60>, unique: true), HasFaction(It@<DSLSelectors+0x68>, UnitFaction.Tyranids = 0xc, 3) )`
+        -- face PREDICTION du MEME arbre que `runner.components.synaptic_insight_adjacent_tyranid`
+        (un noeud natif, deux substrats : l'ECS cote runner, les tables de `Scene` ici, #1073).
+
+        C'est le PREMIER disjoint de `IdunBattle.Entities.Effects.Loki.SynapticInsight_ExtraHits
+        Effect$$CreateEffectHitsBonusForAttack` -- la face DECISION doit le voir sous peine de
+        SOUS-PREDIRE de 2 coups chaque attaque a distance du porteur.
+
+        ⚠ **L'ANCRE GEOMETRIQUE EST LA CIBLE DU COUP**, la REFERENCE D'EQUIPE est le PORTEUR : c'est
+        la variante B d'`AdjacentFriends` (`unit`, `unitTile`, `unique`), tranchee par la CIBLE du
+        `call rel32` du corps natif. Elle ancre donc a l'oppose d'`adjacent_dark_angels_friends`
+        ci-dessus, dont les deux roles coincident sur le porteur.
+
+        ⚠ Le PORTEUR n'est PAS exclu de l'ensemble : le natif ne soustrait que `unitTile` (la cible),
+        et `Friends` n'ecarte pas l'egalite. Un porteur Tyranide adjacent a sa propre cible arme donc
+        le disjoint tout seul -- LU dans `DSLSelectors$$AdjacentFriends` (variante B), pas deduit.
+
+        ⚠ Le substrat impose de recomposer le selecteur ici (`Scene` n'a pas d'`AbilityEntities` pour
+        executer l'arbre) -- MEME regime qu'`adjacent_dark_angels_friends` juste au-dessus, et MEME
+        cablage d'adjacence (`playbook.adjacency`, donc la liste STOCKEE puis la porte `|dElev| < 2`).
+
+        `None` (equipe du porteur ou position de la cible inconnue) => cle a `None` => disjoint FERME
+        cote effet (degradation RESTRICTIVE) -- jamais un `False` invente."""
+        oteam = self.team_by_id.get(owner_uid)
+        if oteam is None or target_uid is None or self.pos(target_uid) is None:
+            return None
+        elev, neigh = self.elev_by_pos, self.neigh_by_pos
+        for u in (self.units or ()):
+            oid = u.get("id")
+            # `op_Subtraction(Units(AdjacentTiles(unitTile), ...), unitTile)` = la CIBLE, et elle
+            # seule, est retiree. Le porteur, lui, reste dans l'ensemble (cf. l'avertissement).
+            if oid == target_uid or u.get("team") != oteam or not u.get("alive"):
+                continue
+            if not _adj.unit_in_adjacent_tiles(self, target_uid, oid, elev, neigh):
+                continue
+            # `HasFaction(It, UnitFaction.Tyranids, 3)` : le natif compare le NOM de la valeur d'enum
+            # au `FactionComponent+0x30` ; offline, c'est le `FactionId` gameconfig.
+            if (GC.unit(self.vis_by_id.get(oid)) or {}).get("FactionId") == _TYRANIDS:
+                return True
+        return False
 
     def _enmity_adjacent(self, uid, *, dark_angels_friends_only: bool,
                          at_pos=None) -> "int | None":
