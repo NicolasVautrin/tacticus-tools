@@ -771,6 +771,90 @@ class TilesBehindInLine(TargetsSelector):
         return [board.id_at(p[0], p[1]) for p in positions]
 
 
+class EdgeTilesByDirection(TargetsSelector):
+    """`IdunBattleLogic.Entities.DSLSelectors$$EdgeTilesByDirection(direction)` ->
+    `IdunBattle.Entities.Selectors.EdgeTilesByDirectionSelector$$Select` : le BORD du plateau
+    designe par une direction hex -- une ligne entiere de tuiles, pas un voisinage.
+
+    MIRROR du decompile, lu branche par branche. Le champ `+0x18` est une formule VECTEUR
+    (`IdunBattle.Entities.Selectors.EdgeTilesSelector$$.ctor(state, battleQuery, selector)`, meme
+    corps deduplique pour les quatre fabriques `CenterTiles`/`CornerTiles`/`EdgeTiles`/
+    `EdgeTilesByDirection`) ; `Select` en prend la valeur `Nullable<Vector>`, **ne lit que le champ
+    `direction`** (les 4 premiers octets, compares a 0..5) et balaie une bordure :
+
+        v = (<+0x18> as IVectorFormula).Calculate(entities);
+        if (!v.HasValue)                              return <liste vide>;
+        switch (v.Value.direction) {
+          case 3:            for (c = 0; c < COLS; c++) add( GetTileAt(c, 0) );
+          case 0:            for (c = 0; c < COLS; c++) add( GetTileAt(c, ROWS - 1) );
+          case 1: case 2:    for (r = 0; r < ROWS; r++) add( GetTileAt(COLS - 1, r) );
+          case 5: case 4:    for (r = 0; r < ROWS; r++) add( GetTileAt(0, r) );
+          default:                                    return <liste vide>;
+        }
+
+    `GetTileAt(column, row)` est la surcharge a DEUX `int` d'`IdunBattle.Core.Services.BattleQuery`
+    (l'autre prend une `AxialCoordinate`) ; une tuile absente rend `null` et n'est PAS ajoutee --
+    c'est ce que reproduit le `board.id_at(...) is not None` ci-dessous, et c'est ce qui rend le
+    noeud correct sur un plateau non rectangulaire.
+
+    ⚠ **LES DEUX BORNES DE BOUCLE SONT NOMMEES PAR LEUR USAGE, PAS PAR UN NOM DE METHODE.** Les
+    deux slots d'`IBattleQuery` (`<slot 0x6a>` et `<slot 0x6b>`) n'ont pas de symbole nomme dans
+    ce build ; ce qui les identifie est la POSITION de leur valeur dans `GetTileAt(column, row)` :
+    le slot `0x6b` borne l'argument COLONNE (branches `South` / `North`) et fournit `COLS - 1`
+    comme colonne (branches `North_East`/`South_East`) ; le slot `0x6a` borne l'argument LIGNE et
+    fournit `ROWS - 1` comme ligne. Le port les derive du plateau (`max(col) + 1`, `max(row) + 1`),
+    seule lecture disponible offline -- c'est une EQUIVALENCE, pas une transcription de symbole.
+
+    ⚠ **LE PORT MIRRORE L'ORDINAL, PAS LE LIBELLE D'ECRAN.** Le `switch` natif compare des
+    `IdunBattle.Utils.Hex.Edge` bruts, et le natif ne passe JAMAIS par `AxialCoordinate$$NeighbourAt`
+    ici : la table `_CUBE_DIRECTIONS` de ce module (dont l'index est un `Edge` et dont le rendu
+    ECRAN est INVERSE, cf. son commentaire) n'entre pas dans ce noeud. Traduire `Edge.North` en
+    « bas de la grille » avant de choisir la ligne serait une correction de repere que le natif ne
+    fait pas -- elle echangerait les deux bordures opposees.
+
+    ⚠ **`North_East` et `South_East` rendent LA MEME bordure**, et de meme `South_West`/`North_West`
+    -- le natif fond deux aretes par cote sur l'axe des colonnes. Ce n'est pas une simplification du
+    port : les deux `case` partagent litteralement le meme bloc dans le decompile. C'est ce qui fait
+    que les deux branches de `...InstrumentsOfVengeanceAbility$$ExecuteBehaviour` (`{1, 5}` et
+    `{2, 4}`) visent le MEME couple de bordures (droite puis gauche) et ne different que par la
+    DIRECTION de la ligne tiree depuis chacune (`EdgeExtensions$$Rotate(direction, 3)`).
+
+    `direction` = noeud VALEUR ou entier brut. `None` (le `Nullable` VIDE du natif) -> `[]`, jamais
+    une bordure par defaut. Retour : list[int] (tile ids)."""
+    def __init__(self, direction):
+        self.direction = direction
+
+    def select(self, ctx):
+        board = getattr(ctx, "board", None)
+        if board is None:
+            return []
+        d = self.direction.evaluate(ctx) if hasattr(self.direction, "evaluate") else self.direction
+        if d is None:                                   # `!v.HasValue` -> liste VIDE
+            return []
+        d = int(d)
+        coords = getattr(board, "by_coord", None)
+        if not coords:
+            return []
+        cols = max(c for c, _ in coords) + 1            # borne du slot `0x6b` (argument COLONNE)
+        rows = max(r for _, r in coords) + 1            # borne du slot `0x6a` (argument LIGNE)
+        if d == int(Edge.South):
+            cells = [(c, 0) for c in range(cols)]
+        elif d == int(Edge.North):
+            cells = [(c, rows - 1) for c in range(cols)]
+        elif d in (int(Edge.North_East), int(Edge.South_East)):
+            cells = [(cols - 1, r) for r in range(rows)]
+        elif d in (int(Edge.South_West), int(Edge.North_West)):
+            cells = [(0, r) for r in range(rows)]
+        else:                                           # `default:` du switch natif
+            return []
+        out = []
+        for c, r in cells:
+            t = board.id_at(c, r)
+            if t is not None:                           # `GetTileAt` -> null : non ajoutee
+                out.append(t)
+        return out
+
+
 class NextTileInLine(TargetsSelector):
     """`IdunBattleLogic.Entities.DSLSelectors$$NextTileInLine(origin: ITargetsSelector,
     direction: IVectorFormula)` -- MIRROR du decompile. Le noeud n'a PAS de selecteur a lui : il
@@ -1022,14 +1106,34 @@ class Cache(TargetsSelector):
 
 
 class Entity(TargetsSelector):
-    """`IdunBattleLogic.Entities.DSLFactory$$Entity(ref)` : résout la RÉFÉRENCE passée en argument (rôle
-    caster/target/subject) en ENTITÉ. Wrapper fin — l'opérande (souvent un nœud rôle, ex. `Subject`)
-    évalue déjà l'entité."""
+    """`IdunBattleLogic.Entities.DSLSelectors$$Entity(...)` : résout la RÉFÉRENCE passée en argument
+    (rôle caster/target/subject) en ENTITÉ. Wrapper fin — l'opérande (souvent un nœud rôle, ex.
+    `Subject`) évalue déjà l'entité.
+
+    **DEUX surcharges natives, UNE SEULE classe de sélecteur** (`IdunBattle.Entities.Selectors.
+    EntitySelector`, même pointeur de classe alloué par les deux) : `Entity(entity)` prend l'entité,
+    `Entity(entityId)` prend une FORMULE d'id. Le port les collapse sur ce nœud — c'est légitime
+    parce que le natif lui-même n'a qu'un `EntitySelector`, dont le `$$Select` rend une liste de
+    **0 ou 1** élément (`GetEntity(entities)` -> null ⇒ liste vide).
+
+    ⚠ **LA FORME `entityId` EST CELLE QUE CONSOMME `...InstrumentsOfVengeanceAbility$$
+    GetEffectBehavior`** (#889-r6) : `Entity(GetPersistentData(<clé composite>))`, où la valeur
+    stockée est l'id d'une TUILE. Le port représente une tuile par son id NU (`int`), donc `select`
+    rend cet entier tel quel — `_tile_positions` et `Sub._key` le normalisent, comme partout ailleurs
+    en domaine mixte. `None` (clé absente ⇒ `GetPersistentData` rend `0`, mais `EntityId` n'écrit
+    jamais `0`) rend `[]`, pas une entité fantôme.
+
+    ⚠ **CE QUI N'EST PAS PORTÉ, et c'est nommé** : le natif résout un `IEntity.Id` de l'ECS, le port
+    un id de TUILE du `boardGraph` — deux numérotations distinctes. L'aller-retour
+    `SetPersistentData(EntityId(sel))` -> `Entity(GetPersistentData(...))` est FIDÈLE (les deux bouts
+    parlent la même représentation), mais un id venu d'AILLEURS que de cet aller-retour ne se
+    résoudrait pas. Aucun call-site porté n'est dans ce cas."""
     def __init__(self, ref):
         self.ref = ref
 
     def select(self, ctx):
-        return self.ref.evaluate(ctx)
+        v = self.ref.evaluate(ctx)
+        return [] if v is None else v                  # `GetEntity` -> null ⇒ liste VIDE
 
 
 class Nothing(TargetsSelector):

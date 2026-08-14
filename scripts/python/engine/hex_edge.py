@@ -42,3 +42,29 @@ class Edge(IntEnum):
     South = 3
     South_West = 4
     North_West = 5
+
+
+def rotate(edge: "Edge | int", direction: "Edge | int") -> int:
+    """`IdunBattle.Utils.Hex.EdgeExtensions$$Rotate(edge, direction)` -- MIRROR du decompile, dont
+    le corps ENTIER tient en une ligne :
+
+        iVar1 = (int)edge + (int)direction;
+        return iVar1 + (iVar1 / 6 + (iVar1 >> 0x1f) + ...) * -6;
+
+    Le fatras d'expressions du pseudo-C est l'expansion habituelle d'un `%` sur `int` SIGNE : le
+    quotient y est TRONQUE VERS ZERO (semantique C#), pas plancher (semantique `%` de Python). Les
+    deux ne different que sur une somme NEGATIVE -- inatteignable depuis les call-sites portes
+    (`edge` et `direction` sont des membres d'`Edge`, donc 0..5) -- mais on ecrit la troncature
+    plutot que `% 6` : un mirror ne se restreint pas au domaine de ses appelants du jour.
+
+    `direction = 3` est le seul argument porte a ce jour
+    (`IdunBattleLogic.Entities.Abilities.Active.Loki.InstrumentsOfVengeanceAbility$$GetEffectBehavior`,
+    qui l'appelle DEUX fois) : trois crans sur six = l'arete DIAMETRALEMENT OPPOSEE. C'est ce qui
+    fait partir la ligne d'une tuile de BORD vers l'INTERIEUR du plateau.
+
+    ⚠ Ce n'est PAS `IdunBattle.Utils.Hex.EdgeExtensions$$Next`, dont le corps natif est
+    `(edge + (direction != 0 ? -1 : +1)) mod 6` -- un seul cran, sens porte par un BOOL, inline
+    dans `NextTileClockwise` (`entities/selectors/geometry.py`). Deux fonctions natives distinctes,
+    deux arithmetiques distinctes ; les confondre change la direction de la ligne."""
+    n = int(edge) + int(direction)
+    return n - int(n / 6) * 6        # division TRONQUEE VERS ZERO, comme l'`int` division C#

@@ -58,7 +58,7 @@ from .geometry import (  # noqa: F401
     Blocking, SortReverse, SortByRow,
     TilesOnSameElevation,
     EntitiesWithoutEffects, EntitiesWithAnyEffect, PickFirstN, PickRandomly, Randomize, Otherwise,
-    TilesBehindInLine,
+    TilesBehindInLine, EdgeTilesByDirection,
     FilterContinuous, UnitsWithVisualId, UnitsWithId, Cache, Entity, Nothing, Null, SelectIf,
     AtIndex, ConditionalSelector,
     EffectSource, EffectFromOwner, EffectsFromUnitSource, EffectsOfUnits, OwnerOfEffect,

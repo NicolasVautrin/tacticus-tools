@@ -76,6 +76,10 @@ from .attempted_possession import (AttemptedPossessionAbility, attempted_possess
                                    attempted_possession_targets, attempted_possession_tree)
 from .mind_control import (MindControlAbility, mind_control_tree,
                            mind_control_taunter_selector)
+from .instruments_of_vengeance import (InstrumentsOfVengeanceAbility,
+                                       instruments_of_vengeance_tree,
+                                       instruments_of_vengeance_effect_behavior,
+                                       instruments_of_vengeance_line)
 
 __all__ = [
     # summon
@@ -139,4 +143,7 @@ __all__ = [
     "attempted_possession_movement", "attempted_possession_damage",
     "attempted_possession_preferred_target", "attempted_possession_custom_utility",
     "MindControlAbility", "mind_control_tree", "mind_control_taunter_selector",
+    # instruments_of_vengeance (InstrumentsOfVengeance 1215, #889-r6)
+    "InstrumentsOfVengeanceAbility", "instruments_of_vengeance_tree",
+    "instruments_of_vengeance_effect_behavior", "instruments_of_vengeance_line",
 ]
