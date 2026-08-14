@@ -71,6 +71,19 @@ def _unwrap(x):
     return x.get("result") if isinstance(x, dict) and "result" in x else x
 
 
+def _est_machine(ent) -> bool:
+    """Une MoW porte un `MachineComponent`, frere du `UnitComponent` issu du meme
+    `IdunBattle.Entities.Components.BaseUnitComponent$$.ctor`. C'est LA raison pour laquelle #1039
+    ne passe PAS par `readUnitConfig` (qui filtre sur la classe `UnitComponent` et rend
+    `{"error": "visualId introuvable"}` pour toute Machine, `case-1039` Sec.4) : on veut donc SAVOIR
+    si le roster d'un bras en contient une, pour ne pas croire couvert ce qui ne l'est pas."""
+    from engine.runner.components import is_machine_of_war
+    try:
+        return bool(is_machine_of_war(ent))
+    except Exception:
+        return False
+
+
 def _state_file(nom: str) -> str:
     p = Path(__file__).resolve().parents[2] / "logs" / ("probe999r3_%s.json" % nom)
     p.parent.mkdir(parents=True, exist_ok=True)
@@ -92,16 +105,25 @@ def dispose(res: dict) -> None:
 
 def run(rarity: "int | None" = RARETE_SEPARANTE, vis: str = VIS_SEPARE,
         seed: int = SEED, board: str = BOARD, state_file: "str | None" = None,
-        keep: bool = False, verbose: bool = False) -> dict:
+        p_mow: "str | None" = None, keep: bool = False, verbose: bool = False) -> dict:
     """Monte UN bras et rend sa mesure. `rarity=None` = bras DEGENERE (temoin, sans `--unit-stat`).
+
+    `p_mow` ajoute une MACHINE OF WAR au roster. Ce n'est pas un ornement : `readUnitConfig` est
+    AVEUGLE aux Machines (il filtre sur la classe `UnitComponent`), et c'est precisement pour ca que
+    #1039 lit `GetBaseUnitComponent` -- un montage sans MoW ne mesurerait donc PAS ce que le capteur
+    a de particulier.
 
     Leve `RuntimeError` si le build echoue, si le canal est muet, ou si un bras SEPARANT ne separe
     pas -- jamais de retour degrade qui se lirait comme une mesure."""
     nom = "degenere" if rarity is None else ("separant_%s_%d" % (vis, int(rarity)))
+    if p_mow:
+        nom += "_mow"
     sf = state_file or _state_file(nom)
     argv = ["build", "--seed", str(int(seed)), "--board", str(board), "--state-file", sf]
     if rarity is not None:
         argv[-2:-2] = ["--unit-stat", "%s:Rarity=%d" % (vis, int(rarity))]
+    if p_mow:
+        argv[-2:-2] = ["--p-mow", str(p_mow)]
     if verbose:
         print("[999-r3] build %s" % " ".join(argv))
     if R.main(argv) != 0:
@@ -117,7 +139,7 @@ def run(rarity: "int | None" = RARETE_SEPARANTE, vis: str = VIS_SEPARE,
         return _unwrap(B._rpc(sid, method, [body], timeout=timeout)) or {}
 
     res: dict = {"bras": nom, "runnerId": rid, "stateFile": sf, "board": board, "seed": int(seed),
-                 "vis": vis, "rarityDemandee": rarity}
+                 "vis": vis, "rarityDemandee": rarity, "pMow": p_mow}
     try:
         cs = rpc("combatSnapshot", {"runnerId": rid}, 90)
         dv = rpc("decisionView", {"runnerId": rid, "maxRank": 1}, 90)
@@ -166,6 +188,28 @@ def run(rarity: "int | None" = RARETE_SEPARANTE, vis: str = VIS_SEPARE,
             ctx_rar[eid] = None if c is None else (None if c.rarity is None else int(c.rarity))
         res["ctx_by_entity"] = ctx_rar
         res["ctxDistinct"] = sorted({r for r in ctx_rar.values() if r is not None})
+        res["machineIds"] = sorted(eid for eid, ent in st.entities.items()
+                                   if _est_machine(ent))
+
+        # LES DEUX NOEUDS, evalues sur l'etat LIVE. Sans ce volet on ne mesurerait que la
+        # TRAVERSEE d'un scalaire : le port pourrait porter la rarete et n'en rien faire. Ici la
+        # sortie des noeuds est un ENSEMBLE OBSERVABLE, et le bras separant le CHANGE.
+        from engine.entities.rarity import Rarity
+        from engine.entities.selectors.units import UnitSet, UnitsWithRarity
+        from engine.entities.triggers import HasRarity
+        from engine.runner.abilities.behaviours.context import entities_from_state
+        premier = next(iter(st.entities), None)
+        if premier is not None:
+            dsl = entities_from_state(st, int(premier))
+            res["hasRarityMythicByEntity"] = {
+                int(u["id"]): bool(HasRarity(UnitSet([u]), Rarity.Mythic).should_trigger(dsl))
+                for u in dsl.units if u.get("id") is not None}
+            res["unitsWithRarityMythic"] = sorted(
+                int(u["id"]) for u in UnitsWithRarity(UnitSet(list(dsl.units)),
+                                                      Rarity.Mythic).select(dsl))
+            res["unitsWithRarityEpic"] = sorted(
+                int(u["id"]) for u in UnitsWithRarity(UnitSet(list(dsl.units)),
+                                                      Rarity.Epic).select(dsl))
 
         if rarity is not None and not res["separating"]:
             raise RuntimeError(
@@ -198,6 +242,9 @@ def main() -> int:
     ap.add_argument("--seed", type=int, default=SEED)
     ap.add_argument("--board", default=BOARD)
     ap.add_argument("--bras", choices=["degenere", "separant", "les-deux"], default="les-deux")
+    ap.add_argument("--p-mow", default=None,
+                    help="ajoute une MoW au roster (le capteur #1039 les sert, `readUnitConfig` "
+                         "non -- cf. case-1039 Sec.4)")
     ap.add_argument("--keep", action="store_true")
     a = ap.parse_args()
 
@@ -205,7 +252,7 @@ def main() -> int:
     if a.bras in ("degenere", "les-deux"):
         print("=== BRAS DEGENERE (temoin : ce que le harnais donne SANS montage) ===")
         try:
-            run(rarity=None, seed=a.seed, board=a.board, keep=a.keep, verbose=True)
+            run(rarity=None, seed=a.seed, board=a.board, p_mow=a.p_mow, keep=a.keep, verbose=True)
         except RuntimeError as exc:
             print("  ECHEC : %s" % exc)
             rc = 2
@@ -213,11 +260,14 @@ def main() -> int:
         print()
         print("=== BRAS SEPARANT (%s -> Rarity=%d) ===" % (a.vis, a.rarity))
         try:
-            r = run(rarity=a.rarity, vis=a.vis, seed=a.seed, board=a.board,
+            r = run(rarity=a.rarity, vis=a.vis, seed=a.seed, board=a.board, p_mow=a.p_mow,
                     keep=a.keep, verbose=True)
             print()
             print("VERDICT : capteur %s ; port %s ; concordance capteur/port = %s"
                   % (r["distinct"], r["ctxDistinct"], r["distinct"] == r["ctxDistinct"]))
+            print("  MoW du roster : %s" % (r.get("machineIds") or "aucune"))
+            print("  UnitsWithRarity(Mythic) = %s" % (r.get("unitsWithRarityMythic"),))
+            print("  UnitsWithRarity(Epic)   = %s" % (r.get("unitsWithRarityEpic"),))
         except RuntimeError as exc:
             print("  ECHEC : %s" % exc)
             rc = 2

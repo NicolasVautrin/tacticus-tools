@@ -209,14 +209,17 @@ def rarity_separating_case(live_session):
     cache: dict = {}
 
     def _case(rarity: "int | None" = RAR.RARETE_SEPARANTE, vis: str = RAR.VIS_SEPARE,
-              seed: int = RAR.SEED, board: str = RAR.BOARD) -> dict:
-        key = (rarity, vis, seed, board)
+              seed: int = RAR.SEED, board: str = RAR.BOARD,
+              p_mow: "str | None" = None) -> dict:
+        key = (rarity, vis, seed, board, p_mow)
         if key not in cache:
             try:
-                cache[key] = RAR.run(rarity=rarity, vis=vis, seed=seed, board=board, verbose=True)
+                cache[key] = RAR.run(rarity=rarity, vis=vis, seed=seed, board=board,
+                                     p_mow=p_mow, verbose=True)
             except RuntimeError as exc:             # montage non installe -> ROUGE, jamais skip
                 pytest.fail("montage rarity-separating NON INSTALLE (rarity=%s, vis=%s, seed=%s, "
-                            "board=%s) : %s" % (rarity, vis, seed, board, exc), pytrace=False)
+                            "board=%s, p_mow=%s) : %s"
+                            % (rarity, vis, seed, board, p_mow, exc), pytrace=False)
         return cache[key]
     return _case
 

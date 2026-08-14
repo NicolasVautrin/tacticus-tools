@@ -40,6 +40,28 @@ from engine.entities.unit_context import UnitContext
 
 RACINE = Path(__file__).resolve().parents[4]
 
+#: #486-r15 -- ce qui doit changer pour que ce fichier puisse changer de verdict. Large plutot
+#: qu'etroit : un declencheur trop etroit est un FAUX VERT (le fichier ne se rejoue pas sous
+#: `--since` quand ce qu'il garde a bouge).
+DECLENCHEUR = {
+    "chemins": (
+        "scripts/python/engine/entities/rarity.py",
+        "scripts/python/engine/entities/unit_context.py",
+        "scripts/python/engine/entities/triggers.py",
+        "scripts/python/engine/entities/selectors/units.py",
+        "scripts/python/engine/runner/abilities/behaviours/context.py",
+        "scripts/python/engine/runner/snapshot.py",
+        "scripts/python/engine/playbook/scene.py",
+        "scripts/python/probe_1039_canal_rarete.py",
+        "scripts/python/probe_313_enum_mirror_bijection.py",
+    ),
+    "build": True,
+    "toujours": False,
+    "raison": "Etage 7 RE-DERIVE `data/symbols/<build>/frida/enums.tsv` (les cinq enums de rarete "
+              "indiscernables par ordinal) -- un changement de build le concerne directement, et "
+              "l'etage 6 fige les ordinaux ECRITS au site.",
+}
+
 
 # --------------------------------------------------------------------------- etage 1
 
