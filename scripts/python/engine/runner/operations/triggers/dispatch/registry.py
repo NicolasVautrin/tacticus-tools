@@ -183,6 +183,9 @@ from ..loki.calibanite_greatsword import (                                     #
     CalibaniteGreatswordNormalAttackAdditionalDamageAbility,                   # (1189 -> 1316)
     CALIBANITE_GREATSWORD_ACTIVE)
 from ..loki.empyric_ambush import EmpyricAmbushResetAbility           # #589-r1-r1-r1-r1 (1232 -> 1555)
+from ..loki.daemonic_patrons import (DaemonicPatronsFinaleSuccessAbility,   # #911-r1 (1203 -> 1473)
+                                     DaemonicPatronsFinaleFailAbility,
+                                     DAEMONIC_PATRONS_ABILITY)
 from ..loki.heavy_warp_flamer import (HeavyWarpFlamerAttackTrackingAbility,       # #523-r1
                                       HeavyWarpFlamerAttackTrackingResetAbility)  # (1227 -> 1546)
 from ..loki.inspired_to_greatness import (InspiredToGreatnessOverrideLevelRemove,   # #114 residu 2
@@ -1469,6 +1472,18 @@ ACTIVE_ABILITY_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
     # 1029 n'a pas ete castee -> l'inscription inconditionnelle est fidele (patron Hailstrike).
     # Cf. loki/drachnyen.py. #BL-1029r.
     DRACHNYEN_ABILITY: [DrachnyenExtraAttackAbility],
+    # 0x4b3 (1203 DaemonicPatrons, `emperFlawlessBlade` << Hascule >>, HERO) -> 0x5c1 (1473
+    # DaemonicPatrons_Finale) : les DEUX dernieres phrases de l'i2 de 1203. DEUX classes natives
+    # pour UN seul `TriggeredAbilityType` (patron `Lakrimae` / `LetTheGalaxyBurn`), et deux
+    # `event_id` distincts -> une entree par classe, comme `HeavyWarpFlamer` ci-dessus.
+    # L'entree du cctor est LUE verbatim : la `List` recoit `Add(0x5c1)` puis le dict recoit
+    # `Add(0x4b3, list)` -- et l'entree IMMEDIATEMENT SUIVANTE est le `[0x405] = [0x5cd]` de
+    # `Drachnyen`, ce qui identifie le slot sans deduction (`*(statics + 0x30) = <ce dict>`).
+    # ⚠ C'est ce chemin, et LUI SEUL, qui inscrit 1473 : l'ability n'est NI dans `activeAbilities`
+    # NI dans `passiveAbilities` du kit d'`emperFlawlessBlade`. C'est ce que `#911-r1` classait
+    # `BLOCAGE: seeding` -- refute, pas contourne. Cf. loki/daemonic_patrons.py.
+    DAEMONIC_PATRONS_ABILITY: [DaemonicPatronsFinaleSuccessAbility,
+                               DaemonicPatronsFinaleFailAbility],
 }
 
 # --- Registre : ability ACTIVE → triggered-ability HELPER (« passive helper ») ---------------------
