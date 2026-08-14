@@ -113,7 +113,18 @@ class CloseCombatWeaknessMarkStartedTurnAdjacent(EffectTrigger):
         TRI-ETAT conserve : `nearby_enemies_condition` rend `None` quand un terme n'est pas mesure
         -> on NE FERME PAS (degradation PERMISSIVE, la meme que celle du canal magnitude).
         Aucune instance 1130 portee -> `True` : sans instance il n'y aurait aucun trigger a evaluer
-        (meme forme que `HarlequinsPanoplyIgnoreHitsRemove._instance_is_active`)."""
+        (meme forme que `HarlequinsPanoplyIgnoreHitsRemove._instance_is_active`).
+
+        CONFRONTABILITE DU REGIME -- MESUREE, et le gate n'est PAS theorique. Croisement du
+        gameconfig (trait `CloseCombatWeakness` x ability `EarlyWarningOverride`, seule poseuse de
+        `1144` et sur `Owner@0x148`, donc sur ELLE-MEME) : **quatre** unites portent les DEUX --
+        `tauBossCrisis`, `tauBossCrisisInc`, `tauBossCrisisLHE`, `tauNpcCrisis`, toutes `npc`. Et le
+        porteur LINEUP `tauCrisis` a deja l'ability : il ne lui manque que le trait, que
+        `rl_duel build --unit-stat "tauCrisis:Traits=[...]"` force (voie deja etablie par #1015-r1).
+        Le montage live est donc : `tauCrisis` au pool avec le trait force, un ennemi amene AU
+        CONTACT, cast d'`EarlyWarningOverride`, puis lecture de `decisionView.effects` au debut du
+        tour suivant -- `1129` doit etre ABSENT. **NON CONFRONTE LIVE a ce jour** (#1074) : la
+        branche est mirroree et confrontee OFFLINE (`test_1015r1_..._offline.py` section 6)."""
         eff = getattr(state, "effects", None)
         if eff is None:
             return True
