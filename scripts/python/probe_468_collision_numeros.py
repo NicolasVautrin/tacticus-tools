@@ -387,12 +387,36 @@ ID = r"[0-9]+[a-z]*(?:-?(?:r|tr|t)[0-9]+[a-z]?)*(?:-[a-z])?|[a-z]+[0-9]+[a-z0-9]
 #: `case-302-2-*`, ou `2` EST un suffixe. Cote sur : on n'absorbe pas (residu #468-r1).
 SUFFIXE_TOKEN = re.compile(r"^(?:r|tr|t)\d+[a-z]?\d*$|^[a-z]\d*$|^bis$")
 
+#: EN POSITION DE DEFINITION, L'IDENTIFIANT SE LIT PAR SA POSITION, PAS PAR UNE GRAMMAIRE
+#: (#468-r1). C'est le principe meme de ce cliquet (<< le critere porte sur la POSITION >>),
+#: applique jusqu'au bout : dans une premiere cellule de tableau, ce n'est pas une grammaire qui
+#: dit ou l'identifiant FINIT -- c'est le `|` fermant ; en tete de puce, c'est la ponctuation.
+#:
+#: ⚠ LE DEFAUT QUE CA CORRIGE N'EST PAS UN REPLIEMENT, C'EST UNE DISPARITION -- et c'est en quoi
+#: l'enonce de #468-r1 (<< effet cote SUR : peut faire voir une cohabitation, jamais la
+#: manquer >>) etait FAUX de ce cote. `ID` s'arrete au premier segment qu'il ne sait pas lire
+#: (`-c1`, `-b-r1`, `-src`, `-1`), et comme les deux motifs exigent un `|` (resp. une fin de
+#: token) JUSTE APRES, la ligne ENTIERE cessait de correspondre. MESURE le 2026-08-15 :
+#: **72 lignes de tableau** de `backlog.md` n'etaient vues comme AUCUNE definition -- 7 % du
+#: registre -- dont les familles `#462-r4b-...-b/-c-r<k>` (31), `#462-r4e-o-r<k>` (9),
+#: `#366-r1-<mot>` (13), `#433-r4-r2-r1-r1-a/c-r<k>` (3), `#443-r2-b<k>` (2), et les
+#: identifiants non numeriques `#o10-a/-c`, `#PAI-c/-k`, `#BL-*`, `#haze-ord`, `#254-bc*`.
+#: L'etape 1 leur etait donc structurellement AVEUGLE : deux dossiers sous `#462-r4e-o-r2-r1`
+#: n'auraient rien fait rougir.
+#:
+#: CE QUE CA NE RESOUT PAS, et c'est le NOYAU de #468-r1 : `normaliser` retire les tirets, donc
+#: `#222-1` et un futur `#2221` restent indistinguables. Cette ambiguite-la est REELLE, elle est
+#: dans la CONVENTION D'ECRITURE et pas dans le detecteur -- et `--suggere` la subit deja a
+#: l'identique (`RE_TOKEN_LARGE` lit `222-1` puis normalise en `2221`). Le correctif ci-dessus
+#: ALIGNE le detecteur sur l'attribueur ; il ne cree pas cette confusion, il cesse de la cacher.
+ID_POSITION = r"[0-9a-zA-Z](?:[0-9a-zA-Z-]*[0-9a-zA-Z])?"
+
 #: (a) PREMIERE cellule d'une ligne de tableau. Le `~~` de part et d'autre = entree BARREE.
-RE_LIGNE_TABLEAU = re.compile(r"^\|\s*(~~)?\s*[`*]*\s*#(" + ID + r")\s*[`*]*\s*(~~)?\s*\|")
+RE_LIGNE_TABLEAU = re.compile(r"^\|\s*(~~)?\s*[`*]*\s*#(" + ID_POSITION + r")\s*[`*]*\s*(~~)?\s*\|")
 #: (b) TETE d'une puce de premier niveau (`- `, `* `), gras et backticks tolerés.
 #:     ⚠ ANCREE en debut de ligne SANS espace de tete : une puce INDENTEE est une continuation
 #:     ou une sous-puce, jamais l'ouverture d'un dossier.
-RE_TETE_DE_PUCE = re.compile(r"^[-*]\s+(?:~~)?\s*(?:\*\*)?\s*(?:~~)?\s*[`]?#(" + ID + r")[`]?")
+RE_TETE_DE_PUCE = re.compile(r"^[-*]\s+(?:~~)?\s*(?:\*\*)?\s*(?:~~)?\s*[`]?#(" + ID_POSITION + r")[`]?")
 #: Toute occurrence, pour la ventilation de l'etape 0b.
 RE_OCCURRENCE = re.compile(r"#(" + ID + r")\b")
 
@@ -478,6 +502,104 @@ def _fichiers_case_docs() -> list:
 
 
 # ------------------------------------------------------------------------------------------
+# La QUATRIEME position de definition DE FAIT : la puce de la section << Residus >> d'une
+# case-doc (#468-r7). MESUREE, puis RENDUE EN INVENTAIRE -- pas en critere bloquant.
+# ------------------------------------------------------------------------------------------
+#
+# CE QUI EST VRAI, ET QUI JUSTIFIAIT LE RESIDU : c'est bien une position de definition. 435 des
+# 869 case-docs portent une section << Residus >> (520 sections), qui ouvrent **588** puces de
+# tete `#<n>` -- **508** identifiants distincts, dont **143** qu'AUCUNE ligne de `backlog.md` ne
+# definit et **118** qui n'ont meme pas de case-doc a leur nom. `case-467` ouvre `#472-r1/-r2/-r3`
+# exactement la, et ces trois-la sont les << orphelins >> de la section 8 de la case-doc.
+#
+# CE QUI EST FAUX, ET QUE SEULE LA MESURE POUVAIT DIRE : le remede que le residu proposait --
+# << un critere de SECTION, pas de puce >> -- NE SEPARE PAS. Applique tel quel, il rend **33**
+# identifiants portes par une puce OUVERTE dans DEUX case-docs ou plus (41 avant le correctif de
+# #468-r1 ci-dessus, qui a deja dissous huit ECRASEMENTS de cles). Une section << Residus >>
+# RECAPITULE l'etat de sa famille : citer le residu du voisin y est la NORME.
+#
+# LE DISCRIMINANT QUI MARCHE, ET SA LIMITE. Une case-doc POSSEDE un identifiant quand sa propre
+# cle en est un PREFIXE ; entre plusieurs pretendants, le plus LONG l'emporte (le dossier le plus
+# specifique) ; et quand PERSONNE ne le possede, toutes ses puces definissent -- sans quoi le cas
+# MOTIVANT (`case-467` ouvrant `#472-r1`, ou `467` n'est pas prefixe de `472r1`) serait perdu.
+# Effet mesure : 501 puces ouvertes -> 465 definitions + 36 citations, et les doubles tombent de
+# **33** a **6 fichiers-differents + 3 meme-fichier**.
+#
+# CES NEUF-LA ONT ETE LUS, UN PAR UN : **9 sur 9 sont LEGITIMES**. Six sont des RE-CITATIONS dans
+# un dossier frere, et elles le DISENT (`<< reste OUVERT, cf. case-521r1 >>`, `<< inchange >>`,
+# `<< (existant, non ouvert ici) >>`) ; trois sont le meme residu repris deux fois DANS UN MEME
+# fichier, la seconde puce portant une mise a jour d'etat (`<< #419-r1-tr14-r5 -- FERME >>` face
+# a `<< (releve d'ouverture) >>`).
+#
+# D'OU LE VERDICT, ET IL EST CELUI DE LA SECTION 3 : **0 collision sur 456 identifiants ouverts**,
+# pour un taux de faux positifs mesure a **9/9**. Un critere qui crie au loup a chaque fois se
+# fait desarmer dans la semaine -- c'est exactement le motif qui a fait REFUSER la forme
+# << deux case-docs pour un meme `<n>` >>. Rendu en INVENTAIRE (`--report`), jamais bloquant.
+# CE QUI LE RENDRAIT BLOQUANT : deux puces definissantes du meme identifiant dans DEUX case-docs
+# dont AUCUNE ne le possede -- la seule forme ou << re-citation d'un dossier frere >> ne peut pas
+# etre l'explication. Elle est a **0** aujourd'hui, sur une population de 10 : trop petite pour
+# qu'on puisse en mesurer le taux de faux positifs, donc pas encore un critere.
+
+#: Un titre markdown de niveau 2 a 6. Le niveau sert a FERMER la section : une section se termine
+#: au titre suivant de niveau egal ou superieur, jamais a une sous-section.
+RE_TITRE_MD = re.compile(r"^(#{2,6})\s+(.*)$")
+
+#: Un titre qui ANNONCE des residus. Les deux graphies du depot (`## Residus`, `## 10. Resid...`,
+#: `### Residus ouverts`), accentuees ou non.
+RE_TITRE_RESIDUS = re.compile(r"r[eé]sidus?", re.IGNORECASE)
+
+
+def sections_de_residus(lignes) -> list:
+    """[(debut, fin)] -- les plages (indices 0-based, fin exclue) des sections << Residus >>."""
+    plages, ouvert, niveau = [], None, 0
+    for i, ligne in enumerate(lignes):
+        m = RE_TITRE_MD.match(ligne)
+        if not m:
+            continue
+        if ouvert is not None and len(m.group(1)) <= niveau:
+            plages.append((ouvert, i))
+            ouvert = None
+        if ouvert is None and RE_TITRE_RESIDUS.search(m.group(2)):
+            ouvert, niveau = i + 1, len(m.group(1))
+    if ouvert is not None:
+        plages.append((ouvert, len(lignes)))
+    return plages
+
+
+def puces_des_case_docs() -> tuple:
+    """([Definition], [Definition]) -- (definitions, citations) des puces de section Residus.
+
+    La repartition suit le discriminant du commentaire de bloc ci-dessus : proprietaire au plus
+    long prefixe, et a defaut de proprietaire, toutes les puces definissent."""
+    brut = {}
+    for nom in _fichiers_case_docs():
+        chemin = DOCS_RL / nom
+        try:
+            lignes = chemin.read_text(encoding="utf-8").splitlines()
+        except (OSError, UnicodeDecodeError):
+            continue
+        ident_doc, _slug = couper_nom(Path(nom).stem)
+        cle_doc = normaliser(ident_doc)
+        for debut, fin in sections_de_residus(lignes):
+            for i in range(debut, fin):
+                m = RE_TETE_DE_PUCE.match(lignes[i])
+                if not m:
+                    continue
+                avant = lignes[i][: lignes[i].index("#" + m.group(1))]
+                d = Definition(m.group(1), "puce-case-doc", "%s:%d" % (nom, i + 1),
+                               "~~" in avant, lignes[i])
+                brut.setdefault(d.cle, []).append((d, cle_doc))
+    definitions, citations = [], []
+    for cle, lot in brut.items():
+        proprios = [len(cd) for _d, cd in lot if cd and cle.startswith(cd)]
+        maxi = max(proprios) if proprios else None
+        for d, cd in lot:
+            possede = maxi is not None and cd and cle.startswith(cd) and len(cd) == maxi
+            (definitions if (maxi is None or possede) else citations).append(d)
+    return definitions, citations
+
+
+# ------------------------------------------------------------------------------------------
 # Le LEDGER : ce que le cliquet a FIGE comme ligne de base
 # ------------------------------------------------------------------------------------------
 #
@@ -541,6 +663,20 @@ CAS = [
     ("tete de puce, sans backtick ni tiret cadratin",
      ["- **#45d, residus** (`playbook/prediction.md` section 9bis -- tranche CLOSE"],
      [("45d", True)]),
+    # --- POSITIFS de #468-r1 : les formes que `ID` rendait INVISIBLES (pas repliees) ---
+    ("tableau, segment LETTRE suivi d'un residu (`-c-r3-r1-r5`)",
+     ["| #462-r4b-r1-r1-r1-r1-c-r3-r1-r5 | **La POSE de la mine** | `[opus]` | `case-462` |"],
+     [("462r4br1r1r1r1cr3r1r5", True)]),
+    ("tableau, suffixe en MOT (`-camo-seed`)",
+     ["| ~~#366-r1-camo-seed~~ | ~~**Un effet CONDITION-GATED absent**~~ | **LIVRE** | x |"],
+     [("366r1camoseed", False)]),
+    ("tableau, identifiant NON NUMERIQUE a suffixe (`#PAI-c`, `#BL-1029r-r1`)",
+     ["| #PAI-c | **Consommateurs de `PerformAIAction` restants** | `[opus]` | y |",
+      "| #BL-1029r-r1 | **Le 10e coup du cast de Drachnyen** | `[opus]` | z |"],
+     [("paic", True), ("bl1029rr1", True)]),
+    ("tableau, suffixe purement NUMERIQUE (`#222-1`) -- lu ENTIER, plus jamais ignore",
+     ["| ~~#222-1~~ | ~~`ArmoriumCherub` (1014) : masque de ciblage~~ | **CLOS** | w |"],
+     [("2221", False)]),
 
     # --- NEGATIFS : des MENTIONS, et c'est l'echantillon qui compte ---
     ("colonne Point d'entree : un renvoi, pas une definition",
@@ -1519,9 +1655,39 @@ def rapport() -> None:
     print("  FORME REFUTEE -- %d ids a >= 2 probe_<n>_*, %d ids a >= 2 test_<n>_* "
           "(couple _live/_offline)" % (sum(1 for v in probes.values() if len(v) > 1),
                                        sum(1 for v in tests.values() if len(v) > 1)))
+    rapport_puces(defs_b, par_cle)
     total, nb, fich = ventiler_occurrences()
     print("  SEPARATION -- %d occurrences `#<n>` dans docs/rl (%d fichiers), %d definitions "
           "(%.1f %%) : le reste est MENTION" % (total, fich, nb, 100.0 * nb / max(total, 1)))
+
+
+def rapport_puces(defs_b, cases_par_cle) -> None:
+    """La QUATRIEME position de definition, EN INVENTAIRE (#468-r7).
+
+    Elle n'est pas bloquante, et la raison est mesuree, pas prudente : voir le commentaire de
+    bloc de `puces_des_case_docs`. Ce qui suit est ce qu'un humain doit pouvoir LIRE -- une
+    collision qui ne se manifesterait que la se verrait ici, meme si aucun `rc` ne la crie."""
+    defs_p, cites = puces_des_case_docs()
+    ouvertes = [d for d in defs_p if d.ouverte]
+    par_cle = {}
+    for d in ouvertes:
+        par_cle.setdefault(d.cle, []).append(d)
+    ouverts_b = {d.cle for d in defs_b if d.ouverte}
+    tous_b = {d.cle for d in defs_b}
+    sans_ailleurs = sorted(k for k in par_cle if k not in tous_b and k not in cases_par_cle)
+    doubles = {k: v for k, v in par_cle.items() if len({d.ou.split(":")[0] for d in v}) > 1}
+    #: LA FORME QUI RENDRAIT LE CRITERE BLOQUANT : deux dossiers, aucun proprietaire. Elle est
+    #: comptee A CHAQUE RUN pour qu'on sache le jour ou elle cesse d'etre a zero.
+    orphelines = {k: v for k, v in doubles.items() if k in sans_ailleurs}
+    print("  4e POSITION (non bloquante) -- %d puce(s) de section << Residus >> : %d definition(s) "
+          "(%d ouverte(s)) + %d citation(s) ecartee(s) par le proprietaire"
+          % (len(defs_p) + len(cites), len(defs_p), len(ouvertes), len(cites)))
+    print("     %d identifiant(s) ouvert(s) ici ; %d aussi ouverts au backlog ; %d SANS aucune "
+          "autre position" % (len(par_cle), len(set(par_cle) & ouverts_b), len(sans_ailleurs)))
+    print("     %d identifiant(s) a >= 2 puces definissantes dans DES FICHIERS DIFFERENTS "
+          "(mesure : re-citations legitimes)" % len(doubles))
+    print("     dont %d SANS proprietaire -- la seule forme qui serait BLOQUANTE : %s"
+          % (len(orphelines), ", ".join("#" + k for k in sorted(orphelines)) or "(aucune)"))
 
 
 # ================================ l'ECHANTILLON ADVERSARIAL de sujets de commit (#486-r18)

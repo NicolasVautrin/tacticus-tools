@@ -244,6 +244,118 @@ def test_un_echantillon_ABSENT_LEVE_au_lieu_de_valider_tout(tmp_path, monkeypatc
         p468.lire_sujets_geles()
 
 
+#: Ce qui RESSEMBLE a une definition en 1re cellule, defini INDEPENDAMMENT du probe : un `|`,
+#: un `#`, un token alphanumerique, la fermeture de cellule. Deliberement plus large que
+#: `ID_POSITION` (il tolere un `-` final) -- c'est ce qui rend l'invariant ci-dessous
+#: DISCRIMINANT : tout retrecissement de la grammaire du probe le fait rougir, tout
+#: elargissement le laisse vert.
+_OUVRE_UNE_CELLULE = re.compile(
+    r"^\|\s*(~~)?\s*[`*]*\s*#([0-9a-zA-Z][0-9a-zA-Z-]*)\s*[`*]*\s*(~~)?\s*\|")
+
+
+def test_aucune_ligne_de_tableau_du_backlog_REEL_n_echappe_au_detecteur():
+    """#468-r1 -- L'INVARIANT, PAS UN SEUIL : zero ligne invisible.
+
+    LE DEFAUT N'ETAIT PAS UN REPLIEMENT, C'ETAIT UNE DISPARITION. L'ancienne grammaire `ID`
+    s'arretait au premier segment qu'elle ne savait pas lire (`-c1`, `-b-r1`, `-src`, `-1`), et
+    comme `RE_LIGNE_TABLEAU` exige un `|` JUSTE APRES l'identifiant, la ligne ENTIERE cessait de
+    correspondre. MESURE le 2026-08-15 sur `backlog.md` : **72 lignes de tableau** ne produisaient
+    AUCUNE definition -- familles `#462-r4b-...-b/-c-r<k>` (31), `#462-r4e-o-r<k>` (9),
+    `#366-r1-<mot>` (13), `#433-r4-r2-r1-r1-a/c-r<k>` (3), `#443-r2-b<k>` (2), plus les
+    identifiants non numeriques `#o10-a/-c`, `#PAI-c/-k`, `#BL-*`, `#haze-ord`, `#254-bc*`.
+    L'etape 1 leur etait STRUCTURELLEMENT aveugle.
+
+    ⚠ AUCUNE ALLOWLIST, et c'est le point. Le critere est DERIVE de la forme d'une ligne, pas
+    d'une liste de familles connues : une convention d'ecriture inventee demain entre dans le
+    balayage sans que personne y pense -- c'est precisement ce que la liste des 72 aurait rate,
+    puisque personne ne l'avait ecrite."""
+    lignes = _lignes_backlog_reel()
+    vues = {d.ou for d in p468.definitions_du_backlog(lignes)}
+    candidates, invisibles = 0, []
+    for n, ligne in enumerate(lignes, 1):
+        m = _OUVRE_UNE_CELLULE.match(ligne)
+        if not m:
+            continue
+        candidates += 1
+        if "backlog.md:%d" % n not in vues:
+            invisibles.append((n, m.group(2)))
+    assert candidates > 500, (
+        "seulement %d ligne(s) de tableau candidates dans le backlog reel -- le balayage est "
+        "devenu aveugle, un `0 invisible` ne prouverait plus rien" % candidates)
+    assert not invisibles, (
+        "%d ligne(s) de tableau du backlog n'est/ne sont AUCUNE definition pour le detecteur -- "
+        "l'etape 1 leur est aveugle : %s" % (len(invisibles), invisibles[:12]))
+
+
+def test_bout_en_bout_une_DOUBLE_OUVERTURE_a_segment_alphanumerique_ROUGIT():
+    """La generalisation de l'invariant ci-dessus au CABLAGE, pas seulement au detecteur.
+
+    Voir une ligne ne suffit pas : ce qui compte est que l'etape 1 rougisse sur DEUX lignes
+    ouvertes portant un identifiant de cette famille. Avant #468-r1, ces deux lignes-la ne
+    produisaient aucune definition, donc aucun double, donc un VERT."""
+    for ident in ("462-r4e-o-r2-r1", "366-r1-camo-seed", "PAI-c", "443-r2-b1", "222-1"):
+        #: BRAS TEMOIN -- UNE seule ligne : le depot doit rester VERT, sinon le bras rouge
+        #: n'accuserait pas la double ouverture mais la simple presence de l'identifiant.
+        seul = _depot_jetable(BASE_SAINE + [_ligne(ident, "un sujet")], [])
+        try:
+            rc, txt = _jouer(seul)
+            assert rc == 0, "#%s : une definition SEULE ne doit rien faire rougir :\n%s" % (
+                ident, txt)
+        finally:
+            shutil.rmtree(seul, ignore_errors=True)
+
+        r = _depot_jetable(BASE_SAINE + [_ligne(ident, "un sujet"),
+                                         _ligne(ident, "un AUTRE sujet, meme numero")], [])
+        try:
+            rc, txt = _jouer(r)
+            assert rc != 0, "#%s : la double ouverture n'a pas MORDU :\n%s" % (ident, txt)
+            assert "etape 1 : 1 identifiant" in txt and "FAIL #%s" % ident in txt, txt
+        finally:
+            shutil.rmtree(r, ignore_errors=True)
+
+
+def _arbre_de_puces(fichiers):
+    """Un `docs/rl` jetable ne portant que des case-docs, pour la 4e position (#468-r7)."""
+    racine = _depot_jetable(BASE_SAINE, [])
+    for nom, corps in fichiers.items():
+        (racine / "docs" / "rl" / nom).write_text(corps, encoding="utf-8")
+    return racine
+
+
+def test_la_4e_POSITION_separe_une_DEFINITION_de_puce_d_une_RE_CITATION():
+    """#468-r7 -- le critere de SECTION seul NE SEPARE PAS, et c'est une mesure.
+
+    Sur le depot reel il rend **33** identifiants portes par une puce ouverte dans deux
+    case-docs ou plus ; les neuf qui survivent au discriminant PROPRIETAIRE ont ete lus un par
+    un et sont **9/9 legitimes**. Ce test fige les trois regles du discriminant, dont la
+    troisieme -- << sans proprietaire, toutes les puces definissent >> -- sans laquelle le cas
+    MOTIVANT du residu (`case-467` ouvrant `#472-r1`) serait perdu."""
+    corps = ("# titre\n\n## 1. Le defaut\n\n"
+             "- **#500-r9** une puce HORS section Residus : jamais une definition.\n\n"
+             "%s")
+    racine = _arbre_de_puces({
+        "case-500-un-sujet.md": corps % "## Residus\n\n- **#500-r1** le residu du sujet.\n",
+        "case-600-un-autre.md": corps % "## Residus\n\n- **#500-r1** -- inchange, cf. case-500.\n",
+        "case-700-orphelin.md": corps % "## Residus\n\n- **#800-r1** ouvert ICI, nulle part ailleurs.\n",
+    })
+    precedent = p468.REPO
+    try:
+        p468.viser(racine)
+        defs, cites = p468.puces_des_case_docs()
+        ou_def = {d.cle: sorted(x.ou for x in defs if x.cle == d.cle) for d in defs}
+        ou_cite = {d.cle: sorted(x.ou for x in cites if x.cle == d.cle) for d in cites}
+        # (1) hors section Residus : rien, dans aucun des deux seaux.
+        assert "500r9" not in ou_def and "500r9" not in ou_cite, (ou_def, ou_cite)
+        # (2) le PROPRIETAIRE par prefixe definit, le voisin ne fait que citer.
+        assert ou_def.get("500r1") == ["case-500-un-sujet.md:9"], ou_def
+        assert ou_cite.get("500r1") == ["case-600-un-autre.md:9"], ou_cite
+        # (3) SANS proprietaire, la puce definit -- c'est le cas MOTIVANT du residu.
+        assert ou_def.get("800r1") == ["case-700-orphelin.md:9"], ou_def
+    finally:
+        p468.viser(precedent)
+        shutil.rmtree(racine, ignore_errors=True)
+
+
 def test_les_case_docs_reelles_se_coupent_en_identifiant_et_slug():
     noms = sorted(p.name for p in (REPO / "docs" / "rl").glob("case-*.md"))
     assert len(noms) > 300
