@@ -215,7 +215,14 @@ class NonComparableGenerator(ActiveAbilityActionGenerator):
             # #945-r2 -- le kit DECLENCHE RUNTIME (`unitAbilityStates`), MEME canal que celui que
             # `utilities/tile.py::_adjacent_units` consomme deja. `getattr` : un contexte de test qui
             # ne porte pas la methode laisse le champ a `None`, donc le repli kit gameconfig.
-            triggered_kits=getattr(ctx, "live_triggered_kits", None), debug=ctx.debug)
+            triggered_kits=getattr(ctx, "live_triggered_kits", None),
+            # #1027-r5 -- les DEUX entrees de `BattleQuery$$HasMinimumRemainingTurns` (slot 0x1b),
+            # gate AMONT de 1174/1094. Elles ne sont MESUREES que sur le chemin offline (le `State`
+            # porte la BC et le compteur) ; en LIVE elles restent `None` et le foyer applique sa
+            # cascade -- statu quo EXACT, jamais un plafond devine.
+            victory_conditions=getattr(ctx, "victory_conditions", None),
+            turns_ended_by_first_player=getattr(ctx, "turns_ended_by_first_player", None),
+            debug=ctx.debug)
         bc = playbooks.choose_action((ctx.me or {}).get("abilities") or [], nc_ctx,
                                      priority=self.priority)
         if bc is None:

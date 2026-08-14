@@ -61,6 +61,10 @@ STORMBOYZ_STRIKE_TELEPORTING_IN = int(EffectType.StormboyzStrike_TeleportingIn) 
 #: sous-classe. Contenu, fermeture native et residus : cf. le commentaire du foyer.
 from engine.entities.effects.aura_selectors import UNTARGETABLE_EFFECT_TYPES  # noqa: E402
 from engine.ai.context import AiDecisionContext, _enemies, action_tiles_for
+from engine.services import battle_query as SBQ   # FORME B (liaison de MODULE). Differe CLASSE
+#     GRATUIT -- mesure prescrite : `import engine.services.battle_query` seul dans un process
+#     FRAIS ne fait PAS atterrir `engine.ai.state_bridge` dans `sys.modules`, donc rien a fermer
+#     -> HISSE. Foyers appeles : `get_player_turn_order` + `get_amount_of_turns_ended_by_player`.
 from engine.entities.stats import StatType
 from engine.playbook.noncomparable import is_noncomp
 from engine.runner.abilities.targeting import refuses_all_enemy_targets, targeting_options_for
@@ -787,6 +791,56 @@ def _obs_units(state) -> list:
     return out
 
 
+def _triggered_kits_from_state(scene) -> dict:
+    """`{unitId: [TriggeredAbilityType]}` du chemin OFFLINE (#983-r1) -- le pont qui manquait entre
+    le substrat d'ENTITE deja seede et `AiDecisionContext.live_triggered_kits`.
+
+    MEME substrat que le RPC `unitAbilityStates` cote LIVE : le `TriggeredAbilityComponent`, image
+    `UnitContext.triggered_abilities` posee par `snapshot._load_triggered_abilities`. C'est ce que
+    `IdunBattle.AI.Utilities.TriggeredAbilitiesUtility.u003CEvaluateMovementInStepsu003Ed__2$$MoveNext`
+    enumere reellement, et ce qu'interroge `IdunBattle.Entities.UnitExtensions$$HasTriggeredAbility`
+    -- pas le kit gameconfig, qui ignore les abilities accordees par TRAIT, par RELIQUE et par
+    greffe (mesure #456-r1 : divergence sur 3 des 4 unites, DANS LES DEUX SENS).
+
+    ⚠ ON N'INSCRIT QUE CE QUI A ETE MESURE. Une entite dont `triggered_abilities is None` (canal
+    muet : snapshot sans `unitAbilityStates`, entite sans `StatsComponent`) reste ABSENTE de la
+    table -- surtout pas une liste vide, qui se lirait « cette unite ne porte aucun passif » et
+    ferait RETIRER un id que le kit gameconfig connait. C'est le tri-etat d'
+    `entity_triggered_ability_ids`, transpose au grain de la TABLE : ici on ne rabat pas sur le
+    gameconfig nous-memes, on laisse le consommateur le faire -- il est le seul a savoir s'il
+    remplace (regle #456-r1) ou s'il unit (regle N13, `_adjacent_units` /
+    `CalibaniteGreatswordPlaybook`).
+
+    `scene is None` -> `{}` (pas de substrat du tout)."""
+    if scene is None:
+        return {}
+    out: dict = {}
+    for eid, uctx in (getattr(scene, "ctx_by_id", None) or {}).items():
+        ids = getattr(uctx, "triggered_abilities", None)
+        if ids is None:
+            continue                      # canal MUET pour cette entite -> pas d'entree (tri-etat)
+        out[int(eid)] = [int(x) for x in ids]
+    return out
+
+
+def _turns_ended_by_first_player(state) -> int | None:
+    """`matchTurn.GetAmountOfTurnsEndedByPlayer(StateExtensions.GetPlayer(state,
+    GetPlayerTurnOrder()[0]).Id)` -- l'entree 2 du bras 2 de
+    `IdunBattle.Core.Services.BattleQuery$$HasMinimumRemainingTurns` (#1027-r5).
+
+    On DELEGUE aux deux foyers de `engine.services.battle_query` (`get_player_turn_order` +
+    `get_amount_of_turns_ended_by_player`) : deux stand-ins qui deriveraient seraient un bug
+    silencieux, et c'est exactement ce que la note de foyer de `get_player_turn_order` interdit.
+
+    `state is None` -> `None` = NON MESURE, jamais `0` : `0` est une VALEUR (« ce joueur n'a
+    encore termine aucun tour ») que le natif rend par sa branche `!ContainsKey`, et la fabriquer
+    ici la ferait passer pour une lecture."""
+    if state is None:
+        return None
+    order = SBQ.get_player_turn_order(state)
+    return SBQ.get_amount_of_turns_ended_by_player(state, order[0] if order else None)
+
+
 def _no_rpc(method: str, body: dict, timeout: int = 0) -> dict:
     """Fermeture RPC no-op du bridge offline. `ability_targets` (heal/repair/summon/Nova) -> vide.
     SLICE 2 = enumerateur de cibles offline (from State) branche ici."""
@@ -948,4 +1002,13 @@ def build_from_state(state, uid: int, debug: bool = False, max_distance: int | N
         pathdist_by_pos=pathdist_by_pos, mindist_case=mindist_case,
         tile_id_by_pos=tile_id_by_pos, neigh_by_pos=neigh_by_pos, walkable_by_pos=walkable_by_pos,
         terrain_by_pos=terrain_by_pos, is_wall_by_pos=is_wall_by_pos,
-        is_in_fog_by_pos=is_in_fog_by_pos, debug=debug)
+        is_in_fog_by_pos=is_in_fog_by_pos,
+        offline_triggered_kits=_triggered_kits_from_state(scene),   # #983-r1
+        # #1027-r5 -- les DEUX entrees de `BattleQuery$$HasMinimumRemainingTurns`, que SEUL le
+        # chemin offline peut lire (le `State` porte la BC et le compteur ; aucun RPC ne les
+        # publie). `State.victory_conditions` est deja en TRI-ETAT (`None` = canal non fourni a
+        # `load_state`), et on le propage TEL QUEL -- surtout pas un `{}` de repli, qui se lirait
+        # « cette BC ne pose aucun plafond » et ferait taire le gate sur une bataille plafonnee.
+        victory_conditions=getattr(state, "victory_conditions", None),
+        turns_ended_by_first_player=_turns_ended_by_first_player(state),
+        debug=debug)

@@ -137,6 +137,26 @@ class AiDecisionContext:
     #     MinDistanceToClosestEnemy(17) LIT sur son case : `+0x10` Unit et `+0x20` ClosestEnemy,
     #     plus les deux valeurs que ses gates en derivent (traits du mover, CriticalChance du mover,
     #     traits du ClosestEnemy). `None` = le port n'a pas pu etablir le case -> aucun gate (#236).
+    offline_triggered_kits: dict | None = None
+    #     {unitId: [TriggeredAbilityType]} du chemin OFFLINE (#983-r1) — le MEME substrat d'ENTITE
+    #     que le RPC `unitAbilityStates` seede cote runner (`UnitContext.triggered_abilities`,
+    #     `snapshot._load_triggered_abilities`), lu ici depuis le `State` par `state_bridge`.
+    #     C'est ce que `live_triggered_kits()` sert quand `rid` est faux : sans lui, le chemin
+    #     offline rendait `{}` et tout consommateur retombait sur le kit gameconfig SEUL.
+    #     TRI-ETAT, PAR UNITE : `None` = canal absent (contexte LIVE, ou bridge anterieur) ;
+    #     une table ne porte QUE les unites dont le canal a parle -- une unite absente de la table
+    #     n'est PAS « sans passif », elle est NON MESUREE, et son lecteur retombe sur le gameconfig.
+    victory_conditions: dict | None = None
+    #     `BC.Victory.VictoryConditions` -- le `<victoryConfig @+0x18>` que lit
+    #     `IdunBattle.Core.Services.BattleQuery$$GetMaxRounds`, donc l'entree 1 de
+    #     `BattleQuery$$HasMinimumRemainingTurns` (#1027-r5). TRI-ETAT : `None` = canal non fourni
+    #     (chemin LIVE -- aucun RPC ne publie `BC.Victory`) -> le foyer applique sa cascade et
+    #     retombe sur le defaut DERIVE de `data/seed-bc.json` ; un dict fourni SANS
+    #     `MainPlayerRoundLimitation` est une MESURE (« cette BC ne pose aucun plafond »).
+    turns_ended_by_first_player: int | None = None
+    #     `matchTurn.GetAmountOfTurnsEndedByPlayer(GetPlayerTurnOrder()[0])` = le
+    #     `TurnComponent.<Dictionary @+0x40>`, entree 2 du bras 2 du meme gate. `None` = non mesure.
+    #     ⚠ SURTOUT PAS `decisionView.turnsEnded`, qui publie la SOMME sur tous les joueurs.
 
     debug: bool = False
 
@@ -221,9 +241,13 @@ class AiDecisionContext:
         le gameconfig (degradation = comportement d'avant ce cablage)."""
         if not self.rid:
             # Contexte OFFLINE (`state_bridge`, rid=0) : son seam RPC ne sert qu'`abilityTargets`
-            # et rend `{"units": []}` pour tout le reste. On ne l'appelle pas -> l'appelant retombe
-            # sur le gameconfig. C'est le residu N13-b (kit declenche offline sans traits/reliques).
-            return []
+            # et rend `{"units": []}` pour tout le reste -- on ne l'appelle donc pas. Mais le
+            # substrat d'ENTITE, lui, est LA (#983-r1) : `UnitContext.triggered_abilities` publie
+            # par `state_bridge` dans `offline_triggered_kits`. C'etait le residu N13-b (kit
+            # declenche offline sans traits/reliques) ; sans pont, l'appelant retombait sur le
+            # gameconfig ALORS QUE la mesure existait. Table absente / unite non mesuree -> `[]`,
+            # et l'appelant retombe sur le gameconfig, comme avant.
+            return list((self.offline_triggered_kits or {}).get(int(unit_id)) or [])
         key = (self.rid, int(unit_id))
         got = _TRIGGERED_KIT_CACHE.get(key)
         if got is None:
@@ -257,10 +281,17 @@ class AiDecisionContext:
         Alimente le MEME cache `(rid, unitId)` que la version par-unite -- les deux voies sont donc
         coherentes et se servent mutuellement -- plus un cache PAR RID de la table complete, car
         l'appelant (`_adjacent_units` via `tile_leaf_ctx`) est reevalue PAR TUILE CANDIDATE. RPC
-        indisponible / contexte offline (`rid` faux) -> `{}`, et l'appelant retombe sur le kit
-        gameconfig (degradation deja en vigueur)."""
+        indisponible -> `{}`, et l'appelant retombe sur le kit gameconfig (degradation deja en
+        vigueur).
+
+        CHEMIN OFFLINE (`rid` faux, #983-r1) : ce n'est plus `{}` d'office. Le MEME substrat
+        d'ENTITE existe cote `State` -- `UnitContext.triggered_abilities`, que
+        `snapshot._load_triggered_abilities` seede depuis ce meme RPC -- et `state_bridge` le
+        publie dans `offline_triggered_kits`. Sans ce pont, le canal restait muet HORS LIVE alors
+        que la donnee etait deja en memoire : une degradation PERMISSIVE gratuite. Champ `None`
+        (aucun pont) -> `{}`, comportement d'avant."""
         if not self.rid:
-            return {}
+            return self.offline_triggered_kits or {}
         cached = _TRIGGERED_KITS_ALL_CACHE.get(self.rid)
         if cached is not None:
             return cached

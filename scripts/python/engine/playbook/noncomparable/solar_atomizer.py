@@ -11,9 +11,13 @@ from engine.entities.active_ability_type import ActiveAbilityType
 from engine.entities.selectors.accessors import FixedTileIds
 from engine.runner.abilities.admec import solar_atomizer_target_tiles
 from engine.playbook.tile_targets import dsl_context_for_tile_target, unit_on_tile
-from engine.services.battle_query import has_minimum_remaining_turns
+import engine.playbook.noncomparable._base as NCB   # FORME B : le foyer #1027-r5 reste patchable
 
 from ._base import NCContext, NonComparablePlaybook, eligible_target_tiles, native_priority
+
+#: Le litteral `2` du call-site natif `<IBattleQuery slot 0x1b>(unit, 2)` -- un nombre de TOURS,
+#: pas un id : il ne designe aucun enum (cf. « hors regle, c'est un scalaire »).
+CASTER_MIN_REMAINING_TURNS = 2
 
 
 class SolarAtomizerPlaybook(NonComparablePlaybook):
@@ -90,12 +94,16 @@ class SolarAtomizerPlaybook(NonComparablePlaybook):
 
         ⚠ Le parametre `unit` n'est PAS lu par le natif (le corps ne consulte que le plafond de
         rounds de la BC et le compteur de tours termines) -- c'est la mesure de `#287-r11-r1-r1`,
-        et le foyer partage `engine.services.battle_query.has_minimum_remaining_turns` le dit. Le
-        `State` n'existe pas sur la face DECISION : le plafond arrive alors VIDE et le natif comme
-        le port rendent `True` (bras 1), degradation PERMISSIVE nommee, jamais un gate a l'aveugle.
-        Residu `#1027-r5` : brancher le plafond de rounds sur le contexte de decision."""
-        st = getattr(ctx, "state", None)
-        return bool(has_minimum_remaining_turns(ctx.uid, 2, state=st))
+        et le foyer partage `engine.services.battle_query.has_minimum_remaining_turns` le dit.
+
+        ⚠ #1027-r5 -- CE SITE LISAIT UN ATTRIBUT QUI N'EXISTE PAS. `getattr(ctx, "state", None)`
+        rendait TOUJOURS `None` : `NCContext` n'a jamais porte de champ `state`. Le foyer retombait
+        donc invariablement sur son defaut derive de `data/seed-bc.json`, quelle que soit la BC de
+        la bataille en cours. Le substrat passe desormais par `_base.has_minimum_remaining_turns`,
+        qui transporte les DEUX entrees du natif en tri-etat (`ctx.victory_conditions`,
+        `ctx.turns_ended_by_first_player`). Non mesurees -> le foyer applique sa cascade, statu quo
+        EXACT ; mesurees -> le gate lit LE plafond de CETTE bataille."""
+        return NCB.has_minimum_remaining_turns(ctx, CASTER_MIN_REMAINING_TURNS)
 
     def generate_candidates(self, ctx: NCContext) -> list[dict]:
         if not self.should_evaluate(ctx):
