@@ -109,6 +109,38 @@ def _winner_label(w) -> str:
     return {0: "no-winner", 3: "team1", 4: "team2"}.get(w, f"player{w}")
 
 
+def _traits_regenerants_de(u: dict) -> list:
+    """`[(trait, pct|None)]` des traits REGENERANTS portes par l'entree `u` de `BC.Units` (#419-r1-tr9-r5).
+
+    DERIVE, jamais code en dur : un trait est regenerant si sa description i2
+    (`Traits/<id>_Description`) parle de regeneration, et son montant est la variable en `*Hp` que
+    `gameconfig.trait` apparie dans `globalValues.traitVariables`. Mesure du 2026-08-15 sur
+    `t6dpr4k06g` : un SEUL trait repond -- `LivingMetal` (`livingMetalHp = 10`) -- porte par
+    **13** entrees du seed BC (`necroWarden`, `necroDestroyer`, `necroSpyder`, `necroPlasmancer`,
+    `necroOverlord`, et 8 npc/summon necrons).
+
+    `pct = None` = trait regenerant dont le montant n'a pas pu etre lu : on avertit SANS chiffre
+    plutot que d'en inventer un. i2 illisible -> liste VIDE (pas mesure, donc on se tait).
+    """
+    import re                                   # local : cette fonction est le seul consommateur
+    import gameconfig as G                      # local : n'alourdit pas l'import de `rl_duel`
+    out = []
+    for trait_id in (u.get("Traits") or []):
+        try:
+            desc = G.trait_description(str(trait_id)) or ""
+        except Exception:                                            # noqa: BLE001
+            continue                                                 # i2 illisible -> silence
+        if not re.search(r"regenerat", desc, re.I):
+            continue
+        pct = None
+        for k, v in ((G.trait(str(trait_id)) or {}).get("variables") or {}).items():
+            if k.lower().endswith("hp") and isinstance(v, (int, float)):
+                pct = v
+                break
+        out.append((str(trait_id), pct))
+    return out
+
+
 def _diag_porteur_ecarte(uid: str, seed_bc: dict, template_bc: dict) -> str:
     """Suffixe de diagnostic quand un montage TERTIAIRE echoue sur `uid` (#237-r1).
 
@@ -1113,6 +1145,21 @@ def cmd_build(sid: int, a) -> int:
                     return 2
                 for u in touched:
                     u[key] = parsed
+                if key in ("RemainingHealth", "Health"):
+                    # #419-r1-tr9-r5 -- les PV forces d'un porteur REGENERANT ne TIENNENT pas :
+                    # ils remontent au debut de chaque tour de son joueur. Le montage a l'air
+                    # d'avoir mordu (le champ EST dans le BC envoye, verifie) et la valeur relue
+                    # est pourtant autre -- c'est ce qui a fait ouvrir ce residu, puis le
+                    # RE-QUALIFIER a tort en « c'est l'armure ».
+                    for trait_id, pct in _traits_regenerants_de(touched[0]):
+                        montant = (f"{pct}% de ses PV max" if pct is not None
+                                   else "un pourcentage de ses PV max (montant illisible)")
+                        print(f"[warn] --unit-stat {vis}:{key}={parsed} ne TIENDRA PAS : {vis} "
+                              f"porte le trait {trait_id}, qui regenere {montant} au DEBUT de "
+                              f"chaque tour de son joueur. Relever les PV APRES un debut de tour "
+                              f"mesure {parsed} + k x regen, pas {parsed} (#419-r1-tr9-r5). "
+                              f"Prendre la mesure AVANT le premier debut de tour, ou choisir un "
+                              f"porteur sans ce trait.", file=sys.stderr)
                 if key == "Shield" and parsed:
                     # #342 -- MESURE, pas supposition : le champ est bien ECRIT dans le BC envoye
                     # a `initAndStart`, et le NATIF ne le lit jamais.
