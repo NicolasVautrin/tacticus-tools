@@ -153,6 +153,9 @@ from .duty_eternal import DutyEternalPlaybook
 from .silent_death import SilentDeathPlaybook
 from .heavy_rail_rifle import HeavyRailRiflePlaybook
 from .squig_launchas import SquigLaunchasPlaybook   # #970-r3
+# #1066 -- les dernieres faces DECISION d'active de kit `lineup`.
+from .macro_plasma_incinerator import MacroPlasmaIncineratorPlaybook   # #970-r4
+from .rites_of_morkai import RitesOfMorkaiPlaybook                     # #906-r1 / #985-r1
 
 
 # Registre abilityType -> instance de playbook (remplace le switch `kind`).
@@ -390,6 +393,20 @@ PLAYBOOKS: dict[int, NonComparablePlaybook] = {
         #                                 cible TIREE AU SORT (`IPseudoRNG` slot 6 `NextElement`),
         #                                 selecteur `GetEligibleTargetsEntities` (domaine UNITE),
         #                                 et le SEUL `Bucket` du lot construit SANS borne.
+        RitesOfMorkaiPlaybook(),        # 1211 (`spaceWolfPriest`) -- #1066/#906-r1/#985-r1 :
+        #                                 gate AMONT CONJONCTIF (>= 1 ami ET >= 1 ennemi
+        #                                 adjacents), puis util = 1 + 100 * |amis dans le disque
+        #                                 de rayon `GetNumberConstant(0x16 = range)`, caster
+        #                                 exclu|. L'utilite ne depend PAS de la cible : toutes les
+        #                                 cibles eligibles sont a EGALITE, donc keep-first sur
+        #                                 l'ordre de `fromHere`.
+        MacroPlasmaIncineratorPlaybook(),  # 1159 (`ultraDreadnought`, MoW) -- #1066/#970-r4 :
+        #                                 util = 1 + |zone| + Somme sur les tuiles LIBRES de la
+        #                                 zone de |GetAdjacentEnemies(t, caster)|. La zone est le
+        #                                 MEME arbre que la face COMBAT (`$$GetTargetAreaTiles`,
+        #                                 foyer `ultramarines.macro_plasma_incinerator_target_area_tiles`).
+        #                                 Le gate `IsFreeTile` porte sur les tuiles de la ZONE, pas
+        #                                 sur la cible (contraste `SquigMine`, juste dessous).
         SquigMinePlaybook(),            # 1201 (`orksRukkatrukk`) -- util = 1 + |GetAdjacentEnemies
         #                                 (tuile, caster)| (`IBattleQuery` slot 0x7f, arite 3),
         #                                 gate `IsFreeTile` DANS le playbook, domaine TUILE.

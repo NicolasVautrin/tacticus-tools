@@ -20,7 +20,7 @@ differe. C'est la doctrine « DECIDER != EXECUTER ».
 ## Bilan
 
 - Unites `npc` : **491** ; kits sans manque : **430** ; kits avec du travail : **61**
-- Actives distinctes : **147** — `[--]` **1** · `[C-]` **14** · `[CD]` **132**
+- Actives distinctes : **147** — `[--]` **1** · `[C-]` **13** · `[CD]` **133**
 - Passifs distincts : **177** — portes **119**, non portes **58**
 - Traits de kit distincts (AUCUN ecarte — le seuil de frequence a disparu avec #1015) :
   **58** — couverts **57**, non couverts **1**
@@ -110,13 +110,13 @@ l'unite. La colonne `porteurs` dit l'exposition.
 | passif | Volatile | 1 | LootObj_AmmoBox |
 | passif | WatchedOver | 1 | darkaNpc4Watcher |
 
-## Faces DECISION ouvertes sur des actives EXECUTEES (14)
+## Faces DECISION ouvertes sur des actives EXECUTEES (13)
 
 Ces abilities s'executent fidelement mais sont CHOISIES avec un scoring qui n'est pas celui
 du natif. Aucun compteur de manque ne les voit — elles ne sont pas des items absents, ce
 sont des **faces** absentes d'items presents.
 
-`ArcScourge`, `BasiliskBarrage`, `CallRipperSwarms`, `Catalyst`, `ExplosivePresents`, `KissOfDeath`, `MacroPlasmaIncinerator`, `NovaCharge`, `Reveal`, `SlashingDive`, `TunnelingHorror`, `ValkyrieStrike`, `WallOfMirrors`, `WarConstruct`
+`ArcScourge`, `BasiliskBarrage`, `CallRipperSwarms`, `Catalyst`, `ExplosivePresents`, `KissOfDeath`, `NovaCharge`, `Reveal`, `SlashingDive`, `TunnelingHorror`, `ValkyrieStrike`, `WallOfMirrors`, `WarConstruct`
 
 ## Inventaire complet, par faction
 
@@ -703,7 +703,7 @@ sont des **faces** absentes d'items presents.
 | ultraNpcCalgar | 0 | GauntletsOfUltramar(1000)[CD] | - | - | - |
 | ultraNpcEliminatorSgt | 0 | MortisRound(1004)[CD] | - | - | - |
 | ultraNpcInceptorSgt | 0 | DeathFromAbove(1003)[CD] | - | - | relic:RelicBoltPistol |
-| ultraNpcMoWDreadnought | 0 | DutyEternal(1158)[CD]<br>MacroPlasmaIncinerator(1159)[C-] | - | - | mythic:WisdomOfTheAncients |
+| ultraNpcMoWDreadnought | 0 | DutyEternal(1158)[CD]<br>MacroPlasmaIncinerator(1159)[CD] | - | - | mythic:WisdomOfTheAncients |
 | ultraNpcTigurius | 0 | StormOfWrath(1019)[CD] | - | - | - |
 
 ### WorldEaters — 5 unites, 0 avec du travail

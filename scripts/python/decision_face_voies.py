@@ -182,8 +182,9 @@ ECARTES: dict[tuple[str, str], str] = {
         "par le generateur `excruciating_frequencies_candidates`, atteste au ledger #951-r2.",
     ("engine.playbook.noncomparable._base", "NATIVE_PRIORITY"):
         "FAIT NATIF d'un AUTRE axe : le tier `get_Priority` (slot 0 d'`IPlaybook`), qui ORDONNE les "
-        "generateurs NonComparable. Il ne porte PAS l'utilite -- `1159`, `1200` et `1209` y "
-        "figurent alors que leur `EvaluateNonComparable` n'est pas porte.",
+        "generateurs NonComparable. Il ne porte PAS l'utilite -- `1209` y figure alors que son "
+        "`EvaluateNonComparable` n'est pas porte. (`1159` et `1200` etaient dans ce cas jusqu'a "
+        "#970-r3 / #1066 : y figurer n'a jamais rien dit de leur port, dans un sens ni dans l'autre.)",
     # --- FORME de la base de prediction : lue et CONFIRMEE generique, donc rien de propre --------
     ("engine.entities.abilities.active_ability", "_PREDICTION_MINMAX_AVERAGE"):
         "FORME d'arrondi LUE (#344/#350) : la base EST la moyenne min/max, c.-a-d. le chemin "
