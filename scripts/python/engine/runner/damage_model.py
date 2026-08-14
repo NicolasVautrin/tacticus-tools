@@ -435,14 +435,32 @@ def _apply_ally_attack_damage_auras(state: State, att_id: int, mods, is_ranged: 
            # Gulgortz). Le ctx d'aura ne publiait AUCUN canal d'IDENTITE de l'attaquant : sans cette
            # cle le gate serait ferme en permanence, donc la face AURA inerte. `None` = NON MESURE
            # (unite ou `visual_id` introuvable), jamais une chaine vide -- l'effet se tait alors.
-           "att_visual_id": _unit_visual_id(state, att_id)}
+           "att_visual_id": _unit_visual_id(state, att_id),
+           # #999-r3-r1 -- RARETE de l'ATTAQUANT, `BaseUnitComponent.Rarity` (+0x74). Le
+           # BENEFICIAIRE de ce canal est l'attaquant (`get_OwnerIsCaster` apres que la boucle
+           # native a ecrit `AbilityEntities+0x18 (Owner) <- CHAQUE CIBLE du selecteur`), donc un
+           # etage `UnitsWithRarity(...)` du `$$CreateTargetSelector` se lit ICI, sur `att_id`.
+           # Consommateur : `BlightedLandEffect` (1442), dont le selecteur est
+           # `UnitsOnTilesWithEffect(UnitsWithRarity(Friends(Owner, AllUnits, 3), Mythic, 3),
+           # Contaminated)`. MEME cle et MEME semantique que la face PREDICTION
+           # (`playbook/prediction/_shared.py::_apply_ally_attack_dmg_bonus`) -- pas de fork.
+           # TRI-ETAT (`None` = non mesure -> le gate se FERME), cf. `_unit_rarity`.
+           "att_rarity": _unit_rarity(state, att_id)}
     # `PsychicStalk_FriendlyChaosExtraDamage` (#366-r1, effet 1435) -- PATTE AURA : son conjoint
     # `GetTargetIsOnFireTileCondition` lit `EntitiesWithAnyEffect(Tiles(Target@0x60), Fire)`, donc
     # les effets de la MAIN TILE de la cible. MEME canal / MEME forme `{(col,row): [noms]}` que
     # celui deja monte pour l'agregateur DEFENSE (`defender_modifiers`) et pour
     # `LetTheGalaxyBurnEffect`. Cible absente -> cle absente -> le gate se tait.
-    if ctx["t_pos"] is not None:
-        ctx["tile_effects_by_pos"] = tile_status_effects_by_pos(state, [ctx["t_pos"]])
+    # #999-r3-r1 -- la MAIN TILE de l'ATTAQUANT entre dans la MEME cle. `BlightedLandEffect` (1442)
+    # ferme son selecteur par `UnitsOnTilesWithEffect(<les allies Mythiques>, Contaminated)` : le
+    # noeud lit la tuile de l'element courant du selecteur, c.-a-d. du BENEFICIAIRE, qui sur ce canal
+    # est l'ATTAQUANT -- pas la cible. Les deux entrees COEXISTENT (positions distinctes par
+    # construction : l'attaquant n'occupe pas la tuile de sa cible), donc aucun lecteur existant ne
+    # change de verdict -- ils indexent tous par une position explicite (`t_pos`). La face PREDICTION
+    # n'a rien a ajouter : `scene.tile_effects_by_pos` porte DEJA tout le plateau.
+    _aura_tiles = [p for p in (ctx["t_pos"], ctx["att_pos"]) if p is not None]
+    if _aura_tiles:
+        ctx["tile_effects_by_pos"] = tile_status_effects_by_pos(state, _aura_tiles)
     for eb in aura_attack_damage_bonus_from_allies(carriers, ctx):
         add_modifier(mods, eb)
 
@@ -546,6 +564,28 @@ def _unit_team(state: State, unit_id: Optional[int]):
     e = state.get_entity(int(unit_id))
     oc = e.get_component(OwnerComponent) if e is not None else None
     return oc.team if oc is not None else None
+
+
+def _unit_rarity(state: State, unit_id: Optional[int]):
+    """#999-r3-r1 -- `BaseUnitComponent.Rarity` (+0x74) de l'unite, foyer de lecture COMBAT.
+
+    C'est LE champ que lisent, apres `IdunBattle.Entities.UnitExtensions$$GetBaseUnitComponent`,
+    les trois gates natifs de rarete : `IdunBattle.Entities.Triggers.HasRarityTrigger$$ShouldTrigger`,
+    `IdunBattle.Entities.Formulas.UnitsWithRaritySelector$$Select` et
+    `IdunBattle.Entities.UnitExtensions$$HasRarity`. Meme forme et meme place qu'`_unit_team` /
+    `_unit_pos` ci-dessus, et MEME substrat que la cle `rarity` du dict d'unite DSL
+    (`runner/abilities/behaviours/context._unit_dict`) : les deux voies lisent `StatsComponent.ctx
+    .rarity`, seedee par le foyer unique `UnitContext.from_snapshot` (#999-r3, capteur #1039).
+
+    TRI-ETAT STRICT : `None` = NON MESURE (entite absente, pas de `StatsComponent` -- un CADAVRE --,
+    ou capteur muet). JAMAIS `Rarity.Common` en repli : `0` est une rarete parfaitement plausible, et
+    un repli ferait basculer tous les gates de rarete en PERMISSIF sans que personne ne le voie.
+    Le lecteur FERME son gate sur `None` (degradation RESTRICTIVE nommee, cf. `entities/rarity.py`)."""
+    if unit_id is None:
+        return None
+    e = state.get_entity(int(unit_id))
+    sc = e.get_component(StatsComponent) if e is not None else None
+    return getattr(getattr(sc, "ctx", None), "rarity", None)
 
 
 def _unit_stat(state: State, unit_id: Optional[int], stat_type: int) -> Optional[int]:
@@ -1008,6 +1048,16 @@ def defender_modifiers(state: State, unit_id: int, hp: Optional[int],
             _aoc = _ae.get_component(OwnerComponent) if _ae is not None else None
             att_ctx["team"] = _aoc.team if _aoc is not None else None
             att_ctx["traits"] = target_trait_names(state, attacker_id)
+            # #999-r3-r1 : `HasRarity(Caster@<DSLSelectors+0x48>, idun.meta.Rarity.Mythic = 5)` --
+            # SIXIEME noeud de ce contexte porte sur le CASTER, meme convention de nommage que
+            # `team`/`traits`/`faction` (sans prefixe = l'ATTAQUANT, prefixe `owner_` = le porteur).
+            # Consommateur : `HyperCorrosiveAcid_ExtraDamagePctEffect` (1448), dont le
+            # `$$CreateEffectDamageBonusForAttack` est `get_OwnerIsTarget & (AreFriends(Caster,
+            # EffectSource) & HasRarity(Caster, Mythic) & HasTrait(Caster, 0x10 = Hero))` -- l'effet
+            # n'a AUCUN `$$CreateTargetSelector`, donc son Owner EST son porteur et le canal est
+            # celui-ci, pas l'aura. MEME cle et MEME semantique que la face PREDICTION
+            # (`playbook/prediction/_shared.py`). TRI-ETAT : `None` -> gate FERME.
+            att_ctx["rarity"] = _unit_rarity(state, attacker_id)
             # #952 : POSITION de l'attaquant -- membre DROIT du `MinDistance(EffectSource,
             # Caster@+0x48)`. Meme nommage que le couple `team`/`owner_team` juste au-dessus :
             # sans prefixe = l'ATTAQUANT, prefixe `owner_` = le porteur de l'effet.
@@ -1093,6 +1143,19 @@ def defender_modifiers(state: State, unit_id: int, hp: Optional[int],
                 carriers, {"tgt_id": unit_id, "t_pos": tp,
                            "tgt_team": toc.team if toc is not None else None,
                            "tgt_traits": target_trait_names(state, unit_id),
+                           # #999-r3-r1 -- RARETE de la CIBLE, `BaseUnitComponent.Rarity` (+0x74).
+                           # Le BENEFICIAIRE de ce canal est la CIBLE du coup (la boucle native de
+                           # `IdunBattle.Core.Services.DamageCalculations$$
+                           # CalculateDefenderModifiersForPrediction` ecrit `AbilityEntities+0x18
+                           # (Owner) <- CHAQUE CIBLE du selecteur`, et le trigger est
+                           # `get_OwnerIsTarget`), donc un etage `UnitsWithRarity(...)` du
+                           # `$$CreateTargetSelector` se lit ICI, sur `unit_id`. Consommateur :
+                           # `ContemptuousDisregard_DamageReductionEffect` (1443), dont le selecteur
+                           # est `Filter(UnitsWithRarity(Friends(Owner, AllUnits, 3), Mythic, 3),
+                           # HasTileStatusEffect(Tiles(<element courant>)))`. MEME cle et MEME
+                           # semantique que la face PREDICTION -- pas de fork. TRI-ETAT : `None` =
+                           # non mesure -> le gate se FERME (cf. `_unit_rarity`).
+                           "tgt_rarity": _unit_rarity(state, unit_id),
                            "damage_profile": damage_profile,
                            # `IsUnit(caster@0x160)` (= `DSLSelectors+0x48`) -- MEME cle/semantique
                            # que l'`att_ctx["is_unit"]` du canal defenseur ci-dessus, relayee au

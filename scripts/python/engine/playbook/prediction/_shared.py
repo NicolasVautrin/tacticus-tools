@@ -116,6 +116,26 @@ def _entity_traits(scene, uid) -> frozenset:
     return entity_trait_names(scene.ctx(uid), scene.vis_by_id.get(uid))
 
 
+def _entity_rarity(scene, uid):
+    """#999-r3-r1 -- `BaseUnitComponent.Rarity` (+0x74) d'une entite de la `Scene`, foyer de lecture
+    face PREDICTION. Pendant exact de `runner.damage_model._unit_rarity` cote COMBAT.
+
+    C'est le champ que les trois gates natifs de rarete lisent apres
+    `IdunBattle.Entities.UnitExtensions$$GetBaseUnitComponent` --
+    `IdunBattle.Entities.Triggers.HasRarityTrigger$$ShouldTrigger`,
+    `IdunBattle.Entities.Formulas.UnitsWithRaritySelector$$Select`,
+    `IdunBattle.Entities.UnitExtensions$$HasRarity`. Les DEUX faces sont seedees par le MEME foyer
+    (`UnitContext.from_snapshot`, #999-r3) : la face DECISION y arrive par
+    `playbook.scene._hydrate_static_unit`, la face COMBAT par `runner.snapshot`.
+
+    TRI-ETAT STRICT, MEME convention que `_unit_rarity` : `None` = NON MESURE (uid hors des tables,
+    ligne sans contexte de stats, capteur muet) -> le lecteur FERME son gate. JAMAIS `Rarity.Common`
+    en repli, qui accorderait un gate de rarete a toute unite non mesuree."""
+    if uid is None:
+        return None
+    return getattr(scene.ctx(uid), "rarity", None)
+
+
 def _weapon_pierce(scene, att_id, is_adjacent, dist=None):
     """Arme + percage de l'attaque normale — DELEGUE au service PARTAGE `battle_query.select_weapon_pierce`
     (MEME port que le combat/runner ; `is_adjacent` = adjacence HEX native, `dist` = distance HEX pour la
@@ -502,6 +522,12 @@ def _add_positional_and_defender_mods(mods, scene, att_id, tgt_id, is_melee, att
     att_ctx["team"] = scene.team(att_id)
     att_ctx["team_by_id"] = scene.team_by_id
     att_ctx["traits"] = _entity_traits(scene, att_id)
+    # #999-r3-r1 : `HasRarity(Caster@<DSLSelectors+0x48>, idun.meta.Rarity.Mythic = 5)`. MEME cle,
+    # MEME semantique et MEME convention de nommage que la face COMBAT
+    # (`damage_model.defender_modifiers` : sans prefixe = l'ATTAQUANT). Consommateur :
+    # `HyperCorrosiveAcid_ExtraDamagePctEffect` (1448) -- effet SANS `$$CreateTargetSelector`, donc
+    # servi par ce canal-ci (les effets de la CIBLE) et pas par l'aura. TRI-ETAT -> gate FERME.
+    att_ctx["rarity"] = _entity_rarity(scene, att_id)
     # `IsTurnOf(Owner@0x148)` (case-366-r1) : SEULE cle de ce contexte portee sur l'OWNER de l'effet
     # (= la CIBLE `tgt_id`) et non sur le caster -- parce que le noeud natif, lui, porte sur l'Owner.
     # `scene.is_turn_of` LIT `dv.units[].ctrl` (= `IsControlledByCurrentPlayer` invoque natif) ; la
@@ -625,6 +651,13 @@ def _add_positional_and_defender_mods(mods, scene, att_id, tgt_id, is_melee, att
     for _eb in aura_defense_damage_malus_from_units(
             _def_carriers, {"tgt_id": tgt_id, "t_pos": t_pos, "tgt_team": scene.team(tgt_id),
                             "tgt_traits": _tgt_traits_names, "damage_profile": damage_profile,
+                            # #999-r3-r1 -- RARETE de la CIBLE (le BENEFICIAIRE de ce canal : la
+                            # boucle native ecrit `AbilityEntities+0x18 (Owner) <- CHAQUE CIBLE du
+                            # selecteur` et le trigger est `get_OwnerIsTarget`). Consommateur :
+                            # `ContemptuousDisregard_DamageReductionEffect` (1443). MEME cle et MEME
+                            # semantique que la face COMBAT (`damage_model.defender_modifiers`) --
+                            # pas de fork. TRI-ETAT -> gate FERME sur `None`.
+                            "tgt_rarity": _entity_rarity(scene, tgt_id),
                             # #366-r1 (`PsychicStalk_ExtraAttackDamage`) : le gate du trigger porte
                             # sur le CASTER (`IsUnit(caster@0x160)`) et sur la TUILE de la cible
                             # (`EntitiesWithAnyEffect(Tiles(Target@0x178), Fire)`), pas sur le
@@ -858,7 +891,15 @@ def _apply_ally_attack_dmg_bonus(mods, scene, att_id, att_pos, is_melee, tgt_arm
            # `Scene.total_attacks_made` = le capteur live `actorStats.totalAttacksMade`, c.-a-d.
            # exactement le champ `ActorStatisticsComponent+0x20` que la face COMBAT lit par
            # `components.unit_total_attacks_made` -- MEME cle, MEME semantique, pas de fork.
-           "owner_total_attacks_made": {c[0]: scene.total_attacks_made(c[0]) for c in carriers}}
+           "owner_total_attacks_made": {c[0]: scene.total_attacks_made(c[0]) for c in carriers},
+           # #999-r3-r1 -- RARETE de l'ATTAQUANT (le BENEFICIAIRE de ce canal : `get_OwnerIsCaster`
+           # apres que la boucle native a ecrit `AbilityEntities+0x18 (Owner) <- CHAQUE CIBLE du
+           # selecteur`), donc l'etage `UnitsWithRarity(...)` d'un `$$CreateTargetSelector` se lit
+           # ICI. Consommateur : `BlightedLandEffect` (1442). MEME cle et MEME semantique que la face
+           # COMBAT (`damage_model._apply_ally_attack_damage_auras`) -- pas de fork. TRI-ETAT.
+           # ⚠ La cle jumelle `tile_effects_by_pos` porte DEJA tout le plateau cote PREDICTION
+           # (`scene.tile_effects_by_pos`), la ou le COMBAT a du y ajouter la tuile de l'attaquant.
+           "att_rarity": _entity_rarity(scene, att_id)}
     for eb in aura_attack_damage_bonus_from_allies(carriers, ctx):
         add_modifier(mods, eb)
 
