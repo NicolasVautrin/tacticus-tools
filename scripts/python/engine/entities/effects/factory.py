@@ -30,6 +30,7 @@ from .loki.champion_of_the_feast import ChampionOfTheFeastReduceArmorEffect
 from .loki.close_combat_weakness import (                  # #1015-r1 (trait T'AU, 16 porteurs npc)
     CloseCombatWeaknessReduceDmgEffect, CloseCombatWeaknessStartedTurnAdjacentToEnemyEffect)
 from .loki.heal_blocking import FuryOfTheAncientsEffect, MischiefMakersEffect   # #927, #1077
+from .loki.machine_vengeance import MachineVengeanceEffect   # 1365, pile ArcScourge (#1081)
 from .loki.counter_attack import (GrimRetributionCounterAttackEffect,
                                   UnwaveringSentinelCounterAttackEffect,
                                   WireweaveNetCounterAttackEffect)
@@ -1377,6 +1378,20 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # SOIGNABLE cote port alors que le natif le refuse -- degradation PERMISSIVE, desormais levee.
     # Pose par `MischiefMakersAbility` (`runner/operations/triggers/loki/mischief_makers.py`).
     "MischiefMakers": MischiefMakersEffect,
+    # 0x555 = 1365 (#1081, ex-residu `#1023-r1`) : `IdunBattle.Entities.Effects.Loki.
+    # MachineVengeanceEffect`, la PILE posee par `ArcScourge` / `InvocationOfMachineVengeance`
+    # (`ActiveAbilityType` 1172). Derive de `BaseEffect` -- PAS de `HealBlockingEffect`, malgre
+    # l'entree voisine ci-dessus (hierarchie LUE dans `frida/classes.tsv`).
+    # `$$CreateEffectDamageBonusForAttack` = `ForPercentIncrease(get_OwnerIsCaster,
+    # Multiply(Get(EffectConfig(7)), EffectLevel(effet)))` -> +5 % PAR NIVEAU de pile.
+    # ⚠ Le bloc `methodPointers` SEGMENTE (4 slots) rend DEUX faces de plus que les tables ne lui
+    # attribuent -- toutes deux TRIVIALES (`CreateActiveCondition` = `<DSLTriggers+0x70>` =
+    # YesTrigger, `CreateTargetSelector` = `Owner`), donc rien a surcharger, et AUCUN
+    # `GetCalculateLevel` : le niveau lu est celui STOCKE.
+    # ⚠ La constante est un `EffectConfigType` (7 = `MachineVengeanceExtraPct`, section `Effect` de
+    # la BC = 5), PAS un `AbilityConstantType` -- dont le 7 vaut `unitId_2_blue`. Detail :
+    # entities/effects/loki/machine_vengeance.py.
+    "MachineVengeance": MachineVengeanceEffect,
     "AugmentedAssault_ReduceArmor": AugmentedAssaultReduceArmorEffect,
     "AncestralFortune_ExtraCritChance": AncestralFortuneExtraCritChanceEffect,
     # HealingBalms (passif `spaceWolfPriest` "Baldr", TriggeredAbilityType 1502) -- les DEUX
@@ -2133,9 +2148,12 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # `IdunBattle.Entities.Effects.Loki.MastersOfManoeuvreEffect$$CreateEffectDamageMalusForDefense`
     # = `ForPercentDecrease(get_OwnerIsTarget & IsRangedAttack(), ConfigVar(0x46))` -- appel
     # EXPLICITE a `IdunBattle.Entities.Effects.EffectBonus$$ForPercentDecrease`.
-    # ⚠ La POSE (`...MastersOfManoeuvreAbility$$CreateTrigger`) n'est PAS portee : son gate COMMUN
-    # porte `HasRarity(Actor, idun.meta.Rarity.Mythic = 5)`, canal ABSENT du port. L'effet, lui,
-    # n'a AUCUN gate de rarete -- c'est ce qui rend cette face-ci portable.
+    # ⚠ La POSE (`...MastersOfManoeuvreAbility$$CreateTrigger`) n'est PAS portee. La raison ECRITE
+    # ici -- << son gate COMMUN porte `HasRarity(Actor, idun.meta.Rarity.Mythic = 5)`, canal ABSENT
+    # du port >> -- est PERIMEE (re-mesuree #1081, 2026-08-14) : `#999-r3` a livre ce canal, et
+    # `att_rarity` est threade sur les deux facades (cf. les entrees 1442 / 1446 plus haut, qui
+    # disent toutes deux << le verrou est TOMBE >>). Ce qui reste est donc le PORT du couple
+    # trigger/behaviour lui-meme, sans blocage d'etage. L'effet, lui, n'a AUCUN gate de rarete.
     # ⚠ TROIS enums, les memes entiers : `EffectType 1510` = CET effet, `TriggeredAbilityType 1510`
     # = `DeathwingKnight` (rien a voir), `TriggeredAbilityType 1508` = l'ability qui le pose.
     "MastersOfManoeuvre": MastersOfManoeuvreEffect,

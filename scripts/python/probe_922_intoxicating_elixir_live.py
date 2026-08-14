@@ -604,6 +604,14 @@ def etages(h, rec) -> dict:
     effs = st.effects.active_effects(oid, unit_state_for_effects(st, oid)) if st.effects else []
     cible = next((e for e in effs if getattr(e, "name", None) == EFFECT_NAME), None)
     out["effet_actif_port"] = cible is not None
+    # #1081 -- SEPARER « pas d'instance du tout » de « instance presente mais INACTIVE ». Les deux
+    # rendent `effet_actif_port = False`, donc le diagnostic ecrit (« ABSENT de l'etat offline »)
+    # n'etait PAS mesure : il supposait le premier cas. Or le canal de seed passe
+    # `includeInactive: true` (`snapshot.decision_view_seed_body`), donc la seconde lecture est
+    # possible -- et c'est elle qui dit si le residu porte sur le SEED ou sur la REACTIVATION.
+    _bu = getattr(st.effects, "by_unit", None) if st.effects else None
+    _inst = [e for e in ((_bu or {}).get(oid) or []) if getattr(e, "name", None) == EFFECT_NAME]
+    out["instance_dans_by_unit"] = len(_inst)
     ctx = dict(AttackDamageOperation._crit_board(st, aid, tid))
     ctx.update({"att_id": aid, "tgt_id": tid, "owner_id": oid})
     out["sante"] = ctx["unit_health_of"](oid)
@@ -656,8 +664,12 @@ def run_degat(a, rpc, Board, Harness, n: int, cfg: dict) -> int:
                 # A `n = 0` l'effet est INACTIF au snapshot, donc ABSENT du canal `decisionView`
                 # (ACTIF-ONLY) et de l'etat OFFLINE : le port ne peut RIEN verser. C'est un residu
                 # de SEEDING, pas une faute de ce port -- on le MESURE et on le DIT.
-                print("        [residu SEEDING] l'effet est INACTIF au snapshot -> ABSENT de "
-                      "l'etat offline. Ecart par coup = %s"
+                _n = et.get("instance_dans_by_unit")
+                print("        [residu SEEDING] l'effet est INACTIF au snapshot. Instance(s) dans "
+                      "l'etat offline (`EffectsState.by_unit`) = %s -> %s" % (
+                          _n, "PRESENTE, le residu porte sur la REACTIVATION"
+                          if _n else "AUCUNE, le residu porte sur le SEED"))
+                print("        Ecart par coup = %s"
                       % ([l - o for l, o in zip(live, off[:k])],))
                 return rc
             if not accord:
