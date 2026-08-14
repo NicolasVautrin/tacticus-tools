@@ -45,6 +45,7 @@ from .tiles import (  # noqa: F401
     CanAddUnit, TileIntersect, MovableTilesInRange, tiles_unit_can_move_to_charge_target,
     FilterTilesIfCanAttackTargetTileFrom, SortTilesByUtility, PreviousTile,
     TileBehindTargetFromSourceDirection, TileBehindFilled,
+    TilesWithoutPowerUps, SafestTiles, unit_is_power_up,
 )
 
 from .accessors import (  # noqa: F401
@@ -58,7 +59,7 @@ from .geometry import (  # noqa: F401
     Blocking, SortReverse, SortByRow,
     TilesOnSameElevation,
     EntitiesWithoutEffects, EntitiesWithAnyEffect, PickFirstN, PickRandomly, Randomize, Otherwise,
-    TilesBehindInLine, EdgeTilesByDirection,
+    TilesBehindInLine, EdgeTilesByDirection, EdgeTiles, CenterTiles,
     FilterContinuous, UnitsWithVisualId, UnitsWithId, Cache, Entity, Nothing, Null, SelectIf,
     AtIndex, ConditionalSelector,
     EffectSource, EffectFromOwner, EffectsFromUnitSource, EffectsOfUnits, OwnerOfEffect,
@@ -105,6 +106,7 @@ __all__ = [
     "TilesBehindInLine", "FilterContinuous", "UnitsWithVisualId", "UnitsWithId", "Cache",
     "Entity", "Nothing", "Null", "SelectIf", "AtIndex", "ConditionalSelector",
     "TileBehindTargetFromSourceDirection", "TileBehindFilled", "EffectSource", "EffectFromOwner",
+    "EdgeTiles", "CenterTiles", "TilesWithoutPowerUps", "SafestTiles", "unit_is_power_up",
     "EffectsFromUnitSource", "EffectsOfUnits",
     "OwnerOfEffect", "get_spawn_tile_selector", "adjacent_units", "attackable_enemies",
     "random_adjacent_free_tile",

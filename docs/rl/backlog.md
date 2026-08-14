@@ -4877,6 +4877,27 @@ pas d'erreur : il rend **zéro**, et un zéro se lit « rien à signaler ».
   FOYER: scripts/python/probe_1050_optimized_gait.py
   BLOCAGE: aucun
 
+- **#1080-r1 — `NOT IsMoving(Owner)` du trigger de `BattleFocusEffect` n'est pas porte : le port collapse a VRAI.** `[opus]`
+  Point d'entree : `docs/rl/case-1080-battle-focus-call-in-reinforcements.md` Sec.4 et Sec.7 +
+  `scripts/python/engine/runner/operations/triggers/loki/battle_focus.py`.
+  `IdunBattle.Entities.Triggers.IsMovingTrigger$$ShouldTrigger` resout son selecteur
+  (`<+0x10>.SelectAll(entities, 0)`) puis, POUR CHAQUE entite, lit un flag BOOLEEN du composant de
+  mouvement (`<composant>+0xa8+<offset>`, la classe est un `DAT_` que ghidra ne nomme pas) et rend
+  VRAI a la premiere entite dont il est arme. **Aucun canal du runner ne publie ce flag** :
+  `combatSnapshot` ne porte que les stats et les effets, `decisionView` que les positions FINALES.
+  Le port omet donc le conjoint, ce qui vaut `NOT IsMoving == VRAI` inconditionnellement.
+  C'est correct SUR CE VECTEUR et faux ailleurs : cote port le deplacement est ATOMIQUE
+  (`MoveUnitOperation` a termine quand `On(0xb = UnitAbility)` part), donc le flag natif serait
+  FAUX a cet instant ; il ne le serait PAS sur un vecteur emis PENDANT une animation de
+  deplacement, et le port n'a aucun moyen de distinguer les deux. Degradation PERMISSIVE (le
+  passif se declenche dans un regime ou le natif s'abstiendrait), NOMMEE, et NON CONFRONTEE --
+  aucun montage live ne peut aujourd'hui la faire mordre.
+  Ce qui fermerait : un capteur qui publie le flag du `MovementComponent` (meme famille que le
+  residu PRE-EXISTANT `IsAllowedToMove` d'`UnitExtensions$$CanMove`, cf. `entities/triggers.py`),
+  ou l'identification du `DAT_` de la classe de composant pour le lire via `combatSnapshot`.
+  FOYER: scripts/python/engine/runner/operations/triggers/loki/battle_focus.py, scripts/python/engine/entities/triggers.py
+  BLOCAGE: capteur
+
 - **#1052-r1 — la branche NON ALIGNEE de `GetTilesBehindFilled` (DEUX tuiles) n'est pas portee.** `[fable]`
   Point d'entree : `docs/rl/case-1052-all-is-dust-pyreblaster.md` Sec.4 +
   `scripts/python/engine/battle_query.py::get_tiles_behind_filled`.

@@ -19,9 +19,9 @@ differe. C'est la doctrine « DECIDER != EXECUTER ».
 
 ## Bilan
 
-- Unites `npc` : **491** ; kits sans manque : **440** ; kits avec du travail : **51**
+- Unites `npc` : **491** ; kits sans manque : **442** ; kits avec du travail : **49**
 - Actives distinctes : **147** — `[--]` **1** · `[C-]` **13** · `[CD]` **133**
-- Passifs distincts : **177** — portes **124**, non portes **53**
+- Passifs distincts : **177** — portes **126**, non portes **51**
 - Traits de kit distincts (AUCUN ecarte — le seuil de frequence a disparu avec #1015) :
   **58** — couverts **57**, non couverts **1**
 - **Voies inversees** (nom absent d'`ActiveAbilityType`) : **1** — `Maugetar`
@@ -56,8 +56,6 @@ l'unite. La colonne `porteurs` dit l'exposition.
 | passif | Shrapnel | 2 | astraNpc4Mortar, astraNpc4MortarSurv |
 | active | Maugetar | 1 | eldarBossMauganRaUltra |
 | passif | ArchContaminator | 1 | deathBossMortarion |
-| passif | BattleFocus | 1 | eldarNpc1Guardian |
-| passif | CallInReinforcements | 1 | astraNpc3Voxcaster |
 | passif | CloudOfFlies | 1 | deathNpc2PlagueMarine |
 | passif | Conceal | 1 | eldarNpc2Warlock |
 | passif | CrazedFocus | 1 | blackNpc3TraitorGuardsman |
@@ -212,12 +210,11 @@ sont des **faces** absentes d'items presents.
 | admecNpc3Electropriest | 0 | - | - | - | - |
 | admecNpc3ElectropriestSurv | 0 | - | - | - | - |
 
-### Aeldari — 26 unites, 3 avec du travail
+### Aeldari — 26 unites, 2 avec du travail
 
 | unite | manque | actives (face) | passifs non portes | traits non couverts | autres voies |
 |---|---:|---|---|---|---|
 | eldarBossMauganRaUltra | 1 | Maugetar[--]! | - | - | relic:Maugetar |
-| eldarNpc1Guardian | 1 | PlasmaGrenade(1098)[CD] | BattleFocus | - | - |
 | eldarNpc2Warlock | 1 | Reveal(1107)[C-] | Conceal | - | - |
 | eldarBossAutarch | 0 | Loki_SwoopingHawk(1064)[CD] | - | - | relic:PhoenixGem |
 | eldarBossAutarchCamp | 0 | Loki_SwoopingHawk(1064)[CD] | - | - | relic:PhoenixGem |
@@ -239,18 +236,18 @@ sont des **faces** absentes d'items presents.
 | eldarBossRangerCamp | 0 | FireAndReposition(1063)[CD] | - | - | - |
 | eldarBossRangerLHE | 0 | FireAndReposition(1063)[CD] | - | - | - |
 | eldarBossRangerSurv | 0 | FireAndReposition(1063)[CD] | - | - | - |
+| eldarNpc1Guardian | 0 | PlasmaGrenade(1098)[CD] | - | - | - |
 | eldarNpc3Harlequin | 0 | KissOfDeath(1108)[C-] | - | - | - |
 | eldarNpc4Wraithguard | 0 | WarConstruct(1133)[C-] | - | - | - |
 | eldarNpc4WraithguardSurv | 0 | WarConstruct(1133)[C-] | - | - | - |
 
-### AstraMilitarum — 31 unites, 4 avec du travail
+### AstraMilitarum — 31 unites, 3 avec du travail
 
 | unite | manque | actives (face) | passifs non portes | traits non couverts | autres voies |
 |---|---:|---|---|---|---|
 | astraNpc4Mortar | 2 | - | Shrapnel | TwoManTeam | - |
 | astraNpc4MortarSurv | 2 | - | Shrapnel | TwoManTeam | - |
 | astraNpc2Lascannon | 1 | - | - | TwoManTeam | - |
-| astraNpc3Voxcaster | 1 | ValkyrieStrike(1018)[C-] | CallInReinforcements | - | - |
 | astraBossBullgryn | 0 | FragBomb(1017)[CD] | - | - | relic:RelicOfLostCadia |
 | astraBossBullgrynLEG | 0 | FragBomb(1017)[CD] | - | - | relic:RelicOfLostCadia |
 | astraBossBullgrynLHE | 0 | FragBomb(1017)[CD] | - | - | relic:RelicOfLostCadia |
@@ -269,6 +266,7 @@ sont des **faces** absentes d'items presents.
 | astraBossYarrickLHE | 0 | SendInTheNextWave(1016)[CD] | - | - | - |
 | astraBossYarrickSurv | 0 | SendInTheNextWave(1016)[CD] | - | - | - |
 | astraNpc1Guardsman | 0 | - | - | - | - |
+| astraNpc3Voxcaster | 0 | ValkyrieStrike(1018)[C-] | - | - | - |
 | astraNpc5DeathRider | 0 | - | - | - | - |
 | astraNpcBullgryn | 0 | FragBomb(1017)[CD] | - | - | relic:RelicOfLostCadia |
 | astraNpcCreed | 0 | SupremeCommander(1028)[CD] | - | - | - |

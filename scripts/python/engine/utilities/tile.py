@@ -1160,17 +1160,31 @@ class TileDistanceUtility(BaseUtility):
     DOMINE, cf. `docs/rl/case-201-movement-suggestion-tiledistance.md`).
 
     `ctx["self_pos"]` = la position de `case.unit` (l'unité passée au sélecteur = `dc.unit`), posée
-    par `runner_tile_leaf_ctx`/`tile_leaf_ctx`. Absente → 0.0 : c'est la branche `c.units == null` du
-    natif. La branche de REPLI `else if (c.owner != null) DistanceTo(c, c.owner)` n'est PAS portée :
-    elle n'est atteignable que si `case.unit` est nul ET `case.parent` non nul, c'est-à-dire sur le
-    seul call-site `SortTilesByUtilityForSummon` (case-205) — or ses six occurrences passent toutes
-    `UtilityDefinition(7 = Tile)`, jamais `0x21 = MovementSuggestion`, donc `TileDistance(34)` n'y est
-    jamais évaluée. Porter la position du parent serait spéculatif tant qu'aucun call-site ne
-    l'exerce ; résidu NOMMÉ, cf. case-205 §5."""
+    par `runner_tile_leaf_ctx`/`tile_leaf_ctx`.
+
+    ⚠ **LA BRANCHE DE REPLI EST DÉSORMAIS PORTÉE, PARCE QU'UN CALL-SITE L'EXERCE (#1080).** Cette
+    docstring écrivait que `else if (c.owner != null) DistanceTo(c, c.owner)` n'était atteignable
+    que par `SortTilesByUtilityForSummon`, « or ses six occurrences passent toutes
+    `UtilityDefinition(7 = Tile)` ». Ce n'est plus vrai :
+    `IdunBattleLogic.Entities.Abilities.Active.Loki.CallInReinforcementsAbility$$CreateBehaviour`
+    bâtit sa définition À LA MAIN — `UtilityDefinition(UtilityBucket([ WeightedUtility(0x1b = 27
+    PowerUp), WeightedUtility(0x22 = 34 TileDistance) ]))` — et la passe à
+    `SortTilesByUtilityForSummon(tiles, <cette définition>, Owner@<DSLSelectors+0x30>)`. Le régime
+    `case.unit == null && case.parent != null` évalue donc bien `TileDistance(34)`, et c'est LUI qui
+    porte le « in a nearby free edge hex » de l'i2 : sans le repli, le tri serait constant sur tout
+    le bord du plateau et le summon tomberait n'importe où. `ctx["parent_pos"]` est la clé posée par
+    `_spawn_leaf_ctx` pour ce seul usage (clé NEUVE, aucune autre feuille ne la lit).
+
+    Les DEUX positions absentes → 0.0 : c'est la branche `else yield Fix64.FromInt(0)` du natif."""
     UTILITY_TYPE = int(UtilityType.TileDistance)  # 34
 
     def evaluate(self, tile, meta, ctx, wt) -> float:
-        from_pos = (ctx or {}).get("self_pos")
+        c = ctx or {}
+        # `if (c.units != null) DistanceTo(c, c.units)` -- le sujet PRIME sur le parent, comme dans
+        # le `MoveNext` natif (le `else if` n'est atteint que si `case+0x10` est nul).
+        from_pos = c.get("self_pos")
+        if from_pos is None:
+            from_pos = c.get("parent_pos")         # `else if (c.owner != null) DistanceTo(c, c.owner)`
         if from_pos is None or tile is None:
             return 0.0
         import hexgeo as _hex                      # lazy : utilities <- hexgeo (module top-level)
@@ -1212,6 +1226,18 @@ UTILITY_BY_TYPE: dict[int, BaseUtility] = {
     # compose que les types qui ont une entree dans son `Dictionary<UtilityType, UtilityType[]>`,
     # et 67 n'en a pas, donc `GetUtility` rend directement l'instance de la classe.
     int(UtilityType.LeadingTheCharge_ChargeTile): LEADING_THE_CHARGE_CHARGE_TILE,
+    # 27 et 34 — les DEUX termes du bucket bâti à la main par
+    # `IdunBattleLogic.Entities.Abilities.Active.Loki.CallInReinforcementsAbility$$CreateBehaviour`
+    # (`WeightedUtility[2] = [ WeightedUtility(0x1b), WeightedUtility(0x22) ]` -> UN `UtilityBucket`
+    # -> UN `UtilityDefinition`), #1080. FEUILLES, pas composites : même critère que 54 et 67
+    # ci-dessus — `UtilitiesDatabase$$InitializeUtilities` ne compose que les types présents dans
+    # son `Dictionary<UtilityType, UtilityType[]>`, et ni 27 ni 34 n'y a d'entrée (34 n'est qu'un
+    # ÉLÉMENT du tableau de 0x21 = MovementSuggestion, pas une clé).
+    # Les deux classes existaient déjà — elles vivaient uniquement DANS les composites `Tile(7)` et
+    # `MovementSuggestion(33)` ; ce qui manquait était l'entrée de premier niveau, sans laquelle
+    # `utilities_database` rend `None` et `UtilityDecider.CalculateUtility` LÈVE.
+    int(UtilityType.PowerUp): PowerUpTileUtility(),
+    int(UtilityType.TileDistance): TileDistanceUtility(),
 }
 
 
@@ -1506,10 +1532,20 @@ def _spawn_leaf_ctx(state, parent_id: int) -> dict:
         else:
             enemies.append(rec)
     elev_by_pos, neigh_by_pos, walkable_by_pos = _board_maps(state)
-    return {"is_spawning": True,
-            "friend_units": friends, "enemy_units": enemies, "friend_positions": fpos,
-            "elev_by_pos": elev_by_pos, "neigh_by_pos": neigh_by_pos,
-            "walkable_by_pos": walkable_by_pos}
+    ppc = par.get_component(PositionComponent)
+    out = {"is_spawning": True,
+           "friend_units": friends, "enemy_units": enemies, "friend_positions": fpos,
+           "elev_by_pos": elev_by_pos, "neigh_by_pos": neigh_by_pos,
+           "walkable_by_pos": walkable_by_pos}
+    # `parent_pos` = `case.parent` du `UtilityMovementCase`, pour la SEULE branche de repli de
+    # `TileDistanceUtility` (`else if (c.owner != null) DistanceTo(c, c.owner)`), atteinte depuis
+    # #1080 par `CallInReinforcementsAbility$$CreateBehaviour`. CLÉ NEUVE et DISTINCTE de
+    # `self_pos` : la fabriquer sous le nom du SUJET ferait mordre les gates que le natif laisse
+    # tomber en régime spawn (cf. le bloc « AUCUNE cle de sujet » ci-dessus). Aucune autre feuille
+    # ne la lit ; rayon de souffle nul par construction.
+    if ppc is not None:
+        out["parent_pos"] = (ppc.col, ppc.row)
+    return out
 
 
 def runner_tile_leaf_ctx(state, unit_id: int | None, parent_id: int | None = None) -> dict:

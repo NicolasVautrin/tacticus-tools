@@ -19,9 +19,9 @@ differe. C'est la doctrine « DECIDER != EXECUTER ».
 
 ## Bilan
 
-- Unites `summons` : **65** ; kits sans manque : **53** ; kits avec du travail : **12**
+- Unites `summons` : **65** ; kits sans manque : **55** ; kits avec du travail : **10**
 - Actives distinctes : **16** — `[C-]` **5** · `[CD]` **11**
-- Passifs distincts : **47** — portes **35**, non portes **12**
+- Passifs distincts : **47** — portes **37**, non portes **10**
 - Traits de kit distincts (AUCUN ecarte — le seuil de frequence a disparu avec #1015) :
   **43** — couverts **42**, non couverts **1**
 
@@ -49,8 +49,6 @@ l'unite. La colonne `porteurs` dit l'exposition.
 | type | item | porteurs | exemples |
 |---|---|---:|---|
 | trait | TwoManTeam | 2 | astraSmnLascannon, astraSmnMortar |
-| passif | BattleFocus | 1 | eldarSmnGuardian |
-| passif | CallInReinforcements | 1 | astraSmnVoxcaster |
 | passif | DrawFire | 1 | blackSmnTerminator |
 | passif | FiringPosition | 1 | blackSmnHavoc |
 | passif | HunterOfSouls | 1 | thousSmnDaemonPrince |
@@ -86,23 +84,23 @@ sont des **faces** absentes d'items presents.
 | admecSmnTechpriest | 0 | - | - | - | - |
 | admecSmnVanguard | 0 | - | - | - | - |
 
-### Aeldari — 2 unites, 1 avec du travail
+### Aeldari — 2 unites, 0 avec du travail
 
 | unite | manque | actives (face) | passifs non portes | traits non couverts | autres voies |
 |---|---:|---|---|---|---|
-| eldarSmnGuardian | 1 | PlasmaGrenade(1098)[CD] | BattleFocus | - | - |
+| eldarSmnGuardian | 0 | PlasmaGrenade(1098)[CD] | - | - | - |
 | eldarSmnHarlequin | 0 | KissOfDeath(1108)[C-] | - | - | - |
 
-### AstraMilitarum — 6 unites, 3 avec du travail
+### AstraMilitarum — 6 unites, 2 avec du travail
 
 | unite | manque | actives (face) | passifs non portes | traits non couverts | autres voies |
 |---|---:|---|---|---|---|
 | astraSmnMortar | 2 | - | Shrapnel | TwoManTeam | - |
 | astraSmnLascannon | 1 | - | - | TwoManTeam | - |
-| astraSmnVoxcaster | 1 | ValkyrieStrike(1018)[C-] | CallInReinforcements | - | - |
 | astraSmnDeathRider | 0 | - | - | - | - |
 | astraSmnGuardsman | 0 | - | - | - | - |
 | astraSmnKell | 0 | - | - | - | - |
+| astraSmnVoxcaster | 0 | ValkyrieStrike(1018)[C-] | - | - | - |
 
 ### BlackLegion — 4 unites, 2 avec du travail
 

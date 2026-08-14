@@ -682,6 +682,186 @@ class TileUnion(TargetsSelector):
         return out
 
 
+def _power_up_ids() -> frozenset:
+    """Les 22 `TriggeredAbilityType` du `HashSet<TriggeredAbilityType>` que
+    `idun.Idun.Source.Shared.Battle.StaticBattleRules.StaticBattleRules.TriggeredAbility$$.cctor`
+    ecrit dans `<statics+0x70>` et dont
+    `...StaticBattleRules.TriggeredAbility$$GetPowerUps` rend une COPIE.
+
+    LUS un a un dans le `.cctor` (suite de `local_res10[0] = <ordinal> ; HashSet.Add(...)`), jamais
+    derives du prefixe `PowerUp_` du nom -- et ecrits par leur MEMBRE, pas par leur ordinal (regle
+    d'enum du `CLAUDE.md` : `TriggeredAbilityType` partage 458 ordinaux avec `EffectType`)."""
+    from ..triggered_ability_type import TriggeredAbilityType as _T
+    return frozenset(int(x) for x in (
+        _T.PowerUp_Armor, _T.PowerUp_Damage, _T.PowerUp_Health, _T.PowerUp_Hits,
+        _T.PowerUp_MeleeHits, _T.PowerUp_Reinforcement, _T.PowerUp_ReinforcementShield,
+        _T.PowerUp_ReactivateAbility, _T.PowerUp_Healing, _T.PowerUp_Bomb, _T.PowerUp_Resurrect,
+        _T.PowerUp_HeroSpawn, _T.PowerUp_HeroSpawn_VexilusPraetor,
+        _T.PowerUp_HeroSpawn_BladeChampion, _T.PowerUp_HeroSpawn_Uthar, _T.PowerUp_SummonSpawn,
+        _T.PowerUp_SummonSpawn_ultraSmnInceptor, _T.PowerUp_SummonSpawn_ultraSmnHeavyIntercessor,
+        _T.PowerUp_SummonSpawn_bloodSmnIntercessor, _T.PowerUp_SummonSpawn_darkaSmnHellblaster,
+        _T.PowerUp_SummonSpawn_darkaSmnTerminator, _T.PowerUp_SummonSpawn_templSmnAggressor))
+
+
+def unit_is_power_up(unit, has_triggered_ability=None) -> bool:
+    """`IdunBattle.Entities.UnitExtensions$$IsPowerUp(unit)` -- MIRROR : la boucle native parcourt
+    `GetPowerUps()` et sort a la PREMIERE `TriggeredAbilityComponent$$TryGetAbility` vraie.
+
+    `has_triggered_ability` = l'accesseur `ctx.has_triggered_ability` du contexte DSL, FOYER UNIQUE
+    du kit declenche d'une ENTITE cote port (`entity_triggered_ability_ids`, tri-etat mesure/repli
+    gameconfig documente a la source). C'est exactement ce que lit le noeud-trigger homonyme
+    `entities/triggers.py::HasTriggeredAbility`.
+
+    ⚠ **Le dict d'unite du DSL NE PORTE PAS de cle `triggered_abilities`** (`_unit_dict` de
+    `runner/abilities/behaviours/context.py` : `id/team/pos/feet/alive/hp/visualId/...`). Lire une
+    telle cle rendrait donc TOUJOURS `False`, en silence -- c'est-a-dire le predicat INERTE, et un
+    filtre inerte est indiscernable d'un filtre correct sur un plateau sans power-up.
+
+    Accesseur ABSENT -> `False` : degradation NOMMEE et RESTRICTIVE (les deux consommateurs portes
+    RETIRENT des tuiles quand ce predicat est vrai, donc un VRAI invente amputerait la selection)."""
+    if unit is None or has_triggered_ability is None:
+        return False
+    return any(bool(has_triggered_ability(unit, int(a))) for a in _power_up_ids())
+
+
+class TilesWithoutPowerUps(TargetsSelector):
+    """`IdunBattleLogic.Entities.DSLSelectors$$TilesWithoutPowerUps(entities)` ->
+    `IdunBattle.Entities.Selectors.TilesWithoutPowerUpsSelector$$Select` -- MIRROR du decompile :
+
+        foreach (e in <+0x18>.Select(entities)) {
+            unit = UnitExtensions.GetUnit(e, state@<+0x20>);
+            if (unit == null || !UnitExtensions.IsPowerUp(unit))  out.Add(e);
+        }
+
+    ⚠ **La garde est `unit == null` OU `!IsPowerUp`, dans CET ordre** : une tuile LIBRE passe (c'est
+    la branche `goto LAB_180fefd3a` du decompile, prise AVANT tout appel a `IsPowerUp`). Le noeud ne
+    retire donc QUE les tuiles dont l'OCCUPANT est un power-up -- il n'exige PAS que la tuile soit
+    libre. C'est ce qui le rend composable avec le `.Otherwise(base)` de son unique call-site porte
+    (`IdunBattleLogic.Entities.Abilities.Triggered.Loki.BattleFocusAbility$$CreateMoveBehaviour`),
+    ou `base` est deja un `CanAddUnit(...)` : sans ce point, l'`Otherwise` serait toujours inerte.
+
+    DOMAINE : ids de tuile en entree comme en sortie, ordre de `source` preserve. `board` absent ->
+    aucune tuile ne resout d'occupant, donc le noeud rend `source` TEL QUEL -- degradation
+    RESTRICTIVE au sens du natif (il ne retire rien), et NOMMEE."""
+    def __init__(self, source: TargetsSelector):
+        self.source = source
+
+    def select(self, ctx):
+        src = list(self.source.evaluate(ctx) or [])
+        board = getattr(ctx, "board", None)
+        if board is None:
+            return src
+        # `UnitExtensions$$GetUnit(tile)` = foyer unique de la resolution d'occupant (#433-r3-r1a) :
+        # index par COORD, n'importe quel PIED resout en son unite.
+        occ = _occupants_by_tile(ctx.units)
+        hta = getattr(ctx, "has_triggered_ability", None)
+        out = []
+        for t in src:
+            c = board.coord(t)
+            u = occ.get((int(c[0]), int(c[1]))) if c is not None else None
+            if not unit_is_power_up(u, hta):
+                out.append(t)
+        return out
+
+
+class SafestTiles(TargetsSelector):
+    """`IdunBattleLogic.Entities.DSLSelectors$$SafestTiles(tiles, unit, unitsToAvoid)` ->
+    `IdunBattle.Entities.Selectors.SafestTileSelector$$Select` -- MIRROR du decompile, boucle par
+    boucle (champs poses par
+    `IdunBattle.Entities.Selectors.SafestTileSelector$$.ctor(state, battleQuery, tiles, unit,
+    unitsToAvoid)` : `+0x18 tiles`, `+0x20 unit`, `+0x28 state`, `+0x30 battleQuery`,
+    `+0x38 unitsToAvoid`) :
+
+        me    = Enumerable.First( unit@<+0x20>.Select(entities) )
+        avoid = unitsToAvoid@<+0x38>.SelectAll(entities, 3)
+        best = new List(); bestMin = 0; bestCount = int.MaxValue;
+        foreach (tile in tiles@<+0x18>.Select(entities)) {
+            cur = new List(); curMin = int.MaxValue;
+            foreach (e in avoid) {
+                if (e == me) continue;
+                eTiles = EntityExtensions.GetTiles(e, state@<+0x28>);
+                d = battleQuery@<+0x30>.<slot 0x6d = GetDistance>(tile, eTiles);
+                if (d <= curMin) {
+                    if (d < curMin) { cur.Clear(); curMin = d; }
+                    cur.AddRange(eTiles);
+                }
+            }
+            if (curMin > bestMin) { best.Clear(); best.Add(tile);
+                                    bestMin = curMin; bestCount = cur.Count; }
+            else if (curMin == bestMin) {
+                if (cur.Count < bestCount) { best.Clear(); best.Add(tile);
+                                             bestCount = cur.Count; }
+                else if (cur.Count == bestCount) best.Add(tile);
+            }
+        }
+        return best;
+
+    QUATRE lectures que le decompile TRANCHE, et qu'il ne faut pas deviner :
+
+    * **le critere est LEXICOGRAPHIQUE, a deux etages** : MAXIMISER d'abord la distance au plus
+      proche des `unitsToAvoid`, puis, a egalite, MINIMISER `cur.Count`. Ce compteur est alimente
+      par `AddRange(eTiles)`, donc il compte des TUILES, pas des unites : une unite multi-hex y pese
+      autant de fois qu'elle a de pieds. C'est le natif, pas un biais du port ;
+    * **le sujet ne se fuit pas lui-meme** : `if (entity != <me>) ...` ecarte l'unite rendue par
+      `unit@<+0x20>` de la liste a eviter ;
+    * **`bestMin` part de `0`, pas de `int.MinValue`** -- donc une tuile dont la distance minimale a
+      un ennemi vaut `0` (un ennemi est DESSUS) ne peut jamais entrer dans `best` ;
+    * **le retour est un ENSEMBLE d'ex aequo**, pas une tuile : son unique call-site porte
+      (`...BattleFocusAbility$$CreateMoveBehaviour`) l'enchaine sur `PickRandomly(..., 1)`.
+
+    `avoid` VIDE : la 1re tuile a `curMin == int.MaxValue > bestMin == 0` -> elle entre seule et
+    pose `bestCount = 0` ; les suivantes ont `curMin == bestMin` et `cur.Count == bestCount == 0`
+    -> elles s'AJOUTENT. Sans unite a eviter, le noeud rend donc TOUTES les tuiles -- mirror exact,
+    pas une degradation.
+
+    La distance passe par `board.distance` (le `<slot 0x6d> = GetDistance(tileA, tilesB)` natif prend
+    le MIN sur l'empreinte), avec les EMPREINTES (`_feet`) des unites a eviter, pas leur seule main
+    tile. `board` absent -> `[]`."""
+    _INF = 2 ** 31 - 1                                   # `int.MaxValue` des deux compteurs natifs
+
+    def __init__(self, tiles: TargetsSelector, unit: TargetsSelector,
+                 units_to_avoid: TargetsSelector):
+        self.tiles = tiles
+        self.unit = unit
+        self.units_to_avoid = units_to_avoid
+
+    def select(self, ctx):
+        board = getattr(ctx, "board", None)
+        if board is None:
+            return []
+        me = resolve_unit(self.unit, ctx)
+        me_id = (me or {}).get("id")
+        avoid = []
+        for u in _units_of(self.units_to_avoid, ctx):
+            if not isinstance(u, dict) or u.get("id") is None:
+                continue
+            if me_id is not None and int(u["id"]) == int(me_id):
+                continue                                 # `if (entity != <me>)`
+            pos = [p for p in _feet(u) if p is not None]  # `EntityExtensions$$GetTiles` = l'empreinte
+            if pos:
+                avoid.append(pos)
+        best, best_min, best_count = [], 0, self._INF
+        for t in self.tiles.evaluate(ctx) or []:
+            c = board.coord(t) if hasattr(board, "coord") else None
+            if c is None:
+                continue
+            cur_count, cur_min = 0, self._INF
+            for feet in avoid:
+                d = min(hexgeo.distance((c[0], c[1]), (p[0], p[1])) for p in feet)
+                if d <= cur_min:
+                    if d < cur_min:
+                        cur_count, cur_min = 0, d
+                    cur_count += len(feet)               # `cur.AddRange(eTiles)`
+            if cur_min > best_min:
+                best, best_min, best_count = [t], cur_min, cur_count
+            elif cur_min == best_min:
+                if cur_count < best_count:
+                    best, best_count = [t], cur_count
+                elif cur_count == best_count:
+                    best.append(t)
+        return best
+
+
 class UnobscuredTiles(TargetsSelector):
     """`IdunBattleLogic.Entities.DSLSelectors$$UnobscuredTiles(fromAnyTiles, toTiles)` ->
     `IdunBattle.Entities.Selectors.UnobscuredTilesSelector$$Select` -- MIRROR du decompile.
