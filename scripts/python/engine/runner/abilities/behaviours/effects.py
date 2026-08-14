@@ -573,6 +573,71 @@ class ActivateEffect(AbilityBehaviour):
         return OperationResult.ok()
 
 
+class DeactivateEffect(AbilityBehaviour):
+    """`IdunBattleLogic.Entities.DSLBehaviors$$DeactivateEffect(selector, effectType)` ->
+    `IdunBattle.Entities.Behaviours.DeactivateEffectBehaviour$$Execute` -- le JUMEAU EXACT
+    d'`ActivateEffectBehaviour$$Execute` ci-dessus : corps identique instruction pour instruction,
+    seul l'index de slot du processeur differe (`0x2d` = 45 au lieu de `0x2c` = 44). Memes trois
+    branches ; on porte la MEME que sa jumelle -- la 3e (selecteur d'UNITES + filtre par type),
+    celle du call-site `TheArdentBlade_TriggerAbility$$CreateBehaviour` (#1013-r2).
+
+    CE QU'IL FAIT, ET CE QU'IL NE FAIT PAS. Le slot 45 mene a
+    `IdunBattle.Operations.DeactivateEffectOperation$$Execute`, qui pousse une demande TYPEE au slot
+    47 (`RefreshEffects`) ; l'ecriture reelle est
+    `IdunBattle.Operations.RefreshEffectsOperation$$DeactivateEffect` :
+
+        if (effectComponent->+0x5c == 0)  -> NO-OP (il sort sans rien faire)
+        else
+            effectComponent->+0x5c = 0                       # `IsActive`
+            UpdateEffectTargets(this, desiredTargets = <List VIDE>, ...)
+
+    ⚠ **Il DESACTIVE, il ne RETIRE PAS**, et c'est structurel : `RemoveEffect` est un slot DISTINCT
+    (17) de `IdunBattle.Core.Services.IOperationProcessor`, jamais emprunte ici. L'entite-effet
+    SURVIT -- seul le flag bascule, et le retargetting vers l'ensemble VIDE fait jouer les
+    `ReverseModification` sur les cibles courantes. C'est ce qui permet au cycle
+    `AddEffect`/`ActivateEffect` ... `HasEffect(onlyActive = true)` ... `DeactivateEffect` de servir
+    de JETON A UN COUP par pose, au lieu d'un effet qu'il faudrait re-creer.
+
+    ASYMETRIE avec sa jumelle, LUE : `ActivateEffect` ne fait QUE poser le bit ; `DeactivateEffect`
+    pose le bit **et** vide les cibles. Cote port, les modificateurs sont derives des effets
+    `active` a la lecture (cf. `BaseEffect.active`, mirror de `EffectComponent+0x5c`), donc eteindre
+    le flag EST le retargetting -- il n'y a pas de liste de cibles materialisee a purger.
+
+    ⚠ IL NE MATERIALISE RIEN, la ou sa jumelle le fait. `ActivateEffect` doit materialiser une
+    instance absente (le canal de seed `decisionView` DROPPE les effets `IsActive == 0`, donc
+    « absente » y signifie « desactivee »). Le sens inverse n'a pas cette ambiguite : une instance
+    absente cote port est un effet qui n'existe pas, et le natif sort alors en NO-OP de toute facon
+    (`+0x5c == 0` deja). Materialiser pour eteindre serait inventer une entite.
+
+    Emet 'DeactivateEffect' par proprietaire (`deactivated` = un flag a-t-il change). PUR
+    (stop=False)."""
+    __slots__ = ("owner_sel", "effect_type")
+
+    def __init__(self, owner_sel: TargetsSelector, effect_type: int):
+        self.owner_sel, self.effect_type = owner_sel, int(effect_type)
+
+    def execute(self, entities, ectx):
+        state = ectx.state
+        if state is None:
+            return OperationResult.ok()
+        for u in _units_of(self.owner_sel, entities):
+            uid = u.get("id") if isinstance(u, dict) else None
+            if uid is None:
+                continue
+            deactivated = False
+            # `proc.<slot 0x2d>(effect)` sur CHAQUE instance selectionnee dont le type matche
+            # (`unit.EffectComponent.Type@+0x58 == this+0x60`). No-op sur un flag deja tombe,
+            # comme le natif (`if (+0x5c == 0) return`).
+            for eff in (state.effects.by_unit.get(int(uid), []) if state.effects is not None else []):
+                if eff.consumed or int(eff.effect_type) != self.effect_type or not eff.active:
+                    continue
+                eff.active = False
+                deactivated = True
+            ectx.emit("DeactivateEffect", owner=int(uid), effect_type=self.effect_type,
+                      deactivated=deactivated)
+        return OperationResult.ok()
+
+
 class ChangeEffectTurns(AbilityBehaviour):
     """`IdunBattleLogic.Entities.DSLFactory$$ChangeEffectTurns(owner, effectType, turnsNode, changeType)` ->
     `IdunBattle.Entities.Behaviours.ChangeEffectTurnsBehaviour$$Execute` — MIRROR du DECOMPILE :

@@ -250,6 +250,18 @@ class _NormalLike:
         # #366-r1 : intercepteur per-coup (`ExecuteHit` etape 5 = flag `discard` ; `On(0x3c = UnitBlocked)` +
         # `RegisterBlocks`). Cf. `triggers/loki/harlequins_panoply.py`.
         from ..triggers.loki.harlequins_panoply import make_hit_interceptor   # lazy (cycle)
+        # #1020-r4 : chokepoint `On(0x39 = EventTriggerType.PreDamageTaken)` joue DANS la boucle
+        # (cf. `damage_hits._run_hits`, bloc `POSITION DU TIRAGE`). `is_first_hit` porte ici le
+        # meme etat que le repli implicite d'`_apply_damage_pipeline` : cette voie ne threade pas
+        # d'`is_first_damaging_hit` propre (case-221 : N feuilles peuvent se partager la serie).
+        _first_damaging = bool(is_first_hit)
+        # #1020-r3 x #1020-r4 : `source_ability` resolu ICI, avant la boucle, et donne au sink ET
+        # au chokepoint -- l'emission ayant migre dans la boucle, le canal `AbilityEntities+0x98`
+        # doit l'y suivre.
+        _src_ability = AttackDamageOperation._damage_source_ability(ability_type, None)
+        _pdt_sink = AttackDamageOperation.make_pre_damage_taken_sink(
+            state, attacker_id, target_id, thc, damage_profile,
+            is_first_damaging_hit=_first_damaging, source_ability=_src_ability)
         r = AttackDamageOperation._run_hits(state.rng, hit_nc, hit_cr, crit_chance,
                                             crit_enabled, hits, block_sources,
                                             # #522-r1 : crit chance RELUE apres `On(PreAttackHit)`.
@@ -281,7 +293,8 @@ class _NormalLike:
                                             # lit lui-meme sur son parametre `defender`.
                                             prevent_overkill=unit_prevents_overkill(state, target_id),
                                             # famille de factory native : pilote l'ordre bouclier x limites
-                                            is_attack_damage_op=is_attack_damage_op)
+                                            is_attack_damage_op=is_attack_damage_op,
+                                            pending_sink=_pdt_sink)     # #1020-r4
         # #1020-r1 : plus de `_deplete_shield` ICI. `ApplyDamageOperation$$ReduceShield` lit le
         # pending RELU (apres `On(0x39)`), donc la depletion vit dans le chokepoint, avec `Reduce`.
         AttackDamageOperation._apply_damage_pipeline(                   # chokepoint partage (#202)
@@ -292,7 +305,7 @@ class _NormalLike:
             # Meme foyer que les deux autres vecteurs : `_damage_source_ability` est le mirror de
             # `StaticBattleRules$$GetDamageSourceAbility`, appele PAR COUP par les `ExecuteHit`
             # natifs -- donc par CE vecteur aussi.
-            source_ability=AttackDamageOperation._damage_source_ability(ability_type, None),
+            source_ability=_src_ability,   # #1020-r4 : la MEME que celle donnee au sink
             last_hit=(r["per_hit"][-1] if r.get("per_hit") else None),
             # #R33 : decomposition per-coup (crit / denied) pour `didOverkill`.
             hits_result=r,
@@ -303,7 +316,10 @@ class _NormalLike:
             # incremente le hitIndex d'une feuille a l'autre) -- il passe alors `is_first_hit=False`
             # pour toutes sauf la premiere. Defaut `True` = comportement inchange pour tout appelant
             # dont l'appel EST la serie entiere.
-            is_first_hit=bool(is_first_hit))
+            is_first_hit=bool(is_first_hit),
+            # #1020-r4 : MEME etat que celui donne au `pending_sink` ci-dessus (cf. `normal.py`).
+            is_first_damaging_hit=_first_damaging,
+            pre_damage_taken=AttackDamageOperation.pre_damage_taken_of(_pdt_sink))
         # VECTEUR AFTER-HIT (splash StatAmount) : idem execute_ability_attack — reset ActOfFaith au crit
         # (#138) + vecteur complet (#140). `ranged` = POSITION-based (mirror IsRangedAttack), calculé dedans.
         # `ability_type` = kind AbilityOrEffect du coup (smite Psyker 0x3f5 -> branche 2 AddIce #35).

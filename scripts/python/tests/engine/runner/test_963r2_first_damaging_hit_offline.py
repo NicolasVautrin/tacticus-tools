@@ -162,10 +162,41 @@ def test_le_vecteur_part_avant_toute_mutation_de_PV():
 
 # ------------------------------------ etage 3 : le flag n'est PAS derive de l'index dans la boucle
 
+def _noms_sources(arbre, expr, profondeur: int = 4) -> set:
+    """Les `ast.Name` dont `expr` DEPEND, en resolvant les alias locaux.
+
+    #1020-r4 : la garde ci-dessous lisait `{Name}` de l'expression NUE. Une indirection par
+    variable intermediaire (`_first_damaging = (not _damaging_done)` puis
+    `is_first_damaging_hit=_first_damaging`) la faisait rougir sur un cablage FIDELE, et --
+    symetriquement -- l'aurait laissee VERTE si cette variable avait ete rebranchee sur
+    `g_first_hit`. Le nom nu n'est donc ni necessaire ni suffisant : on suit les affectations."""
+    vus, front, out = set(), [expr], set()
+    for _ in range(max(1, profondeur)):
+        suivant = []
+        for e in front:
+            for n in ast.walk(e):
+                if isinstance(n, ast.Name):
+                    out.add(n.id)
+                    if n.id in vus:
+                        continue
+                    vus.add(n.id)
+                    for a in ast.walk(arbre):
+                        if isinstance(a, ast.Assign) and any(
+                                isinstance(t, ast.Name) and t.id == n.id for t in a.targets):
+                            suivant.append(a.value)
+        if not suivant:
+            break
+        front = suivant
+    return out
+
+
 def test_le_groupe_ne_derive_PLUS_le_flag_de_l_index_de_coup():
     """LE cran. Dans `additional_hits.py`, `is_first_damaging_hit` doit venir de l'etat threade, PAS
     de `g_first_hit` (qui, lui, ne parle que de l'index 0). Les rebrancher l'un sur l'autre
-    rouvrirait le residu en silence."""
+    rouvrirait le residu en silence.
+
+    #1020-r4 : la DEPENDANCE est resolue a travers les alias locaux (`_noms_sources`), donc la
+    garde survit a une variable intermediaire ET voit toujours un rebranchement sur l'index."""
     arbre = _arbre("additional_hits.py")
     appels = [n for n in ast.walk(arbre)
               if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
@@ -174,22 +205,53 @@ def test_le_groupe_ne_derive_PLUS_le_flag_de_l_index_de_coup():
     for appel in appels:
         kw = {k.arg: k.value for k in appel.keywords if k.arg}
         assert "is_first_damaging_hit" in kw, "le groupe n'envoie pas le flag `+0x118`"
-        noms = {n.id for n in ast.walk(kw["is_first_damaging_hit"]) if isinstance(n, ast.Name)}
+        noms = _noms_sources(arbre, kw["is_first_damaging_hit"])
         assert "g_first_hit" not in noms, \
             "le flag est REDERIVE de l'index de coup -- c'est le defaut de #963-r2"
         assert "_damaging_done" in noms, "le flag ne vient pas de l'etat threade"
 
 
 def test_l_etat_ne_bascule_QUE_sur_un_groupe_qui_damage():
-    """`_damaging_done` doit passer a True sous un gate `total > 0`, et APRES l'emission du groupe
-    courant -- sinon le groupe qui damage le premier se marquerait lui-meme comme « pas le
-    premier »."""
+    """`_damaging_done` doit passer a True sous un gate `total > 0`, et APRES la LECTURE qui
+    alimente le flag du groupe courant -- sinon le groupe qui damage le premier se marquerait
+    lui-meme comme « pas le premier ».
+
+    #1020-r4 : l'ancre n'est plus le littéral `is_first_damaging_hit=(not _damaging_done)` (une
+    variable intermediaire le faisait disparaitre du texte) mais la DERNIERE lecture de
+    `_damaging_done` en position de charge, quelle que soit la forme qui la consomme."""
+    arbre = _arbre("additional_hits.py")
+    # Les lectures qui ALIMENTENT le flag du chokepoint (pas celle de la sortie de fonction) : on
+    # part du kwarg `is_first_damaging_hit`, on resout ses alias, et on retient les lignes ou
+    # `_damaging_done` est effectivement consomme pour les construire.
+    appels = [n for n in ast.walk(arbre)
+              if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+              and n.func.attr == "_apply_damage_pipeline"]
+    assert appels, "aucun appel au chokepoint"
+    alias = set()
+    for appel in appels:
+        kw = {k.arg: k.value for k in appel.keywords if k.arg}
+        alias |= _noms_sources(arbre, kw["is_first_damaging_hit"])
+    lectures = [a.lineno for a in ast.walk(arbre)
+                if isinstance(a, ast.Assign)
+                and any(isinstance(t, ast.Name) and t.id in alias for t in a.targets)
+                and any(isinstance(n, ast.Name) and n.id == "_damaging_done"
+                        for n in ast.walk(a.value))]
+    lectures += [appel.lineno for appel in appels
+                 if any(isinstance(n, ast.Name) and n.id == "_damaging_done"
+                        for n in ast.walk({k.arg: k.value for k in appel.keywords
+                                           if k.arg}["is_first_damaging_hit"]))]
+    bascules = [n for n in ast.walk(arbre)
+                if isinstance(n, ast.Assign)
+                and any(isinstance(t, ast.Name) and t.id == "_damaging_done" for t in n.targets)
+                and isinstance(n.value, ast.Constant) and n.value.value is True]
+    assert lectures, "`_damaging_done` n'alimente PLUS le flag du chokepoint"
+    assert len(bascules) == 1, "une seule bascule a True attendue, vu %d" % len(bascules)
+    i_bascule = bascules[0].lineno
+    assert i_bascule > max(lectures), (
+        "l'etat bascule AVANT la lecture qui alimente le flag (bascule ligne %d, derniere lecture "
+        "ligne %d) : le premier groupe damageant se verrait FAUX" % (i_bascule, max(lectures)))
     src = (_OPS / "additional_hits.py").read_text(encoding="utf-8").splitlines()
-    i_emission = next(i for i, l in enumerate(src) if "is_first_damaging_hit=(not _damaging_done)" in l)
-    i_bascule = next(i for i, l in enumerate(src) if "_damaging_done = True" in l)
-    assert i_bascule > i_emission, \
-        "l'etat bascule AVANT l'emission : le premier groupe damageant se verrait FAUX"
-    assert 'if int(r["total"] or 0) > 0:' in src[i_bascule - 1], \
+    assert 'if int(r["total"] or 0) > 0:' in src[i_bascule - 2], \
         "la bascule n'est pas gatee par « ce groupe a inflige du degat »"
 
 

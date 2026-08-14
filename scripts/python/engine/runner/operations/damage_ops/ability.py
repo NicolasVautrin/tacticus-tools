@@ -599,6 +599,18 @@ class _AbilityAttack:
         # `RegisterBlocks`). `ADamageOperation` est la BASE PARTAGEE des deux familles -- la voie
         # ABILITY passe par `AbilityDamageOperation$$ExecuteHit`, qui emet les MEMES vecteurs.
         from ..triggers.loki.harlequins_panoply import make_hit_interceptor   # lazy (cycle)
+        # #1020-r4 : chokepoint `On(0x39 = EventTriggerType.PreDamageTaken)` joue DANS la boucle
+        # (cf. `damage_hits._run_hits`, bloc `POSITION DU TIRAGE`). Cet appel EST la serie de coups
+        # portee sur CETTE cible -> aucun degat ne lui a encore ete inflige par cette attaque.
+        _first_damaging = True
+        # #1020-r3 x #1020-r4 : `source_ability` resolu ICI, avant la boucle, et donne au sink ET
+        # au chokepoint -- l'emission ayant migre dans la boucle, le canal `AbilityEntities+0x98`
+        # doit l'y suivre. `GetDamageSourceAbility(currentAbility = l'ABILITY, triggeringAbility =
+        # null)` : une ability n'est pas une attaque REGULIERE -> la source est l'ability elle-meme.
+        _src_ability = AttackDamageOperation._damage_source_ability(ability_type, None)
+        _pdt_sink = AttackDamageOperation.make_pre_damage_taken_sink(
+            state, attacker_id, target_id, thc, damage_profile,
+            is_first_damaging_hit=_first_damaging, source_ability=_src_ability)
         r = AttackDamageOperation._run_hits(state.rng, hit_nc, hit_cr, crit_chance,
                                             crit_enabled, hits, block_sources, shield=shield_total,
                                             # #522-r1 : crit chance RELUE apres `On(PreAttackHit)`.
@@ -645,7 +657,8 @@ class _AbilityAttack:
                                             # flag « always crit » (TacticalPrecision branche CHARGE) :
                                             # crit acquis par coup, SANS tirage (le natif saute
                                             # RollCritical quand l'octet options+5 est pose).
-                                            force_crit=force_crit)
+                                            force_crit=force_crit,
+                                            pending_sink=_pdt_sink)     # #1020-r4
         # #1020-r1 : plus de `_deplete_shield` ICI. `ApplyDamageOperation$$ReduceShield` lit le
         # pending RELU (apres `On(0x39)`), donc la depletion vit dans le chokepoint, avec `Reduce`.
         # `is_attack` = COMPTABILITE d'attaque (`_record_attacked` -> `ActorStatisticsComponent$$
@@ -664,7 +677,7 @@ class _AbilityAttack:
             r["shield_dmg"], r["armor_dmg"], is_attack=bool(is_attack_damage_op),
             # `GetDamageSourceAbility(currentAbility = l'ABILITY, triggeringAbility = null)` : une
             # ability n'est pas une attaque REGULIERE -> la source est l'ability elle-meme.
-            source_ability=AttackDamageOperation._damage_source_ability(ability_type, None),
+            source_ability=_src_ability,   # #1020-r4 : la MEME que celle donnee au sink
             # `ApplyDamageOperation$$Execute` ecrit le « dernier coup encaisse » PAR COUP -> le
             # chokepoint par-attaque du port recoit le DERNIER coup (cf. `_record_last_hit_damage_taken`).
             last_hit=(r["per_hit"][-1] if r.get("per_hit") else None),
@@ -678,7 +691,10 @@ class _AbilityAttack:
             # ability MULTI-CIBLES, `execute_ability_attack` est appelee une fois PAR cible, et
             # `IdunBattle.Operations.ADamageOperation$$SetupHitGroup` construit lui aussi un groupe par
             # cible -> un tirage 1203 par cible, des deux cotes.
-            is_first_hit=True)
+            is_first_hit=True,
+            # #1020-r4 : MEME etat que celui donne au `pending_sink` ci-dessus (cf. `normal.py`).
+            is_first_damaging_hit=_first_damaging,
+            pre_damage_taken=AttackDamageOperation.pre_damage_taken_of(_pdt_sink))
         # #179 SUR LE VECTEUR ABILITY (famille ATTACK) — le natif n'a QU'UNE Operation d'attaque :
         # `IdunBattle.Operations.AttackDamageOperation$$Execute`, empruntee par l'attaque NORMALE **et**
         # par toute ability `IdunBattleLogic.Entities.DSLFactory$$AttackWithAttackDamage` (case-61 §1.2 :
