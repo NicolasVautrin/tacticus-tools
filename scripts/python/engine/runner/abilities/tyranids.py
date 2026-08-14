@@ -1520,12 +1520,32 @@ class StranglethornCannonAbility(ActiveAbility):
 # donc EN TETE de ce tri -- comportement natif, pas une degradation du port.
 #
 # PHASE 2, HORS de ce port : `IdunBattle.Entities.Effects.Loki.CallRipperSwarms_PendingSummonEffect`
-# (`CreateHandleTriggerAbilitiesInternal` = deux `DSLFactory.Triggered` --
-# `On(0x15) & IsTurnOf(bonded)` et `On(0x1f) & OwnerIsTargetTile`, tous deux vers
-# `If(IsCanAddUnit(Owner), TriggerAbility(<GetSpawnAbilityType>)) & GetRemoveEffectBehaviour()`),
-# puis `IdunBattleLogic.Entities.Abilities.Triggered.Loki.CallRipperSwarms_SpawnAbility$$
-# CreateBehaviour` (`Spawn(Caster, Target, GetStringConstant(0 = unitId),
-# SpawnUnitOptions.WithStatsFromConfig(...).onAppearance = PerformAIAttack(...))`).
+# -- RE RE-LUE AU DECOMPILE le 2026-08-14 (#1090), et la version precedente de ce bloc etait FAUSSE
+# sur le second trigger : elle envoyait les DEUX vers le meme behaviour. Ce que
+# `$$CreateHandleTriggerAbilitiesInternal` construit reellement, ce sont deux `DSLFactory.Triggered`
+# a behaviours DIFFERENTS, greffes sur l'`ArraySet` d'`ABondEffect$$CreateHandleTriggerAbilitiesInternal` :
+#   (1) Triggered( On(0x15 = TurnStart_DelayedAttacks) & IsTurnOf(BondedEntitySelector),
+#                  If( IsCanAddUnit(Owner@<DSLSelectors+0x30>),
+#                      TriggerAbility(<GetSpawnAbilityType>, targets/actor/caster = bonded,
+#                                     <DSLSelectors+0x30>) )
+#                  op_BitwiseAnd GetRemoveEffectBehaviour() )
+#   (2) Triggered( On(0x1f = PreUnitMove) & get_OwnerIsTargetTile,
+#                  GetRemoveEffectBehaviour() )                 <-- RETRAIT SEUL, AUCUN spawn
+# Autrement dit : le ripper n'apparait QU'AU turn-start du Hive Tyrant, et si une unite se deplace
+# sur la tuile marquee AVANT, la marque est simplement EFFACEE (c'est le « unless their hex is
+# occupied by another unit » de l'i2). Porter (2) avec le spawn ferait apparaitre un ripper sur le
+# deplacement d'une unite -- exactement l'inverse du natif.
+# `$$GetSpawnAbilityType` (RELU AUX OCTETS pour ses trois litteraux, que le decompile ne montre pas) :
+#   If( ActorHasTriggeredAbility(bonded, 0x44d = 1101 CallRipperSwarms_Spawn3), Direct(1101),
+#   If( ActorHasTriggeredAbility(bonded, 0x44c = 1100 CallRipperSwarms_Spawn2), Direct(1100),
+#       Direct(0x44b = 1099 CallRipperSwarms_Spawn) ) )
+# -- c'est-a-dire le palier LE PLUS HAUT que le porteur possede reellement.
+# Puis `IdunBattleLogic.Entities.Abilities.Triggered.Loki.CallRipperSwarms_SpawnAbility$$CreateBehaviour` :
+#   options = SpawnUnitOptions.WithStatsFromConfig(config, abilityState, null, null)
+#   options.<+0x18 = onAppearance> = PerformAIAttack(ActiveTarget@<DSLSelectors+0x68>, 1, null, 0, 0)
+#   return Spawn(parent = Caster@<DSLSelectors+0x48>, targets = Target@<DSLSelectors+0x60>,
+#                unitId = AbilityConfiguration.GetStringConstant(config, 0), options)
+# (le couple `PerformAIAttack(.., 1, null)` est deja recense par `abilities/loki/summon.py`.)
 
 CALL_RIPPER_SWARMS_ID = "CallRipperSwarms"
 CALL_RIPPER_SWARMS_PENDING_SUMMON = int(EffectType.CallRipperSwarms_PendingSummon)   # 0x446 = 1094
