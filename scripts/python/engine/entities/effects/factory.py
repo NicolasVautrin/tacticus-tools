@@ -2140,6 +2140,41 @@ ABILITY_INIT_OWNER_EFFECTS: dict[str, list[str]] = {
     # `$$CalculateMovementUtilityInSteps` -- residu `#1036-r3`. `GuardianConstruct` n'a AUCUN
     # playbook dans le build (verifie par `search_symbols_by_name`).
     "CabalOfSorcerers": ["CabalOfSorcerers_ExtraDamagePct"],
+    # #1035 -- `BlightedLandAbility` (ability **MYTHIQUE** de la MoW `deathCrawler` /
+    # `deathNpcMoWCrawler`, `TriggeredAbilityType` 0x5a7 = 1447). `frida/classes.tsv` : parent
+    # `IdunBattle.Entities.Abilities.AOwnerEffectTriggeredAbility`, et `sources_win` confirme que la
+    # classe n'override QU'UN slot -- `$$GetEffectType` (slot 34), dont le corps ENTIER est
+    # `return 0x5a2` (= 1442 `EffectType.BlightedLand_ExtraDamagePct`) : l'appariement
+    # ability -> effet est LU, pas devine. Le reste vient de la base, RELUE au decompile :
+    #   `$$CreateTrigger`   = OnOwnerSpecificAbilityInit(this.AbilityType@<this+0x10>)
+    #   `$$CreateBehaviour` = If( CreateCondition(abilityState) = <DSLTriggers+0x70> = YesTrigger,
+    #                             AddEffect(GetEffectType(),
+    #                                       AbilityState(Owner@<DSLSelectors+0x30>, AbilityType(this)),
+    #                                       source = Owner, targets = Owner, options = <Nullable ZERO>) )
+    # -> owner-effect PERMANENT pose a l'init, MEME patron que `MoreGitzOverEre` ci-dessus.
+    # ⚠ MEME VOIE TERTIAIRE (`BC.Units[].TertiaryAbility`, montage `rl_duel build --equip-mythic`) ;
+    # ce seed depend donc de la lecture de `ctx.tertiary_ability` par `_seed_ability_owner_effects`.
+    # La `CreateActiveCondition` de 1442 est le corps DEDUPLIQUE de la base (`return
+    # <DSLTriggers+0x70>` = `YesTrigger`, refcount 182) -> l'effet est TOUJOURS actif, donc capte par
+    # `decisionView.effects` sur un runner live : ce seed est un FILET pour les chemins offline.
+    # ⚠ L'EFFET 1442 N'ENTRE PAS DANS `EFFECT_CLASSES`, et c'est DELIBERE -- meme verrou que 1449 et
+    # 1448. i2 : « Friendly **Mythic** characters deal +{extraDmgPct}% Damage while on a
+    # **Contaminated** hex. » Le canal de degat est une AURA dont le SELECTEUR porte le gate :
+    #   `$$CreateTargetSelector` = UnitsOnTilesWithEffect(
+    #                                  UnitsWithRarity(
+    #                                      Friends(Owner@<DSLSelectors+0x30>, AllUnits@<+0x20>, 3),
+    #                                      5 = Mythic, 3),
+    #                                  0x4dc = EffectType.Contaminated )
+    #   `$$CreateEffectDamageBonusForAttack` = ForPercentIncrease(
+    #                                  get_OwnerIsCaster,
+    #                                  ConfigVar(0xa = extraDmgPct, GetAbilityState(effet), effet@+0x60))
+    # `UnitsWithRaritySelector$$Select` compare `GetBaseUnitComponent(e)+0x74` au litteral, et
+    # AUCUN canal `rarity` n'existe cote port -- l'inscrire sans ce gate projetterait l'aura sur TOUS
+    # les allies sur tuile contaminee, pas seulement les Mythiques : terme PERMISSIF. Residu
+    # `#1035-r2`, BLOCAGE capteur (le MEME que `#1025-r1` / `#1024-r1`). Le canal, sa contre-epreuve
+    # live et le point d'ancrage a hooker sont MESURES dans
+    # `docs/rl/case-1024-shield-of-faith-on-my-position.md` Sec.4 -- ne pas les re-mesurer.
+    "BlightedLand": ["BlightedLand_ExtraDamagePct"],
     # #1009 -- `MonsterSlayerofCalibanAbility` (parent `IdunBattle.Entities.Abilities.
     # BaseTriggeredAbility`, `frida/classes.tsv`) : UNE seule classe native pour la cle 1527, et
     # elle DECLARE ses deux methodes (pas d'heritage `AOwnerEffect*` ici).
