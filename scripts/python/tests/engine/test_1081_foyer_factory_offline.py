@@ -29,6 +29,35 @@ import pytest
 PY = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(PY))
 
+#: Ce qui doit changer pour que ce FICHIER puisse changer de verdict (#486-r15).
+DECLENCHEUR = {
+    "chemins": (
+        # L'etage [1] SOUS-PROCESSUS le probe : il n'entre donc PAS par la fermeture d'imports,
+        # et c'est exactement le cas qu'un declencheur derive ne peut pas voir.
+        "scripts/python/probe_1081_premisses_foyer_factory.py",
+        # ENTREES LUES AU TEXTE par ce probe, qu'aucun import ne revele : le backlog (les champs
+        # `BLOCAGE:` des dix fiches -- l'etage [1] rougit des qu'un mot y change), et les trois
+        # fichiers que l'inventaire mesure par SIGNATURE ou par presence d'une cle de contexte.
+        "docs/rl/backlog.md",
+        "scripts/python/engine/runner/damage_model.py",
+        "scripts/python/engine/runner/operations/spawn.py",
+        "scripts/python/probe_961_necron_passives.py",
+    ),
+    "build": False,   # aucune lecture du binaire ni de `data/symbols/**`
+    "toujours": False,
+    "raison": (
+        "CES chemins parce qu'ils sont les seuls a echapper a la cascade DERIVEE (#531) : "
+        "`probe_486r15 --proposer` mesure que la fermeture d'imports de ce fichier y tient "
+        "ENTIEREMENT, donc declarer `factory.py`, `machine_vengeance.py`, `heal_blocking.py` ou "
+        "`effect_bonus.py` serait redondant -- les etages [2] et [3] les atteignent par import. "
+        "Ce qui n'y est PAS : le probe de l'etage [1], lance en SOUS-PROCESSUS, et les fichiers "
+        "qu'il lit au TEXTE (le backlog, dont un champ `BLOCAGE:` modifie change le verdict sans "
+        "qu'aucun module bouge ; les deux modules dont il teste la SIGNATURE ou une cle ; et "
+        "`probe_961_necron_passives.py`, dont il cherche le drapeau `includeInactive`). "
+        "PAS `toujours: True` : ce fichier ne mesure aucune propriete globale de l'arbre."
+    ),
+}
+
 
 # --------------------------------------------------------------------------- [1] le probe
 
