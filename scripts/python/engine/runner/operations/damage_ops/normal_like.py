@@ -287,6 +287,12 @@ class _NormalLike:
         AttackDamageOperation._apply_damage_pipeline(                   # chokepoint partage (#202)
             state, target_id, attacker_id, tgt, thc, r["total"], damage_profile,
             r["shield_dmg"], r["armor_dmg"],
+            # #1020-r3 : le canal `AbilityEntities+0x98` (`DamageAppliedResult.source`), que le
+            # vecteur `On(0x39 = PreDamageTaken)` publie et que lisent les `TriggeringAbilityIs`.
+            # Meme foyer que les deux autres vecteurs : `_damage_source_ability` est le mirror de
+            # `StaticBattleRules$$GetDamageSourceAbility`, appele PAR COUP par les `ExecuteHit`
+            # natifs -- donc par CE vecteur aussi.
+            source_ability=AttackDamageOperation._damage_source_ability(ability_type, None),
             last_hit=(r["per_hit"][-1] if r.get("per_hit") else None),
             # #R33 : decomposition per-coup (crit / denied) pour `didOverkill`.
             hits_result=r,
