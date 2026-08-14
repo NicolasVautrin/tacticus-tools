@@ -173,10 +173,13 @@ GATE_NOT_DERIVABLE = "not_derivable"
 #: vide, une ability sans `TargetIsTile` recoit `entity == null`, et une ability avec le recoit la
 #: TUILE. Les cinq gates de ce regime commencent tous par un test qui, dans ce cas, rend `0`.
 #:
-#: ECART NOMME (il ne peut qu'ELARGIR) : sur une tuile OCCUPEE le gate retire, et le port ne le
-#: modelise pas -- l'occupation n'est publiee par aucun canal cote DECISION (meme trou que
-#: `#433-r4-r2-r1-r1-b`). Le consommateur `IsTileInRangeOfAnyAbility` interroge des tuiles
-#: CANDIDATES de deplacement, donc libres, ce qui est le regime couvert.
+#: SUR UNE TUILE OCCUPEE, le gate RETIRE -- et le port le modelise desormais (#433-r4-r2-r1-r1-a-r1),
+#: par le parametre `occupant_by_pos` d'`is_tile_in_range_of_any_ability`.
+#: ⚠ La phrase qui vivait ici (« l'occupation n'est publiee par aucun canal cote DECISION ») etait
+#: PERIMEE : `tileMeta.tiles[].occupantId` la publie depuis le capteur #175-r, et il INVOQUE
+#: `IdunBattle.Entities.UnitExtensions$$GetUnit(TileEntity, state)`, c.-a-d. exactement le natif que
+#: lit `1213 DeathOnTheWind`. C'est ce constat perime qui tenait le residu classe `BLOCAGE: capteur`,
+#: donc ECARTE au dispatch. Canal absent -> aucun retrait, comme avant.
 GATE_VALID_ON_EMPTY_TILE = "valid_on_empty_tile"
 
 #: L'ability SURCHARGE (fait runtime), mais son corps n'a pas ete lu par cette tranche.
@@ -802,7 +805,8 @@ def _unwalkable(rules, tile, walkable_by_pos, is_in_fog_by_pos) -> bool:
 
 def _ability_covers_tile(ability_id, visual_id, unit_pos, tile, elev_by_pos, board=None,
                          caster_team=None, team_by_pos=None,
-                         walkable_by_pos=None, is_in_fog_by_pos=None) -> bool:
+                         walkable_by_pos=None, is_in_fog_by_pos=None,
+                         occupant_by_pos=None) -> bool:
     """UNE ability couvre-t-elle `tile` depuis `unit_pos` ? -- la composition des CINQ etages,
     evaluee sur la TUILE : le court-circuit `rules` de `GetPossibleTargetTiles`, puis
     `GetTilesInRange` (son RAYON, puis son retrait des NON MARCHABLES, #-r1-r2-r2-r1), puis le
@@ -851,7 +855,20 @@ def _ability_covers_tile(ability_id, visual_id, unit_pos, tile, elev_by_pos, boa
         # `base is None` (portee non RE-lue) n'atteint ce point que par l'ajout aval, dont l'apport
         # est le SINGLETON `casterTiles` -- donc borne, et `None != WHOLE_BOARD_REACH` le dit.
         return base != WHOLE_BOARD_REACH
-    # GATE_NONE / GATE_NOT_READ / GATE_VALID_ON_EMPTY_TILE : aucun retrait sur une tuile LIBRE.
+    if gate == GATE_VALID_ON_EMPTY_TILE:
+        # #433-r4-r2-r1-r1-a-r1 -- le gate NE MORD QUE sur une tuile OCCUPEE, et l'occupation EST
+        # publiee : `tileMeta.tiles[].occupantId` (capteur #175-r), qui INVOQUE
+        # `IdunBattle.Entities.UnitExtensions$$GetUnit(TileEntity, state)` -- LE natif que lit
+        # `DeathOnTheWindAbility$$GetDynamicInvalidTargetReason`, et la meme entite que
+        # `EntityExtensions$$IsUnit(entity)` teste chez `1168`/`1200`. La fiche du residu disait
+        # « exige un capteur » : c'etait vrai a son ecriture, ce ne l'est plus.
+        # TRI-ETAT : `None` = canal absent -> aucun retrait (statu quo PERMISSIF, comportement
+        # d'avant). Une table FOURNIE mais vide est une mesure (« aucune tuile occupee »), et son
+        # regime degenere est ecarte en amont par l'appelant, pas ici.
+        if occupant_by_pos is not None and occupant_by_pos.get((tile[0], tile[1])) is not None:
+            return False
+        return True
+    # GATE_NONE / GATE_NOT_READ : aucun retrait sur une tuile LIBRE.
     return True
 
 
@@ -861,7 +878,7 @@ def is_tile_in_range_of_any_ability(unit_pos, tile, visual_id, feet_count: int =
                                     is_wall_by_pos=None, caster_team=None,
                                     team_by_pos=None, walkable_by_pos=None,
                                     is_in_fog_by_pos=None, caster_pos=None,
-                                    is_turn_of_unit=None) -> bool:
+                                    is_turn_of_unit=None, occupant_by_pos=None) -> bool:
     """`IdunBattle.Core.Services.BattleQuery$$IsTileInRangeOfAnyAbility(unit, tile)` -- mirror :
 
         if (UnitExtensions.GetFeetCount(unit, state) > 1) return true;      // MULTI-TUILES
@@ -938,6 +955,13 @@ def is_tile_in_range_of_any_ability(unit_pos, tile, visual_id, feet_count: int =
     `CasterSelector`, pas la position balayee. Confondre les deux ferait varier un verdict que le
     natif tient CONSTANT sur tout le balayage.
 
+    `occupant_by_pos` -- `{(col,row): occupantId | None}`, l'OCCUPANT de chaque tuile
+    (#433-r4-r2-r1-r1-a-r1). Substrat : `tileMeta.tiles[].occupantId`, qui INVOQUE
+    `IdunBattle.Entities.UnitExtensions$$GetUnit(TileEntity, state)` -- pas une reconstitution.
+    Consomme par le SEUL regime `GATE_VALID_ON_EMPTY_TILE` (sept abilities), dont le gate natif ne
+    retire QUE sur une tuile portant une unite. `None` = **non mesure** -> aucun retrait, c.-a-d.
+    le statu quo PERMISSIF d'avant.
+
     `is_turn_of_unit` -- `IdunBattle.Core.Services.BattleQuery$$IsTurnOfUnit(caster)`, le PREFIXE de
     la regle `CasterHasNotMoved` (#447-r1-r1). Il n'a d'effet QUE dans le regime BALAYE : la 2e
     clause de cette regle compare `casterTiles` (la position candidate, donc `unit_pos`) aux tuiles
@@ -995,5 +1019,6 @@ def is_tile_in_range_of_any_ability(unit_pos, tile, visual_id, feet_count: int =
     return any(_ability_covers_tile(aid, visual_id, unit_pos, tile, elev_by_pos, board,
                                     caster_team=caster_team, team_by_pos=team_by_pos,
                                     walkable_by_pos=walkable_by_pos,
-                                    is_in_fog_by_pos=is_in_fog_by_pos)
+                                    is_in_fog_by_pos=is_in_fog_by_pos,
+                                    occupant_by_pos=occupant_by_pos)
                for aid in aids if not _gated_out(aid, ability_state, caster))

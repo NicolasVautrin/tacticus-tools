@@ -156,9 +156,7 @@ class DeathFromAbovePlaybook(NonComparablePlaybook):
         Canaux `neigh_by_pos` / `walkable_by_pos` / `elev_by_pos` vides -> le foyer degrade seul
         vers `hexgeo.neighbors` ; c'est la degradation PERMISSIVE deja documentee sur `NCContext`,
         jamais un zero fabrique."""
-        occupied = set(ctx.epos or ()) | set(ctx.fpos or ())
-        if ctx.origin is not None:
-            occupied.add(ctx.origin)
+        occupied = bq.occupied_positions(ctx)     # #969-r3 : PAR PIED (`TileContentComponent`)
         return bq.adjacent_addable_count(pos, getattr(ctx, "neigh_by_pos", None),
                                          getattr(ctx, "walkable_by_pos", None), occupied,
                                          ctx.elev_by_pos)

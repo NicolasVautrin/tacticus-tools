@@ -282,9 +282,8 @@ class WaaaghPlaybook(NonComparablePlaybook):
         if not from_here and not union:
             return []
         n_buffed = self.num_existing_units_buffed(ctx)          # CONSTANT (ancre = origine)
-        occupied = set(ctx.epos or []) | set(ctx.fpos or [])
-        if ctx.origin is not None:
-            occupied.add(ctx.origin)                            # le caster n'a PAS bouge
+        # #969-r3 : PAR PIED (`TileContentComponent`) ; l'origine y entre (le caster n'a PAS bouge).
+        occupied = bq.occupied_positions(ctx)
         legal: dict = {}                                        # tid -> positions castables
         best = None                                             # (cible, position, utilite)
         for T in (ctx.reach_nc or []):

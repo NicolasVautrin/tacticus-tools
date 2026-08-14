@@ -77,9 +77,7 @@ class IncursionPlaybook(NonComparablePlaybook):
         elig = list(dict.fromkeys(elig))
         if not elig:
             return []
-        occupied = set(ctx.epos or []) | set(ctx.fpos or [])
-        if ctx.origin is not None:
-            occupied.add(ctx.origin)
+        occupied = bq.occupied_positions(ctx)     # #969-r3 : PAR PIED (`TileContentComponent`)
         best = None  # (eid, hp)
         for eid in elig:
             tp = self._pos_of(ctx, eid)

@@ -84,10 +84,11 @@ class MasterOfTheTutelariesPlaybook(NonComparablePlaybook):
         if n_e2 <= 0:
             return []                                        # gate nE2 > 0 (commun a tous les candidats)
         near_tile = self._nearest_enemy_tile(ctx)
+        # #969-r3 : les DEUX substrats ne portent que la MAIN TILE -> expansion PAR PIED dans le
+        # foyer `bq.occupied_positions` (`base` = l'univers choisi ici, jamais elargi).
         occ = {(u.get("col"), u.get("row")) for u in (ctx.obs_units or [])
                if not u.get("isDead") and u.get("col") is not None}
-        if not occ:
-            occ = set(ctx.epos or []) | set(ctx.fpos or []) | {ctx.origin}
+        occ = bq.occupied_positions(ctx, base=occ) if occ else bq.occupied_positions(ctx)
         neigh = bq.neigh_map(ctx)
         best = None                                          # (target_tile, position, util)
         for T in ctx.reach_nc:                               # positions candidates (ordre movable natif)

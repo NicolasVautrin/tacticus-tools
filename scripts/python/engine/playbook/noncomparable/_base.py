@@ -555,6 +555,13 @@ class NCContext:
     #                                `TargetingQuery$$GetTilesInRange` (#433-r4-r2-r1-r2-r2-r1) : le
     #                                natif RETIRE de la zone toute tuile non marchable. VIDE = canal
     #                                muet -> volet inerte (dégradation PERMISSIVE)
+    occupant_by_pos: dict = field(default_factory=dict)  # {(col,row): occupantId} <-
+    #                                `tileMeta.tiles[].occupantId` (#433-r4-r2-r1-r1-a-r1), le retour
+    #                                INVOQUE d'`UnitExtensions$$GetUnit(TileEntity, state)`. Seules
+    #                                les tuiles OCCUPEES y figurent. C'est le substrat des sept gates
+    #                                `GATE_VALID_ON_EMPTY_TILE`, qui ne retirent QUE sur une tuile
+    #                                portant une unite. VIDE : ambigu -- le discriminant est
+    #                                `ai.context.occupant_channel_is_measured`, jamais un `bool()`
     wt: object = None              # Weights BC (NovaShield : terme Tile(7) = tile_utility)
     is_temporary_by_pos: dict = field(default_factory=dict)  # Tile(7) (feuille is_temporary)
     effects_by_pos: dict = field(default_factory=dict)       # Tile(7) (feuille TileEffects)

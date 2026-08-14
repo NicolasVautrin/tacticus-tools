@@ -115,7 +115,11 @@ class ItItchesPlaybook(NonComparablePlaybook):
                 return False
         elif ctx.elev_by_pos is not None and dest not in ctx.elev_by_pos:
             return False           # hors board
-        occupied = set(ctx.epos or []) | set(ctx.fpos or []) | {pusher_pos}
+        # #969-r3 : PAR PIED (`TileContentComponent`). `pusher_pos` est ici l'ancre du site (le
+        # POUSSEUR, pas forcement `ctx.origin`), donc il entre par `base` -- l'expansion ajoutera
+        # ses propres pieds comme ceux de toute unite de l'univers.
+        occupied = bq.occupied_positions(
+            ctx, base=(set(ctx.epos or []) | set(ctx.fpos or []) | {pusher_pos}))
         return dest not in occupied
 
     def generate_candidates(self, ctx: NCContext) -> list[dict]:

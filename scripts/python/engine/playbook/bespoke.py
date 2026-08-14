@@ -276,9 +276,9 @@ class CultDemagoguePlaybook:
         `epos`)."""
         if center is None:
             return 0
-        occ = set(ctx.epos or []) | set(ctx.fpos or [])
-        if ctx.origin is not None:
-            occ.add(ctx.origin)                     # le CASTER lui-même (absent de `fpos`)
+        # #969-r3 : occupation PAR PIED (`TileContentComponent`), foyer `bq.occupied_positions`.
+        # L'origine du caster y entre par `include_origin` (`fpos` exclut le mover).
+        occ = bq.occupied_positions(ctx)
         return sum(1 for T in (ctx.walkable_by_pos or {})
                    if T != center and hexgeo.distance(center, T) <= self._RANGE
                    and bq.can_add_unit(T, ctx.walkable_by_pos, occ))

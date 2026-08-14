@@ -164,8 +164,6 @@ class HammerOfWrathPlaybook(_PlanTargetPlaybook):
         p = (tu or {}).get("pos") if tu else None
         if not p or p.get("col") is None:
             return 0.0
-        occupied = set(ctx.epos or []) | set(ctx.fpos or [])
-        if ctx.origin is not None:
-            occupied.add(ctx.origin)
+        occupied = bq.occupied_positions(ctx)     # #969-r3 : PAR PIED (`TileContentComponent`)
         return 5.0 * bq.adjacent_addable_count((p["col"], p["row"]), ctx.neigh_by_pos,
                                                ctx.walkable_by_pos, occupied, ctx.elev_by_pos)

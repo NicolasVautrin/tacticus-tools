@@ -79,7 +79,7 @@ class BioMinefieldPlaybook(NonComparablePlaybook):
         `battle_query.adjacent_addable_count`, dont le jumeau de ce module
         (`doctrina_imperatives._free_adjacent_tiles`, MEME natif) se sert deja."""
         valides = set(ctx.elev_by_pos.keys()) if ctx.elev_by_pos else set()
-        occupees = set(ctx.epos or ()) | set(ctx.fpos or ()) | {ctx.origin}
+        occupees = bq.occupied_positions(ctx)     # #969-r3 : PAR PIED (`TileContentComponent`)
         walk = ctx.walkable_by_pos or {}
         neigh_by_pos = getattr(ctx, "neigh_by_pos", None)
         n = 0
