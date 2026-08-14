@@ -314,13 +314,55 @@ def _docstring_ids(tree: ast.AST) -> set[int]:
     return out
 
 
+def _catalogue_member_ids(tree: ast.AST) -> set[int]:
+    """Les `ast.Attribute` qui sont des elements d'un CATALOGUE d'enum ECRIT EN VRAC.
+
+    Un conteneur litteral (`(...)`, `[...]`, `{...}`) dont TOUS les elements sont des acces
+    attributaires sur la MEME base (`_T.PowerUp_Armor, _T.PowerUp_Damage, ...`) est un mirror
+    de collection native -- typiquement le `HashSet<TriggeredAbilityType>` d'un `.cctor`. C'est
+    la MEME chose qu'une definition d'enum : un catalogue, pas un cablage.
+
+    ⚠ Pourquoi ce cran existe (mesure, pas precaution) : l'exclusion des DEFINITIONS de membres
+    d'enum juste au-dessus de-sature le critere au site de definition, mais une RE-ENUMERATION
+    ailleurs le re-sature integralement. `engine/entities/selectors/tiles._power_up_ids()` (mirror
+    de `...StaticBattleRules.TriggeredAbility$$GetPowerUps`) re-liste les 22 membres
+    `TriggeredAbilityType.PowerUp_*` : les **19** passifs `PowerUp_*` non portes sont passes de
+    GAP a ZONE-GRISE canal `R` d'un seul bloc, au merge d'une PR qui ne porte aucun d'eux. Le
+    catalogue repondait a « cette unite est-elle un power-up ? », jamais a « ce passif est porte ».
+
+    Le critere est un INVARIANT (base unique + tous les elements attributaires), pas un SEUIL :
+    rien a regler, et il ne se degrade pas quand le catalogue grandit ou retrecit. Un conteneur
+    MIXTE (un seul element non attributaire, ou deux bases differentes) n'est pas un catalogue et
+    reste compte -- on n'ecarte que ce dont on peut dire qu'il enumere UNE collection."""
+    out: set[int] = set()
+    for n in ast.walk(tree):
+        if not isinstance(n, (ast.Tuple, ast.List, ast.Set)):
+            continue
+        elts = n.elts
+        if len(elts) < 2:
+            continue
+        bases = set()
+        for e in elts:
+            if not (isinstance(e, ast.Attribute) and isinstance(e.value, ast.Name)):
+                bases = None
+                break
+            bases.add(e.value.id)
+        if bases is None or len(bases) != 1:
+            continue
+        for e in elts:
+            out.add(id(e))
+    return out
+
+
 def code_symbols(path: str) -> tuple[set[str], set[str], int]:
     """(symboles du CODE EXECUTABLE, litteraux de chaine, nb de membres d'enum ecartes).
 
     EXCLUT les DEFINITIONS de membres d'enum (un catalogue mirror 1:1 n'est pas un cablage --
-    c'est ce qui saturait le critere naif) et les docstrings. Les USAGES (`MonEnum.Membre` =
-    `ast.Attribute`) sont conserves. Les litteraux sont isoles a part : un litteral EXACT du nom
-    gameconfig est un LOOKUP KEYE SUR CE NOM, signal bien plus fort qu'un simple identifiant."""
+    c'est ce qui saturait le critere naif), les CATALOGUES d'enum ecrits en vrac ailleurs
+    (`_catalogue_member_ids`, meme raison) et les docstrings. Les USAGES ISOLES (`MonEnum.Membre`
+    = `ast.Attribute` hors catalogue) sont conserves. Les litteraux sont isoles a part : un
+    litteral EXACT du nom gameconfig est un LOOKUP KEYE SUR CE NOM, signal bien plus fort qu'un
+    simple identifiant."""
     try:
         with open(path, encoding="utf-8") as f:
             tree = ast.parse(f.read())
@@ -338,6 +380,8 @@ def code_symbols(path: str) -> tuple[set[str], set[str], int]:
                     if isinstance(t, ast.Name):
                         skip.add(id(t))
                         n_enum += 1
+    catalogue = _catalogue_member_ids(tree)
+    n_enum += len(catalogue)
     syms: set[str] = set()
     lits: set[str] = set()
     for n in ast.walk(tree):
@@ -345,7 +389,8 @@ def code_symbols(path: str) -> tuple[set[str], set[str], int]:
             if id(n) not in skip:
                 syms.add(n.id)
         elif isinstance(n, ast.Attribute):
-            syms.add(n.attr)
+            if id(n) not in catalogue:
+                syms.add(n.attr)
         elif isinstance(n, ast.Constant):
             if isinstance(n.value, str) and id(n) not in docs:
                 syms.add(n.value)
