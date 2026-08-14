@@ -830,6 +830,49 @@ class UnitsWithoutTrait(TargetsSelector):
                 and (st is None or _selection_ok(u, st, ctx))]
 
 
+class UnitsWithRarity(TargetsSelector):
+    """`IdunBattleLogic.Entities.DSLSelectors$$UnitsWithRarity(units, rarity, unitSelectionType)` ->
+    `IdunBattle.Entities.Formulas.UnitsWithRaritySelector$$Select` (#999-r3) -- MIRROR 1:1 :
+
+        inner = this-><+0x18>;  selType = this-><+0x24>
+        if (inner == null) throw
+        src  = inner.Select(entities, selType)             # slot 3 = Select(entities, selectionType)
+        out  = new List<IEntity>()
+        foreach (entity in src)
+            buc = IdunBattle.Entities.UnitExtensions$$GetBaseUnitComponent(entity)
+            if (buc == null) throw
+            if (buc-><+0x74> == this-><+0x20>) out.Add(entity)
+        return out
+
+    ⚠ **AUCUN filtre de `UnitSelectionType` par ELEMENT ici, et ce n'est pas un oubli** : le natif
+    ne fait qu'en TRANSMETTRE la valeur au selecteur INTERIEUR (`inner.Select(entities, selType)`)
+    et sa propre boucle ne compare QUE la rarete. Cote port, c'est donc le noeud `source` qui porte
+    son `selection_type` (ex. `UnitsWithRarity(Friends(owner, all_units, selection_type=3),
+    Rarity.Mythic)`) -- rajouter ici un `_selection_ok` par element serait un SECOND filtre que le
+    natif n'applique pas. C'est pourquoi ce ctor n'a pas de parametre `selection_type` : un
+    parametre inerte se recopierait en croyant filtrer.
+
+    SUBSTRAT : `BaseUnitComponent.Rarity` (+0x74), canal `combatSnapshot.units[].rarity` (#1039) ->
+    `UnitContext.rarity` -> cle `rarity` du dict d'unite (`entities_from_state`).
+
+    DEGRADATION NOMMEE -- une unite dont la rarete n'est PAS MESUREE (`None`) est **EXCLUE**, comme
+    si son ordinal differait. Meme choix, meme raison que `triggers.HasRarity` : les consommateurs
+    natifs de ce selecteur (`BlightedLandEffect`, `GuardianConstruct_ExtraDamagePctEffect`) s'en
+    servent pour DESIGNER LES BENEFICIAIRES d'un bonus -- garder une unite non mesuree lui
+    accorderait un bonus que le natif lui refuse peut-etre."""
+    def __init__(self, source: TargetsSelector, rarity):
+        self.source, self.rarity = source, rarity
+
+    def select(self, ctx):
+        want = int(self.rarity)
+        out = []
+        for u in self.source.evaluate(ctx):
+            r = u.get("rarity") if isinstance(u, dict) else getattr(u, "rarity", None)
+            if r is not None and int(r) == want:
+                out.append(u)
+        return out
+
+
 class UnitsWithoutRangedWeapons(TargetsSelector):
     """`IdunBattleLogic.Entities.DSLSelectors$$UnitsWithoutRangedWeapons(entities)` ->
     `IdunBattle.Entities.Selectors.UnitsWithoutWeaponsSelector$$Select` : garde les entites de

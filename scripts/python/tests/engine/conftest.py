@@ -44,6 +44,16 @@ regime par le foyer du moteur. Montage dans
 OFFLINE par LECTURE (aucune des deux formes ne depend de l'etat de bataille), donc pas de
 `live_session` : la face demi-vers-le-pair n'a PAS d'oracle live, ce qui est nomme dans le probe.
 
+`rarity_separating_case` (#999-r3) -- MONTAGE NOMME du REGIME SEPARANT de la RARETE, et la fixture
+la plus reutilisable de la famille : TOUT gate de rarete (`HasRarity`, `UnitsWithRarity`, et les
+cinq effets mythiques qui les portent) doit etre tranche LA, jamais dans le regime par defaut du
+harnais. `rl_duel build` impose `targetRarity = 5`, donc sans montage les dix unites rendent `5` et
+un port SANS gate est d'accord avec le natif PARTOUT -- un vert y est VIDE. Deux bras :
+`rarity_separating_case()` (separant, `orksKillaKan` -> `Rarity.Epic`) et
+`rarity_separating_case(rarity=None)` (DEGENERE, le temoin qui etablit que le premier separe).
+Montage dans `scripts/python/probe_999r3_regime_separant_rarete.py` ; la fixture n'en est que la
+porte pytest, et le probe REFUSE de rendre un bras separant qui ne separe pas.
+
 Un montage qui ne s'installe pas ECHOUE, il ne skippe pas (#268) : un `pytest.skip` sur un regime non
 atteint est un VERT qui ment -- aucune mesure n'a eu lieu et la suite ne rougit pour personne."""
 from __future__ import annotations
@@ -56,6 +66,7 @@ import probe_17_martial_inspiration as MI
 import probe_308_normal_attack_bonus as NAB
 import probe_316_ability_prediction_target_traits as TTA
 import probe_350r3b_triggered_average_forms as TAF
+import probe_999r3_regime_separant_rarete as RAR
 
 
 @pytest.fixture(scope="module")
@@ -176,6 +187,39 @@ def triggered_average_form_case():
             except RuntimeError as exc:                 # montage non installe -> ROUGE, jamais skip
                 pytest.fail("montage triggered-average-form NON INSTALLE (call_site=%s, level=%s, "
                             "mult=%s) : %s" % (call_site, level, mult, exc), pytrace=False)
+        return cache[key]
+    return _case
+
+
+@pytest.fixture(scope="module")
+def rarity_separating_case(live_session):
+    """Fabrique : `rarity_separating_case()` -> le dict de mesure du bras SEPARANT (#999-r3) ;
+    `rarity_separating_case(rarity=None)` -> le bras DEGENERE (temoin).
+
+    Cles rendues : `rarityEnum` (nom PLEIN publie par le capteur, a ASSERTIONNER -- cinq enums du
+    build partagent les six memes ordinaux), `by_entity` / `by_visual` (ce que le CAPTEUR publie),
+    `ctx_by_entity` / `ctxDistinct` (ce que le PORT en fait apres `load_state`, donc la TRAVERSEE),
+    `distinct`, `separating`.
+
+    Un bras SEPARANT qui ne separe pas fait ROUGIR (le probe leve, la fixture `fail`) : c'est la
+    seule protection contre le vert VIDE que le regime par defaut du harnais fabrique tout seul.
+
+    Chaque appel monte UN runner isole et le DISPOSE en sortie de `run()`. Portee MODULE : les
+    assertions d'un meme fichier se partagent la mesure."""
+    cache: dict = {}
+
+    def _case(rarity: "int | None" = RAR.RARETE_SEPARANTE, vis: str = RAR.VIS_SEPARE,
+              seed: int = RAR.SEED, board: str = RAR.BOARD,
+              p_mow: "str | None" = None) -> dict:
+        key = (rarity, vis, seed, board, p_mow)
+        if key not in cache:
+            try:
+                cache[key] = RAR.run(rarity=rarity, vis=vis, seed=seed, board=board,
+                                     p_mow=p_mow, verbose=True)
+            except RuntimeError as exc:             # montage non installe -> ROUGE, jamais skip
+                pytest.fail("montage rarity-separating NON INSTALLE (rarity=%s, vis=%s, seed=%s, "
+                            "board=%s, p_mow=%s) : %s"
+                            % (rarity, vis, seed, board, p_mow, exc), pytrace=False)
         return cache[key]
     return _case
 

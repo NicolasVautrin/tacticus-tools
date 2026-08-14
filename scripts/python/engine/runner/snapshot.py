@@ -51,6 +51,7 @@ from ..entities.effects import factory as _effects_factory
 from ..entities.unit_context import UnitContext
 from ..entities.active_ability_type import ActiveAbilityType
 from ..entities.traits.unit_trait import trait_names_from_ids
+from ..entities.rarity import assert_rarity_channel      # #999-r3 (canal #1039)
 from ..entities.triggered_ability_type import TriggeredAbilityType
 from .components import ForcedAttackTargetsComponent
 from .operations.aura_stat_mods import attribute_aura_stat_modifiers
@@ -449,6 +450,12 @@ def load_state(decision: dict, observe: dict, snapshot: Optional[dict] = None,
     # `_grafts_concerning`, ou la mesure qui l'impose est ecrite.
     _refuse_if_grafted(source, snapshot, decision)
     if snapshot is not None:
+        # #999-r3 -- AVANT tout seed qui LIT `units[].rarity` (`UnitContext.from_snapshot`). Le
+        # capteur publie le nom PLEIN de l'enum justement pour qu'un consommateur l'ASSERTIONNE :
+        # les cinq enums de rarete du build partagent leurs six membres aux memes ordinaux, donc
+        # aucune VALEUR ne trahirait un mauvais appariement. Canal muet (`rarityEnum` absent ou
+        # `null`) -> no-op, comportement strictement d'avant.
+        assert_rarity_channel(snapshot)
         # AVANT les stats : `UnitFlag.Moved`/`Teleported` sont des entrees de GATE lues par le calcul
         # de degat (`attacker_modifiers` -> `unit_has_moved`), pas des sorties -- cf. `_load_unit_flags`.
         _load_unit_flags(state, snapshot)

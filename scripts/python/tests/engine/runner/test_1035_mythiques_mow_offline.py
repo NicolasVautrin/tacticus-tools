@@ -384,14 +384,29 @@ def test_verrou_de_rarete_fige_avec_sa_raison():
     port qui oublierait le gate serait d'accord avec le natif dans tous les bras par defaut. C'est
     exactement pourquoi ce verrou ne peut pas etre leve << au jugé >>.
 
-    Ce test ROUGIRA le jour ou quelqu'un les inscrit : c'est voulu. Il faudra alors avoir threade
-    `rarity` (residus `#1035-r1` / `#1035-r2`), et le retrait de ce cliquet fera partie du geste."""
+    ⚠ REQUALIFIE PAR #999-r3 -- LE MUR A CHANGE. Le paragraphe ci-dessus decrit l'etat d'AVANT :
+    le cran gardait l'ABSENCE de `UnitContext.rarity` pour ROUGIR le jour ou elle apparaitrait.
+    Elle est apparue (canal #1039 consomme par #999-r3), ce cran a ete VU ROUGE, et sa premisse
+    est desormais FAUSSE. Ce qu'il garde MAINTENANT :
+      * le CANAL EXISTE et repond (`UnitContext.rarity`, `HasRarity`, `UnitsWithRarity`),
+        confronte live en regime SEPARANT -- `tests/engine/runner/test_999r3_canal_rarete_live.py` ;
+      * les DEUX effets restent hors `EFFECT_CLASSES`, mais **le blocage n'est plus le capteur** :
+        1448 attend le threading d'`att_rarity`/`att_traits` dans le ctx de
+        `aura_defense_damage_malus_from_units`, 1442 attend celui de `UnitsOnTilesWithEffect` sur
+        la voie AURA. Residus `#1035-r1` / `#1035-r2`, desormais `BLOCAGE: aucun`.
+
+    Le point ⚠ ci-dessus (regime par defaut DEGENERE) reste ENTIEREMENT valable, et il a
+    maintenant sa sortie : la fixture `rarity_separating_case` (#999-r3). Toute inscription de
+    1448/1442 doit etre tranchee LA, jamais dans un runner standard."""
     from engine.entities.effects.factory import EFFECT_CLASSES
+    from engine.entities.rarity import Rarity
+    from engine.entities.selectors.units import UnitsWithRarity        # noqa: F401 (existence)
+    from engine.entities.triggers import HasRarity                      # noqa: F401 (existence)
     from engine.entities.unit_context import UnitContext
     assert EffectType.HyperCorrosiveAcid_ExtraDamagePct.name not in EFFECT_CLASSES
     assert EffectType.BlightedLand_ExtraDamagePct.name not in EFFECT_CLASSES
-    # Le canal manquant, nomme : si ce champ APPARAIT, le verrou est leve et les deux canaux de
-    # degat doivent etre portes (ce test devient alors le rappel a faire).
-    assert not hasattr(UnitContext, "rarity"), (
-        "UnitContext.rarity existe desormais : le verrou est leve, porter les canaux de degat de "
-        "1448 et 1442 (HasRarity / UnitsWithRarity, Mythic) et retirer ce cliquet")
+    assert hasattr(UnitContext, "rarity"), (
+        "`UnitContext.rarity` a DISPARU : le canal de rarete (#999-r3) est retire, et les deux "
+        "effets redeviennent inevaluables pour la RAISON D'ORIGINE.")
+    assert UnitContext(entity_id=1).rarity is None, "tri-etat : `None` = pas mesure"
+    assert int(Rarity.Mythic) == 5

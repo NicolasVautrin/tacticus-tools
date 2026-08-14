@@ -210,27 +210,39 @@ def test_le_seed_offline_pose_l_owner_effect_de_more_gitz():
 
 
 def test_verrou_de_rarete_fige_avec_sa_raison():
-    """Les DEUX effets restent HORS `EFFECT_CLASSES` tant qu'aucun canal `rarity` n'existe.
+    """REQUALIFIE PAR #999-r3 -- le mur a CHANGE, et ce cran dit lequel.
 
-    RAISON, mesuree : `IdunBattle.Entities.UnitExtensions$$HasRarity` et
-    `IdunBattle.Entities.Formulas.UnitsWithRaritySelector$$Select` comparent tous deux
-    `GetBaseUnitComponent(e)+0x74` au litteral `5 = Mythic` ; ni `combatSnapshot`, ni
-    `UnitContext`, ni le gameconfig (`BaseRarity = "Common"` sur les DEUX MoW) ne portent cette
-    valeur. Les inscrire sans le gate donnerait un terme PERMISSIF -- exactement le motif pour
-    lequel `ShieldOfFaithNonOwnerPlaybook` et les trois faces MOVE de `#477-r37-r1` ne sont pas
-    portees non plus.
+    Etat d'AVANT : les DEUX effets restaient hors `EFFECT_CLASSES` parce qu'aucun canal `rarity`
+    n'existait ; le cran gardait donc l'ABSENCE de `UnitContext.rarity`, pour ROUGIR le jour ou
+    elle apparaitrait. Elle est apparue (#999-r3, canal #1039) -- ce cran a fait exactement son
+    travail, il a ete VU ROUGE, et sa premisse est desormais FAUSSE.
 
-    Ce test ROUGIRA le jour ou quelqu'un les inscrit : c'est voulu. Il faudra alors avoir threade
-    `rarity` (residu `#1025-r1`), et le retrait de ce cliquet fera partie du meme geste."""
+    Etat d'AUJOURD'HUI, et ce que ce cran garde maintenant :
+      * le CANAL EXISTE et repond -- `UnitContext.rarity`, `triggers.HasRarity`,
+        `selectors.units.UnitsWithRarity`, confrontes live en regime SEPARANT
+        (`tests/engine/runner/test_999r3_canal_rarete_live.py`). C'est assertionne ici pour que
+        le retrait du canal rougisse AUSSI ;
+      * les DEUX effets restent hors `EFFECT_CLASSES`, mais **le blocage n'est plus le capteur** :
+        c'est le THREADING des deux ctx d'aura (`att_rarity` / `tgt_rarity` ne sont pas encore
+        poses par `aura_attack_damage_bonus_from_allies` ni par `aura_defense_damage_malus_from
+        _units`). Le residu `#1025-r1` reste ouvert, avec `BLOCAGE: aucun`.
+
+    Il ROUGIRA le jour ou quelqu'un les inscrit -- c'est toujours voulu : leur inscription doit
+    passer par une confrontation en regime SEPARANT, jamais dans le regime par defaut du harnais
+    ou toute unite vaut `Mythic` et ou un port SANS gate serait d'accord partout."""
     from engine.entities.effects.factory import EFFECT_CLASSES
+    from engine.entities.rarity import Rarity
+    from engine.entities.selectors.units import UnitsWithRarity        # noqa: F401 (existence)
+    from engine.entities.triggers import HasRarity                      # noqa: F401 (existence)
     from engine.entities.unit_context import UnitContext
     assert EffectType.ElectrochaffBackups_DamageReductionPct.name not in EFFECT_CLASSES
     assert EffectType.MoreGitzOverEre_ExtraDamagePct.name not in EFFECT_CLASSES
-    # Le canal manquant, nomme : si ce champ APPARAIT, le verrou est leve et les deux effets
-    # doivent etre portes (le test ci-dessus devient alors le rappel a faire).
-    assert not hasattr(UnitContext, "rarity"), (
-        "UnitContext.rarity existe desormais : le verrou #1025-r1 est leve, porter les canaux "
-        "de degat de 1446 et 1449 (HasRarity(..., Mythic)) et retirer ce cliquet")
+    # Le canal, desormais PRESENT et TRI-ETAT : `None` = pas mesure, jamais `Rarity.Common`.
+    assert hasattr(UnitContext, "rarity"), (
+        "`UnitContext.rarity` a DISPARU : le canal de rarete (#999-r3) est retire, et les deux "
+        "effets redeviennent inevaluables pour la RAISON D'ORIGINE. Relire case-999r3-canal-rarete.")
+    assert UnitContext(entity_id=1).rarity is None
+    assert int(Rarity.Mythic) == 5
 
 
 # --------------------------------------------------------------------------------------------
