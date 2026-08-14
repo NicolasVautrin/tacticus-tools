@@ -203,6 +203,9 @@ from ..loki.omnissiahs_blessing import (                    # #1023 (passif 1299
     OmnissiahsBlessingAbility, OMNISSIAHS_BLESSING)
 from ..loki.vengeance_for_the_omnissiah import (            # #1071 (passif 1298, admecSmnTechpriest)
     VengeanceForTheOmnissiahAbility, VENGEANCE_FOR_THE_OMNISSIAH)
+from ..loki.power_up import (                               # #1083-r1 (les 5 PowerUp_* de BOOST DE
+    PowerUpArmorAbility, PowerUpDamageAbility,              # STAT -- unites `powup*` Steppable)
+    PowerUpHealthAbility, PowerUpHitsAbility, PowerUpMeleeHitsAbility)
 from ..loki.optimized_gait import (                         # #1050 (passif 1205, admecRuststalker :
     OPTIMIZED_GAIT, OptimizedGaitMoveAbility,               # attaque reactive + pas sur l'hex du mort)
     OptimizedGaitTriggerAttackAbility)
@@ -511,6 +514,32 @@ ABILITY_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
     # l'inscription n'est PAS un registered-but-dead.
     # Cf. loki/vengeance_for_the_omnissiah.py. #1071.
     VENGEANCE_FOR_THE_OMNISSIAH: [VengeanceForTheOmnissiahAbility],
+    # PowerUp_* -- LES CINQ PASSIFS DE BOOST DE STAT (#1083-r1), un par unite-objet `powup*`
+    # (`traits: [Steppable, Invincible, Immune]`, `activeAbilities: []`). Trigger COMMUN, porte par la
+    # base `APowerUpAbility` (mirror `IdunBattleLogic.Entities.Abilities.Triggered.Loki.
+    # APowerUpAbility$$CreateTrigger`) :
+    #   `EventTrigger(1 = PreUnitDeath) & <DSLTriggers+0x70 : conjoint NEUTRE>
+    #    & NOT TargetIsOverkilled() & get_OwnerIsTarget
+    #    & HasDeathReason(Owner@+0x30, 2 = DamageReason.Steppable, <Nullable VIDE>)
+    #    & NOT HasTrait(Actor@+0x40, 0x1b = Steppable) & IsAlive(Actor@+0x40)`
+    # -- c'est le trigger d'`HaywireMineSteppable` MOINS son `AreEnemies` (un power-up profite a
+    # QUICONQUE marche dessus, ami compris -- LU, aucun appel a `DSLTriggers$$AreEnemies`) PLUS le
+    # gate overkill. Behaviour commun (`...$$CreateBehaviour`), cible = `Actor@+0x40` :
+    #   `AddShield & AddPctBasedBoost & AddAbsoluteBoost & <SelfContained> & <Additional>`
+    # ⚠ `PowerUp_Armor` ne surcharge NI `get_PctBasedStatBoost` NI `get_AbsoluteStatBoost` mais
+    # `AdditionalBehavior` (vslot +0x398) -> `AddDynamicStatModifierEffect(..., PowerUp_Armor,
+    # FixedArmor, ...)`, dont la magnitude vit dans `entities/effects/loki/power_up.py`.
+    # ⚠ Les ordinaux des DEUX enums DIVERGENT : `TriggeredAbilityType.PowerUp_MeleeHits` (1138) ==
+    # `EffectType.PowerUp_Armor` (1138). Le membre NOMME, jamais l'ordinal.
+    # Le vecteur `On(1)` d'un crush existe (`movement.py::_kill_steppable_kill_unit` ->
+    # `damage.py::_kill_unit_operation`), donc l'inscription n'est PAS un registered-but-dead --
+    # c'est la MEME porte que celle qu'`HaywireMineSteppable` emprunte deja.
+    # Cf. loki/power_up.py. #1083-r1.
+    PowerUpArmorAbility.ABILITY_NAME: [PowerUpArmorAbility],
+    PowerUpDamageAbility.ABILITY_NAME: [PowerUpDamageAbility],
+    PowerUpHealthAbility.ABILITY_NAME: [PowerUpHealthAbility],
+    PowerUpHitsAbility.ABILITY_NAME: [PowerUpHitsAbility],
+    PowerUpMeleeHitsAbility.ABILITY_NAME: [PowerUpMeleeHitsAbility],
     # TheBetrayer = gain-rage-au-kill (mort) + auto-tour (début de tour). Cf. les 2 classes dans loki.py.
     "TheBetrayer": [TheBetrayerAddEffectAbility, TheBetrayerTakeTurnAbility],
     # ArcaneShield (Thaumachus) = bouclier à la FIN DE L'ACTIVATION du porteur : `On(0x1c=

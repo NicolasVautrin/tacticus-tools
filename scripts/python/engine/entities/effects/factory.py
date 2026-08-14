@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
+from ..effect_type import EffectType      # cle du registre = un NOM d'`EffectType` (feuille enum)
 from ..unit_flag import UnitFlag          # `ABILITY_INIT_OWNER_FLAGS` (feuille enum, aucun cycle)
 from .base import BaseEffect
 from .loki.ability_modifications import ListenUpMaggotsEffect
@@ -16,6 +17,7 @@ from .loki.intoxicating_elixir import IntoxicatingElixirEffect
 from .loki.kardiocore_galvanus import KardiocoreGalvanusExtraCritDmgEffect
 from .loki.maw_claws_of_thyrax import MawClawsOfThyraxExtraCritDmgEffect
 from .loki.nether_realm_casket import NetherRealmCasketCritDamageReductionEffect
+from .loki.power_up import PowerUpArmorEffect                # #1083-r1
 from .loki.headwoppas_killchoppa import HeadwoppasKillchoppaExtraDmgEffect
 from .loki.instinctive_behaviour import InstinctiveBehaviourBlockMovementEffect   # #1015-r1 (1235)
 from .loki.norn_crown import NornCrownEffect
@@ -249,6 +251,14 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # Le mirror d'`EffectType` portait ce nom depuis longtemps SANS aucune classe derriere -- le
     # port nommait la donnee sans executer la mecanique ; c'est ce trou que cette entree ferme.
     "InstinctiveBehaviour_BlockMovement": InstinctiveBehaviourBlockMovementEffect,
+    # #1083-r1 -- `PowerUp_Armor` (EffectType 0x472 = 1138) : le SEUL des cinq power-ups de boost de
+    # stat a exiger une classe. Il est pose par `AddDynamicStatModifierEffect`, dont la feuille NE
+    # calcule PAS la magnitude -- sans classe l'effet serait present et INERTE. Les quatre autres
+    # passent par `AddStaticStatModifierEffect`, qui ecrit lui-meme la `ValueModification` : leur
+    # donner une classe qui redeclare `applied_stat_mods` DOUBLERAIT le bonus (piege
+    # `champion_of_the_feast`). ⚠ 1138 est aussi `TriggeredAbilityType.PowerUp_MeleeHits` -- la cle de
+    # ce registre est un NOM d'`EffectType`, jamais un ordinal.
+    EffectType.PowerUp_Armor.name: PowerUpArmorEffect,
     "LionHelm_ExtraDmg": LionHelmExtraDmgEffect,
     "LionHelm_ExtraBlockDamage": LionHelmExtraBlockDamageEffect,
     "LionHelm_ExtraBlockChance": LionHelmExtraBlockChanceEffect,
