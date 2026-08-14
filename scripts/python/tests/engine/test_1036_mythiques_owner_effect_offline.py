@@ -109,21 +109,32 @@ def test_effet_hors_registre_tant_que_la_rarete_est_inevaluable(ability):
     garde le MEME verrou pour 1446/1449. Se TAIRE le jour ou le canal apparait laisserait
     `#1036-r1`/`#1036-r2` dormir sans que personne ne l'apprenne : la tranche qui ouvre le capteur
     n'a aucune raison de relire cette case-doc. Un cran qui ne peut que descendre est un cran qui
-    perd son objet en silence."""
+    perd son objet en silence.
+
+    ⚠⚠ **IL A ROUGI, ET IL A EU RAISON** (#999-r3, 2026-08-14). Le canal existe desormais
+    (`UnitContext.rarity`, `HasRarity`, `UnitsWithRarity` -- confrontes live en regime SEPARANT,
+    `tests/engine/runner/test_999r3_canal_rarete_live.py`), et il REPOND bien a `UnitsWithRarity`.
+    Ce que le cran garde depuis :
+      * le canal DOIT rester present (son retrait rougit -- premiere assertion) ;
+      * les deux effets restent hors `EFFECT_CLASSES`, mais **le blocage n'est plus le capteur** :
+        `UnitsWithRarity` est porte, `EntitiesWithAnyEffect` aussi, ce qui manque est le
+        THREADING d'`att_rarity` dans le ctx de `aura_attack_damage_bonus_from_allies` et une
+        confrontation en regime separant. Residus `#1036-r1` / `#1036-r2`, `BLOCAGE: aucun`.
+    Le cran ne peut donc plus << ne rougir qu'en descendant >> : il rougit si le canal part, et il
+    rougit si l'effet entre au registre sans passer par la porte separante."""
     from engine.entities.effects.factory import EFFECT_CLASSES
 
     nom_effet, _ = ATTENDU[ability]
-    if _canal_rarete_existe():
-        assert False, (
-            f"`UnitContext` porte desormais une RARETE : le verrou qui tenait {nom_effet} hors "
-            f"d'`EFFECT_CLASSES` est leve. RELIRE `docs/rl/case-1036-mythiques-cabale-et-construct.md` "
-            f"§2 (la RE des deux effets y est complete) et porter #1036-r1 / #1036-r2 -- ou "
-            f"requalifier ce cran si le canal ne repond pas a `UnitsWithRarity`.")
+    assert _canal_rarete_existe(), (
+        "`UnitContext.rarity` a DISPARU : le canal de rarete (#999-r3) est retire et les deux "
+        "effets redeviennent inevaluables pour la RAISON D'ORIGINE. Relire "
+        "`docs/rl/case-999r3-canal-rarete.md`.")
     assert nom_effet not in EFFECT_CLASSES, (
-        f"{nom_effet} est entre dans EFFECT_CLASSES alors qu'`UnitContext` ne porte AUCUNE rarete "
-        f"-- son `$$CreateTargetSelector` serait donc applique SANS son etage "
-        f"`UnitsWithRarity(Mythic)`, soit un terme PERMISSIF silencieux (residus #1036-r1/-r2, "
-        f"BLOCAGE capteur)")
+        f"{nom_effet} est entre dans EFFECT_CLASSES : son `$$CreateTargetSelector` doit alors "
+        f"porter son etage `UnitsWithRarity(Mythic)` ET avoir ete confronte en REGIME SEPARANT "
+        f"(fixture `rarity_separating_case`, #999-r3) -- le regime par defaut du harnais pose "
+        f"`targetRarity = 5` partout, donc un port SANS gate y serait d'accord avec le natif. "
+        f"Residus #1036-r1/-r2, desormais BLOCAGE: aucun.")
 
 
 # ============================================ (3) les ordinaux du mirror, figes AU SITE
