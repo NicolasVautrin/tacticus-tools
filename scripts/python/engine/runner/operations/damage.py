@@ -678,7 +678,7 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
     def _pre_damage_taken_per_hit(state: State, attacker_id: int, target_id: int, thc,
                                   total: int, shield_dmg: int, profile: Optional[str],
                                   hits_result: Optional[dict], attack_dispatch,
-                                  *, is_first_damaging_hit) -> tuple:
+                                  *, is_first_damaging_hit, source_ability=None) -> tuple:
         """#1020 -- l'etage `On(0x39 = EventTriggerType.PreDamageTaken)`, PAR COUP et A RETOUR LU.
 
         MIRROR de la sequence d'`IdunBattle.Operations.ApplyDamageOperation$$Execute`, relue aux
@@ -723,13 +723,13 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
         pending, `kept_health == total` et `kept_shield == shield_dmg` A L'IDENTIQUE -- c'est
         l'invariant de non-regression du chokepoint des QUATRE vecteurs de degat.
 
-        RESIDU NOMME (`#1020-r1`) : le bouclier. Le natif annule AUSSI `ReduceShield` sur un coup
-        transfere (il lit `pending.shieldDamage`, donc 0) ; le port, lui, deplete le bouclier dans
-        `_deplete_shield`, appele par les APPELANTS **avant** ce chokepoint. `kept_shield` est donc
-        juste pour les etages en aval (`RegisterDamage`, `lastHitDamageTaken`) mais la depletion
-        du `ShieldComponent`, elle, a deja eu lieu. Regime d'exercice : victime portant un
-        `ShieldComponent` non nul au moment d'un coup transfere. Non atteint par les porteurs de
-        `SaviorProtocols` (cibles T'au sans bouclier)."""
+        `#1020-r1` -- FERME. Le natif annule AUSSI `ReduceShield` sur un coup transfere : il lit
+        `pending.shieldDamage`, donc 0, exactement comme son voisin `Reduce` lit
+        `pending.healthDamage` -- les deux valeurs sortent du MEME `GetValueOrDefault`, celui
+        d'APRES l'emission. Le port depletait le bouclier chez les APPELANTS, avant ce chokepoint
+        et sur le degat CALCULE : la victime d'un transfert perdait un bouclier qu'elle aurait du
+        garder. `_deplete_shield` vit desormais dans `_apply_damage_pipeline`, juste apres
+        `thc.reduce`, et consomme `kept_shield`."""
         pend = (hits_result or {}).get("per_hit_pending")
         if not pend:
             pend = [(int(total or 0), int(shield_dmg or 0))]
@@ -742,7 +742,7 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
             if int(h) + int(s) > 0:            # `0 < DamageAppliedResult.get_Damage(&result)`
                 attack_dispatch.pre_damage_taken_triggers(
                     state, attacker_id, target_id, profile=profile,
-                    is_first_damaging_hit=first_dmg)
+                    is_first_damaging_hit=first_dmg, source_ability=source_ability)
                 first_dmg = False              # `+0x18` du coup SUIVANT : plus le premier damageant
             after = thc.pending_damage         # `GetValueOrDefault` : Nullable vide -> struct ZERO
             if after is None:
@@ -851,11 +851,27 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
             state, attacker_id, target_id, thc, int(total or 0), int(shield_dmg or 0), profile,
             hits_result, attack_dispatch,
             is_first_damaging_hit=(is_first_hit if is_first_damaging_hit is None
-                                   else is_first_damaging_hit))
+                                   else is_first_damaging_hit),
+            # #1020-r3 -- LE CANAL `AbilityEntities+0x98`, LU au ctor nomme. `ApplyDamageOperation$$
+            # Execute` construit son `AbilityEntities` avec `currentAbilityOrEffect` (13e param) ET
+            # `triggerAbilityOrEffect` (15e param) tous deux recopies du MEME bloc
+            # `DamageAppliedResult+0x40` (le `Nullable<AbilityOrEffect>` de son champ
+            # `source: IdunBattle.Operations.DamageSource`). Cote port ce bloc EST `source_ability`,
+            # deja resolu par `_damage_source_ability` (mirror de
+            # `idun.Idun.Source.Shared.Battle.StaticBattleRules.StaticBattleRules$$GetDamageSourceAbility`).
+            source_ability=source_ability)
         # `FillUpStatComponent$$Reduce(hp, pending.healthDamage)` : le natif reduit ce que le
         # PENDING RELU porte, pas le degat calcule. Sans consommateur, `kept_health == total`
         # (mesure du no-op : voir `probe_1020_pipeline_par_coup.py` etage 1).
         applied = thc.reduce(kept_health)   # #G6a : clamp au HP-floor Hypersensory, pas de PV<0
+        # `ApplyDamageOperation$$ReduceShield(this, target, pending.shieldDamage)` -- #1020-r1.
+        # JUSTE APRES `Reduce`, et sur le pending RELU comme lui (les deux valeurs sortent du meme
+        # `GetValueOrDefault`). Avant ce commit la depletion vivait chez les APPELANTS, avant le
+        # chokepoint et sur le degat CALCULE : un coup transfere annulait les PV mais laissait la
+        # victime perdre son bouclier. Le `ShieldComponent` est relu ICI depuis `tgt` -- c'est le
+        # meme composant que celui des appelants (`_target_shield` le resout de la meme facon).
+        AttackDamageOperation._deplete_shield(
+            tgt.get_component(ShieldComponent) if tgt is not None else None, kept_shield)
         # Les etages EN AVAL lisent le pending relu, pas le calcule : tout ce qui suit consomme
         # `kept_*`. Egalite stricte avec l'ancien code des qu'aucun trigger ne consomme.
         total = kept_health
@@ -1088,11 +1104,33 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
         return shc, (shc.get_total_shield() if shc is not None else 0)
 
     @staticmethod
-    def _deplete_shield(shc, run_result: dict) -> None:
-        """Déplète le bouclier de l'absorbé (`run_result['shield_dmg']`) après l'attaque (mirror de la
-        déplétion `ApplyDamageOperation` ; le coup réduit l'instance, l'expiration à 0 par `deplete`)."""
-        if shc is not None and int(run_result.get("shield_dmg") or 0) > 0:
-            shc.deplete(int(run_result["shield_dmg"]))
+    def _deplete_shield(shc, shield_dmg) -> None:
+        """`IdunBattle.Operations.ApplyDamageOperation$$ReduceShield(unit, amount)` -- la depletion
+        du bouclier de l'absorbe. Le coup reduit l'instance, l'expiration a 0 passe par `deplete`.
+
+        #1020-r1 -- CE FOYER A CHANGE DE PLACE, ET C'EST LA CORRECTION. Il etait appele par les
+        APPELANTS, **avant** le chokepoint, sur le degat CALCULE (`run_result['shield_dmg']`). Le
+        natif, lui, l'appelle **apres** l'emission d'`On(0x39 = EventTriggerType.PreDamageTaken)`,
+        sur le pending RELU -- exactement comme son voisin `Reduce`, et depuis le MEME
+        `GetValueOrDefault` :
+
+            GetValueOrDefault(healthComp[+0x64], &pending);        // relecture APRES l'emission
+            local_7c8 = FillUpStatComponent$$Reduce(hp, pending.healthDamage);
+            ApplyDamageOperation$$ReduceShield(this, target, pending.shieldDamage);
+
+        Un coup CONSOMME par `IdunBattle.Operations.TransferDamageOperation$$GetDamage` met les DEUX
+        parts a zero (`*(qword*)(comp+0x64) = 0` et `+0x6c`), donc le natif n'enleve NI PV NI
+        BOUCLIER. Le port n'annulait que les PV : la victime d'un transfert perdait un bouclier
+        qu'elle aurait du garder.
+
+        SECOND EFFET, LU AU MEME ENDROIT : ce foyer passe desormais SOUS le gate `Overkilled` du
+        SITE (A), qui `return` **avant** l'ecriture du pending. Une cible deja overkillee ne perd
+        donc plus son bouclier -- ce que le natif ne faisait deja pas.
+
+        `shield_dmg` est un ENTIER (le montant RELU), plus un `run_result` : le dict portait le
+        degat calcule, et c'est precisement la valeur qu'il ne faut plus lire ici."""
+        if shc is not None and int(shield_dmg or 0) > 0:
+            shc.deplete(int(shield_dmg))
 
     @staticmethod
     def _block_sources(tsc, tgt_active_effects, defender_armor: int, damage_profile=None):

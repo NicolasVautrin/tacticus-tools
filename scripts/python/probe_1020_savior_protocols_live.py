@@ -249,8 +249,12 @@ def mesure_port(nat, ids, board, sans_rail: bool = False):
         vrai = TR.transfer_damage_operation
         vus = []
 
-        def compte(state, caster_id, orig, tgt, hit_index=None):
-            out = vrai(state, caster_id, orig, tgt, hit_index=hit_index)
+        def compte(state, caster_id, orig, tgt, hit_index=None, attack_ability=None):
+            # `attack_ability` (#1020-r2) = le 5e parametre natif, celui qui descend au slot
+            # `64 = DirectDamage`. Le stub DOIT porter le contrat reel, sinon le probe tombe sur
+            # son propre echafaudage au lieu de mesurer le port.
+            out = vrai(state, caster_id, orig, tgt, hit_index=hit_index,
+                       attack_ability=attack_ability)
             if out is not None:
                 vus.append(out)
             return out

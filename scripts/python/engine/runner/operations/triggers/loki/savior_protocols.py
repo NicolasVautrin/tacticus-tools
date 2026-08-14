@@ -17,8 +17,8 @@ summoner (`tauMarksman`, au pool) et le drone arrive dans son equipe.
         On(0x39 = EventTriggerType.PreDamageTaken, ownerNeedsToBeAlive = 0)
           & TargetIsValidTrigger()
           & IsAdjacent(Owner@<DSLSelectors+0x30>, Target@<+0x60>, 0 = UnitSelectionType.Any)
-          & !TriggeringAbilityIs(<AbilityOrEffect A>)
-          & !TriggeringAbilityIs(<AbilityOrEffect B>)
+          & !TriggeringAbilityIs(0x530 = 1328 PinpointCounterOffensive)   // #1020-r3 : LU aux octets
+          & !TriggeringAbilityIs(0x52f = 1327 ATemptingTrap)              // #1020-r3 : LU aux octets
 
     SaviorProtocolsAbility$$TargetIsValidTrigger =            // PARTAGE avec la face MOVE
         AreFriends(Target@<+0x60>, Owner@<+0x30>)
@@ -58,18 +58,21 @@ noeud, comme l'exige la doctrine #149. Les deux lisent le meme decompile ; ils n
 
 ## RESIDUS
 
-* **`#1020-r3` -- les deux `!TriggeringAbilityIs(<AbilityOrEffect>)` ne sont PAS LUS.** Le
-  decompile perd l'argument de `IdunBattle.Core.AbilityOrEffect$$op_Implicit` (seul le buffer de
-  retour est visible) et `read_bytes` plafonne a 32 octets par appel. Le port les OMET, ce qui est
-  PERMISSIF -- mais la recursion drone -> drone, le seul regime dangereux, est deja fermee par
-  `!ActorHasTriggeredAbility(Target, 1120)` de `TargetIsValidTrigger` : un drone porteur ne peut
-  jamais etre la VICTIME d'un transfert. Ecart residuel possible : un transfert qui devrait etre
-  refuse pour une source de degat particuliere.
-* **`#1020-r1`** (dans `_pre_damage_taken_per_hit`) : le bouclier de la victime n'est pas restitue
-  sur un coup transfere. Non atteint ici (cibles T'au sans `ShieldComponent`).
+* **`#1020-r3` -- FERME.** Les deux `!TriggeringAbilityIs` sont LUS (aux octets : `mov edx, 0x530`
+  et `mov edx, 0x52f`, cf. `EXCLUDED_*` ci-dessous) et PORTES. Le noeud `TriggeringAbilityIs` lit
+  `ctx.attack_ability_type` (le canal `AbilityEntities+0x98`), que le vecteur
+  `pre_damage_taken_triggers` alimente desormais.
+* **`#1020-r1` -- FERME.** Le natif annule AUSSI `ReduceShield` sur un coup transfere : `Reduce` et
+  `ReduceShield` lisent le MEME pending relu APRES l'emission. `_deplete_shield` a donc quitte les
+  APPELANTS pour le chokepoint (`operations/damage.py`), ou il consomme `kept_shield`.
+* **`#1020-r2` -- FERME.** Les deux `Nullable<AbilityOrEffect>` sont consommes, et ils n'ont pas le
+  meme role : les DEUX forment un GATE (`HasValue` exige, sinon `TransferDamageBehaviour$$Execute`
+  ne fait RIEN), et seul `attackAbility` descend jusqu'au slot `64 = DirectDamage` pour nommer la
+  source du degat porte par le protecteur. Cf. `abilities/behaviours/transfer.py`.
 """
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import Optional
 
 from .....dsl.effects import ExecutionContext
@@ -80,7 +83,7 @@ from .....entities.selectors.accessors import Actor, Target
 from .....entities.selectors.tiles import Caster
 from .....entities.triggered_ability_type import TriggeredAbilityType
 from .....entities.triggers import (ActorHasTriggeredAbility, AreEqual, AreFriends, HasFaction,
-                                    IsAdjacent, MaybeTrigger, Not, TriggerAnd)
+                                    IsAdjacent, MaybeTrigger, Not, TriggerAnd, TriggeringAbilityIs)
 from .....entities.unit_faction import UnitFaction
 from .....entities.unit_selection_type import UnitSelectionType
 from ....abilities.behaviours.context import entities_from_state
@@ -98,6 +101,17 @@ FACTION_SELECTION = UnitSelectionType.OnlyAliveAndTargetable          # = 3
 ADJACENCY_SELECTION = UnitSelectionType.Any                           # = 0
 #: `ConfigConst(0x2a, abilityState)` -- `AbilityConstantType.chance`, `constants.chance` du gameconfig.
 CHANCE_CONSTANT = AbilityConstantType.chance
+#: Les DEUX `!TriggeringAbilityIs(<AbilityOrEffect>)` qui terminent `$$CreateTrigger` (#1020-r3).
+#: L'argument est INVISIBLE au decompile (ghidra ne montre que le buffer de retour d'
+#: `IdunBattle.Core.AbilityOrEffect$$op_Implicit`) : les deux valeurs sont lues AUX OCTETS de
+#: `SaviorProtocolsAbility$$CreateTrigger`, ou l'immediat est charge dans `edx` juste avant le
+#: `call` -- `mov edx, 0x530` puis `mov edx, 0x52f`, dans CET ordre. Les deux `call` visent la
+#: MEME surcharge (meme rel32 apres correction de site), celle dont le parametre de metadata se
+#: nomme `triggeredAbility` et dont le corps appelle `IdunBattle.Core.AbilityOrEffect$$
+#: set_TriggeredAbility` -> l'enum est `TriggeredAbilityType`, PAS `ActiveAbilityType` ni
+#: `EffectType` (les trois surcharges portent le meme nom affiche, seul le rel32 les separe).
+EXCLUDED_PINPOINT = TriggeredAbilityType.PinpointCounterOffensive     # 0x530 = 1328
+EXCLUDED_TEMPTING_TRAP = TriggeredAbilityType.ATemptingTrap           # 0x52f = 1327
 
 _ON_PRE_DAMAGE_TAKEN = int(EventTriggerType.PreDamageTaken)           # 0x39 = 57
 
@@ -120,18 +134,23 @@ def target_is_valid_trigger_tree():
 
 
 def savior_trigger_tree():
-    """`SaviorProtocolsAbility$$CreateTrigger`, moins le volet `On(0x39)` que porte le DISPATCH et
-    moins les deux `!TriggeringAbilityIs` non lus (residu `#1020-r3`) :
+    """`SaviorProtocolsAbility$$CreateTrigger`, moins le seul volet `On(0x39)` que porte le
+    DISPATCH -- les QUATRE conjoints restants sont portes (#1020-r3 a ferme les deux derniers) :
 
-        TargetIsValidTrigger() & IsAdjacent(Owner@<+0x30>, Target@<+0x60>, 0)
+        TargetIsValidTrigger()
+          & IsAdjacent(Owner@<+0x30>, Target@<+0x60>, 0)
+          & !TriggeringAbilityIs(0x530 = 1328 PinpointCounterOffensive)
+          & !TriggeringAbilityIs(0x52f = 1327 ATemptingTrap)
 
     ⚠ `ownerNeedsToBeAlive` vaut **0** (2e argument d'`On`), comme `GeminaeSuperia` -- le gate
     « owner vivant » du dispatch (`CanGetAbilityTrigger`) reste celui du port, residu PARTAGE.
 
     ZERO tirage PRNG : le `Maybe` est dans le BEHAVIOUR, pas dans le trigger. Un drone dont le gate
     ferme ne consomme donc aucun tirage -- point load-bearing pour le flux RNG."""
-    return TriggerAnd(target_is_valid_trigger_tree(),
-                      IsAdjacent(Caster(), Target(), int(ADJACENCY_SELECTION)))
+    t = TriggerAnd(target_is_valid_trigger_tree(),
+                   IsAdjacent(Caster(), Target(), int(ADJACENCY_SELECTION)))
+    t = TriggerAnd(t, Not(TriggeringAbilityIs(EXCLUDED_PINPOINT)))
+    return TriggerAnd(t, Not(TriggeringAbilityIs(EXCLUDED_TEMPTING_TRAP)))
 
 
 def savior_chance() -> int:
@@ -149,7 +168,7 @@ def savior_chance() -> int:
         return 0
 
 
-def savior_behaviour_tree(rng):
+def savior_behaviour_tree(rng, *, transfer_ability=None, attack_ability=None):
     """`SaviorProtocolsAbility$$CreateBehaviour` -- LU VERBATIM :
 
         transfer = DSLBehaviors.TransferDamage(<+0x78>, sel+0x48, sel+0x60, sel+0x30,
@@ -176,7 +195,16 @@ def savior_behaviour_tree(rng):
     return If(MaybeTrigger(rng, savior_chance()),
               TransferDamage(caster_sel=Actor(),
                              original_target_sel=Target(),
-                             transfer_targets_sel=Caster()),
+                             transfer_targets_sel=Caster(),
+                             # #1020-r2 -- les 4e et 5e arguments natifs, sur leurs canaux propres.
+                             # `<DSLSelectors+0x88>` = `CurrentAbilitySelector` = `+0x60`, que
+                             # `BaseTriggeredAbility$$Execute` vient d'ecrire AVANT ce behaviour :
+                             # c'est la triggered elle-meme.
+                             transfer_ability=transfer_ability,
+                             # `<+0x90>` = `TriggeringAbilitySelector` = `+0x98`, que le publieur y
+                             # a mis et que `BaseTriggeredAbility$$Execute` n'ecrira qu'APRES : c'est
+                             # l'ability qui inflige le degat.
+                             attack_ability=attack_ability),
               None)
 
 
@@ -195,14 +223,30 @@ class SaviorProtocolsAbility(TriggeredAbility):
         """`CreateTrigger` moins le volet `On(0x39)` du dispatch.
 
         Le porteur (`self.owner_id`) est l'`Owner@<+0x30>` ; `ev.target_id` la victime ;
-        `ev.actor_id` la source du degat."""
+        `ev.actor_id` la source du degat.
+
+        `attack_ability_type` = le canal `AbilityEntities+0x98`, que les DEUX `!TriggeringAbilityIs`
+        comparent. Il vient d'`ev.triggering_effect`, celui des deux champs d'evenement qui porte
+        `+0x98` (l'autre, `ev.triggering_ability`, porte `+0x60` -- leurs NOMS Python sont
+        historiques et trompeurs, cf. le bloc de commentaire de `TriggerEvent`). Meme voie que
+        `relic_power_fist.py`, qui expose le meme slot `<DSLSelectors+0x90>` a son arbre."""
         entities = entities_from_state(state, self.owner_id, ev.target_id, actor_id=ev.actor_id)
+        entities = replace(entities, attack_ability_type=ev.triggering_effect)
         return bool(savior_trigger_tree().evaluate(entities))
 
     def execute_behaviour(self, state: State, ev: TriggerEvent) -> Optional[dict]:
         ectx = ExecutionContext(state=state, rng=state.rng)
         entities = entities_from_state(state, self.owner_id, ev.target_id, actor_id=ev.actor_id)
-        savior_behaviour_tree(state.rng).execute(entities, ectx)
+        savior_behaviour_tree(
+            state.rng,
+            # `+0x60`, ecrit par `BaseTriggeredAbility$$Execute` AVANT le behaviour. Cote port ce
+            # canal est `state.triggering_ability`, pose autour d'`execute_behaviour` par
+            # `triggers/dispatch/core.py` -- avec exactement cet id. On le LIT plutot que de
+            # recopier la constante : si le foyer cessait de le poser, le gate doit s'en apercevoir.
+            transfer_ability=state.triggering_ability,
+            # `+0x98`, que le publieur d'`On(0x39)` a rempli depuis la `DamageSource` du coup et que
+            # `BaseTriggeredAbility$$Execute` n'ecrasera qu'APRES ce behaviour.
+            attack_ability=ev.triggering_effect).execute(entities, ectx)
         transfers = [p for (n, p) in ectx.emitted if n == "TransferDamage"]
         return {"passive": ABILITY_ID, "owner": int(self.owner_id),
                 "chance": savior_chance(),

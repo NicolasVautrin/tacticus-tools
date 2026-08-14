@@ -121,8 +121,8 @@ SaviorProtocolsAbility$$CreateTrigger =
     On(0x39 = EventTriggerType.PreDamageTaken, ownerNeedsToBeAlive = 0)
       & TargetIsValidTrigger()
       & IsAdjacent(Owner@<DSLSelectors+0x30>, Target@<+0x60>, 0 = UnitSelectionType.Any)
-      & !TriggeringAbilityIs(<AbilityOrEffect A>)      // NON LU -> #1020-r3
-      & !TriggeringAbilityIs(<AbilityOrEffect B>)      // NON LU -> #1020-r3
+      & !TriggeringAbilityIs(0x530 = 1328 PinpointCounterOffensive)   // LU aux octets (§11)
+      & !TriggeringAbilityIs(0x52f = 1327 ATemptingTrap)              // LU aux octets (§11)
 
 SaviorProtocolsAbility$$TargetIsValidTrigger =            // PARTAGÉ avec la face MOVE (#443-r1)
     AreFriends(Target@<+0x60>, Owner@<+0x30>)
@@ -144,8 +144,9 @@ SaviorProtocolsAbility$$CreateBehaviour =
    homonyme `IdunBattle.Entities.Behaviours.MaybeBehaviour` qui *enveloppe* un behaviour. Les deux
    rendent le même résultat observable ; seule la STRUCTURE de l'arbre diffère.
 2. **La récursion drone → drone est fermée par `!ActorHasTriggeredAbility(Target, 1120)`** : un
-   drone porteur ne peut jamais être la VICTIME d'un transfert. C'est ce qui rend l'omission des
-   deux `!TriggeringAbilityIs` (#1020-r3) sans danger de boucle.
+   drone porteur ne peut jamais être la VICTIME d'un transfert. C'est ce qui rendait l'omission des
+   deux `!TriggeringAbilityIs` sans danger de BOUCLE — mais pas sans conséquence : elle restait
+   PERMISSIVE sur l'axe de la source du dégât, et §11 la ferme.
 
 `TargetIsValidTrigger` est mirroré **deux fois**, et ce n'est pas un fork : la face MOVE le porte en
 SCALAIRE (`playbook/savior_protocols.py::_target_is_valid_trigger`) parce que son substrat est un
@@ -301,21 +302,9 @@ aucun côté port, cf. `runner/operations/turnflow.py`).
 
 ## 10. Ce qui n'est PAS couvert
 
-* **`#1020-r1`** — le BOUCLIER de la victime n'est pas restitué sur un coup transféré. Le natif
-  annule aussi `ReduceShield` (il lit `pending.shieldDamage`, donc 0) ; le port déplète le bouclier
-  dans `_deplete_shield`, appelé par les APPELANTS **avant** le chokepoint. `kept_shield` est juste
-  pour les étages en aval, mais la déplétion du `ShieldComponent` a déjà eu lieu. Régime d'exercice :
-  victime portant un `ShieldComponent` non nul au moment d'un coup transféré. **Non atteint** par
-  les porteurs de `SaviorProtocols` (cibles T'au sans bouclier).
-* **`#1020-r2`** — `transferAbility` / `attackAbility` (`<DSLSelectors+0x88>` / `<+0x90>`) sont
-  portées en argument nommé mais pas consommées : l'attribution de mort du protecteur passe par
-  `caster`, comme tous les autres vecteurs portés.
-* **`#1020-r3`** — les deux `!TriggeringAbilityIs(<AbilityOrEffect>)` du trigger ne sont **pas
-  lus** : le décompilé perd l'argument d'`IdunBattle.Core.AbilityOrEffect$$op_Implicit` (seul le
-  buffer de retour est visible) et `read_bytes` plafonne à 32 octets. Les omettre est PERMISSIF ;
-  la récursion drone → drone, seul régime dangereux, est déjà fermée (§4).
 * **`#1020-r4`** — la POSITION du `Maybe` dans le flux RNG (§6). La granularité est juste, l'ordre
   des tirages non.
+* **`#1020-r6`** — `source_ability` n'est pas threadé par `execute_additional_hits` (§11).
 * **`#1020-r5`** — `RapidFire` face COMBAT (§9).
 * **Le régime MULTI-PROTECTEURS n'a pas été confronté** : un seul drone était adjacent. Le natif
   boucle sur `transferTargets` et le pending est consommé au PREMIER, donc les suivants voient un
@@ -324,3 +313,125 @@ aucun côté port, cf. `runner/operations/turnflow.py`).
 * **Le drone MOURANT sous un transfert** n'a pas été mesuré en confrontation : observé une fois lors
   du dégrossissage (le drone est mort d'un transfert, le natif a émis `RemoveUnit`), mais le montage
   final borne le dégât (`--dmg 900`) pour garder la série entière observable.
+
+---
+
+## 11. Les trois résidus du foyer, FERMÉS — et le canal qui les tenait tous les trois
+
+Les trois (`#1020-r1`, `#1020-r2`, `#1020-r3`) tombent sur **une seule lecture** : ce que
+`IdunBattle.Operations.ApplyDamageOperation$$Execute` met dans l'`AbilityEntities` qu'il publie avec
+`On(0x39)`, et ce qu'il relit APRÈS l'émission.
+
+### 11.1 La lecture qui a failli conclure l'INVERSE
+
+Le `.ctor` de cet `AbilityEntities` porte **neuf `(void *)0x0` consécutifs**. Les lire comme « les
+emplacements d'ability sont nuls » mène tout droit à « le canal `+0x98` est vide sur ce vecteur,
+donc les deux `!TriggeringAbilityIs` ne refusent jamais rien, donc le port n'est pas permissif ».
+**C'est faux, et c'est la signature LUE qui le réfute** — celle de
+`IdunBattle.Entities.Abilities.AbilityEntities$$.ctor`, dans `data/symbols/<build>/frida/methods.tsv` :
+
+```
+caster, actor, target, owner, casterTile, activePlayer, casterTiles, effect, targetTile,
+targetTiles, activeTarget, previousActiveTarget,
+currentAbilityOrEffect, parentAbilityOrEffect, triggerAbilityOrEffect, damageReason, ...
+```
+
+Les neuf zéros sont les paramètres **4 à 12** — des ENTITÉS. Les trois `AbilityOrEffect` viennent
+juste après, et l'appel réel passe `&local_788`, `&local_428`, `&local_4e8`. Deux des trois sont
+**non nuls**, et leurs deux locales sont deux copies du **même** bloc `DamageAppliedResult+0x40` (le
+`Nullable<AbilityOrEffect>` de son champ `source: IdunBattle.Operations.DamageSource`) :
+
+| paramètre | → champ | contenu |
+|---|---|---|
+| `currentAbilityOrEffect` | `+0x60` | `damageResult[+0x40..+0x58]` |
+| `parentAbilityOrEffect`  | `+0x7c` | **mis à zéro** |
+| `triggerAbilityOrEffect` | `+0x98` | `damageResult[+0x40..+0x58]` — le MÊME |
+
+Côté port ce bloc EST `source_ability`, déjà résolu par `_damage_source_ability` (mirror de
+`idun.Idun.Source.Shared.Battle.StaticBattleRules.StaticBattleRules$$GetDamageSourceAbility`). Il ne
+restait qu'à le publier sur le vecteur.
+
+**Leçon de méthode** : une position d'argument ne se compte pas à l'œil sur un `.ctor` à 32
+paramètres — elle se LIT dans la table des signatures.
+
+### 11.2 `#1020-r3` — le port ÉTAIT permissif
+
+Les deux immédiats sont lus **AUX OCTETS** (ghidra ne montre que le buffer de retour d'
+`IdunBattle.Core.AbilityOrEffect$$op_Implicit`) : `mov edx, 0x530` puis `mov edx, 0x52f`, juste avant
+le `call`, et les deux `call` visent la surcharge dont le paramètre de métadonnée se nomme
+`triggeredAbility` et dont le corps appelle `IdunBattle.Core.AbilityOrEffect$$set_TriggeredAbility`.
+Donc `TriggeredAbilityType.PinpointCounterOffensive` (1328) et `TriggeredAbilityType.ATemptingTrap`
+(1327) — ni `ActiveAbilityType`, ni `EffectType`, que le seul ordinal n'aurait pas séparés.
+
+Le nœud `TriggeringAbilityIs` mirror `IdunBattle.Entities.Triggers.AbilitiesAreEqualTrigger$$ShouldTrigger` :
+`HasValue` faux d'un côté ou de l'autre → **FAUX** ; sinon `op_Equality`. Ce faux est la réponse
+NATIVE, pas une dégradation choisie — et il est load-bearing : sous `op_LogicalNot`, un canal vide
+**OUVRE** le gate. **Porter le nœud sans porter le canal aurait donc été un vert vide.**
+
+### 11.3 `#1020-r1` — le bouclier suit les PV, sur le même pending relu
+
+`ApplyDamageOperation$$Execute` relit le pending APRÈS l'émission et en tire les DEUX parts depuis le
+MÊME `GetValueOrDefault` :
+
+```
+GetValueOrDefault(healthComp[+0x64], &pending);
+local_7c8 = FillUpStatComponent$$Reduce(hp, pending.healthDamage);
+ApplyDamageOperation$$ReduceShield(this, target, pending.shieldDamage);
+```
+
+Un coup consommé par `TransferDamageOperation$$GetDamage` met les deux à zéro : le natif n'enlève NI
+PV NI BOUCLIER. `_deplete_shield` a donc quitté les APPELANTS pour le chokepoint.
+**Second effet, lu au même endroit** : il passe ainsi sous le gate `Overkilled` du SITE (A), qui
+`return` avant l'écriture du pending — une cible déjà overkillée ne perd plus son bouclier, ce que le
+natif ne faisait déjà pas.
+
+### 11.4 `#1020-r2` — un GATE et une ATTRIBUTION, pas « deux noms »
+
+Les deux `Nullable<AbilityOrEffect>` n'ont pas le même rôle :
+
+* **GATE** — `IdunBattle.Entities.Behaviours.TransferDamageBehaviour$$Execute` exige `HasValue` sur
+  LES DEUX et `return` sans rien faire sinon. Un dégât qui ne nomme aucune ability source ne se
+  transfère PAS. Le port transférait toujours.
+* **ATTRIBUTION** — `attackAbility` est le SEUL que `TransferDamageOperation$$Execute` consomme :
+  recopié sur 0x18 octets, passé en 5e argument `abilityOrEffect` du slot **64 = `DirectDamage`**
+  (slot RÉSOLU dans `data/symbols/<build>/metadata/ioperationprocessor_slots.tsv`, jamais deviné).
+  `transferAbility`, lui, n'a aucun usage au-delà du null-check du pointeur.
+
+**L'ASYMÉTRIE DE MOMENT est ce qui donne leurs valeurs.**
+`IdunBattle.Entities.Abilities.BaseTriggeredAbility$$Execute` écrit `+0x60` **AVANT** d'appeler le
+behaviour et `+0x98` **APRÈS**. Donc pendant le behaviour : `transferAbility` (= `+0x60`) vaut la
+triggered elle-même, et `attackAbility` (= `+0x98`) a gardé l'ability qui inflige le dégât. Si
+l'écriture `+0x98` arrivait avant, `attackAbility` vaudrait `SaviorProtocols` au lieu de l'attaque.
+
+### 11.5 Le bug LATENT trouvé dans le même foyer
+
+`transfer_damage_operation` déplétait le bouclier du PROTECTEUR à la main, avant le chokepoint, via
+`shc.shield` — **un attribut qui n'existe pas** (`ShieldComponent.__slots__` vaut
+`('shields', 'next_id')`). Reproduit : `AttributeError: 'ShieldComponent' object has no attribute
+'shield'` dès qu'un protecteur porte un bouclier. Jamais atteint parce que les six porteurs sont des
+drones T'au sans bouclier, et que **rien ne montait ce régime** — il est sorti en écrivant la fixture
+de `#1020-r1`. La ligne disparaît : avec `r1`, la déplétion vit dans le chokepoint, qui la fait
+correctement et **une seule fois**.
+
+### 11.6 Ce que la fermeture a OUVERT
+
+`#1020-r6` : `execute_additional_hits` est le SEUL des quatre vecteurs de dégât qui ne threade pas
+`source_ability`. Le gate de `r2` y devient donc **RESTRICTIF** — un transfert déclenché par un
+groupe de coups additionnels est refusé côté port alors que le natif l'accepterait. C'est **nommé
+plutôt que masqué** : rendre le gate permissif « au cas où » ré-ouvrirait le trou que `r2` ferme.
+
+### 11.7 Validation
+
+Chaque garde a été **vue ROUGE avant son fix**, par mutation adversariale du PORT (jamais du test) :
+
+| résidu | mutation | rouge obtenu |
+|---|---|---|
+| `r3` | les deux conjoints retirés de l'arbre | 3 failed / 9 passed — « le gate DOIT fermer, or il a laissé passer » |
+| `r1` | le foyer relit `shield_dmg` (calculé) au lieu de `kept_shield` (relu) | `assert 80 == 200` sur le bouclier de la victime |
+| `r2` | gate retiré + `source_ability` coupé | 4 failed / 23 passed — « la `DamageSource` doit NOMMER `attackAbility` (1013), obtenue None » |
+
+Le bras **TÉMOIN** du probe live (drone hors adjacence, zéro transfert) reste **BIT-EXACT** sur
+3 seeds après les trois fix — `[2581, 250, 314, 275]` / `[285, 227, 322, 297]` /
+`[283, 279, 315, 268]`, totaux 3420 / 1131 / 1145 des deux côtés — ce qui établit qu'aucun des
+**quatre** vecteurs de dégât n'a bougé (le fix `r1` les touche tous). Le bras NOMINAL transfère
+toujours (4 transferts sur 4 coups), donc le gate de `r2` ne ferme pas le régime réel.

@@ -93,7 +93,9 @@ class _Espion:
         self.thc = thc
 
     def pre_damage_taken_triggers(self, state, source_id, target_id, profile=None,
-                                  is_first_damaging_hit=None):
+                                  is_first_damaging_hit=None, source_ability=None):
+        # `source_ability` (#1020-r3) = le canal `AbilityEntities+0x98`, ignore par CETTE garde
+        # (elle mesure `isFirstDamagingHit`) mais present au contrat du vecteur.
         self.flags.append(is_first_damaging_hit)
         if self.thc is not None:
             self.hp_vus.append(self.thc.hp)

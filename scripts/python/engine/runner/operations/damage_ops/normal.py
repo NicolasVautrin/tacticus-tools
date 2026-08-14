@@ -701,7 +701,8 @@ class _Normal:
                                             # `isPreventOverkill` que `ApplyTraitDamageLimitsToDamage`
                                             # lit lui-meme sur son parametre `defender`.
                                             prevent_overkill=unit_prevents_overkill(state, target_id))
-        AttackDamageOperation._deplete_shield(shc, r)
+        # #1020-r1 : plus de `_deplete_shield` ICI. `ApplyDamageOperation$$ReduceShield` lit le
+        # pending RELU (apres `On(0x39)`), donc la depletion vit dans le chokepoint, avec `Reduce`.
         death = AttackDamageOperation._apply_damage_pipeline(           # chokepoint partage (#202)
             state, target_id, attacker_id, tgt, thc, r["total"], _profile,
             r["shield_dmg"], r["armor_dmg"],

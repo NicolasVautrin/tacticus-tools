@@ -33,11 +33,33 @@ class TransferDamage(AbilityBehaviour):
     Le natif prend le caster de `<+0x58>` quand `<+0x50>` rend nul (`lVar20 = lVar17 != 0 ? lVar17
     : local_res8`) -- porte tel quel par le repli `source_sel -> entities.caster`.
 
-    `transfer_ability` / `attack_ability` : les deux `Nullable<AbilityOrEffect>` ne servent, cote
-    natif, qu'a nommer la source du degat dans le flux et dans l'attribution de mort. Le port les
-    porte en argument nomme mais ne les CONSOMME pas encore (residu `#1020-r2`) : l'attribution de
-    mort du protecteur passe par `caster` (la source du degat), ce qui est le comportement de tous
-    les autres vecteurs portes.
+    `transfer_ability` / `attack_ability` (#1020-r2, FERME) -- les deux `Nullable<AbilityOrEffect>`
+    n'ont PAS le meme role, et l'un des deux est un GATE :
+
+    * **GATE** : `Execute` exige `HasValue` sur LES DEUX (`if (*pcVar14 != '\\0')` imbriques) et
+      `return` SANS RIEN FAIRE sinon. Un degat qui ne nomme AUCUNE ability source ne se transfere
+      donc PAS -- divergence PERMISSIVE que le port avait (il transferait toujours).
+    * **`attack_ability`** est le SEUL des deux que `TransferDamageOperation$$Execute` consomme :
+      ses 0x18 octets sont recopies et passes en 5e argument `abilityOrEffect` du slot
+      `64 = DirectDamage`. C'est lui qui NOMME la source du degat porte par le protecteur.
+    * **`transfer_ability`** n'a, dans ce corps, aucun usage au-dela du null-check du pointeur --
+      d'ou son absence cote operation. Il n'est pas inerte pour autant : il compte dans le gate.
+
+    LES DEUX VALEURS, au moment ou ce behaviour tourne (RE recoupee par deux lectures
+    independantes) : le ctor range `transferAbility` = `<DSLSelectors+0x88>` =
+    `AbilityTypeSelector.CurrentAbilitySelector` = `AbilityEntities+0x60`, et `attackAbility` =
+    `<+0x90>` = `TriggeringAbilitySelector` = `+0x98`. Or
+    `IdunBattle.Entities.Abilities.BaseTriggeredAbility$$Execute` ecrit `+0x60` **AVANT** d'appeler
+    le behaviour et `+0x98` **APRES**. Donc ici `+0x60` vaut la triggered elle-meme
+    (`SaviorProtocols`) et `+0x98` a garde ce que le publieur y avait mis -- l'ability qui inflige
+    les degats. L'asymetrie de moment n'est pas un detail : si `BaseTriggeredAbility` ecrivait
+    `+0x98` avant, `attackAbility` vaudrait `SaviorProtocols` au lieu de l'attaque.
+
+    COLLAPSE ASSUME : le natif passe deux `IAbilityTypeSelector` (une famille de selecteurs dont le
+    port n'a aucun mirror, et dont ces deux-la sont les seuls representants utilises) ; le port
+    recoit les VALEURS deja resolues, que son appelant lit sur les deux memes canaux
+    (`state.triggering_ability` pour `+0x60`, `ev.triggering_effect` pour `+0x98`). Meme forme de
+    collapse que `_record_death_reason`, et nommee comme lui.
 
     Emet `TransferDamage` PAR CIBLE (le natif emet un pas de flux `0x23` par cible). PUR
     (stop=False) : `TransferDamageBehaviour$$Execute` recopie les 8 slots de l'`OperationResult`
@@ -69,6 +91,12 @@ class TransferDamage(AbilityBehaviour):
             ectx.emit("TransferDamage", original_target=None, transfer_target=None, result=None)
             return OperationResult.ok()
         src = (src_u or {}).get("id")
+        # LE GATE, #1020-r2 : `if (transferAbility.HasValue) { if (attackAbility.HasValue) { ... } }`
+        # -- sinon `return this`, sans operation ni pas de flux. Un degat qui ne nomme aucune
+        # ability source ne se transfere donc PAS. Le port transferait toujours (PERMISSIF).
+        if self.transfer_ability is None or self.attack_ability is None:
+            ectx.emit("TransferDamage", original_target=int(orig), transfer_target=None, result=None)
+            return OperationResult.ok()
         hit_index = getattr(entities, "hit_index", None)     # `AbilityEntities+0x108`
         # NORMALISATION du selecteur -- mirror du contrat natif `TargetsSelector` (IEnumerable) :
         # un selecteur MONO-ENTITE (`Owner()`/`Caster()`/`Target()`) rend un DICT d'unite, et
@@ -83,7 +111,8 @@ class TransferDamage(AbilityBehaviour):
             if tid is None:
                 continue
             res = transfer_damage_operation(state, src, int(orig), int(tid),
-                                            hit_index=hit_index)
+                                            hit_index=hit_index,
+                                            attack_ability=self.attack_ability)
             ectx.emit("TransferDamage", original_target=int(orig), transfer_target=int(tid),
                       result=res)
         return OperationResult.ok()

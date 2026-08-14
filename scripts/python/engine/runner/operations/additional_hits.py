@@ -453,10 +453,22 @@ def execute_additional_hits(state: State, attacker_id: int, target_id: int, tgt,
         hit_index = r["next_hit_index"]
         crit_allowed = r["crit_allowed"]    # #366-r1-crit-multihit : `attack[+0x40] &= hitGroup[+0x3c]`
         failed_block = r["failed_block"]    # #407 : `RegisterBlocks` -> `hitGroup[+0x60].AddRange(.)`
-        AttackDamageOperation._deplete_shield(shc, r)
+        # #1020-r1 : plus de `_deplete_shield` ICI. `ApplyDamageOperation$$ReduceShield` lit le
+        # pending RELU (apres `On(0x39)`), donc la depletion vit dans le chokepoint, avec `Reduce`.
         d = AttackDamageOperation._apply_damage_pipeline(
             state, target_id, attacker_id, tgt, thc, r["total"], g_profile,
             r["shield_dmg"], r["armor_dmg"], is_attack=False,
+            # ⚠ `source_ability` N'EST PAS THREADE ICI -- residu `#1020-r6`, et c'est le SEUL des
+            # quatre vecteurs de degat dans ce cas (les trois autres le posent depuis
+            # `_damage_source_ability`). Ce canal alimente `AbilityEntities+0x98`, donc les
+            # `TriggeringAbilityIs` du vecteur `On(0x39 = PreDamageTaken)` ET le gate `HasValue`
+            # d'`IdunBattle.Entities.Behaviours.TransferDamageBehaviour$$Execute` (#1020-r2).
+            # Consequence : un transfert declenche par un groupe de coups ADDITIONNELS est REFUSE
+            # cote port alors que le natif l'accepterait -- son `ExecuteHit` remplit toujours la
+            # `DamageSource`. C'est une divergence RESTRICTIVE, l'inverse de celle que #1020-r2
+            # ferme, et elle est NOMMEE plutot que masquee : rendre le gate permissif « au cas ou »
+            # re-ouvrirait le trou qu'on vient de fermer. Ce qui manque : l'`AbilityOrEffect` du
+            # groupe, que cette fonction ne recoit pas de son appelant.
             # `On(0x10)` : un groupe de coups ADDITIONNELS partage l'`OngoingAttack` de l'attaque (donc
             # son compteur `+0x30`, threade par `hit_index0`). Il ne contient le coup d'index 0 que si
             # la phase d'arme n'a rien emis avant lui -> `IsFirstHitInSeries` FAUX dans le cas usuel,

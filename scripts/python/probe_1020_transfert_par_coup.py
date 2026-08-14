@@ -35,7 +35,8 @@ class _FauxDispatch:
         self.thc = thc
 
     def pre_damage_taken_triggers(self, state, source_id, target_id, profile=None,
-                                  is_first_damaging_hit=None):
+                                  is_first_damaging_hit=None, source_ability=None):
+        # `source_ability` (#1020-r3) = le canal `AbilityEntities+0x98`.
         idx = len(self.calls)
         self.calls.append((profile, is_first_damaging_hit))
         if self.consume_at is not None and idx == self.consume_at:
