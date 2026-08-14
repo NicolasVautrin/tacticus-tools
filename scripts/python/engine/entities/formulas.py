@@ -1105,9 +1105,21 @@ class MinDistance(AAmountFormula):
 
     def calculate(self, ctx):
         # `SelectTiles` = liste PLATE des tuiles de toutes les entites selectionnees.
-        ta = [f for u in _units_of(self.a, ctx) if isinstance(u, dict) for f in _feet(u)]
-        tb = [f for u in _units_of(self.b, ctx) if isinstance(u, dict) for f in _feet(u)]
-        return get_distance(ta, tb)                           # meme seed `int.MaxValue`
+        #
+        # ⚠ #1050-r1 -- CE FOYER NE VOYAIT QUE LE DOMAINE UNITE, ET SON PROPRE COMMENTAIRE LE DISAIT
+        # (<< ne couvre que la branche UNITE, ce qui suffit a ses call-sites >>, cf.
+        # `_select_tiles_positions` juste en dessous). Le filtre `isinstance(u, dict)` JETAIT
+        # silencieusement tout operande deja en domaine TUILE -- la liste devenait vide des DEUX
+        # cotes et la formule rendait `MIN_DISTANCE_EMPTY` (`int.MaxValue`), donc un rayon absurde,
+        # sans lever. Or le slot 10 natif (`IdunBattle.DSL.TargetsSelector$$SelectTiles`) est
+        # DOMAINE MIXTE par construction : `if (<this est deja un selecteur de TUILES>) return sel`.
+        # Le call-site qui l'exige est `AncientFury_NormalAttackAbility$$GetTarget` :
+        # `DSLFormulas$$MinDistance(CasterTiles@0x58, TargetTiles@0x78)` -- DEUX selecteurs de
+        # tuiles. On delegue donc au helper qui porte deja le slot 10 complet ; il traite un dict
+        # d'unite par `_feet`, exactement comme la boucle d'avant -> aucun changement de valeur pour
+        # les call-sites en domaine UNITE.
+        return get_distance(_select_tiles_positions(self.a, ctx),
+                            _select_tiles_positions(self.b, ctx))   # meme seed `int.MaxValue`
 
 
 # `IdunBattle.Core.Services.BattleQuery$$GetAverageDistance(tilesA, tilesB, defaultValue)` : le

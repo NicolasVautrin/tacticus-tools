@@ -1921,7 +1921,7 @@ class DamageHandler:
         # ExecuteNormalAttack` -- la passe PRIMAIRE de TOUTE attaque normale, base commune de toutes
         # les `<X>_NormalAttackAbility` (la generique `Loki_NormalAttackAbility` comprise) -- fait :
         #     b = GetAttackDamageBehaviour(this, abilityState, entities, attackWeapon,
-        #                                  <vslot 0x4a8 GetCustomNormalAttackBehaviour>)
+        #                                  <vslot 0x4a8 GetTarget>)   # #1050-r1 : le SELECTEUR
         #     b = b op_BitwiseAnd DSLBehaviors$$EvaluateAbilities(dsl, 0x4a, null, null, null,
         #                                                         immediately: true)
         #     return AActiveAbility$$ExecuteAtomic(this, b, entities, 0x3d)
@@ -1966,7 +1966,8 @@ class DamageHandler:
         # quatre attaques normales CONCRETES `Boltstorm`/`RighteousRepugnance`/`Fealty`/
         # `TalonOfHorus` frappent des cibles ADDITIONNELLES (le CLEAVE) ; les DEUX PREMIERES
         # ajoutent en plus un paquet sur la cible PRIMAIRE (`$$GetCustomNormalAttackBehaviour`,
-        # vslot 0x4a8 lu par `ExecuteNormalAttack`) :
+        # vslot 0x4e8 lu par `GetAttackDamageBehaviour` -- #1050-r1 : ce n'est PAS `0x4a8`, qui est
+        # `$$GetTarget`, le SELECTEUR de cibles) :
         #     Execute<X> = InformWeapon
         #                + ExecuteNormalAttack        -> coups d'ARME + le FOLD primaire, meme 0x3d
         #                + ExecuteAtomic(Foreach(GetAdditionalTargets, Attack), 0x2a)   -> le CLEAVE
@@ -2018,6 +2019,39 @@ class DamageHandler:
                     self.last["primary_fold"] = _adds["primary_fold"]
                 if _adds.get("additional_targets"):
                     self.last["additional_targets"] = _adds["additional_targets"]
+        # --- #1050-r1 l'ELARGISSEMENT MULTI-CIBLE de `AncientFury_NormalAttack`. AUTRE famille que
+        # le cleave ci-dessus, et le discriminant est le SLOT SURCHARGE :
+        #   * #478 surcharge `$$GetCustomNormalAttackBehaviour` (vslot 0x4e8) et/ou pose un
+        #     `Execute<X>` qui ajoute un SECOND `Attack(...)` aux BORNES DE CONFIG du passif ;
+        #   * ICI c'est `$$GetTarget` (vslot 0x4a8) qui est surcharge -- le `Attack(caster, <sel>,
+        #     ...)` reste UNIQUE, et `IdunBattle.Entities.Behaviours.AttackBehaviour$$Execute`
+        #     boucle sur les N cibles TRIEES en donnant a CHACUNE l'attaque d'ARME COMPLETE
+        #     (`StartAttack` / `AttackDamage(Caster@0x48, Target@0x60, ...)` / `FinishAttack`).
+        # Les deux familles sont MUTUELLEMENT EXCLUSIVES : la cascade
+        # `UnitFactory$$AddNormalAttackAbility` ne monte qu'UN passif substituant par unite, et le
+        # cran `test_1050_optimized_gait_offline.py` etage 4 interdit d'inscrire `AncientFury` dans
+        # `NORMAL_ATTACK_CLEAVES`, ou il recevrait les bornes de config au lieu des coups d'arme.
+        # RANG : la boucle native vit DANS `ExecuteNormalAttack`, donc APRES la primaire et AVANT le
+        # `EvaluateAbilities(0x4a)` que `ExecuteNormalAttack` compose ensuite -- d'ou cette place,
+        # juste au-dessus de l'appel idempotent ci-dessous.
+        # ⚠ MEME JUMELAGE que MV71 / le cleave / HeavyBoltPistol : voie MESSAGE seulement, pas les
+        # portes qui appellent `AttackDamageOperation.execute` directement (residu `#478-r3`).
+        # ⚠ RESIDU `#1076` : le natif trie la cible PRIMAIRE **avec** les additionnelles ; le port la
+        # frappe toujours en tete (le preambule d'`ActiveAbilityOperation$$ExecuteInternal` n'est pas
+        # separable du premier coup). Detail : `abilities/loki/ancient_fury.py`.
+        if self.last is not None and _uc is not None:
+            from ..abilities.loki import ancient_fury as _af
+            _wd = _af.widened_for(_apas, active_abilities=_aact, visual_id=_uc.visual_id,
+                                  traits=_atra, config_active_abilities=_acfg)
+            if _wd is not None:
+                _wt = _af.execute_widened_normal_attack(
+                    self.state, msg.attacker_id, self.last.get("target", msg.target_id), _wd,
+                    # `is_melee` = la nature de l'ARME REELLEMENT choisie par `FindAttackWeapon`,
+                    # l'entree exacte de `IsMeleeAttack` du `ConditionalSelector` -- on ne la
+                    # re-derive pas d'une adjacence (meme regle que la gate du cleave).
+                    is_melee=not bool(self.last.get("ranged")), spread_pct=self.spread_pct)
+                if _wt:
+                    self.last["widened_targets"] = _wt
         # #521-r7 : le cas SANS cleave (l'immense majorite -- la cascade `AddNormalAttackAbility`
         # rend un passif substituant pour 4 abilities seulement). Idempotent avec le `after_primary`
         # ci-dessus.
