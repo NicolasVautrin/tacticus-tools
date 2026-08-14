@@ -29,7 +29,20 @@ invocateur du pool.
 identique, un porteur pose par `--place` n'emettait qu'UN coup la ou le meme porteur laisse a son
 SpawnPoint en emettait DEUX (meme config, meme seed, meme distance a la cible, `patch_mordu` verifie
 des deux cotes). Ce sont les CIBLES qu'on deplace (`--a-place`) pour amener la configuration --
-jamais le porteur. Residu ouvert : #605-r1.
+jamais le porteur.
+
+⚠ ET CETTE MESURE NE SE REPRODUIT PLUS (2026-08-15, build `t6dpr4k06g`, #605-r1).
+`probe_605r1_place_vs_spawn.py` joue SIX bras -- spawn, `--place` sur la tuile du cast, `--place`
+puis deplacement d'une tuile, la tuile LITTERALE de la fiche (`3,4`), et le roster exact de CE
+module avec puis sans `--place` -- et les six rendent **2** coups. Les deux lectures que le residu
+laissait ouvertes sont donc eliminees dans ce regime : ni artefact de harnais, ni canal natif
+positionnel. Ce qui varie d'un bras a l'autre est la MAGNITUDE (les bras ayant consomme un
+deplacement partagent leurs rolls), pas le COMPTE.
+
+La prescription ci-dessus est NEANMOINS conservee : la cause de la mesure du 2026-08-10 reste
+inconnue, et rien ne dit qu'elle ne peut pas revenir. Elle n'est simplement plus un fait du build
+courant, et elle est desormais VERIFIABLE -- rejouer le probe est ce qui la refonde ou la leve,
+pas la relecture de ce paragraphe.
 """
 from __future__ import annotations
 
