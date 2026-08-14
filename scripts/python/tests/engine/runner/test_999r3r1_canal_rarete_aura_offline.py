@@ -44,6 +44,39 @@ from engine.runner import damage_model as DM                                    
 from engine.runner.snapshot import load_state                                   # noqa: E402
 from engine.runner.components import StatsComponent                             # noqa: E402
 
+DECLENCHEUR = {
+    "chemins": (
+        # Les DEUX foyers de lecture de la rarete et les QUATRE ctx qu'ils alimentent.
+        "scripts/python/engine/runner/damage_model.py",
+        "scripts/python/engine/playbook/prediction/_shared.py",
+        # Le canal en amont : mirror d'enum, tri-etat, seed du `UnitContext`.
+        "scripts/python/engine/entities/rarity.py",
+        "scripts/python/engine/entities/unit_context.py",
+        "scripts/python/engine/runner/snapshot.py",
+        # Le registre et la classe portee (1448), plus les agregateurs eux-memes.
+        "scripts/python/engine/entities/effects/factory.py",
+        "scripts/python/engine/entities/effects/__init__.py",
+        "scripts/python/engine/entities/effects/base.py",
+        "scripts/python/engine/entities/effects/loki/extra_damage.py",
+        # Le substrat des deux autres conjoints de 1448 (traits, equipes).
+        "scripts/python/engine/entities/traits/unit_trait.py",
+        # Le blocage RESIDUEL que l'etage 5 fige, et sa mesure.
+        "scripts/python/probe_999r3r1_porteurs_aura_mow.py",
+        "scripts/python/engine/playbook/scene.py",
+        # Les mirrors d'enum dont les ordinaux sont FIGES au site.
+        "scripts/python/engine/entities/effect_type.py",
+        "scripts/python/engine/entities/ability_variable_type.py",
+    ),
+    "build": True,
+    "toujours": True,
+    "raison": "L'etage 4 lit le GAMECONFIG (`HyperCorrosiveAcid.extraDmgPct`, quatre paliers), qui "
+              "se perime SEPAREMENT du build ; le fichier fige des ORDINAUX au site (1448, 1122, "
+              "`Rarity.Mythic = 5`, `UnitTrait.Hero = 0x10`), qu'un renumerotage rendrait faux sans "
+              "toucher aucun des chemins ci-dessus ; et l'etage 5 garde une ABSENCE (les MoW hors "
+              "de l'univers de porteurs d'aura), donc une reparation n'importe ou dans le seed ou "
+              "dans les agregateurs peut le concerner.",
+}
+
 COLS, ROWS = 6, 6
 ATT_ID, TGT_ID, ALLY_ID = 10, 20, 30
 #: `EffectType` 0x5a8 = 1448 -- l'effet pose par la mythique `HyperCorrosiveAcid` sur l'ENNEMI.
