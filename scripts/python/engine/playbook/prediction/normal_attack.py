@@ -19,6 +19,10 @@ from engine.entities.effects.loki.enmity_for_the_unworthy import (
     CTX_ADJACENT_UNITS as _ENMITY_CTX_UNITS, CTX_ADJACENT_DA as _ENMITY_CTX_DA)
 # #953 : meme regle, meme foyer -- la cle du couple de PV du porteur vit dans la classe d'effet.
 from engine.entities.effects.loki.skullsmasher import CTX_OWNER_HEALTH as _SKULLSMASHER_CTX_HEALTH
+# #1078-r3 : meme regle, meme foyer -- la cle vit dans la classe d'effet, une seule pour les
+# DEUX faces.
+from engine.entities.effects.loki.hunter_of_souls import (
+    CTX_ADJACENT_PSYKER_FRIENDS as _HUNTER_CTX_PSYKER)
 # #1015-r1 : meme foyer de nommage que la face COMBAT (`runner/damage_model.py`).
 from engine.entities.effects.loki.close_combat_weakness import (
     CTX_ADJACENT_ENEMIES as _CCW_CTX_ADJACENT_ENEMIES)
@@ -736,6 +740,12 @@ def make_normal_attack_predictions(scene, att_id, tgt_id, attack_pos, *, meta=Fa
                 # l'entite a ete posee. Les deux voisins relevent du MEME gisement, non ferme.
                 _ENMITY_CTX_UNITS: scene.enmity_adjacent_units(att_id, attack_pos),
                 _ENMITY_CTX_DA: scene.enmity_adjacent_dark_angels_friends(att_id, attack_pos),
+                # #1078-r3 -- `Count(UnitsWithTrait(AdjacentFriends(Owner), Psyker))` de
+                # `HunterOfSouls_ExtraDamageEffect$$GetUnits`. MEME cle, MEME semantique et MEME
+                # tuile candidate que les deux voisins ci-dessus ; c'est ce qui empeche le fork
+                # entre les deux faces (la face COMBAT la pose dans `runner/damage_model.py`).
+                _HUNTER_CTX_PSYKER:
+                    scene.hunter_of_souls_adjacent_psyker_friends(att_id, attack_pos),
                 # #953 -- `StatAmount(Owner@DSLSelectors+0x30, Health, {Missing, Maximum})` de
                 # `Skullsmasher_ExtraDamageEffect$$GetMissingHealthSteps`, PATTE SELF comme les cles
                 # ci-dessus (l'OWNER de chaque effet parcouru EST l'attaquant, ce qu'exige son

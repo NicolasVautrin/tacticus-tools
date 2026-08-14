@@ -23,6 +23,9 @@ from ...entities.effects.loki.enmity_for_the_unworthy import (
     CTX_ADJACENT_UNITS as _ENMITY_CTX_UNITS, CTX_ADJACENT_DA as _ENMITY_CTX_DA)
 # #953 : meme regle, meme foyer -- la cle du couple de PV du porteur vit dans la classe d'effet.
 from ...entities.effects.loki.skullsmasher import CTX_OWNER_HEALTH as _SKULLSMASHER_CTX_HEALTH
+# #1078-r3 : meme regle, meme foyer -- une seule cle pour les DEUX vecteurs de prediction.
+from ...entities.effects.loki.hunter_of_souls import (
+    CTX_ADJACENT_PSYKER_FRIENDS as _HUNTER_CTX_PSYKER)
 # `UnitTrait.Summon` (2) : trait lu par le selecteur de 1147 (`UnitsWithTrait(..., 2)`), cote gate ET
 # cote noeud DSL (`ctx.has_trait`, cable dans `make_damage_predictions`).
 from ...entities.traits.unit_trait import (UnitTrait as _UnitTrait, has_trait as _has_trait,
@@ -256,6 +259,14 @@ def generate_multi_hit_attack_prediction(scene, uid, tgt, ability_id, ability_na
                                                                         uid, attack_pos),
                                                                 _ENMITY_CTX_DA:
                                                                     scene.enmity_adjacent_dark_angels_friends(
+                                                                        uid, attack_pos),
+                                                                # #1078-r3 -- MEME cle et MEME
+                                                                # tuile candidate que ses deux
+                                                                # voisins : cabler un seul des
+                                                                # deux vecteurs creerait un fork
+                                                                # interne a la prediction.
+                                                                _HUNTER_CTX_PSYKER:
+                                                                    scene.hunter_of_souls_adjacent_psyker_friends(
                                                                         uid, attack_pos),
                                                                 # #953 -- le couple de PV du PORTEUR
                                                                 # (`StatAmount(Owner, Health,
