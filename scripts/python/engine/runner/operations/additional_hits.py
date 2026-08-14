@@ -417,9 +417,17 @@ def execute_additional_hits(state: State, attacker_id: int, target_id: int, tgt,
         # l'etait pas. On re-gate block_sources sur le profil DU GROUPE (l'arg est deja gate sur l'arme).
         g_block = (None if DamageTrait.NoBlocking.name in (dp.get("Traits") or [])
                    else block_sources)
+        # #1020-r4 : chokepoint `On(0x39 = EventTriggerType.PreDamageTaken)` joue DANS la boucle
+        # (cf. `damage_hits._run_hits`, bloc `POSITION DU TIRAGE`). `_damaging_done` est l'etat
+        # THREADE de groupe en groupe -- il est deja LU ici, avant `_run_hits`, exactement comme
+        # `crit_allowed` / `failed_block` / `hit_index`.
+        _first_damaging = (not _damaging_done)
+        _pdt_sink = AttackDamageOperation.make_pre_damage_taken_sink(
+            state, attacker_id, target_id, thc, g_profile,
+            is_first_damaging_hit=_first_damaging)
         r = AttackDamageOperation._run_hits(
             state.rng, hd, hd, 0, False, max(0, int(g.get("count") or 0)), g_block,
-            shield=shield_total,
+            shield=shield_total, pending_sink=_pdt_sink,
             # R6-b : `post_roll` = branche ROLL-THEN-REDUCE de `_one_hit` (tirage BRUT + resolve
             # slot-8 gaspille) ; `is_attack_damage_op=True` = famille ATTACK, les DEUX voies
             # natives de coups additionnels retombant sur `AttackDamageOperation$$ExecuteHits`.
@@ -479,7 +487,9 @@ def execute_additional_hits(state: State, attacker_id: int, target_id: int, tgt,
             # Distinct de `g_first_hit`, qui ne parle QUE de l'index de coup : un groupe qui ne
             # porte pas l'index 0 est tout de meme le PREMIER a damager si la phase d'arme et les
             # groupes precedents ont ete entierement bloques.
-            is_first_damaging_hit=(not _damaging_done))
+            # #1020-r4 : MEME etat que celui donne au `pending_sink` ci-dessus.
+            is_first_damaging_hit=_first_damaging,
+            pre_damage_taken=AttackDamageOperation.pre_damage_taken_of(_pdt_sink))
         if int(r["total"] or 0) > 0:
             _damaging_done = True
         death = death or d

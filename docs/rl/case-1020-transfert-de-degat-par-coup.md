@@ -302,9 +302,9 @@ aucun côté port, cf. `runner/operations/turnflow.py`).
 
 ## 10. Ce qui n'est PAS couvert
 
-* **`#1020-r4`** — la POSITION du `Maybe` dans le flux RNG (§6). La granularité est juste, l'ordre
-  des tirages non.
-* **`#1020-r6`** — `source_ability` n'est pas threadé par `execute_additional_hits` (§11).
+* ~~**`#1020-r4`**~~ — **FERMÉ**, cf. §12.
+* **`#1020-r6`** — `source_ability` n'est pas threadé par `execute_additional_hits` (§11). Le §12
+  ne le change pas : le sink de ce vecteur reçoit donc `None`, comme le chokepoint avant lui.
 * **`#1020-r5`** — `RapidFire` face COMBAT (§9).
 * **Le régime MULTI-PROTECTEURS n'a pas été confronté** : un seul drone était adjacent. Le natif
   boucle sur `transferTargets` et le pending est consommé au PREMIER, donc les suivants voient un
@@ -435,3 +435,131 @@ Le bras **TÉMOIN** du probe live (drone hors adjacence, zéro transfert) reste 
 `[283, 279, 315, 268]`, totaux 3420 / 1131 / 1145 des deux côtés — ce qui établit qu'aucun des
 **quatre** vecteurs de dégât n'a bougé (le fix `r1` les touche tous). Le bras NOMINAL transfère
 toujours (4 transferts sur 4 coups), donc le gate de `r2` ne ferme pas le régime réel.
+## 12. `#1020-r4` — la POSITION du tirage, et pourquoi la granularité ne suffisait pas
+
+`#1020` avait rendu la GRANULARITÉ juste (une émission par COUP). Le §6 mesurait pourtant encore un
+écart : natif 3 transferts sur 4, port 4 sur 4, et **les montants natifs des coups 2+ CHANGEAIENT
+dès que le transfert jouait** (`250, 314, 275` -> `272, 216`) là où ceux du port ne bougeaient pas.
+C'est la signature d'un décalage de FLUX, pas d'un étage de dégât — et le bras `--temoin`
+(bit-exact) l'avait déjà établi.
+
+### Ce que dit le décompilé
+
+`IdunBattle.Operations.AttackDamageOperation$$ExecuteHits` :
+
+```
+while (i < numHits) {
+    ...  ExecuteHit(this, attaquant, defenseur, profil, ability, options, initialHealth, denied);
+    ADamageOperation$$UpdateHitGroupAfterHit(this, hitGroup);
+    ADamageOperation$$UpdateCurrentAttackAfterHit(this, attack, &res);
+    ...  i++;
+}
+```
+
+Un coup est donc **intégralement** résolu avant que le suivant ne tire quoi que ce soit. Et dans
+`IdunBattle.Operations.AttackDamageOperation$$ExecuteHit`, l'ordre lu est :
+
+```
+IdunBattle.Core.HitDamage$$GetDamage           <- LA VALEUR
+IdunBattle.Core.AttackHit$$.ctor
+RollCritical (slot 0xa)
+IdunBattle.Entities.Abilities.AbilityEntities$$.ctor
+On(6 = PreAttackHit) ; On(7)
+<sous-operation de split>                       <- le port : calculate_damage_operation
+IdunBattle.Operations.ADamageOperation$$EvaluateAfterHitTriggers
+```
+
+L'émission d'`On(0x39 = EventTriggerType.PreDamageTaken)` vit dans
+`IdunBattle.Operations.ApplyDamageOperation$$Execute`, dont
+`IdunBattle.Core.Services.OperationProcessor$$ApplyDamage` est le **SEUL** appelant (xref unique) :
+elle tombe donc **entre le split et l'after-hit**. D'où l'entrelacement
+`[valeur i][trigger i][valeur i+1]...`, et jamais `[toutes les valeurs][tous les triggers]`.
+
+### Le port
+
+| pièce | rôle |
+|---|---|
+| `damage_hits._run_hits(pending_sink=...)` | appelle le chokepoint AU POINT où `per_hit_pending` est renseigné — le seul point du port qui satisfait la lecture ci-dessus |
+| `damage.AttackDamageOperation.make_pre_damage_taken_sink` | le CORPS du chokepoint (pose du pending, gate `0 < get_Damage`, émission, relecture `GetValueOrDefault`, purge) |
+| `damage.AttackDamageOperation.pre_damage_taken_of` | le foyer UNIQUE de lecture du cumul |
+| `damage._apply_damage_pipeline(pre_damage_taken=...)` | ne fait plus qu'en LIRE le cumul |
+
+⚠ **LE CUMUL VIT SUR LE SINK — il ne transite NI par `hits_result`, NI par le retour de
+`_run_hits`.** Les deux raccourcis ont été essayés et ont **cassé du code existant** :
+
+1. **clé de `hits_result`** — `operations/additional_hits.py` ne threade **pas** `hits_result` au
+   chokepoint, donc ce vecteur émettait **deux fois** (une fois dans la boucle, une fois au
+   groupe) : ni erreur ni crash, juste un tirage de trigger de trop par groupe additionnel.
+   Trouvé par l'étage 5 du cliquet.
+2. **clé du retour de `_run_hits`** — ce dict est le **CONTRAT DE SORTIE** du canal. Plusieurs
+   harnais SUBSTITUENT `_run_hits` par un stub qui le rend *en entier* ; lire une clé de plus les
+   fait lever `KeyError`. **Deux gardes existantes l'ont attrapé** —
+   `test_failed_block_attack_scope_offline.py::test_execute_additional_hits_CHAINE_l_etat_de_groupe_en_groupe`
+   et `test_additional_hits_variant_signatures_offline.py::test_toute_substitution_expose_le_contrat_de_SORTIE`.
+   Aucune des deux n'a été touchée : elles gardaient un contrat **réel**.
+
+La leçon est la même dans les deux cas : **le cumul appartient à son PRODUCTEUR**. L'appelant
+possède déjà le sink — le faire transiter par un canal partagé, c'est élargir un contrat que
+d'autres tiennent. D'où `_PreDamageTakenSink.cumul()` et le foyer de lecture `pre_damage_taken_of`.
+
+Les **quatre** call-sites moteur threadent leur sink (`damage_ops/normal.py`,
+`damage_ops/ability.py`, `damage_ops/normal_like.py`, `additional_hits.py`) ; tout autre appelant
+(DoT, knockback, dégât direct) laisse `pending_sink=None` et le chokepoint de groupe reprend la
+main — strictement le comportement d'avant.
+
+### La mesure
+
+`probe_1020_savior_protocols_live.py`, `MC1_67`, `--dmg 900` :
+
+| seed | NATIF victime / drone | PORT victime / drone | transferts natif / port |
+|---|---|---|---|
+| 777   | `[0, 314, 0, 0]` / `[2581, 272, 216]`  | idem | 3/4 · 3/4 |
+| 31337 | `[0, 0, 0, 0]` / `[285, 322, 310, 286]` | idem | 4/4 · 4/4 |
+| 4242  | `[323, 264, 0, 0]` / `[308, 233]`      | idem | 2/4 · 2/4 |
+
+**Coup à coup, et le CARDINAL des transferts avec.** Total seed 777 : **3420 -> 3383**, la valeur
+native. Le bras `--temoin` (drone hors adjacence) reste bit-exact `[2581, 250, 314, 275]` : le
+changement est inerte quand aucun trigger ne consomme.
+
+### Le cliquet, et la prémisse qu'il a failli faire accuser au port
+
+`tests/engine/test_1020r4_position_du_tirage_offline.py` — 15 tests. L'étage 1 est arithmétique :
+le sink d'index `k` doit voir `(k+1) * cout_coup + k * cout_sink` tirages déjà consommés, là où un
+port par-groupe les verrait tous à `4 * cout_coup + k * cout_sink`.
+
+⚠ **Écrite avec des coûts CODÉS EN DUR (« 1 tirage par coup »), cette arithmétique rougissait sur un
+port JUSTE.** Le mode ATTACK en consomme 2 (la valeur plus le resolve slot 8 d'
+`IdunBattle.Core.Services.DamagePrediction$$RandomlyResolveMinMaxDamage`), et `next_bool` 2 aussi.
+Les deux coûts sont donc **dérivés du montage** (`_couts()`), qui vérifie au passage que le coût
+d'un coup est CONSTANT et que le sink consomme réellement — sans quoi le témoin serait dégénéré et
+les deux hypothèses de position coïncideraient (l'étage l'assertionne explicitement).
+
+**L'étage 4 existe parce que cette tranche a causé la régression qu'il garde** : le retour de
+`_run_hits` doit être **IDENTIQUE avec et sans sink**. Il voit la fuite **à la source** ; les deux
+gardes existantes, elles, ne la voient qu'une fois qu'elle atteint `additional_hits` — vérifié, en
+remettant la clé : l'étage 4 rougit (2 tests) pendant que les deux gardes restent **VERTES**.
+
+**Deux gardes `#963-r2` réécrites**, pour la même raison que les deux gardes `#963` du §8 : elles
+ancraient sur le **littéral** d'un call-site (`is_first_damaging_hit=(not _damaging_done)`) et sur
+un jeu de `ast.Name` NUS. Une variable intermédiaire les faisait rougir sur un câblage fidèle et --
+symétriquement -- les aurait laissées **vertes** si cette variable avait été rebranchée sur
+`g_first_hit`. Elles résolvent désormais les alias (`_noms_sources`) et ancrent sur la LECTURE de
+l'état, pas sur son écriture textuelle. Vues rouges avant, re-vues rouges après sous deux mutations
+(flag rebranché sur l'index ; bascule déplacée avant la lecture).
+
+### Ce que `#1020-r4` ne ferme pas
+
+* **Rien du bouclier** : `#1020-r1` est fermé par le §11, qui a déplacé `_deplete_shield` des
+  appelants vers le chokepoint. Les deux tranches se composent proprement — la déplétion consomme
+  `kept_shield`, et le sink alimente `kept_shield` coup par coup au lieu du groupe.
+* ⚠ **Ce que le rebase a failli PERDRE, et qui est le vrai point d'attention de cette composition :
+  le canal `source_ability` (`AbilityEntities+0x98`) du §11.3.** L'émission ayant migré dans la
+  boucle, ce canal doit l'y suivre : il est résolu au call-site AVANT `_run_hits`, donné au **sink**
+  ET au chokepoint. Le laisser au seul chokepoint — ce que produit une résolution naïve du conflit —
+  rendrait les deux `!TriggeringAbilityIs` **aveugles pour les quatre vecteurs moteur**, c'est-à-dire
+  pour tous ceux qui ont une décomposition par coup, et **sans aucune erreur**.
+* **`#1020-r6` n'est pas affecté** : `execute_additional_hits` ne threade toujours pas
+  `source_ability`, donc son sink le reçoit `None` — exactement l'état que ce résidu décrit.
+* Le régime **MULTI-PROTECTEURS** et le drone **MOURANT** restent non confrontés (§10).
+* Les vecteurs **sans décomposition par coup** (DoT, knockback, dégât direct) gardent l'émission de
+  groupe : côté natif le groupe EST le coup, donc la position y est déjà juste.

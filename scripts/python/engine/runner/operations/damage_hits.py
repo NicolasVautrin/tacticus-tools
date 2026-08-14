@@ -317,7 +317,12 @@ class _DamageHitsMixin:
                   hp_floor: Optional[int] = None,
                   overkilled0: bool = False,
                   can_be_overkilled: bool = True,
-                  over_reduce0: int = 0) -> dict:
+                  over_reduce0: int = 0,
+                  # #1020-r4 : le CHOKEPOINT `On(0x39 = EventTriggerType.PreDamageTaken)`, appele
+                  # DANS la boucle. Cf. le bloc `POSITION DU TIRAGE` de la docstring. `None` =
+                  # aucun appelant threade -> l'emission reste au chokepoint de GROUPE
+                  # (`_apply_damage_pipeline`), rigoureusement le comportement d'avant.
+                  pending_sink=None) -> dict:
         """Boucle PAR COUP partagée (attaque normale ET ability) : pour chaque coup, crit-roll D'ABORD
         (1 tirage NextBool si cc>=1, sinon 0) PUIS tirage dans `hit_cr`/`hit_nc`, PUIS split combat
         (bouclier/armure-pool/block, `calculate_damage_operation`). Ordre RNG crit->spread->block confirmé.
@@ -494,6 +499,37 @@ class _DamageHitsMixin:
             ne se resout meme pas : ni degat, ni block, ni `EvaluateAfterHitTriggers`).
         Les deux produisent le MEME ecart observable si on les manque : une entree `per_hit` de
         trop, a somme et etat INCHANGES -- donc invisible de tout test d'ETAT.
+
+        POSITION DU TIRAGE (#1020-r4) -- `pending_sink`. Le chokepoint `On(0x39 =
+        EventTriggerType.PreDamageTaken)` vivait au niveau du GROUPE
+        (`operations/damage.py::_apply_damage_pipeline`), c.-a-d. APRES que TOUS les coups ont
+        tire. Sa GRANULARITE etait deja juste (#1020 : un appel par coup, sur `per_hit_pending`),
+        mais sa POSITION dans le flux PRNG ne l'etait pas : un trigger qui tire (`SaviorProtocols`
+        et son `Maybe`) consommait ses N tirages APRES les N valeurs de coup, la ou le natif
+        entrelace `[valeur i][Maybe i][valeur i+1]...`.
+
+        LU. `IdunBattle.Operations.AttackDamageOperation$$ExecuteHits` boucle
+        `while (i < numHits)` et appelle `IdunBattle.Operations.AttackDamageOperation$$ExecuteHit`
+        UNE FOIS PAR TOUR, suivi d'`IdunBattle.Operations.ADamageOperation$$UpdateHitGroupAfterHit`
+        / `$$UpdateCurrentAttackAfterHit` : un coup est donc INTEGRALEMENT resolu avant que le
+        suivant ne tire quoi que ce soit. Et dans `ExecuteHit`, l'ordre est
+        `IdunBattle.Core.HitDamage$$GetDamage` -> `IdunBattle.Core.AttackHit$$.ctor` ->
+        `RollCritical` -> `AbilityEntities$$.ctor` -> `On(6)` -> `On(7)` -> sous-operation de split
+        -> `IdunBattle.Operations.ADamageOperation$$EvaluateAfterHitTriggers`. L'emission d'`On(0x39)`
+        est dans `IdunBattle.Operations.ApplyDamageOperation$$Execute`, dont
+        `IdunBattle.Core.Services.OperationProcessor$$ApplyDamage` est le SEUL appelant (xref
+        unique) : elle tombe donc entre le split et l'after-hit -- exactement le point ou
+        `per_hit_pending` est renseigne ci-dessous.
+
+        `pending_sink(health, shield)` rend `(kept_health, kept_shield)` ou `None` (pending
+        CONSOMME = coup transfere) ; `None` en argument = aucun sink, et le chokepoint de groupe
+        emet lui-meme : strictement l'ancien comportement.
+
+        ⚠ **LE CUMUL NE PASSE PAS PAR LE RETOUR DE CETTE FONCTION.** Le dict rendu ci-dessous est
+        le CONTRAT DE SORTIE du canal -- toute substitution de `_run_hits` doit pouvoir le rendre
+        en entier, et deux gardes existantes le verifient (`test_additional_hits_variant_signatures
+        _offline.py`, `test_failed_block_attack_scope_offline.py`). Y ajouter une cle casse ces
+        substitutions par `KeyError`. Le cumul vit donc sur le SINK, que l'appelant possede deja.
 
         Renvoie total/per_hit/rolls/crits + flags. Pools déplétés entre coups (0 -> invariant)."""
         total = shield_dmg = armor_dmg = 0
@@ -728,6 +764,23 @@ class _DamageHitsMixin:
                 # resultat AVANT `Reduce`, et c'est ce montant-la que `TransferDamageOperation$$
                 # GetDamage` empaquette quand il le consomme.
                 per_hit_pending.append((int(dmg.health), int(dmg.shield)))
+                # #1020-r4 -- LE CHOKEPOINT `On(0x39)` DE CE COUP, JOUE ICI. Position LUE dans
+                # `IdunBattle.Operations.AttackDamageOperation$$ExecuteHit` : la sous-operation qui
+                # calcule le split (celle dont le port est `calculate_damage_operation`, appelee
+                # quelques lignes plus haut) precede immediatement
+                # `IdunBattle.Operations.ADamageOperation$$EvaluateAfterHitTriggers` -- et c'est
+                # elle qui atteint `IdunBattle.Core.Services.OperationProcessor$$ApplyDamage`, SEUL
+                # appelant d'`IdunBattle.Operations.ApplyDamageOperation$$Execute` (xref unique).
+                # Donc, PAR COUP : [valeur + crit + spread + block] -> [emission 0x39] -> [after-hit],
+                # puis `IdunBattle.Operations.AttackDamageOperation$$ExecuteHits` reboucle sur le
+                # coup suivant. Un trigger qui consomme du PRNG (le `Maybe` de `SaviorProtocols`)
+                # tire donc AVANT la valeur du coup i+1, jamais apres toute la salve.
+                # ⚠ Le cumul est PORTE PAR LE SINK, jamais publie dans le dict rendu plus bas :
+                # ajouter une cle au retour ELARGIT le CONTRAT DE SORTIE de ce canal, et toute
+                # substitution de `_run_hits` restee en arriere leve alors `KeyError` (deux gardes
+                # existantes l'ont attrape, cf. `damage.py::_PreDamageTakenSink`).
+                if pending_sink is not None:
+                    pending_sink(int(dmg.health), int(dmg.shield))
                 # `UnitFlagsComponent$$Add(flags, 8)` : `dar.didOverkill && CanBeOverkilled(target)`.
                 if not _overkilled[0] and overkill_flag_posted_by_hit(
                         dmg.health, denied_before[-1] if denied_before else 0,

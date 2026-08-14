@@ -668,6 +668,21 @@ class _Normal:
         # est per-COUP et sans gate `IsFirstHitInSeries`. Cf. `triggers/loki/harlequins_panoply.py`.
         from ..triggers.loki.harlequins_panoply import make_hit_interceptor   # lazy (cycle)
         _hit_icept = make_hit_interceptor(state, attacker_id, target_id)
+        # #1020-r4 : le chokepoint `On(0x39 = EventTriggerType.PreDamageTaken)` joue DANS la boucle,
+        # a sa position dans le flux PRNG (cf. `damage_hits._run_hits`, bloc `POSITION DU TIRAGE`).
+        # La phase d'arme est la PREMIERE serie de l'attaque -> aucun degat inflige avant elle.
+        _first_damaging = True
+        # #1020-r3 x #1020-r4 : le canal `AbilityEntities+0x98` doit suivre l'emission LA OU ELLE
+        # A LIEU. Elle a migre dans la boucle, donc `source_ability` est resolu ICI, avant, et la
+        # MEME valeur part au sink et au chokepoint (le rebase qui le laisserait au seul chokepoint
+        # rendrait les `TriggeringAbilityIs` aveugles pour ce vecteur, sans erreur).
+        # `GetDamageSourceAbility(currentAbility = l'attaque normale, triggeringAbility)` : la voie
+        # NORMALE porte le marqueur de kind 0x3f5 comme `currentAbility` (cf. `attack_type.py`).
+        _src_ability = AttackDamageOperation._damage_source_ability(
+            _normal_attack_kind(), triggering_ability)
+        _pdt_sink = AttackDamageOperation.make_pre_damage_taken_sink(
+            state, attacker_id, target_id, thc, _profile, is_first_damaging_hit=_first_damaging,
+            source_ability=_src_ability)
         r = AttackDamageOperation._run_hits(state.rng, hit_nc, hit_cr, crit_chance,
                                             crit_enabled, hits, block_sources, shield=shield_total,
                                             # #522-r1 : crit chance RELUE apres `On(PreAttackHit)`
@@ -700,16 +715,14 @@ class _Normal:
                                             # #195 : `HasFlag(defender, 0x13)` — le 5e argument
                                             # `isPreventOverkill` que `ApplyTraitDamageLimitsToDamage`
                                             # lit lui-meme sur son parametre `defender`.
-                                            prevent_overkill=unit_prevents_overkill(state, target_id))
+                                            prevent_overkill=unit_prevents_overkill(state, target_id),
+                                            pending_sink=_pdt_sink)     # #1020-r4
         # #1020-r1 : plus de `_deplete_shield` ICI. `ApplyDamageOperation$$ReduceShield` lit le
         # pending RELU (apres `On(0x39)`), donc la depletion vit dans le chokepoint, avec `Reduce`.
         death = AttackDamageOperation._apply_damage_pipeline(           # chokepoint partage (#202)
             state, target_id, attacker_id, tgt, thc, r["total"], _profile,
             r["shield_dmg"], r["armor_dmg"],
-            # `GetDamageSourceAbility(currentAbility = l'attaque normale, triggeringAbility)` : la voie
-            # NORMALE porte le marqueur de kind 0x3f5 comme `currentAbility` (cf. `attack_type.py`).
-            source_ability=AttackDamageOperation._damage_source_ability(
-                _normal_attack_kind(), triggering_ability),
+            source_ability=_src_ability,   # #1020-r4 : la MEME que celle donnee au sink
             last_hit=(r["per_hit"][-1] if r.get("per_hit") else None),
             # #R33 : decomposition per-coup (crit / denied) pour `didOverkill` — le natif evalue
             # `IsOverkill` A CHAQUE coup. L'attaque normale n'a pas de flag `isForceOverkill`
@@ -717,7 +730,12 @@ class _Normal:
             hits_result=r,
             # `On(0x10)` : la PHASE D'ARME contient le coup d'index 0 -> `IsFirstHitInSeries` VRAI
             # (payload `AbilityEntities+0x110`, lu par `OnToxicDamageAbility`).
-            is_first_hit=True)
+            is_first_hit=True,
+            # #1020-r4 : MEME etat que celui donne au `pending_sink` ci-dessus. Il n'est plus lu
+            # quand le sink a joue (`r["pre_damage_taken"]` non nul), mais l'ecrire ici garde les
+            # deux chemins apparies -- le repli implicite sur `is_first_hit` masquerait un ecart.
+            is_first_damaging_hit=_first_damaging,
+            pre_damage_taken=AttackDamageOperation.pre_damage_taken_of(_pdt_sink))
         # #202-B : coups additionnels HETEROGENES (canal #179, face COMBAT) — sous-operations APRES
         # les coups d'arme (mirror IdunBattle.Operations.ExecuteAdditionalHitsWithDamageProfileTypeOperation$$Execute), chacune son RegisterDamage au profil PROPRE.
         _ah = execute_additional_hits(

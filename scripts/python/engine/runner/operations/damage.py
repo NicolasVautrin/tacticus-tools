@@ -159,6 +159,72 @@ def _health_of(state: State, unit_id) -> tuple:
     return (hc.hp, hc.hp_max)
 
 
+class _PreDamageTakenSink:
+    """#1020-r4 -- le chokepoint `On(0x39 = EventTriggerType.PreDamageTaken)` d'UN COUP, sous une
+    forme que `damage_hits._run_hits` peut appeler A SA POSITION dans le flux PRNG, et qui PORTE
+    son propre cumul.
+
+    MEME CORPS que `AttackDamageOperation._pre_damage_taken_per_hit` (pose du pending -> gate
+    `0 < DamageAppliedResult$$get_Damage` -> emission -> relecture `GetValueOrDefault` -> purge),
+    mais joue coup par coup DANS la boucle au lieu d'etre re-deroule apres elle.
+
+    ⚠ **LE CUMUL VIT ICI, PAS DANS LE RETOUR DE `_run_hits`.** Le publier sous une cle du dict rendu
+    par le canal ELARGIT son CONTRAT DE SORTIE : toute substitution de `_run_hits` restee en arriere
+    leve alors `KeyError`. Ce n'est pas theorique -- c'est la cause EXACTE des deux rouges de la
+    premiere version de cette tranche, tous deux sur `additional_hits` :
+    `test_failed_block_attack_scope_offline.py::test_execute_additional_hits_CHAINE_l_etat_de_groupe_en_groupe`
+    et `test_additional_hits_variant_signatures_offline.py::test_toute_substitution_expose_le_contrat_de_SORTIE`,
+    dont le stub rend deliberement le contrat COMPLET et documente du canal. Le cumul appartient a
+    son PRODUCTEUR : l'appelant possede deja le sink, il n'a aucun besoin de le faire transiter.
+
+    `isFirstDamagingHit` (`DamageAppliedResult+0x18`) reste PROPRE AU COUP : l'etat vit sur
+    l'instance et tombe au premier coup qui emet, exactement comme dans la version par-groupe.
+
+    `__call__(health, shield)` rend `(kept_health, kept_shield)`, ou `None` si le pending a ete
+    CONSOMME (coup transfere). `cumul()` rend `(kept_health, kept_shield, transferts)` -- et
+    `(0, 0, 0)` quand aucun coup n'a atteint le point d'ecriture, ce qui est exactement juste :
+    zero coup pose => rien de garde, rien de transfere."""
+    __slots__ = ("state", "attacker_id", "target_id", "thc", "profile", "source_ability",
+                 "first", "kept_health", "kept_shield", "transfers", "calls")
+
+    def __init__(self, state, attacker_id, target_id, thc, profile, is_first_damaging_hit,
+                 source_ability=None):
+        self.state, self.attacker_id, self.target_id = state, attacker_id, target_id
+        self.thc, self.profile = thc, profile
+        # #1020-r3 : le canal `AbilityEntities+0x98` (`DamageAppliedResult+0x40`), que les
+        # `TriggeringAbilityIs` LISENT. Il vit sur le sink parce que l'emission a migre dans la
+        # boucle : le laisser au seul chokepoint de groupe le rendrait aveugle pour les QUATRE
+        # vecteurs qui ont une decomposition par coup -- c'est-a-dire pour tous ceux qui comptent.
+        self.source_ability = source_ability
+        self.first = bool(is_first_damaging_hit)
+        self.kept_health = self.kept_shield = self.transfers = self.calls = 0
+
+    def __call__(self, health: int, shield: int):
+        # lazy : cycle damage<->triggers. Forme MODULE (comme `_apply_damage_pipeline`) :
+        # l'attribut est relu a l'appel, donc une substitution posee sur `dispatch.attack` mord.
+        from .triggers.dispatch import attack as attack_dispatch
+        self.calls += 1
+        thc = self.thc
+        # `healthComp[+0x64] = Nullable<DamageAppliedResult>(result)` -- AVANT toute emission.
+        thc.pending_damage = PendingDamage(self.profile, int(health), int(shield))
+        if int(health) + int(shield) > 0:      # `0 < DamageAppliedResult.get_Damage(&result)`
+            attack_dispatch.pre_damage_taken_triggers(
+                self.state, self.attacker_id, self.target_id, profile=self.profile,
+                is_first_damaging_hit=self.first, source_ability=self.source_ability)
+            self.first = False                 # `+0x18` du coup SUIVANT : plus le premier damageant
+        after = thc.pending_damage             # `GetValueOrDefault` : Nullable vide -> struct ZERO
+        thc.pending_damage = None              # portee = `Execute` : le pending ne survit pas
+        if after is None:
+            self.transfers += 1                # pending CONSOMME -> coup transfere
+            return None
+        self.kept_health += int(after.health)
+        self.kept_shield += int(after.shield)
+        return int(after.health), int(after.shield)
+
+    def cumul(self) -> tuple:
+        return (self.kept_health, self.kept_shield, self.transfers)
+
+
 class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
     """`IdunBattle.Operations.AttackDamageOperation` IdunBattle.Operations.AttackDamageOperation$$Execute (squelette fidèle).
 
@@ -754,6 +820,50 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
         return kept_h, kept_s, transfers
 
     @staticmethod
+    def pre_damage_taken_of(sink):
+        """Le cumul `(kept_health, kept_shield, transferts)` d'un sink, ou `None` s'il n'y en a pas.
+
+        FOYER UNIQUE de la lecture, pour que les quatre call-sites moteur ne l'ecrivent pas chacun
+        a leur facon. `None` = aucun sink threade (`thc` inexploitable) -> `_apply_damage_pipeline`
+        emet lui-meme, comme pour les vecteurs sans decomposition par coup."""
+        return None if sink is None else sink.cumul()
+
+    @staticmethod
+    def make_pre_damage_taken_sink(state: State, attacker_id: Optional[int], target_id: int, thc,
+                                   profile: Optional[str], *, is_first_damaging_hit,
+                                   source_ability=None):
+        """#1020-r4 -- le chokepoint `On(0x39 = EventTriggerType.PreDamageTaken)` d'UN COUP, sous
+        une forme que `damage_hits._run_hits` peut appeler A SA POSITION dans le flux PRNG.
+
+        MEME CORPS que `_pre_damage_taken_per_hit` (pose du pending -> gate `0 <
+        DamageAppliedResult$$get_Damage` -> emission -> relecture `GetValueOrDefault` -> purge),
+        mais joue coup par coup DANS la boucle au lieu d'etre re-deroule apres elle. La granularite
+        etait deja juste ; c'est la POSITION qui ne l'etait pas -- cf. le bloc `POSITION DU TIRAGE`
+        de `damage_hits._run_hits`, qui porte la lecture native.
+
+        `isFirstDamagingHit` (`DamageAppliedResult+0x18`) reste PROPRE AU COUP : l'etat vit dans la
+        closure et tombe au premier coup qui emet, exactement comme dans la version par-groupe.
+
+        Rend `None` quand il n'y a pas de `HealthComponent` exploitable : l'appelant ne threade
+        alors aucun sink et le chokepoint de groupe reprend la main (il a ses propres gardes
+        `thc is None or thc.hp is None`).
+
+        ⚠ LE CUMUL VIT SUR LE SINK, PAS DANS LE RETOUR DE `_run_hits` -- et c'est une correction,
+        pas un gout. Un premier jet le publiait sous la cle `pre_damage_taken` du dict rendu par
+        `damage_hits._run_hits`, ce qui ELARGISSAIT le CONTRAT DE SORTIE de ce canal sans le
+        declarer : toute substitution de `_run_hits` restee en arriere levait alors `KeyError`.
+        Deux gardes EXISTANTES l'ont attrape (`test_failed_block_attack_scope_offline.py::
+        test_execute_additional_hits_CHAINE_l_etat_de_groupe_en_groupe` et
+        `test_additional_hits_variant_signatures_offline.py::
+        test_toute_substitution_expose_le_contrat_de_SORTIE`, dont le stub rend exactement le
+        contrat documente). Le cumul appartient a son PRODUCTEUR : l'appelant possede deja le
+        sink, il n'a aucun besoin de le faire transiter par le canal."""
+        if thc is None or thc.hp is None:
+            return None
+        return _PreDamageTakenSink(state, attacker_id, target_id, thc, profile,
+                                   is_first_damaging_hit, source_ability)
+
+    @staticmethod
     def _apply_damage_pipeline(state: State, target_id: int, attacker_id: int, tgt, thc,
                                total: int, profile: Optional[str],
                                shield_dmg: int = 0, armor_dmg: int = 0,
@@ -763,7 +873,16 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
                                is_force_overkill: bool = False,
                                is_first_hit: Optional[bool] = None,
                                triggering_effect: Optional[int] = None,
-                               is_first_damaging_hit: Optional[bool] = None) -> Optional[list]:
+                               is_first_damaging_hit: Optional[bool] = None,
+                               # #1020-r4 : `(kept_health, kept_shield, transferts)` rendu par
+                               # `damage_hits._run_hits` quand l'appelant lui a threade un
+                               # `pending_sink` -- c.-a-d. quand l'emission `On(0x39)` a DEJA ete
+                               # jouee coup par coup, a sa position dans le flux PRNG. ARGUMENT
+                               # PROPRE, et non une cle de `hits_result` : `additional_hits.py`
+                               # ne threade PAS `hits_result`, et l'y cacher aurait produit une
+                               # DOUBLE emission sur ce vecteur (silencieuse : ni erreur ni crash,
+                               # juste un tirage de trigger de trop par groupe).
+                               pre_damage_taken: Optional[tuple] = None) -> Optional[list]:
         """#202 : CHOKEPOINT post-resolution PARTAGE des 4 vecteurs de degat — mirror du pipeline natif
         unique qui suit toute application de degat : `ApplyDamageOperation` (mutation HP, clamp HP-floor)
         -> OnDeathEvent (`_fire_death_if_killed`) -> compteurs per-tour (`_record_attacked`, attaques
@@ -847,19 +966,37 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
         # degat n'a encore ete inflige dans CETTE attaque ». `None` = appelant qui ne le
         # thread pas -> repli sur l'ancien `is_first_hit` (rigoureusement l'ancien
         # comportement, pour les vecteurs qui n'ont pas de sous-operations).
-        kept_health, kept_shield, transfers = AttackDamageOperation._pre_damage_taken_per_hit(
-            state, attacker_id, target_id, thc, int(total or 0), int(shield_dmg or 0), profile,
-            hits_result, attack_dispatch,
-            is_first_damaging_hit=(is_first_hit if is_first_damaging_hit is None
-                                   else is_first_damaging_hit),
-            # #1020-r3 -- LE CANAL `AbilityEntities+0x98`, LU au ctor nomme. `ApplyDamageOperation$$
-            # Execute` construit son `AbilityEntities` avec `currentAbilityOrEffect` (13e param) ET
-            # `triggerAbilityOrEffect` (15e param) tous deux recopies du MEME bloc
-            # `DamageAppliedResult+0x40` (le `Nullable<AbilityOrEffect>` de son champ
-            # `source: IdunBattle.Operations.DamageSource`). Cote port ce bloc EST `source_ability`,
-            # deja resolu par `_damage_source_ability` (mirror de
-            # `idun.Idun.Source.Shared.Battle.StaticBattleRules.StaticBattleRules$$GetDamageSourceAbility`).
-            source_ability=source_ability)
+        #
+        # #1020-r4 -- ET SON EMISSION A DESORMAIS UNE POSITION. Quand l'appelant a threade un
+        # `pending_sink` a `damage_hits._run_hits`, le chokepoint a DEJA ete joue coup par coup, au
+        # point exact du flux PRNG ou le natif le joue (entre le split d'un coup et le tirage du
+        # suivant) : on ne fait plus que LIRE son cumul. Sinon (`None` : DoT, knockback, degat
+        # direct, ou tout appelant qui ne threade pas), on emet ici, comme avant.
+        #
+        # ⚠ LES DEUX BRANCHES DOIVENT PORTER LE MEME CANAL `source_ability` (#1020-r3). Le sink le
+        # recoit a sa construction et le passe a CHAQUE emission -- resoudre ce rebase en ne le
+        # laissant que dans la branche `else` aurait fait perdre le canal aux QUATRE vecteurs
+        # moteur, c'est-a-dire a tous ceux qui ont une decomposition par coup : les deux
+        # `!TriggeringAbilityIs` de `SaviorProtocols` seraient redevenus aveugles, sans erreur.
+        if pre_damage_taken is not None:
+            kept_health, kept_shield, transfers = (int(pre_damage_taken[0]),
+                                                   int(pre_damage_taken[1]),
+                                                   int(pre_damage_taken[2]))
+        else:
+            kept_health, kept_shield, transfers = AttackDamageOperation._pre_damage_taken_per_hit(
+                state, attacker_id, target_id, thc, int(total or 0), int(shield_dmg or 0), profile,
+                hits_result, attack_dispatch,
+                is_first_damaging_hit=(is_first_hit if is_first_damaging_hit is None
+                                       else is_first_damaging_hit),
+                # #1020-r3 -- LE CANAL `AbilityEntities+0x98`, LU au ctor nomme.
+                # `ApplyDamageOperation$$Execute` construit son `AbilityEntities` avec
+                # `currentAbilityOrEffect` (13e param) ET `triggerAbilityOrEffect` (15e param) tous
+                # deux recopies du MEME bloc `DamageAppliedResult+0x40` (le
+                # `Nullable<AbilityOrEffect>` de son champ `source: IdunBattle.Operations.
+                # DamageSource`). Cote port ce bloc EST `source_ability`, deja resolu par
+                # `_damage_source_ability` (mirror d'`idun.Idun.Source.Shared.Battle.
+                # StaticBattleRules.StaticBattleRules$$GetDamageSourceAbility`).
+                source_ability=source_ability)
         # `FillUpStatComponent$$Reduce(hp, pending.healthDamage)` : le natif reduit ce que le
         # PENDING RELU porte, pas le degat calcule. Sans consommateur, `kept_health == total`
         # (mesure du no-op : voir `probe_1020_pipeline_par_coup.py` etage 1).
