@@ -186,7 +186,18 @@ def run(arm: str = "on", seed: int = SEED, board: str = BOARD, keep: bool = Fals
         if predictor is None:
             raise RuntimeError("build_predictor MUET (bras=%s)" % arm)
         sctx = step_context(predictor, dv)
-        scene = Scene.from_predictor_sctx(predictor, sctx)
+        # ⚠ `elev_by_pos` et `tile_effects_by_pos` sont OBLIGATOIRES, et les omettre est un vice de
+        # MONTAGE, pas une simplification : `engine/ai/context.py` les construit toujours depuis
+        # `tileMeta`, et sans eux la `Scene` degrade en silence tout gate positionnel ou de tuile.
+        # MESURE (#1035-r2) : sur le jumeau `BlightedLand`, la sonde SANS ces deux tables rendait
+        # 4341 contre 4773 cote natif -- une fausse divergence de 10 % imputable au harnais seul.
+        tm = rpc("tileMeta", {}, 60)
+        tiles = tm.get("tiles") or []
+        elev = {(t.get("col"), t.get("row")): t.get("elevation") for t in tiles}
+        fx = {(t.get("col"), t.get("row")): [e.get("name") for e in (t.get("effects") or [])]
+              for t in tiles}
+        scene = Scene.from_predictor_sctx(predictor, sctx, elev, tile_effects_by_pos=fx)
+        res["tuileAttaquant"] = fx.get(POS_ATT)
         ev, meta = make_normal_attack_predictions(scene, ids[ATT], ids[FOE], POS_ATT, meta=True)
         pr = getattr(ev, "prediction", None)
         ahd = getattr(pr, "accurate_health_damage", None) if pr is not None else None
