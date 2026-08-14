@@ -84,6 +84,7 @@ from ..entities.effects import (
     aura_attack_damage_bonus_from_allies,
     build_attacker_modifiers_from_effects, build_defender_modifiers_from_effects,
     hits_bonus_from_effects,
+    piercing_bonus_from_effects,        # #1052 : `CasterEffectPierceAddition` de l'AllIsDust
 )
 from ..entities.traits.combat import GetStuckInTrait, min_distance
 from ..entities.effects.magnitude import trait_var
@@ -1368,6 +1369,30 @@ def defender_modifiers(state: State, unit_id: int, hp: Optional[int],
             if _actx is not None:
                 att_ctx["ability_level"] = int(_actx.passive_ability_level or 0)
                 att_ctx["multiplier"] = int(_actx.ability_variables_multiplier or 100)
+            # #1052 -- LES TROIS TERMES DE PERCAGE QUE LIT `AllIsDustEffect$$CreatePiercingBonusFor
+            # Attack` SUR LE CASTER. Memes cles / meme semantique sur la face PREDICTION
+            # (`playbook/prediction/_shared.py`), comme tout ce contexte.
+            #  * `extra_pierce`     = `StatAmount(Caster@+0x48, 0x1a = ExtraPierce, 0x5 = Modification)` ;
+            #  * `extra_pierce_dir` = `StatAmount(Caster@+0x48, 0x15 = ExtraPierceMelee | 0x16 =
+            #    ExtraPierceRanged, 0x5 = Modification)` -- la branche du `If(IsMeleeAttack, .., ..)`
+            #    de `$$GetPierceStatModifier`. `is_melee` non threade -> cle ABSENTE (le `If` natif
+            #    n'a pas de branche « inconnu ») ;
+            #  * `effect_pierce_addition` = `CasterEffectPierceAddition(excludedEffectType = 0x4a5)`
+            #    = la somme des `BaseEffect$$PiercingBonusForAttack` -- cote port, celle des effets
+            #    de l'ATTAQUANT (`piercing_bonus_from_effects`, meme mirror). L'exclusion de 0x4a5
+            #    est STRUCTURELLE ici : l'effet 1189 vit sur la CIBLE, jamais dans cette liste.
+            # TRI-ETAT : une cle absente FERME le gate cote effet -- jamais un 0 devine.
+            if _actx is not None and is_melee is not None:
+                att_ctx["extra_pierce"] = int(_actx.extra_pierce or 0)
+                att_ctx["extra_pierce_dir"] = int((_actx.extra_pierce_melee if is_melee
+                                                   else _actx.extra_pierce_ranged) or 0)
+            _aeff = (state.effects.active_effects(attacker_id,
+                                                  unit_state_for_effects(state, attacker_id))
+                     if state.effects is not None else None)
+            if _aeff is not None:
+                att_ctx["effect_pierce_addition"] = int(piercing_bonus_from_effects(
+                    _aeff, {"owner_id": attacker_id, "att_id": attacker_id,
+                            "is_ranged": (None if is_melee is None else (not is_melee))}))
     # STAT-MODS DEFENSE de la CIBLE (#197) : moitie DEFENSE de `CalculateDefenderModifiersForPrediction
     # IdunBattle.Core.Services.DamageCalculations$$CalculateDefenderModifiersForPrediction`, portee DANS la fonction PARTAGEE (fin du fork prediction/combat -- cf. son docstring).
     # Source runner = le `StatComponent` DEFENSE (stat 3) de l'ECS live (`ctx.stats`, delta cuit au load

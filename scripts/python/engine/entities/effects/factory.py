@@ -23,6 +23,7 @@ from .loki.ramshackle import RamshackleDmgReductionEffect
 from .loki.revealed import RevealedEffect                    # #1033 (1219, pose par 1107 Reveal)
 from .loki.supa_cybork_body import SupaCyborkBodyCritDmgReductionEffect
 from .loki.talisman_of_rage import TalismanOfRageCritDamageReductionEffect
+from .loki.all_is_dust import AllIsDustEffect                       # #1052 (effet 0x4a5 = 1189)
 from .loki.blood_chalice import BloodChaliceExtraPiercingEffect, BloodChaliceHealOnAttackEffect
 from .loki.champion_of_the_feast import ChampionOfTheFeastReduceArmorEffect
 from .loki.close_combat_weakness import (                  # #1015-r1 (trait T'AU, 16 porteurs npc)
@@ -1453,6 +1454,15 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # `CurrentAbilityIs` -> s'applique aussi a l'attaque NORMALE ranged du porteur. Le nom d'EffectType
     # capte live est « Hailstrike » (== `EffectType.Hailstrike`, verifie par test_storm_speeder_live).
     "Hailstrike": HailstrikeExtraPierceEffect,
+    # 0x4a5=1189 AllIsDust (#1052) : owner-effect PERMANENT du passif `AllIsDust` (0x486 = 1158) de
+    # `thousNpc3RubricMarine` / `thousSmnRubricMarine`. Canal PERCAGE, face **OwnerIsTarget** (comme
+    # Supercharge, PAS comme Hailstrike) : `CreatePiercingBonusForAttack` = `ForPiercing(
+    # get_OwnerIsTarget & NOT AmountIsGreater(total, ConfigConst(0x49 = pierceRatio)),
+    # Negative(Subtract(total, Direct(1))))` ou `total = AttackPiercingRatio() +
+    # GetPierceStatModifier() + CasterEffectPierceAddition(excluded = 0x4a5)`. Le montant est
+    # NEGATIF : il RAMENE le percage effectif a 1 quand il ne depassait pas 35.
+    # Cf. `entities/effects/loki/all_is_dust.py`.
+    "AllIsDust": AllIsDustEffect,
     # 0x541=1345 / 0x542=1346 VisionsOfHeresy_ExtraPierce{Melee,Ranged} (case-366-r1) — les DEUX
     # owner-effects du passif `VisionsOfHeresy` (0x4f0=1264) de `bloodDeathCompany` <<Lucien>>.
     # UNE SEULE classe native (`VisionsOfHeresy_ExtraPierceEffect` : les deux ids partagent le MEME slot
@@ -2235,6 +2245,15 @@ ABILITY_INIT_OWNER_EFFECTS: dict[str, list[str]] = {
     # Porteurs : summon `astraSmnDeathRider` (spawne par `LeadingTheCharge` d'`astraDreir`, au pool)
     # et npc `astraNpc5DeathRider`. Cf. `entities/effects/loki/hits.py::FragLanceEffect`.
     "FragLance": ["FragLance"],
+    # #1052 -- `AllIsDustAbility$$CreateBehaviour` = `AddEffect(0x4a5 = 1189 AllIsDust,
+    # AbilityStateReference, targets = Caster@<DSLSelectors+0x48>, turns = null)`, sous le trigger
+    # d'INIT partage `<DSLTriggers+0x30>` = `On(0x21 = AbilityInit) & get_OwnerIsActor` (corps
+    # DEDUPLIQUE par ICF avec `SummaryExecutionAddBaseEffectAbility$$CreateTrigger`, appartenance
+    # etablie slot a slot dans le bloc `methodPointers` du PE). Owner-effect PERMANENT.
+    # Porteurs : `thousNpc3RubricMarine` (npc, confrontable par `--explicit-stats`) et son jumeau
+    # summon `thousSmnRubricMarine`, que le seed live ne capte pas forcement avec son effet -> ce
+    # seed n'est pas un filet, c'est le SEUL chemin offline pour un porteur spawne.
+    "AllIsDust": ["AllIsDust"],
     # #1015-r1 -- `InstinctiveBehaviour_InitAbility` (parent `IdunBattle.Entities.Abilities.
     # AOwnerEffectSpecificTriggeredAbility`, `frida/classes.tsv`) n'override QUE `$$GetEffectType`,
     # dont le corps ENTIER est `return 0x4d3` (= 1235 `InstinctiveBehaviour_BlockMovement`) :

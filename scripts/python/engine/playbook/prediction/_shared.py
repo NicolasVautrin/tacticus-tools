@@ -21,7 +21,8 @@ from engine.entities.effects import (
     aura_defense_damage_malus_from_units,
     calculate_attacker_modifiers_for_prediction, build_defender_modifiers_from_effects,
     hits_bonus_from_effects, hits_malus_from_defender_effects, additional_hit_groups,
-    aura_additional_hits_from_allies)
+    aura_additional_hits_from_allies,
+    piercing_bonus_from_effects)        # #1052 : `CasterEffectPierceAddition` de l'AllIsDust
 from engine.entities.effects.loki.hits import LIGHT_COVER_TILE_ID
 from engine.entities.rarity import Rarity as _Rarity   # `idun.meta.Rarity` (#1042-r1)
 from engine.entities.effects.loki.damage_reduction import (   # #1042-r1 -- un seul foyer de nommage
@@ -584,6 +585,23 @@ def _add_positional_and_defender_mods(mods, scene, att_id, tgt_id, is_melee, att
     # Cle absente (position inconnue) -> le gate se FERME cote effet (conjonction).
     att_ctx["att_pos"] = attack_pos
     att_ctx["owner_pos"] = t_pos
+    # #1052 -- LES TROIS TERMES DE PERCAGE que lit `AllIsDustEffect$$CreatePiercingBonusForAttack`
+    # sur le CASTER. MEMES cles / MEME semantique que la face COMBAT
+    # (`runner/damage_model.defender_modifiers`) : elargir un seul cote recreerait le fork.
+    #  * `extra_pierce`     = `StatAmount(Caster@+0x48, 0x1a = ExtraPierce, 0x5 = Modification)` ;
+    #  * `extra_pierce_dir` = `StatAmount(Caster@+0x48, 0x15 | 0x16, Modification)` -- la branche du
+    #    `If(IsMeleeAttack, .., ..)` de `$$GetPierceStatModifier`. `is_melee` non threade -> cles
+    #    ABSENTES (le `If` natif n'a pas de branche « inconnu ») ;
+    #  * `effect_pierce_addition` = `CasterEffectPierceAddition(excludedEffectType = 0x4a5)`, cote
+    #    port la somme des effets de l'ATTAQUANT (`piercing_bonus_from_effects`).
+    _actx = scene.ctx(att_id)
+    if _actx is not None and is_melee is not None:
+        att_ctx["extra_pierce"] = int(_actx.extra_pierce or 0)
+        att_ctx["extra_pierce_dir"] = int((_actx.extra_pierce_melee if is_melee
+                                           else _actx.extra_pierce_ranged) or 0)
+    att_ctx["effect_pierce_addition"] = int(piercing_bonus_from_effects(
+        scene.effects(att_id), {"owner_id": att_id, "att_id": att_id,
+                                "is_ranged": (None if is_melee is None else (not is_melee))}))
     # STAT-MODS DEFENSE de la CIBLE (#194/#197) : moitie DEFENSE de `CalculateDefenderModifiersForPrediction
     # IdunBattle.Core.Services.DamageCalculations$$CalculateDefenderModifiersForPrediction` (DefenseComponent stat 3 IdunBattle.Core.Services.DamageCalculations$$CalculateDefenderModifiersForPrediction+0x436 → `IdunBattle.Core.Services.DamageCalculations$$CalculateModifiersFromStatModifications`
     # negate=1 → `1±v/100`). Ex. tuile Thorns −50 → +50 → ×1.5 (GROUND TRUTH C2_19). PORTEE DANS la fonction

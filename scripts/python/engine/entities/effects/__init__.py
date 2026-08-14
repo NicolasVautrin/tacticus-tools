@@ -238,7 +238,12 @@ def build_defender_modifiers_from_effects(effects, is_melee: bool | None = None,
         # `OwnerIsTarget` -- ex. `Supercharge_ExtraPiercingEffect`). Slot d'interface DISTINCT ;
         # `add_modifier` route le kind "Piercing" vers `extra_pierce` (axe @0x20), JAMAIS vers le
         # scalaire degat. Aucun effet PREEXISTANT ne surcharge ce slot -> no-op strict pour eux.
-        pb = e.create_piercing_bonus_for_attack(damage_profile, is_melee)
+        # #1052 : `attacker_ctx` est desormais THREADE ici aussi -- `AllIsDustEffect` lit sur le
+        # CASTER les deux `StatAmount` de `GetPierceStatModifier` et la somme
+        # `CasterEffectPierceAddition`, exactement comme les malus de defense lisent leurs noeuds
+        # `Caster@<DSLSelectors+0x48>` par ce meme dict. Les deux implementations preexistantes
+        # (Supercharge, BloodChalice) l'ignorent : signature elargie, comportement inchange.
+        pb = e.create_piercing_bonus_for_attack(damage_profile, is_melee, attacker_ctx)
         if pb is not None:
             maluses.append(pb)
     acc = build_defender_modifiers(maluses)

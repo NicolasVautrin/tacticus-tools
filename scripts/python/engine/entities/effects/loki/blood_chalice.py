@@ -68,7 +68,8 @@ class BloodChaliceHealOnAttackEffect(BaseEffect):
     Health. » -- la SECONDE moitie de cette phrase est le trigger, portee ailleurs (cf. l'entete)."""
 
     def create_piercing_bonus_for_attack(self, damage_profile: str | None = None,
-                                         is_melee: bool | None = None) -> EffectBonus | None:
+                                         is_melee: bool | None = None,
+                                         attacker_ctx: Mapping | None = None) -> EffectBonus | None:
         if is_melee is not True:                      # IsMeleeAttack -- tri-etat : None => on se tait
             return None
         lvl = (self.active_ability_level if self.active_ability_level is not None

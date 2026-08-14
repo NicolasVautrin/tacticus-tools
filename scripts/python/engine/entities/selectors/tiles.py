@@ -589,6 +589,52 @@ class TileBehindTargetFromSourceDirection(TargetsSelector):
         return [t for t in (board.id_at(p[0], p[1]) for p in positions) if t is not None]
 
 
+class TileBehindFilled(TargetsSelector):
+    """`IdunBattleLogic.Entities.DSLSelectors$$TileBehindFilled(origin, target)`
+    -> `IdunBattle.Entities.Selectors.TileBehindFilledSelector$$Select` : la ou les tuiles situees
+    UN PAS AU-DELA de `target`, dans la direction `origin -> target`. Retour domaine ID.
+
+    Le `Select` natif resout ses deux sous-selecteurs (`+0x18 = origin`, `+0x20 = target`, dans
+    l'ordre des arguments de la factory -- contraste avec `TileBehindTargetFromSourceDirection`,
+    dont le ctor INVERSE l'ordre) puis delegue integralement a `IBattleQuery` **slot 85** =
+    `GetTilesBehindFilled(from, direction, checkElevation)`, avec `checkElevation = 1` (litteral).
+    La geometrie vit donc dans le mirror UNIQUE `engine.battle_query.get_tiles_behind_filled` ; ce
+    noeud n'en est que l'adaptateur tile-id.
+
+    ⚠ « Filled » = le natif peut rendre DEUX tuiles quand `origin` et `target` ne sont pas alignes
+    hexagonalement (branche `MovementUtil$$RoundDirection`, NON portee -- residu `#1052-r1`, cf. le
+    mirror). Aligne -> une seule tuile, comme
+    `GetTileBehindTargetFromSourceDirection`.
+
+    Seul call-site porte : `IdunBattleLogic.Entities.Abilities.Triggered.Loki.PyreblasterAbility$$
+    CreateBehaviour` (et son jumeau `$$GetUnitBehindTarget`), qui l'appelle avec
+    `origin = <DSLSelectors+0x50> = CasterTile` et `target = <DSLSelectors+0x60> = Target`.
+
+    `origin`/`target` normalises par `_tile_positions` (unite / id de tuile / position), comme
+    `TileBehindTargetFromSourceDirection`. board None -> []."""
+    def __init__(self, origin: TargetsSelector, target: TargetsSelector):
+        self.origin, self.target = origin, target
+
+    def select(self, ctx):
+        board = getattr(ctx, "board", None)
+        if board is None:
+            return []
+        src = _tile_positions(self.origin, ctx, board)
+        dst = _tile_positions(self.target, ctx, board)
+        if not src or not dst:
+            return []
+        # `IsReachableElevation(from, tile)` = `|elev(a) - elev(b)| < 2` ; canal absent -> gate
+        # INERTE (meme convention tri-etat que `tiles_behind_accessors`).
+        def _elev(p):
+            tid = board.id_at(p[0], p[1])
+            return None if tid is None else board.elevation(tid)
+        positions = battle_query.get_tiles_behind_filled(
+            src[0], dst[0], check_elevation=True,
+            tile_exists=lambda p: board.id_at(p[0], p[1]) is not None,
+            elevation_at=_elev)
+        return [t for t in (board.id_at(p[0], p[1]) for p in positions) if t is not None]
+
+
 class TileIntersect(TargetsSelector):
     """Intersection de deux ensembles de TUILES (ids) — `op_BitwiseAnd` du domaine tile
     (`CombinedSelector`). Garde les tuiles de `left` presentes dans `right` (ordre de `left`,
