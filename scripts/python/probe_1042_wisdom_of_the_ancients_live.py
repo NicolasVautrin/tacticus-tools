@@ -50,12 +50,19 @@ BRAS et attendus :
   greffe                 targetIds = {P1,P2,P3,X}, X PRESENT  (branche ifFalse = Unique(A + F))
   mow --rarity P1=4      targetIds = {P2,P3}                  (etage rarete EXTERIEUR, sur B)
   mow --rarity P2=4      targetIds = {}                       (etage rarete INTERIEUR, sous le Filter)
+  mow --traits P2=...,NPC  targetIds = {P2}                   (le noeud `UnitsWithTrait(., Hero)`)
+
+⚠ LE BRAS `--traits` EXIGE UN TRAIT PORTEUR (`NPC` ou `Summon`), sans quoi il ne mesure RIEN --
+`IdunBattle.Operations.AddUnitOperation$$AddUnitTypeTraits` RAJOUTE `Hero` a toute unite qui n'est
+ni `NPC`, ni `Summon`, ni enfant, APRES que la fabrique a pose les traits de `BC.Units[].Traits`.
+Le garde de l'etage 1bis REFUSE (rc 2) si `Hero` survit. Detail : `docs/rl/case-1044-mur-des-traits.md`.
 
 Usage :
   python probe_1042_wisdom_of_the_ancients_live.py --bras mow --level 4
   python probe_1042_wisdom_of_the_ancients_live.py --bras sans-mythique
   python probe_1042_wisdom_of_the_ancients_live.py --bras mow --rarity adeptRetributor=4
   python probe_1042_wisdom_of_the_ancients_live.py --bras greffe
+  python probe_1042_wisdom_of_the_ancients_live.py --bras mow --traits "adeptCanoness=Imperial,ActOfFaith,NPC"
 Sortie ASCII only.
 """
 from __future__ import annotations
@@ -175,7 +182,10 @@ def main() -> int:
                          "uniformement VRAI par defaut. Retirer `Hero` du MILIEU de la chaine doit "
                          "laisser le milieu VISE (ses deux voisins restent des Heros Mythiques) et "
                          "eteindre ses DEUX voisins -- signature {P2} seul, distincte des deux "
-                         "autres bras.")
+                         "autres bras. AJOUTER `NPC` A LA LISTE (#1044) : sans ce trait porteur "
+                         "le natif re-pose `Hero` et le bras ne mesure rien (rc 2). MESURE "
+                         "2026-08-14 : `adeptCanoness=Imperial,ActOfFaith,NPC` rend bien "
+                         "targetIds = [87] = {P2}, contre [85,87,89] au bras `mow` nu.")
     a = ap.parse_args()
 
     _geometrie()
@@ -275,6 +285,15 @@ def main() -> int:
                           " alors que `BC.Units[].Traits` a ete reecrit -- ce bras ne mesure PAS"
                           " le noeud `UnitsWithTrait(..., UnitTrait.Hero)`, et un set inchange n'y"
                           " prouve donc RIEN." % int(UnitTrait.Hero))
+                    # LA SORTIE EST CONNUE DEPUIS #1044, et elle tient en un mot ajoute a la
+                    # demande : `IdunBattle.Operations.AddUnitOperation$$AddUnitTypeTraits` passe
+                    # APRES la fabrique et RAJOUTE `Hero` a toute unite qui n'est ni `NPC`, ni
+                    # `Summon`, ni enfant. Ajouter un TRAIT PORTEUR a `--traits` fait retourner
+                    # ce foyer sans rien ecrire.
+                    print("    SORTIE (#1044) : ajouter `NPC` a la liste --"
+                          " `--traits \"%s=%s,NPC\"`. Voir `probe_1044_levier_traits.sans_hero`"
+                          " et `docs/rl/case-1044-mur-des-traits.md`."
+                          % (vis, ",".join(attendus) if attendus else ""))
                     return 2
 
         print()

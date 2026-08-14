@@ -102,7 +102,7 @@ Les deux membres de la phrase sont **A** et **F**. Or **A n'est que dans la bran
 
 ---
 
-## 2. Ce que le live a rendu — cinq bras, quatre séparations
+## 2. Ce que le live a rendu — six bras, cinq séparations
 
 `probe_1042_wisdom_of_the_ancients_live.py`. Board `MC1_67` (7×9, tout Grass sauf 8 tuiles LUES au
 dump), seed 777, niveau 4 (`dmgReductionPct` = 20), géométrie **pilotée** par `--place` /
@@ -129,6 +129,11 @@ n'est **jamais** dans `F` et n'entre dans le set que par `A`.
 | `greffe` (owner ON-BOARD) | `[84, 86, 88, 92]` | oui | oui | oui | non | **oui** |
 | `mow` + `P1:Rarity=4` | `[87, 89]` | **non** | oui | oui | non | non |
 | `mow` + `P2:Rarity=4` | **[]** | **non** | **non** | **non** | non | non |
+| `mow` + `P2:Traits=Imperial,ActOfFaith,NPC` | `[87]` | **non** | oui | **non** | non | non |
+
+⚠ La dernière ligne exige le **trait porteur** `NPC` : sans lui,
+`IdunBattle.Operations.AddUnitOperation$$AddUnitTypeTraits` re-pose `Hero` après la fabrique et le
+bras ne mesure rien (`rc 2`). Détail et montage : `docs/rl/case-1044-mur-des-traits.md`.
 
 Et la prédiction native, sur les mêmes builds (`Loki_NormalAttack`, par tuile de départ) :
 
@@ -140,7 +145,7 @@ Et la prédiction native, sur les mêmes builds (`Loki_NormalAttack`, par tuile 
 | `mow` + `P1:Rarity=4` | 1956 – 2932 | 2034 – 3048 |
 | `mow` + `P2:Rarity=4` | **2444 – 3664** (base) | 2034 – 3048 |
 
-Quatre séparations, de natures différentes :
+Cinq séparations, de natures différentes :
 
 1. **existence** — sans `--equip-mythic`, aucun effet 1445 et la prédiction est la base. Le bras
    positif ne mesure donc pas un artefact de montage.
@@ -154,6 +159,11 @@ Quatre séparations, de natures différentes :
    `P1` et `P3` sont pourtant restés `Rarity=5` (donc dans `B`), mais leur unique voisin ami n'est
    plus Mythique, donc `AmountIsGreaterThanZero` tombe. Sans ce bras, le précédent ne distingue pas
    les deux étages.
+5. **le nœud `UnitsWithTrait(·, UnitTrait.Hero)`** — `P2` privé de `Hero` (et lui seul) laisse le
+   set à `{P2}` : ses deux voisins sortent parce que leur unique voisin ami n'est plus un Héros,
+   pendant que `P2` reste visé parce que les siens le sont restés. Aucune des quatre séparations
+   précédentes ne produit cette signature — c'est le seul bras qui isole le conjoint TRAIT du
+   conjoint RARETÉ, les deux étant portés par le même `Filter`.
 
 La **magnitude** suit exactement le set : `1956 / 2444 = 0.8003` et `2932 / 3664 = 0.8002` ;
 sur le témoin du bras `greffe`, `1086/1356 = 0.8009`, `1626/2031 = 0.8006`, `1626/2034 = 0.7994`,
@@ -231,12 +241,11 @@ rareté**. Déjà recensé par le résidu `#477-r37-r1`, qui nomme `1451` explic
 - **Le PORT de l'effet 1445** — `#1042-r1`, BLOCAGE capteur.
 - **La voie NATIVE de la branche `ifFalse`** (`DutyEternal` → `AddTriggeredAbility` sur le spawn) :
   la branche est établie par un porteur **greffé**, pas par le transfert du jeu. `#1042-r2`.
-- **Le nœud `UnitsWithTrait(·, UnitTrait.Hero)`** : **non confronté**. Toute unité `lineup` du pool
-  porte `Hero`, donc le nœud est uniformément vrai, et le seul levier tenté — `--unit-stat
-  "<vis>:Traits=[…]"` — **ne mord pas** : `combatSnapshot.units[].traits` rend toujours
-  `[16, 1007]` pour `adeptCanoness` après réécriture (`16` = `UnitTrait.Hero`). Le probe **refuse**
-  désormais de conclure sur ce bras (`rc 2`) au lieu de rendre un vert qui ne mesure rien.
-  `#1042-r3`.
+- **Le nœud `UnitsWithTrait(·, UnitTrait.Hero)`** : **CONFRONTÉ** (2026-08-14, #1044) — le bras est
+  au §2. `--unit-stat "<vis>:Traits=[…]"` mord bien ; ce qui manquait était le **trait porteur**,
+  sans lequel `IdunBattle.Operations.AddUnitOperation$$AddUnitTypeTraits` re-pose `Hero` après la
+  fabrique. Le probe **refuse** toujours (`rc 2`) quand `Hero` survit, et **nomme la sortie**.
+  `docs/rl/case-1044-mur-des-traits.md`.
 - **L'étage exact** où entre le `-20 %` (§2) : mesuré comme facteur ~0.800 sur la valeur rendue,
   non décomposé.
 - **Les paliers 1/2/3** (`dmgReductionPct` 10/13/16) : seul le palier 4 est joué.
