@@ -27,6 +27,32 @@ from engine.entities.active_ability_type import ActiveAbilityType
 from engine.playbook.noncomparable import PLAYBOOKS
 from engine.playbook.noncomparable._base import NCContext
 
+DECLENCHEUR = {
+    # PERIMETRE LARGE, et c'est une MESURE, pas un aveu : ce fichier importe le registre
+    # `PLAYBOOKS` (donc tout `engine.playbook.noncomparable`, ses ~95 modules d'ability) ET
+    # `engine.battle_query`, foyer partage dont la fermeture d'import touche la geometrie, le
+    # voisinage stocke et la porte d'elevation. Un perimetre etroit ici serait un FAUX VERT :
+    # l'etage 4 mute justement un module TIERS (`bq.get_chained_units`) pour prouver que les deux
+    # faces l'empruntent.
+    # ⚠ Les DEUX formes sont necessaires : le `**/` d'un glob exige un SEGMENT, donc
+    # `scripts/python/**/*.py` ne voit PAS `scripts/python/hexgeo.py`, que ce fichier importe.
+    "chemins": ("scripts/python/*.py", "scripts/python/**/*.py"),
+    # `build: False` -- aucune valeur n'est figee depuis le binaire au sens ou un changement de
+    # build la perimerait : le seuil `2` et le litteral `onlyFriends = 1` sont LUS au decompile et
+    # transcrits, et le substrat est `obs_units`, pas une table de symboles. Un renumerotage de
+    # `ActiveAbilityType` serait vu par `probe_313`, pas ici.
+    "build": False,
+    # offline pur, aucun runner, < 3 s.
+    "toujours": True,
+    "raison": "Garde OFFLINE de la face DECISION de 1108 KissOfDeath (#940-r2) : l'entree au "
+              "registre avec son seuil INLINE, la formule terme a terme (racine incluse, "
+              "transitivite, arret au changement d'equipe, morts, independance a la position), "
+              "l'EGALITE avec la face jumelle 1019 sur un temoin non degenere ET la DISTINCTION "
+              "de leurs identites, enfin le partage effectif du foyer "
+              "`engine.battle_query.get_chained_units` (mirror unique de "
+              "`IdunBattle.Core.Services.BattleQuery$$GetChainedUnitsInternal`).",
+}
+
 KISS = int(ActiveAbilityType.KissOfDeath)     # 0x454 = 1108 (argument du ctor natif)
 STORM = int(ActiveAbilityType.StormOfWrath)   # 0x3fb = 1019 -- le JUMEAU au decompile
 
