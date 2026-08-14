@@ -10,9 +10,9 @@ Le runner combat route chaque ability choisie via `ActiveAbilityMessage` -> `Abi
 
 - Noms distincts en `activeAbilities` (gameconfig) : **175**
 - dont resolus en `ActiveAbilityType` : **174** ; **HORS `ActiveAbilityType`** : **1** (cf. la section dediee -- ni portes ni no-op)
-- **PORTED** (dans `ABILITY_CLASSES`) : **172**
-- **NO-OP silencieux** (a porter) : **2**
-- Ventilation NO-OP : **DAMAGE**=2
+- **PORTED** (dans `ABILITY_CLASSES`) : **173**
+- **NO-OP silencieux** (a porter) : **1**
+- Ventilation NO-OP : **DAMAGE**=1
 
 ## Priorisation & templates de port
 
@@ -44,14 +44,13 @@ Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 |---|---|---|---|---|
 | ? | Maugetar | TriggeredAbilityType(1498) PORTEE via `RELIC_ABILITY_TRIGGERS` [kit: DAMAGE(DirectDamage)] | 1 | N |
 
-## NO-OP SILENCIEUX en combat (a porter, tries categorie puis frequence) (2)
+## NO-OP SILENCIEUX en combat (a porter, tries categorie puis frequence) (1)
 
 | id | ability | categorie | #units | kinds |
 |---|---|---|---|---|
 | 1015 | PrecisionShot | DAMAGE(Energy) | 2 | NS |
-| 1215 | InstrumentsOfVengeance | DAMAGE(HeavyRound) | 1 | N |
 
-## PORTED (registry) (172)
+## PORTED (registry) (173)
 
 | id | ability | categorie | #units | kinds |
 |---|---|---|---|---|
@@ -145,6 +144,7 @@ Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 | 1089 | GreatFrostAxe | DAMAGE(Piercing) | 1 | L |
 | 1153 | HammerOfWrath | DAMAGE(Power) | 1 | L |
 | 1227 | HeavyWarpFlamer | DAMAGE(Flame) | 1 | L |
+| 1215 | InstrumentsOfVengeance | DAMAGE(HeavyRound) | 1 | N |
 | 1196 | LashOfTorment | DAMAGE(Eviscerate) | 1 | L |
 | 1177 | LightOfSanguinius | DAMAGE(Melta) | 1 | L |
 | 1216 | MartialExemplar | DAMAGE(Power) | 1 | N |
