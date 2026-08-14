@@ -2046,6 +2046,100 @@ ABILITY_INIT_OWNER_EFFECTS: dict[str, list[str]] = {
     # il ne repond pas). L'inscrire sans le gate serait un terme PERMISSIF. Residu `#1025-r1`,
     # BLOCAGE capteur. Cf. `docs/rl/case-1025-mythiques-mow-verrou-rarete.md`.
     "MoreGitzOverEre": ["MoreGitzOverEre_ExtraDamagePct"],
+    # #1036 -- `GuardianConstructAbility` (ability **MYTHIQUE** de la MoW `necroReanimator` /
+    # `necroNpcMoWReanimator`, `TriggeredAbilityType.GuardianConstruct` = 0x5fa = 1530). Meme forme
+    # exacte que `MoreGitzOverEre` ci-dessus : `frida/classes.tsv` donne le parent
+    # `IdunBattle.Entities.Abilities.AOwnerEffectTriggeredAbility`, et la classe n'override QUE
+    # `$$GetEffectType`, dont le corps ENTIER est `return 0x60c` (= 1548
+    # `EffectType.GuardianConstruct_ExtraDamagePct`) : l'appariement ability -> effet est LU, pas
+    # devine. Le reste vient de la base :
+    #   `$$CreateTrigger`   = OnOwnerSpecificAbilityInit(this.AbilityType)
+    #   `$$CreateBehaviour` = If( CreateCondition(abilityState),
+    #                             AddEffect(GetEffectType(),
+    #                                       AbilityState(Owner@<DSLSelectors+0x30>, AbilityType(this)),
+    #                                       source = Owner, targets = Owner, options = <Nullable ZERO>) )
+    # -> owner-effect PERMANENT pose a l'init, patron `Vitarus` / `NornCrown` / `MoreGitzOverEre`.
+    # ⚠ Voie TERTIAIRE (mythique = `BC.Units[].TertiaryAbility`, montage `--equip-mythic`), donc ce
+    # seed depend de la lecture de `ctx.tertiary_ability` par `_seed_ability_owner_effects` (acquise
+    # depuis #1005). Sur un runner live l'effet est de toute facon capte par `decisionView.effects`
+    # -> ce seed est un FILET pour les chemins purement offline.
+    # ⚠ L'EFFET 1548 N'ENTRE PAS dans `EFFECT_CLASSES`, et c'est DELIBERE -- meme cause que 1449 :
+    # son `$$CreateTargetSelector` finit par un etage de RARETE, et ce canal N'EXISTE PAS cote port.
+    # Lu au decompile (`IdunBattle.Entities.Effects.Loki.GuardianConstruct_ExtraDamagePctEffect$$CreateTargetSelector`) :
+    #     UnitsWithRarity(
+    #         EntitiesWithAnyEffect( Friends(Owner@<DSLSelectors+0x30>, AllUnits, OnlyAliveAndTargetable),
+    #                                effectTypes = [EffectType.NanoscarabRepairProtocols = 0x609],
+    #                                effectTarget = EffectTargetType.Both = 6 ),
+    #         rarity = Rarity.Mythic = 5, unitSelectionType = UnitSelectionType.OnlyAliveAndTargetable = 3 )
+    # (le `0x609` du call-site est le SCALAIRE que la surcharge a 4 arguments emballe elle-meme dans
+    # un `int[1]` -- le `6` est l'`effectTarget`, PAS un second type ; meme forme que `PsychicStalk`.)
+    # Les DEUX autres etages sont portables (`Friends` ne retire PAS le porteur :
+    # `UnitsByTeamSelector$$CountOrAdd` garde toute entite dont `UnitExtensions$$IsFriend(unit, other)`
+    # egale son flag, et `IsFriend(u, u)` est VRAI -- il compare deux ids d'equipe) ; c'est le
+    # troisieme qui bloque. L'inscrire sans ce gate serait un terme PERMISSIF silencieux -- d'autant
+    # que `rl_duel build` impose `targetRarity = 5` a toute unite normalisee, donc le gate y est
+    # uniformement VRAI et un port qui l'oublie serait faussement d'accord dans tous les bras par
+    # defaut (regime DEGENERE ; on en sort par `--unit-stat "<vis>:Rarity=N"`).
+    # Le bonus, lui, est LU et sans gate de rarete
+    # (`...GuardianConstruct_ExtraDamagePctEffect$$CreateEffectDamageBonusForAttack`) :
+    #     EffectBonus.ForPercentIncrease( get_OwnerIsCaster,
+    #                                     ConfigVar(AbilityVariableType.extraDmgPct = 0xa,
+    #                                               GetAbilityState, <effet+0x60>) )
+    # et `...$$GetRefreshTriggers` = [RefreshEffectTrigger.EffectsChanged = 4,
+    # RefreshEffectTrigger.UnitStateChanged = 3]. Residu `#1036-r1`, BLOCAGE capteur.
+    # Cf. `docs/rl/case-1036-mythiques-cabale-et-construct.md`.
+    "GuardianConstruct": ["GuardianConstruct_ExtraDamagePct"],
+    # #1036 -- `CabalOfSorcerersAbility` (ability **MYTHIQUE** de la MoW `thousDaemonPrince` /
+    # `thousNpcMowDaemonPrince`, `TriggeredAbilityType.CabalOfSorcerers` = 0x5d8 = 1496). Ici la
+    # classe n'herite PAS d'`AOwnerEffectTriggeredAbility` : `frida/classes.tsv` donne
+    # `IdunBattle.Entities.Abilities.BaseTriggeredAbility`, et elle DECLARE ses deux methodes.
+    # Relues au decompile :
+    #   `$$CreateTrigger`   = DSLTriggers.OnOwnerSpecificAbilityInit(0x5d8)
+    #   `$$CreateBehaviour` = DSLBehaviors.AddEffect(0x5d6 = 1494
+    #                                                  `EffectType.CabalOfSorcerers_ExtraDamagePct`,
+    #                                                AbilityStateReference,
+    #                                                source = Owner@<DSLSelectors+0x30>,
+    #                                                targets = Owner@<DSLSelectors+0x30>,
+    #                                                turns = <Nullable ZERO-initialise>)
+    # -> meme RESULTAT que la base (owner-effect PERMANENT pose a l'init), par un corps propre et
+    # SANS le `If(CreateCondition(...))` que la base interpose. L'appariement 1496 -> 1494 est LU au
+    # call-site, pas devine ; et l'argument d'`OnOwnerSpecificAbilityInit` est bien un
+    # `TriggeredAbilityType` (type DECLARE dans `frida/methods.tsv`), pas un ordinal partage.
+    # ⚠ MEME BLOCAGE que 1548 ci-dessus, et il mord PLUS FORT parce que le gate de rarete est
+    # imbrique dans un helper appele TROIS fois. Lu au decompile
+    # (`IdunBattle.Entities.Effects.Loki.CabalOfSorcerers_ExtraDamagePctEffect$$ValidCharacter`) :
+    #     ValidCharacter(x) = UnitsWithTraits( UnitsWithRarity(x, Rarity.Mythic = 5,
+    #                                                          OnlyAliveAndTargetable),
+    #                                          traits = [UnitTrait.Psyker = 0x3ea,
+    #                                                    UnitTrait.Hero   = 0x10],
+    #                                          OnlyAliveAndTargetable )
+    # -- `UnitsWithTraits` compose par `TargetsSelector$$op_BitwiseAnd`, donc les traits sont une
+    # INTERSECTION (Psyker ET Hero), pas une union.
+    # et (`...CabalOfSorcerers_ExtraDamagePctEffect$$CreateTargetSelector`) :
+    #     A = ValidCharacter( AdjacentFriends(Owner, unique = true, OnlyAliveAndTargetable) )
+    #     B = ValidCharacter( Friends(Owner, <DSLSelectors+0x20>, OnlyAliveAndTargetable) )
+    #     F = Filter( B, AmountIsGreaterThanZero(
+    #                        ValidCharacter( AdjacentFriends(<element courant @DSLSelectors+0x68>,
+    #                                                        unique = true, OnlyAliveAndTargetable) ) ) )
+    #     return ConditionalSelector( IsMachine(Owner), ifTrue = F, ifFalse = Unique(A + F) )
+    # ⚠ L'ORDRE des deux branches est LU, pas suppose : `ConditionalSelector$$Select` evalue
+    # `this+0x18` (le trigger) et prend `this+0x20` quand il declenche, `this+0x28` sinon -- soit
+    # `selectorTrue` / `selectorFalse` dans l'ordre du ctor.
+    # ⚠ La surcharge d'`AdjacentFriends` est celle a `(this, unit, unique, selectionType)` -- tranche
+    # par les XREFS ENTRANTES des deux corps homonymes, pas par la forme du call-site.
+    # Le bonus (`...CabalOfSorcerers_ExtraDamagePctEffect$$CreateEffectDamageBonusForAttack`) est
+    # INLINE (aucun `call`) et se lit a la DISPOSITION des champs -- `EffectBonus$$ForAddition` ecrit
+    # son montant a `+0x10`, `EffectBonus$$ForPercentIncrease` a `+0x08` ; ce corps ecrit le trigger
+    # a `+0x00` et le montant a `+0x08`, donc canal POURCENT :
+    #     EffectBonus.ForPercentIncrease(
+    #         get_OwnerIsCaster & CurrentAttackDamageProfileIs(DamageProfileType.Psychic = 0xd),
+    #         ConfigVar(AbilityVariableType.extraDmgPct = 0xa, GetAbilityState, <effet+0x60>) )
+    # Residu `#1036-r2`, BLOCAGE capteur.
+    # ⚠ Face DECISION distincte et NON portee : `IdunBattle.AI.Playbook.Loki.CabalOfSorcerersPlaybook`
+    # (`TriggeredAbilityNonOwnerPlaybook<CabalOfSorcerersAbility>`) surcharge
+    # `$$CalculateMovementUtilityInSteps` -- residu `#1036-r3`. `GuardianConstruct` n'a AUCUN
+    # playbook dans le build (verifie par `search_symbols_by_name`).
+    "CabalOfSorcerers": ["CabalOfSorcerers_ExtraDamagePct"],
     # #1009 -- `MonsterSlayerofCalibanAbility` (parent `IdunBattle.Entities.Abilities.
     # BaseTriggeredAbility`, `frida/classes.tsv`) : UNE seule classe native pour la cle 1527, et
     # elle DECLARE ses deux methodes (pas d'heritage `AOwnerEffect*` ici).
