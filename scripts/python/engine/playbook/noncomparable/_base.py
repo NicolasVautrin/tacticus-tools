@@ -457,6 +457,33 @@ def occupant_team_by_pos(ctx: "NCContext") -> dict:
     return out
 
 
+def occupant_ids_by_pos(ctx: "NCContext") -> tuple[dict, dict]:
+    """`({(col, row): <squadId>}, {<squadId>: teamId})` -- l'index inverse du
+    `IdunBattle.Entities.UnitExtensions$$GetUnit(tile, state)` natif, substrat de
+    `engine.battle_query.get_chained_units`.
+
+    Meme canal, mêmes filtres et MÊMES DEUX ÉCARTS que `occupant_team_by_pos` juste au-dessus
+    (`isDead` filtre parce que `TileContentComponent$$IsFilled` est le premier gate de `GetUnit` ;
+    les MACHINES OF WAR sont hors d'`obs_units` ; le bridge OFFLINE ne publie que la tuile
+    PRINCIPALE). Les deux écarts SOUS-déclarent l'occupation, donc bornent toute chaîne PAR EN
+    DESSOUS.
+
+    Il rend DEUX dicts au lieu d'un parce que `GetChainedUnits` a besoin de l'IDENTITÉ de
+    l'occupant (le `alreadyChained` natif est un `OrderedSet` d'UNITÉS, pas de tuiles), là où les
+    gardes « ami » de la ligne de vue ne lisent que son camp."""
+    occ: dict = {}
+    team_by_id: dict = {}
+    for u in (ctx.obs_units or []):
+        if u.get("isDead") or u.get("teamId") is None:
+            continue
+        c, r, sq = u.get("col"), u.get("row"), u.get("squadId")
+        if c is None or r is None or sq is None:
+            continue
+        occ[(c, r)] = sq
+        team_by_id[sq] = int(u["teamId"])
+    return occ, team_by_id
+
+
 def is_turn_of_unit_by_pos(ctx: "NCContext") -> dict:
     """`{(col, row): bool}` -- `IdunBattle.Core.Services.BattleQuery$$IsTurnOfUnit(unit)` evalue sur
     l'occupant VIVANT de chaque tuile (`#447-r1-r1-r3`, foyer consommateur

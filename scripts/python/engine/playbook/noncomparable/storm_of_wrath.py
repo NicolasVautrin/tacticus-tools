@@ -62,7 +62,7 @@ from __future__ import annotations
 from engine import battle_query as bq
 from engine.entities.active_ability_type import ActiveAbilityType
 
-from ._base import NCContext, _PlanTargetPlaybook
+from ._base import NCContext, _PlanTargetPlaybook, occupant_ids_by_pos
 
 #: `Bucket<T>$$.ctor(0, Nullable(Fix64.op_Implicit(2)))` -- litteral LU dans
 #: `StormOfWrathPlaybook$$EvaluateNonComparable`, pas un `.cctor` (la classe n'en a pas).
@@ -89,43 +89,15 @@ class StormOfWrathPlaybook(_PlanTargetPlaybook):
         """`BattleQuery$$GetChainedUnitsInternal` -- parcours en profondeur, `alreadyChained` en
         guise de marqueur, la tuile de l'unite courante FAISANT PARTIE de son propre voisinage.
 
-        Le port materialise le graphe sur `ctx.obs_units` (unites VIVANTES portant `teamId` et une
-        position) : le `GetUnit(tile)` natif est ici l'index inverse position -> unite. Cible
-        absente du canal -> 0 (borne INF assumee : le port ne fabrique pas une chaine)."""
-        occ: dict = {}
-        team_by_id: dict = {}
-        for u in (ctx.obs_units or []):
-            if u.get("isDead") or u.get("teamId") is None:
-                continue
-            c, r = u.get("col"), u.get("row")
-            sq = u.get("squadId")
-            if c is None or r is None or sq is None:
-                continue
-            occ[(c, r)] = sq
-            team_by_id[sq] = int(u["teamId"])
-        if target not in team_by_id:
-            return 0
-        pos_by_id = {sq: p for p, sq in occ.items()}
-        neigh = bq.neigh_map(ctx)
-        chained: set = set()
-        stack = [target]
-        while stack:
-            cur = stack.pop()
-            src = pos_by_id.get(cur)
-            if src is None:
-                continue
-            # `adj = GetAdjacentTiles(tile, ...)` PUIS `adj.Add(tile)` : la tuile de `cur` est
-            # dans l'enumeration -> `cur` s'ajoute lui-meme au premier passage.
-            for p, sq in occ.items():
-                if sq in chained:
-                    continue                                  # `alreadyChained.Contains(u)`
-                if p != src and not bq.is_adjacent(src, p, ctx.elev_by_pos, neigh):
-                    continue
-                if team_by_id.get(sq) != team_by_id.get(cur):
-                    continue                                  # `onlyFriends && !IsFriend(u, unit)`
-                chained.add(sq)
-                stack.append(sq)                              # RECURSION du natif
-        return len(chained)
+        Le corps vit dans `engine.battle_query.get_chained_units` (FOYER PARTAGE) depuis que
+        `KissOfDeathPlaybook` (1108) a ete lu : son `EvaluateNonComparable` invoque le MEME slot
+        16 d'`IBattleQuery` avec les MEMES litteraux `(cible, 1, 0)`, et le natif n'a qu'un corps
+        pour les deux. Cible absente du canal -> 0 (borne INF assumee : le port ne fabrique pas
+        une chaine)."""
+        occ, team_by_id = occupant_ids_by_pos(ctx)
+        return len(bq.get_chained_units(target, occ, team_by_id,
+                                        elev_by_pos=ctx.elev_by_pos, neigh_by_pos=bq.neigh_map(ctx),
+                                        only_friends=True))   # `onlyFriends` = litteral `1`
 
     def damage_predictions(self, tile, target, ctx: NCContext) -> list:
         """AUCUNE prediction de degat n'est construite : `StormOfWrathPlaybook` ne declare que
