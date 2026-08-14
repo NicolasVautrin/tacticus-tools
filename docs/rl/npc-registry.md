@@ -19,11 +19,11 @@ differe. C'est la doctrine « DECIDER != EXECUTER ».
 
 ## Bilan
 
-- Unites `npc` : **491** ; kits sans manque : **417** ; kits avec du travail : **74**
+- Unites `npc` : **491** ; kits sans manque : **418** ; kits avec du travail : **73**
 - Actives distinctes : **147** — `[--]` **1** · `[C-]` **17** · `[CD]` **129**
 - Passifs distincts : **177** — portes **111**, non portes **66**
 - Traits de kit distincts (AUCUN ecarte — le seuil de frequence a disparu avec #1015) :
-  **58** — couverts **56**, non couverts **2**
+  **58** — couverts **57**, non couverts **1**
 - **Voies inversees** (nom absent d'`ActiveAbilityType`) : **1** — `Maugetar`
 
 ## Ce que ce registre NE VOIT PAS
@@ -117,7 +117,6 @@ l'unite. La colonne `porteurs` dit l'exposition.
 | passif | VengeanceForTheOmnissiah | 1 | admecNpc2Techpriest |
 | passif | Volatile | 1 | LootObj_AmmoBox |
 | passif | WatchedOver | 1 | darkaNpc4Watcher |
-| trait | BeastSnagga | 1 | tauNpcFarsight |
 
 ## Faces DECISION ouvertes sur des actives EXECUTEES (17)
 
@@ -556,13 +555,12 @@ sont des **faces** absentes d'items presents.
 |---|---:|---|---|---|---|
 | spaceStormcaller_LHE | 0 | Stormcaller(1113)[CD] | - | - | - |
 
-### Tau — 33 unites, 3 avec du travail
+### Tau — 33 unites, 2 avec du travail
 
 | unite | manque | actives (face) | passifs non portes | traits non couverts | autres voies |
 |---|---:|---|---|---|---|
 | tauBossRiptide | 2 | NovaBoost(1192)[CD]<br>NovaCharge(1193)[C-]<br>NovaShield(1194)[CD] | MultiTracker, TargetLock | - | - |
 | tauNpc6Carnivore | 1 | - | HuntersInstincts | - | - |
-| tauNpcFarsight | 1 | ExemplarOfTheMontka(1210)[CD] | - | BeastSnagga | relic:DawnBlade |
 | tauBossAunShi | 0 | InspiredToGreatness(1082)[CD] | - | - | - |
 | tauBossAunShiInc | 0 | InspiredToGreatness(1082)[CD] | - | - | - |
 | tauBossAunShiLHE | 0 | InspiredToGreatness(1082)[CD] | - | - | - |
@@ -590,6 +588,7 @@ sont des **faces** absentes d'items presents.
 | tauNpcAunShi | 0 | InspiredToGreatness(1082)[CD] | - | - | - |
 | tauNpcCrisis | 0 | EarlyWarningOverride(1077)[CD] | - | - | relic:Dw02AdvancedBurstCannon |
 | tauNpcDarkstrider | 0 | FightingRetreat(1081)[CD] | - | - | - |
+| tauNpcFarsight | 0 | ExemplarOfTheMontka(1210)[CD] | - | - | relic:DawnBlade |
 | tauNpcMarksman | 0 | SeekerMissileFrequencyLock(1069)[CD] | - | - | - |
 | tauNpcMoWBroadside | 0 | HeavyRailRifle(1160)[CD]<br>TwinSmartMissileSystem(1161)[CD] | - | - | mythic:ElectrochaffBackups |
 | tauNpcShadowsun | 0 | ExemplarOfTheKauyon(1087)[CD] | - | - | - |

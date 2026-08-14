@@ -1678,7 +1678,7 @@ tauNpcDarkstrider	Tau	Xenos	None	trait	SuppressiveFire		1
 tauNpcFarsight	Tau	Xenos	None	active	ExemplarOfTheMontka	1210	1	1
 tauNpcFarsight	Tau	Xenos	None	passif	WayOfTheShortBlade		1	
 tauNpcFarsight	Tau	Xenos	None	trait	Hero		1	
-tauNpcFarsight	Tau	Xenos	None	trait	BeastSnagga		0	
+tauNpcFarsight	Tau	Xenos	None	trait	BeastSnagga		1	
 tauNpcFarsight	Tau	Xenos	None	trait	BigTarget		1	
 tauNpcFarsight	Tau	Xenos	None	trait	Flying		1	
 tauNpcFarsight	Tau	Xenos	None	trait	Mechanical		1	
