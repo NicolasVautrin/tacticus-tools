@@ -31,6 +31,34 @@ from engine.entities.effects.magnitude import ability_var
 _RACINE = Path(__file__).resolve().parents[2] / "engine"
 _NOM = "HunterOfSouls_ExtraDamage"
 
+#: Ce qui doit changer pour que ce fichier puisse changer de verdict. Volontairement LARGE : le
+#: gameconfig y entre parce que l'etage 1 lit `extraDmg` par `ability_var`, et les DEUX vecteurs de
+#: prediction parce que l'etage 4 exige que la cle soit posee des DEUX cotes.
+DECLENCHEUR = {
+    "chemins": (
+        "scripts/python/engine/entities/effects/loki/hunter_of_souls.py",
+        "scripts/python/engine/entities/effects/loki/enmity_for_the_unworthy.py",
+        "scripts/python/engine/entities/effects/factory.py",
+        "scripts/python/engine/entities/effects/magnitude.py",
+        "scripts/python/engine/entities/selectors/units.py",
+        "scripts/python/engine/entities/traits/unit_trait.py",
+        "scripts/python/engine/entities/unit_selection_type.py",
+        "scripts/python/engine/runner/components.py",
+        "scripts/python/engine/runner/damage_model.py",
+        "scripts/python/engine/playbook/scene.py",
+        "scripts/python/engine/playbook/prediction/normal_attack.py",
+        "scripts/python/engine/playbook/prediction/abilities.py",
+        "scripts/python/engine/services/effect_bonus.py",
+        "data/gameconfig.json",
+    ),
+    "build": True,
+    "toujours": False,
+    "raison": "port de 1495, sa cle de ctx sur les DEUX faces, et l'ARBRE de son compteur "
+              "confronte a celui de son jumeau 1400 (l'etage 3 lit les deux) ; `build` VRAI "
+              "parce que l'etage 1 lit `extraDmg` du gameconfig et que `UnitTrait.Psyker` "
+              "vient du dump d'enums",
+}
+
 
 def _effet(level=50, mult=100):
     return HunterOfSoulsExtraDamageEffect(_NOM, ability_level=level,

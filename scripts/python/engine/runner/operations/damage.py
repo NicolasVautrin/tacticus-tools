@@ -127,6 +127,14 @@ from .refresh_effects import refresh_stat_modifier_effects
 from .remove_effects import KillUnitStep
 from .remove_effects import remove_effects_operation
 from ...dsl.event_trigger_type import EventTriggerType
+from engine.entities.effects.loki.supa_cybork_body import CTX_COUNT_OF as _CTX_ADJACENT_ENEMIES_OF   # #1042-r5
+from engine.entities.effects.loki.nether_realm_casket import CTX_COUNT_OF as _CTX_ADJACENT_FRIENDLY_MECHANICAL_UNITS_OF   # #1042-r5
+from engine.entities.effects.loki.amulet_of_the_voidwyrm import CTX_COUNT_OF as _CTX_ADJACENT_FRIENDLY_SUMMONS_AND_DECOYS_OF   # #1042-r5
+from engine.entities.effects.loki.kardiocore_galvanus import CTX_COUNT_OF as _CTX_ADJACENT_MECHANICAL_FRIENDS_OF   # #1042-r5
+from engine.entities.effects.loki.maw_claws_of_thyrax import CTX_COUNT_OF as _CTX_ADJACENT_SUMMONS_OF   # #1042-r5
+from engine.entities.effects.loki.intoxicating_elixir import CTX_COUNT_OF as _CTX_DEBUFFED_UNITS_IN_RANGE_OF   # #1042-r5
+from engine.entities.effects.ctx_keys import CTX_TERTIARY_ABILITY_STATE_OF as _CTX_TERTIARY_ABILITY_STATE_OF   # #1042-r5
+from engine.entities.effects.loki.intoxicating_elixir import CTX_HEALTH_OF as _CTX_UNIT_HEALTH_OF   # #1042-r5
 
 
 def _kill_unit_remove_effects(state: State, dead_id: int, step: int) -> list:
@@ -1544,7 +1552,7 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
                 "att_team": team_by_id.get(att_id), "tgt_team": team_by_id.get(tgt_id),
                 "att_faction": (_unit_gameconfig(state, att_id) or {}).get("FactionId"),
                 "att_traits": att_traits, "tgt_traits": tgt_traits,
-                "adjacent_friendly_summons_and_decoys_of":
+                _CTX_ADJACENT_FRIENDLY_SUMMONS_AND_DECOYS_OF:
                     lambda oid: adjacent_friendly_summons_and_decoys_count(state, int(oid)),
                 # `...SupaCyborkBody_CritDmgReductionEffect$$GetCalculateLevel` (#503-r4) -- le
                 # niveau que `RefreshEffectsOperation$$UpdateLevel` ECRIT dans
@@ -1552,7 +1560,7 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
                 # `$$GetCritDamageReduction`. MEME forme paresseuse et MEME raison que le compteur
                 # d'`AmuletOfTheVoidwyrm` : la grandeur depend de l'INSTANCE d'effet qui interroge
                 # (la boucle native ECRASE `AbilityEntities+0x18` a chaque iteration).
-                "adjacent_enemies_of":
+                _CTX_ADJACENT_ENEMIES_OF:
                     lambda oid: adjacent_enemies_count(state, int(oid)),
                 # #954 -- le `CreateTargetSelector` PARTAGE des deux effets d'`ObsessiveAnnunciation`
                 # (`AdjacentEnemies(Owner@+0x30, unique: true, UnitSelectionType 3)`, corps FONDU par
@@ -1568,14 +1576,14 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
                 # son `Multiply`, et que `$$CreateActiveCondition` compare a zero. MEME forme
                 # paresseuse et MEME raison que les deux compteurs ci-dessus : la grandeur depend de
                 # l'INSTANCE d'effet qui interroge (la boucle native ECRASE `AbilityEntities+0x18`).
-                "adjacent_friendly_mechanical_units_of":
+                _CTX_ADJACENT_FRIENDLY_MECHANICAL_UNITS_OF:
                     lambda oid: adjacent_friendly_mechanical_units_count(state, int(oid)),
                 # `...KardiocoreGalvanus_ExtraCritDmgEffect$$GetCalculateLevel` (#913) -- MEME role
                 # et MEME forme paresseuse que les compteurs ci-dessus. DEUX differences, toutes
                 # deux LUES : son porteur est du cote CASTER (`get_OwnerIsCaster`, pas TARGET), et
                 # son arbre n'a **aucun** `NormalUnits` -- c'est pourquoi il ne reutilise PAS
                 # `adjacent_friendly_mechanical_units_of` juste au-dessus, malgre des noms voisins.
-                "adjacent_mechanical_friends_of":
+                _CTX_ADJACENT_MECHANICAL_FRIENDS_OF:
                     lambda oid: adjacent_mechanical_friends_count(state, int(oid)),
                 # `...MawClawsOfThyrax_ExtraCritDmgEffect$$GetCalculateLevel` (#920) -- MEME role
                 # et MEME forme paresseuse que les compteurs ci-dessus. La difference est LUE et
@@ -1584,7 +1592,7 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
                 # AUCUN camp -- un summon ENNEMI adjacent compte. C'est pourquoi il ne reutilise ni
                 # `adjacent_friendly_summons_and_decoys_of` (AMIS, et Decoy en plus) ni
                 # `adjacent_mechanical_friends_of`, malgre des noms voisins.
-                "adjacent_summons_of":
+                _CTX_ADJACENT_SUMMONS_OF:
                     lambda oid: adjacent_summons_count(state, int(oid)),
                 # `...IntoxicatingElixir_ExtraCritDmgEffect$$GetCalculateLevel` (#922) -- MEME role
                 # et MEME forme paresseuse que les compteurs ci-dessus. QUATRE differences, toutes
@@ -1592,7 +1600,7 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
                 # 1)` (donc le PORTEUR se compte lui-meme), il n'a AUCUN filtre d'equipe (comme
                 # celui de 1461 juste au-dessus, contre les trois autres), il filtre par EFFET
                 # (`EntitiesWithAnyEffect`) et non par trait, et il est PLAFONNE (`Min(..., 6)`).
-                "debuffed_units_in_range_of":
+                _CTX_DEBUFFED_UNITS_IN_RANGE_OF:
                     lambda oid: debuffed_units_in_range_count(state, int(oid)),
                 # `HealthPctIsBelowOrEqual(Owner@DSLSelectors+0x30, Get(healthPct))` --
                 # `StatPercentageIsBelowOrEqualAbilityTrigger$$ShouldTrigger` lit `GetStat(5 =
@@ -1602,7 +1610,7 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
                 # entites du coup. Tri-etat : `(None, None)` = non mesure (aucun `HealthComponent`).
                 # MEME substrat que la cle `hp`/`max_hp` du `unit_state`, pour que la MAGNITUDE et
                 # les `is_active` a seuil de vie ne puissent pas diverger.
-                "unit_health_of": lambda oid: _health_of(state, oid),
+                _CTX_UNIT_HEALTH_OF: lambda oid: _health_of(state, oid),
                 # #951 -- `StatAmount(Target@DSLSelectors+0x60, StatType.Health = 5,
                 # StatPart.CurrentPct = 1)`, le premier operande du gate
                 # `...TrophyTaker_ExtraCritDamageEffect$$HealthLowerThanPct`. Ce sont les PV de la
@@ -1614,7 +1622,7 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
                 # seuil de vie. Tri-etat `(None, None)` = non mesure -> le gate se TAIT.
                 "tgt_hp": _health_of(state, tgt_id)[0] if tgt_id is not None else None,
                 "tgt_hp_max": _health_of(state, tgt_id)[1] if tgt_id is not None else None,
-                "tertiary_ability_state_of":
+                _CTX_TERTIARY_ABILITY_STATE_OF:
                     lambda oid, ability: triggered_ability_state(state, int(oid), ability)}
 
     @staticmethod

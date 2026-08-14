@@ -23,6 +23,9 @@ from ...services.damage_config import resolve_spread_pct
 from ...services.damage_modifiers import apply_all_modifiers
 from ...entities.effects import additional_hit_groups, aura_additional_hits_from_allies
 from ...entities.damage_trait import DamageTrait
+from engine.entities.effects.loki.hits import MAUGETAR_CTX_ATTACK_HAD_CRITICAL as _CTX_ATTACK_HAD_CRITICAL   # #1042-r5
+from engine.entities.effects.ctx_keys import CTX_TERTIARY_ABILITY_STATE_OF as _CTX_TERTIARY_ABILITY_STATE_OF   # #1042-r5
+from engine.entities.effects.loki.norn_crown import CTX_TGT_EFFECT_NAMES as _CTX_TGT_EFFECT_NAMES   # #1042-r5
 
 
 def reduce_group_damage(value, g_pierce: int, armor: int, mods, def_mods, hit_mult: int = 1) -> int:
@@ -127,7 +130,7 @@ def collect_additional_hit_groups(state: State, attacker_id: int, target_id: int
     # gates CIBLE des descripteurs du porteur (#57e, ex. CyclicIonBlaster HasEffect(Markerlight)).
     ah_ctx = {"is_melee": is_melee,
               "tgt_traits": frozenset(target_trait_names(state, target_id) or ()),
-              "tgt_effect_names": frozenset(
+              _CTX_TGT_EFFECT_NAMES: frozenset(
                   n for n in (getattr(e, "name", None) for e in (tgt_active or [])) if n),
               # #227 : etat lu par `LetTheGalaxyBurnEffect` (gate + degat), cf. docstring.
               "attack_hit_damage": attack_hit_damage,
@@ -170,13 +173,13 @@ def collect_additional_hit_groups(state: State, attacker_id: int, target_id: int
               # contient-elle un crit ? »), pas un tirage per-coup -- ce que dit aussi l'i2 de
               # `Maugetar` (« his attacks that CONTAIN a Crit »). Tri-etat : `None` = NON MESURE
               # (appelant qui ne thread pas), et le descripteur rend alors FAUX, jamais permissif.
-              "attack_had_critical": attack_had_critical,
+              _CTX_ATTACK_HAD_CRITICAL: attack_had_critical,
               # #1006 -- `IdunBattle.Entities.Effects.BaseEffect$$GetAbilityState`, delegue au foyer
               # UNIQUE `triggered_ability_state` (#357) : etat TERTIAIRE pour une relique EQUIPEE,
               # etat PASSIF pour un kit npc. MESURE (probe_959) : l'instance d'effet captee publie
               # `ability_level = 50` quel que soit le niveau de la relique -- sans ce callable, un
               # descripteur de relique lirait TOUJOURS le dernier palier.
-              "tertiary_ability_state_of":
+              _CTX_TERTIARY_ABILITY_STATE_OF:
                   lambda oid, ability: _triggered_ability_state(state, int(oid), ability)}
     groups = list(additional_hit_groups(att_active, ah_ctx))
     carriers = []

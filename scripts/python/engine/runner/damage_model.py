@@ -122,6 +122,7 @@ from ..services.static_battle_rules import is_tile_status_effect
 from ..utilities.tile import terrain_tile_effects
 from .components import PersistentDataComponent
 from .components import charged_unit_ids
+from engine.entities.effects.loki.headwoppas_killchoppa import CTX_ATT_VISUAL_ID as _CTX_ATT_VISUAL_ID   # #1042-r5
 
 _BIG_HP = 1 << 30          # santé cible « infinie » → scenario sans overkill/cap
 
@@ -637,7 +638,7 @@ def _apply_ally_attack_damage_auras(state: State, att_id: int, mods, is_ranged: 
            # Gulgortz). Le ctx d'aura ne publiait AUCUN canal d'IDENTITE de l'attaquant : sans cette
            # cle le gate serait ferme en permanence, donc la face AURA inerte. `None` = NON MESURE
            # (unite ou `visual_id` introuvable), jamais une chaine vide -- l'effet se tait alors.
-           "att_visual_id": _unit_visual_id(state, att_id),
+           _CTX_ATT_VISUAL_ID: _unit_visual_id(state, att_id),
            # #999-r3-r1 -- RARETE de l'ATTAQUANT, `BaseUnitComponent.Rarity` (+0x74). Le
            # BENEFICIAIRE de ce canal est l'attaquant (`get_OwnerIsCaster` apres que la boucle
            # native a ecrit `AbilityEntities+0x18 (Owner) <- CHAQUE CIBLE du selecteur`), donc un

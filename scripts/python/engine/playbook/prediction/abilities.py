@@ -39,6 +39,7 @@ import engine.playbook.adjacency as _adjacency   # foyer PARTAGE multi-tuiles (#
 # `AAmountFormula$$CalculateAverage`). MEME foyer que `AActiveAbility.get_damage`, pour que les
 # deux paires de variables (`minDmg`/`maxDmg` et `minDmg_2`/`maxDmg_2`) partagent l'arrondi.
 from engine.dsl.base import calculate_average
+from engine.entities.effects.loki.deathwing import CTX_ADJACENT_DA as _CTX_ADJACENT_DARK_ANGELS_FRIENDS   # #1042-r5
 # ⚠ La forme `from engine.playbook import adjacency` declarerait le PAQUET (elle en lit
 # l'attribut), pas le module -- et `engine.playbook` atteint deja ce module par `.base`, donc
 # l'arete refermait un SCC de 16 (`test_270r4r2_cycles_imports_offline` etage 1, MESURE).
@@ -234,7 +235,7 @@ def generate_multi_hit_attack_prediction(scene, uid, tgt, ability_id, ability_na
                                                                     (GC.unit(scene.vis_by_id.get(tgt))
                                                                      or {}).get("GrandAllianceId"),
                                                                 "att_team": scene.team(uid),
-                                                                "adjacent_dark_angels_friends":
+                                                                _CTX_ADJACENT_DARK_ANGELS_FRIENDS:
                                                                     scene.adjacent_dark_angels_friends(
                                                                         uid),
                                                                 # #948 -- les DEUX compteurs

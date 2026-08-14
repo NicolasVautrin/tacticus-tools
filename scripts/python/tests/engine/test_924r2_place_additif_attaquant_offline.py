@@ -55,6 +55,30 @@ from engine.services.damage_prediction import apply_pierce_and_modifiers
 
 _RACINE = Path(__file__).resolve().parents[2] / "engine"
 
+#: Ce qui doit changer pour que ce fichier puisse changer de verdict. Volontairement LARGE : les
+#: etages 1 et 2 mesurent le COMPORTEMENT de la chaine de reduction (donc tout ce qui la compose),
+#: l'etage 3 balaye TOUT `engine/**` a la recherche d'un appel sans le drapeau -- n'importe quel
+#: fichier du paquet peut donc le faire rougir.
+DECLENCHEUR = {
+    "chemins": (
+        "scripts/python/engine/services/damage_prediction.py",
+        "scripts/python/engine/services/damage_modifiers.py",
+        "scripts/python/engine/services/damage_calculations.py",
+        "scripts/python/engine/services/static_battle_rules.py",
+        "scripts/python/engine/runner/damage_model.py",
+        "scripts/python/engine/runner/operations/damage_ops/normal.py",
+        "scripts/python/engine/runner/operations/damage_ops/normal_like.py",
+        "scripts/python/engine/runner/operations/damage_ops/ability.py",
+        "scripts/python/engine/runner/operations/additional_hits.py",
+        "scripts/python/engine/entities/effects/loki/inescapable_death.py",
+    ),
+    "build": False,
+    "toujours": False,
+    "raison": "la PLACE de l'additif ForAddition attaquant : sa mesure (etages 1-2) et son "
+              "balayage a perimetre derive sur engine/** (etage 3). `build` FAUX : les etages "
+              "n'ouvrent ni gameconfig ni table de symboles, ils mesurent une fonction pure",
+}
+
 #: Le montage de #75, VALIDE BIT-EXACT LIVE (orksNob `SmashaEad`) : additif 599,
 #: `pierce = 50`, armure de la cible 2208. C'est le regime ou le percage DOMINE
 #: (`d - armure < d * p/100`), donc celui ou les deux positions se separent.
