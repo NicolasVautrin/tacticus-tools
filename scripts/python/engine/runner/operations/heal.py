@@ -101,7 +101,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from ..components import HealthComponent
+from ..components import HealthComponent, UnitComponent
 from ...entities.effect_type import EffectType
 from ...services.trait_damage_limits import get_group_unit_heal_limit
 from .fill_up_prediction import group_unit_members, is_boss
@@ -180,13 +180,18 @@ class HealUnitOperation:
         un soin qui ne restaure AUCUN PV et ne fait que purger rend `healed = 0` des deux cotes --
         l'ecart ne porte que sur les effets purges, jamais sur les PV ;
       * l'EVENT `Action=HealInfo` (porte a part, `engine/streams/heal_unit.py`) et les statistiques
-        (`ActorStatisticsComponent$$AddRestoreHealthAction`, compteurs `+0xc8`/`+0xd4`/`+0xe4`) ;
-      * les vecteurs de trigger `processor.<slot 0x51>` `On(0x1e)`, `On(0x2b)`, `On(0x2c)` et le
-        `RefreshEffects(RefreshEffectOptions{3, null})` de queue. Le SEUL consommateur porte est le
-        stat-mod EXTRA_HITS du trait `Swarm`
+        `AddRestoreHealthAction` / `+0xc8` / `+0xe4`. ⚠ Le TROISIEME compteur de cette liste,
+        `+0xd4`, EST desormais porte (#1037, `UnitComponent.times_healed_this_turn`) : il a un
+        lecteur, le gate `TimesHealedThisTurn` de `WyrdmakersHelmAbility` ;
+      * les vecteurs de trigger `processor.<slot 0x51>` `On(0x1e)` et `On(0x2b = 43 UnitHealed)`, et
+        le `RefreshEffects(RefreshEffectOptions{3, null})` de queue. Le SEUL consommateur porte de
+        ces deux-la est le stat-mod EXTRA_HITS du trait `Swarm`
         (`IdunBattleLogic.Entities.Abilities.Active.Loki.SwarmAbility$$CreateTrigger`, bras
         `On(UnitHealed=43)`), deja cable par l'appel direct a `on_group_unit_hp_changed` ci-dessous
-        -- MEME raccourci que `RepairUnitOperation`, et deja valide live (`probe_203_swarm.py`) ;
+        -- MEME raccourci que `RepairUnitOperation`, et deja valide live (`probe_203_swarm.py`).
+        ⚠ Le TROISIEME vecteur, `On(0x2c = 44 UnitHealedWithRemoveEffects)`, EST desormais emis
+        (#1037, `triggers/dispatch/heal.py`) : `WyrdmakersHelmAbility$$CreateTrigger` ouvre dessus,
+        et aucun raccourci ne le couvrait ;
       * la PORTE DE RESULTAT VIDE de QUEUE (#982-r5, LUE sur `rnca9r7q6c`) :
 
             if (!wasWounded && healed < 1 && removedNegativeUnitEffects < 1
@@ -266,4 +271,27 @@ class HealUnitOperation:
         # reduit).
         from ..abilities.loki.swarm import on_group_unit_hp_changed
         on_group_unit_hp_changed(state, int(target_id))
+        # #1037 : `*(int *)(stats + 0xd4) = *(int *)(stats + 0xd4) + 1` sur les statistiques de
+        # l'unite SOIGNEE. PLACE EXACTE : le natif l'ecrit APRES le bloc `if (healed >= 1) { ... }`
+        # (celui qui alimente `+0xc8`/`+0xe4` et `AddRestoreHealthAction`) et AVANT ses trois
+        # emissions de vecteurs -- d'ou l'ordre ici.
+        # ⚠ ECART NOMME, et il est PERMISSIF DANS L'AUTRE SENS : le natif incremente des que son
+        # gate de sortie anticipee est franchi, c'est-a-dire aussi quand `healed < 1` mais que la
+        # cible etait BLESSEE (`wasWounded`), qu'un effet negatif a ete purge
+        # (`removedNegativeUnitEffects >= 1`) ou que le caster porte le flag `0x17
+        # CanHealFullHealthUnits`. Le port sort plus haut sur `healed <= 0` (aucun des trois n'est
+        # modelise -- cf. la liste des NON PORTE en tete de classe), donc il compte un SOUS-ENSEMBLE
+        # STRICT des soins natifs : jamais de sur-comptage, seulement un sous-comptage sur ces trois
+        # regimes. Residu `#1037-r1`.
+        uc = e.get_component(UnitComponent)
+        if uc is not None:
+            uc.times_healed_this_turn = int(getattr(uc, "times_healed_this_turn", 0) or 0) + 1
+        # #1037 : `if (removeEffects) processor.<slot 0x51>(caster, caster, healed, 0x2c, ability)`.
+        # Emis APRES l'increment ci-dessus (le consommateur lit donc `TimesHealedThisTurn == 1` au
+        # premier soin du tour). Le gate `removeEffects` est celui du natif, pas une prudence : il
+        # separe `HealBehaviourOptions$$ForHeal` (=1) de `$$ForRegenerate` (=0).
+        if remove_effects:
+            from .triggers.dispatch.heal import unit_healed_with_remove_effects_triggers
+            unit_healed_with_remove_effects_triggers(state, caster_id, int(target_id),
+                                                     ability_or_effect=ability_or_effect)
         return healed

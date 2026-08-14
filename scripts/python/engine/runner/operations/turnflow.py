@@ -624,6 +624,17 @@ class StartTurnOperation:
             # (« the FIRST time each turn this unit blocks a hit »).
             if uc is not None:
                 uc.blocks_made_this_turn = 0
+            # #1037 : `*(undefined4 *)(stats + 0xd4) = 0` -- la DERNIERE instruction du bloc
+            # `ActorStatisticsComponent` de `IdunBattle.Operations.StartTurnOperation$$ResetUnit`,
+            # juste apres le roulement `+0x70 = +0x6c` ci-dessus (elle n'a PAS de methode `Reset*`
+            # dediee : le champ est efface INLINE). MEME portee que les resets voisins : les unites
+            # du joueur ENTRANT. ⚠ `ActorStatisticsComponent$$ResetThisTurn` ne le touche PAS -- lu
+            # au decompile. C'est ce zero qui rouvre la fenetre du gate
+            # `AmountIsEqual(TimesHealedThisTurn(Target), Const(1))` de
+            # `IdunBattleLogic.Entities.Abilities.Triggered.Loki.WyrdmakersHelmAbility$$CreateTrigger`
+            # (« gets healed for the FIRST time this turn »).
+            if uc is not None:
+                uc.times_healed_this_turn = 0
             # #509 : `IdunBattle.Entities.Components.ActorStatisticsComponent$$
             # ResetUnitsAttackedThisTurn` (`Clear(+0x40)`) -- la PREMIERE instruction de la meme
             # sequence de `IdunBattle.Operations.StartTurnOperation$$ResetUnit` (elle PRECEDE le
