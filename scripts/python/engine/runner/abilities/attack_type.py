@@ -425,6 +425,15 @@ ABILITY_ATTACK_TYPE: dict[int, int] = {
     # ⚠ Le cast enchaine AUSSI une ATTAQUE NORMALE (`UseNormalAttack`/`UseNormalAttackIfAble`), et
     # l'`AbilityAttackType` ne le dit pas : il qualifie le CAST, pas la mecanique.
     ActiveAbilityType.MartialExemplar: AbilityAttackType.Others,  # 1216
+    # `IdunBattleLogic.Entities.Abilities.Active.Loki.InstrumentsOfVengeanceAbility$$.ctor` ->
+    # `AActiveAbility..ctor(this, &opts, 2)` : 3e argument = **2 = Others** (#889-r6). LITTERAL
+    # TRANSCRIT, relu au decompile de `rnca9r7q6c` -- pas deduit du `damageProfile = HeavyRound` du
+    # gameconfig, qui aurait suggere une attaque directe.
+    # ⚠ C'est la TROISIEME active de `darkaBossLion`, et la SEULE des trois dont le cast **ne frappe
+    # pas du tout** : il pose des marques de tuile (1518) et arme la phase 2 (1519). L'
+    # `AbilityAttackType` qualifie le CAST -- ici `Others` est donc EXACT, la ou `DirectTargetAttack`
+    # (le littéral de 1217) aurait decrit une frappe qui n'existe pas.
+    ActiveAbilityType.InstrumentsOfVengeance: AbilityAttackType.Others,  # 1215
     # `IdunBattleLogic.Entities.Abilities.Active.Loki.SternguardFocusAbility$$.ctor` ->
     # `AActiveAbility..ctor(this, &opts, 2, 0)` : 3e argument = **2 = Others** (#905). Le litteral
     # est lu au DESASSEMBLAGE (`mov r8d, 2` juste avant le `call`) parce que le decompile ghidra

@@ -90,11 +90,27 @@ def test_chaque_entree_porte_sa_forme():
 def test_la_derivation_mesure_quelque_chose():
     """Un derivateur qui ne trouve RIEN rendrait tous les comptes a zero et le bloc genere serait
     « a jour » sur du vide. Le test assertionne son propre non-vide -- sans ca, vider la table
-    passerait pour un vert."""
+    passerait pour un vert.
+
+    ⚠ **LE NON-VIDE PORTE SUR LE TOTAL ET SUR LA PARTITION, PAS SUR CHAQUE COTE (#889-r6).** La
+    redaction precedente exigeait `hors_bloc` NON VIDE, et cette exigence est tombee le jour ou la
+    derniere entree hors-bloc a migre sur sa classe (`1215 InstrumentsOfVengeance`, contrat de
+    DISJONCTION de la table). Ce n'etait pas une regression : la table DRAINE par construction --
+    notre cadence va de « non portee » vers « portee », jamais l'inverse, et le dernier port de
+    chaque cote videra son cote. Exiger les deux cotes non vides revenait donc a garder une
+    PROPRIETE DU CORPUS, qui se perime toute seule, la ou l'invariant a garder est celui de la
+    DERIVATION : elle mesure quelque chose, et sa partition est EXHAUSTIVE.
+
+    Ce que ce test garde donc, et qui ne se perime pas : `total > 0` (la derivation voit encore la
+    table) et `hors_bloc + bloc == total` (le decoupage ne perd aucune entree -- une entree tombee
+    entre les deux serait comptee nulle part, exactement le vice que le volet COMPTES existe pour
+    interdire). Le jour ou la table entiere sera vide, `total > 0` tombera et il faudra alors
+    supprimer le volet, pas le desarmer."""
     mes = comptes.deriver()
     assert mes["total"] > 0, "la table est VIDE : la garde ci-dessus ne mesurerait plus rien"
-    assert mes["hors_bloc"], "aucune entree hors-bloc : le decoupage ne separe plus rien"
-    assert mes["bloc"], "aucune entree dans le bloc du pool"
+    assert len(mes["hors_bloc"]) + len(mes["bloc"]) == mes["total"], (
+        "le decoupage PERD des entrees : %d hors-bloc + %d bloc != %d au total"
+        % (len(mes["hors_bloc"]), len(mes["bloc"]), mes["total"]))
 
 
 # ------------------------------------------------------- 2. aucun TEMOIN de camp n'est PERIME

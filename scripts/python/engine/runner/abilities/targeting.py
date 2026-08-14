@@ -622,9 +622,10 @@ TARGETING_OPTIONS_UNPORTED: "dict[int, TargetingOptions]" = {
     # `runner/abilities/darkangels.py::MartialExemplarAbility.TARGETING_OPTIONS`, avec la lecture
     # complete du preset. Elle etait la SEULE entree `@FORME PRESET+FLAGS` de cette table ;
     # l'etiquette reste pour le prochain masque de cette forme.
-    # @FORME STATIC-COPY   (couvre aussi 1215 ci-dessous : il recopie les 0x40 octets d'un preset et
-    #                       n'appelle AUCUN `TargetingOptions$$.ctor`)
-    # ⚠ TROIS RETRAITS SE SONT CROISES ICI (1217/#889, 1093/#888, 1216/#889-r5), et la resolution
+    # @FORME STATIC-COPY   (le ctor recopie les 0x40 octets d'un preset et n'appelle AUCUN
+    #                       `TargetingOptions$$.ctor` ; le masque est la constante du `cctor`)
+    # ⚠ QUATRE RETRAITS SE SONT CROISES ICI (1217/#889, 1093/#888, 1216/#889-r5, 1215/#889-r6), et
+    # la resolution
     # est leur UNION -- pas un arbitrage. Aucun des trois ne contredit les deux autres : chacun
     # constate qu'UNE ability differente a migre son masque sur sa classe.
     # ⚠ 1217 `TheLionsWrath` A QUITTE CETTE TABLE (#889) : sa face COMBAT est desormais portee, et le
@@ -636,43 +637,17 @@ TARGETING_OPTIONS_UNPORTED: "dict[int, TargetingOptions]" = {
     # est portee (`runner/abilities/deathguard.py::MortarionsPlagueWindAbility`), donc son masque
     # (STATIC-COPY `<TargetingOptions statics>+0x180`, `<preset>+0x28` = 0x4002, le MEME preset que
     # son jumeau 1035) vit desormais sur la classe, avec la lecture complete du preset.
-    # 1215 InstrumentsOfVengeance (#27-r6) -- meme statut que 1216 : face DECISION portee (playbook),
-    # face COMBAT NON portee (`...InstrumentsOfVengeanceAbility$$ExecuteBehaviour` est un arbre DSL
-    # substantiel : `If(HasTarget)` sur deux paires de `GetEffectBehavior`, `AddBondEffect(0x5ef)`,
-    # `If(!HasAdjacentEnemies) ActivateEffect(0x3f1)`, et chaque `GetEffectBehavior` empile
-    # `TilesBehindInLine`/`EdgeTilesByDirection`/`SortByFormula`/`SetPersistentData`/`AddEffect(0x5ee)`).
-    #
-    # Le masque est une STATIC-COPY, pas un litteral de ctor et pas un PRESET+FLAGS :
-    # `IdunBattleLogic.Entities.Abilities.Active.Loki.InstrumentsOfVengeanceAbility$$.ctor` recopie les
-    # 0x40 octets de `<TargetingOptions statics>+0x280` dans une struct locale et la passe TELLE QUELLE
-    # a `IdunBattle.Entities.Abilities.AActiveAbility$$.ctor` -- il n'appelle AUCUNE surcharge de
-    # `TargetingOptions$$.ctor`. Le masque effectif est donc la constante ecrite par
-    # `IdunBattle.Core.Services.TargetingOptions$$.cctor` en `<preset>+0x28` :
-    #     0x8004 = CasterIsPossibleTarget(0x8000) | CasterMatchesDynamicRule(0x4)
-    # C'est le MEME preset que 1216, SANS le `additionalRules = 0x10` : 1215 n'a donc PAS
-    # `CasterHasNotMoved` -- elle reste castable apres deplacement, la ou 1216 ne l'est pas.
-    # `isSelfCasting` = `<preset>+0x00` = 1 ; `forceMeleeTarget` = `<preset>+0x20` = 1 = RangedBool.False.
-    # `range` = `RANGE_SELF` (#943-r1) -- il a porte `None` jusqu'ici, et ce `None` etait un AVEU DE
-    # NON-LECTURE, pas une propriete du natif. Le bloc `<preset>+0x08..0x1f` n'est pas un champ
-    # "non resolu" : `IdunBattle.Core.Services.TargetingOptions$$.cctor` le remplit en COPIANT
-    # `<TargetingRange statics>+0x60..0x77`, et `IdunBattle.Core.Services.TargetingRange$$.cctor`
-    # pose ce bloc a `{+0x60 = 1 (onlyAdjacent = RangedBool.False), +0x68 = Nullable(0)
-    # (overrideRange), +0x70 = null (overrideRangeFunc)}` -- c'est-a-dire exactement `RANGE_SELF`.
-    # ⚠ LE PRESET EST LE MEME QUE CELUI DE 1216 (`<TargetingOptions statics>+0x280`, cf. le bloc
-    # @FORME PRESET+FLAGS ci-dessus) : 1216 en a tire `RANGE_SELF` par #923 (`46ba95e8`) apres cette
-    # MEME lecture, et 1192 avant elle. Deux abilities qui recopient le MEME preset ne peuvent pas
-    # avoir deux portees differentes -- seul le `additionalRules = 0x10` les separe (1215 n'a PAS
-    # `CasterHasNotMoved`).
-    # CE QUE LE `None` COUTAIT : `get_range()` rendait `None`, donc AUCUN gate de portee, donc le
-    # moteur acceptait des casts que le natif REFUSE (`range.Value(0) < d` -> `TargetIsInRange`) --
-    # une degradation PERMISSIVE, silencieuse.
-    # MESURE (probe_27_r6_instruments_of_vengeance.py) : `abilityTargets(1215)` rend UNE cible, le
-    # caster lui-meme (CasterIsPossibleTarget), et elle SURVIT au deplacement du caster (absence de
-    # CasterHasNotMoved) -- c'est la contre-epreuve qui separe ce masque de celui de 1216, et elle
-    # CONCORDE avec `RANGE_SELF` (`overrideRange = 0` : seule la tuile du caster, a distance 0,
-    # passe le gate). Le `None` d'avant, lui, ne pouvait PAS rendre cette unique cible par le gate.
-    ActiveAbilityType.InstrumentsOfVengeance: TargetingOptions(rules=TR.CasterIsPossibleTarget | TR.CasterMatchesDynamicRule,  # 1215
-                           self_cast=True, range=RANGE_SELF, force_melee_target=RANGED_BOOL_FALSE),
+    # ⚠ 1215 `InstrumentsOfVengeance` A QUITTE CETTE TABLE (#889-r6), pour la MEME raison et par le
+    # MEME geste que 1217, 1093 et 1216 ci-dessus : sa face COMBAT est desormais portee
+    # (`runner/abilities/loki/instruments_of_vengeance.py::InstrumentsOfVengeanceAbility`), et le
+    # CONTRAT DE DISJONCTION exige alors le retrait de la ligne. Son masque -- les MEMES quatre
+    # valeurs, RE-LUES au decompile de `rnca9r7q6c` avant migration (preset
+    # `<TargetingOptions statics>+0x280` recopie TEL QUEL, `<preset>+0x28` = `0x8004`, SANS le
+    # `additionalRules = 0x10` de 1216, donc SANS `CasterHasNotMoved` ; `isSelfCasting` = 1 ;
+    # `forceMeleeTarget` = 1 = `RangedBool.False` ; `range` = `RANGE_SELF`) -- vit sur la classe.
+    # La MESURE qui separe ce masque de celui de 1216 y est reportee : `abilityTargets(1215)` rend
+    # UNE cible, le caster lui-meme, et elle SURVIT au deplacement du caster
+    # (`probe_27_r6_instruments_of_vengeance.py`).
 
     # ============================================================================================
     # LES ABILITIES ACTIVES DU POOL SPAWNABLE HORS REGISTRE (#433-r4-r2-r1-r2-r2-r1-r1)
@@ -751,16 +726,16 @@ TARGETING_OPTIONS_UNPORTED: "dict[int, TargetingOptions]" = {
     #     PAS des faits de RE -- ils bougent a chaque face COMBAT portee, et c'est pour ca
     #     qu'aucun d'eux n'est ecrit a la main.
     #
-    #     len(TARGETING_OPTIONS_UNPORTED) ......... 2
-    #       dont hors-bloc (tete de table) ..... 1
+    #     len(TARGETING_OPTIONS_UNPORTED) ......... 1
+    #       dont hors-bloc (tete de table) ..... 0
     #       dont bloc du pool (#433-r4) ........ 1
     #
     #     VENTILATION PAR FORME DE CTOR (dict ENTIER, hors-bloc compris) :
     #       FLAGS-DIRECTS  ..................... 0
-    #       PRESET+FLAGS   ..................... 2
+    #       PRESET+FLAGS   ..................... 1
     #       PRESET-SEUL    ..................... 0
     #       STATIC-COPY    ..................... 0
-    #       (somme = 2)
+    #       (somme = 1)
     # <<< FIN COMPTES DERIVES
     #
     # LES 16 PRESETS, RELUS A LA SOURCE dans `IdunBattle.Core.Services.TargetingOptions$$.cctor`

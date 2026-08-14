@@ -952,13 +952,36 @@ class ConfigVarForEntity(AAmountFormula):
 
 
 class EntityId(AAmountFormula):
-    """`IdunBattleLogic.Entities.DSLFactory$$EntityId(ref)` : id de l'entité résolue (ou None)."""
+    """`IdunBattleLogic.Entities.DSLFormulas$$EntityId(entity)` : id de l'entité résolue (ou None).
+
+    DOMAINE MIXTE (#889-r6) : le natif lit `IEntity.Id` sur l'entité que rend le sélecteur, et une
+    TUILE est une entité comme une autre. Le port représente une unité par un `dict` (clé `id`) et
+    une tuile par son `id` de tuile NU (`int`) -- même convention que `Sub._key` et
+    `selectors/_shared._entity_pos`, tous deux explicitement en domaine mixte. Un sélecteur
+    tile-domain rendait donc `None` ici, en silence.
+
+    Le sélecteur est réduit à SON PREMIER élément : le natif passe par
+    `IdunBattle.DSL.TargetsSelector$$SelectSingle`, pas par une somme -- une liste vide rend `None`
+    (et non `0`, qui désignerait une entité).
+
+    ⚠ **CE `None` N'EST PAS INTERCHANGEABLE AVEC `0`.** Son seul consommateur porté à ce jour est
+    `SetPersistentData` (`...InstrumentsOfVengeanceAbility$$GetEffectBehavior`), dont la feuille
+    n'écrit RIEN quand la valeur est `None` -- alors qu'écrire `0` poserait une clé que
+    `GetPersistentData` relirait comme une entité. Les deux régimes se distinguent au tour suivant."""
     def __init__(self, ref):
         self.ref = ref
 
     def calculate(self, ctx):
         e = self.ref.evaluate(ctx)
-        return e.get("id") if isinstance(e, dict) else None
+        if isinstance(e, (list, tuple)):               # `SelectSingle` : le PREMIER, pas la somme
+            e = e[0] if e else None
+        if isinstance(e, dict):
+            return e.get("id")
+        if isinstance(e, bool):                        # un bool EST un int en Python -- jamais un id
+            return None
+        if isinstance(e, int):                         # domaine TUILE : l'id de tuile EST l'entite
+            return e
+        return None
 
 
 class EffectLevel(AAmountFormula):

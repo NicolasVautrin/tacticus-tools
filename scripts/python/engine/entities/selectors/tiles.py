@@ -24,6 +24,26 @@ from ..traits.unit_trait import unit_trait_names
 from ..traits.unit_trait import UnitTrait          # `Steppable` (0x1b) de la branche allowSteppable
 
 
+def _tile_items(node: TargetsSelector, ctx) -> list:
+    """Normalise l'evaluation d'un operande TILE-DOMAINE en liste : `None` -> `[]`, une ENTITE SEULE
+    (id de tuile `int`, dict d'unite) -> `[elle]`, un ensemble -> tel quel.
+
+    Pendant tile-domaine de `_units_of` (`dsl/base.py`), et pour la MEME raison : le natif
+    `IdunBattle.DSL.TargetsSelector$$op_Addition` / `$$op_Subtraction` accepte un operande MONO-ENTITE
+    -- lecture deja ecrite sur `Sub` (`selectors/units.py`). `_units_of`, lui, fait `list(v)` sur un
+    `int` et leve `TypeError` : il ne couvre pas ce domaine."""
+    v = node.evaluate(ctx)
+    if v is None:
+        return []
+    if isinstance(v, dict):
+        return [v]
+    if isinstance(v, bool):                            # un bool EST un int -- jamais une entite
+        return []
+    if isinstance(v, int):
+        return [v]
+    return list(v)
+
+
 # --- Selecteurs de TUILES (domaine TILE = ids de tuile ; lisent ctx.board). Pont unit->tile
 #     (`AdjacentTiles`) et tile->tile (`CanAddUnit`/`TileUnique`/`TileIntersect`). board None -> []. ---
 
@@ -595,13 +615,21 @@ class TileUnion(TargetsSelector):
     qu'UN `op_Addition`, le port en a deux ecritures parce que le domaine n'est pas type cote port.
 
     Consommateur porte : `IdunBattleLogic.Entities.Abilities.Active.Loki.ItItchesAbility$$GetTargetTiles`
-    = `Target@0x60 op_Addition AdjacentTilesIntersection(CasterTile@0x50, Target@0x60)`."""
+    = `Target@0x60 op_Addition AdjacentTilesIntersection(CasterTile@0x50, Target@0x60)`.
+
+    ⚠ **UN OPERANDE PEUT ETRE UNE ENTITE SEULE, pas un ensemble** (#889-r6) : le natif `op_Addition`
+    prend deux `TargetsSelector` et l'un des deux peut etre un noeud MONO-ENTITE -- exactement la
+    lecture deja ecrite sur `Sub` (`op_Subtraction` accepte << un SELECTEUR ou une ENTITE >>).
+    Call-site : `...InstrumentsOfVengeanceAbility$$GetEffectBehavior` ecrit
+    `TilesBehindInLine(...) op_Addition ActiveTarget@DSLSelectors+0x68`, ou `ActiveTarget` est
+    l'element COURANT du tri -- donc **un id de tuile NU**, sur lequel `list(...)` levait
+    `TypeError`. `_tile_items` normalise, comme `_units_of` cote unite."""
     def __init__(self, left: TargetsSelector, right: TargetsSelector):
         self.left, self.right = left, right
 
     def select(self, ctx):
         seen, out = set(), []
-        for t in list(self.left.evaluate(ctx)) + list(self.right.evaluate(ctx)):
+        for t in _tile_items(self.left, ctx) + _tile_items(self.right, ctx):
             if t not in seen:
                 seen.add(t)
                 out.append(t)
