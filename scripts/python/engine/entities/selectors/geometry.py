@@ -736,10 +736,20 @@ class TilesBehindInLine(TargetsSelector):
       | `ThriceBlessedConflagrationAbility$$GetTilesInLine` | 0 | 0 |
     Defauts `False/False` = le comportement HISTORIQUE (ThriceBlessed, inchange).
 
-    RESIDU documente : la branche `check_walkable == False` du natif teste `tileComponent+0x40 == 0`
-    (drapeau de tuile SEUL, sans le composant MUR) ; le port utilise `board.walkable` (capture live de
-    `TileExtensions.IsWalkable`, qui FOND le drapeau de tuile ET le mur). Inerte pour ses deux call-sites
-    (`FilterContinuous(HasUnit & AreEnemies)` en aval : une tuile non-walkable ne porte pas d'unite).
+    ⚠ **LE RESIDU DE LA BRANCHE `check_walkable == False` EST REPARE (#889-r6), et il n'etait PAS
+    inerte.** Le natif teste `tileComponent+0x41` (le MUR) INCONDITIONNELLEMENT et met `IsWalkable`
+    DANS la branche `checkWalkable` ; le port appliquait `board.walkable` (qui FOND les deux)
+    inconditionnellement, donc il COUPAIT la ligne sur toute tuile `Block` ou `Unplayable`. Mesure
+    directe sur `CE6_boss` : le natif MARQUE `(6,4)` et `(6,6)`, deux `Unplayable`
+    (`walkable = false`, `isWall = false`). Ce selecteur cable donc desormais `is_wall_at` depuis le
+    champ `isWall` du `boardGraph`, et `battle_query.is_tile_valid_for_list` applique l'ORDRE natif.
+    La redaction precedente justifiait l'inertie par le `FilterContinuous(HasUnit & AreEnemies)` en
+    aval de ses deux call-sites d'alors -- vrai pour eux, faux des qu'un consommateur COMPTE les
+    tuiles : `...InstrumentsOfVengeanceAbility$$GetEffectBehavior` fait de cette longueur une CLE DE
+    TRI, et la ligne choisie n'etait pas la meme.
+    Ce qui reste NON PORTE, nomme : `+0x40` lui-meme -- aucun champ du `boardGraph` ne le publie
+    (`walkable`, `isWall`, `isTemporary`, `isInFog`, `tileDefId` : aucun ne coincide avec la mesure
+    ci-dessus). Le gate reste INERTE, borne SUPERIEURE.
 
     La MARCHE elle-meme (`GetTilesBehind` + `IsTileValidForList`) vit dans `engine.battle_query.
     get_tiles_behind` : mirror UNIQUE partage avec les deux feuilles de DECISION (#124), en domaine
@@ -762,12 +772,19 @@ class TilesBehindInLine(TargetsSelector):
         n = self.max_count
         n = (n.evaluate(ctx) if hasattr(n, "evaluate") else n)
         n = int(n) if n is not None else None
+        def _mur(p):
+            """`tileComponent+0x41` -- le champ `isWall` du `boardGraph`, TRI-ETAT : absent (board
+            monte a la main dans un test unitaire) -> `False`, gate INERTE, borne SUPERIEURE."""
+            t = board.by_id.get(board.id_at(p[0], p[1]))
+            return bool((t or {}).get("isWall", False))
+
         positions = battle_query.get_tiles_behind(
             src[0], dst[0], max_count=n,
             check_walkable=self.check_walkable, update_reference=self.update_reference,
             walkable_at=lambda p: board.walkable(board.id_at(p[0], p[1])),
             elevation_at=lambda p: board.elevation(board.id_at(p[0], p[1])),
-            tile_exists=lambda p: board.id_at(p[0], p[1]) is not None)
+            tile_exists=lambda p: board.id_at(p[0], p[1]) is not None,
+            is_wall_at=_mur)
         return [board.id_at(p[0], p[1]) for p in positions]
 
 

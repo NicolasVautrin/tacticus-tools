@@ -608,7 +608,7 @@ def is_target_tile_obscured(frm: tuple, to: tuple, elev_by_pos: dict | None = No
 
 def is_tile_valid_for_list(tile: tuple, ref: tuple | None, check_walkable: bool,
                            walkable_at=None, elevation_at=None,
-                           check_elevation: bool = True) -> bool:
+                           check_elevation: bool = True, is_wall_at=None) -> bool:
     """`IdunBattle.Core.Services.TileUtil$$IsTileValidForList(tile, refTile, checkWalkable,
     checkElevation)` en domaine POSITION. Le 4e argument natif est un LITTERAL, different par
     call-site porte -> il est ici un PARAMETRE, jamais une deduction :
@@ -629,11 +629,38 @@ def is_tile_valid_for_list(tile: tuple, ref: tuple | None, check_walkable: bool,
     `walkable_at(pos) -> bool` / `elevation_at(pos) -> int|None` : accesseurs injectes (board du
     runner cote COMBAT, `walkable_by_pos`/`elev_by_pos` cote DECISION). Accesseur absent ou donnee
     manquante -> le gate correspondant est INERTE (borne SUPERIEURE : on ne coupe jamais une ligne
-    a l'aveugle). RESIDU (herite du port #117) : le natif distingue `+0x41` (mur) de `+0x40`
-    (drapeau de tuile) ; les deux substrats offline ne connaissent que `IsWalkable`, qui FOND les
-    deux -- inerte pour les call-sites portes (tous filtrent `HasUnit` en aval)."""
-    if walkable_at is not None and not walkable_at(tile):
-        return False
+    a l'aveugle).
+
+    ⚠ **`is_wall_at` SEPARE LES DEUX GATES QUE LE PORT FONDAIT, et la fonte n'etait PAS inerte
+    (#889-r6).** Le natif teste `+0x41` (le MUR) INCONDITIONNELLEMENT, puis met `IsWalkable` DANS la
+    branche `checkWalkable`. Le port appliquait `walkable_at` inconditionnellement -- une
+    degradation RESTRICTIVE, qui coupe la ligne la ou le natif la continue. La docstring precedente
+    la disait << inerte pour les call-sites portes >> ; elle ne l'est plus, et la mesure est directe
+    (board `CE6_boss`, `...InstrumentsOfVengeanceAbility$$GetEffectBehavior`, `settings = null` donc
+    `checkWalkable = 0`) :
+
+      * le natif MARQUE `(6,4)` et `(6,6)`, deux tuiles `Unplayable` (`walkable = false`,
+        `isWall = false`), et traverse aussi les `Block` -- donc **NI `Block` NI `Unplayable` ne
+        posent `+0x40`** ;
+      * le port s'arretait dessus, ce qui RACCOURCISSAIT `Count(TilesBehindInLine(...))` de 6 a 5
+        sur une tuile candidate -- et cette longueur est une CLE DE TRI de 1215. La ligne choisie
+        n'etait donc pas la meme : divergence de SELECTION, pas de geometrie.
+
+    Ce qui reste NON PORTE, et c'est nomme : `+0x40` lui-meme, dont aucun substrat offline ne publie
+    la valeur (le `boardGraph` donne `walkable`, `isWall`, `isTemporary`, `isInFog`, `tileDefId` --
+    aucun ne coincide avec les deux mesures ci-dessus). Le gate reste donc INERTE, borne SUPERIEURE,
+    comme tout accesseur absent. `is_wall_at` absent -> ANCIEN comportement (fonte), pour ne pas
+    changer un call-site qui ne cable pas le nouveau substrat."""
+    if is_wall_at is not None:
+        # ORDRE NATIF : `+0x41` (mur) d'abord et INCONDITIONNEL, `IsWalkable` seulement ensuite.
+        if is_wall_at(tile):
+            return False
+        if not check_walkable:
+            return True                   # `return tileComponent+0x40 == 0` -- gate INERTE (pas de substrat)
+        if walkable_at is not None and not walkable_at(tile):
+            return False
+    elif walkable_at is not None and not walkable_at(tile):
+        return False                      # substrat FONDU (pas d'`is_wall_at`) : comportement d'avant
     if not check_walkable:
         return True                       # branche `!checkWalkable` : PAS de gate d'elevation
     if not check_elevation:
@@ -648,7 +675,8 @@ def is_tile_valid_for_list(tile: tuple, ref: tuple | None, check_walkable: bool,
 
 def get_tiles_behind(frm: tuple, to: tuple, max_count: int | None = None,
                      check_walkable: bool = False, update_reference: bool = False,
-                     walkable_at=None, elevation_at=None, tile_exists=None) -> list:
+                     walkable_at=None, elevation_at=None, tile_exists=None,
+                     is_wall_at=None) -> list:
     """`IdunBattle.Core.Services.BattleQuery$$GetTilesBehind(from, to, checkWalkable,
     updateReference, maxCount)` en domaine POSITION — LE mirror UNIQUE de la ligne hex, consomme
     par la face COMBAT (`engine.entities.selectors.TilesBehindInLine`) ET par les deux feuilles de
@@ -712,7 +740,8 @@ def get_tiles_behind(frm: tuple, to: tuple, max_count: int | None = None,
         p = hexgeo.from_cube(ox + dx * (k + 1), oz + dz * (k + 1))
         if tile_exists is not None and not tile_exists(p):
             break                          # `GetTileEntityAt == null` -> fin de ligne
-        if not is_tile_valid_for_list(p, ref, check_walkable, walkable_at, elevation_at):
+        if not is_tile_valid_for_list(p, ref, check_walkable, walkable_at, elevation_at,
+                                      is_wall_at=is_wall_at):
             break                          # `return list` natif : PREFIXE, pas un filtre
         out.append(p)
         if update_reference:               # settings+0x11 : la reference d'elevation suit la ligne
