@@ -73,6 +73,7 @@ from .loki.skullsmasher import SkullsmasherExtraDamageEffect   # #953 (passif wo
 from .loki.monster_slayer_of_caliban import (              # #1009 (relique darkaCompanion, 1527)
     MonsterSlayerOfCalibanExtraBlockEffect, MonsterSlayerOfCalibanExtraDmgEffect
 )
+from .loki.masters_of_manoeuvre import MastersOfManoeuvreEffect   # mythique MoW darkaStormSpeeder, 1508
 from .loki.first_among_traitors import FirstAmongTraitorsExtraDmgEffect   # #926 (passif blackAbaddon)
 from .loki.hunters_beyond_death import (                   # #952 (passif spaceHound)
     HuntersBeyondDeathEffect, HuntersBeyondDeathExtraDamageEffect,
@@ -1888,6 +1889,26 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # elle rendrait la mauvaise magnitude), `TriggeredAbilityType 1009` = `WhipcoilBody` (la CONFIG)
     # et `ActiveAbilityType 1009` = `ResurrectionOrb` (deja portee, `runner/abilities/necrons.py`).
     "WhipcoilBody_ReduceDmg": WhipcoilBodyReduceDmgEffect,
+    # 1443 ContemptuousDisregard_DamageReduction (mythique de `blackForgefiend`) est
+    # VOLONTAIREMENT ABSENT de ce registre -- cf. le bloc de `ABILITY_INIT_OWNER_EFFECTS
+    # ["ContemptuousDisregard"]` plus bas, qui porte la RE et la mesure. En deux mots : c'est un
+    # `EffectWithTarget` (il a un `$$CreateTargetSelector`), donc le natif ne l'evalue PAS sur son
+    # PORTEUR mais sur les CIBLES de son selecteur -- et ce selecteur porte un
+    # `UnitsWithRarity(..., idun.meta.Rarity.Mythic)` que le port ne sait pas evaluer. L'inscrire
+    # sur `create_effect_damage_malus_for_defense` donnerait la reduction a la MoW elle-meme, que
+    # le natif n'en fait JAMAIS beneficier (elle n'occupe aucune tuile, donc
+    # `HasTileStatusEffect(Tiles(elle))` est FAUX par construction) : ce serait PERMISSIF.
+    # 1510 MastersOfManoeuvre -- effet de l'ability MYTHIQUE de la MoW `darkaStormSpeeder`
+    # (`TriggeredAbilityType` 0x5e4 = 1508, voie TERTIAIRE).
+    # `IdunBattle.Entities.Effects.Loki.MastersOfManoeuvreEffect$$CreateEffectDamageMalusForDefense`
+    # = `ForPercentDecrease(get_OwnerIsTarget & IsRangedAttack(), ConfigVar(0x46))` -- appel
+    # EXPLICITE a `IdunBattle.Entities.Effects.EffectBonus$$ForPercentDecrease`.
+    # ⚠ La POSE (`...MastersOfManoeuvreAbility$$CreateTrigger`) n'est PAS portee : son gate COMMUN
+    # porte `HasRarity(Actor, idun.meta.Rarity.Mythic = 5)`, canal ABSENT du port. L'effet, lui,
+    # n'a AUCUN gate de rarete -- c'est ce qui rend cette face-ci portable.
+    # ⚠ TROIS enums, les memes entiers : `EffectType 1510` = CET effet, `TriggeredAbilityType 1510`
+    # = `DeathwingKnight` (rien a voir), `TriggeredAbilityType 1508` = l'ability qui le pose.
+    "MastersOfManoeuvre": MastersOfManoeuvreEffect,
 }
 
 
@@ -2488,6 +2509,51 @@ ABILITY_INIT_OWNER_EFFECTS: dict[str, list[str]] = {
     # neanmoins, car le SEUL porteur non-npc est le summon `necroSmnDestroyer`, dont la confrontation
     # passe par la GREFFE du passif sur une unite du pool.
     "WhipcoilBody": ["WhipcoilBody_ReduceDmg"],
+    # `ContemptuousDisregardAbility` (ability **MYTHIQUE** de la MoW `blackForgefiend` /
+    # `blackNpcMowForgefiend`, `TriggeredAbilityType` 0x5aa = 1450). `frida/classes.tsv` : parent
+    # `IdunBattle.Entities.Abilities.AOwnerEffectTriggeredAbility`, et la classe n'override QUE
+    # `$$GetEffectType`, dont le corps ENTIER est `return 0x5a3` (= 1443
+    # `EffectType.ContemptuousDisregard_DamageReduction`) : l'appariement ability -> effet est LU,
+    # pas devine. Le reste vient de la base :
+    #   `$$CreateTrigger`   = OnOwnerSpecificAbilityInit(this.AbilityType)
+    #   `$$CreateBehaviour` = If( CreateCondition(abilityState),
+    #                             AddEffect(GetEffectType(), AbilityState(Owner@<+0x30>),
+    #                                       source = Owner, targets = Owner, options = <Nullable ZERO>) )
+    # -> owner-effect PERMANENT pose a l'init, exactement le patron `Vitarus` / `NornCrown` /
+    # `MoreGitzOverEre`.
+    # ⚠ MEME VOIE que ces trois : la mythique arrive par le champ TERTIAIRE
+    # (`BC.Units[].TertiaryAbility`, montage `rl_duel build --equip-mythic`), donc ce seed depend de
+    # la lecture de `ctx.tertiary_ability` par `_seed_ability_owner_effects` (acquise depuis #1005),
+    # et c'est aussi ce qui rend l'instance eligible au re-bake TERTIAIRE de
+    # `snapshot._rebake_tertiary_owner_effects` -- sans quoi elle lirait le couple des PASSIFS
+    # (50 / 180 en runner normalise) au lieu du couple tertiaire (1..4 / 100).
+    # L'EFFET 1443 N'ENTRE PAS DANS `EFFECT_CLASSES`, ET C'EST MESURE (#1038) :
+    # `IdunBattle.Entities.Effects.Loki.ContemptuousDisregard_DamageReductionEffect` expose un
+    # `$$CreateTargetSelector` -- c'est donc un `EffectWithTarget`, et
+    # `IdunBattle.Core.Services.DamageCalculations$$CalculateDefenderModifiersForPrediction` itere
+    # `<effet> x <CIBLES de son selecteur>` (boucle externe = l'effet + sa liste, boucle interne =
+    # chaque cible, puis appel des slots 0x1a / 0x1b / 0x19). Le porteur de l'instance n'est donc
+    # PAS le beneficiaire.
+    #   `$$CreateTargetSelector` = `Filter( UnitsWithRarity( Friends(Owner@<DSLSelectors+0x30>,
+    #        AllUnits(), 3), idun.meta.Rarity.Mythic = 5, 3 ),
+    #        HasTileStatusEffect( Tiles(<DSLSelectors+0x68>) ) )`
+    #   `$$CreateEffectDamageMalusForDefense` (corps INLINE) = `ForPercentDecrease(
+    #        get_OwnerIsTarget, ConfigVar(AbilityVariableType.dmgReductionPct = 0x46) )`.
+    # DEUX raisons de ne pas l'inscrire, la seconde suffisant seule :
+    #  1. le gate `UnitsWithRarity(..., Mythic)` lit `GetBaseUnitComponent(e)+0x74`
+    #     (`IdunBattle.Entities.Formulas.UnitsWithRaritySelector$$Select`), canal ABSENT du port --
+    #     meme verrou que `#1025-r1` ;
+    #  2. l'inscrire sur `create_effect_damage_malus_for_defense` (canal des effets portes par la
+    #     CIBLE) donnerait la reduction a la MoW elle-meme, alors que le natif ne l'y applique
+    #     JAMAIS : une MoW n'occupe aucune tuile, donc `HasTileStatusEffect(Tiles(elle))` est FAUX
+    #     par construction. Ce serait PERMISSIF, exactement le profil qu'on chasse.
+    # MESURE LIVE (#1038, `blackForgefiend` + `--equip-mythic ...:ContemptuousDisregard:1`, board
+    # `MC1_67`) : l'instance 1443 est bien posee SUR LA MoW (`decisionView.mows[].effects`), avec
+    # `targetIds: []` -- le selecteur ne selectionne personne, y compris avec un ami MYTHIQUE place
+    # sur une tuile `DryBush` (`LightCover`). Ce seed-ci reste donc UTILE et INOFFENSIF : il
+    # materialise la POSE (que le natif fait) sous forme d'un `BaseEffect` nu, qui n'agit sur aucun
+    # canal.
+    "ContemptuousDisregard": ["ContemptuousDisregard_DamageReduction"],
 }
 
 
@@ -2501,6 +2567,36 @@ def get_owner_effects_added_on_ability_init(ability_name: str) -> list[str]:
     """Owner-effects posés par `<Ability>.CreateBehaviour` à l'INIT de l'ability (DSL AddEffect(owner)).
     Ability sans owner-effect-à-l'init porté -> []."""
     return ABILITY_INIT_OWNER_EFFECTS.get(ability_name, [])
+
+
+# #1038 -- Effets qu'une ability **TERTIAIRE** (relique ou mythique de MoW) pose SUR AUTRUI, donc
+# dont l'`AbilityStateReference` BAKEE (`EffectComponent+0x18`) est celle de la TERTIAIRE de la
+# SOURCE -- `level 1..4 / mult 100` -- et non le couple des PASSIFS du porteur (`50 / 180` en
+# runner normalise). Consomme par `runner/snapshot.py::_rebake_tertiary_posed_effects`, qui balaye
+# par SOURCE ; `ABILITY_INIT_OWNER_EFFECTS`, lui, balaye par PORTEUR et ne peut PAS voir ces
+# instances (`#1009` couvrait le seul cas source == porteur).
+#
+# ⚠ Le CRITERE d'entree ici est le `targets` du `AddEffect` natif (ou l'existence d'un
+# `$$CreateTargetSelector` d'AURA sur la classe d'effet), pas le nom de l'ability : un effet posé
+# sur `Owner` seul n'a rien à y faire, il est déjà couvert.
+TERTIARY_ABILITY_POSED_EFFECTS: dict[str, list[str]] = {
+    # `...MastersOfManoeuvreAbility$$CreateBehaviour` = `AddEffect(0x5e6 = 1510,
+    # get_AbilityStateReference(this), source = Owner@<DSLSelectors+0x30>,
+    # targets = **Actor@<DSLSelectors+0x40>**, TurnsFromRounds(GetNumberConstant(nrOfRounds)))` --
+    # l'effet vit sur l'ami MYTHIQUE qui vient de bouger, jamais sur la MoW. Il n'entre donc PAS
+    # dans `ABILITY_INIT_OWNER_EFFECTS` (aucun owner-effect a l'init), et c'est cette table-ci qui
+    # porte son re-bake.
+    "MastersOfManoeuvre": ["MastersOfManoeuvre"],
+    # ⚠ `ContemptuousDisregard` N'Y EST PAS, et ce n'est pas un oubli : son effet 1443 est pose sur
+    # l'OWNER (`AOwnerEffectTriggeredAbility`), donc `_rebake_tertiary_owner_effects` -- la passe
+    # clee par PORTEUR -- le couvre DEJA. Le porteur n'est pas le beneficiaire (c'est un
+    # `EffectWithTarget`), mais le re-bake porte sur l'INSTANCE, pas sur ses cibles.
+}
+
+
+def get_effects_posed_by_tertiary_ability(ability_name: str) -> list[str]:
+    """Effets qu'une ability TERTIAIRE pose sur AUTRUI (#1038). Ability sans effet de ce genre -> []."""
+    return TERTIARY_ABILITY_POSED_EFFECTS.get(ability_name, [])
 
 
 # `<Ability>_InitAbility.CreateBehaviour` -> `DSLBehaviors$$AddFlag(Owner@+0x30, <UnitFlag>)`.

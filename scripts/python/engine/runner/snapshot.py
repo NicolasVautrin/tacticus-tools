@@ -526,6 +526,11 @@ def load_state(decision: dict, observe: dict, snapshot: Optional[dict] = None,
         # mordait sur RIEN -- mesure, pas hypothese.
         state.ability_states_seed["rebakedTertiaryOwnerEffects"] = \
             _rebake_tertiary_owner_effects(state)
+        # MEME cause, AUTRE porte (#1038) : une ability tertiaire dont le behaviour pose sur
+        # AUTRUI. La passe ci-dessus est clee par PORTEUR et ne peut, par construction, jamais
+        # voir ces instances-la. Cf. `_rebake_tertiary_posed_effects`.
+        state.ability_states_seed["rebakedTertiaryPosedEffects"] = \
+            _rebake_tertiary_posed_effects(state)
     else:
         state.ability_states_seed = {"source": source, "seeded": None, "seededPassives": None,
                                      "seededTriggeredKits": None, "seededActives": None}
@@ -2449,6 +2454,82 @@ def _rebake_tertiary_owner_effects(state: State) -> int:
                 eff.ability_level = lvl
                 eff.ability_variables_multiplier = mult
                 n += 1
+    return n
+
+
+def _rebake_tertiary_posed_effects(state: State) -> int:
+    """RE-BAKE du couple `(niveau, multiplicateur)` des effets qu'une ability TERTIAIRE pose sur
+    AUTRUI (#1038). MEME cause que `_rebake_tertiary_owner_effects` ci-dessus, AUTRE porte.
+
+    CE QUE LA PASSE PRECEDENTE NE PEUT PAS VOIR, ET POURQUOI. Elle est clee par PORTEUR : elle
+    visite `state.effects.by_unit[<unite qui porte la tertiaire>]`. Or deux behaviours de mythique
+    de MoW posent AILLEURS que sur leur owner :
+      * `IdunBattleLogic.Entities.Abilities.Triggered.Loki.MastersOfManoeuvreAbility$$CreateBehaviour`
+        = `AddEffect(0x5e6, get_AbilityStateReference(this), source = Owner@<DSLSelectors+0x30>,
+          targets = **Actor@<DSLSelectors+0x40>**, TurnsFromRounds(nrOfRounds))` -- l'effet vit sur
+        l'ami qui vient de bouger, jamais sur la MoW ;
+      * l'AURA de `ContemptuousDisregard_DamageReductionEffect$$CreateTargetSelector`, qui
+        MATERIALISE l'effet sur chaque beneficiaire (patron `GuardianOrganism`, #89).
+    Dans les deux cas `source == la MoW` et `porteur == quelqu'un d'autre`.
+
+    LE NATIF, LUI, NE FAIT AUCUNE DIFFERENCE :
+    `IdunBattle.Entities.Behaviours.AddEffectBehaviour$$DefaultEffectBuilder(id, abilityState)`
+    COPIE l'`AbilityStateReference` recue dans `EffectComponent+0x18`, et
+    `IdunBattle.Entities.Effects.BaseEffect$$GetAbilityStateReference` relit ce champ et RIEN
+    d'autre -- **l'effet ne consulte jamais son porteur**. Cette reference vient de l'ability QUI
+    POSE, donc de la TERTIAIRE : `level 1..4 / mult 100` (fabriquee par
+    `IdunBattle.Entities.Factories.UnitFactory$$Build` depuis `config+0xc0 TertiaryAbilityLevel`),
+    la ou les passifs de la MEME unite portent `50 / 180` en runner normalise.
+
+    MESURE (#1038, `darkaStormSpeeder` + `MastersOfManoeuvre` niveau 1, board `MC1_67`) : sans
+    cette passe, l'instance captee sur l'ami arrivait avec `ability_level = None` et `mult = 160`
+    (le repli sur le porteur, `effects_state.baked_ability_state`) -> `ConfigVar(0x46)` ne trouvait
+    AUCUN `AbilityState` et la classe d'effet rendait `None` : la reduction etait **entierement
+    INERTE**. Avec, elle lit `dmgReductionPct[1]`.
+
+    PORTEE STRICTE, et c'est ce qui borne le rayon : la passe ne reecrit QUE les instances dont la
+    **SOURCE** porte une tertiaire DEBLOQUEE (`tertiary_ability_level > 0`) ET dont le NOM figure
+    dans `factory.TERTIARY_ABILITY_POSED_EFFECTS[<cette tertiaire>]`. Un effet homonyme pose par un
+    passif d'une AUTRE unite n'est jamais touche (la source ne porte pas la tertiaire) ; une unite
+    sans tertiaire n'est pas visitee. Elle est donc INERTE partout ou le canal `unitAbilityStates`
+    (#357/#363) n'est pas lie.
+
+    Rend le nombre d'instances re-bakees (0 = aucune mythique/relique de ce genre en jeu)."""
+    if state.effects is None:
+        return 0
+    etats: dict = {}          # {source_id: (niveau tertiaire, multiplicateur tertiaire)}
+    noms_par_source: dict = {}
+    for uid, ent in state.entities.items():
+        sc = ent.get_component(StatsComponent)
+        ctx = getattr(sc, "ctx", None) if sc is not None else None
+        tert = getattr(ctx, "tertiary_ability", None) if ctx is not None else None
+        if not tert:
+            continue
+        lvl = int(getattr(ctx, "tertiary_ability_level", 0) or 0)
+        if lvl <= 0:                       # `0` = verrouille (`Level$$CreateValidOrLockedLevel`)
+            continue
+        noms = set(_effects_factory.get_effects_posed_by_tertiary_ability(str(tert)) or ())
+        if not noms:
+            continue
+        etats[int(uid)] = (lvl, int(getattr(ctx, "tertiary_ability_variables_multiplier", 100) or 100))
+        noms_par_source[int(uid)] = noms
+    if not etats:
+        return 0
+    n = 0
+    for effs in (state.effects.by_unit or {}).values():
+        for eff in (effs or ()):
+            src = getattr(eff, "source", None)
+            if src is None:
+                continue
+            try:
+                src = int(src)
+            except (TypeError, ValueError):
+                continue
+            couple = etats.get(src)
+            if couple is None or getattr(eff, "name", None) not in noms_par_source[src]:
+                continue
+            eff.ability_level, eff.ability_variables_multiplier = couple
+            n += 1
     return n
 
 
