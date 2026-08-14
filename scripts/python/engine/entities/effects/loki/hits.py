@@ -170,6 +170,94 @@ class SorcerousFacadeAdditionalHitsEffect(BaseEffect):
                  "min": int(mn), "max": int(mx), "profile": profile}]
 
 
+class FragLanceEffect(BaseEffect):
+    """`FragLanceEffect` (`EffectType` 0x5c3 = 1475 `FragLance`) — effet PERMANENT du passif de relance
+    `astraSmnDeathRider` (summon d'`astraDreir` via `LeadingTheCharge`) et de son jumeau npc
+    `astraNpc5DeathRider` : quand le porteur CHARGE, ses attaques NORMALES gagnent `nrOfHits` coups
+    additionnels HETEROGENES [minDmg,maxDmg] au profil `damageProfile` (= Blast). i2
+    `Abilities/FragLance_CurrentLevelDescription` : « When charging, normal melee attacks deal an
+    additional {nrOfHits}x {minDmg}-{maxDmg} Blast Damage ».
+
+    ## L'ARTEFACT NATIF (decompile = verite, build `rnca9r7q6c`)
+
+    Deux etages, et ils sont SEPARES cote port comme cote natif :
+
+    1. LA POSE — `IdunBattleLogic.Entities.Abilities.Triggered.Loki.FragLanceAbility`, dont la classe
+       de base est `IdunBattle.Entities.Abilities.AOwnerEffectTriggeredAbility` et dont le SEUL corps
+       propre est `...FragLanceAbility$$GetEffectType` (corps ENTIER : `return 0x5c3`). Le patron du
+       parent est invariant :
+           `AOwnerEffectTriggeredAbility$$CreateTrigger`   = `OnOwnerSpecificAbilityInit(this.AbilityType)`
+           `AOwnerEffectTriggeredAbility$$CreateCondition` = <trigger constant `DSLTriggers+0x70`>
+           `AOwnerEffectTriggeredAbility$$CreateBehaviour` =
+               `If(CreateCondition(state),
+                   AddEffect(GetEffectType(), AbilityState(Owner, AbilityType), Owner, Owner, default))`
+       -> a l'init du porteur, l'effet 1475 est pose SUR LUI-MEME, sans duree. Cote port c'est la table
+       `ABILITY_INIT_OWNER_EFFECTS["FragLance"] = ["FragLance"]` (aplatissement du patron, cf. sa
+       docstring). ⚠ HOMONYMIE A DEUX FACES : la CLE est le nom d'un `TriggeredAbilityType`
+       (`FragLance` = 1481), la VALEUR le nom d'un `EffectType` (`FragLance` = 1475) — meme chaine,
+       deux enums, deux ordinaux.
+
+    2. LE CANAL — `IdunBattle.Entities.Effects.Loki.FragLanceEffect$$CreateAdditionalHits`
+       -> `IdunBattle.Entities.Effects.EffectAdditionalHits$$Create` {
+           trigger  = `get_OwnerIsCaster` op_BitwiseAnd `IsNormalAttack`
+                      op_BitwiseAnd `IsCharging(Caster@DSLSelectors+0x60, Target@DSLSelectors+0x78)`,
+           damage   = `IdunBattle.Entities.Effects.BaseEffect$$GetMinMaxDamage(this, 0)`
+                      = `RandomAmount(ConfigVar(0xc=minDmg), ConfigVar(0xd=maxDmg))`  (noeud ROLL),
+           additionalHitsType = 1,
+           profile  = `IdunBattle.Configuration.AbilityConfiguration$$GetDamageProfile(config).Value`
+                      = `constants.damageProfile` = Blast,
+           hits     = `IdunBattleLogic.Entities.DSLFormulas$$ConfigConst(0x2f = nrOfHits, config)`,
+           forceOverkill = 0,
+           predictionDamage = `GetMinMaxDamage(this, 1)` = `Average(minDmg, maxDmg)`  (noeud DISPLAY) }
+       `.ctor` = `IdunBattle.Entities.Effects.BaseEffect(AbilityOrEffect(<FragLance>), 1)` -> les
+       `ConfigVar` sont lues sur la config de l'ability, indexees par l'`AbilityStateFromEffect`
+       (= `ability_level` cote port). `minDmg`/`maxDmg` sont dans `variablesAffectedByRarityBonus`
+       -> x multiplier de rarete ; `nrOfHits` est un numberConstant.
+
+    ## Le TRIGGER a TROIS conjoints, et le troisieme est le seul NEUF sur ce canal
+
+    - `get_OwnerIsCaster` -> foyer partage `owner_is_caster(ctx)` (cles `owner_id`/`att_id`) ;
+    - `IsNormalAttack`    -> cle `ctx["is_normal_attack"]`, MEME donnee que le parametre homonyme des
+      canaux COUPS-D'ARME et PENETRATION (`create_effect_hits_bonus_for_attack`,
+      `get_armor_penetration`) : nature du VECTEUR, pas du coup. Tri-etat, `True` requis ;
+    - `IsCharging(caster, target)` -> foyer partage `is_charging_attack(ctx)`, forme POSITIVE
+      (`case-ischarging-hits-channel` : VRAI seulement si la charge est PROUVEE — le natif commence
+      par `AreEntitiesAdjacent`, donc sans positions il rend FAUX, jamais VRAI).
+
+    BI-CANAL ROLL / DISPLAY (#884) : ce descripteur etait l'un des trois `Average` NON portes du
+    recensement des 19 `$$CreateAdditionalHits` (residu `#884-r2`) ; il publie donc `min`/`max`
+    (face COMBAT, `useDisplay = 0`) ET `amount` (face PREDICTION, `Average` arrondi Fix64
+    demi-vers-le-PAIR) DES son premier commit, comme cette fiche l'exigeait."""
+
+    def additional_hit_groups(self, ctx: "Mapping | None" = None) -> "list[dict] | None":
+        c = ctx or {}
+        if not owner_is_caster(c):                          # get_OwnerIsCaster
+            return None
+        if c.get("is_normal_attack") is not True:           # IsNormalAttack (tri-etat : True requis)
+            return None
+        if not is_charging_attack(c):                       # IsCharging(Caster@+0x60, Target@+0x78)
+            return None
+        lvl = self.ability_level if self.ability_level is not None else self.level
+        mn = ability_var("FragLance", "minDmg", lvl, multiplier_pct=self.ability_variables_multiplier)
+        mx = ability_var("FragLance", "maxDmg", lvl, multiplier_pct=self.ability_variables_multiplier)
+        count = ability_var("FragLance", "nrOfHits", is_constant=True)   # numberConstant 0x2f
+        if mn is None or mx is None or not count or count <= 0:
+            return None
+        try:
+            import gameconfig as _GC
+            profile = ((_GC.ability("FragLance") or {}).get("constants") or {}) \
+                .get("damageProfile") or "Blast"
+        except Exception:
+            profile = "Blast"
+        # BI-CANAL ROLL / DISPLAY (#884) : `predictionDamage` = `GetMinMaxDamage(this, 1)` =
+        # `Average(minNode, maxNode)` -> cellule de PREDICTION DEGENEREE a la moyenne ARRONDIE
+        # (`DivideAmount$$Calculate` -> `AAmountFormula$$RoundFix64Result(., 0)`, demi-vers-le-PAIR),
+        # etalee +/-20 % par le pipeline ; la face COMBAT lit `min`/`max` du noeud ROLL.
+        return [{"count": int(count),
+                 "amount": _round_fix64(_Fraction(int(mn) + int(mx), 2), 0),
+                 "min": int(mn), "max": int(mx), "profile": profile}]
+
+
 class FearOfTheUnseenExtraDamageEffect(BaseEffect):
     """`FearOfTheUnseen_ExtraDamageEffect` (effet 0x4d7=1239, `tyranDeathleaper` « Deathleaper ») — pose
     sur LUI-MEME par le cast de `FearOfTheUnseen` (0x45b=1115) : jusqu'a l'expiration, ses attaques

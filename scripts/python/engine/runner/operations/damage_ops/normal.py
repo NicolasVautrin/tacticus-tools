@@ -764,7 +764,12 @@ class _Normal:
                 # ProfileType`) -- c'est l'etat du groupe d'ARME qu'on vient de resoudre, donc il
                 # se lit sur `r`, JAMAIS sur un tirage a venir. `r["crits"]` est index-aligne sur
                 # les coups EXECUTES (`damage_hits.py`), coups bonus compris.
-                attack_had_critical=any(r.get("crits") or ())),
+                attack_had_critical=any(r.get("crits") or ()),
+                # #1050 `FragLanceEffect` : les deux conjoints restants de son trigger. Ce vecteur
+                # EST l'attaque normale (`IsNormalAttack` VRAI par construction) ; `is_charging`
+                # reutilise le `_charging` deja calcule plus haut par le foyer UNIQUE
+                # `battle_query_is_charging` -- un seul appel par attaque, aucun predicat re-derive.
+                is_normal_attack=True, is_charging=_charging),
             mods, def_mods, armor, _tgt_hit_mult, block_sources, shc,
             spread_pct=spread_pct, extra_pierce=ctx.extra_pierce,
             # profil de l'ATTAQUE : ce qu'emprunte un groupe dont le `profileType` est NULL.
