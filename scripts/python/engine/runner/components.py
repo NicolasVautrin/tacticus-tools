@@ -384,7 +384,7 @@ class UnitComponent(Component):
                  "turns_with_attacks_made", "units_attacked_this_turn", "attacks_made_this_turn",
                  "total_attacks_made", "defeated_units_melee", "defeated_units_other",
                  "total_defeated_units", "death_killer_id", "previous_position_this_turn",
-                 "movement_target_override")
+                 "movement_target_override", "rarity")
 
     def __init__(self, visual_id: Optional[str], alive: bool, ai_controlled: bool = False,
                  parent_id: Optional[int] = None):
@@ -549,6 +549,27 @@ class UnitComponent(Component):
         # structurel) ; `pending_revive` ci-dessus cite le MEME offset pour un AUTRE composant --
         # les deux paires de caches natives sont distinctes, il n'y a pas de collision.
         self.movement_target_override: Optional[tuple] = None
+        # #999-r3-r2 -- `BaseUnitComponent.Rarity` (`+0x74`), le champ que lisent
+        # `IdunBattle.Entities.UnitExtensions$$HasRarity` et
+        # `IdunBattle.Entities.Formulas.UnitsWithRaritySelector$$Select` apres
+        # `IdunBattle.Entities.UnitExtensions$$GetBaseUnitComponent(e)`.
+        #
+        # POURQUOI ICI et pas seulement dans `UnitContext` (ou #999-r3 l'avait pose). Le porteur
+        # natif est `BaseUnitComponent`, la base COMMUNE de `UnitComponent` et `MachineComponent` :
+        # toute entite d'unite en porte un, VIVANTE OU NON -- une unite qui a FUI garde sa rarete,
+        # et un cadavre aussi. Le port, lui, ne batit un `UnitContext` que depuis
+        # `combatSnapshot.units[]`, qui est ALIVE-ONLY : la rarete d'un mort etait donc
+        # structurellement `None`, donc `HasRarity` FAUX et `UnitsWithRarity(AllDeadUnits(...))`
+        # VIDE -- une degradation RESTRICTIVE. Le canal, lui, la porte deja
+        # (`combatSnapshot.unitsNotAlive[].rarity`, #1039, pose exactement pour cette raison).
+        # Seede par `snapshot._load_unit_rarity` depuis les DEUX blocs du meme canal ; lu par
+        # `abilities/behaviours/context._unit_dict` en REPLI du ctx (meme forme que le repli
+        # gameconfig des traits d'un cadavre, #226).
+        #
+        # TRI-ETAT : `None` = NON MESURE (canal muet, ou etat monte sans `combatSnapshot`).
+        # JAMAIS `0` en repli -- `0` est `Rarity.Common`, une valeur parfaitement plausible
+        # (meme discipline que `entities/rarity.py::measured_rarity`).
+        self.rarity = None
 
     def add_foot(self, tile: tuple) -> None:
         """`IdunBattle.Entities.Components.UnitComponent$$AddFoot(footId)` = `_feet.Add(footId)`

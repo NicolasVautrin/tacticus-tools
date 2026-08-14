@@ -507,8 +507,26 @@ def _tm_consume(sid, rid, ids, vis_by_id, p_team, verbose=True):
 # ================================================================================================
 # VOLET LivingLightning
 # ================================================================================================
-def measure_ll(sid, seed, board_id, verbose=True, keep=False, regime="adjacent"):
-    """`regime` = la DISTANCE de l'ennemi le plus proche a la DESTINATION du pas, donc la BRANCHE
+def measure_ll(sid, seed, board_id, verbose=True, keep=False, regime="adjacent", inactifs=False):
+    """`inactifs` (#961-r3) = passe `includeInactive: true` a la capture `decisionView` qui alimente
+    `load_state`. DEFAUT `False`, donc AUCUNE mesure existante ne change de canal.
+
+    POURQUOI CE DRAPEAU EXISTE, et pourquoi il est OPT-IN. La capture est prise **AVANT le pas**,
+    or la condition d'activite de `SupaCyborkBody_CritDmgReduction` est GEOMETRIQUE --
+    `...SupaCyborkBody_CritDmgReductionEffect$$CreateActiveCondition = HasAdjacentEnemies(Owner,
+    Tiles(Owner))` -- et son Owner est la CIBLE (`orksRuntherd`, relique `1475` equipee au seed).
+    L'attaquant ne devient adjacent qu'APRES le pas : a l'instant de la capture l'effet est donc
+    POSE mais INACTIF, et le canal par defaut le FILTRE. Mesure #1081
+    (`probe_1081_supacybork_inactif.py`, meme etat, deux appels) : `0` instance de `1468` sans le
+    drapeau, `1` avec (`{unit: 79, active: False, level: 1}`). Cote port, `active_condition_ported
+    = True` -> la condition est RE-EVALUEE sur le plateau d'apres le pas, donc l'instance seedee
+    inactive redevient active exactement quand le natif l'active.
+
+    ⚠ Le drapeau ELARGIT l'etat charge (tout effet inactif de toute unite entre dans
+    `EffectsState.by_unit`) : c'est pourquoi il n'est PAS le defaut. Un regime qui le passe et un
+    regime qui ne le passe pas ne sont pas comparables entre eux.
+
+    `regime` = la DISTANCE de l'ennemi le plus proche a la DESTINATION du pas, donc la BRANCHE
     du `If(AmountIsGreaterThanZero(AdjacentEnemies(Caster)), Direct(1), Get(constants.range))` :
 
       * `adjacent` (1) -- branche THEN, rayon 1. C'est le seul regime que l'i2 decrit.
@@ -641,7 +659,9 @@ def measure_ll(sid, seed, board_id, verbose=True, keep=False, regime="adjacent")
             print("[961-LL] ABORT le porteur n'est pas activable -- le move n'emettrait pas On(0x1c)")
             return None
         # 4) capture AVANT le move, puis LIVE move.
-        cap = {"dec": dv(sid, rid, all_ab=True),
+        # #961-r3 : `inactifs` decide du CANAL de cette capture-ci -- celle qui alimente
+        # `load_state`. Cf. la docstring de `measure_ll` pour la mesure qui l'impose.
+        cap = {"dec": dv(sid, rid, all_ab=True, inactifs=inactifs),
                "ob": _r(sid, "observeBattle", {"runnerId": rid}, 60),
                "snap": _r(sid, "combatSnapshot", {"runnerId": rid}, 120), "board": board}
         # ETAT MT LIVE : sans lui, `AttackDamageOperation.execute_ability_attack` SKIPPE le degat

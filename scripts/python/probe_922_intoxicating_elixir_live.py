@@ -100,6 +100,9 @@ EFFECT_NAME = "IntoxicatingElixir"    # cle EFFECT_CLASSES == nom decisionView
 ABILITY_ID = "IntoxicatingElixir"     # TriggeredAbilityType 0x5b7 = 1463 (la CONFIG)
 VAR_KEY = "extraCritDmg"              # AbilityVariableType 0x42 = 66
 NORMAL_ATTACK = 69                    # `Loki_NormalAttack` -- l'id EXPOSE par `decisionView`
+#: #922-r1 -- CANAL de la capture qui alimente `load_state` (`includeInactive`). Pose par `main`
+#: depuis `--inactifs`. `False` = canal ACTIF-ONLY, le comportement historique de ce probe.
+INACTIFS = False
 
 #: les QUATRE `EffectType` du bloc, relus dans `global-metadata.dat` (jamais recopies a la main --
 #: on les prend au module de port, qui les tient de l'enum).
@@ -509,7 +512,7 @@ def stage_degat(h, a, n: int, cfg: dict):
            "niveau_natif": niveau_natif,
            "hp": carrier.get("hp"), "debuffs_porteur": _debuffs_of(h, carrier["id"]),
            "cible_hp": cible.get("hp")}
-    rec["snapshot"] = h.snapshot()
+    rec["snapshot"] = h.snapshot(inactifs=INACTIFS)
     rec["rng_after_step"] = h.rpc("dumpRng", {"runnerId": h.rid}, 30)
     return rec, None
 
@@ -824,7 +827,7 @@ def run_compteur(a, rpc, Board, Harness, cfg: dict) -> int:
         dv = h.dview()
         carrier = h.by_visual(CARRIER, dv)
         rec = {"caster": carrier["id"], "target": foes[0]["id"], "porteur": carrier["id"],
-               "ability_type": NORMAL_ATTACK, "step_to": None, "snapshot": h.snapshot()}
+               "ability_type": NORMAL_ATTACK, "step_to": None, "snapshot": h.snapshot(inactifs=INACTIFS)}
         rec["rng_after_step"] = h.rpc("dumpRng", {"runnerId": h.rid}, 30)
         st = h.offline_state(rec)
         from engine.runner.components import debuffed_units_in_range_count
@@ -893,10 +896,22 @@ def main() -> int:
                     help="rejoue le COMPTEUR sous SIX lectures fausses de `$$GetLevelFormula` et "
                          "exige que chacune MORDE dans son regime. Un mutant VERT dit que le "
                          "temoin est aveugle.")
+    ap.add_argument("--inactifs", action="store_true",
+                    help="#922-r1 : capture `decisionView` avec `includeInactive: true`. "
+                         "`IntoxicatingElixir` est un owner-effect a condition GEOMETRIQUE : il "
+                         "est POSE mais INACTIF a l'instant de la capture (le compteur ne devient "
+                         "positif que PENDANT la salve), donc le canal par defaut le DROPPE avant "
+                         "`load_state` et le port ne verse RIEN. OPT-IN : le drapeau elargit "
+                         "l'etat charge, et `ChargeRegimeHarness` est partage par 53 fichiers.")
     ap.add_argument("--compteur", action="store_true",
                     help="ETAGE E1 SEUL : les deux quirks de geometrie (`includeCenter` et "
                          "l'absence de filtre d'equipe), sans aucune comparaison de degat.")
     a = ap.parse_args()
+    # #922-r1 -- le CANAL de la capture qui alimente `load_state`, porte en global parce que les
+    # DEUX sites de capture (`_mesure_une_cible` et le bras temoin) sont hors de `main`. Defaut
+    # `False` : aucune mesure existante ne change de canal.
+    global INACTIFS
+    INACTIFS = bool(a.inactifs)
 
     cfg = config_du_gameconfig()
     print("== #922 IntoxicatingElixir (EffectType 1459 / TriggeredAbility 1463)")

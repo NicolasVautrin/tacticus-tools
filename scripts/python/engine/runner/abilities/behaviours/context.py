@@ -68,6 +68,26 @@ from ...operations.attack_prediction import multi_hit_attack_prediction as _mhap
 _grand_alliance_trait = grand_alliance_trait_name
 
 
+def _entity_rarity(sc, uc):
+    """`BaseUnitComponent.Rarity` (+0x74) d'une entite -- les DEUX porteurs cote port, dans l'ordre.
+
+    Le natif n'a qu'UN champ, sur `BaseUnitComponent`, base commune de `UnitComponent` et
+    `MachineComponent` : `IdunBattle.Entities.UnitExtensions$$GetBaseUnitComponent(e)` le rend pour
+    toute entite d'unite, VIVANTE OU NON. Cote port il a deux logements, pour une raison de CANAL et
+    non de modele : `UnitContext.rarity` (#999-r3) n'existe que pour les lignes de
+    `combatSnapshot.units[]`, qui est ALIVE-ONLY, tandis que `UnitComponent.rarity` (#999-r3-r2) est
+    seede depuis `units[]` **et** `unitsNotAlive[]`.
+
+    Le ctx PRIME : il est le chemin d'origine, il est inchange pour toute unite vivante, et les deux
+    valeurs viennent de la MEME ligne de capture quand les deux existent. `None` = NON MESURE dans
+    les deux -- jamais `0`, qui est `Rarity.Common` (cf. `entities/rarity.py::measured_rarity`)."""
+    r = (getattr(sc.ctx, "rarity", None)
+         if (sc is not None and getattr(sc, "ctx", None) is not None) else None)
+    if r is not None:
+        return r
+    return getattr(uc, "rarity", None) if uc is not None else None
+
+
 def _unit_dict(state, eid: int, entity=None) -> dict | None:
     """Dict d'unite {id, team, player, pos, alive, hp, visualId, _traits} lu du `State` runner — la forme
     `unit` que consomment les selecteurs DSL. `entity` optionnel (evite un `get_entity` redondant)."""
@@ -174,11 +194,18 @@ def _unit_dict(state, eid: int, entity=None) -> dict | None:
         # `IdunBattle.Entities.UnitExtensions$$GetBaseUnitComponent`. Publie ICI (et pas via un
         # accesseur `ctx.*`) parce que c'est un SCALAIRE d'entite, comme `team`/`player` -- les deux
         # noeuds portes le lisent directement sur l'unite qu'ils viennent de selectionner.
-        # `None` = NON MESURE (entite sans `StatsComponent` -- un CADAVRE, que `combatSnapshot`
-        # filtre --, ou etat monte sans `combatSnapshot`). Aucun repli gameconfig : `BaseRarity`
-        # repond a une AUTRE question (cf. `entities/rarity.py`).
-        "rarity": (getattr(sc.ctx, "rarity", None)
-                   if (sc is not None and getattr(sc, "ctx", None) is not None) else None),
+        # `None` = NON MESURE (canal muet, ou etat monte sans `combatSnapshot`). Aucun repli
+        # gameconfig : `BaseRarity` repond a une AUTRE question (cf. `entities/rarity.py`).
+        #
+        # #999-r3-r2 -- REPLI SUR `UnitComponent.rarity`, et c'est ce qui rend un CADAVRE lisible.
+        # Le ctx n'existe que pour les lignes de `combatSnapshot.units[]`, un canal ALIVE-ONLY :
+        # une unite MORTE ou en FUITE n'avait donc AUCUNE rarete, donc `HasRarity` FAUX et
+        # `UnitsWithRarity(AllDeadUnits(...))` VIDE -- alors que le natif lit `BaseUnitComponent`
+        # (+0x74), que l'entite soit vivante ou non, et que le canal la publie DEJA sur
+        # `unitsNotAlive[]` (#1039). `snapshot._load_unit_rarity` seede les DEUX blocs.
+        # ORDRE : le ctx d'abord -- il est inchange pour toute unite vivante, donc ce repli ne
+        # DEPLACE rien la ou une valeur existait deja ; les deux viennent de la MEME ligne.
+        "rarity": _entity_rarity(sc, uc),
         "_traits": traits,
     }
 
@@ -1153,16 +1180,28 @@ def unit_id(state, entity_id) -> int | None:
 def machine_id(state, entity_id) -> int | None:
     """`IdunBattle.Entities.UnitExtensions$$GetMachine(entity, state)` en DOMAINE ID :
 
-        if (entity == null)             return null;
-        if (IsType(entity, Machine))    return entity;
-        if (IsType(entity, Tile))       return TileExtensions.GetMachinePlatformContent(entity, state);
+        if (entity == null)                     return null;
+        if (EntityType(entity) == 6)            return entity;              # Machine
+        if (EntityType(entity) == 7)            return TileExtensions.GetMachinePlatformContent(
+                                                           entity, state);  # MachinePlatform
         return null;
 
-    ⚠ La branche TUILE reste NON PORTEE, et c'est un residu NOMME, pas un oubli : le port ne
-    modelise pas les PLATEFORMES de MoW comme contenu de tuile (une MoW n'a ni `PositionComponent`
-    ni tuile -- cf. `snapshot._load_machines`, « hors-plateau »), donc il n'existe aucun substrat
-    d'ou tirer `GetMachinePlatformContent`. Rendre `None` y est la degradation FIDELE a ce que le
-    port sait : aucune plateforme inventee."""
+    ⚠ **LA SECONDE BRANCHE EST `MachinePlatform` (7), PAS `Tile` (0)** -- l'assembleur compare
+    litteralement `iVar1 == 7`, et la redaction anterieure de cette docstring (« IsType(entity,
+    Tile) ») NOMMAIT LE MAUVAIS TYPE. Ce n'est pas un detail de vocabulaire : elle faisait croire
+    que le port refuse une resolution que le natif accorde a toute TUILE, alors que le natif rend
+    `null` sur une tuile exactement comme le port. Le trou reel est BEAUCOUP plus etroit -- il ne
+    concerne QUE les entites `MachinePlatform`. (Corrige et re-mesure #287-r14-r2, 2026-08-14.)
+
+    ⚠ La branche PLATEFORME reste NON PORTEE, et c'est un residu NOMME. Ce que la mesure live dit
+    (runner `orksRukkatrukk` sur `MC1_67`, `dumpEntityComponents` sur les ids 60..99) :
+      * une MoW porte **DEUX** entites `MachinePlatform` (75 et 76), qui ne portent QU'UN
+        `MachinePlatformComponent` -- ni `PositionComponent`, ni `TileComponent` ;
+      * `decisionView.mows[]` n'en publie **QU'UNE** (`id: 76`, l'ancre), avec `pos: null` ;
+        la seconde n'apparait dans AUCUN canal.
+    Le lien `plateforme -> machine` de l'ancre EST donc lisible (`mows[].id` -> `machineId`), mais
+    porter la moitie du mapping fabriquerait une resolution qui reussit sur une plateforme et
+    echoue sur l'autre, en silence. `None` reste la degradation FIDELE a ce que le port sait."""
     if entity_id is None:
         return None
     try:

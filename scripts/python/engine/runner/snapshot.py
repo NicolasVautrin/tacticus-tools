@@ -53,7 +53,7 @@ from ..entities.effects import factory as _effects_factory
 from ..entities.unit_context import UnitContext
 from ..entities.active_ability_type import ActiveAbilityType
 from ..entities.traits.unit_trait import trait_names_from_ids
-from ..entities.rarity import assert_rarity_channel      # #999-r3 (canal #1039)
+from ..entities.rarity import assert_rarity_channel, measured_rarity   # #999-r3/-r2 (canal #1039)
 from ..entities.triggered_ability_type import TriggeredAbilityType
 from .components import ForcedAttackTargetsComponent
 from .operations.aura_stat_mods import attribute_aura_stat_modifiers
@@ -463,6 +463,11 @@ def load_state(decision: dict, observe: dict, snapshot: Optional[dict] = None,
         # AVANT les stats : `UnitFlag.Moved`/`Teleported` sont des entrees de GATE lues par le calcul
         # de degat (`attacker_modifiers` -> `unit_has_moved`), pas des sorties -- cf. `_load_unit_flags`.
         _load_unit_flags(state, snapshot)
+        # MEME nature, MEME canal, MEMES DEUX BLOCS que les flags (#999-r3-r2) : la RARETE est
+        # portee par `BaseUnitComponent` (+0x74), donc par une entite VIVANTE OU NON. #999-r3 ne
+        # la branchait que sur `UnitContext`, bati depuis `units[]` seul -> tout mort en etait
+        # prive. Cf. `_load_unit_rarity`.
+        state.unit_rarity_seed = _load_unit_rarity(state, snapshot)
         # MEME nature que les flags : trois champs d'ETAT DE TOUR du `UnitComponent` (dont le
         # compteur `turnsFinished` que lit `OwnerHasFinishedMinTurns`), entrees de gate et non
         # sorties -- cf. `_load_unit_turn_state`.
@@ -837,6 +842,66 @@ def _load_unit_flags(state: State, snapshot: dict) -> None:
         # laissait SANS composant avant #545. Rendu pour que l'amplitude soit lisible, pas devinee.
         "vides": vides,
     }
+
+
+def _load_unit_rarity(state: State, snapshot: dict) -> Optional[dict]:
+    """Seede `UnitComponent.rarity` depuis les DEUX blocs de `combatSnapshot` -- `units[]` ET
+    `unitsNotAlive[]` (#999-r3-r2).
+
+    MIRROR : `BaseUnitComponent.Rarity` (`+0x74`), lu par
+    `IdunBattle.Entities.UnitExtensions$$HasRarity` et
+    `IdunBattle.Entities.Formulas.UnitsWithRaritySelector$$Select` apres
+    `IdunBattle.Entities.UnitExtensions$$GetBaseUnitComponent(e)`. Ce composant est la base
+    COMMUNE de `UnitComponent` et `MachineComponent` : il n'est PAS conditionne a l'etat de vie.
+
+    POURQUOI (residu #999-r3-r2). #999-r3 avait branche la rarete sur `UnitContext.rarity`, que
+    `_load_stats_and_effects` ne construit que depuis `combatSnapshot.units[]` -- un canal
+    ALIVE-ONLY. Une unite MORTE ou en FUITE n'avait donc AUCUNE rarete cote port : `HasRarity`
+    rendait FAUX et `UnitsWithRarity(AllDeadUnits(...))` / `AllDeadOrResurrectedUnits` excluait la
+    TOTALITE des morts. Degradation RESTRICTIVE, silencieuse, et le canal la portait deja :
+    #1039 pose `rarity` sur `unitsNotAlive[]` EXACTEMENT pour la raison de `#429-r1-r3-r1` (une
+    unite qui a FUI garde sa rarete). Meme forme que le repli gameconfig des traits d'un cadavre
+    (#226, Foehammer), a ceci pres qu'ici il n'y a AUCUN repli a inventer : c'est une MESURE.
+
+    TRI-ETAT, meme discipline que `_load_unit_flags` et `entities/rarity.py::measured_rarity` :
+    `rarity` absent ou `null` = canal non mesure -> on ne pose RIEN (le champ garde son `None` de
+    construction, comportement strictement anterieur, y compris sur un bundle Frida plus ancien
+    que #1039). Un ordinal HORS de l'enum LEVE (via `measured_rarity`) : il ne peut vouloir dire
+    qu'une chose -- le build a bouge sous le mirror.
+
+    PORTEE : les DEUX blocs, et les DEUX `entityType`. Une MoW porte elle aussi un
+    `BaseUnitComponent` (cf. `case-1039` Sec.4) et le port lui pose un `UnitComponent`
+    (`_load_machines`) -- elle est donc seedee comme une unite. Le seed est IDEMPOTENT et ne
+    DEPLACE rien pour les unites vivantes : `_unit_dict` continue de lire `ctx.rarity` en premier,
+    et les deux viennent de la MEME ligne de capture.
+
+    Rend le compte par bloc (ou `None` pour `unitsNotAlive` quand ce canal n'a pas ete mesure --
+    jamais `0`, meme regle que `state.unit_flags_seed`)."""
+    _ABSENT = object()
+    na = snapshot.get("unitsNotAlive", _ABSENT)
+    canal = "absent" if na is _ABSENT else ("muet" if na is None else "lu")
+    na_rows = list(na) if canal == "lu" else []
+    rows = list(snapshot.get("units") or [])
+    poses_units = poses_na = 0
+    for idx, su in enumerate(rows + na_rows):
+        eid = su.get("entityId")
+        if eid is None:
+            continue
+        r = measured_rarity(su)              # TRI-ETAT + refus d'un ordinal hors mirror
+        if r is None:
+            continue
+        ent = state.get_entity(eid)
+        uc = ent.get_component(UnitComponent) if ent is not None else None
+        if uc is None:
+            continue
+        uc.rarity = r
+        if idx < len(rows):
+            poses_units += 1
+        else:
+            poses_na += 1
+    return {"units": poses_units,
+            "units_not_alive": poses_na if canal == "lu" else None,
+            "units_not_alive_channel": canal}
 
 
 def _load_unit_turn_state(state: State, snapshot: dict) -> None:
@@ -1343,7 +1408,15 @@ def _load_actor_statistics(state: State, actor_stats: dict) -> None:
     n'etait jamais pris et les deux champs lisaient `comp - 1`, la MEME adresse. Le correctif du
     hook est livre mais EXIGE UNE REINJECTION ; en attendant, ce garde laisse ces deux champs a
     leur 0 de construction (aucun lecteur porte pour `+0xec` ; `+0xf4` n'en a pas non plus) tandis
-    que `+0xf0`, dont le nom EXISTE et qui est mesure exact, passe normalement."""
+    que `+0xf0`, dont le nom EXISTE et qui est mesure exact, passe normalement.
+
+    ⚠ DEUX DES SEPT CHAMPS N'ARRIVENT QU'AVEC UNE FENETRE DE REINJECT (#545-r1 / #287-r5-r2) :
+    `attacksMadeThisTurn` (`+0x24`) et `attacksReceivedThisTurn` (`+0x38`) sont ECRITS dans
+    `frida/hooks/features/ai-step/rpc-snapshot.ts` mais ne seront PUBLIES qu'une fois le bundle
+    re-injecte. D'ici la, le tri-etat ci-dessus fait exactement son office : le champ est absent
+    du payload -> la boucle ne pose RIEN -> les deux compteurs gardent leur `0` de construction,
+    c'est-a-dire le comportement d'avant, a l'identique. C'est la raison d'etre du tri-etat, et
+    pas une degradation ajoutee."""
     for su in ((actor_stats or {}).get("units") or []):
         uid = su.get("entityId")
         if uid is None:
@@ -1368,11 +1441,37 @@ def _load_actor_statistics(state: State, actor_stats: dict) -> None:
         # COURS reparte d'un compteur a 0 la ou la prediction, elle, voit la vraie valeur.
         # C'est aussi un compteur a increments `>= 1` que RIEN ne remet a zero (cf.
         # `components.register_attack_made`) -> une valeur negative denonce une lecture invalide.
+        # #545-r1 -- `TotalAttacksMadeThisTurn` (`+0x24`) rejoint la boucle. MEME canal, MEME hook,
+        # MEME tri-etat, MEME garde `< 0`. Le champ etait le SEUL des compteurs d'attaque a n'avoir
+        # aucun canal de seed alors que le port l'ecrit (`register_attack_made`), le remet a zero
+        # (`reset_units_attacked_this_turn`, `*(long long*)(this + 0x24) = 0`) et le LIT par
+        # `components.unit_attacks_made_this_turn` = `IdunBattle.Entities.Formulas.
+        # AmountOfAttacksMadeThisTurnFormula$$Calculate` dans son regime `Nullable` VIDE.
+        # ⚠ L'enonce d'origine du residu (<< INERTE pour le seul consommateur porte >>) est PERIME :
+        # les consommateurs sont TROIS, et DEUX lisent la valeur ABSOLUE, pas une variation --
+        # `IconOfObstinacy_AddArmourBuffTrigger.matches` (`AmountIsZero(...)`, donc `== 0`) et
+        # `LegacyOfCombatTrigger.matches` (`AmountIsEqual(..., Direct(1))`). Sur un etat recharge
+        # apres qu'une unite a deja frappe ce tour-la, le port rendait 0 et ACCORDAIT le buff que
+        # le natif refuse. Seul `LeadingTheCharge` compare le compteur a lui-meme.
+        # C'est aussi un compteur a increments `>= 1`, remis a `0` -- une valeur negative denonce
+        # une lecture invalide.
+        #
+        # #287-r5-r2 -- `NumAttacksReceivedThisTurn` (`+0x38`) rejoint la boucle POUR LA MEME
+        # RAISON et par le MEME canal. `IdunBattle.Entities.EntityExtensions$$
+        # GetNumAttacksReceivedThisTurn` le lit ; le port l'a sous le nom `times_attacked_this_turn`
+        # (⚠ a ne pas confondre avec `total_times_attacked`, `+0x34`, le cumul de BATAILLE) et le
+        # remet a zero au turn-start (`operations/minimal_health.reset_times_attacked`, mirror de
+        # `...$$ResetAttacksReceivedThisTurn`). Sans seed, un etat charge APRES une attaque rendait
+        # 0 la ou le natif rend `>= 1` -- degradation PERMISSIVE-INVERSEE : le gate HP-floor de
+        # `MinimalHealth` et le cap `HYPERSENSORY_ATTACK_CAP` de `1213 DeathOnTheWind` ACCEPTAIENT
+        # des cibles que le natif REFUSE.
         for key, attr in (("tilesMovedThisBattle", "tiles_moved_this_battle"),
                           ("tilesMovedThisTurn", "tiles_moved_this_turn"),
                           ("tilesMovedLastTurn", "tiles_moved_last_turn"),
                           ("totalTurnsWithAttacksMade", "turns_with_attacks_made"),
-                          ("totalAttacksMade", "total_attacks_made")):
+                          ("totalAttacksMade", "total_attacks_made"),
+                          ("attacksMadeThisTurn", "attacks_made_this_turn"),
+                          ("attacksReceivedThisTurn", "times_attacked_this_turn")):
             v = su.get(key)
             if v is None or int(v) < 0:
                 continue
@@ -2426,6 +2525,47 @@ def _ability_state_with_channel(from_config: tuple, from_channel) -> tuple:
     return (int(chan_mult) if chan_mult is not None else mult, int(lvl), active_level)
 
 
+def _gameconfig_entry(GC, visual_id, snap_unit):
+    """L'entree gameconfig d'une ligne de `combatSnapshot` -- par le `visualId`, et A DEFAUT par
+    `BaseUnitComponent.Id` (#987-r1 / #889-r5-r3).
+
+    POURQUOI DEUX CLES. `IdunBattle.Entities.Factories.UnitFactory$$InitBaseComponent` ecrit DEUX
+    champs DISTINCTS sur le composant : `<Id @+0x10> = config.<Id @+0x10>` et `<VisualId @+0x20>`
+    depuis `config+0x18`. Sur une unite ORDINAIRE ils coincident, donc la lecture par `visualId`
+    suffit -- et c'est le chemin d'origine, INCHANGE. Sur un porteur monte par `--explicit-stats`
+    ils DIVERGENT, et c'est mesure (2026-08-14, `darkaBossLion:4` sur `CE6_boss`) :
+
+        decisionView.units[].visualId   = "GuildBoss12Boss1DarkaLion"   <- ABSENT du gameconfig
+        combatSnapshot.units[].configId = "darkaBossLion:4"             <- la cle, suffixe compris
+        gameconfig.unit("darkaBossLion") = { weapons: [{hits: 4, DamageProfile: "Power"}], ... }
+
+    Sans cette seconde cle, `UnitContext.from_snapshot` lit `cfg.get("weapons") or []` -> `w = None`
+    -> ni profil de degat, ni percage, ni nombre de coups, et le rejeu offline rend **zero coup**,
+    SANS ERREUR. Le natif, lui, en jouait QUATRE (mesure #987). C'etait le residu #987-r1, et le
+    volet (a) de `#889-r5-r3` (`sc.ctx.weapons` VIDE, donc `AttackDamageOperation.execute` rend
+    `None` et l'attaque normale enchainee ne part pas).
+
+    LE SUFFIXE DE PALIER est retire EN DERNIER RECOURS SEULEMENT, et l'ordre est load-bearing :
+    des `unitId` npc portent un `:` DANS leur nom gameconfig (`thousNpc2Screamer:45`, cf.
+    `rl_duel._parse_place`), donc couper d'abord ferait manquer leur entree. On essaie donc l'id
+    PLEIN, puis la partie avant le DERNIER `:` (`rpartition`, comme `_parse_place`).
+
+    TRI-ETAT : `configId` absent ou `null` = canal non mesure (bundle anterieur a cette tranche)
+    -> on rend exactement ce que rendait le chemin d'origine. Aucun repli n'est INVENTE : on ne
+    devine jamais l'unite par ses traits ou ses stats."""
+    ent = GC.unit(visual_id or "")
+    if ent is not None:
+        return ent
+    cid = (snap_unit or {}).get("configId")
+    if not cid:
+        return ent                                   # canal muet -> comportement d'avant
+    ent = GC.unit(str(cid))
+    if ent is not None:
+        return ent
+    base = str(cid).rpartition(":")[0]                # PALIER retire en DERNIER recours
+    return GC.unit(base) if base else None
+
+
 def _load_stats_and_effects(state: State, decision: dict, snapshot: dict,
                             ability_states=None) -> None:
     """Peuple `StatsComponent` (par unité) + `State.effects` (EffectsState matérialisé)
@@ -2523,7 +2663,8 @@ def _load_stats_and_effects(state: State, decision: dict, snapshot: dict,
         _effs = [EffectFactory.create(c, *baked_ability_state(c, eid, _carrier, abstate_by_id))
                  for c in (effects_by_id.get(eid) or [])
                  if isinstance(c, dict) and c.get("name")]
-        ctx = UnitContext.from_snapshot(su, GC.unit(vis or ""), snapshot.get("statTypes"), _effs)
+        ctx = UnitContext.from_snapshot(su, _gameconfig_entry(GC, vis, su),
+                                        snapshot.get("statTypes"), _effs)
         if isinstance(uc, dict) and uc.get("abilityVariablesMultiplier") is not None:
             ctx.ability_variables_multiplier = int(uc["abilityVariablesMultiplier"])
             mult_by_id[eid] = ctx.ability_variables_multiplier

@@ -246,6 +246,13 @@ def main(argv):
     ap.add_argument("--seeds", default="777")
     ap.add_argument("--board", default="C1_75")
     ap.add_argument("--regimes", default="adjacent,range2")
+    ap.add_argument("--inactifs", action="store_true",
+                    help="#961-r3 : capture `decisionView` avec `includeInactive: true`. Seede les "
+                         "effets POSES mais INACTIFS a l'instant de la capture -- dont "
+                         "`SupaCyborkBody_CritDmgReduction`, dont la condition geometrique "
+                         "`HasAdjacentEnemies(Owner)` n'est vraie qu'APRES le pas mesure. "
+                         "OPT-IN : il elargit l'etat charge, donc deux regimes qui ne le partagent "
+                         "pas ne sont pas comparables.")
     ap.add_argument("--unit-stat", action="append", default=[],
                     help="patch per-unit du BC normalise, transmis a `rl_duel build`")
     ap.add_argument("--enemy-near", default=None,
@@ -289,7 +296,8 @@ def main(argv):
             _orig_move = P.move
             P.move = _move_capturing
             try:
-                res = P.measure_ll(sid, seed, args.board, verbose=True, regime=regime)
+                res = P.measure_ll(sid, seed, args.board, verbose=True, regime=regime,
+                                   inactifs=args.inactifs)
             finally:
                 P.move = _orig_move
                 t.restore()

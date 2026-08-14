@@ -104,6 +104,10 @@ class State:
                  "pending_deaths", "draining_deaths", "ability_states_seed",
                  "pending_triggered_abilities", "draining_pending_abilities",
                  "enable_obscuring_terrain", "unit_flags_seed",
+                 # #999-r3-r2 -- rapport de la passe `snapshot._load_unit_rarity` (compte par
+                 # BLOC + etat du canal `unitsNotAlive`). MEME tri-etat que `unit_flags_seed` :
+                 # `units_not_alive: None` = canal NON mesure, jamais un zero.
+                 "unit_rarity_seed",
                  "damage_spread_percentage", "ignore_damage_spread",
                  # #449-r2-r4-r4 -- les autres champs de `BC.Damage` que le port CONSOMME.
                  # Meme nature et meme canal que les deux ci-dessus : la table `DAMAGE_FIELDS`
@@ -384,6 +388,10 @@ class State:
         # 2026-08-05). Un consommateur qui veut conclure « aucune fuite » DOIT verifier
         # `units_not_alive_channel == "lu"` d'abord.
         self.unit_flags_seed: Optional[dict] = None
+        # #999-r3-r2 -- MEME forme, MEME canal, MEME tri-etat que `unit_flags_seed` ci-dessus,
+        # pour la passe `snapshot._load_unit_rarity` (`BaseUnitComponent.Rarity` +0x74). `None`
+        # ici = `load_state` n'a pas tourne avec un `combatSnapshot`.
+        self.unit_rarity_seed: Optional[dict] = None
 
     def add_entity(self, entity_id: Optional[int] = None) -> Entity:
         if entity_id is None:
