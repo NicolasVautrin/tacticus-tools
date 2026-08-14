@@ -344,17 +344,23 @@ export function resolveTertiaryChannel(probe: TertiaryProbe): TertiaryResolution
                 drift.push("temoin perdu : impossible de savoir si les offsets de `"
                     + probe.className(nullableClass) + "` sont BOXES -- lire l'ability serait"
                     + " un pari a 16 octets pres");
-            } else if (h < 0 || v < 0 || h === v) {
-                // `h === v` est LE symptome de la definition OUVERTE (les deux champs y sont
-                // annonces a l'offset 0). Le distinguer d'un champ absent evite de faire
-                // chercher un renommage la ou le probleme est l'INFLATION du generique.
+            } else if (h === v && h !== -1) {
+                // DEUX CHAMPS AU MEME OFFSET : impossible pour un layout reel, et c'est la
+                // signature EXACTE de la DEFINITION OUVERTE `Nullable`1` — mesuree sur le build
+                // en vol : `boxedSize: 0`, `hasValue` et `value` annonces a l'offset 0 (donc
+                // -0x10 une fois deboxes). Le nommer evite de faire chercher un RENOMMAGE la ou
+                // le probleme est l'INFLATION du generique : `type_get_class_or_element_class`
+                // a rendu la definition, pas `Nullable<TriggeredAbilityType>`.
+                drift.push("temoin perdu : DEFINITION OUVERTE `Nullable`1` au lieu de"
+                    + " l'instance inflatee -- `" + F_NULLABLE_HAS + "` et `"
+                    + F_NULLABLE_VALUE + "` sont au MEME offset (" + h + ", taille "
+                    + nullableSize + "), ce qu'aucun layout reel ne fait. L'ability ne sera"
+                    + " PAS publiee ; le NIVEAU, lui, reste mesure.");
+            } else if (h < 0 || v < 0) {
                 drift.push("temoin perdu : layout du Nullable non derivable (`"
                     + F_NULLABLE_HAS + "`=" + h + " `" + F_NULLABLE_VALUE + "`=" + v
                     + " sur `" + probe.className(nullableClass) + "`, taille " + nullableSize
-                    + ")" + (h === v && h >= 0
-                        ? " -- deux offsets EGAUX : c'est la signature de la DEFINITION"
-                          + " OUVERTE `Nullable`1`, pas de l'instance inflatee"
-                        : ""));
+                    + ")");
             } else if (nullableSize > 0 && (h >= utile || v + 4 > utile)) {
                 drift.push("temoin perdu : layout du Nullable incoherent (has=" + h + " val="
                     + v + " hors des " + utile + " octets utiles)");
