@@ -818,6 +818,68 @@ class BeastSlayerExtraDmgEffect(BaseEffect):
         return for_percent_increase(True, pct) if pct is not None else None
 
 
+#: `HasTrait(Target@<DSLSelectors+0x60>, X)` de `BeastSnagga_ExtraDmgEffect$$CreateDamageModifier`,
+#: par leur MEMBRE d'enum (#270-r1-r1-r3). Meme paire que `_BEAST_SLAYER_TARGET_TRAITS` ci-dessus,
+#: et c'est une LECTURE INDEPENDANTE : les deux effets sont deux classes natives distinctes, dont
+#: les corps se trouvent coincider. Un futur build qui changerait l'un des deux ne changerait pas
+#: forcement l'autre -- partager la constante ferait glisser les deux ensemble, en silence.
+_BEAST_SNAGGA_TARGET_TRAITS = frozenset({UnitTrait.Vehicle.name, UnitTrait.BigTarget.name})
+
+
+class BeastSnaggaExtraDmgEffect(BaseEffect):
+    """`IdunBattle.Entities.Effects.Loki.BeastSnagga_ExtraDmgEffect$$CreateDamageModifier` (trait
+    `BeastSnagga` 0x406 = 1030, effet `BeastSnagga_ExtraDmg` 0x438 = 1080). #1015-r1.
+
+    ⚠ **LE CORPS DECOMPILE EST IDENTIQUE, INSTRUCTION POUR INSTRUCTION, A CELUI DE
+    `BeastSlayer_ExtraDmgEffect$$CreateDamageModifier`** -- meme `ConfigConst(0xf)`, memes deux
+    `HasTrait(Target@<DSLSelectors+0x60>, 0x405 Vehicle | 0x3f9 BigTarget)`, meme
+    `get_OwnerIsCaster & IsMeleeAttack`, meme construction inline du `Nullable<EffectBonus>` (le
+    seul ecart est le drapeau d'init de classe). Ce n'est donc PAS << recopier le voisin de forme >>
+    -- c'est le MEME artefact natif, LU des deux cotes :
+
+        amount  = ConfigConst( AbilityConstantType.extraDmgPct = 0xf, config@this+0x60 )
+        trigger = get_OwnerIsCaster & IsMeleeAttack
+                  & ( HasTrait(Target, UnitTrait.Vehicle) | HasTrait(Target, UnitTrait.BigTarget) )
+
+    et le champ ecrit est le meme slot du bonus que `BeastSlayer` -> **`ForPercentIncrease`**
+    (contraste LU avec `MonsterSlayerOfCaliban_ExtraDmg`, meme paire de traits cible mais
+    `ForAddition` et AUCUN gate de nature).
+
+    SOURCE DES VALEURS -- et pourquoi ce n'est pas `ability_var`. `BeastSnagga` n'existe PAS dans
+    `units.abilities` du gameconfig (`GC.ability("BeastSnagga")` rend `null`, exactement comme
+    `BeastSlayer`) : la config que lit `ConfigConst` est SYNTHETISEE depuis
+    `globalValues.traitVariables`, et la `BattleConfiguration` la publie sous
+    `Abilities.PassiveAbilities.BeastSnagga.Constants = {extraDmgPct: 20, blockChance: 10,
+    blockDmgPct: 20}` (LU dans `data/seed-bc.json`). C'est cette table-la qui donne l'appariement
+    NOMME `traitVariables -> AbilityConstantType`.
+
+    ⚠ **L'APPARIEMENT NE PEUT PAS SE FAIRE PAR LA VALEUR** : `extraDmgPct` et `blockDmgPct` valent
+    TOUS DEUX 20 sur ce trait. Ce qui tranche, c'est le NOM et l'arbre : `beastSnaggaDmgBonus` est
+    le bonus de degat (`ConfigConst(0xf)` ici), `beastSnaggaDmgAsMaxHpPct` est le montant de block
+    exprime en % des PV max (`GetNumberConstant(0x36)` de `BeastSnaggaAbility$$CreateBehaviour`,
+    ou il est l'argument d'un `PercentageOf(StatAmount(Owner, Health, Maximum), ...)`). Chez
+    `BeastSlayer` les deux valeurs different (20 / 100) et l'erreur se serait vue ; ici elle serait
+    SILENCIEUSE sur l'axe degat et fausse de 5x sur l'axe block.
+
+    OBSERVABLE : +20 % de degat MELEE contre les cibles `BigTarget` / `Vehicle`. `target_traits`
+    = les noms de traits de la CIBLE ; `None` (contexte sans cible) -> pas de bonus, jamais un
+    bonus devine (meme regime que `BeastSlayer`)."""
+
+    def create_effect_damage_bonus_for_attack(self, is_ranged: bool | None = None,
+                                              has_moved: bool | None = None,
+                                              target_traits: "frozenset[str] | None" = None,
+                                              is_prediction: bool = False,
+                                              is_normal_attack: bool | None = True,
+                                              target_armor_reduced: bool | None = None,
+                                              att_ctx=None) -> EffectBonus | None:
+        if not is_melee_attack(is_ranged):             # IsMeleeAttack -> melee uniquement
+            return None                                # #106 : nature NON prouvee melee -> gate FAUX
+        if not target_traits or _BEAST_SNAGGA_TARGET_TRAITS.isdisjoint(target_traits):
+            return None                                # cible ni BigTarget ni Vehicle -> 0
+        pct = trait_var("BeastSnagga", "beastSnaggaDmgBonus")
+        return for_percent_increase(True, pct) if pct is not None else None
+
+
 class MartialKatahDmgBonusEffect(BaseEffect):
     """`IdunBattle.Entities.Effects.Loki.MartialKatah_DmgBonusEffect$$CreateEffectDamageBonusForAttack` (trait MartialKatah,
     Custodes ex. custoBladeChampion/custoTrajann) : `EffectBonus.ForPercentIncrease(OwnerIsCaster &

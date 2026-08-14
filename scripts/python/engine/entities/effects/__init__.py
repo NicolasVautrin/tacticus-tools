@@ -255,18 +255,24 @@ def build_defender_modifiers_from_effects(effects, is_melee: bool | None = None,
 
 
 def defender_effect_block_sources(effects, defender_fixed_armor: int = 0,
-                                  defender_attack: int = 0) -> list:
+                                  defender_attack: int = 0,
+                                  defender_max_health: int = 0) -> list:
     """Sources de BLOCK supplementaires posees par les effets de la CIBLE (defenseur) — a AJOUTER a la
     chaine `apply_random_block_damage` APRES le block de base (scalaire `GetStat(7/8)`). Mirror des
     entrees SEPAREES de `GetMultiValueStat(7)` (`IdunBattle.Core.Services.DamageCalculations$$CalculateBlockChances`) posees par
     `AddExtraBlockEffectToOwner` (ex. BeastSlayer IdunBattleLogic.Entities.Abilities.Triggered.Loki.BeastSlayerAbility$$CreateAddBlockEffectBehaviour : chance 10% / amount=100% FixedArmor courant),
     ABSENTES du scalaire (verifie live : orksNob blockChance=0). Agrege
     `create_effect_block_source_for_defense(defender_fixed_armor)` (defaut None). Effets deja filtres actifs.
-    Retourne [] si aucun effet ne pose de source -> combat exact inchange (no-op). #72."""
+    Retourne [] si aucun effet ne pose de source -> combat exact inchange (no-op). #72.
+
+    `defender_max_health` = `GetStat(cible, Health = 5, StatPart.Maximum = 2)` -- 3e substrat de la
+    famille, consomme par `BeastSnagga_ExtraBlock` (#1015-r1). Meme regime que les deux autres :
+    `0` = non threade -> la source concernee rend `None`."""
     out = []
     for e in _as_effects(effects):
         bs = e.create_effect_block_source_for_defense(defender_fixed_armor,
-                                                      defender_attack=defender_attack)
+                                                      defender_attack=defender_attack,
+                                                      defender_max_health=defender_max_health)
         if bs is not None:
             out.append(bs)
     return out

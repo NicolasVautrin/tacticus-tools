@@ -176,7 +176,10 @@ def main():
 
         _orig = DaemonExtraBlockEffect.create_effect_block_source_for_defense
         DaemonExtraBlockEffect.create_effect_block_source_for_defense = (
-            lambda self, defender_fixed_armor=0, defender_attack=0: None)
+            # #1015-r1 -- 3e substrat (`defender_max_health`) ajoute au hook. RECOPIE, pas `**_` :
+        # ce stub est dans un PROBE, que la banque ne joue pas -- l'incompatibilite de signature y
+        # serait restee silencieuse jusqu'au prochain run manuel.
+        lambda self, defender_fixed_armor=0, defender_attack=0, defender_max_health=0: None)
         try:
             for k in range(0, 3):
                 lg = _offline_per_hit(dv, ob, snap, bd, cid, tid, s0, pre_draws=k)

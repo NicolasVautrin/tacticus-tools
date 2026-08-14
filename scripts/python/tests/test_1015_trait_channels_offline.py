@@ -44,6 +44,11 @@ from engine.entities.traits.unit_trait import UnitTrait                   # noqa
 DECLENCHEUR = {
     "chemins": (
         "scripts/python/trait_channels.py",
+        # #1015-r1 -- l'etage 6 lit la table Ghidra VERSIONNEE par le foyer `build_pin`
+        # (`functions_tsv()`), qui tire `il2cpp_provenance`. Nommes ici parce que `probe_486r15`
+        # les voit dans la fermeture d'imports, et qu'un declencheur trop ETROIT est un faux vert.
+        "scripts/python/build_pin.py",
+        "scripts/python/il2cpp_provenance.py",
     ),
     "build": False,
     "toujours": True,
@@ -87,10 +92,48 @@ DECLENCHEUR = {
 #: sans / avec `Healer` greffe par `--unit-stat Traits`).
 #: ⚠ LES DEUX RETRAITS SONT ARRIVES PAR DEUX BRANCHES PARALLELES, et la resolution d'un ENSEMBLE
 #: est l'UNION des retraits -- jamais << la mienne >> ou << la sienne >>, qui perdrait un port reel.
-#: Resolu ainsi au rebase du 2026-08-14 (`InstinctiveBehaviour` venait d'`origin/master`, `Healer`
-#: de cette branche) : les deux SORTENT, le set garde les deux items restants.
+#: `BeastSnagga` RETIRE par #1015-r1 (2026-08-14) -- canaux MESURES : `derived`, `effet_homonyme`,
+#: `registre:TRAIT_DERIVED_ABILITIES`, `registre:ABILITY_INIT_OWNER_EFFECTS`, `lecture`. Le trait
+#: (0x406 = 1030, seul porteur `tauNpcFarsight`) derive la `TriggeredAbilityType` 1084, dont le
+#: `CreateBehaviour` pose DEUX effets sur son porteur : 1080 `BeastSnagga_ExtraDmg` (+20 % de degat
+#: MELEE vs `BigTarget`/`Vehicle` -- corps decompile IDENTIQUE a celui de `BeastSlayer_ExtraDmg`) et
+#: 1081 `BeastSnagga_ExtraBlock` (+10 % de chance de bloquer 20 % des PV MAX, `StatAmount(Health,
+#: Maximum)` la ou son jumeau lit `FixedArmor`).
+#: ⚠ TROIS branches paralleles ont retire un trait le MEME JOUR (`InstinctiveBehaviour` et `Healer`
+#: par `origin/master`, `BeastSnagga` par celle-ci), et chaque rebase a resolu par UNION des
+#: retraits -- jamais << le mien >> / << le sien >>, qui perdrait un port reel.
 NON_COUVERTS_MESURES = {
-    "BeastSnagga",
+    "TwoManTeam",
+}
+
+#: LE TROISIEME ETAT, et il manquait a ce fichier : un trait que le NATIF LUI-MEME n'evalue nulle
+#: part. `NON_COUVERTS_MESURES` melangeait jusqu'ici « le port ne sait pas encore l'evaluer » (un
+#: PORT A FAIRE) et « il n'y a rien a evaluer » (un VERDICT TERMINAL) -- et rien ne distinguait les
+#: deux, donc le residu #1015-r1 restait ouvert sur le second sans que personne puisse le fermer.
+#:
+#: `TwoManTeam` (0x3fa = 1018, 4 npc + 2 summons, TOUS a `nrOfMembers == 2`) est mesure ainsi sur
+#: `rnca9r7q6c`, par TROIS lectures independantes :
+#:   (a) **0 symbole** dans les 154 177 fonctions de `ghidra/functions.tsv` -- c'est le cran
+#:       EXECUTABLE ci-dessous, et le seul des trois qui soit offline ;
+#:   (b) `0x3fa` n'est **cle d'AUCUN** des 8 conteneurs statiques de
+#:       `idun.Idun.Source.Shared.Battle.StaticBattleRules.StaticBattleRules.Trait$$.cctor` (ni
+#:       ability derivee, ni owner-effect, ni `HidesTrait`, ni `IsPlayerFacing`, ni
+#:       `IsNotInheritedWhenCloned`) : il n'y apparait qu'en VALEUR de la cle `0x3ef`, ou il designe
+#:       une `TriggeredAbilityType` 1018 -- autre enum, meme ordinal ;
+#:   (c) ni `0x3fa` ni `1018` n'est argument d'un `HasTrait` : les 12 fonctions portant `0x3fa` et
+#:       les 25 portant `1018` sont des flottants, de l'UI/meta, et les deux `.cctor` de (b).
+#: Ce que le tooltip decrit (<< max 50 % des PV max d'un seul coup, hors Blast ; sous 50 %, plus
+#: soignable au-dessus >>) EST porte -- mais keye sur `nrOfMembers`, pas sur le trait :
+#: `services/trait_damage_limits.apply_group_unit_damage_limit` (cable par `_target_limits` sur la
+#: voie ATTAQUE, par `normal_like` sur le degat DIRECT et par `transfer_damage`) et
+#: `get_group_unit_heal_limit` (cable dans `operations/heal.py`, `operations/repair.py`,
+#: `ai/action_generators.py`).
+#:
+#: ⚠ AUCUNE des trois mesures ne dit << ce trait est sans objet >> : il A une semantique de combat,
+#: elle est simplement realisee par un AUTRE substrat. Retirer `TwoManTeam` de
+#: `NON_COUVERTS_MESURES` demanderait au port de NOMMER un trait que le natif ne lit pas -- une
+#: `lecture` fabriquee, c'est-a-dire le faux positif exact que `trait_channels` existe pour eviter.
+SANS_ARTEFACT_NATIF = {
     "TwoManTeam",
 }
 
@@ -245,3 +288,50 @@ def test_les_traits_non_couverts_sont_exactement_ceux_mesures():
         "trait(s) desormais COUVERT(s) : %r -- bonne nouvelle a ENTERINER. Retire-les de "
         "`NON_COUVERTS_MESURES` et mets a jour la ligne #1015-r1 du backlog, dans le meme commit. "
         "Canaux : %s" % (sortis, {t: TC.canaux(t) for t in sortis}))
+
+
+# ================================================================================================
+# 6. LE TROISIEME ETAT -- « le natif ne l'evalue nulle part » n'est PAS « le port ne sait pas »
+# ================================================================================================
+
+def test_les_traits_sans_artefact_natif_n_en_ont_toujours_aucun():
+    """Le cran EXECUTABLE du verdict TERMINAL (#1015-r1).
+
+    Un trait de `SANS_ARTEFACT_NATIF` ne porte AUCUNE fonction a son nom dans la table Ghidra du
+    build QUI FAIT FOI (`data/symbols/<build>/ghidra/functions.tsv`, VERSIONNEE -- donc mesurable
+    depuis n'importe quel worktree, sans ghidra ni session). Le jour ou le jeu ajoute un
+    `TwoManTeamAbility` ou un `TwoManTeam_...Effect`, ce test ROUGIT : le verdict << rien a evaluer >>
+    est repute PERIME et se re-instruit, au lieu de rester vrai par habitude.
+
+    ⚠ CE QUE CE CRAN NE PROUVE PAS, et il faut le lire avec (b) et (c) du commentaire de
+    `SANS_ARTEFACT_NATIF` : l'absence de symbole HOMONYME n'implique pas l'absence de LECTURE (un
+    id de trait peut etre lu par `HasTrait` sans qu'aucune classe ne porte son nom -- c'est
+    exactement le cas de `Diminutive`, qui passe par le dict trait -> ability derivee). C'est un
+    cran de PEREMPTION, pas une demonstration : celle-ci vit dans le decompile, et elle est citee.
+
+    ⚠ ET IL S'ASSERTIONNE CONTRE SA PROPRE VACUITE. Un chemin de table casse ferait rendre `0` a
+    TOUT LE MONDE, donc le test passerait pour de mauvaises raisons -- le meme vice que le
+    `set()` vide de #270-r1-r1-r3. Le contre-temoin est `BeastSnagga`, dont le port a MESURE les
+    4 symboles (`BeastSnaggaAbility$$CreateTrigger/$$CreateBehaviour`,
+    `BeastSnagga_ExtraDmgEffect$$.ctor/$$CreateDamageModifier`) : s'il rend 0, c'est la LECTURE qui
+    est cassee, pas le build."""
+    import build_pin                                                      # noqa: E402
+    tsv = build_pin.functions_tsv().read_text(encoding="utf-8", errors="replace")
+    assert SANS_ARTEFACT_NATIF, (
+        "`SANS_ARTEFACT_NATIF` est VIDE : ce test ne mesure plus rien. Si le dernier trait en est "
+        "sorti, retire-le AVEC son test plutot que de laisser une garde inerte.")
+    assert SANS_ARTEFACT_NATIF <= NON_COUVERTS_MESURES, (
+        "incoherence : %r a un artefact natif absent ET ne figure pas dans les non couverts."
+        % sorted(SANS_ARTEFACT_NATIF - NON_COUVERTS_MESURES))
+    # CONTRE-TEMOIN : la lecture SAIT trouver des symboles quand il y en a.
+    assert tsv.count("BeastSnagga") >= 4, (
+        "la table `%s` ne rend que %d occurrence(s) de `BeastSnagga`, la ou le port en a MESURE 4. "
+        "La lecture est cassee (chemin, encodage, build) -- les zeros ci-dessous ne prouveraient "
+        "alors RIEN." % (build_pin.functions_tsv().as_posix(), tsv.count("BeastSnagga")))
+    for trait in sorted(SANS_ARTEFACT_NATIF):
+        n = tsv.count(trait)
+        assert n == 0, (
+            "%s porte desormais %d symbole(s) natif(s) : le verdict << le natif ne l'evalue nulle "
+            "part >> est PERIME. Re-instruire les trois lectures (symboles, cles du "
+            "`StaticBattleRules.Trait$$.cctor`, arguments de `HasTrait`) avant de le reconduire."
+            % (trait, n))

@@ -448,7 +448,9 @@ class _Normal:
         # par les 3 vecteurs (normale/ability/splash), mirror du `GetMultiValueStat(7)`/CalculateBlockChances
         # IdunBattle.Core.Services.DamageCalculations$$CalculateBlockChances unique du natif. Besoin des effets actifs de la cible -> apres defender_modifiers.
         # #65 : `_profile` gate le trait NoBlocking (profil Psychic bypasse le block, mirror ExecuteHit).
-        block_sources = AttackDamageOperation._block_sources(tsc, _def_active, armor, _profile)
+        block_sources = AttackDamageOperation._block_sources(
+            tsc, _def_active, armor, _profile,
+            defender_max_health=int(getattr(thc, "hp_max", 0) or 0))   # #1015-r1 GetStat(5, Maximum)
         # ORDRE RÉEL (confirmé live 18/18 coups, 3 seeds, necroDestroyer 6h) : le HitDamage natif
         # porte la plage RÉDUITE — la réduction (perçage/armure/modifiers attaquant+défenseur) est
         # appliquée aux BORNES base±spread D'ABORD, puis le tirage `GetDamage` se fait DANS cette plage

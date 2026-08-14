@@ -344,7 +344,9 @@ class _AbilityAttack:
         # BLOCK (cible) = base (GetStat 7/8) + sources d'effet (BeastSlayer...) via le helper PARTAGE
         # `_block_sources` (mirror du GetMultiValueStat(7)/IdunBattle.Core.Services.DamageCalculations$$CalculateBlockChances unique du natif).
         # #65 : `damage_profile` gate le trait NoBlocking (profil Psychic bypasse le block, mirror ExecuteHit).
-        block_sources = AttackDamageOperation._block_sources(tsc, _da, armor, damage_profile)
+        block_sources = AttackDamageOperation._block_sources(
+            tsc, _da, armor, damage_profile,
+            defender_max_health=int(getattr(thc, "hp_max", 0) or 0))   # #1015-r1 GetStat(5, Maximum)
         # `On(PreAttackHit=6)` — `IdunBattle.Operations.AbilityDamageOperation$$ExecuteHit` emet le MEME
         # trio d'events {6, 8, 0x3d} que la voie normale (verdict RE #147/#150), donc ThrillSeekers se
         # declenche aussi sur une attaque d'ABILITY du porteur contre une cible a pleine vie.

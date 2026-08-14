@@ -162,7 +162,9 @@ def main():
         # donnees et le MEME etat rng, pour chiffrer l'ecart avant/apres dans un seul run.
         _orig = DaemonExtraBlockEffect.create_effect_block_source_for_defense
         DaemonExtraBlockEffect.create_effect_block_source_for_defense = (
-            lambda self, defender_fixed_armor=0, defender_attack=0: None)
+            # #1015-r1 -- 3e substrat (`defender_max_health`) ajoute au hook ; meme raison qu'en
+        # `probe_221` : un probe n'est pas joue par la banque, donc la faute y dormirait.
+        lambda self, defender_fixed_armor=0, defender_attack=0, defender_max_health=0: None)
         try:
             for k in range(0, 3):
                 st = load_state(dv, ob, snap, board=bd)

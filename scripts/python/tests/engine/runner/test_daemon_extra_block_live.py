@@ -150,7 +150,11 @@ def _case(rpc, build_runner, target_vis, seed="777"):
     off, st = _replay(dv, ob, snap, bd, cid, tid, s0)
     _orig = DaemonExtraBlockEffect.create_effect_block_source_for_defense
     DaemonExtraBlockEffect.create_effect_block_source_for_defense = (
-        lambda self, defender_fixed_armor=0, defender_attack=0: None)
+        # #1015-r1 -- la signature du hook porte un TROISIEME substrat (`defender_max_health`,
+        # `GetStat(Health, Maximum)`, consomme par `BeastSnagga_ExtraBlock`). Ce stub la RECOPIE :
+        # un `**_` la masquerait, et le jour ou l'agregateur cesserait de la passer, le test
+        # resterait vert. Meme raison qu'ecrire `defender_attack=0` plutot que `*args`.
+        lambda self, defender_fixed_armor=0, defender_attack=0, defender_max_health=0: None)
     try:
         legacy, _ = _replay(dv, ob, snap, bd, cid, tid, s0)
     finally:

@@ -1073,7 +1073,11 @@ def defender_prediction_block_amount(scene, tgt_id, damage_profile: str | None =
     tctx = scene.ctx(tgt_id)
     if tctx is not None and int(tctx.block_chance or 0) > 0:
         amt += int(tctx.block_damage or 0)
+    # #1015-r1 : `scene.hpmax` = `combatSnapshot.healthMax` = `GetStat(e, Health = 5, StatPart = 2)`
+    # -- EXACTEMENT le `StatAmount(Owner, 0x5, 0x2)` que lit `BeastSnaggaAbility$$CreateBehaviour`
+    # pour l'amount de sa source de block. `None` (unite hors table) -> 0 -> source inerte.
     for bs in defender_effect_block_sources(scene.effects(tgt_id), scene.armor(tgt_id),
-                                            defender_attack=scene.attack_current(tgt_id)):
+                                            defender_attack=scene.attack_current(tgt_id),
+                                            defender_max_health=int(scene.hpmax(tgt_id) or 0)):
         amt += int(bs.amount or 0)
     return amt
