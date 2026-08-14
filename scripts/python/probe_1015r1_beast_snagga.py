@@ -86,10 +86,16 @@ PORTEUR = "astraBullgryn"
 TRAITS_PORTEUR = [UnitTrait.Hero.name, UnitTrait.BigTarget.name]
 
 #: {unitId de la cible: (traits forces, bonus attendu en %)}. Les DEUX branches du gate natif.
+#: Le trait de la cible PORTEUSE est parametrable (`--trait-cible`) parce que le natif teste un
+#: `op_BitwiseOr` de DEUX `HasTrait` : `Vehicle` (0x405) et `BigTarget` (0x3f9). Mesurer une seule
+#: des deux branches laisserait l'autre non confrontee.
 CIBLES = {
     "astraCreed":    ([UnitTrait.Hero.name, UnitTrait.BigTarget.name], 20),
     "adeptCanoness": ([UnitTrait.Hero.name], 0),
 }
+
+#: PV forces sur les deux cibles (`--hp-cible`). `0` = kit d'origine.
+HP_CIBLE = 0
 
 ABILITY_ID = int(TriggeredAbilityType.BeastSnagga)              # 0x43c = 1084
 EFFET_DMG = int(EffectType.BeastSnagga_ExtraDmg)                # 0x438 = 1080
@@ -114,6 +120,19 @@ def _build(state_file: str, with_trait: bool) -> int:
             "--unit-stat", "%s:Movement=12" % PORTEUR]
     for cible, (tr, _pct) in CIBLES.items():
         args += ["--unit-stat", "%s:Traits=%s" % (cible, str(tr).replace("'", '"'))]
+    # ⚠ `--hp-cible` existe pour DECIDER LA BORNE HAUTE. Sans lui, `accurate_health_damage.max`
+    # bute sur les PV de la cible et le ratio y devient indecidable : la mesure ne porte alors que
+    # sur la borne MIN. Des PV largement superieurs au degat maximal rendent les DEUX bornes
+    # decidables -- c'est le seul cran qui manquait au premier run.
+    #
+    # ⚠ LE LEVIER EST `--hp-target`, PAS `--unit-stat <vis>:Health=<n>`, ET C'EST UNE MESURE :
+    # `--unit-stat` ECRIT bien `Health` dans `BC.Units[]` (le build l'imprime), et les PV en
+    # bataille NE BOUGENT PAS -- `astraCreed` reste a 9037 avec `Health=60000` ecrit. Le natif ne
+    # prend donc pas ses PV de ce champ-la sur cette voie. La garde `_verifie_morsure` ci-dessous
+    # existe pour que cette classe d'echec ne puisse plus passer pour un succes (le premier essai
+    # rendait `VERDICT : OK` avec un montage qui n'avait pas mordu).
+    if HP_CIBLE:
+        args += ["--hp-target", str(HP_CIBLE)]
     R.main(args)
     return int(R._read_state(Path(state_file))["runnerId"])
 
@@ -211,6 +230,17 @@ def _joue(keep: bool) -> int:
                     print("[dispose] %s : %s" % (f, e))
 
     rc = 0
+    # 0. LA MUTATION A-T-ELLE MORDU ? Un montage qui n'a pas pris rend des chiffres PLAUSIBLES et
+    # un verdict VERT -- c'est arrive au premier essai de `--hp-cible`. On le CONSTATE.
+    if HP_CIBLE:
+        hps = sorted({p["hp_tgt"] for p in m_w["plans"] if p["hp_tgt"] is not None})
+        if not hps or max(hps) < HP_CIBLE:
+            print("0. ECHEC DE MONTAGE : `--hp-cible %d` demande, PV des cibles mesures = %r. La "
+                  "mutation n'a PAS mordu -- tout verdict qui suit porterait sur un autre montage "
+                  "que celui annonce." % (HP_CIBLE, hps))
+            return 1
+        print("0. MONTAGE : PV des cibles mesures = %r (>= %d demande) -- la mutation a MORDU."
+              % (hps, HP_CIBLE))
     kit_w = sorted(set().union(*m_w["kit"].values())) if m_w["kit"] else []
     kit_o = sorted(set().union(*m_o["kit"].values())) if m_o["kit"] else []
     print("1. KIT DECLENCHE du porteur (`unitAbilityStates`) : AVEC=%s SANS=%s" % (kit_w, kit_o))
@@ -315,9 +345,21 @@ def _joue(keep: bool) -> int:
 
 
 def main(argv=None) -> int:
+    global BOARD, SEED, HP_CIBLE
     ap = argparse.ArgumentParser(description="Confrontation live du trait BeastSnagga (#1015-r1)")
+    ap.add_argument("--hp-cible", type=int, default=0,
+                    help="PV forces sur les deux cibles -- DECIDE la borne haute (sinon clampee)")
     ap.add_argument("--keep", action="store_true", help="ne pas disposer les runners")
+    ap.add_argument("--board", default=BOARD, help="board (defaut %s)" % BOARD)
+    ap.add_argument("--seed", default=str(SEED), help="seed (defaut %d)" % SEED)
+    ap.add_argument("--trait-cible", default=UnitTrait.BigTarget.name,
+                    choices=[UnitTrait.BigTarget.name, UnitTrait.Vehicle.name],
+                    help="branche du `op_BitwiseOr` a exercer sur la cible porteuse")
     a = ap.parse_args(argv)
+    BOARD, SEED, HP_CIBLE = a.board, int(a.seed), int(a.hp_cible)
+    CIBLES["astraCreed"] = ([UnitTrait.Hero.name, a.trait_cible], 20)
+    print("[montage] board=%s seed=%s trait de la cible porteuse=%s hp force=%s"
+          % (BOARD, SEED, a.trait_cible, HP_CIBLE or "(kit)"))
     return _joue(a.keep)
 
 
