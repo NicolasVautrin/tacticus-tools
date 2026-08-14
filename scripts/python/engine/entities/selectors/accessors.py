@@ -291,10 +291,25 @@ class SurroundingTiles(TargetsSelector):
     `_is_wall` ci-dessous pour l'identite LUE des deux octets voisins (`+0x41` = `IsWall`,
     `+0x40` = `IsInFogOfWar`) et pour le substrat.
 
-    ⚠ RESIDU encore OUVERT sur ce meme maillon : le FOG (`tileComponent+0x40`). Le natif le teste
-    dans les DEUX branches -- `return tileComponent+0x40 == 0` quand `checkWalkability == 0`, et
-    `IsWalkable(tile, checkFog: 1)` sinon. Aucun substrat n'est lu ici (la cle `isInFog` existe
-    cote hook mais n'est pas confrontee), donc ce gate reste INERTE."""
+    ⚠ Le filtre FOG (`tileComponent+0x40`) est INCONDITIONNEL LUI AUSSI (#967-r11, ferme) --
+    troisieme axe, distinct des deux autres. Le maillon terminal le teste dans les DEUX branches,
+    relu VERBATIM sur `rnca9r7q6c` :
+
+        if (tileComponent+0x41 != 0)  return false                    # MUR
+        if (checkWalkability == 0)    return tileComponent+0x40 == 0  # FOG seul
+        else                          IsWalkable(tile, comp, tile+0x40, checkFog: 1)
+
+    et la surcharge a 4 arguments d'`IdunBattle.Entities.TileExtensions$$IsWalkable` (celle que
+    `IsTileValidForList` appelle -- il en existe trois, desambiguisees par l'ARITE) est
+
+        if (movement+0x10 != 0)  return false      # <- l'axe MARCHABILITE, celui de `_walkable`
+        if (checkFog == 0)       return true
+        return tileComponent+0x40 == 0             # <- le MEME octet FOG
+
+    -> le fog coupe QUELLE QUE SOIT la valeur d'`includeNonWalkable`, exactement comme le mur, et
+    par un octet DISTINCT de celui de la marchabilite. Le 4e argument est
+    `CONCAT71(checkElevation >> 8, 1)` : son octet bas est le litteral `1`, donc `checkFog` est
+    TOUJOURS arme -- ce n'est pas `checkElevation` qui le pilote. Voir `_is_in_fog`."""
     def __init__(self, center: TargetsSelector, radius: TargetsSelector, include_center: bool = False,
                  include_non_walkable: bool = True):
         self.center, self.radius = center, radius
@@ -314,8 +329,7 @@ class SurroundingTiles(TargetsSelector):
         `IdunBattle.Entities.Pathfinding.FlyPathfinder$$IsAnyAdjacentTileWall` rend `true` sur
         `*(char*)(comp+0x41) != 0` et rien d'autre. L'octet VOISIN `+0x40`, lui, est
         `IsInFogOfWar` (`IdunBattle.Entities.TileExtensions$$IsInFogOfWar` rend EXACTEMENT ce
-        byte) -- il est teste par les DEUX branches du natif et n'a pas de substrat ici : residu
-        distinct, non porte.
+        byte) -- teste par les DEUX branches du natif, porte par `_is_in_fog` (#967-r11).
 
         Substrat = la cle `isWall` du `boardGraph` (`frida/hooks/game/match-state.ts`, champ
         `COMP_FIELD.tileIsWall`), DISTINCTE de `walkable`. On ne passe PAS par `Board.is_wall()`,
@@ -330,6 +344,37 @@ class SurroundingTiles(TargetsSelector):
         if not isinstance(t, dict) or "isWall" not in t:
             return False
         return bool(t["isWall"])
+
+    def _is_in_fog(self, board, tid) -> bool:
+        """SECOND gate INCONDITIONNEL d'`IdunBattle.Core.Services.TileUtil$$IsTileValidForList`
+        (#967-r11) -- le FOG, sur l'octet VOISIN de celui du mur :
+
+            if (checkWalkability == 0)  return tileComponent+0x40 == 0
+            else                        IsWalkable(tile, comp, tile+0x40, checkFog: 1)
+                                          -> ... return tileComponent+0x40 == 0
+
+        Les deux branches lisent le MEME octet, donc `includeNonWalkable` ne le desarme pas plus
+        qu'il ne desarme le mur. Il reste NEANMOINS distinct de `_walkable` : dans la branche
+        `checkWalkability != 0`, la marchabilite est `movement+0x10 != 0` (`MovementComponent`),
+        le fog est `tileComponent+0x40` -- deux composants differents. Mesure qui l'etablit :
+        sur `C6_02`, **31 tuiles sur 63** sont `walkable == True` ET `isInFog == True` (#433-r4,
+        case-433-r4-r2-r1-r2-r2-r1-walkability.md) -- fondre les deux axes garderait ces 31
+        tuiles que le natif COUPE.
+
+        `+0x40` est bien `IsInFogOfWar`, LU et non deduit du voisinage des deux octets :
+        `IdunBattle.Entities.TileExtensions$$IsInFogOfWar` rend EXACTEMENT `*(byte*)(comp+0x40)`.
+
+        Substrat = la cle `isInFog` du `boardGraph`, publiee PAR TUILE au meme rang qu'`isWall`
+        (`frida/hooks/features/ai-step/rpc-board.ts` : `isWall: t.isWall, isInFog: t.isInFog`,
+        alimente par `match-state.ts` `COMP_FIELD.tileIsInFog`) et deja VERIFIEE live par #403.
+        Aucun capteur a poser.
+
+        Cle ABSENTE -> `False` (gate INERTE) : jamais un `True` fabrique depuis une NON-MESURE,
+        meme doctrine que `_is_wall` et `_walkable`."""
+        t = board.by_id.get(tid) if hasattr(board, "by_id") else None
+        if not isinstance(t, dict) or "isInFog" not in t:
+            return False
+        return bool(t["isInFog"])
 
     def _walkable(self, board, tid) -> bool:
         """Branche `checkWalkable` d'`IdunBattle.Core.Services.TileUtil$$IsTileValidForList`.
@@ -379,6 +424,11 @@ class SurroundingTiles(TargetsSelector):
                     # `if (tileComponent+0x41 != 0) return false` -- INCONDITIONNEL, en AMONT du
                     # test `checkWalkability` (#967-r10).
                     if self._is_wall(board, t):
+                        continue
+                    # FOG -- INCONDITIONNEL lui aussi (#967-r11) : `tileComponent+0x40` est teste
+                    # par les DEUX branches (`return comp+0x40 == 0` quand `checkWalkability == 0`,
+                    # `IsWalkable(..., checkFog: 1)` sinon).
+                    if self._is_in_fog(board, t):
                         continue
                     # `checkWalkable = (includeNonWalkable == 0)` -- cf. l'en-tete de classe.
                     if not self.include_non_walkable and not self._walkable(board, t):

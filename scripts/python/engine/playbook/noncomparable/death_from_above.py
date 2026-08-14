@@ -95,13 +95,44 @@ class DeathFromAbovePlaybook(NonComparablePlaybook):
                                         AVEC le port  ability 1003 sur u114      (MISS)
 
     L'ability est donc DESORMAIS PROPOSEE -- sans le port elle ne pouvait l'etre par aucune voie
-    (absente des quatre registres). Le MISS a change de nature : ce n'est plus << mauvaise
-    ability >> mais << mauvaise CIBLE >>, et c'est un residu NOMME, `#969-r2`. Deux hypotheses,
-    non departagees : (a) `_spawn_tiles` sur-compte pour `u114` -- `occupied` ne connait que
-    `epos`/`fpos`/l'origine, donc une entite hors de ces canaux (summon non projete, MoW,
-    tuile-objet) laisse une tuile comptee libre a tort ; (b) l'ordre de `fromHere` diverge de
-    celui du selecteur natif pour cette position. Le discriminant est le COMPTE par cible, a
-    relever des deux cotes.
+    (absente des quatre registres).
+
+    ⚠ **`#969-r2` (<< le port vise la MAUVAISE CIBLE >>) NE SE REPRODUIT PAS -- re-mesure le
+    2026-08-14** (`probe_969r2_terme_divergent.py`, board `MC1_67`, seed 777, caster
+    `ultraInceptorSgt`, oracle `ncEvaluate`). L'utilite native (champ `util` = le compte de la
+    cible gagnante, l'utilite de 1003 ETANT ce compte) et l'argmax du port CONCORDENT sur les
+    trois montages, dont DEUX non degeneres a maximum UNIQUE et a argmax DIFFERENT :
+
+        montage   allies places        comptes u87/u89/u85   util natif   argmax port
+        A         (2,3) (4,5) (5,5)    3 / 2 / 4             4            u85   (max unique)
+        B         (2,3) (3,2) (2,2)    4 / 4 / 2             4            u87   (egalite)
+        C         (2,3) (3,2) (5,5)    4 / 3 / 3             4            u87   (max unique)
+
+    Deux causes a la fausse piste, toutes deux nommees : (1) le montage d'origine etait
+    DEGENERE -- toutes les cibles y avaient le MEME compte, donc `util` ne DESIGNAIT aucune
+    cible ; (2) le cardinal natif avait ete lu dans `actionCount`, qui ne le mesure PAS
+    (`countActions`, `frida/hooks/ai-toolkit/bucket-decode.ts`, somme le champ `best` de la racine
+    et de chaque sous-bucket, or `Bucket$$AddAction` ECRASE `best` -- et ce playbook n'ouvre aucun
+    sous-bucket, donc `actionCount` vaut 1 des qu'UNE action est admise). Garde offline :
+    `tests/engine/playbook/test_969r2_death_from_above_utility_offline.py`, ancree sur ces
+    mesures.
+
+    Les deux hypotheses de l'enonce sont donc ECARTEES pour ce miss : (a) le sur-compte
+    multi-hex -- `dv.units[].feet` est mesure sur les 8 unites des trois montages et AUCUNE n'a
+    plus d'un pied (le mecanisme reste reel, c'est `#969-r3`, mais il n'est pas DECLENCHE ici) ;
+    (b) l'ordre de `fromHere` -- le tie-break keep-first est garde et exact.
+
+    ⚠ **UN ETAGE RESTE REELLEMENT NON PORTE, et il est LU (residu `#969-r4`)** :
+    `IdunBattle.AI.Playbook.BasePlaybook$$GetEligibleTargetsSelectable` applique, entre le slot
+    `0x42` d'`IAttackQuery` et la boucle, un `ListExtensions.Remove(targets, predicate)` dont le
+    predicat est `...BasePlaybook$$u003CGetEligibleTargetsEntitiesu003Eb__58_0` =
+    `t => !this.<slot 0x248>(t)`, c.-a-d. le retrait de tout ce dont `ShouldEvaluateTarget` est
+    FAUX. Corps de base (`...BasePlaybook$$ShouldEvaluateTarget`) :
+    `!(IsUnit(t) && CurrentOwnerIsEnvironment(t, state)) && !IsIrrelevantObject(t)`. Le port n'a
+    aucun homologue -- `fromHere` est la sortie du slot, SANS ce `Remove` -- et le meme trou
+    existe dans `playbook/nonattack.py::eligible_targets`, qui le DOCUMENTE deja sans le porter.
+    Degradation PERMISSIVE. Il ne mord sur aucun des trois montages (aucune unite Environment ni
+    IrrelevantObject en jeu), donc il n'explique pas non plus l'ecart annonce.
 
     `PRIORITY` reste au defaut `0` (`AbilityPriority.Normal`) : `1003` est ABSENTE de
     `NATIVE_PRIORITY` (22 entrees, sweep #170).
