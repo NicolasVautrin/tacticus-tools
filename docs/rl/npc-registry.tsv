@@ -2118,21 +2118,21 @@ tyranNpc2RipperSwarm_SyncPvp_Kronos	Tyranids	Xenos	None	active	Burrowers	1023	1	
 tyranNpc2RipperSwarm_SyncPvp_Kronos	Tyranids	Xenos	None	trait	InstinctiveBehaviour		1	
 tyranNpc2RipperSwarm_SyncPvp_Kronos	Tyranids	Xenos	None	trait	Swarm		1	
 tyranNpc2RipperSwarm_SyncPvp_Kronos	Tyranids	Xenos	None	trait	BattleFatigue		1	
-tyranNpc3Termagant	Tyranids	Xenos	None	passif	HailOfLivingAmmunition		0	
+tyranNpc3Termagant	Tyranids	Xenos	None	passif	HailOfLivingAmmunition		1	
 tyranNpc3Termagant	Tyranids	Xenos	None	trait	InstinctiveBehaviour		1	
 tyranNpc3Termagant	Tyranids	Xenos	None	trait	BattleFatigue		1	
-tyranNpc3TermagantGorgon	Tyranids	Xenos	None	passif	HailOfLivingAmmunition		0	
+tyranNpc3TermagantGorgon	Tyranids	Xenos	None	passif	HailOfLivingAmmunition		1	
 tyranNpc3TermagantGorgon	Tyranids	Xenos	None	trait	InstinctiveBehaviour		1	
 tyranNpc3TermagantGorgon	Tyranids	Xenos	None	trait	BattleFatigue		1	
 tyranNpc3TermagantGorgon	Tyranids	Xenos	None	trait	FinalJustice		1	
-tyranNpc3TermagantKronos	Tyranids	Xenos	None	passif	HailOfLivingAmmunition		0	
+tyranNpc3TermagantKronos	Tyranids	Xenos	None	passif	HailOfLivingAmmunition		1	
 tyranNpc3TermagantKronos	Tyranids	Xenos	None	trait	InstinctiveBehaviour		1	
 tyranNpc3TermagantKronos	Tyranids	Xenos	None	trait	BattleFatigue		1	
 tyranNpc3TermagantKronos	Tyranids	Xenos	None	trait	SuppressiveFire		1	
-tyranNpc3Termagant_SyncPvp_Gorgon	Tyranids	Xenos	None	passif	HailOfLivingAmmunition		0	
+tyranNpc3Termagant_SyncPvp_Gorgon	Tyranids	Xenos	None	passif	HailOfLivingAmmunition		1	
 tyranNpc3Termagant_SyncPvp_Gorgon	Tyranids	Xenos	None	trait	InstinctiveBehaviour		1	
 tyranNpc3Termagant_SyncPvp_Gorgon	Tyranids	Xenos	None	trait	BattleFatigue		1	
-tyranNpc3Termagant_SyncPvp_Kronos	Tyranids	Xenos	None	passif	HailOfLivingAmmunition		0	
+tyranNpc3Termagant_SyncPvp_Kronos	Tyranids	Xenos	None	passif	HailOfLivingAmmunition		1	
 tyranNpc3Termagant_SyncPvp_Kronos	Tyranids	Xenos	None	trait	InstinctiveBehaviour		1	
 tyranNpc3Termagant_SyncPvp_Kronos	Tyranids	Xenos	None	trait	BattleFatigue		1	
 tyranNpc4Warrior	Tyranids	Xenos	None	active	ScythingTalons	1065	1	1
