@@ -3153,6 +3153,32 @@ ABILITY_INIT_OWNER_EFFECTS: dict[str, list[str]] = {
     # qui s'y tiennent (`...Abilities.Tiles.Loki.LightCoverAbility$$UnitsThatNeedEffect`). L'ensemble
     # vide y est le comportement NORMAL. Ce seed-ci reste indispensable : il materialise la POSE.
     "ContemptuousDisregard": ["ContemptuousDisregard_DamageReduction"],
+    # #419-r1-tr9-r4-r1-r2-r1c -- LA POSE de `LegendaryCommander` (passif de `custoTrajann`).
+    # ⚠ LE FOYER ECRIT DANS LA FICHE (`triggers/dispatch/registry.py`, entree `ABILITY_TRIGGERS`)
+    # EST FAUX, et la mesure le tranche : `...Triggered.Loki.LegendaryCommanderAbility$$CreateTrigger`
+    # est ABSENT des tables (corps ICF-deduplique) ; resolu SLOT A SLOT dans le bloc `methodPointers`
+    # du PE, la classe declare exactement `[CreateTrigger, CreateBehaviour, .ctor]` et son
+    # `CreateTrigger` EST le corps nomme `...Active.Loki.SummaryExecutionAddBaseEffectAbility$$
+    # CreateTrigger` = `return <DSLFactory+0x88 = DSLTriggers>+0x30`. Et `IdunBattleLogic.Entities.
+    # DSLTriggers$$InitializeShared` ecrit ce slot verbatim :
+    #     `<DSLTriggers+0x30> = On(0x21 = AbilityInit) & <+0x70 = YesTrigger> & get_OwnerIsActor`
+    # -- donc `On(AbilityInit) & OwnerIsActor`, la branche INCONDITIONNELLE de la famille, celle que
+    # le port materialise par SEEDING (`spawn.py::_seed_ability_owner_effects` + la passe de
+    # `snapshot.load_state`), exactement comme `AllIsDust` (#1052) et `SynapticInsight` (#1073), qui
+    # partagent LE MEME corps de trigger. Le vecteur `ability_init_triggers` de
+    # `triggers/dispatch/ability.py`, lui, ne couvre que la branche GATEE -- y inscrire cette
+    # ability-ci ferait un DOUBLE FIRE avec ce seed.
+    # `...LegendaryCommanderAbility$$CreateBehaviour`, LU verbatim :
+    #     `AddEffect(0x572 = 1394 LegendaryCommander_ExtraDamage, get_AbilityStateReference(this),
+    #                source = Owner@<DSLSelectors+0x30>, targets = Owner@+0x30, turns = <Nullable ZEROEE>)`
+    #     `& AddEffect(0x573 = 1395 LegendaryCommander_ExtraHits, <idem>)`
+    # -> DEUX owner-effects PERMANENTS, poses ENSEMBLE. Les deux sont seedes ici : c'est la POSE qui
+    # est le sujet, et n'en seeder qu'un ferait mentir `HasEffect(owner, 1394)`.
+    # ⚠ 1394 N'A PAS ENCORE DE CLASSE dans `EFFECT_CLASSES` (residu ouvert, cf. `backlog.md`) : son
+    # instance est donc un `BaseEffect` NU -- VISIBLE et INERTE. C'est deliberement le regime que le
+    # port prefere a l'absence (le natif l'a), et 1395, lui, est porte en entier
+    # (`entities/effects/loki/hits.py::LegendaryCommanderExtraHitsEffect`).
+    "LegendaryCommander": ["LegendaryCommander_ExtraDamage", "LegendaryCommander_ExtraHits"],
 }
 
 
