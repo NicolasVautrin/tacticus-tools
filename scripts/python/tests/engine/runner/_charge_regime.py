@@ -95,9 +95,26 @@ class ChargeRegimeHarness:
 
     # ------------------------------------------------------------------ lecture d'etat live
 
-    def dview(self):
-        return self.rpc("decisionView",
-                        {"runnerId": self.rid, "maxRank": 1, "allAbilities": True}, 90)
+    def dview(self, inactifs=False):
+        """`decisionView`. `inactifs` = drapeau `includeInactive` du canal.
+
+        DEFAUT `False` -- le canal FILTRE alors les effets POSES mais INACTIFS, ce qui est le
+        comportement historique de ce harnais et de ses **53** fichiers lecteurs. Ne PAS le
+        basculer globalement ici : #219 a chiffre ce que le canal ajoute (+6 entites-effet au
+        deploiement d'un 5v5), et le rayon de ce harnais est le plus large du repertoire.
+
+        Pourquoi le drapeau existe quand meme (#922-r1) : l'absence d'un effet dans la vue par
+        defaut ne distingue PAS << pose mais inactif a cet instant >> de << pas pose du tout >>.
+        Un owner-effect a condition GEOMETRIQUE (`IntoxicatingElixir`,
+        `AmuletOfTheVoidwyrm_CritDamageReduction`, `NetherRealmCasket_CritDamageReduction`) est
+        INACTIF au moment de la capture et ACTIF pendant la salve -- il est donc droppe AVANT
+        `load_state`, et le port ne verse rien. MESURE de la meme mecanique sur un AUTRE porteur
+        (#961-r3, `SupaCyborkBody_CritDmgReduction`) : meme montage, seul le canal substitue,
+        l'ecart de degat passe de **579 a 0** (ratio 0.872635 -> 1.000000)."""
+        body = {"runnerId": self.rid, "maxRank": 1, "allAbilities": True}
+        if inactifs:
+            body["includeInactive"] = True
+        return self.rpc("decisionView", body, 90)
 
     def alive(self, dv=None):
         """Unites VIVANTES (le `decisionView` GARDE les cadavres)."""
@@ -195,10 +212,15 @@ class ChargeRegimeHarness:
                 out.append(c)
         return out
 
-    def snapshot(self):
-        """Fige l'etat courant : `decisionView` + `observeBattle` + `combatSnapshot` + `dumpRng`."""
+    def snapshot(self, inactifs=False):
+        """Fige l'etat courant : `decisionView` + `observeBattle` + `combatSnapshot` + `dumpRng`.
+
+        `inactifs` (#922-r1) : passe `includeInactive: true` a la SEULE capture qui alimente
+        `load_state`. DEFAUT `False` -> les 53 fichiers lecteurs de ce harnais gardent EXACTEMENT
+        la vue qu'ils mesuraient. Cf. `dview` pour la mesure qui motive le drapeau et pour
+        pourquoi il n'est pas le defaut."""
         return {
-            "dv": self.dview(),
+            "dv": self.dview(inactifs=inactifs),
             "ob": self.rpc("observeBattle", {"runnerId": self.rid}, 40),
             "snap": self.rpc("combatSnapshot", {"runnerId": self.rid}, 60),
             "rng": self.rpc("dumpRng", {"runnerId": self.rid}, 30),
