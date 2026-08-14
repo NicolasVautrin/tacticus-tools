@@ -1931,6 +1931,14 @@ class TheLanternAbility(ActiveAbility):
 
     def execute_behaviour(self, state: "State", caster_id: int,
                           target_id: Optional[int]) -> Optional[dict]:
+        # #287-r14 RESOLUTION DE CIBLE -- `IdunBattle.Core.Services.TargetingQuery$$GetActualTarget`
+        # via le slot 16 d'`IActiveAbility`. 1094 pose `TargetIsTile` (0x40) dans son masque, donc
+        # le role `target` du natif est TOUJOURS l'entite-TUILE, que l'appelant ait passe la tuile
+        # ou son occupant. `IdunBattle.Operations.ActiveAbilityOperation$$ExecuteInternal` resout
+        # AVANT ses deux gates : la resolution passe donc devant le garde `is None`, pas apres.
+        # IDEMPOTENT (`GetMainTile(<tuile>)` rend la tuile) -> inerte quand `AbilityHandler` a deja
+        # resolu, mordant sur tout appel DIRECT (tests de migration, probes).
+        target_id = self.get_actual_target(state, caster_id, target_id)
         if target_id is None:
             return None
         ectx = ExecutionContext(state=state, rng=state.rng)
