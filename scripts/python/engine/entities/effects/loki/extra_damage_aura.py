@@ -978,7 +978,8 @@ class PsychicStalkVisualEffect(BaseEffect):
         return _target_is_on_fire_tile(ctx)
 
 
-# ==============================================================================================# AURAS DE MACHINE OF WAR -- les deux `ExtraDamagePct` MYTHIQUES debloques par le canal de rarete
+# =====================================================================================================
+# AURAS DE MACHINE OF WAR -- les deux `ExtraDamagePct` MYTHIQUES debloques par le canal de rarete
 # (#999-r3-r1 pour `att_rarity`/`tgt_rarity`, #999-r3-r1-r1 pour l'univers de porteurs board-wide).
 #
 # Les DEUX effets sont poses a l'init sur leur MoW porteuse par le patron
@@ -992,7 +993,7 @@ class PsychicStalkVisualEffect(BaseEffect):
 #     beneficiaire est la CIBLE DU COUP -> canal `create_aura_defense_damage_malus_for_ally`, la
 #     boucle state-wide `EffectWithTarget` (MEME arbitrage que
 #     `DaughterOfTheAbyssExtraDamagePctEffect` ci-dessus, `AURA_DEFENSE_MALUS_NATIVE_FACE`).
-# ==============================================================================================
+# =====================================================================================================
 #: `TriggeredAbilityType` 0x5a7 = 1447 -- l'ability MYTHIQUE de la MoW `deathCrawler` /
 #: `deathNpcMoWCrawler`. C'est la config que `ConfigVar` de l'effet 1442 indexe (l'appariement
 #: ability -> effet est LU : `BlightedLandAbility$$GetEffectType` = `return 0x5a2` = 1442).
@@ -1306,6 +1307,7 @@ class MoreGitzOverEreExtraDamagePctEffect(BaseEffect):
             return None
         lvl, mult = _mow_ability_state(self, c, c.get("owner_id"), MORE_GITZ_OVER_ERE_ABILITY)
         pct = ability_var(MORE_GITZ_OVER_ERE_ABILITY, _VAR_EXTRA_DMG_PCT, lvl, multiplier_pct=mult)
+        return for_percent_increase(True, int(pct)) if pct else None
 
 
 # --- Les DEUX mythiques de MoW dont le SELECTEUR porte le gate de rarete (#1036-r1/-r2) ----------
