@@ -93,20 +93,63 @@ Le nom du propriétaire ne dit RIEN de l'appelant. Ce qui tranche, en deux temps
 ci-dessus, pas sur une lecture du slot de vtable (qui n'est rempli qu'au runtime). Il est
 **falsifiable en une mesure** — si le tir ne part pas live, c'est A. Résidu `#1030-r3`.
 
-### 2.2 `Enemies` part d'ENTITÉS-TUILES, et le port ne le faisait pas
+### 2.2 `Enemies` part d'ENTITÉS-TUILES et rend l'ACTEUR RÉSOLU — l'étage `SelectAllActors`
 
-`IdunBattle.Entities.Selectors.UnitsByTeamSelector$$Select` passe par
-`IdunBattle.DSL.TargetsSelector$$SelectUniqueUnits` → `$$SelectUnit`, dont la première ligne est
-`if (IsUnitFoot(entity) || IsTile(entity)) entity = GetUnit(entity, state);`. La conversion
-tuile → occupant appartient donc au SÉLECTEUR.
+La conversion tuile → occupant appartient au **SÉLECTEUR**, et il a fallu **deux passes** pour la
+lire : le domaine de RETOUR a oscillé, et la seconde lecture était celle de `master`.
 
-Le port normalisait par `_units_of` puis jetait tout ce qui n'était pas un `dict` : une source en
-domaine TUILE rendait `[]`, **sans erreur**. Deux régimes touchés — le `foes` de la phase 1 et le
-`targets` de la phase 2, tous deux `Enemies(…, <ensemble de tuiles>)`. Réparé dans
-`entities/selectors/units.py` (`Enemies` **et** `Friends` — même classe native, flag 0/1), pas
-contourné par un `Units(…)` que le natif n'écrit pas. Second régime, plus discret : une
-ENTITÉ-TUILE (dict à `visualId` NUL) passait le `isinstance(dict)` et, sa clé `team` étant absente,
-comptait pour un **ennemi**.
+`IdunBattle.Entities.Selectors.UnitsByTeamSelector$$CountOrAdd` fait bien
+`System.Collections.Generic.List<T>.Add(result, entity)` avec l'entité **itérée** — mais ce qu'il
+itère n'est pas `Select(entities)`. C'est le **slot 5 d'`ITargetsSelector`**, appelé sur son
+sélecteur source `<UnitsByTeamSelector+0x20>` avec le `selectionType` de `<+0x2c>` (le référent, lui,
+vient du **slot 8**). Ces deux slots sont `SelectAllActors` et `SelectActor`
+(`data/symbols/<build>/metadata/interface_slots.tsv`, entrée versionnée ; leur arité 2 concorde), et
+`IdunBattle.DSL.TargetsSelector$$SelectAllActors` **résout chaque élément** :
+
+```
+raw = this.<slot 0x17 Select>(entities)
+if (this.<slot 0x21 get_ReturnsOnlyActors>) return raw;          // déjà des acteurs
+foreach (entity in raw)
+    u = SelectUnit(this, entity, selectionType);                  // <- LA RÉSOLUTION
+    if (u != null) result.Add(u); else if (IsMachine(entity)) result.Add(entity);
+```
+
+et `IdunBattle.DSL.TargetsSelector$$SelectUnit` porte le
+`if (IsUnitFoot(entity) || IsTile(entity)) entity = GetUnit(entity, state);`. L'`entity` ajouté par
+`CountOrAdd` est donc **l'acteur déjà résolu**, et `GetUnitOrMachine` n'y est plus que l'identité —
+ce qui explique qu'il ne serve qu'au test de camp.
+
+**Trois recoupements, aucun n'étant le raisonnement qui a échoué :**
+
+| recoupement | ce qu'il établit |
+|---|---|
+| fonction SŒUR — `$$SelectAllUnits` teste `+0x278` (slot 20 `get_ReturnsOnlyUnits`), `$$SelectAllActors` teste `+0x288` (slot 21 `get_ReturnsOnlyActors`) | même forme, slots adjacents ⇒ la grille de vtable est la bonne |
+| `...NovaChargeAbility$$GetAdditionalMarkedTiles` enchaîne `NormalUnits(Enemies(Owner@+0x30, <TUILES>, 3), 3)` | un sélecteur d'UNITÉS consomme la sortie d'`Enemies` — absurde sur des ids de tuile |
+| `IdunBattle.Entities.Selectors.UnitsMainTilesSelector$$Select` (le nœud `Tiles`) appelle le **slot 3 `SelectAllUnits`** puis `GetMainTile` | un sélecteur nommé « UnitsMainTiles » qui demande « SelectAllUnits » : `DAT_183383210` **est** `ITargetsSelector` |
+
+⚠ **Le raccourci qui a fermé la piste des deux côtés** : « `AddEffectBehaviour`/`AddEffectOperation`
+sont ABSENTS des xrefs de `GetUnit`, donc rien ne re-résout ». L'absence ne conclut pas — la
+résolution est **indirecte**, via `SelectUnit`. Les deux fonctions ont donc été lues *directement* :
+`AddEffectBehaviour$$Execute` prend ses cibles au **slot 0 `Select`** (entités brutes, aucune
+résolution) et `AddEffectOperation$$Execute`, lue **intégralement**, pose sur `owner` tel quel
+(`EntityExtensions$$IsUnit` + `UnitExtensions$$HasFlag(owner, 6)`, aucun `GetUnit`). Le contrat
+négatif est donc CONFIRMÉ, et il ne laisse qu'un seul emplacement possible à la résolution : le
+sélecteur. **L'arbre de `1094` est juste** (décompilé relu mot pour mot : `Enemies` alimente
+directement `AddEffect(0x429)`, sans `Units` intermédiaire) — c'est la FEUILLE qui ratait un étage.
+
+**Deux fautes distinctes, deux gardes :** le port normalisait par `_units_of` puis jetait tout ce
+qui n'était pas un `dict` (une source tile-domain rendait `[]`, **sans erreur**) ; puis, une fois
+la résolution posée, il réinjectait l'entité SOURCE au lieu de l'acteur (même `[]` en aval, car
+`AddEffect` recevait des `int`). Réparé dans `entities/selectors/units.py` sur `Enemies` **et**
+`Friends` — même classe native, flag `+0x28` = 0/1 —, jamais contourné par un `Units(…)` que le
+natif n'écrit pas. Second régime, plus discret : une ENTITÉ-TUILE (dict à `visualId` NUL) passait
+le `isinstance(dict)` et, sa clé `team` étant absente, comptait pour un **ennemi**.
+
+⚠ **Pourquoi la faute était INVISIBLE**, et c'est ce qui l'a fait survivre : sur les ~600
+call-sites unit-domain, `GetUnitOrMachine(unit) == unit` rend les **deux lectures identiques**. Et
+chez le seul autre call-site tile-domain (`1032 NovaCharge`), la sortie passe par `Tiles(…)`, qui
+re-résout lui-même (slot 3) et rend le **même ensemble** dans les deux lectures. Le domaine ne se
+voit que là où la sortie est consommée **sans re-résolution** : `AddEffect`, ici.
 
 ### 2.3 `range = CustomRange(2)`
 
@@ -190,17 +233,24 @@ psykers de la zone. La garde le discrimine en plaçant un ALLIÉ psyker dans la 
 
 ## 5. Validation
 
-**OFFLINE — `tests/engine/runner/test_1030_the_lantern_offline.py`, 11 tests, tous verts.**
-Six étages, **quatre contre-épreuves** (chacune assertionne que la mutation CHANGE le résultat) :
+**OFFLINE — `tests/engine/runner/test_1030_the_lantern_offline.py`, 12 tests, tous verts.**
+Six étages, **cinq contre-épreuves** (chacune assertionne que la mutation CHANGE le résultat) :
 
 | étage | ce qu'il fige | sa mutation |
 |---|---|---|
 | 1 | les trois registres ; masque `== 0x2000100042` (somme des bits) ; `CustomRange(2)` ; `Others` | — |
 | 2 | la zone == oracle RE-DÉRIVÉ ; le « pont » non vide ET strictement inclus dans `ring2` | `op_BitwiseAnd` → `op_Addition` : la zone grossit |
 | 3 | trois poses, `Pinned` sur le seul ennemi DANS la zone, **zéro dégât** | `Enemies` sans résolution de tuile : `Pinned` posé sur PERSONNE |
+| 3bis | le DOMAINE DE RETOUR d'`Enemies` est l'ACTEUR, pas la TUILE (§2.2) | `out.append(e)` — la forme de `master` : résolution correcte, camp correct, et `Pinned` sur PERSONNE |
 | 4 | l'attaquant = `EffectSource` ; l'instance porte bien `bonded is None` | table déclarée `ATTACKER_BONDED` : l'attaquant devient introuvable |
 | 5 | le tir frappe les occupants COURANTS (une unité SORT, une ENTRE) ; les deux effets retirés | tour ADVERSE : rien ne part, la marque reste |
 | 6 | `n1 + 0,1·n2` avec un ALLIÉ psyker dans la zone ; le gate `>= 7` mord au coin du board | — |
+
+L'étage **3bis** existe parce que les gardes d'origine visaient toutes l'ABSENCE DE RÉSOLUTION,
+jamais le DOMAINE DE RETOUR — l'axe qui a réellement oscillé. **Mutation adversariale jouée sur le
+code source** (les 2 sites remis à `out.append(e)`) : **4 gardes rougissent** — les trois étages 3
+ci-dessus et `test_1032…::test_etage3_enemies_resout_la_tuile_en_son_occupant` — puis 23/23 verts
+après restauration.
 
 **DEUX ROUGES RÉELS rencontrés au montage**, tous deux instructifs :
 
@@ -216,9 +266,19 @@ Six étages, **quatre contre-épreuves** (chacune assertionne que la mutation CH
 `test_287r12_role_target_tuile_offline` — **38 tests verts** ; `probe_181` **175/175, 0 manquante** ;
 `probe_1021` **CRAN A/B/C OK** ; `test_1021` + `test_519` + `test_957` + `test_945` — **85 verts**.
 
-**RAYON DE SOUFFLE de la réparation d'`Enemies`/`Friends`** (foyer très partagé) : 16 fichiers
-offline choisis parmi ses consommateurs — **216 tests verts**. La réparation ne peut qu'ÉLARGIR
-(les éléments non-`dict` étaient auparavant jetés en silence).
+**RAYON DE SOUFFLE de la réparation d'`Enemies`/`Friends`** — foyer très partagé : **616
+call-sites sur 141 fichiers**. Mesuré par **empreinte des DEUX arbres** sur les **395** fichiers
+`*_offline.py` du dépôt (~5 700 tests, ~30 min en 10-12 lots parallèles), et non sur une sélection
+de consommateurs choisie à la main : **43 échecs avant, 41 après**. Bascules — **2 réparés** (les
+deux rouges cibles) et **1 seul nouveau rouge** :
+`test_1032_novacharge…::test_etage3_enemies_resout_la_tuile_en_son_occupant`.
+
+Ce test unique attendait `[<id de tuile>]` et portait mot pour mot l'énoncé que la RE réfute. Il
+est corrigé **par la mesure**, son INTENTION préservée (le nœud ne rend toujours pas `[]` sur un
+domaine TUILE, et sélectionne toujours la seule tuile à occupant ENNEMI ; seul le domaine de RETOUR
+change), et il gagne un **cliquet de domaine** (`isinstance(x, dict)`). Le choix d'une batterie
+DÉRIVÉE plutôt que choisie est ce qui a rendu ce test visible : une sélection « parmi les
+consommateurs » ne l'aurait pas contenu.
 
 **CE QUI N'EST PAS COUVERT — et c'est le trou principal.**
 
@@ -245,3 +305,11 @@ offline choisis parmi ses consommateurs — **216 tests verts**. La réparation 
 * `#1030-r2` — l'empreinte 7-hex du caster sur une position de MOUVEMENT, face DÉCISION.
 * `#1030-r3` — la confrontation LIVE sur DEUX tours (elle falsifierait §2.1 en une mesure).
 * `#1030-r4` — `pierce_effect_bonus` non threadé par `AttackWithAbilityDamage`.
+* `#1030-r6` — les DEUX écarts que la lecture de `$$SelectAllActors` laisse non portés (§2.2) :
+  **(a)** le court-circuit `get_ReturnsOnlyActors` / `get_ReturnsOnlyUnits` rend `Select(entities)`
+  TEL QUEL, donc **sans appliquer le `selectionType`**, là où le port applique toujours
+  `_selection_ok` ; **(b)** la branche `else if (IsMachine(entity)) result.Add(entity)` ajoute une
+  MACHINE qui a échoué `SelectUnit` — donc y compris quand elle ne matche pas le `selectionType` —,
+  alors que le port n'a pas de domaine machine distinct (`unit_or_machine` rend un dict d'unité).
+  Aucun des deux n'est atteint par les régimes portés à ce jour ; les écrire sans porteur
+  confrontable serait spéculatif.
