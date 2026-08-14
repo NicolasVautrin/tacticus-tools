@@ -72,10 +72,11 @@ class HeavyRailRiflePlaybook(NonComparablePlaybook):
 
         ab = Playbook<T>$$GetAbility<T>(this, 0x4ec)          # le TRIGGERED 1260
         profile  = BaseTriggeredAbility$$GetDamageProfileOrDefault(ab, 0x12 = Blast)
+        entities = default(AbilityEntities)                   # memset(&entities, 0, 0x128)
         hitsNode = HeavyRailRifle_AttackAbility$$GetAttackHits(ab)
-        hits     = hitsNode.<IAmountFormula slot 1 = Calculate>(...)
+        hits     = hitsNode.<IAmountFormula slot 1 = Calculate>(entities, default(OperationResult))
         dmgNode  = HeavyRailRifle_AttackAbility$$GetDamage(ab, abilityState)
-        dmg      = dmgNode.<IAmountFormula slot 4 = CalculateAverage>(...)  # TRONCATURE
+        dmg      = dmgNode.<IAmountFormula slot 4 = CalculateAverage>(entities, default(OperationResult))  # TRONCATURE
         foreach target in BasePlaybook$$GetEligibleTargetsSelectable(caster, casterPosition):
             utility = Fix64(1)
             if !EntityExtensions.IsMachine(target):
@@ -84,15 +85,29 @@ class HeavyRailRiflePlaybook(NonComparablePlaybook):
                 utility = Fix64(0x7fffffff)
             bucket.AddAction(GenerateAction(casterPosition, target, utility))
 
-    ⚠ LES DEUX APPELS DE FORMULE ONT LEUR RECEVEUR DEVANT, ET LEURS ARGUMENTS ELIDES (#1031).
-    Ils s'ecrivaient `<IAmountFormula slot 1 = Calculate>(hitsNode)`  [slot-attribution:refute]
-    -- le NOEUD dans la parenthese. Or `hitsNode` est le RECEVEUR : la signature est
-    `Calculate(entities: AbilityEntities, result: OperationResult)`, **deux** parametres, lus
-    dans `data/symbols/<build>/frida/methods.tsv`. La convention du depot (mesuree : 43/43 avec
-    receveur colle, 59/61 sans) est << la parenthese porte les ARGUMENTS >>, donc la citation
-    d'origine annoncait une arite de 1 pour une methode qui en prend 2. Le slot et le nom,
-    eux, etaient JUSTES. Les arguments restent ELIDES parce que ce corps-la n'a pas ete relu :
-    `(...)` DIT qu'on ne les enumere pas, plutot que de les deviner depuis la signature.
+    ⚠ LES DEUX APPELS DE FORMULE ONT LEUR RECEVEUR DEVANT (#1031), ET LEURS ARGUMENTS SONT
+    DESORMAIS LUS (#1031-r2). Ils s'ecrivaient ainsi :
+    `<IAmountFormula slot 1 = Calculate>(hitsNode)`  [slot-attribution:refute]
+    -- le NOEUD dans la parenthese. Or `hitsNode` est le RECEVEUR : la
+    signature est `Calculate(entities: AbilityEntities, result: OperationResult)`, **deux**
+    parametres, lus dans `data/symbols/<build>/frida/methods.tsv`. La convention du depot
+    (mesuree : 43/43 avec receveur colle, 59/61 sans) est << la parenthese porte les ARGUMENTS >>,
+    donc la citation d'origine annoncait une arite de 1 pour une methode qui en prend 2. Le slot
+    et le nom, eux, etaient JUSTES.
+
+    LES DEUX ARGUMENTS SONT LES STRUCTS A ZERO, et ce n'est pas une elision polie -- c'est le
+    RESULTAT. Ce que le corps fait, verbatim : un `memset(&local, 0, 0x128)` avant le premier
+    appel, puis une recopie par valeur de ce meme bloc vers la pile a CHAQUE appel ; et, juste
+    avant chacun, la remise a zero des 0x40 octets du second argument. Les tailles apparient les
+    DEUX structs sans ambiguite (`data/symbols/<build>/frida/classes.tsv`) :
+    `IdunBattle.Entities.Abilities.AbilityEntities` = 312 et `IdunBattle.Core.OperationResult` =
+    80, tailles BOXEES, donc 312 - 16 = **0x128** et 80 - 16 = **0x40**.
+
+    ⇒ les deux formules sont evaluees **HORS CONTEXTE** : ni caster, ni cible, ni resultat
+    d'operation. C'est ce qui rend le port de `_entrees` fidele plutot que commode -- une formule
+    qui consulterait une entite rendrait zero dans ce regime, donc seules les formes qui lisent la
+    CONFIG (`ConfigConst` / `Direct`) y produisent une valeur. Le port lit la config : c'est le
+    seul comportement que ce call-site puisse exercer.
 
     Les deux corps `GetAttackHits` / `GetDamage` sont etiquetes par Ghidra
     `VisionsOfHeresy_AttackAbility$$GetAttackHits` et `MassiveScythingTalonsAbility$$GetDamage` :

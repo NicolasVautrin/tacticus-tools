@@ -15,12 +15,13 @@ l'effet ne consulte JAMAIS son porteur. L'etat doit donc EXISTER avant l'effet. 
 
 CE QUE CE FICHIER GARDE, ETAGE PAR ETAGE (chacun peut rougir seul) :
 
-  [1] la REGLE de comblement (`_ability_state_with_channel`) -- table, y compris la GARDE
-      « on n'ecrit QUE si le trou existe » ;
+  [1] la REGLE de priorite (`_ability_state_with_channel`) -- table, y compris le TRI-ETAT
+      (« un canal muet n'ecrit RIEN ») ;
   [2] l'instance d'effet CAPTEE d'une unite sans config porte le niveau du canal, et le CONTRE-BRAS
       (`ability_states=False`) montre qu'elle ne le porterait pas sans lui -- sans ce contre-bras,
       un 50 arrive par une autre voie passerait pour une mesure ;
-  [3] l'unite CONFIGUREE n'est PAS ecrasee, meme quand le canal porte un AUTRE niveau ;
+  [3] l'unite CONFIGUREE suit le CANAL quand il MESURE, et les DEUX TABLES (ctx et instance)
+      portent la MEME chose ;
   [4] l'OWNER-EFFECT pose a l'init (`IdunBattle.Operations.InitializeActorAbilitiesOperation$$
       Execute`, boucle ABILITIES) -- l'etage que #570-r5 nomme -- porte lui aussi le niveau, alors
       qu'il est materialise A L'INTERIEUR de `_load_stats_and_effects` ;
@@ -84,8 +85,9 @@ DECLENCHEUR = {
     "toujours": False,
     "raison": "Verdicts figes : l'ORDRE de `load_state` (l'`AbilityState` du canal "
               "`unitAbilityStates` existe AVANT que les effets de son owner ne soient "
-              "materialises), la GARDE qui ne comble que le trou, les DEUX voies de "
-              "materialisation (capture et pose a l'init), l'invariance de l'etat FINAL du ctx, et "
+              "materialises), la PRIORITE du canal sur le proxy `unitConfig` et son TRI-ETAT "
+              "(#1049-r1), l'ACCORD des deux tables (ctx et `abstate_by_id`), les DEUX voies de "
+              "materialisation (capture et pose a l'init), l'etat FINAL du ctx, et "
               "la NON-COINCIDENCE des deux placements sur le regime que le probe joue. Aucun "
               "runner, aucune session Frida.",
 }
@@ -189,21 +191,35 @@ def test_etage0_le_kit_du_summon_porte_bien_le_passif():
 
 
 # ---------------------------------------------------------------------------------------------
-# [1] LA REGLE DE COMBLEMENT
+# [1] LA REGLE DE PRIORITE -- l'AbilityState de l'INSTANCE prime sur le proxy `unitConfig`
 # ---------------------------------------------------------------------------------------------
 @pytest.mark.parametrize("config,canal,attendu", [
-    # le TROU : aucune config -> le canal comble, mult COMPRIS
+    # le TROU : aucune config -> le canal repond, mult COMPRIS
     ((100, None, None), (50, 180), (180, 50, None)),
-    # une valeur MESUREE n'est JAMAIS ecrasee, meme par un canal qui dit autre chose
-    ((100, 50, 50), (7, 999), (100, 50, 50)),
-    # canal muet -> strictement rien
+    # ⚠ #1049-r1 -- LE CANAL PRIME, MEME SUR UNE VALEUR PRESENTE DANS LE `unitConfig`.
+    # Ce cas gardait l'inverse (« une valeur MESUREE n'est JAMAIS ecrasee »), sur la premisse
+    # que les deux canaux sont deux vues d'une meme mesure. Ils ne le sont pas :
+    # `IdunBattle.Entities.Factories.UnitFactory$$Build` BAKE l'`AbilityState` dans chaque
+    # instance d'ability, et c'est lui -- pas la configuration -- que
+    # `IdunBattle.Configuration.AbilityConfiguration$$GetVariableForLevel` consomme ; tandis que
+    # le capteur RE-RESOUT une configuration par
+    # `IdunBattle.Core.Services.BattleQuery$$GetUnitConfig(VisualId)`, jointure N->1 qui peut
+    # designer une AUTRE entree de `BC.Units[]`. Mesure : `bloodNpc1Intercessor:45` porte le
+    # `visualId` de son jumeau summon, d'ou `unitConfig = (100, 1, 1)` contre `(65, 200)` sur
+    # l'instance.
+    ((100, 50, 50), (7, 999), (999, 7, 50)),
+    # TRI-ETAT -- canal muet : strictement rien. C'est ce qui distingue « l'autorite prime »
+    # de « le canal ecrase toujours », y compris a vide.
     ((100, None, None), None, (100, None, None)),
+    ((100, 50, 50), None, (100, 50, 50)),
     # le canal peut ne pas porter de multiplicateur : on garde celui de la config
     ((123, None, None), (50, None), (123, 50, None)),
-    # `activeAbilityLevel` n'est jamais INVENTE : le canal de hierarchie 2 ne le porte pas
+    # `activeAbilityLevel` n'est jamais INVENTE : le canal de hierarchie 2 ne le porte pas.
+    # C'est la BORNE connue du fix -- cet axe est seede separement (`_load_active_ability_state`).
     ((100, None, 42), (50, 180), (180, 50, 42)),
+    ((100, 50, 42), (7, 999), (999, 7, 42)),
 ])
-def test_etage1_regle_de_comblement(config, canal, attendu):
+def test_etage1_regle_de_priorite(config, canal, attendu):
     assert _ability_state_with_channel(config, canal) == attendu
 
 
@@ -226,23 +242,55 @@ def test_etage2b_contre_bras_sans_canal_l_instance_reste_neutre():
 
 
 # ---------------------------------------------------------------------------------------------
-# [3] LA GARDE : UNE UNITE CONFIGUREE N'EST PAS ECRASEE
+# [3] L'UNITE CONFIGUREE SUIT LE CANAL, ET LES DEUX TABLES RESTENT D'ACCORD
 # ---------------------------------------------------------------------------------------------
-def test_etage3_unite_configuree_non_ecrasee_par_le_canal():
+def test_etage3_unite_configuree_suit_le_canal():
+    """#1049-r1 -- INVERSION ASSUMEE, et voici ce qui l'etablit.
+
+    Cet etage gardait « le `unitConfig` gagne ». La premisse etait que les deux canaux mesurent la
+    MEME chose par deux voies ; elle est FAUSSE. Le `unitConfig` du capteur n'est pas la
+    configuration qui a monte l'entite : `readUnitConfig` la RE-RESOUT par
+    `IdunBattle.Core.Services.BattleQuery$$GetUnitConfig(VisualId)`, dont le corps compare
+    `+0x10` puis `IdunBattle.Configuration.UnitConfiguration$$get_ConfigId` sur `BC.Units[]` --
+    jointure N->1. Le canal, lui, lit l'`AbilityState` BAKE dans l'instance par
+    `IdunBattle.Entities.Factories.UnitFactory$$Build`, celui-la meme que
+    `IdunBattle.Configuration.AbilityConfiguration$$GetVariableForLevel` consomme.
+
+    RAYON DE SOUFFLE MESURE (`probe_1049r1_autorite_ability_state.py`, MC1_67/777) : sur 8 heros
+    ORDINAIRES du pool, les trois canaux concordent 8/8 -- l'inversion ne mord QUE la ou le proxy
+    ment. Ici le canal porte (7, 999) DELIBEREMENT contre un `unitConfig` a (50, 100), pour que
+    l'etage ait quelque chose a montrer."""
     st = _load(True, _canal())
     ctx = st.get_entity(CONFIGURED_ID).get_component(StatsComponent).ctx
-    assert (ctx.passive_ability_level, ctx.ability_variables_multiplier) == (50, 100), (
-        "le canal porte (7, 999) pour cette unite ; le `unitConfig` porte (50, 100). La garde "
-        "« on ne comble QUE le trou » doit garder la MESURE, pas le canal.")
+    assert (ctx.passive_ability_level, ctx.ability_variables_multiplier) == (7, 999), (
+        "le canal porte (7, 999) pour cette unite ; le `unitConfig` porte (50, 100). "
+        "L'`AbilityState` de l'INSTANCE fait autorite -- le `unitConfig` n'en est qu'un proxy.")
 
 
-def test_etage3b_l_instance_de_l_unite_configuree_non_plus():
-    """LA MEME GARDE, SUR L'AUTRE CANAL. Le ctx et `abstate_by_id` sont DEUX tables : une garde
-    posee sur l'une seulement laisse l'autre s'ecraser, et c'est `abstate_by_id` qui bake
-    l'`AbilityState` dans les effets. Mesure adversariale : une garde inversee laisse l'etage 3
-    VERT et fait porter (7, 999) a cette instance."""
-    inst = _instance(_load(True, _canal()), CONFIGURED_ID, TEMOIN_EFFECT)
+def test_etage3b_les_deux_tables_portent_la_meme_chose():
+    """L'INVARIANT QUI COMPTE, et il survit a l'inversion -- il en sort meme RENFORCE. Le ctx et
+    `abstate_by_id` sont DEUX tables ; c'est `abstate_by_id` qui bake l'`AbilityState` dans les
+    effets, donc un ecart entre elles serait SILENCIEUX. Un fix pose sur une seule des deux les
+    ferait diverger : c'est exactement ce que cet etage interdit, avant comme apres."""
+    st = _load(True, _canal())
+    ctx = st.get_entity(CONFIGURED_ID).get_component(StatsComponent).ctx
+    inst = _instance(st, CONFIGURED_ID, TEMOIN_EFFECT)
     assert inst is not None, "le temoin n'a pas ete materialise -- l'etage est vide"
+    assert (inst.ability_level, inst.ability_variables_multiplier) == (7, 999)
+    assert (inst.ability_level, inst.ability_variables_multiplier) == (
+        ctx.passive_ability_level, ctx.ability_variables_multiplier), (
+        "le ctx et l'instance DIVERGENT -- une des deux tables suit le proxy et l'autre l'instance")
+
+
+def test_etage3c_un_canal_MUET_ne_touche_a_rien():
+    """CONTRE-BRAS DE L'ETAGE 3, et il est OBLIGATOIRE : sans lui, « le canal prime » serait
+    indistinguable de « le canal ecrase, mesure ou pas ». Sans payload, l'unite configuree doit
+    porter EXACTEMENT son `unitConfig`."""
+    st = _load(True, False)
+    ctx = st.get_entity(CONFIGURED_ID).get_component(StatsComponent).ctx
+    assert (ctx.passive_ability_level, ctx.ability_variables_multiplier) == (50, 100)
+    inst = _instance(st, CONFIGURED_ID, TEMOIN_EFFECT)
+    assert inst is not None
     assert (inst.ability_level, inst.ability_variables_multiplier) == (50, 100)
 
 
@@ -303,8 +351,8 @@ def test_etage6_etat_final_du_ctx_inchange():
     assert passive_ability_state_by_unit(_canal()) == {SUMMON_ID: (CHAN_LEVEL, CHAN_MULT),
                                                        CONFIGURED_ID: (7, 999)}, (
         "le PARSING du canal a change -- l'attendu ci-dessous ne decrirait plus le meme etat")
-    attendu = {SUMMON_ID: (CHAN_LEVEL, CHAN_MULT),   # trou COMBLE par le canal
-               CONFIGURED_ID: (50, 100)}             # trou INEXISTANT -> la config gagne (etage 3)
+    attendu = {SUMMON_ID: (CHAN_LEVEL, CHAN_MULT),   # aucune config -> le canal repond
+               CONFIGURED_ID: (7, 999)}              # #1049-r1 : le canal PRIME sur le proxy
     for uid, couple in attendu.items():
         ctx = st.get_entity(uid).get_component(StatsComponent).ctx
         assert (ctx.passive_ability_level, ctx.ability_variables_multiplier) == couple, (
