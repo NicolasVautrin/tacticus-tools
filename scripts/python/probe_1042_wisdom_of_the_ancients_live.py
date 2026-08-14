@@ -87,7 +87,10 @@ AURA_UNITS = [(P1_VIS, P1_POS), (P2_VIS, P2_POS), (P3_VIS, P3_POS), (H_VIS, H_PO
 #: on compare CHAQUE couple (attaquant, defenseur) ENTRE LES BRAS.
 A1_VIS, A1_POS = "blackTerminator", (2, 2)      # adjacent a P2  -> defenseur AFFECTE
 A2_VIS, A2_POS = "bloodDeathCompany", (6, 6)    # adjacent a X   -> defenseur TEMOIN
-A3_VIS, A3_POS = "bloodSanguinary", (0, 8)      # hors de tout : evite un 1v1 fragile
+#: hors de tout (d >= 5 de chaque unite placee) : evite un 2v5 fragile sans polluer l'adjacence.
+#: ⚠ (0,8) est un `Block` de MC1_67 -- `AddUnitOperation$$AreTilesDisallowedAndLog` y fait un
+#: RETOUR NUL SILENCIEUX, que `rl_duel build` rattrape en rc 3. Tuile LUE dans le dump du board.
+A3_VIS, A3_POS = "bloodSanguinary", (0, 6)
 MES_UNITS = [(A1_VIS, A1_POS), (A2_VIS, A2_POS), (A3_VIS, A3_POS)]
 
 BOARD = "MC1_67"                        # 7x9, entierement Grass : toute tuile est posable
@@ -147,6 +150,8 @@ def _geometrie():
     assert min(hexgeo.distance(H_POS, p) for p in (P1_POS, P2_POS, P3_POS)) >= 2
     assert hexgeo.distance(A1_POS, P2_POS) == 1
     assert hexgeo.distance(A2_POS, X_POS) == 1
+    assert min(hexgeo.distance(A3_POS, p)
+               for p in (P1_POS, P2_POS, P3_POS, H_POS, X_POS, A1_POS, A2_POS)) >= 2
 
 
 def main() -> int:
@@ -163,6 +168,14 @@ def main() -> int:
                          "(`rl_collect_batch._TARGET_RARITY`) : sans ce levier tout est Mythic et "
                          "les trois etages `UnitsWithRarity` sont uniformement VRAIS -- regime "
                          "DEGENERE dans lequel un port sans gate serait faussement d'accord.")
+    ap.add_argument("--traits", action="append", default=[],
+                    help="REECRIT `BC.Units[<vis>].Traits`, '<visualId>=<Trait>[,<Trait>]', "
+                         "repetable. SEUL levier qui exerce `UnitsWithTrait(..., UnitTrait.Hero)` : "
+                         "toute unite `lineup` du pool porte `Hero`, donc ce noeud est lui aussi "
+                         "uniformement VRAI par defaut. Retirer `Hero` du MILIEU de la chaine doit "
+                         "laisser le milieu VISE (ses deux voisins restent des Heros Mythiques) et "
+                         "eteindre ses DEUX voisins -- signature {P2} seul, distincte des deux "
+                         "autres bras.")
     a = ap.parse_args()
 
     _geometrie()
@@ -182,17 +195,22 @@ def main() -> int:
 
     rar = dict(x.split("=", 1) for x in a.rarity)
     rar.setdefault(H_VIS, str(RARITE_H))            # invariant du montage, cf. en-tete
+    tra = {k: [t for t in v.split(",") if t] for k, v in (x.split("=", 1) for x in a.traits)}
     print("  rarites forcees (APRES normalisation) : %s" % rar)
+    print("  traits reecrits                       : %s" % tra)
 
     sf = a.state_file or str(Path(__file__).resolve().parents[2] / "logs"
-                             / ("probe1042_woa_%s_l%d%s.json"
+                             / ("probe1042_woa_%s_l%d%s%s.json"
                                 % (a.bras, a.level,
-                                   "".join("_%s%s" % (k[:6], v) for k, v in sorted(rar.items())))))
+                                   "".join("_%s%s" % (k[:6], v) for k, v in sorted(rar.items())),
+                                   "".join("_t%s" % k[:6] for k in sorted(tra)))))
     argv = ["build", "--seed", str(a.seed), "--board", a.board,
             "--p-units", ",".join(v for v, _ in MES_UNITS),
             "--a-units", ",".join(v for v, _ in AURA_UNITS),
             "--a-mow", PORTEUR_MOW,
             "--unit-stat", ";".join("%s:Rarity=%s" % (k, v) for k, v in sorted(rar.items()))]
+    for vis, traits in sorted(tra.items()):
+        argv += ["--unit-stat", "%s:Traits=%s" % (vis, json.dumps(traits))]
     for vis, pos in MES_UNITS:
         argv += ["--place", "%s:%d,%d" % (vis, pos[0], pos[1])]
     for vis, pos in AURA_UNITS:
@@ -229,6 +247,36 @@ def main() -> int:
             print("  MONTAGE INCOMPLET %s -- rien n'est conclu" % (ids,))
             return 2
 
+        # ETAGE 1bis -- la MUTATION a-t-elle MORDU ? `combatSnapshot.units[].traits` (#233) publie
+        # les traits REELLEMENT portes en bataille, pas ceux du gameconfig. Sans ce cran, un
+        # `--traits` qui n'atteindrait pas `BaseUnitComponent` rendrait un bras VERT pour la
+        # mauvaise raison (le set ne bouge pas... parce que rien n'a bouge).
+        snap = rpc("combatSnapshot", {"runnerId": rid}, 90) or {}
+        tsnap = {}
+        for u in (snap.get("units") or []):
+            tsnap[u.get("entityId")] = u.get("traits")
+        if tra:
+            # ⚠ `combatSnapshot.units[].traits` publie des ORDINAUX, pas des noms : comparer par
+            # membre d'enum, jamais par chaine (une comparaison de chaines rendait ce bras VERT
+            # alors que `Hero` etait toujours porte -- mesure #1042).
+            from engine.entities.traits.unit_trait import UnitTrait  # noqa: E402
+            print()
+            print("=== ETAGE 1bis : la mutation `--traits` a-t-elle MORDU ? ===")
+            for vis, attendus in sorted(tra.items()):
+                vus = tsnap.get(ids.get(vis))
+                print("  %-22s (u%s) traits en bataille = %s (demandes : %s)"
+                      % (vis, ids.get(vis), vus, attendus))
+                if vus is None:
+                    print("    NON MESURE : `combatSnapshot` ne publie pas les traits de cette"
+                          " entite -- rien n'est conclu de ce bras.")
+                    return 2
+                if int(UnitTrait.Hero) in [int(t) for t in vus] and "Hero" not in attendus:
+                    print("    MUTATION NON MORDUE : `UnitTrait.Hero` (%d) est TOUJOURS porte"
+                          " alors que `BC.Units[].Traits` a ete reecrit -- ce bras ne mesure PAS"
+                          " le noeud `UnitsWithTrait(..., UnitTrait.Hero)`, et un set inchange n'y"
+                          " prouve donc RIEN." % int(UnitTrait.Hero))
+                    return 2
+
         print()
         print("=== ETAGE 2 : l'AURA -- qui porte %d, et qui VISE-T-IL ? ===" % EFFECT_TYPE)
         for u in _lignes(dv):
@@ -260,7 +308,7 @@ def main() -> int:
 
         out = Path(sf).with_suffix(".plans.json")
         out.write_text(json.dumps({
-            "bras": a.bras, "level": a.level, "rarites": rar,
+            "bras": a.bras, "level": a.level, "rarites": rar, "traits": tra,
             "ids": {k: ids[v] for k, v in roles.items()},
             "vises": sorted(vises), "parRole": vu,
             "affecte": {"attaquant": a1, "cible": p2, "ability": namap.get(a1),
@@ -271,7 +319,7 @@ def main() -> int:
         print("  [plans ecrits dans %s]" % out)
 
         print()
-        print("=== VERDICT (%s ; rarites %s) ===" % (a.bras, rar))
+        print("=== VERDICT (%s ; rarites %s ; traits %s) ===" % (a.bras, rar, tra))
         if a.bras == "sans-mythique":
             if vises:
                 print("  CONTRE-EPREUVE ROUGE : l'effet %d existe SANS --equip-mythic (%s) -- les"
@@ -281,9 +329,9 @@ def main() -> int:
                   " inter-bras)" % EFFECT_TYPE)
             return 0
         if not vises:
-            print("  AUCUNE CIBLE : soit un etage de rarete a tout eteint (bras attendu), soit le"
-                  " montage ne pose pas l'aura -- comparer au bras `mow` sans `--rarity`.")
-            return 0 if a.rarity else 1
+            print("  AUCUNE CIBLE : soit un gate a tout eteint (bras attendu), soit le montage ne"
+                  " pose pas l'aura -- comparer au bras `mow` sans `--rarity`/`--traits`.")
+            return 0 if (a.rarity or a.traits) else 1
         if vu["H"]:
             print("  INATTENDU : `H` (Rarity=%s) est VISE alors que les TROIS etages"
                   " `UnitsWithRarity` devraient l'exclure." % rar.get(H_VIS))
