@@ -71,13 +71,16 @@ _PLACE = ["adeptCanoness:0,0", "adeptHospitaller:0,1"]
 #: Le regime **C** n'est pas un troisieme point de mesure de confort : c'est celui qui rend la
 #: CIBLE confrontable. `bucketAction.targetLow` etant un demi-pointeur (cf. `_port`), l'accord des
 #: cibles ne se deduit de l'accord des utilites que si l'argmax est UNIQUE -- et sur A comme sur B
-#: il ne l'est pas (6 et 11 tuiles ex-aequo, MESURE). Le placement de C a ete CHERCHE pour cela :
-#: en faisant varier `epos` sur le contexte d'un runner reel, `((3,2), (3,4), (5,4))` rend un
-#: maximum de `8` atteint par la SEULE tuile `(3,3)`.
+#: il ne l'est pas (6 et 11 tuiles ex-aequo, MESURE). Le placement de C a ete CHERCHE pour cela,
+#: en faisant varier les ennemis sur le contexte d'un runner reel.
+#: ⚠ Et la recherche doit patcher `epos` **ET** `obs_units` : une premiere passe ne bougeait que
+#: `epos`, donc le gate `IsFreeTile` voyait encore l'occupation de l'ANCIEN montage -- le placement
+#: qu'elle proposait rendait 2 ex-aequo une fois construit pour de vrai. En patchant les deux,
+#: `((0,6), (2,6), (4,2))` rend un maximum de `8` sur la SEULE tuile `(1,6)`.
 MONTAGES = (
     ("A: ennemis groupes", ["necroWarden:3,4", "necroDestroyer:3,5", "orksNob:4,4"]),
     ("B: ennemis disperses", ["necroWarden:3,4", "necroDestroyer:0,5", "orksNob:6,1"]),
-    ("C: argmax UNIQUE", ["necroWarden:3,2", "necroDestroyer:3,4", "orksNob:5,4"]),
+    ("C: argmax UNIQUE", ["necroWarden:0,6", "necroDestroyer:2,6", "orksNob:4,2"]),
 )
 
 
@@ -276,10 +279,10 @@ def verdict(r: dict) -> list:
     """Les fautes, une chaine par faute. Vide == confrontation OK."""
     f = list(r.get("erreurs") or [])
     regs = {x["libelle"][0]: x for x in (r.get("regimes") or [])}
-    A, B = regs.get("A"), regs.get("B")
-    if not A or not B:
+    A, B, C = regs.get("A"), regs.get("B"), regs.get("C")
+    if not A or not B or not C:
         return f + ["regimes incomplets -- NON CONFRONTE"]
-    for tag, row in (("A", A), ("B", B)):
+    for tag, row in (("A", A), ("B", B), ("C", C)):
         if row["natif_vide"] or row["natif_util"] is None:
             f.append("TEMOIN NUL en regime %s : le natif n'emet AUCUNE action -- un accord y "
                      "serait degenere" % tag)
@@ -291,13 +294,6 @@ def verdict(r: dict) -> list:
         if abs(float(row["port_util"]) - float(row["natif_util"])) > 1e-6:
             f.append("UTILITE en regime %s : port=%s natif=%s" % (tag, row["port_util"],
                                                                   row["natif_util"]))
-        # La CIBLE n'est pas confrontable directement (`targetLow` = moitie basse d'un POINTEUR,
-        # cf. `_port`). L'unicite de l'argmax la rend deductible : sur un maximum ATTEINT PAR UNE
-        # SEULE tuile, l'egalite des utilites vaut egalite des cibles.
-        if row["n_ex_aequo"] != 1:
-            f.append("ARGMAX NON UNIQUE en regime %s (%d tuiles ex-aequo au maximum) : l'accord "
-                     "des utilites n'implique alors PAS l'accord des cibles"
-                     % (tag, row["n_ex_aequo"]))
         if row["n_eligibles"] < 2 or row["n_evalues"] < 2:
             f.append("MONTAGE CREUX en regime %s : %d cible(s) eligible(s), %d evaluee(s) -- "
                      "l'argmax ne distingue rien" % (tag, row["n_eligibles"], row["n_evalues"]))
@@ -316,6 +312,14 @@ def verdict(r: dict) -> list:
             and A["port_util"] == B["port_util"]:
         f.append("LE MONTAGE NE SEPARE PAS COTE PORT : meme tuile et meme utilite dans les deux "
                  "regimes (%s, %s)" % (A["port_target"], A["port_util"]))
+    # LA CIBLE. `bucketAction.targetLow` etant un demi-pointeur, elle ne se confronte que par
+    # DEDUCTION : sur un argmax UNIQUE, l'egalite des utilites vaut egalite des cibles. C'est la
+    # raison d'etre du regime C -- si son argmax cesse d'etre unique, ce cran DOIT rougir plutot
+    # que de laisser croire que la cible est couverte.
+    if C["n_ex_aequo"] != 1:
+        f.append("CIBLE NON CONFRONTEE : l'argmax du regime C n'est PAS unique (%d tuiles "
+                 "ex-aequo) -- l'accord des utilites n'implique alors rien sur la cible"
+                 % C["n_ex_aequo"])
     return f
 
 
