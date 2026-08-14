@@ -47,11 +47,24 @@ def construire_scene(rpc, rid, dec=None):
     substrat ne publie pas ce qu'il faut : l'appelant DIT alors pourquoi, il ne rend pas un zero.
     """
     from engine.playbook import scene as SC
+    # #1045 -- LA PORTE, pas un corps a la main (#443-r2-b1). Ce module fabriquait
+    # `{"runnerId": ..., "maxRank": 99, "allAbilities": True}` lui-meme, donc SANS `includeInactive` :
+    # le capteur `readEffectsByUnit` (`frida/hooks/game/effects.ts`, `if (info && !info.active &&
+    # !includeInactive) continue;`) DROPPE alors les instances posees-mais-INERTES, et la `Scene` du
+    # port confrontait un etat AMPUTE a un oracle natif COMPLET -- l'ecart aurait ete mis au compte de
+    # la prediction. La degradation est silencieuse : ni erreur, ni ligne manquante, juste des bornes
+    # fausses. Forme B (`SNAP.<fn>`) et non `from ... import <fn>` : un binding de module n'est jamais
+    # gele, donc un `monkeypatch` du foyer mord encore ici.
+    # ⚠ `includeInactive` ne touche QUE le canal EFFETS (`rpc-decision.ts` ne le passe qu'a
+    # `readEffectsByUnit`) : l'ORACLE `attackPlans[].evals[].ranked[]` est identique des deux cotes,
+    # donc ce correctif ne peut pas deplacer la reference a laquelle on se compare.
+    from engine.runner import snapshot as SNAP
     predictor = SC.build_predictor(lambda m, b, t: rpc(m, b, t), rid)
     if predictor is None:
         return None, None, dec
     if dec is None:
-        dec = rpc("decisionView", {"runnerId": rid, "maxRank": 99, "allAbilities": True}, 120)
+        dec = rpc("decisionView",
+                  SNAP.decision_view_seed_body(rid, maxRank=99, allAbilities=True), 120)
     if not (isinstance(dec, dict) and dec.get("units")):
         return None, None, dec
     sctx = SC.step_context(predictor, dec)
