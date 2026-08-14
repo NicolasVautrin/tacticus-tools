@@ -3558,11 +3558,11 @@ def get_invalid_caster_reason(state: "State", caster_id: int, ability) -> int:
             porter, ce serait du code mort.
         5. **`CasterMatchesDynamicRule` (0x4)**          PORTEE depuis #250 (regle-delegue
            `options+0x30` = slot vtable `+0x470` = `<X>Ability$$GetDynamicInvalidCasterReason`)
-        6. `CasterHas1/3/7Tiles` (bits 35/36/37), **`CasterHas2TurnsLeft` (52) PORTEE depuis
-           #287-r11-r1-r1**, `CasterIsMachine` (53)
+        6. **`CasterHas1/3/7Tiles` (bits 35/36/37) PORTEES depuis #895-r2**,
+           **`CasterHas2TurnsLeft` (52) PORTEE depuis #287-r11-r1-r1**, `CasterIsMachine` (53)
 
-    NON PORTEES (memes motifs qu'en tete de module) : les points 2, 3, 4b, et du point 6 les trois
-    filtres de `GetFeetCount` et `CasterIsMachine`.
+    NON PORTEES (memes motifs qu'en tete de module) : les points 2, 3, 4b, et `CasterIsMachine`
+    (bit 53) du point 6.
 
     `CasterHas2TurnsLeft` (bit 52) -- PORTEE PAR #287-r11-r1-r1. VERBATIM du decompile :
 
@@ -3635,10 +3635,44 @@ def get_invalid_caster_reason(state: "State", caster_id: int, ability) -> int:
         reason = int(ability.get_dynamic_invalid_caster_reason(state, caster_id) or 0)
         if reason:
             return reason
-    # 6. `CasterHas2TurnsLeft` (bit 52) -- APRES la regle-delegue et APRES les trois filtres de
-    #    `GetFeetCount` dans le natif ; ces trois-la n'ont AUCUN porteur qui pose AUSSI le bit 52
-    #    (les trois porteurs du bit 52 sont des MoW dont les masques ne contiennent aucun
-    #    `CasterHasNTiles`), donc leur non-port ne peut pas voler la raison a celle-ci.
+    # 6. LES TROIS FILTRES DE `GetFeetCount` -- `CasterHas1Tiles` / `CasterHas3Tiles` /
+    #    `CasterHas7Tiles` (bits 35/36/37), PORTES PAR #895-r2. VERBATIM du decompile
+    #    (`IdunBattle.Core.Services.TargetingQuery$$GetInvalidCasterReason`, surcharge
+    #    `IList<IEntity> casterTiles`), juste APRES la regle-delegue et AVANT le bit 52 :
+    #
+    #        feet = UnitExtensions.GetFeetCount(caster, state);
+    #        if ((rules >> 0x23 & 1) && feet != 1) return broken(0x800000000);
+    #        if ((rules >> 0x24 & 1) && feet != 3) return broken(0x1000000000);
+    #        if ((rules >> 0x25 & 1) && feet != 7) return broken(0x2000000000);
+    #
+    #    `IdunBattle.Entities.UnitExtensions$$GetFeetCount` = `GetUnitFeetIds(unit, state).Count`,
+    #    dont `runner.components.get_unit_feet` est le mirror (meme parcours de
+    #    `UnitComponent._feet @+0x78`, repli sur le `PositionComponent` pour l'unite mono-hex).
+    #    ⚠ NUANCE LUE, PAS SUPPOSEE : le natif compte les PIEDS (`GetUnitFeetIds`), pas les tuiles
+    #    (`IterateTiles`, qui SAUTE un pied sans tuile). Les deux coincident cote port, ou aucun
+    #    pied n'existe sans tuile.
+    #    L'ORDRE N'EST PAS COSMETIQUE : place ici, un refus de cardinal PRECEDE `CasterHas2TurnsLeft`
+    #    et SUIT la regle-delegue -- c'est lui qui fixe la raison rendue quand deux regles sont
+    #    rompues.
+    #    AUCUN REFUS INVENTE SUR UN SUBSTRAT ABSENT : `feet` vide sort deja par la clause 4a
+    #    ci-dessus chez les QUATRE porteurs du registre (aucun ne pose `AllowNullCasterTile` ni
+    #    `CasterHasNoTile` -- compte re-derivable `ABILITY_CLASSES` x `TARGETING_OPTIONS.rules`,
+    #    ne pas le citer de memoire).
+    #    Le pendant DECISION de ces trois clauses vit dans
+    #    `engine.services.ability_caster_gates.invalid_caster_reason` (etage 6) ; les deux lisent le
+    #    MEME decompile, et c'est la face RUNNER qui manquait.
+    feet_count = len(get_unit_feet(state, int(caster_id)))
+    if options.has(TR.CasterHas1Tiles) and feet_count != 1:
+        return int(TR.CasterHas1Tiles)
+    if options.has(TR.CasterHas3Tiles) and feet_count != 3:
+        return int(TR.CasterHas3Tiles)
+    if options.has(TR.CasterHas7Tiles) and feet_count != 7:
+        return int(TR.CasterHas7Tiles)
+    # 7. `CasterHas2TurnsLeft` (bit 52) -- APRES la regle-delegue et APRES les trois filtres de
+    #    `GetFeetCount`, comme dans le natif. Aucun porteur du bit 52 ne pose AUSSI un
+    #    `CasterHasNTiles` (les trois sont des MoW), donc l'ordre relatif des deux blocs est
+    #    aujourd'hui INERTE -- il est ecrit fidele parce que c'est le natif, pas parce qu'un cas
+    #    l'exerce.
     #    `has_minimum_remaining_turns` rend desormais une VALEUR dans les DEUX bras
     #    (#287-r11-r1-r1-r1) : le second lit `State.turns_ended`, le mirror de
     #    `TurnComponent.<Dictionary @+0x40>` que pose `turnflow.set_current_player` (ecrivain natif
