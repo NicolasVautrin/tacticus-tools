@@ -22,7 +22,7 @@ from ...operations.damage import AttackDamageOperation
 from ..base import profile_pierce
 
 
-def _get_unit(entity, entities):
+def _get_unit(entity, entities, state=None):
     """`IdunBattle.Entities.UnitExtensions$$GetUnit(entity, state)` -- l'etage qui re-resout une
     ENTITE en l'UNITE qu'on frappe. Il MANQUAIT au port, et c'est ce qui faisait lever un
     `AttributeError: 'int' object has no attribute 'get'` des qu'un selecteur rendait des TUILES.
@@ -87,9 +87,32 @@ def _get_unit(entity, entities):
     position `(col,row)` est une TUILE, resolue par `dsl.base._occupants_by_tile` -- le foyer UNIQUE
     de la resolution d'occupant (#433-r3-r1a), indexe par les PIEDS, ce qui est litteralement la
     boucle native `tuile -> pied -> proprietaire` (n'importe quel pied d'une multi-hex rend SON
-    unite). Tout le reste rend `None`, et l'appelant SKIPPE la cible -- comme le natif."""
+    unite). Tout le reste rend `None`, et l'appelant SKIPPE la cible -- comme le natif.
+
+    ⚠ ET LE PORT N'A PAS L'ESPACE D'IDS DU NATIF, ce qui cree un piege que le natif ne peut pas
+    avoir. Cote ECS, un `Entity` est unite OU tuile OU pied, jamais ambigu. Cote port, les ids
+    d'unites (`state.entities`) et les ids de tuiles (`state.board`) **se CHEVAUCHENT** (residu deja
+    nomme dans `operations/active_ability.py`), et les deux conventions coexistent :
+    `behaviours/context.py::unit_id` suit l'ORDRE NATIF (unite d'abord, tuile en repli) parce qu'il
+    recoit un id d'ENTITE ; `entities/selectors/_shared.py::_entity_pos` traite tout `int` comme une
+    TUILE parce qu'il recoit la sortie d'un SELECTEUR. Ici on est au second cas -- un selecteur DSL
+    rend des dicts d'unite ou des ids de TUILE, jamais des ids d'unite.
+
+    D'ou le REFUS EXPLICITE ci-dessous. Un `UnitSet([<id d'unite>])` est un arbre FAUTIF (#929-r3 en
+    garde la contre-epreuve), et si on le laissait passer par la voie tuile il resoudrait sur la
+    tuile HOMONYME : soit l'unite qui l'occupe -- silencieusement FAUSSE -- soit rien du tout, ce qui
+    transformerait un crash immediat en no-op silencieux. Le discriminant est celui qu'ecrit deja
+    `unit_id` : l'id designe-t-il une entite de `state` ? On LEVE, en nommant la cause, plutot que de
+    rendre `None`."""
     if isinstance(entity, dict):                 # `entity is <UnitEntity>` -> elle se rend elle-meme
         return entity
+    if state is not None and isinstance(entity, int) and not isinstance(entity, bool):
+        # ⚠ Pas une tuile : un id d'ENTITE du port (unite ou MoW). Cf. le paragraphe ci-dessus.
+        if state.get_entity(entity) is not None:
+            raise TypeError(
+                "selecteur a domaine UNITE mal cable : l'element " + repr(entity) + " est l'ID "
+                "d'une entite de `state`, pas une entite-tuile. Un selecteur DSL rend des dicts "
+                "d'unite ou des ids de TUILE (cf. #929-r3 et `_get_unit`)")
     p = _entity_pos(entity, getattr(entities, "board", None))
     if p is None:                                # ni unite, ni tuile resolvable -> `null`
         return None
@@ -158,9 +181,14 @@ class AttackWithAttackDamage(AbilityBehaviour):
     deux proprietes du meme etage : les **DOUBLONS sont conserves** (`allowRepeat=1` -> deux obus sur
     la meme tuile = deux attaques sur son occupant ; `sorted` les garde adjacents) et les tuiles VIDES
     sont MESUREES live (tag `Damage_Empty_Target_Tile_Id`) -> emit DIAGNOSTIQUE `AttackEmptyTile`.
-    RESIDU NOMME : les deux gates par-cible d'`AbilityDamageBehaviour` -- `UnitExtensions.IsTargetable`
-    et `HasTrait(0x40e = UnitTrait.Invincible)` -- ne sont PAS portes (l'occupant resolu est deja
-    VIVANT ; aucun porteur d'`Invincible` dans un roster de duel).
+    RESIDU NOMME **#1034** : les deux gates par-cible que `AbilityDamageBehaviour$$Execute` -- et
+    `AttackDamageBehaviour$$Execute`, meme forme -- posent APRES leur `GetUnit` ne sont PAS portes :
+    `IdunBattle.Entities.UnitExtensions$$MatchesUnitSelectionType(unit, <behaviour+0xa8 | +0xc0>,
+    state)` et `IdunBattle.Entities.UnitExtensions$$HasTrait(unit, 0x40e = UnitTrait.Invincible)`.
+    ⚠ Le premier etait cite ici sous `UnitExtensions.IsTargetable` -- un symbole que le behaviour
+    N'APPELLE PAS. Le gate LU est `MatchesUnitSelectionType`, dont l'intargetabilite n'est qu'UNE
+    branche (`!HasFlag(0x11)`, cas `2` et `3`), et qui est gouverne par un `selectionType` que le
+    port ne capte a aucun call-site (meme verrou que le residu `#433-r3-r2`).
 
     `amount` = FOLD du degat-node `Direct(amountFormula)` quand le natif passe une **valeur calculee** a
     `AttackWithAttackDamage` en lieu de bornes d'arme (`MinMaxDamage`) — ex. Psyker
@@ -342,7 +370,7 @@ class AttackWithAttackDamage(AbilityBehaviour):
             # `AttackDamageBehaviour$$Execute` : `unit = UnitExtensions.GetUnit(entity, state)` sur
             # CHAQUE entite rendue par `Select` -- une TUILE resout en son occupant, `null` -> la cible
             # est SAUTEE (le natif n'emet alors que l'operation `0x25`). Cf. `_get_unit`.
-            targets = [u for u in (_get_unit(e, entities)
+            targets = [u for u in (_get_unit(e, entities, state)
                                    for e in _units_of(self.target_sel, entities))
                        if (u or {}).get("id") is not None]   # ordre SOURCE (aucun tri avant le tirage)
             if self.pick_n is not None:                    # PickRandomly(selecteur, n) folde (state.rng)
@@ -888,7 +916,7 @@ class AttackWithAbilityDamage(AbilityBehaviour):
         if self.multi:                                     # AttackBehaviour.Execute : selecteur -> N cibles
             # `AbilityDamageBehaviour$$Execute` : `unit = UnitExtensions.GetUnit(entity, state)` par
             # entite rendue par `Select` (tuile -> occupant, `null` -> cible SAUTEE). Cf. `_get_unit`.
-            targets = sorted((u for u in (_get_unit(e, entities)
+            targets = sorted((u for u in (_get_unit(e, entities, state)
                                           for e in _units_of(self.target_sel, entities))
                               if (u or {}).get("id") is not None), key=lambda u: u.get("id"))
         else:                                              # mono-cible (DoT feu : l'occupant resolu)
@@ -992,7 +1020,7 @@ class DirectDamage(AbilityBehaviour):
         # ABSENT du code : la ligne d'avant jetait tout element non-dict au lieu de le RESOUDRE, donc
         # un selecteur a domaine TUILE ne frappait rien. Cf. `_get_unit`.
         for e in _units_of(self.target_sel, entities):
-            u = _get_unit(e, entities)
+            u = _get_unit(e, entities, state)
             tgt = u.get("id") if isinstance(u, dict) else None
             if tgt is None:
                 continue                                 # `GetUnit(t) == null` -> log + continue

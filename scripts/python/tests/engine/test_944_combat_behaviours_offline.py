@@ -175,13 +175,22 @@ def test_929r3_le_patron_fautif_leve_toujours_contre_epreuve():
 
     ⚠ Ce que cette contre-epreuve dit AUSSI : la reparation n'a **pas** consiste a rendre
     `AttackWithAttackDamage` tolerante aux entiers. Le natif passe un SELECTEUR
-    (`Target@DSLSelectors+0x60`), donc c'est l'ARBRE qui etait faux, pas la feuille."""
+    (`Target@DSLSelectors+0x60`), donc c'est l'ARBRE qui etait faux, pas la feuille.
+
+    ⚠ #1034 A CHANGE LE *TYPE* DE L'EXCEPTION, PAS LA PROPRIETE GARDEE. La feuille porte desormais
+    l'etage `IdunBattle.Entities.UnitExtensions$$GetUnit` du behaviour natif, donc elle RESOUT bien
+    un element a domaine TUILE (id de tuile / `(col,row)`) en son occupant. Un id d'**unite**, lui,
+    reste un arbre fautif -- et il est desormais REFUSE EXPLICITEMENT (`TypeError` nommee) au lieu
+    de produire l'`AttributeError` opaque d'avant. Le durcissement est reel : sans ce refus, l'id
+    d'unite serait parti par la voie TUILE (les deux espaces d'ids se CHEVAUCHENT cote port) et
+    aurait rendu soit l'occupant d'une tuile HOMONYME -- silencieusement faux -- soit `None`, donc
+    un no-op silencieux, ce que cette contre-epreuve existe precisement pour interdire."""
     state, ids = _monde([("blackTerminator", 2, 2, 1), ("necroWarden", 2, 3, 2)])
     owner, mover = ids["blackTerminator"], ids["necroWarden"]
     ectx = ExecutionContext(state=state, rng=state.rng)
     feuille = AttackWithAttackDamage(UnitSet([mover]), "HatefulAssault", "Power",
                                      is_melee=True, multi=True, level_slot="passive")
-    with pytest.raises(AttributeError):
+    with pytest.raises(TypeError, match="pas une entite-tuile"):
         feuille.execute(entities_from_state(state, owner, mover, mover), ectx)
 
 
