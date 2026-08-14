@@ -36,10 +36,40 @@ ASCII only.
 """
 from __future__ import annotations
 
-import os
-import sys
+DECLENCHEUR = {
+    "chemins": (
+        # LE PORT lui-meme : la classe d'effet, ses DEUX registres, et le foyer des gates.
+        "scripts/python/engine/entities/effects/loki/hits.py",
+        "scripts/python/engine/entities/effects/factory.py",
+        "scripts/python/engine/entities/effects/base.py",
+        "scripts/python/engine/entities/effects/__init__.py",
+        "scripts/python/engine/entities/effects/magnitude.py",
+        # LE CANAL #179 et ses DEUX facades COMBAT (c'est la que les deux cles neuves
+        # `is_normal_attack` / `is_charging` sont threadees).
+        "scripts/python/engine/runner/operations/additional_hits.py",
+        "scripts/python/engine/runner/operations/damage_ops/normal.py",
+        "scripts/python/engine/runner/operations/damage_ops/ability.py",
+        # LE FOYER du predicat de charge, des DEUX cotes.
+        "scripts/python/engine/runner/damage_model.py",
+        "scripts/python/engine/battle_query.py",
+        "scripts/python/engine/playbook/prediction/normal_attack.py",
+        # LE MONTAGE : harnais de charge, greffe catalogue, build de runner.
+        "scripts/python/tests/engine/runner/_charge_regime.py",
+        "scripts/python/catalog_inject.py",
+        "scripts/python/rl_duel.py",
+        # La magnitude vient du gameconfig (minDmg/maxDmg/nrOfHits/damageProfile de `FragLance`).
+        "data/symbols/*/gameconfig.json",
+    ),
+    "build": True,
+    "toujours": True,
+    "raison": "Confrontation AU NATIF : les coups per-coup live sortent du jeu, pas du depot, et "
+              "le porteur est monte par GREFFE catalogue. Se rejoue donc a chaque passe live.",
+}
 
-import pytest
+import os        # noqa: E402  (le DECLENCHEUR doit rester en tete, cf. `probe_486r15`)
+import sys       # noqa: E402
+
+import pytest    # noqa: E402
 
 sys.path.insert(0, os.path.dirname(__file__))      # helpers siblings
 from _charge_regime import (CHARGE, NO_STEP, STEP_ADJACENT,       # noqa: E402,F401  (fixture)
