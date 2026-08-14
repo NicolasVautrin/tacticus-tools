@@ -21,11 +21,16 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
+from ....dsl.base import Const
 from ....services.effect_bonus import EffectBonus, for_addition, for_percent_increase
+from ...selectors.accessors import Owner
+from ...selectors.units import AdjacentUnits
+from ...unit_selection_type import UnitSelectionType
 from ...damage_profile_type import DamageProfileType, PROFILE_NAME_BY_INDEX
 from ...effect_type import EffectType
+from ...rarity import Rarity
 from ..base import BaseEffect, target_is_on_fire_tile as _target_is_on_fire_tile
-from ..magnitude import ability_var
+from ..magnitude import ability_const_str, ability_var
 # #943-r7 -- les deux canaux du substrat d'adjacence NATIF, en FORME B (#485-r1-r1).
 # `pathfinding.board` n'importe RIEN de `engine`, et `engine.battle_query` n'importe que `hexgeo` +
 # `.hex_corner` : aucune de ces deux aretes ne peut refermer le SCC `effects`.
@@ -970,3 +975,316 @@ class PsychicStalkVisualEffect(BaseEffect):
         # offline (noms de `tileMeta.tiles[].effects[]`) que `GetTargetIsOnFireTileCondition`,
         # donc MEME foyer (`effects/base.py::target_is_on_fire_tile`, #1005).
         return _target_is_on_fire_tile(ctx)
+
+
+# =====================================================================================================
+# AURAS DE MACHINE OF WAR -- les deux `ExtraDamagePct` MYTHIQUES debloques par le canal de rarete
+# (#999-r3-r1 pour `att_rarity`/`tgt_rarity`, #999-r3-r1-r1 pour l'univers de porteurs board-wide).
+#
+# Les DEUX effets sont poses a l'init sur leur MoW porteuse par le patron
+# `IdunBattle.Entities.Abilities.AOwnerEffectTriggeredAbility` (`ABILITY_INIT_OWNER_EFFECTS`, cf.
+# `factory.py`), et les DEUX implementent le slot NATIF `$$CreateEffectDamageBonusForAttack` --
+# mais sur des canaux de port OPPOSES, parce que leurs `$$CreateTargetSelector` projettent sur des
+# populations opposees :
+#   * `BlightedLandEffect` (1442) projette sur les AMIS de la MoW -> le beneficiaire est
+#     l'ATTAQUANT -> canal `create_aura_attack_damage_bonus_for_ally` ;
+#   * `MoreGitzOverEre_ExtraDamagePctEffect` (1449) projette sur les ENNEMIS de la MoW -> le
+#     beneficiaire est la CIBLE DU COUP -> canal `create_aura_defense_damage_malus_for_ally`, la
+#     boucle state-wide `EffectWithTarget` (MEME arbitrage que
+#     `DaughterOfTheAbyssExtraDamagePctEffect` ci-dessus, `AURA_DEFENSE_MALUS_NATIVE_FACE`).
+# =====================================================================================================
+
+#: `TriggeredAbilityType` 0x5a7 = 1447 -- l'ability MYTHIQUE de la MoW `deathCrawler` /
+#: `deathNpcMoWCrawler`. C'est la config que `ConfigVar` de l'effet 1442 indexe (l'appariement
+#: ability -> effet est LU : `BlightedLandAbility$$GetEffectType` = `return 0x5a2` = 1442).
+BLIGHTED_LAND_ABILITY = "BlightedLand"
+#: `TriggeredAbilityType` 0x5b0 = 1456 -- l'ability MYTHIQUE de la MoW `orksRukkatrukk` /
+#: `orksNpcMoWRukkatrukk` (`MoreGitzOverEreAbility$$GetEffectType` = `return 0x5a9` = 1449).
+MORE_GITZ_OVER_ERE_ABILITY = "MoreGitzOverEre"
+#: `AbilityVariableType` 0xa -- la variable que les DEUX `ConfigVar(0xa, ...)` lisent. Elle est dans
+#: `variablesAffectedByRarityBonus` pour les deux abilities -> le multiplicateur du PORTEUR MORD.
+_VAR_EXTRA_DMG_PCT = "extraDmgPct"
+#: `AbilityConstantType 0` -- `constants.unitId` de `MoreGitzOverEre` (= `"orksSmnSquig"`). Le natif
+#: le passe a `VisualUnitIdFromUnitId` AVANT `UnitsWithVisualId` (contraste `HeadwoppasKillchoppa`,
+#: dont la constante est DEJA un visualId), d'ou la traduction par le gameconfig ci-dessous.
+_CONST_UNIT_ID = "unitId"
+#: `EffectType` 0x4dc = 1244 -- l'effet de TUILE teste par `UnitsOnTilesWithEffect` (1442).
+CONTAMINATED_TILE_EFFECT_NAME = EffectType.Contaminated.name
+#: `Direct(2)` -- le `minAmount` d'`AmountIsEqualOrGreater` de la 2e branche du selecteur de 1449.
+MIN_ADJACENT_MYTHIC_FRIENDS = 2
+#: callable `(owner_id, ability_name) -> (level, multiplier)` -- mirror de
+#: `IdunBattle.Entities.Effects.BaseEffect$$GetAbilityState` (#357). MEME cle et MEME semantique que
+#: `NornCrownEffect` / `HeadwoppasKillchoppaEffect` : foyer UNIQUE
+#: `runner/operations/triggers/base.py::triggered_ability_state`.
+CTX_ABILITY_STATE_OF = "tertiary_ability_state_of"
+#: PROFILS des unites ADJACENTES a la CIBLE du coup -- `(uid, team, visual_id, rarity)` par unite,
+#: substrat des DEUX branches du `$$CreateTargetSelector` de 1449. Tri-etat : `None` = NON MESURE
+#: (pas de position / pas de plateau) -> le gate se FERME, jamais un tuple vide invente.
+CTX_TGT_ADJACENT_UNIT_PROFILES = "tgt_adjacent_unit_profiles"
+
+
+def _mow_ability_state(effect, ctx, owner_id, ability_name):
+    """`GetAbilityState(effet)` -- le couple `(niveau, multiplicateur)` sous lequel l'ability
+    MYTHIQUE est montee sur la MoW PORTEUSE.
+
+    Une mythique de MoW arrive par le champ TERTIAIRE (`BC.Units[].TertiaryAbility`, montage
+    `rl_duel build --equip-mythic`), donc par le MEME canal qu'une relique : le foyer est
+    `triggered_ability_state`, expose au ctx sous `tertiary_ability_state_of`. Lire
+    `self.ability_level` rendrait le niveau des PASSIFS du porteur (50 sur tout runner normalise),
+    donc `extraDmgPct[4] = 20` au lieu du palier reellement equipe -- la faute de #357 / #1011.
+
+    Canal ABSENT (contexte offline / probe / face PREDICTION, qui ne le threade pas) -> repli NOMME
+    sur les niveaux que l'instance porte deja. Il est JUSTE quand l'effet vient du seed offline
+    (`spawn.py::_seed_ability_owner_effects` passe le couple TERTIAIRE pour l'ability tertiaire), et
+    il clampe au dernier palier sinon : c'est une degradation DECLAREE, pas un choix."""
+    c = ctx or {}
+    fn = c.get(CTX_ABILITY_STATE_OF)
+    lvl = mult = None
+    if fn is not None and owner_id is not None:
+        lvl, mult = fn(owner_id, ability_name)
+    if lvl is None:
+        lvl = effect.ability_level if effect.ability_level is not None else effect.level
+        mult = effect.ability_variables_multiplier
+    return lvl, int(mult if mult is not None else 100)
+
+
+class BlightedLandEffect(BaseEffect):
+    """`IdunBattle.Entities.Effects.Loki.BlightedLandEffect` (`EffectType` 0x5a2 = 1442) -- owner-effect
+    PERMANENT de l'ability MYTHIQUE `BlightedLand` (`TriggeredAbilityType` 0x5a7 = 1447) de la MoW
+    `deathCrawler` / `deathNpcMoWCrawler`. Tache #1035-r2.
+
+    i2 `Abilities/BlightedLand_CurrentLevelDescription` : << Friendly **Mythic** characters deal
+    +{extraDmgPct}% Damage while on a **Contaminated** hex. >>
+
+    QUI EN BENEFICIE -- `...BlightedLandEffect$$CreateTargetSelector`, LU au decompile ::
+
+        UnitsOnTilesWithEffect(
+            UnitsWithRarity(
+                Friends( Owner@<DSLSelectors+0x30>, AllUnits@<DSLSelectors+0x20>,
+                         3 = UnitSelectionType.OnlyAliveAndTargetable ),
+                5 = idun.meta.Rarity.Mythic, 3 ),
+            0x4dc = EffectType.Contaminated )
+
+    ⚠ **AUCUN etage ne lit la POSITION du PORTEUR** -- ni `AdjacentUnits`, ni `SurroundingFriends`,
+    ni la moindre distance. `Friends(Owner, AllUnits)` est BOARD-WIDE, `UnitsWithRarity` ne lit que
+    `BaseUnitComponent+0x74`, et `UnitsOnTilesWithEffect` lit la tuile de l'ELEMENT COURANT du
+    selecteur (donc du BENEFICIAIRE), pas celle du porteur. C'est ce qui rend cette aura evaluable
+    depuis une MACHINE OF WAR, qui n'a AUCUNE position : elle n'a rien a taire. (Le canal des auras
+    POSITIONNELLES, lui, se tait tout seul sur `owner_pos = None` -- cf. #999-r3-r1-r1.)
+
+    CE QU'ILS GAGNENT -- `...BlightedLandEffect$$CreateEffectDamageBonusForAttack` ::
+
+        EffectBonus.ForPercentIncrease(
+            get_OwnerIsCaster,
+            ConfigVar( 0xa = extraDmgPct, GetAbilityState(this), <config@this+0x60> ) )
+
+    Le `ForPercentIncrease` est INLINE dans ce corps (pas d'appel a
+    `IdunBattle.Entities.Effects.EffectBonus$$ForPercentIncrease`), et c'est la STRUCTURE ECRITE qui
+    l'etablit, champ par champ, contre le corps de la methode nommee : `+0x00 <- trigger`,
+    `+0x08 <- formule`, `+0x10..+0x33 <- 0`, `+0x34..+0x4c <- AbilityOrEffect`. Aucun des slots
+    additifs n'est ecrit => canal POURCENT, jamais additif.
+
+    CANAL DE PORT : `create_aura_attack_damage_bonus_for_ally`. Le trigger `get_OwnerIsCaster` dit
+    que le BENEFICIAIRE (l'`Owner` que la boucle native reecrit a CHAQUE cible du selecteur) doit
+    etre le CASTER du coup -- donc l'ATTAQUANT. Les trois etages du selecteur se lisent alors sur
+    l'attaquant : `att_team` (Friends), `att_rarity` (UnitsWithRarity), et la tuile `att_pos` dans
+    `tile_effects_by_pos` (UnitsOnTilesWithEffect).
+
+    ⚠ `Friends(Owner, AllUnits)` n'EXCLUT PAS le porteur (`UnitExtensions$$IsFriend` n'ecarte pas
+    l'egalite), alors que l'agregateur du port exclut `att_id == owner_id`. L'ecart est INATTEIGNABLE
+    ici : le porteur est une MoW, elle n'occupe aucune tuile, donc `UnitsOnTilesWithEffect` la
+    retranche de toute facon. Ecrit parce que c'est LU, pas parce que ca change un resultat."""
+
+    def create_aura_attack_damage_bonus_for_ally(self, ctx: Mapping | None = None) -> EffectBonus | None:
+        c = ctx or {}
+        # `Friends( Owner@+0x30, AllUnits@+0x20, 3 )` -- meme equipe que le PORTEUR. Aucune
+        # distance : l'etage natif n'en lit aucune (cf. docstring).
+        if c.get("owner_team") is None or c.get("owner_team") != c.get("att_team"):
+            return None
+        # `UnitsWithRarity( ..., 5 = idun.meta.Rarity.Mythic, 3 )` --
+        # `UnitsWithRaritySelector$$Select` compare `GetBaseUnitComponent(e)+0x74` au LITTERAL, par
+        # EGALITE stricte. TRI-ETAT : `None` = canal non mesure -> gate FERME (jamais `Common` en
+        # repli, qui serait PERMISSIF).
+        if c.get("att_rarity") != Rarity.Mythic:
+            return None
+        # `UnitsOnTilesWithEffect( ..., 0x4dc = EffectType.Contaminated )` =
+        # `FromTrigger(entities, IsUnitOnTileWithEffect(<element courant>, Contaminated))` : la
+        # tuile de l'element courant du selecteur, c.-a-d. celle de l'ATTAQUANT sur ce canal.
+        ap, tfx = c.get("att_pos"), c.get("tile_effects_by_pos")
+        if ap is None or tfx is None:
+            return None
+        if CONTAMINATED_TILE_EFFECT_NAME not in set(tfx.get(tuple(ap)) or ()):
+            return None
+        lvl, mult = _mow_ability_state(self, c, c.get("owner_id"), BLIGHTED_LAND_ABILITY)
+        pct = ability_var(BLIGHTED_LAND_ABILITY, _VAR_EXTRA_DMG_PCT, lvl, multiplier_pct=mult)
+        return for_percent_increase(True, int(pct)) if pct else None
+
+
+def more_gitz_adjacent_units_selector():
+    """L'ARBRE DSL du noeud d'ADJACENCE partage par les DEUX branches du `$$CreateTargetSelector`
+    de `MoreGitzOverEre_ExtraDamagePctEffect` (doctrine #149 : l'artefact natif est un SELECTEUR,
+    donc le port est un arbre) ::
+
+        AdjacentUnits( <origine>, unique: true, UnitSelectionType.OnlyAliveAndTargetable = 3 )
+
+    `IdunBattleLogic.Entities.DSLSelectors$$AdjacentUnits` n'a qu'UNE surcharge --
+    `(this, origin, unique, selectionType)` = `op_Subtraction(Units(AdjacentTiles(origin), unique,
+    selectionType), origin)` -- donc le `3` du call-site est LU sans ambiguite, et il est le SEUL
+    filtre de l'ensemble rendu (pas de wrapper `Enemies`/`Friends` a cet etage : les `Friends` du
+    natif viennent APRES, et le port les rejoue sur `owner_team` dans la classe d'effet).
+
+    `Const(1)` est le RAYON cote port -- le ring-1 qu'`AdjacentTiles` produit ; le `unique: true`
+    natif est absorbe (les selecteurs du port rendent deja des ensembles). MEME forme que
+    `obsessive_annunciation::adjacent_enemies_selector`, dont c'est le voisin sans filtre d'equipe.
+
+    L'ORIGINE est `Owner` : les DEUX branches natives l'instancient sur une entite differente
+    (branche A sur les Squigs amis, branche B sur `<element courant>@DSLSelectors+0x68`), mais
+    l'adjacence NATIVE est SYMETRIQUE -- liste stockee symetrique, porte `|dElev| < 2` symetrique --
+    donc les deux se derivent du MEME voisinage, celui de la CIBLE DU COUP. Les ponts de face
+    (`runner/components.py::adjacent_unit_ids`, `playbook/scene.py::Scene.adjacent_unit_ids`)
+    donnent a cet arbre son `AbilityEntities` avec `owner = la cible`."""
+    return AdjacentUnits(Owner(), Const(1),
+                         selection_type=int(UnitSelectionType.OnlyAliveAndTargetable))
+
+
+def _more_gitz_squig_visual_id() -> "str | None":
+    """`VisualUnitIdFromUnitId( Get( ConfigConstString(<config>, 0) ) )` -- le `visualId` du Squig.
+
+    Le natif lit `constants.unitId` (= `"orksSmnSquig"`) PUIS le traduit en visualId par
+    `IdunBattleLogic.Entities.DSLFormulas$$VisualUnitIdFromUnitId`, avant de le passer a
+    `UnitsWithVisualId(..., 1 = UnitSelectionType.OnlyAlive)`. Les DEUX etages passent par le
+    gameconfig (`constants.unitId`, puis `units.<unitId>.visualId`) -- rien n'est ecrit en dur ici :
+    une constante de build codee en dur deviendrait une fausse verite au prochain build."""
+    uid = ability_const_str(MORE_GITZ_OVER_ERE_ABILITY, _CONST_UNIT_ID)
+    if not uid:
+        return None
+    try:
+        import gameconfig as _GC
+    except Exception:
+        return None
+    vis = (_GC.unit(str(uid)) or {}).get("visualId")
+    return str(vis) if vis else None
+
+
+class MoreGitzOverEreExtraDamagePctEffect(BaseEffect):
+    """`IdunBattle.Entities.Effects.Loki.MoreGitzOverEre_ExtraDamagePctEffect` (`EffectType` 0x5a9 =
+    1449) -- owner-effect PERMANENT de l'ability MYTHIQUE `MoreGitzOverEre` (`TriggeredAbilityType`
+    0x5b0 = 1456) de la MoW `orksRukkatrukk` / `orksNpcMoWRukkatrukk`. Volet restant de #1025-r1.
+
+    i2 `Abilities/MoreGitzOverEre_CurrentLevelDescription` : << Enemies that are adjacent to a
+    friendly **Squig** or adjacent to two or more friendly **Mythic** characters take
+    +{extraDmgPct}% Damage from **normal melee attacks** >> ; `UnitEffects/..._Description` :
+    << Takes +{extraDmgPct}% Damage from normal melee attacks by **Mythic** characters >>.
+
+    QUI LE SUBIT -- `...MoreGitzOverEre_ExtraDamagePctEffect$$CreateTargetSelector`, LU au
+    decompile (l'ordre ci-dessous est celui de la COMPOSITION, pas celui des `call`) ::
+
+        Unique( Enemies( Owner@<DSLSelectors+0x30>,
+                         op_Addition(
+                           # branche A -- voisins d'un Squig ami
+                           AdjacentUnits(
+                             Friends( Owner@+0x30,
+                                      UnitsWithVisualId(
+                                        VisualUnitIdFromUnitId( ConfigConstString(<config>, 0) ),
+                                        1 = UnitSelectionType.OnlyAlive ),
+                                      3 ),
+                             unique: true, 3 ),
+                           # branche B -- au moins DEUX amis Mythiques adjacents
+                           Filter( AllUnits@<DSLSelectors+0x20>,
+                                   AmountIsEqualOrGreater(
+                                     Friends( Owner@+0x30,
+                                              UnitsWithRarity( AdjacentUnits(<element@+0x68>,
+                                                                             unique: true, 3),
+                                                               5 = idun.meta.Rarity.Mythic, 3 ),
+                                              3 ),
+                                     Direct(2) ) ) ),
+                         3 ) )
+
+    ⚠ `<DSLSelectors+0x68>` est l'ELEMENT COURANT du selecteur, pas une unite nommee : c'est le
+    meme slot que lit `UnitsOnTilesWithEffect` (dont le corps fait `unit = *(this+0x68)`). La
+    branche B se lit donc << l'unite evaluee a >= 2 amis-du-porteur Mythiques adjacents >>.
+
+    CE QU'ELLES SUBISSENT -- `...$$CreateEffectDamageBonusForAttack` ::
+
+        EffectBonus.ForPercentIncrease(
+            get_OwnerIsTarget
+              & ( AreFriends( Caster@<DSLSelectors+0x48>, EffectSource@<DSLSelectors+0x38>,
+                              0, false )
+                  & HasRarity( Caster@+0x48, 5 = idun.meta.Rarity.Mythic ) )
+              & IsMeleeAttack
+              & IsNormalAttack,
+            ConfigVar( 0xa = extraDmgPct, GetAbilityState(this), <config@this+0x60> ) )
+
+    (`ForPercentIncrease` est ici un APPEL nomme a `IdunBattle.Entities.Effects.EffectBonus$$
+    ForPercentIncrease`, contrairement a son jumeau 1442 ou il est inline.)
+
+    CANAL DE PORT : `create_aura_defense_damage_malus_for_ally` avec
+    `AURA_DEFENSE_MALUS_NATIVE_FACE = "attacker"` -- EXACTEMENT l'arbitrage de
+    `DaughterOfTheAbyssExtraDamagePctEffect` (#437-r1-r1-r1) : le slot natif est ATTAQUANT (le natif
+    verse dans `attackModifiers`), mais le BENEFICIAIRE du selecteur est la CIBLE DU COUP
+    (`get_OwnerIsTarget`), et le seul agregateur du port qui balaie les porteurs TIERS pour une
+    cible est la boucle state-wide `EffectWithTarget` du builder DEFENSEUR.
+
+    ⚠ `AreFriends(Caster, EffectSource)` est VRAI quand `Caster == EffectSource`
+    (`UnitExtensions$$IsFriend` n'ecarte pas l'egalite) : la MoW porteuse qui attaque elle-meme un
+    ennemi eligible TOUCHE le bonus. L'agregateur DEFENSE n'exclut PAS `att_id == owner_id` (il
+    n'exclut que `uid == tgt_id`), donc ce chemin est servi sans code special -- et on n'ajoute
+    surtout pas d'exclusion, qui serait un ecart au natif."""
+
+    # #437-r1-r1-r1 : la FACE vient de la CLASSE. `methods.tsv` donne
+    # `...MoreGitzOverEre_ExtraDamagePctEffect$$CreateEffectDamageBonusForAttack` -- le slot
+    # ATTAQUANT -- alors que le port l'evalue par le canal AURA-DEFENSE (le seul qui balaie les
+    # porteurs TIERS pour une cible donnee). CONSEQUENCE ARITHMETIQUE REELLE : canal POURCENT
+    # ATTAQUANT, pas defenseur.
+    AURA_DEFENSE_MALUS_NATIVE_FACE = "attacker"
+
+    def _selector_hits_target(self, c) -> bool:
+        """`Unique(Enemies(Owner, A + B, 3))` -- la CIBLE DU COUP appartient-elle au selecteur ?
+
+        `op_Addition` est une UNION : il suffit qu'UNE des deux branches la contienne. Les deux se
+        derivent du MEME substrat `tgt_adjacent_unit_profiles` = `AdjacentUnits(<cible>, unique,
+        3)`, l'adjacence NATIVE (liste stockee + porte d'elevation), enrichie de `(team, visual_id,
+        rarity)`.
+
+        BRANCHE A -- `AdjacentUnits( Friends(Owner, UnitsWithVisualId(squig, OnlyAlive), 3) )` : la
+        cible est voisine d'un Squig ami du porteur. L'adjacence native est SYMETRIQUE (la liste
+        stockee l'est, et la porte `|dElev| < 2` aussi), donc << la cible est dans les voisins des
+        squigs >> et << un squig est dans les voisins de la cible >> sont la MEME question.
+
+        BRANCHE B -- `AmountIsEqualOrGreater( Friends(Owner, UnitsWithRarity(AdjacentUnits(<elem>),
+        Mythic, 3), 3), Direct(2) )` : au moins DEUX voisins de la cible sont des amis du porteur
+        ET Mythiques."""
+        prof = c.get(CTX_TGT_ADJACENT_UNIT_PROFILES)
+        if prof is None:                                  # canal NON MESURE -> gate FERME
+            return False
+        owner_team = c.get("owner_team")
+        # `Friends( Owner@+0x30, ..., 3 )` -- commun aux DEUX branches.
+        friends = [p for p in prof if p[1] is not None and p[1] == owner_team]
+        want = _more_gitz_squig_visual_id()
+        if want is not None and any(str(p[2]) == want for p in friends if p[2] is not None):
+            return True                                   # branche A
+        n_mythic = sum(1 for p in friends if p[3] == Rarity.Mythic)
+        return n_mythic >= MIN_ADJACENT_MYTHIC_FRIENDS    # branche B
+
+    def create_aura_defense_damage_malus_for_ally(self, ctx: Mapping | None = None) -> EffectBonus | None:
+        c = ctx or {}
+        # `Enemies( Owner@+0x30, ..., 3 )` -- la cible de l'effet est un ENNEMI du porteur.
+        if c.get("owner_team") is None or c.get("tgt_team") is None \
+                or c.get("owner_team") == c.get("tgt_team"):
+            return None
+        # `AreFriends( Caster@+0x48, EffectSource@+0x38, 0, false )` -- l'ATTAQUANT est un ami du
+        # PORTEUR (qui est aussi la `source` de l'`AddEffect`, cf. `AOwnerEffectTriggeredAbility`).
+        if c.get("att_team") is None or c.get("att_team") != c.get("owner_team"):
+            return None
+        # `HasRarity( Caster@+0x48, 5 = idun.meta.Rarity.Mythic )` -- TRI-ETAT, gate FERME sur None.
+        if c.get("att_rarity") != Rarity.Mythic:
+            return None
+        if c.get("is_melee") is not True:                 # IsMeleeAttack -- tri-etat
+            return None
+        if c.get("is_normal_attack") is not True:         # IsNormalAttack -- tri-etat
+            return None
+        if not self._selector_hits_target(c):             # `$$CreateTargetSelector`
+            return None
+        lvl, mult = _mow_ability_state(self, c, c.get("owner_id"), MORE_GITZ_OVER_ERE_ABILITY)
+        pct = ability_var(MORE_GITZ_OVER_ERE_ABILITY, _VAR_EXTRA_DMG_PCT, lvl, multiplier_pct=mult)
+        return for_percent_increase(True, int(pct)) if pct else None

@@ -113,9 +113,11 @@ from .loki.extra_damage import (
     TerrifyingCrescendoExtraDmgEffect, TwistedScienceExtraDmgEffect
 )
 from .loki.extra_damage_aura import (
-    BeaconOfRageFriendlyExtraDamageEffect, DaughterOfTheAbyssExtraDamagePctEffect,
+    BeaconOfRageFriendlyExtraDamageEffect, BlightedLandEffect,
+    DaughterOfTheAbyssExtraDamagePctEffect,
     DefenderOfTheGreaterGoodExtraDmgDroneEffect, DefenderOfTheGreaterGoodExtraDmgEffect,
-    DoomExtraDmgEffect, LordOfTheHostExtraDamageEffect, PathOfCommandExtraDmgEffect,
+    DoomExtraDmgEffect, LordOfTheHostExtraDamageEffect, MoreGitzOverEreExtraDamagePctEffect,
+    PathOfCommandExtraDmgEffect,
     PsychicStalkExtraAttackDamageEffect, PsychicStalkFriendlyChaosExtraDamageEffect,
     PsychicStalkVisualEffect, RitesOfBattleExtraDmgEffect, SpotterReworkedExtraDamageEffect,
     SpotterReworkedHeavyWeaponEffect
@@ -884,6 +886,30 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     "DaughterOfTheAbyss_FriendlyDmgReductionPct": DaughterOfTheAbyssFriendlyDmgReductionPctEffect,
     "DaughterOfTheAbyss_OwnerDmgReduction": DaughterOfTheAbyssOwnerDmgReductionEffect,
     "DaughterOfTheAbyss_ExtraDamagePct": DaughterOfTheAbyssExtraDamagePctEffect,
+    # ==== AURAS DE MACHINE OF WAR (mythiques) -- meme forme, canaux opposes ==================
+    # #1035-r2 -- `BlightedLand_ExtraDamagePct` (`EffectType` 0x5a2 = 1442), owner-effect PERMANENT
+    # de la mythique `BlightedLand` (0x5a7 = 1447) de la MoW `deathCrawler`. Son
+    # `$$CreateTargetSelector` = `UnitsOnTilesWithEffect(UnitsWithRarity(Friends(Owner, AllUnits,
+    # 3), 5 = Mythic, 3), 0x4dc = Contaminated)` projette sur les AMIS -> le beneficiaire est
+    # l'ATTAQUANT -> canal `create_aura_attack_damage_bonus_for_ally`.
+    # ⚠ Le verrou qui le tenait dehors (canal de RARETE absent) est TOMBE : `att_rarity` est
+    # threade sur les DEUX faces depuis #999-r3-r1, et l'univers de porteurs est board-wide (donc
+    # MoW-compatible) depuis #999-r3-r1-r1. AUCUN etage de ce selecteur ne lit la position du
+    # porteur, ce qui est precisement ce qui le rend evaluable depuis une MoW.
+    "BlightedLand_ExtraDamagePct": BlightedLandEffect,
+    # #1025-r1 -- `MoreGitzOverEre_ExtraDamagePct` (`EffectType` 0x5a9 = 1449), owner-effect
+    # PERMANENT de la mythique `MoreGitzOverEre` (0x5b0 = 1456) de la MoW `orksRukkatrukk`. Son
+    # `$$CreateTargetSelector` projette sur les ENNEMIS (`Enemies(Owner, <voisins d'un Squig ami> +
+    # <unites a >= 2 amis Mythiques adjacents>, 3)`) -> le beneficiaire est la CIBLE DU COUP ->
+    # canal `create_aura_defense_damage_malus_for_ally`, avec
+    # `AURA_DEFENSE_MALUS_NATIVE_FACE = "attacker"` (le slot natif reste
+    # `$$CreateEffectDamageBonusForAttack`, MEME arbitrage que `DaughterOfTheAbyss_ExtraDamagePct`
+    # juste au-dessus).
+    # ⚠ NE PAS chercher cet effet par l'ORDINAL `1449` : il est PARTAGE avec le passif
+    # `UnwaveringSentinel` de `custoKyrus` (`TriggeredAbilityType` 1449), qui n'a rien a voir.
+    # L'appariement passe par le NOM PLEIN, ici comme au registre de `probe_313`.
+    "MoreGitzOverEre_ExtraDamagePct": MoreGitzOverEreExtraDamagePctEffect,
+    # =========================================================================================
     # BlessingsOfKhorne (trait 1046, faction World Eaters — Azkor/Kharn/Wrask/Macer + bosses LHE) :
     # -8%xN degat PSYCHIQUE recu par le porteur / +3%xN TOUT degat sortant, N=min(melee-defeats
     # global, 8) seedé par Scene._seed_battle_counters depuis decisionView.units (#185).
@@ -2199,13 +2225,13 @@ ABILITY_INIT_OWNER_EFFECTS: dict[str, list[str]] = {
     # Sur un runner live l'effet est capte par `decisionView.effects` (la `CreateActiveCondition` de
     # 1449 est le corps PARTAGE de la base, toujours vraie) -> ce seed est un FILET pour les chemins
     # purement offline.
-    # ⚠ L'EFFET 1449 n'entre PAS dans `EFFECT_CLASSES`, et c'est DELIBERE : ses DEUX faces
-    # (`$$CreateEffectDamageBonusForAttack` et `$$CreateTargetSelector`) sont gatees sur la RARETE
-    # -- `HasRarity(Caster@+0x48, 5 = Mythic)` pour le bonus, `UnitsWithRarity(..., 5)` pour la
-    # seconde branche du selecteur -- et ce canal N'EXISTE PAS cote port (`HasRarity` lit
-    # `GetBaseUnitComponent(e)+0x74` ; le gameconfig porte `BaseRarity = "Common"` pour la MoW, donc
-    # il ne repond pas). L'inscrire sans le gate serait un terme PERMISSIF. Residu `#1025-r1`,
-    # BLOCAGE capteur. Cf. `docs/rl/case-1025-mythiques-mow-verrou-rarete.md`.
+    # ⚠ L'EFFET 1449 EST DESORMAIS DANS `EFFECT_CLASSES` (#1025-r1, volet PORT) -- la phrase qui
+    # vivait ici (<< n'entre PAS, et c'est DELIBERE >>) est PERIMEE. Ses deux gates de rarete
+    # (`HasRarity(Caster@+0x48, 5 = Mythic)` pour le bonus, `UnitsWithRarity(..., 5)` pour la 2e
+    # branche du selecteur) se lisent aujourd'hui dans le canal `att_rarity` (capteur #1039, canal
+    # #999-r3, tri-etat -> gate FERME sur `None`), et l'univers de porteurs des DEUX agregateurs est
+    # board-wide depuis #999-r3-r1-r1 (donc une MoW sans position y entre).
+    # Cf. `docs/rl/case-1025-mythiques-mow-verrou-rarete.md` et `case-1449-more-gitz-over-ere.md`.
     "MoreGitzOverEre": ["MoreGitzOverEre_ExtraDamagePct"],
     # #1036 -- `GuardianConstructAbility` (ability **MYTHIQUE** de la MoW `necroReanimator` /
     # `necroNpcMoWReanimator`, `TriggeredAbilityType.GuardianConstruct` = 0x5fa = 1530). Meme forme
@@ -2393,8 +2419,9 @@ ABILITY_INIT_OWNER_EFFECTS: dict[str, list[str]] = {
     # La `CreateActiveCondition` de 1442 est le corps DEDUPLIQUE de la base (`return
     # <DSLTriggers+0x70>` = `YesTrigger`, refcount 182) -> l'effet est TOUJOURS actif, donc capte par
     # `decisionView.effects` sur un runner live : ce seed est un FILET pour les chemins offline.
-    # ⚠ L'EFFET 1442 N'ENTRE PAS DANS `EFFECT_CLASSES`, et c'est DELIBERE -- meme verrou que 1449 et
-    # 1448. i2 : « Friendly **Mythic** characters deal +{extraDmgPct}% Damage while on a
+    # ⚠ L'EFFET 1442 EST DESORMAIS DANS `EFFECT_CLASSES` (#1035-r2) -- la phrase qui vivait ici
+    # (<< N'ENTRE PAS, et c'est DELIBERE >>) est PERIMEE, le verrou de rarete etant tombe.
+    # i2 : « Friendly **Mythic** characters deal +{extraDmgPct}% Damage while on a
     # **Contaminated** hex. » Le canal de degat est une AURA dont le SELECTEUR porte le gate :
     #   `$$CreateTargetSelector` = UnitsOnTilesWithEffect(
     #                                  UnitsWithRarity(
@@ -2404,12 +2431,11 @@ ABILITY_INIT_OWNER_EFFECTS: dict[str, list[str]] = {
     #   `$$CreateEffectDamageBonusForAttack` = ForPercentIncrease(
     #                                  get_OwnerIsCaster,
     #                                  ConfigVar(0xa = extraDmgPct, GetAbilityState(effet), effet@+0x60))
-    # `UnitsWithRaritySelector$$Select` compare `GetBaseUnitComponent(e)+0x74` au litteral, et
-    # AUCUN canal `rarity` n'existe cote port -- l'inscrire sans ce gate projetterait l'aura sur TOUS
-    # les allies sur tuile contaminee, pas seulement les Mythiques : terme PERMISSIF. Residu
-    # `#1035-r2`, BLOCAGE capteur (le MEME que `#1025-r1` / `#1024-r1`). Le canal, sa contre-epreuve
-    # live et le point d'ancrage a hooker sont MESURES dans
-    # `docs/rl/case-1024-shield-of-faith-on-my-position.md` Sec.4 -- ne pas les re-mesurer.
+    # `UnitsWithRaritySelector$$Select` compare `GetBaseUnitComponent(e)+0x74` au litteral, par
+    # EGALITE stricte : le canal qui repond est `att_rarity` (capteur #1039, threading #999-r3),
+    # tri-etat -> gate FERME sur `None`. AUCUN etage de ce selecteur ne lit la POSITION du porteur,
+    # ce qui est exactement ce qui rend l'aura evaluable depuis une MoW (cf.
+    # `loki/extra_damage_aura.py::BlightedLandEffect`).
     "BlightedLand": ["BlightedLand_ExtraDamagePct"],
     # #1009 -- `MonsterSlayerofCalibanAbility` (parent `IdunBattle.Entities.Abilities.
     # BaseTriggeredAbility`, `frida/classes.tsv`) : UNE seule classe native pour la cle 1527, et

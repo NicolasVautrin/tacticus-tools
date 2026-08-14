@@ -819,6 +819,19 @@ class BaseEffect:
         se lit sur `tgt_id`, et NON sur le porteur. Substrat : `BaseUnitComponent.Rarity` (+0x74).
         TRI-ÉTAT : `None` = NON MESURÉ -> le gate se FERME.
 
+        Les TROIS clés `att_rarity`, `is_normal_attack` et `tgt_adjacent_unit_profiles` sont
+        arrivées avec `MoreGitzOverEre_ExtraDamagePct` (1449, #1025-r1). Elles ne portent PAS sur le
+        bénéficiaire : le trigger de cet effet est
+        `get_OwnerIsTarget & (AreFriends(Caster@+0x48, EffectSource@+0x38) & HasRarity(Caster@+0x48,
+        Mythic)) & IsMeleeAttack & IsNormalAttack` — deux de ses conjoints interrogent l'ATTAQUANT,
+        et son `$$CreateTargetSelector` interroge le VOISINAGE de la cible. `att_rarity` et
+        `is_normal_attack` sont les MÊMES clés (même nom, même résolveur, même tri-état) que celles
+        déjà posées sur le canal ATTAQUE et sur l'`att_ctx` du canal défenseur non-aura — pas un
+        nommage neuf. `tgt_adjacent_unit_profiles` = tuple de `(uid, team, visual_id, rarity)` pour
+        `AdjacentUnits(<la cible>, unique, 3)` (foyers `damage_model._adjacent_unit_profiles` /
+        `prediction._shared._adjacent_unit_profiles`, adjacence NATIVE partagée). TRI-ÉTAT partout :
+        `None` = NON MESURÉ -> le gate se FERME ; un tuple VIDE est une mesure (« aucun voisin »).
+
         Les TROIS dernières clés sont arrivées avec `PsychicStalk_ExtraAttackDamage` (#366-r1), dont
         le trigger ne porte NI sur le porteur NI sur un `CreateTargetSelector` : `IsUnit(caster@0x160)`
         lit l'ATTAQUANT (`att_is_unit`, même clé/sémantique que l'`attacker_ctx["is_unit"]` du canal

@@ -232,17 +232,24 @@ def test_verrou_de_rarete_fige_avec_sa_raison():
         ligne de backlog se trompait : `search_symbols_by_name` rend `.ctor` + `$$CreateDamage
         Modifier`, aucun selecteur) mais le canal `att_ctx["tgt_rarity"]`, threade depuis les
         NEUF sites de construction du ctx du canal ATTAQUE, sur les DEUX faces ;
-      * **1449 reste dehors, et pour une AUTRE cause** : `MoreGitzOverEre_ExtraDamagePctEffect`,
+      * **1449 restait dehors, et pour une AUTRE cause** : `MoreGitzOverEre_ExtraDamagePctEffect`,
         lui, a bien un `$$CreateTargetSelector` -- c'est donc une AURA, et son porteur est la MoW
-        `orksRukkatrukk`. Le blocage est `#999-r3-r1-r1` (une MoW n'entre dans l'univers de
+        `orksRukkatrukk`. Le blocage etait `#999-r3-r1-r1` (une MoW n'entrait dans l'univers de
         porteurs d'AUCUN des deux agregateurs d'aura, sur AUCUNE des deux faces), pas la rarete ;
       * le CANAL de rarete repond toujours -- `UnitContext.rarity`, `triggers.HasRarity`,
         `selectors.units.UnitsWithRarity`. C'est assertionne ici pour que son retrait rougisse.
 
-    Il ROUGIRA le jour ou quelqu'un inscrit 1449 -- toujours voulu : cette inscription-la doit
-    passer par la reparation de `#999-r3-r1-r1`, et par une confrontation en regime SEPARANT,
-    jamais dans le regime par defaut du harnais ou toute unite vaut `Mythic` et ou un port SANS
-    gate serait d'accord partout."""
+    REQUALIFIE UNE TROISIEME FOIS, PAR #1025-r1 (volet PORT) -- il a ROUGI une troisieme fois, au
+    moment prevu. `#999-r3-r1-r1` est REPARE (le filtre positionnel des quatre sites etait un
+    ARTEFACT du port : le natif itere l'ETAT board-wide), donc **1449 EST INSCRIT**. Son canal est
+    `create_aura_defense_damage_malus_for_ally` avec
+    `AURA_DEFENSE_MALUS_NATIVE_FACE = "attacker"` -- le beneficiaire du selecteur est la CIBLE DU
+    COUP (`get_OwnerIsTarget`), pas l'attaquant. Le port, ses deux branches de selecteur et ses
+    contre-bras : `test_1035r2_1025r1_auras_mow_offline.py`.
+
+    Ce que ce cran garde MAINTENANT : que l'inscription n'a pas coute son gate de RARETE. Un 1449
+    inscrit sans `HasRarity(Caster, Mythic)` serait d'accord avec le natif dans TOUT le regime par
+    defaut du harnais (`targetRarity = 5` partout) et faux des qu'une unite ne l'est pas."""
     from engine.entities.effects.factory import EFFECT_CLASSES
     from engine.entities.effects.loki.damage_reduction import (
         ElectrochaffBackupsDamageReductionPctEffect)
@@ -254,10 +261,28 @@ def test_verrou_de_rarete_fige_avec_sa_raison():
             is ElectrochaffBackupsDamageReductionPctEffect), (
         "1446 a QUITTE le registre : la face DEGAT d'ElectrochaffBackups redevient muette. "
         "Relire docs/rl/case-1025-mythiques-mow-verrou-rarete.md.")
-    assert EffectType.MoreGitzOverEre_ExtraDamagePct.name not in EFFECT_CLASSES, (
-        "1449 est entre au registre : son blocage etait #999-r3-r1-r1 (porteur MoW hors de "
-        "l'univers des agregateurs d'aura), pas la rarete. Verifier que la reparation couvre "
-        "les DEUX faces avant de le laisser entrer.")
+    assert EffectType.MoreGitzOverEre_ExtraDamagePct.name in EFFECT_CLASSES, (
+        "1449 a QUITTE le registre : son canal AURA DEFENSE est porte depuis #1025-r1 (volet "
+        "PORT), et son blocage #999-r3-r1-r1 est REPARE sur les DEUX faces. L'en lever le "
+        "retire, ca ne le corrige pas.")
+    # ⚠ L'INSCRIPTION NE DOIT PAS AVOIR COUTE LE GATE. Contre-bras MINIMAL (les autres sont dans
+    # `test_1035r2_1025r1_auras_mow_offline.py`) : un attaquant NON Mythic, puis un attaquant dont
+    # la rarete n'est pas mesuree. Les deux doivent rendre `None`.
+    _mg = EFFECT_CLASSES[EffectType.MoreGitzOverEre_ExtraDamagePct.name](
+        name=EffectType.MoreGitzOverEre_ExtraDamagePct.name,
+        effect_type=int(EffectType.MoreGitzOverEre_ExtraDamagePct), ability_level=1)
+    _c = {"owner_id": 90, "owner_team": 1, "tgt_id": 20, "tgt_team": 2, "att_id": 11,
+          "att_team": 1, "is_melee": True, "is_normal_attack": True,
+          "tgt_adjacent_unit_profiles": ((12, 1, "orksNob", Rarity.Mythic),
+                                         (13, 1, "orksNob", Rarity.Mythic))}
+    assert _mg.create_aura_defense_damage_malus_for_ally(
+        dict(_c, att_rarity=Rarity.Mythic)) is not None, "montage degenere : le bras vrai est muet"
+    assert _mg.create_aura_defense_damage_malus_for_ally(
+        dict(_c, att_rarity=Rarity.Epic)) is None, (
+        "le gate `HasRarity(Caster, Mythic)` de 1449 a disparu : terme PERMISSIF, et INVISIBLE "
+        "dans le regime par defaut du harnais (`targetRarity = 5` partout).")
+    assert _mg.create_aura_defense_damage_malus_for_ally(
+        dict(_c, att_rarity=None)) is None, "non mesure -> le gate doit se FERMER"
     # Le canal, TRI-ETAT : `None` = pas mesure, jamais `Rarity.Common`.
     assert hasattr(UnitContext, "rarity"), (
         "`UnitContext.rarity` a DISPARU : le canal de rarete (#999-r3) est retire, et les deux "

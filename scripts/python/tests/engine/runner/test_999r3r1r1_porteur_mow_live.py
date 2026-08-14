@@ -7,12 +7,15 @@ traverse ; il ne peut pas montrer que le JEU publie la matiere. C'est cette moit
 fichier garde -- la chaine `jeu -> decisionView/combatSnapshot -> EffectsState -> univers de
 porteurs`.
 
-⚠ AUCUNE MAGNITUDE N'EST CONFRONTEE, et ce n'est pas un oubli : aucun des six effets d'aura de MoW
-(1442 `BlightedLand`, 1443 `ContemptuousDisregard`, 1445 `WisdomOfTheAncients`,
-1449 `MoreGitzOverEre`, 1494 `CabalOfSorcerers`, 1548 `GuardianConstruct`) n'est porte cote Python,
-donc il n'existe aucun nombre a comparer. Le jour ou l'un d'eux sera inscrit, SA magnitude devra
-etre confrontee separement, en regime SEPARANT (`rarity_separating_case`) -- le regime par defaut
-du harnais impose `targetRarity = 5` a toute unite normalisee, donc tout gate de rarete y est
+⚠ AUCUNE MAGNITUDE N'EST CONFRONTEE ICI, et ce n'est pas un oubli : ce fichier garde la CHAINE
+(le jeu publie la matiere, le port la voit), pas les nombres. La phrase qui vivait ici -- << aucun
+des six effets d'aura de MoW n'est porte cote Python, donc il n'existe aucun nombre a comparer >>
+-- est PERIMEE : `1442 BlightedLand` (#1035-r2) et `1449 MoreGitzOverEre` (#1025-r1) SONT portes
+et confrontes, chacun dans SON fichier, en regime SEPARANT -- `test_1035r2_blighted_land_bonus_
+live.py` et `test_1025r1_more_gitz_bonus_live.py`. Restent NON PORTES : `1443
+ContemptuousDisregard`, `1445 WisdomOfTheAncients`, `1494 CabalOfSorcerers`, `1548
+GuardianConstruct`. La consigne, elle, reste ENTIEREMENT valable pour eux : le regime par defaut du
+harnais impose `targetRarity = 5` a toute unite normalisee, donc tout gate de rarete y est
 uniformement VRAI et un vert obtenu la serait VIDE.
 
 MONTAGE : `deathCrawler` / `BlightedLand` (1447 -> effet 1442), le seul couple qui tienne les trois
