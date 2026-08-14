@@ -446,7 +446,8 @@ def additional_hits_variant(order, force_round, is_attack_op=True):
                 limits=AttackDamageOperation._target_limits(tgt, thc, g_profile, is_special=1),
                 limits_hp=int(thc.hp or 0), is_attack_damage_op=is_attack_op)
             failed_block = r["failed_block"]
-            AttackDamageOperation._deplete_shield(shc, r)
+            # #1020-r1 : la depletion du bouclier vit desormais DANS `_apply_damage_pipeline`
+            # (`ApplyDamageOperation$$ReduceShield` lit le pending RELU, apres `On(0x39)`).
             AttackDamageOperation._apply_damage_pipeline(
                 state, target_id, attacker_id, tgt, thc, r["total"], g_profile,
                 r["shield_dmg"], r["armor_dmg"], is_attack=False)

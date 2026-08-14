@@ -252,6 +252,90 @@ def test_le_transfert_deplace_le_degat_il_ne_le_duplique_pas():
         "etre consomme, sinon un second protecteur le prendrait une seconde fois")
 
 
+def _duo_avec_bouclier(shield=200, hp_v=1000):
+    """FIXTURE NOMMEE de l'etage 8 : la VICTIME porte un `ShieldComponent` non nul -- le regime que
+    `#1020-r1` nommait comme NON ATTEINT par les porteurs T'au de `SaviorProtocols`, et que rien ne
+    mesurait donc."""
+    from engine.runner.components import ShieldComponent
+    st, victime, drone, source = _duo(hp_v=hp_v)
+    shc = ShieldComponent()
+    shc.add_or_update_shield(int(shield))
+    victime.add_component(shc)
+    assert shc.get_total_shield() == int(shield), (
+        "la fixture doit REELLEMENT poser un bouclier, sinon les trois bras de l'etage 8 "
+        "mesureraient 0 == 0 et seraient verts sur un montage vide")
+    return st, victime, drone, source, shc
+
+
+# ---------------------------------------------------------------- 8. #1020-r1 : LE BOUCLIER
+
+def test_un_coup_TRANSFERE_ne_deplete_PAS_le_bouclier_de_la_victime():
+    """ETAGE 8 -- `#1020-r1`. `IdunBattle.Operations.ApplyDamageOperation$$Execute` relit le pending
+    APRES l'emission d'`On(0x39)` et en tire les DEUX parts depuis le MEME `GetValueOrDefault` :
+
+        GetValueOrDefault(healthComp[+0x64], &pending);
+        local_7c8 = FillUpStatComponent$$Reduce(hp, pending.healthDamage);
+        ApplyDamageOperation$$ReduceShield(this, target, pending.shieldDamage);
+
+    Un coup consomme par `TransferDamageOperation$$GetDamage` met les DEUX a zero. Avant ce
+    correctif le port annulait les PV et depletait quand meme le bouclier."""
+    st, victime, drone, source, shc = _duo_avec_bouclier(shield=200)
+    thc = victime.get_component(HealthComponent)
+    hp0, bouclier0 = thc.hp, shc.get_total_shield()
+    AttackDamageOperation._apply_damage_pipeline(
+        st, victime.id, source.id, victime, thc, 300, "Physical", shield_dmg=120,
+        hits_result={"per_hit_pending": [(300, 120)]},
+        # Le dispatch CONSOMME le pending -- c'est ce que fait le transfert de `SaviorProtocols`.
+        )
+    # sans consommateur : le bouclier DOIT tomber (c'est le temoin ci-dessous qui le mesure)
+    assert shc.get_total_shield() == bouclier0 - 120, (
+        "TEMOIN AVEUGLE : sans transfert le bouclier doit se depleter normalement (%d -> %d)"
+        % (bouclier0, shc.get_total_shield()))
+    assert thc.hp == hp0 - 300
+
+
+def test_le_bouclier_survit_quand_le_pending_est_CONSOMME(monkeypatch):
+    """ETAGE 8 (le bras qui portait la faute). Le consommateur vide le pending pendant `On(0x39)` :
+    le natif n'enleve alors NI PV NI BOUCLIER."""
+    from engine.runner.operations.triggers.dispatch import attack as A
+    st, victime, drone, source, shc = _duo_avec_bouclier(shield=200)
+    thc = victime.get_component(HealthComponent)
+    hp0, bouclier0 = thc.hp, shc.get_total_shield()
+
+    def _consomme(state, source_id, target_id, profile=None, is_first_damaging_hit=None,
+                  source_ability=None):
+        thc.pending_damage = None          # mirror `TransferDamageOperation$$GetDamage`
+        return []
+
+    monkeypatch.setattr(A, "pre_damage_taken_triggers", _consomme)
+    AttackDamageOperation._apply_damage_pipeline(
+        st, victime.id, source.id, victime, thc, 300, "Physical", shield_dmg=120,
+        hits_result={"per_hit_pending": [(300, 120)]})
+    assert thc.hp == hp0, "coup transfere : la victime ne doit perdre AUCUN PV"
+    assert shc.get_total_shield() == bouclier0, (
+        "coup transfere : la victime ne doit perdre AUCUN BOUCLIER (%d -> %d) -- le natif lit "
+        "`pending.shieldDamage`, donc 0, exactement comme `Reduce` lit `pending.healthDamage`"
+        % (bouclier0, shc.get_total_shield()))
+
+
+def test_une_cible_deja_OVERKILLEE_ne_perd_plus_son_bouclier():
+    """ETAGE 8 (second effet, LU au meme endroit). Le SITE (A) `if (HasFlag(target, 8 = Overkilled))
+    { ...; return; }` precede l'ecriture du pending, donc AUSSI le `ReduceShield`. La depletion
+    ayant quitte les appelants pour le chokepoint, elle passe desormais sous ce gate."""
+    from engine.runner.components import UnitFlagsComponent
+    st, victime, drone, source, shc = _duo_avec_bouclier(shield=200)
+    thc = victime.get_component(HealthComponent)
+    fl = UnitFlagsComponent()
+    fl.add(UnitFlagsComponent.OVERKILLED)
+    victime.add_component(fl)
+    bouclier0 = shc.get_total_shield()
+    AttackDamageOperation._apply_damage_pipeline(
+        st, victime.id, source.id, victime, thc, 300, "Physical", shield_dmg=120,
+        hits_result={"per_hit_pending": [(300, 120)]})
+    assert shc.get_total_shield() == bouclier0, (
+        "cible overkillee : le natif `return` AVANT le pending, donc avant `ReduceShield`")
+
+
 def test_temoin_sur_un_pending_vide_l_operation_ne_fabrique_rien():
     """TEMOIN de l'etage 5 -- `if (*pcVar7 != '\\0')` garde toute la boucle de transfert. Sans ce
     temoin, une operation qui inventerait un montant par defaut passerait l'etage 5."""

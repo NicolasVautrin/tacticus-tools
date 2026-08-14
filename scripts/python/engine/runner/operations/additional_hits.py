@@ -453,7 +453,8 @@ def execute_additional_hits(state: State, attacker_id: int, target_id: int, tgt,
         hit_index = r["next_hit_index"]
         crit_allowed = r["crit_allowed"]    # #366-r1-crit-multihit : `attack[+0x40] &= hitGroup[+0x3c]`
         failed_block = r["failed_block"]    # #407 : `RegisterBlocks` -> `hitGroup[+0x60].AddRange(.)`
-        AttackDamageOperation._deplete_shield(shc, r)
+        # #1020-r1 : plus de `_deplete_shield` ICI. `ApplyDamageOperation$$ReduceShield` lit le
+        # pending RELU (apres `On(0x39)`), donc la depletion vit dans le chokepoint, avec `Reduce`.
         d = AttackDamageOperation._apply_damage_pipeline(
             state, target_id, attacker_id, tgt, thc, r["total"], g_profile,
             r["shield_dmg"], r["armor_dmg"], is_attack=False,

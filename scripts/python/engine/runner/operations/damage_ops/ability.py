@@ -646,7 +646,8 @@ class _AbilityAttack:
                                             # crit acquis par coup, SANS tirage (le natif saute
                                             # RollCritical quand l'octet options+5 est pose).
                                             force_crit=force_crit)
-        AttackDamageOperation._deplete_shield(shc, r)
+        # #1020-r1 : plus de `_deplete_shield` ICI. `ApplyDamageOperation$$ReduceShield` lit le
+        # pending RELU (apres `On(0x39)`), donc la depletion vit dans le chokepoint, avec `Reduce`.
         # `is_attack` = COMPTABILITE d'attaque (`_record_attacked` -> `ActorStatisticsComponent$$
         # RegisterAttackReceived`, dont le SEUL appelant natif est `IdunBattle.Operations.
         # RegisterAttackOperation$$Execute`). GATE PAR FAMILLE : le corps d'`IdunBattle.Operations.
