@@ -476,6 +476,29 @@ class DslContext:
     # `UnitComponent.received_damage_this_turn` -- le MEME dict que
     # `runner/operations/triggers/loki/reality_unbound.py` et `.../weaver_of_fate.py`.
     has_taken_damage_of_profile_this_turn: object | None = None
+    # #1015-r1 -- LES TROIS CANAUX DU TRAIT `InstinctiveBehaviour`, tous cables sur des foyers DEJA
+    # portes (aucune 2e derivation cote noeud) :
+    #   * `only_targets(unit_id) -> list[int]` : `IdunBattle.Entities.UnitExtensions$$GetOnlyTargets`
+    #     (le `ForcedAttackTargetsComponent`), foyer `runner/abilities/targeting.get_only_targets`.
+    #     Canal du selecteur `ForcedAttackTargets` ;
+    #   * `is_in_attack_or_ability_range(attacker_id, target_id) -> bool` : la boucle
+    #     `IdunBattle.Entities.Triggers.IsInAttackOrAbilityRangeTrigger$$ShouldTrigger` sur les
+    #     abilities montees du caster + `IBattleQuery` slot 0x41 `IsValidTarget`, foyer
+    #     `runner/abilities/targeting.valid_targets_for` (+ l'attaque NORMALE, que la
+    #     `KeyedCollection` native contient et que `ActiveAbilitiesComponent` exclut) ;
+    #   * `normal_attack_range(unit_id) -> int | None` : les trois branches d'arme de
+    #     `IdunBattle.Core.Services.TargetingQuery$$GetRange`, foyer
+    #     `runner/abilities/targeting.unit_weapon_range`. Canal de la formule `NormalAttackRange`.
+    # `None` (l'attribut) = contexte hors runner -> chaque noeud degrade dans le sens PERMISSIF et
+    # le DIT dans sa docstring.
+    only_targets: object | None = None
+    is_in_attack_or_ability_range: object | None = None
+    normal_attack_range: object | None = None
+    # `is_effect_target(unit_id, effect_type) -> bool | None` : `IdunBattleLogic.Entities.
+    # DSLTriggers$$IsEffectTarget`, foyer `entities/effect_targets.py` (re-derivation de
+    # `EffectComponent.Targets @+0x48` par le `<Effect>$$CreateTargetSelector` du type). TRI-ETAT
+    # PRESERVE jusqu'au noeud, qui porte lui-meme la direction de sa degradation.
+    is_effect_target: object | None = None
 
     def __post_init__(self):
         """`elev_by_pos` se DERIVE du `board` des qu'il n'est pas fourni -- le canal d'elevation

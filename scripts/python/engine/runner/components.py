@@ -2990,6 +2990,23 @@ class _RunnerEffectTargetWorld:
         ctx = getattr(sc, "ctx", None) if sc is not None else None
         return (getattr(ctx, "traits", None) or ()) if ctx is not None else ()
 
+    def faction(self, uid: int):
+        """`IdunBattleLogic.Entities.DSLSelectors$$UnitsFromFaction(entities, faction, selType)` --
+        canal AJOUTE par #1015-r1 pour la geometrie de `SynapseEffect$$CreateTargetSelector`
+        (3e disjoint : `UnitsFromFaction(..., UnitFaction.Tyranids = 0xc)`).
+
+        OPTIONNEL du protocole, et c'est voulu : `entities/effect_targets.py` teste sa PRESENCE et
+        rend `None` (NON MESURE) quand le substrat ne le publie pas -- jamais un ensemble PARTIEL.
+        Le pendant DECISION (`playbook/scene.py::_SceneEffectTargetWorld`) ne l'implemente pas :
+        aucun consommateur de la face decision ne lit `IsEffectTarget(_, Synapse_Effect)`.
+
+        Foyer : `entities/effects/aura_selectors.faction_of` (#930, le seul port de cette lecture ;
+        `dark_angels_passives._faction_of` y delegue deja). Rend le `FactionId` GAMECONFIG (chaine),
+        que l'appelant confronte au NOM du membre d'enum (`entities/unit_faction.UNIT_FACTION_NAMES`)
+        -- jamais a un ordinal."""
+        from ..entities.effects import aura_selectors as _ASel
+        return _ASel.faction_of(self.state, int(uid))
+
     def neigh_by_pos(self):
         """Canal de VOISINAGE NATIF du protocole (#943-r7), derive de l'ECS.
 
@@ -3661,7 +3678,7 @@ class UnitEffectStateView(Mapping):
 
     __slots__ = ("_state", "_uid", "_eager", "_has_psy", "_psy", "_has_pos",
                  "_has_effstate", "_lc", "_bta", "_has_sa", "_sa", "_asd", "_ae", "_adt", "_afm",
-                 "_asu", "_dbr")
+                 "_asu", "_dbr", "_ibm")
 
     def __init__(self, state, unit_id: int) -> None:
         self._state = state
@@ -3754,6 +3771,9 @@ class UnitEffectStateView(Mapping):
         # equipe rendrait la cle ABSENTE (donc la condition VRAIE par degradation) sur une entite
         # sans `OwnerComponent.team`, la ou le natif, lui, sait compter.
         self._dbr: Optional[int] = None
+        # #1015-r1 : verdict de la `CreateActiveCondition` de `1235 InstinctiveBehaviour_
+        # BlockMovement`. Gate `_has_pos` SEUL (ancrage `Tiles(Owner)`, aucun filtre d'equipe).
+        self._ibm: Optional[bool] = None
 
     def __getitem__(self, key):
         if key in self._eager:
@@ -3830,6 +3850,21 @@ class UnitEffectStateView(Mapping):
             if self._dbr is None:
                 self._dbr = debuffed_units_in_range_count(self._state, self._uid)
             return self._dbr
+        # #1015-r1 -- `InstinctiveBehaviourBlockMovementEffect$$CreateActiveCondition` =
+        # `IsTurnOf(Owner) & Any(Tiles(Owner), IsWalkable(It)) & AmountIsGreaterThanZero(
+        #  ForcedAttackTargets(Owner)) & Any(ForcedAttackTargets(Owner),
+        #  IsInAttackOrAbilityRange(Owner, It))`. L'arbre entier vit dans
+        # `entities/effects/loki/instinctive_behaviour.py` (foyer de l'effet 1235) ; cette cle n'en
+        # est que le POINT DE PUBLICATION, comme les six cardinaux paresseux ci-dessus.
+        # Gate de presence : `_has_pos` SEUL -- la condition s'ancre sur `Tiles(Owner)` et sur les
+        # cibles forcees, aucun filtre d'equipe. PARESSEUSE : l'arbre monte un `AbilityEntities`
+        # complet, on ne le paie que si une instance de 1235 le lit.
+        if key == "instinctive_behaviour_block_movement" and self._has_pos:
+            if self._ibm is None:
+                from ..entities.effects.loki.instinctive_behaviour_condition import (
+                    evaluate_block_movement)
+                self._ibm = bool(evaluate_block_movement(self._state, self._uid))
+            return self._ibm
         raise KeyError(key)
 
     def __iter__(self) -> Iterator[str]:
@@ -3841,6 +3876,7 @@ class UnitEffectStateView(Mapping):
             yield "is_target_of_big_target_adjacent"
             yield "adjacent_summons"                     # #920 : gate GEOMETRIQUE seul
             yield "debuffed_units_in_range"          # #922 : idem, gate GEOMETRIQUE seul
+            yield "instinctive_behaviour_block_movement"  # #1015-r1 : idem, gate GEOMETRIQUE seul
         if self._has_effstate:
             yield "has_effect_light_cover"
             yield "owned_effect_bonded_entity"
@@ -3853,10 +3889,11 @@ class UnitEffectStateView(Mapping):
             yield "adjacent_friendly_mechanical_units"
 
     def __len__(self) -> int:
-        # `_has_pos` en compte QUATRE depuis #922 : `contagions_of_nurgle_amount`,
-        # `is_target_of_big_target_adjacent`, `adjacent_summons` (#920) et
-        # `debuffed_units_in_range` -- les deux derniers ont un gate GEOMETRIQUE seul.
-        return (len(self._eager) + (1 if self._has_psy else 0) + (4 if self._has_pos else 0)
+        # `_has_pos` en compte CINQ depuis #1015-r1 : `contagions_of_nurgle_amount`,
+        # `is_target_of_big_target_adjacent`, `adjacent_summons` (#920),
+        # `debuffed_units_in_range` (#922) et `instinctive_behaviour_block_movement` -- les trois
+        # derniers ont un gate GEOMETRIQUE seul.
+        return (len(self._eager) + (1 if self._has_psy else 0) + (5 if self._has_pos else 0)
                 + (3 if self._has_effstate else 0) + (5 if self._has_sa else 0))
 
     def __repr__(self) -> str:                    # diagnostic (ASCII)

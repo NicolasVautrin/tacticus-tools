@@ -17,6 +17,7 @@ from .loki.kardiocore_galvanus import KardiocoreGalvanusExtraCritDmgEffect
 from .loki.maw_claws_of_thyrax import MawClawsOfThyraxExtraCritDmgEffect
 from .loki.nether_realm_casket import NetherRealmCasketCritDamageReductionEffect
 from .loki.headwoppas_killchoppa import HeadwoppasKillchoppaExtraDmgEffect
+from .loki.instinctive_behaviour import InstinctiveBehaviourBlockMovementEffect   # #1015-r1 (1235)
 from .loki.norn_crown import NornCrownEffect
 from .loki.ramshackle import RamshackleDmgReductionEffect
 from .loki.revealed import RevealedEffect                    # #1033 (1219, pose par 1107 Reveal)
@@ -219,6 +220,14 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # 1193 = +extraDmg aux attaques d'OVERWATCH des allies a <=2 hexes (canal aura-degat) ;
     # 1214/1232 = stat-mods PROJETES BlockDamage/BlockChance (canal aura-statmod, cf.
     # `runner/operations/aura_stat_mods.py`), 1232 restreint aux allies de FACTION DarkAngels.
+    # #1015-r1 -- `InstinctiveBehaviour_BlockMovement` (0x4d3 = 1235), owner-effet PERMANENT du
+    # trait `InstinctiveBehaviour`. Sa classe native derive de `IdunBattle.Entities.Effects.
+    # BlockUnitMovementEffect` (SEULE sous-classe du build) : ACTIVE, elle inscrit son id dans
+    # `MovementComponent+0x50` -> `IsAllowedToMove` FAUX -> `UnitExtensions$$CanMove` FAUX.
+    # TOUTE sa mecanique est sa `CreateActiveCondition`, portee et sous `active_condition_ported`.
+    # Le mirror d'`EffectType` portait ce nom depuis longtemps SANS aucune classe derriere -- le
+    # port nommait la donnee sans executer la mecanique ; c'est ce trou que cette entree ferme.
+    "InstinctiveBehaviour_BlockMovement": InstinctiveBehaviourBlockMovementEffect,
     "LionHelm_ExtraDmg": LionHelmExtraDmgEffect,
     "LionHelm_ExtraBlockDamage": LionHelmExtraBlockDamageEffect,
     "LionHelm_ExtraBlockChance": LionHelmExtraBlockChanceEffect,
@@ -2040,6 +2049,15 @@ TRAIT_DERIVED_ABILITIES: dict[str, list[str]] = {
     # n'entrant au pool ; en live le trait se force par `--unit-stat "<vis>:Traits=[...]"`, et c'est
     # alors `AddTraitOperation$$AddDerivedAbilities` qui monte la meme chaine cote natif. #1015-r1.
     "CloseCombatWeakness": ["CloseCombatWeakness"],
+    # InstinctiveBehaviour (trait 0x7e5 = 2021, 23 porteurs) -> triggered derivee 0x413 = 1043
+    # (dict `Trait +0x0`). `IdunBattleLogic.Entities.Abilities.Active.Loki.
+    # InstinctiveBehaviour_InitAbility$$.ctor` = `AOwnerEffectSpecificTriggeredAbility(0x413)`, donc
+    # `CreateTrigger = OnOwnerSpecificAbilityInit(0x413)` et le `CreateBehaviour` herite pose
+    # l'owner-effet `$$GetEffectType` -> corps ENTIER `return 0x4d3` = 1235
+    # `InstinctiveBehaviour_BlockMovement`. MEME patron que `Terrifying` / `Diminutive` /
+    # `Vitarus_InitAbility`. La ligne « on n'a PAS lu si leur CreateBehaviour pose un owner-effect »
+    # du commentaire ci-dessus etait vraie a l'ecriture ; pour CE trait elle ne l'est plus (#1015-r1).
+    "InstinctiveBehaviour": ["InstinctiveBehaviour"],
 }
 
 # Étape 2 — owner-effects posés par `<Ability>.CreateBehaviour` À L'INIT de l'ability (DSL `AddEffect(owner)`).
@@ -2059,6 +2077,17 @@ ABILITY_INIT_OWNER_EFFECTS: dict[str, list[str]] = {
     # l'init). Owner-effect PERMANENT, meme patron que `Terrifying`/`Diminutive`. #1015-r1.
     "CloseCombatWeakness": ["CloseCombatWeakness_ReduceDmg"],
     "Ramshackle": ["Ramshackle_DmgReduction"],
+    # #1015-r1 -- `InstinctiveBehaviour_InitAbility` (parent `IdunBattle.Entities.Abilities.
+    # AOwnerEffectSpecificTriggeredAbility`, `frida/classes.tsv`) n'override QUE `$$GetEffectType`,
+    # dont le corps ENTIER est `return 0x4d3` (= 1235 `InstinctiveBehaviour_BlockMovement`) :
+    # l'appariement ability -> effet est LU, pas devine. Son `.ctor` passe `0x413` a la base, donc
+    # `CreateTrigger = OnOwnerSpecificAbilityInit(0x413)` -- il ecoute l'init de l'ability DERIVEE
+    # du trait, dont il est la seconde classe. Owner-effect PERMANENT (`turns = <zeroe>`).
+    # `CreateActiveCondition` est PORTEE (elle est TOUTE la mecanique de l'effet, cf.
+    # `entities/effects/loki/instinctive_behaviour.py`) -> ce seed n'est PAS un filet : sans lui,
+    # aucun porteur n'aurait l'effet en rollout offline (les npc/summons Tyranides ne sont
+    # generalement pas captes avec, l'effet etant inactif hors de leur tour).
+    "InstinctiveBehaviour": ["InstinctiveBehaviour_BlockMovement"],
     # `TerrorsLamentAbility` (TriggeredAbilityType 0x45e = 1118, parent `IdunBattle.Entities.
     # Abilities.BaseTriggeredAbility` d'apres `classes.tsv`). Trigger HERITE `<DSLTriggers+0x30>` =
     # `On(0x21 = AbilityInit) & <Yes@+0x70> & get_OwnerIsActor` ; `$$CreateBehaviour` pose les DEUX
