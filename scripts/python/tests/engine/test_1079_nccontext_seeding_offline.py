@@ -22,6 +22,53 @@ from pathlib import Path
 import pytest
 
 
+#: Ce qui doit changer pour que ce FICHIER de test puisse changer de verdict (#486-r15).
+#: Trop LARGE est sain ; trop ETROIT est un faux vert.
+DECLENCHEUR = {
+    "chemins": (
+        # Les TROIS fils que ce fichier garde, de la source au consommateur.
+        "scripts/python/engine/ai/context.py",           # `live_triggered_kits` + les 3 champs
+        "scripts/python/engine/ai/state_bridge.py",      # les alimenteurs offline
+        "scripts/python/engine/ai/action_generators.py",  # la propagation vers `NCContext`
+        "scripts/python/engine/playbook/noncomparable/_base.py",       # les deux foyers
+        "scripts/python/engine/playbook/noncomparable/duty_eternal.py",
+        "scripts/python/engine/playbook/noncomparable/solar_atomizer.py",
+        "scripts/python/engine/playbook/noncomparable/the_lantern.py",
+        "scripts/python/engine/playbook/noncomparable/calibanite_greatsword.py",
+        # Les foyers APPELES : une derive de leur corps deplace les verdicts d'ici.
+        "scripts/python/engine/services/battle_query.py",
+        "scripts/python/engine/services/victory_config.py",
+        "scripts/python/engine/services/ability_caster_gates.py",
+        "scripts/python/engine/entities/ability_constant_type.py",
+        "scripts/python/engine/entities/victory_condition_type.py",
+        # ENTREE versionnee qu'AUCUN import ne revele (`--proposer` le dit lui-meme : il ne voit
+        # que les imports) -- c'est un `read_text`, et l'etage 6 en LIT la valeur.
+        "data/seed-bc.json",
+        # Le LECTEUR du gameconfig. Le gameconfig lui-meme vit HORS du depot
+        # (`AppData/LocalLow/Snowprint/<produit>/gameconfig/<hash>.json`), donc AUCUN declencheur
+        # de chemin ne peut voir qu'il a bouge -- c'est l'etage 3 qui le rend visible, en
+        # assertionnant la valeur MESUREE au portage.
+        "scripts/python/gameconfig.py",
+    ),
+    "build": False,   # aucune lecture du binaire ni de `data/symbols/**`
+    "toujours": False,
+    "raison": (
+        "Ce fichier garde TROIS fils de seeding et rien d'autre : le kit DECLENCHE offline "
+        "(#983-r1), la rampe `DutyEternalPlaybook$$GetUseProbability` (#979-r1) et les deux "
+        "entrees de `BattleQuery$$HasMinimumRemainingTurns` (#1027-r5). Les modules cites sont "
+        "la source, le transport et le consommateur de chacun -- `--proposer` les range dans la "
+        "cascade DERIVEE, mais les declarer les rend LISIBLES au relecteur, et la cascade ne "
+        "garantit pas qu'ils y restent. `data/seed-bc.json` est hors de toute fermeture "
+        "d'imports (c'est un `read_text`) et l'etage 6 en LIT la valeur ; le gameconfig, lui, "
+        "vit HORS DU DEPOT -- aucun declencheur ne peut le voir bouger, d'ou l'assertion de "
+        "l'etage 3 sur `initialCooldownTurns = 2`. Pas de `build` : aucun etage ne "
+        "touche le binaire ni `data/symbols/**` -- les VALEURS lues au decompile sont FIGEES "
+        "dans le fichier (les bornes de la rampe, le slot 0x1b), et c'est `probe_313` qui garde "
+        "les mirrors d'enum contre le build."
+    ),
+}
+
+
 # =================================================================================================
 # helpers de montage -- des doublures MINIMALES, jamais un runner
 # =================================================================================================
@@ -329,3 +376,92 @@ def test_etage8_le_bridge_offline_ALIMENTE_les_trois_champs():
     assert SB._turns_ended_by_first_player(st) == 4, "le PREMIER du TurnOrder est le player 3"
     # Joueur present dans l'ordre mais absent du dictionnaire -> `0` par la branche `!ContainsKey`.
     assert SB._turns_ended_by_first_player(_State(players=(3,), turns_ended={})) == 0
+
+
+# =================================================================================================
+# ETAGE 9-10 (#1030-r2) -- l'empreinte 7-hex du caster A UNE POSITION DE MOUVEMENT
+# =================================================================================================
+
+def _grille(cols, rows):
+    """Voisinage a 4 (suffisant : le port lit la LISTE STOCKEE, il ne la calcule pas) + elevation
+    plate. C'est le substrat `boardGraph.neighbours` que `neigh_map` sert."""
+    board = [(c, r) for c in range(cols) for r in range(rows)]
+    neigh = {p: [q for q in board
+                 if q != p and abs(q[0] - p[0]) + abs(q[1] - p[1]) == 1] for p in board}
+    return board, neigh, {p: 0 for p in board}, {p: True for p in board}
+
+
+def test_etage9_l_empreinte_est_RECONSTRUITE_a_chaque_position_pas_transportee():
+    """`MovementQuery$$GetPossibleTileListsFromMovableTiles(movableTiles, numFeet)`, branche `7` :
+
+        adj = <IBattleQuery slot 0x4f = GetAdjacentTiles>(t, 0, 1, 1)
+        set = OrderedSet{ t }; set.AddRange(adj)
+
+    donc `{t} U ring1(t)`, RECALCULE -- jamais une translation des offsets de l'origine. Le CENTRE
+    est en TETE (`Add` avant `AddRange`) : `target_area` retranche `feet[:1]` = la MAIN TILE.
+
+    MUTATION QUI DOIT ROUGIR : revenir a `return [position]` hors origine (l'etat d'avant) fait
+    tomber la 3e assertion -- l'empreinte y retombe a une seule tuile."""
+    from engine.playbook.noncomparable.the_lantern import TheLanternPlaybook, _CASTER_FEET_COUNT
+
+    board, neigh, elev, walk = _grille(7, 7)
+    origine = (3, 3)
+    pieds = [origine] + neigh[origine]          # 1 + 4 sur cette grille de test
+    obs = [{"id": 7, "visualId": "deathBossMortarion", "teamId": 1,
+            "pos": {"col": c, "row": r}} for (c, r) in pieds]
+    p = TheLanternPlaybook()
+
+    # (a) substrat MONO-ligne -> le port n'INVENTE pas une empreinte : `[position]`.
+    ctx1 = _nc(origin=origine, obs_units=[obs[0]], neigh_by_pos=neigh,
+               elev_by_pos=elev, walkable_by_pos=walk)
+    assert p._caster_footprint(ctx1, (5, 5)) == [(5, 5)]
+    assert p._measured_feet(ctx1) == []
+
+    # (b) substrat multi-ligne mais PAS 7 pieds -> hors de la branche native, aucune reconstruction.
+    ctx2 = _nc(origin=origine, obs_units=obs, neigh_by_pos=neigh,
+               elev_by_pos=elev, walkable_by_pos=walk)
+    assert len(p._measured_feet(ctx2)) == 5 != _CASTER_FEET_COUNT
+    assert p._caster_footprint(ctx2, (5, 5)) == [(5, 5)]
+
+    # (c) SEPT pieds mesures -> l'empreinte est reconstruite A LA POSITION BALAYEE.
+    sept = [origine] + neigh[origine] + [(1, 1), (1, 2)]     # 7 lignes mesurees
+    obs7 = [{"id": 7, "visualId": "deathBossMortarion", "teamId": 1,
+             "pos": {"col": c, "row": r}} for (c, r) in sept]
+    ctx3 = _nc(origin=origine, obs_units=obs7, neigh_by_pos=neigh,
+               elev_by_pos=elev, walkable_by_pos=walk)
+    assert p._caster_footprint(ctx3, origine) == sept, "a l'origine, la MESURE fait autorite"
+    emp = p._caster_footprint(ctx3, (5, 5))
+    assert emp[0] == (5, 5), "le CENTRE est en TETE (`Add` avant `AddRange`)"
+    assert set(emp[1:]) == set(neigh[(5, 5)]), emp
+    assert len(emp) > 1, "hors origine, l'empreinte n'est plus mono-hex -- c'est le fix #1030-r2"
+
+
+def test_etage10_le_ring1_de_l_empreinte_porte_les_filtres_LUS():
+    """`GetAdjacentTiles(t, onlyEmptyOrSteppable: 0, onlyWalkableTiles: 1, allowTemporary: 1)` :
+    porte d'elevation `|dElev| < 2` INCONDITIONNELLE + `IsWalkable` ARME. L'occupation, elle,
+    n'est PAS filtree (`onlyEmptyOrSteppable = 0`)."""
+    from engine.playbook.noncomparable.the_lantern import TheLanternPlaybook
+
+    board, neigh, elev, walk = _grille(7, 7)
+    origine = (3, 3)
+    sept = [origine] + neigh[origine] + [(1, 1), (1, 2)]
+    obs7 = [{"id": 7, "visualId": "deathBossMortarion", "teamId": 1,
+             "pos": {"col": c, "row": r}} for (c, r) in sept]
+    p = TheLanternPlaybook()
+    cible = (5, 5)
+    voisines = list(neigh[cible])
+
+    # Une voisine NON MARCHABLE sort de l'empreinte.
+    walk2 = dict(walk)
+    walk2[voisines[0]] = False
+    emp = p._caster_footprint(_nc(origin=origine, obs_units=obs7, neigh_by_pos=neigh,
+                                  elev_by_pos=elev, walkable_by_pos=walk2), cible)
+    assert voisines[0] not in emp and set(emp[1:]) == set(voisines[1:])
+
+    # Une voisine a |dElev| >= 2 sort aussi -- porte INCONDITIONNELLE d'`IterateAdjacentTiles`.
+    elev2 = dict(elev)
+    elev2[voisines[1]] = 2
+    emp = p._caster_footprint(_nc(origin=origine, obs_units=obs7, neigh_by_pos=neigh,
+                                  elev_by_pos=elev2, walkable_by_pos=walk), cible)
+    assert voisines[1] not in emp, "porte d'elevation |dElev| < 2 non appliquee"
+    assert voisines[0] in emp, "les autres voisines restent"

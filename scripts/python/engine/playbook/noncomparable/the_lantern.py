@@ -62,6 +62,7 @@ from __future__ import annotations
 
 import hexgeo
 
+from engine import battle_query as bq   # foyer `is_adjacent` / `neigh_map` (#1030-r2)
 from engine.entities.active_ability_type import ActiveAbilityType
 from engine.entities.traits.unit_trait import UnitTrait, entity_trait_names, has_any_trait
 import engine.playbook.noncomparable._base as NCB   # FORME B : le foyer #1027-r5 reste patchable
@@ -70,6 +71,11 @@ from ._base import NCContext, NonComparablePlaybook, _sweep_origin_first
 
 #: Le litteral `2` du call-site natif `<IBattleQuery slot 0x1b>(unit, 2)` -- un nombre de TOURS.
 CASTER_MIN_REMAINING_TURNS = 2
+
+#: `numFeet` du porteur (`deathBossMortarion`) -- la BRANCHE de
+#: `MovementQuery$$GetPossibleTileListsFromMovableTiles` qui construit `{t} U GetAdjacentTiles(t)`,
+#: et le bit `CasterHas7Tiles` (37) du masque de ciblage de 1094. Un CARDINAL, pas un id.
+_CASTER_FEET_COUNT = 7
 
 #: `<statics+0x00>` du `.cctor` -- `Fix64.op_Implicit(1)`. DEUX roles LUS : le `minUtility` du
 #: `Bucket` et le poids du terme « ennemis touches ».
@@ -145,21 +151,60 @@ class TheLanternPlaybook(NonComparablePlaybook):
                 out.add(p)
         return out - set(exclude_main or ())
 
+    def _measured_feet(self, ctx: NCContext) -> list:
+        """Les pieds du caster A L'ORIGINE, LUS dans `obs_units` (une ligne par pied). Liste vide
+        = le substrat ne publie qu'une ligne, donc rien de multi-hex n'est MESURE."""
+        feet = [(u["pos"]["col"], u["pos"]["row"])
+                for u in (ctx.obs_units or [])
+                if u.get("id") == ctx.uid and isinstance(u.get("pos"), dict)
+                and u["pos"].get("col") is not None]
+        return list(dict.fromkeys(feet)) if len(feet) > 1 else []
+
     def _caster_footprint(self, ctx: NCContext, position: tuple) -> list:
         """`<DSLSelectors+0x58> = CasterTiles` -- l'EMPREINTE du caster a la position balayee.
 
-        A l'ORIGINE, elle est LUE dans `obs_units` quand le substrat publie plusieurs entrees pour
-        la meme unite (une par pied) ; ailleurs le port ne dispose que de la main tile. C'est le
-        residu `#459-r1`, ici visible parce que le porteur occupe SEPT tuiles (residu #1030-r2) --
-        on le DIT plutot que d'inventer une forme."""
+        #1030-r2 -- CE N'EST PAS UNE TRANSLATION D'OFFSETS, ET C'EST LU.
+        `IdunBattle.Core.Services.MovementQuery$$GetPossibleTileListsFromMovableTiles(movableTiles,
+        numFeet)` branche sur le NOMBRE DE PIEDS et, pour `7`, fait exactement :
+
+            foreach (t in movableTiles) {
+                adj = <IBattleQuery slot 0x4f = GetAdjacentTiles>(t, 0, 1, 1);
+                if (movableTiles.ContainsAll(adj)) {
+                    set = new OrderedSet<Tile>(); set.Add(t); set.AddRange(adj);
+                    result.Add(set);
+                }
+            }
+
+        L'empreinte d'une `UnitPosition` a sept pieds est donc `{t} U GetAdjacentTiles(t)` --
+        centre PUIS ring-1, RECALCULE a chaque position. L'ORDRE est celui du natif (`Add` avant
+        `AddRange`), et il porte : `target_area` retranche `feet[:1]`, c'est-a-dire la MAIN TILE.
+        (`numFeet == 1` -> `GetKCombs(.., 1)`, `== 3` -> `GetKCombs(.., 3)`, tout autre -> `null`.)
+
+        Le ring-1 est celui de `GetAdjacentTiles(t, onlyEmptyOrSteppable: 0, onlyWalkableTiles: 1,
+        allowTemporary: 1)` : liste STOCKEE des voisins + porte d'elevation `|dElev| < 2`
+        INCONDITIONNELLE (`TileQuery.<IterateAdjacentTiles>d__8$$MoveNext`), filtre `IsWalkable`
+        ARME, temporaires AUTORISEES, occupation NON filtree. C'est exactement le foyer
+        `battle_query.is_adjacent` -- surtout pas `hexgeo.disk`, qui n'a pas de porte d'elevation
+        (c'est `SurroundingTiles` qui n'en a pas, cf. `_ring`).
+
+        ⚠ RESIDU QUI RESTE (`#1079-r1`) : le natif ECARTE une position dont les six voisines ne
+        sont pas TOUTES dans `movableTiles` (`ContainsAll`). Le port balaie `ctx.reach_nc`, que le
+        bridge construit par flood-fill SANS ce filtre -- il evalue donc des positions que le natif
+        n'aurait pas produites (ecart PERMISSIF, dans le sens qui ajoute des candidates). Le
+        corriger touche `action_tiles_for`, foyer PARTAGE par tous les NonComparable.
+
+        Nombre de pieds NON MESURE (substrat mono-ligne) -> `[position]`, le comportement d'avant :
+        le port n'INVENTE pas une empreinte a sept tuiles pour une unite dont il ignore la taille."""
+        feet = self._measured_feet(ctx)
+        if len(feet) != _CASTER_FEET_COUNT:
+            return [position]            # `numFeet` hors du cas 7 -> aucune reconstruction
         if ctx.origin is not None and position == ctx.origin:
-            feet = [(u["pos"]["col"], u["pos"]["row"])
-                    for u in (ctx.obs_units or [])
-                    if u.get("id") == ctx.uid and isinstance(u.get("pos"), dict)
-                    and u["pos"].get("col") is not None]
-            if len(feet) > 1:
-                return list(dict.fromkeys(feet))
-        return [position]
+            return feet                  # a l'origine, la MESURE fait autorite sur la derivation
+        neigh = bq.neigh_map(ctx)
+        ring = [p for p in ((neigh or {}).get(position) or [])
+                if bq.is_adjacent(position, p, ctx.elev_by_pos, neigh)
+                and (ctx.walkable_by_pos or {}).get(p) is not False]
+        return [position] + list(dict.fromkeys(ring))
 
     def target_area(self, ctx: NCContext, position: tuple, tile: tuple) -> set:
         """`...TheLanternAbility$$GetTilesForTargetAreaFromTargetTile()` -- MIRROR de la chaine :
