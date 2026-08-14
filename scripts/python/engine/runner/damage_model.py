@@ -224,6 +224,24 @@ def _unit_gameconfig(state: State, unit_id: int) -> Optional[dict]:
     return GC.unit(vid)
 
 
+def _unit_visual_id(state: State, unit_id: Optional[int]) -> Optional[str]:
+    """`visual_id` de l'unite -- substrat de `DSLSelectors$$UnitsWithVisualId`, dont
+    `IdunBattle.Entities.Selectors.UnitsFromFactionSelector` et ses voisins comparent la chaine.
+
+    MEME lecture que `_unit_gameconfig` ci-dessus (`StatsComponent.ctx.visual_id`), avec repli sur
+    `UnitComponent.visual_id` : un summon SPAWNE en cours de bataille porte son `visual_id` sur le
+    composant d'unite avant que son `ctx` de stats soit renseigne. `None` = NON MESURE."""
+    e = state.get_entity(int(unit_id)) if unit_id is not None else None
+    if e is None:
+        return None
+    sc = e.get_component(StatsComponent)
+    vid = getattr(sc.ctx, "visual_id", None) if (sc is not None and sc.ctx is not None) else None
+    if vid is None:
+        uc = e.get_component(UnitComponent)
+        vid = getattr(uc, "visual_id", None) if uc is not None else None
+    return str(vid) if vid else None
+
+
 def _grand_alliance(state: State, unit_id: int) -> Optional[str]:
     """`GrandAllianceId` gameconfig de l'unité (résolu par `visual_id`) — gate grande-alliance des auras
     ALLIÉES cote source (ex. `BeaconOfRage_FriendlyExtraDamage` : Chaos). Lit DIRECTEMENT le champ
@@ -410,7 +428,14 @@ def _apply_ally_attack_damage_auras(state: State, att_id: int, mods, is_ranged: 
            #    l'ability est MONTEE sur le porteur -- TERTIAIRE pour une relique EQUIPEE. MEME cle
            #    et MEME foyer que le canal CRIT (`AttackDamageOperation._crit_board`), donc les deux
            #    canaux d'une meme relique ne peuvent pas diverger de niveau.
-           "tertiary_ability_state_of": _tertiary_ability_state_fn(state)}
+           "tertiary_ability_state_of": _tertiary_ability_state_fn(state),
+           # #1012-r1 -- `UnitsWithVisualId( ConfigConstString(<TriggeredAbilityConfigId 0x60d>, 0),
+           # 1 = UnitSelectionType.OnlyAlive )`, le noeud DISCRIMINANT du `CreateTargetSelector`
+           # d'`IdunBattle.Entities.Effects.Loki.HeadwoppasKillchoppaEffect` (les Ork Boyz de
+           # Gulgortz). Le ctx d'aura ne publiait AUCUN canal d'IDENTITE de l'attaquant : sans cette
+           # cle le gate serait ferme en permanence, donc la face AURA inerte. `None` = NON MESURE
+           # (unite ou `visual_id` introuvable), jamais une chaine vide -- l'effet se tait alors.
+           "att_visual_id": _unit_visual_id(state, att_id)}
     # `PsychicStalk_FriendlyChaosExtraDamage` (#366-r1, effet 1435) -- PATTE AURA : son conjoint
     # `GetTargetIsOnFireTileCondition` lit `EntitiesWithAnyEffect(Tiles(Target@0x60), Fire)`, donc
     # les effets de la MAIN TILE de la cible. MEME canal / MEME forme `{(col,row): [noms]}` que
