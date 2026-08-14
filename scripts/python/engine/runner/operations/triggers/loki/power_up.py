@@ -99,6 +99,14 @@ modificateur **DYNAMIQUE** dont la magnitude est recalculee par
 `engine/entities/effects/loki/power_up.py`). Il RESTE dans le lot (meme `CreateBehaviour`, meme
 trigger, meme montage), mais par un TROISIEME vslot. Mesure, pas suppose.
 
+⚠ `Get(pct)` N'EST PAS UN MONTANT PLAT POUR `AddPctBasedBoost` -- le pourcentage se lit dans la
+CLASSE D'EFFET, quatre etages plus bas (`EffectsDatabase` -> `PowerUp_Effect(.., isMultiply)` ->
+`AStatModifierEffect$$ApplyModification` part 9 vs 5 -> `ValueModification.MultiplyModifier`). Lire
+`AddPctBasedBoost` seul ferait ecrire un `+100` PLAT sur l'attaque au lieu d'un DOUBLEMENT. Chaine
+complete et collapse porte : docstring d'`add_pct_based_boost_tree` ci-dessous. Flags MESURES :
+`PowerUp_Damage` et `PowerUp_Health` -> `isMultiply = 1` ; `PowerUp_Hits`, `PowerUp_MeleeHits` et
+`PowerUp_Armor` -> `0`.
+
 ⚠ LES ORDINAUX DES DEUX ENUMS DIVERGENT, ET SILENCIEUSEMENT :
 `TriggeredAbilityType.PowerUp_MeleeHits` = 1138 = `EffectType.PowerUp_Armor` ;
 `TriggeredAbilityType.PowerUp_Hits` = 1140 = `EffectType.StormboyzStrike_TeleportingIn`.
@@ -220,13 +228,50 @@ def add_shield_tree(ability_name: str, turns: "int | None"):
 
 def add_pct_based_boost_tree(ability_name: str, stat_type: int, effect_type: int):
     """`APowerUpAbility$$AddPctBasedBoost(target)` -- MIRROR 1:1. `None` si le record est `null`
-    (l'appelant ne le construit alors pas)."""
+    (l'appelant ne le construit alors pas).
+
+    ⚠ LE MONTANT EST UN POURCENTAGE, ET CE N'EST PAS DANS CETTE FONCTION QUE ÇA SE LIT. Le natif
+    passe `Get(pct)` NU a `AddStaticStatModifierEffect` -- lu litteralement, ce serait un `+100`
+    PLAT sur l'attaque. C'est la CLASSE D'EFFET qui en fait un pourcentage, par une chaine a quatre
+    etages, tous LUS :
+
+      1. `EffectsDatabase.<InitializeEffects>b__14_167/168` construisent
+         `PowerUp_Effect(source = TriggeredAbilityType.PowerUp_Damage / PowerUp_Health,
+                         locaConstant = dmgPct / healthPct, isMultiply = **1**)` ;
+         `b__14_169/170` (Hits / MeleeHits) passent `isMultiply = **0**`.
+         ⚠ Le 1er argument est un `TriggeredAbilityType`, PAS un `EffectType` -- `0x472` y designe
+         `PowerUp_MeleeHits`, pas `PowerUp_Armor`. La signature le dit
+         (`frida/methods.tsv` : `source:IdunBattle.Entities.Enum.TriggeredAbilityType`).
+      2. `PowerUp_Effect$$.ctor` transmet le flag a `AStatModifierEffect$$.ctor(sourceAbility,
+         unitEffectType, canBeImmuneTo = 0, keepOnRevive = 1, isMultiply)` -> champ `+0x482` ;
+      3. `AStatModifierEffect$$ApplyModification` choisit sa `StatPart` DESSUS :
+         `part = (this+0x482 != 0) ? 9 = MultiplierModification : 5 = Modification` ;
+      4. `StatComponent$$ApplyModifier` / `FillUpStatComponent$$ApplyModifier` case 9 appellent
+         `ValueModification$$Modify(..., isMultiplier = 1, initialValue = <la part INITIAL du stat>)`,
+         qui alloue un `ValueModification.MultiplyModifier` dont l'`UpdateValue` vaut
+         `GetAmountRounded( Fix64(initialValue) * (pct / 100) )`.
+
+    COLLAPSE PORTE, et il est numeriquement EXACT : le port n'a pas de sac multiplicatif (ses
+    `StatPart` 5 et 9 partagent le meme `ValueModification`, cf. `entities/stats.py`), donc on POSE
+    directement la valeur resolue `PercentageOf(pct, StatAmount(target, stat, Initial))`.
+    L'`initialValue` du natif est LE MEME nombre -- `StatComponent+0x48` pour un stat simple,
+    `FillUpStatComponent+0x10` pour Health, et les deux sont exactement ce que
+    `get_stat_part(StatPart.INITIAL)` rend cote port.
+    RESIDU : le natif garde un modificateur VIVANT (`ValueModification$$UpdateInitialValue` le
+    recalcule si la part INITIAL du stat change apres la pose) ; le port fige la valeur au
+    ramassage. Ecart observable seulement si un TIERS reecrit la part INITIAL du meme stat pendant
+    que le power-up est actif -- aucun des cinq ne le fait."""
     key = PCT_KEY_HEALTH if int(stat_type) == int(StatType.HEALTH) else PCT_KEY_OTHER
     pct = _const(ability_name, key)
     if pct is None:
         return None
     name = EffectType(int(effect_type)).name
-    mod = AddStaticStatModifierEffect(Actor(), int(effect_type), int(stat_type), Get(pct), name=name)
+    # `isMultiply = 1` pour les DEUX porteurs de `PctBasedStatBoost` (Damage, Health) -- MESURE aux
+    # deux lambdas d'`EffectsDatabase`, jamais deduite du nom « PctBased ». Ne PAS generaliser aux
+    # 15 autres `PowerUp_*` : leur flag se relit lambda par lambda.
+    montant = PercentageOf(Const(pct),
+                           StatAmount(Actor(), int(stat_type), int(StatPart.INITIAL)))
+    mod = AddStaticStatModifierEffect(Actor(), int(effect_type), int(stat_type), montant, name=name)
     if int(stat_type) != int(StatType.HEALTH):
         return mod                                   # `(Nothing & mod) & Nothing` == `mod`
     # Volet HEALTH : le stat-mod monte la HP **MAXIMALE**, le `ChangeStat(Add)` remplit d'autant la HP
@@ -241,7 +286,14 @@ def add_pct_based_boost_tree(ability_name: str, stat_type: int, effect_type: int
 
 def add_absolute_boost_tree(ability_name: str, const_key, stat_type: int, effect_type: int):
     """`APowerUpAbility$$AddAbsoluteBoost(target)` -- MIRROR 1:1. `None` si le record est `null` ou si
-    la constante manque."""
+    la constante manque.
+
+    Ici le `Get(amount)` NU est bien un montant PLAT, et ce n'est pas une supposition : les deux
+    lambdas d'`EffectsDatabase` qui construisent les effets de ce volet
+    (`PowerUp_Effect(TriggeredAbilityType.PowerUp_Hits / PowerUp_MeleeHits, extraHit, isMultiply=0)`)
+    passent le flag a **0**, donc `AStatModifierEffect$$ApplyModification` prend la `StatPart` 5
+    (`Modification`, additive) et non la 9. C'est le SEUL discriminant entre ce volet et le
+    `PctBased` ci-dessus -- l'appel a `AddStaticStatModifierEffect` est, lui, identique."""
     amount = _const(ability_name, const_key)
     if amount is None:
         return None
