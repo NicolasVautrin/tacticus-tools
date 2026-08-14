@@ -746,17 +746,25 @@ def _unit_pos(state: State, unit_id: Optional[int]):
 
 def _adjacent_unit_profiles(state: State, unit_id: Optional[int]):
     """#1025-r1 -- `AdjacentUnits( <unit_id>, unique: true, OnlyAliveAndTargetable = 3 )`, enrichi
-    de `(team, visual_id, rarity)` par voisin : le substrat des DEUX branches du
-    `$$CreateTargetSelector` de `IdunBattle.Entities.Effects.Loki.MoreGitzOverEre_ExtraDamagePctEffect`.
+    de `(team, visual_id, rarity, is_hero)` par voisin : le substrat des branches des
+    `$$CreateTargetSelector` de `IdunBattle.Entities.Effects.Loki.MoreGitzOverEre_ExtraDamagePctEffect`
+    et `IdunBattle.Entities.Effects.Loki.OnMyPosition_ExtraDamagePctEffect` (#1024-r2).
 
-    Rend un tuple de `(uid, team, visual_id, rarity)`. Les TROIS champs sont ceux que les etages
-    natifs comparent, et aucun n'est derivable des autres :
-      * `team`       -> `Friends( Owner@+0x30, ..., 3 )`, commun aux deux branches. Le filtre est
+    Rend un tuple de `(uid, team, visual_id, rarity, is_hero)`. Les QUATRE champs sont ceux que les
+    etages natifs comparent, et aucun n'est derivable des autres :
+      * `team`       -> `Friends( Owner@+0x30, ..., 3 )`, commun a toutes les branches. Le filtre est
                         relatif au PORTEUR de l'effet, connu du seul agregateur d'aura -> il est
                         rejoue dans la classe d'effet, pas ici ;
       * `visual_id`  -> `UnitsWithVisualId( VisualUnitIdFromUnitId(<constants.unitId>), 1 )`
-                        (branche A, le Squig) ;
-      * `rarity`     -> `UnitsWithRarity( ..., 5 = idun.meta.Rarity.Mythic, 3 )` (branche B).
+                        (branche A des deux effets : le Squig pour 1449, le Cadian Guardsman
+                        pour 1444) ;
+      * `rarity`     -> `UnitsWithRarity( ..., 5 = idun.meta.Rarity.Mythic, 3 )` (branche B) ;
+      * `is_hero`    -> `HeroUnits( <univers>, 3 )`, que
+                        `IdunBattleLogic.Entities.DSLSelectors$$HeroUnits` rend LITTERALEMENT par
+                        `UnitsWithTrait(entities, 0x10 = UnitTrait.Hero, selectionType)` -- present
+                        dans la branche B de 1444 SEULEMENT, absent de celle de 1449. MEME lecture
+                        de trait que `_friend_heroes_adjacent_to` ci-dessus (#1019), meme foyer
+                        `target_trait_names`.
 
     L'ADJACENCE elle-meme vient du pont `components.adjacent_unit_ids`, qui donne son
     `AbilityEntities` a l'arbre DSL de la classe d'effet (doctrine #149) -- donc la LISTE STOCKEE
@@ -770,7 +778,8 @@ def _adjacent_unit_profiles(state: State, unit_id: Optional[int]):
     ids = adjacent_unit_ids(state, int(unit_id))
     if ids is None:
         return None
-    return tuple((int(i), _unit_team(state, i), _unit_visual_id(state, i), _unit_rarity(state, i))
+    return tuple((int(i), _unit_team(state, i), _unit_visual_id(state, i), _unit_rarity(state, i),
+                  UnitTrait.Hero.name in (target_trait_names(state, int(i)) or frozenset()))
                  for i in sorted(ids))
 
 

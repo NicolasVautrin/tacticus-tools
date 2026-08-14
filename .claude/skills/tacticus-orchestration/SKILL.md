@@ -1144,9 +1144,31 @@ livraison **PAR PULL REQUEST**) :
 
 **Ordre, et il ne se reorganise pas :** rapport -> `gh pr view --json headRefName` -> fraicheur
 (`merge-base --is-ancestor`) -> `git merge --no-ff --no-commit` -> **lire le diff des tests EXISTANTS
-modifies** + **classer le diff `engine/`** -> 3 a 5 groupes cibles joues **par moi** -> regenerer les
-docs generes -> **commit LOCAL** -> **push seulement sur VERT** -> **`nettoyer_livraison.py`** (worktree
+modifies** + **classer le diff `engine/`** -> 3 a 5 groupes cibles joues **par moi** -> **`refresh_audits.py`**
+-> **commit LOCAL** -> **push seulement sur VERT** -> **`nettoyer_livraison.py`** (worktree
 + branche, apres scan des points de reparse).
+
+- **Les audits generes se periment EN SILENCE, et « regenerer les docs generes » a la main ne
+  tenait pas.**
+
+  ```powershell
+  python scripts/python/refresh_audits.py     # rc 0 frais / 1 perimes (regeneres, a indexer) / 2 NON MESURE
+  ```
+
+  Mesure des 2026-08-13/14 : **cinq** peremptions trouvees a la main sur `master` en deux tours
+  (`summons-registry`, `npc-registry` x2, `passive-ability-coverage`, `npc-registry` encore), et a
+  chaque fois le fichier lu servait a **DISPATCHER du travail**. Rien ne les regenere au merge, et
+  aucun cliquet ne rougit dessus.
+  ⚠ **Ce n'est deliberement PAS un cliquet par PR** : ~60 s, et surtout il forcerait chaque PR
+  touchant `engine/**` a regenerer, donc N PR paralleles reecrivant les memes fichiers generes --
+  exactement les conflits que le `CLAUDE.md` interdit de resoudre (« ne jamais fusionner un conflit
+  dessus : le REGENERER »). Le bon declencheur est le **MERGE** : un seul acteur, aucun conflit.
+  ⚠ **Le perimetre est DERIVE** du marqueur `> Genere par ...` que chaque generateur ecrit dans son
+  en-tete, jamais enumere : la derivation trouve **6** audits la ou ma liste mentale en portait
+  **5**. Un audit neuf entre tout seul ; un fichier ecrit a la main reste dehors.
+  ⚠ **Et ne lis JAMAIS un `git status` place AVANT la regeneration dans la meme commande chainee** :
+  c'est ainsi que la 5e peremption a ete declaree « regeneree a l'identique » puis commitee sans
+  elle. L'outil regenere PUIS diff, et refuse de conclure sur une cible deja modifiee.
 
 - **Le nettoyage est UN geste, pas deux -- et c'est un OUTIL, pas une consigne (#479-r3).**
 

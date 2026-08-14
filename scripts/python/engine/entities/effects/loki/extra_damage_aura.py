@@ -30,7 +30,8 @@ from ...damage_profile_type import DamageProfileType, PROFILE_NAME_BY_INDEX
 from ...effect_type import EffectType
 from ...rarity import Rarity
 from ...traits.unit_trait import UnitTrait         # `UnitsWithTraits` (#1036-r2)
-from ..base import BaseEffect, target_is_on_fire_tile as _target_is_on_fire_tile
+from ..base import (BaseEffect, is_ranged_attack as _is_ranged_attack,
+                    target_is_on_fire_tile as _target_is_on_fire_tile)
 from ..magnitude import ability_const_str, ability_var
 # #943-r7 -- les deux canaux du substrat d'adjacence NATIF, en FORME B (#485-r1-r1).
 # `pathfinding.board` n'importe RIEN de `engine`, et `engine.battle_query` n'importe que `hexgeo` +
@@ -1001,6 +1002,9 @@ BLIGHTED_LAND_ABILITY = "BlightedLand"
 #: `TriggeredAbilityType` 0x5b0 = 1456 -- l'ability MYTHIQUE de la MoW `orksRukkatrukk` /
 #: `orksNpcMoWRukkatrukk` (`MoreGitzOverEreAbility$$GetEffectType` = `return 0x5a9` = 1449).
 MORE_GITZ_OVER_ERE_ABILITY = "MoreGitzOverEre"
+#: `TriggeredAbilityType` 0x5ac = 1452 -- l'ability MYTHIQUE de la MoW `astraOrdnanceBattery` /
+#: `astraNpcMoWOrdnanceBattery` (`OnMyPositionAbility$$GetEffectType` = `return 0x5a4` = 1444).
+ON_MY_POSITION_ABILITY = "OnMyPosition"
 #: `AbilityVariableType` 0xa -- la variable que les DEUX `ConfigVar(0xa, ...)` lisent. Elle est dans
 #: `variablesAffectedByRarityBonus` pour les deux abilities -> le multiplicateur du PORTEUR MORD.
 _VAR_EXTRA_DMG_PCT = "extraDmgPct"
@@ -1167,15 +1171,19 @@ def more_gitz_adjacent_units_selector():
                          selection_type=int(UnitSelectionType.OnlyAliveAndTargetable))
 
 
-def _more_gitz_squig_visual_id() -> "str | None":
-    """`VisualUnitIdFromUnitId( Get( ConfigConstString(<config>, 0) ) )` -- le `visualId` du Squig.
+def _ability_unit_id_visual_id(ability_name: str) -> "str | None":
+    """`VisualUnitIdFromUnitId( Get( ConfigConstString(<config>, 0) ) )` -- le `visualId` de l'unite
+    nommee par la constante `unitId` de l'ability. FOYER UNIQUE des DEUX auras mythiques de MoW qui
+    portent ce noeud (`MoreGitzOverEre` -> le Squig, `OnMyPosition` -> le Cadian Guardsman) : c'est
+    le MEME arbre natif, donc une seule lecture -- un fork y ferait diverger deux mirrors du meme
+    noeud.
 
-    Le natif lit `constants.unitId` (= `"orksSmnSquig"`) PUIS le traduit en visualId par
+    Le natif lit `constants.unitId` PUIS le traduit en visualId par
     `IdunBattleLogic.Entities.DSLFormulas$$VisualUnitIdFromUnitId`, avant de le passer a
     `UnitsWithVisualId(..., 1 = UnitSelectionType.OnlyAlive)`. Les DEUX etages passent par le
     gameconfig (`constants.unitId`, puis `units.<unitId>.visualId`) -- rien n'est ecrit en dur ici :
     une constante de build codee en dur deviendrait une fausse verite au prochain build."""
-    uid = ability_const_str(MORE_GITZ_OVER_ERE_ABILITY, _CONST_UNIT_ID)
+    uid = ability_const_str(ability_name, _CONST_UNIT_ID)
     if not uid:
         return None
     try:
@@ -1184,6 +1192,12 @@ def _more_gitz_squig_visual_id() -> "str | None":
         return None
     vis = (_GC.unit(str(uid)) or {}).get("visualId")
     return str(vis) if vis else None
+
+
+def _more_gitz_squig_visual_id() -> "str | None":
+    """Le `visualId` du Squig (`constants.unitId` = `"orksSmnSquig"`), branche A du selecteur de
+    1449 -- cf. `_ability_unit_id_visual_id`."""
+    return _ability_unit_id_visual_id(MORE_GITZ_OVER_ERE_ABILITY)
 
 
 class MoreGitzOverEreExtraDamagePctEffect(BaseEffect):
@@ -1544,4 +1558,138 @@ class CabalOfSorcerersExtraDamagePctEffect(BaseEffect):
         if not (in_f or in_a):
             return None
         pct = _mythic_pct(self, c, self.ABILITY_ID)
+        return for_percent_increase(True, int(pct)) if pct else None
+
+
+class OnMyPositionExtraDamagePctEffect(BaseEffect):
+    """`IdunBattle.Entities.Effects.Loki.OnMyPosition_ExtraDamagePctEffect` (`EffectType` 0x5a4 =
+    1444) -- owner-effect PERMANENT de l'ability MYTHIQUE `OnMyPosition` (`TriggeredAbilityType`
+    0x5ac = 1452) de la MoW `astraOrdnanceBattery` / `astraNpcMoWOrdnanceBattery`. Volet PORT de
+    `#1024-r2` (la RE et la confrontation live sont dans `docs/rl/case-1024-shield-of-faith-on-my-
+    position.md`, qui concluait << aucun canal de rarete >> -- verrou TOMBE depuis #999-r3-r1 et
+    #999-r3-r1-r1).
+
+    i2 `Abilities/OnMyPosition_CurrentLevelDescription` : << Enemies that are adjacent to a friendly
+    **Cadian Guardsman** or a friendly **Mythic** **character** take +{extraDmgPct}% Damage from
+    ranged attacks by mythic characters. >> ; `UnitEffects/OnMyPosition_ExtraDamagePct_Description` :
+    << Takes +{extraDmgPct}% Damage from ranged attacks by **Mythic** **characters** >>.
+
+    QUI LE SUBIT -- `...OnMyPosition_ExtraDamagePctEffect$$CreateTargetSelector`, LU au decompile
+    (l'ordre ci-dessous est celui de la COMPOSITION, pas celui des `call`) ::
+
+        Enemies( Owner@<DSLSelectors+0x30>,
+                 AdjacentUnits(
+                   op_Addition(
+                     # branche A -- un Cadian Guardsman AMI
+                     Friends( Owner@+0x30,
+                              UnitsWithVisualId(
+                                VisualUnitIdFromUnitId( Get( ConfigConstString(<config>, 0) ) ),
+                                1 = UnitSelectionType.OnlyAlive ),
+                              3 ),
+                     # branche B -- un personnage MYTHIQUE ami
+                     UnitsWithRarity(
+                       Friends( Owner@+0x30,
+                                HeroUnits( AllUnits@<DSLSelectors+0x20>, 3 ),
+                                3 ),
+                       5 = idun.meta.Rarity.Mythic, 3 ) ),
+                   unique: true, 3 ),
+                 3 )
+
+    ⚠ CONTRASTE avec son jumeau 1449 (`MoreGitzOverEreExtraDamagePctEffect` ci-dessus), dont la
+    branche B est un `Filter(AllUnits, AmountIsEqualOrGreater(..., Direct(2)))` : ici les DEUX
+    branches sont UNIES **avant** l'`AdjacentUnits`, donc **UN SEUL** voisin eligible suffit -- il
+    n'y a AUCUN seuil de compte. Recopier le `>= 2` du voisin de forme serait un port FAUX.
+
+    ⚠ Deux etages que 1449 n'a pas : `HeroUnits` = `UnitsWithTrait(entities, 0x10 =
+    UnitTrait.Hero, selectionType)` (`IdunBattleLogic.Entities.DSLSelectors$$HeroUnits` n'a pas
+    d'autre corps), et la branche B part d'`AllUnits@<DSLSelectors+0x20>` -- l'univers BOARD-WIDE,
+    aucune position lue. C'est ce qui rend l'aura evaluable depuis une MoW (#999-r3-r1-r1).
+
+    ⚠ `AdjacentUnits(X) = Units(AdjacentTiles(X), unique, sel) - X` RETRANCHE l'origine : les amis
+    eux-memes sortent de l'ensemble. INATTEIGNABLE ici (`X` n'est fait que d'amis du porteur et le
+    resultat est filtre par `Enemies(Owner, ...)`), ecrit parce que c'est LU.
+
+    CE QU'ILS SUBISSENT -- `...OnMyPosition_ExtraDamagePctEffect$$CreateEffectDamageBonusForAttack` ::
+
+        EffectBonus.ForPercentIncrease(
+            get_OwnerIsTarget
+              & ( AreFriends( Caster@<DSLSelectors+0x48>, EffectSource@<DSLSelectors+0x38>,
+                              0, false )
+                  & HasRarity( Caster@+0x48, 5 = idun.meta.Rarity.Mythic ) )
+              & IsRangedAttack,
+            ConfigVar( 0xa = extraDmgPct, GetAbilityState(this), <config@this+0x60> ) )
+
+    CANAL DE PORT : `create_aura_defense_damage_malus_for_ally` avec
+    `AURA_DEFENSE_MALUS_NATIVE_FACE = "attacker"` -- MEME arbitrage que 1449 et que
+    `DaughterOfTheAbyssExtraDamagePctEffect` (#437-r1-r1-r1) : le slot natif est ATTAQUANT (le natif
+    verse dans `attackModifiers`), mais le BENEFICIAIRE du selecteur est la CIBLE DU COUP
+    (`get_OwnerIsTarget`), et le seul agregateur du port qui balaie les porteurs TIERS pour une
+    cible est la boucle state-wide `EffectWithTarget` du builder DEFENSEUR.
+
+    ⚠ i2 dit << by mythic **characters** >> mais le trigger ne lit QUE `HasRarity(Caster, Mythic)` :
+    il n'y a AUCUN `HeroUnits`/`HasTrait(Hero)` sur l'attaquant. C'est le decompile qui fait foi --
+    le trait `Hero` n'apparait que dans la branche B du SELECTEUR, sur les voisins de la cible.
+
+    ⚠ `AreFriends(Caster, EffectSource)` est VRAI quand `Caster == EffectSource`
+    (`UnitExtensions$$IsFriend` n'ecarte pas l'egalite) -- la MoW porteuse qui attaquerait
+    elle-meme un ennemi eligible toucherait le bonus. Aucune exclusion `att_id == owner_id` n'est
+    ajoutee : elle serait un ecart au natif."""
+
+    # #437-r1-r1-r1 : la FACE vient de la CLASSE. `methods.tsv` donne
+    # `...OnMyPosition_ExtraDamagePctEffect$$CreateEffectDamageBonusForAttack` -- le slot ATTAQUANT
+    # -- alors que le port l'evalue par le canal AURA-DEFENSE (le seul qui balaie les porteurs
+    # TIERS pour une cible donnee). CONSEQUENCE ARITHMETIQUE REELLE : canal POURCENT ATTAQUANT.
+    AURA_DEFENSE_MALUS_NATIVE_FACE = "attacker"
+
+    def _selector_hits_target(self, c) -> bool:
+        """`Enemies(Owner, AdjacentUnits(A + B, unique, 3), 3)` -- la CIBLE DU COUP appartient-elle
+        au selecteur ?
+
+        `op_Addition` est une UNION, et l'`AdjacentUnits` porte sur l'UNION ENTIERE : il suffit
+        qu'UN voisin de la cible soit dans A **ou** dans B. Les deux se derivent du MEME substrat
+        `tgt_adjacent_unit_profiles` = `AdjacentUnits(<cible>, unique, 3)`, l'adjacence NATIVE
+        (liste stockee + porte d'elevation), enrichie de `(team, visual_id, rarity, is_hero)`.
+        L'adjacence native est SYMETRIQUE, donc << la cible est voisine d'un X >> et << un X est
+        voisin de la cible >> sont la MEME question.
+
+        BRANCHE A -- `Friends(Owner, UnitsWithVisualId(<Cadian Guardsman>, OnlyAlive), 3)`.
+        BRANCHE B -- `UnitsWithRarity(Friends(Owner, HeroUnits(AllUnits, 3), 3), Mythic, 3)`."""
+        prof = c.get(CTX_TGT_ADJACENT_UNIT_PROFILES)
+        if prof is None:                                  # canal NON MESURE -> gate FERME
+            return False
+        owner_team = c.get("owner_team")
+        # `Friends( Owner@+0x30, ..., 3 )` -- commun aux DEUX branches.
+        friends = [p for p in prof if p[1] is not None and p[1] == owner_team]
+        want = _ability_unit_id_visual_id(ON_MY_POSITION_ABILITY)
+        if want is not None and any(str(p[2]) == want for p in friends if p[2] is not None):
+            return True                                   # branche A
+        # branche B : `HeroUnits` (trait 0x10) ET `UnitsWithRarity(..., Mythic)`. AUCUN seuil de
+        # compte -- contraste 1449, dont la branche B exige `>= 2`.
+        return any(bool(p[4]) and p[3] == Rarity.Mythic for p in friends)
+
+    def create_aura_defense_damage_malus_for_ally(self, ctx: Mapping | None = None) -> EffectBonus | None:
+        c = ctx or {}
+        # `Enemies( Owner@+0x30, ..., 3 )` -- la cible de l'effet est un ENNEMI du porteur.
+        if c.get("owner_team") is None or c.get("tgt_team") is None \
+                or c.get("owner_team") == c.get("tgt_team"):
+            return None
+        # `AreFriends( Caster@+0x48, EffectSource@+0x38, 0, false )` -- l'ATTAQUANT est un ami du
+        # PORTEUR (qui est aussi la `source` de l'`AddEffect`, cf. `AOwnerEffectTriggeredAbility`).
+        if c.get("att_team") is None or c.get("att_team") != c.get("owner_team"):
+            return None
+        # `HasRarity( Caster@+0x48, 5 = idun.meta.Rarity.Mythic )` -- TRI-ETAT, gate FERME sur None.
+        if c.get("att_rarity") != Rarity.Mythic:
+            return None
+        # `IsRangedAttack` -- le ctx d'aura porte la nature du coup sous `is_melee`, que le foyer
+        # UNIQUE `runner/damage_model.py` pose en `(not is_ranged) if is_ranged is not None else
+        # None`. On l'INVERSE pour retrouver l'argument du predicat NOMME (`effects/base.py::
+        # is_ranged_attack`, tri-etat #106) au lieu de re-ecrire le test a la main : `None`
+        # (nature non declaree) FERME le gate, comme le natif qui ne devine pas non plus.
+        _im = c.get("is_melee")
+        if not _is_ranged_attack((not _im) if _im is not None else None):
+            return None
+        if not self._selector_hits_target(c):             # `$$CreateTargetSelector`
+            return None
+        lvl, mult = _mow_ability_state(self, c, c.get("owner_id"), ON_MY_POSITION_ABILITY)
+        pct = ability_var(ON_MY_POSITION_ABILITY, _VAR_EXTRA_DMG_PCT, lvl, multiplier_pct=mult)
         return for_percent_increase(True, int(pct)) if pct else None

@@ -42,7 +42,7 @@ Sinon, trois verdicts NEGATIFS distincts :
 
 Mesure de ce run : un `substring` brut du nom sur `engine/**/*.py` rend **211/211 presents, 0 manquant**. La cause n'est pas que tout est porte : `engine/entities/triggered_ability_type.py` est un **mirror 1:1 de l'enum natif `TriggeredAbilityType`** (573 membres), ou le nom de CHAQUE passif figure comme membre. **Un catalogue n'est pas un cablage.**
 
-Le signal code de cet audit est donc derive de l'**AST** et exclut les **definitions** de membres d'enum (2638 assignations ecartees dans 651 fichiers `engine/**/*.py`) tout en gardant les **usages** (`TriggeredAbilityType.X` = `ast.Attribute` -> compte). Il separe en outre le CODE (13502 symboles distincts) de la PROSE (11173 ko de commentaires + docstrings, invisibles a l'AST, lus via `tokenize`). Le rapprochement est CamelCase-aware : `HeavyGravCannon` matche `HeavyGravCannonEffect`, `Guard` ne matche ni `Guardsman` ni `RoyalGuard` (ni, pour `Possession`, l'unitId `blackPossession`).
+Le signal code de cet audit est donc derive de l'**AST** et exclut les **definitions** de membres d'enum (2638 assignations ecartees dans 664 fichiers `engine/**/*.py`) tout en gardant les **usages** (`TriggeredAbilityType.X` = `ast.Attribute` -> compte). Il separe en outre le CODE (13817 symboles distincts) de la PROSE (11534 ko de commentaires + docstrings, invisibles a l'AST, lus via `tokenize`). Le rapprochement est CamelCase-aware : `HeavyGravCannon` matche `HeavyGravCannonEffect`, `Guard` ne matche ni `Guardsman` ni `RoyalGuard` (ni, pour `Possession`, l'unitId `blackPossession`).
 
 Chaque reference est en outre ATTRIBUEE A SA ZONE du moteur (`__init__, ai, battle_query, dsl, effects, entities, hex_corner, hex_edge, move, playbook, predict, runner, services, streams, utilities, weights`), parce qu'une reference dans `playbook/`/`ai/`/`utilities/` (face DECISION) ne prouve RIEN sur l'execution combat. C'est ce qui separe **B** (litteral exact sous `runner/`) de **R**.
 
@@ -205,7 +205,7 @@ Tri : nombre de porteurs spawnables SANS AMENAGEMENT (`L+`+`M`) decroissant, pui
 | FleshmetalGuns | L+=1 N=6 | blackObliterator | PORTE | **T**=FleshmetalGunsRotationAbility,FleshmetalGunsTileEffectAbility | effects, runner |
 | FuelledByFury | L+=1 N=3 | ultraTitus | PORTE | **T**=FuelledByFuryExtraDamageAbility,FuelledByFuryReviveAbility **E**=FuelledByFury_ExtraDamage | effects, runner |
 | FuryOfTheAncients | L+=1 | bloodMephiston | PORTE | **T**=FuryOfTheAncientsAbility **E**=FuryOfTheAncients | effects, entities, playbook, runner |
-| GalvanicField | L+=1 N=5 | admecManipulus | PORTE | **B**=litteral exact sous engine/runner/ | ai, playbook, runner, services |
+| GalvanicField | L+=1 N=5 | admecManipulus | PORTE | **B**=litteral exact sous engine/runner/ | ai, entities, playbook, runner, services |
 | GrimRetribution | L+=1 N=2 | darkaHellblaster | PORTE | **E**=GrimRetribution_CounterAttack **G**=GrimRetribution_CounterAttack | effects, runner |
 | GuardianOrganism | L+=1 N=5 | tyranTyrantGuard | PORTE | **E**=GuardianOrganism_DamageReduction | effects, playbook |
 | HatefulAssault | L+=1 N=4 | blackTerminator | PORTE | **T**=HatefulAssaultAttackAbility **E**=HatefulAssault_AlreadyAttacked **G**=HatefulAssault_AlreadyAttacked | effects, playbook, runner |
@@ -264,7 +264,7 @@ Tri : nombre de porteurs spawnables SANS AMENAGEMENT (`L+`+`M`) decroissant, pui
 | TimeFlux | L+=1 N=5 | thousTerminator | PORTE | **T**=TimeFluxRegenAbility,TimeFluxReviveAbility | runner |
 | ToughToKill | L+=1 N=1 | astraDreir | PORTE | **T**=ToughToKillHealAbility **O**=ToughToKill **E**=ToughToKill | effects, runner |
 | TrophyTaker | L+=1 N=1 | worldExecutions | PORTE | **T**=TrophyTakerOnUnitDefeatedAbility **E**=TrophyTaker_ExtraCritDamage | effects, runner |
-| TwistedScience | L+=1 N=3 | genesBiophagus | PORTE | **E**=TwistedScience_ExtraDmg,TwistedScience_ExtraHp | ai, effects, playbook, runner |
+| TwistedScience | L+=1 N=3 | genesBiophagus | PORTE | **E**=TwistedScience_ExtraDmg,TwistedScience_ExtraHp | ai, effects, entities, playbook, runner |
 | UnwaveringSentinel | L+=1 | custoKyrus | PORTE | **E**=UnwaveringSentinel_CounterAttack **G**=UnwaveringSentinel_CounterAttack | effects, runner |
 | VisionsOfHeresy | L+=1 | bloodDeathCompany | PORTE | **O**=VisionsOfHeresy_ExtraPierceMelee,VisionsOfHeresy_ExtraPierceRanged **E**=VisionsOfHeresy_ExtraPierceMelee,VisionsOfHeresy_ExtraPierceRanged | effects |
 | WireweaveNet | L+=1 N=4 | eldarRanger | PORTE | **E**=WireweaveNet_CounterAttack **G**=WireweaveNet_CounterAttack | effects, runner, utilities |
@@ -286,7 +286,7 @@ Tri : nombre de porteurs spawnables SANS AMENAGEMENT (`L+`+`M`) decroissant, pui
 | GeminaeSuperia | L~=1 N=4 | adeptCelestine | PORTE | **T**=GeminaeSuperiaAbility | playbook, runner |
 | GrimEfficiency | L~=1 | votanUthar | PORTE | **O**=GrimEfficiency_ExtraArmor,GrimEfficiency_ExtraPierce **E**=GrimEfficiency_ExtraArmor,GrimEfficiency_ExtraPierce | effects, playbook |
 | HaywireMine | L~=1 N=1 | astarCyrus | PORTE | **T**=HaywireMinePlaceOnMoveAbility,HaywireMinePlaceOnTurnEndAbility | playbook, runner |
-| HealingBalms | L~=1 | spaceWolfPriest | PORTE | **E**=HealingBalms_ExtraCritChance,HealingBalms_ExtraCritDamage | ai, effects, playbook, runner |
+| HealingBalms | L~=1 | spaceWolfPriest | PORTE | **E**=HealingBalms_ExtraCritChance,HealingBalms_ExtraCritDamage | ai, effects, entities, playbook, runner |
 | IconOfObstinacy | L~=1 | astarLysander | PORTE | **T**=IconOfObstinacyAddArmourBuffAbility **O**=IconOfObstinacy_ExtraDmg **E**=IconOfObstinacy_ExtraArmor,IconOfObstinacy_ExtraDmg | effects, playbook, runner |
 | ModifiedExoarmour | L~=1 | votanChampion | PORTE | **O**=ModifiedExoarmour_ExtraDmg **E**=ModifiedExoarmour_ExtraDmg | effects, playbook |
 | PredictiveGuidance | L~=1 | votanMemnyr | PORTE | **O**=PredictiveGuidance_Melee,PredictiveGuidance_Ranged **E**=PredictiveGuidance_ExtraHits,PredictiveGuidance_Melee | effects |

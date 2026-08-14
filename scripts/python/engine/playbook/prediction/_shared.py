@@ -881,14 +881,20 @@ def _friend_heroes_adjacent_to(scene, tgt_id, team):
 def _adjacent_unit_profiles(scene, uid):
     """#1025-r1 -- face PREDICTION du foyer `damage_model._adjacent_unit_profiles` :
     `AdjacentUnits( <uid>, unique: true, OnlyAliveAndTargetable = 3 )` enrichi de
-    `(team, visual_id, rarity)` par voisin, le substrat des DEUX branches du
+    `(team, visual_id, rarity, is_hero)` par voisin, le substrat des branches des
     `$$CreateTargetSelector` de
-    `IdunBattle.Entities.Effects.Loki.MoreGitzOverEre_ExtraDamagePctEffect`.
+    `IdunBattle.Entities.Effects.Loki.MoreGitzOverEre_ExtraDamagePctEffect` et
+    `IdunBattle.Entities.Effects.Loki.OnMyPosition_ExtraDamagePctEffect` (#1024-r2).
 
     L'adjacence vient de `Scene.adjacent_unit_ids` (foyer PARTAGE `playbook/adjacency.py`, donc
     liste STOCKEE + porte d'elevation + multi-tuiles), MEME substrat que la face COMBAT. Le filtre
     `Friends(Owner, ...)` du natif est relatif au PORTEUR de l'effet -> il est rejoue dans la
     classe d'effet, pas ici.
+
+    `is_hero` = `HeroUnits( <univers>, 3 )`, que `IdunBattleLogic.Entities.DSLSelectors$$HeroUnits`
+    rend LITTERALEMENT par `UnitsWithTrait(entities, 0x10 = UnitTrait.Hero, selectionType)` --
+    branche B de 1444 seulement. MEME foyer de traits (`_entity_traits`) et MEME lecture que
+    `_friend_heroes_adjacent_to` ci-dessus (#1019).
 
     `None` = NON MESURE (pas de cible, ou `adjacent_unit_ids` sans equipe/position) -> le gate se
     FERME. Un tuple VIDE est une MESURE : << aucun voisin >>."""
@@ -897,7 +903,8 @@ def _adjacent_unit_profiles(scene, uid):
     ids = scene.adjacent_unit_ids(uid)
     if ids is None:
         return None
-    return tuple((int(i), scene.team(i), scene.vis_by_id.get(i), _entity_rarity(scene, i))
+    return tuple((int(i), scene.team(i), scene.vis_by_id.get(i), _entity_rarity(scene, i),
+                  UnitTrait.Hero.name in (_entity_traits(scene, i) or frozenset()))
                  for i in sorted(ids))
 
 
