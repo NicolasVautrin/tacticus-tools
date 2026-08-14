@@ -129,24 +129,37 @@ run, meme attaquant, meme cible, armure 0 des deux cotes (`--hp-target 60000`, b
 Le tir d'overwatch fait **1,98x** le degat de l'attaque normale de la MEME unite : la face existe,
 elle n'est pas dead-code.
 
-Mais le port la placait au MAUVAIS ETAGE, et c'est mesurable a la decimale :
+Et le port produirait un ECART DIFFERENT de celui du natif :
 
   * ecart NATIF   overwatch - normale =  617,3 par coup ;
   * ecart PORT    nominal - mutant    =  5388 pour 6 coups = **898,0 par coup, EXACTEMENT**
     (mutant = la meme salve rejouee avec `create_effect_damage_bonus_for_attack` neutralise).
 
-`617,3 / 898 = 0,687`. Or le rapport `degat normal / stat Attack` vaut, MESURE INDEPENDAMMENT,
-`628,7 / 906 = 0,694`. **Les deux rapports coincident** : le bonus subit exactement la meme
-transformation que la base. Donc le natif l'ajoute AVANT l'etage qui resout les bornes
-(`DamagePrediction$$RandomlyResolveMinMaxDamage` sur des bornes calculees a partir de
-`base + additif`), la ou le port l'ajoute APRES (`_reduced_bounds`, `attacker_additive_pre` =
-« bornes (base +- spread) + additif », position validee bit-exact par #75 pour une AUTRE famille).
+⚠ **CE QUE CET ECART NE DIT PAS (#1084, 2026-08-14).** Il a d'abord ete lu comme un ecart
+d'ETAGE (« le natif ajoute avant la resolution des bornes, le port apres »). Cette attribution est
+REFUTEE, deux fois :
 
-Livrer la face a cet etage-la donnerait **+45 % de degat** sur chaque tir d'overwatch d'Imospekh --
-pire que l'absence, qui est le comportement actuel de `master`. La methode est donc RETIREE, pas
-ecrite « en attendant » : ce module porte la RE, le registre porte l'effet, et le residu **#924-r2**
-porte le seul point ouvert (l'etage). Cliquet : `test_924_inescapable_death_offline.py` rougit si
-quelqu'un re-arme la face sans traiter l'etage.
+  * au DECOMPILE -- `IdunBattle.Core.Services.DamagePrediction$$PredictAttackRaw` calcule
+    lui-meme les deux jeux de modificateurs (slots `0xd` ATTAQUANT et `0xe` DEFENSEUR de
+    `IDamageCalculations`, c.-a-d. `IdunBattle.Core.Services.DamageCalculations$$
+    CalculateAttackerModifiersForPrediction` et son jumeau DEFENSE), lit de CHACUN le champ
+    `+0x10` (`DamageModifiers.Addition`) et le SOMME au `baseDamage` passe a
+    `IdunBattle.Core.Services.DamagePrediction$$CalculateBaseDamageWithAllModifiers` -- pour la
+    borne MIN et pour la borne MAX. CBDWAM, lui, ne lit que `+0x20`/`+0x28`/`+0x18`/`+0x30`,
+    JAMAIS `+0x10`. L'additif entre donc AVANT le percage et AVANT les %-mods : la position
+    `attacker_additive_pre=True` du port ;
+  * a la MESURE -- le montage est « armure 0 des deux cotes », or a armure nulle
+    `idun.Idun.Source.Shared.Battle.StaticBattleRules.StaticBattleRules.Damage$$
+    GetDamageWithPiercing` est l'IDENTITE : les deux positions rendent le MEME nombre
+    (`+898,0` des deux cotes). Le regime est DEGENERE pour la question posee. Dans le regime
+    SEPARANT (celui de #75 : `pierce = 50`, armure `2208`) elles rendent `+449` contre `+898`.
+
+Ce qui reste ouvert est donc une divergence de MAGNITUDE non localisee -- piste : le niveau et le
+multiplicateur de l'`AbilityState` sous lequel `extraDmg` est lu (meme famille de verrou que
+#1005 / #237). La methode reste RETIREE, pas ecrite « en attendant » : ce module porte la RE, le
+registre porte l'effet, et le residu **#924-r2** porte le point ouvert. Deux cliquets :
+`test_924_inescapable_death_offline.py` rougit si quelqu'un re-arme la face ;
+`test_924r2_place_additif_attaquant_offline.py` rougit si quelqu'un DEPLACE l'additif.
 """
 from __future__ import annotations
 

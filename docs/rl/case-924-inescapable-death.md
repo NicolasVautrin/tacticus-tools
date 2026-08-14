@@ -89,21 +89,47 @@ Mais l'écart que le **port** produirait n'est pas celui du natif :
 | natif (overwatch − normale) | **617,3** |
 | port (nominal − mutant, mutant = même salve, face neutralisée) | **898,0 exactement** (5388 / 6) |
 
-`617,3 / 898 = 0,687`. Or le rapport `dégât normal / stat Attack` vaut, **mesuré indépendamment**,
-`628,7 / 906 = 0,694`. **Les deux rapports coïncident** : le bonus subit exactement la même
-transformation que la base ⇒ le natif l'ajoute **avant** la résolution des bornes, le port
-**après** (`_reduced_bounds`, `attacker_additive_pre` = « bornes (base ± spread) + additif »,
-position pourtant validée bit-exact par #75 pour une autre famille).
+L'écart **existe** et reste ouvert. En revanche, l'attribution qui en était tirée — « le port pose
+l'additif un étage trop bas » — est **RÉFUTÉE (2026-08-14, #1084)**, par deux voies indépendantes.
 
-Livrer à cet étage donnerait **+45 %** de dégât sur chaque tir d'overwatch d'Imospekh — pire que
-l'absence, qui est le comportement de `master`. La méthode est donc **retirée**, pas écrite « en
-attendant ». Restent en place : la RE complète (module `inescapable_death.py` §6), la classe au
-registre (pour que le résidu soit visible), et un **cliquet inversé** qui rougit si quelqu'un
-ré-arme la face sans traiter l'étage.
+**1. Le décompilé place l'additif exactement où le port le place.**
+`IdunBattle.Core.Services.DamagePrediction$$PredictAttackRaw` calcule lui-même les deux jeux de
+modificateurs — slots `0xd` (ATTAQUANT) et `0xe` (DÉFENSEUR) de `IDamageCalculations`,
+c'est-à-dire `IdunBattle.Core.Services.DamageCalculations$$CalculateAttackerModifiersForPrediction`
+et son jumeau DÉFENSE, dont la signature `(this, state, entities, activeEffects)` prend un
+`IdunBattle.Entities.Abilities.AbilityEntities`. De **chacun** des deux structs rendus il lit le
+champ `+0x10` (= `DamageModifiers.Addition`) et le **somme au `baseDamage`** passé à
+`IdunBattle.Core.Services.DamagePrediction$$CalculateBaseDamageWithAllModifiers` — pour la borne
+MIN **et** pour la borne MAX, avec les **mêmes deux termes** (seul le terme de spread diffère
+entre les deux appels). La disposition du struct est confirmée au même endroit : `+0x00` est lu
+comme un `Nullable` qui **écrase** le dégât de base (`Override`), et CBDWAM ne lit, lui, que
+`+0x20` (`Piercing`), `+0x28` (`IgnoreArmor`), la liste `+0x18` et `+0x30` (`Multiplier`) —
+**jamais `+0x10`**. L'additif entre donc **avant** le perçage et **avant** les %-mods : c'est la
+position `attacker_additive_pre=True` du port, celle que #75 a validée bit-exact.
 
-Première étape du fix : `damage_ops/normal.py` ne threade **pas** `trigger_ability_type` vers
-`attacker_modifiers` (seul l'axe COUPS le reçoit, via `build_hits_board`). Non fait ici : sans
-consommateur porté, l'ajout serait un élargissement **non validable** d'un foyer partagé.
+**2. Le montage ci-dessus ne pouvait pas séparer les deux positions.** L'écart est mesuré
+« armure 0 des deux côtés ». Or à armure nulle,
+`idun.Idun.Source.Shared.Battle.StaticBattleRules.StaticBattleRules.Damage$$GetDamageWithPiercing`
+rend `max(0, d − 0, d × p/100) = d` : c'est l'**identité**. Ajouter l'additif avant ou après elle
+donne le même nombre — mesuré, pas raisonné : **+898,0 des deux côtés**. Le régime est **dégénéré**
+pour la question posée. Le même couple joué dans le régime **séparant** (celui de #75 :
+`pierce = 50`, armure `2208`) rend **+449** en position PRE contre **+898** en POST, un facteur 2
+franc : c'est ce régime-là qu'il aurait fallu jouer. La coïncidence `617,3/898 = 0,687` avec
+`628,7/906 = 0,694` est un rapport de deux **moyennes sur six tirages** ; elle ne désigne aucun
+étage — c'est un scalaire fitté, ce que la doctrine interdit explicitement sur un foyer de dégât.
+
+**Ce qui reste**, donc : une divergence de **magnitude** non localisée, pas un étage manquant. La
+piste qu'ouvre cette relecture est la magnitude elle-même — le niveau et le multiplicateur de
+l'`AbilityState` sous lequel `extraDmg` est lu (même famille de verrou que #1005 / #237) — et non
+la position. La face dégât reste **désarmée** : rien ne s'arme sur une cause non localisée.
+Cliquet : `tests/engine/test_924r2_place_additif_attaquant_offline.py` rougit si quelqu'un
+« répare » #924-r2 en **déplaçant** l'additif, ce qui casserait la bit-exactness de #75.
+
+⚠ La « première étape du fix » que cette fiche prescrivait — threader `trigger_ability_type` vers
+`attacker_modifiers` — n'est **pas** une étape de ce résidu : elle découlait de l'attribution
+réfutée. Le threading reste souhaitable en soi (le natif n'a qu'**un** contexte per-coup,
+`AbilityEntities`, dont le champ `+0x98` est lu indifféremment par les canaux COUPS et DÉGÂT), mais
+il ne débloque rien ici et reste sans consommateur porté.
 
 ## 6. Deux pièges de mesure traversés (à ne pas re-payer)
 
