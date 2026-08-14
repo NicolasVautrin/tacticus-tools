@@ -32,15 +32,28 @@ from ..effect_type import EffectType   # #270-r1-r1 : `UNTARGETABLE_EFFECT_TYPES
 #: `1573 TitanhammerSquad_TeleportingIn` -- et `JustSummonedEffect`.
 #: RESTENT DEHORS, et pour des raisons DISTINCTES :
 #:   * `1573` -- arrive avec #448-r2d ;
-#:   * `JustSummonedEffect` (4 `EffectType` : 1, 1061, 1230, 1390) -- **REFUS MESURE (#448-r2b-r1)**,
-#:     et la raison n'est PAS « rayon de souffle a mesurer » : AUCUN des quatre n'est POSE par le
-#:     port. `1230` est pose puis retire dans le meme behaviour natif et le port l'OMET
-#:     (`triggers/loki/sworn_protector.py`) ; `1390` n'est pas pose
-#:     (`triggers/loki/spiritual_leader.py` : « ni le flag 17 ni l'effet 1390 ne sont poses par le
-#:     port ») ; `1061` n'est que RETIRE (`operations/spawn.py`, `abilities/loki/momentum.py` --
-#:     « NO-OP offline tant qu'aucun poseur de 1061 n'est ... ») ; `1` n'a aucun site. Les inscrire
-#:     serait donc **strictement inerte** (`has_effect` rendrait toujours faux) tout en donnant
-#:     l'illusion d'avoir ferme le trou. L'etage manquant est le POSEUR, pas le domaine.
+#:   * `JustSummonedEffect` (4 `EffectType` : 1, 1061, 1230, 1390) -- **REFUS RE-MESURE (#1074)**.
+#:     L'etage manquant n'est plus le meme selon le membre, et c'est ce qui rend la regle unique :
+#:     un membre n'entre au domaine que si le port porte SES DEUX FACES, le POSEUR **et** le
+#:     RETIREUR.
+#:       - `1`, `1230`, `1390` : AUCUN POSEUR. `1230` est pose puis retire dans le meme behaviour
+#:         natif et le port l'OMET (`triggers/loki/sworn_protector.py`) ; `1390` n'est pas pose
+#:         (`triggers/loki/spiritual_leader.py` : « ni le flag 17 ni l'effet 1390 ne sont poses par
+#:         le port ») ; `1` n'a aucun site. Les inscrire serait **strictement inerte** (`has_effect`
+#:         rendrait toujours faux) tout en donnant l'illusion d'avoir ferme le trou.
+#:       - `1061` : POSE depuis #963 -- `GeminaeSuperiaAbility$$CreateBehaviour`
+#:         (`triggers/loki/geminae_superia.py`) fait `AddEffect(0x425, ..., Target@+0x60)`, donc sur
+#:         CELESTINE. Ce qui manque ici est le RETRAIT :
+#:         `IdunBattle.Entities.Effects.Loki.JustSummonedEffect$$CreateRemoveEffectTrigger`
+#:         = `On(0x3a = PhaseEnd) | (On(0x1f = PreUnitMove, true) & get_OwnerIsActor)
+#:         | (On(0x2a = PreUnitAbility, true) & get_OwnerIsActor)` n'est PAS porte (aucune entree
+#:         `EFFECT_TRIGGERS[1061]`), et le flag `UnitFlag 0x11` ne part QUE par `$$RevertInternal`,
+#:         c'est-a-dire au retrait de l'effet. L'inscrire aujourd'hui rendrait Celestine non
+#:         ciblable POUR LE RESTE DE LA BATAILLE -- divergence bien pire que l'absence
+#:         d'inscription, et RESTRICTIVE au point de la rendre inattaquable en self-play.
+#:     Le cran executable est BIDIRECTIONNEL (`test_448_r2b_stormboyz_teleporting_in_offline.py::
+#:     test_the_just_summoned_family_stays_out_because_its_REMOVAL_is_not_ported`) : il rougit aussi
+#:     le jour ou le retrait est porte sans que l'inscription suive.
 #: On n'inscrit que ce qui est porte ET confronte SUR CE CANAL : un ajout speculatif retirerait des
 #: cibles a l'IA sans mesure, et c'est une degradation SILENCIEUSE.
 # #270-r1-r1 : membres nommes -- le commentaire ci-dessus nomme deja les quatre derivees, dont ces

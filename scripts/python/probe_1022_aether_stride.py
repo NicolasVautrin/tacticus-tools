@@ -45,7 +45,7 @@ import hexgeo
 import oracle_targeting as O
 from engine.entities.pathfinding.board import Board
 from engine.services import spawn_tile_shape as STS
-from rl_collect_batch import _load_seed_bc, _rpc, _resolve_session
+from rl_collect_batch import _load_seed_bc, _rpc, _resolve_session, bind_ambient_rpc
 
 PYDIR = Path(__file__).resolve().parent
 ROOT = PYDIR.parents[1]
@@ -148,6 +148,12 @@ def main() -> int:
     a = ap.parse_args()
 
     sid = _resolve_session()
+    # #1074 -- CE PROBE GREFFE (`graft_seed_bc` -> `CI.graft_active_ability`), donc son
+    # `load_state` de l'etage C DOIT alimenter `unitAbilityStates`. Sans ce transport,
+    # `collect_triggered_abilities` retombe sur `gameconfig.unit(<greffon>)`, qui ne porte PAS
+    # `AetherStride` : le port ne monterait AUCUNE classe greffee et l'etage C mesurerait un
+    # NEANT en VERT (mesure #448-r3-r1 : 0 echec en CLI contre 3 sous pytest, MEME code).
+    bind_ambient_rpc(sid)
     bc = graft_seed_bc()
     print("[1022] seed BC greffe : %s (%s.ActiveAbilities = [%d])" % (bc.name, MOW, AETHER_STRIDE))
     rid, _state = build(a.seed, a.board, bc, a.p_units)

@@ -47,13 +47,19 @@ DECLENCHEUR = {
         "scripts/python/engine/runner/damage_model.py",
         "scripts/python/engine/runner/operations/triggers/loki/close_combat_weakness.py",
         "scripts/python/engine/runner/operations/triggers/dispatch/registry.py",
+        "scripts/python/engine/runner/snapshot.py",
+        "scripts/python/engine/entities/effects_state.py",
+        "scripts/python/probe_229_effect_triggers_active.py",
     ),
     "build": False,
     "toujours": False,
     "raison": (
         "Cliquet OFFLINE de #1015-r1 : chaine trait -> ability -> effet aux trois registres, "
         "magnitudes figees a la mesure, les trois termes de `NearbyEnemiesCondition` en tri-etat, "
-        "et la face DECISION. Aucun runner."),
+        "et la face DECISION. Aucun runner. Depuis #1074 il porte AUSSI le gate "
+        "`EffectComponent.IsActive @+0x5c` du rail TARGETS (section 6) : il monte un etat ECS par "
+        "`load_state`, lit les instances par `EffectsState.active_effects`, et confronte le rail "
+        "declare a `probe_229.RAIL` -- d'ou les trois chemins ajoutes ici."),
 }
 
 import pytest                                                              # noqa: E402
@@ -298,4 +304,167 @@ def test_la_face_ATTAQUE_n_est_PAS_au_registre_et_c_est_le_natif():
     que le natif n'a pas."""
     from engine.playbook.psyker import TRIGGERED_ATTACK_PLAYBOOKS
     assert int(TriggeredAbilityType.CloseCombatWeakness) not in TRIGGERED_ATTACK_PLAYBOOKS
+
+
+# ================================================================================================
+# 6. LE GATE `EffectComponent.IsActive @+0x5c` du rail TARGETS (#1074)
+# ================================================================================================
+#
+# `CloseCombatWeaknessMarkStartedTurnAdjacent` vient de `...CloseCombatWeakness_ReduceDmg_Effect$$
+# CreateTargetTrigger` : `EvaluateTriggerOperation$$EvaluateEffectTriggerTargets` lit `IsActive` PAR
+# CIBLE avant `ShouldTrigger`. Elle etait entree au registre (#1015-r1) SANS ce gate ET sans son
+# entree de rail dans `probe_229.RAIL` -- `master` en etait ROUGE.
+#
+# ⚠ CE QUI SE MESURE ICI N'EST PAS LE FLAG CAPTE. Pour 1130, `$$CreateActiveCondition` = `return
+# NearbyEnemiesCondition()`, donc le natif REECRIT `+0x5c` a chaque refresh et le flag capte est
+# PERIME (`active_condition_ported = True`, case-322). Le gate porte donc sur la CONDITION, et son
+# seul terme NEUF -- le trigger exigeant deja `HasAdjacentEnemies` -- est
+# `NOT HasEffect(Owner, 1144 SuppressCloseCombatWeakness, onlyActive: TRUE, 6)`.
+# Les tests ci-dessous exercent ce terme DANS LES DEUX SENS, plus son `onlyActive`.
+
+COLS, ROWS = 5, 5
+PORTEUR, ENNEMI = 10, 20
+
+
+def _tid(col: int, row: int) -> int:
+    return col * ROWS + row + 1
+
+
+def _etat(contact: bool = True):
+    """Etat ECS minimal : PORTEUR (equipe 1) et ENNEMI (equipe 2), ADJACENTS ou non.
+
+    Les positions sont CHOISIES pour piloter `HasAdjacentEnemies`, jamais subies : c'est le seul
+    terme geometrique du trigger, et un montage ou les deux unites ne se touchent jamais mesurerait
+    un `False` sans avoir exerce le gate."""
+    import hexgeo
+    from engine.entities.effects_state import EffectsState
+    from engine.entities.pathfinding.board import Board
+    from engine.runner.snapshot import load_state
+    tiles = []
+    for col in range(COLS):
+        for row in range(ROWS):
+            nb = [_tid(c, r) for (c, r) in hexgeo.neighbors(col, row)
+                  if 0 <= c < COLS and 0 <= r < ROWS]
+            tiles.append({"id": _tid(col, row), "col": col, "row": row, "elevation": 0,
+                          "walkable": True, "isWall": False, "neighbours": nb})
+    pos_ennemi = {"col": 2, "row": 1} if contact else {"col": 4, "row": 4}
+    decision = {"currentPlayer": 1, "units": [
+        {"id": PORTEUR, "visualId": "tauCrisis", "alive": True, "team": 1, "owner": 1,
+         "pos": {"col": 2, "row": 2}, "effects": []},
+        {"id": ENNEMI, "visualId": "necroWarden", "alive": True, "team": 2, "owner": 2,
+         "pos": pos_ennemi, "effects": []},
+    ]}
+    observe = {"units": [{"squadId": u["id"], "hp": 5000, "hpMax": 5000}
+                         for u in decision["units"]]}
+    st = load_state(decision, observe, board=Board(tiles, adjacency="evenq"),
+                    ability_states=False)
+    if st.effects is None:
+        st.effects = EffectsState()
+    return st
+
+
+def _pose(st, nom: str, effect_type: int, *, active: bool = True):
+    """MEME chemin que le seed live : `EffectFactory.create`, qui recopie la cle `active` publiee
+    par `decisionView { includeInactive: true }` (#219)."""
+    inst = EffectFactory.create({"name": nom, "effectType": int(effect_type), "active": active})
+    st.effects.by_unit.setdefault(PORTEUR, []).append(inst)
+    return inst
+
+
+def _trigger():
+    import engine.runner.operations.triggers.loki.close_combat_weakness as T
+    return T.CloseCombatWeaknessMarkStartedTurnAdjacent(PORTEUR)
+
+
+def _ev():
+    from engine.runner.operations.triggers.base import TriggerEvent
+    return TriggerEvent(int(EventTriggerType.TurnStart_EffectActivation), PORTEUR, PORTEUR,
+                        ranged=False, profile=None)
+
+
+def test_le_bras_ACTIF_tire_au_contact():
+    """SANS ce bras, le bras INACTIF ne prouverait rien : il pourrait passer parce qu'un AUTRE
+    terme refuse. `On(0x12) & HasAdjacentEnemies(Owner, Tiles(Owner))`, instance 1130 active."""
+    st = _etat(contact=True)
+    _pose(st, EFFET, int(EffectType.CloseCombatWeakness_ReduceDmg))
+    assert _trigger().matches(st, _ev()) is True
+
+
+def test_le_gate_IsActive_FERME_sous_SuppressCloseCombatWeakness():
+    """LE CRAN. `NOT HasEffect(Owner, 0x478, onlyActive: true, 6)` est le conjoint GAUCHE de
+    `NearbyEnemiesCondition`, donc de la `CreateActiveCondition`, donc du flag `IsActive` que le
+    rail TARGETS teste. Sans le gate, un porteur sous `EarlyWarningOverride` se posait quand meme
+    le marqueur 1129 pour un tour -- et le malus repartait au tour suivant, apres l'expiration de la
+    suppression, la ou le natif ne l'avait JAMAIS arme."""
+    st = _etat(contact=True)
+    _pose(st, EFFET, int(EffectType.CloseCombatWeakness_ReduceDmg))
+    _pose(st, EffectType.SuppressCloseCombatWeakness.name,
+          int(EffectType.SuppressCloseCombatWeakness))
+    assert _trigger().matches(st, _ev()) is False, (
+        "le gate `EffectComponent.IsActive @+0x5c` du rail TARGETS est perdu : le trigger tire "
+        "sur une instance 1130 que `CreateActiveCondition` eteint")
+
+
+def test_une_suppression_INACTIVE_ne_ferme_PAS():
+    """`onlyActive: TRUE` (4e argument de `IdunBattleLogic.Entities.DSLTriggers$$HasEffect`) : un
+    1144 dont le flag `EffectComponent.IsActive @+0x5c` est BAS ne compte pas. C'est ce test qui
+    separe `EffectsState.active_effects` d'un simple `has_effect` -- le second rendrait `False` ici,
+    donc un malus eteint a tort."""
+    st = _etat(contact=True)
+    _pose(st, EFFET, int(EffectType.CloseCombatWeakness_ReduceDmg))
+    _pose(st, EffectType.SuppressCloseCombatWeakness.name,
+          int(EffectType.SuppressCloseCombatWeakness), active=False)
+    assert _trigger().matches(st, _ev()) is True
+
+
+def test_le_terme_geometrique_reste_le_premier_refus():
+    """NON-REGRESSION : hors contact, `HasAdjacentEnemies(Owner, Tiles(Owner))` refuse avant tout
+    le reste -- le gate ne doit pas l'AVALER (ni le remplacer)."""
+    st = _etat(contact=False)
+    _pose(st, EFFET, int(EffectType.CloseCombatWeakness_ReduceDmg))
+    assert _trigger().matches(st, _ev()) is False
+
+
+def test_sans_instance_1130_le_gate_est_PERMISSIF():
+    """Aucune instance portee -> `True` : sans instance il n'y aurait AUCUN trigger a evaluer (le
+    collecteur part des effets portes). Rendre `False` ici ferait dependre le verdict d'un etat que
+    le natif n'atteint pas. MEME forme que `HarlequinsPanoplyIgnoreHitsRemove._instance_is_active`."""
+    st = _etat(contact=True)
+    assert _trigger().matches(st, _ev()) is True
+
+
+def test_le_marqueur_est_POSE_quand_le_gate_passe_et_PAS_quand_il_ferme():
+    """Le verdict de `matches` doit se traduire dans l'ETAT : c'est la difference entre une lecture
+    DECORATIVE du flag et un gate qui pilote. Le vecteur de production evalue `matches` avant le
+    behaviour -- on le reproduit ici explicitement."""
+    def _joue(st):
+        trg, ev = _trigger(), _ev()
+        if trg.matches(st, ev):
+            trg.execute_behaviour(st, ev)
+        return [e.name for e in (st.effects.by_unit.get(PORTEUR) or []) if not e.consumed]
+
+    ouvert = _etat(contact=True)
+    _pose(ouvert, EFFET, int(EffectType.CloseCombatWeakness_ReduceDmg))
+    assert MARQUEUR in _joue(ouvert)
+
+    ferme = _etat(contact=True)
+    _pose(ferme, EFFET, int(EffectType.CloseCombatWeakness_ReduceDmg))
+    _pose(ferme, EffectType.SuppressCloseCombatWeakness.name,
+          int(EffectType.SuppressCloseCombatWeakness))
+    assert MARQUEUR not in _joue(ferme)
+
+
+def test_le_rail_TARGETS_est_DECLARE_pour_cette_classe():
+    """CLIQUET COMPAGNON DE REGISTRE. `probe_229` ne sait rien d'une classe absente de son `RAIL` :
+    c'est ainsi que la classe est entree au registre sans gate. Le rail est LU
+    (`...CloseCombatWeakness_ReduceDmg_Effect$$CreateTargetTrigger` existe au binaire, et la classe
+    ne porte ni `CreateHandleTriggerAbilitiesInternal` ni `CreateRemoveEffectTrigger`)."""
+    import probe_229_effect_triggers_active as P
+    import engine.runner.operations.triggers.loki.close_combat_weakness as T
+    nom = T.CloseCombatWeaknessMarkStartedTurnAdjacent.__name__
+    rail, symbole = P.RAIL.get(nom, (None, None))
+    assert rail == P.TARGETS, "rail declare = %r (attendu TARGETS)" % (rail,)
+    assert symbole.endswith("$$CreateTargetTrigger"), symbole
+    assert P._reads_active(T.CloseCombatWeaknessMarkStartedTurnAdjacent), (
+        "le rail TARGETS exige la lecture du flag, et `EXPECTED_GAPS` est VIDE")
 

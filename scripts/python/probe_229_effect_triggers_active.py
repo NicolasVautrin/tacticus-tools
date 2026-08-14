@@ -444,6 +444,23 @@ RAIL: dict[str, tuple[str, str]] = {
         (ARRAYSET, "IdunBattle.Entities.Effects.Loki.ATeleportingEffect$$CreateHandleTriggerAbilitiesInternal"),
     "TitanhammerSquadMovingRemoveOnAfterMove":
         (ARRAYSET, "IdunBattleLogic.Effects.TeleportMovingEffect$$CreateHandleTriggerAbilitiesInternal"),
+    # #1074 -- `CloseCombatWeakness_ReduceDmg` (1130), entree au registre par #1015-r1 SANS son rail :
+    # `master` en est reste ROUGE (`test_421_effect_active_gate_offline::
+    # test_the_probe_rail_covers_the_whole_registry`, « classe(s) inscrite(s) sans rail declare »).
+    # Rail LU, pas deduit par voisinage : le bloc `methodPointers` de
+    # `IdunBattle.Entities.Effects.Loki.CloseCombatWeakness_ReduceDmg_Effect` porte un
+    # `CreateTargetTrigger` **et** un `CreateTargetTriggerBehaviour` propres, et le corps du premier
+    # (decompile, build `rnca9r7q6c`) est `On(0x12, ownerNeedsToBeAlive: 1) op_BitwiseAnd
+    # HasAdjacentEnemies(Owner@+0x30, Tiles(Owner@+0x30), 0, 0)` -- aucun
+    # `CreateHandleTriggerAbilitiesInternal` ni `CreateRemoveEffectTrigger` a son nom.
+    # => `EvaluateEffectTriggerTargets` gate sur `IsActive` -> le port DOIT lire le flag, et il ne le
+    # lisait pas : gate pose DANS LE MEME COMMIT (`_instance_is_active`), comme #547-r2 l'avait fait
+    # pour `BloodChalice` et #962 pour `ArmourOfShriekingSouls`.
+    # ⚠ La lecture ne peut PAS etre `e.active` ici : la classe porte `active_condition_ported = True`
+    # (`$$CreateActiveCondition` = `return NearbyEnemiesCondition()`, donc `+0x5c` est REECRIT a
+    # chaque refresh) -- le port lit la CONDITION via `active_effects`, d'ou `via active_effects`.
+    "CloseCombatWeaknessMarkStartedTurnAdjacent":
+        (TARGETS, "IdunBattle.Entities.Effects.Loki.CloseCombatWeakness_ReduceDmg_Effect$$CreateTargetTrigger"),
     # #419-r1-tr9-r4-r1-r2-r1 -- `LegendaryCommander_ExtraHits` (1395). Rail TARGETS : le trigger
     # vient de `$$CreateTargetTrigger` (`On(0xa = AttackDamageAttack) & IsValidAttack(Effect@0x38)`),
     # donc `EvaluateEffectTriggerTargets` lit `IsActive` avant de l'evaluer -> le port le lit aussi.

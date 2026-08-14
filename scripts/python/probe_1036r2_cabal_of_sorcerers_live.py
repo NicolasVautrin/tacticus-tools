@@ -73,6 +73,13 @@ class _Session:
         self._B = B
         self.sid = B._resolve_session()
         self.rid = int(rid)
+        # #1074 -- CE MONTAGE GREFFE (`--equip-mythic` -> `catalog_inject.equip_mythic`, qui ecrit
+        # `BC.Units[].TertiaryAbility`), et `TertiaryAbility` est l'une des trois cles que le port
+        # ne peut lire QUE par le canal `unitAbilityStates`. Sans transport ambiant, `_state`
+        # ci-dessous rendait `source == "no-transport"` : `collect_triggered_abilities` retombait
+        # sur `gameconfig.unit(<greffon>)`, qui ne porte PAS la mythique -- le port etait AMPUTE et
+        # toute assertion negative passait A VIDE, EN VERT (#448-r3-r1).
+        B.bind_ambient_rpc(self.sid)
 
     def rpc(self, method, body=None, timeout=90):
         b = dict(body or {})

@@ -134,6 +134,14 @@ def run(rarity: "int | None" = RARETE_SEPARANTE, vis: str = VIS_SEPARE,
 
     import rl_collect_batch as B
     sid = B._resolve_session()
+    # #1074 -- LE CANAL EST DEMANDE, ET C'EST DELIBERE MEME SI CE BRAS-CI NE GREFFE PAS. Ce
+    # montage passe par `rl_duel build` (`R.main`), dont les options `--equip-mythic` /
+    # `--equip-relic` / `--graft-*` ECRIVENT les trois cles que le port ne peut lire QUE par
+    # `unitAbilityStates` : le recensement statique de `probe_448_r3_r1_r1` ne peut pas savoir,
+    # d'une liste `argv` construite au vol, laquelle sera passee. Lier l'ambiant rend la mesure
+    # INDEPENDANTE de cette question -- et sans lui, `load_state` plus bas rendait
+    # `source == "no-transport"`, c'est-a-dire un `UnitContext` prive de ses abilities.
+    B.bind_ambient_rpc(sid)
 
     def rpc(method, body, timeout=90):
         return _unwrap(B._rpc(sid, method, [body], timeout=timeout)) or {}

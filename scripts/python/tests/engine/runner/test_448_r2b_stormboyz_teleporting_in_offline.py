@@ -290,29 +290,28 @@ def test_the_untargetable_domain_holds_only_the_confronted_slices():
         "CONFRONTEE (le port de ses triggers ne suffit pas -- cf. #448-r2d)")
 
 
-def test_the_just_summoned_family_stays_out_because_nothing_POSES_it():
-    """CLIQUET du REFUS mesure (#448-r2b-r1). Les quatre `EffectType` de `JustSummonedEffect`
-    (`1`, `1061`, `1230`, `1390`) restent hors du domaine, et la raison est DERIVEE de l'arbre, pas
-    citee : **aucun site du port ne les POSE**. Les inscrire serait strictement inerte
-    (`has_effect` rendrait toujours faux) tout en donnant l'illusion d'avoir ferme le trou --
-    l'etage manquant est le POSEUR, pas le domaine.
+#: Les QUATRE `EffectType` que materialise `IdunBattle.Entities.Effects.Loki.JustSummonedEffect`.
+#: L'ENSEMBLE est etabli par CARDINAL, pas par appariement un-a-un : `JustSummonedEffect$$.ctor` a
+#: exactement QUATRE appelants, tous des lambdas d'`IdunBattle.Core.Services.EffectsDatabase$$
+#: InitializeEffects` (`<>c$$<InitializeEffects>b__14_62..65`), et le build ne porte QUE ces quatre
+#: `EffectType` dont le nom contient `JustSummoned` (`data/symbols/<build>/frida/enums.tsv`).
+#: 4 = 4, et le domaine est un ENSEMBLE : cela suffit a le clore.
+JUST_SUMMONED_FAMILY = (EffectType.JustSummoned,                            # 1
+                        EffectType.GeminaeSuperia_JustSummonedEffect,       # 0x425 = 1061
+                        EffectType.SwornProtector_JustSummonedEffect,       # 0x4ce = 1230
+                        EffectType.DecoysAndMisdirection_JustSummonedEffect)  # 0x56e = 1390
 
-    Le critere est un `AddEffect(<id>, ...)` EXECUTABLE dans `engine/**` : c'est la seule ecriture
-    par laquelle un effet entre dans `state.effects` cote port. Si un poseur apparait un jour, ce
-    test rougit et c'est exactement ce qu'on veut -- l'inscription redevient alors CONFRONTABLE.
+
+def _scan_add_effect(base) -> dict:
+    """`{ordinal: {fichiers}}` des `AddEffect(<ordinal>, ...)` EXECUTABLES sous `base`.
+
+    C'est la seule ecriture par laquelle un effet entre dans `state.effects` cote port.
 
     ⚠ La lecture se fait sur l'**AST**, jamais sur le texte. Un premier jet en `re` a rendu
-    « 1061 est POSE par spawn.py » : la ligne trouvee etait la PROSE
-    « aucun AddEffect(1061) dans ce kit » -- un commentaire qui dit exactement le CONTRAIRE de ce
-    que le balayage en concluait. Un critere textuel ne peut pas separer le code de ce qui parle
-    du code."""
+    « 1061 est POSE par spawn.py » : la ligne trouvee etait la PROSE « aucun AddEffect(1061) dans
+    ce kit » -- un commentaire qui dit exactement le CONTRAIRE de ce que le balayage en concluait.
+    Un critere textuel ne peut pas separer le code de ce qui parle du code."""
     import ast
-    from pathlib import Path
-    base = Path(__file__).resolve().parents[3] / "engine"
-    assert base.is_dir(), "arbre `engine/` introuvable depuis %s" % __file__
-    familles = (EffectType.JustSummoned, EffectType.GeminaeSuperia_JustSummonedEffect,
-                EffectType.SwornProtector_JustSummonedEffect,
-                EffectType.DecoysAndMisdirection_JustSummonedEffect)
 
     def _ordinal(node, consts):
         """L'ordinal `EffectType` qu'un noeud d'ARGUMENT designe, ou `None`. QUATRE ecritures :
@@ -358,17 +357,95 @@ def test_the_just_summoned_family_stays_out_because_nothing_POSES_it():
             o = _ordinal(n.args[0], consts)
             if o is not None:
                 poses.setdefault(o, set()).add(p.name)
+    poses["__modules_lus__"] = lus
+    return poses
+
+
+def _doit_entrer_au_domaine(ordinal: int, poses: dict, retraits: dict) -> bool:
+    """LA REGLE, ecrite UNE fois et exercee DEUX fois (le reel ci-dessous, le synthetique ensuite).
+
+    Un `EffectType` de la famille `JustSummoned` n'entre au domaine de non-ciblabilite que si le
+    port porte SES DEUX FACES :
+
+      * un POSEUR -- sans lui l'inscription est strictement inerte (`has_effect` rend toujours
+        faux) tout en donnant l'illusion d'avoir ferme le trou ;
+      * un RETIREUR -- `IdunBattle.Entities.Effects.Loki.JustSummonedEffect$$CreateRemoveEffectTrigger`
+        = `On(0x3a = PhaseEnd) | (On(0x1f = PreUnitMove, true) & get_OwnerIsActor)
+        | (On(0x2a = PreUnitAbility, true) & get_OwnerIsActor)`. Le flag `UnitFlag 0x11` que pose
+        `UntargetableEffect$$ApplyInternal` est retire par `$$RevertInternal`, donc au retrait de
+        l'effet -- et RIEN d'autre ne le retire.
+
+    Inscrire un effet POSE mais JAMAIS RETIRE rendrait son porteur non ciblable **pour le reste de
+    la bataille** : une divergence bien pire que l'absence d'inscription, et RESTRICTIVE au point
+    de rendre le porteur inattaquable en self-play."""
+    return bool(poses.get(ordinal)) and bool(retraits.get(ordinal))
+
+
+def test_the_just_summoned_family_stays_out_because_its_REMOVAL_is_not_ported():
+    """CLIQUET du REFUS RE-MESURE (#1074). La premisse de #448-r2b-r1 -- « aucun site du port ne
+    les POSE » -- est MORTE : `GeminaeSuperiaAbility$$CreateBehaviour` est porte depuis #963
+    (`triggers/loki/geminae_superia.py`), et son `opts.<+0x10>` fait
+    `AddEffect(0x425 = GeminaeSuperia_JustSummonedEffect, ..., Target@+0x60)`.
+
+    LA QUESTION RE-TRANCHEE. `JustSummonedEffect` derive bien d'`UntargetableEffect`
+    (`data/symbols/<build>/frida/classes.tsv`), donc 1061 rend son porteur -- CELESTINE, le trigger
+    exigeant `get_OwnerIsTarget` -- non ciblable. Mais l'arbre du passif ne le retire JAMAIS : c'est
+    l'effet lui-meme qui porte `$$CreateRemoveEffectTrigger`, et ce trigger-la n'est PAS porte
+    (`EFFECT_TRIGGERS` n'a aucune entree pour 1061). Inscrire 1061 au domaine aujourd'hui rendrait
+    donc Celestine non ciblable POUR LE RESTE DE LA BATAILLE.
+
+    Le refus tient toujours, mais son FONDEMENT a change : ce n'est plus l'absence de POSEUR, c'est
+    l'absence de RETIREUR. Le cran ci-dessous est BIDIRECTIONNEL -- il rougit aussi le jour ou le
+    retrait est porte sans que l'inscription suive, c'est-a-dire quand le blocage est leve.
+    Residu ouvert : `#1074` (porter `JustSummonedEffect$$CreateRemoveEffectTrigger`, puis inscrire).
+    """
+    from pathlib import Path
+    base = Path(__file__).resolve().parents[3] / "engine"
+    assert base.is_dir(), "arbre `engine/` introuvable depuis %s" % __file__
+
+    poses = _scan_add_effect(base)
+    lus = poses.pop("__modules_lus__")
     assert lus > 100, "balayage trop maigre (%d modules) -- un vide passerait pour un vert" % lus
     assert poses, "aucun `AddEffect(<ordinal>)` trouve : le critere ne mesure plus rien"
-    for eff in familles:
-        assert int(eff) not in UNTARGETABLE_EFFECT_TYPES, (
-            "%s inscrite au domaine : verifier d'abord qu'un poseur existe" % eff.name)
-        assert int(eff) not in poses, (
-            "%s est POSE par %s : le refus d'inscription au domaine n'est plus fonde sur "
-            "l'absence de poseur -- re-trancher la question (#448-r2b-r1)"
-            % (eff.name, sorted(poses[int(eff)])))
+    # Le RETIREUR se lit au registre des effet-triggers -- meme canal que les quatre `Triggered()`
+    # d'`ATeleportingEffect` portes par cette tranche.
+    assert len(EFFECT_TRIGGERS) >= 40, (
+        "registre des effet-triggers effondre (%d types) : `retraits.get(...)` rendrait vide POUR "
+        "TOUT LE MONDE, donc le cran serait vert sans avoir rien mesure" % len(EFFECT_TRIGGERS))
+
+    for eff in JUST_SUMMONED_FAMILY:
+        attendu = _doit_entrer_au_domaine(int(eff), poses, EFFECT_TRIGGERS)
+        present = int(eff) in UNTARGETABLE_EFFECT_TYPES
+        assert present == attendu, (
+            "%s : pose par %s, retrait porte = %s -> %s au domaine, or il y est %s. "
+            "Poseur SANS retireur = porteur non ciblable pour le reste de la bataille ; "
+            "retireur porte SANS inscription = le blocage est leve, inscris-le (#1074)."
+            % (eff.name, sorted(poses.get(int(eff)) or ()) or "personne",
+               bool(EFFECT_TRIGGERS.get(int(eff))),
+               "doit entrer" if attendu else "doit rester dehors",
+               "present" if present else "absent"))
+
+    # LA PREMISSE NEUVE EST ELLE-MEME MESUREE : si plus aucun membre n'etait pose, ce cran ne
+    # garderait plus que l'ancienne question (« rien ne les pose »), et son intitule mentirait.
+    assert any(poses.get(int(e)) for e in JUST_SUMMONED_FAMILY), (
+        "plus aucun membre de la famille JustSummoned n'est POSE : le fondement du refus est "
+        "redevenu l'absence de poseur -- re-trancher, et renommer ce cran")
     # CONTRE-EPREUVE : le meme balayage DOIT voir le poseur de 1238, sans quoi il ne prouverait
     # rien sur les quatre ci-dessus (un recenseur aveugle rend « 0 poseur » partout).
     assert int(EffectType.FearOfTheUnseen_TeleportingIn) in poses, (
         "le balayage ne voit pas le poseur de 1238 (`abilities/tyranids.py`) : son zero sur la "
         "famille JustSummoned ne prouve donc rien")
+
+
+def test_the_domain_rule_still_MEANS_something_when_the_real_population_is_EMPTY():
+    """BRAS SYNTHETIQUE. Le cran ci-dessus interroge le REEL ; s'il tombait a une population vide
+    (aucun poseur, aucun retireur) il resterait vert sans rien garder. On FABRIQUE donc les quatre
+    combinaisons et on exige que la regle les separe -- c'est le seul moyen de savoir qu'elle dit
+    encore quelque chose."""
+    o = int(EffectType.GeminaeSuperia_JustSummonedEffect)
+    pose, vide = {o: {"geminae_superia.py"}}, {}
+    retrait = {o: [object()]}
+    assert _doit_entrer_au_domaine(o, vide, vide) is False        # ni pose ni retire
+    assert _doit_entrer_au_domaine(o, pose, vide) is False         # POSE seul = l'etat COURANT
+    assert _doit_entrer_au_domaine(o, vide, retrait) is False      # retire seul (inerte)
+    assert _doit_entrer_au_domaine(o, pose, retrait) is True       # les DEUX faces -> inscrire
