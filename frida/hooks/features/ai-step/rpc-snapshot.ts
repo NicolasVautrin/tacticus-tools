@@ -1671,6 +1671,32 @@ export function registerViewSnapshot(ctx: Ctx): void {
         // (-1201836032) — signature d'une lecture à la même adresse. Détail : `fieldOffsetOr`.
         const OFF_TOTAL = fieldOffsetOr(asClass, "TotalAttacksMade", 0x20);
         const OFF_TURNS = fieldOffsetOr(asClass, "TotalTurnsWithAttacksMade", 0x30);
+        // #545-r1 / #287-r5-r2 — les DEUX compteurs PER-TOUR du même composant, les seuls que ce
+        // capteur ne publiait pas alors que le port les porte déjà des deux côtés. MÊME contrat
+        // (`fieldOffsetOr`, JAMAIS `|| fallback` — cf. le bloc juste au-dessus), MÊME discipline
+        // de repli décompilé. Offsets LUS sur `rnca9r7q6c`, deux confirmations chacun :
+        //
+        //   `+0x24` (`TotalAttacksMadeThisTurn`, ÉMISES ce tour)
+        //     · `...ActorStatisticsComponent$$RegisterAttackMade` fait `*(int*)(this+0x24) += 1`
+        //       dans la MÊME séquence que `+0x20 += 1` et `+0x54 += totalCrits` ;
+        //     · `...ActorStatisticsComponent$$ResetUnitsAttackedThisTurn` fait
+        //       `*(undefined8*)(this+0x24) = 0` — une écriture 64 bits qui couvre `+0x24` ET
+        //       `+0x28`, donc le compteur PER-TOUR et sa variante Ranged. C'est ce qui NOMME le
+        //       champ : le nom de la méthode ne parle que du SET `+0x40`, l'assembleur dit le
+        //       reste. Lecteur natif : `IdunBattle.Entities.Formulas.
+        //       AmountOfAttacksMadeThisTurnFormula$$Calculate` dans son régime `Nullable` VIDE.
+        //
+        //   `+0x38` (`NumAttacksReceivedThisTurn`, REÇUES ce tour)
+        //     · `...ActorStatisticsComponent$$RegisterAttackReceived` fait `+0x34 += 1` (cumul de
+        //       bataille) PUIS `*(int*)(this+0x38) += 1` ;
+        //     · `...ActorStatisticsComponent$$ResetAttacksReceivedThisTurn` fait
+        //       `*(undefined8*)(this+0x38) = 0` (couvre `+0x38` ET `+0x3c`, les crits reçus).
+        //       Lecteur natif : `IdunBattle.Entities.EntityExtensions$$GetNumAttacksReceivedThisTurn`.
+        //
+        // Une TROISIÈME lecture concorde pour les deux : `...ActorStatisticsComponent$$Copy`
+        // recopie `+0x24` et `+0x38` champ à champ, aux mêmes rangs.
+        const OFF_MADE_TURN = fieldOffsetOr(asClass, "TotalAttacksMadeThisTurn", 0x24);
+        const OFF_RECV_TURN = fieldOffsetOr(asClass, "NumAttacksReceivedThisTurn", 0x38);
         // TUILES PARCOURUES (case-322-r2) — le MÊME composant, trois compteurs contigus, écrits
         // par `IdunBattle.Entities.UnitExtensions$$RecordTilesMoved` (`+0xec += n` cumul BATAILLE,
         // `+0xf0 += n` cumul CE TOUR, garde `n < 1` -> no-op) et roulés en FIN de tour par
@@ -1705,6 +1731,16 @@ export function registerViewSnapshot(ctx: Ctx): void {
                 entityId: id,
                 totalAttacksMade: cp.add(OFF_TOTAL).readS32(),
                 totalTurnsWithAttacksMade: cp.add(OFF_TURNS).readS32(),
+                // #545-r1 / #287-r5-r2 — cf. le bloc d'offsets. Deux compteurs PER-TOUR, publiés
+                // sur le MÊME appel que leurs cumuls de bataille : `attacksMadeThisTurn` (+0x24)
+                // est ce que lit `AmountOfAttacksMadeThisTurnFormula`, `attacksReceivedThisTurn`
+                // (+0x38) ce que lit `GetNumAttacksReceivedThisTurn`. Les deux avaient un lecteur
+                // PORTÉ (`components.unit_attacks_made_this_turn` /
+                // `UnitComponent.times_attacked_this_turn`) et AUCUN canal de seed : un état
+                // rechargé repartait de 0 même si l'unité avait déjà frappé (ou été frappée) ce
+                // tour-là.
+                attacksMadeThisTurn: cp.add(OFF_MADE_TURN).readS32(),
+                attacksReceivedThisTurn: cp.add(OFF_RECV_TURN).readS32(),
                 tilesMovedThisBattle: cp.add(OFF_TILES_BATTLE).readS32(),
                 tilesMovedThisTurn: cp.add(OFF_TILES_TURN).readS32(),
                 tilesMovedLastTurn: cp.add(OFF_TILES_LAST).readS32(),

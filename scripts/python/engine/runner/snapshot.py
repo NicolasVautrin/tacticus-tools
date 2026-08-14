@@ -1408,7 +1408,15 @@ def _load_actor_statistics(state: State, actor_stats: dict) -> None:
     n'etait jamais pris et les deux champs lisaient `comp - 1`, la MEME adresse. Le correctif du
     hook est livre mais EXIGE UNE REINJECTION ; en attendant, ce garde laisse ces deux champs a
     leur 0 de construction (aucun lecteur porte pour `+0xec` ; `+0xf4` n'en a pas non plus) tandis
-    que `+0xf0`, dont le nom EXISTE et qui est mesure exact, passe normalement."""
+    que `+0xf0`, dont le nom EXISTE et qui est mesure exact, passe normalement.
+
+    ⚠ DEUX DES SEPT CHAMPS N'ARRIVENT QU'AVEC UNE FENETRE DE REINJECT (#545-r1 / #287-r5-r2) :
+    `attacksMadeThisTurn` (`+0x24`) et `attacksReceivedThisTurn` (`+0x38`) sont ECRITS dans
+    `frida/hooks/features/ai-step/rpc-snapshot.ts` mais ne seront PUBLIES qu'une fois le bundle
+    re-injecte. D'ici la, le tri-etat ci-dessus fait exactement son office : le champ est absent
+    du payload -> la boucle ne pose RIEN -> les deux compteurs gardent leur `0` de construction,
+    c'est-a-dire le comportement d'avant, a l'identique. C'est la raison d'etre du tri-etat, et
+    pas une degradation ajoutee."""
     for su in ((actor_stats or {}).get("units") or []):
         uid = su.get("entityId")
         if uid is None:
@@ -1433,11 +1441,37 @@ def _load_actor_statistics(state: State, actor_stats: dict) -> None:
         # COURS reparte d'un compteur a 0 la ou la prediction, elle, voit la vraie valeur.
         # C'est aussi un compteur a increments `>= 1` que RIEN ne remet a zero (cf.
         # `components.register_attack_made`) -> une valeur negative denonce une lecture invalide.
+        # #545-r1 -- `TotalAttacksMadeThisTurn` (`+0x24`) rejoint la boucle. MEME canal, MEME hook,
+        # MEME tri-etat, MEME garde `< 0`. Le champ etait le SEUL des compteurs d'attaque a n'avoir
+        # aucun canal de seed alors que le port l'ecrit (`register_attack_made`), le remet a zero
+        # (`reset_units_attacked_this_turn`, `*(long long*)(this + 0x24) = 0`) et le LIT par
+        # `components.unit_attacks_made_this_turn` = `IdunBattle.Entities.Formulas.
+        # AmountOfAttacksMadeThisTurnFormula$$Calculate` dans son regime `Nullable` VIDE.
+        # ⚠ L'enonce d'origine du residu (<< INERTE pour le seul consommateur porte >>) est PERIME :
+        # les consommateurs sont TROIS, et DEUX lisent la valeur ABSOLUE, pas une variation --
+        # `IconOfObstinacy_AddArmourBuffTrigger.matches` (`AmountIsZero(...)`, donc `== 0`) et
+        # `LegacyOfCombatTrigger.matches` (`AmountIsEqual(..., Direct(1))`). Sur un etat recharge
+        # apres qu'une unite a deja frappe ce tour-la, le port rendait 0 et ACCORDAIT le buff que
+        # le natif refuse. Seul `LeadingTheCharge` compare le compteur a lui-meme.
+        # C'est aussi un compteur a increments `>= 1`, remis a `0` -- une valeur negative denonce
+        # une lecture invalide.
+        #
+        # #287-r5-r2 -- `NumAttacksReceivedThisTurn` (`+0x38`) rejoint la boucle POUR LA MEME
+        # RAISON et par le MEME canal. `IdunBattle.Entities.EntityExtensions$$
+        # GetNumAttacksReceivedThisTurn` le lit ; le port l'a sous le nom `times_attacked_this_turn`
+        # (⚠ a ne pas confondre avec `total_times_attacked`, `+0x34`, le cumul de BATAILLE) et le
+        # remet a zero au turn-start (`operations/minimal_health.reset_times_attacked`, mirror de
+        # `...$$ResetAttacksReceivedThisTurn`). Sans seed, un etat charge APRES une attaque rendait
+        # 0 la ou le natif rend `>= 1` -- degradation PERMISSIVE-INVERSEE : le gate HP-floor de
+        # `MinimalHealth` et le cap `HYPERSENSORY_ATTACK_CAP` de `1213 DeathOnTheWind` ACCEPTAIENT
+        # des cibles que le natif REFUSE.
         for key, attr in (("tilesMovedThisBattle", "tiles_moved_this_battle"),
                           ("tilesMovedThisTurn", "tiles_moved_this_turn"),
                           ("tilesMovedLastTurn", "tiles_moved_last_turn"),
                           ("totalTurnsWithAttacksMade", "turns_with_attacks_made"),
-                          ("totalAttacksMade", "total_attacks_made")):
+                          ("totalAttacksMade", "total_attacks_made"),
+                          ("attacksMadeThisTurn", "attacks_made_this_turn"),
+                          ("attacksReceivedThisTurn", "times_attacked_this_turn")):
             v = su.get(key)
             if v is None or int(v) < 0:
                 continue
