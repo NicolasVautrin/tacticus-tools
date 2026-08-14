@@ -16,6 +16,11 @@ DECLENCHEUR = {
     "chemins": (
         "scripts/python/conftest.py", "scripts/python/tests/conftest.py",
         "scripts/python/tests/engine/conftest.py",
+        # #1024-r5 : `kit_item_voies` lit desormais la table de symboles du build par ce foyer
+        # (2e cran du gate `classe-native-non-portee`). Table absente / build desynchronise ->
+        # le gate degrade, donc les verdicts de couverture changent.
+        "scripts/python/build_pin.py", "scripts/python/symbols_layout.py",
+        "scripts/python/il2cpp_provenance.py",
         # Entre dans la fermeture par la CASCADE DES CONFTEST depuis #951-r2. Ce chemin n'existait
         # pas quand ce fichier a ete ecrit : c'est l'INTERACTION de deux PR mergees le meme jour
         # qui l'a fait apparaitre, et `probe_486r15` l'a vu -- un declencheur trop etroit est un

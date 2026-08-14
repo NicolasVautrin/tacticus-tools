@@ -44,6 +44,11 @@ from engine.entities.active_ability_type import ActiveAbilityType  # noqa: E402
 #: vice meme que ce fichier garde.
 DECLENCHEUR = {
     "chemins": (
+        # #1024-r5 : `kit_item_voies` lit desormais la table de symboles du build par ce foyer
+        # (2e cran du gate `classe-native-non-portee`). Table absente / build desynchronise ->
+        # le gate degrade, donc les verdicts de couverture changent.
+        "scripts/python/build_pin.py", "scripts/python/symbols_layout.py",
+        "scripts/python/il2cpp_provenance.py",
         # Le foyer, et les deux consommateurs que l'etage 2 confronte.
         "scripts/python/decision_face_voies.py",
         "scripts/python/probe_909_decision_actives_kit.py",

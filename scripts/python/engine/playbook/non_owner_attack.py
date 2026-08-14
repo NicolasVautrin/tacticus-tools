@@ -44,11 +44,24 @@ La ventilation par FACE est LUE dans `data/symbols/<build>/metadata/non_owner_sl
 |---|---|---|
 | `NoHidingFromTheWatchersNonOwnerPlaybook` | `aucun` | **PORTEE ici** |
 | `WayOfTheShortBladeNonOwnerPlaybook`      | `aucun` | **PORTEE ici** |
-| `ShieldOfFaithNonOwnerPlaybook`           | **`capteur`** | NON portee -- son 1er gate est
-  `HasRarity(caster, Mythic)` (`BaseUnitComponent+0x74 == 5`) et AUCUN canal `rarity` n'existe cote
-  port. MEME verrou que les trois faces MOVE de `#477-r43` ; il faudrait
-  `combatSnapshot.units[].rarity`, donc une fenetre de reinject. Porter le corps sans le gate
-  serait un terme PERMISSIF, pas un port. |
+| `ShieldOfFaithNonOwnerPlaybook`           | ~~`capteur`~~ **`aucun`** | NON portee -- residu
+  **`#1024-r7`**, et son BLOCAGE EST PERIME (cf. ci-dessous). |
+
+⚠ **LE VERROU DE `ShieldOfFaith` EST TOMBE, ET CETTE TABLE L'A AFFIRME UN TEMPS DE TROP.** Le texte
+qui vivait ici -- << son 1er gate est `HasRarity(caster, Mythic)` et AUCUN canal `rarity` n'existe
+cote port ; il faudrait `combatSnapshot.units[].rarity`, donc une fenetre de reinject >> -- etait
+vrai a l'ecriture et ne l'est plus : le capteur est ARME depuis #1039 et CONSOMME depuis #999-r3,
+par le foyer unique `UnitContext.rarity` (mirror `engine/entities/rarity.py`, noeud
+`entities/triggers.HasRarity`). MESURE le 2026-08-14, en live et sur cette ability meme :
+`test_1024r1_shield_of_faith_live.py` lit `ctx.rarity == 5` sur l'attaquant, et sa contre-epreuve
+`--unit-stat <att>:Rarity=4` ETEINT le bouclier des DEUX cotes -- donc le gate est exercable, pas
+seulement lisible. La face COMBAT est portee depuis #1024-r1.
+
+Ce qui reste vrai : porter le corps SANS le gate serait un terme PERMISSIF. Ce qui a change : le
+gate est desormais portable. Le blocage de ce residu est donc `aucun`.
+⚠ Et c'est le mode de defaillance que le CLAUDE.md nomme -- un champ `BLOCAGE` n'est JAMAIS
+re-mesure : il fait ECARTER le residu au dispatch, indefiniment, longtemps apres que sa cause a
+disparu. Re-mesurer avant d'ecarter, jamais citer la ligne.
 
 La face **REPAIR** n'est pas montee du tout, et ce n'est pas un oubli : son unique corps
 (`VoltagheistFieldPlaybook`) DELEGUE a `<utilitiesDatabase>.GetUtility(0x30 =
@@ -337,7 +350,10 @@ class WayOfTheShortBladeNonOwnerPlaybook(TriggeredAbilityNonOwnerAttackPlaybook)
 # les deux dispatchers portes sont distincts ; une classe ne doit figurer que dans celui de SA
 # face, lue dans l'entree versionnee `metadata/non_owner_slot4.tsv`.
 #
-# `ShieldOfFaithNonOwnerPlaybook` (3e face ATTACK) n'y est PAS : blocage `capteur` (cf. l'en-tete).
+# `ShieldOfFaithNonOwnerPlaybook` (3e face ATTACK) n'y est PAS -- residu `#1024-r7`. Son blocage
+# etait `capteur` ; il est `aucun` depuis que le canal de rarete est arme (#1039) et consomme
+# (#999-r3), MESURE en live sur cette ability meme (cf. l'en-tete). Ce qui manque est le PORT du
+# corps, plus le canal.
 # Absence du registre == `LoadPlaybookNonOwner` rend null == la paire n'est jamais yieldee, donc
 # MEME degradation que le natif sur un type sans classe -- mais ici la classe EXISTE, donc c'est
 # un ECART assume et NOMME, pas un trou.

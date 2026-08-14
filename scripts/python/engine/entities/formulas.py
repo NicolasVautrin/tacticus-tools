@@ -814,6 +814,44 @@ class StatAmount(AAmountFormula):
         return sum(gs(u, self.stat_type, self.variant, lvl) for u in _units_of(self.selector, ctx))
 
 
+class CurrentShieldAmount(AAmountFormula):
+    """`IdunBattleLogic.Entities.DSLFormulas$$CurrentShieldAmount(unit, selectionType)` ->
+    `IdunBattle.Entities.Formulas.CurrentShieldAmountFormula$$Calculate` -- MIRROR 1:1 du decompile,
+    dont le corps utile tient en quatre lignes :
+
+        total = 0
+        list  = this-><+0x10>.Select(entities, this-><+0x18>)     # selecteur, selectionType
+        foreach (e in list)
+            total += IdunBattle.Entities.UnitExtensions$$GetShield(<e resolue en unite>)
+        return total
+
+    C'est donc une **SOMME** sur TOUTES les unites du selecteur, pas la lecture d'une unite unique --
+    et le `GetShield` appele est le TOTAL du `ShieldComponent` (toutes instances confondues), pas une
+    instance. Sur les trois call-sites natifs recenses le selecteur est un singleton
+    (`Target@<DSLSelectors+0x60>`, `Attacker`), donc la somme y vaut la lecture ; l'ecrire en somme
+    est ce qui la garde juste si un call-site multi apparait.
+
+    Le ctor natif est `<ctor>(unit, selectionType, 0)` -- il porte le nom ghidra
+    `UnityEngine.Timeline.SupportsChildTracksAttribute$$.ctor` (corps DEDUPLIQUE, le MEME que celui
+    d'`HasRarity` : la STRUCTURE est lue, jamais le nom).
+
+    `selection_type` est TRANSPORTE et non LU -- meme residu que les quatre call-sites deja portes de
+    `TriggerAbilityDelayed` : le port n'a qu'un domaine d'unites deja resolu.
+
+    ⚠ DEGRADATION **PERMISSIVE** (accesseur absent -> 0), nommee au champ `ctx.current_shield_amount`
+    : l'unique forme d'emploi native est `AmountIsZero(CurrentShieldAmount(...))`, donc un 0 non
+    mesure fait PASSER le gate au lieu de le fermer. Le seul consommateur porte tourne toujours avec
+    un `State`."""
+    def __init__(self, unit: TargetsSelector, selection_type: int = 0):
+        self.unit, self.selection_type = unit, int(selection_type)
+
+    def calculate(self, ctx):
+        fn = getattr(ctx, "current_shield_amount", None)
+        if fn is None:
+            return 0
+        return sum(int(fn(u)) for u in _units_of(self.unit, ctx))
+
+
 class StatNegativeModification(AAmountFormula):
     """`IdunBattleLogic.Entities.DSLFormulas$$StatNegativeModification(unit, statType)` ->
     `IdunBattle.Entities.Formulas.NegativeStatModificationFormula$$Calculate` : SOMME, sur les unites

@@ -17,6 +17,14 @@ DEUX VICES, EN SENS OPPOSES. C'est ce qui rend ce cliquet a deux faces, et c'est
 ⚠ NE CORRIGER QUE LE PREMIER SENS DEGRADE LE CHIFFRE : on ferait basculer en << portee >> des
 entrees dont une face manque. Les deux etages [3] et [4] sont donc aussi LOAD-BEARING que [1]/[2].
 
+⚠ **LE GATE DU SECOND VICE A LUI-MEME DEUX CRANS DEPUIS #1024-r5** -- et le premier seul RE-OUVRAIT
+le sur-comptage, dans l'autre sens : il comptait PARTIEL un montage qui n'a RIEN a porter.
+<< la cible n'a aucune classe dans `EFFECT_CLASSES` >> ne signifie pas << rien ne s'execute >> ; il
+faut encore que le NATIF ait une classe. Mesure sur `rnca9r7q6c` : `CabalOfSorcerers_ExtraDamagePct`
+et `GuardianConstruct_ExtraDamagePct` ont chacun une classe native a **4 corps propres** (dette
+REELLE), quand l'effet 1462 `TheArdentBlade` n'a **AUCUN** symbole `.Entities.Effects.*` du build --
+c'est un JETON relu par un `HasEffect`, dont le `BaseEffect` generique est le mirror FIDELE.
+
 ⚠ CE FICHIER NE FIGE PAS LA LISTE COURANTE -- il DERIVE. L'etage [2] INJECTE un conteneur neuf
 dans le perimetre et exige qu'il sorte MUET : c'est le seul cran qui garde le recenseur contre le
 registre de DEMAIN, et il est vu ROUGE par cette mutation meme.
@@ -41,6 +49,10 @@ DECLENCHEUR = {
         "scripts/python/conftest.py", "scripts/python/tests/conftest.py",
         # le foyer garde, et ses DEUX consommateurs
         "scripts/python/kit_item_voies.py",
+        # le SUBSTRAT du second cran du gate (#1024-r5) : sans la table de symboles du build,
+        # `classe_d_effet_native` rend `None` et le gate degrade entierement vers PARTIEL.
+        "scripts/python/build_pin.py", "scripts/python/symbols_layout.py",
+        "scripts/python/il2cpp_provenance.py",
         "scripts/python/audit_kit_coverage.py",
         "scripts/python/audit_npc_registry.py",
         # TOUT le perimetre partitionne : un conteneur neuf y naissant doit faire rejouer ce
@@ -154,46 +166,171 @@ def test_l_audit_de_kit_ne_reimporte_AUCUN_registre_de_couverture():
 
 
 # ------------------------------------------------------------------ [4] SUR-comptage : le GATE
-def test_une_pose_dont_l_effet_n_a_pas_de_classe_est_PARTIELLE_jamais_portee():
-    """L'axe INVERSE. Un montage DECLARE dont la cible n'a aucune classe n'execute RIEN : le
-    crediter << porte >> fait RENONCER a du travail reel.
+def _poses_sans_classe_portee():
+    """Les entrees d'`ABILITY_INIT_OWNER_EFFECTS` dont AUCUNE cible n'est dans `EFFECT_CLASSES`,
+    VENTILEES par le second cran du gate (`kit_item_voies.classe_d_effet_native`) :
 
-    ⚠ Le jeu attendu est DERIVE du registre, pas recopie : ce sont les entrees d'owner-effect dont
-    AUCUNE cible n'est dans `EFFECT_CLASSES`. Et il ASSERTIONNE SON PROPRE NON-VIDE -- un ensemble
-    vide passerait pour vert en ne mesurant rien."""
+        (dette, jeton) -- `dette` = au moins une cible a une classe NATIVE que le port n'execute
+                          pas ; `jeton` = AUCUNE cible n'en a, cote natif non plus.
+
+    DERIVE des registres, jamais recopie."""
     from engine.entities.effects.factory import ABILITY_INIT_OWNER_EFFECTS, EFFECT_CLASSES
     items = KIV.items_de_kit()
-    attendus = {k for k, effets in ABILITY_INIT_OWNER_EFFECTS.items()
-                if k in items and not any(e in EFFECT_CLASSES for e in effets)}
-    assert attendus, (
-        "premisse VIDE : plus aucune entree d'`ABILITY_INIT_OWNER_EFFECTS` ne pose un effet sans "
-        "classe. Si les 4 mythiques de #1041 ont ete portees, tant mieux -- mais alors ce test ne "
-        "mesure plus rien et doit etre re-ancre sur le nouveau gisement, pas laisse vert a vide.")
-    for nom in sorted(attendus):
+    dette, jeton = set(), set()
+    for k, effets in ABILITY_INIT_OWNER_EFFECTS.items():
+        cibles = [e for e in effets if isinstance(e, str)]
+        if k not in items or not cibles or any(e in EFFECT_CLASSES for e in cibles):
+            continue
+        (jeton if all(KIV.classe_d_effet_native(e) is False for e in cibles) else dette).add(k)
+    return dette, jeton
+
+
+def test_une_pose_dont_le_NATIF_a_une_classe_non_portee_est_PARTIELLE_jamais_portee():
+    """L'axe INVERSE. Un montage DECLARE dont la cible a une classe NATIVE que le port n'execute pas
+    ne fait RIEN de ce que le natif fait : le crediter << porte >> fait RENONCER a du travail reel.
+
+    ⚠ **LE CRITERE A DEUX CRANS DEPUIS #1024-r5, ET N'EN LIRE QU'UN SUR-COMPTE LE TRAVAIL.**
+    << pas de classe dans `EFFECT_CLASSES` >> ne veut PAS dire << rien ne s'execute >> : encore
+    faut-il que le NATIF ait quelque chose a executer. Mesure : `CabalOfSorcerers_ExtraDamagePct` et
+    `GuardianConstruct_ExtraDamagePct` ont chacun une classe native a 4 corps propres (dette REELLE),
+    la ou l'effet 1462 `TheArdentBlade` n'a **AUCUN** symbole `.Entities.Effects.*` dans tout le
+    build -- c'est un JETON relu par un `HasEffect`, et le `BaseEffect` generique en est le mirror
+    FIDELE. Le compter PARTIEL envoyait un agent porter une classe qui n'existe pas."""
+    from engine.entities.effects.factory import ABILITY_INIT_OWNER_EFFECTS
+    dette, _jeton = _poses_sans_classe_portee()
+    # ⚠ PAS DE PLANCHER DE POPULATION ICI, ET C'EST MESURE. `dette` PEUT etre vide, et l'etait des
+    # le 2026-08-14 : `CabalOfSorcerers_ExtraDamagePct` et `GuardianConstruct_ExtraDamagePct` --
+    # les deux seules entrees concernees -- ont ete portees par #1036-r1/-r2. Un `assert dette`
+    # rougissait donc sur le PROGRES, exactement le vice que #1054 a fait mesurer.
+    # L'invariant n'est PAS perdu pour autant : `test_MUTATION_le_second_cran_est_LOAD_BEARING`
+    # le porte SYNTHETIQUEMENT (il force `classe_d_effet_native` a `True`, ce qui fabrique la
+    # population et exige qu'elle redevienne PARTIEL) -- verifie, il passe seul sur cet arbre.
+    # Cet etage-ci garde la meme chose sur la population REELLE quand elle existe. NE RIEN
+    # AJOUTER pour compenser le vide : toute garde de plus serait DOMINEE par le test de mutation.
+    for nom in sorted(dette):
         etat, detail = KIV.etat(nom)
         assert etat == KIV.PARTIEL, (
-            "`%s` pose l'effet %s, qui n'a AUCUNE classe dans `EFFECT_CLASSES` -- rien ne "
-            "s'execute. Il sort pourtant `%s`. Le GATE `%s` de la voie de pose ne mord plus : "
-            "l'audit va compter porte un montage qui ne fait rien."
+            "`%s` pose l'effet %s, dont le NATIF porte une classe d'effet que le port n'execute "
+            "pas. Il sort pourtant `%s`. Le GATE `%s` ne mord plus : l'audit va compter porte un "
+            "montage dont une face manque."
             % (nom, ABILITY_INIT_OWNER_EFFECTS[nom], etat, KIV.GATE_EFFET_CLASSE))
         assert KIV.GATE_EFFET_CLASSE in detail
 
 
-def test_MUTATION_retirer_le_gate_ferait_remonter_ces_items_en_PORTE(monkeypatch):
-    """La contre-epreuve du gate : sans lui, les memes items redeviennent PORTE. Sans cet etage,
-    l'etage [4] pourrait passer pour une raison etrangere au gate (l'item simplement absent des
-    registres) et se perimer en silence."""
-    from engine.entities.effects.factory import ABILITY_INIT_OWNER_EFFECTS, EFFECT_CLASSES
-    items = KIV.items_de_kit()
-    attendus = {k for k, effets in ABILITY_INIT_OWNER_EFFECTS.items()
-                if k in items and not any(e in EFFECT_CLASSES for e in effets)}
-    assert attendus, "premisse VIDE (cf. l'etage precedent)"
-    monkeypatch.setattr(KIV, "_gate_passe", lambda _v, _valeur: True)
-    sans_gate = KIV.voies_par_item()
-    for nom in sorted(attendus):
-        assert KIV.etat(nom, sans_gate)[0] == KIV.PORTE, (
-            "la contre-epreuve ne mord pas : `%s` reste non-PORTE meme SANS gate, donc l'etage "
-            "[4] ne mesure pas ce qu'il croit -- il constate une absence, pas un gate." % nom)
+def test_une_pose_dont_le_NATIF_n_a_AUCUNE_classe_est_PORTEE_jamais_partielle():
+    """LE SECOND CRAN, garde dans son propre sens -- celui qui RETIRE du travail, donc le plus
+    dangereux des deux. Un effet-JETON (aucune classe native) est PORTE : le `BaseEffect` generique
+    que rend `EffectFactory.create` (`registry.get(name, BaseEffect)`) porte le bon `effect_type` et
+    le bon flag `active`, ce qui est exactement ce que le natif a."""
+    _dette, jeton = _poses_sans_classe_portee()
+    assert jeton, (
+        "premisse VIDE : plus aucune pose d'owner-effect n'est un JETON sans classe native. Ce test "
+        "ne mesure alors plus le second cran du gate -- le re-ancrer, pas le laisser vert a vide.")
+    for nom in sorted(jeton):
+        etat, detail = KIV.etat(nom)
+        assert etat != KIV.PARTIEL, (
+            "`%s` est compte PARTIEL alors que le NATIF n'a AUCUNE classe d'effet pour sa cible : "
+            "le second cran du gate ne mord plus, et l'audit va faire porter une classe qui "
+            "n'existe pas (detail=%s)." % (nom, detail))
+
+
+def test_MUTATION_le_second_cran_est_LOAD_BEARING(monkeypatch):
+    """Contre-epreuve du cran neuf : si `classe_d_effet_native` rendait `True` partout (ou `None` =
+    NON MESURE), les JETONS retomberaient PARTIEL. Sans cet etage, l'etage precedent pourrait etre
+    vert pour une raison etrangere au cran -- et son mode NON MESURE, jamais exerce."""
+    _dette, jeton = _poses_sans_classe_portee()
+    assert jeton, "premisse VIDE (cf. l'etage precedent)"
+    for verdict, libelle in ((True, "classe native PARTOUT"), (None, "NON MESURE")):
+        monkeypatch.setattr(KIV, "classe_d_effet_native", lambda _e, _v=verdict: _v)
+        mute = KIV.voies_par_item()
+        for nom in sorted(jeton):
+            assert KIV.etat(nom, mute)[0] == KIV.PARTIEL, (
+                "sous la mutation << %s >>, `%s` ne redevient PAS PARTIEL : le second cran du gate "
+                "n'est pas ce qui le fait sortir PORTE, donc l'etage qui le garde ne mesure rien. "
+                "⚠ Le mode NON MESURE doit DEGRADER VERS LE TRAVAIL, jamais vers le silence."
+                % (libelle, nom))
+
+
+def test_la_mesure_des_classes_d_effet_natives_n_est_pas_DEGENERE():
+    """La mesure qui porte le second cran doit etre NON VIDE et couvrir les DEUX conventions de
+    nommage natives. C'est le cran qui a manque a la premiere ecriture : ne lire que `<X>Effect`
+    rendait `False` sur `TerminatorArmour_ReduceDmg_Effect` -- un faux `False` fait PASSER le gate,
+    donc SUR-compte en PORTE, exactement le vice que #1041 avait ouvert pour fermer."""
+    natives = KIV._classes_d_effet_natives()
+    assert natives, (
+        "`_classes_d_effet_natives` rend %r : la table de symboles n'est pas lue. Le gate degrade "
+        "alors ENTIEREMENT vers PARTIEL (sens sur, mais le second cran ne mesure plus rien)."
+        % (natives,))
+    assert len(natives) > 100, (
+        "seulement %d classes d'effet natives mesurees -- le detecteur a perdu une convention de "
+        "nommage ou un namespace." % len(natives))
+    # les DEUX orthographes doivent etre representees, sans quoi le detecteur en a perdu une.
+    assert "CabalOfSorcerers_ExtraDamagePct" in natives, "convention `<X>Effect` perdue"
+    assert "TerminatorArmour_ReduceDmg" in natives, (
+        "convention `<X>_Effect` (avec souligne) perdue -- c'est le faux `False` de #1024-r5")
+
+
+#: Les QUATRE `EffectType` que le filtre de namespace de la premiere ecriture rendait `False` A
+#: TORT (mesure d'orchestrateur, `rnca9r7q6c`, 2026-08-14). Leur classe native ne vit PAS sous
+#: `.Entities.Effects.` mais sous `IdunBattleLogic.Entities.Abilities.{Triggered,Active}.Loki.` --
+#: et aucun n'est dans `EFFECT_CLASSES`, donc chacun faisait PASSER le gate : quatre items credites
+#: PORTE sur une dette REELLE. La liste est FIGEE ici parce qu'un recenseur exhaustif redevient
+#: vert des qu'on le re-derive : c'est la VALEUR MESUREE qu'il faut garder, pas la derivation.
+_HORS_ENTITIES_EFFECTS = (
+    "NetworkedTargeting_DmgBonus",          # ...Triggered.Loki.NetworkedTargeting_DmgBonusEffect
+    "NoctilithBeacons_dmgReductions",       # ...Triggered.Loki.NoctilithBeacons_dmgReductionsEffect
+    "ObeisanceGenerators_HitReduction",     # ...Triggered.Loki.ObeisanceGenerators_HitReductionEffect
+    "RammingSpeed_ExtraExplode",            # ...Active.Loki.RammingSpeed_ExtraExplodeEffect
+)
+
+
+def test_le_recensement_ne_FILTRE_aucun_namespace():
+    """UNE CLASSE D'EFFET NATIVE NE VIT PAS QUE SOUS `.Entities.Effects.` -- et l'y restreindre
+    produit le seul verdict qui RETIRE du travail.
+
+    Mesure : **36** classes `<X>Effect` du build vivent hors de ce segment, **10** portent un nom
+    d'`EffectType`, et **4** (ci-dessus) etaient rendues `False` alors que le natif a bel et bien
+    une classe pour elles. Un `False` fait PASSER le gate, donc credite PORTE un item a dette
+    reelle -- le SUR-comptage exact que le second cran existe pour fermer.
+
+    Le retrait du filtre est SUR par MONOTONIE : elargir ne peut qu'ajouter des noms, donc ne peut
+    faire passer le verdict que de `False` a `True`, jamais l'inverse -- et `True` gardera une
+    dette de trop, ce qui CREE du travail. Ne PAS re-introduire de liste blanche de namespaces."""
+    for nom in _HORS_ENTITIES_EFFECTS:
+        assert KIV.classe_d_effet_native(nom) is True, (
+            "`%s` est rendu %r : son namespace natif n'est plus recense. Un filtre de namespace "
+            "a-t-il ete re-introduit ? Ce faux `False` fait PASSER le gate et credite l'item "
+            "PORTE alors que le natif a une classe." % (nom, KIV.classe_d_effet_native(nom)))
+
+
+def test_l_appariement_PAR_PREFIXE_est_exerce_et_garde():
+    """LE CRAN QUE LA MATRICE DE MUTATION A TROUVE NON GARDE, et il fallait un temoin PROPRE.
+
+    ⚠ Mesure du 2026-08-14 : remplacer l'appariement a deux sens de `classe_d_effet_native` par une
+    EGALITE STRICTE ne faisait rougir **AUCUN** des quatorze autres etages -- parce qu'aucun item
+    DANS LA PORTEE DU GATE n'en depend AUJOURD'HUI (`BlightedLand`, qui en dependait, a ete porte
+    depuis et en est donc sorti). Une garde qu'on ne voit pas tomber n'est pas une garde ; l'etage
+    ci-dessous la rend visible sur une propriete du BUILD, independante de l'etat du port.
+
+    LE FAIT GARDE : le natif nomme parfois sa classe d'apres l'ABILITY et non d'apres l'`EffectType`
+    -- `IdunBattle.Entities.Effects.Loki.BlightedLandEffect` porte l'effet
+    `BlightedLand_ExtraDamagePct`. Un appariement par egalite y rendrait `False`, c'est-a-dire
+    ferait PASSER le gate sur un item a dette REELLE."""
+    from engine.entities.effects.factory import EFFECT_CLASSES
+    natives = KIV._classes_d_effet_natives()
+    assert natives, "mesure absente (cf. l'etage precedent)"
+    # Les effets que SEUL l'appariement par prefixe rattache a une classe native. DERIVE, et son
+    # propre non-vide est assertionne : un ensemble vide passerait pour vert sans rien mesurer.
+    par_prefixe = sorted(e for e in EFFECT_CLASSES
+                         if e not in natives and KIV.classe_d_effet_native(e) is True)
+    assert par_prefixe, (
+        "premisse VIDE : plus AUCUN effet ne se rattache a sa classe native par PREFIXE. Le "
+        "second sens de `classe_d_effet_native` ne mesure alors plus rien -- le re-ancrer sur le "
+        "nouveau gisement, pas le laisser vert a vide.")
+    assert KIV.classe_d_effet_native("BlightedLand_ExtraDamagePct") is True, (
+        "`BlightedLand_ExtraDamagePct` n'est plus rattache a `BlightedLandEffect` : l'appariement "
+        "est retombe sur l'EGALITE, donc un faux `False` -- le gate PASSERA sur un item a dette "
+        "reelle. C'est le SUR-comptage que #1041 avait ouvert pour fermer.")
 
 
 # ------------------------------------------------------------------ [5] l'ENUM de la clef est LU
@@ -285,10 +422,40 @@ def test_l_audit_expose_le_tri_etat_et_ne_le_rabat_pas_sur_un_booleen():
     etats = {c["etat"] for c in cond}
     assert etats <= {KIV.PORTE, KIV.PARTIEL, KIV.ABSENT}, "etat inconnu rendu par l'audit : %s" % etats
     partiels = [c["name"] for c in cond if c["etat"] == KIV.PARTIEL]
-    assert partiels, (
-        "premisse VIDE : plus aucune voie conditionnelle n'est PARTIELLE. Re-ancrer ce test "
-        "plutot que le laisser vert a vide.")
+    # ⚠ AUCUN PLANCHER SUR `partiels`. Il est tombe a ZERO le 2026-08-14 (lineup entierement
+    # referme : `0 voie conditionnelle non portee`), donc un `assert partiels` rougissait sur le
+    # PROGRES. Mais le retirer SEUL laisserait un vert a vide -- le tri-etat pourrait cesser
+    # d'arriver au document sans que rien ne le dise. D'ou le BRAS SYNTHETIQUE ci-dessous, qui
+    # FABRIQUE un PARTIEL au lieu d'en attendre un.
     for nom in partiels:
         assert not AKC._passive_covered(nom), (
             "`%s` est PARTIEL et `_passive_covered` rend True : le sur-comptage est de retour, "
             "l'audit va declarer portee une entree dont une face manque." % nom)
+
+
+def test_le_tri_etat_arrive_au_document_MEME_sans_PARTIEL_reel(monkeypatch):
+    """LE RE-ANCRAGE de l'etage precedent, et il MORD par CONSTRUCTION.
+
+    L'etage precedent ne vaut que si une voie conditionnelle est PARTIELLE. Depuis que le lineup
+    est referme il n'y en a plus AUCUNE -- son plancher rougissait donc sur le progres, et le
+    retirer seul aurait laisse un vert a vide. Ici on FABRIQUE la population : en forcant
+    `classe_d_effet_native` a `True`, le jeton `TheArdentBlade` cesse d'etre un mirror fidele et
+    redevient PARTIEL. On exige alors les DEUX choses que l'etage precedent gardait :
+    l'audit EXPOSE l'etat `PARTIEL`, et `_passive_covered` rend `False` dessus.
+
+    MESURE (2026-08-14, arbre fusionne) : sous cette mutation, `collect_conditionnelles` rend
+    `PARTIELS = ['TheArdentBlade']` et `_passive_covered('TheArdentBlade') = False`. Sans la
+    mutation, `PARTIELS = []` -- donc ce test n'est PAS domine par son voisin : il est le seul a
+    exercer le chemin quand la population reelle est vide."""
+    monkeypatch.setattr(KIV, "classe_d_effet_native", lambda _e: True)
+    KIV.voies_par_item.cache_clear() if hasattr(KIV.voies_par_item, "cache_clear") else None
+    cond = AKC.collect_conditionnelles({})
+    partiels = [c["name"] for c in cond if c["etat"] == KIV.PARTIEL]
+    assert partiels, (
+        "meme en forcant `classe_d_effet_native` a True, l'audit n'expose AUCUN PARTIEL : le "
+        "tri-etat n'arrive plus jusqu'au document, ou le gate ne mord plus du tout.")
+    for nom in partiels:
+        assert not AKC._passive_covered(nom), (
+            "`%s` est PARTIEL et `_passive_covered` rend True : le tri-etat est rabattu sur un "
+            "booleen permissif -- l'audit declarerait portee une entree dont une face manque."
+            % nom)

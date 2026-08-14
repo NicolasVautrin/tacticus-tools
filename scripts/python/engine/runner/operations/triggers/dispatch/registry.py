@@ -75,6 +75,9 @@ from ..loki.unwavering_sentinel import (UnwaveringSentinelCounterAttack,   # #94
                                         UnwaveringSentinelDeactivateOnEnemyTurnEnd,
                                         UNWAVERING_SENTINEL_COUNTER_ATTACK,
                                         UNWAVERING_SENTINEL_ABILITY)
+from ..loki.shield_of_faith import (ShieldOfFaithAbility,             # #1024-r1 (mythique adeptExorcist)
+                                    ShieldOfFaithCustomAbility,
+                                    SHIELD_OF_FAITH as SHIELD_OF_FAITH_ABILITY)
 from ..loki.master_of_the_tutelaries import (MasterOfTheTutelariesSummonAbility,   # #202-C (triggered 1173)
                                             MASTER_EFFECT as MASTEROFTUTELARIES_EFFECT)
 from ..loki.tainted_narthecium import TaintedNartheciumReviveAbility  # case-66 (passif deathRotbone, revive)
@@ -1675,6 +1678,28 @@ RELIC_ABILITY_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
     # port (residu `#1035-r1`, BLOCAGE capteur, meme verrou que `#1025-r1`). L'inscrire sans ce gate
     # serait un terme PERMISSIF. Cf. loki/hyper_corrosive_acid.py.
     "HyperCorrosiveAcid": [HyperCorrosiveAcidAbility],
+    # ShieldOfFaith (#1024-r1) -- MYTHIQUE d'`adeptExorcist` (MoW Sisterhood), `TriggeredAbilityType`
+    # 0x5ad = 1453. ELLE ENTRE ICI PARCE QUE LE NATIF N'A QU'UNE VOIE TERTIAIRE, et c'est LU :
+    # `catalog_inject.equip_mythic` ecrit le MEME `BC.Units[].TertiaryAbility` et declenche le MEME
+    # `TriggeredAbilityComponent$$TryAdd(id, tertiaryState, 3)` d'`IdunBattle.Entities.Factories.
+    # UnitFactory$$AddConfiguredAbilities` qu'une relique equipee -- seule la GARDE d'attribution
+    # differe (`units.<kind>.<id>.mythicAbilities` au lieu d'`items[*].allowedUnits`). Un registre
+    # `MYTHIC_*` separe inventerait une distinction que le natif n'a pas ; c'est aussi ce registre
+    # qui donne a `triggered_ability_state` le couple TERTIAIRE (niveau 1..4, mult 100), et non le
+    # couple PASSIF (50/180) qui lirait le dernier palier en silence.
+    #   `$$CreateTrigger` = ( On(5 = PreAttack, true) & IsUnitOnTileWithEffect(Target@+0x60,
+    #                             EffectType[]{ 5 = Fire }) )
+    #                     | ( On(9 = Attack, true) & WasCrit() )
+    #                     & IsUnit(Attacker) & AreFriends(Owner@+0x30, Attacker, 0, false)
+    #                     & HasRarity(Attacker, idun.meta.Rarity.Mythic = 5)
+    #   `$$CreateBehaviour(.., triggerType != Custom)` = TriggerAbilityDelayed(Owner@+0x30, 1453, 3)
+    # La disjonction d'`On()` se ventile en `event_ids` (patron `RelicOfLostCadia`) ; la POSE du
+    # bouclier vit dans la branche `Custom`, donc dans `CUSTOM_TRIGGERED_ABILITIES[1453]`.
+    # ⚠ Contrairement a `HyperCorrosiveAcid` ci-dessus, le gate `HasRarity` N'EST PLUS un verrou :
+    # le canal existe depuis #1039 (`combatSnapshot.units[].rarity`) et est consomme depuis #999-r3
+    # par `UnitContext.rarity` -- c'est le noeud `HasRarity` qui le lit, avec son tri-etat.
+    # Cf. loki/shield_of_faith.py.
+    "ShieldOfFaith": [ShieldOfFaithAbility],
 }
 
 # --- Registre : abilities GLOBALES (aucun owner) ---------------------------------------------------
@@ -1749,6 +1774,15 @@ CUSTOM_TRIGGERED_ABILITIES: dict[int, list[type[TriggeredAbility]]] = {
     # et elle vaut `DSLBehaviors$$Nothing()`. Le natif l'appelle au drain et elle ne fait RIEN :
     # l'inscrire ici serait un mensonge de couverture (une classe de no-op), pas une fidelite.
     BLADE_OF_THE_ANCESTORS: [BladeOfTheAncestorsCustomRemoveEffectAbility],
+    # 1453 ShieldOfFaith (#1024-r1) : la branche `triggerType == 0x20 = Custom` de
+    # `ShieldOfFaithAbility$$CreateBehaviour` = `If( IsAlive(Attacker) & AmountIsZero(
+    # CurrentShieldAmount(Attacker, 3)), CreateShield(Attacker, PercentageOf(StatAmount(Attacker,
+    # Health, Maximum), ConfigVar(0x96 = shieldPct)), <AbilityOrEffect>, TurnsFromRounds(1)) )`.
+    # Armee par le `TriggerAbilityDelayed(Owner@+0x30, 0x5ad, 3)` de la branche `!= Custom` de la
+    # MEME classe, sur les DEUX vecteurs (`On(5) & tuile en feu` | `On(9) & WasCrit`).
+    # ⚠ SANS CETTE ENTREE le noeud retomberait sur le collapse INLINE, qui poserait le bouclier
+    # AVANT la resolution des degats : le bon observable et le mauvais ORDRE.
+    SHIELD_OF_FAITH_ABILITY: [ShieldOfFaithCustomAbility],
 }
 
 # --- Registre : effectType → effet-trigger(s) ------------------------------------------------------
