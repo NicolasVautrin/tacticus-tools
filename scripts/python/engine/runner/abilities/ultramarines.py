@@ -469,6 +469,28 @@ MACRO_PLASMA_AUTO_ATTACK = int(EffectType.MacroPlasmaIncinerator_AutoAttack)  # 
 MACHINE_POSITION_BOTTOM = 2
 
 
+def macro_plasma_incinerator_target_area_tiles(target_sel):
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.MacroPlasmaIncineratorAbility$$GetTargetAreaTiles`
+    (MIRROR 1:1) :
+
+        dir = If( IsPositionMachineForCurrentPlayer(2), Direct(1), Direct(4) )
+        return Walkable( TilesOnSameElevation( target@0x178,
+                             TilesInTriangleShape(target@0x178, dir), maxDiff = 1 ) )
+
+    FOYER PARTAGE PAR LES DEUX FACES (#1066). Le natif construit CE MEME arbre a deux endroits :
+    `$$GetTargetAreaTiles` (lu par `MacroPlasmaIncineratorPlaybook$$EvaluateNonComparable`, face
+    DECISION) et `$$ExecuteBehaviour` (face COMBAT, cf. `macro_plasma_incinerator_tree` juste en
+    dessous, qui l'appelle). Le recopier ferait le FORK DE FOYER que `_targets.CtxBoard` interdit :
+    les deux faces divergeraient en silence sur la geometrie de la zone.
+
+    ⚠ CONTRASTE `DaemonicOrdnanceAbility$$GetTargetAreaTiles` : celui-la n'a PAS de `Walkable`
+    (le feu se pose aussi sur des tuiles non marchables). Le `Walkable` est ICI, et lui seul."""
+    # #270-r4 : direction de GetTilesInTriangleShape est DECLARE ...Utils.Hex.Corner.
+    direction = FormulaIf(IsPositionMachineForCurrentPlayer(MACHINE_POSITION_BOTTOM),
+                          Const(int(Corner.NorthEast)), Const(int(Corner.SouthWest)))
+    return Walkable(TilesOnSameElevation(target_sel, TilesInTriangleShape(target_sel, direction), 1))
+
+
 def macro_plasma_incinerator_tree(target_tile_id: int, duration_turns: int):
     """Arbre de `IdunBattleLogic.Entities.Abilities.Active.Loki.MacroPlasmaIncineratorAbility$$ExecuteBehaviour` -- MIRROR 1:1 du DECOMPILE :
 
@@ -493,10 +515,9 @@ def macro_plasma_incinerator_tree(target_tile_id: int, duration_turns: int):
     non-Environment) x 1` = **2** dans nos runners (MESURE : `remaining = 2` live sur les deux effets)
     -> passee en `duration_turns` (deja convertie par la classe d'ability via `convert_rounds_to_turns`)."""
     tgt = FixedTileIds([target_tile_id])
-    # #270-r4 : direction de GetTilesInTriangleShape est DECLARE ...Utils.Hex.Corner.
-    direction = FormulaIf(IsPositionMachineForCurrentPlayer(MACHINE_POSITION_BOTTOM),
-                          Const(int(Corner.NorthEast)), Const(int(Corner.SouthWest)))
-    tiles = Walkable(TilesOnSameElevation(tgt, TilesInTriangleShape(tgt, direction), 1))
+    # #1066 : la zone est le foyer PARTAGE avec la face DECISION (`$$GetTargetAreaTiles`), pas une
+    # seconde ecriture du meme arbre.
+    tiles = macro_plasma_incinerator_target_area_tiles(tgt)
     return op_and(
         AddEffect(MACRO_PLASMA_TILE, EffectType.MacroPlasmaIncinerator_Tile.name, tiles,
                   duration_rounds=None, duration_turns=duration_turns),

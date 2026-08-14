@@ -186,10 +186,10 @@ DETTE: dict[int, tuple[str, str]] = {
     1133: ("SANS_VERDICT",
            "WarConstructPlaybook -- EvaluateNonComparable, ShouldEvaluate. COMBAT : "
            "WarConstructAbility (aeldari). 2 porteurs (npc)."),
-    1159: ("SANS_VERDICT",
-           "MacroPlasmaIncineratorPlaybook -- EvaluateNonComparable. COMBAT : "
-           "MacroPlasmaIncineratorAbility (ultramarines). 2 porteurs (lineup, npc). Sa CLASSE est "
-           "deja citee dans `docs/rl/backlog.md`."),
+    # 1159 `MacroPlasmaIncinerator` -- TRANCHE par #1066 (residu #970-r4), ligne RETIREE : sa face
+    # DECISION est PORTEE (`engine/playbook/noncomparable/macro_plasma_incinerator.py`, registre
+    # `PLAYBOOKS`). Le retrait est ce qui la fait tomber sous le CRAN A -- si le port disparaissait,
+    # l'item rougirait au lieu d'etre couvert par une vieille ligne de dette.
     # 1168 `EntropyCannons` -- TRANCHE par #970-r3, ligne RETIREE : attestation `RIEN_A_PORTER` au
     # ledger (son `MakeDamagePredictions` est la forme CANONIQUE -- `h_body` IDENTIQUE a celui de
     # `LashOfTorment`, deja attestee, et de `MightFromBelow`). Le retrait est ce qui la fait tomber
