@@ -19,9 +19,9 @@ differe. C'est la doctrine « DECIDER != EXECUTER ».
 
 ## Bilan
 
-- Unites `summons` : **65** ; kits sans manque : **48** ; kits avec du travail : **17**
+- Unites `summons` : **65** ; kits sans manque : **49** ; kits avec du travail : **16**
 - Actives distinctes : **16** — `[C-]` **5** · `[CD]` **11**
-- Passifs distincts : **47** — portes **30**, non portes **17**
+- Passifs distincts : **47** — portes **31**, non portes **16**
 - Traits de kit distincts (AUCUN ecarte — le seuil de frequence a disparu avec #1015) :
   **43** — couverts **42**, non couverts **1**
 
@@ -64,7 +64,6 @@ l'unite. La colonne `porteurs` dit l'exposition.
 | passif | RepairEnthusiast | 1 | votanSmnEcog |
 | passif | Shrapnel | 1 | astraSmnMortar |
 | passif | SynapticInsight | 1 | tyranSmnBarbgaunt |
-| passif | VengeanceForTheOmnissiah | 1 | admecSmnTechpriest |
 | passif | WatchedOver | 1 | darkaSmnWatcher |
 
 ## Faces DECISION ouvertes sur des actives EXECUTEES (5)
@@ -83,12 +82,12 @@ sont des **faces** absentes d'items presents.
 |---|---:|---|---|---|---|
 | astarSmnHaywireMine | 0 | - | - | - | - |
 
-### AdeptusMechanicus — 3 unites, 1 avec du travail
+### AdeptusMechanicus — 3 unites, 0 avec du travail
 
 | unite | manque | actives (face) | passifs non portes | traits non couverts | autres voies |
 |---|---:|---|---|---|---|
-| admecSmnTechpriest | 1 | - | VengeanceForTheOmnissiah | - | - |
 | admecSmnElectropriest | 0 | - | - | - | - |
+| admecSmnTechpriest | 0 | - | - | - | - |
 | admecSmnVanguard | 0 | - | - | - | - |
 
 ### Aeldari — 2 unites, 1 avec du travail

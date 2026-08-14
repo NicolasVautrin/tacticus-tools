@@ -697,8 +697,20 @@ from .rad_saturation import RadSaturationPlaybook            # noqa: E402  (#477
 from .prophetic_sentinel import PropheticSentinelPlaybook    # noqa: E402  (#915 : corps propre, +20/Psyker adjacent)
 from .sanguinary_priest import SanguinaryPriestPlaybook      # noqa: E402  (#921-r1 : corps propre, 5 + 6 si blesse)
 from .close_combat_weakness import CloseCombatWeaknessPlaybook  # noqa: E402  (#1015-r1 : corps propre, -40/ennemi)
+from .vengeance_for_the_omnissiah import VengeanceForTheOmnissiahPlaybook  # noqa: E402  (#1071 : corps propre, BINAIRE)
 
 TRIGGERED_MOVE_PLAYBOOKS: dict = {
+    # #1071 -- la PREMIERE feuille du registre dont le terme est BINAIRE et non un produit : le
+    # corps natif `break` au PREMIER ami mecanique (autre que le mover) adjacent a la tuile
+    # candidate, donc la valeur vaut `30` ou `0`, jamais `30 x N`. Recopier le `count_adjacent` de
+    # ses voisins de forme (`legacy_of_combat`, `close_combat_weakness`) multiplierait le terme
+    # silencieusement des la 2e unite qualifiee. Query = `GetAdjacentFriends` (slot 0x83 = 131, LU
+    # dans `metadata/interface_slots.tsv`), filtre = `IsMechanical` (DISJONCTION de 3 traits) plus
+    # l'exclusion du mover lui-meme (il est son propre allie ET il est Mechanical). Sa face ATTAQUE
+    # est une CONSTANTE ZERO, d'ou son absence de `psyker.TRIGGERED_ATTACK_PLAYBOOKS` (cf. le
+    # module). La face COMBAT du meme passif vit dans
+    # `runner/operations/triggers/loki/vengeance_for_the_omnissiah.py`.
+    int(TriggeredAbilityType.VengeanceForTheOmnissiah): VengeanceForTheOmnissiahPlaybook(),  # 1298 (30, BINAIRE)
     # #1015-r1 -- la PREMIERE feuille du registre dont le poids est NEGATIF : le porteur T'AU FUIT le
     # contact (-40 par ennemi ring-1 de la tuile visee, `CLOSECOMBATWEAKNESS_PerAdjacentEnemy`).
     # Corps PROPRE (`Count x poids`, ni cap ni filtre ni branche amis) -> module dedie. L'ability est
