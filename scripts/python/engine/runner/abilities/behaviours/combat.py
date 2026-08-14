@@ -20,6 +20,7 @@ from ...components import StatsComponent
 from ..base import ability_attack_params
 from ...operations.damage import AttackDamageOperation
 from ..base import profile_pierce
+from ..attack_type import is_regular_attack
 
 
 def _get_unit(entity, entities, state=None):
@@ -1204,11 +1205,43 @@ class UseActiveAbility(AbilityBehaviour):
     corps, au lieu de le dupliquer. C'etait le second volet de #889-r5-r1 (« les trois devraient
     partager un seul corps »).
 
-    DISPATCH PORTE : la specialisation a l'ATTAQUE NORMALE (`AttackDamageOperation.execute` --
-    resolveur ECS : selection d'arme par distance, spread, reduce/armure, DEJA bit-exact). C'est
-    l'`activeAbilityType` de TOUS les call-sites portes. NON porte / flagge : le dispatch d'une
-    ability NON-normale (il faudrait re-entrer le pipeline par `visit_ActiveAbilityMessage`, pas
-    `AttackDamageOperation.execute`).
+    LES DEUX DISPATCHES, ET CE QUI LES SEPARE (`ability_type`, #996-r1-r3)
+    ---------------------------------------------------------------------
+    Le 3e champ natif (`+0x50`) n'est PAS un entier : c'est un `IAbilityTypeSelector`, resolu PAR
+    CASTER dans la boucle (`processor[+0x20] = caster` PUIS `(+0x50).Select(entities)`), et le
+    dispatch n'a lieu QUE si le `Nullable` rendu a `HasValue`. Les deux factories qui le
+    remplissent :
+
+      * `DSLBehaviors$$UseNormalAttack` / la surcharge d'`$$UseActiveAbility` a **selecteur**
+        (`180ea6a20`, 17 call-sites) -> `UnitNormalAttackType(caster)` : l'ATTAQUE NORMALE du
+        caster. C'est `ability_type = None` ici, le comportement historique, specialise a
+        `AttackDamageOperation.execute` (resolveur ECS : arme par distance, spread, reduce/armure,
+        DEJA bit-exact) ;
+      * la surcharge a `ActiveAbilityType` **ENTIER** (`180ea6b30`, 3 call-sites), qui emballe le
+        litteral dans un `AbilityTypeSelector.DirectAbilitySelector(AbilityOrEffect(<type>))`.
+        TRANCHEE AUX XREFS ENTRANTES, jamais au pseudo-C : les deux surcharges ont sept parametres
+        et le meme nom affiche.
+
+    Des 3 call-sites de la seconde, DEUX passent `0x45 = Loki_NormalAttack`
+    (`UnbreakableDutyAbility$$ExecuteBehaviour`, `RedemptionOfTheRisenAbility$$CreateBehaviour`) --
+    donc le meme dispatch normal. Le SEUL a passer un type NON-NORMAL est
+    `PrecisionShotAbility$$ExecuteBehaviour` (`0x3f4 = 1012 PrecisionShot_Aim`), et c'est lui qui
+    exigeait cet etage : lui donner le chemin d'attaque normale lui ferait INVENTER une attaque
+    que le natif ne porte pas -- pire qu'un no-op.
+
+    DISPATCH NON-NORMAL : `processor.<slot 2 IOperationProcessor>(caster, targets, abilityType,
+    options)` = `Core.Services.OperationProcessor$$ActiveAbility` ->
+    `IdunBattle.Operations.ActiveAbilityOperation$$Execute` -> `$$ExecuteInternal`. Le port y entre
+    par `AbilityHandler.active_ability_operation`, qui est le mirror de CE rang-la -- donc SANS le
+    gate de message d'`InputMessageProcessor$$Visit` (le natif ne repasse pas par le visiteur,
+    #429-r1-r3), et AVEC les gates de l'operation : acteur-mort, cible-morte, `IsInvalidTarget`
+    (volet CASTER inclus, donc la regle dynamique du sous-cast). Un sous-cast REFUSE est donc un
+    no-op COMPLET, exactement comme cote natif -- et il reste LISIBLE : son diagnostic part dans
+    `sub_cast` de l'evenement emis.
+
+    `is_regular_attack` est le mirror d'`idun.Idun.Source.Shared.Battle.StaticBattleRules.
+    StaticBattleRules.ActiveAbility$$IsRegularAttack` : c'est LUI qui separe les deux chemins, pas
+    une liste ecrite ici.
 
     `spread_pct` = variance d'arme du dispatch normal ; `None` (le cas normal) = LU de
     `BattleConfiguration.Damage.DamageSpreadPercentage` a l'EXECUTION, quand l'etat de bataille est
@@ -1216,7 +1249,7 @@ class UseActiveAbility(AbilityBehaviour):
     construction du behaviour).
 
     Emet `type(self).__name__` par caster. PUR (non court-circuitant)."""
-    __slots__ = ("caster_sel", "target_sel", "spread_pct")
+    __slots__ = ("caster_sel", "target_sel", "spread_pct", "ability_type")
 
     #: Le champ `+0x00` des `UseActiveAbilityBehaviourOptions` : un
     #: `System.Nullable<IdunBattle.Operations.ActiveAbilityOperation.InvalidTargetPolicy>`.
@@ -1227,11 +1260,15 @@ class UseActiveAbility(AbilityBehaviour):
     INVALID_TARGET_POLICY: Optional[int] = None
 
     def __init__(self, caster_sel: TargetsSelector, target_sel: TargetsSelector,
-                 spread_pct: Optional[int] = None):
+                 spread_pct: Optional[int] = None, ability_type: Optional[int] = None):
         self.caster_sel, self.target_sel = caster_sel, target_sel
         # NON resolu ici : l'arbre DSL est construit AVANT toute bataille (aucun `State`). La
         # resolution vit dans `execute`, ou `ectx.state` porte la BC.
         self.spread_pct = None if spread_pct is None else int(spread_pct)
+        # `None` = le selecteur `UnitNormalAttackType(caster)` des factories a selecteur (le cas de
+        # tous les call-sites historiques). Un ENTIER = le `DirectAbilitySelector` de la surcharge a
+        # `ActiveAbilityType`, cf. la docstring : REGULAR -> meme chemin normal, sinon dispatch.
+        self.ability_type = None if ability_type is None else int(ability_type)
 
     def execute(self, entities, ectx):
         state = ectx.state
@@ -1251,6 +1288,27 @@ class UseActiveAbility(AbilityBehaviour):
             if not isinstance(cu, dict) or cu.get("id") is None:
                 continue
             sid = cu["id"]
+            # --- DISPATCH NON-NORMAL (#996-r1-r3) ------------------------------------------------
+            # `(+0x50).Select(entities)` rend un type qui n'est PAS une attaque reguliere -> le
+            # natif appelle le slot 2 du processeur, pas `AttackDamage`. Le port entre au MEME rang
+            # (`ActiveAbilityOperation$$Execute`), donc la sous-ability rejoue TOUTE la chaine :
+            # gates (acteur-mort, cible-morte, `IsInvalidTarget` volet caster inclus), `On(0x2a)`,
+            # sa behaviour, les flags de tour, `On(0xb)/On(0xc)/On(0xe)`.
+            if self.ability_type is not None and not is_regular_attack(self.ability_type):
+                # Import DIFFERE, classe PORTEUR (mesure `probe_996r1r3_import_differe.py`) :
+                # charger `abilities.handler` seul dans un process FRAIS fait deja atterrir
+                # `abilities.behaviours.combat` dans `sys.modules` (le registre importe les 30
+                # modules d'abilities, qui construisent tous leurs arbres depuis ces feuilles) --
+                # hisser fermerait donc un cycle. Forme MODULE (`import X` puis `X.Y`) : une
+                # substitution posee sur `handler` MORD, contrairement au `from X import Y` de
+                # niveau module (cf. la regle des trois formes, CLAUDE.md).
+                from .. import handler as _handler            # noqa: PLC0415
+                diag = _handler.AbilityHandler(state).active_ability_operation(
+                    sid, tid, self.ability_type)
+                ectx.emit(type(self).__name__, subject=sid, target=tid, attack=None, after_hit=[],
+                          skipped=None, ability_type=self.ability_type, sub_cast=diag,
+                          invalid_target_policy=type(self).INVALID_TARGET_POLICY)
+                continue
             # TRI-ETAT sur l'absence d'attaque, et il est NECESSAIRE : un `attack=None` nu ne dit
             # pas SI l'operation a ete refusee (gate cible-morte / stats absentes) ou si le RNG
             # n'etait pas cale -- deux causes opposees, l'une fidele au natif, l'autre un trou de

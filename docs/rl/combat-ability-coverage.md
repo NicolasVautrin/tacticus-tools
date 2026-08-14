@@ -10,9 +10,9 @@ Le runner combat route chaque ability choisie via `ActiveAbilityMessage` -> `Abi
 
 - Noms distincts en `activeAbilities` (gameconfig) : **175**
 - dont resolus en `ActiveAbilityType` : **174** ; **HORS `ActiveAbilityType`** : **1** (cf. la section dediee -- ni portes ni no-op)
-- **PORTED** (dans `ABILITY_CLASSES`) : **173**
-- **NO-OP silencieux** (a porter) : **1**
-- Ventilation NO-OP : **DAMAGE**=1
+- **PORTED** (dans `ABILITY_CLASSES`) : **174**
+- **NO-OP silencieux** (a porter) : **0**
+- Ventilation NO-OP : 
 
 ## Priorisation & templates de port
 
@@ -44,13 +44,12 @@ Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 |---|---|---|---|---|
 | ? | Maugetar | TriggeredAbilityType(1498) PORTEE via `RELIC_ABILITY_TRIGGERS` [kit: DAMAGE(DirectDamage)] | 1 | N |
 
-## NO-OP SILENCIEUX en combat (a porter, tries categorie puis frequence) (1)
+## NO-OP SILENCIEUX en combat (a porter, tries categorie puis frequence) (0)
 
 | id | ability | categorie | #units | kinds |
 |---|---|---|---|---|
-| 1015 | PrecisionShot | DAMAGE(Energy) | 2 | NS |
 
-## PORTED (registry) (173)
+## PORTED (registry) (174)
 
 | id | ability | categorie | #units | kinds |
 |---|---|---|---|---|
@@ -120,6 +119,7 @@ Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 | 1137 | MurderousSwing | DAMAGE(Piercing) | 2 | LN |
 | 1169 | PlagueburstMortar | DAMAGE(Toxic) | 2 | LN |
 | 1098 | PlasmaGrenade | DAMAGE(Plasma) | 2 | NS |
+| 1015 | PrecisionShot | DAMAGE(Energy) | 2 | NS |
 | 1230 | SavageEchoes | DAMAGE(Eviscerate) | 2 | LN |
 | 1200 | SquigLaunchas | DAMAGE(Physical) | 2 | LN |
 | 1201 | SquigMine | DAMAGE(Blast) | 2 | LN |

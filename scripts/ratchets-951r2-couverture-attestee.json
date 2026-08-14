@@ -93,6 +93,17 @@
    "cliquet": "scripts/python/tests/engine/test_1021_face_decision_au_registre_offline.py",
    "_commit": "b40724cf5d2fa59c60af7afbdd3cb055dfbbb1ea",
    "_at": 1786800000
+  },
+  "active-decision:PrecisionShot": {
+   "categorie": "active-decision",
+   "nom": "PrecisionShot",
+   "verdict": "RIEN_A_PORTER",
+   "raison": "Le dict `+0x68` d'`IdunBattle.AI.PlaybookDatabase` (peuple par `IdunBattle.AI.PlaybookDatabase$$InitializePlaybookBuilders`) apparie `1015 PrecisionShot` a `IdunBattle.AI.Playbook.Common.DefaultActiveAbilityPlaybook` -- le playbook GENERIQUE COMMUN. Il n'y a donc AUCUNE classe propre a 1015, et rien de PROPRE a porter : le natif la fait evaluer par le meme chemin generique que le port emprunte deja. C'est une mesure POSITIVE (la table DIT quelle classe est appariee), pas une absence -- distinction qui compte, l'absence d'un symbole dans les tables ne prouvant rien (dedup IL2CPP). TROIS sources independantes : (a) `data/symbols/rnca9r7q6c/metadata/active_playbook_builders.tsv` porte la ligne `active\\t1015\\tIdunBattle.AI.Playbook.Common.DefaultActiveAbilityPlaybook`, et 1015 est la SEULE des 233 actives du dict a retomber sur ce playbook generique -- les 232 autres ont une classe propre ; (b) `mcp__ghidra__search_symbols_by_name` sur `PrecisionShotPlaybook` rend **0** symbole, alors que les deux soeurs du triptyque rendent chacune 4 symboles (`PrecisionShot_AimPlaybook` / `PrecisionShot_AttackPlaybook` : `.ctor`, `.cctor`, `EvaluateNonComparable`, `ShouldEvaluate`) ; (c) `ghidra/functions.tsv` ne porte aucune fonction dont le prefixe de classe soit `...Playbook.Loki.PrecisionShotPlaybook`. Coherent avec la RE de la face COMBAT : 1015 est une FACADE dont l'`ExecuteBehaviour` n'est jamais atteint en regime naturel (cf. la case-doc), donc l'IA n'a rien de propre a evaluer pour elle. ⚠ NE VAUT PAS pour `1012 PrecisionShot_Aim`, dont le playbook propre porte un vrai `EvaluateNonComparable` + `ShouldEvaluate` -> inscrite en DETTE `SANS_VERDICT` (#996-r1-r3).",
+   "source": "docs/rl/case-996-r1-r3-precisionshot.md#6",
+   "build": "rnca9r7q6c",
+   "cliquet": "scripts/python/tests/engine/test_1021_face_decision_au_registre_offline.py",
+   "_commit": "fbefc722564851ae4a8cd4d5ea2ee032a0a3ed40",
+   "_at": 1786809600
   }
  }
 }

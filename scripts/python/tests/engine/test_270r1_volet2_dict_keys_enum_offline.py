@@ -473,18 +473,59 @@ def test_cardinalites_du_volet():
     sur la classe portee, donc les 109 couples restent verrouilles A VIE -- y compris apres
     migration, ce que l'ancienne forme ne faisait pas (un couple raye n'etait plus confronte a
     rien). Le SEUL geste qui doit encore toucher ces chiffres est un AJOUT de couple mesure.
+
+    ⚠ **LE PLANCHER PAR TABLE EST TOMBE LE 2026-08-14, ET C'ETAIT LE PROGRES (#996-r1-r3).**
+    Cette boucle exigeait `assert dans_le_dict` par table -- « il reste des couples du snapshot
+    DANS la table ». `TARGETING_OPTIONS_UNPORTED` est passee a **0 entree**
+    (`len(TARGETING_OPTIONS_UNPORTED) == 0`) par deux migrations LEGITIMES et independantes :
+    `1215 InstrumentsOfVengeance` (#889-r6) puis `1015 PrecisionShot` (#996-r1-r3). Ses **25**
+    couples ne sont PAS perdus -- ils sont tous retrouves par `_resolveur_targeting`, ce que les
+    deux crans suivants verifient deja, et ce que l'etage 2 confronte en VALEUR.
+
+    C'est la TROISIEME incarnation du meme vice ce jour-la (apres `test_519_comptes_derives` et
+    `test_996_no_op_silencieuses`) : garder une PROPRIETE DU CORPUS (« cette table est encore
+    peuplee ») la ou l'invariant a garder est celui de la DERIVATION (« chaque couple mesure reste
+    retrouvable, et on sait OU »). Un plancher par table lit le drainage comme une panne --
+    exactement ce que `probe_1021` decrit en majuscules et ce qui a fait rougir CINQ cliquets le
+    2026-08-13.
+
+    ⚠ **ET LE PLANCHER NE SE REMPLACE PAR RIEN : les trois crans qui restent PORTENT DEJA tout
+    l'invariant.** Deux assertions de remplacement ont ete ecrites, puis RETIREES apres mesure --
+    `total_confronte == 109` et `total_dans_les_dicts > 0`. Les deux sont **DOMINEES** : aucune ne
+    peut rougir la premiere, donc aucune n'ajoute de pouvoir de detection.
+
+    MESURE (rejeu de la ventilation sur les vraies `CIBLES`, puis sur des cibles mutees ; quelle
+    assertion tombe la PREMIERE ?) :
+
+        REEL                       tombees=[]                                      confronte=109
+        couple PERDU des 2 cotes   tombees=['introuvables == [] (TARGETING_...)']   confronte=0
+        snapshot AMPUTE            tombees=['sum(tailles) == 109', ...]             confronte=108
+        UNE table videe            tombees=[]                                       confronte=109
+        les DIX tables videes      tombees=['res is not None or not ailleurs (...)'] dans_dicts=0
+
+    `total_confronte` vaut `sum(len(snap)) - sum(len(introuvables))` : le premier terme est
+    verrouille a 109 trois lignes plus haut, le second est asserte NUL a chaque tour. Il ne peut
+    donc valoir autre chose que 109 sans qu'une assertion anterieure soit deja tombee. Et
+    `total_dans_les_dicts > 0` est inatteignable pour la RAISON MEME qui le justifiait : les neuf
+    tables sans resolveur qui se videraient declenchent `res is not None or not ailleurs` avant.
+
+    ⚠ **C'EST LE MEME VICE QUE LE PLANCHER, SOUS L'AUTRE FACE.** Un plancher de population rougit
+    quand il ne faut pas ; une assertion dominee ne rougit jamais. Remplacer l'un par l'autre
+    n'aurait pas repare le volet -- ca l'aurait vide en le faisant paraitre plus riche. Une
+    troisieme redaction ecrivait `len(dans_le_dict) + len(ailleurs) == len(snap)`, tautologique
+    par construction (`o in vivant` et `o not in vivant` PARTITIONNENT toujours). Le bon geste
+    etait de RETIRER le plancher, pas de lui trouver un remplacant.
     """
     tailles = [len(s) for _v, s, _e, _n, _r in _cibles()]
     assert tailles == [25, 12, 22, 13, 9, 3, 7, 6, 6, 6], (
         "le snapshot du volet 2 a change de forme : %r" % tailles)
     assert sum(tailles) == 109
-    # Le dict PEUT retrecir (migration), mais il ne peut pas se VIDER sans que plus rien ne soit
-    # mesure de son cote : on exige qu'il porte encore une part du snapshot, et que le solde
-    # manquant soit integralement retrouve chez le resolveur (l'etage 2 en verifie les valeurs).
+    # Le dict PEUT retrecir jusqu'a se VIDER (migration), et c'est LEGITIME : ce qui ne doit jamais
+    # arriver, c'est qu'un couple cesse d'etre confronte. Ces deux crans le disent entierement --
+    # une table qui perd sans seconde source, et un couple introuvable des DEUX cotes. Ne RIEN
+    # ajouter ici : toute garde de plus serait dominee par eux (mesure en docstring).
     for vivant, snap, _enum, nom, res in _cibles():
-        dans_le_dict = [o for o, _ in snap if o in vivant]
         ailleurs = [o for o, _ in snap if o not in vivant]
-        assert dans_le_dict, "%s : plus AUCUN couple du snapshot dans la table" % nom
         assert res is not None or not ailleurs, (
             "%s a PERDU des entrees et n'a pas de seconde source : %r" % (nom, ailleurs))
         introuvables = [o for o in ailleurs if res(o) is None]

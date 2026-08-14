@@ -726,16 +726,16 @@ TARGETING_OPTIONS_UNPORTED: "dict[int, TargetingOptions]" = {
     #     PAS des faits de RE -- ils bougent a chaque face COMBAT portee, et c'est pour ca
     #     qu'aucun d'eux n'est ecrit a la main.
     #
-    #     len(TARGETING_OPTIONS_UNPORTED) ......... 1
+    #     len(TARGETING_OPTIONS_UNPORTED) ......... 0
     #       dont hors-bloc (tete de table) ..... 0
-    #       dont bloc du pool (#433-r4) ........ 1
+    #       dont bloc du pool (#433-r4) ........ 0
     #
     #     VENTILATION PAR FORME DE CTOR (dict ENTIER, hors-bloc compris) :
     #       FLAGS-DIRECTS  ..................... 0
-    #       PRESET+FLAGS   ..................... 1
+    #       PRESET+FLAGS   ..................... 0
     #       PRESET-SEUL    ..................... 0
     #       STATIC-COPY    ..................... 0
-    #       (somme = 1)
+    #       (somme = 0)
     # <<< FIN COMPTES DERIVES
     #
     # LES 16 PRESETS, RELUS A LA SOURCE dans `IdunBattle.Core.Services.TargetingOptions$$.cctor`
@@ -1087,18 +1087,19 @@ TARGETING_OPTIONS_UNPORTED: "dict[int, TargetingOptions]" = {
     #     n'est PAS le masque. XREF ENTRANTE : `PrecisionShotAbility$$.ctor` figure bien dans la
     #     liste des appelants de CETTE adresse, et d'aucune autre.
     # --------------------------------------------------------------------------------------------
-    # 1015 PrecisionShot -- `...Active.Loki.PrecisionShotAbility$$.ctor` recopie le preset
-    #   `<TargetingOptions statics>+0x280` puis appelle `.ctor(&opts, &preset, 0x10)` :
-    #     0x10 | *(statics+0x2a8) = 0x10 | 0x8004 = 0x8014
-    #   = `CasterHasNotMoved` (0x10) | `CasterMatchesDynamicRule` (0x4)
-    #     | `CasterIsPossibleTarget` (0x8000)  -- le MEME masque effectif que 1216 MartialExemplar.
-    #   Du preset viennent aussi `isSelfCasting = 1` (`+0x280`), `forceMeleeTarget = 1`
-    #   (`+0x2a0` = RangedBool.False) et `range` = `<TargetingRange statics+0x60>` = RANGE_SELF
-    #   (`.cctor` : `+0x60 = 1`, `+0x68 = Nullable(0)`). AUCUN bit de cible : c'est un self-cast.
-    ActiveAbilityType.PrecisionShot: TargetingOptions(rules=TR.CasterHasNotMoved | TR.CasterMatchesDynamicRule  # 1015
-                                 | TR.CasterIsPossibleTarget,
-                           self_cast=True, range=RANGE_SELF,
-                           force_melee_target=RANGED_BOOL_FALSE),
+    # `1015 PrecisionShot` N'EST PLUS ICI (#996-r1-r3) -- MEME migration que 1010/1053/1144/1185 :
+    #   sa face COMBAT est desormais portee (`engine/runner/abilities/necrons.py::
+    #   PrecisionShotAbility`), donc son masque vit sur SA classe et le laisser ici romprait le
+    #   contrat de disjonction (`test_targeting_options_sources` ROUGE pendant que `probe_181`
+    #   resterait VERT -- garde d'EXISTENCE, aveugle a la DOUBLE declaration).
+    #   Le ctor a ete RELU au decompile ET AU `.cctor` par la tranche de portage, et il CONCORDE
+    #   champ pour champ avec la valeur qui vivait ici : recopie du preset `+0x280` puis
+    #   `.ctor(&opts, &preset, 0x10)` -> `0x10 | *(statics+0x2a8) = 0x10 | 0x8004 = 0x8014` =
+    #   `CasterHasNotMoved` | `CasterMatchesDynamicRule` | `CasterIsPossibleTarget` (le MEME masque
+    #   effectif que 1216 MartialExemplar) ; `+0x280 isSelfCasting = 1` ; `+0x2a0 forceMeleeTarget
+    #   = 1` = RangedBool.False ; `range` <- `<TargetingRange statics+0x60>` = RANGE_SELF (`.cctor`
+    #   relu : `+0x60 = 1`, `+0x68 = Nullable(0)`). AUCUN bit de cible : c'est un self-cast.
+    #   Sa soeur `1012 PrecisionShot_Aim` porte le MEME masque, sur SA classe elle aussi.
 
     # @FORME STATIC-COPY
     # --- STATIC-COPY -- aucun ctor appele : le corps recopie les 0x40 octets d'un preset et passe

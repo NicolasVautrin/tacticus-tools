@@ -207,6 +207,7 @@ from .loki.votann import (
     PredictiveGuidanceRangedEffect,                                             # #959
     BladeOfTheAncestorsBuffEffect                                               # #1001
 )
+from .loki.precision_shot import PrecisionShot_AimEffect                        # #996-r1-r3
 from .loki.wall_of_mirrors import WallOfMirrorsEffect
 from .loki.war_howl import WarHowlExtraDamageUnstoppableEffect
 from .loki.way_of_the_short_blade import (
@@ -744,6 +745,11 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
         Dw02AdvancedBurstCannonExtraPierceRatioEffect,   # 1470 : +extraPierceRatio, EMPILABLE
     # Tyrant Guard (CrushingClaws) :
     "Taunted_OnlySpecificTargets": TauntedEffect,  # COMPOSITE 27 → enfants 25/26/1237 (bond cible↔tauntant)
+    # Deathmark (PrecisionShot 1015) — `entities/effects/loki/precision_shot.py`. COMPOSITE : son
+    # unique enfant `PrecisionShot_BlockMovement` (0x3f8 = 1016) vient de
+    # `PrecisionShot_AimEffect$$BlockMovement` -> `AddSubEffectWithSameTurns`. MESURE live : le natif
+    # publie les DEUX sur le caster, meme duree (#996-r1-r3).
+    "PrecisionShot_Aim": PrecisionShot_AimEffect,        # 0x3f7 = 1015 (EffectType, pas l'ability)
     # HolyDuel (1050, templChampion « Brother Jaeger ») — `entities/effects/loki/holy_duel.py`.
     # 1091 est un COMPOSITE dont trois des quatre enfants vivent sur l'entité BONDÉE (le champion) :
     # les DEUX `Taunted` du duel sont symétriques.

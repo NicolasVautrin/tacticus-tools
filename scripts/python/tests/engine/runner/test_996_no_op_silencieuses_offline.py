@@ -148,13 +148,33 @@ def test_les_trois_sont_au_registre_avec_leurs_deux_donnees_obligatoires():
 
 def test_contrat_de_disjonction_masques_declares_une_seule_fois():
     """Cran 3 : un masque migre sur la classe SORT de `TARGETING_OPTIONS_UNPORTED`. `probe_181`
-    verifie qu'un masque EXISTE, jamais qu'il est UNIQUE."""
+    verifie qu'un masque EXISTE, jamais qu'il est UNIQUE.
+
+    ⚠ **CE CRAN A EU UN PLANCHER DE POPULATION, ET LE PROGRES L'A FAIT ROUGIR** (#996-r1-r3). Il
+    exigeait `assert unported` -- « table UNPORTED vide -> l'assertion ci-dessous ne prouverait plus
+    rien ». La table est PASSEE A VIDE le 2026-08-14, par deux migrations LEGITIMES et
+    indépendantes : `1215 InstrumentsOfVengeance` (#889-r6) puis `1015 PrecisionShot`
+    (#996-r1-r3). Un plancher de population lit donc la DETTE SOLDEE comme une panne -- exactement
+    le defaut que `probe_1021` documente en majuscules et que les CINQ cliquets du 2026-08-13 ont
+    subi.
+
+    La reparation ne consiste PAS a retirer la garde de mesure-creuse : elle consiste a la porter
+    sur ce qui ne peut pas tomber a zero. Le PERIMETRE de ce test, ce sont les trois ids ci-dessous
+    -- ils sont au registre, c'est CA qu'on assertionne non-vide -- et la disjonction se verifie
+    GLOBALEMENT, ce qui reste une assertion pleine meme quand `UNPORTED` est vide (elle porte alors
+    sur l'intersection de 181 ids avec l'ensemble vide, et rougirait toujours si l'un des trois
+    revenait dans la table)."""
     unported = {int(k) for k in TARGETING_OPTIONS_UNPORTED}
-    assert unported, "table UNPORTED vide -- l'assertion ci-dessous ne prouverait plus rien"
-    for aid in (_STORM, _WAR_CONSTRUCT, _FORWARD_OBSERVERS):
+    cibles = (_STORM, _WAR_CONSTRUCT, _FORWARD_OBSERVERS)
+    assert all(ABILITY_CLASSES.get(a) is not None for a in cibles), (
+        "perimetre VIDE -- les trois ids ont quitte le registre, le test passerait pour vert")
+    for aid in cibles:
         assert aid not in unported, (
             "%d est declaree DEUX fois (registre + TARGETING_OPTIONS_UNPORTED) -- c'est cette "
             "double declaration qui a deja rendu `master` rouge" % aid)
+    assert not (set(int(a) for a in ABILITY_CLASSES) & unported), (
+        "la disjonction GLOBALE est rompue : %s"
+        % sorted(set(int(a) for a in ABILITY_CLASSES) & unported))
 
 
 # ------------------------------------------------------------------------------------------------
