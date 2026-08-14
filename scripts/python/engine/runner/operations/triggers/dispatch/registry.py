@@ -265,6 +265,7 @@ from ..loki.red_rampage import (RedRampageAttackAbility,              # #963 (pa
                                 RedRampageBuffAbility)                #  2 classes natives)
 from ..loki.geminae_superia import GeminaeSuperiaAbility              # #963 (passif adeptCelestine)
 from ..loki.dawn_blade import DawnBladeHealAbility                     # #317 (relique tauFarsight)
+from ..loki.wyrdmakers_helm import WyrdmakersHelmAbility               # #1037 (relique spaceWolfPriest)
 from ..loki.daemonflesh_plate import (DaemonfleshPlateAbility,        # #916 (relique 1493)
                                       DaemonfleshPlateResetActiveAbility)
 from ..loki.orbs_of_decay import OrbsOfDecayAbility                    # #1003 (relique 1465, DG)
@@ -1454,6 +1455,21 @@ RELIC_ABILITY_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
     # Le RETRAIT de l'effet (`On(0x1f = PreUnitMove) & get_OwnerIsActor`) est un trigger PROPRE de
     # l'effet -> `EFFECT_TRIGGERS[1497]`, pas ici. Cf. loki/maugetar.py.
     "Maugetar": [MaugetarAddEffectAbility, MaugetarResetMovementAbility],
+    # WyrdmakersHelm (relique `R_Booster_Crit_WyrdmakersHelm`, `TriggeredAbilityType` 0x5e0 = 1504 ;
+    # UN porteur, `spaceWolfPriest`, HORS du seed BC -> injection catalogue PUIS `--equip-relic`).
+    # UNE SEULE classe native pour cet id -- verifie dans `frida/classes.tsv`, qui ne porte qu'un
+    # `Wyrdmaker*` : contraste `TheArdentBlade`/`PhasalSubjugator`/`Maugetar`. Il n'y a NI classe
+    # d'effet ; `EffectType.WyrdmakersHelm` (1505, un AUTRE enum que l'ability 1504) n'est que
+    # l'etiquette du stat-mod pose puis retire DANS l'arbre.
+    # `On(0x2c = UnitHealedWithRemoveEffects) & (OwnerIsTarget | (IsAdjacent(Owner, Target, 3) &
+    #  AreFriends(Owner, Target, 0))) & AmountIsEqual(TimesHealedThisTurn(Target), Const(1)) &
+    #  IsTurnOf(Owner)` -> `AddStaticStatModifierEffectToOwner(1505, Attack, ConfigVar(extraDmg)) +
+    #  SetCache(Cache(Tiles(First(SortUnitsByDamageUtility(...))))) + UseNormalAttack(Owner, cible) +
+    #  RemoveEffect(Owner, 1505) + If(NOT IsDead(Owner), AddEffect(17 Ice, cache))`.
+    # ⚠ Le vecteur `On(0x2c)` N'EXISTAIT PAS : il est pose par la MEME tranche
+    # (`triggers/dispatch/heal.py`) -- sans lui cette entree serait inscrite et jamais declenchee.
+    # Cf. loki/wyrdmakers_helm.py. #1037.
+    "WyrdmakersHelm": [WyrdmakersHelmAbility],
     # SabreOfSacrifice (`TriggeredAbilityType` 0x5c6 = 1478 ; UN porteur `lineup`, `astraDreir`,
     # DANS le pool rank 17 -> montage `--equip-relic` seul). UNE classe native, UN seul `On()` :
     # `On(9 = Attack) & IsCharging(Caster, Target) & (OwnerIsCaster | (Parent(Caster) == Owner &

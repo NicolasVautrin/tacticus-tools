@@ -482,6 +482,35 @@ class LastHitDamageTakenLastTurn(AAmountFormula):
         return int((u or {}).get("lastHitDamageTakenLastTurn", 0) or 0)
 
 
+class TimesHealedThisTurn(AAmountFormula):
+    """`IdunBattleLogic.Entities.DSLFormulas$$TimesHealedThisTurn(unit)` ->
+    `IdunBattle.Entities.Formulas.TimesHealedThisTurnFormula$$Calculate` : resout le selecteur, prend
+    l'`ActorStatisticsComponent` de l'entite et rend **`*(uint *)(comp + 0xd4)`** -- combien de fois
+    cette unite a ETE SOIGNEE depuis le debut de son tour.
+
+    DISTINCT de ses deux voisins de la meme famille, et le decompile les separe par l'OFFSET :
+    `TimesRepairedFormula$$Calculate` lit `+0xd0` (« a ete REPAREE »),
+    `TotalRepairActionsAmountFormula$$Calculate` lit `+0xe8` (« a REPARE quelqu'un »).
+
+    Substrat (cf. `runner/components.py`, champ `times_healed_this_turn`) : `+0xd4` est incremente PAR
+    SOIN par `IdunBattle.Operations.HealUnitOperation$$Execute` et remis a zero par
+    `IdunBattle.Operations.StartTurnOperation$$ResetUnit`. La cle `timesHealedThisTurn` du dict
+    d'unite DSL est produite par `runner/abilities/behaviours/context.py::_unit_dict`, et elle est
+    LIVE (l'increment natif PRECEDE l'emission du vecteur qui fait relire ce nombre). Unite
+    hors-`State` (dict fige de la face PREDICTION) -> 0, meme regime que
+    `LastHitDamageTakenLastTurn`.
+
+    Consommateur porte : le gate `AmountIsEqual(TimesHealedThisTurn(Target@DSLSelectors+0x60),
+    <DSLFormulas+0x20> = Const(1))` de
+    `IdunBattleLogic.Entities.Abilities.Triggered.Loki.WyrdmakersHelmAbility$$CreateTrigger`."""
+    def __init__(self, unit: TargetsSelector):
+        self.unit = unit
+
+    def calculate(self, ctx):
+        u = resolve_unit(self.unit, ctx)
+        return int((u or {}).get("timesHealedThisTurn", 0) or 0)
+
+
 class TimesRepaired(AAmountFormula):
     """`DSLFactory.TimesRepaired` : compteur runtime de réparations du caster (Mechanical — ex.
     DakkaDakkaDakka `IdunBattleLogic.Entities.Abilities.Active.Loki.DakkaDakkaDakkaAbility$$GetNumHits` : +extraHits coups par réparation). NON capté offline →

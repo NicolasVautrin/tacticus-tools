@@ -321,6 +321,29 @@ class UnitComponent(Component):
     donc aucun observable de COMBAT ne le distingue. Ecrit quand meme, pour rester le mirror exact du
     `+=` double, exactement comme `tiles_moved_this_battle`.
 
+    `times_healed_this_turn` (#1037) = mirror de `ActorStatisticsComponent @+0xd4`, le compteur de
+    fois ou cette unite a ETE SOIGNEE depuis le debut de son tour. Loge ici comme
+    `blocks_made_this_turn` -- MEME residu structurel (le foyer natif est l'`ActorStatisticsComponent`,
+    case-202 SS6).
+      * ECRITURE : `IdunBattle.Operations.HealUnitOperation$$Execute` fait `*(int *)(stats + 0xd4) =
+        *(int *)(stats + 0xd4) + 1` sur les statistiques de l'unite SOIGNEE, **une fois par soin** --
+        et l'increment est INCONDITIONNEL une fois passe le gate de sortie anticipee (il tombe hors
+        du `if (healed >= 1) { ... }` qui, lui, alimente `+0xc8` et `+0xe4`). Il PRECEDE l'emission
+        des trois vecteurs `On(0x1e)` / `On(0x2b = UnitHealed)` / `On(0x2c =
+        UnitHealedWithRemoveEffects)` : au premier soin d'un tour, un consommateur de ces vecteurs
+        lit donc deja **1**.
+      * RESET : `IdunBattle.Operations.StartTurnOperation$$ResetUnit` (`*(undefined4 *)(stats + 0xd4)
+        = 0`), dans la MEME sequence que `ResetBlocksMadeThisTurn` / `ResetReceivedDamageThisTurn` et
+        juste APRES le roulement `+0x70 = +0x6c` -> portee = les unites du joueur ENTRANT
+        (cf. `operations/turnflow.py`). ⚠ Il n'est PAS touche par
+        `ActorStatisticsComponent$$ResetThisTurn`, qui n'efface que `+0xf0`/`+0x78`/`+0xe4`/`+0x58`/
+        `+0xa0` -- lu au decompile, pas suppose.
+      * LECTURE : `IdunBattle.Entities.Formulas.TimesHealedThisTurnFormula$$Calculate` resout son
+        selecteur, prend l'`ActorStatisticsComponent` de l'entite et rend `*(uint *)(comp + 0xd4)`.
+        UNIQUE consommateur porte : le gate `AmountIsEqual(TimesHealedThisTurn(Target), Const(1))` de
+        `IdunBattleLogic.Entities.Abilities.Triggered.Loki.WyrdmakersHelmAbility$$CreateTrigger`
+        (« gets healed for the FIRST time this turn »).
+
     `feet` (#R30) = mirror de `UnitComponent._feet` @+0x78 -- l'`OrderedSet<int>` des ids des
     ENTITES-PIEDS de l'unite (`Blueprints.UnitFoot`, chacune portant un `UnitFootComponent
     {UnitId@0x10, TileId@0x14}`), rempli par `IdunBattle.Operations.AddUnitOperation$$Execute`
@@ -351,6 +374,7 @@ class UnitComponent(Component):
                  "charged_unit_ids", "current_turn_start_tile", "revived_by_abilities",
                  "tiles_moved_this_battle", "tiles_moved_this_turn", "tiles_moved_last_turn",
                  "blocks_made_this_turn", "blocks_made_this_battle",
+                 "times_healed_this_turn",
                  "turns_with_attacks_made", "units_attacked_this_turn", "attacks_made_this_turn",
                  "total_attacks_made", "defeated_units",
                  "movement_target_override")
@@ -410,6 +434,9 @@ class UnitComponent(Component):
         # `blocks_made_this_turn` et `blocks_made_this_battle`).
         self.blocks_made_this_turn = 0
         self.blocks_made_this_battle = 0
+        # `ActorStatisticsComponent @+0xd4` -- cf. la docstring de classe (bloc
+        # `times_healed_this_turn`). 0 a la creation, comme un compteur `int` natif frais.
+        self.times_healed_this_turn = 0
         # `ActorStatisticsComponent @+0x30` (`TotalTurnsWithAttacksMade`) et `@+0x40`
         # (`unitsAttackedThisTurn`) -- cf. `register_attack_made` / `unit_turns_with_attacks_made` /
         # `reset_units_attacked_this_turn`. Loges ici comme `blocks_made_*` et `tiles_moved_*`

@@ -158,6 +158,15 @@ def _unit_dict(state, eid: int, entity=None) -> dict | None:
         # `KillUnitOperation$$Execute+0x8b9`, donc AVANT `On(UnitDefeated)` -- et c'est justement
         # cet evenement qui fait relire la liste (TrophyTaker). Fige au seed, il rendrait `n-1`.
         "defeatedUnits": ([int(i) for i in uc.defeated_units] if uc is not None else []),
+        # #1037 -- `ActorStatisticsComponent @+0xd4`, lu par le noeud formule `TimesHealedThisTurn`
+        # (`IdunBattle.Entities.Formulas.TimesHealedThisTurnFormula$$Calculate`, qui rend ce champ tel
+        # quel). MEME raison d'etre dans `_LIVE_KEYS` que `unitsAttackedThisTurn` : le compteur est
+        # incremente par `IdunBattle.Operations.HealUnitOperation$$Execute` JUSTE AVANT que la meme
+        # operation emette `On(0x2c = UnitHealedWithRemoveEffects)` -- fige au seed, il rendrait la
+        # valeur d'AVANT le soin, donc `0` au premier soin du tour, et le gate `AmountIsEqual(...,
+        # Const(1))` de `WyrdmakersHelmAbility$$CreateTrigger` ne matcherait JAMAIS. 0 par defaut.
+        "timesHealedThisTurn": (int(getattr(uc, "times_healed_this_turn", 0) or 0)
+                                if uc is not None else 0),
         "_traits": traits,
     }
 
@@ -170,8 +179,12 @@ def _unit_dict(state, eid: int, entity=None) -> dict | None:
 #: `unitsAttackedThisTurn` en est pour la MEME raison, et c'est la plus aigue : il est allonge par
 #: CHAQUE maillon de la chaine d'attaque du MEME arbre qui le relit ensuite (`KissOfDeath` #940).
 #: Fige au seed, il rendrait toujours la liste d'AVANT le premier coup.
+#: `timesHealedThisTurn` (#1037) en est pour la MEME raison, mesuree sur le natif : l'increment
+#: `stats[0xd4] += 1` d'`IdunBattle.Operations.HealUnitOperation$$Execute` PRECEDE l'emission de
+#: `On(0x2c = UnitHealedWithRemoveEffects)` par cette meme operation. Fige au seed, le gate
+#: `AmountIsEqual(TimesHealedThisTurn(Target), Const(1))` lirait 0 et ne matcherait jamais.
 _LIVE_KEYS = frozenset({"pos", "hp", "hpMax", "alive", "feet", "unitsAttackedThisTurn",
-                        "defeatedUnits"})
+                        "defeatedUnits", "timesHealedThisTurn"})
 
 
 class LiveUnit(dict):
