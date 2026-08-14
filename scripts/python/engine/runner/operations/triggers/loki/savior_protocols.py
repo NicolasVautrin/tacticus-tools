@@ -62,8 +62,13 @@ noeud, comme l'exige la doctrine #149. Les deux lisent le meme decompile ; ils n
   et `mov edx, 0x52f`, cf. `EXCLUDED_*` ci-dessous) et PORTES. Le noeud `TriggeringAbilityIs` lit
   `ctx.attack_ability_type` (le canal `AbilityEntities+0x98`), que le vecteur
   `pre_damage_taken_triggers` alimente desormais.
-* **`#1020-r1`** (dans `_pre_damage_taken_per_hit`) : le bouclier de la victime n'est pas restitue
-  sur un coup transfere. Non atteint ici (cibles T'au sans `ShieldComponent`).
+* **`#1020-r1` -- FERME.** Le natif annule AUSSI `ReduceShield` sur un coup transfere : `Reduce` et
+  `ReduceShield` lisent le MEME pending relu APRES l'emission. `_deplete_shield` a donc quitte les
+  APPELANTS pour le chokepoint (`operations/damage.py`), ou il consomme `kept_shield`.
+* **`#1020-r2` -- FERME.** Les deux `Nullable<AbilityOrEffect>` sont consommes, et ils n'ont pas le
+  meme role : les DEUX forment un GATE (`HasValue` exige, sinon `TransferDamageBehaviour$$Execute`
+  ne fait RIEN), et seul `attackAbility` descend jusqu'au slot `64 = DirectDamage` pour nommer la
+  source du degat porte par le protecteur. Cf. `abilities/behaviours/transfer.py`.
 """
 from __future__ import annotations
 
@@ -163,7 +168,7 @@ def savior_chance() -> int:
         return 0
 
 
-def savior_behaviour_tree(rng):
+def savior_behaviour_tree(rng, *, transfer_ability=None, attack_ability=None):
     """`SaviorProtocolsAbility$$CreateBehaviour` -- LU VERBATIM :
 
         transfer = DSLBehaviors.TransferDamage(<+0x78>, sel+0x48, sel+0x60, sel+0x30,
@@ -190,7 +195,16 @@ def savior_behaviour_tree(rng):
     return If(MaybeTrigger(rng, savior_chance()),
               TransferDamage(caster_sel=Actor(),
                              original_target_sel=Target(),
-                             transfer_targets_sel=Caster()),
+                             transfer_targets_sel=Caster(),
+                             # #1020-r2 -- les 4e et 5e arguments natifs, sur leurs canaux propres.
+                             # `<DSLSelectors+0x88>` = `CurrentAbilitySelector` = `+0x60`, que
+                             # `BaseTriggeredAbility$$Execute` vient d'ecrire AVANT ce behaviour :
+                             # c'est la triggered elle-meme.
+                             transfer_ability=transfer_ability,
+                             # `<+0x90>` = `TriggeringAbilitySelector` = `+0x98`, que le publieur y
+                             # a mis et que `BaseTriggeredAbility$$Execute` n'ecrira qu'APRES : c'est
+                             # l'ability qui inflige le degat.
+                             attack_ability=attack_ability),
               None)
 
 
@@ -223,7 +237,16 @@ class SaviorProtocolsAbility(TriggeredAbility):
     def execute_behaviour(self, state: State, ev: TriggerEvent) -> Optional[dict]:
         ectx = ExecutionContext(state=state, rng=state.rng)
         entities = entities_from_state(state, self.owner_id, ev.target_id, actor_id=ev.actor_id)
-        savior_behaviour_tree(state.rng).execute(entities, ectx)
+        savior_behaviour_tree(
+            state.rng,
+            # `+0x60`, ecrit par `BaseTriggeredAbility$$Execute` AVANT le behaviour. Cote port ce
+            # canal est `state.triggering_ability`, pose autour d'`execute_behaviour` par
+            # `triggers/dispatch/core.py` -- avec exactement cet id. On le LIT plutot que de
+            # recopier la constante : si le foyer cessait de le poser, le gate doit s'en apercevoir.
+            transfer_ability=state.triggering_ability,
+            # `+0x98`, que le publieur d'`On(0x39)` a rempli depuis la `DamageSource` du coup et que
+            # `BaseTriggeredAbility$$Execute` n'ecrasera qu'APRES ce behaviour.
+            attack_ability=ev.triggering_effect).execute(entities, ectx)
         transfers = [p for (n, p) in ectx.emitted if n == "TransferDamage"]
         return {"passive": ABILITY_ID, "owner": int(self.owner_id),
                 "chance": savior_chance(),

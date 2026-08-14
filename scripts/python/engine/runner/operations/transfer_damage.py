@@ -92,7 +92,8 @@ def _member_capped(state: State, target_id: int, thc, amount: int) -> int:
 
 def transfer_damage_operation(state: State, caster_id: Optional[int], original_target_id: int,
                               transfer_target_id: int,
-                              hit_index: Optional[int] = None) -> Optional[dict]:
+                              hit_index: Optional[int] = None,
+                              attack_ability=None) -> Optional[dict]:
     """`IdunBattle.Operations.TransferDamageOperation$$Execute` -- mirror.
 
     1. `GetDamage(originalTarget)` : lit ET **CONSOMME** le pending de la victime. `null` -> sortie
@@ -114,6 +115,22 @@ def transfer_damage_operation(state: State, caster_id: Optional[int], original_t
     peut pas le re-transferer a un autre drone.
 
     `caster_id` = la SOURCE du degat (l'attaquant), pour l'attribution de mort du protecteur.
+
+    `attack_ability` (#1020-r2) = le 5e parametre `attackAbility` de l'operation. C'est le SEUL des
+    deux `AbilityOrEffect` que le corps CONSOMME, et sa destination est LUE : ses 0x18 octets sont
+    recopies puis passes en 5e argument `abilityOrEffect` du slot `64 = DirectDamage`
+    (`Core.Services.OperationProcessor$$DirectDamage(caster, target, damage, damageProfileType,
+    abilityOrEffect, options)` -- slot resolu dans
+    `data/symbols/<build>/metadata/ioperationprocessor_slots.tsv`, jamais devine). C'est donc lui
+    qui NOMME la source du degat inflige au protecteur, et que grave `RecordDeathReason` si le
+    protecteur en meurt.
+
+    ⚠ Le 4e, `transferAbility`, n'a AUCUN autre usage dans ce corps que le null-check du pointeur
+    (`if (transferAbility == 0) throw`) : il ne ressort ni dans le `DirectDamage`, ni dans le pas de
+    flux. Il n'est donc pas porte ICI -- mais il n'est pas inerte pour autant : le BEHAVIOUR au
+    dessus exige `HasValue` sur LES DEUX avant d'appeler cette operation, et c'est un vrai GATE
+    (cf. `abilities/behaviours/transfer.py`).
+
     Rend `{original_target, transfer_target, profile, requested, health, shield}` ou `None`."""
     from .damage import AttackDamageOperation          # lazy : rompt le cycle damage <-> transfert
     pend = consume_pending_damage(state, original_target_id)
@@ -136,13 +153,24 @@ def transfer_damage_operation(state: State, caster_id: Optional[int], original_t
                 "profile": pend.profile, "requested": amount, "health": 0, "shield": 0}
     # Split BOUCLIER d'abord puis PV, sans block ni evasion (0 tirage) -- meme etage que le
     # knockback (`displace.py`), qui route lui aussi un montant deja resolu.
-    shc, shield_total = AttackDamageOperation._target_shield(tgt)
+    _shc, shield_total = AttackDamageOperation._target_shield(tgt)
     dmg = calculate_damage_operation(amount, shield=shield_total)
-    if shc is not None and dmg.shield:
-        shc.shield = max(0, (shc.shield or 0) - dmg.shield)
+    # La depletion du bouclier du PROTECTEUR appartient au chokepoint (#1020-r1) : le natif
+    # descend `DirectDamage` -> `ApplyDamageOperation$$Execute`, et c'est LA que vit
+    # `ApplyDamageOperation$$ReduceShield`, sur le pending RELU. Il y avait ici une depletion
+    # MANUELLE et ANTERIEURE (`shc.shield = max(0, (shc.shield or 0) - dmg.shield)`) qui, en plus
+    # de doubler celle du chokepoint, visait un attribut INEXISTANT : `ShieldComponent.__slots__`
+    # vaut `('shields', 'next_id')`. Tout transfert vers un protecteur PORTANT un bouclier levait
+    # donc `AttributeError: 'ShieldComponent' object has no attribute 'shield'` -- crash dur,
+    # jamais atteint parce que les six porteurs de `SaviorProtocols` sont des drones T'au sans
+    # bouclier, et que rien ne montait ce regime.
     AttackDamageOperation._apply_damage_pipeline(
         state, int(transfer_target_id), caster_id, tgt, thc, dmg.health, pend.profile,
-        dmg.shield, dmg.armor, is_attack=False)
+        dmg.shield, dmg.armor, is_attack=False,
+        # #1020-r2 : `attackAbility` -> 5e argument `abilityOrEffect` du slot `64 = DirectDamage`.
+        # C'est lui qui nomme la source du degat porte par le protecteur (et donc sa
+        # `DamageSource` de mort), la ou le port ne nommait que le `caster`.
+        source_ability=attack_ability)
     return {"original_target": int(original_target_id),
             "transfer_target": int(transfer_target_id),
             "profile": pend.profile, "requested": amount,

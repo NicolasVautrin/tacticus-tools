@@ -40,9 +40,17 @@ import pytest
 PYDIR = Path(__file__).resolve().parents[2]                 # scripts/python
 sys.path.insert(0, str(PYDIR))
 
+from engine.entities.triggered_ability_type import TriggeredAbilityType             # noqa: E402
 from engine.runner.components import HealthComponent, PendingDamage, UnitComponent  # noqa: E402
 from engine.runner.operations.damage import AttackDamageOperation                   # noqa: E402
 from engine.runner.state import State                                               # noqa: E402
+
+#: `transferAbility` (`<DSLSelectors+0x88>` = `AbilityEntities+0x60`) : la triggered ELLE-MEME,
+#: ecrite par `IdunBattle.Entities.Abilities.BaseTriggeredAbility$$Execute` avant le behaviour.
+_SAVIOR_PROTOCOLS = int(TriggeredAbilityType.SaviorProtocols)          # 0x460 = 1120
+#: `attackAbility` (`<+0x90>` = `+0x98`) : l'ability qui INFLIGE le degat. N'importe laquelle fait
+#: l'affaire pour les etages 9 -- ce qui est mesure, c'est qu'elle soit PRESENTE et TRANSPORTEE.
+_UNE_ABILITY_SOURCE = int(TriggeredAbilityType.PsykerExtraAttack)      # 0x3f5 = 1013
 
 #: Ce qui doit changer pour que ce FICHIER de test puisse changer de verdict (#486-r15).
 #: PRIS LARGE VOLONTAIREMENT : trop etroit serait un FAUX VERT (le fichier ne se rejouerait pas
@@ -252,6 +260,97 @@ def test_le_transfert_deplace_le_degat_il_ne_le_duplique_pas():
         "etre consomme, sinon un second protecteur le prendrait une seconde fois")
 
 
+# ---------------------------------------------------------------- 9. #1020-r2 : LES DEUX ABILITES
+
+def _transfert(st, victime, drone, source, *, transfer_ability, attack_ability):
+    """FIXTURE NOMMEE de l'etage 9 : un transfert joue par la FEUILLE DSL (pas par l'operation
+    nue), seul niveau ou vit le gate `HasValue` des deux `Nullable<AbilityOrEffect>`."""
+    from engine.dsl.effects import ExecutionContext
+    from engine.entities.selectors.accessors import Actor, Target
+    from engine.entities.selectors.tiles import Caster
+    from engine.runner.abilities.behaviours.context import entities_from_state
+    from engine.runner.abilities.behaviours.transfer import TransferDamage
+    ent = entities_from_state(st, drone.id, victime.id, actor_id=source.id)
+    ectx = ExecutionContext(state=st, rng=None)
+    TransferDamage(caster_sel=Actor(), original_target_sel=Target(), transfer_targets_sel=Caster(),
+                   transfer_ability=transfer_ability,
+                   attack_ability=attack_ability).execute(ent, ectx)
+    return [p for (n, p) in ectx.emitted if n == "TransferDamage"]
+
+
+@pytest.mark.parametrize("transfer_ability,attack_ability", [
+    (None, _UNE_ABILITY_SOURCE),      # `transferAbility` vide -> le 1er `HasValue` refuse
+    (_SAVIOR_PROTOCOLS, None),      # `attackAbility` vide   -> le 2e refuse
+    (None, None),
+])
+def test_sans_les_DEUX_abilities_le_transfert_ne_part_PAS(transfer_ability, attack_ability):
+    """ETAGE 9 -- `#1020-r2`, volet GATE. `TransferDamageBehaviour$$Execute` teste `HasValue` sur
+    les DEUX `Nullable<AbilityOrEffect>` (deux `if (*pcVar14 != '\\0')` imbriques) et `return this`
+    sinon : ni operation, ni pas de flux. Le port transferait toujours -- PERMISSIF."""
+    st, victime, drone, source = _duo()
+    dhc = drone.get_component(HealthComponent)
+    victime.get_component(HealthComponent).pending_damage = PendingDamage("Physical", 175, 0)
+    hp_d0 = dhc.hp
+    emis = _transfert(st, victime, drone, source,
+                      transfer_ability=transfer_ability, attack_ability=attack_ability)
+    assert all(p.get("transfer_target") is None for p in emis), (
+        "un `Nullable` vide doit faire `return` AVANT toute cible (obtenu %r)" % (emis,))
+    assert dhc.hp == hp_d0, (
+        "le protecteur a pris %d degats alors que le gate `HasValue` devait tout arreter"
+        % (hp_d0 - dhc.hp))
+
+
+def test_temoin_avec_les_deux_le_transfert_part_bien():
+    """TEMOIN de l'etage 9 : sans lui, un gate qui refuserait TOUT passerait les trois bras
+    ci-dessus. C'est le regime non-nul exige."""
+    st, victime, drone, source = _duo()
+    dhc = drone.get_component(HealthComponent)
+    victime.get_component(HealthComponent).pending_damage = PendingDamage("Physical", 175, 0)
+    hp_d0 = dhc.hp
+    emis = _transfert(st, victime, drone, source, transfer_ability=_SAVIOR_PROTOCOLS, attack_ability=_UNE_ABILITY_SOURCE)
+    assert emis and emis[0].get("transfer_target") == drone.id
+    assert hp_d0 - dhc.hp == 175
+
+
+def test_l_attaque_NOMME_la_source_du_degat_porte_par_le_protecteur():
+    """ETAGE 9 (volet attribution) -- `attackAbility` est le SEUL des deux que
+    `TransferDamageOperation$$Execute` consomme : recopie sur 0x18 octets puis passe en 5e argument
+    `abilityOrEffect` du slot `64 = DirectDamage`. Cote port il descend en `source_ability` du
+    chokepoint, donc dans la `DamageSource` que `RecordDeathReason` grave si le protecteur meurt.
+
+    On mesure sur la MORT, le seul canal observable : avant #1020-r2 la raison portait `None`."""
+    from engine.runner.components import UnitComponent
+    st, victime, drone, source = _duo(hp_d=100)          # le drone MEURT du transfert
+    victime.get_component(HealthComponent).pending_damage = PendingDamage("Physical", 400, 0)
+    _transfert(st, victime, drone, source, transfer_ability=_SAVIOR_PROTOCOLS, attack_ability=_UNE_ABILITY_SOURCE)
+    uc = drone.get_component(UnitComponent)
+    assert uc.death_source is not None, "le protecteur devait mourir et porter une `DamageSource`"
+    assert uc.death_source[2] == _UNE_ABILITY_SOURCE, (
+        "la `DamageSource` du protecteur doit NOMMER `attackAbility` (1013), obtenue %r -- avant "
+        "#1020-r2 le port n'y mettait que le `caster`, donc `None`" % (uc.death_source[2],))
+
+
+def test_un_protecteur_PORTANT_un_bouclier_ne_fait_plus_CRASHER_le_transfert():
+    """ETAGE 9 (bug LATENT trouve dans le meme foyer). `transfer_damage_operation` depletait le
+    bouclier du protecteur A LA MAIN, avant le chokepoint, via `shc.shield` -- un attribut qui
+    N'EXISTE PAS (`ShieldComponent.__slots__ == ('shields', 'next_id')`). Tout transfert vers un
+    protecteur portant un bouclier levait donc `AttributeError`. Jamais atteint : les six porteurs
+    de `SaviorProtocols` sont des drones T'au sans bouclier."""
+    from engine.runner.components import ShieldComponent
+    from engine.runner.operations.transfer_damage import transfer_damage_operation
+    st, victime, drone, source = _duo()
+    shc = ShieldComponent()
+    shc.add_or_update_shield(300)
+    drone.add_component(shc)
+    assert shc.get_total_shield() == 300, "la fixture doit REELLEMENT poser le bouclier"
+    victime.get_component(HealthComponent).pending_damage = PendingDamage("Physical", 240, 0)
+    res = transfer_damage_operation(st, source.id, victime.id, drone.id)
+    assert res is not None, "le transfert doit aboutir, pas lever"
+    assert shc.get_total_shield() == 60, (
+        "le bouclier du protecteur absorbe d'abord (300 - 240), obtenu %d -- une SEULE depletion, "
+        "celle du chokepoint" % shc.get_total_shield())
+
+
 def _duo_avec_bouclier(shield=200, hp_v=1000):
     """FIXTURE NOMMEE de l'etage 8 : la VICTIME porte un `ShieldComponent` non nul -- le regime que
     `#1020-r1` nommait comme NON ATTEINT par les porteurs T'au de `SaviorProtocols`, et que rien ne
@@ -423,7 +522,13 @@ def test_un_selecteur_mono_entite_designe_bien_une_cible_de_transfert():
     ent = entities_from_state(st, drone.id, victime.id, actor_id=source.id)
     ectx = ExecutionContext(state=st, rng=None)
     TransferDamage(caster_sel=Actor(), original_target_sel=Target(),
-                   transfer_targets_sel=Caster()).execute(ent, ectx)
+                   transfer_targets_sel=Caster(),
+                   # #1020-r2 : les DEUX `Nullable<AbilityOrEffect>` doivent etre `HasValue`, sinon
+                   # `TransferDamageBehaviour$$Execute` `return` SANS RIEN FAIRE. Ce montage les
+                   # omettait, donc il exercait un regime que le natif REFUSE -- il mesurait la
+                   # normalisation du selecteur dans un etat que le jeu n'atteint jamais.
+                   transfer_ability=_SAVIOR_PROTOCOLS,
+                   attack_ability=_UNE_ABILITY_SOURCE).execute(ent, ectx)
     emis = [p for (n, p) in ectx.emitted if n == "TransferDamage"]
     assert emis and emis[0].get("transfer_target") == drone.id, (
         "le selecteur mono-entite `Caster()` (= `Owner@<+0x30>`) n'a designe AUCUNE cible : "
