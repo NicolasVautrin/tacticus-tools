@@ -19,9 +19,9 @@ differe. C'est la doctrine « DECIDER != EXECUTER ».
 
 ## Bilan
 
-- Unites `npc` : **491** ; kits sans manque : **439** ; kits avec du travail : **52**
+- Unites `npc` : **491** ; kits sans manque : **440** ; kits avec du travail : **51**
 - Actives distinctes : **147** — `[--]` **1** · `[C-]` **13** · `[CD]` **133**
-- Passifs distincts : **177** — portes **123**, non portes **54**
+- Passifs distincts : **177** — portes **124**, non portes **53**
 - Traits de kit distincts (AUCUN ecarte — le seuil de frequence a disparu avec #1015) :
   **58** — couverts **57**, non couverts **1**
 - **Voies inversees** (nom absent d'`ActiveAbilityType`) : **1** — `Maugetar`
@@ -69,7 +69,6 @@ l'unite. La colonne `porteurs` dit l'exposition.
 | passif | HostOfPlagues | 1 | deathBossMortarion |
 | passif | HuntersInstincts | 1 | tauNpc6Carnivore |
 | passif | ItsGonnaBlow | 1 | orksNpc4AmmoGrot |
-| passif | MischiefMakers | 1 | deathNpc3Nurglings |
 | passif | MultiTracker | 1 | tauBossRiptide |
 | passif | NoHidingFromTheWatchers | 1 | darkaNpc4Watcher |
 | passif | OiWatchIt | 1 | orksNpc5LootGrotTeam |
@@ -369,13 +368,12 @@ sont des **faces** absentes d'items presents.
 | darkaNpcMowStormSpeeder | 0 | DeathOnTheWind(1213)[CD]<br>Hailstrike(1214)[CD] | - | - | mythic:MastersOfManoeuvre |
 | darkaNpcTerminator | 0 | PlasmaCannon(1150)[CD] | - | - | relic:RelicPowerFist |
 
-### DeathGuard — 23 unites, 3 avec du travail
+### DeathGuard — 23 unites, 2 avec du travail
 
 | unite | manque | actives (face) | passifs non portes | traits non couverts | autres voies |
 |---|---:|---|---|---|---|
 | deathBossMortarion | 3 | MortarionsPlagueWind(1093)[CD]<br>TheLantern(1094)[CD]<br>ReapingScythe(1095)[CD] | BossEndFightUndefeated, ArchContaminator, HostOfPlagues | - | - |
 | deathNpc2PlagueMarine | 1 | BlightGrenades(1176)[CD] | CloudOfFlies | - | - |
-| deathNpc3Nurglings | 1 | - | MischiefMakers | - | - |
 | deathBossBlightbringer | 0 | Poxwalkers(1040)[CD] | - | - | relic:OrbsOfDecay |
 | deathBossBlightbringerLHE | 0 | Poxwalkers(1040)[CD] | - | - | relic:OrbsOfDecay |
 | deathBossBlightlord | 0 | FlailSwing(1042)[CD] | - | - | relic:DaemonfleshPlate |
@@ -389,6 +387,7 @@ sont des **faces** absentes d'items presents.
 | deathBossTyphusLHE | 0 | PlagueWind(1035)[CD] | - | - | relic:Lakrimae |
 | deathBossTyphusSurv | 0 | PlagueWind(1035)[CD] | - | - | relic:Lakrimae |
 | deathNpc1Poxwalker | 0 | - | - | - | - |
+| deathNpc3Nurglings | 0 | - | - | - | - |
 | deathNpc4BlightlordTerminator | 0 | - | - | - | - |
 | deathNpcBlightbringer | 0 | Poxwalkers(1040)[CD] | - | - | relic:OrbsOfDecay |
 | deathNpcBlightlord | 0 | FlailSwing(1042)[CD] | - | - | relic:DaemonfleshPlate |

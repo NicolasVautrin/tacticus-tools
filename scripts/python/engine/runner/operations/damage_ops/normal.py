@@ -873,6 +873,14 @@ class _Normal:
             ranged=bool(_ranged), profile=_profile,
             is_crit=bool(r["did_crit"]), profiles=_fa_profiles,
             health_damage=int(r["total"] or 0),
+            # #1077 : vecteur NORMAL -> `IsNormalAttack(CurrentAbility@0x88)` VRAI. MEME donnee, et
+            # meme littéral, que le `is_normal_attack=True` passe a `attack_damage_attack_triggers`
+            # deux lignes plus bas -- les deux events sortent du MEME `FinishAttackOperation$$
+            # Execute`, donc du meme `AbilityEntities`. Ce canal-ci restait NON threade : le gate
+            # `IsNormalAttack` de `MischiefMakersAbility` (le seul consommateur de `On(9)` qui le
+            # lise, rayon de souffle mesure = 1) ne pouvait donc jamais etre satisfait, et le passif
+            # etait MUET offline alors que le natif le fait tomber a chaque attaque.
+            is_normal_attack=True,
             was_block=bool(r["did_block"]))
         attack_dispatch.attack_damage_attack_triggers(
                                       state, attacker_id, target_id,

@@ -770,7 +770,7 @@ deathNpc2PlagueMarine	DeathGuard	Chaos	None	active	BlightGrenades	1176	1	1
 deathNpc2PlagueMarine	DeathGuard	Chaos	None	passif	CloudOfFlies		0	
 deathNpc2PlagueMarine	DeathGuard	Chaos	None	trait	ContagionsOfNurgle		1	
 deathNpc2PlagueMarine	DeathGuard	Chaos	None	trait	Resilient		1	
-deathNpc3Nurglings	DeathGuard	Chaos	None	passif	MischiefMakers		0	
+deathNpc3Nurglings	DeathGuard	Chaos	None	passif	MischiefMakers		1	
 deathNpc3Nurglings	DeathGuard	Chaos	None	trait	ContagionsOfNurgle		1	
 deathNpc3Nurglings	DeathGuard	Chaos	None	trait	Daemon		1	
 deathNpc3Nurglings	DeathGuard	Chaos	None	trait	TeleportStrike		1	

@@ -10,7 +10,7 @@ fewer hits ».
     IdunBattle.Entities.Effects.DamageModifierAbilityEffect
       +- IdunBattle.Entities.Effects.AReactivateOverwatchEffect            (toute la logique)
            +- Loki.EarlyWarningOverride_ReactivateOverwatchEffect  (1145)  <- PORTE ICI
-           +- Loki.FiringPosition_ReactivateOverwatchEffect        (1150)  <- porteur non identifie
+           +- Loki.FiringPosition_ReactivateOverwatchEffect        (1150)  <- PORTE ICI (#1077)
            +- Loki.CalibaniteGreatsword_StrikeOverwatchingEffect
            +- Loki.InescapableDeathEffect
 
@@ -154,6 +154,16 @@ EARLY_WARNING_OVERRIDE_ABILITY = "EarlyWarningOverride"     # config source (cto
 INESCAPABLE_DEATH_EFFECT = int(EffectType.InescapableDeath_Effect)                    # 0x3fa = 1018
 INESCAPABLE_DEATH_HITS_REDUCTION = int(EffectType.InescapableDeath_HitsReduction)     # 0x3fb = 1019
 INESCAPABLE_DEATH_ABILITY = "InescapableDeath"              # config source (ctor `..(this, 0x3ed)`)
+# --- #1077 : la 3e sous-classe portee de `AReactivateOverwatchEffect` -----------------------------
+# `FiringPosition_ReactivateOverwatchEffect$$.ctor` = `AReactivateOverwatchEffect..ctor(this, 0x478)`.
+# ⚠ L'OVERLOAD DU CTOR DE BASE EST TRANCHE PAR LA CIBLE DU `jmp`, PAS PAR L'ORDINAL : la base en
+# declare DEUX (`baseAbility:ActiveAbilityType` et `baseAbility:TriggeredAbilityType`), et c'est le
+# SECOND qui est appele. Donc `0x478` = **1144 `TriggeredAbilityType.FiringPosition`** -- le lire en
+# `ActiveAbilityType` nommerait `BioMinefield` (1144 y est un membre VALIDE, deja au registre
+# `ABILITY_CLASSES`), sans lever la moindre erreur.
+FIRING_POSITION_REACTIVATE_OVERWATCH = int(EffectType.FiringPosition_ReactivateOverwatch)  # 0x47e = 1150
+FIRING_POSITION_HIT_REDUCTION = int(EffectType.FiringPosition_HitReduction)                # 0x47f = 1151
+FIRING_POSITION_ABILITY = "FiringPosition"                  # config source (ctor `..(this, 0x478)`)
 # `IdunBattle.Operations.DamageReason.Ability` -- membre NOMME, plus l'ordinal nu (regle ENUM du
 # CLAUDE.md). Le crush d'un `Steppable` grave `DamageReason.Steppable` : ce gate le REFUSE, et c'est
 # le comportement natif (`LegitDeathReasons` ne cite que des morts par ABILITY).
@@ -339,6 +349,45 @@ class InescapableDeathReactivateOverwatch(AReactivateOverwatch):
     EFFECT_NAME = EffectType.InescapableDeath_Effect.name
 
 
+class FiringPositionReactivateOverwatch(AReactivateOverwatch):
+    """`FiringPosition_ReactivateOverwatchEffect` (1150) -- la 3e sous-classe portee. Comme
+    `InescapableDeath`, elle n'override QUE `GetHitReductionEffectType` sur cet axe.
+
+    **SON BLOC `methodPointers` FAIT EXACTEMENT DEUX ENTREES**, et c'est ce comptage -- pas
+    l'absence dans `frida/methods.tsv` -- qui etablit qu'elle n'override NI `LegitDeathReasons`,
+    NI `HitReductionValue`, NI `GetOverwatchExtraDamage` :
+
+      * `<bloc+0x0>` -> `FiringPosition_ReactivateOverwatchEffect$$.ctor` ;
+      * `<bloc+0x8>` -> un corps `mov eax,0x47f ; ret` = `GetHitReductionEffectType` -> **1151
+        `FiringPosition_HitReduction`**.
+
+    ⚠ **CE SECOND CORPS N'EXISTE PAS SOUS SON NOM** : l'ICF le partage avec
+    `IdunBattle.Entities.Effects.Loki.NeedsMoreDakka_PendingAttackEffect$$GetTriggeredAbilityType`,
+    qui rend le MEME `0x47f` lu en `TriggeredAbilityType` (= `NeedsMoreDakka_Attack`). La table de
+    symboles, indexee par ADRESSE, n'en nomme donc qu'UN SEUL proprietaire, et c'est l'autre. Ce
+    sont les DEUX xrefs DATA du corps -- l'une adjacente au `.ctor` de CETTE classe -- qui donnent
+    l'appartenance. L'entree qui suit le bloc appartient a `Unity.Services.Core.Device.
+    UnityAdsIdentifier$$get_UserId`, donc le bloc s'arrete bien a deux.
+
+    Elle prend en consequence le `LegitDeathReasons` de la BASE -- **un seul terme**,
+    `HasDeathReason(dying, Ability, 1009)`. Recopier la version 1145 (deux termes, dont l'effet
+    1148 de Re'vas) aurait re-arme l'overwatch sur des morts que le natif refuse ici : c'est le
+    piege << voisin de forme >>, et le voisin est litteralement la classe soeur ci-dessus.
+
+    `HitReductionValue()` (base) lit `GetNumberConstant(config, 0x2c = hitsReduction)` sur la config
+    de l'ability passee au `.ctor`, donc celle de `FiringPosition` -> **2**, ce que l'i2 confirme
+    mot pour mot (<< retaining 2 fewer hits >>) et que le port ne code PAS en dur.
+
+    OBSERVABLE : quand le Havoc (`blackNpc4Havoc` / summon `blackSmnHavoc`) TUE avec son tir
+    d'overwatch, pendant un tour qui n'est PAS le sien, il reste en overwatch et recoit 1151
+    `FiringPosition_HitReduction` = `EXTRA_HITS -2` jusqu'a SON prochain tour."""
+    effect_type = FIRING_POSITION_REACTIVATE_OVERWATCH
+    HIT_REDUCTION_EFFECT_TYPE = FIRING_POSITION_HIT_REDUCTION
+    SOURCE_ABILITY = FIRING_POSITION_ABILITY
+    HIT_REDUCTION_NAME = EffectType.FiringPosition_HitReduction.name
+    EFFECT_NAME = EffectType.FiringPosition_ReactivateOverwatch.name
+
+
 class AReactivateOverwatchHitReductionPurge(EffectTrigger):
     """Triggered #2 de `AReactivateOverwatchEffect$$CreateHandleTriggerAbilitiesInternal` :
 
@@ -402,3 +451,10 @@ class InescapableDeathHitReductionPurge(AReactivateOverwatchHitReductionPurge):
     effect_type = INESCAPABLE_DEATH_EFFECT
     HIT_REDUCTION_EFFECT_TYPE = INESCAPABLE_DEATH_HITS_REDUCTION
     HIT_REDUCTION_NAME = EffectType.InescapableDeath_HitsReduction.name
+
+
+class FiringPositionHitReductionPurge(AReactivateOverwatchHitReductionPurge):
+    """Triggered #2 de `FiringPosition_ReactivateOverwatchEffect` (1150 -> retire 1151). #1077."""
+    effect_type = FIRING_POSITION_REACTIVATE_OVERWATCH
+    HIT_REDUCTION_EFFECT_TYPE = FIRING_POSITION_HIT_REDUCTION
+    HIT_REDUCTION_NAME = EffectType.FiringPosition_HitReduction.name

@@ -19,9 +19,9 @@ differe. C'est la doctrine « DECIDER != EXECUTER ».
 
 ## Bilan
 
-- Unites `summons` : **65** ; kits sans manque : **52** ; kits avec du travail : **13**
+- Unites `summons` : **65** ; kits sans manque : **53** ; kits avec du travail : **12**
 - Actives distinctes : **16** — `[C-]` **5** · `[CD]` **11**
-- Passifs distincts : **47** — portes **34**, non portes **13**
+- Passifs distincts : **47** — portes **35**, non portes **12**
 - Traits de kit distincts (AUCUN ecarte — le seuil de frequence a disparu avec #1015) :
   **43** — couverts **42**, non couverts **1**
 
@@ -55,7 +55,6 @@ l'unite. La colonne `porteurs` dit l'exposition.
 | passif | FiringPosition | 1 | blackSmnHavoc |
 | passif | HunterOfSouls | 1 | thousSmnDaemonPrince |
 | passif | Lifewards | 1 | adeptSmnGeminaeSuperia |
-| passif | MischiefMakers | 1 | deathSmnNurglings |
 | passif | NoHidingFromTheWatchers | 1 | darkaSmnWatcher |
 | passif | PileIn | 1 | orksGrot |
 | passif | RapidFire | 1 | ultraSmnHeavyIntercessor |
@@ -138,12 +137,12 @@ sont des **faces** absentes d'items presents.
 | darkaSmnInfiltrator | 0 | - | - | - | - |
 | darkaSmnTerminator | 0 | - | - | - | - |
 
-### DeathGuard — 2 unites, 1 avec du travail
+### DeathGuard — 2 unites, 0 avec du travail
 
 | unite | manque | actives (face) | passifs non portes | traits non couverts | autres voies |
 |---|---:|---|---|---|---|
-| deathSmnNurglings | 1 | - | MischiefMakers | - | - |
 | deathPoxwalker | 0 | - | - | - | - |
+| deathSmnNurglings | 0 | - | - | - | - |
 
 ### Genestealers — 4 unites, 0 avec du travail
 
