@@ -128,7 +128,6 @@ from __future__ import annotations
 from typing import Optional, TYPE_CHECKING
 
 from ....dsl.base import Const
-from ....dsl.effects import ExecutionContext
 from ....entities.selectors.accessors import CasterTile, Target, TargetTile
 from ....entities.selectors.geometry import ConditionalSelector
 from ....entities.selectors.tiles import Caster
@@ -268,8 +267,9 @@ def widened_targets(state: "State", caster_id: int, target_id: Optional[int],
     entities = entities_from_state(state, caster_id, target_id)
     # `IsMeleeAttack` lit `ctx.attack_kind` ; le natif lit la nature de l'ARME du cast.
     entities.attack_kind = "melee" if is_melee else "ranged"
-    ectx = ExecutionContext(state=state, rng=state.rng)
-    del ectx                                   # l'arbre est PUR : aucun tirage, aucun emit
+    # Aucun `ExecutionContext` : `$$GetTarget` est un arbre de SELECTEURS, donc PUR -- il ne
+    # consomme aucun `state.rng` et n'emet rien. Le natif ne fait ici que le CONSTRUIRE ; c'est
+    # `AttackBehaviour$$Execute` qui l'EVALUE, ce que fait la ligne suivante.
     picked = entry.build().evaluate(entities)
     out = [u for u in picked if isinstance(u, dict) and u.get("id") is not None]
     return sorted(out, key=lambda u: int(u.get("id")))
