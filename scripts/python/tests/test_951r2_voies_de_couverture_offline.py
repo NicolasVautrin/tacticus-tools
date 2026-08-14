@@ -41,6 +41,11 @@ DECLENCHEUR = {
         # #979 : `audit_kit_coverage` etablit la face DECISION par ce foyer (14 voies PARTITIONNEES)
         # au lieu de sa propre liste blanche -- un ajout/retrait y change ses verdicts.
         "scripts/python/decision_face_voies.py",
+        # #1024-r5 : le SECOND cran du gate de `kit_item_voies` lit la table de symboles du build
+        # (`classe_d_effet_native`) -- une table absente ou un build desynchronise fait degrader le
+        # gate vers PARTIEL, donc change les verdicts que ce fichier confronte.
+        "scripts/python/build_pin.py", "scripts/python/symbols_layout.py",
+        "scripts/python/il2cpp_provenance.py",
         # #962 : l'etage [3bis] LE JOUE en sous-processus -- c'est la SECONDE source du croisement,
         # donc une modification du recenseur peut changer le verdict de ce fichier.
         "scripts/python/probe_951r2_faux_manquants.py",

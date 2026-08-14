@@ -52,6 +52,7 @@ DECLENCHEUR = {
         # le SUBSTRAT du second cran du gate (#1024-r2) : sans la table de symboles du build,
         # `classe_d_effet_native` rend `None` et le gate degrade entierement vers PARTIEL.
         "scripts/python/build_pin.py", "scripts/python/symbols_layout.py",
+        "scripts/python/il2cpp_provenance.py",
         "scripts/python/audit_kit_coverage.py",
         "scripts/python/audit_npc_registry.py",
         # TOUT le perimetre partitionne : un conteneur neuf y naissant doit faire rejouer ce
