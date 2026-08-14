@@ -135,13 +135,36 @@ class InstinctiveBehaviourBlockMovementEffect(BaseEffect):
     id dans `MovementComponent+0x50`, ce qui rend `MovementComponent$$IsAllowedToMove` FAUX et donc
     `UnitExtensions$$CanMove` FAUX : l'unite ne peut plus se deplacer de son tour.
 
-    `active_condition_ported = True` : la condition est GEOMETRIQUE et depend de l'ETAT COURANT
-    (cibles forcees, portee, tuile, tour) -- le natif la RECALCULE a chaque refresh
-    (`RefreshEffectsOperation$$RefreshEffect`), donc un flag `IsActive` capte ne predit rien.
-    Meme arbitrage que `AmuletOfTheVoidwyrm_CritDamageReduction` / `StructuralAnalyser_Visual`.
-
     AUCUN stat-mod, AUCUN bonus de degat : tout l'effet EST sa condition d'activite, lue par
-    `runner/operations/turnflow._can_move`."""
+    `runner/operations/turnflow._can_move`.
+
+    ================================ `active_condition_ported = True` ================================
+    Ce drapeau AFFIRME que la condition portee est fidele au point qu'on puisse s'y fier PARTOUT --
+    il n'est pas la pour faire taire un cliquet. Trois cas d'`effects/factory.py` le laissent
+    deliberement a FALSE (conditions dont un membre de `OR` n'a pas la meme surete que l'autre).
+    Ce qui l'etablit ICI est une MESURE, pas la nature geometrique de la condition :
+
+    `probe_1015r1_instinctive_behaviour.py` conduit le porteur a DEUX regimes et confronte au NATIF
+    par `aiMovableTiles` (= `MovementQuery$$GetMovableTilesFor`, dont la garde d'entree
+    `FindAnyOrAllMoveableTiles` descend sur `UnitExtensions$$CanMove` ->
+    `MovementComponent$$IsAllowedToMove` -- c.-a-d. exactement l'etat que cette condition decide) :
+
+        LOIN (cible forcee a d=3, HORS portee) : natif 12 tuiles / condition FAUSSE cote port
+        PRES (cible forcee a d=1, A portee)    : natif  0 tuile  / condition VRAIE  cote port
+        TEMOIN sans le trait, MEME plateau     : natif 11 puis 10 tuiles, jamais bloque
+
+    Les deux regimes basculent le MEME conjoint (`Any(fat, IsInAttackOrAbilityRange)`) et le temoin
+    ecarte le regime degenere ; rejoue sur un SECOND montage (board `C4_09`, seed 31337, porteur
+    RANGED `necroWarden`, portee 3). La condition est par ailleurs recalculee par le natif a chaque
+    refresh (`RefreshEffectsOperation$$RefreshEffect`), donc un flag `IsActive` capte ne predit
+    rien -- meme arbitrage que `AmuletOfTheVoidwyrm_CritDamageReduction` / `StructuralAnalyser_Visual`.
+
+    ⚠ L'attestation compagnon vit dans `tests/engine/runner/
+    test_refresh_active_flag_discriminant_offline.py::CONDITIONS_PORTEES_ATTESTEES`, et le verdict
+    de POSE dans `probe_366_camo_seed_inventory.POSE_VECTOR` (`init` / `sim` -> `COUVERT-SEED`).
+    Les deux sont EXIGES par un cliquet des qu'une classe surcharge `is_active` : les poser dans le
+    MEME commit que le port, comme `TARGETING_OPTIONS`/`ABILITY_ATTACK_TYPE` au registre des
+    abilities."""
     __slots__ = ()
 
     active_condition_ported = True

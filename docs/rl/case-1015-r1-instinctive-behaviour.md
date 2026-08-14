@@ -235,6 +235,49 @@ substrat RUNNER l'implémente.
 ⚠ **`IsWalkable` travaille sur des ID DE TUILE** (`board.walkable(tid)`) : `Tiles(..., as_ids=True)`
 est obligatoire — même piège que `Vitarus`.
 
+### Les QUATRE déclarations compagnon que l'entrée exige, et que rien n'annonce
+
+Trois cliquets de **REGISTRE** ont rougi sur cette tranche. Aucun ne se déclenche sur les fichiers
+touchés — ils se déclenchent sur l'**ENTRÉE**. C'est la même forme que « une ability entre dans
+`ABILITY_CLASSES` sans son `TARGETING_OPTIONS` », transposée à l'axe EFFET :
+
+| l'entrée | la déclaration compagnon | le cliquet |
+|---|---|---|
+| une classe surcharge `is_active` | `CONDITIONS_PORTEES_ATTESTEES` | `test_refresh_active_flag_discriminant_offline` |
+| idem | `probe_366_camo_seed_inventory.POSE_VECTOR` (verdict de POSE) | `test_camo_seed_inventory_offline` |
+| le code CITE une primitive `DSLTriggers$$X` | `docs/rl/dsl-port-attestations.tsv` | `test_337_dsl_triggers_attestation_offline` |
+| un mirror d'enum neuf | registre de `probe_313` | `probe_313` |
+
+⚠ **`active_condition_ported = True` n'est pas un interrupteur pour faire taire le premier.** Il
+AFFIRME que la condition est fidèle au point qu'on puisse s'y fier partout — `effects/factory.py`
+documente au moins trois cas où il reste délibérément `False`. Ce qui l'établit ici est la mesure du
+§4 (deux régimes, témoin non nul, second montage), **pas** la nature géométrique de la condition.
+
+⚠ **Le verdict de POSE est `init` / `sim` → `COUVERT-SEED`**, et les deux premiers sont LUS :
+`InstinctiveBehaviour_InitAbility$$.ctor` = `AOwnerEffectSpecificTriggeredAbility(0x413)` donc
+`CreateTrigger = OnOwnerSpecificAbilityInit(0x413)` ; le corps hérité
+`AOwnerEffectTriggeredAbility$$CreateBehaviour` est `If(<CreateCondition>, AddEffect(...), null)` et
+la `CreateCondition` de base rend `<DSLTriggers+0x70>` — **le même slot constant-vrai** que pour
+`AmuletOfTheVoidwyrm` / `HammerOfWrath`. Donc la pose est **inconditionnelle**, et l'absence offline
+de l'instance serait un TROU (ce que le seed comble, sur les deux voies).
+
+### L'attestation `DSLTriggers$$Any` était FAUSSE dès cette PR — elle est retirée
+
+`docs/rl/dsl-port-attestations.tsv` portait « Le port n'a AUCUN nœud `Any` […] collapse assumé ».
+La phrase était exacte pour le seul consommateur alors porté (`VitarusAbility$$CreateBehaviour`, où
+le collapse par `HasEffect` reste juste) et disait elle-même que le collapse « ne se généralise pas
+à un prédicat quelconque ». Les deux `Any` de `InstinctiveBehaviourBlockMovementEffect$$CreateActiveCondition`
+en sont la démonstration. La ligne est donc **retirée** — et non annotée : le nœud existe, l'heuristique
+de nom le trouve seule (verdict `PORTE`), l'attestation serait REDONDANTE. Même geste que pour
+`DSLTriggers$$ActorHasTriggeredAbility` (#577). Le bloc de commentaire qui la remplace porte la
+couverture à l'état final : **2 des 7** consommateurs natifs portés, les 5 autres nommés.
+
+Deux primitives deviennent CITÉES par cette tranche et entrent avec leur attestation
+`PORTE_HORS_FACADE` (collapse impératif dans `matches`, doctrine des prédicats de `CreateTrigger`) :
+`DSLTriggers$$AreEquivalent` (= `$$HasTargetChanged`, comparaison d'ENSEMBLES d'ids côté port) et
+`DSLTriggers$$IsOwnerOfEffect` (le 2ᵉ disjoint du prédicat commun `C`, `EffectsState.has_effect`,
+filtre `consumed` seul = le `onlyActive: false` du site).
+
 ⚠ **Le module de l'effet et celui de son ARBRE sont SÉPARÉS, et c'est mesuré** :
 `entities/triggers.py` importe `services/movement_query`, qui importe `runner/components`, qui
 importe `entities/effects/__init__` → `factory` → la classe d'effet. Laisser l'arbre dans le module
