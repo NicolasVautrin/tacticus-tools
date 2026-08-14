@@ -98,6 +98,9 @@ from ..loki.suppressive_fire import SuppressiveFireAddEffectAbility  # #74 (trai
 from ..loki.special_issue_combi_melta import (                       # #419-r1-tr11-r4 (passif 1545)
     SpecialIssueCombiMeltaAddEffectAbility, SPECIAL_ISSUE_COMBI_MELTA)
 from ..loki.death_nova import ExplodesAbility, PutridExplosionAbility  # death-nova (traits 1008 / 2028)
+from ..loki.floating_death import (FloatingDeathAttackAbility,       # #1065 (passif 1243, Spore Mines)
+                                   FloatingDeathChainAbility,
+                                   FloatingDeathExtraMovementAbility)
 from ..loki.master_annihilator import MasterAnnihilatorMarkAbility   # lot POSE (passif admecDominus)
 from ..loki.fleshmetal_guns import (FleshmetalGunsRotationAbility,   # lot POSE (passif blackObliterator)
                                    FleshmetalGunsTileEffectAbility)  # #85 volet DespoiledGround
@@ -593,6 +596,34 @@ ABILITY_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
     # victime pendant le round WarpHail, #85). Le gate `HasEffect(Self, 0x4c5)` du second rend
     # l'inscription inconditionnelle INERTE hors round WarpHail.
     "FleshmetalGuns": [FleshmetalGunsRotationAbility, FleshmetalGunsTileEffectAbility],
+    # FloatingDeath (passif des DEUX Spore Mines tyranides -- summon `tyranSmnSporeMine`, npc
+    # `tyranNpc6SporeMine` ; `TriggeredAbilityType` 0x4db = 1243, #1065). UNE entree gameconfig,
+    # CINQ classes natives (`frida/classes.tsv`) -> TROIS entrees ici, la 4e mesuree SANS
+    # observable et la 5e portee ailleurs :
+    #   * `FloatingDeath_AttackAbility` = `On(2 = PreUnitDeath_2, alive: 0) & get_OwnerIsTarget &
+    #     NOT TargetIsOverkilled` -> `AttackWithAbilityDamage(Owner, AdjacentEnemies(Owner, 1, 3),
+    #     MinMaxDamage, DamageProfileFromConfig, Direct(nrOfHits), AbilityOrEffect(this), 2)`
+    #     = LA DETONATION. ⚠ Son gate overkill est EXPLICITE, a la difference des deux novas de
+    #     `loki/death_nova.py` (meme evenement, `OnPreDeath2(a = 1)` -> AUCUN gate) : un overkill
+    #     ETEINT cette detonation-ci. Copier death_nova aurait ete faux.
+    #   * `FloatingDeath_ChainAbility` = `On(0 = UnitDeath, alive: 1) & NOT TargetIsOverkilled &
+    #     AreFriends(Target, Owner, ByCurrentTeam, 0) & IsAdjacent(Target, Owner, Any) &
+    #     AreEqual(VisualUnitIdFromUnit(Target), VisualUnitIdFromUnit(Owner))` ->
+    #     `Kill(Killer(Target), Owner, 1)` = LA REACTION EN CHAINE entre mines du meme visualId.
+    #   * `FloatingDeath_ExtraMovementAbility` = `On(0x13 = TurnStart_Other, alive: 1) &
+    #     <DSLTriggers+0x28 = IsTurnOf(Owner)> & IsInTeamSynapseRange(Owner, Owner)` ->
+    #     `AddStaticStatModifierEffectToOwner(0x522 = 1314, StatType.Movement, Direct(1), 1, 0)`.
+    #   * `FloatingDeath_InitAbility` (`AddTrait(Owner, 0x41a = PermaDeath, 0)` sur
+    #     `<DSLTriggers+0x30> = On(AbilityInit) & Yes & OwnerIsActor`) n'a PAS d'entree : `PermaDeath`
+    #     est DEJA dans les traits statiques du kit des DEUX porteurs (mesure gameconfig) -> l'ajout
+    #     natif est idempotent, observable NUL ; et le runner ne rejoue pas `AbilityInit`.
+    #   * `FloatingDeath_NormalAttackAbility` (ACTIVE 1146) etait DEJA portee -- c'est elle qui
+    #     faisait classer le passif ZONE-GRISE : `services/custom_normal_attack.py` substitue
+    #     l'attaque normale de la mine, `runner/abilities/targeting.py` porte son masque et
+    #     `runner/abilities/attack_type.py` son `is_regular_attack`. La MECANIQUE, elle, ne
+    #     s'executait pas. Cf. loki/floating_death.py.
+    "FloatingDeath": [FloatingDeathAttackAbility, FloatingDeathChainAbility,
+                      FloatingDeathExtraMovementAbility],
     # TerrifyingCrescendo (passif emperNoiseMarine << Shiron >>) = ACCUMULATION du stack de l'effet 1424
     # (deja porte #204, magnitude x level) : disjonction `On(0=UnitDeath) & OwnerIsActor & TargetIsOverkilled`
     # | `On(0x3d=PreEffectAdded) & OwnerIsActor & TriggeringEffectIs(1065=Pinned)` -> `AddEffectOrIncreaseLevel(

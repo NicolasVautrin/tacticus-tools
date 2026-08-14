@@ -78,7 +78,9 @@ def collect_additional_hit_groups(state: State, attacker_id: int, target_id: int
                                   tile_effects_by_pos: "Optional[dict]" = None,
                                   persistent_data=None,
                                   damage_profile: "Optional[str]" = None,
-                                  attack_had_critical: "Optional[bool]" = None) -> list:
+                                  attack_had_critical: "Optional[bool]" = None,
+                                  is_normal_attack: "Optional[bool]" = None,
+                                  is_charging: "Optional[bool]" = None) -> list:
     """#202-B : mirror `IdunBattle.Operations.AdditionalHitsFromEffects$$GetAdditionalHitsFromEffectsInternal`
     cote ECS — enumeration GLOBALE des effets declarant des coups additionnels HETEROGENES (canal
     #179) : (a) effets du PORTEUR (`additional_hit_groups`, ex. SquigHound/CordClaw/FoulInfusion) ;
@@ -147,6 +149,18 @@ def collect_additional_hit_groups(state: State, attacker_id: int, target_id: int
               # `get_OwnerIsCaster` -- et surtout toute lecture d'`AbilityState` PAR PORTEUR --
               # etait inevaluable sur cette branche, alors que le canal AURA les portait deja.
               "owner_id": attacker_id, "att_id": attacker_id,
+              # #1065 -- les DEUX conjoints restants du trigger de
+              # `IdunBattle.Entities.Effects.Loki.FragLanceEffect$$CreateAdditionalHits`
+              # (`get_OwnerIsCaster & IsNormalAttack & IsCharging(Caster@+0x60, Target@+0x78)`).
+              # `is_normal_attack` = nature du VECTEUR (MEME donnee, meme nom et meme tri-etat que
+              # le parametre homonyme des canaux COUPS-D'ARME et PENETRATION) : les deux facades
+              # COMBAT la connaissent par construction (`damage_ops/normal.py` = True,
+              # `damage_ops/ability.py` = False). `is_charging` = foyer UNIQUE
+              # `runner.damage_model.battle_query_is_charging`, MEME cle que le canal DEGAT
+              # (`att_ctx["is_charging"]`) et que le canal COUPS D'ARME -- aucun predicat
+              # re-derive. Tri-etat : `None` = NON MESURE -> le gate rend FAUX (`is_charging_attack`
+              # est la forme POSITIVE, cf. `entities/effects/base.py`), jamais permissif.
+              "is_normal_attack": is_normal_attack, "is_charging": is_charging,
               # #1006 -- `IdunBattleLogic.Entities.DSLTriggers$$AttackDamageIsCritical`. Le natif
               # l'evalue sur l'`AbilityEntities` que
               # `IdunBattle.Operations.AttackDamageOperation$$ExecuteAdditionalHitsWithoutDamage

@@ -387,9 +387,23 @@ class ChargeRegimeHarness:
         return st
 
     def replay_offline(self, rec):
-        """Rejoue l'ATTAQUE NORMALE offline et rend `{per_hit, state, charged}`.
+        """Rejoue l'ATTAQUE NORMALE offline et rend
+        `{per_hit, per_hit_all, additional, state, charged}`.
+
         `charged` = la liste `UnitComponent.ChargedUnitIds` du caster APRES le pas (le 2e terme de
-        `BattleQuery$$IsCharging`)."""
+        `BattleQuery$$IsCharging`).
+
+        ⚠ `per_hit` NE PORTE QUE LES COUPS D'ARME, et c'est structurel : `damage_ops/normal.py`
+        range les sous-operations du canal #179 (COUPS ADDITIONNELS HETEROGENES) dans une cle
+        SEPAREE (`additional_hits`), parce que le natif en fait lui aussi des operations distinctes
+        (`IdunBattle.Operations.ExecuteAdditionalHitsWithDamageProfileTypeOperation$$Execute`,
+        frere du groupe d'arme). Le LIVE, lui, ne distingue pas : le harnais compte TOUT evenement
+        de degat caster -> cible, coups additionnels COMPRIS. Comparer `per_hit` a `live_per_hit`
+        sur un porteur du canal #179 rend donc un ecart QUI N'EN EST PAS UN -- mesure #1065,
+        `FragLanceEffect` : live n=5, `per_hit` n=4, le 5e coup etant dans `additional_hits`.
+        `per_hit_all` concatene les deux DANS L'ORDRE DE MATERIALISATION (arme d'abord, canal #179
+        ensuite -- l'ordre natif, `prev`-threade), et c'est LUI qu'on confronte au live.
+        `per_hit` reste inchange pour les appelants qui ne mesurent que l'arme."""
         from engine.runner.components import UnitComponent
         st = self.offline_state(rec)
         e = st.get_entity(rec["caster"])
@@ -397,8 +411,12 @@ class ChargeRegimeHarness:
         charged = sorted(int(i) for i in (uc.charged_unit_ids or ())) if uc is not None else []
         runner = Runner(st).install_default_handlers(20)
         runner.apply(AttackUnitMessage(attacker_id=rec["caster"], target_id=rec["target"]))
-        per_hit = list((runner.damage_handler.last or {}).get("per_hit") or [])
-        return {"per_hit": per_hit, "state": st, "charged": charged}
+        last = runner.damage_handler.last or {}
+        per_hit = list(last.get("per_hit") or [])
+        add = last.get("additional_hits") or {}
+        add_hits = list(add.get("per_hit") or [])
+        return {"per_hit": per_hit, "per_hit_all": per_hit + add_hits, "additional": add,
+                "state": st, "charged": charged}
 
     # ------------------------------------------------------------ rejeu depuis la capture MI-ACTIVATION
 

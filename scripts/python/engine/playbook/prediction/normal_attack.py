@@ -482,6 +482,12 @@ def _make_mv71_drone_predictions(scene, att_id, tgt_id, attack_pos, *, meta=Fals
                # DRONE (`tile_pos`) -- c'est elle que ce chemin thread deja partout ailleurs
                # (`_add_positional_and_defender_mods`, selection d'arme, distance `_d`).
                "att_pos": tuple(tile_pos), "t_pos": t_pos}
+    # #1065 -- ce chemin (attaque du DRONE `MV71SniperDroneSquad`) ne thread NI `owner_id`/`att_id`
+    # NI `is_charging` / `is_normal_attack` : le tireur est une entite SPAWNEE dont la tuile
+    # d'attaque n'est pas celle du caster, et aucun descripteur du canal #179 gate sur ces cles n'a
+    # de porteur qui l'emprunte (`FragLanceEffect` vit sur `astraSmnDeathRider`, hors drone). Les
+    # gates concernes rendent donc FAUX -- degradation MESUREE, pas oubli. A threader le jour ou un
+    # porteur de ce chemin en aura besoin.
     _aura_hits = aura_additional_hits_from_allies(
         carriers, {"att_id": att_id, "att_pos": _ap, "att_team": scene.team(att_id),
                    "att_faction": att_faction, "att_grand_alliance": att_grand,
@@ -895,7 +901,19 @@ def make_normal_attack_predictions(scene, att_id, tgt_id, attack_pos, *, meta=Fa
                # `_att_ctx["att_pos"]` juste au-dessus : le `Caster@DSLSelectors+0x48` d'une
                # prediction est resolu contre la `UnitPosition` candidate threadee par la chaine
                # display, pas contre la position courante. Pas de fork entre les deux ctx.
-               "att_pos": _att_ctx["att_pos"], "t_pos": t_pos}
+               "att_pos": _att_ctx["att_pos"], "t_pos": t_pos,
+               # #1065 -- les TROIS conjoints du trigger de `FragLanceEffect$$CreateAdditionalHits`,
+               # pendant EXACT du cablage COMBAT (`runner/operations/additional_hits.py`) :
+               #  * `owner_id`/`att_id` = `get_OwnerIsCaster`. Sur CETTE branche l'enumeration est
+               #    deja restreinte a `att_effects` (les effets de l'attaquant), donc le porteur EST
+               #    le caster -- meme raisonnement, meme paire de cles que la face COMBAT ;
+               #  * `is_normal_attack` = `IsNormalAttack`. Cette facade EST la prediction de
+               #    l'attaque NORMALE -> VRAI par construction ;
+               #  * `is_charging` = la valeur DEJA calculee pour le canal DEGAT (`_att_ctx`), qui
+               #    porte les DEUX termes (charge ACQUISE et pas CANDIDAT) -- un seul appel a
+               #    `_prediction_is_charging` par prediction, exactement comme `att_hits_ctx`.
+               "owner_id": att_id, "att_id": att_id, "is_normal_attack": True,
+               "is_charging": _att_ctx["is_charging"]}
     _aura_hits = aura_additional_hits_from_allies(
         carriers, {"att_id": att_id, "att_pos": _ap, "att_team": scene.team(att_id),
                    "att_faction": att_faction, "att_grand_alliance": att_grand,

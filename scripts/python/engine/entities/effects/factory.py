@@ -135,7 +135,7 @@ from .loki.hits import (
     DefenderOfTheGreaterGoodExtraHitsDroneEffect, DefenderOfTheGreaterGoodExtraHitsEffect,
     DiminutiveHitReductionEffect, ExemplarOfTheKauyonAdditionalHitsEffect,
     ExplosiveMaladiesExtraMeleeAttackEffect, ExplosiveMaladiesExtraRangedAttackEffect,
-    FearOfTheUnseenExtraDamageEffect, FightingRetreatHitReductionEffect,
+    FearOfTheUnseenExtraDamageEffect, FightingRetreatHitReductionEffect, FragLanceEffect,
     FleshmetalGunsFocusedMaliceEffect, FleshmetalGunsRuinousSalvoEffect,
     FleshmetalGunsWarpHailEffect, FoulInfusionExtraHitsEffect, InfernalPactsAdditionalHitsEffect,
     KanOpenerEffect, LegendaryCommanderExtraHitsEffect, LetTheGalaxyBurnEffect, LightCoverEffect,
@@ -314,6 +314,17 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # (`IdunBattle.Entities.Effects.Loki.FearOfTheUnseen_ExtraDamageEffect$$CreateAdditionalHits`, trigger
     # OwnerIsCaster & IsMeleeAttack, canal #179). Le nom capte est le membre d'enum `EffectType`.
     "FearOfTheUnseen_ExtraDamage": FearOfTheUnseenExtraDamageEffect,
+    # FragLance (`EffectType` 0x5c3 = 1475) -- effet PERMANENT du passif du summon `astraSmnDeathRider`
+    # (`LeadingTheCharge` d'`astraDreir`) et du npc `astraNpc5DeathRider`, pose a l'init par
+    # `IdunBattleLogic.Entities.Abilities.Triggered.Loki.FragLanceAbility` (parent
+    # `IdunBattle.Entities.Abilities.AOwnerEffectTriggeredAbility`, `$$GetEffectType` = `return 0x5c3`)
+    # -> cf. `ABILITY_INIT_OWNER_EFFECTS["FragLance"]`. ⚠ La CLE ici est le nom d'`EffectType` (1475) ;
+    # le nom d'ability homonyme est un `TriggeredAbilityType` (1481) -- deux enums, deux ordinaux.
+    # Canal #179 a TROIS conjoints de trigger (`get_OwnerIsCaster & IsNormalAttack & IsCharging`) :
+    # +`nrOfHits` coups [minDmg,maxDmg] Blast quand le porteur CHARGE. C'etait le dernier des trois
+    # descripteurs `Average` recenses NON PORTES par #884 SS2 (residu `#884-r2`) et le dernier item
+    # du canal COUPS ADDITIONNELS de `case-ischarging-hits-channel` SS2 (ligne 11 du tableau).
+    "FragLance": FragLanceEffect,
     # FoulInfusion (Pestillian, effet 0x432=1074 sur CHAQUE unite Chaos dans l'aura au cast) :
     # +nrOfHits=1 coup Toxic de ConfigVar(dmg)[state du cast] aux attaques normales (IdunBattle.Entities.Effects.Loki.FoulInfusion_ExtraHitsEffect$$CreateAdditionalHits,
     # canal #179 GLOBAL : trigger IsMeleeAttack&OwnerIsCaster indecidable en display -> TRUE,
@@ -2212,6 +2223,18 @@ ABILITY_INIT_OWNER_EFFECTS: dict[str, list[str]] = {
     # l'init). Owner-effect PERMANENT, meme patron que `Terrifying`/`Diminutive`. #1015-r1.
     "CloseCombatWeakness": ["CloseCombatWeakness_ReduceDmg"],
     "Ramshackle": ["Ramshackle_DmgReduction"],
+    # `FragLanceAbility` (TriggeredAbilityType 0x5c9 = 1481, parent `IdunBattle.Entities.Abilities.
+    # AOwnerEffectTriggeredAbility` d'apres `classes.tsv`) n'override QUE `$$GetEffectType`, dont le
+    # corps ENTIER est `return 0x5c3` (= 1475 `EffectType.FragLance`) : l'appariement ability -> effet
+    # est LU, pas devine. Le reste vient de la base -- `CreateTrigger` =
+    # `OnOwnerSpecificAbilityInit(this.AbilityType)`, `CreateBehaviour` =
+    # `If(CreateCondition, AddEffect(GetEffectType(), AbilityState(Owner, AbilityType), Owner, Owner,
+    # <turns par defaut>))` -> owner-effect PERMANENT, meme patron que `Ramshackle`.
+    # ⚠ HOMONYMIE : la CLE est un nom de `TriggeredAbilityType` (1481), la VALEUR un nom
+    # d'`EffectType` (1475). Meme chaine, deux enums -- ne jamais rapprocher par l'ordinal.
+    # Porteurs : summon `astraSmnDeathRider` (spawne par `LeadingTheCharge` d'`astraDreir`, au pool)
+    # et npc `astraNpc5DeathRider`. Cf. `entities/effects/loki/hits.py::FragLanceEffect`.
+    "FragLance": ["FragLance"],
     # #1015-r1 -- `InstinctiveBehaviour_InitAbility` (parent `IdunBattle.Entities.Abilities.
     # AOwnerEffectSpecificTriggeredAbility`, `frida/classes.tsv`) n'override QUE `$$GetEffectType`,
     # dont le corps ENTIER est `return 0x4d3` (= 1235 `InstinctiveBehaviour_BlockMovement`) :
