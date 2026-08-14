@@ -59,6 +59,15 @@ DECLENCHEUR = {
         "scripts/python/engine/runner/operations/triggers/dispatch/registry.py",
         "scripts/python/engine/entities/effects/factory.py",
         "scripts/python/engine/runner/operations/spawn.py",
+        # #1025-r1 -- la face DEGAT (1446) et les DEUX canaux qui l'alimentent : `tgt_rarity`
+        # (rarete de la CIBLE) et `team_by_id` (resolution de l'`EffectSource`), threades sur les
+        # deux faces. Un ctx qui perdrait l'une des deux cles rendrait l'effet muet SANS ERREUR.
+        "scripts/python/engine/entities/effects/loki/damage_reduction.py",
+        "scripts/python/engine/runner/damage_model.py",
+        "scripts/python/engine/playbook/prediction/normal_attack.py",
+        "scripts/python/engine/playbook/prediction/abilities.py",
+        "scripts/python/engine/playbook/prediction/_shared.py",
+        "scripts/python/engine/entities/rarity.py",
         # Les primitives MIRRORS que les etages lisent : la duree, le refresh, les gates.
         "scripts/python/engine/runner/operations/effects.py",
         "scripts/python/engine/runner/abilities/base.py",
@@ -210,34 +219,46 @@ def test_le_seed_offline_pose_l_owner_effect_de_more_gitz():
 
 
 def test_verrou_de_rarete_fige_avec_sa_raison():
-    """REQUALIFIE PAR #999-r3 -- le mur a CHANGE, et ce cran dit lequel.
+    """REQUALIFIE UNE SECONDE FOIS, PAR #1025-r1 -- il a ROUGI, et il a eu RAISON.
 
-    Etat d'AVANT : les DEUX effets restaient hors `EFFECT_CLASSES` parce qu'aucun canal `rarity`
-    n'existait ; le cran gardait donc l'ABSENCE de `UnitContext.rarity`, pour ROUGIR le jour ou
-    elle apparaitrait. Elle est apparue (#999-r3, canal #1039) -- ce cran a fait exactement son
-    travail, il a ete VU ROUGE, et sa premisse est desormais FAUSSE.
+    Ce cran a deja ete requalifie une fois (#999-r3) : il gardait alors l'ABSENCE de
+    `UnitContext.rarity`, et il a rougi le jour ou le canal est arrive. Il vient de rougir a
+    nouveau, sur `ElectrochaffBackups_DamageReductionPct not in EFFECT_CLASSES` -- exactement ce
+    qu'il etait ecrit pour faire, et exactement au bon moment : l'inscription de 1446 devait
+    forcer la relecture de ce fichier.
 
     Etat d'AUJOURD'HUI, et ce que ce cran garde maintenant :
-      * le CANAL EXISTE et repond -- `UnitContext.rarity`, `triggers.HasRarity`,
-        `selectors.units.UnitsWithRarity`, confrontes live en regime SEPARANT
-        (`tests/engine/runner/test_999r3_canal_rarete_live.py`). C'est assertionne ici pour que
-        le retrait du canal rougisse AUSSI ;
-      * les DEUX effets restent hors `EFFECT_CLASSES`, mais **le blocage n'est plus le capteur** :
-        c'est le THREADING des deux ctx d'aura (`att_rarity` / `tgt_rarity` ne sont pas encore
-        poses par `aura_attack_damage_bonus_from_allies` ni par `aura_defense_damage_malus_from
-        _units`). Le residu `#1025-r1` reste ouvert, avec `BLOCAGE: aucun`.
+      * **1446 EST INSCRIT** (#1025-r1). Son verrou n'etait PAS un `CreateTargetSelector` (la
+        ligne de backlog se trompait : `search_symbols_by_name` rend `.ctor` + `$$CreateDamage
+        Modifier`, aucun selecteur) mais le canal `att_ctx["tgt_rarity"]`, threade depuis les
+        NEUF sites de construction du ctx du canal ATTAQUE, sur les DEUX faces ;
+      * **1449 reste dehors, et pour une AUTRE cause** : `MoreGitzOverEre_ExtraDamagePctEffect`,
+        lui, a bien un `$$CreateTargetSelector` -- c'est donc une AURA, et son porteur est la MoW
+        `orksRukkatrukk`. Le blocage est `#999-r3-r1-r1` (une MoW n'entre dans l'univers de
+        porteurs d'AUCUN des deux agregateurs d'aura, sur AUCUNE des deux faces), pas la rarete ;
+      * le CANAL de rarete repond toujours -- `UnitContext.rarity`, `triggers.HasRarity`,
+        `selectors.units.UnitsWithRarity`. C'est assertionne ici pour que son retrait rougisse.
 
-    Il ROUGIRA le jour ou quelqu'un les inscrit -- c'est toujours voulu : leur inscription doit
-    passer par une confrontation en regime SEPARANT, jamais dans le regime par defaut du harnais
-    ou toute unite vaut `Mythic` et ou un port SANS gate serait d'accord partout."""
+    Il ROUGIRA le jour ou quelqu'un inscrit 1449 -- toujours voulu : cette inscription-la doit
+    passer par la reparation de `#999-r3-r1-r1`, et par une confrontation en regime SEPARANT,
+    jamais dans le regime par defaut du harnais ou toute unite vaut `Mythic` et ou un port SANS
+    gate serait d'accord partout."""
     from engine.entities.effects.factory import EFFECT_CLASSES
+    from engine.entities.effects.loki.damage_reduction import (
+        ElectrochaffBackupsDamageReductionPctEffect)
     from engine.entities.rarity import Rarity
     from engine.entities.selectors.units import UnitsWithRarity        # noqa: F401 (existence)
     from engine.entities.triggers import HasRarity                      # noqa: F401 (existence)
     from engine.entities.unit_context import UnitContext
-    assert EffectType.ElectrochaffBackups_DamageReductionPct.name not in EFFECT_CLASSES
-    assert EffectType.MoreGitzOverEre_ExtraDamagePct.name not in EFFECT_CLASSES
-    # Le canal, desormais PRESENT et TRI-ETAT : `None` = pas mesure, jamais `Rarity.Common`.
+    assert (EFFECT_CLASSES.get(EffectType.ElectrochaffBackups_DamageReductionPct.name)
+            is ElectrochaffBackupsDamageReductionPctEffect), (
+        "1446 a QUITTE le registre : la face DEGAT d'ElectrochaffBackups redevient muette. "
+        "Relire docs/rl/case-1025-mythiques-mow-verrou-rarete.md.")
+    assert EffectType.MoreGitzOverEre_ExtraDamagePct.name not in EFFECT_CLASSES, (
+        "1449 est entre au registre : son blocage etait #999-r3-r1-r1 (porteur MoW hors de "
+        "l'univers des agregateurs d'aura), pas la rarete. Verifier que la reparation couvre "
+        "les DEUX faces avant de le laisser entrer.")
+    # Le canal, TRI-ETAT : `None` = pas mesure, jamais `Rarity.Common`.
     assert hasattr(UnitContext, "rarity"), (
         "`UnitContext.rarity` a DISPARU : le canal de rarete (#999-r3) est retire, et les deux "
         "effets redeviennent inevaluables pour la RAISON D'ORIGINE. Relire case-999r3-canal-rarete.")
@@ -390,3 +411,134 @@ def test_le_refresh_ne_pose_pas_une_seconde_instance():
     n = sum(1 for e in st.effects.by_unit.get(ENEMY_FAR_ID, [])
             if e.effect_type == ELECTROCHAFF_EFFECT and not e.consumed)
     assert n == 1, f"{n} instances de 1446 sur la cible"
+
+
+# --------------------------------------------------------------------------------------------
+# Etage 7 (#1025-r1) -- la face DEGAT : `$$CreateDamageModifier`, terme a terme
+#
+#   ForPercentDecrease( get_OwnerIsCaster
+#                       & HasRarity(  Target@<DSLSelectors+0x60>, idun.meta.Rarity.Mythic = 5 )
+#                       & AreFriends( Target@<DSLSelectors+0x60>,
+#                                     EffectSource(Effect@<DSLSelectors+0x38>), 0, false ),
+#                       ConfigVar( 0x46 = dmgReductionPct, GetAbilityState(effet), effet@+0x60 ) )
+#
+# ⚠ CHAQUE conjoint est teste par un COUPLE accorde/refuse : un etage qui ne montrerait que le
+# bras positif ne separerait rien, et le regime par defaut du harnais est justement DEGENERE sur
+# la rarete (`rl_duel build` impose `targetRarity = 5` a toute unite normalisee).
+# --------------------------------------------------------------------------------------------
+
+def _effet_1446(source_id=OWNER_ID, ability_level=None, level=1):
+    from engine.entities.effects.factory import EffectFactory
+    return EffectFactory.create(
+        {"name": EffectType.ElectrochaffBackups_DamageReductionPct.name,
+         "effectType": ELECTROCHAFF_EFFECT, "level": level, "remaining": 2,
+         "source": source_id, "active": True}, 100, ability_level, None)
+
+
+def _ctx_1446(tgt_rarity, tgt_team=1, source_team=1, niveau=None):
+    """`att_ctx` du canal ATTAQUE. `tgt_team == source_team` => `AreFriends(Target, EffectSource)`.
+    `niveau` non nul -> le canal `tertiary_ability_state_of` (mirror de `GetAbilityState(effet)`)."""
+    ctx = {"tgt_rarity": tgt_rarity, "tgt_team": tgt_team,
+           "team_by_id": {OWNER_ID: source_team, ENEMY_FAR_ID: 2}}
+    if niveau is not None:
+        ctx["tertiary_ability_state_of"] = lambda oid, ab: (
+            (niveau, 100) if (oid == OWNER_ID and ab == ELECTROCHAFF_BACKUPS_ID) else (None, 100))
+    return ctx
+
+
+def test_face_degat_le_gate_de_rarete_separe():
+    """`HasRarity(Target@+0x60, Mythic)` -- COUPLE accorde/refuse sur la MEME instance.
+
+    C'est LE conjoint qui tenait 1446 hors du registre : sans lui, toute attaque du porteur marque
+    serait reduite, quelle que soit sa cible (terme PERMISSIF)."""
+    from engine.entities.rarity import Rarity
+    eff = _effet_1446()
+    accorde = eff.create_effect_damage_bonus_for_attack(att_ctx=_ctx_1446(Rarity.Mythic))
+    assert accorde is not None and accorde.kind == "PercentDecrease" and accorde.value > 0
+    assert accorde.owner_is_caster is True, "get_OwnerIsCaster : owner = l'ATTAQUANT"
+    for autre in (Rarity.Common, Rarity.Rare, Rarity.Epic, Rarity.Legendary):
+        assert eff.create_effect_damage_bonus_for_attack(att_ctx=_ctx_1446(autre)) is None, (
+            "rarete %s acceptee : le gate HasRarity(Target, Mythic) est ouvert" % autre.name)
+
+
+def test_face_degat_rarete_non_mesuree_ferme_le_gate():
+    """TRI-ETAT : `None` = NON MESURE -> le gate se FERME. Un repli sur `Rarity.Common` serait
+    faux dans l'autre sens, mais surtout un repli sur `Mythic` accorderait a tout le monde."""
+    eff = _effet_1446()
+    assert eff.create_effect_damage_bonus_for_attack(att_ctx=_ctx_1446(None)) is None
+    assert eff.create_effect_damage_bonus_for_attack(att_ctx={}) is None
+    assert eff.create_effect_damage_bonus_for_attack(att_ctx=None) is None
+
+
+def test_face_degat_le_gate_arefriends_porte_sur_la_source_pas_sur_le_porteur():
+    """`AreFriends(Target@+0x60, EffectSource(Effect@+0x38), 0, false)`.
+
+    ⚠ NON redondant avec le `AreEnemies(Owner, Target)` du trigger de POSE : celui-la contraint le
+    PORTEUR de l'effet, celui-ci contraint la CIBLE DE SON COUP. Un porteur marque qui frappe une
+    unite qui n'est PAS alliee du Broadside n'ecope de rien."""
+    from engine.entities.rarity import Rarity
+    eff = _effet_1446()
+    assert eff.create_effect_damage_bonus_for_attack(
+        att_ctx=_ctx_1446(Rarity.Mythic, tgt_team=1, source_team=1)) is not None
+    assert eff.create_effect_damage_bonus_for_attack(
+        att_ctx=_ctx_1446(Rarity.Mythic, tgt_team=2, source_team=1)) is None, (
+        "cible NON alliee de l'EffectSource acceptee : le gate AreFriends est ouvert")
+    # `team_by_id` absent -> source non resolue -> gate MUET (jamais accorde par defaut).
+    assert eff.create_effect_damage_bonus_for_attack(
+        att_ctx={"tgt_rarity": Rarity.Mythic, "tgt_team": 1}) is None
+
+
+def test_face_degat_la_magnitude_suit_l_etat_d_ability_de_la_SOURCE():
+    """`ConfigVar(0x46 = dmgReductionPct, GetAbilityState(effet), ...)`.
+
+    Le natif bake l'`AbilityStateReference` du POSEUR (2e argument d'`AddEffect` =
+    `BaseTriggeredAbility$$get_AbilityStateReference(this)`) : la magnitude suit le niveau de la
+    MoW, pas celui du porteur. Le canal port est `tertiary_ability_state_of`, interroge avec
+    `self.source`. Les quatre paliers sont LUS au gameconfig, jamais ecrits en dur ici."""
+    from engine.entities.rarity import Rarity
+    from engine.entities.effects.magnitude import ability_var
+    eff = _effet_1446()
+    paliers = [ability_var(ELECTROCHAFF_BACKUPS_ID, "dmgReductionPct", n, multiplier_pct=100)
+               for n in (1, 2, 3, 4)]
+    assert len(set(paliers)) == len(paliers), (
+        "TEMOIN DEGENERE : les quatre paliers du gameconfig sont egaux, l'etage ne separerait rien")
+    for niveau, attendu in zip((1, 2, 3, 4), paliers):
+        b = eff.create_effect_damage_bonus_for_attack(
+            att_ctx=_ctx_1446(Rarity.Mythic, niveau=niveau))
+        assert b is not None and b.value == attendu, (
+            "niveau %d : %r attendu %r" % (niveau, b, attendu))
+    # Canal absent -> repli NOMME sur les niveaux de l'instance (ici `level = 1`), jamais un no-op
+    # silencieux ni une valeur devinee.
+    repli = eff.create_effect_damage_bonus_for_attack(att_ctx=_ctx_1446(Rarity.Mythic))
+    assert repli is not None and repli.value == paliers[0]
+
+
+def test_face_degat_aucun_gate_de_nature_de_coup():
+    """Le decompile ne porte NI `IsMeleeAttack`, NI `IsRangedAttack`, NI `IsNormalAttack`, NI
+    `DamageProfileIs` : l'effet mord sur TOUT vecteur. C'est ce qui a impose le threading des deux
+    cles sur les NEUF sites d'`att_ctx`, et pas seulement sur l'attaque normale."""
+    from engine.entities.rarity import Rarity
+    eff = _effet_1446()
+    ctx = _ctx_1446(Rarity.Mythic)
+    for kwargs in ({"is_ranged": True}, {"is_ranged": False}, {"is_normal_attack": False},
+                   {"is_normal_attack": True}, {"has_moved": True}, {"is_prediction": True}):
+        assert eff.create_effect_damage_bonus_for_attack(att_ctx=ctx, **kwargs) is not None, (
+            "le port a introduit un gate de nature de coup : %r" % (kwargs,))
+
+
+def test_face_degat_le_ctx_du_canal_attaque_porte_les_deux_cles_sur_les_deux_faces():
+    """Les DEUX cles doivent EXISTER dans le ctx que construisent les foyers de chaque face --
+    sinon l'effet est muet SANS ERREUR, et c'est exactement la degradation que ce port supprime.
+
+    On lit le SOURCE des foyers plutot que d'executer une bataille : ce qui est garde ici est le
+    contrat << la cle est posee >>, pas sa valeur (la valeur, elle, est confrontee live en regime
+    SEPARANT -- le regime par defaut du harnais est DEGENERE sur la rarete)."""
+    import inspect
+    from engine.runner import damage_model
+    from engine.playbook.prediction import normal_attack, abilities as pred_abilities
+    for mod, nom in ((damage_model, "runner.damage_model"),
+                     (normal_attack, "prediction.normal_attack"),
+                     (pred_abilities, "prediction.abilities")):
+        src = inspect.getsource(mod)
+        for cle in ('"tgt_rarity"', '"team_by_id"'):
+            assert cle in src, "%s ne pose plus %s dans l'att_ctx du canal ATTAQUE" % (nom, cle)

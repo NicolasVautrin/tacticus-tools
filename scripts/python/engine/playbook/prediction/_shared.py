@@ -645,9 +645,15 @@ def _add_positional_and_defender_mods(mods, scene, att_id, tgt_id, is_melee, att
     # #267-r1 : traits de la CIBLE = substrat d'ENTITE, MEME source que le `tgt_traits` de
     # `damage_model._apply_ally_attack_damage_auras` cote combat (`target_trait_names`).
     _tgt_traits_names = _entity_traits(scene, tgt_id)
+    # #999-r3-r1-r1 -- univers BOARD-WIDE (`scene.effect_carrier_ids`), pas `scene.pos_by_id` : le
+    # natif n'ecarte AUCUN porteur par sa position, et l'ancienne base excluait structurellement
+    # toute MACHINE OF WAR (hors-plateau). `scene.pos(uid)` rend `None` pour elles -> les auras
+    # POSITIONNELLES se taisent d'elles-memes chez leurs lecteurs (`if not op: return None`), seules
+    # entrent celles dont le `$$CreateTargetSelector` ne lit aucune position. Pendant EXACT de la
+    # face COMBAT (`damage_model.defender_modifiers`).
     _def_carriers = [(uid, scene.pos(uid), scene.team(uid), scene.effects(uid))
-                     for uid in scene.pos_by_id
-                     if uid != tgt_id and (scene.hp(uid) or 0) > 0]
+                     for uid in scene.effect_carrier_ids(exclude=tgt_id)
+                     if scene.hp(uid) is None or (scene.hp(uid) or 0) > 0]
     for _eb in aura_defense_damage_malus_from_units(
             _def_carriers, {"tgt_id": tgt_id, "t_pos": t_pos, "tgt_team": scene.team(tgt_id),
                             "tgt_traits": _tgt_traits_names, "damage_profile": damage_profile,
@@ -840,8 +846,12 @@ def _apply_ally_attack_dmg_bonus(mods, scene, att_id, att_pos, is_melee, tgt_arm
     est keye sur l'ATTAQUANT (+ cible), les gates lisant le sous-ensemble pertinent. Symetrique combat de
     `damage_model._apply_ally_attack_damage_auras`."""
     if carriers is None:
+        # #999-r3-r1-r1 -- univers BOARD-WIDE, cf. `_def_carriers` ci-dessus et la docstring de
+        # `Scene.effect_carrier_ids`. Une MoW alliee porteuse d'une aura ATTAQUE (1442, 1449, 1494,
+        # 1548) n'entrait dans AUCUN carrier faute de position.
         carriers = [(uid, scene.pos(uid), scene.team(uid), scene.effects(uid))
-                    for uid in scene.pos_by_id if uid != att_id and (scene.hp(uid) or 0) > 0]
+                    for uid in scene.effect_carrier_ids(exclude=att_id)
+                    if scene.hp(uid) is None or (scene.hp(uid) or 0) > 0]
     # `att_gu` reste le KIT : `GrandAllianceId` / `FactionId` / `weapons` sont des donnees de
     # CONFIGURATION (aucun equivalent d'entite), contrairement aux TRAITS (#267-r1).
     att_gu = GC.unit(scene.vis_by_id.get(att_id)) or {}

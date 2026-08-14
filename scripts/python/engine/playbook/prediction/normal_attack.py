@@ -7,7 +7,7 @@ from __future__ import annotations
 from ._shared import *   # vocabulaire commun (GC, hexgeo, get_attack_prediction, ProbableDamageEvent, auras, ...)
 from ._shared import (_PROFILE_INDEX, _weapon_pierce, _add_positional_and_defender_mods,
                       _prediction_is_charging, _target_damage_limits, _apply_ally_attack_dmg_bonus,
-                      _round_fix64, _entity_traits)
+                      _round_fix64, _entity_traits, _entity_rarity)
 # SLOT 4 d'`IAmountFormula` = `IdunBattle.DSL.AAmountFormula$$CalculateAverage` (division ENTIERE) —
 # le foyer PARTAGE (#339/#350-r3b), consomme ici par le mold RANGED (#446-r1). Ne PAS substituer
 # `MinMaxDamage$$Avg` ni `AActiveAbility$$MinMaxDamageAverage` : ils arrondissent demi-vers-le-PAIR.
@@ -341,8 +341,13 @@ def _display_attack_base(scene, att_id, attack_pos, is_melee):
     carriers = [(uid, scene.pos(uid), scene.team(uid), scene.mult(uid), scene.ablvl_by_id.get(uid),
                  (GC.unit(scene.vis_by_id.get(uid)) or {}).get("GrandAllianceId"),   # owner grande-alliance
                  (GC.unit(scene.vis_by_id.get(uid)) or {}).get("FactionId"),         # owner faction
-                 scene.effects(uid)) for uid in scene.pos_by_id                      # (type-level, miroir-safe)
-                if uid != att_id and (scene.hp(uid) or 0) > 0]
+                 # #999-r3-r1-r1 -- univers BOARD-WIDE (`Scene.effect_carrier_ids`), pas
+                 # `scene.pos_by_id` : le natif n'ecarte aucun porteur par sa position, et
+                 # l'ancienne base excluait structurellement toute MACHINE OF WAR (hors-plateau).
+                 # Ces `carriers` sont passes tels quels a `_apply_ally_attack_dmg_bonus` et a
+                 # `aura_additional_hits_from_allies`. `scene.hp` en TRI-ETAT, comme la face COMBAT.
+                 scene.effects(uid)) for uid in scene.effect_carrier_ids(exclude=att_id)
+                if scene.hp(uid) is None or (scene.hp(uid) or 0) > 0]
     # #41 : tuile candidate NON-ENTRABLE (BlockEnteringUnits, ex. mur Thorns (1,3) MC1_67) -> le natif
     # perd l'aura MEME materialisee+in-ring (u89 s11 : candidate (1,3) = base Initial 803 ×1.5 elevation
     # EXACT, vs (3,3) propre = 2101 garde) : `GetUnitPositionAtTile` sur tuile bloquee rend une position
@@ -654,6 +659,16 @@ def make_normal_attack_predictions(scene, att_id, tgt_id, attack_pos, *, meta=Fa
                 "damage_profile": prof_name,
                 "t_pos": t_pos,
                 "tgt_team": scene.team(tgt_id),
+                # #1025-r1 -- `HasRarity(Target@<DSLSelectors+0x60>, idun.meta.Rarity.Mythic = 5)` et
+                # `AreFriends(Target@<DSLSelectors+0x60>, EffectSource(Effect@<DSLSelectors+0x38>))`,
+                # les DEUX conjoints utiles d'`ElectrochaffBackups_DamageReductionPct` (1446). La
+                # rarete porte sur le DEFENSEUR (symetrique de l'`attacker_ctx["rarity"]` du canal
+                # DEFENSE, qui porte sur le caster) ; `team_by_id` resout la SOURCE de l'effet, qui
+                # n'est ni l'attaquant ni la cible. MEMES cles et MEME semantique que la face COMBAT
+                # (`damage_model.attacker_modifiers`) -- elargir un seul cote recreerait le fork.
+                # TRI-ETAT sur la rarete (`None` = non mesure -> gate FERME), cf. `_entity_rarity`.
+                "tgt_rarity": _entity_rarity(scene, tgt_id),
+                "team_by_id": scene.team_by_id,
                 # `HealthPctIsBelowOrEqual(Target@0x60, ConfigConst(0x4f))` -- gate de DOUBLEMENT de
                 # `LightOfSanguinius_DamageReductionEffect$$CreateDamageModifier` (#510), qui porte
                 # sur les PV de la CIBLE DU COUP. MEMES cles que la face COMBAT

@@ -35,6 +35,7 @@ from .loki.cursed_plague_bell import CursedPlagueBellExtraMoveEffect
 from .loki.custodes import MomentShackleExtraBlockChanceEffect, MomentShackleExtraBlockDamageEffect
 from .loki.damage_reduction import (
     CamoCloakDmgReductionEffect, ChronometronExtraDamageEffect,
+    ElectrochaffBackupsDamageReductionPctEffect,          # mythique MoW tauBroadside, 1446 (#1025-r1)
     DaughterOfTheAbyssFriendlyDmgReductionPctEffect, DaughterOfTheAbyssOwnerDmgReductionEffect,
     ExemplarOfHateTargetEffect, FightingRetreatDmgReductionEffect,
     FireAndRepositionReduceDmgEffect, GuardianOrganismDamageReductionEffect,
@@ -1930,6 +1931,27 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # une confusion ne leverait pas, elle lirait la mauvaise config) ; `ActiveAbilityType` n'a
     # AUCUN membre 1448. L'ability qui pose l'effet est `TriggeredAbilityType 1455`, pas 1448.
     "HyperCorrosiveAcid_ExtraDamagePct": HyperCorrosiveAcidExtraDamagePctEffect,
+    # 1446 ElectrochaffBackups_DamageReductionPct -- effet de l'ability MYTHIQUE
+    # `ElectrochaffBackups` (`TriggeredAbilityType` 0x5ae = 1454) des MoW `tauBroadside` /
+    # `tauNpcMoWBroadside`, POSE sur l'ENNEMI marque ou blesse a distance
+    # (`targets = Target@<DSLSelectors+0x60>`, cf.
+    # `runner/operations/triggers/loki/electrochaff_backups.py`).
+    # `IdunBattle.Entities.Effects.Loki.ElectrochaffBackups_DamageReductionPctEffect$$
+    # CreateDamageModifier` = `ForPercentDecrease(get_OwnerIsCaster & (HasRarity(Target,
+    # idun.meta.Rarity.Mythic = 5) & AreFriends(Target, EffectSource)),
+    # ConfigVar(0x46 = dmgReductionPct))`.
+    # ⚠ AUCUN `$$CreateTargetSelector` sur cette classe (`search_symbols_by_name` rend `.ctor` +
+    # ce seul slot) -> l'Owner de l'effet EST son porteur, et `get_OwnerIsCaster` en fait
+    # l'ATTAQUANT : le canal port est `create_effect_damage_bonus_for_attack`, PAS une aura. La
+    # ligne de backlog de `#1025-r1` annoncait un selecteur : re-mesure, c'est faux.
+    # ⚠ ENTRE ICI PARCE QUE LE CANAL DE RARETE EST THREADE JUSQU'A LA CIBLE (#1025-r1) :
+    # `att_ctx["tgt_rarity"]` porte `BaseUnitComponent.Rarity` (+0x74) du DEFENSEUR sur les DEUX
+    # faces, et `att_ctx["team_by_id"]` resout l'`EffectSource`. Sans eux l'effet serait PERMISSIF
+    # (toute attaque du porteur marque serait reduite, quelle que soit sa cible).
+    # ⚠ DEUX enums, le meme entier (MESURE, pas suppose) : `EffectType 1446` = CET effet,
+    # `TriggeredAbilityType 1446` = `Decoy` ; `ActiveAbilityType` n'a AUCUN membre 1446.
+    # L'ability qui pose l'effet est `TriggeredAbilityType 1454`, pas 1446.
+    "ElectrochaffBackups_DamageReductionPct": ElectrochaffBackupsDamageReductionPctEffect,
 }
 
 

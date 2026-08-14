@@ -1,5 +1,11 @@
-"""#999-r3-r1-r1 -- MESURE : une MACHINE OF WAR porteuse d'un effet-AURA n'entre dans l'univers de
-porteurs d'AUCUN des deux agregateurs d'aura, sur AUCUNE des deux faces.
+"""#999-r3-r1-r1 -- MESURE : une MACHINE OF WAR porteuse d'un effet-AURA entre-t-elle dans
+l'univers de porteurs des deux agregateurs d'aura, sur les DEUX faces ?
+
+⚠ CE PROBE A CHANGE DE SENS, ET C'EST SON TRAVAIL. Il a ete ecrit pour MONTRER le trou (rc 0 =
+<< le trou est bien la >>) et pour rendre `rc 1` le jour ou l'etat changerait. Ce jour est arrive :
+le trou est REPARE, il a rendu `rc 1`, et son verdict est desormais inverse -- `rc 0` = la
+reparation TIENT sur les deux faces. Le montage, lui, n'a pas bouge d'une ligne : c'est le meme
+etat synthetique, la meme interception du foyer REEL.
 
 POURQUOI CE PROBE EXISTE. `#999-r3-r1` annonce que le threading de la rarete (`att_rarity` /
 `tgt_rarity` / `rarity`) debloque SIX effets. Il en debloque **un** : les cinq autres
@@ -13,24 +19,33 @@ iterent une `List<KeyValuePair<entite, List<effet>>>` de l'ETAT : la boucle est 
 AUCUNE position pour decider qui entre. Une MoW porteuse d'un `EffectWithTarget` y est donc, comme
 n'importe quelle unite.
 
-CE QUE LE PORT FAIT. Les deux agregateurs construisent leur liste de porteurs en EXIGEANT un
-`PositionComponent` :
+CE QUE LE PORT FAISAIT, ET QUI EST CORRIGE. Les deux agregateurs construisaient leur liste de
+porteurs en EXIGEANT un `PositionComponent` :
 
     runner/damage_model.py::_apply_ally_attack_damage_auras   `if oc is None or pc is None ...`
     runner/damage_model.py::defender_modifiers                `if oc is None or pc is None: continue`
 
 Or `runner/snapshot.py::_load_machines` ne pose NI `PositionComponent` NI `HealthComponent` sur une
-Machine (elle est HORS-PLATEAU : le natif n'en a pas non plus). Le filtre est donc un ARTEFACT du
-port, et il ecarte structurellement toute MoW.
+Machine (elle est HORS-PLATEAU : le natif n'en a pas non plus). Le filtre etait donc un ARTEFACT du
+port, et il ecartait structurellement toute MoW. Il est LEVE : le porteur entre avec
+`owner_pos = None`, et les auras POSITIONNELLES se taisent d'elles-memes chez leurs lecteurs
+(`op, ap = c.get("owner_pos"), c.get("att_pos")` puis `if not op or not ap: return None`).
 
-Face PREDICTION, le blocage est DOUBLE : `playbook/scene.py::step_context` seede son `EffectsState`
-depuis `dv["units"]` SEULEMENT (`{u["id"]: u.get("effects") ...}`) -- les effets de
-`dv["mows"][].effects` n'y entrent JAMAIS -- et `pos_by_id` ne recoit une MoW que `if m.get("pos")`,
-ce qui est `null` par construction. Les deux boucles de porteurs de
-`playbook/prediction/_shared.py` iterent `scene.pos_by_id`.
+Face PREDICTION, le blocage etait DOUBLE : `playbook/scene.py::step_context` seedait son
+`EffectsState` depuis `dv["units"]` SEULEMENT -- alors que le canal `dv["mows"][].effects` EXISTE
+(`frida/hooks/features/ai-step/rpc-decision.ts` l'assemble par `effectsByUnit.get(m.casterId)`,
+meme `readEffectsByUnit` que pour les units ; ⚠ `projectMowsFull` seul ne porte AUCUN champ
+`effects`, le rattachement se fait au site d'ASSEMBLAGE du RPC) -- et les TROIS boucles de porteurs
+(`prediction/_shared.py` x2, `prediction/normal_attack.py` x1) iteraient `scene.pos_by_id`, ou une
+MoW n'entre jamais. Les deux volets sont corriges : le seed prend les MoW, et les boucles passent
+par le foyer `Scene.effect_carrier_ids`.
 
-VERDICT ATTENDU (rc 0) : le probe MONTRE le trou, il ne le repare pas. `rc != 0` = le trou a bouge
-(repare, ou aggrave) et cette fiche est perimee.
+⚠ `pos_by_id` n'a PAS ete elargi, et c'est deliberé : une MoW n'a pas de position cote natif non
+plus. Y inventer une tuile rendrait evaluable une aura positionnelle qui doit se taire -- pire
+qu'un gate muet.
+
+VERDICT ATTENDU (rc 0) : la reparation TIENT sur les DEUX faces. `rc != 0` = le trou est reouvert
+(par un cote ou par les deux), ou le montage ne mesure plus rien.
 
 ASCII only.
 """
@@ -215,7 +230,28 @@ def mesurer_prediction():
         "mow_dans_eff_state": MOW_ID in (eff.by_unit or {}),
         "mow_dans_pos_by_id": MOW_ID in (sc["pos_by_id"] or {}),
         "mow_dans_team_by_id": MOW_ID in (sc["team_by_id"] or {}),
+        "mow_dans_univers_porteurs": MOW_ID in scene_prediction(sc).effect_carrier_ids(),
     }
+
+
+def scene_prediction(sctx=None):
+    """La `Scene` de la face DECISION, montee sur le MEME `step_context` que `mesurer_prediction`.
+
+    Exposee separement parce que `mow_dans_eff_state` et << la boucle de porteurs la VOIT >> sont
+    DEUX faits distincts : le premier dit que l'effet est SEEDE, le second que l'agregateur
+    l'atteint. Le foyer qui les relie est `Scene.effect_carrier_ids` (#999-r3-r1-r1), et c'est LUI
+    que les trois boucles d'aura de la face DECISION consomment desormais -- pas `pos_by_id`."""
+    from engine.playbook.scene import Scene, step_context                       # noqa: PLC0415
+    if sctx is None:
+        dv = decision_view()
+        predictor = {"mult_by_id": {ALLY_ID: 100, FOE_ID: 100},
+                     "ablvl_by_id": {ALLY_ID: 50, FOE_ID: 50},
+                     "ctx_by_id": {}}
+        sctx = step_context(predictor, dv)
+    return Scene(ctx_by_id={}, armor_by_id={}, shield_by_id={}, mult_by_id={}, ablvl_by_id={},
+                 vis_by_id={}, units=sctx.get("units") or [],
+                 hp_by_id=sctx.get("hp_by_id") or {}, pos_by_id=sctx.get("pos_by_id") or {},
+                 team_by_id=sctx.get("team_by_id") or {}, eff_state=sctx["eff_state"])
 
 
 def main() -> int:
@@ -236,23 +272,30 @@ def main() -> int:
     p = mesurer_prediction()
     print("-- face PREDICTION (playbook/scene.py::step_context)")
     print("   MoW dans EffectsState.by_unit            : %s" % p["mow_dans_eff_state"])
-    print("   MoW dans pos_by_id                       : %s" % p["mow_dans_pos_by_id"])
+    print("   MoW dans l'univers des porteurs          : %s" % p["mow_dans_univers_porteurs"])
+    print("   MoW dans pos_by_id (doit rester False)   : %s" % p["mow_dans_pos_by_id"])
     print("   MoW dans team_by_id (temoin, #360)       : %s" % p["mow_dans_team_by_id"])
 
     attendu = (f["mow_entite"] and f["mow_sans_position"] and f["mow_rarete_mesuree"]
                and f["mow_porte_l_aura"]
-               # TEMOINS DE NON-DEGENERESCENCE : sans eux, << la MoW n'est pas porteuse >> serait
-               # vrai par construction le jour ou les agregateurs ne tourneraient plus du tout.
+               # TEMOINS DE NON-DEGENERESCENCE : sans eux, << la MoW EST porteuse >> ne pourrait
+               # meme pas etre evalue le jour ou les agregateurs ne tourneraient plus du tout.
                and f["aura_attaque_appelee"] and f["aura_defense_appelee"]
-               and not f["mow_porteur_aura_attaque"] and not f["mow_porteur_aura_defense"]
-               and not p["mow_dans_eff_state"] and not p["mow_dans_pos_by_id"]
+               and f["mow_porteur_aura_attaque"] and f["mow_porteur_aura_defense"]
+               and p["mow_dans_eff_state"] and p["mow_dans_univers_porteurs"]
+               # RESTE FAUX, ET C'EST FIDELE : une MoW n'a pas de position, cote natif non plus.
+               # Ce qu'il fallait elargir est l'UNIVERS DES PORTEURS, pas `pos_by_id` -- l'elargir
+               # aurait INVENTE une tuile, et rendu evaluable une aura positionnelle qui doit se
+               # taire.
+               and not p["mow_dans_pos_by_id"]
                and p["mow_dans_team_by_id"])
     print()
     if attendu:
-        print("VERDICT: le trou est BIEN LA -- la rarete est MESUREE sur la MoW et son aura est")
-        print("         MATERIALISEE, mais AUCUN des deux agregateurs ne la retient comme porteur,")
-        print("         et la face PREDICTION ne seede meme pas ses effets. Le threading de")
-        print("         #999-r3-r1 ne suffit donc PAS pour 1442/1443/1445/1449/1494/1548.")
+        print("VERDICT: le trou est REPARE sur les DEUX faces (#999-r3-r1-r1). La MoW porteuse est")
+        print("         retenue par les deux agregateurs COMBAT, ses effets sont seedes cote")
+        print("         DECISION, et elle entre dans `Scene.effect_carrier_ids` -- sans avoir recu")
+        print("         de position. Ce qui reste a faire pour 1442/1443/1445/1449/1494/1548 est")
+        print("         le PORT de chaque effet, plus sa confrontation en regime SEPARANT.")
         return 0
     print("VERDICT: L'ETAT A CHANGE -- cette fiche (#999-r3-r1-r1) est PERIMEE, re-lire le foyer.")
     return 1
