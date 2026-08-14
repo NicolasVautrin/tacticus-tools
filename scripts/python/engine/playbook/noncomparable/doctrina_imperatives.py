@@ -101,10 +101,18 @@ class DoctrinaImperativesPlaybook(NonComparablePlaybook):
         (branche encerclement) == le port. Les deux bornes du mirror sont donc mesurees."""
         if ctx.origin is None:
             return 0
+        # #969-r3 : les DEUX substrats ne portent que la MAIN TILE -> expansion PAR PIED dans le
+        # foyer `bq.occupied_positions` (`base` = l'univers choisi ici, jamais elargi).
         occ = {(u.get("col"), u.get("row")) for u in (ctx.obs_units or [])
                if not u.get("isDead") and u.get("col") is not None}
-        if not occ:
-            occ = set(ctx.epos or []) | set(ctx.fpos or [])
+        occ = bq.occupied_positions(ctx, base=occ) if occ else bq.occupied_positions(
+            ctx, include_origin=False)
+        # ⚠ Ce `discard` ne retire que la MAIN TILE du caster. Si le CASTER lui-meme etait
+        # multi-hex, ses AUTRES pieds resteraient occupes -- non tranche ici (aucune RE de ce site
+        # ne dit si le natif s'exclut de son propre contenu sur CE chemin, qui passe par
+        # `BattleQuery$$GetAdjacentTiles` et non par le selecteur DSL `AdjacentTiles`, seul dont on
+        # ait LU le retrait d'empreinte). NO-OP sur tout caster a un pied, c.-a-d. partout
+        # aujourd'hui.
         occ.discard(ctx.origin)
         return bq.adjacent_addable_count(ctx.origin, ctx.neigh_by_pos, ctx.walkable_by_pos,
                                          occ, ctx.elev_by_pos)

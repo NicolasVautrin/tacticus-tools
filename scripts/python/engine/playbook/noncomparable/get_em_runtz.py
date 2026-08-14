@@ -55,7 +55,7 @@ class GetEmRuntzPlaybook(NonComparablePlaybook):
         Steppable)` du second terme (le port compte TOUT `ctx.epos`) et le `selectionType 3` du
         `Enemies`. Direction PERMISSIVE, hors perimetre #943-r7 -- releve, pas comble."""
         valid = set(ctx.elev_by_pos.keys()) if ctx.elev_by_pos else set()
-        occ = set(ctx.epos) | set(ctx.fpos) | {ctx.origin}
+        occ = bq.occupied_positions(ctx)          # #969-r3 : PAR PIED (`TileContentComponent`)
         elev, neigh = ctx.elev_by_pos, bq.neigh_map(ctx)
         n = 0
         for T in valid:

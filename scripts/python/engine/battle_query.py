@@ -1382,6 +1382,58 @@ def can_add_unit(pos: tuple, walkable_by_pos: dict | None = None,
     return bool(walkable_by_pos.get((pos[0], pos[1]), False))   # tuile absente = hors-board -> non placeable
 
 
+def occupied_positions(ctx, base: set | None = None, include_origin: bool = True) -> set:
+    """Les tuiles REMPLIES au sens de `IdunBattle.Entities.Components.TileContentComponent$$IsEmpty`
+    -- l'entree `occupied` de `can_add_unit` / `adjacent_addable_count`, DERIVEE DE L'EMPREINTE.
+
+    #969-r3 : quatorze corps de playbook construisaient cet ensemble par
+    `set(ctx.epos) | set(ctx.fpos) [| {ctx.origin}]`, c.-a-d. la seule MAIN TILE de chaque unite.
+    Le natif, lui, remplit UNE TUILE PAR PIED : `IdunBattle.Entities.TileExtensions$$CanAddUnit`
+    interroge le `TileContentComponent` DE LA TUILE, et une entite MULTI-HEX (3 ou 7 pieds) a fait
+    poser son contenu sur CHACUNE. Le jumeau DSL de ce meme mecanisme
+    (`engine/entities/selectors/tiles.py::CanAddUnit`) lisait DEJA l'empreinte : les deux faces du
+    port divergeaient donc ENTRE ELLES, la face DECISION du cote PERMISSIF (elle declarait libres
+    des tuiles que le natif refuse, donc SUR-COMPTAIT les placements possibles).
+
+    SUBSTRAT, sans capteur neuf : `decisionView.units[].feet` (mirror
+    d'`IdunBattle.Entities.EntityExtensions$$GetTiles`, `feet[0]` = la MainTile), que le porteur
+    transporte deja dans `ctx.units`. TRI-ETAT PAR UNITE : une ligne sans `feet` n'est PAS « une
+    unite d'un seul pied », elle est NON MESUREE -- sa MainTile reste dans l'ensemble et rien
+    d'autre n'est ajoute, c'est-a-dire EXACTEMENT le comportement d'avant. `ctx.units` absent ->
+    l'ensemble d'entree est rendu tel quel.
+
+    `base` = l'ensemble de depart quand l'appelant en a un autre que `epos|fpos` (deux corps le
+    derivent d'`obs_units`, cf. `doctrina_imperatives` / `master_of_the_tutelaries`). `None` ->
+    `epos | fpos`, plus `origin` si `include_origin` (le mover est absent de `fpos`, qui l'exclut).
+
+    ⚠ CE QUE CE FOYER N'ELARGIT PAS, et c'est deliberé : l'UNIVERS des occupants reste celui que
+    l'appelant lui donne. Les MACHINES OF WAR n'y entrent pas -- elles vivent dans le canal
+    `decisionView.mows`, jamais dans `.units`, donc ni `epos` ni `fpos` ne les ont jamais portees.
+    C'est un ecart DISTINCT (l'univers, pas l'empreinte), qui n'est pas celui de #969-r3 : le
+    combler ici ferait passer pour une correction d'empreinte un elargissement non confronte."""
+    if base is None:
+        out = set(getattr(ctx, "epos", None) or ()) | set(getattr(ctx, "fpos", None) or ())
+        origin = getattr(ctx, "origin", None)
+        if include_origin and origin is not None:
+            out.add(tuple(origin))
+    else:
+        out = set(base)
+    for u in (getattr(ctx, "units", None) or ()):
+        if not isinstance(u, dict):
+            continue
+        p = u.get("pos") or {}
+        if p.get("col") is None:
+            continue
+        if (p["col"], p["row"]) not in out:
+            continue          # cette unite n'est pas dans l'univers de l'appelant -> on n'ajoute rien
+        for f in (u.get("feet") or ()):       # `feet` absent -> NON MESURE, la MainTile suffit
+            if isinstance(f, dict) and f.get("col") is not None:
+                out.add((int(f["col"]), int(f["row"])))
+            elif isinstance(f, (tuple, list)) and len(f) >= 2:
+                out.add((int(f[0]), int(f[1])))
+    return out
+
+
 def can_use_ability(unit: dict, ability: dict) -> bool:
     """`IdunBattle.Core.Services.AttackQuery$$CanUseAbility` — gate d'USABILITE d'une ability (stun/taunt).
 

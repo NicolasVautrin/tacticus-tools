@@ -56,9 +56,7 @@ class ScarabHivePlaybook(NonComparablePlaybook):
                         elig.append(t["targetId"])
         if not elig:
             return []
-        occupied = set(ctx.epos or []) | set(ctx.fpos or [])
-        if ctx.origin is not None:
-            occupied.add(ctx.origin)
+        occupied = bq.occupied_positions(ctx)     # #969-r3 : PAR PIED (`TileContentComponent`)
         cands: list[dict] = []
         for T in elig:                       # ordre GetEligibleTargetsSelectable -> keep-first au tie
             tp = self._pos_of(ctx, T)
