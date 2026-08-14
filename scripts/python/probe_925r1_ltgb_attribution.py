@@ -284,8 +284,16 @@ def main() -> int:
     args = ap.parse_args()
     porteur, layout = P925.REGIMES[args.regime]
 
-    from rl_collect_batch import _resolve_session, _rpc
+    from rl_collect_batch import _resolve_session, _rpc, bind_ambient_rpc
     sid = _resolve_session()
+    # #1074 -- LE CANAL EST DEMANDE ICI, la ou le `load_state` est AILLEURS. Ce probe charge son
+    # etat par `P478.stage(...)`, donc dans un AUTRE module : le recensement de
+    # `probe_448_r3_r1_r1` ne peut ni l'accuser ni le blanchir (regime `indirect`), et c'est
+    # precisement le cas ou personne ne verrait le canal muet. Le montage passe par `rl_duel
+    # build`, dont `--equip-mythic` / `--equip-relic` / `--graft-*` ecrivent les trois cles que le
+    # port ne lit QUE par `unitAbilityStates`. Lier l'ambiant tranche l'indetermination du bon
+    # cote -- celui ou la mesure existe.
+    bind_ambient_rpc(sid)
 
     def rpc(method, body=None, timeout=90):
         r = _rpc(sid, method, [body] if body is not None else [], timeout=timeout)

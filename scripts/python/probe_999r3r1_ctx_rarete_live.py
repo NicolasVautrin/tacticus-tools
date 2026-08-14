@@ -55,6 +55,13 @@ def _rpc_state(runner_id: int):
     import rl_collect_batch as B                                                # noqa: PLC0415
     from engine.runner.snapshot import load_state                               # noqa: PLC0415
     sid = B._resolve_session()
+    # #1074 -- LE CANAL EST DEMANDE. Ce probe charge un runner monte par `RAR.run` (donc par
+    # `rl_duel build`, dont `--equip-mythic` / `--equip-relic` / `--graft-*` ecrivent les trois
+    # cles que le port ne lit QUE par `unitAbilityStates`), et il ne peut pas savoir si l'appelant
+    # a greffe. Sans transport ambiant, `load_state` ci-dessous rend `source == "no-transport"` :
+    # le `UnitContext` arrive prive de ses abilities, et toute lecture qui en depend mesure un
+    # NEANT en VERT (#448-r3-r1).
+    B.bind_ambient_rpc(sid)
 
     def rpc(method, body, timeout=90):
         r = B._rpc(sid, method, [body], timeout=timeout)

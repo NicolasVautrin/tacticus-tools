@@ -99,6 +99,12 @@ def run(mow: str = MOW, mythic: str = MYTHIC, effet: str = EFFET_AURA, seed: int
     if rid is None:
         raise RuntimeError("build sans runnerId (montage non installe) : %s" % sf)
     sid = B._resolve_session()
+    # #1074 -- CE MONTAGE GREFFE (`--equip-mythic` -> `catalog_inject.equip_mythic`, qui ecrit
+    # `BC.Units[].TertiaryAbility`), donc le `load_state` de l'etage 2 DOIT alimenter le canal
+    # `unitAbilityStates` : c'est la SEULE voie par laquelle le port voit la mythique montee. Sans
+    # lui, `collect_triggered_abilities` retombe sur `gameconfig.unit(<greffon>)` et le porteur
+    # arrive SANS son owner-effect -- le probe mesurerait un NEANT en VERT (#448-r3-r1).
+    B.bind_ambient_rpc(sid)
 
     def _rpc(method, body, timeout=90):
         return _unwrap(B._rpc(sid, method, [body], timeout=timeout)) or {}
