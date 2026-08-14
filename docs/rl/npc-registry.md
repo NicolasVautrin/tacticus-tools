@@ -19,11 +19,11 @@ differe. C'est la doctrine « DECIDER != EXECUTER ».
 
 ## Bilan
 
-- Unites `npc` : **491** ; kits sans manque : **405** ; kits avec du travail : **86**
+- Unites `npc` : **491** ; kits sans manque : **417** ; kits avec du travail : **74**
 - Actives distinctes : **147** — `[--]` **1** · `[C-]` **17** · `[CD]` **129**
 - Passifs distincts : **177** — portes **111**, non portes **66**
 - Traits de kit distincts (AUCUN ecarte — le seuil de frequence a disparu avec #1015) :
-  **58** — couverts **55**, non couverts **3**
+  **58** — couverts **56**, non couverts **2**
 - **Voies inversees** (nom absent d'`ActiveAbilityType`) : **1** — `Maugetar`
 
 ## Ce que ce registre NE VOIT PAS
@@ -49,7 +49,6 @@ l'unite. La colonne `porteurs` dit l'exposition.
 
 | type | item | porteurs | exemples |
 |---|---|---:|---|
-| trait | Healer | 12 | adeptBossHospitaller, adeptBossHospitallerLHE, adeptNpcHospitaller |
 | passif | AdrenalGlands | 5 | tyranNpc1Hormagaunt, tyranNpc1HormagauntGorgon, tyranNpc1HormagauntKronos |
 | passif | HailOfLivingAmmunition | 5 | tyranNpc3Termagant, tyranNpc3TermagantGorgon, tyranNpc3TermagantKronos |
 | trait | TwoManTeam | 4 | astraNpc2Lascannon, astraNpc4Mortar, astraNpc4MortarSurv |
@@ -383,23 +382,22 @@ sont des **faces** absentes d'items presents.
 | darkaNpcMowStormSpeeder | 0 | DeathOnTheWind(1213)[CD]<br>Hailstrike(1214)[CD] | - | - | mythic:MastersOfManoeuvre |
 | darkaNpcTerminator | 0 | PlasmaCannon(1150)[CD] | - | - | relic:RelicPowerFist |
 
-### DeathGuard — 23 unites, 7 avec du travail
+### DeathGuard — 23 unites, 4 avec du travail
 
 | unite | manque | actives (face) | passifs non portes | traits non couverts | autres voies |
 |---|---:|---|---|---|---|
 | deathBossMortarion | 3 | MortarionsPlagueWind(1093)[CD]<br>TheLantern(1094)[CD]<br>ReapingScythe(1095)[CD] | BossEndFightUndefeated, ArchContaminator, HostOfPlagues | - | - |
-| deathBossRotbone | 1 | RevitalizingMalignancy(1037)[CD] | - | Healer | relic:OrbsOfDecay |
-| deathBossRotboneLHE | 1 | RevitalizingMalignancy(1037)[CD] | - | Healer | relic:OrbsOfDecay |
 | deathNpc1Poxwalker | 1 | - | CursedOfTheWalkingPox | - | - |
 | deathNpc2PlagueMarine | 1 | BlightGrenades(1176)[CD] | CloudOfFlies | - | - |
 | deathNpc3Nurglings | 1 | - | MischiefMakers | - | - |
-| deathNpcRotbone | 1 | RevitalizingMalignancy(1037)[CD] | - | Healer | relic:OrbsOfDecay |
 | deathBossBlightbringer | 0 | Poxwalkers(1040)[CD] | - | - | relic:OrbsOfDecay |
 | deathBossBlightbringerLHE | 0 | Poxwalkers(1040)[CD] | - | - | relic:OrbsOfDecay |
 | deathBossBlightlord | 0 | FlailSwing(1042)[CD] | - | - | relic:DaemonfleshPlate |
 | deathBossBlightlordLHE | 0 | FlailSwing(1042)[CD] | - | - | relic:DaemonfleshPlate |
 | deathBossPutrifier | 0 | FoulInfusion(1038)[CD] | - | - | relic:OrbsOfDecay |
 | deathBossPutrifierLHE | 0 | FoulInfusion(1038)[CD] | - | - | relic:OrbsOfDecay |
+| deathBossRotbone | 0 | RevitalizingMalignancy(1037)[CD] | - | - | relic:OrbsOfDecay |
+| deathBossRotboneLHE | 0 | RevitalizingMalignancy(1037)[CD] | - | - | relic:OrbsOfDecay |
 | deathBossTyphus | 0 | PlagueWind(1035)[CD] | - | - | relic:Lakrimae |
 | deathBossTyphusLEG | 0 | PlagueWind(1035)[CD] | - | - | relic:Lakrimae |
 | deathBossTyphusLHE | 0 | PlagueWind(1035)[CD] | - | - | relic:Lakrimae |
@@ -409,16 +407,16 @@ sont des **faces** absentes d'items presents.
 | deathNpcBlightlord | 0 | FlailSwing(1042)[CD] | - | - | relic:DaemonfleshPlate |
 | deathNpcMoWCrawler | 0 | EntropyCannons(1168)[C-]<br>PlagueburstMortar(1169)[CD] | - | - | mythic:BlightedLand |
 | deathNpcPutrifier | 0 | FoulInfusion(1038)[CD] | - | - | relic:OrbsOfDecay |
+| deathNpcRotbone | 0 | RevitalizingMalignancy(1037)[CD] | - | - | relic:OrbsOfDecay |
 | deathNpcTyphus | 0 | PlagueWind(1035)[CD] | - | - | relic:Lakrimae |
 
-### Genestealers — 21 unites, 4 avec du travail
+### Genestealers — 21 unites, 1 avec du travail
 
 | unite | manque | actives (face) | passifs non portes | traits non couverts | autres voies |
 |---|---:|---|---|---|---|
-| genesBossBiophagus | 1 | AberrantHypermorph(1166)[CD] | - | Healer | relic:AmuletOfTheVoidwyrm |
-| genesBossBiophagusLHE | 1 | AberrantHypermorph(1166)[CD] | - | Healer | relic:AmuletOfTheVoidwyrm |
 | genesNpc1Aberrant | 1 | - | Hypermorph | - | - |
-| genesNpcBiophagus | 1 | AberrantHypermorph(1166)[CD] | - | Healer | relic:AmuletOfTheVoidwyrm |
+| genesBossBiophagus | 0 | AberrantHypermorph(1166)[CD] | - | - | relic:AmuletOfTheVoidwyrm |
+| genesBossBiophagusLHE | 0 | AberrantHypermorph(1166)[CD] | - | - | relic:AmuletOfTheVoidwyrm |
 | genesBossKelermorph | 0 | HeroicFusillade(1180)[CD] | - | - | relic:AmuletOfTheVoidwyrm |
 | genesBossKelermorphLHE | 0 | HeroicFusillade(1180)[CD] | - | - | relic:AmuletOfTheVoidwyrm |
 | genesBossKelermorphSurv | 0 | HeroicFusillade(1180)[CD] | - | - | relic:AmuletOfTheVoidwyrm |
@@ -432,6 +430,7 @@ sont des **faces** absentes d'items presents.
 | genesDecoy | 0 | - | - | - | - |
 | genesNpc2Genestealer | 0 | - | - | - | - |
 | genesNpc3Neophyte | 0 | - | - | - | - |
+| genesNpcBiophagus | 0 | AberrantHypermorph(1166)[CD] | - | - | relic:AmuletOfTheVoidwyrm |
 | genesNpcKelermorph | 0 | HeroicFusillade(1180)[CD] | - | - | relic:AmuletOfTheVoidwyrm |
 | genesNpcMagus | 0 | MindControl(1164)[CD] | - | - | - |
 | genesNpcPatriarch | 0 | MightFromBelow(1165)[CD] | - | - | relic:MawClawsOfThyrax |
@@ -527,19 +526,18 @@ sont des **faces** absentes d'items presents.
 | orksNpcWarboss | 0 | Waaagh(1058)[CD] | - | - | relic:HeadwoppasKillchoppa |
 | orksNpcWarbossSurv | 0 | Waaagh(1058)[CD] | - | - | relic:HeadwoppasKillchoppa |
 
-### Sisterhood — 19 unites, 4 avec du travail
+### Sisterhood — 19 unites, 1 avec du travail
 
 | unite | manque | actives (face) | passifs non portes | traits non couverts | autres voies |
 |---|---:|---|---|---|---|
-| adeptBossHospitaller | 1 | RitesOfRestoration(1039)[CD] | - | Healer | - |
-| adeptBossHospitallerLHE | 1 | RitesOfRestoration(1039)[CD] | - | Healer | - |
 | adeptNpc2Zephyrim | 1 | - | EmbodiedProphecy | - | - |
-| adeptNpcHospitaller | 1 | RitesOfRestoration(1039)[CD] | - | Healer | - |
 | adeptBossCanoness | 0 | BrazierOfHolyFire(1041)[CD] | - | - | - |
 | adeptBossCanonessLHE | 0 | BrazierOfHolyFire(1041)[CD] | - | - | - |
 | adeptBossCelestine | 0 | SkyStrike(1025)[CD] | - | - | relic:TheArdentBlade |
 | adeptBossCelestineCE | 0 | SkyStrike(1025)[CD] | - | - | - |
 | adeptBossCelestineLHE | 0 | SkyStrike(1025)[CD] | - | - | relic:TheArdentBlade |
+| adeptBossHospitaller | 0 | RitesOfRestoration(1039)[CD] | - | - | - |
+| adeptBossHospitallerLHE | 0 | RitesOfRestoration(1039)[CD] | - | - | - |
 | adeptBossMorvenn | 0 | SanctorumMissile(1062)[CD] | - | - | - |
 | adeptBossMorvennLHE | 0 | SanctorumMissile(1062)[CD] | - | - | - |
 | adeptBossRetributor | 0 | ArmoriumCherub(1014)[CD] | - | - | - |
@@ -547,6 +545,7 @@ sont des **faces** absentes d'items presents.
 | adeptNpc1BattleSister | 0 | - | - | - | - |
 | adeptNpcCanoness | 0 | BrazierOfHolyFire(1041)[CD] | - | - | - |
 | adeptNpcCelestine | 0 | SkyStrike(1025)[CD] | - | - | relic:TheArdentBlade |
+| adeptNpcHospitaller | 0 | RitesOfRestoration(1039)[CD] | - | - | - |
 | adeptNpcMoWExorcist | 0 | ThriceBlessedConflagration(1187)[CD]<br>DevastatingRefrain(1188)[CD] | - | - | mythic:ShieldOfFaith |
 | adeptNpcMorvenn | 0 | SanctorumMissile(1062)[CD] | - | - | - |
 | adeptNpcRetributor | 0 | ArmoriumCherub(1014)[CD] | - | - | - |
@@ -686,16 +685,15 @@ sont des **faces** absentes d'items presents.
 | tyranNpcTyrantGuard | 0 | CrushingClaws(1105)[CD] | - | - | relic:MawClawsOfThyrax |
 | tyranNpcWingedPrime | 0 | AlphaWarrior(1112)[CD] | - | - | relic:MawClawsOfThyrax |
 
-### Ultramarines — 25 unites, 6 avec du travail
+### Ultramarines — 25 unites, 3 avec du travail
 
 | unite | manque | actives (face) | passifs non portes | traits non couverts | autres voies |
 |---|---:|---|---|---|---|
-| ultraBossApothecary | 1 | CombatRestoratives(1002)[CD] | - | Healer | - |
-| ultraBossApothecaryLHE | 1 | CombatRestoratives(1002)[CD] | - | Healer | - |
 | ultraNpc3Intercessor | 1 | - | RapidFire | - | - |
 | ultraNpc4HeavyIntercessor | 1 | HellfireShells(1080)[CD] | RapidFire | - | - |
 | ultraNpc4HeavyIntercessorSurv | 1 | HellfireShells(1080)[CD] | RapidFire | - | - |
-| ultraNpcApothecary | 1 | CombatRestoratives(1002)[CD] | - | Healer | - |
+| ultraBossApothecary | 0 | CombatRestoratives(1002)[CD] | - | - | - |
+| ultraBossApothecaryLHE | 0 | CombatRestoratives(1002)[CD] | - | - | - |
 | ultraBossCalgar | 0 | GauntletsOfUltramar(1000)[CD] | - | - | - |
 | ultraBossCalgarLHE | 0 | GauntletsOfUltramar(1000)[CD] | - | - | - |
 | ultraBossEliminatorSgt | 0 | MortisRound(1004)[CD] | - | - | - |
@@ -710,6 +708,7 @@ sont des **faces** absentes d'items presents.
 | ultraBossTitusSurv | 0 | TacticalPrecision(1154)[CD] | - | - | relic:RelicBoltPistol |
 | ultraNpc1Inceptor | 0 | - | - | - | - |
 | ultraNpc2Eliminator | 0 | - | - | - | - |
+| ultraNpcApothecary | 0 | CombatRestoratives(1002)[CD] | - | - | - |
 | ultraNpcCalgar | 0 | GauntletsOfUltramar(1000)[CD] | - | - | - |
 | ultraNpcEliminatorSgt | 0 | MortisRound(1004)[CD] | - | - | - |
 | ultraNpcInceptorSgt | 0 | DeathFromAbove(1003)[CD] | - | - | relic:RelicBoltPistol |

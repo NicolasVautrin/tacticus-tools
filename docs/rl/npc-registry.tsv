@@ -63,12 +63,12 @@ adeptBossHospitaller	Sisterhood	Imperial	None	active	RitesOfRestoration	1039	1	1
 adeptBossHospitaller	Sisterhood	Imperial	None	passif	MedicusMinistorum		1	
 adeptBossHospitaller	Sisterhood	Imperial	None	trait	Hero		1	
 adeptBossHospitaller	Sisterhood	Imperial	None	trait	ActOfFaith		1	
-adeptBossHospitaller	Sisterhood	Imperial	None	trait	Healer		0	
+adeptBossHospitaller	Sisterhood	Imperial	None	trait	Healer		1	
 adeptBossHospitallerLHE	Sisterhood	Imperial	None	active	RitesOfRestoration	1039	1	1
 adeptBossHospitallerLHE	Sisterhood	Imperial	None	passif	MedicusMinistorum		1	
 adeptBossHospitallerLHE	Sisterhood	Imperial	None	trait	Hero		1	
 adeptBossHospitallerLHE	Sisterhood	Imperial	None	trait	ActOfFaith		1	
-adeptBossHospitallerLHE	Sisterhood	Imperial	None	trait	Healer		0	
+adeptBossHospitallerLHE	Sisterhood	Imperial	None	trait	Healer		1	
 adeptBossMorvenn	Sisterhood	Imperial	None	active	SanctorumMissile	1062	1	1
 adeptBossMorvenn	Sisterhood	Imperial	None	passif	RighteousRepugnance		1	
 adeptBossMorvenn	Sisterhood	Imperial	None	trait	Hero		1	
@@ -111,7 +111,7 @@ adeptNpcHospitaller	Sisterhood	Imperial	None	active	RitesOfRestoration	1039	1	1
 adeptNpcHospitaller	Sisterhood	Imperial	None	passif	MedicusMinistorum		1	
 adeptNpcHospitaller	Sisterhood	Imperial	None	trait	Hero		1	
 adeptNpcHospitaller	Sisterhood	Imperial	None	trait	ActOfFaith		1	
-adeptNpcHospitaller	Sisterhood	Imperial	None	trait	Healer		0	
+adeptNpcHospitaller	Sisterhood	Imperial	None	trait	Healer		1	
 adeptNpcMoWExorcist	Sisterhood	Imperial	None	active	ThriceBlessedConflagration	1187	1	1
 adeptNpcMoWExorcist	Sisterhood	Imperial	None	active	DevastatingRefrain	1188	1	1
 adeptNpcMoWExorcist	Sisterhood	Imperial	None	trait	MachineOfWar		1	
@@ -729,13 +729,13 @@ deathBossRotbone	DeathGuard	Chaos	None	passif	TaintedNarthecium		1
 deathBossRotbone	DeathGuard	Chaos	None	trait	Hero		1	
 deathBossRotbone	DeathGuard	Chaos	None	trait	ContagionsOfNurgle		1	
 deathBossRotbone	DeathGuard	Chaos	None	trait	Resilient		1	
-deathBossRotbone	DeathGuard	Chaos	None	trait	Healer		0	
+deathBossRotbone	DeathGuard	Chaos	None	trait	Healer		1	
 deathBossRotboneLHE	DeathGuard	Chaos	None	active	RevitalizingMalignancy	1037	1	1
 deathBossRotboneLHE	DeathGuard	Chaos	None	passif	TaintedNarthecium		1	
 deathBossRotboneLHE	DeathGuard	Chaos	None	trait	Hero		1	
 deathBossRotboneLHE	DeathGuard	Chaos	None	trait	ContagionsOfNurgle		1	
 deathBossRotboneLHE	DeathGuard	Chaos	None	trait	Resilient		1	
-deathBossRotboneLHE	DeathGuard	Chaos	None	trait	Healer		0	
+deathBossRotboneLHE	DeathGuard	Chaos	None	trait	Healer		1	
 deathBossTyphus	DeathGuard	Chaos	None	active	PlagueWind	1035	1	1
 deathBossTyphus	DeathGuard	Chaos	None	passif	DestroyerHive		1	
 deathBossTyphus	DeathGuard	Chaos	None	trait	Hero		1	
@@ -805,7 +805,7 @@ deathNpcRotbone	DeathGuard	Chaos	None	passif	TaintedNarthecium		1
 deathNpcRotbone	DeathGuard	Chaos	None	trait	Hero		1	
 deathNpcRotbone	DeathGuard	Chaos	None	trait	ContagionsOfNurgle		1	
 deathNpcRotbone	DeathGuard	Chaos	None	trait	Resilient		1	
-deathNpcRotbone	DeathGuard	Chaos	None	trait	Healer		0	
+deathNpcRotbone	DeathGuard	Chaos	None	trait	Healer		1	
 deathNpcTyphus	DeathGuard	Chaos	None	active	PlagueWind	1035	1	1
 deathNpcTyphus	DeathGuard	Chaos	None	passif	DestroyerHive		1	
 deathNpcTyphus	DeathGuard	Chaos	None	trait	Hero		1	
@@ -936,12 +936,12 @@ genesBossBiophagus	Genestealers	Xenos	None	active	AberrantHypermorph	1166	1	1
 genesBossBiophagus	Genestealers	Xenos	None	passif	TwistedScience		1	
 genesBossBiophagus	Genestealers	Xenos	None	trait	Hero		1	
 genesBossBiophagus	Genestealers	Xenos	None	trait	Ambush		1	
-genesBossBiophagus	Genestealers	Xenos	None	trait	Healer		0	
+genesBossBiophagus	Genestealers	Xenos	None	trait	Healer		1	
 genesBossBiophagusLHE	Genestealers	Xenos	None	active	AberrantHypermorph	1166	1	1
 genesBossBiophagusLHE	Genestealers	Xenos	None	passif	TwistedScience		1	
 genesBossBiophagusLHE	Genestealers	Xenos	None	trait	Hero		1	
 genesBossBiophagusLHE	Genestealers	Xenos	None	trait	Ambush		1	
-genesBossBiophagusLHE	Genestealers	Xenos	None	trait	Healer		0	
+genesBossBiophagusLHE	Genestealers	Xenos	None	trait	Healer		1	
 genesBossKelermorph	Genestealers	Xenos	None	active	HeroicFusillade	1180	1	1
 genesBossKelermorph	Genestealers	Xenos	None	passif	HypersensoryAbilities		1	
 genesBossKelermorph	Genestealers	Xenos	None	trait	Hero		1	
@@ -1008,7 +1008,7 @@ genesNpcBiophagus	Genestealers	Xenos	None	active	AberrantHypermorph	1166	1	1
 genesNpcBiophagus	Genestealers	Xenos	None	passif	TwistedScience		1	
 genesNpcBiophagus	Genestealers	Xenos	None	trait	Hero		1	
 genesNpcBiophagus	Genestealers	Xenos	None	trait	Ambush		1	
-genesNpcBiophagus	Genestealers	Xenos	None	trait	Healer		0	
+genesNpcBiophagus	Genestealers	Xenos	None	trait	Healer		1	
 genesNpcKelermorph	Genestealers	Xenos	None	active	HeroicFusillade	1180	1	1
 genesNpcKelermorph	Genestealers	Xenos	None	passif	HypersensoryAbilities		1	
 genesNpcKelermorph	Genestealers	Xenos	None	trait	Hero		1	
@@ -2238,11 +2238,11 @@ tyranNpcWingedPrime	Tyranids	Xenos	None	trait	FinalJustice		1
 ultraBossApothecary	Ultramarines	Imperial	None	active	CombatRestoratives	1002	1	1
 ultraBossApothecary	Ultramarines	Imperial	None	passif	Narthecium		1	
 ultraBossApothecary	Ultramarines	Imperial	None	trait	Hero		1	
-ultraBossApothecary	Ultramarines	Imperial	None	trait	Healer		0	
+ultraBossApothecary	Ultramarines	Imperial	None	trait	Healer		1	
 ultraBossApothecaryLHE	Ultramarines	Imperial	None	active	CombatRestoratives	1002	1	1
 ultraBossApothecaryLHE	Ultramarines	Imperial	None	passif	Narthecium		1	
 ultraBossApothecaryLHE	Ultramarines	Imperial	None	trait	Hero		1	
-ultraBossApothecaryLHE	Ultramarines	Imperial	None	trait	Healer		0	
+ultraBossApothecaryLHE	Ultramarines	Imperial	None	trait	Healer		1	
 ultraBossCalgar	Ultramarines	Imperial	None	active	GauntletsOfUltramar	1000	1	1
 ultraBossCalgar	Ultramarines	Imperial	None	passif	RitesOfBattle		1	
 ultraBossCalgar	Ultramarines	Imperial	None	trait	Hero		1	
@@ -2325,7 +2325,7 @@ ultraNpc4HeavyIntercessorSurv	Ultramarines	Imperial	None	trait	SuppressiveFire		
 ultraNpcApothecary	Ultramarines	Imperial	None	active	CombatRestoratives	1002	1	1
 ultraNpcApothecary	Ultramarines	Imperial	None	passif	Narthecium		1	
 ultraNpcApothecary	Ultramarines	Imperial	None	trait	Hero		1	
-ultraNpcApothecary	Ultramarines	Imperial	None	trait	Healer		0	
+ultraNpcApothecary	Ultramarines	Imperial	None	trait	Healer		1	
 ultraNpcCalgar	Ultramarines	Imperial	None	active	GauntletsOfUltramar	1000	1	1
 ultraNpcCalgar	Ultramarines	Imperial	None	passif	RitesOfBattle		1	
 ultraNpcCalgar	Ultramarines	Imperial	None	trait	Hero		1	
