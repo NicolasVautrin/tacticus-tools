@@ -286,7 +286,41 @@ def grand_alliance_trait_name(visual_id: "str | None") -> "str | None":
 @functools.lru_cache(maxsize=None)
 def unit_trait_names(visual_id: "str | None") -> frozenset:
     """NOMS des traits d'une unite : kit gameconfig + pseudo-trait de grande-alliance. Le pendant
-    offline de la liste de BASE lue par `BaseUnitComponent$$HasTrait`. Cache (statique par unite)."""
+    offline de la liste de BASE lue par `BaseUnitComponent$$HasTrait`. Cache (statique par unite).
+
+    ⚠ **BORNE NOMMEE (#1044-r2) : ce substrat IGNORE le forcage `{Hero, NPC, Summon}`, et c'est un
+    CHOIX MESURE, pas un oubli.**
+
+    Le natif force le type d'unite dans
+    `IdunBattle.Operations.AddUnitOperation$$AddUnitTypeTraits`, qui ecrit exactement UN des trois
+    traits et retire les deux autres (`Hero` -> `Add(0x10)`, `Remove(0x7e6)`, `Remove(2)` ; `NPC` et
+    `Summon` symetriquement). La surcharge a 4 arguments choisit lequel :
+
+        heroDeDroit = !hasParent && !Contains(coll, 2022 NPC) && !Contains(coll, 2 Summon)
+        ov = options.<Nullable<UnitOverrideType> @+0x8>
+        ... ov.Value si presente, sinon Hero si heroDeDroit, sinon RETURN 0 (aucune ecriture)
+
+    L'override n'est pas atteignable depuis la BC (#1044-r1), donc en pratique la regle se reduit
+    a : une unite SANS parent qui ne porte NI `NPC` NI `Summon` GAGNE `Hero`.
+
+    CE QUE LE REPLI RATE, CHIFFRE (`probe_1044r2_ecart_forcage_traits.py`, 175 unites du seed BC,
+    partition exhaustive 14 + 0 + 98 + 63) : **14** unites gagneraient `Hero` sans que le kit
+    gameconfig le porte, **0** perdraient `NPC`/`Summon` (structurellement nul -- `heroDeDroit`
+    exige deja leur absence), 98 portent deja `Hero` (forcage no-op) et 63 sont laissees INTACTES
+    par le `return 0`.
+
+    POURQUOI ON NE LE PORTE PAS ICI. Le forcage se decide sur `BC.Units[].Traits` ; cette fonction
+    ne dispose QUE du kit gameconfig, et les deux substrats ne sont pas le meme (cf.
+    `entity_trait_names` : 5 unites avec MOINS de traits que leur kit, 48 avec PLUS). Mesure :
+    evaluer le MEME forcage sur le kit fait diverger **47 verdicts sur 175**, TOUS dans le sens
+    `BC:return0 / kit:ecrit` -- c'est-a-dire qu'on donnerait `Hero` a 47 npc et summons
+    (`necroSmnWarrior`, `orksGrot`, `tyranSmnTermagant`, ...) que le natif laisse intacts, parce
+    que leur kit ne porte pas les marqueurs que la BC, elle, porte.
+
+    ⇒ porter le forcage sur ce substrat REPARERAIT 14 cas en en CASSANT 47, et dans le sens
+    PERMISSIF (le trait `Hero` ouvre des gates). La borne est donc plus juste que le remede. La
+    reponse correcte reste `ctx.traits_measured` : quand `combatSnapshot.units[].traits` a parle,
+    `entity_trait_names` court-circuite entierement cette derivation."""
     if not visual_id:
         return frozenset()
     try:
