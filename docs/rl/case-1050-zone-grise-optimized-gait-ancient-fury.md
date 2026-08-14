@@ -185,11 +185,74 @@ Ce n'est donc PAS une limite de confrontabilité — c'est un périmètre de por
 l'exécution multi-cible d'une attaque normale n'existe nulle part côté port et touche
 `damage.py` / `damage_ops/normal.py`, la voie de TOUTE attaque normale.
 
+## 3bis. `AncientFury` — PORTÉ (#1050-r1), et le vslot qui masquait le résidu
+
+**La confusion qui tenait ce résidu fermé était une CITATION FAUSSE, pas une difficulté.** Trois
+endroits du dépôt écrivaient `$$GetCustomNormalAttackBehaviour @ vslot 0x4a8`. Le fold est `0x4e8`,
+appelé DANS `$$GetAttackDamageBehaviour` ; `0x4a8` est `$$GetTarget`, appelé en tête
+d'`ExecuteNormalAttack` et passé en **5ᵉ argument**. `AncientFury_NormalAttackAbility$$GetTargets`
+— un `return this.vslot(0x4a8)()` nu — apparie le slot à son unique surcharge nommée du build. Lire
+le 5ᵉ argument comme un *behaviour* rendait invisible qu'il s'agit d'un **SÉLECTEUR**, donc qu'une
+surcharge de `GetTarget` élargit l'attaque normale à N cibles.
+
+**Ce que le port ajoute** (`engine/runner/abilities/loki/ancient_fury.py`) : l'arbre mirror 1:1, le
+registre `WIDENED_NORMAL_ATTACKS` (dispatché par le MÊME foyer de cascade que `cleave_for`), et la
+queue de la boucle d'`AttackBehaviour$$Execute`. Deux paramètres neufs au vecteur normal, chacun
+mirror d'un étage que la boucle native **ne rejoue pas** : `in_attack_loop` (`On(0x2a)` et la
+re-résolution de cible vivent dans `ActiveAbilityOperation$$ExecuteInternal` — un cast, une
+émission) et `weapon_ref_target_id` (`FindAttackWeapon` est appelé une fois dans `ExecuteBehaviour`
+et l'arme est PASSÉE : `$$AttackHits(abilityState, attackWeapon)` = `Direct(attackWeapon+0x20)`).
+
+### CONFRONTATION LIVE — `probe_1050r1_ancient_fury_widened.py`
+
+Montage : greffe d'`AncientFury` sur `necroWarden` (`catalog_inject.write_grafted_seed_bc`, les
+DEUX écritures), board `MC1_67`, seed 4463111, régime **MELEE**. `A_IN` et `A_OUT` sont **toutes
+deux** adjacentes à la cible ; seule l'ancre CASTER les sépare.
+
+| | `necroDestroyer` (primaire) | `necroSpyder` (A_IN) | `astraCreed` (A_OUT) |
+|---|---|---|---|
+| NATIF | **1165** | **20** | — |
+| PORT | **1165** | **20** | — |
+| PORT *sans registre* (témoin) | 1165 | — | — |
+
+Le témoin négatif restaure exactement le port d'AVANT la tranche et **diverge** : l'accord ne vient
+pas d'un plan sans cible additionnelle.
+
+### DEUX FAUX ZÉROS, et ce qui les a attrapés
+
+* **`ok: true, mutated: false`.** Au premier plan, `applyAction` réussissait et ne faisait RIEN : un
+  seul événement `group 12` (source `AncientFury_NormalAttack`), puis `FindAttackWeapon` rend `null`
+  et `ALoki_NormalAttackAbility$$ExecuteBehaviour` no-ope. Un probe qui ne lit que `ok` conclurait
+  « le natif n'élargit pas ». Parade : le cast doit être dans `fromHere` d'`abilityTargets`.
+* **La cause de ce refus n'était PAS la substitution**, et seul un TÉMOIN pouvait le dire :
+  `eldarRanger` (arme ranged portée 3, attaque normale NON substituée, même distance) a un
+  `fromHere` **vide lui aussi** ⇒ c'est le PLAN (ligne de tir), pas `AncientFury`. Sans ce témoin, le
+  verdict aurait été « l'attaque normale substituée est melee-only » — faux, et invérifiable.
+
+### BUG TROUVÉ EN CHEMIN, hors `AncientFury`
+
+`entities/formulas.py::MinDistance` ne visitait que le domaine UNITE (`isinstance(u, dict)`) alors
+que le slot 10 natif (`IdunBattle.DSL.TargetsSelector$$SelectTiles`) est **DOMAINE MIXTE** par
+construction (`if (<this est déjà un sélecteur de TUILES>) return sel`). Tout opérande déjà en
+domaine TUILE était jeté **en silence** : les deux listes devenaient vides et la formule rendait
+`int.MaxValue`. Le call-site qui l'exige est précisément
+`MinDistance(CasterTiles@0x58, TargetTiles@0x78)` de `$$GetTarget`. Corrigé au foyer, par délégation
+au helper `_select_tiles_positions` qui portait déjà le slot complet ; value-preserving pour le seul
+autre call-site exécutable (`IsInUnitAura`, deux sélecteurs d'unités — `probe_293` étape 3 rejoué).
+
 ## 4. Résidus ouverts
 
-* **`#1050-r1`** — porter `AncientFury_NormalAttackAbility$$GetTarget` : élargissement multi-cible
-  de l'attaque normale (arbre ci-dessus + boucle triée d'`AttackBehaviour$$Execute`, un
-  `StartAttack`/`FinishAttack` par cible).
+* **`#1050-r1`** — **RÉSOLU** (§3bis) : `AncientFury_NormalAttackAbility$$GetTarget` est porté,
+  confronté live bit-exact avec témoin négatif.
+* **`#1076`** — le natif trie la cible PRIMAIRE **avec** les additionnelles ; le port la frappe
+  toujours en tête (le préambule d'`ExecuteInternal` n'est pas détachable du premier coup côté
+  port). Divergence d'ordre RNG dès qu'un id additionnel est inférieur à celui de la primaire.
+* **`#1076-r1`** — la branche RANGED (l'anneau exact) est couverte OFFLINE mais **non confrontée**
+  live : aucun plan de `MC1_67` ne laisse de ligne de tir vers une cible à distance 2, et le témoin
+  non substitué ne tire pas davantage.
+* **face DÉCISION** — `IdunBattle.AI.Playbook.Loki.AncientFury_NormalAttackAbilityPlaybook$$
+  MakeDamagePredictions` existe et n'est pas porté : la prédiction de dégât de l'IA ignore les
+  cibles additionnelles.
 * **`#1050-r2`** — `OptimizedGait_NormalAttackAbility$$AttackAmount` / `$$AttackHits` : le
   `ConditionalAmount(TriggeringAbilityIs(<X>), …)` qui substitue les bornes de config aux dégâts
   d'arme. L'`<X>` reste à décoder à l'assembleur (ghidra perd le registre).

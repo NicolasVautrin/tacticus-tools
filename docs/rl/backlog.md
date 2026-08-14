@@ -4796,27 +4796,42 @@ pas d'erreur : il rend **zéro**, et un zéro se lit « rien à signaler ».
   FOYER: scripts/python/engine/runner/abilities/behaviours/combat.py
   BLOCAGE: seeding
 
-- **#1050-r1 -- `AncientFury` : le SELECTEUR ELARGI de son attaque normale n'est pas execute.** `[opus]`
-  Point d'entree : `docs/rl/case-1050-zone-grise-optimized-gait-ancient-fury.md` Sec.3.
-  `IdunBattleLogic.Entities.Abilities.Active.Loki.AncientFury_NormalAttackAbility$$GetTarget`
-  (vslot `0x4a8`) rend `Target + ConditionalSelector(IsMeleeAttack, AdjacentEnemies(Caster) &
-  AdjacentUnits(Target), AdjacentUnits(Target) & (SurroundingEnemies(CasterTiles, MinDistance) -
-  SurroundingEnemies(First(SortByDistance(...),1), MinDistance + Direct(-1))))` -- l'ANNEAU EXACT de
-  l'i2 (<< exactly 2 hexes away >>). `ALoki_NormalAttackAbility$$ExecuteNormalAttack` passe ce
-  selecteur a `$$GetAttackDamageBehaviour`, donc a l'`Attack(caster, <sel>, ...)` UNIQUE, et
-  `IdunBattle.Entities.Behaviours.AttackBehaviour$$Execute` (relu) boucle sur les cibles **TRIEES**
-  (`OrderBy(b__5_0)` des qu'il y en a plus d'une) avec un `StartAttack`/`FinishAttack` PAR cible :
-  chacune recoit l'attaque d'ARME COMPLETE, pas un paquet aux bornes de config.
-  Le port n'a AUCUN chemin multi-cible sur l'attaque normale -- seule la substitution 1256 -> 1162
-  (`CUSTOM_NORMAL_ATTACK_BY_PASSIVE`) est cablee, et c'est un DISPATCH, pas la mecanique.
-  Ne PAS le ranger dans `NORMAL_ATTACK_CLEAVES` (#478) : cette famille-la frappe aux BORNES DE
-  CONFIG, APRES la primaire, dans l'ordre du SELECTEUR -- deux ecarts silencieux. Cran deja pose
-  (`test_1050_optimized_gait_offline.py` etage 4).
-  Porteur `ultraSmnDreadnought` (summon UNIQUE) : confrontable par GREFFE du passif sur une unite du
-  pool (la cascade `IdunBattle.Entities.Factories.UnitFactory$$AddNormalAttackAbility` lit
-  `BC.Units[].PassiveAbilities`), voie deja employee par
-  `probe_419r1tr14r5_r1r4_normal_attack_table`.
-  FOYER: scripts/python/engine/runner/operations/damage.py, scripts/python/engine/runner/abilities/loki/additional_targets.py
+- **#1076 -- `AncientFury` : le natif trie la cible PRIMAIRE **AVEC** les additionnelles, le port la
+  frappe toujours en tete.** `[opus]`
+  Point d'entree : `docs/rl/case-1050-zone-grise-optimized-gait-ancient-fury.md` Sec.3bis +
+  `scripts/python/engine/runner/abilities/loki/ancient_fury.py` (en-tete, section RESIDU).
+  `IdunBattle.Entities.Behaviours.AttackBehaviour$$Execute` fait `if (targets.Count > 1)
+  targets.OrderBy(<>c.b__5_0)` sur la liste COMPLETE -- primaire comprise, puisque `$$GetTarget`
+  la porte en operande gauche de son `op_Addition`. Le port, lui, joue la primaire d'abord puis les
+  additionnelles triees : le preambule d'`IdunBattle.Operations.ActiveAbilityOperation$$Execute
+  Internal` (`On(0x2a)`, gate acteur-mort, re-resolution `SwornProtector`, `FindAttackWeapon`) vit
+  dans le MEME corps que le premier coup cote port (`damage_ops/normal.py`), donc il n'est pas
+  detachable sans decouper ce vecteur en preambule + par-cible.
+  CONSEQUENCE : des qu'une cible additionnelle porte un id INFERIEUR a celui de la primaire,
+  l'ordre des tirages `state.rng` differe du natif -- montants justes, PERMUTES entre cibles. Les
+  additionnelles entre elles sont, elles, dans l'ordre natif.
+  Le probe MESURE deja l'ecart et le DIT (`probe_1050r1_ancient_fury_widened.py`, note `#1076` :
+  il imprime l'ordre natif reel) ; sur le plan MELEE de MC1_67 le natif ouvre bien sur la primaire,
+  donc l'ecart n'y est pas EXERCE. Il faut un plan ou l'id de l'additionnelle est le plus petit.
+  FOYER: scripts/python/engine/runner/operations/damage_ops/normal.py, scripts/python/engine/runner/abilities/loki/ancient_fury.py, scripts/python/engine/runner/operations/damage.py
+  BLOCAGE: aucun
+
+- **#1076-r1 -- `AncientFury` : la branche RANGED (l'ANNEAU EXACT) n'est pas confrontee LIVE.**
+  `[opus]`
+  Point d'entree : `scripts/python/probe_1050r1_ancient_fury_widened.py::find_layout_ranged` +
+  `docs/rl/case-1050-zone-grise-optimized-gait-ancient-fury.md` Sec.3bis.
+  La branche FAUSSE du `ConditionalSelector` (`AdjacentUnits(Target) & (SurroundingEnemies(d) -
+  SurroundingEnemies(d-1))`) est couverte OFFLINE (`test_1050r1_ancient_fury_offline.py` etages 4,
+  4b, 4c, avec la contre-epreuve `A_OUT` a `d-1`) mais NON confrontee au natif : sur `MC1_67`,
+  aucun plan trouve ne laisse une ligne de tir vers une cible a distance 2. MESURE, pas suppose --
+  le montage porte un TEMOIN (`eldarRanger`, arme ranged portee 3, attaque normale NON substituee,
+  meme distance) et son `fromHere` est VIDE lui aussi : la cause est le PLAN, pas la substitution.
+  Le symptome est SILENCIEUX : `applyAction` rend `ok: true, mutated: false` avec un seul evenement
+  `group 12` -- `FindAttackWeapon` rend null et `ALoki_NormalAttackAbility$$ExecuteBehaviour`
+  no-ope. Le probe l'attrape desormais (attestation `fromHere` dans `stage`).
+  Voie : balayer d'autres boards (`--board-pool`) jusqu'a un plan `C/T` a distance 2 avec ligne de
+  tir, ou monter le regime sur une unite a portee superieure.
+  FOYER: scripts/python/probe_1050r1_ancient_fury_widened.py
   BLOCAGE: aucun
 
 - **#1050-r2 -- `OptimizedGait_NormalAttack` : ses `AttackAmount`/`AttackHits` substituent les BORNES
