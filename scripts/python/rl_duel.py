@@ -955,7 +955,30 @@ def cmd_build(sid: int, a) -> int:
         for u in bc.get("Units", []):
             if u.get("VisualId") in visual_ids:
                 u[field_c] = cc; u[field_d] = cd
-    p_set, a_set = set(p_units), set(a_units)
+    def _visual_set(unit_ids) -> set[str]:
+        """Les `VisualId` que ces `unitId` designent dans `BC.Units`.
+
+        ⚠ **UN PORTEUR `--explicit-stats` N'A PAS LE MEME `Id` QUE SON `VisualId`**, et sans cette
+        reduction TOUS les leviers de combat ci-dessous sont SILENCIEUSEMENT INERTES sur lui.
+        Mesure (#1073) : `catalog_inject.augment(bc, ['darkaNpc3Terminator:45'])` ecrit
+        `Id='darkaNpc3Terminator:45'` et `VisualId='darkaNpc3Terminator'` -- le suffixe `:<palier>`
+        selectionne la ligne de `units.npc[].stats[]`, il ne fait pas partie de l'identite visuelle.
+        La comparaison `u['VisualId'] in {'darkaNpc3Terminator:45'}` ne pouvait donc jamais tenir :
+        `--block-player 100,50` ne posait AUCUN blocage, et le bras de probe qui en depend rendait
+        `indisponible` pour une cause qui n'avait rien a voir avec la mecanique mesuree.
+
+        La reduction coupe au DERNIER `:` (meme regle que `_parse_place_specs`, #507) et est un
+        SUR-ENSEMBLE : l'id nu reste dans le set, donc aucun appelant existant ne change de
+        comportement."""
+        out: set[str] = set()
+        for uid in (unit_ids or []):
+            out.add(uid)
+            court, sep, _pal = str(uid).rpartition(":")
+            if sep and court:
+                out.add(court)
+        return out
+
+    p_set, a_set = _visual_set(p_units), _visual_set(a_units)
     if getattr(a, "crit", None):
         _patch_combat_stat(p_set, "CritChance", "CritDamage", a.crit)
     if getattr(a, "crit_target", None):

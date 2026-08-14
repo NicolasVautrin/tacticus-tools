@@ -19,9 +19,9 @@ differe. C'est la doctrine « DECIDER != EXECUTER ».
 
 ## Bilan
 
-- Unites `summons` : **65** ; kits sans manque : **49** ; kits avec du travail : **16**
+- Unites `summons` : **65** ; kits sans manque : **51** ; kits avec du travail : **14**
 - Actives distinctes : **16** — `[C-]` **5** · `[CD]` **11**
-- Passifs distincts : **47** — portes **31**, non portes **16**
+- Passifs distincts : **47** — portes **33**, non portes **14**
 - Traits de kit distincts (AUCUN ecarte — le seuil de frequence a disparu avec #1015) :
   **43** — couverts **42**, non couverts **1**
 
@@ -51,7 +51,6 @@ l'unite. La colonne `porteurs` dit l'exposition.
 | trait | TwoManTeam | 2 | astraSmnLascannon, astraSmnMortar |
 | passif | BattleFocus | 1 | eldarSmnGuardian |
 | passif | CallInReinforcements | 1 | astraSmnVoxcaster |
-| passif | DeathwingKnight | 1 | darkaSmnTerminator |
 | passif | DrawFire | 1 | blackSmnTerminator |
 | passif | FiringPosition | 1 | blackSmnHavoc |
 | passif | HailOfLivingAmmunition | 1 | tyranSmnTermagant |
@@ -63,7 +62,6 @@ l'unite. La colonne `porteurs` dit l'exposition.
 | passif | RapidFire | 1 | ultraSmnHeavyIntercessor |
 | passif | RepairEnthusiast | 1 | votanSmnEcog |
 | passif | Shrapnel | 1 | astraSmnMortar |
-| passif | SynapticInsight | 1 | tyranSmnBarbgaunt |
 | passif | WatchedOver | 1 | darkaSmnWatcher |
 
 ## Faces DECISION ouvertes sur des actives EXECUTEES (5)
@@ -132,14 +130,14 @@ sont des **faces** absentes d'items presents.
 |---|---:|---|---|---|---|
 | bloodSmnIntercessor | 0 | - | - | - | - |
 
-### DarkAngels — 4 unites, 2 avec du travail
+### DarkAngels — 4 unites, 1 avec du travail
 
 | unite | manque | actives (face) | passifs non portes | traits non couverts | autres voies |
 |---|---:|---|---|---|---|
 | darkaSmnWatcher | 2 | - | NoHidingFromTheWatchers, WatchedOver | - | - |
-| darkaSmnTerminator | 1 | - | DeathwingKnight | - | - |
 | darkaSmnHellblaster | 0 | - | - | - | - |
 | darkaSmnInfiltrator | 0 | - | - | - | - |
+| darkaSmnTerminator | 0 | - | - | - | - |
 
 ### DeathGuard — 2 unites, 1 avec du travail
 
@@ -211,12 +209,12 @@ sont des **faces** absentes d'items presents.
 | thousSmnScreamer | 0 | SlashingDive(1091)[C-] | - | - | - |
 | thousSmnScreamerHSE | 0 | SlashingDive(1091)[C-] | - | - | - |
 
-### Tyranids — 6 unites, 2 avec du travail
+### Tyranids — 6 unites, 1 avec du travail
 
 | unite | manque | actives (face) | passifs non portes | traits non couverts | autres voies |
 |---|---:|---|---|---|---|
-| tyranSmnBarbgaunt | 1 | - | SynapticInsight | - | - |
 | tyranSmnTermagant | 1 | - | HailOfLivingAmmunition | - | - |
+| tyranSmnBarbgaunt | 0 | - | - | - | - |
 | tyranSmnHormagaunt | 0 | - | - | - | - |
 | tyranSmnRipperSwarm | 0 | Burrowers(1023)[CD] | - | - | - |
 | tyranSmnSporeMine | 0 | - | - | - | - |

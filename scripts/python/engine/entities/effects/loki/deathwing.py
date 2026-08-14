@@ -354,9 +354,18 @@ class DeathwingKnightEffect(DeathwingEffect):
 
     Le seul parametre du `.ctor` est `triggeringAbilityType` (`frida/methods.tsv`), qu'il passe a
     `IdunBattle.Entities.Effects.BaseEffect$$.ctor` sous forme d'`AbilityOrEffect` : c'est donc la
-    CONFIG (`ConfigVar`) qui differe entre les deux instances, RIEN d'autre. Les quatre arbres
-    (`CreateEffectDamageBonusForAttack`, `CreateEffectDamageMalusForDefense`, `GetEffectAmount`,
-    `GetDoubleEffectCondition`) sont litteralement partages -- il n'y a qu'un corps.
+    CONFIG (`ConfigVar`) qui differe entre les deux instances, RIEN d'autre. Les DEUX faces de
+    degat de cette classe sont donc, LITTERALEMENT, celles du parent --
+    `IdunBattle.Entities.Effects.Loki.DeathwingEffect$$CreateEffectDamageBonusForAttack` et
+    `IdunBattle.Entities.Effects.Loki.DeathwingEffect$$CreateEffectDamageMalusForDefense` -- au
+    meme titre que `GetEffectAmount` et `GetDoubleEffectCondition`. Il n'y a qu'un corps.
+
+    ⚠ Ces deux symboles sont CITES ICI, et pas seulement dans le parent, parce que
+    `probe_437r1r1r1_effect_face_table.py` resout la classe native d'un effet par son NOM
+    (`<EffectType>Effect`) et retombe sur la CITATION quand ce nom n'existe pas. Or il n'existe
+    pas : c'est le fait meme que cette classe documente. Sans la citation, le cliquet classait
+    `DeathwingKnight` en << NATIF NON RESOLU >> -- un rouge qui accusait le port d'une hypothese du
+    recenseur (un `EffectType` = une classe native), fausse ici par construction.
 
     ⚠ **QUATRE ordinaux, quatre enums, ne jamais les rapprocher** : `TriggeredAbilityType 1245`
     `Deathwing` / `EffectType 1318` `Deathwing` / `TriggeredAbilityType 1510` `DeathwingKnight` /

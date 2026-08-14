@@ -19,9 +19,9 @@ differe. C'est la doctrine « DECIDER != EXECUTER ».
 
 ## Bilan
 
-- Unites `npc` : **491** ; kits sans manque : **431** ; kits avec du travail : **60**
+- Unites `npc` : **491** ; kits sans manque : **434** ; kits avec du travail : **57**
 - Actives distinctes : **147** — `[--]` **1** · `[C-]` **13** · `[CD]` **133**
-- Passifs distincts : **177** — portes **120**, non portes **57**
+- Passifs distincts : **177** — portes **122**, non portes **55**
 - Traits de kit distincts (AUCUN ecarte — le seuil de frequence a disparu avec #1015) :
   **58** — couverts **57**, non couverts **1**
 - **Voies inversees** (nom absent d'`ActiveAbilityType`) : **1** — `Maugetar`
@@ -55,7 +55,6 @@ l'unite. La colonne `porteurs` dit l'exposition.
 | passif | BossEndFightUndefeated | 2 | darkaBossLion, deathBossMortarion |
 | passif | Bounce | 2 | orksNpc7Squig, orksNpc7SquigSurv |
 | passif | Shrapnel | 2 | astraNpc4Mortar, astraNpc4MortarSurv |
-| passif | SynapticInsight | 2 | tyranNpc5Barbgaunt, tyranNpc5BarbgauntSurv |
 | active | Maugetar | 1 | eldarBossMauganRaUltra |
 | passif | ArchContaminator | 1 | deathBossMortarion |
 | passif | BattleFocus | 1 | eldarNpc1Guardian |
@@ -64,7 +63,6 @@ l'unite. La colonne `porteurs` dit l'exposition.
 | passif | Conceal | 1 | eldarNpc2Warlock |
 | passif | CrazedFocus | 1 | blackNpc3TraitorGuardsman |
 | passif | DaRevolushun | 1 | orksRedGobbo |
-| passif | DeathwingKnight | 1 | darkaNpc3Terminator |
 | passif | DrawFire | 1 | blackNpc2Terminator |
 | passif | EmbodiedProphecy | 1 | adeptNpc2Zephyrim |
 | passif | Explosive | 1 | LootObj_ExplOilDrum |
@@ -350,13 +348,12 @@ sont des **faces** absentes d'items presents.
 | bloodNpc1Intercessor | 0 | - | - | - | - |
 | bloodTerminator_LHE | 0 | SavageEchoes(1230)[CD] | - | - | - |
 
-### DarkAngels — 17 unites, 3 avec du travail
+### DarkAngels — 17 unites, 2 avec du travail
 
 | unite | manque | actives (face) | passifs non portes | traits non couverts | autres voies |
 |---|---:|---|---|---|---|
 | darkaBossLion | 2 | InstrumentsOfVengeance(1215)[CD]<br>MartialExemplar(1216)[CD]<br>TheLionsWrath(1217)[CD] | TheEmperorsShield, BossEndFightUndefeated | - | - |
 | darkaNpc4Watcher | 2 | - | NoHidingFromTheWatchers, WatchedOver | - | - |
-| darkaNpc3Terminator | 1 | - | DeathwingKnight | - | - |
 | darkaBossAsmodaiLHE | 0 | ExemplarOfHate(1140)[CD] | - | - | - |
 | darkaBossAzraelLHE | 0 | DarkTalonStrike(1092)[CD] | - | - | - |
 | darkaBossCompanionLHE | 0 | CalibaniteGreatsword(1189)[CD] | - | - | relic:MonsterSlayerOfCaliban |
@@ -365,6 +362,7 @@ sont des **faces** absentes d'items presents.
 | darkaBossTerminatorLHE | 0 | PlasmaCannon(1150)[CD] | - | - | relic:RelicPowerFist |
 | darkaNpc1Infiltrator | 0 | - | - | - | - |
 | darkaNpc2Hellblaster | 0 | - | - | - | - |
+| darkaNpc3Terminator | 0 | - | - | - | - |
 | darkaNpcAsmodai | 0 | ExemplarOfHate(1140)[CD] | - | - | - |
 | darkaNpcAzrael | 0 | DarkTalonStrike(1092)[CD] | - | - | - |
 | darkaNpcCompanion | 0 | CalibaniteGreatsword(1189)[CD] | - | - | relic:MonsterSlayerOfCaliban |
@@ -616,7 +614,7 @@ sont des **faces** absentes d'items presents.
 | thousNpcTerminator | 0 | HellfyreMissileRack(1088)[CD] | - | - | relic:DaemonfleshPlate |
 | thousNpcTzaangor | 0 | SorcerousFacade(1100)[CD] | - | - | - |
 
-### Tyranids — 54 unites, 8 avec du travail
+### Tyranids — 54 unites, 6 avec du travail
 
 | unite | manque | actives (face) | passifs non portes | traits non couverts | autres voies |
 |---|---:|---|---|---|---|
@@ -626,8 +624,6 @@ sont des **faces** absentes d'items presents.
 | tyranNpc3TermagantKronos | 1 | - | HailOfLivingAmmunition | - | - |
 | tyranNpc3Termagant_SyncPvp_Gorgon | 1 | - | HailOfLivingAmmunition | - | - |
 | tyranNpc3Termagant_SyncPvp_Kronos | 1 | - | HailOfLivingAmmunition | - | - |
-| tyranNpc5Barbgaunt | 1 | - | SynapticInsight | - | - |
-| tyranNpc5BarbgauntSurv | 1 | - | SynapticInsight | - | - |
 | tyranBossDeathleaper | 0 | FearOfTheUnseen(1115)[CD] | - | - | - |
 | tyranBossDeathleaperCE | 0 | FearOfTheUnseen(1115)[CD] | - | - | - |
 | tyranBossDeathleaperLHE | 0 | FearOfTheUnseen(1115)[CD] | - | - | - |
@@ -662,6 +658,8 @@ sont des **faces** absentes d'items presents.
 | tyranNpc4WarriorCE2Gorgon | 0 | ScythingTalons(1065)[CD] | - | - | - |
 | tyranNpc4WarriorCE2Kronos | 0 | ScythingTalons(1065)[CD] | - | - | - |
 | tyranNpc4WarriorSurv | 0 | ScythingTalons(1065)[CD] | - | - | - |
+| tyranNpc5Barbgaunt | 0 | - | - | - | - |
+| tyranNpc5BarbgauntSurv | 0 | - | - | - | - |
 | tyranNpc6SporeMine | 0 | - | - | - | - |
 | tyranNpcDeathleaper | 0 | FearOfTheUnseen(1115)[CD] | - | - | - |
 | tyranNpcMowBiovore | 0 | BioMinefield(1144)[CD]<br>SporeMineLauncher(1145)[CD] | - | - | mythic:HyperCorrosiveAcid |
