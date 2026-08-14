@@ -19,9 +19,9 @@ differe. C'est la doctrine « DECIDER != EXECUTER ».
 
 ## Bilan
 
-- Unites `npc` : **491** ; kits sans manque : **380** ; kits avec du travail : **111**
-- Actives distinctes : **147** — `[--]` **7** · `[-D]` **1** · `[C-]` **14** · `[CD]` **125**
-- Passifs distincts : **177** — portes **110**, non portes **67**
+- Unites `npc` : **491** ; kits sans manque : **382** ; kits avec du travail : **109**
+- Actives distinctes : **147** — `[--]` **3** · `[-D]` **1** · `[C-]` **17** · `[CD]` **126**
+- Passifs distincts : **177** — portes **111**, non portes **66**
 - Traits de kit distincts (AUCUN ecarte — le seuil de frequence a disparu avec #1015) :
   **58** — couverts **53**, non couverts **5**
 - **Voies inversees** (nom absent d'`ActiveAbilityType`) : **1** — `Maugetar`
@@ -60,13 +60,9 @@ l'unite. La colonne `porteurs` dit l'exposition.
 | passif | Bounce | 2 | orksNpc7Squig, orksNpc7SquigSurv |
 | passif | Shrapnel | 2 | astraNpc4Mortar, astraNpc4MortarSurv |
 | passif | SynapticInsight | 2 | tyranNpc5Barbgaunt, tyranNpc5BarbgauntSurv |
-| active | CallRipperSwarms | 1 | tyranBossHiveTyrantLeviathan |
-| active | DevoutPush | 1 | templNpc1Initiate |
 | active | InstrumentsOfVengeance | 1 | darkaBossLion |
 | active | Maugetar | 1 | eldarBossMauganRaUltra |
-| active | NovaCharge | 1 | tauBossRiptide |
 | active | PrecisionShot | 1 | necroNpc3Deathmark |
-| active | Reveal | 1 | eldarNpc2Warlock |
 | active | TheLantern | 1 | deathBossMortarion |
 | passif | AllIsDust | 1 | thousNpc3RubricMarine |
 | passif | ArchContaminator | 1 | deathBossMortarion |
@@ -83,7 +79,6 @@ l'unite. La colonne `porteurs` dit l'exposition.
 | passif | Explosive | 1 | LootObj_ExplOilDrum |
 | passif | FiringPosition | 1 | blackNpc4Havoc |
 | passif | FragLance | 1 | astraNpc5DeathRider |
-| passif | HarlequinsPanoply | 1 | eldarNpc3Harlequin |
 | passif | HostOfPlagues | 1 | deathBossMortarion |
 | passif | HuntersInstincts | 1 | tauNpc6Carnivore |
 | passif | Hypermorph | 1 | genesNpc1Aberrant |
@@ -130,13 +125,13 @@ l'unite. La colonne `porteurs` dit l'exposition.
 | passif | WatchedOver | 1 | darkaNpc4Watcher |
 | trait | BeastSnagga | 1 | tauNpcFarsight |
 
-## Faces DECISION ouvertes sur des actives EXECUTEES (14)
+## Faces DECISION ouvertes sur des actives EXECUTEES (17)
 
 Ces abilities s'executent fidelement mais sont CHOISIES avec un scoring qui n'est pas celui
 du natif. Aucun compteur de manque ne les voit — elles ne sont pas des items absents, ce
 sont des **faces** absentes d'items presents.
 
-`ArcScourge`, `BasiliskBarrage`, `Burrowers`, `Catalyst`, `EntropyCannons`, `ExplosivePresents`, `KissOfDeath`, `MacroPlasmaIncinerator`, `SlashingDive`, `SquigLaunchas`, `TunnelingHorror`, `ValkyrieStrike`, `WallOfMirrors`, `WarConstruct`
+`ArcScourge`, `BasiliskBarrage`, `Burrowers`, `CallRipperSwarms`, `Catalyst`, `EntropyCannons`, `ExplosivePresents`, `KissOfDeath`, `MacroPlasmaIncinerator`, `NovaCharge`, `Reveal`, `SlashingDive`, `SquigLaunchas`, `TunnelingHorror`, `ValkyrieStrike`, `WallOfMirrors`, `WarConstruct`
 
 ## Inventaire complet, par faction
 
@@ -237,14 +232,13 @@ sont des **faces** absentes d'items presents.
 | admecNpc3Electropriest | 0 | - | - | - | - |
 | admecNpc3ElectropriestSurv | 0 | - | - | - | - |
 
-### Aeldari — 26 unites, 4 avec du travail
+### Aeldari — 26 unites, 3 avec du travail
 
 | unite | manque | actives (face) | passifs non portes | traits non couverts | autres voies |
 |---|---:|---|---|---|---|
-| eldarNpc2Warlock | 2 | Reveal(1107)[--] | Conceal | - | - |
 | eldarBossMauganRaUltra | 1 | Maugetar[--]! | - | - | relic:Maugetar |
 | eldarNpc1Guardian | 1 | PlasmaGrenade(1098)[CD] | BattleFocus | - | - |
-| eldarNpc3Harlequin | 1 | KissOfDeath(1108)[C-] | HarlequinsPanoply | - | - |
+| eldarNpc2Warlock | 1 | Reveal(1107)[C-] | Conceal | - | - |
 | eldarBossAutarch | 0 | Loki_SwoopingHawk(1064)[CD] | - | - | relic:PhoenixGem |
 | eldarBossAutarchCamp | 0 | Loki_SwoopingHawk(1064)[CD] | - | - | relic:PhoenixGem |
 | eldarBossAutarchLHE | 0 | Loki_SwoopingHawk(1064)[CD] | - | - | relic:PhoenixGem |
@@ -265,6 +259,7 @@ sont des **faces** absentes d'items presents.
 | eldarBossRangerCamp | 0 | FireAndReposition(1063)[CD] | - | - | - |
 | eldarBossRangerLHE | 0 | FireAndReposition(1063)[CD] | - | - | - |
 | eldarBossRangerSurv | 0 | FireAndReposition(1063)[CD] | - | - | - |
+| eldarNpc3Harlequin | 0 | KissOfDeath(1108)[C-] | - | - | - |
 | eldarNpc4Wraithguard | 0 | WarConstruct(1133)[C-] | - | - | - |
 | eldarNpc4WraithguardSurv | 0 | WarConstruct(1133)[C-] | - | - | - |
 
@@ -338,11 +333,10 @@ sont des **faces** absentes d'items presents.
 | blackNpcObliterator | 0 | FrenziedFiring(1036)[CD] | - | - | - |
 | blackNpcTerminator | 0 | BringerOfDespair(1022)[CD] | - | - | relic:DaemonfleshPlate |
 
-### BlackTemplars — 21 unites, 2 avec du travail
+### BlackTemplars — 21 unites, 1 avec du travail
 
 | unite | manque | actives (face) | passifs non portes | traits non couverts | autres voies |
 |---|---:|---|---|---|---|
-| templNpc1Initiate | 1 | DevoutPush(1053)[--] | - | - | - |
 | templNpc3InitiatePyreblaster | 1 | - | Pyreblaster | - | - |
 | templBossAggressor | 0 | FragstormGrenadeLauncher(1048)[CD] | - | - | relic:RelicPowerFist |
 | templBossAggressorCamp | 0 | FragstormGrenadeLauncher(1048)[CD] | - | - | relic:RelicPowerFist |
@@ -361,6 +355,7 @@ sont des **faces** absentes d'items presents.
 | templBossSwordBrother | 0 | ThunderousAssault(1043)[CD] | - | - | relic:RelicBoltPistol |
 | templBossSwordBrotherCamp | 0 | ThunderousAssault(1043)[CD] | - | - | relic:RelicBoltPistol |
 | templBossSwordBrother_LHE | 0 | ThunderousAssault(1043)[CD] | - | - | relic:RelicBoltPistol |
+| templNpc1Initiate | 0 | DevoutPush(1053)[CD] | - | - | - |
 | templNpc2Neophyte | 0 | IncendiaryShells(1044)[CD] | - | - | - |
 | templNpc4Aggressor | 0 | Fragstorm(1078)[CD] | - | - | - |
 
@@ -571,7 +566,7 @@ sont des **faces** absentes d'items presents.
 
 | unite | manque | actives (face) | passifs non portes | traits non couverts | autres voies |
 |---|---:|---|---|---|---|
-| tauBossRiptide | 3 | NovaBoost(1192)[CD]<br>NovaCharge(1193)[--]<br>NovaShield(1194)[CD] | MultiTracker, TargetLock | - | - |
+| tauBossRiptide | 2 | NovaBoost(1192)[CD]<br>NovaCharge(1193)[C-]<br>NovaShield(1194)[CD] | MultiTracker, TargetLock | - | - |
 | tauBossCrisis | 1 | EarlyWarningOverride(1077)[CD] | - | CloseCombatWeakness | relic:Dw02AdvancedBurstCannon |
 | tauBossCrisisInc | 1 | EarlyWarningOverride(1077)[CD] | - | CloseCombatWeakness | relic:Dw02AdvancedBurstCannon |
 | tauBossCrisisLHE | 1 | EarlyWarningOverride(1077)[CD] | - | CloseCombatWeakness | relic:Dw02AdvancedBurstCannon |
@@ -641,7 +636,7 @@ sont des **faces** absentes d'items presents.
 
 | unite | manque | actives (face) | passifs non portes | traits non couverts | autres voies |
 |---|---:|---|---|---|---|
-| tyranBossHiveTyrantLeviathan | 3 | CallRipperSwarms(1052)[--]<br>Catalyst(1032)[C-]<br>StranglethornCannon(1056)[CD] | PrehensilePincerTail, SynapticImperative | - | - |
+| tyranBossHiveTyrantLeviathan | 2 | CallRipperSwarms(1052)[C-]<br>Catalyst(1032)[C-]<br>StranglethornCannon(1056)[CD] | PrehensilePincerTail, SynapticImperative | - | - |
 | tyranNpc1Hormagaunt | 2 | - | AdrenalGlands | InstinctiveBehaviour | - |
 | tyranNpc1HormagauntGorgon | 2 | - | AdrenalGlands | InstinctiveBehaviour | - |
 | tyranNpc1HormagauntKronos | 2 | - | AdrenalGlands | InstinctiveBehaviour | - |
