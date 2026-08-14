@@ -3280,15 +3280,19 @@ def get_adjacent_tiles(state: "State", entity_id, only_empty_or_steppable: bool,
     offline (meme limitation, deja nommee, que `get_free_adjacent_tiles`). Le declarer plutot que le
     taire fait diverger le jour ou le substrat existera.
 
-    `only_empty_or_steppable=False` / `only_walkable_tiles=False` LEVENT : le seul call-site porte
-    est `SkyStrikeAbility$$GetDynamicInvalidTargetReason`, qui passe `(1, 1, 0)`. Mentir sur un flag
-    non mirrore serait pire que refuser.
+    `only_empty_or_steppable=False` EST DESORMAIS MIRRORE (#287-r11, le gate de `1094 TheLantern`
+    passe `(0, 1, 1)`) : le flag GATE le filtre, il ne le conditionne plus a l'entree. C'est
+    litteralement le `if (onlyEmptyOrSteppable && !IsEmptyOrSteppable(tile, state)) continue` du
+    decompile ci-dessus -- a `false`, le terme disparait, il ne s'inverse pas.
+    `only_walkable_tiles=False` LEVE toujours : AUCUN call-site porte ne le passe, et il ferait
+    entrer des tuiles que le port ne sait pas qualifier. Mentir sur un flag non mirrore serait pire
+    que refuser.
 
     Rend des `(col,row)`, dedupliques, dans l'ordre d'insertion."""
-    if not only_empty_or_steppable or not only_walkable_tiles:
+    if not only_walkable_tiles:
         raise NotImplementedError(
-            "get_adjacent_tiles: seule la combinaison du call-site porte "
-            "(only_empty_or_steppable=True, only_walkable_tiles=True) est mirroree")
+            "get_adjacent_tiles: `only_walkable_tiles=False` n'a aucun call-site porte "
+            "-- il n'est donc pas mirrore")
     board = state.board
     if board is None:
         return []
@@ -3306,7 +3310,7 @@ def get_adjacent_tiles(state: "State", entity_id, only_empty_or_steppable: bool,
                 continue                       # `OrderedSet` : deduplication
             if not board.walkable(nid):
                 continue                       # `onlyWalkableTiles` -> `TileExtensions$$IsWalkable`
-            if not tile_is_empty_or_steppable(state, coord):
+            if only_empty_or_steppable and not tile_is_empty_or_steppable(state, coord):
                 continue                       # `onlyEmptyOrSteppable` -> `IsEmptyOrSteppable`
             out.append(coord)
     return out
