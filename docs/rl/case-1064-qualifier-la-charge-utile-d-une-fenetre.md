@@ -101,6 +101,40 @@ etre **ECRITS**, puis une seule fenetre groupee les active. Leur specification t
 ⚠ **Ne PAS lire ce tableau comme un etat courant** : il vaut pour le bundle du 2026-08-14T03:06:21Z.
 Re-jouer la grille du §1 apres chaque reinject.
 
+### Les 4 capteurs a ECRIRE — c'est ca, la charge utile d'une fenetre
+
+| Residu | Ce qu'il faut ecrire | Ou | Patron deja ecrit |
+|---|---|---|---|
+| `#1036-r8` | `UnitConfiguration+0xc0` (`TertiaryAbilityLevel`) par unite, TRI-ETAT (`null`, jamais `0`) | `features/ai-step/rpc-snapshot.ts` | `readRarity` (#1039), meme voie `GetBaseUnitComponent` |
+| `#982-r6` | un drapeau `forceInit` sur `resolveVtableSlot` | `features/introspect.ts` | `probes/static-field-probe.ts` (~5 lignes a porter) |
+| `#1009-r3` | tagger `ret`/`args` par `readMsgClass` dans `ctorOnLeave` | `features/dsl-ctor-trace.ts` | le gate du meme fichier le fait deja sur `this` |
+| `#969-r4` | `CurrentOwnerIsEnvironment` par unite, TRI-ETAT | `features/ai-step/rpc-snapshot.ts` | `currentOwnerIsEnvMi` est **deja resolu** dans `internals.ts` |
+
+Les quatre sont **petits** et **sans RE restante**. Les ecrire d'abord, puis **une seule** fenetre
+groupee. Ecrire le code AVANT d'ouvrir la fenetre est ce qui rend la fenetre rentable — l'ouvrir
+sur les 19 residus tels qu'ils etaient libelles aurait livre **zero**.
+
+### Les 4 lignes RETIREES du backlog, et pourquoi
+
+Une ligne se retire quand le probleme est **ferme**, pas quand il est mal classe. Les quatre :
+
+- **`#959-r1`** — son propre corps portait `RESOLU (#982)` : capteur `triggeredMoveTrace` deja
+  charge, face DECISION portee **et** confrontee (38 lignes bit-exactes, 13 non nulles,
+  discriminante). Rien ne restait.
+- **`#916-r1`** — `NOMME ET REFUTE (#982)` : le slot 5 est
+  `IEffect.get_AlwaysCreateOneEntityPerEffect`, LU dans `metadata/interface_slots.tsv`, et il
+  n'encode PAS `stacks_stat_mod_on_add`. Son unique reliquat (recensement partiel) est `#982-r6`,
+  **qui existe** — verifie.
+- **`#905-r1`** — `<DSLTriggers+0x60>` = **`No`** (§3). Le risque nomme par la fiche (« et s'il
+  etait CONDITIONNEL ? ») est leve, le port de `1228` confirme.
+- **`#590-r5`** — `TRANCHE OFFLINE (#982)`, la ligne le disait elle-meme : `BaseUtility$$.cctor`
+  ecrit `statics+0x20 = Fix64.MinValue`, la constante de rejet est eliminatoire.
+
+⚠ **Symetrie a garder** : `#966-r2` portait aussi un « RESOLU », mais renvoyait le travail restant
+a `#982-r5` — qui n'a **jamais** ete ouvert (une seule mention dans tout le backlog : la sienne).
+Elle est donc **conservee** et corrigee. Un renvoi n'est pas une fermeture : verifier que la cible
+existe avant de retirer une ligne.
+
 ## 6. Angle mort connu
 
 La prose des modules `frida/hooks/**` se perime **exactement comme le champ `BLOCAGE:`**. Deux
