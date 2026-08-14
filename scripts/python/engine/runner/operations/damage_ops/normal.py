@@ -765,7 +765,7 @@ class _Normal:
                 # se lit sur `r`, JAMAIS sur un tirage a venir. `r["crits"]` est index-aligne sur
                 # les coups EXECUTES (`damage_hits.py`), coups bonus compris.
                 attack_had_critical=any(r.get("crits") or ()),
-                # #1050 `FragLanceEffect` : les deux conjoints restants de son trigger. Ce vecteur
+                # #1065 `FragLanceEffect` : les deux conjoints restants de son trigger. Ce vecteur
                 # EST l'attaque normale (`IsNormalAttack` VRAI par construction) ; `is_charging`
                 # reutilise le `_charging` deja calcule plus haut par le foyer UNIQUE
                 # `battle_query_is_charging` -- un seul appel par attaque, aucun predicat re-derive.

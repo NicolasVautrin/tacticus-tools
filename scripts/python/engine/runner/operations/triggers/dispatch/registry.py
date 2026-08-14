@@ -98,7 +98,7 @@ from ..loki.suppressive_fire import SuppressiveFireAddEffectAbility  # #74 (trai
 from ..loki.special_issue_combi_melta import (                       # #419-r1-tr11-r4 (passif 1545)
     SpecialIssueCombiMeltaAddEffectAbility, SPECIAL_ISSUE_COMBI_MELTA)
 from ..loki.death_nova import ExplodesAbility, PutridExplosionAbility  # death-nova (traits 1008 / 2028)
-from ..loki.floating_death import (FloatingDeathAttackAbility,       # #1050 (passif 1243, Spore Mines)
+from ..loki.floating_death import (FloatingDeathAttackAbility,       # #1065 (passif 1243, Spore Mines)
                                    FloatingDeathChainAbility,
                                    FloatingDeathExtraMovementAbility)
 from ..loki.master_annihilator import MasterAnnihilatorMarkAbility   # lot POSE (passif admecDominus)
@@ -597,7 +597,7 @@ ABILITY_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
     # l'inscription inconditionnelle INERTE hors round WarpHail.
     "FleshmetalGuns": [FleshmetalGunsRotationAbility, FleshmetalGunsTileEffectAbility],
     # FloatingDeath (passif des DEUX Spore Mines tyranides -- summon `tyranSmnSporeMine`, npc
-    # `tyranNpc6SporeMine` ; `TriggeredAbilityType` 0x4db = 1243, #1050). UNE entree gameconfig,
+    # `tyranNpc6SporeMine` ; `TriggeredAbilityType` 0x4db = 1243, #1065). UNE entree gameconfig,
     # CINQ classes natives (`frida/classes.tsv`) -> TROIS entrees ici, la 4e mesuree SANS
     # observable et la 5e portee ailleurs :
     #   * `FloatingDeath_AttackAbility` = `On(2 = PreUnitDeath_2, alive: 0) & get_OwnerIsTarget &

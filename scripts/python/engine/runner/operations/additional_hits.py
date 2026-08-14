@@ -149,7 +149,7 @@ def collect_additional_hit_groups(state: State, attacker_id: int, target_id: int
               # `get_OwnerIsCaster` -- et surtout toute lecture d'`AbilityState` PAR PORTEUR --
               # etait inevaluable sur cette branche, alors que le canal AURA les portait deja.
               "owner_id": attacker_id, "att_id": attacker_id,
-              # #1050 -- les DEUX conjoints restants du trigger de
+              # #1065 -- les DEUX conjoints restants du trigger de
               # `IdunBattle.Entities.Effects.Loki.FragLanceEffect$$CreateAdditionalHits`
               # (`get_OwnerIsCaster & IsNormalAttack & IsCharging(Caster@+0x60, Target@+0x78)`).
               # `is_normal_attack` = nature du VECTEUR (MEME donnee, meme nom et meme tri-etat que

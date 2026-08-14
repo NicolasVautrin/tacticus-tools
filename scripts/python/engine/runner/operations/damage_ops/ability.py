@@ -764,7 +764,7 @@ class _AbilityAttack:
                     # `damage_ops/normal.py` : `hitGroup+0x3d` du groupe d'ARME qu'on vient de
                     # resoudre, recopie par le natif dans l'`AbilityEntities` du canal #179.
                     attack_had_critical=any(r.get("crits") or ()),
-                    # #1050 -- ce vecteur N'EST PAS l'attaque normale : le noeud `IsNormalAttack`
+                    # #1065 -- ce vecteur N'EST PAS l'attaque normale : le noeud `IsNormalAttack`
                     # rend FAUX, ce qui eteint `FragLanceEffect` ici (son trigger l'exige). C'est
                     # donc une valeur MESUREE, pas un defaut. `is_charging` reste NON MESURE (None)
                     # et le gate `is_charging_attack` rend alors FAUX : aucun descripteur du canal

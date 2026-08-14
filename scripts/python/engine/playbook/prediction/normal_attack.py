@@ -482,7 +482,7 @@ def _make_mv71_drone_predictions(scene, att_id, tgt_id, attack_pos, *, meta=Fals
                # DRONE (`tile_pos`) -- c'est elle que ce chemin thread deja partout ailleurs
                # (`_add_positional_and_defender_mods`, selection d'arme, distance `_d`).
                "att_pos": tuple(tile_pos), "t_pos": t_pos}
-    # #1050 -- ce chemin (attaque du DRONE `MV71SniperDroneSquad`) ne thread NI `owner_id`/`att_id`
+    # #1065 -- ce chemin (attaque du DRONE `MV71SniperDroneSquad`) ne thread NI `owner_id`/`att_id`
     # NI `is_charging` / `is_normal_attack` : le tireur est une entite SPAWNEE dont la tuile
     # d'attaque n'est pas celle du caster, et aucun descripteur du canal #179 gate sur ces cles n'a
     # de porteur qui l'emprunte (`FragLanceEffect` vit sur `astraSmnDeathRider`, hors drone). Les
@@ -902,7 +902,7 @@ def make_normal_attack_predictions(scene, att_id, tgt_id, attack_pos, *, meta=Fa
                # prediction est resolu contre la `UnitPosition` candidate threadee par la chaine
                # display, pas contre la position courante. Pas de fork entre les deux ctx.
                "att_pos": _att_ctx["att_pos"], "t_pos": t_pos,
-               # #1050 -- les TROIS conjoints du trigger de `FragLanceEffect$$CreateAdditionalHits`,
+               # #1065 -- les TROIS conjoints du trigger de `FragLanceEffect$$CreateAdditionalHits`,
                # pendant EXACT du cablage COMBAT (`runner/operations/additional_hits.py`) :
                #  * `owner_id`/`att_id` = `get_OwnerIsCaster`. Sur CETTE branche l'enumeration est
                #    deja restreinte a `att_effects` (les effets de l'attaquant), donc le porteur EST
