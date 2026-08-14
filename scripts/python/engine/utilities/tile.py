@@ -1789,6 +1789,17 @@ def scene_tile_leaf_ctx(scene, unit_id: int | None) -> dict:
             "unit_active_abilities": entity_active_ability_ids(scene.ctx(unit_id), my_vis),
             "unit_traits": entity_trait_ids(scene.ctx(unit_id), my_vis),
             "uid": unit_id,
+            # #433-r4-r3-r3 : `IdunBattle.Entities.UnitExtensions$$GetParent(case.Unit, state,
+            # root: false)` -- le lien enfant -> SUMMONER (`ChildComponent.ParentId`). Ce TROISIEME
+            # jumeau etait le SEUL des trois a ne pas le poser, alors que le canal existe des deux
+            # cotes depuis #378 (`Scene.parent` : `combatSnapshot.units[].parentId` en live,
+            # `UnitComponent.parent_id` offline) : les deux feuilles qui le GATENT rendaient donc 0
+            # sur la face PREDICTION seule -- `savior_protocols.py` (bonus PARENT) et
+            # `playbook/non_owner.py` (gate `GetParent(case.unit) != owner`, dont depend le terme
+            # `EcogSupport`). MEME semantique d'absence que les deux autres producteurs : `None` =
+            # pas de parent OU pas mesure (`Scene.parent` collapse les deux, cf. sa docstring), et
+            # les deux lecteurs se taisent alors -- degradation PARTIELLE, jamais un zero global.
+            "unit_parent_id": scene.parent(unit_id),
             "unit_faction": faction_value(my_vis),
             "is_spawning": False,
             "self_pos": scene.pos(unit_id),

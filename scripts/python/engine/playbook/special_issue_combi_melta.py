@@ -122,23 +122,29 @@ de `data/symbols/<build>/frida/enums.tsv` du build COURANT, jamais d'une fiche a
 
 ## Substrat cote port -- ce que ce terme exige, et qui l'ecrit
 
-Le corps ne lit que la POSITION de la cible et la tuile d'attaque. Les deux canaux existent deja
-(`scene.pos_by_id` ; `attack_tile` est le 5e parametre du dispatcher) -- aucune piece neuve, donc pas
-de patron « porte + INERTE ». `prediction` (`UtilityAttackCase@+0x28`, canal #438) est ACCEPTE et
-IGNORE, comme le corps natif qui ne lit pas ce champ.
+Le corps ne lit que les TUILES de la cible et la tuile d'attaque. Les deux canaux existent deja
+(`scene.feet_by_id` via `playbook.adjacency.iterate_tiles` ; `attack_tile` est le 5e parametre du
+dispatcher) -- aucune piece neuve, donc pas de patron « porte + INERTE ». `prediction`
+(`UtilityAttackCase@+0x28`, canal #438) est ACCEPTE et IGNORE, comme le corps natif qui ne lit pas
+ce champ.
 
-Residu NOMME `#419-r1-tr11-r1` -- **le MULTI-HEX est collapse a la main tile**. Le natif prend le MIN
-sur toutes les paires de pieds (`EntityExtensions.GetTiles`) ; `scene.pos_by_id` ne porte que la
-MainTile, et le seul cote qui pourrait avoir plusieurs pieds ici est la CIBLE (la tuile d'attaque est
-un `(col,row)` unique). Une MoW visee a distance 3 de sa main tile mais 2 d'un de ses pieds ferait
-donc rendre 25 au port la ou le natif rend 0. NON CONFRONTE (aucune MoW dans le montage) ; fermeture
-= publier l'empreinte de la cible dans la `Scene` de decision, comme
-`engine.runner.components.get_unit_feet` le fait cote runner.
+Residu `#419-r1-tr11-r1` -- **le MULTI-HEX etait collapse a la main tile. FERME.** Le natif prend le
+MIN sur toutes les paires de pieds (`IdunBattle.Entities.EntityExtensions$$GetTiles`) ; le port
+lisait `scene.pos(cible)`, c.-a-d. la seule MainTile, alors que le seul cote qui puisse avoir
+plusieurs pieds ici est bien la CIBLE (la tuile d'attaque, elle, est `case.CasterPosition.MainTile`
+au natif meme -- un `(col,row)` unique). Une MoW visee a distance 3 de sa main tile mais 2 d'un de
+ses pieds faisait rendre 25 au port la ou le natif rend 0. La fermeture n'a demande AUCUN capteur :
+l'empreinte est publiee dans la `Scene` de decision depuis `#419-r1-tr10-r2`
+(`decisionView.units[].feet` / `.mows[].{feet,platformTiles}`), et son foyer de lecture est
+`playbook.adjacency.iterate_tiles`, le mirror d'`EntityExtensions$$IterateTiles` -- l'enonce du
+residu (« fermeture = publier l'empreinte ») etait donc PERIME de ce canal. Sur toute unite
+MONO-PIED le resultat est IDENTIQUE au port d'avant (`iterate_tiles` rend `[MainTile]`).
 """
 from __future__ import annotations
 
 from ..battle_query import get_distance
 from ..entities.triggered_ability_type import TriggeredAbilityType
+from .adjacency import iterate_tiles
 
 # Le LITTERAL `3` du corps (`if (GetDistance(...) != 3) yield break;`) -- cf. en-tete, point 5.
 _RANGE = 3
@@ -165,15 +171,22 @@ class SpecialIssueCombiMeltaPlaybook:
         sc = getattr(ctx, "scene", None)
         if sc is None or attack_tile is None or case_tgt_id is None:
             return 0.0
-        tgt_tile = sc.pos(int(case_tgt_id))
-        if tgt_tile is None:
-            # `MovementQuery$$GetDistance` rend `int.MaxValue` des qu'un cote n'a pas de tuile --
-            # jamais 0, donc la gate `== 3` ne peut pas passer. Meme sortie ici.
-            return 0.0
-        # `IBattleQuery.<slot 0x6c>(case.Target, case.CasterPosition.MainTile)` = le MIN des
-        # `CubeCoordinate.Distance` sur les paires de pieds. Le port collapse chaque cote a UNE
-        # tuile (residu `#419-r1-tr11-r1`) et passe par le MEME mirror que le reste du moteur.
-        if get_distance([tgt_tile], [attack_tile]) != _RANGE:
+        # `#419-r1-tr11-r1` FERME : les tuiles de la CIBLE sont TOUS ses pieds, pas sa seule
+        # MainTile. `GetDistance(IEntity, IEntity)` resout chaque cote par
+        # `IdunBattle.Entities.EntityExtensions$$GetTiles` puis prend le MIN sur les PAIRES ; sur une
+        # entite MULTI-HEX (MACHINE OF WAR, 3 ou 7 pieds) la MainTile seule SUR-ESTIME la distance,
+        # donc le port versait 25 la ou le natif rend 0 (et inversement). Le canal existe depuis
+        # `#419-r1-tr10-r2` (`scene.feet_by_id` <- `decisionView.units[].feet` /
+        # `.mows[].{feet,platformTiles}`) et le foyer de lecture est `adjacency.iterate_tiles`, LE
+        # mirror de `EntityExtensions$$IterateTiles` -- aucun capteur neuf, aucun canal propre.
+        # Cible sans aucune tuile -> `[]` -> `get_distance` rend `DISTANCE_UNREACHABLE`, donc la
+        # gate `== 3` ne passe pas : exactement le `int.MaxValue` du natif, jamais 0.
+        tgt_tiles = iterate_tiles(sc, int(case_tgt_id))
+        # L'AUTRE cote reste un singleton, et c'est LU : `case.CasterPosition.MainTile`
+        # (`UtilityAttackCase@+0x18` -> `UnitPosition$$get_MainTile`) est deja la MAIN TILE au natif
+        # -- le playbook ne passe PAS l'entite du caster. Le collapse y est donc FIDELE, pas une
+        # degradation.
+        if get_distance(tgt_tiles, [attack_tile]) != _RANGE:
             return 0.0                                   # `yield break` -- cf. en-tete, point 6
         return float(ctx.wt.triggered(_WEIGHT_KEY))
 
