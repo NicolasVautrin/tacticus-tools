@@ -30,6 +30,44 @@ from engine.runner.operations.triggers.dispatch.registry import (ABILITY_TRIGGER
 from engine.services import battle_query as BQ
 import gameconfig as GC
 
+# `DECLENCHEUR` (#486-r15) -- ce qui doit changer pour que ce fichier puisse changer de verdict.
+DECLENCHEUR = {
+    "chemins": (
+        "scripts/python/conftest.py", "scripts/python/tests/conftest.py",
+        "scripts/python/tests/engine/conftest.py",
+        "scripts/python/tests/engine/runner/conftest.py",
+        "scripts/python/green_skip_guard.py", "scripts/python/declencheur_guard.py",
+        # LES DEUX ETAGES gardes.
+        "scripts/python/engine/services/battle_query.py",
+        "scripts/python/engine/runner/abilities/behaviours/lifecycle.py",
+        # LES DEUX FEUILLES DSL neuves.
+        "scripts/python/engine/runner/abilities/behaviours/flags.py",
+        "scripts/python/engine/runner/abilities/behaviours/__init__.py",
+        # LES DEUX INSCRIPTIONS de registre et leurs mirrors.
+        "scripts/python/engine/runner/operations/triggers/dispatch/registry.py",
+        "scripts/python/engine/runner/operations/triggers/loki/way_of_the_short_blade.py",
+        "scripts/python/engine/runner/operations/triggers/loki/final_vengeance.py",
+        "scripts/python/engine/runner/operations/triggers/loki/final_justice.py",
+        # LA GEOMETRIE de cibles de l'effet 1500 et les deux mirrors d'enum lus.
+        "scripts/python/engine/entities/effect_targets.py",
+        "scripts/python/engine/entities/effects/loki/way_of_the_short_blade.py",
+        "scripts/python/engine/entities/unit_flag.py",
+        "scripts/python/engine/entities/effect_type.py",
+        "scripts/python/engine/runner/components.py",
+    ),
+    # Le balayage de non-regression parcourt TOUTES les unites du gameconfig et compare leurs
+    # armes : un changement de build change les armes, donc peut changer le verdict.
+    "build": True,
+    "toujours": False,
+    "raison": (
+        "Ce fichier garde les DEUX etages ouverts par la tranche du foyer `dispatch/registry.py` "
+        "-- `force_ranged_attack` dans le service de selection d'arme, et `ignoreUnitHavingAbility` "
+        "dans le noeud `TriggerAbility` -- plus les deux feuilles DSL `AddFlag`/`RemoveFlag` et les "
+        "deux inscriptions de registre. Les chemins listes sont ceux dont une modification peut "
+        "faire changer un verdict ; le `build` y est parce que le balayage de non-regression lit "
+        "les armes de TOUTES les unites du gameconfig."),
+}
+
 
 # ==================================================================================================
 # ETAGE 1 -- `!HasFlag(attacker, 0x15 = ForceRangedAttack)`, le 2e conjoint de la branche MELEE de
