@@ -2,13 +2,15 @@
 
 > Build `rnca9r7q6c`. Deux reliques de la voie `item` (`items[*].abilityId` + `allowedUnits`), deux
 > porteurs de **factions différentes**, donc **deux harnais live distincts**. La première est
-> **PORTÉE et CONFRONTÉE 3 bras / 3** ; la seconde a sa **RE complète écrite ici** et reste
-> **NON PORTÉE** — résidu `#1012-r1`.
+> **PORTÉE et CONFRONTÉE 3 bras / 3** ; la seconde l'est désormais aussi — résidu `#1012-r1`
+> **FERMÉ** (port + cliquet offline de 15 tests + 3 lignes de mesure live, §2.3 à §2.5). Le corps
+> du §2.1/§2.2 est conservé tel qu'il a été lu ; **trois de ses affirmations étaient FAUSSES** et
+> sont corrigées au §2.3, la fourche du §2.1 étant tranchée AU DÉCOMPILÉ.
 
 | id | ability | porteur | verdict |
 |---|---|---|---|
 | 1476 | `Dw02AdvancedBurstCannon` | `tauCrisis` « Re'vas » (HERO, pool rank 17) | **PORTÉE + CONFRONTÉE** |
-| 1549 | `HeadwoppasKillchoppa` | `orksWarboss` « Gulgortz » (HERO, pool rank 17) | **RE COMPLÈTE, NON PORTÉE** (`#1012-r1`) |
+| 1549 | `HeadwoppasKillchoppa` | `orksWarboss` « Gulgortz » (HERO, pool rank 17) | **PORTEE + CONFRONTEE** (`#1012-r1` ferme) |
 
 Les deux sont des `TriggeredAbilityType` : elles n'entrent **ni** dans `ABILITY_CLASSES`, **ni**
 dans `TARGETING_OPTIONS`, **ni** dans `ABILITY_ATTACK_TYPE`.
@@ -183,7 +185,12 @@ IMPORTÉS du probe).
 
 ---
 
-## 2. `HeadwoppasKillchoppa` (1549) — RE COMPLÈTE, NON PORTÉE (résidu `#1012-r1`)
+## 2. `HeadwoppasKillchoppa` (1549) — **PORTÉE + CONFRONTÉE** (`#1012-r1`, fermé)
+
+> **État FINAL** : les quatre étages sont portés, la fourche du §2.1 est **tranchée AU DÉCOMPILÉ**
+> (et *confirmée* live), et **deux affirmations du §2.2 ci-dessous étaient FAUSSES** — elles sont
+> corrigées en tête de §2.4. Le corps du §2.1/§2.2 est conservé tel qu'il a été lu ; ce qui a
+> changé est signalé à sa place.
 
 **Aucun texte i2 n'existe pour cette ability** (ni `_CurrentLevelDescription`, ni
 `_NextLevelDescription`) : seul `Items/R_Crit_HeadwoppasKillchoppa_name` est traduit. La mécanique
@@ -229,14 +236,25 @@ partage le corps de `SummaryExecutionAddBaseEffectAbility$$CreateTrigger`.)
 (patron `ToughToKill` / `Vitarus` / `Skullsmasher`), **mais par un `CreateBehaviour` PROPRE**, pas par
 la base `AOwnerEffectTriggeredAbility` — la classe dérive de `BaseTriggeredAbility`.
 
-⚠ **UNE FOURCHE NON TRANCHÉE, ET ELLE EST LOAD-BEARING** : le 3ᵉ champ des `options` vaut
-`Direct(0)`. Est-ce la **durée** (⇒ effet PERMANENT, patron « turns = `<zeroe>` » des owner-effects)
-ou le **niveau initial** (⇒ effet posé à **level 0**) ? L'argument STRUCTUREL penche pour le niveau :
-la `CreateActiveCondition` de l'effet est `AmountIsGreaterThanZero(EffectLevel)`, ce qui serait
-mort-né si l'effet naissait au niveau 1 (patron `Skullsmasher`, dont l'`ActiveCondition` est
-`AmountIsGreaterThanZero(GetMissingHealthSteps())`). **La mesure qui tranche** : lire
-`decisionView.effects` (avec `includeInactive: true`) sur un Gulgortz fraîchement monté avec la
-relique, AVANT toute mort — niveau 0 ⇒ c'est le niveau ; niveau 1 et effet actif ⇒ c'est la durée.
+✅ **LA FOURCHE EST TRANCHÉE, ET AU DÉCOMPILÉ — le 3ᵉ champ des `options` est le NIVEAU INITIAL.**
+Elle n'a PAS eu besoin de la mesure live proposée ici : trois lectures enchaînées la ferment.
+
+1. `IdunBattle.Entities.Behaviours.AddEffectBehaviour$$.ctor` recopie les trois champs du `Nullable`
+   à `this+0x70 / +0x78 / +0x80` ;
+2. `...AddEffectBehaviour$$Execute` évalue `+0x78` dans `AddEffectOptions+0x00` et `+0x80` dans
+   `AddEffectOptions+0x10` — **en posant `1` par défaut** quand `+0x80` est nul ;
+3. `IdunBattle.Operations.AddEffectOperation$$Execute` consomme la struct champ par champ :
+   `+0x00` = la **DURÉE** (repli sur
+   `idun.Idun.Source.Shared.Battle.StaticBattleRules.StaticBattleRules.Effect$$DefaultAmountOfRounds`),
+   `+0x08` = l'effet **BONDÉ**, et `+0x10` — re-défauté à `1` — est écrit dans
+   `EffectComponent+0x68`, **le NIVEAU** (`+0x58` recevant l'`effectType` juste avant).
+
+Et `IdunBattleLogic.Entities.DSLFormulas$$.ctor` donne le scalaire : `+0x18` = `Direct(0)`,
+`+0x20` = `Direct(1)`, `+0x28` = `Direct(2)`, `+0x30` = `Direct(100)`, `+0x38` = `Direct(-1)`.
+
+⇒ **l'effet naît au niveau 0, sans durée (donc permanent)**, et son `ActiveCondition` n'est pas
+mort-née : elle le tient INACTIF tant que Gulgortz n'a rien abattu. La mesure live est devenue un
+**CONTRÔLE**, et elle CONCORDE (§2.5).
 
 ### 2.2 L'effet 1568 — `IdunBattle.Entities.Effects.Loki.HeadwoppasKillchoppaEffect`
 
@@ -294,31 +312,88 @@ appelée avec `cap = null`, contrairement à `Neuroparasite` (`$$GetMaximumLevel
 la valeur `3` **n'est pas dans le mirror à deux membres du build** (`0 = ByCurrentTeam`,
 `1 = ByOriginalTeam`) — à re-dériver avant de porter.
 
-### 2.3 Pourquoi ce n'est PAS porté ici, et ce qu'il reste à faire
+### 2.3 TROIS corrections au §2.2 — relues aux OCTETS
 
-Quatre étages manquent, et aucun n'est une variante d'un étage déjà porté :
+**(a) Le 3ᵉ argument de `Friends` n'est PAS un `UnitTeamSelectionType`.** Ce mirror (#963-r1) n'a que
+`0 = ByCurrentTeam` et `1 = ByOriginalTeam` : la valeur `3` n'y existe pas, et « à re-dériver » était
+la mauvaise conclusion. Le **TYPE DÉCLARÉ**, lu dans `data/symbols/<build>/frida/methods.tsv`, est
+`DSLSelectors.Friends(of, entities, selectionType:IdunBattle.Entities.Enum.UnitSelectionType)` —
+et `UnitSelectionType 3 = OnlyAliveAndTargetable`. Même lecture pour le `1` d'`UnitsWithVisualId`
+(= `OnlyAlive`). C'est la règle « la VOIE ne dit pas l'enum, seuls le NOM ou le TYPE DÉCLARÉ
+tranchent », appliquée.
 
-1. **la classe d'effet 1568** — patte `create_effect_damage_bonus_for_attack` gatée
-   `IsMeleeAttack & get_OwnerIsCaster`, magnitude `extraDmg × EffectLevel` ;
-2. **l'AURA** — `CreateTargetSelector` projette l'effet sur les Ork Boyz alliés, donc chaque
-   récipiendaire a SA propre instance, dont l'`Owner` est LUI. Conséquence lue, contre-intuitive :
-   un Ork Boy qui tue monte **son propre** niveau, pas celui de Gulgortz ;
-3. **le trigger interne de l'effet** (`CreateHandleTriggerAbilitiesInternal`) — patron
-   `NeuroparasiteEffect`, déjà porté ailleurs, mais jamais sur `On(0x36 = UnitDefeated)` ;
-4. **l'entrée `ABILITY_INIT_OWNER_EFFECTS`** et la fourche `options` du §2.1.
+**(b) `Friends` est appelé DEUX FOIS, imbriqué** — deux `call` distincts vers la même cible dans
+`...HeadwoppasKillchoppaEffect$$CreateTargetSelector`, et aucun `je` ne saute par-dessus l'un des
+deux. Le filtre étant idempotent, l'observable est identique ; c'est écrit parce que le décompilé
+l'écrit.
 
-**Le montage live est écrit et il n'a pas de bloqueur connu** : `orksWarboss` est **dans le pool
-rank 17** (vérifié `rl_duel build --list-pool`), la relique s'équipe par
-`rl_duel build --equip-relic "orksWarboss:HeadwoppasKillchoppa:<lvl>"` (état 2 de #237, `allowedUnits`
-satisfait). Il faut **des morts** pour faire monter le niveau : `--a-units` avec plusieurs cibles
-FRAGILES (`--hp-target` bas) que Gulgortz abat au contact, puis mesure du dégât de mêlée AVANT/APRÈS
-chaque kill. `Waaagh` (1058) summone les deux Ork Boyz qui exercent la face AURA.
+**(c) — la plus lourde — IL N'EXISTE QU'UNE INSTANCE D'EFFET.** Le texte ci-dessus écrivait
+« chaque récipiendaire a SA propre instance, dont l'`Owner` est LUI ; un Ork Boy qui tue monte **son
+propre** niveau ». **C'est faux.** `AddEffect` pose l'effet sur `targets = Owner` — une seule cible,
+Gulgortz. `CreateTargetSelector` n'est pas un sélecteur de POSE : c'est celui des unités AFFECTÉES,
+évalué par `IdunBattle.Entities.Effects.BaseEffect$$GetTargets` (cache `CreateTargetSelectorAndCache`
+en `this+0xa0`, puis retrait de `UnitsWithTrait(.., 0x1b, 3)` selon le slot de vtable `+0x4d8`). Le
+patron est celui de `NornCrownEffect` (#1011), dont la face AURA est confrontée live. Et
+`IncreaseEffectLevel(Owner@+0x30, ...)` descend à `DSLSelectors$$EffectFromOwner(owner, effectType)`
+⇒ **seuls les kills du PORTEUR montent le niveau**, et ce niveau unique sert Gulgortz ET ses Ork
+Boyz. La mesure du §2.5 le corrobore (deux victimes d'un seul coup, `killerId = 85` pour les deux,
+niveau 2).
 
-⚠ **Le piège de mesure de #1012 vaut ici aussi, en sens inverse** : Gulgortz frappe en `Eviscerate`
-(mêlée, `PiercingRatio` 50) — il faut des cibles qui SURVIVENT quand on mesure le bonus et qui
-MEURENT quand on veut incrémenter. Deux populations distinctes de cibles, pas une.
+**(d) `Attacker()` n'est pas `Actor`, mais l'écart est NUL ici.**
+`IdunBattleLogic.Entities.DSLSelectors$$Attacker` rend
+`UnobscuredEntitiesSelector(state, AreEqual(TriggeringAbility@+0x98, DirectAbilitySelector(
+AbilityOrEffect(0x434))), ParentSelector(state, <+0x48>), <+0x48>)` — le PARENT de l'acteur quand
+l'ability déclenchante est `0x434`, l'acteur sinon. Le littéral est RELU AUX OCTETS
+(`ba 34 04 00 00`, le pseudo-C le perd) : **1076 = `ActiveAbilityType.MV71SniperDroneSquadAttack`**,
+le tir du drone sniper Tau, dont le kill est attribué à son summoner. Aucun régime accessible à
+Gulgortz ne passe par là — l'écart est nul, pas seulement « non mesuré ».
 
-Résidu : **`#1012-r1`**.
+### 2.4 Le PORT
+
+* `engine/entities/effects/loki/headwoppas_killchoppa.py` — l'effet **1568**, deux pattes disjointes
+  (`create_effect_damage_bonus_for_attack` pour le porteur, dont le terme `Owner` du sélecteur est
+  inconditionnel ; `create_aura_attack_damage_bonus_for_ally` pour les Ork Boyz), `is_active` =
+  `EffectLevel > 0`, magnitude `extraDmg[TERTIAIRE] × EffectLevel` ;
+* `engine/runner/operations/triggers/loki/headwoppas_killchoppa.py` — le `Triggered()` interne ;
+* registres, **dans le même commit** : `EFFECT_CLASSES["HeadwoppasKillchoppa_ExtraDmg"]`,
+  `ABILITY_INIT_OWNER_EFFECTS["HeadwoppasKillchoppa"]`, `EFFECT_TRIGGERS[1568]`, et l'entrée
+  `probe_229.RAIL` (rail **ARRAYSET**) — cette dernière manquait, et
+  `test_421_effect_active_gate_offline::test_the_probe_rail_covers_the_whole_registry` l'a trouvée ;
+* canal neuf au ctx d'aura COMBAT : `att_visual_id` (`damage_model`), substrat d'`UnitsWithVisualId`.
+  Sans lui la face AURA serait fermée en permanence, donc inerte.
+
+⚠ **Le rail ARRAYSET n'est pas ici une simple note de conformité** : l'effet naissant au niveau 0,
+un gate `IsActive` sur ce trigger **gèlerait son compteur à zéro pour toujours**.
+
+⚠ **Le niveau lu est le TERTIAIRE** (#357), via `tertiary_ability_state_of` — lire `ability_level`
+rendrait le niveau PASSIF (50 sur tout runner normalisé), donc le dernier palier.
+
+### 2.5 La CONFRONTATION LIVE
+
+`rl_duel build --seed 777 --board MC1_67 --p-units orksWarboss --a-units
+astraBullgryn,orksRuntherd,orksNob,tauCrisis --equip-relic "orksWarboss:HeadwoppasKillchoppa:3"
+--hp-target 4000 --no-ai --place "orksWarboss:6,6"`.
+
+⚠ **`--place` est OBLIGATOIRE** : aux SpawnPoints du board, Gulgortz naît à 8 hexes des ennemis et
+« aucune attaque à portée » — la géométrie de spawn ne bloque rien, elle se DÉPLACE.
+⚠ **Quatre cibles, pas deux** : avec deux, le coup qui en tue deux termine la bataille
+(`stage Finished`) et `decisionView` refuse toute lecture ultérieure.
+
+| moment | `level` (`includeInactive`) | dans les effets ACTIFS ? | morts |
+|---|---|---|---|
+| déploiement | **0** | **non** | — |
+| après 1 attaque | **2** | **oui** | `u77` et `u79`, `killerId = 85` pour les DEUX |
+| après 1 attaque SANS kill | **2** | oui | — |
+
+Les trois lignes établissent, dans l'ordre : la **fourche** (niveau 0 ⇒ inactif ⇒ absent du canal
+par défaut) ; le **+1 PAR UNITÉ ABATTUE** — un seul coup, deux victimes, **+2**, un témoin non
+trivial que « +1 par attaque » ne produirait pas ; et l'**absence d'incrément sans kill**.
+
+**Cliquet offline** : `tests/engine/runner/test_1012r1_headwoppas_killchoppa_offline.py` — 15 tests,
+six étages, chacun portant sa mutation nommée. Trois vues ROUGES avant commit : `MUTANT-A`
+(`options{+0x10}` lu comme une durée) → « l'effet naît ACTIF -- la fourche a ete lue comme une
+duree » ; `MUTANT-B` (`AreEqual(Attacker(), Owner)` retiré) → le kill d'un allié monte le niveau ;
+`MUTANT-C` (`UnitsWithVisualId` retiré) → l'aura tombe sur `orksNob` (`value = 648`).
 
 ---
 
@@ -329,4 +404,18 @@ Résidu : **`#1012-r1`**.
   sur une unité dont une active OFFENSIVE existe (`--allow-unlisted-relic`), montage non joué ici.
 * Le NOM de la classe `<A>` d'`IsSpecialActiveAbility` reste non résolu (§1.2) ; c'est la SÉMANTIQUE
   qui est tranchée, par le second call-site.
-* `HeadwoppasKillchoppa` — RE complète, **aucun** étage porté, **aucune** mesure live (§2.3).
+* `HeadwoppasKillchoppa` — **la MAGNITUDE n'est pas confrontée LIVE.** Le montage qui fait monter le
+  compteur exige des PV BAS (`--hp-target 4000`), et à ces PV la prévision de dégât **sature** aux PV
+  restants — le piège de #1011, en sens inverse (là-bas `--hp-target` était la parade, ici c'est la
+  contrainte). Il faudrait **deux populations de PV distinctes dans la même bataille** (des cibles
+  fragiles à abattre, une cible robuste à mesurer), ce que ni `--hp-target` ni `--hp-player` ne
+  savent exprimer : les deux sont globaux par camp. Piste non jouée :
+  `--explicit-stats <npc fragile>` SANS `--hp-target`, la cible de mesure gardant ses PV normalisés.
+  La magnitude est couverte **offline** (étage 4 du cliquet, avec la contre-épreuve #357
+  tertiaire-vs-passif).
+* `HeadwoppasKillchoppa` — **la face AURA n'est pas confrontée live** : elle exige des Ork Boyz sur
+  le plateau, donc un cast préalable de `Waaagh` (1058) puis une attaque de mêlée du summon — et un
+  summon **s'observe, ne se commande pas** (#291). Le gate est porté et couvert offline
+  (`MUTANT-C`).
+* `HeadwoppasKillchoppa` — **aucune face DÉCISION** : c'est un `TriggeredAbilityType`, donc hors de
+  l'axe de `probe_1021` (vérifié, le cliquet reste vert).
