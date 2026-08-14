@@ -4596,3 +4596,30 @@ pas d'erreur : il rend **zéro**, et un zéro se lit « rien à signaler ».
   et il gene tout montage qui doit approcher avant de caster).
   FOYER: scripts/python/probe_1016_necrons_live.py
   BLOCAGE: aucun
+
+- **#1034 — les DEUX gates par-cible et la DEDUPLICATION que les behaviours d'ATTAQUE posent APRES
+  `GetUnit`, et que le port n'a pas.** `[opus]`
+  Point d'entree : `scripts/python/engine/runner/abilities/behaviours/combat.py::_get_unit` (la RE
+  complete y est ecrite) + `scripts/python/tests/engine/runner/test_1034_behaviour_get_unit_offline.py`.
+  L'etage `IdunBattle.Entities.UnitExtensions$$GetUnit` EST porte (entite -> unite, tuile ->
+  occupant). Ce qui ne l'est pas, ce sont les TROIS pieces que
+  `IdunBattle.Entities.Behaviours.AbilityDamageBehaviour$$Execute` et
+  `IdunBattle.Entities.Behaviours.AttackDamageBehaviour$$Execute` posent JUSTE APRES -- et pas
+  `IdunBattle.Entities.Behaviours.DirectDamageBehaviour$$Execute`, qui n'en a aucune (lu, pas
+  suppose) :
+  (a) `IdunBattle.Entities.UnitExtensions$$MatchesUnitSelectionType(unit, <behaviour+0xa8 | +0xc0>,
+  state)` -- `1` = vivant, `2` = `!HasFlag(0x11)`, `3` = les deux, autre = tout. Le `selectionType`
+  n'est capte par AUCUN call-site du port : meme verrou que le residu `#433-r3-r2`, qui demande de
+  le relever call-site par call-site ;
+  (b) `IdunBattle.Entities.UnitExtensions$$HasTrait(unit, 0x40e)` = `UnitTrait.Invincible` -- la
+  cible est SAUTEE. La docstring d'`AttackWithAttackDamage` le nommait deja, mais sous un symbole
+  FAUX (`UnitExtensions.IsTargetable`), corrige par #1034 ;
+  (c) l'`Idun.Shared.Collections.OrderedSet` dont le `Contains` pilote l'argument `isFirstHit` de
+  `ExecuteTarget` : deux tuiles d'une MEME unite multi-hex la font frapper DEUX fois, la seconde
+  avec `isFirstHit = false`. Le port a bien le parametre `is_first_hit` sur ses feuilles, mais il
+  est FIXE a la construction -- il n'est jamais derive de la position dans la boucle.
+  ⚠ Ces trois pieces mordent sur TOUS les call-sites de la famille d'attaque (40 fichiers importent
+  `behaviours/combat.py`), pas seulement sur les selecteurs a domaine tuile : les livrer exige un
+  montage live par gate, pas seulement un test offline.
+  FOYER: scripts/python/engine/runner/abilities/behaviours/combat.py
+  BLOCAGE: seeding
