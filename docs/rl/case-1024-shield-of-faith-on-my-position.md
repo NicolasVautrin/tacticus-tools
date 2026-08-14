@@ -194,10 +194,17 @@ version du probe concluait « aure muette » alors que la prédiction portait d�
 `GetBaseUnitComponent(unit)->[+0x74] == rarity` ; `UnitsWithRaritySelector$$Select` et
 `HasRarityTrigger$$ShouldTrigger` lisent le **même** `+0x74`. Trois corrections mesurées :
 
-- **L'enum EXISTE.** `data/symbols/rnca9r7q6c/frida/enums.tsv` porte
-  `IdunMetaLogic.UserProgress.Model.UnitRarity 0=Common,1=Uncommon,2=Rare,3=Epic,4=Legendary,5=Mythic`.
-  `#999-r1`/`#999-r3` écrivent « aucun enum `UnitRarity` » : c'est **faux**. Et `5` = **Mythic**,
-  pas Legendary — l'i2 le confirme (`<style="Rarity_Mythic">`).
+- **L'enum EXISTE — et c'est `idun.meta.Rarity`, pas `UnitRarity`.** `#999-r1`/`#999-r3`
+  écrivent « aucun enum `UnitRarity` » : c'est **faux**, mais la première rédaction de cette
+  puce l'était aussi. `enums.tsv` porte **CINQ** enums aux six membres IDENTIQUES et aux mêmes
+  ordinaux (`idun.meta.Rarity` et les quatre `IdunMetaLogic.UserProgress.Model.{Unit,Item,
+  Upgrade,XpBook}Rarity`) : l'ordinal ne discrimine donc RIEN, et seul le nom PLEIN sépare.
+  Celui que le COMBAT lit est **`idun.meta.Rarity`** — type DÉCLARÉ du paramètre `rarity` dans
+  `data/symbols/<build>/frida/methods.tsv`, **4/4 concordants** aux quatre foyers
+  (`DSLSelectors.UnitsWithRarity`, `DSLTriggers.HasRarity`, `UnitExtensions.HasRarity`,
+  `UnitsWithRaritySelector..ctor`). Re-dérivable :
+  `python scripts/python/probe_1039_canal_rarete.py`. Et `5` = **Mythic**, pas Legendary —
+  l'i2 le confirme (`<style="Rarity_Mythic">`).
 - **`rl_duel build` POSE `targetRarity`.** `rl_collect_batch._TARGET_RARITY = 5`, passé à
   `buildNormalizedBC`. `#477-r43` écrit l'inverse. Conséquence directe : **dans un runner
   standard, toute unité normalisée est Mythic, donc `HasRarity(·, Mythic)` est uniformément VRAI**
@@ -208,18 +215,20 @@ version du probe concluait « aure muette » alors que la prédiction portait d�
   disparaître `ShieldOfFaith` des events : `UnitConfiguration.Rarity` atteint bien
   `BaseUnitComponent.Rarity`.
 
-**Ce qui manque est le CAPTEUR, et lui seul.** Mesuré sur un runner vivant : `rarity` n'apparaît
-**nulle part** dans `observeBattle`, `combatSnapshot` ni `decisionView`. Point d'ancrage à hooker,
-nommé et non écrit (une fenêtre de reinject est nécessaire) :
+**Ce qui manquait est le CAPTEUR, et lui seul.** Mesuré sur un runner vivant : `rarity`
+n'apparaissait **nulle part** dans `observeBattle`, `combatSnapshot` ni `decisionView`. Il est
+**ÉCRIT depuis #1039** (`combatSnapshot.units[].rarity`, `frida/hooks/game/rarity.ts`) et attend
+une **fenêtre de reinject** pour être armé — détail, refus et montage : `case-1039`.
 
-> `frida/hooks/features/ai-step/rpc-snapshot.ts`, fonction `readUnitConfig` — elle résout déjà
-> `IdunBattle.Core.Services.BattleQuery$$GetUnitConfig(visualId)` et publie 5 champs sous
-> `combatSnapshot.units[].unitConfig`. Il manque `rarity`.
-> ⚠ **Deux structures, deux offsets, et `0x74` est dans les DEUX** : `UnitConfiguration+0x74` est
-> l'`AbilityVariablesMultiplierPercentage` (déjà lu par ce même code, sous le nom `UCFG.mult`),
-> tandis que `BaseUnitComponent+0x74` est la RARETÉ. Lire l'un pour l'autre rendrait `180` ou
-> `100` là où on attend `0..5` — donc résoudre l'offset par `getFieldOffset` sur la classe
-> `IdunBattle.Entities.Components.BaseUnitComponent`, jamais par recopie.
+⚠ **Deux structures, le même `0x74`, et le piège est CHIFFRÉ** : `UnitConfiguration+0x74` est
+l'`AbilityVariablesMultiplierPercentage` (déjà lu par `rpc-snapshot.ts` sous `UCFG.mult`, mesuré
+à **180** en runner standard), tandis que `BaseUnitComponent+0x74` est la RARETÉ (`0..5`). Le
+capteur résout donc par `rawFieldOffset(<classe>, "Rarity")`, jamais par recopie.
+⚠ Et le point d'ancrage nommé ci-dessus (`readUnitConfig`) était le MAUVAIS : il ne trouve sa
+`VisualId` qu'en filtrant sur `IdunBattle.Entities.Components.UnitComponent`, donc il rend
+`{"error":"visualId introuvable"}` pour toute **Machine of War** — mesuré en live sur
+`adeptExorcist`. Le capteur passe par `UnitExtensions$$GetBaseUnitComponent`, qui sert les deux
+familles.
 
 ---
 
