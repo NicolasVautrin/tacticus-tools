@@ -594,6 +594,78 @@ def refuses_all_enemy_targets(options: "TargetingOptions") -> bool:
     return options.has(TR.TargetIsFriendly) or options.has(TR.TargetIsCaster)
 
 
+# --- LE SECOND JEU D'OPTIONS : `GetTargetingOptionsForContinue` (#419-r1-tr14-r5-r2-r1-r2-r2) -----
+#
+# UN RECENSEMENT DES MASQUES QUI S'ARRETE AUX `$$.ctor` EST INCOMPLET, et c'est ce que ce bloc
+# repare. Le natif produit un SECOND jeu d'options, loge a `this+0xb0` et consomme par la lambda
+# `...ActiveAbilityOperation.u003Cu003Ec__DisplayClass9_0$$u003CIsInvalidTargetu003Eb__1`
+# (slot 0xe = `AActiveAbility$$GetInvalidTargetReasonForContinue`) -- le mode « continue » d'une
+# ability multi-etapes. Aucun `$$.ctor` ne l'ecrit : il est CALCULE.
+#
+# LA LOI DE BASE, VERBATIM d'`IdunBattle.Entities.Abilities.AActiveAbility$$
+# GetTargetingOptionsForContinue` (les offsets sont ceux de la struct de 0x40 octets) :
+#
+#     SetConfigValuesInTargetingOptions(this, &this.<TargetingOptions @+0x70>)
+#     opts = TargetingOptions..ctor(<copie de this+0x70..0xaf>)     # surcharge COPIE PURE
+#     opts.<+0x20 forceMeleeTarget> = 1                             # = RangedBool.False
+#     opts.<+0x28 rules> |= 0x10000000000                           # AllowIgnoreForcedAttackTarget
+#     return Nullable<TargetingOptions>(opts)
+#
+# Soit, en clair : le masque du ctor, plus la PERMISSION d'ignorer la cible forcee (le TAUNT ne
+# contraint pas la poursuite d'une ability deja engagee), et jamais de rabattement en melee.
+#
+# ⚠ DEUX SURCHARGES REECRIVENT LE JEU ENTIER -- la fiche du residu n'en nommait qu'UNE. Chacune
+# IGNORE `this+0x70` et repart d'un litteral, donc la loi de base ne s'y applique PAS :
+#   * `1089 GreatFrostAxe` -- forme PRESET + additionalRules :
+#         TargetingOptions..ctor(&opts, &<TargetingOptions statics>+0x40, 0x4000000000)
+#     Le preset `statics+0x40` est deja lu ailleurs dans le port (`Rules = 0x4000 TargetIsEnemy`,
+#     `isSelfCasting = 0`, range = `TargetingRange statics+0x30` = RANGE_ADJACENT,
+#     `forceMeleeTarget = 1`). Masque EFFECTIF = `TargetIsEnemy | AllowDeadTarget`.
+#   * `1168 EntropyCannons` -- forme FLAGS DIRECTS (6 parametres) :
+#         TargetingOptions..ctor(&opts, 0, &<TargetingRange statics>+0x48, 1, 0x40004000, 0, 0)
+#     Masque EFFECTIF = `TargetIsEnemy | AllowNullCasterTile`, range = RANGE_WHOLE_BOARD.
+#     ⚠ IL DESARME `TargetMatchesDynamicRule` : le masque de son `.ctor` vaut `0x40004002`, celui-ci
+#     `0x40004000`. La poursuite ne re-consulte donc PAS sa regle dynamique.
+#
+# ⚠ AUCUN CONSOMMATEUR COTE PORT, ET C'EST DIT PLUTOT QUE TU : le port n'a pas la face
+# « continue » (aucune ability multi-etapes n'y passe par `b__1`), donc rien n'appelle ce qui suit.
+# C'est un RECENSEMENT, pas un chemin actif -- le residu portait sur l'exhaustivite du recensement,
+# pas sur un ecart mesure. Le cast top-level passe par `b__0`, jamais par ici.
+#
+#: `{ability_id: TargetingOptions}` -- les surcharges qui REECRIVENT le second jeu. L'exhaustivite
+#: est gardee par `tests/engine/runner/test_419_options_for_continue_offline.py`, qui balaie les
+#: `$$GetTargetingOptionsForContinue` du dump : une surcharge NEUVE au prochain build fait rougir.
+TARGETING_OPTIONS_FOR_CONTINUE_OVERRIDES: "dict[int, TargetingOptions]" = {
+    # `...GreatFrostAxeAbility$$GetTargetingOptionsForContinue` -- PRESET `<TargetingOptions
+    # statics>+0x40` + `additionalRules = 0x4000000000`.
+    int(ActiveAbilityType.GreatFrostAxe): TargetingOptions(          # 1089
+        rules=TR.TargetIsEnemy | TR.AllowDeadTarget, self_cast=False,
+        range=RANGE_ADJACENT, force_melee_target=RANGED_BOOL_FALSE),
+    # `...EntropyCannonsAbility$$GetTargetingOptionsForContinue` -- FLAGS DIRECTS, `0x40004000`.
+    int(ActiveAbilityType.EntropyCannons): TargetingOptions(         # 1168
+        rules=TR.TargetIsEnemy | TR.AllowNullCasterTile, self_cast=False,
+        range=RANGE_WHOLE_BOARD, force_melee_target=RANGED_BOOL_FALSE),
+}
+
+
+def targeting_options_for_continue(options: "TargetingOptions",
+                                   ability_id=None) -> "TargetingOptions":
+    """`IdunBattle.Entities.Abilities.AActiveAbility$$GetTargetingOptionsForContinue` -- MIRROR.
+
+    Rend le SECOND jeu d'options (`this+0xb0`), celui que lit le mode « continue ». `options` = le
+    jeu du `$$.ctor` APRES `SetConfigValuesInTargetingOptions` (cf. la loi citee au-dessus).
+
+    `ability_id` aiguille vers une SURCHARGE quand la classe en declare une : celles-ci n'appliquent
+    PAS la loi de base, elles repartent d'un litteral."""
+    if ability_id is not None:
+        sur = TARGETING_OPTIONS_FOR_CONTINUE_OVERRIDES.get(int(ability_id))
+        if sur is not None:
+            return sur
+    return replace(options,
+                   rules=int(options.rules) | int(TR.AllowIgnoreForcedAttackTarget),
+                   force_melee_target=RANGED_BOOL_FALSE)
+
+
 # --- MASQUES RE-LUS D'ABILITES DONT LA FACE COMBAT N'EST PAS PORTEE ------------------------------
 # Le masque est une propriete du `<X>Ability$$.ctor`, PAS de la behaviour : il se lit et se porte
 # independamment de `ABILITY_CLASSES` (le registre de la face COMBAT). Cette table est l'endroit ou
