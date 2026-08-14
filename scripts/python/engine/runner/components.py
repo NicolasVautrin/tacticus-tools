@@ -382,7 +382,8 @@ class UnitComponent(Component):
                  "blocks_made_this_turn", "blocks_made_this_battle",
                  "times_healed_this_turn",
                  "turns_with_attacks_made", "units_attacked_this_turn", "attacks_made_this_turn",
-                 "total_attacks_made", "defeated_units",
+                 "total_attacks_made", "defeated_units_melee", "defeated_units_other",
+                 "total_defeated_units", "death_killer_id",
                  "movement_target_override")
 
     def __init__(self, visual_id: Optional[str], alive: bool, ai_controlled: bool = False,
@@ -473,19 +474,40 @@ class UnitComponent(Component):
         # +0x20). Ecrit par `register_attack_made`, lu par `unit_total_attacks_made`, seede par
         # `snapshot._apply_actor_stats` (le hook publie deja `totalAttacksMade`).
         self.total_attacks_made = 0
-        # #951 -- `ActorStatisticsComponent @+0xa8` (defaites en MELEE) et `@+0xb0` (les autres),
-        # les deux listes d'ids qu'ecrit `IdunBattle.Entities.Components.ActorStatisticsComponent$$
-        # RegisterDefeatedUnit(id, inMelee)` (`if (inMelee) <+0xa8>.Add(id) else <+0xb0>.Add(id)`).
-        # UNE seule liste ici, et c'est une EQUIVALENCE MESUREE, pas un raccourci : le seul lecteur
-        # porte est `IdunBattle.Entities.Selectors.UnitsDefeatedBySelector$$Select`, qui appelle
-        # `AddUnits(result, <+0xa8>)` PUIS `AddUnits(result, <+0xb0>)` -- l'UNION des deux. La
-        # partition melee/distance n'a donc aucun lecteur porte ; la fabriquer exigerait de deviner
-        # le champ `inMelee` des `KillUnitOptions`, que l'appelant pose et que le port ne thread pas.
-        # Le jour ou `DSLSelectors$$UnitsDefeatedByMeleeAttack` (=> `UnitsDefeatedByMeleeAttack
-        # Selector`) entre au port, cette liste DOIT etre scindee -- residu #951-r1.
+        # #951-r1 -- `ActorStatisticsComponent @+0xa8` (defaites en MELEE) et `@+0xb0` (les autres),
+        # les DEUX listes d'ids qu'ecrit `IdunBattle.Entities.Components.ActorStatisticsComponent$$
+        # RegisterDefeatedUnit(this, id, inMelee)`, LU verbatim :
+        #
+        #     *(int *)(this + 0xa0) += 1;                          # compteur TOTAL, inconditionnel
+        #     if ((char)inMelee == '\0') lst = *(this + 0xb0);     # les AUTRES
+        #     else                       lst = *(this + 0xa8);     # la MELEE
+        #     if (lst != 0) Add(lst, id);
+        #
+        # La PARTITION est portee depuis #1082, et ce qui l'a debloquee n'est PAS un capteur neuf :
+        # `inMelee` n'a jamais eu a etre DEVINE. `IdunBattle.Operations.KillUnitOperation$$Execute`
+        # passe a `RegisterDefeatedUnit` **la valeur meme** qu'il vient d'ecrire dans
+        # `UnitComponent+0x178` (`DefeatedByMeleeAttack`) sur la VICTIME -- un seul et meme
+        # `local_378[0]` dans le decompile, ecrit en `+0x178` puis reencode en argument. Or ce byte
+        # est publie depuis #185 sous `decisionView.units[].defeatedByMelee`. Le booleen du TUEUR se
+        # LIT donc sur la VICTIME, ce qui rend la partition reconstructible d'un canal deja la.
         # ⚠ Ce n'est PAS `units_attacked_this_turn` (+0x40, remis a zero chaque tour) : c'est un
         # CUMUL DE BATAILLE, que rien ne remet a zero.
-        self.defeated_units: list = []
+        self.defeated_units_melee: list = []       # `@+0xa8`
+        self.defeated_units_other: list = []       # `@+0xb0`
+        # `@+0xa0` -- le compteur que `RegisterDefeatedUnit` incremente AVANT le branchement, donc
+        # sans regard pour `inMelee`. Distinct de `len(defeated_units)` : le natif compte les APPELS,
+        # la liste ne garde pas les doublons a la lecture (`UnitsDefeatedBySelector` rend un
+        # `OrderedSet`). Aucun lecteur porte a ce jour -- inscrit parce que l'ecrivain unique est
+        # mirrore ici et qu'il l'ecrit ; ne pas cabler de consommateur sans son artefact natif.
+        self.total_defeated_units = 0
+        # #1033-r3 -- le KillerId SEUL, seede depuis `decisionView.units[].killerId` par
+        # `snapshot._load_death_sources`. TRI-ETAT : `None` = NON MESURE. Ce champ existe parce que
+        # le canal ne publie QU'UNE des trois composantes de la `DamageSource` (@+0x108) : fabriquer
+        # un `death_source` complet imposerait d'inventer `DamageReason` et le
+        # `Nullable<AbilityOrEffect>`, que DEUX lecteurs portes consomment vraiment
+        # (`reactivate_overwatch` lit les deux, `empyric_ambush` le second). Ne JAMAIS le lire en
+        # direct : passer par `death_killer_id`, le foyer qui compose les deux sources.
+        self.death_killer_id = None
         # `Nullable<UnitPositionId>` a `+0xa8` du composant que `IdunBattle.Operations.
         # MoveUnitOperation$$Execute` ET `IdunBattle.Operations.OverrideMovementTargetOperation$$
         # Execute` recuperent tous DEUX par la MEME paire de caches (#448-r1) -- la DESTINATION
@@ -2119,7 +2141,7 @@ def unit_extensions_is_displaceable(entity) -> bool:
     return True
 
 
-def register_defeated_unit(state, killer_id, killed_id) -> bool:
+def register_defeated_unit(state, killer_id, killed_id, in_melee=None) -> bool:
     """#951 -- mirror d'`IdunBattle.Operations.KillUnitOperation$$Execute+0x8b9`, avec SES deux
     gates, lus a l'ENCODAGE (le pseudo-C les noyait dans la cascade de null-checks) :
 
@@ -2134,8 +2156,14 @@ def register_defeated_unit(state, killer_id, killed_id) -> bool:
     un consommateur d'`On(UnitDefeated = 0x36)` -- `TrophyTakerAbility` -- compte la victime
     COURANTE dans son total. Poser cet appel apres l'evenement rendrait `n` au lieu de `n+1`.
 
-    `inMelee` n'est pas porte : cf. le champ `defeated_units` de `UnitComponent` (le seul lecteur
-    porte prend l'UNION des deux listes natives). Rend `True` si l'enregistrement a eu lieu."""
+    `in_melee` (#951-r1) : le troisieme argument natif. Il n'est PAS a deviner -- le decompile
+    montre que `KillUnitOperation$$Execute` ecrit `local_378[0]` dans `UnitComponent+0x178`
+    (`DefeatedByMeleeAttack`, sur la VICTIME) puis passe **ce meme `local_378[0]`** en `inMelee`.
+    Les deux faces d'un unique booleen. TRI-ETAT ici : `None` = l'appelant ne l'a pas mesure, et
+    l'enregistrement tombe alors dans `@+0xb0` comme le fait le natif pour un `inMelee` faux --
+    c'est la branche par DEFAUT du decompile (`if ((char)inMelee == '\\0')`), pas un choix du port.
+
+    Rend `True` si l'enregistrement a eu lieu."""
     if killer_id is None or killed_id is None:
         return False
     killer = state.get_entity(int(killer_id))
@@ -2150,8 +2178,46 @@ def register_defeated_unit(state, killer_id, killed_id) -> bool:
     if unit_extensions_is_steppable(killed):
         return False
     kc = killer.get_component(UnitComponent)
-    kc.defeated_units.append(int(killed_id))
+    # `*(int *)(this + 0xa0) += 1` -- AVANT le branchement, donc inconditionnel.
+    kc.total_defeated_units += 1
+    if in_melee:
+        kc.defeated_units_melee.append(int(killed_id))
+    else:
+        kc.defeated_units_other.append(int(killed_id))
     return True
+
+
+def defeated_units_union(uc) -> list:
+    """L'UNION `@+0xa8` PUIS `@+0xb0`, dans l'ordre exact ou
+    `IdunBattle.Entities.Selectors.UnitsDefeatedBySelector$$Select` les concatene
+    (`AddUnits(result, <+0xa8>)` puis `AddUnits(result, <+0xb0>)`). Foyer UNIQUE de la lecture
+    jointe des deux listes -- l'ordre COMPTE, le natif rendant un `OrderedSet` (ordre d'insertion).
+    Rend une liste vide sur un composant absent, jamais `None`."""
+    if uc is None:
+        return []
+    return list(uc.defeated_units_melee) + list(uc.defeated_units_other)
+
+
+def death_killer_id(uc):
+    """#1033-r3 -- QUI a tue cette unite, en composant les DEUX sources du port. Foyer unique.
+
+    Le natif n'en a qu'une : `DamageSource.get_KillerId` sur le `Nullable<DamageSource>`
+    @`UnitComponent+0x108`. Le port en a deux parce que ses deux regimes ne publient pas la meme
+    chose -- la SIMULATION grave la `DamageSource` entiere (`death_source`, trois composantes),
+    tandis qu'un etat CHARGE n'a du canal que le KillerId (`decisionView.units[].killerId`, seul
+    champ que `readUnitDeathMeta` expose de la `DamageSource`).
+
+    Ordre de priorite : `death_source[0]` d'abord (mesure la plus riche, gravee par le run), puis
+    `death_killer_id` (le seed). TRI-ETAT preserve : `None` = tueur non imputable, ce qui recouvre
+    exactement le zero du natif (`UnitKillerSelector$$Select` ne retient un tueur que si
+    `KillerId != 0`, et le capteur rend `null` des que `kid <= 0`)."""
+    if uc is None:
+        return None
+    ds = getattr(uc, "death_source", None)
+    if ds is not None and len(ds) >= 1 and ds[0] is not None:
+        return int(ds[0])
+    k = getattr(uc, "death_killer_id", None)
+    return None if k is None else int(k)
 
 
 def units_defeated_by(state, unit_id) -> list:
@@ -2170,7 +2236,7 @@ def units_defeated_by(state, unit_id) -> list:
     if uc is None:
         return []
     vus, out = set(), []
-    for i in uc.defeated_units:                    # `OrderedSet` : ordre d'insertion, sans doublon
+    for i in defeated_units_union(uc):             # `OrderedSet` : ordre d'insertion, sans doublon
         if i not in vus:
             vus.add(i)
             out.append(int(i))
