@@ -186,6 +186,50 @@ def test_l_agregateur_propage_le_troisieme_substrat():
     assert len(src) == 1 and (src[0].chance, src[0].amount) == (10, 1800)
 
 
+def test_aucun_site_du_hook_de_block_ne_reste_a_l_ancienne_signature():
+    """LE GISEMENT QUE CETTE TRANCHE A OUVERT, ET QU'ELLE REFERME.
+
+    Ajouter un parametre au hook casse tout site qui le REDEFINIT ou le SUBSTITUE. La banque a
+    trouve `tests/engine/runner/test_daemon_extra_block_live.py` (`TypeError` au premier run apres
+    rebase) -- mais elle ne joue PAS les probes, et DEUX d'entre eux portaient le meme stub
+    (`probe_221_daemon_normal_attack.py`, `probe_brazier_daemon_offset.py`) : la faute y aurait
+    dormi jusqu'au prochain run manuel. C'est le vice deja mesure ailleurs dans le depot (un
+    patcheur qu'aucune passe n'execute).
+
+    Le perimetre est DERIVE (tout `.py` de `scripts/python/**`), jamais une liste blanche : un
+    quatrieme site ecrit demain sort tout seul.
+
+    ⚠ Un stub `**kwargs` passerait ce test et serait PIRE : il masquerait la disparition d'un
+    substrat cote agregateur. Le critere est donc la PRESENCE NOMMEE des trois."""
+    import re
+    racine = PY
+    motif = re.compile(
+        r"(?:def|lambda)\s+(?:create_effect_block_source_for_defense\s*\(\s*self|self)\s*,"
+        r"(?P<params>[^)]*)\)", re.S)
+    sites, fautifs = [], []
+    for f in sorted(racine.rglob("*.py")):
+        try:
+            src = f.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        if "create_effect_block_source_for_defense" not in src:
+            continue
+        for m in motif.finditer(src):
+            params = m.group("params")
+            if "defender_fixed_armor" not in params:
+                continue                              # autre signature : pas ce hook
+            rel = f.relative_to(racine).as_posix()
+            sites.append(rel)
+            if "defender_max_health" not in params:
+                fautifs.append((rel, src[:m.start()].count("\n") + 1))
+    assert len(sites) >= 8, (
+        "seulement %d site(s) trouve(s) : le balayage ne visite plus le hook (regex ou arbre), donc "
+        "son zero ne prouverait RIEN. Sites : %r" % (len(sites), sites))
+    assert fautifs == [], (
+        "site(s) du hook de block restes a l'ANCIENNE signature (2 substrats sur 3) : %r. Un appel "
+        "de l'agregateur y leve `TypeError` -- et dans un probe, personne ne le verra." % fautifs)
+
+
 def test_les_trois_vecteurs_de_combat_threadent_le_maxhp():
     """Le foyer est unique cote agregateur, mais les APPELANTS sont trois (`normal`, `normal_like`,
     `ability`) : un seul oublie et le block de `BeastSnagga` disparait sur ce vecteur-la, en
