@@ -355,6 +355,8 @@ from ..loki.battle_focus import (                                    # #1080 (pa
     BattleFocusEffectTrigger, BattleFocusMoveAbility, BATTLE_FOCUS_EFFECT, BATTLE_FOCUS_ABILITY)
 from ..loki.savior_protocols import SaviorProtocolsAbility            # #1020 (passif drones T'au)
 from ..loki.instinctive_behaviour import InstinctiveBehaviourUpdateTargetAbility   # #1015-r1
+from ..loki.way_of_the_short_blade import (                          # #1019-r2 (passif 1500, T'au)
+    WayOfTheShortBladeAttackAbility, WAY_OF_THE_SHORT_BLADE_KEY)
 
 
 # --- Registre : trait → ability-trigger(s) accordée(s) --------------------------------------------
@@ -1443,6 +1445,18 @@ ABILITY_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
     # `CUSTOM_TRIGGERED_ABILITIES`). Ce que CETTE entree porte : rien -- l'ability est une
     # `AOwnerEffectTriggeredAbility`, son seul vecteur d'event est `OnOwnerSpecificAbilityInit`,
     # que le port materialise par `ABILITY_INIT_OWNER_EFFECTS` et non par un trigger.
+    # #1019-r2 -- `WayOfTheShortBlade` (passif de `tauFarsight`). La CLE est le nom gameconfig du
+    # PASSIF ; la classe inscrite est `WayOfTheShortBlade_AttackAbility`, la SECONDE des deux
+    # classes natives du kit (la premiere, `WayOfTheShortBlade_InitAbility`, pose les deux effets a
+    # l'init et vit dans `ABILITY_INIT_OWNER_EFFECTS`, pas ici).
+    # `$$CreateTrigger` = `On(0x9 = Attack, alive 1) & IsMeleeAttack() &
+    # AreFriends(Caster@<+0x48>, Owner@<+0x30>, 0) & IsEffectTarget(Caster@<+0x48>, 0x5dc = 1500)` ;
+    # `$$CreateBehaviour` = `AddFlag(Caster, 0x15 = ForceRangedAttack) &
+    # UseNormalAttackIfAble(Caster, Target@<+0x60>) & RemoveFlag(Caster, 0x15)`.
+    # ⚠ Le PORTEUR n'est PAS le beneficiaire : le sous-cast est joue par `Caster@+0x48`, l'ami T'au
+    # `Hero` qui vient de frapper en melee -- Farsight compris (le selecteur de 1500 l'ajoute par un
+    # `op_Addition Owner`). Cf. `triggers/loki/way_of_the_short_blade.py`.
+    WAY_OF_THE_SHORT_BLADE_KEY: [WayOfTheShortBladeAttackAbility],
 }
 
 # --- Registre : ability ACTIVE → triggered-ability(s) DERIVEE(s) ----------------------------------

@@ -190,7 +190,17 @@ class _Normal:
         _pbonus = ability_pierce_effect_bonus(state, attacker_id, target_id, None,
                                               is_ranged=bool(_ranged), is_overwatch=bool(is_overwatch))
         if _pbonus:
-            pierce, _ranged, whits = select_weapon_pierce(ctx, dist, effect_bonus=_pbonus)
+            # ⚠ CE SECOND APPEL PERDAIT `is_adjacent`, ET C'EST PRE-EXISTANT (#419-r1-tr14-r1-r1 a
+            # decouple le canal ADJACENCE du canal DISTANCE sur le PREMIER appel et pas sur
+            # celui-ci) : sans lui le service retombe sur `dist <= 1`, donc sur une paire de tuiles
+            # voisines mais separees par `|dElev| >= 2` il re-choisissait une arme de MELEE que le
+            # premier appel avait ecartee -- et `_ranged` bascule avec elle. Le bug ne mordait que
+            # si `_pbonus != 0` (un `Hailstrike_ExtraPierce` sur l'attaquant), ce qui l'a garde
+            # invisible. Repare ici parce que le laisser DEFERAIT l'etage `force_ranged_attack`
+            # ajoute juste au-dessus : le drapeau serait pose, puis oublie au second appel.
+            pierce, _ranged, whits = select_weapon_pierce(
+                ctx, dist, effect_bonus=_pbonus, is_adjacent=adj,
+                force_ranged_attack=_forced_ranged)
         # `On(PreUnitAbility=0x2a)` (#100) — `IdunBattle.Operations.ActiveAbilityOperation$$ExecuteInternal`
         # l'emet TOUT EN HAUT (`FUN_1800280e0(0x4d, .., 0x2a)` = `On(PreUnitAbility)`), AVANT
         # l'execution de l'ability : l'attaque

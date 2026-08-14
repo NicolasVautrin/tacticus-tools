@@ -45,6 +45,15 @@ from .effect_type import EffectType
 # hisser ici n'allonge la cascade d'aucun module.
 from .traits.unit_trait import UnitTrait
 from .unit_faction import UnitFaction
+# #1019-r2 -- la CONSTANTE `range` et le NOM d'ability du selecteur de `1500`, lus au meme endroit
+# que la transcription du `CreateTargetSelector` (aucune re-ecriture ici). FORME B (module + acces
+# attributaire) : une substitution posee sur `way_of_the_short_blade.ABILITY_ID` ou sur
+# `magnitude.ability_var` MORD, ce que `from X import nom` au niveau module ne ferait pas.
+# ⚠ Import de TETE et non differe : le differe correspondant est mesure GRATUIT (charger
+# `effects.loki.way_of_the_short_blade` SEUL en process frais ne fait PAS atterrir
+# `entities.effect_targets` dans `sys.modules`) -- il n'y a donc aucun cycle a fermer.
+from .effects import magnitude as _magnitude
+from .effects.loki import way_of_the_short_blade as _wsb
 
 #: `UnitTrait.Psyker` (`0x3ea`) et `UnitTrait.Immune` (`0x19`) -- les deux filtres de trait du
 #: `CreateTargetSelector` de `1191`. Noms tels que la capture les publie (`StatsComponent.ctx.traits`
@@ -62,6 +71,11 @@ _TRAIT_SYNAPSE = UnitTrait.Synapse.name                              # 0x7e8 = 2
 _FACTION_TYRANIDS = UnitFaction.Tyranids.name                        # 0xc = 12
 #: `range = 2` de `SurroundingUnits` -- litteral LU a sa POSITION dans la signature.
 _SYNAPSE_RANGE = 2
+
+#: `UnitsWithTrait(..., 0x10, 3)` / `UnitsFromFaction(..., 9, 3)` -- les deux filtres du selecteur de
+#: `1500 WayOfTheShortBlade_AdditionalAttackMarker` (#1019-r2). Membres NOMMES des deux mirrors.
+_TRAIT_HERO = UnitTrait.Hero.name                                    # 0x10 = 16 (« Character » i2)
+_FACTION_TAU = UnitFaction.Tau.name                                  # 9
 
 
 class EffectTargetWorld:
@@ -230,12 +244,66 @@ def _synapse_targets(world, owner_id: int) -> Optional[set]:
     return out
 
 
+def _way_of_the_short_blade_marked(world, owner_id: int) -> Optional[set]:
+    """`IdunBattle.Entities.Effects.Loki.WayOfTheShortBlade_AdditionalAttackMarkerEffect$$
+    CreateTargetSelector` (effet 0x5dc = 1500), LU au decompile (build `rnca9r7q6c`, #1019) et
+    transcrit VERBATIM dans `entities/effects/loki/way_of_the_short_blade.py` :
+
+        UnitsFromFaction( UnitsWithTrait( SurroundingFriends(Owner@<DSLSelectors+0x30>,
+                                                             range = GetNumberConstant(0x16), 1, 3),
+                                          0x10 = UnitTrait.Hero, 3 ),
+                          9 = UnitFaction.Tau, 3 )
+        op_Addition  Owner@<+0x30>
+
+    ⚠ **`+ Owner` EST ECRIT ICI** (et PAS dans le selecteur du jumeau 1499) : Farsight se marque
+    LUI-MEME -- « Commander Farsight **and** other friendly T'au Empire Characters ». Il entre donc
+    dans l'ensemble INCONDITIONNELLEMENT, sans passer par les trois filtres.
+    ⚠ **`SurroundingFriends` EXCLUT le porteur** (`SurroundingTiles(range) - Tiles(self)`), d'ou
+    l'ordre : le porteur est ajoute par l'`op_Addition`, jamais par le disque.
+    ⚠ La FACTION est ici une **INTERSECTION** (`UnitsFromFaction(..., Tau)`), alors que le jumeau
+    1499 l'emploie en UNION avec les porteurs d'arme de portee. Meme vocabulaire, semantique
+    opposee -- ne jamais recopier l'un sur l'autre.
+
+    `range` = la CONSTANTE `AbilityConstantType.range` (0x16) du gameconfig, resolue par
+    `ability_var(..., is_constant=True)` -- pas un litteral DSL.
+
+    TRI-ETAT : le disjoint FACTION exige le canal `faction(uid)`. Un substrat qui ne le publie pas
+    rend `None` (NON MESURE), jamais un ensemble PARTIEL -- meme regle que `_synapse_targets`."""
+    faction = getattr(world, "faction", None)
+    if faction is None:
+        return None                                   # canal absent -> NON MESURE
+    me, team = world.pos(owner_id), world.team(owner_id)
+    if me is None or team is None:
+        return None
+    rng = _magnitude.ability_var(_wsb.ABILITY_ID, _wsb.RANGE_CONSTANT_KEY, is_constant=True)
+    if rng is None:
+        return None                                   # constante absente du gameconfig -> NON MESURE
+    out = {int(owner_id)}                             # `op_Addition Owner@<+0x30>`
+    for uid in world.unit_ids():
+        if int(uid) == int(owner_id):                 # `SurroundingFriends` exclut le centre
+            continue
+        if world.team(uid) != team or not world.alive(uid):        # `Friends(Owner, ..., 3)`
+            continue
+        p = world.pos(uid)
+        if p is None or hexgeo.distance(me, p) > int(rng):         # disque `range`
+            continue
+        if _TRAIT_HERO not in (world.traits(uid) or ()):           # `UnitsWithTrait(0x10 = Hero)`
+            continue
+        if faction(int(uid)) == _FACTION_TAU:                      # `UnitsFromFaction(9 = Tau)`
+            out.add(int(uid))
+    return out
+
+
 #: `effect_type -> <Effect>$$CreateTargetSelector` porte. N'inscrire QUE ce qui est LU au decompile
 #: ET confronte live (case-366-r1 pour `1026`, case-418-r1 pour `1191`, #1015-r1 pour `1052`).
 EFFECT_TARGET_SELECTORS = {
     int(EffectType.BigTarget_AdjacentEffect): _adjacent_friends,                    # 1026
     int(EffectType.HuntersBeyondDeathPsykerSuppression): _surrounding_enemy_psykers_r2,   # 1191
     int(EffectType.Synapse_Effect): _synapse_targets,                               # 1052
+    # #1019-r2 -- le marqueur d'attaque supplementaire de `WayOfTheShortBlade`, LU au decompile ;
+    # son SEUL consommateur porte est le gate `IsEffectTarget(Caster@<DSLSelectors+0x48>, 0x5dc)` de
+    # `...Triggered.Loki.WayOfTheShortBlade_AttackAbility$$CreateTrigger`.
+    int(EffectType.WayOfTheShortBlade_AdditionalAttackMarker): _way_of_the_short_blade_marked,  # 1500
 }
 
 
