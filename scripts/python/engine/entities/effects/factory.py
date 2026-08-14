@@ -175,6 +175,7 @@ from .loki.daemonflesh_plate import DaemonfleshPlateExtraArmorEffect
 from .loki.dw02_advanced_burst_cannon import (   # #1012 (relique 1476, tauCrisis)
     Dw02AdvancedBurstCannonExtraPierceRatioEffect
 )
+from .loki.hypermorph import HypermorphEffect
 from .loki.reality_unbound import (
     RealityUnboundExtraMaxDamageEffect, RealityUnboundMovementEffect, RealityUnboundRangeEffect
 )
@@ -503,6 +504,15 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # `runner/operations/triggers/dispatch/registry.py::EFFECT_TRIGGERS[1018]`, et la POSE de l'effet
     # dans `ABILITY_INIT_OWNER_EFFECTS` plus bas. RE complete en tete de `loki/inescapable_death.py`.
     "InescapableDeath_Effect": InescapableDeathEffect,
+    # #1048 -- `Hypermorph` (0x54d = 1357), passif du summon `genesSmnAberrant` et du npc
+    # `genesNpc1Aberrant`. `ADynamicStatModifierEffect` pose SUR LE PORTEUR par
+    # `AddDynamicStatModifierEffectToOwner(0x54d, statType = 0 = Attack, turns = null, isHidden =
+    # false)` -- canal stat-mod ADDITIF direct (pas une aura : `AddDynamicStatModifierEffectToOwner`
+    # met `Owner@<DSLSelectors+0x30>` en source ET en cible). Magnitude CONTEXTUELLE :
+    # `healthPct %` des PV COURANTS du porteur, en Fix64 (le `op_Explicit` final est un FLOOR sur un
+    # pourcentage STRICTEMENT sous-approche -> `-1` des que le produit tombe juste ; RE et table de
+    # valeurs en tete de `loki/hypermorph.py`). La POSE est dans `ABILITY_INIT_OWNER_EFFECTS`.
+    "Hypermorph": HypermorphEffect,
     # Volet CRIT du MEME behaviour (#373) : `AddDynamicStatModifierEffectToOwner(0x453 = 1107,
     # statType 0x9 = CritChance)`. Selecteur = SurroundingFriends(range 2) INTERSECTE
     # `UnitsWithStatBiggerThan(CritChance, Current, > 0, excludingEffect)` -> un allie a portee dont
@@ -2217,6 +2227,19 @@ ABILITY_INIT_OWNER_EFFECTS: dict[str, list[str]] = {
     # `InescapableDeath`. `CreateActiveCondition` = `<DSLTriggers+0x70>` = YesTrigger -> l'effet est
     # toujours capte live, le seed est un FILET (idempotent).
     "ToughToKill": ["ToughToKill"],
+    # `HypermorphAbility` (TriggeredAbilityType 0x4ff = 1279, passif du summon `genesSmnAberrant` et
+    # du npc `genesNpc1Aberrant`). `$$CreateTrigger` = `<DSLTriggers+0x30> | (On(0x1e =
+    # HealthChanged, ownerNeedsToBeAlive: true) & get_OwnerIsTarget)` : la PREMIERE branche est le
+    # trigger d'INIT partage (`On(0x21 = AbilityInit) & <Yes@+0x70> & get_OwnerIsActor`, LU dans
+    # `IdunBattleLogic.Entities.DSLTriggers$$InitializeShared` sur CE build), d'ou cette table ;
+    # la SECONDE est le RECALCUL a chaque changement de PV du porteur, que le port obtient
+    # gratuitement (magnitude lue a la lecture + driver `refresh_stat_modifier_effects`).
+    # `$$CreateBehaviour` = `RemoveEffect(Owner, 0x54d) + AddDynamicStatModifierEffectToOwner(0x54d,
+    # statType = 0 = Attack, turns = null -> PERMANENT, isHidden = false)`.
+    # Ce seed n'est PAS un filet : l'effet est `isHidden = false` mais le porteur est un SUMMON, que
+    # `decisionView.effects` ne publie qu'une fois apparu -- un rollout offline qui le fait naitre
+    # (spawn `AberrantHypermorph`) n'aurait sinon aucun canal de pose. #1048.
+    "Hypermorph": ["Hypermorph"],
     # #1005 -- `Vitarus_InitAbility` (parent `IdunBattle.Entities.Abilities.
     # AOwnerEffectTriggeredAbility`, `frida/classes.tsv`) n'override QUE `$$GetEffectType`, dont le
     # corps ENTIER est `return 0x5ba` (= 1466 `EffectType.Vitarus`) : l'appariement ability -> effet
