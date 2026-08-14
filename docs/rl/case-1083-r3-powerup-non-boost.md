@@ -4,6 +4,14 @@
 familles structurelles** que le decompile tranche sans ambiguite, et **trois d'entre eux ecrivent
 dans un composant que nos batailles ne portent pas**.
 
+> ⚠ **TOUTE la RE de cette fiche a ete faite contre le build `rnca9r7q6c`**, avant la mise a jour du
+> jeu du 2026-08-14. Les **symboles** et les **structures** survivent a ~97,5 % d'un build a l'autre,
+> mais **les ordinaux d'enum sont regeneres a chaque build** et une confusion d'ordinal est
+> SILENCIEUSE. Tout appariement par ordinal cite ici (`0x12`, `0x13`, `0x16`, `0x50`, `0xc`, `0xd`,
+> `3`, `0`/`4`) est donc **A RE-CONFIRMER** contre `data/symbols/<nouveau-hash>/frida/enums.tsv`
+> avant d'etre traite comme un fait. Les ports ecrits par cette tranche passent tous par un membre
+> d'enum NOMME, jamais par l'ordinal — c'est precisement ce qui rend la re-verification mecanique.
+
 ## 1. La partition, LUE et non supposee
 
 Balayage **exhaustif** de `data/symbols/rnca9r7q6c/ghidra/functions.tsv` sur les quatre vslots de
@@ -111,6 +119,69 @@ imperative), donc a n'avoir **aucune structure DSL** a mirrorer.
 
 C'est-a-dire : *s'il existe au moins un HEROS ALLIE MORT, un point de resurrection ; sinon, un point
 de renfort.*
+
+## 2bis. Les etages SOUS les feuilles — ce qui est LU, et ce qui reste une hypothese
+
+### `ResetActiveAbility` : le parametre s'appelle `allowUseless`, et le port le nomme autrement
+
+Chaine complete, **signatures lues** dans `frida/methods.tsv` :
+
+    DSLBehaviors.ResetActiveAbility(units: ITargetsSelector, allowUseless: bool)
+      -> ResetActiveAbilityBehaviour..ctor(units, allowUseless)
+      -> ResetActiveAbilityBehaviour$$Execute : foreach u in units : processor.ResetActiveAbility(u, allowUseless)
+      -> OperationProcessor.ResetActiveAbility(unit: IEntity, allowUseless: bool)
+      -> ResetActiveAbilityOperation$$Execute(unit, allowUseless)
+
+et le corps de l'Operation :
+
+    if (!BattleQuery.EntityCanHaveActiveAbilityReset(unit, allowUseless))  return;
+    foreach ab in unit.<ActiveAbilitiesComponent+0x20> :
+        if (StaticBattleRules.ActiveAbility.IsRegularAttack(ab.<+0x44>))  continue;
+        if (<predicat de config sur AbilitiesDatabase.Get(ab.<+0x44>)>) {
+            ab.<+0x18> = 0;  ab.<+0x10> = 0;  ab.<+0x28> = 1;   # cooldown remis a zero, re-arme
+            ...
+        }
+
+⚠ Le port existant (`runner/abilities/behaviours/ability_state.py::ResetActiveAbility`) nomme ce
+parametre **`ignore_turn_flag`**, alors que la signature native le nomme **`allowUseless`**. La
+POSITION et la destination sont les memes (il est transmis tel quel au gate
+`EntityCanHaveActiveAbilityReset`), donc le port est fonctionnellement juste — mais le nom porte ne
+correspond a rien dans le binaire. `PowerUp_ReactivateAbility` passe `allowUseless = true`.
+
+### Les options de `Heal` / `Repair` : les DEFAUTS sont poses par le ctor, pas par l'appelant
+
+Mesure comparative des trois constructions (offsets relatifs, donc stables) :
+
+| champ | `HealBehaviourOptions()` ctor | `ForHeal(src)` | `ForRegenerate(src)` | ce que pose `PowerUp_Healing` |
+|---|---|---|---|---|
+| `+0x2c` | *(non pose)* | `0` | `1` | *(non touche)* |
+| `+0x30` | `1` | `1` | `0` | *(non touche)* |
+| `+0x33` | *(non pose)* | *(non pose)* | *(non pose)* | **`1`** |
+| `+0x34` | `3` | *(non pose)* | *(non pose)* | **`1`** |
+
+| champ | `RepairBehaviourOptions()` ctor | `ForRepair()` | `ForRegenerate()` | ce que pose `PowerUp_Healing` |
+|---|---|---|---|---|
+| `+0x10` | *(non pose)* | `0` | `1` | **`0`** |
+| `+0x14` | `1` | `1` | `0` | **`1`** |
+| `+0x16` | *(non pose)* | *(non pose)* | *(non pose)* | **`1`** |
+| `+0x18` | `3` | *(non pose)* | *(non pose)* | *(non touche, reste `3`)* |
+
+Ce qui se LIT de ce tableau, sans interpretation :
+
+- le volet REPAIR de `PowerUp_Healing` pose **exactement** ce que pose `ForRepair()` (`+0x10 = 0`,
+  `+0x14 = 1`), **plus** un `+0x16 = 1` qu'aucune des deux factories ne touche ;
+- le couple `+0x2c` / `+0x10` est ce qui **distingue** `Heal` de `Regenerate` dans les deux
+  familles (`0` vs `1`), et `PowerUp_Healing` le laisse a `0` cote heal / le pose a `0` cote
+  repair — donc **soin franc, pas regeneration**, des deux cotes ;
+- `+0x34` (heal) et `+0x18` (repair) occupent la meme position relative dans leurs structures et
+  ont le meme defaut `3` ; `PowerUp_Healing` ramene le premier a `1` et **laisse le second a `3`**.
+
+⚠ **HYPOTHESE NON TRANCHEE, et elle le reste** : que `+0x34`/`+0x18` soient un `UnitSelectionType`
+(`3 = OnlyAliveAndTargetable`, `1 = OnlyAlive`) est **coherent avec les valeurs** mais n'a pas ete
+LU — aucun accesseur nomme n'a ete decompile pour ces champs, et la mise a jour du build a ferme la
+fenetre. De meme pour `+0x33`/`+0x16`. Le port ne fait donc porter **aucune decision** a ces
+champs : il appelle les feuilles portees `Heal`/`Repair` avec leurs defauts, et l'ecart eventuel
+est nomme en residu plutot que devine.
 
 ## 3. Le gameconfig — et le fait que `PowerUp_Bomb` n'a PAS de bouclier
 
