@@ -198,10 +198,15 @@ def test_une_pose_dont_le_NATIF_a_une_classe_non_portee_est_PARTIELLE_jamais_por
     FIDELE. Le compter PARTIEL envoyait un agent porter une classe qui n'existe pas."""
     from engine.entities.effects.factory import ABILITY_INIT_OWNER_EFFECTS
     dette, _jeton = _poses_sans_classe_portee()
-    assert dette, (
-        "premisse VIDE : plus aucune entree d'`ABILITY_INIT_OWNER_EFFECTS` ne pose un effet dont le "
-        "NATIF a une classe que le port n'execute pas. Si elles ont ete portees, tant mieux -- mais "
-        "alors ce test ne mesure plus rien et doit etre re-ancre, pas laisse vert a vide.")
+    # ⚠ PAS DE PLANCHER DE POPULATION ICI, ET C'EST MESURE. `dette` PEUT etre vide, et l'etait des
+    # le 2026-08-14 : `CabalOfSorcerers_ExtraDamagePct` et `GuardianConstruct_ExtraDamagePct` --
+    # les deux seules entrees concernees -- ont ete portees par #1036-r1/-r2. Un `assert dette`
+    # rougissait donc sur le PROGRES, exactement le vice que #1054 a fait mesurer.
+    # L'invariant n'est PAS perdu pour autant : `test_MUTATION_le_second_cran_est_LOAD_BEARING`
+    # le porte SYNTHETIQUEMENT (il force `classe_d_effet_native` a `True`, ce qui fabrique la
+    # population et exige qu'elle redevienne PARTIEL) -- verifie, il passe seul sur cet arbre.
+    # Cet etage-ci garde la meme chose sur la population REELLE quand elle existe. NE RIEN
+    # AJOUTER pour compenser le vide : toute garde de plus serait DOMINEE par le test de mutation.
     for nom in sorted(dette):
         etat, detail = KIV.etat(nom)
         assert etat == KIV.PARTIEL, (
@@ -417,10 +422,40 @@ def test_l_audit_expose_le_tri_etat_et_ne_le_rabat_pas_sur_un_booleen():
     etats = {c["etat"] for c in cond}
     assert etats <= {KIV.PORTE, KIV.PARTIEL, KIV.ABSENT}, "etat inconnu rendu par l'audit : %s" % etats
     partiels = [c["name"] for c in cond if c["etat"] == KIV.PARTIEL]
-    assert partiels, (
-        "premisse VIDE : plus aucune voie conditionnelle n'est PARTIELLE. Re-ancrer ce test "
-        "plutot que le laisser vert a vide.")
+    # ⚠ AUCUN PLANCHER SUR `partiels`. Il est tombe a ZERO le 2026-08-14 (lineup entierement
+    # referme : `0 voie conditionnelle non portee`), donc un `assert partiels` rougissait sur le
+    # PROGRES. Mais le retirer SEUL laisserait un vert a vide -- le tri-etat pourrait cesser
+    # d'arriver au document sans que rien ne le dise. D'ou le BRAS SYNTHETIQUE ci-dessous, qui
+    # FABRIQUE un PARTIEL au lieu d'en attendre un.
     for nom in partiels:
         assert not AKC._passive_covered(nom), (
             "`%s` est PARTIEL et `_passive_covered` rend True : le sur-comptage est de retour, "
             "l'audit va declarer portee une entree dont une face manque." % nom)
+
+
+def test_le_tri_etat_arrive_au_document_MEME_sans_PARTIEL_reel(monkeypatch):
+    """LE RE-ANCRAGE de l'etage precedent, et il MORD par CONSTRUCTION.
+
+    L'etage precedent ne vaut que si une voie conditionnelle est PARTIELLE. Depuis que le lineup
+    est referme il n'y en a plus AUCUNE -- son plancher rougissait donc sur le progres, et le
+    retirer seul aurait laisse un vert a vide. Ici on FABRIQUE la population : en forcant
+    `classe_d_effet_native` a `True`, le jeton `TheArdentBlade` cesse d'etre un mirror fidele et
+    redevient PARTIEL. On exige alors les DEUX choses que l'etage precedent gardait :
+    l'audit EXPOSE l'etat `PARTIEL`, et `_passive_covered` rend `False` dessus.
+
+    MESURE (2026-08-14, arbre fusionne) : sous cette mutation, `collect_conditionnelles` rend
+    `PARTIELS = ['TheArdentBlade']` et `_passive_covered('TheArdentBlade') = False`. Sans la
+    mutation, `PARTIELS = []` -- donc ce test n'est PAS domine par son voisin : il est le seul a
+    exercer le chemin quand la population reelle est vide."""
+    monkeypatch.setattr(KIV, "classe_d_effet_native", lambda _e: True)
+    KIV.voies_par_item.cache_clear() if hasattr(KIV.voies_par_item, "cache_clear") else None
+    cond = AKC.collect_conditionnelles({})
+    partiels = [c["name"] for c in cond if c["etat"] == KIV.PARTIEL]
+    assert partiels, (
+        "meme en forcant `classe_d_effet_native` a True, l'audit n'expose AUCUN PARTIEL : le "
+        "tri-etat n'arrive plus jusqu'au document, ou le gate ne mord plus du tout.")
+    for nom in partiels:
+        assert not AKC._passive_covered(nom), (
+            "`%s` est PARTIEL et `_passive_covered` rend True : le tri-etat est rabattu sur un "
+            "booleen permissif -- l'audit declarerait portee une entree dont une face manque."
+            % nom)

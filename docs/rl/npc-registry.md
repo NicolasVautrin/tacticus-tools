@@ -20,7 +20,7 @@ differe. C'est la doctrine « DECIDER != EXECUTER ».
 ## Bilan
 
 - Unites `npc` : **491** ; kits sans manque : **418** ; kits avec du travail : **73**
-- Actives distinctes : **147** — `[--]` **1** · `[C-]` **17** · `[CD]` **129**
+- Actives distinctes : **147** — `[--]` **1** · `[C-]` **15** · `[CD]` **131**
 - Passifs distincts : **177** — portes **111**, non portes **66**
 - Traits de kit distincts (AUCUN ecarte — le seuil de frequence a disparu avec #1015) :
   **58** — couverts **57**, non couverts **1**
@@ -118,13 +118,13 @@ l'unite. La colonne `porteurs` dit l'exposition.
 | passif | Volatile | 1 | LootObj_AmmoBox |
 | passif | WatchedOver | 1 | darkaNpc4Watcher |
 
-## Faces DECISION ouvertes sur des actives EXECUTEES (17)
+## Faces DECISION ouvertes sur des actives EXECUTEES (15)
 
 Ces abilities s'executent fidelement mais sont CHOISIES avec un scoring qui n'est pas celui
 du natif. Aucun compteur de manque ne les voit — elles ne sont pas des items absents, ce
 sont des **faces** absentes d'items presents.
 
-`ArcScourge`, `BasiliskBarrage`, `Burrowers`, `CallRipperSwarms`, `Catalyst`, `EntropyCannons`, `ExplosivePresents`, `KissOfDeath`, `MacroPlasmaIncinerator`, `NovaCharge`, `Reveal`, `SlashingDive`, `SquigLaunchas`, `TunnelingHorror`, `ValkyrieStrike`, `WallOfMirrors`, `WarConstruct`
+`ArcScourge`, `BasiliskBarrage`, `Burrowers`, `CallRipperSwarms`, `Catalyst`, `ExplosivePresents`, `KissOfDeath`, `MacroPlasmaIncinerator`, `NovaCharge`, `Reveal`, `SlashingDive`, `TunnelingHorror`, `ValkyrieStrike`, `WallOfMirrors`, `WarConstruct`
 
 ## Inventaire complet, par faction
 
@@ -404,7 +404,7 @@ sont des **faces** absentes d'items presents.
 | deathNpc4BlightlordTerminator | 0 | - | - | - | - |
 | deathNpcBlightbringer | 0 | Poxwalkers(1040)[CD] | - | - | relic:OrbsOfDecay |
 | deathNpcBlightlord | 0 | FlailSwing(1042)[CD] | - | - | relic:DaemonfleshPlate |
-| deathNpcMoWCrawler | 0 | EntropyCannons(1168)[C-]<br>PlagueburstMortar(1169)[CD] | - | - | mythic:BlightedLand |
+| deathNpcMoWCrawler | 0 | EntropyCannons(1168)[CD]<br>PlagueburstMortar(1169)[CD] | - | - | mythic:BlightedLand |
 | deathNpcPutrifier | 0 | FoulInfusion(1038)[CD] | - | - | relic:OrbsOfDecay |
 | deathNpcRotbone | 0 | RevitalizingMalignancy(1037)[CD] | - | - | relic:OrbsOfDecay |
 | deathNpcTyphus | 0 | PlagueWind(1035)[CD] | - | - | relic:Lakrimae |
@@ -519,7 +519,7 @@ sont des **faces** absentes d'items presents.
 | orksNpc6Stormboy | 0 | - | - | - | - |
 | orksNpcBigMek | 0 | GrotTank(1057)[CD] | - | - | relic:SupaCyborkBody |
 | orksNpcKillaKan | 0 | DakkaDakkaDakka(1171)[CD] | - | - | - |
-| orksNpcMoWRukkatrukk | 0 | SquigLaunchas(1200)[C-]<br>SquigMine(1201)[CD] | - | - | mythic:MoreGitzOverEre |
+| orksNpcMoWRukkatrukk | 0 | SquigLaunchas(1200)[CD]<br>SquigMine(1201)[CD] | - | - | mythic:MoreGitzOverEre |
 | orksNpcNob | 0 | UnstoppableMomentumReworked(1152)[CD] | - | - | relic:SupaCyborkBody |
 | orksNpcRuntherd | 0 | GetEmRuntz(1045)[CD] | - | - | relic:SupaCyborkBody |
 | orksNpcWarboss | 0 | Waaagh(1058)[CD] | - | - | relic:HeadwoppasKillchoppa |

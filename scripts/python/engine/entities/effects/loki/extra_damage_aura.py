@@ -29,6 +29,7 @@ from ...unit_selection_type import UnitSelectionType
 from ...damage_profile_type import DamageProfileType, PROFILE_NAME_BY_INDEX
 from ...effect_type import EffectType
 from ...rarity import Rarity
+from ...traits.unit_trait import UnitTrait         # `UnitsWithTraits` (#1036-r2)
 from ..base import (BaseEffect, is_ranged_attack as _is_ranged_attack,
                     target_is_on_fire_tile as _target_is_on_fire_tile)
 from ..magnitude import ability_const_str, ability_var
@@ -994,7 +995,6 @@ class PsychicStalkVisualEffect(BaseEffect):
 #     boucle state-wide `EffectWithTarget` (MEME arbitrage que
 #     `DaughterOfTheAbyssExtraDamagePctEffect` ci-dessus, `AURA_DEFENSE_MALUS_NATIVE_FACE`).
 # =====================================================================================================
-
 #: `TriggeredAbilityType` 0x5a7 = 1447 -- l'ability MYTHIQUE de la MoW `deathCrawler` /
 #: `deathNpcMoWCrawler`. C'est la config que `ConfigVar` de l'effet 1442 indexe (l'appariement
 #: ability -> effet est LU : `BlightedLandAbility$$GetEffectType` = `return 0x5a2` = 1442).
@@ -1025,9 +1025,19 @@ CTX_ABILITY_STATE_OF = "tertiary_ability_state_of"
 #: substrat des DEUX branches du `$$CreateTargetSelector` de 1449. Tri-etat : `None` = NON MESURE
 #: (pas de position / pas de plateau) -> le gate se FERME, jamais un tuple vide invente.
 CTX_TGT_ADJACENT_UNIT_PROFILES = "tgt_adjacent_unit_profiles"
+#: Noms des effets NON CONSOMMES portes par l'ATTAQUANT (`onlyActive: false` -- store BRUT
+#: `by_unit`). Substrat d'`EntitiesWithAnyEffect(..., effectTarget = Both)`. Tri-etat : `None` =
+#: NON MESURE (le gate se FERME), `frozenset()` = mesure et vide.
+CTX_ATT_EFFECT_NAMES = "att_effect_names"
+#: `{owner_id: bool}` -- `IsMachine(Owner)` (`EntityType.Machine = 6`), par PORTEUR (l'agregateur
+#: re-cle par l'`owner_id` de son ctx par-carrier). Valeur ou cle absente = NON MESURE.
+CTX_OWNER_IS_MACHINE = "owner_is_machine"
+#: Nombre d'allies ADJACENTS a l'ATTAQUANT qui passent `ValidCharacter` (Mythic + Psyker + Hero).
+#: COMPTE, pas booleen (le natif ecrit `AmountIsGreaterThanZero`). Tri-etat : `None` = NON MESURE.
+CTX_CABAL_VALID_ADJACENT_TO_ATT = "cabal_valid_adjacent_to_attacker"
 
 
-def _mow_ability_state(effect, ctx, owner_id, ability_name):
+def _mow_ability_state(effect, ctx, owner_id, ability_name, *, repli_stack: bool = True):
     """`GetAbilityState(effet)` -- le couple `(niveau, multiplicateur)` sous lequel l'ability
     MYTHIQUE est montee sur la MoW PORTEUSE.
 
@@ -1040,14 +1050,24 @@ def _mow_ability_state(effect, ctx, owner_id, ability_name):
     Canal ABSENT (contexte offline / probe / face PREDICTION, qui ne le threade pas) -> repli NOMME
     sur les niveaux que l'instance porte deja. Il est JUSTE quand l'effet vient du seed offline
     (`spawn.py::_seed_ability_owner_effects` passe le couple TERTIAIRE pour l'ability tertiaire), et
-    il clampe au dernier palier sinon : c'est une degradation DECLAREE, pas un choix."""
+    il clampe au dernier palier sinon : c'est une degradation DECLAREE, pas un choix.
+
+    ⚠ `repli_stack = False` (#1036-r1) retire le SECOND repli, `effect.level`, et traite un niveau
+    `0` comme NON MESURE. Les deux tiennent a la meme MESURE, faite sur un runner LIVE : le canal
+    rend `(0, <mult>)` pour une MoW -- `triggered_ability_state` retombe sur la branche PASSIVE
+    parce qu'aucun canal ne publie l'ability TERTIAIRE d'une Machine (`unitConfig` en erreur,
+    `abilityStates` limite aux ACTIVES) -- et `effect.level` y vaut `1`, qui est le niveau de STACK
+    de l'instance (`EffectComponent.Level`), pas un niveau d'ability. Le defaut `True` preserve
+    mot pour mot le comportement des deux appelants d'origine (1442, 1449)."""
     c = ctx or {}
     fn = c.get(CTX_ABILITY_STATE_OF)
     lvl = mult = None
     if fn is not None and owner_id is not None:
         lvl, mult = fn(owner_id, ability_name)
-    if lvl is None:
-        lvl = effect.ability_level if effect.ability_level is not None else effect.level
+    if lvl is None or (not lvl and not repli_stack):
+        lvl = effect.ability_level
+        if lvl is None and repli_stack:
+            lvl = effect.level
         mult = effect.ability_variables_multiplier
     return lvl, int(mult if mult is not None else 100)
 
@@ -1301,6 +1321,243 @@ class MoreGitzOverEreExtraDamagePctEffect(BaseEffect):
             return None
         lvl, mult = _mow_ability_state(self, c, c.get("owner_id"), MORE_GITZ_OVER_ERE_ABILITY)
         pct = ability_var(MORE_GITZ_OVER_ERE_ABILITY, _VAR_EXTRA_DMG_PCT, lvl, multiplier_pct=mult)
+        return for_percent_increase(True, int(pct)) if pct else None
+
+
+# --- Les DEUX mythiques de MoW dont le SELECTEUR porte le gate de rarete (#1036-r1/-r2) ----------
+# Elles partagent le helper `_mow_ability_state` ci-dessus (foyer UNIQUE de l'etat d'ability d'une
+# mythique de MoW) et les trois cles de ctx declarees en tete de section, avec UNE difference
+# MESUREE : cf. `_mythic_pct`.
+
+
+def _mythic_pct(effect, ctx, ability_id: str) -> "int | None":
+    """`ConfigVar(AbilityVariableType.extraDmgPct = 0xa, GetAbilityState(effet), <+0x60>)`.
+
+    Delegue au foyer `_mow_ability_state` (meme canal `tertiary_ability_state_of`, meme
+    patron `NornCrownEffect`), avec `repli_stack = False` -- UNE difference, et elle est
+    MESUREE (#1036-r1, session 89, `necroReanimator` monte a `--equip-mythic ...:4`) :
+
+      * `combatSnapshot.units[].unitConfig` rend `{'error': 'visualId introuvable'}` pour
+        toute Machine (`readUnitConfig` filtre sur la classe `UnitComponent` -- la MEME
+        cecite que #1039 a contournee pour la rarete), et `abilityStates` /
+        `decisionView.mows[].abilities` ne listent que ses ACTIVES ;
+      * donc `UnitContext.tertiary_ability` = `None`, `tertiary_ability_level` = `0`, et
+        `triggered_ability_state` retombe sur la branche PASSIVE en rendant `(0, 160)`.
+
+    Un `0` de CANAL MUET n'est pas une mesure, et le repli sur `effect.level` ecrirait le
+    niveau de STACK (`EffectComponent.Level`, publie a `1`) la ou le montage demande le
+    palier 4 -- inventer une magnitude est pire que n'en rendre aucune. AUCUNE
+    contribution, et la raison est ici. Residu `#1036-r8`, `BLOCAGE: capteur` : publier
+    l'`AbilityState` TERTIAIRE d'une Machine (`UnitConfiguration+0xc0` / `+0x78`, atteints
+    par `UnitExtensions$$GetBaseUnitComponent`) dans
+    `frida/hooks/features/ai-step/rpc-snapshot.ts`.
+    """
+    lvl, mult = _mow_ability_state(effect, ctx, effect.source, ability_id,
+                                   repli_stack=False)
+    if not lvl:
+        return None
+    return ability_var(ability_id, _VAR_EXTRA_DMG_PCT, lvl, multiplier_pct=mult)
+
+
+class GuardianConstructExtraDamagePctEffect(BaseEffect):
+    """`IdunBattle.Entities.Effects.Loki.GuardianConstruct_ExtraDamagePctEffect` (EffectType
+    0x60c = 1548) -- owner-effect PERMANENT de l'ability MYTHIQUE `GuardianConstruct` (0x5fa = 1530)
+    de la MACHINE OF WAR `necroReanimator` / `necroNpcMoWReanimator`. i2 : les allies **Mythiques**
+    que le Reanimator a touches de ses `NanoscarabRepairProtocols` frappent plus fort. #1036-r1.
+
+    ## Canal : AURA cote SOURCE (`create_aura_attack_damage_bonus_for_ally`)
+    La classe expose un `$$CreateTargetSelector` -> l'`Owner` que la boucle native ecrit dans
+    `AbilityEntities+0x18` est **CHAQUE CIBLE du selecteur**, pas le porteur
+    (`IdunBattle.Core.Services.DamageCalculations$$CalculateAttackerModifiersForPrediction` itere
+    `effets x cibles`). Le trigger etant `get_OwnerIsCaster`, le beneficiaire est l'**ATTAQUANT** :
+    tous les gates du selecteur se lisent donc sur lui (`att_*`).
+
+        $$CreateEffectDamageBonusForAttack =
+            EffectBonus.ForPercentIncrease( get_OwnerIsCaster,
+                                            ConfigVar(AbilityVariableType.extraDmgPct = 0xa,
+                                                      GetAbilityState, <effet+0x60>) )
+
+        $$CreateTargetSelector =
+            UnitsWithRarity(
+                EntitiesWithAnyEffect( Friends(Owner@<DSLSelectors+0x30>, AllUnits,
+                                               OnlyAliveAndTargetable),
+                                       effectTypes  = [EffectType.NanoscarabRepairProtocols = 0x609],
+                                       effectTarget = EffectTargetType.Both = 6 ),
+                rarity = Rarity.Mythic = 5, unitSelectionType = OnlyAliveAndTargetable = 3 )
+
+        $$GetRefreshTriggers = [RefreshEffectTrigger.EffectsChanged = 4,
+                                RefreshEffectTrigger.UnitStateChanged = 3]
+
+    Le `0x609` du call-site est le SCALAIRE que la surcharge a 4 arguments emballe elle-meme dans un
+    `int[1]` ; le `6` est l'`effectTarget`, PAS un second type (meme forme que `PsychicStalk`).
+
+    ## Les TROIS etages du selecteur, et leur substrat
+      1. `Friends(Owner, AllUnits, OnlyAliveAndTargetable)` -> meme equipe que le PORTEUR. `Friends`
+         ne retire PAS le porteur (`UnitsByTeamSelector$$CountOrAdd` garde toute entite dont
+         `UnitExtensions$$IsFriend(unit, other)` egale son flag, et `IsFriend(u, u)` est VRAI) --
+         cf. la patte SELF ci-dessous.
+      2. `EntitiesWithAnyEffect(..., [1545], Both)` -> `EntitiesWithAnyEffectSelector$$Select`
+         appelle `EntityExtensions$$HasOneOfEffects(entity, query, effectTypes, onlyActive = 0,
+         targetType)` -- LU : le 4e argument du call-site est ZERO, donc **`onlyActive = false`**,
+         et `EffectTargetType.Both = 6 = 2|4` prend les DEUX branches (`& 2` = l'entite est CIBLE de
+         l'effet, `& 4` = elle en est la SOURCE). Cote port, `att_effect_names` porte les noms
+         d'effets NON CONSOMMES de l'attaquant (store BRUT `by_unit`, pas `active_effects`) -- MEME
+         substrat et MEME semantique `onlyActive: false` que le `tgt_effect_names` de
+         `NornCrownEffect` (#1011). La branche SOURCE ne concerne que le porteur lui-meme
+         (`NanoscarabRepairProtocolsAbility$$ExecuteBehaviour` = `AddEffect(0x609, source = Owner,
+         targets = Target@<DSLSelectors+0x60>)` : le seul emetteur est la MoW), et cette branche-la
+         est celle de la patte SELF, non portee -- cf. ci-dessous.
+      3. `UnitsWithRarity(..., Rarity.Mythic = 5)` -> `att_rarity` (`BaseUnitComponent.Rarity`
+         +0x74, capteur #1039, contrat #999-r3-r1). TRI-ETAT : `None` = NON MESURE -> gate FERME
+         (jamais `Rarity.Common` en repli, qui serait PERMISSIF).
+
+    ⚠ **PATTE SELF NON PORTEE, et c'est une degradation RESTRICTIVE nommee.** `Friends` inclut le
+    porteur et la branche SOURCE d'`EffectTargetType.Both` le retient des qu'il a repare quelqu'un :
+    le natif accorde donc le bonus a la MoW quand elle attaque elle-meme. Le canal port serait
+    `create_effect_damage_bonus_for_attack`, dont l'`att_ctx` ne porte NI `att_rarity` NI
+    `att_effect_names` (il se construit sur ~9 sites, cf. #1025-r1) : en poser un seul creerait un
+    fork silencieux. Residu `#1036-r7`.
+
+    ## MAGNITUDE
+    `extraDmgPct = [10, 13, 16, 20]`, `variablesAffectedByRarityBonus = ['extraDmgPct']` -- indexee
+    par l'etat d'ability de la **SOURCE** (cf. `_mythic_pct`)."""
+
+    #: Cle gameconfig de l'ability qui pose l'effet -- la config qu'indexe `ConfigVar`.
+    ABILITY_ID = "GuardianConstruct"
+    #: `EntitiesWithAnyEffect(..., effectTypes = [0x609], ...)` -- l'effet pose par
+    #: `NanoscarabRepairProtocolsAbility$$ExecuteBehaviour` sur la cible reparee.
+    REPAIR_EFFECT_NAME = EffectType.NanoscarabRepairProtocols.name
+
+    def create_aura_attack_damage_bonus_for_ally(self, ctx: Mapping | None = None) -> EffectBonus | None:
+        c = ctx or {}
+        # 1. `Friends(Owner@<DSLSelectors+0x30>, AllUnits, OnlyAliveAndTargetable)`
+        if c.get("owner_team") is None or c.get("owner_team") != c.get("att_team"):
+            return None
+        # 2. `EntitiesWithAnyEffect(..., [NanoscarabRepairProtocols], Both)` -- `onlyActive: false`.
+        names = c.get(CTX_ATT_EFFECT_NAMES)
+        if names is None or self.REPAIR_EFFECT_NAME not in names:
+            return None                                   # canal non mesure -> FERME (restrictif)
+        # 3. `UnitsWithRarity(..., idun.meta.Rarity.Mythic = 5)` -- comparaison au MEMBRE d'enum,
+        #    jamais a l'ordinal (cinq enums du build partagent les six memes ordinaux de rarete).
+        if c.get("att_rarity") != Rarity.Mythic:
+            return None
+        pct = _mythic_pct(self, c, self.ABILITY_ID)
+        return for_percent_increase(True, int(pct)) if pct else None
+
+
+class CabalOfSorcerersExtraDamagePctEffect(BaseEffect):
+    """`IdunBattle.Entities.Effects.Loki.CabalOfSorcerers_ExtraDamagePctEffect` (EffectType
+    0x5d6 = 1494) -- owner-effect PERMANENT de l'ability MYTHIQUE `CabalOfSorcerers` (0x5d8 = 1496)
+    de la MACHINE OF WAR `thousDaemonPrince` / `thousNpcMowDaemonPrince`. #1036-r2.
+
+    ## Canal : AURA cote SOURCE, MEME lecture que son jumeau 1548 ci-dessus
+        $$CreateEffectDamageBonusForAttack =
+            EffectBonus.ForPercentIncrease(
+                get_OwnerIsCaster & CurrentAttackDamageProfileIs(DamageProfileType.Psychic = 0xd),
+                ConfigVar(AbilityVariableType.extraDmgPct = 0xa, GetAbilityState, <effet+0x60>) )
+
+    Le corps est INLINE (aucun `call`) : le canal se lit a la DISPOSITION des champs --
+    `EffectBonus$$ForAddition` ecrit son montant a `+0x10`, `$$ForPercentIncrease` a `+0x08` ; ce
+    corps-ci ecrit le trigger a `+0x00` et le montant a `+0x08`, donc POURCENT. Seconde source
+    concordante : le jumeau 1548 APPELLE `ForPercentIncrease` explicitement.
+
+        $$ValidCharacter(x) =
+            UnitsWithTraits( UnitsWithRarity(x, Rarity.Mythic = 5, OnlyAliveAndTargetable),
+                             traits = [UnitTrait.Psyker = 0x3ea, UnitTrait.Hero = 0x10],
+                             OnlyAliveAndTargetable )
+
+        $$CreateTargetSelector =
+            A = ValidCharacter( AdjacentFriends(Owner, unique = true, OnlyAliveAndTargetable) )
+            B = ValidCharacter( Friends(Owner, <DSLSelectors+0x20>, OnlyAliveAndTargetable) )
+            F = Filter( B, AmountIsGreaterThanZero(
+                               ValidCharacter( AdjacentFriends(<element courant @DSLSelectors+0x68>,
+                                                               unique = true,
+                                                               OnlyAliveAndTargetable) ) ) )
+            return ConditionalSelector( IsMachine(Owner), ifTrue = F, ifFalse = Unique(A + F) )
+
+    Lecture : les beneficiaires sont les allies **Mythic + Psyker + Hero** du porteur qui ont
+    eux-memes un tel allie **adjacent** (la << cabale >>) ; si le porteur est une MACHINE, c'est
+    cette seule liste, sinon on y ajoute ses propres voisins qualifies.
+
+    ## Les quatre lectures qui ne se devinent pas
+      * `UnitsWithTraits` compose par `TargetsSelector$$op_BitwiseAnd` -> **INTERSECTION**
+        (Psyker ET Hero), jamais une union.
+      * l'ORDRE des deux branches est LU : `ConditionalSelector$$Select` evalue `this+0x18` (le
+        trigger) et prend `this+0x20` quand il declenche, `this+0x28` sinon.
+      * la surcharge d'`AdjacentFriends` est `(unit, unique, selectionType)` -- tranchee par les
+        XREFS ENTRANTES des deux corps homonymes, pas par la forme du call-site.
+      * `Friends` ne retire PAS le porteur (`IsFriend(u, u)` est VRAI) : ce sont l'adjacence (A) et
+        le filtre (F) qui l'ecartent -- cf. la patte SELF ci-dessous.
+
+    ## `IsMachine(Owner)` -- LU jusqu'au scalaire
+    `IsMachineTrigger$$ShouldTrigger` resout l'entite puis appelle
+    `IdunBattle.Entities.EntityExtensions$$IsMachine`, dont le corps entier est
+    `<EntityType de l'entite> == 6` (temoins : `$$IsUnit` compare a `1`, `$$IsMachinePlatform` a
+    `7` ; enum `IdunBattle.Entities.Enum.EntityType`). Cote port c'est la PRESENCE d'un
+    `MachineComponent` (`runner/components.py::is_machine_of_war`), publiee par carrier dans
+    `ctx["owner_is_machine"]`. TRI-ETAT : `None` = NON MESURE -> on ne prend QUE la branche `F`
+    (restrictif : `A` n'est atteignable que sur un porteur non-machine, or les DEUX porteurs connus
+    sont des MoW -- cf. `docs/rl/case-1036-mythiques-cabale-et-construct.md`).
+
+    ## Le voisinage de l'attaquant (`F`)
+    `AmountIsGreaterThanZero(ValidCharacter(AdjacentFriends(It)))` porte sur l'ELEMENT COURANT du
+    filtre, c.-a-d. le beneficiaire = l'ATTAQUANT : combien de ses allies ADJACENTS sont
+    Mythic + Psyker + Hero. Cle SCALAIRE `cabal_valid_adjacent_to_attacker` (un COMPTE, pas un
+    booleen -- le natif ecrit `AmountIsGreaterThanZero`), meme forme que le
+    `friend_heroes_adjacent_to_target` de `WayOfTheShortBlade` (#1019). TRI-ETAT : `None` = NON
+    MESURE -> gate FERME.
+
+    ⚠ **PATTE SELF NON PORTEE** (meme cause que 1548, residu `#1036-r7`) -- et elle est de surcroit
+    STRUCTURELLEMENT INERTE sur les deux porteurs connus : la branche `F` exige du porteur un voisin
+    qualifie, or une MoW n'occupe aucune tuile (`snapshot._load_machines` ne pose pas de
+    `PositionComponent`, et le natif n'en a pas non plus).
+
+    ## MAGNITUDE
+    `extraDmgPct = [10, 13, 16, 20]`, `variablesAffectedByRarityBonus = ['extraDmgPct']` -- indexee
+    par l'etat d'ability de la **SOURCE** (cf. `_mythic_pct`)."""
+
+    #: Cle gameconfig de l'ability qui pose l'effet -- la config qu'indexe `ConfigVar`.
+    ABILITY_ID = "CabalOfSorcerers"
+    #: `UnitsWithTraits(..., traits = [0x3ea, 0x10], ...)` -- INTERSECTION (`op_BitwiseAnd`).
+    VALID_CHARACTER_TRAITS = (UnitTrait.Psyker.name, UnitTrait.Hero.name)
+
+    def _is_valid_character_att(self, c: Mapping) -> bool:
+        """`ValidCharacter(<attaquant>)` = `UnitsWithTraits(UnitsWithRarity(x, Mythic), [Psyker,
+        Hero])`. Rarete NON MESUREE (`None`) ou traits absents -> FAUX (restrictif nomme)."""
+        if c.get("att_rarity") != Rarity.Mythic:          # UnitsWithRarity(..., Mythic = 5)
+            return False
+        traits = c.get("att_traits")
+        if traits is None:
+            return False                                  # canal non threade -> FERME
+        return all(t in traits for t in self.VALID_CHARACTER_TRAITS)   # op_BitwiseAnd = INTERSECTION
+
+    def create_aura_attack_damage_bonus_for_ally(self, ctx: Mapping | None = None) -> EffectBonus | None:
+        c = ctx or {}
+        # `CurrentAttackDamageProfileIs(DamageProfileType.Psychic = 0xd)` -- gate POSITIF : profil
+        # non mesure -> FERME (contraste avec le `!DamageProfileIs` de DefenderOfTheGreaterGood,
+        # dont l'absence OUVRE).
+        if (c.get("damage_profile") or None) != DamageProfileType.Psychic.name:
+            return None
+        # `Friends(Owner@<DSLSelectors+0x30>, <DSLSelectors+0x20>, OnlyAliveAndTargetable)`
+        if c.get("owner_team") is None or c.get("owner_team") != c.get("att_team"):
+            return None
+        if not self._is_valid_character_att(c):           # ValidCharacter(<beneficiaire>)
+            return None
+        # `ConditionalSelector(IsMachine(Owner), ifTrue = F, ifFalse = Unique(A + F))`
+        n_adj = c.get(CTX_CABAL_VALID_ADJACENT_TO_ATT)
+        in_f = (n_adj is not None and int(n_adj) > 0)     # AmountIsGreaterThanZero(...)
+        in_a = False
+        if (c.get(CTX_OWNER_IS_MACHINE) or {}).get(c.get("owner_id")) is False:
+            # branche `ifFalse` SEULEMENT : `A = ValidCharacter(AdjacentFriends(Owner, unique))`,
+            # l'attaquant deja qualifie doit etre ADJACENT au porteur (substrat natif d'adjacence,
+            # cf. `_adjacency_channels`).
+            op, ap = c.get("owner_pos"), c.get("att_pos")
+            if op and ap:
+                elev_by_pos, neigh_by_pos = _adjacency_channels(c)
+                in_a = bool(_bq.is_adjacent(op, ap, elev_by_pos, neigh_by_pos))
+        if not (in_f or in_a):
+            return None
+        pct = _mythic_pct(self, c, self.ABILITY_ID)
         return for_percent_increase(True, int(pct)) if pct else None
 
 
