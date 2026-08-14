@@ -1229,7 +1229,7 @@ class UseActiveAbility(AbilityBehaviour):
     exigeait cet etage : lui donner le chemin d'attaque normale lui ferait INVENTER une attaque
     que le natif ne porte pas -- pire qu'un no-op.
 
-    DISPATCH NON-NORMAL : `processor.<slot 2 IOperationProcessor>(caster, targets, abilityType,
+    DISPATCH NON-NORMAL : `processor.<slot 2 = ActiveAbility>(caster, targets, abilityType,
     options)` = `Core.Services.OperationProcessor$$ActiveAbility` ->
     `IdunBattle.Operations.ActiveAbilityOperation$$Execute` -> `$$ExecuteInternal`. Le port y entre
     par `AbilityHandler.active_ability_operation`, qui est le mirror de CE rang-la -- donc SANS le
