@@ -101,6 +101,9 @@ from ..loki.despoiled_ground import (DespoiledGroundTileDoT,         # #85 (EnvD
 from ..loki.head_claimer import (HeadClaimerOnDeathAbility,          # lot POSE (passif blackHaarken,
                                  HeadClaimerOnFledAbility)           # #947)
 from ..loki.trophy_taker import TrophyTakerOnUnitDefeatedAbility     # #951 (passif worldExecutions)
+from ..loki.headwoppas_killchoppa import (                           # #1012-r1 (relique 1549 d'orksWarboss :
+    HEADWOPPAS_KILLCHOPPA_EXTRA_DMG,                                 #  le compteur de kills de l'effet
+    HeadwoppasKillchoppaIncreaseLevelOnKill)                         #  1568, sans cap)
 from ..loki.skullsmasher import (SkullsmasherActivateStunAbility,    # #953 (passif worldJakhal :
                                  SkullsmasherTriggerStunAbility)     # marqueur de kill + pose du Stun)
 from ..loki.obsessive_annunciation import (                          # #954 (passif emperKakophonist :
@@ -1750,6 +1753,17 @@ EFFECT_TRIGGERS: dict[int, list[type[EffectTrigger]]] = {
     # restent NON CONFRONTES. Cf. loki/neuroparasite.py et bond_removal.py.
     NEUROPARASITE_EFFECT: [NeuroparasiteIncreaseLevelOnPsychicHit,   # On(9)    -> +1 niveau
                            NeuroparasiteIncreaseLevelOnPinned],     # On(0x3d) -> +1 niveau
+    # #1012-r1 -- `HeadwoppasKillchoppa_ExtraDmg` (0x620 = 1568), owner-effet de la relique
+    # `HeadwoppasKillchoppa` d'`orksWarboss` << Gulgortz >>. UN SEUL `Triggered()` dans
+    # `...HeadwoppasKillchoppaEffect$$CreateHandleTriggerAbilitiesInternal` :
+    # `On(0x36 = UnitDefeated) & NOT IsSteppableUnit(Targets@+0x60) & AreEqual(Attacker(),
+    # Owner@+0x30)` -> `IncreaseEffectLevel(Owner@+0x30, 1568, amount = null, max = null)`.
+    # `amount` nul retombe sur `<DSLFormulas+0x20> = Direct(1)` ; `max` nul desactive le clamp
+    # d'`IncreaseEffectLevelOperation$$Execute` -- AUCUN cap (contraste `Neuroparasite`, qui ecrit
+    # `$$GetMaximumLevel`). MEME famille que les deux entrees `NEUROPARASITE_EFFECT` ci-dessus :
+    # sans ce trigger l'effet resterait au niveau 0, donc INACTIF et sans magnitude, pour toujours.
+    # Cf. loki/headwoppas_killchoppa.py (les deux, effet et trigger).
+    HEADWOPPAS_KILLCHOPPA_EXTRA_DMG: [HeadwoppasKillchoppaIncreaseLevelOnKill],   # On(0x36) -> +1 niveau
     HAZE_DAMAGE_TRANSFER: [HazeOfCorruptionDamageTransferTrigger],
     CONTAMINATED_TILE: [ContaminatedTileEffect],  # tile-effect : enter(4)+tick(0x12) -> pose Contaminated_Unit
     FIRE_TILE: [FireTileDoT],                     # tile-effect : tick(0x14) -> DoT 20% PV initiale a l'occupant

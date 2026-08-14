@@ -16,6 +16,7 @@ from .loki.intoxicating_elixir import IntoxicatingElixirEffect
 from .loki.kardiocore_galvanus import KardiocoreGalvanusExtraCritDmgEffect
 from .loki.maw_claws_of_thyrax import MawClawsOfThyraxExtraCritDmgEffect
 from .loki.nether_realm_casket import NetherRealmCasketCritDamageReductionEffect
+from .loki.headwoppas_killchoppa import HeadwoppasKillchoppaExtraDmgEffect
 from .loki.norn_crown import NornCrownEffect
 from .loki.ramshackle import RamshackleDmgReductionEffect
 from .loki.revealed import RevealedEffect                    # #1033 (1219, pose par 1107 Reveal)
@@ -1578,6 +1579,21 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # & HasEffect(Target@+0x60, 0x4c2 = 1218 Neuroparasite, onlyActive: false, 6 = Both),
     # ConfigVar(0x8 = extraDmg, GetAbilityState(effect)))` -> canal additif ATTAQUANT.
     "NornCrown": NornCrownEffect,
+    # #1012-r1 -- `HeadwoppasKillchoppa_ExtraDmg` (`EffectType` 0x620 = 1568), owner-effect
+    # PERMANENT de la relique `HeadwoppasKillchoppa` (`TriggeredAbilityType` 0x60d = 1549, seul
+    # porteur `orksWarboss` << Gulgortz >>), pose **AU NIVEAU 0** par
+    # `...Triggered.Loki.HeadwoppasKillchoppaAbility$$CreateBehaviour` = `AddEffect(0x620, ...,
+    # options{+0x10 = <DSLFormulas+0x18> = Direct(0)})` -> `ABILITY_INIT_OWNER_EFFECTS` plus bas.
+    # ⚠ Le 3e champ des `options` est le NIVEAU INITIAL, pas la duree, et c'est TRANCHE au
+    # decompile (la fourche que #1012-r1 laissait ouverte) : `AddEffectBehaviour$$Execute` l'evalue
+    # en `AddEffectOptions+0x10` avec DEFAUT 1, et `AddEffectOperation$$Execute` ecrit ce champ dans
+    # `EffectComponent+0x68` (le niveau), la DUREE etant `AddEffectOptions+0x00`. L'effet naît donc
+    # INACTIF (`CreateActiveCondition` = `AmountIsGreaterThanZero(EffectLevel)`).
+    # Aura + compteur : le selecteur est `Owner + Friends(Owner, UnitsWithVisualId(
+    # <constants.unitId = orksNpc2OrkBoy>, OnlyAlive), OnlyAliveAndTargetable)` -- une SEULE
+    # instance, portee par Gulgortz, donc un seul compteur ; le `Triggered()` interne
+    # (`EFFECT_TRIGGERS[1568]`) le monte de +1 par unite non-`Steppable` que LUI abat.
+    "HeadwoppasKillchoppa_ExtraDmg": HeadwoppasKillchoppaExtraDmgEffect,
     # 1455 NetherRealmCasket_CritDamageReduction (#908) : TROISIEME implementeur de l'axe REDUCTION
     # du canal crit-DEGAT, meme forme que les deux ci-dessus. Owner-effect PERMANENT de la RELIQUE
     # `NetherRealmCasket` (`TriggeredAbilityType` 0x5b6 = 1462, `allowedUnits = [necroWarden,
@@ -1995,6 +2011,15 @@ ABILITY_INIT_OWNER_EFFECTS: dict[str, list[str]] = {
     # (sa `CreateActiveCondition` est celle de la base, toujours vraie), donc le seed y est
     # idempotent -- c'est un FILET pour les chemins purement offline.
     "NornCrown": ["NornCrown"],
+    # #1012-r1 -- `HeadwoppasKillchoppaAbility$$CreateTrigger` (corps DEDUPLIQUE, generique
+    # `OnOwnerSpecificAbilityInit(this.<AbilityType>)`) + `$$CreateBehaviour` =
+    # `AddEffect(0x620 = 1568, AbilityStateReference, source = targets = Owner@+0x30,
+    #            options{+0x00 = null, +0x08 = null, +0x10 = <DSLFormulas+0x18> = Direct(0)})`.
+    # La relique arrive par la voie TERTIAIRE, que `_seed_ability_owner_effects` lit depuis #1005.
+    # ⚠ Le niveau POSE est 0 (cf. la fourche tranchee au registre `EFFECT_CLASSES` ci-dessus), donc
+    # l'effet est INACTIF au deploiement et `decisionView` ne le publie qu'avec `includeInactive` :
+    # ce seed est ce qui le materialise sur les chemins offline.
+    "HeadwoppasKillchoppa": ["HeadwoppasKillchoppa_ExtraDmg"],
     # #1025 -- `MoreGitzOverEreAbility` (ability **MYTHIQUE** de la MoW `orksRukkatrukk` /
     # `orksNpcMoWRukkatrukk`, `TriggeredAbilityType` 0x5b0 = 1456). `frida/classes.tsv` : parent
     # `IdunBattle.Entities.Abilities.AOwnerEffectTriggeredAbility`, et la classe n'override QUE
