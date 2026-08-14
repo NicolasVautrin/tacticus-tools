@@ -468,6 +468,138 @@ def titanhammer_target_tiles_for(state, board, moving_team) -> set | None:
     return out
 
 
+def get_range_bonus_for_unit(state, board, unit_id: int, occupants: dict = None,
+                             moving_team=None) -> list:
+    """`IdunBattle.Core.Services.MovementQuery$$GetRangeBonusForUnit(unit, isDangerZone)` --
+    mirror de la branche `isDangerZone = false` :
+
+        result = new List<RangeBonus>();
+        foreach (var effectEntity in <effets de l'unite>)
+            var b = Get(effectEntity).RangeBonusForMovement(entities);   // slot d'interface 0x1f
+            if (b.HasValue) result.Add(b.Value);
+        return result;
+
+    La branche `isDangerZone` (slot 0x20, `RangeBonusForDangerZone`) n'est PAS portee : son unique
+    appelant natif est l'affichage de la ZONE DE DANGER, hors du perimetre du moteur.
+
+    RAYON DE SOUFFLE NUL PAR CONSTRUCTION : `BaseEffect.create_range_bonus_for_movement` rend
+    `None` par defaut, donc toute unite sans `AdrenalGlands_Effect` rend `[]` et le consommateur
+    (`get_movable_tiles_for`) est alors STRICTEMENT inchange. C'est aussi le regime natif quand
+    `rangeBonuses` est vide."""
+    from ..entities.effects.base import BaseEffect
+    from ..runner.components import unit_state_for_effects
+    from ..services.range_bonus import MovementBonusContext
+    eff_state = getattr(state, "effects", None) if state is not None else None
+    if eff_state is None:
+        return []                       # aucun canal d'effets -> aucun bonus (NON MESURE, pas 0)
+    # ── PRE-FILTRE, et il est EXACT (il ne change AUCUN resultat, seulement le cout) ────────────
+    # Ce foyer est appele a chaque calcul de mouvement du moteur, et `active_effects` EVALUE les
+    # `CreateActiveCondition` -- dont certaines montent un arbre DSL complet. MESURE sur un state
+    # reel (session 89, MC1_67, 6 unites) : sur le Hormagaunt, qui porte
+    # `InstinctiveBehaviour_BlockMovement` (condition PORTEE), `active_effects` a lui seul coute
+    # **0,358 ms** contre 0,005 ms sur une vue deja construite. Or un effet dont la classe ne
+    # SURCHARGE PAS `create_range_bonus_for_movement` rend `None` par construction : il ne peut
+    # jamais contribuer. On teste donc d'abord la SURCHARGE sur la liste BRUTE (aucune condition
+    # evaluee), et on ne paie la vue et les conditions que s'il existe un porteur potentiel.
+    # Effet MESURE, ventile (ce foyer, ms/appel) : NON-porteurs 0,010 -> 0,007 ; porteur inchange
+    # (le pre-filtre ne l'ecarte pas, par construction). Le cout total de `get_movable_tiles_for`
+    # reste 0,08-0,16 ms sur les non-porteurs (identique a `master`) et passe a 2,4 ms sur le
+    # PORTEUR SEUL -- dont ~1,9 ms de `get_extra_reachable_tiles` (un sous-pathfinding par tuile
+    # atteignable). C'est le prix de la mecanique, paye par la seule unite qui la porte.
+    base_hook = BaseEffect.create_range_bonus_for_movement
+    raw = getattr(eff_state, "by_unit", None) or {}
+    if not any(getattr(type(e), "create_range_bonus_for_movement", base_hook) is not base_hook
+               for e in (raw.get(int(unit_id)) or ())):
+        return []
+    # `active_effects` = flag `EffectComponent.IsActive @+0x5c` ET `CreateActiveCondition`, la
+    # MEME conjonction que le natif (`GetEffects(unit)` ne rend que les effets actifs).
+    effs = eff_state.active_effects(int(unit_id), unit_state_for_effects(state, int(unit_id)))
+    if not effs:
+        return []
+    mctx = MovementBonusContext(state=state, board=board, unit_id=int(unit_id),
+                                occupants=occupants, moving_team=moving_team)
+    out = []
+    for e in effs:
+        b = e.range_bonus_for_movement(mctx)
+        if b is not None:
+            out.append(b)
+    return out
+
+
+def movement_range_with_applied_bonus(base_range: int, range_bonuses) -> int:
+    """`IdunBattle.Core.Services.MovementQuery$$MovementRangeWithAppliedBonus(unit, baseRange,
+    rangeBonuses)` -- la BOUCLE, verbatim :
+
+        foreach (var b in rangeBonuses)
+            if (b.ReduceRange.HasValue) range = Math.Max(0, range - b.ReduceRange.Value);
+
+    ⚠ **SEUL `ReduceRange` est lu** : un `ExtraRange` n'augmente JAMAIS la portee brute du
+    pathfinding. C'est ce qui fait d'`AdrenalGlands` un ajout de TUILES CONDITIONNELLES
+    (`GetExtraReachableTiles`) et non un `+1 Mouvement`.
+
+    RESIDU NOMME : la queue native `if (HasTriggeredAbility(unit, 0x4b8) || HasTrait(unit, 0x418
+    Stationary)) return 0;` n'est PAS reproduite ICI. Le volet `Stationary` l'est deja EN AVAL
+    (`get_movable_positions_for`, #91) ; le volet `HasTriggeredAbility(0x4b8)` n'a aucun porteur
+    confronte. Le porter ici changerait le resultat de `get_movable_tiles_for` pour des unites qui
+    n'ont AUCUN range bonus -- un rayon de souffle que cette tranche ne mesure pas."""
+    rng = int(base_range)
+    for b in (range_bonuses or []):
+        rr = getattr(b, "reduce_range", None)
+        if rr is not None:
+            rng = max(0, rng - int(rr))
+    return rng
+
+
+def get_extra_reachable_tiles(board, default_reachable, unit_id: int, bonus, occupants: dict,
+                              moving_team, traits, has_effect, can_continue=None) -> set:
+    """`IdunBattle.Core.Services.MovementQuery$$GetExtraReachableTiles(defaultReachableTiles,
+    pathfinderType, unit, rangeBonus)` -- mirror 1:1 (slots `IPathfinders` LUS dans
+    `data/symbols/<build>/metadata/interface_slots.tsv` : 5 = `IsValidContinuePathTile`,
+    2 = `IterateReachableTiles`) :
+
+        result = new OrderedSet<ITile>();
+        foreach (var t in defaultReachableTiles) {
+            if (!pathfinders.IsValidContinuePathTile(type, unit, t)) continue;
+            foreach (var t2 in pathfinders.IterateReachableTiles(type, t, bonus.ExtraRange, unit)) {
+                if (defaultReachableTiles.Contains(t2)) continue;
+                if (bonus.ExtraRangeCondition != null && !bonus.ExtraRangeCondition(t2)) continue;
+                result.Add(t2);
+            }
+        }
+        return result;
+
+    `default_reachable` est en IDS DE TUILE (comme tout ce foyer) ; la CONDITION, elle, recoit une
+    POSITION `(col, row)` -- le port n'a pas d'objet tuile, et les deux helpers d'`AdrenalGlands`
+    raisonnent en positions.
+
+    ECART ASSUME ET MESURE : le natif alimente `defaultReachableTiles` avec le retour BRUT de
+    `GetReachableTiles`, AVANT le `RemoveAll(!IsMovableTile)` ; le port collapse les deux etages
+    (`walk_pathfinder.get_movable_positions` retire deja ce qu'`IsMovableTile` retirerait). Pour la
+    MARCHE l'ecart est NUL (l'arete exige deja `IsWalkable`, donc aucune tuile non-walkable n'est
+    jamais atteinte) ; pour le VOL il ne l'est pas -- aucun porteur volant de `RangeBonus`
+    n'existe dans le build."""
+    extra_range = int(getattr(bonus, "extra_range", 0) or 0)
+    cond = getattr(bonus, "extra_range_condition", None)
+    if extra_range <= 0:
+        return set()
+    out = set()
+    for tid in sorted(default_reachable):
+        # `IsValidContinuePathTile(type, unit, t)` : le gate #131 (`can_continue`), qui est
+        # exactement celui que `movable_positions_for_unit` passe deja au pathfinder.
+        if can_continue is not None and not can_continue(int(tid)):
+            continue
+        visited, stop = movable_positions_for_unit(
+            board, int(tid), extra_range, occupants, moving_team,
+            traits=traits, has_effect=has_effect, can_continue=can_continue)
+        for t2 in stop:                       # `RemoveAll(!IsMovableTile)` cote port = le stop-set
+            if t2 in default_reachable or t2 in out:
+                continue
+            if cond is not None and not cond(board.coord(int(t2))):
+                continue
+            out.add(int(t2))
+    return out
+
+
 def get_movable_tiles_for(board, state, unit_id: int, from_tile: int, override_range: int,
                           occupants: dict, moving_team) -> set:
     """`IdunBattle.Core.Services.MovementQuery$$GetMovableTilesFor(unit, tiles, ignoreUnitFlags,
@@ -508,11 +640,31 @@ def get_movable_tiles_for(board, state, unit_id: int, from_tile: int, override_r
     traits = (sc.ctx.traits if (sc is not None and getattr(sc, "ctx", None) is not None)
               else None) or []
     cc = make_can_continue(getattr(state, "effects", None), traits, board=board)
-    _visited, stop = movable_positions_for_unit(
-        board, int(from_tile), int(override_range), occupants, moving_team,
-        traits=traits, has_effect=unit_has_effect_fn(state, unit_id), can_continue=cc,
+    hef = unit_has_effect_fn(state, unit_id)
+    # ── ETAGE `RangeBonus` (#1048) ──────────────────────────────────────────────────────────────
+    # `AnyOrFillMoveableTiles` applique les bonus de portee en DEUX temps, et le port suit le meme
+    # ordre : (1) `MovementRangeWithAppliedBonus` AVANT le pathfinding (ReduceRange seul),
+    # (2) `GetExtraReachableTiles` APRES, une passe par bonus. Sans bonus (`[]`, le cas de TOUTE
+    # unite sans `AdrenalGlands_Effect`), les deux etages sont des no-op EXACTS.
+    bonuses = get_range_bonus_for_unit(state, board, int(unit_id), occupants, moving_team)
+    rng = movement_range_with_applied_bonus(int(override_range), bonuses)
+    visited, stop = movable_positions_for_unit(
+        board, int(from_tile), rng, occupants, moving_team,
+        traits=traits, has_effect=hef, can_continue=cc,
         teleport_target_tiles=titanhammer_target_tiles_for(state, board, moving_team),
         synapse_tiles=synapse_tiles_for(state, board, moving_team))
+    if not bonuses:
+        return stop
+    stop = set(stop)
+    # `defaultReachableTiles` du natif = le retour BRUT de `GetReachableTiles` (cf.
+    # `get_extra_reachable_tiles`) ; cote port c'est `visited`, et il ACCUMULE d'un bonus au
+    # suivant -- le natif fait `defaultReachableTiles.AddRange(extra)` a chaque tour.
+    reachable = set(visited)
+    for b in bonuses:
+        extra = get_extra_reachable_tiles(board, reachable, int(unit_id), b, occupants,
+                                          moving_team, traits, hef, can_continue=cc)
+        reachable |= extra
+        stop |= extra
     return stop
 
 
