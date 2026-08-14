@@ -1400,7 +1400,7 @@ class GuardianConstructExtraDamagePctEffect(BaseEffect):
     le natif accorde donc le bonus a la MoW quand elle attaque elle-meme. Le canal port serait
     `create_effect_damage_bonus_for_attack`, dont l'`att_ctx` ne porte NI `att_rarity` NI
     `att_effect_names` (il se construit sur ~9 sites, cf. #1025-r1) : en poser un seul creerait un
-    fork silencieux. Residu `#1036-r4`.
+    fork silencieux. Residu `#1036-r7`.
 
     ## MAGNITUDE
     `extraDmgPct = [10, 13, 16, 20]`, `variablesAffectedByRarityBonus = ['extraDmgPct']` -- indexee
@@ -1491,7 +1491,7 @@ class CabalOfSorcerersExtraDamagePctEffect(BaseEffect):
     `friend_heroes_adjacent_to_target` de `WayOfTheShortBlade` (#1019). TRI-ETAT : `None` = NON
     MESURE -> gate FERME.
 
-    ⚠ **PATTE SELF NON PORTEE** (meme cause que 1548, residu `#1036-r4`) -- et elle est de surcroit
+    ⚠ **PATTE SELF NON PORTEE** (meme cause que 1548, residu `#1036-r7`) -- et elle est de surcroit
     STRUCTURELLEMENT INERTE sur les deux porteurs connus : la branche `F` exige du porteur un voisin
     qualifie, or une MoW n'occupe aucune tuile (`snapshot._load_machines` ne pose pas de
     `PositionComponent`, et le natif n'en a pas non plus).

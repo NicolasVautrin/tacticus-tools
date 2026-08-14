@@ -2316,7 +2316,7 @@ ABILITY_INIT_OWNER_EFFECTS: dict[str, list[str]] = {
     # `Friends` ne retire PAS le porteur (`UnitsByTeamSelector$$CountOrAdd` garde toute entite dont
     # `UnitExtensions$$IsFriend(unit, other)` egale son flag, et `IsFriend(u, u)` est VRAI -- il
     # compare deux ids d'equipe) : la patte SELF est donc REELLE cote natif et NON PORTEE cote port
-    # (residu `#1036-r4`, degradation RESTRICTIVE nommee au site de la classe).
+    # (residu `#1036-r7`, degradation RESTRICTIVE nommee au site de la classe).
     # ⚠ Le gate de RARETE ne se confronte QUE hors du regime par defaut : `rl_duel build` impose
     # `targetRarity = 5` a toute unite normalisee, donc `UnitsWithRarity(..., Mythic)` y est
     # uniformement VRAI et un port qui l'oublierait serait faussement d'accord dans tous les bras

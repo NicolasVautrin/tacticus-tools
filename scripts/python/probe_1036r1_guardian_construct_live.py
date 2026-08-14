@@ -119,14 +119,28 @@ def _state(s: _Session):
     return load_state(dv, ob, cs), dv, cs
 
 
-def _port_bonus(state, att_id: int, tgt_id: int):
+#: Niveau d'ability FOURNI au bras de mesure du GATE. ⚠ Il n'est PAS mesure : sur un runner LIVE,
+#: aucun canal ne publie l'`AbilityState` d'une mythique de MoW (`unitConfig` est en erreur pour
+#: toute Machine, `abilityStates` ne liste que ses ACTIVES) -- residu `#1036-r8`, `BLOCAGE: capteur`.
+#: Le fournir NEUTRALISE la magnitude pour que le probe mesure ce qu'il PEUT mesurer : le GATE.
+#: La magnitude, elle, reste NON CONFRONTEE, et c'est ecrit tel quel dans le verdict.
+NIVEAU_FOURNI_POUR_LE_GATE = 4
+
+
+def _port_bonus(state, att_id: int, tgt_id: int, niveau_fourni: "int | None" = None):
     """Ce que le PORT accorde a `att_id` par le canal AURA ATTAQUE, capte par INTERCEPTION du foyer
     REEL (forme B : `damage_model` lie ce symbole au niveau module, donc remplacer l'attribut du
-    module MORD). On ne RECOPIE pas la boucle : un mirror mesurerait le code du probe."""
+    module MORD). On ne RECOPIE pas la boucle : un mirror mesurerait le code du probe.
+
+    `niveau_fourni` substitue le SEUL canal muet (`tertiary_ability_state_of`) -- les gates, eux,
+    restent evalues sur les valeurs LIVE du ctx (`att_rarity`, `att_effect_names`, porteurs)."""
     vus = []
     reel = DM.aura_attack_damage_bonus_from_allies
 
     def _spy(carriers, ctx):
+        if niveau_fourni is not None:
+            ctx = dict(ctx)
+            ctx["tertiary_ability_state_of"] = lambda _uid, _ab: (int(niveau_fourni), 100)
         out = reel(carriers, ctx)
         vus.append({"porteurs": [c[0] for c in (carriers or [])],
                     "att_rarity": ctx.get("att_rarity"),
@@ -142,21 +156,84 @@ def _port_bonus(state, att_id: int, tgt_id: int):
     return vus[0] if vus else None
 
 
-def _predict(s: _Session, att_id: int, tgt_id: int):
-    """Preview NATIVE du degat (`aiPredict` -> `GetAllPredictions`). Rend `(min, max)` ou `None`."""
-    r = s.rpc("aiPredict", {"unitId": int(att_id), "targetId": int(tgt_id)}, 60)
-    for cle in ("damageMin", "minDamage", "min"):
-        if cle in r:
-            return (r.get(cle), r.get({"damageMin": "damageMax", "minDamage": "maxDamage",
-                                       "min": "max"}[cle]))
-    p = r.get("prediction") if isinstance(r.get("prediction"), dict) else None
-    if p:
-        return (p.get("damageMin", p.get("min")), p.get("damageMax", p.get("max")))
-    return None if not r else ("?", json.dumps(r)[:200])
+def _predict(s: _Session, att_id: int, tgt_id: int, tuile=None):
+    """Preview NATIVE du degat (`aiPredict` -> `GetAllPredictions`), depuis la TUILE CANDIDATE.
+
+    ⚠ Le natif rend `pred: null` + `err: "get_Item: system error"` quand la cible n'est pas a
+    portee depuis la tuile evaluee -- ce n'est pas une panne, c'est << aucune attaque possible >>.
+    On passe donc `col`/`row` explicitement (le probe DEPLACE l'evaluation plutot que de subir la
+    geometrie de spawn), et on rend le dict tel quel : c'est l'appelant qui juge."""
+    body = {"unitId": int(att_id), "targetId": int(tgt_id)}
+    if tuile is not None:
+        body["col"], body["row"] = int(tuile[0]), int(tuile[1])
+    r = s.rpc("aiPredict", body, 60)
+    return {"pred": r.get("pred"), "err": r.get("err"), "tuile": tuile}
+
+
+def _degat(p) -> "tuple | None":
+    """`(min, max)` d'une preview native, ou `None` si le natif n'a rien predit."""
+    d = (p or {}).get("pred")
+    if not isinstance(d, dict):
+        return None
+    for cmin, cmax in (("healthDamageMin", "healthDamageMax"), ("damageMin", "damageMax"),
+                       ("min", "max")):
+        if cmin in d:
+            return (d.get(cmin), d.get(cmax))
+    return tuple(sorted(v for v in d.values() if isinstance(v, (int, float)))[-2:]) or None
+
+
+def _tuiles_de_tir(s: _Session, att_id: int, tgt_id: int, dv) -> list:
+    """Tuiles LIBRES depuis lesquelles le natif predit reellement un degat sur `tgt_id`.
+
+    On ne se plaint PAS de la geometrie de spawn : on ENUMERE les voisins de la cible (canal
+    `boardGraph`) et on garde ceux ou la preview repond. Sans cela, `aiPredict` rendrait
+    `pred: null` au spawn et le probe conclurait << pas de bonus >> pour une raison de PORTEE."""
+    g = s.rpc("boardGraph", {}, 60)
+    tuiles = g.get("tiles") or []
+    par_id = {t.get("id"): t for t in tuiles}
+    occupees = {(u["pos"]["col"], u["pos"]["row"]) for u in (dv.get("units") or [])
+                if u.get("alive") and u.get("pos")}
+    cible = next((u for u in (dv.get("units") or []) if u["id"] == tgt_id), None)
+    if cible is None or not cible.get("pos"):
+        return []
+    tc = next((t for t in tuiles
+               if t.get("col") == cible["pos"]["col"] and t.get("row") == cible["pos"]["row"]), None)
+    if tc is None:
+        return []
+    out = []
+    for nid in (tc.get("neighbours") or tc.get("neighbors") or []):
+        t = par_id.get(nid)
+        if t is None or (t.get("col"), t.get("row")) in occupees:
+            continue
+        out.append((t["col"], t["row"]))
+    return out
 
 
 def _lignes(dv):
     return [u for u in (dv.get("units") or []) if u.get("alive") and u.get("pos")]
+
+
+def _cibles_legales(s: _Session, caster_id: int) -> set:
+    """Ids que le NATIF accepte pour `NanoscarabRepairProtocols` (`abilityTargets` -> `targets`,
+    move inclus). C'est l'oracle du ciblage : on ne devine pas quelle unite est reparable."""
+    r = s.rpc("abilityTargets", {"unitId": int(caster_id),
+                                 "abilityType": int(REPAIR_ABILITY)}, 90)
+    out = set()
+    # ⚠ DEUX pieges de forme, tous deux mesures : les listes vivent sous
+    # `units[].abilities[].{targets,fromHere}` (rien a la RACINE), et la cle d'une cible UNITE est
+    # `targetId`, PAS `id`. Chacun des deux, seul, rend un ensemble VIDE -- qui se confondrait avec
+    # << aucune cible legale >>, c.-a-d. avec un montage impossible.
+    for u in (r.get("units") or []):
+        if int(u.get("unitId", -1)) != int(caster_id):
+            continue
+        for ab in (u.get("abilities") or []):
+            if int(ab.get("abilityId", -1)) != int(REPAIR_ABILITY):
+                continue
+            for cle in ("targets", "fromHere"):
+                for t in (ab.get(cle) or []):
+                    if t.get("kind") == "unit" and t.get("targetId") is not None:
+                        out.add(int(t["targetId"]))
+    return out
 
 
 def _mesure_bras(s: _Session, rarity_vis: "str | None", verbose: bool) -> dict:
@@ -179,15 +256,22 @@ def _mesure_bras(s: _Session, rarity_vis: "str | None", verbose: bool) -> dict:
     if len(allies) < 2 or not ennemis:
         raise RuntimeError("montage DEGENERE : %d allie(s), %d ennemi(s) vivants"
                            % (len(allies), len(ennemis)))
-    # La CIBLE de la reparation : si un bras separant est monte, c'est CE VisualId qu'on repare
-    # (sinon le gate de rarete ne serait pas exerce sur le beneficiaire).
+    # La CIBLE de la reparation est celle que le NATIF accepte (`abilityTargets`), jamais un allie
+    # choisi au hasard : `NanoscarabRepairProtocols` a son propre masque de ciblage, et le premier
+    # allie de la liste n'y est pas forcement (mesure : 1 seule cible legale sur 5 allies).
+    legales = _cibles_legales(s, mid)
+    f["cibles_legales"] = sorted(legales)
+    candidats = [u for u in allies if u["id"] in legales]
+    if not candidats:
+        raise RuntimeError("aucune cible legale de %s parmi les allies : legales=%r allies=%r"
+                           % (REPAIR_ABILITY.name, sorted(legales), [u["id"] for u in allies]))
     if rarity_vis:
-        cible = next((u for u in allies if u.get("visualId") == rarity_vis), None)
+        cible = next((u for u in candidats if u.get("visualId") == rarity_vis), None)
         if cible is None:
-            raise RuntimeError("le VisualId separant %r n'est pas dans le roster allie : %r"
-                               % (rarity_vis, [u.get("visualId") for u in allies]))
+            raise RuntimeError("le VisualId separant %r n'est plus une cible legale : %r"
+                               % (rarity_vis, [(u["id"], u.get("visualId")) for u in candidats]))
     else:
-        cible = allies[0]
+        cible = candidats[0]
     temoin = next((u for u in allies if u["id"] != cible["id"]), None)
     ennemi = ennemis[0]
     f["repare_id"], f["repare_vis"] = cible["id"], cible.get("visualId")
@@ -195,18 +279,25 @@ def _mesure_bras(s: _Session, rarity_vis: "str | None", verbose: bool) -> dict:
     f["ennemi_id"] = ennemi["id"]
 
     # --- AVANT le cast : personne ne porte 1545, l'aura ne doit rien accorder -----------------
+    from engine.runner.components import StatsComponent                         # noqa: PLC0415
     st, _dv, _cs = _state(s)
-    f["rarete_reparee_avant"] = (lambda r: None if r is None else int(r))(
-        getattr(getattr(st.get_entity(cible["id"]).get_component(
-            __import__("engine.runner.components", fromlist=["StatsComponent"]).StatsComponent),
-            "ctx", None), "rarity", None))
-    f["pred_avant"] = _predict(s, cible["id"], ennemi["id"])
-    f["port_avant"] = _port_bonus(st, cible["id"], ennemi["id"])
+    _sc = st.get_entity(cible["id"]).get_component(StatsComponent)
+    _r = getattr(getattr(_sc, "ctx", None), "rarity", None)
+    f["rarete_reparee_avant"] = None if _r is None else int(_r)
+    # La TUILE DE TIR est choisie une fois pour toutes : le MEME point d'evaluation servira avant
+    # et apres le cast, sinon la comparaison melangerait la geometrie et le bonus.
+    f["tuile"] = None
+    f["tuiles_candidates"] = _tuiles_de_tir(s, cible["id"], ennemi["id"], dv)
+    for t in f["tuiles_candidates"]:
+        p = _predict(s, cible["id"], ennemi["id"], t)
+        if _degat(p) is not None:
+            f["tuile"], f["pred_avant"] = t, p
+            break
+    else:
+        f["pred_avant"] = _predict(s, cible["id"], ennemi["id"])
+    f["port_avant"] = _port_bonus(st, cible["id"], ennemi["id"], NIVEAU_FOURNI_POUR_LE_GATE)
 
     # --- le CAST : la MoW repare la cible ------------------------------------------------------
-    cibles = s.rpc("abilityTargets", {"unitId": mid, "abilityType": int(REPAIR_ABILITY)}, 90)
-    f["cibles_legales"] = sorted({t.get("id") for t in (cibles.get("targets") or [])
-                                  if t.get("id") is not None}) or cibles
     for _ in range(12):
         r = s.rpc("applyAction", {"action": {"kind": "ability", "casterId": mid,
                                              "abilityType": int(REPAIR_ABILITY),
@@ -226,10 +317,10 @@ def _mesure_bras(s: _Session, rarity_vis: "str | None", verbose: bool) -> dict:
 
     # --- APRES le cast : le MEME allie, et un TEMOIN non repare --------------------------------
     st2, dv3, _cs2 = _state(s)
-    f["pred_apres"] = _predict(s, cible["id"], ennemi["id"])
-    f["port_apres"] = _port_bonus(st2, cible["id"], ennemi["id"])
-    f["pred_temoin"] = _predict(s, temoin["id"], ennemi["id"])
-    f["port_temoin"] = _port_bonus(st2, temoin["id"], ennemi["id"])
+    f["pred_apres"] = _predict(s, cible["id"], ennemi["id"], f["tuile"])
+    f["port_apres"] = _port_bonus(st2, cible["id"], ennemi["id"], NIVEAU_FOURNI_POUR_LE_GATE)
+    f["pred_temoin"] = _predict(s, temoin["id"], ennemi["id"], f["tuile"])
+    f["port_temoin"] = _port_bonus(st2, temoin["id"], ennemi["id"], NIVEAU_FOURNI_POUR_LE_GATE)
     f["temoin_effets"] = [e.get("name") for e in
                           (next((u for u in (dv3.get("units") or []) if u["id"] == temoin["id"]),
                                 {}).get("effects") or []) if e.get("name")]
@@ -278,12 +369,19 @@ def _print(res: dict) -> None:
         print("   MoW %s, aura publiee            : %s" % (f["mow_id"], f["aura_publiee"]))
         print("   allie REPARE                    : %s (%s), rarete mesuree = %s"
               % (f["repare_id"], f["repare_vis"], f.get("rarete_reparee_avant")))
-        print("   natif aiPredict AVANT / APRES   : %s -> %s" % (f["pred_avant"], f["pred_apres"]))
-        print("   port  bonus  AVANT / APRES      : %s -> %s"
+        print("   tuile de tir evaluee            : %s" % (f.get("tuile"),))
+        print("   natif degat AVANT / APRES       : %s -> %s"
+              % (_degat(f["pred_avant"]), _degat(f["pred_apres"])))
+        print("   port  bonus AVANT / APRES       : %s -> %s"
               % (_bonus_pct(f["port_avant"]), _bonus_pct(f["port_apres"])))
-        print("   temoin NON repare %s (%s)       : natif %s, port %s, effets %s"
-              % (f["temoin_id"], f["temoin_vis"], f["pred_temoin"], _bonus_pct(f["port_temoin"]),
-                 f["temoin_effets"]))
+        print("   temoin NON repare %s (%s)       : natif %s, port %s"
+              % (f["temoin_id"], f["temoin_vis"], _degat(f["pred_temoin"]),
+                 _bonus_pct(f["port_temoin"])))
+        print("   effets de l'allie repare        : %s" % (f.get("effets_repare"),))
+        print("   ctx d'aura vu par le port APRES : %s" % (f.get("port_apres"),))
+        print("   err natif AVANT / APRES         : %s / %s"
+              % ((f.get("pred_avant") or {}).get("err"), (f.get("pred_apres") or {}).get("err")))
+        print("   tuiles de tir candidates        : %s" % (f.get("tuiles_candidates"),))
 
 
 def verdict(res: dict) -> bool:
