@@ -161,6 +161,15 @@ RAIL: dict[str, tuple[str, str]] = {
         (ARRAYSET, "IdunBattle.Entities.Effects.Loki.NeuroparasiteEffect$$CreateHandleTriggerAbilitiesInternal"),
     "NeuroparasiteIncreaseLevelOnPinned":
         (ARRAYSET, "IdunBattle.Entities.Effects.Loki.NeuroparasiteEffect$$CreateHandleTriggerAbilitiesInternal"),
+    # #1012-r1 -- le `Triggered()` UNIQUE de l'`ArraySet` de
+    # `HeadwoppasKillchoppaEffect$$CreateHandleTriggerAbilitiesInternal` (+1 niveau par unite
+    # non-`Steppable` que le PORTEUR abat). Rail ARRAYSET, donc AUCUN gate `IsActive` natif -- et
+    # ici ce n'est pas seulement << le port ne doit pas en inventer un >> : l'effet naît au NIVEAU
+    # 0 (`options{+0x10} = <DSLFormulas+0x18> = Direct(0)`), donc INACTIF ; un gate `IsActive`
+    # gelerait son compteur a zero POUR TOUJOURS.
+    "HeadwoppasKillchoppaIncreaseLevelOnKill":
+        (ARRAYSET, "IdunBattle.Entities.Effects.Loki.HeadwoppasKillchoppaEffect$$"
+                   "CreateHandleTriggerAbilitiesInternal"),
     # #590-r3 (merge `19e1746d`, 2026-08-13) -- la PROPAGATION de `1209 AttemptedPossession_Possessed`.
     # ⚠ ENTREE AU REGISTRE SANS SON RAIL : `master` en est reste ROUGE
     # (`test_421_effect_active_gate_offline::test_the_probe_rail_covers_the_whole_registry`,
