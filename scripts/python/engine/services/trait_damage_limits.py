@@ -29,6 +29,16 @@ d'AUCUN des 7 conteneurs (ni `GetTriggeredAbility`, ni `GetEffectToBeAddedToOwne
 (trait 1007 → triggered 1018). ⇒ ni ability dérivée, ni owner-effect. Ghidra écrivant les constantes
 tantôt en hexa tantôt en décimal, la recherche `,1018,` a aussi été faite : 0 occurrence.
 
+⚠ RE-MESURE SUR LE BUILD COURANT `rnca9r7q6c` (#1015-r1, 2026-08-14) — le verdict TIENT, et le `.cctor`
+compte désormais **8** conteneurs (le 8ᵉ, `statics+0x38`, est un `HashSet` construit, JAMAIS alimenté et
+JAMAIS lu : 1 seule occurrence de son offset dans tout le binaire, le `.cctor` lui-même). `0x3fa` reste
+clé d'aucun des huit. S'y ajoute une TROISIÈME lecture, indépendante des deux ci-dessus : **0 symbole**
+portant `TwoManTeam` sur les 154 177 fonctions de `data/symbols/<build>/ghidra/functions.tsv`
+(`BeastSnagga` en a 4, `BeastSlayer` 11) — cran EXÉCUTABLE et offline, `SANS_ARTEFACT_NATIF` de
+`scripts/python/tests/test_1015_trait_channels_offline.py` étage 6. Ce cran ne DÉMONTRE pas le verdict
+(l'absence de symbole homonyme n'implique pas l'absence de lecture, cf. `Diminutive` ci-dessus) : il en
+garde la PÉREMPTION. Détail : `docs/rl/case-1015-r1-beast-snagga.md` § 2.
+
 ⚠ AUCUN cas discriminant n'existe LIVE : sur les 17 unités multi-membres du jeu, les 6 à `nrOfMembers == 2`
 sont EXACTEMENT les 6 porteurs du trait ; les 11 autres (Swarm/Nurglings/Ripper) ont 4-5 membres et n'ont
 PAS le trait. Le live ne pourrait donc jamais départager « cap dû aux membres » de « cap dû au trait » —
