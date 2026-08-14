@@ -1064,10 +1064,10 @@
    "turns": 388
   },
   "a1c0cba508efc6c72": {
-   "ctx": 137579595,
+   "ctx": 204377732,
    "first": "2026-08-14T06:44:22.370000+00:00",
-   "last": "2026-08-14T08:13:59.260000+00:00",
-   "turns": 369
+   "last": "2026-08-14T08:56:28.934000+00:00",
+   "turns": 471
   },
   "a1c14dd9fd5b62558": {
    "ctx": 37570469,
@@ -1621,6 +1621,12 @@
    "last": "2026-08-01T06:44:56.783000+00:00",
    "turns": 341
   },
+  "a2ba9d99fdecbf937": {
+   "ctx": 57919870,
+   "first": "2026-08-14T10:28:55.291000+00:00",
+   "last": "2026-08-14T11:09:34.755000+00:00",
+   "turns": 221
+  },
   "a2c156368beeefb02": {
    "ctx": 122894126,
    "first": "2026-08-01T14:09:05.992000+00:00",
@@ -1975,6 +1981,12 @@
    "last": "2026-08-03T12:15:41.383000+00:00",
    "turns": 220
   },
+  "a3664273536f522da": {
+   "ctx": 162212384,
+   "first": "2026-08-14T08:26:26.365000+00:00",
+   "last": "2026-08-14T09:53:19.937000+00:00",
+   "turns": 378
+  },
   "a36865d0ca65ae923": {
    "ctx": 116588301,
    "first": "2026-08-10T21:15:58.874000+00:00",
@@ -2000,10 +2012,10 @@
    "turns": 143
   },
   "a36eef8d42267ed68": {
-   "ctx": 185643433,
+   "ctx": 324431627,
    "first": "2026-08-14T06:35:00.796000+00:00",
-   "last": "2026-08-14T08:13:52.841000+00:00",
-   "turns": 408
+   "last": "2026-08-14T09:19:03.123000+00:00",
+   "turns": 588
   },
   "a36f032404c48ff7e": {
    "ctx": 155371245,
@@ -3181,6 +3193,12 @@
    "last": "2026-06-30T18:22:55.214000+00:00",
    "turns": 11
   },
+  "a56b9b5d1b7786d76": {
+   "ctx": 5348272,
+   "first": "2026-08-14T09:13:49.266000+00:00",
+   "last": "2026-08-14T09:18:21.768000+00:00",
+   "turns": 53
+  },
   "a56dcc6ebea1232d5": {
    "ctx": 40018512,
    "first": "2026-08-03T22:16:54.396000+00:00",
@@ -4357,6 +4375,12 @@
    "last": "2026-07-29T09:40:18.113000+00:00",
    "turns": 234
   },
+  "a791f5249e0a40ecc": {
+   "ctx": 96847097,
+   "first": "2026-08-14T09:05:18.470000+00:00",
+   "last": "2026-08-14T10:17:10.804000+00:00",
+   "turns": 322
+  },
   "a792e47d34667d7dd": {
    "ctx": 121620968,
    "first": "2026-07-31T18:36:17.719000+00:00",
@@ -4885,6 +4909,12 @@
    "last": "2026-08-01T10:22:05.092000+00:00",
    "turns": 253
   },
+  "a8817383c8b1e9e61": {
+   "ctx": 103331021,
+   "first": "2026-08-14T10:12:16.332000+00:00",
+   "last": "2026-08-14T11:09:38.194000+00:00",
+   "turns": 308
+  },
   "a881cd00556573678": {
    "ctx": 8672808,
    "first": "2026-08-13T11:03:02.265000+00:00",
@@ -4993,6 +5023,12 @@
    "last": "2026-07-11T11:05:41.106000+00:00",
    "turns": 75
   },
+  "a8bcdc585d25961e4": {
+   "ctx": 120762463,
+   "first": "2026-08-14T09:35:38.237000+00:00",
+   "last": "2026-08-14T10:50:59.675000+00:00",
+   "turns": 345
+  },
   "a8c0430ded1a975b8": {
    "ctx": 58213222,
    "first": "2026-07-26T06:40:57.473000+00:00",
@@ -5010,6 +5046,12 @@
    "first": "2026-08-05T04:09:25.957000+00:00",
    "last": "2026-08-05T08:25:13.237000+00:00",
    "turns": 250
+  },
+  "a8cd55ab59934595f": {
+   "ctx": 155045945,
+   "first": "2026-08-14T09:34:57.194000+00:00",
+   "last": "2026-08-14T11:09:37.350000+00:00",
+   "turns": 398
   },
   "a8d2eece500e055e2": {
    "ctx": 94905738,
@@ -6265,6 +6307,12 @@
    "last": "2026-08-12T12:40:16.353000+00:00",
    "turns": 35
   },
+  "ab6a10578c270e302": {
+   "ctx": 5271145,
+   "first": "2026-08-14T10:33:27.512000+00:00",
+   "last": "2026-08-14T10:37:40.420000+00:00",
+   "turns": 41
+  },
   "ab6a8843db291105c": {
    "ctx": 62352347,
    "first": "2026-07-23T18:23:56.078000+00:00",
@@ -6679,6 +6727,12 @@
    "last": "2026-07-08T05:55:15.165000+00:00",
    "turns": 18
   },
+  "ac404e60652cc4376": {
+   "ctx": 137491777,
+   "first": "2026-08-14T08:27:07.005000+00:00",
+   "last": "2026-08-14T09:57:33.300000+00:00",
+   "turns": 396
+  },
   "ac50d642779fea697": {
    "ctx": 72783695,
    "first": "2026-08-07T12:33:50.802000+00:00",
@@ -6690,6 +6744,12 @@
    "first": "2026-07-27T21:14:42.616000+00:00",
    "last": "2026-07-27T22:51:36.537000+00:00",
    "turns": 316
+  },
+  "ac59fc269aa7761fd": {
+   "ctx": 83541921,
+   "first": "2026-08-14T10:12:53.240000+00:00",
+   "last": "2026-08-14T11:08:05.926000+00:00",
+   "turns": 262
   },
   "ac61f6088f01ed8c3": {
    "ctx": 60772791,
@@ -8209,6 +8269,12 @@
    "last": "2026-07-26T09:58:54.369000+00:00",
    "turns": 308
   },
+  "aee802d5688328ef9": {
+   "ctx": 6797912,
+   "first": "2026-08-14T11:03:06.773000+00:00",
+   "last": "2026-08-14T11:09:21.251000+00:00",
+   "turns": 57
+  },
   "aef069645c1c065c7": {
    "ctx": 115765162,
    "first": "2026-07-31T18:14:57.310000+00:00",
@@ -8324,10 +8390,10 @@
    "turns": 118
   },
   "af227d01934c3e7c6": {
-   "ctx": 182339394,
+   "ctx": 261221548,
    "first": "2026-08-14T06:31:35.708000+00:00",
-   "last": "2026-08-14T08:14:02.586000+00:00",
-   "turns": 435
+   "last": "2026-08-14T09:17:28.306000+00:00",
+   "turns": 554
   },
   "af2545d01975722cf": {
    "ctx": 15840675,
@@ -8502,6 +8568,12 @@
    "first": "2026-08-08T06:56:27.218000+00:00",
    "last": "2026-08-08T09:15:22.570000+00:00",
    "turns": 450
+  },
+  "af6c85748cb0c91b9": {
+   "ctx": 5982908,
+   "first": "2026-08-14T10:49:05.381000+00:00",
+   "last": "2026-08-14T10:53:18.581000+00:00",
+   "turns": 46
   },
   "af737043b0a3e395c": {
    "ctx": 103128228,
@@ -8760,6 +8832,12 @@
    "first": "2026-07-23T14:12:57.063000+00:00",
    "last": "2026-07-23T14:29:30.809000+00:00",
    "turns": 72
+  },
+  "afda4f8a0544229a0": {
+   "ctx": 2212189,
+   "first": "2026-08-14T09:41:53.250000+00:00",
+   "last": "2026-08-14T09:45:29.167000+00:00",
+   "turns": 22
   },
   "afe0757ef004c7738": {
    "ctx": 129708768,
@@ -9412,6 +9490,12 @@
    "a": 317,
    "d": 26,
    "j": "2026-08-02",
+   "m": false
+  },
+  "05de99fe1bea36d382ae5a5ab112007c7c840e6a": {
+   "a": 24,
+   "d": 19,
+   "j": "2026-08-14",
    "m": false
   },
   "05dfa085f5e8747d80c63c1f31347192353cf170": {
@@ -10374,6 +10458,12 @@
    "a": 192,
    "d": 36,
    "j": "2026-07-19",
+   "m": false
+  },
+  "11c9ae7ec80dd7b63b342dadd11db63a982a1069": {
+   "a": 739,
+   "d": 13,
+   "j": "2026-08-14",
    "m": false
   },
   "11c9af75322ada852b3b279e0c445d78519b7b3b": {
@@ -12001,6 +12091,12 @@
    "j": "2026-08-01",
    "m": false
   },
+  "2292bd75f1238def7d929dd085a838943d875397": {
+   "a": 570,
+   "d": 50,
+   "j": "2026-08-14",
+   "m": false
+  },
   "229cd33d1e0ba6ddd57f6774c637d77bfaeda439": {
    "a": 27,
    "d": 0,
@@ -12634,6 +12730,12 @@
    "j": "2026-07-28",
    "m": true
   },
+  "2a9290d1f10518c0b04162516a4aa6a5787d4857": {
+   "a": 2362,
+   "d": 59,
+   "j": "2026-08-14",
+   "m": false
+  },
   "2abc620a23e86a91a8bd8b19fb5bce71b79809cd": {
    "a": 10253,
    "d": 0,
@@ -12944,6 +13046,12 @@
    "a": 648,
    "d": 24,
    "j": "2026-08-13",
+   "m": false
+  },
+  "2e9b37dd276c4418c137fef15f5135fe9c51fb14": {
+   "a": 1,
+   "d": 0,
+   "j": "2026-08-14",
    "m": false
   },
   "2ea7b95f00d8b95269c875e4d67df146e6c79ade": {
@@ -15213,6 +15321,12 @@
    "j": "2026-07-31",
    "m": false
   },
+  "48c4b6dcf79e099183e63742c1acb74d037f1d54": {
+   "a": 1,
+   "d": 0,
+   "j": "2026-08-14",
+   "m": false
+  },
   "48cfceacaf6a8f37e46d7acef7c511a4d233fc8f": {
    "a": 62,
    "d": 23,
@@ -15404,6 +15518,12 @@
    "a": 717,
    "d": 168,
    "j": "2026-07-28",
+   "m": false
+  },
+  "4ab0d9038e51ff1973dd17407cc93245a016e9bd": {
+   "a": 12,
+   "d": 3,
+   "j": "2026-08-14",
    "m": false
   },
   "4ab914062b81681cfb3f7299efd8e8f22dad398a": {
@@ -15880,6 +16000,12 @@
    "a": 178,
    "d": 0,
    "j": "2026-08-13",
+   "m": false
+  },
+  "510aa6c2f6795600d6079e118592d53f0348145a": {
+   "a": 30,
+   "d": 31,
+   "j": "2026-08-14",
    "m": false
   },
   "51120378d03ec18438ead95177bfdb5be99fc187": {
@@ -16611,6 +16737,12 @@
    "j": "2026-08-05",
    "m": false
   },
+  "5972cadab29fe10be5c91fd13a42aa29f50346a2": {
+   "a": 640,
+   "d": 74,
+   "j": "2026-08-14",
+   "m": false
+  },
   "5979cc54bd8727919bf49c0569eaf7765bb6ba4c": null,
   "597fae6c36247c2abc3021fd6d10d68895484c6d": {
    "a": 670,
@@ -16708,6 +16840,12 @@
    "a": 368,
    "d": 1,
    "j": "2026-08-11",
+   "m": false
+  },
+  "5a98edd520ee3d308ce7e6b966edd8d4d3ad9d55": {
+   "a": 218,
+   "d": 0,
+   "j": "2026-08-14",
    "m": false
   },
   "5ac53ca548b6aaaf2755a7b46df4708070a192a5": {
@@ -17523,6 +17661,12 @@
    "j": "2026-08-07",
    "m": false
   },
+  "62a746210144287b07dfc360a470fa5984af34a4": {
+   "a": 0,
+   "d": 0,
+   "j": "2026-08-14",
+   "m": true
+  },
   "62b57a951b3d623b6aa1a873c276f478d97f0905": {
    "a": 2,
    "d": 1,
@@ -17867,6 +18011,12 @@
    "a": 554,
    "d": 2,
    "j": "2026-08-11",
+   "m": false
+  },
+  "66a3a823a8e71ad3d8bfc55bdde40ed4470dfdf4": {
+   "a": 227,
+   "d": 0,
+   "j": "2026-08-14",
    "m": false
   },
   "66b7218997e12535445eb0067ec2c8aa17771630": {
@@ -19120,6 +19270,12 @@
    "j": "2026-08-02",
    "m": false
   },
+  "75cdd4a0688b9a2b564dd3e20b4b135fcd43030d": {
+   "a": 956,
+   "d": 73,
+   "j": "2026-08-14",
+   "m": false
+  },
   "75d839e69a93a38b0fe3b1fd7633ae58278f7ceb": {
    "a": 354,
    "d": 170,
@@ -19332,6 +19488,12 @@
    "a": 151,
    "d": 0,
    "j": "2026-08-02",
+   "m": false
+  },
+  "77d90eea955b2b3775293b92132d6f92a73d69f9": {
+   "a": 17,
+   "d": 19,
+   "j": "2026-08-14",
    "m": false
   },
   "77dacbad67fe6af6d8dc8f3c1d0f221c753de9b7": {
@@ -19588,6 +19750,12 @@
    "d": 3,
    "j": "2026-07-22",
    "m": false
+  },
+  "79d119b944c2528133146d6fdeac4735c2b8580b": {
+   "a": 0,
+   "d": 0,
+   "j": "2026-08-14",
+   "m": true
   },
   "79e4508aa3eb62493ff736aa138487c280251093": {
    "a": 255,
@@ -22955,6 +23123,12 @@
    "j": "2026-07-27",
    "m": false
   },
+  "9cbc2efc486f4747168d0386819a9a899df0150c": {
+   "a": 80,
+   "d": 85,
+   "j": "2026-08-14",
+   "m": false
+  },
   "9ccba2cf97102b5af3bdcb99734440b04ff5d789": {
    "a": 36,
    "d": 4,
@@ -23829,6 +24003,12 @@
    "d": 0,
    "j": "2026-08-01",
    "m": true
+  },
+  "a74678a5fd222fcc3ad66ae98bba59009611b342": {
+   "a": 4,
+   "d": 4,
+   "j": "2026-08-14",
+   "m": false
   },
   "a7590964c5b3ed5b0ff62cb94dc934f9b5633587": {
    "a": 150,
@@ -26163,10 +26343,22 @@
    "j": "2026-08-10",
    "m": false
   },
+  "c1def23221b86cecb1dca95d17278c04dabed856": {
+   "a": 143,
+   "d": 2,
+   "j": "2026-08-14",
+   "m": false
+  },
   "c1ebfffa623f16ec15bce2d3882d685f3c68b141": {
    "a": 6,
    "d": 3,
    "j": "2026-08-04",
+   "m": false
+  },
+  "c1fa36bf0d6151951bc00a0b227b08164b3fcf0d": {
+   "a": 1713,
+   "d": 101,
+   "j": "2026-08-14",
    "m": false
   },
   "c1fb6be35e7bda0b6877d661e44dd9049b583219": {
@@ -26221,6 +26413,12 @@
    "a": 27,
    "d": 0,
    "j": "2026-08-08",
+   "m": false
+  },
+  "c2be61fa6a30706149a0878a11fd6c312ef19142": {
+   "a": 299,
+   "d": 30,
+   "j": "2026-08-14",
    "m": false
   },
   "c2c1f1d436f68e6607038c0a23a95044a816c5d9": {
@@ -26294,6 +26492,12 @@
    "a": 57,
    "d": 18,
    "j": "2026-08-04",
+   "m": false
+  },
+  "c3eb44a2d8d4989e29a2f3c0190778cb7cbce808": {
+   "a": 1900,
+   "d": 96,
+   "j": "2026-08-14",
    "m": false
   },
   "c41ea75ab887230632d67d6345d1e8acd969bf48": {
@@ -26958,6 +27162,12 @@
    "j": "2026-08-02",
    "m": true
   },
+  "cb9a2f3b077c247f4080712f8b3f13da5f829d0c": {
+   "a": 125,
+   "d": 8,
+   "j": "2026-08-14",
+   "m": false
+  },
   "cba2f7e6510e044a0fdd84f0e0fd08e0474497cc": {
    "a": 1461,
    "d": 14,
@@ -27458,6 +27668,12 @@
    "j": "2026-08-06",
    "m": false
   },
+  "d17bb06da92ee288d9e2bea3129878b43f152d3b": {
+   "a": 35,
+   "d": 0,
+   "j": "2026-08-14",
+   "m": false
+  },
   "d185728b0264fcc2a6897b367b57d46da9fe25de": {
    "a": 1519,
    "d": 102,
@@ -27593,6 +27809,12 @@
    "m": false
   },
   "d3823842692d74fa335b0d9fe09b82193dcdda0f": null,
+  "d388dc34cbcd9f40fa2e2cabf2735d8a5e2035aa": {
+   "a": 2231,
+   "d": 73,
+   "j": "2026-08-14",
+   "m": false
+  },
   "d394f1f09f84837c9f042094847b5b4089f7d6e8": {
    "a": 1040,
    "d": 106,
@@ -28144,6 +28366,12 @@
    "j": "2026-08-13",
    "m": false
   },
+  "d8c48e37eb26b3e93a9ef09732805e1f65a610ec": {
+   "a": 271,
+   "d": 0,
+   "j": "2026-08-14",
+   "m": false
+  },
   "d8f32b046a88920cf11a55fc12fe2089144ec749": {
    "a": 395,
    "d": 11,
@@ -28203,6 +28431,12 @@
    "a": 166,
    "d": 5,
    "j": "2026-07-12",
+   "m": false
+  },
+  "da03439e624cd8bf157aad48d811adf941a3095a": {
+   "a": 1175,
+   "d": 48,
+   "j": "2026-08-14",
    "m": false
   },
   "da079efbd36e520031ecb8b4b7665922df25650f": {
@@ -30436,6 +30670,12 @@
    "j": "2026-08-04",
    "m": false
   },
+  "f41a6dca76ab9a0ddaa7fa70aa58d5d7908574a3": {
+   "a": 4388,
+   "d": 19,
+   "j": "2026-08-14",
+   "m": false
+  },
   "f42b341285f4e4600f9edde476c94e8a08a5ad06": {
    "a": 178,
    "d": 0,
@@ -31808,9 +32048,9 @@
    "turns": 18735
   },
   "2026-08-14": {
-   "agent_ctx": 2726664993,
-   "ctx": 3003395102,
-   "turns": 8814
+   "agent_ctx": 3953898382,
+   "ctx": 4376183857,
+   "turns": 12559
   }
  },
  "delivered": {
@@ -32130,7 +32370,7 @@
   },
   "770b6b08-a8e1-4df4-99e5-9ea0bcf65487.jsonl": {
    "first": "",
-   "offset": 14531565
+   "offset": 14618868
   },
   "85ce3eaa-558f-4617-a07c-53d13aa4a1bc.jsonl": {
    "first": "",
@@ -32854,7 +33094,7 @@
   },
   "agent-a1c0cba508efc6c72.jsonl": {
    "first": "7245e76f-e39b-4288-9166-eae1370976ee",
-   "offset": 2653368
+   "offset": 3153366
   },
   "agent-a1c14dd9fd5b62558.jsonl": {
    "first": "3ce2bc61-5503-4390-8b16-ff598a1d9df9",
@@ -33224,6 +33464,10 @@
    "first": "686d6995-0de4-4b2a-b0c1-a9c28728ee8a",
    "offset": 2179236
   },
+  "agent-a2ba9d99fdecbf937.jsonl": {
+   "first": "9a9c10c7-ae97-4cd6-9e9e-2fb33bfe3608",
+   "offset": 1429428
+  },
   "agent-a2c156368beeefb02.jsonl": {
    "first": "008cfbec-f92b-4baa-ae74-a1e9740bde4e",
    "offset": 2457885
@@ -33460,6 +33704,10 @@
    "first": "d4b8f54f-03a1-4e30-9cc1-ccfe01a48fac",
    "offset": 1289791
   },
+  "agent-a3664273536f522da.jsonl": {
+   "first": "0929e728-fe91-444c-a2f1-ca2c16a3e9d7",
+   "offset": 2931462
+  },
   "agent-a36865d0ca65ae923.jsonl": {
    "first": "6928312f-d6fe-417b-ae79-3dad7c0fd79c",
    "offset": 2192495
@@ -33478,7 +33726,7 @@
   },
   "agent-a36eef8d42267ed68.jsonl": {
    "first": "69c6879d-f724-422b-9b80-16b9484067c7",
-   "offset": 3256243
+   "offset": 4064486
   },
   "agent-a36f032404c48ff7e.jsonl": {
    "first": "1ac20de8-9c6a-4bc3-bd9d-ccc0fbfed713",
@@ -34264,6 +34512,10 @@
    "first": "cfca4d89-bd8c-42f7-a106-9dd7208bbe55",
    "offset": 107146
   },
+  "agent-a56b9b5d1b7786d76.jsonl": {
+   "first": "c35ffc4e-54a6-48e5-b2eb-9ed0f89c4521",
+   "offset": 581010
+  },
   "agent-a56dcc6ebea1232d5.jsonl": {
    "first": "646f9bd5-c139-41b8-b853-ebcf4117e72c",
    "offset": 973811
@@ -35048,6 +35300,10 @@
    "first": "3e8c37c3-a3ee-476c-8593-86a4d6571f79",
    "offset": 1777032
   },
+  "agent-a791f5249e0a40ecc.jsonl": {
+   "first": "d0a4a738-1a28-46d1-9424-fccb68b85f0c",
+   "offset": 1979892
+  },
   "agent-a792e47d34667d7dd.jsonl": {
    "first": "81d5198b-2012-44a9-9348-fa238496d8e1",
    "offset": 2450598
@@ -35400,6 +35656,10 @@
    "first": "2aea38e0-23a9-4320-a185-a81655df2385",
    "offset": 2240793
   },
+  "agent-a8817383c8b1e9e61.jsonl": {
+   "first": "cadaeab9-3ddb-41cf-90c9-56b3e08cef25",
+   "offset": 2132485
+  },
   "agent-a881cd00556573678.jsonl": {
    "first": "154ca2a8-ba2a-416b-b302-5f3987425f1b",
    "offset": 601046
@@ -35472,6 +35732,10 @@
    "first": "2699dbef-eb76-4fec-905a-8599edd57490",
    "offset": 828395
   },
+  "agent-a8bcdc585d25961e4.jsonl": {
+   "first": "1b780b29-4a3f-4e85-9e9c-042771535265",
+   "offset": 2242440
+  },
   "agent-a8c0430ded1a975b8.jsonl": {
    "first": "eab6371c-d2ff-4422-8d18-7bfac7503c06",
    "offset": 1761682
@@ -35483,6 +35747,10 @@
   "agent-a8cd184dfc17529e5.jsonl": {
    "first": "4914a6aa-34f7-40bf-8c33-f10f456fb34c",
    "offset": 1600258
+  },
+  "agent-a8cd55ab59934595f.jsonl": {
+   "first": "2e98abbc-468c-445e-99cf-6c1ccae29b3a",
+   "offset": 2743121
   },
   "agent-a8d2eece500e055e2.jsonl": {
    "first": "a2fd268c-4fc4-4209-8b4b-3d61bee1126b",
@@ -36320,6 +36588,10 @@
    "first": "7db1033c-7e05-46b7-9fd3-8bd24212823b",
    "offset": 436594
   },
+  "agent-ab6a10578c270e302.jsonl": {
+   "first": "9cd111f6-1890-4842-bb23-6932f61bfc68",
+   "offset": 698753
+  },
   "agent-ab6a8843db291105c.jsonl": {
    "first": "d4afe43d-30e7-4757-8f9a-42f23a492911",
    "offset": 1690490
@@ -36596,6 +36868,10 @@
    "first": "9d339c3f-62c2-4e4e-ad8b-06c9a78973cb",
    "offset": 308270
   },
+  "agent-ac404e60652cc4376.jsonl": {
+   "first": "d90f9c31-6105-49e9-847c-a3b743be362e",
+   "offset": 2238539
+  },
   "agent-ac50d642779fea697.jsonl": {
    "first": "900c2b77-23d6-49dd-a398-73f320d7edab",
    "offset": 1888909
@@ -36603,6 +36879,10 @@
   "agent-ac580fae1bb7cd873.jsonl": {
    "first": "12997643-1237-4409-a4f5-9f6f732a8f2f",
    "offset": 1940567
+  },
+  "agent-ac59fc269aa7761fd.jsonl": {
+   "first": "b3a58895-c1d3-4d71-b365-50733504cde4",
+   "offset": 2206429
   },
   "agent-ac61f6088f01ed8c3.jsonl": {
    "first": "08396608-d26b-47fa-af72-05eabb7c3bbf",
@@ -37616,6 +37896,10 @@
    "first": "92303f9c-a6c4-4644-bdd2-0408b8abbaed",
    "offset": 2401201
   },
+  "agent-aee802d5688328ef9.jsonl": {
+   "first": "075a2118-9cf4-4ad8-a6e5-616b46c311cd",
+   "offset": 446730
+  },
   "agent-aef069645c1c065c7.jsonl": {
    "first": "0c302c06-b42c-4ff5-a126-3864caf81da5",
    "offset": 2373859
@@ -37694,7 +37978,7 @@
   },
   "agent-af227d01934c3e7c6.jsonl": {
    "first": "93b38cbd-d65e-4dfb-81cc-348dbbac0169",
-   "offset": 2842334
+   "offset": 3345027
   },
   "agent-af2545d01975722cf.jsonl": {
    "first": "8eba0c41-f868-4539-84e2-33457dfd0cd8",
@@ -37811,6 +38095,10 @@
   "agent-af6c6ee4f7988d79e.jsonl": {
    "first": "9abb2903-6781-4f7b-86d4-e25952abe7bd",
    "offset": 3048087
+  },
+  "agent-af6c85748cb0c91b9.jsonl": {
+   "first": "d06b82b5-8a68-4805-a832-9ecd342eb7eb",
+   "offset": 744965
   },
   "agent-af737043b0a3e395c.jsonl": {
    "first": "41cddf26-ca17-46bd-b2e3-3f982a1a16ed",
@@ -37984,6 +38272,10 @@
    "first": "627d3609-ee7f-4bef-8f68-5fa51f6dfb07",
    "offset": 696409
   },
+  "agent-afda4f8a0544229a0.jsonl": {
+   "first": "621f639a-2727-44bf-8909-01baef4d99e1",
+   "offset": 255482
+  },
   "agent-afe0757ef004c7738.jsonl": {
    "first": "ce29f215-8afd-4eeb-b775-57ea4e2f397b",
    "offset": 2660104
@@ -38002,7 +38294,7 @@
   },
   "b2170732-95be-4660-9594-e3e86a19af08.jsonl": {
    "first": "",
-   "offset": 984490302
+   "offset": 991859751
   },
   "b3ddc32a-7528-4057-9d59-bf4ca0066ab3.jsonl": {
    "first": "",
@@ -39459,6 +39751,13 @@
     "56d69aa6cba7cf373bc7df9c5920d23c47628492"
    ],
    "dele": 30
+  },
+  "2a9290d1f10518c0b04162516a4aa6a5787d4857": {
+   "add": 2362,
+   "commits": [
+    "2a9290d1f10518c0b04162516a4aa6a5787d4857"
+   ],
+   "dele": 59
   },
   "2b032f5fcbb975b499df354b69026dca831ff484": {
    "add": 991,
@@ -41220,6 +41519,15 @@
    ],
    "dele": 17
   },
+  "62a746210144287b07dfc360a470fa5984af34a4": {
+   "add": 1608,
+   "commits": [
+    "c2be61fa6a30706149a0878a11fd6c312ef19142",
+    "11c9ae7ec80dd7b63b342dadd11db63a982a1069",
+    "2292bd75f1238def7d929dd085a838943d875397"
+   ],
+   "dele": 93
+  },
   "63bb75dcacda976c2ad1792608e046da2be0a17a": {
    "add": 840,
    "commits": [
@@ -41754,6 +42062,13 @@
     "71abc4f6df04125d80b118b6e561c059a35435ee"
    ],
    "dele": 38
+  },
+  "75cdd4a0688b9a2b564dd3e20b4b135fcd43030d": {
+   "add": 956,
+   "commits": [
+    "75cdd4a0688b9a2b564dd3e20b4b135fcd43030d"
+   ],
+   "dele": 73
   },
   "75eb018e8b5e016ff8bdffad15751b9e7bf0083d": {
    "add": 1221,
@@ -44539,6 +44854,13 @@
    ],
    "dele": 0
   },
+  "c1fa36bf0d6151951bc00a0b227b08164b3fcf0d": {
+   "add": 1713,
+   "commits": [
+    "c1fa36bf0d6151951bc00a0b227b08164b3fcf0d"
+   ],
+   "dele": 101
+  },
   "c2471658ed47af0cd1c616b305b1445d7c95211d": {
    "add": 1023,
    "commits": [
@@ -44585,6 +44907,13 @@
     "7ac966c709f1270f32e28280231f86e58fa5e478"
    ],
    "dele": 10
+  },
+  "c3eb44a2d8d4989e29a2f3c0190778cb7cbce808": {
+   "add": 1900,
+   "commits": [
+    "c3eb44a2d8d4989e29a2f3c0190778cb7cbce808"
+   ],
+   "dele": 96
   },
   "c4b572e6b1d38fd1bfbfd41c7ac9edcd518b92dd": {
    "add": 980,
@@ -44849,6 +45178,13 @@
    ],
    "dele": 1
   },
+  "cb9a2f3b077c247f4080712f8b3f13da5f829d0c": {
+   "add": 125,
+   "commits": [
+    "cb9a2f3b077c247f4080712f8b3f13da5f829d0c"
+   ],
+   "dele": 8
+  },
   "cc61ca2aa27efc79867eeb1638a07594ef64e257": {
    "add": 371,
    "commits": [
@@ -45110,6 +45446,13 @@
    ],
    "dele": 42
   },
+  "d388dc34cbcd9f40fa2e2cabf2735d8a5e2035aa": {
+   "add": 2231,
+   "commits": [
+    "d388dc34cbcd9f40fa2e2cabf2735d8a5e2035aa"
+   ],
+   "dele": 73
+  },
   "d394f1f09f84837c9f042094847b5b4089f7d6e8": {
    "add": 1040,
    "commits": [
@@ -45331,6 +45674,13 @@
     "ce901834bbc3e967199e3cc3c0b002475e811826",
     "a5e84608fd5842e11a4a7590bcd5644e4bace9d7",
     "742b9bffdb1267b499796ae51f21800b205c4db8"
+   ],
+   "dele": 48
+  },
+  "da03439e624cd8bf157aad48d811adf941a3095a": {
+   "add": 1175,
+   "commits": [
+    "da03439e624cd8bf157aad48d811adf941a3095a"
    ],
    "dele": 48
   },
@@ -47855,6 +48205,11 @@
    "name": "RE removal of RammingSpeed ExtraExplode effect",
    "type": "opus-solver"
   },
+  "a2ba9d99fdecbf937": {
+   "branch": "worktree-agent-a2ba9d99fdecbf937",
+   "name": "faces decision 1168 + 1200",
+   "type": "opus-solver"
+  },
   "a2c156368beeefb02": {
    "branch": "worktree-agent-a2c156368beeefb02",
    "name": "448-r2b StormboyzStrike greffe",
@@ -48148,6 +48503,11 @@
   "a3659ea4551ea3530": {
    "branch": "worktree-agent-a3659ea4551ea3530",
    "name": "Close the zero-collected blind spot",
+   "type": "opus-solver"
+  },
+  "a3664273536f522da": {
+   "branch": "worktree-agent-a3664273536f522da",
+   "name": "1038-r1 + 1042-r1 auras DamageReduction",
    "type": "opus-solver"
   },
   "a36865d0ca65ae923": {
@@ -49155,6 +49515,11 @@
    "name": "Write scoring.md",
    "type": "general-purpose"
   },
+  "a56b9b5d1b7786d76": {
+   "branch": "",
+   "name": "Trouver le patron de confrontation prédiction",
+   "type": "Explore"
+  },
   "a56dcc6ebea1232d5": {
    "branch": "worktree-agent-a56dcc6ebea1232d5",
    "name": "Confront two channels on the same side",
@@ -50135,6 +50500,11 @@
    "name": "Masques ciblage module deathguard",
    "type": "opus-solver"
   },
+  "a791f5249e0a40ecc": {
+   "branch": "worktree-agent-a791f5249e0a40ecc",
+   "name": "1015-r1 Healer",
+   "type": "opus-solver"
+  },
   "a792e47d34667d7dd": {
    "branch": "worktree-agent-a792e47d34667d7dd",
    "name": "1345 1346 VisionsOfHeresy percage",
@@ -50575,6 +50945,11 @@
    "name": "RE block channel closing gate",
    "type": "opus-solver"
   },
+  "a8817383c8b1e9e61": {
+   "branch": "worktree-agent-a8817383c8b1e9e61",
+   "name": "TheArdentBlade + ShieldOfFaith",
+   "type": "opus-solver"
+  },
   "a881cd00556573678": {
    "branch": "",
    "name": "Cartographier le port Python des hooks",
@@ -50665,6 +51040,11 @@
    "name": "RE #102 playbook invocation recipe",
    "type": "re-expert"
   },
+  "a8bcdc585d25961e4": {
+   "branch": "worktree-agent-a8bcdc585d25961e4",
+   "name": "traits TwoManTeam + BeastSnagga",
+   "type": "opus-solver"
+  },
   "a8c0430ded1a975b8": {
    "branch": "worktree-agent-a8c0430ded1a975b8",
    "name": "Overwatch ActiveCondition gate",
@@ -50678,6 +51058,11 @@
   "a8cd184dfc17529e5": {
    "branch": "worktree-agent-a8cd184dfc17529e5",
    "name": "CasterIsPossibleTarget bit 15",
+   "type": "opus-solver"
+  },
+  "a8cd55ab59934595f": {
+   "branch": "worktree-agent-a8cd55ab59934595f",
+   "name": "1036-r1 + 1036-r2 auras rarete",
    "type": "opus-solver"
   },
   "a8d2eece500e055e2": {
@@ -51735,6 +52120,11 @@
    "name": "Explorer le chemin de prediction NC",
    "type": "Explore"
   },
+  "ab6a10578c270e302": {
+   "branch": "",
+   "name": "Cartographier le port playbook Python",
+   "type": "Explore"
+  },
   "ab6a8843db291105c": {
    "branch": "worktree-agent-ab6a8843db291105c",
    "name": "Port opus-solver VigilanceEternal 1202",
@@ -52080,6 +52470,11 @@
    "name": "Close PredictAttackRaw aggregate RE",
    "type": "re-expert"
   },
+  "ac404e60652cc4376": {
+   "branch": "worktree-agent-ac404e60652cc4376",
+   "name": "1035-r2 + 1449 auras ExtraDamagePct",
+   "type": "opus-solver"
+  },
   "ac50d642779fea697": {
    "branch": "worktree-agent-ac50d642779fea697",
    "name": "494 divergence de cible Doombolt",
@@ -52088,6 +52483,11 @@
   "ac580fae1bb7cd873": {
    "branch": "worktree-agent-ac580fae1bb7cd873",
    "name": "174 filtre entityType snapshot",
+   "type": "opus-solver"
+  },
+  "ac59fc269aa7761fd": {
+   "branch": "worktree-agent-ac59fc269aa7761fd",
+   "name": "OnMyPosition + face decision 1026",
    "type": "opus-solver"
   },
   "ac61f6088f01ed8c3": {
@@ -53360,6 +53760,11 @@
    "name": "reduce-then-roll divergence",
    "type": "opus-solver"
   },
+  "aee802d5688328ef9": {
+   "branch": "worktree-agent-aee802d5688328ef9",
+   "name": "Split + FlamesOfMutation horreurs",
+   "type": "opus-solver"
+  },
   "aef069645c1c065c7": {
    "branch": "worktree-agent-aef069645c1c065c7",
    "name": "1148 pose face COMBAT 2 tuiles",
@@ -53605,6 +54010,11 @@
    "name": "Port 1101 AttemptedPossession",
    "type": "opus-solver"
   },
+  "af6c85748cb0c91b9": {
+   "branch": "",
+   "name": "Trouver le patron de test live port-vs-natif",
+   "type": "Explore"
+  },
   "af737043b0a3e395c": {
    "branch": "worktree-agent-af737043b0a3e395c",
    "name": "Relique couple Death Guard",
@@ -53820,6 +54230,11 @@
    "name": "Classifier P0-SUMMON (6 abilities)",
    "type": "re-expert"
   },
+  "afda4f8a0544229a0": {
+   "branch": "",
+   "name": "Read StaticBattleRules Trait cctor",
+   "type": "general-purpose"
+  },
   "afe0757ef004c7738": {
    "branch": "worktree-agent-afe0757ef004c7738",
    "name": "Defaire le collapse Pinned",
@@ -53842,8 +54257,8 @@
   }
  },
  "stat_commits": {
-  "mesures": 395,
-  "reutilises": 3673
+  "mesures": 27,
+  "reutilises": 4066
  },
  "stat_delivered": {
   "interroges": 0,
@@ -53851,18 +54266,18 @@
   "reutilises": 60
  },
  "stat_merges": {
-  "interroges": 62,
-  "reutilises": 928
+  "interroges": 8,
+  "reutilises": 990
  },
  "stat_metas": {
-  "lus": 98,
-  "reutilises": 1369
+  "lus": 13,
+  "reutilises": 1467
  },
  "stat_tokens": {
-  "fichiers": 100,
+  "fichiers": 18,
   "fork": "",
-  "mo": 241.7,
-  "total": 1484
+  "mo": 28.4,
+  "total": 1497
  },
  "version": 3
 }
