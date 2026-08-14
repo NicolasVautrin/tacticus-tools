@@ -157,24 +157,39 @@ def _pos(u):
     return (u["pos"]["col"], u["pos"]["row"])
 
 
-def _rapproche(s: _Session, mobile: int, ancre_pos, verbose: bool) -> bool:
-    """DEPLACE `mobile` sur une tuile ADJACENTE a `ancre_pos` -- on FORCE la configuration au lieu
-    de se plaindre de la geometrie de spawn. Rend True si l'adjacence est atteinte."""
+def _distance(s: _Session, a: int, b: int):
+    import hexgeo                                                               # noqa: PLC0415
+    dv = s.rpc("decisionView", {})
+    pa = next((_pos(u) for u in _lignes(dv) if u["id"] == a), None)
+    pb = next((_pos(u) for u in _lignes(dv) if u["id"] == b), None)
+    return None if (pa is None or pb is None) else hexgeo.distance(pa, pb)
+
+
+def _deplace(s: _Session, mobile: int, ancre_pos, vise: int, verbose: bool) -> bool:
+    """DEPLACE `mobile` jusqu'a etre a distance `vise` d'`ancre_pos` -- on FORCE la configuration au
+    lieu de se plaindre de la geometrie de spawn. `vise = 1` fabrique l'adjacence, `vise >= 2` la
+    DEFAIT (c'est le second bras du couple : sans lui, un spawn deja adjacent priverait le filtre
+    `F` de son temoin nul)."""
     import hexgeo                                                               # noqa: PLC0415
     g = s.rpc("boardGraph", {}, 60)
     dv = s.rpc("decisionView", {})
-    occ = {_pos(u) for u in _lignes(dv)}
-    cands = sorted(((t["col"], t["row"]) for t in (g.get("tiles") or [])
-                    if t.get("walkable") and (t["col"], t["row"]) not in occ),
-                   key=lambda p: hexgeo.distance(p, ancre_pos))
-    for (c, r) in cands[:10]:
+    occ = {_pos(u) for u in _lignes(dv) if u["id"] != mobile}
+    cands = [(t["col"], t["row"]) for t in (g.get("tiles") or [])
+             if t.get("walkable") and (t["col"], t["row"]) not in occ]
+    cands = [p for p in cands if (hexgeo.distance(p, ancre_pos) == 1 if vise == 1
+                                  else hexgeo.distance(p, ancre_pos) >= vise)]
+    cands.sort(key=lambda p: hexgeo.distance(p, ancre_pos))
+    for (c, r) in cands[:12]:
         s.rpc("applyAction", {"action": {"kind": "move", "unitId": int(mobile),
                                          "to": {"col": c, "row": r}}}, 90)
         dv2 = s.rpc("decisionView", {})
         u = next((x for x in _lignes(dv2) if x["id"] == mobile), None)
-        if u is not None and hexgeo.distance(_pos(u), ancre_pos) == 1:
+        if u is None:
+            continue
+        d = hexgeo.distance(_pos(u), ancre_pos)
+        if (d == 1) if vise == 1 else (d >= vise):
             if verbose:
-                print("[1036-r2] u%d deplace en (%d,%d), adjacent a %s" % (mobile, c, r, ancre_pos))
+                print("[1036-r2] u%d en (%d,%d), distance %d de %s" % (mobile, c, r, d, ancre_pos))
             return True
     return False
 
@@ -204,20 +219,76 @@ def _mesure(s: _Session, rarity_vis: "str | None", verbose: bool) -> dict:
     f["voisin_id"], f["voisin_vis"] = voisin["id"], voisin.get("visualId")
     f["ennemi_id"] = ennemi["id"]
 
-    # --- AVANT rapprochement : les deux psykers sont loin -> le filtre `F` doit se taire --------
-    st, _dv, _cs = _state(s)
-    f["avant"] = _port(st, att["id"], ennemi["id"], DamageProfileType.Psychic.name)
-
-    # --- on FABRIQUE l'adjacence ---------------------------------------------------------------
-    f["rapproche"] = _rapproche(s, voisin["id"], _pos(att), verbose)
-    st2, dv2, _cs2 = _state(s)
-    f["apres"] = _port(st2, att["id"], ennemi["id"], DamageProfileType.Psychic.name)
+    # --- BRAS ADJACENT : on FABRIQUE l'adjacence si le spawn ne la donne pas deja ---------------
+    f["dist_spawn"] = _distance(s, att["id"], voisin["id"])
+    f["adjacence_fabriquee"] = (f["dist_spawn"] == 1
+                                or _deplace(s, voisin["id"], _pos(att), 1, verbose))
+    st2, _dv2, _cs2 = _state(s)
+    f["adjacent"] = _port(st2, att["id"], ennemi["id"], DamageProfileType.Psychic.name)
     # --- meme instant, meme geometrie : le PROFIL change ---------------------------------------
     f["profil_non_psychic"] = _port(st2, att["id"], ennemi["id"], "Physical")
     # --- meme instant, meme geometrie : un attaquant NON psyker ---------------------------------
     f["non_psyker"] = _port(st2, autre["id"], ennemi["id"], DamageProfileType.Psychic.name)
     f["non_psyker_traits"] = sorted(DM.target_trait_names(st2, autre["id"]) or ())
+
+    # --- FACE DECISION, au MEME instant : pas de fork prediction / combat ----------------------
+    f["decision"] = _face_decision(s, f["mow_id"], att["id"], ennemi["id"])
+
+    # --- BRAS ELOIGNE : on DEFAIT l'adjacence -- c'est le temoin nul du filtre `F` --------------
+    f["eloigne_ok"] = _deplace(s, voisin["id"], _pos(att), 2, verbose)
+    f["dist_apres_eloignement"] = _distance(s, att["id"], voisin["id"])
+    st3, _dv3, _cs3 = _state(s)
+    f["eloigne"] = _port(st3, att["id"], ennemi["id"], DamageProfileType.Psychic.name)
     return f
+
+
+def _face_decision(s: _Session, mow_id: int, att_id: int, tgt_id: int) -> dict:
+    """La MEME aura, vue par la face DECISION -- reparer une seule face recreerait le fork
+    prediction/combat (#197, #950-r2).
+
+    Trois faits MESURES : `Scene.machine_ids` porte la MoW (canal `decisionView.mows[].casterId`),
+    `Scene.is_machine` repond VRAI pour elle, et le ctx que `_apply_ally_attack_dmg_bonus` construit
+    porte les TROIS cles neuves avec les MEMES noms que la face COMBAT. L'interception porte sur
+    l'attribut du module `_shared` (forme B) : `_shared` lie l'agregateur au niveau module, donc
+    remplacer `engine.entities.effects.<nom>` ne mordrait PAS."""
+    from engine.playbook import scene as SC                                     # noqa: PLC0415
+    from engine.playbook.scene import step_context                              # noqa: PLC0415
+    from engine.playbook.prediction import _shared as SH                        # noqa: PLC0415
+
+    dv = s.rpc("decisionView", {"includeInactive": True})
+    # ⚠ Le predicteur COMPLET, pas un dict vide : sans `ctx_by_id`, `_entity_rarity` rend `None`
+    # pour tout le monde et les gates se fermeraient pour une raison de MONTAGE. La Scene passe
+    # donc par la MEME voie que la face DECISION reelle (`build_predictor` + `step_context` +
+    # `from_predictor_sctx`).
+    predictor = SC.build_predictor(lambda m, b=None, t=120: s.rpc(m, b, t), s.rid)
+    if predictor is None:
+        raise RuntimeError("build_predictor KO : la face DECISION ne peut pas etre confrontee")
+    sctx = step_context(predictor, dv)
+    sc = SC.Scene.from_predictor_sctx(predictor, sctx)
+    vus = {}
+    reel = SH.aura_attack_damage_bonus_from_allies
+
+    def _spy(carriers, ctx):
+        vus.update({"cles": sorted(k for k in ctx
+                                   if k in ("att_rarity", "att_effect_names", "owner_is_machine",
+                                            "cabal_valid_adjacent_to_attacker")),
+                    "owner_is_machine": ctx.get("owner_is_machine"),
+                    "voisins_valides": ctx.get("cabal_valid_adjacent_to_attacker"),
+                    "att_rarity": ctx.get("att_rarity"),
+                    "porteurs": [c[0] for c in (carriers or [])]})
+        return reel(carriers, ctx)
+
+    SH.aura_attack_damage_bonus_from_allies = _spy
+    try:
+        SH._apply_ally_attack_dmg_bonus([], sc, att_id, sc.pos(att_id), False, None,
+                                        tgt_id=tgt_id,
+                                        damage_profile=DamageProfileType.Psychic.name)
+    finally:
+        SH.aura_attack_damage_bonus_from_allies = reel
+    return {"machine_ids": sorted(sctx.get("machine_ids") or []),
+            "is_machine_mow": sc.is_machine(mow_id),
+            "mow_porteur": mow_id in sc.effect_carrier_ids(exclude=att_id),
+            "ctx": vus}
 
 
 def run(seed: int = SEED, board: str = BOARD, niveau: int = NIVEAU, keep: bool = False,
@@ -250,26 +321,32 @@ def _print(res: dict) -> None:
         print("   MoW %s, aura publiee           : %s"
               % (f["mow_id"], AURA.name in f["mow_effets"]))
         print("   attaquant psyker               : u%s (%s)" % (f["att_id"], f["att_vis"]))
-        print("   adjacence FABRIQUEE            : %s (u%s %s)"
-              % (f["rapproche"], f["voisin_id"], f["voisin_vis"]))
-        print("   port AVANT / APRES             : %s -> %s"
-              % (_pct(f["avant"]), _pct(f["apres"])))
+        print("   voisin psyker u%s (%s), dist spawn = %s, adjacence = %s"
+              % (f["voisin_id"], f["voisin_vis"], f["dist_spawn"], f["adjacence_fabriquee"]))
+        print("   port ADJACENT / ELOIGNE(d=%s)  : %s -> %s"
+              % (f["dist_apres_eloignement"], _pct(f["adjacent"]), _pct(f["eloigne"])))
         print("   ... profil non Psychic         : %s" % _pct(f["profil_non_psychic"]))
         print("   ... attaquant NON psyker       : %s (traits %s)"
               % (_pct(f["non_psyker"]), f["non_psyker_traits"][:6]))
-        print("   ctx APRES                      : %s" % (f["apres"],))
+        print("   ctx ADJACENT                   : %s" % (f["adjacent"],))
+        print("   face DECISION                  : %s" % (f["decision"],))
 
 
 def verdict(res: dict) -> bool:
     d, sep = res.get("degenere") or {}, res.get("separant") or {}
     return bool(
-        d.get("rapproche")                                  # le montage a bien FABRIQUE l'adjacence
-        and _pct(d.get("avant")) is None                    # filtre F : ferme sans voisin qualifie
-        and _pct(d.get("apres")) is not None                # ... ouvert des que l'adjacence existe
+        d.get("adjacence_fabriquee") and d.get("eloigne_ok")   # les DEUX geometries sont atteintes
+        and _pct(d.get("adjacent")) is not None             # filtre F : ouvert quand un voisin l'est
+        and _pct(d.get("eloigne")) is None                  # ... et ferme des qu'on DEFAIT l'adjacence
         and _pct(d.get("profil_non_psychic")) is None       # CurrentAttackDamageProfileIs(Psychic)
         and _pct(d.get("non_psyker")) is None               # UnitsWithTraits([Psyker, Hero])
-        and _pct(sep.get("apres")) is None                  # UnitsWithRarity(..., Mythic)
-        and (sep.get("apres") or {}).get("att_rarity") == Rarity.Epic)
+        and _pct(sep.get("adjacent")) is None               # UnitsWithRarity(..., Mythic)
+        and (sep.get("adjacent") or {}).get("att_rarity") == Rarity.Epic
+        # face DECISION : la MoW est reconnue MACHINE et retenue comme porteur, et le ctx porte
+        # les QUATRE cles -- sans quoi le port aurait un fork prediction/combat.
+        and (d.get("decision") or {}).get("is_machine_mow") is True
+        and (d.get("decision") or {}).get("mow_porteur") is True
+        and len(((d.get("decision") or {}).get("ctx") or {}).get("cles") or []) == 4)
 
 
 def main() -> int:
