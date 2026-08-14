@@ -57,12 +57,28 @@ from engine.entities.active_ability_type import ActiveAbilityType   # noqa: E402
 
 MACRO = int(ActiveAbilityType.MacroPlasmaIncinerator)      # 0x487 = 1159
 MOW = "ultraDreadnought"
-P_UNITS = "ultraEudorian,adeptCanoness"
+P_UNITS = "adeptCanoness,adeptHospitaller"
 A_UNITS = "necroWarden,necroDestroyer,orksNob"
-#: Placements : les TROIS ennemis GROUPES, pour qu'une zone-triangle puisse en toucher plusieurs.
 #: Les allies sont mis a l'ecart -- ils n'entrent dans AUCUN terme de la formule.
-_PLACE = ["ultraEudorian:0,0", "adeptCanoness:0,1"]
-_A_PLACE = ["necroWarden:3,4", "necroDestroyer:3,5", "orksNob:4,4"]
+_PLACE = ["adeptCanoness:0,0", "adeptHospitaller:0,1"]
+
+#: DEUX MONTAGES, et c'est la POSITION DES ENNEMIS qui les separe -- on DEPLACE les unites, on ne
+#: subit pas la geometrie de spawn. Le regime B ne peut PAS se monter par `applyAction` : mesure
+#: (1re passe de ce probe) -- `aiMovableTiles` rend **0 tuile** pour une unite de l'equipe adverse
+#: quand ce n'est pas son tour, donc le move ne mordait pas et le regime B n'existait pas. Deux
+#: BUILDS separes contournent cela sans rien presumer de l'ordre des tours.
+#:
+#: Le regime **C** n'est pas un troisieme point de mesure de confort : c'est celui qui rend la
+#: CIBLE confrontable. `bucketAction.targetLow` etant un demi-pointeur (cf. `_port`), l'accord des
+#: cibles ne se deduit de l'accord des utilites que si l'argmax est UNIQUE -- et sur A comme sur B
+#: il ne l'est pas (6 et 11 tuiles ex-aequo, MESURE). Le placement de C a ete CHERCHE pour cela :
+#: en faisant varier `epos` sur le contexte d'un runner reel, `((3,2), (3,4), (5,4))` rend un
+#: maximum de `8` atteint par la SEULE tuile `(3,3)`.
+MONTAGES = (
+    ("A: ennemis groupes", ["necroWarden:3,4", "necroDestroyer:3,5", "orksNob:4,4"]),
+    ("B: ennemis disperses", ["necroWarden:3,4", "necroDestroyer:0,5", "orksNob:6,1"]),
+    ("C: argmax UNIQUE", ["necroWarden:3,2", "necroDestroyer:3,4", "orksNob:5,4"]),
+)
 
 
 def _rpc_mod():
@@ -74,7 +90,7 @@ def _r(rpc, sid, m, b, t=120):
     return (rpc(sid, m, [b], timeout=t).get("result") or {})
 
 
-def build(state_file: Path, seed: int, board: str, verbose: bool) -> int:
+def build(state_file: Path, seed: int, board: str, a_place: list, verbose: bool) -> int:
     state_file.parent.mkdir(parents=True, exist_ok=True)
     state_file.unlink(missing_ok=True)
     cmd = [sys.executable, "rl_duel.py", "build", "--seed", str(seed), "--board", board,
@@ -82,7 +98,7 @@ def build(state_file: Path, seed: int, board: str, verbose: bool) -> int:
            "--p-units", P_UNITS, "--p-mow", MOW, "--a-units", A_UNITS]
     for p in _PLACE:
         cmd += ["--place", p]
-    for p in _A_PLACE:
+    for p in a_place:
         cmd += ["--a-place", p]
     proc = subprocess.run(cmd, cwd=str(PYDIR), capture_output=True, text=True,
                           encoding="utf-8", errors="replace")
@@ -140,29 +156,58 @@ def _nc_context(rpc, sid, rid: int, caster_id: int):
         plan=c.plans.get(c.uid) or {}, plans=c.plans, hp_cur_by_id=c.hp_cur_by_id,
         elev_by_pos=c.elev_by_pos, ability_targets=c.ability_targets, wt=c.wt,
         is_temporary_by_pos=c.is_temporary_by_pos, effects_by_pos=c.effects_by_pos,
-        is_wall_by_pos=c.is_wall_by_pos, obs_units=c.obs_units, tile_id_by_pos=c.tile_id_by_pos,
+        is_wall_by_pos=getattr(c, "is_wall_by_pos", None) or {},
+        is_in_fog_by_pos=getattr(c, "is_in_fog_by_pos", None) or {},
+        obs_units=c.obs_units, tile_id_by_pos=c.tile_id_by_pos,
         active_levels=c.active_ability_levels, ability_config=c.heal_config,
-        current_player=c.current_player, machine_of_war_position=c.machine_of_war_position,
+        # `AiDecisionContext.cur` = `TurnComponent._currentPlayerId` -- le nom du champ ici est
+        # `current_player` ; c'est le MEME appariement que `NonComparableGenerator.generate`, dont
+        # ce montage est la copie (toute divergence ferait mesurer un contexte qui n'existe pas).
+        current_player=getattr(c, "cur", None),
+        machine_of_war_position=c.machine_of_war_position,
+        triggered_kits=getattr(c, "live_triggered_kits", None),
         units=c.units, cast_from_tiles=c.cast_from_tiles, scene=c.scene)
 
 
 def _port(rpc, sid, rid: int, caster_id: int) -> dict:
+    """Le port, ET le PROFIL COMPLET de ses utilites -- pas seulement son argmax.
+
+    ⚠ POURQUOI LE PROFIL. `bucketAction.targetLow` du natif est `UnitAction+0x18` lu en U32,
+    c.-a-d. la MOITIE BASSE D'UN POINTEUR `IEntity` (mesure : `2211594688` la ou les entites-tuiles
+    de ce board ont des ids `12..74`). Ce n'est PAS un id d'entite : le comparer a `tile_id_by_pos`
+    fabriquerait une fausse divergence, et le hook ne resout pas ce pointeur. La CIBLE n'est donc
+    pas directement confrontable par ce canal.
+
+    Le cran qui la remplace, et qui est MESURE plutot que suppose : `n_ex_aequo`, le nombre de
+    tuiles qui atteignent le maximum cote port. Quand il vaut **1**, l'argmax est UNIQUE, donc
+    l'egalite des UTILITES implique l'egalite des CIBLES -- une autre tuile aurait rendu une autre
+    valeur. Le verdict l'exige."""
+    import engine.playbook.tile_targets as TT
     from engine.playbook import noncomparable as PB
     from engine.playbook.noncomparable import _base as NCB
     nc = _nc_context(rpc, sid, rid, caster_id)
-    cands = PB.PLAYBOOKS[MACRO].generate_candidates(nc)
+    pb = PB.PLAYBOOKS[MACRO]
+    cands = pb.generate_candidates(nc)
     from_here, union = NCB.eligible_target_tiles(nc, MACRO)
-    # `|zone|` de la tuile RETENUE : c'est le PLANCHER `1 + |zone|` du regime sans ennemi, qu'il
-    # faut connaitre pour dire si le terme d'adjacence a REELLEMENT ete exerce.
+    tuiles = from_here or union
+    profil = {}
+    for t in tuiles:
+        u = pb.evaluate_non_comparable(nc.origin, t, nc)
+        if u is not None:
+            profil[t] = u
+    top = max(profil.values()) if profil else None
+    # `|zone|` de la tuile RETENUE : le PLANCHER `1 + |zone|`, qu'il faut connaitre pour dire si le
+    # terme d'adjacence a REELLEMENT ete exerce (sinon l'accord serait DEGENERE).
     zone = None
     if cands:
-        import engine.playbook.tile_targets as TT
-        pb = PB.PLAYBOOKS[MACRO]
-        dctx = TT.dsl_context_for_tile_target(nc)
+        dctx = TT.dsl_context_for_tile_target(nc, machine_caster=True)
         tid = cands[0]["target"]
         if dctx is not None and tid is not None:
             zone = len(pb._area(dctx, int(tid)))
-    return {"candidats": cands, "n_eligibles": len(from_here or union), "zone": zone,
+    return {"candidats": cands, "n_eligibles": len(tuiles), "zone": zone,
+            "n_ex_aequo": (sum(1 for v in profil.values() if abs(v - top) < 1e-9)
+                           if top is not None else 0),
+            "n_evalues": len(profil), "top": top,
             "util": (cands[0]["pred"] if cands else None),
             "target": (cands[0]["target"] if cands else None)}
 
@@ -173,89 +218,57 @@ def _mesurer(rpc, sid, rid, caster_id, libelle, verbose) -> dict:
     row = {"libelle": libelle, "natif_util": nat["util"], "natif_target": nat["targetLow"],
            "natif_actions": nat["actions"], "natif_vide": nat["vide"], "natif_via": nat["via"],
            "port_util": prt["util"], "port_target": prt["target"], "port_zone": prt["zone"],
-           "n_eligibles": prt["n_eligibles"]}
+           "n_eligibles": prt["n_eligibles"], "n_ex_aequo": prt["n_ex_aequo"],
+           "n_evalues": prt["n_evalues"]}
     if verbose:
-        print("  [%s] NATIF util=%s target=%s actions=%s | PORT util=%s target=%s |zone|=%s | "
-              "cibles eligibles=%d"
-              % (libelle, row["natif_util"], row["natif_target"], row["natif_actions"],
-                 row["port_util"], row["port_target"], row["port_zone"], row["n_eligibles"]))
+        print("  [%s] NATIF util=%s actions=%s | PORT util=%s tuile=%s |zone|=%s ex-aequo=%d | "
+              "eligibles=%d evaluees=%d"
+              % (libelle, row["natif_util"], row["natif_actions"], row["port_util"],
+                 row["port_target"], row["port_zone"], row["n_ex_aequo"], row["n_eligibles"],
+                 row["n_evalues"]))
     return row
 
 
-def _eloigner_un_ennemi(rpc, sid, rid: int, out: dict, verbose: bool) -> bool:
-    """DEPLACE `necroDestroyer` LOIN du groupe -- on force la configuration, on ne la subit pas.
+def _positions_ennemies(rpc, sid, rid: int) -> list:
+    """L'etat MESURE, jamais presume : ou sont REELLEMENT les ennemis apres le build.
 
-    La tuile d'arrivee est CHOISIE dans les atteignables les plus eloignees du groupe, jamais
-    ecrite en dur, et l'ARRIVEE est VERIFIEE (`applyAction` rend un dict truthy meme quand rien
-    n'a bouge)."""
+    Un `--a-place` peut etre reloge par le natif (tuile occupee/invalide) ; sans cette lecture, le
+    montage serait DECLARE et non constate."""
+    # Filtre par visualId, PAS par `teamId` : une premiere passe lisait `teamId == 1` et rendait
+    # [(0,0), (0,1)] -- les positions des ALLIES. Le visualId est le seul discriminant qu'on ait
+    # ECRIT nous-memes dans le montage.
+    vis = {p.split(":")[0] for p in A_UNITS.split(",")}
     o = _r(rpc, sid, "observeBattle", {"runnerId": rid})
-    vivants = [u for u in (o.get("units") or []) if not u.get("isDead")]
-    cible = next((u for u in vivants if u.get("visualId") == "necroDestroyer"), None)
-    if cible is None:
-        out["erreurs"].append("necroDestroyer introuvable : REGIME B NON CONFRONTE")
-        return False
-    uid = cible.get("squadId") if cible.get("squadId") is not None else cible.get("id")
-    ancre = (3, 4)
-    mov = _r(rpc, sid, "aiMovableTiles", {"runnerId": rid}, 60)
-    atteignables = []
-    for u in (mov.get("units") or []):
-        if u.get("unitId") != uid:
-            continue
-        for t in (u.get("tiles") or []):
-            p = t if isinstance(t, (list, tuple)) else (t.get("col"), t.get("row"))
-            if p and p[0] is not None:
-                atteignables.append((p[0], p[1]))
-    occupees = {(u.get("col"), u.get("row")) for u in vivants}
-    libres = [p for p in atteignables if p not in occupees]
-    if not libres:
-        out["erreurs"].append("aucune tuile atteignable ET libre (atteignables=%d) -- REGIME B "
-                              "NON CONFRONTE" % len(atteignables))
-        return False
-    import hexgeo
-    dest = max(libres, key=lambda p: hexgeo.distance(p[0], p[1], ancre[0], ancre[1]))
-    _r(rpc, sid, "applyAction",
-       {"runnerId": rid, "action": {"kind": "move", "unitId": uid,
-                                    "to": {"col": dest[0], "row": dest[1]}}}, 180)
-    o2 = _r(rpc, sid, "observeBattle", {"runnerId": rid})
-    arrivee = next(((u.get("col"), u.get("row")) for u in (o2.get("units") or [])
-                    if (u.get("squadId") if u.get("squadId") is not None else u.get("id")) == uid
-                    and not u.get("isDead")), None)
-    out["move"] = {"unitId": uid, "vise": dest, "arrivee": arrivee, "a_mordu": arrivee == dest}
-    if verbose:
-        print("[1066/live] move necroDestroyer -> %s : arrivee=%s (a mordu: %s)"
-              % (dest, arrivee, arrivee == dest))
-    if arrivee != dest:
-        out["erreurs"].append("le move n'a PAS mordu (arrivee=%s) -- REGIME B NON CONFRONTE"
-                              % (arrivee,))
-        return False
-    return True
+    return sorted((u.get("col"), u.get("row")) for u in (o.get("units") or [])
+                  if not u.get("isDead") and u.get("visualId") in vis)
 
 
 def run(state_file: str, seed: int = 777, board: str = "MC1_67", verbose: bool = True) -> dict:
     sf = Path(state_file).resolve()
     resolve, rpc = _rpc_mod()
     sid = resolve()
-    rid = build(sf, seed, board, verbose)
-    out = {"runnerId": rid, "board": board, "seed": seed, "regimes": [], "erreurs": []}
-    try:
-        caster_id, _dv = _mow_caster_id(rpc, sid, rid)
-        if caster_id is None:
-            out["erreurs"].append("MoW %s absente de decisionView.mows" % MOW)
-            return out
-        out["casterId"] = caster_id
-        if verbose:
-            print("[1066/live] MoW %s casterId=%s" % (MOW, caster_id))
-        out["regimes"].append(_mesurer(rpc, sid, rid, caster_id, "A: ennemis groupes", verbose))
-        if not _eloigner_un_ennemi(rpc, sid, rid, out, verbose):
-            return out
-        out["regimes"].append(_mesurer(rpc, sid, rid, caster_id, "B: un ennemi eloigne", verbose))
-    finally:
+    out = {"board": board, "seed": seed, "regimes": [], "erreurs": [], "runners": []}
+    for libelle, a_place in MONTAGES:
+        rid = build(sf.with_name(sf.stem + "_" + libelle[0] + sf.suffix), seed, board,
+                    a_place, verbose)
+        out["runners"].append(rid)
         try:
-            _r(rpc, sid, "disposeRunner", {"runnerId": rid}, 60)
+            caster_id, _dv = _mow_caster_id(rpc, sid, rid)
+            if caster_id is None:
+                out["erreurs"].append("MoW %s absente de decisionView.mows (%s)" % (MOW, libelle))
+                continue
+            out["casterId"] = caster_id
             if verbose:
-                print("[1066/live] runner %d dispose" % rid)
-        except Exception as exc:                      # pragma: no cover
-            out["erreurs"].append("dispose KO: %s" % exc)
+                print("[1066/live] [%s] runner %d, MoW casterId=%s ; ennemis %s"
+                      % (libelle, rid, caster_id, _positions_ennemies(rpc, sid, rid)))
+            out["regimes"].append(_mesurer(rpc, sid, rid, caster_id, libelle, verbose))
+        finally:
+            try:
+                _r(rpc, sid, "disposeRunner", {"runnerId": rid}, 60)
+                if verbose:
+                    print("[1066/live] runner %d dispose" % rid)
+            except Exception as exc:                  # pragma: no cover
+                out["erreurs"].append("dispose KO: %s" % exc)
     return out
 
 
@@ -278,14 +291,16 @@ def verdict(r: dict) -> list:
         if abs(float(row["port_util"]) - float(row["natif_util"])) > 1e-6:
             f.append("UTILITE en regime %s : port=%s natif=%s" % (tag, row["port_util"],
                                                                   row["natif_util"]))
-        if row["natif_target"] is not None and row["port_target"] is not None \
-                and int(row["natif_target"]) != int(row["port_target"]):
-            f.append("CIBLE en regime %s : port=%s natif=%s (utilites port=%s natif=%s)"
-                     % (tag, row["port_target"], row["natif_target"], row["port_util"],
-                        row["natif_util"]))
-        if row["n_eligibles"] < 2:
-            f.append("MONTAGE CREUX en regime %s : %d cible(s) eligible(s) -- l'argmax ne "
-                     "distingue rien" % (tag, row["n_eligibles"]))
+        # La CIBLE n'est pas confrontable directement (`targetLow` = moitie basse d'un POINTEUR,
+        # cf. `_port`). L'unicite de l'argmax la rend deductible : sur un maximum ATTEINT PAR UNE
+        # SEULE tuile, l'egalite des utilites vaut egalite des cibles.
+        if row["n_ex_aequo"] != 1:
+            f.append("ARGMAX NON UNIQUE en regime %s (%d tuiles ex-aequo au maximum) : l'accord "
+                     "des utilites n'implique alors PAS l'accord des cibles"
+                     % (tag, row["n_ex_aequo"]))
+        if row["n_eligibles"] < 2 or row["n_evalues"] < 2:
+            f.append("MONTAGE CREUX en regime %s : %d cible(s) eligible(s), %d evaluee(s) -- "
+                     "l'argmax ne distingue rien" % (tag, row["n_eligibles"], row["n_evalues"]))
     # TEMOIN NON NUL sur le TERME QUI NOUS INTERESSE : sans une utilite au-dessus du plancher
     # `1 + |zone|`, le terme d'ennemis adjacents n'est jamais exerce et l'accord ne dit rien de lui.
     exerce = [x for x in (A, B)
@@ -297,6 +312,10 @@ def verdict(r: dict) -> list:
     if (A["natif_util"], A["natif_target"]) == (B["natif_util"], B["natif_target"]):
         f.append("LE MONTAGE NE SEPARE PAS : les deux regimes rendent la MEME mesure native "
                  "(util=%s target=%s)" % (A["natif_util"], A["natif_target"]))
+    if A["port_target"] is not None and A["port_target"] == B["port_target"] \
+            and A["port_util"] == B["port_util"]:
+        f.append("LE MONTAGE NE SEPARE PAS COTE PORT : meme tuile et meme utilite dans les deux "
+                 "regimes (%s, %s)" % (A["port_target"], A["port_util"]))
     return f
 
 

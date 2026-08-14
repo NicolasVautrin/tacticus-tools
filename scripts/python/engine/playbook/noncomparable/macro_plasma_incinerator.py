@@ -179,7 +179,10 @@ class MacroPlasmaIncineratorPlaybook(NonComparablePlaybook):
         """
         if target is None:
             return None
-        dctx = TT.dsl_context_for_tile_target(ctx)
+        # `machine_caster=True` : le porteur est une MoW, ABSENTE de `dv.units` par design -- et
+        # l'arbre `$$GetTargetAreaTiles` ne reference PAS le slot caster (lecture, cf. l'en-tete du
+        # module). Sans ce flag le foyer refusait, donc l'utilite valait `None` PARTOUT.
+        dctx = TT.dsl_context_for_tile_target(ctx, machine_caster=True)
         if dctx is None:
             return None
         tid = (ctx.tile_id_by_pos or {}).get((target[0], target[1]))

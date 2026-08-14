@@ -19,8 +19,26 @@ from .. import battle_query as _bq
 from ..entities.stats import StatType as _ST
 
 
-def dsl_context_for_tile_target(ctx):
+def dsl_context_for_tile_target(ctx, machine_caster: bool = False):
     """`SelectorContext` de la face DECISION pour un playbook TILE-TARGET.
+
+    `machine_caster` (#1066) -- LE CASTER EST UNE MACHINE OF WAR, ET ELLE N'EST PAS DANS
+    `dv.units`. Ce n'est pas un canal muet, c'est une propriete du substrat : `observeBattle`
+    publie les MoW dans `.mows`, et le bridge offline les exclut explicitement de `units` (meme
+    ecart que celui deja nomme par `noncomparable._base.occupant_team_by_pos`). Le repli
+    `caster is None -> return None` ci-dessous rendait donc `0.0` / `[]` pour TOUT playbook
+    tile-target porte par une MoW -- silencieusement, et quelle que soit la forme de son arbre.
+
+    Passer `True` est une DECLARATION de l'appelant : << l'arbre que je vais evaluer ne
+    reference PAS le slot caster >>, et elle se verifie en LISANT l'arbre. Pour
+    `MacroPlasmaIncineratorAbility$$GetTargetAreaTiles` (le seul appelant a ce jour) c'est le cas
+    -- `Walkable(TilesOnSameElevation(T, TilesInTriangleShape(T, If(IsPositionMachineForCurrentPlayer(2),
+    Direct(1), Direct(4))), 1))` ne lit que `board`, `elevation`, `walkable` et
+    `current_player_machine_position`. Le caster pose est alors MINIMAL (`{"id": uid}`, sans `pos`
+    ni `team`) : tout noeud qui le lirait quand meme rendrait du vide, jamais une valeur inventee.
+
+    ⚠ Le defaut reste `False` : sur le chemin des casters UNITE (1148, 1169), l'absence du caster
+    dans `scene.units` reste une anomalie et doit continuer de refuser.
 
     `CalculateCustomUtility` d'un playbook tile-target construit un `AbilityEntities` a
     `owner = caster = <le caster>` et `target = <l'entite tuile>`. Le `target` n'est PAS pose ici :
@@ -42,7 +60,11 @@ def dsl_context_for_tile_target(ctx):
     units = list(scene.units or [])
     caster = next((u for u in units if u.get("id") == ctx.uid), None)
     if caster is None:
-        return None
+        if not machine_caster:
+            return None
+        # Caster MINIMAL : l'identite, rien d'autre. Aucun champ devine -- pas de `pos` (une MoW
+        # n'en a pas au sens unite : son masque porte `AllowNullCasterTile`), pas de `team`.
+        caster = {"id": ctx.uid}
     vis_by_id = {u.get("id"): u.get("visualId") for u in units}
 
     def _has_trait(u, trait) -> bool:
