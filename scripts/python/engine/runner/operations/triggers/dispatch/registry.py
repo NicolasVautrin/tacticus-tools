@@ -293,6 +293,9 @@ from ..loki.dw02_advanced_burst_cannon import (                       # #1012 (r
     Dw02AdvancedBurstCannonAbility)
 from ..loki.relic_power_fist import RelicPowerFistAbility             # #1009 (relique 1466, 3 factions)
 from ..loki.paragon_spear import ParagonSpearAbility                   # #1013 (relique 1494, custoKyrus)
+from ..loki.the_ardent_blade import TheArdentBladeTriggerAbility       # #1013-r2 (relique 1468)
+from ..loki.phasal_subjugator import (PhasalSubjugatorSummonAbility,   # #1011-r1 (relique 1557,
+                                      PhasalSubjugatorTriggerPassiveAbility)   # necroOverlord)
 from ..loki.electrochaff_backups import (                             # #1025 (MYTHIQUE 1454, MoW
     ElectrochaffBackupsOnMarkerlightAbility,                          #  tauBroadside : voie
     ElectrochaffBackupsOnRangedDamageAbility)                         #  TERTIAIRE, cf. le registre)
@@ -1566,6 +1569,51 @@ RELIC_ABILITY_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
     # ⚠ `level_slot="tertiary"` : lire le niveau des PASSIFS clamperait au dernier palier (50 dans
     # tout runner normalise), SILENCIEUSEMENT. Cf. loki/paragon_spear.py. #1013.
     "ParagonSpear": [ParagonSpearAbility],
+    # TheArdentBlade (relique `R_*_TheArdentBlade`, `TriggeredAbilityType` 0x5bc = 1468 ; UN porteur,
+    # `adeptCelestine`, HORS pool rank 17 -> etat 3 : injection catalogue PUIS `--equip-relic`).
+    # #1013-r2. DEUX classes natives pour UNE cle, et elles ne vont PAS au meme endroit :
+    #   * `TheArdentBlade_InitAbility` -- pas de `CreateTrigger` propre (patron
+    #     `OnOwnerSpecificAbilityInit`), `CreateBehaviour = AddEffect(0x5b6 = 1462, stateRef,
+    #     source = targets = Owner@+0x30, options <32 octets a ZERO>) & ActivateEffect(Owner, 0x5b6)`
+    #     -> `ABILITY_INIT_OWNER_EFFECTS["TheArdentBlade"]`, PAS une entree ici (patron `Vitarus`) ;
+    #   * `TheArdentBlade_TriggerAbility` (ICI) -- `On(0x36 = UnitDefeated, alive) & OwnerIsActor &
+    #     IsNormalUnit(Target@+0x60) & AreEnemies(Owner, Target, 1 = ByOriginalTeam) &
+    #     HasEffect(Owner, 0x5b6, onlyActive: 1, 6 = Both)` -> `If(<une Geminae morte ET une tuile
+    #     libre adjacente>, Group(Resurrect(<la 1re morte>, <meilleure tuile>, Get(hp),
+    #     healType = 2 = Any), Owner, 0x28), Group(PerformAIAttack(<une Geminae VIVANTE a portee
+    #     `range`, tiree au hasard>, allowOnlyMove: 1), <la meme>, 0x20)) & DeactivateEffect(Owner,
+    #     0x5b6)`.
+    # ⚠ L'EFFET 1462 n'a AUCUNE classe native (11 symboles `ArdentBlade` au build, aucun sous
+    # `Entities.Effects.*`) : c'est un JETON A UN COUP, pas un modificateur -- rien a inscrire dans
+    # `EFFECT_CLASSES`. Et `DeactivateEffect` l'ETEINT sans le RETIRER (`RemoveEffect` = slot
+    # distinct, jamais emprunte) : supprimer l'instance romprait le cycle en silence.
+    # Cf. loki/the_ardent_blade.py.
+    "TheArdentBlade": [TheArdentBladeTriggerAbility],
+    # PhasalSubjugator (relique `R_*_PhasalSubjugator`, `TriggeredAbilityType` 0x615 = 1557 ; porteur
+    # `necroOverlord`, HERO du pool rank 17 -> `--equip-relic` suffit). #1011-r1. DEUX classes
+    # natives pour UNE cle -- et c'est LU : `AbilitiesDatabase.u003Cu003Ec$$u003CInitializeTriggered
+    # Abilitiesu003Eb__28_433` construit UNE `List` et y `Add` DEUX elements (controle : `b__28_432`,
+    # la cle voisine 0x614, n'en construit qu'UN).
+    #   * `PhasalSubjugator_SummonAbility` -- `On(0x1c = ArrivedAtFinalTile, alive) & OwnerIsActor &
+    #     NOT AmountIsGreaterThanZero(Friends(Owner, UnitsWithVisualId(VisualUnitIdFromUnitId(
+    #     GetStringConstant(0) = "necroSmnWarrior"), 1 = OnlyAlive), 1 = OnlyAlive))`
+    #     -> `Spawn(Owner, First(SortTilesByUtilityForSummon(CanAddUnit(AdjacentTiles(Owner)),
+    #        7 = Tile, Owner), 1), unitId, WithStatsFromConfig(config, abilityState))` ;
+    #   * `PhasalSubjugator_TriggerPassiveAbility` -- `On(0x29 = UnitFinishedTurnNormally, alive) &
+    #     OwnerIsActor` -> `If(NOT HasFriendlyWarrior(), <le meme Spawn>) & IfAlive(Owner,
+    #     TriggerAbility(Owner, 0x614 = MyWillBeDoneOverlord, selectionType: 3,
+    #     ignoreUnitHavingAbility: false))`.
+    # ⚠ SON `CreateTrigger` EST INVISIBLE DES DEUX TABLES (corps DEDUPLIQUE) : l'appartenance est
+    # etablie par la STRUCTURE de `frida/methods.tsv` (ordre `methodPointers` PAR CLASSE VISITEE --
+    # la ligne `efad70 CallInReinforcementsAbility.CreateTrigger` s'intercale entre les deux methodes
+    # de `PhasalSubjugator_TriggerPassiveAbility`, et MANQUE de son propre groupe naturel), et le
+    # corps partage est GENERIQUE (`On(0x29, alive) & get_OwnerIsActor`, aucun litteral propre).
+    # ⚠ Le gate `HasFriendlyWarrior` est un CONJOINT DU TRIGGER pour la classe 1 et un `If` DU
+    # BEHAVIOUR pour la classe 2 : le re-declenchement de 1556 se produit MEME quand un Guerrier vit.
+    # Le re-declenchement passe par `TRIGGERED_ABILITY_BEHAVIOURS[MyWillBeDoneOverlord]`, pose dans
+    # `loki/my_will_be_done_overlord.py` (branche `Custom`, patron `AdaptiveStrategy`).
+    # Cf. loki/phasal_subjugator.py.
+    "PhasalSubjugator": [PhasalSubjugatorSummonAbility, PhasalSubjugatorTriggerPassiveAbility],
     # ElectrochaffBackups (#1025) -- ability **MYTHIQUE** de MACHINE OF WAR, pas une relique, et
     # pourtant elle entre ICI : la voie de registration COTE COMBAT est la MEME, et c'est LU, pas
     # suppose. `IdunMetaLogic.UserProgress.TertiaryAbilities$$GetTertiaryAbility` (le foyer META qui

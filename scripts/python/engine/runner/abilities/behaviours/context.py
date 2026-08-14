@@ -508,6 +508,25 @@ def entities_from_state(state, caster_id: int, target_id: int | None = None,
             if int(min_level or 0) > 0 and int(e.level or 0) < int(min_level):
                 continue
             if active_only:
+                # #1013-r2 -- LES DEUX LECTURES, ET C'EST LE NATIF QUI LES SEPARE.
+                # `IdunBattle.Entities.EntityExtensions$$IsOwnerOfEffect` (le chemin de
+                # `HasOneOfEffects`, donc du noeud `HasEffect`) fait, quand `activeOnly` est pose :
+                #     `if (EffectComponent+0x5c == '\0') continue;`
+                # -- c'est le FLAG `IsActive`, celui qu'ecrivent `RefreshEffectsOperation$$
+                # ActivateEffect` (=1) et `$$DeactivateEffect` (=0). Cote port ce flag EST
+                # `BaseEffect.active` (champ documente comme son mirror depuis #127) ; la METHODE
+                # `is_active(unit_state)`, elle, mirrore `<Effect>.CreateActiveCondition`, qui est
+                # une AUTRE chose (une condition re-evaluee a la lecture).
+                # Ce site ne lisait QUE la seconde : un effet explicitement ETEINT par la feuille
+                # `DSLBehaviors$$DeactivateEffect` restait donc VU par `HasEffect(onlyActive: true)`.
+                # Consequence MESUREE sur `TheArdentBlade` (1468), dont le jeton 1462 est
+                # precisement ce cycle-la : la relique se re-declenchait a CHAQUE kill au lieu d'une
+                # seule fois par pose. Le sens de la correction est RESTRICTIF (elle ne peut que
+                # fermer, jamais ouvrir) et il n'existe que TROIS ecrivains de `active = False`
+                # (`refresh_effects.py`, la feuille `DeactivateEffect`, et le seed
+                # `decisionView { includeInactive: true }`).
+                if not getattr(e, "active", True):
+                    continue
                 if ustate is None:
                     _ent = state.get_entity(int(uid))
                     _hc = _ent.get_component(HealthComponent) if _ent is not None else None

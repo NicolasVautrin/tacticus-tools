@@ -15,13 +15,23 @@ Les **quatre** sites à `ByOriginalTeam`, par leur symbole :
 | primitive | site | porté ? |
 |---|---|---|
 | `AreEnemies` | `…Triggered.Loki.RedRampage_BuffAbility$$CreateTrigger` | **OUI** |
-| `AreEnemies` | `…Triggered.Loki.TheArdentBlade_TriggerAbility$$CreateTrigger` | non |
+| `AreEnemies` | `…Triggered.Loki.TheArdentBlade_TriggerAbility$$CreateTrigger` | **OUI** (depuis #1013-r2) |
 | `AreFriends` | `…Triggered.Loki.Reinforcements_DamageAbility$$CreateTrigger` | non |
 | `AreFriends` | `…Triggered.Loki.TheWrathfulDeadAbility_Overkill$$CreateTrigger` | non |
 
 ⇒ **l'énoncé du résidu était JUSTE mais INCOMPLET** : il ne citait que `RedRampage`, et il y a
-**quatre** sites, dont **un seul est porté**. C'est celui-là, et lui seul, qui était faux —
+**quatre** sites. Un seul était porté à l'ouverture du résidu, et c'est celui-là qui était faux —
 les 129 autres call-sites passent `0`, pour lesquels le comportement d'avant était déjà correct.
+
+⚠ **La colonne « porté ? » BOUGE avec notre cadence, et ce n'est pas ce que le cliquet garde.**
+`TheArdentBlade_TriggerAbility` est entré au port le 2026-08-14 (#1013-r2), ce qui a fait **rougir**
+`test_963r1_unit_team_selection_offline.py` — la bonne réaction n'était pas d'incrémenter un
+compteur mais de **transformer l'assertion « non porté » en VÉRIFICATION du littéral** : le cliquet
+exige désormais, de **tout** site porté, que son arbre passe `ByOriginalTeam` **au nœud** (le défaut
+du nœud étant `ByCurrentTeam`, un port distrait resterait vert partout ailleurs). Il exige aussi que
+l'ability soit **INSCRITE dans un dict de registre**, pas seulement importée : le recenseur large
+balaie les attributs de module, donc un retrait d'entrée de registre le laissait aveugle — mesuré
+par mutation, corrigé par un second recenseur strict.
 
 Bonus mesuré au passage, sur le **5ᵉ** argument d'`AreFriends` (`anyEntity`) : **77 × `0`, 2 × `1`**,
 les deux dans `…Triggered.Loki.EnvAmbushResurrectAbility` (`$$GetIsAlliedWithCurrentPlayerUnitTrigger`

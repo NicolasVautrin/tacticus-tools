@@ -136,10 +136,24 @@ ENTIEREMENT NULLE (les quatre mots de pile sont mis a zero juste avant le `call`
 desassemblage). `TriggeringAbilityIs(1557)` y est donc TOUJOURS faux, `NOT(...)` TOUJOURS vrai, et la
 disjonction TOUJOURS vraie. **Omettre le terme est EXACT sur ce vecteur, pas une approximation.**
 
-RESIDU NOMME : la branche `Custom` (`PhasalSubjugator_TriggerPassiveAbility`) n'a AUCUN appelant cote
-port -- `PhasalSubjugator` n'est dans aucun des registres de `dispatch/registry.py`. Le jour ou elle y
-entre, le terme (et avec lui le predicat `IsUnitWithVisualId`, deja porte dans
-`entities/triggers.py`) doit etre pose ICI.
+⚠ **L'APPELANT `Custom` EXISTE DESORMAIS (#1011-r1), ET LE TERME RESTE OMIS -- la premisse du residu
+qui vivait ici est REFUTEE, pas satisfaite.** Elle disait : « le jour ou la branche `Custom` a un
+appelant, le terme (et son `IsUnitWithVisualId`) doit etre pose ICI ». Le decompile dit l'inverse.
+`IdunBattle.Entities.Abilities.BaseTriggeredAbility$$Execute`, lu en entier :
+
+    <entities+0x60 CurrentAbility>    = Nullable(this.Id)     # AVANT l'execution du behaviour
+    <execution du behaviour>
+    <entities+0x98 TriggeringAbility> = Nullable(this.Id)     # APRES, juste avant On(0xd)
+
+`TriggeringAbilityIs` lit `<DSLSelectors+0x90>` -> `+0x98`. Pendant le behaviour de 1557, ce champ
+porte donc encore la valeur ENTRANTE, et toute la chaine la PRESERVE :
+`IdunBattle.Entities.Behaviours.TriggerAbilityBehaviour$$Execute` reconstruit son `AbilityEntities`
+par `IdunBattle.Entities.Abilities.AbilityEntities$$.ctor(<copie de l'entrant>, null)` puis n'ecrase
+QUE `actor`/`caster`/`target`/`unitFeetTiles` ; `TriggerTriggeredAbilityOperation$$TriggerAbility` et
+`BaseTriggeredAbility$$ExecuteBy` ne font que RECOPIER les 0x148 octets. Or 1557 est lui-meme porte
+par `On(0x29)`, dont le canal est nul (ci-dessus) -> `TriggeringAbilityIs(1557)` est FAUX **aussi**
+sous `Custom`. Le poser aurait RESTREINT le pool aux seuls `necroSmnWarrior` la ou le natif ne
+restreint rien : une divergence par EXCES DE ZELE, invisible en test.
 
 ## 6. QUIRK PORTE -- l'arbre-cible est RE-EVALUE par chaque feuille
 
@@ -207,6 +221,7 @@ from .....entities.behaviours import Seq
 from .....entities.effects.magnitude import ability_var
 from ....abilities.base import convert_rounds_to_turns
 from ....abilities.behaviours.effects import AddDynamicStatModifierEffect, RemoveEffect
+from ....abilities.behaviours.lifecycle import TRIGGERED_ABILITY_BEHAVIOURS
 from ....abilities.behaviours.persistent_data import AddToPersistentDataList
 from ....abilities.behaviours.stats import AddStatOverrideEffect
 from ....abilities.behaviours.summon import PerformAIAttack
@@ -355,6 +370,38 @@ def _used_ids(state: State, owner_id: int) -> list:
     """Collapse imperatif de `AmountIsGreaterThanZero(GetPersistentDataListAsEntities(...))` : les ids
     deja ranges dans la liste persistante du porteur (cf. le RESIDU NOMME sur le selecteur)."""
     return persistent_data_list(state.get_entity(owner_id), PERSISTENT_DATA_KEY)
+
+
+def _my_will_be_done_custom(state: State, unit_id: int, entities, ectx):
+    """Entree de `TRIGGERED_ABILITY_BEHAVIOURS[MyWillBeDoneOverlord]` (#1011-r1) -- le bout de chaine
+    du `TriggerAbility(Owner@+0x30, 0x614, ..., 3, false)` de
+    `IdunBattleLogic.Entities.Abilities.Triggered.Loki.PhasalSubjugator_TriggerPassiveAbility$$CreateBehaviour`.
+
+    `IdunBattle.Operations.TriggerTriggeredAbilityOperation$$TriggerAbility` appelle
+    `ITriggeredAbility.ExecuteBy(ability, &abilityState, entities, 0x20)` -- le
+    `0x20 = EventTriggerType.Custom` est EN DUR dans l'Operation. Le `CreateBehaviour` de cette
+    ability se ventile sur son argument `triggerType` : `0x12` -> la PURGE, **tout le reste** -> le
+    tour d'attaque offert. `Custom != 0x12`, donc c'est la branche `else` qui joue, la MEME que celle
+    du vecteur `On(0x29)`. Patron `AdaptiveStrategy` -> `RelentlessMarch`
+    (`runner/abilities/necrons.py::_relentless_march_custom`).
+
+    `unit_id` = l'unite DECLENCHEE (ici l'Overlord lui-meme, seule cible du `TriggerAbility`) : c'est
+    elle qui devient l'OWNER, exactement comme `ExecuteBy` prend l'`abilityState` de l'entite iteree.
+    On re-materialise donc `entities_from_state(state, unit_id, None)` plutot que de reutiliser
+    l'`entities` du cast -- le natif reconstruit lui aussi son `AbilityEntities` depuis les quatre
+    selecteurs du `TriggerAbilityBehaviour`, tous NULS au call-site.
+
+    ⚠ Le terme `!TriggeringAbilityIs(1557) | IsUnitWithVisualId(...)` de `GetTargetFriend` reste OMIS
+    sous ce vecteur, et c'est LU -- cf. la section 5 de l'en-tete."""
+    cap, pct = _ability_vars(state, int(unit_id))
+    turns = int(convert_rounds_to_turns(state, 1)) + EXTRA_DAMAGE_EXTRA_TURNS
+    ents = entities_from_state(state, int(unit_id), None)
+    my_will_be_done_attack_tree(my_will_be_done_target_friend(), cap, pct, turns).execute(ents, ectx)
+    return {"passive": ABILITY_ID, "owner": int(unit_id), "cap": int(cap), "pct": int(pct),
+            "trigger_type": int(EventTriggerType.Custom)}
+
+
+TRIGGERED_ABILITY_BEHAVIOURS[MY_WILL_BE_DONE_OVERLORD] = _my_will_be_done_custom
 
 
 class MyWillBeDoneOverlordAttackAbility(TriggeredAbility):

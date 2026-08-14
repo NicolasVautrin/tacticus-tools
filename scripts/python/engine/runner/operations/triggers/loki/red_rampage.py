@@ -140,9 +140,16 @@ RESIDUS NOMMES :
   * `UnitTeamSelectionType.ByOriginalTeam = 1` (3e argument d'`AreEnemies`) : **FERME par #963-r1**.
     Le noeud `AreEnemies` (`entities/triggers.py`) expose desormais son 3e argument, et le lit par
     le foyer `entities/unit_team_selection_type.py::team_for_selection` ; le substrat runner publie
-    l'equipe d'ORIGINE sous `originalTeam` (`OwnerComponent.overridden_from`). Ce call-site est le
-    SEUL du build a passer `ByOriginalTeam` -- recensement des 53 call-sites d'`AreEnemies` et des
-    79 d'`AreFriends` dans `docs/rl/case-963r1-unit-team-selection-type.md`.
+    l'equipe d'ORIGINE sous `originalTeam` (`OwnerComponent.overridden_from`). Recensement EXHAUSTIF
+    des 54 call-sites d'`AreEnemies` et des 79 d'`AreFriends` dans
+    `docs/rl/case-963r1-unit-team-selection-type.md`.
+
+    ⚠ Ce call-site n'est PAS le seul du build a passer `ByOriginalTeam` -- la ligne qui le disait
+    ici est corrigee (#1013-r2). Le balayage exhaustif en compte **QUATRE** (2 `AreEnemies` +
+    2 `AreFriends`), dont l'autre `AreEnemies` est
+    `IdunBattleLogic.Entities.Abilities.Triggered.Loki.TheArdentBlade_TriggerAbility$$CreateTrigger`,
+    porte depuis #1013-r2. Le cliquet `test_963r1_unit_team_selection_offline.py` exige de TOUT site
+    porte qu'il passe son litteral au noeud -- il ne compte pas les sites portes.
 """
 from __future__ import annotations
 
