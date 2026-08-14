@@ -19,9 +19,9 @@ differe. C'est la doctrine « DECIDER != EXECUTER ».
 
 ## Bilan
 
-- Unites `npc` : **491** ; kits sans manque : **425** ; kits avec du travail : **66**
+- Unites `npc` : **491** ; kits sans manque : **427** ; kits avec du travail : **64**
 - Actives distinctes : **147** — `[--]` **1** · `[C-]` **15** · `[CD]` **131**
-- Passifs distincts : **177** — portes **114**, non portes **63**
+- Passifs distincts : **177** — portes **116**, non portes **61**
 - Traits de kit distincts (AUCUN ecarte — le seuil de frequence a disparu avec #1015) :
   **58** — couverts **57**, non couverts **1**
 - **Voies inversees** (nom absent d'`ActiveAbilityType`) : **1** — `Maugetar`
@@ -64,7 +64,6 @@ l'unite. La colonne `porteurs` dit l'exposition.
 | passif | CloudOfFlies | 1 | deathNpc2PlagueMarine |
 | passif | Conceal | 1 | eldarNpc2Warlock |
 | passif | CrazedFocus | 1 | blackNpc3TraitorGuardsman |
-| passif | CursedOfTheWalkingPox | 1 | deathNpc1Poxwalker |
 | passif | DaRevolushun | 1 | orksRedGobbo |
 | passif | DeathwingKnight | 1 | darkaNpc3Terminator |
 | passif | DrawFire | 1 | blackNpc2Terminator |
@@ -103,7 +102,6 @@ l'unite. La colonne `porteurs` dit l'exposition.
 | passif | PreCalibratedPurgeSolution | 1 | admecBossBelisarius |
 | passif | PrehensilePincerTail | 1 | tyranBossHiveTyrantLeviathan |
 | passif | Pyreblaster | 1 | templNpc3InitiatePyreblaster |
-| passif | RedThirst | 1 | bloodNpc1Intercessor |
 | passif | RepairEnthusiast | 1 | votanNpc1Ecog |
 | passif | RunsAround | 1 | orksNpc4AmmoGrot |
 | passif | RunsAway | 1 | orksNpc5LootGrotTeam |
@@ -349,11 +347,11 @@ sont des **faces** absentes d'items presents.
 | templNpc2Neophyte | 0 | IncendiaryShells(1044)[CD] | - | - | - |
 | templNpc4Aggressor | 0 | Fragstorm(1078)[CD] | - | - | - |
 
-### BloodAngels — 2 unites, 1 avec du travail
+### BloodAngels — 2 unites, 0 avec du travail
 
 | unite | manque | actives (face) | passifs non portes | traits non couverts | autres voies |
 |---|---:|---|---|---|---|
-| bloodNpc1Intercessor | 1 | - | RedThirst | - | - |
+| bloodNpc1Intercessor | 0 | - | - | - | - |
 | bloodTerminator_LHE | 0 | SavageEchoes(1230)[CD] | - | - | - |
 
 ### DarkAngels — 17 unites, 3 avec du travail
@@ -378,12 +376,11 @@ sont des **faces** absentes d'items presents.
 | darkaNpcMowStormSpeeder | 0 | DeathOnTheWind(1213)[CD]<br>Hailstrike(1214)[CD] | - | - | mythic:MastersOfManoeuvre |
 | darkaNpcTerminator | 0 | PlasmaCannon(1150)[CD] | - | - | relic:RelicPowerFist |
 
-### DeathGuard — 23 unites, 4 avec du travail
+### DeathGuard — 23 unites, 3 avec du travail
 
 | unite | manque | actives (face) | passifs non portes | traits non couverts | autres voies |
 |---|---:|---|---|---|---|
 | deathBossMortarion | 3 | MortarionsPlagueWind(1093)[CD]<br>TheLantern(1094)[CD]<br>ReapingScythe(1095)[CD] | BossEndFightUndefeated, ArchContaminator, HostOfPlagues | - | - |
-| deathNpc1Poxwalker | 1 | - | CursedOfTheWalkingPox | - | - |
 | deathNpc2PlagueMarine | 1 | BlightGrenades(1176)[CD] | CloudOfFlies | - | - |
 | deathNpc3Nurglings | 1 | - | MischiefMakers | - | - |
 | deathBossBlightbringer | 0 | Poxwalkers(1040)[CD] | - | - | relic:OrbsOfDecay |
@@ -398,6 +395,7 @@ sont des **faces** absentes d'items presents.
 | deathBossTyphusLEG | 0 | PlagueWind(1035)[CD] | - | - | relic:Lakrimae |
 | deathBossTyphusLHE | 0 | PlagueWind(1035)[CD] | - | - | relic:Lakrimae |
 | deathBossTyphusSurv | 0 | PlagueWind(1035)[CD] | - | - | relic:Lakrimae |
+| deathNpc1Poxwalker | 0 | - | - | - | - |
 | deathNpc4BlightlordTerminator | 0 | - | - | - | - |
 | deathNpcBlightbringer | 0 | Poxwalkers(1040)[CD] | - | - | relic:OrbsOfDecay |
 | deathNpcBlightlord | 0 | FlailSwing(1042)[CD] | - | - | relic:DaemonfleshPlate |

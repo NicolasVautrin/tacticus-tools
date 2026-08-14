@@ -19,9 +19,9 @@ differe. C'est la doctrine « DECIDER != EXECUTER ».
 
 ## Bilan
 
-- Unites `summons` : **65** ; kits sans manque : **43** ; kits avec du travail : **22**
+- Unites `summons` : **65** ; kits sans manque : **45** ; kits avec du travail : **20**
 - Actives distinctes : **16** — `[C-]` **6** · `[CD]` **10**
-- Passifs distincts : **47** — portes **25**, non portes **22**
+- Passifs distincts : **47** — portes **27**, non portes **20**
 - Traits de kit distincts (AUCUN ecarte — le seuil de frequence a disparu avec #1015) :
   **43** — couverts **42**, non couverts **1**
 
@@ -52,7 +52,6 @@ l'unite. La colonne `porteurs` dit l'exposition.
 | passif | AllIsDust | 1 | thousSmnRubricMarine |
 | passif | BattleFocus | 1 | eldarSmnGuardian |
 | passif | CallInReinforcements | 1 | astraSmnVoxcaster |
-| passif | CursedOfTheWalkingPox | 1 | deathPoxwalker |
 | passif | DeathwingKnight | 1 | darkaSmnTerminator |
 | passif | DrawFire | 1 | blackSmnTerminator |
 | passif | FiringPosition | 1 | blackSmnHavoc |
@@ -65,7 +64,6 @@ l'unite. La colonne `porteurs` dit l'exposition.
 | passif | PileIn | 1 | orksGrot |
 | passif | Pyreblaster | 1 | templInitiatePyreblaster |
 | passif | RapidFire | 1 | ultraSmnHeavyIntercessor |
-| passif | RedThirst | 1 | bloodSmnIntercessor |
 | passif | RepairEnthusiast | 1 | votanSmnEcog |
 | passif | Shrapnel | 1 | astraSmnMortar |
 | passif | SynapticInsight | 1 | tyranSmnBarbgaunt |
@@ -132,11 +130,11 @@ sont des **faces** absentes d'items presents.
 | templNeophyte | 0 | IncendiaryShells(1044)[CD] | - | - | - |
 | templSmnAggressor | 0 | Fragstorm(1078)[CD] | - | - | - |
 
-### BloodAngels — 1 unites, 1 avec du travail
+### BloodAngels — 1 unites, 0 avec du travail
 
 | unite | manque | actives (face) | passifs non portes | traits non couverts | autres voies |
 |---|---:|---|---|---|---|
-| bloodSmnIntercessor | 1 | - | RedThirst | - | - |
+| bloodSmnIntercessor | 0 | - | - | - | - |
 
 ### DarkAngels — 4 unites, 2 avec du travail
 
@@ -147,12 +145,12 @@ sont des **faces** absentes d'items presents.
 | darkaSmnHellblaster | 0 | - | - | - | - |
 | darkaSmnInfiltrator | 0 | - | - | - | - |
 
-### DeathGuard — 2 unites, 2 avec du travail
+### DeathGuard — 2 unites, 1 avec du travail
 
 | unite | manque | actives (face) | passifs non portes | traits non couverts | autres voies |
 |---|---:|---|---|---|---|
-| deathPoxwalker | 1 | - | CursedOfTheWalkingPox | - | - |
 | deathSmnNurglings | 1 | - | MischiefMakers | - | - |
+| deathPoxwalker | 0 | - | - | - | - |
 
 ### Genestealers — 4 unites, 0 avec du travail
 

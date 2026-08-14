@@ -581,7 +581,7 @@ blackNpcTerminator	BlackLegion	Chaos	None	trait	Hero		1
 blackNpcTerminator	BlackLegion	Chaos	None	trait	LetTheGalaxyBurn		1	
 blackNpcTerminator	BlackLegion	Chaos	None	trait	TeleportStrike		1	
 blackNpcTerminator	BlackLegion	Chaos	None	trait	TerminatorArmour		1	
-bloodNpc1Intercessor	BloodAngels	Imperial	None	passif	RedThirst		0	
+bloodNpc1Intercessor	BloodAngels	Imperial	None	passif	RedThirst		1	
 bloodNpc1Intercessor	BloodAngels	Imperial	None	trait	TeleportStrike		1	
 bloodNpc1Intercessor	BloodAngels	Imperial	None	trait	Flying		1	
 bloodNpc1Intercessor	BloodAngels	Imperial	None	trait	RapidAssault		1	
@@ -764,7 +764,7 @@ deathBossTyphusSurv	DeathGuard	Chaos	None	trait	ContagionsOfNurgle		1
 deathBossTyphusSurv	DeathGuard	Chaos	None	trait	Resilient		1	
 deathBossTyphusSurv	DeathGuard	Chaos	None	trait	Psyker		1	
 deathBossTyphusSurv	DeathGuard	Chaos	None	trait	TerminatorArmour		1	
-deathNpc1Poxwalker	DeathGuard	Chaos	None	passif	CursedOfTheWalkingPox		0	
+deathNpc1Poxwalker	DeathGuard	Chaos	None	passif	CursedOfTheWalkingPox		1	
 deathNpc1Poxwalker	DeathGuard	Chaos	None	trait	ContagionsOfNurgle		1	
 deathNpc2PlagueMarine	DeathGuard	Chaos	None	active	BlightGrenades	1176	1	1
 deathNpc2PlagueMarine	DeathGuard	Chaos	None	passif	CloudOfFlies		0	
