@@ -2,16 +2,15 @@
 
 La face POSE est SEEDEE (`ABILITY_INIT_OWNER_EFFECTS`) et CONFRONTEE live
 (`probe_1042_wisdom_of_the_ancients_live.py` : contre-bras `sans-mythique` vert, cinq bras). La
-face DEGAT, elle, n'entre PAS au port : les TROIS etages du selecteur sont
-`UnitsWithRarity(., Rarity.Mythic)` et le port n'a aucun canal de rarete (residu #1042-r1). C'est
-donc ICI que se tient le seul cran qui empeche la vraie regression : inscrire 1445 dans
-`EFFECT_CLASSES` alors que le canal n'existe pas.
+face DEGAT est PORTEE depuis #1042-r1 (`WisdomOfTheAncientsDamageReductionEffect`, canal AURA) ;
+ce qui SEPARE ses trois etages de rarete vit dans
+`tests/engine/runner/test_1038r1_1042r1_auras_mythiques_mow_offline.py`.
 
 SIX ETAGES :
   1. l'ability est dans `ABILITY_INIT_OWNER_EFFECTS`, appariee a l'effet LU au call-site ;
-  2. le REFUS d'`EFFECT_CLASSES` est CONDITIONNEL, et il ROUGIT DANS LES DEUX SENS (calque sur
-     `test_1036_mythiques_owner_effect_offline.py`) : se taire le jour ou le capteur arrive
-     laisserait #1042-r1 dormir sans que personne ne l'apprenne ;
+  2. l'INSCRIPTION d'`EFFECT_CLASSES` est gardee AVEC ses deux proprietes (canal AURA, canal de
+     rarete vivant) -- ce cran a d'abord garde le REFUS, et il a rougi DEUX fois en changeant de
+     raison puis de sens (cf. sa docstring) ;
   3. les CINQ ordinaux ECRITS au site sont figes (`probe_313` compare le mirror au BUILD : il
      redevient vert apres un renumerotage, alors que l'ordinal ecrit au site, lui, a change) ;
   4. les types DECLARES de ces cinq positions sont ceux que le COMBAT declare -- LUS dans
@@ -112,50 +111,54 @@ def test_ability_init_owner_effect_inscrite():
 
 # ========================= (2) le refus d'EFFECT_CLASSES est CONDITIONNEL au canal de rarete
 
-def test_effet_hors_registre_tant_que_l_effet_n_est_pas_porte():
-    """REQUALIFIE PAR #999-r3-r1-r1 -- ce cran a ROUGI, et il a eu RAISON.
+def test_effet_au_registre_sur_le_canal_aura():
+    """REQUALIFIE PAR #1042-r1 -- ce cran a ROUGI DEUX FOIS, et les DEUX fois il a eu RAISON.
 
-    Etat d'AVANT : il figeait le refus d'`EFFECT_CLASSES` en le rendant CONDITIONNEL au canal de
-    rarete, et il etait ecrit pour rougir << dans les DEUX sens >>, le second etant le plus utile :
-    se taire le jour ou le capteur arriverait aurait laisse `#1042-r1` dormir. Le capteur est
-    arrive (#1039), le canal traverse (#999-r3), il a rougi. C'etait son travail.
+    Etat d'ORIGINE : il figeait le REFUS d'`EFFECT_CLASSES`, conditionnel au canal de rarete, et il
+    etait ecrit pour rougir << dans les DEUX sens >>, le second etant le plus utile -- se taire le
+    jour ou le capteur arriverait aurait laisse `#1042-r1` dormir.
 
-    Etat d'AUJOURD'HUI, et il a CHANGE DEUX FOIS depuis l'ecriture de ce cran :
-      1. la rarete EST evaluable -- `UnitContext.rarity`, `triggers.HasRarity`,
-         `selectors.units.UnitsWithRarity`, confrontes live en regime SEPARANT ;
-      2. le SECOND verrou est tombe aussi (#999-r3-r1-r1) : le porteur de 1445 est la MoW
-         `ultraDreadnought`, et les agregateurs d'aura l'ECARTAIENT faute de `PositionComponent`.
-         Ils ne l'ecartent plus, sur AUCUNE des deux faces.
+    PREMIER rougissement (#999-r3-r1-r1) : les deux verrous d'origine etaient tombes (le canal de
+    rarete, puis l'entree d'une MoW porteuse dans l'univers des agregateurs d'aura). La RAISON du
+    refus avait change, pas le refus.
 
-    Ce qui reste, et c'est desormais LA seule cause : **l'effet n'est pas PORTE**. Son
-    `$$CreateTargetSelector` ouvre TROIS fois sur `UnitsWithRarity(., Rarity.Mythic = 5,
-    OnlyAliveAndTargetable = 3)` ; ecrire ce mirror et le confronter est une tranche a soi seule
-    (`#1042-r1`). L'inscrire sans ces trois etages serait un terme PERMISSIF -- l'aura protegerait
-    tout ami adjacent a un ami Hero, Mythique ou non.
+    SECOND rougissement (#1042-r1, CE COMMIT) : l'effet est PORTE. Ce cran change donc de SENS et
+    garde desormais l'INSCRIPTION, plus les deux proprietes que l'inscription devait respecter :
 
-    ⚠ Et le trou serait INVISIBLE en test : `rl_duel build` impose `targetRarity = 5` a toute unite
-    normalisee, donc les trois etages y sont uniformement VRAIS (regime DEGENERE). On en sort par
-    `--unit-stat "<vis>:Rarity=N"` -- MESURE #1042 : `P1:Rarity=4` fait tomber le set a `{P2,P3}`,
-    `P2:Rarity=4` le VIDE.
+      1. le canal est l'AURA (`create_aura_defense_damage_malus_for_ally`) et **PAS** celui du
+         porteur -- l'inscrire sur `create_effect_damage_malus_for_defense` donnerait la reduction
+         a la MoW elle-meme, que le natif ne lui accorde JAMAIS ;
+      2. le canal de RARETE existe toujours -- s'il disparaissait, les TROIS etages
+         `UnitsWithRarity(Mythic)` du selecteur redeviendraient inevaluables et le port
+         redeviendrait PERMISSIF (l'aura protegerait tout ami adjacent a un ami Hero, Mythique ou
+         non), SANS que rien d'autre ne rougisse.
 
-    ⚠ CE CRAN ROUGIT TOUJOURS DANS LES DEUX SENS. Le second bras est intact : le jour ou 1445
-    entrera au registre, il faudra relire ce fichier pour verifier que les trois etages du selecteur
-    sont bien portes ET confrontes en regime SEPARANT. Ce qui a change est la RAISON du refus, pas
-    le refus. Calque sur `test_1036_mythiques_owner_effect_offline.py` et
-    `test_1025_electrochaff_backups_offline.py::test_verrou_de_rarete_fige_avec_sa_raison`."""
+    ⚠ CE QUI SEPARE VIT AILLEURS, et c'est voulu : les bras et contre-bras des trois etages sont
+    dans `tests/engine/runner/test_1038r1_1042r1_auras_mythiques_mow_offline.py` (etages D/E/F),
+    qui exhibe a chaque fois son TEMOIN NON NUL. Le rappel du piege reste ici : `rl_duel build`
+    impose `targetRarity = 5` a toute unite normalisee, donc les trois etages y sont uniformement
+    VRAIS (regime DEGENERE) -- on en sort par `--unit-stat "<vis>:Rarity=N"`. MESURE #1042 :
+    `P1:Rarity=4` fait tomber le set a `{P2,P3}`, `P2:Rarity=4` le VIDE."""
+    from engine.entities.effects.base import BaseEffect
     from engine.entities.effects.factory import EFFECT_CLASSES
 
-    # Les DEUX verrous d'ORIGINE sont tombes -- assertionne ici pour que leur RETRAIT rougisse
-    # aussi : si la rarete redevenait inevaluable, la cause du refus redeviendrait celle d'avant et
-    # cette docstring mentirait.
+    # Le canal de rarete, assertionne ici pour que son RETRAIT rougisse : le port redeviendrait
+    # PERMISSIF en silence.
     assert _canal_rarete_existe(), (
         "`UnitContext` ne porte plus de rarete : le canal (#999-r3, capteur #1039) est retire, et "
-        "1445 redevient inevaluable pour la RAISON D'ORIGINE. Relire case-999r3-canal-rarete.")
-    assert EFFET not in EFFECT_CLASSES, (
-        f"{EFFET} est entre dans EFFECT_CLASSES. Verifier que son `$$CreateTargetSelector` porte "
-        f"bien ses TROIS etages `UnitsWithRarity(Mythic)` et qu'ils ont ete confrontes en regime "
-        f"SEPARANT (`--unit-stat '<vis>:Rarity=N'`) -- le regime par defaut du harnais est "
-        f"DEGENERE, un vert obtenu la ne separerait RIEN. Puis requalifier ce cran (#1042-r1).")
+        "les TROIS etages `UnitsWithRarity(Mythic)` du selecteur de 1445 redeviennent "
+        "inevaluables. Relire case-999r3-canal-rarete.")
+    assert EFFET in EFFECT_CLASSES, (
+        f"{EFFET} est sorti d'EFFECT_CLASSES : la face DEGAT de la mythique redevient INERTE, sans "
+        f"erreur ni trace. Relire case-1042-wisdom-of-the-ancients.md.")
+    cls = EFFECT_CLASSES[EFFET]
+    assert cls.create_aura_defense_damage_malus_for_ally \
+        is not BaseEffect.create_aura_defense_damage_malus_for_ally, (
+        f"{EFFET} n'implemente plus le canal AURA -- il serait inscrit et muet")
+    assert cls.create_effect_damage_malus_for_defense \
+        is BaseEffect.create_effect_damage_malus_for_defense, (
+        f"{EFFET} implemente le canal du PORTEUR : la MoW se donnerait a elle-meme une reduction "
+        f"que le natif ne lui accorde JAMAIS (terme PERMISSIF)")
 
 
 # =================================================== (3) les ordinaux du site, FIGES au site
