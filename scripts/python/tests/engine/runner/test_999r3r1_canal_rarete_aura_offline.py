@@ -280,6 +280,17 @@ class _StubScene:
     def adjacent_enemy_ids(self, uid):
         return ()
 
+    def is_machine(self, uid):
+        """#1036-r2 -- `IsMachine(Owner)` du `ConditionalSelector` de
+        `CabalOfSorcerers_ExtraDamagePctEffect`, que `_apply_ally_attack_dmg_bonus` publie
+        desormais dans son ctx. C'est EXACTEMENT le mecanisme que le commentaire d'
+        `effect_carrier_ids` ci-dessus decrit : le stub a montre le changement de contrat par un
+        `AttributeError`, il ne l'a pas absorbe en silence.
+
+        Aucune entite de ce stub n'est une Machine -> `False` MESURE (jamais `None`, qui dirait
+        << je n'ai pas regarde >> et ouvrirait la branche `ifFalse` du selecteur)."""
+        return False
+
 
 def test_ctx_aura_attaque_prediction_porte_att_rarity(monkeypatch):
     """Pendant exact de l'etage 2 sur l'autre face : threader un seul bout laisserait l'autre INERTE

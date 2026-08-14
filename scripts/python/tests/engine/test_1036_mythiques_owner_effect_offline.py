@@ -36,9 +36,14 @@ if str(PYDIR) not in sys.path:
 DECLENCHEUR = {
     "chemins": (
         "scripts/python/engine/entities/effects/factory.py",
+        "scripts/python/engine/entities/effects/loki/extra_damage_aura.py",
         "scripts/python/engine/entities/rarity.py",
         "scripts/python/engine/entities/unit_context.py",
         "scripts/python/engine/entities/effect_type.py",
+        "scripts/python/engine/entities/traits/unit_trait.py",
+        "scripts/python/engine/runner/damage_model.py",
+        "scripts/python/engine/playbook/prediction/_shared.py",
+        "scripts/python/engine/playbook/scene.py",
         "scripts/python/probe_313_enum_mirror_bijection.py",
     ),
     "build": True,
@@ -97,31 +102,22 @@ def test_ability_init_owner_effect_inscrite(ability):
 # ====================== (2) le refus d'EFFECT_CLASSES est CONDITIONNEL au canal de rarete
 
 @pytest.mark.parametrize("ability", sorted(ATTENDU))
-def test_effet_hors_registre_tant_que_la_rarete_est_inevaluable(ability):
+def test_effet_au_registre_avec_son_gate_de_rarete(ability):
     """Les DEUX `$$CreateTargetSelector` finissent par `UnitsWithRarity(..., Rarity.Mythic = 5)`.
 
     L'inscrire sans le gate serait un terme PERMISSIF -- et INVISIBLE en test, puisque `rl_duel
     build` impose `targetRarity = 5` a toute unite normalisee : le gate y est uniformement VRAI
     (regime DEGENERE).
 
-    ⚠ CE CRAN ROUGIT DANS LES DEUX SENS, et le second sens est le plus utile -- il est CALQUE sur
-    `test_1025_electrochaff_backups_offline.py::test_verrou_de_rarete_fige_avec_sa_raison`, qui
-    garde le MEME verrou pour 1446/1449. Se TAIRE le jour ou le canal apparait laisserait
-    `#1036-r1`/`#1036-r2` dormir sans que personne ne l'apprenne : la tranche qui ouvre le capteur
-    n'a aucune raison de relire cette case-doc. Un cran qui ne peut que descendre est un cran qui
-    perd son objet en silence.
-
-    ⚠⚠ **IL A ROUGI, ET IL A EU RAISON** (#999-r3, 2026-08-14). Le canal existe desormais
-    (`UnitContext.rarity`, `HasRarity`, `UnitsWithRarity` -- confrontes live en regime SEPARANT,
-    `tests/engine/runner/test_999r3_canal_rarete_live.py`), et il REPOND bien a `UnitsWithRarity`.
-    Ce que le cran garde depuis :
-      * le canal DOIT rester present (son retrait rougit -- premiere assertion) ;
-      * les deux effets restent hors `EFFECT_CLASSES`, mais **le blocage n'est plus le capteur** :
-        `UnitsWithRarity` est porte, `EntitiesWithAnyEffect` aussi, ce qui manque est le
-        THREADING d'`att_rarity` dans le ctx de `aura_attack_damage_bonus_from_allies` et une
-        confrontation en regime separant. Residus `#1036-r1` / `#1036-r2`, `BLOCAGE: aucun`.
-    Le cran ne peut donc plus << ne rougir qu'en descendant >> : il rougit si le canal part, et il
-    rougit si l'effet entre au registre sans passer par la porte separante."""
+    ⚠ CE CRAN A ROUGI DEUX FOIS, ET IL A EU RAISON LES DEUX FOIS.
+      1. (#999-r3) le canal de rarete est apparu (`UnitContext.rarity`, `HasRarity`,
+         `UnitsWithRarity`, confrontes live en regime SEPARANT) : sa premiere raison d'etre --
+         << la rarete est inevaluable >> -- a disparu, et il l'a dit au lieu de se taire ;
+      2. (#1036-r1/-r2) les deux effets sont entres a `EFFECT_CLASSES` : il a force la relecture,
+         et il est REQUALIFIE ici -- il n'assertionne plus l'ABSENCE, il assertionne la PRESENCE
+         **avec** le gate. Un cran qui ne peut que descendre est un cran qui perd son objet en
+         silence ; celui-ci rougit desormais si le canal part, si l'effet sort du registre, ou si
+         son gate de rarete cesse de mordre (etage 6, couples accorde/refuse)."""
     from engine.entities.effects.factory import EFFECT_CLASSES
 
     nom_effet, _ = ATTENDU[ability]
@@ -129,12 +125,10 @@ def test_effet_hors_registre_tant_que_la_rarete_est_inevaluable(ability):
         "`UnitContext.rarity` a DISPARU : le canal de rarete (#999-r3) est retire et les deux "
         "effets redeviennent inevaluables pour la RAISON D'ORIGINE. Relire "
         "`docs/rl/case-999r3-canal-rarete.md`.")
-    assert nom_effet not in EFFECT_CLASSES, (
-        f"{nom_effet} est entre dans EFFECT_CLASSES : son `$$CreateTargetSelector` doit alors "
-        f"porter son etage `UnitsWithRarity(Mythic)` ET avoir ete confronte en REGIME SEPARANT "
-        f"(fixture `rarity_separating_case`, #999-r3) -- le regime par defaut du harnais pose "
-        f"`targetRarity = 5` partout, donc un port SANS gate y serait d'accord avec le natif. "
-        f"Residus #1036-r1/-r2, desormais BLOCAGE: aucun.")
+    assert nom_effet in EFFECT_CLASSES, (
+        f"{nom_effet} est SORTI d'EFFECT_CLASSES : l'effet redevient un `BaseEffect` NU -- present "
+        f"dans la liste et sans aucun canal de degat. Le port vit dans "
+        f"`engine/entities/effects/loki/extra_damage_aura.py` (#1036-r1/-r2).")
 
 
 # ============================================ (3) les ordinaux du mirror, figes AU SITE
@@ -199,3 +193,274 @@ def test_les_enums_de_rarete_homonymes_existent_et_partagent_les_ordinaux():
     assert memes, (
         f"aucun homonyme ne partage les ordinaux d'{CLE_RARETE_ATTENDUE} -- la confusion ne serait "
         f"plus silencieuse, et la raison ecrite dans `engine/entities/rarity.py` serait a revoir")
+
+
+# ============ (6) chaque conjoint des DEUX arbres, garde par un COUPLE accorde / refuse
+
+def _effet(nom, ordinal, *, level=1, mult=100, source=87):
+    from engine.entities.effects.factory import EffectFactory
+    return EffectFactory.create(
+        {"name": nom, "effectType": ordinal, "level": level, "source": source}, mult, level, None)
+
+
+def _ctx_guardian():
+    """Le ctx MINIMAL qui accorde le bonus de `GuardianConstruct_ExtraDamagePct` (1548)."""
+    from engine.entities.effects.loki.extra_damage_aura import CTX_ATT_EFFECT_NAMES
+    from engine.entities.effect_type import EffectType
+    from engine.entities.rarity import Rarity
+    return {
+        "owner_id": 87, "owner_team": 0, "att_id": 5, "att_team": 0,
+        "att_rarity": Rarity.Mythic,                        # UnitsWithRarity(..., Mythic)
+        CTX_ATT_EFFECT_NAMES: frozenset([EffectType.NanoscarabRepairProtocols.name]),
+    }
+
+
+def _ctx_cabal():
+    """Le ctx MINIMAL qui accorde le bonus de `CabalOfSorcerers_ExtraDamagePct` (1494), branche
+    `F` (porteur MACHINE, l'attaquant a un allie qualifie adjacent)."""
+    from engine.entities.effects.loki.extra_damage_aura import (
+        CTX_OWNER_IS_MACHINE, CTX_CABAL_VALID_ADJACENT_TO_ATT)
+    from engine.entities.damage_profile_type import DamageProfileType
+    from engine.entities.rarity import Rarity
+    from engine.entities.traits.unit_trait import UnitTrait
+    return {
+        "owner_id": 87, "owner_team": 0, "att_id": 5, "att_team": 0,
+        "att_rarity": Rarity.Mythic,
+        "att_traits": frozenset([UnitTrait.Psyker.name, UnitTrait.Hero.name]),
+        "damage_profile": DamageProfileType.Psychic.name,
+        CTX_OWNER_IS_MACHINE: {87: True},
+        CTX_CABAL_VALID_ADJACENT_TO_ATT: 1,
+    }
+
+
+#: (libelle, mutation du ctx qui doit FAIRE TAIRE le gate). Un a un : chaque conjoint LU au
+#: decompile a son couple, sinon un terme peut disparaitre du port sans qu'aucun test ne bouge.
+_REFUS_GUARDIAN = (
+    ("rarete NON Mythic (UnitsWithRarity)", lambda c, R: c.update(att_rarity=R.Epic)),
+    ("rarete NON MESUREE -> gate FERME", lambda c, R: c.update(att_rarity=None)),
+    ("attaquant SANS NanoscarabRepairProtocols", lambda c, R: c.update(att_effect_names=frozenset())),
+    ("canal d'effets NON MESURE -> FERME", lambda c, R: c.update(att_effect_names=None)),
+    ("attaquant d'une AUTRE equipe (Friends)", lambda c, R: c.update(att_team=1)),
+    ("equipe du porteur NON MESUREE", lambda c, R: c.update(owner_team=None)),
+)
+
+_REFUS_CABAL = (
+    ("profil NON Psychic (CurrentAttackDamageProfileIs)",
+     lambda c, R: c.update(damage_profile="Physical")),
+    ("profil NON MESURE -> gate FERME", lambda c, R: c.update(damage_profile=None)),
+    ("rarete NON Mythic (ValidCharacter)", lambda c, R: c.update(att_rarity=R.Epic)),
+    ("rarete NON MESUREE -> gate FERME", lambda c, R: c.update(att_rarity=None)),
+    ("traits SANS Hero (op_BitwiseAnd = INTERSECTION)",
+     lambda c, R: c.update(att_traits=frozenset(["Psyker"]))),
+    ("traits SANS Psyker (op_BitwiseAnd = INTERSECTION)",
+     lambda c, R: c.update(att_traits=frozenset(["Hero"]))),
+    ("traits NON MESURES -> gate FERME", lambda c, R: c.update(att_traits=None)),
+    ("attaquant d'une AUTRE equipe (Friends)", lambda c, R: c.update(att_team=1)),
+    ("aucun allie qualifie ADJACENT (filtre F)",
+     lambda c, R: c.update(cabal_valid_adjacent_to_attacker=0)),
+    ("voisinage NON MESURE -> gate FERME",
+     lambda c, R: c.update(cabal_valid_adjacent_to_attacker=None)),
+)
+
+
+@pytest.mark.parametrize("libelle,mutation", _REFUS_GUARDIAN, ids=[t[0] for t in _REFUS_GUARDIAN])
+def test_guardian_construct_chaque_conjoint_refuse(libelle, mutation):
+    from engine.entities.rarity import Rarity
+
+    e = _effet(*ATTENDU["GuardianConstruct"])
+    accorde = e.create_aura_attack_damage_bonus_for_ally(_ctx_guardian())
+    assert accorde is not None and accorde.kind == "PercentIncrease", (
+        f"le ctx ACCORDANT ne rend plus de bonus ({accorde!r}) : le couple accorde/refuse n'a plus "
+        f"de temoin non nul, et tous les refus ci-dessous passeraient pour verts")
+    c = _ctx_guardian()
+    mutation(c, Rarity)
+    assert e.create_aura_attack_damage_bonus_for_ally(c) is None, (
+        f"le conjoint << {libelle} >> ne mord PLUS : le port est devenu PERMISSIF sur ce terme")
+
+
+@pytest.mark.parametrize("libelle,mutation", _REFUS_CABAL, ids=[t[0] for t in _REFUS_CABAL])
+def test_cabal_of_sorcerers_chaque_conjoint_refuse(libelle, mutation):
+    from engine.entities.rarity import Rarity
+
+    e = _effet(*ATTENDU["CabalOfSorcerers"])
+    accorde = e.create_aura_attack_damage_bonus_for_ally(_ctx_cabal())
+    assert accorde is not None and accorde.kind == "PercentIncrease", (
+        f"le ctx ACCORDANT ne rend plus de bonus ({accorde!r}) : le couple accorde/refuse n'a plus "
+        f"de temoin non nul, et tous les refus ci-dessous passeraient pour verts")
+    c = _ctx_cabal()
+    mutation(c, Rarity)
+    assert e.create_aura_attack_damage_bonus_for_ally(c) is None, (
+        f"le conjoint << {libelle} >> ne mord PLUS : le port est devenu PERMISSIF sur ce terme")
+
+
+def test_cabal_branche_ifFalse_seulement_sur_un_porteur_NON_machine():
+    """`ConditionalSelector(IsMachine(Owner), ifTrue = F, ifFalse = Unique(A + F))`.
+
+    `A = ValidCharacter(AdjacentFriends(Owner))` n'entre QUE si le porteur n'est PAS une machine.
+    Le meme ctx, a `owner_is_machine` pres, doit donc changer de verdict -- et le TRI-ETAT
+    (`None` = non mesure) doit se comporter comme la branche `ifTrue`, jamais ouvrir `ifFalse`."""
+    from engine.entities.effects.loki.extra_damage_aura import (
+        CTX_OWNER_IS_MACHINE, CTX_CABAL_VALID_ADJACENT_TO_ATT)
+
+    e = _effet(*ATTENDU["CabalOfSorcerers"])
+    base = _ctx_cabal()
+    base[CTX_CABAL_VALID_ADJACENT_TO_ATT] = 0        # F ne retient PAS l'attaquant
+    base["owner_pos"], base["att_pos"] = (3, 3), (3, 4)   # ... mais il est ADJACENT au porteur
+
+    machine = dict(base, **{CTX_OWNER_IS_MACHINE: {87: True}})
+    assert e.create_aura_attack_damage_bonus_for_ally(machine) is None, (
+        "porteur MACHINE : seule la branche `F` s'applique, l'adjacence au porteur ne doit RIEN "
+        "accorder")
+    non_machine = dict(base, **{CTX_OWNER_IS_MACHINE: {87: False}})
+    assert e.create_aura_attack_damage_bonus_for_ally(non_machine) is not None, (
+        "porteur NON machine : la branche `ifFalse` ajoute `A = ValidCharacter(AdjacentFriends("
+        "Owner))`, donc l'attaquant qualifie ADJACENT au porteur doit etre accorde")
+    non_mesure = dict(base, **{CTX_OWNER_IS_MACHINE: {}})
+    assert e.create_aura_attack_damage_bonus_for_ally(non_mesure) is None, (
+        "nature d'entite NON MESUREE : le port ne doit PAS deviner `False` -- ce serait ouvrir la "
+        "branche `ifFalse` sur une affirmation que personne n'a mesuree")
+
+
+# ============ (7) les DEUX foyers POSENT les trois cles -- sur un etat OFFLINE, pas par grep
+
+_ATT, _TGT, _ALLY = 101, 202, 303
+_COLS = _ROWS = 6
+
+
+def _board():
+    """Meme patron que `tests/engine/runner/test_999r3r1_canal_rarete_aura_offline.py::_board`."""
+    import hexgeo
+    from engine.entities.pathfinding.board import Board
+
+    def tid(c, r):
+        return c * _ROWS + r + 1
+
+    tiles = []
+    for col in range(_COLS):
+        for row in range(_ROWS):
+            nb = [tid(c, r) for (c, r) in hexgeo.neighbors(col, row)
+                  if 0 <= c < _COLS and 0 <= r < _ROWS]
+            tiles.append({"id": tid(col, row), "col": col, "row": row, "elevation": 0,
+                          "walkable": True, "isWall": False, "neighbours": nb})
+    return Board(tiles, adjacency="evenq")
+
+
+def _state_offline(att_pos=(1, 1), ally_pos=(1, 2)):
+    """Un attaquant (equipe 1), une cible (equipe 2), un ALLIE PORTEUR de l'aura 1548 (equipe 1).
+
+    Le porteur est indispensable : sans lui `_apply_ally_attack_damage_auras` sort AVANT de batir
+    son ctx (`if not carriers: return`) et le test mesurerait un contexte qui n'existe pas."""
+    from engine.runner.snapshot import load_state
+    from engine.entities.effect_type import EffectType
+    from engine.entities.rarity import Rarity
+
+    aura = {"id": 7300, "name": EffectType.GuardianConstruct_ExtraDamagePct.name,
+            "effectType": int(EffectType.GuardianConstruct_ExtraDamagePct),
+            "source": _ALLY, "active": True}
+    repair = {"id": 7301, "name": EffectType.NanoscarabRepairProtocols.name,
+              "effectType": int(EffectType.NanoscarabRepairProtocols),
+              "source": _ALLY, "active": True}
+    dv = {"currentPlayer": 1, "units": [
+        {"id": _ATT, "visualId": "ultraMarneus", "alive": True, "team": 1, "owner": 1,
+         "pos": {"col": att_pos[0], "row": att_pos[1]}, "effects": [repair]},
+        {"id": _TGT, "visualId": "necroWarden", "alive": True, "team": 2, "owner": 2,
+         "pos": {"col": 3, "row": 1}, "effects": []},
+        {"id": _ALLY, "visualId": "orksKillaKan", "alive": True, "team": 1, "owner": 1,
+         "pos": {"col": ally_pos[0], "row": ally_pos[1]}, "effects": [aura]},
+    ], "effects": [dict(aura, ownerId=_ALLY, targetIds=[]),
+                   dict(repair, ownerId=_ATT, targetIds=[])]}
+    ob = {"units": [{"squadId": u["id"], "hp": 9000, "hpMax": 9000} for u in dv["units"]]}
+    snap = {"rarityEnum": "idun.meta.Rarity", "units": [
+        {"entityId": u["id"], "visualId": u["visualId"], "entityType": 1,
+         "rarity": int(Rarity.Mythic)} for u in dv["units"]]}
+    return load_state(dv, ob, snap, board=_board())
+
+
+def test_le_foyer_COMBAT_pose_les_trois_cles(monkeypatch):
+    """⚠ FORME B DE MORSURE : `damage_model` lie l'agregateur au niveau module, donc patcher
+    l'attribut de `engine.runner.damage_model` MORD -- patcher `engine.entities.effects.<nom>` ne
+    mordrait pas (le binding est deja gele)."""
+    from engine.runner import damage_model as DM
+    from engine.entities.effects.loki import extra_damage_aura as A
+    from engine.entities.effect_type import EffectType
+
+    st = _state_offline()
+    vus = []
+    reel = DM.aura_attack_damage_bonus_from_allies
+    monkeypatch.setattr(DM, "aura_attack_damage_bonus_from_allies",
+                        lambda c, ctx: (vus.append(ctx), reel(c, ctx))[1])
+    DM.attacker_modifiers(st, _ATT, 9000, is_ranged=False, target_id=_TGT)
+    assert vus, "l'agregateur d'aura ATTAQUE n'a pas ete appele -- le montage ne mesure rien"
+    ctx = vus[0]
+    for cle in (A.CTX_ATT_EFFECT_NAMES, A.CTX_OWNER_IS_MACHINE, A.CTX_CABAL_VALID_ADJACENT_TO_ATT):
+        assert cle in ctx, f"cle ABSENTE du ctx COMBAT : {cle} -- le gate qui la lit est MUET"
+    assert EffectType.NanoscarabRepairProtocols.name in (ctx[A.CTX_ATT_EFFECT_NAMES] or ()), (
+        "l'effet de l'ATTAQUANT n'est pas dans `att_effect_names` : le substrat d'"
+        "`EntitiesWithAnyEffect` ne repond pas")
+    # `owner_is_machine` est une MAP par PORTEUR : une entite SANS `MachineComponent` y est `False`
+    # MESURE, pas absente -- c'est ce qui distingue << pas une machine >> de << non mesure >>.
+    assert ctx[A.CTX_OWNER_IS_MACHINE].get(_ALLY) is False
+    assert ctx[A.CTX_CABAL_VALID_ADJACENT_TO_ATT] is not None, "COMPTE non mesure"
+
+
+def test_le_foyer_PREDICTION_pose_les_MEMES_cles(monkeypatch):
+    """Pendant EXACT de l'etage ci-dessus. Reparer une seule face recreerait le fork
+    prediction/combat (#197, #950-r2)."""
+    from engine.playbook.prediction import _shared as SH
+    from engine.playbook.scene import Scene
+    from engine.entities.effects.loki import extra_damage_aura as A
+
+    st = _state_offline()
+    sc = Scene.from_state(st)
+    vus = []
+    reel = SH.aura_attack_damage_bonus_from_allies
+    monkeypatch.setattr(SH, "aura_attack_damage_bonus_from_allies",
+                        lambda c, ctx: (vus.append(ctx), reel(c, ctx))[1])
+    SH._apply_ally_attack_dmg_bonus([], sc, _ATT, sc.pos(_ATT), False, None, tgt_id=_TGT,
+                                    damage_profile="Psychic")
+    assert vus, "l'agregateur d'aura ATTAQUE (PREDICTION) n'a pas ete appele"
+    ctx = vus[0]
+    for cle in (A.CTX_ATT_EFFECT_NAMES, A.CTX_OWNER_IS_MACHINE, A.CTX_CABAL_VALID_ADJACENT_TO_ATT):
+        assert cle in ctx, f"cle ABSENTE du ctx PREDICTION : {cle} -- FORK avec la face COMBAT"
+    assert ctx[A.CTX_CABAL_VALID_ADJACENT_TO_ATT] is not None
+    assert sc.is_machine(_ALLY) is False, "`Scene.is_machine` doit MESURER, pas rendre None"
+
+
+def test_scene_is_machine_est_TRI_ETAT():
+    """Une `Scene` batie hors `step_context` / `from_state` n'a PAS mesure la nature d'entite : elle
+    doit le DIRE (`None`), jamais rendre `False` -- qui ouvrirait la branche `ifFalse` du
+    `ConditionalSelector` de `CabalOfSorcerers` sur une affirmation non mesuree."""
+    from engine.playbook.scene import Scene
+
+    sc = Scene(ctx_by_id={}, armor_by_id={}, shield_by_id={}, mult_by_id={}, ablvl_by_id={},
+               vis_by_id={}, units=[], hp_by_id={}, pos_by_id={}, team_by_id={}, eff_state=None)
+    assert sc.is_machine(42) is None
+    sc2 = Scene(ctx_by_id={}, armor_by_id={}, shield_by_id={}, mult_by_id={}, ablvl_by_id={},
+                vis_by_id={}, units=[], hp_by_id={}, pos_by_id={}, team_by_id={}, eff_state=None,
+                machine_ids=frozenset())
+    assert sc2.is_machine(42) is False, "un frozenset VIDE est une MESURE (etat sans MoW)"
+
+
+def test_les_deux_faces_lisent_les_MEMES_cles_de_ctx():
+    """Pas de fork PREDICTION / COMBAT : les trois cles neuves sont posees par les DEUX foyers, et
+    par le MEME nom -- importe depuis le module d'effet, jamais recopie en litteral."""
+    import re
+
+    from engine.entities.effects.loki import extra_damage_aura as A
+
+    cles = (A.CTX_ATT_EFFECT_NAMES, A.CTX_OWNER_IS_MACHINE, A.CTX_CABAL_VALID_ADJACENT_TO_ATT)
+    foyers = ("engine/runner/damage_model.py", "engine/playbook/prediction/_shared.py")
+    for foyer in foyers:
+        src = (PYDIR / foyer).read_text(encoding="utf-8", errors="replace")
+        # Le foyer doit IMPORTER les constantes (pas recopier les chaines) ...
+        assert re.search(r"from .*extra_damage_aura import", src), (
+            f"{foyer} n'importe pas les cles de ctx depuis `extra_damage_aura` : un litteral "
+            f"recopie diverge en silence")
+        for cle in cles:
+            assert f'"{cle}"' not in src, (
+                f"{foyer} recopie le litteral {cle!r} au lieu d'importer la constante")
+    # ... et le module d'effet est le SEUL a les definir.
+    src_effet = (PYDIR / "engine/entities/effects/loki/extra_damage_aura.py").read_text(
+        encoding="utf-8", errors="replace")
+    for cle in cles:
+        assert f'= "{cle}"' in src_effet, f"{cle} n'est plus definie dans le module d'effet"
