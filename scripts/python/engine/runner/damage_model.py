@@ -127,7 +127,8 @@ from engine.entities.effects.loki.headwoppas_killchoppa import CTX_ATT_VISUAL_ID
 _BIG_HP = 1 << 30          # santé cible « infinie » → scenario sans overkill/cap
 
 
-def select_weapon(ctx, dist: Optional[int], is_adjacent: Optional[bool] = None):
+def select_weapon(ctx, dist: Optional[int], is_adjacent: Optional[bool] = None,
+                  force_ranged_attack: bool = False):
     """Arme de l'attaque normale par PORTÉE — DÉLÈGUE au service PARTAGÉ
     `battle_query.get_attack_weapon_for_default_normal_attack` (foyer natif BattleQuery ; MÊME port que
     la prédiction). `dist` = distance HEX RÉELLE attaquant->cible. Renvoie le dict d'arme (ou None).
@@ -137,16 +138,20 @@ def select_weapon(ctx, dist: Optional[int], is_adjacent: Optional[bool] = None):
     choisir la branche mêlée, et la distance rendue par le service de mouvement pour la porte
     `dist <= Range` de `FindRangedWeapon`. Les rabattre l'un sur l'autre (`dist <= 1`) obligeait
     l'appelant à passer une distance BINAIRE (1 ou 2), donc à ne jamais pouvoir dépasser la portée
-    d'une arme : `None` garde ce comportement historique pour les appelants qui n'ont que `dist`."""
+    d'une arme : `None` garde ce comportement historique pour les appelants qui n'ont que `dist`.
+
+    `force_ranged_attack` (#1019-r2) = `HasFlag(attacker, 0x15 = UnitFlag.ForceRangedAttack)`, passe
+    tel quel au service. Defaut `False` = strict no-op (cf. la docstring du service)."""
     w, _ranged = get_attack_weapon_for_default_normal_attack(
         ctx.visual_id,
         is_adjacent=(is_adjacent if is_adjacent is not None else (dist is not None and dist <= 1)),
-        prefer_hits=ctx.normal_hits, dist=dist)
+        prefer_hits=ctx.normal_hits, dist=dist, force_ranged_attack=force_ranged_attack)
     return w
 
 
 def select_weapon_pierce(ctx, dist: Optional[int], effect_bonus: int = 0,
-                         is_adjacent: Optional[bool] = None) -> Tuple[int, bool, int]:
+                         is_adjacent: Optional[bool] = None,
+                         force_ranged_attack: bool = False) -> Tuple[int, bool, int]:
     """Arme + perçage par PORTÉE — DÉLÈGUE au service PARTAGÉ `battle_query.select_weapon_pierce`
     (un service natif = UN port, prédiction ET combat l'appellent). `dist` = distance HEX RÉELLE ;
     `is_adjacent` découplé (cf. `select_weapon`), `None` -> `dist <= 1` comme avant.
@@ -154,8 +159,8 @@ def select_weapon_pierce(ctx, dist: Optional[int], effect_bonus: int = 0,
     `effect_bonus` = Σ des `EffectBonus` de perçage de l'attaquant (`BaseEffect$$PiercingBonusForAttack`),
     sommé DANS le clamp natif unique (cf. la docstring du service). Défaut 0 = inchangé."""
     adj = is_adjacent if is_adjacent is not None else (dist is not None and dist <= 1)
-    pierce, is_ranged, whits, _prof = _bq_select_weapon_pierce(ctx, adj, dist,
-                                                              effect_bonus=effect_bonus)
+    pierce, is_ranged, whits, _prof = _bq_select_weapon_pierce(
+        ctx, adj, dist, effect_bonus=effect_bonus, force_ranged_attack=force_ranged_attack)
     return pierce, is_ranged, whits
 
 

@@ -277,7 +277,8 @@ def _find_by_hits(cands: list, prefer_hits) -> dict:
     return cands[0]
 
 
-def get_attack_weapon_for_default_normal_attack(visual_id, is_adjacent: bool, prefer_hits=None, dist=None):
+def get_attack_weapon_for_default_normal_attack(visual_id, is_adjacent: bool, prefer_hits=None,
+                                                dist=None, force_ranged_attack: bool = False):
     """`IdunBattle.Core.Services.BattleQuery$$GetAttackWeaponForDefaultNormalAttack(attacker,
     attackerTiles, **target**)` -- la surcharge du slot `0xaf`. Renvoie `(weapon_dict|None, is_ranged)`.
 
@@ -328,6 +329,23 @@ def get_attack_weapon_for_default_normal_attack(visual_id, is_adjacent: bool, pr
     **0** arme `Range == 1` sur 683 unites), mais il fallait l'aligner ici, la disparition du repli
     rendant cette divergence observable.
 
+    `force_ranged_attack` (#1019-r2) = `UnitExtensions.HasFlag(attacker, 0x15 =
+    UnitFlag.ForceRangedAttack)`, le SECOND conjoint de la branche `rangeType == Normal` ci-dessus.
+    Il vivait dans le corps natif depuis toujours et n'etait porte NULLE PART sur cette voie : le
+    port choisissait la branche melee sur la seule adjacence. Le drapeau est POSE par
+    `IdunBattleLogic.Entities.Abilities.Triggered.Loki.WayOfTheShortBlade_AttackAbility$$
+    CreateBehaviour` (`AddFlag(Caster, 0x15)` juste avant son `UseNormalAttackIfAble`, `RemoveFlag`
+    juste apres) -- c'est litteralement le << even if they are adjacent to it >> de l'i2, et sans ce
+    conjoint l'attaque supplementaire repartirait en MELEE, l'exact contraire.
+    ⚠ **Defaut `False` = strict no-op** : aucun appelant existant ne le passe, et le seul poseur du
+    drapeau cote port est le noeud ci-dessus. La face DECISION ne le passe pas non plus, et c'est
+    un residu DEJA NOMME, pas un oubli de cette tranche -- `#419-r1-tr5-r1` : le drapeau n'est
+    publie par AUCUN capteur (`combatSnapshot`), donc une unite qui le porterait live arriverait
+    offline sans lui.
+    ⚠ Il ne gate QUE la branche `rangeType == Normal`. La branche `rangeType == Melee` (melee
+    INCONDITIONNELLE) l'ignore cote natif -- elle reste NON PORTEE ici, comme l'annonce l'en-tete du
+    module : ce site ne modelise pas `rangeType`.
+
     RESIDU NOMME : le natif departage plusieurs armes eligibles par `SelectBestDamageWeapon` (la
     prediction de degat la plus forte, ou `SelectMaxRangeWeapon` quand `target` est nul) ; le port
     garde `_find_by_hits` (l'arme dont `hits` egale celui capte, sinon la premiere)."""
@@ -337,6 +355,10 @@ def get_attack_weapon_for_default_normal_attack(visual_id, is_adjacent: bool, pr
         return None, False
     melee = [w for w in weapons if weapon_is_melee(w)]          # `get_IsMelee`
     ranged = [w for w in weapons if not weapon_is_melee(w)]
+    # `rangeType == Normal && !HasFlag(attacker, 0x15) && AreEntitiesAdjacent(...)` -- le drapeau
+    # ETEINT la branche melee, il n'en ouvre aucune autre : on retombe sur `FindRangedWeapon`.
+    if force_ranged_attack:
+        is_adjacent = False
     if is_adjacent:                    # branche `FindMeleeWeapon(attacker, attackerTiles, target)`
         cand = melee
     elif dist is None:                 # distance NON MESUREE -> porte inapplicable (degradation)
@@ -349,7 +371,8 @@ def get_attack_weapon_for_default_normal_attack(visual_id, is_adjacent: bool, pr
     return w, not weapon_is_melee(w)
 
 
-def select_weapon_pierce(ctx, is_adjacent, dist=None, effect_bonus: int = 0):
+def select_weapon_pierce(ctx, is_adjacent, dist=None, effect_bonus: int = 0,
+                         force_ranged_attack: bool = False):
     """SÉLECTION D'ARME + PERÇAGE — service PARTAGÉ prédiction↔runner (foyer natif `BattleQuery`).
     `GetAttackWeaponForDefaultNormalAttack` (arme mêlée/ranged par adjacence HEX + porte de portée
     ranged `dist`, cf. #188) + `IdunBattle.Core.Services.DamagePrediction$$GetAttackPiercingDamageRatio` (profil.PiercingRatio +
@@ -370,9 +393,14 @@ def select_weapon_pierce(ctx, is_adjacent, dist=None, effect_bonus: int = 0):
     -> il entre ici DANS la même somme, avant le clamp, jamais dans un second clamp. Défaut 0 =
     comportement historique. L'appelant COMBAT (attaque normale) le calcule après avoir résolu la nature
     du coup (`is_ranged`), que les gates d'effet consomment ; la PRÉDICTION ne le passe pas encore
-    (résidu documenté : la face décision ignore ce canal, comme elle ignorait déjà GravitonRifle)."""
+    (résidu documenté : la face décision ignore ce canal, comme elle ignorait déjà GravitonRifle).
+
+    `force_ranged_attack` (#1019-r2) : simple passe-plat vers
+    `get_attack_weapon_for_default_normal_attack` -- cf. sa docstring pour la lecture native et le
+    no-op par defaut."""
     w, is_ranged = get_attack_weapon_for_default_normal_attack(
-        ctx.visual_id, is_adjacent, prefer_hits=ctx.normal_hits, dist=dist)
+        ctx.visual_id, is_adjacent, prefer_hits=ctx.normal_hits, dist=dist,
+        force_ranged_attack=force_ranged_attack)
     if w is None:
         return 100, False, 1, None
     dp = GC.damage_profile(w.get("DamageProfile")) or {}

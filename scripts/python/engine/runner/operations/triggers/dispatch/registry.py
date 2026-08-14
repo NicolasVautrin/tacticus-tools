@@ -355,6 +355,10 @@ from ..loki.battle_focus import (                                    # #1080 (pa
     BattleFocusEffectTrigger, BattleFocusMoveAbility, BATTLE_FOCUS_EFFECT, BATTLE_FOCUS_ABILITY)
 from ..loki.savior_protocols import SaviorProtocolsAbility            # #1020 (passif drones T'au)
 from ..loki.instinctive_behaviour import InstinctiveBehaviourUpdateTargetAbility   # #1015-r1
+from ..loki.way_of_the_short_blade import (                          # #1019-r2 (passif 1500, T'au)
+    WayOfTheShortBladeAttackAbility, WAY_OF_THE_SHORT_BLADE_KEY)
+from ..loki.final_vengeance import (                                 # #1002-r1 (effet 1454, Astra)
+    FinalVengeanceUnitEffectTrigger, FINAL_VENGEANCE_UNIT_EFFECT)
 
 
 # --- Registre : trait → ability-trigger(s) accordée(s) --------------------------------------------
@@ -1443,6 +1447,18 @@ ABILITY_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
     # `CUSTOM_TRIGGERED_ABILITIES`). Ce que CETTE entree porte : rien -- l'ability est une
     # `AOwnerEffectTriggeredAbility`, son seul vecteur d'event est `OnOwnerSpecificAbilityInit`,
     # que le port materialise par `ABILITY_INIT_OWNER_EFFECTS` et non par un trigger.
+    # #1019-r2 -- `WayOfTheShortBlade` (passif de `tauFarsight`). La CLE est le nom gameconfig du
+    # PASSIF ; la classe inscrite est `WayOfTheShortBlade_AttackAbility`, la SECONDE des deux
+    # classes natives du kit (la premiere, `WayOfTheShortBlade_InitAbility`, pose les deux effets a
+    # l'init et vit dans `ABILITY_INIT_OWNER_EFFECTS`, pas ici).
+    # `$$CreateTrigger` = `On(0x9 = Attack, alive 1) & IsMeleeAttack() &
+    # AreFriends(Caster@<+0x48>, Owner@<+0x30>, 0) & IsEffectTarget(Caster@<+0x48>, 0x5dc = 1500)` ;
+    # `$$CreateBehaviour` = `AddFlag(Caster, 0x15 = ForceRangedAttack) &
+    # UseNormalAttackIfAble(Caster, Target@<+0x60>) & RemoveFlag(Caster, 0x15)`.
+    # ⚠ Le PORTEUR n'est PAS le beneficiaire : le sous-cast est joue par `Caster@+0x48`, l'ami T'au
+    # `Hero` qui vient de frapper en melee -- Farsight compris (le selecteur de 1500 l'ajoute par un
+    # `op_Addition Owner`). Cf. `triggers/loki/way_of_the_short_blade.py`.
+    WAY_OF_THE_SHORT_BLADE_KEY: [WayOfTheShortBladeAttackAbility],
 }
 
 # --- Registre : ability ACTIVE → triggered-ability(s) DERIVEE(s) ----------------------------------
@@ -2261,6 +2277,21 @@ EFFECT_TRIGGERS: dict[int, list[type[EffectTrigger]]] = {
     # attaque d'ability -- regression PERMISSIVE et SILENCIEUSE (forme de #436).
     # Cf. loki/legendary_commander.py.
     LEGENDARY_COMMANDER_EXTRA_HITS: [LegendaryCommanderExtraHitsMarkCaster],
+    # FinalVengeance_UnitEffect 1454 (#1002-r1, effet pose par `RelicOfLostCadia` sur les SUMMONS
+    # IMPERIAUX allies adjacents). Le TARGET-TRIGGER de l'effet,
+    # `...Triggered.Loki.FinalVengeance_UnitEffect$$CreateTargetTrigger` =
+    # `FinalJusticeAbility.Trigger(dsl) & NOT HasTrait(Owner@<DSLSelectors+0x30>, 0x3f6 = 1014
+    # UnitTrait.FinalJustice)`, ou la statique partagee `FinalJusticeAbility$$Trigger(dsl)` =
+    # `OnPreDeath(alive 1, ignoreOverkill 0) & get_OwnerIsTarget` ->
+    # `$$CreateTargetTriggerBehaviour` = `TriggerAbility(Owner@<+0x30>, 0x400 = 1024
+    # TriggeredAbilityType.FinalJustice, null, Get(abilityEntities+8), Get(abilityEntities+0x10),
+    # null, 0, **ignoreUnitHavingAbility: true**)`.
+    # Sans cette entree, `EffectFactory` materialisait un `BaseEffect` NU : l'effet etait VISIBLE
+    # dans la liste et ne FAISAIT rien -- le summon mourait sans sa derniere attaque, alors que
+    # l'i2 de la relique promet « Friendly surrounding Imperial Summons have Final Vengeance ».
+    # Cf. loki/final_vengeance.py (et l'etage `ignoreUnitHavingAbility` ouvert dans
+    # `abilities/behaviours/lifecycle.py::TriggerAbility` par la meme tranche).
+    FINAL_VENGEANCE_UNIT_EFFECT: [FinalVengeanceUnitEffectTrigger],   # 0x5ae -> On(PreUnitDeath)
     # HatefulAssault_AlreadyAttacked (case-366-r1, effet 1175 pose par `HatefulAssaultAbility$$
     # CreateBehaviour` sur l'ennemi qu'Angrax vient de frapper). Fabrique native = la GENERIQUE
     # `UntilOfEndTurnEffect`, dont le SEUL contenu est

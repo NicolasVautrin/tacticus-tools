@@ -615,12 +615,35 @@ class TriggerAbility(AbilityBehaviour):
     donc pas sourcable offline : dispatcher reviendrait a faire fuir 0 % ou 100 % des cibles la ou le natif
     tire une piece -- une mutation de POSITION massive et fausse a chaque cast (jusqu'a ~19 unites dans le
     disque rayon 2). On resout et on TRACE le set declenche ; la fuite reste un residu nomme (le meme que
-    `runner/operations/behaviour.py` documente deja pour la voie trigger-sur-mort). PUR (stop=False)."""
-    __slots__ = ("targets_sel", "ability_type")
+    `runner/operations/behaviour.py` documente deja pour la voie trigger-sur-mort).
 
-    def __init__(self, targets_sel: TargetsSelector, ability_type: int):
+    ⚠ **LE 8e ARGUMENT EST `ignoreUnitHavingAbility`, ET IL ETAIT CODE EN DUR A `false` (#1002-r1).**
+    C'est le `flag` `+0x84` que `Execute` passe au slot `0x56`, et
+    `IdunBattle.Operations.TriggerTriggeredAbilityOperation$$TriggerAbility` le lit exactement la ou
+    `_unit_has_triggered_ability` (ci-dessus) transcrit son corps :
+
+        abilityState = ignoreUnitHavingAbility ? new Nullable<AbilityState>(default)
+                                               : UnitExtensions.GetAbilityState(entity);
+
+    Les deux call-sites portes jusqu'ici (`HeraldOfTheApocalypse`, `StormboyzStrike_Miss`) passent
+    `false`, donc le gate etait toujours applique et le parametre invisible. Le TROISIEME passe
+    `true` -- `IdunBattleLogic.Entities.Abilities.Triggered.Loki.FinalVengeance_UnitEffect$$
+    CreateTargetTriggerBehaviour` = `TriggerAbility(Owner@<DSLSelectors+0x30>,
+    0x400 = TriggeredAbilityType.FinalJustice, null, Get(abilityEntities+8),
+    Get(abilityEntities+0x10), null, 0, **true**)` -- et c'est litteralement CE bit qui fait
+    fonctionner la mecanique : le summon imperial qui recoit l'effet 1454 ne PORTE pas
+    `FinalJustice`, l'effet la lui PRETE. Avec le gate applique, `notCarrying` aurait avale 100 %
+    des declenchements, sans erreur et sans qu'aucun test ne rougisse.
+    Defaut `False` = comportement HISTORIQUE, strict no-op pour les deux call-sites existants.
+
+    Emet 'TriggerAbility'. PUR (stop=False)."""
+    __slots__ = ("targets_sel", "ability_type", "ignore_unit_having_ability")
+
+    def __init__(self, targets_sel: TargetsSelector, ability_type: int,
+                 ignore_unit_having_ability: bool = False):
         self.targets_sel = targets_sel
         self.ability_type = int(ability_type)
+        self.ignore_unit_having_ability = bool(ignore_unit_having_ability)
 
     def execute(self, entities, ectx):
         state = ectx.state
@@ -631,11 +654,15 @@ class TriggerAbility(AbilityBehaviour):
                           if isinstance(u, dict) and u.get("id") is not None})
         results, skipped = [], []
         for uid in targets:                                  # ordre de lecture = id (mirror OrderBy)
-            if not _unit_has_triggered_ability(state, uid, self.ability_type):
+            # `ignoreUnitHavingAbility ? Nullable<AbilityState>(default) : GetAbilityState(entity)`
+            # -- le bras `true` FABRIQUE un etat par defaut, donc `HasValue` et donc AUCUN filtre.
+            if not self.ignore_unit_having_ability \
+                    and not _unit_has_triggered_ability(state, uid, self.ability_type):
                 skipped.append(int(uid))                     # gate `GetAbilityState` -- cf. ci-dessous
                 results.append(None)
                 continue
             results.append(None if fn is None else fn(state, uid, entities, ectx))
         ectx.emit("TriggerAbility", ability_type=self.ability_type, targets=targets,
-                  dispatched=fn is not None, results=results, notCarrying=skipped)
+                  dispatched=fn is not None, results=results, notCarrying=skipped,
+                  ignoreUnitHavingAbility=self.ignore_unit_having_ability)
         return OperationResult.ok()

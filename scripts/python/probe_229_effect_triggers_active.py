@@ -466,6 +466,13 @@ RAIL: dict[str, tuple[str, str]] = {
     # donc `EvaluateEffectTriggerTargets` lit `IsActive` avant de l'evaluer -> le port le lit aussi.
     "LegendaryCommanderExtraHitsMarkCaster":
         (TARGETS, "IdunBattle.Entities.Effects.Loki.LegendaryCommander_ExtraHitsEffect$$CreateTargetTrigger"),
+    # #1002-r1 -- `FinalVengeance_UnitEffect` (1454). Rail TARGETS : le trigger vient de
+    # `$$CreateTargetTrigger` (`FinalJusticeAbility.Trigger(dsl) & NOT HasTrait(Owner@<+0x30>,
+    # 0x3f6 = 1014 FinalJustice)`), donc `EvaluateEffectTriggerTargets` lit `IsActive` avant de
+    # l'evaluer -> le port le lit aussi.
+    "FinalVengeanceUnitEffectTrigger":
+        (TARGETS,
+         "IdunBattleLogic.Entities.Abilities.Triggered.Loki.FinalVengeance_UnitEffect$$CreateTargetTrigger"),
 }
 
 # Classes du rail ARRAYSET qui lisent QUAND MEME le flag -- non par gate d'evaluation, mais
