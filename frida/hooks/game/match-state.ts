@@ -302,6 +302,21 @@ export interface MowProjection {
     /** Initial deployment slot from MachineComponent.Position enum
      * (0=None, 1=Top, 2=Bottom). NB: dynamic spawns can have None. */
     initialSlot: number | null;
+    /** #287-r14-r2 — TOUTES les entités `MachinePlatform` (Type=7) liées à cette machine,
+     *  triées, pas seulement l'ancre publiée sous `id`. C'est le SEUL substrat de
+     *  `IdunBattle.Entities.TileExtensions$$GetMachinePlatformContent`, la branche
+     *  `EntityType == 7` d'`IdunBattle.Entities.UnitExtensions$$GetMachine` : le port ne peut
+     *  résoudre `plateforme -> machine` que s'il connaît la liste ENTIÈRE.
+     *
+     *  MESURE qui l'impose (2026-08-14, runner `orksRukkatrukk` sur `MC1_67`,
+     *  `dumpEntityComponents` sur les ids 60..99) : la MoW porte **DEUX** plateformes (75, 76),
+     *  `id` n'en publiait qu'UNE (76). Porter la moitié du mapping ferait réussir la résolution
+     *  sur une plateforme et échouer sur l'autre, en silence.
+     *
+     *  ⚠ Ces entités ne portent QU'UN `MachinePlatformComponent` — ni `PositionComponent` ni
+     *  `TileComponent` (mesuré) : c'est pourquoi `pos` est `null` et pourquoi il n'existe PAS de
+     *  voie « tuile -> machine ». `null` = pas mesuré, `[]` = mesuré et aucune plateforme liée. */
+    platformIds: number[] | null;
 }
 
 export interface TileProjection {
@@ -723,6 +738,10 @@ export function projectMatchState(
     // that were in fact deployed. See AddMachineOperation$$Execute RE.)
     const platformByMachine = new Map<number,
         { platformId: number; pos: { col: number; row: number } | null }>();
+    // #287-r14-r2 — la liste ENTIÈRE des plateformes par machine, à côté de l'ancre.
+    // L'ancre seule ne suffit pas à porter `GetMachinePlatformContent` : mesuré, une MoW en
+    // porte DEUX et `id` n'en publiait qu'une (cf. le commentaire de `platformIds`).
+    const allPlatformsByMachine = new Map<number, number[]>();
     forEachEntity(statePtr, (e, id, ty) => {
         if (ty !== EntityType.MachinePlatform) return;
         const link = readMachinePlatformLink(e);
@@ -733,6 +752,9 @@ export function projectMatchState(
                 platformId: id, pos: readTilePosition(e),
             });
         }
+        const lst = allPlatformsByMachine.get(link.machineId) ?? [];
+        lst.push(id);
+        allPlatformsByMachine.set(link.machineId, lst);
     });
     const mows: MowProjection[] = [];
     for (const [machineId, m] of machines) {
@@ -755,6 +777,10 @@ export function projectMatchState(
             rank: m.rank,
             isDead: m.isDead,
             initialSlot: m.initialSlot,
+            // #287-r14-r2 — `[]` (mesuré, aucune plateforme liée) et non `null` : la passe
+            // ci-dessus a bien tourné sur TOUTES les entités. `null` resterait réservé à une
+            // non-mesure, qui n'existe pas ici.
+            platformIds: (allPlatformsByMachine.get(machineId) ?? []).slice().sort((a, b) => a - b),
         });
     }
     mows.sort((a, b) => a.id - b.id);

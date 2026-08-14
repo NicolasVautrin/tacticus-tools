@@ -523,6 +523,18 @@ export interface FullMow {
      *  `proj.mows`. À ne faire que si une MoW acquiert une empreinte sur la grille : aujourd'hui
      *  ce serait du code sans observable. */
     platformTiles: Array<{ col: number; row: number }>;
+    /** #287-r14-r2 — les entityId des `MachinePlatform` (Type=7) liées à cette machine.
+     *
+     *  ⚠ À NE PAS confondre avec `platformTiles` juste au-dessus : celui-là publie des
+     *  POSITIONS (et il est vide, mesuré, parce qu'une plateforme n'a pas de
+     *  `PositionComponent`) ; celui-ci publie des IDENTITÉS D'ENTITÉ, et elles EXISTENT —
+     *  mesuré le 2026-08-14 sur `orksRukkatrukk` : **deux** (75, 76), quand `id` n'en publiait
+     *  qu'une. C'est le substrat de la branche `EntityType == 7` d'`IdunBattle.Entities.
+     *  UnitExtensions$$GetMachine` (via `TileExtensions$$GetMachinePlatformContent`), que le
+     *  port ne peut pas résoudre sans la liste ENTIÈRE.
+     *
+     *  `null` = pas mesuré (projection plus ancienne) ; `[]` = mesuré, aucune plateforme liée. */
+    platformIds: number[] | null;
     abilities: AbilityInfo[];
 }
 
@@ -561,6 +573,9 @@ export function projectMowsFull(
             slot: m.initialSlot,
             feet: e ? readEntityFeet(e, statePtr) : null,
             platformTiles: platformsByMachine.get(m.machineId) ?? [],
+            // #287-r14-r2 — transporté TEL QUEL depuis `projectMatchState`, qui est le seul
+            // étage à balayer les entités `MachinePlatform`. `?? null` préserve le tri-état.
+            platformIds: m.platformIds ?? null,
             abilities: e ? mowAbilityTypes(e) : [],
         });
     }

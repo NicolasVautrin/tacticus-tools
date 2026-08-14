@@ -1180,16 +1180,28 @@ def unit_id(state, entity_id) -> int | None:
 def machine_id(state, entity_id) -> int | None:
     """`IdunBattle.Entities.UnitExtensions$$GetMachine(entity, state)` en DOMAINE ID :
 
-        if (entity == null)             return null;
-        if (IsType(entity, Machine))    return entity;
-        if (IsType(entity, Tile))       return TileExtensions.GetMachinePlatformContent(entity, state);
+        if (entity == null)                     return null;
+        if (EntityType(entity) == 6)            return entity;              # Machine
+        if (EntityType(entity) == 7)            return TileExtensions.GetMachinePlatformContent(
+                                                           entity, state);  # MachinePlatform
         return null;
 
-    ⚠ La branche TUILE reste NON PORTEE, et c'est un residu NOMME, pas un oubli : le port ne
-    modelise pas les PLATEFORMES de MoW comme contenu de tuile (une MoW n'a ni `PositionComponent`
-    ni tuile -- cf. `snapshot._load_machines`, « hors-plateau »), donc il n'existe aucun substrat
-    d'ou tirer `GetMachinePlatformContent`. Rendre `None` y est la degradation FIDELE a ce que le
-    port sait : aucune plateforme inventee."""
+    ⚠ **LA SECONDE BRANCHE EST `MachinePlatform` (7), PAS `Tile` (0)** -- l'assembleur compare
+    litteralement `iVar1 == 7`, et la redaction anterieure de cette docstring (« IsType(entity,
+    Tile) ») NOMMAIT LE MAUVAIS TYPE. Ce n'est pas un detail de vocabulaire : elle faisait croire
+    que le port refuse une resolution que le natif accorde a toute TUILE, alors que le natif rend
+    `null` sur une tuile exactement comme le port. Le trou reel est BEAUCOUP plus etroit -- il ne
+    concerne QUE les entites `MachinePlatform`. (Corrige et re-mesure #287-r14-r2, 2026-08-14.)
+
+    ⚠ La branche PLATEFORME reste NON PORTEE, et c'est un residu NOMME. Ce que la mesure live dit
+    (runner `orksRukkatrukk` sur `MC1_67`, `dumpEntityComponents` sur les ids 60..99) :
+      * une MoW porte **DEUX** entites `MachinePlatform` (75 et 76), qui ne portent QU'UN
+        `MachinePlatformComponent` -- ni `PositionComponent`, ni `TileComponent` ;
+      * `decisionView.mows[]` n'en publie **QU'UNE** (`id: 76`, l'ancre), avec `pos: null` ;
+        la seconde n'apparait dans AUCUN canal.
+    Le lien `plateforme -> machine` de l'ancre EST donc lisible (`mows[].id` -> `machineId`), mais
+    porter la moitie du mapping fabriquerait une resolution qui reussit sur une plateforme et
+    echoue sur l'autre, en silence. `None` reste la degradation FIDELE a ce que le port sait."""
     if entity_id is None:
         return None
     try:
