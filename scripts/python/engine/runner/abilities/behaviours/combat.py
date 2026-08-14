@@ -6,9 +6,11 @@ from __future__ import annotations
 
 from typing import Optional
 
-from ....dsl.base import TargetsSelector, resolve_unit, _units_of, _pos, _is_alive
+from ....dsl.base import (TargetsSelector, resolve_unit, _units_of, _pos, _is_alive,
+                          _occupants_by_tile)
 from ....entities.damage_profile_type import DamageProfileType, PROFILE_NAME_BY_INDEX
 from ....entities.invalid_target_policy import InvalidTargetPolicy
+from ....entities.selectors._shared import _entity_pos
 from ....services.battle_query import weapon_is_melee
 from ....services.damage_config import resolve_spread_pct
 from ....streams.inform_ops import get_inform_weapon_tags
@@ -18,6 +20,80 @@ from ...components import StatsComponent
 from ..base import ability_attack_params
 from ...operations.damage import AttackDamageOperation
 from ..base import profile_pierce
+
+
+def _get_unit(entity, entities):
+    """`IdunBattle.Entities.UnitExtensions$$GetUnit(entity, state)` -- l'etage qui re-resout une
+    ENTITE en l'UNITE qu'on frappe. Il MANQUAIT au port, et c'est ce qui faisait lever un
+    `AttributeError: 'int' object has no attribute 'get'` des qu'un selecteur rendait des TUILES.
+
+    LE NATIF, verbatim (surcharge `IEntity`, celle a 99 xrefs) :
+
+        while (true) {
+            if (entity == null)       return null;
+            if (entity is <UnitEntity>) return entity;            // une UNITE se rend elle-meme
+            if (entity is <TileEntity>) {                         // une TUILE rend son OCCUPANT
+                content = entity.<+0x38 = TileContentComponent>;
+                if (!content.IsFilled()) return null;
+                entity = state.GetEntity(content.<+0x10>);        // -> l'entite-PIED
+                if (entity == null) return null;
+                continue;                                         // et on RE-BOUCLE
+            }
+            if (entity is <FootEntity>) return GetUnit(<foot>, state);   // le pied -> son proprietaire
+            return null;                                          // tout le reste -> null
+        }
+
+    OU IL VIT, **DERIVE des xrefs entrantes** de `IdunBattle.Entities.UnitExtensions$$GetUnit`
+    (pas une enumeration a la main) : parmi tous les `*Behaviour$$Execute` du build, EXACTEMENT
+    TROIS l'appellent --
+
+        IdunBattle.Entities.Behaviours.AbilityDamageBehaviour$$Execute
+        IdunBattle.Entities.Behaviours.AttackDamageBehaviour$$Execute
+        IdunBattle.Entities.Behaviours.DirectDamageBehaviour$$Execute
+
+    et le squelette y est le MEME :
+
+        targets = <targetSel>.Select(entities)     // slot 0 d'`ITargetsSelector` -> des ENTITES BRUTES
+        foreach (entity in targets) {
+            unit = UnitExtensions.GetUnit(entity, state);
+            if (unit == null) { <operation 0x25, tag 0xa1 = l'id de l'entite> ; continue }
+            ...
+        }
+
+    ⚠ Ce n'est PAS `IdunBattle.DSL.TargetsSelector$$SelectAllUnits`, et le distinguer importe :
+    cette methode-la existe (elle appelle `TargetsSelector$$SelectUnit` sur chaque element), mais
+    c'est le slot **3** de l'interface et **aucun** de ces trois behaviours ne le demande -- ils
+    appellent tous le slot **0 `Select`**, puis re-resolvent eux-memes. Slots LUS dans
+    `data/symbols/<build>/metadata/interface_slots.tsv`, invocation LUE dans l'invoker d'interface
+    (`<slot relatif> + interfaceOffsets[<ITargetsSelector>]`, indexe dans la vtable a `+0x138`).
+
+    ⚠ ET DEUX BEHAVIOURS QU'ON POURRAIT CROIRE CONCERNES NE LE SONT PAS -- ils sont ABSENTS de ces
+    xrefs, donc ils recoivent bien l'entite BRUTE : `IdunBattle.Entities.Behaviours.AttackBehaviour$$Execute`
+    (il `SelectFirst` son caster, `Select` ses cibles, les trie et pousse chacune telle quelle dans
+    l'`AbilityEntities` de son enfant -- c'est l'ENFANT qui resout) et
+    `IdunBattle.Entities.Behaviours.AddEffectBehaviour$$Execute` (son seul gate est
+    `UnitExtensions$$HasFlag(entity, 6)`, puis il pose l'effet sur l'entite telle quelle). Donc un
+    `AddEffect` sur un domaine TUILE pose bien l'effet sur la TUILE cote natif : ne PAS y greffer
+    cette resolution.
+
+    CE QUI N'EST PAS PORTE ICI -- residu **#1034**, les deux gates que les deux behaviours d'ATTAQUE
+    (pas `DirectDamageBehaviour`) posent APRES ce `GetUnit`, et la deduplication qui les suit :
+    `UnitExtensions$$MatchesUnitSelectionType(unit, <behaviour+0xa8 | +0xc0>, state)` (le
+    `selectionType` n'est capte par AUCUN call-site du port -- meme verrou que le residu #433-r3-r2)
+    et `UnitExtensions$$HasTrait(unit, 0x40e)` (= `UnitTrait.Invincible`), plus l'`OrderedSet` dont
+    le `Contains` pilote l'argument `isFirstHit` de `ExecuteTarget`.
+
+    COTE PORT : un dict EST une unite (branche `is <UnitEntity>`) ; un id de tuile (`int`) ou une
+    position `(col,row)` est une TUILE, resolue par `dsl.base._occupants_by_tile` -- le foyer UNIQUE
+    de la resolution d'occupant (#433-r3-r1a), indexe par les PIEDS, ce qui est litteralement la
+    boucle native `tuile -> pied -> proprietaire` (n'importe quel pied d'une multi-hex rend SON
+    unite). Tout le reste rend `None`, et l'appelant SKIPPE la cible -- comme le natif."""
+    if isinstance(entity, dict):                 # `entity is <UnitEntity>` -> elle se rend elle-meme
+        return entity
+    p = _entity_pos(entity, getattr(entities, "board", None))
+    if p is None:                                # ni unite, ni tuile resolvable -> `null`
+        return None
+    return _occupants_by_tile(entities.units or ()).get((int(p[0]), int(p[1])))
 
 
 class AttackWithAttackDamage(AbilityBehaviour):
@@ -263,7 +339,11 @@ class AttackWithAttackDamage(AbilityBehaviour):
                     # zone est peu peuplee.
                     ectx.emit("AttackEmptyTile", caster=caster, tile=t)
         elif self.multi:                                   # AttackBehaviour.Execute : selecteur -> N cibles
-            targets = [u for u in _units_of(self.target_sel, entities)
+            # `AttackDamageBehaviour$$Execute` : `unit = UnitExtensions.GetUnit(entity, state)` sur
+            # CHAQUE entite rendue par `Select` -- une TUILE resout en son occupant, `null` -> la cible
+            # est SAUTEE (le natif n'emet alors que l'operation `0x25`). Cf. `_get_unit`.
+            targets = [u for u in (_get_unit(e, entities)
+                                   for e in _units_of(self.target_sel, entities))
                        if (u or {}).get("id") is not None]   # ordre SOURCE (aucun tri avant le tirage)
             if self.pick_n is not None:                    # PickRandomly(selecteur, n) folde (state.rng)
                 from ..loki import _pick_randomly_n
@@ -806,7 +886,10 @@ class AttackWithAbilityDamage(AbilityBehaviour):
         if src is None:
             return OperationResult.ok()
         if self.multi:                                     # AttackBehaviour.Execute : selecteur -> N cibles
-            targets = sorted((u for u in _units_of(self.target_sel, entities)
+            # `AbilityDamageBehaviour$$Execute` : `unit = UnitExtensions.GetUnit(entity, state)` par
+            # entite rendue par `Select` (tuile -> occupant, `null` -> cible SAUTEE). Cf. `_get_unit`.
+            targets = sorted((u for u in (_get_unit(e, entities)
+                                          for e in _units_of(self.target_sel, entities))
                               if (u or {}).get("id") is not None), key=lambda u: u.get("id"))
         else:                                              # mono-cible (DoT feu : l'occupant resolu)
             tu = resolve_unit(self.target_sel, entities)
@@ -904,7 +987,12 @@ class DirectDamage(AbilityBehaviour):
                    else (self.amount.evaluate(entities) if hasattr(self.amount, "evaluate")
                          else self.amount) or 0)
         pierce = profile_pierce(None, self.profile)     # profil ABSENT de la signature native
-        for u in self.target_sel.evaluate(entities):
+        # `DirectDamageBehaviour$$Execute` : `unit = UnitExtensions.GetUnit(t, <behaviour+0xb8 = state>)`
+        # par entite rendue par `Select`. Cet etage-la etait DECRIT dans la docstring ci-dessus et
+        # ABSENT du code : la ligne d'avant jetait tout element non-dict au lieu de le RESOUDRE, donc
+        # un selecteur a domaine TUILE ne frappait rien. Cf. `_get_unit`.
+        for e in _units_of(self.target_sel, entities):
+            u = _get_unit(e, entities)
             tgt = u.get("id") if isinstance(u, dict) else None
             if tgt is None:
                 continue                                 # `GetUnit(t) == null` -> log + continue
