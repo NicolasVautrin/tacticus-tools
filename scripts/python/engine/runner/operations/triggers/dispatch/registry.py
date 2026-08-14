@@ -209,6 +209,8 @@ from ..loki.vengeance_for_the_omnissiah import (            # #1071 (passif 1298
 from ..loki.power_up import (                               # #1083-r1 (les 5 PowerUp_* de BOOST DE
     PowerUpArmorAbility, PowerUpDamageAbility,              # STAT -- unites `powup*` Steppable)
     PowerUpHealthAbility, PowerUpHitsAbility, PowerUpMeleeHitsAbility)
+from ..loki.power_up_nonboost import (                      # #1083-r3 (les PowerUp_* NON-BOOST :
+    PowerUpHealingAbility, PowerUpReactivateAbilityAbility)  # meme base, autre vslot)
 from ..loki.optimized_gait import (                         # #1050 (passif 1205, admecRuststalker :
     OPTIMIZED_GAIT, OptimizedGaitMoveAbility,               # attaque reactive + pas sur l'hex du mort)
     OptimizedGaitTriggerAttackAbility)
@@ -543,6 +545,22 @@ ABILITY_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
     PowerUpHealthAbility.ABILITY_NAME: [PowerUpHealthAbility],
     PowerUpHitsAbility.ABILITY_NAME: [PowerUpHitsAbility],
     PowerUpMeleeHitsAbility.ABILITY_NAME: [PowerUpMeleeHitsAbility],
+    # PowerUp_* NON-BOOST (#1083-r3) -- MEME base, MEME trigger, autre vslot. Le balayage exhaustif
+    # de `ghidra/functions.tsv` etablit que `get_PctBasedStatBoost` et `get_AbsoluteStatBoost` ont
+    # EXACTEMENT deux proprietaires chacun (les quatre de #1083-r1) et qu'AUCUN des 22 `PowerUp_*`
+    # ne surcharge `CreateTrigger` : ces deux-ci se reduisent donc a leur `AdditionalBehavior`.
+    #   `PowerUp_ReactivateAbilityAbility$$AdditionalBehavior` = `ResetActiveAbility(target,
+    #     allowUseless: true)` -- le parametre natif s'appelle `allowUseless`, la feuille portee le
+    #     nomme `ignore_turn_flag` (meme position, meme gate `EntityCanHaveActiveAbilityReset`).
+    #   `PowerUp_HealingAbility$$AdditionalBehavior` = `If(IsMechanical(target, 0), Repair(...),
+    #     Heal(...))`, les deux branches a `HealPercentage` % de `Health/**Maximum**` (PAS `Initial`,
+    #     que lit le bouclier commun du meme arbre) et aux options `(scope=0, remove_effects=True)`.
+    # Les DEUX heritent le bouclier de la base -- et l'heritent VRAIMENT : `shieldPct = 100` /
+    # `nrOfRounds = 1` au gameconfig. (`PowerUp_Bomb`, lui, n'a AUCUNE de ces deux cles, donc son
+    # volet bouclier est eteint par la branche `Nothing()` d'`AddShield`, pas par le code.)
+    # Cf. loki/power_up_nonboost.py et docs/rl/case-1083-r3-powerup-non-boost.md. #1083-r3.
+    PowerUpReactivateAbilityAbility.ABILITY_NAME: [PowerUpReactivateAbilityAbility],
+    PowerUpHealingAbility.ABILITY_NAME: [PowerUpHealingAbility],
     # TheBetrayer = gain-rage-au-kill (mort) + auto-tour (début de tour). Cf. les 2 classes dans loki.py.
     "TheBetrayer": [TheBetrayerAddEffectAbility, TheBetrayerTakeTurnAbility],
     # ArcaneShield (Thaumachus) = bouclier à la FIN DE L'ACTIVATION du porteur : `On(0x1c=

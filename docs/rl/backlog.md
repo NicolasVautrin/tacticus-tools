@@ -5042,7 +5042,16 @@ pas d'erreur : il rend **zéro**, et un zéro se lit « rien à signaler ».
   FOYER: scripts/python/probe_1077_firing_position_mischief_makers.py
   BLOCAGE: aucun
 
-- **#1083-r1 — les 17 `PowerUp_*` NON-boost ne sont pas portes (les 5 de BOOST DE STAT le sont, confrontes live 5/5).** `[opus]`
+- **#1083-r1 — les 11 `PowerUp_HeroSpawn*`/`_SummonSpawn*` ne sont pas portes (7 des 22 le sont, confrontes live 7/7).** `[opus]`
+  **TRANCHE 2 LIVREE (2026-08-15, #1083-r3)** : `PowerUp_ReactivateAbility` (1272) et `_Healing`
+  (1273) sont PORTES et confrontes live 4/4 (nominal + hors-tuile, build `t6dpr4k06g`) --
+  `loki/power_up_nonboost.py`, `docs/rl/case-1083-r3-powerup-non-boost.md`. Les QUATRE autres
+  non-boost sont sortis de CETTE ligne et vivent en **#1083-r4** (`_Bomb`, blocage seeding) et
+  **#1083-r5** (`_Reinforcement`/`_ReinforcementShield`/`_Resurrect`, blocage etage). RESTE ICI :
+  les **4** `PowerUp_HeroSpawn*` (1434/1436/1437/1517) et les **7** `PowerUp_SummonSpawn*`
+  (1532/1533/1536/1537/1538/1539/1540), qui surchargent `$$CreateBehaviour` EN ENTIER.
+  ⚠ Leur RE exige un CORPS decompile : au 2026-08-15 `mcp__ghidra__*` sert encore `rnca9r7q6c`
+  (import de `t6dpr4k06g` en cours) -- **NON TRANCHE tant que Ghidra n'a pas migre**.
   **TRANCHE 1 LIVREE (2026-08-14)** : `PowerUp_Armor` / `_Damage` / `_Health` / `_Hits` / `_MeleeHits`
   + la base `APowerUpAbility` (trigger ET behaviour entiers) + l'effet dynamique
   `PowerUp_ArmorEffect`. Cf. `docs/rl/case-1083-r1-powerup-boosts-de-stat.md`,
@@ -5087,6 +5096,51 @@ pas d'erreur : il rend **zéro**, et un zéro se lit « rien à signaler ».
   BOARD n'y joue AUCUN role -- ne pas re-derouler la piste `--board`, elle est refutee Sec.3.
   FOYER: scripts/python/engine/runner/operations/triggers/loki/power_up.py, scripts/python/engine/runner/operations/triggers/dispatch/registry.py, scripts/python/engine/entities/effects/factory.py
   BLOCAGE: aucun
+
+- **#1083-r4 — `PowerUp_Bomb` (1282) : le gate `IsHumanPlayer` est LOAD-BEARING et le port ne peut pas l'evaluer.** `[opus]`
+  Point d'entree : `docs/rl/case-1083-r3-powerup-non-boost.md` Sec.2 et Sec.5bis + le probe
+  `probe_1083r3_powerup_nonboost_substrat.py` (offline, re-derivable, temoin de controle inclus).
+  RE COMPLETE (lue contre `rnca9r7q6c`, ordinaux et signatures RE-CONFIRMES contre `t6dpr4k06g`) :
+  `AdditionalBehavior` = `If( IsHumanPlayer(OriginalOwner(Actor)), Inform(TagKey 0x95, range) &
+  AbilityAreaDamage(Owner, SurroundingEnemies(Actor, ConfigConst(range=4), unique=1,
+  UnitSelectionType.OnlyAliveAndTargetable), RandomAmount(GetMinDamage, GetMaxDamage),
+  Direct(GetDamageProfileOrDefault(DamageProfileType.Blast)), AbilityOrEffect(self)), null )`, avec
+  `GetMin/MaxDamage(player) = ConfigVar(minDmg|maxDmg, AbilityStateFromLevel(
+  AbilityLevelFromPlayerCurrentRarity(player)), config)`.
+  ⚠ `PowerUp_Bomb` n'a NI `shieldPct` NI `nrOfRounds` au gameconfig -> son volet bouclier herite est
+  ETEINT par la branche `Nothing()` d'`AddShield`. Ne PAS lui en poser un « comme les autres ».
+  CE QUI BLOQUE, et c'est MESURE : le gate discrimine reellement (seed BC = joueurs 11/12/13 de
+  `PlayerType` 0 `Human` / 1 `AI` / 2 `Environment`), mais `PlayerType` n'est projete NULLE PART
+  cote port -- balayage AST de 694 fichiers d'`engine/`, **0 site executable**, temoin de controle
+  `current_player_id` a 34 sites pour prouver que le balayage voit quelque chose. Omettre le gate
+  rendrait le port PERMISSIF (la bombe partirait pour l'IA), ni erreur ni crash : c'est un port
+  FAUX, pas un port incomplet. Manquent aussi le selecteur `OriginalOwner` et le depliage
+  d'`AbilityAreaDamage` (precedent ECRIT : `loki/death_nova.py`).
+  MONTAGE PRET (celui de #1083-r3, mesure) : `catalog_inject --units powupBomb` + `rl_duel build
+  --explicit-stats powupBomb --a-units "powupBomb,..." --a-place/--place`. Le ramasseur doit
+  appartenir au joueur **Human** pour que le gate soit VRAI -- c'est le bras qui le confronte.
+  FOYER: scripts/python/engine/runner/snapshot.py, scripts/python/engine/runner/components.py, scripts/python/engine/entities/triggers.py, scripts/python/engine/entities/selectors/accessors.py, scripts/python/engine/runner/operations/triggers/loki/power_up_nonboost.py
+  BLOCAGE: seeding
+
+- **#1083-r5 — `PowerUp_Reinforcement` (1266) / `_ReinforcementShield` (1269) / `_Resurrect` (1320) : aucun observable porte.** `[opus]`
+  Point d'entree : `docs/rl/case-1083-r3-powerup-non-boost.md` Sec.2 et Sec.5bis.
+  RE COMPLETE (contre `rnca9r7q6c`) -- les trois surchargent `$$CreateBehaviour` EN ENTIER, donc
+  NI bouclier NI boost :
+    * `_Reinforcement` : `AddReinforcementPoint(Actor)`.
+    * `_ReinforcementShield` : `Do(e => processor.AddReinforcementShield(GetCurrentPlayer(state),
+      GetNumberConstant(shieldPct = 10)))`. ⚠ La cible est le joueur **COURANT**, pas l'`Actor` --
+      seul des six a passer par `GetCurrentPlayer`, et seul a n'avoir AUCUNE structure DSL (un
+      lambda imperatif). ⚠ Son `shieldPct = 10` ne pose AUCUN bouclier d'unite.
+    * `_Resurrect` : `If( NOT AmountIsZero(Friends(Actor, HeroUnits(AllDeadUnits(), 0), 0)),
+      AddResurrectDraftPoint(Actor), AddReinforcementPoint(Actor) )`.
+  CE QUI BLOQUE : les trois ecrivent dans `DraftingComponent` (`+0x48` points de renfort, `+0x40`
+  points de resurrection) et `PlayerComponent` (`+0x88` bouclier de renfort). La BC PORTE les
+  champs (`Drafting`, `ReinforcementShield` sur les trois joueurs) mais AUCUN lecteur porte
+  n'existe -- la boucle qui les consomme (drafting du mode Survival) n'est pas portee. Les
+  inscrire ferait incrementer un compteur que rien ne lit : effet inobservable des deux cotes,
+  donc inconfrontable. Porter d'abord les composants ET un consommateur, sinon c'est du mort.
+  FOYER: scripts/python/engine/runner/components.py, scripts/python/engine/runner/snapshot.py, scripts/python/engine/runner/operations/triggers/loki/power_up_nonboost.py
+  BLOCAGE: etage
 
 - **#1083-r2 — `classify_carrier` rend `N` (hors-jeu) pour tout porteur `npc`, alors que `--explicit-stats` les monte.** `[opus]`
   Point d'entree : `docs/rl/case-1083-powerup-le-board-ne-confronte-rien.md` Sec.4 +
