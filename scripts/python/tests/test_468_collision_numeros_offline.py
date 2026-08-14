@@ -486,8 +486,13 @@ def test_le_ledger_du_depot_est_lisible_et_chaque_entree_porte_une_raison():
 #  `--suggere` (#468-r4) -- le critere s'INVERSE : ici l'UNION, mentions comprises
 # ==========================================================================================
 
-def _depot_git(lignes_backlog, case_docs=(), messages=()):
-    """Depot jetable AVEC historique -- `--suggere` refuse de mesurer sans lui."""
+def _depot_git(lignes_backlog, case_docs=(), messages=(), merge=None):
+    """Depot jetable AVEC historique -- `--suggere` refuse de mesurer sans lui.
+
+    `merge` : sujet d'un commit de MERGE a fabriquer par-dessus (#468-r13). Les deux commits
+    ordinaires qu'il reunit portent des sujets SANS numero, et le contenu n'en porte pas non
+    plus : le sujet du merge est alors la SEULE trace du numero dans tout le depot -- exactement
+    la situation de `#432-r1`, livre par la PR #479 et introuvable de `git grep`."""
     racine = _depot_jetable(lignes_backlog, case_docs)
     (racine / "scripts" / "python").mkdir(parents=True, exist_ok=True)
     env = {"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t",
@@ -504,6 +509,24 @@ def _depot_git(lignes_backlog, case_docs=(), messages=()):
             encoding="utf-8")
         git("add", "-A")
         git("commit", "-q", "-m", m)
+    if merge:
+        # Le nom de la branche par defaut n'est PAS suppose (`master` / `main` selon la config
+        # de la machine) : on le LIT. Une supposition ferait echouer le montage, donc rougir le
+        # test pour la mauvaise cause.
+        tete = subprocess.run(["git", "-C", str(racine), "rev-parse", "--abbrev-ref", "HEAD"],
+                              capture_output=True, text=True, encoding="utf-8",
+                              errors="replace", env=env).stdout.strip() or "master"
+        git("checkout", "-q", "-b", "cote-jetable")
+        (racine / "docs" / "rl" / "note-laterale.md").write_text("aucun numero\n",
+                                                                encoding="utf-8")
+        git("add", "-A")
+        git("commit", "-q", "-m", "branche laterale, aucun numero")
+        git("checkout", "-q", tete)
+        (racine / "docs" / "rl" / "note-principale.md").write_text("aucun numero\n",
+                                                                   encoding="utf-8")
+        git("add", "-A")
+        git("commit", "-q", "-m", "avance de la principale, aucun numero")
+        git("merge", "-q", "--no-ff", "-m", merge, "cote-jetable")
     return racine
 
 
@@ -678,6 +701,71 @@ def test_suggere_evite_un_numero_qui_n_existe_QUE_dans_un_MESSAGE_DE_COMMIT():
         assert rc == 0, txt
         assert _numero_propose(txt) != PREMIER_AU_DESSUS, \
             "un numero vivant SEULEMENT dans l'historique a ete propose :\n%s" % txt
+    finally:
+        shutil.rmtree(racine, ignore_errors=True)
+
+
+def test_suggere_evite_un_numero_qui_n_existe_QUE_dans_un_SUJET_DE_MERGE():
+    """#468-r13 -- `--no-merges` jetait la SEULE trace que le squash-merge laisse dans l'arbre.
+
+    MESURE sur le depot reel (2026-08-15) : 698 commits de merge, **647 portent un `#`**
+    (`merge(#1039) : ...`, `merge PR #1023 (#1027) -- ...`) ; ils apportent **96 identifiants
+    inedits** et **1 numero rendu change** -- `--suggere 432` proposait `#432-r1`, LIVRE par la
+    PR #479, et `git grep -E '#432-?r1' -- docs/rl scripts/python` rend **0**.
+
+    DEUX BRAS, et c'est le premier qui rend le second probant : sans le merge, le numero DOIT
+    etre propose. Un test a un seul bras ne distinguerait pas << la source marche >> de << ce
+    numero etait de toute facon hors d'atteinte >>."""
+    #: BRAS TEMOIN -- le meme depot, sans le merge : le numero est LIBRE et doit sortir.
+    temoin = _depot_git(BASE_SUGGERE)
+    try:
+        rc, txt = _suggere(temoin)
+        assert rc == 0, txt
+        assert _numero_propose(txt) == PREMIER_AU_DESSUS, (
+            "le bras TEMOIN ne propose pas %s : le bras suivant ne prouverait rien\n%s"
+            % (PREMIER_AU_DESSUS, txt))
+    finally:
+        shutil.rmtree(temoin, ignore_errors=True)
+
+    #: BRAS MESURE -- le numero n'existe QUE dans le sujet du commit de merge.
+    racine = _depot_git(BASE_SUGGERE,
+                        merge="merge(#%s) : une tranche livree, dont le sujet de merge est "
+                              "l'unique trace" % PREMIER_AU_DESSUS)
+    try:
+        rc, txt = _suggere(racine)
+        assert rc == 0, txt
+        assert _numero_propose(txt) != PREMIER_AU_DESSUS, (
+            "un numero vivant SEULEMENT dans un sujet de COMMIT DE MERGE a ete propose -- "
+            "`--no-merges` est revenu quelque part dans le corpus :\n%s" % txt)
+    finally:
+        shutil.rmtree(racine, ignore_errors=True)
+
+
+def test_le_mode_RESIDU_ecarte_lui_aussi_un_numero_venu_d_un_SUJET_DE_MERGE():
+    """La generalisation de #468-r13 a l'autre mode -- c'est la ou la mesure a MORDU.
+
+    Sur le depot reel, le seul numero rendu que la correction change est un RESIDU (`#432-r1`),
+    pas une racine : depuis la bande (#468-r8) une racine neuve part de `PLANCHER_RACINE`, donc
+    le corpus n'y commande plus. Garder la seule racine laisserait le mode RESIDU -- celui que la
+    mesure accuse -- sans cliquet."""
+    #: BRAS TEMOIN : `#10900-r1` est deja pris par `BASE_SUGGERE`, donc `r2` est le prochain.
+    temoin = _depot_git(BASE_SUGGERE)
+    try:
+        rc, txt = _suggere(temoin, "10900")
+        assert rc == 0, txt
+        assert "LIBRE : #10900-r2" in txt, (
+            "le bras TEMOIN ne propose pas r2 : le bras suivant ne prouverait rien\n%s" % txt)
+    finally:
+        shutil.rmtree(temoin, ignore_errors=True)
+
+    racine = _depot_git(BASE_SUGGERE,
+                        merge="merge PR #4242 (#10900-r2) -- residu livre, trace unique")
+    try:
+        rc, txt = _suggere(racine, "10900")
+        assert rc == 0, txt
+        assert "LIBRE : #10900-r2" not in txt, (
+            "un RESIDU vivant seulement dans un sujet de merge a ete propose :\n%s" % txt)
+        assert "LIBRE : #10900-r3" in txt, txt
     finally:
         shutil.rmtree(racine, ignore_errors=True)
 

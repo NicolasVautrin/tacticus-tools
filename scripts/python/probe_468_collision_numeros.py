@@ -774,12 +774,23 @@ def _identifiants_des_commits() -> dict:
     message de commit est PRIS, meme si aucun fichier ne le porte plus (case-doc renommee,
     tranche abandonnee). MESURE : 13 racines pures < 500 ne vivent QUE la.
 
+    LES COMMITS DE MERGE EN FONT PARTIE, et les EXCLURE amputait la source la plus complete
+    (#468-r13). `--no-merges` etait ici un defaut jamais examine -- aucune ligne ne le motivait --
+    et il jetait la SEULE trace que le squash-merge laisse dans l'arbre. Mesure du 2026-08-15 :
+    698 commits de merge, dont **647 portent un `#`** en sujet (`merge(#1039) : ...`,
+    `merge PR #1023 (#1027) -- ...`) ; ils apportent **96 identifiants INEDITS** que les six
+    autres sources ne voient pas, et **1 numero rendu change** -- `--suggere 432` proposait
+    `#432-r1`, alors que ce residu a ete LIVRE par la PR #479 et que `git grep -E '#432-?r1'`
+    sur `docs/rl` + `scripts/python` rend **0** : le sujet du merge est son unique trace.
+    COUT : NUL -- c'est le meme `git log`, avec un filtre en moins (1,09 s -> 0,99 s, dans le
+    bruit). Aucun bruit de nom de branche non plus : `RE_TOKEN_LARGE` exige un `#`, et les
+    51 merges sans `#` sont exactement les `Merge remote-tracking branch 'origin/...'`.
+
     Toute panne de `git` leve `Indisponible` -- jamais un ensemble VIDE, qui ferait suggerer un
     numero deja pris. C'est la meme frontiere que `host_inputs.py` : `null` n'est pas `0`.
     """
     out = {}
-    for m in re.finditer(RE_TOKEN_LARGE, _git(["log", "--format=%s%n%b", "--no-merges"],
-                                              "`git log`")):
+    for m in re.finditer(RE_TOKEN_LARGE, _git(["log", "--format=%s%n%b"], "`git log`")):
         out.setdefault(normaliser(m.group(0)[1:]), set()).add("git log")
     return out
 
@@ -798,6 +809,17 @@ def _identifiants_des_refs_hors_head() -> dict:
     `--not HEAD` est ce qui rend la provenance gratuite ET la mesure bon marche : sur 363 refs,
     ce qui reste hors de la lignee courante est une poignee de commits. Un `--all` nu couterait
     autant mais melangerait les deux origines, et on ne pourrait plus DIRE ce qui est en vol.
+
+    ICI `--no-merges` RESTE, et c'est une TROISIEME extension MESUREE PUIS REFUSEE (#468-r13),
+    par le meme protocole que les deux de `#468-r10`. Le retirer coute **+1,0 s** (1,94 -> 2,97 s)
+    et apporte **0 identifiant inedit** -- non pas parce que les merges hors `HEAD` seraient
+    vides, mais parce que la correction ci-dessus (`_identifiants_des_commits` lit desormais les
+    merges) les couvre deja. Mesure PRISE HORS DU REGIME DEGENERE : un worktree FRAIS ne prouve
+    rien ici, puisque tout est dans sa lignee ; le balayage a donc ete rejoue en simulant un
+    worktree EN RETARD de 5, 20, 40 et 80 commits (`--not HEAD~n`), et l'apport reste **0 a
+    chaque palier**. Ce qui reste hors de portee est nomme : un merge vivant SEULEMENT sur une
+    branche non fusionnee -- et les 51 merges sans `#` du depot sont tous des
+    `Merge remote-tracking branch 'origin/...'`, qui ne portent aucun numero par construction.
     """
     out = {}
     txt = _git(["log", "--all", "--not", "HEAD", "--format=%s%n%b", "--no-merges"],
