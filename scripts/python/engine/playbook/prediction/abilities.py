@@ -23,6 +23,9 @@ from ...entities.effects.loki.enmity_for_the_unworthy import (
     CTX_ADJACENT_UNITS as _ENMITY_CTX_UNITS, CTX_ADJACENT_DA as _ENMITY_CTX_DA)
 # #953 : meme regle, meme foyer -- la cle du couple de PV du porteur vit dans la classe d'effet.
 from ...entities.effects.loki.skullsmasher import CTX_OWNER_HEALTH as _SKULLSMASHER_CTX_HEALTH
+# #1078-r3 : meme regle, meme foyer -- une seule cle pour les DEUX vecteurs de prediction.
+from ...entities.effects.loki.hunter_of_souls import (
+    CTX_ADJACENT_PSYKER_FRIENDS as _HUNTER_CTX_PSYKER)
 # `UnitTrait.Summon` (2) : trait lu par le selecteur de 1147 (`UnitsWithTrait(..., 2)`), cote gate ET
 # cote noeud DSL (`ctx.has_trait`, cable dans `make_damage_predictions`).
 from ...entities.traits.unit_trait import (UnitTrait as _UnitTrait, has_trait as _has_trait,
@@ -36,6 +39,7 @@ import engine.playbook.adjacency as _adjacency   # foyer PARTAGE multi-tuiles (#
 # `AAmountFormula$$CalculateAverage`). MEME foyer que `AActiveAbility.get_damage`, pour que les
 # deux paires de variables (`minDmg`/`maxDmg` et `minDmg_2`/`maxDmg_2`) partagent l'arrondi.
 from engine.dsl.base import calculate_average
+from engine.entities.effects.loki.deathwing import CTX_ADJACENT_DA as _CTX_ADJACENT_DARK_ANGELS_FRIENDS   # #1042-r5
 # ⚠ La forme `from engine.playbook import adjacency` declarerait le PAQUET (elle en lit
 # l'attribut), pas le module -- et `engine.playbook` atteint deja ce module par `.base`, donc
 # l'arete refermait un SCC de 16 (`test_270r4r2_cycles_imports_offline` etage 1, MESURE).
@@ -231,7 +235,7 @@ def generate_multi_hit_attack_prediction(scene, uid, tgt, ability_id, ability_na
                                                                     (GC.unit(scene.vis_by_id.get(tgt))
                                                                      or {}).get("GrandAllianceId"),
                                                                 "att_team": scene.team(uid),
-                                                                "adjacent_dark_angels_friends":
+                                                                _CTX_ADJACENT_DARK_ANGELS_FRIENDS:
                                                                     scene.adjacent_dark_angels_friends(
                                                                         uid),
                                                                 # #948 -- les DEUX compteurs
@@ -256,6 +260,14 @@ def generate_multi_hit_attack_prediction(scene, uid, tgt, ability_id, ability_na
                                                                         uid, attack_pos),
                                                                 _ENMITY_CTX_DA:
                                                                     scene.enmity_adjacent_dark_angels_friends(
+                                                                        uid, attack_pos),
+                                                                # #1078-r3 -- MEME cle et MEME
+                                                                # tuile candidate que ses deux
+                                                                # voisins : cabler un seul des
+                                                                # deux vecteurs creerait un fork
+                                                                # interne a la prediction.
+                                                                _HUNTER_CTX_PSYKER:
+                                                                    scene.hunter_of_souls_adjacent_psyker_friends(
                                                                         uid, attack_pos),
                                                                 # #953 -- le couple de PV du PORTEUR
                                                                 # (`StatAmount(Owner, Health,

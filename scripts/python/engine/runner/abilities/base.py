@@ -18,6 +18,7 @@ from ..components import OwnerComponent
 from ..components import OwnerComponent, PositionComponent, UnitComponent
 from ..components import StatsComponent
 from ..components import StatsComponent, UnitComponent, unit_state_for_effects
+from engine.entities.effects.ctx_keys import CTX_TERTIARY_ABILITY_STATE_OF as _CTX_TERTIARY_ABILITY_STATE_OF   # #1042-r5
 
 if TYPE_CHECKING:
     from ..state import State
@@ -211,7 +212,7 @@ def ability_pierce_effect_bonus(state: "State", caster_id: int, target_id, abili
                   "target_traits": traits,
                   "owner_ctx": csc.ctx, "is_ranged": is_ranged,
                   "is_overwatch": bool(is_overwatch), "unit_ctx_of": _unit_ctx_of,
-                  "tertiary_ability_state_of": _tertiary_ability_state_of})
+                  _CTX_TERTIARY_ABILITY_STATE_OF: _tertiary_ability_state_of})
 
 
 def turns_from_rounds(rounds: int) -> int:

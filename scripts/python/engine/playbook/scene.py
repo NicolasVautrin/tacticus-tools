@@ -57,6 +57,8 @@ _TYRANIDS = UnitFaction.Tyranids.name
 #: `Scene._enmity_adjacent` (#948).
 _TRAIT_STEPPABLE = UnitTrait.Steppable.name
 _TRAIT_OBJECT = UnitTrait.Object.name
+#: #1078-r3 -- `UnitsWithTrait(..., UnitTrait.Psyker = 0x3ea, 3)` de `HunterOfSouls_ExtraDamage`.
+_TRAIT_PSYKER = UnitTrait.Psyker.name
 
 
 @dataclass
@@ -884,6 +886,44 @@ class Scene:
             c = self.ctx(oid)
             tr = (getattr(c, "traits", None) or ()) if c is not None else ()
             if _TRAIT_STEPPABLE in tr or _TRAIT_OBJECT in tr:
+                continue
+            n += 1
+        return n
+
+    def hunter_of_souls_adjacent_psyker_friends(self, uid, at_pos=None) -> "int | None":
+        """`Count( UnitsWithTrait( AdjacentFriends(Owner@<DSLSelectors+0x30>, unique: 1, 3),
+        UnitTrait.Psyker = 0x3ea, 3 ) )` -- `IdunBattle.Entities.Effects.Loki.
+        HunterOfSouls_ExtraDamageEffect$$GetUnits`, face PREDICTION du MEME arbre que
+        `runner.components.hunter_of_souls_adjacent_psyker_friends_count` (#1078-r3).
+
+        ⚠ CE N'EST PAS `_enmity_adjacent` : ce compteur filtre par TRAIT (pas par FACTION) et n'a
+        AUCUN etage `NonSteppableOrObjectUnits` -- les deux absences sont LUES au decompile. Un ami
+        Psyker `Steppable` ou `Object` est COMPTE ici et ECARTE chez Enmity.
+
+        `at_pos` = la TUILE CANDIDATE du plan (meme lecture que `_enmity_adjacent`, #948-r1 :
+        `IdunBattle.Operations.SimulateEffectsOperation$$DoActionInSimulatedTile` DEPLACE
+        reellement l'unite avant d'invoquer l'action de prediction). Absente -> position courante.
+
+        `None` (equipe ou position du porteur inconnue) => cle ABSENTE => aucune contribution cote
+        effet (degradation RESTRICTIVE) -- jamais un 0 invente."""
+        here = self.pos(uid)
+        team = self.team_by_id.get(uid)
+        if here is None or team is None:
+            return None
+        elev, neigh = self.elev_by_pos, self.neigh_by_pos
+        sujet = _adj.subject_tiles_at(self, uid, at_pos)
+        n = 0
+        for u in (self.units or ()):
+            oid = u.get("id")
+            if oid == uid or not u.get("alive"):        # op_Subtraction(<ring>, origin)
+                continue
+            if u.get("team") != team:                   # AdjacentFriends(Owner)
+                continue
+            if not _adj.unit_in_adjacent_tiles(self, uid, oid, elev, neigh, sujet):
+                continue
+            c = self.ctx(oid)                           # UnitsWithTrait(..., Psyker, 3)
+            tr = (getattr(c, "traits", None) or ()) if c is not None else ()
+            if _TRAIT_PSYKER not in tr:
                 continue
             n += 1
         return n

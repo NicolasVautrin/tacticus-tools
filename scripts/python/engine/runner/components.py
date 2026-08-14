@@ -20,6 +20,7 @@ from ..entities.effect_targets import is_effect_target as _iet
 from ..entities.effects.loki.amulet_of_the_voidwyrm import (
         adjacent_friendly_summons_and_decoys_selector)
 from ..entities.effects.loki.deathwing import adjacent_dark_angels_friends_selector
+from ..entities.effects.loki.hunter_of_souls import adjacent_psyker_friends_selector   # #1078-r3
 from ..entities.effects.loki.intoxicating_elixir import debuffed_units_in_range_selector
 from ..entities.effects.loki.kardiocore_galvanus import adjacent_mechanical_friends_selector
 from ..entities.effects.loki.maw_claws_of_thyrax import adjacent_summons_selector
@@ -3783,6 +3784,28 @@ def enmity_adjacent_dark_angels_friends_count(state, unit_id: int) -> Optional[i
         return None
     from .abilities.behaviours.context import entities_from_state
     return int(_enmity.adjacent_dark_angels_friends_selector().calculate(
+        entities_from_state(state, int(unit_id))))
+
+
+def hunter_of_souls_adjacent_psyker_friends_count(state, unit_id: int) -> Optional[int]:
+    """`Count( UnitsWithTrait( AdjacentFriends(Owner@<DSLSelectors+0x30>, unique: 1, 3),
+    UnitTrait.Psyker = 0x3ea, 3 ) )` -- `IdunBattle.Entities.Effects.Loki.
+    HunterOfSouls_ExtraDamageEffect$$GetUnits` (#1078-r3).
+
+    ⚠ CE N'EST PAS `enmity_adjacent_dark_angels_friends_count` (#948) : le compteur d'Enmity passe
+    par `NonSteppableOrObjectUnits` et filtre par FACTION, celui-ci filtre par TRAIT et n'a AUCUN
+    etage de retrait -- les deux absences sont LUES au decompile, pas supposees. Les confondre
+    sous-compterait les amis Psyker `Steppable`/`Object`, que le natif COMPTE.
+
+    `None` si le porteur n'a ni equipe ni tuile (le selecteur est GEOMETRIQUE **et** par equipe) --
+    jamais un 0 invente, qui eteindrait le bonus en silence."""
+    ent = state.get_entity(unit_id)
+    oc = ent.get_component(OwnerComponent) if ent is not None else None
+    pc = ent.get_component(PositionComponent) if ent is not None else None
+    if oc is None or oc.team is None or pc is None:
+        return None
+    from .abilities.behaviours.context import entities_from_state
+    return int(adjacent_psyker_friends_selector().calculate(
         entities_from_state(state, int(unit_id))))
 
 

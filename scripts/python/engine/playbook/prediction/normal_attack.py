@@ -19,6 +19,10 @@ from engine.entities.effects.loki.enmity_for_the_unworthy import (
     CTX_ADJACENT_UNITS as _ENMITY_CTX_UNITS, CTX_ADJACENT_DA as _ENMITY_CTX_DA)
 # #953 : meme regle, meme foyer -- la cle du couple de PV du porteur vit dans la classe d'effet.
 from engine.entities.effects.loki.skullsmasher import CTX_OWNER_HEALTH as _SKULLSMASHER_CTX_HEALTH
+# #1078-r3 : meme regle, meme foyer -- la cle vit dans la classe d'effet, une seule pour les
+# DEUX faces.
+from engine.entities.effects.loki.hunter_of_souls import (
+    CTX_ADJACENT_PSYKER_FRIENDS as _HUNTER_CTX_PSYKER)
 # #1015-r1 : meme foyer de nommage que la face COMBAT (`runner/damage_model.py`).
 from engine.entities.effects.loki.close_combat_weakness import (
     CTX_ADJACENT_ENEMIES as _CCW_CTX_ADJACENT_ENEMIES)
@@ -34,6 +38,9 @@ from engine.services.battle_query import get_attack_weapon_for_default_normal_at
 from engine.services.damage_modifiers import DamageModifiers
 from engine.runner.abilities.loki import mv71 as _mv71
 from engine.services.damage_prediction import DamagePredictionResult
+from engine.entities.effects.loki.deathwing import CTX_ADJACENT_DA as _CTX_ADJACENT_DARK_ANGELS_FRIENDS   # #1042-r5
+from engine.entities.effects.loki.daemonic_patrons import CTX_COUNT_KEY as _CTX_ADJACENT_TAUNTED_ENEMIES   # #1042-r5
+from engine.entities.effects.loki.norn_crown import CTX_TGT_EFFECT_NAMES as _CTX_TGT_EFFECT_NAMES   # #1042-r5
 
 
 # ── #57c-C : overrides `<Boss>_NormalAttackAbility.PredictAttack` (attaque normale + follow-up) ──
@@ -482,7 +489,7 @@ def _make_mv71_drone_predictions(scene, att_id, tgt_id, attack_pos, *, meta=Fals
     # `runner/operations/additional_hits.py`, deja sur `target_trait_names`).
     _ah_ctx = {"is_melee": False,
                "tgt_traits": _entity_traits(scene, tgt_id),
-               "tgt_effect_names": frozenset(
+               _CTX_TGT_EFFECT_NAMES: frozenset(
                    n for n in (getattr(_e, "name", None) for _e in (scene.effects(tgt_id) or [])) if n),
                # #419-r1-tr11-r3 : idem la facade normale, mais la tuile d'attaque est celle du
                # DRONE (`tile_pos`) -- c'est elle que ce chemin thread deja partout ailleurs
@@ -661,7 +668,7 @@ def make_normal_attack_predictions(scene, att_id, tgt_id, attack_pos, *, meta=Fa
                 # `pos_by_id`, donc un plan qui DEPLACE Hascule hors du contact predit encore le
                 # bonus. Residu NOMME dans `docs/rl/case-911-daemonic-patrons.md` ; la face COMBAT,
                 # elle, mesure la position REELLE au moment du coup.
-                "adjacent_taunted_enemies": scene.adjacent_taunted_enemies(att_id),
+                _CTX_ADJACENT_TAUNTED_ENEMIES: scene.adjacent_taunted_enemies(att_id),
                 # `PsychicStalk_FriendlyChaosExtraDamage` (#366-r1, effet 1435) -- PATTE SELF du
                 # slot `CreateEffectDamageBonusForAttack` : gates `HasTrait(Caster@0x48, Chaos)`,
                 # `EntitiesWithAnyEffect(Tiles(Target@0x60), Fire)` (la MAIN TILE de la cible,
@@ -717,7 +724,7 @@ def make_normal_attack_predictions(scene, att_id, tgt_id, attack_pos, *, meta=Fa
                 # `att_gu` = le KIT (`GrandAllianceId` est une donnee de CONFIGURATION).
                 "tgt_grand_alliance": (GC.unit(scene.vis_by_id.get(tgt_id)) or {}).get("GrandAllianceId"),
                 "att_team": scene.team(att_id),
-                "adjacent_dark_angels_friends": scene.adjacent_dark_angels_friends(att_id),
+                _CTX_ADJACENT_DARK_ANGELS_FRIENDS: scene.adjacent_dark_angels_friends(att_id),
                 # #948 -- les DEUX compteurs d'`EnmityForTheUnworthy` (`darkaCompanion` << Forcas >>),
                 # PATTE SELF comme les cles ci-dessus (l'OWNER de chaque effet parcouru EST
                 # l'attaquant, ce qu'exige leur `get_OwnerIsCaster`). MEMES cles et MEME semantique
@@ -736,6 +743,12 @@ def make_normal_attack_predictions(scene, att_id, tgt_id, attack_pos, *, meta=Fa
                 # l'entite a ete posee. Les deux voisins relevent du MEME gisement, non ferme.
                 _ENMITY_CTX_UNITS: scene.enmity_adjacent_units(att_id, attack_pos),
                 _ENMITY_CTX_DA: scene.enmity_adjacent_dark_angels_friends(att_id, attack_pos),
+                # #1078-r3 -- `Count(UnitsWithTrait(AdjacentFriends(Owner), Psyker))` de
+                # `HunterOfSouls_ExtraDamageEffect$$GetUnits`. MEME cle, MEME semantique et MEME
+                # tuile candidate que les deux voisins ci-dessus ; c'est ce qui empeche le fork
+                # entre les deux faces (la face COMBAT la pose dans `runner/damage_model.py`).
+                _HUNTER_CTX_PSYKER:
+                    scene.hunter_of_souls_adjacent_psyker_friends(att_id, attack_pos),
                 # #953 -- `StatAmount(Owner@DSLSelectors+0x30, Health, {Missing, Maximum})` de
                 # `Skullsmasher_ExtraDamageEffect$$GetMissingHealthSteps`, PATTE SELF comme les cles
                 # ci-dessus (l'OWNER de chaque effet parcouru EST l'attaquant, ce qu'exige son
@@ -926,7 +939,7 @@ def make_normal_attack_predictions(scene, att_id, tgt_id, attack_pos, *, meta=Fa
     # cote COMBAT (`runner/operations/additional_hits.py` : `target_trait_names(state, target_id)`).
     _ah_ctx = {"is_melee": is_melee,
                "tgt_traits": _entity_traits(scene, tgt_id),
-               "tgt_effect_names": frozenset(
+               _CTX_TGT_EFFECT_NAMES: frozenset(
                    n for n in (getattr(_e, "name", None) for _e in (scene.effects(tgt_id) or [])) if n),
                # #419-r1-tr11-r3 : les DEUX positions, sans lesquelles un gate `IsAtRange` du canal
                # #179 est inevaluable (`SpecialIssueCombiMelta_AdditionalHits` 1563, d == 2).

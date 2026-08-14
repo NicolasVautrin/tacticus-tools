@@ -38,6 +38,7 @@ from .components import (StatsComponent, HealthComponent, OwnerComponent, Positi
                          adjacent_dark_angels_friends_count,
                          enmity_adjacent_units_count,
                          enmity_adjacent_dark_angels_friends_count,
+                         hunter_of_souls_adjacent_psyker_friends_count,
                          close_combat_weakness_adjacent_enemies_count,
                          adjacent_enemy_ids,
                          # #1073 : le PREMIER disjoint de `SynapticInsight_ExtraHits`, ancre sur la
@@ -54,6 +55,10 @@ from ..entities.effects.loki.close_combat_weakness import (
 # un seul foyer de nommage pour les DEUX faces (COMBAT ici, PREDICTION dans `playbook/`).
 from ..entities.effects.loki.enmity_for_the_unworthy import (
     CTX_ADJACENT_UNITS as _ENMITY_CTX_UNITS, CTX_ADJACENT_DA as _ENMITY_CTX_DA)
+# #1078-r3 : MEME discipline -- la cle vient de la classe d'effet, un seul foyer de nommage pour
+# les DEUX faces (COMBAT ici, PREDICTION dans `playbook/prediction/_shared.py`).
+from ..entities.effects.loki.hunter_of_souls import (
+    CTX_ADJACENT_PSYKER_FRIENDS as _HUNTER_CTX_PSYKER)
 from ..entities.effects.loki.skullsmasher import CTX_OWNER_HEALTH as _SKULLSMASHER_CTX_HEALTH
 # #1011 : memes deux cles pour les DEUX faces de `NornCrownEffect` -- un seul foyer de nommage.
 from ..entities.effects.loki.norn_crown import (
@@ -117,6 +122,7 @@ from ..services.static_battle_rules import is_tile_status_effect
 from ..utilities.tile import terrain_tile_effects
 from .components import PersistentDataComponent
 from .components import charged_unit_ids
+from engine.entities.effects.loki.headwoppas_killchoppa import CTX_ATT_VISUAL_ID as _CTX_ATT_VISUAL_ID   # #1042-r5
 
 _BIG_HP = 1 << 30          # santé cible « infinie » → scenario sans overkill/cap
 
@@ -632,7 +638,7 @@ def _apply_ally_attack_damage_auras(state: State, att_id: int, mods, is_ranged: 
            # Gulgortz). Le ctx d'aura ne publiait AUCUN canal d'IDENTITE de l'attaquant : sans cette
            # cle le gate serait ferme en permanence, donc la face AURA inerte. `None` = NON MESURE
            # (unite ou `visual_id` introuvable), jamais une chaine vide -- l'effet se tait alors.
-           "att_visual_id": _unit_visual_id(state, att_id),
+           _CTX_ATT_VISUAL_ID: _unit_visual_id(state, att_id),
            # #999-r3-r1 -- RARETE de l'ATTAQUANT, `BaseUnitComponent.Rarity` (+0x74). Le
            # BENEFICIAIRE de ce canal est l'attaquant (`get_OwnerIsCaster` apres que la boucle
            # native a ecrit `AbilityEntities+0x18 (Owner) <- CHAQUE CIBLE du selecteur`), donc un
@@ -1056,6 +1062,16 @@ def attacker_modifiers(state: State, unit_id: int, hp: Optional[int], is_ranged:
     # d'Enmity porte en plus l'etage `NonSteppableOrObjectUnits`.
     att_ctx[_ENMITY_CTX_UNITS] = enmity_adjacent_units_count(state, unit_id)
     att_ctx[_ENMITY_CTX_DA] = enmity_adjacent_dark_angels_friends_count(state, unit_id)
+    # #1078-r3 : `Count(UnitsWithTrait(AdjacentFriends(Owner@<DSLSelectors+0x30>, unique: 1, 3),
+    # UnitTrait.Psyker = 0x3ea, 3))` -- le compteur d'`IdunBattle.Entities.Effects.Loki.
+    # HunterOfSouls_ExtraDamageEffect$$GetUnits`. MEME regime que les cinq cles ci-dessus : sur ce
+    # canal l'OWNER de chaque effet parcouru EST l'attaquant (l'agregateur n'itere que SES effets),
+    # ce qu'exige le `get_OwnerIsCaster` de son `CreateEffectDamageBonusForAttack`. Foyer unique
+    # `components.hunter_of_souls_adjacent_psyker_friends_count` ; tri-etat conserve (`None` = le
+    # porteur n'a ni equipe ni tuile), jamais un 0 invente -- il eteindrait le bonus en silence.
+    # ⚠ DISTINCT des deux compteurs d'Enmity juste au-dessus : filtre par TRAIT (pas par FACTION)
+    # et AUCUN etage `NonSteppableOrObjectUnits`, les deux LUS au decompile.
+    att_ctx[_HUNTER_CTX_PSYKER] = hunter_of_souls_adjacent_psyker_friends_count(state, unit_id)
     # #1015-r1 : `HasAdjacentEnemies(Caster@+0x48, CasterTile@+0x50, includeObjects: false,
     # includeSteppables: false)` -- le terme GEOMETRIQUE de
     # `CloseCombatWeakness_ReduceDmg_Effect$$NearbyEnemiesCondition`. MEME regime que les quatre

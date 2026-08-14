@@ -135,16 +135,24 @@ def _liaisons_locales(arbre, par_nom_court):
     chaines pour un meme nom court) est ECARTEE plutot que devinee.
     """
     liaisons = {}
+    classes_locales = set()
 
     def _par_nom(nom):
         vals = par_nom_court.get(nom)
         return next(iter(vals)) if vals and len(vals) == 1 else None
 
-    def _visiter(corps):
+    def _visiter(corps, dans_classe=False):
         for noeud in corps:
             if isinstance(noeud, ast.ClassDef):
-                _visiter(noeud.body)
-            elif isinstance(noeud, ast.ImportFrom):
+                # ⚠ NE PAS descendre dans le corps d'une classe en APLATISSANT ses attributs.
+                # Mesure du 2026-08-14 : `power_up.py` definit CINQ classes portant chacune un
+                # `ABILITY_NAME` DIFFERENT ; les aplatir faisait resoudre les cinq cles
+                # `PowerUpXxxAbility.ABILITY_NAME` vers la MEME chaine, donc un faux
+                # << cle posee 5 fois dans le meme dict >>. Un attribut de classe n'est
+                # accessible que via SON receveur -- il n'appartient pas a l'espace plat.
+                classes_locales.add(noeud.name)
+                continue
+            if isinstance(noeud, ast.ImportFrom):
                 for alias in noeud.names:
                     chaine = _par_nom(alias.name)
                     if chaine is not None:
@@ -163,7 +171,7 @@ def _liaisons_locales(arbre, par_nom_court):
                         liaisons[cible.id] = liaisons[noeud.value.id]
 
     _visiter(arbre.body)
-    return liaisons
+    return liaisons, classes_locales
 
 
 def _cles_dupliquees_dans_un_dict(chemin: Path, par_nom_court):
@@ -183,7 +191,7 @@ def _cles_dupliquees_dans_un_dict(chemin: Path, par_nom_court):
         arbre = ast.parse(source)
     except (SyntaxError, UnicodeDecodeError):
         return []
-    liaisons = _liaisons_locales(arbre, par_nom_court)
+    liaisons, classes_locales = _liaisons_locales(arbre, par_nom_court)
 
     def _resoudre(cle):
         if isinstance(cle, ast.Constant) and isinstance(cle.value, str):
@@ -191,6 +199,11 @@ def _cles_dupliquees_dans_un_dict(chemin: Path, par_nom_court):
         if isinstance(cle, ast.Name):
             return liaisons.get(cle.id)
         if isinstance(cle, ast.Attribute):
+            # Un attribut porte par une CLASSE definie ici n'est PAS resolvable par son nom
+            # court : deux classes du meme module peuvent porter le meme nom d'attribut avec
+            # des valeurs DIFFERENTES (mesure : les cinq `PowerUpXxxAbility.ABILITY_NAME`).
+            if isinstance(cle.value, ast.Name) and cle.value.id in classes_locales:
+                return None
             if cle.attr in liaisons:
                 return liaisons[cle.attr]
             vals = par_nom_court.get(cle.attr)

@@ -74,6 +74,9 @@ from .loki.synaptic_insight import (                       # #1073 (passif tyran
 from .loki.enmity_for_the_unworthy import (                # #948 (passif darkaCompanion)
     EnmityForTheUnworthyExtraDamageEffect, EnmityForTheUnworthyExtraDamagePctEffect
 )
+from .loki.hunter_of_souls import (                        # #1078-r3 (passif thousSmnDaemonPrince)
+    HunterOfSoulsExtraDamageEffect
+)
 from .loki.terrors_lament import (                         # #950 (passif eldarJainZar, 1119 + 1120)
     TerrorsLamentDamageReductionEffect, TerrorsLamentHitReductionEffect
 )
@@ -1146,6 +1149,17 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # Cf. `loki/enmity_for_the_unworthy.py` pour les QUATRE ecarts entre les deux.
     "EnmityForTheUnworthy_ExtraDamage": EnmityForTheUnworthyExtraDamageEffect,
     "EnmityForTheUnworthy_ExtraDamagePct": EnmityForTheUnworthyExtraDamagePctEffect,
+    # #1078-r3 -- `HunterOfSouls_ExtraDamage` (0x5d7 = 1495), passif `HunterOfSouls` (0x5d9 =
+    # 1497) de `thousSmnDaemonPrince` << Z'Kar >>. JUMEAU STRUCTUREL de 1400 ci-dessus, au filtre
+    # pres : `IdunBattle.Entities.Effects.Loki.HunterOfSouls_ExtraDamageEffect$$
+    # CreateEffectDamageBonusForAttack` = `ForAddition(get_OwnerIsCaster, Multiply(ConfigVar
+    # 8=extraDmg, Count(UnitsWithTrait(AdjacentFriends(Owner, unique 1, 3), Psyker=0x3ea, 3))))`.
+    # DEUX ecarts avec 1400, tous deux LUS au decompile et non supposes : le filtre porte sur un
+    # TRAIT (pas la FACTION), et il n'y a AUCUN etage `NonSteppableOrObjectUnits` -- donc un ami
+    # Psyker `Steppable`/`Object` est COMPTE ici. TROISIEME ecart : AUCUNE `CreateActiveCondition`
+    # (aucun symbole de ce nom pour la classe), d'ou l'absence d'`active_condition_ported` et
+    # l'absence d'entree de seed d'owner-effects.
+    "HunterOfSouls_ExtraDamage": HunterOfSoulsExtraDamageEffect,
     # ModifiedExoarmour (passif triggered 0x5f9=1529 de votanChampion << Kimm >>) : +extraDmg[ablvl
     # passif] x mult x TILES-PARCOURUES-CE-TOUR, additif PRE-percage, sur les attaques de MELEE du
     # porteur (`IdunBattle.Entities.Effects.Loki.ModifiedExoarmour_ExtraDmgEffect$$
