@@ -32,7 +32,7 @@ from ..runner.snapshot import active_ability_names_by_unit
 from ..runner.snapshot import active_only_rows
 from ..runner.snapshot import config_active_ability_names_by_unit
 from ..runner.snapshot import passive_ability_names_by_unit
-from ..runner.snapshot import triggered_ability_ids_by_unit
+from ..runner.snapshot import triggered_ability_ids_by_unit, triggered_ability_states_by_unit
 from engine.entities.pathfinding.board import Board
 from engine.entities.stats import StatComponent, ValueModification
 from engine.entities.stats import StatType as _ST
@@ -103,6 +103,13 @@ class Scene:
     # le natif passe au playbook et qui indexe les variables config (TryGetVariableArrayForLevel
     # IdunBattle.Configuration.AbilityConfiguration$$TryGetVariableArrayForLevel) ; le canal global (mult_by_id/activeAbilityLevel) est un fallback.
     abstate_by_id: dict = field(default_factory=dict)
+    # AbilityState PER-TRIGGERED (#1042-r1) : {uid: {abilityId: (level, multiplier)}} — capteur
+    # `unitAbilityStates`, le MEME payload que `_seed_measured_triggered`. C'est ce que relit
+    # `IdunBattle.Entities.Effects.BaseEffect$$GetAbilityStateReference` pour un effet pose par une
+    # TRIGGERED, et pour une MYTHIQUE de MoW c'est l'etat **TERTIAIRE** (`1..4 / 100`) -- que
+    # `abstate_by_id` ne porte PAS (son capteur ne publie que les ACTIVES). Table vide = canal muet
+    # -> l'accesseur rend `None` et le lecteur retombe sur le couple bake de l'instance.
+    trigstate_by_id: dict = field(default_factory=dict)
     # TotalAttacksMade PER-UNITE (#106) : {uid: totalAttacksMade} — capteur actorStats
     # (ActorStatisticsComponent +0x20). Indexe le buff MartialInspiration (+33%/tour). Defaut {}
     # -> count=0 (debut de bataille / from_state offline) si non capte.
@@ -509,6 +516,7 @@ class Scene:
             machine_of_war_position=machine_of_war_position,
             board=board if board is not None else predictor.get("board"),
             abstate_by_id=predictor.get("abstate_by_id") or {},
+            trigstate_by_id=predictor.get("trigstate_by_id") or {},      # #1042-r1
             actorstats_by_id=predictor.get("actorstats_by_id") or {},
             defstat_by_id=predictor.get("defstat_by_id") or {},
             turns_started_by_id=predictor.get("turns_started_by_id") or {},
@@ -1039,6 +1047,27 @@ class Scene:
         (offline `from_state`, ou entrée absente) → l'appelant retombe sur le canal global."""
         return (self.abstate_by_id.get(uid) or {}).get(ability_id)
 
+    def triggered_ability_state(self, uid, ability_name):
+        """`(level, multiplier)` de l'ability DECLENCHEE `ability_name` montee sur `uid` -- face
+        DECISION du foyer `runner/operations/triggers/base.py::triggered_ability_state` (#357).
+
+        Mirror de `IdunBattle.Entities.Effects.BaseEffect$$GetAbilityStateReference` : pour une
+        MYTHIQUE de MoW (ou une relique EQUIPEE) c'est l'etat **TERTIAIRE**, `1..4 / 100`, et non
+        celui des PASSIFS (`50 / 180` en runner normalise) -- confondre les deux lit le dernier
+        palier de la config au lieu du bon (`ToZeroBasedIndex` clampe).
+
+        La table est clee par ORDINAL (`raw[0]` = `TriggeredAbilityType`), l'appelant par NOM : la
+        resolution passe par le MIRROR, jamais par un ordinal ecrit ici. Nom hors de l'enum, uid
+        absent ou canal muet -> `(None, None)` = NON MESURE, jamais un couple devine."""
+        from ..entities.triggered_ability_type import TriggeredAbilityType   # feuille enum (#485-r1-r1)
+        par_id = self.trigstate_by_id.get(uid)
+        if not par_id:
+            return (None, None)
+        member = getattr(TriggeredAbilityType, str(ability_name), None)
+        if member is None:
+            return (None, None)
+        return par_id.get(int(member)) or (None, None)
+
     def defense_stat(self, uid):
         """`StatComponent` DEFENSE (stat 3) de l'unité — mirror du DefenseComponent natif consommé
         par la face défenseur de `IdunBattle.Core.Services.DamageCalculations$$CalculateModifiersFromStatModifications` (#194).
@@ -1415,6 +1444,13 @@ def build_predictor(rpc, rid):
     # `TriggeredAbilitiesUtility(2)` -- que `scene_tile_leaf_ctx` interrogeait deja sans que rien ne
     # le seede sur ce chemin.
     _seed_measured_triggered(ctx_by_id, _abst)
+    # #1042-r1 : l'`AbilityState` PER-TRIGGERED du MEME payload -- `{uid: {abilityId: (lvl, mult)}}`.
+    # C'est ce que `IdunBattle.Entities.Effects.BaseEffect$$GetAbilityStateReference` relit pour
+    # tout effet pose par une TRIGGERED, et pour une MYTHIQUE de MoW c'est l'etat **TERTIAIRE**
+    # (`1..4 / 100`). `abstate_by_id` (capteur `combatSnapshot.abilityStates`) ne publie que les
+    # ACTIVES -> sans cette table, la face DECISION n'avait AUCUN canal et les deux auras 1443/1445
+    # restaient INERTES. COUT NUL (meme payload, aucun RPC de plus).
+    trigstate_by_id = triggered_ability_states_by_unit(_abst)
     # TotalAttacksMade PER-UNITE (#106) — capteur actorStats (ActorStatisticsComponent +0x20). Capture
     # au BUILD (point-in-time = count au pas 0). DYNAMIQUE (incremente a chaque attaque) -> RE-CAPTUREE
     # PAR-PAS par `refresh_shields` (#33 : sans ce refresh, une prediction mid-bataille indexee par ce
@@ -1446,6 +1482,7 @@ def build_predictor(rpc, rid):
     return {"ctx_by_id": ctx_by_id, "armor_by_id": armor_by_id, "shield_by_id": shield_by_id,
             "mult_by_id": mult_by_id, "ablvl_by_id": ablvl_by_id, "vis_by_id": vis_by_id,
             "abstate_by_id": abstate_by_id, "actorstats_by_id": actorstats_by_id,
+            "trigstate_by_id": trigstate_by_id,          # #1042-r1, cf. son seed ci-dessus
             "tiles_moved_by_id": tiles_moved_by_id,
             # #46 : TurnsStarted (stat 12) — gate slot-4 « pas au 1er tour ». DYNAMIQUE ->
             # re-capturé par-pas via `refresh_shields` (le cold seul serait figé au pas 0).

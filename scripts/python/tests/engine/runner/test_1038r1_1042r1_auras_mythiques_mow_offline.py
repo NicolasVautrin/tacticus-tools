@@ -450,6 +450,106 @@ def test_les_deux_facades_posent_la_cle_du_resolveur(monkeypatch):
 
 # ==================================================== H -- la FACE NATIVE des contributions
 
+# =============== I -- `GetAbilityState(effet)` : d'ou vient le NIVEAU, et d'ou il ne vient PAS
+
+@pytest.mark.parametrize("et", (CD, WOTA), ids=("1443", "1445"))
+def test_aucun_repli_sur_le_niveau_de_stack(et):
+    """LE BUG QUE LA MESURE LIVE A TROUVE, FIGE ICI (#1042-r1).
+
+    Le port lisait `self.ability_level if ... else self.level`. Or `level` est le niveau de **STACK**
+    de l'effet (`decisionView.effects[].level`), pas un niveau d'ability -- et il vaut justement
+    `1` sur ces deux instances. MESURE LIVE (runner `mow`, `WisdomOfTheAncients:4`, board MC1_67) :
+    ce repli lisait `dmgReductionPct[1] = 10` et rendait `x0.90` contre `x0.80` natif, soit une
+    DEMI-reduction -- un nombre plausible et FAUX, que rien d'offline ne montrait.
+
+    L'arbitrage retenu est celui de `MastersOfManoeuvreEffect` (meme famille, meme variable, meme
+    fabrique) : `AbilityState` non mesure -> `None`, l'effet est INERTE. Une sous-prediction NOMMEE
+    vaut mieux qu'une magnitude devinee."""
+    from engine.entities.effects.factory import EffectFactory
+
+    # Instance telle que la capture LIVE la produit : `level` (stack) = 1, AUCUN `ability_level`.
+    inst = EffectFactory.create({"name": et.name, "effectType": int(et), "source": MOW_ID,
+                                 "active": True, "level": 1}, 180, None)
+    assert inst.ability_level is None, "le montage ne mesure rien : l'instance porte deja un niveau"
+    assert inst.level == 1, "le niveau de STACK n'est pas celui que la capture live publie"
+    ctx = (_ctx_1443() if et is CD
+           else {"owner_id": MOW_ID, "tgt_id": P1,
+                 "wisdom_of_the_ancients_target_ids_of": lambda _oid: frozenset({P1})})
+    assert inst.create_aura_defense_damage_malus_for_ally(ctx) is None, (
+        f"{et.name} contribue SANS `AbilityState` : le repli sur le niveau de STACK est revenu, et "
+        f"il lit `dmgReductionPct[1]` la ou le natif lit le palier TERTIAIRE reel")
+
+
+@pytest.mark.parametrize("et,ability", ((CD, "ContemptuousDisregard"),
+                                        (WOTA, "WisdomOfTheAncients")),
+                         ids=("1443", "1445"))
+def test_le_callable_d_etat_d_ability_prime_sur_l_instance(et, ability):
+    """`GetAbilityState(effet)` interroge la SOURCE par le foyer #357, et ce canal PRIME sur le
+    couple bake de l'instance -- il porte l'etat TERTIAIRE (`1..4 / 100`), l'instance peut porter
+    celui des PASSIFS (`50 / 180`) quand aucun re-bake n'a eu lieu."""
+    from engine.entities.effects.factory import EffectFactory
+    from engine.entities.effects.loki.damage_reduction import CTX_TERTIARY_ABILITY_STATE_OF
+
+    vus = []
+
+    def _etat(oid, nom):
+        vus.append((oid, nom))
+        return (4, 100)
+
+    inst = EffectFactory.create({"name": et.name, "effectType": int(et), "source": MOW_ID,
+                                 "active": True, "level": 1}, 180, 50)   # PASSIFS : 50 / 180
+    ctx = (_ctx_1443() if et is CD
+           else {"owner_id": MOW_ID, "tgt_id": P1,
+                 "wisdom_of_the_ancients_target_ids_of": lambda _oid: frozenset({P1})})
+    ctx[CTX_TERTIARY_ABILITY_STATE_OF] = _etat
+    eb = inst.create_aura_defense_damage_malus_for_ally(ctx)
+    assert vus == [(MOW_ID, ability)], (
+        f"le callable n'est pas interroge avec (SOURCE, {ability!r}) : vus={vus}")
+    assert eb is not None and eb.value == PALIERS[3], (
+        f"le couple TERTIAIRE (4/100) n'a pas prime : value={getattr(eb, 'value', None)} "
+        f"(attendu {PALIERS[3]}, le palier 4 -- 50/180 aurait donne {PALIERS[3] * 180 // 100})")
+
+
+def test_scene_expose_l_etat_par_triggered_et_est_tri_etat():
+    """`Scene.triggered_ability_state` -- face DECISION du foyer #357, substrat
+    `unitAbilityStates`. C'est ce qui manquait : `Scene.ability_state` ne porte que les ACTIVES
+    (son capteur `combatSnapshot.abilityStates` publie `kind: active`), donc les deux auras etaient
+    INERTES cote DECISION."""
+    from engine.playbook.scene import Scene
+    from engine.entities.triggered_ability_type import TriggeredAbilityType
+    from engine.runner.snapshot import triggered_ability_states_by_unit
+
+    # Le PARSING, sur la forme EXACTE du capteur (`raw[0]` = l'ordinal, `level` / `mult` a plat).
+    payload = {"units": [{"entityId": MOW_ID, "triggered": [
+        {"level": 4, "mult": 100, "raw": [int(TriggeredAbilityType.WisdomOfTheAncients), 0, 0, 0]},
+        {"level": 50, "mult": 180, "raw": [1257, 0, 0, 0]},
+        {"level": None, "mult": 100, "raw": [1258, 0, 0, 0]},      # niveau NON MESURE -> ecarte
+    ]}]}
+    par_unit = triggered_ability_states_by_unit(payload)
+    assert par_unit[MOW_ID][int(TriggeredAbilityType.WisdomOfTheAncients)] == (4, 100)
+    assert par_unit[MOW_ID][1257] == (50, 180), "les PASSIFS restent lisibles, sous leur propre id"
+    assert 1258 not in par_unit[MOW_ID], "un niveau NON MESURE ne doit poser AUCUNE entree"
+
+    def _scene_nue(**kw):
+        """`Scene` MINIMALE -- toutes les tables vides sauf celle qu'on mesure. On passe par le
+        vrai constructeur (et non un stub) parce que c'est l'ACCESSEUR de `Scene` qui est teste."""
+        return Scene(units=[], hp_by_id={}, pos_by_id={}, team_by_id={}, ctx_by_id={},
+                     armor_by_id={}, shield_by_id={}, mult_by_id={}, ablvl_by_id={},
+                     vis_by_id={}, eff_state=None, **kw)
+
+    sc = _scene_nue(trigstate_by_id=par_unit)
+    assert sc.triggered_ability_state(MOW_ID, "WisdomOfTheAncients") == (4, 100)
+    assert sc.triggered_ability_state(MOW_ID, "ContemptuousDisregard") == (None, None), \
+        "ability non montee -> NON MESURE, jamais un couple devine"
+    assert sc.triggered_ability_state(999, "WisdomOfTheAncients") == (None, None)
+    assert sc.triggered_ability_state(MOW_ID, "PasUnMembreDeLEnum") == (None, None), \
+        "nom hors du mirror -> NON MESURE (la resolution passe par le mirror, pas par un ordinal)"
+    assert _scene_nue().triggered_ability_state(MOW_ID, "WisdomOfTheAncients") == (None, None), \
+        "canal muet -> NON MESURE ; le lecteur retombe alors sur le couple bake de l'instance"
+
+
+# ==================================================== H -- la FACE NATIVE des contributions
+
 @pytest.mark.parametrize("et", (CD, WOTA), ids=("1443", "1445"))
 def test_face_native_defenseur(et):
     """Les deux classes derivent de `IdunBattle.Entities.Effects.BaseEffect` et implementent

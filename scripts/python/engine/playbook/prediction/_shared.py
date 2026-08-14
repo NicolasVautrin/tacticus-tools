@@ -25,7 +25,8 @@ from engine.entities.effects import (
 from engine.entities.effects.loki.hits import LIGHT_COVER_TILE_ID
 from engine.entities.rarity import Rarity as _Rarity   # `idun.meta.Rarity` (#1042-r1)
 from engine.entities.effects.loki.damage_reduction import (   # #1042-r1 -- un seul foyer de nommage
-    CTX_WISDOM_TARGET_IDS_OF as _WOTA_CTX_TARGET_IDS)
+    CTX_WISDOM_TARGET_IDS_OF as _WOTA_CTX_TARGET_IDS,
+    CTX_TERTIARY_ABILITY_STATE_OF as _MYTHIC_CTX_ABILITY_STATE)
 from engine.entities.effects.loki.obsessive_annunciation import (   # #954 -- un seul foyer de nommage
     CTX_ADJACENT_ENEMY_IDS_OF as _OA_CTX_ADJ_ENEMY_IDS)
 from engine.entities.traits import attacker_bonus_hits, target_hit_multiplier
@@ -719,6 +720,14 @@ def _add_positional_and_defender_mods(mods, scene, att_id, tgt_id, is_melee, att
                             # (`damage_model.wisdom_of_the_ancients_target_ids`) -- pas de fork.
                             _WOTA_CTX_TARGET_IDS:
                                 lambda oid: wisdom_of_the_ancients_target_ids(scene, oid),
+                            # #1038-r1 / #1042-r1 -- `GetAbilityState(effet)` des deux auras
+                            # MYTHIQUES de MoW (1443, 1445) : l'etat **TERTIAIRE** de la SOURCE,
+                            # `1..4 / 100`. MEME cle et MEME semantique que la face COMBAT
+                            # (`damage_model._tertiary_ability_state_fn`, foyer #357) ; le substrat
+                            # est ici `Scene.trigstate_by_id` (capteur `unitAbilityStates`, MEME
+                            # payload que les quatre seeds voisins). TRI-ETAT : `(None, None)` =
+                            # non mesure -> l'effet est INERTE, jamais une magnitude devinee.
+                            _MYTHIC_CTX_ABILITY_STATE: scene.triggered_ability_state,
                             "tile_effects_by_pos": scene.tile_effects_by_pos}):
         # #446-r2 : ces auras sortent de la boucle `EffectWithTarget` de
         # `IdunBattle.Core.Services.DamageCalculations$$CalculateDefenderModifiersForPrediction` --

@@ -1586,6 +1586,52 @@ _WISDOM_OF_THE_ANCIENTS_ABILITY_ID = "WisdomOfTheAncients"
 #: evalue contre l'etat REEL. Rend un `frozenset` d'ids, ou `None` = NON MESURE. MEME forme et MEME
 #: raison que `obsessive_annunciation.CTX_ADJACENT_ENEMY_IDS_OF` (#954).
 CTX_WISDOM_TARGET_IDS_OF = "wisdom_of_the_ancients_target_ids_of"
+#: callable `(owner_id, ability_name) -> (level, multiplier)` -- mirror de
+#: `IdunBattle.Entities.Effects.BaseEffect$$GetAbilityState`, foyer UNIQUE
+#: `runner/operations/triggers/base.py::triggered_ability_state` (#357). MEME cle que
+#: `ElectrochaffBackupsDamageReductionPctEffect` / `NornCrownEffect` / `HeadwoppasKillchoppaEffect`.
+CTX_TERTIARY_ABILITY_STATE_OF = "tertiary_ability_state_of"
+
+
+def _mythic_ability_state(effect, ctx) -> tuple:
+    """`GetAbilityState(effet)` pour un owner-effect pose par une ability MYTHIQUE de MoW --
+    `(niveau, multiplicateur)`, ou `(None, None)` quand RIEN n'est mesure.
+
+    `IdunBattle.Entities.Behaviours.AddEffectBehaviour$$DefaultEffectBuilder(id, abilityState)`
+    BAKE l'`AbilityStateReference` de l'ability QUI POSE dans `EffectComponent+0x18`, et
+    `IdunBattle.Entities.Effects.BaseEffect$$GetAbilityStateReference` relit CE champ et rien
+    d'autre. Pour une mythique de MoW c'est l'etat **TERTIAIRE** (`BC.Units[].TertiaryAbilityLevel`,
+    `level 1..4 / mult 100`), la ou les PASSIFS de la meme entite portent `50 / 180` en runner
+    normalise. Deux voies, dans cet ordre :
+
+      1. le callable `tertiary_ability_state_of(<la SOURCE>, <l'ability>)` -- le foyer UNIQUE #357,
+         qui lit `unitAbilityStates` et rend l'etat TERTIAIRE quand l'ability y est montee. Ces
+         effets sont poses avec `source = Owner`, donc la source EST le porteur ;
+      2. a defaut, le couple deja BAKE sur l'instance (`ability_level` /
+         `ability_variables_multiplier`), que `runner/snapshot.py::_rebake_tertiary_owner_effects`
+         ecrit quand le canal `unitAbilityStates` est lie au chargement.
+
+    ⚠ AUCUN REPLI SUR `self.level`, ET C'EST MESURE. `level` est le niveau de **STACK** de l'effet
+    (`decisionView.effects[].level`), pas un niveau d'ability -- et il vaut justement `1` sur ces
+    deux instances, ce qui lit `dmgReductionPct[1] = 10` la ou le natif lit `[4] = 20`. MESURE LIVE
+    (#1042-r1, runner `mow` niveau 4) : le repli sur `level` rendait `x0.90` contre `x0.80` natif,
+    soit une DEMI-reduction -- un nombre plausible et FAUX, exactement le profil qu'un repli
+    << raisonnable >> fabrique. `MastersOfManoeuvreEffect` (meme famille, meme variable, meme
+    fabrique) fait le meme arbitrage : `if lvl is None: return None`.
+
+    Rien de mesure -> `(None, None)` -> l'effet est INERTE (sous-prediction NOMMEE, jamais une
+    magnitude devinee)."""
+    c = ctx or {}
+    fn = c.get(CTX_TERTIARY_ABILITY_STATE_OF)
+    src = getattr(effect, "source", None)
+    if fn is not None and src is not None:
+        lvl, mult = fn(src, effect.ABILITY_ID)
+        if lvl is not None:
+            return int(lvl), int(mult if mult is not None else 100)
+    lvl = effect.ability_level
+    if lvl is None:
+        return None, None
+    return int(lvl), int(effect.ability_variables_multiplier or 100)
 
 
 class ContemptuousDisregardDamageReductionEffect(BaseEffect):
@@ -1675,9 +1721,11 @@ class ContemptuousDisregardDamageReductionEffect(BaseEffect):
             return None                                    # canal non threade -> gate FERME
         if not (set(tfx.get(tuple(tp)) or ()) & TILE_STATUS_EFFECT_NAMES):
             return None
-        lvl = self.ability_level if self.ability_level is not None else self.level
-        pct = ability_var(self.ABILITY_ID, self.VAR_DMG_REDUCTION_PCT, lvl,
-                          multiplier_pct=self.ability_variables_multiplier)
+        # `ConfigVar(0x46, GetAbilityState(effet), <effet+0x60>)` -- l'etat TERTIAIRE de la SOURCE.
+        lvl, mult = _mythic_ability_state(self, c)
+        if lvl is None:
+            return None                                    # `ConfigVar` sans `AbilityState` -> inerte
+        pct = ability_var(self.ABILITY_ID, self.VAR_DMG_REDUCTION_PCT, lvl, multiplier_pct=mult)
         if not pct:
             return None
         # `ForPercentDecrease` -> %-list DEFENSEUR (face native par defaut). `owner_is_caster` est
@@ -1772,9 +1820,11 @@ class WisdomOfTheAncientsDamageReductionEffect(BaseEffect):
         targets = resolver(int(oid))
         if targets is None or int(tid) not in targets:     # `None` = NON MESURE -> FERME
             return None
-        lvl = self.ability_level if self.ability_level is not None else self.level
-        pct = ability_var(self.ABILITY_ID, self.VAR_DMG_REDUCTION_PCT, lvl,
-                          multiplier_pct=self.ability_variables_multiplier)
+        # `ConfigVar(0x46, GetAbilityState(effet), <effet+0x60>)` -- l'etat TERTIAIRE de la SOURCE.
+        lvl, mult = _mythic_ability_state(self, c)
+        if lvl is None:
+            return None                                    # `ConfigVar` sans `AbilityState` -> inerte
+        pct = ability_var(self.ABILITY_ID, self.VAR_DMG_REDUCTION_PCT, lvl, multiplier_pct=mult)
         if not pct:
             return None
         return for_percent_decrease(False, abs(int(pct)))   # %-list DEFENSEUR (face native)

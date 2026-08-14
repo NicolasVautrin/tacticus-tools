@@ -58,7 +58,8 @@ from ..entities.effects.loki.obsessive_annunciation import (
 # #1042-r1 : le `$$CreateTargetSelector` de `WisdomOfTheAncients_DamageReductionEffect` (1445),
 # re-evalue PAR PORTEUR -- un seul foyer de nommage pour les DEUX faces (cf. `prediction/_shared`).
 from ..entities.effects.loki.damage_reduction import (
-    CTX_WISDOM_TARGET_IDS_OF as _WOTA_CTX_TARGET_IDS)
+    CTX_WISDOM_TARGET_IDS_OF as _WOTA_CTX_TARGET_IDS,
+    CTX_TERTIARY_ABILITY_STATE_OF as _MYTHIC_CTX_ABILITY_STATE)
 from ..entities.stats import StatType, ARMOR_STAT_TYPES
 from ..services.damage_prediction import get_attack_prediction, apply_pierce_and_modifiers
 from ..services.battle_query import (
@@ -1383,7 +1384,15 @@ def defender_modifiers(state: State, unit_id: int, hp: Optional[int],
                            # MEME cle, MEME semantique et MEME foyer d'adjacence NATIVE
                            # (`battle_query.is_adjacent`) que la face PREDICTION -- pas de fork.
                            _WOTA_CTX_TARGET_IDS:
-                               lambda oid: wisdom_of_the_ancients_target_ids(state, int(oid))}):
+                               lambda oid: wisdom_of_the_ancients_target_ids(state, int(oid)),
+                           # #1038-r1 / #1042-r1 -- `GetAbilityState(effet)` des deux auras
+                           # MYTHIQUES de MoW (1443, 1445). Leur `ConfigVar(0x46)` est indexe par
+                           # l'`AbilityStateReference` BAKEE a la pose, c.-a-d. l'etat **TERTIAIRE**
+                           # (`level 1..4 / mult 100`), jamais celui des PASSIFS. MEME cle, MEME
+                           # foyer (`triggered_ability_state`, #357) et MEME callable que les trois
+                           # ctx qui l'exposent deja (`attacker_modifiers`, `_crit_board`,
+                           # `collect_additional_hit_groups`) -- pas un nommage neuf.
+                           _MYTHIC_CTX_ABILITY_STATE: _tertiary_ability_state_fn(state)}):
             add_modifier(mods, eb)
     return mods, active
 

@@ -2007,6 +2007,48 @@ def triggered_ability_ids_by_unit(ability_states: dict) -> dict:
     return out
 
 
+def triggered_ability_states_by_unit(ability_states: dict) -> dict:
+    """`{entityId: {abilityId: (level, multiplier)}}` depuis le MEME payload `unitAbilityStates`
+    que `triggered_ability_ids_by_unit` ci-dessus -- l'`AbilityState` sous lequel CHAQUE ability
+    declenchee est MONTEE, toutes hierarchies (#1042-r1).
+
+    C'est le substrat de `IdunBattle.Entities.Effects.BaseEffect$$GetAbilityStateReference` pour
+    tout effet pose par une TRIGGERED : le couple `(level, mult)` que la fabrique a BAKE dans
+    `EffectComponent+0x18`. Pour une MYTHIQUE de MACHINE OF WAR, c'est l'etat **TERTIAIRE**
+    (`level 1..4 / mult 100`) -- MESURE : `unitAbilityStates` sur la MoW `ultraDreadnought` equipee
+    de `WisdomOfTheAncients:4` rend `raw = [1451, 0, 0, 0, 4, 100, ...]` avec `level = 4,
+    mult = 100`, tandis que ses PASSIFS portent `50 / 180` en runner normalise.
+
+    POURQUOI CE FOYER EXISTE, et pourquoi il n'y a pas de RPC de plus : la face COMBAT lit ce
+    couple par `runner/operations/triggers/base.py::triggered_ability_state` (#357), qui passe par
+    `UnitContext.tertiary_ability` ; la face DECISION n'avait AUCUN canal -- `combatSnapshot
+    .abilityStates` ne publie que les ACTIVES (`kind: active`), donc `Scene.ability_state(uid,
+    1451)` rendait `None`. Le payload, lui, etait deja fetche par `build_predictor` et servait
+    quatre autres seeds ; celui-ci est le cinquieme, sur le meme.
+
+    `raw[0]` = `TriggeredAbility.AbilityName` (un `TriggeredAbilityType`) ; `level` / `mult` sont
+    les champs deja projetes par le capteur. PREMIERE entree gagnante par id (`TryAdd`, meme regle
+    que le foyer voisin). Une unite presente mais sans entree declenchee recoit `{}` -- une MESURE,
+    a distinguer d'un canal muet, qui n'a aucune cle."""
+    out: dict = {}
+    for su in ((ability_states or {}).get("units") or []):
+        uid = su.get("entityId")
+        if uid is None:
+            continue
+        par_id: dict = {}
+        for t in (su.get("triggered") or []):
+            raw = (t or {}).get("raw") or []
+            v = raw[0] if raw else None
+            if not isinstance(v, int) or v <= 0 or v in par_id:
+                continue                                   # `TryAdd` : une entree par id
+            lvl, mult = (t or {}).get("level"), (t or {}).get("mult")
+            if lvl is None:
+                continue                                   # niveau NON MESURE -> pas d'entree
+            par_id[v] = (int(lvl), int(mult if mult is not None else 100))
+        out[uid] = par_id
+    return out
+
+
 def _load_triggered_abilities(state: State, ability_states: dict) -> int:
     """Seede `UnitContext.triggered_abilities` depuis le RPC `unitAbilityStates` (#456-r1).
     Rend le nombre d'unites seedees.
