@@ -17,11 +17,12 @@ from ....services.damage_modifiers import apply_all_modifiers
 from ....services.battle_query import are_tiles_adjacent, weapon_is_melee
 from ....services.attack_hits_formula import attack_hits_with_modifiers
 from ....entities.stats import StatType
+from ....entities.unit_flag import UnitFlag              # #1019-r2 : `0x15 = ForceRangedAttack`
 from ...state import State
 from ...components import (StatsComponent, HealthComponent, PositionComponent,
                            persistent_data_keys, unit_prevents_overkill,
                            can_be_overkilled, unit_is_overkilled,
-                           has_effect_of_type)                              # #484 : hisse
+                           has_effect_of_type, UnitFlagsComponent)          # #484 : hisse
 from ...damage_model import (select_weapon, select_weapon_pierce, attacker_modifiers,
                              defender_modifiers, build_hits_board, apply_elevation_bonus,
                              apply_trench_reduction, ice_crit_damage_addition,
@@ -160,8 +161,20 @@ class _Normal:
         if ap is not None and _wrp is not None:
             adj = are_tiles_adjacent((ap.col, ap.row), (_wrp.col, _wrp.row), state.board)
             dist = hexgeo.distance((ap.col, ap.row), (_wrp.col, _wrp.row))
-        pierce, _ranged, whits = select_weapon_pierce(ctx, dist, is_adjacent=adj)
-        _w = select_weapon(ctx, dist, is_adjacent=adj)
+        # #1019-r2 -- LE SECOND CONJOINT DE LA BRANCHE MELEE, qui n'etait porte NULLE PART sur cette
+        # voie. `BattleQuery$$GetAttackWeaponForDefaultNormalAttack` (slot `0xaf`) :
+        #     if (rangeType == Normal && !UnitExtensions.HasFlag(attacker, 0x15) && AreEntitiesAdjacent(..))
+        #         return FindMeleeWeapon(...);
+        # `0x15` = `UnitFlag.ForceRangedAttack`. Le drapeau ETEINT la branche melee (on retombe sur
+        # `FindRangedWeapon`, porte `dist <= Range` comprise). Cote port il n'a qu'UN poseur --
+        # `AddFlag(Caster, ForceRangedAttack)` du `WayOfTheShortBlade_AttackAbility` -- donc cette
+        # lecture est un STRICT no-op partout ailleurs : `UnitFlagsComponent` absent ou drapeau
+        # absent -> `False`, comportement inchange.
+        _afl = att.get_component(UnitFlagsComponent)
+        _forced_ranged = bool(_afl is not None and _afl.has(UnitFlag.ForceRangedAttack))
+        pierce, _ranged, whits = select_weapon_pierce(ctx, dist, is_adjacent=adj,
+                                                      force_ranged_attack=_forced_ranged)
+        _w = select_weapon(ctx, dist, is_adjacent=adj, force_ranged_attack=_forced_ranged)
         _profile = _w.get("DamageProfile") if _w else None     # profil du coup (pour vecteurs after-hit)
         # `BaseEffect$$PiercingBonusForAttack` sur la voie NORMALE (case-117 phase 2) : le natif somme
         # ces `EffectBonus` DANS `GetAttackPiercingDamageRatio` quel que soit le vecteur — l'attaque

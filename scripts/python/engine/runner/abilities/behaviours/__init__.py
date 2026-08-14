@@ -39,6 +39,8 @@ call-sites `from ..behaviours import X` restent inchanges) :
 - `lifecycle` : `KillDeadUnits`, `RemoveUnit`, `RemoveMachine`, `RemoveUnitFromItsTiles`,
                 `RemoveAllForcedAttackTargets`, `TriggerAbility` (+ futur REVIVE).
 - `grants`    : `AddTrait` (`AddTraitBehaviour`), `AddTriggeredAbility` (`AddTriggeredAbilityBehaviour`).
+- `flags`     : `AddFlag` (`AddFlagBehaviour`), `RemoveFlag` (`RemoveFlagBehaviour`) -- le pendant de
+                `grants` sur le canal `UnitFlag` (#1019-r2).
 - `turnflow`  : `ResetTurn` (`ResetUnitTurnBehaviour`), `FinishTurn` (`FinishUnitTurnBehaviour`).
 - `ability_state` : `ResetActiveAbility` (`ResetActiveAbilityBehaviour` -> `ResetActiveAbilityOperation`).
 - `ai_control`: `PerformAIAction` (`PerformAIActionBehaviour` IdunBattle.Entities.Behaviours.PerformAIActionBehaviour$$Execute -> `ComputerActionOperation`).
@@ -75,6 +77,7 @@ from .lifecycle import (KillDeadUnits, Kill, RemoveUnit, RemoveMachine, RemoveUn
                         TriggerAbilityDelayed, TRIGGERED_ABILITY_BEHAVIOURS,
                         TRIGGERED_ABILITY_DELAYED_BEHAVIOURS)
 from .grants import AddTrait, AddTriggeredAbility, first_triggered_ability_of
+from .flags import AddFlag, RemoveFlag
 from .persistent_data import (AddPersistentData, AddToPersistentDataList,
                               ClearAllPersistentData, ClearPersistentData)
 
@@ -101,4 +104,5 @@ __all__ = [
     "RemoveAllForcedAttackTargets", "TriggerAbility", "TriggerAbilityDelayed",
     "TRIGGERED_ABILITY_BEHAVIOURS", "TRIGGERED_ABILITY_DELAYED_BEHAVIOURS",
     "AddTrait", "AddTriggeredAbility", "first_triggered_ability_of",
+    "AddFlag", "RemoveFlag",
 ]
