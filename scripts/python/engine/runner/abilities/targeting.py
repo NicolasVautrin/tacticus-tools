@@ -594,6 +594,78 @@ def refuses_all_enemy_targets(options: "TargetingOptions") -> bool:
     return options.has(TR.TargetIsFriendly) or options.has(TR.TargetIsCaster)
 
 
+# --- LE SECOND JEU D'OPTIONS : `GetTargetingOptionsForContinue` (#419-r1-tr14-r5-r2-r1-r2-r2) -----
+#
+# UN RECENSEMENT DES MASQUES QUI S'ARRETE AUX `$$.ctor` EST INCOMPLET, et c'est ce que ce bloc
+# repare. Le natif produit un SECOND jeu d'options, loge a `this+0xb0` et consomme par la lambda
+# `...ActiveAbilityOperation.u003Cu003Ec__DisplayClass9_0$$u003CIsInvalidTargetu003Eb__1`
+# (slot 0xe = `AActiveAbility$$GetInvalidTargetReasonForContinue`) -- le mode « continue » d'une
+# ability multi-etapes. Aucun `$$.ctor` ne l'ecrit : il est CALCULE.
+#
+# LA LOI DE BASE, VERBATIM d'`IdunBattle.Entities.Abilities.AActiveAbility$$
+# GetTargetingOptionsForContinue` (les offsets sont ceux de la struct de 0x40 octets) :
+#
+#     SetConfigValuesInTargetingOptions(this, &this.<TargetingOptions @+0x70>)
+#     opts = TargetingOptions..ctor(<copie de this+0x70..0xaf>)     # surcharge COPIE PURE
+#     opts.<+0x20 forceMeleeTarget> = 1                             # = RangedBool.False
+#     opts.<+0x28 rules> |= 0x10000000000                           # AllowIgnoreForcedAttackTarget
+#     return Nullable<TargetingOptions>(opts)
+#
+# Soit, en clair : le masque du ctor, plus la PERMISSION d'ignorer la cible forcee (le TAUNT ne
+# contraint pas la poursuite d'une ability deja engagee), et jamais de rabattement en melee.
+#
+# ⚠ DEUX SURCHARGES REECRIVENT LE JEU ENTIER -- la fiche du residu n'en nommait qu'UNE. Chacune
+# IGNORE `this+0x70` et repart d'un litteral, donc la loi de base ne s'y applique PAS :
+#   * `1089 GreatFrostAxe` -- forme PRESET + additionalRules :
+#         TargetingOptions..ctor(&opts, &<TargetingOptions statics>+0x40, 0x4000000000)
+#     Le preset `statics+0x40` est deja lu ailleurs dans le port (`Rules = 0x4000 TargetIsEnemy`,
+#     `isSelfCasting = 0`, range = `TargetingRange statics+0x30` = RANGE_ADJACENT,
+#     `forceMeleeTarget = 1`). Masque EFFECTIF = `TargetIsEnemy | AllowDeadTarget`.
+#   * `1168 EntropyCannons` -- forme FLAGS DIRECTS (6 parametres) :
+#         TargetingOptions..ctor(&opts, 0, &<TargetingRange statics>+0x48, 1, 0x40004000, 0, 0)
+#     Masque EFFECTIF = `TargetIsEnemy | AllowNullCasterTile`, range = RANGE_WHOLE_BOARD.
+#     ⚠ IL DESARME `TargetMatchesDynamicRule` : le masque de son `.ctor` vaut `0x40004002`, celui-ci
+#     `0x40004000`. La poursuite ne re-consulte donc PAS sa regle dynamique.
+#
+# ⚠ AUCUN CONSOMMATEUR COTE PORT, ET C'EST DIT PLUTOT QUE TU : le port n'a pas la face
+# « continue » (aucune ability multi-etapes n'y passe par `b__1`), donc rien n'appelle ce qui suit.
+# C'est un RECENSEMENT, pas un chemin actif -- le residu portait sur l'exhaustivite du recensement,
+# pas sur un ecart mesure. Le cast top-level passe par `b__0`, jamais par ici.
+#
+#: `{ability_id: TargetingOptions}` -- les surcharges qui REECRIVENT le second jeu. L'exhaustivite
+#: est gardee par `tests/engine/runner/test_419_options_for_continue_offline.py`, qui balaie les
+#: `$$GetTargetingOptionsForContinue` du dump : une surcharge NEUVE au prochain build fait rougir.
+TARGETING_OPTIONS_FOR_CONTINUE_OVERRIDES: "dict[int, TargetingOptions]" = {
+    # `...GreatFrostAxeAbility$$GetTargetingOptionsForContinue` -- PRESET `<TargetingOptions
+    # statics>+0x40` + `additionalRules = 0x4000000000`.
+    int(ActiveAbilityType.GreatFrostAxe): TargetingOptions(          # 1089
+        rules=TR.TargetIsEnemy | TR.AllowDeadTarget, self_cast=False,
+        range=RANGE_ADJACENT, force_melee_target=RANGED_BOOL_FALSE),
+    # `...EntropyCannonsAbility$$GetTargetingOptionsForContinue` -- FLAGS DIRECTS, `0x40004000`.
+    int(ActiveAbilityType.EntropyCannons): TargetingOptions(         # 1168
+        rules=TR.TargetIsEnemy | TR.AllowNullCasterTile, self_cast=False,
+        range=RANGE_WHOLE_BOARD, force_melee_target=RANGED_BOOL_FALSE),
+}
+
+
+def targeting_options_for_continue(options: "TargetingOptions",
+                                   ability_id=None) -> "TargetingOptions":
+    """`IdunBattle.Entities.Abilities.AActiveAbility$$GetTargetingOptionsForContinue` -- MIRROR.
+
+    Rend le SECOND jeu d'options (`this+0xb0`), celui que lit le mode « continue ». `options` = le
+    jeu du `$$.ctor` APRES `SetConfigValuesInTargetingOptions` (cf. la loi citee au-dessus).
+
+    `ability_id` aiguille vers une SURCHARGE quand la classe en declare une : celles-ci n'appliquent
+    PAS la loi de base, elles repartent d'un litteral."""
+    if ability_id is not None:
+        sur = TARGETING_OPTIONS_FOR_CONTINUE_OVERRIDES.get(int(ability_id))
+        if sur is not None:
+            return sur
+    return replace(options,
+                   rules=int(options.rules) | int(TR.AllowIgnoreForcedAttackTarget),
+                   force_melee_target=RANGED_BOOL_FALSE)
+
+
 # --- MASQUES RE-LUS D'ABILITES DONT LA FACE COMBAT N'EST PAS PORTEE ------------------------------
 # Le masque est une propriete du `<X>Ability$$.ctor`, PAS de la behaviour : il se lit et se porte
 # independamment de `ABILITY_CLASSES` (le registre de la face COMBAT). Cette table est l'endroit ou
@@ -2145,11 +2217,27 @@ def valid_normal_attack_targets(state: "State", caster_id: int, range_override=N
                        rules=int(opts.rules) & ~int(TR.TargetMatchesDynamicRule),
                        range=custom_range(int(range_override)))
     probe = _NormalAttackTargeting(opts)
+    # LE VOLET CASTER, EN TETE (#447-r4). `TargetingQuery$$GetValidTargets` -- la fonction dont
+    # cette boucle est le mirror -- COMMENCE par lui et sort AVANT toute enumeration :
+    #     reason = GetInvalidCasterReason(caster, casterTiles, options);
+    #     if (reason.IsInvalid())  return ValidTargets.Empty;      // AUCUNE cible, pas « toutes »
+    # Meme etage que `runner/operations/turnflow.py` (#287-r4), qui le portait deja SEUL : trois
+    # mirrors de la MEME fonction native, dont deux sautaient le volet -- c'est ce que #447-r4
+    # nommait. Ici il est presque toujours INERTE (aucun masque d'attaque normale ne pose de bit
+    # `Caster*`) SAUF par la clause TUILE-NULLE, qui n'est gatee par aucun bit : une unite SANS
+    # tuile (`Burrowers` sous terre) n'a aucune cible d'attaque normale, et c'est le natif.
+    if get_invalid_caster_reason(state, int(caster_id), probe):
+        return []
     out = []
     for uid in list(state.entities.keys()):
         if int(uid) == int(caster_id):
             continue
-        if get_invalid_target_reason(state, int(caster_id), int(uid), probe) == 0:
+        # `apply_self_cast_switch=False` : la boucle native appelle la surcharge **7 arguments**
+        # (`GetInvalidTargetReason(caster, casterTiles, t, options, onlyTiles: true, range)`), qui
+        # n'a NI aiguillage self-cast NI volet caster -- c'est son APPELANTE qui porte le volet,
+        # ci-dessus. Meme couple que `turnflow.py`.
+        if get_invalid_target_reason(state, int(caster_id), int(uid), probe,
+                                     apply_self_cast_switch=False) == 0:
             out.append(int(uid))
     return out
 
@@ -2207,10 +2295,19 @@ def valid_targets_for(state: "State", unit_id, ability_type) -> Optional[list]:
     # porteur minimal, comme pour l'attaque normale.
     probe = klass() if klass is not None else _NormalAttackTargeting(opts)
     uid, out = int(unit_id), []
+    # LE VOLET CASTER, EN TETE (#447-r4) -- cf. `valid_normal_attack_targets` ci-dessus pour le
+    # VERBATIM. Ici il MORD pour de bon : ce mirror sert des abilities QUELCONQUES, dont celles qui
+    # posent `CasterHasNotMoved`, `CasterMatchesDynamicRule` ou un `CasterHasNTiles`. Un caster
+    # refuse rend `[]` -- une MESURE (`ValidTargets.Empty`), jamais `None` (qui veut dire
+    # « masque non RE-lu », deja rendu plus haut).
+    if get_invalid_caster_reason(state, uid, probe):
+        return []
     for tid in list(state.entities.keys()):
         if int(tid) == uid:
             continue
-        if get_invalid_target_reason(state, uid, int(tid), probe) == 0:
+        # `apply_self_cast_switch=False` : la boucle native emprunte la surcharge 7 arguments.
+        if get_invalid_target_reason(state, uid, int(tid), probe,
+                                     apply_self_cast_switch=False) == 0:
             out.append(int(tid))
     return out
 
@@ -3280,15 +3377,19 @@ def get_adjacent_tiles(state: "State", entity_id, only_empty_or_steppable: bool,
     offline (meme limitation, deja nommee, que `get_free_adjacent_tiles`). Le declarer plutot que le
     taire fait diverger le jour ou le substrat existera.
 
-    `only_empty_or_steppable=False` / `only_walkable_tiles=False` LEVENT : le seul call-site porte
-    est `SkyStrikeAbility$$GetDynamicInvalidTargetReason`, qui passe `(1, 1, 0)`. Mentir sur un flag
-    non mirrore serait pire que refuser.
+    `only_empty_or_steppable=False` EST DESORMAIS MIRRORE (#287-r11, le gate de `1094 TheLantern`
+    passe `(0, 1, 1)`) : le flag GATE le filtre, il ne le conditionne plus a l'entree. C'est
+    litteralement le `if (onlyEmptyOrSteppable && !IsEmptyOrSteppable(tile, state)) continue` du
+    decompile ci-dessus -- a `false`, le terme disparait, il ne s'inverse pas.
+    `only_walkable_tiles=False` LEVE toujours : AUCUN call-site porte ne le passe, et il ferait
+    entrer des tuiles que le port ne sait pas qualifier. Mentir sur un flag non mirrore serait pire
+    que refuser.
 
     Rend des `(col,row)`, dedupliques, dans l'ordre d'insertion."""
-    if not only_empty_or_steppable or not only_walkable_tiles:
+    if not only_walkable_tiles:
         raise NotImplementedError(
-            "get_adjacent_tiles: seule la combinaison du call-site porte "
-            "(only_empty_or_steppable=True, only_walkable_tiles=True) est mirroree")
+            "get_adjacent_tiles: `only_walkable_tiles=False` n'a aucun call-site porte "
+            "-- il n'est donc pas mirrore")
     board = state.board
     if board is None:
         return []
@@ -3306,7 +3407,7 @@ def get_adjacent_tiles(state: "State", entity_id, only_empty_or_steppable: bool,
                 continue                       # `OrderedSet` : deduplication
             if not board.walkable(nid):
                 continue                       # `onlyWalkableTiles` -> `TileExtensions$$IsWalkable`
-            if not tile_is_empty_or_steppable(state, coord):
+            if only_empty_or_steppable and not tile_is_empty_or_steppable(state, coord):
                 continue                       # `onlyEmptyOrSteppable` -> `IsEmptyOrSteppable`
             out.append(coord)
     return out
@@ -3558,11 +3659,11 @@ def get_invalid_caster_reason(state: "State", caster_id: int, ability) -> int:
             porter, ce serait du code mort.
         5. **`CasterMatchesDynamicRule` (0x4)**          PORTEE depuis #250 (regle-delegue
            `options+0x30` = slot vtable `+0x470` = `<X>Ability$$GetDynamicInvalidCasterReason`)
-        6. `CasterHas1/3/7Tiles` (bits 35/36/37), **`CasterHas2TurnsLeft` (52) PORTEE depuis
-           #287-r11-r1-r1**, `CasterIsMachine` (53)
+        6. **`CasterHas1/3/7Tiles` (bits 35/36/37) PORTEES depuis #895-r2**,
+           **`CasterHas2TurnsLeft` (52) PORTEE depuis #287-r11-r1-r1**, `CasterIsMachine` (53)
 
-    NON PORTEES (memes motifs qu'en tete de module) : les points 2, 3, 4b, et du point 6 les trois
-    filtres de `GetFeetCount` et `CasterIsMachine`.
+    NON PORTEES (memes motifs qu'en tete de module) : les points 2, 3, 4b, et `CasterIsMachine`
+    (bit 53) du point 6.
 
     `CasterHas2TurnsLeft` (bit 52) -- PORTEE PAR #287-r11-r1-r1. VERBATIM du decompile :
 
@@ -3635,10 +3736,44 @@ def get_invalid_caster_reason(state: "State", caster_id: int, ability) -> int:
         reason = int(ability.get_dynamic_invalid_caster_reason(state, caster_id) or 0)
         if reason:
             return reason
-    # 6. `CasterHas2TurnsLeft` (bit 52) -- APRES la regle-delegue et APRES les trois filtres de
-    #    `GetFeetCount` dans le natif ; ces trois-la n'ont AUCUN porteur qui pose AUSSI le bit 52
-    #    (les trois porteurs du bit 52 sont des MoW dont les masques ne contiennent aucun
-    #    `CasterHasNTiles`), donc leur non-port ne peut pas voler la raison a celle-ci.
+    # 6. LES TROIS FILTRES DE `GetFeetCount` -- `CasterHas1Tiles` / `CasterHas3Tiles` /
+    #    `CasterHas7Tiles` (bits 35/36/37), PORTES PAR #895-r2. VERBATIM du decompile
+    #    (`IdunBattle.Core.Services.TargetingQuery$$GetInvalidCasterReason`, surcharge
+    #    `IList<IEntity> casterTiles`), juste APRES la regle-delegue et AVANT le bit 52 :
+    #
+    #        feet = UnitExtensions.GetFeetCount(caster, state);
+    #        if ((rules >> 0x23 & 1) && feet != 1) return broken(0x800000000);
+    #        if ((rules >> 0x24 & 1) && feet != 3) return broken(0x1000000000);
+    #        if ((rules >> 0x25 & 1) && feet != 7) return broken(0x2000000000);
+    #
+    #    `IdunBattle.Entities.UnitExtensions$$GetFeetCount` = `GetUnitFeetIds(unit, state).Count`,
+    #    dont `runner.components.get_unit_feet` est le mirror (meme parcours de
+    #    `UnitComponent._feet @+0x78`, repli sur le `PositionComponent` pour l'unite mono-hex).
+    #    ⚠ NUANCE LUE, PAS SUPPOSEE : le natif compte les PIEDS (`GetUnitFeetIds`), pas les tuiles
+    #    (`IterateTiles`, qui SAUTE un pied sans tuile). Les deux coincident cote port, ou aucun
+    #    pied n'existe sans tuile.
+    #    L'ORDRE N'EST PAS COSMETIQUE : place ici, un refus de cardinal PRECEDE `CasterHas2TurnsLeft`
+    #    et SUIT la regle-delegue -- c'est lui qui fixe la raison rendue quand deux regles sont
+    #    rompues.
+    #    AUCUN REFUS INVENTE SUR UN SUBSTRAT ABSENT : `feet` vide sort deja par la clause 4a
+    #    ci-dessus chez les QUATRE porteurs du registre (aucun ne pose `AllowNullCasterTile` ni
+    #    `CasterHasNoTile` -- compte re-derivable `ABILITY_CLASSES` x `TARGETING_OPTIONS.rules`,
+    #    ne pas le citer de memoire).
+    #    Le pendant DECISION de ces trois clauses vit dans
+    #    `engine.services.ability_caster_gates.invalid_caster_reason` (etage 6) ; les deux lisent le
+    #    MEME decompile, et c'est la face RUNNER qui manquait.
+    feet_count = len(get_unit_feet(state, int(caster_id)))
+    if options.has(TR.CasterHas1Tiles) and feet_count != 1:
+        return int(TR.CasterHas1Tiles)
+    if options.has(TR.CasterHas3Tiles) and feet_count != 3:
+        return int(TR.CasterHas3Tiles)
+    if options.has(TR.CasterHas7Tiles) and feet_count != 7:
+        return int(TR.CasterHas7Tiles)
+    # 7. `CasterHas2TurnsLeft` (bit 52) -- APRES la regle-delegue et APRES les trois filtres de
+    #    `GetFeetCount`, comme dans le natif. Aucun porteur du bit 52 ne pose AUSSI un
+    #    `CasterHasNTiles` (les trois sont des MoW), donc l'ordre relatif des deux blocs est
+    #    aujourd'hui INERTE -- il est ecrit fidele parce que c'est le natif, pas parce qu'un cas
+    #    l'exerce.
     #    `has_minimum_remaining_turns` rend desormais une VALEUR dans les DEUX bras
     #    (#287-r11-r1-r1-r1) : le second lit `State.turns_ended`, le mirror de
     #    `TurnComponent.<Dictionary @+0x40>` que pose `turnflow.set_current_player` (ecrivain natif
@@ -4198,10 +4333,15 @@ def is_invalid_target(state: "State", caster_id: int, target_id: Optional[int], 
     traversee rend `0x1000` DES DEUX COTES). Le cran est `oracle_targeting.oracle_court_circuite`,
     qui lit `casterReason` -- meme etage amont, sans dependre de la cible.
 
-    ORDRE natif (overload 5 args de `TargetingQuery$$GetInvalidTargetReason`) : volet CASTER
-    d'abord (`GetInvalidCasterReason`, dont seul `CasterHasNotMoved` est porte), volet CIBLE
-    ensuite. Le natif renvoie la raison CASTER telle quelle si elle est rompue — d'ou le meme code
-    dans `casterReason` ET `targetReason` de l'oracle `abilityReason` (mesure du probe #115)."""
+    ORDRE natif (overload 5 args de `TargetingQuery$$GetInvalidTargetReason`), RELU EN ENTIER :
+    `GetRange`, puis `GetFirstOrNull(casterTiles)`, puis **`GetInvalidCasterReason`**, puis
+    seulement l'aiguillage self-cast et le filtre statique. Le natif renvoie la raison CASTER telle
+    quelle si elle est rompue -- d'ou le meme code dans `casterReason` ET `targetReason` de l'oracle
+    `abilityReason` (mesure du probe #115). ⚠ Cette note disait « dont seul `CasterHasNotMoved` est
+    porte » : PERIME. Le volet caster porte aujourd'hui `CasterHasNotMoved` (sous son prefixe
+    `IsTurnOfUnit`), la clause TUILE-NULLE, `CasterMatchesDynamicRule`, les trois filtres de
+    `GetFeetCount` et `CasterHas2TurnsLeft` -- l'etat exact se LIT dans
+    `get_invalid_caster_reason`, il ne se cite pas d'ici."""
     if ability is None:
         return 0
     caster_reason = get_invalid_caster_reason(state, caster_id, ability)

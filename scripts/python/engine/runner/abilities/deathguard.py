@@ -57,6 +57,10 @@ from ...entities.active_ability_type import ActiveAbilityType
 from ...entities.effects.magnitude import ability_var
 from ..components import PositionComponent, StatsComponent, UnitComponent, get_unit_feet
 from .base import ActiveAbility
+# FORME B (#485-r1-r1) : on lie le MODULE, pas le nom -- c'est la seule des trois ecritures ou un
+# `monkeypatch.setattr("....targeting.get_adjacent_tiles", ...)` MORD. Aucun cycle : `targeting` ne
+# reimporte pas `deathguard`, et ce module l'importe deja par la ligne suivante.
+from . import targeting as _targeting
 from .targeting import (custom_range, custom_range_func, RANGE_ADJACENT, RANGE_FROM_CONFIG,
                         RANGE_WHOLE_BOARD, RANGED_BOOL_FALSE, RANGED_BOOL_TRUE, TargetingOptions)
 from .targeting_rule import TargetingRule as TR
@@ -1897,24 +1901,17 @@ class TheLanternAbility(ActiveAbility):
     # Decomposition du masque (COMPLETE : la somme des quatre bits REND le litteral) :
     #     0x2            TargetMatchesDynamicRule -> consulte `GetDynamicInvalidTargetReason`, que
     #                    la classe SURCHARGE (avec `$$IsValidCenterTileForTargetArea`).
-    #                    **NON PORTE -- residu #1030-r1, degradation PERMISSIVE NOMMEE.** Ce qui est
-    #                    LU du corps natif, et qui ne suffit pas a l'ecrire :
+    #                    **PORTE (#1030-r1, leve par #287-r11)** -- cf. la methode ci-dessous. Le
+    #                    corps natif, VERBATIM :
     #                        A = battleQuery.<slot 0x51 GetAdjacentTiles>(casterTiles, 0, 1, 1)
     #                        B = battleQuery.<slot 0x4f GetAdjacentTiles>(targetTile, 0, 1, 1)
     #                        A.<ISet<T> slot 1>(B) ; return (A.Count == 1) ? 0 : 2
     #                    Les deux slots sont NOMMES par `metadata/interface_slots.tsv` (entree
-    #                    VERSIONNEE, derivee du `global-metadata.dat`), et
-    #                    `$$GetDynamicInvalidTargetReason` a EXACTEMENT le meme corps que
-    #                    `$$IsValidCenterTileForTargetArea` a l'encodage du retour pres. Ce qui reste
-    #                    OUVERT est le SLOT 1 d'`ISet<T>` : l'ordre metadata de l'interface n'est pas
-    #                    mesure ici, donc `ExceptWith` / `IntersectWith` ne sont pas departagees --
-    #                    et les deux donnent des ensembles differents. Ecrire l'une des deux serait
-    #                    un FIT ; ne rien ecrire laisse le gate PERMISSIF (`ActiveAbility.
-    #                    get_dynamic_invalid_target_reason` de base rend `0`), du meme cote que la
-    #                    degradation de tout ce module. Aucune entree dans
-    #                    `DYNAMIC_TARGET_RULE_UNPORTED` : cette table n'est lue que par
-    #                    `UnportedAbilityTargeting`, donc INATTEIGNABLE pour une ability PORTEE
-    #                    (mesure ecrite a l'entree 1185 de `targeting.py`).
+    #                    VERSIONNEE, derivee du `global-metadata.dat`) : 0x51 = 81 est la surcharge
+    #                    `from:IList<IEntity>`, 0x4f = 79 la surcharge `from:IEntity` -- les deux
+    #                    d'arite 4, departagees par le TYPE DECLARE lu dans `frida/methods.tsv`, pas
+    #                    par leur position. `$$GetDynamicInvalidTargetReason` a EXACTEMENT le meme
+    #                    corps que `$$IsValidCenterTileForTargetArea` a l'encodage du retour pres.
     #     0x40           TargetIsTile             -> cast TILE-TARGET (`target_id` = id de TUILE)
     #     0x100000       AllowSteppableUnit       -> permissif
     #     0x2000000000   CasterHas7Tiles          -> Mortarion occupe 7 tuiles
@@ -1928,6 +1925,52 @@ class TheLanternAbility(ActiveAbility):
         rules=(TR.TargetMatchesDynamicRule | TR.TargetIsTile | TR.AllowSteppableUnit
                | TR.CasterHas7Tiles),
         self_cast=False, range=custom_range(2), force_melee_target=RANGED_BOOL_FALSE)
+
+    def get_dynamic_invalid_target_reason(self, state: "State", caster_id: int,
+                                          target_id) -> int:
+        """`...TheLanternAbility$$GetDynamicInvalidTargetReason` -- MIRROR du DECOMPILE :
+
+            A = battleQuery.<IBattleQuery 81 GetAdjacentTiles>(casterTiles, onlyEmptyOrSteppable: 0,
+                                                               onlyWalkableTiles: 1,
+                                                               allowTemporary: 1)
+            B = battleQuery.<IBattleQuery 79 GetAdjacentTiles>(targetTile,  0, 1, 1)
+            A.<ISet<T> slot 1>(B)
+            return (A.Count == 1) ? 0 : 2
+
+        ⚠ LE SLOT 1 D'`ISet<T>` EST `IntersectWith`, ET C'EST UNE REFUTATION, PAS UN CHOIX. La
+        fiche #1030-r1 laissait `ExceptWith` / `IntersectWith` non departagees et refusait d'ecrire
+        -- a raison, tant que rien ne tranchait. Ce qui tranche :
+
+          * `ExceptWith` est IMPOSSIBLE. `|A \\ B| >= |A| - |B|`, et `|B| <= 6` (B est le voisinage
+            d'UNE tuile). Or `A` est le voisinage de l'empreinte SEPT tuiles du caster (le masque
+            pose `CasterHas7Tiles`), donc `A` contient au minimum ces sept tuiles elles-memes --
+            chacune est voisine d'une autre. Au regime nominal (plateau ouvert) `|A| = 19`, d'ou
+            `|A \\ B| >= 13`, JAMAIS 1 : la regle refuserait TOUT cast, y compris ceux que le jeu
+            execute (les effets 1194/1195 et la phase 2 existent et sont observes).
+          * `IntersectWith` rend EXACTEMENT le predicat de l'i2. Texte verbatim de
+            `Abilities/TheLantern_CurrentLevelDescription` : << Conjures a miasma of pestilence in
+            **one of six directions** that fills a 3x3 hex area adjacent to Mortarion >>. Une tuile
+            a distance 3 du centre ALIGNEE sur un axe n'a qu'UNE voisine a distance 2 (donc dans
+            `A`) ; une tuile de milieu d'arete en a DEUX. `|A inter B| == 1` selectionne donc les
+            six tuiles alignees -- les six directions, une pour une.
+
+        Seconde source INDEPENDANTE de la premiere : l'une est geometrique, l'autre est le texte
+        de l'ability. Les deux nomment le meme ensemble.
+
+        Le code de refus est le `TargetingRule` brut `0x2` (`TargetMatchesDynamicRule`), comme dans
+        tous les gates dynamiques du port.
+
+        Cible non resolue / board absent -> `0` : la convention PERMISSIVE du module (on ne fabrique
+        pas un refus sur un substrat non mesure)."""
+        if target_id is None or getattr(state, "board", None) is None:
+            return 0
+        a = _targeting.get_adjacent_tiles(state, int(caster_id), False, True, True)
+        b = _targeting.get_adjacent_tiles(state, target_id, False, True, True)
+        if not a or not b:
+            return 0                       # empreinte ou cible non resolue -> pas de refus invente
+        # `A.IntersectWith(B)` puis `A.Count` : seul le CARDINAL est lu, donc l'ordre d'insertion
+        # que preserve l'`OrderedSet` natif est sans effet ici.
+        return 0 if len(set(a) & set(b)) == 1 else int(TR.TargetMatchesDynamicRule)
 
     def execute_behaviour(self, state: "State", caster_id: int,
                           target_id: Optional[int]) -> Optional[dict]:

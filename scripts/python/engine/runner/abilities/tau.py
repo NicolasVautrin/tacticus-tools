@@ -1762,12 +1762,11 @@ class NovaBoostAbility(ActiveAbility):
     lui-meme) + l'effet 1410 `NovaBoost_PendingTarget` sur les tuiles ADJACENTES au caster
     (trenches exclues), les deux a duree DEFAUT.
 
-    GATE DYNAMIQUE NON PORTE (residu, cf. le rapport de tranche) :
-    `NovaBoostAbility$$GetDynamicInvalidCasterReason` construit un `AbilityEntities` local avec le
-    caster candidat, evalue `Enemies(Caster@+0x48, GetMarkedTilesSelector(), 3)` et rend
-    `broken(4)` si le compte est `<= 1` -- « il faut AU MOINS DEUX ennemis dans la couronne ».
-    C'est une regle de CASTER, appelee via `CasterMatchesDynamicRule` (bit 2 du masque, non porte
-    par `get_invalid_caster_reason`) : le port est donc PERMISSIF sur ce point, jamais restrictif."""
+    GATE DYNAMIQUE : PORTE PAR #895-r3, cf. `get_dynamic_invalid_caster_reason` ci-dessous. La note
+    qui vivait ici disait que `get_invalid_caster_reason` ne portait pas le point d'extension du
+    volet CASTER -- c'etait VRAI a l'ecriture, et PERIME depuis #250 : `targeting.py` invoque la
+    delegue sous `CasterMatchesDynamicRule` (bit **2** de l'enum = masque `0x4`) depuis lors. Ce qui
+    manquait n'etait donc pas l'etage, c'etait la surcharge de CETTE ability."""
     __slots__ = ()
     ABILITY_TYPE = int(ActiveAbilityType.NovaBoost)   # 1192
     ABILITY_ID = NOVA_BOOST_ID
@@ -1796,12 +1795,46 @@ class NovaBoostAbility(ActiveAbility):
     #             ⚠ Coherent avec le fait que la phase 2 fait SAUTER le caster.
     #     0x4     (bit  2) CasterMatchesDynamicRule  -> `GetInvalidCasterReason` invoque la delegue
     #             `options[+0x30]` = `NovaBoostAbility$$GetDynamicInvalidCasterReason` (>= 2 ennemis
-    #             dans la couronne). NON PORTEE -> degradation PERMISSIVE (cf. la docstring).
+    #             dans la couronne). PORTEE (#895-r3), cf. ci-dessous.
     #     0x8000  (bit 15) CasterIsPossibleTarget    -> flag DECLARATIF (preview / IA), deja mirrore
     #             (`TargetingOptions.can_target_caster`).
     TARGETING_OPTIONS = TargetingOptions(
         rules=TR.CasterMatchesDynamicRule | TR.CasterHasNotMoved | TR.CasterIsPossibleTarget,
         self_cast=True, range=RANGE_SELF, force_melee_target=RANGED_BOOL_FALSE)
+
+    def get_dynamic_invalid_caster_reason(self, state: "State", caster_id: int) -> int:
+        """`...NovaBoostAbility$$GetDynamicInvalidCasterReason` -- MIRROR 1:1 du DECOMPILE, relu en
+        entier sur `rnca9r7q6c` (#895-r3) :
+
+            AbilityEntities..ctor(&ents, caster, null, null, null, null, null, casterTiles,
+                                  null x N)                 # contexte VOLONTAIREMENT PAUVRE
+            sel = NovaBoostAbility$$GetMarkedTilesSelector(this)
+            enemies = DSLSelectors.Enemies(<dsl>+0x90, <dsl>+0x90+0x48 = Caster, sel, 3)
+            n = enemies.<vslot 0x2b8 = ITargetsSelector.Count>(ents)
+            return (1 < n) ? 0 : 4
+
+        Soit : **AU MOINS DEUX** ennemis dans la couronne du caster, sinon `broken(4)`. Le `4` est
+        le litteral `TargetingRule.CasterMatchesDynamicRule` (le natif rend le code de la DELEGUE
+        tel quel, cf. `targeting.get_invalid_caster_reason` etage 5).
+
+        ⚠ LE `3` EST UN `UnitSelectionType`, ET LA SURCHARGE EST TRANCHEE PAR L'ADRESSE APPELEE, pas
+        par la valeur : `DSLSelectors$$Enemies` a DEUX surcharges d'arite 4, et la seconde est un
+        sucre booleen qui se re-appelle avec `(onlyAlive & 0xff) + 2`. Les xrefs entrantes de
+        cette fonction pointent celle qui prend `selectionType` -> **3 = `OnlyAliveAndTargetable`**,
+        pas un booleen.
+
+        ⚠ LE SELECTEUR EST LE MEME OBJET que celui du cast (`nova_boost_marked_tiles`) : le natif
+        appelle litteralement `GetMarkedTilesSelector`, il ne re-decrit pas la zone. Un second
+        mirror de la couronne aurait pu deriver de celui du behaviour ; il n'y en a qu'un.
+
+        ⚠ LE CONTEXTE NATIF N'A NI `target` NI `owner` -- d'ou `entities_from_state(state, caster,
+        None)`. `Enemies` avec `reference=None` prend `ctx.caster`, c'est-a-dire exactement le
+        `Caster@+0x48` du call-site."""
+        ents = entities_from_state(state, int(caster_id), None)
+        sel = Enemies(nova_boost_marked_tiles(),
+                      selection_type=int(UnitSelectionType.OnlyAliveAndTargetable))
+        n = len(sel.evaluate(ents))
+        return 0 if n > 1 else int(TR.CasterMatchesDynamicRule)   # le litteral `4` du natif
 
     def execute_behaviour(self, state: "State", caster_id: int,
                           target_id: Optional[int]) -> Optional[dict]:
