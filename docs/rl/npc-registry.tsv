@@ -791,7 +791,7 @@ deathNpcBlightlord	DeathGuard	Chaos	None	trait	Hero		1
 deathNpcBlightlord	DeathGuard	Chaos	None	trait	ContagionsOfNurgle		1	
 deathNpcBlightlord	DeathGuard	Chaos	None	trait	Resilient		1	
 deathNpcBlightlord	DeathGuard	Chaos	None	trait	TerminatorArmour		1	
-deathNpcMoWCrawler	DeathGuard	Chaos	None	active	EntropyCannons	1168	1	0
+deathNpcMoWCrawler	DeathGuard	Chaos	None	active	EntropyCannons	1168	1	1
 deathNpcMoWCrawler	DeathGuard	Chaos	None	active	PlagueburstMortar	1169	1	1
 deathNpcMoWCrawler	DeathGuard	Chaos	None	trait	MachineOfWar		1	
 deathNpcPutrifier	DeathGuard	Chaos	None	active	FoulInfusion	1038	1	1
@@ -1390,7 +1390,7 @@ orksNpcKillaKan	Orks	Xenos	None	trait	GetStuckIn		1
 orksNpcKillaKan	Orks	Xenos	None	trait	BigTarget		1	
 orksNpcKillaKan	Orks	Xenos	None	trait	Explodes		1	
 orksNpcKillaKan	Orks	Xenos	None	trait	Mechanical		1	
-orksNpcMoWRukkatrukk	Orks	Xenos	None	active	SquigLaunchas	1200	1	0
+orksNpcMoWRukkatrukk	Orks	Xenos	None	active	SquigLaunchas	1200	1	1
 orksNpcMoWRukkatrukk	Orks	Xenos	None	active	SquigMine	1201	1	1
 orksNpcMoWRukkatrukk	Orks	Xenos	None	trait	MachineOfWar		1	
 orksNpcNob	Orks	Xenos	None	active	UnstoppableMomentumReworked	1152	1	1
