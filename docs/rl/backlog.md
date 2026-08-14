@@ -4890,4 +4890,45 @@ pas d'erreur : il rend **zéro**, et un zéro se lit « rien à signaler ».
   APRES ce point accuse le mauvais etage (c'est ce qui est arrive a la premiere mesure de
   `Pyreblaster`).
   FOYER: scripts/python/engine/entities/effects/loki/hits.py, scripts/python/engine/runner/damage_model.py
+- **#1071-r1 -- `RepairEnthusiast` (1514) : la face REPAIR de son playbook est un corps REEL que
+  RIEN ne peut consommer -- l'etage REPAIR n'existe pas cote port.** `[opus]`
+  Point d'entree : `docs/rl/case-1071-passifs-admec-votann.md` Sec.3 +
+  `scripts/python/tests/engine/test_1071_repair_enthusiast_verdict_offline.py`.
+  `IdunBattle.AI.Playbook.Loki.RepairEnthusiastPlaybook.u003CCalculateRepairUtilityInStepsInternalu003Ed__3$$MoveNext`
+  (corps `0xe0`, contre `0x70` pour la base qui yield 0) =
+  `if (case+0x10 != case+0x20 && !HasTriggeredAbility(case+0x20, 0x5ea)) yield
+  getUtilityVal("RepairEnthusiast_LikesRepair")` -- l'E-COG refuse de se reparer lui-meme et de
+  reparer un autre E-COG. Poids present dans `data/seed-bc.json` (= 100). Sa face MOVE, elle, est
+  TRIVIALE (`0x80`, `yield Fix64(0)`) : son absence du registre EST le comportement natif, il n'y a
+  RIEN a y porter.
+  Le bloqueur n'est PAS le porteur : `votanNpc1Ecog` (jumeau npc de `votanSmnEcog`, apparie par
+  `visualId`) s'amene par `--explicit-stats votanNpc1Ecog:45`, et son trait `Mechanic` lui donne
+  bien l'action de REPARATION. C'est l'ETAGE : aucune methode `calculate_repair_utility_in_steps`,
+  aucun registre REPAIR, aucun `evaluate_repair_in_steps` sur `TriggeredAbilitiesUtility(2)`, et le
+  composite `Repair(47)` n'est monte par aucune `ComposedUtility`. Refus deja ecrit et argumente
+  (`engine/playbook/non_owner_attack.py`, residu #271-r7) : monter un dispatcher a registre VIDE
+  est le patron #419 que le depot refuse. Cette tranche demande donc les TROIS pieces d'un coup --
+  methode, registre, dispatcher + un consommateur qui l'appelle.
+  ⚠ Un CLIQUET INVERSE est deja pose et sa morsure est VERIFIEE (mutation des deux voies) :
+  `test_1071_repair_enthusiast_verdict_offline.py::test_CLIQUET_INVERSE_...` rougit le jour ou
+  l'etage apparait, en nommant l'inscription a faire. Ne pas le retirer sans inscrire 1514.
+  FOYER: scripts/python/engine/utilities/tile.py, scripts/python/engine/playbook/adjacent_unit_preference.py, scripts/python/engine/playbook/repair_enthusiast.py, scripts/python/tests/engine/test_1071_repair_enthusiast_verdict_offline.py
+  BLOCAGE: etage
+
+- **#1071-r2 -- la face DECISION de `VengeanceForTheOmnissiah` (1298) n'est pas confrontee LIVE.**
+  `[opus]`
+  Point d'entree : `docs/rl/case-1071-passifs-admec-votann.md` Sec.2.3 +
+  `scripts/python/engine/playbook/vengeance_for_the_omnissiah.py`.
+  Le terme est **BINAIRE** (`30` ou `0`, jamais `30 x N`) : le corps natif `break` au PREMIER ami
+  MECANIQUE autre que le mover, adjacent a la tuile candidate. C'est la premiere feuille de
+  `TRIGGERED_MOVE_PLAYBOOKS` dans ce cas -- tous ses voisins de forme sont des `Count x poids` --,
+  donc c'est exactement la ou une divergence serait la plus probable et la plus SILENCIEUSE (elle
+  n'apparait qu'a partir de DEUX voisins qualifies). Le mutant offline separe deja les deux formes
+  (`test_1071_vengeance_for_the_omnissiah_offline.py`, etage 7), et le cliquet `test_419` passe ;
+  ce qui manque est un montage qui exerce le terme AU NATIF.
+  Voie : le montage de `probe_1071_vengeance_for_the_omnissiah.py` amene deja le porteur par
+  `--explicit-stats admecNpc2Techpriest:45` ; il reste a lui faire CHOISIR une tuile, avec un
+  regime a DEUX voisins mecaniques adjacents pour que binaire et produit divergent. Patron :
+  `tests/engine/test_tile_term_triggered_playbooks_live.py` (agreement `aiStepDryRun`).
+  FOYER: scripts/python/tests/engine/test_tile_term_triggered_playbooks_live.py, scripts/python/probe_1071_vengeance_for_the_omnissiah.py
   BLOCAGE: aucun

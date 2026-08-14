@@ -19,9 +19,9 @@ differe. C'est la doctrine « DECIDER != EXECUTER ».
 
 ## Bilan
 
-- Unites `npc` : **491** ; kits sans manque : **430** ; kits avec du travail : **61**
+- Unites `npc` : **491** ; kits sans manque : **431** ; kits avec du travail : **60**
 - Actives distinctes : **147** — `[--]` **1** · `[C-]` **13** · `[CD]` **133**
-- Passifs distincts : **177** — portes **119**, non portes **58**
+- Passifs distincts : **177** — portes **120**, non portes **57**
 - Traits de kit distincts (AUCUN ecarte — le seuil de frequence a disparu avec #1015) :
   **58** — couverts **57**, non couverts **1**
 - **Voies inversees** (nom absent d'`ActiveAbilityType`) : **1** — `Maugetar`
@@ -106,7 +106,6 @@ l'unite. La colonne `porteurs` dit l'exposition.
 | passif | SynapticImperative | 1 | tyranBossHiveTyrantLeviathan |
 | passif | TargetLock | 1 | tauBossRiptide |
 | passif | TheEmperorsShield | 1 | darkaBossLion |
-| passif | VengeanceForTheOmnissiah | 1 | admecNpc2Techpriest |
 | passif | Volatile | 1 | LootObj_AmmoBox |
 | passif | WatchedOver | 1 | darkaNpc4Watcher |
 
@@ -183,12 +182,11 @@ sont des **faces** absentes d'items presents.
 | astarCyrus_LHE | 0 | StrikeFromTheShadows(1225)[CD] | - | - | - |
 | astarNpc1HaywireMine | 0 | - | - | - | - |
 
-### AdeptusMechanicus — 29 unites, 2 avec du travail
+### AdeptusMechanicus — 29 unites, 1 avec du travail
 
 | unite | manque | actives (face) | passifs non portes | traits non couverts | autres voies |
 |---|---:|---|---|---|---|
 | admecBossBelisarius | 2 | InvocationOfMachineVengeance(1172)[CD]<br>ArcScourge(1173)[C-]<br>SolarAtomizer(1174)[CD] | SelfRepairMechanismReworked, PreCalibratedPurgeSolution | - | - |
-| admecNpc2Techpriest | 1 | - | VengeanceForTheOmnissiah | - | - |
 | admecBossDestroyer | 0 | SentinelDirectives(1139)[CD] | - | - | relic:KardiocoreGalvanus |
 | admecBossDestroyerCE | 0 | SentinelDirectives(1139)[CD] | - | - | relic:KardiocoreGalvanus |
 | admecBossDestroyerLHE | 0 | SentinelDirectives(1139)[CD] | - | - | relic:KardiocoreGalvanus |
@@ -214,6 +212,7 @@ sont des **faces** absentes d'items presents.
 | admecBossRuststalkerSurv | 0 | CordClaw(1122)[CD] | - | - | relic:KardiocoreGalvanus |
 | admecNpc1Vanguard | 0 | - | - | - | - |
 | admecNpc1VanguardSurv | 0 | - | - | - | - |
+| admecNpc2Techpriest | 0 | - | - | - | - |
 | admecNpc3Electropriest | 0 | - | - | - | - |
 | admecNpc3ElectropriestSurv | 0 | - | - | - | - |
 

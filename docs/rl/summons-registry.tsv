@@ -9,7 +9,7 @@ admecSmnElectropriest	AdeptusMechanicus	Imperial	None	passif	ElectroShock		1
 admecSmnElectropriest	AdeptusMechanicus	Imperial	None	trait	Summon		1	
 admecSmnElectropriest	AdeptusMechanicus	Imperial	None	trait	Mechanical		1	
 admecSmnElectropriest	AdeptusMechanicus	Imperial	None	trait	Resilient		1	
-admecSmnTechpriest	AdeptusMechanicus	Imperial	None	passif	VengeanceForTheOmnissiah		0	
+admecSmnTechpriest	AdeptusMechanicus	Imperial	None	passif	VengeanceForTheOmnissiah		1	
 admecSmnTechpriest	AdeptusMechanicus	Imperial	None	passif	OmnissiahsBlessing		1	
 admecSmnTechpriest	AdeptusMechanicus	Imperial	None	trait	Summon		1	
 admecSmnTechpriest	AdeptusMechanicus	Imperial	None	trait	Mechanical		1	

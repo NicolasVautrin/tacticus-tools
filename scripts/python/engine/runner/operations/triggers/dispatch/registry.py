@@ -200,6 +200,8 @@ from ..loki.fury_from_the_delve import (                       # #964 (passif 15
 from ..loki.ecog_support import ECogSupportAbility, ECOG_SUPPORT   # #964-r1 (passif 1487, votanIronmaster)
 from ..loki.omnissiahs_blessing import (                    # #1023 (passif 1299, admecSmnTechpriest)
     OmnissiahsBlessingAbility, OMNISSIAHS_BLESSING)
+from ..loki.vengeance_for_the_omnissiah import (            # #1071 (passif 1298, admecSmnTechpriest)
+    VengeanceForTheOmnissiahAbility, VENGEANCE_FOR_THE_OMNISSIAH)
 from ..loki.optimized_gait import (                         # #1050 (passif 1205, admecRuststalker :
     OPTIMIZED_GAIT, OptimizedGaitMoveAbility,               # attaque reactive + pas sur l'hex du mort)
     OptimizedGaitTriggerAttackAbility)
@@ -479,6 +481,27 @@ ABILITY_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
     # existe depuis #964-r1 (`dispatch/repair.py`), donc l'inscription n'est PAS registered-but-dead.
     # Cf. loki/omnissiahs_blessing.py. #1023.
     OMNISSIAHS_BLESSING: [OmnissiahsBlessingAbility],
+    # VengeanceForTheOmnissiah (passif 0x512 = 1298 d'`admecSmnTechpriest` << Tech-Priest Enginseer >>,
+    # SUMMON d'`InvocationOfMachineVengeance` ; aussi son jumeau npc `admecNpc2Techpriest`). UNE
+    # classe -- c'est le POSEUR de la pile que son co-passif 1299 ci-dessus TRANSFERE :
+    #   `On(0x36 = 54 UnitDefeated, ownerNeedsToBeAlive: 1)
+    #    & AreFriends(Owner@+0x30, Target@+0x60, comparisonType: 0, anyEntity: false)
+    #    & IsAdjacent(Owner@+0x30, Target@+0x60, selectionType: 2)
+    #    & IsMechanical(Target@+0x60, selectionType: 2)`
+    #   -> `AddEffectOrIncreaseLevel(0x555 = 1365 MachineVengeance, stateRef,
+    #       source = Owner@+0x30, targets = Owner@+0x30,
+    #       level = ConfigConst(0x73 = AbilityConstantType.effectLevel), maxLevel = NULL)`
+    # -- la mort d'un allie MECANIQUE ADJACENT empile un niveau sur le porteur, SANS cap.
+    # ⚠ `source` ET `targets` sont le MEME slot `+0x30` (le decompile lit deux fois `<Selectors>
+    # +0x30`), contrairement a 1299 qui vise `Target@+0x60`. Et AUCUN conjoint ne lit `actor_id` :
+    # ni `OwnerIsActor` ni `OwnerIsTarget` -- le porteur gagne sa pile quel que soit le TUEUR.
+    # ⚠ Le `ConfigConst` est une NUMBER-CONSTANT (`ConfigAmount$$.ctor(this, config, constantType)`
+    # -> `+0x38`, `+0x30` VIDE -> branche `GetNumberConstant` de `ConfigAmount$$Calculate`), donc
+    # HORS niveau : c'est ce qui rend l'item confrontable malgre le defaut #1049-r1 d'`--explicit-stats`.
+    # Le vecteur `On(0x36)` existe (`dispatch/move_death.py::unit_defeated_triggers`), donc
+    # l'inscription n'est PAS un registered-but-dead.
+    # Cf. loki/vengeance_for_the_omnissiah.py. #1071.
+    VENGEANCE_FOR_THE_OMNISSIAH: [VengeanceForTheOmnissiahAbility],
     # TheBetrayer = gain-rage-au-kill (mort) + auto-tour (début de tour). Cf. les 2 classes dans loki.py.
     "TheBetrayer": [TheBetrayerAddEffectAbility, TheBetrayerTakeTurnAbility],
     # ArcaneShield (Thaumachus) = bouclier à la FIN DE L'ACTIVATION du porteur : `On(0x1c=
