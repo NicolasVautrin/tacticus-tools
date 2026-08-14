@@ -8,6 +8,7 @@ from ....state import State
 from ....components import StatsComponent, HealthComponent
 from ....abilities.behaviours.combat import UseActiveAbility
 from ....abilities.behaviours.context import entities_from_state
+from ....abilities.behaviours.lifecycle import TRIGGERED_ABILITY_BEHAVIOURS   # #1002-r1
 from .....entities.stats import StatType
 from .....entities.selectors.accessors import Target
 from .....entities.selectors.tiles import Caster
@@ -136,3 +137,34 @@ class FinalJusticeAbility(TriggeredAbility):
 
     def execute_behaviour(self, state: State, ev: TriggerEvent) -> Optional[dict]:
         return _finaljustice_attack(state, self.owner_id)
+
+
+def _finaljustice_triggered_directly(state: State, owner_id: int, entities, ectx) -> Optional[dict]:
+    """Entree du noeud `TriggerAbility(_, 0x400 = TriggeredAbilityType.FinalJustice, ...)` -- le
+    SECOND point d'entree de ce behaviour, et il court-circuite `CreateTrigger` (#1002-r1).
+
+    Son unique declencheur porte est `IdunBattleLogic.Entities.Abilities.Triggered.Loki.
+    FinalVengeance_UnitEffect$$CreateTargetTriggerBehaviour` (effet 0x5ae = 1454, pose par
+    `RelicOfLostCadia` sur les summons imperiaux allies adjacents) : le summon ne PORTE pas
+    `FinalJustice`, l'effet la lui prete -- d'ou l'`ignoreUnitHavingAbility = true` de ce call-site.
+
+    ⚠ **CE QUE CETTE FONCTION DOIT RE-MATERIALISER, ET POURQUOI.** Le gate natif
+    `AmountIsGreater(Count(sortedTargets), Zero) & NOT TargetIsOverkilled` vit dans le
+    `...FinalJusticeAbility$$CreateBehaviour`, PAS dans son `CreateTrigger` -- le port l'a collapse
+    dans `FinalJusticeAbility.matches()` (choix de forme, deja documente sur la classe). Ce point
+    d'entree-ci ne passe PAS par `matches` : sans re-materialisation, le bras `Count > 0` survivrait
+    (il est dans `_finaljustice_attack`, qui rend `target: None`) mais le bras `NOT
+    TargetIsOverkilled` DISPARAITRAIT. Il est donc applique par l'APPELANT, qui seul dispose de
+    l'evenement (cf. `triggers/loki/final_vengeance.py`) ; ici on ne rejoue que le behaviour.
+
+    Signature imposee par `TRIGGERED_ABILITY_BEHAVIOURS` : `(state, owner_id, entities, ectx)`.
+    `entities`/`ectx` sont ceux du DECLENCHEUR ; `_finaljustice_attack` reconstruit son propre
+    contexte autour de `owner_id`, qui est l'unite declenchee -- exactement ce que fait le natif
+    (`TriggerAbilityBehaviour$$Execute` appelle le slot `0x56` PAR unite de `targets`)."""
+    return _finaljustice_attack(state, int(owner_id))
+
+
+# Inscription au registre du noeud `TriggerAbility` -- a l'IMPORT, comme `full_throttle` (1134) et
+# `abilities/tau.py` (1127). Ce module est deja importe par `dispatch/registry.py` (il y fournit
+# `FinalJusticeAbility`), donc l'entree existe des que le registre est charge.
+TRIGGERED_ABILITY_BEHAVIOURS[int(TriggeredAbilityType.FinalJustice)] = _finaljustice_triggered_directly
