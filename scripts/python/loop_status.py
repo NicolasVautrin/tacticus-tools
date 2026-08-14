@@ -873,7 +873,8 @@ def mesurer_livraison(src: Sources) -> dict:
         # `cause_git` et non `rc=%d` : sous `--hook`, ce poste dispose de 3 s et il a deja ete
         # mesure a 4,29 s sous charge (#467). Le lecteur doit pouvoir distinguer « budget
         # depasse » de « git absent » -- c'est la lecon de #467-r6, sur l'autre capteur.
-        for k in ("branche", "avance", "suivis_sales", "non_suivis", "non_suivis_inconnus"):
+        for k in ("branche", "avance", "retard", "suivis_sales", "non_suivis",
+                  "non_suivis_inconnus"):
             d[k] = _ko("git status --porcelain=v2", src.cause_git(rc, "status"))
     else:
         entetes, suivis, inconnus, connus = {}, [], [], 0
@@ -913,6 +914,24 @@ def mesurer_livraison(src: Sources) -> dict:
             d["avance"] = (_ok(int(out2.strip() or 0), "git rev-list origin/master..HEAD")
                            if rc2 == 0
                            else _ko("git rev-list", src.cause_git(rc2, "rev-list")))
+
+        # -- et le sens INVERSE, qui manquait (#467-r7). L'AVANCE seule est rassurante a tort :
+        # mesure le 2026-08-14, l'arbre principal etait **56 commits EN RETARD** et cette
+        # section affichait `0 commit(s) non pousse(s)`, donc rien. Cout constate : un audit
+        # GENERE lu a un compte perime (`171/3` contre `172/2`), `probe_313` rendu `rc=6` alors
+        # qu'il est VERT, et un brief d'agent entier demandant de construire un canal deja livre.
+        # Le retard se lit sans AUCUN fetch -- c'est la meme ref locale `origin/master` que
+        # ci-dessus, prise dans l'autre sens ; le commentaire du dessus n'a jamais interdit que
+        # ca, il disait seulement qu'on ne rafraichit pas la ref.
+        # ⚠ C'est donc un PLANCHER, jamais un inventaire : sans fetch, `origin/master` peut
+        # elle-meme dater. `0` ne prouve pas « a jour », il prouve « rien de connu en retard ».
+        if entetes.get("branch.upstream") == "origin/master" and " -" in ab:
+            d["retard"] = _ok(int(ab.split()[1][1:]), "git status v2 # branch.ab")
+        else:
+            rc3, out3 = src.git("rev-list", "--count", "HEAD..origin/master")
+            d["retard"] = (_ok(int(out3.strip() or 0), "git rev-list HEAD..origin/master")
+                           if rc3 == 0
+                           else _ko("git rev-list", src.cause_git(rc3, "rev-list")))
 
     # -- worktrees d'agents, et lesquels sont NETTOYABLES
     if rc_wt != 0:
@@ -1151,7 +1170,7 @@ def signaux(e: dict) -> tuple[list[Signal], list[str]]:
     # ligne PR), dont l'ignorance s'affiche deja a cote des chiffres et n'appelle aucun geste.
     # Alarmer sur une panne reseau a chaque tour ferait desarmer le hook -- exactement ce que
     # ce fichier evite depuis le debut.
-    morts = [(c, lv[c].erreur) for c in ("avance", "suivis_sales", "worktrees")
+    morts = [(c, lv[c].erreur) for c in ("avance", "retard", "suivis_sales", "worktrees")
              if not lv[c].mesuree]
     if morts:
         sig.append(Signal("livraison-inconnue", "livraison NON MESUREE : %s"
@@ -1160,6 +1179,14 @@ def signaux(e: dict) -> tuple[list[Signal], list[str]]:
     if avance:
         sig.append(Signal("push", "%d commit(s) non pousse(s) sur origin/master (branche %s)"
                           % (avance, lv["branche"].txt())))
+    retard = lv["retard"].valeur if lv["retard"].mesuree else 0
+    if retard:
+        sig.append(Signal(
+            "retard",
+            "arbre EN RETARD de %d commit(s) sur origin/master -- toute mesure prise ici "
+            "(audit genere, cliquet, brief d'agent) porte sur un arbre PERIME. "
+            "`git merge --ff-only origin/master` AVANT de conclure quoi que ce soit."
+            % retard))
     if lv["suivis_sales"].mesuree and lv["suivis_sales"].valeur:
         n = len(lv["suivis_sales"].valeur)
         sig.append(Signal("sale", "%d fichier(s) SUIVI(S) modifie(s) non commis : %s"
@@ -1290,6 +1317,9 @@ def rendu_complet(e: dict, sig: list[Signal], ctx: list[str]) -> str:
         for n in fl["enfants"].valeur:
             L.append("             . %s" % n[:64])
     L.append("LIVRAISON  %s commit(s) non pousse(s) sur origin/master" % lv["avance"].txt())
+    if not lv["retard"].mesuree or lv["retard"].valeur:
+        L.append("           EN RETARD de %s commit(s) sur origin/master (plancher : ref locale,"
+                 " pas de fetch)" % lv["retard"].txt())
     if lv["suivis_sales"].mesuree:
         L.append("           arbre : %d suivi(s) modifie(s), %s non suivi(s) dont %d inconnu(s)"
                  % (len(lv["suivis_sales"].valeur), lv["non_suivis"].txt(),
