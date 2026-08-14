@@ -273,8 +273,12 @@ def test_verrou_de_rarete_fige_avec_sa_raison():
         effect_type=int(EffectType.MoreGitzOverEre_ExtraDamagePct), ability_level=1)
     _c = {"owner_id": 90, "owner_team": 1, "tgt_id": 20, "tgt_team": 2, "att_id": 11,
           "att_team": 1, "is_melee": True, "is_normal_attack": True,
-          "tgt_adjacent_unit_profiles": ((12, 1, "orksNob", Rarity.Mythic),
-                                         (13, 1, "orksNob", Rarity.Mythic))}
+          # #1024-r2 : le profil porte un 5e champ `is_hero` (`HeroUnits` = `UnitsWithTrait(0x10)`,
+          # branche B de 1444). 1449 ne le lit pas, mais le tuple suit le contrat du PRODUCTEUR
+          # (`damage_model._adjacent_unit_profiles`) -- un temoin qui MIME le producteur doit le
+          # mimer en entier.
+          "tgt_adjacent_unit_profiles": ((12, 1, "orksNob", Rarity.Mythic, True),
+                                         (13, 1, "orksNob", Rarity.Mythic, True))}
     assert _mg.create_aura_defense_damage_malus_for_ally(
         dict(_c, att_rarity=Rarity.Mythic)) is not None, "montage degenere : le bras vrai est muet"
     assert _mg.create_aura_defense_damage_malus_for_ally(

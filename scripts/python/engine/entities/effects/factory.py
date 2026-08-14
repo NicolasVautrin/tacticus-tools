@@ -118,6 +118,7 @@ from .loki.extra_damage_aura import (
     DaughterOfTheAbyssExtraDamagePctEffect,
     DefenderOfTheGreaterGoodExtraDmgDroneEffect, DefenderOfTheGreaterGoodExtraDmgEffect,
     DoomExtraDmgEffect, LordOfTheHostExtraDamageEffect, MoreGitzOverEreExtraDamagePctEffect,
+    OnMyPositionExtraDamagePctEffect,
     PathOfCommandExtraDmgEffect,
     PsychicStalkExtraAttackDamageEffect, PsychicStalkFriendlyChaosExtraDamageEffect,
     PsychicStalkVisualEffect, RitesOfBattleExtraDmgEffect, SpotterReworkedExtraDamageEffect,
@@ -920,6 +921,21 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # `UnwaveringSentinel` de `custoKyrus` (`TriggeredAbilityType` 1449), qui n'a rien a voir.
     # L'appariement passe par le NOM PLEIN, ici comme au registre de `probe_313`.
     "MoreGitzOverEre_ExtraDamagePct": MoreGitzOverEreExtraDamagePctEffect,
+    # #1024-r2 -- `OnMyPosition_ExtraDamagePct` (`EffectType` 0x5a4 = 1444), owner-effect PERMANENT
+    # de la mythique `OnMyPosition` (0x5ac = 1452) de la MoW `astraOrdnanceBattery`. Son
+    # `$$CreateTargetSelector` projette sur les ENNEMIS (`Enemies(Owner, AdjacentUnits(<amis
+    # Cadian Guardsman> + <amis Mythiques HEROS>, unique, 3), 3)`) -> le beneficiaire est la CIBLE
+    # DU COUP -> canal `create_aura_defense_damage_malus_for_ally`, avec
+    # `AURA_DEFENSE_MALUS_NATIVE_FACE = "attacker"` (MEME arbitrage que `MoreGitzOverEre` juste
+    # au-dessus : le slot natif reste `$$CreateEffectDamageBonusForAttack`).
+    # ⚠ Le verrou de #1024 (<< aucun canal de rarete >>) est TOMBE : `att_rarity` est threade sur
+    # les DEUX faces depuis #999-r3-r1, et l'univers de porteurs est board-wide (donc
+    # MoW-compatible) depuis #999-r3-r1-r1. RE et confrontation live : `case-1024-shield-of-faith-
+    # on-my-position.md` (4 bras separants deja joues), port : `case-1024r2-on-my-position.md`.
+    # ⚠ NE PAS chercher cet effet par l'ORDINAL `1444` : il est PARTAGE avec `TriggeredAbilityType`
+    # 1444, qui est `ThrillSeekers` et n'a RIEN a voir (l'ability, elle, est `TriggeredAbilityType`
+    # 1452). L'appariement passe par le NOM PLEIN, ici comme au registre de `probe_313`.
+    "OnMyPosition_ExtraDamagePct": OnMyPositionExtraDamagePctEffect,
     # =========================================================================================
     # BlessingsOfKhorne (trait 1046, faction World Eaters — Azkor/Kharn/Wrask/Macer + bosses LHE) :
     # -8%xN degat PSYCHIQUE recu par le porteur / +3%xN TOUT degat sortant, N=min(melee-defeats
@@ -2271,6 +2287,26 @@ ABILITY_INIT_OWNER_EFFECTS: dict[str, list[str]] = {
     # board-wide depuis #999-r3-r1-r1 (donc une MoW sans position y entre).
     # Cf. `docs/rl/case-1025-mythiques-mow-verrou-rarete.md` et `case-1449-more-gitz-over-ere.md`.
     "MoreGitzOverEre": ["MoreGitzOverEre_ExtraDamagePct"],
+    # #1024-r2 -- `OnMyPositionAbility` (ability **MYTHIQUE** de la MoW `astraOrdnanceBattery` /
+    # `astraNpcMoWOrdnanceBattery`, `TriggeredAbilityType` 0x5ac = 1452). MEME forme exacte que
+    # `MoreGitzOverEre` ci-dessus, et les DEUX sources concordent : `frida/classes.tsv` donne le
+    # parent `IdunBattle.Entities.Abilities.AOwnerEffectTriggeredAbility`, et
+    # `search_symbols_by_name` ne rend pour cette classe QUE `$$GetEffectType`, dont le corps
+    # ENTIER est `return 0x5a4` (= 1444 `EffectType.OnMyPosition_ExtraDamagePct`) -- l'appariement
+    # ability -> effet est LU, pas devine. Le reste vient de la base :
+    #   `$$CreateTrigger`   = OnOwnerSpecificAbilityInit(this.AbilityType)
+    #   `$$CreateBehaviour` = If( CreateCondition(abilityState),
+    #                             AddEffect(GetEffectType(),
+    #                                       AbilityState(Owner@<DSLSelectors+0x30>, AbilityType(this)),
+    #                                       source = Owner, targets = Owner, options = <Nullable ZERO>) )
+    # -> owner-effect PERMANENT pose a l'init (`AOwnerEffectTriggeredAbility$$CreateCondition` rend
+    # la condition TOUJOURS VRAIE `DSLTriggers+0x70`).
+    # ⚠ Voie TERTIAIRE (mythique = `BC.Units[].TertiaryAbility`, montage `--equip-mythic`), donc ce
+    # seed depend de la lecture de `ctx.tertiary_ability` par `_seed_ability_owner_effects` (acquise
+    # depuis #1005). Sur un runner live l'effet est de toute facon capte par `decisionView.effects`
+    # -- PORTE PAR LA MoW (donc dans `dv["mows"]`, jamais dans `dv["units"]`, et c'est son champ
+    # `targetIds` qui enumere les affectes) -> ce seed est un FILET pour les chemins offline.
+    "OnMyPosition": ["OnMyPosition_ExtraDamagePct"],
     # #1036 -- `GuardianConstructAbility` (ability **MYTHIQUE** de la MoW `necroReanimator` /
     # `necroNpcMoWReanimator`, `TriggeredAbilityType.GuardianConstruct` = 0x5fa = 1530). Meme forme
     # exacte que `MoreGitzOverEre` ci-dessus : `frida/classes.tsv` donne le parent
