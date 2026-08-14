@@ -207,6 +207,20 @@ CONDITIONS_PORTEES_ATTESTEES = {
     "Pinned",
     "PowerTrip_FullHealth",
     "PsychicStalk_VisualEffect",
+    # #1049 -- `1322 RedThirst_ExtraDamageAndHit` (passif du summon `bloodSmnIntercessor`).
+    # Condition LUE au decompile `rnca9r7q6c` :
+    # `...Effects.Loki.RedThirst_ExtraDamageAndHitEffect$$CreateActiveCondition` =
+    # `HealthPctIsBelowOrEqual( Owner@<DSLSelectors+0x30>,
+    #                           ConfigConst(0x4e1, Owner, AbilityConstantType.healthPct = 0x4f) )`
+    # -- MEME noeud, MEME cle et MEME comparaison entiere exacte que `HammerOfWrath_ConditionalDamage`
+    # ci-dessus (`100 * courant <= healthPct * maximum`).
+    # ⚠ LOAD-BEARING, et c'est MESURE : le canal `decisionView.effects` est ACTIF-ONLY, donc a PV
+    # pleins l'instance n'existe QUE par le seed `ABILITY_INIT_OWNER_EFFECTS["RedThirst"]` -- avec
+    # `active = True` par defaut. Sans cette re-evaluation au refresh, un porteur a 100 % PV
+    # facturerait `+extraDmg` a chaque coup. Confrontation live des trois regimes
+    # (`test_1049_red_thirst_walking_pox_live.py`) : a PV pleins le natif rend EXACTEMENT les
+    # valeurs du controle sans effet, bit-exact.
+    "RedThirst_ExtraDamageAndHit",
     "ReinforcedHiveNode_ExtraArmor",
     "ReinforcedHiveNode_ExtraBlock",
     "RitesOfMorkai_ExtraDamage",              # #943, cf. le bloc ci-dessus

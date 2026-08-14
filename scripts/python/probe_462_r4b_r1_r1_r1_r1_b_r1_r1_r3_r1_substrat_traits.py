@@ -224,6 +224,16 @@ VENTILATION = {
                          "`damage.py::_kill_unit_operation` -- dont les TROIS appelants "
                          "(drain de `pending_deaths`, `_kill_steppable_units` gate `uc.alive`, "
                          "`KillUnitBehaviour` gate `uc.alive`) ne peuvent porter qu'un mort DU RUN"),
+    # #1049 -- `CursedOfTheWalkingPoxAbility` : `NOT HasTrait(Target@+0x60, 0x5 = Mechanical)`. Le
+    # sujet est la VICTIME d'un `On(0x35 = PostUnitKill)`, donc MORTE -- exactement le 3e appel de
+    # `cosmic_horror.py::_traits_of` ci-dessus, et la MEME raison le rend inerte : l'unique emetteur
+    # de ce vecteur est le foyer `damage.py::_kill_unit_operation`, dont les TROIS appelants ne
+    # peuvent porter qu'un mort DU RUN (qui a donc son `StatsComponent`). Un cadavre-AU-CHARGEMENT
+    # n'atteint jamais ce site.
+    ("runner/operations/triggers/loki/cursed_of_the_walking_pox.py", "_traits_of",
+     "getattr(sc.ctx)", "R"):
+        ("INERTE-AMONT", "victime d'un `On(PostUnitKill)` : morte PENDANT le run (meme emetteur, "
+                         "memes trois appelants que le 3e appel de `cosmic_horror.py::_traits_of`)"),
     ("runner/operations/triggers/genestealer.py", "_eligible_for_resurrect", "getattr(sc.ctx)", "R"):
         ("INERTE-AVAL", "sujet MORT et lecture ATTEINTE, mais le gate suivant "
                         "(`turn_defeated is None`) refuse tout cadavre-au-chargement : convertir "
@@ -237,8 +247,11 @@ VENTILATION = {
         ("INERTE-FRAIS", "`ctx` est construit 3 lignes plus haut par `build_summon_context`"),
     ("runner/operations/spawn.py", "execute", "ctx.traits", "R"):
         ("INERTE-FRAIS", "idem : `build_summon_context` local"),
-    ("runner/operations/spawn.py", "execute_self_replica", "ctx.traits", "R"):
-        ("INERTE-FRAIS", "idem : `_dc_replace(c_ctx, ...)` local"),
+    # #1049 -- le site d'`execute_self_replica` a DEMENAGE, il n'a pas disparu : son corps
+    # par-tuile est devenu le foyer `CopyOwner` partage avec `execute_copy_owner_on_tiles`
+    # (`CursedOfTheWalkingPoxAbility`). MEME sujet, MEME raison, une seule entree au lieu de deux.
+    ("runner/operations/spawn.py", "_spawn_copy_owner_at_tile", "ctx.traits", "R"):
+        ("INERTE-FRAIS", "`ctx` est le clone `_dc_replace(c_ctx, ...)` construit juste au-dessus"),
     ("runner/operations/spawn.py", "execute_pilein_replica", "ctx.traits", "R"):
         ("INERTE-FRAIS", "idem : `build_summon_context` local"),
     ("runner/operations/spawn.py", "trigger_spawned_unit_finish_turn", "getattr(sc.ctx)", "R"):

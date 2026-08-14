@@ -59,6 +59,43 @@ from engine.runner.messages import AttackUnitMessage                        # no
 from engine.runner.runner import Runner                                     # noqa: E402
 from engine.runner.snapshot import load_state                               # noqa: E402
 
+#: Ce qui doit changer pour que ce fichier puisse changer de verdict. LARGE A DESSEIN : il
+#: confronte le NATIF, donc il depend du BUILD (les trois corps de 1322 et les deux de 1072 vivent
+#: dans le binaire) et de tout le harnais qui monte la bataille -- pas seulement des trois modules
+#: de port que la tranche a ecrits.
+DECLENCHEUR = {
+    "chemins": (
+        "scripts/python/engine/entities/effects/loki/hits.py",
+        "scripts/python/engine/entities/effects/factory.py",
+        "scripts/python/engine/entities/effects/base.py",
+        "scripts/python/engine/entities/effects_state.py",
+        "scripts/python/engine/runner/operations/spawn.py",
+        "scripts/python/engine/runner/operations/damage.py",
+        "scripts/python/engine/runner/operations/triggers/loki/cursed_of_the_walking_pox.py",
+        "scripts/python/engine/runner/operations/triggers/dispatch/registry.py",
+        "scripts/python/engine/runner/operations/triggers/dispatch/core.py",
+        "scripts/python/engine/runner/damage_model.py",
+        "scripts/python/engine/runner/snapshot.py",
+        "scripts/python/engine/battle_query.py",
+        "scripts/python/engine/entities/selectors/tiles.py",
+        "scripts/python/engine/entities/selectors/units.py",
+        "scripts/python/engine/entities/selectors/accessors.py",
+        "scripts/python/engine/entities/triggers.py",
+        "scripts/python/tests/engine/runner/_charge_regime.py",
+        "scripts/python/tests/conftest.py",
+        "scripts/python/rl_duel.py",
+        "scripts/python/catalog_inject.py",
+    ),
+    "build": True,
+    "toujours": False,
+    "raison": (
+        "Confrontation LIVE des deux passifs #1049 sur CINQ runners (3 regimes RedThirst, "
+        "2 bras Poxwalker, + 2 generalisations board/seed). Depend du BUILD (les corps natifs de "
+        "1322 et 1072), du harnais de montage (`_charge_regime`, `rl_duel --unit-stat` pour la "
+        "greffe, `catalog_inject --explicit-stats` pour le porteur npc) et de toute la chaine de "
+        "rejeu offline (`snapshot.load_state`, `damage_model`, `battle_query.is_charging`)."),
+}
+
 #: Hote de greffe : 4 coups Physical MELEE. Son passif d'origine (`AvalancheOfMuscle`, un
 #: extra-degat lui aussi gate `IsCharging`) est REMPLACE par la greffe -- ce qui evite justement
 #: qu'il confonde le regime de charge.
@@ -112,6 +149,27 @@ def _replay_without_effect(h, rec):
     if st.effects is not None:
         for uid, lst in list(st.effects.by_unit.items()):
             st.effects.by_unit[uid] = [e for e in lst if getattr(e, "name", None) != EFFECT_NAME]
+    runner = Runner(st).install_default_handlers(20)
+    runner.apply(AttackUnitMessage(attacker_id=rec["caster"], target_id=rec["target"]))
+    return list((runner.damage_handler.last or {}).get("per_hit") or [])
+
+
+def _replay_with_effect_forced(h, rec, ability_level, mult):
+    """Rejeu du MEME coup avec l'instance 1322 MATERIALISEE DE FORCE sur le caster.
+
+    ⚠ POURQUOI CE BRAS EXISTE -- une MESURE, pas une precaution. Le mutant « `is_active` rend
+    toujours True » laissait `test_redthirst_plein_active_condition_ferme` VERT : sur l'hote de
+    GREFFE, l'instance n'existe tout simplement PAS a PV pleins (le canal `decisionView.effects`
+    est ACTIF-ONLY, et le seed `ABILITY_INIT_OWNER_EFFECTS` lit le kit **gameconfig** du
+    `visualId`, ou la greffe -- qui vit dans la `BC` -- n'apparait pas). Le bras prouvait donc
+    « live == offline » sans rien dire de la CONDITION. En posant l'instance a la main, on met le
+    port dans l'etat du VRAI porteur (`bloodSmnIntercessor`, dont le kit gameconfig porte
+    `RedThirst`, donc que le seed materialise) : c'est LA que l'active-condition est load-bearing."""
+    from engine.runner.operations.spawn import _materialize_owner_effect
+    st = h.offline_state(rec)
+    assert _materialize_owner_effect(st, rec["caster"], EFFECT_NAME, mult,
+                                     ability_level=ability_level), \
+        "l'instance 1322 etait DEJA la : le bras ne mesure pas ce qu'il croit"
     runner = Runner(st).install_default_handlers(20)
     runner.apply(AttackUnitMessage(attacker_id=rec["caster"], target_id=rec["target"]))
     return list((runner.damage_handler.last or {}).get("per_hit") or [])
@@ -172,7 +230,13 @@ def test_redthirst_nostep_blesse_degat_sans_charge(rt_blesse):
 
 def test_redthirst_plein_active_condition_ferme(rt_plein):
     """PV pleins : l'active-condition est FAUSSE, donc AUCUN des deux canaux ne mord -- meme en
-    charge. Le controle et le port coincident, et c'est le seul regime ou ce soit attendu."""
+    charge. Le natif le DIT deux fois : il rend les valeurs du controle, et il publie l'effet avec
+    `active: false` (mesure `includeInactive`).
+
+    LE 3e BRAS EST CELUI QUI GARDE LA CONDITION, et il a ete ajoute parce que le mutant l'a exige :
+    les deux premieres assertions restaient VERTES avec un `is_active` cable a `True`, l'instance
+    n'existant pas sur l'hote de greffe (cf. `_replay_with_effect_forced`). Une garde qu'on ne sait
+    pas faire echouer ne garde rien."""
     rec, off, ctl = _run(rt_plein, CHARGE)
     assert off["charged"], "le pas n'a pas charge la cible : le regime ne dit pas ce qu'il promet"
     assert off["per_hit"] == rec["live_per_hit"], (
@@ -180,6 +244,11 @@ def test_redthirst_plein_active_condition_ferme(rt_plein):
         % (len(rec["live_per_hit"]), rec["live_per_hit"], len(off["per_hit"]), off["per_hit"]))
     assert off["per_hit"] == ctl, (
         "a PV pleins le port applique quand meme 1322 : off=%s controle=%s" % (off["per_hit"], ctl))
+    # 3e bras : l'instance EST la (comme sur le vrai porteur), et elle doit rester INERTE.
+    force = _replay_with_effect_forced(rt_plein, rec, ability_level=50, mult=180)
+    assert force == rec["live_per_hit"], (
+        "1322 MATERIALISE a PV pleins contribue quand meme : force=%s | live=%s"
+        % (force, rec["live_per_hit"]))
 
 
 def test_redthirst_generalisation_autre_board_autre_seed(rt_blesse_alt):
