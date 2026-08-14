@@ -73,6 +73,9 @@ from .loki.skullsmasher import SkullsmasherExtraDamageEffect   # #953 (passif wo
 from .loki.monster_slayer_of_caliban import (              # #1009 (relique darkaCompanion, 1527)
     MonsterSlayerOfCalibanExtraBlockEffect, MonsterSlayerOfCalibanExtraDmgEffect
 )
+from .loki.contemptuous_disregard import (                 # mythique MoW blackForgefiend, 1450
+    ContemptuousDisregardDamageReductionEffect)
+from .loki.masters_of_manoeuvre import MastersOfManoeuvreEffect   # mythique MoW darkaStormSpeeder, 1508
 from .loki.first_among_traitors import FirstAmongTraitorsExtraDmgEffect   # #926 (passif blackAbaddon)
 from .loki.hunters_beyond_death import (                   # #952 (passif spaceHound)
     HuntersBeyondDeathEffect, HuntersBeyondDeathExtraDamageEffect,
@@ -1888,6 +1891,31 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # elle rendrait la mauvaise magnitude), `TriggeredAbilityType 1009` = `WhipcoilBody` (la CONFIG)
     # et `ActiveAbilityType 1009` = `ResurrectionOrb` (deja portee, `runner/abilities/necrons.py`).
     "WhipcoilBody_ReduceDmg": WhipcoilBodyReduceDmgEffect,
+    # 1443 ContemptuousDisregard_DamageReduction -- effet de l'ability MYTHIQUE de la MoW
+    # `blackForgefiend` (`TriggeredAbilityType` 0x5aa = 1450, voie TERTIAIRE).
+    # `IdunBattle.Entities.Effects.Loki.ContemptuousDisregard_DamageReductionEffect$$
+    # CreateEffectDamageMalusForDefense` = `ForPercentDecrease(get_OwnerIsTarget, ConfigVar(0x46))`,
+    # AUCUN gate. Le `ForPercentDecrease` est lu a la CONSTRUCTION (corps inline : `Multiply(-1,
+    # pct)` ecrit au slot +0x08, celui que `ForPercentIncrease` ecrit BRUT) -- cf. le module.
+    # ⚠ Son `$$CreateTargetSelector` (l'AURA : amis MYTHIQUES sur tuile a status-effect) n'est PAS
+    # porte -- `UnitsWithRarity(..., 5)` lit `GetBaseUnitComponent+0x74`, canal ABSENT du port
+    # (meme verrou que `#1025-r1`). Le port CONSOMME donc les instances captees, il ne decide pas
+    # qui en beneficie : degradation RESTRICTIVE, jamais permissive.
+    # ⚠ QUATRE enums, le meme entier : `EffectType 1443` = CET effet, `TriggeredAbilityType 1443`
+    # = `ObsessiveAnnunciation` (deja portee, `loki/obsessive_annunciation.py`), et
+    # `TriggeredAbilityType 1450` = l'ability qui pose CET effet.
+    "ContemptuousDisregard_DamageReduction": ContemptuousDisregardDamageReductionEffect,
+    # 1510 MastersOfManoeuvre -- effet de l'ability MYTHIQUE de la MoW `darkaStormSpeeder`
+    # (`TriggeredAbilityType` 0x5e4 = 1508, voie TERTIAIRE).
+    # `IdunBattle.Entities.Effects.Loki.MastersOfManoeuvreEffect$$CreateEffectDamageMalusForDefense`
+    # = `ForPercentDecrease(get_OwnerIsTarget & IsRangedAttack(), ConfigVar(0x46))` -- appel
+    # EXPLICITE a `IdunBattle.Entities.Effects.EffectBonus$$ForPercentDecrease`.
+    # ⚠ La POSE (`...MastersOfManoeuvreAbility$$CreateTrigger`) n'est PAS portee : son gate COMMUN
+    # porte `HasRarity(Actor, idun.meta.Rarity.Mythic = 5)`, canal ABSENT du port. L'effet, lui,
+    # n'a AUCUN gate de rarete -- c'est ce qui rend cette face-ci portable.
+    # ⚠ TROIS enums, les memes entiers : `EffectType 1510` = CET effet, `TriggeredAbilityType 1510`
+    # = `DeathwingKnight` (rien a voir), `TriggeredAbilityType 1508` = l'ability qui le pose.
+    "MastersOfManoeuvre": MastersOfManoeuvreEffect,
 }
 
 
@@ -2488,6 +2516,29 @@ ABILITY_INIT_OWNER_EFFECTS: dict[str, list[str]] = {
     # neanmoins, car le SEUL porteur non-npc est le summon `necroSmnDestroyer`, dont la confrontation
     # passe par la GREFFE du passif sur une unite du pool.
     "WhipcoilBody": ["WhipcoilBody_ReduceDmg"],
+    # `ContemptuousDisregardAbility` (ability **MYTHIQUE** de la MoW `blackForgefiend` /
+    # `blackNpcMowForgefiend`, `TriggeredAbilityType` 0x5aa = 1450). `frida/classes.tsv` : parent
+    # `IdunBattle.Entities.Abilities.AOwnerEffectTriggeredAbility`, et la classe n'override QUE
+    # `$$GetEffectType`, dont le corps ENTIER est `return 0x5a3` (= 1443
+    # `EffectType.ContemptuousDisregard_DamageReduction`) : l'appariement ability -> effet est LU,
+    # pas devine. Le reste vient de la base :
+    #   `$$CreateTrigger`   = OnOwnerSpecificAbilityInit(this.AbilityType)
+    #   `$$CreateBehaviour` = If( CreateCondition(abilityState),
+    #                             AddEffect(GetEffectType(), AbilityState(Owner@<+0x30>),
+    #                                       source = Owner, targets = Owner, options = <Nullable ZERO>) )
+    # -> owner-effect PERMANENT pose a l'init, exactement le patron `Vitarus` / `NornCrown` /
+    # `MoreGitzOverEre`.
+    # ⚠ MEME VOIE que ces trois : la mythique arrive par le champ TERTIAIRE
+    # (`BC.Units[].TertiaryAbility`, montage `rl_duel build --equip-mythic`), donc ce seed depend de
+    # la lecture de `ctx.tertiary_ability` par `_seed_ability_owner_effects` (acquise depuis #1005),
+    # et c'est aussi ce qui rend l'instance eligible au re-bake TERTIAIRE de
+    # `snapshot._rebake_tertiary_owner_effects` -- sans quoi elle lirait le couple des PASSIFS
+    # (50 / 180 en runner normalise) au lieu du couple tertiaire (1..4 / 100).
+    # ⚠ Ce seed ne materialise QUE l'instance de l'OWNER. Les beneficiaires de l'AURA
+    # (`$$CreateTargetSelector` = amis MYTHIQUES sur tuile a status-effect) ne sont PAS derives :
+    # le canal de rarete n'existe pas cote port. Sur un runner live ils sont CAPTES par
+    # `decisionView.effects` ; offline ils manquent -- MANQUE, jamais sur-compte.
+    "ContemptuousDisregard": ["ContemptuousDisregard_DamageReduction"],
 }
 
 
