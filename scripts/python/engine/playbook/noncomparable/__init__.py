@@ -151,6 +151,7 @@ from .duty_eternal import DutyEternalPlaybook
 # #985 -- les dernieres faces DECISION d'active.
 from .silent_death import SilentDeathPlaybook
 from .heavy_rail_rifle import HeavyRailRiflePlaybook
+from .squig_launchas import SquigLaunchasPlaybook   # #970-r3
 
 
 # Registre abilityType -> instance de playbook (remplace le switch `kind`).
@@ -572,6 +573,18 @@ PLAYBOOKS: dict[int, NonComparablePlaybook] = {
         #                                 a >= 1 allie A ELLE colle a elle. Le `- origin` est LU
         #                                 dans `DSLSelectors$$AdjacentUnits` : sans lui le gate
         #                                 serait TOUJOURS vrai (la cible est ennemie du caster).
+        SquigLaunchasPlaybook(),        # 1200 (`orksRukkatrukk`, MoW) -- #970-r3. GATE plus STRICT
+        #                                 que le ciblage : `FulfillsSummonCriteria` exige >= 2 Orks
+        #                                 OU >= 4 allies adjacents a la cible (`nrOfUnits_3/_4`,
+        #                                 0x81/0x82), la ou `GetDynamicInvalidTargetReason` -- qui
+        #                                 filtre deja `abilityTargets` -- ne demande que 1 Ork ou
+        #                                 2 allies (0x78/0x79). L'utilite est un TIRAGE
+        #                                 `IPseudoRNG.Next(1, 10)` = [1, 9] : le port la pose a sa
+        #                                 borne BASSE LUE (1), constante donc identite sur l'argmax
+        #                                 (keep-first) et `>= MIN_UTILITY` (le seuil ne filtre
+        #                                 RIEN). La cible EFFECTIVE reste indeterminable
+        #                                 (`#970-r6`). `PRIORITY = 1000` : 1200 PRIME sur
+        #                                 `SquigMine` (1201, tier 0) du meme porteur.
         HeavyRailRiflePlaybook(),       # 1160 (`tauBroadside`, MoW) -- utilite de DEGAT du
         #                                 TRIGGERED `1260`, lue au slot 4 (`CalculateAverage`,
         #                                 TRONCATURE) ; branche `IsMachine(cible)` a tirage 50 %,
@@ -668,4 +681,5 @@ __all__ = [
     "DoomboltPlaybook", "SwoopingHawkPlaybook",
     "AetherStridePlaybook", "InfernalCannonPlaybook", "EmpyricAmbushPlaybook",
     "DevastatingRefrainPlaybook", "DutyEternalPlaybook",   # #979
+    "SquigLaunchasPlaybook",                               # #970-r3
 ]

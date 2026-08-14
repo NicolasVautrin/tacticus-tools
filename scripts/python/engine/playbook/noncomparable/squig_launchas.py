@@ -91,7 +91,7 @@ donc c'est un bruit INDEPENDANT par cible. `AddAction` ne remplace que sur `>` S
     bruit -- et il franchit le seuil, ce que `0` ne ferait pas.
   * la cible EFFECTIVEMENT choisie par le natif est **INDETERMINABLE** dans un moteur
     deterministe : le port ne consomme aucun des tirages de l'IA, donc l'etat du Mersenne Twister
-    diverge des le premier. On la NOMME (residu `#970-r3-r1`), on ne la fitte pas.
+    diverge des le premier. On la NOMME (residu `#970-r6`), on ne la fitte pas.
 
 Ce qui EST determinable, et que ce port rend fidele : **quelles cibles sont proposables** (le gate)
 et **a quel tier** (`PRIORITY = 1000` = `AbilityPriority.First`, deja dans `NATIVE_PRIORITY`,
