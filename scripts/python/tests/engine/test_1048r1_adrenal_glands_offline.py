@@ -24,6 +24,26 @@ DECLENCHEUR : rejouer ce fichier pour toute tranche qui touche
 """
 from __future__ import annotations
 
+#: Ce qui doit changer pour que ce FICHIER de test puisse changer de verdict (#486-r15).
+#: `chemins` est VIDE et c'est un RESULTAT : `probe_486r15 --proposer` mesure que la fermeture
+#: d'imports de ce fichier tient ENTIEREMENT dans la cascade que le foyer derive deja (#531) --
+#: y recopier `engine/services/{movement_query,range_bonus}.py`,
+#: `engine/entities/effects/{base,factory,loki/adrenal_glands}.py`,
+#: `engine/entities/pathfinding/{board,pathfinders,walk_pathfinder,tile_blocking}.py`,
+#: `engine/battle_query.py` ou `hexgeo.py` n'ajouterait RIEN (le bloc DECLENCHEUR de la docstring
+#: ci-dessus les nomme pour le LECTEUR, pas pour le foyer).
+#: `build: True` : `ExtraRange` vient de `GetNumberConstant(0xe = extraMovement)`, lu dans le
+#: gameconfig (`data/symbols/<build>/gameconfig.json`), qu'aucun import ne revele.
+DECLENCHEUR = {
+    "chemins": (),
+    "build": True,
+    "toujours": False,
+    "raison": ("Garde le RAYON DE SOUFFLE NUL de l'etage RangeBonus dans le foyer de tout le "
+               "mouvement, la lecture `ReduceRange`-seul de MovementRangeWithAppliedBonus, et le "
+               "filtrage de GetExtraReachableTiles. Tout est dans la cascade derivee sauf la "
+               "constante gameconfig -> `build`."),
+}
+
 import hexgeo
 from engine.entities.effects.base import BaseEffect
 from engine.entities.effects.factory import ABILITY_INIT_OWNER_EFFECTS, EFFECT_CLASSES

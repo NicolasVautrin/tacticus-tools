@@ -22,6 +22,23 @@ from __future__ import annotations
 
 import pytest
 
+#: Ce qui doit changer pour que ce FICHIER de test puisse changer de verdict (#486-r15).
+#: `chemins` est VIDE et c'est un RESULTAT : `probe_486r15 --proposer` mesure que la fermeture
+#: d'imports de ce fichier (668 modules) tient ENTIEREMENT dans la cascade que le foyer derive
+#: deja (#531) -- y declarer `engine/entities/effects/{loki/hypermorph,factory,base,magnitude}.py`,
+#: `engine/services/fix64.py` ou `engine/entities/stats.py` serait une RECOPIE, pas un ajout.
+#: `build: True` : la magnitude lit `GetNumberConstant(0x4f = healthPct)` dans le gameconfig
+#: (`data/symbols/<build>/gameconfig.json`), qu'AUCUN import ne revele -- un changement de build
+#: peut donc changer le verdict sans qu'aucun module Python ait bouge.
+DECLENCHEUR = {
+    "chemins": (),
+    "build": True,
+    "toujours": False,
+    "raison": ("Garde la magnitude Fix64 de `HypermorphEffect$$GetDynamicStatModificationAmount` "
+               "(valeurs MESUREES contre le natif) et le cablage des deux registres. Tout ce "
+               "qu'il lit est soit dans la cascade derivee, soit dans le gameconfig -> `build`."),
+}
+
 from engine.entities.effects.factory import ABILITY_INIT_OWNER_EFFECTS, EFFECT_CLASSES
 from engine.entities.effects.loki.hypermorph import (HypermorphEffect, hypermorph_extra_damage)
 from engine.entities.effects.magnitude import ability_var

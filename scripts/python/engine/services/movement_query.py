@@ -486,11 +486,31 @@ def get_range_bonus_for_unit(state, board, unit_id: int, occupants: dict = None,
     `None` par defaut, donc toute unite sans `AdrenalGlands_Effect` rend `[]` et le consommateur
     (`get_movable_tiles_for`) est alors STRICTEMENT inchange. C'est aussi le regime natif quand
     `rangeBonuses` est vide."""
+    from ..entities.effects.base import BaseEffect
     from ..runner.components import unit_state_for_effects
     from ..services.range_bonus import MovementBonusContext
     eff_state = getattr(state, "effects", None) if state is not None else None
     if eff_state is None:
         return []                       # aucun canal d'effets -> aucun bonus (NON MESURE, pas 0)
+    # ── PRE-FILTRE, et il est EXACT (il ne change AUCUN resultat, seulement le cout) ────────────
+    # Ce foyer est appele a chaque calcul de mouvement du moteur, et `active_effects` EVALUE les
+    # `CreateActiveCondition` -- dont certaines montent un arbre DSL complet. MESURE sur un state
+    # reel (session 89, MC1_67, 6 unites) : sur le Hormagaunt, qui porte
+    # `InstinctiveBehaviour_BlockMovement` (condition PORTEE), `active_effects` a lui seul coute
+    # **0,358 ms** contre 0,005 ms sur une vue deja construite. Or un effet dont la classe ne
+    # SURCHARGE PAS `create_range_bonus_for_movement` rend `None` par construction : il ne peut
+    # jamais contribuer. On teste donc d'abord la SURCHARGE sur la liste BRUTE (aucune condition
+    # evaluee), et on ne paie la vue et les conditions que s'il existe un porteur potentiel.
+    # Effet MESURE, ventile (ce foyer, ms/appel) : NON-porteurs 0,010 -> 0,007 ; porteur inchange
+    # (le pre-filtre ne l'ecarte pas, par construction). Le cout total de `get_movable_tiles_for`
+    # reste 0,08-0,16 ms sur les non-porteurs (identique a `master`) et passe a 2,4 ms sur le
+    # PORTEUR SEUL -- dont ~1,9 ms de `get_extra_reachable_tiles` (un sous-pathfinding par tuile
+    # atteignable). C'est le prix de la mecanique, paye par la seule unite qui la porte.
+    base_hook = BaseEffect.create_range_bonus_for_movement
+    raw = getattr(eff_state, "by_unit", None) or {}
+    if not any(getattr(type(e), "create_range_bonus_for_movement", base_hook) is not base_hook
+               for e in (raw.get(int(unit_id)) or ())):
+        return []
     # `active_effects` = flag `EffectComponent.IsActive @+0x5c` ET `CreateActiveCondition`, la
     # MEME conjonction que le natif (`GetEffects(unit)` ne rend que les effets actifs).
     effs = eff_state.active_effects(int(unit_id), unit_state_for_effects(state, int(unit_id)))
