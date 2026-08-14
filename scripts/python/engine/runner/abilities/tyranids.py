@@ -1604,8 +1604,14 @@ class CallRipperSwarmsAbility(ActiveAbility):
     # Decomposition EXHAUSTIVE -- 0x4 + 0x8000 = 0x8004, aucun bit residuel :
     #     0x4     (bit  2) CasterMatchesDynamicRule  -> la regle dynamique du CASTER ; la classe
     #             native ne surcharge PAS `GetDynamicInvalidCasterReason` (son bloc de
-    #             `methodPointers` ne porte que `ExecuteBehaviour` et `.ctor`), donc le delegue
-    #             reste le DEFAUT d'`AActiveAbility`, qui ne refuse rien.
+    #             `methodPointers` ne porte que `ExecuteBehaviour` et `.ctor`).
+    #             ⚠ CETTE PHRASE CONCLUAIT « donc le delegue reste le DEFAUT d'`AActiveAbility`,
+    #             qui ne refuse rien » -- une conclusion que la preuve ne porte PAS : IL2CPP
+    #             DEDUPLIQUE les corps triviaux et n'en attribue qu'UN proprietaire, donc
+    #             l'absence d'un symbole ne prouve pas l'absence de surcharge. Regime inscrit :
+    #             `CASTER_GATE_NOT_READ` (`services/ability_caster_gates.py`), comme les sept
+    #             autres porteurs du bit dont la surcharge n'est pas ETABLIE -- le port ne refuse
+    #             rien, mais l'ecart est NOMME PERMISSIF au lieu d'etre affirme inexistant.
     #     0x8000  (bit 15) CasterIsPossibleTarget    -> le caster est une cible legale (self-cast).
     # AUCUNE regle de CAMP ni de TUILE : le cast ne vise que lui-meme.
     # C'est le MEME preset que celui d'`ExemplarOfTheMontkaAbility` (`tau.py`) -- deux lectures

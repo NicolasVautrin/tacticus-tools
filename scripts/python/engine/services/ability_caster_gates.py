@@ -491,6 +491,17 @@ DYNAMIC_CASTER_GATE_BY_ABILITY: dict[int, str] = {
     ActiveAbilityType.MomentShackle: CASTER_GATE_NOT_READ,          # 1184
     ActiveAbilityType.InstrumentsOfVengeance: CASTER_GATE_NOT_READ,  # 1215
     ActiveAbilityType.MartialExemplar: CASTER_GATE_NOT_READ,        # 1216
+    # 1052, entree par #1032 sans sa ligne -- le cliquet
+    # `test_433_..._caster_reason_offline::test_la_table_de_regime_couvre_EXACTEMENT_les_porteurs_du_bit`
+    # rougissait dessus sur `master`. MEME mesure, MEME preset (`<preset>+0x28 = 0x8004`) et MEME
+    # forme de preuve que 1210 : le port de 1052 a LU que `CallRipperSwarmsAbility` ne porte que
+    # `ExecuteBehaviour` et `.ctor` dans son bloc de `methodPointers`, sans
+    # `GetDynamicInvalidCasterReason`. ⚠ C'est `NOT_READ`, pas `NONE` : l'absence d'un symbole ne
+    # prouve PAS l'absence de surcharge (IL2CPP DEDUPLIQUE les corps triviaux et n'en attribue
+    # qu'UN proprietaire). Trancher exigerait le slot de vtable de l'INSTANCE au runtime. Les deux
+    # regimes ne divergent que si la surcharge existe ET refuse -- le port ne refuse pas, donc
+    # l'ecart reste PERMISSIF et NOMME, du meme cote que ses six voisines.
+    ActiveAbilityType.CallRipperSwarms: CASTER_GATE_NOT_READ,       # 1052
 }
 
 #: `IdunBattle.Entities.Enum.UnitTrait.Steppable` = 0x1b -- le trait que `GetSpawnTileSelector`
