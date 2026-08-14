@@ -78,7 +78,11 @@ class AiDecisionContext:
     # --- Métadonnées de tuile (Tile(7) + porte d'adjacence + MinDist chemin) ---
     elev_by_pos: dict                 # {(col,row): elevation}
     is_temporary_by_pos: dict         # {(col,row): bool}
-    effects_by_pos: dict              # {(col,row): [effectName…]} (feuille TileEffects)
+    effects_by_pos: dict              # {(col,row): [effectName…]} (feuille TileEffects) — la liste
+    #                                   POSSEDEE, inactifs COMPRIS (#425-r1) : le natif
+    #                                   `TileEffectsUtility.<EvaluateMovementInSteps>d__1$$MoveNext`
+    #                                   itere `EffectsOwnedComponent` SANS gate `IsActive`. Le canal
+    #                                   ACTIF-ONLY, lui, part dans la `Scene` (cf. `_tile_effect_names`).
     pathdist_by_pos: dict             # {(col,row): pathDist} (MinDist fidèle, distance de CHEMIN)
     tile_id_by_pos: dict              # {(col,row): tileEntityId} (boardGraph) — cible d'une self-cast
     #                                   AoE = MainTile-id du caster (GenerateAction(this,pos,MainTile,util))
@@ -483,7 +487,15 @@ def _tile_attribute_maps(tiles: list) -> tuple:
     et `effects[].effectType` = `EffectComponent+0x58` (comparé à `0x5c4` par
     `IdunBattle.AI.Utilities.DespoiledGroundUtility.u003CEvaluateMovementInStepsu003Ed__5$$MoveNext`)
     étaient tous deux déjà remontés par le RPC et jetés par le port : `effects_by_pos` ne gardait que
-    le NOM (clé de poids BC de la feuille TileEffects(10)), jamais le type."""
+    le NOM (clé de poids BC de la feuille TileEffects(10)), jamais le type.
+
+    #425-r1 -- la liste des types est celle que le natif ITERE, donc la liste POSSEDEE ENTIERE :
+    `DespoiledGroundUtility.<...>d__5$$MoveNext` fait `GetComponent<EffectsOwnedComponent>(MainTile)`
+    -> liste `@+0x10` -> `GetEntity(id)` -> `GetComponent<EffectComponent>` -> compare `+0x58`, et
+    **ne consulte JAMAIS `IsActive` ni `Removed`** (LU sur `rnca9r7q6c`, meme structure que
+    `TileEffectsUtility.<EvaluateMovementInSteps>d__1$$MoveNext`). Le seul consommateur de cette
+    table est `apply_tile_attributes` (les feuilles 23/25/28), donc elle n'a AUCUN autre lecteur a
+    qui un effet inactif nuirait."""
     terr, tids = {}, {}
     for t in tiles:
         p = (t.get("col"), t.get("row"))
@@ -493,6 +505,35 @@ def _tile_attribute_maps(tiles: list) -> tuple:
         if ids:
             tids[p] = ids
     return terr, tids
+
+
+def _tile_effect_names(tiles: list, only_active: bool) -> dict:
+    """`{(col,row): [effectName…]}` depuis `tileMeta.tiles[].effects` — DEUX canaux, un seul RPC.
+
+    #425-r1. Le RPC est desormais appele avec `includeInactive: true`, donc chaque effet porte son
+    flag `active` (`EffectComponent.IsActive @+0x5c`) et le port peut servir les DEUX lectures sans
+    payer un second appel :
+
+      * `only_active=False` — la **liste POSSEDEE** (`EffectsOwnedComponent.ActiveEffectIds`, dont le
+        nom trompe : le filtre d'activite n'y est PAS, il etait applique par le HOOK). C'est ce que
+        `IdunBattle.AI.Utilities.TileEffectsUtility.u003CEvaluateMovementInStepsu003Ed__1$$MoveNext`
+        itere -- LU : `GetComponent<EffectsOwnedComponent>(MainTile)` puis, par id, `GetEntity` ->
+        `EffectComponent+0x58` -> `Enum.ToString` -> `HasUtilityValue`/`GetUtilityValue`, **sans
+        aucun gate sur `IsActive` ni `Removed`**. C'est le canal des FEUILLES ;
+      * `only_active=True` — le canal ACTIF-ONLY, c'est-a-dire EXACTEMENT ce que le port recevait
+        avant cette tranche. Il alimente la `Scene`, dont les lecteurs ne sont PAS que des feuilles
+        (les bonus de degat a magnitude positionnelle passent par `Scene.tile_effects_by_pos`) :
+        les basculer serait un elargissement PERMISSIF non confronte, hors du perimetre de #425-r1.
+
+    Un effet sans champ `active` (bundle Frida anterieur au drapeau, ou RPC appele sans lui) est
+    GARDE dans les deux canaux -- absence de mesure, jamais un retrait invente : les deux tables
+    redeviennent alors identiques, c.-a-d. le comportement d'avant."""
+    out = {}
+    for t in tiles:
+        p = (t.get("col"), t.get("row"))
+        out[p] = [e.get("name") for e in (t.get("effects") or [])
+                  if not (only_active and e.get("active") is False)]
+    return out
 
 
 def _enemies(units: list) -> list:
@@ -667,12 +708,15 @@ def build(rpc: Callable[..., dict], rid: int, dv: dict, mov_by_unit: dict, uid: 
         sctx["hpmax_by_id"] = hpmax_by_id   # coût PV des abilities (GetHealthToLose)
 
     # Métadonnées de tuile (Tile(7)) + distance-CHEMIN (MinDist fidèle).
-    tm = rpc("tileMeta", {"runnerId": rid}, 60)
+    # #425-r1 -- `includeInactive` : le canal des FEUILLES doit etre la liste POSSEDEE (le natif
+    # n'y applique AUCUN gate `IsActive`), et le canal ACTIF-ONLY reste servi pour la `Scene`.
+    # UN SEUL RPC : sous ce drapeau chaque effet porte son `active`, donc les deux se derivent.
+    tm = rpc("tileMeta", {"runnerId": rid, "includeInactive": True}, 60)
     tiles = tm.get("tiles") or []
     elev_by_pos = {(t.get("col"), t.get("row")): t.get("elevation") for t in tiles}
     is_temporary_by_pos = {(t.get("col"), t.get("row")): bool(t.get("isTemporary")) for t in tiles}
-    effects_by_pos = {(t.get("col"), t.get("row")): [e.get("name") for e in (t.get("effects") or [])]
-                      for t in tiles}
+    effects_by_pos = _tile_effect_names(tiles, only_active=False)        # feuilles Tile(7)
+    active_effects_by_pos = _tile_effect_names(tiles, only_active=True)  # `Scene` (statu quo)
     is_territory_by_pos, tile_effect_type_ids_by_pos = _tile_attribute_maps(tiles)
     pdr = rpc("pathDistToEnemies", {"runnerId": rid, "unitId": uid}, 90)
     pathdist_by_pos = {(t.get("col"), t.get("row")): t.get("pathDist") for t in (pdr.get("tiles") or [])}
@@ -718,8 +762,10 @@ def build(rpc: Callable[..., dict], rid: int, dv: dict, mov_by_unit: dict, uid: 
     # LordOfTempests s'accumule en bataille) — consommée par engine.playbook.prediction.
     # `machine_of_war_position` : MEME cascade que `AiDecisionContext.machine_of_war_position` (foyer
     # unique `_machine_of_war_position`) — la face PREDICTION ne voit que la Scene.
+    # `tile_effects_by_pos` = le canal ACTIF-ONLY (cf. `_tile_effect_names`) : la `Scene` n'est pas
+    # lue QUE par des feuilles -- les bonus de degat a magnitude positionnelle la consomment aussi.
     scene = (Scene.from_predictor_sctx(
-        predictor, sctx, elev_by_pos, tile_effects_by_pos=effects_by_pos,
+        predictor, sctx, elev_by_pos, tile_effects_by_pos=active_effects_by_pos,
         machine_of_war_position=_machine_of_war_position(spawn_groups, current_player_team,
                                                          mow_slot_by_player, cur,
                                                          mow_position_by_player))
@@ -906,12 +952,12 @@ def build_machine(rpc: Callable[..., dict], rid: int, dv: dict, uid: int,
     if sctx is not None:
         sctx["hpmax_by_id"] = hpmax_by_id
 
-    tm = rpc("tileMeta", {"runnerId": rid}, 60)
+    tm = rpc("tileMeta", {"runnerId": rid, "includeInactive": True}, 60)   # #425-r1, cf. `build`
     tiles = tm.get("tiles") or []
     elev_by_pos = {(t.get("col"), t.get("row")): t.get("elevation") for t in tiles}
     is_temporary_by_pos = {(t.get("col"), t.get("row")): bool(t.get("isTemporary")) for t in tiles}
-    effects_by_pos = {(t.get("col"), t.get("row")): [e.get("name") for e in (t.get("effects") or [])]
-                      for t in tiles}
+    effects_by_pos = _tile_effect_names(tiles, only_active=False)        # feuilles Tile(7)
+    active_effects_by_pos = _tile_effect_names(tiles, only_active=True)  # `Scene` (statu quo)
     is_territory_by_pos, tile_effect_type_ids_by_pos = _tile_attribute_maps(tiles)
     tile_id_by_pos = _board_tile_ids(rpc, rid)
     neigh_by_pos = _board_neighbours(rpc, rid)
@@ -926,7 +972,7 @@ def build_machine(rpc: Callable[..., dict], rid: int, dv: dict, uid: int,
     current_player_team = _current_player_team(dv)
     mow_position_by_player = _board_mow_positions(rpc, rid)   # #302-5 — gratuit (boardGraph déjà fetché)
     scene = (Scene.from_predictor_sctx(
-        predictor, sctx, elev_by_pos, tile_effects_by_pos=effects_by_pos,
+        predictor, sctx, elev_by_pos, tile_effects_by_pos=active_effects_by_pos,
         machine_of_war_position=_machine_of_war_position(spawn_groups, current_player_team,
                                                          mow_slot_by_player, cur,
                                                          mow_position_by_player))
