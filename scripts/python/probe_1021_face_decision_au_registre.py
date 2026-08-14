@@ -152,6 +152,19 @@ DETTE: dict[int, tuple[str, str]] = {
     # DESORMAIS. Attestation `RIEN_A_PORTER` au ledger (c'est une attaque NORMALE concrete, dont le
     # playbook ne surcharge rien) -- si elle perime, l'item rougit au lieu d'etre couvert par une
     # vieille ligne de dette. C'est la trajectoire attendue de chacune des lignes ci-dessous.
+    1012: ("SANS_VERDICT",
+           "PrecisionShot_AimPlaybook -- EvaluateNonComparable, ShouldEvaluate (+ .ctor, .cctor). "
+           "COMBAT : PrecisionShot_AimAbility (necrons), entree au registre par #996-r1-r3. "
+           "2 porteurs (npc `necroNpc3Deathmark`, summon `necroSmnDeathmark`). RE AMORCEE : le "
+           "`.ctor` est `ComparablePlaybook<T>..ctor(this, 0x3f4)`, `EvaluateNonComparable` batit "
+           "UN bucket (`Bucket(0, <statics[0]>)`) et pousse une action par cible eligible avec "
+           "l'utilite CONSTANTE `Fix64.FromIntFraction(3, 2)` = 1,5 -- le seul terme variable est "
+           "l'enumeration de `BasePlaybook$$GetEligibleTargetsSelectable`. `ShouldEvaluate`, lui, "
+           "est SUBSTANTIEL (gate `WillBeKill` sur une prediction, seuil de HP > 0x3c, valeurs "
+           "0x50 / 0x14) -- c'est LUI qui porte la decision de viser, et il n'est pas porte. "
+           "⚠ Sa soeur `1015 PrecisionShot` est ATTESTEE `RIEN_A_PORTER` au ledger, et ce n'est "
+           "PAS transposable : 1015 est la SEULE des 233 actives du dict `+0x68` a retomber sur "
+           "`DefaultActiveAbilityPlaybook`, 1012 a bien une classe PROPRE. Residu `#996-r1-r3-r5`."),
     1091: ("SANS_VERDICT",
            "SlashingDivePlaybook -- EvaluateNonComparable. COMBAT : SlashingDiveAbility "
            "(thousandsons). 3 porteurs (npc, summons)."),

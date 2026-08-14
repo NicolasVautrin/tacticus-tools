@@ -1,6 +1,7 @@
-"""ETAT D'UTILISATION des abilities actives : predicat de reset + Operation de reset.
+"""ETAT D'UTILISATION des abilities actives : predicat de reset, Operation de reset, et l'Operation
+INVERSE qui CONSOMME une charge (`SetActiveAbilityUsed`).
 
-Deux artefacts natifs, portes 1:1 :
+Quatre artefacts natifs, portes 1:1 :
 
   * `IdunBattle.Core.Services.BattleQuery$$EntityCanHaveActiveAbilityReset(unit, ignoreTurnFlag)`
     -- le predicat consomme par le selecteur `UnitsThatCanHaveActiveAbilityReset`
@@ -9,6 +10,12 @@ Deux artefacts natifs, portes 1:1 :
     (3e branche de legalite du cast).
   * `IdunBattle.Operations.ResetActiveAbilityOperation$$Execute(unit, flag)` -- le MUTATEUR
     (`CanStillBeUsed = true`, cooldown remis a zero) declenche par la feuille DSL `ResetActiveAbility`.
+  * `IdunBattle.Entities.UnitExtensions$$HasUnusedAbility(unit, activeAbilityType)` ->
+    `IdunBattle.Entities.Components.ActiveAbilityComponent$$HasUnusedAbility` -- le predicat
+    d'entree de l'Operation ci-dessous (`has_unused_ability`).
+  * `IdunBattle.Operations.SetActiveAbilityUsedOperation$$Execute(unit, activeAbilityType)` -- le
+    MUTATEUR INVERSE (`CanStillBeUsed = false`), declenche par la feuille DSL
+    `SetActiveAbilityUsed` (#996-r1-r3, 1er consommateur porte : `1012 PrecisionShot_Aim`).
 
 Les deux operent sur `ActiveAbilitiesComponent` (mirror de `ActiveAbilityComponent`), seede depuis
 `decisionView.units[].abilities` (cf. `snapshot._active_abilities`).
@@ -105,3 +112,86 @@ class ResetActiveAbilityOperation:
             ab.remaining_cooldown = None              # slot 0x92 : cooldown remis a zero
             done.append(int(ab.ability_type))
         return {"unit": int(unit_id), "reset": done, "gate": True}
+
+
+def has_unused_ability(state: State, unit_id: int, ability_type: int) -> Optional[bool]:
+    """`IdunBattle.Entities.UnitExtensions$$HasUnusedAbility(unit, activeAbilityType)` -- MIRROR du
+    DECOMPILE, les deux etages :
+
+        if (unit == null)                     return false
+        if (!EntityExtensions.IsUnit(unit))   return false           # `FUN_180002590(1, ...)` == 1
+        comp = unit.GetComponent<ActiveAbilityComponent>()           # throw si absent
+        return comp.HasUnusedAbility(activeAbilityType)
+
+    et le second (`ActiveAbilityComponent$$HasUnusedAbility`), qui tient en deux lignes :
+
+        e = GetOrNull(activeAbilityType) ; return (e != null) ? e.CanStillBeUsed@0x28 : false
+
+    ⚠ Ce n'est donc PAS `CanCurrentlyBeUsed` : ni cooldown, ni `IsDisabled`, ni munitions
+    n'entrent. `CanStillBeUsed@0x28` SEUL -- le champ que le canal live nomme `usable`.
+
+    TRI-ETAT, meme convention que `entity_can_have_active_ability_reset` : `None` quand l'unite
+    n'a AUCUN `ActiveAbilitiesComponent` (canal `allAbilities` non demande a `decisionView`). Le
+    verdict est alors INCONNU, jamais un `False` qui ferait taire l'Operation en pretendant l'avoir
+    mesuree."""
+    e = state.get_entity(int(unit_id))
+    if e is None:
+        return False                                  # `unit == null` -> false, cote natif aussi
+    comp = e.get_component(ActiveAbilitiesComponent)
+    if comp is None:
+        return None                                   # canal absent -> verdict INCONNU
+    ab = comp.get(int(ability_type))
+    return bool(ab is not None and ab.can_still_be_used)
+
+
+class SetActiveAbilityUsedOperation:
+    """`IdunBattle.Operations.SetActiveAbilityUsedOperation$$Execute(unit, activeAbilityType)` --
+    MIRROR du DECOMPILE :
+
+        if (!UnitExtensions.HasUnusedAbility(unit, activeAbilityType)) return
+        foreach ab in unit.ActiveAbilityComponent.Collection :
+            if (StaticBattleRules.ActiveAbility.IsRegularAttack(ab.AbilityName@0x44)) continue
+            if (ab.AbilityName@0x44 != activeAbilityType)                              continue
+            turn = StateExtensions.GetMatchTurn(state)
+            ab.<+0x10> += 1                                   # compteur d'usages
+            ab.<+0x18> = Nullable(turn.GetAmountOfTurnsEnded(0))
+            ab.<+0x20> = Nullable(turn.GetAmountOfTurnsEnded(0))
+            ab.CanStillBeUsed@0x28 = false                    # <- LE mutateur observable
+            Events.Publish(0xd, unit, {0x12: type, 0x18/0x19: abilityState, 0x13: 0,
+                                       0x14: cooldown, 0x15: disabled})
+
+    C'est l'INVERSE EXACT de `ResetActiveAbilityOperation` ci-dessus (qui pose `true` et remet le
+    cooldown a zero) -- et il NE TOUCHE PAS au cooldown : `+0x2c` n'apparait qu'en LECTURE, dans les
+    tags de l'evenement.
+
+    PORTE : `can_still_be_used = False`. NON MODELISES, comme pour l'operation de reset : les slots
+    `+0x10` (compteur d'usages) et `+0x18`/`+0x20` (les deux `Nullable<int>` de tour), qu'aucun
+    composant du port ne represente, et l'evenement `0xd` (vue).
+
+    ⚠ Le gate d'entree est `HasUnusedAbility`, pas une simple presence : re-poser << utilisee >> sur
+    une ability DEJA consommee est un no-op cote natif -- et le port le DIT (`gate: False`) au lieu
+    de le confondre avec une ability absente (`gate: None`)."""
+    __slots__ = ()
+
+    @staticmethod
+    def execute(state: State, unit_id: int, ability_type: int) -> dict:
+        from ..abilities.attack_type import is_regular_attack   # noqa: PLC0415
+        # Import DIFFERE, classe PORTEUR (mesure) : `engine.runner.abilities.attack_type` tire
+        # `engine.runner.abilities`, dont l'`__init__` charge le registre -> qui importe les
+        # modules d'operations. Hisser fermerait le cycle.
+        gate = has_unused_ability(state, unit_id, ability_type)
+        if not gate:                                  # `None` (canal muet) ET `False` : no-op natif
+            return {"unit": int(unit_id), "ability_type": int(ability_type),
+                    "used": [], "gate": gate}
+        e = state.get_entity(int(unit_id))
+        comp = e.get_component(ActiveAbilitiesComponent) if e is not None else None
+        done = []
+        for ab in (comp.abilities if comp is not None else []):
+            if is_regular_attack(int(ab.ability_type)):
+                continue
+            if int(ab.ability_type) != int(ability_type):
+                continue
+            ab.can_still_be_used = False
+            done.append(int(ab.ability_type))
+        return {"unit": int(unit_id), "ability_type": int(ability_type),
+                "used": done, "gate": True}

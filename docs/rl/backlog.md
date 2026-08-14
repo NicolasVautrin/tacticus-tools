@@ -4502,31 +4502,88 @@ pas d'erreur : il rend **zéro**, et un zéro se lit « rien à signaler ».
   methode.
   FOYER: scripts/python/engine/playbook/common.py, scripts/python/engine/playbook/base.py
   BLOCAGE: aucun
-- **#996-r1-r3** — **`1015 PrecisionShot` : PORT REFUSE, et la raison est MESUREE (pas deduite).**
-  `probe_996r1_precision_shot.py` (livre) etablit LIVE que la bataille monte les TROIS abilities du
-  triptyque sur `necroNpc3Deathmark` (`[69, 1015, 1012, 1013]`) alors que le gameconfig ne declare
-  que `PrecisionShot`, et que **`1015` est REFUSEE** (`abilityReason.casterReason = 0x2`,
-  `applyAction.actionConsumed = False`) tant que le caster n'a pas vise -- seul `1012` passe
-  (`0x0`, `actionConsumed = True`). Son unique noeud est
-  `UseActiveAbility(Caster@0x48, Caster@0x48, 0x3f4 = 1012, ...)` (surcharge a
-  `ActiveAbilityType` ENTIER -> `DirectAbilitySelector`, tranchee aux XREFS). CINQ pieces manquent,
-  et le couple est INDIVISIBLE : (a) `UseActiveAbility` avec un `activeAbilityType` NON-NORMAL --
-  la feuille appelle `AttackDamageOperation.execute` inconditionnellement, donc lui donner 1012 lui
-  ferait INVENTER une attaque normale, pire qu'un no-op ; (b) `1012 PrecisionShot_Aim`
-  (`AddEffect(1015 PrecisionShot_Aim, abilityStateRef, Owner@+0x30, Nullable(3) TOURS) &
-  SetActiveAbilityUsed(Owner@+0x30, 1015)`) ; (c) `DSLBehaviors$$SetActiveAbilityUsed` ->
-  `SetActiveAbilityUsedBehaviour$$Execute` (slot `IOperationProcessor` `0x74`) ; (d) l'effet
-  `1015 PrecisionShot_Aim` (`$$BlockMovement` -> sous-effet `1016 PrecisionShot_BlockMovement`,
-  `$$CreateHandleTriggerAbilitiesInternal` = trois `Triggered(<cond>, RemoveEffect)`) ; (e)
-  `1013 PrecisionShot_Attack`. ⚠ La REGLE DYNAMIQUE DE CASTER de 1015 (`HasEffect(caster, 1015) ? 0
-  : 0x2 TargetMatchesDynamicRule`, LUE AUX OCTETS -- `cmovne`, l'INVERSE de celle de 1012) ferme un
-  trou PERMISSIF reel, mais elle ne se pose que SUR LA CLASSE, donc son inscription a
-  `ABILITY_CLASSES` arme aussi `execute_behaviour` : on ne peut pas livrer l'une sans l'autre.
-  Masque `0x8014` (PRESET+FLAGS, preset `+0x280` | `0x10`) et `AbilityAttackType = 2 Others` DEJA
-  LUS ; le masque reste dans `TARGETING_OPTIONS_UNPORTED` -- contrat de disjonction respecte en
-  l'etat.
-  FOYER: scripts/python/engine/runner/abilities/necrons.py, scripts/python/engine/runner/abilities/behaviours/combat.py, scripts/python/engine/runner/abilities/behaviours/ability_state.py, scripts/python/engine/entities/effects/loki/, scripts/python/engine/runner/abilities/handler.py
+- ~~**#996-r1-r3**~~ — ~~`1015 PrecisionShot` : PORT REFUSE~~ **LIVRE (2026-08-14)** :
+  `1015 PrecisionShot` **ET** `1012 PrecisionShot_Aim` sont PORTEES et CONFRONTEES LIVE
+  (`docs/rl/case-996-r1-r3-precisionshot.md`). Le couple etait bien INDIVISIBLE, et QUATRE des cinq
+  pieces annoncees sont livrees : (a) `UseActiveAbility` a `activeAbilityType` NON-NORMAL -> entree
+  par `AbilityHandler.active_ability_operation` (mirror du slot 2 d'`IOperationProcessor`), 1er
+  call-site du depot ; (b) 1012 = `AddEffect(1015 EffectType.PrecisionShot_Aim, Owner@+0x30,
+  Nullable(3) TOURS) & SetActiveAbilityUsed(Owner@+0x30, 1015 ActiveAbilityType.PrecisionShot)` --
+  MEME ordinal, DEUX enums ; (c) `DSLBehaviors$$SetActiveAbilityUsed` -> `<slot 0x74>` ->
+  `SetActiveAbilityUsedOperation` (gate `HasUnusedAbility`, tri-etat sur canal absent) ; (d) l'effet
+  `1015` en COMPOSITE -- son sous-effet `1016 PrecisionShot_BlockMovement` par
+  `AddSubEffectWithSameTurns`, MESURE live (le natif publie les DEUX, meme duree). La regle
+  dynamique de caster ferme un trou PERMISSIF reel : gate `0x2` en ACCORD exact avec l'oracle.
+  ⚠ **1015 N'EST JAMAIS EXECUTABLE DANS SON REGIME NATUREL** -- hors visee sa regle la refuse, et le
+  seul cast qui pose la visee (1012) CONSOMME sa charge dans le meme arbre. Sa face EXECUTION est
+  confrontee par un scenario CRAFTE (`1204 InspiredToGreatness` de `tauAunShi` re-arme la charge) :
+  le natif execute l'arbre et ne change RIEN (son sous-cast 1012 est refuse par la regle inverse),
+  le port dit la meme chose. Mutants 8/8. Reste : (e) `1013 PrecisionShot_Attack` -> `#996-r1-r3-r2`.
+- **#996-r1-r3-r2** — **`1013 PrecisionShot_Attack` n'est PAS portee, et son gate est un trou
+  PERMISSIF MESURE** : `abilityReason` rend `casterReason = 0x4 CasterMatchesDynamicRule` hors visee
+  la ou le port rend `0x0` (ability absente d'`ABILITY_CLASSES` -> `is_invalid_target(ability=None)`
+  = 0). Son `ExecuteBehaviour` est RELU (`AttackWithAttackDamage(Caster@0x48, Target@0x60,
+  DmgDamage(this, abilityState), GetDamageProfile(cfg), GetNumberConstant(0x2f nrOfHits),
+  parentAbility, <opts>, selectionType 2)` dans un `AtomicGroup(0x40, <lambda>, 0)`) et son ctor
+  aussi (forme FLAGS-DIRECTS, `rules = 0x4004`, `AActiveAbility..ctor(.., 0 DirectTargetAttack)`, ce
+  dernier DEJA inscrit). Le VERROU est la CONFIG : ni le gameconfig ni `data/seed-bc.json` ne
+  portent d'entree `PrecisionShot_Attack` -- seul `PrecisionShot` existe (`variables: {dmg}`,
+  `constants: {nrOfHits: 1, damageProfile: Energy}`), et `AbilityConfiguration$$GetNumberConstant`
+  LEVE sur cle absente. Etablir PAR MESURE quelle config `this+0x60` porte pour 1013 (cast live +
+  montant observe) avant d'ecrire `ABILITY_ID`. C'est le SEUL des trois casts du triptyque qui
+  frappe, et le seul castable apres une visee (`casterReason 0x0` mesure).
+  Point d'entree : `docs/rl/case-996-r1-r3-precisionshot.md` Sec.6.
+  FOYER: scripts/python/engine/runner/abilities/necrons.py, scripts/python/engine/runner/abilities/handler.py
+  BLOCAGE: seeding
+- **#996-r1-r3-r3** — **les TROIS RETRAITS de l'effet `1015 PrecisionShot_Aim` ne sont pas portes**,
+  donc la visee se comporte cote port comme un TIMER PUR (3 tours) la ou le natif la rompt sur
+  evenement. `PrecisionShot_AimEffect$$CreateHandleTriggerAbilitiesInternal` construit trois
+  `DSLFactory$$Triggered(<cond>, BaseEffect.GetRemoveEffectBehaviour(this), 0)` : `[1] On(0x12) &
+  <DSLTriggers+0x28> & AmountIsEqualOrGreater(Enemies(Owner@+0x30, AdjacentUnits(Owner@+0x30,
+  unique: 1, 3), 3), Direct(1))` -- un ennemi arrive au CONTACT ; `[2] On(0x23) & get_OwnerIsTarget`
+  -- le porteur est CIBLE ; `[3] On(0x0b) & get_OwnerIsActor & NOT get_OwnerIsTarget` -- le porteur
+  agit sur QUELQU'UN D'AUTRE (c'est ce qui met fin a la visee au TIR, et qui EPARGNE le self-cast de
+  1015). L'ecart est PERMISSIF : le port garde la visee dans des regimes ou le natif la retire.
+  Le terme `<DSLTriggers+0x28>` du [1] n'est PAS resolu -- le lire est la 1re etape.
+  Point d'entree : `docs/rl/case-996-r1-r3-precisionshot.md` Sec.6 + l'en-tete de
+  `engine/entities/effects/loki/precision_shot.py`.
+  FOYER: scripts/python/engine/entities/effects/loki/precision_shot.py, scripts/python/engine/runner/operations/triggers/dispatch/registry.py
   BLOCAGE: etage
+- **#996-r1-r3-r5** — **la face DECISION de `1012 PrecisionShot_Aim` n'est pas portee**, et c'est
+  ELLE qui porte la decision de VISER. `PrecisionShot_AimPlaybook` (dict `+0x68` d'
+  `IdunBattle.AI.PlaybookDatabase`) declare `EvaluateNonComparable` ET `ShouldEvaluate`.
+  `EvaluateNonComparable` est COURT et son utilite est CONSTANTE -- `.ctor` =
+  `ComparablePlaybook<T>..ctor(this, 0x3f4)` ; le corps batit UN bucket (`Bucket(0, <statics[0]>)`)
+  et pousse une action par cible de `BasePlaybook$$GetEligibleTargetsSelectable` avec
+  `Fix64.FromIntFraction(3, 2)` = **1,5**. `ShouldEvaluate`, lui, est SUBSTANTIEL : il enumere des
+  predictions et sort VRAI sur `DamagePredictionResult$$get_WillBeKill`, sous un seuil de HP
+  (`GetStat(unit, 5, 1, 0) > 0x3c`) et avec deux valeurs de repli `0x50` / `0x14` non encore
+  attribuees. Inscrite en DETTE `SANS_VERDICT` au registre de `probe_1021` DANS LE MEME COMMIT que
+  son entree au registre COMBAT.
+  ⚠ **NE PAS transposer le verdict de sa soeur** : `1015 PrecisionShot` est attestee
+  `RIEN_A_PORTER` au ledger `#951-r2` parce qu'elle est la **SEULE des 233 actives** du dict a
+  retomber sur `IdunBattle.AI.Playbook.Common.DefaultActiveAbilityPlaybook` -- 1012, elle, a une
+  classe PROPRE.
+  Point d'entree : `docs/rl/case-996-r1-r3-precisionshot.md` Sec.6 + l'entree 1012 de
+  `probe_1021_face_decision_au_registre.py::DETTE`.
+  FOYER: scripts/python/engine/playbook/noncomparable/, scripts/python/probe_1021_face_decision_au_registre.py
+  BLOCAGE: aucun
+- **#996-r4** — **le port ne met PAS a jour l'entree d'ability du caster au rang de l'OPERATION**,
+  alors que `ActiveAbilityOperation$$ExecuteInternal` le fait a CHAQUE cast qui aboutit :
+  `CanStillBeUsed@0x28` REECRIT (depuis un appel d'interface), `+0x10`/`+0x14` incrementes,
+  `+0x18`/`+0x20` poses a `GetAmountOfTurnsEnded`, `+0x2c` (cooldown) ecrit. Le port ne pose que le
+  FLAG D'UNITE `ActiveAbilityUsed` -- ce qui est le mirror EXACT d'`AddFlagsAfterAbilityExecution`
+  (relu : `UnitFlagsComponent.Add(2)` + slot `0x23 FinishUnitTurn`, RIEN d'autre) : l'ecriture de
+  l'entree vit AILLEURS dans `ExecuteInternal`, apres l'evenement `0x2a`. MESURE (#996-r1-r3, volet
+  [E]) : apres un cast de `1015`, `usable` natif = `False`, port = `True`. L'ecart vaut pour TOUTE
+  ability du registre, pas pour 1015. ⚠ NE PAS le confondre avec un gate : `CanCurrentlyBeUsed`,
+  `HasUnusedAbility` et `CanStillBeUsed` ont **0 occurrence** dans `ExecuteInternal` (relecture
+  integrale) -- le seul gate d'ability y est `ActiveAbilityComponent$$GetOrNull` (l'entree
+  EXISTE-t-elle) puis `UnitExtensions$$IsAbilityBlocked`. Le refus d'un cast a charge consommee
+  (mesure : `actionConsumed = False`) vient donc d'un etage AMONT du visiteur, qui reste a LOCALISER.
+  Point d'entree : `docs/rl/case-996-r1-r3-precisionshot.md` Sec.6.
+  FOYER: scripts/python/engine/runner/operations/turnflow.py, scripts/python/engine/runner/abilities/handler.py
+  BLOCAGE: aucun
 - **#996-r2** — les effets poses par #996 sont INERTES : seule leur POSE est portee. `1286
   WarConstruct_CounterAttack` porte tout son appareil dans l'EFFET
   (`IdunBattle.Entities.Effects.Loki.WarConstruct_CounterAttackEffect$$GetCounterAttackBehaviour`,

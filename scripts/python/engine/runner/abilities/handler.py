@@ -86,7 +86,8 @@ from .necrons import (AdaptiveStrategyAbility, HarbingerOfDestructionAbility,
                       ResurrectionOrbAbility, ChronometronAbility,
                       MultiThreatEliminatorAbility, TunnelingHorrorAbility,
                       NanoscarabRepairProtocolsAbility, ReanimationBeamAbility,
-                      StormOfFlensingBladesAbility)
+                      StormOfFlensingBladesAbility,
+                      PrecisionShotAbility, PrecisionShot_AimAbility)
 from .sisterhood import (SanctorumMissileAbility, SkyStrikeAbility, DevastatingRefrainAbility,
                          ThriceBlessedConflagrationAbility, BrazierOfHolyFireAbility,
                          RitesOfRestorationAbility)
@@ -363,6 +364,8 @@ ABILITY_CLASSES: dict[int, type[ActiveAbility]] = {
     WarConstructAbility.ABILITY_TYPE: WarConstructAbility,           # 1133 (`eldarNpc4Wraithguard` + `eldarNpc4WraithguardSurv` npc Aeldari : EFFECT/BUFF CONFIRMEE -- cast SELF (`isSelfCasting = 1`), op_Addition( AddEffect(0x506 = 1286 WarConstruct_CounterAttack -> Target@0x60, TurnsFromRounds(1)), AddEffect(0x516 = 1302 IgnoreUsedAbilityInOverwatch -> Owner@0x30, TurnsFromRounds(1)) ) ; les deux durees sont le LITTERAL 1, le kit 1133 ne porte NI constants NI variables ; la MECANIQUE des deux effets vit dans l'EFFET (`WarConstruct_CounterAttackEffect$$GetCounterAttackBehaviour`), hors port -> effets POSES et INERTES)
     StormOfFlensingBladesAbility.ABILITY_TYPE: StormOfFlensingBladesAbility,  # 1010 (`necroNpc2FlayedOne` + 2 Flayed One de tutoriel, npc Necrons : categorie annoncee EFFECT/BUFF **FAUSSE** -- c'est une DOUBLE ATTAQUE NORMALE. `ExecuteBehaviour` ne construit AUCUN arbre : `DSLBehaviors$$AtomicGroup(0x3e = GroupType.StormOfFlensingBlades_Attacks, <delegue>, null)` surcharge 4-args (executee par le PROCESSOR), et le delegue `<>c__DisplayClass1_0$$<ExecuteBehaviour>b__0` boucle DEUX fois sur `Execute(UseActiveAbility(Caster@0x48, Target@0x60, UnitNormalAttackType(Caster@0x48), options{SkipEndTurnFlag = (i == 0), SkipAtomicCheck = 1}))` ; kit 1010 = `attackRangeType=Melee` SEUL, aucun profil de degats propre)
     DevoutPushAbility.ABILITY_TYPE: DevoutPushAbility,               # 1053 (`templNpc1Initiate` npc + `templInitiate` SUMMON d'ENVIRONNEMENT, Black Templars : categorie annoncee EFFECT/BUFF **FAUSSE SUR LES DEUX AXES** -- l'arbre ne pose AUCUN effet et n'applique AUCUN buff, il FRAPPE puis DEPLACE. `Execute( op_Addition( op_Addition( UseActiveAbility(Caster@0x48, Target@0x60, UnitNormalAttackType(Caster@0x48)), Kill(Caster@0x48, DeadUnits(Tiles(Target@0x60)), options 0) ), PerformAIMovement(Caster@0x48, Direct(1), <UtilityDefinition du ctor : UN bucket, UtilityType 0x35 = 53 DevoutPush_AdjacentRangedEnemies>) ) )` ; le `Kill` FINALISE la mort pour liberer la tuile AVANT le mouvement (inerte cote port, la mort y est finalisee inline) ; l'utilite 53 est PORTEE par la meme tranche (`engine/utilities/devout_push.py` : +50 par ennemi RANGED adjacent a la candidate, +30 par melee, -10 si on reste sur place) sans quoi le scoring serait plat et le caster ne bougerait PAS ; masque 0x4000 STATIC-COPY preset +0x40 MIGRE depuis `TARGETING_OPTIONS_UNPORTED` ; #996-r1)
+    PrecisionShotAbility.ABILITY_TYPE: PrecisionShotAbility,         # 1015 (`necroNpc3Deathmark` npc Necrons, SELF-TARGET : UN SEUL noeud, `UseActiveAbility(Caster@0x48, Caster@0x48, 0x3f4 = 1012 PrecisionShot_Aim)` -- surcharge a `ActiveAbilityType` ENTIER (`180ea6b30`, tranchee AUX XREFS), qui emballe le litteral dans un `DirectAbilitySelector`. Le cast ne frappe PAS : il DISPATCHE sa soeur sur son propre caster, et c'est le 1er call-site NON-NORMAL de cette feuille -> etage `AbilityHandler.active_ability_operation` (slot 2 d'`IOperationProcessor`) livre par la meme tranche. Regle dynamique de caster PORTEE (`HasEffect(caster, 1015 EffectType.PrecisionShot_Aim) ? 0 : 2`) : elle ferme un trou PERMISSIF -- le port ACCEPTAIT un cast que le natif REFUSE (`casterReason 0x2`, `actionConsumed = False`). Masque 0x8014 PRESET+FLAGS preset +0x280 MIGRE depuis `TARGETING_OPTIONS_UNPORTED` ; #996-r1-r3)
+    PrecisionShot_AimAbility.ABILITY_TYPE: PrecisionShot_AimAbility,  # 1012 (MEME porteur, MONTEE par la bataille sans etre declaree au gameconfig -- mesure live `probe_996r1_precision_shot.py` : le kit actif est `[69, 1015, 1012, 1013]` alors que `activeAbilities` ne liste que `PrecisionShot`. `AddEffect(0x3f7 = 1015 EffectType.PrecisionShot_Aim, stateRef, Owner@0x30, Nullable(3) TOURS)` & `SetActiveAbilityUsed(Owner@0x30, 0x3f7 = 1015 ActiveAbilityType.PrecisionShot)` -- MEME ordinal, DEUX enums. Regle dynamique de caster INVERSE de 1015 (`HasEffect ? 2 : 0`). Meme ctor que 1015 au bit pres : aucun -- masque 0x8014 ; #996-r1-r3)
     TitanhammerSquadAbility.ABILITY_TYPE: TitanhammerSquadAbility,  # 1231 (astarLysander « Lysander » Adeptus Astartes/ImperialFists, TILE-TARGET : ((AddEffect(0x623 _TargetTile -> Target@0x60 la TUILE, source Caster@0x48, Sum(TurnsUntilUnitOwnerTurn(groupe), Direct(1)) TOURS) & Heal(Caster@0x48, groupe, Get(GetVariableForLevel(0x20 hpToHeal)), ForHeal)) & AddDynamicStatModifierEffect(Filter(groupe, AmountIsGreaterThanZero(StatAmount(ActiveTarget@0x68, 7 BlockChance, 0 Current))), Caster@0x48, 0x624 _ExtraBlockDamage, stat 8 BlockDamage, Sum(TurnsUntilUnitOwnerTurn(ActiveTarget@0x68), TurnsFromRounds(1)))) & AddEffect(0x625 _TeleportingIn -> Filter(groupe, NOT HasFlag(ActiveTarget@0x68, 1 ArrivedAtFinalTile)), source Caster@0x48, Sum(TurnsUntilUnitOwnerTurn(ActiveTarget@0x68), Direct(1)) TOURS) ; groupe = Caster@0x48 + Filter(SurroundingFriends(Caster@0x48, GetNumberConstant(0x16 range), unique, 3 OnlyAliveAndTargetable), HasTrait(ActiveTarget@0x68, 0x40f TerminatorArmour)) ; l'audit la classait HEAL, le soin n'est que le 2e des QUATRE volets ; PAS d'ExecuteAtomic)
 }
 
@@ -685,6 +688,27 @@ class AbilityHandler:
         if msg.target_id is None:
             return False
         return _is_ranged_position(self.state, int(msg.caster_id), int(msg.target_id))
+
+    def active_ability_operation(self, caster_id: int, target_id: Optional[int],
+                                 ability_type: int) -> dict:
+        """`Core.Services.OperationProcessor$$ActiveAbility(caster, target, abilityType, options)`
+        -- le SLOT 2 d'`IOperationProcessor`, point d'entree PUBLIC de l'operation.
+
+        Il n'existe qu'UNE porte d'ability active cote natif (mesure d'xrefs deja ecrite dans
+        `operations/summon_ai.py::_apply_active_ability` : `ActiveAbilityOperation$$Execute` n'a que
+        DEUX appelants CODE, ce slot et la re-entree `ExecuteForReplacedTarget`), et elle NE
+        traverse PAS `InputMessageProcessor$$Visit` -- donc PAS son gate de message (#429-r1-r3).
+        C'est exactement le rang ou `IdunBattle.Entities.Behaviours.UseActiveAbilityBehaviour$$Execute`
+        entre :
+
+            processor.<slot 2>(caster, targets, abilityType, options)
+
+        Rend le diagnostic `self.last` du sous-cast (jamais `None`) : l'appelant DSL le republie
+        dans son evenement, pour qu'un sous-cast REFUSE reste lisible au lieu d'etre un no-op muet.
+        """
+        self._active_ability_operation(
+            ActiveAbilityMessage(int(caster_id), target_id, int(ability_type)))
+        return dict(self.last or {})
 
     def _add_flags_after_execution(self, msg, ability=None) -> dict:
         """#139 — queue d'`IdunBattle.Operations.ActiveAbilityOperation$$ExecuteInternal :

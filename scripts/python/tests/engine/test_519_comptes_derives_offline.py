@@ -101,16 +101,38 @@ def test_la_derivation_mesure_quelque_chose():
     PROPRIETE DU CORPUS, qui se perime toute seule, la ou l'invariant a garder est celui de la
     DERIVATION : elle mesure quelque chose, et sa partition est EXHAUSTIVE.
 
-    Ce que ce test garde donc, et qui ne se perime pas : `total > 0` (la derivation voit encore la
-    table) et `hors_bloc + bloc == total` (le decoupage ne perd aucune entree -- une entree tombee
-    entre les deux serait comptee nulle part, exactement le vice que le volet COMPTES existe pour
-    interdire). Le jour ou la table entiere sera vide, `total > 0` tombera et il faudra alors
-    supprimer le volet, pas le desarmer."""
+    Ce que ce test garde donc, et qui ne se perime pas : `hors_bloc + bloc == total` (le decoupage
+    ne perd aucune entree -- une entree tombee entre les deux serait comptee nulle part, exactement
+    le vice que le volet COMPTES existe pour interdire) et l'EGALITE ENSEMBLISTE avec la table (la
+    derivation voit exactement ce que la table porte, ni plus ni moins).
+
+    ⚠ **LE JOUR ANNONCE EST ARRIVE, ET LA PRESCRIPTION D'AU-DESSUS NE TENAIT PAS (#996-r1-r3).**
+    La redaction precedente exigeait `total > 0` et annoncait « le jour ou la table entiere sera
+    vide, il faudra supprimer le volet, pas le desarmer ». La table est passee a **0** le
+    2026-08-14, par deux migrations LEGITIMES et independantes (`1215 InstrumentsOfVengeance`
+    #889-r6, puis `1015 PrecisionShot` #996-r1-r3) -- et ce test etait ROUGE sur `origin/master`
+    AVANT toute autre tranche (mesure au stash : `len(TARGETING_OPTIONS_UNPORTED) = 0`, 2 echecs
+    dans ce fichier).
+
+    Supprimer le VOLET serait excessif : le bloc genere et sa garde de fraicheur
+    (`test_le_bloc_genere_est_a_jour`) restent PLEINEMENT utiles -- ils gardent la SYNCHRONIE entre
+    la table et son commentaire, ce qui est vrai pour toute taille, zero compris. Ce qui n'avait
+    plus d'objet, c'est le seul PLANCHER DE POPULATION -- la forme meme que `probe_1021` decrit en
+    majuscules (« aucun cran d'ici ne compare un compte a un nombre ») et qui a fait rougir CINQ
+    cliquets le 2026-08-13 en prenant le PROGRES pour une panne. Il est remplace par une assertion
+    qui MORD a taille nulle : l'egalite ensembliste derivation <-> table.
+
+    ⚠ La table peut REMONTER (une ability non portee dont on relit le masque y entre), donc zero
+    n'est pas un etat terminal : une garde qui n'aurait su vivre qu'a zero aurait le defaut
+    SYMETRIQUE de celle qu'elle remplace."""
+    from engine.runner.abilities.targeting import TARGETING_OPTIONS_UNPORTED
     mes = comptes.deriver()
-    assert mes["total"] > 0, "la table est VIDE : la garde ci-dessus ne mesurerait plus rien"
     assert len(mes["hors_bloc"]) + len(mes["bloc"]) == mes["total"], (
         "le decoupage PERD des entrees : %d hors-bloc + %d bloc != %d au total"
         % (len(mes["hors_bloc"]), len(mes["bloc"]), mes["total"]))
+    assert mes["total"] == len(TARGETING_OPTIONS_UNPORTED), (
+        "la derivation ne voit PAS la table : %d derive != %d dans la table"
+        % (mes["total"], len(TARGETING_OPTIONS_UNPORTED)))
 
 
 # ------------------------------------------------------- 2. aucun TEMOIN de camp n'est PERIME

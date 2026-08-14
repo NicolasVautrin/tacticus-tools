@@ -444,6 +444,12 @@ DYNAMIC_CASTER_GATE_BY_ABILITY: dict[int, str] = {
     ActiveAbilityType.PrecisionShot: CASTER_GATE_NOT_DERIVABLE,  # 1015 PrecisionShotAbility : `HasEffect(caster, 0x3f7)` -> 0, sinon
     #     **2**. L'ability n'est castable QUE si le caster porte l'effet ; aucun canal DECISION ne
     #     publie les effets -> ne pas refuser (permissif).
+    ActiveAbilityType.PrecisionShot_Aim: CASTER_GATE_NOT_DERIVABLE,  # 1012 PrecisionShot_AimAbility : la regle INVERSE
+    #     de 1015 ci-dessus -- `HasEffect(caster, 0x3f7 EffectType.PrecisionShot_Aim)` -> **2**,
+    #     sinon 0 : viser n'est legal que si l'on ne vise pas DEJA. MEME motif de non-derivabilite
+    #     que sa soeur (aucun canal DECISION ne publie les effets), et MEME masque `0x8014` -- les
+    #     deux `$$.ctor` sont identiques instruction pour instruction. Entree au registre COMBAT par
+    #     #996-r1-r3, DANS LE MEME COMMIT que sa ligne ici.
     ActiveAbilityType.Burrowers: CASTER_GATE_NOT_DERIVABLE,  # 1023 BurrowersAbility : parcourt `casterTiles` et rend 0 des qu'une
     #     tuile est `TileExtensions$$IsTemporary`, sinon **4**. C'est l'une des rares regles-delegues
     #     qui lise VRAIMENT `casterTiles` (cf. l'avertissement ci-dessus).

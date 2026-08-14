@@ -61,6 +61,7 @@ from .targeting import (RANGE_ADJACENT, RANGE_FROM_CONFIG, RANGE_SELF, RANGE_WHO
                         RANGED_BOOL_FALSE, RANGED_BOOL_TRUE, TargetingOptions,
                         _dynamic_rule_adaptive_strategy)
 from .targeting_rule import TargetingRule as TR
+from .behaviours.ability_state import SetActiveAbilityUsed        # #996-r1-r3 (1012, slot 0x74)
 from .behaviours.ai_control import PerformAIAction
 from .behaviours.combat import (AttackWithAttackDamage, ChainLeftOverHitsAttackDamage,
                                 UseActiveAbility)
@@ -1753,3 +1754,214 @@ class StormOfFlensingBladesAbility(ActiveAbility):
         attacks = [p for n, p in ectx.emitted if n == "UseActiveAbility"]
         return {"ability": STORM_OF_FLENSING_BLADES_ID, "caster": caster_id, "target": target_id,
                 "attacks": attacks, "dsl": True}
+
+# ============================================================================================== #
+# PrecisionShot (1015) + PrecisionShot_Aim (1012) -- `necroNpc3Deathmark` (npc Necrons)  #996-r1-r3
+# ============================================================================================== #
+#
+# UN TRIPTYQUE, ET LE GAMECONFIG N'EN DECLARE QU'UN TIERS. Le kit ne porte que
+# `activeAbilities: ["PrecisionShot"]` -- pourtant la bataille MONTE les trois soeurs sur le
+# porteur (`[69 Loki_NormalAttack, 1015 PrecisionShot, 1012 PrecisionShot_Aim,
+# 1013 PrecisionShot_Attack]`, mesure live `probe_996r1_precision_shot.py`). Le seed BC ne porte,
+# lui aussi, qu'une seule entree `BC.Abilities.ActiveAbilities["PrecisionShot"]`
+# (`variables: {dmg}`, `constants: {nrOfHits: 1, damageProfile: Energy}`).
+#
+# LES TROIS REGLES DYNAMIQUES DE CASTER, relues au decompile de ce build -- c'est ce qui articule
+# le triptyque, et elles s'excluent deux a deux :
+#
+#   `PrecisionShotAbility$$GetDynamicInvalidCasterReason`
+#       HasEffect(caster, 0x3f7 EffectType.PrecisionShot_Aim) ? 0 : 2      # valide EN visee
+#   `PrecisionShot_AimAbility$$GetDynamicInvalidCasterReason`
+#       HasEffect(caster, 0x3f7)                              ? 2 : 0      # valide HORS visee
+#   `PrecisionShot_AttackAbility$$GetDynamicInvalidCasterReason`
+#       HasEffect(caster, 0x3f7)                              ? 0 : 4      # valide EN visee
+#
+# `2` = `TargetingRule.TargetMatchesDynamicRule`, `4` = `TargetingRule.CasterMatchesDynamicRule`.
+# ⚠ Le litteral de 1015/1012 est bien `2` -- un code de regle CIBLE rendu par une regle CASTER.
+# C'est le natif qui l'ecrit ainsi ; le port le TRANSCRIT au lieu de le << corriger >> en 4.
+# Confirmes live (meme probe, avant toute visee) : `abilityReason` 1015 -> `casterReason 0x2`,
+# 1012 -> `0x0`, 1013 -> `0x4`.
+#
+# CE QUE 1015 FAIT -- `...PrecisionShotAbility$$ExecuteBehaviour`, MIRROR :
+#
+#     AActiveAbility.Execute( entities, this,
+#         DSLBehaviors.UseActiveAbility( caster = Caster@DSLSelectors+0x48,
+#                                        target = Caster@+0x48,          # <- le CASTER, pas la cible
+#                                        activeAbilityType = 0x3f4 = 1012 PrecisionShot_Aim,
+#                                        parentAbility = Nullable(AbilityOrEffect(this+0x10)),
+#                                        <opts ZERO>, <opts ZERO> ) )
+#
+# UN SEUL NOEUD, et il ne frappe pas : 1015 DISPATCHE 1012 sur son propre caster. La surcharge est
+# celle a `ActiveAbilityType` ENTIER (`180ea6b30`), qui emballe le litteral dans un
+# `AbilityTypeSelector.DirectAbilitySelector(AbilityOrEffect(1012))` -- TRANCHEE AUX XREFS
+# ENTRANTES, jamais au pseudo-C : les deux surcharges ont sept parametres et le meme nom affiche
+# (l'autre, `180ea6a20`, prend un SELECTEUR et sert les 17 call-sites d'attaque normale).
+#
+# CE QUE 1012 FAIT -- `...PrecisionShot_AimAbility$$ExecuteBehaviour`, MIRROR :
+#
+#     AActiveAbility.Execute( entities, this,
+#         DSLBehaviors.AddEffect( 0x3f7 = 1015 EffectType.PrecisionShot_Aim,
+#                                 AActiveAbility.get_AbilityStateReference(this),
+#                                 targets = Owner@DSLSelectors+0x30,
+#                                 turns   = Nullable(3) )                 # TOURS, pas des rounds
+#         op_BitwiseAnd
+#         DSLBehaviors.SetActiveAbilityUsed( Owner@+0x30, 0x3f7 = 1015 ActiveAbilityType.PrecisionShot ) )
+#
+# ⚠ LE MEME ORDINAL `0x3f7` DESIGNE DEUX CHOSES DANS LE MEME ARBRE : l'EFFET `1015
+# EffectType.PrecisionShot_Aim` (1er terme) et l'ABILITY `1015 ActiveAbilityType.PrecisionShot`
+# (2e terme). Le port les NOMME tous les deux -- ecrire l'entier une fois pour deux roles serait
+# exactement la confusion d'enums silencieuse en ordinal que le CLAUDE.md decrit.
+#
+# La surcharge d'`AddEffect` est celle a QUATRE arguments (`180e9eca0`, xref entrante confirmee),
+# dont le corps passe litteralement `source = 0` au `AddEffectBehaviour..ctor` -> la SOURCE de
+# l'effet est la CIBLE, pas le caster (`source_from_target=True` cote port). Ici les deux
+# coincident (la cible est `Owner`, donc le caster lui-meme) : l'ecart est inerte, on transcrit
+# quand meme la forme native.
+#
+# CE QUE LE PORT NE FAIT PAS ENCORE (residus nommes, cf. `docs/rl/case-996-r1-r3-precisionshot.md`) :
+#   * l'ETAGE EFFET de `1015 PrecisionShot_Aim` -- `IdunBattle.Entities.Effects.Loki.
+#     PrecisionShot_AimEffect$$BlockMovement` (sous-effet `0x3f8 = 1016
+#     EffectType.PrecisionShot_BlockMovement` via `BaseEffect$$AddSubEffectWithSameTurns`) et ses
+#     trois `Triggered(<cond>, RemoveEffect)` de `$$CreateHandleTriggerAbilitiesInternal`. La POSE
+#     est portee (l'effet se materialise en `BaseEffect`, degradation fidele et VISIBLE) ; sa
+#     MECANIQUE ne l'est pas ;
+#   * `1013 PrecisionShot_Attack`, dont la config d'ability n'est ni au gameconfig ni au seed BC.
+
+PRECISION_SHOT_ID = "PrecisionShot"
+
+#: Le `Nullable(3)` du 4e argument d'`AddEffect` -- deja en TOURS (le natif ne passe PAS de
+#: `TurnsFromRounds` ici, cf. la surcharge 4-args relue ci-dessus).
+PRECISION_SHOT_AIM_TURNS = 3
+
+
+def precision_shot_tree():
+    """Arbre de `...PrecisionShotAbility$$ExecuteBehaviour` (MIRROR) : UN noeud, un dispatch.
+
+        UseActiveAbility(Caster@+0x48, Caster@+0x48, 1012 PrecisionShot_Aim)
+
+    `ability_type` NON-NORMAL -> la feuille entre par `AbilityHandler.active_ability_operation`
+    (`Core.Services.OperationProcessor$$ActiveAbility`, slot 2), donc le sous-cast rejoue TOUTE la
+    chaine d'`ActiveAbilityOperation$$ExecuteInternal` -- gates compris. Cf. la docstring de
+    `behaviours/combat.py::UseActiveAbility`."""
+    return UseActiveAbility(Caster(), Caster(),
+                            ability_type=int(ActiveAbilityType.PrecisionShot_Aim))
+
+
+def precision_shot_aim_tree():
+    """Arbre de `...PrecisionShot_AimAbility$$ExecuteBehaviour` (MIRROR) :
+
+        AddEffect(1015 EffectType.PrecisionShot_Aim, stateRef, Owner@+0x30, Nullable(3) TOURS)
+        & SetActiveAbilityUsed(Owner@+0x30, 1015 ActiveAbilityType.PrecisionShot)
+
+    `op_and` = `IdunBattle.DSL.AbilityBehaviour$$op_BitwiseAnd`, le combinateur du natif."""
+    return op_and(
+        AddEffect(int(EffectType.PrecisionShot_Aim), "PrecisionShot_Aim", Owner(),
+                  duration_rounds=None, duration_turns=PRECISION_SHOT_AIM_TURNS,
+                  source_from_target=True),
+        SetActiveAbilityUsed(Owner(), int(ActiveAbilityType.PrecisionShot)))
+
+
+class PrecisionShotAbility(ActiveAbility):
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.PrecisionShotAbility$$ExecuteBehaviour`
+    (id 1015, `necroNpc3Deathmark` « Deathmark », npc Necrons). Cast SELF-TARGET.
+
+    OBSERVABLE porte : le dispatch de `1012 PrecisionShot_Aim` sur le caster -- donc, quand ce
+    sous-cast passe ses propres gates, la pose de l'effet de visee et la consommation de la charge
+    de 1015. AUCUNE attaque : ce cast ne frappe pas.
+
+    ⚠ SES DEUX FACES SE REFUSENT MUTUELLEMENT, ET C'EST LE NATIF QUI LE VEUT : 1015 exige l'effet
+    de visee (`GetDynamicInvalidCasterReason` -> 0 seulement si `HasEffect`), et 1012 exige son
+    ABSENCE. Le port ne tranche RIEN de cette articulation : il pose la regle de chaque classe et
+    laisse le sous-cast traverser les memes gates que le natif.
+
+    Flags de tour : defauts base (1015 absent des tables d'override)."""
+    __slots__ = ()
+    ABILITY_TYPE = int(ActiveAbilityType.PrecisionShot)            # 0x3f7 = 1015
+    ABILITY_ID = PRECISION_SHOT_ID
+
+    # GATE DE CIBLE + PORTEE -- forme de ctor = **PRESET + FLAGS** (le litteral visible n'est PAS le
+    # masque). `...PrecisionShotAbility$$.ctor` recopie les 0x40 octets du preset
+    # `<TargetingOptions statics>+0x280` puis appelle `TargetingOptions..ctor(&opts, &preset, 0x10)`,
+    # dont le corps fait `this+0x28 <- additionalRules | template+0x28`. Le `.cctor` a ete RELU par
+    # cette tranche, champ par champ :
+    #     +0x280 isSelfCasting    = 1
+    #     +0x288 range           <- `TargetingRange statics+0x60` = RANGE_SELF
+    #                               (`.cctor` : `+0x60 = 1` onlyAdjacent, `+0x68 = Nullable(0)`)
+    #     +0x2a0 forceMeleeTarget = 1 = RangedBool.False
+    #     +0x2a8 rules            = 0x8004
+    # -> masque effectif = 0x10 | 0x8004 = **0x8014**, decompose EXHAUSTIVEMENT :
+    #     0x0004 (bit  2) CasterMatchesDynamicRule -> arme `get_dynamic_invalid_caster_reason`
+    #     0x0010 (bit  4) CasterHasNotMoved        -> refus si le caster a deja bouge ce tour
+    #     0x8000 (bit 15) CasterIsPossibleTarget   -> le caster entre dans ses propres cibles
+    # AUCUN bit de cible : c'est un self-cast. `1012` porte le MEME ctor, au litteral pres -- aucun :
+    # les deux corps sont identiques (meme preset, meme `0x10`, meme `AActiveAbility..ctor(.., 2)`).
+    TARGETING_OPTIONS = TargetingOptions(rules=(TR.CasterHasNotMoved | TR.CasterMatchesDynamicRule
+                                                | TR.CasterIsPossibleTarget),
+                                         self_cast=True, range=RANGE_SELF,
+                                         force_melee_target=RANGED_BOOL_FALSE)
+
+    def get_dynamic_invalid_caster_reason(self, state: "State", caster_id: int) -> int:
+        """`...PrecisionShotAbility$$GetDynamicInvalidCasterReason` -- MIRROR du DECOMPILE :
+
+            r = EntityExtensions.HasEffect(caster, this+0x18, 0x3f7, 0)
+            return (char)r != 0 ? 0 : 2
+
+        Soit : le cast n'est LEGAL que si le caster porte DEJA l'effet de visee. `onlyActive = 0`
+        au call-site -> `has_effect_of_type` (qui ne filtre que `consumed`), jamais `active_effects`.
+
+        C'est un trou PERMISSIF que ce port ferme : sans cette regle, le port acceptait un cast que
+        le natif REFUSE (mesure live : `casterReason 0x2`, `actionConsumed = False`)."""
+        if has_effect_of_type(state, int(caster_id), int(EffectType.PrecisionShot_Aim)):
+            return 0
+        return int(TR.TargetMatchesDynamicRule)                   # le litteral `2` du natif
+
+    def execute_behaviour(self, state: "State", caster_id: int,
+                          target_id: Optional[int]) -> Optional[dict]:
+        ectx = ExecutionContext(state=state, rng=state.rng)
+        precision_shot_tree().execute(entities_from_state(state, caster_id, target_id), ectx)
+        casts = [p for n, p in ectx.emitted if n == "UseActiveAbility"]
+        return {"ability": PRECISION_SHOT_ID, "caster": caster_id, "target": target_id,
+                "dispatched": casts, "dsl": True}
+
+
+class PrecisionShot_AimAbility(ActiveAbility):
+    """`IdunBattleLogic.Entities.Abilities.Active.Loki.PrecisionShot_AimAbility$$ExecuteBehaviour`
+    (id 1012). Cast SELF-TARGET, monte sur le porteur de 1015 SANS etre declaree au gameconfig.
+
+    OBSERVABLE porte : l'effet `1015 PrecisionShot_Aim` pose sur le caster pour **3 TOURS**, et la
+    charge de `1015 PrecisionShot` consommee (`CanStillBeUsed = false`).
+
+    Flags de tour : defauts base (1012 absent des tables d'override)."""
+    __slots__ = ()
+    ABILITY_TYPE = int(ActiveAbilityType.PrecisionShot_Aim)        # 0x3f4 = 1012
+    ABILITY_ID = PRECISION_SHOT_ID          # la config d'ability du triptyque est celle du PARENT
+
+    # MEME ctor que 1015, relu independamment : preset `<TargetingOptions statics>+0x280` recopie,
+    # puis `TargetingOptions..ctor(&opts, &preset, 0x10)`, puis `AActiveAbility..ctor(this, &opts, 2)`.
+    # Les deux corps sont identiques instruction pour instruction -> meme masque effectif 0x8014.
+    TARGETING_OPTIONS = TargetingOptions(rules=(TR.CasterHasNotMoved | TR.CasterMatchesDynamicRule
+                                                | TR.CasterIsPossibleTarget),
+                                         self_cast=True, range=RANGE_SELF,
+                                         force_melee_target=RANGED_BOOL_FALSE)
+
+    def get_dynamic_invalid_caster_reason(self, state: "State", caster_id: int) -> int:
+        """`...PrecisionShot_AimAbility$$GetDynamicInvalidCasterReason` -- MIRROR du DECOMPILE :
+
+            r = EntityExtensions.HasEffect(caster, this+0x18, 0x3f7, 0)
+            return -(uint)((char)r != 0) & 2
+
+        C'est l'INVERSE EXACT de 1015 : viser n'est legal que si l'on ne vise PAS deja. La forme du
+        pseudo-C differe (`neg/sbb/and` contre `cmovne`) mais les deux corps rendent le meme jeu de
+        valeurs {0, 2} -- seule la CONDITION est inversee, et c'est elle qu'on transcrit."""
+        if has_effect_of_type(state, int(caster_id), int(EffectType.PrecisionShot_Aim)):
+            return int(TR.TargetMatchesDynamicRule)               # le litteral `2` du natif
+        return 0
+
+    def execute_behaviour(self, state: "State", caster_id: int,
+                          target_id: Optional[int]) -> Optional[dict]:
+        ectx = ExecutionContext(state=state, rng=state.rng)
+        precision_shot_aim_tree().execute(entities_from_state(state, caster_id, target_id), ectx)
+        posed = [p for n, p in ectx.emitted if n == "AddEffect"]
+        used = [p for n, p in ectx.emitted if n == "SetActiveAbilityUsed"]
+        return {"ability": PRECISION_SHOT_ID, "caster": caster_id, "target": target_id,
+                "aim": posed, "ability_used": used, "dsl": True}

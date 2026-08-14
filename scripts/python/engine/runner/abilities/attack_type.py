@@ -214,6 +214,15 @@ ABILITY_ATTACK_TYPE: dict[int, int] = {
     # marqueur de teleportation), donc `Others` est aussi ce qu'on attendrait -- mais c'est le
     # litteral qui tranche, pas l'arbre. (#448-r2d-r2)
     ActiveAbilityType.TitanhammerSquad: AbilityAttackType.Others,  # 1231
+    # PrecisionShot (1015) ET PrecisionShot_Aim (1012) : leurs deux `$$.ctor` sont IDENTIQUES
+    # instruction pour instruction -- recopie du preset `<TargetingOptions statics>+0x280`,
+    # `TargetingOptions..ctor(&opts, &preset, 0x10)`, puis `AActiveAbility..ctor(this, &opts, 2)`.
+    # Le 3e argument est le litteral `2` = `Others` dans les DEUX corps, RELUS separement.
+    # ⚠ Leur soeur `1013 PrecisionShot_Attack`, elle, porte `0` (deja inscrite tout en haut de cette
+    # table) alors que c'est la SEULE des trois qui attaque : le litteral ne se deduit ni du nom ni
+    # du triptyque. (#996-r1-r3)
+    ActiveAbilityType.PrecisionShot: AbilityAttackType.Others,  # 1015
+    ActiveAbilityType.PrecisionShot_Aim: AbilityAttackType.Others,  # 1012
     # LashOfTorment (1196) : `...Active.Loki.LashOfTormentAbility$$.ctor` recopie les 0x40 octets du
     # MEME preset statique `<TargetingOptions statics>+0x140` que 1225 puis appelle
     # `AActiveAbility..ctor(this, &opts, 0)` -- le 3e argument est le litteral `0`. TRANSCRIT au
