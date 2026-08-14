@@ -214,10 +214,11 @@ DETTE: dict[int, tuple[str, str]] = {
     # (`engine/playbook/noncomparable/squig_launchas.py`, registre `PLAYBOOKS`). Le retrait est ce
     # qui la fait tomber sous le CRAN A -- si le port disparaissait, l'item rougirait au lieu
     # d'etre couvert par une vieille ligne de dette.
-    1211: ("SANS_VERDICT",
-           "RitesOfMorkaiPlaybook -- EvaluateNonComparable, ShouldEvaluate. COMBAT : "
-           "RitesOfMorkaiAbility (spacewolves). 1 porteur (lineup). Sa CLASSE est deja citee dans "
-           "`docs/rl/backlog.md`."),
+    # 1211 `RitesOfMorkai` -- TRANCHE par #1066 (residus #906-r1 / #985-r1), ligne RETIREE : sa
+    # face DECISION est PORTEE (`engine/playbook/noncomparable/rites_of_morkai.py`, registre
+    # `PLAYBOOKS`), gate `ShouldEvaluate` compris. Le retrait est ce qui la fait tomber sous le
+    # CRAN A -- si le port disparaissait, l'item rougirait au lieu d'etre couvert par une vieille
+    # ligne de dette.
 }
 
 
