@@ -572,10 +572,19 @@ def test_la_porte_d_elevation_du_natif_MORD():
     marche_pred = pred(_scene(elev=marche_elev), FOE_ID)
     assert {p[0] for p in marche_pred} == {M2_ID, ATT_ID}, (
         "la porte d'elevation ne mord pas cote PREDICTION : %r" % (marche_pred,))
-    # Et la branche B de 1449 BASCULE : un seul ami Mythique adjacent, donc plus de bonus.
+    # Et la branche B de 1449 BASCULE sur la GEOMETRIE. Il faut couper les DEUX voisins Mythiques
+    # pour cela : l'ATTAQUANT lui-meme est un ami Mythique adjacent a sa cible, et le natif le
+    # COMPTE (`AdjacentUnits(<la cible>)` ne l'exclut pas, `Friends`/`UnitsWithRarity` le gardent).
+    # C'est ce fait -- LU, pas suppose -- qui rend le seuil `>= 2` atteignable a un seul renfort.
     e = _effet(MORE_GITZ, MOW_ID, 1)
     assert e.create_aura_defense_damage_malus_for_ally(_ctx_1449(plat)) is not None
-    assert e.create_aura_defense_damage_malus_for_ally(_ctx_1449(marche)) is None
+    assert e.create_aura_defense_damage_malus_for_ally(_ctx_1449(marche)) is not None, (
+        "l'attaquant Mythique adjacent doit encore compter dans la branche B")
+    isole = DM._adjacent_unit_profiles(_state(elev={(3, 2): 3, (4, 3): 3, (3, 3): 0}), FOE_ID)
+    assert {p[0] for p in isole} == {ATT_ID}, (
+        "montage degenere : les deux renforts devaient etre coupes (%r)" % (isole,))
+    assert e.create_aura_defense_damage_malus_for_ally(_ctx_1449(isole)) is None, (
+        "un seul ami Mythique adjacent (l'attaquant) : `AmountIsEqualOrGreater(..., 2)` est FAUX")
 
 
 def test_le_voisinage_est_tri_etat():

@@ -401,12 +401,22 @@ def test_verrou_de_rarete_fige_avec_sa_raison():
         tous lisibles : `AreFriends(Caster, EffectSource)` (`team` + `team_by_id` + `self.source`),
         `HasRarity(Caster, Mythic)` (`attacker_ctx["rarity"]`, #999-r3-r1) et `HasTrait(Caster,
         Hero)` (`attacker_ctx["traits"]`).
-      * **1442 RESTE DEHORS, et son blocage a CHANGE DE NATURE.** Ce n'est plus la rarete (le canal
-        repond, cf. `test_999r3r1_canal_rarete_aura_offline.py`) : c'est l'UNIVERS DE PORTEURS des
-        deux agregateurs d'aura, qui exige un `PositionComponent`. Or 1442 vit sur une MACHINE OF
-        WAR (`deathCrawler`), et `snapshot._load_machines` ne pose NI `PositionComponent` NI
-        `HealthComponent` -- une MoW est hors-plateau. MESURE :
-        `probe_999r3r1_porteurs_aura_mow.py`. Residu `#1035-r2`, `BLOCAGE: etage`.
+      * **1442 RESTAIT DEHORS, et son blocage avait CHANGE DE NATURE.** Ce n'etait plus la rarete
+        (le canal repond, cf. `test_999r3r1_canal_rarete_aura_offline.py`) : c'etait l'UNIVERS DE
+        PORTEURS des deux agregateurs d'aura, qui exigeait un `PositionComponent`. Or 1442 vit sur
+        une MACHINE OF WAR (`deathCrawler`), et `snapshot._load_machines` ne pose NI
+        `PositionComponent` NI `HealthComponent` -- une MoW est hors-plateau.
+
+    ⚠ REQUALIFIE UNE TROISIEME FOIS PAR #1035-r2 -- LE SECOND MUR EST TOMBE, ET 1442 EST INSCRIT.
+    Le filtre positionnel etait un ARTEFACT DU PORT sur quatre sites : le natif
+    (`IdunBattle.Core.Services.DamageCalculations$$CalculateDefenderModifiersForPrediction` et son
+    jumeau ATTAQUE) itere une `List<KeyValuePair<entite, List<effet>>>` de l'ETAT, BOARD-WIDE, sans
+    lire aucune position. Il est LEVE (#999-r3-r1-r1) : le porteur entre avec `owner_pos = None`, et
+    les auras POSITIONNELLES se taisent d'elles-memes. Or aucun etage du `$$CreateTargetSelector` de
+    1442 ne lit la position du porteur (`Friends(Owner, AllUnits)` est board-wide ;
+    `UnitsWithRarity` lit `+0x74` ; `UnitsOnTilesWithEffect` lit la tuile du BENEFICIAIRE) -- elle
+    n'a donc rien a taire. Ce cran a ete VU ROUGE une troisieme fois, et c'etait son travail.
+    Le port et ses contre-bras : `test_1035r2_1025r1_auras_mow_offline.py`.
 
     Le point ⚠ ci-dessus (regime par defaut DEGENERE) reste ENTIEREMENT valable, et il a
     maintenant sa sortie : la fixture `rarity_separating_case` (#999-r3). Toute inscription d'un
@@ -419,11 +429,24 @@ def test_verrou_de_rarete_fige_avec_sa_raison():
     assert EffectType.HyperCorrosiveAcid_ExtraDamagePct.name in EFFECT_CLASSES, (
         "1448 est SORTI d'EFFECT_CLASSES : sa face degat etait portee et confrontee en regime "
         "SEPARANT (#999-r3-r1). L'en lever la retire, elle ne la corrige pas.")
-    assert EffectType.BlightedLand_ExtraDamagePct.name not in EFFECT_CLASSES, (
-        "1442 est entre dans EFFECT_CLASSES : son canal est l'AURA ATTAQUE, et l'univers de "
-        "porteurs de cet agregateur EXCLUT les MACHINES OF WAR (aucun `PositionComponent`, cf. "
-        "`snapshot._load_machines`). Son porteur `deathCrawler` EN EST une -- l'inscrire rendrait "
-        "une classe MATERIALISEE et pourtant INERTE. Mesure : `probe_999r3r1_porteurs_aura_mow.py`.")
+    assert EffectType.BlightedLand_ExtraDamagePct.name in EFFECT_CLASSES, (
+        "1442 est SORTI d'EFFECT_CLASSES : son canal AURA ATTAQUE est porte depuis #1035-r2, et "
+        "l'univers de porteurs des deux agregateurs admet les MACHINES OF WAR depuis "
+        "#999-r3-r1-r1. L'en lever la retire, elle ne la corrige pas.")
+    # ⚠ Le gate de RARETE ne doit pas se perdre en meme temps que le verrou : un 1442 inscrit
+    # SANS son etage `UnitsWithRarity` bufferait TOUS les allies sur tuile contaminee. Contre-bras
+    # MINIMAL ici (les cinq autres sont dans `test_1035r2_1025r1_auras_mow_offline.py`) : c'est ce
+    # fichier-ci que le lecteur ouvre quand il cherche << le verrou est-il encore garde ? >>.
+    _blight = EFFECT_CLASSES[EffectType.BlightedLand_ExtraDamagePct.name](
+        name=EffectType.BlightedLand_ExtraDamagePct.name,
+        effect_type=int(EffectType.BlightedLand_ExtraDamagePct), ability_level=1)
+    _c = {"owner_id": 90, "owner_team": 1, "att_id": 11, "att_team": 1, "att_pos": (2, 2),
+          "tile_effects_by_pos": {(2, 2): [EffectType.Contaminated.name]}}
+    assert _blight.create_aura_attack_damage_bonus_for_ally(
+        dict(_c, att_rarity=Rarity.Epic)) is None, (
+        "le gate `UnitsWithRarity(..., Mythic)` de 1442 a disparu : terme PERMISSIF")
+    assert _blight.create_aura_attack_damage_bonus_for_ally(
+        dict(_c, att_rarity=None)) is None, "non mesure -> le gate doit se FERMER"
     assert hasattr(UnitContext, "rarity"), (
         "`UnitContext.rarity` a DISPARU : le canal de rarete (#999-r3) est retire, et 1448 "
         "redevient PERMISSIF (son gate `HasRarity` s'evanouit).")
