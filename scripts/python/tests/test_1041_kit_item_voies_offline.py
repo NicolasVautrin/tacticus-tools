@@ -17,7 +17,7 @@ DEUX VICES, EN SENS OPPOSES. C'est ce qui rend ce cliquet a deux faces, et c'est
 ⚠ NE CORRIGER QUE LE PREMIER SENS DEGRADE LE CHIFFRE : on ferait basculer en << portee >> des
 entrees dont une face manque. Les deux etages [3] et [4] sont donc aussi LOAD-BEARING que [1]/[2].
 
-⚠ **LE GATE DU SECOND VICE A LUI-MEME DEUX CRANS DEPUIS #1024-r2** -- et le premier seul RE-OUVRAIT
+⚠ **LE GATE DU SECOND VICE A LUI-MEME DEUX CRANS DEPUIS #1024-r5** -- et le premier seul RE-OUVRAIT
 le sur-comptage, dans l'autre sens : il comptait PARTIEL un montage qui n'a RIEN a porter.
 << la cible n'a aucune classe dans `EFFECT_CLASSES` >> ne signifie pas << rien ne s'execute >> ; il
 faut encore que le NATIF ait une classe. Mesure sur `rnca9r7q6c` : `CabalOfSorcerers_ExtraDamagePct`
@@ -49,7 +49,7 @@ DECLENCHEUR = {
         "scripts/python/conftest.py", "scripts/python/tests/conftest.py",
         # le foyer garde, et ses DEUX consommateurs
         "scripts/python/kit_item_voies.py",
-        # le SUBSTRAT du second cran du gate (#1024-r2) : sans la table de symboles du build,
+        # le SUBSTRAT du second cran du gate (#1024-r5) : sans la table de symboles du build,
         # `classe_d_effet_native` rend `None` et le gate degrade entierement vers PARTIEL.
         "scripts/python/build_pin.py", "scripts/python/symbols_layout.py",
         "scripts/python/il2cpp_provenance.py",
@@ -189,7 +189,7 @@ def test_une_pose_dont_le_NATIF_a_une_classe_non_portee_est_PARTIELLE_jamais_por
     """L'axe INVERSE. Un montage DECLARE dont la cible a une classe NATIVE que le port n'execute pas
     ne fait RIEN de ce que le natif fait : le crediter << porte >> fait RENONCER a du travail reel.
 
-    ⚠ **LE CRITERE A DEUX CRANS DEPUIS #1024-r2, ET N'EN LIRE QU'UN SUR-COMPTE LE TRAVAIL.**
+    ⚠ **LE CRITERE A DEUX CRANS DEPUIS #1024-r5, ET N'EN LIRE QU'UN SUR-COMPTE LE TRAVAIL.**
     << pas de classe dans `EFFECT_CLASSES` >> ne veut PAS dire << rien ne s'execute >> : encore
     faut-il que le NATIF ait quelque chose a executer. Mesure : `CabalOfSorcerers_ExtraDamagePct` et
     `GuardianConstruct_ExtraDamagePct` ont chacun une classe native a 4 corps propres (dette REELLE),
@@ -262,7 +262,7 @@ def test_la_mesure_des_classes_d_effet_natives_n_est_pas_DEGENERE():
     # les DEUX orthographes doivent etre representees, sans quoi le detecteur en a perdu une.
     assert "CabalOfSorcerers_ExtraDamagePct" in natives, "convention `<X>Effect` perdue"
     assert "TerminatorArmour_ReduceDmg" in natives, (
-        "convention `<X>_Effect` (avec souligne) perdue -- c'est le faux `False` de #1024-r2")
+        "convention `<X>_Effect` (avec souligne) perdue -- c'est le faux `False` de #1024-r5")
 
 
 def test_l_appariement_PAR_PREFIXE_est_exerce_et_garde():
