@@ -5063,6 +5063,23 @@ pas d'erreur : il rend **zéro**, et un zéro se lit « rien à signaler ».
   `$$AdditionalBehavior` ; `_HeroSpawnAbility` / `_ReinforcementAbility` / `_ReinforcementShieldAbility`
   / `_ResurrectAbility` / `_SummonSpawnAbility` surchargent `$$CreateBehaviour` EN ENTIER (donc la
   base ne s'applique PAS a eux -- verifie au balayage de `ghidra/functions.tsv`).
+  LES TROIS QUI REUTILISENT LA BASE SONT DEJA RE-VERIFIES (decompile lu, #1083-r1, pour eviter un
+  redefrichage -- ils tiennent en un `additional_behavior` chacun) :
+    * `PowerUp_ReactivateAbility` (1272) : `ResetActiveAbility(Actor, true)`. Constantes :
+      `nrOfRounds`/`shieldPct` seulement -- tout le reste vient de la base.
+    * `PowerUp_Healing` (1273) : `If( IsMechanical(Actor, 0), <repair>, <heal> )` ou les DEUX volets
+      valent `PercentageOf( StatAmount(Actor, Health, **Maximum**), Get(GetNumberConstant(0x13 =
+      AbilityConstantType.HealPercentage = 100)) )` -- `Heal(Owner, Actor, ..., HealBehaviourOptions{
+      +0x33=1, +0x34=1})` et `Repair(Owner, Actor, ..., AbilityOrEffect(self), RepairBehaviourOptions{
+      +0x16=1, +0x10=0, +0x14=1})`.
+    * `PowerUp_Bomb` (1282) : `If( IsHumanPlayer(OriginalOwner(Actor)), Inform(0x95, range) &
+      AbilityAreaDamage(...), null )`. ⚠ LE GATE EST LOAD-BEARING : la bombe ne fait RIEN quand
+      l'unite qui l'ecrase n'appartient pas au joueur humain. Cibles = `SurroundingEnemies(Actor,
+      ConfigConst(0x16 = range = 4), unique = 1, selectionType = 3)` ; montant =
+      `RandomAmount(GetMinDamage(orig), GetMaxDamage(orig))` (les deux ont leur propre corps natif) ;
+      profil = `GetDamageProfileOrDefault(self, 0x12)` -- ⚠ ce `0x12` est un **DamageProfileType**
+      (18 = `Blast`, concordant avec `damageProfile: "Blast"` du gameconfig), PAS un
+      `AbilityConstantType` (ou 0x12 serait `hpPct`).
   ⚠ **`Get(pct)` n'est PAS un montant plat** : le flag `isMultiply` du ctor `PowerUp_Effect` (lu dans
   `EffectsDatabase.<InitializeEffects>b__14_16x`) decide `StatPart` 9 vs 5. Le relire **lambda par
   lambda**, jamais generaliser depuis les 5 portes.
