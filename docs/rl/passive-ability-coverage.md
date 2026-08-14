@@ -42,7 +42,7 @@ Sinon, trois verdicts NEGATIFS distincts :
 
 Mesure de ce run : un `substring` brut du nom sur `engine/**/*.py` rend **211/211 presents, 0 manquant**. La cause n'est pas que tout est porte : `engine/entities/triggered_ability_type.py` est un **mirror 1:1 de l'enum natif `TriggeredAbilityType`** (573 membres), ou le nom de CHAQUE passif figure comme membre. **Un catalogue n'est pas un cablage.**
 
-Le signal code de cet audit est donc derive de l'**AST** et exclut les **definitions** de membres d'enum (2638 assignations ecartees dans 673 fichiers `engine/**/*.py`) tout en gardant les **usages** (`TriggeredAbilityType.X` = `ast.Attribute` -> compte). Il separe en outre le CODE (13968 symboles distincts) de la PROSE (11709 ko de commentaires + docstrings, invisibles a l'AST, lus via `tokenize`). Le rapprochement est CamelCase-aware : `HeavyGravCannon` matche `HeavyGravCannonEffect`, `Guard` ne matche ni `Guardsman` ni `RoyalGuard` (ni, pour `Possession`, l'unitId `blackPossession`).
+Le signal code de cet audit est donc derive de l'**AST** et exclut les **definitions** de membres d'enum (2638 assignations ecartees dans 675 fichiers `engine/**/*.py`) tout en gardant les **usages** (`TriggeredAbilityType.X` = `ast.Attribute` -> compte). Il separe en outre le CODE (13985 symboles distincts) de la PROSE (11735 ko de commentaires + docstrings, invisibles a l'AST, lus via `tokenize`). Le rapprochement est CamelCase-aware : `HeavyGravCannon` matche `HeavyGravCannonEffect`, `Guard` ne matche ni `Guardsman` ni `RoyalGuard` (ni, pour `Possession`, l'unitId `blackPossession`).
 
 Chaque reference est en outre ATTRIBUEE A SA ZONE du moteur (`__init__, ai, battle_query, dsl, effects, entities, hex_corner, hex_edge, move, playbook, predict, runner, services, streams, utilities, weights`), parce qu'une reference dans `playbook/`/`ai/`/`utilities/` (face DECISION) ne prouve RIEN sur l'execution combat. C'est ce qui separe **B** (litteral exact sous `runner/`) de **R**.
 
@@ -65,12 +65,12 @@ La colonne `kind` de gameconfig MENT sur la spawnabilite -> le pool vient de la 
 ## Bilan
 
 - Passifs distincts dans le parc (lineup 127 / npc 491 / summons 65) : **211**
-- **PORTES** (>=1 canal structurel) : **147** (70 %)
+- **PORTES** (>=1 canal structurel) : **149** (71 %)
 - **ZONE-GRISE** (direct-read hors registre, a trancher) : **13**
-- **GAPS** (mention seule + absent) : **51** = 21 mention + 30 absent
+- **GAPS** (mention seule + absent) : **49** = 21 mention + 28 absent
 - Passifs portes par >=1 unite **confrontable** : **134** ; parmi eux, **0 gaps** et **1 zone-grise** -> c'est la FILE reelle.
 
-Ventilation des canaux qui portent (un passif peut en cumuler) : **T**=76, **O**=29, **E**=90, **G**=10, **X**=0, **B**=8
+Ventilation des canaux qui portent (un passif peut en cumuler) : **T**=77, **O**=30, **E**=91, **G**=10, **X**=0, **B**=8
 
 ## Tableaux par valeur
 
@@ -86,11 +86,10 @@ _aucun._
 |---|---|---|---|---|---|---|
 | AncientFury | S+=1 | ultraSmnDreadnought | ZONE-GRISE | **R** | runner, services | `IdunBattleLogic.Entities.Abilities.Active.Loki.AncientFury_NormalAttackAbility` |
 
-### GAPS non confrontables (npc-only / non spawnable `L!` / summon indetermine `S?`) (51)
+### GAPS non confrontables (npc-only / non spawnable `L!` / summon indetermine `S?`) (49)
 
 | passif | porteurs | spawnables (ex.) | verdict | canal | zones engine/ |
 |---|---|---|---|---|---|
-| AllIsDust | S?=1 N=1 | - | GAP-ABSENT | - | - |
 | ArchContaminator | N=1 | - | GAP-MENTION | **.** | - |
 | BattleFocus | S?=1 N=1 | - | GAP-MENTION | **.** | - |
 | BossEndFightUndefeated | N=2 | - | GAP-MENTION | **.** | - |
@@ -130,7 +129,6 @@ _aucun._
 | PowerUp_SummonSpawn_ultraSmnInceptor | N=1 | - | GAP-ABSENT | - | - |
 | PreCalibratedPurgeSolution | N=1 | - | GAP-ABSENT | - | - |
 | PrehensilePincerTail | N=1 | - | GAP-ABSENT | - | - |
-| Pyreblaster | S?=1 N=1 | - | GAP-ABSENT | - | - |
 | RepairEnthusiast | S?=1 N=1 | - | GAP-ABSENT | - | - |
 | RunsAround | N=1 | - | GAP-MENTION | **.** | - |
 | RunsAway | N=1 | - | GAP-MENTION | **.** | - |
@@ -159,7 +157,7 @@ _aucun._
 | WatchedOver | S?=1 N=1 | - | ZONE-GRISE | **R** | playbook, runner |
 | Wraithcannon | N=2 | - | ZONE-GRISE | **R** | runner, services |
 
-### PORTES (147)
+### PORTES (149)
 
 | passif | porteurs | spawnables (ex.) | verdict | canal | zones engine/ |
 |---|---|---|---|---|---|
@@ -296,6 +294,7 @@ _aucun._
 | TimesplinterMantle | L~=1 N=4 | necroChronomancer | PORTE | **T**=TimesplinterMantleAbility **E**=TimesplinterMantle_DamageReduction **G**=TimesplinterMantle_DamageReduction | effects, playbook, runner |
 | WayOfTheShortBlade | L~=1 N=5 | tauFarsight | PORTE | **E**=WayOfTheShortBlade_AdditionalAttackMarker,WayOfTheShortBlade_DamageBuff | effects, playbook |
 | WhisperingWeb | L~=1 | eldarLhykhis | PORTE | **T**=WhisperingWebAbility | runner |
+| AllIsDust | S?=1 N=1 | - | PORTE | **O**=AllIsDust **E**=AllIsDust | effects |
 | DrawFire | S?=1 N=1 | - | PORTE | **B**=litteral exact sous engine/runner/ | runner |
 | EchoesFromTheWarp | N=1 | - | PORTE | **T**=EchoesFromTheWarpAbility | runner, utilities |
 | Fealty | N=1 | - | PORTE | **B**=litteral exact sous engine/runner/ | runner, services |
@@ -306,6 +305,7 @@ _aucun._
 | OmnissiahsBlessing | S?=1 N=1 | - | PORTE | **T**=OmnissiahsBlessingAbility | runner |
 | PrimarchOfTheFirstLegion | N=1 | - | PORTE | **E**=PrimarchOfTheFirstLegion_ExtraDamage | effects, playbook, runner |
 | PurgeResponse | S?=1 N=1 | - | PORTE | **E**=PurgeResponse | effects, playbook |
+| Pyreblaster | S?=1 N=1 | - | PORTE | **T**=PyreblasterAbility | runner |
 | ShroudPsalm | N=1 | - | PORTE | **E**=ShroudPsalm | effects |
 | StormboyzStrike | N=1 | - | PORTE | **T**=StormboyzStrikeTeleportAbility,StormboyzStrikeFallbackAbility | ai, effects, entities, runner, services |
 | VoltagheistField | S?=1 N=2 | - | PORTE | **E**=VoltagheistField_ExtraHit | effects, predict |

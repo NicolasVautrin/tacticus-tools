@@ -379,7 +379,7 @@ astraNpc4MortarSurv	AstraMilitarum	Imperial	None	trait	BattleFatigue		1
 astraNpc4MortarSurv	AstraMilitarum	Imperial	None	trait	TwoManTeam		0	
 astraNpc4MortarSurv	AstraMilitarum	Imperial	None	trait	IndirectFire		1	
 astraNpc4MortarSurv	AstraMilitarum	Imperial	None	trait	SuppressiveFire		1	
-astraNpc5DeathRider	AstraMilitarum	Imperial	None	passif	FragLance		0	
+astraNpc5DeathRider	AstraMilitarum	Imperial	None	passif	FragLance		1	
 astraNpc5DeathRider	AstraMilitarum	Imperial	None	trait	Unstoppable		1	
 astraNpcBullgryn	AstraMilitarum	Imperial	None	active	FragBomb	1017	1	1
 astraNpcBullgryn	AstraMilitarum	Imperial	None	passif	AvalancheOfMuscle		1	
@@ -1794,7 +1794,7 @@ templBossSwordBrother_LHE	BlackTemplars	Imperial	None	trait	RapidAssault		1
 templNpc1Initiate	BlackTemplars	Imperial	None	active	DevoutPush	1053	1	1
 templNpc1Initiate	BlackTemplars	Imperial	None	passif	HeavyBoltPistol		1	
 templNpc2Neophyte	BlackTemplars	Imperial	None	active	IncendiaryShells	1044	1	1
-templNpc3InitiatePyreblaster	BlackTemplars	Imperial	None	passif	Pyreblaster		0	
+templNpc3InitiatePyreblaster	BlackTemplars	Imperial	None	passif	Pyreblaster		1	
 templNpc4Aggressor	BlackTemplars	Imperial	None	active	Fragstorm	1078	1	1
 templNpc4Aggressor	BlackTemplars	Imperial	None	trait	MkXGravis		1	
 templNpc4Aggressor	BlackTemplars	Imperial	None	trait	SuppressiveFire		1	
@@ -1901,7 +1901,7 @@ thousNpc2Screamer	ThousandSons	Chaos	None	active	SlashingDive	1091	1	0
 thousNpc2Screamer	ThousandSons	Chaos	None	trait	WeaverOfFate		1	
 thousNpc2Screamer	ThousandSons	Chaos	None	trait	Daemon		1	
 thousNpc2Screamer	ThousandSons	Chaos	None	trait	Flying		1	
-thousNpc3RubricMarine	ThousandSons	Chaos	None	passif	AllIsDust		0	
+thousNpc3RubricMarine	ThousandSons	Chaos	None	passif	AllIsDust		1	
 thousNpc3RubricMarine	ThousandSons	Chaos	None	trait	WeaverOfFate		1	
 thousNpc4Terminator	ThousandSons	Chaos	None	passif	EchoesFromTheWarp		1	
 thousNpc4Terminator	ThousandSons	Chaos	None	trait	WeaverOfFate		1	
