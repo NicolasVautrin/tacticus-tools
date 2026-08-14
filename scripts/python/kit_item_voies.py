@@ -123,9 +123,103 @@ _LIBELLES_ENUM = ("ActiveAbilityType", "TriggeredAbilityType", "EffectType")
 #: La clef `nom` : l'element EST le nom gameconfig de l'item (ou d'un objet derive de lui).
 CLE_NOM = "nom"
 
-#: Le seul GATE en vigueur : la VALEUR de l'entree doit nommer >= 1 effet present dans
-#: `EFFECT_CLASSES`. Une pose dont la cible n'a pas de classe ne monte RIEN (cf. docstring).
-GATE_EFFET_CLASSE = "effet-a-une-classe"
+#: Le seul GATE en vigueur : la VALEUR de l'entree doit nommer >= 1 effet que le port EXECUTE.
+#: « Executer » = avoir une classe dans `EFFECT_CLASSES`, **ou** n'en avoir aucune COTE NATIF non
+#: plus (cf. `classe_d_effet_native` : le `BaseEffect` generique est alors le mirror FIDELE).
+GATE_EFFET_CLASSE = "classe-native-non-portee"
+
+#: Segment de namespace des classes d'effet natives (`IdunBattle.Entities.Effects.Loki.<X>Effect`,
+#: `IdunBattle.Entities.Effects.<X>Effect`). LU dans les symboles, jamais suppose.
+_NS_EFFETS_NATIFS = ".Entities.Effects."
+#: Suffixe de classe. Le natif nomme ses classes d'effet `<EffectType>Effect` -- **ET
+#: `<EffectType>_Effect`**, avec un souligne. LES DEUX CONVENTIONS COEXISTENT DANS LE MEME BUILD
+#: (`CabalOfSorcerers_ExtraDamagePctEffect` contre `TerminatorArmour_ReduceDmg_Effect`), et n'en
+#: lire qu'une rend `False` sur une classe qui EXISTE -- donc fait PASSER le gate, donc compte
+#: PORTE un item dont la face manque : exactement le SUR-comptage que ce gate existe pour fermer.
+#: Trouve par contre-epreuve sur un temoin choisi hors du lot mesure.
+_SUFFIXE_EFFET_NATIF = "Effect"
+
+
+@functools.lru_cache(maxsize=1)
+def _classes_d_effet_natives() -> "frozenset[str] | None":
+    """Les `<EffectType>` pour lesquels le BUILD porte une classe d'effet dediee. `None` = NON MESURE.
+
+    Source : `data/symbols/<build>/ghidra/functions.tsv` via `build_pin.functions_tsv()` -- donc la
+    table du build qui FAIT FOI, et un build desynchronise fait rendre `None` plutot qu'un verdict
+    tire d'un autre binaire.
+
+    La table est indexee par ADRESSE et IL2CPP deduplique les corps triviaux, donc l'ABSENCE d'UNE
+    METHODE n'y prouve rien (CLAUDE.md). Ce qu'on mesure ici est autre chose et n'a pas ce vice :
+    l'existence d'AU MOINS UNE methode dont le PROPRIETAIRE est la classe `<X>Effect`. Une classe
+    d'effet native a toujours au moins un corps propre -- `CabalOfSorcerers_ExtraDamagePctEffect` en
+    declare quatre (`.ctor`, `CreateTargetSelector`, `CreateEffectDamageBonusForAttack`,
+    `ValidCharacter`) -- alors qu'un EffectType SANS classe n'en a aucun, a aucune adresse."""
+    try:
+        import build_pin
+        chemin = build_pin.functions_tsv()
+    except Exception:                    # table absente, build desynchronise, module indisponible
+        return None
+    out = set()
+    try:
+        with open(chemin, encoding="utf-8", errors="replace") as f:
+            for ligne in f:
+                cols = ligne.rstrip("\n").split("\t")
+                if len(cols) < 2:
+                    continue
+                sym = cols[1]
+                if _NS_EFFETS_NATIFS not in sym:
+                    continue
+                classe = sym.split("$$", 1)[0]
+                court = classe.rsplit(".", 1)[-1]
+                if court.endswith(_SUFFIXE_EFFET_NATIF) and len(court) > len(_SUFFIXE_EFFET_NATIF):
+                    nom = court[: -len(_SUFFIXE_EFFET_NATIF)]
+                    # LES DEUX CONVENTIONS (cf. `_SUFFIXE_EFFET_NATIF`) : `<X>Effect` et
+                    # `<X>_Effect`. Aucun membre d'`EffectType` ne se termine par `_`, donc retirer
+                    # le souligne ne peut pas fabriquer un nom concurrent.
+                    out.add(nom[:-1] if nom.endswith("_") else nom)
+    except OSError:
+        return None
+    return frozenset(out) or None        # table vide = lecture ratee, pas « aucun effet natif »
+
+
+def classe_d_effet_native(effet: str) -> "bool | None":
+    """LE NATIF a-t-il une classe d'effet dediee pour cet `EffectType` ? TRI-ETAT.
+
+    ⚠ **C'EST LE SECOND CRAN DU GATE, ET SANS LUI LE PREMIER SUR-COMPTE LE TRAVAIL.** « la cible
+    n'a aucune classe dans `EFFECT_CLASSES` » ne signifie PAS « rien ne s'execute » : il faut encore
+    que le NATIF, lui, ait quelque chose a executer. Deux regimes que le premier cran confond, et la
+    mesure les separe (build `rnca9r7q6c`) :
+
+      * `CabalOfSorcerers_ExtraDamagePct` / `GuardianConstruct_ExtraDamagePct` -> le natif declare
+        `IdunBattle.Entities.Effects.Loki.<X>Effect` avec **4 corps propres** chacun
+        (`CreateTargetSelector`, `CreateEffectDamageBonusForAttack`, ...). Le port pose l'effet et
+        n'execute AUCUNE de ces faces : dette REELLE, l'item est PARTIEL.
+      * `TheArdentBlade` (1462) -> **ZERO** symbole `.Entities.Effects.*` dans tout le build. L'effet
+        est un JETON a un coup, relu par le `HasEffect(Owner, 1462, onlyActive: true)` du
+        `CreateTrigger` de `TheArdentBlade_TriggerAbility`, et rien d'autre. Le `BaseEffect`
+        generique que rend `EffectFactory.create` (`registry.get(name, BaseEffect)`) porte le bon
+        `effect_type` et le bon flag `active` : c'est le mirror FIDELE, pas un trou. Le crediter
+        PARTIEL envoie un agent porter une classe qui n'existe pas.
+
+    ⚠ **L'APPARIEMENT N'EST PAS UNE EGALITE, ET LE CROIRE PRODUIT UN FAUX `False`.** Le natif nomme
+    sa classe d'apres l'ABILITY, pas toujours d'apres l'`EffectType` : l'effet
+    `BlightedLand_ExtraDamagePct` est porte par `IdunBattle.Entities.Effects.Loki.BlightedLandEffect`
+    (**3 corps propres**), alors que son frere de famille `CabalOfSorcerers_ExtraDamagePct` a bien
+    `...CabalOfSorcerers_ExtraDamagePctEffect`. Une egalite stricte aurait rendu `False` sur
+    `BlightedLand` -- donc fait PASSER le gate sur un item a dette REELLE. On apparie donc dans les
+    DEUX SENS (egalite, ou l'un prefixe l'autre en `<x>_`), MEME convention que `_item_de`. C'est
+    volontairement PERMISSIF a l'appariement, ce qui rend le `False` DIFFICILE a obtenir -- et
+    `False` est le seul verdict qui RETIRE du travail.
+
+    `None` = table non lue (build desynchronise, `functions.tsv` absente). L'appelant DOIT alors
+    garder l'etat qui cree du travail -- un audit qui sous-compte fait RENONCER, ce qui est pire
+    qu'un audit qui sur-compte."""
+    natives = _classes_d_effet_natives()
+    if natives is None:
+        return None
+    if effet in natives:
+        return True
+    return any(effet.startswith(c + "_") or c.startswith(effet + "_") for c in natives)
 
 
 class Voie:
@@ -536,12 +630,25 @@ def partition() -> dict:
 # ============================================================================================
 
 def _gate_passe(v: Voie, valeur) -> bool:
-    """Le GATE de cette voie passe-t-il pour CETTE entree ? (cf. `GATE_EFFET_CLASSE`.)"""
+    """Le GATE de cette voie passe-t-il pour CETTE entree ? (cf. `GATE_EFFET_CLASSE`.)
+
+    DEUX crans, et le second est ce qui separe une DETTE d'un mirror FIDELE (cf.
+    `classe_d_effet_native`) :
+
+      1. la cible a une classe dans `EFFECT_CLASSES`                       -> le port l'execute ;
+      2. sinon, le NATIF n'a pas de classe d'effet pour elle non plus      -> le `BaseEffect`
+         generique EST le mirror ; rien a porter.
+
+    Cran 2 NON MESURE (`None`) -> le gate TOMBE, comme avant ce cran. C'est le sens qui CREE du
+    travail, et il est choisi : sous-compter fait renoncer, sur-compter fait perdre du temps."""
     if v.gate is None:
         return True
     from engine.entities.effects.factory import EFFECT_CLASSES
-    cibles = valeur if isinstance(valeur, (list, tuple, set, frozenset)) else [valeur]
-    return any(isinstance(c, str) and c in EFFECT_CLASSES for c in cibles)
+    cibles = [c for c in (valeur if isinstance(valeur, (list, tuple, set, frozenset))
+                          else [valeur]) if isinstance(c, str)]
+    if any(c in EFFECT_CLASSES for c in cibles):
+        return True
+    return bool(cibles) and all(classe_d_effet_native(c) is False for c in cibles)
 
 
 def voies_par_item() -> dict:
