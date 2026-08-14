@@ -36,6 +36,46 @@ from engine.runner.operations.triggers.dispatch.registry import ABILITY_TRIGGERS
 from engine.runner.operations.triggers.loki import power_up as PU
 from engine.runner.operations.triggers.loki import power_up_nonboost as PUN
 
+#: Ce qui doit changer pour que ce FICHIER de test puisse changer de verdict (#486-r15).
+#: Trop LARGE est sain, trop ETROIT est un faux vert -- d'ou l'inclusion du gameconfig et de la
+#: tranche 1, dont ce fichier depend REELLEMENT (l'etage 3 lit les constantes, les etages 2/3/7
+#: lisent la base `APowerUpAbility` et son dict).
+DECLENCHEUR = {
+    "chemins": (
+        # PROPRE A CE FICHIER : le port de la tranche 2.
+        "scripts/python/engine/runner/operations/triggers/loki/power_up_nonboost.py",
+        # La BASE (#1083-r1) : trigger herite (etage 2), `add_shield_tree` (etage 3) et le dict
+        # dont l'etage 7 garde la concordance.
+        "scripts/python/engine/runner/operations/triggers/loki/power_up.py",
+        # L'INSCRIPTION -- une entree retiree du registre doit rejouer ce fichier (etages 1 et 7).
+        "scripts/python/engine/runner/operations/triggers/dispatch/registry.py",
+        # Les FEUILLES dont les etages 5 et 6 verifient le type et les options.
+        "scripts/python/engine/runner/abilities/behaviours/stats.py",
+        "scripts/python/engine/runner/abilities/behaviours/ability_state.py",
+        # Les NOEUDS que l'etage 4 evalue (la part de stat lue) et l'appariement nom -> ordinal.
+        "scripts/python/engine/entities/formulas.py",
+        "scripts/python/engine/entities/triggered_ability_type.py",
+        "scripts/python/engine/entities/ability_constant_type.py",
+        # LA CONFIG : l'etage 3 tient tout entier sur le fait que `PowerUp_Bomb` n'a pas de
+        # `shieldPct` et que `PowerUp_Healing` en a une. Un gameconfig qui bouge doit le rejouer.
+        "scripts/python/engine/entities/effects/magnitude.py",
+        "data/gameconfig.json",
+    ),
+    # `build: True` -- ce fichier depend du BUILD par deux voies, et c'est ce qui l'a fait
+    # ecrire ainsi : (a) l'etage 1b fige un appariement NOM -> ORDINAL de `TriggeredAbilityType`,
+    # or les enums sont REGENERES a chaque build et une confusion d'ordinal est SILENCIEUSE ;
+    # (b) l'etage 3 tient sur des constantes de gameconfig, qui se periment sur un axe PROPRE.
+    # La RE qui fonde ce fichier a ete faite contre `rnca9r7q6c`.
+    "build": True,
+    "toujours": False,
+    "raison": "Le port des `PowerUp_*` non-boost, la BASE `APowerUpAbility` dont ils heritent "
+              "trigger et bouclier, le registre qui les inscrit, les feuilles `Heal`/`Repair`/"
+              "`ResetActiveAbility` dont les etages verifient le type et les options, et le "
+              "GAMECONFIG -- l'etage 3 tient entierement sur le fait que `PowerUp_Bomb` n'a pas "
+              "de `shieldPct` alors que `PowerUp_Healing` en a une, donc une config qui bouge "
+              "peut retourner ce verdict sans qu'aucune ligne de code ne change.",
+}
+
 #: Les mecaniques de CETTE tranche qui sont PORTEES (les quatre autres sont documentees en residu).
 PORTEES = {
     "PowerUp_ReactivateAbility": PUN.PowerUpReactivateAbilityAbility,
@@ -226,3 +266,28 @@ def test_etage6_reactivate_passe_allow_useless_vrai():
     assert arbre.ignore_turn_flag is True, (
         "le natif passe `allowUseless = true` ; la feuille portee nomme ce parametre "
         "`ignore_turn_flag` mais c'est la MEME position et le MEME gate")
+
+
+# ---------------------------------------------------------------------------------------------
+# Etage 7 -- LE DOUBLON DE LA TRANCHE 1 NE PEUT PLUS DIVERGER EN SILENCE
+# ---------------------------------------------------------------------------------------------
+def test_etage7_le_dict_de_la_tranche1_concorde_avec_le_registre():
+    """`POWER_UP_STAT_BOOST_ABILITIES` (`loki/power_up.py`) annonce « les CINQ entrees de
+    `ABILITY_TRIGGERS` de cette tranche », mais il n'est IMPORTE NULLE PART : le registre est
+    alimente par cinq lignes manuelles qui citent les classes. Constate en portant cette tranche.
+
+    Le dict est donc un DOUBLON MORT, et rien ne garantissait que les deux restent d'accord -- une
+    classe retiree d'un cote et pas de l'autre serait passee inapercue. Cet etage ne ressuscite pas
+    le dict (ce serait toucher un fichier d'une autre tranche pour rien) : il rend la DIVERGENCE
+    visible, ce qui est le seul risque reel.
+
+    Si le dict est un jour supprime ou branche pour de bon, cet etage doit etre revu -- pas
+    contourne."""
+    for nom, cls in PU.POWER_UP_STAT_BOOST_ABILITIES.items():
+        inscrites = tuple(ABILITY_TRIGGERS.get(nom, ()))
+        assert cls in inscrites, (
+            "`POWER_UP_STAT_BOOST_ABILITIES[%r] = %s` n'est pas ce que le registre inscrit sous "
+            "cette cle (%r) -- le doublon a DIVERGE." % (nom, cls.__name__,
+                                                        [c.__name__ for c in inscrites]))
+    assert len(PU.POWER_UP_STAT_BOOST_ABILITIES) == 5, (
+        "la tranche 1 en declare CINQ ; un ajout non repercute au registre serait muet")
