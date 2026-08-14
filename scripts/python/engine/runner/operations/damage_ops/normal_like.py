@@ -154,7 +154,9 @@ class _NormalLike:
         # BLOCK (cible) = base (GetStat 7/8) + sources d'effet (BeastSlayer...) via le helper PARTAGE
         # `_block_sources` (mirror du GetMultiValueStat(7)/IdunBattle.Core.Services.DamageCalculations$$CalculateBlockChances unique du natif).
         # #65 : `damage_profile` gate le trait NoBlocking (profil Psychic bypasse le block, mirror ExecuteHit).
-        block_sources = AttackDamageOperation._block_sources(tsc, _da, armor, damage_profile)
+        block_sources = AttackDamageOperation._block_sources(
+            tsc, _da, armor, damage_profile,
+            defender_max_health=int(getattr(thc, "hp_max", 0) or 0))   # #1015-r1 GetStat(5, Maximum)
         # `On(PreAttackHit=6)` — meme vecteur per-coup natif, emis par `ExecuteHit` **APRES** le
         # `RollCritical` du coup (#522-r1). On mesure donc la crit chance AVANT l'event (celle du
         # coup 0), on emet, puis on la RELIT pour les coups 1+.

@@ -938,7 +938,8 @@ class BeastSlayerExtraBlockEffect(BaseEffect):
     Cf. docs/rl/case-68-orksnob-attacker-effects.md (#72)."""
 
     def create_effect_block_source_for_defense(self, defender_fixed_armor: int = 0,
-                                               defender_attack: int = 0):
+                                               defender_attack: int = 0,
+                                               defender_max_health: int = 0):
         chance = trait_var("BeastSlayer", "beastSlayerBlockChance")
         pct = trait_var("BeastSlayer", "beastSlayerBlockAsMaxArmorPct")
         if not chance or pct is None:
@@ -954,6 +955,62 @@ class BeastSlayerExtraBlockEffect(BaseEffect):
                            block_id=self.block_source_id(int(chance)))
 
 
+class BeastSnaggaExtraBlockEffect(BaseEffect):
+    """`EffectType.BeastSnagga_ExtraBlock` (0x439 = 1081) -- l'entree `GetMultiValueStat(7)` posee
+    par `IdunBattleLogic.Entities.Abilities.Triggered.Loki.BeastSnaggaAbility$$CreateBehaviour`.
+    #1015-r1.
+
+    ARBRE NATIF, LU (le SEUL `AddExtraBlockEffectToOwner` du build dont l'amount vient des PV) :
+
+        blockChance = GetNumberConstant( AbilityConstantType.blockChance = 0x2d )
+        blockDmgPct = GetNumberConstant( AbilityConstantType.blockDmgPct = 0x36 )
+        AddExtraBlockEffectToOwner(
+            0x439,
+            blockChance : Direct( blockChance ),
+            blockDamage : PercentageOf( StatAmount(Owner@<DSLSelectors+0x30>,
+                                                   statType 0x5 = Health, statPart 0x2 = Maximum),
+                                        Direct( blockDmgPct ) ),
+            turns       : null )
+
+    ⚠ **LA STAT N'EST PAS CELLE DU JUMEAU.** `BeastSlayerAbility$$GetBlockDamage` calcule
+    `PercentageOf(StatAmount(0x10 = FixedArmor), ...)` ; ici c'est `StatAmount(0x5 = Health,
+    part 0x2 = Maximum)`. Les deux abilities partagent le MEME `CreateDamageModifier` (cf.
+    `BeastSnaggaExtraDmgEffect`), donc supposer que le block suit aussi etait tentant -- il ne le
+    suit pas, et le nom de la variable de trait le CONFIRME : `beastSnaggaDmgAsMaxHpPct` (contre
+    `beastSlayerBlockAsMaxArmorPct`). Substrat = `GetStat(defenseur, Health, Maximum)`, c.-a-d. le
+    maximum COURANT (`HealthComponent.hp_max` cote runner, `combatSnapshot.healthMax` cote scene) --
+    PAS la stat `Health` de la BC.
+
+    ⚠ **AUCUNE CLASSE D'EFFET DEDIEE COTE NATIF** pour 1081 (`search_symbols_by_name BeastSnagga`
+    rend 4 symboles : `BeastSnaggaAbility$$CreateTrigger/$$CreateBehaviour` et
+    `BeastSnagga_ExtraDmgEffect$$.ctor/$$CreateDamageModifier`). C'est le regime NORMAL
+    d'`AddExtraBlockEffectToOwner`, qui pose un `MultiValueStatEntryEffect` generique portant les
+    deux entrees `{BLOCK_CHANCE, BLOCK_DAMAGE}` -- meme patron de port que
+    `BeastSlayerExtraBlockEffect` / `PsychicFortressExtraBlockEffect` /
+    `MonsterSlayerOfCalibanExtraBlockEffect` : une classe qui RELIT la config.
+
+    `defender_max_health` non threade (0) -> `None` : une source dont l'amount serait devine
+    ferait rouler au port un tirage de block que le natif ne roule pas de la meme facon."""
+
+    def create_effect_block_source_for_defense(self, defender_fixed_armor: int = 0,
+                                               defender_attack: int = 0,
+                                               defender_max_health: int = 0):
+        chance = trait_var("BeastSnagga", "beastSnaggaBlockChance")
+        pct = trait_var("BeastSnagga", "beastSnaggaDmgAsMaxHpPct")
+        if not chance or pct is None:
+            return None
+        # `PercentageOf(StatAmount(Owner, Health, Maximum), Direct(pct))` -- meme troncature entiere
+        # que les deux autres `PercentageOf` de la famille (`BeastSlayer`, `Daemon`).
+        amount = int(int(defender_max_health) * int(pct) / 100)
+        if amount <= 0:
+            return None
+        # block_id = l'ENTITE-EFFET (cf. `BeastSlayerExtraBlockEffect`) ; offline = l'`effect_type`,
+        # jamais la chance : `BeastSnagga` et `BeastSlayer` ont TOUS DEUX chance 10, et les
+        # confondre perdrait un tirage dans l'exclusion inter-coups de `_run_hits`.
+        return BlockSource(chance=int(chance), amount=amount,
+                           block_id=self.block_source_id(int(EffectType.BeastSnagga_ExtraBlock)))
+
+
 class DaemonExtraBlockEffect(BaseEffect):
     """Trait Daemon, effet `Daemon_ExtraBlock` (1034) — source de BLOCK du defenseur daemon (#54A) :
     chance = `daemonBlockChance` (25), amount = `daemonBlockDamagePercentage`% (50) de la stat
@@ -966,7 +1023,8 @@ class DaemonExtraBlockEffect(BaseEffect):
     -> WillBeKill FALSE -> PossibleKill(50) ; pairUtility natif 164.94858612772077 = EXACT."""
 
     def create_effect_block_source_for_defense(self, defender_fixed_armor: int = 0,
-                                               defender_attack: int = 0):
+                                               defender_attack: int = 0,
+                                               defender_max_health: int = 0):
         chance = trait_var("Daemon", "daemonBlockChance")
         pct = trait_var("Daemon", "daemonBlockDamagePercentage")
         if not chance or pct is None:
@@ -998,7 +1056,8 @@ class PsychicFortressExtraBlockEffect(BaseEffect):
     (id natif dans failedList IdunBattle.Core.Services.DamageCalculations$$CalculateBlockChances, exclusion inter-coups apres 1er echec)."""
 
     def create_effect_block_source_for_defense(self, defender_fixed_armor: int = 0,
-                                               defender_attack: int = 0):
+                                               defender_attack: int = 0,
+                                               defender_max_health: int = 0):
         chance = ability_var("PsychicFortress", "blockChance", is_constant=True)   # GetNumberConstant 0x2d (=50)
         if not chance:
             return None

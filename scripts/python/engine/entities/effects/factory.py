@@ -101,6 +101,7 @@ from .loki.empyric_ambush import EmpyricAmbushEffect
 from .loki.euphoric_strikes import EuphoricStrikesExtraCritEffect
 from .loki.extra_damage import (
     AvalancheOfMuscleExtraDamageEffect, BeaconOfRageExtraDamageEffect, BeastSlayerExtraDmgEffect,
+    BeastSnaggaExtraDmgEffect,
     ChaliceOfBaalExtraDmgEffect, VitarusEffect,
     CondemnorStakeExtraDmgEffect, CrushingStrikeEffect, DecoysAndMisdirectionExtraDamageEffect,
     FeederTendrilsExtraDamageEffect, FuelledByFuryExtraDamageEffect, HeavyGravCannonEffect,
@@ -125,7 +126,8 @@ from .loki.extra_damage_aura import (
 from .loki.hits import (
     AnvilShieldAdditionalBlockEffect, AnvilShieldBlockChanceBelowHealthCapEffect,
     AnvilShieldFrozenAttackerAdvantageEffect, AstartesBannerExtraHitEffect,
-    BeastSlayerExtraBlockEffect, BigTargetAdjacentEffect, CamouflageHitReductionEffect,
+    BeastSlayerExtraBlockEffect, BeastSnaggaExtraBlockEffect,
+    BigTargetAdjacentEffect, CamouflageHitReductionEffect,
     CordClawAdditionalHitsEffect, CyclicIonBlasterAdditionalHitsEffect, DaemonExtraBlockEffect,
     DefenderOfTheGreaterGoodExtraHitsDroneEffect, DefenderOfTheGreaterGoodExtraHitsEffect,
     DiminutiveHitReductionEffect, ExemplarOfTheKauyonAdditionalHitsEffect,
@@ -628,6 +630,15 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # BeastSlayer cote DEFENSE : +10% chance de bloquer 100% du FixedArmor courant en degat (source de
     # block SUPPLEMENTAIRE, AddExtraBlockEffectToOwner IdunBattleLogic.Entities.Abilities.Triggered.Loki.BeastSlayerAbility$$CreateAddBlockEffectBehaviour ; absente du scalaire GetStat(7/8)). #72.
     "BeastSlayer_ExtraBlock": BeastSlayerExtraBlockEffect,
+    # BeastSnagga (trait 0x406=1030, seul porteur du kit `tauNpcFarsight`) -- les DEUX effets poses
+    # par `BeastSnaggaAbility$$CreateBehaviour` (TriggeredAbilityType 0x43c=1084, DERIVEE du trait,
+    # cf. `TRAIT_DERIVED_ABILITIES` / `ABILITY_INIT_OWNER_EFFECTS` plus bas). #1015-r1.
+    # Cote ATTAQUE (0x438=1080) : `BeastSnagga_ExtraDmgEffect$$CreateDamageModifier` a un corps
+    # IDENTIQUE a celui de `BeastSlayer_ExtraDmgEffect` -> +20% degat MELEE vs BigTarget/Vehicle.
+    "BeastSnagga_ExtraDmg": BeastSnaggaExtraDmgEffect,
+    # Cote DEFENSE (0x439=1081) : +10% de chance de bloquer 20% des PV MAX du defenseur -- la stat
+    # DIFFERE de son jumeau (`StatAmount(Health, Maximum)` et non `FixedArmor`), cf. la classe.
+    "BeastSnagga_ExtraBlock": BeastSnaggaExtraBlockEffect,
     # Daemon (trait, effet 1034) : 25% chance de bloquer 50% de l'Attack COURANTE du defenseur —
     # pilote WillBeKill/WillBeOverkill de la prediction (scenario block list[0]@0x50). #54A.
     "Daemon_ExtraBlock": DaemonExtraBlockEffect,
@@ -2103,6 +2114,17 @@ TRAIT_DERIVED_ABILITIES: dict[str, list[str]] = {
     # `Vitarus_InitAbility`. La ligne « on n'a PAS lu si leur CreateBehaviour pose un owner-effect »
     # du commentaire ci-dessus etait vraie a l'ecriture ; pour CE trait elle ne l'est plus (#1015-r1).
     "InstinctiveBehaviour": ["InstinctiveBehaviour"],
+    # BeastSnagga (trait 0x406 = 1030) -> triggered derivee 0x43c = 1084 (dict `Trait +0x0` : la
+    # paire `cle 0x406 -> valeur 0x43c` du `.cctor`, LUE -- c'est l'entree qui suit immediatement
+    # `0x407 -> 0x43d`). ⚠ `0x406` apparait DEUX fois dans ce meme dict, une fois de chaque cote :
+    # comme CLE ici, et comme VALEUR de la cle `0x3f9` (BigTarget -> ability 1030). Deux enums, meme
+    # ordinal -- `GetTraitForTriggeredAbility(0x406)` rend donc `BigTarget`, pas `BeastSnagga`.
+    # `BeastSnaggaAbility$$CreateTrigger` = `OnOwnerSpecificAbilityInit(0x43c)`, donc son
+    # `CreateBehaviour` s'execute a l'init de CETTE ability derivee -- meme patron que `Terrifying`
+    # / `Diminutive` / `CloseCombatWeakness`, a ceci pres que le `CreateBehaviour` est PROPRE a la
+    # classe (il pose DEUX effets) au lieu d'etre herite d'`AOwnerEffectSpecificTriggeredAbility`.
+    # Seul porteur du kit : `tauNpcFarsight` (npc) -> ce seed est la SEULE voie offline. #1015-r1.
+    "BeastSnagga": ["BeastSnagga"],
 }
 
 # Étape 2 — owner-effects posés par `<Ability>.CreateBehaviour` À L'INIT de l'ability (DSL `AddEffect(owner)`).
@@ -2133,6 +2155,22 @@ ABILITY_INIT_OWNER_EFFECTS: dict[str, list[str]] = {
     # aucun porteur n'aurait l'effet en rollout offline (les npc/summons Tyranides ne sont
     # generalement pas captes avec, l'effet etant inactif hors de leur tour).
     "InstinctiveBehaviour": ["InstinctiveBehaviour_BlockMovement"],
+    # #1015-r1 -- `BeastSnaggaAbility$$CreateBehaviour` (TriggeredAbilityType 0x43c = 1084) pose
+    # DEUX effets sur son porteur et les compose :
+    #     op_BitwiseAnd( AddEffect(0x438 = 1080 BeastSnagga_ExtraDmg,
+    #                              AbilityStateReference, targets = Owner@<DSLSelectors+0x30>,
+    #                              turns = null),
+    #                    AddExtraBlockEffectToOwner(0x439 = 1081 BeastSnagga_ExtraBlock,
+    #                              blockChance : Direct(GetNumberConstant(0x2d)),
+    #                              blockDamage : PercentageOf(StatAmount(Owner, Health, Maximum),
+    #                                                         Direct(GetNumberConstant(0x36))),
+    #                              turns : null) )
+    # ⚠ L'ORDRE ECRIT ICI EST CELUI D'EXECUTION (`AddEffect` puis `AddExtraBlock`), et il est
+    # l'INVERSE de l'ordre de CONSTRUCTION du pseudo-C -- `CombinedBehaviour` execute GAUCHE puis
+    # DROITE, et le natif construit l'`AddExtraBlockEffectToOwner` d'abord. Meme piege que
+    # `MonsterSlayerOfCaliban` (#1009) ; les deux poses sont independantes et idempotentes, donc
+    # l'ordre n'a aucun observable -- il est ecrit parce qu'il est LU.
+    "BeastSnagga": ["BeastSnagga_ExtraDmg", "BeastSnagga_ExtraBlock"],
     # `TerrorsLamentAbility` (TriggeredAbilityType 0x45e = 1118, parent `IdunBattle.Entities.
     # Abilities.BaseTriggeredAbility` d'apres `classes.tsv`). Trigger HERITE `<DSLTriggers+0x30>` =
     # `On(0x21 = AbilityInit) & <Yes@+0x70> & get_OwnerIsActor` ; `$$CreateBehaviour` pose les DEUX

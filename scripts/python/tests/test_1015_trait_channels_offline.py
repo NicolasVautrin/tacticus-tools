@@ -87,10 +87,17 @@ DECLENCHEUR = {
 #: sans / avec `Healer` greffe par `--unit-stat Traits`).
 #: ⚠ LES DEUX RETRAITS SONT ARRIVES PAR DEUX BRANCHES PARALLELES, et la resolution d'un ENSEMBLE
 #: est l'UNION des retraits -- jamais << la mienne >> ou << la sienne >>, qui perdrait un port reel.
-#: Resolu ainsi au rebase du 2026-08-14 (`InstinctiveBehaviour` venait d'`origin/master`, `Healer`
-#: de cette branche) : les deux SORTENT, le set garde les deux items restants.
+#: `BeastSnagga` RETIRE par #1015-r1 (2026-08-14) -- canaux MESURES : `derived`, `effet_homonyme`,
+#: `registre:TRAIT_DERIVED_ABILITIES`, `registre:ABILITY_INIT_OWNER_EFFECTS`, `lecture`. Le trait
+#: (0x406 = 1030, seul porteur `tauNpcFarsight`) derive la `TriggeredAbilityType` 1084, dont le
+#: `CreateBehaviour` pose DEUX effets sur son porteur : 1080 `BeastSnagga_ExtraDmg` (+20 % de degat
+#: MELEE vs `BigTarget`/`Vehicle` -- corps decompile IDENTIQUE a celui de `BeastSlayer_ExtraDmg`) et
+#: 1081 `BeastSnagga_ExtraBlock` (+10 % de chance de bloquer 20 % des PV MAX, `StatAmount(Health,
+#: Maximum)` la ou son jumeau lit `FixedArmor`).
+#: ⚠ TROIS branches paralleles ont retire un trait le MEME JOUR (`InstinctiveBehaviour` et `Healer`
+#: par `origin/master`, `BeastSnagga` par celle-ci), et chaque rebase a resolu par UNION des
+#: retraits -- jamais << le mien >> / << le sien >>, qui perdrait un port reel.
 NON_COUVERTS_MESURES = {
-    "BeastSnagga",
     "TwoManTeam",
 }
 

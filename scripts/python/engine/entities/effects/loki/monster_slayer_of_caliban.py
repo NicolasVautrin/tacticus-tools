@@ -184,7 +184,8 @@ class MonsterSlayerOfCalibanExtraBlockEffect(BaseEffect):
     ici -- meme valeur, meme niveau."""
 
     def create_effect_block_source_for_defense(self, defender_fixed_armor: int = 0,
-                                               defender_attack: int = 0):
+                                               defender_attack: int = 0,
+                                               defender_max_health: int = 0):
         """`BlockSource(chance = blockChance[niveau], amount = blockDmg[niveau])`.
 
         Ni l'un ni l'autre ne depend d'une stat du defenseur (contraste `BeastSlayer`, dont l'amount

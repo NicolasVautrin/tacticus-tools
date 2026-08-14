@@ -989,7 +989,8 @@ class BaseEffect:
         return int(et) if et else int(fallback_chance)
 
     def create_effect_block_source_for_defense(self, defender_fixed_armor: int = 0,
-                                               defender_attack: int = 0):
+                                               defender_attack: int = 0,
+                                               defender_max_health: int = 0):
         """`<Effect>.CreateAddBlockEffectBehaviour`/`AddExtraBlockEffectToOwner` IdunBattleLogic.Entities.Abilities.Triggered.Loki.BeastSlayerAbility$$CreateAddBlockEffectBehaviour — source de
         BLOCK SUPPLEMENTAIRE possedee par la CIBLE (defenseur), AJOUTEE a la chaine
         `apply_random_block_damage` EN PLUS du block de base (scalaire `GetStat(7/8)`). Renvoie un
@@ -999,7 +1000,15 @@ class BaseEffect:
         (verifie live 2026-07-09 : orksNob blockChance=0 alors que BeastSlayer donne +10%) -> le natif les
         tient dans `GetMultiValueStat(7)` (`IdunBattle.Core.Services.DamageCalculations$$CalculateBlockChances`). `defender_fixed_armor` =
         FixedArmor courant de la CIBLE (pour les sources dont l'amount depend de l'armure). #72.
-        `defender_attack` = stat Attack COURANTE de la CIBLE (sources type Daemon_ExtraBlock, #54A)."""
+        `defender_attack` = stat Attack COURANTE de la CIBLE (sources type Daemon_ExtraBlock, #54A).
+        `defender_max_health` = `GetStat(cible, Health = 5, StatPart.Maximum = 2)` -- le TROISIEME
+        substrat de cette famille, LU dans `IdunBattleLogic.Entities.Abilities.Triggered.Loki.
+        BeastSnaggaAbility$$CreateBehaviour` : `PercentageOf(StatAmount(Owner@<DSLSelectors+0x30>,
+        statType 0x5, statPart 0x2), Direct(GetNumberConstant(0x36)))` (#1015-r1). Il s'ajoute aux
+        deux autres exactement comme `defender_attack` s'est ajoute a `defender_fixed_armor` : le
+        natif n'a qu'UN accumulateur (`GetMultiValueStat(7)`), et chaque source y calcule son amount
+        depuis la stat de son choix. `0` = non threade -> la source rend `None` plutot qu'un amount
+        devine."""
         return None
 
     def get_armor_penetration(self, is_normal_attack: bool = True) -> int | None:

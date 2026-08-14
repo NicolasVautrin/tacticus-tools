@@ -1270,7 +1270,8 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
             shc.deplete(int(shield_dmg))
 
     @staticmethod
-    def _block_sources(tsc, tgt_active_effects, defender_armor: int, damage_profile=None):
+    def _block_sources(tsc, tgt_active_effects, defender_armor: int, damage_profile=None,
+                       defender_max_health: int = 0):
         """Sources de block du DEFENSEUR pour `apply_random_block_damage` : block de BASE (scalaire
         `GetStat(7/8)` -> ctx.block_chance/block_damage) PUIS les sources SUPPLEMENTAIRES posees par ses
         effets (`AddExtraBlockEffectToOwner`, ex. BeastSlayer IdunBattleLogic.Entities.Abilities.Triggered.Loki.BeastSlayerAbility$$CreateAddBlockEffectBehaviour : chance beastSlayerBlockChance /
@@ -1337,9 +1338,15 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
         if block_chance > 0 and block_amount > 0:
             # entree PAR DEFAUT de `GetAllValues` : entityId = 0, chance = GetStat(7), amount = GetStat(8).
             sources.append(BlockSource(chance=block_chance, amount=block_amount, block_id=0))
+        # #1015-r1 : `defender_max_health` = `GetStat(cible, Health, Maximum)` = `HealthComponent.
+        # hp_max` (le maximum COURANT, modifications comprises), threade par les 3 vecteurs depuis
+        # leur `thc`. MEME raison que l'Attack de #221 : sans lui, `BeastSnagga_ExtraBlock` rendrait
+        # `None`, la source DISPARAITRAIT et le port sauterait un jet de block que le natif roule
+        # (desync RNG de tout l'aval, pas seulement du block).
         sources.extend(defender_effect_block_sources(
             tgt_active_effects, defender_armor,
-            defender_attack=int(getattr(tsc.ctx, "attack", 0) or 0)))
+            defender_attack=int(getattr(tsc.ctx, "attack", 0) or 0),
+            defender_max_health=int(defender_max_health or 0)))
         # `list.Sort((a,b) => b.blockDamage - a.blockDamage)` de CalculateBlockChances (decroissant).
         sources.sort(key=lambda s: -int(s.amount or 0))
         return sources or None
