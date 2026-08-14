@@ -489,55 +489,48 @@ def test_cardinalites_du_volet():
     exactement ce que `probe_1021` decrit en majuscules et ce qui a fait rougir CINQ cliquets le
     2026-08-13.
 
-    ⚠ **ET IL NE SE DESARME PAS TABLE PAR TABLE : ce qui peut se dire UNE FOIS se dit une fois.**
-    Retirer le plancher de la seule table drainante aurait laisse les neuf autres avec une
-    assertion REDONDANTE -- sans resolveur, `res is not None or not ailleurs` force deja `ailleurs`
-    vide, donc `dans_le_dict == snap`, non vide des que `tailles` l'est (ce que la ligne du dessus
-    verrouille a 109). Le plancher est donc remplace par DEUX assertions, l'une par table et
-    l'autre sur l'UNION, toutes deux vraies a table vide :
+    ⚠ **ET LE PLANCHER NE SE REMPLACE PAR RIEN : les trois crans qui restent PORTENT DEJA tout
+    l'invariant.** Deux assertions de remplacement ont ete ecrites, puis RETIREES apres mesure --
+    `total_confronte == 109` et `total_dans_les_dicts > 0`. Les deux sont **DOMINEES** : aucune ne
+    peut rougir la premiere, donc aucune n'ajoute de pouvoir de detection.
 
-      * le TOTAL CONFRONTE (retrouve dans le dict OU chez le resolveur) vaut les **109** couples
-        mesures -- c'est l'invariant de DERIVATION, et il dit COMBIEN, la ou `introuvables == []`
-        ne dit que « aucun perdu » ;
-      * le non-vide de l'UNION des dicts -- le volet mesure encore quelque chose de ce cote-la.
-        Ce non-vide ne peut pas tomber par un port : neuf des dix tables n'ont AUCUN resolveur,
-        donc rien ne les draine.
+    MESURE (rejeu de la ventilation sur les vraies `CIBLES`, puis sur des cibles mutees ; quelle
+    assertion tombe la PREMIERE ?) :
 
-    ⚠ **UNE ASSERTION TAUTOLOGIQUE AURAIT ETE LE MEME VICE, sous l'autre face.** La premiere
-    redaction de ce correctif ecrivait `len(dans_le_dict) + len(ailleurs) == len(snap)` : `o in
-    vivant` et `o not in vivant` PARTITIONNENT toujours, donc cette ligne ne pouvait jamais rougir.
-    Remplacer un plancher qui rougit a tort par une assertion qui ne rougit jamais n'aurait pas
-    repare le volet -- ca l'aurait vide en le faisant paraitre plus riche.
+        REEL                       tombees=[]                                      confronte=109
+        couple PERDU des 2 cotes   tombees=['introuvables == [] (TARGETING_...)']   confronte=0
+        snapshot AMPUTE            tombees=['sum(tailles) == 109', ...]             confronte=108
+        UNE table videe            tombees=[]                                       confronte=109
+        les DIX tables videes      tombees=['res is not None or not ailleurs (...)'] dans_dicts=0
+
+    `total_confronte` vaut `sum(len(snap)) - sum(len(introuvables))` : le premier terme est
+    verrouille a 109 trois lignes plus haut, le second est asserte NUL a chaque tour. Il ne peut
+    donc valoir autre chose que 109 sans qu'une assertion anterieure soit deja tombee. Et
+    `total_dans_les_dicts > 0` est inatteignable pour la RAISON MEME qui le justifiait : les neuf
+    tables sans resolveur qui se videraient declenchent `res is not None or not ailleurs` avant.
+
+    ⚠ **C'EST LE MEME VICE QUE LE PLANCHER, SOUS L'AUTRE FACE.** Un plancher de population rougit
+    quand il ne faut pas ; une assertion dominee ne rougit jamais. Remplacer l'un par l'autre
+    n'aurait pas repare le volet -- ca l'aurait vide en le faisant paraitre plus riche. Une
+    troisieme redaction ecrivait `len(dans_le_dict) + len(ailleurs) == len(snap)`, tautologique
+    par construction (`o in vivant` et `o not in vivant` PARTITIONNENT toujours). Le bon geste
+    etait de RETIRER le plancher, pas de lui trouver un remplacant.
     """
     tailles = [len(s) for _v, s, _e, _n, _r in _cibles()]
     assert tailles == [25, 12, 22, 13, 9, 3, 7, 6, 6, 6], (
         "le snapshot du volet 2 a change de forme : %r" % tailles)
     assert sum(tailles) == 109
     # Le dict PEUT retrecir jusqu'a se VIDER (migration), et c'est LEGITIME : ce qui ne doit jamais
-    # arriver, c'est qu'un couple cesse d'etre confronte. On exige donc que la ventilation soit
-    # EXHAUSTIVE, que le solde manquant soit integralement retrouve chez le resolveur (l'etage 2 en
-    # verifie les valeurs), et qu'une table SANS seconde source ne perde rien.
-    total_dans_les_dicts = 0
-    total_confronte = 0
+    # arriver, c'est qu'un couple cesse d'etre confronte. Ces deux crans le disent entierement --
+    # une table qui perd sans seconde source, et un couple introuvable des DEUX cotes. Ne RIEN
+    # ajouter ici : toute garde de plus serait dominee par eux (mesure en docstring).
     for vivant, snap, _enum, nom, res in _cibles():
-        dans_le_dict = [o for o, _ in snap if o in vivant]
         ailleurs = [o for o, _ in snap if o not in vivant]
-        total_dans_les_dicts += len(dans_le_dict)
         assert res is not None or not ailleurs, (
             "%s a PERDU des entrees et n'a pas de seconde source : %r" % (nom, ailleurs))
         introuvables = [o for o in ailleurs if res(o) is None]
         assert introuvables == [], (
             "%s : couples introuvables des DEUX cotes : %r" % (nom, introuvables))
-        total_confronte += len(dans_le_dict) + len(ailleurs) - len(introuvables)
-    # Le COMBIEN, pas seulement le « aucun perdu » : les 109 couples restent confrontes, que leur
-    # source soit le dict ou le resolveur. Vrai a table vide, faux des qu'un couple s'evapore.
-    assert total_confronte == 109, (
-        "seuls %d des 109 couples mesures sont encore confrontes" % total_confronte)
-    # UNE SEULE FOIS, sur l'UNION : le volet mesure encore quelque chose du cote des DICTS. Neuf
-    # des dix tables n'ont pas de resolveur, donc aucun port ne peut faire tomber ce non-vide.
-    assert total_dans_les_dicts > 0, (
-        "les DIX tables du volet sont vides : plus rien n'est mesure cote dict, et la garde "
-        "ci-dessus ne porterait plus que sur des resolveurs")
 
 
 def test_lookup_par_int_brut():
