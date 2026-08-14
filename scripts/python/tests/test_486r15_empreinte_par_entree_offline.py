@@ -442,7 +442,8 @@ def test_le_format_attendu_par_le_capteur_SUIT_la_source():
 #: Etats NEUTRES des trois autres postes : ces cas ne jugent que l'empreinte.
 _FLOTTE = {"en_vol": LS._ok(0, "t"), "libres": LS._ok(0, "t"), "plafond": 6,
            "noms": LS._ok([], "t"), "chemins": set()}
-_LIVRAISON = {"avance": LS._ok(0, "t"), "suivis_sales": LS._ok([], "t"),
+_LIVRAISON = {"avance": LS._ok(0, "t"), "retard": LS._ok(0, "t"),
+              "suivis_sales": LS._ok([], "t"),
               "worktrees": LS._ok([], "t"), "nettoyables": LS._ok([], "t"),
               "pr_ouvertes": LS._ok([], "t"), "branche": LS._ok("master", "t"),
               "non_suivis": LS._ok(0, "t"), "non_suivis_inconnus": LS._ok([], "t")}
