@@ -64,18 +64,26 @@ DECLENCHEUR = {
     ),
 }
 
-#: Les traits SANS AUCUN canal, mesures au 2026-08-13 sur le build `rnca9r7q6c`. Les cinq portaient
-#: une semantique de combat (gameconfig), donc AUCUN n'etait « sans objet » -- residu #1015-r1.
+#: Les traits SANS AUCUN canal, mesures au 2026-08-13 sur le build `rnca9r7q6c`. Ils portaient tous
+#: une semantique de combat (gameconfig), donc AUCUN n'etait << sans objet >> -- residu #1015-r1.
 #: UN PAR LIGNE, a dessein : les cinq partent en tranches SEPAREES (foyers disjoints), et un set sur
 #: une seule ligne ferait de chaque retrait un conflit de merge avec les quatre autres.
 #: `CloseCombatWeakness` RETIRE par #1015-r1 -- canaux MESURES : `derived`, `effet_homonyme`,
 #: `registre:TRAIT_DERIVED_ABILITIES`, `registre:ABILITY_INIT_OWNER_EFFECTS`,
 #: `registre:TRAIT_TRIGGERED_ABILITY_IDS`, `lecture`. Le trait derive l'ability 1130, qui pose l'effet
 #: 1130 (-50 % melee / -25 % tir au contact d'un ennemi) et charge le playbook MOVE (-40 / ennemi adjacent).
+#: `InstinctiveBehaviour` RETIRE par #1015-r1 (2026-08-14) -- canaux MESURES : `trigger`, `derived`,
+#: `effet_homonyme`, `registre:TRAIT_TRIGGERS`, `registre:TRAIT_DERIVED_ABILITIES`,
+#: `registre:ABILITY_INIT_OWNER_EFFECTS`, `lecture`. Le trait derive l'ability 1043
+#: (`InstinctiveBehaviour_UpdateTargetAbility`, qui maintient le `ForcedAttackTargetsComponent` =
+#: l'ennemi le plus proche a `NormalAttackRange + Movement`) et pose l'owner-effet 1235
+#: (`InstinctiveBehaviour_BlockMovement`, 4e etage de `UnitExtensions$$CanMove`). Les DEUX faces
+#: sont CONFRONTEES live (`probe_1015r1_instinctive_behaviour.py`, deux regimes + temoin non nul).
+#: ⚠ LES DEUX RETRAITS SONT ARRIVES PAR DEUX BRANCHES PARALLELES, et la resolution d'un ENSEMBLE
+#: est l'UNION des retraits -- jamais << la mienne >> ou << la sienne >>, qui perdrait un port reel.
 NON_COUVERTS_MESURES = {
     "BeastSnagga",
     "Healer",
-    "InstinctiveBehaviour",
     "TwoManTeam",
 }
 

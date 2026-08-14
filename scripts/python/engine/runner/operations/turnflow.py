@@ -943,7 +943,7 @@ def _can_move(state: State, unit_id: int) -> Optional[bool]:
     (`entities/effects/loki/instinctive_behaviour.py`) n'inscrit que `1235
     InstinctiveBehaviour_BlockMovement`, seul type dont l'appariement `EffectType -> classe` soit
     LU. `Taunted_BlockMovement` (25), `Vines_BlockMovement` (91) et `PrecisionShot_BlockMovement`
-    (1016) restent dehors (residu `#1015-r1-r1`) : le port croit leurs porteurs MOBILES la ou le
+    (1016) restent dehors (residu `#1015-r2`) : le port croit leurs porteurs MOBILES la ou le
     natif les bloquerait -> `has_tiles_to_move_to` sur-estime -> le flag `NoActionAvailable` est
     RETIRE un peu plus souvent que par le natif (PERMISSIF), jamais POSE a tort. C'est exactement
     l'ecart d'avant cette tranche, inchange pour ces trois-la. MEME direction que le residu nomme

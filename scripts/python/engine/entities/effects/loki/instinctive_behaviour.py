@@ -83,7 +83,7 @@ CE QUI N'EST PAS PORTE, ET C'EST NOMME
   `turnflow._can_move` : l'appariement `EffectType -> classe d'effet` de ces trois-la n'a pas ete
   lu dans l'`EffectsDatabase`, et l'inscrire sur la foi du NOM serait exactement le vice que
   `docs/rl/case-270r1-volet2-cles-ambigues.md` documente. Ecart PERMISSIF (le port laisse bouger
-  la ou le natif bloque) et INCHANGE par rapport a avant cette tranche. Residu `#1015-r1-r1`.
+  la ou le natif bloque) et INCHANGE par rapport a avant cette tranche. Residu `#1015-r2`.
 * `ApplyInternal`/`RevertInternal` mutent un dictionnaire MATERIALISE ; le port evalue
   `IsAllowedToMove` A LA LECTURE, en interrogeant `EffectsState.active_effects`. Les deux
   coincident parce que l'appartenance au dictionnaire est exactement « une instance ACTIVE de
@@ -124,7 +124,7 @@ CTX_BLOCK_MOVEMENT_ACTIVE = "instinctive_behaviour_block_movement"
 #: `Taunted_BlockMovement` (25), `Vines_BlockMovement` (91) et `PrecisionShot_BlockMovement` (1016)
 #: passent tres probablement par `BlockUnitMovementBondEffect`, mais leur appariement n'a pas ete
 #: lu dans l'`EffectsDatabase` -- les inscrire sur la foi du NOM serait le vice de
-#: `docs/rl/case-270r1-volet2-cles-ambigues.md`. Residu `#1015-r1-r1` ; l'ecart est PERMISSIF (le
+#: `docs/rl/case-270r1-volet2-cles-ambigues.md`. Residu `#1015-r2` ; l'ecart est PERMISSIF (le
 #: port laisse bouger la ou le natif bloque) et INCHANGE par rapport a avant #1015-r1.
 BLOCK_UNIT_MOVEMENT_EFFECT_TYPES = (INSTINCTIVE_BEHAVIOUR_BLOCK_MOVEMENT,)                # 1235
 

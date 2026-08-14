@@ -2150,7 +2150,12 @@ def nearest_attackable_enemies(unit: TargetsSelector, distance_type: int = 0, ma
     #                                                       allonger la cascade de `units` (lu par
     #                                                       ~200 modules) pour un seul appelant.
     sel = int(UnitSelectionType.OnlyAliveAndTargetable)   # le litteral `3` des trois sites
-    e = Enemies(unit, AllAliveUnits(), selection_type=sel)
+    # ⚠ L'ORDRE DES DEUX PREMIERS ARGUMENTS EST INVERSE ENTRE LE NATIF ET LE PORT : le natif est
+    # `Enemies(of = <referent>, entities = <source>, selectionType)`, le noeud porte est
+    # `Enemies(inner = <source>, reference = <referent>, selection_type)`. Mesure de l'erreur
+    # (probe_1015r1, 1er jet) : `Enemies(unit, AllAliveUnits())` rend `[le porteur lui-meme]` --
+    # la cible forcee devenait l'unite elle-meme, sans aucune erreur.
+    e = Enemies(AllAliveUnits(), unit, selection_type=sel)
     e = UnitsWithoutTrait(e, int(UnitTrait.Steppable), selection_type=sel)
     u = Unobscured(e, unit)
     return Nearest(u, unit, pathfinding_unit=unit,
