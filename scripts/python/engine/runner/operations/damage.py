@@ -678,7 +678,7 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
     def _pre_damage_taken_per_hit(state: State, attacker_id: int, target_id: int, thc,
                                   total: int, shield_dmg: int, profile: Optional[str],
                                   hits_result: Optional[dict], attack_dispatch,
-                                  *, is_first_damaging_hit) -> tuple:
+                                  *, is_first_damaging_hit, source_ability=None) -> tuple:
         """#1020 -- l'etage `On(0x39 = EventTriggerType.PreDamageTaken)`, PAR COUP et A RETOUR LU.
 
         MIRROR de la sequence d'`IdunBattle.Operations.ApplyDamageOperation$$Execute`, relue aux
@@ -742,7 +742,7 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
             if int(h) + int(s) > 0:            # `0 < DamageAppliedResult.get_Damage(&result)`
                 attack_dispatch.pre_damage_taken_triggers(
                     state, attacker_id, target_id, profile=profile,
-                    is_first_damaging_hit=first_dmg)
+                    is_first_damaging_hit=first_dmg, source_ability=source_ability)
                 first_dmg = False              # `+0x18` du coup SUIVANT : plus le premier damageant
             after = thc.pending_damage         # `GetValueOrDefault` : Nullable vide -> struct ZERO
             if after is None:
@@ -851,7 +851,15 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
             state, attacker_id, target_id, thc, int(total or 0), int(shield_dmg or 0), profile,
             hits_result, attack_dispatch,
             is_first_damaging_hit=(is_first_hit if is_first_damaging_hit is None
-                                   else is_first_damaging_hit))
+                                   else is_first_damaging_hit),
+            # #1020-r3 -- LE CANAL `AbilityEntities+0x98`, LU au ctor nomme. `ApplyDamageOperation$$
+            # Execute` construit son `AbilityEntities` avec `currentAbilityOrEffect` (13e param) ET
+            # `triggerAbilityOrEffect` (15e param) tous deux recopies du MEME bloc
+            # `DamageAppliedResult+0x40` (le `Nullable<AbilityOrEffect>` de son champ
+            # `source: IdunBattle.Operations.DamageSource`). Cote port ce bloc EST `source_ability`,
+            # deja resolu par `_damage_source_ability` (mirror de
+            # `idun.Idun.Source.Shared.Battle.StaticBattleRules.StaticBattleRules$$GetDamageSourceAbility`).
+            source_ability=source_ability)
         # `FillUpStatComponent$$Reduce(hp, pending.healthDamage)` : le natif reduit ce que le
         # PENDING RELU porte, pas le degat calcule. Sans consommateur, `kept_health == total`
         # (mesure du no-op : voir `probe_1020_pipeline_par_coup.py` etage 1).

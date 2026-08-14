@@ -67,6 +67,7 @@ noeud, comme l'exige la doctrine #149. Les deux lisent le meme decompile ; ils n
 """
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import Optional
 
 from .....dsl.effects import ExecutionContext
@@ -208,8 +209,15 @@ class SaviorProtocolsAbility(TriggeredAbility):
         """`CreateTrigger` moins le volet `On(0x39)` du dispatch.
 
         Le porteur (`self.owner_id`) est l'`Owner@<+0x30>` ; `ev.target_id` la victime ;
-        `ev.actor_id` la source du degat."""
+        `ev.actor_id` la source du degat.
+
+        `attack_ability_type` = le canal `AbilityEntities+0x98`, que les DEUX `!TriggeringAbilityIs`
+        comparent. Il vient d'`ev.triggering_effect`, celui des deux champs d'evenement qui porte
+        `+0x98` (l'autre, `ev.triggering_ability`, porte `+0x60` -- leurs NOMS Python sont
+        historiques et trompeurs, cf. le bloc de commentaire de `TriggerEvent`). Meme voie que
+        `relic_power_fist.py`, qui expose le meme slot `<DSLSelectors+0x90>` a son arbre."""
         entities = entities_from_state(state, self.owner_id, ev.target_id, actor_id=ev.actor_id)
+        entities = replace(entities, attack_ability_type=ev.triggering_effect)
         return bool(savior_trigger_tree().evaluate(entities))
 
     def execute_behaviour(self, state: State, ev: TriggerEvent) -> Optional[dict]:

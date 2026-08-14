@@ -165,7 +165,8 @@ def pre_attack_hit_triggers(state: State, attacker_id: int, target_id: int,
 
 def pre_damage_taken_triggers(state: State, source_id: Optional[int], target_id: int,
                               profile: Optional[str] = None,
-                              is_first_damaging_hit: Optional[bool] = None) -> list[dict]:
+                              is_first_damaging_hit: Optional[bool] = None,
+                              source_ability: Optional[int] = None) -> list[dict]:
     """Vecteur `On(PreDamageTaken = 0x39 = 57)` — **PREMIER** des TROIS events qu'emet
     `IdunBattle.Operations.ApplyDamageOperation$$Execute`, dans l'ordre `On(0x39)` -> `On(0xf =
     DamageTaken)` -> `On(0x10 = DamageDealt)`. Il N'AVAIT AUCUN EMETTEUR cote port (#963) : un
@@ -199,11 +200,28 @@ def pre_damage_taken_triggers(state: State, source_id: Optional[int], target_id:
     du noeud `IdunBattleLogic.Entities.DSLTriggers$$IsFirstDamagingHitInSeries`. Cf. le bloc de
     commentaire de `TriggerEvent`.
 
-    Consommateur porte : `GeminaeSuperiaAbility` (passif d'`adeptCelestine`, #963).
-    No-op si aucun trigger ne matche."""
+    `source_ability` (#1020-r3) = le `Nullable<AbilityOrEffect>` du champ
+    `source: IdunBattle.Operations.DamageSource` du `DamageAppliedResult`. LU au ctor nomme :
+    `AbilityEntities$$.ctor` recoit ce MEME bloc (`DamageAppliedResult+0x40`) DEUX FOIS -- en 13e
+    parametre `currentAbilityOrEffect` (`+0x60`) et en 15e `triggerAbilityOrEffect` (`+0x98`) --,
+    d'ou les deux canaux poses ici. Ce n'est pas une supposition de symetrie : les deux locales du
+    decompile (`local_558` et `local_7a8`) sont deux copies du meme offset `+0x40`.
+
+    ⚠ Les NEUF `(void *)0x0` consecutifs de ce ctor sont les parametres **4 a 12** (`owner`,
+    `casterTile`, `activePlayer`, `casterTiles`, `effect`, `targetTile`, `targetTiles`,
+    `activeTarget`, `previousActiveTarget`) -- des ENTITES. Les lire comme « les emplacements
+    d'ability sont nuls » (donc « le canal est vide sur ce vecteur ») est l'erreur que la
+    signature LUE dans `data/symbols/<build>/frida/methods.tsv` a redressee : les trois
+    `AbilityOrEffect` viennent juste APRES, et deux des trois sont non nuls.
+
+    Consommateurs portes : `GeminaeSuperiaAbility` (passif d'`adeptCelestine`, #963) et
+    `SaviorProtocolsAbility` (#1020 ; c'est LUI qui lit `source_ability`, par ses deux
+    `!TriggeringAbilityIs`). No-op si aucun trigger ne matche."""
     ev = TriggerEvent(EventTriggerType.PreDamageTaken, source_id, target_id,
                       ranged=False, profile=profile,
-                      is_first_damaging_hit=is_first_damaging_hit)
+                      is_first_damaging_hit=is_first_damaging_hit,
+                      triggering_effect=source_ability,      # 15e param -> `AbilityEntities+0x98`
+                      triggering_ability=source_ability)     # 13e param -> `AbilityEntities+0x60`
     return evaluate_trigger_operation(state, ev)
 
 
