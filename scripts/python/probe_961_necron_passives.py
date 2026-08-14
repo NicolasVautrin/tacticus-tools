@@ -187,10 +187,19 @@ def dispose(sid, rid):
         print("[961] dispose KO:", exc, file=sys.stderr)
 
 
-def dv(sid, rid, all_ab=False, mr=1):
+def dv(sid, rid, all_ab=False, mr=1, inactifs=False):
+    """`decisionView`. `inactifs` = drapeau `includeInactive` du canal.
+
+    ⚠ DEFAUT INCHANGE (`False`), et c'est deliberе : le canal FILTRE les effets inactifs quand on
+    ne le passe pas, donc tout appelant historique garde exactement la vue qu'il mesurait. Le
+    parametre existe parce que l'absence d'un effet dans la vue par defaut ne distingue PAS
+    << pose mais inactif a cet instant >> de << pas pose du tout >> -- c'est la cause (a) vs (b)
+    de `#961-r3`, et elle se tranche en redemandant la MEME vue avec `includeInactive: true`."""
     b = {"runnerId": rid, "maxRank": mr}
     if all_ab:
         b["allAbilities"] = True
+    if inactifs:
+        b["includeInactive"] = True
     return _r(sid, "decisionView", b, 150 if all_ab else 60)
 
 
