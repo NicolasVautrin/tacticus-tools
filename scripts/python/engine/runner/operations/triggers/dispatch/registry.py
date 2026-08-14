@@ -197,6 +197,9 @@ from ..loki.fury_from_the_delve import (                       # #964 (passif 15
 from ..loki.ecog_support import ECogSupportAbility, ECOG_SUPPORT   # #964-r1 (passif 1487, votanIronmaster)
 from ..loki.omnissiahs_blessing import (                    # #1023 (passif 1299, admecSmnTechpriest)
     OmnissiahsBlessingAbility, OMNISSIAHS_BLESSING)
+from ..loki.optimized_gait import (                         # #1050 (passif 1205, admecRuststalker :
+    OPTIMIZED_GAIT, OptimizedGaitMoveAbility,               # attaque reactive + pas sur l'hex du mort)
+    OptimizedGaitTriggerAttackAbility)
 from ..loki.herald_of_the_apocalypse import (HeraldOfTheApocalypseExtraDamageRemove,  # #BL-1020r
                                              HERALD_OF_THE_APOCALYPSE_EFFECT)
 from ..loki.euphoric_strikes import (EuphoricStrikesExtraCritRemove,               # #522 (1198 -> 1429)
@@ -883,6 +886,25 @@ ABILITY_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
     # L'AUTRE effet du passif (1432, l'aura de degat) est un owner-effect d'INIT ->
     # `ABILITY_INIT_OWNER_EFFECTS`, pas ce registre.
     "ObsessiveAnnunciation": [ObsessiveAnnunciationOverkillAbility],
+    # OptimizedGait (passif de kit d'`admecRuststalker` << Exitor-Rho >>, LINEUP et dans le pool,
+    # `TriggeredAbilityType 0x4b5 = 1205`, #1050) : les DEUX abilities TRIGGERED que le passif
+    # derive, inscrites sous la MEME cle parce qu'elles partagent le MEME id (l'enum n'a qu'un
+    # `OptimizedGait` -- meme forme que les trois classes de `StormboyzStrike` sous 1141) :
+    #   * `OptimizedGait_TriggerAttackAbility` -- `On(9 = Attack, alive) & NOT get_OwnerIsCaster &
+    #     AreEnemies(Owner, Target) & IsAdjacent(Owner, Target) & IsMechanical(Actor) &
+    #     AreFriends(Owner, Actor)` -> `InformWeapon + Attack(Owner, Target, AttackDamage(
+    #     RandomAmount(minDmg, maxDmg), profil Energy, nrOfHits))` : un allie MECHANICAL attaque un
+    #     ennemi ADJACENT au porteur, le porteur frappe cet ennemi ;
+    #   * `OptimizedGaitAbility` -- `OnDeath(overkill: true, steppable: false) & IsAdjacent(Owner,
+    #     Target) & AreEnemies(Owner, Target) & CanMove(Owner) & IsWalkable(Tiles(Target))` ET
+    #     `( NOT OwnerIsActor & IsMechanical(Actor) & AreFriends(Owner, Actor)
+    #        | OwnerIsActor & TriggeringAbilityIs(0x4b5) )` -> `MoveUnit(Owner, First(Tiles(Target),1),
+    #     options{+0x10 = TOUJOURS-FAUX})` : le porteur avance sur l'hex du mort, **sans consommer
+    #     son deplacement** (`UnitFlag.Moved` NON pose -- cf. `MoveUnit(set_moved=)`).
+    # ⚠ La 2e branche du OU s'arme par le `killTrigger` (`AbilityEntities+0x98`, canal port
+    # `state.trigger_ability_type`), que le 1er trigger pose EN TANT QUE 1205 : les deux abilities
+    # se chainent, et c'est le partage d'id qui le permet. Cf. loki/optimized_gait.py.
+    OPTIMIZED_GAIT: [OptimizedGaitTriggerAttackAbility, OptimizedGaitMoveAbility],
     # EcstaticSlaughter (passif de kit d'`emperFlawlessBlade` << Hascule >>,
     # `TriggeredAbilityType 0x5c0 = 1472`) : les DEUX branches de l'`op_BitwiseOr` de son
     # `CreateTrigger`, qui partagent le MEME `CreateBehaviour` (3 coups Eviscerate sur un ennemi

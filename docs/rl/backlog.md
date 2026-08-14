@@ -4746,3 +4746,56 @@ pas d'erreur : il rend **zéro**, et un zéro se lit « rien à signaler ».
   montage live par gate, pas seulement un test offline.
   FOYER: scripts/python/engine/runner/abilities/behaviours/combat.py
   BLOCAGE: seeding
+
+- **#1050-r1 -- `AncientFury` : le SELECTEUR ELARGI de son attaque normale n'est pas execute.** `[opus]`
+  Point d'entree : `docs/rl/case-1050-zone-grise-optimized-gait-ancient-fury.md` Sec.3.
+  `IdunBattleLogic.Entities.Abilities.Active.Loki.AncientFury_NormalAttackAbility$$GetTarget`
+  (vslot `0x4a8`) rend `Target + ConditionalSelector(IsMeleeAttack, AdjacentEnemies(Caster) &
+  AdjacentUnits(Target), AdjacentUnits(Target) & (SurroundingEnemies(CasterTiles, MinDistance) -
+  SurroundingEnemies(First(SortByDistance(...),1), MinDistance + Direct(-1))))` -- l'ANNEAU EXACT de
+  l'i2 (<< exactly 2 hexes away >>). `ALoki_NormalAttackAbility$$ExecuteNormalAttack` passe ce
+  selecteur a `$$GetAttackDamageBehaviour`, donc a l'`Attack(caster, <sel>, ...)` UNIQUE, et
+  `IdunBattle.Entities.Behaviours.AttackBehaviour$$Execute` (relu) boucle sur les cibles **TRIEES**
+  (`OrderBy(b__5_0)` des qu'il y en a plus d'une) avec un `StartAttack`/`FinishAttack` PAR cible :
+  chacune recoit l'attaque d'ARME COMPLETE, pas un paquet aux bornes de config.
+  Le port n'a AUCUN chemin multi-cible sur l'attaque normale -- seule la substitution 1256 -> 1162
+  (`CUSTOM_NORMAL_ATTACK_BY_PASSIVE`) est cablee, et c'est un DISPATCH, pas la mecanique.
+  Ne PAS le ranger dans `NORMAL_ATTACK_CLEAVES` (#478) : cette famille-la frappe aux BORNES DE
+  CONFIG, APRES la primaire, dans l'ordre du SELECTEUR -- deux ecarts silencieux. Cran deja pose
+  (`test_1050_optimized_gait_offline.py` etage 4).
+  Porteur `ultraSmnDreadnought` (summon UNIQUE) : confrontable par GREFFE du passif sur une unite du
+  pool (la cascade `IdunBattle.Entities.Factories.UnitFactory$$AddNormalAttackAbility` lit
+  `BC.Units[].PassiveAbilities`), voie deja employee par
+  `probe_419r1tr14r5_r1r4_normal_attack_table`.
+  FOYER: scripts/python/engine/runner/operations/damage.py, scripts/python/engine/runner/abilities/loki/additional_targets.py
+  BLOCAGE: aucun
+
+- **#1050-r2 -- `OptimizedGait_NormalAttack` : ses `AttackAmount`/`AttackHits` substituent les BORNES
+  DE CONFIG aux degats d'ARME, et le port reste sur l'arme.** `[opus]`
+  Point d'entree : `docs/rl/case-1050-zone-grise-optimized-gait-ancient-fury.md` Sec.2.5.
+  `IdunBattleLogic.Entities.Abilities.Active.Loki.OptimizedGait_NormalAttackAbility$$AttackAmount`
+  et `$$AttackHits` surchargent la base par
+  `IdunBattleLogic.Entities.DSLFormulas$$ConditionalAmount( TriggeringAbilityIs(<X>),
+  RandomAmount(GetVariableForLevel(0xc), ...(0xd)) | Direct(GetNumberConstant(0x2f)),
+  ALoki_NormalAttackAbility$$AttackAmount | $$AttackHits )`.
+  L'`<X>` n'est PAS decode : ghidra perd le registre de `IdunBattle.Core.AbilityOrEffect$$op_Implicit`
+  (meme forme que le `0x4b5` d'`OptimizedGaitAbility$$CreateTrigger`, lui LU a l'assembleur
+  `mov edx,0x4b5`). Tant qu'il ne l'est pas, on ne sait pas QUEL regime substitue -- donc on ne porte
+  pas : ecrire le gate au juge donnerait un port faux SANS erreur.
+  Porteur `admecRuststalker`, lineup et dans le pool : confrontable sans montage.
+  FOYER: scripts/python/engine/runner/operations/damage_ops/normal.py
+  BLOCAGE: aucun
+
+- **#1050-r3 -- la face MOUVEMENT d'`OptimizedGait` n'est pas confrontee LIVE.** `[opus]`
+  Point d'entree : `docs/rl/case-1050-zone-grise-optimized-gait-ancient-fury.md` Sec.2.2/2.3 +
+  `scripts/python/probe_1050_optimized_gait.py`.
+  Le port d'`IdunBattleLogic.Entities.Abilities.Triggered.Loki.OptimizedGaitAbility` (le pas sur
+  l'hex du mort, `MoveUnit(set_moved=False)`) est couvert OFFLINE -- les 4 bras d'`(A | B)`, le gate
+  `Steppable`, et le quirk threade jusqu'a `MoveUnitOperation` -- mais jamais joue contre le natif :
+  le probe ne TUE pas l'ennemi adjacent au porteur. Levier existant : `--dmg-target` sur l'allie
+  Mechanical. Les DEUX observables a confronter sont la TUILE d'atterrissage
+  (`First(Tiles(Target),1)`) et l'ABSENCE de `UnitFlag.Moved` sur le porteur apres le pas
+  (`combatSnapshot.units[].unitFlags`) -- c'est le second qui est le quirk, et c'est le seul
+  call-site du port qui le pose.
+  FOYER: scripts/python/probe_1050_optimized_gait.py
+  BLOCAGE: aucun

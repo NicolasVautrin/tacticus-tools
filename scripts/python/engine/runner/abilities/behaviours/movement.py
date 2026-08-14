@@ -480,16 +480,36 @@ class MoveUnit(AbilityBehaviour):
     bord) -> cible restee sur sa tuile -> tuile occupee live -> pas de move (le caster ne suit QUE si le push
     a reussi).
 
-    NON portes (=> slice-21b+, flagges comme le push) : les 5 selecteurs d'OPTIONS (+0x70/+0x78/+0x80/+0x88/
-    +0x90) sont TOUS nuls a ce call-site (defauts natifs) -> aucun flag actif ; la cascade after-move
+    NON portes (=> slice-21b+, flagges comme le push) : les selecteurs d'OPTIONS +0x78/+0x80/+0x88/+0x90
+    sont TOUS nuls aux call-sites historiques (defauts natifs) -> aucun flag actif ; la cascade after-move
     flag-driven (overwatch au CHARGE, kill-steppable pendant le move) n'est PAS declenchee (comme le push,
     `MoveUnitOperation.execute` direct = position + UnitFlag.Moved (SetMovedFlag) + tile-defense, PAS le vecteur after-move
-    du handler de message). DETERMINISTE (aucun tirage rng) -> ne decale pas l'ordre RNG. Emet 'MoveUnit'. PUR."""
-    __slots__ = ("subject_sel", "dest_tile_sel")
+    du handler de message). DETERMINISTE (aucun tirage rng) -> ne decale pas l'ordre RNG. Emet 'MoveUnit'. PUR.
 
-    def __init__(self, subject_sel: TargetsSelector, dest_tile_sel: TargetsSelector):
+    `set_moved` (#1050) = mirror du selecteur d'options **+0x10** du `MoveUnitBehaviourOptions`, le SEUL
+    des sept dont le DEFAUT natif est VRAI, et le seul que ce noeud sait desormais exprimer. Chaine LUE
+    de bout en bout sur `rnca9r7q6c` :
+
+        `IdunBattle.Entities.Behaviours.MoveUnitBehaviour$$.ctor`   : options+0x10 -> this+0x70
+        `IdunBattle.Entities.Behaviours.MoveUnitBehaviour$$Execute` : v = (this+0x70 != null)
+                                                                         ? this+0x70.ShouldTrigger(entities)
+                                                                         : TRUE
+                                                                     puis MoveUnitOptions+0x11 = v ^ 1
+        `IdunBattle.Operations.MoveUnitOperation$$Execute`          : if (options+0x11 == 0) SetMovedFlag(unit)
+
+    Options nulles (les 29 autres call-sites de `IdunBattleLogic.Entities.DSLBehaviors$$MoveUnit`) ->
+    `v = true` -> `+0x11 = 0` -> `UnitFlag.Moved` POSE : c'est le defaut `True` ici, strict no-op.
+    `IdunBattleLogic.Entities.Abilities.Triggered.Loki.OptimizedGaitAbility$$CreateBehaviour` passe
+    `<DSLTriggers+0x48>` (le trigger TOUJOURS-FAUX, `$$.ctor` LU : `+0x48 = op_LogicalNot(<+0x40>)`)
+    -> `v = false` -> `+0x11 = 1` -> `Moved` **N'EST PAS POSE** : son pas ne consomme pas le
+    deplacement du porteur."""
+    __slots__ = ("subject_sel", "dest_tile_sel", "set_moved")
+
+    def __init__(self, subject_sel: TargetsSelector, dest_tile_sel: TargetsSelector,
+                 set_moved: bool = True):
         self.subject_sel = subject_sel
         self.dest_tile_sel = dest_tile_sel
+        self.set_moved = bool(set_moved)
 
     def execute(self, entities, ectx):
         state = ectx.state
@@ -531,6 +551,7 @@ class MoveUnit(AbilityBehaviour):
             if tid is None or not board.walkable(tid) or pos in occ:   # walkable ET libre (post-push)
                 continue
             op = MoveUnitOperation(sid, pos,                            # 1re tuile libre -> le caster charge
+                                   set_moved=self.set_moved,           # #1050 : options+0x10, cf. docstring
                                    arrive_at_final_tile=_DSL_ARRIVE_AT_FINAL_TILE)
             op.execute(state, ectx.bus)
             ectx.emit("MoveUnit", subject=sid, moved=True, to=pos,
