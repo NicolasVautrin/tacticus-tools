@@ -677,14 +677,20 @@ def _spawn_config_grot(state: State, visual_id: str, tile, summon_ability: str,
 
 
 #: Les stats que `IdunBattle.Entities.Behaviours.SpawnUnitOptions$$CopyOwner` recopie du parent --
-#: LUES au decompile : le corps empile CINQ `StatModifierFormula(StatAmount(Owner@<DSLSelectors+0x30>,
-#: <StatType>, StatPart.Current = 3))` dans la liste `SpawnUnitOptions+0x28`, pour
-#: `5 = Health`, `0x10 = FixedArmor`, `0 = Attack`, `1 = Movement`, `0x14 = ExtraHits`.
-#: Les stats NON recopiees (crit/block/percage) viennent de la config de base ; comme le clone porte
-#: le MEME `visualId` que son parent, elles sont identiques -> le port clone le `UnitContext` entier
-#: et n'a pas a distinguer. Les six cles supplementaires ci-dessous sont donc SANS EFFET sur le
-#: resultat, et elles sont conservees telles quelles depuis #366-r1 (le percage, notamment, est
-#: devenu une propriete adossee a `stats` : sans clonage explicite le clone le PERDRAIT).
+#: LUES au decompile (#1049) : le corps empile CINQ `StatModifierFormula(StatAmount(
+#: Owner@<DSLSelectors+0x30>, <StatType>, StatPart.Current = 3))` dans la liste
+#: `SpawnUnitOptions+0x28`, DANS CET ORDRE : `5 = Health`, `0x10 = FixedArmor`, `0 = Attack`,
+#: `1 = Movement`, `0x14 = **NumberOfMembers**`.
+#: ⚠ Le cinquieme etait ecrit `20` sans nom dans la docstring d'`execute_self_replica` ; il est
+#: NOMME ici. Il n'est PAS dans la liste ci-dessous, et c'est SANS EFFET : `number_of_members` est
+#: un CHAMP PLAT d'`entities/unit_context.py::UnitContext` (l. 42), donc le `dataclasses.replace`
+#: du clone le recopie deja. L'ajouter a la liste ne changerait qu'une representation.
+#: Les stats NON recopiees par le natif (crit/block/percage) viennent de la config de base ; comme
+#: le clone porte le MEME `visualId` que son parent, elles sont identiques -> le port clone le
+#: `UnitContext` entier et n'a pas a distinguer. Les sept cles supplementaires ci-dessous sont donc
+#: SANS EFFET sur le resultat, et elles sont conservees telles quelles depuis #366-r1 (le percage,
+#: notamment, est devenu une propriete adossee a `stats` : sans clonage explicite le clone le
+#: PERDRAIT).
 _COPY_OWNER_STATS = (StatType.ATTACK, StatType.MOVEMENT, StatType.HEALTH, StatType.FIXED_ARMOR,
                      StatType.CRIT_CHANCE, StatType.CRIT_DAMAGE, StatType.BLOCK_CHANCE,
                      StatType.BLOCK_DAMAGE, StatType.EXTRA_HITS,
