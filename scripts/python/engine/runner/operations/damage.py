@@ -692,6 +692,13 @@ class AttackDamageOperation(_DamageOpsMixin, _DamageHitsMixin):
         # ⚠ SA PLACE EST LOAD-BEARING : le natif l'appelle ICI, donc AVANT les cinq publications
         # d'evenement ci-dessous. `TrophyTakerAbility`, consommateur d'`On(UnitDefeated)`, compte
         # donc la victime COURANTE -- l'inscrire apres rendrait `n` la ou le natif rend `n+1`.
+        # ⚠ `in_melee` NON PASSE, et c'est un refus DELIBERE (#951-r1). Le natif transmet
+        # `options.inMelee` des `KillUnitOptions` ; l'ECRIVAIN de ce champ n'est pas localise, et le
+        # deduire du profil d'attaque cote port serait une INVENTION. Sans lui, l'inscription tombe
+        # dans `@+0xb0` -- la branche par DEFAUT du decompile de `RegisterDefeatedUnit`, pas un choix
+        # du port -- et l'UNION que lit `UnitsDefeatedBySelector` est INCHANGEE. La face SEEDING, elle,
+        # partitionne pour de vrai : `decisionView.units[].defeatedByMelee` EST le meme booleen
+        # (cf. `snapshot._load_death_sources`).
         register_defeated_unit(state, attacker_id, target_id)
         # `On(PreUnitDeath_2 = 2)` — vecteur des death-novas Explodes/PutridExplosion. Il PRECEDE
         # tout retrait : c'est pourquoi `ExplodesAbility$$GetDamage` voit encore les effets du mort

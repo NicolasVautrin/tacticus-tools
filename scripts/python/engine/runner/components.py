@@ -500,6 +500,8 @@ class UnitComponent(Component):
         # `OrderedSet`). Aucun lecteur porte a ce jour -- inscrit parce que l'ecrivain unique est
         # mirrore ici et qu'il l'ecrit ; ne pas cabler de consommateur sans son artefact natif.
         self.total_defeated_units = 0
+        # (`defeated_units` n'est PAS un champ : c'est la VUE `@+0xa8` ++ `@+0xb0`, cf. la property
+        # plus bas. Le natif n'a aucun champ fusionne -- en faire un ici serait un artefact du port.)
         # #1033-r3 -- le KillerId SEUL, seede depuis `decisionView.units[].killerId` par
         # `snapshot._load_death_sources`. TRI-ETAT : `None` = NON MESURE. Ce champ existe parce que
         # le canal ne publie QU'UNE des trois composantes de la `DamageSource` (@+0x108) : fabriquer
@@ -559,6 +561,18 @@ class UnitComponent(Component):
         pieds. Ici : liste VIDE (et non `None` -- `None` veut dire « un seul pied a la
         PositionComponent », ce qui n'est pas la meme chose qu'une unite sans pied)."""
         self.feet = []
+
+    @property
+    def defeated_units(self) -> list:
+        """VUE `@+0xa8` ++ `@+0xb0`, dans l'ordre ou
+        `IdunBattle.Entities.Selectors.UnitsDefeatedBySelector$$Select` les concatene. LECTURE SEULE.
+
+        C'etait un CHAMP jusqu'a #1082, quand les deux listes natives etaient fusionnees faute de
+        pouvoir alimenter `inMelee`. La derivation est le mirror plus fidele : le natif ne tient
+        AUCUN champ fusionne, seulement deux listes qu'un lecteur unit a la lecture. La rendre
+        derivee supprime aussi le risque qu'un ecrivain futur pousse dans la vue sans choisir sa
+        liste -- il n'y a plus qu'un foyer d'ecriture, `register_defeated_unit`."""
+        return defeated_units_union(self)
 
 
 class OwnerComponent(Component):
