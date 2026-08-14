@@ -118,11 +118,18 @@ BACKLOG = [
     "|---|---|---|---|",
     "| #900 | **le socle** | `[opus]` | `case-900` |",
     "| #900-r1 | **un premier residu** | `[opus]` | `case-900` |",
-    "| #910 | **le sommet** | `[opus]` | `case-910` |",
+    #: Le SOMMET vit au-dessus de la bande (#468-r8) : depuis qu'une racine neuve est allouee a
+    #: `max(borne + 1, PLANCHER_RACINE)`, un sommet a `910` ferait rendre `10000` quelle que soit
+    #: la borne -- et le bras de REFERENCE de ces tests (<< le premier appel doit rendre #N >>)
+    #: ne mesurerait plus rien. Au-dessus du plancher, c'est de nouveau `borne + 1` qui commande.
+    #: Le parent `#900` des tests en mode RESIDU, lui, reste tel quel : la bande ne concerne que
+    #: les RACINES.
+    "| #10910 | **le sommet** | `[opus]` | `case-10910` |",
 ]
 
-#: La borne de `BACKLOG` est 910, donc l'allocation RACINE demarre a 911.
-PREMIER_LIBRE = "911"
+#: La borne de `BACKLOG` est 10910, donc l'allocation RACINE demarre a 10911 -- et elle y
+#: demarre parce que la borne DEPASSE `PLANCHER_RACINE`, pas malgre lui (cf. le sommet ci-dessus).
+PREMIER_LIBRE = "10911"
 
 
 def _git(racine, *args):

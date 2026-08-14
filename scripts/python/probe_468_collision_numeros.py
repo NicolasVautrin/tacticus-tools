@@ -910,6 +910,12 @@ GH_LIMITE_PR = 200
 #: du point de vue de toute lecture de l'arbre, aussi invisible qu'un worktree voisin.
 SRC_PR = "corps de PR"
 
+#: Libelle de PROVENANCE du NUMERO PROPRE d'une PR -- distinct de `SRC_PR`, qui ne designe que
+#: ce que le titre et le corps CITENT. La PR #1088 rend `#1088` pris sans citer quoi que ce soit :
+#: dans un espace de noms partage, exister SUFFIT. Le JSON de `gh` demandait deja `number` et ne
+#: s'en servait pas -- le defaut en miniature.
+SRC_PR_NUMERO = "numero de PR"
+
 #: Delai maximal accorde a `gh`. MESURE : 1,4 s (0 PR ouverte) a 3,9 s (200 PR). Un depassement
 #: est une PANNE NOMMEE, pas un zero -- meme frontiere que les autres capteurs.
 GH_TIMEOUT_S = 30
@@ -958,17 +964,31 @@ def _pull_requests():
 
 
 def _identifiants_des_pr(prs) -> dict:
-    """{cle: {SRC_PR}} -- les identifiants du TITRE et du CORPS des PR.
+    """{cle: {SRC_PR | SRC_PR_NUMERO}} -- ce que les PR CITENT, et ce qu'elles SONT.
 
     LE NOM DE BRANCHE EST EXCLU, et c'est une mesure : sur 40 PR il apporte 24 identifiants
     (`#worktree-agent-a5af8da...`, `#agent-477r16r1`) pour **0** signal -- exactement le bruit
     qui a fait refuser `git log --name-only` (#468-r10 section 3).
+
+    LE NUMERO PROPRE DE LA PR EST INCLUS (#468-r8). Il ne l'etait pas, et c'est ce qui a laisse
+    `#1084` designer a la fois le residu du foyer `damage_model.py` et la PR du foyer
+    `targeting.py` : `git log --grep='#1084'` rend les deux, et rien ne dit lequel est vise. Le
+    `number` etait deja demande a `gh` et jete.
+
+    ⚠ CE N'EST PAS, A SOI SEUL, LE CORRECTIF DE LA COLLISION -- et le croire serait le piege.
+    Marquer `#1088` pris fait allouer `#1089`, que GitHub donnera a la PR suivante, ouverte
+    quelques minutes plus tard pour cette tranche meme : la collision serait DEPLACEE. Ce qui la
+    supprime est la BANDE (`PLANCHER_RACINE`). Cette source-ci fait autre chose, qui compte
+    aussi : elle rend le corpus HONNETE sur ce qui est deja pris.
     """
     out = {}
     for pr in prs or ():
         for champ in ("title", "body"):
             for m in re.finditer(RE_TOKEN_LARGE, pr.get(champ) or ""):
                 out.setdefault(normaliser(m.group(0)[1:]), set()).add(SRC_PR)
+        num = pr.get("number")
+        if isinstance(num, int) and num > 0:
+            out.setdefault(str(num), set()).add(SRC_PR_NUMERO)
     return out
 
 
@@ -1260,6 +1280,51 @@ def _lister_trous(trous, libelle_element) -> str:
     return txt
 
 
+#: PLANCHER DES RACINES NEUVES -- la bande ou une racine ne peut plus heurter un numero de PR.
+#:
+#: LE DEFAUT N'EST PAS QU'UN NUMERO SOIT PRIS, C'EST QUE LES DEUX COMPTEURS SE SOIENT REJOINTS.
+#: `#<n>` designe a la fois une tache et une PR (#468-r8) ; tant que les racines vivaient a ~500
+#: et les PR a ~1500, une collision etait accidentelle. MESURE le 2026-08-14 : racine DEFINIE max
+#: **1079**, racine la plus haute EN USAGE **1084**, PR max **1088**. Les deux bandes se sont
+#: croisees, donc DESORMAIS TOUTE racine neuve heurte une PR -- ce n'est plus un accident, c'est
+#: le regime permanent. `#1084` designe deja les deux.
+#:
+#: POURQUOI UNE CONSTANTE, ET NON `maxPR + marge` : une bande derivee DERIVE, au sens propre --
+#: elle monte a chaque appel, donc deux allocations du meme jour ne se comparent plus. Surtout,
+#: elle rendrait l'allocation DEPENDANTE DU RESEAU : `gh` muet (mesure #467-r6 : 5 tours sur 8
+#: hors budget avant correctif) et plus AUCUN numero ne pourrait etre rendu. Une constante
+#: s'evalue hors ligne, se teste, et se relit. Le prix est qu'elle a une date de peremption --
+#: d'ou l'alerte ci-dessous, qui la NOMME plutot que de la laisser se degrader en silence.
+#:
+#: LA VALEUR : au rythme MESURE de ~37 PR/jour, (10000 - 1088) / 37 = ~240 jours de marge. Elle
+#: donne en prime un discriminant VISUEL immediat -- une racine neuve a 5 chiffres, une PR en a 4.
+PLANCHER_RACINE = 10000
+
+#: PLAFOND DE LA BANDE HISTORIQUE -- la racine la plus haute EN USAGE au moment de la scission
+#: (mesure du 2026-08-14 : `#1084`, reserve et cite, au-dessus de la borne DEFINIE de 1079).
+#: Il ne sert qu'a la RESTITUTION : sans lui, `suggerer` annoncerait ~8900 << trous libres >>
+#: entre les deux bandes, alors que cet intervalle n'a jamais ete alloue et ne le sera jamais.
+#: Un compte qui melange un TROU (numero saute, peut-etre pris par une PR en vol) et un
+#: INTERVALLE DE BANDE (jamais ouvert) ne veut plus rien dire.
+PLAFOND_BANDE_HISTORIQUE = 1084
+
+#: Zone d'ALERTE sous le plancher : on previent quand les PR y entrent, pas quand elles l'ont
+#: franchi. ~1000 PR = ~27 jours au rythme mesure -- le temps de relever la bande sans urgence.
+MARGE_ALERTE_PLANCHER = 1000
+
+
+def trous_des_bandes(borne: int, pris: dict) -> list:
+    """Les numeros LIBRES a l'interieur des bandes REELLEMENT ouvertes, jamais entre elles.
+
+    L'intervalle `]PLAFOND_BANDE_HISTORIQUE, PLANCHER_RACINE[` n'est pas un trou : personne ne
+    l'a jamais alloue. Le compter ferait passer la scission de bande pour ~8900 numeros perdus.
+    """
+    bandes = [(1, min(borne, PLAFOND_BANDE_HISTORIQUE))]
+    if borne > PLANCHER_RACINE:
+        bandes.append((PLANCHER_RACINE, borne - 1))
+    return [i for lo, hi in bandes for i in range(lo, hi + 1) if str(i) not in pris]
+
+
 def candidat_observe(base: str, pris: dict, borne: int) -> tuple:
     """(cle, rang) -- le numero que l'OBSERVATION SEULE designe, et rien de plus.
 
@@ -1273,7 +1338,10 @@ def candidat_observe(base: str, pris: dict, borne: int) -> tuple:
         occupes = _residus_pris(base, pris)
         k = max(occupes) + 1 if occupes else 1
         return normaliser("%sr%d" % (base, k)), k
-    n = borne + 1
+    # La bande (#468-r8) : une racine neuve part AU-DESSUS de l'espace des numeros de PR, jamais
+    # simplement au-dessus de la borne des taches. `max` et non `if` -- une fois la bande entamee,
+    # `borne` la depasse et c'est elle qui commande, donc la monotonie tient dans les deux regimes.
+    n = max(borne + 1, PLANCHER_RACINE)
     while str(n) in pris:
         n += 1
     return str(n), n
@@ -1298,6 +1366,31 @@ def allouer(base: str, pris: dict, borne: int, dossier: Path, contexte: dict) ->
     raise Indisponible("%d candidats consecutifs pris par d'autres processus -- l'allocation "
                        "n'aboutit pas ; AUCUN numero n'est rendu (une garde de terminaison ne "
                        "se degrade pas en suggestion non reservee)" % PLAFOND_TENTATIVES)
+
+
+def _alerter_plancher(prs, pr_panne) -> None:
+    """Dit si la bande des PR approche `PLANCHER_RACINE` -- ou qu'on n'a PAS pu le regarder.
+
+    Une constante de bande a une date de peremption ; un seuil qui se degrade en silence est
+    pire que pas de seuil. Le tri-etat est le meme que partout ailleurs ici : `gh` muet ne rend
+    PAS un << tout va bien >>, il rend << non verifie >>. L'allocation, elle, reste correcte dans
+    les deux cas -- elle est au-dessus du plancher par construction, pas par mesure.
+    """
+    if prs is None:
+        print("   MARGE NON VERIFIEE : les PR n'ont pas ete mesurees (%s). L'allocation reste "
+              "au-dessus de %d par CONSTRUCTION, mais la distance a la collision n'a pas ete "
+              "regardee." % (pr_panne, PLANCHER_RACINE))
+        return
+    max_pr = max((int(p.get("number") or 0) for p in prs), default=0)
+    reste = PLANCHER_RACINE - max_pr
+    if reste <= MARGE_ALERTE_PLANCHER:
+        print("   /!\\ ALERTE BANDE : PR max = %d, plancher des racines = %d -- il reste %d "
+              "numeros. RELEVER `PLANCHER_RACINE` MAINTENANT : quand les deux se rejoindront, "
+              "toute racine neuve heurtera une PR, exactement comme en aout 2026 (#468-r8)."
+              % (max_pr, PLANCHER_RACINE, reste))
+    else:
+        print("   marge de bande : PR max = %d, plancher = %d -> %d numeros d'avance."
+              % (max_pr, PLANCHER_RACINE, reste))
 
 
 def suggerer(parent: str, etiquette: str = "") -> int:
@@ -1355,9 +1448,13 @@ def suggerer(parent: str, etiquette: str = "") -> int:
     print("   borne des taches = %d (plus grande racine DEFINIE que backlog.md connait) ; "
           "%d..%d etaient pris" % (borne, borne + 1, n - 1) if n > borne + 1 else
           "   borne des taches = %d (plus grande racine DEFINIE que backlog.md connait)" % borne)
-    trous = [i for i in range(1, borne) if str(i) not in pris]
-    print("   %d trou(s) libre(s) SOUS la borne, NON proposes (un trou peut etre reserve par une "
-          "PR en vol) : %s" % (len(trous), _lister_trous(trous, str)))
+    trous = trous_des_bandes(borne, pris)
+    print("   %d trou(s) libre(s) DANS LES BANDES OUVERTES, NON proposes (un trou peut etre "
+          "reserve par une PR en vol) : %s" % (len(trous), _lister_trous(trous, str)))
+    print("   bande NEUVE : racines >= %d, au-dessus de l'espace des numeros de PR (#468-r8). "
+          "L'intervalle %d..%d n'est PAS un trou -- il n'a jamais ete ouvert."
+          % (PLANCHER_RACINE, PLAFOND_BANDE_HISTORIQUE + 1, PLANCHER_RACINE - 1))
+    _alerter_plancher(prs, pr_panne)
     print("   corpus : docs/rl + scripts/python + messages de commit + refs hors HEAD + noms "
           "des autres worktrees + corps des PR + RESERVATIONS -- l'UNION, mentions comprises "
           "(%d identifiants)" % len(pris))

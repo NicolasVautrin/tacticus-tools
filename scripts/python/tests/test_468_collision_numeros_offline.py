@@ -605,7 +605,7 @@ def test_suggere_ne_rend_RIEN_quand_le_corpus_est_AMPUTE():
     Suggerer sur un corpus ampute fabrique exactement la collision qu'on pretend eviter --
     c'est la lecon des 13 racines qui ne vivent que dans les messages de commit. Sans depot
     git, l'historique est illisible : INDISPONIBLE (99), et AUCUN numero imprime."""
-    racine = _depot_jetable(BASE_SAINE, [])          # PAS de `git init`
+    racine = _depot_jetable(BASE_SUGGERE, [])          # PAS de `git init`
     try:
         rc, txt = _suggere(racine)
         assert rc == 99, "un corpus ampute doit rendre 99, pas %d :\n%s" % (rc, txt)
@@ -619,12 +619,34 @@ def _numero_propose(txt):
     return txt.split("LIBRE : #")[1].splitlines()[0].strip()
 
 
-#: La borne de `BASE_SAINE` : `902` est la plus grande racine DEFINIE que son backlog connait
-#: (barree ou non -- la borne mesure l'espace employe, pas ce qui reste ouvert). La suggestion
-#: demarre donc a `903`, et c'est CE numero que les deux tests suivants doivent voir ecarte.
-#: Sans cette contrainte ils ne DISCRIMINENT pas : viser `#901`, deja defini dans `BASE_SAINE`,
-#: les rendait verts meme apres mutation du probe -- mesure a la contre-epreuve.
-PREMIER_AU_DESSUS = "903"
+#: LE CORPUS DE LA SECTION `--suggere` VIT AU-DESSUS DE LA BANDE (#468-r8), ET C'EST CE QUI
+#: GARDE CES TESTS DISCRIMINANTS.
+#:
+#: Depuis la bande, une racine neuve est allouee a `max(borne + 1, PLANCHER_RACINE)`. Sur un
+#: depot jetable dont la borne est `902`, le numero propose serait donc `10000` QUOI QU'IL
+#: ARRIVE -- et toute assertion de la forme << le numero X n'a pas ete propose >> deviendrait
+#: VACANTE : verte que la source qui rend X invisible fonctionne ou non. Sept tests etaient dans
+#: ce cas (worktree voisin, ref hors HEAD, corps de PR, message de commit, mention en prose).
+#:
+#: Le remede n'est PAS d'affaiblir ces assertions mais de placer le corpus dans le regime ou
+#: elles mordent : au-dessus du plancher, c'est de nouveau `borne + 1` qui commande, donc le
+#: numero propose redevient sensible a ce que le corpus voit. La bande, elle, est gardee par ses
+#: propres tests (`test_la_BANDE_*`, `test_l_INTERVALLE_*`).
+BASE_SUGGERE = [
+    "| # | Tache | Modele | Point d'entree |",
+    "|---|---|---|---|",
+    _ligne("10900", "un sujet"),
+    _ligne("10900-r1", "un residu du sujet", ptr="`case-10900` ; voir aussi #10901"),
+    _ligne("10901", "un autre sujet, qui CITE #10900-r1 dans son texte"),
+    _ligne("10902", "un sujet clos", barre=True),
+]
+
+#: La borne de `BASE_SUGGERE` : `10902` est la plus grande racine DEFINIE que son backlog
+#: connait (barree ou non -- la borne mesure l'espace employe, pas ce qui reste ouvert). La
+#: suggestion demarre donc a `10903`, et c'est CE numero que les tests suivants doivent voir
+#: ecarte. Sans cette contrainte ils ne DISCRIMINENT pas : viser `#10901`, deja defini, les
+#: rendait verts meme apres mutation du probe -- mesure a la contre-epreuve.
+PREMIER_AU_DESSUS = "10903"
 
 
 def test_suggere_evite_un_numero_SEULEMENT_MENTIONNE():
@@ -633,7 +655,7 @@ def test_suggere_evite_un_numero_SEULEMENT_MENTIONNE():
     C'est litteralement l'occurrence `#448-r1-r1-r2` -- le rapport employait le numero alors
     qu'aucun artefact ne le portait. Un `--suggere` qui ne regarderait que les DEFINITIONS
     (le critere des etapes 1 et 2) le rendrait comme libre."""
-    lignes = BASE_SAINE + ["", "Un renvoi en PROSE vers #%s, qui ne definit rien." % PREMIER_AU_DESSUS]
+    lignes = BASE_SUGGERE + ["", "Un renvoi en PROSE vers #%s, qui ne definit rien." % PREMIER_AU_DESSUS]
     racine = _depot_git(lignes)
     try:
         rc, txt = _suggere(racine)
@@ -648,7 +670,7 @@ def test_suggere_evite_un_numero_qui_n_existe_QUE_dans_un_MESSAGE_DE_COMMIT():
     """MESURE (2026-08-04) : 13 racines pures < 500 -- #28, #269, #297, #300, #307 -- ne
     vivent QUE la. Le corpus documentaire les donne pour des trous LIBRES ; `git log --grep`
     prouve le contraire, et c'est une voie de tracabilite de plein droit."""
-    racine = _depot_git(BASE_SAINE,
+    racine = _depot_git(BASE_SUGGERE,
                         messages=("fix(#%s): un dossier dont il ne reste que ceci"
                                   % PREMIER_AU_DESSUS,))
     try:
@@ -663,32 +685,93 @@ def test_suggere_evite_un_numero_qui_n_existe_QUE_dans_un_MESSAGE_DE_COMMIT():
 def test_suggere_ne_RECYCLE_pas_un_trou_sous_la_borne():
     """La suggestion est MONOTONE. Un trou peut etre reserve par une PR EN VOL, que l'arbre
     ne voit pas -- le recycler rouvrirait la collision par l'autre bout. Ils sont LISTES."""
-    lignes = [_ligne("900", "socle"), _ligne("910", "sommet")]
+    lignes = [_ligne("10900", "socle"), _ligne("10910", "sommet")]
     racine = _depot_git(lignes)
     try:
         rc, txt = _suggere(racine)
         assert rc == 0, txt
         propose = int(txt.split("LIBRE : #")[1].splitlines()[0].strip())
-        assert propose > 910, "un trou SOUS la borne a ete propose (%d) :\n%s" % (propose, txt)
-        assert "trou(s) libre(s) SOUS la borne" in txt
+        assert propose > 10910, "un trou SOUS la borne a ete propose (%d) :\n%s" % (propose, txt)
+        assert "trou(s) libre(s) DANS LES BANDES OUVERTES" in txt
     finally:
         shutil.rmtree(racine, ignore_errors=True)
 
 
-def test_la_borne_ECARTE_les_id_d_ability_portes_par_un_nom_de_case_doc():
+def test_la_borne_ECARTE_les_id_d_ability_portes_par_un_nom_de_case_doc(monkeypatch):
     """`case-1014-*`, `case-1203-*`, `case-1547-*` portent des id d'ability ou d'effet, pas des
-    numeros de tache. Sans le filtre << connue du backlog >>, la borne saute a 1547 et la
-    suggestion devient absurde."""
+    numeros de tache. Sans le filtre << connue du backlog >>, la borne saute a 1547.
+
+    ⚠ CE TEST VISE DESORMAIS `borne_des_taches` DIRECTEMENT, ET C'EST UNE REPARATION, PAS UNE
+    COMMODITE. Il passait par le NUMERO PROPOSE (`assert propose < 1000`), or depuis la bande
+    (#468-r8) une racine neuve part de `PLANCHER_RACINE` : tant que la borne est sous le
+    plancher, elle n'influence plus le numero du tout. L'assertion d'origine serait devenue
+    VACANTE -- verte que le filtre marche ou non, puisque `max(1503, 10000)` et `max(911, 10000)`
+    valent tous deux 10000. Un cliquet dont le sujet a disparu sous lui est exactement le << faux
+    vert >> que ce fichier chasse ailleurs.
+
+    En visant la fonction PURE, le test redevient discriminant : il rougit sur toute regression
+    du filtre, aujourd'hui comme quand les racines auront depasse le plancher.
+    """
     lignes = [_ligne("900", "socle"), _ligne("910", "sommet")]
     racine = _depot_git(lignes, case_docs=["case-1502-rites-of-morkai.md"])
     try:
-        rc, txt = _suggere(racine)
-        assert rc == 0, txt
-        propose = int(txt.split("LIBRE : #")[1].splitlines()[0].strip())
-        assert propose < 1000, \
-            "l'id d'ability 1502 a ete pris pour une tache (propose %d) :\n%s" % (propose, txt)
+        # Les memes globales que `viser()` pose, mais par `monkeypatch` : `viser` les ecrit
+        # DEFINITIVEMENT pour le process, donc elle fuirait sur les tests suivants.
+        monkeypatch.setattr(p468, "REPO", Path(racine).resolve())
+        monkeypatch.setattr(p468, "DOCS_RL", Path(racine) / "docs" / "rl")
+        monkeypatch.setattr(p468, "BACKLOG", Path(racine) / "docs" / "rl" / "backlog.md")
+        assert p468.borne_des_taches() == 910, \
+            "l'id d'ability 1502 a ete pris pour une racine de tache"
     finally:
         shutil.rmtree(racine, ignore_errors=True)
+
+
+def test_la_BANDE_met_les_racines_neuves_HORS_DE_PORTEE_des_numeros_de_PR():
+    """#468-r8 -- le correctif de la collision `#1084`, et la raison pour laquelle il fallait
+    une BANDE et pas seulement une source de plus.
+
+    LE DEFAUT : `#<n>` designe a la fois une tache et une PR. Tant que les racines vivaient a
+    ~500 et les PR a ~1500, une collision etait accidentelle. MESURE le 2026-08-14 : racine en
+    usage max **1084**, PR max **1088** -- les deux compteurs se sont croises, donc TOUTE racine
+    neuve heurtait une PR.
+
+    POURQUOI AJOUTER LES NUMEROS DE PR AU CORPUS NE SUFFIT PAS -- c'est ce que le second volet
+    mesure : marquer `#1088` pris fait allouer `#1089`, que GitHub donnera a la PR suivante.
+    Le premier volet montre que la bande, elle, met le numero hors d'atteinte."""
+    pris_pr = {str(i): {p468.SRC_PR_NUMERO} for i in range(1, 1089)}
+    pris = dict(pris_pr)
+    pris.update({str(i): {"backlog"} for i in range(1, 1085)})
+
+    cle, n = p468.candidat_observe("", dict(pris), 1079)
+    assert n >= p468.PLANCHER_RACINE, \
+        "une racine neuve a ete allouee SOUS le plancher de bande (%s)" % cle
+    assert n > max(int(k) for k in pris_pr), \
+        "une racine neuve a ete allouee dans l'espace des numeros de PR (%s)" % cle
+
+    #: Le CONTRE-FAIT : sans la bande, l'allocation retombe dans l'espace des PR -- donc le
+    #: premier volet ne passe PAS << par accident >>, et retirer la bande le fait rougir.
+    sans_bande = max(1079 + 1, 0)
+    while str(sans_bande) in pris:
+        sans_bande += 1
+    assert sans_bande <= max(int(k) for k in pris_pr) + 1, \
+        "le contre-fait ne reproduit plus le defaut : ce test ne prouve plus rien"
+
+
+def test_l_INTERVALLE_ENTRE_LES_BANDES_n_est_PAS_compte_comme_des_trous():
+    """Un TROU (numero saute, peut-etre pris par une PR en vol) et un INTERVALLE DE BANDE
+    (jamais ouvert) ne sont pas la meme chose. Les confondre ferait annoncer ~8900 << trous
+    libres >> a chaque allocation -- un compte faux qui noie les vrais trous, dont la liste est
+    precisement ce qui permet a un humain de rattraper une reservation perdue."""
+    pris = {str(i): {"backlog"} for i in range(1, 1085)}
+    del pris["500"]                                  # un VRAI trou, dans la bande historique
+    trous = p468.trous_des_bandes(1084, pris)
+    assert trous == [500], "l'intervalle entre les bandes a ete compte : %d entrees" % len(trous)
+
+    #: Apres la scission, la bande neuve est balayee elle aussi -- mais toujours pas l'entre-deux.
+    pris.update({str(i): {"backlog"} for i in (10000, 10001, 10002)})
+    del pris["10001"]
+    trous = p468.trous_des_bandes(10003, pris)
+    assert trous == [500, 10001], "les deux bandes ne sont pas balayees correctement : %s" % trous
 
 
 def test_suggere_un_RESIDU_sous_un_parent_donne():
@@ -739,7 +822,7 @@ def test_deux_suggere_depuis_deux_worktrees_ne_rendent_PLUS_le_meme_numero():
 
     Le montage est le meme -- deux worktrees du meme depot, aucune ecriture entre les deux
     appels -- pour que la comparaison avec l'ancienne exigence soit directe."""
-    racine = _depot_git(BASE_SAINE)
+    racine = _depot_git(BASE_SUGGERE)
     wt2 = None
     try:
         wt2 = _ajouter_worktree(racine, "b", "agent-b")
@@ -773,7 +856,7 @@ def test_N2_un_numero_ecrit_dans_un_AUTRE_worktree_n_est_plus_propose():
     """`git grep --untracked` ne lit que SON checkout : un `case-<n>-*.md` ecrit chez le
     voisin lui est invisible. MESURE sur le depot reel (2026-08-05) : `--suggere 425` rendait
     `#425-r3`, qu'un `probe_425r3_*.py` d'un worktree en vol portait deja."""
-    racine = _depot_git(BASE_SAINE)
+    racine = _depot_git(BASE_SUGGERE)
     wt2 = None
     try:
         wt2 = _ajouter_worktree(racine, "b", "agent-b")
@@ -831,7 +914,7 @@ def test_N1_un_numero_commite_sur_une_ref_HORS_HEAD_n_est_plus_propose():
     """Un worktree d'agent est FIGE a son commit de lancement : `git log` sans `--all` est
     aveugle a `master` qui avance et aux branches des voisins. MESURE : `--suggere 448`
     rendait `#448-r3`, dont le dossier etait commite ailleurs."""
-    racine = _depot_git(BASE_SAINE)
+    racine = _depot_git(BASE_SUGGERE)
     try:
         rc, txt = _suggere(racine)
         assert rc == 0 and _numero_propose(txt) == PREMIER_AU_DESSUS, txt
@@ -985,7 +1068,7 @@ def test_un_numero_ouvert_SEULEMENT_dans_le_CORPS_d_une_PR_n_est_pas_propose(mon
 
     Le bras NON MUTE (aucune PR) doit proposer le numero de reference -- sinon le bras rouge ne
     prouverait rien."""
-    racine = _depot_git(BASE_SAINE)
+    racine = _depot_git(BASE_SUGGERE)
     try:
         p468.viser(racine)
         # Bras NON MUTE : `gh` rend une liste vide -- une mesure, pas une panne.
@@ -1046,9 +1129,16 @@ def test_gh_ne_lit_PAS_le_nom_de_branche_et_c_est_une_MESURE():
            {"number": 2, "title": "un titre sans numero", "body": "",
             "headRefName": "agent-477r16r1"}]
     ids = p468._identifiants_des_pr(prs)
-    assert set(ids) == {"900r7", "901"}, (
+    #: `1` et `2` sont les NUMEROS PROPRES des deux PR (#468-r8) : dans un espace de noms
+    #: partage, une PR rend son numero pris sans rien citer. L'egalite reste l'assertion --
+    #: c'est elle qui rougit sur TOUTE forme de lecture du nom de branche, y compris celles
+    #: qu'un `not in` laisserait passer.
+    assert set(ids) == {"900r7", "901", "1", "2"}, (
         "le nom de branche a ete lu (ou un identifiant a ete perdu) : %s" % sorted(ids))
-    assert all(src == {p468.SRC_PR} for src in ids.values())
+    #: Les deux provenances sont DISTINCTES, et c'est ce qui permet a un lecteur de savoir si
+    #: `#1084` est pris parce qu'une PR le CITE ou parce qu'une PR l'EST.
+    assert ids["900r7"] == {p468.SRC_PR} and ids["901"] == {p468.SRC_PR}
+    assert ids["1"] == {p468.SRC_PR_NUMERO} and ids["2"] == {p468.SRC_PR_NUMERO}
 
 
 @pytest.mark.parametrize("nom,factice,attendu", [
@@ -1106,7 +1196,7 @@ def test_gh_MUET_ne_fait_PAS_echouer_suggere(monkeypatch, capsys):
     """Capteur d'APPOINT, meme arbitrage que `git worktree list` : sans lui `--suggere` retombe
     sur les quatre autres sources -- degrade, pas faux. Le faire lever rendrait l'outil
     inutilisable hors ligne, donc ferait revenir au geste qu'il supprime (choisir au vol)."""
-    racine = _depot_git(BASE_SAINE)
+    racine = _depot_git(BASE_SUGGERE)
     try:
         p468.viser(racine)
         monkeypatch.setattr(p468, "_pull_requests",

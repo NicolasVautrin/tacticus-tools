@@ -525,8 +525,28 @@ dossiers) que le cliquet a trouvée à son premier passage.
   étaient dans ce cas. Un trou n'est jamais proposé, dans aucun mode — il peut être réservé par
   une PR en vol ou par un agent qui n'a rien écrit ; il est seulement **listé**.
 - ⚠ La **puce** de résidu d'une case-doc est une 4ᵉ position de définition **de fait**, non gardée
-  (`#468-r7`) ; et `#<n>` désigne à la fois une tâche et une PR (`#468-r8`), ce qui rend
-  `git log --grep` structurellement ambigu.
+  (`#468-r7`).
+- ⚠ **`#<n>` désignait à la fois une tâche et une PR, et les deux compteurs se sont REJOINTS —
+  corrigé par une BANDE (`#468-r8`).** Tant que les racines vivaient à ~500 et les PR à ~1500, une
+  collision était accidentelle ; mesuré le 2026-08-14, racine en usage max **1084** contre PR max
+  **1088**, donc **toute** racine neuve heurtait une PR — trois fois dans la même journée
+  (`#1084`, `#1088`, `#1089`, chacun désignant aussi une PR mergée). Depuis, `--suggere` alloue les
+  racines **à partir de `PLANCHER_RACINE = 10000`**, au-dessus de l'espace des numéros de PR : une
+  racine neuve a 5 chiffres, une PR en a 4.
+  ⚠ **Ajouter les numéros de PR au corpus ne suffisait PAS, et c'est le piège de ce correctif** :
+  marquer `#1088` pris fait allouer `#1089`… que GitHub donne à la PR suivante, ouverte quelques
+  minutes plus tard pour cette tranche même. La collision serait **déplacée**, pas supprimée. Les
+  numéros de PR sont néanmoins entrés au corpus (`SRC_PR_NUMERO`) — c'est ce qui rend « pris »
+  honnête, pas ce qui règle la collision.
+  ⚠ **La bande a une DATE DE PÉREMPTION** (~240 jours au rythme mesuré de ~37 PR/jour), donc
+  `--suggere` **alerte** quand les PR entrent dans les 1000 derniers numéros, et **dit** quand il
+  n'a pas pu les mesurer (`gh` muet ⇒ « MARGE NON VÉRIFIÉE », jamais un vert).
+  ⚠ **Effet de bord à connaître** : sous le plancher, `borne_des_taches()` n'influence plus le
+  numéro alloué. Tout cliquet qui garde une source en assertant « le numéro X n'est pas proposé »
+  devient donc **vacant** sur un dépôt jetable — sept l'étaient. Le remède n'est pas d'affaiblir
+  l'assertion mais de placer le corpus **au-dessus** de la bande, où `borne + 1` commande à nouveau
+  (`BASE_SUGGERE`), ou de viser la fonction pure directement. Les racines **historiques** (≤ 1084)
+  ne bougent pas : `#1084` reste ambigu dans `git log`, c'est un artefact assumé.
 
 ### Et tu termines son corps par `FOYER:` et `BLOCAGE:` — deux champs, une ligne chacun
 
