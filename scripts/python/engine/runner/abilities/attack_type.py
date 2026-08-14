@@ -303,6 +303,14 @@ ABILITY_ATTACK_TYPE: dict[int, int] = {
     # Le troisieme actif du boss, `1094 TheLantern`, porte `2` (`Others`) -- cf. plus bas.
     ActiveAbilityType.MortarionsPlagueWind: AbilityAttackType.DirectTargetAttack,  # 1093
     ActiveAbilityType.ReapingScythe: AbilityAttackType.DirectTargetAttack,  # 1095
+    # TheLantern (1094, `deathBossMortarion`) -- le TROISIEME actif du boss, et le SEUL des trois a
+    # ne pas valoir `0`. `IdunBattleLogic.Entities.Abilities.Active.Loki.TheLanternAbility$$.ctor`
+    # construit ses options par la surcharge FLAGS DIRECTS a 6 parametres puis appelle
+    # `AActiveAbility..ctor(this, &opts, 2)` -- 3e argument = litteral `2` = `Others`. TRANSCRIT,
+    # RELU au decompile de ce build (#1030), jamais deduit : ni du profil (`Energy`), ni de la forme
+    # de l'arbre (le cast ne frappe PAS -- il pose trois effets, et le degat appartient a la
+    # triggered 1167 du tour suivant).
+    ActiveAbilityType.TheLantern: AbilityAttackType.Others,  # 1094
     ActiveAbilityType.Fragstorm: AbilityAttackType.DirectTargetAttack,  # 1078
     # HellfyreMissileRack (1088, thousTerminator « Toth ») : `IdunBattleLogic.Entities.Abilities.
     # Active.Loki.HellfyreMissileRackAbility$$.ctor` -> `AActiveAbility..ctor(this, &opts, 0)`.

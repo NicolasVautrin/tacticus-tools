@@ -85,6 +85,7 @@ from .heroic_fusillade import HeroicFusilladePlaybook
 from .doctrina_imperatives import DoctrinaImperativesPlaybook
 from .stormcaller import StormcallerPlaybook
 from .it_itches import ItItchesPlaybook
+from .the_lantern import TheLanternPlaybook          # #1030 -- 1094, `deathBossMortarion`
 from .the_quickening import TheQuickeningPlaybook
 from .black_rage import BlackRagePlaybook
 from .vigilance_eternal import VigilanceEternalPlaybook
@@ -193,6 +194,12 @@ PLAYBOOKS: dict[int, NonComparablePlaybook] = {
         # utilite de DEGAT interne (CalculateUtilityFromDamageEvent) pour 1163/1202 — cf. HammerOfWrath.
         StormcallerPlaybook(),          # 1113 — #unites dans la zone de glace ; gate WillNormalAttackKill
         ItItchesPlaybook(),             # 1121 — #ennemis pousses ; gates IsDisplaceable + CanBePushed
+        # #1030 — 1094 `TheLantern` (deathBossMortarion, GUILD BOSS npc). Utilite ENTIERE :
+        # `|ennemis dans la ZONE| + 0,1 x |ceux d'entre eux qui sont Psyker|`, sous DEUX gates lus --
+        # `HasMinimumRemainingTurns(caster, 2)` en amont du sweep (le cast NE FRAPPE PAS : son degat
+        # part au tour suivant) et `|zone| >= 7` par cible. La ZONE est celle de la face COMBAT
+        # (`...TheLanternAbility$$GetTilesForTargetAreaFromTargetTile`, republiee mot pour mot).
+        TheLanternPlaybook(),           # 1094 — #ennemis dans la zone + 0,1/Psyker ; gates 2 tours + 7 tuiles
         BlackRagePlaybook(),            # 1163 — degat de l'attaque NORMALE depuis la tuile de charge
         VigilanceEternalPlaybook(),     # 1202 — degat de l'ability depuis l'hex libre adjacent
         # #362 (residu #356-r1) — DEBLOQUE par l'oracle NC (#350-r3) : meme forme que 1202 (utilite
@@ -638,7 +645,8 @@ __all__ = [
     "GetEmRuntzPlaybook", "GrotTankPlaybook", "GauntletsOfUltramarPlaybook",
     "HammerOfWrathPlaybook",
     "HeroicFusilladePlaybook", "DoctrinaImperativesPlaybook", "StormcallerPlaybook",
-    "ItItchesPlaybook", "TheQuickeningPlaybook", "BlackRagePlaybook", "VigilanceEternalPlaybook",
+    "ItItchesPlaybook", "TheLanternPlaybook", "TheQuickeningPlaybook", "BlackRagePlaybook",
+    "VigilanceEternalPlaybook",
     "KillMaimBurnPlaybook", "ScarabHivePlaybook", "CordClawPlaybook", "SpawnPoxwalkersPlaybook",
     "FoulInfusionPlaybook", "HolyDuelPlaybook", "GrapnelLauncherPlaybook",
     "EarlyWarningOverridePlaybook", "DarkTalonStrikePlaybook",

@@ -182,7 +182,41 @@ class Enemies(TargetsSelector):
     `Caster@+0x48`. `IdunBattleLogic.Entities.DSLSelectors$$TilesWithEnemies` est le premier a
     passer autre chose (`Owner@+0x30`) : le referent y est ce que l'appelant lui donne, et
     l'ecraser par le caster serait faux des que les deux divergent (effet pose par un tiers,
-    ability greffee)."""
+    ability greffee).
+
+    ⚠ **LE DOMAINE DE RETOUR EST L'ACTEUR RESOLU, JAMAIS L'ENTITE BRUTE DU SELECTEUR SOURCE, et
+    c'est un ETAGE ENTIER qui manquait a la lecture (#1030-r5).** `CountOrAdd` fait bien
+    `System.Collections.Generic.List<T>.Add(result, entity)` avec l'entite ITEREE -- mais ce qu'il
+    itere n'est PAS `Select(entities)` : c'est le **SLOT 5 d'`ITargetsSelector`**, appele sur son
+    selecteur source `<UnitsByTeamSelector+0x20>` avec le `selectionType` de `<+0x2c>`. Ce slot est
+    `SelectAllActors` (grille `data/symbols/<build>/metadata/interface_slots.tsv`, entree
+    VERSIONNEE ; l'arite 2 concorde, et le referent est pris au slot 8 `SelectActor`), et
+    `IdunBattle.DSL.TargetsSelector$$SelectAllActors` **RESOUT chaque element** :
+
+        raw = this.<slot 0x17 Select>(entities)
+        if (this.<slot 0x21 get_ReturnsOnlyActors>) return raw;      // deja des acteurs
+        foreach (entity in raw)
+            u = SelectUnit(this, entity, selectionType);              // <- la RESOLUTION
+            if (u != null) result.Add(u); else if (IsMachine(entity)) result.Add(entity);
+
+    et `IdunBattle.DSL.TargetsSelector$$SelectUnit` porte le
+    `if (IsUnitFoot(entity) || IsTile(entity)) entity = GetUnit(entity, state);`. L'`entity` qu'ajoute
+    ensuite `CountOrAdd` est donc **l'acteur deja resolu**, et `GetUnitOrMachine` n'y est plus que
+    l'identite -- ce qui explique qu'il ne serve qu'au test de camp.
+
+    La grille de vtable est recoupee par la fonction SOEUR : `$$SelectAllUnits` teste `+0x278`
+    (slot 20 `get_ReturnsOnlyUnits`) la ou `$$SelectAllActors` teste `+0x288` (slot 21
+    `get_ReturnsOnlyActors`) -- meme forme, deux slots adjacents. SECONDE SOURCE INDEPENDANTE :
+    `...NovaChargeAbility$$GetAdditionalMarkedTiles` enchaine
+    `NormalUnits(Enemies(Owner@+0x30, <des TUILES>, 3), 3)` -- un selecteur d'UNITES consomme la
+    sortie d'`Enemies`, ce qui n'aurait aucun sens sur des ids de tuile.
+
+    ⚠ CE QUE CETTE LECTURE CORRIGE : la forme d'avant rendait l'entite SOURCE, donc des ids de
+    TUILE des que la source etait tile-domain -- `1094 TheLantern` (`Enemies(Caster, <zone>, 3)`
+    alimentant `AddEffect(1065 Pinned)`) posait alors `Pinned` sur PERSONNE, sans erreur. Aucun
+    etage en aval ne rattrape : `IdunBattle.Entities.Behaviours.AddEffectBehaviour$$Execute` lit ses
+    cibles au **slot 0 `Select`** (entites brutes) et `IdunBattle.Operations.AddEffectOperation$$Execute`
+    (lue INTEGRALEMENT) pose sur `owner` tel quel. La resolution est ICI, ou nulle part."""
     def __init__(self, inner: TargetsSelector, reference: TargetsSelector | None = None,
                  selection_type=None):
         self.inner, self.reference = inner, reference
@@ -194,12 +228,15 @@ class Enemies(TargetsSelector):
         st = self.selection_type
         out = []
         for e in _entities_of(self.inner, ctx):
+            # `SelectAllActors` : `SelectUnit(entity, selectionType)` d'abord -- la resolution
+            # tuile/pied -> occupant. Sur une source DEJA unit-domain c'est l'IDENTITE (`u is e`),
+            # donc les ~600 call-sites unit-domain sont inchanges.
             u = unit_or_machine(e, ctx)          # `UnitExtensions$$GetUnitOrMachine(entity, state)`
             if u is None or u.get("team") == ct:
                 continue
             if st is not None and not _selection_ok(u, st, ctx):
                 continue
-            out.append(e)                        # `result.Add(entity)` : l'ENTITE SOURCE, pas `u`
+            out.append(u)                        # `result.Add(entity)` : l'ACTEUR RESOLU (cf. supra)
         return out
 
 
@@ -440,9 +477,22 @@ class Friends(TargetsSelector):
         ref = resolve_unit(self.reference, ctx) if self.reference is not None else ctx.caster
         rt = (ref or {}).get("team")
         st = self.selection_type
-        return [u for u in self.inner.evaluate(ctx)
-                if u.get("team") == rt
-                and (st is None or _selection_ok(u, st, ctx))]
+        # MEME classe native, MEME corps qu'`Enemies` (`UnitsByTeamSelector$$CountOrAdd`, flag
+        # `this+0x28` = 1 au lieu de 0) -> MEME forme, y compris le domaine de RETOUR (#1030-r5) :
+        # ce que `CountOrAdd` itere est le **slot 5 `SelectAllActors`** de son selecteur source, qui
+        # a DEJA resolu chaque entite par `IdunBattle.DSL.TargetsSelector$$SelectUnit` -- donc
+        # `result.Add(entity)` reinjecte l'ACTEUR RESOLU. Demonstration complete et recoupements :
+        # docstring d'`Enemies` ci-dessus. `Friends` portait le meme trou (une source en domaine
+        # TUILE rendait `[]`), et il se repare du meme geste : la classe native est UNE.
+        out = []
+        for e in _entities_of(self.inner, ctx):
+            u = unit_or_machine(e, ctx)          # `UnitExtensions$$GetUnitOrMachine(entity, state)`
+            if u is None or u.get("team") != rt:
+                continue
+            if st is not None and not _selection_ok(u, st, ctx):
+                continue
+            out.append(u)                        # `result.Add(entity)` : l'ACTEUR RESOLU (cf. supra)
+        return out
 
 
 def _est_entite_tuile(d: dict, board) -> bool:
@@ -678,9 +728,13 @@ def unit_or_machine(elem, ctx):
     une unite multi-hex occupe toutes ses tuiles, exactement comme le `TileContentComponent`
     natif (meme lecture que `tiles.py::CanAddUnit`).
 
-    ⚠ Le natif ajoute ensuite `entity` (l'element SOURCE), jamais `u` -- un filtre d'equipe sur des
-    tuiles rend donc des TUILES. Les 58 call-sites unit-domain deja portes sont inchanges
-    (`GetUnitOrMachine(unit) == unit`, et `Add(entity) == Add(unit)`)."""
+    ⚠ **NE PAS RELIRE `Add(result, entity)` DE `CountOrAdd` COMME << l'entite SOURCE >>** : c'est
+    l'element itere, et ce qui est itere est le **slot 5 `SelectAllActors`** du selecteur source,
+    donc un ACTEUR DEJA RESOLU (`SelectUnit` -> `IsUnitFoot || IsTile -> GetUnit`). Cette phrase a
+    porte l'inverse et a fait rendre des ids de TUILE a `Enemies`/`Friends` : `1094 TheLantern`
+    posait alors `Pinned` sur PERSONNE, sans erreur (#1030-r5). Demonstration : docstring
+    d'`Enemies`. Les call-sites unit-domain restent inchanges dans les deux lectures
+    (`GetUnitOrMachine(unit) == unit`), ce qui est exactement ce qui a rendu la faute invisible."""
     if isinstance(elem, dict):
         return elem
     p = _entity_pos(elem, getattr(ctx, "board", None))
