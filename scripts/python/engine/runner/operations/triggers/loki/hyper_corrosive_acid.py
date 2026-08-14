@@ -96,22 +96,27 @@ PERMISSIF (tout attaquant ami du Biovore beneficierait du +extraDmgPct, pas seul
 Hero), pas un port : l'effet reste donc HORS d'`EFFECT_CLASSES`, ce qui rend `BaseEffect` generique
 et TOUS ses canaux muets -- degradation RESTRICTIVE et nommee. Residu `#1035-r1`.
 
-⚠ CE QUE CETTE TRANCHE A **RE-MESURE** SUR CE VERROU, ET QUI CORRIGE DEUX PREMISSES ECRITES :
-  * l'enum EXISTE -- `data/symbols/<build>/frida/enums.tsv` porte `idun.meta.Rarity` (et quatre
-    homonymes `*Rarity` du meta), `0=Common .. 5=Mythic`. `case-999` §7 disait « aucun enum
-    `UnitRarity` » : c'etait une recherche trop etroite, pas une absence ;
-  * la DONNEE existe -- `BC.Units[].Rarity` est peuplee (`data/seed-bc.json` : 69x0, 2x2, 11x3,
-    83x4, **10x5**), et la chaine native est LUE bout-en-bout :
-    `IdunBattle.Entities.Factories.UnitFactory$$InitBaseComponent` fait
-    `BaseUnitComponent+0x74 = UnitConfiguration+0x80`, et `UnitConfiguration+0x80` EST le champ
-    `Rarity` (`sources_win`, ancre par ses deux voisins DEJA portes : `+0x74
-    AbilityVariablesMultiplierPercentage` et `+0x78 TertiaryAbilityVariablesMultiplierPercentage`,
-    que `UnitContext` cite aux memes offsets).
-Ce qui manque est donc le seul CAPTEUR : `readUnitConfig` (`frida/hooks/features/ai-step/
-rpc-snapshot.ts`) lit deja cinq champs de `UnitConfiguration` par offset (`mult 0x74`,
-`tertMult 0x78`, `level 0x7c`, `activeLvl 0xb8`, `passiveLvl 0xbc`) -- il y manque
-`rarity: cfg.add(0x80).readS32()`. Une ligne, mais elle exige une FENETRE DE REINJECT, que cette
-tranche n'a pas le droit d'ouvrir. Cf. `docs/rl/case-1035-deux-mythiques-mow.md` Sec.4.
+⚠ CE VERROU EST DEJA MESURE DE BOUT EN BOUT PAR `docs/rl/case-1024-shield-of-faith-on-my-position.md`
+Sec.4 -- ne pas le re-mesurer, le LIRE. Trois faits qu'elle etablit et dont ce port depend :
+l'enum EXISTE (`IdunMetaLogic.UserProgress.Model.UnitRarity`, `5 = Mythic`) ; `BC.Units[].Rarity`
+ATTEINT bien `BaseUnitComponent.Rarity` (contre-epreuve live `--unit-stat "<vis>:Rarity=4"`, qui
+ETEINT le gate) ; et `rl_duel build` pose `targetRarity = 5`, donc **dans un runner standard toute
+unite est Mythic et `HasRarity(., Mythic)` est uniformement VRAI** -- un port qui OUBLIERAIT le gate
+serait d'accord avec le natif dans tous les bras par defaut. C'est le regime DEGENERE, et c'est
+exactement pourquoi le canal de degat de 1448 ne peut pas etre porte << au jugé >>.
+
+APPORT DE CETTE TRANCHE sur ce seul point : la VOIE que `readUnitConfig` peut prendre sans changer
+de structure. `case-1024` prescrit de resoudre `BaseUnitComponent.Rarity` par `getFieldOffset` (a
+cause du piege `0x74`, qui vaut `AbilityVariablesMultiplierPercentage` dans `UnitConfiguration` et
+la RARETE dans `BaseUnitComponent`). Or `readUnitConfig` tient DEJA le pointeur
+`UnitConfiguration` : `IdunBattle.Entities.Factories.UnitFactory$$InitBaseComponent` fait
+`BaseUnitComponent+0x74 = UnitConfiguration+0x80`, et `UnitConfiguration+0x80` EST le champ
+`Rarity` (`sources_win`, ancre par ses deux voisins DEJA portes -- `+0x74
+AbilityVariablesMultiplierPercentage` et `+0x78 TertiaryAbilityVariablesMultiplierPercentage`, que
+`UnitContext` cite aux memes offsets). Le capteur se reduit donc a UN champ de plus dans le dict
+que `readUnitConfig` rend deja, resolu comme ses voisins par
+`getFieldOffset(unitConfigurationClass, "Rarity")` -- jamais par recopie de `0x80`. Cela exige une
+FENETRE DE REINJECT, que cette tranche n'a pas le droit d'ouvrir. Residu `#1035-r1`.
 
 ## DISPATCH -- le vecteur est DEJA emis par le port
 

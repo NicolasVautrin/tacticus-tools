@@ -295,6 +295,8 @@ from ..loki.paragon_spear import ParagonSpearAbility                   # #1013 (
 from ..loki.electrochaff_backups import (                             # #1025 (MYTHIQUE 1454, MoW
     ElectrochaffBackupsOnMarkerlightAbility,                          #  tauBroadside : voie
     ElectrochaffBackupsOnRangedDamageAbility)                         #  TERTIAIRE, cf. le registre)
+from ..loki.hyper_corrosive_acid import HyperCorrosiveAcidAbility      # #1035 (MYTHIQUE 1455, MoW
+                                                                      #  tyranBiovore, voie TERTIAIRE)
 from ..loki.relentless_march import RelentlessMarchAbility             # #328 (passif necroWarden)
 from ..loki.my_will_be_done_overlord import (MyWillBeDoneOverlordAttackAbility,   # #354 (necroOverlord)
                                              MyWillBeDoneOverlordClearAbility)
@@ -1573,6 +1575,30 @@ RELIC_ABILITY_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
     # L'inscrire sans ce gate serait un terme PERMISSIF. Cf. loki/electrochaff_backups.py.
     "ElectrochaffBackups": [ElectrochaffBackupsOnMarkerlightAbility,
                             ElectrochaffBackupsOnRangedDamageAbility],
+    # HyperCorrosiveAcid (#1035) -- ability **MYTHIQUE** de MACHINE OF WAR, meme voie de
+    # registration que la relique (cf. le commentaire d'`ElectrochaffBackups` juste au-dessus :
+    # `BC.Units[].TertiaryAbility` -> `TriggeredAbilityComponent$$TryAdd(id, tertiaryState, 3)`).
+    # `TriggeredAbilityType` 0x5af = 1455 ; DEUX porteurs : `tyranBiovore` (lineup, AU SEED) et
+    # `tyranNpcMowBiovore` (npc). `frida/classes.tsv` : parent `IdunBattle.Entities.Abilities.
+    # BaseTriggeredAbility`, et la classe DECLARE ses deux methodes (rien d'herite).
+    #   `$$CreateTrigger`   = On(0x0f = DamageTaken, ownerNeedsToBeAlive: 1)
+    #                         & AreEnemies(Owner@+0x30, Target@+0x60, 0) & IsAlive(Target@+0x60)
+    #                         & AreFriends(Owner@+0x30, Actor@+0x40, 0, false)
+    #                         & IsUnitWithVisualId(Actor@+0x40, VisualUnitIdFromUnitId(
+    #                               GetStringConstant(0x0 = unitId) = "tyranSmnSporeMine"))
+    #   `$$CreateBehaviour` = If( HasEffect(Target@+0x60, 0x5a8, onlyActive: 0, effectTarget: 6),
+    #                             ChangeEffectTurns(Target@+0x60, 0x5a8, turns, ChangeType.Set),
+    #                             AddEffect(0x5a8, stateRef, Owner@+0x30, Target@+0x60, turns) )
+    # avec `turns = TurnsFromRounds(GetNumberConstant(0x45 = nrOfRounds))`.
+    # ⚠ LE GATE PORTE SUR L'ACTEUR, PAS SUR LE PORTEUR : c'est la SPORE MINE amie qui doit frapper
+    # (`Actor@+0x40`), et l'effet se pose sur SA victime (`Target@+0x60`). Aucun `get_OwnerIsActor`
+    # -- le Biovore n'a pas a etre l'attaquant, et ne le sera jamais sur ce vecteur.
+    # ⚠ L'EFFET 0x5a8 = 1448 n'entre PAS dans `EFFECT_CLASSES`, et c'est DELIBERE : son
+    # `$$CreateEffectDamageBonusForAttack` ouvre sur `HasRarity(Caster@+0x48, 5 = Mythic)` (plus
+    # `HasTrait(Caster, 0x10 = Hero)`), qui lit `GetBaseUnitComponent(e)+0x74` -- canal ABSENT du
+    # port (residu `#1035-r1`, BLOCAGE capteur, meme verrou que `#1025-r1`). L'inscrire sans ce gate
+    # serait un terme PERMISSIF. Cf. loki/hyper_corrosive_acid.py.
+    "HyperCorrosiveAcid": [HyperCorrosiveAcidAbility],
 }
 
 # --- Registre : abilities GLOBALES (aucun owner) ---------------------------------------------------

@@ -1001,6 +1001,20 @@ class IsUnitWithVisualId(AbilityTrigger):
     par-unite dans le State ») -- c'est ce consommateur-la. Rayon de souffle MESURE au moment du
     changement : **0 consommateur EXECUTABLE** (les 4 autres occurrences du depot sont des
     citations de decompile ; le terme de `MyWillBeDoneOverlord` est explicitement OMIS du port).
+
+    ⚠ LA FORMULE PEUT RENDRE UNE **COLLECTION**, ET LE NATIF N'EN REND QU'UNE (#1035). Le natif
+    compare une chaine a une chaine -- `IdunBattle.Entities.Selectors.IsUnitWithVisualIdTrigger$$
+    ShouldTrigger` a pour corps ENTIER `String.op_Equality(GetVisualUnitId(unit), value.Value)`,
+    ou `value` est le `Nullable<object>` que rend la formule. Mais le noeud PORTE qui l'alimente au
+    call-site natif, `entities/formulas.py::VisualUnitIdFromUnitId`, rend deliberement les **DEUX**
+    formes (`[unitId, gameconfig.unit(unitId).visualId]`) -- meme REDUCTION OFFLINE que ci-dessus,
+    cote formule cette fois. Comparer par `==` une `str` a cette `list` rend donc **FAUX
+    systematiquement, sans erreur** : c'est exactement la panne SILENCIEUSE que la note precedente
+    decrit, deplacee d'un cran. On accepte donc les deux formes de valeur (scalaire ou collection de
+    scalaires) et on teste l'APPARTENANCE -- sur une valeur scalaire c'est l'egalite native au bit
+    pres, et sur la collection c'est la reduction que le port assume deja partout ailleurs
+    (`UnitsWithIds`, `UnitsWithVisualId`). Premier consommateur EXECUTABLE :
+    `runner/operations/triggers/loki/hyper_corrosive_acid.py`.
     """
     def __init__(self, unit: AbilityTrigger, visual_id):
         self.unit, self.visual_id = unit, visual_id
@@ -1015,11 +1029,26 @@ class IsUnitWithVisualId(AbilityTrigger):
         import gameconfig as GC
         return ((GC.unit(vid) or {}).get("visualId")) or vid
 
+    @staticmethod
+    def _wanted(vid) -> tuple:
+        """Les formes acceptables de l'id recherche (cf. la note « collection » ci-dessus). Une
+        `str` reste UNE valeur (l'egalite native) ; une collection est depliee. Les elements nuls
+        sont ecartes -- le natif refuse deja sur `!HasValue`."""
+        if vid is None:
+            return ()
+        if isinstance(vid, (str, bytes)):
+            return (vid,)
+        try:
+            return tuple(x for x in vid if x is not None)
+        except TypeError:
+            return (vid,)
+
     def should_trigger(self, ctx):
         vid = self.visual_id.evaluate(ctx) if hasattr(self.visual_id, "evaluate") else self.visual_id
-        if vid is None:
+        wanted = self._wanted(vid)
+        if not wanted:
             return False
-        return any(self._visual_id_of(u) == vid for u in _units_of(self.unit, ctx))
+        return any(self._visual_id_of(u) in wanted for u in _units_of(self.unit, ctx))
 
 
 class IsInPersistentDataList(AbilityTrigger):
