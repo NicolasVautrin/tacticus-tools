@@ -68,6 +68,26 @@ from ...operations.attack_prediction import multi_hit_attack_prediction as _mhap
 _grand_alliance_trait = grand_alliance_trait_name
 
 
+def _entity_rarity(sc, uc):
+    """`BaseUnitComponent.Rarity` (+0x74) d'une entite -- les DEUX porteurs cote port, dans l'ordre.
+
+    Le natif n'a qu'UN champ, sur `BaseUnitComponent`, base commune de `UnitComponent` et
+    `MachineComponent` : `IdunBattle.Entities.UnitExtensions$$GetBaseUnitComponent(e)` le rend pour
+    toute entite d'unite, VIVANTE OU NON. Cote port il a deux logements, pour une raison de CANAL et
+    non de modele : `UnitContext.rarity` (#999-r3) n'existe que pour les lignes de
+    `combatSnapshot.units[]`, qui est ALIVE-ONLY, tandis que `UnitComponent.rarity` (#999-r3-r2) est
+    seede depuis `units[]` **et** `unitsNotAlive[]`.
+
+    Le ctx PRIME : il est le chemin d'origine, il est inchange pour toute unite vivante, et les deux
+    valeurs viennent de la MEME ligne de capture quand les deux existent. `None` = NON MESURE dans
+    les deux -- jamais `0`, qui est `Rarity.Common` (cf. `entities/rarity.py::measured_rarity`)."""
+    r = (getattr(sc.ctx, "rarity", None)
+         if (sc is not None and getattr(sc, "ctx", None) is not None) else None)
+    if r is not None:
+        return r
+    return getattr(uc, "rarity", None) if uc is not None else None
+
+
 def _unit_dict(state, eid: int, entity=None) -> dict | None:
     """Dict d'unite {id, team, player, pos, alive, hp, visualId, _traits} lu du `State` runner — la forme
     `unit` que consomment les selecteurs DSL. `entity` optionnel (evite un `get_entity` redondant)."""
@@ -174,11 +194,18 @@ def _unit_dict(state, eid: int, entity=None) -> dict | None:
         # `IdunBattle.Entities.UnitExtensions$$GetBaseUnitComponent`. Publie ICI (et pas via un
         # accesseur `ctx.*`) parce que c'est un SCALAIRE d'entite, comme `team`/`player` -- les deux
         # noeuds portes le lisent directement sur l'unite qu'ils viennent de selectionner.
-        # `None` = NON MESURE (entite sans `StatsComponent` -- un CADAVRE, que `combatSnapshot`
-        # filtre --, ou etat monte sans `combatSnapshot`). Aucun repli gameconfig : `BaseRarity`
-        # repond a une AUTRE question (cf. `entities/rarity.py`).
-        "rarity": (getattr(sc.ctx, "rarity", None)
-                   if (sc is not None and getattr(sc, "ctx", None) is not None) else None),
+        # `None` = NON MESURE (canal muet, ou etat monte sans `combatSnapshot`). Aucun repli
+        # gameconfig : `BaseRarity` repond a une AUTRE question (cf. `entities/rarity.py`).
+        #
+        # #999-r3-r2 -- REPLI SUR `UnitComponent.rarity`, et c'est ce qui rend un CADAVRE lisible.
+        # Le ctx n'existe que pour les lignes de `combatSnapshot.units[]`, un canal ALIVE-ONLY :
+        # une unite MORTE ou en FUITE n'avait donc AUCUNE rarete, donc `HasRarity` FAUX et
+        # `UnitsWithRarity(AllDeadUnits(...))` VIDE -- alors que le natif lit `BaseUnitComponent`
+        # (+0x74), que l'entite soit vivante ou non, et que le canal la publie DEJA sur
+        # `unitsNotAlive[]` (#1039). `snapshot._load_unit_rarity` seede les DEUX blocs.
+        # ORDRE : le ctx d'abord -- il est inchange pour toute unite vivante, donc ce repli ne
+        # DEPLACE rien la ou une valeur existait deja ; les deux viennent de la MEME ligne.
+        "rarity": _entity_rarity(sc, uc),
         "_traits": traits,
     }
 

@@ -53,7 +53,7 @@ from ..entities.effects import factory as _effects_factory
 from ..entities.unit_context import UnitContext
 from ..entities.active_ability_type import ActiveAbilityType
 from ..entities.traits.unit_trait import trait_names_from_ids
-from ..entities.rarity import assert_rarity_channel      # #999-r3 (canal #1039)
+from ..entities.rarity import assert_rarity_channel, measured_rarity   # #999-r3/-r2 (canal #1039)
 from ..entities.triggered_ability_type import TriggeredAbilityType
 from .components import ForcedAttackTargetsComponent
 from .operations.aura_stat_mods import attribute_aura_stat_modifiers
@@ -463,6 +463,11 @@ def load_state(decision: dict, observe: dict, snapshot: Optional[dict] = None,
         # AVANT les stats : `UnitFlag.Moved`/`Teleported` sont des entrees de GATE lues par le calcul
         # de degat (`attacker_modifiers` -> `unit_has_moved`), pas des sorties -- cf. `_load_unit_flags`.
         _load_unit_flags(state, snapshot)
+        # MEME nature, MEME canal, MEMES DEUX BLOCS que les flags (#999-r3-r2) : la RARETE est
+        # portee par `BaseUnitComponent` (+0x74), donc par une entite VIVANTE OU NON. #999-r3 ne
+        # la branchait que sur `UnitContext`, bati depuis `units[]` seul -> tout mort en etait
+        # prive. Cf. `_load_unit_rarity`.
+        state.unit_rarity_seed = _load_unit_rarity(state, snapshot)
         # MEME nature que les flags : trois champs d'ETAT DE TOUR du `UnitComponent` (dont le
         # compteur `turnsFinished` que lit `OwnerHasFinishedMinTurns`), entrees de gate et non
         # sorties -- cf. `_load_unit_turn_state`.
@@ -837,6 +842,66 @@ def _load_unit_flags(state: State, snapshot: dict) -> None:
         # laissait SANS composant avant #545. Rendu pour que l'amplitude soit lisible, pas devinee.
         "vides": vides,
     }
+
+
+def _load_unit_rarity(state: State, snapshot: dict) -> Optional[dict]:
+    """Seede `UnitComponent.rarity` depuis les DEUX blocs de `combatSnapshot` -- `units[]` ET
+    `unitsNotAlive[]` (#999-r3-r2).
+
+    MIRROR : `BaseUnitComponent.Rarity` (`+0x74`), lu par
+    `IdunBattle.Entities.UnitExtensions$$HasRarity` et
+    `IdunBattle.Entities.Formulas.UnitsWithRaritySelector$$Select` apres
+    `IdunBattle.Entities.UnitExtensions$$GetBaseUnitComponent(e)`. Ce composant est la base
+    COMMUNE de `UnitComponent` et `MachineComponent` : il n'est PAS conditionne a l'etat de vie.
+
+    POURQUOI (residu #999-r3-r2). #999-r3 avait branche la rarete sur `UnitContext.rarity`, que
+    `_load_stats_and_effects` ne construit que depuis `combatSnapshot.units[]` -- un canal
+    ALIVE-ONLY. Une unite MORTE ou en FUITE n'avait donc AUCUNE rarete cote port : `HasRarity`
+    rendait FAUX et `UnitsWithRarity(AllDeadUnits(...))` / `AllDeadOrResurrectedUnits` excluait la
+    TOTALITE des morts. Degradation RESTRICTIVE, silencieuse, et le canal la portait deja :
+    #1039 pose `rarity` sur `unitsNotAlive[]` EXACTEMENT pour la raison de `#429-r1-r3-r1` (une
+    unite qui a FUI garde sa rarete). Meme forme que le repli gameconfig des traits d'un cadavre
+    (#226, Foehammer), a ceci pres qu'ici il n'y a AUCUN repli a inventer : c'est une MESURE.
+
+    TRI-ETAT, meme discipline que `_load_unit_flags` et `entities/rarity.py::measured_rarity` :
+    `rarity` absent ou `null` = canal non mesure -> on ne pose RIEN (le champ garde son `None` de
+    construction, comportement strictement anterieur, y compris sur un bundle Frida plus ancien
+    que #1039). Un ordinal HORS de l'enum LEVE (via `measured_rarity`) : il ne peut vouloir dire
+    qu'une chose -- le build a bouge sous le mirror.
+
+    PORTEE : les DEUX blocs, et les DEUX `entityType`. Une MoW porte elle aussi un
+    `BaseUnitComponent` (cf. `case-1039` Sec.4) et le port lui pose un `UnitComponent`
+    (`_load_machines`) -- elle est donc seedee comme une unite. Le seed est IDEMPOTENT et ne
+    DEPLACE rien pour les unites vivantes : `_unit_dict` continue de lire `ctx.rarity` en premier,
+    et les deux viennent de la MEME ligne de capture.
+
+    Rend le compte par bloc (ou `None` pour `unitsNotAlive` quand ce canal n'a pas ete mesure --
+    jamais `0`, meme regle que `state.unit_flags_seed`)."""
+    _ABSENT = object()
+    na = snapshot.get("unitsNotAlive", _ABSENT)
+    canal = "absent" if na is _ABSENT else ("muet" if na is None else "lu")
+    na_rows = list(na) if canal == "lu" else []
+    rows = list(snapshot.get("units") or [])
+    poses_units = poses_na = 0
+    for idx, su in enumerate(rows + na_rows):
+        eid = su.get("entityId")
+        if eid is None:
+            continue
+        r = measured_rarity(su)              # TRI-ETAT + refus d'un ordinal hors mirror
+        if r is None:
+            continue
+        ent = state.get_entity(eid)
+        uc = ent.get_component(UnitComponent) if ent is not None else None
+        if uc is None:
+            continue
+        uc.rarity = r
+        if idx < len(rows):
+            poses_units += 1
+        else:
+            poses_na += 1
+    return {"units": poses_units,
+            "units_not_alive": poses_na if canal == "lu" else None,
+            "units_not_alive_channel": canal}
 
 
 def _load_unit_turn_state(state: State, snapshot: dict) -> None:
