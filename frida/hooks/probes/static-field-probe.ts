@@ -41,6 +41,7 @@ import {
     class_get_fields, class_get_name, class_get_namespace, cstr, field_get_name,
     field_get_offset, field_get_type, findClassAnywhere, type_get_class_or_element_class,
 } from "../il2cpp/helpers.js";
+import { classInitState, LIVE_CLASS_INIT_PROBE } from "../il2cpp/class-init.js";
 
 const mod = Process.findModuleByName("GameAssembly.dll");
 
@@ -51,12 +52,6 @@ const field_static_get_value = (() => {
     return p ? new NativeFunction(p, "void", ["pointer", "pointer"]) : null;
 })();
 
-/** `il2cpp_runtime_class_init(Il2CppClass*)` — ce que le jeu appelle lui-meme au premier acces. */
-const runtime_class_init = (() => {
-    const p = mod ? mod.findExportByName("il2cpp_runtime_class_init") : null;
-    return p ? new NativeFunction(p, "void", ["pointer"]) : null;
-})();
-
 /** `il2cpp_field_get_flags(FieldInfo*)` — le bit `FIELD_ATTRIBUTE_STATIC` (0x10). */
 const field_get_flags = (() => {
     const p = mod ? mod.findExportByName("il2cpp_field_get_flags") : null;
@@ -64,13 +59,6 @@ const field_get_flags = (() => {
 })();
 
 const FIELD_ATTRIBUTE_STATIC = 0x10;
-
-/** `Il2CppClass.initialized_and_no_error` vit a `+0xe4` sur ce build — c'est LITTERALEMENT
- *  l'offset que tout corps decompile teste (`if (*(int *)(DAT_xxx + 0xe4) == 0)
- *  il2cpp_runtime_class_init();`). On ne s'en sert QUE pour RAPPORTER l'etat, jamais pour
- *  decider d'une lecture : si l'offset devenait faux, on publierait un etat faux, pas une
- *  valeur fausse. */
-const CLASS_INITIALIZED_OFF = 0xe4;
 
 interface StaticRow {
     name: string;
@@ -109,17 +97,11 @@ export function staticFieldProbe(args: StaticFieldArgs): unknown {
     const klass = findClassAnywhere(args.ns, args.cls);
     if (!klass) return { ok: false, error: "classe non resolue: " + args.ns + "." + args.cls };
 
-    let initializedBefore: boolean | null = null;
-    try { initializedBefore = klass.add(CLASS_INITIALIZED_OFF).readS32() !== 0; }
-    catch { /* offset hors structure : on rend null, jamais un booleen invente */ }
-
-    let forced = false;
-    if (args.forceInit && runtime_class_init !== null) {
-        try { runtime_class_init(klass); forced = true; } catch { /* */ }
-    }
-    let initializedAfter: boolean | null = null;
-    try { initializedAfter = klass.add(CLASS_INITIALIZED_OFF).readS32() !== 0; }
-    catch { /* */ }
+    // #982-r6 — FOYER UNIQUE du forcage (`il2cpp/class-init.ts`), partage avec
+    // `features/introspect.ts::resolveVtableSlot`. Ce module portait le motif en propre ;
+    // le dupliquer une seconde fois l'aurait propage par imitation, et le controle hors
+    // Frida n'en aurait couvert qu'une des deux copies.
+    const init = classInitState(LIVE_CLASS_INIT_PROBE, klass, args.forceInit === true);
 
     const want = args.fields && args.fields.length ? new Set(args.fields) : null;
     const buf = Memory.alloc(16);
@@ -186,9 +168,10 @@ export function staticFieldProbe(args: StaticFieldArgs): unknown {
         klass: klass.toString(),
         /** ⚠ `initialized: false` ⇒ les valeurs ci-dessous sont celles d'un bloc a ZERO, pas
          *  celles du jeu. Un lecteur qui l'ignore conclura « la constante vaut 0 ». */
-        initialized: initializedAfter,
-        initializedBefore, forcedInit: forced,
-        runtimeClassInitAvailable: runtime_class_init !== null,
+        initialized: init.initialized,
+        initializedBefore: init.initializedBefore, forcedInit: init.forcedInit,
+        forceInitError: init.forceInitError,
+        runtimeClassInitAvailable: init.runtimeClassInitAvailable,
         fieldCount: rows.length,
         fields: rows,
     };
