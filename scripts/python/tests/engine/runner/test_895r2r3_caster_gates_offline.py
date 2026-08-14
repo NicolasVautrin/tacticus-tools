@@ -62,19 +62,26 @@ def _tid(col: int, row: int) -> int:
     return col * ROWS + row + 1
 
 
-def _tiles() -> list:
+def _tiles(trenches=()) -> list:
+    """`trenches` = les `(col,row)` a marquer `tileDefId = "Trench"`. C'est le TERRAIN STATIQUE que
+    `IdunBattle.Entities.TileExtensions$$IsTrench` lit -- pas l'effet de tuile `EffectType.Trench`
+    (1059), qui est un autre canal."""
+    marquees = {(int(c), int(r)) for c, r in trenches}
     out = []
     for col in range(COLS):
         for row in range(ROWS):
             nb = [_tid(c, r) for (c, r) in hexgeo.neighbors(col, row)
                   if 0 <= c < COLS and 0 <= r < ROWS]
-            out.append({"id": _tid(col, row), "col": col, "row": row, "elevation": 0,
-                        "walkable": True, "isWall": False, "neighbours": nb})
+            t = {"id": _tid(col, row), "col": col, "row": row, "elevation": 0,
+                 "walkable": True, "isWall": False, "neighbours": nb}
+            if (col, row) in marquees:
+                t["tileDefId"] = "Trench"
+            out.append(t)
     return out
 
 
-def _monter(unites: list):
-    board = Board(_tiles(), adjacency="evenq")
+def _monter(unites: list, trenches=()):
+    board = Board(_tiles(trenches), adjacency="evenq")
     decision = {"currentPlayer": 1, "units": [
         {"id": uid, "visualId": "tauBossRiptide" if uid == CASTER else "ultraTitus",
          "alive": True, "team": team, "owner": team,
@@ -189,6 +196,27 @@ def test_nova_boost_exige_au_moins_DEUX_ennemis_dans_la_couronne(libelle, autres
     st = _monter([(CASTER, 1, (4, 4))] + list(unites))
     got = get_invalid_caster_reason(st, CASTER, cls())
     assert got == attendu, "%s : 0x%x, attendu 0x%x" % (libelle, got, attendu)
+
+
+def test_nova_boost_ECARTE_les_ennemis_poses_sur_une_tuile_TRENCH():
+    """LE FILTRE `Not(IsTrenchTile(ActiveTarget))` du selecteur, exerce pour de vrai.
+
+    Il a ete AJOUTE apres coup : la mutation « selecteur `AdjacentTiles` nu, sans le `Filter` »
+    laissait les cinq bras ci-dessus VERTS, faute d'une seule tuile Trench sur le board de test.
+    Un cran qu'aucune mutation ne fait rougir ne garde rien.
+
+    Montage : DEUX ennemis adjacents -- assez pour passer le `1 < Count` -- mais l'un des deux est
+    sur une tuile Trench, donc la couronne effective n'en compte qu'UN -> refus."""
+    cls = ABILITY_CLASSES[NOVA_BOOST]
+    v = _voisines()
+    sans = _monter([(CASTER, 1, (4, 4)), (FOE_A, 2, v[0]), (FOE_B, 2, v[1])])
+    assert get_invalid_caster_reason(sans, CASTER, cls()) == 0, (
+        "temoin : sans trench, deux ennemis adjacents doivent SUFFIRE")
+    avec = _monter([(CASTER, 1, (4, 4)), (FOE_A, 2, v[0]), (FOE_B, 2, v[1])],
+                   trenches=[v[1]])
+    assert get_invalid_caster_reason(avec, CASTER, cls()) == int(TR.CasterMatchesDynamicRule), (
+        "la tuile Trench de %r doit sortir son occupant de la couronne "
+        "(`Filter(AdjacentTiles(Caster), Not(IsTrenchTile(ActiveTarget)))`)" % (v[1],))
 
 
 def test_nova_boost_porte_bien_la_surcharge_et_non_le_no_op_de_la_base():
