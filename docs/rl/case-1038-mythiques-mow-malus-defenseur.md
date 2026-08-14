@@ -157,7 +157,7 @@ fois le même nombre). Seule une preview **sans RNG** sépare les bras.
 
 ---
 
-## 4. Pourquoi `ContemptuousDisregard` a été RETIRÉE d'`EFFECT_CLASSES`
+## 4. Pourquoi `ContemptuousDisregard` a été RETIRÉE d'`EFFECT_CLASSES` (et pourquoi elle y REVIENT, #1038-r1)
 
 L'effet 1443 expose un `$$CreateTargetSelector` : c'est un **`EffectWithTarget`**. Or
 `IdunBattle.Core.Services.DamageCalculations$$CalculateDefenderModifiersForPrediction` itère
@@ -188,6 +188,53 @@ est lui aussi hors `EFFECT_CLASSES`.
 canal **O** (owner-effect). C'est exact au sens du canal, et **incomplet** au sens du comportement —
 c'est dit ici plutôt que laissé à deviner.
 
+### 4bis. Le retour au registre (#1038-r1, 2026-08-14) — et ce que la mesure de 2026-08-13 ne disait PAS
+
+Les **deux** raisons du §4 restent vraies ; elles ne concluent simplement plus à l'abstention.
+
+1. le canal de rareté **existe** (`tgt_rarity`, #999-r3-r1) — il est posé par les deux façades,
+   en tri-état ;
+2. l'inscription se fait sur `create_aura_defense_damage_malus_for_ally`, **pas** sur le canal du
+   porteur : c'est précisément parce que le §4 a raison sur ce point que le canal AURA est le bon.
+
+**⚠ LE BRAS DE 2026-08-13 NE SÉPARAIT RIEN, et il ne faut pas en tirer un verdict de mort.** Il
+place l'ami mythique sur une tuile `DryBush` portant `LightCover`, et conclut `targetIds: []`. Or :
+
+- `LightCover` **n'est pas** un status de tuile. `StaticBattleRules.Effect$$IsTileStatusEffect`
+  interroge un `OrderedSet` statique dont le contenu, **lu au décompilé** (le §4 disait qu'il
+  n'avait pas été dérivé — il l'est ici), vaut exactement
+  `{Darkness, Fire, Ice, Contaminated, DespoiledGround}` ;
+- `LightCover` n'est même pas porté par la **TUILE** : `IdunBattleLogic.Entities.Abilities.Tiles.
+  Loki.LightCoverAbility$$UnitsThatNeedEffect` le pose sur les **UNITÉS** qui s'y tiennent, et le
+  canal `tile_status_effects_by_pos` du port l'exclut pour cette raison même.
+
+L'ensemble vide de ce bras est donc le comportement **NORMAL** du natif, sur les deux étages. Il ne
+mesure ni le gate de rareté ni le gate de tuile.
+
+### 4ter. Ce que le port lit, étage par étage
+
+`ContemptuousDisregardDamageReductionEffect` (`entities/effects/loki/damage_reduction.py`) :
+
+| étage natif | lu dans |
+|---|---|
+| `Friends(Owner, AllUnits(), 3)` | `owner_team` / `tgt_team` |
+| `UnitsWithRarity(·, Rarity.Mythic = 5, 3)` | `tgt_rarity` (tri-état, #999-r3-r1) |
+| `HasTileStatusEffect(Tiles(<élément courant>))` | `t_pos` + `tile_effects_by_pos` ∩ `TILE_STATUS_EFFECT_NAMES` |
+| `ConfigVar(0x46, GetAbilityState(effet))` | l'état **TERTIAIRE** de la SOURCE (cf. `case-1042` §4bis) |
+
+`<DSLSelectors+0x68>` est bien l'**élément courant** du `Filter`, et c'est LU :
+`DSLSelectors$$Filter` = `FromTrigger(entities, filter, 0)`, et
+`IdunBattle.Entities.Selectors.FromTriggerSelector$$Select` **copie** l'`AbilityEntities` puis
+**écrit le candidat à `+0x20` de la copie** avant d'évaluer le trigger.
+
+**⚠ NON CONFRONTÉ LIVE — `#1038-r2`.** Le montage exige un status de tuile *sous* un ami mythique
+de la MoW, et aucun terrain n'en produit (ils sont tous DYNAMIQUES ; `terrain_tile_effects` ne
+mappe que des covers). Les deux voies identifiées : `LetTheGalaxyBurn` (1477, `blackTerminator`)
+pose `DespoiledGround` sur la tuile de SA cible — donc sur une unité de l'équipe de la MoW — mais
+son trigger porte un `Maybe(33 %)` ; et `DaemonicOrdnance` (1148), l'active de `blackForgefiend`
+elle-même, met une zone en feu. Le port est donc confronté **offline** (bras vrai + 7 contre-bras,
+`test_1038r1_1042r1_auras_mythiques_mow_offline.py` étages B/C) et **non confronté live**.
+
 `HasTileStatusEffect` n'a pas été creusé au-delà : `TileExtensions$$HasTileStatusEffect` teste
 l'appartenance de chaque effet de la tuile à l'`OrderedSet` statique de
 `idun.Idun.Source.Shared.Battle.StaticBattleRules.StaticBattleRules.Effect` (+0x28), lu par
@@ -215,8 +262,16 @@ verdict, que le gate de rareté suffit à fixer.
 
 ## 6. Résidus
 
-- **`#1038-r1`** — la face dégât de `ContemptuousDisregard_DamageReduction` (1443) : canal AURA
-  (`create_aura_defense_damage_malus_for_ally`), gaté `UnitsWithRarity(…, Mythic)` +
-  `HasTileStatusEffect`. `BLOCAGE: capteur` (le même que `#1025-r1` : `combatSnapshot.units[].rarity`
-  ← `BaseUnitComponent.Rarity @+0x74`). Le contexte du canal aura porte DÉJÀ
-  `tile_effects_by_pos` (`tile_status_effects_by_pos`), donc seule la rareté manque.
+- ~~**`#1038-r1`**~~ — **FAIT** (2026-08-14) : la face dégât de
+  `ContemptuousDisregard_DamageReduction` (1443) est portée sur le canal AURA
+  (`create_aura_defense_damage_malus_for_ally`), gates `Friends` + `UnitsWithRarity(…, Mythic)` +
+  `HasTileStatusEffect`, magnitude sur l'état TERTIAIRE de la source. Cf. §4bis / §4ter.
+- **`#1038-r2`** — **1443 n'est CONFRONTÉE que hors ligne.** Son troisième étage
+  (`HasTileStatusEffect(Tiles(<candidat>))`) exige un status de tuile *sous* un ami MYTHIQUE de la
+  MoW, et aucun terrain n'en produit : les cinq membres du set natif (`Darkness`, `Fire`, `Ice`,
+  `Contaminated`, `DespoiledGround`) sont tous DYNAMIQUES. Deux voies identifiées, aucune jouée :
+  `LetTheGalaxyBurn` (1477, porté par `blackTerminator`) pose `DespoiledGround` sur la tuile de SA
+  cible — donc sur une unité de l'équipe de la MoW — mais son trigger porte un `Maybe(33 %)` ;
+  `DaemonicOrdnance` (1148), l'active de `blackForgefiend` elle-même, met une zone en feu. Ce qui
+  fermerait le résidu : le même couple d'étages que `probe_1042r1_wisdom_confrontation_live.py`
+  (sélecteur + magnitude, régime séparant), sur un montage qui a POSÉ un status.
