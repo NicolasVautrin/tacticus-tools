@@ -23,6 +23,9 @@ from engine.entities.effects import (
     hits_bonus_from_effects, hits_malus_from_defender_effects, additional_hit_groups,
     aura_additional_hits_from_allies)
 from engine.entities.effects.loki.hits import LIGHT_COVER_TILE_ID
+from engine.entities.rarity import Rarity as _Rarity   # `idun.meta.Rarity` (#1042-r1)
+from engine.entities.effects.loki.damage_reduction import (   # #1042-r1 -- un seul foyer de nommage
+    CTX_WISDOM_TARGET_IDS_OF as _WOTA_CTX_TARGET_IDS)
 from engine.entities.effects.loki.obsessive_annunciation import (   # #954 -- un seul foyer de nommage
     CTX_ADJACENT_ENEMY_IDS_OF as _OA_CTX_ADJ_ENEMY_IDS)
 from engine.entities.traits import attacker_bonus_hits, target_hit_multiplier
@@ -709,6 +712,13 @@ def _add_positional_and_defender_mods(mods, scene, att_id, tgt_id, is_melee, att
                             # semantique et MEME foyer d'adjacence (`playbook/adjacency.py`) que la
                             # face COMBAT (`damage_model.defender_modifiers`) -- pas de fork.
                             _OA_CTX_ADJ_ENEMY_IDS: scene.adjacent_enemy_ids,
+                            # #1042-r1 -- le `$$CreateTargetSelector` de
+                            # `WisdomOfTheAncients_DamageReductionEffect` (1445), CALLABLE et PAR
+                            # PORTEUR pour la meme raison que la cle ci-dessus. MEME cle, MEME
+                            # semantique et MEME foyer d'adjacence NATIVE que la face COMBAT
+                            # (`damage_model.wisdom_of_the_ancients_target_ids`) -- pas de fork.
+                            _WOTA_CTX_TARGET_IDS:
+                                lambda oid: wisdom_of_the_ancients_target_ids(scene, oid),
                             "tile_effects_by_pos": scene.tile_effects_by_pos}):
         # #446-r2 : ces auras sortent de la boucle `EffectWithTarget` de
         # `IdunBattle.Core.Services.DamageCalculations$$CalculateDefenderModifiersForPrediction` --
@@ -830,6 +840,76 @@ def _friend_heroes_adjacent_to(scene, tgt_id, team):
         if bq_is_adjacent(tp, scene.pos(uid), elev, neigh):
             n += 1
     return n
+
+
+def _wisdom_valid_adjacent_friends(scene, uid, elev, neigh) -> "frozenset":
+    """`ValidCharacter( AdjacentFriends(<uid>, unique = true, 3) )` -- face PREDICTION du foyer
+    `runner.damage_model._wisdom_valid_adjacent_friends` (un noeud natif, deux substrats).
+
+        AdjacentFriends(u, unique, sel) = Friends( reference = u,
+                                                   Units(AdjacentTiles(u), unique, sel) - u,
+                                                   sel )
+        ValidCharacter(x)               = UnitsWithRarity(x, idun.meta.Rarity.Mythic = 5, 3)
+
+    MEMES criteres (equipe du sujet, rarete `Mythic`, vivant, adjacence NATIVE `bq_is_adjacent` --
+    liste stockee + porte d'elevation, jamais `hexgeo.distance == 1`). Ensemble VIDE quand `uid` n'a
+    pas de position : c'est le comportement natif (`AdjacentTiles` d'une entite hors-plateau), et
+    c'est ce qui fait taire la branche `A` du selecteur sur une MACHINE OF WAR."""
+    up = scene.pos(uid)
+    team = scene.team(uid)
+    if not up or team is None:
+        return frozenset()
+    out = set()
+    for oid in scene.pos_by_id:
+        if oid == uid:
+            continue                                       # `op_Subtraction unit`
+        if scene.team(oid) != team or (scene.hp(oid) or 0) <= 0:
+            continue                                       # `Friends(reference = unit, ...)` + sel 3
+        if _entity_rarity(scene, oid) != _Rarity.Mythic:
+            continue                                       # `ValidCharacter`
+        if bq_is_adjacent(up, scene.pos(oid), elev, neigh):
+            out.add(int(oid))
+    return frozenset(out)
+
+
+def wisdom_of_the_ancients_target_ids(scene, owner_id) -> "frozenset | None":
+    """`IdunBattle.Entities.Effects.Loki.WisdomOfTheAncients_DamageReductionEffect$$
+    CreateTargetSelector` EVALUE pour `owner_id` -- face PREDICTION du foyer
+    `runner.damage_model.wisdom_of_the_ancients_target_ids` (#1042-r1). MEME arbre, MEME tri-etat :
+
+        A = ValidCharacter( AdjacentFriends(Owner@<+0x30>, unique = true, 3) )
+        B = ValidCharacter( Friends(of = Owner@<+0x30>, entities = AllUnits@<+0x20>, 3) )
+        F = Filter( B, AmountIsGreaterThanZero(
+                           UnitsWithTrait( ValidCharacter( AdjacentFriends(<element courant>,
+                                                                          unique = true, 3) ),
+                                           UnitTrait.Hero = 0x10, 3 ) ) )
+        return ConditionalSelector( IsMachine(Owner), ifTrue = F, ifFalse = Unique(A + F) )
+
+    Le `ConditionalSelector` est une EQUIVALENCE cote port (`IsMachine(Owner)` => pas de tuile =>
+    `A = {}` => `Unique(A + F) == F`) : cf. la docstring de
+    `entities/effects/loki/damage_reduction.py::WisdomOfTheAncientsDamageReductionEffect`, qui porte
+    la mesure et nomme le garde.
+
+    `None` = question NON POSEE (porteur sans equipe), jamais un `frozenset()` invente."""
+    team = scene.team(owner_id) if owner_id is not None else None
+    if team is None:
+        return None
+    elev = _pf_board.elevations_by_pos(scene.board)
+    neigh = _pf_board.adjacent_neigh_by_pos(scene.board)
+    out = set(_wisdom_valid_adjacent_friends(scene, int(owner_id), elev, neigh))   # A
+    for uid in scene.pos_by_id:
+        if uid == owner_id or uid in out:
+            continue                                       # `Unique`
+        if scene.team(uid) != team or (scene.hp(uid) or 0) <= 0:
+            continue                                       # B : `Friends(Owner, AllUnits(), 3)`
+        if _entity_rarity(scene, uid) != _Rarity.Mythic:
+            continue                                       # B : `ValidCharacter`
+        # F : `AmountIsGreaterThanZero( UnitsWithTrait(ValidCharacter(AdjacentFriends(uid)), Hero) )`
+        for vid in _wisdom_valid_adjacent_friends(scene, int(uid), elev, neigh):
+            if UnitTrait.Hero.name in (_entity_traits(scene, vid) or frozenset()):
+                out.add(int(uid))
+                break
+    return frozenset(out)
 
 
 def _apply_ally_attack_dmg_bonus(mods, scene, att_id, att_pos, is_melee, tgt_armor_reduced, carriers=None,

@@ -12,6 +12,9 @@ from ..base import BaseEffect, is_turn_of_owner
 from ..magnitude import ability_var, bc_effect_config, global_value, trait_var
 from ...rarity import Rarity            # `idun.meta.Rarity` -- gate `HasRarity` (#1025-r1)
 from ...traits.unit_trait import is_mechanical   # `UnitExtensions$$IsMechanical` -- foyer UNIQUE
+# `StaticBattleRules.Effect$$IsTileStatusEffect` par NOM -- le set que
+# `TileExtensions$$HasTileStatusEffect` interroge (#1038-r1). MEME import que `loki/hits.py`.
+from ....services.static_battle_rules import TILE_STATUS_EFFECT_NAMES
 
 
 class MarkerlightEffect(BaseEffect):
@@ -1517,3 +1520,261 @@ class WhipcoilBodyReduceDmgEffect(BaseEffect):
             return None
         v = self._amount()
         return for_subtraction(False, v) if v else None   # owner = le DEFENSEUR -> flat_reductions
+
+
+# ==================================================================================================
+# Les DEUX auras de REDUCTION de degat des abilities MYTHIQUES de MACHINE OF WAR (#1038-r1/#1042-r1).
+#
+# Elles partagent EXACTEMENT la meme face DEGAT -- meme slot natif, meme canal, meme variable :
+#
+#     <X>_DamageReductionEffect$$CreateEffectDamageMalusForDefense
+#         = EffectBonus.ForPercentDecrease(
+#               get_OwnerIsTarget,
+#               ConfigVar(AbilityVariableType.dmgReductionPct = 0x46, GetAbilityState(effet),
+#                         <effet+0x60>) )
+#
+# et ne different QUE par leur `$$CreateTargetSelector`. Le corps de 1443 est INLINE (ghidra n'y
+# montre aucun `call` a `EffectBonus$$ForPercentDecrease`), celui de 1445 appelle la fabrique
+# EXPLICITEMENT -- et les deux ecrivent le MEME champ. Verifie en relisant
+# `IdunBattle.Entities.Effects.EffectBonus$$ForPercentDecrease`, dont le corps est :
+#
+#     out@+0x00 = trigger
+#     out@+0x08 = Multiply( Direct(-1), amount )        <- le slot POURCENT
+#
+# et le corps inline de 1443 ecrit litteralement `local_a8 = get_OwnerIsTarget` puis
+# `uStack_a0 = <noeud binaire>( <noeud a -1 = 0xffffffff>, ConfigVar )`, c.-a-d. les deux memes
+# champs, dans le meme ordre, avec la meme negation. Ce n'est donc pas une famille SUPPOSEE : les
+# deux corps sont le meme code, l'un inline et l'autre non.
+#
+# CANAL PORT : les DEUX exposent un `$$CreateTargetSelector`, donc ce sont des `EffectWithTarget` --
+# `IdunBattle.Core.Services.DamageCalculations$$CalculateDefenderModifiersForPrediction` itere
+# `<effet> x <CIBLES du selecteur>` en ecrivant `AbilityEntities+0x18 (Owner) <- CHAQUE CIBLE`, si
+# bien que `get_OwnerIsTarget` y signifie << la cible du coup est-elle l'une des cibles du selecteur
+# ? >>. Le canal est donc `create_aura_defense_damage_malus_for_ally`, JAMAIS
+# `create_effect_damage_malus_for_defense` (qui donnerait la reduction a la MoW porteuse, que le
+# natif n'en fait beneficier dans aucun des deux cas).
+#
+# FACE NATIVE : les deux classes derivent de `IdunBattle.Entities.Effects.BaseEffect` (ctor relu :
+# `BaseEffect..ctor(this, AbilityOrEffect(<la triggered>), hasAutomaticActivation = 1)`) et
+# implementent le slot `CreateEffectDamageMalusForDefense` EN PROPRE -- pas le forwarder
+# `DamageModifierAbilityEffect$$CreateEffectDamageBonusForAttack`. La face est donc DEFENSEUR,
+# c.-a-d. le defaut `BaseEffect.AURA_DEFENSE_MALUS_NATIVE_FACE` : rien a declarer (#437-r1-r1-r1).
+#
+# MAGNITUDE : `ConfigVar(0x46)` est indexe par `GetAbilityState(effet)` = l'`AbilityStateReference`
+# BAKEE dans `EffectComponent+0x18` a la pose. Les deux effets sont des OWNER-effects
+# (`AddEffect(..., source = Owner, targets = Owner)`), donc source == porteur : le couple se relit
+# sur l'INSTANCE (`self.ability_level` / `self.ability_variables_multiplier`), que
+# `snapshot._rebake_tertiary_owner_effects` a deja re-bake sur le couple TERTIAIRE (1..4 / 100) --
+# et non sur celui des PASSIFS (50 / 180 en runner normalise). C'est ce re-bake qui rend le niveau
+# EXACT ici ; sans lui `ability_var` lirait `dmgReductionPct[50]`, hors des 4 paliers mythiques.
+# Les deux configs portent `dmgReductionPct = [10, 13, 16, 20]` et `variablesAffectedByRarityBonus =
+# ['dmgReductionPct']` -> le multiplicateur MORD.
+# ==================================================================================================
+
+#: `AbilityVariableType 0x46 = 70 = dmgReductionPct`, resolu par son NOM (`frida/enums.tsv`).
+#: ⚠ `AbilityConstantType 70` nomme AUTRE CHOSE : c'est `DSLFormulas$$ConfigVar` (-> `GetVariableFor
+#: Level`) qui tranche au call-site, pas `GetNumberConstant` -- confondre les deux ne leverait pas.
+_MYTHIC_VAR_DMG_REDUCTION_PCT = "dmgReductionPct"
+#: Nom gameconfig de l'ability MYTHIQUE dont la config est indexee -- le NOM, jamais l'ordinal.
+#: `TriggeredAbilityType 0x5aa = 1450 = ContemptuousDisregard` (l'`AbilityOrEffect` du ctor de 1443),
+#: `TriggeredAbilityType 0x5ab = 1451 = WisdomOfTheAncients` (celui du ctor de 1445).
+_CONTEMPTUOUS_DISREGARD_ABILITY_ID = "ContemptuousDisregard"
+_WISDOM_OF_THE_ANCIENTS_ABILITY_ID = "WisdomOfTheAncients"
+
+#: Cle du callable PAR PORTEUR pose par les DEUX facades (COMBAT `runner/damage_model.py`,
+#: PREDICTION `playbook/prediction/_shared.py`) -- mirror du `$$CreateTargetSelector` de 1445,
+#: evalue contre l'etat REEL. Rend un `frozenset` d'ids, ou `None` = NON MESURE. MEME forme et MEME
+#: raison que `obsessive_annunciation.CTX_ADJACENT_ENEMY_IDS_OF` (#954).
+CTX_WISDOM_TARGET_IDS_OF = "wisdom_of_the_ancients_target_ids_of"
+
+
+class ContemptuousDisregardDamageReductionEffect(BaseEffect):
+    """`IdunBattle.Entities.Effects.Loki.ContemptuousDisregard_DamageReductionEffect` (`EffectType`
+    0x5a3 = **1443**) -- AURA de reduction de degat de l'ability MYTHIQUE `ContemptuousDisregard`
+    (`TriggeredAbilityType` 0x5aa = 1450) des MoW `blackForgefiend` / `blackNpcMowForgefiend`.
+    #1038-r1.
+
+    La POSE est portee depuis #1038 (`ABILITY_INIT_OWNER_EFFECTS["ContemptuousDisregard"]`,
+    owner-effect PERMANENT a l'init) ; c'est la face DEGAT qui manquait, et son verrou tenait en
+    DEUX pieces, toutes deux tombees : le canal de RARETE (#999-r3-r1) puis l'entree d'une MoW
+    porteuse dans l'univers des agregateurs d'aura (#999-r3-r1-r1).
+
+    ## MIRROR 1:1 -- `...ContemptuousDisregard_DamageReductionEffect$$CreateTargetSelector`
+
+        Filter( UnitsWithRarity( Friends(of = Owner@<DSLSelectors+0x30>, entities = AllUnits(), 3),
+                                 idun.meta.Rarity.Mythic = 5, 3 ),
+                HasTileStatusEffect( Tiles(<DSLSelectors+0x68> = l'element courant du Filter) ) )
+
+    `DSLSelectors$$Filter(entities, filter)` = `FromTrigger(entities, filter, requireContinuous: 0)`,
+    et `IdunBattle.Entities.Selectors.FromTriggerSelector$$Select` COPIE l'`AbilityEntities` puis
+    **ECRIT le candidat courant a `+0x20` de la copie** avant d'evaluer le trigger -- c'est ce qui
+    fait de `<DSLSelectors+0x68>` l'element courant, et non une cible globale. Le prompt de ce port
+    l'appelait `ActiveTarget` ; les deux noms designent le meme slot.
+
+    ⇒ la CIBLE du coup beneficie de la reduction ssi elle est (a) une ALLIEE de la MoW,
+    (b) de rarete **Mythic**, et (c) sur une tuile qui porte un STATUS-EFFECT de tuile.
+
+    ## LES TROIS ETAGES, ET OU CHACUN SE LIT
+
+      1. `Friends(Owner, AllUnits(), 3)` -> `owner_team == tgt_team`. `Friends` ne retire PAS le
+         sujet (`UnitExtensions$$IsFriend(u, u)` est VRAI), mais l'agregateur `aura_defense_damage_
+         malus_from_units` n'appelle jamais un porteur sur lui-meme (les deux facades excluent
+         `uid == tgt_id` de leurs carriers) : la patte SELF est structurellement hors de portee de
+         ce canal. Elle est de toute facon INATTEIGNABLE sur le porteur naturel -- une MoW n'occupe
+         aucune tuile, donc l'etage 3 la refuse. RESIDU NOMME : sur un porteur ON-BOARD obtenu par
+         GREFFE, le natif pourrait se l'appliquer a lui-meme ; le port ne le peut pas (#1038-r1-r1).
+      2. `UnitsWithRarity(., idun.meta.Rarity.Mythic = 5, 3)` -> `tgt_rarity`.
+         `IdunBattle.Entities.Formulas.UnitsWithRaritySelector$$Select` lit
+         `GetBaseUnitComponent(e)+0x74` et compare par EGALITE STRICTE (`== this+0x20`), jamais un
+         seuil. Canal threade par #999-r3-r1. TRI-ETAT : `None` = NON MESURE -> le gate se FERME.
+      3. `HasTileStatusEffect(Tiles(candidat))` -> `t_pos` + `tile_effects_by_pos`.
+         `Tiles` = `IdunBattle.Entities.Selectors.UnitsMainTilesSelector` -> la MAIN TILE seule.
+         `IdunBattle.Entities.Triggers.HasTileStatusEffectTrigger$$ShouldTrigger` delegue a
+         `IdunBattle.Entities.TileExtensions$$HasTileStatusEffect`, qui ne retient QUE les effets
+         dont l'`EffectType` est dans le set statique de
+         `idun.Idun.Source.Shared.Battle.StaticBattleRules.StaticBattleRules.Effect$$IsTileStatus
+         Effect` -- d'ou l'intersection avec `TILE_STATUS_EFFECT_NAMES` ci-dessous. Le filtre est
+         INDISPENSABLE cote PREDICTION (`scene.tile_effects_by_pos` porte les noms BRUTS de
+         `tileMeta`, y compris `BlockEnteringUnits` / `Thorns_DefenseReduction` / `Melta_ExtraDmg`)
+         et IDEMPOTENT cote COMBAT (`tile_status_effects_by_pos` l'applique deja).
+
+    ⚠ CE QUE LA MESURE #1038 NE DISAIT PAS. Elle rapporte `targetIds: []` << y compris avec un ami
+    MYTHIQUE place sur une tuile `DryBush` (`LightCover`) >>. `LightCover` n'est PAS un status de
+    tuile (le set natif vaut exactement `{Darkness, Fire, Ice, Contaminated, DespoiledGround}`), et
+    `LightCover` n'est meme pas porte par la TUILE mais par les UNITES qui s'y tiennent
+    (`IdunBattleLogic.Entities.Abilities.Tiles.Loki.LightCoverAbility$$UnitsThatNeedEffect`). Ce
+    bras ne separait donc RIEN : son ensemble vide est le comportement NORMAL. La confrontation de
+    cet effet exige une tuile portant l'un des cinq status.
+
+    ## MAGNITUDE
+
+    `ConfigVar(0x46 = dmgReductionPct)` sur la config de `ContemptuousDisregard`
+    (`[10, 13, 16, 20]`, rarity-scale) -- cf. l'encadre commun ci-dessus pour l'`AbilityState`.
+    i2 : << Mythic allies standing on a tile with a status effect take -{dmgReductionPct}% Damage. >>
+
+    Aucun gate de MELEE, de PROFIL ni d'attaquant : le trigger du malus est `get_OwnerIsTarget`
+    SEUL, tout le ciblage vivant dans le selecteur."""
+
+    ABILITY_ID = _CONTEMPTUOUS_DISREGARD_ABILITY_ID
+    VAR_DMG_REDUCTION_PCT = _MYTHIC_VAR_DMG_REDUCTION_PCT
+
+    def create_aura_defense_damage_malus_for_ally(self, ctx: Mapping | None = None) -> EffectBonus | None:
+        c = ctx or {}
+        # 1. `Friends(of = Owner@<+0x30>, entities = AllUnits(), 3)` -- equipe non mesuree => FERME.
+        ot, tt = c.get("owner_team"), c.get("tgt_team")
+        if ot is None or tt is None or ot != tt:
+            return None
+        # 2. `UnitsWithRarity(., idun.meta.Rarity.Mythic = 5, 3)` -- comparaison au MEMBRE d'enum,
+        #    jamais a l'ordinal (cinq enums du build partagent les six ordinaux de rarete, cf.
+        #    `entities/rarity.py`). `None` (non mesure) -> FERME.
+        if c.get("tgt_rarity") != Rarity.Mythic:
+            return None
+        # 3. `Filter(., HasTileStatusEffect(Tiles(<element courant>)))` -- la MAIN TILE de la CIBLE.
+        tfx, tp = c.get("tile_effects_by_pos"), c.get("t_pos")
+        if tfx is None or tp is None:
+            return None                                    # canal non threade -> gate FERME
+        if not (set(tfx.get(tuple(tp)) or ()) & TILE_STATUS_EFFECT_NAMES):
+            return None
+        lvl = self.ability_level if self.ability_level is not None else self.level
+        pct = ability_var(self.ABILITY_ID, self.VAR_DMG_REDUCTION_PCT, lvl,
+                          multiplier_pct=self.ability_variables_multiplier)
+        if not pct:
+            return None
+        # `ForPercentDecrease` -> %-list DEFENSEUR (face native par defaut). `owner_is_caster` est
+        # INERTE sur ce kind (`services/damage_modifiers.py::add_modifier` ne le lit que pour
+        # Addition/Subtraction) : on ecrit `False` parce que le beneficiaire est le DEFENSEUR.
+        return for_percent_decrease(False, abs(int(pct)))
+
+
+class WisdomOfTheAncientsDamageReductionEffect(BaseEffect):
+    """`IdunBattle.Entities.Effects.Loki.WisdomOfTheAncients_DamageReductionEffect` (`EffectType`
+    0x5a5 = **1445**) -- AURA de reduction de degat de l'ability MYTHIQUE `WisdomOfTheAncients`
+    (`TriggeredAbilityType` 0x5ab = 1451) de la MoW `ultraDreadnought` << Galatian >> /
+    `ultraNpcMoWDreadnought`. #1042-r1.
+
+    La POSE est portee et confrontee live depuis #1042 (`ABILITY_INIT_OWNER_EFFECTS`) ; c'est la
+    face DEGAT qui manquait.
+
+    ## MIRROR 1:1 -- le `$$CreateTargetSelector`, relu au decompile
+
+        ValidCharacter(x)  = UnitsWithRarity(x, idun.meta.Rarity.Mythic = 5,
+                                             UnitSelectionType.OnlyAliveAndTargetable = 3)
+        A = ValidCharacter( AdjacentFriends(Owner@<DSLSelectors+0x30>, unique = true, 3) )
+        B = ValidCharacter( Friends(of = Owner@<+0x30>, entities = AllUnits@<+0x20>, 3) )
+        F = Filter( B, AmountIsGreaterThanZero(
+                           UnitsWithTrait( ValidCharacter( AdjacentFriends(
+                                               <+0x68> = l'element courant, unique = true, 3) ),
+                                           UnitTrait.Hero = 0x10, 3 ) ) )
+        return ConditionalSelector( IsMachine(Owner@<+0x30>), ifTrue = F, ifFalse = Unique(A + F) )
+
+    `DSLSelectors$$AdjacentFriends(unit, unique, selectionType)` (surcharge tranchee par la POSITION
+    des arguments -- un `1` litteral ne peut pas etre un selecteur de tuile) se developpe en
+    `Friends( reference = unit, Units(AdjacentTiles(unit), unique, sel) op_Subtraction unit, sel )`.
+    Donc : les unites des tuiles ADJACENTES a `unit`, elle-meme exclue, AMIES de `unit`.
+
+    ⇒ la CIBLE du coup beneficie ssi elle est MYTHIQUE et ALLIEE de la MoW, ET (a) elle a
+    elle-meme un ami MYTHIQUE portant `Hero` adjacent (branche `F`), OU (b) elle est adjacente au
+    PORTEUR (branche `A`, hors d'atteinte quand le porteur est la MoW -- voir ci-dessous).
+    i2 : << ... adjacent to Galatian ... >> pour la branche `A`.
+
+    ## LE `ConditionalSelector` N'EST PAS PORTE, ET C'EST UNE EQUIVALENCE, PAS UN RACCOURCI
+
+    `IdunBattle.Entities.EntityExtensions$$IsMachine(e)` = `GetEntityType(e) == 6`
+    (`EntityType.Machine`). Or une entite `EntityType.Machine` n'a **ni tuile ni pied** -- MESURE
+    des DEUX cotes du port : cote COMBAT `runner/snapshot.py::_load_machines` ne pose aucun
+    `PositionComponent` (c'est meme le DISCRIMINANT ecrit dans `MachineComponent`), cote DECISION
+    `playbook/scene.py::step_context` ne verse une MoW dans `pos_by_id` que `if m.get("pos")`,
+    `null` par construction. Le probe `probe_1042_wisdom_of_the_ancients_live.py` le mesure aussi
+    en live : << sur la MoW porteuse, `AdjacentFriends(Owner)` est structurellement VIDE >>.
+
+        IsMachine(Owner) VRAI  =>  AdjacentTiles(Owner) = {}  =>  A = {}  =>  Unique(A + F) == F
+
+    Les deux branches COINCIDENT donc exactement la ou la condition est vraie, et le port evalue
+    `Unique(A + F)` inconditionnellement. Ce n'est valable que tant qu'aucune entite ne peut etre A
+    LA FOIS machine ET positionnee ; le garde `test_1038r1_1042r1_auras_mythiques_mow_offline.py`
+    (etage `A vide sans position de porteur`) le tient, et rougira si cette premisse tombe.
+
+    ## CANAL DE CONTEXTE -- UN callable PAR PORTEUR, comme `ObsessiveAnnunciation` (#954)
+
+    Contrairement a 1443, ce selecteur pose des questions que le contexte d'un coup ne porte PAS :
+    l'adjacence d'un TIERS a la cible, sa rarete et son trait. Le port re-evalue donc le
+    `$$CreateTargetSelector` COMPLET par `wisdom_of_the_ancients_target_ids_of(owner_id)`, resolu
+    par DEUX substrats (`damage_model` sur l'ECS, `prediction/_shared` sur la `Scene`) avec le MEME
+    foyer d'adjacence NATIVE que `_friend_heroes_adjacent_to` (#1019) -- la liste stockee du
+    `ConnectivityComponent` plus la porte d'elevation, jamais `hexgeo.distance == 1`, qui
+    sur-compte au bord d'une marche (#271).
+
+    TRI-ETAT : callable absent, ou porteur sans equipe -> `None` = NON MESURE -> le gate se FERME
+    (jamais un ensemble vide invente, qui se lirait comme << mesure, et personne >>).
+
+    ## MAGNITUDE
+
+    `ConfigVar(0x46 = dmgReductionPct)` sur la config de `WisdomOfTheAncients` (`[10, 13, 16, 20]`,
+    rarity-scale) -- cf. l'encadre commun ci-dessus. Le malus n'a AUCUN gate de rarete : tout le
+    ciblage vit dans le selecteur (`CreateEffectDamageMalusForDefense` = `ForPercentDecrease(
+    get_OwnerIsTarget, ConfigVar(0x46))`, appel EXPLICITE a la fabrique).
+    GROUND TRUTH #1042 : ratio **0.800** sur la prediction native au palier 4 (`dmgReductionPct[4]
+    = 20`, multiplier 100)."""
+
+    ABILITY_ID = _WISDOM_OF_THE_ANCIENTS_ABILITY_ID
+    VAR_DMG_REDUCTION_PCT = _MYTHIC_VAR_DMG_REDUCTION_PCT
+    CTX_TARGET_IDS_OF = CTX_WISDOM_TARGET_IDS_OF
+
+    def create_aura_defense_damage_malus_for_ally(self, ctx: Mapping | None = None) -> EffectBonus | None:
+        c = ctx or {}
+        # `get_OwnerIsTarget` DEVELOPPE : << la cible du coup est-elle l'une des cibles du
+        # selecteur ? >> La boucle native ecrit `AbilityEntities+0x18 (Owner) <- CHAQUE CIBLE`,
+        # l'agregateur du port pose `owner_id = le PORTEUR` -> on RE-EVALUE le selecteur.
+        oid, tid = c.get("owner_id"), c.get("tgt_id")
+        resolver = c.get(self.CTX_TARGET_IDS_OF)
+        if oid is None or tid is None or not callable(resolver):
+            return None
+        targets = resolver(int(oid))
+        if targets is None or int(tid) not in targets:     # `None` = NON MESURE -> FERME
+            return None
+        lvl = self.ability_level if self.ability_level is not None else self.level
+        pct = ability_var(self.ABILITY_ID, self.VAR_DMG_REDUCTION_PCT, lvl,
+                          multiplier_pct=self.ability_variables_multiplier)
+        if not pct:
+            return None
+        return for_percent_decrease(False, abs(int(pct)))   # %-list DEFENSEUR (face native)
