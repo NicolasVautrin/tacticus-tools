@@ -893,6 +893,40 @@ class Scene:
                 out.add(int(oid))
         return frozenset(out)
 
+    def adjacent_unit_ids(self, uid) -> "frozenset | None":
+        """`AdjacentUnits( <uid>, unique: true, UnitSelectionType.OnlyAliveAndTargetable = 3 )` --
+        face PREDICTION du noeud d'adjacence partage par les DEUX branches du
+        `$$CreateTargetSelector` de `MoreGitzOverEre_ExtraDamagePctEffect` (#1025-r1), dont la face
+        COMBAT est `runner.components.adjacent_unit_ids` (un noeud natif, deux substrats).
+
+        Voisin exact d'`adjacent_enemy_ids` ci-dessus, MOINS le filtre d'equipe : `AdjacentUnits`
+        n'en porte AUCUN (`op_Subtraction(Units(AdjacentTiles(origin), unique, sel), origin)`), et
+        le `Friends(Owner, ...)` que le natif applique ensuite depend du PORTEUR de l'effet -- il
+        est donc rejoue par la classe d'effet, qui seule connait `owner_team`.
+
+        L'adjacence passe par le foyer PARTAGE `playbook/adjacency.py` (#419-r1-tr10) et non par
+        `hexgeo.distance == 1` : `unit_in_adjacent_tiles` lit la LISTE STOCKEE **avec** la porte
+        d'elevation de `TileQuery.IterateAdjacentTiles`, et couvre les entites MULTI-TUILES des
+        deux cotes -- MEME substrat que la face COMBAT. `unit_matches` porte le `selectionType 3`.
+
+        `None` (equipe ou position du sujet inconnue) => cle ABSENTE => le gate se FERME cote
+        effet, jamais un ensemble VIDE invente."""
+        if self.team_by_id.get(uid) is None or self.pos(uid) is None:
+            return None
+        neigh = None
+        out = set()
+        for u in (self.units or ()):
+            oid = u.get("id")
+            if oid is None or oid == uid:                            # op_Subtraction(..., origin)
+                continue
+            if not _adj.unit_matches(self, u):                       # `selectionType = 3`
+                continue
+            if neigh is None:
+                neigh = _bq.neigh_map(self)
+            if _adj.unit_in_adjacent_tiles(self, uid, oid, self.elev_by_pos, neigh):
+                out.add(int(oid))
+        return frozenset(out)
+
     def _camo_cloak_cover_keys(self, uid, out: dict) -> None:
         """Les DEUX membres du `op_BitwiseOr` de `IdunBattle.Entities.Effects.Loki.
         CamoCloak_DmgReductionEffect$$HasValidEffectTrigger` — face PRÉDICTION des mêmes nœuds que

@@ -25,6 +25,8 @@ from engine.entities.effects import (
 from engine.entities.effects.loki.hits import LIGHT_COVER_TILE_ID
 from engine.entities.effects.loki.obsessive_annunciation import (   # #954 -- un seul foyer de nommage
     CTX_ADJACENT_ENEMY_IDS_OF as _OA_CTX_ADJ_ENEMY_IDS)
+from engine.entities.effects.loki.extra_damage_aura import (   # #1025-r1 -- meme foyer de nommage
+    CTX_TGT_ADJACENT_UNIT_PROFILES as _MG_CTX_TGT_ADJ_PROFILES)
 from engine.entities.traits import attacker_bonus_hits, target_hit_multiplier
 from engine.entities.traits.factory import TraitFactory
 from engine.entities.traits.unit_trait import UnitTrait, entity_trait_names
@@ -709,6 +711,25 @@ def _add_positional_and_defender_mods(mods, scene, att_id, tgt_id, is_melee, att
                             # semantique et MEME foyer d'adjacence (`playbook/adjacency.py`) que la
                             # face COMBAT (`damage_model.defender_modifiers`) -- pas de fork.
                             _OA_CTX_ADJ_ENEMY_IDS: scene.adjacent_enemy_ids,
+                            # #1025-r1 -- `HasRarity( Caster@<DSLSelectors+0x48>, 5 = Mythic )`,
+                            # 2e conjoint du trigger de `MoreGitzOverEre_ExtraDamagePct` : le
+                            # BENEFICIAIRE de ce canal est la CIBLE, mais CE gate porte sur
+                            # l'ATTAQUANT. MEME cle, MEME resolveur (`_entity_rarity`) et MEME
+                            # tri-etat que la face COMBAT (`damage_model.defender_modifiers`) --
+                            # pas de fork. `None` = non mesure -> gate FERME.
+                            "att_rarity": _entity_rarity(scene, att_id),
+                            # #1025-r1 -- `IsNormalAttack`, 4e conjoint du meme trigger
+                            # (<< normal melee attacks >>). MEME donnee que le `is_normal_attack`
+                            # deja threade dans le ctx d'aura ATTAQUE de ce module.
+                            "is_normal_attack": is_normal_attack,
+                            # #1025-r1 -- `AdjacentUnits(<la CIBLE>, unique, 3)` enrichi de
+                            # `(team, visual_id, rarity)` : substrat des DEUX branches du
+                            # `$$CreateTargetSelector` de `MoreGitzOverEre_ExtraDamagePct`. MEME
+                            # cle, MEME forme et MEME foyer d'adjacence
+                            # (`playbook/adjacency.py`) que la face COMBAT
+                            # (`damage_model._adjacent_unit_profiles`) -- pas de fork. La CIBLE
+                            # est FIXE pour cet appel -> valeur pre-calculee, pas un callable.
+                            _MG_CTX_TGT_ADJ_PROFILES: _adjacent_unit_profiles(scene, tgt_id),
                             "tile_effects_by_pos": scene.tile_effects_by_pos}):
         # #446-r2 : ces auras sortent de la boucle `EffectWithTarget` de
         # `IdunBattle.Core.Services.DamageCalculations$$CalculateDefenderModifiersForPrediction` --
@@ -830,6 +851,29 @@ def _friend_heroes_adjacent_to(scene, tgt_id, team):
         if bq_is_adjacent(tp, scene.pos(uid), elev, neigh):
             n += 1
     return n
+
+
+def _adjacent_unit_profiles(scene, uid):
+    """#1025-r1 -- face PREDICTION du foyer `damage_model._adjacent_unit_profiles` :
+    `AdjacentUnits( <uid>, unique: true, OnlyAliveAndTargetable = 3 )` enrichi de
+    `(team, visual_id, rarity)` par voisin, le substrat des DEUX branches du
+    `$$CreateTargetSelector` de
+    `IdunBattle.Entities.Effects.Loki.MoreGitzOverEre_ExtraDamagePctEffect`.
+
+    L'adjacence vient de `Scene.adjacent_unit_ids` (foyer PARTAGE `playbook/adjacency.py`, donc
+    liste STOCKEE + porte d'elevation + multi-tuiles), MEME substrat que la face COMBAT. Le filtre
+    `Friends(Owner, ...)` du natif est relatif au PORTEUR de l'effet -> il est rejoue dans la
+    classe d'effet, pas ici.
+
+    `None` = NON MESURE (pas de cible, ou `adjacent_unit_ids` sans equipe/position) -> le gate se
+    FERME. Un tuple VIDE est une MESURE : << aucun voisin >>."""
+    if uid is None:
+        return None
+    ids = scene.adjacent_unit_ids(uid)
+    if ids is None:
+        return None
+    return tuple((int(i), scene.team(i), scene.vis_by_id.get(i), _entity_rarity(scene, i))
+                 for i in sorted(ids))
 
 
 def _apply_ally_attack_dmg_bonus(mods, scene, att_id, att_pos, is_melee, tgt_armor_reduced, carriers=None,
