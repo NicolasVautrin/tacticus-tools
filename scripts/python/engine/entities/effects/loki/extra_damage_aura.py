@@ -38,6 +38,7 @@ from ..magnitude import ability_const_str, ability_var
 # `.hex_corner` : aucune de ces deux aretes ne peut refermer le SCC `effects`.
 from ...pathfinding import board as _board
 from .... import battle_query as _bq
+from .. import ctx_keys as _ctx_keys      # #1042-r5 : foyer UNIQUE des chaines de cle de ctx
 
 
 def _adjacency_channels(ctx):
@@ -1020,7 +1021,7 @@ MIN_ADJACENT_MYTHIC_FRIENDS = 2
 #: `IdunBattle.Entities.Effects.BaseEffect$$GetAbilityState` (#357). MEME cle et MEME semantique que
 #: `NornCrownEffect` / `HeadwoppasKillchoppaEffect` : foyer UNIQUE
 #: `runner/operations/triggers/base.py::triggered_ability_state`.
-CTX_ABILITY_STATE_OF = "tertiary_ability_state_of"
+CTX_ABILITY_STATE_OF = _ctx_keys.CTX_TERTIARY_ABILITY_STATE_OF
 #: PROFILS des unites ADJACENTES a la CIBLE du coup -- `(uid, team, visual_id, rarity)` par unite,
 #: substrat des DEUX branches du `$$CreateTargetSelector` de 1449. Tri-etat : `None` = NON MESURE
 #: (pas de position / pas de plateau) -> le gate se FERME, jamais un tuple vide invente.

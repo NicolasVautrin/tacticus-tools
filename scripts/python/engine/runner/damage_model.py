@@ -156,8 +156,18 @@ def select_weapon_pierce(ctx, dist: Optional[int], effect_bonus: int = 0,
 def resolve_one_hit(roll: int, pierce: int, armor: int, mods=None) -> int:
     """Réduction d'UN coup tiré = **BASE COMMUNE** avec la prédiction : délègue à
     `apply_pierce_and_modifiers` (la fn par-valeur que la prédiction applique à ses bornes).
-    Combat = même fn sur la valeur TIRÉE ⇒ dégâts identiques à la prédiction par construction."""
-    return apply_pierce_and_modifiers(roll, pierce, armor, mods)
+    Combat = même fn sur la valeur TIRÉE ⇒ dégâts identiques à la prédiction par construction.
+
+    #924-r2 -- `attacker_additive_pre=True` EXPLICITE. Cette fonction n'a aujourd'hui AUCUN
+    appelant (mesure : 1 seule occurrence du nom dans tout `scripts/python`, sa definition),
+    mais elle TRANSMET `mods` : sans le drapeau, un appelant futur retomberait sur le chemin
+    legacy POST-percage, ou l'additif ne traverse ni le percage ni les %-mods. Le decompile
+    place l'additif AVANT les deux -- `IdunBattle.Core.Services.DamagePrediction$$
+    PredictAttackRaw` somme le champ `+0x10` (`Addition`) des DEUX faces au `baseDamage`
+    qu'il passe a `IdunBattle.Core.Services.DamagePrediction$$
+    CalculateBaseDamageWithAllModifiers`, lequel ne lit que `+0x20`/`+0x28`/`+0x18`/`+0x30`.
+    Piege dormant ferme, comportement observable INCHANGE (aucun appelant)."""
+    return apply_pierce_and_modifiers(roll, pierce, armor, mods, attacker_additive_pre=True)
 
 
 def target_trait_names(state: State, target_id: int) -> "frozenset[str]":
@@ -615,7 +625,7 @@ def _apply_ally_attack_damage_auras(state: State, att_id: int, mods, is_ranged: 
            #    l'ability est MONTEE sur le porteur -- TERTIAIRE pour une relique EQUIPEE. MEME cle
            #    et MEME foyer que le canal CRIT (`AttackDamageOperation._crit_board`), donc les deux
            #    canaux d'une meme relique ne peuvent pas diverger de niveau.
-           "tertiary_ability_state_of": _tertiary_ability_state_fn(state),
+           _MYTHIC_CTX_ABILITY_STATE: _tertiary_ability_state_fn(state),
            # #1012-r1 -- `UnitsWithVisualId( ConfigConstString(<TriggeredAbilityConfigId 0x60d>, 0),
            # 1 = UnitSelectionType.OnlyAlive )`, le noeud DISCRIMINANT du `CreateTargetSelector`
            # d'`IdunBattle.Entities.Effects.Loki.HeadwoppasKillchoppaEffect` (les Ork Boyz de

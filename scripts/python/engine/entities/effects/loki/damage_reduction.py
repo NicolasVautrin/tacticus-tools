@@ -15,6 +15,7 @@ from ...traits.unit_trait import is_mechanical   # `UnitExtensions$$IsMechanical
 # `StaticBattleRules.Effect$$IsTileStatusEffect` par NOM -- le set que
 # `TileExtensions$$HasTileStatusEffect` interroge (#1038-r1). MEME import que `loki/hits.py`.
 from ....services.static_battle_rules import TILE_STATUS_EFFECT_NAMES
+from .. import ctx_keys as _ctx_keys      # #1042-r5 : foyer UNIQUE des chaines de cle de ctx
 
 
 class MarkerlightEffect(BaseEffect):
@@ -892,7 +893,7 @@ class ElectrochaffBackupsDamageReductionPctEffect(BaseEffect):
     #: callable `(owner_id, ability_name) -> (level, multiplier)` -- mirror de `GetAbilityState(effet)`
     #: (#357). MEME cle que `NornCrownEffect` / `HeadwoppasKillchoppaEffect` : le foyer UNIQUE
     #: `runner/operations/triggers/base.py::triggered_ability_state`.
-    CTX_ABILITY_STATE_OF = "tertiary_ability_state_of"
+    CTX_ABILITY_STATE_OF = _ctx_keys.CTX_TERTIARY_ABILITY_STATE_OF
 
     def _amount(self, att_ctx) -> "int | None":
         """`ConfigVar(0x46 = dmgReductionPct, GetAbilityState(effet), <config@effet+0x60>)` --
@@ -1591,7 +1592,7 @@ CTX_WISDOM_TARGET_IDS_OF = "wisdom_of_the_ancients_target_ids_of"
 #: `IdunBattle.Entities.Effects.BaseEffect$$GetAbilityState`, foyer UNIQUE
 #: `runner/operations/triggers/base.py::triggered_ability_state` (#357). MEME cle que
 #: `ElectrochaffBackupsDamageReductionPctEffect` / `NornCrownEffect` / `HeadwoppasKillchoppaEffect`.
-CTX_TERTIARY_ABILITY_STATE_OF = "tertiary_ability_state_of"
+CTX_TERTIARY_ABILITY_STATE_OF = _ctx_keys.CTX_TERTIARY_ABILITY_STATE_OF
 
 
 def _mythic_ability_state(effect, ctx) -> tuple:

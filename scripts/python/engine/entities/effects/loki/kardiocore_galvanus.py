@@ -164,6 +164,7 @@ from ....dsl.base import Const
 from ...selectors.accessors import Owner
 from ...selectors.units import AdjacentFriends, MechanicalUnits
 from ...unit_selection_type import UnitSelectionType
+from .. import ctx_keys as _ctx_keys      # #1042-r5 : foyer UNIQUE des chaines de cle de ctx
 
 #: `TriggeredAbilityType 0x5b1 = 1457` -- le litteral du `.ctor`, relu a l'assembleur, et dont la
 #: SURCHARGE d'`op_Implicit` etablit qu'il s'agit bien de l'enum des TRIGGERED (l'`EffectType` 1457
@@ -176,7 +177,7 @@ _SEL = int(UnitSelectionType.OnlyAliveAndTargetable)
 #: callable `(owner_id) -> int | None` pose dans le contexte du canal CRIT par `_crit_board`
 CTX_COUNT_OF = "adjacent_mechanical_friends_of"
 #: callable `(owner_id, ability_name) -> (level, multiplier)` -- mirror de `GetAbilityState(effet)`
-CTX_ABILITY_STATE_OF = "tertiary_ability_state_of"
+CTX_ABILITY_STATE_OF = _ctx_keys.CTX_TERTIARY_ABILITY_STATE_OF
 
 
 def adjacent_mechanical_friends_selector():

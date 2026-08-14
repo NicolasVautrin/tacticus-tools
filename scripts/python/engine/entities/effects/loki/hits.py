@@ -30,6 +30,7 @@ from ...triggered_ability_type import TriggeredAbilityType
 # `NameError` au chargement d'etat. Import module-level (#448-r3-r1).
 from ...stats import StatPart, StatType
 from ....services.trait_damage_limits import group_unit_stat_part
+from .. import ctx_keys as _ctx_keys      # #1042-r5 : foyer UNIQUE des chaines de cle de ctx
 
 
 class SquigHoundAdditionalHitsEffect(BaseEffect):
@@ -2612,7 +2613,7 @@ class LegendaryCommanderExtraHitsEffect(BaseEffect):
 _MAUGETAR_ABILITY = "Maugetar"
 #: callable `(owner_id, ability_name) -> (level, multiplier)` -- mirror de
 #: `IdunBattle.Entities.Effects.BaseEffect$$GetAbilityState`, pose par `collect_additional_hit_groups`.
-MAUGETAR_CTX_ABILITY_STATE_OF = "tertiary_ability_state_of"
+MAUGETAR_CTX_ABILITY_STATE_OF = _ctx_keys.CTX_TERTIARY_ABILITY_STATE_OF
 #: cle du ctx du canal #179 : « le groupe de coups d'ARME de cette attaque contient-il un CRIT ? »
 #: -- mirror de `hitGroup+0x3d`, que
 #: `IdunBattle.Operations.AttackDamageOperation$$ExecuteAdditionalHitsWithoutDamageProfileType`
