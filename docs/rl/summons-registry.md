@@ -20,7 +20,7 @@ differe. C'est la doctrine « DECIDER != EXECUTER ».
 ## Bilan
 
 - Unites `summons` : **65** ; kits sans manque : **55** ; kits avec du travail : **10**
-- Actives distinctes : **16** — `[C-]` **5** · `[CD]` **11**
+- Actives distinctes : **16** — `[C-]` **4** · `[CD]` **12**
 - Passifs distincts : **47** — portes **37**, non portes **10**
 - Traits de kit distincts (AUCUN ecarte — le seuil de frequence a disparu avec #1015) :
   **43** — couverts **42**, non couverts **1**
@@ -60,13 +60,13 @@ l'unite. La colonne `porteurs` dit l'exposition.
 | passif | Shrapnel | 1 | astraSmnMortar |
 | passif | WatchedOver | 1 | darkaSmnWatcher |
 
-## Faces DECISION ouvertes sur des actives EXECUTEES (5)
+## Faces DECISION ouvertes sur des actives EXECUTEES (4)
 
 Ces abilities s'executent fidelement mais sont CHOISIES avec un scoring qui n'est pas celui
 du natif. Aucun compteur de manque ne les voit — elles ne sont pas des items absents, ce
 sont des **faces** absentes d'items presents.
 
-`KissOfDeath`, `SlashingDive`, `TunnelingHorror`, `ValkyrieStrike`, `WallOfMirrors`
+`SlashingDive`, `TunnelingHorror`, `ValkyrieStrike`, `WallOfMirrors`
 
 ## Inventaire complet, par faction
 
@@ -89,7 +89,7 @@ sont des **faces** absentes d'items presents.
 | unite | manque | actives (face) | passifs non portes | traits non couverts | autres voies |
 |---|---:|---|---|---|---|
 | eldarSmnGuardian | 0 | PlasmaGrenade(1098)[CD] | - | - | - |
-| eldarSmnHarlequin | 0 | KissOfDeath(1108)[C-] | - | - | - |
+| eldarSmnHarlequin | 0 | KissOfDeath(1108)[CD] | - | - | - |
 
 ### AstraMilitarum — 6 unites, 2 avec du travail
 

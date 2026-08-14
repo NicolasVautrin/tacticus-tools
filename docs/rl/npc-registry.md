@@ -20,7 +20,7 @@ differe. C'est la doctrine « DECIDER != EXECUTER ».
 ## Bilan
 
 - Unites `npc` : **491** ; kits sans manque : **442** ; kits avec du travail : **49**
-- Actives distinctes : **147** — `[--]` **1** · `[C-]` **13** · `[CD]` **133**
+- Actives distinctes : **147** — `[--]` **1** · `[C-]` **12** · `[CD]` **134**
 - Passifs distincts : **177** — portes **126**, non portes **51**
 - Traits de kit distincts (AUCUN ecarte — le seuil de frequence a disparu avec #1015) :
   **58** — couverts **57**, non couverts **1**
@@ -103,13 +103,13 @@ l'unite. La colonne `porteurs` dit l'exposition.
 | passif | Volatile | 1 | LootObj_AmmoBox |
 | passif | WatchedOver | 1 | darkaNpc4Watcher |
 
-## Faces DECISION ouvertes sur des actives EXECUTEES (13)
+## Faces DECISION ouvertes sur des actives EXECUTEES (12)
 
 Ces abilities s'executent fidelement mais sont CHOISIES avec un scoring qui n'est pas celui
 du natif. Aucun compteur de manque ne les voit — elles ne sont pas des items absents, ce
 sont des **faces** absentes d'items presents.
 
-`ArcScourge`, `BasiliskBarrage`, `CallRipperSwarms`, `Catalyst`, `ExplosivePresents`, `KissOfDeath`, `NovaCharge`, `Reveal`, `SlashingDive`, `TunnelingHorror`, `ValkyrieStrike`, `WallOfMirrors`, `WarConstruct`
+`ArcScourge`, `BasiliskBarrage`, `CallRipperSwarms`, `Catalyst`, `ExplosivePresents`, `NovaCharge`, `Reveal`, `SlashingDive`, `TunnelingHorror`, `ValkyrieStrike`, `WallOfMirrors`, `WarConstruct`
 
 ## Inventaire complet, par faction
 
@@ -237,7 +237,7 @@ sont des **faces** absentes d'items presents.
 | eldarBossRangerLHE | 0 | FireAndReposition(1063)[CD] | - | - | - |
 | eldarBossRangerSurv | 0 | FireAndReposition(1063)[CD] | - | - | - |
 | eldarNpc1Guardian | 0 | PlasmaGrenade(1098)[CD] | - | - | - |
-| eldarNpc3Harlequin | 0 | KissOfDeath(1108)[C-] | - | - | - |
+| eldarNpc3Harlequin | 0 | KissOfDeath(1108)[CD] | - | - | - |
 | eldarNpc4Wraithguard | 0 | WarConstruct(1133)[C-] | - | - | - |
 | eldarNpc4WraithguardSurv | 0 | WarConstruct(1133)[C-] | - | - | - |
 

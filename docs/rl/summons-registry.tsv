@@ -93,7 +93,7 @@ eldarSmnGuardian	Aeldari	Xenos	None	active	PlasmaGrenade	1098	1	1
 eldarSmnGuardian	Aeldari	Xenos	None	passif	BattleFocus		1	
 eldarSmnGuardian	Aeldari	Xenos	None	trait	Summon		1	
 eldarSmnGuardian	Aeldari	Xenos	None	trait	BattleFatigue		1	
-eldarSmnHarlequin	Aeldari	Xenos	None	active	KissOfDeath	1108	1	0
+eldarSmnHarlequin	Aeldari	Xenos	None	active	KissOfDeath	1108	1	1
 eldarSmnHarlequin	Aeldari	Xenos	None	passif	HarlequinsPanoply		1	
 eldarSmnHarlequin	Aeldari	Xenos	None	trait	Summon		1	
 eldarSmnHarlequin	Aeldari	Xenos	None	trait	Infiltrate		1	

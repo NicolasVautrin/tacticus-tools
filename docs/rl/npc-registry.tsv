@@ -920,7 +920,7 @@ eldarNpc1Guardian	Aeldari	Xenos	None	trait	BattleFatigue		1
 eldarNpc2Warlock	Aeldari	Xenos	None	active	Reveal	1107	1	0
 eldarNpc2Warlock	Aeldari	Xenos	None	passif	Conceal		0	
 eldarNpc2Warlock	Aeldari	Xenos	None	trait	Psyker		1	
-eldarNpc3Harlequin	Aeldari	Xenos	None	active	KissOfDeath	1108	1	0
+eldarNpc3Harlequin	Aeldari	Xenos	None	active	KissOfDeath	1108	1	1
 eldarNpc3Harlequin	Aeldari	Xenos	None	passif	HarlequinsPanoply		1	
 eldarNpc3Harlequin	Aeldari	Xenos	None	trait	Infiltrate		1	
 eldarNpc3Harlequin	Aeldari	Xenos	None	trait	Unstoppable		1	
