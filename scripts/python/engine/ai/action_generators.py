@@ -202,6 +202,8 @@ class NonComparableGenerator(ActiveAbilityActionGenerator):
             elev_by_pos=ctx.elev_by_pos, ability_targets=ctx.ability_targets,
             is_wall_by_pos=getattr(ctx, "is_wall_by_pos", None) or {},   # volet MURS de la ligne de vue (#433-r4-r2-r1-r2)
             is_in_fog_by_pos=getattr(ctx, "is_in_fog_by_pos", None) or {},   # 2e volet d'IsWalkable -> GetTilesInRange (#433-r4-r2-r1-r2-r2-r1)
+            occupant_by_pos=getattr(ctx, "occupant_by_pos", None) or {},   # occupant natif par tuile
+            #      (`tileMeta.occupantId` = `UnitExtensions$$GetUnit`) -> gates VALID_ON_EMPTY_TILE (#433-r4-r2-r1-r1-a-r1)
             wt=ctx.wt, is_temporary_by_pos=ctx.is_temporary_by_pos,
             effects_by_pos=ctx.effects_by_pos, obs_units=ctx.obs_units,
             current_player=getattr(ctx, "cur", None),   # TurnComponent._currentPlayerId ->

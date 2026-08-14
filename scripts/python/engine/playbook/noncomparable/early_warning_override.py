@@ -5,6 +5,7 @@ from __future__ import annotations
 import hexgeo
 from engine import battle_query as bq
 from engine.entities.active_ability_type import ActiveAbilityType
+from engine.ai import context as aictx   # forme B (#485-r1-r1) : foyer du tri-etat du canal OCCUPANT
 from engine.services import ability_caster_gates as acg
 from engine.services import ability_range as ar
 from engine.services import battle_query as bqs
@@ -201,7 +202,7 @@ class EarlyWarningOverridePlaybook(NonComparablePlaybook):
 
     def utility_at(self, P: tuple, enemies: list, adj_origin: set, elev_by_pos=None,
                    is_wall_by_pos=None, team_by_pos=None, walkable_by_pos=None,
-                   is_in_fog_by_pos=None, is_turn_by_pos=None) -> float:
+                   is_in_fog_by_pos=None, is_turn_by_pos=None, occupant_by_pos=None) -> float:
         """UTIL(P) du corps natif, ennemi par ennemi (mirror de la boucle `GetAllAliveUnits`).
 
         Extrait de `generate_candidates` pour etre CONFRONTABLE POSITION PAR POSITION a l'oracle
@@ -232,7 +233,12 @@ class EarlyWarningOverridePlaybook(NonComparablePlaybook):
                                                           # « caster » de CETTE question), jamais
                                                           # sur le porteur d'EarlyWarningOverride
                                                           # (#447-r1-r1-r3).
-                                                          is_turn_of_unit=(is_turn_by_pos or {}).get(ep)):
+                                                          is_turn_of_unit=(is_turn_by_pos or {}).get(ep),
+                                                          # #433-r4-r2-r1-r1-a-r1 : les sept gates
+                                                          # `GATE_VALID_ON_EMPTY_TILE` retirent la
+                                                          # tuile OCCUPEE. `None` = canal non
+                                                          # mesure -> aucun retrait (statu quo).
+                                                          occupant_by_pos=occupant_by_pos):
                     u += self._COVER_BONUS
             else:                               # branche B : +50 si `threshold(E) < d`
                 if thr < d:
@@ -271,12 +277,19 @@ class EarlyWarningOverridePlaybook(NonComparablePlaybook):
         adj_origin = self.adjacent_at_origin(ctx, enemies)
         team_by_pos = occupant_team_by_pos(ctx)   # gardes « ami » de la ligne de vue (#-r1-r2-r2)
         is_turn_by_pos = is_turn_of_unit_by_pos(ctx)   # PREFIXE de `CasterHasNotMoved` (#447-r1-r1-r3)
+        # #433-r4-r2-r1-r1-a-r1 -- l'OCCUPANT par tuile, substrat des sept gates
+        # `GATE_VALID_ON_EMPTY_TILE`. Le tri-etat est DERIVE, jamais un `bool()` sur la table : une
+        # table vide alors que des unites sont positionnees est un capteur MUET, pas un plateau
+        # libre (vice #943-r8 -- un transport mort qui passe pour une mesure honnete).
+        _occ = getattr(ctx, "occupant_by_pos", None) or {}
+        occupant_by_pos = _occ if aictx.occupant_channel_is_measured(_occ, ctx.units) else None
         best_p, best_u = None, None
         for P in _sweep_origin_first(ctx):        # ORIGINE-FIRST + keep-first (strict >)
             u = self.utility_at(P, enemies, adj_origin, ctx.elev_by_pos,
                                 getattr(ctx, "is_wall_by_pos", None), team_by_pos,
                                 getattr(ctx, "walkable_by_pos", None),
-                                getattr(ctx, "is_in_fog_by_pos", None), is_turn_by_pos)
+                                getattr(ctx, "is_in_fog_by_pos", None), is_turn_by_pos,
+                                occupant_by_pos)
             if u < self.MIN_UTILITY:
                 continue                            # admission Bucket util>=1
             if best_u is None or u > best_u:        # strict > : 1re position du max gagne (keep-first)

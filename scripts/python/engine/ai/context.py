@@ -105,6 +105,14 @@ class AiDecisionContext:
     #     inerte (PERMISSIF). Mesuré : 31 tuiles `walkable && isInFog` sur `C6_02`.
     # Deux attributs de TUILE que `tileMeta` remonte DÉJÀ et que le port jetait (#175) : sans eux les
     # feuilles Tile(7) qui les gatent restent muettes même quand `ctx.unit_traits` est peuplé.
+    occupant_by_pos: dict = field(default_factory=dict)
+    #     {(col,row): occupantId} <- `tileMeta.tiles[].occupantId` (#433-r4-r2-r1-r1-a-r1), le
+    #     retour INVOQUE d'`IdunBattle.Entities.UnitExtensions$$GetUnit(TileEntity, state)` -- la
+    #     MEME entite que testent les sept gates `GATE_VALID_ON_EMPTY_TILE`. Ne portent QUE les
+    #     tuiles OCCUPEES. VIDE = deux etats a distinguer par l'appelant : soit aucune tuile n'est
+    #     occupee, soit le capteur est muet (bundle anterieur, `GetUnit` non resolu) -- le
+    #     discriminant est DERIVABLE (des unites positionnees existent-elles ?), cf.
+    #     `occupant_channel_is_measured`.
     is_territory_by_pos: dict = field(default_factory=dict)
     #     {(col,row): bool} <- tileMeta.isTerritory = `TileComponent+0x2e`, l'octet que lit
     #     `IdunBattle.Entities.TileExtensions$$IsTerritoryTile` -> feuille CapturePoint(25) (+/-300)
@@ -536,6 +544,40 @@ def _tile_effect_names(tiles: list, only_active: bool) -> dict:
     return out
 
 
+def _occupant_by_pos(tiles: list) -> dict:
+    """`{(col,row): occupantId}` depuis `tileMeta.tiles[].occupantId` (#433-r4-r2-r1-r1-a-r1).
+
+    Le capteur (#175-r, `rpc-board.ts::readTileOccupants`) INVOQUE
+    `IdunBattle.Entities.UnitExtensions$$GetUnit(TileEntity, state)` -- la surcharge desambiguisee
+    par la CLASSE de son premier parametre, celle-la meme que la feuille native passe. Ce n'est donc
+    pas une reconstitution depuis les positions d'unites : c'est le predicat que les sept gates
+    `GATE_VALID_ON_EMPTY_TILE` interrogent, lu a la source.
+
+    Seules les tuiles OCCUPEES entrent dans la table -- une tuile libre en est ABSENTE, jamais
+    presente a `None` : c'est ce qui permet au consommateur de tester `.get(pos) is not None`."""
+    out = {}
+    for t in tiles:
+        oid = t.get("occupantId")
+        if oid is not None:
+            out[(t.get("col"), t.get("row"))] = oid
+    return out
+
+
+def occupant_channel_is_measured(occupant_by_pos, units) -> bool:
+    """Le canal d'occupation a-t-il PARLE ? -- le discriminant qui evite le vice du transport MORT.
+
+    Une table VIDE est ambigue : « aucune tuile occupee » (mesure) ou « capteur muet » (bundle
+    anterieur au champ, `GetUnit` non resolu). Les deux se separent SANS second canal : s'il existe
+    au moins une unite VIVANTE et POSITIONNEE, alors au moins une tuile est occupee, donc une table
+    vide ne peut etre qu'une panne. C'est le temoin NON DEGENERE exige par #943-r8 -- sans lui, un
+    canal mort passerait pour une mesure honnete et le gate se tairait en silence.
+
+    `False` -> l'appelant passe `None` au foyer, qui ne retire alors RIEN (statu quo)."""
+    if occupant_by_pos:
+        return True
+    return not any(u.get("alive") and u.get("pos") for u in (units or ()))
+
+
 def _enemies(units: list) -> list:
     """Unités adverses vivantes positionnées (ctrl=False => adverse)."""
     return [u for u in units if not u.get("ctrl") and u.get("alive") and u.get("pos")]
@@ -718,6 +760,7 @@ def build(rpc: Callable[..., dict], rid: int, dv: dict, mov_by_unit: dict, uid: 
     effects_by_pos = _tile_effect_names(tiles, only_active=False)        # feuilles Tile(7)
     active_effects_by_pos = _tile_effect_names(tiles, only_active=True)  # `Scene` (statu quo)
     is_territory_by_pos, tile_effect_type_ids_by_pos = _tile_attribute_maps(tiles)
+    occupant_by_pos = _occupant_by_pos(tiles)     # #433-r4-r2-r1-r1-a-r1 (capteur #175-r)
     pdr = rpc("pathDistToEnemies", {"runnerId": rid, "unitId": uid}, 90)
     pathdist_by_pos = {(t.get("col"), t.get("row")): t.get("pathDist") for t in (pdr.get("tiles") or [])}
     # #26 — ennemis CIBLABLES retenus par le RPC (miroir natif COMPLET des filtres `FindClosestEnemy`
@@ -787,7 +830,7 @@ def build(rpc: Callable[..., dict], rid: int, dv: dict, mov_by_unit: dict, uid: 
         tile_id_by_pos=tile_id_by_pos, neigh_by_pos=neigh_by_pos,
         walkable_by_pos=walkable_by_pos, terrain_by_pos=terrain_by_pos,
         is_wall_by_pos=is_wall_by_pos, is_in_fog_by_pos=is_in_fog_by_pos,
-        is_territory_by_pos=is_territory_by_pos,
+        is_territory_by_pos=is_territory_by_pos, occupant_by_pos=occupant_by_pos,
         tile_effect_type_ids_by_pos=tile_effect_type_ids_by_pos,
         mow_slot_by_player=mow_slot_by_player, current_player_team=current_player_team,
         mow_position_by_player=mow_position_by_player,
@@ -959,6 +1002,7 @@ def build_machine(rpc: Callable[..., dict], rid: int, dv: dict, uid: int,
     effects_by_pos = _tile_effect_names(tiles, only_active=False)        # feuilles Tile(7)
     active_effects_by_pos = _tile_effect_names(tiles, only_active=True)  # `Scene` (statu quo)
     is_territory_by_pos, tile_effect_type_ids_by_pos = _tile_attribute_maps(tiles)
+    occupant_by_pos = _occupant_by_pos(tiles)     # #433-r4-r2-r1-r1-a-r1 (capteur #175-r)
     tile_id_by_pos = _board_tile_ids(rpc, rid)
     neigh_by_pos = _board_neighbours(rpc, rid)
     walkable_by_pos = _board_walkable(rpc, rid)
@@ -990,7 +1034,7 @@ def build_machine(rpc: Callable[..., dict], rid: int, dv: dict, uid: int,
         tile_id_by_pos=tile_id_by_pos, neigh_by_pos=neigh_by_pos,
         walkable_by_pos=walkable_by_pos, terrain_by_pos=terrain_by_pos,
         is_wall_by_pos=is_wall_by_pos, is_in_fog_by_pos=is_in_fog_by_pos,
-        is_territory_by_pos=is_territory_by_pos,
+        is_territory_by_pos=is_territory_by_pos, occupant_by_pos=occupant_by_pos,
         tile_effect_type_ids_by_pos=tile_effect_type_ids_by_pos,
         mow_slot_by_player=mow_slot_by_player,
         current_player_team=current_player_team,
