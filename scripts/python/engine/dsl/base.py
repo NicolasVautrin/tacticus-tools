@@ -340,6 +340,17 @@ class DslContext:
     # gate d'idempotence d'`AddOrUpdateStaticStatModifierEffect`) : `stat_modifier_amount(unit, effectType,
     # statType)->int`. Defaut None -> 0 (cf. le noeud).
     stat_modifier_amount: object | None = None
+    # BOUCLIER COURANT d'une unite (`IdunBattle.Entities.UnitExtensions$$GetShield`, la seule chose
+    # qu'appelle la boucle d'`IdunBattle.Entities.Formulas.CurrentShieldAmountFormula$$Calculate`) :
+    # `current_shield_amount(unit)->int`. Fourni par `entities_from_state` (lit le `ShieldComponent`
+    # de l'ECS runner, MEME substrat que `CreateShield`).
+    # ⚠ DEGRADATION **PERMISSIVE**, et elle est NOMMEE parce qu'elle l'est : accesseur non branche
+    # -> 0, or l'unique forme d'emploi native est `AmountIsZero(CurrentShieldAmount(...))`, donc un
+    # 0 non mesure fait PASSER le gate. Le seul consommateur porte (`ShieldOfFaithCustomAbility`)
+    # n'est joignable que par le drain de `state.pending_triggered_abilities`, donc toujours avec un
+    # `State` -- le regime degrade est INATTEIGNABLE sur ce chemin, et c'est ce qui le rend
+    # acceptable ; un consommateur futur sans `State` devrait le REFUSER, pas l'hériter.
+    current_shield_amount: object | None = None
     # Niveau d'ability PAR UNITÉ + slot (`ConfigVar` sur une unité TIERCE, ex. la chance RighteousRepugnance
     # au niveau du killer). `get_ability_level(unit, slot='passive'|'active')->int|None` : lit le
     # `passive_ability_level`/`active_ability_level` capté (StatsComponent.ctx). Défaut None → niveau inconnu

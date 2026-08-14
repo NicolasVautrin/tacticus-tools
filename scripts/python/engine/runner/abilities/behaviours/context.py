@@ -10,7 +10,8 @@ from .... import battle_query as _bq
 from ....services import battle_query as _sbq
 from ....dsl.base import DslContext
 from ...components import (OwnerComponent, PositionComponent, UnitComponent, StatsComponent,
-                          HealthComponent, get_unit_feet, ActiveAbilitiesComponent)
+                          HealthComponent, get_unit_feet, ActiveAbilitiesComponent,
+                          ShieldComponent)
 from ....entities.traits.unit_trait import (UnitTrait, has_trait, grand_alliance_trait_name,
                                             entity_trait_names)
 from ....entities.effects import effect_stat_mod_key
@@ -619,6 +620,18 @@ def entities_from_state(state, caster_id: int, target_id: int | None = None,
         us = getattr(sc.ctx, "stats", None) if sc is not None else None
         return int(us.negative_stat_modification(stat_type)) if us is not None else 0
 
+    # `ctx.current_shield_amount` (`IdunBattle.Entities.UnitExtensions$$GetShield`, le SEUL appel de
+    # la boucle d'`IdunBattle.Entities.Formulas.CurrentShieldAmountFormula$$Calculate`) : le bouclier
+    # TOTAL porte par l'unite. MEME substrat que la pose (`CreateShield` ->
+    # `ShieldComponent.add_or_update_shield`) et que la lecture imperative de `terminator_armour.
+    # _total_shield`, dont ce canal est la forme DSL. Composant absent -> 0, ce qui n'est PAS une
+    # degradation ici mais la MESURE (pas de composant == pas de bouclier).
+    def _current_shield_amount(unit):
+        uid = (unit or {}).get("id")
+        e = state.get_entity(uid) if uid is not None else None
+        shc = e.get_component(ShieldComponent) if e is not None else None
+        return int(shc.get_total_shield()) if shc is not None else 0
+
     # `ctx.is_in_team_aura` (`IdunBattle.Entities.Triggers.IsInAuraRangeTrigger$$ShouldTrigger` ->
     # slot `IdunBattle.Core.Services.BattleQuery$$IsInTeamAuraRange`) : `unit` est-elle dans la portee
     # d'une aura `effect_type` portee par une unite de l'EQUIPE de `team_reference` ?
@@ -1022,6 +1035,7 @@ def entities_from_state(state, caster_id: int, target_id: int | None = None,
         effects_of_units=_effects_of_units, children=[],
                       has_negative_modifier=_has_negative_modifier,
                       negative_stat_modification=_negative_stat_modification,
+                      current_shield_amount=_current_shield_amount,
                       is_in_team_aura=_is_in_team_aura,
                       has_triggered_ability=_has_triggered_ability,
                       can_have_active_ability_reset=_can_have_active_ability_reset,
