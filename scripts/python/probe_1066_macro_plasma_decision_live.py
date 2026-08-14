@@ -33,6 +33,26 @@ regimes ne rendent pas exactement la meme mesure (sinon le montage ne separe rie
 `ty === EntityType.Unit`) et `ultraDreadnought` en est une : c'est `ncPlaybookPredict` qui accepte
 `EntityType.Machine`. Un `ok: false` LEVE ici -- un echec RENDU se lirait comme un << 0 action >>.
 
+CE QUE CETTE CONFRONTATION EXERCE, ET CE QU'ELLE N'EXERCE PAS (contre-epreuve par MUTATION)
+================================================================================================
+Un accord ne prouve rien s'il survit a la casse. Trois mutations du port ont ete jouees sur le
+regime C, chacune ciblant UN terme lu au decompile :
+
+  * `+ Fix64(area.Count)` retire        -> PORT 6 contre NATIF 9   ... MORD
+  * gate `IsFreeTile` desarme           -> PORT 10 contre NATIF 9  ... MORD
+  * direction du `If` INVERSEE          -> PORT 9 contre NATIF 9   ... NE MORD PAS
+
+⚠ LA TROISIEME N'EST PAS CONFRONTABLE PAR CET ORACLE, et c'est MESURE, pas suppose : retourner le
+triangle change la TUILE retenue, presque jamais la VALEUR MAXIMALE (le plateau offre une position
+symetrique de valeur egale). Une recherche sur 8 000 placements n'a rendu que 2 candidats ou le max
+lui-meme changeait, et AUCUN des deux ne tenait une fois reellement construit. Comme
+`bucketAction.targetLow` est un demi-pointeur (cf. `_port`), la cible ne se lit pas en clair : le
+terme reste donc HORS de portee de ce probe.
+Ce qui le couvre AILLEURS, et c'est la raison d'etre du foyer partage : la direction est le MEME
+code que la face COMBAT (`ultramarines.macro_plasma_incinerator_target_area_tiles`), dont la
+confrontation live #90-B a mesure `dir=1` = `{S, SE}` sur une MoW de slot 2. Un terme qu'un probe
+n'exerce pas peut etre tenu par un autre -- a condition qu'il n'y ait qu'UN code.
+
 CE QUE CE PROBE NE PROUVE PAS : le wrapper `Evaluate/3` donne l'utilite et la cible du `Bucket`,
 pas la decision finale de l'IA (qui passe encore par les tiers de priorite -- 1159 est au tier
 `-100 = Late`, donc derriere `1158 DutyEternal` du meme porteur). Un accord ici est necessaire,
@@ -73,14 +93,22 @@ _PLACE = ["adeptCanoness:0,0", "adeptHospitaller:0,1"]
 #: cibles ne se deduit de l'accord des utilites que si l'argmax est UNIQUE -- et sur A comme sur B
 #: il ne l'est pas (6 et 11 tuiles ex-aequo, MESURE). Le placement de C a ete CHERCHE pour cela,
 #: en faisant varier les ennemis sur le contexte d'un runner reel.
-#: ⚠ Et la recherche doit patcher `epos` **ET** `obs_units` : une premiere passe ne bougeait que
-#: `epos`, donc le gate `IsFreeTile` voyait encore l'occupation de l'ANCIEN montage -- le placement
-#: qu'elle proposait rendait 2 ex-aequo une fois construit pour de vrai. En patchant les deux,
-#: `((0,6), (2,6), (4,2))` rend un maximum de `8` sur la SEULE tuile `(1,6)`.
+#: ⚠⚠ C porte une SECONDE exigence, et elle vient d'une CONTRE-EPREUVE, pas d'une intention : sur
+#: un premier placement a argmax unique (`(0,6) (2,6) (4,2)`, util 8), DESARMER le gate
+#: `IsFreeTile` ne changeait RIEN -- aucune tuile de la zone retenue n'etait occupee, donc la
+#: confrontation n'exercait pas ce terme, et un port SANS gate serait passe pour juste.
+#:
+#: ⚠⚠⚠ ET LE PLACEMENT SE VALIDE PAR BUILD REEL, JAMAIS PAR SIMULATION. Chercher sur un contexte
+#: PATCHE (`epos` + `obs_units` d'un autre montage) donne des candidats plausibles mais FAUX : les
+#: deux premiers proposes ainsi rendaient 2 ex-aequo une fois reellement construits. Les six
+#: candidats ont donc ete rejoues, chacun sur son propre runner ; `((3,5), (4,4), (4,6))` est celui
+#: qui tient les trois criteres a la MESURE -- `NATIF 9 == PORT 9,0`, argmax UNIQUE, et `10` gate
+#: desarme (donc la mutation MORD).
 MONTAGES = (
     ("A: ennemis groupes", ["necroWarden:3,4", "necroDestroyer:3,5", "orksNob:4,4"]),
     ("B: ennemis disperses", ["necroWarden:3,4", "necroDestroyer:0,5", "orksNob:6,1"]),
-    ("C: argmax UNIQUE", ["necroWarden:0,6", "necroDestroyer:2,6", "orksNob:4,2"]),
+    ("C: argmax UNIQUE + gate IsFreeTile EXERCE",
+     ["necroWarden:3,5", "necroDestroyer:4,4", "orksNob:4,6"]),
 )
 
 
