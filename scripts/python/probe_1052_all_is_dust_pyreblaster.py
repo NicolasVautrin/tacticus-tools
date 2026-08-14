@@ -77,8 +77,14 @@ PYRE_CIBLE = "orksNob"
 PYRE_DERRIERE = "darkaAsmodai"
 
 
-def _build(state_file: str, extra: list) -> dict:
+def _build(state_file: str, extra: list, build_runner=None) -> dict:
     """`rl_duel build` en sous-processus, `--state-file` ABSOLU et unique (discipline runner.md)."""
+    if build_runner is not None:
+        # PORTE PYTEST : la fabrique du conftest gere le cap `MAX_RUNNERS` ET la LIBERATION
+        # (un runner construit par un test meurt avec lui). Hors pytest on retombe sur le
+        # sous-processus `rl_duel build`, qui a la meme discipline `--state-file`.
+        return {"rc": 0, "rid": build_runner(SEED, extra=list(extra), board=BOARD)["rid"],
+                "stdout": "", "stderr": ""}
     cmd = [sys.executable, "rl_duel.py", "build", "--seed", SEED, "--board", BOARD,
            "--state-file", state_file, *extra]
     r = subprocess.run(cmd, cwd=str(_HERE), capture_output=True, text=True, timeout=600)
@@ -91,7 +97,9 @@ def _build(state_file: str, extra: list) -> dict:
     return out
 
 
-def _dispose(sid, rid):
+def _dispose(sid, rid, build_runner=None):
+    if build_runner is not None:
+        return          # la fabrique du conftest libere elle-meme (portee du test)
     if rid is not None:
         try:
             _rpc(sid, "disposeRunner", [{"runnerId": rid}], timeout=20)
@@ -208,7 +216,8 @@ def _live_attack(sid, rid, caster_id, target_id, nat):
 
 # ================================================================================ volet AllIsDust
 
-def volet_all_is_dust(sid, state_file, attaquant: str = ATT_MELEE) -> dict:
+def volet_all_is_dust(sid, state_file, attaquant: str = ATT_MELEE,
+                      build_runner=None) -> dict:
     """Le Rubric Marine encaisse une attaque normale ; on compare le degat PAR COUP live vs port,
     avec et SANS `AllIsDustEffect` au registre (contre-epreuve par MUTATION)."""
     from engine.runner.components import HealthComponent, StatsComponent
@@ -221,7 +230,7 @@ def volet_all_is_dust(sid, state_file, attaquant: str = ATT_MELEE) -> dict:
     # entre en jeu -- meme forme que `test_888_mortarion_boss_abilities_live.py`.
     b = _build(state_file, ["--p-units", attaquant, "--a-units", RUBRIC,
                             "--explicit-stats", RUBRIC, "--roster", "1",
-                            "--crit", "0,0", "--block-target", "0,0"])
+                            "--crit", "0,0", "--block-target", "0,0"], build_runner)
     out["build_rc"] = b["rc"]
     rid = b.get("rid")
     out["rid"] = rid
@@ -231,7 +240,7 @@ def volet_all_is_dust(sid, state_file, attaquant: str = ATT_MELEE) -> dict:
     board = _board_of(sid, rid)
     if board is None:
         out["why"] = "boardGraph indispo"
-        _dispose(sid, rid)
+        _dispose(sid, rid, build_runner)
         return out
 
     dv = _res(sid, "decisionView", {"runnerId": rid, "maxRank": 1, "allAbilities": True}, 120)
@@ -239,7 +248,7 @@ def volet_all_is_dust(sid, state_file, attaquant: str = ATT_MELEE) -> dict:
     vic = _by_vis(dv, RUBRIC_VIS)
     if att is None or vic is None:
         out["why"] = "unites absentes : %s" % sorted({u.get("visualId") for u in _alive(dv)})
-        _dispose(sid, rid)
+        _dispose(sid, rid, build_runner)
         return out
     out["effets_victime"] = [e.get("name") for e in (vic.get("effects") or [])]
 
@@ -256,14 +265,14 @@ def volet_all_is_dust(sid, state_file, attaquant: str = ATT_MELEE) -> dict:
     vic = _by_vis(dv, RUBRIC_VIS)
     if att is None or vic is None:
         out["why"] = "unite perdue apres placement"
-        _dispose(sid, rid)
+        _dispose(sid, rid, build_runner)
         return out
     out["pos"] = {"att": _pos(att), "vic": _pos(vic)}
 
     nat = _normal_attack_type(dv, att["id"])
     if nat is None:
         out["why"] = "pas d'attaque normale exposee"
-        _dispose(sid, rid)
+        _dispose(sid, rid, build_runner)
         return out
 
     s = _snapshot(sid, rid)
@@ -315,13 +324,14 @@ def volet_all_is_dust(sid, state_file, attaquant: str = ATT_MELEE) -> dict:
     out["port_avec"] = _port(True)
     out["port_sans"] = _port(False)
     out["ok"] = True
-    _dispose(sid, rid)
+    _dispose(sid, rid, build_runner)
     return out
 
 
 # =============================================================================== volet Pyreblaster
 
-def volet_pyreblaster(sid, state_file, derriere: str = PYRE_DERRIERE) -> dict:
+def volet_pyreblaster(sid, state_file, derriere: str = PYRE_DERRIERE,
+                      build_runner=None) -> dict:
     """Le porteur tire sur une cible ALIGNEE ; une 3e unite est placee sur la tuile DERRIERE."""
     import engine.battle_query as BQ
     from engine.dsl.event_trigger_type import EventTriggerType
@@ -333,7 +343,7 @@ def volet_pyreblaster(sid, state_file, derriere: str = PYRE_DERRIERE) -> dict:
     b = _build(state_file, ["--p-units", PYRE, "--a-units",
                             "%s,%s" % (PYRE_CIBLE, derriere),
                             "--explicit-stats", PYRE, "--roster", "1",
-                            "--crit", "0,0", "--block-target", "0,0"])
+                            "--crit", "0,0", "--block-target", "0,0"], build_runner)
     out["build_rc"] = b["rc"]
     rid = b.get("rid")
     out["rid"] = rid
@@ -343,7 +353,7 @@ def volet_pyreblaster(sid, state_file, derriere: str = PYRE_DERRIERE) -> dict:
     board = _board_of(sid, rid)
     if board is None:
         out["why"] = "boardGraph indispo"
-        _dispose(sid, rid)
+        _dispose(sid, rid, build_runner)
         return out
 
     dv = _res(sid, "decisionView", {"runnerId": rid, "maxRank": 1, "allAbilities": True}, 120)
@@ -352,7 +362,7 @@ def volet_pyreblaster(sid, state_file, derriere: str = PYRE_DERRIERE) -> dict:
     der = _by_vis(dv, derriere)
     if not (car and cib and der):
         out["why"] = "unites absentes : %s" % sorted({u.get("visualId") for u in _alive(dv)})
-        _dispose(sid, rid)
+        _dispose(sid, rid, build_runner)
         return out
 
     # GEOMETRIE : on choisit une tuile de CASTER, une tuile de CIBLE a distance 2 ALIGNEE, et on
@@ -375,7 +385,7 @@ def volet_pyreblaster(sid, state_file, derriere: str = PYRE_DERRIERE) -> dict:
             break
     if cand is None:
         out["why"] = "aucune geometrie alignee distance 2 avec tuile derriere marchable"
-        _dispose(sid, rid)
+        _dispose(sid, rid, build_runner)
         return out
     tpos, bpos = cand
     out["geometrie"] = {"caster": cpos, "cible": tpos, "derriere": bpos}
@@ -388,18 +398,18 @@ def volet_pyreblaster(sid, state_file, derriere: str = PYRE_DERRIERE) -> dict:
     der = _by_vis(dv, derriere)
     if not (car and cib and der):
         out["why"] = "unite perdue apres placement"
-        _dispose(sid, rid)
+        _dispose(sid, rid, build_runner)
         return out
     out["pos_reelles"] = {"caster": _pos(car), "cible": _pos(cib), "derriere": _pos(der)}
     if _pos(cib) != tpos or _pos(der) != bpos or _pos(car) != cpos:
         out["why"] = "le placement n'a pas mordu : %s" % out["pos_reelles"]
-        _dispose(sid, rid)
+        _dispose(sid, rid, build_runner)
         return out
 
     nat = _normal_attack_type(dv, car["id"])
     if nat is None:
         out["why"] = "pas d'attaque normale exposee"
-        _dispose(sid, rid)
+        _dispose(sid, rid, build_runner)
         return out
     out["normal_attack_type"] = nat
 
@@ -492,7 +502,7 @@ def volet_pyreblaster(sid, state_file, derriere: str = PYRE_DERRIERE) -> dict:
     out["natif_nouvelles_tuiles_feu"] = sorted(feu_apres - feu_avant)
     out["tuiles_attendues"] = sorted({board.id_at(*bpos), board.id_at(*tpos)})
     out["ok"] = True
-    _dispose(sid, rid)
+    _dispose(sid, rid, build_runner)
     return out
 
 
