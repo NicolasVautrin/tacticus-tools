@@ -19,9 +19,9 @@ differe. C'est la doctrine « DECIDER != EXECUTER ».
 
 ## Bilan
 
-- Unites `summons` : **65** ; kits sans manque : **41** ; kits avec du travail : **24**
+- Unites `summons` : **65** ; kits sans manque : **43** ; kits avec du travail : **22**
 - Actives distinctes : **16** — `[C-]` **6** · `[CD]` **10**
-- Passifs distincts : **47** — portes **23**, non portes **24**
+- Passifs distincts : **47** — portes **25**, non portes **22**
 - Traits de kit distincts (AUCUN ecarte — le seuil de frequence a disparu avec #1015) :
   **43** — couverts **42**, non couverts **1**
 
@@ -49,7 +49,6 @@ l'unite. La colonne `porteurs` dit l'exposition.
 | type | item | porteurs | exemples |
 |---|---|---:|---|
 | trait | TwoManTeam | 2 | astraSmnLascannon, astraSmnMortar |
-| passif | AdrenalGlands | 1 | tyranSmnHormagaunt |
 | passif | AllIsDust | 1 | thousSmnRubricMarine |
 | passif | BattleFocus | 1 | eldarSmnGuardian |
 | passif | CallInReinforcements | 1 | astraSmnVoxcaster |
@@ -60,7 +59,6 @@ l'unite. La colonne `porteurs` dit l'exposition.
 | passif | FragLance | 1 | astraSmnDeathRider |
 | passif | HailOfLivingAmmunition | 1 | tyranSmnTermagant |
 | passif | HunterOfSouls | 1 | thousSmnDaemonPrince |
-| passif | Hypermorph | 1 | genesSmnAberrant |
 | passif | Lifewards | 1 | adeptSmnGeminaeSuperia |
 | passif | MischiefMakers | 1 | deathSmnNurglings |
 | passif | NoHidingFromTheWatchers | 1 | darkaSmnWatcher |
@@ -156,11 +154,11 @@ sont des **faces** absentes d'items presents.
 | deathPoxwalker | 1 | - | CursedOfTheWalkingPox | - | - |
 | deathSmnNurglings | 1 | - | MischiefMakers | - | - |
 
-### Genestealers — 4 unites, 1 avec du travail
+### Genestealers — 4 unites, 0 avec du travail
 
 | unite | manque | actives (face) | passifs non portes | traits non couverts | autres voies |
 |---|---:|---|---|---|---|
-| genesSmnAberrant | 1 | - | Hypermorph | - | - |
+| genesSmnAberrant | 0 | - | - | - | - |
 | genesSmnDecoy | 0 | - | - | - | - |
 | genesSmnGenestealer | 0 | - | - | - | - |
 | genesSmnNeophyte | 0 | - | - | - | - |
@@ -219,13 +217,13 @@ sont des **faces** absentes d'items presents.
 | thousSmnScreamer | 0 | SlashingDive(1091)[C-] | - | - | - |
 | thousSmnScreamerHSE | 0 | SlashingDive(1091)[C-] | - | - | - |
 
-### Tyranids — 6 unites, 3 avec du travail
+### Tyranids — 6 unites, 2 avec du travail
 
 | unite | manque | actives (face) | passifs non portes | traits non couverts | autres voies |
 |---|---:|---|---|---|---|
 | tyranSmnBarbgaunt | 1 | - | SynapticInsight | - | - |
-| tyranSmnHormagaunt | 1 | - | AdrenalGlands | - | - |
 | tyranSmnTermagant | 1 | - | HailOfLivingAmmunition | - | - |
+| tyranSmnHormagaunt | 0 | - | - | - | - |
 | tyranSmnRipperSwarm | 0 | Burrowers(1023)[C-] | - | - | - |
 | tyranSmnSporeMine | 0 | - | - | - | - |
 | tyranSmnWarrior | 0 | ScythingTalons(1065)[CD] | - | - | - |

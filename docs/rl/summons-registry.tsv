@@ -98,7 +98,7 @@ eldarSmnHarlequin	Aeldari	Xenos	None	passif	HarlequinsPanoply		1
 eldarSmnHarlequin	Aeldari	Xenos	None	trait	Summon		1	
 eldarSmnHarlequin	Aeldari	Xenos	None	trait	Infiltrate		1	
 eldarSmnHarlequin	Aeldari	Xenos	None	trait	Unstoppable		1	
-genesSmnAberrant	Genestealers	Xenos	None	passif	Hypermorph		0	
+genesSmnAberrant	Genestealers	Xenos	None	passif	Hypermorph		1	
 genesSmnAberrant	Genestealers	Xenos	None	trait	Summon		1	
 genesSmnAberrant	Genestealers	Xenos	None	trait	Ambush		1	
 genesSmnAberrant	Genestealers	Xenos	None	trait	Resilient		1	
@@ -217,7 +217,7 @@ tyranSmnBarbgaunt	Tyranids	Xenos	None	trait	Summon		1
 tyranSmnBarbgaunt	Tyranids	Xenos	None	trait	InstinctiveBehaviour		1	
 tyranSmnBarbgaunt	Tyranids	Xenos	None	trait	HeavyWeapon		1	
 tyranSmnBarbgaunt	Tyranids	Xenos	None	trait	SuppressiveFire		1	
-tyranSmnHormagaunt	Tyranids	Xenos	None	passif	AdrenalGlands		0	
+tyranSmnHormagaunt	Tyranids	Xenos	None	passif	AdrenalGlands		1	
 tyranSmnHormagaunt	Tyranids	Xenos	None	passif	HungeringSwarm		1	
 tyranSmnHormagaunt	Tyranids	Xenos	None	trait	Summon		1	
 tyranSmnHormagaunt	Tyranids	Xenos	None	trait	InstinctiveBehaviour		1	

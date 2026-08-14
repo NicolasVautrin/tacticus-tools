@@ -19,9 +19,9 @@ differe. C'est la doctrine « DECIDER != EXECUTER ».
 
 ## Bilan
 
-- Unites `npc` : **491** ; kits sans manque : **419** ; kits avec du travail : **72**
+- Unites `npc` : **491** ; kits sans manque : **425** ; kits avec du travail : **66**
 - Actives distinctes : **147** — `[--]` **1** · `[C-]` **15** · `[CD]` **131**
-- Passifs distincts : **177** — portes **112**, non portes **65**
+- Passifs distincts : **177** — portes **114**, non portes **63**
 - Traits de kit distincts (AUCUN ecarte — le seuil de frequence a disparu avec #1015) :
   **58** — couverts **57**, non couverts **1**
 - **Voies inversees** (nom absent d'`ActiveAbilityType`) : **1** — `Maugetar`
@@ -49,7 +49,6 @@ l'unite. La colonne `porteurs` dit l'exposition.
 
 | type | item | porteurs | exemples |
 |---|---|---:|---|
-| passif | AdrenalGlands | 5 | tyranNpc1Hormagaunt, tyranNpc1HormagauntGorgon, tyranNpc1HormagauntKronos |
 | passif | HailOfLivingAmmunition | 5 | tyranNpc3Termagant, tyranNpc3TermagantGorgon, tyranNpc3TermagantKronos |
 | trait | TwoManTeam | 4 | astraNpc2Lascannon, astraNpc4Mortar, astraNpc4MortarSurv |
 | passif | RapidFire | 3 | ultraNpc3Intercessor, ultraNpc4HeavyIntercessor, ultraNpc4HeavyIntercessorSurv |
@@ -75,7 +74,6 @@ l'unite. La colonne `porteurs` dit l'exposition.
 | passif | FragLance | 1 | astraNpc5DeathRider |
 | passif | HostOfPlagues | 1 | deathBossMortarion |
 | passif | HuntersInstincts | 1 | tauNpc6Carnivore |
-| passif | Hypermorph | 1 | genesNpc1Aberrant |
 | passif | ItsGonnaBlow | 1 | orksNpc4AmmoGrot |
 | passif | MischiefMakers | 1 | deathNpc3Nurglings |
 | passif | MultiTracker | 1 | tauBossRiptide |
@@ -408,11 +406,10 @@ sont des **faces** absentes d'items presents.
 | deathNpcRotbone | 0 | RevitalizingMalignancy(1037)[CD] | - | - | relic:OrbsOfDecay |
 | deathNpcTyphus | 0 | PlagueWind(1035)[CD] | - | - | relic:Lakrimae |
 
-### Genestealers — 21 unites, 1 avec du travail
+### Genestealers — 21 unites, 0 avec du travail
 
 | unite | manque | actives (face) | passifs non portes | traits non couverts | autres voies |
 |---|---:|---|---|---|---|
-| genesNpc1Aberrant | 1 | - | Hypermorph | - | - |
 | genesBossBiophagus | 0 | AberrantHypermorph(1166)[CD] | - | - | relic:AmuletOfTheVoidwyrm |
 | genesBossBiophagusLHE | 0 | AberrantHypermorph(1166)[CD] | - | - | relic:AmuletOfTheVoidwyrm |
 | genesBossKelermorph | 0 | HeroicFusillade(1180)[CD] | - | - | relic:AmuletOfTheVoidwyrm |
@@ -426,6 +423,7 @@ sont des **faces** absentes d'items presents.
 | genesBossPrimus | 0 | CultDemagogue(1179)[CD] | - | - | relic:AmuletOfTheVoidwyrm |
 | genesBossPrimusLHE | 0 | CultDemagogue(1179)[CD] | - | - | relic:AmuletOfTheVoidwyrm |
 | genesDecoy | 0 | - | - | - | - |
+| genesNpc1Aberrant | 0 | - | - | - | - |
 | genesNpc2Genestealer | 0 | - | - | - | - |
 | genesNpc3Neophyte | 0 | - | - | - | - |
 | genesNpcBiophagus | 0 | AberrantHypermorph(1166)[CD] | - | - | relic:AmuletOfTheVoidwyrm |
@@ -624,16 +622,11 @@ sont des **faces** absentes d'items presents.
 | thousNpcTerminator | 0 | HellfyreMissileRack(1088)[CD] | - | - | relic:DaemonfleshPlate |
 | thousNpcTzaangor | 0 | SorcerousFacade(1100)[CD] | - | - | - |
 
-### Tyranids — 54 unites, 13 avec du travail
+### Tyranids — 54 unites, 8 avec du travail
 
 | unite | manque | actives (face) | passifs non portes | traits non couverts | autres voies |
 |---|---:|---|---|---|---|
 | tyranBossHiveTyrantLeviathan | 2 | CallRipperSwarms(1052)[C-]<br>Catalyst(1032)[C-]<br>StranglethornCannon(1056)[CD] | PrehensilePincerTail, SynapticImperative | - | - |
-| tyranNpc1Hormagaunt | 1 | - | AdrenalGlands | - | - |
-| tyranNpc1HormagauntGorgon | 1 | - | AdrenalGlands | - | - |
-| tyranNpc1HormagauntKronos | 1 | - | AdrenalGlands | - | - |
-| tyranNpc1Hormagaunt_SyncPvp_Gorgon | 1 | - | AdrenalGlands | - | - |
-| tyranNpc1Hormagaunt_SyncPvp_Kronos | 1 | - | AdrenalGlands | - | - |
 | tyranNpc3Termagant | 1 | - | HailOfLivingAmmunition | - | - |
 | tyranNpc3TermagantGorgon | 1 | - | HailOfLivingAmmunition | - | - |
 | tyranNpc3TermagantKronos | 1 | - | HailOfLivingAmmunition | - | - |
@@ -661,6 +654,11 @@ sont des **faces** absentes d'items presents.
 | tyranBossWingedPrimeLEG | 0 | AlphaWarrior(1112)[CD] | - | - | relic:MawClawsOfThyrax |
 | tyranBossWingedPrimeLHE | 0 | AlphaWarrior(1112)[CD] | - | - | relic:MawClawsOfThyrax |
 | tyranBossWingedPrimeSurv | 0 | AlphaWarrior(1112)[CD] | - | - | relic:MawClawsOfThyrax |
+| tyranNpc1Hormagaunt | 0 | - | - | - | - |
+| tyranNpc1HormagauntGorgon | 0 | - | - | - | - |
+| tyranNpc1HormagauntKronos | 0 | - | - | - | - |
+| tyranNpc1Hormagaunt_SyncPvp_Gorgon | 0 | - | - | - | - |
+| tyranNpc1Hormagaunt_SyncPvp_Kronos | 0 | - | - | - | - |
 | tyranNpc2RipperSwarm | 0 | Burrowers(1023)[C-] | - | - | - |
 | tyranNpc2RipperSwarmGorgon | 0 | Burrowers(1023)[C-] | - | - | - |
 | tyranNpc2RipperSwarmKronos | 0 | Burrowers(1023)[C-] | - | - | - |
