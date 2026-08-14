@@ -214,7 +214,8 @@ def test_le_parent_de_l_ability_est_base_triggered_ability():
     assert cible in parents, f"{cible} absente de {p.name} -- la RE du site n'est plus ancree"
     assert parents[cible] == "IdunBattle.Entities.Abilities.BaseTriggeredAbility", (
         f"parent de {cible} = {parents[cible]!r} ; la RE de "
-        f"`case-1042-wisdom-of-the-ancients.md` §1 suppose `BaseTriggeredAbility` (deux methodes "
+        f"`case-1042-wisdom-of-the-ancients.md` Sec.1 suppose `BaseTriggeredAbility` (deux "
+        f"methodes "
         f"DECLAREES). Relire le site.")
 
 
