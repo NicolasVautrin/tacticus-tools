@@ -1425,7 +1425,7 @@ orksRedGobbo	Orks	Xenos	None	passif	DaRevolushun		0
 orksRedGobbo	Orks	Xenos	None	trait	Hero		1	
 orksRedGobbo	Orks	Xenos	None	trait	Resilient		1	
 orksRedGobbo	Orks	Xenos	None	trait	Explodes		1	
-powupArmor	?	?	None	passif	PowerUp_Armor		0	
+powupArmor	?	?	None	passif	PowerUp_Armor		1	
 powupArmor	?	?	None	trait	Steppable		1	
 powupArmor	?	?	None	trait	Invincible		1	
 powupArmor	?	?	None	trait	Immune		1	
@@ -1433,7 +1433,7 @@ powupBomb	?	?	None	passif	PowerUp_Bomb		0
 powupBomb	?	?	None	trait	Steppable		1	
 powupBomb	?	?	None	trait	Invincible		1	
 powupBomb	?	?	None	trait	Immune		1	
-powupDamage	?	?	None	passif	PowerUp_Damage		0	
+powupDamage	?	?	None	passif	PowerUp_Damage		1	
 powupDamage	?	?	None	trait	Steppable		1	
 powupDamage	?	?	None	trait	Invincible		1	
 powupDamage	?	?	None	trait	Immune		1	
@@ -1441,7 +1441,7 @@ powupHealing	?	?	None	passif	PowerUp_Healing		0
 powupHealing	?	?	None	trait	Steppable		1	
 powupHealing	?	?	None	trait	Invincible		1	
 powupHealing	?	?	None	trait	Immune		1	
-powupHealth	?	?	None	passif	PowerUp_Health		0	
+powupHealth	?	?	None	passif	PowerUp_Health		1	
 powupHealth	?	?	None	trait	Steppable		1	
 powupHealth	?	?	None	trait	Invincible		1	
 powupHealth	?	?	None	trait	Immune		1	
@@ -1457,11 +1457,11 @@ powupHeroSpawn_VexilusPraeto	?	?	None	passif	PowerUp_HeroSpawn_VexilusPraetor		0
 powupHeroSpawn_VexilusPraeto	?	?	None	trait	Steppable		1	
 powupHeroSpawn_VexilusPraeto	?	?	None	trait	Invincible		1	
 powupHeroSpawn_VexilusPraeto	?	?	None	trait	Immune		1	
-powupHits	?	?	None	passif	PowerUp_Hits		0	
+powupHits	?	?	None	passif	PowerUp_Hits		1	
 powupHits	?	?	None	trait	Steppable		1	
 powupHits	?	?	None	trait	Invincible		1	
 powupHits	?	?	None	trait	Immune		1	
-powupMeleeHits	?	?	None	passif	PowerUp_MeleeHits		0	
+powupMeleeHits	?	?	None	passif	PowerUp_MeleeHits		1	
 powupMeleeHits	?	?	None	trait	Steppable		1	
 powupMeleeHits	?	?	None	trait	Invincible		1	
 powupMeleeHits	?	?	None	trait	Immune		1	

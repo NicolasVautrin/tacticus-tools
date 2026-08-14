@@ -33,7 +33,7 @@ ce qui fait que `+0x14` (`StatModifierComponent.Amount`) reste a ZERO cote natif
 virtuel `+0x798` ci-dessus qui porte la magnitude, jamais le champ.
 
 `IdunBattle.Entities.Effects.PowerUp_ArmorEffect$$CreateHandleTriggerAbilitiesInternal` (NON PORTE,
-residu `#1087` -- il vit sur le registre `EFFECT_TRIGGERS`, pas ici) :
+residu `#1089` -- il vit sur le registre `EFFECT_TRIGGERS`, pas ici) :
 
     trigger   = On(0x1e = HealthChanged, ownerNeedsToBeAlive = 1)
     behaviour = RemoveEffect(<sel+0x38>) & AddDynamicStatModifierEffect(Owner@sel+0x30,
