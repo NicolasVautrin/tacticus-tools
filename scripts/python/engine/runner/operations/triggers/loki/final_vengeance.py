@@ -125,7 +125,23 @@ class FinalVengeanceUnitEffectTrigger(EffectTrigger):
     #: `alive=False` au dispatch -- meme bypass que `FinalJusticeAbility`, pour la meme raison.
     fire_on_death = True
 
+    def _instance(self, state: State):
+        """L'instance 1454 portee par `owner_id` -- necessaire pour lire son flag `IsActive`."""
+        eff = getattr(state, "effects", None)
+        if eff is None:
+            return None
+        for e in eff.by_unit.get(int(self.owner_id), []):
+            if not e.consumed and e.effect_type == FINAL_VENGEANCE_UNIT_EFFECT:
+                return e
+        return None
+
     def matches(self, state: State, ev: TriggerEvent) -> bool:
+        # RAIL `TARGETS` (#229) : `IdunBattle.Operations.EvaluateTriggerOperation$$
+        # EvaluateEffectTriggerTargets` lit `EffectComponent.IsActive @+0x5c` AVANT d'evaluer le
+        # trigger d'un `$$CreateTargetTrigger` -- le gate est NATIF, le port doit le rendre.
+        inst = self._instance(state)
+        if inst is None or not inst.active:
+            return False
         # `get_OwnerIsTarget` (via `FinalJusticeAbility.Trigger`) : le porteur de l'effet EST le
         # mourant.
         mourant = ev.dying_id if ev.dying_id is not None else ev.target_id

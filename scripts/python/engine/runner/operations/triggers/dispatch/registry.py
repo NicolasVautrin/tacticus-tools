@@ -357,6 +357,8 @@ from ..loki.savior_protocols import SaviorProtocolsAbility            # #1020 (p
 from ..loki.instinctive_behaviour import InstinctiveBehaviourUpdateTargetAbility   # #1015-r1
 from ..loki.way_of_the_short_blade import (                          # #1019-r2 (passif 1500, T'au)
     WayOfTheShortBladeAttackAbility, WAY_OF_THE_SHORT_BLADE_KEY)
+from ..loki.final_vengeance import (                                 # #1002-r1 (effet 1454, Astra)
+    FinalVengeanceUnitEffectTrigger, FINAL_VENGEANCE_UNIT_EFFECT)
 
 
 # --- Registre : trait → ability-trigger(s) accordée(s) --------------------------------------------
@@ -2275,6 +2277,21 @@ EFFECT_TRIGGERS: dict[int, list[type[EffectTrigger]]] = {
     # attaque d'ability -- regression PERMISSIVE et SILENCIEUSE (forme de #436).
     # Cf. loki/legendary_commander.py.
     LEGENDARY_COMMANDER_EXTRA_HITS: [LegendaryCommanderExtraHitsMarkCaster],
+    # FinalVengeance_UnitEffect 1454 (#1002-r1, effet pose par `RelicOfLostCadia` sur les SUMMONS
+    # IMPERIAUX allies adjacents). Le TARGET-TRIGGER de l'effet,
+    # `...Triggered.Loki.FinalVengeance_UnitEffect$$CreateTargetTrigger` =
+    # `FinalJusticeAbility.Trigger(dsl) & NOT HasTrait(Owner@<DSLSelectors+0x30>, 0x3f6 = 1014
+    # UnitTrait.FinalJustice)`, ou la statique partagee `FinalJusticeAbility$$Trigger(dsl)` =
+    # `OnPreDeath(alive 1, ignoreOverkill 0) & get_OwnerIsTarget` ->
+    # `$$CreateTargetTriggerBehaviour` = `TriggerAbility(Owner@<+0x30>, 0x400 = 1024
+    # TriggeredAbilityType.FinalJustice, null, Get(abilityEntities+8), Get(abilityEntities+0x10),
+    # null, 0, **ignoreUnitHavingAbility: true**)`.
+    # Sans cette entree, `EffectFactory` materialisait un `BaseEffect` NU : l'effet etait VISIBLE
+    # dans la liste et ne FAISAIT rien -- le summon mourait sans sa derniere attaque, alors que
+    # l'i2 de la relique promet « Friendly surrounding Imperial Summons have Final Vengeance ».
+    # Cf. loki/final_vengeance.py (et l'etage `ignoreUnitHavingAbility` ouvert dans
+    # `abilities/behaviours/lifecycle.py::TriggerAbility` par la meme tranche).
+    FINAL_VENGEANCE_UNIT_EFFECT: [FinalVengeanceUnitEffectTrigger],   # 0x5ae -> On(PreUnitDeath)
     # HatefulAssault_AlreadyAttacked (case-366-r1, effet 1175 pose par `HatefulAssaultAbility$$
     # CreateBehaviour` sur l'ennemi qu'Angrax vient de frapper). Fabrique native = la GENERIQUE
     # `UntilOfEndTurnEffect`, dont le SEUL contenu est
