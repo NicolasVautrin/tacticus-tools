@@ -1,7 +1,7 @@
-# case-1013-r2 — `TheArdentBlade` (relique 1468) : l'étage débloqué, la RE re-confrontée, le port qui reste
+# case-1013-r2 — `TheArdentBlade` (relique 1468) : l'étage débloqué, la RE re-confrontée, le port
 
-RE : décompilé ghidra, build `rnca9r7q6c`. **État : l'étage BLOQUANT est levé et livré ; le port du
-trigger n'est PAS écrit** — inventaire exact en §5.
+RE : décompilé ghidra, build `rnca9r7q6c`. **État : PORTÉ** — les deux classes, leurs deux voies de
+registration et le cliquet sont livrés (§5). Reste la face DÉCISION, résidu `#1013-r3`.
 
 ---
 
@@ -145,22 +145,35 @@ n'est pas portée**.
 
 ---
 
-## 5. Ce qui RESTE à porter, et le montage de confrontation
+## 5. LE PORT (livré), et ce qui reste
 
-**Non écrit** (le résidu reste OUVERT, `BLOCAGE: aucun` désormais) :
+Livré dans le même commit :
 
-1. `engine/runner/operations/triggers/loki/the_ardent_blade.py` — les deux classes, sur le patron de
-   `geminae_superia.py` (même unité porteuse, même `ChildrenOf(Caster())`) :
-   * `TheArdentBlade_InitAbility` → `AddEffect(1462, AbilityStateReference, Owner, Owner, options par
-     défaut) & ActivateEffect(Owner, 1462)`. Il **ne surcharge pas `CreateTrigger`** : il prend le
-     patron `OnOwnerSpecificAbilityInit(<AbilityType>)`, que le port modélise déjà par
-     `ABILITY_INIT_OWNER_EFFECTS` (`engine/entities/effects/factory.py`).
-     ⚠ `options` n'est PAS `null` : c'est un type valeur de 32 octets, écrit **à zéro** au site
-     (options par défaut).
-   * `TheArdentBlade_TriggerAbility` → le trigger et le behaviour du §1, avec les trois corrections.
-2. L'inscription au registre `engine/runner/operations/triggers/dispatch/registry.py`.
-3. L'utilité IA `TheArdentBlade_Geminae` (+30 adjacence au parent) — sinon le choix de cible du
-   `PerformAIAttack` n'est pas fidèle. Face DÉCISION, distincte.
+1. `engine/runner/operations/triggers/loki/the_ardent_blade.py` — le trigger et le behaviour du §1,
+   avec les trois corrections. Transcription verbatim : en-tête du module.
+2. `ABILITY_INIT_OWNER_EFFECTS["TheArdentBlade"] = ["TheArdentBlade"]` pour la 1ʳᵉ classe
+   (`TheArdentBlade_InitAbility` → `AddEffect(1462, stateRef, Owner, Owner, options <32 octets à
+   ZÉRO>) & ActivateEffect(Owner, 1462)`). Elle **ne surcharge pas `CreateTrigger`** : patron
+   `OnOwnerSpecificAbilityInit`. Le seed lit `ctx.tertiary_ability` (voie TERTIAIRE, acquise depuis
+   #1005) et matérialise l'instance PERMANENTE et ACTIVE.
+   ⚠ **1462 n'a AUCUNE classe d'effet native** (inventaire §6 : rien sous `Entities.Effects.*`) :
+   c'est un **JETON à un coup**, rien à inscrire dans `EFFECT_CLASSES`.
+   ⚠ **Ce seed est LOAD-BEARING**, pas un filet : sans lui le 5ᵉ conjoint du trigger ferme toujours.
+3. `RELIC_ABILITY_TRIGGERS["TheArdentBlade"] = [TheArdentBladeTriggerAbility]`.
+4. Cliquet `tests/engine/runner/test_1013r2_the_ardent_blade_offline.py` (23 tests, 7 étages ;
+   8 mutations adversariales vues ROUGES).
+
+**CORRECTION DE FOYER, exigée par ce port** : `abilities/behaviours/context.py::_has_effect` ne
+relisait pas le FLAG `EffectComponent+0x5c` sous `active_only`, seulement la
+`CreateActiveCondition`. Or `IdunBattle.Entities.EntityExtensions$$IsOwnerOfEffect` lit le FLAG
+(`if (param_4 != 0) { if (EffectComponent+0x5c == '\0') continue; }`). Mesuré : sans le correctif,
+la relique se re-déclenchait **à chaque kill** au lieu d'une seule fois par pose. Sens RESTRICTIF ;
+trois écrivains de `active = False` seulement.
+
+**RESTE — la face DÉCISION**, résidu **`#1013-r3`** : le `customUtility` du `PerformAIAttack` (la
+`UtilityDefinition` à deux poids, dont `TheArdentBlade_Geminae` = **+30** si la tuile est adjacente
+au parent) n'est pas porté ; la feuille n'expose pas le paramètre et le corps unique choisit par
+l'utilité par DÉFAUT. §4 pour la lecture.
 
 **Le porteur — état 3, MESURÉ** : `adeptCelestine` est **HORS POOL** (`rl_duel build --list-pool` :
 `adeptCanoness`, `adeptHospitaller`, `adeptMorvenn`, `adeptRetributor` seulement). Le montage est
@@ -169,16 +182,24 @@ donc, dans l'ordre :
 1. injection catalogue (`catalog_inject.write_augmented_seed_bc` + `build --seed-bc`), cf.
    `case-92` §6 ;
 2. **puis** le montage relique (`--equip-relic "adeptCelestine:TheArdentBlade:<lvl>"`), avec les
-   trois écritures de `case-237` — dont `TertiaryAbilityLevel >= 1` **AVANT** la normalisation, et
-   la config d'ability dans `BC.Abilities.PassiveAbilities` (la config de `TheArdentBlade` est
-   **absente** du seed local : `data/seed-bc.json` porte 194 `PassiveAbilities`, aucune « Ardent »).
+   trois écritures de `case-237` — dont `TertiaryAbilityLevel >= 1` **AVANT** la normalisation.
 3. le summon `adeptSmnGeminaeSuperia` **s'observe, ne se commande pas** (#291) : ses actions sont
    dans les events du cast du summoner, ou au `PlayAutomaticUnits` du turn-start suivant.
 
-⚠ **La valeur des trois constantes (`unitId`, `range`, `hp`) n'est PAS vérifiable hors ligne** — la
-config d'ability des reliques n'est pas dans `data/seed-bc.json`. Le `'adeptSmnGeminaeSuperia'` de
-l'énoncé est **plausible mais NON LU** ; il exige un dump gameconfig ou un `catalog_inject`.
-L'unité, elle, existe bien dans le seed (Sisterhood, traits `Imperial`/`Summon`/`Flying`).
+Ce montage n'a **pas** été joué : la relique est **NON CONFRONTÉE LIVE**, et c'est un manque
+nommé, pas un blocage (aucun étage ne manque).
+
+⚠ **Les trois constantes SONT lisibles hors ligne — la phrase qui disait le contraire visait le
+SEED BC, pas le gameconfig.** `gameconfig.abilities.TheArdentBlade` porte
+`constants = {unitId: "adeptSmnGeminaeSuperia", range: "3"}`, `variables.hp = [2350 … 3492]`
+(10 paliers) et `variablesAffectedByRarityBonus = null` (donc AUCUN scaling de rareté). Le
+`'adeptSmnGeminaeSuperia'` de l'énoncé était juste — il est désormais **MESURÉ**.
+
+⚠ **Et la conséquence annoncée du `healType` par défaut ne se produit pas sur CE porteur** :
+`adeptSmnGeminaeSuperia` a pour traits `['Summon', 'Flying']` — il n'est **pas mécanique**, donc
+`HealType.NonMechanical` l'accepterait aussi. Écrire `Any` reste le mirror FIDÈLE (c'est le
+littéral), et la séparation reste réelle pour toute cible mécanique : le cliquet la démontre sur un
+témoin `necroSmnWarrior`, faute de quoi l'étage serait dégénéré.
 
 ---
 
