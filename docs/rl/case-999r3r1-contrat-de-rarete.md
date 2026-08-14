@@ -109,33 +109,65 @@ réparation du vrai foyer le laissait vert. Il passe désormais par un espion po
 
 ---
 
-## 4. `#999-r3-r1-r1` — le blocage qui restait, et il n'a rien à voir avec la rareté
+## 4. `#999-r3-r1-r1` — RÉSOLU : le filtre positionnel était un artefact du port
 
-`probe_999r3r1_porteurs_aura_mow.py`. Une MoW porteuse de l'aura 1442, dans un état offline :
+Le blocage qui restait n'avait rien à voir avec la rareté. `probe_999r3r1_porteurs_aura_mow.py`,
+sur une MoW porteuse de l'aura 1442, mesurait :
 
-| fait mesuré | valeur |
-|---|---|
-| MoW matérialisée comme entité | oui |
-| MoW SANS `PositionComponent` | oui (`snapshot._load_machines` : hors-plateau, le natif non plus) |
-| rareté de la MoW MESURÉE | `Rarity.Mythic` |
-| aura 1442 active dans `state.effects` | oui |
-| retenue comme porteur — aura ATTAQUE / DÉFENSE | **non / non** (témoins : les deux agrégateurs TOURNENT) |
-| face PRÉDICTION — MoW dans `EffectsState.by_unit` | **non** |
-| face PRÉDICTION — MoW dans `pos_by_id` | **non** (témoin #360 : `team_by_id` la porte, lui) |
+| fait mesuré | AVANT | APRÈS |
+|---|---|---|
+| MoW matérialisée comme entité | oui | oui |
+| MoW SANS `PositionComponent` | oui (`_load_machines` : hors-plateau, le natif non plus) | oui |
+| rareté de la MoW MESURÉE | `Rarity.Mythic` | `Rarity.Mythic` |
+| aura 1442 active dans `state.effects` | oui | oui |
+| retenue comme porteur — aura ATTAQUE / DÉFENSE | **non / non** | **oui / oui** |
+| face PRÉDICTION — MoW dans `EffectsState.by_unit` | **non** | **oui** |
+| face PRÉDICTION — MoW dans l'univers des porteurs | **non** | **oui** |
+| face PRÉDICTION — MoW dans `pos_by_id` | non | **non, et c'est voulu** |
 
-Cause : les deux collectes exigent un `PositionComponent`
+Cause : les deux collectes exigeaient un `PositionComponent`
 (`_apply_ally_attack_damage_auras`, `defender_modifiers`). Le natif, lui, itère une
 `List<KeyValuePair<entité, List<effet>>>` de l'ÉTAT, **board-wide, sans lire aucune position** — le
-filtre est un **artefact du port**. Côté PRÉDICTION le blocage est double :
-`playbook/scene.py::step_context` seede son `EffectsState` depuis `dv["units"]` **seulement**.
+filtre était un **artefact du port**. Côté PRÉDICTION le blocage était double :
+`playbook/scene.py::step_context` seedait son `EffectsState` depuis `dv["units"]` **seulement**, et
+les **trois** boucles de porteurs (`prediction/_shared.py` ×2, `prediction/normal_attack.py` ×1)
+itéraient `scene.pos_by_id`.
 
-⚠ **Ne réparer qu'une face serait un FORK prediction/combat**, le vice que #197 et #950-r2 ont déjà
-payé. C'est pourquoi la réparation n'est pas faite ici : elle touche `scene.py`, foyer partagé, et
-mérite sa propre tranche avec sa mesure de rayon de souffle.
+**Ce que la réparation fait, en quatre points.** Le porteur entre avec `owner_pos = None` (les
+auras positionnelles se taisent d'elles-mêmes : leurs lecteurs ouvrent tous par
+`if not op or not ap: return None`) ; `step_context` seede aussi `dv["mows"][].effects` ; et les
+trois boucles passent par un foyer neuf, `Scene.effect_carrier_ids` = `pos_by_id` **plus** les
+entités qui portent un effet matérialisé sans y figurer — élargissement **borné aux porteurs
+réels**, donc un état sans MoW porteuse rend exactement la liste d'avant.
+
+⚠ **Le canal `dv["mows"][].effects` EXISTE, et il se lit au bon endroit.** `projectMowsFull`
+(`frida/hooks/features/ai-step/projection.ts`) ne porte **aucun** champ `effects` : c'est
+`rpc-decision.ts` qui l'assemble, au site du RPC, par
+`mows.map((m) => ({ ...m, effects: effectsByUnit.get(m.casterId) ?? [] }))` — le **même**
+`readEffectsByUnit(statePtr, { includeInactive })` que pour les units. Conclure du projecteur que
+le canal n'existe pas aurait été un faux négatif, et aurait fait classer ce volet
+`BLOCAGE: capteur` (donc non dispatchable sans fenêtre de reinject) alors qu'il était purement
+Python.
+
+⚠ **`pos_by_id` n'a PAS été élargi, et c'est ce qui distingue une réparation d'une triche.** Y
+inventer une tuile aurait fait passer tous les étages *et* rendu évaluable une aura POSITIONNELLE
+qui doit se taire — pire qu'un gate muet. La contre-épreuve est un étage à part entière, sur les
+deux faces.
+
+⚠ **Réparer une seule face aurait recréé le fork prediction/combat** (#197, #950-r2). Les quatre
+assertions vivent donc dans le **même** test : aucune ne peut passer seule.
+
+**Confronté LIVE** (`probe_999r3r1r1_porteur_mow_live.py`, `deathCrawler` / `BlightedLand`,
+`MC1_67`, seed 777) — cinq étages, du jeu jusqu'à l'univers de porteurs : le capteur publie
+`['BlightedLand_ExtraDamagePct']` sur `casterId 87` avec `pos = null` ; les porteurs retenus sont
+`[91, 93, 95, 97, **87**]` (ATTAQUE) et `[79, 81, 85, 89, 91, 93, 95, 97, **87**]` (DÉFENSE), donc
+listes non dégénérées ; la face DÉCISION seede et voit ; et la MoW n'a de position nulle part.
 
 Ce que ça débloque : les **six `PARTIEL`** de `kit-coverage.md` — `1442 BlightedLand`,
 `1443 ContemptuousDisregard`, `1445 WisdomOfTheAncients`, `1449 MoreGitzOverEre`,
-`1494 CabalOfSorcerers`, `1548 GuardianConstruct`.
+`1494 CabalOfSorcerers`, `1548 GuardianConstruct`. ⚠ **Débloqués ≠ portés** : chacun demande
+encore son mirror d'effet et **sa** confrontation de magnitude en régime SÉPARANT. Ce qui a
+disparu, c'est l'impossibilité.
 
 ---
 

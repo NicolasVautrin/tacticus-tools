@@ -112,34 +112,50 @@ def test_ability_init_owner_effect_inscrite():
 
 # ========================= (2) le refus d'EFFECT_CLASSES est CONDITIONNEL au canal de rarete
 
-def test_effet_hors_registre_tant_que_la_rarete_est_inevaluable():
-    """`...WisdomOfTheAncients_DamageReductionEffect$$CreateTargetSelector` ouvre TROIS fois sur
-    `UnitsWithRarity(., Rarity.Mythic = 5, OnlyAliveAndTargetable = 3)` -- l'inscrire sans ces
-    gates serait un terme PERMISSIF (l'aura protegerait tout ami adjacent a un ami Hero, Mythique
-    ou non).
+def test_effet_hors_registre_tant_que_l_effet_n_est_pas_porte():
+    """REQUALIFIE PAR #999-r3-r1-r1 -- ce cran a ROUGI, et il a eu RAISON.
+
+    Etat d'AVANT : il figeait le refus d'`EFFECT_CLASSES` en le rendant CONDITIONNEL au canal de
+    rarete, et il etait ecrit pour rougir << dans les DEUX sens >>, le second etant le plus utile :
+    se taire le jour ou le capteur arriverait aurait laisse `#1042-r1` dormir. Le capteur est
+    arrive (#1039), le canal traverse (#999-r3), il a rougi. C'etait son travail.
+
+    Etat d'AUJOURD'HUI, et il a CHANGE DEUX FOIS depuis l'ecriture de ce cran :
+      1. la rarete EST evaluable -- `UnitContext.rarity`, `triggers.HasRarity`,
+         `selectors.units.UnitsWithRarity`, confrontes live en regime SEPARANT ;
+      2. le SECOND verrou est tombe aussi (#999-r3-r1-r1) : le porteur de 1445 est la MoW
+         `ultraDreadnought`, et les agregateurs d'aura l'ECARTAIENT faute de `PositionComponent`.
+         Ils ne l'ecartent plus, sur AUCUNE des deux faces.
+
+    Ce qui reste, et c'est desormais LA seule cause : **l'effet n'est pas PORTE**. Son
+    `$$CreateTargetSelector` ouvre TROIS fois sur `UnitsWithRarity(., Rarity.Mythic = 5,
+    OnlyAliveAndTargetable = 3)` ; ecrire ce mirror et le confronter est une tranche a soi seule
+    (`#1042-r1`). L'inscrire sans ces trois etages serait un terme PERMISSIF -- l'aura protegerait
+    tout ami adjacent a un ami Hero, Mythique ou non.
 
     ⚠ Et le trou serait INVISIBLE en test : `rl_duel build` impose `targetRarity = 5` a toute unite
     normalisee, donc les trois etages y sont uniformement VRAIS (regime DEGENERE). On en sort par
     `--unit-stat "<vis>:Rarity=N"` -- MESURE #1042 : `P1:Rarity=4` fait tomber le set a `{P2,P3}`,
     `P2:Rarity=4` le VIDE.
 
-    ⚠ CE CRAN ROUGIT DANS LES DEUX SENS, et le second est le plus utile : se taire le jour ou le
-    capteur arrive laisserait `#1042-r1` dormir. Calque sur
-    `test_1036_mythiques_owner_effect_offline.py` et
+    ⚠ CE CRAN ROUGIT TOUJOURS DANS LES DEUX SENS. Le second bras est intact : le jour ou 1445
+    entrera au registre, il faudra relire ce fichier pour verifier que les trois etages du selecteur
+    sont bien portes ET confrontes en regime SEPARANT. Ce qui a change est la RAISON du refus, pas
+    le refus. Calque sur `test_1036_mythiques_owner_effect_offline.py` et
     `test_1025_electrochaff_backups_offline.py::test_verrou_de_rarete_fige_avec_sa_raison`."""
     from engine.entities.effects.factory import EFFECT_CLASSES
 
-    if _canal_rarete_existe():
-        assert False, (
-            f"`UnitContext` porte desormais une RARETE : le verrou qui tenait {EFFET} hors "
-            f"d'`EFFECT_CLASSES` est leve. RELIRE `docs/rl/case-1042-wisdom-of-the-ancients.md` "
-            f"(la RE de l'effet y est complete, et les cinq bras live y sont chiffres) et porter "
-            f"#1042-r1 -- ou requalifier ce cran si le canal ne repond pas a `UnitsWithRarity`.")
+    # Les DEUX verrous d'ORIGINE sont tombes -- assertionne ici pour que leur RETRAIT rougisse
+    # aussi : si la rarete redevenait inevaluable, la cause du refus redeviendrait celle d'avant et
+    # cette docstring mentirait.
+    assert _canal_rarete_existe(), (
+        "`UnitContext` ne porte plus de rarete : le canal (#999-r3, capteur #1039) est retire, et "
+        "1445 redevient inevaluable pour la RAISON D'ORIGINE. Relire case-999r3-canal-rarete.")
     assert EFFET not in EFFECT_CLASSES, (
-        f"{EFFET} est entre dans EFFECT_CLASSES alors qu'`UnitContext` ne porte AUCUNE rarete -- "
-        f"son `$$CreateTargetSelector` serait donc applique SANS ses TROIS etages "
-        f"`UnitsWithRarity(Mythic)`, soit un terme PERMISSIF silencieux (residu #1042-r1, "
-        f"BLOCAGE capteur)")
+        f"{EFFET} est entre dans EFFECT_CLASSES. Verifier que son `$$CreateTargetSelector` porte "
+        f"bien ses TROIS etages `UnitsWithRarity(Mythic)` et qu'ils ont ete confrontes en regime "
+        f"SEPARANT (`--unit-stat '<vis>:Rarity=N'`) -- le regime par defaut du harnais est "
+        f"DEGENERE, un vert obtenu la ne separerait RIEN. Puis requalifier ce cran (#1042-r1).")
 
 
 # =================================================== (3) les ordinaux du site, FIGES au site
