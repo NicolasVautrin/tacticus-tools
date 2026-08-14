@@ -181,9 +181,13 @@ mord que sur une empreinte multi-hex ou une `TargetPosition` explicite.
   `test_341_kit_coverage_voies`, `test_570r5`, `test_1038_rebake`, `test_999r3r1` — **81 + 95
   verts**. `probe_313` rc 0 (cache régénéré et indexé), `probe_181` rc 0, `probe_366` rc 0,
   `probe_433_r1` rc 0.
-* **Audits régénérés** : `passive-ability-coverage.md` (gaps confrontables **7 → 5**),
-  `summons-registry` (passifs portés **21 → 23**, kits sans manque **37 → 39**), `npc-registry`,
-  `kit-coverage`, `combat-ability-coverage`.
+* **Audits régénérés** — `passive-ability-coverage.md`, `summons-registry`, `npc-registry`,
+  `kit-coverage`, `combat-ability-coverage`. Les deux items y passent de `GAP-ABSENT` /
+  `GAP-MENTION` à **`PORTE`** : `CursedOfTheWalkingPox` avec le canal **`T`** (le trigger), et
+  `RedThirst` avec **`O`** + **`E`** (owner-effect et effet). ⚠ **Les totaux ne sont pas cités
+  ici** : les audits ont été rebasés sur `origin/master` alors que quatre tranches sœurs
+  fusionnaient, donc tout `avant → après` global mesurerait leur travail autant que le nôtre —
+  les re-dériver (`python audit_passive_ability_coverage.py`), jamais recopier une ligne.
 
 ## 7. Non couvert, et nommé
 
