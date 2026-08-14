@@ -414,6 +414,41 @@ VENTILATION = {
                         "TRAIT degradee en VRAI (#208), donc degradation PERMISSIVE"),
     ("playbook/scene.py", "unit_state", "getattr(c)", "R"):
         ("INDECIDABLE", "face DECISION du precedent, meme raison et meme degradation"),
+
+    # ---- 2026-08-14 : QUATRE sites arrives par les tranches de la journee -----------------------
+    # Le cliquet a rougi sur `master` APRES coup -- ces sites viennent de #1015-r1 (les deux faces
+    # de `CloseCombatWeakness` et d'`InstinctiveBehaviour`) et de #1001. Aucune des PR qui les a
+    # crees ne jouait ce fichier : il se declenche sur TOUTE lecture de `traits` sous `engine/`,
+    # donc AUCUNE passe derivee du diff ne l'atteint. Ventiles ici, site par site, par leur ROUTE
+    # REELLE -- jamais en recopiant le motif d'un frere de meme fichier.
+    ("entities/effect_targets.py", "_synapse_targets", "world.traits", "R"):
+        ("HORS-ECS", "`tr = world.traits(uid) or ()` -- appel de METHODE du pont `world`, pas une "
+                     "lecture de ctx. MEME forme que `_surrounding_enemy_psykers_r2` du meme "
+                     "fichier ; les deux implementations du pont sont ventilees a leur propre "
+                     "ligne (`scene.py::traits` cote DECISION)"),
+    ("playbook/scene.py", "close_combat_weakness_adjacent_enemies", "getattr(c)", "R"):
+        ("INERTE-VIVANT", "boucle sur `self.units` gatee par `_adj.unit_matches(self, u)`, dont le "
+                          "`selection_type` par defaut est `OnlyAliveAndTargetable` et qui lit "
+                          "`alive=bool(u.get('alive'))`. ⚠ La route N'EST PAS celle de son frere "
+                          "`_enmity_adjacent`, qui porte un `not u.alive -> continue` LITTERAL en "
+                          "tete : ici le gate passe par le mirror de "
+                          "`UnitExtensions$$MatchesUnitSelectionType`. Meme verdict, autre chemin"),
+    ("runner/operations/triggers/loki/blade_of_the_ancestors.py", "_traits_of", "getattr(sc.ctx)",
+     "R"):
+        ("INERTE-AMONT", "helper a DEUX appelants, tous deux enumeres. `_friendly_hero` recoit "
+                         "`ev.dying_id` (branche 1) puis `ev.actor_id` (branche 2) ; "
+                         "`_is_normal_unit` recoit `dying`. Un `dying_id` est mort PENDANT le run "
+                         "-- il PORTE son `StatsComponent` (P1 : absent <=> mort AU CHARGEMENT) -- "
+                         "et un `actor_id` est l'acteur vivant de l'event. Aucun cadavre-au-"
+                         "chargement n'est jamais passe. MEME forme que `cosmic_horror.py::"
+                         "_traits_of`, et le repli `[]` sur `sc is None` reste inatteignable"),
+    ("runner/snapshot.py", "_load_stats_and_effects", "getattr(sc.ctx)", "R"):
+        ("INERTE-VIVANT", "boucle `for eid in state.entities` gatee par `sc is None or uc is None "
+                          "or not uc.visual_id -> continue`. Le premier conjoint EST le cadavre-au-"
+                          "chargement, par P1 -- il est donc ecarte AVANT la lecture, comme dans "
+                          "`control_edict.py::_adjacent_mechanical_summons`. Ce site pose les "
+                          "owner-effects de trait (dont `1235 InstinctiveBehaviour_BlockMovement`, "
+                          "#1015-r1) : les poser sur un cadavre serait un effet sans porteur"),
 }
 
 # Les DEUX sites que la ventilation a rendus ATTEIGNABLES, et que cette tranche a CONVERTIS.
