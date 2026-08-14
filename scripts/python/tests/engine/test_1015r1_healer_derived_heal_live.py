@@ -60,9 +60,11 @@ DECLENCHEUR = {
 
 HEAL = int(ActiveAbilityType.Heal)                       # 0x12 = 18
 TWISTED = int(ActiveAbilityType.Heal_TwistedScience)     # 0x48f = 1167
+REPAIR = int(ActiveAbilityType.Repair)                   # 0x1c = 28
+GALVANIC = int(ActiveAbilityType.Repair_GalvanicField)   # 0x45f = 1119
 TRAIT = UnitTrait.Healer.name
 
-P_NATURE = "adeptHospitaller,ultraTigurius,genesBiophagus"
+P_NATURE = "adeptHospitaller,ultraTigurius,genesBiophagus,necroSpyder,admecManipulus"
 P_GREFFE = "ultraTigurius,adeptHospitaller"
 TRAITS_GREFFES = '["Hero","Psyker","%s"]' % TRAIT        # `ultraTigurius` = Hero + Psyker au kit
 
@@ -213,3 +215,32 @@ def test_le_porteur_qui_substitue_perd_18_au_natif_ET_au_port(nature):
     assert HEAL not in porte, (
         "le port donne `18` a un porteur qui SUBSTITUE : `PASSIVE_REMOVES_ACTIVE_ABILITY` n'est pas "
         "applique, ou son substrat de passifs est muet. Port : %r" % sorted(porte))
+
+
+# ================================================================================================
+# 5. L'AUTRE ENTREE DU MEME DICT -- `Mechanic` -> `28 Repair`, livree dans le meme commit
+# ================================================================================================
+
+def test_l_entree_Mechanic_du_dict_est_confrontee_elle_aussi(nature):
+    """Le dict `<Trait statics>+0x08` a DEUX entrees et le port les porte toutes les deux : la
+    seconde doit etre confrontee au meme titre, sinon elle serait livree sur la seule foi du
+    decompile.
+
+    `necroSpyder` (`Mechanic`, passif `FabricatorClawArray`) GARDE `28`.
+    `admecManipulus` (`Mechanic`, passif `GalvanicField`) la PERD au profit de `1119` --
+    `GalvanicFieldAbility$$CreateBehaviour` = `AddFlag(0x18) & RemoveActiveAbility(0x1c) &
+    AddActiveAbility(0x45f)`. Les deux ensemble sont le temoin non-nul de CETTE entree."""
+    st, natif = nature
+    for vis in ("necroSpyder", "admecManipulus"):
+        assert vis in natif, "%s absent du runner : le roster a change (%r)" % (vis, sorted(natif))
+    assert REPAIR in natif["necroSpyder"], (
+        "le natif ne derive PAS `28 Repair` du trait `Mechanic` : premisse cassee (%r)"
+        % sorted(natif["necroSpyder"]))
+    assert REPAIR not in natif["admecManipulus"] and GALVANIC in natif["admecManipulus"], (
+        "`admecManipulus` ne montre pas la substitution `GalvanicField` : %r"
+        % sorted(natif["admecManipulus"]))
+    assert REPAIR in _porte(st, "necroSpyder"), (
+        "le port ne derive pas `28` du trait `Mechanic` : %r" % sorted(_porte(st, "necroSpyder")))
+    assert REPAIR not in _porte(st, "admecManipulus"), (
+        "le port laisse `28` a un porteur que `GalvanicField` en prive : %r"
+        % sorted(_porte(st, "admecManipulus")))

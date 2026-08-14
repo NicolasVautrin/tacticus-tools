@@ -26,63 +26,21 @@
 
 ## Bilan
 
-- Unites lineup : **127** ; kits COMPLETS (aucun manque detecte) : **121** ; kits avec du travail : **6**
-- Volume total : **6** items manquants (actives no-op + passifs/traits non registres)
-- HORS total — voies conditionnelles : **9** abilities non portees (8 mythiques, 1 reliques equipables), dont **7 PARTIELLES**
-- PARTIELS (#1041) — montage DECLARE, rien ne s'execute : **7** conditionnelle(s) (BlightedLand, CabalOfSorcerers, ContemptuousDisregard, GuardianConstruct, MoreGitzOverEre, TheArdentBlade, WisdomOfTheAncients) ; **0** passif(s)
-- HORS total — faces DECISION non portees : **5** actives sur 138, dont **4** dans des kits declares COMPLETS (4 kits concernes)
+- Unites lineup : **127** ; kits COMPLETS (aucun manque detecte) : **127** ; kits avec du travail : **0**
+- Volume total : **0** items manquants (actives no-op + passifs/traits non registres)
+- HORS total — voies conditionnelles : **7** abilities non portees (6 mythiques, 1 reliques equipables), dont **5 PARTIELLES**
+- PARTIELS (#1041) — montage DECLARE, rien ne s'execute : **5** conditionnelle(s) (BlightedLand, CabalOfSorcerers, GuardianConstruct, MoreGitzOverEre, TheArdentBlade) ; **0** passif(s)
+- HORS total — faces DECISION non portees : **5** actives sur 138, dont **5** dans des kits declares COMPLETS (5 kits concernes)
 - DECOMPTES par un verdict ATTESTE : **9** (et **0** attestation(s) PERIMEE(S), dont l'item est REDEVENU manquant) — section dediee plus bas, jamais tue
 
 ### Priorite par faction (volume decroissant)
 
 | faction | kits | items |
 |---|---:|---:|
-| BloodAngels | 1 | 1 |
-| DeathGuard | 1 | 1 |
-| Genestealers | 1 | 1 |
-| Sisterhood | 1 | 1 |
-| SpaceWolves | 1 | 1 |
-| Ultramarines | 1 | 1 |
 
 ## Par faction (kits avec du travail)
 
-### BloodAngels — 1 kits, 1 items
-
-| unite | manque | actives | passifs manquants | traits de kit manquants |
-|---|---|---|---|---|
-| bloodSanguinary | 1 | BloodChalice(1175) [CD] OK | - | Healer(x18) |
-
-### DeathGuard — 1 kits, 1 items
-
-| unite | manque | actives | passifs manquants | traits de kit manquants |
-|---|---|---|---|---|
-| deathRotbone | 1 | RevitalizingMalignancy(1037) [CD] OK | - | Healer(x18) |
-
-### Genestealers — 1 kits, 1 items
-
-| unite | manque | actives | passifs manquants | traits de kit manquants |
-|---|---|---|---|---|
-| genesBiophagus | 1 | AberrantHypermorph(1166) [CD] OK | - | Healer(x18) |
-
-### Sisterhood — 1 kits, 1 items
-
-| unite | manque | actives | passifs manquants | traits de kit manquants |
-|---|---|---|---|---|
-| adeptHospitaller | 1 | RitesOfRestoration(1039) [CD] OK | - | Healer(x18) |
-
-### SpaceWolves — 1 kits, 1 items
-
-| unite | manque | actives | passifs manquants | traits de kit manquants |
-|---|---|---|---|---|
-| spaceWolfPriest | 1 | RitesOfMorkai(1211) [C-] OK | - | Healer(x18) |
-
-### Ultramarines — 1 kits, 1 items
-
-| unite | manque | actives | passifs manquants | traits de kit manquants |
-|---|---|---|---|---|
-| ultraApothecary | 1 | CombatRestoratives(1002) [CD] OK | - | Healer(x18) |
-
-## HORS total — faces DECISION non portees dans des kits COMPLETS (4)
+## HORS total — faces DECISION non portees dans des kits COMPLETS (5)
 
 > ⚠ **`missing` NE COMPTE QUE LA FACE COMBAT.** Une ability dont l'execution est
 > portee mais dont l'UTILITE de decision ne l'est pas rend `missing = 0` : le kit
@@ -103,6 +61,7 @@
 | astraOrdnance | BasiliskBarrage | 1026 | DAMAGE(Blast) |
 | deathCrawler | EntropyCannons | 1168 | DAMAGE(Energy) |
 | orksRukkatrukk | SquigLaunchas | 1200 | DAMAGE(Physical) |
+| spaceWolfPriest | RitesOfMorkai | 1211 | EFFECT/BUFF |
 | ultraDreadnought | MacroPlasmaIncinerator | 1159 | DAMAGE(Plasma) |
 
 ## Verdicts ATTESTES — decomptes du total, et JAMAIS tus (9 valides, 0 perimees)
@@ -139,14 +98,14 @@
 | passif:GalvanicField | RIEN_A_PORTER | `test_952_hunters_beyond_death_offline.py` | docs/rl/case-952-hunters-beyond-death-et-galvanic-field.md#3 | GalvanicFieldAbility$$CreateBehaviour = AddFlag(0x18 CanRepairFullHealthUnits) & RemoveActiveAbility(0x1c Repair) & AddActiveAbility(0x45f Repair_GalvanicField). Les trois feuilles ont leur consommateur porte (unit_flags -> entity_can_be_repaired ; ABILITY_CLASSES[1119] ; le port ne derive jamais Repair d'un trait, donc rien a retirer), et les deux utilites de GalvanicFieldPlaybook rendent Fix64(0) -- porter le playbook ajouterait un terme nul. |
 | trait:IndirectFire | PORTE_HORS_REGISTRE | `engine.services.targeting_query:INDIRECT_FIRE_TRAIT` | docs/rl/port-roadmap.md#5.1 | Le trait n'a ni trigger, ni ability derivee, ni owner-effect, ni classe d'effet homonyme : il est LU IMPERATIVEMENT par ses deux consommateurs, aux deux volets natifs. (1) elevation -- TargetingQuery$$GetTilesObscuringTerrain teste HasTrait(caster, 0x3ed) avant de poser le volet ObscuringType (services/targeting_query.py, INDIRECT_FIRE_TRAIT ; threade par ability_range._has_indirect_fire). (2) Trench -- le gate IsTrench(attackerTile)+IsNeighbourOf de la reduction (services/damage_modifiers.py, damage_model.py). |
 
-## Kits lineup COMPLETS (121)
+## Kits lineup COMPLETS (127)
 
-> ⚠ **COMPLET = face COMBAT complete.** 4 de ces kits portent au moins une active
+> ⚠ **COMPLET = face COMBAT complete.** 5 de ces kits portent au moins une active
 > sans face DECISION (section precedente) — ils sont marques `*` ci-dessous.
 
-adeptCanoness, adeptCelestine, adeptExorcist, adeptMorvenn, adeptRetributor, admecDestroyer, admecDominus, admecManipulus, admecMarshall, admecRuststalker, astarCyrus, astarLysander, astraBullgryn, astraCreed, astraDreir, astraOrdnance*, astraOrdnanceBattery, astraPrimarisPsy, astraYarrick, blackAbaddon, blackForgefiend, blackHaarken, blackObliterator, blackPossession, blackTerminator, bloodDante, bloodDeathCompany, bloodIntercessor, bloodMephiston, bloodTerminator, custoAtlacoya, custoBladeChampion, custoKyrus, custoTrajann, custoVexilusPraetor, darkaAsmodai, darkaAzrael, darkaCompanion, darkaHellblaster, darkaSternguard, darkaStormSpeeder, darkaTerminator, deathBlightbringer, deathBlightlord, deathCrawler*, deathPutrifier, deathTyphus, eldarAutarch, eldarFarseer, eldarJainZar, eldarLhykhis, eldarMauganRa, eldarRanger, emperExultant, emperFlawlessBlade, emperKakophonist, emperLucius, emperNoiseMarine, genesKelermorph, genesMagus, genesPatriarch, genesPrimus, necroChronomancer, necroDestroyer, necroOverlord, necroPlasmancer, necroReanimator, necroSpyder, necroWarden, orksBigMek, orksKillaKan, orksNob, orksRukkatrukk*, orksRuntherd, orksWarboss, spaceBlackmane, spaceHound, spaceRockfist, spaceStormcaller, spaceWulfen, tauAunShi, tauBroadside, tauCrisis, tauDarkstrider, tauFarsight, tauMarksman, tauShadowsun, templAggressor, templAncient, templChampion, templHelbrecht, templSwordBrother, thousAhriman, thousDaemonPrince, thousInfernalMaster, thousSekhetar, thousSorcerer, thousTerminator, thousTzaangor, tyranBiovore, tyranDeathleaper, tyranNeurothrope, tyranParasite, tyranTyrantGuard, tyranWingedPrime, ultraCalgar, ultraDreadnought*, ultraEliminatorSgt, ultraInceptorSgt, ultraTigurius, ultraTitus, votanBeserk, votanChampion, votanIronmaster, votanMemnyr, votanUthar, worldEightbound, worldExecutions, worldJakhal, worldKharn, worldTerminator
+adeptCanoness, adeptCelestine, adeptExorcist, adeptHospitaller, adeptMorvenn, adeptRetributor, admecDestroyer, admecDominus, admecManipulus, admecMarshall, admecRuststalker, astarCyrus, astarLysander, astraBullgryn, astraCreed, astraDreir, astraOrdnance*, astraOrdnanceBattery, astraPrimarisPsy, astraYarrick, blackAbaddon, blackForgefiend, blackHaarken, blackObliterator, blackPossession, blackTerminator, bloodDante, bloodDeathCompany, bloodIntercessor, bloodMephiston, bloodSanguinary, bloodTerminator, custoAtlacoya, custoBladeChampion, custoKyrus, custoTrajann, custoVexilusPraetor, darkaAsmodai, darkaAzrael, darkaCompanion, darkaHellblaster, darkaSternguard, darkaStormSpeeder, darkaTerminator, deathBlightbringer, deathBlightlord, deathCrawler*, deathPutrifier, deathRotbone, deathTyphus, eldarAutarch, eldarFarseer, eldarJainZar, eldarLhykhis, eldarMauganRa, eldarRanger, emperExultant, emperFlawlessBlade, emperKakophonist, emperLucius, emperNoiseMarine, genesBiophagus, genesKelermorph, genesMagus, genesPatriarch, genesPrimus, necroChronomancer, necroDestroyer, necroOverlord, necroPlasmancer, necroReanimator, necroSpyder, necroWarden, orksBigMek, orksKillaKan, orksNob, orksRukkatrukk*, orksRuntherd, orksWarboss, spaceBlackmane, spaceHound, spaceRockfist, spaceStormcaller, spaceWolfPriest*, spaceWulfen, tauAunShi, tauBroadside, tauCrisis, tauDarkstrider, tauFarsight, tauMarksman, tauShadowsun, templAggressor, templAncient, templChampion, templHelbrecht, templSwordBrother, thousAhriman, thousDaemonPrince, thousInfernalMaster, thousSekhetar, thousSorcerer, thousTerminator, thousTzaangor, tyranBiovore, tyranDeathleaper, tyranNeurothrope, tyranParasite, tyranTyrantGuard, tyranWingedPrime, ultraApothecary, ultraCalgar, ultraDreadnought*, ultraEliminatorSgt, ultraInceptorSgt, ultraTigurius, ultraTitus, votanBeserk, votanChampion, votanIronmaster, votanMemnyr, votanUthar, worldEightbound, worldExecutions, worldJakhal, worldKharn, worldTerminator
 
-## HORS total — voies conditionnelles (9 abilities non portees)
+## HORS total — voies conditionnelles (7 abilities non portees)
 
 > Une unite `lineup` porte aussi des abilities par deux voies que le kit n'expose
 > pas : `mythic` (`units.<kind>.<id>.mythicAbilities`, a DEBLOQUER) et `item`
@@ -171,11 +130,9 @@ adeptCanoness, adeptCelestine, adeptExorcist, adeptMorvenn, adeptRetributor, adm
 | TheArdentBlade | item | PARTIEL | 1 | adeptCelestine | ABILITY_INIT_OWNER_EFFECTS(effet-a-une-classe) |
 | BlightedLand | mythic | PARTIEL | 1 | deathCrawler | ABILITY_INIT_OWNER_EFFECTS(effet-a-une-classe) |
 | CabalOfSorcerers | mythic | PARTIEL | 1 | thousDaemonPrince | ABILITY_INIT_OWNER_EFFECTS(effet-a-une-classe) |
-| ContemptuousDisregard | mythic | PARTIEL | 1 | blackForgefiend | ABILITY_INIT_OWNER_EFFECTS(effet-a-une-classe) |
 | GuardianConstruct | mythic | PARTIEL | 1 | necroReanimator | ABILITY_INIT_OWNER_EFFECTS(effet-a-une-classe) |
 | MoreGitzOverEre | mythic | PARTIEL | 1 | orksRukkatrukk | ABILITY_INIT_OWNER_EFFECTS(effet-a-une-classe) |
 | OnMyPosition | mythic | ABSENT | 1 | astraOrdnanceBattery | - |
 | ShieldOfFaith | mythic | ABSENT | 1 | adeptExorcist | - |
-| WisdomOfTheAncients | mythic | PARTIEL | 1 | ultraDreadnought | ABILITY_INIT_OWNER_EFFECTS(effet-a-une-classe) |
 
-Portees (au moins une voie dont le gate passe) : **34** — AmuletOfTheVoidwyrm, BladeOfTheAncestors, BookOfFate, ChaliceOfBaal, DaemonfleshPlate, DawnBlade, Dw02AdvancedBurstCannon, ElectrochaffBackups, HeadwoppasKillchoppa, Helspear, HyperCorrosiveAcid, IntoxicatingElixir, KardiocoreGalvanus, Lakrimae, MastersOfManoeuvre, Maugetar, MawClawsOfThyrax, MonsterSlayerOfCaliban, NetherRealmCasket, NornCrown, OrbsOfDecay, ParagonSpear, PhasalSubjugator, PhoenixGem, RelicBoltPistol, RelicOfLostCadia, RelicPowerFist, SabreOfSacrifice, SupaCyborkBody, TalismanOfRage, TalonOfHorus, Vitarus, VolummsMasterArtifice, WyrdmakersHelm
+Portees (au moins une voie dont le gate passe) : **36** — AmuletOfTheVoidwyrm, BladeOfTheAncestors, BookOfFate, ChaliceOfBaal, ContemptuousDisregard, DaemonfleshPlate, DawnBlade, Dw02AdvancedBurstCannon, ElectrochaffBackups, HeadwoppasKillchoppa, Helspear, HyperCorrosiveAcid, IntoxicatingElixir, KardiocoreGalvanus, Lakrimae, MastersOfManoeuvre, Maugetar, MawClawsOfThyrax, MonsterSlayerOfCaliban, NetherRealmCasket, NornCrown, OrbsOfDecay, ParagonSpear, PhasalSubjugator, PhoenixGem, RelicBoltPistol, RelicOfLostCadia, RelicPowerFist, SabreOfSacrifice, SupaCyborkBody, TalismanOfRage, TalonOfHorus, Vitarus, VolummsMasterArtifice, WisdomOfTheAncients, WyrdmakersHelm
