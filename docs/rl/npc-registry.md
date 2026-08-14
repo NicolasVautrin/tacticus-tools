@@ -19,9 +19,9 @@ differe. C'est la doctrine « DECIDER != EXECUTER ».
 
 ## Bilan
 
-- Unites `npc` : **491** ; kits sans manque : **418** ; kits avec du travail : **73**
+- Unites `npc` : **491** ; kits sans manque : **419** ; kits avec du travail : **72**
 - Actives distinctes : **147** — `[--]` **1** · `[C-]` **15** · `[CD]` **131**
-- Passifs distincts : **177** — portes **111**, non portes **66**
+- Passifs distincts : **177** — portes **112**, non portes **65**
 - Traits de kit distincts (AUCUN ecarte — le seuil de frequence a disparu avec #1015) :
   **58** — couverts **57**, non couverts **1**
 - **Voies inversees** (nom absent d'`ActiveAbilityType`) : **1** — `Maugetar`
@@ -110,7 +110,6 @@ l'unite. La colonne `porteurs` dit l'exposition.
 | passif | RunsAround | 1 | orksNpc4AmmoGrot |
 | passif | RunsAway | 1 | orksNpc5LootGrotTeam |
 | passif | SelfRepairMechanismReworked | 1 | admecBossBelisarius |
-| passif | Split | 1 | thousNpc1PinkHorror |
 | passif | SynapticImperative | 1 | tyranBossHiveTyrantLeviathan |
 | passif | TargetLock | 1 | tauBossRiptide |
 | passif | TheEmperorsShield | 1 | darkaBossLion |
@@ -593,11 +592,10 @@ sont des **faces** absentes d'items presents.
 | tauNpcMoWBroadside | 0 | HeavyRailRifle(1160)[CD]<br>TwinSmartMissileSystem(1161)[CD] | - | - | mythic:ElectrochaffBackups |
 | tauNpcShadowsun | 0 | ExemplarOfTheKauyon(1087)[CD] | - | - | - |
 
-### ThousandSons — 27 unites, 2 avec du travail
+### ThousandSons — 27 unites, 1 avec du travail
 
 | unite | manque | actives (face) | passifs non portes | traits non couverts | autres voies |
 |---|---:|---|---|---|---|
-| thousNpc1PinkHorror | 1 | - | Split | - | - |
 | thousNpc3RubricMarine | 1 | - | AllIsDust | - | - |
 | thousBossAhriman | 0 | Doombolt(1102)[CD] | - | - | - |
 | thousBossAhrimanCamp | 0 | Doombolt(1102)[CD] | - | - | - |
@@ -616,6 +614,7 @@ sont des **faces** absentes d'items presents.
 | thousBossTzaangor | 0 | SorcerousFacade(1100)[CD] | - | - | - |
 | thousBossTzaangorCamp | 0 | SorcerousFacade(1100)[CD] | - | - | - |
 | thousBossTzaangorLHE | 0 | SorcerousFacade(1100)[CD] | - | - | - |
+| thousNpc1PinkHorror | 0 | - | - | - | - |
 | thousNpc2Screamer | 0 | SlashingDive(1091)[C-] | - | - | - |
 | thousNpc4Terminator | 0 | - | - | - | - |
 | thousNpcAhriman | 0 | Doombolt(1102)[CD] | - | - | - |

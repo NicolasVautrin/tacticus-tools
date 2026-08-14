@@ -1893,7 +1893,7 @@ thousBossTzaangorLHE	ThousandSons	Chaos	None	passif	RealityUnbound		1
 thousBossTzaangorLHE	ThousandSons	Chaos	None	trait	Hero		1	
 thousBossTzaangorLHE	ThousandSons	Chaos	None	trait	WeaverOfFate		1	
 thousBossTzaangorLHE	ThousandSons	Chaos	None	trait	Flying		1	
-thousNpc1PinkHorror	ThousandSons	Chaos	None	passif	Split		0	
+thousNpc1PinkHorror	ThousandSons	Chaos	None	passif	Split		1	
 thousNpc1PinkHorror	ThousandSons	Chaos	None	trait	WeaverOfFate		1	
 thousNpc1PinkHorror	ThousandSons	Chaos	None	trait	Daemon		1	
 thousNpc1PinkHorror	ThousandSons	Chaos	None	trait	Psyker		1	

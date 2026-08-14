@@ -19,9 +19,9 @@ differe. C'est la doctrine « DECIDER != EXECUTER ».
 
 ## Bilan
 
-- Unites `summons` : **65** ; kits sans manque : **37** ; kits avec du travail : **28**
+- Unites `summons` : **65** ; kits sans manque : **41** ; kits avec du travail : **24**
 - Actives distinctes : **16** — `[C-]` **6** · `[CD]` **10**
-- Passifs distincts : **47** — portes **21**, non portes **26**
+- Passifs distincts : **47** — portes **23**, non portes **24**
 - Traits de kit distincts (AUCUN ecarte — le seuil de frequence a disparu avec #1015) :
   **43** — couverts **42**, non couverts **1**
 
@@ -48,8 +48,6 @@ l'unite. La colonne `porteurs` dit l'exposition.
 
 | type | item | porteurs | exemples |
 |---|---|---:|---|
-| passif | FlamesOfMutation | 2 | thousSmnBlueHorror, thousSmnBlueHorrorHSE |
-| passif | Split | 2 | thousSmnPinkHorror, thousSmnPinkHorrorHSE |
 | trait | TwoManTeam | 2 | astraSmnLascannon, astraSmnMortar |
 | passif | AdrenalGlands | 1 | tyranSmnHormagaunt |
 | passif | AllIsDust | 1 | thousSmnRubricMarine |
@@ -208,16 +206,16 @@ sont des **faces** absentes d'items presents.
 | tauSmnDroneSniper | 0 | - | - | - | - |
 | tauSmnStealthSuit | 0 | ForwardObservers(1185)[CD]<br>WallOfMirrors(1186)[C-] | - | - | - |
 
-### ThousandSons — 8 unites, 6 avec du travail
+### ThousandSons — 8 unites, 2 avec du travail
 
 | unite | manque | actives (face) | passifs non portes | traits non couverts | autres voies |
 |---|---:|---|---|---|---|
-| thousSmnBlueHorror | 1 | - | FlamesOfMutation | - | - |
-| thousSmnBlueHorrorHSE | 1 | - | FlamesOfMutation | - | - |
 | thousSmnDaemonPrince | 1 | - | HunterOfSouls | - | - |
-| thousSmnPinkHorror | 1 | - | Split | - | - |
-| thousSmnPinkHorrorHSE | 1 | - | Split | - | - |
 | thousSmnRubricMarine | 1 | - | AllIsDust | - | - |
+| thousSmnBlueHorror | 0 | - | - | - | - |
+| thousSmnBlueHorrorHSE | 0 | - | - | - | - |
+| thousSmnPinkHorror | 0 | - | - | - | - |
+| thousSmnPinkHorrorHSE | 0 | - | - | - | - |
 | thousSmnScreamer | 0 | SlashingDive(1091)[C-] | - | - | - |
 | thousSmnScreamerHSE | 0 | SlashingDive(1091)[C-] | - | - | - |
 
