@@ -107,10 +107,14 @@ def nouvelles_unites(st: State, connues) -> list:
     return sorted(int(eid) for eid in st.entities if int(eid) not in connues)
 
 
-def jouer(st: State, *, overkill: bool = False):
-    """Emet `On(PreUnitDeath_2)` sur le porteur et rend `(payload, ids des unites neuves)`."""
+def jouer(st: State, *, overkill: bool = False, dying: int = PORTEUR, killer: int = ENNEMI):
+    """Emet `On(PreUnitDeath_2)` sur `dying` et rend `(payload, ids des unites neuves)`.
+
+    Le SNAPSHOT des ids connus est pris ICI, avant l'emission : une liste d'exclusion ecrite a la
+    main (`{PORTEUR, ENNEMI}`) sous-compte des que le montage n'a pas d'ennemi, l'allocateur
+    reutilisant alors l'id `ENNEMI` pour le premier summon."""
     connues = set(int(e) for e in st.entities)
-    out = pre_unit_death_2_triggers(st, PORTEUR, ENNEMI, overkill=overkill)
+    out = pre_unit_death_2_triggers(st, int(dying), int(killer), overkill=overkill)
     return out, nouvelles_unites(st, connues)
 
 
