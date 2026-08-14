@@ -144,6 +144,7 @@ from ...effect_type import EffectType
 from ...traits.unit_trait import UnitTrait, has_any_trait
 from ..base import BaseEffect
 from ..magnitude import ability_var
+from .. import ctx_keys as _ctx_keys      # #1042-r5 : foyer UNIQUE des chaines de cle de ctx
 
 #: `TriggeredAbilityType` 0x5d7 = 1495 -- la config lue par `ConfigVar` (celle de la RELIQUE).
 NORN_CROWN_ABILITY = "NornCrown"
@@ -160,7 +161,7 @@ NEUROPARASITE_EFFECT_NAME = EffectType.Neuroparasite.name
 #: callable `(owner_id, ability_name) -> (level, multiplier)` -- mirror de `GetAbilityState(effect)`
 #: (#357). Meme cle que `RelicBoltPistol*Effect` / `KardiocoreGalvanus` : le foyer UNIQUE
 #: `runner/operations/triggers/base.py::triggered_ability_state`.
-CTX_ABILITY_STATE_OF = "tertiary_ability_state_of"
+CTX_ABILITY_STATE_OF = _ctx_keys.CTX_TERTIARY_ABILITY_STATE_OF
 #: `{team_id: ((col, row), ...)}` des unites VIVANTES portant le trait `Synapse`, par equipe --
 #: substrat de `IsInTeamSynapseRange`. Tri-etat : cle ABSENTE = canal NON MESURE (le gate se tait).
 CTX_TEAM_SYNAPSE_POSITIONS = "team_synapse_positions"

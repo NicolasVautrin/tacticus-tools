@@ -108,6 +108,7 @@ from collections.abc import Mapping
 from ..base import BaseEffect
 from ..magnitude import ability_var
 from ...traits.unit_trait import UnitTrait, has_any_trait
+from .. import ctx_keys as _ctx_keys      # #1042-r5 : foyer UNIQUE des chaines de cle de ctx
 
 #: `TriggeredAbilityType` 0x5bb = 1467 -- la CONFIG lue par les DEUX effets (`.ctor` partage).
 _ABILITY_ID = "RelicBoltPistol"
@@ -121,7 +122,7 @@ _DOUBLE = 2
 _QUALIFYING_TRAITS = (UnitTrait.Xenos, UnitTrait.Chaos)
 #: callable `(owner_id, ability_name) -> (level, multiplier)` -- mirror de `GetAbilityState(effect)`,
 #: pose par `_crit_board` (canal CRIT) et `ability_pierce_effect_bonus` (canal PERCAGE).
-CTX_ABILITY_STATE_OF = "tertiary_ability_state_of"
+CTX_ABILITY_STATE_OF = _ctx_keys.CTX_TERTIARY_ABILITY_STATE_OF
 
 
 def _owner_is_caster(ctx: "Mapping | None") -> bool:

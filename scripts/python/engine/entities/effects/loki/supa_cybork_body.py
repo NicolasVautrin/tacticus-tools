@@ -76,6 +76,7 @@ from ..magnitude import ability_var
 from ....dsl.base import Const
 from ...selectors.accessors import Owner
 from ...selectors.units import AdjacentEnemies
+from .. import ctx_keys as _ctx_keys      # #1042-r5 : foyer UNIQUE des chaines de cle de ctx
 
 #: `TriggeredAbilityType 0x5c3 = 1475` -- le litteral du `.ctor`, relu a l'assembleur. C'est la
 #: CONFIG que `GetAbilityState(effet)` resout, pas l'`EffectType` 1468.
@@ -87,7 +88,7 @@ CARRIER_COUNT_KEY = "adjacent_enemies"
 #: callable `(owner_id) -> int | None` pose dans le contexte du canal CRIT par `_crit_board`
 CTX_COUNT_OF = "adjacent_enemies_of"
 #: callable `(owner_id, ability_name) -> (level, multiplier)` -- mirror de `GetAbilityState(effet)`
-CTX_ABILITY_STATE_OF = "tertiary_ability_state_of"
+CTX_ABILITY_STATE_OF = _ctx_keys.CTX_TERTIARY_ABILITY_STATE_OF
 
 
 def adjacent_enemies_selector():

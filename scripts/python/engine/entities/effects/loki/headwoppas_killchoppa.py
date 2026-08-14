@@ -159,6 +159,7 @@ from collections.abc import Mapping
 from ....services.effect_bonus import EffectBonus, for_addition
 from ..base import BaseEffect, is_melee_attack
 from ..magnitude import ability_const_str, ability_var
+from .. import ctx_keys as _ctx_keys      # #1042-r5 : foyer UNIQUE des chaines de cle de ctx
 
 #: `TriggeredAbilityType` 0x60d = 1549 -- la config lue par `ConfigVar` (celle de la RELIQUE),
 #: etablie par le `mov edx, 0x60d` du `.ctor` (cf. en-tete).
@@ -172,7 +173,7 @@ _CONST_UNIT_ID = "unitId"
 #: callable `(owner_id, ability_name) -> (level, multiplier)` -- mirror de `GetAbilityState(this)`
 #: (#357). Meme cle et meme semantique que `NornCrownEffect` / `RelicBoltPistol*Effect` : le foyer
 #: UNIQUE `runner/operations/triggers/base.py::triggered_ability_state`.
-CTX_ABILITY_STATE_OF = "tertiary_ability_state_of"
+CTX_ABILITY_STATE_OF = _ctx_keys.CTX_TERTIARY_ABILITY_STATE_OF
 #: `visualId` de l'unite qui ATTAQUE -- substrat d'`UnitsWithVisualId` pour la patte AURA.
 #: Tri-etat : `None` = canal NON MESURE (le gate se tait), jamais << mauvais visualId >>.
 CTX_ATT_VISUAL_ID = "att_visual_id"

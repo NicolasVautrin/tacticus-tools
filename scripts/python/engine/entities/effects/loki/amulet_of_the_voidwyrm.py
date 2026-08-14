@@ -139,6 +139,7 @@ from ....dsl.base import Const
 from ...selectors.accessors import Owner
 from ...selectors.units import AdjacentFriends, Union, UnitsWithTrait
 from ...traits.unit_trait import UnitTrait
+from .. import ctx_keys as _ctx_keys      # #1042-r5 : foyer UNIQUE des chaines de cle de ctx
 
 _ABILITY_ID = "AmuletOfTheVoidwyrm"      # TriggeredAbilityType 0x5b8 = 1464 (la CONFIG de la relique)
 _VAR_KEY = "critDmgReduction"            # AbilityVariableType 0x97 = 151
@@ -147,7 +148,7 @@ CARRIER_COUNT_KEY = "adjacent_friendly_summons_and_decoys"
 #: callable `(owner_id) -> int | None` pose dans le contexte du canal CRIT par `_crit_board`
 CTX_COUNT_OF = "adjacent_friendly_summons_and_decoys_of"
 #: callable `(owner_id, ability_name) -> (level, multiplier)` -- mirror de `GetAbilityState(effect)`
-CTX_ABILITY_STATE_OF = "tertiary_ability_state_of"
+CTX_ABILITY_STATE_OF = _ctx_keys.CTX_TERTIARY_ABILITY_STATE_OF
 
 
 def adjacent_friendly_summons_and_decoys_selector():

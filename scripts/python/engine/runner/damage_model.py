@@ -615,7 +615,7 @@ def _apply_ally_attack_damage_auras(state: State, att_id: int, mods, is_ranged: 
            #    l'ability est MONTEE sur le porteur -- TERTIAIRE pour une relique EQUIPEE. MEME cle
            #    et MEME foyer que le canal CRIT (`AttackDamageOperation._crit_board`), donc les deux
            #    canaux d'une meme relique ne peuvent pas diverger de niveau.
-           "tertiary_ability_state_of": _tertiary_ability_state_fn(state),
+           _MYTHIC_CTX_ABILITY_STATE: _tertiary_ability_state_fn(state),
            # #1012-r1 -- `UnitsWithVisualId( ConfigConstString(<TriggeredAbilityConfigId 0x60d>, 0),
            # 1 = UnitSelectionType.OnlyAlive )`, le noeud DISCRIMINANT du `CreateTargetSelector`
            # d'`IdunBattle.Entities.Effects.Loki.HeadwoppasKillchoppaEffect` (les Ork Boyz de

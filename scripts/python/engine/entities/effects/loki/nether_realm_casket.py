@@ -145,6 +145,7 @@ from ..magnitude import ability_var
 from ....dsl.base import Const
 from ...selectors.accessors import Owner
 from ...selectors.units import AdjacentFriends, MechanicalUnits, NormalUnits
+from .. import ctx_keys as _ctx_keys      # #1042-r5 : foyer UNIQUE des chaines de cle de ctx
 
 #: `TriggeredAbilityType` 0x5b6 = 1462 -- la CONFIG des DEUX effets (relue au `.ctor` : `mov edx,
 #: 0x5b6`), et le `source` de leurs deux descripteurs `EffectBonus`.
@@ -161,7 +162,7 @@ CARRIER_COUNT_KEY = "adjacent_friendly_mechanical_units"
 #: callable `(owner_id) -> int | None` pose dans le contexte du canal CRIT par `_crit_board`
 CTX_COUNT_OF = "adjacent_friendly_mechanical_units_of"
 #: callable `(owner_id, ability_name) -> (level, multiplier)` -- mirror de `GetAbilityState(effect)`
-CTX_ABILITY_STATE_OF = "tertiary_ability_state_of"
+CTX_ABILITY_STATE_OF = _ctx_keys.CTX_TERTIARY_ABILITY_STATE_OF
 
 
 def adjacent_mechanical_units_selector():

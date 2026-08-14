@@ -112,12 +112,13 @@ from collections.abc import Mapping
 
 from ..base import BaseEffect
 from ..magnitude import ability_var
+from .. import ctx_keys as _ctx_keys      # #1042-r5 : foyer UNIQUE des chaines de cle de ctx
 
 _ABILITY_ID = "TalismanOfRage"      # TriggeredAbilityType 0x5b4 = 1460 (la CONFIG de la relique)
 _VAR_KEY = "critDmgReduction"       # AbilityVariableType 0x97 = 151
 #: callable `(owner_id, ability_name) -> (level, multiplier)` -- mirror de `GetAbilityState(effect)`.
 #: MEME cle que celle posee par `_crit_board` pour les autres reliques (foyer unique du canal).
-CTX_ABILITY_STATE_OF = "tertiary_ability_state_of"
+CTX_ABILITY_STATE_OF = _ctx_keys.CTX_TERTIARY_ABILITY_STATE_OF
 
 
 class TalismanOfRageCritDamageReductionEffect(BaseEffect):
