@@ -40,7 +40,7 @@ astraSmnMortar	AstraMilitarum	Imperial	None	trait	TwoManTeam		0
 astraSmnMortar	AstraMilitarum	Imperial	None	trait	IndirectFire		1	
 astraSmnMortar	AstraMilitarum	Imperial	None	trait	SuppressiveFire		1	
 astraSmnVoxcaster	AstraMilitarum	Imperial	None	active	ValkyrieStrike	1018	1	0
-astraSmnVoxcaster	AstraMilitarum	Imperial	None	passif	CallInReinforcements		0	
+astraSmnVoxcaster	AstraMilitarum	Imperial	None	passif	CallInReinforcements		1	
 astraSmnVoxcaster	AstraMilitarum	Imperial	None	trait	Summon		1	
 astraSmnVoxcaster	AstraMilitarum	Imperial	None	trait	BattleFatigue		1	
 blackSmnBloodletter	BlackLegion	Chaos	None	passif	UnstoppableFerocity		1	
@@ -90,7 +90,7 @@ deathSmnNurglings	DeathGuard	Chaos	None	trait	Daemon		1
 deathSmnNurglings	DeathGuard	Chaos	None	trait	PutridExplosion		1	
 deathSmnNurglings	DeathGuard	Chaos	None	trait	Swarm		1	
 eldarSmnGuardian	Aeldari	Xenos	None	active	PlasmaGrenade	1098	1	1
-eldarSmnGuardian	Aeldari	Xenos	None	passif	BattleFocus		0	
+eldarSmnGuardian	Aeldari	Xenos	None	passif	BattleFocus		1	
 eldarSmnGuardian	Aeldari	Xenos	None	trait	Summon		1	
 eldarSmnGuardian	Aeldari	Xenos	None	trait	BattleFatigue		1	
 eldarSmnHarlequin	Aeldari	Xenos	None	active	KissOfDeath	1108	1	0

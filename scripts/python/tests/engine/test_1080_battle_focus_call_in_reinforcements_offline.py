@@ -55,6 +55,48 @@ from engine.utilities.utility_type import UtilityType
 
 LEVEL, MULT = 50, 100
 
+#: Ce qui doit changer pour que ce FICHIER de test puisse changer de verdict (#486-r15).
+#: DERIVE des imports ci-dessus, pas choisi : chaque entree est un module que ce fichier LIT.
+#: Un declencheur trop ETROIT est un FAUX VERT (le fichier ne se rejoue pas sous `--since` quand
+#: ce qu'il garde a bouge) ; trop LARGE est sain.
+DECLENCHEUR = {
+    "chemins": (
+        # LES DEUX PORTS gardes par ce fichier.
+        "scripts/python/engine/runner/operations/triggers/loki/battle_focus.py",
+        "scripts/python/engine/runner/operations/triggers/loki/call_in_reinforcements.py",
+        "scripts/python/engine/entities/effects/loki/battle_focus.py",
+        # LES TROIS SELECTEURS NEUFS et leur foyer d'export.
+        "scripts/python/engine/entities/selectors/tiles.py",
+        "scripts/python/engine/entities/selectors/geometry.py",
+        "scripts/python/engine/entities/selectors/accessors.py",
+        "scripts/python/engine/entities/selectors/units.py",
+        # LE FOYER D'UTILITE : `UTILITY_BY_TYPE`, `TileDistanceUtility`, `_spawn_leaf_ctx`.
+        "scripts/python/engine/utilities/tile.py",
+        "scripts/python/engine/utilities/decider.py",
+        "scripts/python/engine/utilities/utility_type.py",
+        # LES CINQ REGISTRES dont ce fichier verifie l'inscription PAR EXECUTION.
+        "scripts/python/engine/runner/operations/triggers/dispatch/registry.py",
+        "scripts/python/engine/entities/effects/factory.py",
+        # LES MIRRORS D'ENUM dont les ordinaux sont FIGES ici.
+        "scripts/python/engine/entities/triggered_ability_type.py",
+        "scripts/python/engine/entities/effect_type.py",
+        # LE SUBSTRAT du montage (board, contexte DSL, composants).
+        "scripts/python/engine/entities/pathfinding/board.py",
+        "scripts/python/engine/runner/abilities/behaviours/context.py",
+        "scripts/python/engine/runner/abilities/behaviours/movement.py",
+        "scripts/python/engine/runner/abilities/behaviours/summon.py",
+        "scripts/python/engine/runner/components.py",
+        "scripts/python/engine/dsl/base.py",
+        "scripts/python/hexgeo.py",
+    ),
+    # VRAI : les ordinaux (1172/1199/1029), les 22 power-ups du `.cctor` et la bijection des deux
+    # mirrors sont FIGES contre le build -- un changement de build peut les faire glisser.
+    "build": True,
+    "toujours": False,
+    "raison": ("port + garde de #1080 : les deux arbres DSL, les trois selecteurs neufs, la "
+               "branche de repli PARENT de `TileDistanceUtility` et les cinq inscriptions."),
+}
+
 
 # ------------------------------------------------------------------ montage : board + unites
 
