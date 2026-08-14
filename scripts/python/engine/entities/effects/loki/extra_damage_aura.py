@@ -978,8 +978,7 @@ class PsychicStalkVisualEffect(BaseEffect):
         return _target_is_on_fire_tile(ctx)
 
 
-# =====================================================================================================
-# AURAS DE MACHINE OF WAR -- les deux `ExtraDamagePct` MYTHIQUES debloques par le canal de rarete
+# ==============================================================================================# AURAS DE MACHINE OF WAR -- les deux `ExtraDamagePct` MYTHIQUES debloques par le canal de rarete
 # (#999-r3-r1 pour `att_rarity`/`tgt_rarity`, #999-r3-r1-r1 pour l'univers de porteurs board-wide).
 #
 # Les DEUX effets sont poses a l'init sur leur MoW porteuse par le patron
@@ -993,8 +992,7 @@ class PsychicStalkVisualEffect(BaseEffect):
 #     beneficiaire est la CIBLE DU COUP -> canal `create_aura_defense_damage_malus_for_ally`, la
 #     boucle state-wide `EffectWithTarget` (MEME arbitrage que
 #     `DaughterOfTheAbyssExtraDamagePctEffect` ci-dessus, `AURA_DEFENSE_MALUS_NATIVE_FACE`).
-# =====================================================================================================
-
+# ==============================================================================================
 #: `TriggeredAbilityType` 0x5a7 = 1447 -- l'ability MYTHIQUE de la MoW `deathCrawler` /
 #: `deathNpcMoWCrawler`. C'est la config que `ConfigVar` de l'effet 1442 indexe (l'appariement
 #: ability -> effet est LU : `BlightedLandAbility$$GetEffectType` = `return 0x5a2` = 1442).
@@ -1022,6 +1020,16 @@ CTX_ABILITY_STATE_OF = "tertiary_ability_state_of"
 #: substrat des DEUX branches du `$$CreateTargetSelector` de 1449. Tri-etat : `None` = NON MESURE
 #: (pas de position / pas de plateau) -> le gate se FERME, jamais un tuple vide invente.
 CTX_TGT_ADJACENT_UNIT_PROFILES = "tgt_adjacent_unit_profiles"
+#: Noms des effets NON CONSOMMES portes par l'ATTAQUANT (`onlyActive: false` -- store BRUT
+#: `by_unit`). Substrat d'`EntitiesWithAnyEffect(..., effectTarget = Both)`. Tri-etat : `None` =
+#: NON MESURE (le gate se FERME), `frozenset()` = mesure et vide.
+CTX_ATT_EFFECT_NAMES = "att_effect_names"
+#: `{owner_id: bool}` -- `IsMachine(Owner)` (`EntityType.Machine = 6`), par PORTEUR (l'agregateur
+#: re-cle par l'`owner_id` de son ctx par-carrier). Valeur ou cle absente = NON MESURE.
+CTX_OWNER_IS_MACHINE = "owner_is_machine"
+#: Nombre d'allies ADJACENTS a l'ATTAQUANT qui passent `ValidCharacter` (Mythic + Psyker + Hero).
+#: COMPTE, pas booleen (le natif ecrit `AmountIsGreaterThanZero`). Tri-etat : `None` = NON MESURE.
+CTX_CABAL_VALID_ADJACENT_TO_ATT = "cabal_valid_adjacent_to_attacker"
 
 
 def _mow_ability_state(effect, ctx, owner_id, ability_name, *, repli_stack: bool = True):
@@ -1300,19 +1308,10 @@ class MoreGitzOverEreExtraDamagePctEffect(BaseEffect):
         pct = ability_var(MORE_GITZ_OVER_ERE_ABILITY, _VAR_EXTRA_DMG_PCT, lvl, multiplier_pct=mult)
 
 
-# --- Les DEUX mythiques de MoW dont le SELECTEUR porte le gate de rarete (#1036-r1/-r2)
-# Elles partagent le helper `_mow_ability_state` ci-dessus (foyer UNIQUE de l'etat d'ability
-# d'une mythique de MoW), avec UNE difference MESUREE, cf. `_mythic_pct`.
-#: Noms des effets NON CONSOMMES portes par l'ATTAQUANT (`onlyActive: false` -- store BRUT
-#: `by_unit`). Substrat d'`EntitiesWithAnyEffect(..., effectTarget = Both)`. Tri-etat :
-#: `None` = NON MESURE (le gate se FERME), `frozenset()` = mesure et vide.
-CTX_ATT_EFFECT_NAMES = "att_effect_names"
-#: `{owner_id: bool}` -- `IsMachine(Owner)` (`EntityType.Machine = 6`), par PORTEUR
-#: (l'agregateur re-cle par l'`owner_id` de son ctx par-carrier). Cle absente = NON MESURE.
-CTX_OWNER_IS_MACHINE = "owner_is_machine"
-#: Nombre d'allies ADJACENTS a l'ATTAQUANT qui passent `ValidCharacter` (Mythic + Psyker +
-#: Hero). COMPTE, pas booleen (le natif ecrit `AmountIsGreaterThanZero`). Tri-etat : `None`.
-CTX_CABAL_VALID_ADJACENT_TO_ATT = "cabal_valid_adjacent_to_attacker"
+# --- Les DEUX mythiques de MoW dont le SELECTEUR porte le gate de rarete (#1036-r1/-r2) ----------
+# Elles partagent le helper `_mow_ability_state` ci-dessus (foyer UNIQUE de l'etat d'ability d'une
+# mythique de MoW) et les trois cles de ctx declarees en tete de section, avec UNE difference
+# MESUREE : cf. `_mythic_pct`.
 
 
 def _mythic_pct(effect, ctx, ability_id: str) -> "int | None":
@@ -1412,9 +1411,6 @@ class GuardianConstructExtraDamagePctEffect(BaseEffect):
     #: `EntitiesWithAnyEffect(..., effectTypes = [0x609], ...)` -- l'effet pose par
     #: `NanoscarabRepairProtocolsAbility$$ExecuteBehaviour` sur la cible reparee.
     REPAIR_EFFECT_NAME = EffectType.NanoscarabRepairProtocols.name
-    #: Noms des effets NON CONSOMMES portes par l'ATTAQUANT (`onlyActive: false`). Tri-etat :
-    #: `None` = NON MESURE (le gate se FERME), `frozenset()` = mesure et vide.
-    CTX_ATT_EFFECT_NAMES = "att_effect_names"
 
     def create_aura_attack_damage_bonus_for_ally(self, ctx: Mapping | None = None) -> EffectBonus | None:
         c = ctx or {}
@@ -1422,7 +1418,7 @@ class GuardianConstructExtraDamagePctEffect(BaseEffect):
         if c.get("owner_team") is None or c.get("owner_team") != c.get("att_team"):
             return None
         # 2. `EntitiesWithAnyEffect(..., [NanoscarabRepairProtocols], Both)` -- `onlyActive: false`.
-        names = c.get(self.CTX_ATT_EFFECT_NAMES)
+        names = c.get(CTX_ATT_EFFECT_NAMES)
         if names is None or self.REPAIR_EFFECT_NAME not in names:
             return None                                   # canal non mesure -> FERME (restrictif)
         # 3. `UnitsWithRarity(..., idun.meta.Rarity.Mythic = 5)` -- comparaison au MEMBRE d'enum,
@@ -1508,12 +1504,6 @@ class CabalOfSorcerersExtraDamagePctEffect(BaseEffect):
     ABILITY_ID = "CabalOfSorcerers"
     #: `UnitsWithTraits(..., traits = [0x3ea, 0x10], ...)` -- INTERSECTION (`op_BitwiseAnd`).
     VALID_CHARACTER_TRAITS = (UnitTrait.Psyker.name, UnitTrait.Hero.name)
-    #: `{owner_id: bool}` -- `IsMachine(Owner)` (`EntityType.Machine = 6`). Tri-etat : valeur `None`
-    #: ou cle absente = NON MESURE -> seule la branche `F` est prise.
-    CTX_OWNER_IS_MACHINE = "owner_is_machine"
-    #: Nombre d'allies ADJACENTS a l'ATTAQUANT qui passent `ValidCharacter`. Tri-etat : `None` =
-    #: NON MESURE -> gate FERME.
-    CTX_VALID_ADJACENT_TO_ATT = "cabal_valid_adjacent_to_attacker"
 
     def _is_valid_character_att(self, c: Mapping) -> bool:
         """`ValidCharacter(<attaquant>)` = `UnitsWithTraits(UnitsWithRarity(x, Mythic), [Psyker,
@@ -1538,10 +1528,10 @@ class CabalOfSorcerersExtraDamagePctEffect(BaseEffect):
         if not self._is_valid_character_att(c):           # ValidCharacter(<beneficiaire>)
             return None
         # `ConditionalSelector(IsMachine(Owner), ifTrue = F, ifFalse = Unique(A + F))`
-        n_adj = c.get(self.CTX_VALID_ADJACENT_TO_ATT)
+        n_adj = c.get(CTX_CABAL_VALID_ADJACENT_TO_ATT)
         in_f = (n_adj is not None and int(n_adj) > 0)     # AmountIsGreaterThanZero(...)
         in_a = False
-        if (c.get(self.CTX_OWNER_IS_MACHINE) or {}).get(c.get("owner_id")) is False:
+        if (c.get(CTX_OWNER_IS_MACHINE) or {}).get(c.get("owner_id")) is False:
             # branche `ifFalse` SEULEMENT : `A = ValidCharacter(AdjacentFriends(Owner, unique))`,
             # l'attaquant deja qualifie doit etre ADJACENT au porteur (substrat natif d'adjacence,
             # cf. `_adjacency_channels`).

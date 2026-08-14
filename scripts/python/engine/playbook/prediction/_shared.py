@@ -27,6 +27,12 @@ from engine.entities.rarity import Rarity as _Rarity   # `idun.meta.Rarity` (#10
 from engine.entities.effects.loki.damage_reduction import (   # #1042-r1 -- un seul foyer de nommage
     CTX_WISDOM_TARGET_IDS_OF as _WOTA_CTX_TARGET_IDS,
     CTX_TERTIARY_ABILITY_STATE_OF as _MYTHIC_CTX_ABILITY_STATE)
+# #1036-r1/-r2 : memes trois cles pour les DEUX faces des deux mythiques de MoW -- un seul foyer
+# de nommage (cf. `runner/damage_model.py`, qui importe les MEMES constantes).
+from engine.entities.effects.loki.extra_damage_aura import (
+    CTX_ATT_EFFECT_NAMES as _GUARDIAN_CTX_ATT_EFFECTS,
+    CTX_OWNER_IS_MACHINE as _CABAL_CTX_OWNER_IS_MACHINE,
+    CTX_CABAL_VALID_ADJACENT_TO_ATT as _CABAL_CTX_VALID_ADJACENT)
 from engine.entities.effects.loki.obsessive_annunciation import (   # #954 -- un seul foyer de nommage
     CTX_ADJACENT_ENEMY_IDS_OF as _OA_CTX_ADJ_ENEMY_IDS)
 from engine.entities.effects.loki.extra_damage_aura import (   # #1025-r1 -- meme foyer de nommage
@@ -963,6 +969,55 @@ def wisdom_of_the_ancients_target_ids(scene, owner_id) -> "frozenset | None":
                 out.add(int(uid))
                 break
     return frozenset(out)
+def _cabal_valid_adjacent_to(scene, unit_id, team):
+    """#1036-r2 -- face PREDICTION du foyer `damage_model._cabal_valid_adjacent_to` :
+    `AmountIsGreaterThanZero( ValidCharacter( AdjacentFriends(<element courant @DSLSelectors+0x68>,
+    unique = true, OnlyAliveAndTargetable) ) )`, le filtre `F` du selecteur de
+    `CabalOfSorcerers_ExtraDamagePctEffect`, rendu comme un COMPTE.
+
+    MEMES criteres que la face COMBAT (equipe, vivant, `Rarity.Mythic`, `Psyker` ET `Hero`,
+    adjacence NATIVE) et MEME tri-etat : `None` = question NON POSEE, jamais `0`."""
+    if unit_id is None or team is None:
+        return None
+    up = scene.pos(unit_id)
+    if not up:
+        return None
+    elev = _pf_board.elevations_by_pos(scene.board)
+    neigh = _pf_board.adjacent_neigh_by_pos(scene.board)
+    n = 0
+    for uid in scene.pos_by_id:
+        if uid == unit_id:
+            continue                                       # AdjacentUnits exclut l'origine
+        if scene.team(uid) != team or (scene.hp(uid) or 0) <= 0:
+            continue                                       # AdjacentFriends -> meme equipe, vivant
+        if _entity_rarity(scene, uid) != _Rarity.Mythic:
+            continue                                       # UnitsWithRarity(..., Mythic = 5)
+        traits = _entity_traits(scene, uid) or frozenset()
+        if UnitTrait.Psyker.name not in traits or UnitTrait.Hero.name not in traits:
+            continue                                       # UnitsWithTraits([Psyker, Hero]) = ET
+        if bq_is_adjacent(up, scene.pos(uid), elev, neigh):
+            n += 1
+    return n
+
+
+def _effect_names_of(scene, uid):
+    """#1036-r1 -- noms des effets NON CONSOMMES de l'entite, face PREDICTION.
+
+    Substrat d'`EntitiesWithAnyEffect(..., effectTarget = EffectTargetType.Both)` dont le
+    call-site passe `onlyActive = 0` : le store BRUT `EffectsState.by_unit`, filtre sur le seul
+    `consumed` -- PAS `scene.effects(uid)` (qui applique le flag `IsActive` et la
+    `CreateActiveCondition`). MEME semantique que la face COMBAT
+    (`damage_model._target_effect_names`), donc pas de fork.
+
+    TRI-ETAT : `None` = NON MESURE (pas d'unite, pas de store) -> le gate se FERME."""
+    if uid is None:
+        return None
+    by_unit = getattr(getattr(scene, "eff_state", None), "by_unit", None)
+    if by_unit is None:
+        return None
+    return frozenset(n for n in (getattr(e, "name", None)
+                                 for e in (by_unit.get(int(uid)) or [])
+                                 if not getattr(e, "consumed", False)) if n)
 
 
 def _apply_ally_attack_dmg_bonus(mods, scene, att_id, att_pos, is_melee, tgt_armor_reduced, carriers=None,
@@ -1042,7 +1097,20 @@ def _apply_ally_attack_dmg_bonus(mods, scene, att_id, att_pos, is_melee, tgt_arm
            # COMBAT (`damage_model._apply_ally_attack_damage_auras`) -- pas de fork. TRI-ETAT.
            # ⚠ La cle jumelle `tile_effects_by_pos` porte DEJA tout le plateau cote PREDICTION
            # (`scene.tile_effects_by_pos`), la ou le COMBAT a du y ajouter la tuile de l'attaquant.
-           "att_rarity": _entity_rarity(scene, att_id)}
+           "att_rarity": _entity_rarity(scene, att_id),
+           # #1036-r1 -- `EntitiesWithAnyEffect(<les allies du porteur>, [NanoscarabRepairProtocols],
+           # effectTarget = Both)` du selecteur de `GuardianConstruct_ExtraDamagePctEffect`, lu sur
+           # l'ATTAQUANT (le BENEFICIAIRE de ce canal). MEME cle et MEME semantique
+           # (`onlyActive: false` -> store BRUT) que la face COMBAT. TRI-ETAT.
+           _GUARDIAN_CTX_ATT_EFFECTS: _effect_names_of(scene, att_id),
+           # #1036-r2 -- `IsMachine(Owner)` du `ConditionalSelector` de
+           # `CabalOfSorcerers_ExtraDamagePctEffect`, MAP par PORTEUR (l'agregateur re-cle par
+           # `owner_id`). Cote DECISION la nature d'entite vient de `Scene.is_machine` (les
+           # `casterId` de `decisionView.mows`, mirror d'`EntityType.Machine = 6`) -- MEME cle et
+           # MEME semantique que la face COMBAT (`components.is_machine_of_war`).
+           _CABAL_CTX_OWNER_IS_MACHINE: {c[0]: scene.is_machine(c[0]) for c in carriers},
+           # #1036-r2 -- cf. `_cabal_valid_adjacent_to` ci-dessus (le filtre `F`). TRI-ETAT.
+           _CABAL_CTX_VALID_ADJACENT: _cabal_valid_adjacent_to(scene, att_id, scene.team(att_id))}
     for eb in aura_attack_damage_bonus_from_allies(carriers, ctx):
         add_modifier(mods, eb)
 

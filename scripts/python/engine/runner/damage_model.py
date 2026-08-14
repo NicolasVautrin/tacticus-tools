@@ -39,7 +39,10 @@ from .components import (StatsComponent, HealthComponent, OwnerComponent, Positi
                          enmity_adjacent_units_count,
                          enmity_adjacent_dark_angels_friends_count,
                          close_combat_weakness_adjacent_enemies_count,
-                         adjacent_enemy_ids)
+                         adjacent_enemy_ids,
+                         # #1036-r2 : `IsMachine(Owner)` du `ConditionalSelector` de
+                         # `CabalOfSorcerers_ExtraDamagePctEffect` -- mirror d'`EntityType.Machine`.
+                         is_machine_of_war)
 # #1015-r1 : meme foyer de nommage pour les DEUX faces du terme geometrique de
 # `CloseCombatWeakness_ReduceDmg_Effect$$NearbyEnemiesCondition`.
 from ..entities.effects.loki.close_combat_weakness import (
@@ -64,6 +67,12 @@ from ..entities.effects.loki.extra_damage_aura import (
 from ..entities.effects.loki.damage_reduction import (
     CTX_WISDOM_TARGET_IDS_OF as _WOTA_CTX_TARGET_IDS,
     CTX_TERTIARY_ABILITY_STATE_OF as _MYTHIC_CTX_ABILITY_STATE)
+# #1036-r1/-r2 : memes trois cles pour les DEUX faces des deux mythiques de MoW -- un seul foyer
+# de nommage, comme `norn_crown` ci-dessus.
+from ..entities.effects.loki.extra_damage_aura import (
+    CTX_ATT_EFFECT_NAMES as _GUARDIAN_CTX_ATT_EFFECTS,
+    CTX_OWNER_IS_MACHINE as _CABAL_CTX_OWNER_IS_MACHINE,
+    CTX_CABAL_VALID_ADJACENT_TO_ATT as _CABAL_CTX_VALID_ADJACENT)
 from ..entities.stats import StatType, ARMOR_STAT_TYPES
 from ..services.damage_prediction import get_attack_prediction, apply_pierce_and_modifiers
 from ..services.battle_query import (
@@ -87,7 +96,8 @@ from ..entities.effect_type import EffectType
 from ..entities.effects.loki.dark_angels_passives import grand_alliance_of
 from ..entities.effects.magnitude import bc_effect_config
 from ..entities.pathfinding.board import adjacent_neigh_by_pos, elevations_by_pos
-from ..entities.rarity import Rarity   # `idun.meta.Rarity` -- `UnitsWithRaritySelector$$Select` (#1042-r1)
+from ..entities.rarity import Rarity   # `idun.meta.Rarity` -- `UnitsWithRaritySelector$$Select`
+#                                        (#1042-r1) et `UnitsWithRarity` (#1036-r2)
 from ..entities.traits.unit_trait import UnitTrait
 from ..services.damage_config import resolve_damage_field
 from ..services.damage_modifiers import (add_modifier, calculate_elevation_bonus_modifier,
@@ -427,6 +437,47 @@ def wisdom_of_the_ancients_target_ids(state: State, owner_id: int) -> "Optional[
                 out.add(int(uid))
                 break
     return frozenset(out)
+def _cabal_valid_adjacent_to(state: State, unit_id: Optional[int], team) -> Optional[int]:
+    """#1036-r2 -- `AmountIsGreaterThanZero( ValidCharacter( AdjacentFriends(<element courant
+    @DSLSelectors+0x68>, unique = true, OnlyAliveAndTargetable) ) )`, le filtre `F` du
+    `$$CreateTargetSelector` de `CabalOfSorcerers_ExtraDamagePctEffect` -- rendu comme un COMPTE
+    (le natif ecrit `AmountIsGreaterThanZero`, pas un booleen). L'ELEMENT COURANT du filtre est le
+    BENEFICIAIRE, c.-a-d. l'ATTAQUANT sur ce canal.
+
+    `ValidCharacter(x) = UnitsWithTraits(UnitsWithRarity(x, Mythic), [Psyker, Hero])` :
+    INTERSECTION des deux traits (`TargetsSelector$$op_BitwiseAnd`), rarete lue sur
+    `BaseUnitComponent.Rarity` (+0x74, `_unit_rarity`).
+
+    TRI-ETAT : `None` quand la question n'a PAS ETE POSEE (pas d'unite, pas de position, equipe
+    inconnue) -- jamais `0`. Le lecteur FERME son gate sur `None`. MEME forme et MEME discipline
+    que `_friend_heroes_adjacent_to` (#1019) ci-dessus ; la face PREDICTION a son jumeau
+    (`playbook/prediction/_shared.py`), sur les memes criteres."""
+    if unit_id is None or team is None:
+        return None
+    up = _unit_pos(state, unit_id)
+    if not up:
+        return None
+    elev = elevations_by_pos(state.board)
+    neigh = adjacent_neigh_by_pos(state.board)
+    n = 0
+    for uid, ent in state.entities.items():
+        if uid == unit_id:
+            continue                                       # AdjacentUnits exclut l'origine
+        oc = ent.get_component(OwnerComponent)
+        pc = ent.get_component(PositionComponent)
+        if oc is None or pc is None or oc.team != team:
+            continue                                       # AdjacentFriends -> meme equipe
+        hc = ent.get_component(HealthComponent)
+        if hc is not None and hc.hp is not None and hc.hp <= 0:
+            continue                                       # OnlyAliveAndTargetable
+        if _unit_rarity(state, uid) != Rarity.Mythic:
+            continue                                       # UnitsWithRarity(..., Mythic = 5)
+        traits = target_trait_names(state, uid) or frozenset()
+        if UnitTrait.Psyker.name not in traits or UnitTrait.Hero.name not in traits:
+            continue                                       # UnitsWithTraits([Psyker, Hero]) = ET
+        if _bq_is_adjacent(up, (pc.col, pc.row), elev, neigh):
+            n += 1
+    return n
 
 
 def _apply_ally_attack_damage_auras(state: State, att_id: int, mods, is_ranged: Optional[bool],
@@ -573,7 +624,25 @@ def _apply_ally_attack_damage_auras(state: State, att_id: int, mods, is_ranged: 
            # Contaminated)`. MEME cle et MEME semantique que la face PREDICTION
            # (`playbook/prediction/_shared.py::_apply_ally_attack_dmg_bonus`) -- pas de fork.
            # TRI-ETAT (`None` = non mesure -> le gate se FERME), cf. `_unit_rarity`.
-           "att_rarity": _unit_rarity(state, att_id)}
+           "att_rarity": _unit_rarity(state, att_id),
+           # #1036-r1 -- `EntitiesWithAnyEffect(<les allies du porteur>, effectTypes =
+           # [NanoscarabRepairProtocols], effectTarget = Both = 6)` de
+           # `GuardianConstruct_ExtraDamagePctEffect$$CreateTargetSelector`. Le 4e argument du
+           # call-site d'`EntityExtensions$$HasOneOfEffects` est ZERO (`onlyActive = false`), donc
+           # le substrat est le store BRUT `by_unit` filtre sur le seul `consumed` -- MEME foyer et
+           # MEME semantique que le `tgt_effect_names` de `NornCrownEffect` (#1011), interroge ici
+           # sur l'ATTAQUANT (le BENEFICIAIRE de ce canal). TRI-ETAT : `None` = NON MESURE.
+           _GUARDIAN_CTX_ATT_EFFECTS: _target_effect_names(state, att_id),
+           # #1036-r2 -- `IsMachine(Owner)` du `ConditionalSelector` de
+           # `CabalOfSorcerers_ExtraDamagePctEffect` : `IsMachineTrigger$$ShouldTrigger` ->
+           # `EntityExtensions$$IsMachine`, dont le corps entier est `<EntityType> == 6`
+           # (`$$IsUnit` compare a 1, `$$IsMachinePlatform` a 7). Cote port, la PRESENCE d'un
+           # `MachineComponent` (`components.is_machine_of_war`). MAP par PORTEUR, comme
+           # `owner_stat_block_damage` : l'agregateur re-cle par l'`owner_id` de son ctx par-carrier.
+           _CABAL_CTX_OWNER_IS_MACHINE: {uid: is_machine_of_war(state.get_entity(uid))
+                                         for (uid, _p, _t, _e) in carriers},
+           # #1036-r2 -- cf. `_cabal_valid_adjacent_to` ci-dessus (le filtre `F`). TRI-ETAT.
+           _CABAL_CTX_VALID_ADJACENT: _cabal_valid_adjacent_to(state, att_id, aoc.team)}
     # `PsychicStalk_FriendlyChaosExtraDamage` (#366-r1, effet 1435) -- PATTE AURA : son conjoint
     # `GetTargetIsOnFireTileCondition` lit `EntitiesWithAnyEffect(Tiles(Target@0x60), Fire)`, donc
     # les effets de la MAIN TILE de la cible. MEME canal / MEME forme `{(col,row): [noms]}` que
@@ -606,6 +675,11 @@ def _target_effect_names(state: State, target_id: Optional[int]):
     ⚠ La cle `tgt_effect_names` est HOMONYME de celle du ctx d'`additional_hits` / de la face
     PREDICTION, qui la batissent depuis les effets ACTIFS : le nom est le meme, la SEMANTIQUE est
     plus large ici, et c'est ce que demande le litteral natif. Les deux dicts sont disjoints.
+
+    ⚠ Le parametre est un id d'ENTITE quelconque, pas seulement la cible du coup : #1036-r1
+    l'interroge sur l'ATTAQUANT (cle `att_effect_names`), pour le meme noeud natif a `onlyActive:
+    false` (`EntitiesWithAnyEffect(..., effectTarget = Both)` du selecteur de
+    `GuardianConstruct_ExtraDamagePctEffect`). Le nom du parametre garde l'appelant d'origine.
 
     TRI-ETAT : `None` = NON MESURE (pas de cible, ou pas de store d'effets) -> le gate se TAIT."""
     eff = getattr(state, "effects", None)

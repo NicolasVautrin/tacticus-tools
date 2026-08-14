@@ -82,6 +82,17 @@ class Scene:
     # ⚠ Les MoW ne sont PAS dans `units` (canal `.mows` separe) : sans cette table, leurs pieds
     # seraient publies et jamais lus.
     feet_by_id: dict = field(default_factory=dict)
+    # #1036-r2 -- NATURE D'ENTITE : les ids qui sont des `EntityType.Machine` (= 6), c.-a-d. les
+    # `casterId` de `decisionView.mows`. Mirror face DECISION de `components.is_machine_of_war`
+    # (presence d'un `MachineComponent`) et du natif
+    # `IdunBattle.Entities.EntityExtensions$$IsMachine`, dont le corps entier est
+    # `<EntityType de l'entite> == 6` (temoins : `$$IsUnit` compare a `1`, `$$IsMachinePlatform`
+    # a `7`). Lu par `IsMachine(Owner)` du `ConditionalSelector` de
+    # `CabalOfSorcerers_ExtraDamagePctEffect`.
+    # `None` = canal NON MESURE (Scene batie hors `step_context`) -> `is_machine` rend `None` et le
+    # lecteur ne prend que la branche du selecteur qui ne depend pas de la reponse. Un `frozenset()`
+    # VIDE, lui, est une MESURE (aucune MoW dans cet etat).
+    machine_ids: frozenset | None = None
     elev_by_pos: dict | None = None                    # {(col,row): elevation} (tileMeta)
     tile_effects_by_pos: dict | None = None            # {(col,row): [noms d'effets de tuile]} — DYNAMIQUE
     #                                                    # (la glace LordOfTempests s'ACCUMULE en bataille) ->
@@ -467,6 +478,11 @@ class Scene:
             moved_by_id=moved_by_id, teleported_by_id=teleported_by_id,
             active_ability_used_by_id=active_ability_used_by_id,
             tiles_moved_by_id=tiles_moved_by_id, parent_by_id=parent_by_id,
+            # #1036-r2 -- cf. le champ `machine_ids`. Voie OFFLINE : la nature d'entite se lit
+            # directement dans l'ECS (`components.is_machine_of_war`), sur TOUTES les entites --
+            # y compris celles que la boucle ci-dessus a ecartees, qui sont precisement les MoW.
+            machine_ids=frozenset(eid for eid, e in state.entities.items()
+                                  if is_machine_of_war(e)),
             received_damage_profiles_by_id=received_damage_profiles_by_id)
         sc._seed_battle_counters()   # #185 (units offline sans defeatedByMelee -> N=0, inerte)
         return sc
@@ -511,6 +527,9 @@ class Scene:
             eff_state=sctx.get("eff_state"),
             hpmax_by_id=(sctx.get("hpmax_by_id") or predictor.get("hpmax_eff_by_id") or {}),
             feet_by_id=sctx.get("feet_by_id") or {},
+            # #1036-r2 -- cf. le champ `machine_ids`. `sctx` le porte des que la Scene vient de
+            # `step_context` (canal `decisionView.mows[].casterId`) ; ABSENT -> `None` = non mesure.
+            machine_ids=sctx.get("machine_ids"),
             elev_by_pos=elev_by_pos if elev_by_pos is not None else predictor.get("elev_by_pos"),
             tile_effects_by_pos=tile_effects_by_pos,
             machine_of_war_position=machine_of_war_position,
@@ -583,6 +602,19 @@ class Scene:
 
     def team(self, uid):
         return self.team_by_id.get(uid)
+
+    def is_machine(self, uid) -> "bool | None":
+        """#1036-r2 -- `IdunBattle.Entities.EntityExtensions$$IsMachine(entity)` = `<EntityType de
+        l'entite> == 6`, face DECISION. Pendant exact de `components.is_machine_of_war` cote
+        COMBAT (la presence d'un `MachineComponent`).
+
+        TRI-ETAT : `None` = canal NON MESURE (`machine_ids` absent, Scene batie hors
+        `step_context`) -- jamais `False`, qui affirmerait << ce n'est pas une machine >> sans
+        l'avoir mesure et ouvrirait la branche `ifFalse` du `ConditionalSelector` de
+        `CabalOfSorcerers_ExtraDamagePctEffect`."""
+        if self.machine_ids is None:
+            return None
+        return uid in self.machine_ids
 
     def is_turn_of(self, uid) -> "bool | None":
         """`IdunBattle.Entities.Triggers.IsTurnOfUnitTrigger$$ShouldTrigger` pour un selecteur
@@ -1960,6 +1992,11 @@ def step_context(predictor, dv):
         "team_by_id": team_by_id,
         "eff_state": eff_state,
         "feet_by_id": _feet_by_id(units, mows),
+        # #1036-r2 -- NATURE D'ENTITE (cf. `Scene.machine_ids`). Le canal `.mows` est SEPARE de
+        # `.units` par construction native (`decisionView.units` ne contient jamais d'
+        # `EntityType.Machine`), donc l'appartenance a `.mows` EST la mesure d'`IsMachine`. Un
+        # `frozenset()` vide est une MESURE (etat sans MoW), pas une absence de canal.
+        "machine_ids": frozenset(m["casterId"] for m in mows if m.get("casterId") is not None),
     }
 
 
