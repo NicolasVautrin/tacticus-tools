@@ -322,6 +322,10 @@ from ..loki.haywire_mine import (HaywireMineSteppableAbility,          # #462-..
                                  HaywireMinePlaceOnTurnEndAbility,
                                  HaywireMineResetAbility,
                                  HAYWIRE_MINE_ID)
+from ..loki.horrors import (                                          # chaine des Horreurs ThousandSons
+    SplitAbility as SplitSpawnAbility,                                # 1156 (thousSmnPinkHorror*)
+    FlamesOfMutationAbility as FlamesOfMutationFireAbility,           # 1160 (thousSmnBlueHorror*)
+    SPLIT_KEY, FLAMES_OF_MUTATION_KEY)
 from ..loki.savior_protocols import SaviorProtocolsAbility            # #1020 (passif drones T'au)
 from ..loki.instinctive_behaviour import InstinctiveBehaviourUpdateTargetAbility   # #1015-r1
 
@@ -1232,6 +1236,16 @@ ABILITY_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
     # ⚠ AUCUN gate once-per-turn / once-per-battle dans l'arbre : la resurrection est REPETABLE.
     # Cf. loki/reanimation_protocols.py pour la RE complete.
     "ReanimationProtocols": [ReanimationProtocolsAbility],
+    # HORREURS Thousand Sons (`loki/horrors.py`) -- la CHAINE `Split` (1156) -> `FlamesOfMutation`
+    # (1160), sur l'event `PreUnitDeath_2 = 2`. Leurs deux `CreateTrigger` sont **UN SEUL CORPS**
+    # (fold ICF : `FlamesOfMutationAbility.CreateTrigger` est absent de `frida/methods.tsv`, et le
+    # `dump.cs` donne la MEME RVA aux deux) = `OnPreDeath2(overkill: false, steppable: false) &
+    # OwnerIsTarget`, donc les DEUX gates sont ARMES -- ECART avec la famille death-nova, qui passe
+    # `overkill: true`. `Split` : 2 Blue Horrors sur des tuiles adjacentes libres tirees au sort,
+    # qui attaquent aussitot SI c'est le tour de la Pink Horror (`If(IsTurnOf(Owner), ...)`).
+    # `FlamesOfMutation` : `AddEffect(5 = Fire, Tiles(Owner))` sur sa main tile.
+    SPLIT_KEY: [SplitSpawnAbility],
+    FLAMES_OF_MUTATION_KEY: [FlamesOfMutationFireAbility],
 }
 
 # --- Registre : ability ACTIVE → triggered-ability(s) DERIVEE(s) ----------------------------------
