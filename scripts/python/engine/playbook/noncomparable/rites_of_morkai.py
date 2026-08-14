@@ -138,24 +138,65 @@ class RitesOfMorkaiPlaybook(NonComparablePlaybook):
         v = try_get_number_constant(self.ABILITY_ID, AbilityConstantType.range.name)
         return int(v) if v is not None else None
 
-    def should_evaluate(self, ctx: NCContext) -> bool:
-        """`RitesOfMorkaiPlaybook$$ShouldEvaluate` : `adj.Any(IsFriend) && adj.Any(IsEnemy)` sur
-        `GetAdjacentUnits(position, friendsOf: null, ...)`.
+    def _amis_pour_le_gate(self, ctx: NCContext, pos: tuple) -> list:
+        """Les positions AMIES que `GetAdjacentUnits(pos, friendsOf: null)` peut rendre, du point
+        de vue du gate -- `ctx.fpos` **PLUS LE CASTER LUI-MEME** quand `pos` n'est pas sa position.
 
-        `friendsOf = null` -> la liste porte les DEUX camps ; les deux lambdas trient. Cote port
-        les deux camps sont deja separes (`fpos` / `epos`), donc la conjonction se lit directement
-        comme << au moins un de chaque dans le ring-1 >>.
+        ⚠ C'EST LA LECTURE QUI A ETE TROUVEE PAR LA CONFRONTATION, ET ELLE EST CONTRE-INTUITIVE.
+        Le gate est evalue AVANT tout deplacement : quand le generateur teste une position de MOVE
+        `P`, le caster occupe encore son ORIGINE. Si `P` est adjacente a l'origine -- ce qui est le
+        cas de tout le ring-1 de move -- alors `GetAdjacentUnits(P)` contient LE CASTER, et
+        `<ShouldEvaluate>b__0` = `UnitExtensions.IsFriend(caster, caster, state)` est VRAI.
+        La clause << au moins un ami adjacent >> est donc satisfaite PAR LE CASTER SEUL sur toute
+        position de move voisine.
 
-        Position INCONNUE (`origin is None`, cas d'une MoW) -> `False` : le natif appellerait
-        `GetAdjacentUnits(null)` et n'aurait aucun voisin, donc aucune des deux clauses ne pourrait
-        etre vraie. Le porteur de 1211 est de toute facon une unite a position."""
-        if ctx.origin is None:
+        MESURE qui l'etablit (regime E de `probe_1066_rites_of_morkai_decision_live.py`) : caster
+        en `(3,4)`, allies en `(0,0)` et `(6,0)`, un ennemi en `(3,5)`. AUCUNE position candidate
+        n'a d'ami au sens `fpos`, et pourtant `aiDryRunAllUnits` propose `MoveUnitMessage -> (4,4)`
+        puis `ActiveAbilityMessage(1211)`. La seule unite amie adjacente a `(4,4)` est le caster
+        lui-meme, reste en `(3,4)`.
+
+        ⚠ Ne PAS confondre avec le COMPTE : celui-la porte le predicat EXPLICITE
+        `<EvaluateNonComparable>b__0` = `f != caster`, donc le caster s'y exclut. Les deux
+        lectures cohabitent dans le meme corps natif, et les melanger donne un port faux dans un
+        sens ou dans l'autre."""
+        amis = list(ctx.fpos or [])
+        if ctx.origin is not None and (pos[0], pos[1]) != (ctx.origin[0], ctx.origin[1]):
+            amis.append(ctx.origin)
+        return amis
+
+    def should_evaluate_at(self, ctx: NCContext, pos: tuple) -> bool:
+        """`RitesOfMorkaiPlaybook$$ShouldEvaluate(unit, position, possiblePositions)` -- `IPlaybook`
+        slot **6** (arite 3), LU dans `metadata/interface_slots.tsv` :
+
+            adj = battleQuery.<slot 123 GetAdjacentUnits>(position, null, false, ...)
+            return adj.Any(u => IsFriend(u, unit)) ? adj.Any(u => IsEnemy(u, unit)) : false
+
+        ⚠ CE GATE EST PAR POSITION, PAS PAR UNITE. `ActiveAbilityActionGenerator.
+        <GenerateActions>d__7$$MoveNext` appelle le slot 4 (arite 1) puis le slot 5 (arite 2) UNE
+        FOIS chacun, puis ENTRE dans la boucle des positions candidates et y appelle le slot 6, le
+        slot 64 `HasValidTargets` et le slot 7 `Evaluate` -- les buckets par position etant
+        ensuite MERGES. Porter ce gate dans le `should_evaluate()` sans position (slot 4 de la
+        classe de base) le rendrait BEAUCOUP trop strict : il refuserait a l'origine des cas que
+        le natif accepte depuis une tuile de move.
+
+        `possiblePositions` n'est PAS lu par le corps -- il figure dans la signature du slot, pas
+        dans les instructions."""
+        if pos is None:
             return False
         neigh = bq.neigh_map(ctx)
         elev = ctx.elev_by_pos
-        amis = bq.count_adjacent(ctx.origin, ctx.fpos, elev, neigh)
-        ennemis = bq.count_adjacent(ctx.origin, ctx.epos, elev, neigh)
+        amis = bq.count_adjacent(pos, self._amis_pour_le_gate(ctx, pos), elev, neigh)
+        ennemis = bq.count_adjacent(pos, ctx.epos, elev, neigh)
         return amis > 0 and ennemis > 0
+
+    def should_evaluate(self, ctx: NCContext) -> bool:
+        """Slot 4 (arite 1) -- `BasePlaybook$$ShouldEvaluate(unit)`, que 1211 ne surcharge PAS.
+
+        Le gate propre a 1211 est le slot 6, PAR POSITION (`should_evaluate_at`) : le poser ici
+        reviendrait a refuser l'ability avant meme le sweep. Rendre `True` est donc le mirror,
+        pas une permissivite."""
+        return True
 
     def evaluate_non_comparable(self, tile, target, ctx: NCContext):
         """`1 + 100 * Count(GetSurroundingFriends(caster, tile, range, includeCenter: false),
@@ -185,25 +226,48 @@ class RitesOfMorkaiPlaybook(NonComparablePlaybook):
         return self.BASE_UTILITY + self.FRIEND_UTILITY * float(n)
 
     def generate_candidates(self, ctx: NCContext) -> list[dict]:
-        """`ActiveAbilityActionGenerator` + `Bucket$$ChooseAction`, domaine UNITE.
+        """Mirror de `ActiveAbilityActionGenerator.<GenerateActions>d__7$$MoveNext` pour 1211 :
+        SWEEP DES POSITIONS candidates, gate slot 6 par position, puis `Evaluate`, buckets MERGES
+        et `Bucket$$ChooseAction` en argmax STRICT.
 
-        ⚠ L'utilite etant la MEME pour toutes les cibles, le choix se joue ENTIEREMENT sur l'ordre :
-        `Bucket$$AddAction` ne remplace que sur `>` STRICT, donc la PREMIERE cible de `fromHere`
-        gagne. `eligible_units` preserve cet ordre natif (c'est sa raison d'etre)."""
-        if not self.should_evaluate(ctx):
-            return []                                   # gate AMONT : l'ability est SAUTEE
-        util = self.evaluate_non_comparable(ctx.origin, None, ctx)
-        if util is None or util < self.MIN_UTILITY:
-            return []
+        L'ordre balaye est `ctx.reach_nc` -- ORIGINE EN TETE puis les tuiles de move
+        (`ABaseAiUnitTactic$$GenerateActionTiles`). `AddAction`/`Merge` ne remplacent que sur `>`
+        STRICT, donc a utilite egale le natif RESTE SUR PLACE : le keep-first sur cet ordre est le
+        mirror, pas une commodite.
+
+        ⚠ L'utilite etant la MEME pour toutes les CIBLES a une position donnee, la cible se resout
+        elle aussi par keep-first, sur l'ordre de `fromHere` (`eligible_units`).
+
+        ⚠ ECART NOMME : `eligible_units` ne connait les cibles que depuis l'ORIGINE (`fromHere`).
+        Pour une position de move, le port reutilise cette liste faute de vue par-position cote
+        RPC ; `HasValidTargets(unit, position, ability)` (slot 64), que le natif interpose, n'a pas
+        d'equivalent offline. Le masque de 1211 etant SELF-CAST (la mesure live rend `targetId ==
+        casterId` dans les quatre regimes passants), l'ecart est inerte ici : la cible ne depend
+        pas de la position."""
+        positions = list(ctx.reach_nc or ([ctx.origin] if ctx.origin is not None else []))
         cibles = TGT.eligible_units(ctx, self.ABILITY_ID)
-        if not cibles:
+        if not positions or not cibles:
             return []
+        best = None                                     # (position, utilite)
+        for p in positions:
+            if p is None or not self.should_evaluate_at(ctx, p):
+                continue                                # gate slot 6, PAR POSITION
+            util = self.evaluate_non_comparable(p, None, ctx)
+            if util is None or util < self.MIN_UTILITY:
+                continue                                # gate `minUtility` du `Bucket`
+            if best is None or util > best[1]:          # STRICT -> keep-first au tie
+                best = (p, util)
+        if best is None:
+            return []
+        pos, util = best
         tid = cibles[0][0]                              # keep-first : utilites toutes egales
+        to = None if (ctx.origin is not None
+                      and (pos[0], pos[1]) == (ctx.origin[0], ctx.origin[1])) else pos
         if ctx.debug:
             import sys
-            print("    [dbg NC u%s] RitesOfMorkai target=%s util=%s (%d cible(s) a egalite)"
-                  % (ctx.uid, tid, util, len(cibles)), file=sys.stderr)
-        return [{"target": tid, "ability": self.ABILITY_ID, "to": None, "pred": util}]
+            print("    [dbg NC u%s] RitesOfMorkai target=%s util=%s depuis %s (to=%s)"
+                  % (ctx.uid, tid, util, pos, to), file=sys.stderr)
+        return [{"target": tid, "ability": self.ABILITY_ID, "to": to, "pred": util}]
 
 
 __all__ = ["RitesOfMorkaiPlaybook"]
