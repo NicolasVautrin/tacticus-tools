@@ -86,8 +86,9 @@ class HeavyRailRiflePlaybook(NonComparablePlaybook):
             bucket.AddAction(GenerateAction(casterPosition, target, utility))
 
     ⚠ LES DEUX APPELS DE FORMULE ONT LEUR RECEVEUR DEVANT (#1031), ET LEURS ARGUMENTS SONT
-    DESORMAIS LUS (#1031-r2). Ils s'ecrivaient `<IAmountFormula slot 1 = Calculate>(hitsNode)`
-    [slot-attribution:refute] -- le NOEUD dans la parenthese. Or `hitsNode` est le RECEVEUR : la
+    DESORMAIS LUS (#1031-r2). Ils s'ecrivaient ainsi :
+    `<IAmountFormula slot 1 = Calculate>(hitsNode)`  [slot-attribution:refute]
+    -- le NOEUD dans la parenthese. Or `hitsNode` est le RECEVEUR : la
     signature est `Calculate(entities: AbilityEntities, result: OperationResult)`, **deux**
     parametres, lus dans `data/symbols/<build>/frida/methods.tsv`. La convention du depot
     (mesuree : 43/43 avec receveur colle, 59/61 sans) est << la parenthese porte les ARGUMENTS >>,

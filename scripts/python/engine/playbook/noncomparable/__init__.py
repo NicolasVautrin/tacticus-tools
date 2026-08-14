@@ -64,6 +64,7 @@ from __future__ import annotations
 from ._base import NCContext, NonComparablePlaybook, NATIVE_PRIORITY, native_priority, \
     _has_valid_targets
 from .bloody_fury import BloodyFuryPlaybook
+from .burrowers import BurrowersPlaybook
 from .vexilla_magnifica import VexillaMagnificaPlaybook
 from .fighting_retreat import FightingRetreatPlaybook
 from .fire_and_reposition import FireAndRepositionPlaybook
@@ -158,6 +159,10 @@ from .squig_launchas import SquigLaunchasPlaybook   # #970-r3
 PLAYBOOKS: dict[int, NonComparablePlaybook] = {
     pb.ABILITY_ID: pb for pb in (
         BloodyFuryPlaybook(),
+        BurrowersPlaybook(),            # 1023 (#1021-r2) — deplacement self-target : util = la
+        #                                 DISTANCE hexagonale a la tuile d'origine (plus loin =
+        #                                 mieux). Terme RNG `Next(-1, +1)` non porte : ecart borne
+        #                                 a 2, donc argmax exact des que l'ecart de distance > 2.
         VexillaMagnificaPlaybook(),
         FightingRetreatPlaybook(),
         FireAndRepositionPlaybook(),    # 1063 (#567-r1) — util = 1.5 + 20*(distance MOYENNE aux

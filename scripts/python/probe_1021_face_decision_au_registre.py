@@ -131,9 +131,9 @@ DETTE: dict[int, tuple[str, str]] = {
            "ValkyrieStrikePlaybook -- EvaluateNonComparable, GetNumberOfEnemies, "
            "GetNumberOfFriends, GetPossiblyTargetedUnits. COMBAT : ValkyrieStrikeAbility "
            "(strike). 2 porteurs (npc, summons)."),
-    1023: ("SANS_VERDICT",
-           "BurrowersPlaybook -- EvaluateNonComparable, ShouldEvaluate. COMBAT : BurrowersAbility "
-           "(tyranids). 6 porteurs (npc, summons) -- le plus peuple du lot."),
+    # 1023 Burrowers -- LIGNE RETIREE par #1021-r2 : la face DECISION est PORTEE
+    # (`engine/playbook/noncomparable/burrowers.py`, registre `PLAYBOOKS`). Le CRAN A prend le
+    # relais. La dette descend de 15 a 14.
     1026: ("SANS_VERDICT",
            "BasiliskBarragePlaybook -- GenerateAttackPredictionsForShells, MakeDamagePredictions. "
            "COMBAT : BasiliskBarrageAbility (astramilitarum). 5 porteurs (lineup, npc). Sa CLASSE "
