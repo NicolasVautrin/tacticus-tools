@@ -200,8 +200,9 @@ def verdicts(inv: dict) -> dict:
     # -- #1023-r1 : << le canal DEGAT de 1365 n'est PAS porte -- aucune classe dans EFFECT_CLASSES >>
     v["1023-r1"] = {
         "tient": not _est_porte(inv["MachineVengeance"]),
-        "blocage_mesure": "aucun",
-        "note": "MachineVengeance absent de tous les registres -- le canal reste a porter.",
+        "blocage_mesure": None,                              # FERME par #1081 : canal porte
+        "note": "canal DEGAT porte (%s) -- bloc methodPointers segmente, 4 slots, 2 triviaux."
+                % (inv["MachineVengeance"]["effect_classes"] or "-"),
     }
     # NOTE -- `ferme_attendu` : une fiche FERMEE ne porte plus ni `FOYER:` ni `BLOCAGE:` (c'est la
     # convention du backlog, et c'est ce qui la retire de `index-foyers.md`). L'etage 3 verifie donc
