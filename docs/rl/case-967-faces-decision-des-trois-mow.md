@@ -288,3 +288,92 @@ indépendance des deux axes, centre mur). Deux étages sont là pour empêcher l
 sinon), donc coupant lui aussi quelle que soit la valeur d'`includeNonWalkable`. La clé `isInFog`
 existe côté hook (`rpc-board.ts`) et est lue par `engine/ai/context.py`, mais `Board` ne l'expose
 par aucun accesseur et elle n'est pas confrontée ici : gate inerte, dit comme tel.
+
+---
+
+## #967-r11 — le FOG, TROISIÈME axe du même maillon, et son `BLOCAGE: seeding` était PÉRIMÉ
+
+**Fermé le 2026-08-14.** La ligne ci-dessus disait « gate inerte » ; c'était vrai du **port**, pas
+du **substrat**. Mesuré : `boardGraph` publie `isInFog` sur **63/63** tuiles des trois boards
+testés, au même rang qu'`isWall`. Aucun capteur à poser — le blocage annoncé n'existait plus.
+
+### Le décompilé, relu verbatim sur `rnca9r7q6c`
+
+`IdunBattle.Core.Services.TileUtil$$IsTileValidForList` — le maillon terminal, déjà celui de
+#967-r10 :
+
+```
+if (tileComponent+0x41 != 0)   return false                     # MUR   (#967-r10)
+if (checkWalkability == 0)     return tileComponent+0x40 == 0   # FOG, branche 1
+else                           IsWalkable(tile, tileComponent, tile+0x40,
+                                          checkFog: CONCAT71(checkElevation >> 8, 1))
+```
+
+`IdunBattle.Entities.TileExtensions$$IsWalkable` — la surcharge à **quatre arguments** (il en
+existe trois, désambiguïsées par l'**arité** ; les deux autres prennent `(tile, checkFog)`) :
+
+```
+if (movement+0x10 != 0)   return false           # MARCHABILITE (MovementComponent)
+if (checkFog == 0)        return true
+return tileComponent+0x40 == 0                   # FOG, branche 2 -- MEME octet
+```
+
+Le littéral `1` de `checkFog` est écrit **en dur** par l'appelant (octet bas de
+`CONCAT71(checkElevation >> 8, 1)`) : ce n'est **pas** `checkElevation` qui le pilote. Donc le fog
+coupe dans les deux branches, exactement comme le mur.
+
+Identité de l'octet, **lue** et non déduite du voisinage :
+`IdunBattle.Entities.TileExtensions$$IsInFogOfWar` rend **exactement** `*(byte*)(comp+0x40)`.
+
+### Trois axes indépendants, désormais tous portés
+
+| axe | offset natif | conditionnel ? | accesseur du port |
+|-----|--------------|----------------|-------------------|
+| MUR | `TileComponent+0x41` | non | `_is_wall` (#967-r10) |
+| FOG | `TileComponent+0x40` | non | `_is_in_fog` (#967-r11) |
+| MARCHE | `MovementComponent+0x10` | armé par `includeNonWalkable == 0` | `_walkable` (#967-r2) |
+
+Le discriminant qui interdit de rabattre le fog sur la marchabilité est **mesuré** :
+`probe_967r11_fog_du_disque.py`, seed 777.
+
+| board | tuiles | `isInFog` publié | `fog & !walk` | `fog & walk` | `!fog & !walk` | effet r=1 | effet r=2 |
+|-------|--------|------------------|---------------|--------------|----------------|-----------|-----------|
+| `MC1_67` | 63 | 63 | 0 | 0 | 1 | 0/0 | 0/0 |
+| `C6_02` | 63 | 63 | 1 | **31** | 21 | 41 centres / **155** tuiles | 50 / **413** |
+| `C3_01` | 63 | 63 | 0 | 0 | 14 | 0/0 | 0/0 |
+
+Les **31** tuiles `fog && walkable` sont le régime discriminant : le gate walkable ne peut pas les
+couper, et fondre les deux axes les garderait. Ce 31/63 corrobore, par un chemin indépendant, la
+mesure de #433-r4. Symétriquement, les 21 tuiles `!fog && !walk` (Block/Water) doivent **rester**
+sous `includeNonWalkable = 1` — le filtre fog ne doit pas y toucher.
+
+L'effet est mesuré **par différence sur le seul gate fog** (sous-classe qui neutralise
+`_is_in_fog`), pas contre un disque `hexgeo.disk` pur : comparer au disque pur mélangerait les
+trois axes.
+
+### Rayon de souffle et value-preserving
+
+Le rayon est **dérivé du code par AST** (`probe_967r11_rayon_de_souffle.py`, qui résout aussi la
+voie **attributaire** qu'un recensement d'`ImportFrom` rate) : **6 fichiers, 7 sites** sous
+`engine/`, plus 4 fichiers de tests/probes. Les call-sites sont `DeathOnTheWind` (darkangels),
+`WallOfMirrors` (×2), `SquigMine` (orks), `ThriceBlessedConflagration` (sisterhood), `NovaCharge`
+(tau), `LivingLightning`.
+
+**Value-preserving** : `MC1_67` et `C3_01` — les boards de la quasi-totalité des tests — portent
+**zéro** tuile en brouillard, donc le correctif y est un **no-op exact**. Un board qui n'a pas pu
+être monté n'est jamais compté comme un board sans fog (les `C6_*` n'ont que 3-4 spawns : sans
+`--p-units` ils sortent en `BUILD KO`, et lire ce KO comme un zéro fabriquerait le
+value-preserving qu'on cherche à établir).
+
+### Garde
+
+`tests/engine/entities/test_967r11_surrounding_tiles_fog_offline.py` — 9 étages, fixture nommée
+`board_trois_axes` / `board_fog`. Vue **ROUGE** par mutation adversariale (gate retiré) : **6
+tests sur 9** tombent ; les 3 restants sont les non-régressions qui doivent rester vertes des deux
+côtés (`gate inerte sans la clé`, `disque sans fog inchangé`, `non-marchable sans fog reste`).
+
+Message verbatim :
+
+```
+AssertionError: le centre EN BROUILLARD est reste sous includeCenter=1 : [8, 7, 13, 12, 11, 18, 17]
+```
