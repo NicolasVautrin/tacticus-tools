@@ -19,9 +19,9 @@ differe. C'est la doctrine « DECIDER != EXECUTER ».
 
 ## Bilan
 
-- Unites `summons` : **65** ; kits sans manque : **55** ; kits avec du travail : **10**
-- Actives distinctes : **16** — `[C-]` **4** · `[CD]` **12**
-- Passifs distincts : **47** — portes **37**, non portes **10**
+- Unites `summons` : **65** ; kits sans manque : **56** ; kits avec du travail : **9**
+- Actives distinctes : **16** — `[C-]` **6** · `[CD]` **10**
+- Passifs distincts : **47** — portes **38**, non portes **9**
 - Traits de kit distincts (AUCUN ecarte — le seuil de frequence a disparu avec #1015) :
   **43** — couverts **42**, non couverts **1**
 
@@ -51,7 +51,6 @@ l'unite. La colonne `porteurs` dit l'exposition.
 | trait | TwoManTeam | 2 | astraSmnLascannon, astraSmnMortar |
 | passif | DrawFire | 1 | blackSmnTerminator |
 | passif | FiringPosition | 1 | blackSmnHavoc |
-| passif | HunterOfSouls | 1 | thousSmnDaemonPrince |
 | passif | Lifewards | 1 | adeptSmnGeminaeSuperia |
 | passif | NoHidingFromTheWatchers | 1 | darkaSmnWatcher |
 | passif | PileIn | 1 | orksGrot |
@@ -60,13 +59,13 @@ l'unite. La colonne `porteurs` dit l'exposition.
 | passif | Shrapnel | 1 | astraSmnMortar |
 | passif | WatchedOver | 1 | darkaSmnWatcher |
 
-## Faces DECISION ouvertes sur des actives EXECUTEES (4)
+## Faces DECISION ouvertes sur des actives EXECUTEES (6)
 
 Ces abilities s'executent fidelement mais sont CHOISIES avec un scoring qui n'est pas celui
 du natif. Aucun compteur de manque ne les voit — elles ne sont pas des items absents, ce
 sont des **faces** absentes d'items presents.
 
-`SlashingDive`, `TunnelingHorror`, `ValkyrieStrike`, `WallOfMirrors`
+`DevoutPush`, `PrecisionShot`, `SlashingDive`, `TunnelingHorror`, `ValkyrieStrike`, `WallOfMirrors`
 
 ## Inventaire complet, par faction
 
@@ -115,7 +114,7 @@ sont des **faces** absentes d'items presents.
 
 | unite | manque | actives (face) | passifs non portes | traits non couverts | autres voies |
 |---|---:|---|---|---|---|
-| templInitiate | 0 | DevoutPush(1053)[CD] | - | - | - |
+| templInitiate | 0 | DevoutPush(1053)[C-] | - | - | - |
 | templInitiatePyreblaster | 0 | - | - | - | - |
 | templNeophyte | 0 | IncendiaryShells(1044)[CD] | - | - | - |
 | templSmnAggressor | 0 | Fragstorm(1078)[CD] | - | - | - |
@@ -162,7 +161,7 @@ sont des **faces** absentes d'items presents.
 
 | unite | manque | actives (face) | passifs non portes | traits non couverts | autres voies |
 |---|---:|---|---|---|---|
-| necroSmnDeathmark | 0 | PrecisionShot(1015)[CD] | - | - | - |
+| necroSmnDeathmark | 0 | PrecisionShot(1015)[C-] | - | - | - |
 | necroSmnDestroyer | 0 | TunnelingHorror(1011)[C-] | - | - | - |
 | necroSmnSwarm | 0 | ScarabSummon(1047)[CD] | - | - | - |
 | necroSmnWarrior | 0 | - | - | - | - |
@@ -192,13 +191,13 @@ sont des **faces** absentes d'items presents.
 | tauSmnDroneSniper | 0 | - | - | - | - |
 | tauSmnStealthSuit | 0 | ForwardObservers(1185)[CD]<br>WallOfMirrors(1186)[C-] | - | - | - |
 
-### ThousandSons — 8 unites, 1 avec du travail
+### ThousandSons — 8 unites, 0 avec du travail
 
 | unite | manque | actives (face) | passifs non portes | traits non couverts | autres voies |
 |---|---:|---|---|---|---|
-| thousSmnDaemonPrince | 1 | - | HunterOfSouls | - | - |
 | thousSmnBlueHorror | 0 | - | - | - | - |
 | thousSmnBlueHorrorHSE | 0 | - | - | - | - |
+| thousSmnDaemonPrince | 0 | - | - | - | - |
 | thousSmnPinkHorror | 0 | - | - | - | - |
 | thousSmnPinkHorrorHSE | 0 | - | - | - | - |
 | thousSmnRubricMarine | 0 | - | - | - | - |

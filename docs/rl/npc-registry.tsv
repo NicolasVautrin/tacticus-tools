@@ -184,31 +184,31 @@ admecBossDominusSurv	AdeptusMechanicus	Imperial	None	trait	Hero		1
 admecBossDominusSurv	AdeptusMechanicus	Imperial	None	trait	Mechanical		1	
 admecBossDominusSurv	AdeptusMechanicus	Imperial	None	trait	Mechanic		1	
 admecBossManipulus	AdeptusMechanicus	Imperial	None	active	DefendTheDivineWork	1117	1	1
-admecBossManipulus	AdeptusMechanicus	Imperial	None	passif	GalvanicField		1	
+admecBossManipulus	AdeptusMechanicus	Imperial	None	passif	GalvanicField		0	
 admecBossManipulus	AdeptusMechanicus	Imperial	None	trait	Hero		1	
 admecBossManipulus	AdeptusMechanicus	Imperial	None	trait	Mechanical		1	
 admecBossManipulus	AdeptusMechanicus	Imperial	None	trait	Mechanic		1	
 admecBossManipulus	AdeptusMechanicus	Imperial	None	trait	Flying		1	
 admecBossManipulusCE	AdeptusMechanicus	Imperial	None	active	DefendTheDivineWork	1117	1	1
-admecBossManipulusCE	AdeptusMechanicus	Imperial	None	passif	GalvanicField		1	
+admecBossManipulusCE	AdeptusMechanicus	Imperial	None	passif	GalvanicField		0	
 admecBossManipulusCE	AdeptusMechanicus	Imperial	None	trait	Hero		1	
 admecBossManipulusCE	AdeptusMechanicus	Imperial	None	trait	Mechanical		1	
 admecBossManipulusCE	AdeptusMechanicus	Imperial	None	trait	Mechanic		1	
 admecBossManipulusCE	AdeptusMechanicus	Imperial	None	trait	Flying		1	
 admecBossManipulusLEG	AdeptusMechanicus	Imperial	None	active	DefendTheDivineWork	1117	1	1
-admecBossManipulusLEG	AdeptusMechanicus	Imperial	None	passif	GalvanicField		1	
+admecBossManipulusLEG	AdeptusMechanicus	Imperial	None	passif	GalvanicField		0	
 admecBossManipulusLEG	AdeptusMechanicus	Imperial	None	trait	Hero		1	
 admecBossManipulusLEG	AdeptusMechanicus	Imperial	None	trait	Mechanical		1	
 admecBossManipulusLEG	AdeptusMechanicus	Imperial	None	trait	Mechanic		1	
 admecBossManipulusLEG	AdeptusMechanicus	Imperial	None	trait	Flying		1	
 admecBossManipulusLHE	AdeptusMechanicus	Imperial	None	active	DefendTheDivineWork	1117	1	1
-admecBossManipulusLHE	AdeptusMechanicus	Imperial	None	passif	GalvanicField		1	
+admecBossManipulusLHE	AdeptusMechanicus	Imperial	None	passif	GalvanicField		0	
 admecBossManipulusLHE	AdeptusMechanicus	Imperial	None	trait	Hero		1	
 admecBossManipulusLHE	AdeptusMechanicus	Imperial	None	trait	Mechanical		1	
 admecBossManipulusLHE	AdeptusMechanicus	Imperial	None	trait	Mechanic		1	
 admecBossManipulusLHE	AdeptusMechanicus	Imperial	None	trait	Flying		1	
 admecBossManipulusSurv	AdeptusMechanicus	Imperial	None	active	DefendTheDivineWork	1117	1	1
-admecBossManipulusSurv	AdeptusMechanicus	Imperial	None	passif	GalvanicField		1	
+admecBossManipulusSurv	AdeptusMechanicus	Imperial	None	passif	GalvanicField		0	
 admecBossManipulusSurv	AdeptusMechanicus	Imperial	None	trait	Hero		1	
 admecBossManipulusSurv	AdeptusMechanicus	Imperial	None	trait	Mechanical		1	
 admecBossManipulusSurv	AdeptusMechanicus	Imperial	None	trait	Mechanic		1	
@@ -284,7 +284,7 @@ admecNpc3ElectropriestSurv	AdeptusMechanicus	Imperial	None	passif	VoltagheistFie
 admecNpc3ElectropriestSurv	AdeptusMechanicus	Imperial	None	passif	ElectroShock		1	
 admecNpc3ElectropriestSurv	AdeptusMechanicus	Imperial	None	trait	Mechanical		1	
 admecNpc3ElectropriestSurv	AdeptusMechanicus	Imperial	None	trait	Resilient		1	
-astarCyrus_LHE	AdeptusAstartes	Imperial	None	active	StrikeFromTheShadows	1225	1	1
+astarCyrus_LHE	AdeptusAstartes	Imperial	None	active	StrikeFromTheShadows	1225	1	0
 astarCyrus_LHE	AdeptusAstartes	Imperial	None	passif	HaywireMine		1	
 astarCyrus_LHE	AdeptusAstartes	Imperial	None	trait	Hero		1	
 astarCyrus_LHE	AdeptusAstartes	Imperial	None	trait	Camouflage		1	
@@ -388,7 +388,7 @@ astraNpcBullgryn	AstraMilitarum	Imperial	None	trait	BigTarget		1
 astraNpcCreed	AstraMilitarum	Imperial	None	active	SupremeCommander	1028	1	1
 astraNpcCreed	AstraMilitarum	Imperial	None	passif	SwornProtector		1	
 astraNpcCreed	AstraMilitarum	Imperial	None	trait	Hero		1	
-astraNpcDreir	AstraMilitarum	Imperial	None	active	LeadingTheCharge	1204	1	1
+astraNpcDreir	AstraMilitarum	Imperial	None	active	LeadingTheCharge	1204	1	0
 astraNpcDreir	AstraMilitarum	Imperial	None	passif	ToughToKill		1	
 astraNpcDreir	AstraMilitarum	Imperial	None	trait	Hero		1	
 astraNpcDreir	AstraMilitarum	Imperial	None	trait	Resilient		1	
@@ -791,7 +791,7 @@ deathNpcBlightlord	DeathGuard	Chaos	None	trait	Hero		1
 deathNpcBlightlord	DeathGuard	Chaos	None	trait	ContagionsOfNurgle		1	
 deathNpcBlightlord	DeathGuard	Chaos	None	trait	Resilient		1	
 deathNpcBlightlord	DeathGuard	Chaos	None	trait	TerminatorArmour		1	
-deathNpcMoWCrawler	DeathGuard	Chaos	None	active	EntropyCannons	1168	1	1
+deathNpcMoWCrawler	DeathGuard	Chaos	None	active	EntropyCannons	1168	1	0
 deathNpcMoWCrawler	DeathGuard	Chaos	None	active	PlagueburstMortar	1169	1	1
 deathNpcMoWCrawler	DeathGuard	Chaos	None	trait	MachineOfWar		1	
 deathNpcPutrifier	DeathGuard	Chaos	None	active	FoulInfusion	1038	1	1
@@ -1198,7 +1198,7 @@ necroNpc2TutFlayedOneFTUEtest	Necrons	Xenos	None	active	StormOfFlensingBlades	10
 necroNpc2TutFlayedOneFTUEtest	Necrons	Xenos	None	trait	LivingMetal		1	
 necroNpc2TutFlayedOneFTUEtest	Necrons	Xenos	None	trait	Terrifying		1	
 necroNpc2TutFlayedOneFTUEtest	Necrons	Xenos	None	trait	Mechanical		1	
-necroNpc3Deathmark	Necrons	Xenos	None	active	PrecisionShot	1015	1	1
+necroNpc3Deathmark	Necrons	Xenos	None	active	PrecisionShot	1015	1	0
 necroNpc3Deathmark	Necrons	Xenos	None	passif	ReanimationProtocols		1	
 necroNpc3Deathmark	Necrons	Xenos	None	trait	LivingMetal		1	
 necroNpc3Deathmark	Necrons	Xenos	None	trait	HeavyWeapon		1	
@@ -1437,7 +1437,7 @@ powupDamage	?	?	None	passif	PowerUp_Damage		1
 powupDamage	?	?	None	trait	Steppable		1	
 powupDamage	?	?	None	trait	Invincible		1	
 powupDamage	?	?	None	trait	Immune		1	
-powupHealing	?	?	None	passif	PowerUp_Healing		0	
+powupHealing	?	?	None	passif	PowerUp_Healing		1	
 powupHealing	?	?	None	trait	Steppable		1	
 powupHealing	?	?	None	trait	Invincible		1	
 powupHealing	?	?	None	trait	Immune		1	
@@ -1465,7 +1465,7 @@ powupMeleeHits	?	?	None	passif	PowerUp_MeleeHits		1
 powupMeleeHits	?	?	None	trait	Steppable		1	
 powupMeleeHits	?	?	None	trait	Invincible		1	
 powupMeleeHits	?	?	None	trait	Immune		1	
-powupReactivateAbility	?	?	None	passif	PowerUp_ReactivateAbility		0	
+powupReactivateAbility	?	?	None	passif	PowerUp_ReactivateAbility		1	
 powupReactivateAbility	?	?	None	trait	Steppable		1	
 powupReactivateAbility	?	?	None	trait	Invincible		1	
 powupReactivateAbility	?	?	None	trait	Immune		1	
@@ -1791,7 +1791,7 @@ templBossSwordBrother_LHE	BlackTemplars	Imperial	None	passif	ChampionOfTheFeast	
 templBossSwordBrother_LHE	BlackTemplars	Imperial	None	trait	Hero		1	
 templBossSwordBrother_LHE	BlackTemplars	Imperial	None	trait	Parry		1	
 templBossSwordBrother_LHE	BlackTemplars	Imperial	None	trait	RapidAssault		1	
-templNpc1Initiate	BlackTemplars	Imperial	None	active	DevoutPush	1053	1	1
+templNpc1Initiate	BlackTemplars	Imperial	None	active	DevoutPush	1053	1	0
 templNpc1Initiate	BlackTemplars	Imperial	None	passif	HeavyBoltPistol		1	
 templNpc2Neophyte	BlackTemplars	Imperial	None	active	IncendiaryShells	1044	1	1
 templNpc3InitiatePyreblaster	BlackTemplars	Imperial	None	passif	Pyreblaster		1	

@@ -19,9 +19,9 @@ differe. C'est la doctrine « DECIDER != EXECUTER ».
 
 ## Bilan
 
-- Unites `npc` : **491** ; kits sans manque : **447** ; kits avec du travail : **44**
-- Actives distinctes : **147** — `[--]` **1** · `[C-]` **12** · `[CD]` **134**
-- Passifs distincts : **177** — portes **131**, non portes **46**
+- Unites `npc` : **491** ; kits sans manque : **444** ; kits avec du travail : **47**
+- Actives distinctes : **147** — `[--]` **1** · `[C-]` **17** · `[CD]` **129**
+- Passifs distincts : **177** — portes **132**, non portes **45**
 - Traits de kit distincts (AUCUN ecarte — le seuil de frequence a disparu avec #1015) :
   **58** — couverts **57**, non couverts **1**
 - **Voies inversees** (nom absent d'`ActiveAbilityType`) : **1** — `Maugetar`
@@ -49,6 +49,7 @@ l'unite. La colonne `porteurs` dit l'exposition.
 
 | type | item | porteurs | exemples |
 |---|---|---:|---|
+| passif | GalvanicField | 5 | admecBossManipulus, admecBossManipulusCE, admecBossManipulusLEG |
 | trait | TwoManTeam | 4 | astraNpc2Lascannon, astraNpc4Mortar, astraNpc4MortarSurv |
 | passif | RapidFire | 3 | ultraNpc3Intercessor, ultraNpc4HeavyIntercessor, ultraNpc4HeavyIntercessorSurv |
 | passif | BossEndFightUndefeated | 2 | darkaBossLion, deathBossMortarion |
@@ -72,11 +73,9 @@ l'unite. La colonne `porteurs` dit l'exposition.
 | passif | OiWatchIt | 1 | orksNpc5LootGrotTeam |
 | passif | PileIn | 1 | orksNpc1Grot |
 | passif | PowerUp_Bomb | 1 | powupBomb |
-| passif | PowerUp_Healing | 1 | powupHealing |
 | passif | PowerUp_HeroSpawn_BladeChampion | 1 | powupHeroSpawn_BladeChampion |
 | passif | PowerUp_HeroSpawn_Uthar | 1 | powupHeroSpawn_Uthar |
 | passif | PowerUp_HeroSpawn_VexilusPraetor | 1 | powupHeroSpawn_VexilusPraeto |
-| passif | PowerUp_ReactivateAbility | 1 | powupReactivateAbility |
 | passif | PowerUp_Reinforcement | 1 | powupReinforcement |
 | passif | PowerUp_ReinforcementShield | 1 | powupReinforcementShield |
 | passif | PowerUp_Resurrect | 1 | powupResurrect |
@@ -98,28 +97,26 @@ l'unite. La colonne `porteurs` dit l'exposition.
 | passif | Volatile | 1 | LootObj_AmmoBox |
 | passif | WatchedOver | 1 | darkaNpc4Watcher |
 
-## Faces DECISION ouvertes sur des actives EXECUTEES (12)
+## Faces DECISION ouvertes sur des actives EXECUTEES (17)
 
 Ces abilities s'executent fidelement mais sont CHOISIES avec un scoring qui n'est pas celui
 du natif. Aucun compteur de manque ne les voit — elles ne sont pas des items absents, ce
 sont des **faces** absentes d'items presents.
 
-`ArcScourge`, `BasiliskBarrage`, `CallRipperSwarms`, `Catalyst`, `ExplosivePresents`, `NovaCharge`, `Reveal`, `SlashingDive`, `TunnelingHorror`, `ValkyrieStrike`, `WallOfMirrors`, `WarConstruct`
+`ArcScourge`, `BasiliskBarrage`, `CallRipperSwarms`, `Catalyst`, `DevoutPush`, `EntropyCannons`, `ExplosivePresents`, `LeadingTheCharge`, `NovaCharge`, `PrecisionShot`, `Reveal`, `SlashingDive`, `StrikeFromTheShadows`, `TunnelingHorror`, `ValkyrieStrike`, `WallOfMirrors`, `WarConstruct`
 
 ## Inventaire complet, par faction
 
-### ? — 51 unites, 17 avec du travail
+### ? — 51 unites, 15 avec du travail
 
 | unite | manque | actives (face) | passifs non portes | traits non couverts | autres voies |
 |---|---:|---|---|---|---|
 | LootObj_AmmoBox | 1 | - | Volatile | - | - |
 | LootObj_ExplOilDrum | 1 | - | Explosive | - | - |
 | powupBomb | 1 | - | PowerUp_Bomb | - | - |
-| powupHealing | 1 | - | PowerUp_Healing | - | - |
 | powupHeroSpawn_BladeChampion | 1 | - | PowerUp_HeroSpawn_BladeChampion | - | - |
 | powupHeroSpawn_Uthar | 1 | - | PowerUp_HeroSpawn_Uthar | - | - |
 | powupHeroSpawn_VexilusPraeto | 1 | - | PowerUp_HeroSpawn_VexilusPraetor | - | - |
-| powupReactivateAbility | 1 | - | PowerUp_ReactivateAbility | - | - |
 | powupReinforcement | 1 | - | PowerUp_Reinforcement | - | - |
 | powupReinforcementShield | 1 | - | PowerUp_ReinforcementShield | - | - |
 | powupResurrect | 1 | - | PowerUp_Resurrect | - | - |
@@ -160,22 +157,29 @@ sont des **faces** absentes d'items presents.
 | LootObj_XPBook | 0 | - | - | - | - |
 | powupArmor | 0 | - | - | - | - |
 | powupDamage | 0 | - | - | - | - |
+| powupHealing | 0 | - | - | - | - |
 | powupHealth | 0 | - | - | - | - |
 | powupHits | 0 | - | - | - | - |
 | powupMeleeHits | 0 | - | - | - | - |
+| powupReactivateAbility | 0 | - | - | - | - |
 
 ### AdeptusAstartes — 2 unites, 0 avec du travail
 
 | unite | manque | actives (face) | passifs non portes | traits non couverts | autres voies |
 |---|---:|---|---|---|---|
-| astarCyrus_LHE | 0 | StrikeFromTheShadows(1225)[CD] | - | - | - |
+| astarCyrus_LHE | 0 | StrikeFromTheShadows(1225)[C-] | - | - | - |
 | astarNpc1HaywireMine | 0 | - | - | - | - |
 
-### AdeptusMechanicus — 29 unites, 1 avec du travail
+### AdeptusMechanicus — 29 unites, 6 avec du travail
 
 | unite | manque | actives (face) | passifs non portes | traits non couverts | autres voies |
 |---|---:|---|---|---|---|
 | admecBossBelisarius | 2 | InvocationOfMachineVengeance(1172)[CD]<br>ArcScourge(1173)[C-]<br>SolarAtomizer(1174)[CD] | SelfRepairMechanismReworked, PreCalibratedPurgeSolution | - | - |
+| admecBossManipulus | 1 | DefendTheDivineWork(1117)[CD] | GalvanicField | - | - |
+| admecBossManipulusCE | 1 | DefendTheDivineWork(1117)[CD] | GalvanicField | - | - |
+| admecBossManipulusLEG | 1 | DefendTheDivineWork(1117)[CD] | GalvanicField | - | - |
+| admecBossManipulusLHE | 1 | DefendTheDivineWork(1117)[CD] | GalvanicField | - | - |
+| admecBossManipulusSurv | 1 | DefendTheDivineWork(1117)[CD] | GalvanicField | - | - |
 | admecBossDestroyer | 0 | SentinelDirectives(1139)[CD] | - | - | relic:KardiocoreGalvanus |
 | admecBossDestroyerCE | 0 | SentinelDirectives(1139)[CD] | - | - | relic:KardiocoreGalvanus |
 | admecBossDestroyerLHE | 0 | SentinelDirectives(1139)[CD] | - | - | relic:KardiocoreGalvanus |
@@ -184,11 +188,6 @@ sont des **faces** absentes d'items presents.
 | admecBossDominusLEG | 0 | RadBombardment(1116)[CD] | - | - | - |
 | admecBossDominusLHE | 0 | RadBombardment(1116)[CD] | - | - | - |
 | admecBossDominusSurv | 0 | RadBombardment(1116)[CD] | - | - | - |
-| admecBossManipulus | 0 | DefendTheDivineWork(1117)[CD] | - | - | - |
-| admecBossManipulusCE | 0 | DefendTheDivineWork(1117)[CD] | - | - | - |
-| admecBossManipulusLEG | 0 | DefendTheDivineWork(1117)[CD] | - | - | - |
-| admecBossManipulusLHE | 0 | DefendTheDivineWork(1117)[CD] | - | - | - |
-| admecBossManipulusSurv | 0 | DefendTheDivineWork(1117)[CD] | - | - | - |
 | admecBossMarshall | 0 | DoctrinaImperatives(1118)[CD] | - | - | relic:KardiocoreGalvanus |
 | admecBossMarshallCE | 0 | DoctrinaImperatives(1118)[CD] | - | - | relic:KardiocoreGalvanus |
 | admecBossMarshallLEG | 0 | DoctrinaImperatives(1118)[CD] | - | - | relic:KardiocoreGalvanus |
@@ -265,7 +264,7 @@ sont des **faces** absentes d'items presents.
 | astraNpc5DeathRider | 0 | - | - | - | - |
 | astraNpcBullgryn | 0 | FragBomb(1017)[CD] | - | - | relic:RelicOfLostCadia |
 | astraNpcCreed | 0 | SupremeCommander(1028)[CD] | - | - | - |
-| astraNpcDreir | 0 | LeadingTheCharge(1204)[CD] | - | - | relic:SabreOfSacrifice |
+| astraNpcDreir | 0 | LeadingTheCharge(1204)[C-] | - | - | relic:SabreOfSacrifice |
 | astraNpcMowOrdnanceBattery | 0 | MalleusRocketLauncher(1142)[CD]<br>ForwardSpotter(1143)[CD] | - | - | mythic:OnMyPosition |
 | astraNpcOrdnance | 0 | BasiliskBarrage(1026)[C-] | - | - | relic:RelicOfLostCadia |
 | astraNpcPrimarisPsy | 0 | PsychicMaelstrom(1027)[CD] | - | - | relic:RelicOfLostCadia |
@@ -327,7 +326,7 @@ sont des **faces** absentes d'items presents.
 | templBossSwordBrother | 0 | ThunderousAssault(1043)[CD] | - | - | relic:RelicBoltPistol |
 | templBossSwordBrotherCamp | 0 | ThunderousAssault(1043)[CD] | - | - | relic:RelicBoltPistol |
 | templBossSwordBrother_LHE | 0 | ThunderousAssault(1043)[CD] | - | - | relic:RelicBoltPistol |
-| templNpc1Initiate | 0 | DevoutPush(1053)[CD] | - | - | - |
+| templNpc1Initiate | 0 | DevoutPush(1053)[C-] | - | - | - |
 | templNpc2Neophyte | 0 | IncendiaryShells(1044)[CD] | - | - | - |
 | templNpc3InitiatePyreblaster | 0 | - | - | - | - |
 | templNpc4Aggressor | 0 | Fragstorm(1078)[CD] | - | - | - |
@@ -384,7 +383,7 @@ sont des **faces** absentes d'items presents.
 | deathNpc4BlightlordTerminator | 0 | - | - | - | - |
 | deathNpcBlightbringer | 0 | Poxwalkers(1040)[CD] | - | - | relic:OrbsOfDecay |
 | deathNpcBlightlord | 0 | FlailSwing(1042)[CD] | - | - | relic:DaemonfleshPlate |
-| deathNpcMoWCrawler | 0 | EntropyCannons(1168)[CD]<br>PlagueburstMortar(1169)[CD] | - | - | mythic:BlightedLand |
+| deathNpcMoWCrawler | 0 | EntropyCannons(1168)[C-]<br>PlagueburstMortar(1169)[CD] | - | - | mythic:BlightedLand |
 | deathNpcPutrifier | 0 | FoulInfusion(1038)[CD] | - | - | relic:OrbsOfDecay |
 | deathNpcRotbone | 0 | RevitalizingMalignancy(1037)[CD] | - | - | relic:OrbsOfDecay |
 | deathNpcTyphus | 0 | PlagueWind(1035)[CD] | - | - | relic:Lakrimae |
@@ -456,7 +455,7 @@ sont des **faces** absentes d'items presents.
 | necroNpc2FlayedOne | 0 | StormOfFlensingBlades(1010)[CD] | - | - | - |
 | necroNpc2TutFlayedOne | 0 | StormOfFlensingBlades(1010)[CD] | - | - | - |
 | necroNpc2TutFlayedOneFTUEtest | 0 | StormOfFlensingBlades(1010)[CD] | - | - | - |
-| necroNpc3Deathmark | 0 | PrecisionShot(1015)[CD] | - | - | - |
+| necroNpc3Deathmark | 0 | PrecisionShot(1015)[C-] | - | - | - |
 | necroNpc4Destroyer | 0 | TunnelingHorror(1011)[C-] | - | - | - |
 | necroNpc4DestroyerLHE | 0 | TunnelingHorror(1011)[C-] | - | - | - |
 | necroNpc4DestroyerSurv | 0 | TunnelingHorror(1011)[C-] | - | - | - |
