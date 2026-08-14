@@ -312,16 +312,21 @@ doit rendre non-zero, sans quoi le probe sort en `rc 3` sans rien conclure.
 
 ## 5ter. Un constat d'outillage, PREEXISTANT et hors perimetre
 
-`docs/rl/index-foyers.md` **ne projette aucun residu de la bande `#1046` et au-dela**. Mesure faite
-sur `origin/master`, sans aucun de mes commits : le lecteur de backlog rend **945 entrees** et
-s'arrete a **`#1045-r2`** ; `#1083-r1` et `#1083-r2`, pourtant ouverts et annotes `FOYER:`/
-`BLOCAGE:`, n'y figurent pas (`grep 1083 index-foyers.md` = **0**).
+`docs/rl/index-foyers.md` **ne projette que les residus definis en LIGNE DE TABLEAU**. `#1083-r1`
+et `#1083-r2` sont definis par une **PUCE** (`- **#1083-r1 — ...**`, section des residus
+documentes) : ils n'y figurent donc pas, et `#1083-r4`/`#1083-r5`, ouverts ici sous la meme forme,
+non plus.
+
+⚠ **Ce n'est PAS un plafond numerique, et le croire envoie sur une fausse piste.** Des residus
+**bien au-dela** de `#1045-r2` sont dans l'index — mesure sur `origin/master` : `#1074` (5
+occurrences), `#1078-r3` (5), `#1088` (4), tous definis en **tableau**. Le discriminant est la
+**forme de la definition**, jamais le numero. C'est la 4e position de definition que `#468-r7`
+documente deja comme non gardee.
 
 Consequence pratique : l'index regenere apres l'ajout de `#1083-r4` et `#1083-r5` est
 **byte-identique** — le cliquet `test_603_index_foyers_offline` reste vert (6/6) et il n'y a aucun
-conflit a craindre sur ce fichier, mais **les deux residus ouverts ici sont invisibles a l'outil de
-dispatch**. Ce n'est pas un effet de cette tranche et ce n'est pas repare ici : le signaler est ce
-qui evite qu'on le decouvre en croyant l'avoir cause.
+conflit a craindre sur ce fichier, mais **les residus ouverts ici sont invisibles a l'outil de
+dispatch**. Ce n'est pas un effet de cette tranche et ce n'est pas repare ici.
 
 ## 6. Residu deja constate, hors perimetre du portage
 
