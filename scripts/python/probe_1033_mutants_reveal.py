@@ -6,7 +6,13 @@ garde rien.
 """
 import io, os, re, shutil, subprocess, sys
 
-W = r"C:\Users\nicolasv\tacticus-tools\.claude\worktrees\agent-a78308fc7b47d1544"
+# L'arbre temoin est CELUI OU L'ON TOURNE, derive par git -- jamais un chemin en dur.
+# Il portait `...\.claude\worktrees\agent-a78308fc7b47d1544`, le worktree de l'agent qui a
+# ecrit ce probe : disparu avec lui, donc `git archive` rendait un tar VIDE et les mutants
+# ne mesuraient plus rien. `probe_273 --only-scan` le rougissait sur `master`.
+W = subprocess.run(
+    ["git", "-C", os.path.dirname(os.path.abspath(__file__)), "rev-parse", "--show-toplevel"],
+    capture_output=True, text=True, check=True).stdout.strip()
 BASE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "mut_a78308")
 TEST = "tests/engine/runner/test_1033_reveal_offline.py"
 
