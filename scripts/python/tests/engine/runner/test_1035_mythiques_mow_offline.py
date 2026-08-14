@@ -387,26 +387,45 @@ def test_verrou_de_rarete_fige_avec_sa_raison():
     ⚠ REQUALIFIE PAR #999-r3 -- LE MUR A CHANGE. Le paragraphe ci-dessus decrit l'etat d'AVANT :
     le cran gardait l'ABSENCE de `UnitContext.rarity` pour ROUGIR le jour ou elle apparaitrait.
     Elle est apparue (canal #1039 consomme par #999-r3), ce cran a ete VU ROUGE, et sa premisse
-    est desormais FAUSSE. Ce qu'il garde MAINTENANT :
-      * le CANAL EXISTE et repond (`UnitContext.rarity`, `HasRarity`, `UnitsWithRarity`),
-        confronte live en regime SEPARANT -- `tests/engine/runner/test_999r3_canal_rarete_live.py` ;
-      * les DEUX effets restent hors `EFFECT_CLASSES`, mais **le blocage n'est plus le capteur** :
-        1448 attend le threading d'`att_rarity`/`att_traits` dans le ctx de
-        `aura_defense_damage_malus_from_units`, 1442 attend celui de `UnitsOnTilesWithEffect` sur
-        la voie AURA. Residus `#1035-r1` / `#1035-r2`, desormais `BLOCAGE: aucun`.
+    est desormais FAUSSE.
+
+    ⚠ REQUALIFIE UNE SECONDE FOIS PAR #999-r3-r1, ET LES DEUX EFFETS ONT DIVERGE. Le threading du
+    canal de rarete a ete livre (`att_rarity` / `tgt_rarity` / `rarity` aux QUATRE canaux de degat,
+    sur les DEUX faces) et ce cran a ete VU ROUGE une seconde fois, sur 1448 SEULEMENT :
+
+      * **1448 EST DESORMAIS INSCRIT.** Re-mesure au decompile : la classe native n'expose AUCUN
+        `$$CreateTargetSelector` (`search_symbols_by_name` rend `.ctor` + le seul
+        `$$CreateEffectDamageBonusForAttack`), donc son Owner EST son porteur et son canal port est
+        `create_effect_damage_malus_for_defense` -- PAS un agregateur d'aura, contrairement a ce que
+        le libelle de `#999-r3-r1` et le paragraphe precedent annoncaient. Ses trois conjoints sont
+        tous lisibles : `AreFriends(Caster, EffectSource)` (`team` + `team_by_id` + `self.source`),
+        `HasRarity(Caster, Mythic)` (`attacker_ctx["rarity"]`, #999-r3-r1) et `HasTrait(Caster,
+        Hero)` (`attacker_ctx["traits"]`).
+      * **1442 RESTE DEHORS, et son blocage a CHANGE DE NATURE.** Ce n'est plus la rarete (le canal
+        repond, cf. `test_999r3r1_canal_rarete_aura_offline.py`) : c'est l'UNIVERS DE PORTEURS des
+        deux agregateurs d'aura, qui exige un `PositionComponent`. Or 1442 vit sur une MACHINE OF
+        WAR (`deathCrawler`), et `snapshot._load_machines` ne pose NI `PositionComponent` NI
+        `HealthComponent` -- une MoW est hors-plateau. MESURE :
+        `probe_999r3r1_porteurs_aura_mow.py`. Residu `#1035-r2`, `BLOCAGE: etage`.
 
     Le point ⚠ ci-dessus (regime par defaut DEGENERE) reste ENTIEREMENT valable, et il a
-    maintenant sa sortie : la fixture `rarity_separating_case` (#999-r3). Toute inscription de
-    1448/1442 doit etre tranchee LA, jamais dans un runner standard."""
+    maintenant sa sortie : la fixture `rarity_separating_case` (#999-r3). Toute inscription d'un
+    gate de rarete doit etre tranchee LA, jamais dans un runner standard."""
     from engine.entities.effects.factory import EFFECT_CLASSES
     from engine.entities.rarity import Rarity
     from engine.entities.selectors.units import UnitsWithRarity        # noqa: F401 (existence)
     from engine.entities.triggers import HasRarity                      # noqa: F401 (existence)
     from engine.entities.unit_context import UnitContext
-    assert EffectType.HyperCorrosiveAcid_ExtraDamagePct.name not in EFFECT_CLASSES
-    assert EffectType.BlightedLand_ExtraDamagePct.name not in EFFECT_CLASSES
+    assert EffectType.HyperCorrosiveAcid_ExtraDamagePct.name in EFFECT_CLASSES, (
+        "1448 est SORTI d'EFFECT_CLASSES : sa face degat etait portee et confrontee en regime "
+        "SEPARANT (#999-r3-r1). L'en lever la retire, elle ne la corrige pas.")
+    assert EffectType.BlightedLand_ExtraDamagePct.name not in EFFECT_CLASSES, (
+        "1442 est entre dans EFFECT_CLASSES : son canal est l'AURA ATTAQUE, et l'univers de "
+        "porteurs de cet agregateur EXCLUT les MACHINES OF WAR (aucun `PositionComponent`, cf. "
+        "`snapshot._load_machines`). Son porteur `deathCrawler` EN EST une -- l'inscrire rendrait "
+        "une classe MATERIALISEE et pourtant INERTE. Mesure : `probe_999r3r1_porteurs_aura_mow.py`.")
     assert hasattr(UnitContext, "rarity"), (
-        "`UnitContext.rarity` a DISPARU : le canal de rarete (#999-r3) est retire, et les deux "
-        "effets redeviennent inevaluables pour la RAISON D'ORIGINE.")
+        "`UnitContext.rarity` a DISPARU : le canal de rarete (#999-r3) est retire, et 1448 "
+        "redevient PERMISSIF (son gate `HasRarity` s'evanouit).")
     assert UnitContext(entity_id=1).rarity is None, "tri-etat : `None` = pas mesure"
     assert int(Rarity.Mythic) == 5

@@ -98,6 +98,7 @@ from .loki.extra_damage import (
     ChaliceOfBaalExtraDmgEffect, VitarusEffect,
     CondemnorStakeExtraDmgEffect, CrushingStrikeEffect, DecoysAndMisdirectionExtraDamageEffect,
     FeederTendrilsExtraDamageEffect, FuelledByFuryExtraDamageEffect, HeavyGravCannonEffect,
+    HyperCorrosiveAcidExtraDamagePctEffect,           # mythique MoW tyranBiovore, 1448 (#999-r3-r1)
     HeavyWeaponExtraDmgEffect, LordOfTempestsExtraDamageEffect, MartialKatahDmgBonusEffect,
     MeltaExtraDmgEffect,
     ModifiedExoarmourExtraDmgEffect, PrimarchOfTheFirstLegionExtraDamageEffect,
@@ -1909,6 +1910,26 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # ⚠ TROIS enums, les memes entiers : `EffectType 1510` = CET effet, `TriggeredAbilityType 1510`
     # = `DeathwingKnight` (rien a voir), `TriggeredAbilityType 1508` = l'ability qui le pose.
     "MastersOfManoeuvre": MastersOfManoeuvreEffect,
+    # 1448 HyperCorrosiveAcid_ExtraDamagePct -- effet de l'ability MYTHIQUE `HyperCorrosiveAcid`
+    # (`TriggeredAbilityType` 0x5af = 1455) des MoW `tyranBiovore` / `tyranNpcMowBiovore`, POSE sur
+    # l'ENNEMI blesse par une Spore Mine (`targets = Target@<DSLSelectors+0x60>`, cf.
+    # `runner/operations/triggers/loki/hyper_corrosive_acid.py`).
+    # `IdunBattle.Entities.Effects.Loki.HyperCorrosiveAcid_ExtraDamagePctEffect$$
+    # CreateEffectDamageBonusForAttack` = `ForPercentIncrease(get_OwnerIsTarget & (AreFriends(Caster,
+    # EffectSource) & HasRarity(Caster, idun.meta.Rarity.Mythic = 5) & HasTrait(Caster,
+    # 0x10 = UnitTrait.Hero)), ConfigVar(0xa = extraDmgPct))`.
+    # ⚠ AUCUN `$$CreateTargetSelector` sur cette classe (`search_symbols_by_name` rend `.ctor` +
+    # ce seul slot) -> l'Owner de l'effet EST son porteur, et le canal port est celui de la CIBLE
+    # (`create_effect_damage_malus_for_defense`), PAS l'aura. Le residu `#999-r3-r1` la rangeait
+    # parmi les consommateurs des agregateurs d'aura : re-mesure, c'est faux.
+    # ⚠ ENTRE ICI PARCE QUE LE CANAL DE RARETE EST THREADE (#999-r3-r1) : `attacker_ctx["rarity"]`
+    # porte `BaseUnitComponent.Rarity` (+0x74) de l'ATTAQUANT sur les DEUX faces. Sans lui l'effet
+    # serait PERMISSIF (tout Hero ami du Biovore beneficierait du bonus).
+    # ⚠ DEUX enums, le meme entier (MESURE, pas suppose) : `EffectType 1448` = CET effet,
+    # `TriggeredAbilityType 1448` = `HuntersInstincts` (qui porte AUSSI une magnitude de degat ->
+    # une confusion ne leverait pas, elle lirait la mauvaise config) ; `ActiveAbilityType` n'a
+    # AUCUN membre 1448. L'ability qui pose l'effet est `TriggeredAbilityType 1455`, pas 1448.
+    "HyperCorrosiveAcid_ExtraDamagePct": HyperCorrosiveAcidExtraDamagePctEffect,
 }
 
 
