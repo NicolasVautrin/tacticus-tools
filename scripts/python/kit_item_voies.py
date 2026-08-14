@@ -100,6 +100,7 @@ Sortie ASCII. Usage : depuis `scripts/python/`  ->  python kit_item_voies.py [--
 from __future__ import annotations
 
 import ast
+import functools
 import importlib
 import os
 import sys
@@ -404,12 +405,19 @@ def elements(mod: str, attr: str):
 #  Les items de kit, et l'appariement
 # ============================================================================================
 
-def items_de_kit() -> set:
+@functools.lru_cache(maxsize=1)
+def items_de_kit() -> frozenset:
     """Tous les NOMS que `audit_kit_coverage` interroge : `activeAbilities`, `passiveAbilities`,
     traits, et les deux voies CONDITIONNELLES (`mythic`, `item`), sur TOUT le parc.
 
     Le parc entier et non les seules `lineup` : une voie est une voie quel que soit le porteur, et
-    borner ici ferait dependre la partition du kind, qui ment (cf. gate de confrontabilite)."""
+    borner ici ferait dependre la partition du kind, qui ment (cf. gate de confrontabilite).
+
+    ⚠ CACHE, et le decoupage n'est pas indifferent : c'est le GAMECONFIG qui est cache ici, jamais
+    les REGISTRES. `voies_par_item` les relit a chaque appel, sans quoi le predicat deviendrait
+    INSENSIBLE a une mutation de registre -- et c'est un regime mesure : trois etages de
+    `test_951r2_voies_de_couverture_offline` (qui retirent une entree et exigent que la couverture
+    tombe) sont passes au ROUGE quand un instantane fige avait ete pris a l'import."""
     import gameconfig as GC
     import unit_map as UM
     noms = set()
@@ -421,7 +429,7 @@ def items_de_kit() -> set:
         for voie in ("mythic", "item"):
             for nm in (k.get("voies") or {}).get(voie, []):
                 noms.add(nm)
-    return noms
+    return frozenset(noms)
 
 
 def _tables() -> dict:

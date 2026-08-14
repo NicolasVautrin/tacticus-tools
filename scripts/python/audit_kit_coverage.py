@@ -133,9 +133,14 @@ _ATTESTEES = CA.attestations_valides()
 #: d'enumerer des registres : un conteneur neuf y sort MUET, et `probe_909` etape 6 rougit.
 _VOIES = DFV.voies_par_ability()
 
-#: Les VOIES de montage COMBAT par item, resolues UNE fois (#1041). Meme forme que `_VOIES`
-#: ci-dessus, sur l'axe EXECUTER : le foyer PARTITIONNE, un conteneur neuf y sort MUET.
-_VOIES_ITEM = KIV.voies_par_item()
+#: ⚠ PAS D'INSTANTANE A L'IMPORT pour les voies d'ITEM, contrairement a `_VOIES` ci-dessus -- et
+#: c'est une correction MESUREE, pas une precaution. Un instantane fige rend le predicat
+#: INSENSIBLE a une mutation de registre : trois etages de
+#: `test_951r2_voies_de_couverture_offline` (qui RETIRENT une entree et exigent que la couverture
+#: TOMBE) sont passes au ROUGE. Un recenseur qu'on ne peut plus faire mentir ne prouve plus rien.
+#: Les BOUCLES calculent donc la table une fois, localement (`collect`, `collect_conditionnelles`),
+#: et le predicat public relit -- `kit_item_voies.items_de_kit` porte le seul cache, sur le
+#: GAMECONFIG, qui lui ne mute pas.
 
 
 def _atteste(categorie: str, nm: str) -> dict | None:
@@ -148,9 +153,13 @@ def _atteste(categorie: str, nm: str) -> dict | None:
     return _ATTESTEES.get((categorie, nm))
 
 
-def _etat_item(nm: str) -> tuple[str, str]:
+def _etat_item(nm: str, table=None) -> tuple[str, str]:
     """L'etat TERNAIRE de couverture d'un item NON-actif (passif, trait, mythique, relique) :
     `("PORTE"|"PARTIEL"|"ABSENT", detail)`. Delegue au FOYER `kit_item_voies` (#1041).
+
+    `table` = l'instantane des voies, que les BOUCLES calculent une fois. Sans elle, le foyer
+    RELIT les registres -- c'est ce qui garde le predicat sensible a leur mutation (cf. le
+    commentaire de `_VOIES` plus haut : un instantane a l'import desarmait trois etages de garde).
 
     ⚠ CE PREDICAT ETAIT UNE LISTE BLANCHE DE CINQ REGISTRES, et il en avait rate un : une liste
     blanche ne peut pas montrer le registre qu'elle a oublie. Chacune de ses extensions passees
@@ -164,7 +173,7 @@ def _etat_item(nm: str) -> tuple[str, str]:
     predicat, parce qu'elle ne dit pas la meme chose. Ce predicat repond a « un registre le
     porte-t-il ? » ; l'attestation repond a « ce verdict a-t-il ete ETABLI ? ». Les fondre rendrait
     les deux indiscernables dans le doc, et c'est precisement ce qu'on veut pouvoir lire."""
-    return KIV.etat(nm, _VOIES_ITEM)
+    return KIV.etat(nm, table)
 
 
 def _passive_covered(nm: str) -> bool:
@@ -188,11 +197,12 @@ def collect_conditionnelles(name2id: dict) -> list[dict]:
         for voie in VOIES_CONDITIONNELLES:
             for nm in (k.get("voies") or {}).get(voie, []):
                 carriers[(nm, voie)].add(k["id"])
+    voies_item = KIV.voies_par_item()      # UNE fois par appel, jamais fige a l'import
     out = []
     for (nm, voie), units in carriers.items():
         aid = name2id.get(nm)
         att = _atteste("conditionnelle-" + voie, nm)
-        et, detail = _etat_item(nm)
+        et, detail = _etat_item(nm, voies_item)
         # Une active portee et une attestation valide valent PORTE : les trois signaux disent la
         # meme chose (« il n'y a plus rien a faire ici »). Le `PARTIEL`, lui, n'est ABSORBE par
         # aucun des deux -- s'il l'etait, la face manquante redeviendrait invisible.
@@ -209,6 +219,7 @@ def collect_conditionnelles(name2id: dict) -> list[dict]:
 
 def collect():
     name2id = {v: k for k, v in EM.ACTIVE_ABILITY_TYPE.items()}
+    voies_item = KIV.voies_par_item()      # UNE fois par appel, jamais fige a l'import
     trait_units: Counter = Counter()
     for k in UM.all_kits():
         u = GC.unit(k["id"]) or {}
@@ -263,7 +274,7 @@ def collect():
         passives = []
         for nm in (u.get("passiveAbilities") or []):
             att = _atteste("passif", nm)
-            et, detail = _etat_item(nm)
+            et, detail = _etat_item(nm, voies_item)
             # Meme regle que pour les conditionnelles : une attestation VALIDE vaut PORTE, mais elle
             # n'absorbe PAS un `PARTIEL` -- une face manquante ne s'atteste pas par un verdict pose
             # sur une AUTRE face.
