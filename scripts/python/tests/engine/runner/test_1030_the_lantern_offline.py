@@ -284,6 +284,64 @@ def test_e3_contre_epreuve_enemies_sans_resolution_de_tuile():
     assert pinned_ok, "avec la reparation, `Pinned` doit etre pose"
 
 
+def test_e3_contre_epreuve_le_domaine_de_retour_est_l_ACTEUR_pas_la_TUILE():
+    """CONTRE-EPREUVE du DOMAINE DE RETOUR -- l'axe qui a OSCILLE DEUX FOIS (#1030-r5).
+
+    La faute gardee ici n'est PAS l'absence de resolution (c'est la contre-epreuve precedente) :
+    c'est `result.Add(entity)` relu comme << l'entite SOURCE >>. La resolution a bien lieu, le test
+    de camp est juste, et le noeud rend quand meme des ids de TUILE. En aval, `AddEffect` pose alors
+    sur un `int` : `Pinned` sur PERSONNE, **sans une seule erreur**.
+
+    C'est exactement la forme que portait `master`, et qu'une premiere passe de #1030 avait
+    recopiee en s'y << alignant >>. Aucune garde ne la voyait : sur les call-sites unit-domain,
+    `GetUnitOrMachine(unit) == unit` rend les deux lectures IDENTIQUES. Il faut une source
+    tile-domain -- la zone de `1094` en est une.
+
+    Ce que le decompile oppose a cette lecture : `CountOrAdd` itere le SLOT 5 d'`ITargetsSelector`
+    (`SelectAllActors`), qui a deja resolu par `IdunBattle.DSL.TargetsSelector$$SelectUnit`. Donc
+    l'element ajoute EST l'acteur. Recoupe trois fois -- fonction soeur `$$SelectAllUnits` au slot
+    20 contre `$$SelectAllActors` au slot 21 ; `NormalUnits(Enemies(<TUILES>))` de
+    `...NovaChargeAbility$$GetAdditionalMarkedTiles` ; et
+    `IdunBattle.Entities.Selectors.UnitsMainTilesSelector$$Select`, qui appelle le slot 3
+    `SelectAllUnits` avant son `GetMainTile` (un selecteur nomme << UnitsMainTiles >> qui demande
+    << SelectAllUnits >> : la grille de slots est la bonne)."""
+    from engine.entities.selectors import units as U
+    zone = _zone_attendue()
+    dedans = sorted(zone - {TARGET_POS})[0]
+
+    ancien = U.Enemies.select
+    try:
+        def _select_rend_l_entite_source(self, ctx):
+            """LA FORME DE `master` AVANT #1030-r5 : identique au mirror, sauf le dernier mot."""
+            ref = (U.resolve_unit(self.reference, ctx)
+                   if self.reference is not None else ctx.caster)
+            ct = (ref or {}).get("team")
+            out = []
+            for e in U._entities_of(self.inner, ctx):
+                u = U.unit_or_machine(e, ctx)
+                if u is None or u.get("team") == ct:
+                    continue
+                out.append(e)                     # <- l'ENTITE SOURCE, la lecture REFUTEE
+            return out
+        U.Enemies.select = _select_rend_l_entite_source
+        st_mut = _state({20: dedans})
+        _cast(st_mut, _tid(*TARGET_POS))
+        pinned_mut = [e for e in st_mut.effects.by_unit.get(20, [])
+                      if not e.consumed and int(e.effect_type) == PINNED]
+    finally:
+        U.Enemies.select = ancien
+
+    st = _state({20: dedans})
+    _cast(st, _tid(*TARGET_POS))
+    pinned_ok = [e for e in st.effects.by_unit.get(20, [])
+                 if not e.consumed and int(e.effect_type) == PINNED]
+
+    assert not pinned_mut, (
+        "la mutation ne mord pas : rendre l'entite SOURCE laisse `Pinned` pose -- cette garde ne "
+        "protege alors RIEN de l'oscillation qu'elle vise")
+    assert pinned_ok, "avec le domaine corrige, `Pinned` doit etre pose sur l'occupant"
+
+
 # =================================================================================================
 # ETAGE 4 -- L'ATTAQUANT DE LA PHASE 2 : `EffectSource`, PAS `BondedEntity`
 # =================================================================================================

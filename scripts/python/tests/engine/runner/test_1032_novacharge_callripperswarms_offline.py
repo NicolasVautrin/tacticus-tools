@@ -169,17 +169,39 @@ def _cube_plus(pos, direction, k):
 # ================================================================================================
 
 def test_etage3_enemies_resout_la_tuile_en_son_occupant():
-    """`IdunBattle.Entities.Selectors.UnitsByTeamSelector$$CountOrAdd` applique
-    `UnitExtensions$$GetUnitOrMachine` a CHAQUE element puis ajoute l'ENTITE SOURCE. Sur un domaine
-    TUILE, le noeud rend donc les TUILES a occupant ennemi -- l'ancien port rendait `[]`, ce qui
-    vidait silencieusement deux des trois strates de `GetAdditionalMarkedTiles`."""
+    """`IdunBattle.Entities.Selectors.UnitsByTeamSelector$$CountOrAdd` n'itere PAS les entites
+    brutes de son selecteur source : il appelle le **SLOT 5 d'`ITargetsSelector`** = `SelectAllActors`
+    (grille `data/symbols/<build>/metadata/interface_slots.tsv`), et
+    `IdunBattle.DSL.TargetsSelector$$SelectAllActors` a DEJA resolu chaque element par
+    `IdunBattle.DSL.TargetsSelector$$SelectUnit` (`IsUnitFoot || IsTile -> GetUnit`). Le
+    `List.Add(result, entity)` reinjecte donc l'ACTEUR RESOLU, et `GetUnitOrMachine` n'est plus
+    la que pour le test de camp.
+
+    ⚠ **CE TEST FIGEAIT L'ENONCE INVERSE** (<< ajoute l'ENTITE SOURCE >>, donc des ids de TUILE), et
+    il est corrige par la mesure, pas par commodite (#1030-r5). L'erreur etait INVISIBLE ici parce
+    que l'unique consommateur de ce volet, `...NovaChargeAbility$$GetAdditionalMarkedTiles`, passe
+    par `Tiles(...)` -- or `IdunBattle.Entities.Selectors.UnitsMainTilesSelector$$Select` appelle
+    lui-meme le **slot 3 `SelectAllUnits`** avant son `GetMainTile`, donc il re-resout ce qu'on lui
+    donne et rend le MEME ensemble dans les deux lectures. Le domaine ne se voit que la ou la sortie
+    est consommee SANS re-resolution : `AddEffect`, chez `1094 TheLantern`, ou `Pinned` se posait
+    alors sur PERSONNE.
+
+    L'INTENTION d'origine est preservee : le noeud ne rend pas `[]` sur un domaine TUILE, et il
+    selectionne la seule tuile a occupant ENNEMI. Seul le domaine de RETOUR est corrige."""
     from engine.entities.selectors.units import Enemies
     from engine.entities.selectors.geometry import Nothing
     ctx = _ctx_deux_equipes()
     tuiles = _Fixe([ctx.board.id_at(1, 1), ctx.board.id_at(2, 2), ctx.board.id_at(3, 3)])
     out = Enemies(tuiles).evaluate(ctx)
-    assert out == [ctx.board.id_at(2, 2)], (
-        "seule la tuile (2,2) porte un ennemi du caster -- rendu %r" % (out,))
+    occupant = [u for u in ctx.units
+                if (u.get("pos") or {}).get("col") == 2 and (u.get("pos") or {}).get("row") == 2]
+    assert occupant, "montage : (2,2) doit porter une unite, sinon l'etage ne prouve rien"
+    assert out == occupant, (
+        "seule (2,2) porte un ennemi du caster, et le noeud rend son OCCUPANT -- rendu %r" % (out,))
+    # CLIQUET DE DOMAINE : c'est l'axe qui a oscille deux fois. Un id de tuile (`int`) ici
+    # re-signerait la regression -- et elle est MUETTE en aval (`AddEffect` pose sur personne).
+    assert all(isinstance(x, dict) for x in out), (
+        "domaine de retour : des ACTEURS, jamais des ids de tuile -- rendu %r" % (out,))
     assert Nothing is not None       # le module de geometrie est bien celui qu'on croit
 
 
