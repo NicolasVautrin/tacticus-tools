@@ -1014,6 +1014,63 @@ class CenterTiles(TargetsSelector):
         return ids
 
 
+class EdgeTiles(TargetsSelector):
+    """`IdunBattleLogic.Entities.DSLSelectors$$EdgeTiles(entities)` ->
+    `IdunBattle.Entities.Selectors.EdgeTilesSelector$$Select` -- MIRROR du decompile :
+
+        foreach (t in <+0x18>.SelectTiles(entities))
+            if (battleQuery@<+0x20>.<slot 0xa2 = IsEdgeTile>(t))  out.Add(t);
+
+    `IdunBattle.Core.Services.BattleQuery$$IsEdgeTile(tile)` :
+
+        return EntityExtensions.IsTile(tile)
+            && GetSurroundingTilesCount(tile, distance: 1, onlyEmptyOrSteppable: false,
+                                        onlyWalkable: false, onlyMovable: false,
+                                        includeCenter: TRUE) <= 5;
+
+    ⚠ **LES SIX LITTERAUX SONT LUS A L'ASSEMBLEUR, PAS DANS LE PSEUDO-C.** Ghidra laisse deux des
+    arguments en registres non resolus (`in_stack_*`) et affiche le test comme `< 6`. Le decodage du
+    prologue tranche : `r8d = 1` (distance), `r9d = 0` (onlyEmptyOrSteppable),
+    `[rsp+0x20] = 0` (onlyWalkable), `[rsp+0x28] = 0` (onlyMovable), `[rsp+0x30] = 1`
+    (includeCenter), puis `cmp eax, 5 ; setle`.
+
+    ⚠ **`includeCenter = true` DECALE LE SEUIL D'UN CRAN, et c'est observable.** Le compte inclut la
+    tuile elle-meme, donc `count <= 5` equivaut a **`voisins <= 4`** : une tuile a CINQ voisins
+    n'est **PAS** une tuile de bord au sens du natif. Lire `< 6` comme « moins de 6 voisins » aurait
+    elargi la selection de tout le liseré interne du plateau.
+
+    ⚠ **Aucun filtre de marchabilite ni d'occupation** (`onlyWalkable`/`onlyMovable`/
+    `onlyEmptyOrSteppable` valent tous `false`) : le comptage porte sur les tuiles qui EXISTENT.
+    C'est ce qui rend le noeud composable avec le `CanAddUnit` que son call-site place EN AMONT
+    (`IdunBattleLogic.Entities.Abilities.Active.Loki.CallInReinforcementsAbility$$CreateBehaviour` =
+    `EdgeTiles(CanAddUnit(AllTiles@<DSLSelectors+0x18>))`) -- et non l'inverse.
+
+    Le voisinage compte est celui d'`IdunBattle.Core.Services.TileQuery$$IterateSurroundingTiles`
+    (DISQUE cube de rayon 1, sans porte d'elevation), donc `battle_query.get_surrounding_tiles`, et
+    non le ring-1 `IterateAdjacentTiles` du `ConnectivityComponent`.
+
+    DOMAINE : ids de tuile en entree comme en sortie, ordre de `source` preserve. `board` -> `[]`."""
+    def __init__(self, source: TargetsSelector):
+        self.source = source
+
+    def select(self, ctx):
+        board = getattr(ctx, "board", None)
+        if board is None:
+            return []
+        exists = (lambda p: board.id_at(p[0], p[1]) is not None)
+        out = []
+        for t in self.source.evaluate(ctx) or []:
+            c = board.coord(t)
+            if c is None:
+                continue
+            n = len(battle_query.get_surrounding_tiles(
+                (c[0], c[1]), radius=1, include_center=True, check_walkable=False,
+                tile_exists=exists, only_empty_or_steppable=False))
+            if n <= 5:                                # `cmp eax, 5 ; setle` (cf. docstring)
+                out.append(t)
+        return out
+
+
 class FilterContinuous(TargetsSelector):
     """`IdunBattleLogic.Entities.DSLFactory$$FilterContinuous(source, predicate)` = MEME construction que
     `IdunBattleLogic.Entities.DSLFactory$$Filter` (`FromTriggerSelector`) + le FLAG de court-circuit : on garde

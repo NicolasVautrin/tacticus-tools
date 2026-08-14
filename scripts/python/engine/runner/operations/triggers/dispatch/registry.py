@@ -341,6 +341,10 @@ from ..loki.horrors import (                                          # chaine d
     FlamesOfMutationAbility as FlamesOfMutationFireAbility,           # 1160 (thousSmnBlueHorror*)
     SPLIT_KEY, FLAMES_OF_MUTATION_KEY)
 from ..loki.pyreblaster import PyreblasterAbility, PYREBLASTER_KEY    # #1052 (passif 1098, BT)
+from ..loki.call_in_reinforcements import (                          # #1075 (passif 1029, Astra)
+    CallInReinforcementsAbility, CALL_IN_REINFORCEMENTS_KEY)
+from ..loki.battle_focus import (                                    # #1075 (passif 1172, Aeldari)
+    BattleFocusEffectTrigger, BattleFocusMoveAbility, BATTLE_FOCUS_EFFECT, BATTLE_FOCUS_ABILITY)
 from ..loki.savior_protocols import SaviorProtocolsAbility            # #1020 (passif drones T'au)
 from ..loki.instinctive_behaviour import InstinctiveBehaviourUpdateTargetAbility   # #1015-r1
 
@@ -1374,6 +1378,21 @@ ABILITY_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
     # ennemis debout sur `TileBehindFilled(CasterTile, Target)`, AddEffect(5 = Fire) sur
     # `Walkable(TileBehindFilled(..) + Tiles(Target))` )`. Cf. loki/pyreblaster.py.
     PYREBLASTER_KEY: [PyreblasterAbility],
+    # CallInReinforcements (0x405 = 1029, `astraNpc3Voxcaster` npc + son jumeau summon
+    # `astraSmnVoxcaster`) -- #1075. `...CallInReinforcementsAbility$$CreateTrigger` =
+    # `On(0x29 = UnitFinishedTurnNormally, ownerNeedsToBeAlive: 1) & get_OwnerIsActor` ; le
+    # `$$CreateBehaviour` = `Spawn(Caster@<+0x48>,
+    # First(SortTilesByUtilityForSummon(EdgeTiles(CanAddUnit(AllTiles@<+0x18>)),
+    # UtilityDefinition([PowerUp(27), TileDistance(34)]), Owner@<+0x30>), 1),
+    # GetStringConstant(0) = astraSmnGuardsman, opts+0x18 = PerformAIAttack(ActiveTarget@<+0x68>,
+    # allowOnlyMove: 1))`. Jumeau exact de `ForwardSpotter` (meme summon, meme on-appearance) SAUF
+    # la chaine de tuiles et la definition d'utilite. Cf. loki/call_in_reinforcements.py.
+    CALL_IN_REINFORCEMENTS_KEY: [CallInReinforcementsAbility],
+    # BattleFocus (0x494 = 1172, `eldarNpc1Guardian` npc + son jumeau summon `eldarSmnGuardian`)
+    # -- #1075, branche `triggerType == 0x20 = Custom` EXCLUE (elle vit dans
+    # `CUSTOM_TRIGGERED_ABILITIES`). Ce que CETTE entree porte : rien -- l'ability est une
+    # `AOwnerEffectTriggeredAbility`, son seul vecteur d'event est `OnOwnerSpecificAbilityInit`,
+    # que le port materialise par `ABILITY_INIT_OWNER_EFFECTS` et non par un trigger.
 }
 
 # --- Registre : ability ACTIVE → triggered-ability(s) DERIVEE(s) ----------------------------------
@@ -1925,6 +1944,12 @@ CUSTOM_TRIGGERED_ABILITIES: dict[int, list[type[TriggeredAbility]]] = {
     # ⚠ SANS CETTE ENTREE le noeud retomberait sur le collapse INLINE, qui poserait le bouclier
     # AVANT la resolution des degats : le bon observable et le mauvais ORDRE.
     SHIELD_OF_FAITH_ABILITY: [ShieldOfFaithCustomAbility],
+    # BattleFocus 1172 (#1075) : la branche `triggerType == 0x20 = Custom` de
+    # `...BattleFocusAbility$$CreateBehaviour` = LE DEPLACEMENT. L'effet 1199 se contente d'ENFILER
+    # (`$$CreateTargetTriggerBehaviour` = `TriggerAbilityDelayed(Owner, 0x494, 3)`).
+    # ⚠ SANS CETTE ENTREE le noeud retomberait sur le collapse INLINE, qui deplacerait le porteur
+    # AU MILIEU de la resolution de l'attaque au lieu d'apres.
+    BATTLE_FOCUS_ABILITY: [BattleFocusMoveAbility],
 }
 
 # --- Registre : effectType → effet-trigger(s) ------------------------------------------------------
@@ -2361,3 +2386,14 @@ for _pend_et, _pend_cls in pending_attack_registry_entries():
 # `APendingAttackEffect$$CreateHandleTriggerAbilitiesInternal`. Cf. `loki/lions_wrath_attack.py`.
 EFFECT_TRIGGERS.setdefault(_lions_wrath_attack.LW_PENDING_ATTACK, []).append(
     _lions_wrath_attack.LionsWrathPendingAttackOnUnitRemoved)
+
+
+# #1075 -- `IdunBattle.Entities.Effects.Loki.BattleFocusEffect` (1199), l'effet que le passif
+# `BattleFocus` (1172) pose sur son PROPRE porteur a l'init (canal `ABILITY_INIT_OWNER_EFFECTS`).
+# `$$CreateTargetTrigger` = `NOT IsMoving(Owner@<+0x30>) & CanMove(Owner@<+0x30>)
+#                            & ( On(0xb = UnitAbility, alive) & AbilityHasAttackType(
+#                                CurrentAbility@<+0x88>, DirectTargetAttack = 0)
+#                                & (get_OwnerIsTarget | get_OwnerIsCaster) )`
+# -> `$$CreateTargetTriggerBehaviour` = `TriggerAbilityDelayed(Owner@<+0x30>, 0x494, 3)`.
+# Le DEPLACEMENT ne tombe PAS ici : il tombe au drain, dans `CUSTOM_TRIGGERED_ABILITIES[1172]`.
+EFFECT_TRIGGERS.setdefault(BATTLE_FOCUS_EFFECT, []).append(BattleFocusEffectTrigger)

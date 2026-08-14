@@ -24,6 +24,7 @@ from .loki.revealed import RevealedEffect                    # #1033 (1219, pose
 from .loki.supa_cybork_body import SupaCyborkBodyCritDmgReductionEffect
 from .loki.talisman_of_rage import TalismanOfRageCritDamageReductionEffect
 from .loki.all_is_dust import AllIsDustEffect                       # #1052 (effet 0x4a5 = 1189)
+from .loki.battle_focus import BattleFocusEffect                    # #1075 (effet 0x4af = 1199)
 from .loki.blood_chalice import BloodChaliceExtraPiercingEffect, BloodChaliceHealOnAttackEffect
 from .loki.champion_of_the_feast import ChampionOfTheFeastReduceArmorEffect
 from .loki.close_combat_weakness import (                  # #1015-r1 (trait T'AU, 16 porteurs npc)
@@ -1516,6 +1517,14 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # NEGATIF : il RAMENE le percage effectif a 1 quand il ne depassait pas 35.
     # Cf. `entities/effects/loki/all_is_dust.py`.
     "AllIsDust": AllIsDustEffect,
+    # 0x4af=1199 BattleFocus (#1075) : owner-effect PERMANENT du passif `BattleFocus` (0x494 = 1172)
+    # d'`eldarNpc1Guardian` / `eldarSmnGuardian`. L'effet ne porte NI stat-mod NI bonus de degat :
+    # toute sa substance est le couple `CreateTargetTrigger` / `CreateTargetTriggerBehaviour`, qui
+    # ENFILE un re-declenchement de 1172 (canal `EFFECT_TRIGGERS` -> `CUSTOM_TRIGGERED_ABILITIES`).
+    # Cette entree existe pour qu'`EffectFactory.create` le materialise depuis `decisionView.
+    # effects` -- le canal REEL, mesure live : le porteur arrive avec `BattleFocus` des le
+    # deploiement. Cf. `entities/effects/loki/battle_focus.py`.
+    "BattleFocus": BattleFocusEffect,
     # 0x541=1345 / 0x542=1346 VisionsOfHeresy_ExtraPierce{Melee,Ranged} (case-366-r1) — les DEUX
     # owner-effects du passif `VisionsOfHeresy` (0x4f0=1264) de `bloodDeathCompany` <<Lucien>>.
     # UNE SEULE classe native (`VisionsOfHeresy_ExtraPierceEffect` : les deux ids partagent le MEME slot
@@ -2322,6 +2331,15 @@ ABILITY_INIT_OWNER_EFFECTS: dict[str, list[str]] = {
     # `EnvFactionSummons:Tyranids`, portee par AUCUNE unite) et ses jumeaux npc
     # `tyranNpc5Barbgaunt` / `tyranNpc5BarbgauntSurv`.
     "SynapticInsight": ["SynapticInsight_ExtraHits"],
+    # #1075 -- `BattleFocusAbility` herite d'`IdunBattle.Entities.Abilities.
+    # AOwnerEffectTriggeredAbility`, dont le `$$CreateBehaviour` est
+    # `If(<condition de la classe>, AddEffect(<GetEffectType()> = 0x4af, AbilityState(Owner@
+    # <DSLSelectors+0x30>, AbilityType(state)), source = Owner, targets = Owner, turns = ZEROEES))`
+    # sous le trigger `$$CreateTrigger` = `OnOwnerSpecificAbilityInit(<this+0x10> = 1172)`.
+    # `...BattleFocusAbility$$GetEffectType` = `return 0x4af;` (LU, corps trivial).
+    # Le seed est le SEUL chemin offline pour le porteur SUMMON `eldarSmnGuardian`, que le seed live
+    # ne capte pas forcement avec son effet -- meme raison qu'`AllIsDust` juste au-dessus.
+    "BattleFocus": ["BattleFocus"],
     # #1015-r1 -- `InstinctiveBehaviour_InitAbility` (parent `IdunBattle.Entities.Abilities.
     # AOwnerEffectSpecificTriggeredAbility`, `frida/classes.tsv`) n'override QUE `$$GetEffectType`,
     # dont le corps ENTIER est `return 0x4d3` (= 1235 `InstinctiveBehaviour_BlockMovement`) :
