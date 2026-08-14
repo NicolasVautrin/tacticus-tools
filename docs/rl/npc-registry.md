@@ -19,9 +19,9 @@ differe. C'est la doctrine « DECIDER != EXECUTER ».
 
 ## Bilan
 
-- Unites `npc` : **491** ; kits sans manque : **442** ; kits avec du travail : **49**
+- Unites `npc` : **491** ; kits sans manque : **447** ; kits avec du travail : **44**
 - Actives distinctes : **147** — `[--]` **1** · `[C-]` **12** · `[CD]` **134**
-- Passifs distincts : **177** — portes **126**, non portes **51**
+- Passifs distincts : **177** — portes **131**, non portes **46**
 - Traits de kit distincts (AUCUN ecarte — le seuil de frequence a disparu avec #1015) :
   **58** — couverts **57**, non couverts **1**
 - **Voies inversees** (nom absent d'`ActiveAbilityType`) : **1** — `Maugetar`
@@ -71,16 +71,11 @@ l'unite. La colonne `porteurs` dit l'exposition.
 | passif | NoHidingFromTheWatchers | 1 | darkaNpc4Watcher |
 | passif | OiWatchIt | 1 | orksNpc5LootGrotTeam |
 | passif | PileIn | 1 | orksNpc1Grot |
-| passif | PowerUp_Armor | 1 | powupArmor |
 | passif | PowerUp_Bomb | 1 | powupBomb |
-| passif | PowerUp_Damage | 1 | powupDamage |
 | passif | PowerUp_Healing | 1 | powupHealing |
-| passif | PowerUp_Health | 1 | powupHealth |
 | passif | PowerUp_HeroSpawn_BladeChampion | 1 | powupHeroSpawn_BladeChampion |
 | passif | PowerUp_HeroSpawn_Uthar | 1 | powupHeroSpawn_Uthar |
 | passif | PowerUp_HeroSpawn_VexilusPraetor | 1 | powupHeroSpawn_VexilusPraeto |
-| passif | PowerUp_Hits | 1 | powupHits |
-| passif | PowerUp_MeleeHits | 1 | powupMeleeHits |
 | passif | PowerUp_ReactivateAbility | 1 | powupReactivateAbility |
 | passif | PowerUp_Reinforcement | 1 | powupReinforcement |
 | passif | PowerUp_ReinforcementShield | 1 | powupReinforcementShield |
@@ -113,22 +108,17 @@ sont des **faces** absentes d'items presents.
 
 ## Inventaire complet, par faction
 
-### ? — 51 unites, 22 avec du travail
+### ? — 51 unites, 17 avec du travail
 
 | unite | manque | actives (face) | passifs non portes | traits non couverts | autres voies |
 |---|---:|---|---|---|---|
 | LootObj_AmmoBox | 1 | - | Volatile | - | - |
 | LootObj_ExplOilDrum | 1 | - | Explosive | - | - |
-| powupArmor | 1 | - | PowerUp_Armor | - | - |
 | powupBomb | 1 | - | PowerUp_Bomb | - | - |
-| powupDamage | 1 | - | PowerUp_Damage | - | - |
 | powupHealing | 1 | - | PowerUp_Healing | - | - |
-| powupHealth | 1 | - | PowerUp_Health | - | - |
 | powupHeroSpawn_BladeChampion | 1 | - | PowerUp_HeroSpawn_BladeChampion | - | - |
 | powupHeroSpawn_Uthar | 1 | - | PowerUp_HeroSpawn_Uthar | - | - |
 | powupHeroSpawn_VexilusPraeto | 1 | - | PowerUp_HeroSpawn_VexilusPraetor | - | - |
-| powupHits | 1 | - | PowerUp_Hits | - | - |
-| powupMeleeHits | 1 | - | PowerUp_MeleeHits | - | - |
 | powupReactivateAbility | 1 | - | PowerUp_ReactivateAbility | - | - |
 | powupReinforcement | 1 | - | PowerUp_Reinforcement | - | - |
 | powupReinforcementShield | 1 | - | PowerUp_ReinforcementShield | - | - |
@@ -168,6 +158,11 @@ sont des **faces** absentes d'items presents.
 | LootObj_Strongbox_Imp | 0 | - | - | - | - |
 | LootObj_Strongbox_Xen | 0 | - | - | - | - |
 | LootObj_XPBook | 0 | - | - | - | - |
+| powupArmor | 0 | - | - | - | - |
+| powupDamage | 0 | - | - | - | - |
+| powupHealth | 0 | - | - | - | - |
+| powupHits | 0 | - | - | - | - |
+| powupMeleeHits | 0 | - | - | - | - |
 
 ### AdeptusAstartes — 2 unites, 0 avec du travail
 

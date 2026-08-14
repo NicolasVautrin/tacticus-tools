@@ -5044,24 +5044,50 @@ pas d'erreur : il rend **zéro**, et un zéro se lit « rien à signaler ».
   FOYER: scripts/python/probe_1077_firing_position_mischief_makers.py
   BLOCAGE: aucun
 
-- **#1083-r1 — les 20 passifs `PowerUp_*` ne sont PAS portes (0 classe, 0 effet, 0 entree de registre), et le montage qui les confronte est desormais ECRIT.** `[opus]`
-  Point d'entree : `docs/rl/case-1083-powerup-le-board-ne-confronte-rien.md` Sec.4 et Sec.6 +
-  `IdunBattleLogic.Entities.Abilities.Triggered.Loki.APowerUpAbility` (`$$CreateBehaviour`,
-  `$$CreateTrigger`, `$$AddShield`, `$$AddPctBasedBoost`, `$$AddAbsoluteBoost`,
-  `$$AddSelfContainedBoostEffect`, `$$AddAdditionalBehavior`).
-  Les 4 sous-classes cibles ne surchargent AUCUN `CreateBehaviour` : elles ne different que par leur
-  getter de boost -- `PowerUp_DamageAbility$$get_PctBasedStatBoost` et
-  `PowerUp_HealthAbility$$get_PctBasedStatBoost` d'un cote, `PowerUp_HitsAbility$$get_AbsoluteStatBoost`
-  et `PowerUp_MeleeHitsAbility$$get_AbsoluteStatBoost` de l'autre ; `PowerUp_ArmorAbility` ne surcharge
-  que `$$AdditionalBehavior`. Les constantes gameconfig concordent (`dmgPct`/`healthPct` pour les deux
-  premiers, `extraHit` pour les deux suivants, `shieldPct` commun aux cinq -> `$$AddShield`).
-  Registre a viser : `ABILITY_TRIGGERS` (`engine/runner/operations/triggers/dispatch/registry.py`),
-  cle = nom gameconfig DERIVE du mirror (`TriggeredAbilityType.PowerUp_Hits.name`), jamais un litteral.
-  Le montage de confrontation est mesure et generalise (un power-up qu'AUCUN board ne place entre en
-  bataille sur un board qui n'en porte aucun) : `catalog_inject --units powup<X>` puis
-  `rl_duel build --seed-bc <..> --explicit-stats powup<X> --a-units "powup<X>,..."`. Le BOARD n'y joue
-  AUCUN role -- ne pas re-derouler la piste `--board`, elle est refutee Sec.3.
-  FOYER: scripts/python/engine/runner/operations/triggers/loki/, scripts/python/engine/runner/operations/triggers/dispatch/registry.py, scripts/python/engine/entities/effects/factory.py
+- **#1083-r1 — les 17 `PowerUp_*` NON-boost ne sont pas portes (les 5 de BOOST DE STAT le sont, confrontes live 5/5).** `[opus]`
+  **TRANCHE 1 LIVREE (2026-08-14)** : `PowerUp_Armor` / `_Damage` / `_Health` / `_Hits` / `_MeleeHits`
+  + la base `APowerUpAbility` (trigger ET behaviour entiers) + l'effet dynamique
+  `PowerUp_ArmorEffect`. Cf. `docs/rl/case-1083-r1-powerup-boosts-de-stat.md`,
+  `engine/runner/operations/triggers/loki/power_up.py`, `test_1083r1_power_up_stat_boosts_live.py`.
+  RESTE A PORTER, un par un, **en lisant chaque `CreateBehaviour`** (ce ne sont PAS des variantes du
+  patron ci-dessus -- `HeroSpawn` materialise un heros de lineup, `SummonSpawn` invoque, `Resurrect`
+  ressuscite) : `PowerUp_Bomb` (1282), `_Healing` (1273), `_ReactivateAbility` (1272),
+  `_Reinforcement` (1266), `_ReinforcementShield` (1269), `_Resurrect` (1320), les **4**
+  `PowerUp_HeroSpawn*` (1434/1436/1437/1517) et les **7** `PowerUp_SummonSpawn*`
+  (1532/1533/1536/1537/1538/1539/1540) -- 17 au total, pas 15 : le compte « 20 » de l'enonce initial
+  oubliait deux variantes de spawn (`TriggeredAbilityType` en porte **22**).
+  CE QUI EST DEJA FAIT ET REUTILISABLE : la base porte `CreateTrigger`, `AddShield`,
+  `AddPctBasedBoost`, `AddAbsoluteBoost` et le point d'extension `additional_behavior` -- une
+  sous-classe neuve ne fournit que ses vslots. Les surcharges CONNUES des 17 :
+  `PowerUp_BombAbility` / `_HealingAbility` / `_ReactivateAbilityAbility` surchargent
+  `$$AdditionalBehavior` ; `_HeroSpawnAbility` / `_ReinforcementAbility` / `_ReinforcementShieldAbility`
+  / `_ResurrectAbility` / `_SummonSpawnAbility` surchargent `$$CreateBehaviour` EN ENTIER (donc la
+  base ne s'applique PAS a eux -- verifie au balayage de `ghidra/functions.tsv`).
+  LES TROIS QUI REUTILISENT LA BASE SONT DEJA RE-VERIFIES (decompile lu, #1083-r1, pour eviter un
+  redefrichage -- ils tiennent en un `additional_behavior` chacun) :
+    * `PowerUp_ReactivateAbility` (1272) : `ResetActiveAbility(Actor, true)`. Constantes :
+      `nrOfRounds`/`shieldPct` seulement -- tout le reste vient de la base.
+    * `PowerUp_Healing` (1273) : `If( IsMechanical(Actor, 0), <repair>, <heal> )` ou les DEUX volets
+      valent `PercentageOf( StatAmount(Actor, Health, **Maximum**), Get(GetNumberConstant(0x13 =
+      AbilityConstantType.HealPercentage = 100)) )` -- `Heal(Owner, Actor, ..., HealBehaviourOptions{
+      +0x33=1, +0x34=1})` et `Repair(Owner, Actor, ..., AbilityOrEffect(self), RepairBehaviourOptions{
+      +0x16=1, +0x10=0, +0x14=1})`.
+    * `PowerUp_Bomb` (1282) : `If( IsHumanPlayer(OriginalOwner(Actor)), Inform(0x95, range) &
+      AbilityAreaDamage(...), null )`. ⚠ LE GATE EST LOAD-BEARING : la bombe ne fait RIEN quand
+      l'unite qui l'ecrase n'appartient pas au joueur humain. Cibles = `SurroundingEnemies(Actor,
+      ConfigConst(0x16 = range = 4), unique = 1, selectionType = 3)` ; montant =
+      `RandomAmount(GetMinDamage(orig), GetMaxDamage(orig))` (les deux ont leur propre corps natif) ;
+      profil = `GetDamageProfileOrDefault(self, 0x12)` -- ⚠ ce `0x12` est un **DamageProfileType**
+      (18 = `Blast`, concordant avec `damageProfile: "Blast"` du gameconfig), PAS un
+      `AbilityConstantType` (ou 0x12 serait `hpPct`).
+  ⚠ **`Get(pct)` n'est PAS un montant plat** : le flag `isMultiply` du ctor `PowerUp_Effect` (lu dans
+  `EffectsDatabase.<InitializeEffects>b__14_16x`) decide `StatPart` 9 vs 5. Le relire **lambda par
+  lambda**, jamais generaliser depuis les 5 portes.
+  Le montage de confrontation est ECRIT et mesure sur les 5 (`probe_1083r1_power_up_stat_boosts.py`) :
+  `catalog_inject --units powup<X>` puis `rl_duel build --seed-bc <..> --explicit-stats powup<X>
+  --a-units "powup<X>,..."` + `--a-place`/`--place` pour poser le power-up A COTE du ramasseur. Le
+  BOARD n'y joue AUCUN role -- ne pas re-derouler la piste `--board`, elle est refutee Sec.3.
+  FOYER: scripts/python/engine/runner/operations/triggers/loki/power_up.py, scripts/python/engine/runner/operations/triggers/dispatch/registry.py, scripts/python/engine/entities/effects/factory.py
   BLOCAGE: aucun
 
 - **#1083-r2 — `classify_carrier` rend `N` (hors-jeu) pour tout porteur `npc`, alors que `--explicit-stats` les monte.** `[opus]`
@@ -5078,4 +5104,25 @@ pas d'erreur : il rend **zéro**, et un zéro se lit « rien à signaler ».
   pour les `lineup`) avant de toucher la classification. Un `N` retourne en bloc sans cette mesure
   ferait dispatcher sur des porteurs impossibles -- l'erreur symetrique, deja payee.
   FOYER: scripts/python/audit_passive_ability_coverage.py
+  BLOCAGE: aucun
+
+- **#1089 — `PowerUp_ArmorEffect` ne se RAFRAICHIT pas : le port fige l'armure au ramassage, le natif la recalcule a chaque changement de PV.** `[opus]`
+  Point d'entree : `IdunBattle.Entities.Effects.PowerUp_ArmorEffect$$CreateHandleTriggerAbilitiesInternal`
+  + `docs/rl/case-1083-r1-powerup-boosts-de-stat.md` Sec.5.
+  Le natif attache a l'effet un trigger PROPRE (registre `EFFECT_TRIGGERS`, pas `ABILITY_TRIGGERS`) :
+  `On(0x1e = HealthChanged, ownerNeedsToBeAlive = 1)` -> `RemoveEffect(<sel+0x38>) &
+  AddDynamicStatModifierEffect(Owner@sel+0x30, PowerUp_Armor, FixedArmor, turns = null, isHidden = 0)`.
+  L'effet SE RE-POSE donc a chaque changement de PV du porteur, ce qui re-evalue
+  `GetDynamicStatModificationAmount` contre la NOUVELLE `Health/Maximum`.
+  Le port pose la bonne valeur AU RAMASSAGE (confronte live, accord exact) et ne la revise plus.
+  ⚠ REGIME OU CA DIVERGE, et il est ATTEIGNABLE : un ramasseur qui prend `PowerUp_Armor` PUIS
+  `PowerUp_Health` (+200 % de PV max) devrait voir son armure suivre. Le montage existe deja
+  (`probe_1083r1_power_up_stat_boosts.py` monte un power-up par runner ; il en faut DEUX, et un
+  deplacement qui traverse les deux tuiles).
+  ⚠ Meme forme de residu pour les DEUX volets `PctBased`/`Absolute` : le port collapse le
+  `ValueModification.MultiplyModifier` natif en une valeur FIGEE ; le natif, lui, la recalcule par
+  `ValueModification$$UpdateInitialValue` si la part INITIAL du stat change. Aucun des cinq
+  power-ups ne l'ecrit, donc c'est INOBSERVABLE dans leur perimetre -- mais un tiers qui le ferait
+  separerait les deux.
+  FOYER: scripts/python/engine/entities/effects/loki/power_up.py, scripts/python/engine/runner/operations/triggers/dispatch/registry.py
   BLOCAGE: aucun
