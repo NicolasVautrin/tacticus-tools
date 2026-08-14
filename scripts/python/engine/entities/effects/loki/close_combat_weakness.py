@@ -107,6 +107,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
+from ....dsl.base import Const
 from ....services.effect_bonus import EffectBonus, for_percent_increase
 from ...effect_type import EffectType
 from ...selectors import AdjacentUnits, CasterTile, Caster, Enemies, Owner, Tiles, UnitsWithoutTrait
@@ -147,7 +148,13 @@ def has_adjacent_enemies_selector(unit=None, unit_tile=None):
     unit_tile = unit_tile if unit_tile is not None else CasterTile()
     return UnitsWithoutTrait(
         UnitsWithoutTrait(
-            Enemies(unit, AdjacentUnits(unit_tile, selection_type=_SEL), _SEL),
+            # ⚠ `Enemies(inner, reference, selection_type)` cote port : `inner` est l'ENSEMBLE a
+            # filtrer, `reference` le referent d'EQUIPE. Le natif, lui, ecrit
+            # `DSLSelectors$$Enemies(this, of, entities, selectionType)` -- l'ordre est INVERSE.
+            # Les intervertir passe SILENCIEUSEMENT (les deux arguments sont des selecteurs) et
+            # rend le CASTER filtre par son propre voisinage : mesure #1015-r1, l'etage
+            # geometrique disparaissait et le compteur COMBAT rendait n'importe quoi.
+            Enemies(AdjacentUnits(unit_tile, Const(1), selection_type=_SEL), unit, _SEL),
             int(UnitTrait.Object), selection_type=_SEL),
         int(UnitTrait.Steppable), selection_type=_SEL)
 
