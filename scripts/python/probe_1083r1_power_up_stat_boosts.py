@@ -242,6 +242,39 @@ def mesurer(rid: int, rpc, cas: str, regime: str) -> dict:
             "effets_natif": eff_nat, "effets_port": eff_port}
 
 
+def run(rpc, cas: str, regime: str = "nominal", state_file=None, seed_bc=None,
+        keep: bool = False) -> dict:
+    """Point d'entree REUTILISABLE (le harnais de test le consomme) : monte le runner, mesure, puis
+    dispose. Rend le dict de `mesurer` augmente de `ok` / `why`.
+
+    `state_file` / `seed_bc` : chemins ABSOLUS. A defaut, deux fichiers derives du cas sous le
+    `logs/` du checkout courant -- JAMAIS sous `data/`, qui ne porte que des ENTREES versionnees."""
+    powup_id = CAS[cas][0]
+    base = _PYDIR.parent.parent / "logs"
+    base.mkdir(parents=True, exist_ok=True)
+    sf = Path(state_file) if state_file else (base / ("probe_1083r1_%s_%s.json" % (cas, regime)))
+    sbc = Path(seed_bc) if seed_bc else (base / ("probe_1083r1_seed_%s.json" % cas))
+    if not sbc.exists() and injecter(sbc, powup_id):
+        return {"ok": False, "why": "catalog_inject KO pour %s" % powup_id}
+    if build(sf, powup_id, sbc):
+        return {"ok": False, "why": "rl_duel build KO pour %s" % powup_id}
+    if not sf.exists():
+        return {"ok": False, "why": "state-file absent: %s" % sf}
+    rid = int(json.loads(sf.read_text(encoding="utf-8"))["runnerId"])
+    try:
+        out = mesurer(rid, rpc, cas, regime)
+    finally:
+        if not keep:
+            try:
+                rpc("disposeRunner", {"runnerId": rid}, 30)
+            except Exception:                        # noqa: BLE001 -- le dispose n'est pas la mesure
+                pass
+    out["ok"] = "erreur" not in out
+    if not out["ok"]:
+        out["why"] = out.get("erreur")
+    return out
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--cas", required=True, choices=sorted(CAS))
