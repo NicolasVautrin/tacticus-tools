@@ -56,29 +56,29 @@ def board(bloquees=()) -> Board:
     return Board(tiles)
 
 
-def Ctx(uid: int, visual_id, traits=(), passives=None) -> UnitContext:
+def Ctx(uid: int, visual_id, traits=(), passives=None, mult: int = MULT) -> UnitContext:
     """Le VRAI `UnitContext` (dataclass a defauts), pas un sosie : la chaine `Spawn` ->
     on-appearance -> `Scene.from_state` lit une dizaine de champs (`fixed_armor`, `stats`, ...) que
     la moindre classe ad hoc oublierait -- et un `AttributeError` la ferait passer pour un no-op."""
     return UnitContext(entity_id=int(uid), visual_id=visual_id, traits=list(traits),
                        passive_abilities=(list(passives) if passives is not None else None),
                        active_ability_level=LEVEL, passive_ability_level=LEVEL,
-                       ability_variables_multiplier=MULT, config_active_abilities=[])
+                       ability_variables_multiplier=int(mult), config_active_abilities=[])
 
 
 def unite(st: State, uid: int, visual_id: str, *, team: int, pos, traits=(), passives=None,
-          hp=HP_MAX, alive=True) -> int:
+          hp=HP_MAX, alive=True, mult: int = MULT) -> int:
     e = st.add_entity(uid)
     e.add_component(UnitComponent(visual_id, alive))
     e.add_component(OwnerComponent(team, team))
     e.add_component(HealthComponent(hp, HP_MAX))
-    e.add_component(StatsComponent(ctx=Ctx(uid, visual_id, traits, passives)))
+    e.add_component(StatsComponent(ctx=Ctx(uid, visual_id, traits, passives, mult)))
     e.add_component(PositionComponent(int(pos[0]), int(pos[1])))
     return uid
 
 
 def monter(visual_id: str, passif: str, *, traits=(), bloquees=(), owner_turn: bool = True,
-           ennemi_adjacent: bool = False, seed: int = 777, pos=(2, 2)) -> State:
+           ennemi_adjacent: bool = False, seed: int = 777, pos=(2, 2), mult: int = MULT) -> State:
     """Un porteur du passif en `pos`, mort (`alive=False`, comme au dispatch de `On(2)`), sur un
     board plein. `owner_turn` pilote `IsTurnOf(Owner)` par `state.current_player_id`."""
     st = State()
@@ -86,7 +86,7 @@ def monter(visual_id: str, passif: str, *, traits=(), bloquees=(), owner_turn: b
     st.rng = IntBasedMersenneTwister(seed)
     st.board = board(bloquees)
     unite(st, PORTEUR, visual_id, team=0, pos=pos, traits=traits, passives=[passif],
-          alive=False, hp=0)
+          alive=False, hp=0, mult=mult)
     if ennemi_adjacent:
         adj = [p for p in hexgeo.neighbors(pos[0], pos[1]) if dans_board(p)]
         unite(st, ENNEMI, "thousRubricMarine", team=1, pos=adj[-1])
@@ -95,6 +95,11 @@ def monter(visual_id: str, passif: str, *, traits=(), bloquees=(), owner_turn: b
     # Artefact du montage synthetique, pas du port.
     st._next_entity_id = max(int(e) for e in st.entities) + 1
     st.current_player_id = 0 if owner_turn else 1
+    # DEUX joueurs, comme un duel -- c'est le FACTEUR de `convert_rounds_to_turns`
+    # (`IdunBattle.Core.Services.BattleQuery$$ConvertRoundsToTurns` = `nb joueurs x rounds`). Sans
+    # lui le facteur retombe a 1 et la duree du Fire se lit `2` la ou le live rend `4` : l'ecart
+    # serait un artefact du montage, pas du port (etage MESURE, pas devine).
+    st.turn_order_player_count = 2
     return st
 
 
@@ -119,7 +124,11 @@ def decrire(st: State, ids) -> None:
 
 
 def effets(st: State) -> dict:
-    return {int(k): sorted(int(e.effect_type) for e in v if not e.consumed)
+    """`{porteur: [(effect_type, remaining_turns, source), ...]}` -- les TROIS champs que le stream
+    live donne (`ReceiveEffect e=<tuile> Effect_SourceId=<tuile> Effect_RemainingTurns=4`), donc les
+    trois qui se confrontent. Un seul `effect_type` ne montrerait ni la duree ni la source."""
+    return {int(k): sorted((int(e.effect_type), e.remaining_turns, e.source)
+                           for e in v if not e.consumed)
             for k, v in st.effects.by_unit.items() if v}
 
 
@@ -182,6 +191,15 @@ def main() -> int:
     print("    etape 2 (FlamesOfMutation sur %s en (%s,%s), main tile %s) : %r"
           % (cible, pc.col, pc.row, tid(pc.col, pc.row), out2))
     print("    effets non consommes : %r" % (effets(st),))
+
+    print("=== 9. STATS des Blue Horrors sous mult 180 (le regime du runner normalise) ===")
+    st = monter("thousSmnPinkHorror", "Split", owner_turn=True, mult=180)
+    out, neuves = jouer(st)
+    decrire(st, neuves)
+    print("    attendu live : hp 2093 / attack 1795  (summonHp[49]=1163 x180%%, summonDmg[49]=997 x180%%)")
+    for nid in neuves:
+        ctx = st.get_entity(nid).get_component(StatsComponent).ctx
+        print("      id=%s attack=%s health=%s" % (nid, ctx.attack, ctx.health))
     return 0
 
 
