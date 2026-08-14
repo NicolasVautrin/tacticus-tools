@@ -47,6 +47,27 @@ from engine.runner.abilities.targeting_rule import TargetingRule as TR   # noqa:
 from engine.runner.components import set_unit_feet                       # noqa: E402
 from engine.runner.snapshot import load_state                            # noqa: E402
 
+#: Ce qui doit changer pour que ce FICHIER puisse changer de verdict (#486-r15). PRIS LARGE : la
+#: geometrie mesuree depend du board ET de l'etage `get_adjacent_tiles`, et le masque de 1094 vient
+#: du registre -- un declencheur limite a `deathguard.py` serait un FAUX VERT.
+DECLENCHEUR = {
+    "chemins": (
+        "scripts/python/engine/runner/abilities/**/*.py",
+        "scripts/python/engine/runner/components.py",
+        "scripts/python/engine/runner/snapshot.py",
+        "scripts/python/engine/entities/pathfinding/board.py",
+        "scripts/python/hexgeo.py",
+    ),
+    "build": False,       # la geometrie est calculee, aucun symbole n'est lu ici
+    "toujours": False,
+    "raison": (
+        "Le gate compose `get_adjacent_tiles` (targeting.py), l'empreinte du caster "
+        "(components.get_unit_feet) et la geometrie hex du board -- trois foyers distincts, dont "
+        "aucun ne vit dans `deathguard.py`. Le declencheur reste large sur `abilities/**` parce "
+        "que l'etage `get_adjacent_tiles` est partage : un autre call-site qui le durcirait "
+        "casserait ce gate sans toucher a 1094."),
+}
+
 COLS, ROWS = 13, 13
 CENTRE = (6, 6)
 CASTER, FOE, BLOQUEUR = 10, 20, 30

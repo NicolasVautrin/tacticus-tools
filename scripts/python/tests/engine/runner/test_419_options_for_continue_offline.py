@@ -42,6 +42,25 @@ from engine.runner.abilities.targeting import (                          # noqa:
     TargetingOptions, targeting_options_for, targeting_options_for_continue)
 from engine.runner.abilities.targeting_rule import TargetingRule as TR   # noqa: E402
 
+#: Ce qui doit changer pour que ce FICHIER puisse changer de verdict (#486-r15). PRIS LARGE : le
+#: cran d'exhaustivite est DERIVE du dump de symboles -- un re-dump (changement de build) peut
+#: introduire une surcharge neuve sans qu'aucune ligne de `scripts/python/**` ne bouge.
+DECLENCHEUR = {
+    "chemins": (
+        "data/symbols/**/ghidra/functions.tsv",             # la source du balayage d'exhaustivite
+        "scripts/python/symbols_layout.py",                 # la resolution du build courant
+        "scripts/python/engine/runner/abilities/**/*.py",   # les masques de `.ctor` et le registre
+        "scripts/python/engine/entities/active_ability_type.py",
+    ),
+    "build": True,        # l'etage 1 LIT `data/symbols/<build>/ghidra/functions.tsv`
+    "toujours": False,
+    "raison": (
+        "L'exhaustivite se DERIVE du dump, pas du code : un changement de build peut faire "
+        "apparaitre une 3e surcharge de `GetTargetingOptionsForContinue` sans qu'aucune ligne de "
+        "`scripts/python/**` ne bouge -- c'est exactement le regime que ce fichier doit attraper, "
+        "donc `build: True` n'est pas une precaution mais LE declencheur principal."),
+}
+
 #: Le symbole de la BASE -- le seul `$$GetTargetingOptionsForContinue` qui n'est PAS une surcharge.
 BASE = "IdunBattle.Entities.Abilities.AActiveAbility$$GetTargetingOptionsForContinue"
 SUFFIXE = "$$GetTargetingOptionsForContinue"

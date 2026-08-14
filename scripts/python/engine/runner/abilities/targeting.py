@@ -2217,11 +2217,27 @@ def valid_normal_attack_targets(state: "State", caster_id: int, range_override=N
                        rules=int(opts.rules) & ~int(TR.TargetMatchesDynamicRule),
                        range=custom_range(int(range_override)))
     probe = _NormalAttackTargeting(opts)
+    # LE VOLET CASTER, EN TETE (#447-r4). `TargetingQuery$$GetValidTargets` -- la fonction dont
+    # cette boucle est le mirror -- COMMENCE par lui et sort AVANT toute enumeration :
+    #     reason = GetInvalidCasterReason(caster, casterTiles, options);
+    #     if (reason.IsInvalid())  return ValidTargets.Empty;      // AUCUNE cible, pas « toutes »
+    # Meme etage que `runner/operations/turnflow.py` (#287-r4), qui le portait deja SEUL : trois
+    # mirrors de la MEME fonction native, dont deux sautaient le volet -- c'est ce que #447-r4
+    # nommait. Ici il est presque toujours INERTE (aucun masque d'attaque normale ne pose de bit
+    # `Caster*`) SAUF par la clause TUILE-NULLE, qui n'est gatee par aucun bit : une unite SANS
+    # tuile (`Burrowers` sous terre) n'a aucune cible d'attaque normale, et c'est le natif.
+    if get_invalid_caster_reason(state, int(caster_id), probe):
+        return []
     out = []
     for uid in list(state.entities.keys()):
         if int(uid) == int(caster_id):
             continue
-        if get_invalid_target_reason(state, int(caster_id), int(uid), probe) == 0:
+        # `apply_self_cast_switch=False` : la boucle native appelle la surcharge **7 arguments**
+        # (`GetInvalidTargetReason(caster, casterTiles, t, options, onlyTiles: true, range)`), qui
+        # n'a NI aiguillage self-cast NI volet caster -- c'est son APPELANTE qui porte le volet,
+        # ci-dessus. Meme couple que `turnflow.py`.
+        if get_invalid_target_reason(state, int(caster_id), int(uid), probe,
+                                     apply_self_cast_switch=False) == 0:
             out.append(int(uid))
     return out
 
@@ -2279,10 +2295,19 @@ def valid_targets_for(state: "State", unit_id, ability_type) -> Optional[list]:
     # porteur minimal, comme pour l'attaque normale.
     probe = klass() if klass is not None else _NormalAttackTargeting(opts)
     uid, out = int(unit_id), []
+    # LE VOLET CASTER, EN TETE (#447-r4) -- cf. `valid_normal_attack_targets` ci-dessus pour le
+    # VERBATIM. Ici il MORD pour de bon : ce mirror sert des abilities QUELCONQUES, dont celles qui
+    # posent `CasterHasNotMoved`, `CasterMatchesDynamicRule` ou un `CasterHasNTiles`. Un caster
+    # refuse rend `[]` -- une MESURE (`ValidTargets.Empty`), jamais `None` (qui veut dire
+    # « masque non RE-lu », deja rendu plus haut).
+    if get_invalid_caster_reason(state, uid, probe):
+        return []
     for tid in list(state.entities.keys()):
         if int(tid) == uid:
             continue
-        if get_invalid_target_reason(state, uid, int(tid), probe) == 0:
+        # `apply_self_cast_switch=False` : la boucle native emprunte la surcharge 7 arguments.
+        if get_invalid_target_reason(state, uid, int(tid), probe,
+                                     apply_self_cast_switch=False) == 0:
             out.append(int(tid))
     return out
 
@@ -4308,10 +4333,15 @@ def is_invalid_target(state: "State", caster_id: int, target_id: Optional[int], 
     traversee rend `0x1000` DES DEUX COTES). Le cran est `oracle_targeting.oracle_court_circuite`,
     qui lit `casterReason` -- meme etage amont, sans dependre de la cible.
 
-    ORDRE natif (overload 5 args de `TargetingQuery$$GetInvalidTargetReason`) : volet CASTER
-    d'abord (`GetInvalidCasterReason`, dont seul `CasterHasNotMoved` est porte), volet CIBLE
-    ensuite. Le natif renvoie la raison CASTER telle quelle si elle est rompue — d'ou le meme code
-    dans `casterReason` ET `targetReason` de l'oracle `abilityReason` (mesure du probe #115)."""
+    ORDRE natif (overload 5 args de `TargetingQuery$$GetInvalidTargetReason`), RELU EN ENTIER :
+    `GetRange`, puis `GetFirstOrNull(casterTiles)`, puis **`GetInvalidCasterReason`**, puis
+    seulement l'aiguillage self-cast et le filtre statique. Le natif renvoie la raison CASTER telle
+    quelle si elle est rompue -- d'ou le meme code dans `casterReason` ET `targetReason` de l'oracle
+    `abilityReason` (mesure du probe #115). ⚠ Cette note disait « dont seul `CasterHasNotMoved` est
+    porte » : PERIME. Le volet caster porte aujourd'hui `CasterHasNotMoved` (sous son prefixe
+    `IsTurnOfUnit`), la clause TUILE-NULLE, `CasterMatchesDynamicRule`, les trois filtres de
+    `GetFeetCount` et `CasterHas2TurnsLeft` -- l'etat exact se LIT dans
+    `get_invalid_caster_reason`, il ne se cite pas d'ici."""
     if ability is None:
         return 0
     caster_reason = get_invalid_caster_reason(state, caster_id, ability)

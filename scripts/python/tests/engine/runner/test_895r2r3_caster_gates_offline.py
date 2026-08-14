@@ -50,6 +50,30 @@ from engine.runner.abilities.targeting_rule import TargetingRule as TR   # noqa:
 from engine.runner.components import set_unit_feet                       # noqa: E402
 from engine.runner.snapshot import load_state                            # noqa: E402
 
+#: Ce qui doit changer pour que ce FICHIER puisse changer de verdict (#486-r15). PRIS LARGE : les
+#: porteurs des trois bits sont RE-DERIVES d'`ABILITY_CLASSES`, donc n'IMPORTE QUEL module
+#: d'abilities peut en faire entrer ou sortir un -- un declencheur limite a `targeting.py` + `tau.py`
+#: serait un FAUX VERT le jour ou une ability neuve pose `CasterHas7Tiles` ailleurs.
+DECLENCHEUR = {
+    "chemins": (
+        "scripts/python/engine/runner/abilities/**/*.py",   # le registre ET les masques
+        "scripts/python/engine/runner/components.py",       # `get_unit_feet` = `GetFeetCount`
+        "scripts/python/engine/runner/snapshot.py",         # le montage de l'etat
+        "scripts/python/engine/entities/selectors/**/*.py",  # le selecteur de la couronne (1192)
+        "scripts/python/engine/entities/pathfinding/board.py",
+        "scripts/python/hexgeo.py",
+    ),
+    "build": False,       # rien de ce fichier ne lit le binaire ni `data/symbols/**`
+    "toujours": False,
+    "raison": (
+        "Les DEUX volets lisent le meme foyer `get_invalid_caster_reason`, mais leurs entrees "
+        "viennent du registre d'abilities (masques) et du substrat de tuiles/selecteurs. Le "
+        "perimetre est pris LARGE sur `abilities/**` parce que les porteurs des trois bits sont "
+        "RE-DERIVES du registre : une ability neuve dans N'IMPORTE QUEL module de faction peut "
+        "faire entrer ou sortir un porteur, et un declencheur limite aux deux fichiers edites "
+        "serait alors un FAUX VERT."),
+}
+
 COLS, ROWS = 9, 9
 CASTER, FOE_A, FOE_B, ALLY = 10, 20, 21, 30
 NOVA_BOOST = 1192                       # ActiveAbilityType.NovaBoost
