@@ -2233,45 +2233,73 @@ def _ability_state_from_rows(su) -> tuple:
 
 
 def _ability_state_with_rows(from_config: tuple, su) -> tuple:
-    """`from_config` COMBLE, champ par champ, par `_ability_state_from_rows` -- et **seulement la ou
-    le trou existe**, exactement la garde de `_ability_state_with_channel` ci-dessous (« on n'ecrit
-    QUE si le trou existe, donc jamais par-dessus une valeur mesuree »).
+    """`from_config` (le PROXY `unitConfig`) SURCHARGE, champ par champ, par
+    `_ability_state_from_rows` (l'`AbilityState` de l'INSTANCE) partout ou celui-ci a MESURE.
 
-    ⚠ **Le multiplicateur n'est comble que si le `unitConfig` est ABSENT**, jamais sur la seule vue
-    de sa valeur. `_ability_state_from_config` rend `100` dans DEUX regimes qu'un scalaire ne
-    distingue pas -- « mesure a 100 » et « pas de `unitConfig`, voici le neutre ». Le second est le
-    seul trou ; combler le premier ECRASERAIT une mesure, ce que la garde de ce module interdit.
-    On relit donc la PRESENCE du champ, pas sa valeur."""
+    ⚠ **CE N'EST PLUS UN COMBLEMENT DE TROU, ET C'EST LE POINT (#1049-r1).** Les deux canaux ne
+    sont pas de meme rang, et les traiter comme deux vues d'une meme mesure -- ce que faisait la
+    garde « on n'ecrit QUE si le trou existe » -- laisse gagner le proxy quand il ment. Ce qui
+    tranche est LU (`rnca9r7q6c`), pas arbitre :
+
+      * `IdunBattle.Entities.Factories.UnitFactory$$Build` construit les TROIS `AbilityState` de
+        l'unite depuis la configuration du Build, champ par champ --
+        `AbilityState..ctor(&passive,  config+0xBC, config+0x74)`,
+        `AbilityState..ctor(&active,   config+0xB8, config+0x74)`,
+        `AbilityState..ctor(&tertiary, config+0xC0, config+0x78)` -- puis les passe a
+        `$$AddConfiguredAbilities` / `$$AddNormalAttackAbility` / `$$AddDerivedAbilities`, qui les
+        BAKENT dans chaque instance montee. C'est cet objet, et non la configuration, que
+        `IdunBattle.Configuration.AbilityConfiguration$$GetVariableForLevel(config, var,
+        abilityState, 0)` consomme.
+      * Le capteur, lui, ne lit PAS la configuration du Build : `readUnitConfig`
+        (`frida/hooks/features/ai-step/rpc-snapshot.ts`) la RE-RESOUT par
+        `IdunBattle.Core.Services.BattleQuery$$GetUnitConfig(VisualId)`, dont le corps est une
+        recherche LINEAIRE sur `BC.Units[]` comparant `+0x10` puis
+        `IdunBattle.Configuration.UnitConfiguration$$get_ConfigId`. Jointure **N->1** : rien ne
+        garantit qu'elle retombe sur l'entree qui a monte CETTE entite.
+
+    ⇒ l'`AbilityState` de l'instance est la SOURCE, `unitConfig` n'en est qu'un PROXY -- exact tant
+    que la jointure vise juste, faux en silence sinon. Le capteur le disait deja sur l'axe ACTIF
+    (« le global unitConfig est un AUTRE canal -- u80 : 65x120 vs 50x180 »), sans que le seed en
+    tire la consequence.
+
+    MESURE (`probe_1049r1_autorite_ability_state.py`, MC1_67/777) : `bloodNpc1Intercessor:45` monte
+    par `--explicit-stats` porte `visualId = "bloodSmnIntercessor"` (son jumeau SUMMON), donc la
+    jointure rend la config du summon -- `unitConfig = (mult 100, passif 1, actif 1)` la ou
+    l'instance porte `(65, 200)`. Sur 8 heros ORDINAIRES du pool, les trois canaux concordent
+    **8/8** : renverser la priorite ne change RIEN hors du regime ou le proxy ment.
+
+    TRI-ETAT PRESERVE, et c'est ce qui borne le changement : un `None` de `_ability_state_from_rows`
+    (axe non mesure, ou DESACCORD entre instances -- cf. son `_uniq`) ne peut jamais ecraser une
+    valeur du proxy. On ne substitue que de la MESURE a de la MESURE."""
     mult, passive_level, active_level = from_config
     r_mult, r_passive, r_active = _ability_state_from_rows(su)
-    uc = (su or {}).get("unitConfig")
-    mesure = isinstance(uc, dict) and uc.get("abilityVariablesMultiplier") is not None
-    return ((mult if mesure or r_mult is None else r_mult),
-            passive_level if passive_level else r_passive,
-            active_level if active_level else r_active)
+    return (mult if r_mult is None else r_mult,
+            passive_level if r_passive is None else r_passive,
+            active_level if r_active is None else r_active)
 
 
 def _ability_state_with_channel(from_config: tuple, from_channel) -> tuple:
-    """`(multiplier, passiveAbilityLevel, activeAbilityLevel)` du `unitConfig`, COMBLE par
-    l'`AbilityState` PAR INSTANCE du canal `unitAbilityStates` quand le `unitConfig` n'en a pas.
+    """`(multiplier, passiveAbilityLevel, activeAbilityLevel)`, ou l'`AbilityState` PAR INSTANCE du
+    canal `unitAbilityStates` PRIME sur le `unitConfig`.
 
-    MEME REGLE ET MEME GARDE que `_load_passive_abilities` (« on n'ecrit QUE si le trou existe,
-    donc jamais par-dessus une valeur mesuree ») -- c'est litteralement le meme comblement, joue
-    ICI parce que ce triple est une ENTREE de la MATERIALISATION des effets, pas une sortie.
+    MEME BASCULE ET MEME RAISON que `_ability_state_with_rows` ci-dessus (#1049-r1) : le canal lit
+    l'objet que le natif consomme, `unitConfig` lit une configuration RE-RESOLUE par une jointure
+    `VisualId` N->1. La garde d'origine (« on n'ecrit QUE si le trou existe ») supposait deux vues
+    d'une meme mesure ; elle laissait donc gagner un `passive_level = 1` qui n'est pas le niveau de
+    l'entite mais celui d'une AUTRE entree de `BC.Units[]`.
 
-    POURQUOI LE TROU EXISTE. Une unite INVOQUEE n'a AUCUNE `UnitConfiguration` cote natif
-    (`IdunBattle.Operations.SpawnUnitOperation` fabrique ses stats par
-    `IdunBattle.Entities.Behaviours.SpawnUnitOptions$$WithStatsFromConfig`, pas depuis une config),
-    donc `combatSnapshot.unitConfig` rend litteralement `{"error": "config null"}` pour elle et
-    `_ability_state_from_config` rend le neutre `(100, None, None)`. Le canal qui porte
-    l'information est `unitAbilityStates` : l'`AbilityState` y est dumpe PAR INSTANCE d'ability
-    montee (`level` @+0x20, `mult` @+0x24), et c'est celui que
-    `IdunBattle.Configuration.AbilityConfiguration$$GetVariableForLevel` consomme reellement.
+    LE REGIME DU VRAI SUMMON EST INCHANGE : une unite INVOQUEE n'a AUCUNE `UnitConfiguration` cote
+    natif (`IdunBattle.Operations.SpawnUnitOperation` fabrique ses stats par
+    `IdunBattle.Entities.Behaviours.SpawnUnitOptions$$WithStatsFromConfig`), `combatSnapshot
+    .unitConfig` rend `{"error": "config null"}` et `_ability_state_from_config` le neutre
+    `(100, None, None)` -- le canal gagnait deja, il gagne toujours.
 
     L'`activeAbilityLevel` n'est PAS invente : le canal des entrees de hierarchie 2 ne porte que le
-    niveau des PASSIFS. `None` = non mesure, jamais un niveau devine."""
+    niveau des PASSIFS, donc il reste celui d'amont. C'est une BORNE CONNUE -- sur une entite dont
+    le proxy ment, l'axe ACTIF reste faux ici ; il est seede separement, depuis le MEME canal, par
+    `_load_active_ability_state`. `None` = non mesure, jamais un niveau devine."""
     mult, passive_level, active_level = from_config
-    if passive_level or from_channel is None:
+    if from_channel is None:
         return from_config
     lvl, chan_mult = from_channel
     return (int(chan_mult) if chan_mult is not None else mult, int(lvl), active_level)
@@ -2402,7 +2430,15 @@ def _load_stats_and_effects(state: State, decision: dict, snapshot: dict,
         # garde posee sur une seule laisserait l'autre diverger -- c'est `abstate_by_id` qui bake
         # l'`AbilityState` dans les effets, donc l'ecart y serait SILENCIEUX. Partir du meme triple
         # rend la divergence structurellement impossible.
-        if _eablvl and not getattr(ctx, "passive_ability_level", None):
+        # ⚠ #1049-r1 -- CE N'EST PLUS UN COMBLEMENT, C'EST UNE SURCHARGE, et c'est ce qui remet les
+        # deux tables d'accord. `_carrier` EST le triple d'AUTORITE de la passe 1 : le `unitConfig`
+        # deja surcharge par l'`AbilityState` de l'INSTANCE (`_ability_state_with_rows`, puis
+        # `_ability_state_with_channel`). Le bloc `uc` ci-dessus, lui, ecrit le PROXY. Tant que la
+        # pose d'ici ne faisait que COMBLER, le proxy gagnait sur le ctx alors que `abstate_by_id`
+        # suivait l'instance : les deux tables que ce commentaire disait vouloir garder identiques
+        # divergeaient donc exactement dans le regime ou le proxy ment.
+        # Substitution de MESURE a MESURE seulement : `_eablvl` faux (non mesure) ne touche rien.
+        if _eablvl:
             ctx.passive_ability_level = int(_eablvl)
             ctx.ability_variables_multiplier = int(_emult)
         # #888 -- LE MEME COMBLEMENT, SUR L'AXE **ACTIF**. Le bloc `unitConfig` ci-dessus ne s'ouvre
@@ -2413,9 +2449,11 @@ def _load_stats_and_effects(state: State, decision: dict, snapshot: dict,
         # jumeaux -- « seulement si le trou existe », donc jamais par-dessus une valeur mesuree.
         # ⚠ On relit `_carrier`, PAS le canal (meme raison que le bloc ci-dessus : `abstate_by_id`
         # bake l'`AbilityState` dans les effets, un ecart entre les deux serait SILENCIEUX).
-        if _eactive and not getattr(ctx, "active_ability_level", None):
+        # #1049-r1 : SURCHARGE ici aussi, meme raison -- `_carrier` porte l'`AbilityState` de
+        # l'instance, `uc` un proxy re-resolu par une jointure `VisualId` N->1.
+        if _eactive:
             ctx.active_ability_level = int(_eactive)
-        if _emult and int(getattr(ctx, "ability_variables_multiplier", 100) or 100) == 100:
+        if _emult:
             ctx.ability_variables_multiplier = int(_emult)
         ent = state.get_entity(eid)
         if ent is not None:
