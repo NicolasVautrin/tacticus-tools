@@ -115,9 +115,11 @@ from .loki.extra_damage import (
 )
 from .loki.extra_damage_aura import (
     BeaconOfRageFriendlyExtraDamageEffect, BlightedLandEffect,
+    CabalOfSorcerersExtraDamagePctEffect,
     DaughterOfTheAbyssExtraDamagePctEffect,
     DefenderOfTheGreaterGoodExtraDmgDroneEffect, DefenderOfTheGreaterGoodExtraDmgEffect,
-    DoomExtraDmgEffect, LordOfTheHostExtraDamageEffect, MoreGitzOverEreExtraDamagePctEffect,
+    DoomExtraDmgEffect, GuardianConstructExtraDamagePctEffect,
+    LordOfTheHostExtraDamageEffect, MoreGitzOverEreExtraDamagePctEffect,
     PathOfCommandExtraDmgEffect,
     PsychicStalkExtraAttackDamageEffect, PsychicStalkFriendlyChaosExtraDamageEffect,
     PsychicStalkVisualEffect, RitesOfBattleExtraDmgEffect, SpotterReworkedExtraDamageEffect,
@@ -354,6 +356,18 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # prennent +extraDmg[ablvl]xmult des attaques normales des amis du porteur (extraDmg_2 Aeldari,
     # toutes attaques) (IdunBattle.Entities.Effects.Loki.Doom_extraDmgEffect$$CreateEffectDamageBonusForAttack, selector IdunBattle.Entities.Effects.Loki.Doom_extraDmgEffect$$CreateTargetSelector ring-exact). #57c.
     "Doom_extraDmg": DoomExtraDmgEffect,
+    # #1036-r1 -- `GuardianConstruct_ExtraDamagePct` (0x60c = 1548), owner-effect PERMANENT de
+    # l'ability MYTHIQUE de la MoW `necroReanimator` : AURA +extraDmgPct % aux allies **Mythiques**
+    # porteurs d'un `NanoscarabRepairProtocols` (0x609 = 1545). Les TROIS etages du selecteur sont
+    # portes (`Friends` / `EntitiesWithAnyEffect(onlyActive: false, Both)` / `UnitsWithRarity`) --
+    # le canal de RARETE existe depuis #999-r3 et le porteur MoW entre dans l'univers des porteurs
+    # d'aura depuis #999-r3-r1-r1. RE au site de la classe.
+    "GuardianConstruct_ExtraDamagePct": GuardianConstructExtraDamagePctEffect,
+    # #1036-r2 -- `CabalOfSorcerers_ExtraDamagePct` (0x5d6 = 1494), owner-effect PERMANENT de
+    # l'ability MYTHIQUE de la MoW `thousDaemonPrince` : AURA +extraDmgPct % sur les attaques
+    # **Psychic** des allies Mythic+Psyker+Hero qui ont un tel allie ADJACENT (branche `F` du
+    # `ConditionalSelector(IsMachine(Owner))`). RE au site de la classe.
+    "CabalOfSorcerers_ExtraDamagePct": CabalOfSorcerersExtraDamagePctEffect,
     # DestroyTheWitch (Helbrecht templHelbrecht, passif TriggeredAbilityType 0x443=1091 ; les DEUX
     # owner-effects de `DestroyTheWitchAbility$$CreateBehaviour`) :
     #  - 0x440=1088 ExtraMove   : StaticStatModifierEffect +extraMovement(=1) sur MOVEMENT ;
@@ -2288,9 +2302,10 @@ ABILITY_INIT_OWNER_EFFECTS: dict[str, list[str]] = {
     # seed depend de la lecture de `ctx.tertiary_ability` par `_seed_ability_owner_effects` (acquise
     # depuis #1005). Sur un runner live l'effet est de toute facon capte par `decisionView.effects`
     # -> ce seed est un FILET pour les chemins purement offline.
-    # ⚠ L'EFFET 1548 N'ENTRE PAS dans `EFFECT_CLASSES`, et c'est DELIBERE -- meme cause que 1449 :
-    # son `$$CreateTargetSelector` finit par un etage de RARETE, et ce canal N'EXISTE PAS cote port.
-    # Lu au decompile (`IdunBattle.Entities.Effects.Loki.GuardianConstruct_ExtraDamagePctEffect$$CreateTargetSelector`) :
+    # L'EFFET 1548 EST dans `EFFECT_CLASSES` depuis #1036-r1
+    # (`GuardianConstructExtraDamagePctEffect`, `loki/extra_damage_aura.py`, canal AURA
+    # `create_aura_attack_damage_bonus_for_ally`). Son `$$CreateTargetSelector`, LU au decompile
+    # (`IdunBattle.Entities.Effects.Loki.GuardianConstruct_ExtraDamagePctEffect$$CreateTargetSelector`) :
     #     UnitsWithRarity(
     #         EntitiesWithAnyEffect( Friends(Owner@<DSLSelectors+0x30>, AllUnits, OnlyAliveAndTargetable),
     #                                effectTypes = [EffectType.NanoscarabRepairProtocols = 0x609],
@@ -2298,20 +2313,21 @@ ABILITY_INIT_OWNER_EFFECTS: dict[str, list[str]] = {
     #         rarity = Rarity.Mythic = 5, unitSelectionType = UnitSelectionType.OnlyAliveAndTargetable = 3 )
     # (le `0x609` du call-site est le SCALAIRE que la surcharge a 4 arguments emballe elle-meme dans
     # un `int[1]` -- le `6` est l'`effectTarget`, PAS un second type ; meme forme que `PsychicStalk`.)
-    # Les DEUX autres etages sont portables (`Friends` ne retire PAS le porteur :
-    # `UnitsByTeamSelector$$CountOrAdd` garde toute entite dont `UnitExtensions$$IsFriend(unit, other)`
-    # egale son flag, et `IsFriend(u, u)` est VRAI -- il compare deux ids d'equipe) ; c'est le
-    # troisieme qui bloque. L'inscrire sans ce gate serait un terme PERMISSIF silencieux -- d'autant
-    # que `rl_duel build` impose `targetRarity = 5` a toute unite normalisee, donc le gate y est
-    # uniformement VRAI et un port qui l'oublie serait faussement d'accord dans tous les bras par
-    # defaut (regime DEGENERE ; on en sort par `--unit-stat "<vis>:Rarity=N"`).
+    # `Friends` ne retire PAS le porteur (`UnitsByTeamSelector$$CountOrAdd` garde toute entite dont
+    # `UnitExtensions$$IsFriend(unit, other)` egale son flag, et `IsFriend(u, u)` est VRAI -- il
+    # compare deux ids d'equipe) : la patte SELF est donc REELLE cote natif et NON PORTEE cote port
+    # (residu `#1036-r4`, degradation RESTRICTIVE nommee au site de la classe).
+    # ⚠ Le gate de RARETE ne se confronte QUE hors du regime par defaut : `rl_duel build` impose
+    # `targetRarity = 5` a toute unite normalisee, donc `UnitsWithRarity(..., Mythic)` y est
+    # uniformement VRAI et un port qui l'oublierait serait faussement d'accord dans tous les bras
+    # par defaut (regime DEGENERE ; on en sort par `--unit-stat "<vis>:Rarity=N"`).
     # Le bonus, lui, est LU et sans gate de rarete
     # (`...GuardianConstruct_ExtraDamagePctEffect$$CreateEffectDamageBonusForAttack`) :
     #     EffectBonus.ForPercentIncrease( get_OwnerIsCaster,
     #                                     ConfigVar(AbilityVariableType.extraDmgPct = 0xa,
     #                                               GetAbilityState, <effet+0x60>) )
     # et `...$$GetRefreshTriggers` = [RefreshEffectTrigger.EffectsChanged = 4,
-    # RefreshEffectTrigger.UnitStateChanged = 3]. Residu `#1036-r1`, BLOCAGE capteur.
+    # RefreshEffectTrigger.UnitStateChanged = 3].
     # Cf. `docs/rl/case-1036-mythiques-cabale-et-construct.md`.
     "GuardianConstruct": ["GuardianConstruct_ExtraDamagePct"],
     # #1036 -- `CabalOfSorcerersAbility` (ability **MYTHIQUE** de la MoW `thousDaemonPrince` /
@@ -2330,8 +2346,9 @@ ABILITY_INIT_OWNER_EFFECTS: dict[str, list[str]] = {
     # SANS le `If(CreateCondition(...))` que la base interpose. L'appariement 1496 -> 1494 est LU au
     # call-site, pas devine ; et l'argument d'`OnOwnerSpecificAbilityInit` est bien un
     # `TriggeredAbilityType` (type DECLARE dans `frida/methods.tsv`), pas un ordinal partage.
-    # ⚠ MEME BLOCAGE que 1548 ci-dessus, et il mord PLUS FORT parce que le gate de rarete est
-    # imbrique dans un helper appele TROIS fois. Lu au decompile
+    # L'EFFET 1494 EST dans `EFFECT_CLASSES` depuis #1036-r2
+    # (`CabalOfSorcerersExtraDamagePctEffect`, cf. la classe pour le mirror complet) : le gate de
+    # rarete y est imbrique dans un helper appele TROIS fois. Lu au decompile
     # (`IdunBattle.Entities.Effects.Loki.CabalOfSorcerers_ExtraDamagePctEffect$$ValidCharacter`) :
     #     ValidCharacter(x) = UnitsWithTraits( UnitsWithRarity(x, Rarity.Mythic = 5,
     #                                                          OnlyAliveAndTargetable),
@@ -2359,7 +2376,6 @@ ABILITY_INIT_OWNER_EFFECTS: dict[str, list[str]] = {
     #     EffectBonus.ForPercentIncrease(
     #         get_OwnerIsCaster & CurrentAttackDamageProfileIs(DamageProfileType.Psychic = 0xd),
     #         ConfigVar(AbilityVariableType.extraDmgPct = 0xa, GetAbilityState, <effet+0x60>) )
-    # Residu `#1036-r2`, BLOCAGE capteur.
     # ⚠ Face DECISION distincte et NON portee : `IdunBattle.AI.Playbook.Loki.CabalOfSorcerersPlaybook`
     # (`TriggeredAbilityNonOwnerPlaybook<CabalOfSorcerersAbility>`) surcharge
     # `$$CalculateMovementUtilityInSteps` -- residu `#1036-r3`. `GuardianConstruct` n'a AUCUN
