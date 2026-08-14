@@ -52,11 +52,14 @@ from engine.runner.components import (HealthComponent, OwnerComponent,      # no
 from engine.runner.operations.spawn import _seed_ability_owner_effects      # noqa: E402
 from engine.runner.operations.triggers.base import TriggerEvent             # noqa: E402
 from engine.runner.operations.triggers.dispatch.registry import RELIC_ABILITY_TRIGGERS  # noqa: E402
+from engine.entities.selectors.accessors import Target                      # noqa: E402
+from engine.entities.selectors.tiles import Caster                          # noqa: E402
+from engine.entities.triggers import AreEnemies                             # noqa: E402
 from engine.runner.operations.triggers.loki.the_ardent_blade import (       # noqa: E402
     ABILITY_ID, GEMINAE_SELECTION, HP_VARIABLE, RANGE_CONSTANT, RESURRECT_HEAL_TYPE,
     THE_ARDENT_BLADE, THE_ARDENT_BLADE_EFFECT, TheArdentBladeTriggerAbility,
     _summon_unit_id, ardent_blade_behaviour_tree, ardent_blade_reachable_geminae,
-    ardent_blade_geminae)
+    ardent_blade_geminae, ardent_blade_trigger_tree)
 from engine.runner.prng import IntBasedMersenneTwister                      # noqa: E402
 from engine.runner.state import State                                       # noqa: E402
 from engine.streams.group_type import GroupType                             # noqa: E402
@@ -191,6 +194,18 @@ def _ev(target_id=ENEMY_ID, actor_id=OWNER_ID):
                         ranged=False, profile=None)
 
 
+def _feuilles(noeud, out=None):
+    """Parcours des conjoints d'un arbre de trigger (`TriggerAnd` porte `a`/`b`) -- meme forme que
+    l'helper homonyme de `test_963r1_unit_team_selection_offline.py`."""
+    out = [] if out is None else out
+    out.append(noeud)
+    for attr in ("a", "b"):
+        v = getattr(noeud, attr, None)
+        if hasattr(v, "evaluate"):
+            _feuilles(v, out)
+    return out
+
+
 def _jeton(state, uid=OWNER_ID):
     return [e for e in state.effects.by_unit.get(int(uid), [])
             if int(e.effect_type) == THE_ARDENT_BLADE_EFFECT and not e.consumed]
@@ -284,9 +299,58 @@ def test_une_victime_STEPPABLE_ferme():
 
 
 def test_une_victime_AMIE_ferme():
-    """`AreEnemies(Owner, Target, 1 = ByOriginalTeam)`."""
+    """`AreEnemies(Owner, Target, 1 = ByOriginalTeam)`.
+
+    ⚠ Ce bras est DEGENERE sur l'axe du 3e argument, et c'est dit : `FRIEND_ID` est allie par son
+    equipe COURANTE **et** par son ORIGINE, donc il fermerait avec l'un ou l'autre litteral. Le
+    regime discriminant est celui du test suivant."""
     assert TheArdentBladeTriggerAbility(OWNER_ID).matches(
         _state(), _ev(target_id=FRIEND_ID)) is False
+
+
+def test_le_litteral_ByOriginalTeam_est_PASSE_au_noeud_de_l_arbre():
+    """Le 3e argument d'`AreEnemies` est `1 = ByOriginalTeam` (type DECLARE
+    `IdunBattle.Entities.Enum.UnitTeamSelectionType` dans `frida/methods.tsv`), et le DEFAUT du
+    noeud porte est `ByCurrentTeam` : une constante nommee dans le module mais non PASSEE serait un
+    faux temoin de fidelite -- exactement ce que #963-r1 a du corriger sur `RedRampage`.
+
+    ⚠ C'est le SECOND des deux sites `ByOriginalTeam` d'`AreEnemies` du build ; l'autre est
+    `...RedRampage_BuffAbility$$CreateTrigger`. Le recensement EXHAUSTIF vit dans
+    `test_963r1_unit_team_selection_offline.py`, qui verifie AUSSI ce littéral -- ici on le garde au
+    plus pres du port."""
+    noeuds = [n for n in _feuilles(ardent_blade_trigger_tree()) if isinstance(n, AreEnemies)]
+    assert len(noeuds) == 1, "l'arbre du trigger porte exactement un `AreEnemies`"
+    assert noeuds[0].selection_type == int(UnitTeamSelectionType.ByOriginalTeam)
+    assert int(UnitTeamSelectionType.ByOriginalTeam) != int(UnitTeamSelectionType.ByCurrentTeam), \
+        "TEMOIN DEGENERE : les deux membres coincident, l'assertion ci-dessus ne dirait rien"
+
+
+def test_une_victime_POSSEDEE_reste_une_ENNEMIE_par_son_ORIGINE():
+    """LE regime discriminant du 3e argument -- le SEUL ou `ByCurrentTeam` et `ByOriginalTeam`
+    repondent differemment.
+
+    Une unite passee sous MON controle par `IdunBattle.Operations.ChangeUnitOwnerOperation$$Execute`
+    (l'unique producteur natif du regime, declenche par l'effet `1209`) est ALLIEE au courant et
+    ENNEMIE a l'origine. Le natif lisant l'ORIGINE, la relique doit MORDRE quand Celestine l'abat --
+    avec le defaut `ByCurrentTeam` le trigger fermerait, silencieusement.
+
+    Le couple `(team, originalTeam)` n'est PAS ecrit a la main : l'Operation le produit."""
+    from engine.runner.operations.change_unit_owner import ChangeUnitOwnerOperation
+    st = _state()
+    assert ChangeUnitOwnerOperation.execute(st, ENEMY_ID, OWNER_ID) is True, \
+        "l'owner-swap doit AVOIR LIEU, sinon le regime discriminant n'existe pas"
+    entities = entities_from_state(st, OWNER_ID, ENEMY_ID, actor_id=OWNER_ID)
+    victime = next(u for u in entities.units if u.get("id") == ENEMY_ID)
+    # TEMOIN NON DEGENERE : sans cet ecart, les deux litteraux rendraient le meme verdict.
+    assert victime.get("team") != victime.get("originalTeam"), (
+        "regime DEGENERE : le substrat ne publie pas `originalTeam` distinct de `team` apres "
+        "l'owner-swap -- lu (%r, %r)" % (victime.get("team"), victime.get("originalTeam")))
+    assert AreEnemies(Caster(), Target(),
+                      int(UnitTeamSelectionType.ByCurrentTeam)).evaluate(entities) is False, \
+        "equipe COURANTE : la victime possedee est une ALLIEE (le bras que le DEFAUT prendrait)"
+    assert TheArdentBladeTriggerAbility(OWNER_ID).matches(st, _ev()) is True, (
+        "la relique n'a pas mordu sur une victime possedee : le noeud lit l'equipe COURANTE au lieu "
+        "de l'ORIGINE")
 
 
 def test_sans_jeton_le_trigger_ferme():

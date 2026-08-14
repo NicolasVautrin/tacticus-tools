@@ -163,6 +163,26 @@ Livré dans le même commit :
 4. Cliquet `tests/engine/runner/test_1013r2_the_ardent_blade_offline.py` (23 tests, 7 étages ;
    8 mutations adversariales vues ROUGES).
 
+**CE PORT FAIT MONTER UN COMPTE QUI N'EN ÉTAIT PAS UN** (#963-r1). `TheArdentBlade_TriggerAbility$$
+CreateTrigger` est le **SECOND** des deux sites `AreEnemies` du build qui passent `ByOriginalTeam`
+(l'autre est `RedRampage_BuffAbility$$CreateTrigger`) — le recensement exhaustif le listait déjà,
+avec la mention « non porté ». Le porter a donc fait **rougir**
+`test_963r1_unit_team_selection_offline.py`, dont le contrat était « un seul des quatre est porté ».
+
+La réponse n'est pas d'incrémenter : le cliquet exige désormais, de **tout** site porté, que son
+arbre passe `ByOriginalTeam` **au nœud** — et l'arbre du trigger a été extrait en fonction nommée
+(`ardent_blade_trigger_tree`) précisément pour être vérifiable, comme `red_rampage_buff_trigger_tree`
+l'est depuis #963-r1. Deux mesures en sont sorties :
+
+* le défaut du nœud porté est `ByCurrentTeam` ; **aucun** bras de ce fichier ne séparait les deux
+  (les deux équipes coïncident tant qu'aucun owner-swap n'a couru) — l'étage discriminant a été
+  ajouté, avec un `ChangeUnitOwnerOperation` RÉEL : une victime possédée est **alliée au courant et
+  ennemie à l'origine**, et la relique doit mordre ;
+* le recenseur « qu'est-ce qui est porté ? » de `#963-r1` balayait les **attributs de module** de
+  `registry.py`, donc un simple `import` suffisait à faire croire l'ability inscrite — le retrait de
+  son entrée de registre laissait le cliquet **vert** (mesuré par mutation). Un second recenseur,
+  strict (les **valeurs des dicts**, et elles seules), ferme le trou.
+
 **CORRECTION DE FOYER, exigée par ce port** : `abilities/behaviours/context.py::_has_effect` ne
 relisait pas le FLAG `EffectComponent+0x5c` sous `active_only`, seulement la
 `CreateActiveCondition`. Or `IdunBattle.Entities.EntityExtensions$$IsOwnerOfEffect` lit le FLAG

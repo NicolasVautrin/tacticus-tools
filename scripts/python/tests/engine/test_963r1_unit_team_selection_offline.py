@@ -5,8 +5,13 @@ Ce fichier garde les cinq points ou un port distrait resterait VERT partout aill
   1. **LE RECENSEMENT.** Le residu se resout en LISANT le litteral de chaque call-site natif, pas
      en generalisant depuis celui de `RedRampage`. Mesure (`probe_963r1_team_selection_callsites`,
      balayage EXHAUSTIF de l'image) : `AreEnemies` = **54** sites, `AreFriends` = **79**, dont
-     **2 + 2** passent `ByOriginalTeam`. Un seul des quatre est PORTE. Figer ce compte est ce qui
-     fera rougir un build ou un cinquieme site apparaitrait.
+     **2 + 2** passent `ByOriginalTeam`. Figer ce compte est ce qui fera rougir un build ou un
+     cinquieme site apparaitrait.
+     ⚠ **Le nombre de sites PORTES n'est PAS un compteur de ce fichier**, et c'est delibere : il
+     monte a chaque tranche de portage (1 au 2026-08-13 avec `RedRampage`, **2** au 2026-08-14 avec
+     `TheArdentBlade`, #1013-r2). Ce qui est garde, c'est que **tout site porte PASSE son litteral
+     au noeud** -- une exigence qui ne se perime pas, la ou un compte qu'on incremente pour faire
+     passer une passe serait l'inventaire deguise en garde-fou que la doctrine proscrit.
   2. **LE DEFAUT.** 129 des 133 sites passent `ByCurrentTeam` : le comportement d'avant ce residu
      y est JUSTE. Un defaut mal choisi retournerait silencieusement ces 129 sites.
   3. **LA CLE ABSENTE N'EST PAS UNE EQUIPE INCONNUE.** Un substrat qui ne modelise pas la
@@ -157,21 +162,7 @@ def test_le_recensement_exhaustif_des_call_sites_natifs():
         assert not hors, "un litteral HORS des deux membres de l'enum est apparu : %s" % hors
 
 
-def test_un_seul_des_quatre_sites_by_original_team_est_porte():
-    """La question binaire du residu : le port ECARTE-t-il un call-site qui devrait lire l'origine ?
-
-    Reponse MESUREE : sur les 4 sites natifs qui passent `ByOriginalTeam`, un SEUL a un arbre porte
-    -- `RedRampage_BuffAbility`. Les trois autres (`TheArdentBlade_TriggerAbility`,
-    `Reinforcements_DamageAbility`, `TheWrathfulDeadAbility_Overkill`) n'ont AUCUN arbre DSL cote
-    port : leur id vit dans les enums, rien de plus. Ce test fige ce fait -- le jour ou l'un des
-    trois est porte, il doit poser son litteral DANS LE MEME COMMIT, exactement comme un masque de
-    ciblage."""
-    from engine.entities.triggered_ability_type import TriggeredAbilityType
-    from engine.runner.operations.triggers.dispatch import registry as R
-
-    # PERIMETRE DERIVE, jamais une liste ecrite : tout attribut du module qui est un conteneur de
-    # classes de trigger. Une allowlist de registres ne pourrait pas montrer le registre oublie --
-    # c'est le vice que le recenseur de #270-r1 a du corriger.
+def _ids_de(valeurs):
     classes = set()
 
     def _avaler(v):
@@ -181,27 +172,139 @@ def test_un_seul_des_quatre_sites_by_original_team_est_porte():
             for x in v:
                 _avaler(x)
 
-    for nom in dir(R):
-        if nom.startswith("__"):
-            continue
-        val = getattr(R, nom)
-        if isinstance(val, dict):
-            for v in val.values():
-                _avaler(v)
-        else:
-            _avaler(val)
-    portes = {int(i) for i in (getattr(c, "TRIGGERED_ABILITY_ID", None) for c in classes)
-              if isinstance(i, int)}
+    for v in valeurs:
+        _avaler(v)
+    return {int(i) for i in (getattr(c, "TRIGGERED_ABILITY_ID", None) for c in classes)
+            if isinstance(i, int)}
+
+
+def _ids_connus():
+    """Les `TriggeredAbilityType` dont une classe de trigger EXISTE et est atteignable depuis le
+    module de registre -- **y compris par un simple import de module**.
+
+    PERIMETRE LARGE et DERIVE, jamais une liste ecrite : tout attribut du module. Une allowlist de
+    registres ne pourrait pas montrer le registre oublie -- c'est le vice que le recenseur de
+    #270-r1 a du corriger. C'est la bonne mesure pour « cette ability a-t-elle un ARBRE porte ? ».
+
+    ⚠ Ce n'est PAS « inscrite dans un registre » : `registry.py` importe ses classes au niveau
+    module, donc chacune est un attribut. Confondre les deux rendait ce fichier AVEUGLE au retrait
+    d'une entree de registre -- mesure : la mutation << TheArdentBlade sort du registre >> restait
+    VERTE. D'ou le second recenseur ci-dessous."""
+    from engine.runner.operations.triggers.dispatch import registry as R
+    return _ids_de(getattr(R, n) for n in dir(R) if not n.startswith("__"))
+
+
+def _ids_inscrits():
+    """Les `TriggeredAbilityType` REELLEMENT inscrits -- les VALEURS des dicts de registre, et elles
+    seules. C'est ce que lit `collect_triggered_abilities` ; une classe seulement importee ne fire
+    JAMAIS."""
+    from engine.runner.operations.triggers.dispatch import registry as R
+    dicts = [getattr(R, n) for n in dir(R) if not n.startswith("__")]
+    return _ids_de(v for d in dicts if isinstance(d, dict) for v in d.values())
+
+
+#: Pour chacun des QUATRE sites `ByOriginalTeam`, le NOM du membre `TriggeredAbilityType` et, quand
+#: l'arbre est PORTE, la fabrique qui le construit. La PRIMITIVE attendue (`AreEnemies` /
+#: `AreFriends`) n'est PAS ecrite ici : elle est DERIVEE de `SITES_BY_ORIGINAL_TEAM` -- la meme
+#: mesure sert au recensement (etage 1) et a la verification, donc les deux ne peuvent pas diverger.
+#:
+#: ⚠ **Une entree `arbre = None` est un FAIT MESURE, pas une dispense.** Elle dit « cette ability
+#: n'a AUCUN arbre DSL cote port : son id vit dans les enums, rien de plus ». Le jour ou l'une
+#: d'elles est portee, le test ci-dessous EXIGE sa fabrique -- il ne se contente pas de cesser
+#: d'assertionner. C'est ce qui distingue un cliquet d'un inventaire.
+SITE_SYMBOLE_VERS_ABILITY = {
+    "IdunBattleLogic.Entities.Abilities.Triggered.Loki.RedRampage_BuffAbility$$CreateTrigger":
+        "RedRampage",
+    "IdunBattleLogic.Entities.Abilities.Triggered.Loki.TheArdentBlade_TriggerAbility$$CreateTrigger":
+        "TheArdentBlade",
+    "IdunBattleLogic.Entities.Abilities.Triggered.Loki.Reinforcements_DamageAbility$$CreateTrigger":
+        "Reinforcements",
+    "IdunBattleLogic.Entities.Abilities.Triggered.Loki.TheWrathfulDeadAbility_Overkill$$CreateTrigger":
+        "TheWrathfulDead",
+}
+
+
+def _fabrique_d_arbre(ability: str):
+    """La fabrique de l'arbre de TRIGGER d'une ability portee, ou `None` si elle ne l'est pas.
+
+    Import DIFFERE et par ability : un `from ... import` en tete lierait les quatre modules, dont
+    trois n'existent pas -- et c'est precisement le fait que ce test mesure."""
+    if ability == "RedRampage":
+        from engine.runner.operations.triggers.loki.red_rampage import red_rampage_buff_trigger_tree
+        return red_rampage_buff_trigger_tree
+    if ability == "TheArdentBlade":
+        # #1013-r2 : SECOND site `ByOriginalTeam` d'`AreEnemies` a entrer au port. Le litteral
+        # `1` est LU dans `...TheArdentBlade_TriggerAbility$$CreateTrigger` (3e argument
+        # d'`AreEnemies`, type DECLARE `IdunBattle.Entities.Enum.UnitTeamSelectionType` dans
+        # `frida/methods.tsv`), et l'etage 1 de ce fichier le RE-MESURE au binaire.
+        from engine.runner.operations.triggers.loki.the_ardent_blade import ardent_blade_trigger_tree
+        return ardent_blade_trigger_tree
+    return None
+
+
+def test_tout_site_by_original_team_PORTE_passe_son_litteral_au_noeud():
+    """La question binaire du residu : le port ECARTE-t-il un call-site qui devrait lire l'origine ?
+
+    Ce test ne COMPTE pas les sites portes -- il exige, POUR CHACUN, l'une des deux reponses :
+
+      * **PORTE** -> son arbre doit contenir un noeud de la primitive du site (`AreEnemies` ou
+        `AreFriends`, DERIVEE de `SITES_BY_ORIGINAL_TEAM`) portant `ByOriginalTeam`. C'est la
+        verification, pas un compteur : un port qui laisserait le defaut `ByCurrentTeam` rougit ici
+        alors qu'il resterait VERT partout ailleurs (les deux equipes coincident tant qu'aucun
+        owner-swap n'a couru -- cf. l'etage 3, qui est le seul regime discriminant) ;
+      * **NON PORTE** -> le fait est fige, avec sa prescription.
+
+    ETAT MESURE au 2026-08-14 : **2 des 4 portes** (`RedRampage_BuffAbility` depuis #963-r1,
+    `TheArdentBlade_TriggerAbility` depuis #1013-r2). Les deux autres (`Reinforcements_DamageAbility`,
+    `TheWrathfulDeadAbility_Overkill`) n'ont AUCUN arbre DSL cote port : leur id vit dans les enums,
+    rien de plus."""
+    from engine.entities.triggered_ability_type import TriggeredAbilityType
+
+    portes, inscrits = _ids_connus(), _ids_inscrits()
     assert portes, "perimetre VIDE : le balayage du registre n'a rien trouve (test auto-invalide)"
-    assert int(TriggeredAbilityType.RedRampage) in portes, \
-        "RedRampage doit etre porte -- c'est le SEUL des quatre a l'etre"
-    for nom in ("TheArdentBlade", "Reinforcements", "TheWrathfulDead"):
-        membre = getattr(TriggeredAbilityType, nom, None)
-        if membre is None:
+    assert inscrits, "perimetre VIDE : aucun dict de registre peuple (test auto-invalide)"
+    assert inscrits <= portes, "un id INSCRIT est absent du balayage LARGE : recenseurs incoherents"
+
+    # PRIMITIVE par SYMBOLE, derivee du recensement de l'etage 1 -- jamais reecrite.
+    primitive_par_site = {sym: (AreEnemies if court == "AreEnemies" else AreFriends)
+                          for court, syms in SITES_BY_ORIGINAL_TEAM.items() for sym in syms}
+    assert set(primitive_par_site) == set(SITE_SYMBOLE_VERS_ABILITY), (
+        "la table symbole -> ability a DIVERGE du recensement : mesure=%s table=%s"
+        % (sorted(primitive_par_site), sorted(SITE_SYMBOLE_VERS_ABILITY)))
+
+    vus = 0
+    for symbole, ability in sorted(SITE_SYMBOLE_VERS_ABILITY.items()):
+        membre = getattr(TriggeredAbilityType, ability, None)
+        assert membre is not None, "%s a disparu de `TriggeredAbilityType`" % ability
+        fabrique = _fabrique_d_arbre(ability)
+        if int(membre) not in portes:
+            assert fabrique is None, (
+                "%s a une fabrique d'arbre mais n'est dans AUCUN registre de dispatch : "
+                "l'arbre serait registered-but-dead" % ability)
             continue
-        assert int(membre) not in portes, (
-            "%s est desormais PORTE : son arbre doit passer explicitement son litteral "
-            "`UnitTeamSelectionType` a `AreEnemies`/`AreFriends` (cf. SITES_BY_ORIGINAL_TEAM)" % nom)
+        vus += 1
+        assert fabrique is not None, (
+            "%s est desormais PORTE (site %s) : son arbre doit passer explicitement son litteral "
+            "`UnitTeamSelectionType` a `AreEnemies`/`AreFriends` DANS LE MEME COMMIT, et etre "
+            "atteignable par une FONCTION NOMMEE pour que ce cliquet puisse le verifier. "
+            "Incrementer un compteur ici serait un inventaire deguise en garde-fou." % (ability, symbole))
+        # REGISTERED-BUT-DEAD : une classe seulement IMPORTEE par `registry.py` est un attribut de
+        # module, donc elle entre dans le balayage LARGE -- mais elle ne fire jamais. Le litteral
+        # serait alors verifie sur un arbre que le moteur n'atteint pas.
+        assert int(membre) in inscrits, (
+            "%s a un arbre porte mais n'est INSCRIT dans aucun dict de registre : son litteral "
+            "`ByOriginalTeam` serait garde sur du code MORT" % ability)
+        cls = primitive_par_site[symbole]
+        noeuds = [n for n in _feuilles(fabrique()) if isinstance(n, cls)]
+        assert len(noeuds) == 1, (
+            "%s : l'arbre porte %d noeud(s) `%s`, 1 attendu (le site natif en a UN)"
+            % (ability, len(noeuds), cls.__name__))
+        assert noeuds[0].selection_type == int(UnitTeamSelectionType.ByOriginalTeam), (
+            "%s : le noeud `%s` de l'arbre porte `%r`, `ByOriginalTeam` attendu -- le litteral du "
+            "site natif n'est pas passe au noeud" % (ability, cls.__name__, noeuds[0].selection_type))
+    assert vus >= 1, (
+        "TEMOIN DEGENERE : aucun des quatre sites n'est porte, donc la verification du litteral "
+        "n'a rien exerce -- le test passerait pour une raison etrangere a ce qu'il mesure")
 
 
 # ---------------------------------------------------------------------------------------------

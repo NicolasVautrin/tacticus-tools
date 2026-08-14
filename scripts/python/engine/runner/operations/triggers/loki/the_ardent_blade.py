@@ -271,6 +271,31 @@ def ardent_blade_reachable_geminae(geminae, rng_value: int):
                         1, False, PICK_MAX_DUPLICATES, False)
 
 
+def ardent_blade_trigger_tree():
+    """`...TheArdentBlade_TriggerAbility$$CreateTrigger` moins le volet `On(0x36)` + « owner
+    vivant », deja porte par le dispatch -- les QUATRE conjoints restants, dans l'ordre
+    d'imbrication du decompile :
+
+        ((get_OwnerIsActor & IsNormalUnit(Target@+0x60))
+          & AreEnemies(Owner@+0x30, Target@+0x60, 1 = ByOriginalTeam))
+        & HasEffect(Owner@+0x30, 0x5b6, onlyActive = 1, 6 = Both)
+
+    ⚠ **FONCTION NOMMEE, et ce n'est pas cosmetique** : c'est le SECOND des deux sites natifs
+    d'`AreEnemies` qui passent `ByOriginalTeam` (l'autre est `RedRampage_BuffAbility$$CreateTrigger`).
+    Le cliquet `test_963r1_unit_team_selection_offline.py` verifie le litteral **porte par le noeud
+    de l'arbre construit**, pas la constante du module -- une constante declaree mais non consommee
+    est exactement le faux temoin que #963-r1 a du corriger sur `RedRampage`. L'arbre doit donc etre
+    atteignable hors de `matches`.
+
+    Une NOUVELLE instance a chaque appel (le natif rebatit son arbre a chaque `CreateTrigger`).
+    `Target()` est instancie deux fois, comme le natif relit le meme champ a chaque conjoint."""
+    return TriggerAnd(
+        TriggerAnd(
+            TriggerAnd(OwnerIsActor(), IsNormalUnit(Target())),
+            AreEnemies(Caster(), Target(), int(ENEMY_TEAM_SELECTION))),
+        HasEffect(Caster(), THE_ARDENT_BLADE_EFFECT, active_only=True))
+
+
 def ardent_blade_behaviour_tree(hp_amount: int, range_value: int):
     """`...TheArdentBlade_TriggerAbility$$CreateBehaviour` -- MIRROR 1:1 (cf. sec.1c de l'en-tete) :
 
@@ -319,17 +344,11 @@ class TheArdentBladeTriggerAbility(TriggeredAbility):
 
     def matches(self, state: State, ev: TriggerEvent) -> bool:
         """Le `CreateTrigger` moins le volet `On(0x36)` + « owner vivant », deja porte par le
-        dispatch. Les QUATRE conjoints restants sont des noeuds DSL (doctrine #149), dans l'ordre
-        d'imbrication du decompile."""
+        dispatch. Les QUATRE conjoints restants sont des noeuds DSL (doctrine #149) et vivent dans
+        `ardent_blade_trigger_tree`, atteignable hors d'ici : c'est ce qui rend le litteral
+        `ByOriginalTeam` VERIFIABLE par `test_963r1_unit_team_selection_offline.py`."""
         entities = entities_from_state(state, self.owner_id, ev.target_id, actor_id=ev.actor_id)
-        # `Target@<DSLSelectors+0x60>` : une NOUVELLE instance par site, comme le natif relit le
-        # meme champ a chaque conjoint.
-        tree = TriggerAnd(
-            TriggerAnd(
-                TriggerAnd(OwnerIsActor(), IsNormalUnit(Target())),
-                AreEnemies(Caster(), Target(), int(ENEMY_TEAM_SELECTION))),
-            HasEffect(Caster(), THE_ARDENT_BLADE_EFFECT, active_only=True))
-        return bool(tree.evaluate(entities))
+        return bool(ardent_blade_trigger_tree().evaluate(entities))
 
     def execute_behaviour(self, state: State, ev: TriggerEvent) -> Optional[dict]:
         # `GetVariableForLevel(config, 0x1d = hp, abilityState, null)` et `GetNumberConstant(config,
