@@ -129,7 +129,12 @@ TILE_LEAF_IDS = [
     UtilityType.KustomForceField, UtilityType.DefenderOfTheGreaterGood, UtilityType.SaviorProtocols,  # 20, 21, 22
     UtilityType.TilePendingBlockableSummon, UtilityType.PowerUp, UtilityType.DoctrinaImperatives_AttractMechanicals,  # 14, 26, 57
     UtilityType.Phantasm_AvoidFriendlyPhantasm, UtilityType.EchoesFromTheWarp_FriendliesAvoidGhost, UtilityType.Contaminated,  # 60, 58, 25
-    UtilityType.MoltenForm, UtilityType.BioMinefield_MoveTowardsTarget, UtilityType.MasterOfTheTutelaries_MoveTowardsTarget,  # 23, 61, 62
+    UtilityType.MoltenForm, UtilityType.BioMinefield_MoveTowardsTarget, UtilityType.MasterOfTheTutelaries_MoveTowardsTarget,  # 24, 62, 63
+    # ⚠ Les ordinaux en commentaire de CETTE liste sont DECALES DE -1 sur plusieurs lignes (relus
+    # dans `data/symbols/<build>/frida/enums.tsv` du build courant a l'occasion de #175-r1 : les
+    # trois de la ligne ci-dessus valaient « 23, 61, 62 » pour 24/62/63). Les valeurs EXECUTABLES,
+    # elles, sont des membres d'enum -- donc justes : seuls les commentaires mentent. Le glissement
+    # n'est PAS corrige ligne a ligne ici (hors perimetre, fichier partage) ; il est SIGNALE.
     UtilityType.DecoysAndMisdirection_AttractToDecoys, UtilityType.DespoiledGround, UtilityType.SummonDislikeDoorOpening,  # 64, 28, 29
     UtilityType.HeroLikeDoorOpening, UtilityType.EnvEndBombardment,                       # 30, 31
 ]
@@ -741,18 +746,58 @@ class MoveTowardsUnitUtility(BaseUtility):
     `IdunBattle.AI.Utilities.MoveTowardsUnitUtility$$GetMinDistanceToTarget`, relu au decompile,
     fait
 
-        min = null;
+        min = null;                                                  // Nullable<int>
         foreach (tile in EntityExtensions.IterateTiles(target, State))
-            { p = MovementQuery.<slot 4>(1, unit, unitTile, tile, 0); if (p != null && p.<+0x18> < min) min = p.<+0x18>; }
-        return min;                                                  // Nullable<int>
+            { p = this.<+0x28>.<IPathfinders slot 4 = GetPath, 5 params>(1, unit, unitTile, tile, 0);
+              if (p != null && p.<+0x18> < min) min = p.<+0x18>; }
+        return min;
 
-    -- un appel au service de MOUVEMENT par tuile de la cible, dont on lit une longueur : une
-    distance de **CHEMIN** (murs et occupants compris), pas `hexgeo.distance`. Et la CIBLE elle-meme
-    ne se derive pas d'une position : `<EvaluateMovementInSteps>d__15` la cherche en balayant
-    `Query.<slot 0x89 = GetAllAliveUnits>(null)` et en testant `HasActiveAbility` /
-    `HasTriggeredAbility` / `GetOwnedEffect` selon que `UnitIdentifierAbilityOrEffect()` porte une
-    ABILITY ou un EFFET, puis retient la premiere AMIE ou ENNEMIE selon un troisieme virtuel.
-    Deux etages manquent donc au port, pas une carte de positions. Residu ouvert -- cf.
+    ⚠ **RE-LU ET CORRIGE (#175-r1, build `rnca9r7q6c`) -- la version precedente de ce paragraphe se
+    trompait sur les TROIS points qui commandent le port :**
+
+      1. **Le service n'est PAS `MovementQuery`** : `this+0x28` porte l'interface du champ
+         `MovementQuery+0x20`, et `data/symbols/<build>/metadata/interface_slots.tsv` la nomme --
+         `IPathfinders`, dont le slot 4 est la surcharge `GetPath` a **5** parametres. Elle est
+         dispatchee par `IdunBattle.Entities.Pathfinding.Pathfinders$$GetPath` vers `IPathfinder`
+         slot 3 = `IdunBattle.Entities.Pathfinding.BasePathfinder$$FindPath`.
+      2. **Le litteral `1` est `PathfinderType.IgnoreTerrain`, pas `Walk`** (mirror
+         `engine/entities/distance_type.py` / `enums.tsv` : `0=Walk, 1=IgnoreTerrain, 2=Beeline`).
+         Donc « murs et occupants compris » etait FAUX :
+         `IdunBattle.Entities.Pathfinding.IgnoreTerrainPathfinder$$IsValidPathNode` teste
+         `IsWalkable(next) && |dElev| <= 1` et **aucun occupant** -- l'occupance n'entre que par le
+         COUT (`WeightCost = 10 + IsFilled`).
+      3. **`+0x18` est `List<T>._size`, c.-a-d. `Count`** (meme lecture que
+         `IdunBattle.Core.Services.MovementQuery$$GetConnectedPathTo` sur le meme retour), et
+         `BasePathfinder$$FindPath` rend la liste extremites INCLUSES : **`Count == aretes + 1`**.
+         Un off-by-one y coute une tuile entiere de poids (-100 pour BioMinefield).
+
+    ⚠ **Et la boucle `IterateTiles` DEGENERE a UNE iteration ici** : l'appelant passe
+    `EntityExtensions$$GetMainTile(target, State)`, donc une TileEntity, et la branche « l'entite EST
+    une tuile » de `EntityExtensions.u003CIterateTilesu003Ed__17$$MoveNext` fait `yield entity; break`.
+    Ce n'est PAS un min sur une empreinte (ce regime-la est celui de
+    `MinDistanceToClosestEnemyUtility$$GetMinDistanceToEnemy`, qui passe l'UNITE).
+
+    La CIBLE ne se derive pas non plus d'une position : `<EvaluateMovementInSteps>d__15` balaie
+    `Query.<slot 0x89 = GetAllAliveUnits>(null)` puis, selon que `UnitIdentifierAbilityOrEffect()`
+    porte une ABILITY ou un EFFET, teste `HasActiveAbility`/`HasTriggeredAbility` ou resout les
+    porteurs de l'effet ; puis DEUX voies, tranchees par `get_EffectSourceMustBeParent()` :
+      * EFFET + `EffectSourceMustBeParent` -> `GetParent(case.Unit)` puis le **PREMIER** porteur dont
+        `EffectComponent.SourceUnitId == parent.Id` (`break`) ;
+      * sinon -> le **DERNIER** match de `get_Friends() ? IsFriend : IsEnemy` (la boucle n'a **pas**
+        de `break` : l'ordre de `GetAllAliveUnits` MORD ici, contrairement aux sites ou seule une
+        egalite en depend).
+    Et `get_OnlyUnitsWithAny()` ne rend pas 0 quand il refuse : l'iterateur **ne yielde RIEN**
+    (numeriquement equivalent a 0 dans la somme composite).
+
+    ETAT DU PORT : **aucun producteur de `meta["movetowards_hexdist"]` n'existe** dans le depot ->
+    les deux feuilles rendent 0.0 partout. Ce qui MANQUE n'est PAS un etage natif : la distance de
+    chemin est DEJA portee et confrontee (`engine.entities.pathfinding.ignore_terrain_pathfinder.
+    get_path_node_counts`, exactement ce meme `GetPath(IgnoreTerrain, ...)`, 180/180 contre
+    `pathDistToEnemies`), et l'identification de la cible ne demande que des canaux deja publies
+    (`unit_parent_id`, `active`, `friend_units`). Le seul substrat a ne plus JETER est
+    `EffectComponent.SourceUnitId`, que `_unit_record` laisse tomber en ne gardant que `ef.name`.
+    Le renommage `movetowards_hexdist` -> `movetowards_pathdist` se fera AVEC le producteur (le
+    faire seul serait du churn sur une cle qui n'a aucun ecrivain). Residu ouvert -- cf.
     `docs/rl/case-175r-ventilation-du-blocage-capteur.md`."""
     _CAT: str = ""
     _ABILITY_ID: int = -1
@@ -772,8 +817,14 @@ class MoveTowardsUnitUtility(BaseUtility):
 
 
 class BioMinefield_MoveTowardsTargetUtility(MoveTowardsUnitUtility):
-    """`BioMinefield_MoveTowardsTargetUtility` (IdunBattle.AI.Utilities.BioMinefield_MoveTowardsTargetUtility$$.ctor ; UtilityType.=61) : -100 × hexdist(candidate,
-    cible ability/effet 1315). Pas de gate trait."""
+    """`BioMinefield_MoveTowardsTargetUtility` (IdunBattle.AI.Utilities.BioMinefield_MoveTowardsTargetUtility$$.ctor ; UtilityType.=62) : -100 × pathdist(candidate,
+    cible effet 1315). Pas de gate trait.
+
+    Parametres LUS au `.ctor` (#175-r1) et pas encore consommes par le port, faute de producteur :
+    `UnitIdentifierAbilityOrEffect` est pose par `set_Effect` (donc la famille est bien
+    `EffectType`, ce que le nom de classe ne prouvait pas), et **`EffectSourceMustBeParent = true**`
+    (champ `+0x70` de CETTE classe) -> la cible est le porteur de 1315 dont
+    `EffectComponent.SourceUnitId` est le PARENT du mover, PREMIER match. `GetParent == null` -> 0."""
     UTILITY_TYPE = int(UtilityType.BioMinefield_MoveTowardsTarget)  # 62
     _CAT = "BioMinefield_MoveTowardsTarget"
     _ABILITY_ID = int(EffectType.BioMinefield_Target)  # 1315 (effet marqueur de cible ; #158, absent d'ActiveAbilityType)
@@ -781,8 +832,15 @@ class BioMinefield_MoveTowardsTargetUtility(MoveTowardsUnitUtility):
 
 
 class MasterOfTheTutelaries_MoveTowardsTargetUtility(MoveTowardsUnitUtility):
-    """`MasterOfTheTutelaries_MoveTowardsTargetUtility` (IdunBattle.AI.Utilities.MasterOfTheTutelaries_MoveTowardsTargetUtility$$.ctor ; UtilityType.=62) : -20 × hexdist(candidate,
-    cible 1096). Gate trait : l'unité a 2026 ou 1019."""
+    """`MasterOfTheTutelaries_MoveTowardsTargetUtility` (IdunBattle.AI.Utilities.MasterOfTheTutelaries_MoveTowardsTargetUtility$$.ctor ; UtilityType.=63) : -20 × pathdist(candidate,
+    cible 1096). Gate trait : l'unité a 2026 ou 1019.
+
+    ⚠ Le champ `+0x70` vaut `1` dans les DEUX sous-classes et n'y designe PAS la meme chose (#175-r1,
+    tranche par les noms de champs du dump, jamais par l'offset) : ici c'est **`Friends = true`** --
+    la cible est un AMI porteur de l'ACTIVE 1096 (l'invocateur), DERNIER match du balayage
+    `GetAllAliveUnits` ; chez `BioMinefield` c'est `EffectSourceMustBeParent`. Ecrire « ennemi » par
+    symetrie avec l'autre feuille inverserait le signe du gradient sans rien casser de visible.
+    L'identifiant est pose par `set_ActiveAbility` (famille `ActiveAbilityType`, LU au `.ctor`)."""
     UTILITY_TYPE = int(UtilityType.MasterOfTheTutelaries_MoveTowardsTarget)  # 63
     _CAT = "MasterOfTheTutelaries_MoveTowardsTarget"
     _ABILITY_ID = int(ActiveAbilityType.MasterOfTheTutelaries)  # 1096 (#158 : nom classe matche Active, PAS EffectType.KustomForceField/Triggered.SoulHunger)
