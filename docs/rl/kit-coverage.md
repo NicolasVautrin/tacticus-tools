@@ -30,7 +30,7 @@
 - Volume total : **0** items manquants (actives no-op + passifs/traits non registres)
 - HORS total — voies conditionnelles : **0** abilities non portees (0 mythiques, 0 reliques equipables), dont **0 PARTIELLES**
 - PARTIELS (#1041) — montage DECLARE, rien ne s'execute : **0** conditionnelle(s) ; **0** passif(s)
-- HORS total — faces DECISION non portees : **3** actives sur 138, dont **3** dans des kits declares COMPLETS (3 kits concernes)
+- HORS total — faces DECISION non portees : **1** actives sur 138, dont **1** dans des kits declares COMPLETS (1 kits concernes)
 - DECOMPTES par un verdict ATTESTE : **10** (et **0** attestation(s) PERIMEE(S), dont l'item est REDEVENU manquant) — section dediee plus bas, jamais tue
 
 ### Priorite par faction (volume decroissant)
@@ -40,7 +40,7 @@
 
 ## Par faction (kits avec du travail)
 
-## HORS total — faces DECISION non portees dans des kits COMPLETS (3)
+## HORS total — faces DECISION non portees dans des kits COMPLETS (1)
 
 > ⚠ **`missing` NE COMPTE QUE LA FACE COMBAT.** Une ability dont l'execution est
 > portee mais dont l'UTILITE de decision ne l'est pas rend `missing = 0` : le kit
@@ -59,8 +59,6 @@
 | unite | ability | id | categorie |
 |---|---|---:|---|
 | astraOrdnance | BasiliskBarrage | 1026 | DAMAGE(Blast) |
-| spaceWolfPriest | RitesOfMorkai | 1211 | EFFECT/BUFF |
-| ultraDreadnought | MacroPlasmaIncinerator | 1159 | DAMAGE(Plasma) |
 
 ## Verdicts ATTESTES — decomptes du total, et JAMAIS tus (10 valides, 0 perimees)
 
@@ -99,10 +97,10 @@
 
 ## Kits lineup COMPLETS (127)
 
-> ⚠ **COMPLET = face COMBAT complete.** 3 de ces kits portent au moins une active
+> ⚠ **COMPLET = face COMBAT complete.** 1 de ces kits portent au moins une active
 > sans face DECISION (section precedente) — ils sont marques `*` ci-dessous.
 
-adeptCanoness, adeptCelestine, adeptExorcist, adeptHospitaller, adeptMorvenn, adeptRetributor, admecDestroyer, admecDominus, admecManipulus, admecMarshall, admecRuststalker, astarCyrus, astarLysander, astraBullgryn, astraCreed, astraDreir, astraOrdnance*, astraOrdnanceBattery, astraPrimarisPsy, astraYarrick, blackAbaddon, blackForgefiend, blackHaarken, blackObliterator, blackPossession, blackTerminator, bloodDante, bloodDeathCompany, bloodIntercessor, bloodMephiston, bloodSanguinary, bloodTerminator, custoAtlacoya, custoBladeChampion, custoKyrus, custoTrajann, custoVexilusPraetor, darkaAsmodai, darkaAzrael, darkaCompanion, darkaHellblaster, darkaSternguard, darkaStormSpeeder, darkaTerminator, deathBlightbringer, deathBlightlord, deathCrawler, deathPutrifier, deathRotbone, deathTyphus, eldarAutarch, eldarFarseer, eldarJainZar, eldarLhykhis, eldarMauganRa, eldarRanger, emperExultant, emperFlawlessBlade, emperKakophonist, emperLucius, emperNoiseMarine, genesBiophagus, genesKelermorph, genesMagus, genesPatriarch, genesPrimus, necroChronomancer, necroDestroyer, necroOverlord, necroPlasmancer, necroReanimator, necroSpyder, necroWarden, orksBigMek, orksKillaKan, orksNob, orksRukkatrukk, orksRuntherd, orksWarboss, spaceBlackmane, spaceHound, spaceRockfist, spaceStormcaller, spaceWolfPriest*, spaceWulfen, tauAunShi, tauBroadside, tauCrisis, tauDarkstrider, tauFarsight, tauMarksman, tauShadowsun, templAggressor, templAncient, templChampion, templHelbrecht, templSwordBrother, thousAhriman, thousDaemonPrince, thousInfernalMaster, thousSekhetar, thousSorcerer, thousTerminator, thousTzaangor, tyranBiovore, tyranDeathleaper, tyranNeurothrope, tyranParasite, tyranTyrantGuard, tyranWingedPrime, ultraApothecary, ultraCalgar, ultraDreadnought*, ultraEliminatorSgt, ultraInceptorSgt, ultraTigurius, ultraTitus, votanBeserk, votanChampion, votanIronmaster, votanMemnyr, votanUthar, worldEightbound, worldExecutions, worldJakhal, worldKharn, worldTerminator
+adeptCanoness, adeptCelestine, adeptExorcist, adeptHospitaller, adeptMorvenn, adeptRetributor, admecDestroyer, admecDominus, admecManipulus, admecMarshall, admecRuststalker, astarCyrus, astarLysander, astraBullgryn, astraCreed, astraDreir, astraOrdnance*, astraOrdnanceBattery, astraPrimarisPsy, astraYarrick, blackAbaddon, blackForgefiend, blackHaarken, blackObliterator, blackPossession, blackTerminator, bloodDante, bloodDeathCompany, bloodIntercessor, bloodMephiston, bloodSanguinary, bloodTerminator, custoAtlacoya, custoBladeChampion, custoKyrus, custoTrajann, custoVexilusPraetor, darkaAsmodai, darkaAzrael, darkaCompanion, darkaHellblaster, darkaSternguard, darkaStormSpeeder, darkaTerminator, deathBlightbringer, deathBlightlord, deathCrawler, deathPutrifier, deathRotbone, deathTyphus, eldarAutarch, eldarFarseer, eldarJainZar, eldarLhykhis, eldarMauganRa, eldarRanger, emperExultant, emperFlawlessBlade, emperKakophonist, emperLucius, emperNoiseMarine, genesBiophagus, genesKelermorph, genesMagus, genesPatriarch, genesPrimus, necroChronomancer, necroDestroyer, necroOverlord, necroPlasmancer, necroReanimator, necroSpyder, necroWarden, orksBigMek, orksKillaKan, orksNob, orksRukkatrukk, orksRuntherd, orksWarboss, spaceBlackmane, spaceHound, spaceRockfist, spaceStormcaller, spaceWolfPriest, spaceWulfen, tauAunShi, tauBroadside, tauCrisis, tauDarkstrider, tauFarsight, tauMarksman, tauShadowsun, templAggressor, templAncient, templChampion, templHelbrecht, templSwordBrother, thousAhriman, thousDaemonPrince, thousInfernalMaster, thousSekhetar, thousSorcerer, thousTerminator, thousTzaangor, tyranBiovore, tyranDeathleaper, tyranNeurothrope, tyranParasite, tyranTyrantGuard, tyranWingedPrime, ultraApothecary, ultraCalgar, ultraDreadnought, ultraEliminatorSgt, ultraInceptorSgt, ultraTigurius, ultraTitus, votanBeserk, votanChampion, votanIronmaster, votanMemnyr, votanUthar, worldEightbound, worldExecutions, worldJakhal, worldKharn, worldTerminator
 
 ## HORS total — voies conditionnelles (0 abilities non portees)
 

@@ -2344,7 +2344,7 @@ ultraNpcInceptorSgt	Ultramarines	Imperial	None	trait	Hero		1
 ultraNpcInceptorSgt	Ultramarines	Imperial	None	trait	Flying		1	
 ultraNpcInceptorSgt	Ultramarines	Imperial	None	trait	MkXGravis		1	
 ultraNpcMoWDreadnought	Ultramarines	Imperial	None	active	DutyEternal	1158	1	1
-ultraNpcMoWDreadnought	Ultramarines	Imperial	None	active	MacroPlasmaIncinerator	1159	1	0
+ultraNpcMoWDreadnought	Ultramarines	Imperial	None	active	MacroPlasmaIncinerator	1159	1	1
 ultraNpcMoWDreadnought	Ultramarines	Imperial	None	trait	MachineOfWar		1	
 ultraNpcTigurius	Ultramarines	Imperial	None	active	StormOfWrath	1019	1	1
 ultraNpcTigurius	Ultramarines	Imperial	None	passif	PsychicFortress		1	
