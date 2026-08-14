@@ -226,25 +226,95 @@ l'item **rougit** au lieu d'être couvert par une vieille ligne de dette.
 
 ---
 
-## 3. Ce qui a été rejoué
+## 3. La confrontation LIVE de 1200 — et le faux oracle qu'il a fallu écarter
+
+`scripts/python/probe_970r3_squig_launchas_live.py` (garde :
+`tests/engine/playbook/test_970r3_squig_launchas_decision_live.py`). **Un** runner, **un** build,
+et l'on passe du régime séparant au régime passant en **déplaçant** un Ork au contact de la cible
+— la tuile est choisie dans `ring1(cible) ∩ atteignables ∩ libres`, jamais écrite en dur, et
+l'arrivée est **vérifiée**.
+
+Mesure (board `MC1_67`, seed 777, `orksRukkatrukk` MoW, cible `necroWarden`) :
+
+| régime | Orks adjacents | cible dans `fromHere` | NATIF | PORT |
+|---|---:|---:|---|---:|
+| A — **séparant** | 1 | **1** (donc LÉGALE) | `bucket: empty`, **0** action | **0** candidat |
+| B | 2 | 1 | **1** action, 8 tirages `[1, 3, 3, 4, 5, 6, 8, 9]` | **1** candidat |
+
+`playbookClass` échoué par le capteur = `SquigLaunchasPlaybook` dans les deux régimes.
+
+Les **deux bornes** sont atteintes (1 et 9) et `10` n'apparaît jamais : `Next(1, 10)` = `[1, 9]`,
+borne haute **exclue** — la lecture de `IntBasedMersenneTwister$$NextInternal` est confirmée
+**live**. Et 7 valeurs distinctes sur 8 établissent que c'est bien un **tirage**, pas une
+constante : c'est ce qui justifie #970-r6 (le port ne fitte pas la valeur).
+
+### ⚠ `ncEvaluate` est structurellement AVEUGLE aux MACHINES OF WAR
+
+C'est le point le plus important de cette passe, et il a failli produire une validation fausse.
+
+Le hook d'`ncEvaluate` (`frida/hooks/features/ai-step/rpc-predict.ts`) cherche le caster par
+`forEachEntity(state, ...)` filtré sur `ty === EntityType.Unit`. Une MoW est une
+`EntityType.Machine` : il rend donc `{ok: false, error: "unit 77 not found"}` — **pour 1200 comme
+pour `1201 SquigMine`**, dont le playbook NonComparable est pourtant porté *et* validé.
+
+Une première passe du probe lisait `positions` d'une réponse `ok: false` et en concluait
+« 0 action ». L'accord obtenu en régime séparant était alors **dégénéré** : il ne prouvait rien.
+Deux crans ferment la porte — `_oracle_natif` **lève** sur `ok: false` (un échec rendu n'est pas
+une mesure), et le verdict exige un **témoin non nul** (au moins une action émise quelque part).
+
+Le capteur juste est **`ncPlaybookPredict(via="evaluate")`** (`rpc-nc-predict.ts`), dont le hook
+accepte `EntityType.Unit` **ou** `EntityType.Machine`.
+
+**Rien à reinjecter** : le capteur correct existe déjà dans le bundle. Étendre `ncEvaluate` aux
+`EntityType.Machine` serait cohérent mais n'est **pas nécessaire** ici — résidu non ouvert, la
+limitation est nommée dans les deux probes.
+
+## 4. Ce qui a été rejoué
 
 * `probe_1021_face_decision_au_registre.py` — `rc 0` (CRAN A/B/C).
 * `probe_547_ledger_sans_verdict_non_vert.py` — `rc 0`.
 * `tests/engine/runner/test_ctx_traits_substrat_ventilation_offline.py` — 14 passed.
 * `tests/engine/test_1021_face_decision_au_registre_offline.py`.
+* `tests/engine/playbook/test_970r3_squig_launchas_decision_offline.py` — 13 passed.
+* `tests/engine/playbook/test_970r3_squig_launchas_decision_live.py` — 8 passed.
 * `probe_462_..._substrat_traits.py --step inventaire` — 76 sites, **aucun** sous
-  `playbook/noncomparable/` (le port passe par le foyer).
-* Contre-épreuve de garde (§5) et scénarios de généralisation (§4).
+  `playbook/noncomparable/` (le port passe par le foyer `entity_trait_names`).
 
-## 4. Le montage qui confronte 1200
+### Les gardes ont été MESURÉES, pas supposées
 
-Voir `scripts/python/probe_970r3_squig_launchas_decision.py`. Le régime séparant est celui où une
-cible **passe le ciblage** (1 Ork ou 2 alliés adjacents) **sans passer le critère de summon**
-(2 Orks ou 4 alliés) : le natif n'y propose pas 1200, le port d'avant si.
+**Contre-épreuve du ledger** (3 mutations, process séparés) : retirer l'attestation d'EntropyCannons,
+la périmer (build faux), ou sortir 1200 de `PLAYBOOKS` — les trois font passer `probe_1021` de
+`rc 0` à `rc 1`, et c'est **le CRAN A** qui tombe à chaque fois (jamais B ni C).
 
-## 5. Résidus
+**Contre-épreuve du port** (6 mutations) : gate neutralisé, filtre de trait retiré, faction ignorée,
+borne du tirage à 0, ordre des cibles trié, adjacence élargie → **0 mutation muette**, chacune
+identifiant l'assertion qui tombe.
 
-* **#970-r6** — la cible effectivement choisie par le natif est un tirage `Next(1, 10)` par cible,
-  donc indéterminable hors mirror du flux `IPseudoRNG` de l'IA. Le port rend le gate et le tier ;
-  il ne rend pas *quelle* cible. Même famille que #967-r3 (`Hailstrike`), sans son volet SEUIL —
-  ici le seuil est structurellement non filtrant.
+⚠ **Deux fautes trouvées par la mesure elle-même**, toutes deux réparées :
+
+1. **Le montage était CREUX.** `orksBoy` / `ultraIntercessor` ne sont pas des `visualId` du
+   gameconfig → `_unit_cfg` vide → `FactionId is None` → tous les régimes « N Orks » étaient en
+   fait « N non-Orks ». La décomposition par étage a montré que `_adjacent_friends` rendait bien
+   2 unités : c'était le **montage**, pas le port. Le probe **assertionne** désormais que ses trois
+   `visualId` résolvent.
+2. **La garde était MUETTE sur l'étage géométrique.** Tant que le montage ne portait que des
+   voisins immédiats, neutraliser `bq.is_adjacent` ne faisait rougir **aucune** assertion. Deux
+   régimes à distance ≥ 2 (mêmes unités, autre distance) la rendent mordante.
+
+## 5. Ce qui n'est PAS couvert
+
+* **Quelle cible** le natif retient quand plusieurs passent le gate : indéterminable (tirage par
+  cible). Résidu **#970-r6**.
+* La **décision finale de l'IA** : `Evaluate/3` donne l'utilité et la cible, pas ce que le tactic
+  retient après les tiers de priorité et son propre `Bucket`. L'accord établi ici est nécessaire,
+  pas suffisant.
+* `1168` n'a **pas** été re-confronté live par cette tranche : sa confrontation vit dans
+  `test_977_faces_decision_kit_live.py` (`aiPlaybookPredict`, 4 cibles, bit-exact), non modifié.
+
+## 6. Résidus
+
+* **#970-r6** — la cible effectivement choisie par le natif est un tirage `Next(1, 10)` refait par
+  cible, donc indéterminable hors mirror du flux `IPseudoRNG` de l'IA. Le port rend le gate et le
+  tier ; il ne rend pas *quelle* cible. Même famille que #967-r3 (`Hailstrike`), **sans** son volet
+  SEUIL — ici le seuil est structurellement non filtrant (borne basse du tirage = `MIN_UTILITY`),
+  ce qui est **mesuré live** (les 8 tirages sont tous ≥ 1).

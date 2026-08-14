@@ -4078,7 +4078,14 @@ pas d'erreur : il rend **zéro**, et un zéro se lit « rien à signaler ».
   FOYER: scripts/python/engine/playbook/noncomparable/ (module neuf), engine/playbook/noncomparable/_base.py
   BLOCAGE: seeding
 
-- **#970-r3 : face DECISION `1200 SquigLaunchas` -- RE faite, utilite purement ALEATOIRE.** `[opus]`
+- ~~**#970-r3 : face DECISION `1200 SquigLaunchas` -- RE faite, utilite purement ALEATOIRE.**~~ --
+  **FERME.** Portee dans `engine/playbook/noncomparable/squig_launchas.py` (registre `PLAYBOOKS`),
+  et CONFRONTEE LIVE : sur une cible LEGALE a 1 Ork adjacent le natif rend `bucket: empty` et le
+  port 0 candidat ; a 2 Orks les deux emettent. Les 8 tirages natifs relevés (`[1,3,3,4,5,6,8,9]`)
+  touchent les DEUX bornes et jamais `10` -> `Next(1,10)` = `[1,9]`, borne haute EXCLUE, confirme
+  live. Le residu de la CIBLE indeterminable est **#970-r6** ci-dessous.
+  Detail : `docs/rl/case-970-r3-deux-faces-decision-squig-launchas-entropy-cannons.md`. Enonce
+  d'origine conserve ci-dessous.
   `SquigLaunchasPlaybook$$EvaluateNonComparable` (RE complete, #970) : par tuile eligible, gate
   `SquigLaunchasAbility$$FulfillsSummonCriteria` -- un arbre DSL
   `AmountIsEqualOrGreater(UnitsFromFaction(Friends(NonSteppableOrObjectUnits(AdjacentUnits)), 5),
@@ -4092,6 +4099,24 @@ pas d'erreur : il rend **zéro**, et un zéro se lit « rien à signaler ».
   des que le gate passe, et qui NOMME la tuile comme non deterministe.
   FOYER: scripts/python/engine/playbook/noncomparable/ (module neuf)
   BLOCAGE: aucun
+
+- **#970-r6 : la CIBLE de `1200 SquigLaunchas` est un TIRAGE, donc indeterminable -- et c'est
+  MESURE, pas suppose.** `[opus]`
+  `SquigLaunchasPlaybook$$EvaluateNonComparable` refait `rng.<IPseudoRNG slot 2 = Next>(1, 10)` A
+  CHAQUE CIBLE, donc c'est un bruit INDEPENDANT par cible : quand plusieurs cibles passent le gate,
+  laquelle le natif retient depend du flux `IPseudoRNG` de l'IA, que le port ne consomme pas (l'etat
+  du Mersenne Twister diverge des le premier tirage). MESURE LIVE : 8 invocations dans le MEME etat
+  rendent `[1, 3, 3, 4, 5, 6, 8, 9]` -- 7 valeurs distinctes, les deux bornes atteintes, jamais
+  `10`. Le port pose donc le terme a sa borne BASSE **LUE** (1) : constante sur les N cibles, donc
+  IDENTITE sur l'argmax (keep-first sur l'ordre natif de `fromHere`), et `>= MIN_UTILITY = 1` donc
+  le seuil ne filtre RIEN. Ce qui reste ouvert n'est PAS le gate ni le tier (portes et confrontes)
+  mais uniquement LAQUELLE des cibles eligibles est emise. Meme famille que `#967-r3`
+  (`Hailstrike`), SANS son volet SEUIL. Fermeture possible seulement en mirrorant le flux
+  `IPseudoRNG` de l'IA -- ce qui exigerait de consommer les MEMES tirages dans le MEME ordre que
+  tout le sweep de decision natif. Point d'entree :
+  `docs/rl/case-970-r3-deux-faces-decision-squig-launchas-entropy-cannons.md` §6.
+  FOYER: scripts/python/engine/playbook/noncomparable/squig_launchas.py
+  BLOCAGE: etage
 
 - **#970-r4 : face DECISION `1159 MacroPlasmaIncinerator` -- RE faite, non portee.** `[opus]`
   `MacroPlasmaIncineratorPlaybook$$EvaluateNonComparable` (RE complete, #970) :
