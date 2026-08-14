@@ -1070,6 +1070,30 @@ export function registerViewSnapshot(ctx: Ctx): void {
                 // toute unité normalisée : dans ce régime DÉGÉNÉRÉ, un port sans gate est
                 // d'accord avec le natif partout.
                 rarity: wants("rarity") ? readRarity(e) : null,
+                // #987-r1 / #889-r5-r3 — `BaseUnitComponent.Id` (`+0x10`), la CLÉ GAMECONFIG.
+                //
+                // ⚠ Ce n'est PAS `visualId`, et c'est tout l'enjeu : `UnitFactory$$InitBaseComponent`
+                // écrit `baseUnitComponent.<Id @+0x10> = config.<Id @+0x10>` **et**
+                // `VisualId` depuis `config+0x18` — DEUX champs, DEUX valeurs. Sur un porteur monté
+                // par `--explicit-stats`, elles DIVERGENT : mesuré le 2026-08-14 sur
+                // `darkaBossLion:4`, `decisionView.units[].visualId` rend
+                // `GuildBoss12Boss1DarkaLion`, qui est **ABSENT du gameconfig**, tandis que
+                // `gameconfig.unit("darkaBossLion")` porte `weapons = [{hits: 4,
+                // DamageProfile: "Power"}]` — exactement les 4 coups que le natif joue.
+                //
+                // CE QUE SON ABSENCE COÛTAIT (le résidu #987-r1, re-mesuré) : `readUnitConfig`
+                // invoque `GetUnitConfig(<visualId>)`, qui rend NULL pour un tel porteur
+                // (`unitConfig: {"error": "config null"}`), donc `UnitContext.from_snapshot` lit
+                // `cfg.get("weapons") or []` -> `w = None` -> ni `DamageProfile`, ni
+                // `PiercingRatio`, ni nombre de coups, et le rejeu offline rend **zéro coup**,
+                // SILENCIEUSEMENT. Aucune résolution par nom ne rattrapait le trou puisque le
+                // seul nom publié était le nom REMAPPÉ.
+                //
+                // La lecture existe DÉJÀ (`readEntityConfigId`, qui sert de clé de jointure à
+                // `configActives`) : c'est la PUBLICATION qui manquait. Fonction NOMMÉE
+                // (`IdunBattle.Entities.UnitExtensions$$GetBaseUnitComponent`, celle qu'appelle la
+                // fabrique), offset résolu PAR NOM. `null` = pas mesuré, jamais une chaîne vide.
+                configId: readEntityConfigId(e),
                 // #1036-r8 : l'ability TERTIAIRE et SON NIVEAU, par la voie qui sert les MoW.
                 // `unitConfig` juste en dessous publie déjà `tertiaryAbilityVariablesMultiplier`
                 // — mais par `GetUnitConfig(visualId)`, donc `{error: "visualId introuvable"}`

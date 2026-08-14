@@ -2525,6 +2525,47 @@ def _ability_state_with_channel(from_config: tuple, from_channel) -> tuple:
     return (int(chan_mult) if chan_mult is not None else mult, int(lvl), active_level)
 
 
+def _gameconfig_entry(GC, visual_id, snap_unit):
+    """L'entree gameconfig d'une ligne de `combatSnapshot` -- par le `visualId`, et A DEFAUT par
+    `BaseUnitComponent.Id` (#987-r1 / #889-r5-r3).
+
+    POURQUOI DEUX CLES. `IdunBattle.Entities.Factories.UnitFactory$$InitBaseComponent` ecrit DEUX
+    champs DISTINCTS sur le composant : `<Id @+0x10> = config.<Id @+0x10>` et `<VisualId @+0x20>`
+    depuis `config+0x18`. Sur une unite ORDINAIRE ils coincident, donc la lecture par `visualId`
+    suffit -- et c'est le chemin d'origine, INCHANGE. Sur un porteur monte par `--explicit-stats`
+    ils DIVERGENT, et c'est mesure (2026-08-14, `darkaBossLion:4` sur `CE6_boss`) :
+
+        decisionView.units[].visualId   = "GuildBoss12Boss1DarkaLion"   <- ABSENT du gameconfig
+        combatSnapshot.units[].configId = "darkaBossLion:4"             <- la cle, suffixe compris
+        gameconfig.unit("darkaBossLion") = { weapons: [{hits: 4, DamageProfile: "Power"}], ... }
+
+    Sans cette seconde cle, `UnitContext.from_snapshot` lit `cfg.get("weapons") or []` -> `w = None`
+    -> ni profil de degat, ni percage, ni nombre de coups, et le rejeu offline rend **zero coup**,
+    SANS ERREUR. Le natif, lui, en jouait QUATRE (mesure #987). C'etait le residu #987-r1, et le
+    volet (a) de `#889-r5-r3` (`sc.ctx.weapons` VIDE, donc `AttackDamageOperation.execute` rend
+    `None` et l'attaque normale enchainee ne part pas).
+
+    LE SUFFIXE DE PALIER est retire EN DERNIER RECOURS SEULEMENT, et l'ordre est load-bearing :
+    des `unitId` npc portent un `:` DANS leur nom gameconfig (`thousNpc2Screamer:45`, cf.
+    `rl_duel._parse_place`), donc couper d'abord ferait manquer leur entree. On essaie donc l'id
+    PLEIN, puis la partie avant le DERNIER `:` (`rpartition`, comme `_parse_place`).
+
+    TRI-ETAT : `configId` absent ou `null` = canal non mesure (bundle anterieur a cette tranche)
+    -> on rend exactement ce que rendait le chemin d'origine. Aucun repli n'est INVENTE : on ne
+    devine jamais l'unite par ses traits ou ses stats."""
+    ent = GC.unit(visual_id or "")
+    if ent is not None:
+        return ent
+    cid = (snap_unit or {}).get("configId")
+    if not cid:
+        return ent                                   # canal muet -> comportement d'avant
+    ent = GC.unit(str(cid))
+    if ent is not None:
+        return ent
+    base = str(cid).rpartition(":")[0]                # PALIER retire en DERNIER recours
+    return GC.unit(base) if base else None
+
+
 def _load_stats_and_effects(state: State, decision: dict, snapshot: dict,
                             ability_states=None) -> None:
     """Peuple `StatsComponent` (par unité) + `State.effects` (EffectsState matérialisé)
@@ -2622,7 +2663,8 @@ def _load_stats_and_effects(state: State, decision: dict, snapshot: dict,
         _effs = [EffectFactory.create(c, *baked_ability_state(c, eid, _carrier, abstate_by_id))
                  for c in (effects_by_id.get(eid) or [])
                  if isinstance(c, dict) and c.get("name")]
-        ctx = UnitContext.from_snapshot(su, GC.unit(vis or ""), snapshot.get("statTypes"), _effs)
+        ctx = UnitContext.from_snapshot(su, _gameconfig_entry(GC, vis, su),
+                                        snapshot.get("statTypes"), _effs)
         if isinstance(uc, dict) and uc.get("abilityVariablesMultiplier") is not None:
             ctx.ability_variables_multiplier = int(uc["abilityVariablesMultiplier"])
             mult_by_id[eid] = ctx.ability_variables_multiplier
