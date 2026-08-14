@@ -1,5 +1,10 @@
 # #1064 — Qualifier la charge utile d'une fenetre de reinject AVANT de l'ouvrir
 
+> ⚠ **Homonymie a connaitre** : `#1064` designe ICI une TACHE (numero alloue par
+> `probe_468 --suggere`, reservation exclusive). La **PR GitHub #1064** est un objet different —
+> elle a merge `#1048` (Hypermorph / AdrenalGlands), cf. `508ca69d`. Les deux espaces de noms se
+> chevauchent par construction (#468-r8) : lire le contexte, jamais le seul numero.
+
 Une fenetre suspend tous les agents en vol : elle se paie cher et une seule fois. `BLOCAGE: capteur`
 se lit « attend une fenetre », mais ce champ n'est **jamais re-mesure** apres son ecriture. Mesure du
 2026-08-14 sur les **19** residus qui le portaient : **4** exigent vraiment du code neuf, **15** non,
