@@ -501,6 +501,56 @@ class HasTrait(AbilityTrigger):
         return any(ht(u, self.trait) for u in _units_of(self.unit, ctx))
 
 
+class HasRarity(AbilityTrigger):
+    """`IdunBattleLogic.Entities.DSLTriggers$$HasRarity(unit, rarity)` ->
+    `IdunBattle.Entities.Triggers.HasRarityTrigger$$ShouldTrigger` (#999-r3) -- MIRROR 1:1 du
+    decompile, qui tient en quatre lignes :
+
+        selector = this-><+0x10>
+        if (selector == null) throw
+        entity = selector.Select(entities, 8)               # slot 8 = SelectSingle
+        if (entity == null) return 0
+        buc = IdunBattle.Entities.UnitExtensions$$GetBaseUnitComponent(entity)
+        if (buc == null) throw
+        return buc-><+0x74> == this-><+0x18>
+
+    La FABRIQUE ecrit ces deux champs dans cet ordre : `DSLTriggers$$HasRarity(this, actor, rarity)`
+    alloue `<ctor>(actor, rarity, 0)` -- le ctor porte le nom ghidra
+    `UnityEngine.Timeline.SupportsChildTracksAttribute$$.ctor` (corps DEDUPLIQUE : la structure est
+    LUE, jamais le nom, cf. l'entete de `selectors/units.py`).
+
+    `resolve_unit` est le mirror du `Select(entities, 8)` -- MEME resolution que
+    `ActorHasTriggeredAbility` et `HasTakenDamageOfDamageProfileThisTurn`, qui invoquent le meme
+    slot sur la meme interface (`DAT_183383210`).
+
+    SUBSTRAT : `BaseUnitComponent.Rarity` (+0x74), publie par `combatSnapshot.units[].rarity`
+    (capteur #1039) et entre dans le port par le foyer unique `UnitContext.rarity`. Le dict d'unite
+    du contexte DSL le porte sous la cle `rarity` (`entities_from_state`).
+
+    DEGRADATION NOMMEE -- `rarity` absente ou `None` (= canal NON MESURE : etat monte sans
+    `combatSnapshot`, cadavre sans `StatsComponent`, entite-TUILE) => **FAUX**. C'est le cote
+    RESTRICTIF, et il est choisi : ce noeud n'apparait qu'en CONJOINT d'un bonus de degat (1442,
+    1446, 1448, 1449, 1548) ou d'un gate de trigger (`MastersOfManoeuvre`), donc un FAUX laisse
+    l'etat inchange tandis qu'un VRAI invente accorderait un bonus que le natif refuse -- la
+    degradation PERMISSIVE que la doctrine proscrit. Le natif, lui, LEVE quand le composant manque :
+    il ne connait pas le cas << pas mesure >>, qui n'existe que cote port.
+
+    ⚠ Comparaison sur l'ORDINAL (`int`), l'argument etant ecrit par son membre `Rarity` au site
+    d'appel : `Rarity` est un `IntEnum`, donc `Rarity.Mythic == 5` est vrai des deux cotes. Ce qui
+    compte est que le SITE nomme, parce que CINQ enums du build partagent les six memes ordinaux."""
+    def __init__(self, unit: TargetsSelector, rarity):
+        self.unit, self.rarity = unit, rarity
+
+    def should_trigger(self, ctx):
+        u = resolve_unit(self.unit, ctx)                  # `Select(entities, 8)` = SelectSingle
+        if u is None:                                     # `entity == null` -> false
+            return False
+        r = u.get("rarity") if isinstance(u, dict) else getattr(u, "rarity", None)
+        if r is None:                                     # canal NON MESURE (cf. docstring)
+            return False
+        return int(r) == int(self.rarity)                 # `buc[+0x74] == this[+0x18]`
+
+
 class ActorHasTriggeredAbility(AbilityTrigger):
     """`IdunBattleLogic.Entities.DSLTriggers$$ActorHasTriggeredAbility(unit, ability)` ->
     `IdunBattle.Entities.Triggers.ActortHasTriggeredAbilityTrigger$$ShouldTrigger` (#577) -- MIRROR

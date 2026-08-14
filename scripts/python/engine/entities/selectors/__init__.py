@@ -29,7 +29,7 @@ from ._shared import (  # noqa: F401
 from .units import (  # noqa: F401
     SurroundingUnits, AdjacentEnemies, AdjacentUnits, Enemies, Damageable, And, Sub, Union,
     UnitsFromFaction, UnitSet, Filter, UnitsDirectlyBehind, Friends, Units,
-    UnitsOnTilesWithEffect, Tiles, First, Unique, UnitsWithIds, UnitsWithTrait,
+    UnitsOnTilesWithEffect, Tiles, First, Unique, UnitsWithIds, UnitsWithTrait, UnitsWithRarity,
     UnitsWithoutTrait, UnitsWithoutRangedWeapons, UnitsWithRangedWeapons, hero_units, AllDeadUnits,
     AllDeadOrResurrectedUnits, MechanicalUnits,
     non_steppable_or_object_units, units_with_traits, NormalUnits, UnitsDefeatedBy,
@@ -80,7 +80,8 @@ __all__ = [
     "_entity_pos", "_tile_positions", "SurroundingUnits", "AdjacentEnemies", "AdjacentUnits",
     "Enemies", "Damageable", "And", "Sub", "Union", "UnitsFromFaction", "UnitSet", "Filter",
     "UnitsDirectlyBehind", "Friends", "Units", "UnitsOnTilesWithEffect", "Tiles", "First",
-    "Unique", "UnitsWithIds", "UnitsWithTrait", "UnitsWithoutTrait", "UnitsWithoutRangedWeapons",
+    "Unique", "UnitsWithIds", "UnitsWithTrait", "UnitsWithRarity", "UnitsWithoutTrait",
+    "UnitsWithoutRangedWeapons",
     "UnitsWithRangedWeapons", "hero_units",
     "AllDeadUnits", "AllDeadOrResurrectedUnits", "MechanicalUnits",
     "non_steppable_or_object_units", "NormalUnits", "UnitsDefeatedBy", "AdjacentFriends",

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from .rarity import Rarity, measured_rarity
 from .stats import UnitStats, StatType, seed_unit_stats
 from .effects import build_attacker_modifiers_from_effects
 from .effects import stat_modifications_by_source as _by_source
@@ -157,6 +158,28 @@ class UnitContext:
     # par-dessus une mesure — sans quoi le port RE-AJOUTERAIT un trait que le natif n'a pas forcement
     # pose, c.-a-d. reconstruirait par-dessus la source qu'il vient de lire.
     traits_measured: bool = False
+    # --- RARETE EN BATAILLE (#999-r3, canal #1039) ---------------------------------------------
+    # `IdunBattle.Entities.Components.BaseUnitComponent.Rarity` (+0x74), l'UNIQUE champ que lisent
+    # les TROIS gates natifs de rarete -- `IdunBattle.Entities.UnitExtensions$$HasRarity`,
+    # `IdunBattle.Entities.Triggers.HasRarityTrigger$$ShouldTrigger` et
+    # `IdunBattle.Entities.Formulas.UnitsWithRaritySelector$$Select`. Ecrit une fois pour toutes par
+    # `IdunBattle.Entities.Factories.UnitFactory$$InitBaseComponent` (`[+0x74] = config->[+0x80]`).
+    # Type : `idun.meta.Rarity` (`engine.entities.rarity.Rarity`) -- PAS un des quatre
+    # `IdunMetaLogic.UserProgress.Model.*Rarity`, qui portent les MEMES six membres aux MEMES
+    # ordinaux (la confusion serait SILENCIEUSE EN ORDINAL, cf. `entities/rarity.py`).
+    # TRI-ETAT : `None` = canal NON MESURE (etat reconstruit sans `combatSnapshot`, capteur
+    # anterieur a #1039, ou canal refuse par son resolveur) -> les gates de rarete rendent FAUX et
+    # le DISENT ; un membre = mesure. JAMAIS `Rarity.Common` en repli -- `0` est une valeur
+    # plausible, et un repli la rendrait indiscernable d'une absence.
+    # ⚠ NE PAS le re-deriver de `GC.unit(vis)["BaseRarity"]` (rarete de BASE : `"Common"` pour des
+    # MoW qui sont `Mythic` en bataille) ni du `targetRarity = 5` de `rl_duel build` (vrai dans le
+    # SEUL regime par defaut du harnais, faux des qu'une unite est montee par
+    # `--unit-stat "<vis>:Rarity=N"`) : ce serait reconstruire la source depuis une autre source,
+    # exactement la faute que #264 a corrigee sur l'axe TRAITS.
+    # Seede par le foyer UNIQUE `from_snapshot` (donc les DEUX faces : COMBAT via
+    # `snapshot._load_stats_and_effects`/`_load_machine_stats`, DECISION via
+    # `playbook.scene._hydrate_static_unit`).
+    rarity: "Rarity | None" = None
     damage_type: int = 0            # DamageProfileType index de l'attaque normale
     range: int = 0                  # 0 = mêlée
     faction: str | None = None
@@ -362,6 +385,10 @@ class UnitContext:
             number_of_members=max(1, g("numberOfMembers")
                                   - int((snap_unit.get("statDelta") or {}).get("numberOfMembers") or 0)),
             traits=list(cfg.get("traits") or []),
+            # RARETE EN BATAILLE (#999-r3) : LUE sur la ligne de snapshot, jamais re-derivee du
+            # gameconfig. Foyer UNIQUE `entities.rarity.measured_rarity` (tri-etat + refus d'un
+            # ordinal hors mirror) -- cf. le champ `rarity` ci-dessus.
+            rarity=measured_rarity(snap_unit),
             damage_type=int(cfg.get("damageType", 0) or 0),
             range=int(cfg.get("range", 0) or 0),
             faction=cfg.get("faction"), unit_class=int(cfg.get("class", 0) or 0),

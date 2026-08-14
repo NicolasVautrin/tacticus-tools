@@ -39,6 +39,7 @@ from engine.entities.stats import StatType as _ST
 from engine.entities.traits.unit_trait import UnitTrait, trait_names_from_ids
 from ..entities.pathfinding.board import adjacent_neigh_by_pos
 from ..entities.unit_faction import UnitFaction
+from ..entities.rarity import assert_rarity_channel      # #999-r3 (canal #1039)
 from .. import battle_query as _bq       # #954 : ring-1 STOCKE + porte d'elevation
 from . import adjacency as _adj          # foyer PARTAGE multi-tuiles + UnitSelectionType (#954)
 
@@ -1291,6 +1292,11 @@ def build_predictor(rpc, rid):
     snap = rpc("combatSnapshot", {"runnerId": rid}, 40)
     if not snap.get("ok"):
         return None
+    # #999-r3 -- PENDANT EXACT, sur ce seam-ci, du garde pose par `snapshot.load_state` cote COMBAT.
+    # `_hydrate_static_unit` va lire `units[].rarity` via `UnitContext.from_snapshot` : on confronte
+    # d'abord le nom PLEIN de l'enum publie par le capteur (`rarityEnum`), seul discriminant d'une
+    # confusion entre les cinq enums de rarete du build. Canal muet -> no-op.
+    assert_rarity_channel(snap)
     dv0 = rpc("decisionView", {"runnerId": rid, "maxRank": 1}, 60)
     vis_by_id = {u["id"]: u.get("visualId") for u in (dv0.get("units") or [])}
     ctx_by_id, armor_by_id, mult_by_id, ablvl_by_id, shield_by_id = {}, {}, {}, {}, {}

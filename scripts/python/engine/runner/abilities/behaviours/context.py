@@ -167,6 +167,17 @@ def _unit_dict(state, eid: int, entity=None) -> dict | None:
         # Const(1))` de `WyrdmakersHelmAbility$$CreateTrigger` ne matcherait JAMAIS. 0 par defaut.
         "timesHealedThisTurn": (int(getattr(uc, "times_healed_this_turn", 0) or 0)
                                 if uc is not None else 0),
+        # RARETE EN BATAILLE (#999-r3) -- `BaseUnitComponent.Rarity` (+0x74), le champ que lisent
+        # `IdunBattle.Entities.Triggers.HasRarityTrigger$$ShouldTrigger` et
+        # `IdunBattle.Entities.Formulas.UnitsWithRaritySelector$$Select` apres
+        # `IdunBattle.Entities.UnitExtensions$$GetBaseUnitComponent`. Publie ICI (et pas via un
+        # accesseur `ctx.*`) parce que c'est un SCALAIRE d'entite, comme `team`/`player` -- les deux
+        # noeuds portes le lisent directement sur l'unite qu'ils viennent de selectionner.
+        # `None` = NON MESURE (entite sans `StatsComponent` -- un CADAVRE, que `combatSnapshot`
+        # filtre --, ou etat monte sans `combatSnapshot`). Aucun repli gameconfig : `BaseRarity`
+        # repond a une AUTRE question (cf. `entities/rarity.py`).
+        "rarity": (getattr(sc.ctx, "rarity", None)
+                   if (sc is not None and getattr(sc, "ctx", None) is not None) else None),
         "_traits": traits,
     }
 
@@ -257,7 +268,11 @@ def _tile_entity(state, eid) -> dict | None:
     c = board.coord(tid)
     return {"id": tid, "team": None, "player": None,
             "pos": {"col": int(c[0]), "row": int(c[1])},      # forme lue par `dsl.base._pos`
-            "alive": True, "hp": None, "visualId": None, "_traits": set()}
+            # `rarity: None` (#999-r3) pour la MEME raison que `_traits` vide : une TUILE n'a pas de
+            # `BaseUnitComponent`, donc `GetBaseUnitComponent` y rend null et le natif LEVE avant
+            # toute comparaison. Cote port, `None` fait rendre FAUX aux deux noeuds de rarete -- une
+            # valeur inventee leur ferait passer un gate que le natif n'atteint jamais.
+            "alive": True, "hp": None, "visualId": None, "rarity": None, "_traits": set()}
 
 
 def entities_from_state(state, caster_id: int, target_id: int | None = None,
