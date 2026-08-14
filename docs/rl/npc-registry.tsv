@@ -611,7 +611,7 @@ darkaBossHellblasterLHE	DarkAngels	Imperial	None	trait	Hero		1
 darkaBossHellblasterLHE	DarkAngels	Imperial	None	trait	FinalJustice		1	
 darkaBossHellblasterLHE	DarkAngels	Imperial	None	trait	Overwatch		1	
 darkaBossHellblasterLHE	DarkAngels	Imperial	None	trait	HeavyWeapon		1	
-darkaBossLion	DarkAngels	Imperial	None	active	InstrumentsOfVengeance	1215	0	1
+darkaBossLion	DarkAngels	Imperial	None	active	InstrumentsOfVengeance	1215	1	1
 darkaBossLion	DarkAngels	Imperial	None	active	MartialExemplar	1216	1	1
 darkaBossLion	DarkAngels	Imperial	None	active	TheLionsWrath	1217	1	1
 darkaBossLion	DarkAngels	Imperial	None	passif	PrimarchOfTheFirstLegion		1	
@@ -700,7 +700,7 @@ deathBossBlightlordLHE	DeathGuard	Chaos	None	trait	ContagionsOfNurgle		1
 deathBossBlightlordLHE	DeathGuard	Chaos	None	trait	Resilient		1	
 deathBossBlightlordLHE	DeathGuard	Chaos	None	trait	TerminatorArmour		1	
 deathBossMortarion	DeathGuard	Chaos	None	active	MortarionsPlagueWind	1093	1	1
-deathBossMortarion	DeathGuard	Chaos	None	active	TheLantern	1094	0	0
+deathBossMortarion	DeathGuard	Chaos	None	active	TheLantern	1094	1	1
 deathBossMortarion	DeathGuard	Chaos	None	active	ReapingScythe	1095	1	1
 deathBossMortarion	DeathGuard	Chaos	None	passif	BossEndFightUndefeated		0	
 deathBossMortarion	DeathGuard	Chaos	None	passif	ArchContaminator		0	
@@ -1198,7 +1198,7 @@ necroNpc2TutFlayedOneFTUEtest	Necrons	Xenos	None	active	StormOfFlensingBlades	10
 necroNpc2TutFlayedOneFTUEtest	Necrons	Xenos	None	trait	LivingMetal		1	
 necroNpc2TutFlayedOneFTUEtest	Necrons	Xenos	None	trait	Terrifying		1	
 necroNpc2TutFlayedOneFTUEtest	Necrons	Xenos	None	trait	Mechanical		1	
-necroNpc3Deathmark	Necrons	Xenos	None	active	PrecisionShot	1015	0	0
+necroNpc3Deathmark	Necrons	Xenos	None	active	PrecisionShot	1015	1	1
 necroNpc3Deathmark	Necrons	Xenos	None	passif	ReanimationProtocols		1	
 necroNpc3Deathmark	Necrons	Xenos	None	trait	LivingMetal		1	
 necroNpc3Deathmark	Necrons	Xenos	None	trait	HeavyWeapon		1	
@@ -1523,40 +1523,40 @@ tauBossAunShiLHE	Tau	Xenos	None	trait	Hero		1
 tauBossCrisis	Tau	Xenos	None	active	EarlyWarningOverride	1077	1	1
 tauBossCrisis	Tau	Xenos	None	passif	CyclicIonBlaster		1	
 tauBossCrisis	Tau	Xenos	None	trait	Hero		1	
-tauBossCrisis	Tau	Xenos	None	trait	CloseCombatWeakness		0	
+tauBossCrisis	Tau	Xenos	None	trait	CloseCombatWeakness		1	
 tauBossCrisis	Tau	Xenos	None	trait	BigTarget		1	
 tauBossCrisis	Tau	Xenos	None	trait	Flying		1	
 tauBossCrisis	Tau	Xenos	None	trait	Mechanical		1	
 tauBossCrisisInc	Tau	Xenos	None	active	EarlyWarningOverride	1077	1	1
 tauBossCrisisInc	Tau	Xenos	None	passif	CyclicIonBlaster		1	
 tauBossCrisisInc	Tau	Xenos	None	trait	Hero		1	
-tauBossCrisisInc	Tau	Xenos	None	trait	CloseCombatWeakness		0	
+tauBossCrisisInc	Tau	Xenos	None	trait	CloseCombatWeakness		1	
 tauBossCrisisInc	Tau	Xenos	None	trait	BigTarget		1	
 tauBossCrisisInc	Tau	Xenos	None	trait	Flying		1	
 tauBossCrisisInc	Tau	Xenos	None	trait	Mechanical		1	
 tauBossCrisisLHE	Tau	Xenos	None	active	EarlyWarningOverride	1077	1	1
 tauBossCrisisLHE	Tau	Xenos	None	passif	CyclicIonBlaster		1	
 tauBossCrisisLHE	Tau	Xenos	None	trait	Hero		1	
-tauBossCrisisLHE	Tau	Xenos	None	trait	CloseCombatWeakness		0	
+tauBossCrisisLHE	Tau	Xenos	None	trait	CloseCombatWeakness		1	
 tauBossCrisisLHE	Tau	Xenos	None	trait	BigTarget		1	
 tauBossCrisisLHE	Tau	Xenos	None	trait	Flying		1	
 tauBossCrisisLHE	Tau	Xenos	None	trait	Mechanical		1	
 tauBossDarkstrider	Tau	Xenos	None	active	FightingRetreat	1081	1	1
 tauBossDarkstrider	Tau	Xenos	None	passif	StructuralAnalyser		1	
 tauBossDarkstrider	Tau	Xenos	None	trait	Hero		1	
-tauBossDarkstrider	Tau	Xenos	None	trait	CloseCombatWeakness		0	
+tauBossDarkstrider	Tau	Xenos	None	trait	CloseCombatWeakness		1	
 tauBossDarkstrider	Tau	Xenos	None	trait	Infiltrate		1	
 tauBossDarkstrider	Tau	Xenos	None	trait	SuppressiveFire		1	
 tauBossDarkstriderInc	Tau	Xenos	None	active	FightingRetreat	1081	1	1
 tauBossDarkstriderInc	Tau	Xenos	None	passif	StructuralAnalyser		1	
 tauBossDarkstriderInc	Tau	Xenos	None	trait	Hero		1	
-tauBossDarkstriderInc	Tau	Xenos	None	trait	CloseCombatWeakness		0	
+tauBossDarkstriderInc	Tau	Xenos	None	trait	CloseCombatWeakness		1	
 tauBossDarkstriderInc	Tau	Xenos	None	trait	Infiltrate		1	
 tauBossDarkstriderInc	Tau	Xenos	None	trait	SuppressiveFire		1	
 tauBossDarkstriderLHE	Tau	Xenos	None	active	FightingRetreat	1081	1	1
 tauBossDarkstriderLHE	Tau	Xenos	None	passif	StructuralAnalyser		1	
 tauBossDarkstriderLHE	Tau	Xenos	None	trait	Hero		1	
-tauBossDarkstriderLHE	Tau	Xenos	None	trait	CloseCombatWeakness		0	
+tauBossDarkstriderLHE	Tau	Xenos	None	trait	CloseCombatWeakness		1	
 tauBossDarkstriderLHE	Tau	Xenos	None	trait	Infiltrate		1	
 tauBossDarkstriderLHE	Tau	Xenos	None	trait	SuppressiveFire		1	
 tauBossFarsight	Tau	Xenos	None	active	ExemplarOfTheMontka	1210	1	1
@@ -1590,17 +1590,17 @@ tauBossFarsightSurv	Tau	Xenos	None	trait	Mechanical		1
 tauBossMarksman	Tau	Xenos	None	active	SeekerMissileFrequencyLock	1069	1	1
 tauBossMarksman	Tau	Xenos	None	passif	MV71SniperDroneSquad		1	
 tauBossMarksman	Tau	Xenos	None	trait	Hero		1	
-tauBossMarksman	Tau	Xenos	None	trait	CloseCombatWeakness		0	
+tauBossMarksman	Tau	Xenos	None	trait	CloseCombatWeakness		1	
 tauBossMarksman	Tau	Xenos	None	trait	Camouflage		1	
 tauBossMarksmanInc	Tau	Xenos	None	active	SeekerMissileFrequencyLock	1069	1	1
 tauBossMarksmanInc	Tau	Xenos	None	passif	MV71SniperDroneSquad		1	
 tauBossMarksmanInc	Tau	Xenos	None	trait	Hero		1	
-tauBossMarksmanInc	Tau	Xenos	None	trait	CloseCombatWeakness		0	
+tauBossMarksmanInc	Tau	Xenos	None	trait	CloseCombatWeakness		1	
 tauBossMarksmanInc	Tau	Xenos	None	trait	Camouflage		1	
 tauBossMarksmanLHE	Tau	Xenos	None	active	SeekerMissileFrequencyLock	1069	1	1
 tauBossMarksmanLHE	Tau	Xenos	None	passif	MV71SniperDroneSquad		1	
 tauBossMarksmanLHE	Tau	Xenos	None	trait	Hero		1	
-tauBossMarksmanLHE	Tau	Xenos	None	trait	CloseCombatWeakness		0	
+tauBossMarksmanLHE	Tau	Xenos	None	trait	CloseCombatWeakness		1	
 tauBossMarksmanLHE	Tau	Xenos	None	trait	Camouflage		1	
 tauBossRiptide	Tau	Xenos	None	active	NovaBoost	1192	1	1
 tauBossRiptide	Tau	Xenos	None	active	NovaCharge	1193	1	0
@@ -1617,21 +1617,21 @@ tauBossRiptide	Tau	Xenos	None	trait	Mechanical		1
 tauBossShadowsun	Tau	Xenos	None	active	ExemplarOfTheKauyon	1087	1	1
 tauBossShadowsun	Tau	Xenos	None	passif	DefenderOfTheGreaterGood		1	
 tauBossShadowsun	Tau	Xenos	None	trait	Hero		1	
-tauBossShadowsun	Tau	Xenos	None	trait	CloseCombatWeakness		0	
+tauBossShadowsun	Tau	Xenos	None	trait	CloseCombatWeakness		1	
 tauBossShadowsun	Tau	Xenos	None	trait	Camouflage		1	
 tauBossShadowsun	Tau	Xenos	None	trait	Flying		1	
 tauBossShadowsun	Tau	Xenos	None	trait	Infiltrate		1	
 tauBossShadowsunInc	Tau	Xenos	None	active	ExemplarOfTheKauyon	1087	1	1
 tauBossShadowsunInc	Tau	Xenos	None	passif	DefenderOfTheGreaterGood		1	
 tauBossShadowsunInc	Tau	Xenos	None	trait	Hero		1	
-tauBossShadowsunInc	Tau	Xenos	None	trait	CloseCombatWeakness		0	
+tauBossShadowsunInc	Tau	Xenos	None	trait	CloseCombatWeakness		1	
 tauBossShadowsunInc	Tau	Xenos	None	trait	Camouflage		1	
 tauBossShadowsunInc	Tau	Xenos	None	trait	Flying		1	
 tauBossShadowsunInc	Tau	Xenos	None	trait	Infiltrate		1	
 tauBossShadowsunLHE	Tau	Xenos	None	active	ExemplarOfTheKauyon	1087	1	1
 tauBossShadowsunLHE	Tau	Xenos	None	passif	DefenderOfTheGreaterGood		1	
 tauBossShadowsunLHE	Tau	Xenos	None	trait	Hero		1	
-tauBossShadowsunLHE	Tau	Xenos	None	trait	CloseCombatWeakness		0	
+tauBossShadowsunLHE	Tau	Xenos	None	trait	CloseCombatWeakness		1	
 tauBossShadowsunLHE	Tau	Xenos	None	trait	Camouflage		1	
 tauBossShadowsunLHE	Tau	Xenos	None	trait	Flying		1	
 tauBossShadowsunLHE	Tau	Xenos	None	trait	Infiltrate		1	
@@ -1665,14 +1665,14 @@ tauNpcAunShi	Tau	Xenos	None	trait	Hero		1
 tauNpcCrisis	Tau	Xenos	None	active	EarlyWarningOverride	1077	1	1
 tauNpcCrisis	Tau	Xenos	None	passif	CyclicIonBlaster		1	
 tauNpcCrisis	Tau	Xenos	None	trait	Hero		1	
-tauNpcCrisis	Tau	Xenos	None	trait	CloseCombatWeakness		0	
+tauNpcCrisis	Tau	Xenos	None	trait	CloseCombatWeakness		1	
 tauNpcCrisis	Tau	Xenos	None	trait	BigTarget		1	
 tauNpcCrisis	Tau	Xenos	None	trait	Flying		1	
 tauNpcCrisis	Tau	Xenos	None	trait	Mechanical		1	
 tauNpcDarkstrider	Tau	Xenos	None	active	FightingRetreat	1081	1	1
 tauNpcDarkstrider	Tau	Xenos	None	passif	StructuralAnalyser		1	
 tauNpcDarkstrider	Tau	Xenos	None	trait	Hero		1	
-tauNpcDarkstrider	Tau	Xenos	None	trait	CloseCombatWeakness		0	
+tauNpcDarkstrider	Tau	Xenos	None	trait	CloseCombatWeakness		1	
 tauNpcDarkstrider	Tau	Xenos	None	trait	Infiltrate		1	
 tauNpcDarkstrider	Tau	Xenos	None	trait	SuppressiveFire		1	
 tauNpcFarsight	Tau	Xenos	None	active	ExemplarOfTheMontka	1210	1	1
@@ -1685,7 +1685,7 @@ tauNpcFarsight	Tau	Xenos	None	trait	Mechanical		1
 tauNpcMarksman	Tau	Xenos	None	active	SeekerMissileFrequencyLock	1069	1	1
 tauNpcMarksman	Tau	Xenos	None	passif	MV71SniperDroneSquad		1	
 tauNpcMarksman	Tau	Xenos	None	trait	Hero		1	
-tauNpcMarksman	Tau	Xenos	None	trait	CloseCombatWeakness		0	
+tauNpcMarksman	Tau	Xenos	None	trait	CloseCombatWeakness		1	
 tauNpcMarksman	Tau	Xenos	None	trait	Camouflage		1	
 tauNpcMoWBroadside	Tau	Xenos	None	active	HeavyRailRifle	1160	1	1
 tauNpcMoWBroadside	Tau	Xenos	None	active	TwinSmartMissileSystem	1161	1	1
@@ -1693,7 +1693,7 @@ tauNpcMoWBroadside	Tau	Xenos	None	trait	MachineOfWar		1
 tauNpcShadowsun	Tau	Xenos	None	active	ExemplarOfTheKauyon	1087	1	1
 tauNpcShadowsun	Tau	Xenos	None	passif	DefenderOfTheGreaterGood		1	
 tauNpcShadowsun	Tau	Xenos	None	trait	Hero		1	
-tauNpcShadowsun	Tau	Xenos	None	trait	CloseCombatWeakness		0	
+tauNpcShadowsun	Tau	Xenos	None	trait	CloseCombatWeakness		1	
 tauNpcShadowsun	Tau	Xenos	None	trait	Camouflage		1	
 tauNpcShadowsun	Tau	Xenos	None	trait	Flying		1	
 tauNpcShadowsun	Tau	Xenos	None	trait	Infiltrate		1	
@@ -2076,64 +2076,64 @@ tyranBossWingedPrimeSurv	Tyranids	Xenos	None	trait	Flying		1
 tyranBossWingedPrimeSurv	Tyranids	Xenos	None	trait	FinalJustice		1	
 tyranNpc1Hormagaunt	Tyranids	Xenos	None	passif	AdrenalGlands		0	
 tyranNpc1Hormagaunt	Tyranids	Xenos	None	passif	HungeringSwarm		1	
-tyranNpc1Hormagaunt	Tyranids	Xenos	None	trait	InstinctiveBehaviour		0	
+tyranNpc1Hormagaunt	Tyranids	Xenos	None	trait	InstinctiveBehaviour		1	
 tyranNpc1Hormagaunt	Tyranids	Xenos	None	trait	BattleFatigue		1	
 tyranNpc1HormagauntGorgon	Tyranids	Xenos	None	passif	AdrenalGlands		0	
 tyranNpc1HormagauntGorgon	Tyranids	Xenos	None	passif	HungeringSwarm		1	
-tyranNpc1HormagauntGorgon	Tyranids	Xenos	None	trait	InstinctiveBehaviour		0	
+tyranNpc1HormagauntGorgon	Tyranids	Xenos	None	trait	InstinctiveBehaviour		1	
 tyranNpc1HormagauntGorgon	Tyranids	Xenos	None	trait	BattleFatigue		1	
 tyranNpc1HormagauntGorgon	Tyranids	Xenos	None	trait	FinalJustice		1	
 tyranNpc1HormagauntKronos	Tyranids	Xenos	None	passif	AdrenalGlands		0	
 tyranNpc1HormagauntKronos	Tyranids	Xenos	None	passif	HungeringSwarm		1	
-tyranNpc1HormagauntKronos	Tyranids	Xenos	None	trait	InstinctiveBehaviour		0	
+tyranNpc1HormagauntKronos	Tyranids	Xenos	None	trait	InstinctiveBehaviour		1	
 tyranNpc1HormagauntKronos	Tyranids	Xenos	None	trait	BattleFatigue		1	
 tyranNpc1HormagauntKronos	Tyranids	Xenos	None	trait	Terrifying		1	
 tyranNpc1Hormagaunt_SyncPvp_Gorgon	Tyranids	Xenos	None	passif	AdrenalGlands		0	
 tyranNpc1Hormagaunt_SyncPvp_Gorgon	Tyranids	Xenos	None	passif	HungeringSwarm		1	
-tyranNpc1Hormagaunt_SyncPvp_Gorgon	Tyranids	Xenos	None	trait	InstinctiveBehaviour		0	
+tyranNpc1Hormagaunt_SyncPvp_Gorgon	Tyranids	Xenos	None	trait	InstinctiveBehaviour		1	
 tyranNpc1Hormagaunt_SyncPvp_Gorgon	Tyranids	Xenos	None	trait	BattleFatigue		1	
 tyranNpc1Hormagaunt_SyncPvp_Kronos	Tyranids	Xenos	None	passif	AdrenalGlands		0	
 tyranNpc1Hormagaunt_SyncPvp_Kronos	Tyranids	Xenos	None	passif	HungeringSwarm		1	
-tyranNpc1Hormagaunt_SyncPvp_Kronos	Tyranids	Xenos	None	trait	InstinctiveBehaviour		0	
+tyranNpc1Hormagaunt_SyncPvp_Kronos	Tyranids	Xenos	None	trait	InstinctiveBehaviour		1	
 tyranNpc1Hormagaunt_SyncPvp_Kronos	Tyranids	Xenos	None	trait	BattleFatigue		1	
 tyranNpc2RipperSwarm	Tyranids	Xenos	None	active	Burrowers	1023	1	0
-tyranNpc2RipperSwarm	Tyranids	Xenos	None	trait	InstinctiveBehaviour		0	
+tyranNpc2RipperSwarm	Tyranids	Xenos	None	trait	InstinctiveBehaviour		1	
 tyranNpc2RipperSwarm	Tyranids	Xenos	None	trait	Swarm		1	
 tyranNpc2RipperSwarm	Tyranids	Xenos	None	trait	BattleFatigue		1	
 tyranNpc2RipperSwarmGorgon	Tyranids	Xenos	None	active	Burrowers	1023	1	0
-tyranNpc2RipperSwarmGorgon	Tyranids	Xenos	None	trait	InstinctiveBehaviour		0	
+tyranNpc2RipperSwarmGorgon	Tyranids	Xenos	None	trait	InstinctiveBehaviour		1	
 tyranNpc2RipperSwarmGorgon	Tyranids	Xenos	None	trait	Swarm		1	
 tyranNpc2RipperSwarmGorgon	Tyranids	Xenos	None	trait	BattleFatigue		1	
 tyranNpc2RipperSwarmGorgon	Tyranids	Xenos	None	trait	FinalJustice		1	
 tyranNpc2RipperSwarmKronos	Tyranids	Xenos	None	active	Burrowers	1023	1	0
-tyranNpc2RipperSwarmKronos	Tyranids	Xenos	None	trait	InstinctiveBehaviour		0	
+tyranNpc2RipperSwarmKronos	Tyranids	Xenos	None	trait	InstinctiveBehaviour		1	
 tyranNpc2RipperSwarmKronos	Tyranids	Xenos	None	trait	Swarm		1	
 tyranNpc2RipperSwarmKronos	Tyranids	Xenos	None	trait	BattleFatigue		1	
 tyranNpc2RipperSwarmKronos	Tyranids	Xenos	None	trait	Terrifying		1	
 tyranNpc2RipperSwarm_SyncPvp_Gorgon	Tyranids	Xenos	None	active	Burrowers	1023	1	0
-tyranNpc2RipperSwarm_SyncPvp_Gorgon	Tyranids	Xenos	None	trait	InstinctiveBehaviour		0	
+tyranNpc2RipperSwarm_SyncPvp_Gorgon	Tyranids	Xenos	None	trait	InstinctiveBehaviour		1	
 tyranNpc2RipperSwarm_SyncPvp_Gorgon	Tyranids	Xenos	None	trait	Swarm		1	
 tyranNpc2RipperSwarm_SyncPvp_Gorgon	Tyranids	Xenos	None	trait	BattleFatigue		1	
 tyranNpc2RipperSwarm_SyncPvp_Kronos	Tyranids	Xenos	None	active	Burrowers	1023	1	0
-tyranNpc2RipperSwarm_SyncPvp_Kronos	Tyranids	Xenos	None	trait	InstinctiveBehaviour		0	
+tyranNpc2RipperSwarm_SyncPvp_Kronos	Tyranids	Xenos	None	trait	InstinctiveBehaviour		1	
 tyranNpc2RipperSwarm_SyncPvp_Kronos	Tyranids	Xenos	None	trait	Swarm		1	
 tyranNpc2RipperSwarm_SyncPvp_Kronos	Tyranids	Xenos	None	trait	BattleFatigue		1	
 tyranNpc3Termagant	Tyranids	Xenos	None	passif	HailOfLivingAmmunition		0	
-tyranNpc3Termagant	Tyranids	Xenos	None	trait	InstinctiveBehaviour		0	
+tyranNpc3Termagant	Tyranids	Xenos	None	trait	InstinctiveBehaviour		1	
 tyranNpc3Termagant	Tyranids	Xenos	None	trait	BattleFatigue		1	
 tyranNpc3TermagantGorgon	Tyranids	Xenos	None	passif	HailOfLivingAmmunition		0	
-tyranNpc3TermagantGorgon	Tyranids	Xenos	None	trait	InstinctiveBehaviour		0	
+tyranNpc3TermagantGorgon	Tyranids	Xenos	None	trait	InstinctiveBehaviour		1	
 tyranNpc3TermagantGorgon	Tyranids	Xenos	None	trait	BattleFatigue		1	
 tyranNpc3TermagantGorgon	Tyranids	Xenos	None	trait	FinalJustice		1	
 tyranNpc3TermagantKronos	Tyranids	Xenos	None	passif	HailOfLivingAmmunition		0	
-tyranNpc3TermagantKronos	Tyranids	Xenos	None	trait	InstinctiveBehaviour		0	
+tyranNpc3TermagantKronos	Tyranids	Xenos	None	trait	InstinctiveBehaviour		1	
 tyranNpc3TermagantKronos	Tyranids	Xenos	None	trait	BattleFatigue		1	
 tyranNpc3TermagantKronos	Tyranids	Xenos	None	trait	SuppressiveFire		1	
 tyranNpc3Termagant_SyncPvp_Gorgon	Tyranids	Xenos	None	passif	HailOfLivingAmmunition		0	
-tyranNpc3Termagant_SyncPvp_Gorgon	Tyranids	Xenos	None	trait	InstinctiveBehaviour		0	
+tyranNpc3Termagant_SyncPvp_Gorgon	Tyranids	Xenos	None	trait	InstinctiveBehaviour		1	
 tyranNpc3Termagant_SyncPvp_Gorgon	Tyranids	Xenos	None	trait	BattleFatigue		1	
 tyranNpc3Termagant_SyncPvp_Kronos	Tyranids	Xenos	None	passif	HailOfLivingAmmunition		0	
-tyranNpc3Termagant_SyncPvp_Kronos	Tyranids	Xenos	None	trait	InstinctiveBehaviour		0	
+tyranNpc3Termagant_SyncPvp_Kronos	Tyranids	Xenos	None	trait	InstinctiveBehaviour		1	
 tyranNpc3Termagant_SyncPvp_Kronos	Tyranids	Xenos	None	trait	BattleFatigue		1	
 tyranNpc4Warrior	Tyranids	Xenos	None	active	ScythingTalons	1065	1	1
 tyranNpc4Warrior	Tyranids	Xenos	None	passif	ReinforcedHiveNode		1	
@@ -2159,15 +2159,15 @@ tyranNpc4WarriorSurv	Tyranids	Xenos	None	trait	Synapse		1
 tyranNpc4WarriorSurv	Tyranids	Xenos	None	trait	BigTarget		1	
 tyranNpc4WarriorSurv	Tyranids	Xenos	None	trait	ShadowInTheWarp		1	
 tyranNpc5Barbgaunt	Tyranids	Xenos	None	passif	SynapticInsight		0	
-tyranNpc5Barbgaunt	Tyranids	Xenos	None	trait	InstinctiveBehaviour		0	
+tyranNpc5Barbgaunt	Tyranids	Xenos	None	trait	InstinctiveBehaviour		1	
 tyranNpc5Barbgaunt	Tyranids	Xenos	None	trait	HeavyWeapon		1	
 tyranNpc5Barbgaunt	Tyranids	Xenos	None	trait	SuppressiveFire		1	
 tyranNpc5BarbgauntSurv	Tyranids	Xenos	None	passif	SynapticInsight		0	
-tyranNpc5BarbgauntSurv	Tyranids	Xenos	None	trait	InstinctiveBehaviour		0	
+tyranNpc5BarbgauntSurv	Tyranids	Xenos	None	trait	InstinctiveBehaviour		1	
 tyranNpc5BarbgauntSurv	Tyranids	Xenos	None	trait	HeavyWeapon		1	
 tyranNpc5BarbgauntSurv	Tyranids	Xenos	None	trait	SuppressiveFire		1	
 tyranNpc6SporeMine	Tyranids	Xenos	None	passif	FloatingDeath		1	
-tyranNpc6SporeMine	Tyranids	Xenos	None	trait	InstinctiveBehaviour		0	
+tyranNpc6SporeMine	Tyranids	Xenos	None	trait	InstinctiveBehaviour		1	
 tyranNpc6SporeMine	Tyranids	Xenos	None	trait	Flying		1	
 tyranNpc6SporeMine	Tyranids	Xenos	None	trait	PermaDeath		1	
 tyranNpcDeathleaper	Tyranids	Xenos	None	active	FearOfTheUnseen	1115	1	1

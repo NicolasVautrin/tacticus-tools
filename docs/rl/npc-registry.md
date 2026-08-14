@@ -19,11 +19,11 @@ differe. C'est la doctrine « DECIDER != EXECUTER ».
 
 ## Bilan
 
-- Unites `npc` : **491** ; kits sans manque : **382** ; kits avec du travail : **109**
-- Actives distinctes : **147** — `[--]` **3** · `[-D]` **1** · `[C-]` **17** · `[CD]` **126**
+- Unites `npc` : **491** ; kits sans manque : **405** ; kits avec du travail : **86**
+- Actives distinctes : **147** — `[--]` **1** · `[C-]` **17** · `[CD]` **129**
 - Passifs distincts : **177** — portes **111**, non portes **66**
 - Traits de kit distincts (AUCUN ecarte — le seuil de frequence a disparu avec #1015) :
-  **58** — couverts **53**, non couverts **5**
+  **58** — couverts **55**, non couverts **3**
 - **Voies inversees** (nom absent d'`ActiveAbilityType`) : **1** — `Maugetar`
 
 ## Ce que ce registre NE VOIT PAS
@@ -49,8 +49,6 @@ l'unite. La colonne `porteurs` dit l'exposition.
 
 | type | item | porteurs | exemples |
 |---|---|---:|---|
-| trait | InstinctiveBehaviour | 18 | tyranNpc1Hormagaunt, tyranNpc1HormagauntGorgon, tyranNpc1HormagauntKronos |
-| trait | CloseCombatWeakness | 16 | tauBossCrisis, tauBossCrisisInc, tauBossCrisisLHE |
 | trait | Healer | 12 | adeptBossHospitaller, adeptBossHospitallerLHE, adeptNpcHospitaller |
 | passif | AdrenalGlands | 5 | tyranNpc1Hormagaunt, tyranNpc1HormagauntGorgon, tyranNpc1HormagauntKronos |
 | passif | HailOfLivingAmmunition | 5 | tyranNpc3Termagant, tyranNpc3TermagantGorgon, tyranNpc3TermagantKronos |
@@ -60,10 +58,7 @@ l'unite. La colonne `porteurs` dit l'exposition.
 | passif | Bounce | 2 | orksNpc7Squig, orksNpc7SquigSurv |
 | passif | Shrapnel | 2 | astraNpc4Mortar, astraNpc4MortarSurv |
 | passif | SynapticInsight | 2 | tyranNpc5Barbgaunt, tyranNpc5BarbgauntSurv |
-| active | InstrumentsOfVengeance | 1 | darkaBossLion |
 | active | Maugetar | 1 | eldarBossMauganRaUltra |
-| active | PrecisionShot | 1 | necroNpc3Deathmark |
-| active | TheLantern | 1 | deathBossMortarion |
 | passif | AllIsDust | 1 | thousNpc3RubricMarine |
 | passif | ArchContaminator | 1 | deathBossMortarion |
 | passif | BattleFocus | 1 | eldarNpc1Guardian |
@@ -370,7 +365,7 @@ sont des **faces** absentes d'items presents.
 
 | unite | manque | actives (face) | passifs non portes | traits non couverts | autres voies |
 |---|---:|---|---|---|---|
-| darkaBossLion | 3 | InstrumentsOfVengeance(1215)[-D]<br>MartialExemplar(1216)[CD]<br>TheLionsWrath(1217)[CD] | TheEmperorsShield, BossEndFightUndefeated | - | - |
+| darkaBossLion | 2 | InstrumentsOfVengeance(1215)[CD]<br>MartialExemplar(1216)[CD]<br>TheLionsWrath(1217)[CD] | TheEmperorsShield, BossEndFightUndefeated | - | - |
 | darkaNpc4Watcher | 2 | - | NoHidingFromTheWatchers, WatchedOver | - | - |
 | darkaNpc3Terminator | 1 | - | DeathwingKnight | - | - |
 | darkaBossAsmodaiLHE | 0 | ExemplarOfHate(1140)[CD] | - | - | - |
@@ -392,7 +387,7 @@ sont des **faces** absentes d'items presents.
 
 | unite | manque | actives (face) | passifs non portes | traits non couverts | autres voies |
 |---|---:|---|---|---|---|
-| deathBossMortarion | 4 | MortarionsPlagueWind(1093)[CD]<br>TheLantern(1094)[--]<br>ReapingScythe(1095)[CD] | BossEndFightUndefeated, ArchContaminator, HostOfPlagues | - | - |
+| deathBossMortarion | 3 | MortarionsPlagueWind(1093)[CD]<br>TheLantern(1094)[CD]<br>ReapingScythe(1095)[CD] | BossEndFightUndefeated, ArchContaminator, HostOfPlagues | - | - |
 | deathBossRotbone | 1 | RevitalizingMalignancy(1037)[CD] | - | Healer | relic:OrbsOfDecay |
 | deathBossRotboneLHE | 1 | RevitalizingMalignancy(1037)[CD] | - | Healer | relic:OrbsOfDecay |
 | deathNpc1Poxwalker | 1 | - | CursedOfTheWalkingPox | - | - |
@@ -449,11 +444,10 @@ sont des **faces** absentes d'items presents.
 | votanNpc1Ecog | 1 | - | RepairEnthusiast | - | - |
 | votanNpc2Steeljack | 0 | - | - | - | - |
 
-### Necrons — 43 unites, 1 avec du travail
+### Necrons — 43 unites, 0 avec du travail
 
 | unite | manque | actives (face) | passifs non portes | traits non couverts | autres voies |
 |---|---:|---|---|---|---|
-| necroNpc3Deathmark | 1 | PrecisionShot(1015)[--] | - | - | - |
 | necroBossC1Destroyer | 0 | MultiThreatEliminator(1006)[CD] | - | - | relic:NetherRealmCasket |
 | necroBossC1Overlord | 0 | ResurrectionOrb(1009)[CD] | - | - | relic:PhasalSubjugator |
 | necroBossC1Plasmancer | 0 | HarbingerOfDestruction(1008)[CD] | - | - | - |
@@ -484,6 +478,7 @@ sont des **faces** absentes d'items presents.
 | necroNpc2FlayedOne | 0 | StormOfFlensingBlades(1010)[CD] | - | - | - |
 | necroNpc2TutFlayedOne | 0 | StormOfFlensingBlades(1010)[CD] | - | - | - |
 | necroNpc2TutFlayedOneFTUEtest | 0 | StormOfFlensingBlades(1010)[CD] | - | - | - |
+| necroNpc3Deathmark | 0 | PrecisionShot(1015)[CD] | - | - | - |
 | necroNpc4Destroyer | 0 | TunnelingHorror(1011)[C-] | - | - | - |
 | necroNpc4DestroyerLHE | 0 | TunnelingHorror(1011)[C-] | - | - | - |
 | necroNpc4DestroyerSurv | 0 | TunnelingHorror(1011)[C-] | - | - | - |
@@ -562,43 +557,43 @@ sont des **faces** absentes d'items presents.
 |---|---:|---|---|---|---|
 | spaceStormcaller_LHE | 0 | Stormcaller(1113)[CD] | - | - | - |
 
-### Tau — 33 unites, 19 avec du travail
+### Tau — 33 unites, 3 avec du travail
 
 | unite | manque | actives (face) | passifs non portes | traits non couverts | autres voies |
 |---|---:|---|---|---|---|
 | tauBossRiptide | 2 | NovaBoost(1192)[CD]<br>NovaCharge(1193)[C-]<br>NovaShield(1194)[CD] | MultiTracker, TargetLock | - | - |
-| tauBossCrisis | 1 | EarlyWarningOverride(1077)[CD] | - | CloseCombatWeakness | relic:Dw02AdvancedBurstCannon |
-| tauBossCrisisInc | 1 | EarlyWarningOverride(1077)[CD] | - | CloseCombatWeakness | relic:Dw02AdvancedBurstCannon |
-| tauBossCrisisLHE | 1 | EarlyWarningOverride(1077)[CD] | - | CloseCombatWeakness | relic:Dw02AdvancedBurstCannon |
-| tauBossDarkstrider | 1 | FightingRetreat(1081)[CD] | - | CloseCombatWeakness | - |
-| tauBossDarkstriderInc | 1 | FightingRetreat(1081)[CD] | - | CloseCombatWeakness | - |
-| tauBossDarkstriderLHE | 1 | FightingRetreat(1081)[CD] | - | CloseCombatWeakness | - |
-| tauBossMarksman | 1 | SeekerMissileFrequencyLock(1069)[CD] | - | CloseCombatWeakness | - |
-| tauBossMarksmanInc | 1 | SeekerMissileFrequencyLock(1069)[CD] | - | CloseCombatWeakness | - |
-| tauBossMarksmanLHE | 1 | SeekerMissileFrequencyLock(1069)[CD] | - | CloseCombatWeakness | - |
-| tauBossShadowsun | 1 | ExemplarOfTheKauyon(1087)[CD] | - | CloseCombatWeakness | - |
-| tauBossShadowsunInc | 1 | ExemplarOfTheKauyon(1087)[CD] | - | CloseCombatWeakness | - |
-| tauBossShadowsunLHE | 1 | ExemplarOfTheKauyon(1087)[CD] | - | CloseCombatWeakness | - |
 | tauNpc6Carnivore | 1 | - | HuntersInstincts | - | - |
-| tauNpcCrisis | 1 | EarlyWarningOverride(1077)[CD] | - | CloseCombatWeakness | relic:Dw02AdvancedBurstCannon |
-| tauNpcDarkstrider | 1 | FightingRetreat(1081)[CD] | - | CloseCombatWeakness | - |
 | tauNpcFarsight | 1 | ExemplarOfTheMontka(1210)[CD] | - | BeastSnagga | relic:DawnBlade |
-| tauNpcMarksman | 1 | SeekerMissileFrequencyLock(1069)[CD] | - | CloseCombatWeakness | - |
-| tauNpcShadowsun | 1 | ExemplarOfTheKauyon(1087)[CD] | - | CloseCombatWeakness | - |
 | tauBossAunShi | 0 | InspiredToGreatness(1082)[CD] | - | - | - |
 | tauBossAunShiInc | 0 | InspiredToGreatness(1082)[CD] | - | - | - |
 | tauBossAunShiLHE | 0 | InspiredToGreatness(1082)[CD] | - | - | - |
+| tauBossCrisis | 0 | EarlyWarningOverride(1077)[CD] | - | - | relic:Dw02AdvancedBurstCannon |
+| tauBossCrisisInc | 0 | EarlyWarningOverride(1077)[CD] | - | - | relic:Dw02AdvancedBurstCannon |
+| tauBossCrisisLHE | 0 | EarlyWarningOverride(1077)[CD] | - | - | relic:Dw02AdvancedBurstCannon |
+| tauBossDarkstrider | 0 | FightingRetreat(1081)[CD] | - | - | - |
+| tauBossDarkstriderInc | 0 | FightingRetreat(1081)[CD] | - | - | - |
+| tauBossDarkstriderLHE | 0 | FightingRetreat(1081)[CD] | - | - | - |
 | tauBossFarsight | 0 | ExemplarOfTheMontka(1210)[CD] | - | - | relic:DawnBlade |
 | tauBossFarsightInc | 0 | ExemplarOfTheMontka(1210)[CD] | - | - | relic:DawnBlade |
 | tauBossFarsightLHE | 0 | ExemplarOfTheMontka(1210)[CD] | - | - | relic:DawnBlade |
 | tauBossFarsightSurv | 0 | ExemplarOfTheMontka(1210)[CD] | - | - | relic:DawnBlade |
+| tauBossMarksman | 0 | SeekerMissileFrequencyLock(1069)[CD] | - | - | - |
+| tauBossMarksmanInc | 0 | SeekerMissileFrequencyLock(1069)[CD] | - | - | - |
+| tauBossMarksmanLHE | 0 | SeekerMissileFrequencyLock(1069)[CD] | - | - | - |
+| tauBossShadowsun | 0 | ExemplarOfTheKauyon(1087)[CD] | - | - | - |
+| tauBossShadowsunInc | 0 | ExemplarOfTheKauyon(1087)[CD] | - | - | - |
+| tauBossShadowsunLHE | 0 | ExemplarOfTheKauyon(1087)[CD] | - | - | - |
 | tauNpc1FireWarrior | 0 | - | - | - | - |
 | tauNpc2DroneSniper | 0 | - | - | - | - |
 | tauNpc3DroneShield | 0 | - | - | - | - |
 | tauNpc4DroneCommandLink | 0 | - | - | - | - |
 | tauNpc5StealthSuit | 0 | ForwardObservers(1185)[CD]<br>WallOfMirrors(1186)[C-] | - | - | - |
 | tauNpcAunShi | 0 | InspiredToGreatness(1082)[CD] | - | - | - |
+| tauNpcCrisis | 0 | EarlyWarningOverride(1077)[CD] | - | - | relic:Dw02AdvancedBurstCannon |
+| tauNpcDarkstrider | 0 | FightingRetreat(1081)[CD] | - | - | - |
+| tauNpcMarksman | 0 | SeekerMissileFrequencyLock(1069)[CD] | - | - | - |
 | tauNpcMoWBroadside | 0 | HeavyRailRifle(1160)[CD]<br>TwinSmartMissileSystem(1161)[CD] | - | - | mythic:ElectrochaffBackups |
+| tauNpcShadowsun | 0 | ExemplarOfTheKauyon(1087)[CD] | - | - | - |
 
 ### ThousandSons — 27 unites, 2 avec du travail
 
@@ -632,29 +627,23 @@ sont des **faces** absentes d'items presents.
 | thousNpcTerminator | 0 | HellfyreMissileRack(1088)[CD] | - | - | relic:DaemonfleshPlate |
 | thousNpcTzaangor | 0 | SorcerousFacade(1100)[CD] | - | - | - |
 
-### Tyranids — 54 unites, 19 avec du travail
+### Tyranids — 54 unites, 13 avec du travail
 
 | unite | manque | actives (face) | passifs non portes | traits non couverts | autres voies |
 |---|---:|---|---|---|---|
 | tyranBossHiveTyrantLeviathan | 2 | CallRipperSwarms(1052)[C-]<br>Catalyst(1032)[C-]<br>StranglethornCannon(1056)[CD] | PrehensilePincerTail, SynapticImperative | - | - |
-| tyranNpc1Hormagaunt | 2 | - | AdrenalGlands | InstinctiveBehaviour | - |
-| tyranNpc1HormagauntGorgon | 2 | - | AdrenalGlands | InstinctiveBehaviour | - |
-| tyranNpc1HormagauntKronos | 2 | - | AdrenalGlands | InstinctiveBehaviour | - |
-| tyranNpc1Hormagaunt_SyncPvp_Gorgon | 2 | - | AdrenalGlands | InstinctiveBehaviour | - |
-| tyranNpc1Hormagaunt_SyncPvp_Kronos | 2 | - | AdrenalGlands | InstinctiveBehaviour | - |
-| tyranNpc3Termagant | 2 | - | HailOfLivingAmmunition | InstinctiveBehaviour | - |
-| tyranNpc3TermagantGorgon | 2 | - | HailOfLivingAmmunition | InstinctiveBehaviour | - |
-| tyranNpc3TermagantKronos | 2 | - | HailOfLivingAmmunition | InstinctiveBehaviour | - |
-| tyranNpc3Termagant_SyncPvp_Gorgon | 2 | - | HailOfLivingAmmunition | InstinctiveBehaviour | - |
-| tyranNpc3Termagant_SyncPvp_Kronos | 2 | - | HailOfLivingAmmunition | InstinctiveBehaviour | - |
-| tyranNpc5Barbgaunt | 2 | - | SynapticInsight | InstinctiveBehaviour | - |
-| tyranNpc5BarbgauntSurv | 2 | - | SynapticInsight | InstinctiveBehaviour | - |
-| tyranNpc2RipperSwarm | 1 | Burrowers(1023)[C-] | - | InstinctiveBehaviour | - |
-| tyranNpc2RipperSwarmGorgon | 1 | Burrowers(1023)[C-] | - | InstinctiveBehaviour | - |
-| tyranNpc2RipperSwarmKronos | 1 | Burrowers(1023)[C-] | - | InstinctiveBehaviour | - |
-| tyranNpc2RipperSwarm_SyncPvp_Gorgon | 1 | Burrowers(1023)[C-] | - | InstinctiveBehaviour | - |
-| tyranNpc2RipperSwarm_SyncPvp_Kronos | 1 | Burrowers(1023)[C-] | - | InstinctiveBehaviour | - |
-| tyranNpc6SporeMine | 1 | - | - | InstinctiveBehaviour | - |
+| tyranNpc1Hormagaunt | 1 | - | AdrenalGlands | - | - |
+| tyranNpc1HormagauntGorgon | 1 | - | AdrenalGlands | - | - |
+| tyranNpc1HormagauntKronos | 1 | - | AdrenalGlands | - | - |
+| tyranNpc1Hormagaunt_SyncPvp_Gorgon | 1 | - | AdrenalGlands | - | - |
+| tyranNpc1Hormagaunt_SyncPvp_Kronos | 1 | - | AdrenalGlands | - | - |
+| tyranNpc3Termagant | 1 | - | HailOfLivingAmmunition | - | - |
+| tyranNpc3TermagantGorgon | 1 | - | HailOfLivingAmmunition | - | - |
+| tyranNpc3TermagantKronos | 1 | - | HailOfLivingAmmunition | - | - |
+| tyranNpc3Termagant_SyncPvp_Gorgon | 1 | - | HailOfLivingAmmunition | - | - |
+| tyranNpc3Termagant_SyncPvp_Kronos | 1 | - | HailOfLivingAmmunition | - | - |
+| tyranNpc5Barbgaunt | 1 | - | SynapticInsight | - | - |
+| tyranNpc5BarbgauntSurv | 1 | - | SynapticInsight | - | - |
 | tyranBossDeathleaper | 0 | FearOfTheUnseen(1115)[CD] | - | - | - |
 | tyranBossDeathleaperCE | 0 | FearOfTheUnseen(1115)[CD] | - | - | - |
 | tyranBossDeathleaperLHE | 0 | FearOfTheUnseen(1115)[CD] | - | - | - |
@@ -675,10 +664,16 @@ sont des **faces** absentes d'items presents.
 | tyranBossWingedPrimeLEG | 0 | AlphaWarrior(1112)[CD] | - | - | relic:MawClawsOfThyrax |
 | tyranBossWingedPrimeLHE | 0 | AlphaWarrior(1112)[CD] | - | - | relic:MawClawsOfThyrax |
 | tyranBossWingedPrimeSurv | 0 | AlphaWarrior(1112)[CD] | - | - | relic:MawClawsOfThyrax |
+| tyranNpc2RipperSwarm | 0 | Burrowers(1023)[C-] | - | - | - |
+| tyranNpc2RipperSwarmGorgon | 0 | Burrowers(1023)[C-] | - | - | - |
+| tyranNpc2RipperSwarmKronos | 0 | Burrowers(1023)[C-] | - | - | - |
+| tyranNpc2RipperSwarm_SyncPvp_Gorgon | 0 | Burrowers(1023)[C-] | - | - | - |
+| tyranNpc2RipperSwarm_SyncPvp_Kronos | 0 | Burrowers(1023)[C-] | - | - | - |
 | tyranNpc4Warrior | 0 | ScythingTalons(1065)[CD] | - | - | - |
 | tyranNpc4WarriorCE2Gorgon | 0 | ScythingTalons(1065)[CD] | - | - | - |
 | tyranNpc4WarriorCE2Kronos | 0 | ScythingTalons(1065)[CD] | - | - | - |
 | tyranNpc4WarriorSurv | 0 | ScythingTalons(1065)[CD] | - | - | - |
+| tyranNpc6SporeMine | 0 | - | - | - | - |
 | tyranNpcDeathleaper | 0 | FearOfTheUnseen(1115)[CD] | - | - | - |
 | tyranNpcMowBiovore | 0 | BioMinefield(1144)[CD]<br>SporeMineLauncher(1145)[CD] | - | - | mythic:HyperCorrosiveAcid |
 | tyranNpcNeurothrope | 0 | SpiritLeech(1104)[CD] | - | - | relic:NornCrown |
