@@ -1921,7 +1921,7 @@ class DamageHandler:
         # ExecuteNormalAttack` -- la passe PRIMAIRE de TOUTE attaque normale, base commune de toutes
         # les `<X>_NormalAttackAbility` (la generique `Loki_NormalAttackAbility` comprise) -- fait :
         #     b = GetAttackDamageBehaviour(this, abilityState, entities, attackWeapon,
-        #                                  <vslot 0x4a8 GetCustomNormalAttackBehaviour>)
+        #                                  <vslot 0x4a8 GetTarget>)   # #1050-r1 : le SELECTEUR
         #     b = b op_BitwiseAnd DSLBehaviors$$EvaluateAbilities(dsl, 0x4a, null, null, null,
         #                                                         immediately: true)
         #     return AActiveAbility$$ExecuteAtomic(this, b, entities, 0x3d)
@@ -1966,7 +1966,8 @@ class DamageHandler:
         # quatre attaques normales CONCRETES `Boltstorm`/`RighteousRepugnance`/`Fealty`/
         # `TalonOfHorus` frappent des cibles ADDITIONNELLES (le CLEAVE) ; les DEUX PREMIERES
         # ajoutent en plus un paquet sur la cible PRIMAIRE (`$$GetCustomNormalAttackBehaviour`,
-        # vslot 0x4a8 lu par `ExecuteNormalAttack`) :
+        # vslot 0x4e8 lu par `GetAttackDamageBehaviour` -- #1050-r1 : ce n'est PAS `0x4a8`, qui est
+        # `$$GetTarget`, le SELECTEUR de cibles) :
         #     Execute<X> = InformWeapon
         #                + ExecuteNormalAttack        -> coups d'ARME + le FOLD primaire, meme 0x3d
         #                + ExecuteAtomic(Foreach(GetAdditionalTargets, Attack), 0x2a)   -> le CLEAVE

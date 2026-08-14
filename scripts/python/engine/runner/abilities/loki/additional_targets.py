@@ -43,9 +43,19 @@ natif sur la cible PRIMAIRE, dans une geometrie ou son cleave n'avait AUCUNE cib
 La ventilation par COUP (events natifs) montrait `787, 969` (les 2 coups d'ARME) **puis** `502, 506,
 557` -- trois coups de plus sur la cible primaire, aux bornes de `RighteousRepugnance`.
 
-    <X>_NormalAttackAbility$$GetCustomNormalAttackBehaviour(abilityState):     # vslot 0x4a8
+    <X>_NormalAttackAbility$$GetCustomNormalAttackBehaviour(abilityState):     # vslot 0x4e8
         return IdunBattleLogic.Entities.DSLBehaviors$$If(
                    <cond>, GetAdditionalDamageBehaviour(abilityState, Target@0x60), null)
+
+⚠ #1050-r1 -- LE VSLOT ECRIT ICI ETAIT FAUX, ET CE N'EST PAS UNE COQUILLE INERTE. `0x4a8` est
+`$$GetTarget`, le SELECTEUR DE CIBLES que `ALoki_NormalAttackAbility$$ExecuteNormalAttack` appelle
+en tete et passe en 5e argument a `$$GetAttackDamageBehaviour` ; le FOLD est `0x4e8`, appele DANS
+`$$GetAttackDamageBehaviour` (les deux sont LUS au decompile de ces deux fonctions, et
+`AncientFury_NormalAttackAbility$$GetTargets` -- qui n'est qu'un `return this.vslot(0x4a8)()` --
+apparie le slot a son unique surcharge nommee). La confusion masquait le fait que le 5e argument
+n'est PAS la cible du message mais un SELECTEUR : c'est ce slot-la qu'`AncientFury` surcharge pour
+elargir son attaque normale (cf. `ancient_fury.py`). La meme phrase fausse vivait dans
+`operations/damage.py` ; elle y est corrigee.
 
 `ALoki_NormalAttackAbility$$ExecuteNormalAttack` appelle ce vslot et passe son resultat en 5e
 argument a `$$GetAttackDamageBehaviour` : le fold est donc compose DANS l'attaque primaire, et
