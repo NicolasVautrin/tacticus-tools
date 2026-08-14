@@ -19,9 +19,9 @@ differe. C'est la doctrine « DECIDER != EXECUTER ».
 
 ## Bilan
 
-- Unites `summons` : **65** ; kits sans manque : **51** ; kits avec du travail : **14**
+- Unites `summons` : **65** ; kits sans manque : **52** ; kits avec du travail : **13**
 - Actives distinctes : **16** — `[C-]` **5** · `[CD]` **11**
-- Passifs distincts : **47** — portes **33**, non portes **14**
+- Passifs distincts : **47** — portes **34**, non portes **13**
 - Traits de kit distincts (AUCUN ecarte — le seuil de frequence a disparu avec #1015) :
   **43** — couverts **42**, non couverts **1**
 
@@ -53,7 +53,6 @@ l'unite. La colonne `porteurs` dit l'exposition.
 | passif | CallInReinforcements | 1 | astraSmnVoxcaster |
 | passif | DrawFire | 1 | blackSmnTerminator |
 | passif | FiringPosition | 1 | blackSmnHavoc |
-| passif | HailOfLivingAmmunition | 1 | tyranSmnTermagant |
 | passif | HunterOfSouls | 1 | thousSmnDaemonPrince |
 | passif | Lifewards | 1 | adeptSmnGeminaeSuperia |
 | passif | MischiefMakers | 1 | deathSmnNurglings |
@@ -209,15 +208,15 @@ sont des **faces** absentes d'items presents.
 | thousSmnScreamer | 0 | SlashingDive(1091)[C-] | - | - | - |
 | thousSmnScreamerHSE | 0 | SlashingDive(1091)[C-] | - | - | - |
 
-### Tyranids — 6 unites, 1 avec du travail
+### Tyranids — 6 unites, 0 avec du travail
 
 | unite | manque | actives (face) | passifs non portes | traits non couverts | autres voies |
 |---|---:|---|---|---|---|
-| tyranSmnTermagant | 1 | - | HailOfLivingAmmunition | - | - |
 | tyranSmnBarbgaunt | 0 | - | - | - | - |
 | tyranSmnHormagaunt | 0 | - | - | - | - |
 | tyranSmnRipperSwarm | 0 | Burrowers(1023)[CD] | - | - | - |
 | tyranSmnSporeMine | 0 | - | - | - | - |
+| tyranSmnTermagant | 0 | - | - | - | - |
 | tyranSmnWarrior | 0 | ScythingTalons(1065)[CD] | - | - | - |
 
 ### Ultramarines — 4 unites, 1 avec du travail

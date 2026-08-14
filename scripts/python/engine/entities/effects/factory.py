@@ -93,6 +93,8 @@ from .loki.head_claimer import (                           # #947 (passif blackH
     HeadClaimerExtraDmgEffect, HeadClaimerExtraHitEffect
 )
 from .loki.hungering_swarm import HungeringSwarmExtraHitsEffect   # #1018 (passif Hormagaunt/Ripper)
+from .loki.hail_of_living_ammunition import (                     # #1078 (passif Termagant)
+    HailOfLivingAmmunitionExtraHitsEffect)
 from .loki.kustom_force_field import (                                    # #930 (passif orksBigMek)
     KustomForceFieldReworkedEffect, KustomForceFieldReworkedOrksEffect
 )
@@ -1092,6 +1094,24 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # L'ability est un `AOwnerEffectTriggeredAbility` (elle pose SEULE son effet sur l'owner) : il
     # n'y a NI `CreateBehaviour` NI `CreateTrigger` a porter. Cf. `loki/hungering_swarm.py`.
     "HungeringSwarm_ExtraHits": HungeringSwarmExtraHitsEffect,
+    # HailOfLivingAmmunition (passif triggered 0x412=1042 des Termagants tyranides -- 5 npc + le
+    # summon `tyranSmnTermagant`, #1078) -- MEME famille que 1041 juste au-dessus, arbre DIFFERENT
+    # sur les DEUX axes qui decident du resultat :
+    # 1042 `...HailOfLivingAmmunitionExtraHitsEffect$$CreateEffectHitsBonusForAttack` =
+    #      `ForAddition(get_OwnerIsActor & IsRangedAttack,
+    #                   Multiply(Direct(GetNumberConstant 0x2b=extraHit),
+    #                            Count(UnitsWithIds(AdjacentFriends(Owner, unique = 1, 3),
+    #                                               GetStringArrayConstant 0x37=unitIds))))`.
+    # Le centre du voisinage est l'ATTAQUANT (1041 : la CIBLE) et le gate est DISTANCE (1041 :
+    # MELEE) -- recopier le voisin de forme aurait compte le mauvais voisinage sur la mauvaise
+    # attaque. `AdjacentFriends` EXCLUT le porteur et rien ne le re-ajoute.
+    # L'ability est un `AOwnerEffectTriggeredAbility` (elle pose SEULE son effet sur l'owner) : il
+    # n'y a NI `CreateBehaviour` NI `CreateTrigger` a porter -- `$$GetEffectType` a pour corps
+    # ENTIER `return 0x412`, donc l'appariement ability -> effet est LU. ⚠ La CLE ici est le nom
+    # d'`EffectType` (1042) ; le nom d'ability homonyme est un `TriggeredAbilityType` (1042 aussi),
+    # et `ActiveAbilityType` 1042 est `FlailSwing` -- trois enums, ne jamais apparier par l'ordinal.
+    # Cf. `loki/hail_of_living_ammunition.py`.
+    "HailOfLivingAmmunition_ExtraHits": HailOfLivingAmmunitionExtraHitsEffect,
     # TrophyTaker (passif triggered 0x4cd=1229 de `worldExecutions` << Tarvakh >>, #951) --
     # 1289 `...TrophyTaker_ExtraCritDamageEffect` porte DEUX canaux sur la MEME classe, avec le
     # MEME gate `get_OwnerIsCaster & HealthLowerThanPct()` :

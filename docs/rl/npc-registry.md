@@ -19,9 +19,9 @@ differe. C'est la doctrine « DECIDER != EXECUTER ».
 
 ## Bilan
 
-- Unites `npc` : **491** ; kits sans manque : **434** ; kits avec du travail : **57**
+- Unites `npc` : **491** ; kits sans manque : **439** ; kits avec du travail : **52**
 - Actives distinctes : **147** — `[--]` **1** · `[C-]` **13** · `[CD]` **133**
-- Passifs distincts : **177** — portes **122**, non portes **55**
+- Passifs distincts : **177** — portes **123**, non portes **54**
 - Traits de kit distincts (AUCUN ecarte — le seuil de frequence a disparu avec #1015) :
   **58** — couverts **57**, non couverts **1**
 - **Voies inversees** (nom absent d'`ActiveAbilityType`) : **1** — `Maugetar`
@@ -49,7 +49,6 @@ l'unite. La colonne `porteurs` dit l'exposition.
 
 | type | item | porteurs | exemples |
 |---|---|---:|---|
-| passif | HailOfLivingAmmunition | 5 | tyranNpc3Termagant, tyranNpc3TermagantGorgon, tyranNpc3TermagantKronos |
 | trait | TwoManTeam | 4 | astraNpc2Lascannon, astraNpc4Mortar, astraNpc4MortarSurv |
 | passif | RapidFire | 3 | ultraNpc3Intercessor, ultraNpc4HeavyIntercessor, ultraNpc4HeavyIntercessorSurv |
 | passif | BossEndFightUndefeated | 2 | darkaBossLion, deathBossMortarion |
@@ -614,16 +613,11 @@ sont des **faces** absentes d'items presents.
 | thousNpcTerminator | 0 | HellfyreMissileRack(1088)[CD] | - | - | relic:DaemonfleshPlate |
 | thousNpcTzaangor | 0 | SorcerousFacade(1100)[CD] | - | - | - |
 
-### Tyranids — 54 unites, 6 avec du travail
+### Tyranids — 54 unites, 1 avec du travail
 
 | unite | manque | actives (face) | passifs non portes | traits non couverts | autres voies |
 |---|---:|---|---|---|---|
 | tyranBossHiveTyrantLeviathan | 2 | CallRipperSwarms(1052)[C-]<br>Catalyst(1032)[C-]<br>StranglethornCannon(1056)[CD] | PrehensilePincerTail, SynapticImperative | - | - |
-| tyranNpc3Termagant | 1 | - | HailOfLivingAmmunition | - | - |
-| tyranNpc3TermagantGorgon | 1 | - | HailOfLivingAmmunition | - | - |
-| tyranNpc3TermagantKronos | 1 | - | HailOfLivingAmmunition | - | - |
-| tyranNpc3Termagant_SyncPvp_Gorgon | 1 | - | HailOfLivingAmmunition | - | - |
-| tyranNpc3Termagant_SyncPvp_Kronos | 1 | - | HailOfLivingAmmunition | - | - |
 | tyranBossDeathleaper | 0 | FearOfTheUnseen(1115)[CD] | - | - | - |
 | tyranBossDeathleaperCE | 0 | FearOfTheUnseen(1115)[CD] | - | - | - |
 | tyranBossDeathleaperLHE | 0 | FearOfTheUnseen(1115)[CD] | - | - | - |
@@ -654,6 +648,11 @@ sont des **faces** absentes d'items presents.
 | tyranNpc2RipperSwarmKronos | 0 | Burrowers(1023)[CD] | - | - | - |
 | tyranNpc2RipperSwarm_SyncPvp_Gorgon | 0 | Burrowers(1023)[CD] | - | - | - |
 | tyranNpc2RipperSwarm_SyncPvp_Kronos | 0 | Burrowers(1023)[CD] | - | - | - |
+| tyranNpc3Termagant | 0 | - | - | - | - |
+| tyranNpc3TermagantGorgon | 0 | - | - | - | - |
+| tyranNpc3TermagantKronos | 0 | - | - | - | - |
+| tyranNpc3Termagant_SyncPvp_Gorgon | 0 | - | - | - | - |
+| tyranNpc3Termagant_SyncPvp_Kronos | 0 | - | - | - | - |
 | tyranNpc4Warrior | 0 | ScythingTalons(1065)[CD] | - | - | - |
 | tyranNpc4WarriorCE2Gorgon | 0 | ScythingTalons(1065)[CD] | - | - | - |
 | tyranNpc4WarriorCE2Kronos | 0 | ScythingTalons(1065)[CD] | - | - | - |
