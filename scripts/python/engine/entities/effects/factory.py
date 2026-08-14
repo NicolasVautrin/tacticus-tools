@@ -140,7 +140,8 @@ from .loki.hits import (
     FleshmetalGunsWarpHailEffect, FoulInfusionExtraHitsEffect, InfernalPactsAdditionalHitsEffect,
     KanOpenerEffect, LegendaryCommanderExtraHitsEffect, LetTheGalaxyBurnEffect, LightCoverEffect,
     MasterAnnihilatorAdditionalHitEffect, MaugetarHasNotMovedEffect, ParryEffect,
-    PowerTripFullHealthEffect, PowerTripIgnoreArmorEffect, PsychicFortressExtraBlockEffect, SagaOfTheWarriorBornOwnerEffect,
+    PowerTripFullHealthEffect, PowerTripIgnoreArmorEffect, PsychicFortressExtraBlockEffect,
+    RedThirstExtraDamageAndHitEffect, SagaOfTheWarriorBornOwnerEffect,
     ShroudPsalmEffect, SorcerousFacadeAdditionalHitsEffect,
     SpecialIssueCombiMeltaAdditionalHitsEffect, SquigHoundAdditionalHitsEffect,
     Swarm_HitReductionEffect, UnstoppableFerocityOwnerEffect, VoltagheistFieldExtraHitEffect
@@ -707,6 +708,24 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # COMPRIS -- il differe de la classe native seulement par le `_` (cf. 1192 juste au-dessus).
     # La 2e clause i2 (« +1 hit vs Psyker ») est l'effet SEPARE 0x4a8=1192, non porte.
     "UnstoppableFerocity_OwnerEffect": UnstoppableFerocityOwnerEffect,
+    # RedThirst (`bloodSmnIntercessor` << Jump Pack Intercessor >>, summon de `bloodIntercessor`
+    # << Mataneo >> par son passif `AggressiveOnslaught` ; npc `bloodNpc1Intercessor`), effet
+    # 0x52a = 1322 pose a l'init par `RedThirstAbility` (`AOwnerEffectTriggeredAbility`,
+    # `$$GetEffectType` = `return 0x52a`). TROIS corps natifs, tous portes :
+    #   `..._ExtraDamageAndHitEffect$$CreateActiveCondition` =
+    #       HealthPctIsBelowOrEqual(Owner@<DSLSelectors+0x30>,
+    #                               ConfigConst(0x4e1, Owner, AbilityConstantType.healthPct = 0x4f))
+    #   `..._ExtraDamageAndHitEffect$$CreateEffectDamageBonusForAttack` =
+    #       ForAddition(get_OwnerIsCaster,
+    #                   ConfigVar(0x4e1, Owner, AbilityVariableType.extraDmg = 8))
+    #   `..._ExtraDamageAndHitEffect$$CreateEffectHitsBonusForAttack` =
+    #       ForAddition(get_OwnerIsCaster & IsCharging(Owner@+0x30, Target@+0x60),
+    #                   ConfigConst(0x4e1, Owner, AbilityConstantType.extraHit = 0x2b))
+    # ⚠ LA CHARGE NE GATE QUE LE CANAL COUPS : le canal DEGAT n'a qu'UN noeud (`get_OwnerIsCaster`,
+    # rendu par le balayage attaquant). La prose i2 rattache « when charging » aux deux termes ;
+    # le decompile ne le fait pas. C'est l'entree #8 de `docs/rl/case-ischarging-hits-channel.md` SS2,
+    # derniere du canal COUPS restee « absente ». Cf. `loki/hits.py::RedThirstExtraDamageAndHitEffect`.
+    "RedThirst_ExtraDamageAndHit": RedThirstExtraDamageAndHitEffect,
     "PowerTrip_FullHealth": PowerTripFullHealthEffect,
     "PowerTrip_IgnoreArmor": PowerTripIgnoreArmorEffect,
     "Stunned": StunnedEffect,           # effet COMPOSITE (parent 1162 → enfants 1165/1166/1167)
@@ -2757,6 +2776,24 @@ ABILITY_INIT_OWNER_EFFECTS: dict[str, list[str]] = {
     # 1332)` du node de degat serait mort dans tout runner ou Mataneo tombe sous 50 % APRES la capture.
     # Idempotent (skip si deja capte). Cle = le NOM d'ability gameconfig du porteur.
     "HammerOfWrath": ["HammerOfWrath_ConditionalDamage"],
+    # RedThirst (passif du SUMMON `bloodSmnIntercessor`, que Mataneo `bloodIntercessor` pose par son
+    # passif `AggressiveOnslaught` ; aussi porte par le npc `bloodNpc1Intercessor`).
+    # `IdunBattleLogic.Entities.Abilities.Triggered.Loki.RedThirstAbility` a pour parent
+    # `IdunBattle.Entities.Abilities.AOwnerEffectTriggeredAbility` (`frida/classes.tsv`) et n'override
+    # QUE `$$GetEffectType`, dont le corps ENTIER est `return 0x52a` (= 1322
+    # `EffectType.RedThirst_ExtraDamageAndHit`) : l'appariement ability -> effet est LU, pas devine.
+    # Le reste vient de la base (`CreateTrigger = OnOwnerSpecificAbilityInit(this.AbilityType)`,
+    # `CreateBehaviour = If(CreateCondition(...), AddEffect(GetEffectType(), AbilityState(Owner),
+    # source = Owner, targets = Owner, options = <Nullable ZERO>))`) -> owner-effect PERMANENT.
+    # ⚠ CE SEED N'EST PAS QU'UN FILET, exactement comme `HammerOfWrath` juste au-dessus : la
+    # `CreateActiveCondition` de 1322 est `HealthPctIsBelowOrEqual(Owner, healthPct = 50)`, donc
+    # l'effet est ABSENT de `decisionView.effects` (canal ACTIF-ONLY) tant que l'Intercessor est
+    # au-dessus de 50 % PV -- c'est-a-dire a son apparition. Sans ce seed, un summon qui descend sous
+    # le seuil APRES la capture n'aurait jamais ni son +extraDmg ni son +extraHit.
+    # ⚠ Et il arrive par le chemin SPAWN : `operations/spawn.py::_seed_ability_owner_effects` est
+    # appele par `_spawn_config_grot` pour toute unite posee -- c'est ce call-site qui le materialise
+    # sur un Intercessor invoque en cours de partie.
+    "RedThirst": ["RedThirst_ExtraDamageAndHit"],
     # ModifiedExoarmour (passif de `votanChampion` << Kimm >>, TriggeredAbilityType 0x5f9=1529) —
     # `IdunBattleLogic.Entities.Abilities.Triggered.Loki.ModifiedExoarmourAbility$$CreateBehaviour`
     # = `AddEffect(0x607) & AddEffect(0x608)` : les DEUX effets sont poses sur le porteur a l'init.

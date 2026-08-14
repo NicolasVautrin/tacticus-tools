@@ -60,7 +60,7 @@ blackSmnTerminator	BlackLegion	Chaos	None	trait	Summon		1
 blackSmnTerminator	BlackLegion	Chaos	None	trait	LetTheGalaxyBurn		1	
 blackSmnTerminator	BlackLegion	Chaos	None	trait	TeleportStrike		1	
 blackSmnTerminator	BlackLegion	Chaos	None	trait	TerminatorArmour		1	
-bloodSmnIntercessor	BloodAngels	Imperial	None	passif	RedThirst		0	
+bloodSmnIntercessor	BloodAngels	Imperial	None	passif	RedThirst		1	
 bloodSmnIntercessor	BloodAngels	Imperial	None	trait	Summon		1	
 bloodSmnIntercessor	BloodAngels	Imperial	None	trait	Flying		1	
 bloodSmnIntercessor	BloodAngels	Imperial	None	trait	RapidAssault		1	
@@ -80,7 +80,7 @@ darkaSmnWatcher	DarkAngels	Imperial	None	passif	WatchedOver		0
 darkaSmnWatcher	DarkAngels	Imperial	None	trait	Summon		1	
 darkaSmnWatcher	DarkAngels	Imperial	None	trait	Immune		1	
 darkaSmnWatcher	DarkAngels	Imperial	None	trait	PermaDeath		1	
-deathPoxwalker	DeathGuard	Chaos	None	passif	CursedOfTheWalkingPox		0	
+deathPoxwalker	DeathGuard	Chaos	None	passif	CursedOfTheWalkingPox		1	
 deathPoxwalker	DeathGuard	Chaos	None	trait	Summon		1	
 deathPoxwalker	DeathGuard	Chaos	None	trait	ContagionsOfNurgle		1	
 deathSmnNurglings	DeathGuard	Chaos	None	passif	MischiefMakers		0	

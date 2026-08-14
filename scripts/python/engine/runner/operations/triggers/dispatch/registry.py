@@ -254,6 +254,7 @@ from ..loki.reactivate_overwatch import (EarlyWarningOverrideReactivateOverwatch
 from ..loki.cosmic_horror import (CosmicHorrorOnKillAbility,           # passif genesPatriarch (GS Cults)
                                  CosmicHorrorOnMoveAbility)
 from ..loki.possession import PossessionSummonOnKillAbility            # #955 (passif blackPossession)
+from ..loki.cursed_of_the_walking_pox import CursedOfTheWalkingPoxSummonAbility   # passif deathPoxwalker
 from ..loki.summary_execution import SummaryExecutionAbility           # #955 (passif astraYarrick)
 from ..loki.spiritual_leader import SpiritualLeaderAbility             # passif genesMagus (GS Cults)
 from ..loki.barbed_ovipositor import BarbedOvipositorSummonAbility     # passif tyranParasite (Tyranids)
@@ -733,6 +734,20 @@ ABILITY_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
     # playbook -- les classes `AttemptedPossession*` sont celles de l'ACTIVE 1101 de `thousSorcerer`.
     # Cf. loki/possession.py + docs/rl/case-955-summary-execution-et-possession.md.
     "Possession": [PossessionSummonOnKillAbility],
+    # CursedOfTheWalkingPox (passif du SUMMON `deathPoxwalker` << Poxwalker >> et du npc
+    # `deathNpc1Poxwalker`, `TriggeredAbilityType` 0x430 = 1072 -- l'ordinal 1072 d'`ActiveAbilityType`
+    # nomme AUTRE CHOSE, `MyWillBeDone`). TROISIEME consommateur porte d'`On(0x35 = PostUnitKill)`,
+    # et le 3e des quatre que `case-462-r4b-r1-r1-r1-r1-c-r3-r1-r4` SS3 recense :
+    #   `On(0x35) & OwnerIsActor & AreEnemies(Owner, Target) & IsDead(Target)
+    #    & NOT TriggeringAbilityIs(<self>) & IsCanAddUnit(Target) & NOT IsObjectOrSteppable(Target)
+    #    & NOT HasTrait(Target, 0x5 = Mechanical)`
+    # -> `Spawn(Owner, First(CanAddUnit(TargetTiles@+0x78), 1), UnitIdFromUnit(Owner),
+    #           CopyOwner(abilityState){+0x40 = UnitOverrideType.Summon, +0x48 = true})`.
+    # ⚠ `UnitIdFromUnit(Owner)` + `CopyOwner` (et non `GetStringConstant`/`WithStatsFromConfig`) :
+    # le gameconfig de cette ability est VIDE, le summon est un CLONE du porteur. Le passif est donc
+    # RECURSIF -- le Poxwalker pose porte le meme kit.
+    # Cf. loki/cursed_of_the_walking_pox.py.
+    "CursedOfTheWalkingPox": [CursedOfTheWalkingPoxSummonAbility],
     # SummaryExecution (passif `astraYarrick` << Yarrick >>, `TriggeredAbilityType` 0x409 = 1033),
     # #955 : `NOT HasEffect(Owner, 0x407 = SummaryExecution_Effect, false, 6) & On(0x33 =
     # PreUnitFled, ownerAlive) & AreFriends(Owner, Actor) & TriggeringAbilityIs(0x401 =

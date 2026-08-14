@@ -248,6 +248,18 @@ POSE_VECTOR: dict[str, tuple[str, str, str, str]] = {
         "init", "sim",
         "IdunBattle.Entities.Abilities.AOwnerEffectTriggeredAbility$$CreateBehaviour",
         "HealthPct <= healthPct"),
+    # #1049 -- `1322 RedThirst_ExtraDamageAndHit` (passif du summon `bloodSmnIntercessor`).
+    # `IdunBattleLogic.Entities.Abilities.Triggered.Loki.RedThirstAbility` derive
+    # d'`AOwnerEffectTriggeredAbility` (`frida/classes.tsv`) et n'en surcharge QUE `$$GetEffectType`,
+    # dont le corps ENTIER est `return 0x52a` : MEME vecteur de pose EXACT que
+    # `HammerOfWrath_ConditionalDamage` juste au-dessus, et MEME condition (`HealthPctIsBelowOrEqual`
+    # sur `ConfigConst(0x4f = healthPct)`, ici 50 %). Le seed offline est
+    # `ABILITY_INIT_OWNER_EFFECTS["RedThirst"]`.
+    "RedThirst_ExtraDamageAndHit": (
+        "init", "sim",
+        "IdunBattle.Entities.Abilities.AOwnerEffectTriggeredAbility$$CreateBehaviour"
+        " (RedThirstAbility)",
+        "HealthPct <= healthPct"),
     # #1015-r1 -- `1235 InstinctiveBehaviour_BlockMovement`, l'owner-effet du trait
     # `InstinctiveBehaviour` (UnitTrait 0x7e5 = 2021, 23 porteurs : 18 npc + 5 summons Tyranides).
     # Les TROIS etages sont LUS au decompile `rnca9r7q6c` :

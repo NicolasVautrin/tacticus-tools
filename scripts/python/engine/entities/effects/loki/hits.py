@@ -1777,6 +1777,135 @@ class UnstoppableFerocityOwnerEffect(BaseEffect):
         return for_addition(True, int(n)) if n else None
 
 
+class RedThirstExtraDamageAndHitEffect(BaseEffect):
+    """`RedThirst_ExtraDamageAndHit` (effet 0x52a = 1322) -- owner-effect PERMANENT du summon
+    `bloodSmnIntercessor` << Jump Pack Intercessor >> (et du npc `bloodNpc1Intercessor`), qui porte
+    le passif `RedThirst` (`TriggeredAbilityType` 0x4e1 = 1249). DEUX canaux distincts sous UNE
+    active-condition de PV.
+
+    i2 : « If this unit is at or below {healthPct}% Health, it gains +{extraDmg} Damage and scores
+    +{extraHit} hit when charging. »
+
+    POSE -- `IdunBattleLogic.Entities.Abilities.Triggered.Loki.RedThirstAbility` a pour parent
+    `IdunBattle.Entities.Abilities.AOwnerEffectTriggeredAbility` (`frida/classes.tsv`) et n'override
+    QUE `$$GetEffectType`, dont le corps ENTIER est `return 0x52a` : l'appariement ability -> effet
+    est LU, pas devine. Le reste vient de la base (`CreateTrigger =
+    OnOwnerSpecificAbilityInit(this.AbilityType)`, `CreateBehaviour = If(CreateCondition(...),
+    AddEffect(GetEffectType(), AbilityState(Owner), source = Owner, targets = Owner,
+    options = <Nullable ZERO>))`) -- owner-effect PERMANENT pose a l'init, exactement le patron
+    `ToughToKill` / `Vitarus` / `HammerOfWrath`. Cote port : `factory.ABILITY_INIT_OWNER_EFFECTS
+    ["RedThirst"]`.
+
+    `IdunBattle.Entities.Effects.Loki.RedThirst_ExtraDamageAndHitEffect$$.ctor` =
+    `BaseEffect(AbilityOrEffect(<0x4e1>), hasAutomaticActivation = 1)` -- les trois corps ci-dessous
+    lisent donc TOUS la config de l'ability `RedThirst`.
+
+    ## ACTIVE-CONDITION -- `..._ExtraDamageAndHitEffect$$CreateActiveCondition`
+
+        HealthPctIsBelowOrEqual( Owner@<DSLSelectors+0x30>,
+                                 ConfigConst(0x4e1 = RedThirst,
+                                             Owner@<DSLSelectors+0x30>,
+                                             AbilityConstantType.healthPct = 0x4f) )
+
+    `IdunBattleLogic.Entities.DSLTriggers$$HealthPctIsBelowOrEqual(unit, percentage)` alloue un
+    `IdunBattle.Entities.Conditions.StatPercentageIsBelowOrEqualAbilityTrigger` sur la stat
+    **5 = HEALTH** -> `(current / max) <= (healthPct / 100)` en Fix64. `healthPct` =
+    `gameconfig.ability("RedThirst").constants["healthPct"]` = **50**. MEME noeud, MEME cle et MEME
+    comparaison entiere exacte que `HammerOfWrathConditionalDamageEffect` (`loki/status.py`) : pour
+    des PV entiers la division Fix64 ne bascule jamais autrement, et l'egalite au bord
+    (`2*current == max`) est rendue `0.5` exact -> `<=` VRAI.
+
+    PAS d'`active_condition_ported`, et c'est le regime des **13** classes qui surchargent
+    `is_active` : `refresh_effects.py::refresh_stat_modifier_effects` re-ecrit `e.active` depuis
+    `is_active(...)` pour toute classe qui surcharge la methode, et `EffectsState.active_effects`
+    lit la CONJONCTION `e.active and e.is_active(unit_state)`. L'instance seedee nait `active = True`
+    (`BaseEffect.active`), donc c'est bien la condition portee qui tranche des le premier tour.
+
+    ## CANAL DEGAT -- `..._ExtraDamageAndHitEffect$$CreateEffectDamageBonusForAttack`
+
+        EffectBonus.ForAddition( get_OwnerIsCaster,
+                                 ConfigVar(0x4e1 = RedThirst, Owner@<DSLSelectors+0x30>,
+                                           AbilityVariableType.extraDmg = 8) )
+
+    **UN SEUL noeud de trigger** : ni `IsCharging`, ni `IsMeleeAttack`, ni `IsNormalAttack` -- le
+    bonus de degat vaut pour TOUTE attaque du porteur des que l'active-condition tient. La prose i2
+    (« gains +extraDmg Damage and scores +extraHit hit **when charging** ») rattache la charge aux
+    DEUX termes ; le decompile ne la met que sur le second, et c'est le decompile qui fait foi.
+    `get_OwnerIsCaster` est RENDU PAR LE CANAL (`_attacker_effect_bonuses` n'itere que les effets de
+    l'ATTAQUANT) -- l'appeler ici fermerait le gate a tort, les cles `owner_id`/`att_id` n'etant
+    posees que par les agregateurs CRIT.
+
+    ## CANAL COUPS -- `..._ExtraDamageAndHitEffect$$CreateEffectHitsBonusForAttack`
+
+        EffectBonus.ForAddition( get_OwnerIsCaster & IsCharging(Owner@<DSLSelectors+0x30>,
+                                                                Target@<DSLSelectors+0x60>),
+                                 ConfigConst(0x4e1 = RedThirst, Owner@<DSLSelectors+0x30>,
+                                             AbilityConstantType.extraHit = 0x2b) )
+
+    Calque strict de `UnstoppableFerocityOwnerEffect` (1032) et de `SagaOfTheWarriorBornOwnerEffect`
+    (1223) ci-dessus : DEUX noeuds, aucun `IsNormalAttack`, aucun `IsMeleeAttack`. Gate = le FOYER
+    PARTAGE `effects/base.py::is_charging_attack`, alimente par `engine/battle_query.py::is_charging`
+    (`AreEntitiesAdjacent(caster, target) && UnitComponent.ChargedUnitIds@+0x190.Contains(target.Id)`)
+    -- cote COMBAT via `runner/damage_model.py::build_hits_board`, cote PREDICTION via
+    `playbook/prediction/normal_attack.py`. Ce n'est PAS `HasFlag(UnitFlag.Moved)`.
+    C'est l'entree #8 de l'inventaire d'`IsCharging` (`docs/rl/case-ischarging-hits-channel.md` SS2),
+    la derniere du canal COUPS a etre restee « absente (canal absent) ».
+
+    ## MAGNITUDES -- une VARIABLE et une CONSTANTE, et la difference est LUE
+    * `extraDmg` = `ConfigVar` (`AbilityVariableType` 8) -> indexee par le niveau de l'ability
+      SOURCE, et **listee dans `variablesAffectedByRarityBonus`** du gameconfig de `RedThirst` ->
+      scalee par le multiplier de rarete (`ability_var(..., multiplier_pct=...)` applique la regle
+      par-config, il ne la devine pas).
+    * `extraHit` = `ConfigConst` (`AbilityConstantType` 0x2b) -> **1**, ni indexee par niveau ni
+      scalable, exactement comme chez `UnstoppableFerocity` et `PowerTrip_FullHealth`.
+
+    NIVEAU : `RedThirst` est un PASSIF -> cascade `ability_level` puis repli `level`, la meme que
+    `SagaOfTheWarriorBornOwnerEffect`. `engine.entities.effects_state.baked_ability_state` fait que
+    ces champs portent l'etat de la SOURCE de l'effet (#382) ; ici porteur == source (l'owner-effect
+    est pose sur son propre porteur), donc l'ecart y est INOBSERVABLE.
+
+    NON COUVERT, nomme : le `CreateTargetSelector` de la classe n'existe pas (elle ne declare que le
+    `.ctor` et les trois corps ci-dessus dans les tables) -- l'effet est un SELF-effect strict, pas
+    une aura."""
+
+    def is_active(self, unit_state: "Mapping | None" = None) -> bool:
+        """`CreateActiveCondition` : `HealthPct(Owner) <= GetNumberConstant(0x4f = healthPct)`.
+        `unit_state` = `{hp, max_hp}` (convention `PowerTripFullHealthEffect` /
+        `AnvilShieldBlockChanceBelowHealthCapEffect` / `HammerOfWrathConditionalDamageEffect`).
+        PV non captes -> True (degradation fidele : on ne masque pas l'effet a tort)."""
+        s = unit_state or {}
+        hp, mx = s.get("hp"), s.get("max_hp")
+        pct = ability_var("RedThirst", "healthPct", is_constant=True)   # GetNumberConstant(0x4f) = 50
+        if hp is None or mx is None or not mx or pct is None:
+            return True
+        return 100 * int(hp) <= int(pct) * int(mx)
+
+    def create_effect_damage_bonus_for_attack(self, is_ranged: "bool | None" = None,
+                                              has_moved: "bool | None" = None,
+                                              target_traits: "frozenset[str] | None" = None,
+                                              is_prediction: bool = False,
+                                              is_normal_attack: "bool | None" = True,
+                                              target_armor_reduced: "bool | None" = None,
+                                              att_ctx=None) -> EffectBonus | None:
+        # `ForAddition(get_OwnerIsCaster, ConfigVar(8 = extraDmg))` -- UN SEUL noeud de trigger, et
+        # il est rendu par le canal (balayage restreint aux effets de l'ATTAQUANT). AUCUN
+        # `IsCharging` ici : la charge ne gate que le canal COUPS (cf. docstring de classe).
+        lvl = self.ability_level if self.ability_level is not None else self.level
+        v = ability_var("RedThirst", "extraDmg", lvl,
+                        multiplier_pct=self.ability_variables_multiplier)   # ConfigVar 8
+        return for_addition(True, int(v)) if v else None
+
+    def create_effect_hits_bonus_for_attack(self, is_normal_attack: bool = True,
+                                            att_ctx: "Mapping | None" = None) -> EffectBonus | None:
+        # IsCharging (IdunBattleLogic.Entities.DSLTriggers$$IsCharging -> BattleQuery$$IsCharging).
+        # PAS de gate is_normal_attack / is_melee : le decompile n'a QUE ces deux noeuds.
+        if not is_charging_attack(att_ctx):
+            return None
+        n = ability_var("RedThirst", "extraHit",
+                        is_constant=True)          # GetNumberConstant(config, 0x2b) = 1
+        return for_addition(True, int(n)) if n else None
+
+
 class PowerTripFullHealthEffect(BaseEffect):
     """`PowerTrip_FullHealthEffect` — axe COUPS (hits), actif SSI PV pleins.
     - hits IdunBattle.Entities.Effects.Loki.PowerTrip_FullHealthEffect$$CreateEffectHitsBonusForAttack : `ForAddition(ConfigConst key 0x2b)` = constante `extraHit` de l'ability PowerTrip (=1).

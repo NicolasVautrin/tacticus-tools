@@ -676,6 +676,93 @@ def _spawn_config_grot(state: State, visual_id: str, tile, summon_ability: str,
     return e.id
 
 
+#: Les stats que `IdunBattle.Entities.Behaviours.SpawnUnitOptions$$CopyOwner` recopie du parent --
+#: LUES au decompile (#1049) : le corps empile CINQ `StatModifierFormula(StatAmount(
+#: Owner@<DSLSelectors+0x30>, <StatType>, StatPart.Current = 3))` dans la liste
+#: `SpawnUnitOptions+0x28`, DANS CET ORDRE : `5 = Health`, `0x10 = FixedArmor`, `0 = Attack`,
+#: `1 = Movement`, `0x14 = **NumberOfMembers**`.
+#: ⚠ Le cinquieme etait ecrit `20` sans nom dans la docstring d'`execute_self_replica` ; il est
+#: NOMME ici. Il n'est PAS dans la liste ci-dessous, et c'est SANS EFFET : `number_of_members` est
+#: un CHAMP PLAT d'`entities/unit_context.py::UnitContext` (l. 42), donc le `dataclasses.replace`
+#: du clone le recopie deja. L'ajouter a la liste ne changerait qu'une representation.
+#: Les stats NON recopiees par le natif (crit/block/percage) viennent de la config de base ; comme
+#: le clone porte le MEME `visualId` que son parent, elles sont identiques -> le port clone le
+#: `UnitContext` entier et n'a pas a distinguer. Les sept cles supplementaires ci-dessous sont donc
+#: SANS EFFET sur le resultat, et elles sont conservees telles quelles depuis #366-r1 (le percage,
+#: notamment, est devenu une propriete adossee a `stats` : sans clonage explicite le clone le
+#: PERDRAIT).
+_COPY_OWNER_STATS = (StatType.ATTACK, StatType.MOVEMENT, StatType.HEALTH, StatType.FIXED_ARMOR,
+                     StatType.CRIT_CHANCE, StatType.CRIT_DAMAGE, StatType.BLOCK_CHANCE,
+                     StatType.BLOCK_DAMAGE, StatType.EXTRA_HITS,
+                     StatType.EXTRA_PIERCE, StatType.EXTRA_PIERCE_MELEE,
+                     StatType.EXTRA_PIERCE_RANGED)
+
+
+def _spawn_copy_owner_at_tile(state: State, parent_id: int, tile, visual_id: str,
+                              link_parent: bool = False) -> Optional[int]:
+    """FOYER UNIQUE de `IdunBattle.Entities.Behaviours.SpawnUnitOptions$$CopyOwner(dsl, abilityState)`
+    -- pose UNE unite `visual_id` sur `tile` (id de tuile) avec l'OWNER et les STATS du parent.
+
+    `CopyOwner`, lu verbatim : cinq `StatModifierFormula(StatAmount(Owner@<DSLSelectors+0x30>,
+    <StatType>, StatPart.Current = 3))` (cf. `_COPY_OWNER_STATS`) puis
+    `CreateSpawnOptions(abilityState, null, null, null)` -- **PAS de `WithStatsFromConfig`**, donc
+    aucune variable `summon*` n'est lue : c'est ce qui distingue ce chemin de `_spawn_config_grot`.
+    Une ability sans constantes `summon*` (`CursedOfTheWalkingPox` n'a NI constante NI variable dans
+    le gameconfig) ne peut passer QUE par ici.
+
+    case-spawn-requires-tile -- **AUCUNE entite n'est creee sans tuile** : `SpawnUnitBehaviour$$
+    Execute` n'atteint `AddUnitOperation$$Execute` que DEPUIS une tuile iteree. `tile is None`, ou un
+    id que le board ne resout pas, rend `None` AVANT le `state.add_entity()`.
+
+    `link_parent` = le 1er argument natif de `IdunBattleLogic.Entities.DSLBehaviors$$Spawn`, qui est
+    le PARENT du summon (`Unit_Parent_Id`, ce que lisent `Parent(Self)` et `Children(caster)`).
+    ⚠ **`execute_self_replica` le laisse a `False`, et c'est un ECART PREEXISTANT, pas un choix de
+    cette tranche** : le natif y passe `self@0x160` en parent tout comme ici. Le corriger changerait
+    ce que `Children`/`Parent` rendent pour `necroSmnSwarm` -- hors perimetre, nomme ici.
+
+    ⚠ **PAS de `_seed_ability_owner_effects` ni de `_kill_steppable_units`** : ce foyer reproduit
+    EXACTEMENT ce que faisait `execute_self_replica` avant l'extraction, pour que le refactor soit
+    value-preserving. Les deux manques sont donc PREEXISTANTS et partages par les deux call-sites ;
+    le second est inerte quand la tuile vient d'un `CanAddUnit` (une tuile occupee par un
+    `Steppable` VIVANT n'y est pas libre, `allowSteppable` etant faux au call-site de
+    `CursedOfTheWalkingPox`)."""
+    from dataclasses import replace as _dc_replace
+    parent = state.get_entity(parent_id)
+    if parent is None:
+        return None
+    coc = parent.get_component(OwnerComponent)
+    csc = parent.get_component(StatsComponent)
+    c_ctx = csc.ctx if csc is not None else None
+    if coc is None or c_ctx is None:
+        return None
+    board = state.board
+    tinfo = board.by_id.get(tile) if (tile is not None and board is not None) else None
+    if tinfo is None:
+        return None                  # (case-spawn-requires-tile)
+    mult = int(getattr(c_ctx, "ability_variables_multiplier", 100) or 100)
+    e = state.add_entity()
+    e.add_component(UnitComponent(visual_id=visual_id, alive=True, ai_controlled=True,
+                                  parent_id=(int(parent_id) if link_parent else None)))
+    e.add_component(OwnerComponent(team=coc.team, player=coc.player))       # CopyOwner (owner)
+    rep_stats = UnitStats()                          # CopyOwner (stats) : clone identite du parent
+    for st in _COPY_OWNER_STATS:
+        rep_stats.ensure_seeded(int(st), c_ctx.get_stat(int(st), 0))
+    ctx = _dc_replace(c_ctx, entity_id=e.id, stats=rep_stats)
+    e.add_component(StatsComponent(ctx=ctx))
+    e.add_component(HealthComponent(hp=ctx.health, hp_max=ctx.health))
+    _seed_trait_owner_effects(state, e.id, ctx.traits, mult)
+    _seed_derived_ability_owner_effects(state, e.id, ctx.traits, mult)
+    e.add_component(PositionComponent(col=tinfo["col"], row=tinfo["row"]))
+    on_unit_added(state, e.id)       # `On(UnitAdded)` — APRES la pose
+    # #291 `SpawnUnitBehaviour$$TriggerSpawnedUnitBehaviours` : FinishUnitTurn(spawned, terminated),
+    # sauf `Steppable`/`Hero`. ⚠ Le champ `SpawnUnitOptions+0x48` (`Nullable<bool>`) OVERRIDE ce
+    # calcul quand il a une valeur -- `CursedOfTheWalkingPoxAbility$$CreateBehaviour` y pose
+    # explicitement `true`. Le foyer n'expose pas cet override et n'en a PAS besoin ici : le
+    # Poxwalker n'est ni `Steppable` ni `Hero`, donc le calcul par defaut rend deja `true`.
+    trigger_spawned_unit_finish_turn(state, e.id)
+    return e.id
+
+
 def on_unit_added(state: State, unit_id: Optional[int]) -> list:
     """VECTEUR `On(UnitAdded = 0x32)` — mirror du point d'emission natif (`AddUnitOperation`) : une
     unite vient d'ENTRER en bataille, les triggers qui ecoutent cet evenement s'executent MAINTENANT,
@@ -1029,50 +1116,49 @@ class SpawnUnitOperation:
         ne se dedouble PAS -- il ne produit pas un clone hors plateau. `_pick_randomly_one` sur un pool
         VIDE consomme **zero tirage** (`PickRandomAmountSelector$$Select` sort sur `candidates.Count <
         1`, cf. sa docstring), donc s'arreter la ne decale AUCUN flux RNG."""
-        from dataclasses import replace as _dc_replace
         caster = state.get_entity(caster_id)
         if caster is None:
             return []
         coc = caster.get_component(OwnerComponent)
         csc = caster.get_component(StatsComponent)
-        c_ctx = csc.ctx if csc is not None else None
-        if coc is None or c_ctx is None:
+        if coc is None or (csc.ctx if csc is not None else None) is None:
             return []
-        mult = int(getattr(c_ctx, "ability_variables_multiplier", 100) or 100)
-        clone_stats = (StatType.ATTACK, StatType.MOVEMENT, StatType.HEALTH, StatType.FIXED_ARMOR,
-                       StatType.CRIT_CHANCE, StatType.CRIT_DAMAGE, StatType.BLOCK_CHANCE,
-                       StatType.BLOCK_DAMAGE, StatType.EXTRA_HITS,
-                       # PERCAGE (case-366-r1) : ces trois etaient des CHAMPS PLATS de `UnitContext`, donc
-                       # recopies par le `replace` ci-dessous ; ce sont maintenant des proprietes adossees a
-                       # `stats` -> il faut les cloner explicitement, sinon le clone perd le percage du parent.
-                       StatType.EXTRA_PIERCE, StatType.EXTRA_PIERCE_MELEE, StatType.EXTRA_PIERCE_RANGED)
         spawned: list = []
         chosen: set = set()
-        board = state.board
         for _ in range(max(0, int(count))):
             tiles = _free_tiles_adjacent(state, caster_id, chosen)   # adjacent au CASTER (self@0x160)
             # `PickRandomly(CanAddUnit(AdjacentTiles(self@0x160)), 1, …)` : 1 tirage MEME a pool=1.
             tile = _pick_randomly_one(state, tiles)
-            tinfo = board.by_id.get(tile) if (tile is not None and board is not None) else None
-            if tinfo is None:
+            gid = _spawn_copy_owner_at_tile(state, caster_id, tile, visual_id)
+            if gid is None:
                 break                    # (case-spawn-requires-tile) pas de tuile iteree -> pas d'entite, pas d'evenement
-            e = state.add_entity()
-            e.add_component(UnitComponent(visual_id=visual_id, alive=True, ai_controlled=True))
-            e.add_component(OwnerComponent(team=coc.team, player=coc.player))       # CopyOwner (owner)
-            rep_stats = UnitStats()                              # CopyOwner (stats) : clone identité du parent
-            for st in clone_stats:
-                rep_stats.ensure_seeded(int(st), c_ctx.get_stat(int(st), 0))
-            ctx = _dc_replace(c_ctx, entity_id=e.id, stats=rep_stats)
-            e.add_component(StatsComponent(ctx=ctx))
-            e.add_component(HealthComponent(hp=ctx.health, hp_max=ctx.health))
-            _seed_trait_owner_effects(state, e.id, ctx.traits, mult)
-            _seed_derived_ability_owner_effects(state, e.id, ctx.traits, mult)
-            e.add_component(PositionComponent(col=tinfo["col"], row=tinfo["row"]))
             chosen.add(tile)
-            on_unit_added(state, e.id)   # `On(UnitAdded)` — APRES la pose
-            trigger_spawned_unit_finish_turn(state, e.id)   # #291 FinishUnitTurn(spawned, terminated)
-            spawned.append(e.id)
+            spawned.append(gid)
         return spawned
+
+    @staticmethod
+    def execute_copy_owner_on_tiles(state: State, owner_id: int, tiles, visual_id: str) -> list:
+        """`IdunBattleLogic.Entities.DSLBehaviors$$Spawn(parent, tiles, unitId, options)` avec
+        `options = SpawnUnitOptions$$CopyOwner(dsl, abilityState)` et un TILE-SELECTEUR fourni par
+        l'APPELANT (deja evalue) -- la branche `SpawnUnitOptions+0x60 == 0` de
+        `IdunBattle.Entities.Behaviours.SpawnUnitBehaviour$$Execute` : **UNE unite PAR tuile iteree**.
+
+        Distinct d'`execute_self_replica` juste au-dessus par le seul TILE-SELECTEUR : celui-la
+        l'inline (`PickRandomly(CanAddUnit(AdjacentTiles(self)))`, avec son tirage RNG), celui-ci le
+        recoit. Les DEUX partagent le foyer `_spawn_copy_owner_at_tile` (= `CopyOwner`), donc le
+        clone d'owner et de stats est ecrit UNE fois.
+
+        Consommateur : `IdunBattleLogic.Entities.Abilities.Active.Loki.
+        CursedOfTheWalkingPoxAbility$$CreateBehaviour` (`triggers/loki/cursed_of_the_walking_pox.py`),
+        dont le selecteur est `First(CanAddUnit(TargetTiles@<DSLSelectors+0x78>), 1)` -- **aucun
+        tirage aleatoire**, donc aucun flux RNG consomme ici.
+
+        `link_parent=True` : le 1er argument natif de `Spawn` est `Owner@<DSLSelectors+0x30>`, le
+        PARENT du summon (`Unit_Parent_Id`). Cf. la note d'`_spawn_copy_owner_at_tile`."""
+        return [gid for gid in
+                (_spawn_copy_owner_at_tile(state, owner_id, t, visual_id, link_parent=True)
+                 for t in (tiles or []))
+                if gid is not None]
 
     @staticmethod
     def execute_pilein_replica(state: State, parent_id: int) -> list:
