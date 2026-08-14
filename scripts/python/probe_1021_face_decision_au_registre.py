@@ -190,9 +190,11 @@ DETTE: dict[int, tuple[str, str]] = {
            "MacroPlasmaIncineratorPlaybook -- EvaluateNonComparable. COMBAT : "
            "MacroPlasmaIncineratorAbility (ultramarines). 2 porteurs (lineup, npc). Sa CLASSE est "
            "deja citee dans `docs/rl/backlog.md`."),
-    1168: ("SANS_VERDICT",
-           "EntropyCannonsPlaybook -- MakeDamagePredictions. COMBAT : EntropyCannonsAbility "
-           "(deathguard). 2 porteurs (lineup, npc)."),
+    # 1168 `EntropyCannons` -- TRANCHE par #970-r3, ligne RETIREE : attestation `RIEN_A_PORTER` au
+    # ledger (son `MakeDamagePredictions` est la forme CANONIQUE -- `h_body` IDENTIQUE a celui de
+    # `LashOfTorment`, deja attestee, et de `MightFromBelow`). Le retrait est ce qui la fait tomber
+    # sous le CRAN A : si l'attestation perime, l'item rougit au lieu d'etre couvert par une
+    # vieille ligne de dette.
     1170: ("SANS_VERDICT",
            "ExplosivePresentsPlaybook -- MakeDamagePredictions. COMBAT : ExplosivePresentsAbility "
            "(orks). 1 porteur (npc)."),
@@ -208,9 +210,10 @@ DETTE: dict[int, tuple[str, str]] = {
            "tauBossRiptide). L'utilite du corps natif est `100 * CountEnemiesOnTiles(GetLineTiles) "
            "+ Count(GetLineTiles)` -- elle REUTILISE `NovaChargeAbility$$GetLineTiles`, que la "
            "face COMBAT vient de porter (`tau.nova_charge_line_tiles`) ; residu #1032-r1."),
-    1200: ("SANS_VERDICT",
-           "SquigLaunchasPlaybook -- EvaluateNonComparable. COMBAT : SquigLaunchasAbility (orks). "
-           "2 porteurs (lineup, npc). Sa CLASSE est deja citee dans `docs/rl/backlog.md`."),
+    # 1200 `SquigLaunchas` -- TRANCHE par #970-r3, ligne RETIREE : sa face DECISION est PORTEE
+    # (`engine/playbook/noncomparable/squig_launchas.py`, registre `PLAYBOOKS`). Le retrait est ce
+    # qui la fait tomber sous le CRAN A -- si le port disparaissait, l'item rougirait au lieu
+    # d'etre couvert par une vieille ligne de dette.
     1211: ("SANS_VERDICT",
            "RitesOfMorkaiPlaybook -- EvaluateNonComparable, ShouldEvaluate. COMBAT : "
            "RitesOfMorkaiAbility (spacewolves). 1 porteur (lineup). Sa CLASSE est deja citee dans "
