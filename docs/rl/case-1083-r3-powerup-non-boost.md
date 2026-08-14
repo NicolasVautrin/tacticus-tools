@@ -4,13 +4,26 @@
 familles structurelles** que le decompile tranche sans ambiguite, et **trois d'entre eux ecrivent
 dans un composant que nos batailles ne portent pas**.
 
-> ⚠ **TOUTE la RE de cette fiche a ete faite contre le build `rnca9r7q6c`**, avant la mise a jour du
-> jeu du 2026-08-14. Les **symboles** et les **structures** survivent a ~97,5 % d'un build a l'autre,
-> mais **les ordinaux d'enum sont regeneres a chaque build** et une confusion d'ordinal est
-> SILENCIEUSE. Tout appariement par ordinal cite ici (`0x12`, `0x13`, `0x16`, `0x50`, `0xc`, `0xd`,
-> `3`, `0`/`4`) est donc **A RE-CONFIRMER** contre `data/symbols/<nouveau-hash>/frida/enums.tsv`
-> avant d'etre traite comme un fait. Les ports ecrits par cette tranche passent tous par un membre
-> d'enum NOMME, jamais par l'ordinal — c'est precisement ce qui rend la re-verification mecanique.
+> ⚠ **DEUX BUILDS SONT EN JEU DANS CETTE FICHE, et il faut les tenir separes.**
+>
+> Les **corps decompiles** (§2) ont ete lus contre **`rnca9r7q6c`**, avant la mise a jour du jeu du
+> 2026-08-14. Les **confrontations live** (§5) ont ete jouees contre **`t6dpr4k06g`**, apres.
+>
+> Ce qui a ete **RE-CONFIRME** contre `t6dpr4k06g`, table en main
+> (`data/symbols/t6dpr4k06g/frida/{methods,enums}.tsv`, refaites et estampillees par le sha256 du
+> binaire courant) : les **ordinaux** (`TriggeredAbilityType` 1266/1269/1272/1273/1282/1320,
+> `PlayerType` 0=Human/4=HumanAI, `AbilityConstantType` `0x13`/`0x16`/`0x45`/`0x50`,
+> `AbilityVariableType` `0xc`/`0xd`, `UnitSelectionType` 3, `DamageProfileType` 18=Blast) et les
+> **signatures** (`ResetActiveAbility(units, allowUseless)`, `Heal(healer, selector, amount,
+> options)`, `Repair(mechanic, selector, amount, source, options)`, `IsMechanical(unit,
+> selectionType)`, ainsi que l'existence des six classes et de leurs vslots). **Aucun enum n'a ete
+> renumerote** par cette mise a jour — le mode d'echec le plus dangereux d'une MAJ est donc ecarte.
+>
+> Ce qui **N'A PAS** pu etre re-verifie : les **CORPS** eux-memes. `mcp__ghidra__*` sert encore
+> `rnca9r7q6c` (import du nouveau binaire en cours au moment de la redaction). Un corps qui aurait
+> change entre les deux builds ne se verrait donc PAS ici — sauf par la confrontation live, qui est
+> justement ce qui valide les deux mecaniques portees : elles sont mesurees d'accord **sur le build
+> courant**. Les quatre non portees n'ont pas ce filet ; leur §2 reste date `rnca9r7q6c`.
 
 ## 1. La partition, LUE et non supposee
 
@@ -222,10 +235,93 @@ usages homonymes de la meme cle, dans le meme lot — l'ordinal ne les distingue
 | `AddReinforcementPoint`, `AddResurrectDraftPoint` | **ABSENTS** |
 | `Do` (lambda) | **ABSENT** |
 
-## 5. Etat de la tranche
+## 5. Verdict par mecanique
 
-RE **complete** pour les six. Portage et confrontation live : en cours — la fenetre DRAIN du
-2026-08-14 (capteurs #1091) a suspendu toute creation de runner au moment ou cette RE s'achevait.
+| mecanique | porte ? | confronte live ? |
+|---|---|---|
+| `PowerUp_ReactivateAbility` 1272 | **OUI** | **OUI — ACCORD**, nominal + hors-tuile |
+| `PowerUp_Healing` 1273 | **OUI** | **OUI — ACCORD**, nominal + hors-tuile |
+| `PowerUp_Bomb` 1282 | non — `BLOCAGE: seeding` | non (rien a confronter) |
+| `PowerUp_Reinforcement` 1266 | non — `BLOCAGE: etage` | non |
+| `PowerUp_ReinforcementShield` 1269 | non — `BLOCAGE: etage` | non |
+| `PowerUp_Resurrect` 1320 | non — `BLOCAGE: etage` | non |
+
+### La confrontation (`probe_1083r3_powerup_nonboost_live.py`)
+
+Build **`t6dpr4k06g`**, session 93, board `MC1_67`, ramasseur `ultraCalgar`, un runner par bras,
+tous disposes. Le port rejoue le MEME `MoveUnitMessage` depuis la MEME capture.
+
+| bras | natif | port |
+|---|---|---|
+| `healing` nominal | PV **500 -> 9537**, bouclier **0 -> 9537** | idem |
+| `healing` hors-tuile | inerte, power-up **vivant** | idem |
+| `reactivate` nominal | active `1000` **`usable` False -> True**, bouclier 0 -> 9537 | idem |
+| `reactivate` hors-tuile | desarmee au depart, **re-armee par personne** | idem |
+
+⚠ **LES DEUX MECANIQUES SONT INOBSERVABLES SUR UN RAMASSEUR AU REPOS**, et c'est ce qui a demande
+le plus de soin : un soin de 100 % des PV max rend **+0** sur une unite intacte, et re-armer une
+active deja disponible est un **no-op**. Dans les deux cas natif et port auraient rendu la meme
+chose — un accord VIDE, exactement le regime ou un port inerte passe pour juste. Le probe MONTE
+donc son temoin (`--unit-stat <hero>:RemainingHealth=500` ; consommation reelle de l'active) et
+**refuse de conclure** si le delta attendu est nul. La contre-epreuve consomme **elle aussi**
+l'active : sans ca, « rien n'a ete re-arme hors tuile » serait vrai trivialement.
+
+### Trois faux negatifs trouves en cours de route, tous par la mesure
+
+1. **Le canal natif des actives ne porte pas les cles qu'on devine.** `decisionView.units[].abilities`
+   publie `{id, name, kind, usable, cooldown}` — donc `id` et `usable`, **pas** `abilityType` ni
+   `canStillBeUsed`. La premiere version rendait `{}` cote natif pendant que le port rendait
+   `{1000: ...}` : lu tel quel, « le natif n'a aucune active ». Le lecteur mirrore desormais
+   `engine/runner/snapshot.py::_active_abilities`, pour que les deux cotes lisent LE MEME canal.
+2. **Un `applyAction` d'ability hors portee rend `ok: true`.** Avec `mutated: false`,
+   `changes: []`, `actionConsumed: false` : **rien ne s'est passe**. S'y fier laissait l'active
+   ARMEE et faisait rendre « TEMOIN DEGENERE » a un port parfaitement juste. Le discriminant est
+   **`mutated`**, jamais `ok`. La parade est structurelle : l'ennemi de consommation est place
+   ADJACENT au ramasseur (`--a-place`, qui **se repete** et n'accepte pas `;`).
+3. Rappel des deux de la tranche 1, qui restent valables ici : `Health` est une stat **fill-up**
+   (lire `UnitStats.components` rend la valeur seedee, immobile) et `decisionView` publie les
+   effets par leur **`name`**, jamais par un `type`.
+
+## 5bis. Pourquoi les QUATRE autres ne sont pas portees — mesure, pas renoncement
+
+`probe_1083r3_powerup_nonboost_substrat.py` (100 % offline, re-derivable) etablit :
+
+- **`PowerUp_Bomb` — `BLOCAGE: seeding`.** Son gate `IsHumanPlayer(OriginalOwner(Actor))` est
+  LOAD-BEARING, et il **discrimine reellement** : les trois joueurs du seed sont `PlayerType`
+  **0 (Human) / 1 (AI) / 2 (Environment)**, donc le gate est VRAI pour le seul joueur 11. La
+  donnee est dans la BC (`BC.Player.Players[].PlayerType`) — mais elle n'est **projetee nulle
+  part** cote port : ni `PlayerComponent`, ni `player_type`, ni `IsHumanPlayer` (balayage AST de
+  694 fichiers, **0 site executable**). Un port qui **omettrait** ce gate serait faux de façon
+  **PERMISSIVE** — la bombe partirait pour une equipe pilotee par l'IA, sans erreur ni crash.
+  Manquent aussi `OriginalOwner` (selecteur) et `AbilityAreaDamage` (a deplier, precedent :
+  `loki/death_nova.py`).
+- **`PowerUp_Reinforcement` / `_ReinforcementShield` / `_Resurrect` — `BLOCAGE: etage`.** Elles
+  ecrivent dans `DraftingComponent` (`+0x48` points de renfort, `+0x40` points de resurrection) et
+  `PlayerComponent` (`+0x88` bouclier de renfort). La BC **porte** les champs (`Drafting`,
+  `ReinforcementShield` sur les trois joueurs) mais **aucun lecteur porte n'existe** : la boucle
+  qui les consomme — le drafting du mode Survival — n'est pas portee. Les inscrire ferait
+  incrementer un compteur que rien ne lit.
+
+⚠ **Le probe a d'abord MENTI, et c'est ce qui l'a rendu utile.** Sa version textuelle comptait
+`TriggeredAbilityType.PowerUp_ReinforcementShield` — la **declaration du membre d'enum** — comme la
+preuve qu'un canal existait, et concluait « blocage leve ». Un nom **declare** n'est pas un
+**lecteur**. Le balayage est passe a l'AST (docstrings non visitees, membres d'enum exclus) :
+**12 sites -> 0**. Et parce que sept motifs qui rendent tous zero ne permettent pas de distinguer
+« aucun canal » d'un balayage casse, un **temoin de controle** (`current_player_id`, **34 sites**)
+doit rendre non-zero, sans quoi le probe sort en `rc 3` sans rien conclure.
+
+## 5ter. Un constat d'outillage, PREEXISTANT et hors perimetre
+
+`docs/rl/index-foyers.md` **ne projette aucun residu de la bande `#1046` et au-dela**. Mesure faite
+sur `origin/master`, sans aucun de mes commits : le lecteur de backlog rend **945 entrees** et
+s'arrete a **`#1045-r2`** ; `#1083-r1` et `#1083-r2`, pourtant ouverts et annotes `FOYER:`/
+`BLOCAGE:`, n'y figurent pas (`grep 1083 index-foyers.md` = **0**).
+
+Consequence pratique : l'index regenere apres l'ajout de `#1083-r4` et `#1083-r5` est
+**byte-identique** — le cliquet `test_603_index_foyers_offline` reste vert (6/6) et il n'y a aucun
+conflit a craindre sur ce fichier, mais **les deux residus ouverts ici sont invisibles a l'outil de
+dispatch**. Ce n'est pas un effet de cette tranche et ce n'est pas repare ici : le signaler est ce
+qui evite qu'on le decouvre en croyant l'avoir cause.
 
 ## 6. Residu deja constate, hors perimetre du portage
 
