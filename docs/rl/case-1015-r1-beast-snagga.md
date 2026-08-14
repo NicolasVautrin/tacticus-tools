@@ -112,6 +112,23 @@ borne haute 8420 → 9037 (= les PV d'`astraCreed`), soit un ratio apparent de *
 le bonus est bien de +20 % (borne basse : 3604 → 4324). Le probe **écarte** une borne clampée **en
 le disant**, plutôt que d'élargir la tolérance.
 
+### 1.5 Généralisation — quatre montages, 32 mesures
+
+| # | montage | résultat |
+|---|---|---|
+| 1 | `MC1_67` / 777 / cible `BigTarget` | ×1,1998 (borne min ; max clampée) |
+| 2 | `MC1_67` / 777 / cible **`Vehicle`** | identique — la **seconde** branche du `op_BitwiseOr` |
+| 3 | **`C1_74`** / 31337 / `BigTarget` | 6 couples, même résultat : le verdict ne tient pas à la géométrie d'UN board |
+| 4 | `MC1_67` / 777 / `--hp-cible 60000` | **les deux bornes décidables** : 12032 → 14440 (×1,20016) et 16848 → 20216 (×1,19990) |
+
+Le port rend **exactement** le natif sur les 32 mesures, dans les deux régimes.
+
+⚠ **GARDE DE MORSURE (étage 0), et elle vient d'une faute réelle.** Le premier `--hp-cible` passait
+par `--unit-stat <vis>:Health=<n>` : le build **imprime** `Health=60000`, la BC le **porte** — et
+les PV en bataille **ne bougent pas** (9037). Le probe rendait alors `VERDICT : OK` sur un montage
+qui n'avait pas mordu. Le levier qui mord est `--hp-target` ; l'étage 0 **constate** désormais les
+PV mesurés et **refuse de conclure** s'ils n'atteignent pas la valeur demandée.
+
 **Non couvert** : la **valeur** du block (`BeastSnagga_ExtraBlock`) n'est confrontée qu'en **pose**.
 Elle n'entre ni dans `dmgMin/dmgMax` (le block est un scénario séparé,
 `DamagePredictionResult` list[0]@0x50) ni dans le scalaire `GetStat(7/8)` — par construction,
@@ -165,7 +182,26 @@ C'est pourquoi (a) seul ne suffit pas, et pourquoi (b) et (c) sont citées ici.
 
 ---
 
-## 3. Ce qui n'est PAS couvert
+## 3. Le gisement que la tranche a ouvert — et refermé
+
+Ajouter un paramètre au hook de block **casse tout site qui le redéfinit ou le substitue**. Trois
+l'étaient : `tests/engine/runner/test_daemon_extra_block_live.py` (`TypeError`, **vu par la
+banque**) et **deux probes** — `probe_221_daemon_normal_attack.py`,
+`probe_brazier_daemon_offset.py` — que la banque ne joue pas, où la faute aurait dormi jusqu'au
+prochain run manuel.
+
+Les trois stubs **recopient** le paramètre plutôt que d'absorber par `**_` : un `**kwargs`
+passerait tous les contrôles et serait **pire**, puisqu'il masquerait la disparition d'un substrat
+côté agrégateur.
+
+Cran : étage 7 de `tests/engine/test_1015r1_beast_snagga_offline.py` — balayage de **tout**
+`scripts/python/**` (périmètre **dérivé**, pas de liste blanche), les trois substrats exigés
+**nommés** à chaque site, et une assertion de non-vacuité (≥ 8 sites). Contre-épreuve jouée :
+remettre un seul site à l'ancienne signature le fait rougir en le **nommant**.
+
+---
+
+## 4. Ce qui n'est PAS couvert
 
 * la **valeur** du block `BeastSnagga_ExtraBlock` en live (pose seule confrontée) — `#1015-r5` ;
 * la face **combat** du bonus de dégât : le probe confronte la **prédiction** native
