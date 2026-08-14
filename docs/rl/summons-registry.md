@@ -19,11 +19,11 @@ differe. C'est la doctrine « DECIDER != EXECUTER ».
 
 ## Bilan
 
-- Unites `summons` : **65** ; kits sans manque : **34** ; kits avec du travail : **31**
-- Actives distinctes : **16** — `[--]` **1** · `[C-]` **6** · `[CD]` **9**
+- Unites `summons` : **65** ; kits sans manque : **37** ; kits avec du travail : **28**
+- Actives distinctes : **16** — `[C-]` **6** · `[CD]` **10**
 - Passifs distincts : **47** — portes **21**, non portes **26**
 - Traits de kit distincts (AUCUN ecarte — le seuil de frequence a disparu avec #1015) :
-  **43** — couverts **41**, non couverts **2**
+  **43** — couverts **42**, non couverts **1**
 
 ## Ce que ce registre NE VOIT PAS
 
@@ -48,11 +48,9 @@ l'unite. La colonne `porteurs` dit l'exposition.
 
 | type | item | porteurs | exemples |
 |---|---|---:|---|
-| trait | InstinctiveBehaviour | 5 | tyranSmnBarbgaunt, tyranSmnHormagaunt, tyranSmnRipperSwarm |
 | passif | FlamesOfMutation | 2 | thousSmnBlueHorror, thousSmnBlueHorrorHSE |
 | passif | Split | 2 | thousSmnPinkHorror, thousSmnPinkHorrorHSE |
 | trait | TwoManTeam | 2 | astraSmnLascannon, astraSmnMortar |
-| active | PrecisionShot | 1 | necroSmnDeathmark |
 | passif | AdrenalGlands | 1 | tyranSmnHormagaunt |
 | passif | AllIsDust | 1 | thousSmnRubricMarine |
 | passif | BattleFocus | 1 | eldarSmnGuardian |
@@ -176,11 +174,11 @@ sont des **faces** absentes d'items presents.
 | votanSmnEcog | 1 | - | RepairEnthusiast | - | - |
 | votanSmnSteeljack | 0 | - | - | - | - |
 
-### Necrons — 4 unites, 1 avec du travail
+### Necrons — 4 unites, 0 avec du travail
 
 | unite | manque | actives (face) | passifs non portes | traits non couverts | autres voies |
 |---|---:|---|---|---|---|
-| necroSmnDeathmark | 1 | PrecisionShot(1015)[--] | - | - | - |
+| necroSmnDeathmark | 0 | PrecisionShot(1015)[CD] | - | - | - |
 | necroSmnDestroyer | 0 | TunnelingHorror(1011)[C-] | - | - | - |
 | necroSmnSwarm | 0 | ScarabSummon(1047)[CD] | - | - | - |
 | necroSmnWarrior | 0 | - | - | - | - |
@@ -223,15 +221,15 @@ sont des **faces** absentes d'items presents.
 | thousSmnScreamer | 0 | SlashingDive(1091)[C-] | - | - | - |
 | thousSmnScreamerHSE | 0 | SlashingDive(1091)[C-] | - | - | - |
 
-### Tyranids — 6 unites, 5 avec du travail
+### Tyranids — 6 unites, 3 avec du travail
 
 | unite | manque | actives (face) | passifs non portes | traits non couverts | autres voies |
 |---|---:|---|---|---|---|
-| tyranSmnBarbgaunt | 2 | - | SynapticInsight | InstinctiveBehaviour | - |
-| tyranSmnHormagaunt | 2 | - | AdrenalGlands | InstinctiveBehaviour | - |
-| tyranSmnTermagant | 2 | - | HailOfLivingAmmunition | InstinctiveBehaviour | - |
-| tyranSmnRipperSwarm | 1 | Burrowers(1023)[C-] | - | InstinctiveBehaviour | - |
-| tyranSmnSporeMine | 1 | - | - | InstinctiveBehaviour | - |
+| tyranSmnBarbgaunt | 1 | - | SynapticInsight | - | - |
+| tyranSmnHormagaunt | 1 | - | AdrenalGlands | - | - |
+| tyranSmnTermagant | 1 | - | HailOfLivingAmmunition | - | - |
+| tyranSmnRipperSwarm | 0 | Burrowers(1023)[C-] | - | - | - |
+| tyranSmnSporeMine | 0 | - | - | - | - |
 | tyranSmnWarrior | 0 | ScythingTalons(1065)[CD] | - | - | - |
 
 ### Ultramarines — 4 unites, 1 avec du travail

@@ -111,7 +111,7 @@ genesSmnGenestealer	Genestealers	Xenos	None	trait	Unstoppable		1
 genesSmnNeophyte	Genestealers	Xenos	None	trait	Summon		1	
 genesSmnNeophyte	Genestealers	Xenos	None	trait	Ambush		1	
 genesSmnNeophyte	Genestealers	Xenos	None	trait	BattleFatigue		1	
-necroSmnDeathmark	Necrons	Xenos	None	active	PrecisionShot	1015	0	0
+necroSmnDeathmark	Necrons	Xenos	None	active	PrecisionShot	1015	1	1
 necroSmnDeathmark	Necrons	Xenos	None	passif	ReanimationProtocols		1	
 necroSmnDeathmark	Necrons	Xenos	None	trait	Summon		1	
 necroSmnDeathmark	Necrons	Xenos	None	trait	LivingMetal		1	
@@ -214,27 +214,27 @@ thousSmnScreamerHSE	ThousandSons	Chaos	None	trait	Daemon		1
 thousSmnScreamerHSE	ThousandSons	Chaos	None	trait	Flying		1	
 tyranSmnBarbgaunt	Tyranids	Xenos	None	passif	SynapticInsight		0	
 tyranSmnBarbgaunt	Tyranids	Xenos	None	trait	Summon		1	
-tyranSmnBarbgaunt	Tyranids	Xenos	None	trait	InstinctiveBehaviour		0	
+tyranSmnBarbgaunt	Tyranids	Xenos	None	trait	InstinctiveBehaviour		1	
 tyranSmnBarbgaunt	Tyranids	Xenos	None	trait	HeavyWeapon		1	
 tyranSmnBarbgaunt	Tyranids	Xenos	None	trait	SuppressiveFire		1	
 tyranSmnHormagaunt	Tyranids	Xenos	None	passif	AdrenalGlands		0	
 tyranSmnHormagaunt	Tyranids	Xenos	None	passif	HungeringSwarm		1	
 tyranSmnHormagaunt	Tyranids	Xenos	None	trait	Summon		1	
-tyranSmnHormagaunt	Tyranids	Xenos	None	trait	InstinctiveBehaviour		0	
+tyranSmnHormagaunt	Tyranids	Xenos	None	trait	InstinctiveBehaviour		1	
 tyranSmnHormagaunt	Tyranids	Xenos	None	trait	BattleFatigue		1	
 tyranSmnRipperSwarm	Tyranids	Xenos	None	active	Burrowers	1023	1	0
 tyranSmnRipperSwarm	Tyranids	Xenos	None	trait	Summon		1	
-tyranSmnRipperSwarm	Tyranids	Xenos	None	trait	InstinctiveBehaviour		0	
+tyranSmnRipperSwarm	Tyranids	Xenos	None	trait	InstinctiveBehaviour		1	
 tyranSmnRipperSwarm	Tyranids	Xenos	None	trait	Swarm		1	
 tyranSmnRipperSwarm	Tyranids	Xenos	None	trait	BattleFatigue		1	
 tyranSmnSporeMine	Tyranids	Xenos	None	passif	FloatingDeath		1	
 tyranSmnSporeMine	Tyranids	Xenos	None	trait	Summon		1	
-tyranSmnSporeMine	Tyranids	Xenos	None	trait	InstinctiveBehaviour		0	
+tyranSmnSporeMine	Tyranids	Xenos	None	trait	InstinctiveBehaviour		1	
 tyranSmnSporeMine	Tyranids	Xenos	None	trait	Flying		1	
 tyranSmnSporeMine	Tyranids	Xenos	None	trait	PermaDeath		1	
 tyranSmnTermagant	Tyranids	Xenos	None	passif	HailOfLivingAmmunition		0	
 tyranSmnTermagant	Tyranids	Xenos	None	trait	Summon		1	
-tyranSmnTermagant	Tyranids	Xenos	None	trait	InstinctiveBehaviour		0	
+tyranSmnTermagant	Tyranids	Xenos	None	trait	InstinctiveBehaviour		1	
 tyranSmnTermagant	Tyranids	Xenos	None	trait	BattleFatigue		1	
 tyranSmnWarrior	Tyranids	Xenos	None	active	ScythingTalons	1065	1	1
 tyranSmnWarrior	Tyranids	Xenos	None	passif	ReinforcedHiveNode		1	
