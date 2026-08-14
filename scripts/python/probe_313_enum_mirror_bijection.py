@@ -182,6 +182,14 @@ REGISTRE: list[Mirror] = [
            "IdunBattle.Entities.Enum.UnitTeamSelectionType"),
     Mirror("DamageTrait", "engine/entities/damage_trait.py",
            "IdunBattle.Entities.Enum.DamageTrait"),
+    # #1036 -- rarete d'unite EN BATAILLE. Inscrit DANS LE MEME COMMIT que le mirror.
+    # ⚠ CINQ enums du build portent les MEMES six membres aux MEMES ordinaux (`idun.meta.Rarity`,
+    # `IdunMetaLogic.UserProgress.Model.{Unit,Item,Upgrade,XpBook}Rarity`) : l'appariement ne peut
+    # pas se faire au nom court, et une erreur y serait SILENCIEUSE EN ORDINAL. La cle est celle
+    # que le COMBAT declare, LUE dans `frida/methods.tsv` au type du parametre `rarity` de
+    # `IdunBattleLogic.Entities.DSLSelectors.UnitsWithRarity`, `...DSLTriggers.HasRarity` et
+    # `IdunBattle.Entities.UnitExtensions.HasRarity` -- les trois disent `idun.meta.Rarity`.
+    Mirror("Rarity", "engine/entities/rarity.py", "idun.meta.Rarity"),
     Mirror("EventTriggerType", "engine/dsl/event_trigger_type.py",
            "IdunBattle.DSL.EventTriggerType"),
     Mirror("StatType", "engine/entities/stats.py",
