@@ -806,6 +806,84 @@ class Unique(TargetsSelector):
         return out
 
 
+#: Cache de `_config_ids_presenting` -- `None` = pas encore construit, `{}` = gameconfig illisible.
+_PRESENTED_TO_CONFIG_IDS: "dict | None" = None
+
+
+def _config_ids_presenting(presented_id: str) -> "frozenset | None":
+    """Les id de CONFIG du gameconfig qui PRESENTENT `presented_id` comme identite observable,
+    c'est-a-dire `{ c : (gameconfig.visualId(c) or c) == presented_id }`.
+
+    Rend `None` quand AUCUNE unite du gameconfig ne presente cet id (et quand le gameconfig est
+    illisible) -- l'appelant retombe alors sur la comparaison HISTORIQUE. Cf. `has_unit_id`.
+
+    Import DIFFERE de `gameconfig` : ce module doit rester importable SEUL (invariant 430/430) et
+    `gameconfig` est un module de niveau `scripts/python`, pas un `engine.*` -- meme convention que
+    `entities/effects/loki/hungering_swarm.py::_unit_ids`."""
+    global _PRESENTED_TO_CONFIG_IDS
+    if _PRESENTED_TO_CONFIG_IDS is None:
+        table: dict = {}
+        try:
+            import gameconfig as _GC
+            for kind, ids in (_GC.all_unit_ids() or {}).items():
+                for uid in ids:
+                    u = _GC.unit(uid) or {}
+                    table.setdefault(u.get("visualId") or uid, set()).add(uid)
+        except Exception:                                          # noqa: BLE001
+            table = {}
+        _PRESENTED_TO_CONFIG_IDS = {k: frozenset(v) for k, v in table.items()}
+    return _PRESENTED_TO_CONFIG_IDS.get(presented_id)
+
+
+def has_unit_id(unit, cfg_id) -> bool:
+    """`IdunBattle.Entities.UnitExtensions$$HasUnitId(unit, id, state)` =
+    `GetUnitIdWithoutRarity(GetUnitId(GetUnit(unit))) == id`, ou
+    `IdunBattle.Entities.UnitExtensions$$GetUnitId` lit le champ **+0x10** du composant d'identite
+    (`UnitComponent`/`MachineComponent`), c'est-a-dire l'**id de CONFIG** -- PAS la `VisualId`, qui
+    vit a **+0x20** et qui est le seul des deux qu'un canal live publie.
+
+    ⚠ CE N'EST PAS UNE EQUIVALENCE, ET C'EST MESURE (#1078). Le port ne dispose que du `visualId`
+    (`decisionView` -> `UnitComponent.VisualId@+0x20`). Confronte au natif sur `HailOfLivingAmmunition`
+    (constante `unitIds` = "tyranNpc3Termagant,tyranSmnTermagant,GuildBoss1Npc1TyranTermagant
+    Leviathan,GuildBoss1Npc2TyranTermagantKronos,GuildBoss1Npc3TyranTermagantGorgon"), montage a
+    geometrie IDENTIQUE, seul l'id du voisin changeant :
+
+        voisin                       visualId observe                    natif   port AVANT
+        tyranNpc3Termagant:45        tyranNpc3Termagant                  +2      +2
+        tyranNpc3TermagantKronos:45  GuildBoss1Npc2TyranTermagantKronos  +0      +2   <- FAUX
+
+    Le `visualId` du Kronos EST dans la liste, son id de CONFIG ne l'est pas -- et c'est l'id de
+    CONFIG que le natif compare. La comparaison directe SUR-COMPTE.
+
+    LA RESOLUTION, et sa portee : un `visualId` observe ne peut provenir que d'une unite du
+    gameconfig qui le PRESENTE (`visualId(c) or c`). On teste donc `cfg_id` contre CET ensemble.
+      * `GuildBoss1Npc2TyranTermagantKronos` est presente par `tyranNpc3TermagantKronos` et
+        `tyranNpc3Termagant_SyncPvp_Kronos` : aucun des deux n'est dans `unitIds` -> FAUX ✔ ;
+      * `tyranNpc3Termagant` est presente par lui-meme et par `tyranSmnTermagant` : les deux sont
+        dans `unitIds` -> VRAI ✔ ;
+      * un id que le gameconfig ne connait pas (`GuildBoss1Npc1TyranTermagantLeviathan`, contenu de
+        guild boss absent de `units.*`) -> repli sur la comparaison HISTORIQUE, donc AUCUN
+        comportement existant n'est retire.
+
+    RAYON DE SOUFFLE MESURE sur les cinq constantes `unitIds`/`affectedUnitIds` du gameconfig :
+    **6 verdicts changent**, tous sur les DEUX memes `visualId` (`...Kronos`, `...Gorgon`) et sur
+    les trois listes Termagant (`HailOfLivingAmmunition`, `BroodProgenitor`, `SynapticBacklash`) ;
+    `HungeringSwarm` (#1018) et `SupremeCommander` (#119) changent de **0**, et **aucun** `visualId`
+    n'est AMBIGU (partiellement dans une liste) pour ces consommateurs.
+
+    ⚠ RESTE OUVERT (residu `#1078-r1`) : le volet MONO-ID `selectors/geometry.py::UnitsWithId`
+    mirrore le MEME `UnitsWithIdSelector` et compare encore `visualId` directement. Il n'est PAS
+    bascule ici parce que son consommateur `SynapticLinchpin` (`unitId = tyranSmnHormagaunt`) tombe
+    dans le regime AMBIGU que les cinq listes ci-dessus n'exercent pas : `tyranNpc1Hormagaunt` est
+    presente par le npc ET par le summon, et seul le summon est dans la liste -- la resolution y
+    SUR-approximerait. Le basculer demande sa propre re-validation live."""
+    v = (unit or {}).get("visualId") if isinstance(unit, dict) else None
+    if v is None:
+        return False
+    cands = _config_ids_presenting(v)
+    return (cfg_id in cands) if cands is not None else (v == cfg_id)
+
+
 class UnitsWithIds(TargetsSelector):
     """`IdunBattleLogic.Entities.DSLFactory$$UnitsWithIds(source, string[] ids)` : UNION (`op_Addition`) sur `ids` de
     `UnitsWithIdSelector(source, TestUnitProvider(id))` -- l'accumulateur part du selecteur VIDE
@@ -814,21 +892,32 @@ class UnitsWithIds(TargetsSelector):
 
     `IdunBattle.Entities.Selectors.UnitsWithIdSelector$$Select` = filtre de `source` par
     `IdunBattle.Entities.UnitExtensions$$HasUnitId(unit, id)` =
-    `UnitNamingConventions.GetUnitIdWithoutLevel(GetUnitId(unit)) == id` -- comparaison sur l'id de
+    `UnitNamingConventions.GetUnitIdWithoutRarity(GetUnitId(unit)) == id` -- comparaison sur l'id de
     CONFIG de l'unite (`IdunBattle.Entities.UnitExtensions$$GetUnitId` lit le champ +0x10 du composant d'identite), pas sur son
-    id VISUEL.
+    id VISUEL, qui vit a +0x20.
 
     ⚠ OFFLINE : le champ `visualId` du dict d'unite porte l'id de CONFIG pour les unites SPAWNEES
     (`_spawn_config_grot(visual_id=constants['unitId'])`, ex. `astraSmnGuardsman`) et l'id VISUEL rendu
     par `decisionView` pour les unites seedees depuis le live (ex. `astraNpc1Guardsman`, qui est le
-    `visualId` gameconfig d'`astraSmnGuardsman`). Le seul consommateur porte (SupremeCommander,
-    `affectedUnitIds = "astraSmnGuardsman,astraNpc1Guardsman"`) liste LES DEUX formes -> le filtre est
-    EXACT dans les deux cas. Un futur consommateur qui ne listerait qu'une seule forme demanderait un
-    id de config par-unite dans le `State` (residu documente).
+    `visualId` gameconfig d'`astraSmnGuardsman`). Le residu que cette docstring nommait -- << un futur
+    consommateur qui ne listerait qu'une seule forme >> -- a ete EXERCE et MESURE (#1078) : c'est
+    `HailOfLivingAmmunition`, ou le `visualId` du Kronos est dans la liste et son id de CONFIG ne
+    l'est pas. Le filtre passe donc desormais par `has_unit_id` ci-dessus, qui RESOUT le `visualId`
+    observe vers les id de CONFIG qui peuvent le presenter. Lire sa docstring : elle porte la mesure
+    (natif +0 / port +2 avant reparation), le rayon de souffle et ce qui reste ouvert.
 
     Ordre : union dans l'ordre des `ids` (comme le `op_Addition` natif), chaque volet preservant
     l'ordre de `source` ; DOUBLONS possibles si un id apparait deux fois (fidele au natif, qui
-    n'insere aucun `Unique`)."""
+    n'insere aucun `Unique`).
+
+    ⚠ UNE UNITE NE SATISFAIT QU'UN SEUL VOLET, et c'est ce que le RESOLVEUR peut casser -- MESURE,
+    pas redoute (#1078). Le natif compare un id de CONFIG unique : avec des `ids` distincts, une
+    unite tombe dans exactement un volet. La resolution de `has_unit_id`, elle, rend VRAI pour
+    TOUS les id de config qui peuvent presenter le meme `visualId` : un Termagant npc satisfait a
+    la fois `tyranNpc3Termagant` et `tyranSmnTermagant`, donc l'union le comptait DEUX fois et le
+    port rendait `+4` la ou le natif rend `+2` (phase `armed`, mesure live). On retient donc le
+    PREMIER id de `ids` que l'unite peut presenter -- ce que ferait le natif si elle portait cet
+    id-la -- tout en gardant le doublon quand c'est `ids` lui-meme qui REPETE un id."""
     def __init__(self, source: TargetsSelector, ids):
         self.source = source
         if isinstance(ids, str):                          # constante gameconfig = liste CSV
@@ -839,7 +928,15 @@ class UnitsWithIds(TargetsSelector):
         units = self.source.evaluate(ctx)
         out: list = []
         for uid in self.ids:                              # op_Addition dans l'ordre des ids
-            out += [u for u in units if u.get("visualId") == uid]
+            for u in units:
+                if not has_unit_id(u, uid):
+                    continue
+                # le PREMIER id de la liste que cette unite peut presenter (cf. l'avertissement
+                # ci-dessus) ; comparaison sur la VALEUR, pas sur l'indice, pour que `ids` = [A, A]
+                # emette bien deux fois comme le natif.
+                if next(x for x in self.ids if has_unit_id(u, x)) != uid:
+                    continue
+                out.append(u)
         return out
 
 
