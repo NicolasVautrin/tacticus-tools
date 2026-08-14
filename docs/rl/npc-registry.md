@@ -20,7 +20,7 @@ differe. C'est la doctrine « DECIDER != EXECUTER ».
 ## Bilan
 
 - Unites `npc` : **491** ; kits sans manque : **430** ; kits avec du travail : **61**
-- Actives distinctes : **147** — `[--]` **1** · `[C-]` **15** · `[CD]` **131**
+- Actives distinctes : **147** — `[--]` **1** · `[C-]` **14** · `[CD]` **132**
 - Passifs distincts : **177** — portes **119**, non portes **58**
 - Traits de kit distincts (AUCUN ecarte — le seuil de frequence a disparu avec #1015) :
   **58** — couverts **57**, non couverts **1**
@@ -110,13 +110,13 @@ l'unite. La colonne `porteurs` dit l'exposition.
 | passif | Volatile | 1 | LootObj_AmmoBox |
 | passif | WatchedOver | 1 | darkaNpc4Watcher |
 
-## Faces DECISION ouvertes sur des actives EXECUTEES (15)
+## Faces DECISION ouvertes sur des actives EXECUTEES (14)
 
 Ces abilities s'executent fidelement mais sont CHOISIES avec un scoring qui n'est pas celui
 du natif. Aucun compteur de manque ne les voit — elles ne sont pas des items absents, ce
 sont des **faces** absentes d'items presents.
 
-`ArcScourge`, `BasiliskBarrage`, `Burrowers`, `CallRipperSwarms`, `Catalyst`, `ExplosivePresents`, `KissOfDeath`, `MacroPlasmaIncinerator`, `NovaCharge`, `Reveal`, `SlashingDive`, `TunnelingHorror`, `ValkyrieStrike`, `WallOfMirrors`, `WarConstruct`
+`ArcScourge`, `BasiliskBarrage`, `CallRipperSwarms`, `Catalyst`, `ExplosivePresents`, `KissOfDeath`, `MacroPlasmaIncinerator`, `NovaCharge`, `Reveal`, `SlashingDive`, `TunnelingHorror`, `ValkyrieStrike`, `WallOfMirrors`, `WarConstruct`
 
 ## Inventaire complet, par faction
 
@@ -654,11 +654,11 @@ sont des **faces** absentes d'items presents.
 | tyranNpc1HormagauntKronos | 0 | - | - | - | - |
 | tyranNpc1Hormagaunt_SyncPvp_Gorgon | 0 | - | - | - | - |
 | tyranNpc1Hormagaunt_SyncPvp_Kronos | 0 | - | - | - | - |
-| tyranNpc2RipperSwarm | 0 | Burrowers(1023)[C-] | - | - | - |
-| tyranNpc2RipperSwarmGorgon | 0 | Burrowers(1023)[C-] | - | - | - |
-| tyranNpc2RipperSwarmKronos | 0 | Burrowers(1023)[C-] | - | - | - |
-| tyranNpc2RipperSwarm_SyncPvp_Gorgon | 0 | Burrowers(1023)[C-] | - | - | - |
-| tyranNpc2RipperSwarm_SyncPvp_Kronos | 0 | Burrowers(1023)[C-] | - | - | - |
+| tyranNpc2RipperSwarm | 0 | Burrowers(1023)[CD] | - | - | - |
+| tyranNpc2RipperSwarmGorgon | 0 | Burrowers(1023)[CD] | - | - | - |
+| tyranNpc2RipperSwarmKronos | 0 | Burrowers(1023)[CD] | - | - | - |
+| tyranNpc2RipperSwarm_SyncPvp_Gorgon | 0 | Burrowers(1023)[CD] | - | - | - |
+| tyranNpc2RipperSwarm_SyncPvp_Kronos | 0 | Burrowers(1023)[CD] | - | - | - |
 | tyranNpc4Warrior | 0 | ScythingTalons(1065)[CD] | - | - | - |
 | tyranNpc4WarriorCE2Gorgon | 0 | ScythingTalons(1065)[CD] | - | - | - |
 | tyranNpc4WarriorCE2Kronos | 0 | ScythingTalons(1065)[CD] | - | - | - |

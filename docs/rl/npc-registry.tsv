@@ -2096,25 +2096,25 @@ tyranNpc1Hormagaunt_SyncPvp_Kronos	Tyranids	Xenos	None	passif	AdrenalGlands		1
 tyranNpc1Hormagaunt_SyncPvp_Kronos	Tyranids	Xenos	None	passif	HungeringSwarm		1	
 tyranNpc1Hormagaunt_SyncPvp_Kronos	Tyranids	Xenos	None	trait	InstinctiveBehaviour		1	
 tyranNpc1Hormagaunt_SyncPvp_Kronos	Tyranids	Xenos	None	trait	BattleFatigue		1	
-tyranNpc2RipperSwarm	Tyranids	Xenos	None	active	Burrowers	1023	1	0
+tyranNpc2RipperSwarm	Tyranids	Xenos	None	active	Burrowers	1023	1	1
 tyranNpc2RipperSwarm	Tyranids	Xenos	None	trait	InstinctiveBehaviour		1	
 tyranNpc2RipperSwarm	Tyranids	Xenos	None	trait	Swarm		1	
 tyranNpc2RipperSwarm	Tyranids	Xenos	None	trait	BattleFatigue		1	
-tyranNpc2RipperSwarmGorgon	Tyranids	Xenos	None	active	Burrowers	1023	1	0
+tyranNpc2RipperSwarmGorgon	Tyranids	Xenos	None	active	Burrowers	1023	1	1
 tyranNpc2RipperSwarmGorgon	Tyranids	Xenos	None	trait	InstinctiveBehaviour		1	
 tyranNpc2RipperSwarmGorgon	Tyranids	Xenos	None	trait	Swarm		1	
 tyranNpc2RipperSwarmGorgon	Tyranids	Xenos	None	trait	BattleFatigue		1	
 tyranNpc2RipperSwarmGorgon	Tyranids	Xenos	None	trait	FinalJustice		1	
-tyranNpc2RipperSwarmKronos	Tyranids	Xenos	None	active	Burrowers	1023	1	0
+tyranNpc2RipperSwarmKronos	Tyranids	Xenos	None	active	Burrowers	1023	1	1
 tyranNpc2RipperSwarmKronos	Tyranids	Xenos	None	trait	InstinctiveBehaviour		1	
 tyranNpc2RipperSwarmKronos	Tyranids	Xenos	None	trait	Swarm		1	
 tyranNpc2RipperSwarmKronos	Tyranids	Xenos	None	trait	BattleFatigue		1	
 tyranNpc2RipperSwarmKronos	Tyranids	Xenos	None	trait	Terrifying		1	
-tyranNpc2RipperSwarm_SyncPvp_Gorgon	Tyranids	Xenos	None	active	Burrowers	1023	1	0
+tyranNpc2RipperSwarm_SyncPvp_Gorgon	Tyranids	Xenos	None	active	Burrowers	1023	1	1
 tyranNpc2RipperSwarm_SyncPvp_Gorgon	Tyranids	Xenos	None	trait	InstinctiveBehaviour		1	
 tyranNpc2RipperSwarm_SyncPvp_Gorgon	Tyranids	Xenos	None	trait	Swarm		1	
 tyranNpc2RipperSwarm_SyncPvp_Gorgon	Tyranids	Xenos	None	trait	BattleFatigue		1	
-tyranNpc2RipperSwarm_SyncPvp_Kronos	Tyranids	Xenos	None	active	Burrowers	1023	1	0
+tyranNpc2RipperSwarm_SyncPvp_Kronos	Tyranids	Xenos	None	active	Burrowers	1023	1	1
 tyranNpc2RipperSwarm_SyncPvp_Kronos	Tyranids	Xenos	None	trait	InstinctiveBehaviour		1	
 tyranNpc2RipperSwarm_SyncPvp_Kronos	Tyranids	Xenos	None	trait	Swarm		1	
 tyranNpc2RipperSwarm_SyncPvp_Kronos	Tyranids	Xenos	None	trait	BattleFatigue		1	
