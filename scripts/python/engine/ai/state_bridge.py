@@ -787,6 +787,38 @@ def _obs_units(state) -> list:
     return out
 
 
+def _triggered_kits_from_state(scene) -> dict:
+    """`{unitId: [TriggeredAbilityType]}` du chemin OFFLINE (#983-r1) -- le pont qui manquait entre
+    le substrat d'ENTITE deja seede et `AiDecisionContext.live_triggered_kits`.
+
+    MEME substrat que le RPC `unitAbilityStates` cote LIVE : le `TriggeredAbilityComponent`, image
+    `UnitContext.triggered_abilities` posee par `snapshot._load_triggered_abilities`. C'est ce que
+    `IdunBattle.AI.Utilities.TriggeredAbilitiesUtility.u003CEvaluateMovementInStepsu003Ed__2$$MoveNext`
+    enumere reellement, et ce qu'interroge `IdunBattle.Entities.UnitExtensions$$HasTriggeredAbility`
+    -- pas le kit gameconfig, qui ignore les abilities accordees par TRAIT, par RELIQUE et par
+    greffe (mesure #456-r1 : divergence sur 3 des 4 unites, DANS LES DEUX SENS).
+
+    ⚠ ON N'INSCRIT QUE CE QUI A ETE MESURE. Une entite dont `triggered_abilities is None` (canal
+    muet : snapshot sans `unitAbilityStates`, entite sans `StatsComponent`) reste ABSENTE de la
+    table -- surtout pas une liste vide, qui se lirait « cette unite ne porte aucun passif » et
+    ferait RETIRER un id que le kit gameconfig connait. C'est le tri-etat d'
+    `entity_triggered_ability_ids`, transpose au grain de la TABLE : ici on ne rabat pas sur le
+    gameconfig nous-memes, on laisse le consommateur le faire -- il est le seul a savoir s'il
+    remplace (regle #456-r1) ou s'il unit (regle N13, `_adjacent_units` /
+    `CalibaniteGreatswordPlaybook`).
+
+    `scene is None` -> `{}` (pas de substrat du tout)."""
+    if scene is None:
+        return {}
+    out: dict = {}
+    for eid, uctx in (getattr(scene, "ctx_by_id", None) or {}).items():
+        ids = getattr(uctx, "triggered_abilities", None)
+        if ids is None:
+            continue                      # canal MUET pour cette entite -> pas d'entree (tri-etat)
+        out[int(eid)] = [int(x) for x in ids]
+    return out
+
+
 def _no_rpc(method: str, body: dict, timeout: int = 0) -> dict:
     """Fermeture RPC no-op du bridge offline. `ability_targets` (heal/repair/summon/Nova) -> vide.
     SLICE 2 = enumerateur de cibles offline (from State) branche ici."""
@@ -948,4 +980,6 @@ def build_from_state(state, uid: int, debug: bool = False, max_distance: int | N
         pathdist_by_pos=pathdist_by_pos, mindist_case=mindist_case,
         tile_id_by_pos=tile_id_by_pos, neigh_by_pos=neigh_by_pos, walkable_by_pos=walkable_by_pos,
         terrain_by_pos=terrain_by_pos, is_wall_by_pos=is_wall_by_pos,
-        is_in_fog_by_pos=is_in_fog_by_pos, debug=debug)
+        is_in_fog_by_pos=is_in_fog_by_pos,
+        offline_triggered_kits=_triggered_kits_from_state(scene),   # #983-r1
+        debug=debug)
