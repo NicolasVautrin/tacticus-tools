@@ -175,6 +175,7 @@ from .loki.daemonflesh_plate import DaemonfleshPlateExtraArmorEffect
 from .loki.dw02_advanced_burst_cannon import (   # #1012 (relique 1476, tauCrisis)
     Dw02AdvancedBurstCannonExtraPierceRatioEffect
 )
+from .loki.adrenal_glands import AdrenalGlandsEffect
 from .loki.hypermorph import HypermorphEffect
 from .loki.reality_unbound import (
     RealityUnboundExtraMaxDamageEffect, RealityUnboundMovementEffect, RealityUnboundRangeEffect
@@ -504,6 +505,14 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # `runner/operations/triggers/dispatch/registry.py::EFFECT_TRIGGERS[1018]`, et la POSE de l'effet
     # dans `ABILITY_INIT_OWNER_EFFECTS` plus bas. RE complete en tete de `loki/inescapable_death.py`.
     "InescapableDeath_Effect": InescapableDeathEffect,
+    # #1048 (residu #1018-r1) -- `AdrenalGlands_Effect` (0x419 = 1049), passif du summon
+    # `tyranSmnHormagaunt` et des CINQ npc Hormagaunt. SEUL implementeur du hook
+    # `CreateRangeBonusForMovement` de tout le build : il n'a ni stat-mod ni `EffectBonus`, il
+    # n'agit QUE sur l'ensemble des tuiles atteignables (`MovementQuery$$GetExtraReachableTiles`).
+    # `ReduceRange = null` -> il n'augmente PAS la portee brute ; il ajoute des tuiles a
+    # `extraMovement` de plus, chacune devant amener au contact d'un ennemi NOUVEAU et par l'une
+    # de ses tuiles les plus proches. RE complete en tete de `loki/adrenal_glands.py`.
+    "AdrenalGlands_Effect": AdrenalGlandsEffect,
     # #1048 -- `Hypermorph` (0x54d = 1357), passif du summon `genesSmnAberrant` et du npc
     # `genesNpc1Aberrant`. `ADynamicStatModifierEffect` pose SUR LE PORTEUR par
     # `AddDynamicStatModifierEffectToOwner(0x54d, statType = 0 = Attack, turns = null, isHidden =
@@ -2240,6 +2249,15 @@ ABILITY_INIT_OWNER_EFFECTS: dict[str, list[str]] = {
     # `decisionView.effects` ne publie qu'une fois apparu -- un rollout offline qui le fait naitre
     # (spawn `AberrantHypermorph`) n'aurait sinon aucun canal de pose. #1048.
     "Hypermorph": ["Hypermorph"],
+    # #1048 (residu #1018-r1) -- `AdrenalGlandsAbility` (TriggeredAbilityType 0x41c = 1052, parent
+    # `IdunBattle.Entities.Abilities.AOwnerEffectTriggeredAbility` d'apres `classes.tsv`) :
+    # `$$GetEffectType` a pour corps ENTIER `return 0x419` (= 1049), donc l'appariement ability ->
+    # effet est LU, pas devine ; le reste vient de la base (`CreateTrigger =
+    # OnOwnerSpecificAbilityInit(this.AbilityType)`, `CreateBehaviour = AddEffect(GetEffectType(),
+    # ..., targets = Owner, turns = <zeroe>)`) -> owner-effect PERMANENT pose a l'init.
+    # Ce seed est un FILET sur un porteur CAPTE (les Hormagaunts arrivent avec l'effet dans
+    # `decisionView.effects`, mesure #1018) et NECESSAIRE sur un summon ne offline.
+    "AdrenalGlands": ["AdrenalGlands_Effect"],
     # #1005 -- `Vitarus_InitAbility` (parent `IdunBattle.Entities.Abilities.
     # AOwnerEffectTriggeredAbility`, `frida/classes.tsv`) n'override QUE `$$GetEffectType`, dont le
     # corps ENTIER est `return 0x5ba` (= 1466 `EffectType.Vitarus`) : l'appariement ability -> effet

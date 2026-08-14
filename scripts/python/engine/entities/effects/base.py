@@ -577,6 +577,42 @@ class BaseEffect:
         `RemoveEffect`). Défaut `[]` = effet sans stat-mod eager (la plupart)."""
         return []
 
+    # ── canal RANGE BONUS du mouvement (#1048) ──────────────────────────────────────────────────────
+    def create_range_bonus_for_movement(self, mctx):
+        """`<Effect>$$CreateRangeBonusForMovement(owner)` — slot VIRTUEL (`+0x698` de la table de
+        l'effet), appelé par `IdunBattle.Entities.Effects.BaseEffect$$RangeBonusForMovement`.
+        Défaut `None` = la base rend un `Nullable<EffectRangeBonus>` VIDE, donc aucun bonus.
+
+        Le SEUL implémenteur du build `rnca9r7q6c` est
+        `IdunBattle.Entities.Effects.Loki.AdrenalGlandsEffect$$CreateRangeBonusForMovement`
+        (`entities/effects/loki/adrenal_glands.py`). `mctx` = `services.range_bonus.
+        MovementBonusContext` — le port doit fournir l'état et le plateau que l'effet natif porte
+        déjà dans ses champs `+0x50` (`IBattleQuery`) et `+0x58` (l'état)."""
+        return None
+
+    def range_bonus_for_movement(self, mctx):
+        """`IdunBattle.Entities.Effects.BaseEffect$$RangeBonusForMovement(entities)` — mirror 1:1 :
+
+            var b = this.CreateRangeBonusForMovement(entities.<+0x18 = owner>);   // slot +0x698
+            if (!b.HasValue) return null;
+            if (b.Value.Trigger != null && !b.Value.Trigger.Check(entities, ...)) return null;
+            return new RangeBonus(b.Value.ExtraRange, b.Value.ExtraRangeCondition,
+                                  b.Value.ReduceRange);
+
+        Le gate `Trigger` est porté par FIDÉLITÉ : aucun effet du build n'en pose (le seul
+        implémenteur rend `Trigger = null`), donc il est INERTE aujourd'hui — mais un port qui
+        l'omettrait laisserait passer un bonus conditionnel le jour où il apparaît, en silence."""
+        from ...services.range_bonus import RangeBonus       # FEUILLE (aucun import du paquet)
+        b = self.create_range_bonus_for_movement(mctx)
+        if b is None:
+            return None
+        trg = getattr(b, "trigger", None)
+        if trg is not None and not trg(mctx):
+            return None
+        return RangeBonus(extra_range=int(getattr(b, "extra_range", 0) or 0),
+                          extra_range_condition=getattr(b, "extra_range_condition", None),
+                          reduce_range=getattr(b, "reduce_range", None))
+
     # ── contributions aux modifiers (None = pas de contribution) ────────────────────────────────────
     def create_effect_damage_bonus_for_attack(self, is_ranged: bool | None = None,
                                               has_moved: bool | None = None,
