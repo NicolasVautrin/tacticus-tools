@@ -55,6 +55,10 @@ from ..entities.effects.loki.norn_crown import (
     CTX_TEAM_SYNAPSE_POSITIONS as _NORN_CTX_SYNAPSE)
 from ..entities.effects.loki.obsessive_annunciation import (
     CTX_ADJACENT_ENEMY_IDS_OF as _OA_CTX_ADJ_ENEMY_IDS)
+# #1025-r1 : la cle du substrat d'adjacence de `MoreGitzOverEre_ExtraDamagePct` -- MEME foyer de
+# nommage pour les DEUX faces (cf. `playbook/prediction/_shared.py`).
+from ..entities.effects.loki.extra_damage_aura import (
+    CTX_TGT_ADJACENT_UNIT_PROFILES as _MG_CTX_TGT_ADJ_PROFILES)
 # #1042-r1 : le `$$CreateTargetSelector` de `WisdomOfTheAncients_DamageReductionEffect` (1445),
 # re-evalue PAR PORTEUR -- un seul foyer de nommage pour les DEUX faces (cf. `prediction/_shared`).
 from ..entities.effects.loki.damage_reduction import (
@@ -664,6 +668,36 @@ def _unit_pos(state: State, unit_id: Optional[int]):
     e = state.get_entity(int(unit_id))
     pc = e.get_component(PositionComponent) if e is not None else None
     return (pc.col, pc.row) if pc is not None else None
+
+
+def _adjacent_unit_profiles(state: State, unit_id: Optional[int]):
+    """#1025-r1 -- `AdjacentUnits( <unit_id>, unique: true, OnlyAliveAndTargetable = 3 )`, enrichi
+    de `(team, visual_id, rarity)` par voisin : le substrat des DEUX branches du
+    `$$CreateTargetSelector` de `IdunBattle.Entities.Effects.Loki.MoreGitzOverEre_ExtraDamagePctEffect`.
+
+    Rend un tuple de `(uid, team, visual_id, rarity)`. Les TROIS champs sont ceux que les etages
+    natifs comparent, et aucun n'est derivable des autres :
+      * `team`       -> `Friends( Owner@+0x30, ..., 3 )`, commun aux deux branches. Le filtre est
+                        relatif au PORTEUR de l'effet, connu du seul agregateur d'aura -> il est
+                        rejoue dans la classe d'effet, pas ici ;
+      * `visual_id`  -> `UnitsWithVisualId( VisualUnitIdFromUnitId(<constants.unitId>), 1 )`
+                        (branche A, le Squig) ;
+      * `rarity`     -> `UnitsWithRarity( ..., 5 = idun.meta.Rarity.Mythic, 3 )` (branche B).
+
+    L'ADJACENCE elle-meme vient du pont `components.adjacent_unit_ids`, qui donne son
+    `AbilityEntities` a l'arbre DSL de la classe d'effet (doctrine #149) -- donc la LISTE STOCKEE
+    avec la porte d'elevation, pas un `hexgeo.distance == 1`.
+
+    `None` = NON MESURE (pas d'unite, pas d'equipe, pas de position, pas de plateau) -> le gate se
+    FERME cote effet. Un tuple VIDE, lui, est une MESURE : << aucun voisin >>."""
+    if unit_id is None:
+        return None
+    from .components import adjacent_unit_ids
+    ids = adjacent_unit_ids(state, int(unit_id))
+    if ids is None:
+        return None
+    return tuple((int(i), _unit_team(state, i), _unit_visual_id(state, i), _unit_rarity(state, i))
+                 for i in sorted(ids))
 
 
 def _unit_hp_and_max(state: State, unit_id: Optional[int]):
@@ -1345,7 +1379,15 @@ def defender_modifiers(state: State, unit_id: int, hp: Optional[int],
                                # n'est pas un nommage neuf. Le PREMIER membre (`IsMechanical`) se
                                # lit dans `att_traits`, deja pose ci-dessus par #952.
                                "att_faction": (_unit_gameconfig(state, attacker_id)
-                                               or {}).get("FactionId")}
+                                               or {}).get("FactionId"),
+                               # #1025-r1 : `HasRarity( Caster@<DSLSelectors+0x48>,
+                               # 5 = idun.meta.Rarity.Mythic )` -- 2e conjoint du trigger de
+                               # `MoreGitzOverEre_ExtraDamagePct`, dont le BENEFICIAIRE est la
+                               # CIBLE (`get_OwnerIsTarget`) mais dont ce gate-ci porte sur
+                               # l'ATTAQUANT. MEME cle, MEME resolveur et MEME tri-etat que
+                               # l'agregateur FRERE cote ATTAQUE (`_apply_ally_attack_damage_
+                               # auras`) : ce n'est pas un nommage neuf. `None` -> gate FERME.
+                               "att_rarity": _unit_rarity(state, attacker_id)}
                               if attacker_id is not None else {}),
                            # `IsMeleeAttack`, 3e conjoint du meme trigger. Tri-etat #106 conserve :
                            # `None` = nature non declaree -> le gate se ferme cote effet.
@@ -1373,6 +1415,19 @@ def defender_modifiers(state: State, unit_id: int, hp: Optional[int],
                            # les deux moities ne peuvent donc pas diverger sur la geometrie.
                            _OA_CTX_ADJ_ENEMY_IDS:
                                lambda oid: adjacent_enemy_ids(state, int(oid)),
+                           # #1025-r1 -- `IsNormalAttack`, 4e conjoint du trigger de
+                           # `MoreGitzOverEre_ExtraDamagePct` (<< normal melee attacks >>). MEME
+                           # donnee et MEME tri-etat que le parametre homonyme deja threade dans
+                           # l'`att_ctx` du canal defenseur non-aura juste au-dessus (#112) : on la
+                           # relaie au canal AURA, on ne la re-derive pas. `None` -> gate FERME.
+                           "is_normal_attack": is_normal_attack,
+                           # #1025-r1 -- `AdjacentUnits(<la CIBLE>, unique, 3)` + `(team,
+                           # visual_id, rarity)` par voisin : le substrat des DEUX branches du
+                           # `$$CreateTargetSelector` de `MoreGitzOverEre_ExtraDamagePct`. La
+                           # CIBLE est fixe pour tout cet appel -> valeur PRE-CALCULEE, pas un
+                           # callable (contraste `_OA_CTX_ADJ_ENEMY_IDS`, qui se resout par
+                           # PORTEUR). Tri-etat : `None` = non mesure -> le gate se FERME.
+                           _MG_CTX_TGT_ADJ_PROFILES: _adjacent_unit_profiles(state, unit_id),
                            # #1042-r1 -- le `$$CreateTargetSelector` de
                            # `WisdomOfTheAncients_DamageReductionEffect` (1445), CALLABLE et PAR
                            # PORTEUR pour la meme raison que la cle ci-dessus : la boucle native de
@@ -1392,6 +1447,16 @@ def defender_modifiers(state: State, unit_id: int, hp: Optional[int],
                            # foyer (`triggered_ability_state`, #357) et MEME callable que les trois
                            # ctx qui l'exposent deja (`attacker_modifiers`, `_crit_board`,
                            # `collect_additional_hit_groups`) -- pas un nommage neuf.
+                           #
+                           # ⚠ MERGE #1055 x #1056 : les DEUX tranches posaient cette cle ici, et
+                           # les deux se declaraient << un seul foyer de nommage >>. Elles ont la
+                           # MEME valeur de chaine (`"tertiary_ability_state_of"`) et le MEME
+                           # resolveur (`_tertiary_ability_state_fn`), donc UNE SEULE entree est
+                           # gardee -- deux auraient ete une cle dupliquee dans le litteral (Python
+                           # garde la derniere, en silence). Il reste DEUX CONSTANTES pour cette
+                           # unique chaine : `damage_reduction.CTX_TERTIARY_ABILITY_STATE_OF` et
+                           # `extra_damage_aura.CTX_ABILITY_STATE_OF`. C'est le foyer de nommage
+                           # DEDOUBLE que chacune pretendait etre -- a fusionner (residu).
                            _MYTHIC_CTX_ABILITY_STATE: _tertiary_ability_state_fn(state)}):
             add_modifier(mods, eb)
     return mods, active

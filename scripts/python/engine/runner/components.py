@@ -27,6 +27,12 @@ from ..entities.effects.loki.nether_realm_casket import adjacent_mechanical_unit
 from ..entities.effects.loki.supa_cybork_body import adjacent_enemies_selector
 from ..entities.effects.loki.obsessive_annunciation import (   # #954
     adjacent_enemies_selector as obsessive_annunciation_target_selector)
+# #1025-r1 : MEME forme et MEME raison que la ligne ci-dessus -- l'ARBRE vit dans la classe d'effet
+# (doctrine #149), ce module ne fait que lui donner son `AbilityEntities`. HISSE (pas differe) :
+# mesure du 2026-08-14 -- charger `extra_damage_aura` SEUL ne fait PAS entrer `runner.components`
+# dans `sys.modules`, donc le differe aurait ete GRATUIT.
+from ..entities.effects.loki.extra_damage_aura import (
+    more_gitz_adjacent_units_selector as more_gitz_adjacent_units_target_selector)
 from ..entities.pathfinding.board import adjacent_neigh_by_pos, elevations_by_pos
 from ..entities.stats import StatType
 from ..entities.stats import StatPart   # #572-r1 : `FillUpStatComponent$$GetStatPart`
@@ -3276,6 +3282,40 @@ def adjacent_enemy_ids(state, unit_id: int) -> "Optional[frozenset]":
     ents = entities_from_state(state, int(unit_id))
     out = set()
     for u in (obsessive_annunciation_target_selector().select(ents) or ()):
+        uid = u.get("id") if isinstance(u, dict) else None
+        if uid is not None:
+            out.add(int(uid))
+    return frozenset(out)
+
+
+def adjacent_unit_ids(state, unit_id: int) -> "Optional[frozenset]":
+    """`AdjacentUnits( <unit_id>, unique: true, UnitSelectionType.OnlyAliveAndTargetable = 3 )`
+    -- les IDS des unites voisines, SANS aucun filtre d'equipe (#1025-r1).
+
+    C'est le noeud d'adjacence partage par les DEUX branches du `$$CreateTargetSelector` de
+    `IdunBattle.Entities.Effects.Loki.MoreGitzOverEre_ExtraDamagePctEffect` ; le filtre `Friends(
+    Owner, ...)` que le natif applique ENSUITE depend du PORTEUR de l'effet, donc il est rejoue par
+    la classe d'effet (l'agregateur d'aura pose `owner_team` dans son ctx par-carrier), pas ici.
+    Voisin exact d'`adjacent_enemy_ids` ci-dessus, moins le filtre d'equipe.
+
+    L'ARBRE est celui de la classe d'effet (`entities/effects/loki/extra_damage_aura.py::
+    more_gitz_adjacent_units_selector`, doctrine #149) ; ce qu'on fait ICI, c'est lui donner son
+    `AbilityEntities` -- `entities_from_state(state, unit_id)` pose `caster = owner = unit_id`,
+    `board = state.board` et `has_trait`. SUBSTRAT D'ADJACENCE : la LISTE STOCKEE
+    (`dsl/base.py::_within`, `order='adjacent'`), donc AVEC la porte d'elevation du natif
+    (`IdunBattle.Core.Services.TileQuery.u003CIterateAdjacentTilesu003Ed__8$$MoveNext`).
+
+    `None` si l'unite n'a ni equipe ni tuile -- jamais un ensemble VIDE invente, qui ferait passer
+    << non mesure >> pour << aucun voisin >> et rendrait le gate FAUX en silence."""
+    ent = state.get_entity(unit_id)
+    oc = ent.get_component(OwnerComponent) if ent is not None else None
+    pc = ent.get_component(PositionComponent) if ent is not None else None
+    if oc is None or oc.team is None or pc is None:
+        return None
+    from .abilities.behaviours.context import entities_from_state
+    ents = entities_from_state(state, int(unit_id))
+    out = set()
+    for u in (more_gitz_adjacent_units_target_selector().select(ents) or ()):
         uid = u.get("id") if isinstance(u, dict) else None
         if uid is not None:
             out.add(int(uid))
