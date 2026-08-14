@@ -383,7 +383,7 @@ class UnitComponent(Component):
                  "times_healed_this_turn",
                  "turns_with_attacks_made", "units_attacked_this_turn", "attacks_made_this_turn",
                  "total_attacks_made", "defeated_units_melee", "defeated_units_other",
-                 "total_defeated_units", "death_killer_id",
+                 "total_defeated_units", "death_killer_id", "previous_position_this_turn",
                  "movement_target_override")
 
     def __init__(self, visual_id: Optional[str], alive: bool, ai_controlled: bool = False,
@@ -510,6 +510,11 @@ class UnitComponent(Component):
         # (`reactivate_overwatch` lit les deux, `empyric_ambush` le second). Ne JAMAIS le lire en
         # direct : passer par `death_killer_id`, le foyer qui compose les deux sources.
         self.death_killer_id = None
+        # #1082 -- `MovementComponent+0x98` (`PreviousPositionThisTurn`). Ecrit AVEC `+0x88` par
+        # `save_previous_position`, mais efface EN PLUS par `StartTurnOperation$$Execute`. Loge ici
+        # et non sur la `PositionComponent` parce qu'il doit survivre au retrait de plateau -- cf.
+        # la docstring de `PositionComponent`, ou l'ecart de collapse est motive.
+        self.previous_position_this_turn = None
         # `Nullable<UnitPositionId>` a `+0xa8` du composant que `IdunBattle.Operations.
         # MoveUnitOperation$$Execute` ET `IdunBattle.Operations.OverrideMovementTargetOperation$$
         # Execute` recuperent tous DEUX par la MEME paire de caches (#448-r1) -- la DESTINATION
@@ -659,12 +664,29 @@ class PositionComponent(Component):
         pc.<+0x88> = new Nullable<UnitPositionId>(id);      <- CE champ (`PreviousTile`)
         pc.<+0x98> = new Nullable<UnitPositionId>(id);      <- l'AUTRE (`GetPreviousPositionThisTurn`)
 
-    Les DEUX slots recoivent la MEME valeur a l'ecriture ; ils divergent ensuite par leurs
-    remises a zero respectives. Le port ne porte que `+0x88`, le seul que lise
-    `IdunBattle.Entities.Selectors.PreviousTileSelector$$Select`
-    (`comp.<+0x88>.HasValue ? UnitPositionIdExtensions.ToTileList(value) : new List()`).
-    RESIDU NOMME : `+0x98` (`EntityExtensions$$GetPreviousPositionThisTurn`) et le noeud
-    `DSLBehaviors$$ResetPreviousPosition` n'ont aucun consommateur porte.
+    Les DEUX slots recoivent la MEME valeur a l'ecriture ; ils DIVERGENT ensuite par leurs remises
+    a zero, et c'est toute leur difference :
+
+      * `previous` (`+0x88`) = la position precedente TOUT COURT. Lue par
+        `IdunBattle.Entities.Selectors.PreviousTileSelector$$Select`
+        (`comp.<+0x88>.HasValue ? UnitPositionIdExtensions.ToTileList(value) : new List()`) ;
+        remise a zero par le SEUL `ResetPreviousPositionBehaviour$$Execute`.
+      * `UnitComponent.previous_position_this_turn` (`+0x98`, #1082) = la position precedente **CE
+        TOUR**. Lue par `IdunBattle.Entities.EntityExtensions$$GetPreviousPositionThisTurn` ;
+        effacee **en plus** par `IdunBattle.Operations.StartTurnOperation$$Execute`, qui ecrit
+        `comp.<+0x98> = comp.<+0xa0> = 0` pour chaque unite du pool (seconde boucle) -- `+0x88` n'y
+        est PAS touche. C'est cette remise a zero supplementaire qui les separe.
+
+    ⚠ POURQUOI `+0x98` N'EST PAS LOGE ICI, alors que le natif met les DEUX slots sur le meme
+    composant. Le port a COLLAPSE `MovementComponent` et `UnitFootComponent` dans cette classe, or
+    `set_unit_feet(uid, [])` la SUPPRIME au retrait du plateau -- ce que le natif ne fait jamais au
+    `MovementComponent` (`RemoveUnitFromTilesOperation$$Execute` ne met a zero que les `TileId` des
+    pieds). Loger `+0x98` ici l'effacerait donc a chaque sortie de plateau, et rendrait
+    STRUCTURELLEMENT INATTEIGNABLE son unique consommateur porte -- l'etage E1 de
+    `IdunBattle.Operations.MoveUnitOperation$$Execute` (`movement._movement_start_position`), dont
+    tout l'objet est le regime << unite HORS PLATEAU qui vient de quitter une tuile ce tour >>. Il
+    vit donc sur le `UnitComponent`, qui survit au retrait : MEME residu structurel de collapse que
+    `times_attacked_this_turn` (case-202 SS6), et ici il est LOAD-BEARING.
 
     Liste de coordonnees `(col,row)` -- une `UnitPositionId` porte l'EMPREINTE (multi-hex), et
     `ToTileList` la deplie. `None` = `Nullable` VIDE (aucun deplacement encore enregistre)."""
@@ -1762,14 +1784,23 @@ def save_previous_position(state, unit_id, previous_tiles) -> bool:
         pc.<+0x88> = pc.<+0x98> = new Nullable(new UnitPositionId(previousPosition))
 
     `previous_tiles` = la liste des coordonnees `(col,row)` que l'unite occupait AVANT (son
-    empreinte, un seul element en mono-hex). Rend « l'ecriture a eu lieu »."""
+    empreinte, un seul element en mono-hex). Rend « l'ecriture a eu lieu ».
+
+    #1082 : les DEUX slots sont ecrits, avec la MEME valeur, comme le decompile le montre. Ils ne
+    divergent qu'aux remises a zero (cf. `PositionComponent`)."""
     if unit_id is None or not previous_tiles:
         return False                                    # `Count < 1` -> aucune ecriture
     e = state.get_entity(int(unit_id))
     pc = e.get_component(PositionComponent) if e is not None else None
     if pc is None:
         return False
-    pc.previous = [(int(c), int(r)) for c, r in previous_tiles]
+    tiles = [(int(c), int(r)) for c, r in previous_tiles]
+    pc.previous = tiles                                 # `<+0x88>`
+    # `<+0x98>` -- MEME valeur, MEME instruction native, copie distincte cote port. Loge sur le
+    # `UnitComponent` parce qu'il doit SURVIVRE au retrait de plateau (cf. `PositionComponent`).
+    uc = e.get_component(UnitComponent)
+    if uc is not None:
+        uc.previous_position_this_turn = list(tiles)
     return True
 
 
@@ -1928,6 +1959,10 @@ def set_unit_feet(state, unit_id: int, feet) -> List[tuple]:
         # PositionComponent) + retrait de la position. Les deux vont ENSEMBLE : laisser l'un des
         # deux ferait diverger `get_unit_feet` et `PositionComponent`, exactement ce que cet
         # ecrivain unique existe pour empecher.
+        # ⚠ `+0x98` N'EST PAS PERDU ICI (#1082) -- il vit sur le `UnitComponent`, pas sur celui-ci.
+        # C'est ce qui rend atteignable le second bras de `movement._movement_start_position`
+        # (unite hors plateau qui VIENT de quitter une tuile ce tour -> vrai chemin de VOL au lieu
+        # de la branche degeneree `[endTile, endTile]`). Cf. `previous_position_this_turn`.
         e.remove_component(PositionComponent)
         return []
     if len(uc.feet) <= 1:

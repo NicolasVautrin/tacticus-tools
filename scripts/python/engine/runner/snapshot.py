@@ -1377,6 +1377,55 @@ def _load_actor_statistics(state: State, actor_stats: dict) -> None:
             if v is None or int(v) < 0:
                 continue
             setattr(uc, attr, int(v))
+        # #1082 (ferme `#462-r4b-r1-r1-r1-r1-c-r3-r1-r5-r1`) -- LES DEUX POSITIONS PRECEDENTES,
+        # publiees par le MEME RPC, sur le MEME appel, depuis #347-r1 : `readMovementPositions` rend
+        # `movement.previousPosition` (`<+0x88>`) et `movement.previousPositionThisTurn` (`<+0x98>`).
+        #
+        # ⚠ LA PREMISSE << aucun RPC ne les publie >> ETAIT FAUSSE : le capteur existe, il est garde
+        # par `probe_546_capteurs_fenetre_offline.py`, et sa mesure de fenetre (2026-08-08) montre la
+        # transition nette `null -> non-null` au premier pas. Ce qui manquait etait le CONSOMMATEUR.
+        # Sans lui, un `load_state` pris APRES un deplacement repartait `previous` VIDE, donc
+        # `AmountIsGreaterThanZero(PreviousTile)` faux, et `HaywireMineAbility` basculait sur sa
+        # branche ADJACENTE au lieu de poser sur la tuile QUITTEE.
+        #
+        # TRI-ETAT, et il est PAR CHAMP : le capteur publie `decode` pour chacun. `null` = mesure
+        # faite, `Nullable` VIDE ; `decode != "ok"` = mesure NON FAITE (offsets non derives, lecture
+        # en erreur, `ToTileList` irresolu). On n'ecrit QUE sur `decode == "ok"` -- ecraser sur une
+        # mesure absente EFFACERAIT une position que la simulation vient de graver.
+        mv = su.get("movement")
+        if isinstance(mv, Mapping):
+            tuiles = _tiles_of(mv.get("previousPositionThisTurn"))     # `<+0x98>`
+            if tuiles is not None:
+                uc.previous_position_this_turn = tuiles or None
+            tuiles = _tiles_of(mv.get("previousPosition"))             # `<+0x88>`
+            if tuiles is not None:
+                pc = ent.get_component(PositionComponent)
+                if pc is not None:
+                    pc.previous = tuiles or None
+
+
+def _tiles_of(champ):
+    """Normalise un champ de position du capteur en liste de `(col, row)`, ou `None` si la mesure
+    N'A PAS ETE FAITE. Les deux sont distincts et le distinguo est tout l'objet de cette fonction.
+
+    Le hook publie chaque position sous l'une de DEUX formes (`rpc-snapshot.ts::readMovement
+    Positions`) : `null` = `hasValue == 0`, donc MESURE et VIDE -> on rend `[]` ; sinon un objet
+    `{ raw, tiles, decode }` ou seul `decode == "ok"` atteste que `IdunBattle.Core.UnitPositionId
+    Extensions$$ToTileList` a bien ete INVOQUE (le natif fait exactement cet appel pour
+    materialiser une position). Les quatre autres `decode` (`layout-not-derived`,
+    `hasValue-unreadable`, `no-ToTileList`, `threw`) sont des PANNES DE CAPTEUR -> `None`.
+
+    Une `UnitPositionId` porte l'EMPREINTE entiere, d'ou une LISTE et non un couple : une unite
+    multi-hex en occupe plusieurs. Jamais de couple invente."""
+    if champ is None:
+        return []                                     # `hasValue == 0` : mesure faite, position vide
+    if not isinstance(champ, Mapping) or champ.get("decode") != "ok":
+        return None                                   # panne de capteur : NON MESURE
+    out = []
+    for t in (champ.get("tiles") or ()):
+        if isinstance(t, Mapping) and t.get("col") is not None and t.get("row") is not None:
+            out.append((int(t["col"]), int(t["row"])))
+    return out
 
 
 # ═══ CANAL AMBIANT du seed TERTIAIRE (#363) ═══════════════════════════════════════════════════════
