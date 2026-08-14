@@ -899,6 +899,25 @@ def attacker_modifiers(state: State, unit_id: int, hp: Optional[int], is_ranged:
         _t_pos = _unit_pos(state, target_id)
         att_ctx["t_pos"] = _t_pos
         att_ctx["tgt_team"] = _unit_team(state, target_id)
+        # #1025-r1 -- RARETE de la CIBLE DU COUP, `BaseUnitComponent.Rarity` (+0x74). Sur CE canal
+        # (`create_effect_damage_bonus_for_attack`, la boucle des effets de l'ATTAQUANT) le noeud
+        # `HasRarity(Target@<DSLSelectors+0x60>, ...)` porte sur le DEFENSEUR -- symetrique exact de
+        # l'`attacker_ctx["rarity"]` du canal DEFENSE, qui porte sur `Caster@<DSLSelectors+0x48>`.
+        # Consommateur : `ElectrochaffBackups_DamageReductionPct` (1446), dont le
+        # `$$CreateDamageModifier` est `ForPercentDecrease(get_OwnerIsCaster & HasRarity(Target,
+        # Mythic) & AreFriends(Target, EffectSource), ConfigVar(0x46))`.
+        # TRI-ETAT (`None` = non mesure -> le gate se FERME), cf. `_unit_rarity`. MEME cle et MEME
+        # semantique cote PREDICTION (`prediction/normal_attack.py`, `prediction/abilities.py`,
+        # les six playbooks d'attaque) -- pas de fork.
+        att_ctx["tgt_rarity"] = _unit_rarity(state, target_id)
+        # #1025-r1 -- `AreFriends(Target@<DSLSelectors+0x60>, EffectSource(Effect@<DSLSelectors
+        # +0x38>), 0, false)` : le membre DROIT est la SOURCE de l'effet (`EffectComponent.SourceUnit
+        # @+0x10` = `self.source` cote port), qui n'est NI l'attaquant NI la cible -- elle ne peut
+        # donc se resoudre que par une table. MEME cle et MEME idiome que l'`attacker_ctx` du canal
+        # DEFENSE (`defender_modifiers`), qui la pose deja pour le meme noeud vu de l'autre bord.
+        att_ctx["team_by_id"] = {int(uid): oc.team
+                                 for uid, e in state.entities.items()
+                                 for oc in (e.get_component(OwnerComponent),) if oc is not None}
         # `HealthPctIsBelowOrEqual(Target@0x60, ConfigConst(0x4f = healthPct))` -- le gate de
         # DOUBLEMENT de `LightOfSanguinius_DamageReductionEffect$$CreateDamageModifier` (#510) porte
         # sur les PV de la CIBLE DU COUP, pas sur ceux du porteur de l'effet. MEMES cles, MEME

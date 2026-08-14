@@ -144,6 +144,7 @@ from .prediction._shared import (
     _entity_traits, _target_damage_limits, prediction_has_moved, prediction_has_teleported
 )
 from .prediction._shared import _prediction_is_charging
+from .prediction._shared import _entity_rarity   # #1025-r1 (rarete de la CIBLE)
 
 # Cle gameconfig de l'ability : l'enum membre EST le nom de config.
 _ABILITY_NAME = TriggeredAbilityType.AvalancheOfMuscle.name          # "AvalancheOfMuscle"
@@ -219,7 +220,16 @@ class AvalancheOfMusclePlaybook:
                                             or {}).get("GrandAllianceId"),
                      "damage_profile": profile_name,
                      "t_pos": scene.pos(tgt_id),
-                     "tgt_team": scene.team(tgt_id)})
+                     "tgt_team": scene.team(tgt_id),
+                     # #1025-r1 -- `HasRarity(Target@<DSLSelectors+0x60>, idun.meta.Rarity
+                     # .Mythic = 5)` + `AreFriends(Target@<DSLSelectors+0x60>, EffectSource(
+                     # Effect@<DSLSelectors+0x38>))`, les deux conjoints utiles d'`Electrochaff
+                     # Backups_DamageReductionPct` (1446). Son `$$CreateDamageModifier` ne porte
+                     # NI `IsNormalAttack` NI `IsMeleeAttack` -> il entre AUSSI sur ce vecteur.
+                     # MEMES cles que la normale et que la face COMBAT -- pas de fork. TRI-ETAT
+                     # sur la rarete (`None` = non mesure -> gate FERME), cf. `_entity_rarity`.
+                     "tgt_rarity": _entity_rarity(scene, tgt_id),
+                     "team_by_id": scene.team_by_id})
         _add_positional_and_defender_mods(mods, scene, att_id, tgt_id, is_melee, attack_pos,
                                           scene.pos(tgt_id), damage_profile=profile_name,
                                           is_normal_attack=is_normal_attack)

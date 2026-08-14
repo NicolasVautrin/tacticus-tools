@@ -10,6 +10,7 @@ from ....services.effect_bonus import (EffectBonus, for_addition, for_piercing, 
                                        for_percent_subtraction_capped)
 from ..base import BaseEffect, is_turn_of_owner
 from ..magnitude import ability_var, bc_effect_config, global_value, trait_var
+from ...rarity import Rarity            # `idun.meta.Rarity` -- gate `HasRarity` (#1025-r1)
 from ...traits.unit_trait import is_mechanical   # `UnitExtensions$$IsMechanical` -- foyer UNIQUE
 
 
@@ -796,6 +797,139 @@ class LightOfSanguiniusDmgReductionEffect(BaseEffect):
         double = (hp is not None and mx and seuil is not None
                   and 100 * int(hp) <= int(seuil) * int(mx))
         return for_percent_decrease(True, int(pct) * (2 if double else 1))   # OwnerIsCaster
+
+
+class ElectrochaffBackupsDamageReductionPctEffect(BaseEffect):
+    """`IdunBattle.Entities.Effects.Loki.ElectrochaffBackups_DamageReductionPctEffect` (`EffectType`
+    0x5a6 = **1446**) -- l'effet pose par l'ability **MYTHIQUE** `ElectrochaffBackups`
+    (`TriggeredAbilityType` 0x5ae = 1454) des MoW `tauBroadside` << Tson'ji >> / `tauNpcMoWBroadside`
+    sur l'ENNEMI marque ou blesse a distance. La POSE est portee depuis #1025
+    (`runner/operations/triggers/loki/electrochaff_backups.py`) ; c'est la face DEGAT qui manquait,
+    et son verrou etait le canal de RARETE (residu `#1025-r1`).
+
+    i2 (`/Abilities/ElectrochaffBackups_CurrentLevelDescription`) : << Enemy units that have a
+    **Markerlight** or have been damaged by a **ranged attack** deal -{dmgReductionPct}% Damage to
+    **Mythic** characters for {nrOfRounds} round. >>
+
+    ## MIRROR 1:1 -- `...ElectrochaffBackups_DamageReductionPctEffect$$CreateDamageModifier`
+
+        EffectBonus.ForPercentDecrease(
+            get_OwnerIsCaster
+            & ( HasRarity(  Target@<DSLSelectors+0x60>, idun.meta.Rarity.Mythic = 5 )
+                & AreFriends( Target@<DSLSelectors+0x60>,
+                              EffectSource(Effect@<DSLSelectors+0x38>), 0, false ) ),
+            DSLFormulas$$ConfigVar( 0x46 = AbilityVariableType.dmgReductionPct,
+                                    GetAbilityState(effet), effet@+0x60 ) )
+
+    ## LE CANAL EST CELUI DU PORTEUR-ATTAQUANT, **PAS** L'AURA -- et c'est LU, pas suppose
+    `search_symbols_by_name` sur cette classe rend **deux** symboles (`$$.ctor` et
+    `$$CreateDamageModifier`) : il n'y a **AUCUN `$$CreateTargetSelector`**. L'Owner de l'effet est
+    donc son PORTEUR, et `get_OwnerIsCaster` dit que ce porteur est le CASTER du coup -> le canal
+    port est `create_effect_damage_bonus_for_attack` (la boucle des effets de l'ATTAQUANT), pas un
+    agregateur d'aura. La ligne de backlog qui rangeait cet effet sous un `CreateTargetSelector`
+    etait fausse ; re-mesure au decompile (#1025-r1).
+
+    C'est le SYMETRIQUE EXACT d'`HyperCorrosiveAcid_ExtraDamagePct` (1448) : meme famille de MoW
+    mythique, meme forme d'arbre, mais le trigger y est `get_OwnerIsTarget` et les conjoints portent
+    sur `Caster@<DSLSelectors+0x48>`. Ici ils portent sur `Target@<DSLSelectors+0x60>`.
+
+    ## LES TROIS CONJOINTS, ET D'OU ILS VIENNENT
+      1. `get_OwnerIsCaster` -- VRAI par construction sur ce canal : `_attacker_effect_bonuses`
+         n'itere QUE les effets de l'attaquant, donc l'Owner de chaque effet parcouru EST le caster
+         (meme idiome que `MartialInspiration` / `RitesOfMorkai`). Aucun gate a ecrire.
+      2. `HasRarity(Target@+0x60, Mythic)` -- `BaseUnitComponent.Rarity` (+0x74) de la CIBLE DU
+         COUP, lu dans `att_ctx["tgt_rarity"]` (#1025-r1 ; foyers `damage_model._unit_rarity` /
+         `prediction._shared._entity_rarity`). TRI-ETAT : `None` = NON MESURE -> gate FERME.
+         C'est LE conjoint qui tenait cet effet hors du registre : sans lui, l'attaquant marque
+         verrait TOUTES ses attaques reduites -- terme PERMISSIF, et de loin le plus gros.
+      3. `AreFriends(Target@+0x60, EffectSource(Effect@+0x38), 0, false)` -- la CIBLE DU COUP est
+         une alliee du BROADSIDE. `EffectSource` = `EffectComponent.SourceUnit @+0x10` =
+         `self.source` cote port ; son equipe se resout par `att_ctx["team_by_id"]`, celle de la
+         cible par `att_ctx["tgt_team"]` (MEME idiome que `HyperCorrosiveAcidExtraDamagePctEffect`
+         vu de l'autre bord). ⚠ Ce conjoint N'EST PAS redondant avec le `AreEnemies(Owner, Target)`
+         du trigger de POSE : celui-la contraint le PORTEUR, celui-ci contraint la CIBLE DE SON COUP.
+         Un porteur qui frappe une unite NEUTRE, un objet, ou (via un `Taunt`/charme) l'un des siens
+         n'ecope de rien.
+
+    ## AUCUN AUTRE GATE, ET C'EST LU
+    Ni `IsMeleeAttack`, ni `IsRangedAttack`, ni `IsNormalAttack`, ni `DamageProfileIs` : le
+    decompile ne porte que les trois conjoints ci-dessus. L'effet mord donc sur TOUT vecteur --
+    attaque normale, ability, smite, riposte. C'est ce qui l'a fait threader sur les NEUF sites
+    d'`att_ctx` du canal ATTAQUE, et pas seulement sur la normale.
+
+    ## MAGNITUDE -- et c'est l'etat d'ability de la **SOURCE**, MESURE, pas suppose
+    `ConfigVar(0x46 = dmgReductionPct)` sur la config de l'ability `ElectrochaffBackups`, indexee
+    par `GetAbilityState(effet)` = l'`AbilityStateReference` BAKEE dans `EffectComponent+0x18` a la
+    pose -- le 2e argument natif d'`AddEffect`, `BaseTriggeredAbility$$get_AbilityStateReference
+    (this)`, donc l'etat de la MoW POSEUSE et **jamais** celui du porteur (les deux DIFFERENT par
+    construction : `source = Owner`, `targets = Target`, et ils sont d'equipes OPPOSEES).
+
+    ⚠ MESURE (#1025-r1) : apres pose par le trigger, l'instance materialisee porte
+    `ability_level = None` -- `AddEffect` du port ne bake l'etat de la source que sous
+    `scale_from_source`, non pose sur ce call-site (ni sur celui de 1448). Lire `self.ability_level`
+    rendrait donc un effet INERTE en combat. Le canal qui porte l'etat de n'importe quel proprietaire
+    est `att_ctx["tertiary_ability_state_of"]` -- callable `(owner_id, ability) -> (level, mult)`,
+    foyer UNIQUE `runner/operations/triggers/base.py::triggered_ability_state` (#357), qui rend
+    l'etat **TERTIAIRE** quand l'ability y est montee (le cas d'une mythique de MoW) et le PASSIF
+    sinon. MEME cle et MEME semantique que `NornCrownEffect` / `HeadwoppasKillchoppaEffect`.
+    On l'interroge avec `self.source` -- la MoW poseuse -- et non avec le porteur.
+    Canal absent (face PREDICTION, contexte offline, probe) -> repli NOMME sur les niveaux que
+    l'instance porte deja, exactement le repli de `NornCrownEffect._amount`.
+
+    Gameconfig : `dmgReductionPct = [10, 13, 16, 20]`,
+    `variablesAffectedByRarityBonus = ['dmgReductionPct']`. Aucun niveau resolu -> AUCUNE
+    contribution (<< present != applique >>)."""
+
+    #: Cle gameconfig de l'ability qui pose l'effet -- la config qu'indexe `ConfigVar`.
+    ABILITY_ID = "ElectrochaffBackups"
+    #: `AbilityVariableType` 0x46 = 70, resolu par son NOM (jamais par l'ordinal : `AbilityConstantType`
+    #: 70 nomme autre chose).
+    VAR_DMG_REDUCTION_PCT = "dmgReductionPct"
+    #: callable `(owner_id, ability_name) -> (level, multiplier)` -- mirror de `GetAbilityState(effet)`
+    #: (#357). MEME cle que `NornCrownEffect` / `HeadwoppasKillchoppaEffect` : le foyer UNIQUE
+    #: `runner/operations/triggers/base.py::triggered_ability_state`.
+    CTX_ABILITY_STATE_OF = "tertiary_ability_state_of"
+
+    def _amount(self, att_ctx) -> "int | None":
+        """`ConfigVar(0x46 = dmgReductionPct, GetAbilityState(effet), <config@effet+0x60>)` --
+        interroge l'etat d'ability de la **SOURCE** (`EffectComponent.SourceUnit @+0x10`), cf. la
+        docstring de classe. Canal absent -> repli NOMME sur les niveaux de l'instance."""
+        c = att_ctx or {}
+        fn = c.get(self.CTX_ABILITY_STATE_OF)
+        lvl = mult = None
+        if fn is not None and self.source is not None:
+            lvl, mult = fn(self.source, self.ABILITY_ID)
+        if lvl is None:
+            lvl = self.ability_level if self.ability_level is not None else self.level
+            mult = self.ability_variables_multiplier
+        if not lvl:
+            return None
+        return ability_var(self.ABILITY_ID, self.VAR_DMG_REDUCTION_PCT, lvl,
+                           multiplier_pct=int(mult if mult is not None else 100))
+
+    def create_effect_damage_bonus_for_attack(self, is_ranged: bool | None = None,
+                                              has_moved: bool | None = None,
+                                              target_traits: "frozenset[str] | None" = None,
+                                              is_prediction: bool = False,
+                                              is_normal_attack: bool | None = True,
+                                              target_armor_reduced: bool | None = None,
+                                              att_ctx=None) -> EffectBonus | None:
+        c = att_ctx or {}
+        # 2. `HasRarity(Target@+0x60, idun.meta.Rarity.Mythic = 5)` -- comparaison au MEMBRE d'enum,
+        #    jamais a l'ordinal : cinq enums du build partagent les six memes ordinaux de rarete
+        #    (cf. `entities/rarity.py`). `None` (non mesure) -> FERME.
+        if c.get("tgt_rarity") != Rarity.Mythic:
+            return None
+        # 3. `AreFriends(Target@+0x60, EffectSource(Effect@+0x38), 0, false)`
+        t_team = c.get("tgt_team")
+        s_team = (c.get("team_by_id") or {}).get(self.source) if self.source is not None else None
+        if t_team is None or s_team is None or t_team != s_team:
+            return None                                   # equipe inconnue -> gate muet (fidele)
+        pct = self._amount(att_ctx)                       # ConfigVar(0x46) sur l'etat de la SOURCE
+        if not pct:
+            return None
+        # owner = l'ATTAQUANT (`get_OwnerIsCaster`) -> le degat INFLIGE baisse.
+        return for_percent_decrease(True, int(pct))
 
 
 class ShadowInTheWarpLessDmgEffect(BaseEffect):

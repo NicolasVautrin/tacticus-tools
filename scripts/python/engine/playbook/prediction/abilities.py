@@ -10,7 +10,8 @@ from __future__ import annotations
 
 from ._shared import *   # vocabulaire commun (GC, dsl, active_ability_for, ProbableDamageEvent, ...)
 from ._shared import (_PROFILE_INDEX, _add_positional_and_defender_mods, _apply_ally_attack_dmg_bonus,
-                      _prediction_is_charging, _target_damage_limits, _entity_traits)
+                      _prediction_is_charging, _target_damage_limits, _entity_traits,
+                      _entity_rarity)
 from .normal_attack import make_normal_attack_predictions
 # Les trois registres par-ability de ce module sont clees par `IdunBattle.Entities.Enum.ActiveAbilityType`
 # (#270-r1 volet 2) : ce sont des ids d'abilities ACTIVES, jamais des `TriggeredAbilityType`.
@@ -169,6 +170,23 @@ def generate_multi_hit_attack_prediction(scene, uid, tgt, ability_id, ability_na
                                                                 "damage_profile": profile_name,
                                                                 "t_pos": scene.pos(tgt),
                                                                 "tgt_team": scene.team(tgt),
+                                                                # #1025-r1 -- `HasRarity(Target
+                                                                # @0x60, Mythic)` + `AreFriends(
+                                                                # Target@0x60, EffectSource(Effect
+                                                                # @0x38))` d'`ElectrochaffBackups_
+                                                                # DamageReductionPct` (1446). Son
+                                                                # `$$CreateDamageModifier` n'a NI
+                                                                # `IsNormalAttack` NI `IsMeleeAttack`
+                                                                # (`get_OwnerIsCaster` + les deux
+                                                                # conjoints seuls) -> il entre AUSSI
+                                                                # sur ce vecteur ABILITY. MEMES cles
+                                                                # que la normale et que la face
+                                                                # COMBAT -- pas de fork. TRI-ETAT
+                                                                # sur la rarete (`None` = non
+                                                                # mesure -> gate FERME).
+                                                                "tgt_rarity": _entity_rarity(scene,
+                                                                                             tgt),
+                                                                "team_by_id": scene.team_by_id,
                                                                 # `HealthPctIsBelowOrEqual(Target
                                                                 # @0x60, ConfigConst(0x4f))` = gate
                                                                 # de DOUBLEMENT de
