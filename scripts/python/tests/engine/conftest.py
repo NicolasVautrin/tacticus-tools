@@ -54,6 +54,15 @@ un port SANS gate est d'accord avec le natif PARTOUT -- un vert y est VIDE. Deux
 Montage dans `scripts/python/probe_999r3_regime_separant_rarete.py` ; la fixture n'en est que la
 porte pytest, et le probe REFUSE de rendre un bras separant qui ne separe pas.
 
+`traits_forces_case` (#1044) -- MONTAGE NOMME du FORCAGE DES TRAITS au deploiement, `UnitTrait.Hero`
+COMPRIS. `--unit-stat "<vis>:Traits=[...]"` mord sur 104 des 105 membres de l'enum, mais PAS sur
+`Hero` : `IdunBattle.Operations.AddUnitOperation$$AddUnitTypeTraits` le RAJOUTE apres la fabrique a
+toute unite qui n'est ni `NPC`, ni `Summon`, ni enfant. Le montage ecrit donc un TRAIT PORTEUR.
+Montage dans `scripts/python/probe_1044_levier_traits.py` ; la fixture n'en est que la porte pytest.
+⚠ Les deux fixtures ci-dessus sont la MEME forme sur DEUX axes : `rl_duel build` impose un regime
+DEGENERE (toute unite `Mythic`, toute unite `Hero`), et un port sans gate y est d'accord partout.
+Les composer dans un meme montage est legitime -- elles n'ecrivent pas le meme champ de `BC.Units[]`.
+
 Un montage qui ne s'installe pas ECHOUE, il ne skippe pas (#268) : un `pytest.skip` sur un regime non
 atteint est un VERT qui ment -- aucune mesure n'a eu lieu et la suite ne rougit pour personne."""
 from __future__ import annotations
@@ -67,6 +76,7 @@ import probe_308_normal_attack_bonus as NAB
 import probe_316_ability_prediction_target_traits as TTA
 import probe_350r3b_triggered_average_forms as TAF
 import probe_999r3_regime_separant_rarete as RAR
+import probe_1044_levier_traits as LT
 
 
 @pytest.fixture(scope="module")
@@ -271,5 +281,42 @@ def target_trait_ability_case(live_session):
                 if res is not None:
                     TTA.dispose(res)
             cache[key] = res
+        return cache[key]
+    return _case
+
+
+@pytest.fixture(scope="module")
+def traits_forces_case(live_session):
+    """Fabrique : `traits_forces_case("hero-separant")` -> le dict de mesure du probe #1044.
+
+    MONTAGE NOMME du FORCAGE DES TRAITS au deploiement. Il rend une bataille ou des unites du
+    MEME camp portent des jeux de traits VOULUS DIFFERENTS -- y compris sur `UnitTrait.Hero`,
+    que `--unit-stat "<vis>:Traits=[...]"` seul ne sait PAS retirer.
+
+    POURQUOI IL FAUT UN MONTAGE ET PAS UN ARGUMENT : `IdunBattle.Operations.AddUnitOperation$$
+    AddUnitTypeTraits` passe APRES `IdunBattle.Entities.Factories.UnitFactory$$InitBaseComponent`
+    et FORCE le triplet {Hero, NPC, Summon} -- toute unite sans `NPC` ni `Summon` ni parent
+    devient `UnitOverrideType.Hero` et se voit RAJOUTER `Hero`. La sortie est d'ecrire un TRAIT
+    PORTEUR (`NPC`) dans `BC.Units[].Traits` : le natif retourne alors sans rien toucher.
+    `probe_1044_levier_traits.sans_hero(traits)` produit cette liste.
+
+    Deux regimes, `probe_1044_levier_traits.CASES` :
+      * `"hero-separant"` -- deux unites SANS `Hero`, une avec `Hero` FORCE bien qu'il ne soit
+        pas demande (le CONTROLE du forcage), deux TEMOINS intacts ;
+      * `"levier-nu"` -- sans trait porteur : 104 traits obeissent, `Hero` seul resiste. C'est
+        la CONTRE-EPREUVE, sans laquelle le cas ci-dessus ne dirait pas d'ou vient `Hero`.
+
+    Portee MODULE : chaque regime coute un build ; le probe DISPOSE son runner en sortie."""
+    cache: dict = {}
+
+    def _case(cas: str = "hero-separant", seed: int = LT.SEED, board: str = LT.BOARD) -> dict:
+        assert cas in LT.CASES, f"cas inconnu : {cas} (connus : {sorted(LT.CASES)})"
+        key = (cas, seed, board)
+        if key not in cache:
+            try:
+                cache[key] = LT.run(cas, seed=seed, board=board)
+            except AssertionError as exc:       # montage non installe -> ROUGE, jamais skip
+                pytest.fail(f"montage traits-forces NON INSTALLE (cas={cas}, board={board}, "
+                            f"seed={seed}) : {exc}", pytrace=False)
         return cache[key]
     return _case
