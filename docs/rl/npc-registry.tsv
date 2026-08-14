@@ -917,11 +917,11 @@ eldarBossRangerSurv	Aeldari	Xenos	None	trait	Overwatch		1
 eldarNpc1Guardian	Aeldari	Xenos	None	active	PlasmaGrenade	1098	1	1
 eldarNpc1Guardian	Aeldari	Xenos	None	passif	BattleFocus		0	
 eldarNpc1Guardian	Aeldari	Xenos	None	trait	BattleFatigue		1	
-eldarNpc2Warlock	Aeldari	Xenos	None	active	Reveal	1107	0	0
+eldarNpc2Warlock	Aeldari	Xenos	None	active	Reveal	1107	1	0
 eldarNpc2Warlock	Aeldari	Xenos	None	passif	Conceal		0	
 eldarNpc2Warlock	Aeldari	Xenos	None	trait	Psyker		1	
 eldarNpc3Harlequin	Aeldari	Xenos	None	active	KissOfDeath	1108	1	0
-eldarNpc3Harlequin	Aeldari	Xenos	None	passif	HarlequinsPanoply		0	
+eldarNpc3Harlequin	Aeldari	Xenos	None	passif	HarlequinsPanoply		1	
 eldarNpc3Harlequin	Aeldari	Xenos	None	trait	Infiltrate		1	
 eldarNpc3Harlequin	Aeldari	Xenos	None	trait	Unstoppable		1	
 eldarNpc4Wraithguard	Aeldari	Xenos	None	active	WarConstruct	1133	1	0
@@ -1603,7 +1603,7 @@ tauBossMarksmanLHE	Tau	Xenos	None	trait	Hero		1
 tauBossMarksmanLHE	Tau	Xenos	None	trait	CloseCombatWeakness		0	
 tauBossMarksmanLHE	Tau	Xenos	None	trait	Camouflage		1	
 tauBossRiptide	Tau	Xenos	None	active	NovaBoost	1192	1	1
-tauBossRiptide	Tau	Xenos	None	active	NovaCharge	1193	0	0
+tauBossRiptide	Tau	Xenos	None	active	NovaCharge	1193	1	0
 tauBossRiptide	Tau	Xenos	None	active	NovaShield	1194	1	1
 tauBossRiptide	Tau	Xenos	None	passif	MultiTracker		0	
 tauBossRiptide	Tau	Xenos	None	passif	TargetLock		0	
@@ -1791,7 +1791,7 @@ templBossSwordBrother_LHE	BlackTemplars	Imperial	None	passif	ChampionOfTheFeast	
 templBossSwordBrother_LHE	BlackTemplars	Imperial	None	trait	Hero		1	
 templBossSwordBrother_LHE	BlackTemplars	Imperial	None	trait	Parry		1	
 templBossSwordBrother_LHE	BlackTemplars	Imperial	None	trait	RapidAssault		1	
-templNpc1Initiate	BlackTemplars	Imperial	None	active	DevoutPush	1053	0	0
+templNpc1Initiate	BlackTemplars	Imperial	None	active	DevoutPush	1053	1	1
 templNpc1Initiate	BlackTemplars	Imperial	None	passif	HeavyBoltPistol		1	
 templNpc2Neophyte	BlackTemplars	Imperial	None	active	IncendiaryShells	1044	1	1
 templNpc3InitiatePyreblaster	BlackTemplars	Imperial	None	passif	Pyreblaster		0	
@@ -1965,7 +1965,7 @@ tyranBossDeathleaperSurv	Tyranids	Xenos	None	trait	Camouflage		1
 tyranBossDeathleaperSurv	Tyranids	Xenos	None	trait	TeleportStrike		1	
 tyranBossDeathleaperSurv	Tyranids	Xenos	None	trait	Infiltrate		1	
 tyranBossDeathleaperSurv	Tyranids	Xenos	None	trait	Terrifying		1	
-tyranBossHiveTyrantLeviathan	Tyranids	Xenos	None	active	CallRipperSwarms	1052	0	0
+tyranBossHiveTyrantLeviathan	Tyranids	Xenos	None	active	CallRipperSwarms	1052	1	0
 tyranBossHiveTyrantLeviathan	Tyranids	Xenos	None	active	Catalyst	1032	1	0
 tyranBossHiveTyrantLeviathan	Tyranids	Xenos	None	active	StranglethornCannon	1056	1	1
 tyranBossHiveTyrantLeviathan	Tyranids	Xenos	None	passif	PrehensilePincerTail		0	

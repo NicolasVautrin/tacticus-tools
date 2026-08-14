@@ -26,34 +26,26 @@ if _PYROOT not in sys.path:
 import enum_maps as EM
 import gameconfig as GC
 import unit_map as UM
-from engine.entities.abilities.active_ability import _SPECIAL_ABILITY_CLASSES
-from engine.entities.effects.factory import ABILITY_INIT_OWNER_EFFECTS, EFFECT_CLASSES
-from engine.playbook import REGISTRY as CUSTOM_PLAYBOOKS
-from engine.playbook.noncomparable import PLAYBOOKS
-from engine.runner.abilities.handler import ABILITY_CLASSES
-from engine.runner.operations.triggers.dispatch.registry import ABILITY_TRIGGERS
+import decision_face_voies as DFV     # #979 : foyer UNIQUE de la face DECISION
+import kit_item_voies as KIV          # #1041 : foyer UNIQUE de la face COMBAT d'un item
 
 # Les voies que `audit_kit_coverage.collect()` lit sur le gameconfig d'une unite.
 AUDIT_VOIES = ("activeAbilities", "passiveAbilities", "traits")
 
 
-def _has_effect_named_after(name: str) -> bool:
-    pfx = name + "_"
-    return any(k == name or k.startswith(pfx) for k in EFFECT_CLASSES)
-
-
 def _covered_any_face(nm: str) -> bool:
-    """Couverture au sens de l'audit, tous registres confondus (combat OU decision)."""
-    name2id = {v: k for k, v in EM.ACTIVE_ABILITY_TYPE.items()}
-    aid = name2id.get(nm)
-    return bool(
-        nm in ABILITY_TRIGGERS
-        or nm in ABILITY_INIT_OWNER_EFFECTS
-        or _has_effect_named_after(nm)
-        or (aid is not None and aid in ABILITY_CLASSES)
-        or (aid is not None and (aid in PLAYBOOKS or aid in CUSTOM_PLAYBOOKS))
-        or nm in _SPECIAL_ABILITY_CLASSES
-    )
+    """Couverture au sens de l'audit, LES DEUX FACES.
+
+    ⚠ CE PROBE PORTAIT SA PROPRE COPIE DU PREDICAT (#1041) -- une TROISIEME liste blanche, plus
+    etroite encore que celle de l'auditeur (3 registres de combat sur les 6 alors lus). Deux copies
+    d'une meme question derivent en silence : celle-ci rendait `PhoenixGem` non couverte alors que
+    l'audit, corrige, la rend portee. Elle delegue desormais aux DEUX foyers, qui PARTITIONNENT
+    leur perimetre au lieu d'enumerer -- il n'y a plus de liste a tenir a jour ici.
+
+    Le `PARTIEL` de `kit_item_voies` compte comme NON couvert : ce probe mesure le VOLUME de
+    travail atteint par une voie, et une face manquante en est."""
+    aid = {v: k for k, v in EM.ACTIVE_ABILITY_TYPE.items()}.get(nm)
+    return (KIV.etat(nm)[0] == KIV.PORTE) or bool(DFV.face_portee(aid, nm))
 
 
 def main():

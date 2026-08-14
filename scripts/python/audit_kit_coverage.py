@@ -6,13 +6,14 @@ moteur des deux faces :
 
   FACE COMBAT (execution) :
     - actives  -> `engine.runner.abilities.handler.ABILITY_CLASSES` (id ActiveAbilityType)
-    - passives -> `triggers.dispatch.ABILITY_TRIGGERS` (nom d'ability) et
-                  `effects.factory.ABILITY_INIT_OWNER_EFFECTS` (effet owner pose au spawn)
-    - traits   -> `triggers.dispatch.TRAIT_TRIGGERS` + `effects.factory.TRAIT_DERIVED_ABILITIES`
-                  + `effects.factory.TRAIT_OWNER_EFFECTS` (owner-effect pose au spawn : c'est un
-                  TROISIEME chemin de port, ni trigger ni ability derivee). L'oublier faisait compter
-                  MartialKatah manquant sur ses 4 porteurs Custodes alors que ses DEUX effets sont
-                  portes (MartialKatahDmgBonusEffect / MartialKatahDmgReductionEffect).
+    - passives, traits, voies conditionnelles -> `kit_item_voies.etat` -- le FOYER UNIQUE (#1041),
+      qui PARTITIONNE le perimetre `engine/runner` + `effects/factory.py` + `engine/services` au
+      lieu d'ENUMERER des registres. Cet audit y est venu apres avoir tenu sa PROPRE liste blanche
+      de cinq registres, qui avait rate `EFFECT_TRIGGERS` -- et donc rendu `PhoenixGem`
+      (`eldarAutarch`) << non portee >> alors que ses trois classes y vivent sous
+      `EffectType.PhoenixGem_CanRevive`. Le foyer ne les ENUMERE plus : un conteneur neuf y sort
+      MUET au lieu d'etre tu, et le cliquet rougit.
+      ⚠ Ce foyer rend un TRI-ETAT, pas un booleen : cf. la section suivante.
   FACE DECISION (scoring) : `decision_face_voies.face_portee` — le FOYER UNIQUE (#979), partage
     avec `probe_909_decision_actives_kit.py`. Cet audit y est venu apres avoir tenu sa PROPRE liste
     blanche de registres, qui divergeait de celle du probe (4 ici, 3 la-bas) et qui a rate deux
@@ -28,11 +29,26 @@ moteur des deux faces :
     (« NC classee, utilite NC non portee ») au lieu de le compter comme `D` -- sinon on commet
     l'erreur SYMETRIQUE du sous-comptage, en declarant porte ce qui ne l'est pas.
 
+LE TRI-ETAT `PORTE` / `PARTIEL` / `ABSENT` (#1041), et pourquoi le booleen d'avant etait FAUX DES
+DEUX COTES. Deux vices tiraient en sens OPPOSES, et ne corriger que l'un DEGRADAIT le chiffre :
+  * SOUS-comptage -- la liste blanche ne visitait pas `EFFECT_TRIGGERS` : `PhoenixGem`, portee en
+    entier (3 classes, 17 tests live), etait comptee du travail a faire ;
+  * SUR-comptage -- une entree d'`ABILITY_INIT_OWNER_EFFECTS` creditait l'item MEME QUAND l'effet
+    pose n'a AUCUNE CLASSE dans `EFFECT_CLASSES`. Le montage est alors DECLARE et il ne s'execute
+    RIEN. Mesure : 4 mythiques (`BlightedLand`, `CabalOfSorcerers`, `GuardianConstruct`,
+    `MoreGitzOverEre`) etaient dans ce cas -- ce sont EXACTEMENT les 4 entrees du registre dont
+    aucune cible n'a de classe. `audit_passive_ability_coverage` appliquait DEJA ce gate a son
+    canal `[O]` ; les deux audits divergeaient sur la meme question.
+`PARTIEL` est donc rendu TEL QUEL, jamais arrondi : le rabattre sur PORTE fait RENONCER a du
+travail reel, le rabattre sur ABSENT fait RE-DISPATCHER un port a moitie fait.
+⚠ `missing` COMPTE LES PARTIELS comme du travail restant (c'en est), et la section conditionnelle
+les liste a part -- un chiffre qui change de sens doit etre ANNONCE, pas glisse.
+
 APPROXIMATIONS assumees (l'audit RANGE les kits par volume de travail, il ne PROUVE pas une
 couverture) : un passif peut etre implemente ailleurs (mod attaquant, effet, legalite) sans
-figurer dans ces registres -> faux "MISSING" possibles, a trancher au recon du kit. Les traits
-FREQUENTS (>TRAIT_COMMON_MAX unites : Hero, Psyker, Flying, ...) sont presumes couverts par les
-couches globales (mouvement/legalite/smite) et exclus du comptage.
+figurer dans ces registres -> faux "MISSING" possibles, a trancher au recon du kit. Le tri-etat
+mesure la PRESENCE d'un cablage et la vivacite de sa cible, JAMAIS sa fidelite : un item `PORTE`
+peut l'etre faussement.
 
 VOIES D'ATTRIBUTION (#341, apres le precedent #323). Le kit d'une unite s'atteint par CINQ voies
 derivables du gameconfig (`unit_map.VOIE_KEYS`). Le corps de cet audit n'en lit que DEUX
@@ -73,10 +89,8 @@ import decision_face_voies as DFV     # #979 : foyer UNIQUE des voies de face DE
 import enum_maps as EM
 import gameconfig as GC
 import unit_map as UM
+import kit_item_voies as KIV        # #1041 : foyer UNIQUE des voies de montage COMBAT d'un item
 from audit_combat_ability_coverage import _classify
-from engine.entities.effects.factory import (
-    ABILITY_INIT_OWNER_EFFECTS, EFFECT_CLASSES, TRAIT_DERIVED_ABILITIES, TRAIT_OWNER_EFFECTS,
-)
 from engine.entities.abilities.active_ability import (   # 3e registre de decision, keye par NOM
     _NONCOMPARABLE_ABILITIES, _SPECIAL_ABILITY_CLASSES,
 )
@@ -84,15 +98,11 @@ from engine.playbook import REGISTRY as CUSTOM_PLAYBOOKS   # comparables a overr
 from engine.playbook.bespoke import BESPOKE_SELFCAST       # 4e registre : override TOTAL d'EvaluateInternal
 from engine.playbook.noncomparable import PLAYBOOKS
 from engine.runner.abilities.handler import ABILITY_CLASSES
-from engine.runner.operations.triggers.dispatch.registry import (
-    ABILITY_TRIGGERS, RELIC_ABILITY_TRIGGERS, TRAIT_TRIGGERS,
-)
-# 4e voie de couverture d'un PASSIF (#925) : il substitue l'attaque normale de son porteur au lieu
-# de poser un trigger ou un effet. Cf. `_passive_covered`.
-from engine.services.custom_normal_attack import CUSTOM_NORMAL_ATTACK_BY_PASSIVE
-# 5e voie (#951-r2) : le passif est joue par un APPEL IMPERATIF depuis un vecteur d'event, donc il
-# n'a par construction AUCUNE entree de registre a lire. Declare a son foyer. Cf. `_passive_covered`.
-from engine.runner.operations.triggers.dispatch.ability import IMPERATIVE_ABILITY_VECTORS
+# ⚠ LES SIX REGISTRES DE COUVERTURE D'ITEM NE SONT PLUS IMPORTES ICI, ET C'EST LE FOND DE #1041.
+# Les lire d'ici, c'etait tenir une LISTE BLANCHE -- elle en avait deja rate cinq, chacun paye par
+# un faux MANQUANT mesure, et le sixieme (`EFFECT_TRIGGERS`) a fait sortir `PhoenixGem` en
+# << non portee >> alors qu'elle est portee en entier. Le foyer PARTITIONNE le perimetre a la
+# place ; y ajouter un import ici RE-OUVRIRAIT le gisement.
 
 OUT = os.path.join(_REPO, "docs", "rl", "kit-coverage.md")
 
@@ -123,20 +133,14 @@ _ATTESTEES = CA.attestations_valides()
 #: d'enumerer des registres : un conteneur neuf y sort MUET, et `probe_909` etape 6 rougit.
 _VOIES = DFV.voies_par_ability()
 
-
-def _has_effect_named_after(name: str) -> bool:
-    """Un trait/passif peut etre porte UNIQUEMENT par sa/ses classe(s) d'effet, sans passer par un
-    registre trait->X : l'effet est seede depuis le live (`decisionView.effects`) et c'est sa classe
-    qui porte toute la mecanique. Deux formes observees, les deux comptent :
-      - effet HOMONYME du trait/passif (ex. trait `BlessingsOfKhorne` -> `BlessingsOfKhorne`) ;
-      - effets PREFIXES `<nom>_...` (ex. trait `MartialKatah` -> `MartialKatah_DmgBonus` +
-        `MartialKatah_DmgReduction` ; passif `BeaconOfRage` -> `BeaconOfRage_ExtraDamage` + ...).
-    APPROXIMATION assumee, comme le reste de cet audit : c'est la convention de nommage du port,
-    pas une preuve de cablage. Elle sous-estime beaucoup moins que de l'ignorer (l'ignorer faisait
-    ressortir MartialKatah et BlessingsOfKhorne comme du travail a faire alors qu'ils sont portes
-    et valides live)."""
-    pfx = name + "_"
-    return any(k == name or k.startswith(pfx) for k in EFFECT_CLASSES)
+#: ⚠ PAS D'INSTANTANE A L'IMPORT pour les voies d'ITEM, contrairement a `_VOIES` ci-dessus -- et
+#: c'est une correction MESUREE, pas une precaution. Un instantane fige rend le predicat
+#: INSENSIBLE a une mutation de registre : trois etages de
+#: `test_951r2_voies_de_couverture_offline` (qui RETIRENT une entree et exigent que la couverture
+#: TOMBE) sont passes au ROUGE. Un recenseur qu'on ne peut plus faire mentir ne prouve plus rien.
+#: Les BOUCLES calculent donc la table une fois, localement (`collect`, `collect_conditionnelles`),
+#: et le predicat public relit -- `kit_item_voies.items_de_kit` porte le seul cache, sur le
+#: GAMECONFIG, qui lui ne mute pas.
 
 
 def _atteste(categorie: str, nm: str) -> dict | None:
@@ -149,50 +153,34 @@ def _atteste(categorie: str, nm: str) -> dict | None:
     return _ATTESTEES.get((categorie, nm))
 
 
-def _passive_covered(nm: str) -> bool:
-    """Le predicat de couverture d'un item NON-actif (passif, mythique, relique) : un trigger
-    d'ability, un owner-effect pose au spawn, une classe d'effet nommee d'apres lui, ou -- QUATRIEME
-    voie (#925) -- une ATTAQUE NORMALE SUBSTITUEE.
+def _etat_item(nm: str, table=None) -> tuple[str, str]:
+    """L'etat TERNAIRE de couverture d'un item NON-actif (passif, trait, mythique, relique) :
+    `("PORTE"|"PARTIEL"|"ABSENT", detail)`. Delegue au FOYER `kit_item_voies` (#1041).
 
-    ⚠ DEUX VOIES DE PLUS, ajoutees par #951-r2 apres un recensement qui n'a PAS enumere une liste
-    blanche de registres (il a introspecte TOUS les conteneurs de module d'`engine.**` -- la lecon
-    de #323 transposee de l'axe ATTRIBUTION a l'axe PORT) :
+    `table` = l'instantane des voies, que les BOUCLES calculent une fois. Sans elle, le foyer
+    RELIT les registres -- c'est ce qui garde le predicat sensible a leur mutation (cf. le
+    commentaire de `_VOIES` plus haut : un instantane a l'import desarmait trois etages de garde).
 
-      * `RELIC_ABILITY_TRIGGERS` -- registre qui EXISTAIT et que ce predicat ne lisait pas. Il est
-        SEPARE d'`ABILITY_TRIGGERS` a dessein (montage natif distinct : `TertiaryAbility` /
-        `relicAbilities`), et cette separation le rendait invisible ici. Mesure : `DawnBlade`
-        (`tauFarsight`) etait compte manquant alors que `DawnBladeHealAbility` est portee.
-      * `IMPERATIVE_ABILITY_VECTORS` -- le passif est joue par un APPEL EN DUR depuis un vecteur
-        d'event (`dispatch/ability.py::evaluate_abilities_for_event`), donc il n'a AUCUNE entree de
-        registre, quel que soit l'etat du port. Mesure : `FireOfAbsolution` (`adeptRetributor`),
-        porte en entier et compte manquant -- cf. `case-951-trophy-taker-et-fire-of-absolution.md`
-        §4. C'est un faux MANQUANT, pas une approximation : le cout mesure est un agent dispatche
-        sur du travail deja fait.
+    ⚠ CE PREDICAT ETAIT UNE LISTE BLANCHE DE CINQ REGISTRES, et il en avait rate un : une liste
+    blanche ne peut pas montrer le registre qu'elle a oublie. Chacune de ses extensions passees
+    avait ete payee par un faux MANQUANT MESURE -- `DawnBlade` (`RELIC_ABILITY_TRIGGERS`, #951-r2),
+    `FireOfAbsolution` (`IMPERATIVE_ABILITY_VECTORS`, #951-r2), `Boltstorm` et ses voisins
+    (`CUSTOM_NORMAL_ATTACK_BY_PASSIVE`, #925), `MartialKatah` (`TRAIT_OWNER_EFFECTS`). Le sixieme
+    trou etait `EFFECT_TRIGGERS` (`PhoenixGem`, #1041) -- et le suivant serait arrive pareil.
+    Le foyer PARTITIONNE : un registre qui naitrait demain y sort MUET, et le cliquet rougit.
 
     L'ATTESTATION (`_atteste`) n'est PAS testee ici : elle est deliberement tenue HORS de ce
     predicat, parce qu'elle ne dit pas la meme chose. Ce predicat repond a « un registre le
     porte-t-il ? » ; l'attestation repond a « ce verdict a-t-il ete ETABLI ? ». Les fondre rendrait
-    les deux indiscernables dans le doc, et c'est precisement ce qu'on veut pouvoir lire.
+    les deux indiscernables dans le doc, et c'est precisement ce qu'on veut pouvoir lire."""
+    return KIV.etat(nm, table)
 
-    ⚠ LA QUATRIEME VOIE MANQUAIT, et son absence produisait un faux `manque` -- pas une
-    approximation, une CONTRE-VERITE. Un passif comme `Boltstorm` (1090, `templAggressor`) n'a NI
-    `$$CreateTrigger` NI `$$CreateBehaviour` : sa classe
-    `IdunBattleLogic.Entities.Abilities.Triggered.Loki.BoltstormAbility` n'expose que deux ARBRES DE
-    CIBLAGE (`$$GetAdditionalTargets`, `$$GetAllTargets`). Il agit en faisant substituer l'attaque
-    normale de son porteur par `IdunBattle.Entities.Factories.UnitFactory$$AddNormalAttackAbility`,
-    et c'est cette attaque CONCRETE (`Boltstorm_NormalAttack` 1128) qui porte le corps. Aucun des
-    trois registres precedents ne peut donc le voir, quel que soit l'etat du port.
 
-    Le registre lu est `engine.services.custom_normal_attack.CUSTOM_NORMAL_ATTACK_BY_PASSIVE` : le
-    FOYER de cette cascade cote port, keye par le NOM du passif -- la meme cle que la voie
-    `passiveAbilities` du gameconfig, donc aucune traduction. Mesure a l'ajout : `Boltstorm`,
-    `Fealty`, `RighteousRepugnance`, `TalonOfHorus`, `HeavyBoltPistol` et leurs voisins cessent
-    d'etre comptes manquants."""
-    return (nm in ABILITY_TRIGGERS or nm in ABILITY_INIT_OWNER_EFFECTS
-            or nm in CUSTOM_NORMAL_ATTACK_BY_PASSIVE
-            or nm in RELIC_ABILITY_TRIGGERS
-            or nm in IMPERATIVE_ABILITY_VECTORS
-            or _has_effect_named_after(nm))
+def _passive_covered(nm: str) -> bool:
+    """Compatibilite : `True` seulement si l'item est PLEINEMENT porte. Un `PARTIEL` rend `False`
+    -- c'est du travail restant, et le rabattre sur `True` fait RENONCER. Les appelants qui
+    veulent DISTINGUER les deux lisent `_etat_item`."""
+    return _etat_item(nm)[0] == KIV.PORTE
 
 
 def collect_conditionnelles(name2id: dict) -> list[dict]:
@@ -209,20 +197,29 @@ def collect_conditionnelles(name2id: dict) -> list[dict]:
         for voie in VOIES_CONDITIONNELLES:
             for nm in (k.get("voies") or {}).get(voie, []):
                 carriers[(nm, voie)].add(k["id"])
+    voies_item = KIV.voies_par_item()      # UNE fois par appel, jamais fige a l'import
     out = []
     for (nm, voie), units in carriers.items():
         aid = name2id.get(nm)
         att = _atteste("conditionnelle-" + voie, nm)
+        et, detail = _etat_item(nm, voies_item)
+        # Une active portee et une attestation valide valent PORTE : les trois signaux disent la
+        # meme chose (« il n'y a plus rien a faire ici »). Le `PARTIEL`, lui, n'est ABSORBE par
+        # aucun des deux -- s'il l'etait, la face manquante redeviendrait invisible.
+        if aid is not None and aid in ABILITY_CLASSES:
+            et, detail = KIV.PORTE, "ABILITY_CLASSES"
+        elif att is not None and et != KIV.PARTIEL:
+            et, detail = KIV.PORTE, "atteste"
         out.append({
             "name": nm, "voie": voie, "id": aid, "carriers": sorted(units), "atteste": att,
-            "covered": (_passive_covered(nm) or (aid is not None and aid in ABILITY_CLASSES)
-                        or att is not None),
+            "etat": et, "detail": detail, "covered": et == KIV.PORTE,
         })
     return sorted(out, key=lambda r: (r["covered"], r["voie"], r["name"]))
 
 
 def collect():
     name2id = {v: k for k, v in EM.ACTIVE_ABILITY_TYPE.items()}
+    voies_item = KIV.voies_par_item()      # UNE fois par appel, jamais fige a l'import
     trait_units: Counter = Counter()
     for k in UM.all_kits():
         u = GC.unit(k["id"]) or {}
@@ -277,8 +274,14 @@ def collect():
         passives = []
         for nm in (u.get("passiveAbilities") or []):
             att = _atteste("passif", nm)
-            passives.append({"name": nm, "covered": _passive_covered(nm) or att is not None,
-                             "atteste": att})
+            et, detail = _etat_item(nm, voies_item)
+            # Meme regle que pour les conditionnelles : une attestation VALIDE vaut PORTE, mais elle
+            # n'absorbe PAS un `PARTIEL` -- une face manquante ne s'atteste pas par un verdict pose
+            # sur une AUTRE face.
+            if att is not None and et != KIV.PARTIEL:
+                et, detail = KIV.PORTE, "atteste"
+            passives.append({"name": nm, "covered": et == KIV.PORTE, "atteste": att,
+                             "etat": et, "detail": detail})
         kit_traits = []
         for t in (u.get("traits") or []):
             # AUCUN ECART (#1015) : le seuil de frequence est retire, tout trait porte est compte et
@@ -324,6 +327,13 @@ def main():
         by_faction[r["faction"]].append(r)
     total = sum(r["missing"] for r in todo)
     cond_open = [c for c in cond if not c["covered"]]
+    # Le TRI-ETAT (#1041). `PARTIEL` est un sous-ensemble de `cond_open` -- il RESTE compte comme
+    # du travail (c'en est), mais il est NOMME : c'est ce que le booleen d'avant ne pouvait pas
+    # dire, et c'est ce qui distingue « personne n'a rien ecrit » de « le montage est ecrit et il
+    # ne s'execute rien ».
+    cond_partiels = [c for c in cond_open if c["etat"] == KIV.PARTIEL]
+    passifs_partiels = sorted({p["name"] for r in rows for p in r["passives"]
+                               if p["etat"] == KIV.PARTIEL})
 
     # LA FACE DECISION EST CALCULEE MAIS NE COMPTE PAS DANS `missing` (cf. `collect`,
     # qui ne somme que `not a["combat"]`). Ce n'est pas un bug a corriger en douce :
@@ -369,10 +379,18 @@ def main():
     lines.append("- Volume total : **%d** items manquants (actives no-op + passifs/traits non registres)\n"
                  % total)
     lines.append("- HORS total — voies conditionnelles : **%d** abilities non portees "
-                 "(%d mythiques, %d reliques equipables)\n"
+                 "(%d mythiques, %d reliques equipables), dont **%d PARTIELLES**\n"
                  % (len(cond_open),
                     sum(1 for c in cond_open if c["voie"] == "mythic"),
-                    sum(1 for c in cond_open if c["voie"] == "item")))
+                    sum(1 for c in cond_open if c["voie"] == "item"),
+                    len(cond_partiels)))
+    lines.append("- PARTIELS (#1041) — montage DECLARE, rien ne s'execute : **%d** conditionnelle(s)"
+                 "%s ; **%d** passif(s)%s\n"
+                 % (len(cond_partiels),
+                    (" (" + ", ".join(sorted(c["name"] for c in cond_partiels)) + ")")
+                    if cond_partiels else "",
+                    len(passifs_partiels),
+                    (" (" + ", ".join(passifs_partiels) + ")") if passifs_partiels else ""))
     lines.append("- HORS total — faces DECISION non portees : **%d** actives sur %d, "
                  "dont **%d** dans des kits declares COMPLETS (%d kits concernes)\n"
                  % (len(deci_open), n_actives, len(deci_masquees), len(kits_masques)))
@@ -467,13 +485,24 @@ def main():
                  "> qui a fait rendre un faux « 0 unite, DEAD ». Une relique se ventile en TROIS etats\n"
                  "> (equipee au seed / porteur au pool relique non equipee / porteur hors pool) :\n"
                  "> `case-323-unit-map-attribution-voies.md` §5. La voie `relicAbilities` ne touche\n"
-                 "> AUCUNE unite `lineup` (0 mesure) — elle n'apparait donc pas ici.\n\n")
-    lines.append("| ability | voie | porteurs lineup | ex. |\n|---|---|---:|---|\n")
+                 "> AUCUNE unite `lineup` (0 mesure) — elle n'apparait donc pas ici.\n"
+                 ">\n"
+                 "> ⚠ **LA COLONNE `etat` EST UN TRI-ETAT DEPUIS #1041, PLUS UN BOOLEEN**, parce que\n"
+                 "> le booleen etait faux DES DEUX COTES et que ne corriger qu'un sens DEGRADAIT le\n"
+                 "> chiffre. `ABSENT` = aucune voie ne la designe. **`PARTIEL` = une voie la designe\n"
+                 "> et son GATE tombe** : typiquement une pose d'owner-effect dont la cible n'a\n"
+                 "> AUCUNE classe dans `EFFECT_CLASSES` — le montage est ECRIT et il ne s'execute\n"
+                 "> RIEN. Les deux comptent comme du travail, mais ils n'appellent pas le meme :\n"
+                 "> `ABSENT` demande un port entier, `PARTIEL` demande la face qui manque.\n"
+                 "> Foyer : `scripts/python/kit_item_voies.py`.\n\n")
+    lines.append("| ability | voie | etat | porteurs lineup | ex. | detail |\n"
+                 "|---|---|---|---:|---|---|\n")
     for c in sorted(cond_open, key=lambda c: (c["voie"], c["name"])):
-        lines.append("| %s | %s | %d | %s |\n"
-                     % (c["name"], c["voie"], len(c["carriers"]), ", ".join(c["carriers"][:4])))
+        lines.append("| %s | %s | %s | %d | %s | %s |\n"
+                     % (c["name"], c["voie"], c["etat"], len(c["carriers"]),
+                        ", ".join(c["carriers"][:4]), c["detail"] or "-"))
     cond_ok = [c for c in cond if c["covered"]]
-    lines.append("\nPortees (au moins un registre) : **%d**%s\n"
+    lines.append("\nPortees (au moins une voie dont le gate passe) : **%d**%s\n"
                  % (len(cond_ok),
                     (" — " + ", ".join(sorted(c["name"] for c in cond_ok))) if cond_ok else ""))
 
@@ -486,6 +515,9 @@ def main():
           % (len(cond_open),
              sum(1 for c in cond_open if c["voie"] == "mythic"),
              sum(1 for c in cond_open if c["voie"] == "item"), len(cond_ok)))
+    print("tri-etat #1041: PARTIELS = %d conditionnelle(s) [%s], %d passif(s) [%s]"
+          % (len(cond_partiels), ", ".join(sorted(c["name"] for c in cond_partiels)) or "-",
+             len(passifs_partiels), ", ".join(passifs_partiels) or "-"))
 
 
 if __name__ == "__main__":
