@@ -442,6 +442,9 @@ def run(a, rpc, Board, Harness, seed_bc) -> int:
                 print("FAUTE : NOPORT rend le MEME observable que le port -- l'accord ne prouve rien")
                 rc |= 1
         return rc
+    finally:
+        rpc("disposeRunner", {"runnerId": rid}, 20)
+        Path(sf).unlink(missing_ok=True)
 
 
 def _nommer_l_etage(h, rec):
@@ -453,9 +456,6 @@ def _nommer_l_etage(h, rec):
         manquants = [k for k in ("owner_is_actor", "taunt_sur_victime", "buff_sur_tueur")
                      if not t.get(k)]
         print("    [etage] conjoint(s) FAUX cote port : %s -- trace %s" % (manquants, t))
-    finally:
-        rpc("disposeRunner", {"runnerId": rid}, 20)
-        Path(sf).unlink(missing_ok=True)
 
 
 def main() -> int:
