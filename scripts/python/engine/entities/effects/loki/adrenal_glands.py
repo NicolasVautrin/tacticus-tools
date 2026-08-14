@@ -213,7 +213,7 @@ def _path_counts(mctx) -> dict:
     `blocking_positions` = `WalkPathfinder$$UnitIsBlockedByEnemyUnit` : occupant ENNEMI vivant non
     `Steppable`. Un allie ne bloque pas le passage."""
     from ....entities.pathfinding.walk_pathfinder import get_path_node_counts_by_pos
-    from ....entities.traits.unit_trait import UnitTrait, has_trait
+    from ....entities.traits.unit_trait import UnitTrait, entity_trait_names, has_trait
     from ....runner.components import StatsComponent
     state, board = mctx.state, mctx.board
     positions = _unit_positions(state)
@@ -228,8 +228,11 @@ def _path_counts(mctx) -> dict:
             continue
         e = state.get_entity(int(uid))
         sc = e.get_component(StatsComponent) if e is not None else None
-        traits = getattr(getattr(sc, "ctx", None), "traits", None)
-        if has_trait(traits, UnitTrait.Steppable):
+        # FOYER `entity_trait_names` (#462-...-r3), jamais la lecture brute `ctx.traits` : c'est
+        # le substrat COMPLET de `BaseUnitComponent$$HasTrait` -- kit gameconfig, traits ACCORDES
+        # en bataille (`AddTraitOperation`) et pseudo-trait de grande-alliance. Un occupant qui
+        # RECOIT `Steppable` en cours de partie cesse alors de bloquer, comme cote natif.
+        if has_trait(entity_trait_names(getattr(sc, "ctx", None)), UnitTrait.Steppable):
             continue                                   # `HasTrait(occ, 0x1b)` court-circuite
         blocking.add(tuple(upos))
     return get_path_node_counts_by_pos(tuple(owner_pos), neigh_by_pos=neigh, walkable_by_pos=walk,
