@@ -639,7 +639,7 @@ darkaNpc1Infiltrator	DarkAngels	Imperial	None	trait	Infiltrate		1
 darkaNpc1Infiltrator	DarkAngels	Imperial	None	trait	Overwatch		1	
 darkaNpc2Hellblaster	DarkAngels	Imperial	None	trait	HeavyWeapon		1	
 darkaNpc2Hellblaster	DarkAngels	Imperial	None	trait	FinalJustice		1	
-darkaNpc3Terminator	DarkAngels	Imperial	None	passif	DeathwingKnight		0	
+darkaNpc3Terminator	DarkAngels	Imperial	None	passif	DeathwingKnight		1	
 darkaNpc3Terminator	DarkAngels	Imperial	None	trait	BigTarget		1	
 darkaNpc3Terminator	DarkAngels	Imperial	None	trait	TeleportStrike		1	
 darkaNpc3Terminator	DarkAngels	Imperial	None	trait	TerminatorArmour		1	
@@ -2158,11 +2158,11 @@ tyranNpc4WarriorSurv	Tyranids	Xenos	None	passif	ReinforcedHiveNode		1
 tyranNpc4WarriorSurv	Tyranids	Xenos	None	trait	Synapse		1	
 tyranNpc4WarriorSurv	Tyranids	Xenos	None	trait	BigTarget		1	
 tyranNpc4WarriorSurv	Tyranids	Xenos	None	trait	ShadowInTheWarp		1	
-tyranNpc5Barbgaunt	Tyranids	Xenos	None	passif	SynapticInsight		0	
+tyranNpc5Barbgaunt	Tyranids	Xenos	None	passif	SynapticInsight		1	
 tyranNpc5Barbgaunt	Tyranids	Xenos	None	trait	InstinctiveBehaviour		1	
 tyranNpc5Barbgaunt	Tyranids	Xenos	None	trait	HeavyWeapon		1	
 tyranNpc5Barbgaunt	Tyranids	Xenos	None	trait	SuppressiveFire		1	
-tyranNpc5BarbgauntSurv	Tyranids	Xenos	None	passif	SynapticInsight		0	
+tyranNpc5BarbgauntSurv	Tyranids	Xenos	None	passif	SynapticInsight		1	
 tyranNpc5BarbgauntSurv	Tyranids	Xenos	None	trait	InstinctiveBehaviour		1	
 tyranNpc5BarbgauntSurv	Tyranids	Xenos	None	trait	HeavyWeapon		1	
 tyranNpc5BarbgauntSurv	Tyranids	Xenos	None	trait	SuppressiveFire		1	

@@ -126,7 +126,8 @@ from ..loki.armour_of_shrieking_souls import (                       # passif em
     ArmourOfShriekingSoulsRemoveOnSourceResurrected)
 from ..loki.terrifying_crescendo import (TerrifyingCrescendoOverkillAbility,   # lot POSE (passif
                                         TerrifyingCrescendoSuppressAbility)   # emperNoiseMarine, #204)
-from ..loki.deathwing import DeathwingAbility                          # #932 (passif darkaTerminator)
+from ..loki.deathwing import (DeathwingAbility,                        # #932 (passif darkaTerminator)
+                              DeathwingKnightAbility)                  # #1073 (darkaSmnTerminator)
 from ..loki.fuelled_by_fury import (FuelledByFuryExtraDamageAbility,  # compteur 1323 (passif ultraTitus)
                                     FuelledByFuryReviveAbility,       # #88 A1 : self-revive On(3)
                                     FuelledByFuryCanReviveActivateOnAbilityInit,
@@ -688,6 +689,16 @@ ABILITY_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
     # (contraste `TerminatorArmour_ReduceDmg`, que le MEME porteur transporte via son trait).
     # Cf. loki/deathwing.py ; la MAGNITUDE vit dans `entities/effects/loki/deathwing.py`.
     "Deathwing": [DeathwingAbility],
+    # #1073 -- `DeathwingKnight` (TriggeredAbilityType 0x5e6 = 1510), passif du summon
+    # `darkaSmnTerminator` << Deathwing Knight >> et de son jumeau npc `darkaNpc3Terminator`.
+    # `DeathwingKnightAbility` DERIVE de `DeathwingAbility` (`frida/classes.tsv`) et n'override QUE
+    # `$$GetEffectType` (`return 0x5e8` = 1512), ce qui est LU dans le metadata : la classe declare
+    # exactement `[GetEffectType (slot 35), .ctor]`. Le trigger et le behaviour sont donc ceux du
+    # parent, au corps pres -- meme `On(9 = Attack) & get_OwnerIsTarget & WasBlock()`, meme
+    # `If(HasEffect, IncreaseEffectLevel(+1, SANS cap), AddEffect(turns = TurnsFromRounds(1)))`.
+    # Cf. loki/deathwing.py ; la MAGNITUDE vit dans `entities/effects/loki/deathwing.py`
+    # (`DeathwingKnightEffect`, MEME classe native a la config pres).
+    "DeathwingKnight": [DeathwingKnightAbility],
     # AnvilShield (passif spaceRockfist << Arjac >>) = volet ON-BLOCK `ApplyIce` : `On(UnitBlocked=0x3c) &
     # OwnerIsTarget & IsUnit(caster)` -> `AddEffect(Ice=0x11, source=Self, cible=CasterTile)` (la tuile de
     # l'attaquant BLOQUE gele). L'effet de tuile Ice etait deja porte ; c'est le DISPATCH `On(0x3c = UnitBlocked)` qui

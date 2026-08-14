@@ -99,6 +99,21 @@ ALLIE_DA = "darkaAsmodai"
 SPECTATEUR = "spaceStormcaller"  # n'attaque JAMAIS : il empeche la CLOTURE automatique du tour
 CIBLE_DU_CARRIER = "tauAunShi"   # bras `attaque` : ce que Baraqiel frappe
 DEATHWING_EFFECT = 1318
+#: #1073 -- VARIANTE `knight`. `DeathwingKnightAbility` DERIVE de `DeathwingAbility` et n'override
+#: QUE `$$GetEffectType` (`return 0x5e8` = 1512) ; l'effet est la MEME classe native
+#: `DeathwingEffect`, construite avec `triggeringAbilityType = 0x5e6` (= 1510). Le montage est donc
+#: LE MEME a trois valeurs pres -- porteur, `EffectType`, cle de registre --, ce qui est
+#: exactement la raison de ne PAS ecrire un second probe : un seul corps natif, un seul probe.
+#: Le porteur est le jumeau NPC du summon `darkaSmnTerminator` (MEME `visualId`), amene par
+#: `--explicit-stats` (table `units.npc[].stats[]`, 45 paliers) -- recette #1052.
+CARRIER_KNIGHT = "darkaNpc3Terminator:45"
+DEATHWING_KNIGHT_EFFECT = 1512
+#: VARIANTE COURANTE, posee par `--variante` dans `main()`. Les deux bras et le rejeu la LISENT :
+#: c'est ce qui garde le montage unique. `cle` indexe `ABILITY_TRIGGERS` / `EFFECT_CLASSES`
+#: (un nom de `TriggeredAbilityType` cote gauche, un nom d'`EffectType` cote droit -- deux enums).
+VARIANTE = "baraqiel"
+BUILD_EXTRA: list = []
+CLE = "Deathwing"
 TERMINATOR_REDUCE = 1147
 #: `EffectType.TeleportStrike_TeleportingIn` = 1035 -- le marqueur de Deep Strike du porteur, qui le
 #: rend NON-CIBLABLE tant qu'il n'a pas agi. LU dans `frida/enums.tsv`, jamais devine : l'ordinal
@@ -129,7 +144,7 @@ def _build(seed, board, p_units, a_units, extra, hp="400000"):
          "--board", board, "--rank", "17",
          "--p-units", ",".join(p_units), "--a-units", ",".join(a_units),
          *(["--hp-target", hp, "--hp-player", hp] if hp else []), "--crit", "0,0",
-         "--crit-target", "0,0", "--no-ai", *extra],
+         "--crit-target", "0,0", "--no-ai", *BUILD_EXTRA, *extra],
         cwd=str(PYDIR), capture_output=True, text=True, encoding="utf-8", errors="replace")
     if not sf.exists():
         return None, None, (proc.stderr or proc.stdout or "")[-800:]
@@ -142,16 +157,24 @@ def _view(rpc, rid, inactive=False):
 
 
 def _by_vis(dv, vis):
-    return next((u for u in (dv.get("units") or []) if u.get("visualId") == vis), None)
+    """⚠ Le PALIER est coupe : un porteur `--explicit-stats` s'ecrit `darkaNpc3Terminator:45` au
+    build (forme exigee VERBATIM par `--p-units`/`--place`), mais le `decisionView` publie le
+    `visualId` NU (`darkaNpc3Terminator`). Mesure #1073, pas supposition."""
+    court = str(vis).split(":")[0]
+    return next((u for u in (dv.get("units") or []) if u.get("visualId") == court), None)
 
 
 def _unit(dv, uid):
     return next((x for x in (dv.get("units") or []) if int(x.get("id", -1)) == int(uid)), None)
 
 
-def _effect_level(dv, uid, effect_type=DEATHWING_EFFECT):
+def _effect_level(dv, uid, effect_type=None):
     """(present, niveau) de l'instance `effect_type` sur `uid`. `niveau` = `EffectComponent+0x68`,
-    le facteur que `DSLFormulas.EffectLevel` relit dans `GetEffectAmount`."""
+    le facteur que `DSLFormulas.EffectLevel` relit dans `GetEffectAmount`.
+
+    `effect_type=None` -> l'effet de la VARIANTE courante (#1073), jamais un 1318 en dur."""
+    if effect_type is None:
+        effect_type = DEATHWING_EFFECT
     for e in ((_unit(dv, uid) or {}).get("effects") or []):
         et = e.get("effectType")
         if et is not None and int(et) == int(effect_type):
@@ -194,7 +217,9 @@ def _attack(rpc, rid, cid, tid, ab):
 # --------------------------------------------------------------------------- rejeu offline
 
 
-def _port_level(state, uid, effect_type=DEATHWING_EFFECT):
+def _port_level(state, uid, effect_type=None):
+    if effect_type is None:
+        effect_type = DEATHWING_EFFECT              # variante courante (#1073)
     eff = getattr(state, "effects", None)
     if eff is None:
         return None
@@ -226,11 +251,11 @@ def _replay(cap, board, paires, mutate=None):
     # parce que son effet est pose PENDANT le rejeu : deux bras, deux regimes, un seul ordre correct.
     saved_trig = saved_eff = saved_cond = None
     if mutate == "trigger":
-        saved_trig = ABILITY_TRIGGERS.pop("Deathwing", None)
-        assert saved_trig is not None, "MUTANT INOPERANT : ABILITY_TRIGGERS['Deathwing'] absent"
+        saved_trig = ABILITY_TRIGGERS.pop(CLE, None)
+        assert saved_trig is not None, "MUTANT INOPERANT : ABILITY_TRIGGERS[%r] absent" % CLE
     elif mutate == "effet":
-        saved_eff = EFFECT_CLASSES.pop("Deathwing", None)
-        assert saved_eff is not None, "MUTANT INOPERANT : EFFECT_CLASSES['Deathwing'] absent"
+        saved_eff = EFFECT_CLASSES.pop(CLE, None)
+        assert saved_eff is not None, "MUTANT INOPERANT : EFFECT_CLASSES[%r] absent" % CLE
     elif mutate == "double":
         saved_cond = DW.DeathwingEffect._double_effect_condition
         DW.DeathwingEffect._double_effect_condition = classmethod(
@@ -255,9 +280,9 @@ def _replay(cap, board, paires, mutate=None):
                    for u in {p[1] for p in paires} | {p[0] for p in paires}}
     finally:
         if saved_trig is not None:
-            ABILITY_TRIGGERS["Deathwing"] = saved_trig
+            ABILITY_TRIGGERS[CLE] = saved_trig
         if saved_eff is not None:
-            EFFECT_CLASSES["Deathwing"] = saved_eff
+            EFFECT_CLASSES[CLE] = saved_eff
         if saved_cond is not None:
             DW.DeathwingEffect._double_effect_condition = saved_cond
     return {"attacks": out, "niveaux": niveaux}
@@ -500,8 +525,23 @@ def main() -> int:
     ap.add_argument("--seed", default=SEED)
     ap.add_argument("--board", default=BOARD)
     ap.add_argument("--mutate", default=None, choices=("trigger", "effet", "double"))
+    ap.add_argument("--variante", default="baraqiel", choices=("baraqiel", "knight"),
+                    help="baraqiel: le HERO `darkaTerminator` (passif `Deathwing` 1245, effet "
+                         "1318) ; knight: le jumeau NPC du summon `darkaSmnTerminator` (passif "
+                         "`DeathwingKnight` 1510, effet 1512), amene par `--explicit-stats`. UN "
+                         "SEUL corps natif, un seul probe (#1073).")
     ap.add_argument("--json", action="store_true")
     a = ap.parse_args()
+    if a.variante == "knight":
+        # `DeathwingKnightAbility` n'override QUE `$$GetEffectType` : trigger, behaviour et
+        # `GetEffect` viennent litteralement de `DeathwingAbility`. Les trois valeurs ci-dessous
+        # sont donc TOUT le delta du montage.
+        global CARRIER, DEATHWING_EFFECT, BUILD_EXTRA, CLE, VARIANTE                # noqa: PLW0603
+        VARIANTE = "knight"
+        CARRIER = CARRIER_KNIGHT
+        DEATHWING_EFFECT = DEATHWING_KNIGHT_EFFECT
+        CLE = "DeathwingKnight"
+        BUILD_EXTRA = ["--explicit-stats", CARRIER_KNIGHT]
     rpc = _mkrpc()
     res = {}
     tous = (("defense", "chaos", "amiDA", "attaque", "attaqueChaos")
@@ -522,6 +562,9 @@ def main() -> int:
                 allie_da=(ALLIE_DA if bras == "amiDA" else None), nom=bras)
     if a.json:
         print(json.dumps(res, indent=1))
+    if not a.json:
+        print("[932] variante=%s porteur=%s effet=%s cle=%s"
+              % (VARIANTE, CARRIER, DEATHWING_EFFECT, CLE))
     verdicts = [v.get("verdict") for v in res.values()]
     if "indisponible" in verdicts:
         return 2                                     # verdict INDISPONIBLE, jamais un vert

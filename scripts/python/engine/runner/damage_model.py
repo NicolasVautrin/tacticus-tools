@@ -40,6 +40,9 @@ from .components import (StatsComponent, HealthComponent, OwnerComponent, Positi
                          enmity_adjacent_dark_angels_friends_count,
                          close_combat_weakness_adjacent_enemies_count,
                          adjacent_enemy_ids,
+                         # #1073 : le PREMIER disjoint de `SynapticInsight_ExtraHits`, ancre sur la
+                         # CIBLE du coup (et non sur le porteur, contrairement a ses voisins).
+                         synaptic_insight_adjacent_tyranid,
                          # #1036-r2 : `IsMachine(Owner)` du `ConditionalSelector` de
                          # `CabalOfSorcerers_ExtraDamagePctEffect` -- mirror d'`EntityType.Machine`.
                          is_machine_of_war)
@@ -58,6 +61,10 @@ from ..entities.effects.loki.norn_crown import (
     CTX_TEAM_SYNAPSE_POSITIONS as _NORN_CTX_SYNAPSE)
 from ..entities.effects.loki.obsessive_annunciation import (
     CTX_ADJACENT_ENEMY_IDS_OF as _OA_CTX_ADJ_ENEMY_IDS)
+# #1073 : la cle du PREMIER disjoint de `SynapticInsight_ExtraHits` -- MEME foyer de nommage pour
+# les DEUX faces (cf. `playbook/prediction/normal_attack.py`).
+from ..entities.effects.loki.synaptic_insight import (
+    CTX_ADJACENT_TYRANID as _SI_CTX_ADJACENT_TYRANID)
 # #1025-r1 : la cle du substrat d'adjacence de `MoreGitzOverEre_ExtraDamagePct` -- MEME foyer de
 # nommage pour les DEUX faces (cf. `playbook/prediction/_shared.py`).
 from ..entities.effects.loki.extra_damage_aura import (
@@ -1852,7 +1859,19 @@ def build_hits_board(state: State, att_id: int, tgt_id: int,
              # de l'`EffectSource`, pas celui de l'attaquant) -- meme tri-etat que
              # `entities.triggers.IsInPersistentDataList` : `None` hors runner -> liste vide, ce que
              # rend aussi `TryGetPersistDataList` sur une cle absente.
-             "persistent_data_list": _persistent_data_list_reader(state)}
+             "persistent_data_list": _persistent_data_list_reader(state),
+             # #1073 -- les DEUX disjoints de `SynapticInsight_ExtraHitsEffect$$
+             # CreateEffectHitsBonusForAttack`, sur le canal COUPS :
+             #  * `Any(AdjacentFriends(Owner@+0x30, Target@+0x60, unique), HasFaction(It@+0x68,
+             #    Tyranids, 3))` -- l'ARBRE vit dans la classe d'effet (doctrine #149) et
+             #    `runner/components.py` lui donne son `AbilityEntities`. TRI-ETAT : `None` = porteur
+             #    ou cible sans equipe/tuile -> le disjoint se FERME cote effet.
+             #  * `IsInTeamSynapseRange(Target@+0x60, Owner@+0x30)` -- MEME cle et MEME foyer que le
+             #    canal DEGAT (`attacker_modifiers`, #1011) : `_team_synapse_positions` est la
+             #    POSITION des emetteurs `Synapse` par equipe, la comparaison de distance restant
+             #    chez le consommateur (`norn_crown._in_team_synapse_range`).
+             _SI_CTX_ADJACENT_TYRANID: synaptic_insight_adjacent_tyranid(state, att_id, tgt_id),
+             _NORN_CTX_SYNAPSE: _team_synapse_positions(state)}
     return board, aura_sources, target_effects
 
 

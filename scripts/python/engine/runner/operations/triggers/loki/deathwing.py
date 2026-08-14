@@ -110,7 +110,7 @@ from .....dsl.effects import ExecutionContext
 from .....dsl.event_trigger_type import EventTriggerType
 from .....entities.behaviours import If as IfBehaviour
 from .....entities.effect_type import EffectType
-from .....entities.effects.loki.deathwing import ABILITY_ID
+from .....entities.effects.loki.deathwing import ABILITY_ID, ABILITY_ID_KNIGHT
 from .....entities.selectors.tiles import Caster
 from .....entities.triggers import HasEffect
 from .....entities.triggered_ability_type import TriggeredAbilityType
@@ -126,14 +126,19 @@ DEATHWING_EFFECT_NAME = EffectType.Deathwing.name
 DEATHWING_ABILITY = TriggeredAbilityType.Deathwing
 #: `TurnsFromRounds(1)` -- la duree LUE au 5e argument de l'`AddEffect`.
 DEATHWING_DURATION_ROUNDS = 1
+#: #1073 -- `EffectType.DeathwingKnight` = `0x5e8` = 1512, le retour du MEME virtuel sur la fille
+#: `DeathwingKnightAbility`, et `TriggeredAbilityType.DeathwingKnight` = `0x5e6` = 1510.
+DEATHWING_KNIGHT_EFFECT = int(EffectType.DeathwingKnight)
+DEATHWING_KNIGHT_EFFECT_NAME = EffectType.DeathwingKnight.name
+DEATHWING_KNIGHT_ABILITY = TriggeredAbilityType.DeathwingKnight
 
 
-def deathwing_tree():
+def deathwing_tree(effect_type: int = DEATHWING_EFFECT, effect_name: str = DEATHWING_EFFECT_NAME):
     """Mirror 1:1 de `...DeathwingAbility$$CreateBehaviour` (cf. l'en-tete du module) :
 
-        If( HasEffect(Owner@+0x30, 1318, onlyActive: false, Both),
-            IncreaseEffectLevel(EffectFromOwner(Owner, 1318), +1, SANS cap),
-            AddEffect(1318, AbilityStateReference, Owner, Owner, TurnsFromRounds(1)) )
+        If( HasEffect(Owner@+0x30, GetEffectType(), onlyActive: false, Both),
+            IncreaseEffectLevel(EffectFromOwner(Owner, GetEffectType()), +1, SANS cap),
+            AddEffect(GetEffectType(), AbilityStateReference, Owner, Owner, TurnsFromRounds(1)) )
 
     `Caster()` = `Owner@DSLSelectors+0x30` : le porteur du trigger est aussi la source ET la cible de
     l'effet. `active_only=False` mirroire le 3e argument `0` du `HasEffect` natif -- une instance
@@ -141,11 +146,20 @@ def deathwing_tree():
     `scale_from_source=True` porte l'`AbilityStateReference` : l'instance materialisee resout ses
     `ConfigVar` contre l'etat d'ability de sa SOURCE (le porteur), ce dont la face MAGNITUDE
     (`DeathwingEffect`) a besoin -- sans lui, `ability_level` reste None et l'effet est INERTE.
-    `max_level=None` = le `max` NULL natif (aucun clamp)."""
+    `max_level=None` = le `max` NULL natif (aucun clamp).
+
+    #1073 -- l'`EffectType` est un PARAMETRE parce qu'il l'est aussi cote natif : les trois
+    occurrences du pseudo-C sont l'appel virtuel `(**(code **)(*this + 0x368))(this, ...)`, c.-a-d.
+    le slot 35 `GetEffectType`. `DeathwingAbility` y rend `0x526` (= 1318) et sa fille
+    `DeathwingKnightAbility` `0x5e8` (= 1512) -- cette derniere n'override QUE ce slot, ce qui est
+    LU : le metadata lui declare exactement `[GetEffectType (slot 35), .ctor]`, et le bloc
+    `methodPointers` du PE, ancre sur son `$$GetEffectType` (seul symbole propre de la classe),
+    n'expose aucune autre entree. Le trigger, le behaviour et le `GetEffect` viennent donc du
+    parent, litteralement -- un seul corps, deux valeurs."""
     return IfBehaviour(
-        HasEffect(Caster(), DEATHWING_EFFECT, active_only=False),
-        IncreaseEffectLevel(DEATHWING_EFFECT, Caster(), Const(1), None),
-        AddEffect(DEATHWING_EFFECT, DEATHWING_EFFECT_NAME, Caster(),
+        HasEffect(Caster(), effect_type, active_only=False),
+        IncreaseEffectLevel(effect_type, Caster(), Const(1), None),
+        AddEffect(effect_type, effect_name, Caster(),
                   duration_rounds=DEATHWING_DURATION_ROUNDS, scale_from_source=True))
 
 
@@ -156,6 +170,11 @@ class DeathwingAbility(TriggeredAbility):
 
     event_id = int(EventTriggerType.Attack)                     # On(9)
     TRIGGERED_ABILITY_ID = DEATHWING_ABILITY                    # 1245 (l'ability EST le passif)
+    #: `GetEffectType()` (slot 35) -- VIRTUEL, d'ou l'attribut de classe (#1073).
+    EFFECT_TYPE = DEATHWING_EFFECT                              # 0x526 = 1318
+    EFFECT_NAME = DEATHWING_EFFECT_NAME
+    #: la cle gameconfig rendue dans le compte-rendu du behaviour -- celle de CETTE ability.
+    ABILITY_KEY = ABILITY_ID
 
     def matches(self, state: State, ev: TriggerEvent) -> bool:
         # `get_OwnerIsTarget` = `AreEqual(<Sel+0x30 = Owner>, <Sel+0x60 = Target>)` : le porteur EST
@@ -171,10 +190,37 @@ class DeathwingAbility(TriggeredAbility):
         if state.effects is None:
             return None
         ectx = ExecutionContext(state=state, rng=state.rng)
-        deathwing_tree().execute(entities_from_state(state, self.owner_id, self.owner_id), ectx)
+        deathwing_tree(self.EFFECT_TYPE, self.EFFECT_NAME).execute(
+            entities_from_state(state, self.owner_id, self.owner_id), ectx)
         lvl = None
         for n, p in ectx.emitted:
             if n in ("IncreaseEffectLevel", "AddEffect"):
                 lvl = p.get("level")
-        return {"ability": ABILITY_ID, "unit": int(self.owner_id),
+        return {"ability": self.ABILITY_KEY, "unit": int(self.owner_id),
                 "attacker": ev.actor_id, "level": lvl, "on_event": int(ev.event_id)}
+
+
+class DeathwingKnightAbility(DeathwingAbility):
+    """`IdunBattleLogic.Entities.Abilities.Triggered.Loki.DeathwingKnightAbility` -- passif du summon
+    `darkaSmnTerminator` << Deathwing Knight >> et de son jumeau npc `darkaNpc3Terminator` (#1073).
+
+    `frida/classes.tsv` la donne fille de
+    `IdunBattleLogic.Entities.Abilities.Triggered.Loki.DeathwingAbility` (et non de
+    `BaseTriggeredAbility`), et le `global-metadata.dat` lui declare exactement DEUX entrees --
+    `[GetEffectType (slot 35), .ctor]`. Elle n'override donc RIEN d'autre : `CreateTrigger`,
+    `CreateBehaviour` et `GetEffect` sont ceux du parent, au corps pres.
+
+    `...DeathwingKnightAbility$$GetEffectType` a pour corps ENTIER `return 0x5e8` (= 1512
+    `EffectType.DeathwingKnight`) la ou `...DeathwingAbility$$GetEffectType` rend `0x526` (= 1318).
+    C'est le SEUL delta de la classe, et l'appariement ability -> effet en decoule -- il est LU, pas
+    devine.
+
+    ⚠ L'i2 de ce passif (<< the damage he deals is increased >>) omet la restriction
+    << melee or *Plasma Cannon* >> que porte celui de `Deathwing`. Le corps natif, lui, est
+    LITTERALEMENT LE MEME (`IsMeleeAttack() | NOT IsNormalAttack()` du
+    `DeathwingEffect$$CreateEffectDamageBonusForAttack` partage). La prose diverge, le code non."""
+
+    TRIGGERED_ABILITY_ID = DEATHWING_KNIGHT_ABILITY              # 0x5e6 = 1510
+    EFFECT_TYPE = DEATHWING_KNIGHT_EFFECT                        # `$$GetEffectType` -> 0x5e8 = 1512
+    EFFECT_NAME = DEATHWING_KNIGHT_EFFECT_NAME
+    ABILITY_KEY = ABILITY_ID_KNIGHT

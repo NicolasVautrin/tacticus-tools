@@ -4933,3 +4933,36 @@ pas d'erreur : il rend **zéro**, et un zéro se lit « rien à signaler ».
   `tests/engine/test_tile_term_triggered_playbooks_live.py` (agreement `aiStepDryRun`).
   FOYER: scripts/python/tests/engine/test_tile_term_triggered_playbooks_live.py, scripts/python/probe_1071_vengeance_for_the_omnissiah.py
   BLOCAGE: aucun
+
+- **#1073-r1 — la face ATTAQUE de `DeathwingKnight` est NON CONFRONTEE : un porteur
+  `--explicit-stats` diverge sur le COMPTE DE COUPS, en amont du passif.** `[opus]`
+  Point d'entree : `docs/rl/case-1073-deathwing-knight-synaptic-insight.md` Sec.7 +
+  `python probe_932_deathwing.py --variante knight --bras attaqueChaos --mutate effet --json`.
+  MESURE, decomposee par etage : avec l'effet RETIRE d'`EFFECT_CLASSES`, l'ecart PERSISTE (natif
+  **1245**, port **5357**), et le per-coup le localise -- `natif_hits = [1245]` contre
+  `port_hits = [1245, 0]`. **Le coup que les deux cotes jouent est BIT-EXACT** ; le port en emet un
+  SECOND que le natif n'emet pas. C'est donc `attack_hits_with_modifiers` (ou son alimentation pour
+  un porteur npc monte par `--explicit-stats`), PAS la magnitude de `DeathwingEffect`. Le bras
+  jumeau `--variante baraqiel` est EGAL sur `attaque` ET `attaqueChaos`, ce qui rend l'ecart
+  specifique au porteur, pas a la mecanique. Voisin probable : `#1049-r1` (meme chemin de montage),
+  mais l'axe est le COMPTE, pas la variable par niveau -- a ne pas confondre. Reste a mesurer :
+  d'ou vient le coup surnumeraire du port (base d'arme du npc, `ExtraHits`, ou un malus defenseur
+  de `worldKharn` que le port ne voit pas).
+  FOYER: scripts/python/engine/services/attack_hits_formula.py, scripts/python/engine/runner/damage_model.py, scripts/python/catalog_inject.py
+  BLOCAGE: etage
+
+- **#1073-r2 — la face PREDICTION de `SynapticInsight` est cablee mais NON CONFRONTEE live.**
+  `[opus]`
+  Point d'entree : `docs/rl/case-1073-deathwing-knight-synaptic-insight.md` Sec.5 +
+  `scripts/python/engine/playbook/scene.py::synaptic_insight_adjacent_tyranid`.
+  La face COMBAT est bit-exacte sur TROIS regimes (3 / 5 / 5 coups, natif separant lui-meme les
+  regimes) et ses deux disjoints sont gardes par mutation. La face PREDICTION pose les MEMES deux
+  cles dans le board de coups (`synaptic_insight_adjacent_tyranid` recompose depuis les tables de
+  `Scene`, `team_synapse_positions` monte depuis `_entity_traits`) mais aucune mesure ne confronte
+  la prediction native (`decisionView` `PLANS D'ATTAQUE` / `aiPlaybookPredict`) au port. Le montage
+  existe deja : `probe_1073_synaptic_insight.py` monte les trois regimes -- il suffit d'y lire la
+  prediction AVANT l'attaque et de la confronter a `make_normal_attack_predictions`. Risque si le
+  cablage est faux : l'IA SOUS-ESTIME de 2 coups chaque tir du porteur, sans qu'aucun test ne le
+  voie (la face COMBAT, elle, resterait juste).
+  FOYER: scripts/python/probe_1073_synaptic_insight.py, scripts/python/engine/playbook/prediction/normal_attack.py
+  BLOCAGE: aucun

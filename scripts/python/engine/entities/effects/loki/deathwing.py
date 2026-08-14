@@ -161,6 +161,16 @@ from ...unit_selection_type import UnitSelectionType
 #: cle gameconfig de l'ability (`TriggeredAbilityType.Deathwing = 0x4dd = 1245`) -- l'`AbilityOrEffect`
 #: que le `.ctor` de l'effet passe a `BaseEffect`, et donc la config que `ConfigVar` indexe.
 ABILITY_ID = "Deathwing"
+#: #1073 -- la MEME classe native `DeathwingEffect` sert le passif `DeathwingKnight`, avec une AUTRE
+#: config. C'est LU dans `EffectsDatabase.u003Cu003Ec$$u003CInitializeEffectsu003Eb__14_340`, qui
+#: construit `DeathwingEffect..ctor(this, 0x5e6)` la ou `...b__14_339` passe `0x4dd` : le seul
+#: parametre du `.ctor` est `triggeringAbilityType:IdunBattle.Entities.Enum.TriggeredAbilityType`
+#: (`frida/methods.tsv`), donc l'`AbilityOrEffect` du `BaseEffect` -- et donc la config du `ConfigVar`.
+ABILITY_ID_KNIGHT = "DeathwingKnight"
+#: alias de portee : dans un corps de CLASSE, `ABILITY_ID = ABILITY_ID` se resout bien (le nom n'est
+#: pas encore lie dans l'espace de la classe) mais se lit comme une auto-reference. L'alias rend la
+#: source LUE explicite.
+_ABILITY_ID_BARAQIEL = ABILITY_ID
 #: `AbilityVariableType 8` / `0x12 = 18` (`frida/enums.tsv`, jamais recopies du decompile).
 VAR_EXTRA_DMG = "extraDmg"
 VAR_DMG_REDUCTION = "dmgReduction"
@@ -209,6 +219,11 @@ class DeathwingEffect(BaseEffect):
     `YesTrigger`, constante VRAIE. Le regime commun (`BaseEffect.is_active`) coincide, et poser le
     flag inventerait un gate que le decompile ne porte pas."""
 
+    #: #1073 -- la cle gameconfig est un attribut de CLASSE, pas la constante de module : la MEME
+    #: classe native sert DEUX `EffectType` avec DEUX configs (cf. `ABILITY_ID_KNIGHT`). Le
+    #: `ConfigVar` natif s'indexe sur l'`AbilityOrEffect` passe au `.ctor`, qui differe par instance.
+    ABILITY_ID = _ABILITY_ID_BARAQIEL
+
     # -- `GetDoubleEffectCondition(isDefense)` ------------------------------------------------------
 
     @staticmethod
@@ -254,7 +269,10 @@ class DeathwingEffect(BaseEffect):
             return None
         if self.ability_level is None:                    # ConfigVar sans AbilityState -> inerte
             return None
-        per = ability_var(ABILITY_ID, var_key, self.ability_level,
+        # #1073 -- `self.ABILITY_ID`, pas la constante de module : `DeathwingKnightEffect` lit la
+        # config `DeathwingKnight`. Les deux tables sont DISTINCTES dans le gameconfig (meme si leurs
+        # 65 paliers coincident sur CE build) -- indexer les deux sur `Deathwing` serait un fit.
+        per = ability_var(self.ABILITY_ID, var_key, self.ability_level,
                           multiplier_pct=self.ability_variables_multiplier)
         if not per:
             return None
@@ -317,3 +335,49 @@ class DeathwingEffect(BaseEffect):
             owner_team=c.get("owner_team"))                #   -- l'Owner EST la CIBLE ici
         amt = self._amount(c, VAR_DMG_REDUCTION, doubled=doubled)
         return for_subtraction(False, amt) if amt else None    # EffectBonus +0x18 = Subtraction
+
+
+class DeathwingKnightEffect(DeathwingEffect):
+    """`IdunBattle.Entities.Effects.Loki.DeathwingEffect` instancie avec
+    `triggeringAbilityType = 0x5e6` (= 1510 `TriggeredAbilityType.DeathwingKnight`) -- l'effet
+    `EffectType 0x5e8 = 1512 DeathwingKnight` du passif du summon `darkaSmnTerminator` et de son
+    jumeau npc `darkaNpc3Terminator` (#1073).
+
+    ⚠ **IL N'EXISTE AUCUNE CLASSE `DeathwingKnightEffect` NATIVE**, et ce n'est pas une deduction :
+    `frida/classes.tsv` (build `rnca9r7q6c`) ne porte, pour cette famille, que
+    `IdunBattle.Entities.Effects.Loki.DeathwingEffect` et
+    `IdunBattle.Entities.Effects.Loki.HuntTheFallen_DeathwingQuarryEffect`. Les DEUX `EffectType`
+    sont servis par la MEME classe, et c'est LU dans les deux fabriques de l'`EffectsDatabase` :
+
+        u003Cu003Ec$$u003CInitializeEffectsu003Eb__14_339 -> DeathwingEffect..ctor(this, 0x4dd)
+        u003Cu003Ec$$u003CInitializeEffectsu003Eb__14_340 -> DeathwingEffect..ctor(this, 0x5e6)
+
+    Le seul parametre du `.ctor` est `triggeringAbilityType` (`frida/methods.tsv`), qu'il passe a
+    `IdunBattle.Entities.Effects.BaseEffect$$.ctor` sous forme d'`AbilityOrEffect` : c'est donc la
+    CONFIG (`ConfigVar`) qui differe entre les deux instances, RIEN d'autre. Les DEUX faces de
+    degat de cette classe sont donc, LITTERALEMENT, celles du parent --
+    `IdunBattle.Entities.Effects.Loki.DeathwingEffect$$CreateEffectDamageBonusForAttack` et
+    `IdunBattle.Entities.Effects.Loki.DeathwingEffect$$CreateEffectDamageMalusForDefense` -- au
+    meme titre que `GetEffectAmount` et `GetDoubleEffectCondition`. Il n'y a qu'un corps.
+
+    ⚠ Ces deux symboles sont CITES ICI, et pas seulement dans le parent, parce que
+    `probe_437r1r1r1_effect_face_table.py` resout la classe native d'un effet par son NOM
+    (`<EffectType>Effect`) et retombe sur la CITATION quand ce nom n'existe pas. Or il n'existe
+    pas : c'est le fait meme que cette classe documente. Sans la citation, le cliquet classait
+    `DeathwingKnight` en << NATIF NON RESOLU >> -- un rouge qui accusait le port d'une hypothese du
+    recenseur (un `EffectType` = une classe native), fausse ici par construction.
+
+    ⚠ **QUATRE ordinaux, quatre enums, ne jamais les rapprocher** : `TriggeredAbilityType 1245`
+    `Deathwing` / `EffectType 1318` `Deathwing` / `TriggeredAbilityType 1510` `DeathwingKnight` /
+    `EffectType 1512` `DeathwingKnight`. `EffectType 1510`, lui, est `MastersOfManoeuvre` -- sans
+    aucun rapport (cf. le meme avertissement dans `effects/factory.py`).
+
+    L'i2 de `DeathwingKnight` dit << the damage he deals is increased >> la ou celui de `Deathwing`
+    dit << the damage Baraqiel deals with melee or *Plasma Cannon* attacks >>. Le NATIF, lui, ne
+    distingue pas : le gate `IsMeleeAttack() | NOT IsNormalAttack()` est celui du corps PARTAGE. La
+    prose i2 diverge, le code non -- et c'est le code qui est porte."""
+
+    #: `DeathwingEffect..ctor(this, 0x5e6 = 1510)` -- l'`AbilityOrEffect`, donc la config du
+    #: `ConfigVar`. Tables `extraDmg` / `dmgReduction` propres a `DeathwingKnight` (65 paliers,
+    #: toutes deux dans `variablesAffectedByRarityBonus`, comme celles de `Deathwing`).
+    ABILITY_ID = ABILITY_ID_KNIGHT
