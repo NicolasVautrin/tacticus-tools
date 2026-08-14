@@ -635,6 +635,27 @@ class StartTurnOperation:
             # (« gets healed for the FIRST time this turn »).
             if uc is not None:
                 uc.times_healed_this_turn = 0
+            # #1082 (residu #462-r4b-r1-r1-r1-r1-c-r3-r1-r5-r2) : les DEUX dernieres instructions de
+            # la MEME boucle native, juste apres `*(stats + 0xd4) = 0` ci-dessus :
+            #
+            #     lVar9 = GetComponent<MovementComponent>(unit);
+            #     *(undefined8 *)(lVar9 + 0x98) = 0;
+            #     *(undefined8 *)(lVar9 + 0xa0) = 0;
+            #
+            # ⚠ C'est UN SEUL champ, pas deux : un `Nullable<UnitPositionId>` fait 16 octets, et le
+            # natif l'efface en deux `undefined8` -- exactement comme
+            # `SetUnitPositionOperation$$SavePreviousPosition` l'ECRIT en deux `undefined8`.
+            # ⚠ ET C'EST TOUTE LA DIFFERENCE AVEC `+0x88` : le jumeau `PositionComponent.previous`
+            # n'est PAS touche ici. Les deux slots recoivent la meme valeur a l'ecriture et ne
+            # divergent QUE par cette remise a zero -- d'ou << position precedente CE TOUR >> contre
+            # << position precedente >> tout court.
+            # PORTEE : ce reset est ecrit ICI, au milieu de ses VOISINS DE BOUCLE NATIVE (les quatre
+            # `Reset*ThisTurn`, le roulement `+0x70 = +0x6c` et `+0xd4 = 0`), et non ailleurs -- le
+            # natif les execute tous dans la MEME iteration, sur la MEME unite. Leur portee portee
+            # (joueur ENTRANT) est donc la sienne : la faire diverger de celle de ses voisins
+            # introduirait un ecart que le decompile ne porte pas.
+            if uc is not None:
+                uc.previous_position_this_turn = None
             # #509 : `IdunBattle.Entities.Components.ActorStatisticsComponent$$
             # ResetUnitsAttackedThisTurn` (`Clear(+0x40)`) -- la PREMIERE instruction de la meme
             # sequence de `IdunBattle.Operations.StartTurnOperation$$ResetUnit` (elle PRECEDE le

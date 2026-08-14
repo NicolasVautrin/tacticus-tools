@@ -103,7 +103,7 @@ from ..targeting import (RANGE_FROM_CONFIG, RANGED_BOOL_FALSE, TargetingOptions,
 from ..targeting_rule import TargetingRule as TR
 from ..behaviours.context import entities_from_state
 from ..behaviours.effects import AddEffect
-from ...components import UnitComponent, has_effect_of_type
+from ...components import UnitComponent, has_effect_of_type, death_killer_id
 from ....dsl.effects import ExecutionContext
 from ....entities.ability_constant_type import AbilityConstantType
 from ....entities.active_ability_type import ActiveAbilityType
@@ -242,11 +242,17 @@ class RevealAbility(ActiveAbility):
         (`UnitComponent+0x108` = `death_source`) porte `KillerId == killer`. Le lambda `b__0`
         ajoute `HasFaction(unit, 8 = Aeldari) & IsFriend(unit, caster)`.
 
-        Tri-etat conserve : `death_source is None` (unite jamais tuee dans CE run -- typiquement un
-        cadavre present des le chargement de la BC) et `death_source[0] is None` (tueur non
-        imputable) sont les deux formes du `!ds.HasValue` natif, et aucune n'est comptee. Un
-        cadavre-au-chargement n'a donc jamais de tueur : c'est une borne du SUBSTRAT, pas du port,
-        et elle est FIDELE au natif, qui lit exactement le meme champ."""
+        Tri-etat conserve : le tueur est lu par `components.death_killer_id(uc)`, foyer qui compose
+        les DEUX sources du port -- `death_source[0]` (grave par CE run) puis `death_killer_id` (le
+        seed). `None` reste l'unique forme du `!ds.HasValue` natif et n'est jamais compte.
+
+        ⚠ LA BORNE QUI VIVAIT ICI A SAUTE (#1033-r3). Cette docstring affirmait qu'un
+        cadavre-au-chargement << n'a donc jamais de tueur >>, presente comme une borne du SUBSTRAT
+        FIDELE au natif. Elle ne l'etait pas : le natif, lui, LIT un `KillerId` sur ces cadavres, et
+        le canal le publiait deja (`decisionView.units[].killerId`) sans que rien ne le consomme --
+        MESURE par `probe_1033_reveal_live.py` (`killerId` = l'id du tueur, `death_source` = `None`).
+        Le gate etait donc STRUCTURELLEMENT aveugle a toute mort survenue hors du runner Python, et
+        rendait `0` la ou le natif compte. `snapshot._load_death_sources` seede desormais ce canal."""
         from ....ai.action_generators import _faction          # noqa: PLC0415
         # Import DIFFERE, classe PORTEUR (mesure) : charger `engine.ai.action_generators` seul dans
         # un process FRAIS fait deja atterrir `engine.runner.abilities.base` -- dont ce module herite
@@ -257,10 +263,10 @@ class RevealAbility(ActiveAbility):
             uc = e.get_component(UnitComponent)
             if uc is None or uc.alive:                         # `IsDead(unit, entities)`
                 continue
-            ds = uc.death_source                               # `Nullable<DamageSource>` @+0x108
-            if ds is None or ds[0] is None:                    # `!ds.HasValue` -> non compte
+            kid = death_killer_id(uc)                          # `get_KillerId(ds)`, DEUX sources
+            if kid is None:                                    # `!ds.HasValue` -> non compte
                 continue
-            if int(ds[0]) != int(killer_id):                   # `get_KillerId(ds) == killer.Id`
+            if int(kid) != int(killer_id):                     # `get_KillerId(ds) == killer.Id`
                 continue
             if _faction(uc.visual_id) != AELDARI_FACTION:      # `HasFaction(unit, 8 = Aeldari)`
                 continue

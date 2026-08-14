@@ -216,8 +216,15 @@ def test_la_famille_DSLTriggers_est_INTEGRALEMENT_TRANCHEE(tmp_path, capsys):
     # `IsFirstHitInSeries`), et une attestation ne s'applique QUE si l'heuristique n'a rien trouve.
     # Sa ligne du TSV, devenue redondante, est RETIREE dans le meme commit -- et l'assertion
     # `porte` ci-dessous verifie qu'elle a bien CHANGE DE COLONNE, pas seulement disparu.
+    # `IsMoving` vient de #1082, et c'est EXACTEMENT la croissance d'inventaire decrite ci-dessus,
+    # au meme motif qu'`AttackUsedAttackDamage` : #1080 (`BattleFocus`) a CITE le symbole en
+    # documentant le collapse a VRAI de `NOT IsMoving(Owner)` (residu `#1080-r1`), ce qui a fait
+    # basculer l'heuristique de `NON_PORTE` (aucune citation) vers `CITE_A_QUALIFIER`. Le port ne
+    # CONSTRUIT toujours pas le noeud -> `NON_PORTE`. Ce rouge est arrive sur `master` par le merge
+    # de #1080 (`d896e41a`, provenance mesuree `git log -S`), et il a ete trouve AU REJEU APRES
+    # REBASE -- il ne s'etait vu dans aucune des deux PR.
     lus = {r[1] for r in trig if r[6].startswith("attestation:") and r[5] == "NON_PORTE"}
-    assert lus == {"Direct",
+    assert lus == {"Direct", "IsMoving",
                    "IsInTeamSynapseRange", "IsPlayerDefeated",
                    "get_CasterIsCasterTile", "get_OwnerIsTargetTile", "get_OwnerTileIsTarget"}, lus
 

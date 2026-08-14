@@ -590,28 +590,34 @@ def _movement_start_position(state: State, mover_id: int) -> list:
     avec `pathfinderType` force a `Fly` parce que `previousPosition` -- le 4e argument, la position
     COURANTE -- est vide).
 
-    ⚠ **LE SECOND BRAS EST STRUCTURELLEMENT INATTEIGNABLE COTE PORT, et ce n'est pas un oubli.**
+    **LE SECOND BRAS EST DESORMAIS ATTEIGNABLE** (#1082, ferme `#462-r4b-r1-r1-r1-r1-c-r3-r1-r5-r2`).
     `IdunBattle.Entities.EntityExtensions$$GetPreviousPositionThisTurn` lit le slot `+0x98`, le
     JUMEAU de `+0x88` (celui que porte `PositionComponent.previous`). Les deux sont ecrits ensemble
     et avec la MEME valeur par `SetUnitPositionOperation$$SavePreviousPosition` et par
     `RemoveUnitFromTilesOperation$$Execute`, mais ils ne sont PAS remis a zero ensemble :
-    `IdunBattle.Operations.StartTurnOperation$$Execute` efface `+0x98` (et lui seul) pour chaque
-    unite du pool, tandis que `+0x88` ne l'est que par
+    `IdunBattle.Operations.StartTurnOperation$$Execute` efface `+0x98` (et lui seul, en deux
+    `undefined8` -- c'est un `Nullable` de 16 octets), tandis que `+0x88` ne l'est que par
     `IdunBattle.Entities.Behaviours.ResetPreviousPositionBehaviour$$Execute` (unique call-site :
-    `SwornProtector_ProtectAbility`). Le port n'a qu'UN champ, et de toute facon le retrait du
-    plateau (`set_unit_feet(uid, [])`) SUPPRIME la `PositionComponent` -- donc `previous` avec elle.
-    ⇒ le fallback ne peut pas etre alimente ici. Il est ecrit quand meme parce que c'est le
-    decompile, et le residu `#462-r4b-r1-r1-r1-r1-c-r3-r1-r5-r2` est CONFIRME par cette lecture (il
-    l'etait a titre d'hypothese) : fermer exige un second champ dans `runner/components.py` et son
-    effacement dans `StartTurnOperation`.
+    `SwornProtector_ProtectAbility`).
+
+    Ce qui bloquait n'etait PAS le decompile mais l'EMPLACEMENT du champ porte : le port n'avait que
+    `+0x88`, sur la `PositionComponent`, que `set_unit_feet(uid, [])` SUPPRIME au retrait du
+    plateau -- donc `previous` avec elle, dans le regime meme que ce bras adresse. `+0x98` est donc
+    porte par `UnitComponent.previous_position_this_turn`, qui survit au retrait, comme le natif
+    conserve son `MovementComponent` (`RemoveUnitFromTilesOperation$$Execute` ne met a zero que les
+    `TileId` des `UnitFootComponent`, jamais la position precedente).
 
     Rend l'empreinte (liste de `(col,row)`), `[]` si l'unite n'occupe aucune tuile."""
     feet = get_unit_feet(state, int(mover_id))
     if feet:
-        return feet
+        return feet                                  # `!IsEmpty(currentPosition)` -> on s'arrete la
     e = state.get_entity(int(mover_id))
-    pc = e.get_component(PositionComponent) if e is not None else None
-    prev = list(getattr(pc, "previous", None) or ()) if pc is not None else []
+    # `GetPreviousPositionThisTurn` lit `<+0x98>`, porte par `UnitComponent.previous_position_this
+    # _turn` (#1082) -- et non par `PositionComponent.previous` (`<+0x88>`), qui est un AUTRE slot.
+    # Il vit sur le `UnitComponent` PRECISEMENT pour survivre au `set_unit_feet(uid, [])` qui
+    # supprime la `PositionComponent` : c'est ce qui rend ce second bras ATTEIGNABLE.
+    uc = e.get_component(UnitComponent) if e is not None else None
+    prev = list(getattr(uc, "previous_position_this_turn", None) or ()) if uc is not None else []
     return prev
 
 

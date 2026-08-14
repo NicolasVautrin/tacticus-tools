@@ -78,11 +78,21 @@ donc le MEME noeud en `center` et en `reference`, comme le prescrit `entities/se
     for (i = 0 ; i < targets.Count ; i++) {
         cur = targets[i] ; next = (i < Count-1) ? targets[i+1] : null
         e = AbilityEntities(entities) ; e.caster = caster ; e.target = cur
-        if (prev == null || prev != cur) processor.<slot 0x3a StartAttack>()
+        if (prev == null || prev != cur) processor.<slot 0x3a StartAttack>(caster, cur, options)
         <behaviour+0x60>.Execute(e)                          # les coups d'ARME sur `cur`
-        if (next == null || next != cur) processor.<slot 0x3b FinishAttack>()
+        if (next == null || next != cur) processor.<slot 0x3b FinishAttack>(caster, cur, options)
         prev = cur
     }
+
+⚠ LES TROIS ARGUMENTS DES DEUX SLOTS SONT ECRITS, et ils ne se LISENT PAS dans ce pseudo-C
+(#547-r10). Ghidra rend l'appel `FUN_180005420(0x3a, <klass>)` -- le THUNK de dispatch d'interface,
+qui masque les arguments passes en registres. Les citer `()` faisait donc lire << appel sans
+argument >> la ou la table en donne TROIS (`ioperationprocessor_slots.tsv` : slot 58 `StartAttack`
+arite 3, slot 59 `FinishAttack` arite 3) -- c'est ce que `test_477r24r1_slots_interface_offline`
+etage 3 a rougi. La forme est LUE sur le porteur canonique de ces deux appels,
+`IdunBattle.Entities.Behaviours.StartAttackBehaviour$$Execute`, qui gate `entities+0x50` (caster)
+puis `entities+0x58` (target), appelle `AttackBehaviour$$GetAttackOptions` et n'invoque le slot
+qu'ensuite.
 
 Trois faits que le port mirrore, et un qu'il ne peut pas :
 

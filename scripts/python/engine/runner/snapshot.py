@@ -21,6 +21,7 @@ d'UNITÉ (squadId/decisionView.id), pas l'entityId, pour rester aligné aux mess
 """
 from __future__ import annotations
 
+from collections.abc import Mapping
 from contextlib import contextmanager
 from typing import Dict, List, Optional, Tuple
 
@@ -33,6 +34,7 @@ from .components import (
     TriggeredAbilityComponent, MachineComponent, ActiveAbility, ActiveAbilitiesComponent,
     UnitFlagsComponent,
     set_unit_feet,
+    register_defeated_unit,          # #1082 : foyer d'ecriture des deux listes de defaites
 )
 from ..entities.entity_type import EntityType   # #270-r1-r1-r3
 from ..entities.stats import StatType           # #462-r4e-o-r2-r1-r1 (`_load_turn_counts`)
@@ -485,6 +487,14 @@ def load_state(decision: dict, observe: dict, snapshot: Optional[dict] = None,
         # seeds ci-dessus -- une ENTREE de gate que rien ne peuplait sur un etat recharge, le port
         # la RECONSTRUISANT depuis gameconfig au lieu de lire la source -- cf. `_load_unit_traits`.
         _load_unit_traits(state, snapshot)
+        # MEME nature, MEME canal (`decision`) que `_load_battle_counters` (#1082) : le TUEUR de
+        # chaque cadavre et le registre des victimes de chaque tueur, que seule la simulation
+        # gravait. ⚠ SON RANG EST LOAD-BEARING, et il est APRES `_load_unit_traits` : ce seed
+        # rappelle `register_defeated_unit`, donc le gate natif `!IsSteppable(killed)`, qui lit le
+        # substrat de traits que la passe precedente vient de poser. Place plus haut, le gate serait
+        # muet et inscrirait des `Steppable` que le natif ECARTE. Cf. `_load_death_sources` pour la
+        # lecture qui rend l'inversion victime -> tueur exacte.
+        _load_death_sources(state, decision)
         # APRES `_load_stats_and_effects` : cette passe LIT la stat 12 (`TURNS_STARTED`) que la
         # precedente vient de seeder. Meme nature que les seeds ci-dessus -- une ENTREE de gate,
         # cf. `_load_turn_counts`.
@@ -1161,6 +1171,68 @@ def _load_battle_counters(state: State, decision: dict) -> None:
     _effects_state.seed_battle_counters(state.effects, (decision or {}).get("units") or [])
 
 
+def _load_death_sources(state: State, decision: dict) -> int:
+    """Seede les DEUX substrats de la MORT que seule la simulation posait -- le tueur de chaque
+    cadavre, et le registre des victimes de chaque tueur. Ferme #1033-r3 et #951-r3.
+
+    ## Le canal etait la, et il publie plus qu'on ne lui demandait
+
+    `decisionView.units[]` porte depuis #185 DEUX champs par unite, lus sur le SQUAD (donc valides
+    sur les CORPSES) par `frida/hooks/game/match-state.ts::readUnitDeathMeta` :
+
+      * `killerId`        = `DamageSource.get_KillerId` du `Nullable<DamageSource>` @+0x108,
+                            `null` des que le getter rend `<= 0` ou que le `Nullable` est vide ;
+      * `defeatedByMelee` = le byte `UnitComponent.DefeatedByMeleeAttack` @+0x178.
+
+    ## Pourquoi ces deux champs suffisent a reconstruire le registre du TUEUR
+
+    C'est le fait central, et il se LIT dans `IdunBattle.Operations.KillUnitOperation$$Execute` :
+    la fonction ecrit `local_378[0]` dans `UnitComponent+0x178` de la VICTIME, puis passe **ce meme
+    `local_378[0]`** en troisieme argument de `RegisterDefeatedUnit(stats_du_tueur, id_victime,
+    inMelee)`. Le booleen qui choisit entre `@+0xa8` (melee) et `@+0xb0` (autres) sur le TUEUR est
+    donc, octet pour octet, celui qu'on lit sur la VICTIME. L'inversion `victime -> tueur` est
+    exacte, et c'est ce qui REFUTE la premisse << aucun canal ne publie ce compteur >> de #951-r3 :
+    aucun capteur neuf n'etait requis, seulement la lecture du canal dans l'autre sens.
+
+    Les DEUX gates natifs de l'inscription sont mirrores par `register_defeated_unit` lui-meme
+    (`IsActor(killer)`, `!IsSteppable(killed)`), qu'on rappelle ici plutot que de pousser dans les
+    listes -- un seul foyer d'ecriture.
+
+    ## Ce qui N'EST PAS seede, et pourquoi ce n'est pas une omission
+
+    `death_source` (le tuple complet) reste INTACT. Le canal ne mesure QUE le `KillerId` ; les deux
+    autres composantes de la `DamageSource` (`DamageReason` @+0x14, `Nullable<AbilityOrEffect>`
+    @+0x18) n'ont aucun canal, et DEUX lecteurs portes les consomment vraiment --
+    `operations/triggers/loki/reactivate_overwatch.py` lit les deux, `...loki/empyric_ambush.py` le
+    second. Fabriquer un tuple a composantes inventees leur ferait rendre un FAUX au lieu d'un
+    << inconnu >> : c'est exactement la degradation que le tri-etat existe pour empecher. Le seed
+    ecrit donc `death_killer_id`, et `components.death_killer_id()` compose les deux sources.
+
+    IDEMPOTENT : n'ecrase jamais une valeur deja posee par le run (etat mixte capture + simulation).
+    Rend le nombre de cadavres dont le tueur a ete seede."""
+    n = 0
+    for u in ((decision or {}).get("units") or []):
+        if not isinstance(u, Mapping) or u.get("alive"):
+            continue                       # `IsDead(unit)` -- un vivant n'a pas de `DeathReason`
+        kid = u.get("killerId")
+        if kid is None:
+            continue                       # tueur non imputable -> le natif ne compte rien non plus
+        uid = u.get("id")
+        if uid is None:
+            continue
+        ent = state.get_entity(int(uid))
+        uc = ent.get_component(UnitComponent) if ent is not None else None
+        if uc is None:
+            continue
+        if uc.death_killer_id is None and getattr(uc, "death_source", None) is None:
+            uc.death_killer_id = int(kid)
+            n += 1
+        # Le registre du TUEUR, par le meme booleen que le natif : cf. la section ci-dessus.
+        register_defeated_unit(state, int(kid), int(uid),
+                               in_melee=bool(u.get("defeatedByMelee")))
+    return n
+
+
 def _load_effect_parent_links(state: State) -> None:
     """Reconstruit `BaseEffect.parent_type` (lien `EffectComponent.ParentEffect@+0x70`) sur un etat
     HYDRATE, depuis les instances deja materialisees dans `state.effects`.
@@ -1305,6 +1377,55 @@ def _load_actor_statistics(state: State, actor_stats: dict) -> None:
             if v is None or int(v) < 0:
                 continue
             setattr(uc, attr, int(v))
+        # #1082 (ferme `#462-r4b-r1-r1-r1-r1-c-r3-r1-r5-r1`) -- LES DEUX POSITIONS PRECEDENTES,
+        # publiees par le MEME RPC, sur le MEME appel, depuis #347-r1 : `readMovementPositions` rend
+        # `movement.previousPosition` (`<+0x88>`) et `movement.previousPositionThisTurn` (`<+0x98>`).
+        #
+        # ⚠ LA PREMISSE << aucun RPC ne les publie >> ETAIT FAUSSE : le capteur existe, il est garde
+        # par `probe_546_capteurs_fenetre_offline.py`, et sa mesure de fenetre (2026-08-08) montre la
+        # transition nette `null -> non-null` au premier pas. Ce qui manquait etait le CONSOMMATEUR.
+        # Sans lui, un `load_state` pris APRES un deplacement repartait `previous` VIDE, donc
+        # `AmountIsGreaterThanZero(PreviousTile)` faux, et `HaywireMineAbility` basculait sur sa
+        # branche ADJACENTE au lieu de poser sur la tuile QUITTEE.
+        #
+        # TRI-ETAT, et il est PAR CHAMP : le capteur publie `decode` pour chacun. `null` = mesure
+        # faite, `Nullable` VIDE ; `decode != "ok"` = mesure NON FAITE (offsets non derives, lecture
+        # en erreur, `ToTileList` irresolu). On n'ecrit QUE sur `decode == "ok"` -- ecraser sur une
+        # mesure absente EFFACERAIT une position que la simulation vient de graver.
+        mv = su.get("movement")
+        if isinstance(mv, Mapping):
+            tuiles = _tiles_of(mv.get("previousPositionThisTurn"))     # `<+0x98>`
+            if tuiles is not None:
+                uc.previous_position_this_turn = tuiles or None
+            tuiles = _tiles_of(mv.get("previousPosition"))             # `<+0x88>`
+            if tuiles is not None:
+                pc = ent.get_component(PositionComponent)
+                if pc is not None:
+                    pc.previous = tuiles or None
+
+
+def _tiles_of(champ):
+    """Normalise un champ de position du capteur en liste de `(col, row)`, ou `None` si la mesure
+    N'A PAS ETE FAITE. Les deux sont distincts et le distinguo est tout l'objet de cette fonction.
+
+    Le hook publie chaque position sous l'une de DEUX formes (`rpc-snapshot.ts::readMovement
+    Positions`) : `null` = `hasValue == 0`, donc MESURE et VIDE -> on rend `[]` ; sinon un objet
+    `{ raw, tiles, decode }` ou seul `decode == "ok"` atteste que `IdunBattle.Core.UnitPositionId
+    Extensions$$ToTileList` a bien ete INVOQUE (le natif fait exactement cet appel pour
+    materialiser une position). Les quatre autres `decode` (`layout-not-derived`,
+    `hasValue-unreadable`, `no-ToTileList`, `threw`) sont des PANNES DE CAPTEUR -> `None`.
+
+    Une `UnitPositionId` porte l'EMPREINTE entiere, d'ou une LISTE et non un couple : une unite
+    multi-hex en occupe plusieurs. Jamais de couple invente."""
+    if champ is None:
+        return []                                     # `hasValue == 0` : mesure faite, position vide
+    if not isinstance(champ, Mapping) or champ.get("decode") != "ok":
+        return None                                   # panne de capteur : NON MESURE
+    out = []
+    for t in (champ.get("tiles") or ()):
+        if isinstance(t, Mapping) and t.get("col") is not None and t.get("row") is not None:
+            out.append((int(t["col"]), int(t["row"])))
+    return out
 
 
 # ═══ CANAL AMBIANT du seed TERTIAIRE (#363) ═══════════════════════════════════════════════════════
