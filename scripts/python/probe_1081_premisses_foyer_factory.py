@@ -203,6 +203,11 @@ def verdicts(inv: dict) -> dict:
         "blocage_mesure": "aucun",
         "note": "MachineVengeance absent de tous les registres -- le canal reste a porter.",
     }
+    # NOTE -- `ferme_attendu` : une fiche FERMEE ne porte plus ni `FOYER:` ni `BLOCAGE:` (c'est la
+    # convention du backlog, et c'est ce qui la retire de `index-foyers.md`). L'etage 3 verifie donc
+    # DEUX choses selon l'etat : pour une fiche ouverte, que le mot ECRIT vaut le mot MESURE ; pour
+    # une fiche fermee, qu'il n'y a PLUS de mot. Sans ce second cran, rouvrir une fiche resolue en y
+    # recollant un champ perime passerait inapercu.
 
     # -- #922-r1 : << une relique n'entre JAMAIS dans _seed_ability_owner_effects >>
     #    La MOITIE STRUCTURELLE est tombee (#1005 y lit `ctx.tertiary_ability`) ; ce qui reste est
@@ -226,9 +231,9 @@ def verdicts(inv: dict) -> dict:
     # -- #927-r2 : << MischiefMakers n'est pas inscrit >> + BLOCAGE `porteur`
     v["927-r2"] = {
         "tient": not _est_porte(inv["MischiefMakers"]),
-        "blocage_mesure": "aucun",
-        "note": ("porteurs IDENTIFIES (deathNpc3Nurglings npc, deathSmnNurglings summon) -- "
-                 "l'inscription reste a faire, mais plus aucun porteur n'est INCONNU."),
+        "blocage_mesure": None,                              # FERME par #1081 : plus de champ
+        "note": ("classe inscrite (%s) ; porteurs deathNpc3Nurglings (npc) + deathSmnNurglings "
+                 "(summon d'environnement)." % (inv["MischiefMakers"]["effect_classes"] or "-")),
     }
 
     # -- #952-r2 : << GalvanicField n'a AUCUN filet de spawn, faute de canal >>
@@ -260,7 +265,7 @@ def verdicts(inv: dict) -> dict:
     v["966-r4"] = {
         "tient": not (len(inv["WayOfTheShortBlade"]["effect_classes"]) >= 2
                       and inv["poseurs_gate_wotsb"]),
-        "blocage_mesure": "aucun",
+        "blocage_mesure": None,                              # FERME par #1081 -> #1019-r1 / #1019-r2
         "note": ("effets au registre : %s ; poseurs du gate d'adjacence-cible : %s"
                  % (inv["WayOfTheShortBlade"]["effect_classes"], inv["poseurs_gate_wotsb"])),
     }
@@ -276,7 +281,7 @@ def verdicts(inv: dict) -> dict:
     }
     v["999-r2"] = {
         "tient": len(non_portees_r2) == len(inv["mythiques_r2"]),
-        "blocage_mesure": "aucun",
+        "blocage_mesure": None,                              # FERME par #1081 (0/5 non portee)
         "note": "mythiques #999-r2 NON portees : %s / %d" % (
             non_portees_r2 or "aucune", len(inv["mythiques_r2"])),
     }
@@ -345,23 +350,32 @@ def main(argv=None) -> int:
     rouge = []
     for k in LES_DIX:
         e = par_id.get(k)
+        attendu = v[k]["blocage_mesure"]
         if e is None:
-            rouge.append((k, "ABSENT du backlog", v[k]["blocage_mesure"]))
+            rouge.append((k, "ABSENT du backlog", attendu))
             continue
-        if e.blocage != v[k]["blocage_mesure"]:
-            rouge.append((k, e.blocage, v[k]["blocage_mesure"]))
-        else:
-            print("   #%-9s ecrit=%-8s mesure=%-8s OK" % (k, e.blocage, v[k]["blocage_mesure"]))
+        ecrit = e.blocage or None
+        if ecrit != attendu:
+            rouge.append((k, ecrit, attendu))
+            continue
+        etat = "FERMEE (aucun champ)" if attendu is None else "ouverte"
+        print("   #%-9s %-20s ecrit=%-8s OK" % (k, etat, ecrit or "-"))
     if rouge:
         print()
         print("[1081] ROUGE -- %d champ(s) BLOCAGE en desaccord avec la mesure :" % len(rouge))
         for k, ecrit, mesure in rouge:
-            print("   #%-9s ECRIT=%-18s MESURE=%s" % (k, ecrit, mesure))
+            if mesure is None:
+                print("   #%-9s ECRIT=%-14s ATTENDU=aucun champ (la fiche est RESOLUE : une fiche"
+                      " fermee ne porte plus FOYER/BLOCAGE)" % (k, ecrit))
+            else:
+                print("   #%-9s ECRIT=%-14s MESURE=%s" % (k, ecrit, mesure))
         print("   Un champ perime ECARTE le residu au dispatch, en silence.")
         return EX_ROUGE
 
+    ouverts = [k for k in LES_DIX if v[k]["blocage_mesure"] is not None]
     print()
-    print("[1081] PASS -- les dix champs BLOCAGE concordent avec la mesure.")
+    print("[1081] PASS -- les dix fiches concordent : %d ouverte(s) a champ juste, %d fermee(s)"
+          " sans champ." % (len(ouverts), len(LES_DIX) - len(ouverts)))
     return EX_OK
 
 

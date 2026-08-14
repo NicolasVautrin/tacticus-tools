@@ -2133,9 +2133,12 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # `IdunBattle.Entities.Effects.Loki.MastersOfManoeuvreEffect$$CreateEffectDamageMalusForDefense`
     # = `ForPercentDecrease(get_OwnerIsTarget & IsRangedAttack(), ConfigVar(0x46))` -- appel
     # EXPLICITE a `IdunBattle.Entities.Effects.EffectBonus$$ForPercentDecrease`.
-    # ⚠ La POSE (`...MastersOfManoeuvreAbility$$CreateTrigger`) n'est PAS portee : son gate COMMUN
-    # porte `HasRarity(Actor, idun.meta.Rarity.Mythic = 5)`, canal ABSENT du port. L'effet, lui,
-    # n'a AUCUN gate de rarete -- c'est ce qui rend cette face-ci portable.
+    # ⚠ La POSE (`...MastersOfManoeuvreAbility$$CreateTrigger`) n'est PAS portee. La raison ECRITE
+    # ici -- << son gate COMMUN porte `HasRarity(Actor, idun.meta.Rarity.Mythic = 5)`, canal ABSENT
+    # du port >> -- est PERIMEE (re-mesuree #1081, 2026-08-14) : `#999-r3` a livre ce canal, et
+    # `att_rarity` est threade sur les deux facades (cf. les entrees 1442 / 1446 plus haut, qui
+    # disent toutes deux << le verrou est TOMBE >>). Ce qui reste est donc le PORT du couple
+    # trigger/behaviour lui-meme, sans blocage d'etage. L'effet, lui, n'a AUCUN gate de rarete.
     # ⚠ TROIS enums, les memes entiers : `EffectType 1510` = CET effet, `TriggeredAbilityType 1510`
     # = `DeathwingKnight` (rien a voir), `TriggeredAbilityType 1508` = l'ability qui le pose.
     "MastersOfManoeuvre": MastersOfManoeuvreEffect,
