@@ -24,6 +24,9 @@ import {
 } from "../../game/effects.js";
 import { state } from "../../game/state.js";
 import { readDamagePredictionResult } from "../../game/damage-prediction.js";
+import {
+    LIVE_PROBE as RARITY_PROBE, RarityResolution, resolveRarityChannel,
+} from "../../game/rarity.js";
 import { queueOnMainThread } from "../../runtime/queue.js";
 import { abilityName } from "../../data/ability-names.js";
 import { TARGETING_RULE_BITS } from "../../data/targeting-rule-names.js";
@@ -247,6 +250,33 @@ const UC_ACTIVES_OFF = unitConfigurationClass
 const BUC_ID_OFF = baseUnitComponentClass
     ? getFieldOffset(baseUnitComponentClass, "Id") : -1;
 
+// --- #1039 — le canal `rarity`, résolu PAR NOM et LAZY --------------------------------
+//
+// LAZY, et pas au chargement comme `game/damage-prediction.ts` : la résolution lit les
+// champs STATIQUES LITTÉRAUX de l'enum (`dumpEnumClass` → `il2cpp_field_static_get_value`),
+// et une classe jamais initialisée n'a pas de disposition exploitable — c'est le piège que
+// `damage-prediction.ts` documente sur `List\`1` (`boxedSize: 0`, tous les champs à
+// `offset: 0`). Le premier appel de `combatSnapshot` arrive après le warmup, donc après
+// l'init IL2CPP. Même idiome que `unitFlagTypes()` / `unitTraitTypes()` ci-dessous.
+//
+// La RÉSOLUTION vit dans `game/rarity.ts` — pas ici — parce qu'elle est paramétrée par un
+// `RarityProbe` et donc EXÉCUTABLE hors Frida (`tools/probe-1039-rarity-canal.ts`). Poser
+// le capteur sans ce levier l'aurait laissé invalidable jusqu'à la prochaine fenêtre de
+// reinject.
+let rarityResolutionCache: RarityResolution | null = null;
+function rarityResolution(): RarityResolution {
+    if (rarityResolutionCache) return rarityResolutionCache;
+    let r: RarityResolution;
+    try { r = resolveRarityChannel(RARITY_PROBE); }
+    catch (e) {
+        r = { channel: null, drift: [],
+            errors: ["RESOLUTION DU CANAL RARETE EN ECHEC (#1039) : "
+                + (e as Error).message] };
+    }
+    rarityResolutionCache = r;
+    return r;
+}
+
 /** Le STRIDE d'un `T[]` managé, DÉRIVÉ du tableau lui-même (`class_get_element_class` +
  *  `class_is_valuetype` + `class_instance_size`) plutôt que supposé. `null` = indéterminable :
  *  l'appelant doit alors répondre « je ne sais pas lire », jamais rendre des nombres plausibles
@@ -387,6 +417,8 @@ export function registerViewSnapshot(ctx: Ctx): void {
      *  chargement de la BattleConfig) ; faction/class/profil viennent de gameconfig, effets de
      *  decisionView. Les TRAITS, eux, sont publiés ICI (`units[].traits`, #233) : le gameconfig ne
      *  donne que les traits de DÉPART, et un trait accordé en bataille lui échappe.
+     *  La RARETÉ suit (`units[].rarity`, #1039) : même forme de trou, mais sur `idun.meta.Rarity`
+     *  — le gameconfig ne porte que `BaseRarity`, qui répond à une AUTRE question.
      *  Read-only. body: { runnerId } */
     ctx.rpc.combatSnapshot = (
         body?: { runnerId?: number; debugOnly?: string[] },
@@ -575,6 +607,18 @@ export function registerViewSnapshot(ctx: Ctx): void {
             try { cfg = invokeMethod(getUnitConfigMi.info, battleQ, [vidPtr]); }
             catch (err) { return { error: "GetUnitConfig: " + (err as Error).message }; }
             if (cfg.isNull()) return { error: "config null" };
+            // #1039 — la rareté de CONFIGURATION, TÉMOIN de la source que la fabrique copie
+            // (`UnitFactory$$InitBaseComponent` : `component+0x74 = config+0x80`). Ce n'est
+            // PAS le canal qui fait foi : `units[].rarity` ci-dessous lit le COMPOSANT, ce
+            // que les trois gates lisent. Publier les deux rend visible le seul régime où
+            // ils peuvent diverger — la jointure `GetUnitConfig(visualId)` est N→1, donc
+            // deux entités de même `VisualId` (la même unité dans les deux camps) partagent
+            // la configuration rendue ici alors qu'elles ont chacune LEUR composant.
+            // ⚠ L'offset est résolu par NOM sur `UnitConfiguration` : `UCFG.mult` juste
+            // au-dessus est `UnitConfiguration+0x74`, exactement l'offset qu'occupe la
+            // RARETÉ dans `BaseUnitComponent`. Recopier « 0x74 » d'un struct à l'autre
+            // rendrait `100`/`180` là où on attend `0..5`, sans lever.
+            const rch = rarityResolution().channel;
             return {
                 visualId: readIl2cppString(vidPtr),
                 abilityVariablesMultiplier: cfg.add(UCFG.mult).readS32(),
@@ -582,7 +626,37 @@ export function registerViewSnapshot(ctx: Ctx): void {
                 level: cfg.add(UCFG.level).readS32(),
                 activeAbilityLevel: cfg.add(UCFG.activeLvl).readS32(),
                 passiveAbilityLevel: cfg.add(UCFG.passiveLvl).readS32(),
+                rarity: (rch !== null && rch.configOffset >= 0)
+                    ? cfg.add(rch.configOffset).readS32() : null,
             };
+        };
+
+        // RARETÉ EN BATAILLE (#1039) — `BaseUnitComponent.Rarity`, le champ que lisent les
+        // TROIS gates (`UnitExtensions$$HasRarity`, `UnitsWithRaritySelector$$Select`,
+        // `HasRarityTrigger$$ShouldTrigger`), et le seul.
+        //
+        // POURQUOI PAR `GetBaseUnitComponent` ET PAS PAR `forEachComponent`. Le filtre par
+        // classe employé plus haut (`klass.equals(unitCompClass)`) ne voit que
+        // `IdunBattle.Entities.Components.UnitComponent` : une MACHINE OF WAR porte un
+        // `MachineComponent`, et `readUnitConfig` lui rend donc `{error: "visualId
+        // introuvable"}`. Un capteur bâti sur cette voie serait AVEUGLE AUX MoW — c'est-à-dire
+        // aveugle aux porteurs mêmes des abilities mythiques qui motivent ce canal.
+        // `IdunBattle.Entities.UnitExtensions$$GetBaseUnitComponent` sert les deux familles
+        // (`MachineComponent` DÉRIVE de `BaseUnitComponent`), et c'est littéralement la
+        // fonction que les trois gates appellent — on invoque la fonction NOMMÉE du jeu
+        // plutôt que de deviner quelle classe concrète chercher.
+        //
+        // TRI-ÉTAT : `null` = PAS MESURÉ (canal refusé, composant introuvable, invocation en
+        // échec). Jamais `0` — `0` est `Rarity.Common`, une valeur parfaitement plausible,
+        // donc un repli sur `0` rendrait la panne indiscernable d'une mesure.
+        const readRarity = (e: NativePointer): number | null => {
+            const ch = rarityResolution().channel;
+            if (ch === null || !getBaseUnitComponentMi) return null;
+            try {
+                const comp = invokeMethod(getBaseUnitComponentMi.info, null, [e]);
+                if (comp.isNull()) return null;
+                return comp.add(ch.componentOffset).readS32();
+            } catch { return null; }
         };
 
         // BOUCLIERS (ShieldComponent @180fa8770) : liste d'instances @+0x10 (List<ShieldInstance>,
@@ -813,6 +887,17 @@ export function registerViewSnapshot(ctx: Ctx): void {
                 // retrait), la ou le port ne savait que les RECONSTRUIRE depuis le substrat.
                 // C'est ce que lisent les 33 gates de traits recenses.
                 traits: wants("traits") ? readUnitTraits(e) : null,
+                // #1039 : la RARETÉ EN BATAILLE (`idun.meta.Rarity`), ordinal de
+                // `BaseUnitComponent.Rarity`. `null` = PAS MESURÉ (cf. `readRarity`).
+                // Le port n'avait AUCUN canal : ni `observeBattle`, ni `combatSnapshot`, ni
+                // `decisionView` ne la publiaient, et le gameconfig répond à une AUTRE
+                // question (`BaseRarity` est la rareté de BASE, pas l'effective). Sans elle,
+                // tout gate `HasRarity` / `UnitsWithRarity` était inévaluable — et le rabattre
+                // sur « toujours vrai » aurait été une dégradation PERMISSIVE silencieuse,
+                // d'autant plus invisible que `rl_duel build` impose `targetRarity = 5` à
+                // toute unité normalisée : dans ce régime DÉGÉNÉRÉ, un port sans gate est
+                // d'accord avec le natif partout.
+                rarity: wants("rarity") ? readRarity(e) : null,
                 normalAttack: wants("normalAttack") ? readNormalAttack(e) : null,
                 unitConfig: wants("unitConfig") ? readUnitConfig(e) : null,
                 shields: readShields(e), abilityStates,
@@ -841,14 +926,38 @@ export function registerViewSnapshot(ctx: Ctx): void {
         // inatteignable — `entityId` + `unitFlags`. AUCUNE stat, aucune prédiction : ces
         // sous-lectures supposent une unité en jeu. TRI-ÉTAT conservé (`null` = pas mesuré).
         // `[]` ici veut dire « lu, aucune entité non vivante », jamais « pas lu ».
+        //
+        // #1039 : `rarity` y figure AUSSI. Une unité qui a FUI garde sa rareté — elle est
+        // portée par `BaseUnitComponent`, pas par l'état de vie — et `load_state` reconstruit
+        // ces entités-là depuis ce bloc. L'omettre ici aurait fait des unités non vivantes
+        // les seules sans rareté mesurée, une asymétrie que rien dans le natif ne justifie.
         const unitsNotAlive = wants("unitFlags")
             ? notAlive.map((u) => ({ entityId: u.id, entityType: u.entityType,
-                unitFlags: readUnitFlags(u.e) }))
+                unitFlags: readUnitFlags(u.e),
+                rarity: wants("rarity") ? readRarity(u.e) : null }))
             : null;
         // `unitFlagTypes` = {nom: id} de l'enum, au MÊME titre que `statTypes` : le consommateur
         // nomme les ids qu'il lit sans recopier de table chez lui.
+        //
+        // #1039 — `rarityTypes` suit la MÊME discipline, mais avec un cran de plus qui lui est
+        // propre : la table n'est pas cherchée par son nom, elle est DÉRIVÉE DU CHAMP LUI-MÊME
+        // (classe du type de `BaseUnitComponent.Rarity`). CINQ enums du build portent
+        // exactement les six mêmes membres aux mêmes ordinaux (`idun.meta.Rarity`,
+        // `IdunMetaLogic.UserProgress.Model.{Unit,Item,Upgrade,XpBook}Rarity`) : un mauvais
+        // appariement serait SILENCIEUX EN ORDINAL. `rarityEnum` publie le nom PLEIN pour que
+        // le consommateur puisse l'ASSERTIONNER, et `rarityLayout` dit ce qui a été résolu —
+        // sans lui, un `rarity: null` de PANNE serait indiscernable d'un `null` de mesure.
+        const rr = wants("rarity") ? rarityResolution() : null;
         return { ok: true, runner: label, statTypes: STAT_IDS,
-            unitFlagTypes: wants("unitFlags") ? flagTypes : null, units, unitsNotAlive };
+            unitFlagTypes: wants("unitFlags") ? flagTypes : null,
+            rarityEnum: rr && rr.channel ? rr.channel.enumFullName : null,
+            rarityTypes: rr && rr.channel ? rr.channel.members : null,
+            rarityLayout: rr === null ? null : {
+                componentOffset: rr.channel ? rr.channel.componentOffset : -1,
+                configOffset: rr.channel ? rr.channel.configOffset : -1,
+                errors: rr.errors, drift: rr.drift,
+            },
+            units, unitsNotAlive };
     });
 
     /** PER-SOURCE STAT-MODIFICATION breakdown — la sonde DÉFINITIVE pour SOURCER un
