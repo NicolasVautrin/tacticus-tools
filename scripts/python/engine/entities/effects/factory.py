@@ -63,7 +63,8 @@ from .loki.dark_angels_passives import (
     LionHelmExtraBlockDamageEffect, LionHelmExtraDmgEffect
 )
 from .loki.darkangels import HailstrikeExtraPierceEffect
-from .loki.deathwing import DeathwingEffect                # #932 (passif darkaTerminator)
+from .loki.deathwing import (DeathwingEffect,              # #932 (passif darkaTerminator)
+                             DeathwingKnightEffect)        # #1073 (passif darkaSmnTerminator)
 from .loki.enmity_for_the_unworthy import (                # #948 (passif darkaCompanion)
     EnmityForTheUnworthyExtraDamageEffect, EnmityForTheUnworthyExtraDamagePctEffect
 )
@@ -1045,6 +1046,18 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # (`On(9=Attack) & OwnerIsTarget & WasBlock` -> `If(HasEffect, IncreaseEffectLevel,
     # AddEffect(turns=TurnsFromRounds(1)))`). extraDmg[L65]=dmgReduction[L65]=146, rarity-scale.
     "Deathwing": DeathwingEffect,
+    # #1073 -- `EffectType 0x5e8 = 1512 DeathwingKnight`, l'effet du passif `TriggeredAbilityType
+    # 0x5e6 = 1510 DeathwingKnight` (summon `darkaSmnTerminator` + npc `darkaNpc3Terminator`).
+    # MEME CLASSE NATIVE que `Deathwing` : `frida/classes.tsv` ne porte AUCUNE
+    # `DeathwingKnightEffect`, et les deux fabriques de l'`EffectsDatabase` construisent le meme
+    # `IdunBattle.Entities.Effects.Loki.DeathwingEffect` avec deux `triggeringAbilityType`
+    # (`...b__14_339` -> `0x4dd` = 1245 Deathwing, `...b__14_340` -> `0x5e6` = 1510
+    # DeathwingKnight). Seule la CONFIG que `ConfigVar` indexe change -> le port est une sous-classe
+    # a `ABILITY_ID` pres, jamais un second corps.
+    # ⚠ QUATRE ordinaux, QUATRE enums : `TriggeredAbilityType 1245`/`EffectType 1318` = Deathwing,
+    # `TriggeredAbilityType 1510`/`EffectType 1512` = DeathwingKnight -- et `EffectType 1510` est
+    # `MastersOfManoeuvre`, sans rapport (cf. l'avertissement de son entree, plus bas).
+    "DeathwingKnight": DeathwingKnightEffect,
     # HeadClaimer (passif triggered 0x407=1031 de `blackHaarken` << Haarken >>, #947) -- les DEUX
     # faces d'un compteur de TETES accumule par `ABILITY_TRIGGERS["HeadClaimer"]` :
     #   1028 `...HeadClaimer_ExtraDamageEffect$$CreateEffectDamageBonusForAttack` =
