@@ -253,13 +253,16 @@ def test_e3_contre_epreuve_enemies_sans_resolution_de_tuile():
     Vu ROUGE avant la reparation. C'est la faute qui rendait le port MUET sur ce volet : `[]`, sans
     erreur.
 
-    ⚠ **LE DOMAINE DE RETOUR N'EST PAS CELUI QUE CETTE TRANCHE AVAIT ECRIT, et le decompile
-    tranche pour l'AUTRE lecture.** `CountOrAdd` fait `System.Collections.Generic.List<T>.Add(
-    result, entity)` -- **l'ENTITE ITEREE** (`enumerator.get_Current()`), pas l'unite resolue ;
-    `other = GetUnitOrMachine(entity, this+0x10)` ne sert qu'au `IsFriend(unit, other, state)` dont
-    le resultat est compare au flag `this+0x28` (0 = `Enemies`, 1 = `Friends`). Le premier jet de
-    #1030 rendait l'unite resolue : meme bug ferme, domaine de retour FAUX. La forme gardee est
-    celle de `master`, et ce test la garde."""
+    ⚠ **LE DOMAINE DE RETOUR EST L'ACTEUR RESOLU, et il a fallu DEUX passes pour le lire (#1030-r5).**
+    `CountOrAdd` fait bien `System.Collections.Generic.List<T>.Add(result, entity)` avec l'entite
+    ITEREE -- mais ce qu'il itere est le **slot 5 d'`ITargetsSelector`** = `SelectAllActors` (grille
+    `metadata/interface_slots.tsv`), et `IdunBattle.DSL.TargetsSelector$$SelectAllActors` a DEJA
+    resolu chaque element par `IdunBattle.DSL.TargetsSelector$$SelectUnit`
+    (`IsUnitFoot || IsTile -> GetUnit`). Lire l'`Add` sans cet etage fait conclure << entite
+    source >> et rend des ids de TUILE : c'est ce qu'avait fait la 1re passe, en s'alignant sur
+    `master` -- qui portait la meme lecture tronquee. Recoupements (fonction soeur `$$SelectAllUnits`
+    au slot 20, et `NormalUnits(Enemies(<TUILES>))` de `...NovaChargeAbility$$GetAdditionalMarkedTiles`)
+    dans la docstring d'`Enemies`."""
     from engine.entities.selectors import units as U
     zone = _zone_attendue()
     st = _state({20: sorted(zone - {TARGET_POS})[0]})
