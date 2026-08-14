@@ -64,10 +64,19 @@ DECLENCHEUR = {
     ),
 }
 
-#: Les traits SANS AUCUN canal, mesures au 2026-08-13 sur le build `rnca9r7q6c`. Les cinq portent
-#: une semantique de combat (gameconfig), donc AUCUN n'est « sans objet » -- residu #1015-r1.
+#: Les traits SANS AUCUN canal, mesures au 2026-08-13 sur le build `rnca9r7q6c`. Les cinq portaient
+#: une semantique de combat (gameconfig), donc AUCUN n'etait « sans objet » -- residu #1015-r1.
+#: UN PAR LIGNE, a dessein : les cinq partent en tranches SEPAREES (foyers disjoints), et un set sur
+#: une seule ligne ferait de chaque retrait un conflit de merge avec les quatre autres.
+#: `CloseCombatWeakness` RETIRE par #1015-r1 -- canaux MESURES : `derived`, `effet_homonyme`,
+#: `registre:TRAIT_DERIVED_ABILITIES`, `registre:ABILITY_INIT_OWNER_EFFECTS`,
+#: `registre:TRAIT_TRIGGERED_ABILITY_IDS`, `lecture`. Le trait derive l'ability 1130, qui pose l'effet
+#: 1130 (-50 % melee / -25 % tir au contact d'un ennemi) et charge le playbook MOVE (-40 / ennemi adjacent).
 NON_COUVERTS_MESURES = {
-    "BeastSnagga", "CloseCombatWeakness", "Healer", "InstinctiveBehaviour", "TwoManTeam",
+    "BeastSnagga",
+    "Healer",
+    "InstinctiveBehaviour",
+    "TwoManTeam",
 }
 
 
