@@ -265,6 +265,39 @@ def test_la_mesure_des_classes_d_effet_natives_n_est_pas_DEGENERE():
         "convention `<X>_Effect` (avec souligne) perdue -- c'est le faux `False` de #1024-r5")
 
 
+#: Les QUATRE `EffectType` que le filtre de namespace de la premiere ecriture rendait `False` A
+#: TORT (mesure d'orchestrateur, `rnca9r7q6c`, 2026-08-14). Leur classe native ne vit PAS sous
+#: `.Entities.Effects.` mais sous `IdunBattleLogic.Entities.Abilities.{Triggered,Active}.Loki.` --
+#: et aucun n'est dans `EFFECT_CLASSES`, donc chacun faisait PASSER le gate : quatre items credites
+#: PORTE sur une dette REELLE. La liste est FIGEE ici parce qu'un recenseur exhaustif redevient
+#: vert des qu'on le re-derive : c'est la VALEUR MESUREE qu'il faut garder, pas la derivation.
+_HORS_ENTITIES_EFFECTS = (
+    "NetworkedTargeting_DmgBonus",          # ...Triggered.Loki.NetworkedTargeting_DmgBonusEffect
+    "NoctilithBeacons_dmgReductions",       # ...Triggered.Loki.NoctilithBeacons_dmgReductionsEffect
+    "ObeisanceGenerators_HitReduction",     # ...Triggered.Loki.ObeisanceGenerators_HitReductionEffect
+    "RammingSpeed_ExtraExplode",            # ...Active.Loki.RammingSpeed_ExtraExplodeEffect
+)
+
+
+def test_le_recensement_ne_FILTRE_aucun_namespace():
+    """UNE CLASSE D'EFFET NATIVE NE VIT PAS QUE SOUS `.Entities.Effects.` -- et l'y restreindre
+    produit le seul verdict qui RETIRE du travail.
+
+    Mesure : **36** classes `<X>Effect` du build vivent hors de ce segment, **10** portent un nom
+    d'`EffectType`, et **4** (ci-dessus) etaient rendues `False` alors que le natif a bel et bien
+    une classe pour elles. Un `False` fait PASSER le gate, donc credite PORTE un item a dette
+    reelle -- le SUR-comptage exact que le second cran existe pour fermer.
+
+    Le retrait du filtre est SUR par MONOTONIE : elargir ne peut qu'ajouter des noms, donc ne peut
+    faire passer le verdict que de `False` a `True`, jamais l'inverse -- et `True` gardera une
+    dette de trop, ce qui CREE du travail. Ne PAS re-introduire de liste blanche de namespaces."""
+    for nom in _HORS_ENTITIES_EFFECTS:
+        assert KIV.classe_d_effet_native(nom) is True, (
+            "`%s` est rendu %r : son namespace natif n'est plus recense. Un filtre de namespace "
+            "a-t-il ete re-introduit ? Ce faux `False` fait PASSER le gate et credite l'item "
+            "PORTE alors que le natif a une classe." % (nom, KIV.classe_d_effet_native(nom)))
+
+
 def test_l_appariement_PAR_PREFIXE_est_exerce_et_garde():
     """LE CRAN QUE LA MATRICE DE MUTATION A TROUVE NON GARDE, et il fallait un temoin PROPRE.
 

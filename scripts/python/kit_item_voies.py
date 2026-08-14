@@ -128,9 +128,25 @@ CLE_NOM = "nom"
 #: plus (cf. `classe_d_effet_native` : le `BaseEffect` generique est alors le mirror FIDELE).
 GATE_EFFET_CLASSE = "classe-native-non-portee"
 
-#: Segment de namespace des classes d'effet natives (`IdunBattle.Entities.Effects.Loki.<X>Effect`,
-#: `IdunBattle.Entities.Effects.<X>Effect`). LU dans les symboles, jamais suppose.
-_NS_EFFETS_NATIFS = ".Entities.Effects."
+#: ⚠ **AUCUN FILTRE DE NAMESPACE, ET C'EST MESURE.** Ce recenseur a d'abord exige le segment
+#: `.Entities.Effects.` -- et il RATAIT alors les classes d'effet que le natif range sous
+#: `IdunBattleLogic.Entities.Abilities.{Triggered,Active}.Loki.<X>Effect` et
+#: `IdunBattleLogic.Effects.<X>Effect`. Mesure sur `rnca9r7q6c` (2026-08-14) : **36** classes
+#: `<X>Effect` vivent hors de ce segment, **10** portent un nom d'`EffectType`, et **4** etaient
+#: rendues `False` A TORT -- `NetworkedTargeting_DmgBonus`, `NoctilithBeacons_dmgReductions`,
+#: `ObeisanceGenerators_HitReduction`, `RammingSpeed_ExtraExplode`. Chacune a bien une classe
+#: native, est ABSENTE d'`EFFECT_CLASSES`, et faisait donc PASSER le gate : quatre items credites
+#: PORTE alors qu'ils portent une dette REELLE. C'est exactement le SUR-comptage que le second
+#: cran existe pour fermer, retourne contre lui-meme.
+#:
+#: Le filtre est donc RETIRE, et son retrait est SUR par MONOTONIE : elargir le recensement ne
+#: peut qu'AJOUTER des noms a `natives`, donc ne peut faire passer `classe_d_effet_native` que de
+#: `False` a `True` -- jamais l'inverse. `True` = << le natif a une classe >> = la dette RESTE =
+#: la direction qui CREE du travail. Le bruit Unity/thor (`UnityEngine.VFX.VisualEffect`,
+#: `thor.Menu.PlayerAvatarPremiumEffect`) est donc inoffensif : pour nuire il lui faudrait porter
+#: un nom d'`EffectType`, et le seul effet possible serait de garder une dette de trop.
+#: Ne PAS re-introduire de liste blanche de namespaces : elle se perimerait au prochain build,
+#: dans la direction qui RETIRE du travail.
 #: Suffixe de classe. Le natif nomme ses classes d'effet `<EffectType>Effect` -- **ET
 #: `<EffectType>_Effect`**, avec un souligne. LES DEUX CONVENTIONS COEXISTENT DANS LE MEME BUILD
 #: (`CabalOfSorcerers_ExtraDamagePctEffect` contre `TerminatorArmour_ReduceDmg_Effect`), et n'en
@@ -167,8 +183,6 @@ def _classes_d_effet_natives() -> "frozenset[str] | None":
                 if len(cols) < 2:
                     continue
                 sym = cols[1]
-                if _NS_EFFETS_NATIFS not in sym:
-                    continue
                 classe = sym.split("$$", 1)[0]
                 court = classe.rsplit(".", 1)[-1]
                 if court.endswith(_SUFFIXE_EFFET_NATIF) and len(court) > len(_SUFFIXE_EFFET_NATIF):
