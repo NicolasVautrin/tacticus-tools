@@ -817,6 +817,76 @@ def get_tile_behind_target_from_source_direction(source: tuple, target: tuple,
     return [p]
 
 
+def is_on_straight_line(a: tuple, b: tuple) -> bool:
+    """`IdunBattle.Utils.Hex.AxialCoordinate$$IsOnStraightLine(this, coordinate)` -- MIRROR du
+    decompile, en domaine POSITION (odd-q).
+
+    Corps natif (`this` = `a`, champs `+0x0 = col`, `+0x4 = row`, `+0x8 = offsetType`) :
+
+        aAdj = a.row - ((a.offsetType == 0 ? (a.col & 1) + a.col : a.col & ~1) / 2)
+        bAdj = b.row - ((b.offsetType == 0 ? (b.col & 1) + b.col : b.col & ~1) / 2)
+        if (a.offsetType != b.offsetType) throw
+        d = (b.col + bAdj) - (a.col + aAdj)
+        if (a.col != b.col && d != 0) return aAdj == bAdj
+        return true
+
+    `aAdj` est EXACTEMENT la composante `z` de `hexgeo.to_cube` (les deux offsets du dump sont
+    odd-q, le seul que le port manipule), et `col` en est la composante `x` ; `x + z = -y`. Le corps
+    se relit donc : **VRAI ssi les deux positions partagent au moins une composante CUBE** (`x`, `y`
+    ou `z`) -- la definition usuelle d'une ligne droite hexagonale. Seul consommateur porte :
+    `get_tiles_behind_filled` ci-dessous."""
+    ax, ay, az = hexgeo.to_cube(a[0], a[1])
+    bx, by, bz = hexgeo.to_cube(b[0], b[1])
+    return ax == bx or ay == by or az == bz
+
+
+def get_tiles_behind_filled(frm: tuple, to: tuple, check_elevation: bool = True,
+                            tile_exists=None, elevation_at=None) -> list:
+    """`IdunBattle.Core.Services.BattleQuery$$GetTilesBehindFilled(from, direction, checkElevation)`
+    en domaine POSITION -- la ou `GetTileBehindTargetFromSourceDirection` rend UNE tuile, celle-ci
+    en rend UNE ou DEUX (d'ou « Filled »).
+
+        if (!AxialCoordinate.IsOnStraightLine(pos(from), pos(direction))) {
+            (d1, d2) = MovementUtil.RoundDirection(cube(from), cube(direction), <les 2 nudges>)
+            t1 = GetTileAt(cube(direction) - d1) ; si non nul et elevation OK -> Add
+            t2 = GetTileAt(cube(direction) - d2) ; idem                       -> Add
+        } else {
+            dir = CubeCoordinate.DirectionTo(cube(from), cube(direction))
+            t   = GetTileAt(cube(direction) - dir) ; si non nul et elevation OK -> Add
+        }
+
+    Le gate d'elevation est `BattleQuery$$IsReachableElevation(from, tile)` ->
+    `IdunBattle.Core.Services.TileUtil$$IsReachableElevation(a, b)`, dont le corps ENTIER est
+    `abs(elev(a) - elev(b)) < 2` -- la MEME borne que
+    `IdunBattle.Entities.Pathfinding.WalkPathfinder$$IsReachableElevationDifference`, deja portee
+    ailleurs. `elevation_at` absent -> gate INERTE (le port ne tronque jamais une ligne a tort).
+
+    ⚠ **LA BRANCHE NON-ALIGNEE N'EST PAS PORTEE -- residu `#1052-r1`.** Elle appelle
+    `IdunBattle.Core.Services.MovementUtil$$RoundDirection(from, to, RotationDirection)`, dont le
+    corps est `RoundFloatCubeCoordinates(FloatCubeCoordinate(from).Lerp(FloatCubeCoordinate(to),
+    <by:Fix64>) +/- <nudge statique>)` puis `DirectionTo(<arrondi>, to)`. Le facteur `by` du `Lerp`
+    passe par XMM et le nudge est un champ STATIQUE ecrit par un `.cctor` : ni l'un ni l'autre n'est
+    lisible dans le pseudo-C, donc les DEUX directions candidates ne sont pas derivables sans une
+    lecture a l'assembleur. Rendre `[]` ici est une degradation RESTRICTIVE et DITE (le porteur
+    frappe une tuile de moins), jamais une geometrie inventee.
+    Regime concerne : `from` et `to` NON alignes -- impossible a distance 1 (deux hexes adjacents
+    partagent toujours une composante cube), donc uniquement a partir de la distance 2."""
+    if frm is None or to is None:
+        return []
+    if not is_on_straight_line(frm, to):
+        return []                     # branche `RoundDirection` NON portee -- residu `#1052-r1`
+    dx, dy, dz = direction_to(frm, to)                     # `clamp(cube(from) - cube(to), -1, +1)`
+    bx, by, bz = hexgeo.to_cube(to[0], to[1])
+    p = hexgeo.from_cube(bx - dx, bz - dz)                 # `cube(direction) - dir`
+    if tile_exists is not None and not tile_exists(p):
+        return []                                          # `GetTileAt == null`
+    if check_elevation and elevation_at is not None:       # `IsReachableElevation(from, tile)`
+        ea, eb = elevation_at(frm), elevation_at(p)
+        if ea is not None and eb is not None and abs(int(ea) - int(eb)) >= 2:
+            return []
+    return [p]
+
+
 def _sgn(v: int) -> int:
     """`x / abs(x)` du decompile (division ENTIERE C, jamais atteinte avec x == 0 : les trois
     branches `composante nulle` sont traitees AVANT)."""

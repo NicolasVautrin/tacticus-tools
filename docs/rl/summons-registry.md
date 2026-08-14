@@ -19,9 +19,9 @@ differe. C'est la doctrine « DECIDER != EXECUTER ».
 
 ## Bilan
 
-- Unites `summons` : **65** ; kits sans manque : **45** ; kits avec du travail : **20**
+- Unites `summons` : **65** ; kits sans manque : **48** ; kits avec du travail : **17**
 - Actives distinctes : **16** — `[C-]` **6** · `[CD]` **10**
-- Passifs distincts : **47** — portes **27**, non portes **20**
+- Passifs distincts : **47** — portes **30**, non portes **17**
 - Traits de kit distincts (AUCUN ecarte — le seuil de frequence a disparu avec #1015) :
   **43** — couverts **42**, non couverts **1**
 
@@ -49,20 +49,17 @@ l'unite. La colonne `porteurs` dit l'exposition.
 | type | item | porteurs | exemples |
 |---|---|---:|---|
 | trait | TwoManTeam | 2 | astraSmnLascannon, astraSmnMortar |
-| passif | AllIsDust | 1 | thousSmnRubricMarine |
 | passif | BattleFocus | 1 | eldarSmnGuardian |
 | passif | CallInReinforcements | 1 | astraSmnVoxcaster |
 | passif | DeathwingKnight | 1 | darkaSmnTerminator |
 | passif | DrawFire | 1 | blackSmnTerminator |
 | passif | FiringPosition | 1 | blackSmnHavoc |
-| passif | FragLance | 1 | astraSmnDeathRider |
 | passif | HailOfLivingAmmunition | 1 | tyranSmnTermagant |
 | passif | HunterOfSouls | 1 | thousSmnDaemonPrince |
 | passif | Lifewards | 1 | adeptSmnGeminaeSuperia |
 | passif | MischiefMakers | 1 | deathSmnNurglings |
 | passif | NoHidingFromTheWatchers | 1 | darkaSmnWatcher |
 | passif | PileIn | 1 | orksGrot |
-| passif | Pyreblaster | 1 | templInitiatePyreblaster |
 | passif | RapidFire | 1 | ultraSmnHeavyIntercessor |
 | passif | RepairEnthusiast | 1 | votanSmnEcog |
 | passif | Shrapnel | 1 | astraSmnMortar |
@@ -101,14 +98,14 @@ sont des **faces** absentes d'items presents.
 | eldarSmnGuardian | 1 | PlasmaGrenade(1098)[CD] | BattleFocus | - | - |
 | eldarSmnHarlequin | 0 | KissOfDeath(1108)[C-] | - | - | - |
 
-### AstraMilitarum — 6 unites, 4 avec du travail
+### AstraMilitarum — 6 unites, 3 avec du travail
 
 | unite | manque | actives (face) | passifs non portes | traits non couverts | autres voies |
 |---|---:|---|---|---|---|
 | astraSmnMortar | 2 | - | Shrapnel | TwoManTeam | - |
-| astraSmnDeathRider | 1 | - | FragLance | - | - |
 | astraSmnLascannon | 1 | - | - | TwoManTeam | - |
 | astraSmnVoxcaster | 1 | ValkyrieStrike(1018)[C-] | CallInReinforcements | - | - |
+| astraSmnDeathRider | 0 | - | - | - | - |
 | astraSmnGuardsman | 0 | - | - | - | - |
 | astraSmnKell | 0 | - | - | - | - |
 
@@ -121,12 +118,12 @@ sont des **faces** absentes d'items presents.
 | blackSmnBloodletter | 0 | - | - | - | - |
 | blackSmnBloodletterHSE | 0 | - | - | - | - |
 
-### BlackTemplars — 4 unites, 1 avec du travail
+### BlackTemplars — 4 unites, 0 avec du travail
 
 | unite | manque | actives (face) | passifs non portes | traits non couverts | autres voies |
 |---|---:|---|---|---|---|
-| templInitiatePyreblaster | 1 | - | Pyreblaster | - | - |
 | templInitiate | 0 | DevoutPush(1053)[CD] | - | - | - |
+| templInitiatePyreblaster | 0 | - | - | - | - |
 | templNeophyte | 0 | IncendiaryShells(1044)[CD] | - | - | - |
 | templSmnAggressor | 0 | Fragstorm(1078)[CD] | - | - | - |
 
@@ -202,16 +199,16 @@ sont des **faces** absentes d'items presents.
 | tauSmnDroneSniper | 0 | - | - | - | - |
 | tauSmnStealthSuit | 0 | ForwardObservers(1185)[CD]<br>WallOfMirrors(1186)[C-] | - | - | - |
 
-### ThousandSons — 8 unites, 2 avec du travail
+### ThousandSons — 8 unites, 1 avec du travail
 
 | unite | manque | actives (face) | passifs non portes | traits non couverts | autres voies |
 |---|---:|---|---|---|---|
 | thousSmnDaemonPrince | 1 | - | HunterOfSouls | - | - |
-| thousSmnRubricMarine | 1 | - | AllIsDust | - | - |
 | thousSmnBlueHorror | 0 | - | - | - | - |
 | thousSmnBlueHorrorHSE | 0 | - | - | - | - |
 | thousSmnPinkHorror | 0 | - | - | - | - |
 | thousSmnPinkHorrorHSE | 0 | - | - | - | - |
+| thousSmnRubricMarine | 0 | - | - | - | - |
 | thousSmnScreamer | 0 | SlashingDive(1091)[C-] | - | - | - |
 | thousSmnScreamerHSE | 0 | SlashingDive(1091)[C-] | - | - | - |
 

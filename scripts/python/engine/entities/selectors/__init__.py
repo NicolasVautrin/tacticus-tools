@@ -44,7 +44,7 @@ from .tiles import (  # noqa: F401
     TileUnique,
     CanAddUnit, TileIntersect, MovableTilesInRange, tiles_unit_can_move_to_charge_target,
     FilterTilesIfCanAttackTargetTileFrom, SortTilesByUtility, PreviousTile,
-    TileBehindTargetFromSourceDirection,
+    TileBehindTargetFromSourceDirection, TileBehindFilled,
 )
 
 from .accessors import (  # noqa: F401
@@ -104,7 +104,7 @@ __all__ = [
     "EntitiesWithoutEffects", "EntitiesWithAnyEffect", "PickFirstN", "Otherwise",
     "TilesBehindInLine", "FilterContinuous", "UnitsWithVisualId", "UnitsWithId", "Cache",
     "Entity", "Nothing", "Null", "SelectIf", "AtIndex", "ConditionalSelector",
-    "TileBehindTargetFromSourceDirection", "EffectSource", "EffectFromOwner",
+    "TileBehindTargetFromSourceDirection", "TileBehindFilled", "EffectSource", "EffectFromOwner",
     "EffectsFromUnitSource", "EffectsOfUnits",
     "OwnerOfEffect", "get_spawn_tile_selector", "adjacent_units", "attackable_enemies",
     "random_adjacent_free_tile",

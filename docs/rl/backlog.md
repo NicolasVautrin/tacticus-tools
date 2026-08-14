@@ -4798,3 +4798,50 @@ pas d'erreur : il rend **zéro**, et un zéro se lit « rien à signaler ».
   call-site du port qui le pose.
   FOYER: scripts/python/probe_1050_optimized_gait.py
   BLOCAGE: aucun
+
+- **#1052-r1 — la branche NON ALIGNEE de `GetTilesBehindFilled` (DEUX tuiles) n'est pas portee.** `[fable]`
+  Point d'entree : `docs/rl/case-1052-all-is-dust-pyreblaster.md` Sec.4 +
+  `scripts/python/engine/battle_query.py::get_tiles_behind_filled`.
+  `IdunBattle.Core.Services.BattleQuery$$GetTilesBehindFilled(from, direction, checkElevation)` a
+  DEUX branches. L'ALIGNEE (`AxialCoordinate$$IsOnStraightLine` vrai) est portee et confrontee
+  live ; l'autre appelle DEUX FOIS
+  `IdunBattle.Core.Services.MovementUtil$$RoundDirection(from, to, RotationDirection)` avec les deux
+  valeurs de l'enum de nudge et rend les DEUX tuiles derriere la cible. Son corps est
+  `RoundFloatCubeCoordinates(FloatCubeCoordinate(from).Lerp(FloatCubeCoordinate(to), <by: Fix64>)
+  +/- <nudge statique>)` puis `DirectionTo(<arrondi>, to)` : le facteur `by` passe par XMM et le
+  nudge est un champ STATIQUE ecrit par un `.cctor` -- AUCUN des deux n'est lisible dans le
+  pseudo-C. Il faut une lecture a l'ASSEMBLEUR (ou une invocation live du natif) pour les deux
+  constantes. Le mirror rend `[]` dans ce regime : degradation RESTRICTIVE et DITE, gardee par
+  `tests/engine/test_1052_all_is_dust_pyreblaster_offline.py`. **Inatteignable a distance 1** (deux
+  hexes adjacents partagent toujours une composante cube) -- donc seulement a partir de la
+  distance 2, ce qui EST atteignable pour `Pyreblaster` (arme de portee 2).
+  FOYER: scripts/python/engine/battle_query.py, scripts/python/engine/entities/selectors/tiles.py
+  BLOCAGE: etage
+
+- **#1052-r2 — le natif applique le DoT d'une tuile `Fire` IMMEDIATEMENT a la pose ; le port
+  attend le turn-start.** `[opus]`
+  Point d'entree : `docs/rl/case-1052-all-is-dust-pyreblaster.md` Sec.3 (tableau Pyreblaster) +
+  `scripts/python/probe_1052_all_is_dust_pyreblaster.py --volet pyreblaster`.
+  MESURE : dans la MEME action que le tir, le natif emet deux evenements de degat portant
+  `Effect_Type: 5` (= `EffectType.Fire`) et `Attacker_Id` = l'**id de TUILE** -- **336** sur la
+  cible (tuile 23) et **678** sur l'unite derriere (tuile 24). Le port rend **0** sur les deux.
+  ⚠ **PRE-EXISTANT, pas un effet de bord de #1052** : l'ecart est present AUSSI dans le regime SANS
+  Pyreblaster, ou la tuile de la cible brule par le trait `OnFire` de l'arme. Le foyer est le
+  vecteur de pose (`AddEffectOperation` -> l'occupant de la tuile), pas l'arbre du passif.
+  FOYER: scripts/python/engine/runner/operations/triggers/loki/, scripts/python/engine/runner/abilities/behaviours/effects.py
+  BLOCAGE: etage
+
+- **#1052-r3 — le malus de coups de `BigTarget` : le port le DERIVE de la geometrie, le natif le
+  porte par un EFFET pose a l'init.** `[opus]`
+  Point d'entree : `docs/rl/case-1052-all-is-dust-pyreblaster.md` Sec.3 (encadre) +
+  `scripts/python/probe_1052_all_is_dust_pyreblaster.py` (constante `PYRE_DERRIERE`).
+  MESURE : `astraBullgryn` (trait `BigTarget`, i2 << Adjacent friendly units receive -1 hit from
+  ranged attacks, to a minimum of 1 >>) place ADJACENT a la cible d'un tir. Le PORT compte **2**
+  coups la ou le NATIF en fait **3** (bornes et tirages IDENTIQUES par ailleurs : les deux premiers
+  coups sont bit-exacts). Hypothese a trancher : le natif materialise le malus par un effet pose au
+  spawn / au turn-start, donc un deplacement PILOTE en cours de tour ne le re-pose pas, alors que le
+  port le recalcule geometriquement a chaque coup. Consequence pour tout montage : un ecart mesure
+  APRES ce point accuse le mauvais etage (c'est ce qui est arrive a la premiere mesure de
+  `Pyreblaster`).
+  FOYER: scripts/python/engine/entities/effects/loki/hits.py, scripts/python/engine/runner/damage_model.py
+  BLOCAGE: aucun

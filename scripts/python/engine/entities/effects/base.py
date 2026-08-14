@@ -991,7 +991,8 @@ class BaseEffect:
         return None
 
     def create_piercing_bonus_for_attack(self, damage_profile: str | None = None,
-                                         is_melee: bool | None = None) -> EffectBonus | None:
+                                         is_melee: bool | None = None,
+                                         attacker_ctx: Mapping | None = None) -> EffectBonus | None:
         """`<Effect>.CreatePiercingBonusForAttack` — slot d'interface DISTINCT de
         `CreateEffectDamageBonusForAttack` : il alimente l'axe PERCAGE (`DamageModifiers` @+0x20), PAS le
         scalaire degat. Mirror : `EffectBonus.ForPiercing(trigger, montant)`
@@ -1005,7 +1006,15 @@ class BaseEffect:
         `AttackDamageOperation._apply_defender_flat_reductions`.
 
         `damage_profile` = NOM du profil du coup (gate `DamageProfileIs`) ; `is_melee` = nature du coup
-        (aucun call-site porte ne s'en sert encore). Defaut None = pas de bonus de percage."""
+        (gate `IsMeleeAttack`, et branche du `If` de `AllIsDustEffect$$GetPierceStatModifier`).
+
+        `attacker_ctx` (#1052) = le MEME dict que `create_effect_damage_malus_for_defense` recoit --
+        les noeuds natifs portes sur `Caster@<DSLSelectors+0x48>` que ce slot doit lire. Trois cles
+        y ont ete AJOUTEES pour `AllIsDustEffect`, aux DEUX faces (combat et prediction) :
+        `extra_pierce` (`StatAmount(Caster, 0x1a = ExtraPierce, 0x5 = Modification)`),
+        `extra_pierce_dir` (`StatAmount(Caster, 0x15|0x16, Modification)`) et
+        `effect_pierce_addition` (`CasterEffectPierceAddition`). Cle absente = NON MESURE -> le
+        consommateur se tait. Defaut None = pas de bonus de percage."""
         return None
 
     def block_source_id(self, fallback_chance: int = 0) -> int:

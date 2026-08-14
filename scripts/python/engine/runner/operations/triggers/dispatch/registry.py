@@ -333,6 +333,7 @@ from ..loki.horrors import (                                          # chaine d
     SplitAbility as SplitSpawnAbility,                                # 1156 (thousSmnPinkHorror*)
     FlamesOfMutationAbility as FlamesOfMutationFireAbility,           # 1160 (thousSmnBlueHorror*)
     SPLIT_KEY, FLAMES_OF_MUTATION_KEY)
+from ..loki.pyreblaster import PyreblasterAbility, PYREBLASTER_KEY    # #1052 (passif 1098, BT)
 from ..loki.savior_protocols import SaviorProtocolsAbility            # #1020 (passif drones T'au)
 from ..loki.instinctive_behaviour import InstinctiveBehaviourUpdateTargetAbility   # #1015-r1
 
@@ -1314,6 +1315,14 @@ ABILITY_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
     # `FlamesOfMutation` : `AddEffect(5 = Fire, Tiles(Owner))` sur sa main tile.
     SPLIT_KEY: [SplitSpawnAbility],
     FLAMES_OF_MUTATION_KEY: [FlamesOfMutationFireAbility],
+    # Pyreblaster (0x44a = 1098, `templNpc3InitiatePyreblaster` npc + son jumeau summon
+    # `templInitiatePyreblaster`) -- #1052. `CreateTrigger` INVISIBLE des tables (corps DEDUPLIQUE
+    # par ICF avec `FireOfAbsolutionAbility$$CreateTrigger`, MEME RVA) = `On(0x4a =
+    # AttackInAtomicGroup, ownerNeedsToBeAlive: 1) & get_OwnerIsActor & IsRangedAttack` ; le
+    # `CreateBehaviour` = `op_Addition( AttackWithAttackDamage(Flame, nrOfHits = 3) contre les
+    # ennemis debout sur `TileBehindFilled(CasterTile, Target)`, AddEffect(5 = Fire) sur
+    # `Walkable(TileBehindFilled(..) + Tiles(Target))` )`. Cf. loki/pyreblaster.py.
+    PYREBLASTER_KEY: [PyreblasterAbility],
 }
 
 # --- Registre : ability ACTIVE → triggered-ability(s) DERIVEE(s) ----------------------------------

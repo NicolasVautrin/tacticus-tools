@@ -284,7 +284,8 @@ class SuperchargeExtraPiercingEffect(BaseEffect):
     (`extraPierceRatio` n'est PAS dans `variablesAffectedByRarityBonus` -> multiplier inerte)."""
 
     def create_piercing_bonus_for_attack(self, damage_profile: str | None = None,
-                                         is_melee: bool | None = None) -> EffectBonus | None:
+                                         is_melee: bool | None = None,
+                                         attacker_ctx: Mapping | None = None) -> EffectBonus | None:
         import gameconfig as _GC
         prof = ((_GC.ability("Supercharge") or {}).get("constants") or {}).get("damageProfile")
         if not prof or (damage_profile or "") != prof:         # DamageProfileIs(GetDamageProfile(config))

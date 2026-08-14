@@ -19,9 +19,9 @@ differe. C'est la doctrine « DECIDER != EXECUTER ».
 
 ## Bilan
 
-- Unites `npc` : **491** ; kits sans manque : **427** ; kits avec du travail : **64**
+- Unites `npc` : **491** ; kits sans manque : **430** ; kits avec du travail : **61**
 - Actives distinctes : **147** — `[--]` **1** · `[C-]` **15** · `[CD]` **131**
-- Passifs distincts : **177** — portes **116**, non portes **61**
+- Passifs distincts : **177** — portes **119**, non portes **58**
 - Traits de kit distincts (AUCUN ecarte — le seuil de frequence a disparu avec #1015) :
   **58** — couverts **57**, non couverts **1**
 - **Voies inversees** (nom absent d'`ActiveAbilityType`) : **1** — `Maugetar`
@@ -57,7 +57,6 @@ l'unite. La colonne `porteurs` dit l'exposition.
 | passif | Shrapnel | 2 | astraNpc4Mortar, astraNpc4MortarSurv |
 | passif | SynapticInsight | 2 | tyranNpc5Barbgaunt, tyranNpc5BarbgauntSurv |
 | active | Maugetar | 1 | eldarBossMauganRaUltra |
-| passif | AllIsDust | 1 | thousNpc3RubricMarine |
 | passif | ArchContaminator | 1 | deathBossMortarion |
 | passif | BattleFocus | 1 | eldarNpc1Guardian |
 | passif | CallInReinforcements | 1 | astraNpc3Voxcaster |
@@ -70,7 +69,6 @@ l'unite. La colonne `porteurs` dit l'exposition.
 | passif | EmbodiedProphecy | 1 | adeptNpc2Zephyrim |
 | passif | Explosive | 1 | LootObj_ExplOilDrum |
 | passif | FiringPosition | 1 | blackNpc4Havoc |
-| passif | FragLance | 1 | astraNpc5DeathRider |
 | passif | HostOfPlagues | 1 | deathBossMortarion |
 | passif | HuntersInstincts | 1 | tauNpc6Carnivore |
 | passif | ItsGonnaBlow | 1 | orksNpc4AmmoGrot |
@@ -101,7 +99,6 @@ l'unite. La colonne `porteurs` dit l'exposition.
 | passif | PowerUp_SummonSpawn_ultraSmnInceptor | 1 | powupSummonSpawn_ultraSmnInceptor |
 | passif | PreCalibratedPurgeSolution | 1 | admecBossBelisarius |
 | passif | PrehensilePincerTail | 1 | tyranBossHiveTyrantLeviathan |
-| passif | Pyreblaster | 1 | templNpc3InitiatePyreblaster |
 | passif | RepairEnthusiast | 1 | votanNpc1Ecog |
 | passif | RunsAround | 1 | orksNpc4AmmoGrot |
 | passif | RunsAway | 1 | orksNpc5LootGrotTeam |
@@ -251,7 +248,7 @@ sont des **faces** absentes d'items presents.
 | eldarNpc4Wraithguard | 0 | WarConstruct(1133)[C-] | - | - | - |
 | eldarNpc4WraithguardSurv | 0 | WarConstruct(1133)[C-] | - | - | - |
 
-### AstraMilitarum — 31 unites, 5 avec du travail
+### AstraMilitarum — 31 unites, 4 avec du travail
 
 | unite | manque | actives (face) | passifs non portes | traits non couverts | autres voies |
 |---|---:|---|---|---|---|
@@ -259,7 +256,6 @@ sont des **faces** absentes d'items presents.
 | astraNpc4MortarSurv | 2 | - | Shrapnel | TwoManTeam | - |
 | astraNpc2Lascannon | 1 | - | - | TwoManTeam | - |
 | astraNpc3Voxcaster | 1 | ValkyrieStrike(1018)[C-] | CallInReinforcements | - | - |
-| astraNpc5DeathRider | 1 | - | FragLance | - | - |
 | astraBossBullgryn | 0 | FragBomb(1017)[CD] | - | - | relic:RelicOfLostCadia |
 | astraBossBullgrynLEG | 0 | FragBomb(1017)[CD] | - | - | relic:RelicOfLostCadia |
 | astraBossBullgrynLHE | 0 | FragBomb(1017)[CD] | - | - | relic:RelicOfLostCadia |
@@ -278,6 +274,7 @@ sont des **faces** absentes d'items presents.
 | astraBossYarrickLHE | 0 | SendInTheNextWave(1016)[CD] | - | - | - |
 | astraBossYarrickSurv | 0 | SendInTheNextWave(1016)[CD] | - | - | - |
 | astraNpc1Guardsman | 0 | - | - | - | - |
+| astraNpc5DeathRider | 0 | - | - | - | - |
 | astraNpcBullgryn | 0 | FragBomb(1017)[CD] | - | - | relic:RelicOfLostCadia |
 | astraNpcCreed | 0 | SupremeCommander(1028)[CD] | - | - | - |
 | astraNpcDreir | 0 | LeadingTheCharge(1204)[CD] | - | - | relic:SabreOfSacrifice |
@@ -321,11 +318,10 @@ sont des **faces** absentes d'items presents.
 | blackNpcObliterator | 0 | FrenziedFiring(1036)[CD] | - | - | - |
 | blackNpcTerminator | 0 | BringerOfDespair(1022)[CD] | - | - | relic:DaemonfleshPlate |
 
-### BlackTemplars — 21 unites, 1 avec du travail
+### BlackTemplars — 21 unites, 0 avec du travail
 
 | unite | manque | actives (face) | passifs non portes | traits non couverts | autres voies |
 |---|---:|---|---|---|---|
-| templNpc3InitiatePyreblaster | 1 | - | Pyreblaster | - | - |
 | templBossAggressor | 0 | FragstormGrenadeLauncher(1048)[CD] | - | - | relic:RelicPowerFist |
 | templBossAggressorCamp | 0 | FragstormGrenadeLauncher(1048)[CD] | - | - | relic:RelicPowerFist |
 | templBossAggressorLEG | 0 | FragstormGrenadeLauncher(1048)[CD] | - | - | relic:RelicPowerFist |
@@ -345,6 +341,7 @@ sont des **faces** absentes d'items presents.
 | templBossSwordBrother_LHE | 0 | ThunderousAssault(1043)[CD] | - | - | relic:RelicBoltPistol |
 | templNpc1Initiate | 0 | DevoutPush(1053)[CD] | - | - | - |
 | templNpc2Neophyte | 0 | IncendiaryShells(1044)[CD] | - | - | - |
+| templNpc3InitiatePyreblaster | 0 | - | - | - | - |
 | templNpc4Aggressor | 0 | Fragstorm(1078)[CD] | - | - | - |
 
 ### BloodAngels — 2 unites, 0 avec du travail
@@ -588,11 +585,10 @@ sont des **faces** absentes d'items presents.
 | tauNpcMoWBroadside | 0 | HeavyRailRifle(1160)[CD]<br>TwinSmartMissileSystem(1161)[CD] | - | - | mythic:ElectrochaffBackups |
 | tauNpcShadowsun | 0 | ExemplarOfTheKauyon(1087)[CD] | - | - | - |
 
-### ThousandSons — 27 unites, 1 avec du travail
+### ThousandSons — 27 unites, 0 avec du travail
 
 | unite | manque | actives (face) | passifs non portes | traits non couverts | autres voies |
 |---|---:|---|---|---|---|
-| thousNpc3RubricMarine | 1 | - | AllIsDust | - | - |
 | thousBossAhriman | 0 | Doombolt(1102)[CD] | - | - | - |
 | thousBossAhrimanCamp | 0 | Doombolt(1102)[CD] | - | - | - |
 | thousBossAhrimanLHE | 0 | Doombolt(1102)[CD] | - | - | - |
@@ -612,6 +608,7 @@ sont des **faces** absentes d'items presents.
 | thousBossTzaangorLHE | 0 | SorcerousFacade(1100)[CD] | - | - | - |
 | thousNpc1PinkHorror | 0 | - | - | - | - |
 | thousNpc2Screamer | 0 | SlashingDive(1091)[C-] | - | - | - |
+| thousNpc3RubricMarine | 0 | - | - | - | - |
 | thousNpc4Terminator | 0 | - | - | - | - |
 | thousNpcAhriman | 0 | Doombolt(1102)[CD] | - | - | - |
 | thousNpcInfernalMaster | 0 | MasterOfTheTutelaries(1096)[CD] | - | - | relic:BookOfFate |
