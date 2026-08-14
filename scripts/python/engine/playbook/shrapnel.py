@@ -179,9 +179,9 @@ from .probable_damage_event import ProbableDamageEvent, calculate_utility_from_d
 from .prediction._shared import _entity_traits, _prediction_is_charging
 from .prediction._shared import (
     _PROFILE_INDEX, _add_positional_and_defender_mods, _apply_ally_attack_dmg_bonus,
-from .prediction._shared import _entity_rarity   # #1025-r1 (rarete de la CIBLE)
     _target_damage_limits, prediction_has_moved, prediction_has_teleported
 )
+from .prediction._shared import _entity_rarity   # #1025-r1 (rarete de la CIBLE)
 
 # Cle gameconfig de l'ability : l'enum membre EST le nom de config.
 _ABILITY_NAME = TriggeredAbilityType.Shrapnel.name          # "Shrapnel"

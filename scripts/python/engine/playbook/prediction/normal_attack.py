@@ -341,8 +341,13 @@ def _display_attack_base(scene, att_id, attack_pos, is_melee):
     carriers = [(uid, scene.pos(uid), scene.team(uid), scene.mult(uid), scene.ablvl_by_id.get(uid),
                  (GC.unit(scene.vis_by_id.get(uid)) or {}).get("GrandAllianceId"),   # owner grande-alliance
                  (GC.unit(scene.vis_by_id.get(uid)) or {}).get("FactionId"),         # owner faction
-                 scene.effects(uid)) for uid in scene.pos_by_id                      # (type-level, miroir-safe)
-                if uid != att_id and (scene.hp(uid) or 0) > 0]
+                 # #999-r3-r1-r1 -- univers BOARD-WIDE (`Scene.effect_carrier_ids`), pas
+                 # `scene.pos_by_id` : le natif n'ecarte aucun porteur par sa position, et
+                 # l'ancienne base excluait structurellement toute MACHINE OF WAR (hors-plateau).
+                 # Ces `carriers` sont passes tels quels a `_apply_ally_attack_dmg_bonus` et a
+                 # `aura_additional_hits_from_allies`. `scene.hp` en TRI-ETAT, comme la face COMBAT.
+                 scene.effects(uid)) for uid in scene.effect_carrier_ids(exclude=att_id)
+                if scene.hp(uid) is None or (scene.hp(uid) or 0) > 0]
     # #41 : tuile candidate NON-ENTRABLE (BlockEnteringUnits, ex. mur Thorns (1,3) MC1_67) -> le natif
     # perd l'aura MEME materialisee+in-ring (u89 s11 : candidate (1,3) = base Initial 803 ×1.5 elevation
     # EXACT, vs (3,3) propre = 2101 garde) : `GetUnitPositionAtTile` sur tuile bloquee rend une position

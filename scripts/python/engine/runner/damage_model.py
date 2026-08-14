@@ -343,14 +343,29 @@ def _apply_ally_attack_damage_auras(state: State, att_id: int, mods, is_ranged: 
             continue                                      # AdjacentFriends exclut le bénéficiaire lui-même
         oc = ent.get_component(OwnerComponent)
         pc = ent.get_component(PositionComponent)
-        if oc is None or pc is None or oc.team != aoc.team:
+        if oc is None or oc.team != aoc.team:
             continue                                      # Friends du porteur = même équipe que l'attaquant
         hc = ent.get_component(HealthComponent)
         if hc is not None and hc.hp is not None and hc.hp <= 0:
             continue                                      # porteur mort -> aura éteinte
         effs = state.effects.active_effects(uid, unit_state_for_effects(state, uid))
         if effs:
-            carriers.append((uid, (pc.col, pc.row), oc.team, effs))
+            # #999-r3-r1-r1 -- `owner_pos = None` pour un porteur SANS `PositionComponent`, et il
+            # ENTRE quand meme. Le natif ne filtre RIEN par position :
+            # `IdunBattle.Core.Services.DamageCalculations$$CalculateAttackerModifiersForPrediction`
+            # et son jumeau DEFENSE iterent une `List<KeyValuePair<entite, List<effet>>>` de
+            # l'ETAT, BOARD-WIDE. Le `pc is None -> continue` d'avant etait un ARTEFACT du port, et
+            # il ecartait STRUCTURELLEMENT toute MACHINE OF WAR (`snapshot._load_machines` ne pose
+            # ni position ni sante : une MoW est hors-plateau, le natif n'en a pas non plus).
+            # Il tenait a lui seul les SIX `PARTIEL` de `kit-coverage.md` (1442, 1443, 1445, 1449,
+            # 1494, 1548). Les auras POSITIONNELLES ne changent pas de verdict pour autant : leurs
+            # lecteurs ouvrent tous par `op, ap = c.get("owner_pos"), c.get("att_pos")` puis
+            # `if not op or not ap: return None` (ou `_hex_distance(None, ...) is None`) -- elles
+            # se TAISENT, comme sur n'importe quelle cle absente. Seules entrent les auras dont le
+            # `$$CreateTargetSelector` ne lit AUCUNE position (`Friends(Owner, AllUnits, 3)`,
+            # `UnitsWithRarity`, `UnitsOnTilesWithEffect`), c.-a-d. exactement celles que le natif
+            # accorde a une MoW.
+            carriers.append((uid, ((pc.col, pc.row) if pc is not None else None), oc.team, effs))
     # #919 -- `IconOfObstinacy_ExtraDmg` est la PREMIERE aura dont la magnitude lit une STAT DU
     # PORTEUR (`StatAmount(Owner@DSLSelectors+0x30, 0x8 = BlockDamage, 0x0 = Current)`), et non une
     # variable de config seule. Le ctx d'aura ne publiait que `owner_{id,pos,team}` : sans cette
@@ -1148,7 +1163,7 @@ def defender_modifiers(state: State, unit_id: int, hp: Optional[int],
             continue
         oc = e.get_component(OwnerComponent)
         pc = e.get_component(PositionComponent)
-        if oc is None or pc is None:
+        if oc is None:
             continue
         hc = e.get_component(HealthComponent)
         if hc is not None and hc.hp is not None and hc.hp <= 0:
@@ -1156,7 +1171,13 @@ def defender_modifiers(state: State, unit_id: int, hp: Optional[int],
         ceff = (state.effects.active_effects(uid, unit_state_for_effects(state, uid))
                 if state.effects is not None else [])
         if ceff:
-            carriers.append((uid, (pc.col, pc.row), oc.team, ceff))
+            # #999-r3-r1-r1 -- MEME reparation que `_apply_ally_attack_damage_auras` ci-dessus, sur
+            # l'autre face du MEME artefact : le `pc is None -> continue` ecartait toute MACHINE OF
+            # WAR de l'univers des porteurs, alors que le natif
+            # (`...DamageCalculations$$CalculateDefenderModifiersForPrediction`) itere l'ETAT
+            # BOARD-WIDE sans lire aucune position. `owner_pos = None` -> les auras positionnelles
+            # se taisent d'elles-memes chez leurs lecteurs.
+            carriers.append((uid, ((pc.col, pc.row) if pc is not None else None), oc.team, ceff))
     if carriers and tp is not None:
         for eb in aura_defense_damage_malus_from_units(
                 carriers, {"tgt_id": unit_id, "t_pos": tp,

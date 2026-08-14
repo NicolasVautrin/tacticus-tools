@@ -264,6 +264,16 @@ class _StubScene:
     def effects(self, uid):
         return []
 
+    def effect_carrier_ids(self, exclude=None):
+        """#999-r3-r1-r1 -- l'UNIVERS de porteurs que consomment desormais les trois boucles
+        d'aura (au lieu de `pos_by_id`), parce que le natif itere l'ETAT BOARD-WIDE et n'ecarte
+        AUCUN porteur par sa position. Ce stub n'a aucune entite hors-plateau : il rend donc
+        exactement ce que rendait `pos_by_id`, et ce qui est mesure ici reste le CONTEXTE.
+        ⚠ Il est ecrit EN DUR plutot que delegue a `Scene` : un stub qui herite du foyer ne peut
+        plus montrer qu'un appelant a change de contrat -- or c'est exactement ce qu'il a montre
+        (AttributeError) quand le foyer a bouge."""
+        return [uid for uid in self.pos_by_id if uid != exclude]
+
     def total_attacks_made(self, uid):
         return 0
 
@@ -385,33 +395,78 @@ def test_1448_face_native_est_attaquant():
     assert EFFECT_CLASSES[ACID.name].DEFENSE_MALUS_NATIVE_FACE == "attacker"
 
 
-# ================ Etage 5 -- le blocage RESIDUEL des porteurs MoW est FIGE ======================
+# ============ Etage 5 -- les porteurs MoW ENTRENT, sur les DEUX faces (#999-r3-r1-r1) ==========
 
-def test_le_blocage_des_porteurs_mow_est_fige():
-    """`#999-r3-r1-r1` -- le threading ne debloque PAS les cinq effets portes par une MoW.
+def test_une_mow_porteuse_d_aura_entre_dans_l_univers_des_porteurs():
+    """REQUALIFIE -- ce cran a ROUGI, et il a eu RAISON.
 
-    Sans ce cran, la fermeture de `#999-r3-r1` se lirait comme << les six effets sont debloques >>,
-    alors qu'un seul l'est. Le probe MESURE ; ce test garde sa conclusion."""
+    Etat d'AVANT : il figeait le blocage `#999-r3-r1-r1` (<< une MoW n'entre dans l'univers de
+    porteurs d'AUCUN des deux agregateurs, sur AUCUNE des deux faces >>), pour que la fermeture de
+    `#999-r3-r1` ne se lise pas comme << les six effets sont debloques >> alors qu'un seul l'etait.
+    Il etait ecrit pour rougir le jour de la reparation. Il a rougi ce jour-la.
+
+    Etat d'AUJOURD'HUI. La cause etait un ARTEFACT du port, sur QUATRE sites :
+      * COMBAT   -- `damage_model._apply_ally_attack_damage_auras` et `defender_modifiers`
+        exigeaient un `PositionComponent` du PORTEUR (`if oc is None or pc is None: continue`),
+        que `snapshot._load_machines` ne pose JAMAIS ;
+      * DECISION -- `scene.step_context` seedait son `EffectsState` depuis `dv["units"]` seulement
+        (le canal `dv["mows"][].effects` EXISTE pourtant : `rpc-decision.ts` l'assemble par
+        `effectsByUnit.get(m.casterId)`), et les trois boucles de porteurs iteraient
+        `scene.pos_by_id`, ou une MoW n'entre jamais.
+    Le natif, lui, itere une `List<KeyValuePair<entite, List<effet>>>` de l'ETAT, BOARD-WIDE
+    (`IdunBattle.Core.Services.DamageCalculations$$CalculateDefenderModifiersForPrediction` et son
+    jumeau ATTAQUE) : il ne lit AUCUNE position pour decider qui entre.
+
+    Ce que ce cran garde maintenant : les DEUX faces, ENSEMBLE. Reparer une seule aurait cree le
+    fork prediction/combat que #197 et #950-r2 ont deja paye -- c'est pourquoi les quatre
+    assertions sont dans le MEME test : aucune ne peut passer seule."""
     import probe_999r3r1_porteurs_aura_mow as P
     _st, f = P.mesurer()
     assert f["mow_entite"] and f["mow_porte_l_aura"], "montage degenere : rien n'est mesure"
     assert f["mow_rarete_mesuree"], "la rarete d'une MoW EST mesuree (canal #1039, cf. case-1039 S4)"
     # TEMOINS DE NON-DEGENERESCENCE : les deux agregateurs TOURNENT dans ce montage. Sans eux,
-    # << la MoW n'est pas porteuse >> serait vrai par construction si plus rien n'etait appele.
+    # << la MoW EST porteuse >> ne pourrait meme pas etre evalue.
     assert f["aura_attaque_appelee"] and f["aura_defense_appelee"], (
         "agregateur non appele : le montage ne mesure plus rien (porteurs att=%r def=%r)"
         % (f["att_porteurs"], f["def_porteurs"]))
-    assert not f["mow_porteur_aura_attaque"], (
-        "une MoW est desormais RETENUE par l'aura ATTAQUE : `#999-r3-r1-r1` est repare -- "
-        "re-lire le residu et inscrire 1442/1548 avec leur confrontation en regime SEPARANT")
-    assert not f["mow_porteur_aura_defense"], (
-        "une MoW est desormais RETENUE par l'aura DEFENSE : `#999-r3-r1-r1` est repare -- "
-        "re-lire le residu et inscrire 1443/1445/1449 avec leur confrontation")
+    assert f["mow_porteur_aura_attaque"], (
+        "une MoW porteuse d'aura est de nouveau ECARTEE de l'aura ATTAQUE : le filtre positionnel "
+        "de `damage_model._apply_ally_attack_damage_auras` est revenu. Le natif n'ecarte AUCUN "
+        "porteur par sa position -- relire docs/rl/case-999r3r1-contrat-de-rarete.md Sec.4.")
+    assert f["mow_porteur_aura_defense"], (
+        "une MoW porteuse d'aura est de nouveau ECARTEE de l'aura DEFENSE : le filtre positionnel "
+        "de `damage_model.defender_modifiers` est revenu.")
     p = P.mesurer_prediction()
-    assert not p["mow_dans_eff_state"], (
-        "la face PREDICTION seede desormais les effets de `dv['mows']` : le second volet de "
-        "`#999-r3-r1-r1` est repare")
+    assert p["mow_dans_eff_state"], (
+        "la face PREDICTION ne seede plus les effets de `dv['mows']` : le second volet est reouvert, "
+        "et le port repart en FORK prediction/combat (la face COMBAT, elle, les voit).")
     assert p["mow_dans_team_by_id"], "temoin #360 : les tables PAR ID couvrent bien les MoW"
+    # ⚠ RESTE FAUX, ET C'EST FIDELE : une MoW n'a PAS de position, cote natif non plus. Ce n'est pas
+    # `pos_by_id` qu'il fallait elargir (ce serait INVENTER une tuile) mais l'UNIVERS DES PORTEURS,
+    # qui est desormais `Scene.effect_carrier_ids`. Le distinguer est ce qui empeche la
+    # << reparation >> par fabrication de donnee.
+    assert not p["mow_dans_pos_by_id"], (
+        "une MoW a recu une POSITION : elle est hors-plateau par construction. Une aura "
+        "positionnelle deviendrait evaluable sur une tuile INVENTEE -- pire qu'un gate muet.")
+
+
+def test_l_univers_des_porteurs_de_la_face_decision_contient_la_mow():
+    """Le pendant DECISION de l'assertion COMBAT ci-dessus, au NIVEAU DU FOYER.
+
+    `mow_dans_eff_state` dit que l'effet est SEEDE ; il ne dit pas que la boucle de porteurs le
+    VOIT. Les deux sont distincts, et c'est precisement l'ecart qui rendait la reparation partielle
+    invisible : `Scene.effect_carrier_ids` est ce qui les relie."""
+    import probe_999r3r1_porteurs_aura_mow as P
+    sc = P.scene_prediction()
+    ids = sc.effect_carrier_ids()
+    assert P.MOW_ID in ids, (
+        "la MoW porteuse n'entre pas dans `Scene.effect_carrier_ids` : les trois boucles d'aura de "
+        "la face DECISION la rateront, alors que la face COMBAT la voit -- FORK.")
+    # NON-DEGENERESCENCE : l'univers n'est pas << tout le monde >>. Il reste borne aux porteurs
+    # reels, donc un etat sans MoW porteuse rend exactement ce que rendait `pos_by_id`.
+    assert set(sc.pos_by_id) <= set(ids), "l'univers a RETRECI : des unites du plateau sont perdues"
+    assert P.MOW_ID not in sc.pos_by_id, "temoin : la MoW n'a bien aucune position"
+    assert P.MOW_ID not in sc.effect_carrier_ids(exclude=P.MOW_ID), "`exclude` ne mord pas"
 
 
 # ================ Etage 6 -- la MAIN TILE de l'ATTAQUANT est dans le ctx d'aura =================

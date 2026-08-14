@@ -949,6 +949,44 @@ class Scene:
         `EffectsState.active_effects`, avec le contexte COMPLET (`unit_state`)."""
         return self.eff_state.active_effects(uid, self.unit_state(uid))
 
+    def effect_carrier_ids(self, exclude=None) -> list:
+        """#999-r3-r1-r1 -- UNIVERS DES PORTEURS d'un agrégateur d'aura, face DÉCISION.
+
+        Le natif itère une `List<KeyValuePair<entité, List<effet>>>` de l'ÉTAT
+        (`IdunBattle.Core.Services.DamageCalculations$$CalculateDefenderModifiersForPrediction` et
+        son jumeau ATTAQUE) : la boucle est **BOARD-WIDE** et ne lit AUCUNE position pour décider
+        qui entre. Les trois boucles de porteurs du port itéraient `scene.pos_by_id`, ce qui
+        écartait STRUCTURELLEMENT toute **MACHINE OF WAR** (`step_context` ne verse une MoW dans
+        `pos_by_id` que `if m.get("pos")`, `null` par construction — une MoW est hors-plateau, et
+        le natif n'a pas de position pour elle non plus). Le filtre était un ARTEFACT du port ; il
+        tenait à lui seul les six `PARTIEL` de `kit-coverage.md` (1442, 1443, 1445, 1449, 1494,
+        1548). Pendant EXACT de la réparation COMBAT (`damage_model._apply_ally_attack_damage_auras`
+        / `defender_modifiers`, mêmes deux agrégateurs).
+
+        L'univers rendu est `pos_by_id` **plus** les entités qui PORTENT un effet matérialisé sans
+        y figurer (clés d'`EffectsState.by_unit`). Cet élargissement est donc **borné aux porteurs
+        réels** : un état sans MoW porteuse rend exactement la liste d'avant, ce qui est ce qui
+        garantit qu'aucun verdict existant ne bouge.
+
+        SANTÉ, en TRI-ÉTAT : les boucles appelantes écartent le porteur mort par
+        `(scene.hp(uid) or 0) > 0`. Pour les ids AJOUTÉS on écarte sur `hp <= 0` **mesuré**, et on
+        GARDE un `hp` absent -- même discipline que la face COMBAT, où `_load_machines` ne pose
+        aucun `HealthComponent` et où le filtre ne mord que `if hc is not None`. Rabattre un `None`
+        sur zéro y ré-écarterait toutes les MoW, c'est-à-dire ré-ouvrirait le trou par l'autre bout.
+        """
+        out = [uid for uid in self.pos_by_id if uid != exclude]
+        seen = set(self.pos_by_id)
+        by_unit = getattr(self.eff_state, "by_unit", None) or {}
+        for uid in by_unit:
+            if uid in seen or uid == exclude:
+                continue
+            hp = self.hp_by_id.get(uid)
+            if hp is not None and hp <= 0:
+                continue                                   # porteur mort -> aura eteinte
+            seen.add(uid)
+            out.append(uid)
+        return out
+
     def faction(self, uid):
         c = self.ctx_by_id.get(uid)
         return c.faction if c is not None else None
@@ -1760,8 +1798,28 @@ def step_context(predictor, dv):
     ne sont même pas copiées)."""
     units = dv.get("units") or []
     mows = dv.get("mows") or []
+    # #999-r3-r1-r1 -- LES EFFETS DES MACHINES OF WAR ENTRENT DANS LE SEED. Le canal EXISTE et il
+    # est publie : `frida/hooks/features/ai-step/rpc-decision.ts` assemble
+    # `mows: mows.map((m) => ({ ...m, effects: effectsByUnit.get(m.casterId) ?? [] }))` -- c'est le
+    # MEME `readEffectsByUnit(statePtr, { includeInactive })` que pour `units`, keye par
+    # `casterId = machineId`. (⚠ `projectMowsFull` seul ne porte AUCUN champ `effects` : le
+    # rattachement se fait au site d'ASSEMBLAGE du RPC. Conclure du projecteur que le canal n'existe
+    # pas serait un faux negatif -- verifie.)
+    # Le port, lui, seedait `{u["id"]: u.get("effects")}` sur `units` SEULEMENT, si bien qu'un
+    # owner-effet d'AURA porte par une MoW (1442 `BlightedLand`, 1443 `ContemptuousDisregard`,
+    # 1445 `WisdomOfTheAncients`, 1449 `MoreGitzOverEre`, 1494 `CabalOfSorcerers`,
+    # 1548 `GuardianConstruct`) n'existait PAS cote DECISION -- degradation MUETTE, symetrique
+    # exacte du filtre positionnel de la face COMBAT.
+    # Purement ADDITIF : les ids de Machine sont DISJOINTS de ceux de `.units` (meme fait que #360
+    # exploite deja pour `hp_by_id` / `team_by_id` juste en dessous), donc aucune cle existante
+    # n'est reecrite.
+    _effects_by_id = {u["id"]: (u.get("effects") or []) for u in units}
+    for _m in mows:
+        _mid = _m.get("casterId")
+        if _mid is not None and _mid not in _effects_by_id:
+            _effects_by_id[_mid] = _m.get("effects") or []
     eff_state = EffectsState.seed(
-        {u["id"]: (u.get("effects") or []) for u in units},
+        _effects_by_id,
         predictor["mult_by_id"], predictor["ablvl_by_id"],
         # Le triple porte AUSSI `activeAbilityLevel` (lu du `ctx`), et `EffectsState.seed` s'en sert
         # desormais pour le PORTEUR en repli, pas seulement pour la SOURCE (case-366-r1) : c'est le
