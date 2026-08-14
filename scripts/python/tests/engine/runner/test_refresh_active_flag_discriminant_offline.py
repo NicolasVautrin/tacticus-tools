@@ -138,6 +138,25 @@ CONDITIONS_PORTEES_ATTESTEES = {
     "GrimEfficiency_ExtraArmor",
     "GrimEfficiency_ExtraPierce",
     "HammerOfWrath_ConditionalDamage",
+    # #1045 -- `1568 HeadwoppasKillchoppa_ExtraDmg` (#1012-r1), arrivee sans sa ligne : MEME couple de
+    # rouges qu'en #943 et #962 (ici ET sur `test_camo_seed_inventory_offline`, ou elle etait l'unique
+    # `INCONNU`). Condition RELUE au decompile `rnca9r7q6c` :
+    # `...Effects.Loki.HeadwoppasKillchoppaEffect$$CreateActiveCondition` =
+    # `AmountIsGreaterThanZero( EffectLevel(Effect@DSLSelectors+0x38) )` -- verbatim, un seul
+    # `DSLFormulas$$EffectLevel` passe a un seul `DSLTriggers$$AmountIsGreaterThanZero`.
+    # ⚠ POURQUOI LA LECTURE EST LOAD-BEARING ICI, et pas cosmetique : l'effet naît au niveau **0**
+    # (`...HeadwoppasKillchoppaAbility$$CreateBehaviour` passe `<DSLFormulas+0x18>` en 3e champ des
+    # `options`, et `DSLFormulas$$.ctor` construit ce slot avec le scalaire `0` -- `Direct(0)`), donc
+    # la condition est FAUSSE a la pose. Sans cette ligne, le refresh ne re-evalue pas la classe :
+    # l'instance seedee resterait a l'etat de son flag capte, alors que le compteur monte
+    # (`IncreaseEffectLevelOperation$$Execute` incremente `EffectComponent+0x68`, le NIVEAU) --
+    # exactement le regime de `test_contagions_lifecycle_live` cite en tete de fichier.
+    # ⚠ ET LE GATE NE DOIT PAS REMONTER PLUS HAUT : `is_active` ne borne QUE la magnitude. Le
+    # compteur, lui, passe par `EFFECT_TRIGGERS[1568]` -> `triggers/dispatch/core.py::
+    # collect_effect_triggers`, qui ne filtre que `consumed` -- mirror du rail natif
+    # `EvaluateTriggerOperation$$EvaluateEffectTriggerEffectAbilities`. Un `is_active` pose en amont
+    # du dispatch gelerait le niveau a 0 POUR TOUJOURS (l'effet ne peut plus jamais s'allumer).
+    "HeadwoppasKillchoppa_ExtraDmg",
     "InescapableAccuracy_extraCritChance",
     "InescapableAccuracy_extraCritDmg",
     "InescapableAccuracy_overrideHits",

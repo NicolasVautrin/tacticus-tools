@@ -228,6 +228,47 @@ POSE_VECTOR: dict[str, tuple[str, str, str, str]] = {
         "init", "sim",
         "IdunBattle.Entities.Abilities.AOwnerEffectTriggeredAbility$$CreateBehaviour",
         "HealthPct <= healthPct"),
+    # #1045 -- `1568 HeadwoppasKillchoppa_ExtraDmg` (#1012-r1), entree au registre sans verdict de
+    # pose : c'etait l'unique `INCONNU` du cliquet. Les TROIS etages sont LUS au decompile
+    # `rnca9r7q6c`, aucun deduit du nom ni du comportement :
+    #   1. VECTEUR -- `HeadwoppasKillchoppaAbility` est fille DIRECTE de `BaseTriggeredAbility`
+    #      (`frida/classes.tsv`) et ne porte QU'UN corps propre dans `frida/methods.tsv`
+    #      (`CreateBehaviour`). Son `CreateTrigger` est un corps DEDUPLIQUE -- donc absent de la
+    #      table, ce qui ne prouve rien -- et son appartenance est etablie SLOT A SLOT dans le bloc
+    #      `methodPointers`, ou les triplets `[.ctor, CreateTrigger, CreateBehaviour]` se suivent
+    #      dans l'ordre alphabetique des types : `Haywire`MineSteppable (les DEUX slots nommes par
+    #      Ghidra), puis `Headwoppas`Killchoppa (`.ctor` dedup, `CreateTrigger` = le corps dont le
+    #      proprietaire NOMME est `WayOfTheShortBlade_InitAbility$$CreateTrigger`, `CreateBehaviour`
+    #      = le sien), puis `Healing`Balms, puis `Heavy`GravCannon -- les quatre voisins sont nommes,
+    #      donc l'encadrement est ferme des deux cotes. Ce corps partage est
+    #      `OnOwnerSpecificAbilityInit( <this+0x10> )`, ou `this+0x10` est le champ que
+    #      `BaseTriggeredAbility$$Init` ecrit depuis `abilityConfigId` (l'AbilityType) -- Ghidra le
+    #      mislabelle `CenterSpace.Free.MersenneTwister$$get_Count`, dont le corps ENTIER est
+    #      `return *(undefined4 *)(param_1 + 0x10)`.
+    #   2. POSE NUE -- `$$CreateBehaviour` = `AddEffect(0x620 = 1568, get_AbilityStateReference(this),
+    #      source = targets = Owner@DSLSelectors+0x30, options)`. AUCUN `If` n'enveloppe l'appel (le
+    #      seul `DSLBehaviors$$*` du corps est cet `AddEffect`) -> pose INCONDITIONNELLE a l'init.
+    #   3. NIVEAU 0 -- les `options` sont `{+0x00 = null, +0x08 = null, +0x10 = <DSLFormulas+0x18>}`,
+    #      et `DSLFormulas$$.ctor` construit `+0x18` avec le scalaire `0` (les slots voisins valent
+    #      1, 2, 100, -1) : c'est `Direct(0)`. `AddEffectOperation$$Execute` ecrit ce 3e champ dans
+    #      `EffectComponent+0x68` (defaut 1 quand il est nul), `+0x00` etant la DUREE (repli sur
+    #      `StaticBattleRules.Effect$$DefaultAmountOfRounds`) -- et `+0x68` est bien le NIVEAU,
+    #      puisque c'est le champ qu'`IncreaseEffectLevelOperation$$Execute` incremente sous garde
+    #      `StaticBattleRules.Effect$$HasLevel`.
+    # `flip: sim` n'est donc PAS un defaut de prudence, il se DERIVE de 3 : la condition
+    # `AmountIsGreaterThanZero(EffectLevel)` est FAUSSE a la pose et devient VRAIE au premier kill du
+    # porteur (`EFFECT_TRIGGERS[1568]`, `On(0x36 = 54 UnitDefeated)`). Si le niveau pose avait ete 1,
+    # elle serait vraie d'emblee et ne rebasculerait jamais (aucun `DecreaseEffectLevel` sur 1568).
+    # Verdict `COUVERT-SEED` : `ABILITY_INIT_OWNER_EFFECTS["HeadwoppasKillchoppa"]` la materialise
+    # deja, ce qui est LOAD-BEARING -- la relique arrive par la voie TERTIAIRE et `decisionView` ne
+    # publie l'instance qu'avec `includeInactive`, puisqu'elle naît inactive.
+    "HeadwoppasKillchoppa_ExtraDmg": (
+        "init", "sim",
+        "IdunBattleLogic.Entities.Abilities.Triggered.Loki.HeadwoppasKillchoppaAbility$$"
+        "CreateBehaviour (AddEffect(0x620, ..., options{+0x10 = <DSLFormulas+0x18> = Direct(0)}) NU ;"
+        " CreateTrigger = corps DEDUPLIQUE OnOwnerSpecificAbilityInit(this.AbilityType))",
+        "AmountIsGreaterThanZero(EffectLevel(Effect@DSLSelectors+0x38)) -- le compteur de kills, "
+        "pose a 0 donc FAUSSE a l'init, montee par IncreaseEffectLevel sur UnitDefeated"),
     "InescapableAccuracy_extraCritChance": (
         "init", "sim",
         "IdunBattleLogic.Entities.Abilities.Triggered.Loki."
