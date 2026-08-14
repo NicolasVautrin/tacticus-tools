@@ -24,6 +24,8 @@ from .loki.supa_cybork_body import SupaCyborkBodyCritDmgReductionEffect
 from .loki.talisman_of_rage import TalismanOfRageCritDamageReductionEffect
 from .loki.blood_chalice import BloodChaliceExtraPiercingEffect, BloodChaliceHealOnAttackEffect
 from .loki.champion_of_the_feast import ChampionOfTheFeastReduceArmorEffect
+from .loki.close_combat_weakness import (                  # #1015-r1 (trait T'AU, 16 porteurs npc)
+    CloseCombatWeaknessReduceDmgEffect, CloseCombatWeaknessStartedTurnAdjacentToEnemyEffect)
 from .loki.heal_blocking import FuryOfTheAncientsEffect
 from .loki.counter_attack import (GrimRetributionCounterAttackEffect,
                                   UnwaveringSentinelCounterAttackEffect,
@@ -766,6 +768,16 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # MartialKatah face ATTAQUE (IdunBattle.Entities.Effects.Loki.MartialKatah_DmgBonusEffect$$CreateEffectDamageBonusForAttack) : +100% degat vs SUMMONS (HasTrait(target, Summon=2),
     # aucun gate melee/normal, applique en prediction). Valide bit-exact 1357 s18 (#57d).
     "MartialKatah_DmgBonus": MartialKatahDmgBonusEffect,
+    # CloseCombatWeakness (trait T'AU 0x40b = 1035, 16 porteurs `units.npc`) -> ability derivee
+    # 0x46a = 1130 -> CET effet, 1130 lui aussi. `...CloseCombatWeakness_ReduceDmg_Effect$$
+    # CreateEffectDamageBonusForAttack` = ForPercentIncrease(get_OwnerIsActor & NearbyEnemiesCondition,
+    # If(IsMeleeAttack, ConfigConst(0x4c) = -50, If(HasEffect(SuppressRange...), 0, ConfigConst(0x53) = -25)))
+    # -> le porteur au contact d'un ennemi (ou qui a COMMENCE son tour au contact) tape a x0.50 en
+    # melee et a x0.75 au tir. #1015-r1, RE complete dans `loki/close_combat_weakness.py`.
+    "CloseCombatWeakness_ReduceDmg": CloseCombatWeaknessReduceDmgEffect,
+    # Le MARQUEUR d'un tour (1129) que pose son `CreateTargetTriggerBehaviour` -- aucun canal, sa
+    # seule semantique est d'exister (cf. la docstring de la classe).
+    "CloseCombatWeakness_StartedTurnAdjacentToEnemy": CloseCombatWeaknessStartedTurnAdjacentToEnemyEffect,
     # CondemnorStake (adeptCanoness passif, effet 1076) : JUMEAU de AvalancheOfMuscle (IdunBattle.Entities.Effects.Loki.CondemnorStake_ExtraDmgEffect$$CreateEffectDamageBonusForAttack ForAddition,
     # IdunBattle.Entities.Effects.Loki.CondemnorStake_ExtraDmgEffect$$.ctor source 0x42e=1070) SAUF gate IsCharging -> HasTrait(target, Psyker=0x3ea=1002). +extraDmg
     # [ablvl passif]xmult FLAT additif PRE-percage a TOUTE attaque du porteur (aucun gate melee/normal) vs cible
@@ -2018,6 +2030,16 @@ TRAIT_DERIVED_ABILITIES: dict[str, list[str]] = {
     # (#73). Carrier SUMMON `orksGrot` (summone par `orksRuntherd` SquigHound/GetEmRuntz, tous deux
     # dans le pool) -> chaine CONFRONTABLE live, contrairement a Terrifying. #75.
     "Diminutive": ["DiminutiveAbility"],
+    # CloseCombatWeakness (trait 0x40b=1035) -> triggered ability derivee 0x46a=1130 (dict Trait
+    # +0x0 : la ligne `local_res18 = 0x40b ; local_res10 = 0x46a` du `.cctor`, LUE et non deduite).
+    # `CloseCombatWeakness_AddEffectAbility` IdunBattleLogic.Entities.Abilities.Active.Loki.CloseCombatWeakness_AddEffectAbility$$.ctor =
+    # `AOwnerEffectSpecificTriggeredAbility(0x46a)` ; son `$$GetEffectType` a pour corps ENTIER
+    # `return 0x46a`, donc l'appariement ability -> effet est LU. MEME patron que Terrifying (#73)
+    # et Diminutive (#75). Les 16 porteurs sont TOUS `units.npc` (T'au Darkstrider/Shadowsun/
+    # Marksman/Crisis et leurs variantes LHE/Inc) -> ce seed est la SEULE voie offline, aucun d'eux
+    # n'entrant au pool ; en live le trait se force par `--unit-stat "<vis>:Traits=[...]"`, et c'est
+    # alors `AddTraitOperation$$AddDerivedAbilities` qui monte la meme chaine cote natif. #1015-r1.
+    "CloseCombatWeakness": ["CloseCombatWeakness"],
 }
 
 # Étape 2 — owner-effects posés par `<Ability>.CreateBehaviour` À L'INIT de l'ability (DSL `AddEffect(owner)`).
@@ -2028,6 +2050,14 @@ ABILITY_INIT_OWNER_EFFECTS: dict[str, list[str]] = {
     # porteur, `turns = <zeroe>` -> PERMANENT. `$$GetEffectType` a pour corps ENTIER `return 0x442`
     # (= 1090), donc l'appariement ability -> effet est LU, pas devine. Seul porteur du kit : le
     # summon `orksGrotTank` / npc `orksNpc3GrotTank` (#570-r1).
+    # `CloseCombatWeakness_AddEffectAbility` (TriggeredAbilityType 0x46a = 1130, parent
+    # `IdunBattle.Entities.Abilities.AOwnerEffectSpecificTriggeredAbility`) n'override QUE
+    # `$$GetEffectType`, dont le corps ENTIER est `return 0x46a` (= 1130
+    # `EffectType.CloseCombatWeakness_ReduceDmg`) : le reste vient de la base
+    # (`IdunBattle.Entities.Abilities.AOwnerEffectSpecificTriggeredAbility$$CreateTrigger` =
+    # `OnOwnerSpecificAbilityInit(this.AbilityType)` -> `AddEffect(owner, GetEffectType())` a
+    # l'init). Owner-effect PERMANENT, meme patron que `Terrifying`/`Diminutive`. #1015-r1.
+    "CloseCombatWeakness": ["CloseCombatWeakness_ReduceDmg"],
     "Ramshackle": ["Ramshackle_DmgReduction"],
     # `TerrorsLamentAbility` (TriggeredAbilityType 0x45e = 1118, parent `IdunBattle.Entities.
     # Abilities.BaseTriggeredAbility` d'apres `classes.tsv`). Trigger HERITE `<DSLTriggers+0x30>` =

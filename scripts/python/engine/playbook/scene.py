@@ -814,6 +814,49 @@ class Scene:
         `at_pos` = la TUILE CANDIDATE du plan (#948-r1). Absente -> position courante."""
         return self._enmity_adjacent(uid, dark_angels_friends_only=True, at_pos=at_pos)
 
+    def close_combat_weakness_adjacent_enemies(self, uid, at_pos=None) -> "int | None":
+        """`IdunBattleLogic.Entities.DSLTriggers$$HasAdjacentEnemies(unit, unitTile,
+        includeObjects: false, includeSteppables: false)` SANS son etage terminal
+        `AmountIsEqualOrGreater(..., Direct(1))` -- face PREDICTION du MEME arbre que
+        `runner.components.close_combat_weakness_adjacent_enemies_count` (un noeud natif, deux
+        substrats : l'ECS cote runner, les tables de `Scene` ici). #1015-r1.
+
+            Count( UnitsWithoutTrait( UnitsWithoutTrait(
+                       Enemies(of: unit, AdjacentUnits(unitTile, unique: 1, 3), 3),
+                       Object = 0xd, 3), Steppable = 0x1b, 3) )
+
+        ⚠ EVALUE A LA TUILE CANDIDATE quand l'appelant la threade (`at_pos`) : meme lecture que
+        `_enmity_adjacent` (#948-r1) -- `IdunBattle.Operations.SimulateEffectsOperation$$
+        DoActionInSimulatedTile` DEPLACE reellement l'unite avant d'invoquer l'action de prediction,
+        donc `AdjacentUnits(CasterTile)` descend sur la tuile SIMULEE.
+
+        `None` (equipe ou position du porteur inconnue) => cle ABSENTE => le gate se FERME cote
+        effet (degradation RESTRICTIVE) -- jamais un 0 invente, qui ferait passer un malus reel pour
+        son absence."""
+        team = self.team_by_id.get(uid)
+        here = self.pos(uid)
+        if team is None or here is None:
+            return None
+        elev, neigh = self.elev_by_pos, self.neigh_by_pos
+        sujet = _adj.subject_tiles_at(self, uid, at_pos)
+        n = 0
+        for u in (self.units or ()):
+            oid = u.get("id")
+            if oid is None or oid == uid or u.get("team") == team:   # `Enemies(of = unit, ...)`
+                continue
+            if not _adj.unit_matches(self, u):                       # `selectionType = 3`
+                continue
+            if not _adj.unit_in_adjacent_tiles(self, uid, oid, elev, neigh, sujet):
+                continue
+            # `UnitsWithoutTrait(..., Object = 0xd, 3)` puis `UnitsWithoutTrait(..., Steppable =
+            # 0x1b, 3)`. MEME canal que `_enmity_adjacent` : `ctx_by_id[<uid>].traits`, en NOMS.
+            c = self.ctx(oid)
+            tr = (getattr(c, "traits", None) or ()) if c is not None else ()
+            if _TRAIT_STEPPABLE in tr or _TRAIT_OBJECT in tr:
+                continue
+            n += 1
+        return n
+
     def adjacent_enemy_ids(self, uid) -> "frozenset | None":
         """`AdjacentEnemies( Owner@DSLSelectors+0x30, unique: true,
         UnitSelectionType.OnlyAliveAndTargetable = 3 )` -- face PREDICTION du `CreateTargetSelector`

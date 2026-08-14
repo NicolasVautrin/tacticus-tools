@@ -3505,6 +3505,34 @@ def enmity_adjacent_units_count(state, unit_id: int) -> Optional[int]:
         entities_from_state(state, int(unit_id))))
 
 
+def close_combat_weakness_adjacent_enemies_count(state, unit_id: int) -> Optional[int]:
+    """`Count( UnitsWithoutTrait( UnitsWithoutTrait( Enemies(of: unit, AdjacentUnits(unitTile,
+    unique: 1, 3), 3 ), Object = 0xd, 3 ), Steppable = 0x1b, 3 ) )` -- le corps de
+    `IdunBattleLogic.Entities.DSLTriggers$$HasAdjacentEnemies(unit, unitTile, includeObjects: false,
+    includeSteppables: false)` SANS son etage terminal `AmountIsEqualOrGreater(..., Direct(1))`, que
+    le consommateur applique (`>= 1`). Face COMBAT du canal
+    `att_ctx["close_combat_weakness_adjacent_enemies"]` (#1015-r1).
+
+    L'ARBRE vit dans la classe d'effet (`entities/effects/loki/close_combat_weakness.py::
+    has_adjacent_enemies_selector`, doctrine #149) ; ce qu'on fait ICI, c'est lui donner son
+    `AbilityEntities` -- `entities_from_state(state, unit_id)` pose `caster = owner = le porteur`,
+    exactement ce que `NearbyEnemiesCondition` demande (`Caster@+0x48` et `CasterTile@+0x50`, qui
+    sur ce canal designent tous deux l'attaquant).
+
+    `None` si le porteur n'a pas de tuile (le selecteur est GEOMETRIQUE) ni d'equipe (l'etage
+    `Enemies` en a besoin) -- jamais un 0 invente, qui ferait passer un malus reel pour son absence
+    (meme tri-etat que les compteurs voisins)."""
+    ent = state.get_entity(unit_id)
+    oc = ent.get_component(OwnerComponent) if ent is not None else None
+    pc = ent.get_component(PositionComponent) if ent is not None else None
+    if oc is None or oc.team is None or pc is None:
+        return None
+    from ..entities.effects.loki import close_combat_weakness as _ccw
+    from .abilities.behaviours.context import entities_from_state
+    return len(_ccw.has_adjacent_enemies_selector().evaluate(
+        entities_from_state(state, int(unit_id))) or ())
+
+
 def enmity_adjacent_dark_angels_friends_count(state, unit_id: int) -> Optional[int]:
     """`Count( NonSteppableOrObjectUnits( UnitsFromFaction( AdjacentFriends(Owner, unique: 1, 3),
     UnitFaction.DarkAngels = 0xa, 3 ), 3 ) )` -- `IdunBattle.Entities.Effects.Loki.

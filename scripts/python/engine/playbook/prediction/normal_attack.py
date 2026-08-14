@@ -19,6 +19,9 @@ from engine.entities.effects.loki.enmity_for_the_unworthy import (
     CTX_ADJACENT_UNITS as _ENMITY_CTX_UNITS, CTX_ADJACENT_DA as _ENMITY_CTX_DA)
 # #953 : meme regle, meme foyer -- la cle du couple de PV du porteur vit dans la classe d'effet.
 from engine.entities.effects.loki.skullsmasher import CTX_OWNER_HEALTH as _SKULLSMASHER_CTX_HEALTH
+# #1015-r1 : meme foyer de nommage que la face COMBAT (`runner/damage_model.py`).
+from engine.entities.effects.loki.close_combat_weakness import (
+    CTX_ADJACENT_ENEMIES as _CCW_CTX_ADJACENT_ENEMIES)
 from engine.services.custom_normal_attack import substitutes_normal_attack
 from engine.runner.abilities.loki.mv71 import pick_tile_scene
 from engine.services.battle_query import get_attack_weapon_for_default_normal_attack
@@ -727,7 +730,17 @@ def make_normal_attack_predictions(scene, att_id, tgt_id, attack_pos, *, meta=Fa
                 # `get_OwnerIsCaster`). MEME couple et MEME substrat que la face COMBAT
                 # (`damage_model.attacker_modifiers`, `HealthComponent`) : `scene.hp`/`scene.hpmax`
                 # sont alimentes par le MEME `HealthComponent`. Tri-etat `(None, None)` conserve.
-                _SKULLSMASHER_CTX_HEALTH: (scene.hp(att_id), scene.hpmax(att_id))}
+                _SKULLSMASHER_CTX_HEALTH: (scene.hp(att_id), scene.hpmax(att_id)),
+                # #1015-r1 -- `HasAdjacentEnemies(Caster@+0x48, CasterTile@+0x50, includeObjects:
+                # false, includeSteppables: false)`, le terme GEOMETRIQUE de
+                # `CloseCombatWeakness_ReduceDmg_Effect$$NearbyEnemiesCondition`. PATTE SELF comme
+                # les cles ci-dessus (l'OWNER de chaque effet parcouru EST l'attaquant, et le
+                # `Caster` du noeud designe cette meme unite). EVALUE A LA TUILE CANDIDATE, comme
+                # les deux cles `_ENMITY_CTX_*` (#948-r1) : `CasterTile` suit l'unite deplacee par
+                # `SimulateEffectsOperation$$DoActionInSimulatedTile`. MEME cle et MEME semantique
+                # que la face COMBAT (`damage_model.attacker_modifiers`).
+                _CCW_CTX_ADJACENT_ENEMIES: scene.close_combat_weakness_adjacent_enemies(
+                    att_id, attack_pos)}
     mods = calculate_attacker_modifiers_for_prediction(att_effects, is_ranged=_ranged, has_moved=_hm,
                                                        target_traits=_tgt_traits,
                                                        target_armor_reduced=_tgt_armor_reduced,

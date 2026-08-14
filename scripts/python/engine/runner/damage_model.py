@@ -38,7 +38,12 @@ from .components import (StatsComponent, HealthComponent, OwnerComponent, Positi
                          adjacent_dark_angels_friends_count,
                          enmity_adjacent_units_count,
                          enmity_adjacent_dark_angels_friends_count,
+                         close_combat_weakness_adjacent_enemies_count,
                          adjacent_enemy_ids)
+# #1015-r1 : meme foyer de nommage pour les DEUX faces du terme geometrique de
+# `CloseCombatWeakness_ReduceDmg_Effect$$NearbyEnemiesCondition`.
+from ..entities.effects.loki.close_combat_weakness import (
+    CTX_ADJACENT_ENEMIES as _CCW_CTX_ADJACENT_ENEMIES)
 # #948 : les cles du contexte per-coup d'`EnmityForTheUnworthy` viennent de la classe d'effet --
 # un seul foyer de nommage pour les DEUX faces (COMBAT ici, PREDICTION dans `playbook/`).
 from ..entities.effects.loki.enmity_for_the_unworthy import (
@@ -812,6 +817,14 @@ def attacker_modifiers(state: State, unit_id: int, hp: Optional[int], is_ranged:
     # d'Enmity porte en plus l'etage `NonSteppableOrObjectUnits`.
     att_ctx[_ENMITY_CTX_UNITS] = enmity_adjacent_units_count(state, unit_id)
     att_ctx[_ENMITY_CTX_DA] = enmity_adjacent_dark_angels_friends_count(state, unit_id)
+    # #1015-r1 : `HasAdjacentEnemies(Caster@+0x48, CasterTile@+0x50, includeObjects: false,
+    # includeSteppables: false)` -- le terme GEOMETRIQUE de
+    # `CloseCombatWeakness_ReduceDmg_Effect$$NearbyEnemiesCondition`. MEME regime que les quatre
+    # cles ci-dessus : sur ce canal l'OWNER de chaque effet parcouru EST l'attaquant, et le
+    # `Caster@+0x48` du noeud designe cette meme unite. Foyer unique
+    # `components.close_combat_weakness_adjacent_enemies_count` ; tri-etat conserve (`None` = le
+    # porteur n'a ni equipe ni tuile), jamais un 0 invente -- il eteindrait le malus en silence.
+    att_ctx[_CCW_CTX_ADJACENT_ENEMIES] = close_combat_weakness_adjacent_enemies_count(state, unit_id)
     # #932 : `AreEnemies(Target@+0x60, Owner@+0x30, 0)` a besoin des DEUX equipes. `tgt_team` est
     # deja posee plus bas (branche `target_id`), il manquait celle du PORTEUR -- qui, sur ce canal,
     # EST l'attaquant. MEME cle et MEME semantique que le ctx du canal AURA

@@ -106,9 +106,23 @@ def _attacker_effect_bonuses(effects, is_ranged: bool | None, is_normal_attack: 
     `att_ctx` = contexte POSITIONNEL {att_pos, tile_effects_by_pos} pour les bonus à magnitude
     position-dépendante (LordOfTempests IdunBattle.Entities.Effects.Loki.LordOfTempests_ExtraDamageEffect$$CreateEffectDamageBonusForAttack) ; None = inconnu (ces bonus rendent None)."""
     bonuses = []
+    own = list(_as_effects(effects))
+    # #1015-r1 -- `HasEffect(Owner@DSLSelectors+0x30, <type>, ...)` / `HasEffect(Caster@+0x48, ...)`
+    # SUR L'ATTAQUANT LUI-MEME. Ce foyer-ci est le SEUL qui tienne la liste des effets de
+    # l'attaquant (c'est son parametre `effects`), et il est PARTAGE prediction/combat -- la poser
+    # chez les deux producteurs d'`att_ctx` forkerait ce que le natif ne forke pas (il n'a qu'UNE
+    # boucle et qu'UN `AbilityEntities`). Premier consommateur : les TROIS `HasEffect` de
+    # `CloseCombatWeakness_ReduceDmg_Effect` (Suppress 1144 / StartedTurnAdjacent 1129 /
+    # SuppressRange 1159), tous sur le porteur de l'effet parcouru.
+    # ⚠ Les effets MATCH-WIDE en sont EXCLUS : ce ne sont pas des effets PORTES par une unite
+    # (cf. l'encadre ci-dessus), donc `HasEffect(Owner, ...)` ne peut pas les voir.
+    # Un `frozenset` de NOMS (jamais d'ordinaux) : c'est la cle du registre `EFFECT_CLASSES` et
+    # celle des membres d'`EffectType`, donc la comparaison est NOMMEE des deux cotes.
+    att_ctx = dict(att_ctx or {})
+    att_ctx["owner_effect_names"] = frozenset(str(e.name) for e in own if getattr(e, "name", None))
     # Les effets MATCH-WIDE entrent dans la MEME boucle que ceux de l'attaquant -- c'est exactement
     # ce que fait le natif, qui n'a qu'UNE boucle et aucun filtre de porteur (cf. l'encadre).
-    for e in list(_as_effects(effects)) + match_wide_effects():
+    for e in own + match_wide_effects():
         db = e.create_effect_damage_bonus_for_attack(is_ranged, has_moved, target_traits=target_traits,
                                                      is_prediction=is_prediction,
                                                      is_normal_attack=is_normal_attack,
