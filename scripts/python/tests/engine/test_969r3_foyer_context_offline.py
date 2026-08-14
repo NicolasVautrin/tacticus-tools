@@ -34,6 +34,31 @@ from engine.entities.active_ability_type import ActiveAbilityType  # noqa: E402
 from engine.services import ability_range as ar                  # noqa: E402
 from engine.utilities import tile as tilemod                     # noqa: E402
 
+#: Ce qui doit changer pour que ce FICHIER de test puisse changer de verdict (#486-r15).
+DECLENCHEUR = {
+    "chemins": (
+        # Les cinq foyers portes par la tranche, un par volet.
+        "scripts/python/engine/battle_query.py",                       # occupied_positions
+        "scripts/python/engine/playbook/special_issue_combi_melta.py",  # 1545, empreinte cible
+        "scripts/python/engine/playbook/adjacency.py",                 # iterate_tiles, son foyer
+        "scripts/python/engine/utilities/tile.py",                     # les 3 tile_leaf_ctx
+        "scripts/python/engine/ai/context.py",                         # canaux tuile + occupant
+        "scripts/python/engine/services/ability_range.py",             # GATE_VALID_ON_EMPTY_TILE
+        # Les enums dont les etages LISENT un membre nomme : un renumerotage les deplace.
+        "scripts/python/engine/entities/active_ability_type.py",
+    ),
+    "build": False,     # aucun etage ne lit le binaire ni `data/symbols/**`
+    "toujours": False,
+    "raison": (
+        "Les cinq volets sont OFFLINE et n'ouvrent aucun transport : leur verdict ne depend que "
+        "des six foyers ci-dessus et de l'enum qu'ils citent. Aucune donnee de `data/` n'est lue "
+        "(les substrats sont SYNTHETIQUES, construits dans le fichier), donc ni le gameconfig ni "
+        "la seed BC ne peuvent les faire basculer. Un changement du CAPTEUR (`tileMeta` / "
+        "`readTileOccupants`) ne les touche pas non plus -- il ferait bouger la CONFRONTATION "
+        "live, qui vit dans le rapport de tranche, pas ici."
+    ),
+}
+
 
 # ---------------------------------------------------------------------------------------------
 # Substrats synthetiques
