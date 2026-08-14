@@ -20,7 +20,7 @@ differe. C'est la doctrine « DECIDER != EXECUTER ».
 ## Bilan
 
 - Unites `summons` : **65** ; kits sans manque : **48** ; kits avec du travail : **17**
-- Actives distinctes : **16** — `[C-]` **6** · `[CD]` **10**
+- Actives distinctes : **16** — `[C-]` **5** · `[CD]` **11**
 - Passifs distincts : **47** — portes **30**, non portes **17**
 - Traits de kit distincts (AUCUN ecarte — le seuil de frequence a disparu avec #1015) :
   **43** — couverts **42**, non couverts **1**
@@ -67,13 +67,13 @@ l'unite. La colonne `porteurs` dit l'exposition.
 | passif | VengeanceForTheOmnissiah | 1 | admecSmnTechpriest |
 | passif | WatchedOver | 1 | darkaSmnWatcher |
 
-## Faces DECISION ouvertes sur des actives EXECUTEES (6)
+## Faces DECISION ouvertes sur des actives EXECUTEES (5)
 
 Ces abilities s'executent fidelement mais sont CHOISIES avec un scoring qui n'est pas celui
 du natif. Aucun compteur de manque ne les voit — elles ne sont pas des items absents, ce
 sont des **faces** absentes d'items presents.
 
-`Burrowers`, `KissOfDeath`, `SlashingDive`, `TunnelingHorror`, `ValkyrieStrike`, `WallOfMirrors`
+`KissOfDeath`, `SlashingDive`, `TunnelingHorror`, `ValkyrieStrike`, `WallOfMirrors`
 
 ## Inventaire complet, par faction
 
@@ -219,7 +219,7 @@ sont des **faces** absentes d'items presents.
 | tyranSmnBarbgaunt | 1 | - | SynapticInsight | - | - |
 | tyranSmnTermagant | 1 | - | HailOfLivingAmmunition | - | - |
 | tyranSmnHormagaunt | 0 | - | - | - | - |
-| tyranSmnRipperSwarm | 0 | Burrowers(1023)[C-] | - | - | - |
+| tyranSmnRipperSwarm | 0 | Burrowers(1023)[CD] | - | - | - |
 | tyranSmnSporeMine | 0 | - | - | - | - |
 | tyranSmnWarrior | 0 | ScythingTalons(1065)[CD] | - | - | - |
 

@@ -222,7 +222,7 @@ tyranSmnHormagaunt	Tyranids	Xenos	None	passif	HungeringSwarm		1
 tyranSmnHormagaunt	Tyranids	Xenos	None	trait	Summon		1	
 tyranSmnHormagaunt	Tyranids	Xenos	None	trait	InstinctiveBehaviour		1	
 tyranSmnHormagaunt	Tyranids	Xenos	None	trait	BattleFatigue		1	
-tyranSmnRipperSwarm	Tyranids	Xenos	None	active	Burrowers	1023	1	0
+tyranSmnRipperSwarm	Tyranids	Xenos	None	active	Burrowers	1023	1	1
 tyranSmnRipperSwarm	Tyranids	Xenos	None	trait	Summon		1	
 tyranSmnRipperSwarm	Tyranids	Xenos	None	trait	InstinctiveBehaviour		1	
 tyranSmnRipperSwarm	Tyranids	Xenos	None	trait	Swarm		1	
