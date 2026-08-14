@@ -215,6 +215,63 @@ def test_le_consommateur_PORTE_est_LINEAIRE_donc_4_vers_6_le_change():
     assert e.is_active({"tiles_moved_this_turn": 6}) is True
 
 
+def _tokens_en_position_EXECUTABLE(source):
+    """Les noms qui apparaissent en position EXECUTABLE : identifiants, attributs, noms de
+    classe/fonction, et chaines qui ne sont PAS des docstrings.
+
+    ⚠ POURQUOI un AST et pas un `re.search` sur le texte brut : le cran ci-dessous a rougi sur
+    `master` le 2026-08-14 pour UNE occurrence, dans un COMMENTAIRE de
+    `engine/runner/operations/triggers/loki/maugetar.py` qui enumere les abilities nommees du
+    meme bloc. Aucun trigger n'etait porte. Un detecteur qui lit la PROSE accuse le progres
+    documentaire et se fait desarmer par le premier qui veut faire taire le rouge -- exactement
+    ce que `probe_va_in_code_vs_prose.py` evite ailleurs dans le depot.
+
+    Les COMMENTAIRES n'entrent jamais dans l'AST : ils sont exclus gratuitement. Les DOCSTRINGS,
+    elles, y sont (un `Expr(Constant(str))` en tete de corps) -- on les retire explicitement.
+    Les autres chaines RESTENT : un trigger enregistre par son nom (`{"X": ...}`) doit continuer
+    a faire rougir, c'est le regime que ce cran existe pour attraper."""
+    import ast
+    import re
+
+    arbre = ast.parse(source)
+    docstrings = set()
+    for n in ast.walk(arbre):
+        corps = getattr(n, "body", None)
+        if isinstance(n, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)) \
+                and corps and isinstance(corps[0], ast.Expr) \
+                and isinstance(corps[0].value, ast.Constant) \
+                and isinstance(corps[0].value.value, str):
+            docstrings.add(id(corps[0].value))
+
+    out = set()
+    for n in ast.walk(arbre):
+        if isinstance(n, ast.Name):
+            out.add(n.id)
+        elif isinstance(n, ast.Attribute):
+            out.add(n.attr)
+        elif isinstance(n, (ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
+            out.add(n.name)
+        elif isinstance(n, ast.arg):
+            out.add(n.arg)
+        elif isinstance(n, ast.Constant) and isinstance(n.value, str) and id(n) not in docstrings:
+            out.update(re.findall(r"[A-Za-z_][A-Za-z0-9_]*", n.value))
+    return out
+
+
+def test_le_detecteur_du_cran_ci_dessous_SEPARE_le_code_de_la_PROSE():
+    """CONTRE-EPREUVE EMBARQUEE du detecteur, pour qu'il ne puisse pas devenir vide en silence.
+
+    Le bras POSITIF est ce qui empeche « ne rien detecter » de passer pour un vert : si le
+    detecteur cessait de voir une cle de registre, ce test-ci rougirait AVANT que le cran du
+    dessous ne se taise."""
+    CODE = 'REGISTRE = {"MastersOfManoeuvre": _handler}\n'
+    PROSE = '"""bloc voisin : MastersOfManoeuvre, MischiefMakers."""\n# MastersOfManoeuvre aussi\nX = 1\n'
+    assert "MastersOfManoeuvre" in _tokens_en_position_EXECUTABLE(CODE), (
+        "le detecteur ne voit plus une cle de registre -- le cran du dessous serait VIDE")
+    assert "MastersOfManoeuvre" not in _tokens_en_position_EXECUTABLE(PROSE), (
+        "le detecteur lit encore la PROSE -- il accusera le progres documentaire")
+
+
 def test_aucun_trigger_a_SEUIL_n_est_porte_sinon_l_aval_est_a_RECONFRONTER():
     """Les DEUX porteurs a seuil encore non exerces (`MastersOfManoeuvre`, `SmashaEad`) n'ont
     AUCUN trigger porte -- leur seuil n'est donc exerce nulle part dans le moteur, et c'est ce qui
@@ -227,14 +284,23 @@ def test_aucun_trigger_a_SEUIL_n_est_porte_sinon_l_aval_est_a_RECONFRONTER():
     `test_le_seuil_porte_d_EmpyricAmbush_bascule_a_movement` ci-dessous, plus le cliquet live
     `tests/engine/runner/test_empyric_ambush_threshold_live.py`."""
     import pathlib
-    import re
 
     trig = pathlib.Path(__file__).resolve().parents[4] / "engine" / "runner" / "operations" \
         / "triggers"
     assert trig.is_dir(), trig
-    src = "\n".join(p.read_text(encoding="utf-8", errors="replace") for p in trig.rglob("*.py"))
+    fichiers = sorted(trig.rglob("*.py"))
+    assert fichiers, "aucun fichier balaye -- un recenseur ne peut pas rendre zero sur ce qu'il ne visite pas"
+
+    tokens = set()
+    for p in fichiers:
+        tokens |= _tokens_en_position_EXECUTABLE(p.read_text(encoding="utf-8", errors="replace"))
+    # ... et le balayage assertionne SON PROPRE non-vide : un detecteur qui rendrait l'ensemble
+    # vide (parse muet, arborescence deplacee) ferait passer ce cran pour VERT sans rien mesurer.
+    assert len(tokens) > 100, (
+        "detecteur muet : %d token(s) sur %d fichier(s) -- ce cran ne mesure plus rien"
+        % (len(tokens), len(fichiers)))
     for ab in ("MastersOfManoeuvre", "SmashaEad"):
-        assert not re.search(r"(?<![\w])%s(?![\w])" % ab, src), (
+        assert ab not in tokens, (
             "`%s` a maintenant un trigger porte : son seuil est desormais exerce, l'aval de #589 "
             "doit etre RECONFRONTE pour ce consommateur" % ab)
 
