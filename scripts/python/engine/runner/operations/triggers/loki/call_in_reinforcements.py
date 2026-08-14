@@ -1,4 +1,4 @@
-"""`CallInReinforcements` -- passif `TriggeredAbilityType` 0x405 = **1029** (#1075).
+"""`CallInReinforcements` -- passif `TriggeredAbilityType` 0x405 = **1029** (#1080).
 
 i2 : « At the end of the Vox-caster's action, a Cadian Guardsman is summoned in a nearby free edge
 hex and immediately takes a turn. Cadian Guardsman's stats: 1819 Health 873 Damage 364 Armour »

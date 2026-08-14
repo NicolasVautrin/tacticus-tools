@@ -1,6 +1,6 @@
 """`IdunBattle.Entities.Effects.Loki.BattleFocusEffect` (`EffectType.BattleFocus` = 0x4af = **1199**)
 -- l'effet que le passif `BattleFocus` (`TriggeredAbilityType.BattleFocus` = 0x494 = **1172**) pose
-sur SON PROPRE porteur a l'init. #1075.
+sur SON PROPRE porteur a l'init. #1080.
 
 i2 : « After attacking or being attacked, moves 1 hex in a direction as far away from enemies as
 possible. »

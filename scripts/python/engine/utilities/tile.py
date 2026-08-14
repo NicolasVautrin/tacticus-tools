@@ -1162,7 +1162,7 @@ class TileDistanceUtility(BaseUtility):
     `ctx["self_pos"]` = la position de `case.unit` (l'unité passée au sélecteur = `dc.unit`), posée
     par `runner_tile_leaf_ctx`/`tile_leaf_ctx`.
 
-    ⚠ **LA BRANCHE DE REPLI EST DÉSORMAIS PORTÉE, PARCE QU'UN CALL-SITE L'EXERCE (#1075).** Cette
+    ⚠ **LA BRANCHE DE REPLI EST DÉSORMAIS PORTÉE, PARCE QU'UN CALL-SITE L'EXERCE (#1080).** Cette
     docstring écrivait que `else if (c.owner != null) DistanceTo(c, c.owner)` n'était atteignable
     que par `SortTilesByUtilityForSummon`, « or ses six occurrences passent toutes
     `UtilityDefinition(7 = Tile)` ». Ce n'est plus vrai :
@@ -1229,7 +1229,7 @@ UTILITY_BY_TYPE: dict[int, BaseUtility] = {
     # 27 et 34 — les DEUX termes du bucket bâti à la main par
     # `IdunBattleLogic.Entities.Abilities.Active.Loki.CallInReinforcementsAbility$$CreateBehaviour`
     # (`WeightedUtility[2] = [ WeightedUtility(0x1b), WeightedUtility(0x22) ]` -> UN `UtilityBucket`
-    # -> UN `UtilityDefinition`), #1075. FEUILLES, pas composites : même critère que 54 et 67
+    # -> UN `UtilityDefinition`), #1080. FEUILLES, pas composites : même critère que 54 et 67
     # ci-dessus — `UtilitiesDatabase$$InitializeUtilities` ne compose que les types présents dans
     # son `Dictionary<UtilityType, UtilityType[]>`, et ni 27 ni 34 n'y a d'entrée (34 n'est qu'un
     # ÉLÉMENT du tableau de 0x21 = MovementSuggestion, pas une clé).
@@ -1539,7 +1539,7 @@ def _spawn_leaf_ctx(state, parent_id: int) -> dict:
            "walkable_by_pos": walkable_by_pos}
     # `parent_pos` = `case.parent` du `UtilityMovementCase`, pour la SEULE branche de repli de
     # `TileDistanceUtility` (`else if (c.owner != null) DistanceTo(c, c.owner)`), atteinte depuis
-    # #1075 par `CallInReinforcementsAbility$$CreateBehaviour`. CLÉ NEUVE et DISTINCTE de
+    # #1080 par `CallInReinforcementsAbility$$CreateBehaviour`. CLÉ NEUVE et DISTINCTE de
     # `self_pos` : la fabriquer sous le nom du SUJET ferait mordre les gates que le natif laisse
     # tomber en régime spawn (cf. le bloc « AUCUNE cle de sujet » ci-dessus). Aucune autre feuille
     # ne la lit ; rayon de souffle nul par construction.

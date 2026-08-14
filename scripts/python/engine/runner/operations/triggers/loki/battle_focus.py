@@ -1,5 +1,5 @@
 """`BattleFocus` -- passif `TriggeredAbilityType` 0x494 = **1172** + son effet
-`EffectType.BattleFocus` 0x4af = **1199** (#1075).
+`EffectType.BattleFocus` 0x4af = **1199** (#1080).
 
 i2 : « After attacking or being attacked, moves 1 hex in a direction as far away from enemies as
 possible. »
@@ -105,7 +105,7 @@ RESIDUS NOMMES
     runner ne publie. Cote port le deplacement est ATOMIQUE (`MoveUnitOperation` termine avant que
     le vecteur `On(0xb)` ne parte), donc le flag natif serait FAUX a cet instant et le conjoint
     VRAI : le collapse est correct sur ce vecteur, et il ne le serait PAS sur un vecteur emis
-    pendant une animation de deplacement. Residu `#1075-r1`.
+    pendant une animation de deplacement. Residu `#1080-r1`.
   * **`CanMove(Owner)` ne tient que TROIS de ses quatre etages.**
     `IdunBattle.Entities.UnitExtensions$$CanMove` finit par
     `MovementComponent$$IsAllowedToMove`, qu'aucun canal ne publie -- residu PRE-EXISTANT du noeud
@@ -230,7 +230,7 @@ class BattleFocusEffectTrigger(EffectTrigger):
         if not ability_has_attack_type(ev.ability_type, _DIRECT_TARGET_ATTACK):
             return False
         # `CanMove(Owner@<+0x30>)` -- le noeud du depot (trait `Stationary` porte, `IsAllowedToMove`
-        # residu NOMME). `NOT IsMoving(Owner)` : non porte, collapse a VRAI (residu `#1075-r1`).
+        # residu NOMME). `NOT IsMoving(Owner)` : non porte, collapse a VRAI (residu `#1080-r1`).
         from .....entities.triggers import CanMove       # differe PORTEUR : triggers <- selectors
         ents = entities_from_state(state, int(self.owner_id))
         return bool(CanMove(Owner()).should_trigger(ents))

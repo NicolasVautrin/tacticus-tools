@@ -703,22 +703,25 @@ def _power_up_ids() -> frozenset:
         _T.PowerUp_SummonSpawn_darkaSmnTerminator, _T.PowerUp_SummonSpawn_templSmnAggressor))
 
 
-def unit_is_power_up(unit) -> bool:
+def unit_is_power_up(unit, has_triggered_ability=None) -> bool:
     """`IdunBattle.Entities.UnitExtensions$$IsPowerUp(unit)` -- MIRROR : la boucle native parcourt
     `GetPowerUps()` et sort a la PREMIERE `TriggeredAbilityComponent$$TryGetAbility` vraie.
 
-    Le port lit le kit DECLENCHE du dict d'unite (`triggered_abilities`, la MEME cle que
-    `_unit_record` et les feuilles d'utilite). Cle absente -> `False` : degradation NOMMEE et
-    RESTRICTIVE (les deux consommateurs portes RETIRENT des tuiles quand elle est vraie, donc un
-    VRAI invente amputerait la selection), jamais un faux positif."""
-    ids = _power_up_ids()
-    for a in (unit or {}).get("triggered_abilities") or ():
-        try:
-            if int(a) in ids:
-                return True
-        except (TypeError, ValueError):
-            continue
-    return False
+    `has_triggered_ability` = l'accesseur `ctx.has_triggered_ability` du contexte DSL, FOYER UNIQUE
+    du kit declenche d'une ENTITE cote port (`entity_triggered_ability_ids`, tri-etat mesure/repli
+    gameconfig documente a la source). C'est exactement ce que lit le noeud-trigger homonyme
+    `entities/triggers.py::HasTriggeredAbility`.
+
+    ⚠ **Le dict d'unite du DSL NE PORTE PAS de cle `triggered_abilities`** (`_unit_dict` de
+    `runner/abilities/behaviours/context.py` : `id/team/pos/feet/alive/hp/visualId/...`). Lire une
+    telle cle rendrait donc TOUJOURS `False`, en silence -- c'est-a-dire le predicat INERTE, et un
+    filtre inerte est indiscernable d'un filtre correct sur un plateau sans power-up.
+
+    Accesseur ABSENT -> `False` : degradation NOMMEE et RESTRICTIVE (les deux consommateurs portes
+    RETIRENT des tuiles quand ce predicat est vrai, donc un VRAI invente amputerait la selection)."""
+    if unit is None or has_triggered_ability is None:
+        return False
+    return any(bool(has_triggered_ability(unit, int(a))) for a in _power_up_ids())
 
 
 class TilesWithoutPowerUps(TargetsSelector):
@@ -751,11 +754,12 @@ class TilesWithoutPowerUps(TargetsSelector):
         # `UnitExtensions$$GetUnit(tile)` = foyer unique de la resolution d'occupant (#433-r3-r1a) :
         # index par COORD, n'importe quel PIED resout en son unite.
         occ = _occupants_by_tile(ctx.units)
+        hta = getattr(ctx, "has_triggered_ability", None)
         out = []
         for t in src:
             c = board.coord(t)
             u = occ.get((int(c[0]), int(c[1]))) if c is not None else None
-            if not unit_is_power_up(u):
+            if not unit_is_power_up(u, hta):
                 out.append(t)
         return out
 

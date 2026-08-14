@@ -24,7 +24,7 @@ from .loki.revealed import RevealedEffect                    # #1033 (1219, pose
 from .loki.supa_cybork_body import SupaCyborkBodyCritDmgReductionEffect
 from .loki.talisman_of_rage import TalismanOfRageCritDamageReductionEffect
 from .loki.all_is_dust import AllIsDustEffect                       # #1052 (effet 0x4a5 = 1189)
-from .loki.battle_focus import BattleFocusEffect                    # #1075 (effet 0x4af = 1199)
+from .loki.battle_focus import BattleFocusEffect                    # #1080 (effet 0x4af = 1199)
 from .loki.blood_chalice import BloodChaliceExtraPiercingEffect, BloodChaliceHealOnAttackEffect
 from .loki.champion_of_the_feast import ChampionOfTheFeastReduceArmorEffect
 from .loki.close_combat_weakness import (                  # #1015-r1 (trait T'AU, 16 porteurs npc)
@@ -1517,7 +1517,7 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # NEGATIF : il RAMENE le percage effectif a 1 quand il ne depassait pas 35.
     # Cf. `entities/effects/loki/all_is_dust.py`.
     "AllIsDust": AllIsDustEffect,
-    # 0x4af=1199 BattleFocus (#1075) : owner-effect PERMANENT du passif `BattleFocus` (0x494 = 1172)
+    # 0x4af=1199 BattleFocus (#1080) : owner-effect PERMANENT du passif `BattleFocus` (0x494 = 1172)
     # d'`eldarNpc1Guardian` / `eldarSmnGuardian`. L'effet ne porte NI stat-mod NI bonus de degat :
     # toute sa substance est le couple `CreateTargetTrigger` / `CreateTargetTriggerBehaviour`, qui
     # ENFILE un re-declenchement de 1172 (canal `EFFECT_TRIGGERS` -> `CUSTOM_TRIGGERED_ABILITIES`).
@@ -2331,7 +2331,7 @@ ABILITY_INIT_OWNER_EFFECTS: dict[str, list[str]] = {
     # `EnvFactionSummons:Tyranids`, portee par AUCUNE unite) et ses jumeaux npc
     # `tyranNpc5Barbgaunt` / `tyranNpc5BarbgauntSurv`.
     "SynapticInsight": ["SynapticInsight_ExtraHits"],
-    # #1075 -- `BattleFocusAbility` herite d'`IdunBattle.Entities.Abilities.
+    # #1080 -- `BattleFocusAbility` herite d'`IdunBattle.Entities.Abilities.
     # AOwnerEffectTriggeredAbility`, dont le `$$CreateBehaviour` est
     # `If(<condition de la classe>, AddEffect(<GetEffectType()> = 0x4af, AbilityState(Owner@
     # <DSLSelectors+0x30>, AbilityType(state)), source = Owner, targets = Owner, turns = ZEROEES))`
