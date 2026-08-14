@@ -198,25 +198,73 @@ def test_MUTATION_retirer_le_gate_ferait_remonter_ces_items_en_PORTE(monkeypatch
 
 # ------------------------------------------------------------------ [5] l'ENUM de la clef est LU
 def test_l_enum_de_la_clef_est_LU_et_les_faux_positifs_ordinaux_ne_passent_PAS():
-    """Le partage d'ordinaux, garde comme un fait EXECUTABLE.
+    """Le partage d'ordinaux, garde comme un fait EXECUTABLE et **DERIVE**.
 
-    `EFFECT_TRIGGERS` est keye par `EffectType` : `1451` y nomme `PhoenixGem_CanRevive`. Le MEME
-    ordinal nomme `WisdomOfTheAncients` en `TriggeredAbilityType`, et `1508` nomme `HealingBalms`
-    en `EffectType` mais `MastersOfManoeuvre` en `TriggeredAbilityType`. Un recenseur qui resout
-    dans les trois enums credite les deux mythiques a tort -- 4 bascules sur 5 etaient fausses."""
+    ⚠ CE TEST S'EST PERIME UNE FOIS, ET C'EST LA LECON. Il citait deux couples EN DUR
+    (`1451` -> `WisdomOfTheAncients`, `1508` -> `MastersOfManoeuvre`) en exigeant qu'aucun ne soit
+    PORTE. Un autre agent a porte `MastersOfManoeuvre` pour de vrai pendant la tranche : le temoin
+    est devenu faux, et le test rouge pour une raison qui n'etait PAS le vice garde. Une
+    contre-epreuve qui nomme ses temoins se perime avec eux.
+
+    La propriete VRAIE, elle, ne se perime pas, et elle est LOCALE A L'ORDINAL : **l'item qu'un
+    ordinal apparie sous la clef DECLAREE de sa voie n'est jamais celui qu'un AUTRE enum lui
+    donne**. On la derive de la table entiere. Se placer au niveau de la VOIE serait trop fort :
+    un item peut etre credite par `EFFECT_TRIGGERS` via SON PROPRE ordinal tout en etant, par
+    ailleurs, le nom qu'un ordinal VOISIN porte dans un autre enum -- les deux faits coexistent
+    sans qu'aucun soit une faute."""
     import enum_maps as EM
-    for ordinal, nom_effet, nom_trig in ((1451, "PhoenixGem_CanRevive", "WisdomOfTheAncients"),
-                                         (1508, "HealingBalms", "MastersOfManoeuvre")):
-        assert EM.EFFECT_TYPE.get(ordinal) == nom_effet, (
-            "premisse : l'ordinal %d ne nomme plus `%s` en `EffectType` (build change ?)"
-            % (ordinal, nom_effet))
-        assert EM.PASSIVE_ABILITY_TYPE.get(ordinal) == nom_trig, (
-            "premisse : l'ordinal %d ne nomme plus `%s` en `TriggeredAbilityType`"
-            % (ordinal, nom_trig))
-        assert KIV.etat(nom_trig)[0] != KIV.PORTE, (
-            "FAUX POSITIF ORDINAL : `%s` est credite porte parce qu'un registre keye par "
-            "`EffectType` contient l'ordinal %d. La clef d'une voie se LIT a son site -- la "
-            "resoudre dans les trois enums fabrique 4 bascules fausses sur 5." % (nom_trig, ordinal))
+    tables = {"ActiveAbilityType": EM.ACTIVE_ABILITY_TYPE,
+              "TriggeredAbilityType": EM.PASSIVE_ABILITY_TYPE,
+              "EffectType": EM.EFFECT_TYPE}
+    items = KIV.items_de_kit()
+    par_item = KIV.voies_par_item()
+    couples = []          # (voie, ordinal, nom sous la clef declaree, nom sous l'autre enum)
+    for v in KIV.VOIES:
+        if v.cle == KIV.CLE_NOM:
+            continue
+        for el in (KIV.elements(v.mod, v.attr) or []):
+            if isinstance(el, bool) or not isinstance(el, int):
+                continue
+            declare = tables[v.cle].get(int(el))
+            for lib, t in tables.items():
+                if lib == v.cle:
+                    continue
+                autre = t.get(int(el))
+                if autre and autre != declare and autre in items:
+                    couples.append((v.attr, int(el), declare, autre))
+    assert couples, (
+        "premisse VIDE : plus aucun ordinal d'une voie a clef entiere n'est partage avec un autre "
+        "enum sur un item de kit. Improbable (le CLAUDE.md en chiffre des centaines) -- si les "
+        "enums ont ete renumerotes, re-ancrer ce test plutot que le laisser vert a vide.")
+    # (a) L'APPARIEMENT passe par le nom de l'enum DECLARE, et par lui seul. Un item apparie doit
+    #     donc DERIVER de ce nom (egalite, ou prefixe `<item>_`) -- jamais du nom qu'un autre enum
+    #     donne au meme ordinal. NB : les deux peuvent CONVERGER sans faute (`EffectType[1111]` =
+    #     `WireweaveNet_CounterAttack` s'apparie a l'item `WireweaveNet`, que `TriggeredAbilityType`
+    #     nomme directement) -- ce qui compte est le CHEMIN, pas la coincidence d'arrivee.
+    for attr, ordinal, declare, autre in couples:
+        v = next(x for x in KIV.VOIES if x.attr == attr)
+        nom = KIV.nom_designe(ordinal, v.cle, tables)
+        assert nom == tables[v.cle].get(ordinal), (
+            "la voie `%s` ne resout plus ses ordinaux dans `%s` : %d rend `%s`"
+            % (attr, v.cle, ordinal, nom))
+        apparie = KIV._item_de(nom or "", items)
+        assert apparie is None or nom == apparie or nom.startswith(apparie + "_"), (
+            "FAUX POSITIF ORDINAL : dans la voie `%s`, l'ordinal %d s'apparie a l'item `%s` sans "
+            "DERIVER du nom `%s` que lui donne sa clef declaree `%s`. Le seul autre nom en lice "
+            "est `%s`, celui d'un AUTRE enum -- la resolution a donc fui hors de sa clef."
+            % (attr, ordinal, apparie, declare, v.cle, autre))
+    # (b) Le vice garde doit rester ATTEIGNABLE : si la resolution NAIVE ne fabriquait plus aucune
+    #     bascule que la resolution DECLAREE refuse, ce test ne mesurerait plus rien.
+    faux = set()
+    for attr, ordinal, _declare, autre in couples:
+        v = next(x for x in KIV.VOIES if x.attr == attr)
+        declare_item = KIV._item_de(tables[v.cle].get(ordinal) or "", items)
+        if declare_item != autre:
+            faux.add((attr, ordinal, autre))
+    assert faux, (
+        "premisse VIDE : la resolution NAIVE ne fabriquerait plus AUCUNE bascule que la resolution "
+        "declaree refuse -- ce test ne garde donc plus rien. Re-ancrer plutot que laisser vert a "
+        "vide (c'est exactement ce qui a fait passer sa version precedente pour verte).")
 
 
 @pytest.mark.parametrize("attr", sorted({v.attr for v in KIV.VOIES if v.cle != KIV.CLE_NOM}))

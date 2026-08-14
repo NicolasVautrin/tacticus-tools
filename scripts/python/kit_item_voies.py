@@ -332,6 +332,15 @@ ECARTES: dict[tuple[str, str], str] = {
         "lieu de l'etablir -- aucun item n'y arrive seul (mesure : 0 bascule).",
     ("engine.runner.abilities.behaviours.lifecycle", "TRIGGERED_ABILITY_DELAYED_BEHAVIOURS"):
         "DONNEE ANNEXE : meme forme, pour les arbres declenchables par `TriggerAbilityDelayed`.",
+    ("engine.entities.effects.factory", "TERTIARY_ABILITY_POSED_EFFECTS"):
+        "DONNEE ANNEXE (#1038) : quel `AbilityStateReference` RE-BAKER pour un effet qu'une "
+        "tertiaire pose SUR AUTRUI (level 1..4 / mult 100 de la SOURCE, et non le couple des "
+        "passifs du PORTEUR). C'est une correction de NIVEAU sur un effet deja monte -- le montage, "
+        "lui, est etabli par la classe d'effet (`EFFECT_CLASSES`). Mesure : 0 bascule, son unique "
+        "item (`MastersOfManoeuvre`) etant deja PORTE par cette voie-la. "
+        "⚠ CE CONTENEUR EST ARRIVE PENDANT LA TRANCHE #1041, livre par un autre agent, et il est "
+        "sorti MUET tout seul -- c'est exactement le mode de defaillance que la liste blanche "
+        "laissait passer en silence.",
     # --- AUTRE AXE : ces conteneurs ont deja leur foyer, et deux foyers se contrediraient ---------
     ("engine.runner.components", "NOT_DISPLACEABLE_TRAITS"):
         "AUTRE AXE (trait) : les trois traits refuses par `UnitExtensions$$IsDisplaceable`. Une "

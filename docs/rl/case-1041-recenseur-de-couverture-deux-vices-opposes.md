@@ -4,8 +4,8 @@
 est portée en entier. Question posée : **combien d'autres entrées l'audit déclare-t-il non portées
 à tort ?** La mesure a répondu — et elle a trouvé un **second** vice, qui tire dans l'autre sens.
 
-Tous les chiffres ci-dessous sont ancrés sur `695e608f` et **isolés contre un arbre témoin**
-régénéré à `origin/master` (§5). Les re-dériver, ne pas les citer.
+Tous les chiffres ci-dessous sont ancrés sur **`b91d1f18`** et **isolés contre un arbre témoin**
+régénéré à ce commit exact (§5). Les re-dériver, ne pas les citer.
 
 ## 1. Volet SOUS-comptage — une liste blanche ne montre pas le registre qu'elle a oublié
 
@@ -16,6 +16,13 @@ régénéré à `origin/master` (§5). Les re-dériver, ne pas les citer.
 |---|---|---|---|
 | `PhoenixGem` (relique, `eldarAutarch`) | `EFFECT_TRIGGERS[EffectType.PhoenixGem_CanRevive]` | `EffectType` | `kit-coverage` |
 | `HarlequinsPanoply` (passif, `eldarNpc3Harlequin`) | `CUSTOM_TRIGGERED_ABILITIES` **et** `EFFECT_TRIGGERS` | `TriggeredAbilityType` / `EffectType` | `npc-registry` |
+
+⚠ **`WisdomOfTheAncients` n'est PAS une troisième bascule de ce volet — c'est un piège du volet 2.**
+Elle est arrivée en cours de tranche, créditée par `ABILITY_INIT_OWNER_EFFECTS` dont la cible
+(`WisdomOfTheAncients_DamageReductionEffect`, 1445) n'a **aucune classe** : elle sort donc
+`PARTIEL`. Et l'ordinal `1451` la nomme en `TriggeredAbilityType` — c'est exactement le faux
+positif que §4(a) écarte. Deux raisons distinctes de ne pas la compter portée, aucune n'est
+« elle est absente ».
 
 ⚠ La seconde ligne n'attribue pas sa bascule à `CUSTOM_TRIGGERED_ABILITIES` : `HarlequinsPanoply`
 est monté par les **deux** voies, donc `EFFECT_TRIGGERS` suffit à expliquer les deux cas.
@@ -31,9 +38,15 @@ Symétrique, et un correctif du seul volet 1 l'aurait **aggravé**. Une entrée
 d'`ABILITY_INIT_OWNER_EFFECTS` créditait l'item **même quand l'effet posé n'a aucune classe** dans
 `EFFECT_CLASSES` : le port déclare une pose, et rien ne s'exécute.
 
-**4 mythiques** dans ce cas — `BlightedLand`, `CabalOfSorcerers`, `GuardianConstruct`,
-`MoreGitzOverEre` (cible `<X>_ExtraDamagePct`, absente d'`EFFECT_CLASSES`). Ce sont **exactement**
-les 4 entrées du registre dont aucune cible n'a de classe : le critère ne désigne rien d'autre.
+**6 mythiques** dans ce cas — `BlightedLand`, `CabalOfSorcerers`, `ContemptuousDisregard`,
+`GuardianConstruct`, `MoreGitzOverEre`, `WisdomOfTheAncients`. Ce sont **exactement** les entrées
+d'`ABILITY_INIT_OWNER_EFFECTS` dont aucune cible n'a de classe : le critère ne désigne rien d'autre.
+
+⚠ **Le gisement s'ALIMENTE, et le rebase l'a montré en direct.** Au premier passage la mesure en
+donnait **4** ; `ContemptuousDisregard` puis `WisdomOfTheAncients` s'y sont ajoutées pendant que
+cette tranche tournait, livrées par deux autres agents qui ont porté la **pose** et laissé la face
+dégât bloquée sur le mur `rareté` (#1042-r1). C'est donc le **régime courant** de l'axe mythique,
+pas un reliquat — et c'est précisément pour ça que le compte doit les NOMMER au lieu de les fondre.
 
 Le critère n'est pas inventé ici — `audit_passive_ability_coverage` l'applique **déjà** à son canal
 `[O]` (« avec AU MOINS un effet cible present dans `EFFECT_CLASSES` »). Les deux audits
@@ -81,17 +94,27 @@ manquant — et le seul.
 
 ## 5. Mesure AVANT / APRÈS, isolée
 
-Contrôle d'isolement : arbre témoin extrait de `origin/master` (`git archive`, arbre **complet**) et
+Contrôle d'isolement : arbre témoin extrait de **`b91d1f18`** (`git archive`, arbre **complet**) et
 audits régénérés dedans. `kit-coverage.md` versionné y était **à jour** (0 divergence) ⇒ tout son
 delta est l'effet de cette tranche.
 
 | compte | avant | après |
 |---|---:|---:|
-| voies conditionnelles **non portées** | 8 (5 mythic / 3 item) | **11** (9 mythic / 2 item), dont **4 PARTIELLES** |
-| voies conditionnelles **portées** | 35 | **32** |
+| voies conditionnelles **non portées** | 5 (2 mythic / 3 item) | **10** (8 mythic / 2 item), dont **6 PARTIELLES** |
+| voies conditionnelles **portées** | 38 | **33** |
 | passifs npc portés (`npc-registry`) | 110 | **111** |
 | total kit intrinsèque (`missing`) | 6 | **6** (inchangé — les 6 porteurs de `Healer`) |
 | actives no-op (lineup) | 0 | **0** |
+
+**Les deux listes nominatives, qui sont le livrable** :
+
+* **SOUS-comptage → +1 portée** : `PhoenixGem`.
+* **SUR-comptage → 6 dé-créditées** (portées ⇒ `PARTIEL`) : `BlightedLand`, `CabalOfSorcerers`,
+  `ContemptuousDisregard`, `GuardianConstruct`, `MoreGitzOverEre`, `WisdomOfTheAncients`.
+* **npc** : `HarlequinsPanoply` (portée).
+
+`5 − 1 + 6 = 10` et `38 + 1 − 6 = 33`. **Le second volet pèse six fois le premier** : un correctif
+du seul sous-comptage aurait fait passer le compte de 5 à 4 et **aggravé** l'écart au réel.
 
 ⚠ Sur `npc-registry.tsv`, **8 lignes** divergeaient déjà entre le fichier versionné et sa
 régénération à `origin/master` (4 actives portées sans régénération du doc). **Ce n'est pas l'effet
@@ -137,9 +160,10 @@ du volet 2. Divergence mesurée contre le foyer : cf. `#1041-r2`.
 * **Le gate est unique** (`GATE_EFFET_CLASSE`). Une voie de pose de **flag**
   (`ABILITY_INIT_OWNER_FLAGS`) n'a pas d'équivalent dérivable — son en-tête exige que chaque entrée
   **nomme son lecteur**, c'est une déclaration, pas une vérification.
-* **`PhasalSubjugator`, `OnMyPosition`, `ShieldOfFaith`, `ContemptuousDisregard`,
-  `MastersOfManoeuvre`, `WisdomOfTheAncients`, `TheArdentBlade`** restent `ABSENT` — vérifié : aucun
-  conteneur d'`engine/**` ne les désigne sous une résolution correcte.
+* **`PhasalSubjugator`, `TheArdentBlade`, `OnMyPosition`, `ShieldOfFaith`** restent `ABSENT` —
+  vérifié : aucun conteneur d'`engine/**` ne les désigne sous une résolution correcte.
+* **Les 6 `PARTIEL` ne sont pas portées ici**, et leur face manquante est bloquée en amont : les
+  deux dernières arrivées butent sur le mur `rareté` (`#1042-r1`), pas sur cet audit.
 
 ## Résidus
 
