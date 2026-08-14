@@ -153,6 +153,7 @@ Ces residus **ne partent pas ensemble**.
 | `scripts/python/engine/runner/operations/triggers/loki/fury_of_the_ancients.py` | 2 | #1005-r3, #927-r1 |
 | `scripts/python/engine/runner/operations/triggers/loki/haywire_mine.py` | 2 | #462-r4b-r1-r1-r1-r1-c-r3-r1-r5-r4, #462-r4b-r1-r1-r1-r1-c-r3-r1-r5-r5 |
 | `scripts/python/engine/runner/operations/triggers/loki/savage_killer.py` | 2 | #929-r2, #929-r4 |
+| `scripts/python/engine/runner/operations/triggers/pending_attack.py` | 2 | #889-r7, #895-r4 |
 | `scripts/python/engine/services/custom_normal_attack.py` | 2 | #419-r1-tr12-r3, #419-r1-tr14-r5-r3 |
 | `scripts/python/engine/services/damage_config.py` | 2 | #449-r2-r4-r1, #449-r2-r4-r3 |
 | `scripts/python/engine/services/effect_bonus.py` | 2 | #1005-r1, #1033-r1 |
@@ -320,7 +321,6 @@ Candidats naturels a un dispatch parallele, sous reserve de croiser leurs autres
 | `scripts/python/engine/runner/operations/triggers/loki/lakrimae.py` | #462-r4b-r1-r1-r1-r1-c-r3-r1-r4-r1 | `etage` |
 | `scripts/python/engine/runner/operations/triggers/loki/possession.py` | #955-r1 | `seeding` |
 | `scripts/python/engine/runner/operations/triggers/loki/synaptic_linchpin.py` | #937-r1 | `aucun` |
-| `scripts/python/engine/runner/operations/triggers/pending_attack.py` | #889-r7 | `aucun` |
 | `scripts/python/engine/services/movement_query.py` | #1048-r2 | `porteur` |
 | `scripts/python/engine/services/static_battle_rules.py` | #419-r1-tr9-r4-r1-r2-r1a | `aucun` |
 | `scripts/python/engine/utilities/` | #1013-r3 | `aucun` |
