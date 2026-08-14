@@ -363,6 +363,14 @@ def test_les_seuls_kits_steppable_inscrits_sont_les_mines_haywire():
     Il garde donc maintenant l'inventaire EXACT : ces deux-la, et personne d'autre. Un troisieme
     porteur qui apparaitrait le ferait rougir -- meme signal, meme raison.
 
+    ⚠ ET IL A ROUGI, EXACTEMENT COMME ANNONCE (#1083-r1, 2026-08-14) : les CINQ unites-objet
+    `powup*` du gameconfig portent chacune un passif `PowerUp_*` de BOOST DE STAT, desormais inscrit
+    a `ABILITY_TRIGGERS`. Ce sont des porteurs NATURELS au meme titre que les mines -- meme trait
+    `Steppable`, meme vecteur : c'est leur MORT PAR ECRASEMENT (`On(1 = PreUnitDeath)` sous
+    `KillUnitOperationOptions$$ForSteppable`) qui donne le bonus a celui qui les a traversees. Ils
+    ne partagent donc PAS seulement le trait, ils partagent la mecanique que ce fichier garde.
+    L'inventaire passe de 2 a 7 ; le cran reste EXACT.
+
     ⚠ Il ne dit RIEN des EFFETS qu'un `Steppable` peut RECEVOIR de l'exterieur (DoT de tuile, aura,
     bond) : ceux-la ne sont pas dans le kit, et ce sont eux que les trois retraits emportent."""
     kits = PR._kits_steppable()
@@ -378,7 +386,13 @@ def test_les_seuls_kits_steppable_inscrits_sont_les_mines_haywire():
                 if reg.get(a):
                     inscrits.append((k["id"], "%s:%s" % (nom, a)))
     attendus = [("astarNpc1HaywireMine", "passive:HaywireMineSteppable"),
-                ("astarSmnHaywireMine", "passive:HaywireMineSteppable")]
+                ("astarSmnHaywireMine", "passive:HaywireMineSteppable"),
+                # #1083-r1 -- les cinq POWER-UPS de boost de stat. Meme trait, meme vecteur de mort.
+                ("powupArmor", "passive:PowerUp_Armor"),
+                ("powupDamage", "passive:PowerUp_Damage"),
+                ("powupHealth", "passive:PowerUp_Health"),
+                ("powupHits", "passive:PowerUp_Hits"),
+                ("powupMeleeHits", "passive:PowerUp_MeleeHits")]
     assert sorted(inscrits) == attendus, (
         "les kits Steppable inscrits a un registre d'ability-trigger sont %s ; attendus %s -- un "
         "porteur NATUREL de plus (ou de moins) : re-confronter le regime" % (sorted(inscrits), attendus))
