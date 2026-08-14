@@ -320,11 +320,20 @@ from ..loki.haywire_mine import (HaywireMineSteppableAbility,          # #462-..
                                  HaywireMineResetAbility,
                                  HAYWIRE_MINE_ID)
 from ..loki.savior_protocols import SaviorProtocolsAbility            # #1020 (passif drones T'au)
+from ..loki.instinctive_behaviour import InstinctiveBehaviourUpdateTargetAbility   # #1015-r1
 
 
 # --- Registre : trait → ability-trigger(s) accordée(s) --------------------------------------------
 TRAIT_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
     "Psyker": [PsykerExtraAttackAbility],
+    # InstinctiveBehaviour (trait 0x7e5 = 2021, 23 porteurs : 18 npc + 5 summons Tyranides ; #1015-r1)
+    # -> triggered DERIVEE `TriggeredAbilityType.InstinctiveBehaviour` = 0x413 = 1043 (dict `Trait +0x0`,
+    # `IdunBattle.Operations.AddTraitOperation$$AddDerivedAbilities`). Elle MAINTIENT le
+    # `ForcedAttackTargetsComponent` du porteur egal a « l'ennemi le plus proche a portee d'attaque
+    # + mouvement », sauf sous SYNAPSE (0x41c) et sauf si le porteur est TAUNTE (27). Le volet
+    # MOUVEMENT du trait est l'owner-effet 1235 (`TRAIT_DERIVED_ABILITIES` + `ABILITY_INIT_OWNER_
+    # EFFECTS`, `entities/effects/factory.py`). Cf. loki/instinctive_behaviour.py.
+    "InstinctiveBehaviour": [InstinctiveBehaviourUpdateTargetAbility],
     # ActOfFaith accorde DEUX ability-triggers (accumulation sur mort/kill + reset au crit).
     "ActOfFaith": [ActOfFaithAccumulateAbility, ActOfFaithResetAbility],
     # FinalJustice (worldKharn) = attaque normale à la mort (fire-on-death, gate overkill).

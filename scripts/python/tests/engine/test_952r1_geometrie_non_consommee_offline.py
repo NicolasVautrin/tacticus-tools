@@ -46,6 +46,9 @@ DECLENCHEUR = {
 HBD = int(EffectType.HuntersBeyondDeath)                              # 0x4a6 = 1190
 PSYKER_SUPPRESSION = int(EffectType.HuntersBeyondDeathPsykerSuppression)   # 0x4a7 = 1191
 BIG_TARGET_ADJACENT = int(EffectType.BigTarget_AdjacentEffect)        # 0x402 = 1026
+#: #1015-r1 -- la TROISIEME geometrie du registre (`SynapseEffect$$CreateTargetSelector`), entree
+#: avec son lecteur (le gate `NOT IsEffectTarget(Owner, 0x41c)` de `InstinctiveBehaviour`).
+SYNAPSE = int(EffectType.Synapse_Effect)                              # 0x41c = 1052
 NIVEAU, MULT = 50, 100
 
 
@@ -74,12 +77,52 @@ def _ctx(att_pos, owner_pos=(0, 0)) -> dict:
 # ------------------------------------------------------------------ le registre, et son contenu
 
 def test_le_registre_ne_porte_QUE_les_geometries_CONSOMMEES():
-    """Cliquet du registre. `1190` n'y est pas, et les DEUX qui y sont ont chacune un lecteur porte
-    (`1026` par `damage_reduction`/`movement`, `1191` par `playbook/psyker`). Un ajout doit donc
-    etre conscient -- et s'accompagner de son lecteur."""
-    assert set(EFFECT_TARGET_SELECTORS) == {BIG_TARGET_ADJACENT, PSYKER_SUPPRESSION}
+    """Cliquet du registre. `1190` n'y est pas, et les TROIS qui y sont ont chacune un lecteur porte
+    (`1026` par `damage_reduction`/`movement`, `1191` par `playbook/psyker`, `1052` par
+    `runner/operations/triggers/loki/instinctive_behaviour.updated_forced_target` via le noeud
+    `entities/triggers.IsEffectTarget`). Un ajout doit donc etre conscient -- et s'accompagner de
+    son lecteur.
+
+    ⚠ `1052 Synapse_Effect` est ENTRE avec #1015-r1, et son lecteur est le gate
+    `NOT IsEffectTarget(Owner, 0x41c)` de `InstinctiveBehaviour_UpdateTargetAbility$$
+    GetUpdatedForcedTarget` -- litteralement le « Friendly units within 2 hexes ignore the effects
+    of Instinctive Behaviour » de `Traits/Synapse_Description`. Sa geometrie est LUE
+    (`SynapseEffect$$CreateTargetSelector`), pas devinee, et son 3e disjoint exige un canal FACTION
+    OPTIONNEL du protocole : un substrat qui ne le publie pas fait rendre `None`, jamais un
+    ensemble PARTIEL."""
+    assert set(EFFECT_TARGET_SELECTORS) == {BIG_TARGET_ADJACENT, PSYKER_SUPPRESSION, SYNAPSE}
     assert HBD not in EFFECT_TARGET_SELECTORS
     assert HBD != PSYKER_SUPPRESSION and HBD == 1190 and PSYKER_SUPPRESSION == 1191
+
+
+def test_la_geometrie_de_1052_a_bien_un_LECTEUR_porte():
+    """Le cran que le test ci-dessus ne porte pas : une entree au registre SANS lecteur serait une
+    geometrie morte -- exactement ce que `1190` illustre. On resout le lecteur pour de vrai."""
+    from engine.runner.operations.triggers.loki.instinctive_behaviour import (
+        SYNAPSE_EFFECT, updated_forced_target)
+    assert SYNAPSE_EFFECT == SYNAPSE, "le lecteur ne cite pas le meme effectType"
+    arbre = updated_forced_target()
+    # L'arbre est un `DSLSelectors$$If(gate, enemies, None())` : le gate DOIT contenir le noeud.
+    from engine.entities.triggers import IsEffectTarget
+
+    def _cherche(n, vus=None):
+        vus = vus if vus is not None else set()
+        if id(n) in vus or n is None:
+            return False
+        vus.add(id(n))
+        if isinstance(n, IsEffectTarget):
+            return int(n.effect_type) == SYNAPSE
+        for v in vars(n).values() if hasattr(n, "__dict__") else ():
+            if _cherche(v, vus):
+                return True
+        for s in getattr(type(n), "__slots__", ()) or ():
+            if _cherche(getattr(n, s, None), vus):
+                return True
+        return False
+
+    assert _cherche(arbre), (
+        "aucun `IsEffectTarget(_, 1052)` dans `updated_forced_target()` -- la geometrie de 1052 "
+        "serait au registre SANS lecteur")
 
 
 def test_une_geometrie_NON_PORTEE_rend_None_jamais_False():

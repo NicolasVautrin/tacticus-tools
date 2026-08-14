@@ -55,7 +55,9 @@ from ..entities.rarity import assert_rarity_channel      # #999-r3 (canal #1039)
 from ..entities.triggered_ability_type import TriggeredAbilityType
 from .components import ForcedAttackTargetsComponent
 from .operations.aura_stat_mods import attribute_aura_stat_modifiers
-from .operations.spawn import _seed_ability_owner_effects, TELEPORT_STRIKE_TELEPORTING_IN
+from .operations.spawn import (_seed_ability_owner_effects, _seed_trait_owner_effects,
+                               _seed_derived_ability_owner_effects,
+                               TELEPORT_STRIKE_TELEPORTING_IN)
 from ..services.damage_config import DAMAGE_FIELDS
 
 
@@ -2406,9 +2408,28 @@ def _load_stats_and_effects(state: State, decision: dict, snapshot: dict,
         uc = ent.get_component(UnitComponent) if ent is not None else None
         if sc is None or uc is None or not uc.visual_id:
             continue
-        _seed_ability_owner_effects(state, eid, uc.visual_id,
-                                    int(getattr(sc.ctx, "ability_variables_multiplier", 100) or 100),
+        _mult = int(getattr(sc.ctx, "ability_variables_multiplier", 100) or 100)
+        _seed_ability_owner_effects(state, eid, uc.visual_id, _mult,
                                     ability_level=getattr(sc.ctx, "passive_ability_level", None))
+        # #1015-r1 -- LA BOUCLE **TRAITS** DE LA MEME OPERATION NATIVE, ET ELLE MANQUAIT ICI.
+        # `IdunBattle.Operations.InitializeActorAbilitiesOperation$$Execute` en a DEUX : la boucle
+        # ABILITIES ci-dessus, et une boucle TRAITS (`Trait$$GetEffectToBeAddedToOwnerForTrait`
+        # + `AddTraitOperation$$AddDerivedAbilities` -> l'owner-effect pose a l'init de l'ability
+        # derivee). `runner/operations/spawn.py` appelle bien les DEUX ; ce chemin-ci, celui de la
+        # capture, n'appelait que la premiere -- donc une unite DEJA sur le plateau au capture
+        # n'avait jamais ses owner-effects de TRAIT.
+        #
+        # C'EST RESTE INVISIBLE tant que tous les owner-effects de trait portes etaient
+        # INCONDITIONNELS (`BigTarget`, `Daemon`, `Terrifying`, `Diminutive`, `ShadowInTheWarp`,
+        # `HeavyWeapon`, `MartialKatah`, `RangedSpecialist`) : le natif les a des la creation, donc
+        # `decisionView.effects` les publie, donc `EffectsState.seed` les avait deja et les deux
+        # `_materialize_owner_effect` sont des no-op (ils sont IDEMPOTENTS, gate `has_effect`).
+        # `1235 InstinctiveBehaviour_BlockMovement` est le premier owner-effect de trait dont la
+        # `CreateActiveCondition` soit CONDITIONNELLE : le canal actif-only ne le publie pas, et
+        # sans cette ligne il n'existait sur AUCUN porteur charge depuis une capture.
+        _traits = getattr(sc.ctx, "traits", None) or ()
+        _seed_trait_owner_effects(state, eid, _traits, _mult)
+        _seed_derived_ability_owner_effects(state, eid, _traits, _mult)
 
 
 def _rebake_tertiary_owner_effects(state: State) -> int:

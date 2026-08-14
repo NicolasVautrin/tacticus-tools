@@ -917,21 +917,39 @@ def _can_move(state: State, unit_id: int) -> Optional[bool]:
         if (!unit.TryGetComponent<MovementComponent>(out mc))    return false
         return mc.IsAllowedToMove()
 
-    TRI-ETAT. Les trois premiers etages sont LUS sur le substrat du runner ; le quatrieme ne l'est
-    pas, et il est NOMME plutot que devine :
+    LES QUATRE ETAGES SONT DESORMAIS LUS SUR LE SUBSTRAT DU RUNNER (#1015-r1).
 
     `IdunBattle.Entities.Components.MovementComponent$$IsAllowedToMove` est
-    `this.<+0x50 : Dictionary>.Count == 0` — un registre de BLOQUEURS par source, qu'aucun canal de
-    seed du runner n'expose (et dont aucun ecrivain n'est une methode NOMMEE du binaire : les
-    ecritures sont inline, donc meme le decompile ne donne pas la liste des poseurs). On ne le
-    fabrique PAS depuis les effets `*_BlockMovement` : ce serait une hypothese deguisee en mirror.
-    Il est donc rendu comme NON PORTE, et sa direction est dite : le port croit l'unite MOBILE la ou
-    le natif la bloquerait -> `has_tiles_to_move_to` sur-estime -> le port RETIRE le flag un peu plus
-    souvent que le natif (permissif), jamais il ne le POSE a tort. MEME residu, meme direction, que
-    celui deja nomme par `entities/selectors/tiles.MovableTilesInRange` (garde d'entree de
-    `FindAnyOrAllMoveableTiles`).
+    `this.<+0x50 : Dictionary>.Count == 0` -- un registre de BLOQUEURS par instance d'effet. Ce
+    module ecrivait qu'il n'etait pas portable, « aucun ecrivain n'[etant] une methode NOMMEE du
+    binaire : les ecritures sont inline ». **C'EST FAUX, et c'est mesure** : le dictionnaire a
+    exactement DEUX ecrivains, tous deux nommes et tous deux LUS --
 
-    Rend `False` (certain), `True` (aux trois etages lus), ou `None` si l'entite n'est pas lisible.
+        IdunBattle.Entities.Effects.BlockUnitMovementEffect$$ApplyInternal
+            mc = target.GetComponent<MovementComponent>() ; mc.<+0x50>.Add(effect.Id, effect.Id)
+        IdunBattle.Entities.Effects.BlockUnitMovementEffect$$RevertInternal
+            mc.<+0x50>.Remove(effect.Id)
+
+    (et leurs jumeaux `...BlockUnitMovementBondEffect$$ApplyInternal/RevertInternal`, qui ecrivent
+    le MEME champ, avec en plus l'`OwnerComponent.CurrentPlayerEntityId` dans la CLE). L'entree
+    existe donc exactement tant qu'une instance de block-movement est ACTIVE sur la cible -- le
+    seul chemin de pose/retrait etant `RefreshEffectsOperation$$ActivateEffect` /
+    `$$DeactivateEffect`. Le port n'a pas de dictionnaire materialise : il pose la MEME question a
+    `EffectsState.active_effects`, qui reevalue `is_active` (= la `CreateActiveCondition`) a chaque
+    lecture. La prescription « on ne le fabrique PAS depuis les effets `*_BlockMovement` » tombe
+    avec sa premisse.
+
+    ⚠ CE QUI RESTE HORS DU REGISTRE, ET LA DIRECTION : `BLOCK_UNIT_MOVEMENT_EFFECT_TYPES`
+    (`entities/effects/loki/instinctive_behaviour.py`) n'inscrit que `1235
+    InstinctiveBehaviour_BlockMovement`, seul type dont l'appariement `EffectType -> classe` soit
+    LU. `Taunted_BlockMovement` (25), `Vines_BlockMovement` (91) et `PrecisionShot_BlockMovement`
+    (1016) restent dehors (residu `#1015-r2`) : le port croit leurs porteurs MOBILES la ou le
+    natif les bloquerait -> `has_tiles_to_move_to` sur-estime -> le flag `NoActionAvailable` est
+    RETIRE un peu plus souvent que par le natif (PERMISSIF), jamais POSE a tort. C'est exactement
+    l'ecart d'avant cette tranche, inchange pour ces trois-la. MEME direction que le residu nomme
+    par `entities/selectors/tiles.MovableTilesInRange`.
+
+    Rend `False` (certain), `True` (aux quatre etages lus), ou `None` si l'entite n'est pas lisible.
     """
     e = state.get_entity(int(unit_id))
     if e is None:
@@ -949,7 +967,31 @@ def _can_move(state: State, unit_id: int) -> Optional[bool]:
                                                   is not None) else None)
     if traits is not None and has_trait(traits, UnitTrait.Stationary):
         return False                      # `BaseUnitComponent$$HasTrait(unit, UnitTrait.Stationary)`
-    return True                           # `MovementComponent$$IsAllowedToMove` NON PORTE (cf. ci-dessus)
+    # 4e etage : `MovementComponent$$IsAllowedToMove` = `<+0x50>.Count == 0` (cf. la docstring).
+    # Le port pose la MEME question a la liste des effets ACTIFS du porteur.
+    return not _has_active_movement_blocker(state, int(unit_id))
+
+
+def _has_active_movement_blocker(state: State, unit_id: int) -> bool:
+    """`MovementComponent+0x50` non vide -- c.-a-d. « une instance de block-movement est ACTIVE sur
+    l'unite ». Les deux ecrivains natifs du dictionnaire (`BlockUnitMovementEffect$$ApplyInternal`
+    et `...BondEffect$$ApplyInternal`) y mettent l'id de l'effet a son ACTIVATION et l'en retirent
+    a sa DESACTIVATION ; l'appartenance est donc exactement cette question-la.
+
+    `state.effects` absent -> `False` (aucun bloqueur mesurable). `active_effects` reevalue la
+    `CreateActiveCondition` de chaque instance -- pour `1235`, l'arbre de
+    `entities/effects/loki/instinctive_behaviour.py`."""
+    from ...entities.effects.loki.instinctive_behaviour import BLOCK_UNIT_MOVEMENT_EFFECT_TYPES
+    eff = getattr(state, "effects", None)
+    if eff is None:
+        return False
+    wanted = set(int(t) for t in BLOCK_UNIT_MOVEMENT_EFFECT_TYPES)
+    if not wanted:
+        return False
+    from ..components import unit_state_for_effects
+    ustate = unit_state_for_effects(state, int(unit_id))
+    return any(int(getattr(e, "effect_type", -1)) in wanted
+               for e in eff.active_effects(int(unit_id), ustate))
 
 
 def has_tiles_to_move_to(state: State, unit_id: int) -> Optional[bool]:

@@ -169,6 +169,31 @@ CONDITIONS_PORTEES_ATTESTEES = {
     "InescapableAccuracy_extraCritChance",
     "InescapableAccuracy_extraCritDmg",
     "InescapableAccuracy_overrideHits",
+    # #1015-r1 -- `1235 InstinctiveBehaviour_BlockMovement`. Sa `CreateActiveCondition` EST toute
+    # la mecanique de l'effet (il n'a ni stat-mod ni bonus de degat), et elle est portee 1:1 :
+    #     IsTurnOf(Owner)@<DSLTriggers+0x28>
+    #   & Any( Tiles(Owner),              IsWalkable(<DSLSelectors+0x68>) )
+    #   & AmountIsGreaterThanZero( ForcedAttackTargets(Owner) )
+    #   & Any( ForcedAttackTargets(Owner), IsInAttackOrAbilityRange(Owner, <+0x68>) )
+    #
+    # CE QUI ETABLIT QU'ON PEUT S'Y FIER -- une MESURE, pas la nature geometrique de la condition.
+    # `probe_1015r1_instinctive_behaviour.py` conduit le porteur a DEUX regimes et confronte le
+    # verdict au natif par `aiMovableTiles` (= `MovementQuery$$GetMovableTilesFor`, dont la garde
+    # d'entree `FindAnyOrAllMoveableTiles` descend sur `UnitExtensions$$CanMove` ->
+    # `MovementComponent$$IsAllowedToMove`, c.-a-d. exactement l'etat que cette condition decide) :
+    #     LOIN (cible forcee a d=3, hors portee) : natif 12 tuiles / condition FAUSSE cote port
+    #     PRES (cible forcee a d=1, a portee)    : natif  0 tuile  / condition VRAIE  cote port
+    #     TEMOIN sans le trait, MEME plateau     : natif 11 puis 10 tuiles, jamais bloque
+    # Les deux regimes basculent le MEME conjoint (`Any(fat, IsInAttackOrAbilityRange)`), et le
+    # temoin ecarte le regime degenere. Rejoue sur un SECOND montage (board `C4_09`, seed 31337,
+    # porteur RANGED `necroWarden`, portee 3). C'est ce qui justifie `active_condition_ported =
+    # True` -- pas le fait que la condition soit geometrique.
+    #
+    # ⚠ DIRECTION DE LA DEGRADATION, et elle est INVERSE de celle des autres classes de cette
+    # liste : leur effet est un BONUS (degrader `is_active` en False en retirerait un reel), le
+    # sien est une CONTRAINTE. Sa cle de `unit_state` absente rend donc **False** -- l'unite reste
+    # MOBILE. On n'invente jamais un verrou.
+    "InstinctiveBehaviour_BlockMovement",
     "IntoxicatingElixir",                    # #943, cf. le bloc ci-dessus
     "MartialSuperiority_Visual",
     "MawClawsOfThyrax_ExtraCritDmg",         # #943, cf. le bloc ci-dessus

@@ -6,6 +6,8 @@ a cote de leurs freres `entities/{abilities,selectors,formulas,behaviours,effect
 (`dsl/nodes.py`)."""
 from __future__ import annotations
 
+from dataclasses import replace          # #1015-r1 : liaison de l'ELEMENT courant par le noeud `Any`
+
 import hexgeo
 
 from ..dsl.base import (AbilityTrigger, AAmountFormula, TargetsSelector, Const, _pos, _feet,
@@ -48,6 +50,10 @@ from .selectors.units import AdjacentUnits, Enemies, MechanicalUnits, UnitsWitho
 from .selectors._shared import _entity_pos
 from .selectors.tiles import CanAddUnit
 from .selectors.tiles import TrenchTiles          # `DSLSelectors$$Trench` (cf. `IsTrenchTile`)
+# #1015-r1 : `DSLSelectors$$Walkable`, le selecteur qu'enveloppe `DSLTriggers$$IsWalkable`
+# (meme couple `AmountIsEqualOrGreater(<sel>, <DSLFormulas+0x20> = Direct(1))` qu'`IsCanAddUnit`).
+# `selectors/geometry.py` n'importe NI ce module NI aucun de ses ascendants -> aucun cycle.
+from .selectors.geometry import Walkable
 
 
 class TriggerAnd(AbilityTrigger):
@@ -2078,3 +2084,184 @@ def HasBeenDefeated(unit: TargetsSelector) -> AbilityTrigger:   # noqa: N802 (no
     return TriggerOr(TriggerOr(Not(IsAlive(unit)),
                                HasUnitFlag(unit, int(UnitFlag.Fled))),
                      HasUnitFlag(unit, int(UnitFlag.Resurrected)))
+
+
+class Any(AbilityTrigger):                                       # noqa: A001 (nom NATIF)
+    """`IdunBattleLogic.Entities.DSLTriggers$$Any(list, trigger)` -> le noeud alloue est
+    `IdunBattle.Entities.Triggers.XAnyYTrigger` (`$$.ctor(dsl, entities@+0x20, trigger@+0x18)`).
+
+    MIRROR de `$$ShouldTrigger` par sa lambda, LUE de bout en bout
+    (`XAnyYTrigger.<>c__DisplayClass4_0$$<ShouldTrigger>b__0(selected)`) :
+
+        newEntities = new AbilityEntities(<les entities englobantes>, selected)
+        return trigger.<slot 5 = ShouldTrigger>(newEntities, 0x20)
+
+    -- c'est-a-dire : l'element courant est LIE dans un `AbilityEntities` NEUF, puis le predicat est
+    evalue contre lui ; existentiel sur la liste.
+
+    LE SLOT LIE EST LE MEME QUE CELUI DU `Filter`, et c'est ce qui donne son sens au
+    `<DSLSelectors+0x68>` que le predicat cite : `AbilityEntities$$.ctor(base, selected)` ecrit
+    `ability+0x180` = **ActiveTarget**, exactement ce qu'ecrase `FromTriggerSelector$$Select` a
+    chaque item. Le port pose donc les DEUX noms du meme slot (`subject` ET `active_target`), comme
+    `selectors/units.py::Filter` -- un predicat ecrit avec `Subject()` et un predicat ecrit avec
+    `ActiveTarget()` lisent la MEME entite.
+
+    ⚠ CE NOEUD N'EST PAS TOUJOURS NECESSAIRE, et le collapse qui l'evite est ATTESTE :
+    `Any(sel, HasEffect(<element>, T))` se replie sur `HasEffect(sel, T)` parce que le `HasEffect`
+    du port itere DEJA son selecteur (`docs/rl/dsl-port-attestations.tsv`, consommateur `Vitarus`).
+    Le collapse ne vaut QUE pour ce predicat-la : des que le corps du `Any` porte autre chose
+    (`IsInAttackOrAbilityRange`, `IsWalkable` -- les DEUX sites de
+    `IdunBattle.Entities.Effects.Loki.InstinctiveBehaviourBlockMovementEffect$$CreateActiveCondition`),
+    il faut le vrai noeud, sans quoi l'element n'est jamais lie et le predicat lit le contexte
+    ENGLOBANT.
+
+    `_items` normalise la liste : le domaine est MIXTE (unites, ids de tuile, positions) et un
+    scalaire nu doit compter pour UN element -- iterer un `(col,row)` rendrait deux entiers."""
+    __slots__ = ("list_selector", "trigger")
+
+    def __init__(self, list_selector: TargetsSelector, trigger: AbilityTrigger):
+        self.list_selector, self.trigger = list_selector, trigger
+
+    def should_trigger(self, ctx) -> bool:
+        for item in _items(self.list_selector, ctx):
+            if self.trigger.evaluate(replace(ctx, subject=item, active_target=item)):
+                return True
+        return False
+
+
+class IsWalkable(AbilityTrigger):
+    """`IdunBattleLogic.Entities.DSLTriggers$$IsWalkable(selector)` -- MIRROR du decompile :
+
+        return <trigger DAT_1833d73e0>( DSLSelectors.Walkable(selector), <DSLFormulas+0x20> )
+
+    **MEME COUPLE EXACT qu'`IsCanAddUnit` / `IsTrenchTile`** (meme `Il2CppClass*` alloue, meme champ
+    de formule), donc la lecture etablie la-bas s'applique telle quelle et n'est PAS re-devinee :
+    la classe reellement allouee est `AmountIsEqualOrGreaterAbilityTrigger` (`>=`, et non
+    l'`AmountIsGreaterAbilityTrigger` que ghidra affiche -- ctor DEDUPLIQUE), et
+    `<DSLFormulas+0x20>` vaut `Direct(1)`.
+
+    => `IsWalkable(sel)` = `Count(Walkable(sel)) >= 1` = « AU MOINS UNE tuile de `sel` est
+    WALKABLE ». Sur une source mono-tuile (le cas de tous les call-sites, ou `sel` est l'element
+    courant d'un `Any`), c'est litteralement « cette tuile-la est walkable ».
+
+    ⚠ LE DOMAINE EST L'**ID DE TUILE**, pas la position : `selectors/geometry.py::Walkable` appelle
+    `board.walkable(tid)`, dont la signature est `(tid: int)`. Un `Tiles(...)` par defaut rend des
+    POSITIONS `(col,row)` -- il faut `as_ids=True`, exactement le piege deja documente sur
+    `Vitarus` (`target_tile_is_on_fire`). `_items` normalise le scalaire, pas le DOMAINE.
+
+    `board` absent -> `Walkable` rend `[]` -> FAUX. C'est le comportement de son foyer, non
+    re-decide ici."""
+    __slots__ = ("selector",)
+
+    def __init__(self, selector: TargetsSelector):
+        self.selector = selector
+
+    def should_trigger(self, ctx) -> bool:
+        return len(Walkable(_ItemsOf(self.selector)).evaluate(ctx) or []) >= 1
+
+
+class IsEffectTarget(AbilityTrigger):
+    """`IdunBattleLogic.Entities.DSLTriggers$$IsEffectTarget(sel, effectType)` -- le noeud DSL du
+    predicat dont le FOYER (la re-derivation de `EffectComponent.Targets @+0x48` par le
+    `<Effect>$$CreateTargetSelector` de chaque type) vit dans `entities/effect_targets.py`. Ce
+    module-ci n'ajoute AUCUNE geometrie : il expose le predicat aux ARBRES.
+
+    `IsEffectTargetTrigger$$ShouldTrigger` resout son selecteur `+0x10` puis invoque
+    `EffectsQuery$$IsEffectTarget(entity, effectType@+0x18, onlyActive = 0)`.
+
+    ⚠ `IsEffectTarget` != `HasEffect` : le PORTEUR d'une instance n'est pas sa CIBLE (l'en-tete
+    d'`effect_targets.py` le demontre sur les deux composants natifs). Substituer l'un a l'autre
+    rendrait FAUX tout predicat d'AURA.
+
+    TRI-ETAT, et la degradation est CHOISIE PAR L'APPELANT : le foyer rend `None` quand la
+    geometrie du type n'est pas portee ou que le substrat manque. Ce noeud, lui, doit rendre un
+    bool -- `unknown_is_target` porte la direction, et le seul consommateur porte
+    (`InstinctiveBehaviour_UpdateTargetAbility$$GetUpdatedForcedTarget`, gate
+    `NOT IsEffectTarget(Owner, 0x41c = Synapse_Effect)`) le pose a **True** : un `None` y vaut donc
+    « dans la bulle Synapse » -> AUCUNE cible forcee -> l'unite reste LIBRE de ses cibles et de son
+    mouvement. C'est la direction PERMISSIVE ; l'autre INVENTERAIT un verrou."""
+    __slots__ = ("entity", "effect_type", "unknown_is_target")
+
+    def __init__(self, entity: TargetsSelector, effect_type, unknown_is_target: bool = False):
+        self.entity, self.effect_type = entity, effect_type
+        self.unknown_is_target = bool(unknown_is_target)
+
+    def should_trigger(self, ctx) -> bool:
+        fn = getattr(ctx, "is_effect_target", None)
+        if fn is None:
+            return self.unknown_is_target                # canal non branche (contexte hors runner)
+        u = resolve_unit(self.entity, ctx)
+        if u is None or u.get("id") is None:
+            return False                                 # `SelectSingle` nul -> le natif rend faux
+        r = fn(int(u["id"]), int(self.effect_type))
+        return self.unknown_is_target if r is None else bool(r)
+
+
+class _ItemsOf(TargetsSelector):
+    """Adaptateur PRIVE : normalise un selecteur du domaine mixte en LISTE (via `_items`) avant de
+    le donner a un noeud selecteur qui itere. Pas un noeud natif -- le natif n'en a pas besoin, ses
+    selecteurs rendent toujours des collections d'entites homogenes ; le port, lui, materialise une
+    tuile par son id ou sa position et un scalaire nu ferait iterer ses composantes."""
+    __slots__ = ("inner",)
+
+    def __init__(self, inner: TargetsSelector):
+        self.inner = inner
+
+    def select(self, ctx):
+        return _items(self.inner, ctx)
+
+
+class IsInAttackOrAbilityRange(AbilityTrigger):
+    """`IdunBattleLogic.Entities.DSLTriggers$$IsInAttackOrAbilityRange(attacker, target)` ->
+    `IdunBattle.Entities.Triggers.IsInAttackOrAbilityRangeTrigger$$ShouldTrigger`, MIRROR du
+    decompile (`$$.ctor(this, attacker@+0x20, target@+0x28, state@+0x10, query@+0x18)`) :
+
+        attacker = <+0x20>.SelectSingle(entities, 3)
+        target   = <+0x28>.SelectSingle(entities, 3)
+        if (attacker == null || target == null)                       return false
+        comp = attacker.GetComponent<ActiveAbilityComponent>()
+        if (comp == null || comp.<+0x20> == null)                     <throw>
+        foreach (ability in comp.<+0x20>) {
+            if (!ability.<+0x28> || ability.<+0x35>)                  continue
+            okA = ability.<+0x2c : Nullable<int>>.HasValue ? value < 1 : true
+            okB = ability.<+0x38 : Nullable<>>.HasValue ? ability.<+0x40> : true
+            if (!(okA && okB))                                        continue
+            if (<+0x18 : IBattleQuery>.<slot 0x41 = IsValidTarget>(
+                    attacker, EntityExtensions.GetUnitPosition(attacker, state),
+                    target, ability.<+0x44>))                         return true
+        }
+        return false
+
+    Le slot `0x41` est LU dans `data/symbols/<build>/metadata/interface_slots.tsv`
+    (`IBattleQuery 65 IsValidTarget`, arite 4) -- jamais devine.
+
+    CE QUE LE PORT EVALUE, et par quel canal : l'accesseur `ctx.is_in_attack_or_ability_range`
+    (pose par `runner/abilities/behaviours/context.py`) reproduit la boucle sur les abilities
+    REELLEMENT MONTEES du caster (`ActiveAbilitiesComponent`, gate `can_currently_be_used()` =
+    les trois champs `+0x28`/`+0x2c`/`+0x38-0x40`) et delegue `IsValidTarget` a
+    `runner/abilities/targeting.valid_targets_for`, LE port de la cascade de ciblage. L'ATTAQUE
+    NORMALE y est ajoutee explicitement : la `KeyedCollection` native la contient
+    (`UnitFactory$$AddNormalAttackAbility`), le composant du port l'en EXCLUT -- meme correction
+    que `turnflow.has_action_available`.
+
+    TRI-ETAT. Accesseur absent (contexte hors runner : prediction, test de noeud) ou cascade non
+    concluante -> le noeud rend **False**, et la DIRECTION est nommee au seul consommateur porte
+    (`InstinctiveBehaviourBlockMovementEffect$$CreateActiveCondition`) : un `False` y rend l'effet
+    INACTIF, donc l'unite MOBILE -- degradation PERMISSIVE, jamais un blocage invente."""
+    __slots__ = ("attacker", "target")
+
+    def __init__(self, attacker: TargetsSelector, target: TargetsSelector):
+        self.attacker, self.target = attacker, target
+
+    def should_trigger(self, ctx) -> bool:
+        fn = getattr(ctx, "is_in_attack_or_ability_range", None)
+        if fn is None:
+            return False                                   # canal non branche -> cf. docstring
+        a = resolve_unit(self.attacker, ctx)                # `SelectSingle(attacker)`
+        t = resolve_unit(self.target, ctx)                  # `SelectSingle(target)`
+        if a is None or t is None:
+            return False                                   # `attacker == null || target == null`
+        aid, tid = a.get("id"), t.get("id")
+        if aid is None or tid is None:
+            return False
+        return bool(fn(int(aid), int(tid)))

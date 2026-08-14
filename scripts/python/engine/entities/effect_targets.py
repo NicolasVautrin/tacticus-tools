@@ -40,12 +40,28 @@ import hexgeo
 from .. import battle_query as bq       # forme B (#485-r1-r1) : `battle_query` n'importe que
 #                                        `hexgeo` + `.hex_corner`, donc AUCUN cycle a fermer ici.
 from .effect_type import EffectType
+# #1015-r1 : les trois traits + la faction du selecteur de `1052 Synapse_Effect`. Deux mirrors
+# d'enum FEUILLES (`unit_trait` n'importe que `enum`/`functools`, `unit_faction` de meme) -- les
+# hisser ici n'allonge la cascade d'aucun module.
+from .traits.unit_trait import UnitTrait
+from .unit_faction import UnitFaction
 
 #: `UnitTrait.Psyker` (`0x3ea`) et `UnitTrait.Immune` (`0x19`) -- les deux filtres de trait du
 #: `CreateTargetSelector` de `1191`. Noms tels que la capture les publie (`StatsComponent.ctx.traits`
 #: cote runner, `Scene.ctx_by_id[...].traits` cote decision).
 _TRAIT_PSYKER = "Psyker"
 _TRAIT_IMMUNE = "Immune"
+
+#: Les TROIS traits et la faction du `CreateTargetSelector` de `1052 Synapse_Effect` (#1015-r1).
+#: Membres NOMMES des deux mirrors (`UnitTrait` 0x3f7/0x7e5/0x7e8, `UnitFaction` 0xc), jamais des
+#: ordinaux : les noms de MEMBRE sont exactement ce que publient `StatsComponent.ctx.traits` et le
+#: `FactionId` gameconfig (cf. `entities/unit_faction.py`, ou `HasFaction` compare une CHAINE).
+_TRAIT_BATTLE_FATIGUE = UnitTrait.BattleFatigue.name                 # 0x3f7 = 1015
+_TRAIT_INSTINCTIVE_BEHAVIOUR = UnitTrait.InstinctiveBehaviour.name   # 0x7e5 = 2021
+_TRAIT_SYNAPSE = UnitTrait.Synapse.name                              # 0x7e8 = 2024
+_FACTION_TYRANIDS = UnitFaction.Tyranids.name                        # 0xc = 12
+#: `range = 2` de `SurroundingUnits` -- litteral LU a sa POSITION dans la signature.
+_SYNAPSE_RANGE = 2
 
 
 class EffectTargetWorld:
@@ -158,11 +174,68 @@ def _surrounding_enemy_psykers_r2(world, owner_id: int) -> Optional[set]:
     return out
 
 
+def _synapse_targets(world, owner_id: int) -> Optional[set]:
+    """`IdunBattle.Entities.Effects.Loki.SynapseEffect$$CreateTargetSelector` -- MIRROR du
+    decompile, noeud par noeud :
+
+        S = SurroundingUnits(origin = Owner@DSLSelectors+0x30, range = 2, unique = true,
+                             includeCenter = FALSE, unitSelectionType = 3)
+        F = Friends(of = Owner@+0x30, entities = S, selectionType = 3)
+        return Unique(   UnitsWithTrait(F, 0x3f7 = 1015 BattleFatigue,          3)
+                       + UnitsWithTrait(F, 0x7e5 = 2021 InstinctiveBehaviour,   3)
+                       + UnitsFromFaction( UnitsWithoutTrait(F, 0x7e8 = 2024 Synapse, 3),
+                                           0xc = UnitFaction.Tyranids, 3) )
+
+    Les litteraux `range = 2` / `unique = 1` / `includeCenter = 0` / `unitSelectionType = 3` sont
+    LUS a leur POSITION dans la signature `SurroundingUnits(origin, range, unique, includeCenter,
+    unitSelectionType)` (`frida/methods.tsv`) -- jamais devines.
+
+    ⚠ **`includeCenter = FALSE` : l'emetteur n'est PAS dans sa propre bulle.** C'est le MEME fait
+    que la mesure live #1011 (patte SELF a 0 avec le Neurothrope pour seul porteur `Synapse`), ici
+    par un SECOND site natif et INDEPENDANT -- `BattleQuery$$GetInRangeAuraAmount` le disait sur
+    l'axe AURA, ce selecteur-ci le dit sur l'axe CIBLES.
+
+    ⚠ **Le 3e disjoint exige le canal FACTION.** Il est OPTIONNEL du protocole : un substrat qui
+    ne publie pas `faction(uid)` fait rendre `None` (NON MESURE) -- **jamais un ensemble PARTIEL**,
+    qui affirmerait « cette unite n'est pas ciblee » sur la foi de deux disjoints sur trois. Seul
+    le substrat RUNNER l'implemente ; la face DECISION n'a aucun lecteur de ce type.
+
+    CONSOMMATEUR PORTE : `IdunBattleLogic.Entities.Abilities.Active.Loki.
+    InstinctiveBehaviour_UpdateTargetAbility$$GetUpdatedForcedTarget`, dont le gate est
+    `NOT IsEffectTarget(Owner@+0x30, 0x41c = Synapse_Effect)` -- litteralement le « Friendly units
+    within 2 hexes ignore the effects of Instinctive Behaviour » de l'i2."""
+    faction = getattr(world, "faction", None)
+    if faction is None:
+        return None                                   # canal absent -> NON MESURE (cf. docstring)
+    me, team = world.pos(owner_id), world.team(owner_id)
+    if me is None or team is None:
+        return None
+    out = set()
+    for uid in world.unit_ids():
+        if int(uid) == int(owner_id):                 # `includeCenter = false`
+            continue
+        if world.team(uid) != team or not world.alive(uid):        # `Friends(Owner, ..., 3)`
+            continue
+        p = world.pos(uid)
+        if p is None or hexgeo.distance(me, p) > _SYNAPSE_RANGE:   # `range = 2`, disque
+            continue
+        tr = world.traits(uid) or ()
+        if _TRAIT_BATTLE_FATIGUE in tr or _TRAIT_INSTINCTIVE_BEHAVIOUR in tr:
+            out.add(int(uid))                         # disjoints 1 et 2
+            continue
+        if _TRAIT_SYNAPSE in tr:                      # `UnitsWithoutTrait(F, Synapse)`
+            continue
+        if faction(int(uid)) == _FACTION_TYRANIDS:    # `UnitsFromFaction(..., Tyranids)`
+            out.add(int(uid))
+    return out
+
+
 #: `effect_type -> <Effect>$$CreateTargetSelector` porte. N'inscrire QUE ce qui est LU au decompile
-#: ET confronte live (case-366-r1 pour `1026`, case-418-r1 pour `1191`).
+#: ET confronte live (case-366-r1 pour `1026`, case-418-r1 pour `1191`, #1015-r1 pour `1052`).
 EFFECT_TARGET_SELECTORS = {
     int(EffectType.BigTarget_AdjacentEffect): _adjacent_friends,                    # 1026
     int(EffectType.HuntersBeyondDeathPsykerSuppression): _surrounding_enemy_psykers_r2,   # 1191
+    int(EffectType.Synapse_Effect): _synapse_targets,                               # 1052
 }
 
 

@@ -1301,3 +1301,44 @@ class DamagePredictionFormula(AAmountFormula):
         if pred.get("kill"):                           # `...$$get_MightBeKill`
             return avg * 2
         return avg
+
+
+class NormalAttackRange(AAmountFormula):
+    """`IdunBattleLogic.Entities.DSLFormulas$$NormalAttackRange(unit, unitTile)` ->
+    `IdunBattle.Entities.Formulas.NormalAttackRangeFormula$$Calculate`, MIRROR du decompile :
+
+        entity = <+0x28 : unit>.SelectSingle(entities)
+        tiles  = <+0x30 : unitTile>.Select(entities)
+        if (tiles == null || tiles.Count == 0) tiles = EntityExtensions.GetTiles(entity, state)
+        opts   = <+0x18>.<slot 0x3e>( UnitExtensions.GetNormalAttackType(entity) )
+        return   <+0x20>.<slot 0xc>( entity, tiles, opts )
+
+    -- soit la PORTEE des `TargetingOptions` de l'attaque NORMALE de l'unite, mesuree depuis ses
+    tuiles. Le port lit cette portee par l'accesseur `ctx.normal_attack_range`, cable sur le foyer
+    UNIQUE `runner/abilities/targeting.unit_weapon_range` (les TROIS branches d'arme de
+    `IdunBattle.Core.Services.TargetingQuery$$GetRange`, deja portees et confrontees).
+
+    `unit_tile` est accepte pour le MIRROR STRUCTUREL de la signature ; le foyer mesure depuis la
+    position REELLE de l'unite, ce qui est exact au seul call-site porte
+    (`InstinctiveBehaviour_UpdateTargetAbility$$GetUpdatedForcedTarget` passe `Tiles(Owner)`, donc
+    litteralement les tuiles courantes de l'unite).
+
+    **`0` QUAND LE CANAL SE TAIT**, et la direction est NOMMEE : `unit_weapon_range` rend `None`
+    pour la seule branche `!HasAnyWeapon` (81 unites du gameconfig -- Machines of War et decor,
+    dont AUCUNE ne porte `InstinctiveBehaviour`). Au seul consommateur porte, cette valeur entre
+    dans un `Sum(range, movement)` qui borne un `NearestAttackableEnemies` : un `0` RETRECIT le
+    rayon, donc rend MOINS de cibles forcees, donc laisse l'unite MOBILE -- degradation permissive,
+    jamais un blocage invente. Inventer `1` (melee) serait au contraire une portee affirmee."""
+    __slots__ = ("unit", "unit_tile")
+
+    def __init__(self, unit: TargetsSelector, unit_tile: TargetsSelector = None):
+        self.unit, self.unit_tile = unit, unit_tile
+
+    def calculate(self, ctx) -> int:
+        fn = getattr(ctx, "normal_attack_range", None)
+        if fn is None:
+            return 0                                   # canal non branche -> cf. docstring
+        u = resolve_unit(self.unit, ctx)                # `SelectSingle(unit)`
+        if u is None or u.get("id") is None:
+            return 0
+        return int(fn(int(u["id"])) or 0)

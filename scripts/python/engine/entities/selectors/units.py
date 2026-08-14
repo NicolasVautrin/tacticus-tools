@@ -2077,3 +2077,86 @@ class UnitsAttackedThisTurn(TargetsSelector):
             if isinstance(u, dict) and u.get("id") is not None:
                 out.append(u)                            # `EntityExtensions$$IsUnit`
         return out
+
+
+class ForcedAttackTargets(TargetsSelector):
+    """`IdunBattleLogic.Entities.DSLSelectors$$ForcedAttackTargets(unit)` ->
+    `IdunBattle.Entities.Selectors.UnitForcedAttackTargetsSelector$$Select`, MIRROR du decompile :
+
+        unit = <+0x18>.SelectSingle(entities)
+        if (unit == null) return new List<Entity>()          # liste VIDE, pas null
+        return ListExtensions.Map( UnitExtensions.GetOnlyTargets(unit), <Select>b__2_0 )
+
+    -- soit : les ENTITES designees par les ids du `ForcedAttackTargetsComponent` du sujet. C'est
+    le meme store que lit la regle de ciblage `TargetIsAllowedForCaster` (bit 23) via
+    `IdunBattle.Entities.UnitExtensions$$GetOnlyTargets` -- le TAUNT, et, depuis #1015-r1, la voie
+    incrementale `AddForcedAttackTargetBehaviour` du trait `InstinctiveBehaviour`.
+
+    Le port lit le meme store par l'accesseur `ctx.only_targets` (cable sur le foyer unique
+    `runner/abilities/targeting.get_only_targets`), puis resout chaque id en dict d'unite --
+    exactement le `Map` natif. Accesseur absent (contexte hors runner) -> `[]`, et c'est une
+    DEGRADATION nommee : sans `State` le composant n'existe pas, on ne l'invente pas."""
+    __slots__ = ("unit",)
+
+    def __init__(self, unit: TargetsSelector):
+        self.unit = unit
+
+    def select(self, ctx):
+        u = resolve_unit(self.unit, ctx)                 # `SelectSingle(unit)`
+        if u is None or u.get("id") is None:
+            return []                                    # `unit == null` -> liste VIDE
+        fn = getattr(ctx, "only_targets", None)
+        if fn is None:
+            return []                                    # canal non branche (cf. docstring)
+        by_id = getattr(ctx, "entity_by_id", None)
+        out = []
+        for eid in (fn(int(u["id"])) or ()):
+            e = by_id(eid) if by_id is not None else None
+            if e is None:                                # repli : l'unite du pool `ctx.units`
+                e = next((x for x in (ctx.units or ())
+                          if isinstance(x, dict) and x.get("id") == eid), None)
+            if isinstance(e, dict) and e.get("id") is not None:
+                out.append(e)
+        return out
+
+
+def nearest_attackable_enemies(unit: TargetsSelector, distance_type: int = 0, max_distance=None):
+    """`IdunBattleLogic.Entities.DSLSelectors$$NearestAttackableEnemies(unit, distanceType,
+    maxDistance)` -- ce n'est PAS une classe de selecteur, c'est une COMPOSITION, transcrite
+    noeud par noeud du decompile :
+
+        e = Enemies( of = unit, entities = <DSLSelectors+0x20>, selectionType = 3 )
+        e = UnitsWithoutTrait( e, UnitTrait.Steppable = 0x1b, selectionType = 3 )
+        u = UnobscuredEntitiesSelector( query, <dsl+0x60>, e, unit )
+        return NearestSelector( query, 3, <dsl+0x28>,
+                                entities = u, target = unit, pathfindingUnit = unit,
+                                distanceType, maxDistance )
+
+    `<DSLSelectors+0x20>` = le champ PARTAGE `IdunBattle.Entities.Selectors.AllAliveUnitsSelector`
+    (`EntityPool.AliveUnits`) -- lecture deja etablie par `spacewolves` / `necrons` / `thousandsons`,
+    pas re-devinee ici. `selectionType = 3` = `OnlyAliveAndTargetable` aux TROIS sites.
+
+    ⚠ `target` ET `pathfindingUnit` de `Nearest` recoivent le MEME `unit` : on cherche les ennemis
+    les plus proches DE LUI, et c'est LUI qui sert de gabarit de pathfinding quand
+    `distanceType == PathLength`. `distanceType = 0 = Simple` au seul call-site porte
+    (`InstinctiveBehaviour_UpdateTargetAbility$$GetUpdatedForcedTarget`) -> distance HEX.
+
+    « Attackable » ne designe donc AUCUN gate de ciblage : c'est litteralement
+    « ennemi vivant et ciblable, non Steppable, non obscurci ». Le nom natif est trompeur ; les
+    quatre noeuds, non."""
+    from .pathing import Nearest                          # forme A locale : `pathing` n'importe PAS
+    #                                                       ce module (aucun cycle a fermer), mais
+    #                                                       l'import est garde LOCAL pour ne pas
+    #                                                       allonger la cascade de `units` (lu par
+    #                                                       ~200 modules) pour un seul appelant.
+    sel = int(UnitSelectionType.OnlyAliveAndTargetable)   # le litteral `3` des trois sites
+    # ⚠ L'ORDRE DES DEUX PREMIERS ARGUMENTS EST INVERSE ENTRE LE NATIF ET LE PORT : le natif est
+    # `Enemies(of = <referent>, entities = <source>, selectionType)`, le noeud porte est
+    # `Enemies(inner = <source>, reference = <referent>, selection_type)`. Mesure de l'erreur
+    # (probe_1015r1, 1er jet) : `Enemies(unit, AllAliveUnits())` rend `[le porteur lui-meme]` --
+    # la cible forcee devenait l'unite elle-meme, sans aucune erreur.
+    e = Enemies(AllAliveUnits(), unit, selection_type=sel)
+    e = UnitsWithoutTrait(e, int(UnitTrait.Steppable), selection_type=sel)
+    u = Unobscured(e, unit)
+    return Nearest(u, unit, pathfinding_unit=unit,
+                   distance_type=int(distance_type), max_distance=max_distance)

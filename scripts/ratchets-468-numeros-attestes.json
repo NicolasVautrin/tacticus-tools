@@ -1,6 +1,8 @@
 {
   "_": "Cohabitations ATTESTEES pour probe_468_collision_numeros.py. Cle = '<identifiant normalise>|<nom de la case-doc>'. Valeur = la RAISON, non vide. Le statut 'COLLISION-OUVERTE' marque une collision reelle NON resolue : elle est re-imprimee a chaque run et n'est PAS un blanc-seing.",
   "attestations": {
+    "1015r1|case-1015-r1-close-combat-weakness.md": "Meme cause et meme arbitrage que la case-doc soeur (case-1015-r1-instinctive-behaviour.md, deja attestee) : la ligne #1015-r1 reste OUVERTE parce qu'elle porte CINQ items ; chaque case-doc n'en documente QU'UN. Rouge de master constate au rebase de la tranche InstinctiveBehaviour.",
+    "1015r1|case-1015-r1-instinctive-behaviour.md": "La ligne #1015-r1 reste OUVERTE parce qu'elle porte CINQ items (les cinq traits non evalues) ; la case-doc n'en documente QU'UN, InstinctiveBehaviour, livre le 2026-08-14. Meme tache, tranche livree : les quatre autres (Healer, CloseCombatWeakness, TwoManTeam, BeastSnagga) restent a porter sous le meme numero.",
     "175r|case-175r-ventilation-du-blocage-capteur.md": "La case-doc EST la ventilation du residu #175-r ouvert au backlog : meme tache, deux temps (le blocage capteur ventile en quatre sujets, deux livres, deux restants).",
     "202|case-202-abraxas-kit.md": "MEME DOSSIER -- la case-doc EST celle de la tache (H1 : Kit d Abraxas, port complet, EN COURS) ; tranches A/B/C livrees, la ligne reste ouverte pour le residu face DECISION.",
     "217|case-217-blackrage.md": "MEME DOSSIER -- tache-PARAPLUIE (P0 DECIDER != EXECUTER, 20 actives) qui livre ses items un par un ; celui-ci est BlackRage.",

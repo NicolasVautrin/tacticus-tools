@@ -10,7 +10,7 @@ from .... import battle_query as _bq
 from ....services import battle_query as _sbq
 from ....dsl.base import DslContext
 from ...components import (OwnerComponent, PositionComponent, UnitComponent, StatsComponent,
-                          HealthComponent, get_unit_feet)
+                          HealthComponent, get_unit_feet, ActiveAbilitiesComponent)
 from ....entities.traits.unit_trait import (UnitTrait, has_trait, grand_alliance_trait_name,
                                             entity_trait_names)
 from ....entities.effects import effect_stat_mod_key
@@ -776,6 +776,66 @@ def entities_from_state(state, caster_id: int, target_id: int | None = None,
         uid = (unit or {}).get("id")
         return None if uid is None else _nat(state, int(uid))
 
+    # #1015-r1 -- LES TROIS CANAUX DU TRAIT `InstinctiveBehaviour`. Tous DELEGUENT au foyer unique
+    # deja porte ; aucun ne re-derive quoi que ce soit ici.
+
+    # `ctx.is_effect_target` : `IdunBattleLogic.Entities.DSLTriggers$$IsEffectTarget`, DELEGUE au
+    # foyer runner (`runner/components.is_effect_target` -> `entities/effect_targets.py`). TRI-ETAT
+    # transmis TEL QUEL : c'est le NOEUD qui porte la direction de sa degradation.
+    def _is_effect_target(unit_id, effect_type):
+        from ...components import is_effect_target as _iet
+        return _iet(state, int(unit_id), int(effect_type))
+
+    # `ctx.only_targets` : `IdunBattle.Entities.UnitExtensions$$GetOnlyTargets(unit)` = la liste du
+    # `ForcedAttackTargetsComponent`, celle-la meme que lit la regle `TargetIsAllowedForCaster`
+    # (bit 23). Canal du selecteur `ForcedAttackTargets`.
+    def _only_targets(unit_id):
+        from ..targeting import get_only_targets as _got
+        return list(_got(state, int(unit_id)) or ())
+
+    # `ctx.normal_attack_range` : les TROIS branches d'arme de
+    # `IdunBattle.Core.Services.TargetingQuery$$GetRange` (`unit_weapon_range`). `stats` = le
+    # `UnitContext` du porteur, d'ou sort `StatType.ExtraRange` de la 3e branche.
+    def _normal_attack_range(unit_id):
+        from ..targeting import unit_weapon_range as _uwr, _visual_id as _vid
+        e = state.get_entity(int(unit_id))
+        sc = e.get_component(StatsComponent) if e is not None else None
+        return _uwr(_vid(state, int(unit_id)), getattr(sc, "ctx", None))
+
+    # `ctx.is_in_attack_or_ability_range` : la boucle de
+    # `IdunBattle.Entities.Triggers.IsInAttackOrAbilityRangeTrigger$$ShouldTrigger`, VERBATIM --
+    #     foreach (ability in attacker.GetComponent<ActiveAbilityComponent>().<+0x20>)
+    #         if (usable(ability) && query.<slot 0x41 = IsValidTarget>(attacker, pos, target,
+    #                                                                  ability.<+0x44>)) return true
+    # `can_currently_be_used()` porte les trois gates de la boucle (`+0x28` / `+0x2c` cooldown < 1 /
+    # `+0x38`-`+0x40`) ; `valid_targets_for` EST `IsValidTarget` evalue depuis la position REELLE de
+    # l'attaquant (le port ne sait juger une cible que de la, cf. `valid_normal_attack_targets`).
+    #
+    # ⚠ L'ATTAQUE NORMALE EST DANS LA COLLECTION NATIVE (`UnitFactory$$AddNormalAttackAbility` l'y
+    # pousse) et PAS dans `ActiveAbilitiesComponent` : on la teste d'abord, exactement comme
+    # `turnflow.has_action_available`. Sans elle la boucle ignorerait l'action la plus courante du
+    # jeu -- et pour un summon Tyranide sans ability active, elle serait TOUJOURS fausse.
+    #
+    # TRI-ETAT ECRASE EN `False` : `valid_targets_for` rend `None` quand le masque de ciblage n'est
+    # pas RE-lu. Au seul consommateur porte (`InstinctiveBehaviourBlockMovementEffect$$
+    # CreateActiveCondition`) un `False` laisse l'unite MOBILE -- degradation permissive assumee,
+    # jamais un blocage invente.
+    def _is_in_attack_or_ability_range(attacker_id, target_id):
+        from ..targeting import valid_normal_attack_targets as _vnat, valid_targets_for as _vtf
+        aid, tid = int(attacker_id), int(target_id)
+        if tid in (_vnat(state, aid) or ()):
+            return True
+        e = state.get_entity(aid)
+        comp = e.get_component(ActiveAbilitiesComponent) if e is not None else None
+        if comp is None:
+            return False
+        for ab in comp.abilities:
+            if not ab.can_currently_be_used():
+                continue                                  # gates `+0x28` / `+0x2c` / `+0x38`
+            if tid in (_vtf(state, aid, ab.ability_type) or ()):
+                return True
+        return False
+
     # `ctx.entity_can_be_repaired` (slot 0x13 d'`IAttackQuery`, lu par
     # `IdunBattle.Entities.Selectors.RepairableUnitsSelector$$Select`) : DELEGUE a l'unique mirror du
     # predicat (`abilities/attack_query.entity_can_be_repaired`) avec `caster_id = None` -- la
@@ -943,6 +1003,10 @@ def entities_from_state(state, caster_id: int, target_id: int | None = None,
                       has_any_valid_target=_has_any_valid_target,
                       normal_repair_type=_normal_repair_type,
                       normal_attack_type=_normal_attack_type,
+                      only_targets=_only_targets,
+                      is_effect_target=_is_effect_target,
+                      normal_attack_range=_normal_attack_range,
+                      is_in_attack_or_ability_range=_is_in_attack_or_ability_range,
                       unknown_ability_types=set(),
                       persistent_data_list=_persistent_data_list,
                       persistent_data=_persistent_data,

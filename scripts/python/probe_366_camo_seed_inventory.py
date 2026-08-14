@@ -248,6 +248,37 @@ POSE_VECTOR: dict[str, tuple[str, str, str, str]] = {
         "init", "sim",
         "IdunBattle.Entities.Abilities.AOwnerEffectTriggeredAbility$$CreateBehaviour",
         "HealthPct <= healthPct"),
+    # #1015-r1 -- `1235 InstinctiveBehaviour_BlockMovement`, l'owner-effet du trait
+    # `InstinctiveBehaviour` (UnitTrait 0x7e5 = 2021, 23 porteurs : 18 npc + 5 summons Tyranides).
+    # Les TROIS etages sont LUS au decompile `rnca9r7q6c` :
+    #   1. VECTEUR -- `IdunBattleLogic.Entities.Abilities.Active.Loki.InstinctiveBehaviour_
+    #      InitAbility$$.ctor` = `AOwnerEffectSpecificTriggeredAbility$$.ctor(this, 0x413)`, donc
+    #      `CreateTrigger = OnOwnerSpecificAbilityInit(0x413 = TriggeredAbilityType.
+    #      InstinctiveBehaviour)` : le trigger d'INIT de l'ability que le trait DERIVE
+    #      (`AddTraitOperation$$AddDerivedAbilities`, dict `Trait +0x0`). L'ability elle-meme
+    #      n'override QUE `$$GetEffectType`, dont le corps ENTIER est `return 0x4d3` (= 1235) --
+    #      l'appariement ability -> effet est LU, pas devine.
+    #   2. POSE INCONDITIONNELLE -- le corps herite est
+    #      `IdunBattle.Entities.Abilities.AOwnerEffectTriggeredAbility$$CreateBehaviour` =
+    #      `If(<CreateCondition>, AddEffect(GetEffectType(), AbilityState(Owner, this),
+    #      targets = Owner@<DSLSelectors+0x30>, source = Owner, <options a ZERO>), null)`, et la
+    #      `CreateCondition` de base rend `<DSLTriggers+0x70>` -- le MEME slot constant-vrai que
+    #      pour `AmuletOfTheVoidwyrm` / `HammerOfWrath` ci-dessus. Donc `pose = "init"` : l'instance
+    #      existe TOUJOURS cote natif, et son absence offline serait un TROU.
+    #   3. FLIP `"sim"` -- la condition bascule de FAUSSE a VRAIE des que la cible forcee entre a
+    #      portee, ce qui est exactement ce qu'une simulation de tuile candidate change. MESURE
+    #      (probe_1015r1) : natif 12 tuiles a d=3, **0** a d=1, temoin sans le trait jamais bloque.
+    # VERDICT ATTENDU `COUVERT-SEED` : `ABILITY_INIT_OWNER_EFFECTS["InstinctiveBehaviour"]` le
+    # materialise (chaine `TRAIT_DERIVED_ABILITIES` -> `_seed_derived_ability_owner_effects`), sur
+    # les DEUX voies -- SPAWN (`operations/spawn.py`) et CAPTURE (`snapshot.load_state`, ou la
+    # boucle TRAITS de `InitializeActorAbilitiesOperation$$Execute` manquait avant #1015-r1).
+    "InstinctiveBehaviour_BlockMovement": (
+        "init", "sim",
+        "IdunBattle.Entities.Abilities.AOwnerEffectTriggeredAbility$$CreateBehaviour"
+        " (InstinctiveBehaviour_InitAbility, GetEffectType -> 0x4d3)",
+        "IsTurnOf(Owner)@<DSLTriggers+0x28> & Any(Tiles(Owner), IsWalkable(It)) & "
+        "AmountIsGreaterThanZero(ForcedAttackTargets(Owner)) & "
+        "Any(ForcedAttackTargets(Owner), IsInAttackOrAbilityRange(Owner, It))"),
     # #1045 -- `1568 HeadwoppasKillchoppa_ExtraDmg` (#1012-r1), entree au registre sans verdict de
     # pose : c'etait l'unique `INCONNU` du cliquet. Les TROIS etages sont LUS au decompile
     # `rnca9r7q6c`, aucun deduit du nom ni du comportement :
