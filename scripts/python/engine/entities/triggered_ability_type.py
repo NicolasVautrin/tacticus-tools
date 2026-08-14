@@ -561,6 +561,14 @@ TRAIT_TRIGGERED_ABILITY_IDS: dict[str, tuple[int, ...]] = {
     # dispatcher n'itere jamais 1044 et le +35 `SUPPRESSIVEFIRE_TargetWithOverwatch` manque au
     # `pairUtility` de tout porteur du trait (49 unites). Mesure : #415, ecart de 35 exactement.
     "SuppressiveFire": (int(TriggeredAbilityType.SuppressiveFire),),       # 1044 (bonus de TIR)
+    # #1015-r1 -- `CloseCombatWeakness` (UnitTrait 0x40b = 1035) -> triggered 0x46a = 1130, LU dans
+    # le dict `GetTriggeredAbility` (+0x0) du `.cctor` de `StaticBattleRules.Trait`. Comme
+    # `SuppressiveFire` et contrairement a `Explodes`/`PutridExplosion`, cette entree n'est PAS
+    # inerte : son playbook MOVE existe (`CloseCombatWeaknessPlaybook`, registre
+    # `adjacent_unit_preference.TRIGGERED_MOVE_PLAYBOOKS`) et vaut **-40 par ennemi adjacent** a la
+    # tuile visee -- sans elle le dispatcher n'itere jamais 1130 et le porteur ne fuit pas le contact.
+    # Sa face ATTAQUE, elle, est une CONSTANTE ZERO cote natif (cf. `playbook/close_combat_weakness.py`).
+    "CloseCombatWeakness": (int(TriggeredAbilityType.CloseCombatWeakness),),   # 1130 (fuite du contact)
 }
 
 

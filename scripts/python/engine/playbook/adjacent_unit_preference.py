@@ -696,8 +696,16 @@ from .serene_unifier import SereneUnifierPlaybook            # noqa: E402  (#456
 from .rad_saturation import RadSaturationPlaybook            # noqa: E402  (#477-r29 : corps propre, +10/marshal)
 from .prophetic_sentinel import PropheticSentinelPlaybook    # noqa: E402  (#915 : corps propre, +20/Psyker adjacent)
 from .sanguinary_priest import SanguinaryPriestPlaybook      # noqa: E402  (#921-r1 : corps propre, 5 + 6 si blesse)
+from .close_combat_weakness import CloseCombatWeaknessPlaybook  # noqa: E402  (#1015-r1 : corps propre, -40/ennemi)
 
 TRIGGERED_MOVE_PLAYBOOKS: dict = {
+    # #1015-r1 -- la PREMIERE feuille du registre dont le poids est NEGATIF : le porteur T'AU FUIT le
+    # contact (-40 par ennemi ring-1 de la tuile visee, `CLOSECOMBATWEAKNESS_PerAdjacentEnemy`).
+    # Corps PROPRE (`Count x poids`, ni cap ni filtre ni branche amis) -> module dedie. L'ability est
+    # DERIVEE DU TRAIT (aucun `passiveAbilities` ne la porte) : elle n'atteint le dispatcher que par
+    # `TRAIT_TRIGGERED_ABILITY_IDS["CloseCombatWeakness"]`. Sa face ATTAQUE est une CONSTANTE ZERO,
+    # d'ou son absence de `psyker.TRIGGERED_ATTACK_PLAYBOOKS` (cf. le module).
+    int(TriggeredAbilityType.CloseCombatWeakness): CloseCombatWeaknessPlaybook(),  # 1130 (-40 / ennemi)
     int(TriggeredAbilityType.GuardianOrganism): GuardianOrganismPlaybook(),
     int(TriggeredAbilityType.RitesOfBattle): RitesOfBattlePlaybook(),
     # 1069 (#958) -- `MedicusMinistorumPlaybook$$.ctor` delegue a `AdjacentToOwnerNonOwnerPlaybook`

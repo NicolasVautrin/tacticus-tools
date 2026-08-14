@@ -49,6 +49,8 @@ from ..loki.ghost_revive import (                                     # #213 + #
     EchoesGhostRemoveOnSourceRemoved,
     TIME_FLUX_GHOST_EFFECT, ECHOES_GHOST_EFFECT)
 from ..loki.living_metal import LivingMetalRepairAbility             # #203 (trait LivingMetal, Necron)
+from ..loki.close_combat_weakness import (                          # #1015-r1 (trait T'AU, 16 npc)
+    CloseCombatWeaknessMarkStartedTurnAdjacent, CLOSE_COMBAT_WEAKNESS_REDUCE_DMG)
 from ..loki.destroyer_hive import DestroyerHiveAbility               # case-220 DG (passiveAbility deathTyphus)
 from ..loki.cursed_plague_bell import (CursedPlagueBellMovementAbility,   # #224 DG (passif deathBlightbringer)
                                       CursedPlagueBellAttackAbility)     # #224 item 5 (volet ATTAQUE)
@@ -1769,6 +1771,14 @@ EFFECT_TRIGGERS: dict[int, list[type[EffectTrigger]]] = {
     # PERMISSIVE, aucune erreur. Les DEUX autres effets du kit (1503/1504) sont des stat-mods sans
     # trigger -> `EFFECT_CLASSES`, pas ici.
     HEALING_BALMS_EFFECT: [HealingBalmsDelayedHeal],                  # On(0x13) -> Heal + Remove
+    # 1130 CloseCombatWeakness_ReduceDmg (trait T'AU 1035, 16 porteurs npc, #1015-r1) :
+    # `...CloseCombatWeakness_ReduceDmg_Effect$$CreateTargetTrigger` = `On(0x12 =
+    # TurnStart_EffectActivation, 1) & HasAdjacentEnemies(Owner@+0x30, Tiles(Owner@+0x30), false,
+    # false)` -> `$$CreateTargetTriggerBehaviour` = `AddEffect(0x469 = 1129
+    # CloseCombatWeakness_StartedTurnAdjacentToEnemy, Owner, turns = <DSLFormulas+0x20> = Direct(1))`.
+    # Le VOLET DEGAT de l'effet (le -50 %/-25 %) n'est PAS un trigger : il vit dans
+    # `entities/effects/loki/close_combat_weakness.py`, canal `CreateEffectDamageBonusForAttack`.
+    CLOSE_COMBAT_WEAKNESS_REDUCE_DMG: [CloseCombatWeaknessMarkStartedTurnAdjacent],   # On(0x12)
     # HazeOfCorruption_DamageTransfer 0x435=1077 (case-209, bond pose par le target-finder de #207) :
     # `IdunBattle.Entities.Effects.Loki.HazeOfCorruption_DamageTransferEffect$$CreateTargetTrigger` =
     # `(OnDeath & (TriggeringAbilityIs(0x435) | AreEqual(Actor, bonded)) | On(0x2d = UnitRevived) | On(0x34 = UnitFled))
