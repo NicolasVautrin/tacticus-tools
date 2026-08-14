@@ -22,3 +22,13 @@ docs/rl/dsl-primitive-leverage.md text eol=lf
 # aucune ligne de contenu, `probe_603 --index` re-ecrivant un fichier BIT POUR BIT identique au
 # blob. Le rouge accusait donc l'OUTIL, pas le contenu.
 docs/rl/index-foyers.md          text eol=lf
+# Meme cause, perimetre DERIVE et non enumere : les TSV de `docs/rl` sont TOUS des sorties de
+# probe ecrites en LF. Mesure du 2026-08-14 -- `git ls-files 'docs/rl/*.tsv'` rend **10** fichiers
+# et `git check-attr` en couvrait **0** : `npc-registry.tsv` et `summons-registry.tsv` sont
+# ressortis MODIFIES a trois merges d'affilee alors que `git diff --ignore-cr-at-eol` etait VIDE.
+# Les huit autres ont le meme defaut latent -- ils n'avaient simplement pas ete regeneres.
+# On nomme donc un PATRON : deux lignes, parce que le `/**/` de git matche zero repertoire mais
+# que la garantie est plus claire ecrite ainsi, et parce qu'un TSV neuf a la racine comme dans un
+# sous-dossier doit etre couvert SANS qu'on y repense.
+docs/rl/*.tsv                    text eol=lf
+docs/rl/**/*.tsv                 text eol=lf
