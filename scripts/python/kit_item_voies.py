@@ -582,15 +582,26 @@ PORTE, PARTIEL, ABSENT = "PORTE", "PARTIEL", "ABSENT"
 def etat(nm: str, table=None) -> tuple:
     """L'etat TERNAIRE de cet item : `(PORTE|PARTIEL|ABSENT, detail)`.
 
-    `PARTIEL` = des voies le DESIGNENT, mais TOUTES ont leur gate tombe -- typiquement une pose
-    d'owner-effect dont la cible n'a aucune classe. Il reste du travail, et le detail dit lequel."""
+    `PARTIEL` = **AU MOINS UNE** voie le designe avec son gate TOMBE -- typiquement une pose
+    d'owner-effect dont la cible n'a aucune classe. Il reste du travail, et le detail dit lequel.
+
+    ⚠ Le critere etait « TOUTES ont leur gate tombe », et il rendait PORTE un item dont une face
+    n'execute RIEN des qu'une AUTRE face passait. Regime qui n'existait pas a l'ecriture, arrive
+    depuis : `TheArdentBlade` est portee par `RELIC_ABILITY_TRIGGERS` (gate `None`) ET pose un
+    owner-effect `1462` sans classe dans `EFFECT_CLASSES`. L'ancien critere la creditait `PORTE`
+    -- exactement le vice de SUR-COMPTAGE que #1041 avait pourtant ouvert pour fermer, dans
+    l'autre sens. Capte par `tests/test_1041_kit_item_voies_offline.py`, qui derive son jeu
+    attendu du registre et assertionne son propre non-vide.
+
+    Une voie qui PASSE ne compense donc jamais une voie qui TOMBE : le detail d'un `PARTIEL`
+    nomme les voies tombees, et `item_porte` continue de rendre celles qui montent vraiment."""
     e = (table if table is not None else voies_par_item()).get(nm)
     if e is None:
         return ABSENT, ""
-    if e["portee"]:
-        return PORTE, ",".join(e["portee"])
     if e["gate_tombe"]:
         return PARTIEL, ",".join("%s(%s)" % (a, r) for a, r in e["gate_tombe"])
+    if e["portee"]:
+        return PORTE, ",".join(e["portee"])
     return ABSENT, ""
 
 
