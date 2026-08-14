@@ -53,7 +53,9 @@ class _Normal:
                 spread_pct: Optional[int] = None, is_overwatch: bool = False,
                 triggering_ability: Optional[int] = None,
                 allow_dead_caster: bool = False,
-                skip_hit_count_query: bool = False) -> Optional[dict]:
+                skip_hit_count_query: bool = False,
+                in_attack_loop: bool = False,
+                weapon_ref_target_id: Optional[int] = None) -> Optional[dict]:
         """Résolution d'une attaque normale (mirror Execute→ExecuteHits→ExecuteHit) depuis
         l'ECS : tire CHAQUE coup sur la plage BRUTE (`stat Attack` ± spread) avec le MT du
         runner (`state.rng`), réduit (perçage de l'arme par distance + armure cible, mods
@@ -71,6 +73,24 @@ class _Normal:
         qui l'utilise comme `AbilityOrEffect` de la `DamageSource` du coup -- et donc comme raison de
         mort gravee sur la victime (`KillUnitOperation$$RecordDeathReason`, lue par
         `HasDeathReasonTrigger`). Defaut None = attaque normale ordinaire (la source reste l'attaque).
+
+        `in_attack_loop` (#1050-r1) = cet appel est un TOUR DE BOUCLE d'`IdunBattle.Entities.
+        Behaviours.AttackBehaviour$$Execute`, pas un cast neuf. Le natif n'a qu'UN
+        `ActiveAbilityOperation$$ExecuteInternal` par cast, et sa boucle de cibles vit DESSOUS : les
+        etages de cet `ExecuteInternal` -- `On(PreUnitAbility = 0x2a)` et la re-resolution de cible
+        (`SwornProtector`) -- ne se rejouent donc PAS par cible. `True` les saute ; tout le reste
+        (`StartAttack` -> `On(5)`, les coups, les coups additionnels, `FinishAttack` -> `On(9)`)
+        vient bien de la boucle et reste. Un SEUL appelant : l'elargissement multi-cible de
+        l'attaque normale d'`AncientFury` (`abilities/loki/ancient_fury.py`). Defaut `False` = un
+        cast, comportement INCHANGE pour toutes les autres voies.
+
+        `weapon_ref_target_id` (#1050-r1) = la cible contre laquelle `ALoki_NormalAttackAbility$$
+        FindAttackWeapon` a choisi l'arme. Le natif l'appelle UNE fois dans `$$ExecuteBehaviour` et
+        PASSE l'arme jusqu'a `$$AttackHits(abilityState, attackWeapon)` = `Direct(attackWeapon+0x20)`
+        -- la boucle de cibles ne re-choisit rien. Sans ce parametre une cible additionnelle plus
+        eloignee que la primaire ferait basculer le port sur l'autre arme (donc autre profil, autre
+        percage, autre nombre de coups), ce que le natif ne fait pas. `None` (defaut) = l'arme est
+        choisie contre `target_id`, comportement INCHANGE.
 
         `is_overwatch` (case-117 phase 2) = ce coup est l'auto-attaque d'un OVERWATCH
         (`Overwatch_AutoAttackEffect.GetAttackBehaviour` = `UseActiveAbility(NormalAttack)` : côté natif
@@ -130,10 +150,16 @@ class _Normal:
         # portee 2. MESURE (`probe_419r1tr14r1r1_range_gate_generalisation.py --combat`,
         # `adeptCanoness` sur MC1_67, cible a 3 hex) : natif `0 degat / 0 tirage`, port
         # `1311 degats / 2 tirages` -- le natif NO-OPE (`ExecuteBehaviour`), le port frappait.
+        # #1050-r1 : la GEOMETRIE qui choisit l'arme est celle de la cible du CAST, pas de la cible
+        # de CE tour de boucle -- `FindAttackWeapon` est appele une seule fois dans
+        # `ALoki_NormalAttackAbility$$ExecuteBehaviour` et l'arme est PASSEE. `weapon_ref_target_id`
+        # None (le cas de toutes les autres voies) -> la cible courante, comportement inchange.
+        _wref = tgt if weapon_ref_target_id is None else state.get_entity(int(weapon_ref_target_id))
+        _wrp = _wref.get_component(PositionComponent) if _wref is not None else None
         adj = dist = None
-        if ap is not None and tp is not None:
-            adj = are_tiles_adjacent((ap.col, ap.row), (tp.col, tp.row), state.board)
-            dist = hexgeo.distance((ap.col, ap.row), (tp.col, tp.row))
+        if ap is not None and _wrp is not None:
+            adj = are_tiles_adjacent((ap.col, ap.row), (_wrp.col, _wrp.row), state.board)
+            dist = hexgeo.distance((ap.col, ap.row), (_wrp.col, _wrp.row))
         pierce, _ranged, whits = select_weapon_pierce(ctx, dist, is_adjacent=adj)
         _w = select_weapon(ctx, dist, is_adjacent=adj)
         _profile = _w.get("DamageProfile") if _w else None     # profil du coup (pour vecteurs after-hit)
@@ -175,9 +201,12 @@ class _Normal:
         # EntityExtensions.GetTiles(finalTarget)` en amont du `0x2b` ; la re-resolution qui SUIT
         # l'emission confronte ce fige a l'occupation reelle.
         _target_tiles = get_tiles(state, target_id)
-        ability_dispatch.pre_unit_ability_triggers(state, attacker_id, target_id,
-                                                   ranged=bool(_ranged), profile=_profile,
-                                                   ability_type=1013)
+        # #1050-r1 : `On(0x2a)` appartient a `ActiveAbilityOperation$$ExecuteInternal`, UN etage
+        # AU-DESSUS de la boucle de cibles d'`AttackBehaviour$$Execute` -- un cast, une emission.
+        if not in_attack_loop:
+            ability_dispatch.pre_unit_ability_triggers(state, attacker_id, target_id,
+                                                       ranged=bool(_ranged), profile=_profile,
+                                                       ability_type=1013)
         # #133 GATE ACTEUR-MORT **POST-`On(0x2a = PreUnitAbility)`** — mirror du test qui suit IMMEDIATEMENT
         # l'evenement dans `IdunBattle.Operations.ActiveAbilityOperation$$ExecuteInternal` (lu
         # verbatim au decompile) :
@@ -214,7 +243,10 @@ class _Normal:
         # nouvelle cible (mirror `ActiveAbilityOperation$$Execute`), donc selection d'arme, distance,
         # `On(0x2a = PreUnitAbility)`, coups et modificateurs sont TOUS recalcules contre elle. Cet appel-ci `return`e
         # aussitot, comme le natif. Cable sur les DEUX voies a la fois (cf. `active_ability.py`).
-        _replaced, _new_target = resolve_replaced_target(state, target_id, _target_tiles)
+        # #1050-r1 : la re-resolution vit elle aussi dans `ExecuteInternal` -- elle ne se rejoue pas
+        # par cible de la boucle d'`AttackBehaviour$$Execute`.
+        _replaced, _new_target = (False, None) if in_attack_loop else \
+            resolve_replaced_target(state, target_id, _target_tiles)
         if _replaced:
             return execute_for_replaced_target(
                 state, attacker_id, _new_target,
