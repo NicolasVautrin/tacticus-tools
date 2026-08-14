@@ -90,6 +90,15 @@ CONDITIONS_PORTEES_ATTESTEES = {
     # `Selectors.TargetSelector$$Select`. Rendre une constante EST une lecture du natif.
     "BloodChalice_ExtraPiercing",
     "CamoCloak_DmgReduction",
+    # #1015-r1 -- `CloseCombatWeakness_ReduceDmg_Effect$$CreateActiveCondition` a pour corps ENTIER
+    # `return NearbyEnemiesCondition()`, dont le terme dominant est
+    # `HasAdjacentEnemies(Caster@+0x48, CasterTile@+0x50, false, false)` : MEME famille GEOMETRIQUE
+    # et MEME noeud que `SupaCyborkBody_CritDmgReduction` juste plus bas, donc meme arbitrage --
+    # le flag capte decrit la position REELLE et ne predit rien d'une TUILE SIMULEE.
+    # ⚠ La condition est COMMUNE aux deux branches du malus : le `If(IsMeleeAttack, ...)` vit dans
+    # la MAGNITUDE, pas ici. Le vert LIVE de la branche melee (x0.50 bit-exact) couvre donc la
+    # condition en entier, y compris pour la branche RANGED qui reste non confrontee (#1015-r3).
+    "CloseCombatWeakness_ReduceDmg",
     "ContagionsOfNurgle_ArmorReduction1",
     "ContagionsOfNurgle_ArmorReduction2",
     # #943 -- SIX classes arrivees entre le 2026-08-10 et le 2026-08-11 sans leur ligne, ce qui

@@ -61,6 +61,7 @@ import pytest                                                              # noq
 import engine.entities.effects.loki.close_combat_weakness as CCW           # noqa: E402
 from engine.dsl.event_trigger_type import EventTriggerType                 # noqa: E402
 from engine.entities.effect_type import EffectType                         # noqa: E402
+from engine.entities.effects.base import BaseEffect                        # noqa: E402
 from engine.entities.effects.factory import (                              # noqa: E402
     ABILITY_INIT_OWNER_EFFECTS, EFFECT_CLASSES, EffectFactory, TRAIT_DERIVED_ABILITIES)
 from engine.entities.traits.unit_trait import UnitTrait                    # noqa: E402
@@ -209,10 +210,35 @@ def test_la_nature_inconnue_ne_prend_AUCUNE_branche():
     assert _effet().create_effect_damage_bonus_for_attack(is_ranged=None, att_ctx=_ctx()) is None
 
 
-def test_la_condition_active_est_PORTEE():
-    """`CreateActiveCondition` = `return NearbyEnemiesCondition()` (corps ENTIER). Le flag
-    `EffectComponent.IsActive` capte est donc redondant : le port re-evalue A LA LECTURE."""
-    assert _effet().active_condition_ported is True
+def test_la_condition_active_est_PORTEE_et_le_drapeau_est_HONORE():
+    """`CreateActiveCondition` = `return NearbyEnemiesCondition()` (corps ENTIER).
+
+    LE COUPLE EST INDISSOCIABLE, et c'est ce qui a fait rougir
+    `test_refresh_active_flag_discriminant_offline` a la premiere livraison : poser
+    `active_condition_ported = True` SANS surcharger `is_active` fait s'en remettre au defaut
+    `BaseEffect.is_active -> True`, c'est-a-dire a une valeur INVENTEE -- « un inerte capte
+    transforme en contributeur », exactement ce que l'encadre d'`effects/base.py` proscrit.
+    Le cliquet voisin garde l'invariant global (`flagged < overrides`) ; celui-ci garde le couple
+    POUR CETTE CLASSE, en local, avec la raison."""
+    e = _effet()
+    assert e.active_condition_ported is True
+    assert type(e).is_active is not BaseEffect.is_active, (
+        "`active_condition_ported` est pose mais `is_active` n'est PAS surchargee : le refresh et "
+        "`active_effects` liraient le defaut `True` sans AUCUNE lecture du natif")
+
+
+def test_is_active_ne_ferme_PAS_sur_une_cle_absente():
+    """CLE ABSENTE = non mesure -> `True`. Le `unit_state` de `RefreshEffectsOperation$$
+    ShouldBeActive` ne porte ni le compteur geometrique ni les effets du porteur ; rendre `False`
+    ferait DISPARAITRE l'instance d'`active_effects` et avec elle toute chance de contribuer.
+    C'est sans risque parce que la MAGNITUDE re-evalue la MEME condition au coup."""
+    e = _effet()
+    assert e.is_active(None) is True
+    assert e.is_active({}) is True
+    # ... mais elle FERME des que la mesure est la et qu'elle est fausse.
+    assert e.is_active(_ctx(n_adj=0)) is False
+    assert e.is_active(_ctx(n_adj=2)) is True
+    assert e.is_active(_ctx(n_adj=3, effets=(EffectType.SuppressCloseCombatWeakness.name,))) is False
 
 
 # ================================================================================================
@@ -272,3 +298,4 @@ def test_la_face_ATTAQUE_n_est_PAS_au_registre_et_c_est_le_natif():
     que le natif n'a pas."""
     from engine.playbook.psyker import TRIGGERED_ATTACK_PLAYBOOKS
     assert int(TriggeredAbilityType.CloseCombatWeakness) not in TRIGGERED_ATTACK_PLAYBOOKS
+

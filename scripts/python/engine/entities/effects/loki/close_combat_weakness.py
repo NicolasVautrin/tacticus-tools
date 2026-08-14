@@ -209,10 +209,21 @@ class CloseCombatWeaknessReduceDmgEffect(BaseEffect):
     l'encadre `is_melee_attack`/`is_ranged_attack`) : appliquer -25 % dans ce regime imputerait a
     l'attaquant un malus que le natif ne lui met que sur un coup REELLEMENT non-melee. On se TAIT."""
 
-    #: `CreateActiveCondition` = `NearbyEnemiesCondition` : la meme condition que le trigger de la
-    #: formule, donc l'`EffectComponent.IsActive` capte est redondant avec ce que la magnitude
-    #: evalue deja. Le port re-evalue A LA LECTURE (`create_effect_damage_bonus_for_attack` rend
-    #: `None` des que la condition est fausse), exactement comme `EnmityForTheUnworthy`.
+    #: Le flag `active` CAPTE est PERIME pour cet effet (case-322), et la raison est GEOMETRIQUE :
+    #: `CreateActiveCondition` = `NearbyEnemiesCondition`, dont le terme dominant est
+    #: `HasAdjacentEnemies(Caster@+0x48, CasterTile@+0x50)`. Le natif REECRIT
+    #: `EffectComponent.IsActive @+0x5c` a CHAQUE refresh, `RefreshEffectTrigger.Simulation`
+    #: comprise (`IdunBattle.Operations.SimulateEffectsOperation$$RefreshSimulatedEffects`) -- donc
+    #: une prediction a une TUILE CANDIDATE le recalcule. Le flag capte, lui, decrit la position
+    #: REELLE du porteur et ne predit RIEN de la tuile visee : s'y fier fermerait le port sur
+    #: exactement le plan qui compte (aller AU CONTACT et taper).
+    #: ⚠ CE DRAPEAU N'EST HONORE QUE SI `is_active` EST SURCHARGEE, et le cliquet
+    #: `test_refresh_active_flag_discriminant_offline` l'exige (`flagged < overrides`) : sans
+    #: surcharge, `EffectsState.active_effects` s'en remettrait au defaut `BaseEffect.is_active ->
+    #: True`, c'est-a-dire a une valeur INVENTEE -- « un inerte capte transforme en contributeur ».
+    #: MEME arbitrage, MEME noeud natif et MEME degradation que
+    #: `SupaCyborkBody_CritDmgReductionEffect`, dont la `CreateActiveCondition` est litteralement
+    #: `HasAdjacentEnemies(Owner, Tiles(Owner))`.
     active_condition_ported = True
 
     def nearby_enemies_condition(self, att_ctx: "Mapping | None" = None) -> "bool | None":
@@ -236,6 +247,27 @@ class CloseCombatWeaknessReduceDmgEffect(BaseEffect):
         if n_adj is None or started is None:
             return None
         return False
+
+    def is_active(self, unit_state: "Mapping | None" = None) -> bool:
+        """`$$CreateActiveCondition` -- corps ENTIER : `return NearbyEnemiesCondition()`. UN SEUL
+        appel, aucun autre noeud : la condition d'activite EST le trigger de la magnitude.
+
+        ⚠ CE QUE CETTE IDENTITE GARANTIT, et c'est ce qui rend le drapeau SUR : le `If(IsMeleeAttack,
+        ConfigConst(0x4c), If(..., ConfigConst(0x53)))` vit dans la MAGNITUDE
+        (`CreateEffectDamageBonusForAttack`), **pas** dans la condition. Les deux branches partagent
+        donc la MEME `CreateActiveCondition`, et le vert LIVE de la branche MELEE (#1015-r1, x0.50
+        bit-exact, ecart 0) la couvre EN ENTIER -- la branche RANGED non confrontee n'ouvre aucun
+        regime de condition qui ne l'aurait pas ete.
+
+        CLE ABSENTE = **non mesure** -> on NE FERME PAS. Le `unit_state` de
+        `RefreshEffectsOperation$$ShouldBeActive` ne porte ni le compteur geometrique ni les effets
+        du porteur (ils vivent dans le contexte PER-COUP, comme la position d'attaque). Rendre
+        `False` par defaut ferait DISPARAITRE l'instance d'`active_effects`, et avec elle toute
+        chance de contribuer ; rendre `True` est sans risque parce que la MAGNITUDE re-evalue la
+        MEME condition au coup (`nearby_enemies_condition(att_ctx) is not True -> None`), donc la
+        contribution reste exacte. MEME regime que `EnmityForTheUnworthy` et `SupaCyborkBody`."""
+        cond = self.nearby_enemies_condition(unit_state)
+        return True if cond is None else bool(cond)
 
     def create_effect_damage_bonus_for_attack(self, is_ranged: "bool | None" = None,
                                               has_moved: "bool | None" = None,

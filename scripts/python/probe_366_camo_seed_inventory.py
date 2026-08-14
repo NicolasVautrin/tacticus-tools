@@ -95,6 +95,26 @@ POSE_VECTOR: dict[str, tuple[str, str, str, str]] = {
         "IdunBattle.Entities.Abilities.AOwnerEffectTriggeredAbility$$CreateBehaviour"
         " (AmuletOfTheVoidwyrmAbility)",
         "AmountIsGreaterThanZero(summons/decoys allies ADJACENTS -- geometrique)"),
+    # #1015-r1 -- `CloseCombatWeakness_AddEffectAbility` (TriggeredAbilityType 0x46a = 1130, derivee
+    # du TRAIT `CloseCombatWeakness` 0x40b par le dict `GetTriggeredAbility` du `.cctor` de
+    # `StaticBattleRules.Trait`) derive d'`AOwnerEffectSpecificTriggeredAbility` et n'en surcharge
+    # QUE `$$GetEffectType`, dont le corps ENTIER est `return 0x46a`. Le reste vient de la BASE :
+    # `$$CreateTrigger = OnOwnerSpecificAbilityInit(this.AbilityType)` -> `AddEffect(owner,
+    # GetEffectType())` NU. La pose est donc d'INIT et INCONDITIONNELLE : l'instance existe TOUJOURS
+    # cote natif des que le porteur a le trait, et son absence a la capture serait un TROU -- c'est
+    # exactement ce que couvre `ABILITY_INIT_OWNER_EFFECTS["CloseCombatWeakness"]`.
+    # `flip = "sim"` : la condition est GEOMETRIQUE (`HasAdjacentEnemies(Caster, CasterTile)`), donc
+    # elle passe de FAUSSE a VRAIE des que la prediction simule une tuile AU CONTACT -- meme famille
+    # qu'`AmuletOfTheVoidwyrm` et `SupaCyborkBody`, et c'est la raison meme du drapeau
+    # `active_condition_ported`.
+    "CloseCombatWeakness_ReduceDmg": (
+        "init", "sim",
+        "IdunBattle.Entities.Abilities.AOwnerEffectSpecificTriggeredAbility$$CreateTrigger"
+        " (CloseCombatWeakness_AddEffectAbility, OnOwnerSpecificAbilityInit(0x46a))",
+        "NOT HasEffect(Owner@+0x30, 0x478 SuppressCloseCombatWeakness) & "
+        "(HasAdjacentEnemies(Caster@+0x48, CasterTile@+0x50) | "
+        "HasEffect(Owner@+0x30, 0x469 CloseCombatWeakness_StartedTurnAdjacentToEnemy)) -- "
+        "geometrique, donc elle bascule a la tuile SIMULEE"),
     # #547-r2 -- les DEUX classes entrees par la PR #867 sans verdict de pose. Toutes deux sont
     # posees par le `ExecuteBehaviour` d'une ability ACTIVE (un CAST), jamais par un trigger d'init
     # : leur absence a la capture est donc FIDELE, et le rail de seed n'a rien a couvrir.

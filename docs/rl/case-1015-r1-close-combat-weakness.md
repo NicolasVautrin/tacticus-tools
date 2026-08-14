@@ -130,6 +130,35 @@ RELIQUE (#237). Le port lit la source AMONT (`trait_var`), comme `MartialKatahDm
 | `engine/playbook/close_combat_weakness.py` + `adjacent_unit_preference.TRIGGERED_MOVE_PLAYBOOKS` | face DÉCISION (MOVE, -40 / ennemi adjacent) |
 | `engine/entities/triggered_ability_type.py` | `TRAIT_TRIGGERED_ABILITY_IDS["CloseCombatWeakness"]` — sans quoi le dispatcher n'itère jamais 1130 |
 
+### `active_condition_ported` : pourquoi `True`, et pourquoi le drapeau seul ne suffit PAS
+
+`$$CreateActiveCondition` a pour corps ENTIER `return NearbyEnemiesCondition()` — **un seul appel,
+aucun autre nœud**. Trois conséquences, dans cet ordre :
+
+1. **Le flag capté est PÉRIMÉ** (case-322), pour une raison GÉOMÉTRIQUE : le terme dominant est
+   `HasAdjacentEnemies(Caster@+0x48, CasterTile@+0x50)`. Le natif réécrit
+   `EffectComponent.IsActive @+0x5c` à CHAQUE refresh, `RefreshEffectTrigger.Simulation` comprise
+   (`IdunBattle.Operations.SimulateEffectsOperation$$RefreshSimulatedEffects`) — donc une prédiction
+   à une TUILE CANDIDATE le recalcule. S'y fier fermerait le port sur exactement le plan qui compte :
+   aller au contact et taper. ⇒ `active_condition_ported = True`, **même arbitrage et même nœud natif
+   que `SupaCyborkBody_CritDmgReductionEffect`** (`HasAdjacentEnemies(Owner, Tiles(Owner))`).
+2. **Le drapeau n'est HONORÉ que si `is_active` est surchargée**, et
+   `test_refresh_active_flag_discriminant_offline` l'exige (`flagged < overrides`). Posé seul, il
+   fait s'en remettre au défaut `BaseEffect.is_active -> True` — une valeur INVENTÉE, « un inerte
+   capté transformé en contributeur », exactement ce que proscrit l'encadré d'`effects/base.py`.
+   **Première livraison : le drapeau était posé SANS la surcharge ⇒ cliquet rouge.** Corrigé.
+3. **La condition est COMMUNE aux DEUX branches** : le `If(IsMeleeAttack, …)` vit dans la MAGNITUDE
+   (`CreateEffectDamageBonusForAttack`), pas dans la condition. Le vert LIVE de la branche mêlée
+   (×0.50 bit-exact, écart 0) couvre donc la `CreateActiveCondition` **en entier** — la branche
+   RANGED non confrontée n'ouvre aucun régime de condition qui ne l'aurait pas été. C'est ce qui
+   rend le drapeau sûr malgré `#1015-r3`.
+
+`is_active` rend `True` sur **clé absente** : le `unit_state` de
+`RefreshEffectsOperation$$ShouldBeActive` ne porte ni le compteur géométrique ni les effets du
+porteur (ils vivent dans le contexte PER-COUP). Rendre `False` ferait DISPARAÎTRE l'instance
+d'`active_effects` et avec elle toute chance de contribuer ; rendre `True` est sans risque parce que
+la MAGNITUDE ré-évalue la MÊME condition au coup. Même régime que `EnmityForTheUnworthy`.
+
 **Nature du coup INCONNUE ⇒ aucune contribution.** Le natif n'a pas d'état « inconnu »
 (`IsMeleeAttack` se dérive de `GetAbilityAttackRangeType`), donc sa branche `else` couvre tout ce qui
 n'est pas mêlée. Côté port, `is_ranged is None` veut dire « la façade appelante n'a pas threadé la
