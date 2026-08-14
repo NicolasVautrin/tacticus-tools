@@ -259,7 +259,10 @@ from ..loki.reactivate_overwatch import (EarlyWarningOverrideReactivateOverwatch
                                         EWO_REACTIVATE_OVERWATCH,
                                         InescapableDeathReactivateOverwatch,        # #924 (necroDestroyer)
                                         InescapableDeathHitReductionPurge,
-                                        INESCAPABLE_DEATH_EFFECT)
+                                        INESCAPABLE_DEATH_EFFECT,
+                                        FiringPositionReactivateOverwatch,          # #1077 (Havoc)
+                                        FiringPositionHitReductionPurge,
+                                        FIRING_POSITION_REACTIVATE_OVERWATCH)
 from ..loki.cosmic_horror import (CosmicHorrorOnKillAbility,           # passif genesPatriarch (GS Cults)
                                  CosmicHorrorOnMoveAbility)
 from ..loki.possession import PossessionSummonOnKillAbility            # #955 (passif blackPossession)
@@ -272,6 +275,7 @@ from ..loki.fabricator_claw_array import FabricatorClawArrayAbility    # #303 (p
 from ..loki.reanimation_protocols import ReanimationProtocolsAbility  # #1016 (passif necron 1008)
 from ..loki.champion_of_the_feast import ChampionOfTheFeastAbility    # #419-r6-r2 (passif templSwordBrother)
 from ..loki.fury_of_the_ancients import FuryOfTheAncientsAbility      # #927 (passif bloodMephiston)
+from ..loki.mischief_makers import MischiefMakersAbility             # #1077 (passif Nurglings)
 from ..loki.sanguinary_priest import SanguinaryPriestAbility          # #921 (passif bloodSanguinary)
 from ..loki.medicus_ministorum import MedicusMinistorumAbility        # #958 (passif adeptHospitaller)
 from ..loki.aggressive_onslaught import (AggressiveOnslaughtPrepareAbility,   # #958 (passif
@@ -1076,6 +1080,19 @@ ABILITY_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
     # ...$$CreateBehaviour / ...$$GetTarget / ...$$GetSecondTargetSelector /
     # ...$$GetDamagePredictionFormula / ...$$GetPossibleTargets).
     "FuryOfTheAncients": [FuryOfTheAncientsAbility],
+    # MischiefMakers (passif du summon `deathSmnNurglings` / npc `deathNpc3Nurglings`,
+    # `TriggeredAbilityType` 0x5bf = 1471 -- #1077) : SECOND poseur d'un `HealBlockingEffect`, ce
+    # qui ferme le residu nomme de #927 (l'effet 1469 entre a `EFFECT_CLASSES` dans le meme commit).
+    #   `On(9 = Attack, ownerNeedsToBeAlive = 1) & get_OwnerIsActor & IsNormalAttack`
+    #   -> `AddEffect_TURNS(1469, targets = Target@+0x60, source = Owner@+0x30,
+    #                       turns = TurnsFromRounds(GetNumberConstant(0x45 = nrOfRounds)))`
+    #      & `Maybe(AddEffect_OPTIONS(1065 Pinned, memes selecteurs, options = <ZEROEE>),
+    #              Get(GetNumberConstant(0x2a = chance)))`
+    # ⚠ Les deux `AddEffect` sont deux SURCHARGES differentes (`turns` vs `options`), tranchees par
+    # leurs xrefs entrantes -- le pseudo-C les affiche a l'identique. Et l'ORDRE d'execution est
+    # l'INVERSE de l'ordre de construction : le `Maybe` (donc le `next_bool`) passe en SECOND.
+    # Cf. loki/mischief_makers.py.
+    "MischiefMakers": [MischiefMakersAbility],
     # SanguinaryPriest (passif de kit `bloodSanguinary` << Nicodemus >>, `TriggeredAbilityType`
     # 0x510 = 1296 -- #921) = TROISIEME consommateur d'`On(0x1c = ArrivedAtFinalTile)`, mais son
     # `CreateTrigger` porte UN TERME DE PLUS que celui de `SpiritualLeader` :
@@ -2267,6 +2284,17 @@ EFFECT_TRIGGERS: dict[int, list[type[EffectTrigger]]] = {
     # entrees `methodPointers`, aucune sur ce slot) -> UN seul terme la ou 1145 en a deux.
     INESCAPABLE_DEATH_EFFECT: [InescapableDeathReactivateOverwatch,       # 1018 -> re-entree + -1 coup
                                InescapableDeathHitReductionPurge],       # 1018 -> purge du 1019
+    # #1077 -- `FiringPosition_ReactivateOverwatchEffect` (1150), passif `FiringPosition` du summon
+    # `blackSmnHavoc` / npc `blackNpc4Havoc`. TROISIEME sous-classe de la MEME base native, donc
+    # les MEMES deux `Triggered()`. Les points de variation sont LUS, jamais recopies du voisin :
+    # `GetHitReductionEffectType` = 0x47f (1151, pas 1146 ni 1019) -- corps `mov eax,0x47f ; ret`
+    # DEDUPLIQUE par l'ICF avec `NeedsMoreDakka_PendingAttackEffect$$GetTriggeredAbilityType`, donc
+    # ABSENT de la table de symboles sous son nom : l'appartenance vient des DEUX xrefs DATA du
+    # corps, dont l'une est adjacente au `.ctor` de cette classe. Et `LegitDeathReasons` n'est PAS
+    # surcharge (bloc `methodPointers` = 2 entrees EXACTEMENT, `.ctor` + ce corps) -> UN seul terme,
+    # comme 1018. `hitsReduction` = 2 (constante de `FiringPosition`), pas 1.
+    FIRING_POSITION_REACTIVATE_OVERWATCH: [FiringPositionReactivateOverwatch,  # 1150 -> re-entree + -2 coups
+                                           FiringPositionHitReductionPurge],  # 1150 -> purge du 1151
     # `GhostEffect` -- le time-ghost, effet dont le PORTEUR est une TUILE. UNE SEULE classe native
     # (0 sous-classe, `classes.tsv` re-derive) mais DEUX effectTypes, donc deux entrees ICI :
     # 1186 `TimeFlux_Revive` (`thousTerminator`, #213) et 1284 `EchoesFromTheWarp_Revive`

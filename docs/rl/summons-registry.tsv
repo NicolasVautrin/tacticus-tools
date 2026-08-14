@@ -83,7 +83,7 @@ darkaSmnWatcher	DarkAngels	Imperial	None	trait	PermaDeath		1
 deathPoxwalker	DeathGuard	Chaos	None	passif	CursedOfTheWalkingPox		1	
 deathPoxwalker	DeathGuard	Chaos	None	trait	Summon		1	
 deathPoxwalker	DeathGuard	Chaos	None	trait	ContagionsOfNurgle		1	
-deathSmnNurglings	DeathGuard	Chaos	None	passif	MischiefMakers		0	
+deathSmnNurglings	DeathGuard	Chaos	None	passif	MischiefMakers		1	
 deathSmnNurglings	DeathGuard	Chaos	None	trait	Summon		1	
 deathSmnNurglings	DeathGuard	Chaos	None	trait	ContagionsOfNurgle		1	
 deathSmnNurglings	DeathGuard	Chaos	None	trait	Daemon		1	

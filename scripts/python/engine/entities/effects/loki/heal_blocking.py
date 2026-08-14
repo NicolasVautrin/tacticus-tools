@@ -44,11 +44,10 @@ QUI LIT `HasHealBlockers` (les trois gates natifs, tous deja portes en STRUCTURE
   * le gate de RESURRECTION (`operations/triggers/revive_effect.py`).
 C'est la triade exacte de l'i2 (« cannot be revived, healed, repaired »).
 
-RESIDU NOMME : `MischiefMakersEffect` (`EffectType` 0x5bd = 1469) est le SECOND porteur de cette
-base. Il n'est PAS inscrit au registre `EffectFactory` par cette tranche (hors perimetre : une
-ability par tranche). Consequence UNILATERALE et identique a l'etat anterieur : tant qu'il n'y est
-pas, un porteur de 1469 reste soignable cote port alors que le natif le refuse -- degradation
-PERMISSIVE, la meme que celle que `has_heal_blockers` avait pour TOUS les effets avant #927.
+RESIDU #927 FERME PAR #1077 : `MischiefMakersEffect` (`EffectType` 0x5bd = 1469), SECOND porteur de
+cette base, est desormais inscrit au registre `EffectFactory` (`EFFECT_CLASSES["MischiefMakers"]`).
+La degradation PERMISSIVE qui restait -- un porteur de 1469 soignable cote port alors que le natif
+le refuse -- est levee.
 """
 from __future__ import annotations
 
@@ -82,3 +81,25 @@ class FuryOfTheAncientsEffect(HealBlockingEffect):
 
     i2 : « Can neither get their Health restored nor be revived »
     (`UnitEffects/FuryOfTheAncients_Description`)."""
+
+
+@dataclass
+class MischiefMakersEffect(HealBlockingEffect):
+    """`IdunBattle.Entities.Effects.Loki.MischiefMakersEffect` (`EffectType` 0x5bd = 1469), pose par
+    le passif `MischiefMakers` (`TriggeredAbilityType` 0x5bf = 1471) des Nurglings sur la cible de
+    CHAQUE attaque normale, pour `TurnsFromRounds(nrOfRounds = 1)`. #1077.
+
+    ⚠ **LA HIERARCHIE VIENT DE `classes.tsv`, ET LE PSEUDO-C DIT LE CONTRAIRE.** Le `.ctor` decompile
+    est `IdunBattle.Entities.Effects.Loki.DeathwingEffect$$.ctor(this, 0x5bf)` -- or `DeathwingEffect`
+    derive de `BaseEffect` et porte QUATRE overrides de DEGAT. Le corps est simplement DEDUPLIQUE par
+    l'ICF (meme forme `<base>..ctor(this, AbilityOrEffect(<abilityType>), true)` pour trois `.ctor`
+    distincts). La table des CLASSES tranche : `MischiefMakersEffect -> HealBlockingEffect`.
+
+    ⚠ **DEUX ENUMS, DEUX ORDINAUX, ET LES DEUX SONT VALIDES DES DEUX COTES.** Le `.ctor` passe
+    `0x5bf` = le `TriggeredAbilityType` SOURCE (1471 `MischiefMakers`), pas son propre `EffectType` ;
+    lire `0x5bf` en `EffectType` nommerait `Drachnyen_ExtraAttack`, et lire `0x5bd` (l'EffectType de
+    l'effet) en `TriggeredAbilityType` nommerait `MawClawsOfThyrax`. Aucune des deux confusions ne
+    leverait d'erreur.
+
+    i2 (`Abilities/MischiefMakers_CurrentLevelDescription`) : « Targets of the Nurglings' normal
+    attacks cannot be revived, healed, repaired, or otherwise restore Health for 1 round. »"""

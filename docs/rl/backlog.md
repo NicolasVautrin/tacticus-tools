@@ -4984,3 +4984,30 @@ pas d'erreur : il rend **zéro**, et un zéro se lit « rien à signaler ».
   voie (la face COMBAT, elle, resterait juste).
   FOYER: scripts/python/probe_1073_synaptic_insight.py, scripts/python/engine/playbook/prediction/normal_attack.py
   BLOCAGE: aucun
+
+- **#1077-r1 — le SECOND site d'emission de `On(9 = Attack)` ne thread AUCUN canal de nature d'attaque.** `[opus]`
+  Point d'entree : `docs/rl/case-1077-firing-position-mischief-makers.md` Sec.4 +
+  `scripts/python/engine/runner/operations/triggers/dispatch/attack.py::after_hit_ability_attack`.
+  #1077 a thread `is_normal_attack=True` sur le site de la voie NORMALE (`damage_ops/normal.py`),
+  sans quoi le gate `IsNormalAttack` de `MischiefMakersAbility` ne pouvait JAMAIS etre satisfait.
+  Le second emetteur de `On(9)` -- `after_hit_ability_attack`, voie ability/splash -- le laisse a
+  `None` : le consommateur s'y TAIT (tri-etat RESTRICTIF, nomme). C'est correct pour une ability,
+  mais le commentaire de ce site parle d'une voie « normal-like » que la tranche n'a PAS qualifiee.
+  Si une attaque normale y passait, le passif s'y tairait a tort -- silencieusement, comme le trou
+  d'origine. Poser `False` en dur y serait une AFFIRMATION non mesuree : ce qui manque est la
+  qualification des appelants (lesquels sont « normal-like », et que vaut alors le gate natif).
+  FOYER: scripts/python/engine/runner/operations/triggers/dispatch/attack.py
+  BLOCAGE: aucun
+
+- **#1077-r2 — le `Pinned` de `MischiefMakers` n'a jamais ete observe POSE (le tirage a 25 % n'est pas tombe).** `[opus]`
+  Point d'entree : `docs/rl/case-1077-firing-position-mischief-makers.md` Sec.5 +
+  `scripts/python/probe_1077_firing_position_mischief_makers.py --volet mischief`.
+  Le `Maybe(AddEffect(1065 Pinned, ..., options = <ZEROEE>), Get(chance = 25))` est porte et son
+  TIRAGE est confronte -- l'etat du MT19937 apres l'attaque vaut 7 cote natif comme cote port,
+  contre 6 quand l'ability est retiree : exactement UN `next_bool`, au bon rang. Mais la POSE
+  elle-meme n'a pas ete vue : sa DUREE (l'overload `options` passe une struct ZEROEE, donc le port
+  retombe sur `DefaultAmountOfRounds(Pinned)` -- valeur NON confrontee) et son interaction avec
+  l'immunite restent NON OBSERVEES. Montage : rejouer le volet en balayant les seeds jusqu'a ce que
+  le tirage tombe, puis confronter la duree live de 1065 sur la cible.
+  FOYER: scripts/python/probe_1077_firing_position_mischief_makers.py
+  BLOCAGE: aucun

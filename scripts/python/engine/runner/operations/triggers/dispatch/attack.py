@@ -319,7 +319,8 @@ def finish_attack_triggers(state: State, attacker_id: int, target_id: int,
                            is_crit: bool = False, profiles=None,
                            health_damage: Optional[int] = None,
                            was_block: bool = False,
-                           ability_type: Optional[int] = None) -> list[dict]:
+                           ability_type: Optional[int] = None,
+                           is_normal_attack: Optional[bool] = None) -> list[dict]:
     """Vecteur `On(Attack = 9)` — 1er des DEUX events que `IdunBattle.Operations.
     FinishAttackOperation$$Execute` emet a la CLOTURE d'une attaque, et le seul des deux qui soit
     INCONDITIONNEL (le 2e, `On(10)`, est gate `currentAttack@+0x2c` : cf.
@@ -364,11 +365,22 @@ def finish_attack_triggers(state: State, attacker_id: int, target_id: int,
     `health_damage` = `HealthDamageFromEvent()` (part SANTE, bouclier deja defalque) ; `was_block` =
     `WasBlock()`. `ability_type` reste None sur la voie NORMALE (le port ne pose pas le kind
     normal-attaque sur ce vecteur — inchange par #437 : `LordOfTempestsAddIceAbility` branche 2 gate
-    `kind == 1013` et ne doit fire que sur le smite, voie ABILITY)."""
+    `kind == 1013` et ne doit fire que sur le smite, voie ABILITY).
+
+    #1077 — `is_normal_attack` EST le canal du gate natif `IsNormalAttack(CurrentAbility@
+    DSLSelectors+0x88)`, et il est THREADE ici alors qu'`ability_type` ne l'est pas. Ce n'est pas
+    une redondance : les deux portent le meme FAIT natif, mais `ability_type` est un ORDINAL dont
+    la valeur `1013` est deja SIGNIFIANTE pour deux consommateurs de ce vecteur — le poser casserait
+    `LordOfTempestsAddIceAbility` (qui gate exactement `kind == 1013`, cf. ci-dessus) et
+    `VitarusAbility` (dont `_current_ability_is_accepted` code `None` comme PROXY de « voie
+    normale » et rendrait False). Le booleen, lui, a un rayon de souffle MESURE de 1 : sur les 34
+    consommateurs de `On(9)`, `MischiefMakersAbility` est le SEUL a le lire.
+    TRI-ETAT : `None` = canal NON threade par l'appelant -> le consommateur se TAIT (degradation
+    RESTRICTIVE et nommee), il ne suppose pas une attaque normale."""
     ev = TriggerEvent(EventTriggerType.Attack, attacker_id, target_id,
                       ranged=ranged, profile=profile, is_crit=is_crit, profiles=profiles,
                       health_damage=health_damage, was_block=bool(was_block),
-                      ability_type=ability_type,
+                      ability_type=ability_type, is_normal_attack=is_normal_attack,
                       # `AttackUsedAttackDamage` (`AbilityEntities+0xf9`) = le MEME fait que le gate
                       # `currentAttack@+0x2c` d'`On(10)`. CE site EST la sortie d'
                       # `IdunBattle.Operations.AttackDamageOperation$$Execute`, c'est-a-dire le foyer

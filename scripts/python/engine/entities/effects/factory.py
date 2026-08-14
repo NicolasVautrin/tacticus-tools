@@ -28,7 +28,7 @@ from .loki.blood_chalice import BloodChaliceExtraPiercingEffect, BloodChaliceHea
 from .loki.champion_of_the_feast import ChampionOfTheFeastReduceArmorEffect
 from .loki.close_combat_weakness import (                  # #1015-r1 (trait T'AU, 16 porteurs npc)
     CloseCombatWeaknessReduceDmgEffect, CloseCombatWeaknessStartedTurnAdjacentToEnemyEffect)
-from .loki.heal_blocking import FuryOfTheAncientsEffect
+from .loki.heal_blocking import FuryOfTheAncientsEffect, MischiefMakersEffect   # #927, #1077
 from .loki.counter_attack import (GrimRetributionCounterAttackEffect,
                                   UnwaveringSentinelCounterAttackEffect,
                                   WireweaveNetCounterAttackEffect)
@@ -1368,6 +1368,14 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # que lit `IdunBattle.Entities.UnitExtensions$$HasHealBlockers` -> gates SOIN / REPARATION /
     # RESURRECTION. Aucune contribution de degat. Detail : entities/effects/loki/heal_blocking.py.
     "FuryOfTheAncients": FuryOfTheAncientsEffect,
+    # 0x5bd = 1469 (#1077, residu NOMME de #927) : `IdunBattle.Entities.Effects.Loki.
+    # MischiefMakersEffect`, SECOND porteur de `HealBlockingEffect` (hierarchie LUE dans
+    # `frida/classes.tsv` -- meme piege ICF que sa soeur ci-dessus : son `.ctor` decompile designe
+    # `DeathwingEffect`). Aucune contribution de degat, aucun override : son SEUL comportement est
+    # l'inscription au registre de bloqueurs de soin. Sans cette entree, un porteur de 1469 restait
+    # SOIGNABLE cote port alors que le natif le refuse -- degradation PERMISSIVE, desormais levee.
+    # Pose par `MischiefMakersAbility` (`runner/operations/triggers/loki/mischief_makers.py`).
+    "MischiefMakers": MischiefMakersEffect,
     "AugmentedAssault_ReduceArmor": AugmentedAssaultReduceArmorEffect,
     "AncestralFortune_ExtraCritChance": AncestralFortuneExtraCritChanceEffect,
     # HealingBalms (passif `spaceWolfPriest` "Baldr", TriggeredAbilityType 1502) -- les DEUX
@@ -2769,6 +2777,20 @@ ABILITY_INIT_OWNER_EFFECTS: dict[str, list[str]] = {
     # `InescapableDeathAbility$$GetEffectType` = `return 0x3fa` -> l'effet 1018 est pose sur le
     # PORTEUR a l'init. Exactement le patron `IconOfObstinacy` / `PathOfCommand` ci-dessus.
     "InescapableDeath": ["InescapableDeath_Effect"],
+    # #1077 -- `IdunBattleLogic.Entities.Abilities.Triggered.Loki.FiringPositionAbility`, parent
+    # `IdunBattle.Entities.Abilities.AOwnerEffectTriggeredAbility` (LU dans `classes.tsv`). La
+    # classe ne DECLARE qu'UNE methode -- son bloc `methodPointers` fait UNE entree, `GetEffectType`,
+    # encadree par `FinalVengeance_UnitEffect` avant et `UnityEngine...RequiredByNativeCodeAttribute`
+    # apres -- de corps ENTIER `return 0x47e` : l'appariement ability -> effet est LU, pas devine.
+    # Tout le reste vient de la base : `$$CreateTrigger` = `OnOwnerSpecificAbilityInit(this@0x10)` et
+    # `$$CreateBehaviour` = `If(CreateCondition(), AddEffect(GetEffectType(), AbilityState(Owner),
+    # source = Owner@<DSLSelectors+0x30>, targets = Owner@<+0x30>, turns = <Nullable ZEROE>))`
+    # -> owner-effect PERMANENT pose a l'init. Exactement le patron `InescapableDeath` / `ToughToKill`.
+    # ⚠ HOMONYMIE : la CLE est un nom de `TriggeredAbilityType` (0x478 = 1144), la VALEUR un nom
+    # d'`EffectType` (0x47e = 1150). Et 1144 est AUSSI `ActiveAbilityType.BioMinefield`, deja au
+    # registre `ABILITY_CLASSES` -- ne jamais rapprocher ces deux-la par l'ordinal.
+    # Porteurs : summon `blackSmnHavoc` et npc `blackNpc4Havoc` (confrontable `--explicit-stats`).
+    "FiringPosition": ["FiringPosition_ReactivateOverwatch"],
     # #926 -- `IdunBattleLogic.Entities.Abilities.Active.Loki.FirstAmongTraitorsAbility`, parent
     # `IdunBattle.Entities.Abilities.AOwnerEffectTriggeredAbility` (`classes.tsv`). La classe ne
     # DECLARE que `GetEffectType` (corps entier : `return 0x427`) et `GetRange` : ni `CreateTrigger`
