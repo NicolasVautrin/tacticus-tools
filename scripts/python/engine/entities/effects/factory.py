@@ -2032,6 +2032,25 @@ ABILITY_INIT_OWNER_EFFECTS: dict[str, list[str]] = {
     # (sa `CreateActiveCondition` est celle de la base, toujours vraie), donc le seed y est
     # idempotent -- c'est un FILET pour les chemins purement offline.
     "NornCrown": ["NornCrown"],
+    # #1013-r2 -- `TheArdentBlade_InitAbility` (parent `IdunBattle.Entities.Abilities.
+    # BaseTriggeredAbility`, `frida/classes.tsv`) ne surcharge PAS `CreateTrigger` : elle prend le
+    # patron `OnOwnerSpecificAbilityInit(<AbilityType>)` de la famille. Son `$$CreateBehaviour` est
+    # `AddEffect(0x5b6 = 1462 EffectType.TheArdentBlade, AbilityStateReference, source = Owner@+0x30,
+    # targets = Owner@+0x30, options = &<32 octets a ZERO>) op_BitwiseAnd ActivateEffect(Owner@+0x30,
+    # 0x5b6)` -- owner-effect PERMANENT **et ACTIF**, ce qui est exactement l'etat qu'un
+    # `_materialize_owner_effect` produit (le `ActivateEffect` est donc un no-op cote port, comme il
+    # l'est cote natif sur une instance fraiche).
+    # ⚠ 1462 N'A AUCUNE CLASSE D'EFFET NATIVE (inventaire exhaustif : 11 symboles `ArdentBlade` au
+    # build `rnca9r7q6c`, aucun sous `Entities.Effects.*`). C'est un JETON A UN COUP -- il ne modifie
+    # aucune stat ; il n'existe que pour etre relu par le `HasEffect(Owner, 0x5b6, onlyActive: 1, 6)`
+    # du `CreateTrigger` de la SECONDE classe (`RELIC_ABILITY_TRIGGERS["TheArdentBlade"]`) et eteint
+    # par le `DeactivateEffect` de son behaviour. Rien a inscrire dans `EFFECT_CLASSES` : y mettre une
+    # classe serait inventer un modificateur que le natif n'a pas.
+    # ⚠ CE SEED N'EST PAS QU'UN FILET, et ici il est LOAD-BEARING : sans lui le trigger de la relique
+    # ne fire JAMAIS (son 5e conjoint exige l'effet). La relique arrive par la voie TERTIAIRE, donc
+    # il depend de la lecture de `ctx.tertiary_ability` par `_seed_ability_owner_effects` (acquise
+    # depuis #1005).
+    "TheArdentBlade": ["TheArdentBlade"],
     # #1012-r1 -- `HeadwoppasKillchoppaAbility$$CreateTrigger` (corps DEDUPLIQUE, generique
     # `OnOwnerSpecificAbilityInit(this.<AbilityType>)`) + `$$CreateBehaviour` =
     # `AddEffect(0x620 = 1568, AbilityStateReference, source = targets = Owner@+0x30,
