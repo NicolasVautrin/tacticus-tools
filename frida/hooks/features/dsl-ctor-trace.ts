@@ -24,6 +24,7 @@
 import {
     findClassAnywhere, findMethod, s, class_get_name, class_get_namespace, class_get_parent,
     class_get_methods, method_get_name, method_get_param_count, methodEntry, readMsgClass,
+    readMsgIdentity,
     domain_get, domain_get_assemblies, assembly_get_image, image_get_class_count, image_get_class,
 } from "../il2cpp/helpers.js";
 import { log } from "../runtime/diag.js";
@@ -49,8 +50,77 @@ let gateTargets: GateTarget[] | null = null;
 
 const listeners: InvocationListener[] = [];    // tous les hooks (detaches au disarm)
 
+// --- #1009-r3 — NOMMER les noeuds, pas seulement les chainer ---------------------------------
+//
+// CE QUE LE TRACEUR NE DISAIT PAS. Chaque appel etait enregistre en `{seq, m, ret, args}` ou
+// `ret`/`args` sont des POINTEURS : ils suffisent a RECONSTRUIRE l'arbre (un arg est un enfant
+// SSI il egale le `ret` d'un appel anterieur) mais ne NOMMENT rien. Or #1009-r3 cherche
+// exactement un nom : le premier conjoint `<A>` de
+// `IdunBattleLogic.Entities.DSLTriggers$$IsSpecialActiveAbility`, alloue LOCALEMENT par cette
+// fonction (donc le champ de personne -> `classFields` ne peut pas le voir), au `.ctor` trivial
+// FONDU par l'ICF (donc introuvable par les tables). Sa forme
+// `<A>(sel) & op_LogicalNot(<B>(sel))` passe par `op_BitwiseAnd`, qui EST hooke : les deux
+// conjoints sortent donc en `args` de cet appel, sans nom.
+//
+// Le gate du MEME fichier faisait deja ce geste sur `this` (`readMsgClass(args[0])`) : le tag
+// n'est donc pas un mecanisme neuf, c'est le meme applique aux deux autres positions.
+//
+// ⚠ ON AJOUTE, ON NE REMPLACE PAS. `ret` et `args` restent des pointeurs bruts : ce sont EUX la
+// cle d'appariement parent->enfant de la reconstruction offline. Deux instances distinctes de la
+// meme classe portent le meme nom et des pointeurs differents — substituer le nom au pointeur
+// fusionnerait des noeuds distincts.
+//
+// ⚠ LE NOM PLEIN, pas le nom court. `readMsgClass` rend le nom COURT ; le build porte des
+// homonymes en pagaille (cinq `*Rarity` aux memes ordinaux, cf. #1039). On passe donc par
+// `readMsgIdentity` — MEME mecanisme (`*ptr` = `Il2CppClass*`), avec le namespace.
+
+/** Plancher de plausibilite d'un pointeur d'objet manage. HEURISTIQUE DECLAREE, pas une preuve :
+ *  elle ne sert qu'a EVITER DE DEREFERENCER les arguments qui sont des ENTIERS (un enum, un
+ *  index, un booleen passes en registre). Sans elle, chaque appel leverait plusieurs access
+ *  violations rattrapees — correct mais couteux, dans un hook. Un pointeur qui passe ce filtre
+ *  n'est pas pour autant un objet : c'est le NOM lu qui tranche. */
+const PTR_PLANCHER = 0x10000;
+
+/** `true` si le texte ressemble a un identifiant de classe C# et pas a des octets au hasard.
+ *  `class_get_name` sur une adresse qui n'est pas un `Il2CppClass*` rend du garbage — souvent
+ *  imprimable. C'est le seul filtre qui separe « nomme » de « n'importe quoi ». */
+function nomPlausible(x: string): boolean {
+    if (x.length === 0 || x.length > 160) return false;
+    return /^[\x20-\x7e]+$/.test(x) && /^[A-Za-z_<]/.test(x);
+}
+
+/** Nom PLEIN de la classe d'un pointeur d'objet, ou `null` = PAS NOMME.
+ *
+ *  TRI-ETAT, et il compte : `null` dit « ce pointeur n'a pas ete nomme » (entier, adresse
+ *  invalide, garbage), ce qui est TRES different d'un nom vide ou d'un `"?"`. Le consommateur
+ *  de #1009-r3 doit pouvoir distinguer « `<A>` n'a pas de nom lisible » de « `<A>` s'appelle X ».
+ *
+ *  Parametree par son lecteur pour rester EXECUTABLE hors Frida
+ *  (`tools/probe-1072-capteurs-fenetre.ts`). */
+export function classTagOf(
+    lire: (p: NativePointer) => { ns: string; cls: string },
+    p: NativePointer,
+): string | null {
+    try {
+        if (p.isNull()) return null;
+        const v = p.toString();
+        // Compare en hexa : `NativePointer` n'expose pas d'entier 64 bits sur.
+        if (v.length <= 2 || parseInt(v, 16) < PTR_PLANCHER) return null;
+        const id = lire(p);
+        if (!nomPlausible(id.cls)) return null;
+        if (id.ns.length > 0 && !nomPlausible(id.ns)) return id.cls;
+        return id.ns ? id.ns + "." + id.cls : id.cls;
+    } catch { return null; }
+}
+
 // Etat de capture. La logique de bataille est mono-thread -> une pile de casts suffit.
-interface Call { seq: number; m: string; ret: string; args: string[]; }
+interface Call {
+    seq: number; m: string; ret: string; args: string[];
+    /** #1009-r3 — nom PLEIN de la classe du RETOUR ; `null` = pas nomme. */
+    retCls: string | null;
+    /** #1009-r3 — meme chose, position par position, aligne sur `args`. */
+    argCls: Array<string | null>;
+}
 interface Cast { ability: string; calls: Call[]; }
 const castStack: Cast[] = [];        // casts en cours (nesting -> profondeur)
 const completed: Cast[] = [];        // casts termines (retour RPC)
@@ -152,14 +222,27 @@ function ctorOnEnter(this: InvocationContext, args: InvocationArguments, nargs: 
     if (castStack.length === 0) { (this as any)._cap = false; return; }
     (this as any)._cap = true;
     const a: string[] = [];
-    for (let i = 0; i < nargs; i++) a.push(args[i].toString());
+    const ac: Array<string | null> = [];
+    for (let i = 0; i < nargs; i++) {
+        a.push(args[i].toString());
+        // #1009-r3 — nomme A L'ENTREE : les arguments sont des noeuds DEJA construits, donc
+        // vivants a cet instant. C'est aussi la seule position ou l'on voit les DEUX conjoints
+        // d'un `op_BitwiseAnd`.
+        ac.push(classTagOf(readMsgIdentity, args[i]));
+    }
     (this as any)._a = a;
+    (this as any)._ac = ac;
 }
 function ctorOnLeave(this: InvocationContext, retval: InvocationReturnValue, name: string): void {
     if (!(this as any)._cap) return;
     const cast = castStack[castStack.length - 1];
     if (!cast || totalCalls >= MAX_CALLS) return;
-    cast.calls.push({ seq: seq++, m: name, ret: retval.toString(), args: (this as any)._a });
+    cast.calls.push({
+        seq: seq++, m: name, ret: retval.toString(), args: (this as any)._a,
+        // #1009-r3 — le RETOUR ne peut se nommer qu'ICI : l'objet n'existe pas a l'entree.
+        retCls: classTagOf(readMsgIdentity, retval as unknown as NativePointer),
+        argCls: (this as any)._ac,
+    });
     totalCalls++;
 }
 
@@ -212,9 +295,23 @@ function disarm(): unknown {
     return { ok: true, disarmed: true };
 }
 
-/** Renvoie les casts captures (chacun = {ability, calls:[{seq,m,ret,args}]}) pour reconstruction offline. */
+/** Renvoie les casts captures (chacun = {ability, calls:[{seq,m,ret,args,retCls,argCls}]}) pour
+ *  reconstruction offline.
+ *
+ *  #1009-r3 — `tagging` dit ce que le TAG a mordu. Sans lui, un `retCls: null` partout serait
+ *  indiscernable d'un capteur non arme : le consommateur croirait avoir mesure « aucun nom » la
+ *  ou personne n'a rien lu. `namedRet === 0` avec `calls > 0` est le signal d'un tag CASSE. */
 function casts(): unknown {
-    return { ok: true, armed, capturedCasts: completed.length, casts: completed };
+    let calls = 0; let namedRet = 0; let args = 0; let namedArgs = 0;
+    for (const c of completed) {
+        for (const k of c.calls) {
+            calls++;
+            if (k.retCls !== null) namedRet++;
+            for (const t of k.argCls) { args++; if (t !== null) namedArgs++; }
+        }
+    }
+    return { ok: true, armed, capturedCasts: completed.length,
+        tagging: { calls, namedRet, args, namedArgs }, casts: completed };
 }
 
 export function register(ctx: Ctx): void {

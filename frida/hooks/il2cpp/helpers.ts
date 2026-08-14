@@ -125,6 +125,29 @@ export const class_is_valuetype = (() => {
     return p ? new NativeFunction(p, "int32", ["pointer"]) : null;
 })();
 
+/** `il2cpp_runtime_class_init(Il2CppClass*)` — ce que le jeu appelle LUI-MÊME au premier accès
+ *  (tout corps décompilé porte le motif
+ *  `if (*(int *)(DAT_xxx + 0xe4) == 0) il2cpp_runtime_class_init();`).
+ *
+ *  À quoi ça sert, concrètement : IL2CPP ne remplit ni le bloc de statiques ni la VTABLE d'une
+ *  classe tant qu'elle n'a pas été INITIALISÉE. Lire l'un ou l'autre à froid rend des ZÉROS — et
+ *  un zéro est une valeur du domaine, donc la panne est indiscernable de la mesure. C'est
+ *  exactement le trou mesuré par #982-r6 : `probe_916r1_effect_slots.py` ne mesure que 244 des
+ *  465 classes d'effet, les 221 autres n'ayant jamais été instanciées dans la session.
+ *
+ *  ⚠ C'est le SEUL wrapper de ce fichier qui ait un EFFET. Il ne doit jamais être appelé
+ *  implicitement : les appelants (`features/introspect.ts::resolveVtableSlot`,
+ *  `probes/static-field-probe.ts`) le mettent sous un drapeau explicite `forceInit`, et
+ *  PUBLIENT `initializedBefore` pour que le lecteur sache s'il tient une mesure ou un forçage.
+ *  Le foyer de cette discipline est `il2cpp/class-init.ts`, pas ici.
+ *
+ *  Résolu de façon TOLÉRANTE (null si l'export manque) : à l'appelant de dire « je n'ai pas pu
+ *  forcer », jamais de prétendre l'avoir fait. */
+export const runtime_class_init = (() => {
+    const p = il2cpp!.findExportByName("il2cpp_runtime_class_init");
+    return p ? new NativeFunction(p, "void", ["pointer"]) : null;
+})();
+
 /** `il2cpp_class_get_element_class(Il2CppClass*)` — pour un `T[]`, la classe de `T`.
  *
  *  À quoi ça sert, concrètement : décider le STRIDE d'un tableau managé sans le

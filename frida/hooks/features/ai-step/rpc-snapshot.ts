@@ -27,6 +27,9 @@ import { readDamagePredictionResult } from "../../game/damage-prediction.js";
 import {
     LIVE_PROBE as RARITY_PROBE, RarityResolution, resolveRarityChannel,
 } from "../../game/rarity.js";
+import {
+    LIVE_PROBE as TERTIARY_PROBE, TertiaryResolution, resolveTertiaryChannel,
+} from "../../game/tertiary-ability.js";
 import { queueOnMainThread } from "../../runtime/queue.js";
 import { abilityName } from "../../data/ability-names.js";
 import { TARGETING_RULE_BITS } from "../../data/targeting-rule-names.js";
@@ -35,9 +38,11 @@ import {
     ActionResult, ActionSpec, abilityStateLayout, activeAbilityMsgClass, applyOneAction,
     attackQueryOff, battleInServicesOff, dpqInServicesOff, entityServicesClass,
     extractTiles, extractTilePtrs,
+    currentOwnerIsEnvMi,
     entityExtClass, finishUnitTurnMsgClass, getMovableTilesMi, getTilesMi, getTurnsFinishedMi,
     getUnitMainTile,
-    invokeBool, invokeInt, isAliveMi, isCtrlByCurMi, LIST_SIZE, moveUnitMsgClass, movementQueryOff,
+    invokeBool, invokeBoolOrNull, invokeInt, isAliveMi, isCtrlByCurMi, LIST_SIZE,
+    moveUnitMsgClass, movementQueryOff,
     mowAbilityTypes, nullableLayoutOf, readAbilityState, readTileCoord, readTurnsEnded, resolveDpq,
     servicesOff,
     summarize, turnsEndedLayout, unitAbilityTypes,
@@ -275,6 +280,147 @@ function rarityResolution(): RarityResolution {
     }
     rarityResolutionCache = r;
     return r;
+}
+
+// --- #1036-r8 — le canal `tertiary`, résolu PAR NOM et LAZY ---------------------------
+//
+// LAZY pour la même raison que `rarityResolution()` juste au-dessus : la résolution dérive le
+// layout d'un `Nullable<T>` INFLATÉ et le nom PLEIN de son enum, et une classe jamais initialisée
+// n'a pas de disposition exploitable. Le premier appel de `combatSnapshot` arrive après le
+// warmup.
+//
+// La RÉSOLUTION vit dans `game/tertiary-ability.ts` — pas ici — parce qu'elle est paramétrée par
+// un `TertiaryProbe` et donc EXÉCUTABLE hors Frida
+// (`frida/tools/probe-1072-capteurs-fenetre.ts`). Poser le capteur sans ce levier l'aurait laissé
+// invalidable jusqu'à la prochaine fenêtre de reinject.
+let tertiaryResolutionCache: TertiaryResolution | null = null;
+function tertiaryResolution(): TertiaryResolution {
+    if (tertiaryResolutionCache) return tertiaryResolutionCache;
+    let r: TertiaryResolution;
+    try { r = resolveTertiaryChannel(TERTIARY_PROBE); }
+    catch (e) {
+        r = { channel: null, drift: [],
+            errors: ["RESOLUTION DU CANAL TERTIAIRE EN ECHEC (#1036-r8) : "
+                + (e as Error).message] };
+    }
+    tertiaryResolutionCache = r;
+    return r;
+}
+
+/** Ce qu'une `UnitConfiguration` dit de son ability TERTIAIRE. Tout est TRI-ÉTAT, et les deux
+ *  `null` d'`ability` sont séparés par `abilityHasValue` :
+ *
+ *    `abilityHasValue: false` ⇒ mesuré, cette configuration ne porte AUCUNE tertiaire ;
+ *    `abilityHasValue: null`  ⇒ PAS MESURÉ (le `Nullable` n'a pas pu être lu).
+ *
+ *  `level: 0` est une MESURE — `Idun.Shared.Level` code « verrouillé » par zéro, et c'est
+ *  exactement ce que porte toute entrée sans relique. `level: null` = pas mesuré. Confondre les
+ *  deux ferait écrire `extraDmgPct[1]` là où le montage demande `extraDmgPct[4]`. */
+interface TertiaryRow {
+    abilityHasValue: boolean | null;
+    /** Ordinal `IdunBattle.Entities.Enum.TriggeredAbilityType` — jamais `ActiveAbilityType`
+     *  (233 ordinaux partagés). L'enum est NOMMÉ en tête de réponse (`tertiaryAbilityEnum`). */
+    ability: number | null;
+    /** Les DEUX mots de 32 bits à l'offset du `Nullable`, bruts. DIAGNOSTIC SEUL : la lecture
+     *  passe par les offsets DÉRIVÉS. Ils existent pour qu'un layout qui bougerait se VOIE,
+     *  comme `remainingRaw` dans `readShields`. */
+    abilityRaw: [number, number] | null;
+    level: number | null;
+    multiplier: number | null;
+}
+
+/** Index `UnitConfiguration.Id` → ability tertiaire, lu sur la `BattleConfiguration` que le runner
+ *  conserve — la MÊME source que `readConfigActives` ci-dessous, et la même jointure.
+ *
+ *  POURQUOI CETTE VOIE ET PAS `readUnitConfig`. `readUnitConfig` remonte à la configuration par
+ *  `BattleQuery$$GetUnitConfig(visualId)`, et cherche cette `VisualId` en filtrant sur la classe
+ *  `IdunBattle.Entities.Components.UnitComponent` — qu'une MACHINE OF WAR ne porte pas (elle a un
+ *  `MachineComponent`). Elle rend donc `{error: "visualId introuvable"}` pour toute Machine,
+ *  c'est-à-dire pour les porteurs mêmes des abilities MYTHIQUES que ce canal existe pour servir.
+ *  Ici la clé est `BaseUnitComponent.Id`, écrite par `UnitFactory$$InitBaseComponent`
+ *  (`baseUnitComponent.Id = config.Id`) et lue par la fonction NOMMÉE `GetBaseUnitComponent`, qui
+ *  sert les deux familles.
+ *
+ *  (`readRefList` et `arrayElementInfo` sont déclarés PLUS BAS : ce sont des `function`
+ *  declarations, donc hissées. Le canal #1036-r8 reste ainsi d'un bloc, à la suite de #1039.) */
+function readConfigTertiary(runner: NativePointer): {
+    byId: Record<string, TertiaryRow>; layout: Record<string, unknown>;
+} {
+    const byId: Record<string, TertiaryRow> = {};
+    const res = tertiaryResolution();
+    const ch = res.channel;
+    const layout: Record<string, unknown> = {
+        channelResolved: ch !== null,
+        errors: res.errors, drift: res.drift,
+        unitsOff: ch ? ch.unitsOffset : -1,
+        configIdOff: ch ? ch.configIdOffset : -1,
+        componentIdOff: ch ? ch.componentIdOffset : -1,
+        tertiaryOff: ch ? ch.tertiaryOffset : -1,
+        nullableHasValueOff: ch ? ch.nullableHasValueOffset : -1,
+        nullableValueOff: ch ? ch.nullableValueOffset : -1,
+        levelOff: ch ? ch.levelOffset : -1,
+        levelValOff: ch ? ch.levelValOffset : -1,
+        multiplierOff: ch ? ch.multiplierOffset : -1,
+        // #1036-r8 — l'ABILITY est un TÉMOIN, le NIVEAU est le canal. `abilityReadable: false`
+        // avec `channelResolved: true` est un état NORMAL et documenté : le niveau est mesuré,
+        // l'ability ne l'est pas (typiquement parce que le `Nullable<T>` s'est résolu sur sa
+        // DÉFINITION OUVERTE, qui annonce ses deux champs à l'offset 0).
+        abilityReadable: ch ? ch.abilityReadable : false,
+        bcResolved: false,
+        bcUnits: null as number | null,
+        bcUnitsWithTertiary: null as number | null,
+        unreadableConfigs: 0,
+    };
+    if (ch === null) return { byId, layout };
+    let bc: NativePointer;
+    try { bc = runner.add(runnerOff.config).readPointer(); } catch { return { byId, layout }; }
+    if (bc.isNull()) return { byId, layout };
+    let unitList: NativePointer;
+    try { unitList = bc.add(ch.unitsOffset).readPointer(); } catch { return { byId, layout }; }
+    const configs = readRefList(unitList, 4096);
+    if (configs === null) return { byId, layout };
+    layout.bcResolved = true;
+    layout.bcUnits = configs.length;
+    let withTertiary = 0;
+    let unreadable = 0;
+    for (const cfg of configs) {
+        if (cfg.isNull()) continue;
+        let id: string | null = null;
+        try { id = readIl2cppString(cfg.add(ch.configIdOffset).readPointer()); } catch { /* */ }
+        if (!id) continue;
+        const row: TertiaryRow = {
+            abilityHasValue: null, ability: null, abilityRaw: null,
+            level: null, multiplier: null,
+        };
+        // Les mots BRUTS dès que l'offset du champ est connu — ils sont le diagnostic qui
+        // permettra de trancher le layout du `Nullable` à la fenêtre, même si la dérivation a
+        // échoué. Ils ne sont JAMAIS interprétés ici.
+        if (ch.tertiaryOffset >= 0) {
+            try {
+                const nul = cfg.add(ch.tertiaryOffset);
+                row.abilityRaw = [nul.readS32(), nul.add(4).readS32()];
+            } catch { unreadable++; }
+        }
+        if (ch.abilityReadable) {
+            try {
+                const nul = cfg.add(ch.tertiaryOffset);
+                const has = nul.add(ch.nullableHasValueOffset).readU8() !== 0;
+                row.abilityHasValue = has;
+                row.ability = has ? nul.add(ch.nullableValueOffset).readS32() : null;
+            } catch { unreadable++; }
+        }
+        try {
+            row.level = cfg.add(ch.levelOffset + ch.levelValOffset).readS32();
+        } catch { /* `level` reste null = PAS MESURE, jamais 0 (= verrouille) */ }
+        if (ch.multiplierOffset >= 0) {
+            try { row.multiplier = cfg.add(ch.multiplierOffset).readS32(); } catch { /* */ }
+        }
+        byId[id] = row;
+        if (row.abilityHasValue === true) withTertiary++;
+    }
+    layout.bcUnitsWithTertiary = withTertiary;
+    layout.unreadableConfigs = unreadable;
+    return { byId, layout };
 }
 
 /** Le STRIDE d'un `T[]` managé, DÉRIVÉ du tableau lui-même (`class_get_element_class` +
@@ -659,6 +805,32 @@ export function registerViewSnapshot(ctx: Ctx): void {
             } catch { return null; }
         };
 
+        // ABILITY TERTIAIRE (#1036-r8) — relique d'un héros, MYTHIQUE d'une Machine of War.
+        // Index lu UNE fois par appel : la `BattleConfiguration` ne bouge pas pendant la
+        // bataille (même argument que `readConfigActives` dans `unitAbilityStates`).
+        //
+        // MÊME VOIE QUE `readRarity` — `GetBaseUnitComponent`, qui sert les MoW — mais un maillon
+        // de plus : la donnée ne vit PAS sur le composant, seulement sur la `UnitConfiguration`.
+        // On joint donc par `BaseUnitComponent.Id`, la clé que `UnitFactory$$InitBaseComponent`
+        // ÉCRIT (`baseUnitComponent.Id = config.Id`). C'est ce maillon qui manquait : la seule
+        // autre voie vers la configuration (`readUnitConfig`) est aveugle aux Machines.
+        //
+        // TRI-ÉTAT à DEUX étages, et les deux comptent :
+        //   `tertiary: null`          = PAS MESURÉ — canal refusé, clé de jointure illisible, ou
+        //                               entité SANS configuration dans la BC (une unité INVOQUÉE
+        //                               naît d'une opération de spawn, pas de `BC.Units`) ;
+        //   `tertiary.level: 0`       = MESURÉ, et `0` veut dire VERROUILLÉ (aucune relique) —
+        //                               surtout pas « pas lu ». C'est exactement la valeur sur
+        //                               laquelle `TryGetVariableArrayForLevel` LÈVE.
+        const tertiaryIdx = wants("tertiary") ? readConfigTertiary(runner) : null;
+        const readTertiary = (e: NativePointer): Record<string, unknown> | null => {
+            if (tertiaryIdx === null) return null;
+            const id = readEntityConfigId(e);
+            if (id === null) return null;
+            if (!Object.prototype.hasOwnProperty.call(tertiaryIdx.byId, id)) return null;
+            return { configId: id, ...tertiaryIdx.byId[id] };
+        };
+
         // BOUCLIERS (ShieldComponent @180fa8770) : liste d'instances @+0x10 (List<ShieldInstance>,
         // _items@+0x10/_size@+0x18 ; éléments = pointeurs, data array @+0x20). ShieldInstance :
         // id@+0x10, amount@+0x30, remaining Nullable<int>@+0x3c (None=permanent). Layout du Nullable
@@ -898,6 +1070,28 @@ export function registerViewSnapshot(ctx: Ctx): void {
                 // toute unité normalisée : dans ce régime DÉGÉNÉRÉ, un port sans gate est
                 // d'accord avec le natif partout.
                 rarity: wants("rarity") ? readRarity(e) : null,
+                // #1036-r8 : l'ability TERTIAIRE et SON NIVEAU, par la voie qui sert les MoW.
+                // `unitConfig` juste en dessous publie déjà `tertiaryAbilityVariablesMultiplier`
+                // — mais par `GetUnitConfig(visualId)`, donc `{error: "visualId introuvable"}`
+                // pour toute Machine. Les deux canaux se recoupent sur les unités NON-Machine,
+                // et c'est voulu : leur désaccord se verrait.
+                tertiary: readTertiary(e),
+                // #969-r4 : `EntityExtensions$$CurrentOwnerIsEnvironment(e, state)` =
+                // `GetCurrentPlayer(e,state).Owner.Type == 2`. C'est le terme MANQUANT du
+                // `ListExtensions.Remove` que `BasePlaybook$$GetEligibleTargetsSelectable`
+                // intercale entre le slot `0x42` d'`IAttackQuery` et l'émission — donc l'ensemble
+                // des cibles de TOUT playbook porté est PERMISSIF sans lui. Le second terme
+                // (`IsIrrelevantObject`) est déjà DÉRIVABLE des canaux existants (`traits` +
+                // `attack`), celui-ci ne l'était pas : `decisionView.units[].owner` porte
+                // l'`ownerId`, jamais l'`Owner.Type`.
+                //
+                // TRI-ÉTAT OBLIGATOIRE, et c'est ici qu'il est le plus glissant : ce prédicat est
+                // FAUX pour la quasi-totalité des unités. Un capteur en panne qui rendrait
+                // `false` serait donc d'accord avec le natif PARTOUT sauf dans le seul régime
+                // qu'il existe pour mesurer — invisible par construction. D'où
+                // `invokeBoolOrNull`, jamais `invokeBool`.
+                currentOwnerIsEnvironment: wants("currentOwnerIsEnv")
+                    ? invokeBoolOrNull(currentOwnerIsEnvMi, [e, statePtr]) : null,
                 normalAttack: wants("normalAttack") ? readNormalAttack(e) : null,
                 unitConfig: wants("unitConfig") ? readUnitConfig(e) : null,
                 shields: readShields(e), abilityStates,
@@ -931,10 +1125,17 @@ export function registerViewSnapshot(ctx: Ctx): void {
         // portée par `BaseUnitComponent`, pas par l'état de vie — et `load_state` reconstruit
         // ces entités-là depuis ce bloc. L'omettre ici aurait fait des unités non vivantes
         // les seules sans rareté mesurée, une asymétrie que rien dans le natif ne justifie.
+        //
+        // #1036-r8 : `tertiary` y figure pour la MÊME raison que `rarity` — l'ability tertiaire
+        // est portée par la CONFIGURATION, pas par l'état de vie, et `load_state` reconstruit ces
+        // entités-là depuis ce bloc. `currentOwnerIsEnvironment`, lui, N'Y EST PAS : il invoque
+        // `GetCurrentPlayer(e, state)`, qui suppose l'unité en jeu, et le prédicat ne sert qu'à
+        // filtrer des CIBLES — une entité non vivante n'en est pas une.
         const unitsNotAlive = wants("unitFlags")
             ? notAlive.map((u) => ({ entityId: u.id, entityType: u.entityType,
                 unitFlags: readUnitFlags(u.e),
-                rarity: wants("rarity") ? readRarity(u.e) : null }))
+                rarity: wants("rarity") ? readRarity(u.e) : null,
+                tertiary: readTertiary(u.e) }))
             : null;
         // `unitFlagTypes` = {nom: id} de l'enum, au MÊME titre que `statTypes` : le consommateur
         // nomme les ids qu'il lit sans recopier de table chez lui.
@@ -948,6 +1149,14 @@ export function registerViewSnapshot(ctx: Ctx): void {
         // le consommateur puisse l'ASSERTIONNER, et `rarityLayout` dit ce qui a été résolu —
         // sans lui, un `rarity: null` de PANNE serait indiscernable d'un `null` de mesure.
         const rr = wants("rarity") ? rarityResolution() : null;
+        // #1036-r8 — le NOM PLEIN de l'enum, et RIEN DE PLUS. À la différence de `rarityTypes`
+        // (6 membres), la table de `TriggeredAbilityType` compte plus d'un millier d'entrées :
+        // la publier à chaque snapshot coûterait sans rien apprendre — le consommateur porte
+        // déjà son mirror (`engine/entities/...`, sous cliquet `probe_313`). Ce qu'il ne peut
+        // PAS dériver seul, c'est LEQUEL des enums le champ porte, et c'est ce nom-là qui est
+        // publié — celui qu'un port confondrait avec `ActiveAbilityType` (233 ordinaux communs)
+        // ou `EffectType` (458), en silence.
+        const tr = tertiaryIdx;
         return { ok: true, runner: label, statTypes: STAT_IDS,
             unitFlagTypes: wants("unitFlags") ? flagTypes : null,
             rarityEnum: rr && rr.channel ? rr.channel.enumFullName : null,
@@ -957,6 +1166,13 @@ export function registerViewSnapshot(ctx: Ctx): void {
                 configOffset: rr.channel ? rr.channel.configOffset : -1,
                 errors: rr.errors, drift: rr.drift,
             },
+            tertiaryAbilityEnum: tr && tr.layout.channelResolved
+                ? tertiaryResolution().channel!.abilityEnumFullName : null,
+            // Le NIVEAU est mesuré dès que le canal est résolu ; l'ability exige en plus que le
+            // `Nullable` ait été dérivé ET son enum nommé. Deux drapeaux, deux questions.
+            tertiaryLevelMeasured: tr !== null && tr.layout.channelResolved === true,
+            tertiaryAbilityMeasured: tr !== null && tr.layout.abilityReadable === true,
+            tertiaryLayout: tr === null ? null : tr.layout,
             units, unitsNotAlive };
     });
 

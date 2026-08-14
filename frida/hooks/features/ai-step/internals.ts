@@ -483,6 +483,28 @@ export function invokeBool(
     } catch { return false; }
 }
 
+/** Invoque une méthode statique retournant bool, EN TRI-ÉTAT : `null` — PAS `false` — quand la
+ *  méthode est irrésolue ou l'appel échoue. Pendant exact d'`invokeInt` sur l'axe booléen.
+ *
+ *  POURQUOI CE JUMEAU EXISTE, alors qu'`invokeBool` répond déjà (#969-r4). Les deux formes ne
+ *  sont pas interchangeables, et le régime décide. `invokeBool` sert des filtres où le repli
+ *  `false` est une DÉGRADATION SÛRE et assumée (`pathDistToEnemies` : méthode non résolue ⇒ pas
+ *  de filtre). Un CANAL PUBLIÉ, lui, n'a pas ce luxe : `CurrentOwnerIsEnvironment` est FAUX pour
+ *  la quasi-totalité des unités, donc un capteur en panne qui rendrait `false` serait d'accord
+ *  avec le natif PARTOUT — sauf exactement dans le régime qu'il existe pour mesurer. Le
+ *  rabattement serait invisible, et c'est la définition même de la panne indiscernable d'une
+ *  mesure (même argument que le `0` de `turnsFinished`, que le `0` de `Rarity.Common` en #1039,
+ *  et que le `0` = « niveau verrouillé » en #1036-r8). */
+export function invokeBoolOrNull(
+    mi: { info: NativePointer } | null, args: NativePointer[],
+): boolean | null {
+    if (!mi) return null;
+    try {
+        const r = invokeMethod(mi.info, null, args);
+        return r.isNull() ? null : r.add(0x10).readU8() !== 0;
+    } catch { return null; }
+}
+
 /** Invoque une méthode statique retournant Int32 (résultat boxé : valeur @0x10, comme le bool).
  *  Rend `null` — PAS 0 — quand la méthode est irrésolue ou l'appel échoue : un 0 muet se lirait
  *  comme « cette unité n'a fini aucun tour », ce qui est une VALEUR LÉGITIME du domaine. Le

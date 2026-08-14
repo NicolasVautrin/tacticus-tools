@@ -19,6 +19,7 @@ import {
     class_get_methods, class_get_name, class_get_namespace, class_get_parent,
     method_get_param_count,
 } from "../il2cpp/helpers.js";
+import { classInitState, LIVE_CLASS_INIT_PROBE } from "../il2cpp/class-init.js";
 import { invokeMethod } from "../il2cpp/invoke.js";
 import { Ctx } from "../controller.js";
 
@@ -82,12 +83,27 @@ export function register(ctx: Ctx): void {
      * MethodInfo* = klass+off+8. We read the MethodInfo* and name it via
      * il2cpp_method_get_name. Purely reads pointers (no invoke). Used to
      * resolve which method sits at a decompiled vtable offset (e.g. +0x398).
-     * args: { ns, cls, start?, end? } — offsets in bytes, default 0x2f8..0x3b8. */
+     * args: { ns, cls, start?, end?, forceInit? } — offsets in bytes, default 0x2f8..0x3b8.
+     *
+     * #982-r6 — `forceInit` (défaut FAUX). **IL2CPP ne remplit la vtable d'une classe qu'à son
+     * INITIALISATION** : une classe jamais instanciée dans la session rend des slots à ZÉRO, et
+     * un zéro se lit comme « aucun override ». C'est la cause MESURÉE du recensement partiel de
+     * `probe_916r1_effect_slots.py` — 244 classes d'effet mesurées sur 465, les 221 autres
+     * rangées en `NON MESUREE` faute de pouvoir les réveiller.
+     *
+     * Le drapeau appelle `il2cpp_runtime_class_init`, c'est-à-dire exactement ce que le jeu fait
+     * lui-même au premier accès. Il reste EXPLICITE, et le RPC publie `initializedBefore` /
+     * `forcedInit` / `forceInitError` : un lecteur qui voit `initialized: false` ne tient pas une
+     * mesure, et un lecteur qui voit `forcedInit: true` sait que l'état vient du capteur et non
+     * du jeu. Foyer unique de cette discipline : `il2cpp/class-init.ts`, partagé avec
+     * `probes/static-field-probe.ts` — les deux ne peuvent donc pas diverger. */
     ctx.rpc.resolveVtableSlot = (args: {
-        ns: string; cls: string; start?: number; end?: number;
+        ns: string; cls: string; start?: number; end?: number; forceInit?: boolean;
     }) => {
         const klass = findClassAnywhere(args.ns, args.cls);
         if (!klass) return { ok: false, error: `class not found: ${args.ns}.${args.cls}` };
+        // AVANT toute lecture de slot : l'ordre est le cran (cf. `class-init.ts`).
+        const init = classInitState(LIVE_CLASS_INIT_PROBE, klass, args.forceInit === true);
         const start = args.start ?? 0x2f8;
         const end = args.end ?? 0x3b8;
         const base = il2cppBase;
@@ -114,7 +130,15 @@ export function register(ctx: Ctx): void {
             } catch { /* garbage slot outside vtable — leave blanks */ }
             slots.push({ off: "0x" + off.toString(16), funcVA, funcRVA, ghidraVA, method });
         }
-        return { ok: true, ns: args.ns, cls: args.cls, klass: klass.toString(), slots };
+        // #982-r6 — le contexte SANS lequel les slots ne sont pas interprétables. `nonNullSlots`
+        // est le témoin le plus direct : une classe froide en rend 0, et c'est le seul chiffre
+        // qui distingue « lue et sans override » de « jamais réveillée ».
+        const nonNullSlots = slots.filter((x) => x.method !== null).length;
+        return { ok: true, ns: args.ns, cls: args.cls, klass: klass.toString(),
+            initialized: init.initialized, initializedBefore: init.initializedBefore,
+            forcedInit: init.forcedInit, forceInitError: init.forceInitError,
+            runtimeClassInitAvailable: init.runtimeClassInitAvailable,
+            slotCount: slots.length, nonNullSlots, slots };
     };
 
     /** Résout le POINTEUR D'ENTRÉE d'une méthode, en remontant la chaîne de
