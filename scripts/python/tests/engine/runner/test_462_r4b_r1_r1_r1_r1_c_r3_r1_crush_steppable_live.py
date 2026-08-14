@@ -371,6 +371,20 @@ def test_les_seuls_kits_steppable_inscrits_sont_les_mines_haywire():
     ne partagent donc PAS seulement le trait, ils partagent la mecanique que ce fichier garde.
     L'inventaire passe de 2 a 7 ; le cran reste EXACT.
 
+    ⚠ ET IL A ROUGI UNE SECONDE FOIS, POUR LA MEME RAISON (#1083-r3, 2026-08-15) : la tranche 2
+    inscrit les `PowerUp_*` NON-BOOST, dont deux ont un porteur `Steppable` -- `powupHealing`
+    (`PowerUp_Healing`) et `powupReactivateAbility` (`PowerUp_ReactivateAbility`). Meme trait, meme
+    vecteur de mort, et meme BASE : ces deux-la heritent le trigger d'`APowerUpAbility` sans le
+    surcharger (ZERO des 22 `PowerUp_*` ne surcharge `CreateTrigger`). L'inventaire passe de 7 a 9.
+
+    ⚠ Les QUATRE autres `PowerUp_*` non-boost (`Bomb`, `Reinforcement`, `ReinforcementShield`,
+    `Resurrect`) portent le MEME trait et le MEME vecteur, mais ne sont PAS inscrits -- donc pas
+    ici. Leur absence de cette liste est un FAIT PORTEUR, pas un oubli : elle dit que leur mecanique
+    n'a pas d'observable porte (`PlayerType` non projete pour le gate `IsHumanPlayer` de `Bomb` ;
+    ni `PlayerComponent` ni `DraftingComponent` pour les trois de Survival). Cf.
+    `docs/rl/case-1083-r3-powerup-non-boost.md`. Le jour ou l'une entre au registre, ce cliquet
+    rougira -- et ce sera le bon signal.
+
     ⚠ Il ne dit RIEN des EFFETS qu'un `Steppable` peut RECEVOIR de l'exterieur (DoT de tuile, aura,
     bond) : ceux-la ne sont pas dans le kit, et ce sont eux que les trois retraits emportent."""
     kits = PR._kits_steppable()
@@ -390,9 +404,12 @@ def test_les_seuls_kits_steppable_inscrits_sont_les_mines_haywire():
                 # #1083-r1 -- les cinq POWER-UPS de boost de stat. Meme trait, meme vecteur de mort.
                 ("powupArmor", "passive:PowerUp_Armor"),
                 ("powupDamage", "passive:PowerUp_Damage"),
+                # #1083-r3 -- les NON-BOOST inscrits par la tranche 2 (ordre alphabetique).
+                ("powupHealing", "passive:PowerUp_Healing"),
                 ("powupHealth", "passive:PowerUp_Health"),
                 ("powupHits", "passive:PowerUp_Hits"),
-                ("powupMeleeHits", "passive:PowerUp_MeleeHits")]
+                ("powupMeleeHits", "passive:PowerUp_MeleeHits"),
+                ("powupReactivateAbility", "passive:PowerUp_ReactivateAbility")]
     assert sorted(inscrits) == attendus, (
         "les kits Steppable inscrits a un registre d'ability-trigger sont %s ; attendus %s -- un "
         "porteur NATUREL de plus (ou de moins) : re-confronter le regime" % (sorted(inscrits), attendus))
