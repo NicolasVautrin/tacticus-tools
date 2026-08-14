@@ -28,7 +28,7 @@
 
 - Unites lineup : **127** ; kits COMPLETS (aucun manque detecte) : **121** ; kits avec du travail : **6**
 - Volume total : **6** items manquants (actives no-op + passifs/traits non registres)
-- HORS total — voies conditionnelles : **6** abilities non portees (3 mythiques, 3 reliques equipables)
+- HORS total — voies conditionnelles : **5** abilities non portees (2 mythiques, 3 reliques equipables)
 - HORS total — faces DECISION non portees : **5** actives sur 138, dont **4** dans des kits declares COMPLETS (4 kits concernes)
 - DECOMPTES par un verdict ATTESTE : **8** (et **0** attestation(s) PERIMEE(S), dont l'item est REDEVENU manquant) — section dediee plus bas, jamais tue
 
@@ -144,7 +144,7 @@
 
 adeptCanoness, adeptCelestine, adeptExorcist, adeptMorvenn, adeptRetributor, admecDestroyer, admecDominus, admecManipulus, admecMarshall, admecRuststalker, astarCyrus, astarLysander, astraBullgryn, astraCreed, astraDreir, astraOrdnance*, astraOrdnanceBattery, astraPrimarisPsy, astraYarrick, blackAbaddon, blackForgefiend, blackHaarken, blackObliterator, blackPossession, blackTerminator, bloodDante, bloodDeathCompany, bloodIntercessor, bloodMephiston, bloodTerminator, custoAtlacoya, custoBladeChampion, custoKyrus, custoTrajann, custoVexilusPraetor, darkaAsmodai, darkaAzrael, darkaCompanion, darkaHellblaster, darkaSternguard, darkaStormSpeeder, darkaTerminator, deathBlightbringer, deathBlightlord, deathCrawler*, deathPutrifier, deathTyphus, eldarAutarch, eldarFarseer, eldarJainZar, eldarLhykhis, eldarMauganRa, eldarRanger, emperExultant, emperFlawlessBlade, emperKakophonist, emperLucius, emperNoiseMarine, genesKelermorph, genesMagus, genesPatriarch, genesPrimus, necroChronomancer, necroDestroyer, necroOverlord, necroPlasmancer, necroReanimator, necroSpyder, necroWarden, orksBigMek, orksKillaKan, orksNob, orksRukkatrukk*, orksRuntherd, orksWarboss, spaceBlackmane, spaceHound, spaceRockfist, spaceStormcaller, spaceWulfen, tauAunShi, tauBroadside, tauCrisis, tauDarkstrider, tauFarsight, tauMarksman, tauShadowsun, templAggressor, templAncient, templChampion, templHelbrecht, templSwordBrother, thousAhriman, thousDaemonPrince, thousInfernalMaster, thousSekhetar, thousSorcerer, thousTerminator, thousTzaangor, tyranBiovore, tyranDeathleaper, tyranNeurothrope, tyranParasite, tyranTyrantGuard, tyranWingedPrime, ultraCalgar, ultraDreadnought*, ultraEliminatorSgt, ultraInceptorSgt, ultraTigurius, ultraTitus, votanBeserk, votanChampion, votanIronmaster, votanMemnyr, votanUthar, worldEightbound, worldExecutions, worldJakhal, worldKharn, worldTerminator
 
-## HORS total — voies conditionnelles (6 abilities non portees)
+## HORS total — voies conditionnelles (5 abilities non portees)
 
 > Une unite `lineup` porte aussi des abilities par deux voies que le kit n'expose
 > pas : `mythic` (`units.<kind>.<id>.mythicAbilities`, a DEBLOQUER) et `item`
@@ -162,6 +162,5 @@ adeptCanoness, adeptCelestine, adeptExorcist, adeptMorvenn, adeptRetributor, adm
 | TheArdentBlade | item | 1 | adeptCelestine |
 | OnMyPosition | mythic | 1 | astraOrdnanceBattery |
 | ShieldOfFaith | mythic | 1 | adeptExorcist |
-| WisdomOfTheAncients | mythic | 1 | ultraDreadnought |
 
-Portees (au moins un registre) : **37** — AmuletOfTheVoidwyrm, BladeOfTheAncestors, BlightedLand, BookOfFate, CabalOfSorcerers, ChaliceOfBaal, ContemptuousDisregard, DaemonfleshPlate, DawnBlade, Dw02AdvancedBurstCannon, ElectrochaffBackups, GuardianConstruct, HeadwoppasKillchoppa, Helspear, HyperCorrosiveAcid, IntoxicatingElixir, KardiocoreGalvanus, Lakrimae, MastersOfManoeuvre, Maugetar, MawClawsOfThyrax, MonsterSlayerOfCaliban, MoreGitzOverEre, NetherRealmCasket, NornCrown, OrbsOfDecay, ParagonSpear, RelicBoltPistol, RelicOfLostCadia, RelicPowerFist, SabreOfSacrifice, SupaCyborkBody, TalismanOfRage, TalonOfHorus, Vitarus, VolummsMasterArtifice, WyrdmakersHelm
+Portees (au moins un registre) : **38** — AmuletOfTheVoidwyrm, BladeOfTheAncestors, BlightedLand, BookOfFate, CabalOfSorcerers, ChaliceOfBaal, ContemptuousDisregard, DaemonfleshPlate, DawnBlade, Dw02AdvancedBurstCannon, ElectrochaffBackups, GuardianConstruct, HeadwoppasKillchoppa, Helspear, HyperCorrosiveAcid, IntoxicatingElixir, KardiocoreGalvanus, Lakrimae, MastersOfManoeuvre, Maugetar, MawClawsOfThyrax, MonsterSlayerOfCaliban, MoreGitzOverEre, NetherRealmCasket, NornCrown, OrbsOfDecay, ParagonSpear, RelicBoltPistol, RelicOfLostCadia, RelicPowerFist, SabreOfSacrifice, SupaCyborkBody, TalismanOfRage, TalonOfHorus, Vitarus, VolummsMasterArtifice, WisdomOfTheAncients, WyrdmakersHelm

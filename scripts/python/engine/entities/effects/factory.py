@@ -2161,6 +2161,77 @@ ABILITY_INIT_OWNER_EFFECTS: dict[str, list[str]] = {
     # `$$CalculateMovementUtilityInSteps` -- residu `#1036-r3`. `GuardianConstruct` n'a AUCUN
     # playbook dans le build (verifie par `search_symbols_by_name`).
     "CabalOfSorcerers": ["CabalOfSorcerers_ExtraDamagePct"],
+    # #1042 -- `WisdomOfTheAncientsAbility` (ability **MYTHIQUE** de la MoW `ultraDreadnought`
+    # << Galatian >> / `ultraNpcMoWDreadnought`, `TriggeredAbilityType.WisdomOfTheAncients` = 0x5ab
+    # = 1451). Comme `CabalOfSorcerers` ci-dessus, la classe n'herite PAS d'
+    # `AOwnerEffectTriggeredAbility` : `frida/classes.tsv` donne le parent
+    # `IdunBattle.Entities.Abilities.BaseTriggeredAbility`, et elle DECLARE ses deux methodes.
+    # Relues au decompile :
+    #   `IdunBattleLogic.Entities.Abilities.Triggered.Loki.WisdomOfTheAncientsAbility$$CreateTrigger`
+    #       = DSLTriggers.OnOwnerSpecificAbilityInit(0x5ab)
+    #   `IdunBattleLogic.Entities.Abilities.Triggered.Loki.WisdomOfTheAncientsAbility$$CreateBehaviour`
+    #       = DSLBehaviors.AddEffect(0x5a5 = 1445 `EffectType.WisdomOfTheAncients_DamageReduction`,
+    #                                <BaseTriggeredAbility$$get_AbilityStateReference>,
+    #                                source  = Owner@<DSLSelectors+0x30>,
+    #                                targets = Owner@<DSLSelectors+0x30>,
+    #                                options = <Nullable ZERO-initialise>)
+    # -> owner-effect PERMANENT pose a l'init, par un corps PROPRE et SANS le `If(CreateCondition)`
+    # que la base interpose. L'appariement 1451 -> 1445 est LU au call-site ; et le type DECLARE du
+    # parametre d'`OnOwnerSpecificAbilityInit` est bien `IdunBattle.Entities.Enum.TriggeredAbilityType`
+    # (`frida/methods.tsv`), pas un ordinal partage.
+    # `IdunBattle.Entities.Effects.Loki.WisdomOfTheAncients_DamageReductionEffect$$.ctor` =
+    # `BaseEffect( AbilityOrEffect(TriggeredAbilityType 1451), hasAutomaticActivation = 1 )` --
+    # l'overload d'`IdunBattle.Core.AbilityOrEffect$$op_Implicit` appelee (tranchee par la CIBLE du
+    # `call`, pas par son nom) est celle qui ecrit `set_TriggeredAbility`, donc l'`AbilityState`
+    # resolue est celle d'une ability NON-active.
+    # ⚠ Voie TERTIAIRE (mythique = `BC.Units[].TertiaryAbility`, montage `--equip-mythic`, #999) :
+    # ce seed depend de la lecture de `ctx.tertiary_ability` par `_seed_ability_owner_effects`
+    # (acquise depuis #1005). `...WisdomOfTheAncients_DamageReductionEffect$$CreateActiveCondition`
+    # est le corps DEDUPLIQUE `return <DSLTriggers+0x70>` (le YesTrigger partage, refcount 182)
+    # -> l'effet est TOUJOURS actif, donc capte par `decisionView.effects` sur un runner live : ce
+    # seed est un FILET pour les chemins purement offline.
+    # ⚠ L'EFFET 1445 N'ENTRE PAS dans `EFFECT_CLASSES`, et c'est DELIBERE -- meme verrou que 1449 /
+    # 1548 / 1494 : TOUT son ciblage est gate sur la RARETE, aux TROIS etages. Lu au decompile
+    # (`...WisdomOfTheAncients_DamageReductionEffect$$ValidCharacter`, puis
+    #  `...WisdomOfTheAncients_DamageReductionEffect$$CreateTargetSelector`, qui l'INLINE 3 fois) :
+    #     ValidCharacter(x) = UnitsWithRarity(x, Rarity.Mythic = 5,
+    #                                         UnitSelectionType.OnlyAliveAndTargetable = 3)
+    #     A = ValidCharacter( AdjacentFriends(Owner@<DSLSelectors+0x30>, unique = true, 3) )
+    #     B = ValidCharacter( Friends(of = Owner@<DSLSelectors+0x30>,
+    #                                 entities = AllUnits@<DSLSelectors+0x20>, 3) )
+    #     F = Filter( B, AmountIsGreaterThanZero(
+    #                        UnitsWithTrait( ValidCharacter( AdjacentFriends(
+    #                                            ActiveTarget@<DSLSelectors+0x68>, unique = true, 3) ),
+    #                                        UnitTrait.Hero = 0x10, 3 ) ) )
+    #     return ConditionalSelector( IsMachine(Owner@<DSLSelectors+0x30>),
+    #                                 ifTrue = F, ifFalse = Unique(A + F) )
+    # ⚠ La surcharge d'`AdjacentFriends` est celle a `(unit, unique, selectionType)` -- tranchee par
+    # les XREFS ENTRANTES : les DEUX call-sites de `$$CreateTargetSelector` pointent le corps que
+    # `CabalOfSorcerers`/`IconOfObstinacy` appellent aussi, pas l'homonyme `(unit, unitTile, unique)`.
+    # ⚠ L'ORDRE des deux branches est LU : `DSLSelectors$$ConditionalSelector(abilityTrigger,
+    # selectorTrue, selectorFalse)` transmet ses arguments dans cet ordre au ctor du selecteur.
+    # ⚠ `Friends` ne retire PAS le sujet (`UnitsByTeamSelector$$CountOrAdd` garde toute entite dont
+    # `UnitExtensions$$IsFriend(unit, other)` egale son flag, et `IsFriend(u, u)` est VRAI) ; c'est
+    # l'etage de RARETE qui exclut la MoW elle-meme de sa propre aura -- MESURE, cf. la case-doc.
+    # Le malus, lui, est LU et SANS gate de rarete
+    # (`...WisdomOfTheAncients_DamageReductionEffect$$CreateEffectDamageMalusForDefense`, corps
+    # INLINE dont la disposition des champs dit le canal -- montant a `+0x08` = POURCENT) :
+    #     Nullable<EffectBonus>( EffectBonus.ForPercentDecrease(
+    #         get_OwnerIsTarget,
+    #         ConfigVar(AbilityVariableType.dmgReductionPct = 0x46, GetAbilityState(effet),
+    #                   <effet+0x60>) ) )
+    # L'inscrire sans le gate de rarete serait un terme PERMISSIF silencieux : `rl_duel build` impose
+    # `targetRarity = 5` a toute unite normalisee, donc le gate y est uniformement VRAI et un port
+    # qui l'oublie serait faussement d'accord dans TOUS les bras par defaut (regime DEGENERE ; on en
+    # sort par `--unit-stat "<vis>:Rarity=N"`, et c'est ce que fait
+    # `probe_1042_wisdom_of_the_ancients_live.py`). Residu `#1042-r1`, BLOCAGE capteur -- le MEME que
+    # `#1024-r1` / `#1025-r1` / `#1035-r2` / `#1036-r1`, et le point d'ancrage a hooker est deja
+    # MESURE dans `docs/rl/case-1024-shield-of-faith-on-my-position.md` Sec.4.
+    # ⚠ Face DECISION distincte : `IdunBattle.AI.Playbook.Loki.WisdomOfTheAncientsPlaybook`
+    # (`TriggeredAbilityNonOwnerPlaybook<WisdomOfTheAncientsAbility>`) surcharge
+    # `$$CalculateMovementUtilityInSteps` -- MEME verrou de rarete, deja recense par le residu
+    # `#477-r37-r1` (il y nomme `1451` explicitement). Cf. `docs/rl/case-1042-wisdom-of-the-ancients.md`.
+    "WisdomOfTheAncients": ["WisdomOfTheAncients_DamageReduction"],
     # #1035 -- `BlightedLandAbility` (ability **MYTHIQUE** de la MoW `deathCrawler` /
     # `deathNpcMoWCrawler`, `TriggeredAbilityType` 0x5a7 = 1447). `frida/classes.tsv` : parent
     # `IdunBattle.Entities.Abilities.AOwnerEffectTriggeredAbility`, et `sources_win` confirme que la
