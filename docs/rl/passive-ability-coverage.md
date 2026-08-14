@@ -42,7 +42,7 @@ Sinon, trois verdicts NEGATIFS distincts :
 
 Mesure de ce run : un `substring` brut du nom sur `engine/**/*.py` rend **211/211 presents, 0 manquant**. La cause n'est pas que tout est porte : `engine/entities/triggered_ability_type.py` est un **mirror 1:1 de l'enum natif `TriggeredAbilityType`** (573 membres), ou le nom de CHAQUE passif figure comme membre. **Un catalogue n'est pas un cablage.**
 
-Le signal code de cet audit est donc derive de l'**AST** et exclut les **definitions** de membres d'enum (2638 assignations ecartees dans 682 fichiers `engine/**/*.py`) tout en gardant les **usages** (`TriggeredAbilityType.X` = `ast.Attribute` -> compte). Il separe en outre le CODE (14045 symboles distincts) de la PROSE (11848 ko de commentaires + docstrings, invisibles a l'AST, lus via `tokenize`). Le rapprochement est CamelCase-aware : `HeavyGravCannon` matche `HeavyGravCannonEffect`, `Guard` ne matche ni `Guardsman` ni `RoyalGuard` (ni, pour `Possession`, l'unitId `blackPossession`).
+Le signal code de cet audit est donc derive de l'**AST** et exclut les **definitions** de membres d'enum (2638 assignations ecartees dans 683 fichiers `engine/**/*.py`) tout en gardant les **usages** (`TriggeredAbilityType.X` = `ast.Attribute` -> compte). Il separe en outre le CODE (14063 symboles distincts) de la PROSE (11869 ko de commentaires + docstrings, invisibles a l'AST, lus via `tokenize`). Le rapprochement est CamelCase-aware : `HeavyGravCannon` matche `HeavyGravCannonEffect`, `Guard` ne matche ni `Guardsman` ni `RoyalGuard` (ni, pour `Possession`, l'unitId `blackPossession`).
 
 Chaque reference est en outre ATTRIBUEE A SA ZONE du moteur (`__init__, ai, battle_query, dsl, effects, entities, hex_corner, hex_edge, move, playbook, predict, runner, services, streams, utilities, weights`), parce qu'une reference dans `playbook/`/`ai/`/`utilities/` (face DECISION) ne prouve RIEN sur l'execution combat. C'est ce qui separe **B** (litteral exact sous `runner/`) de **R**.
 
@@ -65,12 +65,12 @@ La colonne `kind` de gameconfig MENT sur la spawnabilite -> le pool vient de la 
 ## Bilan
 
 - Passifs distincts dans le parc (lineup 127 / npc 491 / summons 65) : **211**
-- **PORTES** (>=1 canal structurel) : **153** (73 %)
-- **ZONE-GRISE** (direct-read hors registre, a trancher) : **13**
+- **PORTES** (>=1 canal structurel) : **154** (73 %)
+- **ZONE-GRISE** (direct-read hors registre, a trancher) : **12**
 - **GAPS** (mention seule + absent) : **45** = 18 mention + 27 absent
-- Passifs portes par >=1 unite **confrontable** : **134** ; parmi eux, **0 gaps** et **1 zone-grise** -> c'est la FILE reelle.
+- Passifs portes par >=1 unite **confrontable** : **134** ; parmi eux, **0 gaps** et **0 zone-grise** -> c'est la FILE reelle.
 
-Ventilation des canaux qui portent (un passif peut en cumuler) : **T**=79, **O**=31, **E**=94, **G**=10, **X**=0, **B**=8
+Ventilation des canaux qui portent (un passif peut en cumuler) : **T**=79, **O**=31, **E**=94, **G**=10, **X**=0, **B**=9
 
 ## Tableaux par valeur
 
@@ -80,11 +80,9 @@ Tri : nombre de porteurs spawnables SANS AMENAGEMENT (`L+`+`M`) decroissant, pui
 
 _aucun._
 
-### ZONE-GRISE confrontable -- reference en code hors registre, couverture a TRANCHER (1)
+### ZONE-GRISE confrontable -- reference en code hors registre, couverture a TRANCHER (0)
 
-| passif | porteurs | spawnables (ex.) | verdict | canal | zones engine/ | symbole natif (a confirmer) |
-|---|---|---|---|---|---|---|
-| AncientFury | S+=1 | ultraSmnDreadnought | ZONE-GRISE | **R** | runner, services | `IdunBattleLogic.Entities.Abilities.Active.Loki.AncientFury_NormalAttackAbility` |
+_aucun._
 
 ### GAPS non confrontables (npc-only / non spawnable `L!` / summon indetermine `S?`) (45)
 
@@ -153,7 +151,7 @@ _aucun._
 | WatchedOver | S?=1 N=1 | - | ZONE-GRISE | **R** | playbook, runner |
 | Wraithcannon | N=2 | - | ZONE-GRISE | **R** | runner, services |
 
-### PORTES (153)
+### PORTES (154)
 
 | passif | porteurs | spawnables (ex.) | verdict | canal | zones engine/ |
 |---|---|---|---|---|---|
@@ -258,6 +256,7 @@ _aucun._
 | AdrenalGlands | S+=2 N=4 | tyranNpc1Hormagaunt, tyranSmnHormagaunt | PORTE | **O**=AdrenalGlands_Effect **E**=AdrenalGlands_Effect | effects |
 | HungeringSwarm | S+=2 N=4 | tyranNpc1Hormagaunt, tyranSmnHormagaunt | PORTE | **E**=HungeringSwarm_ExtraHits | effects |
 | ReanimationProtocols | S+=2 S?=1 N=6 | necroSmnSwarm, necroSmnWarrior | PORTE | **T**=ReanimationProtocolsAbility | runner |
+| AncientFury | S+=1 | ultraSmnDreadnought | PORTE | **B**=litteral exact sous engine/runner/ | runner, services |
 | CursedOfTheWalkingPox | S+=1 N=1 | deathPoxwalker | PORTE | **T**=CursedOfTheWalkingPoxSummonAbility | runner |
 | FlamesOfMutation | S+=1 S?=1 | thousSmnBlueHorror | PORTE | **T**=FlamesOfMutationAbility | runner |
 | FloatingDeath | S+=1 N=1 | tyranSmnSporeMine | PORTE | **T**=FloatingDeathAttackAbility,FloatingDeathChainAbility | runner, services |
