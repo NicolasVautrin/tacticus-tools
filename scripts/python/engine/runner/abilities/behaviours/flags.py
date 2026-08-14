@@ -126,12 +126,14 @@ class RemoveFlag(AbilityBehaviour):
             if e is None:
                 continue
             c = e.get_component(UnitFlagsComponent)
-            if c is None:
-                continue                      # ensemble absent == ensemble vide : retrait no-op
-            removed = c.has(self.flag)
-            c.remove(self.flag)
+            # Ensemble absent == ensemble vide : le retrait est un no-op. On EMET quand meme -- un
+            # no-op MUET est exactement ce que la doctrine refuse (on ne saurait pas distinguer
+            # « le noeud n'a pas tourne » de « il a tourne et n'avait rien a retirer »).
+            removed = bool(c is not None and c.has(self.flag))
+            if c is not None:
+                c.remove(self.flag)
             ectx.emit("RemoveFlag", unit=int(uid), flag=_flag_name(self.flag),
-                      removed=bool(removed))
+                      removed=removed, hasComponent=c is not None)
         return OperationResult.ok()
 
 
