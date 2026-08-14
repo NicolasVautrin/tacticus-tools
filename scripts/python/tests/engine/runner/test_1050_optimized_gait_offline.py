@@ -26,6 +26,48 @@ from engine.runner.operations.triggers.dispatch.registry import ABILITY_TRIGGERS
 from engine.runner.operations.triggers.loki import optimized_gait as OG  # noqa: E402
 from engine.services.custom_normal_attack import CUSTOM_NORMAL_ATTACK_BY_PASSIVE  # noqa: E402
 
+#: Ce qui doit changer pour que ce FICHIER de test puisse changer de verdict (#486-r15).
+DECLENCHEUR = {
+    "chemins": (
+        # le port de la tranche, et le registre qui l'inscrit
+        "scripts/python/engine/runner/operations/triggers/loki/optimized_gait.py",
+        "scripts/python/engine/runner/operations/triggers/dispatch/registry.py",
+        # le quirk `set_moved` : la feuille DSL ET l'Operation qu'elle thread
+        "scripts/python/engine/runner/abilities/behaviours/movement.py",
+        "scripts/python/engine/runner/operations/movement.py",
+        # la FRONTIERE que l'etage 4 garde (les deux familles de cleave d'attaque normale)
+        "scripts/python/engine/runner/abilities/loki/additional_targets.py",
+        "scripts/python/engine/services/custom_normal_attack.py",
+        # les primitives MIRRORS que les gates traversent
+        "scripts/python/engine/entities/triggers.py",
+        "scripts/python/engine/entities/selectors/units.py",
+        "scripts/python/engine/entities/selectors/tiles.py",
+        "scripts/python/engine/entities/selectors/accessors.py",
+        "scripts/python/engine/entities/selectors/geometry.py",
+        "scripts/python/engine/runner/abilities/behaviours/context.py",
+        "scripts/python/engine/runner/operations/triggers/base.py",
+        # les MIRRORS d'enum dont les etages 1b/2 gardent les ordinaux
+        "scripts/python/engine/entities/triggered_ability_type.py",
+        "scripts/python/engine/entities/active_ability_type.py",
+        "scripts/python/engine/entities/effect_type.py",
+        "scripts/python/engine/dsl/event_trigger_type.py",
+    ),
+    # `--proposer` mesure que la fermeture d'imports de ce fichier tient ENTIEREMENT dans la
+    # cascade derivee par le foyer (698 modules) : les chemins ci-dessus y sont donc deja. On les
+    # DECLARE quand meme -- ils nomment ce que les six etages gardent, et un lecteur doit pouvoir
+    # le lire sans re-derter la fermeture.
+    "build": False,   # aucun etage ne lit le binaire ni `data/symbols/**`
+    # Le gameconfig VIVANT : l'etage 2b lit `OptimizedGait.constants`/`.variables`. Une MAJ du jeu
+    # qui renomme ou retire une de ces trois cles fait changer ce fichier de verdict SANS qu'aucun
+    # chemin ci-dessus ne bouge -- c'est exactement ce que ce champ existe pour DIRE.
+    "toujours": True,
+    "raison": ("l'etage 2b lit le gameconfig VIVANT (constants.nrOfHits / damageProfile, variables "
+               "minDmg / maxDmg d'`OptimizedGait`) et l'etage 4b la table de dispatch "
+               "`CUSTOM_NORMAL_ATTACK_BY_PASSIVE` -- deux entrees qu'aucun import ne revele, donc "
+               "invisibles a la fermeture. `build: False` parce qu'aucun etage ne touche au "
+               "binaire : les litteraux natifs sont TRANSCRITS ici, pas relus."),
+}
+
 
 # ================================================================== ETAGE 1 -- le CABLAGE
 def test_etage1_les_deux_classes_sont_au_registre_sous_la_meme_cle():
