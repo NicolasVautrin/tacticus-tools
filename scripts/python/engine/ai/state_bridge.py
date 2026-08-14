@@ -61,6 +61,10 @@ STORMBOYZ_STRIKE_TELEPORTING_IN = int(EffectType.StormboyzStrike_TeleportingIn) 
 #: sous-classe. Contenu, fermeture native et residus : cf. le commentaire du foyer.
 from engine.entities.effects.aura_selectors import UNTARGETABLE_EFFECT_TYPES  # noqa: E402
 from engine.ai.context import AiDecisionContext, _enemies, action_tiles_for
+from engine.services import battle_query as SBQ   # FORME B (liaison de MODULE). Differe CLASSE
+#     GRATUIT -- mesure prescrite : `import engine.services.battle_query` seul dans un process
+#     FRAIS ne fait PAS atterrir `engine.ai.state_bridge` dans `sys.modules`, donc rien a fermer
+#     -> HISSE. Foyers appeles : `get_player_turn_order` + `get_amount_of_turns_ended_by_player`.
 from engine.entities.stats import StatType
 from engine.playbook.noncomparable import is_noncomp
 from engine.runner.abilities.targeting import refuses_all_enemy_targets, targeting_options_for
@@ -819,6 +823,24 @@ def _triggered_kits_from_state(scene) -> dict:
     return out
 
 
+def _turns_ended_by_first_player(state) -> int | None:
+    """`matchTurn.GetAmountOfTurnsEndedByPlayer(StateExtensions.GetPlayer(state,
+    GetPlayerTurnOrder()[0]).Id)` -- l'entree 2 du bras 2 de
+    `IdunBattle.Core.Services.BattleQuery$$HasMinimumRemainingTurns` (#1027-r5).
+
+    On DELEGUE aux deux foyers de `engine.services.battle_query` (`get_player_turn_order` +
+    `get_amount_of_turns_ended_by_player`) : deux stand-ins qui deriveraient seraient un bug
+    silencieux, et c'est exactement ce que la note de foyer de `get_player_turn_order` interdit.
+
+    `state is None` -> `None` = NON MESURE, jamais `0` : `0` est une VALEUR (« ce joueur n'a
+    encore termine aucun tour ») que le natif rend par sa branche `!ContainsKey`, et la fabriquer
+    ici la ferait passer pour une lecture."""
+    if state is None:
+        return None
+    order = SBQ.get_player_turn_order(state)
+    return SBQ.get_amount_of_turns_ended_by_player(state, order[0] if order else None)
+
+
 def _no_rpc(method: str, body: dict, timeout: int = 0) -> dict:
     """Fermeture RPC no-op du bridge offline. `ability_targets` (heal/repair/summon/Nova) -> vide.
     SLICE 2 = enumerateur de cibles offline (from State) branche ici."""
@@ -982,4 +1004,11 @@ def build_from_state(state, uid: int, debug: bool = False, max_distance: int | N
         terrain_by_pos=terrain_by_pos, is_wall_by_pos=is_wall_by_pos,
         is_in_fog_by_pos=is_in_fog_by_pos,
         offline_triggered_kits=_triggered_kits_from_state(scene),   # #983-r1
+        # #1027-r5 -- les DEUX entrees de `BattleQuery$$HasMinimumRemainingTurns`, que SEUL le
+        # chemin offline peut lire (le `State` porte la BC et le compteur ; aucun RPC ne les
+        # publie). `State.victory_conditions` est deja en TRI-ETAT (`None` = canal non fourni a
+        # `load_state`), et on le propage TEL QUEL -- surtout pas un `{}` de repli, qui se lirait
+        # « cette BC ne pose aucun plafond » et ferait taire le gate sur une bataille plafonnee.
+        victory_conditions=getattr(state, "victory_conditions", None),
+        turns_ended_by_first_player=_turns_ended_by_first_player(state),
         debug=debug)

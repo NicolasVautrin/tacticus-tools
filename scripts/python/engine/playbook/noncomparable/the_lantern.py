@@ -64,9 +64,12 @@ import hexgeo
 
 from engine.entities.active_ability_type import ActiveAbilityType
 from engine.entities.traits.unit_trait import UnitTrait, entity_trait_names, has_any_trait
-from engine.services import battle_query as SBQ
+import engine.playbook.noncomparable._base as NCB   # FORME B : le foyer #1027-r5 reste patchable
 
 from ._base import NCContext, NonComparablePlaybook, _sweep_origin_first
+
+#: Le litteral `2` du call-site natif `<IBattleQuery slot 0x1b>(unit, 2)` -- un nombre de TOURS.
+CASTER_MIN_REMAINING_TURNS = 2
 
 #: `<statics+0x00>` du `.cctor` -- `Fix64.op_Implicit(1)`. DEUX roles LUS : le `minUtility` du
 #: `Bucket` et le poids du terme « ennemis touches ».
@@ -108,12 +111,14 @@ class TheLanternPlaybook(NonComparablePlaybook):
         `CasterHas2TurnsLeft` #287-r11-r1-r1) -- on l'APPELLE, on n'en ecrit pas un second.
 
         ⚠ Le parametre `unit` n'est PAS lu par le natif (le corps ne consulte que le plafond de
-        rounds de la BC et le compteur de tours termines). Le `State` n'existe pas sur la face
-        DECISION : le plafond arrive alors VIDE et le natif comme le port rendent `True` (bras 1),
-        degradation PERMISSIVE nommee -- meme regime, meme appel et meme residu (`#1027-r5`) que
-        `SolarAtomizerPlaybook.should_evaluate`."""
-        return bool(SBQ.has_minimum_remaining_turns(ctx.uid, 2,
-                                                    state=getattr(ctx, "state", None)))
+        rounds de la BC et le compteur de tours termines).
+
+        ⚠ #1027-r5 -- ce site lisait `getattr(ctx, "state", None)`, un attribut que `NCContext` n'a
+        JAMAIS porte : il valait toujours `None`, et le foyer retombait donc invariablement sur son
+        defaut derive de `data/seed-bc.json`. Le substrat passe desormais par
+        `_base.has_minimum_remaining_turns`, qui transporte les DEUX entrees du natif en tri-etat.
+        Meme correction, meme regime que `SolarAtomizerPlaybook.should_evaluate`."""
+        return NCB.has_minimum_remaining_turns(ctx, CASTER_MIN_REMAINING_TURNS)
 
     # ------------------------------------------------------------------ la ZONE
     @staticmethod

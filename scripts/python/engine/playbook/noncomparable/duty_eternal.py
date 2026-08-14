@@ -65,13 +65,9 @@ le foyer qui porte deja ce quirk, et non par `is_adjacent`.
 
 CE QUI N'EST PAS PORTE ICI, ET C'EST DIT
 -----------------------------------------
-* `GetUseProbability(unit, actionTiles)` =
-  `Fix64.FromIntFraction((GetTurnsFinished(unit) - GetNumberConstant(0x68 = initialCooldownTurns)
-  + 1) * 33, 100)` -- une RAMPE. `<= 0` refuse, `>= 1` accepte, entre les deux c'est un TIRAGE que
-  le moteur deterministe du port ne peut pas reproduire. `should_evaluate` reste `True` : c'est
-  l'ECART DEJA ASSUME par `NonComparablePlaybook` pour tous les `GetUseProbability` probabilistes
-  (`BlackRage` 0.4, `ItItches`, `EmpyricAmbush` 0.5). Ses deux EXTREMITES sont deterministes et
-  portables -- residu `#979-r1`.
+* `GetUseProbability(unit, actionTiles)` -- la RAMPE, PORTEE par `#979-r1` sur ses DEUX
+  EXTREMITES. Cf. `DutyEternalPlaybook._use_probability` : seule la bande OUVERTE reste
+  l'ecart assume par `NonComparablePlaybook` (`BlackRage` 0.4, `ItItches`, `EmpyricAmbush` 0.5).
 * L'occupation lue par le port est `ctx.epos + ctx.fpos` (le foyer `_targets.occupied`), donc le
   CASTER en est exclu. Inerte ici : le porteur est une MoW sans `PositionComponent`.
 
@@ -89,7 +85,13 @@ from engine.entities.active_ability_type import ActiveAbilityType
 from engine.services import spawn_tile_shape as STS
 
 import engine.playbook.noncomparable._targets as TGT      # FORME B, ABSOLU (#962)
-from ._base import NCContext, NonComparablePlaybook, eligible_target_tiles
+import engine.services.ability_caster_gates as ACG        # FORME B : foyer
+#     `try_get_number_constant` (mirror d'`AbilityConfiguration$$TryGetNumberConstant`).
+#     Differe CLASSE GRATUIT -- mesure prescrite : `import engine.services.ability_caster_gates`
+#     seul dans un process FRAIS ne fait PAS atterrir `engine.playbook.noncomparable.duty_eternal`
+#     dans `sys.modules` -> HISSE.
+from ._base import (NCContext, NonComparablePlaybook, eligible_target_tiles,
+                    probability_gate)
 
 
 class DutyEternalPlaybook(NonComparablePlaybook):
@@ -112,6 +114,66 @@ class DutyEternalPlaybook(NonComparablePlaybook):
     NEAR_DISTANCE = 2
     NEAR_UTILITY = 10.0
     FAR_UTILITY = 1.0
+
+    #: `Fix64.FromIntFraction((t - c + 1) * 0x21, 0x64)` -- les DEUX litteraux du call-site natif
+    #: de `GetUseProbability`. Des SCALAIRES (numerateur/denominateur d'une fraction), pas des ids.
+    RAMP_NUMERATOR = 0x21        # 33
+    RAMP_DENOMINATOR = 0x64      # 100
+
+    # ------------------------------------------------------------------ gate AMONT (slot 4)
+    def _use_probability(self, ctx: NCContext):
+        """`IdunBattle.AI.Playbook.Loki.DutyEternalPlaybook$$GetUseProbability(unit, actionTiles)`
+        -- MIRROR du decompile, lu VERBATIM :
+
+            cfg = this.<ability @+0x68>.<AbilityConfiguration @+0x60>
+            c   = AbilityConfiguration.GetNumberConstant(cfg, 0x68)   # initialCooldownTurns
+            t   = UnitExtensions.GetTurnsFinished(unit)
+            return Fix64.FromIntFraction((t - c + 1) * 0x21, 0x64)    # 0x21 = 33, 0x64 = 100
+
+        ⚠ `FixMath.NET.Fix64$$FromIntFraction(n, d)` est `Fix64(n) / Fix64(d)` -- une division en
+        VIRGULE FIXE (`(long)(int)n << 0x20` des deux cotes), PAS une division entiere. `99/100`
+        vaut donc `0.99`, pas `0`, et c'est ce qui place la borne haute la ou elle est.
+
+        ⚠ `GetNumberConstant` (SANS `Try`) est `int.Parse(GetStringConstant(key))` : le natif ne
+        degrade PAS sur une cle absente, il leve. Le port ne peut pas lever a sa place (il
+        s'evaluerait sur des abilities greffees), donc une cle absente rend `None` = **NON
+        MESURE**, et le triage repond `True` -- jamais un refus fabrique. Sur ce build la cle EST
+        presente : `constants.initialCooldownTurns = 2` pour `DutyEternal`.
+
+        `t` non capture (`Scene` absente, uid hors tables) -> `None`, meme convention.
+
+        `actionTiles` n'est PAS lu par le corps natif -- il n'apparait nulle part apres le
+        prologue. C'est la surcharge 3-args du slot `0x208`, pas une lecture de plus."""
+        sc = getattr(ctx, "scene", None)
+        if sc is None:
+            return None                              # substrat absent -> NON MESURE
+        t = sc.turns_finished(ctx.uid)               # `UnitExtensions$$GetTurnsFinished(unit)`
+        if t is None:
+            return None                              # canal muet -> NON MESURE, jamais un 0
+        c = ACG.try_get_number_constant(self.ABILITY_ID, ACG.CONST_INITIAL_COOLDOWN)
+        if c is None:
+            return None                              # `int.Parse(null)` cote natif -> non portable
+        return float((int(t) - int(c) + 1) * self.RAMP_NUMERATOR) / float(self.RAMP_DENOMINATOR)
+
+    def should_evaluate(self, ctx: NCContext) -> bool:
+        """`IdunBattle.AI.Playbook.BasePlaybook$$ShouldEvaluate(unit)` applique a la rampe.
+
+        Le triage vit dans le foyer `_base.probability_gate` (les trois branches natives). Ce que
+        la rampe donne, avec `c = initialCooldownTurns` et `t = GetTurnsFinished(caster)` :
+
+            (t - c + 1) * 33 <= 0    <=>  t <= c - 1   -> **False**, DETERMINISTE
+            (t - c + 1) * 33 >= 100  <=>  t >= c + 3   -> **True**,  DETERMINISTE
+            sinon  t in {c, c+1, c+2}  ->  33/100, 66/100, 99/100  -> TIRAGE (permissif, declare)
+
+        ⚠ LES DEUX BORNES DE L'ENONCE DU RESIDU ETAIENT DECALEES D'UN CRAN (il annoncait
+        `t < c - 1` et `t >= c + 2`), alors que sa propre enumeration `33/66/99` donne bien trois
+        valeurs de tirage, donc `t in {c, c+1, c+2}`. La borne haute est `>= 4` et non `>= 3`
+        parce que `3 * 33 = 99 < 100` : c'est la division en virgule fixe qui tranche.
+
+        Pour `DutyEternal` sur ce build (`c = 2`) : REFUS tant que `turnsFinished <= 1`, TIRAGE a
+        2/3/4, ACCEPTATION certaine des 5. Le porteur est une MoW (`ultraDreadnought`), donc son
+        `turnsFinished` part de 0 -- le refus des deux premiers tours n'est pas un cas de bord."""
+        return probability_gate(self._use_probability(ctx))
 
     def _area(self, ctx: NCContext, anchor: tuple) -> list:
         """`ThreeTileUnitSpawnShape(Target).Select(entities)` = l'empreinte a 3 pieds ancree sur la

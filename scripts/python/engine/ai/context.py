@@ -146,6 +146,17 @@ class AiDecisionContext:
     #     TRI-ETAT, PAR UNITE : `None` = canal absent (contexte LIVE, ou bridge anterieur) ;
     #     une table ne porte QUE les unites dont le canal a parle -- une unite absente de la table
     #     n'est PAS « sans passif », elle est NON MESUREE, et son lecteur retombe sur le gameconfig.
+    victory_conditions: dict | None = None
+    #     `BC.Victory.VictoryConditions` -- le `<victoryConfig @+0x18>` que lit
+    #     `IdunBattle.Core.Services.BattleQuery$$GetMaxRounds`, donc l'entree 1 de
+    #     `BattleQuery$$HasMinimumRemainingTurns` (#1027-r5). TRI-ETAT : `None` = canal non fourni
+    #     (chemin LIVE -- aucun RPC ne publie `BC.Victory`) -> le foyer applique sa cascade et
+    #     retombe sur le defaut DERIVE de `data/seed-bc.json` ; un dict fourni SANS
+    #     `MainPlayerRoundLimitation` est une MESURE (« cette BC ne pose aucun plafond »).
+    turns_ended_by_first_player: int | None = None
+    #     `matchTurn.GetAmountOfTurnsEndedByPlayer(GetPlayerTurnOrder()[0])` = le
+    #     `TurnComponent.<Dictionary @+0x40>`, entree 2 du bras 2 du meme gate. `None` = non mesure.
+    #     ⚠ SURTOUT PAS `decisionView.turnsEnded`, qui publie la SOMME sur tous les joueurs.
 
     debug: bool = False
 

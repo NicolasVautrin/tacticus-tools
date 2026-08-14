@@ -18,6 +18,15 @@ from engine.ai import cast_positions as CP        # FORME B (liaison de MODULE) 
                                                   # seul ne fait pas atterrir `_base` dans
                                                   # `sys.modules`), donc hisse.
 from engine.battle_query import count_adjacent, neigh_map
+from engine.services import battle_query as SBQ   # FORME B (liaison de MODULE) : le foyer
+#                                                 # `has_minimum_remaining_turns` (#287-r11-r1-r1)
+#                                                 # reste substituable par un patcheur.
+#                                                 # Differe CLASSE GRATUIT -- mesure prescrite :
+#                                                 # `import engine.services.battle_query` seul dans
+#                                                 # un process FRAIS ne fait PAS atterrir `_base`
+#                                                 # dans `sys.modules` (16 modules `engine.*`),
+#                                                 # donc rien a fermer -> HISSE. C'est deja la
+#                                                 # forme qu'ont `the_lantern` et `solar_atomizer`.
 
 
 # ---------------------------------------------------------------------------------------------
@@ -350,6 +359,72 @@ def _turns_started_gate(ctx: "NCContext") -> bool:
     return ts > 1
 
 
+def probability_gate(prob) -> bool:
+    """`IdunBattle.AI.Playbook.BasePlaybook$$ShouldEvaluate(unit)` -- le TRIAGE des trois branches
+    de la probabilite d'usage, isole ici parce que les DEUX EXTREMITES sont DETERMINISTES et que
+    seule la bande OUVERTE ne l'est pas. Corps natif :
+
+        prob = vtable[0x1f8] GetUseProbability(unit)
+        if (prob >= Fix64.One)  return true;
+        if (prob <= Fix64.Zero) return false;
+        return random.<slot 4>(prob);            # TIRAGE
+
+    Jusqu'ici la route NonComparable rabattait TOUT `GetUseProbability` conditionnel sur `True`
+    (cf. la docstring de `NonComparablePlaybook.should_evaluate`), y compris les deux extremites --
+    or celles-la n'ont RIEN d'aleatoire : le natif y repond sans consulter son PRNG. Un playbook
+    dont la probabilite est une RAMPE (`DutyEternal`) passe la majorite de ses tours DANS une
+    extremite, pas dans la bande.
+
+    `prob is None` = **PAS MESURE** (le substrat de la formule manque) -> `True`, jamais un `0`
+    invente : `Fix64.Zero` est la valeur qui fait REFUSER, donc un defaut ferait prononcer un refus
+    que le natif n'a pas prononce. Meme convention que `_turns_started_gate` et que
+    `InstrumentsOfVengeancePlaybook.should_evaluate_unit`.
+
+    Bande OUVERTE (`0 < prob < 1`) -> `True`, et c'est DECLARE : le moteur du port est
+    deterministe et n'a pas le PRNG autobot a ce point. `False` y serait aussi faux, mais
+    RESTRICTIF -- on garde le sens qui ne retire jamais une action que le natif peut jouer."""
+    if prob is None:
+        return True
+    if prob >= 1.0:                    # `if (prob >= Fix64.One) return true;`
+        return True
+    if prob <= 0.0:                    # `if (prob <= Fix64.Zero) return false;`
+        return False
+    return True                        # TIRAGE natif -> PERMISSIF assume (ecart nomme)
+
+
+def has_minimum_remaining_turns(ctx: "NCContext", turns: int) -> bool:
+    """`IdunBattle.Core.Services.BattleQuery$$HasMinimumRemainingTurns(unit, turns)` (slot `0x1b`
+    d'`IBattleQuery`) LU DEPUIS UN `NCContext` -- le pont qui manquait a la face DECISION
+    (`#1027-r5`).
+
+    Le MIRROR du corps vit dans `engine.services.battle_query.has_minimum_remaining_turns` (foyer
+    UNIQUE, pose par `CasterHas2TurnsLeft` #287-r11-r1-r1) : on l'APPELLE, on n'en ecrit pas un
+    second. Ce qui est ajoute ici, c'est le SUBSTRAT -- ses deux entrees, en tri-etat, portees
+    par le contexte de decision :
+
+      * `ctx.victory_conditions`  = `BC.Victory.VictoryConditions`, le `<victoryConfig @+0x18>`
+        que lit `BattleQuery$$GetMaxRounds` ;
+      * `ctx.turns_ended_by_first_player` = `matchTurn.GetAmountOfTurnsEndedByPlayer(
+        GetPlayerTurnOrder()[0])`, le `TurnComponent.<Dictionary @+0x40>` du bras 2.
+
+    ⚠ CE QUE CE PONT CHANGE, ET CE QU'IL NE CHANGE PAS. L'enonce du residu disait « le plafond
+    arrive VIDE » ; c'est INEXACT, et la nuance porte : le foyer a un defaut **DERIVE** de
+    `data/seed-bc.json` (entree versionnee), ou la cle `MainPlayerRoundLimitation` est ABSENTE --
+    donc `True` y est deja une LECTURE, pas une convention permissive, et c'est le regime de tous
+    les runners `rl_duel build`. Ce que le pont corrige est l'autre moitie : une bataille dont la
+    BC porte REELLEMENT un plafond etait jugee sur la seed, pas sur SA config, et le compteur de
+    tours termines (bras 2) n'etait jamais lu. La ou le plafond existe, le gate se met donc a
+    REFUSER -- c'est le correctif, pas une regression.
+
+    `victory_conditions is None` -> le foyer retombe sur son defaut derive de la seed (statu quo
+    EXACT). `turns_ended_by_first_player is None` -> le foyer lit son propre substrat, et sans
+    `State` il rend `0` par la branche `!ContainsKey` du natif."""
+    return bool(SBQ.has_minimum_remaining_turns(
+        ctx.uid, turns,
+        victory_conditions=getattr(ctx, "victory_conditions", None),
+        turns_ended_by_first_player=getattr(ctx, "turns_ended_by_first_player", None)))
+
+
 def occupant_team_by_pos(ctx: "NCContext") -> dict:
     """`{(col, row): TeamId}` de l'occupant VIVANT de chaque tuile -- le substrat des gardes
     « ami » de la ligne de vue (`#433-r4-r2-r1-r2-r2`, foyer
@@ -526,6 +601,23 @@ class NCContext:
     # une table presente s'AJOUTE au kit, pour qu'une lecture live partielle ne puisse jamais RETIRER
     # un id connu.
     triggered_kits: object = None  # callable() -> {unitId: [TriggeredAbilityType]} (lazy unitAbilityStates)
+    # #1027-r5 -- les DEUX entrees de `IdunBattle.Core.Services.BattleQuery$$HasMinimumRemainingTurns`
+    # (slot `0x1b` d'`IBattleQuery`), le gate AMONT de `SolarAtomizerPlaybook$$ShouldEvaluate` et
+    # `TheLanternPlaybook$$ShouldEvaluate`, et le substrat du bit `CasterHas2TurnsLeft` du masque.
+    # Les deux playbooks lisaient `getattr(ctx, "state", None)` -- un attribut que `NCContext` n'a
+    # JAMAIS porte, donc TOUJOURS `None` : le foyer retombait invariablement sur son defaut derive
+    # de la seed versionnee, quelle que soit la BC de la bataille en cours.
+    #
+    # ⚠ TRI-ETAT, et `None` n'est PAS un plafond absent : `None` = canal non fourni -> le foyer
+    # applique sa propre cascade (BC du `State`, puis defaut derive de `data/seed-bc.json`). Un
+    # dictionnaire fourni SANS `MainPlayerRoundLimitation` est une MESURE (« cette BC ne pose aucun
+    # plafond »). Rabattre les deux sur `None` ferait de « je ne sais pas » et de « il n'y en a
+    # pas » la meme reponse -- meme discipline que `victory_config.get_max_rounds`.
+    victory_conditions: dict | None = None   # `BC.Victory.VictoryConditions` = `<victoryConfig @+0x18>`
+    turns_ended_by_first_player: int | None = None   # `matchTurn.GetAmountOfTurnsEndedByPlayer(
+    #                            GetPlayerTurnOrder()[0])` = `TurnComponent.<Dictionary @+0x40>`.
+    #                            `None` = non mesure -> le foyer lit son propre substrat (et sans
+    #                            `State` rend `0`, la branche `!ContainsKey` du natif).
 
 
 class NonComparablePlaybook:
