@@ -321,6 +321,126 @@ def test_cabal_branche_ifFalse_seulement_sur_un_porteur_NON_machine():
         "branche `ifFalse` sur une affirmation que personne n'a mesuree")
 
 
+# ============ (7) les DEUX foyers POSENT les trois cles -- sur un etat OFFLINE, pas par grep
+
+_ATT, _TGT, _ALLY = 101, 202, 303
+_COLS = _ROWS = 6
+
+
+def _board():
+    """Meme patron que `tests/engine/runner/test_999r3r1_canal_rarete_aura_offline.py::_board`."""
+    import hexgeo
+    from engine.entities.pathfinding.board import Board
+
+    def tid(c, r):
+        return c * _ROWS + r + 1
+
+    tiles = []
+    for col in range(_COLS):
+        for row in range(_ROWS):
+            nb = [tid(c, r) for (c, r) in hexgeo.neighbors(col, row)
+                  if 0 <= c < _COLS and 0 <= r < _ROWS]
+            tiles.append({"id": tid(col, row), "col": col, "row": row, "elevation": 0,
+                          "walkable": True, "isWall": False, "neighbours": nb})
+    return Board(tiles, adjacency="evenq")
+
+
+def _state_offline(att_pos=(1, 1), ally_pos=(1, 2)):
+    """Un attaquant (equipe 1), une cible (equipe 2), un ALLIE PORTEUR de l'aura 1548 (equipe 1).
+
+    Le porteur est indispensable : sans lui `_apply_ally_attack_damage_auras` sort AVANT de batir
+    son ctx (`if not carriers: return`) et le test mesurerait un contexte qui n'existe pas."""
+    from engine.runner.snapshot import load_state
+    from engine.entities.effect_type import EffectType
+    from engine.entities.rarity import Rarity
+
+    aura = {"id": 7300, "name": EffectType.GuardianConstruct_ExtraDamagePct.name,
+            "effectType": int(EffectType.GuardianConstruct_ExtraDamagePct),
+            "source": _ALLY, "active": True}
+    repair = {"id": 7301, "name": EffectType.NanoscarabRepairProtocols.name,
+              "effectType": int(EffectType.NanoscarabRepairProtocols),
+              "source": _ALLY, "active": True}
+    dv = {"currentPlayer": 1, "units": [
+        {"id": _ATT, "visualId": "ultraMarneus", "alive": True, "team": 1, "owner": 1,
+         "pos": {"col": att_pos[0], "row": att_pos[1]}, "effects": [repair]},
+        {"id": _TGT, "visualId": "necroWarden", "alive": True, "team": 2, "owner": 2,
+         "pos": {"col": 3, "row": 1}, "effects": []},
+        {"id": _ALLY, "visualId": "orksKillaKan", "alive": True, "team": 1, "owner": 1,
+         "pos": {"col": ally_pos[0], "row": ally_pos[1]}, "effects": [aura]},
+    ], "effects": [dict(aura, ownerId=_ALLY, targetIds=[]),
+                   dict(repair, ownerId=_ATT, targetIds=[])]}
+    ob = {"units": [{"squadId": u["id"], "hp": 9000, "hpMax": 9000} for u in dv["units"]]}
+    snap = {"rarityEnum": "idun.meta.Rarity", "units": [
+        {"entityId": u["id"], "visualId": u["visualId"], "entityType": 1,
+         "rarity": int(Rarity.Mythic)} for u in dv["units"]]}
+    return load_state(dv, ob, snap, board=_board())
+
+
+def test_le_foyer_COMBAT_pose_les_trois_cles(monkeypatch):
+    """⚠ FORME B DE MORSURE : `damage_model` lie l'agregateur au niveau module, donc patcher
+    l'attribut de `engine.runner.damage_model` MORD -- patcher `engine.entities.effects.<nom>` ne
+    mordrait pas (le binding est deja gele)."""
+    from engine.runner import damage_model as DM
+    from engine.entities.effects.loki import extra_damage_aura as A
+    from engine.entities.effect_type import EffectType
+
+    st = _state_offline()
+    vus = []
+    reel = DM.aura_attack_damage_bonus_from_allies
+    monkeypatch.setattr(DM, "aura_attack_damage_bonus_from_allies",
+                        lambda c, ctx: (vus.append(ctx), reel(c, ctx))[1])
+    DM.attacker_modifiers(st, _ATT, 9000, is_ranged=False, target_id=_TGT)
+    assert vus, "l'agregateur d'aura ATTAQUE n'a pas ete appele -- le montage ne mesure rien"
+    ctx = vus[0]
+    for cle in (A.CTX_ATT_EFFECT_NAMES, A.CTX_OWNER_IS_MACHINE, A.CTX_CABAL_VALID_ADJACENT_TO_ATT):
+        assert cle in ctx, f"cle ABSENTE du ctx COMBAT : {cle} -- le gate qui la lit est MUET"
+    assert EffectType.NanoscarabRepairProtocols.name in (ctx[A.CTX_ATT_EFFECT_NAMES] or ()), (
+        "l'effet de l'ATTAQUANT n'est pas dans `att_effect_names` : le substrat d'"
+        "`EntitiesWithAnyEffect` ne repond pas")
+    # `owner_is_machine` est une MAP par PORTEUR : une entite SANS `MachineComponent` y est `False`
+    # MESURE, pas absente -- c'est ce qui distingue << pas une machine >> de << non mesure >>.
+    assert ctx[A.CTX_OWNER_IS_MACHINE].get(_ALLY) is False
+    assert ctx[A.CTX_CABAL_VALID_ADJACENT_TO_ATT] is not None, "COMPTE non mesure"
+
+
+def test_le_foyer_PREDICTION_pose_les_MEMES_cles(monkeypatch):
+    """Pendant EXACT de l'etage ci-dessus. Reparer une seule face recreerait le fork
+    prediction/combat (#197, #950-r2)."""
+    from engine.playbook.prediction import _shared as SH
+    from engine.playbook.scene import Scene
+    from engine.entities.effects.loki import extra_damage_aura as A
+
+    st = _state_offline()
+    sc = Scene.from_state(st)
+    vus = []
+    reel = SH.aura_attack_damage_bonus_from_allies
+    monkeypatch.setattr(SH, "aura_attack_damage_bonus_from_allies",
+                        lambda c, ctx: (vus.append(ctx), reel(c, ctx))[1])
+    SH._apply_ally_attack_dmg_bonus([], sc, _ATT, sc.pos(_ATT), False, None, tgt_id=_TGT,
+                                    damage_profile="Psychic")
+    assert vus, "l'agregateur d'aura ATTAQUE (PREDICTION) n'a pas ete appele"
+    ctx = vus[0]
+    for cle in (A.CTX_ATT_EFFECT_NAMES, A.CTX_OWNER_IS_MACHINE, A.CTX_CABAL_VALID_ADJACENT_TO_ATT):
+        assert cle in ctx, f"cle ABSENTE du ctx PREDICTION : {cle} -- FORK avec la face COMBAT"
+    assert ctx[A.CTX_CABAL_VALID_ADJACENT_TO_ATT] is not None
+    assert sc.is_machine(_ALLY) is False, "`Scene.is_machine` doit MESURER, pas rendre None"
+
+
+def test_scene_is_machine_est_TRI_ETAT():
+    """Une `Scene` batie hors `step_context` / `from_state` n'a PAS mesure la nature d'entite : elle
+    doit le DIRE (`None`), jamais rendre `False` -- qui ouvrirait la branche `ifFalse` du
+    `ConditionalSelector` de `CabalOfSorcerers` sur une affirmation non mesuree."""
+    from engine.playbook.scene import Scene
+
+    sc = Scene(ctx_by_id={}, armor_by_id={}, shield_by_id={}, mult_by_id={}, ablvl_by_id={},
+               vis_by_id={}, units=[], hp_by_id={}, pos_by_id={}, team_by_id={}, eff_state=None)
+    assert sc.is_machine(42) is None
+    sc2 = Scene(ctx_by_id={}, armor_by_id={}, shield_by_id={}, mult_by_id={}, ablvl_by_id={},
+                vis_by_id={}, units=[], hp_by_id={}, pos_by_id={}, team_by_id={}, eff_state=None,
+                machine_ids=frozenset())
+    assert sc2.is_machine(42) is False, "un frozenset VIDE est une MESURE (etat sans MoW)"
+
+
 def test_les_deux_faces_lisent_les_MEMES_cles_de_ctx():
     """Pas de fork PREDICTION / COMBAT : les trois cles neuves sont posees par les DEUX foyers, et
     par le MEME nom -- importe depuis le module d'effet, jamais recopie en litteral."""
