@@ -219,7 +219,10 @@ def test_etage4_dispatcher_route_53_et_le_rayon_de_souffle_tient():
     assert AU.get_movement_utility(ctx, (0, 0),
                                    int(UtilityType.BioMinefield_MoveTowardsTarget)) == 0.0
     # Un type ABSENT du registre reste a 0.0 -- la branche ne peut pas fabriquer un score.
-    assert AU.get_movement_utility(ctx, (0, 0), 9999) == 0.0
+    # `STRIPPED` (9999) est un membre NATIF d'`IdunBattle.Configuration.UtilityType` -- LU dans
+    # `data/symbols/<build>/frida/enums.tsv` (`9999=STRIPPED`, 83 membres), pas une sentinelle
+    # inventee ici. C'est le membre qui ne designe aucune entree d'`utilities_database`.
+    assert AU.get_movement_utility(ctx, (0, 0), int(UtilityType.STRIPPED)) == 0.0
 
 
 def test_etage4b_dispatcher_rend_bien_le_score_de_la_feuille():

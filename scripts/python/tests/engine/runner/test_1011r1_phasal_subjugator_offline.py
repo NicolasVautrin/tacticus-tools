@@ -209,8 +209,10 @@ def test_ids_registre_et_constantes_sont_lus_au_decompile():
     assert int(AbilityConstantType.unitId) == 0x0
     assert int(WARRIOR_SELECTION) == 1 == int(UnitSelectionType.OnlyAlive)
     assert int(UtilityType.Tile) == 7
-    assert PhasalSubjugatorSummonAbility.event_id == 0x1c == 28
-    assert PhasalSubjugatorTriggerPassiveAbility.event_id == 0x29 == 41
+    assert PhasalSubjugatorSummonAbility.event_id == 0x1c == 28 == int(
+        EventTriggerType.ArrivedAtFinalTile)
+    assert PhasalSubjugatorTriggerPassiveAbility.event_id == 0x29 == 41 == int(
+        EventTriggerType.UnitFinishedTurnNormally)
     # LA cle 0x615 enregistre DEUX classes (lambda `b__28_433` : une `List` + DEUX `Add`).
     assert RELIC_ABILITY_TRIGGERS.get(ABILITY_ID) == [PhasalSubjugatorSummonAbility,
                                                       PhasalSubjugatorTriggerPassiveAbility]

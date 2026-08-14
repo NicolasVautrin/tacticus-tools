@@ -220,7 +220,8 @@ def test_ids_registre_et_constantes_sont_lus_au_decompile():
     assert int(TriggeredAbilityType.TheArdentBlade) == THE_ARDENT_BLADE
     assert THE_ARDENT_BLADE_EFFECT == 0x5b6 == 1462
     assert int(EffectType.TheArdentBlade) == THE_ARDENT_BLADE_EFFECT
-    assert TheArdentBladeTriggerAbility.event_id == 0x36 == 54
+    assert TheArdentBladeTriggerAbility.event_id == 0x36 == 54 == int(
+        EventTriggerType.UnitDefeated)
     assert int(AbilityConstantType.unitId) == 0x0
     assert int(RANGE_CONSTANT) == 0x16 == 22 == int(AbilityConstantType.range)
     assert int(HP_VARIABLE) == 0x1d == 29 == int(AbilityVariableType.hp)

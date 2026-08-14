@@ -81,6 +81,7 @@ DECLENCHEUR = {
 }
 
 from engine.dsl.base import DslContext                                          # noqa: E402
+from engine.dsl.event_trigger_type import EventTriggerType                      # noqa: E402
 from engine.entities.triggered_ability_type import TriggeredAbilityType         # noqa: E402
 from engine.entities.triggers import Not, TriggeringAbilityIs                   # noqa: E402
 from engine.runner.components import (HealthComponent, OwnerComponent,          # noqa: E402
@@ -145,7 +146,8 @@ def montage():
 def _ev(source_ability):
     """L'evenement que `pre_damage_taken_triggers` construit : `actor` = la SOURCE du degat,
     `target` = la VICTIME, et le canal `+0x98` porte l'`AbilityOrEffect` de la `DamageSource`."""
-    return TriggerEvent(57, SOURCE, VICTIME, ranged=False, profile="Physical",
+    return TriggerEvent(int(EventTriggerType.PreDamageTaken), SOURCE, VICTIME,
+                        ranged=False, profile="Physical",
                         triggering_effect=source_ability, triggering_ability=source_ability)
 
 
