@@ -811,6 +811,22 @@ CONSOMMATEURS: list[Consommateur] = [
     Consommateur("ABILITY_INIT_OWNER_FLAGS", "engine.entities.effects.factory",
                  "ABILITY_INIT_OWNER_FLAGS", ("ActiveAbilityType", "TriggeredAbilityType"),
                  raison="`<Ability>_InitAbility.CreateBehaviour` -> `AddFlag(owner)` a l'init"),
+    # #1038 -- `snapshot._rebake_tertiary_posed_effects` :
+    # `get_effects_posed_by_tertiary_ability(str(tert)) or ()`. MEME lecture `.get(<nom>, [])`, donc
+    # MEME degradation muette que ses cinq voisins : un nom disparu rend `[]`, la passe ne re-bake
+    # rien, et l'effet garde le couple des PASSIFS -- ce qui n'est PAS inerte mais FAUX (mesure
+    # #1038 : `dmgReductionPct` lu **32** au lieu de **10**, facteur 3,2, sans la moindre erreur).
+    # UN SEUL enum, et c'est le MEME que `RELIC_ABILITY_TRIGGERS` pour la MEME raison : la cle est
+    # l'ability TERTIAIRE de la SOURCE, c'est-a-dire ce que le natif monte par
+    # `TriggeredAbilityComponent$$TryAdd(id, tertiaryAbilityState, 3)` (branche TERTIAIRE
+    # d'`IdunBattle.Entities.Factories.UnitFactory$$AddConfiguredAbilities`) -- la voie unique des
+    # reliques ET des mythiques de MoW. Cote port la cle est lue dans `UnitContext.tertiary_ability`,
+    # seedee par `snapshot._load_tertiary_abilities` depuis le RPC `unitAbilityStates`.
+    # MESURE : `MastersOfManoeuvre` = `TriggeredAbilityType` 0x5e4 = 1508, ABSENT d'`ActiveAbilityType`.
+    Consommateur("TERTIARY_ABILITY_POSED_EFFECTS", "engine.entities.effects.factory",
+                 "TERTIARY_ABILITY_POSED_EFFECTS", "TriggeredAbilityType",
+                 raison="voie TERTIAIRE -- effets qu'une relique/mythique pose SUR AUTRUI, dont "
+                        "l'AbilityState bake est celui de la tertiaire de la SOURCE"),
 ]
 
 
