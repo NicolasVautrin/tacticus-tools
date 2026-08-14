@@ -79,11 +79,18 @@ DECLENCHEUR = {
 #: l'ennemi le plus proche a `NormalAttackRange + Movement`) et pose l'owner-effet 1235
 #: (`InstinctiveBehaviour_BlockMovement`, 4e etage de `UnitExtensions$$CanMove`). Les DEUX faces
 #: sont CONFRONTEES live (`probe_1015r1_instinctive_behaviour.py`, deux regimes + temoin non nul).
+#: `Healer` RETIRE par #1015-r1 (2026-08-14) -- canal MESURE :
+#: `registre:TRAIT_DERIVED_ACTIVE_ABILITIES` (`entities/active_abilities.py`). Le trait derive
+#: l'ability ACTIVE `18 Heal` (dict `<Trait statics>+0x08` du `.cctor`, lu par
+#: `Trait$$GetActiveAbility`, materialise par `UnitFactory$$AddDerivedAbilities`), que le decideur
+#: offline ne voyait chez AUCUN des 18 porteurs. CONFRONTE live (temoin non nul : la MEME unite
+#: sans / avec `Healer` greffe par `--unit-stat Traits`).
 #: ⚠ LES DEUX RETRAITS SONT ARRIVES PAR DEUX BRANCHES PARALLELES, et la resolution d'un ENSEMBLE
 #: est l'UNION des retraits -- jamais << la mienne >> ou << la sienne >>, qui perdrait un port reel.
+#: Resolu ainsi au rebase du 2026-08-14 (`InstinctiveBehaviour` venait d'`origin/master`, `Healer`
+#: de cette branche) : les deux SORTENT, le set garde les deux items restants.
 NON_COUVERTS_MESURES = {
     "BeastSnagga",
-    "Healer",
     "TwoManTeam",
 }
 
