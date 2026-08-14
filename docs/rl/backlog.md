@@ -5045,3 +5045,39 @@ pas d'erreur : il rend **zéro**, et un zéro se lit « rien à signaler ».
   le tirage tombe, puis confronter la duree live de 1065 sur la cible.
   FOYER: scripts/python/probe_1077_firing_position_mischief_makers.py
   BLOCAGE: aucun
+
+- **#1083-r1 — les 20 passifs `PowerUp_*` ne sont PAS portes (0 classe, 0 effet, 0 entree de registre), et le montage qui les confronte est desormais ECRIT.** `[opus]`
+  Point d'entree : `docs/rl/case-1083-powerup-le-board-ne-confronte-rien.md` Sec.4 et Sec.6 +
+  `IdunBattleLogic.Entities.Abilities.Triggered.Loki.APowerUpAbility` (`$$CreateBehaviour`,
+  `$$CreateTrigger`, `$$AddShield`, `$$AddPctBasedBoost`, `$$AddAbsoluteBoost`,
+  `$$AddSelfContainedBoostEffect`, `$$AddAdditionalBehavior`).
+  Les 4 sous-classes cibles ne surchargent AUCUN `CreateBehaviour` : elles ne different que par leur
+  getter de boost -- `PowerUp_DamageAbility$$get_PctBasedStatBoost` et
+  `PowerUp_HealthAbility$$get_PctBasedStatBoost` d'un cote, `PowerUp_HitsAbility$$get_AbsoluteStatBoost`
+  et `PowerUp_MeleeHitsAbility$$get_AbsoluteStatBoost` de l'autre ; `PowerUp_ArmorAbility` ne surcharge
+  que `$$AdditionalBehavior`. Les constantes gameconfig concordent (`dmgPct`/`healthPct` pour les deux
+  premiers, `extraHit` pour les deux suivants, `shieldPct` commun aux cinq -> `$$AddShield`).
+  Registre a viser : `ABILITY_TRIGGERS` (`engine/runner/operations/triggers/dispatch/registry.py`),
+  cle = nom gameconfig DERIVE du mirror (`TriggeredAbilityType.PowerUp_Hits.name`), jamais un litteral.
+  Le montage de confrontation est mesure et generalise (un power-up qu'AUCUN board ne place entre en
+  bataille sur un board qui n'en porte aucun) : `catalog_inject --units powup<X>` puis
+  `rl_duel build --seed-bc <..> --explicit-stats powup<X> --a-units "powup<X>,..."`. Le BOARD n'y joue
+  AUCUN role -- ne pas re-derouler la piste `--board`, elle est refutee Sec.3.
+  FOYER: scripts/python/engine/runner/operations/triggers/loki/, scripts/python/engine/runner/operations/triggers/dispatch/registry.py, scripts/python/engine/entities/effects/factory.py
+  BLOCAGE: aucun
+
+- **#1083-r2 — `classify_carrier` rend `N` (hors-jeu) pour tout porteur `npc`, alors que `--explicit-stats` les monte.** `[opus]`
+  Point d'entree : `docs/rl/case-1083-powerup-le-board-ne-confronte-rien.md` Sec.4 +
+  `scripts/python/audit_passive_ability_coverage.py::classify_carrier` (le `return "N"` final) et
+  `build_rows` (`CONFRONTABLE = ("L+", "M", "S+", "L~")`).
+  Mesure : deux porteurs `kind == "npc"` (`powupHits`, `powupBomb`) sont amenes en bataille par
+  `catalog_inject` + `--explicit-stats` + `--a-units`, donc `N` n'est pas « hors-jeu ». Le CLAUDE.md
+  l'ecrit deja (« npc-only n'implique PAS non confrontable ») mais l'audit ne le porte pas, et c'est
+  lui qui sert a dispatcher : la file « GAPS confrontables (0) » exclut structurellement tous les npc.
+  ⚠ Ce residu N'EST PAS « passer tous les `npc` en confrontable » : la mesure ne couvre que 2 unites
+  `powup*`. Il n'existe aucun equivalent npc de `data/unspawnable_rank<N>.json`, donc le prealable est
+  de MESURER quels `npc` montent reellement (balayage `--explicit-stats`, comme le spawn-probe l'a fait
+  pour les `lineup`) avant de toucher la classification. Un `N` retourne en bloc sans cette mesure
+  ferait dispatcher sur des porteurs impossibles -- l'erreur symetrique, deja payee.
+  FOYER: scripts/python/audit_passive_ability_coverage.py
+  BLOCAGE: aucun

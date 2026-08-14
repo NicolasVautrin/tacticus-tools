@@ -42,7 +42,7 @@ Sinon, trois verdicts NEGATIFS distincts :
 
 Mesure de ce run : un `substring` brut du nom sur `engine/**/*.py` rend **211/211 presents, 0 manquant**. La cause n'est pas que tout est porte : `engine/entities/triggered_ability_type.py` est un **mirror 1:1 de l'enum natif `TriggeredAbilityType`** (573 membres), ou le nom de CHAQUE passif figure comme membre. **Un catalogue n'est pas un cablage.**
 
-Le signal code de cet audit est donc derive de l'**AST** et exclut les **definitions** de membres d'enum (2638 assignations ecartees dans 688 fichiers `engine/**/*.py`) tout en gardant les **usages** (`TriggeredAbilityType.X` = `ast.Attribute` -> compte). Il separe en outre le CODE (14161 symboles distincts) de la PROSE (11969 ko de commentaires + docstrings, invisibles a l'AST, lus via `tokenize`). Le rapprochement est CamelCase-aware : `HeavyGravCannon` matche `HeavyGravCannonEffect`, `Guard` ne matche ni `Guardsman` ni `RoyalGuard` (ni, pour `Possession`, l'unitId `blackPossession`).
+Le signal code de cet audit est donc derive de l'**AST** et exclut les **definitions** de membres d'enum (3940 assignations ecartees dans 688 fichiers `engine/**/*.py`) tout en gardant les **usages** (`TriggeredAbilityType.X` = `ast.Attribute` -> compte). Il separe en outre le CODE (14109 symboles distincts) de la PROSE (11969 ko de commentaires + docstrings, invisibles a l'AST, lus via `tokenize`). Le rapprochement est CamelCase-aware : `HeavyGravCannon` matche `HeavyGravCannonEffect`, `Guard` ne matche ni `Guardsman` ni `RoyalGuard` (ni, pour `Possession`, l'unitId `blackPossession`).
 
 Chaque reference est en outre ATTRIBUEE A SA ZONE du moteur (`__init__, ai, battle_query, dsl, effects, entities, hex_corner, hex_edge, move, playbook, predict, runner, services, streams, utilities, weights`), parce qu'une reference dans `playbook/`/`ai/`/`utilities/` (face DECISION) ne prouve RIEN sur l'execution combat. C'est ce qui separe **B** (litteral exact sous `runner/`) de **R**.
 
@@ -66,8 +66,8 @@ La colonne `kind` de gameconfig MENT sur la spawnabilite -> le pool vient de la 
 
 - Passifs distincts dans le parc (lineup 127 / npc 491 / summons 65) : **211**
 - **PORTES** (>=1 canal structurel) : **158** (75 %)
-- **ZONE-GRISE** (direct-read hors registre, a trancher) : **31**
-- **GAPS** (mention seule + absent) : **22** = 9 mention + 13 absent
+- **ZONE-GRISE** (direct-read hors registre, a trancher) : **11**
+- **GAPS** (mention seule + absent) : **42** = 15 mention + 27 absent
 - Passifs portes par >=1 unite **confrontable** : **134** ; parmi eux, **0 gaps** et **0 zone-grise** -> c'est la FILE reelle.
 
 Ventilation des canaux qui portent (un passif peut en cumuler) : **T**=81, **O**=32, **E**=96, **G**=11, **X**=0, **B**=10
@@ -84,12 +84,13 @@ _aucun._
 
 _aucun._
 
-### GAPS non confrontables (npc-only / non spawnable `L!` / summon indetermine `S?`) (22)
+### GAPS non confrontables (npc-only / non spawnable `L!` / summon indetermine `S?`) (42)
 
 | passif | porteurs | spawnables (ex.) | verdict | canal | zones engine/ |
 |---|---|---|---|---|---|
 | ArchContaminator | N=1 | - | GAP-MENTION | **.** | - |
 | BossEndFightUndefeated | N=2 | - | GAP-MENTION | **.** | - |
+| Bounce | N=2 | - | GAP-MENTION | **.** | - |
 | CloudOfFlies | N=1 | - | GAP-MENTION | **.** | - |
 | Conceal | N=1 | - | GAP-MENTION | **.** | - |
 | CrazedFocus | N=1 | - | GAP-ABSENT | - | - |
@@ -100,6 +101,25 @@ _aucun._
 | HuntersInstincts | N=1 | - | GAP-MENTION | **.** | - |
 | MultiTracker | N=1 | - | GAP-ABSENT | - | - |
 | OiWatchIt | N=1 | - | GAP-ABSENT | - | - |
+| PowerUp_Bomb | N=1 | - | GAP-ABSENT | - | - |
+| PowerUp_Damage | N=1 | - | GAP-ABSENT | - | - |
+| PowerUp_Healing | N=1 | - | GAP-MENTION | **.** | - |
+| PowerUp_Health | N=1 | - | GAP-ABSENT | - | - |
+| PowerUp_HeroSpawn_BladeChampion | N=1 | - | GAP-ABSENT | - | - |
+| PowerUp_HeroSpawn_Uthar | N=1 | - | GAP-ABSENT | - | - |
+| PowerUp_HeroSpawn_VexilusPraetor | N=1 | - | GAP-ABSENT | - | - |
+| PowerUp_Hits | N=1 | - | GAP-MENTION | **.** | - |
+| PowerUp_MeleeHits | N=1 | - | GAP-ABSENT | - | - |
+| PowerUp_ReactivateAbility | N=1 | - | GAP-ABSENT | - | - |
+| PowerUp_Reinforcement | N=1 | - | GAP-ABSENT | - | - |
+| PowerUp_ReinforcementShield | N=1 | - | GAP-ABSENT | - | - |
+| PowerUp_Resurrect | N=1 | - | GAP-ABSENT | - | - |
+| PowerUp_SummonSpawn_bloodSmnIntercessor | N=1 | - | GAP-ABSENT | - | - |
+| PowerUp_SummonSpawn_darkaSmnHellblaster | N=1 | - | GAP-ABSENT | - | - |
+| PowerUp_SummonSpawn_darkaSmnTerminator | N=1 | - | GAP-MENTION | **.** | - |
+| PowerUp_SummonSpawn_templSmnAggressor | N=1 | - | GAP-MENTION | **.** | - |
+| PowerUp_SummonSpawn_ultraSmnHeavyIntercessor | N=1 | - | GAP-MENTION | **.** | - |
+| PowerUp_SummonSpawn_ultraSmnInceptor | N=1 | - | GAP-ABSENT | - | - |
 | PreCalibratedPurgeSolution | N=1 | - | GAP-ABSENT | - | - |
 | PrehensilePincerTail | N=1 | - | GAP-ABSENT | - | - |
 | RepairEnthusiast | S?=1 N=1 | - | GAP-ABSENT | - | - |
@@ -111,37 +131,17 @@ _aucun._
 | TheEmperorsShield | N=1 | - | GAP-ABSENT | - | - |
 | Volatile | N=1 | - | GAP-ABSENT | - | - |
 
-### ZONE-GRISE non confrontable (31)
+### ZONE-GRISE non confrontable (11)
 
 | passif | porteurs | spawnables (ex.) | verdict | canal | zones engine/ |
 |---|---|---|---|---|---|
-| Bounce | N=2 | - | ZONE-GRISE | **R** | streams |
 | ElectroShock | S?=1 N=2 | - | ZONE-GRISE | **R** | playbook, runner, services |
-| Explosive | N=1 | - | ZONE-GRISE | **R** | effects, entities, playbook, runner |
+| Explosive | N=1 | - | ZONE-GRISE | **R** | effects, playbook, runner |
 | HeavyBoltPistol | S?=1 N=1 | - | ZONE-GRISE | **R** | playbook, runner, services |
 | ItsGonnaBlow | N=1 | - | ZONE-GRISE | **R** | runner |
 | Lifewards | S?=1 | - | ZONE-GRISE | **R** | runner |
 | NoHidingFromTheWatchers | S?=1 N=1 | - | ZONE-GRISE | **R** | playbook |
-| PowerUp_Armor | N=1 | - | ZONE-GRISE | **R** | entities, runner |
-| PowerUp_Bomb | N=1 | - | ZONE-GRISE | **R** | entities |
-| PowerUp_Damage | N=1 | - | ZONE-GRISE | **R** | entities |
-| PowerUp_Healing | N=1 | - | ZONE-GRISE | **R** | entities |
-| PowerUp_Health | N=1 | - | ZONE-GRISE | **R** | entities |
-| PowerUp_HeroSpawn_BladeChampion | N=1 | - | ZONE-GRISE | **R** | entities |
-| PowerUp_HeroSpawn_Uthar | N=1 | - | ZONE-GRISE | **R** | entities |
-| PowerUp_HeroSpawn_VexilusPraetor | N=1 | - | ZONE-GRISE | **R** | entities |
-| PowerUp_Hits | N=1 | - | ZONE-GRISE | **R** | entities |
-| PowerUp_MeleeHits | N=1 | - | ZONE-GRISE | **R** | entities |
-| PowerUp_ReactivateAbility | N=1 | - | ZONE-GRISE | **R** | entities |
-| PowerUp_Reinforcement | N=1 | - | ZONE-GRISE | **R** | entities |
-| PowerUp_ReinforcementShield | N=1 | - | ZONE-GRISE | **R** | entities |
-| PowerUp_Resurrect | N=1 | - | ZONE-GRISE | **R** | entities |
-| PowerUp_SummonSpawn_bloodSmnIntercessor | N=1 | - | ZONE-GRISE | **R** | entities |
-| PowerUp_SummonSpawn_darkaSmnHellblaster | N=1 | - | ZONE-GRISE | **R** | entities |
-| PowerUp_SummonSpawn_darkaSmnTerminator | N=1 | - | ZONE-GRISE | **R** | entities |
-| PowerUp_SummonSpawn_templSmnAggressor | N=1 | - | ZONE-GRISE | **R** | entities |
-| PowerUp_SummonSpawn_ultraSmnHeavyIntercessor | N=1 | - | ZONE-GRISE | **R** | entities |
-| PowerUp_SummonSpawn_ultraSmnInceptor | N=1 | - | ZONE-GRISE | **R** | entities |
+| PowerUp_Armor | N=1 | - | ZONE-GRISE | **R** | runner |
 | RapidFire | S?=1 N=3 | - | ZONE-GRISE | **R** | playbook |
 | Shrapnel | S?=1 N=2 | - | ZONE-GRISE | **R** | playbook |
 | WatchedOver | S?=1 N=1 | - | ZONE-GRISE | **R** | playbook, runner |
@@ -172,7 +172,7 @@ _aucun._
 | DecoysAndMisdirection | L+=1 N=3 | genesPrimus | PORTE | **T**=DecoysAndMisdirectionDamageEnemiesAbility,DecoysAndMisdirectionBuffFriendsAbility **E**=DecoysAndMisdirection_ExtraDamage | effects, runner, utilities |
 | DestroyTheWitch | L+=1 N=2 | templHelbrecht | PORTE | **E**=DestroyTheWitch_ExtraDamage,DestroyTheWitch_ExtraMove | effects |
 | DestroyerHive | L+=1 N=5 | deathTyphus | PORTE | **T**=DestroyerHiveAbility | runner |
-| Doom | L+=1 N=5 | eldarFarseer | PORTE | **E**=Doom_extraDmg | effects, entities, playbook, runner |
+| Doom | L+=1 N=5 | eldarFarseer | PORTE | **E**=Doom_extraDmg | effects, playbook, runner |
 | EnmityForTheUnworthy | L+=1 N=2 | darkaCompanion | PORTE | **O**=EnmityForTheUnworthy_ExtraDamage,EnmityForTheUnworthy_ExtraDamagePct **E**=EnmityForTheUnworthy_ExtraDamage,EnmityForTheUnworthy_ExtraDamagePct | effects |
 | ExplosiveMaladies | L+=1 N=3 | deathPutrifier | PORTE | **E**=ExplosiveMaladies_ExtraMeleeAttack,ExplosiveMaladies_ExtraRangedAttack | effects |
 | FabricatorClawArray | L+=1 N=5 | necroSpyder | PORTE | **T**=FabricatorClawArrayAbility | playbook, runner |
@@ -304,7 +304,7 @@ _aucun._
 | PurgeResponse | S?=1 N=1 | - | PORTE | **E**=PurgeResponse | effects, playbook |
 | Pyreblaster | S?=1 N=1 | - | PORTE | **T**=PyreblasterAbility | runner |
 | ShroudPsalm | N=1 | - | PORTE | **E**=ShroudPsalm | effects |
-| StormboyzStrike | N=1 | - | PORTE | **T**=StormboyzStrikeTeleportAbility,StormboyzStrikeFallbackAbility | ai, effects, entities, runner, services |
+| StormboyzStrike | N=1 | - | PORTE | **T**=StormboyzStrikeTeleportAbility,StormboyzStrikeFallbackAbility | ai, entities, runner, services |
 | SynapticInsight | S?=1 N=2 | - | PORTE | **O**=SynapticInsight_ExtraHits **E**=SynapticInsight_ExtraHits | effects |
 | VengeanceForTheOmnissiah | S?=1 N=1 | - | PORTE | **T**=VengeanceForTheOmnissiahAbility | playbook, runner |
 | VoltagheistField | S?=1 N=2 | - | PORTE | **E**=VoltagheistField_ExtraHit | effects, predict |
