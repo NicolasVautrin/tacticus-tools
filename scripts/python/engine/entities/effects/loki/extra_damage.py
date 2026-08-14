@@ -16,6 +16,7 @@ from ....services.effect_bonus import (EffectBonus, for_addition, for_percent_de
                                        for_percent_increase)
 from ...active_ability_type import ActiveAbilityType
 from ...damage_trait import DamageTrait
+from ...rarity import Rarity            # `idun.meta.Rarity` -- gate `HasRarity` (#999-r3-r1)
 from ...triggered_ability_type import TriggeredAbilityType
 from ...traits.unit_trait import UnitTrait
 from ..base import (BaseEffect, is_at_range as _is_at_range, is_melee_attack, is_not_charging,
@@ -297,6 +298,100 @@ class SmashaEadExtraDamageEffect(BaseEffect):
         if not red:
             return None
         return for_percent_decrease(False, abs(int(red)))   # owner=defenseur (l'effet est sur la cible)
+
+
+class HyperCorrosiveAcidExtraDamagePctEffect(BaseEffect):
+    """`IdunBattle.Entities.Effects.Loki.HyperCorrosiveAcid_ExtraDamagePctEffect` (`EffectType`
+    0x5a8 = **1448**) -- l'effet pose par l'ability **MYTHIQUE** `HyperCorrosiveAcid` (0x5af = 1455)
+    des MoW `tyranBiovore` / `tyranNpcMowBiovore. La POSE est portee depuis #1035
+    (`runner/operations/triggers/loki/hyper_corrosive_acid.py`) ; c'est la face DEGAT qui manquait,
+    et son verrou etait le canal de RARETE (residu `#1035-r1`, ferme par `#999-r3-r1`).
+
+    i2 : << Enemies that are damaged by a friendly **Spore Mine** take +{extraDmgPct}% Damage from
+    attacks by **Mythic** characters for {nrOfRounds} round. >>
+
+    ## MIRROR 1:1 -- `...HyperCorrosiveAcid_ExtraDamagePctEffect$$CreateEffectDamageBonusForAttack`
+
+        EffectBonus.ForPercentIncrease(
+            get_OwnerIsTarget
+            & ( AreFriends( Caster@<DSLSelectors+0x48>,
+                            EffectSource(Effect@<DSLSelectors+0x38>), 0, false )
+                & HasRarity( Caster@<DSLSelectors+0x48>, idun.meta.Rarity.Mythic = 5 )
+                & HasTrait(  Caster@<DSLSelectors+0x48>, 0x10 = UnitTrait.Hero ) ),
+            DSLFormulas$$ConfigVar( 0xa = AbilityVariableType.extraDmgPct,
+                                    GetAbilityState(effet), effet@+0x60 ) )
+
+    ## LE CANAL EST CELUI DE LA CIBLE, **PAS** L'AURA -- et c'est LU, pas suppose
+    `search_symbols_by_name` sur cette classe rend **deux** symboles (`$$.ctor` et
+    `$$CreateEffectDamageBonusForAttack`) : il n'y a **AUCUN `$$CreateTargetSelector`**. L'Owner de
+    l'effet est donc son PORTEUR, et `get_OwnerIsTarget` dit que ce porteur est la CIBLE du coup
+    -> le canal port est `create_effect_damage_malus_for_defense` (la boucle des effets de la
+    CIBLE), pas `create_aura_defense_damage_malus_for_ally`. Le residu `#999-r3-r1` rangeait cet
+    effet parmi les consommateurs des agregateurs d'AURA : re-mesure, c'est faux.
+
+    Malgre le nom natif << ...ForAttack >>, l'effet MAJORE le degat que son porteur RECOIT --
+    meme mold qu'`ExemplarOfHateTargetEffect` / `ChronometronExtraDamageEffect`.
+
+    ## LES TROIS CONJOINTS, ET D'OU ILS VIENNENT
+      1. `AreFriends(Caster, EffectSource(Effect))` -- l'ATTAQUANT est un allie du BIOVORE.
+         `EffectSource` = `EffectComponent.SourceUnit @+0x10` = `self.source` cote port ; son equipe
+         se resout par `attacker_ctx["team_by_id"]`, celle de l'attaquant par `attacker_ctx["team"]`
+         (MEME idiome que `ChronometronExtraDamageEffect`).
+      2. `HasRarity(Caster, Mythic)` -- `BaseUnitComponent.Rarity` (+0x74) de l'ATTAQUANT, lu dans
+         `attacker_ctx["rarity"]` (#999-r3-r1 ; foyers `damage_model._unit_rarity` /
+         `prediction._shared._entity_rarity`). TRI-ETAT : `None` = NON MESURE -> gate FERME.
+         C'est LE conjoint qui tenait cet effet hors du registre : sans lui, tout attaquant Hero ami
+         du Biovore aurait beneficie du bonus -- terme PERMISSIF.
+      3. `HasTrait(Caster, 0x10 = UnitTrait.Hero)` -- `attacker_ctx["traits"]`.
+
+    ## MAGNITUDE
+    `ConfigVar(0xa = extraDmgPct)` sur la config de l'ability `HyperCorrosiveAcid`, indexee par
+    `GetAbilityState(effet)` = l'`AbilityStateReference` BAKEE dans `EffectComponent+0x18` a la
+    pose (#382/#1038) -- celle de la MoW POSEUSE, pas du porteur (ici les deux DIFFERENT par
+    construction : `source = Owner`, `targets = Target`). Pour une TERTIAIRE ce couple est
+    `level 1..4 / mult 100`. Gameconfig : `extraDmgPct = [10, 13, 16, 20]`,
+    `variablesAffectedByRarityBonus = ['extraDmgPct']`. `ability_level` absent -> AUCUNE
+    contribution (<< present != applique >>), jamais un repli sur `self.level` (qui est un niveau de
+    STACK, pas un `AbilityState`)."""
+
+    #: Cle gameconfig de l'ability qui pose l'effet -- la config qu'indexe `ConfigVar`.
+    ABILITY_ID = "HyperCorrosiveAcid"
+    #: `AbilityVariableType` 0xa = 10, resolu par son NOM (jamais par l'ordinal : `AbilityConstantType`
+    #: 10 nomme autre chose).
+    VAR_EXTRA_DMG_PCT = "extraDmgPct"
+
+    def create_effect_damage_malus_for_defense(self, is_melee: bool | None = None,
+                                               damage_profile: str | None = None,
+                                               attacker_ctx: Mapping | None = None) -> EffectBonus | None:
+        ac = attacker_ctx or {}
+        # 1. `AreFriends(Caster@+0x48, EffectSource(Effect@+0x38), 0, false)`
+        a_team = ac.get("team")
+        s_team = (ac.get("team_by_id") or {}).get(self.source) if self.source is not None else None
+        if a_team is None or s_team is None or a_team != s_team:
+            return None                                   # equipe inconnue -> gate muet (fidele)
+        # 2. `HasRarity(Caster@+0x48, idun.meta.Rarity.Mythic = 5)` -- #999-r3-r1. Comparaison au
+        #    MEMBRE d'enum, jamais a l'ordinal : cinq enums du build partagent les six memes
+        #    ordinaux de rarete (cf. `entities/rarity.py`). `None` (non mesure) -> FERME.
+        if ac.get("rarity") != Rarity.Mythic:
+            return None
+        # 3. `HasTrait(Caster@+0x48, 0x10 = UnitTrait.Hero)`
+        if UnitTrait.Hero.name not in (ac.get("traits") or frozenset()):
+            return None
+        lvl = self.ability_level
+        if lvl is None:
+            return None                                   # `ConfigVar` sans `AbilityState` -> inerte
+        pct = ability_var(self.ABILITY_ID, self.VAR_EXTRA_DMG_PCT, lvl,
+                          multiplier_pct=self.ability_variables_multiplier)
+        if not pct:
+            return None
+        # owner = le DEFENSEUR (l'effet vit sur la cible) -> le degat RECU augmente.
+        return for_percent_increase(False, int(pct))
+
+    # #437-r1-r1-r1 : le natif DECLARE `CreateEffectDamageBonusForAttack` (slot 0x16) -> son
+    # `EffectBonus` atterrit dans `attackModifiers`, MALGRE le trigger `get_OwnerIsTarget`. Canal
+    # POURCENT, donc l'attribution a une CONSEQUENCE ARITHMETIQUE (un `Fix64.Round` par
+    # accumulateur non nul, cf. `BaseEffect`).
+    DEFENSE_MALUS_NATIVE_FACE = "attacker"
 
 
 class FeederTendrilsExtraDamageEffect(BaseEffect):

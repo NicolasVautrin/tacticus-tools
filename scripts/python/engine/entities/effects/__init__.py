@@ -602,7 +602,7 @@ def aura_attack_damage_bonus_from_allies(carriers, ctx) -> list:
     `ConquerorImperativeEffect` IdunBattle.Entities.Effects.Loki.ConquerorImperativeEffect$$CreateDamageModifier : +extraDmg FLAT aux amis Mechanical adjacents vs cible à armure
     réduite, #23). SYMÉTRIQUE ALLIÉ de `aura_attack_damage_malus_from_enemies`. `carriers` = itérable (owner_id,
     owner_pos, owner_team, ..., effets du porteur) ; `ctx` = {att_id, att_pos, att_team,
-    att_grand_alliance, att_traits, is_melee, target_armor_reduced, damage_profile, tgt_id, t_pos,
+    att_grand_alliance, att_traits, att_rarity, is_melee, target_armor_reduced, damage_profile, tgt_id, t_pos,
     tgt_team, tgt_traits, tile_effects_by_pos}. Renvoie une liste d'`EffectBonus` (chaque porteur à portée empile son
     bonus) à intégrer aux modifiers de l'attaquant via `add_modifier`. Chaque `carrier` = tuple dont
     [0]=owner_id, [1]=owner_pos, [2]=owner_team, [-1]=effets (accepte le 4-tuple comme le 8-tuple
@@ -644,7 +644,7 @@ def aura_defense_damage_malus_from_units(carriers, ctx) -> list:
     (+extraDmgPct% aux ENNEMIS d'Ahriman sur un hex en feu, #366-r1 — SANS `CreateTargetSelector` :
     tout le ciblage vit dans le trigger, ce que cette boucle state-wide sait servir aussi).
     `carriers` = itérable (owner_id, owner_pos, owner_team, effets du
-    porteur) ; `ctx` = {tgt_id, t_pos, tgt_team, tgt_traits, damage_profile, att_id, att_is_unit,
+    porteur) ; `ctx` = {tgt_id, t_pos, tgt_team, tgt_traits, tgt_rarity, damage_profile, att_id, att_is_unit,
     tile_effects_by_pos}. Renvoie une liste
     d'`EffectBonus` à intégrer aux modifiers du coup via `add_modifier`. SYMÉTRIQUE défenseur de
     `aura_attack_damage_malus_from_enemies` (chaque carrier = tuple [0]=id, [1]=pos, [2]=team, [-1]=effets)."""

@@ -780,6 +780,16 @@ class BaseEffect:
         forme et MÊME clé que le canal DÉFENSE (`create_aura_defense_damage_malus_for_ally`) et que
         `LetTheGalaxyBurnEffect`. Absente -> le gate se tait.
 
+        La clé `att_rarity` (`idun.meta.Rarity | None`) est arrivée avec `BlightedLandEffect` (1442,
+        #999-r3-r1). Le BÉNÉFICIAIRE de ce canal est l'ATTAQUANT — la boucle native écrit
+        `AbilityEntities+0x18 (Owner) <- CHAQUE CIBLE du sélecteur` puis évalue `get_OwnerIsCaster` —
+        donc un étage `UnitsWithRarity(…, Mythic)` du `$$CreateTargetSelector` se lit sur `att_id`,
+        et NON sur le porteur. Substrat : `BaseUnitComponent.Rarity` (+0x74), foyers de lecture
+        `damage_model._unit_rarity` / `prediction._shared._entity_rarity`. TRI-ÉTAT : `None` = NON
+        MESURÉ -> le gate se FERME (jamais `Rarity.Common` en repli, qui serait PERMISSIF).
+        `tile_effects_by_pos` porte depuis la même tranche la MAIN TILE de l'ATTAQUANT en plus de
+        celle de la cible (`UnitsOnTilesWithEffect` lit la tuile de l'élément du sélecteur).
+
         ⚠ Cet agrégateur EXCLUT le porteur (`att_id == owner_id`). Un effet dont le trigger natif
         accorde AUSSI au porteur — `AreFriends(Owner, Caster)` est VRAI quand `Owner == Caster`,
         `IdunBattle.Entities.UnitExtensions$$IsFriend` n'écartant pas l'égalité — doit donc porter
@@ -797,9 +807,17 @@ class BaseEffect:
         dans le rayon 2 d'Atlacoya (#184). La même boucle sert aussi les effets qui AUGMENTENT le dégât reçu
         par les ENNEMIS du porteur à portée (ex. `DaughterOfTheAbyss_ExtraDamagePctEffect` IdunBattle.Entities.Effects.Loki.DaughterOfTheAbyss_ExtraDamagePctEffect$$CreateEffectDamageBonusForAttack :
         +extraDmgPct% aux Psykers ennemis, selector IdunBattle.Entities.Effects.Loki.DaughterOfTheAbyss_ExtraDamagePctEffect$$CreateTargetSelector `SurroundingEnemies+UnitsWithTrait(0x3ea)`).
-        `ctx` = {owner_id/pos/team, tgt_id, t_pos, tgt_team, tgt_traits, damage_profile, att_id,
-        att_is_unit, tile_effects_by_pos} fourni par l'agrégateur
+        `ctx` = {owner_id/pos/team, tgt_id, t_pos, tgt_team, tgt_traits, tgt_rarity, damage_profile,
+        att_id, att_is_unit, tile_effects_by_pos} fourni par l'agrégateur
         `aura_defense_damage_malus_from_units`. Défaut None = pas d'aura.
+
+        La clé `tgt_rarity` (`idun.meta.Rarity | None`) est arrivée avec
+        `ContemptuousDisregard_DamageReductionEffect` (1443, #999-r3-r1). Le BÉNÉFICIAIRE de ce canal
+        est la CIBLE du coup — `CalculateDefenderModifiersForPrediction` écrit
+        `AbilityEntities+0x18 (Owner) <- CHAQUE CIBLE du sélecteur` et le trigger est
+        `get_OwnerIsTarget` — donc un étage `UnitsWithRarity(…, Mythic)` du `$$CreateTargetSelector`
+        se lit sur `tgt_id`, et NON sur le porteur. Substrat : `BaseUnitComponent.Rarity` (+0x74).
+        TRI-ÉTAT : `None` = NON MESURÉ -> le gate se FERME.
 
         Les TROIS dernières clés sont arrivées avec `PsychicStalk_ExtraAttackDamage` (#366-r1), dont
         le trigger ne porte NI sur le porteur NI sur un `CreateTargetSelector` : `IsUnit(caster@0x160)`
@@ -901,7 +919,12 @@ class BaseEffect:
                                   `AreFriends(caster, <autre nœud entité>)` — typiquement
                                   `EffectSource(Effect@0x150)` = `eff.source`, qui n'est PAS l'attaquant ;
           • `traits`            → `HasTrait(caster, …)` (noms gameconfig), dont `IsMechanical(caster)`
-                                  = `AmountIsEqualOrGreater(TraitAmount(caster, Mechanical), 1)`.
+                                  = `AmountIsEqualOrGreater(TraitAmount(caster, Mechanical), 1)` ;
+          • `rarity`            → `HasRarity(caster@0x160, idun.meta.Rarity.Mythic = 5)`
+                                  (`BaseUnitComponent.Rarity` @+0x74), #999-r3-r1. TRI-ÉTAT :
+                                  `None` = NON MESURÉ ⇒ le gate se FERME — jamais `Rarity.Common`
+                                  en repli, qui accorderait le bonus à toute unité non mesurée.
+                                  Consommateur : `HyperCorrosiveAcid_ExtraDamagePct` (1448).
         UNE clé fait exception et porte sur `Owner@0x148` (= le PORTEUR de l'effet, donc la CIBLE du
         coup) et non sur le caster — parce que le nœud natif, lui, porte sur l'Owner :
           • `is_turn_of_owner`  → `IsTurnOf(Owner@0x148)`, lu par le foyer `is_turn_of_owner(ctx)`

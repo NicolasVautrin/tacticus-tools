@@ -10,9 +10,9 @@ Le runner combat route chaque ability choisie via `ActiveAbilityMessage` -> `Abi
 
 - Noms distincts en `activeAbilities` (gameconfig) : **175**
 - dont resolus en `ActiveAbilityType` : **174** ; **HORS `ActiveAbilityType`** : **1** (cf. la section dediee -- ni portes ni no-op)
-- **PORTED** (dans `ABILITY_CLASSES`) : **171**
-- **NO-OP silencieux** (a porter) : **3**
-- Ventilation NO-OP : **DAMAGE**=3
+- **PORTED** (dans `ABILITY_CLASSES`) : **172**
+- **NO-OP silencieux** (a porter) : **2**
+- Ventilation NO-OP : **DAMAGE**=2
 
 ## Priorisation & templates de port
 
@@ -44,15 +44,14 @@ Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 |---|---|---|---|---|
 | ? | Maugetar | TriggeredAbilityType(1498) PORTEE via `RELIC_ABILITY_TRIGGERS` [kit: DAMAGE(DirectDamage)] | 1 | N |
 
-## NO-OP SILENCIEUX en combat (a porter, tries categorie puis frequence) (3)
+## NO-OP SILENCIEUX en combat (a porter, tries categorie puis frequence) (2)
 
 | id | ability | categorie | #units | kinds |
 |---|---|---|---|---|
 | 1015 | PrecisionShot | DAMAGE(Energy) | 2 | NS |
 | 1215 | InstrumentsOfVengeance | DAMAGE(HeavyRound) | 1 | N |
-| 1094 | TheLantern | DAMAGE(Energy) | 1 | N |
 
-## PORTED (registry) (171)
+## PORTED (registry) (172)
 
 | id | ability | categorie | #units | kinds |
 |---|---|---|---|---|
@@ -160,6 +159,7 @@ Legende `kinds` : **L**=lineup (jouable), **N**=npc, **S**=summons.
 | 1174 | SolarAtomizer | DAMAGE(Melta) | 1 | N |
 | 1056 | StranglethornCannon | DAMAGE(Blast) | 1 | N |
 | 1195 | TalonsOfTheEmperor | DAMAGE(Power) | 1 | L |
+| 1094 | TheLantern | DAMAGE(Energy) | 1 | N |
 | 1217 | TheLionsWrath | DAMAGE(Power) | 1 | N |
 | 1183 | VexillaMagnifica | DAMAGE(Physical) | 1 | L |
 | 1202 | VigilanceEternal | DAMAGE(Power) | 1 | L |
