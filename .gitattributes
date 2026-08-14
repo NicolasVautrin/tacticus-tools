@@ -32,3 +32,11 @@ docs/rl/index-foyers.md          text eol=lf
 # sous-dossier doit etre couvert SANS qu'on y repense.
 docs/rl/*.tsv                    text eol=lf
 docs/rl/**/*.tsv                 text eol=lf
+# Et les CACHES DE CLIQUET, qui sont le meme objet un cran plus loin : un artefact GENERE,
+# VERSIONNE, dont le `rc=6` (<< l'entree perimee a ete recalculee >>) demande justement de le
+# reindexer. Mesure du 2026-08-14 : `git ls-files 'scripts/cliquets-cache/*'` rend **10** fichiers,
+# `git check-attr eol` en couvrait **0**. Le bruit CRLF y est PIRE qu'ailleurs -- ces caches font
+# des milliers de lignes (`probe_477r25` : 3069 insertions / 992 suppressions a une regeneration
+# legitime), donc un diff de fins de ligne y noie completement le vrai changement, qui est
+# precisement ce que le cliquet demande de relire avant d'indexer.
+scripts/cliquets-cache/*.tsv     text eol=lf
