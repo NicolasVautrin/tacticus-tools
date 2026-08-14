@@ -17,8 +17,8 @@ summoner (`tauMarksman`, au pool) et le drone arrive dans son equipe.
         On(0x39 = EventTriggerType.PreDamageTaken, ownerNeedsToBeAlive = 0)
           & TargetIsValidTrigger()
           & IsAdjacent(Owner@<DSLSelectors+0x30>, Target@<+0x60>, 0 = UnitSelectionType.Any)
-          & !TriggeringAbilityIs(<AbilityOrEffect A>)
-          & !TriggeringAbilityIs(<AbilityOrEffect B>)
+          & !TriggeringAbilityIs(0x530 = 1328 PinpointCounterOffensive)   // #1020-r3 : LU aux octets
+          & !TriggeringAbilityIs(0x52f = 1327 ATemptingTrap)              // #1020-r3 : LU aux octets
 
     SaviorProtocolsAbility$$TargetIsValidTrigger =            // PARTAGE avec la face MOVE
         AreFriends(Target@<+0x60>, Owner@<+0x30>)
@@ -58,13 +58,10 @@ noeud, comme l'exige la doctrine #149. Les deux lisent le meme decompile ; ils n
 
 ## RESIDUS
 
-* **`#1020-r3` -- les deux `!TriggeringAbilityIs(<AbilityOrEffect>)` ne sont PAS LUS.** Le
-  decompile perd l'argument de `IdunBattle.Core.AbilityOrEffect$$op_Implicit` (seul le buffer de
-  retour est visible) et `read_bytes` plafonne a 32 octets par appel. Le port les OMET, ce qui est
-  PERMISSIF -- mais la recursion drone -> drone, le seul regime dangereux, est deja fermee par
-  `!ActorHasTriggeredAbility(Target, 1120)` de `TargetIsValidTrigger` : un drone porteur ne peut
-  jamais etre la VICTIME d'un transfert. Ecart residuel possible : un transfert qui devrait etre
-  refuse pour une source de degat particuliere.
+* **`#1020-r3` -- FERME.** Les deux `!TriggeringAbilityIs` sont LUS (aux octets : `mov edx, 0x530`
+  et `mov edx, 0x52f`, cf. `EXCLUDED_*` ci-dessous) et PORTES. Le noeud `TriggeringAbilityIs` lit
+  `ctx.attack_ability_type` (le canal `AbilityEntities+0x98`), que le vecteur
+  `pre_damage_taken_triggers` alimente desormais.
 * **`#1020-r1`** (dans `_pre_damage_taken_per_hit`) : le bouclier de la victime n'est pas restitue
   sur un coup transfere. Non atteint ici (cibles T'au sans `ShieldComponent`).
 """
@@ -80,7 +77,7 @@ from .....entities.selectors.accessors import Actor, Target
 from .....entities.selectors.tiles import Caster
 from .....entities.triggered_ability_type import TriggeredAbilityType
 from .....entities.triggers import (ActorHasTriggeredAbility, AreEqual, AreFriends, HasFaction,
-                                    IsAdjacent, MaybeTrigger, Not, TriggerAnd)
+                                    IsAdjacent, MaybeTrigger, Not, TriggerAnd, TriggeringAbilityIs)
 from .....entities.unit_faction import UnitFaction
 from .....entities.unit_selection_type import UnitSelectionType
 from ....abilities.behaviours.context import entities_from_state
@@ -98,6 +95,17 @@ FACTION_SELECTION = UnitSelectionType.OnlyAliveAndTargetable          # = 3
 ADJACENCY_SELECTION = UnitSelectionType.Any                           # = 0
 #: `ConfigConst(0x2a, abilityState)` -- `AbilityConstantType.chance`, `constants.chance` du gameconfig.
 CHANCE_CONSTANT = AbilityConstantType.chance
+#: Les DEUX `!TriggeringAbilityIs(<AbilityOrEffect>)` qui terminent `$$CreateTrigger` (#1020-r3).
+#: L'argument est INVISIBLE au decompile (ghidra ne montre que le buffer de retour d'
+#: `IdunBattle.Core.AbilityOrEffect$$op_Implicit`) : les deux valeurs sont lues AUX OCTETS de
+#: `SaviorProtocolsAbility$$CreateTrigger`, ou l'immediat est charge dans `edx` juste avant le
+#: `call` -- `mov edx, 0x530` puis `mov edx, 0x52f`, dans CET ordre. Les deux `call` visent la
+#: MEME surcharge (meme rel32 apres correction de site), celle dont le parametre de metadata se
+#: nomme `triggeredAbility` et dont le corps appelle `IdunBattle.Core.AbilityOrEffect$$
+#: set_TriggeredAbility` -> l'enum est `TriggeredAbilityType`, PAS `ActiveAbilityType` ni
+#: `EffectType` (les trois surcharges portent le meme nom affiche, seul le rel32 les separe).
+EXCLUDED_PINPOINT = TriggeredAbilityType.PinpointCounterOffensive     # 0x530 = 1328
+EXCLUDED_TEMPTING_TRAP = TriggeredAbilityType.ATemptingTrap           # 0x52f = 1327
 
 _ON_PRE_DAMAGE_TAKEN = int(EventTriggerType.PreDamageTaken)           # 0x39 = 57
 
@@ -120,18 +128,23 @@ def target_is_valid_trigger_tree():
 
 
 def savior_trigger_tree():
-    """`SaviorProtocolsAbility$$CreateTrigger`, moins le volet `On(0x39)` que porte le DISPATCH et
-    moins les deux `!TriggeringAbilityIs` non lus (residu `#1020-r3`) :
+    """`SaviorProtocolsAbility$$CreateTrigger`, moins le seul volet `On(0x39)` que porte le
+    DISPATCH -- les QUATRE conjoints restants sont portes (#1020-r3 a ferme les deux derniers) :
 
-        TargetIsValidTrigger() & IsAdjacent(Owner@<+0x30>, Target@<+0x60>, 0)
+        TargetIsValidTrigger()
+          & IsAdjacent(Owner@<+0x30>, Target@<+0x60>, 0)
+          & !TriggeringAbilityIs(0x530 = 1328 PinpointCounterOffensive)
+          & !TriggeringAbilityIs(0x52f = 1327 ATemptingTrap)
 
     ⚠ `ownerNeedsToBeAlive` vaut **0** (2e argument d'`On`), comme `GeminaeSuperia` -- le gate
     « owner vivant » du dispatch (`CanGetAbilityTrigger`) reste celui du port, residu PARTAGE.
 
     ZERO tirage PRNG : le `Maybe` est dans le BEHAVIOUR, pas dans le trigger. Un drone dont le gate
     ferme ne consomme donc aucun tirage -- point load-bearing pour le flux RNG."""
-    return TriggerAnd(target_is_valid_trigger_tree(),
-                      IsAdjacent(Caster(), Target(), int(ADJACENCY_SELECTION)))
+    t = TriggerAnd(target_is_valid_trigger_tree(),
+                   IsAdjacent(Caster(), Target(), int(ADJACENCY_SELECTION)))
+    t = TriggerAnd(t, Not(TriggeringAbilityIs(EXCLUDED_PINPOINT)))
+    return TriggerAnd(t, Not(TriggeringAbilityIs(EXCLUDED_TEMPTING_TRAP)))
 
 
 def savior_chance() -> int:

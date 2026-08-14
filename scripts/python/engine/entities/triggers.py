@@ -1648,6 +1648,53 @@ class IsSpecialActiveAbility(AbilityTrigger):
         return int(kind) in self.active_ids    # 3. `<TypeA>(sel)` : c'est bien une ACTIVE montee
 
 
+class TriggeringAbilityIs(AbilityTrigger):
+    """`IdunBattleLogic.Entities.DSLTriggers$$TriggeringAbilityIs(abilityType)` -- LU VERBATIM
+    (build `rnca9r7q6c`) :
+
+        sel = <DSLSelectors+0x90>                       # le canal `AbilityEntities+0x98`
+        return AbilitiesAreEqualTrigger( sel, DSLSelectors.Direct(abilityType), 0 )
+
+    Le noeud CONCRET est donc `IdunBattle.Entities.Triggers.AbilitiesAreEqualTrigger`, dont le
+    `$$ShouldTrigger` est lui aussi lu VERBATIM -- et c'est lui qui porte la degradation :
+
+        a = <this+0x10>.Select(entities)                # Nullable<AbilityOrEffect>
+        b = <this+0x18>.Select(entities)
+        if (!a.HasValue) return false;                  # <- `return .. & 0xffffffffffffff00`
+        if (!b.HasValue) return false;                  # <- meme sortie
+        return AbilityOrEffect.op_Equality(a.Value, b.Value);
+
+    ⚠ **`Nullable` VIDE rend FAUX, ce n'est pas un tri-etat a signaler** -- c'est la reponse
+    NATIVE, la meme que celle deja portee par `IsSpecialActiveAbility` (degradation 1) et
+    `IsNormalAttack`, qui lisent le MEME selecteur `<DSLSelectors+0x90>`. Corollaire load-bearing :
+    sous `op_LogicalNot`, un canal vide rend le conjoint VRAI -- donc porter ce noeud sur un
+    vecteur qui n'alimente pas le canal ne FERME rien, et n'en est pas moins le mirror fidele : il
+    mord des que l'ecrivain natif du canal est porte.
+
+    ⚠ **NE PAS CONFONDRE LES DEUX CANAUX D'ABILITY** (case-292) : ce noeud lit `TriggeringAbility`
+    (`AbilityEntities+0x98`, slot `<DSLSelectors+0x90>`), pas `CurrentAbility` (`+0x60`, slot
+    `<+0x88>`, lu par `$$CurrentAbilityIs`). Cote port ce sont respectivement
+    `state.trigger_ability_type` et `state.triggering_ability` -- dont les noms Python sont
+    trompeurs, et c'est ecrit la-bas. Le canal du CONTEXTE DSL est `ctx.attack_ability_type`.
+
+    L'`abilityType` est un `AbilityOrEffect` : sa surcharge d'`IdunBattle.Core.AbilityOrEffect$$
+    op_Implicit` decide de quel ENUM il s'agit (`set_TriggeredAbility` / `set_ActiveAbility` /
+    `set_Effect`), et l'ordinal seul ne tranche RIEN. Le porteur passe donc un membre d'enum
+    QUALIFIE, jamais un entier nu."""
+
+    def __init__(self, ability_type):
+        #: Le membre d'enum LU au call-site (`TriggeredAbilityType` / `ActiveAbilityType` /
+        #: `EffectType` selon la surcharge d'`op_Implicit` du site). Conserve tel quel pour que le
+        #: `repr` d'un arbre nomme l'ability, et compare par `int()`.
+        self.ability_type = ability_type
+
+    def should_trigger(self, ctx):
+        kind = getattr(ctx, "attack_ability_type", None)
+        if kind is None:
+            return False                       # `if (!a.HasValue) return false;`
+        return int(kind) == int(self.ability_type)      # `AbilityOrEffect.op_Equality`
+
+
 class IsAdjacent(AbilityTrigger):
     """`IdunBattleLogic.Entities.DSLTriggers$$IsAdjacent(a, b, selectionType)` ->
     `IdunBattle.Entities.Triggers.IsAdjacentAbilityTrigger$$ShouldTrigger` -- MIRROR 1:1 du
