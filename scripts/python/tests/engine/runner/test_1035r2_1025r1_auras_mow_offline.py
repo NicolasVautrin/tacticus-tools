@@ -285,9 +285,12 @@ def _ctx_1449(profils, **over):
 
 
 #: Voisinage de la cible portant DEUX amis Mythiques du porteur -> branche B seule.
-PROFILS_B = ((M1_ID, 1, "orksNob", Rarity.Mythic), (M2_ID, 1, "orksNob", Rarity.Mythic))
+#: ⚠ 5 champs depuis #1024-r2 : `(uid, team, visual_id, rarity, is_hero)` -- le 5e vient de
+#: `HeroUnits` (`UnitsWithTrait(0x10)`), que 1449 ne lit PAS et que 1444 lit. Le temoin suit le
+#: contrat du PRODUCTEUR (`damage_model._adjacent_unit_profiles`), pas celui de son seul lecteur.
+PROFILS_B = ((M1_ID, 1, "orksNob", Rarity.Mythic, True), (M2_ID, 1, "orksNob", Rarity.Mythic, True))
 #: Voisinage portant UN Squig ami (et AUCUN Mythique) -> branche A seule.
-PROFILS_A = ((SQUIG_ID, 1, SQUIG_VIS, Rarity.Common),)
+PROFILS_A = ((SQUIG_ID, 1, SQUIG_VIS, Rarity.Common, False),)
 
 
 def test_1449_squig_visual_id_vient_du_gameconfig():
@@ -320,10 +323,10 @@ def test_1449_contre_bras_selecteur():
         _ctx_1449((PROFILS_B[0],))) is None
     # Deux Mythiques, mais ENNEMIS du porteur -> `Friends(Owner, ...)` les ecarte.
     assert e.create_aura_defense_damage_malus_for_ally(
-        _ctx_1449(tuple((u, 2, v, r) for (u, _t, v, r) in PROFILS_B))) is None
+        _ctx_1449(tuple((u, 2, v, r, h) for (u, _t, v, r, h) in PROFILS_B))) is None
     # Un Squig ENNEMI du porteur -> meme etage `Friends`, autre branche.
     assert e.create_aura_defense_damage_malus_for_ally(
-        _ctx_1449(((SQUIG_ID, 2, SQUIG_VIS, Rarity.Common),))) is None
+        _ctx_1449(((SQUIG_ID, 2, SQUIG_VIS, Rarity.Common, False),))) is None
     # Voisinage MESURE et VIDE : c'est une mesure, pas une ignorance -> aucune contribution.
     assert e.create_aura_defense_damage_malus_for_ally(_ctx_1449(())) is None
     # Voisinage NON MESURE -> gate FERME (jamais accorde par defaut).
