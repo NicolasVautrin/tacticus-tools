@@ -114,6 +114,7 @@ from .attempted_possession import AttemptedPossessionPlaybook
 from .bio_minefield import BioMinefieldPlaybook
 from .adaptive_strategy import AdaptiveStrategyPlaybook
 from .storm_of_wrath import StormOfWrathPlaybook
+from .kiss_of_death import KissOfDeathPlaybook
 from .alpha_warrior import AlphaWarriorPlaybook
 from .calibanite_greatsword import CalibaniteGreatswordPlaybook
 from .exemplar_of_hate import ExemplarOfHatePlaybook
@@ -311,6 +312,10 @@ PLAYBOOKS: dict[int, NonComparablePlaybook] = {
         StormOfWrathPlaybook(),         # 1019 -- util = |GetChainedUnits(cible, onlyFriends: true)|
         #                                 (slot IBattleQuery 16), CIBLE COMPRISE ; MIN_UTILITY = 2
         #                                 construit INLINE dans la methode, pas dans un `.cctor`.
+        KissOfDeathPlaybook(),          # 1108 -- JUMEAU EXACT de 1019 au decompile (memes slots,
+        #                                 memes litteraux `(cible, 1, 0)`, meme `Fix64(2)` inline) ;
+        #                                 deux corps compiles DISTINCTS, pas une fusion d'ICF.
+        #                                 Porteurs npc + summon -> confrontation par GREFFE (#940).
         AlphaWarriorPlaybook(),         # 1112 -- util BOOLEENNE `HasSummonTargetInAttackRangeAtTile`
         #                                 (slot 195) sur la TUILE de spawn ; MIN_UTILITY = 1
         #                                 (`.cctor`) en fait un VETO. Gate slot 4 = le corps folde
@@ -692,7 +697,7 @@ __all__ = [
     "MasterOfTheTutelariesPlaybook", "SupremeCommanderPlaybook",
     "HellfyreMissileRackPlaybook", "UnstoppableMomentumReworkedPlaybook",
     "MindControlPlaybook", "AttemptedPossessionPlaybook",
-    "AdaptiveStrategyPlaybook", "StormOfWrathPlaybook", "AlphaWarriorPlaybook",
+    "AdaptiveStrategyPlaybook", "StormOfWrathPlaybook", "KissOfDeathPlaybook", "AlphaWarriorPlaybook",
     "CalibaniteGreatswordPlaybook",
     "ExemplarOfHatePlaybook", "FearOfTheUnseenPlaybook", "FoehammerPlaybook",
     "DeathOnTheWindPlaybook", "HailstrikePlaybook",

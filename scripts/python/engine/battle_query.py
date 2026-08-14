@@ -254,6 +254,71 @@ def count_adjacent_matching(tile: tuple, units: list, pred, elev_by_pos: dict | 
     return n
 
 
+def get_chained_units(unit, occupant_by_pos: dict, team_by_id: dict,
+                      elev_by_pos: dict | None = None, neigh_by_pos: dict | None = None,
+                      only_friends: bool = True) -> set:
+    """`IdunBattle.Core.Services.BattleQuery$$GetChainedUnits(unit, onlyFriends,
+    additionalCondition)` -- la COMPOSANTE CONNEXE d'unites atteinte de proche en proche depuis
+    `unit`, `unit` COMPRISE.
+
+    Le natif delegue a `IdunBattle.Core.Services.BattleQuery$$GetChainedUnitsInternal` apres avoir
+    cree un `OrderedSet` vide ; l'interne, VERBATIM :
+
+        tile = EntityExtensions.GetMainTileEntity(unit, state)
+        adj  = GetAdjacentTiles(tile, null, onlyWalkable: true, allowTemporary: true)
+        adj.Add(tile)                          # <- LA TUILE DE `unit` EST DANS L'ENUMERATION
+        foreach t in adj:
+            u = UnitExtensions.GetUnit(t, state);  if (u == null) continue
+            if (alreadyChained.Contains(u)) continue
+            if (onlyFriends && !UnitExtensions.IsFriend(u, unit, state)) continue
+            if (additionalCondition != null && !additionalCondition(t)) continue
+            alreadyChained.Add(u)
+            GetChainedUnitsInternal(u, alreadyChained, onlyFriends, additionalCondition)
+        return alreadyChained
+
+    ⚠ `adj.Add(tile)` fait entrer la racine elle-meme des le premier niveau
+    (`IsFriend(unit, unit)` est vrai) : une unite ISOLEE rend un ensemble de cardinal **1**, pas 0.
+    C'est ce qui donne son sens au seuil `MIN_UTILITY = 2` de ses deux consommateurs (« il faut au
+    moins un rebond »).
+
+    FOYER PARTAGE, et c'est le natif qui le dit : `IBattleQuery` slot **16**
+    (`data/symbols/<build>/metadata/interface_slots.tsv` : `IBattleQuery 16 GetChainedUnits 3`) est
+    invoque a l'IDENTIQUE -- memes litteraux `(cible, onlyFriends: 1, additionalCondition: 0)` --
+    par `IdunBattle.AI.Playbook.Loki.StormOfWrathPlaybook$$EvaluateNonComparable` (1019) et par
+    `IdunBattle.AI.Playbook.Loki.KissOfDeathPlaybook$$EvaluateNonComparable` (1108). Un seul corps
+    natif, donc un seul foyer porte : le dupliquer forkerait l'adjacence (#419-r1-tr14, meme geste
+    pour `BattleQuery$$IsMeleeAttack`).
+
+    SUBSTRAT. `occupant_by_pos` = `{(col, row): <id d'unite>}` et `team_by_id` = `{<id>: teamId}` --
+    l'index inverse du `GetUnit(tile, state)` natif. `unit` absente de `team_by_id` -> ensemble
+    VIDE (borne INF assumee : le port ne fabrique pas une chaine sur une unite qu'il ne voit pas).
+
+    `additionalCondition` n'est PAS porte : il vaut `null` aux deux call-sites lus. `only_friends`
+    est un parametre parce que le natif en fait un, mais les deux consommateurs passent `true`.
+    """
+    if unit not in team_by_id:
+        return set()
+    pos_by_id = {uid: p for p, uid in (occupant_by_pos or {}).items()}
+    chained: set = set()
+    stack = [unit]
+    while stack:
+        cur = stack.pop()
+        src = pos_by_id.get(cur)
+        if src is None:
+            continue
+        for p, uid in (occupant_by_pos or {}).items():
+            if uid in chained:
+                continue                                     # `alreadyChained.Contains(u)`
+            # `adj.Add(tile)` : la tuile de `cur` fait partie de son propre voisinage.
+            if p != src and not is_adjacent(src, p, elev_by_pos, neigh_by_pos):
+                continue
+            if only_friends and team_by_id.get(uid) != team_by_id.get(cur):
+                continue                                     # `!IsFriend(u, unit, state)`
+            chained.add(uid)
+            stack.append(uid)                                # RECURSION du natif
+    return chained
+
+
 def is_surrounding(tile: tuple, pos: tuple, radius: int,
                    include_center_tile: bool = True) -> bool:
     """`pos` est-il dans le DISQUE de rayon `radius` autour de `tile` au sens de

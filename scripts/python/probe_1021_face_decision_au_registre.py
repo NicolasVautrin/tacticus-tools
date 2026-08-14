@@ -180,9 +180,10 @@ DETTE: dict[int, tuple[str, str]] = {
            "Le `.ctor` passe `0x453` (= 1107) a `ComparablePlaybook<T>..ctor`, mais la methode "
            "propre est `EvaluateNonComparable` -> registre vise "
            "`playbook.noncomparable.PLAYBOOKS` (derivation de `probe_909` etape 4)."),
-    1108: ("SANS_VERDICT",
-           "KissOfDeathPlaybook -- EvaluateNonComparable. COMBAT : KissOfDeathAbility (aeldari). "
-           "2 porteurs (npc, summons)."),
+    # 1108 RETIRE le 2026-08-14 (#940-r2) : la face DECISION est PORTEE
+    # (`engine/playbook/noncomparable/kiss_of_death.py`, au registre `PLAYBOOKS`), donc le CRAN A
+    # prend le relais -- la laisser en `DETTE` ferait taire le cran sur une ability desormais
+    # couverte. Garde : `tests/engine/test_940r2_kiss_of_death_decision_offline.py`.
     1133: ("SANS_VERDICT",
            "WarConstructPlaybook -- EvaluateNonComparable, ShouldEvaluate. COMBAT : "
            "WarConstructAbility (aeldari). 2 porteurs (npc)."),
