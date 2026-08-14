@@ -583,8 +583,11 @@ PLAYBOOKS: dict[int, NonComparablePlaybook] = {
         #                                 borne BASSE LUE (1), constante donc identite sur l'argmax
         #                                 (keep-first) et `>= MIN_UTILITY` (le seuil ne filtre
         #                                 RIEN). La cible EFFECTIVE reste indeterminable
-        #                                 (`#970-r6`). `PRIORITY = 1000` : 1200 PRIME sur
-        #                                 `SquigMine` (1201, tier 0) du meme porteur.
+        #                                 (`#970-r6`). `PRIORITY = 1000` (`AbilityPriority.First`)
+        #                                 : 1200 est donc evaluee AVANT `SquigMine` (1201, tier
+        #                                 **-100**) du MEME porteur, et si elle passe son gate elle
+        #                                 GAGNE quelle que soit l'utilite de 1201. C'est de l'ordre
+        #                                 de generateur, pas de la comparaison d'utilites.
         HeavyRailRiflePlaybook(),       # 1160 (`tauBroadside`, MoW) -- utilite de DEGAT du
         #                                 TRIGGERED `1260`, lue au slot 4 (`CalculateAverage`,
         #                                 TRONCATURE) ; branche `IsMachine(cible)` a tirage 50 %,

@@ -233,6 +233,13 @@ class SquigLaunchasPlaybook(NonComparablePlaybook):
                 continue                       # cible sans position mesuree -> gate non evaluable
             if not self.fulfills_summon_criteria(ctx, pos):
                 continue
+            if self.RNG_TERM < self.MIN_UTILITY:
+                continue                       # gate `minUtility` du `Bucket` (`>=`), mirrore
+                #                                EXPLICITEMENT : avec `RNG_TERM = 1` et
+                #                                `MIN_UTILITY = 1` il ne filtre RIEN (c'est le
+                #                                fait natif, cf. l'en-tete), mais l'ecrire evite
+                #                                qu'un changement de borne le fasse diverger en
+                #                                SILENCE.
             if ctx.debug:
                 import sys
                 print("    [dbg NC u%s] SquigLaunchas target=%s util=%s (tirage non porte, [1,9])"
