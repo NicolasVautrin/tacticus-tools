@@ -1,4 +1,4 @@
-# #1042 — `WisdomOfTheAncients` : l'arbre est LU et CONFRONTÉ, la moitié que l'i2 décrit est INERTE
+# #1042 — `WisdomOfTheAncients` : l'arbre est LU, CONFRONTÉ, et depuis #1042-r1 PORTÉ
 
 **Verdict** : la mythique de `ultraDreadnought` (« Galatian ») est mirrorée au décompilé et exercée
 étage par étage en live, avec **cinq contre-épreuves qui séparent**. Elle **n'entre pas au port** :
@@ -198,7 +198,7 @@ dit ce que la copie fera une fois transférée. Résidu `#1042-r2`.
 
 ---
 
-## 4. Le mur du PORT — la rareté, et rien d'autre
+## 4. Le mur du PORT — la rareté, et rien d'autre (TOMBÉ le 2026-08-14, #1042-r1)
 
 `UnitsWithRaritySelector$$Select` compare `GetBaseUnitComponent(e)->[+0x74]` ; le port n'a **aucun**
 canal `rarity` (mesuré #1024 §4 : absent d'`observeBattle`, `combatSnapshot` et `decisionView`).
@@ -210,6 +210,52 @@ adjacent à un ami Héros, Mythique ou non. Et le régime par défaut le cachera
 impose `targetRarity = 5`, donc les trois étages sont uniformément vrais ; un port sans gate serait
 d'accord avec le natif dans **tous** les bras par défaut. Les deux bras `--rarity` ci-dessus sont la
 seule sortie de ce régime.
+
+### 4bis. Le port, et les DEUX étages qu'il a fallu confronter séparément (#1042-r1)
+
+Les deux verrous du §4 sont tombés — la rareté est threadée (#999-r3-r1) et une MoW porteuse entre
+dans l'univers des agrégateurs d'aura (#999-r3-r1-r1). L'effet est porté :
+`WisdomOfTheAncientsDamageReductionEffect`, canal `create_aura_defense_damage_malus_for_ally`
+(**jamais** celui du porteur : c'est un `EffectWithTarget`).
+
+**Le sélecteur est RE-ÉVALUÉ**, pas approximé : `wisdom_of_the_ancients_target_ids_of(owner_id)`,
+un callable posé par les DEUX façades (patron `ObsessiveAnnunciation` #954), avec le foyer
+d'adjacence NATIVE de `_friend_heroes_adjacent_to` (#1019) — jamais `hexgeo.distance == 1`.
+
+**Le `ConditionalSelector` n'est PAS porté, et c'est une ÉQUIVALENCE.** `IsMachine(Owner)` implique
+`EntityType.Machine`, donc aucune tuile, donc `A = {}` et `Unique(A + F) == F`. Les deux branches
+coïncident exactement là où la condition est vraie. Le garde est exécutable
+(`test_1038r1_1042r1_auras_mythiques_mow_offline.py`, étage F : `A` vide sans position **et** `A`
+non vide avec position).
+
+**CE QUE LA CONFRONTATION LIVE A TROUVÉ, et qu'aucun test offline ne montrait.** Le port lisait
+`self.ability_level if … else self.level`. Or `level` est le niveau de **STACK**
+(`decisionView.effects[].level`), et il vaut justement `1` sur cette instance :
+
+| état du port | port | oracle natif | facteur |
+|---|---|---|---|
+| `origin/master` (rien de porté) | `(2444, 3664)` | `(1956, 2932)` | `1.000` |
+| repli sur `level` | `(2200, 3296)` | `(1956, 2932)` | `0.900` ← **plausible et FAUX** |
+| `GetAbilityState` TERTIAIRE | `(1956, 2932)` | `(1956, 2932)` | `0.800` |
+
+`0.800 = 1 − dmgReductionPct[4]/100`. Un demi-effet est exactement ce qu'un repli « raisonnable »
+fabrique — `MastersOfManoeuvreEffect` (même famille, même variable) faisait déjà l'autre arbitrage :
+`AbilityState` non mesuré ⇒ `None`, l'effet est INERTE.
+
+**Canal DÉCISION neuf, coût nul** : `Scene.trigstate_by_id` /
+`Scene.triggered_ability_state(uid, nom)`, alimenté par `snapshot.triggered_ability_states_by_unit`
+depuis le payload `unitAbilityStates` que `build_predictor` fetche **déjà** pour quatre autres
+seeds. `abstate_by_id` ne pouvait pas servir : son capteur (`combatSnapshot.abilityStates`) ne
+publie que les **ACTIVES** — mesuré, la MoW y rend `[1158 DutyEternal, 1159 MacroPlasmaIncinerator]`
+et rien d'autre, tandis que `unitAbilityStates` rend `raw = [1451, …, 4, 100, …]`.
+
+**Identité du porteur — une fausse divergence évitée** : `decisionView.mows[]` porte `id` **et**
+`casterId`, et ce ne sont pas le même entier (mesuré : `76` / `77`). `step_context` clé toutes ses
+tables par `casterId` ; interroger le résolveur avec `id` rend `None`, ce qui se lit comme une
+divergence de sélecteur.
+
+Confrontation : `probe_1042r1_wisdom_confrontation_live.py` (deux étages, refuse le régime
+dégénéré en `rc 3`) et `tests/engine/runner/test_1042r1_wisdom_confrontation_live.py`.
 
 Ce qui EST livré : `ABILITY_INIT_OWNER_EFFECTS["WisdomOfTheAncients"] =
 ["WisdomOfTheAncients_DamageReduction"]` (seed de l'owner-effect par la voie tertiaire, filet pour
@@ -238,7 +284,11 @@ rareté**. Déjà recensé par le résidu `#477-r37-r1`, qui nomme `1451` explic
 
 ## 5. Ce qui N'EST PAS couvert
 
-- **Le PORT de l'effet 1445** — `#1042-r1`, BLOCAGE capteur.
+- ~~**Le PORT de l'effet 1445**~~ — **FAIT** (#1042-r1, 2026-08-14), cf. §4bis.
+- **Le facteur `mult` de la voie tertiaire** : toutes les mesures sont à `mult = 100`, donc
+  le flag `variablesAffectedByRarityBonus` de `dmgReductionPct` reste **non exercé** sur cet
+  effet — le port le passe (`ability_var(..., multiplier_pct=mult)`), rien ne l'a confronté.
+  `#1042-r4`.
 - **La voie NATIVE de la branche `ifFalse`** (`DutyEternal` → `AddTriggeredAbility` sur le spawn) :
   la branche est établie par un porteur **greffé**, pas par le transfert du jeu. `#1042-r2`.
 - **Le nœud `UnitsWithTrait(·, UnitTrait.Hero)`** : **CONFRONTÉ** (2026-08-14, #1044) — le bras est

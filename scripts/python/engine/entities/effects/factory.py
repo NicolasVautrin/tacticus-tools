@@ -38,6 +38,8 @@ from .loki.cursed_plague_bell import CursedPlagueBellExtraMoveEffect
 from .loki.custodes import MomentShackleExtraBlockChanceEffect, MomentShackleExtraBlockDamageEffect
 from .loki.damage_reduction import (
     CamoCloakDmgReductionEffect, ChronometronExtraDamageEffect,
+    ContemptuousDisregardDamageReductionEffect,       # mythique MoW blackForgefiend, 1443 (#1038-r1)
+    WisdomOfTheAncientsDamageReductionEffect,        # mythique MoW ultraDreadnought, 1445 (#1042-r1)
     ElectrochaffBackupsDamageReductionPctEffect,          # mythique MoW tauBroadside, 1446 (#1025-r1)
     DaughterOfTheAbyssFriendlyDmgReductionPctEffect, DaughterOfTheAbyssOwnerDmgReductionEffect,
     ExemplarOfHateTargetEffect, FightingRetreatDmgReductionEffect,
@@ -1944,15 +1946,26 @@ EFFECT_CLASSES: dict[str, type[BaseEffect]] = {
     # elle rendrait la mauvaise magnitude), `TriggeredAbilityType 1009` = `WhipcoilBody` (la CONFIG)
     # et `ActiveAbilityType 1009` = `ResurrectionOrb` (deja portee, `runner/abilities/necrons.py`).
     "WhipcoilBody_ReduceDmg": WhipcoilBodyReduceDmgEffect,
-    # 1443 ContemptuousDisregard_DamageReduction (mythique de `blackForgefiend`) est
-    # VOLONTAIREMENT ABSENT de ce registre -- cf. le bloc de `ABILITY_INIT_OWNER_EFFECTS
-    # ["ContemptuousDisregard"]` plus bas, qui porte la RE et la mesure. En deux mots : c'est un
-    # `EffectWithTarget` (il a un `$$CreateTargetSelector`), donc le natif ne l'evalue PAS sur son
-    # PORTEUR mais sur les CIBLES de son selecteur -- et ce selecteur porte un
-    # `UnitsWithRarity(..., idun.meta.Rarity.Mythic)` que le port ne sait pas evaluer. L'inscrire
-    # sur `create_effect_damage_malus_for_defense` donnerait la reduction a la MoW elle-meme, que
-    # le natif n'en fait JAMAIS beneficier (elle n'occupe aucune tuile, donc
-    # `HasTileStatusEffect(Tiles(elle))` est FAUX par construction) : ce serait PERMISSIF.
+    # 1443 ContemptuousDisregard_DamageReduction -- AURA de l'ability MYTHIQUE de la MoW
+    # `blackForgefiend`. La POSE etait portee depuis #1038 ; la face DEGAT entre ici avec #1038-r1,
+    # les DEUX verrous etant tombes : le canal de RARETE (`tgt_rarity`, #999-r3-r1) et l'entree
+    # d'une MoW porteuse dans l'univers des agregateurs d'aura (#999-r3-r1-r1).
+    # ⚠ CANAL `create_aura_defense_damage_malus_for_ally`, JAMAIS
+    # `create_effect_damage_malus_for_defense` : c'est un `EffectWithTarget` (il a un
+    # `$$CreateTargetSelector`), donc `DamageCalculations$$CalculateDefenderModifiersForPrediction`
+    # l'evalue sur les CIBLES de son selecteur, pas sur son PORTEUR. L'inscrire sur le canal du
+    # porteur donnerait la reduction a la MoW elle-meme, que le natif n'en fait JAMAIS beneficier
+    # (elle n'occupe aucune tuile, donc `HasTileStatusEffect(Tiles(elle))` est FAUX) : PERMISSIF.
+    # Selecteur, malus, magnitude et les trois etages : cf. la classe (RE relue au decompile).
+    "ContemptuousDisregard_DamageReduction": ContemptuousDisregardDamageReductionEffect,
+    # 1445 WisdomOfTheAncients_DamageReduction -- AURA de l'ability MYTHIQUE de la MoW
+    # `ultraDreadnought` << Galatian >>. MEME famille, MEME face DEGAT que 1443 ci-dessus
+    # (`ForPercentDecrease(get_OwnerIsTarget, ConfigVar(0x46 = dmgReductionPct))`), et MEME canal
+    # AURA -- seul le `$$CreateTargetSelector` differe. #1042-r1.
+    # ⚠ Son selecteur pose des questions que le contexte d'un coup ne porte PAS (adjacence d'un
+    # TIERS a la cible, sa rarete, son trait `Hero`) : il est RE-EVALUE par le callable
+    # `wisdom_of_the_ancients_target_ids_of`, pose par les DEUX facades (patron #954).
+    "WisdomOfTheAncients_DamageReduction": WisdomOfTheAncientsDamageReductionEffect,
     # 1510 MastersOfManoeuvre -- effet de l'ability MYTHIQUE de la MoW `darkaStormSpeeder`
     # (`TriggeredAbilityType` 0x5e4 = 1508, voie TERTIAIRE).
     # `IdunBattle.Entities.Effects.Loki.MastersOfManoeuvreEffect$$CreateEffectDamageMalusForDefense`
@@ -2343,8 +2356,11 @@ ABILITY_INIT_OWNER_EFFECTS: dict[str, list[str]] = {
     # est le corps DEDUPLIQUE `return <DSLTriggers+0x70>` (le YesTrigger partage, refcount 182)
     # -> l'effet est TOUJOURS actif, donc capte par `decisionView.effects` sur un runner live : ce
     # seed est un FILET pour les chemins purement offline.
-    # ⚠ L'EFFET 1445 N'ENTRE PAS dans `EFFECT_CLASSES`, et c'est DELIBERE -- meme verrou que 1449 /
-    # 1548 / 1494 : TOUT son ciblage est gate sur la RARETE, aux TROIS etages. Lu au decompile
+    # ⚠ MAJ #1042-r1 : L'EFFET 1445 EST DESORMAIS DANS `EFFECT_CLASSES`
+    # (`WisdomOfTheAncientsDamageReductionEffect`, canal `create_aura_defense_damage_malus_for_ally`,
+    # selecteur RE-EVALUE par `wisdom_of_the_ancients_target_ids_of`). Le paragraphe qui suit dit
+    # POURQUOI il ne pouvait pas y entrer AVANT (verrou de RARETE), et sa RE reste exacte -- seule
+    # sa conclusion a change. Lu au decompile
     # (`...WisdomOfTheAncients_DamageReductionEffect$$ValidCharacter`, puis
     #  `...WisdomOfTheAncients_DamageReductionEffect$$CreateTargetSelector`, qui l'INLINE 3 fois) :
     #     ValidCharacter(x) = UnitsWithRarity(x, Rarity.Mythic = 5,
@@ -2366,20 +2382,21 @@ ABILITY_INIT_OWNER_EFFECTS: dict[str, list[str]] = {
     # ⚠ `Friends` ne retire PAS le sujet (`UnitsByTeamSelector$$CountOrAdd` garde toute entite dont
     # `UnitExtensions$$IsFriend(unit, other)` egale son flag, et `IsFriend(u, u)` est VRAI) ; c'est
     # l'etage de RARETE qui exclut la MoW elle-meme de sa propre aura -- MESURE, cf. la case-doc.
-    # Le malus, lui, est LU et SANS gate de rarete
-    # (`...WisdomOfTheAncients_DamageReductionEffect$$CreateEffectDamageMalusForDefense`, corps
-    # INLINE dont la disposition des champs dit le canal -- montant a `+0x08` = POURCENT) :
+    # Le malus, lui, est LU et SANS gate de rarete. ⚠ RECTIFICATION #1042-r1 : son corps n'est PAS
+    # inline -- `...WisdomOfTheAncients_DamageReductionEffect$$CreateEffectDamageMalusForDefense`
+    # appelle `IdunBattle.Entities.Effects.EffectBonus$$ForPercentDecrease` EXPLICITEMENT (relu au
+    # decompile). C'est le corps de `ContemptuousDisregard` (1443) qui, lui, est inline -- et il
+    # ecrit EXACTEMENT les memes champs que la fabrique (`+0x00` = trigger, `+0x08` =
+    # `Multiply(Direct(-1), montant)`), ce qui etablit que les deux sont le meme code :
     #     Nullable<EffectBonus>( EffectBonus.ForPercentDecrease(
     #         get_OwnerIsTarget,
     #         ConfigVar(AbilityVariableType.dmgReductionPct = 0x46, GetAbilityState(effet),
     #                   <effet+0x60>) ) )
-    # L'inscrire sans le gate de rarete serait un terme PERMISSIF silencieux : `rl_duel build` impose
-    # `targetRarity = 5` a toute unite normalisee, donc le gate y est uniformement VRAI et un port
-    # qui l'oublie serait faussement d'accord dans TOUS les bras par defaut (regime DEGENERE ; on en
-    # sort par `--unit-stat "<vis>:Rarity=N"`, et c'est ce que fait
-    # `probe_1042_wisdom_of_the_ancients_live.py`). Residu `#1042-r1`, BLOCAGE capteur -- le MEME que
-    # `#1024-r1` / `#1025-r1` / `#1035-r2` / `#1036-r1`, et le point d'ancrage a hooker est deja
-    # MESURE dans `docs/rl/case-1024-shield-of-faith-on-my-position.md` Sec.4.
+    # ⚠ TOUTE CONFRONTATION EXIGE UN REGIME SEPARANT, et c'est ce qui n'a pas change : `rl_duel
+    # build` impose `targetRarity = 5` a toute unite normalisee, donc le gate de rarete y est
+    # uniformement VRAI et un port qui l'oublierait serait faussement d'accord dans TOUS les bras
+    # par defaut (regime DEGENERE ; on en sort par `--unit-stat "<vis>:Rarity=N"`, et c'est ce que
+    # fait `probe_1042_wisdom_of_the_ancients_live.py`).
     # ⚠ Face DECISION distincte : `IdunBattle.AI.Playbook.Loki.WisdomOfTheAncientsPlaybook`
     # (`TriggeredAbilityNonOwnerPlaybook<WisdomOfTheAncientsAbility>`) surcharge
     # `$$CalculateMovementUtilityInSteps` -- MEME verrou de rarete, deja recense par le residu
@@ -2763,20 +2780,26 @@ ABILITY_INIT_OWNER_EFFECTS: dict[str, list[str]] = {
     #        HasTileStatusEffect( Tiles(<DSLSelectors+0x68>) ) )`
     #   `$$CreateEffectDamageMalusForDefense` (corps INLINE) = `ForPercentDecrease(
     #        get_OwnerIsTarget, ConfigVar(AbilityVariableType.dmgReductionPct = 0x46) )`.
-    # DEUX raisons de ne pas l'inscrire, la seconde suffisant seule :
+    # ⚠ MAJ #1038-r1 : L'EFFET 1443 EST DESORMAIS DANS `EFFECT_CLASSES`, sur le canal AURA
+    # (`ContemptuousDisregardDamageReductionEffect.create_aura_defense_damage_malus_for_ally`). Les
+    # DEUX raisons ci-dessous restent VRAIES, elles ne concluent simplement plus a l'abstention :
     #  1. le gate `UnitsWithRarity(..., Mythic)` lit `GetBaseUnitComponent(e)+0x74`
-    #     (`IdunBattle.Entities.Formulas.UnitsWithRaritySelector$$Select`), canal ABSENT du port --
-    #     meme verrou que `#1025-r1` ;
+    #     (`IdunBattle.Entities.Formulas.UnitsWithRaritySelector$$Select`) -- canal THREADE depuis
+    #     #999-r3-r1 (`tgt_rarity`, TRI-ETAT), meme verrou que `#1025-r1`, leve de la meme facon ;
     #  2. l'inscrire sur `create_effect_damage_malus_for_defense` (canal des effets portes par la
     #     CIBLE) donnerait la reduction a la MoW elle-meme, alors que le natif ne l'y applique
     #     JAMAIS : une MoW n'occupe aucune tuile, donc `HasTileStatusEffect(Tiles(elle))` est FAUX
-    #     par construction. Ce serait PERMISSIF, exactement le profil qu'on chasse.
+    #     par construction. Ce serait PERMISSIF -- c'est pourquoi le port passe par le canal AURA.
     # MESURE LIVE (#1038, `blackForgefiend` + `--equip-mythic ...:ContemptuousDisregard:1`, board
     # `MC1_67`) : l'instance 1443 est bien posee SUR LA MoW (`decisionView.mows[].effects`), avec
     # `targetIds: []` -- le selecteur ne selectionne personne, y compris avec un ami MYTHIQUE place
-    # sur une tuile `DryBush` (`LightCover`). Ce seed-ci reste donc UTILE et INOFFENSIF : il
-    # materialise la POSE (que le natif fait) sous forme d'un `BaseEffect` nu, qui n'agit sur aucun
-    # canal.
+    # sur une tuile `DryBush` (`LightCover`).
+    # ⚠ CE BRAS NE SEPARAIT RIEN, et il ne faut pas en tirer un verdict de mort (#1038-r1) :
+    # `LightCover` n'est PAS un status de tuile -- le set natif de
+    # `StaticBattleRules.Effect$$IsTileStatusEffect` vaut exactement `{Darkness, Fire, Ice,
+    # Contaminated, DespoiledGround}` -- et il n'est meme pas porte par la TUILE mais par les UNITES
+    # qui s'y tiennent (`...Abilities.Tiles.Loki.LightCoverAbility$$UnitsThatNeedEffect`). L'ensemble
+    # vide y est le comportement NORMAL. Ce seed-ci reste indispensable : il materialise la POSE.
     "ContemptuousDisregard": ["ContemptuousDisregard_DamageReduction"],
 }
 

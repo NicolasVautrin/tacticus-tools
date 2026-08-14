@@ -59,6 +59,11 @@ from ..entities.effects.loki.obsessive_annunciation import (
 # nommage pour les DEUX faces (cf. `playbook/prediction/_shared.py`).
 from ..entities.effects.loki.extra_damage_aura import (
     CTX_TGT_ADJACENT_UNIT_PROFILES as _MG_CTX_TGT_ADJ_PROFILES)
+# #1042-r1 : le `$$CreateTargetSelector` de `WisdomOfTheAncients_DamageReductionEffect` (1445),
+# re-evalue PAR PORTEUR -- un seul foyer de nommage pour les DEUX faces (cf. `prediction/_shared`).
+from ..entities.effects.loki.damage_reduction import (
+    CTX_WISDOM_TARGET_IDS_OF as _WOTA_CTX_TARGET_IDS,
+    CTX_TERTIARY_ABILITY_STATE_OF as _MYTHIC_CTX_ABILITY_STATE)
 from ..entities.stats import StatType, ARMOR_STAT_TYPES
 from ..services.damage_prediction import get_attack_prediction, apply_pierce_and_modifiers
 from ..services.battle_query import (
@@ -82,6 +87,7 @@ from ..entities.effect_type import EffectType
 from ..entities.effects.loki.dark_angels_passives import grand_alliance_of
 from ..entities.effects.magnitude import bc_effect_config
 from ..entities.pathfinding.board import adjacent_neigh_by_pos, elevations_by_pos
+from ..entities.rarity import Rarity   # `idun.meta.Rarity` -- `UnitsWithRaritySelector$$Select` (#1042-r1)
 from ..entities.traits.unit_trait import UnitTrait
 from ..services.damage_config import resolve_damage_field
 from ..services.damage_modifiers import (add_modifier, calculate_elevation_bonus_modifier,
@@ -323,6 +329,104 @@ def _friend_heroes_adjacent_to(state: State, target_id: Optional[int],
         if _bq_is_adjacent(tp, (pc.col, pc.row), elev, neigh):
             n += 1
     return n
+
+
+def _wisdom_valid_adjacent_friends(state: State, uid: int, elev, neigh) -> "frozenset":
+    """`ValidCharacter( AdjacentFriends(<uid>, unique = true, 3) )` -- le noeud natif que
+    `IdunBattle.Entities.Effects.Loki.WisdomOfTheAncients_DamageReductionEffect$$CreateTargetSelector`
+    INLINE deux fois (une fois sur `Owner@<DSLSelectors+0x30>`, une fois sur l'element courant du
+    `Filter`). Foyer COMBAT ; la face PREDICTION a le sien
+    (`playbook/prediction/_shared.py::_wisdom_valid_adjacent_friends`), sur les MEMES criteres.
+
+        AdjacentFriends(u, unique, sel) = Friends( reference = u,
+                                                   Units(AdjacentTiles(u), unique, sel) - u,
+                                                   sel )
+        ValidCharacter(x)               = UnitsWithRarity(x, idun.meta.Rarity.Mythic = 5, 3)
+
+    L'adjacence est celle du natif (`battle_query.is_adjacent` : liste stockee du
+    `ConnectivityComponent` + porte `|dElev| < 2`), pas `hexgeo.distance == 1` (#271/#943-r7) --
+    MEME foyer que `_friend_heroes_adjacent_to` (#1019).
+
+    Ensemble VIDE quand `uid` n'a pas de position : c'est le comportement NATIF (`AdjacentTiles`
+    d'une entite hors-plateau ne rend rien), et c'est ce qui fait que la branche `A` du selecteur
+    se tait d'elle-meme sur une MACHINE OF WAR."""
+    up = _unit_pos(state, uid)
+    if not up:
+        return frozenset()
+    uoc = state.get_entity(uid)
+    uoc = uoc.get_component(OwnerComponent) if uoc is not None else None
+    if uoc is None or uoc.team is None:
+        return frozenset()
+    out = set()
+    for oid, ent in state.entities.items():
+        if oid == uid:
+            continue                                       # `op_Subtraction unit`
+        oc = ent.get_component(OwnerComponent)
+        pc = ent.get_component(PositionComponent)
+        if oc is None or pc is None or oc.team != uoc.team:
+            continue                                       # `Friends(reference = unit, ...)`
+        hc = ent.get_component(HealthComponent)
+        if hc is not None and hc.hp is not None and hc.hp <= 0:
+            continue                                       # `UnitSelectionType.OnlyAliveAndTargetable`
+        if _unit_rarity(state, oid) != Rarity.Mythic:
+            continue                                       # `ValidCharacter` = UnitsWithRarity(Mythic)
+        if _bq_is_adjacent(up, (pc.col, pc.row), elev, neigh):
+            out.add(int(oid))
+    return frozenset(out)
+
+
+def wisdom_of_the_ancients_target_ids(state: State, owner_id: int) -> "Optional[frozenset]":
+    """`IdunBattle.Entities.Effects.Loki.WisdomOfTheAncients_DamageReductionEffect$$
+    CreateTargetSelector` EVALUE pour le porteur `owner_id` -- foyer COMBAT (#1042-r1).
+
+        A = ValidCharacter( AdjacentFriends(Owner@<+0x30>, unique = true, 3) )
+        B = ValidCharacter( Friends(of = Owner@<+0x30>, entities = AllUnits@<+0x20>, 3) )
+        F = Filter( B, AmountIsGreaterThanZero(
+                           UnitsWithTrait( ValidCharacter( AdjacentFriends(<element courant>,
+                                                                          unique = true, 3) ),
+                                           UnitTrait.Hero = 0x10, 3 ) ) )
+        return ConditionalSelector( IsMachine(Owner), ifTrue = F, ifFalse = Unique(A + F) )
+
+    Le `ConditionalSelector` n'est PAS porte, et c'est une EQUIVALENCE : `IsMachine(Owner)` VRAI
+    implique `EntityType.Machine`, donc AUCUN `PositionComponent` (c'est le discriminant meme de
+    `MachineComponent`), donc `AdjacentTiles(Owner)` vide, donc `A = {}` et `Unique(A + F) == F`.
+    Le detail et le garde executable vivent dans la docstring de
+    `entities/effects/loki/damage_reduction.py::WisdomOfTheAncientsDamageReductionEffect`.
+
+    ⚠ `Friends` ne retire PAS le sujet, donc `B` peut contenir le porteur lui-meme ; c'est FIDELE
+    (`UnitExtensions$$IsFriend(u, u)` est VRAI) et sans effet observable ici -- l'agregateur
+    `aura_defense_damage_malus_from_units` n'appelle jamais un porteur sur lui-meme.
+
+    TRI-ETAT : `None` quand la question n'a PAS ETE POSEE (porteur absent ou sans equipe), jamais
+    un `frozenset()` invente qui se lirait << mesure, et personne >>."""
+    ent = state.get_entity(int(owner_id)) if owner_id is not None else None
+    ooc = ent.get_component(OwnerComponent) if ent is not None else None
+    if ooc is None or ooc.team is None:
+        return None
+    elev = elevations_by_pos(state.board)
+    neigh = adjacent_neigh_by_pos(state.board)
+    # A -- vide des que le porteur n'a pas de tuile (toute MACHINE OF WAR).
+    out = set(_wisdom_valid_adjacent_friends(state, int(owner_id), elev, neigh))
+    for uid, e in state.entities.items():
+        if uid == owner_id:
+            continue
+        oc = e.get_component(OwnerComponent)
+        pc = e.get_component(PositionComponent)
+        if oc is None or pc is None or oc.team != ooc.team:
+            continue                                       # B : `Friends(Owner, AllUnits(), 3)`
+        hc = e.get_component(HealthComponent)
+        if hc is not None and hc.hp is not None and hc.hp <= 0:
+            continue                                       # `UnitSelectionType.OnlyAliveAndTargetable`
+        if _unit_rarity(state, uid) != Rarity.Mythic:
+            continue                                       # B : `ValidCharacter`
+        if uid in out:
+            continue                                       # deja pris par A (`Unique`)
+        # F : `AmountIsGreaterThanZero( UnitsWithTrait(ValidCharacter(AdjacentFriends(uid)), Hero) )`
+        for vid in _wisdom_valid_adjacent_friends(state, int(uid), elev, neigh):
+            if UnitTrait.Hero.name in (target_trait_names(state, vid) or frozenset()):
+                out.add(int(uid))
+                break
+    return frozenset(out)
 
 
 def _apply_ally_attack_damage_auras(state: State, att_id: int, mods, is_ranged: Optional[bool],
@@ -1324,13 +1428,36 @@ def defender_modifiers(state: State, unit_id: int, hp: Optional[int],
                            # callable (contraste `_OA_CTX_ADJ_ENEMY_IDS`, qui se resout par
                            # PORTEUR). Tri-etat : `None` = non mesure -> le gate se FERME.
                            _MG_CTX_TGT_ADJ_PROFILES: _adjacent_unit_profiles(state, unit_id),
-                           # #1025-r1 -- `GetAbilityState(effet)` : le couple (niveau,
-                           # multiplicateur) sous lequel la MYTHIQUE est montee sur la MoW
-                           # porteuse (voie TERTIAIRE, comme une relique). MEME cle et MEME foyer
-                           # (`triggered_ability_state`) que le canal ATTAQUE, qui la posait deja
-                           # -- sans elle, `extraDmgPct` serait lu au niveau des PASSIFS du
-                           # porteur (50 => dernier palier) au lieu du palier equipe (#357).
-                           "tertiary_ability_state_of": _tertiary_ability_state_fn(state)}):
+                           # #1042-r1 -- le `$$CreateTargetSelector` de
+                           # `WisdomOfTheAncients_DamageReductionEffect` (1445), CALLABLE et PAR
+                           # PORTEUR pour la meme raison que la cle ci-dessus : la boucle native de
+                           # `DamageCalculations$$CalculateDefenderModifiersForPrediction` ecrit
+                           # `AbilityEntities+0x18 (Owner) <- CHAQUE CIBLE de l'effet`, donc
+                           # `get_OwnerIsTarget` y demande une APPARTENANCE. Ce selecteur pose des
+                           # questions que le ctx d'un coup ne porte pas (adjacence d'un TIERS a la
+                           # cible, sa rarete, son trait `Hero`), d'ou la re-evaluation complete.
+                           # MEME cle, MEME semantique et MEME foyer d'adjacence NATIVE
+                           # (`battle_query.is_adjacent`) que la face PREDICTION -- pas de fork.
+                           _WOTA_CTX_TARGET_IDS:
+                               lambda oid: wisdom_of_the_ancients_target_ids(state, int(oid)),
+                           # #1038-r1 / #1042-r1 -- `GetAbilityState(effet)` des deux auras
+                           # MYTHIQUES de MoW (1443, 1445). Leur `ConfigVar(0x46)` est indexe par
+                           # l'`AbilityStateReference` BAKEE a la pose, c.-a-d. l'etat **TERTIAIRE**
+                           # (`level 1..4 / mult 100`), jamais celui des PASSIFS. MEME cle, MEME
+                           # foyer (`triggered_ability_state`, #357) et MEME callable que les trois
+                           # ctx qui l'exposent deja (`attacker_modifiers`, `_crit_board`,
+                           # `collect_additional_hit_groups`) -- pas un nommage neuf.
+                           #
+                           # ⚠ MERGE #1055 x #1056 : les DEUX tranches posaient cette cle ici, et
+                           # les deux se declaraient << un seul foyer de nommage >>. Elles ont la
+                           # MEME valeur de chaine (`"tertiary_ability_state_of"`) et le MEME
+                           # resolveur (`_tertiary_ability_state_fn`), donc UNE SEULE entree est
+                           # gardee -- deux auraient ete une cle dupliquee dans le litteral (Python
+                           # garde la derniere, en silence). Il reste DEUX CONSTANTES pour cette
+                           # unique chaine : `damage_reduction.CTX_TERTIARY_ABILITY_STATE_OF` et
+                           # `extra_damage_aura.CTX_ABILITY_STATE_OF`. C'est le foyer de nommage
+                           # DEDOUBLE que chacune pretendait etre -- a fusionner (residu).
+                           _MYTHIC_CTX_ABILITY_STATE: _tertiary_ability_state_fn(state)}):
             add_modifier(mods, eb)
     return mods, active
 
