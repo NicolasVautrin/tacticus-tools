@@ -109,6 +109,28 @@ def _winner_label(w) -> str:
     return {0: "no-winner", 3: "team1", 4: "team2"}.get(w, f"player{w}")
 
 
+def _diag_porteur_ecarte(uid: str, seed_bc: dict, template_bc: dict) -> str:
+    """Suffixe de diagnostic quand un montage TERTIAIRE echoue sur `uid` (#237-r1).
+
+    `equip_relic` / `equip_mythic` ne connaissent QUE le BC qu'on leur passe : leur `KeyError` dit
+    « absent de BC.Units -- injecter d'abord le porteur », ce qui est ACTIONNABLE quand le porteur
+    manque au catalogue, et TROMPEUR quand il y est mais que `buildNormalizedBC` l'a ecarte (npc,
+    unite non normalisable au rank demande) -- l'appelant vient alors de faire exactement ce que le
+    message lui demande. Ces deux regimes se distinguent en confrontant les deux BC, la seule
+    position d'ou on les voit tous les deux.
+
+    Rend `""` hors de ces regimes : un diagnostic qui parle a tort est pire que pas de diagnostic.
+    """
+    au_seed = uid in {u.get("Id") for u in (seed_bc.get("Units") or [])}
+    au_norm = uid in {u.get("Id") for u in (template_bc.get("Units") or [])}
+    if au_seed and not au_norm:
+        return (f"\n[diag] {uid!r} EST au catalogue du seed BC mais ABSENT du BC normalise : "
+                f"buildNormalizedBC l'a ecarte (npc, ou non normalisable a ce rank). "
+                f"Injecter le porteur ne changera rien -- verifier `--list-pool` et "
+                f"data/unspawnable_rank<N>.json.")
+    return ""
+
+
 def _plan_ab_map(res: dict) -> dict:
     """{(unitId, targetId): abilityId} depuis les attackPlans d'un decisionView
     (l'attaque concrète que le plan propose pour chaque cible). Auto-résolution de
@@ -776,6 +798,29 @@ def cmd_build(sid: int, a) -> int:
                   f"fixedArmor={rep['fields'].get('FixedArmor')}"
                   + ("   [MONTAGE: le jeu ecrit 0 au catalogue pour un summon,"
                      " ces valeurs sont celles du SPAWN]" if src == "summon-spawn" else ""))
+    # --equip-relic : injection catalogue du porteur AVANT la normalisation (#237-r1). PENDANT
+    # EXACT du bloc `--equip-mythic` ci-dessous, et pour la meme raison structurelle : `equip_relic`
+    # court APRES `_normalize_and_extract_pool` (le niveau EXACT l'exige, cf. bloc en tete de
+    # `cmd_build`), donc un porteur absent du seed BC n'est PAS dans le BC normalise et la commande
+    # sortait en `rc 2`. Mesure du gisement (2026-08-15, gameconfig de `t6dpr4k06g`) : sur les 32
+    # abilities de relique, **5** n'ont AUCUN porteur au seed BC (`BladeOfTheAncestors`/`votanUthar`,
+    # `DawnBlade`/`tauFarsight`, `TheArdentBlade`/`adeptCelestine`, `VolummsMasterArtifice`/
+    # `votanIronmaster`, `WyrdmakersHelm`/`spaceWolfPriest`) et **9 porteurs sur 65** sont hors seed
+    # -- c'est l'ETAT 3 de la gate de confrontabilite, qui exigeait deux commandes sans que rien ne
+    # le dise. Aucun effet quand le porteur est deja la (l'immense majorite : etats 1 et 2).
+    if relic_specs:
+        have = {x.get("Id") for x in (seed_bc.get("Units") or [])}
+        missing_r = sorted({u for u, _a, _l in relic_specs if u not in have})
+        if missing_r:
+            try:
+                seed_bc, added, added_ab, unresolved = catalog_inject.augment(
+                    seed_bc, missing_r, rank=a.rank)
+            except KeyError as e:
+                print(f"[error] --equip-relic: {e}", file=sys.stderr)
+                return 2
+            print(f"[relic] catalogue: +{len(added)} unites {added} "
+                  f"+{len(added_ab)} configs d'ability"
+                  + (f" | sans config (marqueurs): {unresolved}" if unresolved else ""))
     # --equip-mythic : injection catalogue du porteur AVANT la normalisation (cf. bloc plus haut).
     if mythic_specs:
         have = {x.get("Id") for x in (seed_bc.get("Units") or [])}
@@ -801,7 +846,8 @@ def cmd_build(sid: int, a) -> int:
                 template_bc, uid, ability, lvl,
                 allow_unlisted=bool(getattr(a, "allow_unlisted_relic", False)))
         except (ValueError, KeyError) as e:
-            print(f"[error] --equip-relic {uid}:{ability}:{lvl} -> {e}", file=sys.stderr)
+            print(f"[error] --equip-relic {uid}:{ability}:{lvl} -> {e}"
+                  f"{_diag_porteur_ecarte(uid, seed_bc, template_bc)}", file=sys.stderr)
             return 2
         clamp = (f"  [clamp] {lvl} > {rep['levelsAvailable']} paliers -> dernier"
                  if rep["clamped"] else "")
@@ -814,7 +860,8 @@ def cmd_build(sid: int, a) -> int:
                 template_bc, uid, ability, lvl,
                 allow_unlisted=bool(getattr(a, "allow_unlisted_mythic", False)))
         except (ValueError, KeyError) as e:
-            print(f"[error] --equip-mythic {uid}:{ability}:{lvl} -> {e}", file=sys.stderr)
+            print(f"[error] --equip-mythic {uid}:{ability}:{lvl} -> {e}"
+                  f"{_diag_porteur_ecarte(uid, seed_bc, template_bc)}", file=sys.stderr)
             return 2
         clamp = (f"  [clamp] {lvl} > {rep['levelsAvailable']} paliers -> dernier"
                  if rep["clamped"] else "")
@@ -2944,8 +2991,10 @@ def main(argv: list[str]) -> int:
                          "Pose BC.Units[].TertiaryAbility + TertiaryAbilityLevel (>=1 OBLIGATOIRE : "
                          "Idun.Shared.Level$$ToZeroBasedIndex leve sur <=0) ET injecte la config "
                          "d'ability dans BC.Abilities.PassiveAbilities (29 des 32 abilities de "
-                         "relique sont absentes du seed capture). Ids/porteurs : "
-                         "`python catalog_inject.py --list-relics`.")
+                         "relique sont absentes du seed capture). Le porteur est injecte au "
+                         "catalogue s'il manque (#237-r1 : 5 des 32 reliques n'ont AUCUN porteur "
+                         "au seed BC), donc l'ETAT 3 de la gate tient en UNE commande. "
+                         "Ids/porteurs : `python catalog_inject.py --list-relics`.")
     ap.add_argument("--allow-unlisted-relic", action="store_true",
                     help="build: --equip-relic sur un porteur hors allowedUnits (greffe assumee)")
     ap.add_argument("--equip-mythic", action="append", default=None,
