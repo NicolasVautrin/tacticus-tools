@@ -127,16 +127,32 @@ def _granted_abilities(vid: str, passive_abilities: tuple | None = None) -> tupl
 
 
 @functools.lru_cache(maxsize=None)
-def _abilities_of(vid: str, passive_abilities: tuple | None = None) -> tuple:
+def _abilities_of(vid: str, passive_abilities: tuple | None = None,
+                  traits: tuple | None = None) -> tuple:
     """Abilities de l'unite reconstruites depuis gameconfig : l'attaque normale (id synthetique 17 si l'unite a
     une arme) + `activeAbilities` (nom == membre d'enum -> id via reverse ACTIVE_ABILITY_TYPE) + les abilities
-    ACCORDEES par un passive (`_granted_abilities`, DERIVEES du passive, ex. TwistedScience -> Heal 1167). Une
-    active dont le nom n'est pas dans l'enum est ignoree.
+    ACCORDEES par un passive (`_granted_abilities`, DERIVEES du passive, ex. TwistedScience -> Heal 1167) + les
+    abilities DERIVEES D'UN TRAIT (`entities.active_abilities.derived_active_ability_ids`). Une active dont le
+    nom n'est pas dans l'enum est ignoree.
 
     `passive_abilities` : le TRI-ETAT de `_granted_abilities` (mesure d'entite / `None` = repli kit).
-    Seule la part ACCORDEE en depend -- l'attaque normale et les `activeAbilities` restent du kit,
-    faute d'un canal d'entite qui les publie (borne NOMMEE, pas un oubli)."""
+
+    `traits` (#1015-r1) : les NOMS de traits de l'ENTITE (`entity_trait_names(ctx, vid)`, rendus hashables),
+    `None` = canal muet -> repli sur le KIT gameconfig. C'est le pendant EXACT, sur la troisieme liste de la
+    `UnitConfiguration`, de ce que `passive_abilities` fait sur la deuxieme -- meme forme de substrat (#264),
+    meme tri-etat. Le natif lit `config@+0xd0 = UnitConfiguration.Traits` dans
+    `IdunBattle.Entities.Factories.UnitFactory$$AddDerivedAbilities`, PAS le kit.
+
+    ⚠ CE QUE CETTE 4e SOURCE REPARE (mesure #1015-r1) : `18 Heal` est accordee par le seul TRAIT `Healer`
+    (18 porteurs, dont 6 en lineup) et n'apparait dans AUCUN `activeAbilities` gameconfig. Sans elle, un
+    `adeptHospitaller` / `bloodSanguinary` / `deathRotbone` / `ultraApothecary` n'avait AUCUNE ability de soin
+    cote decideur offline : `_heal_candidates` filtre `me["abilities"]` sur `"Heal" in name`, donc il rendait
+    `[]` -- degradation MUETTE (ni erreur, ni cast refuse : simplement une action que le natif propose et que
+    le port ne voyait pas). Meme forme pour `28 Repair` / trait `Mechanic`.
+
+    L'attaque normale et les `activeAbilities`, eux, restent du kit : borne NOMMEE, pas un oubli."""
     import enum_maps as EM
+    from ..entities.active_abilities import derived_active_ability_ids
     rev = {v: k for k, v in EM.ACTIVE_ABILITY_TYPE.items()}
     gu = GC.unit(vid) or {}
     out: list = []
@@ -149,6 +165,20 @@ def _abilities_of(vid: str, passive_abilities: tuple | None = None) -> tuple:
     for (aid, name) in _granted_abilities(vid, passive_abilities):   # accordees par passive
         if not any(a[0] == aid for a in out):
             out.append((int(aid), name))
+    # DERIVEES D'UN TRAIT -- `UnitFactory$$AddDerivedAbilities` 3e boucle, moins le
+    # `RemoveActiveAbility` du passif substitutif (`TwistedScience`/`HealingBalms`/`GalvanicField`).
+    # Les DEUX substrats sont pris au meme tri-etat : mesure d'entite quand elle existe, kit sinon.
+    _traits = traits if traits is not None else tuple(gu.get("traits") or ())
+    _passives = (passive_abilities if passive_abilities is not None
+                 else tuple(gu.get("passiveAbilities") or ()))
+    for aid in derived_active_ability_ids(_traits, _passives):
+        if not any(a[0] == aid for a in out):
+            # ⚠ Le NOM vient de `EM.ACTIVE_ABILITY_TYPE` (sens `{id: nom}`), pas de `rev` (`{nom: id}`) :
+            # ces derivees N'ONT AUCUNE entree gameconfig, donc aucun nom de kit ne les designe. Et il
+            # n'est pas decoratif -- `ActionGenerators._heal_candidates` selectionne les abilities de
+            # soin par `"Heal" in ab["name"]`, donc un `str(aid)` de repli les rendrait invisibles au
+            # decideur, exactement le trou qu'on repare.
+            out.append((int(aid), EM.ACTIVE_ABILITY_TYPE.get(int(aid)) or str(aid)))
     return tuple(out)
 
 
@@ -544,16 +574,22 @@ def _ability_kind(ability_id: int, name: str, cfg: dict) -> str:
 
 
 def _attack_abilities(vid: str, has_normal: bool = True,
-                      passive_abilities: tuple | None = None) -> list:
+                      passive_abilities: tuple | None = None,
+                      traits: tuple | None = None) -> list:
     """[(ability_id, reach)] des abilities d'ATTAQUE de l'unite : l'attaque normale (17, portee=max arme) + chaque
     active a `damageProfile` (non-NonComparable), portee = `_ability_reach`.
 
     `has_normal=False` (#419-r1-tr14-r5-r4) : l'unite porte `Erratic`/`Harmless`, donc la fabrique
     ne lui a POSE aucune attaque normale -- il ne faut pas en planifier une. Cf. le call-site.
 
-    `passive_abilities` : le TRI-ETAT d'entite de `_granted_abilities` (#931-r2), propage tel quel."""
+    `passive_abilities` : le TRI-ETAT d'entite de `_granted_abilities` (#931-r2), propage tel quel.
+    `traits` : le TRI-ETAT d'entite des abilities DERIVEES D'UN TRAIT (#1015-r1), propage tel quel --
+    le MEME substrat doit alimenter les deux appels a `_abilities_of` d'un meme tour, sinon deux vues
+    du kit divergeraient. Aucune des deux derivees connues (`18 Heal`, `28 Repair`) n'a de
+    `damageProfile`, donc `_is_attack_ability` les rejette : la propagation ne CHANGE rien aujourd'hui,
+    elle empeche une divergence de substrat demain."""
     out = [(NORMAL_ATTACK_ID, _max_attack_range(vid))] if has_normal else []
-    for aid, _name in _abilities_of(vid, passive_abilities):
+    for aid, _name in _abilities_of(vid, passive_abilities, traits):
         if aid == NORMAL_ATTACK_ID:
             continue
         _n, cfg = _resolve_ability(aid)
@@ -564,7 +600,8 @@ def _attack_abilities(vid: str, has_normal: bool = True,
 
 def _plans_for_unit(uid: int, vid: str, origin: tuple | None, move_tiles: list,
                     enemies: list, has_normal: bool = True,
-                    passive_abilities: tuple | None = None) -> dict:
+                    passive_abilities: tuple | None = None,
+                    traits: tuple | None = None) -> dict:
     """Enumere le `plan` d'attaque de `uid` : pour chaque (ability d'ATTAQUE, ennemi), le SET de tuiles-caster
     (origine + tuiles de move) d'ou l'attaque est legale (dist hex <= portee de l'ability). Forme mirroir de
     `decisionView.attackPlans[uid]` REDUITE a ce que le spine lit (`_best_attack` : abilityId/targetId/rankCount/
@@ -589,7 +626,7 @@ def _plans_for_unit(uid: int, vid: str, origin: tuple | None, move_tiles: list,
     cand_tiles = [] if origin is None else [origin]
     cand_tiles += [t for t in ((x["col"], x["row"]) for x in move_tiles) if t != origin]
     evals: list = []
-    for (aid, reach) in _attack_abilities(vid, has_normal, passive_abilities):
+    for (aid, reach) in _attack_abilities(vid, has_normal, passive_abilities, traits):
         for en in enemies:
             ep = en.get("pos")
             if not ep:
@@ -808,12 +845,18 @@ def build_from_state(state, uid: int, debug: bool = False, max_distance: int | N
     # le kit gameconfig ne reproduit PAS (#264). `entity_trait_names` est le foyer qui lit ce
     # substrat -- et son repli kit, quand l'entite n'a pas de `UnitContext`, reste une BORNE.
     _me_sc = me_ent.get_component(StatsComponent)
-    has_normal = has_normal_attack(entity_trait_names(getattr(_me_sc, "ctx", None), vid))
+    _me_traits = entity_trait_names(getattr(_me_sc, "ctx", None), vid)
+    has_normal = has_normal_attack(_me_traits)
     # #931-r2 -- MEME forme de substrat, sur l'autre liste de la `UnitConfiguration` : les abilities
     # ACCORDEES par un passif viennent de `BC.Units[].PassiveAbilities` (fait d'ENTITE), pas du KIT.
     # `measured_passive_abilities` rend le TRI-ETAT ; `None` = canal muet -> repli kit, BORNE nommee.
     _me_passives = measured_passive_abilities(getattr(_me_sc, "ctx", None))
-    _me_abilities = [(aid, nm) for (aid, nm) in _abilities_of(vid or "", _me_passives)
+    # #1015-r1 -- TROISIEME liste de la meme `UnitConfiguration` : `Traits` (`config@+0xd0`), lue par
+    # `IdunBattle.Entities.Factories.UnitFactory$$AddDerivedAbilities` pour poser `18 Heal` (trait
+    # `Healer`) / `28 Repair` (trait `Mechanic`). MEME substrat d'entite que `has_normal` juste
+    # au-dessus -- c'est le meme `entity_trait_names`, lu UNE fois et partage.
+    _me_abilities = [(aid, nm) for (aid, nm) in _abilities_of(
+                         vid or "", _me_passives, tuple(sorted(_me_traits)))
                      if has_normal or aid != NORMAL_ATTACK_ID]
     abilities = [{"id": aid, "name": nm, "usable": True} for (aid, nm) in _me_abilities]
     ab_name_by_id = {aid: nm for (aid, nm) in _me_abilities}
@@ -885,7 +928,7 @@ def build_from_state(state, uid: int, debug: bool = False, max_distance: int | N
     # jusqu'a l'atterrissage). `enemies` reste complet pour le positionnement (ils occupent le board).
     tgt_enemies = [e for e in enemies if not _is_untargetable(state, e.get("id"))]
     plans = {uid: _plans_for_unit(uid, vid or "", origin, move_tiles, tgt_enemies, has_normal,
-                                  _me_passives)}
+                                  _me_passives, tuple(sorted(_me_traits)))}
 
     def _rpc(method, body, timeout=0):
         """Seam RPC offline (SLICE 2) : `abilityTargets` -> enumerateur offline (heal/repair/summon/Nova) ;

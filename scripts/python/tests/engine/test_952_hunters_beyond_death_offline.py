@@ -41,6 +41,10 @@ DECLENCHEUR = {
         "scripts/python/engine/entities/effect_type.py",
         "scripts/python/engine/entities/triggered_ability_type.py",
         "scripts/python/engine/entities/active_ability_type.py",
+        # #1015-r1 : le 3e consommateur de `GalvanicField` est desormais PORTE (la derivation
+        # `Mechanic -> 28` et son retrait), donc ces deux foyers decident un verdict de ce fichier.
+        "scripts/python/engine/entities/active_abilities.py",
+        "scripts/python/engine/ai/state_bridge.py",
         "scripts/python/engine/entities/ability_variable_type.py",
         "scripts/python/engine/entities/unit_flag.py",
         "scripts/python/engine/entities/traits/unit_trait.py",
@@ -325,9 +329,23 @@ def test_galvanic_field_les_trois_feuilles_ont_leur_consommateur():
 
       * le flag est un membre nomme et c'est celui que lit `EntityCanBeRepaired` ;
       * `1119` est au registre d'execution avec son masque ;
-      * `28` n'est derivee d'AUCUN trait cote port -> rien a retirer (le `RemoveActiveAbility` est
-        structurellement satisfait ; s'il cessait de l'etre, `TRAIT_DERIVED_ABILITIES` porterait
-        `Mechanic`)."""
+      * `28` EST desormais derivee du trait `Mechanic` cote port (#1015-r1,
+        `entities.active_abilities.TRAIT_DERIVED_ACTIVE_ABILITIES`) -- donc le troisieme
+        consommateur n'est plus << structurellement satisfait >>, il est PORTE :
+        `PASSIVE_REMOVES_ACTIVE_ABILITY["GalvanicField"] == 28`, et le kit reconstruit de
+        `admecManipulus` doit REDONNER la mesure live ci-dessus (28 absente, 1119 seule).
+
+    ⚠ CE QUE CE TEST DISAIT AVANT #1015-r1, et pourquoi il devait changer : << `28` n'est derivee
+    d'AUCUN trait cote port -> rien a retirer >>. C'etait vrai, et c'etait precisement le TROU --
+    le `RemoveActiveAbility` etait satisfait parce que l'ADD ne l'etait pas. La prescription qu'il
+    portait (<< s'il cessait de l'etre, `TRAIT_DERIVED_ABILITIES` porterait `Mechanic` >>) visait le
+    mauvais registre : `TRAIT_DERIVED_ABILITIES` porte les TRIGGERED du dict `<Trait statics>+0x00`
+    et sert le chemin owner-effect ; la voie ACTIVE est le dict `+0x08`, un registre distinct. Le
+    `not in` est donc CONSERVE tel quel -- il reste juste, et il garde qu'on ne confonde pas les
+    deux dicts."""
+    from engine.entities.active_abilities import (PASSIVE_REMOVES_ACTIVE_ABILITY,
+                                                  TRAIT_DERIVED_ACTIVE_ABILITIES)
+    from engine.ai.state_bridge import _abilities_of
     from engine.entities.effects.factory import TRAIT_DERIVED_ABILITIES
     from engine.runner.abilities.attack_query import UNIT_FLAG_CAN_REPAIR_FULL_HEALTH
     from engine.runner.abilities.handler import ABILITY_CLASSES
@@ -336,7 +354,22 @@ def test_galvanic_field_les_trois_feuilles_ont_leur_consommateur():
     assert int(ActiveAbilityType.Repair) == 0x1c == 28
     assert int(ActiveAbilityType.Repair_GalvanicField) == 0x45f == 1119
     assert int(ActiveAbilityType.Repair_GalvanicField) in ABILITY_CLASSES
-    assert "Mechanic" not in TRAIT_DERIVED_ABILITIES
+    assert "Mechanic" not in TRAIT_DERIVED_ABILITIES        # dict +0x00 (TRIGGERED), pas le sien
+    assert TRAIT_DERIVED_ACTIVE_ABILITIES["Mechanic"] == int(ActiveAbilityType.Repair)
+    assert PASSIVE_REMOVES_ACTIVE_ABILITY["GalvanicField"] == int(ActiveAbilityType.Repair)
+    # LA MESURE LIVE, rejouee sur le kit reconstruit : `admecManipulus` porte `Mechanic` ET
+    # `GalvanicField`, donc l'add et le remove se compensent -- 28 ABSENTE, comme le natif.
+    _ids = [i for (i, _n) in _abilities_of("admecManipulus")]
+    assert int(ActiveAbilityType.Repair) not in _ids, (
+        "`admecManipulus` porte `28 Repair` alors que `GalvanicField` la retire -- le "
+        "`RemoveActiveAbility(Owner, 0x1c)` du passif n'est plus applique. Kit rendu : %r" % _ids)
+    # ... et le CONTRE-TEMOIN : un porteur `Mechanic` SANS `GalvanicField` la garde. Sans lui,
+    # l'assertion ci-dessus passerait aussi si la derivation entiere avait disparu.
+    _ids_temoin = [i for (i, _n) in _abilities_of("necroSpyder")]
+    assert int(ActiveAbilityType.Repair) in _ids_temoin, (
+        "`necroSpyder` (trait `Mechanic`, passif `FabricatorClawArray` -- aucun "
+        "`RemoveActiveAbility`) n'a PAS `28 Repair` : la derivation elle-meme est morte, et "
+        "l'assertion precedente serait vraie par vacuite. Kit rendu : %r" % _ids_temoin)
 
 
 def test_galvanic_field_n_est_PAS_un_owner_effect():
