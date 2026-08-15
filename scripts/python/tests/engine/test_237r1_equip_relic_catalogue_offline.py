@@ -35,8 +35,8 @@ DECLENCHEUR = {
     "toujours": False,
     "raison": "Offline : garde que `--equip-relic` injecte son porteur au catalogue AVANT la "
               "normalisation (#237-r1), que le montage reste un NO-OP quand le porteur est deja "
-              "la, et que le diagnostic distingue « absent du catalogue » de « ecarte par "
-              "buildNormalizedBC ». La premisse (des reliques dont aucun porteur n'est au seed BC) "
+              "la, et que le diagnostic distingue 'absent du catalogue' de 'ecarte par "
+              "buildNormalizedBC'. La premisse (des reliques dont aucun porteur n'est au seed BC) "
               "est DERIVEE du gameconfig et du seed BC, jamais citee -- un build qui les ferait "
               "entrer au seed doit faire ROUGIR le fichier, pas le rendre vacant.",
 }

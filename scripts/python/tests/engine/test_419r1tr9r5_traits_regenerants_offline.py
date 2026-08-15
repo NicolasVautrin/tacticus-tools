@@ -39,8 +39,8 @@ DECLENCHEUR = {
     "raison": "Offline : garde que `--unit-stat RemainingHealth/Health` avertit sur un porteur "
               "REGENERANT (#419-r1-tr9-r5), que la liste des traits concernes est DERIVEE de i2 "
               "et du gameconfig (jamais ecrite en dur), et fige l'arithmetique mesuree qui a "
-              "refute les DEUX lectures de la fiche (ni « le patch ne mord pas », ni « 2008 est "
-              "l'armure » : c'est 300 + k x 10% des PV max).",
+              "refute les DEUX lectures de la fiche (ni 'le patch ne mord pas', ni '2008 est "
+              "l'armure' : c'est 300 + k x 10% des PV max).",
 }
 
 import json          # noqa: E402  (le DECLENCHEUR doit rester en tete, cf. `probe_486r15`)
