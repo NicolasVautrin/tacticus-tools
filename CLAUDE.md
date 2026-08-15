@@ -35,8 +35,10 @@ Hooking Frida de **WH40K Tacticus** (Windows PC build, Unity 6 IL2CPP) — monor
   au commit courant avant de dispatcher.
 - `docs/rl/kit-coverage.md` et `docs/rl/combat-ability-coverage.md` — **audits GÉNÉRÉS** de la
   couverture (`audit_kit_coverage.py`, `audit_combat_ability_coverage.py`, depuis `scripts/python/`).
-  Les régénérer après tout port et au changement de build ; **ne jamais résoudre un conflit dessus
-  — les REGÉNÉRER**.
+  **Ne jamais résoudre un conflit dessus — les REGÉNÉRER.** ⚠ Mais **ne les régénère pas de ta
+  propre initiative** : la régénération appartient à l'orchestrateur, au MERGE, parce qu'il n'y a
+  là qu'un seul acteur. Depuis une PR, N branches parallèles réécriraient les mêmes fichiers —
+  le conflit est garanti. Si ta tranche fait bouger une couverture, **dis-le au rapport**.
 - Les chiffres se **re-dérivent**, ils ne se citent pas : ils bougent à chaque tranche livrée.
 
 ## Cible Windows
