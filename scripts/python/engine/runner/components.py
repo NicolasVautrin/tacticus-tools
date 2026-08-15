@@ -3377,6 +3377,18 @@ def structural_analyser_friends(state, unit_id: int) -> Optional[int]:
         return None
     from ..ai.action_generators import _faction               # FactionId gameconfig par visualId
     here = (pc.col, pc.row)
+    # ⚠ LES DEUX TIERS N'ONT PAS LE MEME SUBSTRAT NATIF (#433-r4-r1-r4-r2-r1-r1-r1-r1) :
+    #   * `AdjacentFriends` -> `IdunBattleLogic.Entities.DSLSelectors$$AdjacentTiles` -> la liste
+    #     STOCKEE du `ConnectivityComponent` + la porte `|dElev| < 2` de
+    #     `IdunBattle.Core.Services.TileQuery.u003CIterateAdjacentTilesu003Ed__8$$MoveNext` ;
+    #   * `SurroundingFriends(range = Direct(2))` -> `SurroundingTiles` ->
+    #     `BattleQuery.u003CIterateSurroundingTilesu003Ed__6$$MoveNext`, qui balaie le CUBE sans
+    #     liste ni porte -> la distance hex nue EST le mirror exact.
+    # Le board est SOUS LA MAIN (`state.board`) : aucun seeding. Board absent -> le foyer retombe
+    # sur son repli GEOMETRIQUE nomme, c.-a-d. le comportement d'avant le cablage.
+    board = getattr(state, "board", None)
+    elev_by_pos = elevations_by_pos(board)
+    neigh_by_pos = adjacent_neigh_by_pos(board)
     n = 0
     for uid, e in state.entities.items():
         if int(uid) == int(unit_id):                          # le porteur n'est pas son propre ami
@@ -3390,10 +3402,11 @@ def structural_analyser_friends(state, unit_id: int) -> Optional[int]:
         epc = e.get_component(PositionComponent)
         if epc is None:
             continue
-        d = hexgeo.distance(here, (epc.col, epc.row))
-        if d == 1:                                            # AdjacentFriends (toute faction)
+        there = (epc.col, epc.row)
+        if is_adjacent(here, there, elev_by_pos, neigh_by_pos):   # AdjacentFriends (toute faction)
             n += 1
-        elif d <= 2 and _faction(euc.visual_id) == _STRUCTURAL_ANALYSER_TAU:
+        elif (hexgeo.distance(here, there) <= 2
+                and _faction(euc.visual_id) == _STRUCTURAL_ANALYSER_TAU):
             n += 1                                            # UnitsFromFaction(Surrounding(2), Tau)
     return n
 

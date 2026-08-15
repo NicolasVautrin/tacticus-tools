@@ -244,8 +244,15 @@ class BeaconOfRageFriendlyExtraDamageEffect(BaseEffect):
         op, ap = c.get("owner_pos"), c.get("att_pos")
         if not op or not ap:
             return None
-        import hexgeo
-        if hexgeo.distance(op, ap) > 1:                       # AdjacentFriends(owner, radius 1) = hex-adjacent
+        # #433-r4-r1-r4-r2-r1-r1-r1-r1 -- `AdjacentFriends(owner@<DSLFactory+0x148>, 1, 3)` descend
+        # sur `IdunBattleLogic.Entities.DSLSelectors$$AdjacentTiles`, donc sur la liste STOCKEE du
+        # `ConnectivityComponent` PUIS la porte `|dElev| < 2` de
+        # `IdunBattle.Core.Services.TileQuery.u003CIterateAdjacentTilesu003Ed__8$$MoveNext`. La
+        # couronne hex nue SUR-ATTEINT cette liste. Le ctx d'aura porte DEJA `board` sur les DEUX
+        # faces (`damage_model._apply_ally_attack_damage_auras`, `_shared._apply_ally_attack_dmg_bonus`)
+        # -- ZERO seeding, meme constat que pour `create_aura_attack_bonus` en #983.
+        elev_by_pos, neigh_by_pos = _adjacency_channels(c)
+        if not _bq.is_adjacent(op, ap, elev_by_pos, neigh_by_pos):
             return None
         if self.level is None or int(self.level) <= 0:        # rage (EffectLevel) — gate >=1-kill baké à l'écriture
             return None
@@ -536,11 +543,18 @@ class DefenderOfTheGreaterGoodExtraDmgEffect(BaseEffect):
         if not op or not ap:
             return False
         import hexgeo
-        d = hexgeo.distance(op, ap)
         # Selecteur IdunBattleLogic.Entities.Abilities.Triggered.Loki.DefenderOfTheGreaterGoodAbility$$GetBaseBuffTargetSelector : (AdjacentFriends(range=1, TOUTE faction) - owner) + UnitsFromFaction(
         # SurroundingFriends(range=2, disk), Tau=9). range 1 / range 2 = litteraux DSL (pas de ConfigVar range).
-        adjacent = (d == 1)
-        tau_ring = (d <= 2 and c.get("att_faction") == self._TAU_FACTION)
+        # ⚠ LES DEUX TIERS N'ONT PAS LE MEME SUBSTRAT, et c'est ce qui interdit de les decider par la
+        # MEME distance (#433-r4-r1-r4-r2-r1-r1-r1-r1) :
+        #   * `AdjacentFriends` -> `DSLSelectors$$AdjacentTiles` -> la liste STOCKEE du
+        #     `ConnectivityComponent` + la porte `|dElev| < 2` -> canal `battle_query.is_adjacent` ;
+        #   * `SurroundingFriends(2)` -> `SurroundingTiles` -> `BattleQuery.u003CIterateSurrounding
+        #     Tilesu003Ed__6$$MoveNext`, qui balaie le CUBE `[c-d, c+d]^3` SANS liste ni porte
+        #     d'elevation -> la distance hex nue EST le mirror exact, la cabler serait une REGRESSION.
+        elev_by_pos, neigh_by_pos = _adjacency_channels(c)
+        adjacent = bool(_bq.is_adjacent(op, ap, elev_by_pos, neigh_by_pos))
+        tau_ring = (hexgeo.distance(op, ap) <= 2 and c.get("att_faction") == self._TAU_FACTION)
         return bool(adjacent or tau_ring)
 
     def _covered_by_source_aura(self, c: Mapping) -> bool:

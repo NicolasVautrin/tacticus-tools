@@ -2203,9 +2203,19 @@ class DefenderOfTheGreaterGoodExtraHitsEffect(BaseEffect):
         op, ap = c.get("owner_pos"), c.get("att_pos")
         if not op or not ap:
             return False
-        d = hexgeo.distance(tuple(op), tuple(ap))
-        adjacent = (d == 1)                                   # AdjacentFriends(range 1, TOUTE faction)
-        tau_ring = (d <= 2 and c.get("att_faction") == self._TAU_FACTION)   # UnitsFromFaction(2, Tau)
+        # ⚠ LES DEUX TIERS N'ONT PAS LE MEME SUBSTRAT NATIF (#433-r4-r1-r4-r2-r1-r1-r1-r1), et les
+        # decider par la MEME distance melangeait une liste STOCKEE et un disque CUBE :
+        #   * `AdjacentFriends` -> `DSLSelectors$$AdjacentTiles` -> liste stockee du
+        #     `ConnectivityComponent` + porte `|dElev| < 2` -> canal `battle_query.is_adjacent` ;
+        #   * `SurroundingFriends(2)` -> `SurroundingTiles` -> `BattleQuery.u003CIterateSurrounding
+        #     Tilesu003Ed__6$$MoveNext` (cube, sans porte) -> la distance nue EST le mirror exact.
+        # CABLE EN MEME TEMPS que sa JUMELLE `extra_damage_aura::DefenderOfTheGreaterGoodExtraDmg
+        # Effect.aura_selector_covers` : c'est le MEME `GetBaseBuffTargetSelector`, les separer
+        # ouvrirait une divergence entre l'axe DEGAT et l'axe COUPS du meme passif.
+        elev_by_pos, neigh_by_pos = _adjacency_channels(c)
+        adjacent = bool(_bq.is_adjacent(tuple(op), tuple(ap), elev_by_pos, neigh_by_pos))
+        tau_ring = (hexgeo.distance(tuple(op), tuple(ap)) <= 2
+                    and c.get("att_faction") == self._TAU_FACTION)          # UnitsFromFaction(2, Tau)
         return bool(adjacent or tau_ring)
 
     def _covered_by_source_aura(self, c: Mapping) -> bool:
