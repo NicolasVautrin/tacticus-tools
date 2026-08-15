@@ -2200,18 +2200,32 @@ class DamageHandler:
             # l'operation. On les remet EN TETE d'`after_hit` : c'est l'ORDRE NATIF (`FinishAttack`
             # precede `ALoki_NormalAttackAbility$$ExecuteTriggerAbilities`, qui porte `On(0x26)`) et
             # ca preserve l'observabilite du canal pour les tests/probes qui lisent `after_hit`.
+            # #139 : l'attaque normale native EST une ActiveAbility (NormalAttack per-unite ;
+            # AttackUnitMessage n'existe pas en natif — c'est la simplification port de
+            # l'ActiveAbilityMessage) et traverse la MEME queue
+            # `IdunBattle.Operations.ActiveAbilityOperation$$AddFlagsAfterAbilityExecution` — base
+            # `SetsEndTurnFlags`/`SetsActiveAbilityUsedFlag` = `_dsl.True`
+            # `IdunBattle.Entities.Abilities.AActiveAbility$$SetsEndTurnFlags` (aucune classe
+            # NormalAttack dans la famille d'overrides) -> flag ActiveAbilityUsed(2) +
+            # FinishUnitTurn (flags 1+3).
+            # ⚠ #1020-r5 : la pose se fait DANS `after_hit_normal_attack`, a son rang natif (entre
+            # `On(0xc)` et `On(0xe)`), et non plus APRES son retour. L'inversion rendait INERTE tout
+            # consommateur de `On(0xe)` qui RETIRE un drapeau de tour (`ResetTurn` de `RapidFire`,
+            # `ResetMovement` de `Maugetar`) : la pose qui suivait les remettait aussitot. Mesure et
+            # citation du decompile dans la docstring d'`after_hit_normal_attack`. Ce n'est donc PAS
+            # qu'un bookkeeping observable : deux consommateurs portes en dependent.
+            from .turnflow import add_flags_after_ability_execution
+            _drapeaux: dict = {}
+
+            def _poser_les_drapeaux():
+                _drapeaux["flags"] = add_flags_after_ability_execution(
+                    self.state, int(msg.attacker_id),
+                    skip_ability_used=False, skip_end_turn=False)
+
             self.after_hit = (self.last.get("finish_attack") or []) + after_hit_normal_attack(
                 self.state, msg.attacker_id, self.last.get("target", msg.target_id),
                 bool(self.last.get("ranged")), self.last.get("profile"),
                 is_crit=bool(self.last.get("did_crit")),
-                did_block=bool(self.last.get("did_block")))
-        # #139 : l'attaque normale native EST une ActiveAbility (NormalAttack per-unite ; AttackUnitMessage
-        # n'existe pas en natif — c'est la simplification port de l'ActiveAbilityMessage) et traverse la
-        # MEME queue `IdunBattle.Operations.ActiveAbilityOperation$$AddFlagsAfterAbilityExecution — base `SetsEndTurnFlags`/
-        # `SetsActiveAbilityUsedFlag` = `_dsl.True` IdunBattle.Entities.Abilities.AActiveAbility$$SetsEndTurnFlags (aucune classe NormalAttack dans la famille
-        # d'overrides) -> flag ActiveAbilityUsed(2) + FinishUnitTurn (flags 1+3). Bookkeeping observable ;
-        # aucun gate du port ne le lit encore (PickNextUnit/VerifyUnitsTurnFinished = couche non portee).
-        if self.last is not None:
-            from .turnflow import add_flags_after_ability_execution
-            self.last["flags"] = add_flags_after_ability_execution(
-                self.state, int(msg.attacker_id), skip_ability_used=False, skip_end_turn=False)
+                did_block=bool(self.last.get("did_block")),
+                avant_post_ability=_poser_les_drapeaux)
+            self.last["flags"] = _drapeaux.get("flags")
