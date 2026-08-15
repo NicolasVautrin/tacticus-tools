@@ -5049,8 +5049,13 @@ pas d'erreur : il rend **zéro**, et un zéro se lit « rien à signaler ».
   **#1083-r5** (`_Reinforcement`/`_ReinforcementShield`/`_Resurrect`, blocage etage). RESTE ICI :
   les **4** `PowerUp_HeroSpawn*` (1434/1436/1437/1517) et les **7** `PowerUp_SummonSpawn*`
   (1532/1533/1536/1537/1538/1539/1540), qui surchargent `$$CreateBehaviour` EN ENTIER.
-  ⚠ Leur RE exige un CORPS decompile : au 2026-08-15 `mcp__ghidra__*` sert encore `rnca9r7q6c`
-  (import de `t6dpr4k06g` en cours) -- **NON TRANCHE tant que Ghidra n'a pas migre**.
+  ⚠ **LEUR RE EST FAITE (#10004, 2026-08-15), le verrou Ghidra est LEVE** : cf.
+  `docs/rl/case-10004-powerup-spawn.md`. Il n'y a PAS onze mecaniques mais **DEUX corps natifs**
+  (`PowerUp_HeroSpawnAbility` / `PowerUp_SummonSpawnAbility`) sur une base commune
+  `APowerup_SpawnAbility`, et **neuf variantes qui ne different que par une cle de gameconfig**
+  (`heroId` / `unitId`). Ce qui RESTE ici est donc le PORTAGE, pas la RE.
+  ⚠ **1434 et 1532 n'ont AUCUNE constante** -> elles ne spawnent rien : **neuf** mecaniques
+  vivantes, pas onze. Les inscrire sans le dire ferait croire a onze.
   **TRANCHE 1 LIVREE (2026-08-14)** : `PowerUp_Armor` / `_Damage` / `_Health` / `_Hits` / `_MeleeHits`
   + la base `APowerUpAbility` (trigger ET behaviour entiers) + l'effet dynamique
   `PowerUp_ArmorEffect`. Cf. `docs/rl/case-1083-r1-powerup-boosts-de-stat.md`,
@@ -5094,6 +5099,58 @@ pas d'erreur : il rend **zéro**, et un zéro se lit « rien à signaler ».
   --a-units "powup<X>,..."` + `--a-place`/`--place` pour poser le power-up A COTE du ramasseur. Le
   BOARD n'y joue AUCUN role -- ne pas re-derouler la piste `--board`, elle est refutee Sec.3.
   FOYER: scripts/python/engine/runner/operations/triggers/loki/power_up.py, scripts/python/engine/runner/operations/triggers/dispatch/registry.py, scripts/python/engine/entities/effects/factory.py
+  BLOCAGE: aucun
+
+- **#10004 — PORTER les NEUF `PowerUp_*Spawn*` vivants : RE FAITE, il reste le portage.** `[opus]`
+  Point d'entree : `docs/rl/case-10004-powerup-spawn.md` (RE complete contre `t6dpr4k06g`).
+  **Il n'y a PAS onze mecaniques** : deux `CreateBehaviour` (`PowerUp_HeroSpawnAbility`,
+  `PowerUp_SummonSpawnAbility`) sur la base commune `APowerup_SpawnAbility`, et neuf variantes qui
+  ne different QUE par une cle de gameconfig. **1434 et 1532 n'ont aucune constante -> elles ne
+  spawnent rien** : neuf vivantes, deux inertes.
+  STRUCTURE, identique aux deux : `If( IsInTeam(Actor, 1), GetKillBehaviour(tuile) & Spawn(Player(1),
+  tuile, <id>, options), null )` avec `tuile = Cache(GetSpawnTile(), unique=1)`. Les TROIS
+  differences, toutes lues : la cle (`0x7e = heroId` vs `0x0 = unitId`) ; les options
+  (`new SpawnUnitOptions` + `<+0x61>=1` vs `SpawnUnitOptions.WithStatsFromConfig`) ; et le fait que
+  le SUMMON recoit un `PerformAIAttackFromCurrentPosition(ActiveTarget, ...)` en `<+0x18>`, que le
+  heros ne recoit pas.
+  LA BASE : `GetSpawnTile` est une CASCADE a quatre rangs
+  (`First( pref(tuilesEnnemis).Otherwise(pref(libres)).Otherwise(tuilesEnnemis).Otherwise(libres), 1)`,
+  ou `pref(x) = TilesWithoutPowerUps(Filter(x, NOT IsTerritoryTile(ActiveTarget)))` et
+  `libres = SortByDistance(CanAddUnit(Randomize(AllTiles)), Actor)`) ; `GetKillBehaviour` TUE
+  l'occupant non-`Steppable` de la tuile choisie (`KillUnitBehaviourOptions.ForClearTile()`) avant
+  le spawn -- l'ordre du `&` le garantit.
+  ⚠ `IsInTeam(Actor, 1)` est LOAD-BEARING (rien ne spawne hors team 1) mais la team EST portee :
+  ce gate est EVALUABLE, contrairement au `PlayerType` de #1083-r4. C'est ce qui rend cette tranche
+  portable. ⚠ Le `1` de `Player(1)` et celui d'`IsInTeam(..., 1)` sont DEUX AXES (parent du spawn
+  vs team du ramasseur) -- ne pas les fusionner en une constante.
+  ⚠ Le trigger vient d'`APowerUpAbility` (#1083-r1) : `APowerup_SpawnAbility` n'a PAS de
+  `CreateTrigger` -- re-confirme sur `t6dpr4k06g`.
+  CONFRONTABILITE : les neuf ont un porteur `powup*` npc HP0 (`powupHeroSpawn_Uthar`,
+  `powupSummonSpawn_ultraSmnInceptor`, ...), meme profil que ceux deja montes en #1083-r1/r3 -> le
+  montage mesure s'applique tel quel (`catalog_inject` + `--explicit-stats` + `--a-units`, board
+  INDIFFERENT), et le ramasseur cote joueur est team 1, donc le gate passe. CONTRE-BRAS hors-tuile
+  OBLIGATOIRE, et TEMOIN NON DEGENERE a assertionner : `HeroSpawn` peut ne rien spawner (tuile
+  introuvable, gate faux) et les deux cotes rendraient vide.
+  COUT REEL, **MESURE** (balayage d'`engine/`, pas estime) : **presque tout existe deja**.
+  PRESENTS : `Enemies`, `AllUnits`, `NormalUnits`, `Tiles`, `Filter`, `TilesWithoutPowerUps`,
+  `Randomize`, `CanAddUnit`, `SortByDistance`, `First`, `Units`, `Cache`, `Otherwise` (CLASSE
+  `Otherwise(a, b)`, pas une methode), `HasUnit`, `HasTrait`, `Spawn`, `Kill`, `If`, `op_and`.
+  `PerformAIAttackFromCurrentPosition` est la **variante par DEFAUT** de `PerformAIAttack`
+  (`behaviours/summon.py`, `allow_move_action=False, move_amount=0`).
+  `SpawnUnitOptions` n'existe pas comme classe : il est **aplati en kwargs** de `Spawn`, avec la
+  correspondance d'offsets deja ecrite (`+0x10 -> on_spawn_effect`, `+0x18 -> on_appearance`,
+  `+0x28 -> stat_modifier_formulas`, `+0x60 -> spawn_as_single_unit`,
+  `WithStatsFromConfig -> ability_state`) -- donc le `<+0x18>` du summon se pose par `on_appearance`.
+  MANQUENT, et c'est TOUT : **`IsSpawnTile`** (0 occurrence), **`IsTerritoryTile`** (le champ
+  existe pourtant -- `isTerritory` = `TileComponent+0x2e`, deja cite dans `ai/context.py`),
+  **`IsInTeam`** (seul `IsInTeamAura` existe, qui est autre chose), et le collapse de **`Player(1)`**
+  (pas de selecteur `Player` : l'axe joueur est porte par le trigger `CurrentPlayerIsOfTeam`).
+  `KillUnitBehaviourOptions.ForClearTile()` est absent -- `Kill` ne lit aucune option (residu deja
+  nomme dans sa docstring) : ecart a MESURER, pas a supposer.
+  ⚠ Precedent DIRECT a suivre : `SwornProtectorAbility$$GetSpawnTile` est deja porte
+  (`loki/sworn_protector.py` + branche dediee dans `selectors/tiles.py::SortTilesByUtility`), et
+  `GetKillBehaviour` n'a **aucune** occurrence -- c'est la seule piece vraiment neuve.
+  FOYER: scripts/python/engine/runner/operations/triggers/loki/power_up_spawn.py, scripts/python/engine/runner/operations/triggers/dispatch/registry.py, scripts/python/engine/entities/selectors/tiles.py, scripts/python/engine/entities/triggers.py
   BLOCAGE: aucun
 
 - **#1083-r4 — `PowerUp_Bomb` (1282) : le gate `IsHumanPlayer` est LOAD-BEARING et le port ne peut pas l'evaluer.** `[opus]`

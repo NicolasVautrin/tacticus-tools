@@ -114,9 +114,46 @@ rendre d'identifiant, donc elles ne spawnent rien. Ce sont les entrees de BASE, 
 soient inertes se lit dans la config, pas dans le code. Un port qui les inscrirait sans le dire
 ferait croire a onze mecaniques vivantes la ou il y en a **neuf**.
 
-## 5. Etat
+## 5. Ce qu'il reste a porter — MESURE, pas estime
 
-RE **complete** des onze (deux corps + base + config). Portage et confrontation : en cours.
-Le gate `IsInTeam(Actor, 1)` est evaluable cote port, et le montage de confrontation est celui,
-deja mesure, des tranches 1 et 2 (`catalog_inject` + `--explicit-stats` + `--a-units`, board
-indifferent) — dans lequel le ramasseur cote joueur est **team 1**, donc le gate passe.
+Balayage d'`engine/` : **presque tout le vocabulaire existe deja**. C'est le fait qui change le
+dimensionnement de la tranche, et il ne se devine pas.
+
+| present | absent |
+|---|---|
+| `Enemies`, `AllUnits`, `NormalUnits`, `Tiles`, `Filter`, `TilesWithoutPowerUps`, `Randomize`, `CanAddUnit`, `SortByDistance`, `First`, `Units`, `Cache`, `Otherwise`, `HasUnit`, `HasTrait`, `Spawn`, `Kill`, `If`, `op_and` | **`IsSpawnTile`**, **`IsTerritoryTile`**, **`IsInTeam`**, le selecteur **`Player`** |
+
+Precisions qui evitent trois faux pas :
+
+- `Otherwise` est une **CLASSE** (`Otherwise(primary, fallback)`), pas une methode de
+  `TargetsSelector` — la cascade s'ecrit en imbriquant, pas en chainant.
+- `PerformAIAttackFromCurrentPosition` n'a pas de classe propre : c'est la **variante par defaut**
+  de `PerformAIAttack` (`allow_move_action=False`, `move_amount=0`). Le `<+0x18>` du summon se pose
+  par le kwarg **`on_appearance`** de `Spawn`.
+- `SpawnUnitOptions` n'existe pas comme classe : il est **aplati en kwargs** de `Spawn`, dont la
+  correspondance d'offsets est deja ecrite au port (`+0x10 -> on_spawn_effect`,
+  `+0x18 -> on_appearance`, `+0x28 -> stat_modifier_formulas`, `+0x60 -> spawn_as_single_unit`,
+  `WithStatsFromConfig -> ability_state`).
+- `IsTerritoryTile` est absent **comme noeud**, mais la donnee est la : `isTerritory` =
+  `TileComponent+0x2e`, deja cite dans `ai/context.py`. Ce n'est donc pas un blocage de seeding.
+- `KillUnitBehaviourOptions.ForClearTile()` n'est pas porte et `Kill` **ne lit aucune option** —
+  residu deja nomme dans sa docstring. L'ecart est a **mesurer**, pas a supposer nul.
+- Precedent direct : `SwornProtectorAbility$$GetSpawnTile` **est** porte
+  (`loki/sworn_protector.py` + branche dediee de `SortTilesByUtility`). `GetKillBehaviour`, lui,
+  a **zero** occurrence — c'est la seule piece vraiment neuve.
+
+## 6. Etat
+
+RE **complete** des onze (deux corps + base + config), **inventaire de portage mesure**. Le port
+lui-meme n'est PAS fait : residu **#10004**, `BLOCAGE: aucun`.
+
+Le gate `IsInTeam(Actor, 1)` est evaluable cote port (la team est portee, contrairement au
+`PlayerType` de #1083-r4), les neuf porteurs `powup*` sont du meme profil npc HP0 que ceux deja
+montes en #1083-r1/r3, et le montage de confrontation est celui, deja mesure, des deux tranches
+precedentes (`catalog_inject` + `--explicit-stats` + `--a-units`, board **indifferent**) — dans
+lequel le ramasseur cote joueur est **team 1**, donc le gate passe.
+
+⚠ **Le temoin degenere est facile a atteindre ici** : `GetSpawnTile` peut ne rendre AUCUNE tuile,
+et le gate peut etre faux — dans les deux cas rien ne spawne et les deux cotes « accordent » sur du
+vide. Assertionner qu'une unite est REELLEMENT apparue avant de conclure, et jouer le contre-bras
+hors-tuile.
