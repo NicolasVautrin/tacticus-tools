@@ -623,6 +623,51 @@ def is_turn_of_unit_by_pos(ctx: "NCContext") -> dict:
     return out
 
 
+def has_moved_by_pos(ctx: "NCContext") -> dict:
+    """`{(col, row): bool}` -- `IdunBattle.Entities.UnitExtensions$$DidMove(unit)` evalue sur
+    l'occupant VIVANT de chaque tuile (`#447-r1-r1-r3-r1`, foyer consommateur
+    `engine.services.ability_caster_gates.invalid_caster_reason` clause 1).
+
+    Corps natif : `GetComponent<UnitFlagsComponent>(unit).Has(UnitFlag.Moved)` apres un
+    `Type == Unit`. C'est le SECOND terme de `CasterHasNotMoved`, dont `is_turn_of_unit_by_pos`
+    (juste au-dessus) porte le PREFIXE.
+
+    SUBSTRAT, SANS CAPTEUR NEUF ET SANS RPC SUPPLEMENTAIRE -- la premisse `BLOCAGE: seeding` de la
+    fiche etait PERIMEE : `ctx.scene.has_moved(uid)` lit `Scene.moved_by_id`, que
+    `engine.playbook.scene` alimente depuis `combatSnapshot.units[].unitFlags` (id du flag pris
+    dans `unitFlagTypes`, LU au runtime, jamais ecrit en dur) et RE-CAPTURE a chaque pas par
+    `refresh_shields` -- un cold fige au pas 0 rendrait << n'a pas bouge >> pour toute la bataille.
+    La voie OFFLINE passe par `Scene.from_state` -> `engine.runner.components.unit_has_moved`.
+
+    ⚠ **LA CLE DE `Scene.moved_by_id` EST LE `squadId`**, pas l'`entityId` : sur la ligne
+    `combatSnapshot.units[]`, `entityId` EST le `squadId` d'`observeBattle` (piege deja nomme par
+    `engine/runner/abilities/attack_query.py`). Un appariement par `observeBattle.entityId` lirait
+    `None` sur TOUTES les unites et conclurait faussement que rien n'est seede.
+
+    TRI-ETAT PRESERVE : `ctx.scene is None` -> dict VIDE ; une unite dont `has_moved` rend `None`
+    (capteur muet) **n'entre pas** dans la table -- surtout pas sous `False`, qui se lirait comme la
+    mesure << elle n'a pas bouge >> et pourrait faire ACCEPTER un caster que le natif refuse. Le
+    consommateur lit alors `None` = non mesure, et la regle ne refuse jamais.
+
+    Meme filtre `isDead` qu'`occupant_team_by_pos`, et pour la meme raison : une depouille ne
+    remplit plus sa tuile (`TileContentComponent$$IsFilled`)."""
+    scene = getattr(ctx, "scene", None)
+    if scene is None:
+        return {}
+    out: dict = {}
+    for u in (ctx.obs_units or []):
+        if u.get("isDead"):
+            continue
+        c, r, sq = u.get("col"), u.get("row"), u.get("squadId")
+        if c is None or r is None or sq is None:
+            continue
+        v = scene.has_moved(sq)
+        if v is None:
+            continue                    # non mesure -> ABSENT de la table, jamais un `False`
+        out[(c, r)] = bool(v)
+    return out
+
+
 def _sweep_origin_first(ctx: "NCContext") -> list:
     """Ordre de balayage des positions candidates : ORIGINE D'ABORD, puis les tuiles de move.
 
