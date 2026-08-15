@@ -349,6 +349,31 @@ def _port_burn(state, caster: int, tile_id: int, board: Board) -> list:
                   if int(t) in board.by_id)
 
 
+def _port_burn_with_flag(state, caster: int, tile_id: int, board: Board) -> tuple:
+    """E4bis (#368-r2) -- **LA POSE ET LE FLAG, SEPAREMENT**.
+
+    `burned_tiles` repond a << ou l'etage [5] a-t-il POSE ? >>, ce qui n'est PAS la question que
+    `E3` mesure cote natif : `tileMeta` SANS `includeInactive` ne rend que les effets **ACTIFS**.
+    Comparer l'un a l'autre confond donc deux etages, et c'est exactement ce que ce probe avait
+    conclu au bras D -- << ecart port \\ natif = [(0,8)] >> alors que le natif POSE aussi sur (0,8),
+    en `active: False`. La mesure qui tranche lit `EffectComponent.IsActive @+0x5c` (le champ
+    `BaseEffect.active`) sur l'etat du port, apres la pose.
+
+    Rend `(poses, actifs)` : les deux ensembles de coordonnees."""
+    poses = _port_burn(state, caster, tile_id, board)
+    actifs = []
+    for q in poses:
+        tid = board.id_at(q[0], q[1])
+        if tid is None:
+            continue
+        for e in (state.effects.by_unit.get(int(tid), []) if state.effects else []):
+            if int(getattr(e, "effect_type", 0) or 0) == FIRE and not e.consumed:
+                if bool(getattr(e, "active", True)):
+                    actifs.append(q)
+                break
+    return poses, sorted(set(actifs))
+
+
 # ---------------------------------------------------------------------------------- la mesure
 
 def pose(arm: str, mutate: str = "") -> dict:
@@ -380,7 +405,8 @@ def pose(arm: str, mutate: str = "") -> dict:
         # Les DEUX ports sont calcules sur le MEME etat, AVANT le cast natif : la vue verte et la
         # VUE ROUGE partagent donc exactement le meme montage (un seul build), et un ecart entre
         # elles ne peut pas venir d'un etat different.
-        port = _port_burn(_load_state(rpc, rid, board), caster, stages["tile_id"], board)
+        port, port_actifs = _port_burn_with_flag(_load_state(rpc, rid, board), caster,
+                                                 stages["tile_id"], board)
         port_wide = _mutated_port_burn(_load_state(rpc, rid, board), caster, stages["tile_id"],
                                        board, "elev")
         r = rpc("applyAction", {"runnerId": rid, "action": {
@@ -415,6 +441,12 @@ def pose(arm: str, mutate: str = "") -> dict:
                 "verdict_368r1": verdict_368r1,
                 "regime": regime, "caster": caster, "caster_kind": kind, "anchor": anchor,
                 "stages": stages, "native": native, "port": sorted(port),
+                # #368-r2 -- l'ensemble COMPARABLE a `native` : les tuiles ou le port a pose un
+                # `Fire` **ACTIF**. `native` vient de `tileMeta` sans `includeInactive`, donc
+                # actif-only ; `port` (les poses) ne l'est pas.
+                "port_actifs": sorted(port_actifs),
+                "gap_actifs": sorted(set(map(tuple, port_actifs)) - set(map(tuple, native))),
+                "agree_actifs": sorted(port_actifs) == native,
                 "port_wide": sorted(port_wide), "events": ev[:12],
                 # `zone_port \ natif` -- l'ecart RESIDUEL, et l'ensemble des tuiles NON MARCHABLES
                 # de la zone, pour que la garde teste l'EGALITE des deux au lieu d'un compte.
@@ -510,13 +542,16 @@ def _print(r: dict) -> None:
     print("  E2 zone (port)         = %s" % (sorted(s["zone"]),))
     print("  E3 embrasees (NATIF)   = %s" % (r["native"],))
     print("  E4 burned_tiles (PORT) = %s" % (r["port"],))
+    print("  E4bis PORT, Fire ACTIF = %s   <- l'ensemble COMPARABLE a E3 (#368-r2)" % (r["port_actifs"],))
     print("  E4' PORT, maxDiff NEUTRALISE (vue ROUGE) = %s" % (r["port_wide"],))
     for e in (r.get("events") or []):
         print("     event: %s" % (e,))
     print("  ecart port \\ natif     = %s   (non marchables de la zone = %s)"
           % (r["gap"], r["unwalkable_in_zone"]))
-    print("  ACCORD natif/port      = %s%s"
-          % (r["agree"], ("   [mutation %s]" % r["mutate"]) if r["mutate"] else ""))
+    print("  ecart ACTIFS port \\ natif = %s" % (r["gap_actifs"],))
+    print("  ACCORD natif/port      = %s%s   |   ACCORD sur les ACTIFS = %s"
+          % (r["agree"], ("   [mutation %s]" % r["mutate"]) if r["mutate"] else "",
+             r["agree_actifs"]))
     print("  #368-r1 (includeInactive) = %s" % r.get("verdict_368r1"))
     if r.get("fire_inactif") is not None:
         for q, effs in sorted((r.get("fire_inactif") or {}).items()):
@@ -537,11 +572,19 @@ def main() -> int:
         return 2
     arms = [a.only] if a.only else sorted(ARMS)
     ok = True
+    ok_actifs = True
     for arm in arms:
         r = pose(arm, a.mutate)
         _print(r)
         ok = ok and r["agree"]
-    print("\n=== VERDICT === accord sur tous les bras = %s" % ok)
+        ok_actifs = ok_actifs and r["agree_actifs"]
+    # DEUX verdicts, et il FAUT les deux. Le premier compare les POSES du port aux tuiles que
+    # `tileMeta` rend (donc ACTIVES) : il est FAUX par construction des qu'une tuile est posee puis
+    # desactivee -- c'est l'observation de #368-r1, pas un desaccord. Le second (#368-r2) compare
+    # ce qui est COMPARABLE : effets ACTIFS des deux cotes.
+    print("\n=== VERDICT === accord POSES(port) vs ACTIFS(natif) = %s "
+          "[FAUX attendu des qu'une tuile est posee-puis-desactivee]" % ok)
+    print("=== VERDICT === accord ACTIFS/ACTIFS (#368-r2) = %s" % ok_actifs)
     return 0
 
 

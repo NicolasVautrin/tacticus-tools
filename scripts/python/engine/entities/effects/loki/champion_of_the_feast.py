@@ -109,7 +109,21 @@ class ChampionOfTheFeastReduceArmorEffect(BaseEffect):
     seed** (bataille chargee alors que le malus est deja pose) arriverait en `BaseEffect` nu, donc
     SANS stat-modification declaree -- sa contribution resterait dans le RESIDU OPAQUE
     (`CAPTURED_SOURCE`) de `seed_unit_stats`, attribuee a AUCUNE source, donc **non retirable**
-    (#118). C'est exactement ce que cette classe ferme."""
+    (#118). C'est exactement ce que cette classe ferme.
+
+    ⚠⚠ **`get_CanBeImmuneTo` VAUT `true` ICI, ET C'EST LA SEULE DES 49 (#175-r3).** Son getter n'est
+    pas une constante de classe : toute la descendance d'`AStatModifierEffect` herite un
+    `movzx eax, byte ptr [rcx+0x480] ; ret`, donc la valeur vient du `.ctor` de CHAQUE classe.
+    `IdunBattle.Entities.Effects.AStatModifierEffect$$.ctor(this, sourceAbility, unitEffectType,
+    canBeImmuneTo, keepOnRevive, isMultiply)` ecrit `this+0x480 = canBeImmuneTo` (relu au
+    decompile ; `+0x481 = keepOnRevive`, `+0x482 = isMultiply`), et
+    `IdunBattle.Entities.Effects.Loki.ChampionOfTheFeast_ReduceArmorEffect$$.ctor` l'appelle avec
+    **`canBeImmuneTo = 1`** -- toutes les autres classes lues du gisement passent `0`.
+    Consequence, la MEME que pour `ContaminatedEffect` : `BaseEffect$$EntityIsImmuneToEffect` =
+    `HasTrait(entity, UnitTrait.Immune) && CanBeImmuneTo` -> le gate de pose d'
+    `IdunBattle.Operations.AddEffectOperation$$Execute` MORD sur une cible `Immune`, la ou le port
+    rendait un `False` inconditionnel (defaut `BaseEffect.can_be_immune_to`)."""
+    can_be_immune_to = True   # `.ctor` -> `AStatModifierEffect..ctor(..., canBeImmuneTo = 1, ...)`
     stat_mod_source = None   # cle de source ChangeStat (revert par-source via la feuille `RemoveEffect`)
 
     def get_stat_modification_stat(self) -> "int | None":

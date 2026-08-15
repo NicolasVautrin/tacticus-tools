@@ -248,10 +248,35 @@ def build_defender_modifiers_from_effects(effects, is_melee: bool | None = None,
             pen = e.get_armor_penetration(is_normal_attack=True)
             if pen:
                 maluses.append(for_armor_penetration(False, pen))
+        # #10007 -- LE SLOT DE PERCAGE **DEFENSEUR** (`0x19` = 25 `CreatePiercingMalusForDefense`),
+        # celui que cette boucle-ci mirroire vraiment. Re-mesure au decompile (`t6dpr4k06g`) :
+        # `IdunBattle.Core.Services.DamageCalculations$$CalculateDefenderModifiersForPrediction`
+        # invoque `0x1a` / `0x1b` / **`0x19`**, tandis que son homologue attaquant invoque
+        # `0x16` / `0x17` / **`0x18` = 24**. Le port n'appelait QUE le 24 ici : le 25 etait MUET.
+        pm = e.create_piercing_malus_for_defense(damage_profile, is_melee, attacker_ctx)
+        if pm is not None:
+            # L'accumulateur natif d'arrivee EST `defenseModifiers@+0x20` (le slot 25 n'est invoque
+            # que par la boucle defenseur). Descriptif : `add_modifier` route le kind "Piercing"
+            # vers l'axe `extra_pierce` UNIQUE, que le natif somme sur les deux faces.
+            pm.native_face = "defender"
+            maluses.append(pm)
         # #112 : axe PERCAGE porte par la CIBLE (`<Effect>.CreatePiercingBonusForAttack`, trigger
         # `OwnerIsTarget` -- ex. `Supercharge_ExtraPiercingEffect`). Slot d'interface DISTINCT ;
         # `add_modifier` route le kind "Piercing" vers `extra_pierce` (axe @0x20), JAMAIS vers le
         # scalaire degat. Aucun effet PREEXISTANT ne surcharge ce slot -> no-op strict pour eux.
+        # ⚠ #10007 -- POURQUOI LE SLOT **24** RESTE APPELE ICI, dans la boucle DEFENSEUR : les DEUX
+        # boucles natives recoivent LA MEME collection d'effets. Mesure (`t6dpr4k06g`) --
+        # `IdunBattle.Core.Services.DamagePrediction$$PredictAttackRaw` la construit UNE FOIS
+        # (`local_948`, un appel virtuel unique) et la passe INCHANGEE a l'appel du slot `0xd`
+        # (attaquant) PUIS a celui du slot `0xe` (defenseur) : aucune reaffectation entre les deux.
+        # Chaque boucle ecrit `AbilityEntities+0x18 (Owner) <- le porteur de l'effet courant` avant
+        # d'evaluer le trigger, donc le tri natif se fait par le TRIGGER (`OwnerIsTarget` /
+        # `OwnerIsCaster`), jamais par la liste. Le port, lui, decoupe par LISTE (effets de
+        # l'attaquant / effets de la cible) : appeler le slot 24 ici est la SEULE voie par laquelle
+        # il atteint un surchargeant `OwnerIsTarget` (`Supercharge`, `BloodChalice`, `AllIsDust`).
+        # Ce n'est donc pas une erreur d'accumulateur -- et ce serait sans effet arithmetique de
+        # toute facon, `CalculateBaseDamageWithAllModifiers` sommant `attackModifiers@0x20` et
+        # `defenseModifiers@0x20` dans le meme `pierce_pct`.
         # #1052 : `attacker_ctx` est desormais THREADE ici aussi -- `AllIsDustEffect` lit sur le
         # CASTER les deux `StatAmount` de `GetPierceStatModifier` et la somme
         # `CasterEffectPierceAddition`, exactement comme les malus de defense lisent leurs noeuds

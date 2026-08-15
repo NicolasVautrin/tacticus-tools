@@ -375,32 +375,53 @@ def _armer_espion():
     return {"traces": traces, "restaurer": lambda: setattr(cls, "matches", original)}
 
 
+def mesurer(a, rpc, Board, Harness, rid) -> dict:
+    """LA MESURE, sur un runner DEJA construit -- sans impression ni verdict.
+
+    Rend `{ok, why, bras, attendu, avant, live, offline, noport}`. C'est le point d'entree du
+    PORTAGE PYTEST (`tests/engine/runner/test_911r1_daemonic_patrons_finale_live.py`) : le probe
+    MESURE, le test ASSERTE, et aucun montage n'est duplique entre les deux (#911-r1).
+
+    `ok: False` = le REGIME n'a pas ete atteint (montage), jamais un verdict de fidelite -- le
+    consommateur doit le distinguer d'un desaccord port/natif, sinon un montage rate se lirait
+    comme un accord."""
+    bg = rpc("boardGraph", {"runnerId": rid}, 60)
+    h = Harness(rpc, rid, Board(bg["tiles"], adjacency="native_sym"))
+    bras = "NON TAUNTE" if a.non_taunte else "TAUNTE"
+    rec, why = stage(h, a)
+    if rec is None:
+        return {"ok": False, "why": "montage : %s" % why, "bras": bras}
+    live, why = kill_live(h, rec)
+    if live is None:
+        return {"ok": False, "why": "kill live : %s" % why, "bras": bras}
+    off = replay(h, rec)
+    mut = replay(h, rec, mutate="NOPORT")
+    return {"ok": True, "why": None, "bras": bras,
+            # Le re-armement n'est attendu QUE sur la victime tauntee : c'est ce qui fait des deux
+            # bras un temoin NON degenere (ils different par UN conjoint et rendent DEUX verdicts).
+            "attendu": (not a.non_taunte),
+            "avant": rec["avant"], "live": live, "offline": off, "noport": mut,
+            "_h": h, "_rec": rec}
+
+
 def run(a, rpc, Board, Harness, seed_bc) -> int:
     rid, sf = build(a, seed_bc)
     if rid is None:
         Path(sf).unlink(missing_ok=True)
         return 2
     try:
-        bg = rpc("boardGraph", {"runnerId": rid}, 60)
-        h = Harness(rpc, rid, Board(bg["tiles"], adjacency="native_sym"))
-        rec, why = stage(h, a)
-        if rec is None:
-            print("REFUS (montage) : %s" % why)
+        m = mesurer(a, rpc, Board, Harness, rid)
+        if not m.get("ok"):
+            print("REFUS (%s)" % m.get("why"))
             return 2
-
-        live, why = kill_live(h, rec)
-        if live is None:
-            print("REFUS (kill live) : %s" % why)
-            return 2
-        off = replay(h, rec)
-        mut = replay(h, rec, mutate="NOPORT")
+        h, rec = m["_h"], m["_rec"]
+        live, off, mut = m["live"], m["offline"], m["noport"]
         if a.verbose:
             dg = replay(h, rec, mutate="DIAG")
             for t in (dg.get("espion") or []):
                 print("    [espion] %s" % t)
 
-        bras = "NON TAUNTE" if a.non_taunte else "TAUNTE"
-        attendu = not a.non_taunte           # re-armement attendu SEULEMENT sur la victime tauntee
+        bras, attendu = m["bras"], m["attendu"]
         print("[%s] avant   : %s" % (bras, rec["avant"]))
         print("[%s] LIVE    : mort=%s actif=%s (voie: %s)"
               % (bras, live["mort"], live["apres"], live["voie"]))

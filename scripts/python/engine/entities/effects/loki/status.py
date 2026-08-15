@@ -36,6 +36,66 @@ _IS_MECHANICAL_TRAITS = (UnitTrait.Mechanical,      # 5
                          UnitTrait.Vehicle)         # 0x405 = 1029
 
 
+# ---------------------------------------------------------------------------------------------
+# #368-r2 -- LA CONDITION D'ACTIVITE D'UN EFFET DE TUILE, et RIEN QUE POUR LES QUATRE QUI L'ONT
+# ---------------------------------------------------------------------------------------------
+# Corps natif (relu VERBATIM sur `t6dpr4k06g`), nomme par l'ICF
+# `IdunBattle.Entities.Effects.Loki.ContaminatedEffect$$CreateActiveCondition` :
+#
+#     op_BitwiseOr( DSLTriggers.IsWalkable(sel), DSLTriggers.IsSpawnTile(sel) )
+#
+# et chacun des deux termes est un `IdunBattle.Entities.Conditions.AmountIsGreaterAbilityTrigger`
+# construit sur un SELECTEUR :
+#     `DSLTriggers$$IsWalkable(sel)`  -> `AmountIsGreater( DSLSelectors$$Walkable(sel),  <minAmount> )`
+#     `DSLTriggers$$IsSpawnTile(sel)` -> `AmountIsGreater( DSLSelectors$$SpawnTiles(sel), <minAmount> )`
+# `sel` = `DSLSelectors+0x30`, LE MEME objet que rend leur `CreateTargetSelector` (corps
+# `Loki.WhisperingWebEffect$$CreateTargetSelector` = `return DSLSelectors+0x30`), donc « Self ».
+#
+# ⚠ LE SECOND TERME NE PARLE PAS DE POINTS DE SPAWN, ET C'EST LE PIEGE DE SON NOM.
+# `IdunBattle.Entities.Selectors.SpawnTilesSelector$$Select` (corps PROPRE : `frida/methods.tsv`
+# l'attribue bien a cette classe) est litteralement :
+#     foreach (tile in <selecteur interne>.Select(entities))
+#         if (TileExtensions.IsTemporary(tile)) result.Add(tile)
+# et `IdunBattle.Entities.TileExtensions$$IsTemporary` rend `TileComponent+0x2c`. Le predicat est
+# donc « la tuile est TEMPORAIRE » (tuiles posees EN COMBAT : HulkDoor, plateformes de spawn), pas
+# « la tuile appartient a un `SpawnPointGroup` du board ». Lire le nom au lieu du corps aurait fait
+# porter une appartenance geometrique qui n'existe pas.
+#
+# ⚠ QUATRE CLASSES SEULEMENT partagent ce corps -- `FireEffect`, `IceEffect`,
+# `DespoiledGroundEffect`, `Loki.ContaminatedEffect`. Les 114 autres classes du build partagent le
+# corps par DEFAUT (`return DSLTriggers+0x40`, le trigger CONSTANT de la fabrique), qui n'est PAS
+# une condition de tuile. En particulier `Idun.DarknessEffect` -- pourtant membre du set
+# `StaticBattleRules.Effect$$IsTileStatusEffect` -- n'a AUCUNE condition : indexer cette table sur
+# `TILE_STATUS_EFFECT_TYPES` serait FAUX (5 types au lieu de 4).
+TILE_ACTIVE_CONDITION_EFFECT_TYPES = frozenset((
+    EffectType.Fire,                # 5    = 0x05   -- `IdunBattle.Entities.Effects.FireEffect`
+    EffectType.Ice,                 # 17   = 0x11   -- `IdunBattle.Entities.Effects.IceEffect`
+    EffectType.Contaminated,        # 1244 = 0x4dc  -- proprietaire du corps partage
+    EffectType.DespoiledGround,     # 1476 = 0x5c4
+))
+
+
+def tile_status_effect_is_active(walkable: "bool | None",
+                                 is_temporary: "bool | None") -> "bool | None":
+    """Mirror 1:1 de `Loki.ContaminatedEffect$$CreateActiveCondition` evaluee sur la tuile PORTEUSE.
+
+        IsWalkable(Self) | IsSpawnTile(Self)   ==   walkable(tuile) OR IsTemporary(tuile)
+
+    TRI-ETAT, et c'est LOAD-BEARING : `None` = **NON MESURE** (le substrat ne publie pas le canal),
+    jamais un `True` de confort. Le consommateur qui recoit `None` doit LAISSER LE FLAG INCHANGE --
+    exactement ce que fait le natif quand il ne re-evalue pas (`RefreshEffectsOperation$$
+    ShouldBeActive` retourne `EffectComponent+0x5c` INCHANGE des que `ShouldRefreshForTrigger`
+    est faux). Rendre `True` par defaut re-activerait un effet que le natif avait desactive.
+
+    Un seul terme mesure suffit a conclure VRAI (disjonction court-circuitee) ; il faut les DEUX
+    pour conclure FAUX."""
+    if walkable is True or is_temporary is True:
+        return True
+    if walkable is False and is_temporary is False:
+        return False
+    return None
+
+
 class HypersensoryMinimalHealthEffect(BaseEffect):
     """`HypersensoryAbilities_MinimalHealthEffect` (Effects.Idun, effet 0x564=1380 ; IdunBattle.Entities.Effects.Idun.HypersensoryAbilities_MinimalHealthEffect$$.ctor).
 
