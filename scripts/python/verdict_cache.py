@@ -101,10 +101,20 @@ def sha_texte(texte: str) -> str:
 
 
 def sha_fichiers(*chemins: Path) -> str:
-    """Empreinte d'un jeu de fichiers -- pour le CONTEXTE (source du cliquet, table de symboles).
+    """Empreinte d'un jeu de fichiers SUR LES OCTETS. ⚠ NE PAS L'EMPLOYER POUR UN CONTEXTE.
 
-    Un fichier absent entre dans l'empreinte comme tel : son absence est une donnee du contexte,
-    pas un silence.
+    ⚠ ELLE N'EST PLUS QU'UN TEMOIN (#486-r17). C'est la variante NON PORTABLE : elle hache les
+    octets, donc un `git rebase` sous `core.autocrlf=true` change son resultat sans qu'aucune
+    source ait bouge (vice VECU le 2026-08-07 -- 119 s au lieu de 20 s), et sur une plateforme a
+    LF un cache VERSIONNE clé par elle serait froid en permanence. `sha_fichiers_texte` est ce
+    qu'un contexte doit appeler ; les 13 sites du depot le font, et un cliquet le garde.
+
+    Elle SURVIT parce que le test qui etablit la difference entre les deux variantes a besoin
+    des deux -- sans elle il comparerait deux fonctions identiques et serait VACANT sans le dire.
+    C'est sa seule raison d'exister : la supprimer desarmerait ce controle.
+
+    Un fichier absent entre dans l'empreinte comme tel : son absence est une donnee, pas un
+    silence.
     """
     h = hashlib.sha256()
     for p in chemins:
@@ -131,9 +141,15 @@ def sha_fichiers_texte(*chemins: Path) -> str:
     C'est exactement le piege que `sha_texte` documente pour la cle de LIGNE ; le contexte y
     echappait. Un fichier absent entre dans l'empreinte comme tel : son absence est une donnee.
 
-    ⚠ Les trois cliquets de #486-r1 utilisent encore `sha_fichiers` pour leur contexte : ils
-    portent donc toujours ce defaut. Bascule NON faite ici (hors perimetre) -- elle coute une
-    invalidation unique de leurs caches, et rien d'autre.
+    ⚠ CETTE LIGNE DISAIT L'INVERSE, ET ELLE ETAIT PERIMEE DE HUIT JOURS (#486-r17, re-mesure du
+    2026-08-15). Elle annoncait « les trois cliquets de #486-r1 utilisent ENCORE `sha_fichiers` » ;
+    la bascule a ete faite le 2026-08-07 par `d4b78353`, et le compte re-derive du code rend
+    aujourd'hui **13 sites `sha_fichiers_texte` et 0 site `sha_fichiers`**. `sha_fichiers` n'a
+    donc plus AUCUN appelant hors du test qui s'en sert comme TEMOIN
+    (`test_486_r1_cache_verdict_offline::test_le_CONTEXTE_portable_ignore_les_fins_de_ligne...`,
+    qui a besoin des deux moities pour ne pas comparer deux fonctions identiques).
+    Le zero est desormais tenu par un CLIQUET, pas par cette phrase : cf.
+    `test_le_contexte_d_un_cache_ne_passe_JAMAIS_par_la_variante_OCTETS`.
     """
     h = hashlib.sha256()
     for p in chemins:
@@ -211,6 +227,15 @@ class CacheCliquet:
         self._vues: dict[tuple[str, str], tuple[str, Any]] = {}
         self.hits = 0
         self.recalculs = 0
+        #: ⚠ TRI-ETAT DE L'ECRITURE, et il commande le cran de fraicheur (#486-r22).
+        #: `None` = `enregistrer()` n'a PAS ete appele -- rien n'a ete tente, donc il n'y a rien
+        #: a conclure du fichier qui est sur le disque. `True` = le fichier a ete reecrit par ce
+        #: run. `False` = `enregistrer()` a ete appele et n'a RIEN ecrit (cache desactive, aucune
+        #: entree vue, ou panne d'ecriture), auquel cas `motif_non_ecrit` DIT laquelle des trois.
+        #: Sans ce champ, `cache_a_commiter` comparait le fichier de la PASSE PRECEDENTE a
+        #: l'index et concluait « a jour » -- un vert rendu sans avoir rien mesure.
+        self.ecrit: bool | None = None
+        self.motif_non_ecrit: str | None = None
         if self.actif:
             self._charger()
 
@@ -251,9 +276,16 @@ class CacheCliquet:
         La reecriture integrale est ce qui fait le menage : un fichier supprime du perimetre, un
         appel retire, une entree d'un ancien contexte -- tout cela disparait sans commande dediee.
         Une panne d'ecriture n'est pas un verdict : elle est avalee, le cliquet a deja rendu le
-        sien.
+        sien. Elle est en revanche NOMMEE dans `motif_non_ecrit`, ce qui interdit au cran de
+        fraicheur de lire le fichier de la passe precedente comme s'il venait d'etre produit.
         """
-        if not self.actif or not self._vues:
+        if not self.actif:
+            self.ecrit, self.motif_non_ecrit = False, "cache DESACTIVE (%s)" % ENV_SANS_CACHE
+            return False
+        if not self._vues:
+            self.ecrit = False
+            self.motif_non_ecrit = ("AUCUNE entree visitee par ce run -- le fichier sur le disque "
+                                    "est celui d'une passe PRECEDENTE, il ne dit rien de ce run")
             return False
         lignes = ["# format=%d\tcontexte=%s\tcliquet=%s" % (FORMAT, self.contexte, self.nom),
                   "# CACHE DE VERDICT PAR FICHIER (#486-r1) -- artefact GENERE ET VERSIONNE.",
@@ -271,8 +303,11 @@ class CacheCliquet:
         try:
             self.chemin.parent.mkdir(parents=True, exist_ok=True)
             self.chemin.write_text("\n".join(lignes) + "\n", encoding="utf-8", newline="\n")
-        except OSError:
+        except OSError as ex:
+            self.ecrit = False
+            self.motif_non_ecrit = "PANNE d'ecriture : %s" % str(ex)[:90]
             return False
+        self.ecrit, self.motif_non_ecrit = True, None
         return True
 
     # ------------------------------------------------------------------ usage
@@ -344,14 +379,45 @@ def cache_a_commiter(cache: CacheCliquet, racine: Path | None = None):
     CE QU'IL NE FAIT PAS. Il ne voit pas une entree FALSIFIEE de facon coherente : cela reste le
     domaine de `verifier()` en mode espion (cf. son docstring). Les deux controles sont
     complementaires, pas redondants -- celui-ci garde la FRAICHEUR, l'autre la FIDELITE.
+
+    ⚠ CE CRAN NE JUGE QUE CE QUE CE RUN A ECRIT (#486-r17). Sa premisse -- « le run vient
+    d'ecrire le fichier de toute facon » -- N'EST PAS ETABLIE PAR L'APPEL : elle depend d'un
+    `enregistrer()` que l'appelant peut n'avoir pas fait, avoir fait sans rien avoir visite, ou
+    avoir vu echouer sur le disque. Dans ces trois cas le `git diff` ci-dessous compare le
+    fichier de la passe PRECEDENTE a l'index et rend `0` -- ce qui se lisait « a jour », donc un
+    VERT rendu sans avoir rien mesure. Le tri-etat de `CacheCliquet.ecrit` ferme la porte : tout
+    ce qui n'est pas une reecriture EFFECTIVE sort en PAS MESURE, avec son motif.
     """
     racine = racine or RACINE
     if not cache.actif:
         return None, "cache DESACTIVE (%s) -- rien n'a ete ecrit, donc rien a conclure" % ENV_SANS_CACHE
+    if cache.ecrit is None:
+        return None, ("`enregistrer()` n'a pas ete appele sur %s -- le fichier du disque est "
+                      "celui d'une passe precedente" % cache.chemin.name)
+    if cache.ecrit is False:
+        return None, ("%s n'a pas ete reecrit : %s"
+                      % (cache.chemin.name, cache.motif_non_ecrit or "motif inconnu"))
     try:
         rel = cache.chemin.relative_to(racine).as_posix()
     except ValueError:
         return None, "cache hors du depot (%s)" % cache.chemin
+    import subprocess
+    # ⚠ LE FICHIER NON SUIVI EST LE QUATRIEME FAUX VERT, ET IL ETAIT LE PIRE (#486-r17).
+    # `git diff --quiet -- <chemin>` IGNORE ce que git ne suit pas : un cache tout neuf, jamais
+    # `git add`-e, rendait donc « est a jour (identique a l'index) ». Mesure du 2026-08-15, au
+    # cablage du cache de `probe_485_imports_differes` -- le fichier etait `??` et le cran se
+    # taisait. Consequence exacte : le cache VERSIONNE n'entre jamais dans le depot, donc tout
+    # worktree frais repart FROID, c'est-a-dire precisement le regime pour lequel il existe.
+    try:
+        suivi = subprocess.run(["git", "-C", str(racine), "ls-files", "--error-unmatch", "--",
+                                rel], capture_output=True, text=True, encoding="utf-8",
+                               errors="replace", timeout=15)
+    except Exception as ex:                                       # noqa: BLE001
+        return None, "git ls-files: %s" % str(ex)[:90]
+    if suivi.returncode != 0:
+        if not cache.chemin.is_file():
+            return None, "%s n'existe pas sur le disque apres ecriture" % rel
+        return True, "%s a ete ECRIT par ce run et n'est pas SUIVI par git" % rel
     # ⚠ LE CRITERE EST << DIFFERE DE L'INDEX >>, PAS << DIFFERE DE HEAD >>. Un fichier deja
     # INDEXE part dans le commit en preparation : il n'y a plus rien a signaler, et rougir
     # dessus rendrait le cran INEXTINGUIBLE tant que l'auteur n'a pas commite -- mesure faite,
@@ -360,7 +426,6 @@ def cache_a_commiter(cache: CacheCliquet, racine: Path | None = None):
     # normalisation `core.autocrlf` : un fichier ecrit en LF et indexe en LF n'y parait pas
     # modifie, alors qu'une comparaison d'octets le dirait.
     try:
-        import subprocess
         r = subprocess.run(["git", "-C", str(racine), "diff", "--quiet", "--", rel],
                            capture_output=True, text=True, encoding="utf-8",
                            errors="replace", timeout=15)

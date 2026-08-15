@@ -73,12 +73,37 @@ aveugle aux boucles passant par un paquet ANCETRE, que Python execute quoi qu'on
 anterieure, `dsl.base -> engine.entities (init) -> ... -> dsl.base` leve un `ImportError` REEL
 sans apparaitre dans aucun SCC. Le process frais, lui, mesure ce que Python FAIT.
 
+LE CACHE, ET POURQUOI IL EST LEGITIME ICI (#486-r17)
+----------------------------------------------------
+Le poste dominant de ce cliquet est `_atteints` : UN interpreteur frais par CIBLE distincte.
+Mesure du 2026-08-15 : **93 cibles, 65,7 s**. Or ce qu'un interpreteur rend -- les modules
+`engine.*` que `import <cible>` charge -- ne depend QUE de ce que ce chargement EXECUTE,
+c'est-a-dire de la FERMETURE de la cible. Modifier un fichier qu'`import <cible>` ne charge pas
+ne peut pas le changer.
+
+C'est litteralement le critere de `probe_270r4r2_import_en_premier`, dont #486-r11 a descendu la
+cle de l'arbre `engine/` ENTIER a cette fermeture. La cle EXISTE donc, et elle est reutilisee
+telle quelle (`import_closure`), detecteur de generation compris : rien n'est recopie.
+
+    CE QUI EST CACHE   `_atteints(cible)` -- un ensemble de noms de modules. Une DONNEE, pas un
+                       verdict : la classification (`mod not in table[cible]`, le critere
+                       REDONDANCE, la confrontation a la base attestee) reste INTEGRALEMENT
+                       rejouee a chaque run.
+    CE QUI LA GARDE    chaque interpreteur reellement lance rend AUSSI sa fermeture MESUREE ; on
+                       la confronte a la fermeture CALCULEE. Toute sous-approximation fait
+                       retomber la cible sur un NON-CACHAGE, en le DISANT (`--resume-cache`).
+    CE QUI N'ENTRE PAS un echec de chargement. `sys.modules` y est a mi-chemin : sa fermeture
+                       n'est pas celle du verdict, et l'attester ferait servir un rouge
+                       peremptoire. Un rouge se recalcule -- c'est le sens sur de l'asymetrie.
+
 TRI-ETAT
 --------
     rc 0   VERT   -- aucun gratuit hors base, aucune declaration morte
     rc 1   ROUGE  -- gratuit neuf, ou declaration perimee
     rc 2   PAS MESURE -- le recensement ou la classification n'a pas abouti. JAMAIS un verdict
                         sur le depot : un capteur muet ne rend pas un zero.
+    rc 3   le CACHE VERSIONNE n'atteste pas ce que le recalcul rend (`--verifier-cache`)
+    rc 6   le cache versionne a ete REECRIT par ce run sans etre indexe (#486-r22)
 """
 from __future__ import annotations
 
@@ -97,7 +122,62 @@ ICI = Path(__file__).resolve().parent
 ENGINE = ICI / "engine"
 BASE = ICI.parent / "ratchets-485-differes-attestes.json"
 
+if str(ICI) not in sys.path:                                           # usage en bibliotheque
+    sys.path.insert(0, str(ICI))
+
+import import_closure as IC                                            # noqa: E402
+import verdict_cache                                                   # noqa: E402
+
 EX_VERT, EX_ROUGE, EX_PAS_MESURE = 0, 1, 2
+#: rc DEDIE au controle de fidelite du cache : ce n'est pas le verdict du cliquet sur le depot,
+#: c'est le CACHE qui ment. Les confondre ferait corriger le code a la place de l'artefact.
+EX_CACHE_MENT = 3
+
+#: Nom de l'appel dans le cache versionne. Un seul ici, mais la cle du TSV est `(rel, appel)`.
+APPEL = "modules-charges"
+
+#: Cibles dont la fermeture MESUREE deborde la fermeture CALCULEE : `import <cible>` a charge un
+#: fichier que le calcul statique n'avait pas vu. Leur cle fine ne les decrit pas -- elles
+#: n'entrent JAMAIS au cache disque. Repli NOMME (`--resume-cache` les imprime) ; un repli
+#: silencieux serait le vice.
+_OPAQUES: dict = {}
+
+#: Compteur d'INTERPRETEURS reellement lances -- la mesure du gain. Un chronometre, lui, melange
+#: le cout du cliquet et la charge de la machine.
+_LANCES = [0]
+
+_CACHE = None
+
+#: L'en-tete generique de `verdict_cache` annonce « sha256 du CONTENU ». Ici la cle n'est PAS le
+#: sha d'un fichier : c'est celui de la FERMETURE. Un lecteur qui croirait pouvoir la recalculer
+#: depuis le seul fichier nomme en 1ere colonne se tromperait.
+_NOTES = ("# CE CLIQUET-CI cle par SOUS-GRAPHE (#486-r11, cable par #486-r17) : le sha",
+          "# ci-dessous couvre la FERMETURE transitive des imports de la CIBLE (son contenu ET",
+          "# sa composition), pas le seul fichier nomme en 1ere colonne. Regenerer, jamais",
+          "# fusionner.")
+
+
+def _cache(relire: bool = True):
+    """Le cache VERSIONNE, un par process.
+
+    Le CONTEXTE porte tout ce qui gouverne le calcul hors des fermetures balayees : les sources
+    qui produisent la cle et la sonde, l'interpreteur, la plateforme. Un contexte different fait
+    MANQUER toutes les entrees -- cout plein une fois, ce qui est voulu.
+
+    ⚠ `relire=False` = MODE ESPION : le fichier est charge mais jamais servi, donc tout est
+    recalcule et `verdict_cache.verifier` peut confronter le disque au calcul. C'est le SEUL
+    controle qui voie une entree falsifiee de facon coherente.
+    """
+    global _CACHE
+    if _CACHE is None:
+        _CACHE = verdict_cache.CacheCliquet(
+            nom="probe_485_imports_differes",
+            contexte="%s-py%d%d-%s" % (verdict_cache.sha_fichiers_texte(
+                Path(__file__).resolve(), ICI / "import_closure.py",
+                ICI / "probe_270r4r2_cycles_imports.py")[:16],
+                sys.version_info[0], sys.version_info[1], sys.platform),
+            notes=_NOTES, relire=relire)
+    return _CACHE
 
 #: Heuristique de << raison ecrite >> : mots-cles cherches dans les 4 lignes qui PRECEDENT
 #: l'import. Volontairement grossiere, et c'est pourquoi l'etage 3 est INFORMATIF : un mot-cle
@@ -149,17 +229,85 @@ def recenser() -> list[tuple[str, str, int, bool]]:
 
 
 def _atteints(cible: str) -> set[str] | None:
-    """Modules `engine.*` charges par `import <cible>` dans un process FRAIS. `None` = echec."""
-    code = ("import sys, %s\n"
-            "print('\\n'.join(m for m in sys.modules if m.startswith('engine')))" % cible)
+    """Modules `engine.*` charges par `import <cible>` dans un process FRAIS. `None` = echec.
+
+    ⚠ LA SONDE EST CELLE D'`import_closure` (#486-r17), pas une seconde ecriture du meme `-c`.
+    Elle rend la fermeture COMPLETE (tout ce qui est sous `scripts/python/`), dont on derive les
+    `engine.*` -- et c'est ce meme retour qui sert de CONTROLE a la cle de cache : sans lui, une
+    sous-approximation de la fermeture calculee serait invisible.
+
+    ⚠ RESSERREMENT ASSUME : l'ancienne sonde filtrait `m.startswith('engine')`, qui capte aussi
+    `engine_validate`. Le filtre est desormais `engine` ou `engine.<...>`. Sans effet sur le
+    verdict -- `classer` ne compare qu'a des modules issus de `ENGINE.rglob`, tous en `engine.` --
+    mais il fallait le dire plutot que de le laisser passer pour un detail de reecriture.
+    """
+    _LANCES[0] += 1
     try:
-        r = subprocess.run([sys.executable, "-c", code], cwd=str(ICI), capture_output=True,
-                           text=True, encoding="utf-8", errors="replace", timeout=180)
+        r = subprocess.run([sys.executable, "-c", IC.code_sonde(cible, ICI)], cwd=str(ICI),
+                           capture_output=True, text=True, encoding="utf-8",
+                           errors="replace", timeout=180)
     except (OSError, subprocess.SubprocessError):
         return None
     if r.returncode != 0 or r.stdout is None:
         return None
-    return set(r.stdout.split())
+    mesuree = IC.lire_fermeture_mesuree(r.stdout)
+    if mesuree is None:
+        #: L'interpreteur a rendu 0 mais pas sa ligne de fermeture : on ne sait pas ce qu'il a
+        #: charge. TRI-ETAT -- un ensemble vide serait une mesure, pas une absence.
+        return None
+    _MESUREES[cible] = mesuree
+    return {m for m in mesuree if m == "engine" or m.startswith("engine.")}
+
+
+#: `{cible: fermeture MESUREE}` du dernier interpreteur lance pour elle. Sert au controle
+#: `mesuree <= calculee` avant toute ecriture au cache.
+_MESUREES: dict = {}
+
+
+def _atteints_caches(cibles: list[str]) -> dict | None:
+    """`{cible: modules engine.* charges}`, en EVITANT l'interpreteur des cibles inchangees.
+
+    La cle est la FERMETURE de la cible (`import_closure`), pas le sha d'un fichier : un fichier
+    modifie n'invalide QUE les cibles dont le chargement le traverse. `None` si une seule cible
+    n'a pas pu etre chargee -- la classification serait alors rendue sur une base partielle, ce
+    qui est exactement le faux vert que ce probe repare sur son autre axe.
+    """
+    cles = IC.GENERATION_ENGINE.cles(cibles)
+    cache = _cache()
+    table: dict = {}
+    manquantes: list[str] = []
+    for c in cibles:
+        cle = cles.get(c)
+        if cle is None:                                # cible hors arbre : l'essai reel tranche
+            manquantes.append(c)
+            continue
+        vu = cache.obtenir(c, APPEL, cle)
+        if vu is not verdict_cache.MANQUE:
+            table[c] = set(vu)
+        else:
+            manquantes.append(c)
+    if manquantes:
+        with ThreadPoolExecutor(max_workers=16) as ex:
+            for c, atteints in zip(manquantes, ex.map(_atteints, manquantes)):
+                table[c] = atteints
+                if atteints is None:
+                    continue
+                cle = cles.get(c)
+                mesuree = _MESUREES.get(c)
+                #: On ne CACHE que ce dont la cle FINE decrit vraiment le calcul. Une fermeture
+                #: mesuree qui deborde la calculee veut dire qu'un fichier hors cle gouverne ce
+                #: chargement : l'attester serait un faux vert, et c'est le seul endroit d'ou
+                #: on peut le voir.
+                if cle is None or mesuree is None:
+                    continue
+                deborde = IC.CLOTURE.sous_approximation(c, mesuree)
+                if deborde:
+                    _OPAQUES[c] = deborde
+                    continue
+                cache.poser(c, APPEL, cle, sorted(atteints))
+    if any(v is None for v in table.values()):
+        return None
+    return table
 
 
 def _redondants() -> set[tuple[str, int]] | None:
@@ -204,12 +352,9 @@ def classer(differes) -> tuple[list, list] | None:
     precisement le faux vert qu'on repare ici.
     """
     cibles = sorted({c for _, c, _, _ in differes})
-    with ThreadPoolExecutor(max_workers=16) as ex:
-        table = dict(zip(cibles, ex.map(_atteints, cibles)))
-    if any(v is None for v in table.values()):
-        muettes = sorted(k for k, v in table.items() if v is None)
-        print("  cible(s) NON CHARGEABLE(s), classification impossible : %s"
-              % ", ".join(muettes[:6]))
+    table = _atteints_caches(cibles)
+    if table is None:
+        print("  cible(s) NON CHARGEABLE(s), classification impossible.")
         return None
     redondants = _redondants()
     if redondants is None:
@@ -241,7 +386,18 @@ def main(argv: list[str]) -> int:
                     help="REGENERE la base attestee depuis la mesure courante. A n'employer "
                          "qu'en connaissance de cause : la base est VERSIONNEE et ne doit que "
                          "DECROITRE.")
+    ap.add_argument("--resume-cache", action="store_true",
+                    help="etat du cache versionne et nombre d'interpreteurs lances (#486-r17) -- "
+                         "HORS du regime normal, dont la sortie doit etre identique froid/chaud")
+    ap.add_argument("--verifier-cache", action="store_true",
+                    help="RECALCULE tout en ignorant le cache versionne et le confronte entree "
+                         "par entree (#486-r1) -- le seul controle qui voie une entree falsifiee "
+                         "de facon coherente")
     a = ap.parse_args(argv)
+
+    if a.verifier_cache:
+        #: MODE ESPION : le fichier est charge, jamais servi -- ce run recalcule donc TOUT.
+        _cache(relire=False)
 
     print("[485] imports DIFFERES vers `engine.*` ecrits dans `engine/**`")
     differes = recenser()
@@ -258,6 +414,42 @@ def main(argv: list[str]) -> int:
 
     print("  recenses : %d   PORTEURS : %d   GRATUITS : %d"
           % (len(differes), len(porteurs), len(gratuits)))
+
+    if a.verifier_cache:
+        divergences = verdict_cache.verifier(_cache())
+        print()
+        print("=== VERIFICATION DU CACHE VERSIONNE (#486-r1) ===")
+        print("  entrees sur disque : %d   recalculees : %d"
+              % (len(_cache()._sur_disque), len(_cache()._vues)))
+        for d in divergences:
+            print("  DIVERGENCE %s" % d)
+        if divergences:
+            print("  rc=%d -- le cache versionne n'atteste PAS ce que le calcul rend. Le"
+                  % EX_CACHE_MENT)
+            print("  REGENERER : python scripts/python/probe_485_imports_differes.py")
+            return EX_CACHE_MENT
+        print("  OK -- chaque entree du cache vaut ce que le recalcul integral produit.")
+
+    if a.resume_cache:
+        print()
+        print("  [cache] %s" % _cache().resume())
+        print("  [cache] interpreteurs REELLEMENT lances : %d / %d cible(s)"
+              % (_LANCES[0], len({c for _, c, _, _ in differes})))
+        if _OPAQUES:
+            print("  [cache] %d cible(s) NON CACHEE(S) -- fermeture mesuree > calculee :"
+                  % len(_OPAQUES))
+            for c in sorted(_OPAQUES):
+                print("     %s  <- %s" % (c, ", ".join(sorted(_OPAQUES[c])[:5])))
+        else:
+            print("  [cache] 0 cible opaque : la fermeture calculee couvre chaque chargement")
+
+    #: LE CACHE (#486-r17) -- il n'imprime RIEN dans le regime normal, et c'est voulu : la sortie
+    #: avec cache chaud doit etre celle d'un run a froid, sans quoi le controle de fidelite ne
+    #: pourrait pas les comparer. Le mode ESPION n'ecrit pas : il sert a CONFRONTER le disque.
+    ecrit = None
+    if not a.verifier_cache:
+        ecrit = _cache()
+        ecrit.enregistrer()
 
     courant = _compter(gratuits)
     if a.ecrire:
@@ -313,7 +505,9 @@ def main(argv: list[str]) -> int:
         return EX_ROUGE
     print("\n[485] rc=%d -- VERT : aucun gratuit hors base, aucune declaration morte." % EX_VERT)
     print("      Ce vert dit << aucun NOUVEAU cycle contourne >>, PAS << aucun cycle >>.")
-    return EX_VERT
+    #: Un rc DEJA non nul est rendu tel quel plus haut : le gisement prime sur la fraicheur de
+    #: l'artefact -- on ne masque jamais un vrai rouge derriere un rouge d'intendance.
+    return verdict_cache.rendre_compte_du_cache(ecrit, EX_VERT) if ecrit is not None else EX_VERT
 
 
 if __name__ == "__main__":

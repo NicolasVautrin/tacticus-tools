@@ -319,3 +319,101 @@ class Cloture:
 
 #: L'instance de l'arbre courant. Les appelants la vident quand ils modifient des sources.
 CLOTURE = Cloture(RACINE)
+
+
+class Generation:
+    """LE DETECTEUR DE GENERATION : « l'arbre a-t-il bouge depuis le dernier calcul de cles ? ».
+
+    ⚠ FOYER UNIQUE, HISSE DEPUIS `probe_270r4r2_import_en_premier` (#486-r17). Il y vivait seul
+    tant qu'un seul cliquet cle par sous-graphe. Le second (`probe_485_imports_differes`) porte le
+    MEME critere -- charger une cible dans un process frais -- donc la MEME cle ; recopier le
+    detecteur aurait produit deux jumeaux divergents, la faute exacte que `probe_485` documente
+    lui-meme a propos de son critere REDONDANCE (« foyer importe, jamais recopie »).
+
+    LE DETECTEUR EST EN DEUX MORCEAUX, ET CE N'EST PAS DE LA COQUETTERIE. La partie sous-arbre est
+    un balayage COMPLET (un fichier AJOUTE la fait bouger) ; la partie HORS sous-arbre ne peut
+    porter que ce qui est DEJA entre dans une fermeture -- on ne va pas `stat` les 2 000 fichiers
+    de `scripts/python/`. Un fichier hors sous-arbre qui entre pour la premiere fois vient d'etre
+    lu, donc il est frais ; il ne peut entrer que parce qu'un fichier du sous-arbre a change, ce
+    que le premier morceau voit.
+
+    Il rend AUSSI la cle GROSSIERE (`empreinte()`), qui reste le repli NOMME des modules dont la
+    fermeture calculee s'est revelee sous-approximee.
+    """
+
+    def __init__(self, cloture: Cloture, sous_arbre: str) -> None:
+        self.cloture = cloture
+        self.sous_arbre = sous_arbre
+        self._gen_arbre: tuple | None = None
+        self._gen_hors: dict = {}
+
+    # ------------------------------------------------------------------ empreintes
+
+    def empreinte_arbre(self) -> tuple:
+        """`(chemin, mtime_ns, taille)` de chaque `.py` du sous-arbre, trie.
+
+        Ce n'est PAS la cle du cache (#486-r11 l'a descendue au SOUS-GRAPHE) : c'est le detecteur.
+        Il dit « les fermetures calculees sont perimees » pour ~437 `stat` sous 0,2 s, la ou
+        re-parser tout l'arbre coute ~3,9 s.
+        """
+        out = []
+        for f in sorted((self.cloture.racine / self.sous_arbre).rglob("*.py")):
+            try:
+                st = f.stat()
+            except OSError:                            # pragma: no cover - course disque
+                out.append((f.as_posix(), None, None))
+                continue
+            out.append((f.as_posix(), st.st_mtime_ns, st.st_size))
+        return tuple(out)
+
+    def empreinte_hors(self) -> dict:
+        """`{module: (mtime_ns, taille)}` pour les fichiers HORS sous-arbre deja entres.
+
+        Mesure a la livraison de #486-r11 : ils sont DEUX (`gameconfig`, `hexgeo`), et `hexgeo`
+        gouverne le verdict de 351 modules sur 437. La cle grossiere de #486-r5 ne les regardait
+        pas du tout -- modifier `hexgeo.py` ne reinvalidait donc RIEN. Les compter n'est pas une
+        precaution, c'est un trou refere.
+        """
+        out = {}
+        prefixe = self.sous_arbre.replace("/", ".")
+        for nom in self.cloture.noms_lus():
+            if nom == prefixe or nom.startswith(prefixe + "."):
+                continue
+            chemin = self.cloture.resoudre(nom)
+            if chemin is None:
+                out[nom] = None
+                continue
+            try:
+                st = chemin.stat()
+                out[nom] = (st.st_mtime_ns, st.st_size)
+            except OSError:                            # pragma: no cover - course disque
+                out[nom] = None
+        return out
+
+    def empreinte(self) -> tuple:
+        """L'etat COMPLET de ce qui gouverne les fermetures -- la cle GROSSIERE de repli."""
+        return self.empreinte_arbre() + tuple(sorted(self.empreinte_hors().items()))
+
+    # ------------------------------------------------------------------ cles
+
+    def cles(self, mods) -> dict:
+        """`{module: cle de sous-graphe}`, fermetures recalculees SEULEMENT si l'arbre a bouge."""
+        arbre = self.empreinte_arbre()
+        hors = self.empreinte_hors()
+        bouge = (arbre != self._gen_arbre) or any(self._gen_hors[n] != v
+                                                  for n, v in hors.items()
+                                                  if n in self._gen_hors)
+        if bouge:
+            self.cloture.vider()
+        cles = self.cloture.cles(mods)
+        if bouge or self._gen_arbre is None:
+            self._gen_arbre = arbre
+            self._gen_hors = {}
+        self._gen_hors.update(self.empreinte_hors())
+        return cles
+
+
+#: La generation de l'arbre `engine/` -- PARTAGEE par les cliquets qui clent par sous-graphe.
+#: Une seule instance : deux detecteurs sur le meme arbre videraient la meme `Cloture` chacun de
+#: son cote et se feraient mutuellement recalculer.
+GENERATION_ENGINE = Generation(CLOTURE, "engine")

@@ -73,7 +73,10 @@ import verdict_cache as VC  # noqa: E402
 
 REPO = _PYDIR.parents[1]
 
-#: Les cliquets CACHES, avec le nom de leur fichier de cache versionne.
+#: Les cliquets CACHES a CONTRAT COMPLET, avec le nom de leur fichier de cache versionne.
+#: « Contrat complet » = ils exposent `--verifier-cache` (le seul controle qui voie une entree
+#: falsifiee de facon coherente) ET ils appellent `rendre_compte_du_cache` (le cran de fraicheur
+#: #486-r22). Ce ne sont PAS tous les caches du depot : cf. `CACHES_VERSIONNES` juste apres.
 CACHES = {
     "probe_477r24r1_slots_interface": "probe_477r24r1_slots_interface",
     "probe_477r25_slots_autres_interfaces": "probe_477r25_slots_autres_interfaces",
@@ -83,6 +86,75 @@ CACHES = {
     #: un SOUS-GRAPHE au lieu d'un fichier ; tout le reste du contrat (peremption, contexte,
     #: menage, panne, re-verification) est identique, et c'est pourquoi il entre ICI.
     "probe_270r4r2_import_en_premier": "probe_270r4r2_import_en_premier",
+    #: #486-r17 -- meme critere qu'au-dessus (charger la cible dans un process FRAIS), donc meme
+    #: cle : la FERMETURE de la cible. Il etait dans `NON_CACHABLES` avec la raison « le verdict
+    #: depend du sous-graphe » -- laquelle decrit exactement la cle qui EXISTE depuis #486-r11.
+    "probe_485_imports_differes": "probe_485_imports_differes",
+}
+
+#: ---------------------------------------------------------------- LE REGISTRE DES 11 CACHES
+#:
+#: ⚠ POURQUOI CE REGISTRE EXISTE, ET CE QU'IL A RATTRAPE (#486-r17, mesure du 2026-08-15).
+#: `CACHES` ci-dessus etait ENUMERE, et il a DECROCHE : le depot porte **11** fichiers sous
+#: `scripts/cliquets-cache/`, produits par **8** modules, quand `CACHES` en connaissait **4**.
+#: Sept caches VERSIONNES n'etaient donc gardes par RIEN -- ni forme, ni contexte, ni fraicheur --
+#: et deux d'entre eux ont ete pris en flagrant delit de derive SILENCIEUSE : jouer
+#: `probe_326_dsl_primitive_inventory.py` reecrit son cache et rend `rc=0` (1 ligne ajoutee,
+#: 2 retirees), jouer `probe_283_enum_ordinal_sweep.py --step mirror` idem (402 ajoutees,
+#: 237 retirees). Exactement le regime que #486-r22 disait avoir ferme.
+#:
+#: ⚠ IL EST ECRIT A LA MAIN, ET C'EST LE POINT. Un registre DERIVE du code ne peut pas montrer
+#: l'oubli : il epouserait toute construction neuve et resterait vert. Ce qui est derive, c'est
+#: la REALITE (les `.tsv` presents, les `CacheCliquet(...)` construits) ; ce qui est declare, c'est
+#: l'ATTENDU. Les deux sont confrontes DANS LES DEUX SENS -- un fichier sans ligne ici rougit,
+#: une ligne sans fichier aussi.
+#:
+#:      module          le module qui CONSTRUIT ce cache
+#:      cran            ce module appelle-t-il `rendre_compte_du_cache` ? (fraicheur #486-r22)
+#:      espion          ce module expose-t-il `--verifier-cache` ? (fidelite #486-r1)
+#:      pourquoi        pour un `False`, la RAISON. C'est elle qui separe un choix d'un oubli.
+CACHES_VERSIONNES = {
+    "probe_477r24r1_slots_interface": {
+        "module": "probe_477r24r1_slots_interface", "cran": True, "espion": True},
+    "probe_477r25_slots_autres_interfaces": {
+        "module": "probe_477r25_slots_autres_interfaces", "cran": True, "espion": True},
+    "probe_313_enum_mirror_bijection": {
+        "module": "probe_313_enum_mirror_bijection", "cran": True, "espion": True},
+    "probe_270r4r2_import_en_premier": {
+        "module": "probe_270r4r2_import_en_premier", "cran": True, "espion": True},
+    "probe_485_imports_differes": {
+        "module": "probe_485_imports_differes", "cran": True, "espion": True},
+    "probe_283_step_mirror": {
+        "module": "probe_283_enum_ordinal_sweep", "cran": True, "espion": True},
+    "probe_283_step_exec": {
+        "module": "probe_283_enum_ordinal_sweep", "cran": True, "espion": True},
+    "probe_175r2_derivation_get_CanBeImmuneTo": {
+        "module": "probe_175r2_can_be_immune_to", "cran": False, "espion": False,
+        "pourquoi": "cle par les ENTREES DU BUILD (`sha_gros_fichiers`), pas par un fichier du "
+                    "depot : ce cache ne peut bouger qu'a une mise a jour du jeu, jamais a une "
+                    "PR. Le cran de fraicheur y rougirait sur le seul evenement ou la "
+                    "regeneration est deja obligatoire et deja faite -- il n'ajouterait aucun "
+                    "signal. Et le mode espion suppose un balayage a recalculer ; ici l'entree "
+                    "est UNIQUE par getter, donc `--verifier-cache` se reduit a rejouer le "
+                    "cliquet, ce que le cache ne dispense pas de faire."},
+    "probe_175r2_derivation_get_KeepOnChangeOwner": {
+        "module": "probe_175r2_can_be_immune_to", "cran": False, "espion": False,
+        "pourquoi": "idem `get_CanBeImmuneTo` -- meme deriveur, meme cle de build, un fichier "
+                    "par getter pour que le menage de l'un n'evince pas l'entree de l'autre"},
+    "probe_175r2_derivation_get_RemoveOnDeathStep": {
+        "module": "probe_175r2_can_be_immune_to", "cran": False, "espion": False,
+        "pourquoi": "idem `get_CanBeImmuneTo`"},
+    "probe_326_inventaire_natif": {
+        "module": "probe_326_dsl_primitive_inventory", "cran": False, "espion": False,
+        "pourquoi": "ecrit depuis `native_primitives`, appelee EN BIBLIOTHEQUE par d'autres "
+                    "cliquets : le process qui reecrit le fichier n'est pas celui qui rend le "
+                    "verdict, donc il n'y a pas de rc a teinter. Cle par les deux tables du "
+                    "build -- il ne bouge qu'a un re-dump."},
+    "il2cpp_noms_declares": {
+        "module": "il2cpp_metadata", "cran": False, "espion": False,
+        "pourquoi": "`il2cpp_metadata` est une BIBLIOTHEQUE : aucun `main`, aucun rc. Cle par "
+                    "`global-metadata.dat` (hors depot) et `frida/methods.tsv` -- il ne bouge "
+                    "qu'a une mise a jour du jeu."},
 }
 
 #: Les cliquets dont le verdict est GLOBAL ou dont la localite N'EST PAS ETABLIE. Ils ne doivent
@@ -92,11 +164,6 @@ NON_CACHABLES = {
     "probe_468_collision_numeros":
         "GLOBAL par construction -- une collision est une RELATION entre deux definitions, dont "
         "l'une peut vivre dans un fichier NON touche",
-    "probe_485_imports_differes":
-        "le critere CYCLE charge la cible dans un process FRAIS : le verdict depend du "
-        "SOUS-GRAPHE d'imports atteignable, pas d'un fichier. ATTENTION : #486-r11 a RENDU ce "
-        "critere cachable en prenant pour cle la FERMETURE (`import_closure`) -- ce probe-ci "
-        "n'y est pas cable et reste NON cache, ce qui est un RESIDU, pas une impossibilite",
     "probe_273_gitignored_inputs":
         "les etapes 0 et 0c resolvent leurs chemins par un POINT FIXE sur un `modenv` PARTAGE -- "
         "mesure #486-r1 : 58 fichiers sur 2090 empruntent une racine a un AUTRE module",
@@ -275,6 +342,122 @@ def test_une_ecriture_impossible_n_est_PAS_un_verdict(tmp_path):
     assert c.enregistrer() is False
 
 
+# ------------------------------------- le CRAN DE FRAICHEUR ne juge QUE ce qu'il a ECRIT
+
+def test_le_cran_de_fraicheur_rend_PAS_MESURE_tant_que_rien_n_a_ete_ECRIT(tmp_path):
+    """#486-r17 -- LE FAUX VERT D'INTENDANCE, et ses TROIS portes.
+
+    `cache_a_commiter` demande a `git diff` si le fichier differe de l'index. Sa premisse ecrite
+    est « le run vient d'ecrire le fichier de toute facon ». Cette premisse n'est pas etablie par
+    l'appel : trois chemins la violent, et sur les trois le `git diff` compare le fichier de la
+    passe PRECEDENTE -- rendant `0`, c'est-a-dire « a jour », c'est-a-dire un VERT sur une mesure
+    qui n'a pas eu lieu.
+
+        1. `enregistrer()` jamais appele            (un mode partiel, un `--verifier-cache`)
+        2. `enregistrer()` appele, RIEN vu          (perimetre vide, pre-filtre qui ecarte tout)
+        3. `enregistrer()` appele, ECRITURE EN ECHEC (disque plein, fichier verrouille)
+
+    Les trois doivent sortir en PAS MESURE (`None`), jamais en `False`."""
+    c = _cache(tmp_path)
+    c.poser("a.py", "ap", VC.sha_texte("v1"), ["x"])
+    perime, detail = VC.cache_a_commiter(c, racine=tmp_path)
+    assert perime is None and "enregistrer" in detail, (perime, detail)
+
+    vide = _cache(tmp_path)
+    assert vide.enregistrer() is False
+    perime, detail = VC.cache_a_commiter(vide, racine=tmp_path)
+    assert perime is None and "AUCUNE entree" in detail, (perime, detail)
+
+    (tmp_path / "bloque.tsv").mkdir()
+    casse = VC.CacheCliquet("bloque", "ctx-1", dossier=tmp_path)
+    casse.poser("a.py", "ap", VC.sha_texte("v1"), ["x"])
+    assert casse.enregistrer() is False
+    perime, detail = VC.cache_a_commiter(casse, racine=tmp_path)
+    assert perime is None and "PANNE" in detail, (perime, detail)
+
+
+def test_le_cran_de_fraicheur_NE_TEINTE_PAS_le_rc_quand_il_n_a_pas_mesure(tmp_path, capsys):
+    """Une panne de capteur ne rend pas un verdict -- ni vert, ni rouge. Elle se DIT."""
+    c = _cache(tmp_path)
+    c.poser("a.py", "ap", VC.sha_texte("v1"), ["x"])
+    assert VC.rendre_compte_du_cache(c, 0, racine=tmp_path) == 0
+    assert "NON MESUREE" in capsys.readouterr().out
+
+
+def _git_bouchon(monkeypatch, rc_ls_files: int, rc_diff: int):
+    """Substitue `subprocess.run` en distinguant `ls-files` (suivi ?) de `diff` (modifie ?).
+
+    Un bouchon qui rendrait le MEME rc aux deux ferait passer un « non suivi » pour un
+    « modifie » -- et ce test-ci ne verrait plus la difference qu'il est cense garder."""
+    class _R:
+        def __init__(self, rc):
+            self.returncode, self.stderr, self.stdout = rc, "", ""
+
+    import subprocess as _sp
+
+    def _run(argv, *a, **k):
+        return _R(rc_ls_files if "ls-files" in argv else rc_diff)
+
+    monkeypatch.setattr(_sp, "run", _run)
+
+
+def test_le_cran_de_fraicheur_MORD_encore_apres_une_ECRITURE_REELLE(tmp_path, monkeypatch):
+    """⚠ LA CONTRE-EPREUVE, et elle est indispensable : un cran qui n'accuse plus RIEN est aussi
+    faux qu'un cran qui accuse a tort -- et le premier ne le dit pas. On substitue `git` pour
+    n'eprouver QUE l'aiguillage, sans dependre d'un depot de test."""
+    c = _cache(tmp_path)
+    c.poser("a.py", "ap", VC.sha_texte("v1"), ["x"])
+    assert c.enregistrer() is True and c.ecrit is True
+
+    _git_bouchon(monkeypatch, rc_ls_files=0, rc_diff=1)
+    perime, detail = VC.cache_a_commiter(c, racine=tmp_path)
+    assert perime is True and "REECRIT" in detail, (perime, detail)
+    assert VC.rendre_compte_du_cache(c, 0, racine=tmp_path) == VC.EX_CACHE_A_COMMITER
+
+    _git_bouchon(monkeypatch, rc_ls_files=0, rc_diff=0)
+    perime, _ = VC.cache_a_commiter(c, racine=tmp_path)
+    assert perime is False, "un fichier identique a l'index doit se taire, pas rougir"
+    assert VC.rendre_compte_du_cache(c, 0, racine=tmp_path) == 0
+
+    _git_bouchon(monkeypatch, rc_ls_files=0, rc_diff=128)
+    perime, detail = VC.cache_a_commiter(c, racine=tmp_path)
+    assert perime is None and "rc=128" in detail, (perime, detail)
+
+
+def test_un_cache_versionne_NON_SUIVI_par_git_ROUGIT(tmp_path, monkeypatch):
+    """#486-r17 -- LA QUATRIEME PORTE, et la plus couteuse des quatre.
+
+    `git diff --quiet -- <chemin>` IGNORE ce que git ne suit pas. Un cache tout neuf, ecrit pour
+    la premiere fois et jamais `git add`-e, rendait donc « est a jour (identique a l'index) » --
+    mesure du 2026-08-15, prise en flagrant delit au cablage du cache de `probe_485` : le fichier
+    etait `??` et le cran se taisait.
+
+    Ce n'est pas un detail d'intendance. Un cache qui n'entre jamais dans le depot fait repartir
+    FROID tout worktree frais, c'est-a-dire exactement le regime pour lequel il est VERSIONNE
+    (cf. l'en-tete de `verdict_cache`). L'optimisation existerait dans la boucle locale de son
+    auteur et nulle part ailleurs, sans que rien ne le dise."""
+    c = _cache(tmp_path)
+    c.poser("a.py", "ap", VC.sha_texte("v1"), ["x"])
+    assert c.enregistrer() is True
+
+    _git_bouchon(monkeypatch, rc_ls_files=1, rc_diff=0)     # non suivi, et pourtant `diff` muet
+    perime, detail = VC.cache_a_commiter(c, racine=tmp_path)
+    assert perime is True and "SUIVI" in detail, (perime, detail)
+    assert VC.rendre_compte_du_cache(c, 0, racine=tmp_path) == VC.EX_CACHE_A_COMMITER
+
+    #: CONTRE-EPREUVE : une fois SUIVI et identique a l'index, le meme chemin doit se taire --
+    #: sans quoi le cran deviendrait inextinguible et se ferait desarmer.
+    _git_bouchon(monkeypatch, rc_ls_files=0, rc_diff=0)
+    assert VC.cache_a_commiter(c, racine=tmp_path)[0] is False
+
+
+def test_un_rc_deja_ROUGE_n_est_jamais_masque_par_le_cran(tmp_path):
+    """Le gisement prime sur l'intendance, dans les deux sens : on ne masque pas un vrai rouge
+    derriere un rouge d'artefact, ni l'inverse."""
+    c = _cache(tmp_path)
+    assert VC.rendre_compte_du_cache(c, 1, racine=tmp_path) == 1
+
+
 # ------------------------------- la SOURCE HORS ARBRE : le binaire du jeu (`deriver`)
 
 def test_sha_gros_fichiers_rend_NONE_sur_un_absent(tmp_path):
@@ -395,16 +578,152 @@ def _contextes(mod) -> list[str]:
     return out
 
 
-@pytest.mark.parametrize("mod", sorted(CACHES))
+def _modules_du_depot() -> list[str]:
+    """Tous les modules `scripts/python/*.py` -- le PERIMETRE de la derivation, non filtre.
+
+    Volontairement PLAT (pas de `rglob`) : un `CacheCliquet` ne se construit que dans un cliquet
+    ou une bibliotheque de ce niveau, et `engine/**` n'en porte aucun. Si cela changeait, l'etage
+    « tout .tsv a une ligne au registre » le verrait quand meme -- c'est le fichier PRODUIT qui
+    est le temoin ultime, pas le site de construction.
+    """
+    return sorted(p.stem for p in _PYDIR.glob("*.py"))
+
+
+def _constructions() -> dict[str, list[str]]:
+    """`{module: [source de l'argument `contexte` de chaque `CacheCliquet(...)`]}`, par AST.
+
+    ⚠ LA DERIVATION DIT CE QUI EXISTE, JAMAIS CE QUI DEVRAIT EXISTER. C'est `CACHES_VERSIONNES`
+    qui porte l'attendu ; ici on ne fait que RECENSER, et un recenseur qui filtrerait par une
+    liste de modules connus ne pourrait pas montrer le module qu'on a oublie.
+    """
+    out: dict[str, list[str]] = {}
+    for mod in _modules_du_depot():
+        try:
+            arbre = ast.parse(_source(mod))
+        except (OSError, SyntaxError, UnicodeDecodeError):       # pragma: no cover - arbre casse
+            continue
+        for n in ast.walk(arbre):
+            if not isinstance(n, ast.Call):
+                continue
+            nom = (n.func.attr if isinstance(n.func, ast.Attribute)
+                   else n.func.id if isinstance(n.func, ast.Name) else None)
+            if nom != "CacheCliquet":
+                continue
+            kw = {k.arg: ast.unparse(k.value) for k in n.keywords}
+            out.setdefault(mod, []).append(kw.get("contexte", "<ABSENT>"))
+    return out
+
+
+def test_le_recensement_des_constructions_est_NON_VIDE():
+    """Un recenseur vide passerait pour vert sur tous les etages qui le consomment.
+
+    Il a deja rendu zero une fois dans ce depot -- pas ici, mais sur le meme motif (`probe_181`
+    rendait `0` inconditionnellement, un inventaire deguise en garde-fou). On assertionne donc
+    son propre non-vide, et son ordre de grandeur."""
+    trouve = _constructions()
+    assert len(trouve) >= 8, (
+        "le recensement des `CacheCliquet(...)` rend %d module(s) : soit le depot a perdu ses "
+        "caches, soit le critere AST ne mord plus -- dans les deux cas ce fichier ne garde "
+        "plus rien" % len(trouve))
+
+
+def test_TOUT_cache_versionne_est_INSCRIT_au_registre():
+    """SENS 1 -- du disque vers le registre. C'est l'etage qui a rattrape les 7 caches muets.
+
+    Un `.tsv` qui apparait sous `scripts/cliquets-cache/` sans ligne ici est un cache que rien ne
+    garde : ni sa forme, ni son contexte, ni sa fraicheur, ni sa fidelite. Le registre est ecrit
+    a la main EXPRES -- s'il etait derive du disque, il epouserait le fichier neuf et cet etage
+    serait tautologique."""
+    sur_disque = sorted(p.stem for p in VC.DOSSIER.glob("*.tsv"))
+    assert sur_disque, "aucun cache versionne trouve : le dossier a disparu ou change de nom"
+    inconnus = [n for n in sur_disque if n not in CACHES_VERSIONNES]
+    assert not inconnus, (
+        "cache(s) VERSIONNE(S) hors registre : %s -- inscris-les dans `CACHES_VERSIONNES` avec "
+        "leur module producteur et leur regime (`cran`, `espion`), DANS LE MEME COMMIT"
+        % ", ".join(inconnus))
+
+
+def test_TOUTE_ligne_du_registre_a_son_fichier():
+    """SENS 2 -- du registre vers le disque. Sans lui, une ligne perimee ferait croire a une
+    couverture qui n'existe plus, et les etages parametres sur le registre tourneraient a vide."""
+    manquants = [n for n in CACHES_VERSIONNES if not (VC.DOSSIER / (n + ".tsv")).is_file()]
+    assert not manquants, (
+        "ligne(s) de registre sans fichier : %s -- le cache a-t-il ete renomme ou supprime ?"
+        % ", ".join(manquants))
+
+
+def test_TOUT_module_qui_construit_un_cache_est_PRODUCTEUR_au_registre():
+    """SENS 3 -- du code vers le registre. Un module qui construit un `CacheCliquet` sans
+    apparaitre comme producteur ecrit un artefact que personne n'a declare."""
+    producteurs = {v["module"] for v in CACHES_VERSIONNES.values()}
+    orphelins = sorted(set(_constructions()) - producteurs)
+    assert not orphelins, (
+        "module(s) construisant un `CacheCliquet` sans etre producteur declare : %s"
+        % ", ".join(orphelins))
+
+
+@pytest.mark.parametrize("nom,fiche", sorted(CACHES_VERSIONNES.items()))
+def test_le_REGIME_declare_par_le_registre_est_CELUI_DU_CODE(nom, fiche):
+    """⚠ CONTRE-EPREUVE BIDIRECTIONNELLE, et c'est ce qui empeche la declaration d'etre decorative.
+
+    Un `cran: True` qui n'appelle rien serait un faux vert. Mais un `cran: False` qui appelle
+    QUAND MEME le cran est tout aussi faux : la ligne « pourquoi » deviendrait une prescription
+    perimee, et le jour ou quelqu'un la lit pour justifier un nouveau cache sans cran, il
+    recopierait une exemption qui n'existe plus. Les deux sens sont donc assertes."""
+    src = _source(fiche["module"])
+    for clef, marqueur in (("cran", "rendre_compte_du_cache"), ("espion", "--verifier-cache")):
+        present = marqueur in src
+        if fiche[clef]:
+            assert present, (
+                "%s declare `%s: True` mais `%s` n'apparait pas dans %s.py"
+                % (nom, clef, marqueur, fiche["module"]))
+        else:
+            assert fiche.get("pourquoi"), (
+                "%s declare `%s: False` sans RAISON ecrite -- c'est la raison qui separe un "
+                "choix d'un oubli" % (nom, clef))
+            assert not present, (
+                "%s declare `%s: False` mais %s.py appelle bien `%s` : la raison ecrite au "
+                "registre est PERIMEE, et une exemption perimee se recopie"
+                % (nom, clef, fiche["module"], marqueur))
+
+
+def test_aucun_CONTEXTE_ne_passe_par_la_variante_OCTETS():
+    """#486-r17 -- `sha_fichiers` hache les OCTETS : un cache versionne cle par elle repart a zero
+    au moindre `git rebase` sous `core.autocrlf=true` (mesure : 119 s au lieu de 20 s), et serait
+    froid EN PERMANENCE sur une plateforme a LF.
+
+    La bascule a eu lieu le 2026-08-07 (`d4b78353`) ; ce qui manquait, c'est le cran qui empeche
+    le retour. Il en faut un : `sha_fichiers` SURVIT (le test des deux variantes en a besoin comme
+    temoin), donc rien n'empechait un cliquet neuf de l'appeler par imitation.
+
+    ⚠ Le critere porte sur le CONTEXTE d'une construction, pas sur la presence du symbole dans le
+    fichier -- sans quoi ce fichier-ci rougirait sur lui-meme."""
+    fautifs = [(mod, c) for mod, ctxs in _constructions().items() for c in ctxs
+               if "sha_fichiers_texte" not in c and "sha_fichiers" in c]
+    assert not fautifs, (
+        "contexte(s) cle(s) sur les OCTETS : %s -- employer `sha_fichiers_texte`"
+        % "; ".join("%s -> %s" % f for f in fautifs))
+
+
+@pytest.mark.parametrize("mod", sorted({v["module"] for v in CACHES_VERSIONNES.values()}))
 def test_un_cliquet_cache_porte_SON_source_dans_son_contexte(mod):
     """Editer une regex du cliquet DOIT invalider ses entrees -- sinon le cache atteste pour un
-    critere qui n'existe plus. Le seul appariement sur est le sha du source."""
+    critere qui n'existe plus. Le seul appariement sur est le sha du source.
+
+    ⚠ LE CRITERE PORTE SUR LA PROPRIETE, PAS SUR UNE FORME D'ECRITURE. Il exigeait `__file__`,
+    ce qui est la forme employee par les QUATRE modules qu'il connaissait -- les quatre autres
+    ecrivent `ici / "<mod>.py"`, tout aussi correct, et un critere de forme les aurait declares
+    fautifs (ou, s'ils etaient restes hors du parametrage, invisibles). On demande donc : le
+    contexte NOMME le source du module producteur, par `__file__` ou par son nom de fichier.
+    """
     ctxs = _contextes(mod)
     assert ctxs, "%s ne construit aucun `CacheCliquet` : le cablage a disparu" % mod
     for c in ctxs:
-        assert "sha_fichiers" in c and "__file__" in c, (
-            "CHAQUE contexte doit etre DERIVE du SOURCE du cliquet, sinon editer son critere "
-            "laisserait les anciennes entrees valides -- vu : %s" % c)
+        assert "sha_fichiers_texte" in c or "sha_texte" in c, (
+            "CHAQUE contexte doit etre DERIVE d'un SOURCE, jamais un litteral -- vu : %s" % c)
+        assert "__file__" in c or (mod + ".py") in c, (
+            "CHAQUE contexte doit nommer le SOURCE du cliquet (`__file__` ou `%s.py`), sinon "
+            "editer son critere laisserait les anciennes entrees valides -- vu : %s" % (mod, c))
 
 
 @pytest.mark.parametrize("mod", ["probe_477r24r1_slots_interface",
