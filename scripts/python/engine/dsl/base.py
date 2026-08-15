@@ -394,6 +394,20 @@ class DslContext:
     # `runner/abilities/loki/splash.py::_pick_randomly_n`). None = contexte sans PRNG -> le noeud
     # retombe sur les `amount` premiers elements, ZERO tirage (degradation nommee par le noeud).
     pick_randomly: object | None = None
+    # `IdunBattle.Utils.PRNG.IPseudoRNG.Next(n)` -- le **slot 1** de l'interface (`get_Seed` est le
+    # 0 ; les slots 2 et 3 sont les surcharges a DEUX arguments, le 4 et le 5 des `NextBool` --
+    # LU dans `data/symbols/<build>/metadata/interface_slots.tsv`), c'est-a-dire
+    # `IntBasedMersenneTwister$$NextInternal(n)` = entier dans `[0, n)`.
+    # `pseudo_rng_next(bound) -> int` : le TIRAGE du PRNG de bataille, delegue comme
+    # `pick_randomly` ci-dessus parce que le PRNG vit dans le `State`, pas dans le `DslContext`
+    # (foyer UNIQUE `runner/prng.py::IntBasedMersenneTwister.next`, deja bit-exact #130/#215).
+    # SEUL consommateur a ce jour : le 3e `ThenBy(pseudoRng)` de
+    # `IdunBattle.Entities.Selectors.SortByRowSelector$$Select`, arme par `sameColumnIsRandom`
+    # (#1027-r1). `None` = contexte sans PRNG (prediction, arbre purement numerique) -> le noeud
+    # NE TIRE PAS et rend l'ordre source, degradation NOMMEE au noeud.
+    # ⚠ CE N'EST PAS `pick_randomly` : celui-la mirrore `PickRandomAmountSelector$$Select` (TIRER N
+    # ELEMENTS d'une liste) ; celui-ci rend UN ENTIER, la cle de tri d'UN element.
+    pseudo_rng_next: object | None = None
     # Tri `IdunBattle.Entities.Selectors.SortTilesByUtilitySelector$$Select` :
     # `sort_tiles_by_utility(tiles, unit_id, utility_type) -> list` (ids de tuile, DECROISSANT).
     # Le noeud `SortTilesByUtility` DELEGUE ici parce que le calcul d'utilite a besoin du `State`

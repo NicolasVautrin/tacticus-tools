@@ -164,15 +164,18 @@ def mind_control_taunter_selector():
     adjacent a la cible resterait candidat au taunt cote port. Le regime est etroit (il faut un
     allie MORT qui occupe encore sa tuile au moment du cast) et la degradation est PERMISSIVE.
 
-    ⚠ `First` du port prend un INDEX, la surcharge native prend un `amount` -- ici les deux
-    coincident (`amount: 1` = `index: 0`), et c'est le seul regime qu'expose ce call-site."""
+    ⚠ Ce call-site portait l'unique `index=` explicite du depot, et c'est ce qui a fait trouver
+    #1032-r2 : le noeud `First` du port prenait un INDEX alors qu'AUCUNE surcharge native ne le
+    fait. Il prend desormais l'`amount` natif -- ici `1`, le litteral LU ci-dessus, qui est aussi
+    son defaut. `ignoreForcedTargets: 0` est le defaut : les cibles FORCEES priment donc, comme
+    dans le natif."""
     adjacents = AdjacentUnits(Target())                       # etage 1 (radius 1 par defaut)
     amis = Friends(adjacents, reference=Owner())              # etage 2 (`of` = 1er arg natif)
     attaquables = UnitsWithoutTrait(amis, int(UnitTrait.Steppable))     # etage 3 (`Attackable`)
     tries = SortByFormula(attaquables,                                  # etage 4
                           StatAmount(Subject(), int(StatType.HEALTH)),
                           ascending=False)                    # flag natif `ascending = 0`
-    return Cache(First(tries, index=0))                       # etage 5
+    return Cache(First(tries, 1))                             # etage 5 (`First(sel, 1, 0)`)
 
 
 def mind_control_tree(taunteur):

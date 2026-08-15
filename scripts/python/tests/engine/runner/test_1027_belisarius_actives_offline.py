@@ -11,11 +11,50 @@ Ce que chaque etage garde, et le MUTANT qui doit le faire tomber :
   6. `SortByRow(additional_sorting=...)` est un `ThenBy`                -> ignorer la formule
   7. l'utilite du playbook 1172 vaut 2 hors origine, 1 a l'origine      -> figer a 1
   8. l'utilite du playbook 1174 = 1 + |bande| + 20*|ennemis|            -> retirer le +1 par tuile
+  9. `SortByRow(sameColumnIsRandom=1)` TIRE une cle par element         -> ne pas tirer (#1027-r1)
 """
 from __future__ import annotations
 
-import os
-import sys
+#: Ce qui doit changer pour que ce FICHIER puisse changer de verdict (#486-r15).
+#: ⚠ IL N'EN AVAIT AUCUN, et le garde `declencheur_guard` rendait donc `rc 1` sur `origin/master`
+#: alors que ses 8 tests passaient -- un fichier VERT dans une passe ROUGE. Ajoute par #1027-r1,
+#: qui touche precisement l'etage 6/9 de ce fichier.
+DECLENCHEUR = {
+    "chemins": (
+        "scripts/python/conftest.py", "scripts/python/tests/conftest.py",
+        "scripts/python/tests/engine/conftest.py",
+        "scripts/python/green_skip_guard.py", "scripts/python/declencheur_guard.py",
+        # LE FOYER des deux actives + leurs registres.
+        "scripts/python/engine/runner/abilities/admec.py",
+        "scripts/python/engine/runner/abilities/handler.py",
+        "scripts/python/engine/runner/abilities/attack_type.py",
+        "scripts/python/engine/runner/abilities/targeting.py",
+        "scripts/python/engine/runner/abilities/targeting_rule.py",
+        # LES NOEUDS DSL que la forme de l'arbre exerce.
+        "scripts/python/engine/entities/selectors/geometry.py",
+        "scripts/python/engine/entities/selectors/units.py",
+        "scripts/python/engine/entities/selectors/tiles.py",
+        "scripts/python/engine/entities/selectors/_pick.py",
+        "scripts/python/engine/entities/formulas.py",
+        "scripts/python/engine/entities/behaviours.py",
+        "scripts/python/engine/dsl/base.py",
+        # LE PRNG : l'etage 9 en depend directement.
+        "scripts/python/engine/runner/prng.py",
+        # LES ORDINAUX cites.
+        "scripts/python/engine/entities/active_ability_type.py",
+        "scripts/python/engine/entities/effect_type.py",
+        # LA FACE DECISION des deux abilities.
+        "scripts/python/engine/playbook/prediction/abilities.py",
+    ),
+    "build": False,
+    "toujours": False,
+    "raison": "Garde OFFLINE : les deux litteraux du ctor, les registres, la STRUCTURE des deux "
+              "arbres, la somme d'EffectLevelOf, le sens des tris et les deux utilites de "
+              "playbook. Aucun RPC, aucun runner.",
+}
+
+import os                                                                    # noqa: E402
+import sys                                                                   # noqa: E402
 
 _PY = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 if _PY not in sys.path:
@@ -272,3 +311,134 @@ def test_etage8_utilite_1174_compte_la_bande_et_ses_ennemis():
             u += pb.ENEMY_TILE_BONUS
         u += 1.0
     assert u == 46.0
+
+
+# ---------------------------- etage 9 : `sameColumnIsRandom` TIRE une cle par element (#1027-r1)
+class _BoardLargeur:
+    """`BoardComponent` minimal : `by_id` porte des tuiles `{col, row}` -- c'est ce dont
+    `_board_width` derive le `Width` (`+0x14`)."""
+
+    def __init__(self, tuiles):
+        self.by_id = {tid: {"id": tid, "col": c, "row": r} for tid, (c, r) in tuiles.items()}
+
+    def coord(self, tid):
+        t = self.by_id[tid]
+        return (t["col"], t["row"])
+
+
+class _SrcIds:
+    def __init__(self, ids):
+        self.ids = list(ids)
+
+    def evaluate(self, ctx):
+        return list(self.ids)
+
+
+def test_etage9_same_column_is_random_tire_une_cle_par_element():
+    """`ThenBy(<b__3>)`, ou `b__3(this, s)` IGNORE `s` et rend
+    `pseudoRng.<IPseudoRNG slot 1 = Next(n)>(GetMatchBoard(state).<+0x14 = Width>)`.
+
+    TROIS choses sont gardees ici, et le port en ratait les trois :
+      * il TIRE (l'ancien port ne tirait pas du tout) ;
+      * il tire **UNE FOIS PAR ELEMENT**, dans l'ordre SOURCE -- le COMPTE est observable sur tout
+        le flux PRNG aval, pas seulement sur cet ordre ;
+      * la borne est le **WIDTH** du plateau, pas son nombre de lignes ni son nombre de tuiles :
+        `NextInternal` fait du REJET pour les bornes non-puissances-de-2, donc une borne fausse
+        consommerait un nombre de `genrand_int32` DIFFERENT."""
+    from dataclasses import dataclass, field
+
+    @dataclass
+    class C:
+        board: object = None
+        subject: object = None
+        active_target: object = None
+        pseudo_rng_next: object = None
+        tires: list = field(default_factory=list)
+
+    #  4 colonnes (0..3), 3 tuiles sur la MEME row -> le tri par row ne les departage PAS
+    board = _BoardLargeur({1: (0, 0), 2: (1, 0), 3: (2, 0)})
+    src = _SrcIds([1, 2, 3])
+
+    ctx = C(board=board)
+    ctx.pseudo_rng_next = lambda n: (ctx.tires.append(n), len(ctx.tires) * 0 + (3 - len(ctx.tires)))[1]
+    got = SortByRow(src, same_column_is_random=True, ascending=True).evaluate(ctx)
+
+    assert ctx.tires == [3, 3, 3], (
+        "un tirage PAR ELEMENT, borne au Width du plateau (3 colonnes ici) : %r" % (ctx.tires,))
+    assert got == [3, 2, 1], (
+        "les cles 2/1/0 doivent RENVERSER l'ordre source des ex aequo : %r" % (got,))
+
+    # CONTRE-EPREUVE 1 : sans le flag, aucun tirage et l'ordre source tient.
+    ctx2 = C(board=board)
+    ctx2.pseudo_rng_next = lambda n: ctx2.tires.append(n) or 0
+    assert SortByRow(src, same_column_is_random=False, ascending=True).evaluate(ctx2) == [1, 2, 3]
+    assert ctx2.tires == [], "flag a 0 -> le natif n'ajoute pas le `ThenBy`, donc AUCUN tirage"
+
+    # CONTRE-EPREUVE 2 : canal absent -> AUCUN tirage, ordre source (degradation NOMMEE, pas un
+    # ordre invente). C'est le regime de la face DECISION, qui n'a pas de PRNG.
+    ctx3 = C(board=board)
+    assert SortByRow(src, same_column_is_random=True, ascending=True).evaluate(ctx3) == [1, 2, 3]
+
+
+def test_etage9_l_accesseur_du_runner_EST_le_slot_1_d_IPseudoRNG():
+    """Le noeud delegue a `ctx.pseudo_rng_next`, mais encore faut-il que la couche runner le
+    branche sur LA BONNE primitive. `IPseudoRNG` a **six** methodes et trois s'appellent `Next` :
+    slot 1 = `Next(n)` -> `[0, n)`, slots 2 et 3 = les surcharges a DEUX arguments. Se tromper de
+    surcharge ne leverait rien -- ca changerait la VALEUR et, par le REJET facon Java, le NOMBRE
+    de `genrand_int32` consommes, donc tout le flux aval.
+
+    On compare donc, a graine egale, l'accesseur du contexte runner a `IntBasedMersenneTwister.next`
+    (le port de `IntBasedMersenneTwister$$IdunBattle.Utils.PRNG.IPseudoRNG.Next`) : MEME valeur ET
+    MEME consommation."""
+    from engine.runner.abilities.behaviours.context import entities_from_state
+    from engine.runner.components import OwnerComponent, PositionComponent, UnitComponent
+    from engine.runner.prng import IntBasedMersenneTwister
+    from engine.runner.state import State
+
+    st = State()
+    st.rng = IntBasedMersenneTwister(777)
+    for i, pos in enumerate(((0, 0), (1, 0))):
+        e = st.add_entity()
+        e.add_component(UnitComponent(visual_id="u%d" % i, alive=True))
+        e.add_component(PositionComponent(*pos))
+        e.add_component(OwnerComponent(i + 1))
+    ids = sorted(st.entities)
+    ent = entities_from_state(st, ids[0], ids[1])
+    assert ent.pseudo_rng_next is not None, (
+        "la couche runner DOIT brancher `pseudo_rng_next` -- sans lui le noeud degrade en "
+        "silence vers l'ordre source, et #1027-r1 se rouvre sans qu'aucun test ne rougisse")
+
+    temoin = IntBasedMersenneTwister(777)
+    for borne in (5, 8, 13):                      # 8 = puissance de 2 (pas de rejet), 5/13 = rejet
+        t0, s0 = temoin.call_count, st.rng.call_count
+        attendu = temoin.next(borne)
+        obtenu = ent.pseudo_rng_next(borne)
+        assert obtenu == attendu, (
+            "borne %d : l'accesseur rend %r, `IPseudoRNG.Next(n)` rend %r -- une AUTRE surcharge "
+            "a ete branchee" % (borne, obtenu, attendu))
+        assert (st.rng.call_count - s0) == (temoin.call_count - t0), (
+            "borne %d : consommation PRNG differente (%d vs %d) -- le flux aval divergerait"
+            % (borne, st.rng.call_count - s0, temoin.call_count - t0))
+        assert 0 <= obtenu < borne, "borne %d : `Next(n)` rend dans [0, n)" % borne
+
+
+def test_etage9_le_tirage_ne_prime_PAS_sur_la_row():
+    """`ThenBy` est le 3e critere : il ne departage QUE des ex aequo. Un port qui trierait par le
+    tirage EN PREMIER melangerait des rows distinctes -- exactement l'ordre invente que la fiche
+    #1027-r1 disait vouloir eviter."""
+    from dataclasses import dataclass, field
+
+    @dataclass
+    class C:
+        board: object = None
+        subject: object = None
+        active_target: object = None
+        pseudo_rng_next: object = None
+        tires: list = field(default_factory=list)
+
+    board = _BoardLargeur({1: (0, 0), 2: (1, 1), 3: (2, 2)})   # TROIS rows distinctes
+    ctx = C(board=board)
+    ctx.pseudo_rng_next = lambda n: (ctx.tires.append(n), 99 - len(ctx.tires))[1]
+    got = SortByRow(_SrcIds([1, 2, 3]), same_column_is_random=True, ascending=True).evaluate(ctx)
+    assert got == [1, 2, 3], "aucun ex aequo -> le tirage ne doit RIEN changer : %r" % (got,)
+    assert len(ctx.tires) == 3, "et il tire quand meme (le natif calcule toutes les cles)"

@@ -19,6 +19,19 @@ from ._shared import _entity_pos, _tile_positions
 # MatchesUnitSelectionType`), lu par `UnitsWithId` : surtout pas un 2e port du predicat. Feuille
 # legere (l'enum + son derivateur), deja partagee par `selectors/units.py` et `entities/triggers.py`.
 from ..unit_selection_type import UnitSelectionType, selection_ok_from_ctx
+# Foyer UNIQUE du predicat `IdunBattle.Entities.UnitExtensions$$HasUnitId` (#1078), partage avec le
+# volet MULTI-ID `selectors/units.py::UnitsWithIds` : `UnitsWithIdSelector$$Select` est LE MEME
+# selecteur pour les deux, donc un 2e port du predicat serait une divergence garantie (#1078-r1).
+# Import de niveau MODULE (forme A) et non differe : `selectors/units.py` n'importe PAS `geometry`
+# -- mesure, pas presomption (cf. l'etape 0 de `probe_1078r1_units_with_id_mono.py`).
+from .units import has_unit_id
+# `PickFirstN` / `PickLastN` ONT DEMENAGE dans le module FEUILLE `._pick` (#1032-r2) : ils
+# partagent avec `selectors/units.py::First` le foyer
+# `IdunBattle.DSL.APickSelector$$AddForcedTargetsAndUpdateCandidates`, et le seul emplacement d'ou
+# les DEUX tranches peuvent l'atteindre sans fermer de cycle est un module qui n'importe qu'elles.
+# Le DEPLACEMENT est le premier remede de la doctrine d'import, pas un differe. Re-exportes ici
+# parce que ~15 call-sites ecrivent deja `from ...selectors.geometry import PickFirstN`.
+from ._pick import PickFirstN, PickLastN          # noqa: F401  (re-export, cf. ci-dessus)
 from ...services.spawn_tile_shape import get_area
 
 
@@ -331,6 +344,32 @@ class SortReverse(TargetsSelector):
         return list(reversed(list(v)))
 
 
+def _board_width(board):
+    """`BoardComponent+0x14` = le `Width` (nombre de COLONNES) du plateau -- la borne du tirage
+    `pseudoRng.Next(...)` du 3e `ThenBy` de `SortByRowSelector$$Select`.
+
+    ⚠ LE CANAL NE PUBLIE PAS CE CHAMP, ET LA DERIVATION EST MESUREE, PAS SUPPOSEE. Le `Board` du
+    port est bati depuis le RPC `boardGraph` (`playbook/scene.py::build_board`), qui rend des
+    tuiles `{col, row, ...}` sans les dimensions. Or les definitions de plateau, elles, les
+    portent : `data/boards/**/*.json` -> `board.Width` / `board.Height`, et les `Tiles` y sont une
+    grille PLEINE (`len(Tiles) == Width`, `len(Tiles[i].Tile) == Height`). Mesure sur les **779**
+    plateaux versionnes : **0 divergence**, colonnes `0..Width-1` et lignes `0..Height-1`. Donc
+    `max(col) + 1` EST le `Width` -- tant que la source publie toutes les colonnes.
+
+    `None` = pas derivable (board absent, ou aucune tuile) -> l'appelant NE TIRE PAS.
+
+    (Pas de memoisation : ce serait un cache keye par `id(board)`, donc PERIMABLE des qu'un board
+    est collecte et qu'un autre reprend son adresse -- pour economiser un `max` sur ~200 tuiles,
+    sur le SEUL call-site qui arme `sameColumnIsRandom`.)"""
+    if board is None:
+        return None
+    try:
+        cols = [int(t["col"]) for t in board.by_id.values() if t.get("col") is not None]
+    except Exception:                                    # noqa: BLE001  (board bati a la main)
+        return None
+    return (max(cols) + 1) if cols else None
+
+
 class SortByRow(TargetsSelector):
     """`IdunBattleLogic.Entities.DSLSelectors$$SortByRow(tiles, sameColumnIsRandom, additionalSorting,
     ascending)` -> `IdunBattle.Entities.Selectors.SortByRowSelector$$Select`.
@@ -376,14 +415,36 @@ class SortByRow(TargetsSelector):
     l'identique, et l'element courant est lie au slot `AbilityEntities+0x20` (`Subject`/
     `ActiveTarget`), comme chez `SortByFormula`.
 
-    ⚠ `same_column_is_random` reste un RESIDU NOMME (`#1027-r1`), et le noeud NE LEVE PLUS quand on
-    le pose : le natif l'applique en DERNIER (`ThenBy(pseudoRng)`), donc il ne peut departager que
-    des elements DEJA ex aequo sur (row, additionalSorting). Ne pas tirer rend alors *un* des ordres
-    que le natif peut rendre -- l'ordre source, stable -- et non un ordre INVENTE. Le substrat
-    manquant est le `pseudoRng` du match : `ctx.pick_randomly` existe mais mirrore
-    `PickRandomAmountSelector` (tirer N elements), pas une CLE de tri par element. Consequence
-    observable, bornee : quand plusieurs tuiles partagent row ET cle secondaire, le port prend
-    toujours la premiere du selecteur source la ou le natif tire."""
+    ⚠ **`same_column_is_random` EST PORTE (#1027-r1), ET LE << SUBSTRAT MANQUANT >> ETAIT UN
+    CABLAGE.** La fiche annoncait `BLOCAGE: seeding` -- << aucune CLE DE TRI PAR ELEMENT issue du
+    pseudoRng >>. Le decompile de la 4e lambda dit exactement quelle est cette cle, et chacun de ses
+    deux etages existait deja :
+
+        `...SortByRowSelector.u003Cu003Ec__DisplayClass6_0$$u003CSelectu003Eb__3(this, s)` :
+            board = StateExtensions.GetMatchBoard(<selecteur>.state)   // le BoardComponent
+            return <selecteur>.pseudoRng.<IPseudoRNG slot 1>(board.<+0x14>)
+
+    TROIS choses s'y lisent, dont deux qu'on n'aurait pas devinees :
+      * **`s` N'EST PAS UTILISE.** La cle ne DEPEND PAS de l'element : c'est un TIRAGE FRAIS par
+        element, `LINQ` appelant le selecteur de cle une fois par element. C'est ce qui en fait un
+        melange, et non une fonction de hachage.
+      * la borne est `BoardComponent+0x14`, et c'est le **WIDTH** :
+        `IdunBattle.Entities.Components.BoardComponent$$Initialize(width, height)` ecrit
+        `+0x14 = width` / `+0x10 = height`, et `$$IsPositionInside` confirme l'appariement
+        (`row < +0x10`, `column < +0x14`).
+      * le slot **1** d'`IPseudoRNG` est `Next(n)` a UN argument (le 0 est `get_Seed`, les 2 et 3
+        les surcharges a deux arguments, les 4 et 5 des `NextBool`) -- LU dans
+        `data/symbols/<build>/metadata/interface_slots.tsv`, pas deduit.
+
+    ORDRE DE CONSOMMATION. `Enumerable.OrderBy(...).ThenBy(...).ThenBy(...)` calcule les cles par
+    NIVEAU (`EnumerableSorter.ComputeKeys` descend la chaine), donc : toutes les rows, puis toutes
+    les cles `additionalSorting`, puis **UN tirage par element, dans l'ordre SOURCE**. Le port tire
+    donc `len(items)` fois, apres l'evaluation de la formule secondaire. Ni plus ni moins : un
+    tirage de trop decale tout le flux aval.
+
+    DEGRADATION NOMMEE : `ctx.pseudo_rng_next` absent (contexte de PREDICTION, arbre hors runner) ou
+    board sans largeur derivable -> **AUCUN tirage**, ordre source stable, c'est-a-dire le
+    comportement d'avant. C'est *un* des ordres que le natif peut rendre, jamais un ordre invente."""
     def __init__(self, source: TargetsSelector, same_column_is_random: bool = False,
                  additional_sorting=None, ascending: bool = False):
         self.source = source
@@ -417,10 +478,33 @@ class SortByRow(TargetsSelector):
                 w = self.additional_sorting.evaluate(replace(ctx, subject=it, active_target=it))
                 return int(w or 0)
             classables.sort(key=_key)
+        if self.same_column_is_random:                                     # +0x28
+            # `ThenBy(<pseudoRng.Next(board.Width)>)` -- TROISIEME critere, applique en DERNIER,
+            # donc pose EN PREMIER ici (les `sort` de Python sont stables : `OrderBy(a).ThenBy(b)`
+            # se realise en triant par `b` puis par `a`). LES TIRAGES SONT FAITS POUR **TOUS** LES
+            # ELEMENTS, DANS L'ORDRE SOURCE -- pas seulement pour les classables et pas dans
+            # l'ordre courant de `classables` : c'est ce que fait `EnumerableSorter.ComputeKeys`,
+            # et le nombre comme l'ordre des tirages sont OBSERVABLES sur tout le flux aval.
+            cles = self._pseudo_rng_keys(ctx, len(items))
+            if cles is not None:
+                classables.sort(key=lambda ri: cles[ri[1]])
         classables.sort(key=lambda ri: ri[0], reverse=not self.ascending)   # +0x38 ascending
         out = [items[i] for _, i in classables]
         out.extend(items[i] for i, r in enumerate(rows) if r is None)
         return out
+
+    def _pseudo_rng_keys(self, ctx, combien: int):
+        """`[ pseudoRng.Next(board.Width) for _ in items ]` -- les cles du 3e `ThenBy`.
+
+        Rend `None` (et NE TIRE PAS) quand un des deux etages manque, ce qui est la degradation
+        NOMMEE de la docstring : accesseur non branche, ou largeur de plateau non derivable."""
+        tirer = getattr(ctx, "pseudo_rng_next", None)
+        if tirer is None or combien <= 0:
+            return None
+        largeur = _board_width(getattr(ctx, "board", None))
+        if largeur is None:
+            return None
+        return [int(tirer(largeur)) for _ in range(combien)]
 
 
 class Blocking(TargetsSelector):
@@ -525,68 +609,6 @@ class EntitiesWithAnyEffect(TargetsSelector):
         return out
 
 
-class PickFirstN(TargetsSelector):
-    """`IdunBattleLogic.Entities.DSLFactory$$First(source, amountNode)` -> `IdunBattle.Entities.Selectors.PickFirstNSelector` (`IdunBattle.DSL.APickSelector`, taille 0x30 =
-    ctx/source/amount-node/flag) : les `amount` PREMIERS elements de la source, ordre PRESERVE.
-
-    ⚠ A NE PAS CONFONDRE avec `IdunBattle.Entities.Selectors.PickAtIndexSelector$$Select` (taille 0x28, champ
-    +0x20 = un INT d'index) qui rend `[source[index]]` : c'est une classe DISTINCTE, construite par une
-    AUTRE factory. `DSLFactory.First` construit bien `PickFirstN`. Le noeud `First` de ce module (index 0
-    par defaut) coincide avec `PickFirstN(1)` pour tous ses call-sites historiques (index non passe).
-
-    `amount` = noeud VALEUR (`Direct(nrOfSummons)`) ou int. <=0 -> liste vide."""
-    def __init__(self, source: TargetsSelector, amount):
-        self.source, self.amount = source, amount
-
-    def select(self, ctx):
-        n = self.amount.evaluate(ctx) if hasattr(self.amount, "evaluate") else self.amount
-        n = int(n or 0)
-        if n <= 0:
-            return []
-        return list(self.source.evaluate(ctx))[:n]
-
-
-class PickLastN(TargetsSelector):
-    """`IdunBattleLogic.Entities.DSLSelectors$$Last(entities, amount, ignoreForcedTargets)` ->
-    `IdunBattle.Entities.Selectors.PickLastNSelector$$Select` (`IdunBattle.DSL.APickSelector`,
-    taille 0x30) : les `amount` DERNIERS elements de la source, ordre PRESERVE (#940).
-
-    LU, terme a terme -- c'est le PENDANT EXACT de `PickFirstN` ci-dessus, et le decompile le dit
-    par sa seule ligne qui differe, l'indice de depart de la copie :
-
-        candidates = <source>.Select(entities).ToList()
-        n          = <amount>.Calculate(entities)
-        picked     = candidates
-        if (n < candidates.Count) :
-            picked = new List<IEntity>()
-            if (!<this+0x28 ignoreForcedTargets>) AddForcedTargetsAndUpdateCandidates(...)
-            for (i = picked.Count + candidates.Count - n ; i < candidates.Count ; i++)
-                picked.Add(candidates.ElementAt(i))
-        return picked
-
-    ⚠ `n >= Count` rend la source ENTIERE, et `n <= 0` rend donc... la source entiere AUSSI si
-    elle est vide, mais une liste VIDE des qu'elle ne l'est pas (`0 < Count` -> boucle de
-    `Count - 0` a `Count`, zero iteration). Le port reproduit les deux, sans clamp maison.
-
-    RESIDU NOMME (le MEME que `PickFirstN`, qui ne le porte pas davantage) :
-    `IdunBattle.DSL.APickSelector$$AddForcedTargetsAndUpdateCandidates` -- les cibles FORCEES
-    (`ForcedAttackTarget`) sont pre-inserees dans `picked` et retirees des candidats avant la
-    copie. Le port ne modelise pas le forcage de cible ; `ignore_forced_targets` est donc porte
-    comme un champ TRANSCRIT (le litteral du call-site) mais sans effet, exactement comme pour
-    `PickFirstN`. Le seul call-site porte passe `0` (`KissOfDeathAbility$$ExecuteBehaviour`)."""
-    def __init__(self, source: TargetsSelector, amount, ignore_forced_targets: bool = False):
-        self.source, self.amount = source, amount
-        self.ignore_forced_targets = bool(ignore_forced_targets)
-
-    def select(self, ctx):
-        n = self.amount.evaluate(ctx) if hasattr(self.amount, "evaluate") else self.amount
-        n = int(n or 0)
-        cands = list(self.source.evaluate(ctx))
-        if n >= len(cands):                       # `n < candidates.Count` FAUX -> la source telle quelle
-            return cands
-        return cands[len(cands) - n:] if n > 0 else []
-
-
 class AtIndex(TargetsSelector):
     """`IdunBattleLogic.Entities.DSLSelectors$$AtIndex(entities, index)` ->
     `IdunBattle.Entities.Selectors.PickAtIndexSelector$$Select` : l'element a `index` de la source
@@ -596,12 +618,17 @@ class AtIndex(TargetsSelector):
     `IdunBattle.Entities.Selectors.WalkableTilesSelector$$.ctor` : corps DEDUPLIQUE (meme signature
     `(state, source, int)`), pas l'identite de la classe -- on cite donc la FACTORY.
 
-    ⚠ MEME SELECTEUR NATIF que `selectors.units.First`, atteint par une AUTRE factory
-    (`DSLFactory$$First(source[, index])`). Les deux coexistent volontairement cote port : chacune
-    nomme la factory que SON call-site ecrit. Et c'est le voisin homonyme qu'il faut se garder de
-    confondre : `DSLSelectors$$First(source, amount, ignoreForcedTargets)` -- une factory DISTINCTE
-    -- boxe son `amount` en `DirectAmount` et construit un `PickFirstNSelector` (les `amount`
-    PREMIERS elements) ; c'est `PickFirstN` ci-dessus, pas ce noeud.
+    ⚠ **CE NOEUD EST LE SEUL PORT DE `PickAtIndexSelector`** (#1032-r2). La docstring d'avant
+    affirmait que `selectors.units.First` mirrorait le MEME selecteur « atteint par une AUTRE
+    factory `DSLFactory$$First(source[, index])` » : cette factory N'EXISTE PAS dans le build
+    (`IdunBattleLogic.Entities.DSLFactory$$` n'y porte que 5 methodes, aucun selecteur), et le
+    `First` natif -- `IdunBattleLogic.Entities.DSLSelectors$$First(entities, amount,
+    ignoreForcedTargets)`, 2 surcharges -- construit un `PickFirstNSelector`, pas celui-ci.
+    `units.First` est donc devenu ce qu'il mirrore vraiment : une sous-classe de `PickFirstN`.
+    Le voisin a ne pas confondre reste `PickFirstN` (les `amount` PREMIERS elements), qui vit
+    desormais dans `._pick` et est re-exporte en tete de ce module.
+    ORDRE DE GRANDEUR (census PE, build `t6dpr4k06g`) : `AtIndex` = **6** call-sites dans tout le
+    binaire, `First` = **145**.
 
     CONSOMMATEUR PORTE : `IdunBattleLogic.Entities.Abilities.Active.Loki.DiveAttackAbilityBase$$
     ExecuteBehaviour`, qui deroule sa vague sur les 3 tuiles de la ligne par `AtIndex(tiles, i)`
@@ -1128,8 +1155,30 @@ class UnitsWithId(TargetsSelector):
     un tableau d'ids). Filtre `source` par `IdunBattle.Entities.UnitExtensions$$HasUnitId(unit, id)`.
     Consommateur lu : `IdunBattleLogic.Entities.Abilities.Active.Loki.CultDemagogueAbility$$ExecuteBehaviour`
     (`UnitsWithId(SurroundingEnemies(target@0x178, range, 1, 3), GetStringConstant(0|4), 3)`).
-    Meme reduction offline que `UnitsWithIds` : comparaison sur le champ `visualId` du dict d'unite
-    (qui porte l'id de CONFIG pour les unites SPAWNEES, cf. `_spawn_config_grot`).
+
+    ⚠ **LE FILTRE PASSE PAR LE FOYER `has_unit_id` (#1078-r1), PLUS PAR UNE EGALITE DE `visualId`.**
+    Le natif compare l'id de **CONFIG** (`IdunBattle.Entities.UnitExtensions$$GetUnitId` lit le champ
+    +0x10 du composant d'identite), et le port ne dispose que du `visualId` (+0x20) -- la comparaison
+    directe SUR-COMPTE et SOUS-COMPTE selon le sens (mesure #1078 sur `HailOfLivingAmmunition`).
+    Le volet MULTI-ID `selectors/units.py::UnitsWithIds` avait ete bascule ; ce volet-ci ne l'etait
+    pas, alors que `IdunBattle.Entities.Selectors.UnitsWithIdSelector$$Select` est LE MEME
+    selecteur pour les deux (le multi n'est que l'`op_Addition` des volets mono).
+
+    RAYON DE SOUFFLE MESURE (`probe_1078r1_units_with_id_mono.py`, etape 2 : les 8 `unitId` LUS aux
+    call-sites executables x les 268 `visualId` que le gameconfig peut presenter) : **2 verdicts
+    changent**, tous deux `False -> True`, tous deux dans un `Children(Owner)` --
+    `tyranNpc1Hormagaunt` vs `tyranSmnHormagaunt` (SynapticLinchpin) et `votanNpc1Ecog` vs
+    `votanSmnEcog` (EcogSupport). **0 verdict passe de True a False** : pour les 8 `unitId`,
+    `presenting(unitId)` contient `unitId` ou est VIDE (repli historique), donc une unite SPAWNEE
+    par le port (dont le `visualId` porte l'id de CONFIG, cf. `_spawn_config_grot`) reste matchee.
+
+    Ces 2 changements sont des CORRECTIONS, et le regime AMBIGU que redoutait la docstring
+    d'`has_unit_id` ne mord pas ici : la source de ces deux call-sites est
+    `IdunBattleLogic.Entities.DSLSelectors$$Children(owner)`, qui ne contient que des unites
+    SPAWNEES par le porteur -- jamais le npc homonyme. Un enfant SEEDE DEPUIS LE LIVE
+    (`snapshot._load_unit_parent` <- `combatSnapshot.units[].parentId`) porte, lui, son id VISUEL :
+    l'ancienne comparaison ne le comptait PAS dans le cap de summons, donc le port spawnait AU-DELA
+    du plafond que le natif applique.
 
     ⚠ **LE 3e ARGUMENT `mode` EST UN `UnitSelectionType`, ET IL EST DESORMAIS APPLIQUE.** Il etait
     STOCKE et jamais LU : le noeud ne filtrait que sur `visualId`. Tant que la SOURCE etait
@@ -1153,7 +1202,54 @@ class UnitsWithId(TargetsSelector):
         if uid is None:
             return []
         return [u for u in self.source.evaluate(ctx)
-                if u.get("visualId") == uid and selection_ok_from_ctx(u, self.mode, ctx)]
+                if has_unit_id(u, uid) and selection_ok_from_ctx(u, self.mode, ctx)]
+
+
+#: Les champs du `DslContext` qui correspondent a un slot d'`IdunBattle.Entities.Abilities.
+#: AbilityEntities` -- l'ORDRE est celui du `.ctor` natif, dont Ghidra rend les 33 parametres nommes
+#: (`caster, actor, target, owner, casterTile, activePlayer, casterTiles, effect, targetTile,
+#: targetTiles, activeTarget, previousActiveTarget, currentAbilityOrEffect, ...`).
+#: Les offsets des trois premiers sont LUS, pas supposes : `ActorSelector$$Select` lit `entities+0x0`,
+#: `IdunBattle.Entities.Selectors.CasterSelector$$Select` lit `+0x8`,
+#: `IdunBattle.Entities.Selectors.TargetSelector$$Select` lit `+0x10`.
+#: `subject` n'a pas de slot PROPRE : le port l'emploie comme l'element courant lie par un
+#: `Filter`/`Foreach`, ce que le natif ecrit dans `activeTarget` (surcharge
+#: `AbilityEntities$$.ctor(entities, activeTarget)`, une COPIE-avec-activeTarget). Il entre donc
+#: dans la cle, au meme titre.
+#: ⚠ CE QUI N'Y EST PAS, et c'est un RESULTAT : les 20+ champs de DEGAT de la structure
+#: (`damageReason`, `hitIndex`, `usedDamageProfiles`, `wasCrit`, ...) dont le `DslContext` ne
+#: modelise que `is_first_hit`. Un `Cache` reevalue sous deux `hitIndex` differents dans la MEME
+#: serie de coups verrait donc un HIT la ou le natif re-calcule. Aucun call-site porte n'est dans
+#: ce cas (les `Cache` portes vivent au-dessus de la boucle de coups) -- residu NOMME.
+_ABILITY_ENTITIES_SLOTS = ("actor", "caster", "target", "owner", "caster_pos",
+                           "effect", "active_target", "subject", "is_first_hit")
+
+
+def _entity_key(x):
+    """Reduit un slot de role a une CLE HACHABLE qui mirrore l'egalite native.
+
+    `AbilityEntities` est un `struct` sans `Equals`/`GetHashCode` propres : le `Dictionary` compare
+    donc champ a champ, et les champs ENTITE (`IEntity`) le sont par REFERENCE. Cote port,
+    l'identite stable d'une entite est son `id` (le dict d'unite est reconstruit d'un canal a
+    l'autre, l'`id` non) -- on preferera donc l'`id` quand il existe, et l'identite d'OBJET sinon,
+    qui est la traduction litterale de la reference native."""
+    if x is None:
+        return None
+    if isinstance(x, dict):
+        v = x.get("id")
+        return ("e", v) if v is not None else ("o", id(x))
+    if isinstance(x, (bool, int, float, str, bytes)):
+        return x
+    if isinstance(x, (list, tuple, set, frozenset)):
+        return tuple(_entity_key(y) for y in x)
+    v = getattr(x, "id", None)                       # `LiveUnit` & co : meme identite que le dict
+    return ("e", v) if v is not None else ("o", id(x))
+
+
+def _ability_entities_key(ctx):
+    """La CLE du `Dictionary<AbilityEntities, List<IEntity>>` de `CacheSelector+0x30` (#927-r3),
+    construite sur les SEULS slots que le port modelise (cf. `_ABILITY_ENTITIES_SLOTS`)."""
+    return tuple(_entity_key(getattr(ctx, nom, None)) for nom in _ABILITY_ENTITIES_SLOTS)
 
 
 class Cache(TargetsSelector):
@@ -1165,18 +1261,62 @@ class Cache(TargetsSelector):
     LIBRES PRÉ-spawn) et `PerformAIAttackFromCurrentPosition` (relit ces MÊMES tuiles POST-spawn pour y
     trouver les grots) ; sans mémoïsation, `CanAddUnit` recalculé exclurait les tuiles désormais occupées
     → zéro grot trouvé. Portée = l'instance du nœud ; l'arbre étant rebâti par cast (`getemruntz_tree()`),
-    le cache est **par-cast**. Slot unique (suffisant pour GetEmRuntz : même contexte top-level aux deux
-    évals ; la variante dict-keyée par contexte reste à porter si un `Cache` est éval sous un `Foreach`)."""
-    def __init__(self, source):
+    le cache est **par-cast**.
+
+    ⚠ **LES DEUX MODES SONT PORTES (#927-r3), ET LE PORT N'AVAIT QUE LE MINORITAIRE.** La factory est
+    `IdunBattleLogic.Entities.DSLSelectors$$Cache(entities, matchAbilityEntities)` ; le ctor pose
+    `+0x18 = source`, `+0x20 = matchAbilityEntities`, `+0x28 = 0` (le slot) et alloue TOUJOURS le
+    `Dictionary` de `+0x30`. `IdunBattle.Entities.Selectors.CacheSelector$$Select`, terme a terme :
+
+        result = 0
+        if (this+0x20 == 0)  result = this+0x28                      // mode SLOT
+        else                 this+0x30.TryGetValue(entities, out result)   // mode DICT
+        if (result != 0) return result
+        result   = <source>.Select(entities).ToList()
+        this+0x28 = result                                           // TOUJOURS
+        this+0x30.Add(entities, result)                              // TOUJOURS
+        return result
+
+    Seule la LECTURE branche sur le flag ; l'ECRITURE alimente les deux emplacements. Le mode SLOT
+    rend donc la 1re valeur memoisee QUEL QUE SOIT le contexte suivant ; le mode DICT re-calcule
+    des que l'`AbilityEntities` recu differe.
+
+    CENSUS PE DE TOUS LES CALL-SITES (build `t6dpr4k06g`, 2026-08-15) : **119 call-sites**, dont
+    **112 en mode DICT** et **7 en mode SLOT**. Les sept, nommes :
+    `...ResurrectionOrbAbility$$GetResurrectBehaviour`, `...StormcallerAbility$$ExecuteBehaviour`,
+    `...HeavyRailRifle_AttackAbility$$CreateBehaviour`, `...LightImUpAbility$$CreateBehaviour`
+    (le 2e de ses deux appels), `...DakkaDakkaDakkaAbility$$ExecuteBehaviour`,
+    `...DakkaDakkaDakkaAbility$$GetLeftoverHitsPerTargetFormula`,
+    `...DarkTalonStrikeAbility$$ExecuteBehaviour`.
+    D'ou le defaut `True` : ce n'est pas un litteral invente, c'est celui de 112 sites sur 119, et
+    tout call-site de la minorite l'ECRIT (`match_ability_entities=False`).
+
+    ⚠ CE QUE LA CLE COUVRE, ET CE QU'ELLE NE COUVRE PAS. Le natif keye sur la STRUCTURE
+    `AbilityEntities` entiere (33 champs, egalite de `ValueType` : references pour les entites,
+    valeurs pour les scalaires). Le `DslContext` du port n'en modelise qu'un SOUS-ENSEMBLE, et
+    `_ability_entities_key` ci-dessous ne prend QUE ces champs-la -- surtout pas le contexte entier,
+    qui porte aussi `units`, `board` et une trentaine d'accesseurs que la structure native ignore :
+    les inclure ferait RATER le cache a chaque reconstruction de contexte, et c'est exactement la
+    memoisation load-bearing de GetEmRuntz qu'on casserait."""
+    def __init__(self, source, match_ability_entities: bool = True):
         self.source = source
-        self._has = False
-        self._cached = None
+        self.match_ability_entities = bool(match_ability_entities)   # `+0x20`
+        self._cached = None                          # `+0x28`, initialise a 0 par le ctor natif
+        self._by_entities: dict = {}                 # `+0x30`, alloue par le ctor natif
 
     def select(self, ctx):
-        if not self._has:                            # slot +0x28 : miss -> calcule + stocke
-            self._cached = self.source.evaluate(ctx)
-            self._has = True
-        return self._cached                          # hit -> renvoie le cache (mémoïsation observable)
+        if not self.match_ability_entities:          # `if (this+0x20 == 0)`
+            cached = self._cached
+        else:                                        # `TryGetValue(entities, out result)`
+            cached = self._by_entities.get(_ability_entities_key(ctx))
+        # `if (result != 0) return result` -- une liste VIDE est un pointeur NON NUL cote natif,
+        # donc un resultat vide EST memoise. `is not None`, jamais un test de verite Python.
+        if cached is not None:
+            return cached
+        result = self.source.evaluate(ctx)           # `<source>.Select(entities).ToList()`
+        self._cached = result                        # `this+0x28 = result` -- INCONDITIONNEL
+        self._by_entities[_ability_entities_key(ctx)] = result   # `this+0x30.Add(...)` -- idem
+        return result
 
 
 class Entity(TargetsSelector):

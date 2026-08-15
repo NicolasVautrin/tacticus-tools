@@ -1000,8 +1000,12 @@ class ArcScourgeAbility(ActiveAbility):
 # occupees par une unite franchissable ensuite. `CanAddUnit` accepte en effet les deux (cf.
 # `tiles.py`), donc sans ce critere le natif poserait des summons sur des tuiles franchissables
 # alors qu'il en avait de vraiment libres.
-# RESIDU `#1027-r1` : le natif ajoute un 3e `ThenBy(pseudoRng)` (`sameColumnIsRandom: 1`) que le
-# port ne tire pas -- il departage des ex aequo, cf. la docstring de `SortByRow`.
+# `#1027-r1` CLOS : le 3e `ThenBy(pseudoRng)` (`sameColumnIsRandom: 1`) EST tire depuis que le
+# noeud `SortByRow` porte sa cle (`ctx.pseudo_rng_next(board.Width)`, une par element, dans l'ordre
+# SOURCE). C'est le SEUL call-site porte qui arme ce flag, donc le seul qui consomme ces tirages.
+# ⚠ Consequence de FLUX, pas seulement d'ORDRE : ces `Count(tuiles)` tirages decalent tout ce que
+# le PRNG de bataille sert APRES ce cast. C'est la fidelite qui l'exige (le natif les fait), mais
+# c'est aussi ce qui rend la confrontation live de cette ability sensible au COMPTE de tuiles.
 # =================================================================================================== #
 
 INVOCATION_OF_MACHINE_VENGEANCE_ID = "InvocationOfMachineVengeance"

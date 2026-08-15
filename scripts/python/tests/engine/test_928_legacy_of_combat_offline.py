@@ -66,6 +66,9 @@ DECLENCHEUR = {
         "scripts/python/engine/entities/selectors/units.py",
         "scripts/python/engine/entities/selectors/accessors.py",
         "scripts/python/engine/entities/selectors/geometry.py",
+        # `First` EST `PickFirstN`, dont l'implementation a DEMENAGE ici (#1032-r2) : sans ce
+        # chemin, ce fichier ne se rejouerait plus quand le prelevement change.
+        "scripts/python/engine/entities/selectors/_pick.py",
         "scripts/python/engine/entities/behaviours.py",
         "scripts/python/engine/entities/triggers.py",
         "scripts/python/engine/runner/abilities/behaviours/combat.py",

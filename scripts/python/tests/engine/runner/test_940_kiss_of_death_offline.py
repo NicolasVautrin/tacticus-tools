@@ -48,6 +48,10 @@ DECLENCHEUR = {
         "scripts/python/engine/runner/components.py",
         "scripts/python/engine/entities/selectors/geometry.py",
         "scripts/python/engine/entities/selectors/units.py",
+        # `PickLastN` a DEMENAGE dans ce module FEUILLE (#1032-r2) : sans lui, ce fichier ne se
+        # rejouerait plus quand ce qu'il garde change -- un declencheur trop ETROIT est un FAUX
+        # VERT. `geometry.py` ne fait plus que le re-exporter.
+        "scripts/python/engine/entities/selectors/_pick.py",
         "scripts/python/engine/entities/effect_type.py",
         "scripts/python/engine/entities/active_ability_type.py",
         "scripts/python/engine/entities/ability_variable_type.py",

@@ -933,6 +933,17 @@ def entities_from_state(state, caster_id: int, target_id: int | None = None,
         return _pick_randomly_n(state, list(items), int(amount),
                                 allow_repeat=bool(allow_repeat), max_repeats=int(max_repeats))
 
+    # `ctx.pseudo_rng_next` (`IdunBattle.Utils.PRNG.IPseudoRNG.Next(n)`, slot 1 de l'interface) : UN
+    # tirage entier dans `[0, n)` sur le PRNG DE BATAILLE. A ne pas confondre avec
+    # `_pick_randomly` ci-dessus, qui mirrore `PickRandomAmountSelector$$Select` (tirer N ELEMENTS).
+    # Delegue au foyer UNIQUE `runner/prng.py::IntBasedMersenneTwister.next`, bit-exact (#130/#215).
+    # ⚠ CE N'EST PAS UN TIRAGE GRATUIT : `next` consomme au moins un `genrand_int32`, et le REJET
+    # facon Java peut en consommer plusieurs selon `n`. Tout appel deplace donc le flux -- c'est
+    # exactement pour cela que le noeud appelant doit tirer AUTANT DE FOIS que le natif, ni plus
+    # ni moins.
+    def _pseudo_rng_next(bound):
+        return int(state.rng.next(int(bound)))
+
     # `ctx.sort_tiles_by_utility` (`IdunBattle.Entities.Selectors.SortTilesByUtilitySelector$$Select`)
     # : le noeud DSL `SortTilesByUtility` n'a pas acces au `State` (les feuilles d'utilite lisent
     # l'ECS entier) -> il passe par cet accesseur, qui delegue au foyer UNIQUE
@@ -1086,6 +1097,7 @@ def entities_from_state(state, caster_id: int, target_id: int | None = None,
                       entity_can_be_repaired=_entity_can_be_repaired,
                       entity_can_be_healed=_entity_can_be_healed,
                       pick_randomly=_pick_randomly,
+                      pseudo_rng_next=_pseudo_rng_next,        # `IPseudoRNG.Next(n)`, slot 1
                       sort_tiles_by_utility=_sort_tiles_by_utility,
                       sort_units_by_damage_utility=_sort_units_by_damage_utility,
                       attack_prediction=_attack_prediction,
