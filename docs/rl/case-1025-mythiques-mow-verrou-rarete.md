@@ -144,6 +144,28 @@ n'est un filet que pour les chemins **purement offline**, et seul le cliquet OFF
 
 - **`#1025-r1`** — canal `rarity` absent : les faces DÉGÂT de 1446 et 1449 ne sont pas portées.
   `BLOCAGE: capteur`.
-- **`#1025-r2`** — `damage_taken_triggers` ne threade pas `ability_type`, donc `IsRangedAttack` sur
-  ce vecteur retombe sur `!AreEntitiesAdjacent` : une attaque d'ability `attackRangeType = Ranged(2)`
-  contre une cible ADJACENTE est acceptée par le natif et refusée par le port. `BLOCAGE: aucun`.
+- **`#1025-r2` — FERMÉ (2026-08-15).** `damage_taken_triggers` threade désormais
+  `source_ability` en `ability_type` (`AbilityEntities+0x60 = CurrentAbility`). Trois lectures
+  l'établissent :
+  1. `IdunBattle.Operations.ApplyDamageOperation$$Execute` ne construit **qu'UN SEUL**
+     `AbilityEntities` (une seule invocation du ctor à 33 paramètres, après `memset(.., 0x128)`) et
+     le réutilise pour ses TROIS publications `On(0x39)` / `On(0xf)` / `On(0x10)` — le `+0x60` du
+     vecteur `DamageTaken` est donc celui que #1020-r3 avait déjà résolu en `source_ability`
+     (`DamageAppliedResult+0x40`) ;
+  2. `IdunBattleLogic.Entities.DSLTriggers$$IsRangedAttack()` (la surcharge SANS argument, celle
+     d'`ElectrochaffBackups`) alloue son propre sélecteur d'ability : la classe que
+     `IdunBattleLogic.Entities.DSLSelectors$$.ctor` range en **`+0x88`**, c'est-à-dire
+     `AbilityTypeSelector.CurrentAbilitySelector` — donc `+0x60`, pas `+0x98` ;
+  3. `IdunBattle.Core.Services.BattleQuery$$IsRangedAttack` (slot 3) rend VRAI sur `Ranged(2)`
+     **sans lire aucune position** (`case 2: return true;`).
+
+  Régime fermé, et il n'est pas théorique : une attaque d'ability déclarée `Ranged` portée **au
+  contact** était refusée par le port. Garde :
+  `test_1025_electrochaff_backups_offline.py::test_branche_degat_accepte_une_ability_Ranged_AU_CONTACT`
+  (même montage que le bras négatif — seules les deux tuiles restent adjacentes, seul le canal
+  change — avec contre-épreuve `Melee` dérivée du gameconfig).
+- **`#10013`** (ouvert par la même tranche) — les DEUX frères du même `AbilityEntities`
+  (`On(0x39)`, `On(0x10)`) ne portent toujours pas `ability_type`. DÉLIBÉRÉ : aucun de leurs
+  consommateurs portés ne lit `ev.ability_type` (mesuré : 0 occurrence dans `fleshmetal_guns.py`,
+  `fire.py`, `geminae_superia.py`, `savior_protocols.py`), donc l'y poser serait un canal sans
+  lecteur. `BLOCAGE: aucun`.

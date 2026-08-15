@@ -618,6 +618,42 @@ def _is_ranged_attack(state: State, ability_type, attacker_id: int, target_id: i
     return _is_ranged_position(state, attacker_id, target_id)   # branche `Normal(3)`
 
 
+def _attack_range_type(state: State, ability_type, attacker_id, target_id) -> str:
+    """`IdunBattle.Core.Services.BattleQuery$$GetAttackRangeType(ability, caster, casterPosition,
+    target)` -- le slot **4** d'`IBattleQuery`, dans le domaine du RUNNER. FRERE de
+    `_is_ranged_attack` ci-dessus (slot 3) : meme etage `GetAbilityAttackRangeType`, meme repli
+    positionnel sur la branche `Normal(3)`, mais il rend le MEMBRE et non un booleen -- et cette
+    troisieme valeur (`"None"`) est exactement ce que ses consommateurs distinguent.
+
+    Il y en a DEUX cote natif, et les deux ecrivent une donnee que le port ne tenait pas :
+
+      * `IdunBattle.Operations.FinishAttackOperation$$Execute` -> `IOperationProcessor` slot 74
+        (`RegisterAttack`) -> `ActorStatisticsComponent$$RegisterAttackMade`, qui incremente
+        `@+0x2c` sur `Melee` et `@+0x28` sur `Ranged` (`#508-r2`) ;
+      * `IdunBattle.Operations.ApplyDamageOperation$$Execute` -> `KillUnitContext@+0x38` ->
+        `IdunBattle.Core.MatchState$$AddDeath(..., AttackRangeType)` -> `KillUnitOptions+0x3c` ->
+        `IdunBattle.Operations.KillUnitOperation$$Execute`, qui en derive
+        `inMelee = HasValue && value == Melee(1)` (`#951-r1`).
+
+    L'ETAGE `GetAbilityAttackRangeType` est delegue au FOYER
+    `services/battle_query.get_attack_range_type` (le natif l'a aussi en fonction separee) ; la
+    branche `Normal(3)` reste sur `_is_ranged_position`, c.-a-d. `state.board.neighbours` --
+    l'adjacence du RUNNER, deja confrontee live, exactement comme `_is_ranged_attack`.
+
+    `ability_type` = l'`AbilityOrEffect` du coup. `None` -> pas de nom -> branche `Normal(3)`,
+    MEME convention que `_is_ranged_attack`. `ForceRangedAttack` (`UnitFlag` 21) n'est publie par
+    aucun capteur (residu `#419-r1-tr5-r1`) -> non lu ici, degradation nommee et identique."""
+    import gameconfig as GC     # differe pour la meme raison que dans `_is_ranged_attack`
+    rt = _svc_bq.attack_range_type(GC.ability_name(int(ability_type))
+                                   if ability_type is not None else None)
+    if rt in ("Melee", "Ranged", "None"):      # `case 1` / `case 2` / `case 0`
+        return rt
+    # branche `Normal(3)` : `Melee` ssi adjacent (et pas de `ForceRangedAttack`), sinon `Ranged`.
+    if attacker_id is None or target_id is None:
+        return "Ranged"                        # `AreEntitiesAdjacent` sans entite = FAUX
+    return "Ranged" if _is_ranged_position(state, int(attacker_id), int(target_id)) else "Melee"
+
+
 def _faction_id(state: State, unit_id: int) -> Optional[str]:
     """`FactionId` gameconfig de l'unité (résolu par `visual_id`) — sert au test Imperial (`HasTrait(26)`).
     None si l'unité ou son visual_id est introuvable."""

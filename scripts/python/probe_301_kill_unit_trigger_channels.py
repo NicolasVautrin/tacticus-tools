@@ -128,7 +128,11 @@ def _patched_verify_deaths(mutate: Optional[str]):
         out: list = []
         try:
             while state.pending_deaths:
-                dying_id, killer_id, overkill, kill_trigger = state.pending_deaths.pop(0)
+                # #951-r1 : l'entree porte un 5e champ (`KillUnitOptions+0x3c`). Ce probe ne
+                # mesure que les DEUX canaux d'ability -- il depile large plutot que d'imposer
+                # une arite, pour rester jouable sur les deux formes de file.
+                _entry = state.pending_deaths.pop(0)
+                dying_id, killer_id, overkill, kill_trigger = _entry[:4]
                 if mutate == "legacy":                 # l'etat AVANT #301
                     state.triggering_ability = kill_trigger
                 elif mutate == "both":                 # les deux canaux alimentes

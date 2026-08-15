@@ -300,11 +300,21 @@ def apres_kill(rpc, build_runner):
     vic2 = next((u for u in (dvi.get("units") or []) if u.get("visualId") == VICTIME), None)
     uc = next((u.get("unitConfig") or {} for u in (snap.get("units") or [])
                if u.get("entityId") == car["id"]), {})
+    # #951-r1 : le couple `inMelee`, sur les DEUX faces et dans les DEUX regimes. Ce kill est un
+    # corps-a-corps (le montage a impose `d == 1` plus haut), donc `Melee(1)` est attendu.
+    vuc = state.get_entity(vic["id"]).get_component(UnitComponent)
     return {"carrier": car["id"], "victime_morte": bool(vic2 is not None and not vic2.get("alive")),
             "natif": nat, "port_mods": port_mods,
             "victimes_port": len(puc.defeated_units) if puc is not None else None,
             "plvl": uc.get("passiveAbilityLevel"),
-            "mult": uc.get("abilityVariablesMultiplier") or 100}
+            "mult": uc.get("abilityVariablesMultiplier") or 100,
+            # face SIMULATION (le rejeu offline ci-dessus)
+            "port_defeated_by_melee": (vuc.defeated_by_melee if vuc is not None else None),
+            "port_melee": list(puc.defeated_units_melee) if puc is not None else None,
+            "port_other": list(puc.defeated_units_other) if puc is not None else None,
+            "victime_id": vic["id"],
+            # face NATIVE (le meme kill, joue LIVE juste apres)
+            "natif_defeated_by_melee": (None if vic2 is None else vic2.get("defeatedByMelee"))}
 
 
 # ==================================================================================================
@@ -372,6 +382,40 @@ def test_stat_mod_crit_chance_natif_et_port_concordent(apres_kill):
     assert int(sm.get("IsHidden")) == 0                      # `isHidden: false`, LU aux octets
     assert int(nat.get("remaining") or 0) == 0               # `turns: null` -> PERMANENT
     assert apres_kill["port_mods"] == [(EXTRA_CRIT_CHANCE, int(attendu))]
+
+
+def test_951r1_in_melee_concorde_avec_le_natif(apres_kill):
+    """#951-r1 -- LA CONFRONTATION DE LA FACE SIMULATION, sur le SEUL canal qui la publie.
+
+    `IdunBattle.Operations.KillUnitOperation$$Execute` calcule
+    `inMelee = rangeType.HasValue && rangeType.GetValueOrDefault() == Melee(1)` et l'ecrit DEUX
+    fois : sur la VICTIME (`UnitComponent+0x178 = DefeatedByMeleeAttack`, publie par
+    `readUnitDeathMeta` sous `decisionView.units[].defeatedByMelee`) et sur le TUEUR
+    (`RegisterDefeatedUnit`, qui partitionne `@+0xa8` melee / `@+0xb0` autres).
+
+    Le port ne tenait AUCUNE des deux en simulation (`in_melee` non passe, residu #951-r1 ferme par
+    le port du slot 4 `BattleQuery$$GetAttackRangeType`). Ce montage est un corps-a-corps (`d == 1`
+    impose par la fixture), donc le regime N'EST PAS degenere : `Melee` est attendu, et un port qui
+    passerait `None` tomberait dans l'autre liste.
+
+    Les deux faces sont confrontees SEPAREMENT -- ecrire l'une sans l'autre laisserait
+    `PossessionAbility` (qui lit la victime) et `TrophyTakerAbility` (qui lit le tueur) en desaccord
+    sur la MEME mort."""
+    assert apres_kill["victime_morte"], "sans mort, rien n'est mesure"
+    nat = apres_kill["natif_defeated_by_melee"]
+    assert nat is not None, (
+        "`decisionView.units[].defeatedByMelee` absent du canal -- l'oracle natif n'existe plus, "
+        "cette confrontation ne prouverait rien")
+    assert bool(nat) is True, (
+        "le natif ne classe PAS ce kill en melee alors que le montage impose `d == 1` : le regime "
+        "est degenere, l'assertion de concordance ci-dessous serait vraie pour la mauvaise raison")
+    assert apres_kill["port_defeated_by_melee"] is bool(nat), (
+        "face VICTIME : port=%r natif=%r" % (apres_kill["port_defeated_by_melee"], nat))
+    assert apres_kill["port_melee"] == [apres_kill["victime_id"]], (
+        "face TUEUR : la victime d'un kill de MELEE doit entrer dans `@+0xa8`, pas dans `@+0xb0` "
+        "-- melee=%r autres=%r" % (apres_kill["port_melee"], apres_kill["port_other"]))
+    assert apres_kill["port_other"] == [], (
+        "la victime est inscrite DEUX fois, ou dans la mauvaise liste : %r" % (apres_kill["port_other"],))
 
 
 def test_extra_crit_chance_nest_pas_rarity_scale(apres_kill):

@@ -270,6 +270,75 @@ def is_ranged_attack(ability_name, caster_position, target_position, elev_by_pos
                                               elev_by_pos, neigh_by_pos))
 
 
+def get_attack_range_type(ability_name, caster_position, target_position, elev_by_pos=None,
+                          force_ranged_attack: bool = False, neigh_by_pos=None):
+    """`IdunBattle.Core.Services.BattleQuery$$GetAttackRangeType(ability, caster, casterPosition,
+    target)` -- le slot **4** d'`IBattleQuery` (arite 4, LU dans
+    `data/symbols/<build>/metadata/interface_slots.tsv`), TROISIEME frere des slots 2
+    (`is_melee_attack`) et 3 (`is_ranged_attack`). Mirror 1:1 du decompile :
+
+        if (!ability.HasValue) return AttackRangeType.None;         // 0
+        switch (GetAbilityAttackRangeType(ability)) {   // 0 None, 1 Melee, 2 Ranged, 3 Normal
+          case 0: return 0;                            // None
+          case 1: return 1;                            // Melee
+          case 2: return 2;                            // Ranged
+          case 3: if (!UnitExtensions.HasFlag(caster, 0x15)        // UnitFlag.ForceRangedAttack
+                      && AreEntitiesAdjacent(casterPosition, target)) return 1;   // Melee
+                  return 2;                                                        // Ranged
+          default: throw new NotImplementedException();
+        }
+
+    ⚠ **CE N'EST NI `is_melee_attack` NI `is_ranged_attack`, ET LA DIFFERENCE EST LOAD-BEARING** :
+    les deux booleens rendent FAUX sur `None(0)`, alors que celui-ci rend le membre `None` --
+    c'est-a-dire une TROISIEME valeur, que ses deux consommateurs distinguent d'un `Melee` et d'un
+    `Ranged`. Un port qui le simulerait par `is_melee_attack ? Melee : Ranged` classerait toute
+    ability sans `attackRangeType` en `Ranged`, et incrementerait un compteur que le natif laisse
+    a zero.
+
+    DEUX CONSOMMATEURS NATIFS, tous deux LUS (c'est ce qui a leve les blocages `etage` annonces
+    par `#508-r2` et `#951-r1`) :
+
+      * `IdunBattle.Operations.FinishAttackOperation$$Execute` -- il appelle ce slot avec
+        `(ability = <AttackOptions+0x10>, caster = attaquant, casterPosition =
+        EntityExtensions$$GetUnitPosition(attaquant), target = cible)`, emballe le resultat dans un
+        `Nullable<AttackRangeType>` **toujours renseigne**, et le passe en 3e argument de
+        `IOperationProcessor` slot **74** (`RegisterAttack`, arite 4) -> `ActorStatisticsComponent$$
+        RegisterAttackMade`, qui incremente `@+0x2c` sur `Melee(1)` et `@+0x28` sur `Ranged(2)`.
+        C'est le call-site que `#508-r2` declarait NON LOCALISE.
+      * `IdunBattle.Operations.RecordKillOperation$$Execute` -- meme appel (ability = le
+        `killTrigger` du `KillUnitContext`), resultat enfile par `IdunBattle.Core.MatchState$$
+        AddDeath(killer, killed, killTrigger, attackTrigger, **AttackRangeType**), recopie en
+        `KillUnitOptions+0x3c` par la lambda de drain, et lu par
+        `IdunBattle.Operations.KillUnitOperation$$Execute` sous la forme
+        `inMelee = rangeType.HasValue && rangeType.Value == Melee(1)`. C'est l'ECRIVAIN que
+        `#951-r1` declarait NON LOCALISE.
+        ⚠ Sur la voie DEGAT le contexte porte DEJA la valeur (`IdunBattle.Operations.
+        ApplyDamageOperation$$Execute` appelle ce meme slot 4 avant de la poser dans le
+        `KillUnitContext@+0x38`) -> `RecordKillOperation` prend la branche `HasValue` et ne
+        recalcule pas. Le port fait pareil : il calcule au foyer de degat
+        (`damage.py::_fire_death_if_killed`) et transporte la valeur.
+
+    Rend le NOM du membre d'`IdunBattle.Entities.Enum.AttackRangeType` (`"None"`, `"Melee"`,
+    `"Ranged"`) -- MEME vocabulaire que `attack_range_type` et que les deux slots freres de ce
+    module, qui parlent tous en noms de membres et jamais en ordinaux. `ability_name = None` /
+    nom inconnu -> pas d'entree gameconfig -> branche `Normal(3)`, MEME convention et MEME
+    justification que ses deux freres (les attaques normales CONCRETES n'ont pas d'entree nommee).
+
+    `force_ranged_attack` = `UnitFlag.ForceRangedAttack` (21) ; aucun capteur ne le publie (residu
+    `#419-r1-tr5-r1`), donc l'appelant le laisse a `False` -- degradation nommee, identique a celle
+    des deux freres."""
+    rt = attack_range_type(ability_name)    # `BattleQuery$$GetAbilityAttackRangeType` (etage separe)
+    if rt in ("Melee", "Ranged", "None"):   # `case 1` / `case 2` / `case 0` -- rendus TELS QUELS
+        return rt
+    # branche `Normal(3)` : melee SSI (pas de `ForceRangedAttack`) ET adjacence, sinon ranged.
+    if force_ranged_attack:                 # `HasFlag(caster, 0x15)` -> ranged sans lire la position
+        return "Ranged"
+    if caster_position is None or target_position is None:
+        return "Ranged"                     # `AreEntitiesAdjacent` sur une position absente = FAUX
+    return "Melee" if bool(_bq.are_entities_adjacent(
+        tuple(caster_position), tuple(target_position), elev_by_pos, neigh_by_pos)) else "Ranged"
+
+
 def _find_by_hits(cands: list, prefer_hits) -> dict:
     """Parmi les armes candidates (même type), celle dont `hits == prefer_hits` (capté), sinon la 1re."""
     if prefer_hits is not None:
