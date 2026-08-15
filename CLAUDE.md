@@ -524,8 +524,25 @@ dossiers) que le cliquet a trouvée à son premier passage.
   résidus au-delà étaient **VUS par le corpus** et **tus par la sortie**. **11 parents sur 218**
   étaient dans ce cas. Un trou n'est jamais proposé, dans aucun mode — il peut être réservé par
   une PR en vol ou par un agent qui n'a rien écrit ; il est seulement **listé**.
-- ⚠ La **puce** de résidu d'une case-doc est une 4ᵉ position de définition **de fait**, non gardée
-  (`#468-r7`).
+- ⚠ La **puce** de résidu d'une case-doc est une 4ᵉ position de définition **de fait** — portée et
+  MESURÉE (`#468-r7`, 2026-08-15), puis rendue en **INVENTAIRE** (`--report`), **jamais bloquante**.
+  Le remède qui semblait évident — « un critère de SECTION » — est **réfuté** : seul, il rend **33**
+  identifiants en puce ouverte dans ≥ 2 case-docs, parce qu'une section « Résidus » RÉCAPITULE sa
+  famille. Le discriminant qui marche est le **propriétaire au plus long préfixe** (et, **sans
+  propriétaire, toutes les puces définissent** — sinon le cas motivant `case-467`/`#472-r1` est
+  perdu) : doubles **33 → 6 + 3**, lus un par un, **9/9 légitimes**. Faux positifs 9/9 ⇒ un critère
+  bloquant se ferait désarmer. La seule forme qui le deviendrait (deux dossiers, **aucun**
+  propriétaire) est **comptée à chaque run** ; elle vaut 0.
+- ⚠ **EN POSITION DE DÉFINITION, L'IDENTIFIANT SE LIT PAR SA POSITION, PAS PAR UNE GRAMMAIRE**
+  (`#468-r1`). Une grammaire qui s'arrête trop tôt ne *replie* pas le résidu sur sa racine — elle le
+  fait **DISPARAÎTRE**, parce que le motif exige un `|` juste après. Mesuré le 2026-08-15 :
+  **72 lignes de tableau** de `backlog.md` (7 % du registre) n'étaient **aucune définition**, et
+  l'étape 1 leur était structurellement aveugle. Reste ouvert, et c'est une **convention
+  d'écriture** : `normaliser` retire les tirets, donc `#222-1` et un futur `#2221` sont
+  indistinguables — `--suggere` subit déjà cette confusion à l'identique.
+- ⚠ **`--gate <ref>`** (`#468-r2`) n'accuse que ce que TA branche introduit : merge-base, arbre de
+  travail inclus, appariement par le TEXTE de la ligne. Gain de **précision**, pas de détection —
+  le balayage complet reste le mode qui garde l'arbre.
 - ⚠ **`#<n>` désignait à la fois une tâche et une PR, et les deux compteurs se sont REJOINTS —
   corrigé par une BANDE (`#468-r8`).** Tant que les racines vivaient à ~500 et les PR à ~1500, une
   collision était accidentelle ; mesuré le 2026-08-14, racine en usage max **1084** contre PR max

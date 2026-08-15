@@ -411,22 +411,20 @@ trancher la cause du `128`.
 
 ## 10. Résidus
 
-* **`#468-r1` — les tokens purement NUMÉRIQUES ne prolongent pas l'identifiant.**
-  `case-302-2-prediction-tile-target.md` est lu `302`, alors que son identifiant réel est `302-2` ;
-  les absorber casserait `case-229-1502-rites-of-morkai-*`, où `1502` est un **id d'ability**. Rien
-  ne distingue les deux au niveau du nom. Effet : quelques identifiants à suffixe numérique se
-  regroupent sur leur racine — côté **sûr** (ça peut faire voir une cohabitation, jamais la
-  manquer). Trancher demanderait une convention d'écriture, pas un détecteur.
-* **`#468-r2` — le cliquet ne voit pas la collision AU MOMENT où elle naît.** Il lit l'arbre, pas
-  le diff : il mord quand la définition en trop est **livrée**, c'est-à-dire au dernier moment
-  utile — juste avant la PR, quand renommer ne coûte encore qu'un choix de nom. Un mode `--gate
-  <ref>` (patron `probe_462`) pointerait la définition **introduite par la PR** plutôt que
-  l'identifiant ; le gain serait un message plus précis, pas une détection de plus.
-* **`#468-r3` — les probes et les tests ne sont pas des positions de définition.**
-  `probe_<n>_*.py` et `test_<n>_*.py` portent le numéro mais suivent le dossier de leur tranche
-  (73 et 36 identifiants à ≥ 2 fichiers, §3.1) : ils sont inventoriés, jamais gardés. Une
-  collision qui ne se manifesterait QUE par deux probes de sujets différents passerait — non
-  mesurée, et probablement vide (un probe naît avec sa case-doc).
+* ~~**`#468-r1` — les tokens purement NUMÉRIQUES ne prolongent pas l'identifiant.**~~ —
+  **RÉSOLU (2026-08-15), et son énoncé était FAUX du côté le plus important** : voir §11.1. La
+  grammaire ne *repliait* pas sur la racine, elle faisait **DISPARAÎTRE** — **72 lignes de
+  tableau** du backlog n'étaient AUCUNE définition. Ce qui reste ouvert n'est pas un détecteur
+  mais une **convention d'écriture** : `normaliser` retire les tirets, donc `#222-1` et un futur
+  `#2221` sont indistinguables, et `--suggere` subit déjà cette confusion à l'identique.
+* ~~**`#468-r2` — le cliquet ne voit pas la collision AU MOMENT où elle naît.**~~ —
+  **LIVRÉ (2026-08-15)** : `--gate <ref>`, §11.2. Merge-base (jamais `ref` nu), arbre de travail
+  inclus, appariement par le **texte** de la ligne. Gain de précision, pas de détection — comme
+  l'énoncé le prévoyait.
+* ~~**`#468-r3` — les probes et les tests ne sont pas des positions de définition.**~~ —
+  **MESURÉ (2026-08-15), critère REFUSÉ**, §11.3. Le « probablement vide » est **faux** :
+  **177** identifiants n'ont AUCUNE autre position que du code, dont **40** à ≥ 2 fichiers. Mais
+  **0 collision établie** — donc inventaire, comme §3.1.
 * ~~**`#468-r4`**~~ — **FERMÉ** par `--suggere` (§9).
 * ~~**`#468-r10`**~~ — **FERMÉ** (§9.2) : `--suggere` lit les refs hors `HEAD` et les autres
   worktrees, et **nomme** l'angle mort qui reste. Ouvre `#468-r11` (parade `gh`, non construite).
@@ -434,14 +432,11 @@ trancher la cause du `128`.
   PR** est lu (parade (c) construite, 2 numéros rendus changent). Ouvre **`#468-r12`** — N3 reste
   irréductible, il ne reste plus que la parade **(b)**, le registre de réservation versionné, que
   §9.1 avait écarté sur son coût de merge. Cet arbitrage-là n'a pas bougé.
-* **`#468-r7` — la puce de résidu d'une case-doc n'est PAS une position de définition.**
-  `case-467` §Résidus ouvre `#472-r1`, `-r2`, `-r3` en puces de premier niveau, et le critère ne
-  lit les puces que dans `backlog.md` : ces trois-là sont invisibles à l'étape 1 tant qu'ils ne
-  sont pas recopiés au backlog. C'est la **quatrième** position de définition de fait, et §8 la
-  mesure — les 4 seuls « orphelins » du dépôt en viennent (3 sur 4). Élargir n'est pas gratuit :
-  la section « Résidus » d'une case-doc **cite** aussi des voisins, donc il faudrait un critère de
-  section, pas un critère de puce. `--suggere` couvre déjà le risque **d'attribution** (§9) ; ce
-  qui reste ouvert est la **détection** d'une collision qui ne se manifesterait que là.
+* ~~**`#468-r7` — la puce de résidu d'une case-doc n'est PAS une position de définition.**~~ —
+  **RÉSOLU (2026-08-15)**, §11.4 : la 4ᵉ position est **portée et mesurée**, puis rendue en
+  **INVENTAIRE** (`--report`), jamais bloquante. Le remède que l'énoncé proposait — « un critère
+  de SECTION » — est **réfuté par la mesure** ; celui qui marche est le **propriétaire au plus
+  long préfixe**, et il préserve le cas motivant.
 * **`#468-r8` — `#<n>` désigne à la fois une TÂCHE et une PULL REQUEST, sans rien pour les
   distinguer.** Mesuré : `case-434` écrit « 3 PR intégrées entre-temps : #472, #473, #474 » quand
   `case-467` §10 ouvre la **tâche** `#472`. Les deux espaces se remplissent en parallèle — tâches
@@ -449,3 +444,96 @@ trancher la cause du `128`.
   aujourd'hui (`--suggere` traite l'union, donc côté sûr : il saute les numéros de PR cités), mais
   `git log --grep "#<n>"` est **structurellement ambigu**, et c'est la voie que le §1 nomme comme
   dépendante. Trancher demanderait une convention d'écriture (préfixer les PR), pas un détecteur.
+  — **FERMÉ (2026-08-14)** par la **BANDE** (`PLANCHER_RACINE = 10000`), cf. CLAUDE.md.
+* ~~**`#468-r13` — l'espace des TÂCHES a rattrapé celui des PR, et `--suggere` est aveugle aux
+  commits de MERGE.**~~ — **RÉSOLU (2026-08-15)**, §11.5. Volet **(a)** livré ; volet **(b)** sans
+  objet, `#468-r8` l'a tranché par la bande.
+
+---
+
+## 11. Ce que la tranche du 2026-08-15 a mesuré, et ce qu'elle a refusé
+
+Cinq résidus instruits d'un coup au même foyer. **Trois énoncés sur cinq étaient inexacts**, et
+c'est la mesure qui l'a dit — jamais la relecture.
+
+### 11.1 `#468-r1` — la grammaire ne repliait pas, elle faisait DISPARAÎTRE
+
+`ID` s'arrête au premier segment qu'il ne sait pas lire (`-c1`, `-b-r1`, `-src`, `-1`, une
+majuscule). Comme `RE_LIGNE_TABLEAU` exige un `|` **juste après** l'identifiant, la ligne
+**entière** cesse de correspondre : elle ne se replie pas sur sa racine, elle sort du registre.
+
+| | n |
+|---|---|
+| lignes de tableau du backlog INVISIBLES au détecteur | **72** (7 % du registre) |
+| — familles `#462-r4b-…-b/-c-r<k>` / `#462-r4e-o-r<k>` / `#366-r1-<mot>` | 31 / 9 / 13 |
+| — `#433-r4-r2-r1-r1-a/c-r<k>` / `#443-r2-b<k>` | 3 / 2 |
+| — non numériques (`#o10-a/-c`, `#PAI-c/-k`, `#BL-*`, `#haze-ord`, `#254-bc*`, `#222-1`…) | 14 |
+| clés portant ≥ 2 identifiants ÉCRITS distincts (écrasement) | **12** |
+
+Le correctif est le **principe même du cliquet** poussé jusqu'au bout : en position de définition,
+c'est la **cellule** qui dit où l'identifiant finit, pas une grammaire (`ID_POSITION`). `ID` reste
+le scanner de **mentions**. Effet : définitions **1872 → 1944**, étape 1 **0 → 0**, étape 2
+**inchangée** (26 cohabitations, 4 non attestées, avant comme après).
+
+### 11.2 `#468-r2` — `--gate <ref>`
+
+Trois choix de forme, tous repris de `probe_462_live_tests_status._live_in_diff` : le diff part du
+**merge-base** (sinon la gate accuse ce que les autres agents ont poussé — quatre PR mergées en
+deux heures sur ce dépôt) ; l'**arbre de travail** est inclus (mordre avant le commit, tant que
+renommer est gratuit) ; l'appariement se fait par le **texte** de la ligne, jamais par son numéro,
+`backlog.md` étant le fichier le plus partagé du dépôt. Ref inconnue ⇒ **99**, jamais un vert.
+
+Le cliquet a **deux bras opposés**, et c'est le second qui prouve quelque chose : une collision
+**déjà présente dans le merge-base** doit laisser la gate **VERTE** alors que le balayage complet
+du même arbre est **ROUGE**. Sans lui, le test serait vert sur une gate qui n'a jamais ouvert
+`git diff`.
+
+### 11.3 `#468-r3` — le gisement n'est pas vide, et il reste indécidable
+
+Sur **928** identifiants portés par un `probe_<n>`/`test_<n>`, **177** n'ont aucune autre position
+et **40** portent ≥ 2 fichiers : le « probablement vide » est faux. Mais les cinq plus ambigus par
+leurs slugs, tracés par une **seconde source** (`git log --grep`), donnent **3 tranches
+multi-facettes** (`#1066` = « les trois dernières faces DECISION d'actives de kit ») et **2
+indécidables** (dossier clos, sans case-doc). **0 collision établie** ⇒ inventaire, comme §3.1.
+`--report` imprime désormais cette sous-population, au lieu du compte brut qui la noyait.
+
+### 11.4 `#468-r7` — la 4ᵉ position, portée puis rendue en inventaire
+
+| | n |
+|---|---|
+| case-docs à section « Résidus » (sections) | **435** / 869 (520) |
+| puces de tête `#<n>` dans ces sections | **588** |
+| identifiants OUVERTS en puce | **456**, dont **104 sans aucune autre position** |
+| doubles avec le critère de SECTION SEUL | **33** ⇒ le remède proposé ne sépare pas |
+| doubles après le discriminant PROPRIÉTAIRE | **6** (fichiers différents) **+ 3** (même fichier) |
+| verdict de lecture de ces neuf | **9/9 légitimes** |
+
+Le discriminant : la case-doc **possède** l'identifiant quand sa clé en est un **préfixe** ; entre
+prétendants, le **plus long** gagne ; et **sans propriétaire, toutes les puces définissent** —
+sans cette troisième règle, le cas motivant (`case-467` ouvrant `#472-r1`) serait perdu. Taux de
+faux positifs **9/9** ⇒ un critère bloquant se ferait désarmer dans la semaine. La seule forme qui
+le deviendrait (deux dossiers, **aucun** propriétaire) est **comptée à chaque run** : elle vaut 0.
+
+### 11.5 `#468-r13` — les 647 sujets de merge
+
+`--no-merges` était un défaut jamais examiné, et il jetait la **seule** trace que le squash-merge
+laisse dans l'arbre. **698** merges, dont **647 portent un `#`** ⇒ **96 identifiants inédits** et
+**1 numéro rendu change** : `--suggere 432` proposait `#432-r1`, livré par la **PR #479**, alors
+que `git grep -E '#432-?r1'` rend **0**. Coût **nul**.
+
+**Troisième extension mesurée puis REFUSÉE**, même protocole que les deux de §9.2 :
+`_identifiants_des_refs_hors_head` garde son `--no-merges` — **+1,0 s** pour **0** inédit, et la
+mesure a été rejouée **hors du régime dégénéré** (un worktree frais ne prouve rien : simulation
+d'un retard de 5, 20, 40, 80 commits, apport nul à chaque palier).
+
+### 11.6 Ce qui n'est PAS couvert
+
+* La confusion `#222-1` / `#2221` (`normaliser` retire les tirets) reste entière : c'est une
+  convention d'écriture, et `--suggere` la subit déjà.
+* `couper_nom` sur les **noms de fichiers** n'absorbe toujours pas les tokens purement numériques
+  (`case-302-2-*` → `302`) : l'ambiguïté avec `case-229-1502-rites-of-morkai-*`, où `1502` est un
+  id d'ability, n'a pas de discriminant au niveau du nom.
+* La 4ᵉ position n'est **pas** bloquante, par mesure — une collision qui n'existerait que là se
+  lit dans `--report`, aucun `rc` ne la crie.
+* `--gate` ne juge que `backlog.md` et les case-docs **ajoutées** ; un fichier de code neuf
+  (`probe_<n>_*.py`) n'y est pas une définition, conformément à §11.3.

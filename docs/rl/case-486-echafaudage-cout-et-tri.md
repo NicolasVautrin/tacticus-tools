@@ -179,10 +179,50 @@ vacueux et par le fichier intégralement skippé, cf. `probe_455`).
 | `#486-r1` | cache de verdict `(hash fichier, hash build)` sur les cliquets **locaux** | EN VOL |
 | `#486-r2` | discriminant d'**usage** correct, ventilation exhaustive, élagage des orphelins non exécutables, cliquet de garde | EN VOL |
 | `#486-r3` | séparer les rôles par **répertoire** — **TROIS** destinations, cf. §9 | OUVERT |
-| `#486-r4` | renommer par **objet**, numéro en métadonnée — passe par `probe_468`, qui lit des positions dans `docs/rl` | OUVERT |
+| `#486-r4` | renommer par **objet**, numéro en métadonnée | **REFUSÉ (2026-08-15)** — cf. §8.1 |
 | `#486-r5` | le **coût des tests offline** (§7) : mesure à jour, mécanisme établi fichier par fichier, sur le haut du classement seulement | EN VOL |
 
 Ordre contraint : **r2 avant r3/r4** — on ne renomme pas ce qu'on va supprimer.
+
+### 8.1 `#486-r4` — REFUSÉ, mesuré : trois raisons indépendantes
+
+`#486-r2` étant clos, le préalable était levé. Instruit le 2026-08-15 ; **chacune des trois
+mesures suffit à elle seule.**
+
+**(1) Un nom de fichier ne peut PAS porter ce que porte `seul-a-voir`, et l'écart n'est pas
+marginal.** Mesuré sur les 49 entrées de banque : **min 76 caractères**, q1 130, médiane 264,
+q3 778, **max 2088** — et **0 entrée sous 60**. L'identifiant de banque le plus long fait
+**19 caractères**. Cette colonne n'énonce pas un sujet, elle énonce **ce que le dépôt perdrait si
+le cliquet disparaissait** : un énoncé falsifiable, en une phrase. La prémisse « elle n'existe que
+parce que le nom de fichier ne dit rien » est donc **fausse** ; elle existe parce qu'un nom ne
+porte pas une proposition.
+
+**(2) Le tri par objet EXISTE déjà, dans deux colonnes.** `ratchets.ps1 -List` rend `doc` non vide
+sur **49/49** entrées, en plus de `seul-a-voir`. Renommer les fichiers **dupliquerait** une
+information déjà présente.
+
+**(3) Le rayon de souffle interdit la masse.** Les 49 entrées lancent **37** scripts distincts ;
+leurs noms sont cités par **297 fichiers** du dépôt (645 citations fichier × nom), ventilés en
+`scripts/` 157, `docs/` 133, `frida/` 4, `.claude/` 1, `.gitignore` 1, `CLAUDE.md` 1. Parmi eux :
+`CLAUDE.md`, `docs/rl/backlog.md`, `scripts/ratchets.ps1`, `scripts/ratchets-verdict.ps1` et trois
+registres versionnés — dont **5 entrées d'empreinte clées par CHEMIN** dans
+`ratchets-457-footprints.json`. La doctrine « jamais en masse » écrite pour `backlog.md` s'applique
+**a fortiori** : chaque PR en vol tomberait dans un hunk adjacent.
+
+**Deux points de l'énoncé sont par ailleurs inexacts.**
+
+* Le ⚠ « le numéro est PORTEUR, `probe_468` alloue » est **surestimé** : un renommage naïf des 37
+  scripts ferait perdre **0** identifiant au corpus d'attribution — tous survivent par le contenu,
+  les messages de commit, le backlog ou une case-doc. Le couplage à `probe_468` n'est pas ce qui
+  bloque.
+* « Un numéro ne désigne pas UN sujet » est vrai **en général** (`#462` porte un cliquet
+  d'outillage et un arbre de mécaniques de combat) mais **faux dans la banque** : **2** numéros
+  seulement y portent plusieurs entrées, et ce sont les **étages** d'un même cliquet
+  (`probe_283:diff|mirror|exec|tables|prose|on`, `probe_457:s0..s7`) — jamais deux sujets.
+
+**Ce qui reste vrai et non traité** : le nom encode bien la lignée, et un lecteur qui ne connaît
+pas `-List` ne le devine pas. La réponse proportionnée est de faire lire `seul-a-voir`, pas de
+réécrire 297 fichiers.
 
 ### Portée de r2/r3 : les PROBES, pas les tests — et pourquoi
 
