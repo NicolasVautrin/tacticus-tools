@@ -101,6 +101,18 @@ Tests cibles, JAMAIS la suite complete.
 
 - **JAMAIS de reinjection Frida / restart host** (la SEULE interdiction dure).
 - Jamais de merge ni de push sur `master`. Commit sur TA branche + PR uniquement.
+- **JAMAIS `refresh_audits.py`, ni aucun `audit_*.py` du perimetre** (`kit-coverage`,
+  `combat-ability-coverage`, `passive-ability-coverage`, `npc-registry`, `summons-registry`,
+  `build-*-citations-perdues`). Si ta tranche fait bouger une couverture, **dis-le au rapport**
+  — l'orchestrateur regenere au MERGE.
+  **Pourquoi** : le declencheur correct est le merge parce qu'il n'a qu'**UN SEUL acteur**.
+  Regenerer depuis une PR met N branches paralleles a reecrire les MEMES fichiers generes,
+  donc un conflit garanti sur un artefact qu'on n'a pas le droit de fusionner a la main (« ne
+  jamais resoudre un conflit sur un genere : le REGENERER »). Mesure du 2026-08-15 : sur les
+  40 derniers commits touchant ces six fichiers, **38 sont des regenerations d'apres-merge** et
+  **2 sont des debordements d'agent** — dont un qui a reecrit quatre audits d'un coup.
+  Meme raisonnement pour `docs/rl/index-foyers.md` : tu ne le regeneres QUE s'il te revient en
+  conflit lors de TON rebase.
 - Pas de RVA hardcodee en live ; pas de heap scan ; pas de broad-hooks UI hot.
 - Sorties console Python : ASCII uniquement. Tests cibles seulement.
 - Instruction du cas ambigue -> demande clarification AVANT d'agir ; pas de « pendant que

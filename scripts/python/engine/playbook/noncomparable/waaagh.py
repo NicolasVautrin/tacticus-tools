@@ -228,23 +228,40 @@ class WaaaghPlaybook(NonComparablePlaybook):
 
     # -- gate amont ----------------------------------------------------------------------------
 
-    def should_evaluate(self, ctx: NCContext) -> bool:
-        """`IPlaybook` slot 4 = `BasePlaybook$$ShouldEvaluate`, dont le slot 0x1f8
-        `GetUseProbability` est SURCHARGE par `WaaaghPlaybook$$GetUseProbability` :
-        `p = 0.05 * GetStat(unit, 0xc = TurnsStarted) * GetNumExistingUnitsBuffed(unit)`.
+    def use_probability(self, ctx: NCContext) -> float | None:
+        """Slot `0x1f8`, SURCHARGE par `IdunBattle.AI.Playbook.Loki.WaaaghPlaybook$$GetUseProbability
+        (unit, actionTiles)` -- MIRROR 1:1 du decompile :
 
-        `p >= 1` -> True (EXACT) ; `p <= 0` -> False (EXACT) ; entre les deux, tirage RNG que le
-        moteur deterministe ne modelise pas -> True (ecart assume, residu `#971-r2`).
+            ts = UnitExtensions.GetStat(unit, 0xc = TurnsStarted)
+            nB = GetNumExistingUnitsBuffed(unit)
+            return Fix64.op_Implicit(nB * ts) * Fix64.FromIntFraction(5, 100)
 
-        `turnsStarted` non mesure (`ctx.scene` absente, uid hors tables) -> True : on ne gate pas
-        a l'aveugle, meme regle que `_base._turns_started_gate`."""
+        Le triage des trois branches vit dans le foyer `_base.probability_gate` : `p >= 1` -> True
+        (EXACT) ; `p <= 0` -> False (EXACT) ; entre les deux, TIRAGE que le moteur deterministe ne
+        reproduit pas -> True (permissif assume).
+
+        `turnsStarted` non mesure (`ctx.scene` absente, uid hors tables) -> `None` = **PAS MESURE**
+        (jamais `0.0`, qui ferait REFUSER) : on ne gate pas a l'aveugle, meme regle que
+        `_base._turns_started_gate`.
+
+        ⚠ **LA MORSURE EST ICI BIEN PLUS FORTE QU'AILLEURS, ET C'EST LE RESIDU `#971-r2`.** La
+        bande OUVERTE est le REGIME NOMINAL, pas un cas limite : avec 4 unites Orks,
+        `p = 0.05 x ts x 4` ne franchit `1` qu'au **5e tour** de l'unite -- le natif SAUTE donc
+        l'ability la plupart du temps la ou le port la propose toujours. La cause de cet ecart est
+        ETABLIE et NON REDUCTIBLE offline (le flux Mersenne Twister est partage avec les degats et
+        le DSL, cf. `probability_gate`) ; ce que ce foyer apporte, c'est que `p` est CONFRONTABLE
+        au `prob` natif que publie `shouldEvaluateTrace`.
+
+        ⚠ **`p` EST EXACTEMENT LE PRODUIT, PAS SON ARRONDI.** Le natif multiplie `nB * ts` en
+        ENTIER (`Fix64.op_Implicit((int)(nB * ts))`) AVANT de multiplier par la fraction ; ecrire
+        `0.05 * ts * nB` en flottant donne la meme valeur pour tous les couples atteignables
+        (`ts, nB` petits), mais l'ordre natif est celui-ci et c'est lui qui est transcrit."""
         if ctx.scene is None:
-            return True
+            return None
         ts = ctx.scene.turns_started(ctx.uid)
         if ts is None:
-            return True
-        p = _USE_PROBABILITY_STEP * float(ts) * float(self.num_existing_units_buffed(ctx))
-        return p > 0.0
+            return None
+        return _USE_PROBABILITY_STEP * float(int(ts) * int(self.num_existing_units_buffed(ctx)))
 
     # -- sweep ---------------------------------------------------------------------------------
 

@@ -13,6 +13,11 @@ from ._base import NCContext, NonComparablePlaybook, _sweep_origin_first
 
 _ABILITY_NAME = "CrusadeOfWrath"
 
+#: `<statics +0x08>` de `IdunBattle.AI.Playbook.Loki.CrusadeOfWrathPlaybook$$.cctor` =
+#: `FixMath.NET.Fix64$$FromIntFraction(1, 10)` -- le SEUL facteur de `GetUseProbability`. C'est un
+#: SCALAIRE (une fraction), pas un identifiant : il n'appartient a aucun enum.
+_USE_PROBABILITY_FACTOR = 0.1
+
 
 def _buff_range() -> int | None:
     """`DSLFormulas$$GetNumberConstant(config, 0x16)` = `constants["range"]` de `CrusadeOfWrath`.
@@ -185,20 +190,30 @@ class CrusadeOfWrathPlaybook(NonComparablePlaybook):
                 best = n
         return best
 
-    def should_evaluate(self, ctx: NCContext) -> bool:
-        """`prob = 0.1 * maxBuffed`, et `BasePlaybook$$ShouldEvaluate` refuse sur `prob <= 0`.
+    def use_probability(self, ctx: NCContext) -> float | None:
+        """`...CrusadeOfWrathPlaybook$$GetUseProbability(unit)` = `<statics +0x08> *
+        Fix64.op_Implicit(GetMaxFriendlyUnitsBuffed(unit))`, soit **`0.1 * maxBuffed`** -- rendu
+        comme PROBABILITE, le triage des trois branches restant au foyer `_base.probability_gate`.
 
         DEUX canaux peuvent fabriquer un faux zero, et AUCUN ne doit faire refuser : `reach_nc`
         vide (aucune position candidate mesuree) et un rayon non mesurable au gameconfig. Dans ces
-        deux cas on rend `True` -- degradation PERMISSIVE. Un `False` a l'aveugle rendrait l'ability
-        INVISIBLE du moteur, exactement le trou silencieux de #967. Le refus n'est prononce que sur
-        une mesure complete qui dit vraiment << aucun allie a portee, d'aucune tuile >>.
+        deux cas on rend `None` = **PAS MESURE**, que `probability_gate` traduit en `True` --
+        degradation PERMISSIVE. Un `0.0` a l'aveugle rendrait l'ability INVISIBLE du moteur,
+        exactement le trou silencieux de #967. Le zero n'est rendu que sur une mesure complete qui
+        dit vraiment << aucun allie a portee, d'aucune tuile >>.
 
         `fpos` VIDE n'est PAS un canal muet : c'est la mesure << Helbrecht est seul >>, et le natif
-        refuse aussi dans ce cas (`maxBuffed = 0` -> `prob = 0`)."""
+        rend `0` dans ce cas aussi (`maxBuffed = 0`).
+
+        ⚠ **CE QUE CE RETOUR CHANGE, ET CE QU'IL NE CHANGE PAS.** Les verdicts sont IDENTIQUES a
+        ceux de l'ancien `should_evaluate` (`maxBuffed > 0`), branche par branche : `n = 0` ->
+        `0.0` -> refus ; `n >= 10` -> `>= 1` -> accepte ; `1 <= n <= 9` -> bande OUVERTE ->
+        accepte (le tirage natif, non reproductible -- cf. `probability_gate`). Ce qui change est
+        que `p` est desormais une valeur EXPOSEE, donc confrontable au `prob` que
+        `shouldEvaluateTrace` lit dans l'appel natif a `NextBool`. Residu `#969-r1`."""
         if not (ctx.reach_nc or ()) or _buff_range() is None:
-            return True
-        return self._max_friendly_units_buffed(ctx) > 0
+            return None
+        return _USE_PROBABILITY_FACTOR * float(self._max_friendly_units_buffed(ctx))
 
     def generate_candidates(self, ctx: NCContext) -> list[dict]:
         """Sweep natif des positions (ORIGINE en tete), utilite = compte des allies buffes, cible =

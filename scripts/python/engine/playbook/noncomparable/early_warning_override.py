@@ -10,7 +10,7 @@ from engine.services import ability_caster_gates as acg
 from engine.services import ability_range as ar
 from engine.services import battle_query as bqs
 
-from ._base import (NCContext, NonComparablePlaybook, _sweep_origin_first,
+from ._base import (NCContext, NonComparablePlaybook, _sweep_origin_first, has_moved_by_pos,
                     is_turn_of_unit_by_pos, occupant_team_by_pos)
 
 
@@ -202,7 +202,8 @@ class EarlyWarningOverridePlaybook(NonComparablePlaybook):
 
     def utility_at(self, P: tuple, enemies: list, adj_origin: set, elev_by_pos=None,
                    is_wall_by_pos=None, team_by_pos=None, walkable_by_pos=None,
-                   is_in_fog_by_pos=None, is_turn_by_pos=None, occupant_by_pos=None) -> float:
+                   is_in_fog_by_pos=None, is_turn_by_pos=None, occupant_by_pos=None,
+                   has_moved_by_pos_=None) -> float:
         """UTIL(P) du corps natif, ennemi par ennemi (mirror de la boucle `GetAllAliveUnits`).
 
         Extrait de `generate_candidates` pour etre CONFRONTABLE POSITION PAR POSITION a l'oracle
@@ -234,6 +235,16 @@ class EarlyWarningOverridePlaybook(NonComparablePlaybook):
                                                           # sur le porteur d'EarlyWarningOverride
                                                           # (#447-r1-r1-r3).
                                                           is_turn_of_unit=(is_turn_by_pos or {}).get(ep),
+                                                          # `DidMove(E)` -- l'AUTRE terme de
+                                                          # `CasterHasNotMoved` (#447-r1-r1-r3-r1),
+                                                          # lu sur E comme le prefixe. GARDE par
+                                                          # lui : ici E est un ENNEMI du joueur
+                                                          # courant, donc le prefixe est faux et ce
+                                                          # terme reste INERTE -- sauf sous controle
+                                                          # mental. Cable parce qu'il ne coute rien
+                                                          # (canal deja capte par pas) et qu'il
+                                                          # ferme la chaine.
+                                                          has_moved=(has_moved_by_pos_ or {}).get(ep),
                                                           # #433-r4-r2-r1-r1-a-r1 : les sept gates
                                                           # `GATE_VALID_ON_EMPTY_TILE` retirent la
                                                           # tuile OCCUPEE. `None` = canal non
@@ -277,6 +288,9 @@ class EarlyWarningOverridePlaybook(NonComparablePlaybook):
         adj_origin = self.adjacent_at_origin(ctx, enemies)
         team_by_pos = occupant_team_by_pos(ctx)   # gardes « ami » de la ligne de vue (#-r1-r2-r2)
         is_turn_by_pos = is_turn_of_unit_by_pos(ctx)   # PREFIXE de `CasterHasNotMoved` (#447-r1-r1-r3)
+        moved_by_pos = has_moved_by_pos(ctx)      # 2e terme de la MEME regle (#447-r1-r1-r3-r1) --
+        #     `Scene.moved_by_id` <- `combatSnapshot.units[].unitFlags`, deja capte a chaque pas :
+        #     aucun RPC de plus. Table VIDE = capteur muet -> le terme reste non mesure partout.
         # #433-r4-r2-r1-r1-a-r1 -- l'OCCUPANT par tuile, substrat des sept gates
         # `GATE_VALID_ON_EMPTY_TILE`. Le tri-etat est DERIVE, jamais un `bool()` sur la table : une
         # table vide alors que des unites sont positionnees est un capteur MUET, pas un plateau
@@ -289,7 +303,7 @@ class EarlyWarningOverridePlaybook(NonComparablePlaybook):
                                 getattr(ctx, "is_wall_by_pos", None), team_by_pos,
                                 getattr(ctx, "walkable_by_pos", None),
                                 getattr(ctx, "is_in_fog_by_pos", None), is_turn_by_pos,
-                                occupant_by_pos)
+                                occupant_by_pos, moved_by_pos)
             if u < self.MIN_UTILITY:
                 continue                            # admission Bucket util>=1
             if best_u is None or u > best_u:        # strict > : 1re position du max gagne (keep-first)

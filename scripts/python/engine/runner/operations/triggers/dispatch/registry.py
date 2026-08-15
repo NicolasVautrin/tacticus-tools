@@ -172,6 +172,7 @@ from ..loki import seeker_missile_attack as _seeker_missile_attack  # noqa: F401
 from ..loki import overwhelming_wrath_attack as _overwhelming_wrath_attack  # noqa: F401
 from ..loki import lions_wrath_attack as _lions_wrath_attack        # noqa: F401  (#889, phase 2 de 1217)
 from ..loki import the_lantern_attack as _the_lantern_attack        # noqa: F401  (#1030, phase 2 de 1094)
+from ..loki import solar_atomizer_attack as _solar_atomizer_attack  # noqa: F401  (#894-r2, ph.2 de 1174)
 from ..loki.thrill_seekers import (ThrillSeekersFullHealthTargetAbility,   # trait ThrillSeekers 1056
                                   ThrillSeekersDamageTakenAbility)        # (x5 Emperor's Children)
 from ..loki.hailstrike import HailstrikeAttackAbility                 # case-117 ph.2 (1214 -> 1507)
@@ -367,6 +368,7 @@ from ..loki.way_of_the_short_blade import (                          # #1019-r2 
     WayOfTheShortBladeAttackAbility, WAY_OF_THE_SHORT_BLADE_KEY)
 from ..loki.final_vengeance import (                                 # #1002-r1 (effet 1454, Astra)
     FinalVengeanceUnitEffectTrigger, FINAL_VENGEANCE_UNIT_EFFECT)
+from ..loki.rapid_fire import RapidFireAbility, RAPID_FIRE_KEY        # #1020-r5 (passif 1135, Ultra)
 
 
 # --- Registre : trait → ability-trigger(s) accordée(s) --------------------------------------------
@@ -1507,6 +1509,19 @@ ABILITY_TRIGGERS: dict[str, list[type[TriggeredAbility]]] = {
     # `Hero` qui vient de frapper en melee -- Farsight compris (le selecteur de 1500 l'ajoute par un
     # `op_Addition Owner`). Cf. `triggers/loki/way_of_the_short_blade.py`.
     WAY_OF_THE_SHORT_BLADE_KEY: [WayOfTheShortBladeAttackAbility],
+    # #1020-r5 -- `RapidFire` (0x46f = 1135, Ultramarines). La CLE est le nom gameconfig du PASSIF.
+    # `$$CreateTrigger` = `On(0xe = UnitPostAbility, alive 1) & IsNormalAttack() & get_OwnerIsActor &
+    # NOT HasFlag(Caster@<+0x48>, 0x0 = Moved) & NOT HasEffect(Caster@<+0x48>, 0x471 = 1137, 0, 6)` ;
+    # `$$CreateBehaviour` = `(ResetTurn(Owner@<+0x30>, resetMovement = 0) & AddEffect(0x471, turns =
+    # Direct(1))) & AddFlag(Caster@<+0x48>, 0x0)`.
+    # ⚠ Cette ability ne traverse AUCUN noeud producteur de degat : c'est de la turn-economy. Son
+    # effet numerique est INDIRECT -- l'`AddFlag(Moved)` eteint le conjoint `NOT HasFlag(Owner, 0)`
+    # de `IdunBattle.Entities.Effects.Loki.HeavyWeapon_ExtraDmgEffect$$CreateDamageModifier`, et les
+    # quatre porteurs ont `HeavyWeapon`. L'effet 1137 pose ici n'est utile que parce que
+    # `engine/battle_query.py::can_use_ability` le RECONNAIT (registre
+    # `ACTIVE_ABILITY_BLOCKER_EFFECTS`) : les deux ecritures vont dans le meme commit, sans quoi
+    # l'une des deux est INERTE. Cf. `triggers/loki/rapid_fire.py`.
+    RAPID_FIRE_KEY: [RapidFireAbility],
 }
 
 # --- Registre : ability ACTIVE → triggered-ability(s) DERIVEE(s) ----------------------------------

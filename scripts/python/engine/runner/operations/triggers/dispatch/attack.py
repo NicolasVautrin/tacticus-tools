@@ -465,7 +465,13 @@ def attack_damage_attack_triggers(state: State, attacker_id: int, target_id: int
 
 def after_hit_normal_attack(state: State, attacker_id: int, target_id: int,
                             ranged: bool, profile: Optional[str], is_crit: bool = False,
-                            did_block: bool = False) -> list[dict]:
+                            did_block: bool = False,
+                            # #1020-r5 : `IdunBattle.Operations.ActiveAbilityOperation$$
+                            # AddFlagsAfterAbilityExecution`, dont le RANG natif est ENTRE `On(0xc)`
+                            # et `On(0xe)`. Cf. le bloc `RANG DES DRAPEAUX DE TOUR` de la docstring.
+                            # `None` (defaut) = aucun appelant ne pose de drapeaux ici -> strictement
+                            # le comportement d'avant, pour les trois autres call-sites.
+                            avant_post_ability=None) -> list[dict]:
     """Vecteur attaque NORMALE. Le natif émet DEUX events distincts (verdict RE #147) : `On(0x26)`=NormalAttack
     (per-ATTAQUE, chemin normal only) ET l'after-hit `On(8)` (message 8 de `EvaluateAfterHitTriggers`). On
     dispatche les deux : `NormalAttack` déclenche Psyker (splash Smite) ; `after-hit(8)` = vecteur natif
@@ -482,7 +488,29 @@ def after_hit_normal_attack(state: State, attacker_id: int, target_id: int,
     riposte), qui ne passe JAMAIS par ce vecteur-ci (niveau MESSAGE). Il est desormais emis a la
     SORTIE de `AttackDamageOperation.execute` (`finish_attack_triggers`), juste avant son jumeau
     `On(10)`. C'est aussi l'ordre natif vis-a-vis du `On(0x26)` ci-dessous, que le natif emet APRES,
-    depuis `ALoki_NormalAttackAbility$$ExecuteTriggerAbilities`."""
+    depuis `ALoki_NormalAttackAbility$$ExecuteTriggerAbilities`.
+
+    RANG DES DRAPEAUX DE TOUR -- `avant_post_ability` (#1020-r5)
+    -----------------------------------------------------------
+    La sequence d'`IdunBattle.Operations.ActiveAbilityOperation$$ExecuteInternal` est LUE :
+
+        On(0x2a) -> gates -> execution -> On(0xb) -> if (IsActiveAbility) On(0xc)
+                 -> **AddFlagsAfterAbilityExecution** -> On(0xe)
+
+    Les drapeaux tombent donc AVANT `On(0xe)`. La voie ABILITY du port respecte ce rang depuis #120
+    (`abilities/handler.py` : `_add_flags_after_execution` PUIS `_post_unit_ability`) ; la voie
+    NORMALE, elle, les posait APRES le retour de cette fonction -- donc APRES `On(0xe)`.
+    L'inversion etait SILENCIEUSE tant qu'aucun consommateur de `On(0xe)` ne touchait aux drapeaux
+    de tour ; elle rend INERTE tout consommateur qui en RETIRE (`ResetTurn` de `RapidFire`,
+    `ResetMovement` de `Maugetar_ResetMovementAbility`), puisque la pose qui suit les remet.
+    MESURE (`probe_10018_rapid_fire_live.py`, runner 188) : cote port les drapeaux du porteur
+    valaient `[]` a l'entree du trigger -- il n'avait donc RIEN a retirer -- et `[0,1,2,3,4]` a la
+    fin, alors que le flux natif publie `UnitStats_TurnFinished = 1` PUIS `0` sur le MEME coup.
+
+    L'appelant qui pose les drapeaux les passe donc ICI, en callable : le rang reste dans le foyer
+    qui possede la sequence, au lieu d'etre reconstitue par chaque appelant. Les trois autres
+    call-sites (`behaviours/combat.py`, `operations/summon_ai.py`, `abilities/loki/mv71.py`) n'en
+    posent AUCUN et ne passent donc rien -- pour eux ce parametre est un no-op strict."""
     ev_na = TriggerEvent(EventTriggerType.NormalAttack, attacker_id, target_id,
                          ranged=ranged, profile=profile, is_crit=is_crit)
     out = evaluate_trigger_operation(state, ev_na)              # On(0x26) : Psyker (per-attaque)
@@ -513,9 +541,14 @@ def after_hit_normal_attack(state: State, attacker_id: int, target_id: int,
     # ete incremente par le pipeline de degat, ce dont depend le gate de `1319 LegacyOfCombat`.
     out = out + unit_ability_triggers(state, attacker_id, target_id, ranged, profile,
                                       ability_type=1013)
+    # `IdunBattle.Operations.ActiveAbilityOperation$$AddFlagsAfterAbilityExecution` -- RANG NATIF LU :
+    # entre le `On(0xc)` et le `On(0xe)`. Cf. le bloc `RANG DES DRAPEAUX DE TOUR` de la docstring.
+    if avant_post_ability is not None:
+        avant_post_ability()
     # `On(UnitPostAbility=0xe)` (#100) — DERNIER evenement de `ActiveAbilityOperation.ExecuteInternal`
-    # (sequence `0x2b` -> execution -> `0xb` -> `0xc` -> `0xe`). Emis ICI = a la CLOTURE de l'attaque
-    # normale, en pendant exact du `On(0x2a = PreUnitAbility)` emis en tete par `AttackDamageOperation.execute`.
+    # (sequence `0x2b` -> execution -> `0xb` -> `0xc` -> **AddFlags** -> `0xe`). Emis ICI = a la
+    # CLOTURE de l'attaque normale, en pendant exact du `On(0x2a = PreUnitAbility)` emis en tete par
+    # `AttackDamageOperation.execute`.
     # Consommateur porte : `AnvilShieldFrozenAdvantageExpire` (consomme le +20 % block transitoire).
     return out + unit_post_ability_triggers(state, attacker_id, target_id, ranged, profile,
                                             ability_type=1013)

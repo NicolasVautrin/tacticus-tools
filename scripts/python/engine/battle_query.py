@@ -1499,28 +1499,100 @@ def occupied_positions(ctx, base: set | None = None, include_origin: bool = True
     return out
 
 
+#: `IdunBattle.Entities.Effects.BlockActiveAbilityEffect` — la famille des effets qui posent un
+#: BLOQUEUR dans `ActiveAbilityComponent+0x18` (`UpdateActiveAbilityBlockerOperation$$AddBlocker`).
+#: Cle = `EffectType` ; valeur = les DEUX booleens du `.ctor`, LUS au decompile :
+#: `BlockActiveAbilityEffect$$.ctor(this, hasAutomaticActivation, includeNormalAttack@+0x480,
+#: includeMachinePrimaryAbility@+0x481)`.
+#:
+#: ⚠ **LES TROIS MEMBRES SONT LUS, PAS DEDUITS D'UNE CONVENTION DE NOM** (#1020-r7). Ce canal
+#: reconnaissait la famille par le SUFFIXE `_CantUseAbility`, en se declarant « proxy offline du
+#: check par CLASSE d'effet, couvre tout futur membre » : c'est FAUX pour le troisieme membre, qui
+#: s'appelle `RapidFire_BlockAbilities` et ne porte pas ce suffixe. La faute est celle que le
+#: CLAUDE.md nomme deja — la VOIE (ici : la forme du nom) ne dit pas l'enum, seul le LITTERAL du
+#: decompile le dit.
+#:
+#: COMMENT LES TROIS ONT ETE LUS. `BlockActiveAbilityEffect$$.ctor` a exactement TROIS appelants de
+#: code (`list_xrefs`), tous des lambdas `EffectsDatabase.<>c$$<InitializeEffects>b__14_{14,165,581}`
+#: aux memes litteraux `(1, 0, 1)`. Ces lambdas n'ont AUCUNE xref de code — `InitializeEffects` ne
+#: les designe que par leur `MethodInfo*`, resolu au runtime — donc leur `EffectType` n'etait pas
+#: lisible par xref. Il l'est par le CODE MACHINE d'`InitializeEffects`, ou la cle de chaque
+#: `Dictionary<EffectType, Func<BaseEffect>>.Add` est un immediat : 607 cles pour 607 lambdas, en
+#: alternance stricte cle/delegue. `scripts/python/probe_10018_effectsdatabase_registry.py` rejoue
+#: la mesure et REFUSE de conclure si l'un de ses six controles tombe.
+ACTIVE_ABILITY_BLOCKER_EFFECTS: dict[int, dict] = {
+    26:   {"name": "Taunted_CantUseAbility",   # b__14_14
+           "include_normal_attack": False, "include_machine_primary_ability": True},
+    1137: {"name": "RapidFire_BlockAbilities",  # b__14_165  <- le membre que le suffixe RATAIT
+           "include_normal_attack": False, "include_machine_primary_ability": True},
+    1165: {"name": "Stunned_CantUseAbility",   # b__14_581
+           "include_normal_attack": False, "include_machine_primary_ability": True},
+}
+
+
+def _active_ability_blockers(unit: dict) -> list[dict]:
+    """Les BLOQUEURS portes par l'unite — mirror du dictionnaire `ActiveAbilityComponent+0x18`.
+
+    Appariement par `effectType` (l'entier de l'enum) EN PREMIER, comme `entity_has_effect` ; le
+    `name` n'est le repli que pour les substrats qui ne publient pas l'ordinal, et il est alors
+    compare au nom EXACT du registre — jamais a une forme de nom."""
+    out: list[dict] = []
+    for e in (unit or {}).get("effects") or []:
+        if not isinstance(e, dict):
+            continue
+        et = e.get("effectType")
+        spec = None
+        if et is not None:
+            spec = ACTIVE_ABILITY_BLOCKER_EFFECTS.get(int(et))
+        elif e.get("name"):
+            nom = str(e["name"])
+            spec = next((s for s in ACTIVE_ABILITY_BLOCKER_EFFECTS.values() if s["name"] == nom), None)
+        if spec is not None:
+            out.append(spec)
+    return out
+
+
 def can_use_ability(unit: dict, ability: dict) -> bool:
     """`IdunBattle.Core.Services.AttackQuery$$CanUseAbility` — gate d'USABILITE d'une ability (stun/taunt).
 
     Le natif enchaine : (1) l'unite possede l'ability (slot itf 0x14) ; (2) un bool
-    d'interface (slot 0x13) doit etre FAUX — le blocage par effet de la famille
-    `CantUseAbilityEffect` : 26 `Taunted_CantUseAbility`, 1165 `Stunned_CantUseAbility`
-    (frida/hooks/data/effect-type-names.ts) ; (3) `GetInvalidCasterReason` valide.
+    d'interface (slot 0x13) doit etre FAUX — c'est
+    `IdunBattle.Entities.UnitExtensions$$IsAbilityBlocked` ; (3) `GetInvalidCasterReason` valide.
     Offline : (1) et (3) sont deja couverts par l'enumeration decisionView
     (`usable`/`disabled`), MAIS le capteur `usable` lit l'entree ActiveAbility et
     IGNORE les effets -> ce mirror porte le maillon (2), le seul manquant.
-    L'attaque NORMALE (kind 'normal') n'est PAS bloquee : vecu 777 s15 (u83 stunne
-    par 1183 attaque encore 69->87) + wiki §Stunned (« bloque UNIQUEMENT les
-    actives », valide live seed 97000). Match par SUFFIXE de nom `_CantUseAbility`
-    = proxy offline du check par CLASSE d'effet (couvre les 2 membres connus et
-    tout futur membre de la famille) ; les effets decisionView sont deja
-    IsActive-filtres (on ignore `remaining`)."""
+
+    `UnitExtensions$$IsAbilityBlocked(unit, abilityType)`, LU verbatim :
+
+        si kind(unit) n'est ni Unit(1) ni Machine(6)      -> false
+        si ActiveAbility.IsRegularAttack(abilityType)     -> NormalAttackIsBlocked()
+        si kind == Machine && abilityType == comp.<+0x30> -> MachinePrimaryAbilityIsBlocked()
+        sinon                                             -> ActiveAbilitiesAreBlocked()
+
+        ActiveAbilitiesAreBlocked()      = blockers.Count > 0        (INCONDITIONNEL)
+        NormalAttackIsBlocked()          = any(v.includeNormalAttack)
+        MachinePrimaryAbilityIsBlocked() = any(v.includeMachinePrimaryAbility)
+
+    Le port rend les DEUX branches qu'il peut discriminer, et il les DERIVE du registre
+    `ACTIVE_ABILITY_BLOCKER_EFFECTS` au lieu de les coder en dur — un futur membre a
+    `includeNormalAttack = 1` fermerait donc l'attaque normale sans qu'on retouche ce corps.
+    L'attaque NORMALE n'est PAS bloquee AUJOURD'HUI parce que les TROIS membres lus portent
+    `includeNormalAttack = 0` (et non par decret) : vecu 777 s15 (u83 stunne par 1183 attaque
+    encore 69->87) + wiki §Stunned, valide live seed 97000.
+
+    ⚠ **BRANCHE NON SEPAREE, ET C'EST NOMME** : `abilityType == comp.<+0x30>` (l'ability PRIMAIRE
+    d'une Machine of War) n'a pas de substrat dans le canal `decisionView` — le port la fond donc
+    dans `ActiveAbilitiesAreBlocked`. Le repli est EXACT tant que tout membre du registre porte
+    `includeMachinePrimaryAbility = True`, ce qui est le cas des trois ; c'est un test offline qui
+    garde cette condition (`test_10018_rapid_fire_offline.py`), pas cette phrase.
+
+    Les effets decisionView sont deja IsActive-filtres (on ignore `remaining`)."""
+    blockers = _active_ability_blockers(unit)
     if (ability or {}).get("kind") == "normal":
-        return True
-    for e in (unit or {}).get("effects") or []:
-        if str(e.get("name") or "").endswith("_CantUseAbility"):
-            return False
-    return True
+        # `IsRegularAttack(abilityType)` -> `NormalAttackIsBlocked() = any(v[+8])`.
+        return not any(b["include_normal_attack"] for b in blockers)
+    # `ActiveAbilitiesAreBlocked() = blockers.Count > 0` -- INCONDITIONNEL, aucun booleen consulte.
+    return not blockers
 
 
 def can_currently_be_used(ability: dict) -> bool:

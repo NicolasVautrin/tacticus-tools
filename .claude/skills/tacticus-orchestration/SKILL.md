@@ -1266,8 +1266,27 @@ modifies** + **classer le diff `engine/`** -> 3 a 5 groupes cibles joues **par m
   aucun cliquet ne rougit dessus.
   ⚠ **Ce n'est deliberement PAS un cliquet par PR** : ~60 s, et surtout il forcerait chaque PR
   touchant `engine/**` a regenerer, donc N PR paralleles reecrivant les memes fichiers generes --
-  exactement les conflits que le `CLAUDE.md` interdit de resoudre (« ne jamais fusionner un conflit
-  dessus : le REGENERER »). Le bon declencheur est le **MERGE** : un seul acteur, aucun conflit.
+  exactement les conflits qu'on n'a pas le droit de fusionner a la main (un conflit sur un genere
+  se REGENERE). Le bon declencheur est le **MERGE** : un seul acteur, aucun conflit.
+
+  ⚠ **LA REGENERATION EST A MOI SEUL, ET LA PRESCRIPTION VIT ICI — plus dans le `CLAUDE.md`
+  (2026-08-15).** Elle y disait « Les regenerer apres tout port », dans un fichier que **chaque
+  agent charge**, sans destinataire. Deux debordements mesures sur les 40 derniers commits touchant
+  ces six fichiers (38 regenerations d'apres-merge, 2 d'agents, dont une qui a reecrit **quatre**
+  audits d'un coup). Le `CLAUDE.md` ne garde desormais que le POINTEUR (ces fichiers existent, ils
+  sont generes) et la regle de CONFLIT, dont un agent a besoin pendant son rebase. L'interdit
+  correspondant est dans `.claude/agents/opus-solver.md` (section Interdits).
+
+  ⚠ **ET LE VECTEUR N'ETAIT PAS QUE LE `CLAUDE.md` : `MEMORY.md` EST CONCATENE DANS LE PROMPT
+  SYSTEME DE CHAQUE SOUS-AGENT.** Etabli le 2026-08-15 : un agent a cite VERBATIM trois lignes
+  consecutives de mon index (10-12) **et l'en-tete du harnais** (`(user's auto-memory, persists
+  across conversations)`), chaine qui n'existe PAS dans le fichier -- donc il lisait le bloc
+  INJECTE, pas le fichier, et il n'avait ouvert aucun outil de memoire. Seul l'INDEX voyage ; les
+  fiches ciblees par les liens, non. **Consequence : toute ligne de `MEMORY.md` est une consigne
+  diffusee a la flotte.** L'accroche fautive ici etait « `refresh_audits.py` apres CHAQUE merge »,
+  ecrite pour moi, lue comme un ordre par un agent. **Ecrire les accroches d'index en nommant leur
+  destinataire quand le geste n'est pas universel**, et se souvenir que la TAILLE de cet index est
+  payee a chaque lancement d'agent, pas seulement par moi.
   ⚠ **Le perimetre est DERIVE** du marqueur `> Genere par ...` que chaque generateur ecrit dans son
   en-tete, jamais enumere : la derivation trouve **6** audits la ou ma liste mentale en portait
   **5**. Un audit neuf entre tout seul ; un fichier ecrit a la main reste dehors.
