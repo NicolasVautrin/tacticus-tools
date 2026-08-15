@@ -818,7 +818,8 @@ def cmd_build(sid: int, a) -> int:
                   + (f" | sans config (marqueurs): {unresolved}" if unresolved else ""))
         for uid in explicit_specs:
             try:
-                rep = catalog_inject.explicit_stats(uid)
+                rep = catalog_inject.explicit_stats(
+                    uid, allow_zero_profile=bool(getattr(a, "allow_zero_spawn_stats", False)))
             except (KeyError, ValueError) as e:
                 print(f"[error] --explicit-stats {uid}: {e}", file=sys.stderr)
                 return 2
@@ -829,7 +830,12 @@ def cmd_build(sid: int, a) -> int:
                   f"hp={rep['fields'].get('Health')} dmg={rep['fields'].get('Damage')} "
                   f"fixedArmor={rep['fields'].get('FixedArmor')}"
                   + ("   [MONTAGE: le jeu ecrit 0 au catalogue pour un summon,"
-                     " ces valeurs sont celles du SPAWN]" if src == "summon-spawn" else ""))
+                     " ces valeurs sont celles du SPAWN]" if src == "summon-spawn" else "")
+                  # #419-r1-tr12-r2-r1 : le profil nul n'est PAS un etat post-spawn. Il n'arrive
+                  # ici que par l'echappatoire EXPLICITE, et il le DIT -- sans quoi le lecteur du
+                  # log croit avoir monte un porteur alors qu'il a monte un cadavre.
+                  + ("   [PROFIL NUL ACCEPTE (--allow-zero-spawn-stats) : porteur a 0 PV,"
+                     " ses stats ne sont PAS mesurables]" if rep.get("zeroProfile") else ""))
     # --equip-relic : injection catalogue du porteur AVANT la normalisation (#237-r1). PENDANT
     # EXACT du bloc `--equip-mythic` ci-dessous, et pour la meme raison structurelle : `equip_relic`
     # court APRES `_normalize_and_extract_pool` (le niveau EXACT l'exige, cf. bloc en tete de
@@ -3052,6 +3058,12 @@ def main(argv: list[str]) -> int:
                          "summon: UnitProgression$$GetSummonStats (variables summon* de l'ability "
                          "invocatrice). L'entree de catalogue est injectee si elle manque. "
                          "Ex. --explicit-stats admecNpc3Electropriest:33")
+    ap.add_argument("--allow-zero-spawn-stats", action="store_true",
+                    help="build: avec --explicit-stats sur un SUMMON, accepte un patch "
+                         "INTEGRALEMENT NUL (8 stats a 0 -> porteur a 0 PV). Refuse par defaut "
+                         "depuis #419-r1-tr12-r2-r1 : un tel patch ne reproduit aucun etat "
+                         "post-spawn et le RPC l'ecrit sans broncher. A n'utiliser que pour amener "
+                         "le summon AU POOL (avec ses TRAITS et ses ARMES) sans mesurer ses stats.")
     ap.add_argument("--equip-relic", action="append", default=None,
                     help="build: EQUIPE une relique — 'unitId:AbilityName[:level]', repetable. "
                          "Pose BC.Units[].TertiaryAbility + TertiaryAbilityLevel (>=1 OBLIGATOIRE : "
