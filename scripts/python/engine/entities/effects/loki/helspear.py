@@ -38,34 +38,58 @@ PAS par ce slot que passe la penetration.
      que ce corps peut lire (`0x40`).
 
 ===================================================================================================
-RESIDU `#1008-r2` -- LA MAGNITUDE N'ATTEINT PAS LE CALCUL, ET C'EST UN ETAGE, PAS UN OUBLI
+`#1008-r2` -- LE LECTEUR DEFENSEUR EXISTE : IL EST *DANS* LE SLOT `0x1a`, PAS A COTE
 ===================================================================================================
 
-Cote port, `BaseEffect.get_armor_penetration` (le canal de `IgnoreArmor`) n'est appele QUE par
-`_attacker_effect_bonuses` -- la boucle des effets de l'**ATTAQUANT**
-(`entities/effects/__init__.py`). Or CET effet-ci vit sur le **DEFENSEUR** : son porteur est la
-cible de l'active, et sa propre condition le dit (`get_OwnerIsTarget`).
+La fiche du residu cherchait un QUATRIEME slot d'interface et concluait : << le slot `0x19` rend un
+`Nullable`, `IgnoreArmor` rend un `IAmountFormula`, donc ce n'est aucun des trois >>. Le
+raisonnement est EXACT et ne conclut pas -- `IgnoreArmor()` rend une formule NON EVALUEE, que le
+slot `0x1a` evalue.
 
-Cote natif, `IdunBattle.Core.Services.DamageCalculations$$CalculateDefenderModifiersForPrediction`
-appelle sur chaque effet du defenseur TROIS slots virtuels -- `0x19` (un `Nullable<int>` accumule
-dans `DamageModifiers+0x20`), `0x1a` et `0x1b` (deux `Nullable<EffectBonus>`). Le port les mirroire
-deja (`create_piercing_bonus_for_attack` / `create_effect_damage_malus_for_defense`). **Aucun des
-trois n'est `IgnoreArmor`** : le slot `0x19` rend un `Nullable`, la `IgnoreArmor` rend un
-`IAmountFormula`. Le lecteur natif de `IgnoreArmor` pour un effet DEFENSEUR n'a donc pas ete
-localise dans cette tranche.
+CE QUI EST LU (`IdunBattle.Entities.Effects.BaseEffect$$DamageMalusForDefense`, le corps du slot
+`0x1a`, relu VERBATIM sur `t6dpr4k06g`) :
 
-Le port EXPOSE la magnitude (`ignore_armor()` ci-dessous) sans la brancher, et NE surcharge PAS
-`get_armor_penetration` : la brancher sur le canal attaquant serait un no-op silencieux -- l'effet
-n'est jamais dans la liste de l'attaquant --, c'est-a-dire exactement le genre de cablage qui se
-lit comme « porte » sans rien changer. Le trou est ainsi VISIBLE et testable.
+    InitializeBonusCacheIfNeeded(this)
+    bonus = <Nullable<EffectBonus>> cache a this+0x1d8        # = CreateEffectDamageMalusForDefense()
+    si !bonus.HasValue                        -> Nullable<DamageBonus> VIDE
+    si !bonus.Value.trigger.<slot 0>(entities) -> Nullable<DamageBonus> VIDE      # <<< LA GATE
+    sinon:
+        DamageBonus+0x20 = eval(bonus+0x08)
+        DamageBonus+0x28 = eval(bonus+0x10)
+        DamageBonus+0x30 = eval(bonus+0x18)
+        DamageBonus+0x38 = eval( this.<vtable +0x718>() )     # <<< APPEL VIRTUEL = `IgnoreArmor()`
+        DamageBonus+0x40 = eval(bonus+0x28)
 
-BLOCAGE `etage`. Point d'ancrage pour la suite : le slot virtuel qui invoque `IgnoreArmor`, a
-chercher dans `DamageCalculations$$GetBaseDamageWithFixedPiercedArmor` et ses appelants.
+puis `IdunBattle.Core.Services.DamageCalculations$$CalculateDefenderModifiersForPrediction`
+accumule `DamageBonus+0x38` dans **`DamageModifiers+0x28`** -- le MEME axe armure que la face
+attaquant, celui que le port nomme `DamageModifiers.armor_penetration` et que
+`IdunBattle.Core.Services.DamagePrediction$$GetBaseDamageWithFixedPiercedArmor` consomme par
+`armor_eff = max(armor - ignoreArmor, 0)`, DEJA porte (`services/damage_prediction.py`).
+
+⚠ **L'`EffectBonus` << condition-seule >> N'EST PAS UN NO-OP -- C'EST LA GATE.**
+`Helspear_IgnoreArmorEffect$$CreateEffectDamageMalusForDefense` rend un `EffectBonus` dont TOUTES
+les formules valent 0 et dont le trigger est `get_OwnerIsTarget & IsUnit(Caster)`. La fiche y voyait
+la preuve que la penetration ne passe pas par ce slot ; c'est l'inverse. Le natif SEPARE
+volontairement la CONDITION (portee par l'`EffectBonus`) et la MAGNITUDE (portee par
+`IgnoreArmor()`), et `DamageMalusForDefense` les RECOMBINE. Un `EffectBonus` sans formule y est
+exactement ce qu'il faut.
+
+C'est pourquoi le port lit `get_armor_penetration` **a l'interieur** du bloc ou le malus est rendu
+(`entities/effects/__init__.py::build_defender_modifiers_from_effects`) : la gate n'est pas
+dupliquee, elle est celle du malus, comme dans le natif.
+
+⚠ **DEUX effets vivent sur ce canal**, pas un : `Helspear_IgnoreArmor` (1583) et
+`StrikeFromTheShadows` (1549) -- les deux seules classes qui surchargent
+`CreateEffectDamageMalusForDefense` parmi les cinq porteuses d'`armorIgnored` au gameconfig
+(les trois autres -- `KanOpener`, `PowerTrip`, `WayOfTheShortBlade` -- surchargent
+`CreateEffectDamageBonusForAttack`, donc face ATTAQUANT). `1549` n'a AUCUNE classe portee : residu
+distinct, ce module ne le couvre pas.
 """
 from __future__ import annotations
 
 from typing import Mapping, Optional
 
+from ....services.effect_bonus import for_addition
 from ..base import BaseEffect
 from ..magnitude import ability_var
 
@@ -85,8 +109,36 @@ class HelspearIgnoreArmorEffect(BaseEffect):
       * sa CONDITION native, LUE (`get_OwnerIsTarget & IsUnit(Caster)`) -- exposee par
         `applies_to_incoming_attack` ;
       * sa MAGNITUDE native, LUE (`ConfigVar(armorIgnored)`) -- exposee par `ignore_armor`.
-    Ce qu'il ne porte PAS : le CHEMIN par lequel cette magnitude entre dans le calcul de degat
-    (residu `#1008-r2`, cf. l'en-tete). `get_armor_penetration` n'est deliberement PAS surcharge."""
+      * le CHEMIN par lequel cette magnitude entre dans le calcul (#1008-r2, cf. l'en-tete) :
+        `create_effect_damage_malus_for_defense` porte la GATE et `get_armor_penetration` la
+        MAGNITUDE, comme le natif les separe -- la boucle defenseur les recombine."""
+
+    def create_effect_damage_malus_for_defense(self, is_melee=None, damage_profile=None,
+                                               attacker_ctx=None):
+        """`Helspear_IgnoreArmorEffect$$CreateEffectDamageMalusForDefense` -- mirror 1:1.
+
+        Le natif rend un `EffectBonus` dont TOUTES les formules valent 0 et dont le trigger est
+        `get_OwnerIsTarget & IsUnit(Caster@<DSLSelectors+0x48>)`. Il ne modifie donc AUCUN
+        multiplicateur de degat : son unique role est de faire passer -- ou pas -- le bloc de
+        `BaseEffect$$DamageMalusForDefense` dans lequel `IgnoreArmor()` est evalue.
+
+        ⚠ RENDRE `None` ICI DESARMERAIT LA PENETRATION, sans rien changer d'autre : c'est ce
+        `EffectBonus` a magnitude nulle qui PORTE la gate. Le supprimer comme << inutile, il vaut
+        zero >> serait la faute exacte que la fiche d'origine a commise en le lisant."""
+        attacker_id = (attacker_ctx or {}).get("id") if attacker_ctx else None
+        if not self.applies_to_incoming_attack(attacker_id):
+            return None
+        return for_addition(False, 0)          # `EffectBonus` a formules NULLES -- la gate seule
+
+    def get_armor_penetration(self, is_normal_attack: bool = True) -> int | None:
+        """`IgnoreArmor()` -- le slot virtuel `+0x718`, evalue par `BaseEffect$$DamageMalusForDefense`
+        et range dans `DamageBonus+0x38`, que le natif accumule dans `DamageModifiers+0x28`.
+
+        ⚠ AUCUN gate `is_normal_attack` ICI, et c'est LU, pas omis : le corps natif evalue la
+        formule sans consulter la nature du coup. Le parametre existe pour les penetrations de la
+        face ATTAQUANT qui, elles, sont gatees (`PowerTrip` : << NORMAL attacks ignore X Armour >>).
+        La gate de CET effet est ailleurs -- dans le trigger du malus ci-dessus."""
+        return self.ignore_armor()
 
     def applies_to_incoming_attack(self, attacker_id: Optional[int] = None) -> bool:
         """`get_OwnerIsTarget & IsUnit(Caster@DSLSelectors+0x48)` -- la condition de l'`EffectBonus`
