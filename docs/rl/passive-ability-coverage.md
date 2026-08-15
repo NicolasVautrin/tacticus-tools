@@ -42,7 +42,7 @@ Sinon, trois verdicts NEGATIFS distincts :
 
 Mesure de ce run : un `substring` brut du nom sur `engine/**/*.py` rend **211/211 presents, 0 manquant**. La cause n'est pas que tout est porte : `engine/entities/triggered_ability_type.py` est un **mirror 1:1 de l'enum natif `TriggeredAbilityType`** (573 membres), ou le nom de CHAQUE passif figure comme membre. **Un catalogue n'est pas un cablage.**
 
-Le signal code de cet audit est donc derive de l'**AST** et exclut les **definitions** de membres d'enum (3942 assignations ecartees dans 700 fichiers `engine/**/*.py`) tout en gardant les **usages** (`TriggeredAbilityType.X` = `ast.Attribute` -> compte). Il separe en outre le CODE (14262 symboles distincts) de la PROSE (12157 ko de commentaires + docstrings, invisibles a l'AST, lus via `tokenize`). Le rapprochement est CamelCase-aware : `HeavyGravCannon` matche `HeavyGravCannonEffect`, `Guard` ne matche ni `Guardsman` ni `RoyalGuard` (ni, pour `Possession`, l'unitId `blackPossession`).
+Le signal code de cet audit est donc derive de l'**AST** et exclut les **definitions** de membres d'enum (3942 assignations ecartees dans 701 fichiers `engine/**/*.py`) tout en gardant les **usages** (`TriggeredAbilityType.X` = `ast.Attribute` -> compte). Il separe en outre le CODE (14295 symboles distincts) de la PROSE (12170 ko de commentaires + docstrings, invisibles a l'AST, lus via `tokenize`). Le rapprochement est CamelCase-aware : `HeavyGravCannon` matche `HeavyGravCannonEffect`, `Guard` ne matche ni `Guardsman` ni `RoyalGuard` (ni, pour `Possession`, l'unitId `blackPossession`).
 
 Chaque reference est en outre ATTRIBUEE A SA ZONE du moteur (`__init__, ai, battle_query, dsl, effects, entities, hex_corner, hex_edge, move, playbook, predict, runner, services, streams, utilities, weights`), parce qu'une reference dans `playbook/`/`ai/`/`utilities/` (face DECISION) ne prouve RIEN sur l'execution combat. C'est ce qui separe **B** (litteral exact sous `runner/`) de **R**.
 
@@ -65,12 +65,12 @@ La colonne `kind` de gameconfig MENT sur la spawnabilite -> le pool vient de la 
 ## Bilan
 
 - Passifs distincts dans le parc (lineup 127 / npc 491 / summons 65) : **211**
-- **PORTES** (>=1 canal structurel) : **166** (79 %)
+- **PORTES** (>=1 canal structurel) : **175** (83 %)
 - **ZONE-GRISE** (direct-read hors registre, a trancher) : **10**
-- **GAPS** (mention seule + absent) : **35** = 13 mention + 22 absent
+- **GAPS** (mention seule + absent) : **26** = 10 mention + 16 absent
 - Passifs portes par >=1 unite **confrontable** : **134** ; parmi eux, **0 gaps** et **0 zone-grise** -> c'est la FILE reelle.
 
-Ventilation des canaux qui portent (un passif peut en cumuler) : **T**=89, **O**=33, **E**=98, **G**=11, **X**=0, **B**=10
+Ventilation des canaux qui portent (un passif peut en cumuler) : **T**=98, **O**=33, **E**=98, **G**=11, **X**=0, **B**=10
 
 ## Tableaux par valeur
 
@@ -84,7 +84,7 @@ _aucun._
 
 _aucun._
 
-### GAPS non confrontables (npc-only / non spawnable `L!` / summon indetermine `S?`) (35)
+### GAPS non confrontables (npc-only / non spawnable `L!` / summon indetermine `S?`) (26)
 
 | passif | porteurs | spawnables (ex.) | verdict | canal | zones engine/ |
 |---|---|---|---|---|---|
@@ -101,18 +101,9 @@ _aucun._
 | MultiTracker | N=1 | - | GAP-ABSENT | - | - |
 | OiWatchIt | N=1 | - | GAP-ABSENT | - | - |
 | PowerUp_Bomb | N=1 | - | GAP-MENTION | **.** | - |
-| PowerUp_HeroSpawn_BladeChampion | N=1 | - | GAP-ABSENT | - | - |
-| PowerUp_HeroSpawn_Uthar | N=1 | - | GAP-ABSENT | - | - |
-| PowerUp_HeroSpawn_VexilusPraetor | N=1 | - | GAP-ABSENT | - | - |
 | PowerUp_Reinforcement | N=1 | - | GAP-ABSENT | - | - |
 | PowerUp_ReinforcementShield | N=1 | - | GAP-ABSENT | - | - |
 | PowerUp_Resurrect | N=1 | - | GAP-ABSENT | - | - |
-| PowerUp_SummonSpawn_bloodSmnIntercessor | N=1 | - | GAP-ABSENT | - | - |
-| PowerUp_SummonSpawn_darkaSmnHellblaster | N=1 | - | GAP-ABSENT | - | - |
-| PowerUp_SummonSpawn_darkaSmnTerminator | N=1 | - | GAP-MENTION | **.** | - |
-| PowerUp_SummonSpawn_templSmnAggressor | N=1 | - | GAP-MENTION | **.** | - |
-| PowerUp_SummonSpawn_ultraSmnHeavyIntercessor | N=1 | - | GAP-MENTION | **.** | - |
-| PowerUp_SummonSpawn_ultraSmnInceptor | N=1 | - | GAP-ABSENT | - | - |
 | PreCalibratedPurgeSolution | N=1 | - | GAP-ABSENT | - | - |
 | PrehensilePincerTail | N=1 | - | GAP-ABSENT | - | - |
 | RepairEnthusiast | S?=1 N=1 | - | GAP-ABSENT | - | - |
@@ -139,7 +130,7 @@ _aucun._
 | WatchedOver | S?=1 N=1 | - | ZONE-GRISE | **R** | playbook, runner |
 | Wraithcannon | N=2 | - | ZONE-GRISE | **R** | runner, services |
 
-### PORTES (166)
+### PORTES (175)
 
 | passif | porteurs | spawnables (ex.) | verdict | canal | zones engine/ |
 |---|---|---|---|---|---|
@@ -297,9 +288,18 @@ _aucun._
 | PowerUp_Damage | N=1 | - | PORTE | **T**=PowerUpDamageAbility | runner |
 | PowerUp_Healing | N=1 | - | PORTE | **T**=PowerUpHealingAbility | runner |
 | PowerUp_Health | N=1 | - | PORTE | **T**=PowerUpHealthAbility | runner |
+| PowerUp_HeroSpawn_BladeChampion | N=1 | - | PORTE | **T**=PowerUpHeroSpawnBladeChampionAbility | runner |
+| PowerUp_HeroSpawn_Uthar | N=1 | - | PORTE | **T**=PowerUpHeroSpawnUtharAbility | runner |
+| PowerUp_HeroSpawn_VexilusPraetor | N=1 | - | PORTE | **T**=PowerUpHeroSpawnVexilusPraetorAbility | runner |
 | PowerUp_Hits | N=1 | - | PORTE | **T**=PowerUpHitsAbility | runner |
 | PowerUp_MeleeHits | N=1 | - | PORTE | **T**=PowerUpMeleeHitsAbility | runner |
 | PowerUp_ReactivateAbility | N=1 | - | PORTE | **T**=PowerUpReactivateAbilityAbility | runner |
+| PowerUp_SummonSpawn_bloodSmnIntercessor | N=1 | - | PORTE | **T**=PowerUpSummonSpawnbloodSmnIntercessorAbility | runner |
+| PowerUp_SummonSpawn_darkaSmnHellblaster | N=1 | - | PORTE | **T**=PowerUpSummonSpawndarkaSmnHellblasterAbility | runner |
+| PowerUp_SummonSpawn_darkaSmnTerminator | N=1 | - | PORTE | **T**=PowerUpSummonSpawndarkaSmnTerminatorAbility | runner |
+| PowerUp_SummonSpawn_templSmnAggressor | N=1 | - | PORTE | **T**=PowerUpSummonSpawntemplSmnAggressorAbility | runner |
+| PowerUp_SummonSpawn_ultraSmnHeavyIntercessor | N=1 | - | PORTE | **T**=PowerUpSummonSpawnultraSmnHeavyIntercessorAbility | runner |
+| PowerUp_SummonSpawn_ultraSmnInceptor | N=1 | - | PORTE | **T**=PowerUpSummonSpawnultraSmnInceptorAbility | runner |
 | PrimarchOfTheFirstLegion | N=1 | - | PORTE | **E**=PrimarchOfTheFirstLegion_ExtraDamage | effects, playbook, runner |
 | PurgeResponse | S?=1 N=1 | - | PORTE | **E**=PurgeResponse | effects, playbook |
 | Pyreblaster | S?=1 N=1 | - | PORTE | **T**=PyreblasterAbility | runner |

@@ -19,9 +19,9 @@ differe. C'est la doctrine « DECIDER != EXECUTER ».
 
 ## Bilan
 
-- Unites `npc` : **491** ; kits sans manque : **449** ; kits avec du travail : **42**
+- Unites `npc` : **491** ; kits sans manque : **458** ; kits avec du travail : **33**
 - Actives distinctes : **147** — `[--]` **1** · `[C-]` **17** · `[CD]` **129**
-- Passifs distincts : **177** — portes **133**, non portes **44**
+- Passifs distincts : **177** — portes **142**, non portes **35**
 - Traits de kit distincts (AUCUN ecarte — le seuil de frequence a disparu avec #1015) :
   **58** — couverts **57**, non couverts **1**
 - **Voies inversees** (nom absent d'`ActiveAbilityType`) : **1** — `Maugetar`
@@ -72,18 +72,9 @@ l'unite. La colonne `porteurs` dit l'exposition.
 | passif | OiWatchIt | 1 | orksNpc5LootGrotTeam |
 | passif | PileIn | 1 | orksNpc1Grot |
 | passif | PowerUp_Bomb | 1 | powupBomb |
-| passif | PowerUp_HeroSpawn_BladeChampion | 1 | powupHeroSpawn_BladeChampion |
-| passif | PowerUp_HeroSpawn_Uthar | 1 | powupHeroSpawn_Uthar |
-| passif | PowerUp_HeroSpawn_VexilusPraetor | 1 | powupHeroSpawn_VexilusPraeto |
 | passif | PowerUp_Reinforcement | 1 | powupReinforcement |
 | passif | PowerUp_ReinforcementShield | 1 | powupReinforcementShield |
 | passif | PowerUp_Resurrect | 1 | powupResurrect |
-| passif | PowerUp_SummonSpawn_bloodSmnIntercessor | 1 | powupSummonSpawn_bloodSmnIntercessor |
-| passif | PowerUp_SummonSpawn_darkaSmnHellblaster | 1 | powupSummonSpawn_darkaSmnHellblaster |
-| passif | PowerUp_SummonSpawn_darkaSmnTerminator | 1 | powupSummonSpawn_darkaSmnTerminator |
-| passif | PowerUp_SummonSpawn_templSmnAggressor | 1 | powupSummonSpawn_templSmnAggressor |
-| passif | PowerUp_SummonSpawn_ultraSmnHeavyIntercessor | 1 | powupSummonSpawn_ultraSmnHeavyIntercessor |
-| passif | PowerUp_SummonSpawn_ultraSmnInceptor | 1 | powupSummonSpawn_ultraSmnInceptor |
 | passif | PreCalibratedPurgeSolution | 1 | admecBossBelisarius |
 | passif | PrehensilePincerTail | 1 | tyranBossHiveTyrantLeviathan |
 | passif | RepairEnthusiast | 1 | votanNpc1Ecog |
@@ -106,25 +97,16 @@ sont des **faces** absentes d'items presents.
 
 ## Inventaire complet, par faction
 
-### ? — 51 unites, 15 avec du travail
+### ? — 51 unites, 6 avec du travail
 
 | unite | manque | actives (face) | passifs non portes | traits non couverts | autres voies |
 |---|---:|---|---|---|---|
 | LootObj_AmmoBox | 1 | - | Volatile | - | - |
 | LootObj_ExplOilDrum | 1 | - | Explosive | - | - |
 | powupBomb | 1 | - | PowerUp_Bomb | - | - |
-| powupHeroSpawn_BladeChampion | 1 | - | PowerUp_HeroSpawn_BladeChampion | - | - |
-| powupHeroSpawn_Uthar | 1 | - | PowerUp_HeroSpawn_Uthar | - | - |
-| powupHeroSpawn_VexilusPraeto | 1 | - | PowerUp_HeroSpawn_VexilusPraetor | - | - |
 | powupReinforcement | 1 | - | PowerUp_Reinforcement | - | - |
 | powupReinforcementShield | 1 | - | PowerUp_ReinforcementShield | - | - |
 | powupResurrect | 1 | - | PowerUp_Resurrect | - | - |
-| powupSummonSpawn_bloodSmnIntercessor | 1 | - | PowerUp_SummonSpawn_bloodSmnIntercessor | - | - |
-| powupSummonSpawn_darkaSmnHellblaster | 1 | - | PowerUp_SummonSpawn_darkaSmnHellblaster | - | - |
-| powupSummonSpawn_darkaSmnTerminator | 1 | - | PowerUp_SummonSpawn_darkaSmnTerminator | - | - |
-| powupSummonSpawn_templSmnAggressor | 1 | - | PowerUp_SummonSpawn_templSmnAggressor | - | - |
-| powupSummonSpawn_ultraSmnHeavyIntercessor | 1 | - | PowerUp_SummonSpawn_ultraSmnHeavyIntercessor | - | - |
-| powupSummonSpawn_ultraSmnInceptor | 1 | - | PowerUp_SummonSpawn_ultraSmnInceptor | - | - |
 | LootObj_Blackstone | 0 | - | - | - | - |
 | LootObj_CoinCrate | 0 | - | - | - | - |
 | LootObj_Crate_Cha | 0 | - | - | - | - |
@@ -158,9 +140,18 @@ sont des **faces** absentes d'items presents.
 | powupDamage | 0 | - | - | - | - |
 | powupHealing | 0 | - | - | - | - |
 | powupHealth | 0 | - | - | - | - |
+| powupHeroSpawn_BladeChampion | 0 | - | - | - | - |
+| powupHeroSpawn_Uthar | 0 | - | - | - | - |
+| powupHeroSpawn_VexilusPraeto | 0 | - | - | - | - |
 | powupHits | 0 | - | - | - | - |
 | powupMeleeHits | 0 | - | - | - | - |
 | powupReactivateAbility | 0 | - | - | - | - |
+| powupSummonSpawn_bloodSmnIntercessor | 0 | - | - | - | - |
+| powupSummonSpawn_darkaSmnHellblaster | 0 | - | - | - | - |
+| powupSummonSpawn_darkaSmnTerminator | 0 | - | - | - | - |
+| powupSummonSpawn_templSmnAggressor | 0 | - | - | - | - |
+| powupSummonSpawn_ultraSmnHeavyIntercessor | 0 | - | - | - | - |
+| powupSummonSpawn_ultraSmnInceptor | 0 | - | - | - | - |
 
 ### AdeptusAstartes — 2 unites, 0 avec du travail
 
