@@ -54,6 +54,49 @@ DEUX lectures a ne pas presumer, et c'est pour elles que ce module est ecrit :
    ou une feuille sentinelle entre au registre, c'est ICI qu'il faut la brancher, pas dans la
    feuille.
 
+LES SENTINELLES, DESORMAIS **LUES** (#1013-r3) -- et ce qu'un `customUtility` PEUT faire
+------------------------------------------------------------------------------------------
+`IdunBattle.AI.Utilities.BaseUtility$$.cctor` ecrit sept champs statiques ; `FixMath.NET.Fix64$$.cctor`
+donne les deux valeurs auxquelles ils renvoient (`Fix64.statics+0x10 = 0x7fffffffffffffff` =
+**MaxValue**, `+0x18 = 0x8000000000000000` = **MinValue**) :
+
+    BaseUtility.statics+0x00 = Fix64(0)                             # NEUTRE -- PAS une sentinelle
+    BaseUtility.statics+0x08 = Fix64(100000)
+    BaseUtility.statics+0x10 = Fix64.MaxValue                       # MUST-DO
+    BaseUtility.statics+0x18 = Fix64.MinValue / (1000001/1000000)   # VETO
+    BaseUtility.statics+0x20 = Fix64.MinValue                       # VETO
+    BaseUtility.statics+0x28 = Fix64.MinValue / (1000002/1000000)
+    BaseUtility.statics+0x30 = Fix64(-12345)
+
+⚠ **UN `customUtility` DE CALL-SITE N'EST JAMAIS SOMME AU SCORE -- IL N'A QUE TROIS ISSUES.**
+`IdunBattle.AI.Playbook.ComparablePlaybooku003C__Il2CppFullySharedGenericTypeu003E$$CalculateActionUtility`
+recoit la `UtilityDefinition` du call-site (chaine : `IdunBattle.AI.ActionGenerators.
+ActiveAbilityActionGenerator.u003CGenerateActionsu003Ed__7$$MoveNext` -> slot 7 du playbook ->
+`ComparablePlaybooku003C__Il2CppFullySharedGenericTypeu003E$$EvaluateInternal` -> ce corps), et,
+LU verbatim :
+
+    if (customUtility == null || customUtility.Buckets.Length == 0)  -> chemin NORMAL
+    r = UtilityDecider.CalculateUtility(db, UtilityAttackCase.Base(unit, position, target, ab),
+                                        customUtility.Buckets[0], evaluate)
+    if (r == statics+0x18 || r == statics+0x20)  -> **Nullable VIDE** (aucune action pour ce couple)
+    if (r == statics+0x10)                       -> utilite = MaxValue (MUST-DO)
+    sinon                                        -> **chemin NORMAL** (la valeur est JETEE)
+
+Consequence, et elle est STRUCTURELLE : une utilite custom qui rend un NOMBRE (et non l'une des
+trois sentinelles TESTEES) **ne change RIEN** au choix de l'IA. Deux call-sites l'illustrent, en
+sens inverse :
+  * `IdunBattle.AI.Utilities.OnlyCertainTargetUtility` (`1101 AttemptedPossession`) yield
+    `statics+0x20` = **MinValue** quand la cible n'est pas dans sa liste, `statics+0x00` = **0**
+    quand elle y est -> ELIMINATION de la cible interdite, scoring NORMAL de l'autorisee. C'est
+    exactement ce que le port exprime par `allowed_targets` : le residu `#590-r5` (qui declarait
+    la polarite << non lisible offline >>, `BLOCAGE: capteur`) est TRANCHE HORS LIGNE, et le port
+    avait RAISON ;
+  * `IdunBattle.AI.Utilities.TheArdentBlade_GeminaeUtility` (`1468 TheArdentBlade`) yield `0` ou
+    `+30` (`GetUtilityValue("LikesAdjacentCelestine")`) -- **jamais une sentinelle** -> son
+    `customUtility` est IGNORE par le NATIF lui-meme. La premisse de `#1013-r3` (<< la Geminae
+    rejouee choisit sa cible par l'utilite par DEFAUT >>, sous-entendu : contrairement au natif)
+    est donc REFUTEE : le natif choisit AUSSI par l'utilite par defaut.
+
 `min_utility_difference` n'est PAS lu par ce chemin : il sert a
 `IdunBattleLogic.AI.Utilities.UtilityDecider$$Decide` (arbitrage entre ACTIONS). Il est porte quand
 meme, parce qu'il fait partie de l'objet que le call-site construit et que le taire ferait croire

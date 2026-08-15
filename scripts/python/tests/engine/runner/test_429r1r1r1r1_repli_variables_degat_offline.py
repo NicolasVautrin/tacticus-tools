@@ -23,6 +23,26 @@ from pathlib import Path
 
 import pytest
 
+DECLENCHEUR = {
+    # PERIMETRE LARGE et MESURE : l'assiette est DERIVEE d'`ABILITY_CLASSES` (donc du registre
+    # entier) et le bras traverse `_apply_active_ability` -> `ability_attack_params` ->
+    # `AttackDamageOperation.execute_ability_attack` -> tout le pipeline de degat. La fermeture
+    # d'import couvre l'essentiel de `scripts/python`. Declarer etroit produirait un FAUX VERT.
+    # ⚠ Les DEUX formes sont necessaires : `**/` exige un SEGMENT, donc `scripts/python/**/*.py`
+    # ne voit PAS `scripts/python/board.py`.
+    "chemins": ("scripts/python/*.py", "scripts/python/**/*.py"),
+    # `build: False` -- rien n'est fige depuis le binaire : l'assiette et la ventilation sont
+    # re-derivees du registre et du gameconfig a chaque passe. Ce qui est fige, c'est la LECTURE
+    # des deux helpers natifs (`MinMaxDamage` 0xc/0xd, `DmgDamage` 0xb), en prose.
+    "build": False,
+    # Offline, aucun runner, ~13 s (le bras monte deux etats et joue le repli deux fois).
+    "toujours": True,
+    "raison": "Cliquet du repli generique de `summon_ai` : toute ability de l'assiette DERIVEE "
+              "doit resoudre un helper de degat natif connu, et le bras montre que le residu MORD "
+              "(0 -> non nul) avec sa contre-epreuve. Un port qui ferait sortir du registre une "
+              "ability a `dmg` doit rougir ICI plutot qu'infliger 0 en silence.",
+}
+
 _RACINE = Path(__file__).resolve().parents[3]
 if str(_RACINE) not in sys.path:
     sys.path.insert(0, str(_RACINE))
