@@ -3267,6 +3267,32 @@ ABILITY_INIT_OWNER_FLAGS: dict[str, list[int]] = {
     # PLEINS. Le gate lui-meme est appele par `RepairUnitOperation$$Execute` (#299) et par le
     # ciblage (`RepairAbility`), donc le drapeau MORD sur les deux faces.
     "EcogSupport": [int(UnitFlag.CanRepairFullHealthUnits)],
+    # #952-r2 -- `GalvanicField`, passif d'`admecManipulus` << Actus >>. MEME flag et MEME LECTEUR
+    # que `EcogSupport` ci-dessus (`attack_query.entity_can_be_repaired`, 4e disjunct) : l'entree
+    # n'est donc pas inerte, elle reutilise un canal deja mordant.
+    #
+    # ⚠ CE QUI EST LU, ET CE QUI NE L'EST PAS. Le `CreateBehaviour` de `GalvanicField_InitAbility`
+    # a TROIS feuilles -- `AddFlag(Owner, 0x18 CanRepairFullHealthUnits)`,
+    # `RemoveActiveAbility(Owner, 0x1c Repair)`, `AddActiveAbility(Owner, 0x45f
+    # Repair_GalvanicField, abilityState)` -- lecture de #952. Cette entree ne porte QUE LA
+    # PREMIERE : `ABILITY_INIT_OWNER_FLAGS` est un canal de FLAGS, les deux echanges d'ability n'ont
+    # aucun canal d'init cote port (residu #952-r2, volet restant).
+    #
+    # CONFIRMATION LIVE des trois feuilles sur le build `t6dpr4k06g`
+    # (`probe_a899_952r2_galvanic_field.py`, board MC1_67, seed 777, runner 57), TEMOIN INCLUS :
+    #     admecManipulus  unitFlags=[24]  abilityStates=[(1117 DefendTheDivineWork, active),
+    #                                                    (1119 Repair_GalvanicField, granted)]
+    #     tauCrisis       unitFlags=[]                       <- TEMOIN : le flag n'est PAS universel
+    # `28 Repair` est bien ABSENTE du porteur, `1119` presente : les deux echanges sont confirmes
+    # cote natif, et l'ordinal `24` est LU dans `unitFlagTypes` du snapshot, pas ecrit en dur.
+    #
+    # ⚠ REGIME OU CETTE LIGNE MORD -- elle est un NO-OP EXACT sur le chemin live : le capteur publie
+    # deja le flag, et `_add_owner_flag_on_ability_init` est IDEMPOTENT. Ce qu'elle rend possible,
+    # c'est un etat construit SANS capture de flags (spawn offline pur, rollout self-play,
+    # re-materialisation apres `initialize_deferred_actor_abilities`), ou le natif poserait le flag
+    # et ou le port ne l'avait PAS. C'est ce regime que garde
+    # `tests/engine/test_952r2_galvanic_field_offline.py`.
+    "GalvanicField": [int(UnitFlag.CanRepairFullHealthUnits)],
 }
 
 
