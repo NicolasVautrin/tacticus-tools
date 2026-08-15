@@ -42,7 +42,7 @@ Sinon, trois verdicts NEGATIFS distincts :
 
 Mesure de ce run : un `substring` brut du nom sur `engine/**/*.py` rend **211/211 presents, 0 manquant**. La cause n'est pas que tout est porte : `engine/entities/triggered_ability_type.py` est un **mirror 1:1 de l'enum natif `TriggeredAbilityType`** (573 membres), ou le nom de CHAQUE passif figure comme membre. **Un catalogue n'est pas un cablage.**
 
-Le signal code de cet audit est donc derive de l'**AST** et exclut les **definitions** de membres d'enum (3942 assignations ecartees dans 699 fichiers `engine/**/*.py`) tout en gardant les **usages** (`TriggeredAbilityType.X` = `ast.Attribute` -> compte). Il separe en outre le CODE (14257 symboles distincts) de la PROSE (12138 ko de commentaires + docstrings, invisibles a l'AST, lus via `tokenize`). Le rapprochement est CamelCase-aware : `HeavyGravCannon` matche `HeavyGravCannonEffect`, `Guard` ne matche ni `Guardsman` ni `RoyalGuard` (ni, pour `Possession`, l'unitId `blackPossession`).
+Le signal code de cet audit est donc derive de l'**AST** et exclut les **definitions** de membres d'enum (3942 assignations ecartees dans 700 fichiers `engine/**/*.py`) tout en gardant les **usages** (`TriggeredAbilityType.X` = `ast.Attribute` -> compte). Il separe en outre le CODE (14262 symboles distincts) de la PROSE (12157 ko de commentaires + docstrings, invisibles a l'AST, lus via `tokenize`). Le rapprochement est CamelCase-aware : `HeavyGravCannon` matche `HeavyGravCannonEffect`, `Guard` ne matche ni `Guardsman` ni `RoyalGuard` (ni, pour `Possession`, l'unitId `blackPossession`).
 
 Chaque reference est en outre ATTRIBUEE A SA ZONE du moteur (`__init__, ai, battle_query, dsl, effects, entities, hex_corner, hex_edge, move, playbook, predict, runner, services, streams, utilities, weights`), parce qu'une reference dans `playbook/`/`ai/`/`utilities/` (face DECISION) ne prouve RIEN sur l'execution combat. C'est ce qui separe **B** (litteral exact sous `runner/`) de **R**.
 
@@ -175,7 +175,7 @@ _aucun._
 | FleshmetalGuns | L+=1 N=6 | blackObliterator | PORTE | **T**=FleshmetalGunsRotationAbility,FleshmetalGunsTileEffectAbility | effects, runner |
 | FuelledByFury | L+=1 N=3 | ultraTitus | PORTE | **T**=FuelledByFuryExtraDamageAbility,FuelledByFuryReviveAbility **E**=FuelledByFury_ExtraDamage | effects, runner |
 | FuryOfTheAncients | L+=1 | bloodMephiston | PORTE | **T**=FuryOfTheAncientsAbility **E**=FuryOfTheAncients | effects, entities, playbook, runner |
-| GalvanicField | L+=1 N=5 | admecManipulus | PORTE | **B**=litteral exact sous engine/runner/ | ai, entities, playbook, runner, services |
+| GalvanicField | L+=1 N=5 | admecManipulus | PORTE | **B**=litteral exact sous engine/runner/ | ai, effects, entities, playbook, runner, services |
 | GrimRetribution | L+=1 N=2 | darkaHellblaster | PORTE | **E**=GrimRetribution_CounterAttack **G**=GrimRetribution_CounterAttack | effects, runner |
 | GuardianOrganism | L+=1 N=5 | tyranTyrantGuard | PORTE | **E**=GuardianOrganism_DamageReduction | effects, playbook |
 | HatefulAssault | L+=1 N=4 | blackTerminator | PORTE | **T**=HatefulAssaultAttackAbility **E**=HatefulAssault_AlreadyAttacked **G**=HatefulAssault_AlreadyAttacked | effects, playbook, runner |
@@ -189,7 +189,7 @@ _aucun._
 | InfernalPacts | L+=1 N=5 | thousInfernalMaster | PORTE | **O**=InfernalPacts_AdditionalHits **E**=InfernalPacts_AdditionalHits | effects |
 | KustomForceFieldReworked | L+=1 N=4 | orksBigMek | PORTE | **O**=KustomForceFieldReworked,KustomForceFieldReworked_Orks **E**=KustomForceFieldReworked,KustomForceFieldReworked_Orks | effects, playbook |
 | LegacyOfCombat | L+=1 | custoBladeChampion | PORTE | **T**=LegacyOfCombatAdditionalAttackAbility | effects, playbook, runner |
-| LegendaryCommander | L+=1 | custoTrajann | PORTE | **O**=LegendaryCommander_ExtraHits **E**=LegendaryCommander_ExtraHits **G**=LegendaryCommander_ExtraHits | effects, runner |
+| LegendaryCommander | L+=1 | custoTrajann | PORTE | **O**=LegendaryCommander_ExtraDamage,LegendaryCommander_ExtraHits **E**=LegendaryCommander_ExtraDamage,LegendaryCommander_ExtraHits **G**=LegendaryCommander_ExtraHits | effects, runner |
 | LightImUp | L+=1 N=4 | orksWarboss | PORTE | **T**=LightImUpAbility | entities, playbook, runner |
 | LionHelm | L+=1 N=2 | darkaAzrael | PORTE | **O**=LionHelm_ExtraDmg,LionHelm_ExtraBlockChance **E**=LionHelm_ExtraBlockChance,LionHelm_ExtraBlockDamage | effects |
 | LordOfTempests | L+=1 N=1 | spaceStormcaller | PORTE | **T**=LordOfTempestsAddIceAbility **E**=LordOfTempests_ExtraDamage | effects, runner |

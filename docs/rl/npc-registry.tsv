@@ -184,31 +184,31 @@ admecBossDominusSurv	AdeptusMechanicus	Imperial	None	trait	Hero		1
 admecBossDominusSurv	AdeptusMechanicus	Imperial	None	trait	Mechanical		1	
 admecBossDominusSurv	AdeptusMechanicus	Imperial	None	trait	Mechanic		1	
 admecBossManipulus	AdeptusMechanicus	Imperial	None	active	DefendTheDivineWork	1117	1	1
-admecBossManipulus	AdeptusMechanicus	Imperial	None	passif	GalvanicField		0	
+admecBossManipulus	AdeptusMechanicus	Imperial	None	passif	GalvanicField		1	
 admecBossManipulus	AdeptusMechanicus	Imperial	None	trait	Hero		1	
 admecBossManipulus	AdeptusMechanicus	Imperial	None	trait	Mechanical		1	
 admecBossManipulus	AdeptusMechanicus	Imperial	None	trait	Mechanic		1	
 admecBossManipulus	AdeptusMechanicus	Imperial	None	trait	Flying		1	
 admecBossManipulusCE	AdeptusMechanicus	Imperial	None	active	DefendTheDivineWork	1117	1	1
-admecBossManipulusCE	AdeptusMechanicus	Imperial	None	passif	GalvanicField		0	
+admecBossManipulusCE	AdeptusMechanicus	Imperial	None	passif	GalvanicField		1	
 admecBossManipulusCE	AdeptusMechanicus	Imperial	None	trait	Hero		1	
 admecBossManipulusCE	AdeptusMechanicus	Imperial	None	trait	Mechanical		1	
 admecBossManipulusCE	AdeptusMechanicus	Imperial	None	trait	Mechanic		1	
 admecBossManipulusCE	AdeptusMechanicus	Imperial	None	trait	Flying		1	
 admecBossManipulusLEG	AdeptusMechanicus	Imperial	None	active	DefendTheDivineWork	1117	1	1
-admecBossManipulusLEG	AdeptusMechanicus	Imperial	None	passif	GalvanicField		0	
+admecBossManipulusLEG	AdeptusMechanicus	Imperial	None	passif	GalvanicField		1	
 admecBossManipulusLEG	AdeptusMechanicus	Imperial	None	trait	Hero		1	
 admecBossManipulusLEG	AdeptusMechanicus	Imperial	None	trait	Mechanical		1	
 admecBossManipulusLEG	AdeptusMechanicus	Imperial	None	trait	Mechanic		1	
 admecBossManipulusLEG	AdeptusMechanicus	Imperial	None	trait	Flying		1	
 admecBossManipulusLHE	AdeptusMechanicus	Imperial	None	active	DefendTheDivineWork	1117	1	1
-admecBossManipulusLHE	AdeptusMechanicus	Imperial	None	passif	GalvanicField		0	
+admecBossManipulusLHE	AdeptusMechanicus	Imperial	None	passif	GalvanicField		1	
 admecBossManipulusLHE	AdeptusMechanicus	Imperial	None	trait	Hero		1	
 admecBossManipulusLHE	AdeptusMechanicus	Imperial	None	trait	Mechanical		1	
 admecBossManipulusLHE	AdeptusMechanicus	Imperial	None	trait	Mechanic		1	
 admecBossManipulusLHE	AdeptusMechanicus	Imperial	None	trait	Flying		1	
 admecBossManipulusSurv	AdeptusMechanicus	Imperial	None	active	DefendTheDivineWork	1117	1	1
-admecBossManipulusSurv	AdeptusMechanicus	Imperial	None	passif	GalvanicField		0	
+admecBossManipulusSurv	AdeptusMechanicus	Imperial	None	passif	GalvanicField		1	
 admecBossManipulusSurv	AdeptusMechanicus	Imperial	None	trait	Hero		1	
 admecBossManipulusSurv	AdeptusMechanicus	Imperial	None	trait	Mechanical		1	
 admecBossManipulusSurv	AdeptusMechanicus	Imperial	None	trait	Mechanic		1	

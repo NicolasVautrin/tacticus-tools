@@ -19,9 +19,9 @@ differe. C'est la doctrine « DECIDER != EXECUTER ».
 
 ## Bilan
 
-- Unites `npc` : **491** ; kits sans manque : **444** ; kits avec du travail : **47**
+- Unites `npc` : **491** ; kits sans manque : **449** ; kits avec du travail : **42**
 - Actives distinctes : **147** — `[--]` **1** · `[C-]` **17** · `[CD]` **129**
-- Passifs distincts : **177** — portes **132**, non portes **45**
+- Passifs distincts : **177** — portes **133**, non portes **44**
 - Traits de kit distincts (AUCUN ecarte — le seuil de frequence a disparu avec #1015) :
   **58** — couverts **57**, non couverts **1**
 - **Voies inversees** (nom absent d'`ActiveAbilityType`) : **1** — `Maugetar`
@@ -49,7 +49,6 @@ l'unite. La colonne `porteurs` dit l'exposition.
 
 | type | item | porteurs | exemples |
 |---|---|---:|---|
-| passif | GalvanicField | 5 | admecBossManipulus, admecBossManipulusCE, admecBossManipulusLEG |
 | trait | TwoManTeam | 4 | astraNpc2Lascannon, astraNpc4Mortar, astraNpc4MortarSurv |
 | passif | RapidFire | 3 | ultraNpc3Intercessor, ultraNpc4HeavyIntercessor, ultraNpc4HeavyIntercessorSurv |
 | passif | BossEndFightUndefeated | 2 | darkaBossLion, deathBossMortarion |
@@ -170,16 +169,11 @@ sont des **faces** absentes d'items presents.
 | astarCyrus_LHE | 0 | StrikeFromTheShadows(1225)[C-] | - | - | - |
 | astarNpc1HaywireMine | 0 | - | - | - | - |
 
-### AdeptusMechanicus — 29 unites, 6 avec du travail
+### AdeptusMechanicus — 29 unites, 1 avec du travail
 
 | unite | manque | actives (face) | passifs non portes | traits non couverts | autres voies |
 |---|---:|---|---|---|---|
 | admecBossBelisarius | 2 | InvocationOfMachineVengeance(1172)[CD]<br>ArcScourge(1173)[C-]<br>SolarAtomizer(1174)[CD] | SelfRepairMechanismReworked, PreCalibratedPurgeSolution | - | - |
-| admecBossManipulus | 1 | DefendTheDivineWork(1117)[CD] | GalvanicField | - | - |
-| admecBossManipulusCE | 1 | DefendTheDivineWork(1117)[CD] | GalvanicField | - | - |
-| admecBossManipulusLEG | 1 | DefendTheDivineWork(1117)[CD] | GalvanicField | - | - |
-| admecBossManipulusLHE | 1 | DefendTheDivineWork(1117)[CD] | GalvanicField | - | - |
-| admecBossManipulusSurv | 1 | DefendTheDivineWork(1117)[CD] | GalvanicField | - | - |
 | admecBossDestroyer | 0 | SentinelDirectives(1139)[CD] | - | - | relic:KardiocoreGalvanus |
 | admecBossDestroyerCE | 0 | SentinelDirectives(1139)[CD] | - | - | relic:KardiocoreGalvanus |
 | admecBossDestroyerLHE | 0 | SentinelDirectives(1139)[CD] | - | - | relic:KardiocoreGalvanus |
@@ -188,6 +182,11 @@ sont des **faces** absentes d'items presents.
 | admecBossDominusLEG | 0 | RadBombardment(1116)[CD] | - | - | - |
 | admecBossDominusLHE | 0 | RadBombardment(1116)[CD] | - | - | - |
 | admecBossDominusSurv | 0 | RadBombardment(1116)[CD] | - | - | - |
+| admecBossManipulus | 0 | DefendTheDivineWork(1117)[CD] | - | - | - |
+| admecBossManipulusCE | 0 | DefendTheDivineWork(1117)[CD] | - | - | - |
+| admecBossManipulusLEG | 0 | DefendTheDivineWork(1117)[CD] | - | - | - |
+| admecBossManipulusLHE | 0 | DefendTheDivineWork(1117)[CD] | - | - | - |
+| admecBossManipulusSurv | 0 | DefendTheDivineWork(1117)[CD] | - | - | - |
 | admecBossMarshall | 0 | DoctrinaImperatives(1118)[CD] | - | - | relic:KardiocoreGalvanus |
 | admecBossMarshallCE | 0 | DoctrinaImperatives(1118)[CD] | - | - | relic:KardiocoreGalvanus |
 | admecBossMarshallLEG | 0 | DoctrinaImperatives(1118)[CD] | - | - | relic:KardiocoreGalvanus |
