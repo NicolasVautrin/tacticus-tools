@@ -7,8 +7,8 @@
  *  de `game/rarity.ts` (#1039) et le `LayoutProbe` de `game/damage-prediction.ts` (#279) — ce
  *  qui rend `resolveReceiveDamageChannel` EXÉCUTABLE hors Frida, sur une disposition capturée
  *  par le RPC `classFields` et sur des MUTATIONS adversariales de cette disposition.
- *  `LIVE_PROBE` en est l'implémentation de production ; `frida/tools/probe-10009-canaux-
- *  fenetre.ts` en est le harnais.
+ *  `LIVE_PROBE` en est l'implémentation de production ;
+ *  `frida/tools/probe-10008-canaux-du-foyer.ts` en est le harnais.
  *
  *  CE QUE LE NATIF ÉCRIT ET LIT — décompilé relu sur `t6dpr4k06g` :
  *

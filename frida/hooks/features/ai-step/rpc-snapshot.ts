@@ -30,6 +30,13 @@ import {
 import {
     LIVE_PROBE as TERTIARY_PROBE, TertiaryResolution, resolveTertiaryChannel,
 } from "../../game/tertiary-ability.js";
+import {
+    LIVE_PROBE as RDT_PROBE, ReceiveDamageResolution, readReceiveDamageTypes,
+    resolveReceiveDamageChannel,
+} from "../../game/receive-damage-types.js";
+import {
+    LIVE_PROBE as WEAPONS_PROBE, WeaponsResolution, readWeapons, resolveWeaponsChannel,
+} from "../../game/weapons.js";
 import { queueOnMainThread } from "../../runtime/queue.js";
 import { abilityName } from "../../data/ability-names.js";
 import { TARGETING_RULE_BITS } from "../../data/targeting-rule-names.js";
@@ -305,6 +312,76 @@ function tertiaryResolution(): TertiaryResolution {
     }
     tertiaryResolutionCache = r;
     return r;
+}
+
+// --- #487-r2 — le canal `receiveDamageTypeThisTurn`, résolu PAR NOM et LAZY -------------
+//
+// LAZY pour la MÊME raison que les deux résolutions ci-dessus, et la raison est ici LITTÉRALE :
+// le layout dérive de l'instance INFLATÉE du `Dictionary<DamageProfileType,int>`, et la
+// définition OUVERTE rend ses DIX champs à l'offset 0 (mesuré au RPC `classFields`, session 93).
+// Résoudre trop tôt, c'est risquer exactement cette disposition-là.
+//
+// La RÉSOLUTION vit dans `game/receive-damage-types.ts` — paramétrée, donc EXÉCUTABLE hors
+// Frida (`frida/tools/probe-10008-canaux-du-foyer.ts`).
+let rdtResolutionCache: ReceiveDamageResolution | null = null;
+function rdtResolution(): ReceiveDamageResolution {
+    if (rdtResolutionCache) return rdtResolutionCache;
+    let r: ReceiveDamageResolution;
+    try { r = resolveReceiveDamageChannel(RDT_PROBE); }
+    catch (e) {
+        r = { channel: null, drift: [],
+            errors: ["RESOLUTION DU CANAL PROFILS-RECUS EN ECHEC (#487-r2) : "
+                + (e as Error).message] };
+    }
+    rdtResolutionCache = r;
+    return r;
+}
+
+// --- #419-r1-tr14-… — le canal `weapons` PAR ENTITÉ, résolu PAR NOM et LAZY -------------
+let weaponsResolutionCache: WeaponsResolution | null = null;
+function weaponsResolution(): WeaponsResolution {
+    if (weaponsResolutionCache) return weaponsResolutionCache;
+    let r: WeaponsResolution;
+    try { r = resolveWeaponsChannel(WEAPONS_PROBE); }
+    catch (e) {
+        r = { channel: null, drift: [],
+            errors: ["RESOLUTION DU CANAL ARMES EN ECHEC (#419) : " + (e as Error).message] };
+    }
+    weaponsResolutionCache = r;
+    return r;
+}
+
+/** Layout de `List<T>` DÉRIVÉ de la CLASSE RUNTIME de l'objet, avec cache par classe.
+ *
+ *  POURQUOI PAS `readRefList` (qui écrit `0x10`/`0x18` en dur, comme le reste du fichier).
+ *  Ici le type DÉCLARÉ du champ est `IReadOnlyList<WeaponProfile>` — une INTERFACE, qui ne
+ *  porte aucun champ : la voie « type du champ » ne peut pas marcher, et il faut la classe de
+ *  l'objet RÉEL. Une fois qu'on la tient, la dériver par nom coûte le même appel que d'écrire
+ *  un littéral, et rend un renommage inter-build VISIBLE (`null` nommé) au lieu de faire lire
+ *  un pointeur pour une taille.
+ *
+ *  `null` = non résolu -> le lecteur répond « PAS MESURÉ », jamais une liste plausible. */
+const listLayoutCache: Record<string, { itemsOff: number; sizeOff: number } | null> = {};
+function listLayoutOf(list: NativePointer): { itemsOff: number; sizeOff: number } | null {
+    if (list.isNull()) return null;
+    let klass: NativePointer;
+    try { klass = list.readPointer(); } catch { return null; }
+    if (klass.isNull()) return null;
+    const key = klass.toString();
+    if (Object.prototype.hasOwnProperty.call(listLayoutCache, key)) return listLayoutCache[key];
+    let out: { itemsOff: number; sizeOff: number } | null = null;
+    try {
+        const itemsOff = getFieldOffset(klass, "_items");
+        const sizeOff = getFieldOffset(klass, "_size");
+        // `>= 0x10` ET distincts : une définition générique NON inflatée rendrait 0 pour les
+        // deux, et `0` n'est pas négatif — la garde `< 0` la laisserait passer (même piège que
+        // le `Dictionary`2` ouvert, mesuré session 93).
+        if (itemsOff >= 0x10 && sizeOff >= 0x10 && itemsOff !== sizeOff) {
+            out = { itemsOff, sizeOff };
+        }
+    } catch { out = null; }
+    listLayoutCache[key] = out;
+    return out;
 }
 
 /** Ce qu'une `UnitConfiguration` dit de son ability TERTIAIRE. Tout est TRI-ÉTAT, et les deux
@@ -831,6 +908,47 @@ export function registerViewSnapshot(ctx: Ctx): void {
             return { configId: id, ...tertiaryIdx.byId[id] };
         };
 
+        // ARMES PAR ENTITÉ (#419-r1-tr14-r5-r2-r1-r2-r1-r2) — le `WeaponsComponent` de l'ECS,
+        // c'est-à-dire la source que le natif lit, là où le port lit le kit gameconfig.
+        //
+        // CE QUE SON ABSENCE COÛTAIT : les deux substrats concordent en bataille standard
+        // (`BC.Units[].Weapons` dérive du catalogue), mais RIEN ne le vérifiait — donc un
+        // montage qui patche `BC.Units[].Weapons` seul les ferait diverger EN SILENCE, ce qui
+        // interdisait de piloter par ce levier le discriminant de la règle dynamique d'attaque
+        // normale. Publier les deux rend le désaccord LISIBLE au lieu de le rendre impossible.
+        //
+        // Lecture MÉMOIRE PURE — aucun `invokeMethod`, donc aucun bouton `debugOnly` (même
+        // régime que `readShields` et `readParentLink`). C'est délibéré : #175 a mesuré qu'un
+        // seul appel natif mal choisi depuis CE RPC rend toute pose d'effet ultérieure sur le
+        // runner un no-op silencieux, et `HasRangedWeapon` se recalcule entièrement depuis ce
+        // qui est publié (`!IsMelee` sur au moins une arme).
+        const weaponsCompClass = findClassAnywhere(
+            "IdunBattle.Entities.Components", "WeaponsComponent");
+        const readEntityWeapons = (e: NativePointer): Record<string, unknown> => {
+            const ch = weaponsResolution().channel;
+            if (ch === null) return { weapons: null, hasRangedWeapon: null,
+                error: "canal non resolu" };
+            if (!weaponsCompClass) return { weapons: null, hasRangedWeapon: null,
+                error: "WeaponsComponent non resolu" };
+            let comp: NativePointer | null = null;
+            forEachComponent(e, (c, klass) => {
+                if (comp === null && klass.equals(weaponsCompClass)) comp = c;
+            });
+            if (comp === null) {
+                // MESURE, pas panne : toutes les entités ne portent pas ce composant, et le
+                // natif le teste lui-même (`TryGetComponent` -> `FindRangedWeapon` rend null).
+                return { weapons: null, hasRangedWeapon: null, error: "WeaponsComponent absent" };
+            }
+            const cp = comp as NativePointer;
+            let list: NativePointer;
+            try { list = cp.add(ch.listOffset).readPointer(); }
+            catch (err) {
+                return { weapons: null, hasRangedWeapon: null,
+                    error: "lecture de la liste en faute : " + (err as Error).message };
+            }
+            return { ...readWeapons(cp, ch, listLayoutOf(list)) };
+        };
+
         // BOUCLIERS (ShieldComponent @180fa8770) : liste d'instances @+0x10 (List<ShieldInstance>,
         // _items@+0x10/_size@+0x18 ; éléments = pointeurs, data array @+0x20). ShieldInstance :
         // id@+0x10, amount@+0x30, remaining Nullable<int>@+0x3c (None=permanent). Layout du Nullable
@@ -1116,6 +1234,9 @@ export function registerViewSnapshot(ctx: Ctx): void {
                 // `invokeBoolOrNull`, jamais `invokeBool`.
                 currentOwnerIsEnvironment: wants("currentOwnerIsEnv")
                     ? invokeBoolOrNull(currentOwnerIsEnvMi, [e, statePtr]) : null,
+                // #419 : le `WeaponsComponent` de l'ECS. Voisin délibéré d'`unitConfig`, qui
+                // publie le kit CATALOGUE : c'est leur écart qui est la mesure.
+                weapons: readEntityWeapons(e),
                 normalAttack: wants("normalAttack") ? readNormalAttack(e) : null,
                 unitConfig: wants("unitConfig") ? readUnitConfig(e) : null,
                 shields: readShields(e), abilityStates,
@@ -1181,6 +1302,7 @@ export function registerViewSnapshot(ctx: Ctx): void {
         // publié — celui qu'un port confondrait avec `ActiveAbilityType` (233 ordinaux communs)
         // ou `EffectType` (458), en silence.
         const tr = tertiaryIdx;
+        const wch = weaponsResolution();
         return { ok: true, runner: label, statTypes: STAT_IDS,
             unitFlagTypes: wants("unitFlags") ? flagTypes : null,
             rarityEnum: rr && rr.channel ? rr.channel.enumFullName : null,
@@ -1197,6 +1319,22 @@ export function registerViewSnapshot(ctx: Ctx): void {
             tertiaryLevelMeasured: tr !== null && tr.layout.channelResolved === true,
             tertiaryAbilityMeasured: tr !== null && tr.layout.abilityReadable === true,
             tertiaryLayout: tr === null ? null : tr.layout,
+            // #419 — ce que le canal ARMES a résolu. Sans lui, un `weapons: null` généralisé
+            // accuserait la bataille au lieu de la résolution : `errors` est là pour ça.
+            // `weaponProfileEnum` NOMME l'enum de `DamageProfileType` pour que le consommateur
+            // l'ASSERTIONNE — un enum mal apparié serait SILENCIEUX EN ORDINAL.
+            weaponProfileEnum: wch.channel ? wch.channel.profileEnumFullName : null,
+            weaponProfileTypes: wch.channel ? wch.channel.profileEnumMembers : null,
+            weaponsLayout: {
+                channelResolved: wch.channel !== null,
+                listOffset: wch.channel ? wch.channel.listOffset : -1,
+                typeOffset: wch.channel ? wch.channel.typeOffset : -1,
+                hitsOffset: wch.channel ? wch.channel.hitsOffset : -1,
+                rangeOffset: wch.channel ? wch.channel.rangeOffset : -1,
+                rangeHasValueOff: wch.channel ? wch.channel.rangeHasValueOff : -1,
+                rangeValueOff: wch.channel ? wch.channel.rangeValueOff : -1,
+                errors: wch.errors, drift: wch.drift,
+            },
             units, unitsNotAlive };
     });
 
@@ -1741,6 +1879,12 @@ export function registerViewSnapshot(ctx: Ctx): void {
         const OFF_TILES_BATTLE = fieldOffsetOr(asClass, "TilesMovedThisBattle", 0xec);
         const OFF_TILES_TURN = fieldOffsetOr(asClass, "TilesMovedThisTurn", 0xf0);
         const OFF_TILES_LAST = fieldOffsetOr(asClass, "TilesMovedLastTurn", 0xf4);
+        // #487-r2 — les PROFILS DE DÉGÂT reçus ce tour, sur le MÊME composant. Le canal se
+        // résout à part (`game/receive-damage-types.ts`) parce que ce n'est PAS un `readS32`
+        // de plus : `+0x80` est un `Dictionary<DamageProfileType,int>`, et l'écrire comme un
+        // scalaire aurait publié les 4 octets bas d'un POINTEUR — un entier énorme, non nul,
+        // et parfaitement plausible pour « des dégâts ont été reçus ».
+        const rdt = rdtResolution();
         const units: Array<Record<string, unknown>> = [];
         forEachEntity(statePtr, (e, id, ty) => {
             if (ty !== EntityType.Unit && ty !== EntityType.Machine) return;
@@ -1768,6 +1912,12 @@ export function registerViewSnapshot(ctx: Ctx): void {
                 tilesMovedThisBattle: cp.add(OFF_TILES_BATTLE).readS32(),
                 tilesMovedThisTurn: cp.add(OFF_TILES_TURN).readS32(),
                 tilesMovedLastTurn: cp.add(OFF_TILES_LAST).readS32(),
+                // #487-r2 — `{ profiles: {"<ordinal DamageProfileType>": nb d'instances} }`.
+                // `profiles: {}` = MESURÉ, rien reçu ce tour (le cas MAJORITAIRE) ;
+                // `profiles: null` + `error` = PAS MESURÉ. Les confondre ferait répondre
+                // « aucun dégât reçu » à une panne de canal, et le playbook
+                // `HellfyreMissileRack` s'abstiendrait sans le dire.
+                receiveDamageTypeThisTurn: readReceiveDamageTypes(cp, rdt.channel),
                 // #347-r1 — l'HISTORIQUE de position du tour, sur le MÊME appel.
                 movement: readMovementPositions(e, statePtr),
             });
@@ -1777,6 +1927,23 @@ export function registerViewSnapshot(ctx: Ctx): void {
             // #347-r1 — ce que le capteur de position a RÉSOLU. `movement: null` sur toutes
             // les unités serait sinon indiscernable de « aucune unité n'a bougé ».
             movementLayout: movementLayout(),
+            // #487-r2 — même discipline : sans lui, un `profiles: null` généralisé accuserait
+            // la bataille au lieu de la résolution. `receiveDamageEnum` NOMME l'enum des clés,
+            // pour que le consommateur puisse l'ASSERTIONNER au lieu de supposer les ordinaux.
+            receiveDamageEnum: rdt.channel ? rdt.channel.keyEnumFullName : null,
+            receiveDamageTypes: rdt.channel ? rdt.channel.keyEnumMembers : null,
+            receiveDamageLayout: {
+                channelResolved: rdt.channel !== null,
+                fieldOffset: rdt.channel ? rdt.channel.fieldOffset : -1,
+                entriesOff: rdt.channel ? rdt.channel.entriesOff : -1,
+                countOff: rdt.channel ? rdt.channel.countOff : -1,
+                freeCountOff: rdt.channel ? rdt.channel.freeCountOff : -1,
+                entryStride: rdt.channel ? rdt.channel.entryStride : -1,
+                keyOff: rdt.channel ? rdt.channel.keyOff : -1,
+                valueOff: rdt.channel ? rdt.channel.valueOff : -1,
+                nextOff: rdt.channel ? rdt.channel.nextOff : -1,
+                errors: rdt.errors, drift: rdt.drift,
+            },
         };
     });
 
