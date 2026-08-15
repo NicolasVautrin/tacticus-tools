@@ -69,54 +69,49 @@ def _essayer(mod: str) -> tuple[str, int, str, frozenset | None]:
     return mod, r.returncode, err, IC.lire_fermeture_mesuree(r.stdout)
 
 
-def empreinte_engine() -> tuple:
-    """Etat de l'arbre `engine/` : `(chemin, mtime_ns, taille)` pour chaque `.py`, trie.
+#: ⚠ LE DETECTEUR DE GENERATION A ETE HISSE dans `import_closure.Generation` (#486-r17). Il
+#: vivait ici tant qu'UN seul cliquet clait par sous-graphe ; `probe_485_imports_differes` porte
+#: desormais le meme critere, donc la meme cle, et deux detecteurs jumeaux auraient diverge --
+#: plus grave, deux instances videraient la meme `Cloture` chacune de son cote et se feraient
+#: mutuellement recalculer. Les trois fonctions ci-dessous restent la SURFACE PUBLIQUE de ce
+#: module (deux fichiers de test les appellent) : elles DELEGUENT, elles ne dupliquent pas.
 
-    Ce n'est PLUS la cle du cache (#486-r11 l'a descendue au SOUS-GRAPHE, cf. `_cles`) : c'est
-    le DETECTEUR DE GENERATION. Il dit « l'arbre a bouge, les fermetures calculees sont
-    peremees » pour ~437 `stat` sous 0,2 s, la ou re-parser tout l'arbre coute ~3,9 s.
 
-    Il reste AUSSI la cle GROSSIERE de repli : un module dont la fermeture calculee s'est revelee
-    SOUS-APPROXIMEE (cf. `_OPAQUES`) n'est memoise que sous elle.
+def _generation():
+    """La `Generation` de l'arbre `engine/` sous `RACINE` -- RESOLUE A L'APPEL, jamais figee.
+
+    ⚠ CE N'EST PAS UN DETOUR DE STYLE, C'EST CE QUI GARDE DEUX PATCHES VIVANTS. `RACINE` est
+    substituee par `test_486r5_balayages_memoises_offline` (sensibilite du detecteur sur un arbre
+    jetable) et `IC.CLOTURE` par `test_486r11_cle_sous_graphe_offline`. Deleguer a une constante
+    calculee a l'import capturerait l'une et l'autre, et ferait passer les deux patches de MORD a
+    NE MORD PAS -- la forme A du CLAUDE.md. Les deux fichiers l'ont attrapee au rebase, ce que la
+    prose du hissage n'avait pas prevu.
+
+    `_GEN_ENGINE` reste un attribut du MODULE parce que ces memes tests le remettent a `None` par
+    `monkeypatch.setattr` pour repartir d'un arbre neuf.
     """
-    out = []
-    for f in sorted((RACINE / "engine").rglob("*.py")):
-        try:
-            st = f.stat()
-        except OSError:                                # pragma: no cover - course disque
-            out.append((f.as_posix(), None, None))
-            continue
-        out.append((f.as_posix(), st.st_mtime_ns, st.st_size))
-    return tuple(out)
+    global _GEN_ENGINE
+    racine = Path(RACINE).resolve()
+    cl = IC.CLOTURE if racine == IC.CLOTURE.racine else IC.Cloture(racine)
+    g = _GEN_ENGINE
+    if g is None or g.cloture is not cl:
+        g = _GEN_ENGINE = IC.generation(cl, "engine")
+    return g
+
+
+def empreinte_engine() -> tuple:
+    """Etat de l'arbre `engine/` : `(chemin, mtime_ns, taille)` pour chaque `.py`, trie."""
+    return _generation().empreinte_arbre()
 
 
 def empreinte_hors_engine() -> dict:
-    """`{module: (mtime_ns, taille)}` pour les fichiers HORS `engine/` deja entres dans une fermeture.
-
-    Mesure a la livraison : ils sont DEUX (`gameconfig`, `hexgeo`), et `hexgeo` gouverne le
-    verdict de 351 modules sur 437. La cle grossiere de #486-r5 ne les regardait pas du tout --
-    modifier `hexgeo.py` ne reinvalidait donc RIEN. Les compter ici n'est pas une precaution,
-    c'est un trou refere.
-    """
-    out = {}
-    for nom in IC.CLOTURE.noms_lus():
-        if nom == "engine" or nom.startswith("engine."):
-            continue
-        chemin = IC.CLOTURE.resoudre(nom)
-        if chemin is None:
-            out[nom] = None
-            continue
-        try:
-            st = chemin.stat()
-            out[nom] = (st.st_mtime_ns, st.st_size)
-        except OSError:                                # pragma: no cover - course disque
-            out[nom] = None
-    return out
+    """`{module: (mtime_ns, taille)}` pour les fichiers HORS `engine/` deja entres dans une fermeture."""
+    return _generation().empreinte_hors()
 
 
 def empreinte_generation() -> tuple:
     """L'etat COMPLET de ce qui gouverne les fermetures -- la cle GROSSIERE de repli."""
-    return empreinte_engine() + tuple(sorted(empreinte_hors_engine().items()))
+    return _generation().empreinte()
 
 
 #: `{(cle, module): (module, rc, message)}` -- memoise pour la duree du process.
@@ -143,7 +138,9 @@ _VUS: set = set()
 APPEL = "import-en-premier"
 
 _CACHE = None
-#: L'etat d'arbre sur lequel les fermetures en cache ont ete calculees. `None` = rien calcule.
+#: L'etat de generation de CE module. `None` = a (re)construire au prochain `_generation()`.
+#: Conserves comme ATTRIBUTS DE MODULE : deux fichiers de test les remettent a zero pour
+#: repartir d'un arbre jetable (cf. `_generation`).
 _GEN_ENGINE = None
 _GEN_HORS: dict = {}
 
@@ -151,26 +148,9 @@ _GEN_HORS: dict = {}
 def _cles(mods) -> dict:
     """`{module: cle de sous-graphe}`, fermetures recalculees SEULEMENT si l'arbre a bouge.
 
-    Le detecteur est en DEUX morceaux, et ce n'est pas de la coquetterie : la partie `engine/`
-    est un balayage COMPLET (un fichier AJOUTE la fait bouger), la partie hors-`engine` ne peut
-    porter que ce qui est DEJA entre dans une fermeture -- on ne va pas `stat` les 2 000 fichiers
-    de `scripts/python/`. Un fichier hors-`engine` qui entre pour la premiere fois vient d'etre
-    lu, donc il est frais ; il ne peut entrer que parce qu'un fichier `engine/` a change, ce que
-    la premiere partie voit.
+    Corps hisse dans `import_closure.Generation.cles` (#486-r17) -- cf. la note ci-dessus.
     """
-    global _GEN_ENGINE, _GEN_HORS
-    eng = empreinte_engine()
-    hors = empreinte_hors_engine()
-    bouge = (eng != _GEN_ENGINE) or any(_GEN_HORS[n] != v for n, v in hors.items()
-                                        if n in _GEN_HORS)
-    if bouge:
-        IC.CLOTURE.vider()
-    cles = IC.CLOTURE.cles(mods)
-    if bouge or _GEN_ENGINE is None:
-        _GEN_ENGINE = eng
-        _GEN_HORS = {}
-    _GEN_HORS.update(empreinte_hors_engine())
-    return cles
+    return _generation().cles(mods)
 
 
 #: L'en-tete generique de `verdict_cache` annonce « sha256 du CONTENU ». Ici la cle n'est PAS le

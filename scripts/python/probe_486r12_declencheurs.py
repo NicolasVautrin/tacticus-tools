@@ -277,6 +277,77 @@ class Empreinte:
         Path(chemin or EMPREINTE).write_text("\n".join(lignes) + "\n", encoding="utf-8")
 
 
+_FICHIERS_DU_DEPOT: dict | None = None
+
+
+def fichiers_par_groupe() -> dict:
+    """`{(dossier, ext): [chemins versionnes]}` -- les CANDIDATS possibles d'un groupe trace.
+
+    `None` n'est jamais rendu : une panne de `git ls-files` leve, elle ne se degrade pas en
+    dictionnaire vide. Un zero fabrique ici ferait imprimer « 0 groupe a risque », c'est-a-dire
+    exactement le faux vert que l'inventaire ci-dessous existe pour ne pas rendre.
+    """
+    global _FICHIERS_DU_DEPOT
+    if _FICHIERS_DU_DEPOT is not None:
+        return _FICHIERS_DU_DEPOT
+    out = subprocess.run(["git", "-C", str(ROOT), "ls-files", "-z"],
+                         capture_output=True, text=True, timeout=120, check=True)
+    par: dict = {}
+    for rel in out.stdout.split("\0"):
+        if not rel:
+            continue
+        dossier, _, base = rel.rpartition("/")
+        ext = ("." + base.rsplit(".", 1)[1]) if "." in base else ""
+        par.setdefault((dossier, ext), []).append(rel)
+    _FICHIERS_DU_DEPOT = par
+    return par
+
+
+def groupes_a_risque(e, globs) -> list:
+    """L'AMPLITUDE MAJOREE du trou d'agregation (#486-r16 (a)), groupe par groupe.
+
+    ---------------------------------------------------------------------------------------
+    CE QUE CE COMPTE DIT, ET CE QU'IL NE DIT PAS
+    ---------------------------------------------------------------------------------------
+    Une ligne `lu` agrege un groupe `(dossier, extension)` en `n` + DEUX temoins (le plus petit
+    et le plus grand chemin, lexicographiquement). La confrontation aux globs ne porte donc que
+    sur ces deux-la : un glob discriminant sur le NOM DE BASE peut les couvrir tous les deux et
+    rater un TROISIEME fichier du meme groupe. C'est une approximation assumee, et elle penche
+    du cote du FAUX VERT.
+
+    On ne peut pas la FERMER a cout tenable, et c'est MESURE (2026-08-15) : garder tous les
+    chemins couterait **55 555** lignes `lu` au lieu de **1 197**, soit **x46** sur un artefact
+    versionne dont le conflit de merge est deja un sujet (#943-r2). Deplacer la confrontation
+    DANS la mesure la fermerait sans grossir le fichier, mais ferait dependre le verdict FIGE
+    de `declencheur_cliquet.couvre`, qui n'est PAS dans la cle de fraicheur -- on echangerait
+    une approximation bornee contre un trou non borne, et il faudrait re-mesurer toute la
+    banque (~1 425 s) pour le poser.
+
+    Alors on la MESURE, et on l'IMPRIME. Pour chaque groupe de plus de deux fichiers dont les
+    deux temoins PASSENT, on cherche un chemin VERSIONNE strictement entre eux que les globs ne
+    couvrent PAS : s'il en existe un, l'agregation POURRAIT masquer une lecture hors perimetre
+    sur ce groupe.
+
+    ⚠ C'EST UNE MAJORATION, DONC UN INVENTAIRE ET JAMAIS UN GATE. Le cliquet n'a lu que `n`
+    fichiers du groupe ; rien ne dit que le chemin exhibe en fasse partie. Rougir dessus
+    accuserait a tort, et un cran qui accuse a tort se fait desarmer -- le remede serait alors
+    d'elargir les declencheurs, c'est-a-dire de MASQUER le trou au lieu de le mesurer, ce que
+    #486-r16 interdit explicitement.
+    """
+    par = fichiers_par_groupe()
+    risque = []
+    for dossier, ext, n, t_min, t_max in e["lu"]:
+        if n <= 2 or not t_min or not t_max or t_min == t_max:
+            continue
+        if any(DC.couvre(globs, t) is None for t in (t_min, t_max)):
+            continue                                   # deja rouge : le trou n'y ajoute rien
+        rates = [c for c in par.get((dossier, ext), ())
+                 if t_min < c < t_max and DC.couvre(globs, c) is None]
+        if rates:
+            risque.append((dossier, ext, n, len(rates), rates[0]))
+    return risque
+
+
 def grouper(lectures) -> list:
     """`{(dossier, ext): (n, min, max)}` -> liste triee. Cf. l'en-tete du fichier ecrit."""
     seaux: dict = {}
@@ -758,6 +829,8 @@ def etage_mesure(scripts: dict, decl: dict, fins: dict, emp: Empreinte,
     refusees: list = []
     bypass: list = []
     morts: list = []
+    a_risque: list = []
+    risque_non_mesure: list = []
     confrontes = 0
 
     for script in sorted(scripts):
@@ -804,6 +877,16 @@ def etage_mesure(scripts: dict, decl: dict, fins: dict, emp: Empreinte,
                     if DC.couvre(globs, temoin) is None:
                         hors.append((temoin, n))
                         break
+            #: #486-r16 (a) -- l'AMPLITUDE de l'approximation d'agregation, mesuree et publiee.
+            #: Ce n'est PAS un gate (c'est une majoration, cf. `groupes_a_risque`) : c'est le
+            #: refus de laisser une approximation TACITE. Un compte filtre dit ce qu'il filtre.
+            try:
+                r = groupes_a_risque(e, globs)
+            except (OSError, subprocess.SubprocessError) as ex:         # noqa: BLE001
+                risque_non_mesure.append("%s (%s)" % (ident, str(ex)[:60]))
+            else:
+                if r:
+                    a_risque.append((ident, r))
             # LE BYPASS (#486-r24), meme contrat que cote tests. Il DESARME la confrontation de
             # cette entree, jamais l'obligation de declarer -- et il est MESURE : un bypass qui
             # ne masque RIEN est une declaration morte, donc un rouge. Sans ce cran, la cle
@@ -840,6 +923,26 @@ def etage_mesure(scripts: dict, decl: dict, fins: dict, emp: Empreinte,
     if verbose or perimees:
         for p in perimees:
             print("      PERIMEE (ce que le cliquet LIT a pu changer depuis la mesure) : %s" % p)
+
+    # ---------------------------------------------------------------- #486-r16 (a) : INVENTAIRE
+    # L'agregation par (dossier, extension) ne confronte que DEUX temoins par groupe. Ce compte
+    # dit combien de groupes POURRAIENT masquer une lecture hors perimetre -- une MAJORATION,
+    # donc un inventaire, jamais un gate (cf. `groupes_a_risque`). Il est imprime MEME a zero :
+    # un compte qu'on ne voit qu'en cas de probleme ne permet pas de constater qu'il a bouge.
+    if risque_non_mesure:
+        print("  AGREGATION -- amplitude NON MESUREE sur %d entree(s) : %s"
+              % (len(risque_non_mesure), "; ".join(risque_non_mesure[:3])))
+    print("  AGREGATION (#486-r16) -- groupes ou les DEUX temoins passent alors qu'un chemin")
+    print("  VERSIONNE du meme groupe ne passerait pas : %d, sur %d entree(s)"
+          % (sum(len(r) for _, r in a_risque), len(a_risque)))
+    if a_risque:
+        print("      MAJORATION : le cliquet n'a lu que `n` fichiers du groupe, rien ne dit que")
+        print("      le chemin exhibe en fasse partie. Ce n'est donc PAS un rouge -- et l'elargir")
+        print("      en gate ferait elargir les declencheurs, c'est-a-dire MASQUER le trou.")
+        for ident, r in sorted(a_risque)[:8]:
+            for dossier, ext, n, nrates, ex in r[:2]:
+                print("      %-22s %s/*%s (groupe de %d) -- %d chemin(s) non couverts, ex. %s"
+                      % (ident, dossier, ext, n, nrates, ex))
 
     if bypass:
         print("  HORS CONFRONTATION (bypass declare et motive, #486-r24) : %d" % len(bypass))
