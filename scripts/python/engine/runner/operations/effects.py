@@ -52,6 +52,12 @@ from ...entities.effect_type import EffectType
 from ...entities.effects.base import BaseEffect, SAME_TURNS
 from ...entities.effects.factory import EffectFactory
 from ...entities.effects import effect_stat_mod_key
+# #368-r2 -- la condition d'activite des effets de TUILE (mirror de
+# `Loki.ContaminatedEffect$$CreateActiveCondition`) et son DOMAINE de QUATRE types. Import de
+# module (pas differe) : `entities.effects.loki.status` est deja tire par la cascade de
+# `entities.effects.factory` juste au-dessus, donc l'arete existe deja et n'ajoute rien.
+from ...entities.effects.loki.status import (TILE_ACTIVE_CONDITION_EFFECT_TYPES,
+                                             tile_status_effect_is_active)
 from ...entities.stats import StatType
 from ..components import ForcedAttackTargetsComponent
 from .stat_ops import apply_change_stat
@@ -278,6 +284,23 @@ class AddEffectOperation:
         # AddNewEffect : enregistrement sur la cible (liste structurée + liste de NOMS diffable).
         state.effects.add_effect(target, eff)
         _register_name(state, target, eff.name)
+        # #368-r2 -- `ImmediatelyRefreshEffects(<la nouvelle entite-effet>)`, LE REFRESH QUE LE NATIF
+        # DECLENCHE ICI MEME. Lu au decompile (`t6dpr4k06g`) : `AddEffectOperation$$Execute` appelle,
+        # juste apres `AddNewEffect`, le slot **48** de `Core.Services.IOperationProcessor`
+        # (`metadata/ioperationprocessor_slots.tsv` : 47 `RefreshEffects`, **48
+        # `ImmediatelyRefreshEffects`**) sur l'id de l'effet cree, puis `RefreshEffects(4)` et
+        # `RefreshEffects(5)` en fin d'operation. C'est ce refresh-la qui ECRIT
+        # `EffectComponent.IsActive @+0x5c` -- le champ nait a ZERO (`EffectComponent$$.ctor` ne
+        # l'ecrit pas), et `RefreshEffectsOperation$$RefreshEffect` le pose a 1 EN LIGNE ou delegue
+        # la mise a 0 a `$$DeactivateEffect`.
+        # PORTEE VOLONTAIREMENT BORNEE a la seule chose que ce residu a mesuree : la condition
+        # d'activite des effets de TUILE. Les autres classes n'ont pas de condition (leur
+        # `CreateActiveCondition` est le trigger CONSTANT partage par 114 classes), donc rejouer un
+        # refresh complet ici ne changerait rien pour elles et deplacerait le moment ou les
+        # `ApplyInternal` sont joues -- le port les applique EAGER juste en dessous (cf. le
+        # parametre `active` de cette methode). Les quatre types vises ne posent AUCUN stat-mod :
+        # desactiver l'instance ne peut donc pas laisser une modification pendante.
+        AddEffectOperation._refresh_tile_active_condition(state, target, eff)
         # `AStatModifierEffect.ApplyInternal → ApplyModification` (vtable 0x728, RE slice-20 Q4) : applique
         # les ChangeStat déclarés par l'effet (part DATA `applied_stat_mods`). Séparé d'`AddNewEffect` (pure
         # matérialisation ECS) côté natif → séparé ici aussi (frontière déclaratif feuille / impératif op).
@@ -321,6 +344,46 @@ class AddEffectOperation:
         from .triggers.dispatch.move_death import effect_added_triggers
         effect_added_triggers(state, source, target, int(effect_type))
         return eff
+
+    @staticmethod
+    def _refresh_tile_active_condition(state: State, target: int, eff: BaseEffect) -> None:
+        """#368-r2 -- evalue la `CreateActiveCondition` d'un effet de TUILE a la pose et ecrit
+        `EffectComponent.IsActive @+0x5c` (`BaseEffect.active`), en mirror de
+        `ImmediatelyRefreshEffects` -> `RefreshEffectsOperation$$RefreshEffect` ->
+        `$$ShouldBeActive` -> `$$DeactivateEffect`.
+
+        LA MESURE QUI A OUVERT CE RESIDU (#368-r1, `MC1_67`, ancre `(0,7)`, les trois tuiles du
+        triangle a la MEME elevation) : la tuile NON MARCHABLE `(0,8)` porte bien un `5 Fire`, mais
+        **`active: False`** -- l'effet EST pose, puis DESACTIVE. Le port le laissait `active: True`.
+
+        DOMAINE = `TILE_ACTIVE_CONDITION_EFFECT_TYPES` (QUATRE types, pas cinq -- `58 Darkness` est
+        dans `IsTileStatusEffect` mais n'a AUCUNE condition). Hors de ce domaine : no-op strict.
+
+        TRI-ETAT PRESERVE de bout en bout. Si le board n'est pas monte, si la cible n'y est pas
+        (donc ce n'est pas une entite-TUILE connue), ou si le canal `isTemporary` n'est pas publie
+        ET que la tuile est non marchable, la condition rend `None` = **NON MESURE** et le flag est
+        **laisse INCHANGE** -- ce qui est exactement ce que fait le natif quand il ne re-evalue pas
+        (`ShouldBeActive` retourne `+0x5c` inchange des que `ShouldRefreshForTrigger` est faux).
+        Fabriquer un `True` par defaut re-activerait ce que le natif avait desactive ; fabriquer un
+        `False` desactiverait sur une non-mesure. Aucun des deux n'est pris."""
+        if int(eff.effect_type or 0) not in TILE_ACTIVE_CONDITION_EFFECT_TYPES:
+            return
+        board = getattr(state, "board", None)
+        row = (board.by_id.get(int(target)) if board is not None else None)
+        if row is None:
+            return                      # pas d'entite-TUILE connue -> canal NON MESURE
+        walkable = row.get("walkable")
+        # `TileExtensions$$IsTemporary` = `TileComponent+0x2c`, publie par `boardGraph`
+        # (`frida/hooks/features/ai-step/rpc-board.ts` : `isTemporary`) et lu tel quel ici.
+        # Cle absente => `None` (NON MESURE), jamais `False` : un `False` invente ferait conclure
+        # la disjonction a FAUX sur une tuile temporaire non marchable.
+        temporary = row.get("isTemporary")
+        verdict = tile_status_effect_is_active(
+            None if walkable is None else bool(walkable),
+            None if temporary is None else bool(temporary))
+        if verdict is None:
+            return
+        eff.active = bool(verdict)
 
     @staticmethod
     def _apply_owner_override(state: State, target: int, eff: BaseEffect) -> None:
