@@ -5,6 +5,10 @@ from engine import battle_query as bq
 from engine.entities.active_ability_type import ActiveAbilityType
 
 from ._base import NCContext, _PlanTargetPlaybook, _traits
+# FORME B, differes CLASSES GRATUITS depuis le degraissage du baril `engine.playbook`
+# (#485-r1-r4) : plus aucun cycle a fermer -> HISSES.
+from engine.playbook.prediction import abilities as _pred_ab
+from engine.playbook import probable_damage_event as _pde
 
 
 def _normal_attack_sure_kill_state(ctx: NCContext) -> bool | None:
@@ -135,12 +139,10 @@ class HammerOfWrathPlaybook(_PlanTargetPlaybook):
     def evaluate_non_comparable(self, tile, target, ctx):
         if tile is None or ctx.scene is None:
             return None
-        from engine.playbook.prediction.abilities import make_hammer_wrath_events
-        from engine.playbook.probable_damage_event import calculate_utility_from_damage_event
-        events = make_hammer_wrath_events(ctx.scene, ctx.uid, target, tile)
+        events = _pred_ab.make_hammer_wrath_events(ctx.scene, ctx.uid, target, tile)
         if not events:
             return None
-        u = sum(calculate_utility_from_damage_event(ev, ctx.wt, ctx.scene.hpmax(ev.target))
+        u = sum(_pde.calculate_utility_from_damage_event(ev, ctx.wt, ctx.scene.hpmax(ev.target))
                 for ev in events)
         # +100 si la CIBLE a le trait Overwatch (HasTrait(target, 0x3eb) IdunBattle.AI.Playbook.Loki.HammerOfWrathPlaybook$$EvaluateNonComparable).
         vis = next((x.get("visualId") for x in (ctx.obs_units or []) if x.get("squadId") == target), None)

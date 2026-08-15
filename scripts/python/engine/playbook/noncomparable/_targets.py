@@ -235,9 +235,10 @@ def eligible_units_at_position(ctx, ability_id: int, P: tuple,
     RPC absent -> `[]`, jamais une liste devinee : sans le selecteur natif on ne sait pas quelles
     cibles sont ELIGIBLES, et fabriquer « tous les ennemis adjacents » serait permissif a l'endroit
     exact ou le compte EST l'utilite (`1141`)."""
-    from engine import battle_query as bq          # feuille ; import local = pas de cycle a
-    #                                               `_targets` (module volontairement sans import
-    #                                               `engine.*` au niveau module, cf. son en-tete)
+    # ⚠ Le differe qui vivait ici etait REDONDANT, et son commentaire PERIME : il annoncait un
+    # module « volontairement sans import `engine.*` au niveau module », ce que #485-r1-r1 a cesse
+    # d'etre vrai en hissant `bq` au preambule (ligne 23). Deux liaisons du meme module, dont une
+    # inutile -- retiree (#485-r1-r4).
     import hexgeo
     a = _ability_entry(ctx, ability_id)
     if a is None or P is None:

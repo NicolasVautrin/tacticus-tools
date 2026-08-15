@@ -65,6 +65,10 @@ from __future__ import annotations
 from engine.entities.active_ability_type import ActiveAbilityType
 
 from ._base import NCContext, _PlanTargetPlaybook, _will_normal_attack_kill
+# FORME B, differe CLASSE GRATUIT depuis le degraissage du baril `engine.playbook` (#485-r1-r4).
+# `make_normal_attack_predictions` est SUBSTITUE par un patcheur : une liaison `from X import f`
+# au niveau module rendrait le patch inerte.
+from engine.playbook.prediction import normal_attack as _pred_na
 
 
 class EuphoricStrikesPlaybook(_PlanTargetPlaybook):
@@ -115,6 +119,5 @@ class EuphoricStrikesPlaybook(_PlanTargetPlaybook):
         gate morde ou non -- le `continue` ne supprime pas l'event deja construit."""
         if tile is None or ctx.scene is None or target is None:
             return []
-        from engine.playbook.prediction.normal_attack import make_normal_attack_predictions
-        na = make_normal_attack_predictions(ctx.scene, ctx.uid, target, tile)
+        na = _pred_na.make_normal_attack_predictions(ctx.scene, ctx.uid, target, tile)
         return [] if na is None else [("WillNormalAttackKill", na.prediction)]

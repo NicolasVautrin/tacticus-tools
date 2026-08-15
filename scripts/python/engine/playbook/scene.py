@@ -19,6 +19,11 @@ from engine.entities.effects_state import (   # #953 : foyer PARTAGE avec la fac
 from engine.entities.unit_context import UnitContext
 from ..entities.effect_targets import is_effect_target as _iet
 from ..entities.effect_type import EffectType
+#: Feuille enum, differe CLASSE GRATUIT depuis le degraissage du baril `engine.playbook`
+#: (#485-r1-r4) -> HISSE. Forme A assumee : un mirror d'enum n'est substitue par aucun patcheur
+#: (`migrate_485r1_barils_reexport.py morsure` ne le liste pas), et c'est la forme qu'ont deja
+#: `EffectType` ci-dessus et `ActiveAbilityType` dans tout le paquet.
+from ..entities.triggered_ability_type import TriggeredAbilityType
 from ..entities.effects.factory import (EffectFactory, EFFECT_CLASSES,
                                             ABILITY_INIT_OWNER_EFFECTS)
 from ..runner.components import (StatsComponent, OwnerComponent, PositionComponent,
@@ -1236,7 +1241,6 @@ class Scene:
         La table est clee par ORDINAL (`raw[0]` = `TriggeredAbilityType`), l'appelant par NOM : la
         resolution passe par le MIRROR, jamais par un ordinal ecrit ici. Nom hors de l'enum, uid
         absent ou canal muet -> `(None, None)` = NON MESURE, jamais un couple devine."""
-        from ..entities.triggered_ability_type import TriggeredAbilityType   # feuille enum (#485-r1-r1)
         par_id = self.trigstate_by_id.get(uid)
         if not par_id:
             return (None, None)
