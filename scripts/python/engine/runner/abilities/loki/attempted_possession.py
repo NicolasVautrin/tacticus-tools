@@ -341,15 +341,27 @@ def attempted_possession_preferred_target(state: "State", caster_id: int,
       * `AttemptedPossessionAbility.<>c__DisplayClass5_0$$<GetPreferredAttackTarget>b__2` =
         `!<slot 1>(target, 0x4b9, null)` -- exclut ceux qui portent DEJA `1209`.
 
-    ⚠ **LA BRANCHE MOBILE (slot 69) EST RABATTUE SUR LA BRANCHE STATIQUE (slot 66) -- ECART NOMME.**
-    `GetAllValidTargetsFromAllPossibleMovementTiles` enumere les cibles atteignables depuis TOUTE
-    tuile de deplacement ; le port n'a pas ce mirror (`valid_normal_attack_targets` est le mirror du
-    slot 66, depuis la tuile COURANTE). Consequence, et elle est CONSERVATRICE : pour un summon
-    mobile dont aucune cible n'est a portee sans bouger, ce corps rend `None`, donc
-    `GetAttackCustomUtility` rend `null`, donc AUCUNE contrainte n'est posee -- et le moteur
-    d'utilite du port, qui recoit `move_amount = MOVEMENT` par l'`overrideMovement`, fait l'approche
-    et choisit lui-meme. On perd la PREFERENCE (<< unpossessed >>, << closest >>) sur ce
-    sous-regime, pas l'attaque. Residu `#590-r6` (`BLOCAGE: etage`).
+    ⚠ **LA BRANCHE MOBILE (slot 69) EST PORTEE DEPUIS #590-r6** -- elle etait rabattue sur la
+    branche statique (slot 66). `targeting.all_valid_targets_from_all_possible_movement_tiles` en
+    est le mirror : `GetMovablePositionsFor` (slot `IMovementQuery 2`) + la position COURANTE, puis
+    `GetValidTargetsInSteps` (slot `IAttackQuery 4`), qui n'est que l'UNION de la MEME cascade
+    position par position. Les deux etages que le residu declarait manquants ne l'etaient pas tous
+    les deux : **l'enumeration des tuiles de mouvement EXISTAIT** (`services/movement_query.
+    get_movable_tiles_for` + `get_movable_positions_for`, foyer partage par trois collapses de
+    `genestealer.py`) ; seul le second manquait -- un `GetValidTargets` prenant une LISTE de tuiles
+    de cast -- et il tenait a un unique parametre, `casterTiles`, que le natif passe deja
+    explicitement partout ou le port lisait la position REELLE.
+
+    Le sous-regime qui divergeait, et qui ne diverge plus : un summon mobile SANS cible a portee
+    sans bouger. Ce corps rendait `None`, donc `GetAttackCustomUtility` rendait `null`, donc AUCUNE
+    contrainte -- le moteur d'utilite du port choisissait lui-meme sa cible apres approche. On
+    perdait la PREFERENCE (<< closest >>, << unpossessed >>), pas l'attaque : l'ecart etait
+    CONSERVATIF, ce qui est exactement pourquoi il a pu vivre.
+
+    ⚠ **`CanMove` EST LE FOYER EXISTANT** `runner.operations.turnflow._can_move` (mirror des quatre
+    etages d'`UnitExtensions$$CanMove`), TRI-ETAT : `None` = substrat non lisible. Le port ne prend
+    la branche mobile que sur un `True` MESURE -- un `None` rabattu sur `True` prendrait une branche
+    plus PERMISSIVE (plus de cibles) sur une non-mesure.
 
     ⚠ `GetNearestUnit` (slot 75) : le TIE-BREAK natif n'est pas lu (son corps n'est pas dans le
     perimetre de cette tranche). Le port trie par `(distance, id)` -- meme convention que
@@ -387,9 +399,34 @@ def attempted_possession_preferred_target(state: "State", caster_id: int,
     # `SimulateEffects(0x4b9)` -- l'owner-swap, applique le temps de la question.
     simule = ChangeUnitOwnerOperation.execute(state, int(possessed_id), int(caster_id))
     try:
-        # `res.<+0x10>` -- les cibles legales de l'attaque normale de l'ACTEUR (pas du caster).
-        cands = [int(t)
-                 for t in (_targeting.valid_normal_attack_targets(state, int(possessed_id)) or [])]
+        # DIFFERE **PORTEUR**, et la classe est MESUREE (pas supposee) : `import
+        # engine.runner.operations.turnflow` dans un process FRAIS fait atterrir CE module-ci dans
+        # `sys.modules` (`turnflow` -> `abilities.handler` -> `abilities.loki` -> nous), donc le
+        # hisser refermerait le cycle -- `ImportError: cannot import name 'MindControlAbility' from
+        # partially initialized module`, joue. Les DEUX leviers d'avant lui ont ete regardes et
+        # ecartes pour cause de PERIMETRE, pas d'impossibilite : (1) DEPLACER `_can_move` /
+        # `_has_active_movement_blocker` vers `runner/components.py` -- ou leurs deux dependances non
+        # triviales (`is_machine_of_war`, `unit_state_for_effects`) vivent DEJA -- supprimerait
+        # l'arete pour de bon, et c'est la vraie reparation (residu `#590-r6-r2`) ; (2) alleger
+        # `abilities/loki/__init__.py`, la cause racine, est un baril a part entiere.
+        # FORME C assumee : l'instruction est re-executee a chaque appel, donc un
+        # `monkeypatch.setattr("engine.runner.operations.turnflow._can_move", ...)` MORD.
+        from ...operations import turnflow as _turnflow
+        # `if (canMove && isSummon)` -- LES DEUX BRANCHES, dans l'ordre natif. Le predicat combine
+        # `UnitExtensions$$CanMove(unit)` et `HasTrait(unit, 0x2 Summon)`, et il est evalue SOUS la
+        # simulation de l'owner-swap comme tout le reste de `b__0`.
+        mobile = (_turnflow._can_move(state, int(possessed_id)) is True
+                  and _has_trait(state, int(possessed_id), int(UnitTrait.Summon)))
+        if mobile:
+            # `<IBattleQuery 69 GetAllValidTargetsFromAllPossibleMovementTiles>(unit,
+            #  GetNormalAttackType(unit), 1)` -- depuis TOUTE tuile de deplacement (#590-r6).
+            cands = [int(t) for t in
+                     (_targeting.all_valid_targets_from_all_possible_movement_tiles(
+                         state, int(possessed_id)) or [])]
+        else:
+            # `res.<+0x10>` -- les cibles legales de l'attaque normale de l'ACTEUR (pas du caster).
+            cands = [int(t) for t in
+                     (_targeting.valid_normal_attack_targets(state, int(possessed_id)) or [])]
         if not cands:
             return None
         # `b__5_1` : `HasTrait(u, 0xd = Object) ^ 1`

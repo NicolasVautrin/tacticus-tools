@@ -83,7 +83,15 @@ ETAGE_BLOQUANT = {
     ActiveAbilityType.MV71SniperDroneSquadAttack: "methodes de sa classe (IsMeleeAttack + PickTile)",
     ActiveAbilityType.AttemptedPossession: "SIMULATION d'effet (GetChildren + SimulateEffects)",
     ActiveAbilityType.MindControl: "ILLISIBLE -- predicat statique a corps DEDUPLIQUE",
-    ActiveAbilityType.DeathOnTheWind: "SEEDING absent, pas l'etage (cf. case-doc 9.3)",
+    # ⚠ `DeathOnTheWind` EST SORTIE D'ICI (#287-r11, 2026-08-15) -- et son etage declare etait une
+    # PREMISSE PERIMEE, pas un blocage. La ligne disait « SEEDING absent, pas l'etage » ; RE-MESURE :
+    # `frida/hooks/features/ai-step/rpc-snapshot.ts` publie `actorStats.attacksReceivedThisTurn`
+    # (`ActorStatisticsComponent+0x38`) et `snapshot.py` le seede dans
+    # `UnitComponent.times_attacked_this_turn` depuis #287-r5-r2. Le capteur que la fiche reclamait
+    # etait DEJA POSE ; il ne restait que le mirror, desormais dans
+    # `abilities/darkangels.DeathOnTheWindAbility.get_dynamic_invalid_target_reason`.
+    # La garder ici ferait rougir le CLIQUET a l'envers : une entree d'etage pour une regle PORTEE
+    # ne serait plus dans `dette`, donc jamais imprimee -- une declaration muette et fausse.
 }
 
 

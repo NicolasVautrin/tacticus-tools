@@ -71,6 +71,9 @@ from .targeting import (RANGE_ADJACENT, RANGE_ADJACENT_IF_MELEE_CASTER, RANGE_FR
                         RANGED_BOOL_FALSE, RANGED_BOOL_IF_RANGED_CASTER, RANGED_BOOL_TRUE,
                         TargetingOptions)
 from .targeting_rule import TargetingRule as TR
+import engine.runner.abilities.targeting as _targeting   # FORME B (#547-r2), et ABSOLUE : elle nomme
+# le MODULE (pas le paquet parent), donc aucune arete neuve -- `from .targeting import ...` ci-dessus
+# charge deja exactement le meme module. `unit_of_entity` est lu par appel, jamais gele a l'import.
 from ...dsl.base import _round_fix64
 from ...entities.effects import hits_bonus_from_effects
 from ...entities.effects.magnitude import ability_var
@@ -602,14 +605,15 @@ class DeathOnTheWindAbility(ActiveAbility):
     #     0x40000000 AllowNullCasterTile      -> PERMISSIF (le caster est une MACHINE OF WAR : sans ce
     #                                            bit, `GetInvalidCasterReason` refuserait un caster aux
     #                                            `casterTiles` vides).
-    # TROU DECLARE sur le bit 0x2 : le natif surcharge bien la regle
-    # (`DeathOnTheWindAbility$$GetDynamicInvalidTargetReason` = « la cible doit avoir DEJA recu >= 1
-    # attaque ce tour », `EntityExtensions.GetNumAttacksReceivedThisTurn(unit) != 0`), mais elle N'EST
-    # PAS portee : `UnitComponent.times_attacked_this_turn` n'est PAS seede par `load_state` (le RPC ne
-    # l'expose pas) -> sur un etat CHARGE il vaut 0 pour tout le monde, et la porter refuserait des
-    # cibles que le natif ACCEPTE (regression exactement interdite). Le defaut de base (0) laisse donc
-    # la regle permissive, comme pour toute regle non portee. Point d'ancrage pour la fermer : exposer
-    # `GetNumAttacksReceivedThisTurn` dans `combatSnapshot`/`decisionView`.
+    # LE BIT 0x2 EST PORTE DEPUIS #287-r11, ET SON << TROU DECLARE >> ETAIT UNE PREMISSE PERIMEE.
+    # La redaction precedente disait : « `UnitComponent.times_attacked_this_turn` n'est PAS seede par
+    # `load_state` (le RPC ne l'expose pas) », et en tirait qu'un port refuserait des cibles que le
+    # natif ACCEPTE. RE-MESURE : le canal EXISTE et le seeder AUSSI --
+    # `frida/hooks/features/ai-step/rpc-snapshot.ts` publie `actorStats.attacksReceivedThisTurn`
+    # (`ActorStatisticsComponent+0x38`, en citant `EntityExtensions$$GetNumAttacksReceivedThisTurn`),
+    # et `snapshot.py` le seede dans `times_attacked_this_turn` depuis #287-r5-r2. Le << point
+    # d'ancrage pour la fermer >> que cette note reclamait etait donc DEJA POSE.
+    # Ce qui restait n'etait pas un capteur, c'etait le mirror : cf. `get_dynamic_invalid_target_reason`.
     # PORTEE (#241) : `range = TargetingRange` statique `+0x48` = `useWholeBoard` -> le
     # filtre statique NE TESTE PAS la portee (`forceMeleeTarget = False`, jamais consulte).
     TARGETING_OPTIONS = TargetingOptions(rules=(
@@ -618,6 +622,46 @@ class DeathOnTheWindAbility(ActiveAbility):
         | TR.TargetTileHasEnemyUnit
         | TR.AllowNullCasterTile
     ), range=RANGE_WHOLE_BOARD, force_melee_target=RANGED_BOOL_FALSE)
+
+    def get_dynamic_invalid_target_reason(self, state: "State", caster_id: int,
+                                          target_id: Optional[int]) -> int:
+        """`...DeathOnTheWindAbility$$GetDynamicInvalidTargetReason` -- MIRROR du decompile, entier :
+
+            unit = UnitExtensions.GetUnit(target, this.state);
+            if (unit == null)  return 0;
+            return EntityExtensions.GetNumAttacksReceivedThisTurn(unit) != 0 ? 0 : 2;
+
+        « La cible doit avoir DEJA recu au moins une attaque ce tour. » C'est le pendant exact de
+        l'i2 de 1213 (le Storm Speeder acheve une cible entamee), et le SEUL terme de la regle.
+
+        SUBSTRAT. `EntityExtensions$$GetNumAttacksReceivedThisTurn(unit)` lit
+        `ActorStatisticsComponent+0x38` -- que le port porte sous
+        `UnitComponent.times_attacked_this_turn` (⚠ **pas** `total_times_attacked`, qui est `+0x34`,
+        le cumul de BATAILLE : les confondre rendrait la regle vraie des le 2e tour pour toute unite
+        deja touchee une fois). Le compteur est ECRIT par `operations/minimal_health` a chaque
+        attaque recue, REMIS A ZERO au turn-start (`reset_times_attacked`, mirror de
+        `...$$ResetAttacksReceivedThisTurn`) et SEEDE depuis `actorStats.attacksReceivedThisTurn`.
+
+        `GetUnit(target, state)` = `unit_of_entity` : le masque de 1213 est TILE-targeting, la cible
+        est donc une entite-TUILE et ce helper la resout en son OCCUPANT. Un `None` (tuile vide) rend
+        `0` -- le natif le dit explicitement, et le bit `TargetTileHasEnemyUnit`, evalue AVANT dans
+        la cascade, a de toute facon deja refuse ce cas.
+
+        ⚠ **CE QUI RESTE OUVERT, ET SA DIRECTION** : le port ne sait pas distinguer « 0 attaque
+        recue, MESURE » de « canal `actorStats` absent du snapshot ». Sur un etat charge sans ce
+        canal, le compteur vaut son 0 de construction et la regle REFUSE tout -- ecart RESTRICTIF,
+        pas permissif. Il est assume plutot que le trou inverse : sans ce mirror, le port ACCEPTAIT
+        tout, et c'est exactement le genre de trou permissif qu'un entrainement exploite. Le canal
+        est en vol (session 93+), donc le regime degrade est celui d'un montage a la main. Meme
+        convention que les DEUX autres consommateurs deja portes du meme compteur
+        (`minimal_health` et `HYPERSENSORY_ATTACK_CAP`), qui le lisent sans tri-etat non plus."""
+        unit = _targeting.unit_of_entity(state, target_id)   # `UnitExtensions$$GetUnit(target, state)`
+        if unit is None:
+            return 0
+        ent = state.get_entity(int(unit))
+        uc = ent.get_component(UnitComponent) if ent is not None else None
+        recues = 0 if uc is None else int(getattr(uc, "times_attacked_this_turn", 0) or 0)
+        return 0 if recues != 0 else int(TR.TargetMatchesDynamicRule)
 
     def execute_behaviour(self, state: "State", caster_id: int,
                           target_id: Optional[int]) -> Optional[dict]:
