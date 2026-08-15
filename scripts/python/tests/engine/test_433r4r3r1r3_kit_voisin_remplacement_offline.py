@@ -43,6 +43,32 @@ from engine.entities.triggered_ability_type import (TriggeredAbilityType,   # no
                                                     triggered_ability_ids)
 from engine.utilities.tile import tile_leaf_ctx                             # noqa: E402
 
+#: Ce qui doit changer pour que ce FICHIER de test puisse changer de verdict (#486-r15).
+#: Volontairement LARGE du cote des DONNEES : le kit gameconfig du greffon et la table d'enums
+#: `TriggeredAbilityType` sont des entrees NON VERSIONNEES qu'une MAJ du jeu deplace -- un
+#: declencheur qui ne citerait que le producteur serait un FAUX VERT au changement de build.
+DECLENCHEUR = {
+    "chemins": (
+        # LE PRODUCTEUR mesure -- c'est lui qui unionnait.
+        "scripts/python/engine/utilities/tile.py",
+        # Le FOYER du kit declenche et sa borne statique (`triggered_ability_ids`), lus par le
+        # producteur pour le repli.
+        "scripts/python/engine/entities/triggered_ability_type.py",
+        # Le lecteur du gameconfig : c'est lui qui rend le kit du greffon.
+        "scripts/python/gameconfig.py",
+        # Le SUBSTRAT live cote decision (`live_triggered_kits`), que le double de ce fichier
+        # imite -- s'il change de semantique, le double ment.
+        "scripts/python/engine/ai/context.py",
+    ),
+    # `True` par le CÔTÉ SÛR : `triggered_ability_ids` lit le gameconfig, que `gameconfig.py` sert
+    # depuis `data/symbols/<build>/gameconfig.json` quand le fichier vivant n'est pas là. Le kit du
+    # greffon EST donc une entrée qui bouge au build, et un `False` ici serait un faux vert.
+    "build": True,
+    "toujours": False,
+    "raison": ("garde la SEMANTIQUE d'un producteur de ctx (remplacement vs union) ; il ne joue "
+               "aucun runner et ne lit que le gameconfig + les 4 modules ci-dessus"),
+}
+
 #: Le greffon du montage #433-r4-r3-r1. Son kit gameconfig ne porte QUE `AvalancheOfMuscle`.
 GREFFON = "astraBullgryn"
 KIT_ID = int(TriggeredAbilityType.AvalancheOfMuscle)        # 1028

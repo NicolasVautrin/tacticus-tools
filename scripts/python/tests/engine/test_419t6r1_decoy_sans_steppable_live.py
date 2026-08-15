@@ -50,6 +50,23 @@ import pytest
 
 import probe_419t6r1_decoy_sans_steppable as P
 
+#: Ce qui doit changer pour que ce FICHIER de test puisse changer de verdict (#486-r15).
+#: La cascade d'imports (707 chemins) est DÉRIVÉE par le foyer depuis #531 : on ne déclare que ce
+#: qu'elle NE couvre PAS -- ici les deux modules atteints par `sys.path`, pas par un import de
+#: paquet. `build: True` : le montage lit le trait `UnitTrait.Decoy` de l'enum du build ET le kit
+#: gameconfig du caster, deux entrées qu'une MAJ du jeu déplace.
+DECLENCHEUR = {
+    "chemins": (
+        "scripts/python/probe_124_line_elevation_decision.py",
+        "scripts/python/probe_419t6r1_decoy_sans_steppable.py",
+    ),
+    "build": True,
+    "toujours": False,
+    "raison": ("montage LIVE a deux bras (trait `Decoy` accorde au caster) : tout ce qu'il lit "
+               "passe par le probe jumeau, par le harnais de placement `probe_124` et par la "
+               "cascade du paquet `engine`"),
+}
+
 EPS = P.EPS
 _LOGS = Path(__file__).resolve().parents[3] / "logs"
 
