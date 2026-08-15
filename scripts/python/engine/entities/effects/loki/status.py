@@ -332,8 +332,13 @@ class DespoiledGroundEffect(BaseEffect):
     Les TROIS SEULS virtuels que la classe native surcharge (recherche exhaustive des symboles
     `DespoiledGroundEffect$$*`) :
 
-      * `$$CreateTargetSelector`  = `Self@0x148`  (l'effet se cible LUI-MEME : c'est un tile-effect,
-        pas un effet projete sur une autre entite) ;
+      * `$$CreateTargetSelector`  = `Self`  (l'effet se cible LUI-MEME : c'est un tile-effect, pas un
+        effet projete sur une autre entite). Corps DEDUPLIQUE lui aussi, nomme
+        `IdunBattle.Entities.Effects.Loki.WhisperingWebEffect$$CreateTargetSelector`, et son texte
+        entier est `return DSLSelectors+0x30`. ⚠ L'offset `@0x148` qui etait ecrit ici ne designe
+        RIEN sur `t6dpr4k06g` : sur ce build le champ est `DSLSelectors+0x30` -- et c'est
+        EXACTEMENT le selecteur que reprend la `CreateActiveCondition` ci-dessous, ce qui est ce
+        qui etablit que son `sel` vaut « Self » ;
       * `$$CreateActiveCondition` = `DSLTriggers.IsWalkable(sel) | DSLTriggers.IsSpawnTile(sel)`
         -- « la tuile est MARCHABLE, **ou bien c'est une tuile de SPAWN** ». Chacun des deux termes
         est un `IdunBattle.Entities.Conditions.AmountIsGreaterAbilityTrigger` sur
