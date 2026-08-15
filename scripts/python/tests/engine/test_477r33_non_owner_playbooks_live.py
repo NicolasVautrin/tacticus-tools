@@ -161,12 +161,27 @@ def r33_case(request, rpc, build_runner):
 
 
 def _rows(r33_case) -> list:
-    """Les lignes de la mesure, ou un ROUGE qui NOMME la panne au lieu d'un `KeyError`."""
+    """Les lignes de la mesure, ou un ROUGE qui NOMME la panne au lieu d'un `KeyError`.
+
+    DEUX pannes DISTINCTES, et les separer est ce qui empeche l'une d'accuser l'autre :
+      * `erreur`             -- le MONTAGE n'a pas abouti (trajectoire epuisee, bras non hookes) ;
+      * `x_nat_indisponible` -- le montage a abouti, les tuiles sont hookees, mais le CANAL NATIF
+        est muet, donc `X_nat` n'existe sur aucune ligne. Les gardes de MONTAGE restent alors
+        VERTES a bon droit -- elles ne mentent pas -- et seules celles qui consomment `X_nat`
+        rougissent. C'est exactement l'inverse de ce qui se passait avant #10011, ou douze rouges
+        accusaient les montages pour une panne de capteur."""
     mes = r33_case.mes
     assert not mes.get("erreur"), (
         "aucune mesure (%s/%s/%s) : %s. Les gardes suivantes ne disent RIEN tant que ce point "
         "n'est pas regle (cf. `test_le_montage_a_bien_ete_mesure`)"
         % (r33_case.board, r33_case.seed, r33_case.montage, mes.get("erreur")))
+    assert not mes.get("x_nat_indisponible"), (
+        "le montage %s/%s/%s a ABOUTI (%d tuiles hookees, bras %d/%d) mais le canal NATIF est "
+        "MUET, donc `X_nat` n'existe sur aucune ligne : ce n'est PAS le port qui est en cause, "
+        "c'est le CAPTEUR. %s"
+        % (r33_case.board, r33_case.seed, r33_case.montage, len(mes.get("rows") or ()),
+           len(mes.get("bras_a") or ()), len(mes.get("bras_b") or ()),
+           mes.get("x_nat_indisponible")))
     return mes["rows"]
 
 

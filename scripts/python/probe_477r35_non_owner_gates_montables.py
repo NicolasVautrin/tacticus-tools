@@ -611,16 +611,17 @@ def mesurer(call, rid, montage="purge", max_steps=25, trace=print) -> dict:
                          "steppable": p.get("steppable", False),
                          "tile7": vt, "elev": ve, "tile_eff": vf,
                          "leaves": {k: v for k, v in leaves.items() if abs(v) > 1e-9}})
-        # LE CRAN (#10011) : aucune ligne mesurable = un SILENCE, pas une mesure. Sans lui,
-        # `divergences` rend 0 pour TOUS les modeles et le verdict d'accord passe A VIDE.
-        if not any(r["x_nat"] is not None for r in rows):
-            return {"erreur": cause_x_nat_non_mesurable(call, rid, tt, el, te),
-                    "rows_muettes": len(rows)}
         _l0 = _port_leaves(ctx, tiles[0])[1]
-        return {"rows": rows, "prof": prof, "step": step, "uid": cid, "montage": montage,
-                "bras_a": ha, "bras_b": hb,
-                "friend_units": list(_l0.get("friend_units") or ()),
-                "enemy_units": list(_l0.get("enemy_units") or ())}
+        out = {"rows": rows, "prof": prof, "step": step, "uid": cid, "montage": montage,
+               "bras_a": ha, "bras_b": hb,
+               "friend_units": list(_l0.get("friend_units") or ()),
+               "enemy_units": list(_l0.get("enemy_units") or ())}
+        # LE CRAN (#10011) : aucune ligne mesurable = un SILENCE, pas une mesure. Sans lui,
+        # `divergences` rend 0 pour TOUS les modeles et le verdict d'accord passe A VIDE. CHAMP et
+        # non ecrasement : le MONTAGE est mesure et juste, seul le canal NATIF manque.
+        if not any(r["x_nat"] is not None for r in rows):
+            out["x_nat_indisponible"] = cause_x_nat_non_mesurable(call, rid, tt, el, te)
+        return out
 
     return {"erreur": "aucun pas DISCRIMINANT en %d pas (%d activations du carrier)"
                       % (max_steps, seen)}

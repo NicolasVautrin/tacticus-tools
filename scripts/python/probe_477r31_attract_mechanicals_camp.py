@@ -548,18 +548,18 @@ def mesurer(call, rid, montage="camp", max_steps=25, trace=print) -> dict:
                          # mis le terme attendu et si un AUTRE terme manque -- c'est la
                          # decomposition par etage, cote port.
                          "leaves": {k: v for k, v in leaves.items() if abs(v) > 1e-9}})
-        # LE CRAN (#10011) : une mesure ou AUCUNE ligne n'a de `x_nat` est un SILENCE, pas une
-        # mesure. `divergences` saute les `None`, donc elle rend 0 pour TOUS les modeles et le
-        # verdict d'accord passe A VIDE. Mesure du 2026-08-15 : 8 F / 43 P sur ce fichier, tous
-        # sur les contre-epreuves, pour une panne de CAPTEUR (adresses epinglees refusees apres
-        # le passage du jeu a un nouveau build).
+        out = {"rows": rows, "prof": prof, "step": step, "uid": carrier_id,
+               "bras_a": ha, "bras_b": hb, "montage": montage,
+               "friend_units": list(_port_leaves(ctx, tiles[0])[1].get("friend_units") or ()),
+               "enemy_units": list(_port_leaves(ctx, tiles[0])[1].get("enemy_units") or ())}
+        # LE CRAN (#10011) : aucune ligne mesurable = un SILENCE, pas une mesure. `divergences`
+        # saute les `None`, donc elle rend 0 pour TOUS les modeles et le verdict d'accord passe A
+        # VIDE -- mesure du 2026-08-15 : 8 F / 43 P sur ce fichier, TOUS sur les contre-epreuves,
+        # pour une panne de CAPTEUR. C'est un CHAMP et non un ecrasement : `bras_a`/`bras_b`/`prof`
+        # sont MESURES et JUSTES, seul le canal NATIF manque.
         if not any(r["x_nat"] is not None for r in rows):
-            return {"erreur": cause_x_nat_non_mesurable(call, rid, tt, el, te),
-                    "rows_muettes": len(rows)}
-        return {"rows": rows, "prof": prof, "step": step, "uid": carrier_id,
-                "bras_a": ha, "bras_b": hb, "montage": montage,
-                "friend_units": list(_port_leaves(ctx, tiles[0])[1].get("friend_units") or ()),
-                "enemy_units": list(_port_leaves(ctx, tiles[0])[1].get("enemy_units") or ())}
+            out["x_nat_indisponible"] = cause_x_nat_non_mesurable(call, rid, tt, el, te)
+        return out
 
     return {"erreur": "aucun pas DISCRIMINANT en %d pas (%d activations du carrier)"
                       % (max_steps, seen)}

@@ -779,20 +779,25 @@ def mesurer(call, rid, montage="kardio", max_steps=25, trace=print) -> dict:
                          "na": p["na"], "ne": p["ne"], "gate": p["gate"],
                          "tile7": vt, "elev": ve, "tile_eff": vf,
                          "leaves": {k: v for k, v in leaves.items() if abs(v) > 1e-9}})
-        # ⚠ LE CRAN : une mesure ou AUCUNE ligne n'a de `x_nat` n'est pas une mesure, c'est un
+        _l0 = _port_leaves(ctx, tiles[0])[1]
+        out = {"rows": rows, "prof": prof, "step": step, "uid": cid, "montage": montage,
+               "bras_a": ha, "bras_b": hb,
+               "friend_units": list(_l0.get("friend_units") or ()),
+               "enemy_units": list(_l0.get("enemy_units") or ())}
+        # LE CRAN : une mesure ou AUCUNE ligne n'a de `x_nat` n'est pas une mesure, c'est un
         # SILENCE. Sans lui, `divergences` rend 0 pour TOUS les modeles (elle saute les `None`),
         # `test_le_natif_suit_le_PORT` passe A VIDE, et seules les contre-epreuves rougissent --
-        # 12 rouges qui accusent les montages pour une panne de capteur (mesure du 2026-08-15,
-        # build passe a `t6dpr4k06g`). On rend une `erreur` qui NOMME la panne : c'est
-        # `test_le_montage_a_bien_ete_mesure` qui la porte, avec le remede.
+        # 12 rouges qui accusaient les montages pour une panne de CAPTEUR (2026-08-15, #10011).
+        #
+        # ⚠ C'EST UN CHAMP, PAS UN ECRASEMENT, et la difference porte. Rendre `{"erreur": ...}`
+        # detruirait `bras_a`/`bras_b`/`prof` -- qui sont MESURES et JUSTES : le montage a bien
+        # place ses deux bras, la trajectoire a bien ete marchee, les tuiles ont bien ete hookees.
+        # Seul le canal NATIF manque. Les gardes de MONTAGE doivent donc rester VERTES (elles ne
+        # mentent pas), et seules celles qui consomment `X_nat` doivent rougir. Ecraser reviendrait
+        # a faire accuser le montage par la panne du capteur -- exactement ce qu'on repare.
         if not any(r["x_nat"] is not None for r in rows):
-            return {"erreur": cause_x_nat_non_mesurable(call, rid, tt, el, te, armement),
-                    "rows_muettes": len(rows)}
-        _l0 = _port_leaves(ctx, tiles[0])[1]
-        return {"rows": rows, "prof": prof, "step": step, "uid": cid, "montage": montage,
-                "bras_a": ha, "bras_b": hb,
-                "friend_units": list(_l0.get("friend_units") or ()),
-                "enemy_units": list(_l0.get("enemy_units") or ())}
+            out["x_nat_indisponible"] = cause_x_nat_non_mesurable(call, rid, tt, el, te, armement)
+        return out
 
     return {"erreur": "aucun pas DISCRIMINANT en %d pas (%d activations du carrier)"
                       % (max_steps, seen)}

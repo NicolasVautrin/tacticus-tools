@@ -58,8 +58,18 @@ L'étage **R3** confronte le build **déclaré** au build **installé** et TRIE 
 * `cause_x_nat_non_mesurable` (`probe_193c_move_playbook_terms.py`, là où vivent déjà `x_port` et
   `x_excluded`) : la panne est **nommée** — comptes par canal, sous-hooks morts, build chargé,
   refus de pins, et le remède ;
-* `mesurer` (#477-r33) refuse quand aucune ligne ne porte de `X_nat` ; `test_le_natif_suit_le_PORT`
-  assertionne son **propre non-vide** en second verrou ; `probe_212._verdict` volet B de même ;
+* `mesurer` pose **`x_nat_indisponible`** quand aucune ligne ne porte de `X_nat` — un **CHAMP**, pas
+  un écrasement, et la différence porte : rendre `{"erreur": …}` détruirait `bras_a` / `bras_b` /
+  `prof`, qui sont **mesurés et justes** (le montage a bien placé ses deux bras, la trajectoire a
+  bien été marchée, les tuiles ont bien été hookées). Seul le canal **natif** manque. Les gardes de
+  **montage** restent donc VERTES — elles ne mentent pas — et seules celles qui consomment `X_nat`
+  rougissent. Mesuré sur `#477-r33` : l'écrasement rend **36 F / 5 P**, le champ **24 F / 17 P**,
+  pour la même panne. Faire accuser le montage par la panne du capteur est exactement le vice
+  qu'on répare : le rejouer à l'envers serait le rouvrir ;
+* le cran est posé sur les **cinq** consommateurs de `X_nat` (`#477-r29`, `-r31`, `-r33`, `-r35`,
+  `-r37`), foyer partagé ; `test_le_natif_suit_le_PORT` assertionne en outre son **propre non-vide**
+  en second verrou, pour qu'un changement de `mesurer` ne rouvre pas le trou ; `probe_212._verdict`
+  volet B de même ;
 * `probe_475` étage R3 + son auto-épreuve (6 formes, les deux sens).
 
 **Livré, INERTE jusqu'à une fenêtre de reinject** (`frida/hooks/**` vit dans Frida) :

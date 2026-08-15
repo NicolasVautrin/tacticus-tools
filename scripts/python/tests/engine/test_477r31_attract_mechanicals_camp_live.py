@@ -115,6 +115,14 @@ def _rows(am_case) -> list:
         "aucune mesure (%s/%s/%s) : %s. Les gardes suivantes ne disent RIEN tant que ce point "
         "n'est pas regle (cf. `test_le_montage_a_bien_ete_mesure`)"
         % (am_case.board, am_case.seed, am_case.montage, mes.get("erreur")))
+    # SECONDE panne, DISTINCTE (#10011) : le montage a abouti et les tuiles sont hookees, mais le
+    # canal NATIF est muet -- `X_nat` n'existe sur aucune ligne, `divergences` rend 0 pour TOUS les
+    # modeles et le verdict d'accord passerait A VIDE. Les gardes de MONTAGE restent vertes a bon
+    # droit : ce n'est pas le montage qui est en cause. Mesure du 2026-08-15 : 8 F / 43 P ici.
+    assert not mes.get("x_nat_indisponible"), (
+        "le montage a ABOUTI (%d tuiles hookees) mais le canal NATIF est MUET : ce n'est PAS le "
+        "port qui est en cause, c'est le CAPTEUR. %s"
+        % (len(mes.get("rows") or ()), mes.get("x_nat_indisponible")))
     return mes["rows"]
 
 
